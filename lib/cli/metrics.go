@@ -3,7 +3,10 @@
 package cli
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
+	"os"
 	"sort"
 	"sync"
 )
@@ -27,18 +30,33 @@ func RecordHotLen(n int) {
 	}
 }
 
-// HotStats — calls(보관 샘플 수)·p95(근사: 오름차순 정렬 인덱스 ceil(0.95*n)-1)·max.
+// HotStats — calls(baseline+보관 샘플 수)·p95(근사: 오름차순 정렬 인덱스
+// ceil(0.95*n)-1)·max. baseline은 LoadHotStats가 로드한 직전 실행 누적분.
 func HotStats() (calls int, p95 int, max int) {
 	hotMu.Lock()
 	defer hotMu.Unlock()
-	n := len(hotLens)
-	if n == 0 {
+	calls = hotBase.Calls + len(hotPending())
+	if calls == 0 {
 		return 0, 0, 0
 	}
-	sorted := make([]int, n)
-	copy(sorted, hotLens)
-	sort.Ints(sorted)
-	return n, hotP95(sorted), sorted[n-1]
+	lens := append(append([]int(nil), hotBase.Lens...), hotPending()...)
+	sort.Ints(lens)
+	if len(lens) == 0 {
+		return calls, 0, 0
+	}
+	return calls, hotP95(lens), lens[len(lens)-1]
+}
+
+// hotPending — 아직 baseline에 합산되지 않은(미저장) in-memory 샘플.
+// 호출부는 hotMu를 잡고 있어야 한다.
+func hotPending() []int {
+	if hotPersisted <= 0 {
+		return hotLens
+	}
+	if hotPersisted >= len(hotLens) {
+		return nil
+	}
+	return hotLens[hotPersisted:]
 }
 
 // hotP95 — 정렬된 샘플에서 p95 근사값(인덱스 ceil(0.95*n)-1).
@@ -64,8 +82,14 @@ type hotStatsJSON struct {
 // hotBase — 시작 시 로드한 직전 실행까지의 누적값(미로드·파손 시 0).
 var hotBase hotStatsJSON
 
+// hotPersisted — hotLens 선두에서 이미 baseline에 합산된(저장된) 샘플 수.
+// persist 후에도 in-memory 샘플은 남기되 이중 계산에서는 제외한다.
+var hotPersisted int
+
 // LoadHotStats — 시작 시 meta hot_stats 로드. 누적 calls·p95 반환,
 // 키 부재·오류·JSON 파손 시 기본값 폴백(ok=false, baseline 초기화).
+// hotPersisted는 건드리지 않는다 — 이미 저장된 in-memory 샘플의 이중
+// 계산 제외는 유지된다(프로세스 분리 실행에서는 어차피 0).
 func LoadHotStats(getKV func(string) (string, error)) (calls int, p95 int, ok bool) {
 	v, err := getKV("hot_stats")
 	hotMu.Lock()
@@ -86,12 +110,14 @@ func LoadHotStats(getKV func(string) (string, error)) (calls int, p95 int, ok bo
 }
 
 // PersistHotStats — 종료 시 meta hot_stats 누적 저장.
-// 직전 실행 baseline(LoadHotStats 로드분) + 현 프로세스 in-memory 합산.
+// 직전 실행 baseline(LoadHotStats 로드분) + 미저장 in-memory 샘플 합산.
 // lens는 p95 대표값 용도로 상한 hotMaxSamples까지 최근 샘플 보관.
+// 저장 성공 시 합산분을 baseline으로 이관해도 in-memory 샘플은 남긴다
+// (이중 계산은 hotPersisted 오프셋으로 제외 — RecordHotLen 직후 조회 대응).
 func PersistHotStats(setKV func(string, string) error) error {
 	hotMu.Lock()
-	cur := make([]int, len(hotLens))
-	copy(cur, hotLens)
+	cur := append([]int(nil), hotPending()...)
+	snapLen := len(hotLens)
 	base := hotBase
 	hotMu.Unlock()
 
@@ -104,7 +130,16 @@ func PersistHotStats(setKV func(string, string) error) error {
 	if err != nil {
 		return err
 	}
-	return setKV("hot_stats", string(b))
+	if err := setKV("hot_stats", string(b)); err != nil {
+		return err
+	}
+	hotMu.Lock()
+	hotBase = st
+	if hotPersisted < snapLen {
+		hotPersisted = snapLen
+	}
+	hotMu.Unlock()
+	return nil
 }
 
 // hotSum — 샘플 길이 합.
@@ -114,4 +149,30 @@ func hotSum(lens []int) int {
 		s += n
 	}
 	return s
+}
+
+// loadHotStatsFromMeta — 명령 시작 시 meta hot_stats 로드(wiring).
+// 조회 실패·부재는 LoadHotStats 폴백과 동일(경고 없이 baseline 0).
+func loadHotStatsFromMeta(ctx context.Context, st Store) {
+	LoadHotStats(func(key string) (string, error) {
+		rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
+		if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+			return "", err
+		}
+		return fmt.Sprint(rows[0][0]), nil
+	})
+}
+
+// persistHotStatsToMeta — 명령 종료 직전 meta hot_stats 누적 저장(wiring).
+// 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13 — 계측이 본말을 바꾸지 않는다).
+func persistHotStatsToMeta(ctx context.Context, st Store) {
+	err := PersistHotStats(func(key, value string) error {
+		_, err := queryOnce(ctx, st,
+			`INSERT INTO meta (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{key, value})
+		return err
+	})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] hot stats persist: %v\n", err)
+	}
 }

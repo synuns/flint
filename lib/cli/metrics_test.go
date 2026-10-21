@@ -1,16 +1,20 @@
 package cli
 
 import (
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
 )
 
-// resetMetrics — 프로세스 내 통계 초기화(테스트 격리).
+// resetMetrics — 프로세스 내 통계 초기화(테스트 격리). 영속 baseline도
+// 함께 지운다(프로세스 분리 시뮬레이션의 전제).
 func resetMetrics() {
 	hotMu.Lock()
 	defer hotMu.Unlock()
 	hotLens = hotLens[:0]
+	hotBase = hotStatsJSON{}
+	hotPersisted = 0
 }
 
 // TestHotConcurrentAccess — 병렬 기록·조회 중 레이스 없음(-race 회귀).
@@ -167,5 +171,56 @@ func TestStatusIncludesHotStats(t *testing.T) {
 	m := decode(t, out)
 	if m["hot_calls"] != float64(1) || m["hot_p95"] != float64(42) {
 		t.Fatalf("hot 통계 노출 없음: %v", m)
+	}
+}
+
+// TestHotStatsWiringAccumulates — hot 경로 wiring: 시작 시 meta 로드·
+// 종료 직전 persist로 별도 프로세스 실행(메모리 초기화) 누적이 status에 보인다.
+func TestHotStatsWiringAccumulates(t *testing.T) {
+	meta := map[string]string{}
+	f := &fakeStore{}
+	f.rows = [][]any{{"decision", "요약", "active", "2026-10-22"}} // hot_view용
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "INSERT INTO meta"):
+			meta[args[0].(string)] = fmt.Sprint(args[1])
+			return nil, nil
+		case strings.Contains(sql, "FROM meta"):
+			if len(args) == 1 {
+				if v, ok := meta[fmt.Sprint(args[0])]; ok {
+					return [][]any{{v}}, nil
+				}
+				return nil, nil
+			}
+			return [][]any{{"2"}}, nil // schema_version
+		}
+		return f.rows, nil
+	}
+	withFake(t, f)
+
+	// 1회차 실행 → status hot_calls 1
+	resetMetrics()
+	if out, code := mustRun(t, []string{"hot", "--session", "S1"}, ""); code != 0 {
+		t.Fatalf("hot(1) exit=%d; out=%s", code, out)
+	}
+	out, code := mustRun(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("status(1) exit=%d; out=%s", code, out)
+	}
+	if m := decode(t, out); m["hot_calls"] != float64(1) {
+		t.Fatalf("1회차 hot_calls=%v, want 1; out=%s", m["hot_calls"], out)
+	}
+
+	// 별도 프로세스 시뮬레이션(메모리 초기화, meta는 유지) → 누적 2(증가)
+	resetMetrics()
+	if out, code := mustRun(t, []string{"hot", "--session", "S1"}, ""); code != 0 {
+		t.Fatalf("hot(2) exit=%d; out=%s", code, out)
+	}
+	out, code = mustRun(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("status(2) exit=%d; out=%s", code, out)
+	}
+	if m := decode(t, out); m["hot_calls"] != float64(2) {
+		t.Fatalf("2회차 hot_calls=%v, want 2(누적 증가); out=%s", m["hot_calls"], out)
 	}
 }
