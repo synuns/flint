@@ -266,3 +266,71 @@ func TestDoneDelegatingRun(t *testing.T) {
 	}
 	decode(t, out)
 }
+
+// SessionRecord 계약 — 종료 요약 마커·빈 tasks.
+func TestDoneSessionRecord(t *testing.T) {
+	d := &DoneResult{Agent: "claude", Unrecorded: 2}
+	rec := d.SessionRecord()
+	if rec["kind"] != "session" || rec["agent"] != "claude" {
+		t.Fatalf("kind/agent=%v/%v, want session/claude", rec["kind"], rec["agent"])
+	}
+	if rec["summary"] != "세션 종료(미기록 2)" {
+		t.Fatalf("summary=%v, want 세션 종료(미기록 2)", rec["summary"])
+	}
+	if rec["tasks"] != "[]" {
+		t.Fatalf("tasks=%v, want []", rec["tasks"])
+	}
+}
+
+// done 실행 시 세션 요약 레코드 기록(fake store 호출 검증)·출력 불변.
+func TestDoneWritesSession(t *testing.T) {
+	f := &fakeStore{}
+	d := &doneFake{fakeStore: f, stubbed: true, runs: 1}
+	out, code := mustDone(t, d, []string{"--session", "claude"})
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if m := decode(t, out); m["status"] != "ok" {
+		t.Fatalf("status=%v, want ok(출력 불변)", m["status"])
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("세션 레코드 삽입 %d건, want 1; inserted=%v", len(f.inserted), f.inserted)
+	}
+	if got := f.inserted[0]["summary"]; got != "세션 종료(미기록 1)" {
+		t.Fatalf("삽입 summary=%v, want 세션 종료(미기록 1)", got)
+	}
+	if got := f.inserted[0]["agent"]; got != "claude" {
+		t.Fatalf("삽입 agent=%v, want claude", got)
+	}
+}
+
+// 2회 done 시 갱신(중복 행 금지) — 최근 세션이 종료 마커면 UPDATE만.
+func TestDoneUpdatesExistingSession(t *testing.T) {
+	f := &fakeStore{}
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM sessions") && strings.Contains(sql, "LIMIT 1") {
+			return [][]any{{int64(7), "세션 종료(미기록 0)"}}, nil
+		}
+		return nil, nil
+	}
+	for i := 0; i < 2; i++ {
+		d := &doneFake{fakeStore: f, stubbed: true, runs: i + 1}
+		out, code := mustDone(t, d, []string{"--session", "claude"})
+		if code != 0 {
+			t.Fatalf("%d회차 exit=%d, want 0; out=%s", i+1, code, out)
+		}
+		decode(t, out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("갱신 경로에서 삽입 %d건, want 0(중복 행 금지)", len(f.inserted))
+	}
+	updated := false
+	for _, q := range f.queries {
+		if strings.HasPrefix(q, "UPDATE sessions") {
+			updated = true
+		}
+	}
+	if !updated {
+		t.Fatalf("UPDATE sessions 미실행: %v", f.queries)
+	}
+}
