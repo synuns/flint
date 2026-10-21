@@ -10,9 +10,8 @@ flint의 임계값·예산은 하드코딩 금지 원칙 아래 meta 테이블�
 
 1. **관측(2주)** — 세션마다 `flint status`의 `hot_calls`·`hot_p95`를 기록한다
    (v0.3 계측 — 프로세스 내 통계, 관측 세션 단위).
-2. **예산 갱신** — 현재 hot 상한은 `hot_budget` 메타 키로 확정한다(예약 키 —
-   v0.3 시점 코드 미반영, 값 갱신과 함께 `lib/cli/hot.go`가 이 키를 읽도록
-   반영하는 작업이 선행된다):
+2. **예산 갱신** — 현재 hot 상한은 `hot_budget` 메타 키로 확정한다(v0.4부터
+   `flint hot`이 매 실행 이 키를 읽는다 — 미설정·무효 값은 기본 2,000):
    ```sh
    psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('hot_budget','2400')
      ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
