@@ -1,6 +1,11 @@
 DSN ?= postgresql://flint:flint-dev@localhost:5433/flint
 
-.PHONY: test tidy up down build install seed e2e
+# 버전 주입(T33): 기본 dev, 릴리스는 make build VERSION=0.3.0
+VERSION ?= dev
+GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+LDFLAGS := -X flint/lib/cli.version=$(VERSION) -X flint/lib/cli.commit=$(GIT_COMMIT)
+
+.PHONY: test tidy up down build install seed e2e release
 
 test:
 	go test ./...
@@ -16,7 +21,7 @@ down:
 	docker compose down
 
 build:
-	go build -o bin/flint ./cmd/flint
+	go build -ldflags "$(LDFLAGS)" -o bin/flint ./cmd/flint
 
 # QUICKSTART 1단계: 설치 = 빌드(bin/flint 하나면 끝)
 install: build
@@ -31,3 +36,8 @@ seed: build
 # e2e(T11): 실 Doltgres 필수, 빌드 태그로 분리
 e2e:
 	go test -tags e2e ./tests/e2e/
+
+# 릴리스(T33): 빌드 후 태그 push 안내만 — 실제 태그·push는 사용자 확인 후 수행.
+release: build
+	@echo "릴리스 절차(사용자 확인 후): git tag v$(VERSION) && git push origin v$(VERSION) -> Actions 빌드 -> Release 첨부"
+	@echo "현재 빌드: $$(./bin/flint version)"
