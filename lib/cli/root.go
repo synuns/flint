@@ -46,25 +46,12 @@ func dsnFromEnv() string {
 // Run은 args로 커맨드를 실행해 stdout에 기록하고 exit code를 반환한다.
 func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stdout, `{"error":"usage: flint <write|read|hot|status|backup|restore> [args]"}`)
+		fmt.Fprintln(stdout, usageLine())
 		return 1
 	}
 	cmd, rest := args[0], args[1:]
-	var run func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int
-	switch cmd {
-	case "write":
-		run = runWrite
-	case "read":
-		run = runRead
-	case "hot":
-		run = runHot
-	case "status":
-		run = runStatus
-	case "backup":
-		run = runBackup
-	case "restore":
-		run = runRestore
-	default:
+	run, ok := Lookup(cmd)
+	if !ok {
 		fmt.Fprintln(stdout, `{"error":"unknown command: `+cmd+`"}`)
 		return 1
 	}
