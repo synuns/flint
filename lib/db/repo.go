@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/jackc/pgx/v5"
@@ -48,16 +49,24 @@ func NewRepo(ctx context.Context, dsn string) (*Repo, error) {
 func (r *Repo) Close() { r.pool.Close() }
 
 // Migrate는 스키마가 없을 때 SchemaSQL을 실행하고 meta.schema_version=1을
-// 기록한다. 뷰는 schema_version과 무관하게 매번 재적용한다 — 버전이 같아도
+// 기록한다. 버전 게이트는 정수 비교다: schema_version>=1이면 테이블이
+// 이미 있다고 본다(v2 승격은 admin.go EnsureSchemaV2 소관 — '1' 문자열
+// 일치만 검사하던 v0.1 게이트는 v2 DB에서 nil wrap 실패를 냈다).
+// 뷰는 schema_version과 무관하게 매번 재적용한다 — 버전이 같아도
 // 뷰 정의가 갱신되는 경우(stale active_knowledge) 때문이다.
 func (r *Repo) Migrate(ctx context.Context) error {
 	var version string
 	err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
-	tablesCurrent := err == nil && version == "1"
-	if !tablesCurrent &&
-		!errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("migrate: check schema_version: %w", err)
+	}
+	// meta가 없거나(최초 생성) 값이 정수로 읽히지 않으면 재생성한다.
+	tablesCurrent := false
+	if err == nil {
+		if n, perr := strconv.Atoi(version); perr == nil && n >= 1 {
+			tablesCurrent = true
+		}
 	}
 	if !tablesCurrent { // 최초 생성 또는 버전 불일치: 테이블+meta 기록
 		tx, err := r.pool.Begin(ctx)
