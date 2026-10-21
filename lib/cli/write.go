@@ -65,6 +65,18 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		warnings = append(warnings, sanitizePayload(p)...)
 		n := store.Normalize(kind, p)
 		if kind == "knowledge" {
+			// 어휘 검증(T35): Normalize된 domain과 tags 기준 경고 병합 —
+			// 경고만(저장 차단 아님·exit 불변). 살균 경고 뒤 순서 유지.
+			if raw, ok := p["tags"].([]any); ok {
+				tags := make([]string, 0, len(raw))
+				for _, tag := range raw {
+					if s, ok := tag.(string); ok {
+						tags = append(tags, s)
+					}
+				}
+				domain, _ := n["domain"].(string)
+				warnings = append(warnings, store.CheckVocabulary(tags, domain)...)
+			}
 			// 해시 입력은 휘발성 필드(valid_at 등) 제외 경로(HashCanonical)여야
 			// 동일 payload 재전송이 duplicate로 판정된다(시딩 멱등).
 			h := store.ContentHash(store.HashCanonical(n))

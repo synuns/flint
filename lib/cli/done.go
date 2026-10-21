@@ -10,7 +10,6 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -77,25 +76,26 @@ func (d *DoneResult) SessionRecord() map[string]any {
 	}
 }
 
-// writeSessionRecord — 세션 자동 요약 upsert(T41). 같은 agent의 최근
-// 세션이 이미 종료 마커면 요약만 갱신하고(중복 행 금지), 아니면 표준
-// write 경로(INSERT)로 신규 행을 만든다. sessions 갱신은 maintain 갱신
-// 경로 준용. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
+// writeSessionRecord — 세션 자동 요약 upsert(T41, 코디네이터 룰링 a):
+// 같은 agent의 최근 세션 행을 종료 요약으로 갱신해 세션 수를 불변으로
+// 유지한다(신규 행이 StaleSessionRuns 미기록 카운트를 오염시키는 결함
+// 해소 — T44 인시던트). agent의 세션이 없을 때만 INSERT. sessions 갱신은
+// maintain 갱신 경로 준용. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
 func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) {
 	agent, _ := rec["agent"].(string)
 	rows, err := queryOnce(ctx, st,
-		`SELECT id, summary FROM sessions WHERE agent = $1
+		`SELECT id FROM sessions WHERE agent = $1
 		 ORDER BY ts DESC, id DESC LIMIT 1`, []any{agent})
-	if err == nil && len(rows) > 0 {
-		if id, ok := rows[0][0].(int64); ok {
-			if sum, _ := rows[0][1].(string); strings.HasPrefix(sum, sessionEndPrefix) {
-				if _, err := queryOnce(ctx, st,
-					`UPDATE sessions SET summary = $1, tasks = $2 WHERE id = $3`,
-					[]any{rec["summary"], rec["tasks"], id}); err != nil {
-					fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
-				}
-				return
+	if err == nil && len(rows) > 0 && rows[0][0] != nil {
+		// pgx는 int4를 int32로 스캔한다 — 타입 단언 대신 문자열 경유 파싱.
+		var id int
+		if n, _ := fmt.Sscan(fmt.Sprint(rows[0][0]), &id); n == 1 {
+			if _, err := queryOnce(ctx, st,
+				`UPDATE sessions SET summary = $1, tasks = $2 WHERE id = $3`,
+				[]any{rec["summary"], rec["tasks"], id}); err != nil {
+				fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
 			}
+			return
 		}
 	}
 	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
