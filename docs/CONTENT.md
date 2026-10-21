@@ -1,7 +1,7 @@
 # flint 기록 기준 카탈로그 — 무엇을 저장하고 무엇을 저장하지 않는가
 
 - **날짜**: 2026-10-22
-- **상태**: v0.4 기획 확정 (콘텐츠 정책)
+- **상태**: v0.4 기획 확정 · v2(2026-10-22): 절차 기억·증류 루프 추가(레퍼런스 기반)
 - **적용 대상**: `flint write`를 호출하는 모든 에이전트(CLI·MCP 공통)
 
 ---
@@ -19,8 +19,24 @@
 | 5 | **실패 학습** | 시도→실패→원인 (되풀이 방지) | "pg_dump는 REPEATABLE READ 미지원으로 실패" | 0.85 |
 | 6 | **프로젝트 상태** | 진행 중 작업의 현재 위치·다음 단계 | "v0.3 mcp 완료, 릴리스 대기" | 0.85 |
 | 7 | **외부 사실** | 재조회 비용이 큰 참조 정보 | "Doltgres 1.4.0의 dolt_backup 미지원" | 0.8 |
+| 8 | **절차(플레이북)** | 2회 이상 성공한 작업 절차의 증류 — 트리거→단계→완료조건 | "Doltgres 충돌 재현: TCP 프록시로 첫 전송 차단→…" | 0.9 |
 
 session(kind=session)은 세션 단위 요약, project(kind=project)는 프로젝트 생애주기 상태 전용.
+
+## 1a. 자가발전 루프 (v2 — 경험→증류→재사용)
+
+Voyager 스킬 라이브러리·AWM·ReasoningBank의 공통 구조를 flint 계약에 맞게 축소:
+
+```
+session(episodic 기록) → maintain 세션에서 패턴 탐지
+  (성공 2회 반복 or 실패→성공 전환) → 플레이북 후보 제안(사람/에이전트 승인)
+  → knowledge 유형 8로 write → 작업 시 read로 검색·적용
+  → 사용 로그(used_at·성공/실패) → 성공률 기반 유지·무효화
+```
+
+- **플레이북 summary 계약**: `조건 → 단계(번호) → 완료조건` 3단 구성.
+- **사용 기반 강화**: 플레이북 적용 결과는 done 시 기록 — 성공률 하락 플레이북은 maintain 무효화 후보.
+- **증류는 반드시 관측 후**: 미검증 절차는 confidence<0.8 pending으로만 존재 가능(안티골 5와 정합).
 
 ## 2. 안티골 — 저장 금지 5종
 
@@ -41,7 +57,7 @@ session(kind=session)은 세션 단위 요약, project(kind=project)는 프로�
 
 - **domain**: `main`(기본)·`infra`(환경·도구)·`preference`(사용자 선호) — 3종만.
 - **tags** 소관(필요시 확장하되 본 표에 먼저 추가):
-  `adr`(결정 기록)·`correction`(교정)·`failure`(실패 학습)·`env`(환경)·`process`(작업 방식)·`contract`(계약·인터페이스)
+  `adr`(결정 기록)·`correction`(교정)·`failure`(실패 학습)·`env`(환경)·`process`(작업 방식)·`contract`(계약·인터페이스)·`playbook`(증류된 절차)
 
 ## 5. confidence 의미론
 
@@ -60,3 +76,12 @@ session(kind=session)은 세션 단위 요약, project(kind=project)는 프로�
 ## 7. 시딩 정합
 
 `data/seed.jsonl`의 모든 레코드는 본 카탈로그의 유형·어휘표를 따른다(검증: `docs/tuning_test.go`와 동일 grep 방식 — v0.4에서 `flint write` 시 어휘 경고로 승격).
+
+## 8. 레퍼런스 (v2 근거)
+
+- Voyager 스킬 라이브러리 — 절차 기억으로 파인튜닝 없이 자가발전, 재해 학습 없음 (arXiv:2305.16291)
+- Agent Workflow Memory — 궤적에서 "작업 레시피" 유도·재사용, 분포 이동에서 +8.9~14.0pt (arXiv:2409.07429)
+- ReasoningBank (Google, 2025) — 성공·실패 양쪽에서 범용 추론 전략 증류
+- Memory in the Age of AI Agents 서베이 (Hu et al. 2025) — 기능적 분류: Factual(사실) vs Experiential(경험·스킬)
+- mem0 — 추출→갱신 파이프라인(ADD/UPDATE/DELETE/NOOP) — flint maintain 세션의 선례
+- Anthropic 컨텍스트 엔지니어링 — 주입은 예산 내 큐레이션(compaction·메모리 도구) — flint hot과 정합
