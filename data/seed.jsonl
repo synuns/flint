@@ -1,0 +1,10 @@
+{"kind":"project","name":"메이플 머지게임","status":"active","note":"메이플 아일랜드 소재 머지 게임 프로토타입"}
+{"kind":"project","name":"미니 던전","status":"active","note":"짧은 러닝타임 던전 크롤러"}
+{"kind":"project","name":"툴박스","status":"active","note":"개발 지원 스크립트 모음"}
+{"kind":"knowledge","topic":"flint 저장소","summary":"저장소는 Doltgres를 쓰고 호스트 포트 5433으로 노출한다(ADR-0001).","tags":["adr","storage"],"entity":"flint","domain":"main","confidence":0.9}
+{"kind":"knowledge","topic":"flint 백업","summary":"백업은 pg_dump 대신 자체 SQL 덤프로 복구 가능성을 보장한다(ADR-0002).","tags":["adr","backup"],"entity":"flint","domain":"main","confidence":0.9}
+{"kind":"knowledge","topic":"flint 기술 스택","summary":"Go 단일 바이너리, 의존은 stdlib과 pgx/v5만 허용한다(cobra·TUI 금지).","tags":["adr","stack"],"entity":"flint","domain":"main","confidence":0.95}
+{"kind":"knowledge","topic":"flint exit code","summary":"exit 0=성공·중복, 1=재시도 소진, 2=서버 다운(조용히), 3=검증 실패로 고정한다.","tags":["contract","cli"],"entity":"flint","domain":"main","confidence":0.9}
+{"kind":"knowledge","topic":"flint 쓰기 규칙","summary":"write는 additive만 허용(UPDATE 금지, projects 제외)하고 무효화는 maintain로만 한다.","tags":["contract","write"],"entity":"flint","domain":"main","confidence":0.85}
+{"kind":"knowledge","topic":"flint hot 예산","summary":"hot 주입 상한 2,000자는 2주 실측 p95 후 확정한다(가설).","tags":["budget","hot"],"entity":"flint","domain":"main","confidence":0.7}
+{"kind":"knowledge","topic":"사용자 출력 선호","summary":"출력은 본문 전에 결론·다음 행동을 먼저, 목록 5개 이하, 한국어로 답한다.","tags":["style","preference"],"entity":"user","domain":"preference","confidence":0.9}
