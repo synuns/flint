@@ -1,0 +1,23 @@
+{"file": "docs/adr/0004-schema-tasks-note.md", "line": 0, "context": "T16: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "19:59:24"}
+{"file": "docs/plans/2026-10-21-flint-v01.incidents.jsonl", "line": 0, "context": "T16: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "19:59:24"}
+{"file": "docs/plans/2026-10-21-flint-v02.spec.md", "line": 0, "context": "T16: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "19:59:24"}
+{"file": "lib/cli/registry.go", "line": 40, "context": "help 등록 시 store 접속 후 dispatch되어 DB 다운 시 flint help exit2 회귀 — 동작 불변 우선으로 미등록, usage는 기존 경로 유지", "agent": "T23", "kind": "spec-ambiguity", "resolution": "help 미등록, 코디네이터 확인 요청", "confidence": "medium", "time": "19:59:53"}
+{"file": "lib/sqlfs/schema.sql", "line": 1, "context": "repo.go는 schema_version='1' 하드코딩+수정금지. v2 값 갱신은 T17 admin.go 버전 게이트 소관이라고 가정, schema.sql은 주석 명시만", "agent": "T21", "kind": "spec-ambiguity", "resolution": "schema.sql 주석에 v2 명시, 실제 meta 갱신은 T17에 위임", "confidence": "medium", "time": "20:01:41"}
+{"file": "lib/db/repo.go", "line": 57, "context": "Migrate가 meta.schema_version='2'를 읽으면 err=nil 경로로 정의되지 않은 실패(v0.1 로직이 '1'만 상정). 운용 시 EnsureSchemaV2 후 다음 Migrate가 죽음", "agent": "T17", "kind": "spec-ambiguity", "resolution": "테스트는 cleanup으로 meta='1' 복원해 격리. repo.go는 v0.1 소유라 미수정 — 코디네이터 룰링 필요", "confidence": "high", "time": "20:07:02"}
+{"file": "lib/db/repo.go", "line": 53, "context": "버전 게이트를 정수 파싱 n>=1로 교체(코디네이터 룰링, 소유 T17 이관). meta='2'에서 Migrate 통과·버전 보존 회귀 TestMigrateAcceptsV2 추가", "agent": "T17", "kind": "spec-ambiguity", "resolution": "해결 — 게이트 교체로 v2 DB에서 Migrate 정상 통과, 양 모드 전 패키지 PASS", "confidence": "high", "time": "20:09:25"}
+{"file": "", "line": 0, "context": "verified: seam T21↔T17", "agent": "pt_review", "kind": "verified", "time": "20:09:57"}
+{"file": "", "line": 0, "context": "verified: seam T16↔T17", "agent": "pt_review", "kind": "verified", "time": "20:09:57"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T18", "agent": "pt_review", "kind": "verified", "time": "20:11:31"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T19", "agent": "pt_review", "kind": "verified", "time": "20:12:26"}
+{"file": "lib/cli/done.go", "line": 28, "context": "T19 maintain.go와 loadThresholds 이름 충돌 — 내 헬퍼 제거, T19 구현 소비(doneThresholds 래핑, 에러 시 기본값 폴백)", "agent": "T20", "kind": "workaround", "resolution": "doneThresholds에서 loadThresholds 재사용", "confidence": "high", "time": "20:14:15"}
+{"file": "", "line": 0, "context": "verified: seam T16↔T20", "agent": "pt_review", "kind": "verified", "time": "20:14:41"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T20", "agent": "pt_review", "kind": "verified", "time": "20:14:41"}
+{"file": "", "line": 0, "context": "verified: seam T20↔T25", "agent": "pt_review", "kind": "verified", "time": "20:15:39"}
+{"file": "lib/cli/done.go", "line": 84, "context": "T24 시나리오④ 요구: done 실행 시 24h 경과 자동 백업 파일 생성 — runDone에 backup.Auto 트리거 부재(T20 브리프에 백업 없었음). 기본 백업 경로 규칙도 부재", "agent": "T24", "kind": "spec-ambiguity", "resolution": "대기: done에 비차단 RunIfNeeded 연결 + FLINT_BACKUP_DIR 경로 제안, 코디네이터 룰링 필요", "confidence": "high", "time": "20:18:05"}
+{"file": "lib/cli/done.go", "line": 87, "context": "T24 ④ 해결: done 판정 후 autoBackupFn(maybeAutoBackup) — FLINT_BACKUP_DIR 기본 ~/.flint/backup, 지연 파일 writer, 실패 stderr 1행 무시, 출력·exit 불변. e2e ③ 누출(홈 백업 파일) 발견→FLINT_BACKUP_DIR 임시 격리로 수정·파일 삭제·meta 복구", "agent": "T24", "kind": "workaround", "resolution": "룰링(a) 적용, e2e 7/7 통과", "confidence": "high", "time": "20:21:16"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T20", "agent": "pt_review", "kind": "verified", "time": "20:21:28"}
+{"file": "", "line": 0, "context": "verified: seam T16↔T20", "agent": "pt_review", "kind": "verified", "time": "20:21:28"}
+{"file": "", "line": 0, "context": "verified: seam T20↔T25", "agent": "pt_review", "kind": "verified", "time": "20:21:28"}
+{"file": "", "line": 0, "context": "verified: seam T22↔T24", "agent": "pt_review", "kind": "verified", "time": "20:21:29"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T24", "agent": "pt_review", "kind": "verified", "time": "20:21:29"}
+{"file": "", "line": 0, "context": "verified: seam T23↔T24", "agent": "pt_review", "kind": "verified", "time": "20:21:29"}
