@@ -1,5 +1,5 @@
 # Doltgres data (버전 이력은 dolt가 관리)
-data/
+data/*
 
 # 빌드 산출물
 dist/
@@ -9,3 +9,7 @@ bin/flint
 *.log
 .env
 .pgpass
+
+# flint seed files are source-controlled; only runtime data is ignored
+!data/seed.jsonl
+!data/seed_test.go
