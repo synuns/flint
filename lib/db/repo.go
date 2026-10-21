@@ -32,6 +32,7 @@ var kindTables = map[string]string{
 // Repo는 Doltgres 풀을 감싼 저장소다.
 type Repo struct {
 	pool *pgxpool.Pool
+	dsn  string // 뷰 재적용용 simple protocol 접속에 필요
 }
 
 // NewRepo는 접속 후 Repo를 돌려준다. 실패는 ErrServerDown으로 전파된다.
@@ -40,15 +41,15 @@ func NewRepo(ctx context.Context, dsn string) (*Repo, error) {
 	if err != nil {
 		return nil, err
 	}
-	return &Repo{pool: p}, nil
+	return &Repo{pool: p, dsn: dsn}, nil
 }
 
 // Close는 풀을 정리한다.
 func (r *Repo) Close() { r.pool.Close() }
 
 // Migrate는 스키마가 없을 때 SchemaSQL을 실행하고 meta.schema_version=1을
-// 기록한다. 뷰는 schema_version과 무관하게 매번 CREATE OR REPLACE로 재적용한다 —
-// 버전이 같아도 뷰 정의가 갱신되는 경우(stale active_knowledge) 때문이다.
+// 기록한다. 뷰는 schema_version과 무관하게 매번 재적용한다 — 버전이 같아도
+// 뷰 정의가 갱신되는 경우(stale active_knowledge) 때문이다.
 func (r *Repo) Migrate(ctx context.Context) error {
 	var version string
 	err := r.pool.QueryRow(ctx,
@@ -58,12 +59,12 @@ func (r *Repo) Migrate(ctx context.Context) error {
 		!errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("migrate: check schema_version: %w", err)
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return fmt.Errorf("migrate: begin: %w", err)
-	}
-	defer tx.Rollback(ctx)
 	if !tablesCurrent { // 최초 생성 또는 버전 불일치: 테이블+meta 기록
+		tx, err := r.pool.Begin(ctx)
+		if err != nil {
+			return fmt.Errorf("migrate: begin: %w", err)
+		}
+		defer tx.Rollback(ctx)
 		if err := execSQLScript(ctx, tx, schemaSQLFn()); err != nil {
 			return fmt.Errorf("migrate: schema: %w", err)
 		}
@@ -72,11 +73,38 @@ func (r *Repo) Migrate(ctx context.Context) error {
 			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
 			return fmt.Errorf("migrate: meta: %w", err)
 		}
+		if err := tx.Commit(ctx); err != nil {
+			return fmt.Errorf("migrate: commit: %w", err)
+		}
 	}
-	if err := execSQLScript(ctx, tx, viewsSQLFn()); err != nil { // 뷰는 매번 재적용
-		return fmt.Errorf("migrate: views: %w", err)
+	// 뷰는 테이블과 달리 트랜잭션 밖 simple protocol로 재적용한다.
+	return r.reapplyViews(ctx)
+}
+
+// reapplyViews는 뷰를 최신 정의로 재생성한다(테이블·데이터는 불가침).
+// Doltgres는 확장 프로토콜에서 CREATE OR REPLACE VIEW가 뷰 컬럼 목록을
+// 갱신하지 않는 경우가 있어(stale active_knowledge 인시던트), e2e mustDB와
+// 동일하게 simple protocol 커넥션에서 DROP VIEW IF EXISTS 후 문장별 CREATE한다.
+func (r *Repo) reapplyViews(ctx context.Context) error {
+	sep := "?"
+	if strings.Contains(r.dsn, "?") {
+		sep = "&"
 	}
-	return tx.Commit(ctx)
+	conn, err := pgx.Connect(ctx, r.dsn+sep+"default_query_exec_mode=simple_protocol")
+	if err != nil {
+		return fmt.Errorf("views: simple connect: %w", err)
+	}
+	defer conn.Close(ctx)
+	if _, err := conn.Exec(ctx,
+		`DROP VIEW IF EXISTS active_knowledge, hot_view`); err != nil {
+		return fmt.Errorf("views: drop: %w", err)
+	}
+	for _, stmt := range splitStatements(viewsSQLFn()) {
+		if _, err := conn.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("views: create: %w", err)
+		}
+	}
+	return nil
 }
 
 // InsertBatch는 레코드들을 단일 트랜잭션에 삽입한다(all-or-nothing).
@@ -172,17 +200,33 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 
 // execSQLScript는 세미콜론 구분 SQL 스크립트를 문장별로 실행한다.
 // Doltgres가 한 Exec에 여러 문장을 허용하지 않기 때문이다.
-// flint 스키마 SQL은 문자열 리터럴에 세미콜론을 쓰지 않는다.
 func execSQLScript(ctx context.Context, tx pgx.Tx, script string) error {
-	for _, stmt := range strings.Split(script, ";") {
-		if strings.TrimSpace(stmt) == "" {
-			continue
-		}
+	for _, stmt := range splitStatements(script) {
 		if _, err := tx.Exec(ctx, stmt); err != nil {
 			return err
 		}
 	}
 	return nil
+}
+
+// splitStatements는 SQL 덩어리를 문장별로 분해한다. 선행 '--' 주석 줄은
+// 제거하고(Doltgres simple Exec 안전), 빈 문장은 버린다.
+// flint 스키마 SQL은 문자열 리터럴에 세미콜론을 쓰지 않는다.
+func splitStatements(script string) []string {
+	var out []string
+	for _, stmt := range strings.Split(script, ";") {
+		var lines []string
+		for _, ln := range strings.Split(stmt, "\n") {
+			if strings.HasPrefix(strings.TrimSpace(ln), "--") {
+				continue
+			}
+			lines = append(lines, ln)
+		}
+		if s := strings.TrimSpace(strings.Join(lines, "\n")); s != "" {
+			out = append(out, s)
+		}
+	}
+	return out
 }
 
 // mapInsertErr는 unique 위반(23505)을 store.ErrDuplicate으로 감싼다.

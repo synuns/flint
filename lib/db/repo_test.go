@@ -5,7 +5,10 @@ import (
 	"errors"
 	"os"
 	"regexp"
+	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5"
 
 	"flint/lib/store"
 )
@@ -57,7 +60,8 @@ CREATE TABLE IF NOT EXISTS meta (
 
 const fakeViewsSQL = `
 CREATE OR REPLACE VIEW active_knowledge AS
-SELECT id, topic, summary FROM knowledge WHERE invalid_at IS NULL;
+SELECT id, topic, summary, tags, entity, domain
+FROM knowledge WHERE invalid_at IS NULL;
 `
 
 // useFakeSQL은 sqlfs seam을 테스트 DDL로 교체한다.
@@ -128,11 +132,10 @@ func TestMigrateSetsVersion(t *testing.T) {
 func TestMigrateReappliesViews(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// 낡은(stale) 뷰 정의로 덮어쓰기 — 컬럼 축소 재현
-	if _, err := r.pool.Exec(ctx,
-		`CREATE OR REPLACE VIEW active_knowledge AS SELECT id FROM knowledge`); err != nil {
-		t.Fatalf("plant stale view: %v", err)
-	}
+	// 낡은(stale) 뷰 정의 심기 — simple protocol로 심어야 서버 카탈로그가
+	// 실제로 1컬럼이 된다(확장 프로토콜 CREATE OR REPLACE는 컬럼 목록을
+	// 갱신하지 않는 사고의 재현 조건, 인시던트 참조).
+	plantStaleView(t, testDSN())
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
@@ -147,15 +150,45 @@ func TestMigrateReappliesViews(t *testing.T) {
 		cols = append(cols, string(fd.Name))
 	}
 	rows.Close()
-	// fake/real 공통: 뷰는 최소 id·topic·summary를 노출해야 한다(fake 3컬럼, real 전체).
-	want := []string{"id", "topic", "summary"}
-	if len(cols) < len(want) {
-		t.Fatalf("view too narrow after Migrate: %v", cols)
-	}
-	for i, w := range want {
-		if cols[i] != w {
-			t.Fatalf("view columns after Migrate = %v, want prefix %v", cols, want)
+	// 최신 뷰 정의는 tags·entity·domain을 노출해야 한다 —
+	// Doltgres CREATE OR REPLACE는 컬럼 목록을 갱신하지 않아(인시던트)
+	// DROP+CREATE로 재적용해야 한다.
+	want := []string{"id", "topic", "summary", "tags", "entity", "domain"}
+	for _, w := range want {
+		found := false
+		for _, c := range cols {
+			if c == w {
+				found = true
+				break
+			}
 		}
+		if !found {
+			t.Fatalf("view columns after Migrate = %v, want %q included", cols, w)
+		}
+	}
+}
+
+// plantStaleView는 simple protocol 커넥션으로 active_knowledge를
+// id 단일 컬럼 뷰로 교체한다.
+func plantStaleView(t *testing.T, dsn string) {
+	t.Helper()
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	conn, err := pgx.Connect(context.Background(),
+		dsn+sep+"default_query_exec_mode=simple_protocol")
+	if err != nil {
+		t.Fatalf("simple connect: %v", err)
+	}
+	defer conn.Close(context.Background())
+	ctx := context.Background()
+	if _, err := conn.Exec(ctx, `DROP VIEW IF EXISTS active_knowledge, hot_view`); err != nil {
+		t.Fatalf("drop views: %v", err)
+	}
+	if _, err := conn.Exec(ctx,
+		`CREATE VIEW active_knowledge AS SELECT id FROM knowledge`); err != nil {
+		t.Fatalf("plant stale view: %v", err)
 	}
 }
 
