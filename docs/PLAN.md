@@ -246,3 +246,14 @@ flint-plugin/
 - 스키마 미정의 payload 키(`session.tasks`·`project.note`)는 저장 전 제거 + `warnings`로 고지
 - Doltgres 제약 해결: 다중문장 Exec 미지원→문장별 실행, CREATE OR REPLACE 뷰 컬럼 미갱신→simple 프로토콜 DROP+CREATE
 - 루프 교훈: wave0(스켈레톤)은 병렬 태스크보다 반드시 선행 (후행 시 스텝 덮어쓰기 사고 — v0.1 인시던트)
+
+### v0.4 운영 콘텐츠·계측 (2026-10-22 기획)
+- [ ] 콘텐츠 정책 구현 — docs/CONTENT.md(기록 유형 7·안티골 5·어휘표·confidence 의미론)를
+  write 검증에 반영: 어휘표 밖 tags/domain 경고, seed 정합 검증 승격
+- [ ] 계측 영속화 — hot 길이 통계를 meta에 누적(현재 프로세스 내 한정 결함:
+  CLI 단발 프로세스라 hot_calls가 매 실행 초기화됨), p95 실측 실현
+- [ ] hot 예산 meta화 — 2,000자 상수 → meta hot_budget(TUNING.md 예약 키 회수)
+- [ ] setup/teardown 원커맨드 — §9 약정 중 미구현: docker compose up·Migrate·초기 시딩·
+  플러그인 설치 안내 원커맨드
+- [ ] 세션 자동 요약 — done 시 sessions 테이블 자동 기록(수동 write 의존 제거)
+- 후보(운영 데이터 확보 후): 병렬 쓰기 충돌 실측 스파이크·복구 훈련 자동화
