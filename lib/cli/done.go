@@ -31,6 +31,32 @@ func (s *realStore) StaleSessionRuns(ctx context.Context, agent string) (int, er
 	return s.repo.StaleSessionRuns(ctx, agent)
 }
 
+// usageStore — T37 LogPlaybookUse 접근. Store 인터페이스는 v0.1 소유라
+// 확장 대신 타입 단언으로 소비한다(root.go 수정 금지).
+type usageStore interface {
+	LogPlaybookUse(ctx context.Context, id int, ok bool) error
+}
+
+func (s *realStore) LogPlaybookUse(ctx context.Context, id int, ok bool) error {
+	return s.repo.LogPlaybookUse(ctx, id, ok)
+}
+
+// logPlaybookUse — 종료 직전 사용 로그 1건(T37). --playbook으로 받은 id가
+// 있을 때만 기록하며 done 출력·exit code는 완전 불변, 실패는 stderr 1행
+// 이하로 조용히 무시한다(비간섭 §13 — maybeAutoBackup과 같은 격).
+func logPlaybookUse(ctx context.Context, st Store, id int, ok bool) {
+	if id <= 0 {
+		return
+	}
+	us, can := st.(usageStore)
+	if !can {
+		return
+	}
+	if err := us.LogPlaybookUse(ctx, id, ok); err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] playbook use log: %v\n", err)
+	}
+}
+
 // doneThresholds — loadThresholds(maintain.go 소유) 재사용. 읽기 실패 시
 // 기본값 폴백(비간섭: 경고 경로가 본말을 바꾸지 않는다).
 func doneThresholds(ctx context.Context, st Store) store.Thresholds {
@@ -69,9 +95,23 @@ func staleRuns(ctx context.Context, st Store, agent string) (int, error) {
 // stale 경고, 그 외 ok. 경고일 뿐 종료를 막지 않는다(항상 exit 0).
 func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	session := ""
+	playbook, playbookOK := 0, true // --playbook <id>·--playbook-ok <bool>(기본 성공)
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--session" && i+1 < len(args) {
 			session = args[i+1]
+			i++
+		}
+		if args[i] == "--playbook" && i+1 < len(args) {
+			// 최근 read가 참조한 플레이북 id를 훅이 넘긴다(T37 사용 로그).
+			if n, err := strconv.Atoi(args[i+1]); err == nil {
+				playbook = n
+			}
+			i++
+		}
+		if args[i] == "--playbook-ok" && i+1 < len(args) {
+			if b, err := strconv.ParseBool(args[i+1]); err == nil {
+				playbookOK = b
+			}
 			i++
 		}
 	}
@@ -88,10 +128,12 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	}
 	if runs >= th.StaleSessions {
 		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"연속 %d세션 미기록"}`+"\n", runs, runs)
+		logPlaybookUse(ctx, st, playbook, playbookOK)
 		autoBackupFn(ctx)
 		return 0
 	}
 	fmt.Fprintln(stdout, `{"status":"ok"}`)
+	logPlaybookUse(ctx, st, playbook, playbookOK)
 	autoBackupFn(ctx)
 	return 0
 }
