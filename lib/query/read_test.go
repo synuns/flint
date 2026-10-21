@@ -1,10 +1,139 @@
 package query
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
-// 플레이스홀더: T8가 실제 테스트로 대체한다. 브리프 예제(ClampLimit(999) -> 50) 검증.
-func TestClampLimitNotImplemented(t *testing.T) {
-	if got := ClampLimit(999); got != 50 {
-		t.Fatalf("ClampLimit(999) = %d, want 50", got)
+// TestClampLimit — limit 기본 10, 상한 50.
+func TestClampLimit(t *testing.T) {
+	cases := []struct {
+		in   int
+		want int
+	}{
+		{0, 10},
+		{-1, 10},
+		{999, 50},
+		{51, 50},
+		{10, 10},
+		{25, 25},
+		{50, 50},
+	}
+	for _, c := range cases {
+		if got := ClampLimit(c.in); got != c.want {
+			t.Errorf("ClampLimit(%d) = %d, want %d", c.in, got, c.want)
+		}
+	}
+}
+
+// TestBuildReadUsesActiveKnowledge — 읽기는 active_knowledge 뷰로 강제한다.
+func TestBuildReadUsesActiveKnowledge(t *testing.T) {
+	sql, _ := BuildRead("", Filters{})
+	if !strings.Contains(sql, "active_knowledge") {
+		t.Errorf("BuildRead SQL이 active_knowledge 뷰를 사용해야 함: %s", sql)
+	}
+}
+
+// TestBuildReadEscapesLike — q의 %·_는 LIKE 와일드카드로 해석되지 않고,
+// 원문은 절대 SQL에 인라인되지 않는다(placeholder 주입).
+func TestBuildReadEscapesLike(t *testing.T) {
+	sql, args := BuildRead("100%_drop'", Filters{})
+	if strings.Contains(sql, "100%_drop") {
+		t.Errorf("원문 쿼리가 SQL에 인라인됨: %s", sql)
+	}
+	if !strings.Contains(sql, "LIKE lower($1)") {
+		t.Errorf("LIKE lower($1) 패턴 누락: %s", sql)
+	}
+	pat, ok := args[0].(string)
+	if !ok {
+		t.Fatalf("args[0]가 문자열이 아님: %T", args[0])
+	}
+	want := `%100\%\_drop'%`
+	if pat != want {
+		t.Errorf("이스케이프 패턴 = %q, want %q", pat, want)
+	}
+}
+
+// TestBuildReadFilters — tag/entity/domain 필터가 placeholder로 조립된다.
+func TestBuildReadFilters(t *testing.T) {
+	f := Filters{Tag: "a", Entity: "user", Domain: "game"}
+	sql, args := BuildRead("", f)
+	for _, frag := range []string{"tags", "entity = $", "domain = $"} {
+		if !strings.Contains(sql, frag) {
+			t.Errorf("필터 조각 %q 누락: %s", frag, sql)
+		}
+	}
+	found := map[string]bool{"a": false, "user": false, "game": false}
+	for _, a := range args {
+		if s, ok := a.(string); ok {
+			found[s] = true
+		}
+	}
+	for k, v := range found {
+		if !v {
+			t.Errorf("필터 값 %q이 args에 없음: %v", k, args)
+		}
+	}
+}
+
+// TestBuildReadLimitParam — limit은 ClampLimit 결과가 SQL에 반영된다.
+func TestBuildReadLimitParam(t *testing.T) {
+	sql, args := BuildRead("", Filters{Limit: 999})
+	if !strings.Contains(sql, "LIMIT") {
+		t.Errorf("LIMIT 절 누락: %s", sql)
+	}
+	last := args[len(args)-1]
+	if lim, ok := last.(int); !ok || lim != 50 {
+		t.Errorf("LIMIT 인자 = %v, want 50", last)
+	}
+}
+
+// TestFormatRowsTruncates — summary는 rune 기반 80자 절단(한글 안전).
+func TestFormatRowsTruncates(t *testing.T) {
+	rows := [][]any{{3, "topic", strings.Repeat("가", 100)}}
+	out := FormatRows(rows, "id,topic,summary", false)
+	cols := strings.Split(strings.TrimRight(out, "\n"), "|")
+	if len(cols) != 3 {
+		t.Fatalf("3컬럼 기대, got %d: %q", len(cols), out)
+	}
+	if got := len([]rune(cols[2])); got != 80 {
+		t.Errorf("summary 절단 길이 = %d, want 80", got)
+	}
+}
+
+// TestFormatRowsShortSummary — 80자 미만은 그대로.
+func TestFormatRowsShortSummary(t *testing.T) {
+	rows := [][]any{{1, "t", "짧은 요약"}}
+	out := FormatRows(rows, "id,topic,summary", false)
+	want := "1|t|짧은 요약"
+	if strings.TrimRight(out, "\n") != want {
+		t.Errorf("FormatRows = %q, want %q", out, want)
+	}
+}
+
+// TestFormatRowsJSON — jsonMode는 행별 한 줄 JSON, 선택 fields 키만.
+func TestFormatRowsJSON(t *testing.T) {
+	rows := [][]any{{7, "주제", strings.Repeat("b", 100)}}
+	out := FormatRows(rows, "id,topic", true)
+	line := strings.TrimRight(out, "\n")
+	var m map[string]any
+	if err := json.Unmarshal([]byte(line), &m); err != nil {
+		t.Fatalf("JSON 파싱 실패: %v (%q)", err, line)
+	}
+	if len(m) != 2 {
+		t.Errorf("fields=id,topic면 2키 기대: %v", m)
+	}
+	if _, ok := m["summary"]; ok {
+		t.Errorf("선택 안 한 summary 포함됨: %v", m)
+	}
+}
+
+// TestFormatRowsDefaultFields — fields 공백 시 id|topic|summary 기본.
+func TestFormatRowsDefaultFields(t *testing.T) {
+	rows := [][]any{{1, "t", "s"}}
+	out := FormatRows(rows, "", false)
+	if strings.TrimRight(out, "\n") != "1|t|s" {
+		t.Errorf("기본 3컬럼 기대: %q", out)
 	}
 }
