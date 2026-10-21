@@ -46,13 +46,29 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('pending_max','40')
 | 2주차 | 41 | 1,960자 | 상한 2,000자 근접 — `hot_budget` 2,400 갱신 |
 | 갱신 후 | 12 | 2,310자 | 절단 0건 — 예산 적정 |
 
-## 4. 기타 meta 키
+## 4. backup 로테이션 (backup_keep)
+
+`flint backup --out` 성공 시 같은 디렉터리의 덤프를 로테이션한다(v0.5 T54):
+
+- 대상은 `.sql` 파일, **mtime 최신순**으로 `backup_keep`개 유지.
+- 나머지는 삭제하며 짝이루는 `.sha256` 사이드카가 있으면 함께 삭제
+  (사이드카가 없는 파일은 단독 삭제). 요약 JSON의 `removed`에 개수 출력.
+- 기본값 **14**. `backup_keep`이 1 미만이거나 무효하면 기본값 폴백,
+  로테이션 자체도 keep 최소 1을 보장(전체 삭제 없음).
+- 갱신(즉시 재적용 — 매 백업 실행마다 읽음):
+
+```sh
+psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
+  ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+```
+
+## 5. 기타 meta 키
 
 - `schema_version` — CLI 호환 검사 전용(수동 갱신 금지).
 - `last_backup` — 자동 백업 판정 전용(`flint backup`이 갱신).
 - `hot_stats` — hot 계측 영속 누적(`flint status`가 읽고 종료 시 갱신).
 
-## 5. 이연결정 회수 계획 요약
+## 6. 이연결정 회수 계획 요약
 
 §15 이연 4건 중 이 문서가 회수하는 것은 ①주입 예산 상한(hot_budget)과
 ④임계값 수치다. ②보존·영구삭제·③백업 포맷은 데이터 축적·pg_dump 검증
