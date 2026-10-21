@@ -8,3 +8,5 @@
 {"kind":"knowledge","topic":"flint 쓰기 규칙","summary":"write는 additive만 허용(UPDATE 금지, projects 제외)하고 무효화는 maintain로만 한다.","tags":["contract","write"],"entity":"flint","domain":"main","confidence":0.85}
 {"kind":"knowledge","topic":"flint hot 예산","summary":"hot 주입 상한 2,000자는 2주 실측 p95 후 확정한다(가설).","tags":["budget","hot"],"entity":"flint","domain":"main","confidence":0.7}
 {"kind":"knowledge","topic":"사용자 출력 선호","summary":"출력은 본문 전에 결론·다음 행동을 먼저, 목록 5개 이하, 한국어로 답한다.","tags":["style","preference"],"entity":"user","domain":"preference","confidence":0.9}
+{"kind":"knowledge","topic":"Doltgres 충돌 유도 절차","summary":"Doltgres 충돌 유도는 쓰기 중복 시험 시 TCP 프록시로 첫 전송 차단→재전송 허용→dolt_log 이중 커밋 확인으로 끝난다.","tags":["playbook","env"],"entity":"flint","domain":"main","confidence":0.9}
+{"kind":"knowledge","topic":"flint 백업 복구 절차","summary":"flint 백업 복구는 저장소 정지 조건에서 dump.sql 재생→sha256 검증→read 샘플 대조로 무결 확인이다.","tags":["playbook","process"],"entity":"flint","domain":"main","confidence":0.9}

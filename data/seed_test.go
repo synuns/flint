@@ -48,13 +48,13 @@ func loadSeed(t *testing.T) ([]map[string]any, []string) {
 }
 
 // TestSeedLinesValid — 모든 줄이 계약 payload 스키마를 준수하고
-// 구성(프로젝트 3·결정 5·pending 1·선호 1)이 플랜 T15와 일치한다.
+// 구성(프로젝트 3·결정 5·pending 1·선호 1·플레이북 2)이 플랜 T15·T45와 일치한다.
 func TestSeedLinesValid(t *testing.T) {
 	maps, _ := loadSeed(t)
 	if len(maps) == 0 {
 		t.Fatal("seed.jsonl이 비었다")
 	}
-	projects, decisions, pending, preference := 0, 0, 0, 0
+	projects, decisions, pending, preference, playbooks := 0, 0, 0, 0, 0
 	seen := map[string]bool{}
 	for _, p := range maps {
 		kind, _ := p["kind"].(string)
@@ -71,7 +71,17 @@ func TestSeedLinesValid(t *testing.T) {
 			projects++
 		case "knowledge":
 			conf, _ := p["confidence"].(float64)
+			hasTag := func(want string) bool {
+				for _, tag := range p["tags"].([]any) {
+					if tag == want {
+						return true
+					}
+				}
+				return false
+			}
 			switch {
+			case hasTag("playbook"):
+				playbooks++
 			case p["domain"] == "preference":
 				preference++
 			case conf < 0.8:
@@ -99,6 +109,46 @@ func TestSeedLinesValid(t *testing.T) {
 	}
 	if preference != 1 {
 		t.Errorf("사용자 선호(domain=preference) 수 = %d, want 1", preference)
+	}
+	if playbooks != 2 {
+		t.Errorf("플레이북(tag=playbook) 수 = %d, want 2", playbooks)
+	}
+}
+
+// TestSeedIdempotentV4 — v0.4 플레이북 시딩 2건(절차 지식, CONTENT.md §1a·§4).
+// 계약: summary는 조건→단계→완료조건 3단, 어휘표 경고 0, confidence 0.9.
+func TestSeedIdempotentV4(t *testing.T) {
+	maps, _ := loadSeed(t)
+	playbooks := map[string]map[string]any{}
+	for _, p := range maps {
+		if p["kind"] != "knowledge" {
+			continue
+		}
+		for _, tag := range p["tags"].([]any) {
+			if tag == "playbook" {
+				playbooks[p["topic"].(string)] = p
+			}
+		}
+	}
+	for _, topic := range []string{"Doltgres 충돌 유도 절차", "flint 백업 복구 절차"} {
+		p, ok := playbooks[topic]
+		if !ok {
+			t.Fatalf("플레이북 시딩 누락: %q", topic)
+		}
+		var tags []string
+		for _, tag := range p["tags"].([]any) {
+			tags = append(tags, tag.(string))
+		}
+		if w := store.CheckVocabulary(tags, p["domain"].(string)); len(w) != 0 {
+			t.Errorf("%q 어휘 경고: %v", topic, w)
+		}
+		summary := p["summary"].(string)
+		if strings.Count(summary, "→") < 2 {
+			t.Errorf("%q summary 계약 위반(조건→단계→완료조건): %q", topic, summary)
+		}
+		if c, _ := p["confidence"].(float64); c != 0.9 {
+			t.Errorf("%q confidence = %v, want 0.9", topic, c)
+		}
 	}
 }
 
