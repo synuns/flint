@@ -1,6 +1,12 @@
 package store
 
-// ContentHash는 canonical JSON의 내용 해시를 반환한다. (T5에서 구현)
+import (
+	"crypto/sha256"
+	"encoding/hex"
+)
+
+// ContentHash는 canonical JSON의 sha256 hex(64자)를 반환한다.
 func ContentHash(canonical string) string {
-	panic("not implemented: ContentHash (T5)")
+	sum := sha256.Sum256([]byte(canonical))
+	return hex.EncodeToString(sum[:])
 }
