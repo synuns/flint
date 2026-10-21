@@ -137,3 +137,57 @@ func TestFormatRowsDefaultFields(t *testing.T) {
 		t.Errorf("기본 3컬럼 기대: %q", out)
 	}
 }
+
+// TestFormatRowsBoundary80 — 정확히 80자는 그대로, 81자만 절단(리뷰 회귀).
+func TestFormatRowsBoundary80(t *testing.T) {
+	rows := [][]any{{1, "t", strings.Repeat("a", 80)}}
+	if got := strings.TrimRight(FormatRows(rows, "id,topic,summary", false), "\n"); got != "1|t|"+strings.Repeat("a", 80) {
+		t.Errorf("80자가 잘림: %s", got)
+	}
+}
+
+// TestFormatRowsFieldsNoTruncate — summary 외 컬럼은 fields 선택 시 무절단(리뷰 회귀).
+func TestFormatRowsFieldsNoTruncate(t *testing.T) {
+	rows := [][]any{{7, strings.Repeat("t", 100), "s"}}
+	got := strings.TrimRight(FormatRows(rows, "id,topic", false), "\n")
+	want := "7|" + strings.Repeat("t", 100)
+	if got != want {
+		t.Errorf("fields 선택 출력 = 길이 %d, want %d", len(got), len(want))
+	}
+}
+
+// TestFormatRowsEmpty — 행이 없으면 빈 문자열(리뷰 회귀).
+func TestFormatRowsEmpty(t *testing.T) {
+	if got := FormatRows(nil, "", false); got != "" {
+		t.Errorf("빈 결과 출력 = %q, want 빈 문자열", got)
+	}
+}
+
+// TestBuildReadSelectsAllFields — --fields 계약 지원을 위해 8컬럼 전부 SELECT(리뷰 회귀).
+func TestBuildReadSelectsAllFields(t *testing.T) {
+	sql, _ := BuildRead("", Filters{})
+	for _, c := range []string{"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status"} {
+		if !strings.Contains(sql, c) {
+			t.Errorf("SELECT에 %q 누락: %s", c, sql)
+		}
+	}
+}
+
+// TestFormatRowsFieldMapping — 8컬럼 행에서 entity 등은 이름 매핑으로 정확히 선택(위치 어긋남 회귀).
+func TestFormatRowsFieldMapping(t *testing.T) {
+	rows := [][]any{{1, "t", "s", ":a:b:", "ent", "dom", 0.9, "active"}}
+	got := strings.TrimRight(FormatRows(rows, "entity,domain", false), "\n")
+	if got != "ent|dom" {
+		t.Errorf("fields 이름 매핑 = %q, want ent|dom", got)
+	}
+}
+
+// TestFormatRowsUnknownFieldPositional — 매핑 밖 필드(kind·ts)는 위치 fallback(hot_view 호환).
+func TestFormatRowsUnknownFieldPositional(t *testing.T) {
+	rows := [][]any{{"project", "p", "active", "2026-10-21T00:00:00Z"}}
+	got := strings.TrimRight(FormatRows(rows, "kind,topic,summary,ts", false), "\n")
+	want := "project|p|active|2026-10-21T00:00:00Z"
+	if got != want {
+		t.Errorf("위치 fallback = %q, want %q", got, want)
+	}
+}
