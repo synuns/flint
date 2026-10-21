@@ -1,6 +1,9 @@
 package store
 
-import "testing"
+import (
+	"fmt"
+	"testing"
+)
 
 func TestClassify(t *testing.T) {
 	cases := []struct {
@@ -9,7 +12,7 @@ func TestClassify(t *testing.T) {
 		want string
 	}{
 		{"knowledge", 0.79, "pending"},
-		{"knowledge", 0.8, "active"},  // 경계: 0.8 미만일 때만 pending
+		{"knowledge", 0.8, "active"}, // 경계: 0.8 미만일 때만 pending
 		{"session", 0.1, "active"},
 		{"knowledge", 0.9, "active"},
 	}
@@ -61,5 +64,18 @@ func TestMapExit(t *testing.T) {
 		if got := MapExit(c.err); got != c.want {
 			t.Errorf("MapExit(%s) = %d, want %d", c.name, got, c.want)
 		}
+	}
+}
+
+// TestMapExitWrapped — db 계층 별칭 심볼이 %w로 래핑돼도 동일 exit(계약: errors.Is 통과).
+func TestMapExitWrapped(t *testing.T) {
+	if got := MapExit(fmt.Errorf("dial: %w", ErrServerDown)); got != 2 {
+		t.Errorf("MapExit(wrapped ErrServerDown) = %d, want 2", got)
+	}
+	if got := MapExit(fmt.Errorf("batch: %w", &SchemaError{Field: "summary"})); got != 3 {
+		t.Errorf("MapExit(wrapped SchemaError) = %d, want 3", got)
+	}
+	if got := MapExit(fmt.Errorf("retry: %w", ErrRetriesExhausted)); got != 1 {
+		t.Errorf("MapExit(wrapped ErrRetriesExhausted) = %d, want 1", got)
 	}
 }
