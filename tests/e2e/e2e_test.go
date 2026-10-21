@@ -783,3 +783,178 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		t.Fatalf("status schema_version=%v, want 2; out=%s", m["schema_version"], out)
 	}
 }
+
+// --- v0.4 섹션: 어휘 경고·패턴 증류·사용 로그·계측 누적·setup(T44) ---
+
+// ① 어휘 밖 tag write — CONTENT.md §4 표 밖 tag("bogus")는 경고만
+// 반환되고 저장은 거부되지 않는다(exit 0·committed).
+func TestWriteWarnsUnknownTag(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-vocab-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-vocab-") })
+
+	out, code := runCLI(t, []string{"write", "knowledge"},
+		`{"topic":"e2e-vocab-k","summary":"어휘 경고 프로브","confidence":0.9,"tags":["playbook","bogus"]}`)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(경고는 저장 거부 아님); out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["status"] != "committed" {
+		t.Fatalf("status=%v, want committed; out=%s", m["status"], out)
+	}
+	found := false
+	for _, w := range toStrings(m["warnings"]) {
+		if strings.Contains(w, "unknown tag: bogus") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("warnings에 %q 없음: %v", "unknown tag: bogus", m["warnings"])
+	}
+}
+
+// toStrings — JSON 디코딩된 any 슬라이스를 문자열 슬라이스로.
+func toStrings(v any) []string {
+	items, _ := v.([]any)
+	var out []string
+	for _, it := range items {
+		if s, ok := it.(string); ok {
+			out = append(out, s)
+		}
+	}
+	return out
+}
+
+// ② 패턴 증류 — 동일 topic 성공 knowledge 2건 → repeat-success 후보
+// 식별(증거 2건). db.PatternCandidates 직접 경유(maintain 제안 소스).
+func TestPatternRepeatSuccessCandidate(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-pat-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-pat-") })
+
+	// tags 명시 — NULL tags는 LIKE 집계에서 제외되므로 성공으로 세려면 필요.
+	writeKnowledge(t, `{"topic":"e2e-pat-k","summary":"성공 1","confidence":0.9,"tags":["process"]}`)
+	writeKnowledge(t, `{"topic":"e2e-pat-k","summary":"성공 2","confidence":0.9,"tags":["process"]}`)
+
+	repo, err := db.NewRepo(context.Background(), dsn())
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	t.Cleanup(func() { repo.Close() })
+	pats, err := repo.PatternCandidates(context.Background())
+	if err != nil {
+		t.Fatalf("PatternCandidates: %v", err)
+	}
+	for _, p := range pats {
+		if p.Topic != "e2e-pat-k" {
+			continue
+		}
+		if p.Kind != "repeat-success" {
+			t.Fatalf("kind=%q, want repeat-success", p.Kind)
+		}
+		if len(p.Evidence) != 2 {
+			t.Fatalf("증거 %d건, want 2: %v", len(p.Evidence), p.Evidence)
+		}
+		return
+	}
+	t.Fatalf("후보에 %q 없음: %+v", "e2e-pat-k", pats)
+}
+
+// ③ 플레이북 사용 로그 — 3회 중 2성공 → PlaybookStats Rate 0.667.
+// 로그는 meta pb_<id>_uses/_ok 증분(신규 테이블 없음, schema v2 유지).
+func TestPlaybookUseStatsRate(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-usage-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-usage-") })
+
+	m := writeKnowledge(t,
+		`{"topic":"e2e-usage-k","summary":"사용 로그 프로브","confidence":0.9,"tags":["playbook"]}`)
+	id := int(m["id"].(float64))
+	t.Cleanup(func() {
+		pool.Exec(context.Background(),
+			`DELETE FROM meta WHERE key = $1 OR key = $2`,
+			fmtPBKey(id, "uses"), fmtPBKey(id, "ok"))
+	})
+
+	repo, err := db.NewRepo(context.Background(), dsn())
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	t.Cleanup(func() { repo.Close() })
+	for _, ok := range []bool{true, true, false} {
+		if err := repo.LogPlaybookUse(context.Background(), id, ok); err != nil {
+			t.Fatalf("LogPlaybookUse(%v): %v", ok, err)
+		}
+	}
+	stats, err := repo.PlaybookStats(context.Background())
+	if err != nil {
+		t.Fatalf("PlaybookStats: %v", err)
+	}
+	for _, s := range stats {
+		if s.ID != id {
+			continue
+		}
+		if s.Uses != 3 || s.OK != 2 {
+			t.Fatalf("uses/ok = %d/%d, want 3/2", s.Uses, s.OK)
+		}
+		if s.Rate != 0.667 {
+			t.Fatalf("rate = %v, want 0.667", s.Rate)
+		}
+		return
+	}
+	t.Fatalf("stats에 id=%d 없음: %+v", id, stats)
+}
+
+// fmtPBKey — 플레이북 사용 로그 meta 키 조립.
+func fmtPBKey(id int, suffix string) string {
+	return "pb_" + strconv.Itoa(id) + "_" + suffix
+}
+
+// ④ 계측 프로세스 분리 누적 — 별도 프로세스 hot 2회 실행 뒤 status가
+// meta hot_stats baseline을 읽어 hot_calls=2로 보고(T38 wiring 실측).
+func TestHotCallsAccumulateAcrossProcesses(t *testing.T) {
+	pool := mustDB(t)
+	delMeta(t, pool, "hot_stats") // 직전 실행 잔여와 격리
+	t.Cleanup(func() { delMeta(t, pool, "hot_stats") })
+
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("루트 경로: %v", err)
+	}
+	bin := filepath.Join(root, "bin", "flint")
+	build := exec.Command("make", "build")
+	build.Dir = root
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("make build 실패: %v; out=%s", err, b)
+	}
+	for i := 0; i < 2; i++ {
+		hot := exec.Command(bin, "hot")
+		hot.Env = os.Environ()
+		if b, err := hot.CombinedOutput(); err != nil {
+			t.Fatalf("hot %d회차 실패: %v; out=%s", i+1, err, b)
+		}
+	}
+	out, code := runCLI(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("status exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if calls, _ := m["hot_calls"].(float64); calls != 2 {
+		t.Fatalf("hot_calls=%v, want 2(프로세스 분리 누적); out=%s", m["hot_calls"], out)
+	}
+}
+
+// ⑤ setup --dry — 단계 4건만 출력(exec·쿼리 없음)·exit 0.
+func TestSetupDrySteps(t *testing.T) {
+	out, code := runCLI(t, []string{"setup", "--dry"}, "")
+	if code != 0 {
+		t.Fatalf("setup --dry exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["status"] != "dry" {
+		t.Fatalf("status=%v, want dry; out=%s", m["status"], out)
+	}
+	if steps := toStrings(m["steps"]); len(steps) != 4 {
+		t.Fatalf("단계 %d건, want 4; out=%s", len(steps), out)
+	}
+}
