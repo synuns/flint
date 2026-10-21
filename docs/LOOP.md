@@ -1,8 +1,8 @@
 # flint 개발 루프 설계
 
 - **날짜**: 2026-10-21
-- **상태**: 루프 확정안 — 승인 후 v0.1 착수
-- **범위**: docs/PLAN.md 전 마일스톤(v0.1→v0.3) 완료까지
+- **상태**: v0.1~v0.4 완료(2026-10-22) — v0.5부터 동일 루프 재적용
+- **범위**: docs/PLAN.md 전 마일스톤(v0.1→v0.3 + v0.4 확장) 완료
 - **전제**: AI 자율 실행(사람은 중단 조건 도달 시에만 개입)
 
 ---
@@ -75,8 +75,8 @@ lib/
   query/     # read/hot 조립 (SQL 생성, 예산 적용) — 순수
   db/        # pgx 래퍼 + 재시도 0s/1s/3s + 커밋 — 인터페이스 주입
   backup/    # 덤프·복구
-  mcp/       # v0.3
-sql/         # schema·views·queries (embed)
+  mcp/       # v0.3 실장
+  sqlfs/     # schema·views (go:embed — v0.1 정정: 상위 경로 접근 제약)
 ```
 
 - `store`/`query`는 DB 없이 단위 테스트(빠른 G1의 원천). `db`만 실 Doltgres 필요.
@@ -122,18 +122,18 @@ sql/         # schema·views·queries (embed)
 ## 8. 마일스톤 DoD
 
 **v0.1** — 코어 루프
-- [ ] W0: 검증 스파이크 4건(pg_dump·dbhub 접속·AS OF·이름 스윕) 각 ADR화
-- [ ] 스키마·뷰 SQL embed + meta 마이그레이션 동작
-- [ ] write/read/hot/status E2E 3케이스(dedup·재시도·이스케이프) 통과
-- [ ] 수동 백업(덤프) + 복구 1회 훈련
-- [ ] Claude Code 플러그인 설치·훅 동작(hot/done)
-- [ ] 시딩 완료(활성 프로젝트 3건 + 기획 결정 + 사용자 선호)
+- [x] W0: 검증 스파이크 4건(pg_dump·dbhub 접속·AS OF·이름 스윕) 각 ADR화
+- [x] 스키마·뷰 SQL embed + meta 마이그레이션 동작
+- [x] write/read/hot/status E2E 3케이스(dedup·재시도·이스케이프) 통과
+- [x] 수동 백업(덤프) + 복구 1회 훈련
+- [x] Claude Code 플러그인 설치·훅 동작(hot/done)
+- [x] 시딩 완료(활성 프로젝트 3건 + 기획 결정 + 사용자 선호)
 
 **v0.2** — 운영 편의
-- [ ] approve 정식화 / maintain 트리거 / done 임계값 경고 / 백업 자동(하루 첫 세션)
+- [x] approve 정식화 / maintain 트리거 / done 임계값 경고 / 백업 자동(하루 첫 세션)
 
 **v0.3** — 확장
-- [ ] flint mcp / Hermes 카탈로그·OpenClaw 어댑터 / 임계값 튜닝(p95 실측 반영)
+- [x] flint mcp / Hermes 카탈로그·OpenClaw 어댑터 / 임계값 튜닝(p95 실측 반영)
 
 ## 9. 웨이브 브레이크다운
 

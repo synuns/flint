@@ -8,6 +8,7 @@ services:
       DOLTGRES_PASSWORD: flint-dev
       # ADR-0001 DSN(postgresql://flint:flint-dev@localhost:5433/flint)의 DB명
       DOLTGRES_DB: flint
+    restart: unless-stopped
     volumes:
       - doltgres-data:/var/lib/doltgres
 
