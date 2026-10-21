@@ -58,7 +58,9 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		}
 		n := store.Normalize(kind, p)
 		if kind == "knowledge" {
-			h := store.ContentHash(store.CanonicalJSON(n))
+			// 해시 입력은 휘발성 필드(valid_at 등) 제외 경로(HashCanonical)여야
+			// 동일 payload 재전송이 duplicate로 판정된다(시딩 멱등).
+			h := store.ContentHash(store.HashCanonical(n))
 			exists, err := st.ExistsHash(ctx, h)
 			if err != nil {
 				fmt.Fprintln(stdout, errLine(err))
