@@ -4,10 +4,19 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"strconv"
+	"sync"
+	"time"
 
+	"github.com/jackc/pgx/v5"
+
+	"flint/lib/backup"
+	"flint/lib/db"
 	"flint/lib/store"
 )
 
@@ -79,10 +88,94 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	}
 	if runs >= th.StaleSessions {
 		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"연속 %d세션 미기록"}`+"\n", runs, runs)
+		autoBackupFn(ctx)
 		return 0
 	}
 	fmt.Fprintln(stdout, `{"status":"ok"}`)
+	autoBackupFn(ctx)
 	return 0
+}
+
+// autoBackupFn — seam. 기본 실동작, fast 단위 테스트는 no-op으로 교체
+// (실동작 검증은 e2e ④가 실DB·실덤프로 한다).
+var autoBackupFn = maybeAutoBackup
+
+// maybeAutoBackup — 하루 1회 자동 백업(spec §8 "하루 첫 세션 지연 트리거").
+// done 판정 뒤에만 실행하며 출력·exit code는 완전 불변, 실패는 stderr 1행
+// 이하로 조용히 무시한다(비간섭 §13 — 코디네이터 룰링 T24 ④).
+func maybeAutoBackup(ctx context.Context) {
+	dir := os.Getenv("FLINT_BACKUP_DIR")
+	if dir == "" {
+		home, err := os.UserHomeDir()
+		if err != nil {
+			return
+		}
+		dir = filepath.Join(home, ".flint", "backup")
+	}
+	pool, err := db.Connect(ctx, dsnFromEnv())
+	if err != nil {
+		return
+	}
+	defer pool.Close()
+
+	lf := &lazyDumpFile{dir: dir}
+	defer lf.close()
+	auto := backup.Auto{DSN: dsnFromEnv()}
+	if err := auto.RunIfNeeded(ctx,
+		func(key string) (string, error) {
+			var v string
+			err := pool.QueryRow(ctx,
+				`SELECT value FROM meta WHERE key = $1`, key).Scan(&v)
+			if errors.Is(err, pgx.ErrNoRows) {
+				return "", nil
+			}
+			return v, err
+		},
+		func(key, value string) error {
+			_, err := pool.Exec(ctx,
+				`INSERT INTO meta (key, value) VALUES ($1, $2)
+				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
+			return err
+		},
+		lf); err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] backup auto: %v\n", err)
+	}
+}
+
+// lazyDumpFile — 첫 Write 시에만 덤프 파일을 만드는 지연 writer.
+// RunIfNeeded가 비경과 no-op일 때 빈 파일을 남기지 않게 한다.
+type lazyDumpFile struct {
+	dir    string
+	once   sync.Once
+	f      *os.File
+	failed bool
+}
+
+func (l *lazyDumpFile) Write(p []byte) (int, error) {
+	l.once.Do(func() {
+		if err := os.MkdirAll(l.dir, 0o755); err != nil {
+			l.failed = true
+			return
+		}
+		name := filepath.Join(l.dir,
+			"flint-"+time.Now().UTC().Format("20060102-150405")+".sql")
+		f, err := os.Create(name)
+		if err != nil {
+			l.failed = true
+			return
+		}
+		l.f = f
+	})
+	if l.failed {
+		return 0, errors.New("backup auto: dump 파일 생성 불가")
+	}
+	return l.f.Write(p)
+}
+
+func (l *lazyDumpFile) close() {
+	if l.f != nil {
+		l.f.Close()
+	}
 }
 
 func init() {

@@ -85,8 +85,10 @@ func (d *delegatingDone) StaleSessionRuns(ctx context.Context, agent string) (in
 }
 
 // mustDone — runDone 직접 실행(root.go 등록과 무관한 단위 경로).
+// 자동 백업 트리거는 no-op 스텁(실동작은 e2e ④가 실DB로 검증).
 func mustDone(t *testing.T, st Store, args []string) (string, int) {
 	t.Helper()
+	stubAutoBackup(t)
 	var out bytes.Buffer
 	code := runDone(context.Background(), st, args, strings.NewReader(""), &out)
 	return out.String(), code
@@ -95,7 +97,37 @@ func mustDone(t *testing.T, st Store, args []string) (string, int) {
 // mustDoneRun — Run 전체 경로(등록·seam 포함).
 func mustDoneRun(t *testing.T, args []string) (string, int) {
 	t.Helper()
+	stubAutoBackup(t)
 	return mustRun(t, args, "")
+}
+
+// stubAutoBackup — autoBackupFn seam 교체(단위 테스트 무부작용 보장).
+func stubAutoBackup(t *testing.T) {
+	t.Helper()
+	prev := autoBackupFn
+	autoBackupFn = func(ctx context.Context) {}
+	t.Cleanup(func() { autoBackupFn = prev })
+}
+
+// done 판정 뒤 자동 백업 훅 호출(stale·ok 양 경로).
+func TestDoneTriggersAutoBackupHook(t *testing.T) {
+	for _, runs := range []int{0, 3} { // ok·stale 양쪽에서 1회씩
+		f := &fakeStore{}
+		d := &doneFake{fakeStore: f, stubbed: true, runs: runs}
+		called := 0
+		prev := autoBackupFn
+		autoBackupFn = func(ctx context.Context) { called++ }
+		t.Cleanup(func() { autoBackupFn = prev })
+		var out bytes.Buffer
+		code := runDone(context.Background(), d,
+			[]string{"--session", "claude"}, strings.NewReader(""), &out)
+		if code != 0 {
+			t.Fatalf("runs=%d exit=%d, want 0; out=%s", runs, code, out.String())
+		}
+		if called != 1 {
+			t.Fatalf("runs=%d 자동 백업 훅 %d회, want 1", runs, called)
+		}
+	}
 }
 
 // Review Focus(protocol): runs 2 vs 3 경계 — 3에서 warning 포함·exit 0.
