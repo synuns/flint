@@ -16,8 +16,8 @@ OpenClaw·Hermes 등 모든 에이전트가 공유하는 지식·상태 저장�
 
 ```
 bin/     # flint CLI (Go 단일 바이너리)
-lib/     # 내부 모듈 (Go 패키지)
-sql/     # schema.sql, views.sql, queries/*.sql
-docs/    # 기획서·계약 문서
-data/    # Doltgres data-dir (git 무시)
+cmd/flint/ # main 진입점
+lib/     # 내부 모듈 — store·query·db·cli·backup·sqlfs(SQL embed)
+docs/    # 기획서·계약·ADR·플랜
+data/    # seed.jsonl(추적) + 런타임(git 무시)
 ```
