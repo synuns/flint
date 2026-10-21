@@ -17,6 +17,8 @@ type statusOutput struct {
 	Pending       int    `json:"pending"`
 	HotCalls      int    `json:"hot_calls"`
 	HotP95        int    `json:"hot_p95"`
+	ReadCalls     int    `json:"read_calls"`
+	ReadZeroPct   int    `json:"read_zero_pct"`
 }
 
 // runStatus — 서버 생존·스키마 호환·pending 대기 수를 보고한다.
@@ -35,9 +37,10 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		version = fmt.Sprint(rows[0][0])
 	}
 	// meta.schema_version 호환 검사(PLAN §10): 이 CLI가 아는 버전만 허용.
-	// v2는 newRealStore의 EnsureSchemaV2 승격 후 정상 상태다.
-	if version != "1" && version != "2" {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1 또는 2"}))
+	// v2는 newRealStore의 EnsureSchemaV2 승격 후, v3는 EnsureSchemaV3 인덱스
+	// 승격(T51·ADR-0008, 무손실) 후 정상 상태다.
+	if version != "1" && version != "2" && version != "3" {
+		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~3"}))
 		return 3
 	}
 	rows, err = queryOnce(ctx, st,
@@ -50,9 +53,13 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if len(rows) > 0 {
 		fmt.Sscan(fmt.Sprint(rows[0][0]), &pending)
 	}
+	// T38 배선 회수(F-T56-1): status는 별도 프로세스이므로 in-memory 샘플이
+	// 비어 있다 — meta hot_stats baseline을 로드해 직전 실행 누적을 보고한다.
+	loadHotStatsFromMeta(ctx, st)
 	calls, p95, _ := HotStats()
+	readCalls, readZero := loadReadStatsFromMeta(ctx, st)
 	b, _ := json.Marshal(statusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
-		HotCalls: calls, HotP95: p95})
+		HotCalls: calls, HotP95: p95, ReadCalls: readCalls, ReadZeroPct: readZeroPct(readCalls, readZero)})
 	fmt.Fprintln(stdout, string(b))
 	return 0
 }

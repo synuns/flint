@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -174,6 +175,140 @@ func TestStatusIncludesHotStats(t *testing.T) {
 	}
 }
 
+// readStatsMeta — meta read_stats를 임시 저장하는 get/set fake 쌍.
+func readStatsMeta(meta map[string]string) (func(string) (string, error), func(string, string) error) {
+	get := func(k string) (string, error) { return meta[k], nil }
+	set := func(k, v string) error { meta[k] = v; return nil }
+	return get, set
+}
+
+// TestReadStatsAccumulate — BumpReadStats 2회 누적: calls 2·zero 2(T56).
+func TestReadStatsAccumulate(t *testing.T) {
+	meta := map[string]string{}
+	get, set := readStatsMeta(meta)
+	if err := BumpReadStats(true, get, set); err != nil {
+		t.Fatalf("bump(1) 오류: %v", err)
+	}
+	if err := BumpReadStats(true, get, set); err != nil {
+		t.Fatalf("bump(2) 오류: %v", err)
+	}
+	calls, zero, ok := LoadReadStats(get)
+	if !ok || calls != 2 || zero != 2 {
+		t.Fatalf("누적=%d/%d ok=%v, want 2/2/true; meta=%v", calls, zero, ok, meta)
+	}
+}
+
+// TestReadStatsMixed — zeroHits=false는 calls만 증가.
+func TestReadStatsMixed(t *testing.T) {
+	meta := map[string]string{}
+	get, set := readStatsMeta(meta)
+	if err := BumpReadStats(false, get, set); err != nil {
+		t.Fatalf("bump(false) 오류: %v", err)
+	}
+	if err := BumpReadStats(true, get, set); err != nil {
+		t.Fatalf("bump(true) 오류: %v", err)
+	}
+	calls, zero, _ := LoadReadStats(get)
+	if calls != 2 || zero != 1 {
+		t.Fatalf("누적=%d/%d, want 2/1", calls, zero)
+	}
+}
+
+// TestReadStatsCorruptFallback — 파손된 read_stats는 기본값 폴백 후 재누적.
+func TestReadStatsCorruptFallback(t *testing.T) {
+	meta := map[string]string{"read_stats": "{not-json"}
+	get, set := readStatsMeta(meta)
+	if err := BumpReadStats(true, get, set); err != nil {
+		t.Fatalf("파손 상태 bump 오류: %v", err)
+	}
+	if meta["read_stats"] != `{"calls":1,"zero":1}` {
+		t.Fatalf("폴백 후 저장값=%q, want {\"calls\":1,\"zero\":1}", meta["read_stats"])
+	}
+	if calls, zero, ok := LoadReadStats(get); !ok || calls != 1 || zero != 1 {
+		t.Fatalf("폴백 후 로드=%d/%d/%v, want 1/1/true", calls, zero, ok)
+	}
+}
+
+// TestReadStatsMissingFallback — 키 부재·getKV 오류는 0에서 시작(폴백).
+func TestReadStatsMissingFallback(t *testing.T) {
+	if calls, zero, ok := LoadReadStats(func(string) (string, error) { return "", nil }); ok || calls != 0 || zero != 0 {
+		t.Fatalf("부재 로드=%d/%d/%v, want 0/0/false", calls, zero, ok)
+	}
+	if calls, zero, ok := LoadReadStats(func(string) (string, error) { return "", context.DeadlineExceeded }); ok || calls != 0 || zero != 0 {
+		t.Fatalf("오류 로드=%d/%d/%v, want 0/0/false", calls, zero, ok)
+	}
+}
+
+// TestReadZeroPct — 비율: calls 0이면 0, 아니면 정수 백분율.
+func TestReadZeroPct(t *testing.T) {
+	cases := []struct {
+		calls, zero, want int
+	}{
+		{0, 0, 0},
+		{4, 1, 25},
+		{4, 0, 0},
+		{3, 2, 66},
+		{3, 3, 100},
+	}
+	for _, c := range cases {
+		if got := readZeroPct(c.calls, c.zero); got != c.want {
+			t.Errorf("readZeroPct(%d,%d)=%d, want %d", c.calls, c.zero, got, c.want)
+		}
+	}
+}
+
+// TestStatusIncludesReadStats — status 한 줄 JSON에 read_calls·read_zero_pct 노출.
+func TestStatusIncludesReadStats(t *testing.T) {
+	resetMetrics()
+	f := &fakeStore{}
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		switch {
+		case len(args) == 1 && args[0] == "read_stats":
+			return [][]any{{`{"calls":4,"zero":1}`}}, nil
+		case strings.Contains(sql, "FROM meta"):
+			return [][]any{{"1"}}, nil // schema_version
+		}
+		return [][]any{{int64(0)}}, nil // pending
+	}
+	withFake(t, f)
+	out, code := mustRun(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["read_calls"] != float64(4) || m["read_zero_pct"] != float64(25) {
+		t.Fatalf("read 통계 노출 오류: read_calls=%v read_zero_pct=%v", m["read_calls"], m["read_zero_pct"])
+	}
+}
+
+// TestReadWiringBumpsReadStats — read 실행(0행 = zero hit)이 meta read_stats 누적.
+func TestReadWiringBumpsReadStats(t *testing.T) {
+	meta := map[string]string{}
+	f := &fakeStore{}
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "INSERT INTO meta"):
+			meta[args[0].(string)] = fmt.Sprint(args[1])
+			return nil, nil
+		case len(args) == 1 && args[0] == "read_stats":
+			if v, ok := meta["read_stats"]; ok {
+				return [][]any{{v}}, nil
+			}
+			return nil, nil
+		case strings.Contains(sql, "FROM meta"):
+			return [][]any{{"2"}}, nil
+		}
+		return nil, nil // active_knowledge 조회 → 0행
+	}
+	withFake(t, f)
+	if out, code := mustRun(t, []string{"read", "flint"}, ""); code != 0 {
+		t.Fatalf("read exit=%d, want 0; out=%s", code, out)
+	}
+	if meta["read_stats"] != `{"calls":1,"zero":1}` {
+		t.Fatalf("read_stats=%q, want {\"calls\":1,\"zero\":1}(zero hit 1회)", meta["read_stats"])
+	}
+}
+
 // TestHotStatsWiringAccumulates — hot 경로 wiring: 시작 시 meta 로드·
 // 종료 직전 persist로 별도 프로세스 실행(메모리 초기화) 누적이 status에 보인다.
 func TestHotStatsWiringAccumulates(t *testing.T) {
@@ -222,5 +357,30 @@ func TestHotStatsWiringAccumulates(t *testing.T) {
 	}
 	if m := decode(t, out); m["hot_calls"] != float64(2) {
 		t.Fatalf("2회차 hot_calls=%v, want 2(누적 증가); out=%s", m["hot_calls"], out)
+	}
+}
+
+// TestStatusLoadsHotStatsFromMeta — 프로세스 분리 시뮬레이션(메모리 비어 있음):
+// status는 meta hot_stats baseline을 로드해 직전 실행 누적을 보고한다(F-T56-1).
+func TestStatusLoadsHotStatsFromMeta(t *testing.T) {
+	resetMetrics()
+	f := &fakeStore{}
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		switch {
+		case len(args) == 1 && args[0] == "hot_stats":
+			return [][]any{{`{"calls":5,"sum":150,"lens":[10,20,30,40,50]}`}}, nil
+		case strings.Contains(sql, "FROM meta"):
+			return [][]any{{"2"}}, nil // schema_version
+		}
+		return [][]any{{int64(0)}}, nil // pending
+	}
+	withFake(t, f)
+	out, code := mustRun(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["hot_calls"] != float64(5) || m["hot_p95"] != float64(50) {
+		t.Fatalf("meta baseline 미로드: hot_calls=%v hot_p95=%v, want 5/50", m["hot_calls"], m["hot_p95"])
 	}
 }

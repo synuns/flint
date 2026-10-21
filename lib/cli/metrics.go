@@ -163,6 +163,86 @@ func loadHotStatsFromMeta(ctx context.Context, st Store) {
 	})
 }
 
+// readStatsJSON — meta read_stats 영속 포맷(T56 제로히트 계측).
+type readStatsJSON struct {
+	Calls int `json:"calls"`
+	Zero  int `json:"zero"`
+}
+
+// LoadReadStats — meta read_stats 로드. 키 부재·오류·JSON 파손 시 기본값
+// 폴백(ok=false, 0/0).
+func LoadReadStats(getKV func(string) (string, error)) (calls int, zero int, ok bool) {
+	v, err := getKV("read_stats")
+	if err != nil || v == "" {
+		return 0, 0, false
+	}
+	var st readStatsJSON
+	if json.Unmarshal([]byte(v), &st) != nil {
+		return 0, 0, false // 파손 → 기본값 폴백
+	}
+	return st.Calls, st.Zero, true
+}
+
+// BumpReadStats — read 호출 1회 누적. 기존 read_stats는 getKV로 읽어
+// 합산 후 setKV로 저장(hot_stats 패턴). 파손·부재는 0에서 재기산한다.
+func BumpReadStats(zeroHits bool, getKV func(string) (string, error), setKV func(string, string) error) error {
+	calls, zero, _ := LoadReadStats(getKV) // 파손·부재 폴백 후 재누적
+	st := readStatsJSON{Calls: calls + 1}
+	if zeroHits {
+		st.Zero = zero + 1
+	} else {
+		st.Zero = zero
+	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	return setKV("read_stats", string(b))
+}
+
+// readZeroPct — zero 비율(정수 백분율). calls 0이면 0(나눗셈 가드).
+func readZeroPct(calls, zero int) int {
+	if calls <= 0 {
+		return 0
+	}
+	return zero * 100 / calls
+}
+
+// loadReadStatsFromMeta — status 노출용 meta read_stats 로드(wiring).
+// 조회 실패·부재·파손은 LoadReadStats 폴백과 동일(0/0).
+func loadReadStatsFromMeta(ctx context.Context, st Store) (calls int, zero int) {
+	calls, zero, _ = LoadReadStats(func(key string) (string, error) {
+		rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
+		if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+			return "", err
+		}
+		return fmt.Sprint(rows[0][0]), nil
+	})
+	return calls, zero
+}
+
+// bumpReadStatsToMeta — read 계측 wiring: zero 히트 여부를 meta read_stats에
+// 누적. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
+func bumpReadStatsToMeta(ctx context.Context, st Store, zeroHits bool) {
+	err := BumpReadStats(zeroHits,
+		func(key string) (string, error) {
+			rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
+			if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+				return "", err
+			}
+			return fmt.Sprint(rows[0][0]), nil
+		},
+		func(key, value string) error {
+			_, err := queryOnce(ctx, st,
+				`INSERT INTO meta (key, value) VALUES ($1, $2)
+				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{key, value})
+			return err
+		})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] read stats persist: %v\n", err)
+	}
+}
+
 // persistHotStatsToMeta — 명령 종료 직전 meta hot_stats 누적 저장(wiring).
 // 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13 — 계측이 본말을 바꾸지 않는다).
 func persistHotStatsToMeta(ctx context.Context, st Store) {
