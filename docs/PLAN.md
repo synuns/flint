@@ -258,4 +258,9 @@ flint-plugin/
 - [ ] setup/teardown 원커맨드 — §9 약정 중 미구현: docker compose up·Migrate·초기 시딩·
   플러그인 설치 안내 원커맨드
 - [ ] 세션 자동 요약 — done 시 sessions 테이블 자동 기록(수동 write 의존 제거)
+- [ ] MCP 뷰 캐시 방어 — 장수 mcp 서버 프로세스의 stale 뷰 describe 위험:
+  read 경로 simple protocol 격리 또는 스키마 버전 감시·풀 재생
+- [ ] CI·릴리스 파이프라인 — GitHub Actions(go test + make e2e, Doltgres 서비스)·
+  GoReleaser·릴리스 워크플로(§12 약정 이행)
+- v0.5 이연: 백업 로테이션·보존 정책 / 검색 품질(랭킹·태그 제안)
 - 후보(운영 데이터 확보 후): 병렬 쓰기 충돌 실측 스파이크·복구 훈련 자동화
