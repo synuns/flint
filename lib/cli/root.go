@@ -56,6 +56,10 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
+	// version은 store-free — DB 미기동에도 즉시 응답(§13, T33 룰링).
+	if cmd == "version" {
+		return run(ctx, nil, rest, stdin, stdout)
+	}
 	st, err := newStore(ctx, dsnFromEnv())
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
