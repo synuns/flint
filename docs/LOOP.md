@@ -25,18 +25,31 @@ L3 milestone 루프   v0.1 → v0.2 → v0.3 (각 DoD 체크리스트로 완료 
 
 - L0 spike: 결과만 ADR/검증 기록으로 남기고 코드는 폐기. "되는가?"만 답한다.
 - L1 task: superpowers TDD 스킬 그대로. 1 태스크 = 1 커밋(+회귀 테스트).
-- L2 wave: superlite subagent-driven-development로 병렬 디스패치(독립 태스크 동시 실행). wave 끝에 G2 게이트 1회.
+- L2 wave: superlite subagent-driven-development로 병렬 디스패치(독립 태스크 동시 실행).
+  병렬 태스크는 상호 배타적 파일 소유 — 소유권 겹침은 taskgraph 에지로 직렬화.
+  wave 끝에 G2 게이트 1회.
 - L3 milestone: DoD 전량 충족 + 신선한 최종 리뷰(superlite:final-reviewer) 통과 시에만 다음 milestone.
+
+**스킬 분업 (확정)**
+- **루프 = superlite**: 계획(writing-plans)·디스패치(subagent-driven-development)·
+  검증(verification-before-completion·final-reviewer)·마무리(finishing-a-development-branch)
+- **개발 = pstack**: 코드 작성 태스크는 `/poteto-mode`가 poteto-agent에 위임해 실행.
+  리뷰 시 comment-sicko가 주석 정리·워크어라운드 단속
+- 충돌 시: 프로세스(게이트·중단 조건·TDD 순서)는 이 문서 우선, 코딩 관례는 pstack 우선
 
 ## 3. 태스크 파이프라인 (L1)
 
-1. **plan**: 태스크 슬라이스 확인 — 미정 항목 만나면 §6 프로토콜 먼저
+1. **plan**: 태스크 슬라이스 확인 + **기존 구현 탐색(ripgrep — 중복 구현 금지)** — 미정 항목 만나면 §6 프로토콜 먼저
 2. **red**: 실패 테스트 작성 (계약의 실행 가능한 명세)
 3. **green**: 최소 구현. DB 없이 가능하면 fake, 경계는 통합 테스트로
 4. **refactor**: SOLID 위반 정리 (extract interface, 단일책임 이동)
 5. **commit**: `G1 통과 → 커밋`. 메시지 = `태스크 요약 [wave:N]`
 
 실패 처리: 같은 테스트 3회 red → **중단, 상승**(doubtful assumption 명시와 함께).
+
+테스트 보호(구조적): 태스크 에이전트는 기존 테스트 수정·삭제 금지(신규만 작성).
+완화·삭제는 리뷰어 전용 + 커밋 메시지에 사유 — "all green을 위해 테스트를 지우는"
+에이전트 패턴 방어.
 
 ## 4. 검증 게이트 — 3티어
 
@@ -98,8 +111,9 @@ sql/         # schema·views·queries (embed)
 
 **강제 중단 (에스컬레이션)**
 1. **실패**: 같은 테스트/같은 오류 3회 재시도 → 중단, doubtful assumption 명시
-2. **무진행**: 직전 반복과 같은 상태(테스트 변화 없음·커밋 없음·결정 없음) 2회 연속 → 중단
-3. **예산 초과**: 태스크 90분 / wave 6시간(추정 2배) / milestone 3세션 초과 → 중단, 남은 것 재계획
+2. **무진행**(조작적 정의): 동일 오류 시그니처(실패 테스트 ID + 에러 요약) 2회 연속,
+   또는 커밋·ADR 산출 없이 30분 경과 → 중단
+3. **예산 초과**: 태스크 90분 / wave 6시간(추정 2배) / milestone 12시간 초과 → 중단, 남은 것 재계획
 4. **범위 침입**: 현재 wave 밖 요구 발견 → 백로그 적립 후 계획서 제안, 현재 루프에 편입 금지
 5. **외부 승인**: Release 퍼블리시·홈브루 tap 공개 등 외부향 행위 → 사용자 확인 필수
 
@@ -140,3 +154,4 @@ sql/         # schema·views·queries (embed)
 - 태스크 1개 = 커밋 1개(회귀 테스트 포함). wave 1개 = 병합 or 리뷰 1회.
 - 결정 = `docs/adr/` ADR. 장애·학습 = `.superlite/incidents.jsonl`.
 - 매 milestone 종료: DoD 체크 결과 + 남은 부채 리포트 1페이지.
+- G3 리뷰어는 diff뿐 아니라 PLAN.md §7 계약(exit code·출력 형식)을 대조 — 리뷰 기준의 점진적 하락 방지.
