@@ -58,6 +58,46 @@ func (r *Repo) EnsureSchemaV2(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV3는 meta.schema_version<3인 DB를 v3로 무손실 승격한다:
+// knowledge 필터 경로(entity·domain·status) B-tree 인덱스 3종을
+// CREATE INDEX IF NOT EXISTS로 만들고 버전 3을 기록한다(ADR-0008:
+// %q% 무료텍스트는 B-tree가 불가해 시퀀셜 스캔을 수용한다).
+// 이미 v3면 no-op이며, v1·v2 게이트를 경유한 어느 DB에서도 멱등하다.
+func (r *Repo) EnsureSchemaV3(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v3: check version: %w", err)
+	}
+	if version == "3" {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v3: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`CREATE INDEX IF NOT EXISTS flint_knowledge_entity_idx ON knowledge (entity)`,
+		`CREATE INDEX IF NOT EXISTS flint_knowledge_domain_idx ON knowledge (domain)`,
+		`CREATE INDEX IF NOT EXISTS flint_knowledge_status_idx ON knowledge (status)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v3: index: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '3')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v3: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v3: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
 // 이미 active면 멱등 no-op, 없는 id는 ErrNotFound.
 func (r *Repo) Approve(ctx context.Context, id int) error {
