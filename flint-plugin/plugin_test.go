@@ -159,7 +159,34 @@ func TestMCPJSONValid(t *testing.T) {
 	if err := json.Unmarshal(raw, &doc); err != nil {
 		t.Fatalf(".mcp.json 파싱 실패: %v", err)
 	}
-	if _, ok := doc["mcpServers"]; !ok {
-		t.Errorf(".mcp.json에 mcpServers 키 없음 (v0.3 예약 빈 정의)")
+	servers, ok := doc["mcpServers"].(map[string]any)
+	if !ok || len(servers) == 0 {
+		t.Fatalf(".mcp.json mcpServers 비어 있음 (v0.3 실서버 실장 필요)")
+	}
+	for name, s := range servers {
+		srv, ok := s.(map[string]any)
+		if !ok {
+			t.Fatalf("mcpServers.%s가 객체가 아님: %v", name, s)
+		}
+		cmd, _ := srv["command"].(string)
+		if cmd == "" {
+			t.Errorf("mcpServers.%s에 command 필드 없음", name)
+		}
+		if !strings.Contains(cmd, "flint") {
+			t.Errorf("mcpServers.%s command = %q, flint 바이너리여야 함", name, cmd)
+		}
+		args, ok := srv["args"].([]any)
+		if !ok {
+			t.Fatalf("mcpServers.%s에 args 필드 없음", name)
+		}
+		hasMCP := false
+		for _, a := range args {
+			if s, ok := a.(string); ok && s == "mcp" {
+				hasMCP = true
+			}
+		}
+		if !hasMCP {
+			t.Errorf("mcpServers.%s args = %v, \"mcp\" 서브커맨드 필요", name, args)
+		}
 	}
 }
