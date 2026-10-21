@@ -6,6 +6,11 @@ import (
 	"os"
 
 	"flint/lib/cli"
+
+	// blank import — lib/mcp는 cli를 import하므로(tools.go runFn) 역방향
+	// 참조가 불가하다. 여기서 링크해야 mcp init이 RunMCPServer를 주입하고
+	// `flint mcp`가 동작한다(T49/T57 배선).
+	_ "flint/lib/mcp"
 )
 
 func main() {

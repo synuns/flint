@@ -7,6 +7,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"flint/lib/db"
 	"flint/lib/store"
@@ -230,3 +231,44 @@ func TestMaintainRegistered(t *testing.T) {
 var _ MaintStore = (*realStore)(nil)
 
 var _ = store.DefaultThresholds // import 방지(향후 확장용)
+
+// TestMaintainCheckDrillReport — T55 last_drill 경과 보고: 기록 없음→never,
+// 30일 초과→stale, 이내→필드 없음(테이블 커밋 확정 전 fast 회귀).
+func TestMaintainCheckDrillReport(t *testing.T) {
+	stale := time.Now().Add(-40 * 24 * time.Hour).UTC().Format(time.RFC3339)
+	fresh := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
+	cases := []struct {
+		name string
+		last string
+		want string // "" = drill 필드 없음
+	}{
+		{"기록 없음", "", `"drill":"never"`},
+		{"40일 경과", stale, `"drill":"stale"`},
+		{"1일 전", fresh, ""},
+	}
+	for _, c := range cases {
+		f := &fakeMaint{fakeStore: &fakeStore{}, counts: db.Counts{Pending: 1}}
+		f.queryFn = func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "last_drill") {
+				if c.last == "" {
+					return nil, nil
+				}
+				return [][]any{{"last_drill", c.last}}, nil
+			}
+			return nil, nil // 임계값 미설정 → 기본값
+		}
+		out, code := runMaintainArgs(t, f, "--check")
+		if code != 0 {
+			t.Fatalf("%s: exit=%d, want 0; out=%s", c.name, code, out)
+		}
+		if c.want == "" {
+			if strings.Contains(out, "drill") {
+				t.Fatalf("%s: 이내 경과인데 drill 필드 있음: %q", c.name, out)
+			}
+			continue
+		}
+		if !strings.Contains(out, c.want) {
+			t.Fatalf("%s: 출력 %q, want %q 포함", c.name, out, c.want)
+		}
+	}
+}
