@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -54,6 +55,51 @@ func logPlaybookUse(ctx context.Context, st Store, id int, ok bool) {
 	}
 	if err := us.LogPlaybookUse(ctx, id, ok); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] playbook use log: %v\n", err)
+	}
+}
+
+// DoneResult — done 판정 결과(세션 자동 요약 재료).
+type DoneResult struct {
+	Agent      string // 집계 대상 agent
+	Unrecorded int    // 미기록 연속 세션 수
+}
+
+// sessionEndPrefix — 종료 요약 마커 접두(세션 갱신 대상 식별용).
+const sessionEndPrefix = "세션 종료"
+
+// SessionRecord — sessions upsert용 레코드(kind·agent·종료 요약·빈 tasks).
+func (d *DoneResult) SessionRecord() map[string]any {
+	return map[string]any{
+		"kind":    "session",
+		"agent":   d.Agent,
+		"summary": fmt.Sprintf("%s(미기록 %d)", sessionEndPrefix, d.Unrecorded),
+		"tasks":   "[]",
+	}
+}
+
+// writeSessionRecord — 세션 자동 요약 upsert(T41). 같은 agent의 최근
+// 세션이 이미 종료 마커면 요약만 갱신하고(중복 행 금지), 아니면 표준
+// write 경로(INSERT)로 신규 행을 만든다. sessions 갱신은 maintain 갱신
+// 경로 준용. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
+func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) {
+	agent, _ := rec["agent"].(string)
+	rows, err := queryOnce(ctx, st,
+		`SELECT id, summary FROM sessions WHERE agent = $1
+		 ORDER BY ts DESC, id DESC LIMIT 1`, []any{agent})
+	if err == nil && len(rows) > 0 {
+		if id, ok := rows[0][0].(int64); ok {
+			if sum, _ := rows[0][1].(string); strings.HasPrefix(sum, sessionEndPrefix) {
+				if _, err := queryOnce(ctx, st,
+					`UPDATE sessions SET summary = $1, tasks = $2 WHERE id = $3`,
+					[]any{rec["summary"], rec["tasks"], id}); err != nil {
+					fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
+				}
+				return
+			}
+		}
+	}
+	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
 	}
 }
 
@@ -121,18 +167,22 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		return 0
 	}
 	th := doneThresholds(ctx, st)
-	runs, err := staleRuns(ctx, st, agentForSession(ctx, st, session))
+	agent := agentForSession(ctx, st, session)
+	runs, err := staleRuns(ctx, st, agent)
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return 0
 	}
+	res := &DoneResult{Agent: agent, Unrecorded: runs}
 	if runs >= th.StaleSessions {
 		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"연속 %d세션 미기록"}`+"\n", runs, runs)
+		writeSessionRecord(ctx, st, res.SessionRecord())
 		logPlaybookUse(ctx, st, playbook, playbookOK)
 		autoBackupFn(ctx)
 		return 0
 	}
 	fmt.Fprintln(stdout, `{"status":"ok"}`)
+	writeSessionRecord(ctx, st, res.SessionRecord())
 	logPlaybookUse(ctx, st, playbook, playbookOK)
 	autoBackupFn(ctx)
 	return 0
