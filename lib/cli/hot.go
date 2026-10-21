@@ -29,6 +29,8 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 		return store.MapExit(err)
 	}
 	out := query.FormatRows(rows, "kind,topic,summary,ts", false)
-	fmt.Fprint(stdout, query.ClampHot(out, hotMax))
+	clamped := query.ClampHot(out, hotMax)
+	fmt.Fprint(stdout, clamped)
+	RecordHotLen(len([]rune(clamped)))
 	return 0
 }

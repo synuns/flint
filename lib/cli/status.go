@@ -15,6 +15,8 @@ type statusOutput struct {
 	Status        string `json:"status"`
 	SchemaVersion string `json:"schema_version"`
 	Pending       int    `json:"pending"`
+	HotCalls      int    `json:"hot_calls"`
+	HotP95        int    `json:"hot_p95"`
 }
 
 // runStatus — 서버 생존·스키마 호환·pending 대기 수를 보고한다.
@@ -47,7 +49,9 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if len(rows) > 0 {
 		fmt.Sscan(fmt.Sprint(rows[0][0]), &pending)
 	}
-	b, _ := json.Marshal(statusOutput{Status: "ok", SchemaVersion: version, Pending: pending})
+	calls, p95, _ := HotStats()
+	b, _ := json.Marshal(statusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
+		HotCalls: calls, HotP95: p95})
 	fmt.Fprintln(stdout, string(b))
 	return 0
 }
