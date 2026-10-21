@@ -12,6 +12,8 @@ import (
 	"net"
 	"net/url"
 	"os"
+	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +24,7 @@ import (
 
 	"flint/lib/cli"
 	"flint/lib/db"
+	"flint/lib/mcp"
 	"flint/lib/sqlfs"
 )
 
@@ -584,5 +587,199 @@ func TestDoneTriggersAutoBackupAfter24h(t *testing.T) {
 	}
 	if last == stale {
 		t.Fatalf("last_backup 미갱신: %q", last)
+	}
+}
+
+// --- v0.3 섹션: MCP 왕복·hot 계측·version 빌드(T34) ---
+
+// mcpHandle — MCP 메서드 3종 조립. tools/call은 DispatchTool(cli.Run 실구현)
+// 을 경유해 실DB·exit 계약을 그대로 재사용한다(바이너리의 mcp 모드와 동일 구성).
+func mcpHandle(method string, params map[string]any) (any, error) {
+	switch method {
+	case "initialize":
+		return map[string]any{
+			"protocolVersion": "2024-11-05",
+			"capabilities":    map[string]any{"tools": map[string]any{}},
+		}, nil
+	case "tools/list":
+		return map[string]any{"tools": mcp.ToolsManifest()}, nil
+	case "tools/call":
+		name, _ := params["name"].(string)
+		args, _ := params["arguments"].(map[string]any)
+		if args == nil {
+			args = map[string]any{}
+		}
+		out, code := mcp.DispatchTool(name, args)
+		return map[string]any{
+			"content":  []map[string]any{{"type": "text", "text": out}},
+			"exitCode": code,
+		}, nil
+	default:
+		return nil, mcp.ErrUnknownMethod
+	}
+}
+
+// ① MCP stdio 왕복 — initialize→tools/list(3도구)→tools/call flint_read 실DB.
+// Review Focus(protocol): 응답 id 대응, MCP 경로도 실DB 계약·예산 준수.
+func TestMCPRoundtripRealDB(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-mcp-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-mcp-") })
+
+	// 실DB 씨딩 — flint_read가 찾을 대상(도구 밖 CLI 회선으로 심는다).
+	writeKnowledge(t, `{"topic":"e2e-mcp-k","summary":"MCP 왕복 프로브","confidence":0.9}`)
+
+	reqs := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05"}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`,
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"flint_read","arguments":{"query":"e2e-mcp-k","limit":5}}}`,
+	}, "\n") + "\n"
+	var out bytes.Buffer
+	if err := mcp.Serve(strings.NewReader(reqs), &out, mcpHandle); err != nil {
+		t.Fatalf("Serve: %v", err)
+	}
+
+	var resps []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if l != "" {
+			resps = append(resps, decode(t, l))
+		}
+	}
+	if len(resps) != 3 {
+		t.Fatalf("응답 %d행, want 3(요청마다 1행); out=%s", len(resps), out.String())
+	}
+	for i, m := range resps {
+		if m["id"] != float64(i+1) {
+			t.Fatalf("응답[%d] id=%v, want %d(id 대응); out=%s", i, m["id"], i+1, out.String())
+		}
+		if _, bad := m["error"]; bad {
+			t.Fatalf("응답[%d] error=%v; out=%s", i, m["error"], out.String())
+		}
+	}
+
+	// tools/list — 도구 3종·이름 정합.
+	tools, _ := resps[1]["result"].(map[string]any)["tools"].([]any)
+	if len(tools) != 3 {
+		t.Fatalf("도구 %d건, want 3; out=%s", len(tools), out.String())
+	}
+	got := map[string]bool{}
+	for _, tl := range tools {
+		if td, ok := tl.(map[string]any); ok {
+			got[td["name"].(string)] = true
+		}
+	}
+	for _, want := range []string{"flint_read", "flint_write", "flint_hot"} {
+		if !got[want] {
+			t.Fatalf("tools/list에 %q 없음; out=%s", want, out.String())
+		}
+	}
+
+	// tools/call flint_read — 실DB 경유로 씨딩 토픽 회신(exit 0).
+	result, _ := resps[2]["result"].(map[string]any)
+	if ec, _ := result["exitCode"].(float64); ec != 0 {
+		t.Fatalf("flint_read exitCode=%v, want 0; out=%s", result["exitCode"], out.String())
+	}
+	content, _ := result["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("flint_read content 비어 있음; out=%s", out.String())
+	}
+	if text, _ := content[0].(map[string]any)["text"].(string); !strings.Contains(text, "e2e-mcp-k") {
+		t.Fatalf("flint_read 결과에 씨딩 토픽 없음: %q", text)
+	}
+}
+
+// ② hot 계측 — flint_hot 1회 후 status에 hot_calls≥1·hot_p95 노출.
+func TestHotMetricsShowInStatus(t *testing.T) {
+	mustDB(t) // 서버 기동 게이트(status가 DB를 본다)
+
+	if _, code := runCLI(t, []string{"hot"}, ""); code != 0 {
+		t.Fatalf("hot exit=%d, want 0", code)
+	}
+	out, code := runCLI(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("status exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if calls, _ := m["hot_calls"].(float64); calls < 1 {
+		t.Fatalf("hot_calls=%v, want >=1; out=%s", m["hot_calls"], out)
+	}
+	if _, ok := m["hot_p95"]; !ok {
+		t.Fatalf("status에 hot_p95 미노출; out=%s", out)
+	}
+}
+
+// ③ version — make build 후 바이너리가 잘못된 DSN에서도 exit 0·한 줄 JSON.
+func TestVersionBinaryJSON(t *testing.T) {
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("루트 경로: %v", err)
+	}
+	build := exec.Command("make", "build")
+	build.Dir = root
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("make build 실패: %v; out=%s", err, b)
+	}
+
+	vcmd := exec.Command(filepath.Join(root, "bin", "flint"), "version")
+	vcmd.Env = append(os.Environ(), "FLINT_DSN=postgresql://flint:wrong@127.0.0.1:1/flint")
+	b, err := vcmd.Output()
+	if err != nil {
+		t.Fatalf("version exit 오류(store-free여야 함): %v; out=%s", err, b)
+	}
+	m := decode(t, string(b))
+	if v, _ := m["version"].(string); v == "" {
+		t.Fatalf("version 필드 비어 있음: %s", b)
+	}
+	if c, _ := m["commit"].(string); c == "" {
+		t.Fatalf("commit 필드 비어 있음: %s", b)
+	}
+}
+
+// ④ schema v2 승격 실측 — v1 DB에서 done 1회(=세션 시작 경유) 실행만으로
+// meta가 '2'로 승격되고(EnsureSchemaV2, 코디네이터 룰링: newRealStore 훅),
+// 승격 후에도 read·status가 정상이다(v0.2 관찰 회수).
+func TestSchemaV2PromotedAfterDone(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-v3-")
+	t.Cleanup(func() {
+		cleanupTopics(t, pool, "e2e-v3-")
+		// 후속 실행·다른 status 테스트 보호: 버전을 '1'로 되돌린다
+		// (EnsureSchemaV2는 ADD COLUMN IF NOT EXISTS라 재승격 멱등).
+		setMeta(t, pool, "schema_version", "1")
+	})
+	// 백업 자동 격리(done이 하루 첫 세션 백업을 돌릴 수 있다).
+	t.Setenv("FLINT_BACKUP_DIR", t.TempDir())
+
+	// v1 상태에서 시작(실DB가 이미 '2'여도 이 테스트는 '1'에서 출발).
+	setMeta(t, pool, "schema_version", "1")
+	writeKnowledge(t, `{"topic":"e2e-v3-k","summary":"v2 승격 프로브","confidence":0.9}`)
+
+	out, code := runCLI(t, []string{"done", "--session", "e2e-v3-probe"}, "")
+	if code != 0 {
+		t.Fatalf("done exit=%d, want 0; out=%s", code, out)
+	}
+
+	var version string
+	if err := pool.QueryRow(context.Background(),
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("schema_version 조회 실패: %v", err)
+	}
+	if version != "2" {
+		t.Fatalf("done 후 schema_version=%q, want 2(승격 미발생)", version)
+	}
+
+	// 승격 후 read 정상 — 씨딩 토픽이 그대로 보인다.
+	lines := readLines(t, "e2e-v3-k")
+	if len(lines) == 0 || !strings.Contains(lines[0], "e2e-v3-k") {
+		t.Fatalf("승격 후 read 결과 이상: %v", lines)
+	}
+
+	// 회귀(룰링 ②): v2에서도 status는 exit 0(호환 허용 집합 {"1","2"}).
+	out, code = runCLI(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("v2 status exit=%d, want 0; out=%s", code, out)
+	}
+	if m := decode(t, out); m["schema_version"] != "2" {
+		t.Fatalf("status schema_version=%v, want 2; out=%s", m["schema_version"], out)
 	}
 }

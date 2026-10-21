@@ -34,9 +34,10 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if len(rows) > 0 && rows[0][0] != nil {
 		version = fmt.Sprint(rows[0][0])
 	}
-	// meta.schema_version 호환 검사: v0.1 계약은 "1".
-	if version != "1" {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1"}))
+	// meta.schema_version 호환 검사(PLAN §10): 이 CLI가 아는 버전만 허용.
+	// v2는 newRealStore의 EnsureSchemaV2 승격 후 정상 상태다.
+	if version != "1" && version != "2" {
+		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1 또는 2"}))
 		return 3
 	}
 	rows, err = queryOnce(ctx, st,
