@@ -42,6 +42,17 @@ var readColumns = []string{
 // 작은따옴표는 placeholder 파라미터로 전달되므로 별도 이스케이프 불필요.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
+// quoteEscaper — SQL 리터럴 인라인 시 작은따옴표 이스케이프(' → '').
+var quoteEscaper = strings.NewReplacer(`'`, `''`)
+
+// RankOrder — 검색 랭킹 정렬 절(T56): 주제어 정확 일치 우선 → confidence →
+// 최신 수집 순. q는 작은따옴표를 ''로 이스케이프해 인라인한다(ORDER BY 식
+// 조립용 문자열 절 계약).
+func RankOrder(q string) string {
+	return fmt.Sprintf("ORDER BY (lower(topic)=lower('%s')) DESC, confidence DESC, ingested_at DESC",
+		quoteEscaper.Replace(q))
+}
+
 // BuildRead — active_knowledge 뷰 조회 SQL과 placeholder 인자를 조립한다.
 // 무료 텍스트 q는 lower(topic||' '||summary) LIKE lower('%q%') 매칭(ILIKE 대체).
 func BuildRead(q string, f Filters) (string, []any) {
@@ -70,7 +81,7 @@ func BuildRead(q string, f Filters) (string, []any) {
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
-	sql += " ORDER BY ingested_at DESC"
+	sql += " " + RankOrder(q)
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args

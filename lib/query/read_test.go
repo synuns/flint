@@ -35,15 +35,16 @@ func TestBuildReadUsesActiveKnowledge(t *testing.T) {
 	}
 }
 
-// TestBuildReadEscapesLike — q의 %·_는 LIKE 와일드카드로 해석되지 않고,
-// 원문은 절대 SQL에 인라인되지 않는다(placeholder 주입).
+// TestBuildReadEscapesLike — q의 %·_는 LIKE 와일드카드로 해석되지 않는다
+// (WHERE는 placeholder 주입). 랭킹 절(T56)에 인라인되는 복사본은 작은따옴표가
+// ''로 이스케이프된 형태만 허용한다.
 func TestBuildReadEscapesLike(t *testing.T) {
 	sql, args := BuildRead("100%_drop'", Filters{})
-	if strings.Contains(sql, "100%_drop") {
-		t.Errorf("원문 쿼리가 SQL에 인라인됨: %s", sql)
-	}
 	if !strings.Contains(sql, "LIKE lower($1)") {
 		t.Errorf("LIKE lower($1) 패턴 누락: %s", sql)
+	}
+	if !strings.Contains(sql, `lower('100%_drop''')`) {
+		t.Errorf("랭킹 절 이스케이프 인라인 누락: %s", sql)
 	}
 	pat, ok := args[0].(string)
 	if !ok {
@@ -179,6 +180,32 @@ func TestFormatRowsFieldMapping(t *testing.T) {
 	got := strings.TrimRight(FormatRows(rows, "entity,domain", false), "\n")
 	if got != "ent|dom" {
 		t.Errorf("fields 이름 매핑 = %q, want ent|dom", got)
+	}
+}
+
+// TestRankOrderEscapes — q의 작은따옴표는 ''로 이스케이프(인젝션 차단, T56).
+func TestRankOrderEscapes(t *testing.T) {
+	got := RankOrder("a'b")
+	want := "ORDER BY (lower(topic)=lower('a''b')) DESC, confidence DESC, ingested_at DESC"
+	if got != want {
+		t.Errorf("RankOrder(%q) = %q, want %q", "a'b", got, want)
+	}
+}
+
+// TestRankOrderPlain — 평범한 q는 계약 절 그대로(정확일치 → confidence → 최신순).
+func TestRankOrderPlain(t *testing.T) {
+	got := RankOrder("flint")
+	want := "ORDER BY (lower(topic)=lower('flint')) DESC, confidence DESC, ingested_at DESC"
+	if got != want {
+		t.Errorf("RankOrder(%q) = %q, want %q", "flint", got, want)
+	}
+}
+
+// TestBuildReadUsesRankOrder — BuildRead의 정렬 절은 RankOrder(q)를 그대로 삽입.
+func TestBuildReadUsesRankOrder(t *testing.T) {
+	sql, _ := BuildRead("Flint", Filters{})
+	if !strings.Contains(sql, RankOrder("Flint")) {
+		t.Errorf("RankOrder 절 미삽입: %s", sql)
 	}
 }
 
