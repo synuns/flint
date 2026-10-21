@@ -28,6 +28,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: PyYAML 설치 (validate_yaml.py 의존 — runner 선행 패키지 가정 제거)
+        run: python3 -m pip install pyyaml
       - name: YAML 검증 + 단위 테스트
         run: make ci
       - name: e2e (실 Doltgres)
