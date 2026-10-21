@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -238,7 +239,7 @@ func TestWriteJSONLSingleCommit(t *testing.T) {
 func TestWriteStripsNonColumnKeys(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	_, code := mustRun(t, []string{"write", "project"},
+	out, code := mustRun(t, []string{"write", "project"},
 		`{"name":"p1","status":"active","note":"메타데이터"}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
@@ -249,6 +250,30 @@ func TestWriteStripsNonColumnKeys(t *testing.T) {
 	}
 	if rec["name"] != "p1" || rec["status"] != "active" {
 		t.Fatalf("컬럼 유실: %v", rec)
+	}
+	// 무경고 삭제 금지: 경고 배열이 있어야 한다.
+	m := decode(t, out)
+	w, ok := m["warnings"].([]any)
+	if !ok || len(w) == 0 || !strings.Contains(fmt.Sprint(w[0]), "note") {
+		t.Fatalf("dropped keys 경고 없음: %v", m["warnings"])
+	}
+}
+
+func TestWriteWarnsDroppedKeys(t *testing.T) {
+	f := &fakeStore{}
+	withFake(t, f)
+	out, code := mustRun(t, []string{"write", "session"},
+		`{"agent":"claude","summary":"s","tasks":["a","b"]}`)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0", code)
+	}
+	if len(f.inserted) != 1 || f.inserted[0]["summary"] != "s" {
+		t.Fatalf("저장은 정상이어야 한다: %v", f.inserted)
+	}
+	m := decode(t, out)
+	w, ok := m["warnings"].([]any)
+	if !ok || len(w) == 0 || !strings.Contains(fmt.Sprint(w[0]), "tasks") {
+		t.Fatalf("warnings=%v, want dropped keys: tasks", m["warnings"])
 	}
 }
 
