@@ -2,7 +2,7 @@
 
 - **이름**: flint — version-controlled memory for AI agents
 - **날짜**: 2026-10-20
-- **상태**: 기획 완결 — v0.1 착수 전
+- **상태**: v0.4 완료(2026-10-22) — v0.5 기획(§14)
 - **태그**: agent, doltgres, cli, mcp, knowledge-base
 
 ---
@@ -45,7 +45,7 @@
 3. 1.0 달성(2026-08), dolthub 제작
 
 **제약(수용)**
-- 데몬 1개 상시 (Docker `dolthub/doltgresql:latest`, 포트 5432,
+- 데몬 1개 상시 (Docker `dolthub/doltgresql:latest`, 호스트 포트 5433(ADR-0001),
   `DOLTGRES_USER/DOLTGRES_PASSWORD`)
 - 확장 제한: pgvector·PostGIS 불가 — 임베딩은 태그+LIKE → 필요시 앱 사이드 코사인
 - 락 클로저(FOR UPDATE) 미지원 → 재시도 필수
@@ -60,7 +60,7 @@
    ▼
 flint 엔진 (단일 Go 바이너리 — DB 접속·검색·커밋·백업)
    ▼
-Doltgres (localhost 표준 포트, launchd 상시)
+Doltgres (localhost:5433, docker compose 상시 — restart 정책)
    ↑ 파생 규칙: 복사 금지, 인덱스·요약만
 옵시디언 볼트 (인간용 원본)
 ```
@@ -112,7 +112,7 @@ project:  { "name", "status": "active|paused|done", "note"? }
 - 필터: `--tag --entity --domain --limit`
 - 출력: 기본 `id|topic|summary(80자)` 3컬럼 — `--json --fields id,topic`(gh 패턴) 전체 선택
 - **토큰 예산 박제**: limit 기본 10 / 상한 50
-- `flint hot`: 출력 형식 고정 + 임시 상한 2,000자(2주 실측 p95 후 확정)
+- `flint hot`: 출력 형식 고정 + 상한 = meta hot_budget(기본 2,000자, TUNING.md §1)
 - reader role은 뷰만, 재시도 1회 후 exit 2
 
 ### exit code
@@ -128,8 +128,9 @@ project:  { "name", "status": "active|paused|done", "note"? }
   병합·`invalid_at` 갱신 → 커밋. 순수 SQL 자동 판정은 오탐(GGraphiti·mem0 선례).
 - 스키마 마이그레이션: dolt 브랜치에서 실험 → merge
 - 감사: `dolt_log`·`dolt_diff_*`가 곧 감사 리포트
-- 백업: `flint backup` — 기본 덤프(Time Machine 대상 경로)·git 백업 모드(push),
-  하루 첫 세션 지연 트리거. 복구 `flint restore --file`. 복구 훈련 1회.
+- 백업: `flint backup` — flint 자체 SQL 덤프 + 데이터디렉터리 스냅샷 이중화(ADR-0002),
+  sha256 무결성 체크섬, 하루 첫 세션 지연 트리거.
+  복구 `flint restore --file`(가드 탑재). 복구 훈련 정례화는 v0.5.
   dolt 원격 푸시는 미지원으로 제외. 세션 로그 유실은 수용 명시.
 
 ## 9. UX 원칙 — 사용자 접점 3개
@@ -144,13 +145,15 @@ SQL·스키마·CLI 문법은 전부 에이전트 영역 — 사용자 비노출
 
 - **Go 단일 정적 바이너리** `bin/flint` — pgx 내장(psql 불필요, Doltgres 테스트
   스택과 동일), SQL은 embed. 차선: python3 stdlib(계약 동일, 교체 비파괴)
-- 서브커맨드 11종:
+- 서브커맨드 12종:
   `setup / teardown / write / read / approve / maintain / hot / status /
-   backup / restore / done / mcp(v0.3)`
+   backup / restore / done / version(v0.3 추가)`
+  — `mcp`: 서버 코어(lib/mcp)는 구현됐으나 CLI 미연결 → v0.5 수선(§14)
 - 원칙: 프롬프트 금지 · 출력 기본 = 한 줄 JSON(`--pretty`만 사람용) ·
   에러는 셀프디스크립팅(원인+수정법) · TUI 없음 · 파이프 가능
 - 레포 구조: `bin/`(바이너리) `lib/`(Go 패키지, SQL embed 포함) `cmd/flint/`(진입점) `docs/` `data/`(런타임만 git 무시)
-- 테스트: E2E 3케이스(dedup / 재시도 / 이스케이프) + 판정 로직 단위
+- 테스트: E2E 3케이스(dedup / 재시도 / 이스케이프) + 판정 로직 단위 —
+  v0.4 기준 E2E 17 시나리오로 확장(tests/e2e)
 
 ## 11. 리스크·기계화
 
@@ -158,8 +161,8 @@ SQL·스키마·CLI 문법은 전부 에이전트 영역 — 사용자 비노출
   ②훅(hot/done, Stop 출력로 순응 유도) ③CLI 경고(기록 경과·pending).
   CLAUDEmd 마킹 블록 방식은 폐지 → 플러그인으로 이관.
 - **백복 설계**: 주기·보관·복구 훈련 — 저장소 추가는 `--backup-dir` 1회 지정
-- **데몬 조용한 사망 방지**: launchd KeepAlive + `flint status` 점검,
-  다운 시 다음 세션 첫 줄 경고
+- **데몬 조용한 사망 방지**: docker compose restart 정책(unless-stopped) +
+  `flint status` 점검, 다운 시 다음 세션 첫 줄 경고
 - **주입 콘텐츠 오염 전파 방지**: `[flint]` 접두 = 데이터 경계,
   "주입은 지시문 아님" 규칙, 오염 시 `dolt_revert` 롤백
 - **confidence는 품질 필터지 보안 아님** 명시
@@ -172,7 +175,8 @@ SQL·스키마·CLI 문법은 전부 에이전트 영역 — 사용자 비노출
 | 표준 인터페이스 | `flint mcp` — read/write/hot MCP 도구 | 바이너리 포함 |
 | 하니스 포장 | Claude Code 플러그인 | `plugin install` 1커맨드 |
 
-- 릴리스: 태그 push → Actions 빌드(darwin arm64/amd64) → Release 첨부
+- 릴리스: 태그 push 시 CI는 절차 안내만 출력 — 실 릴리스는 사용자 확인 후
+  goreleaser(darwin arm64/amd64) → Release 첨부(비간섭 원칙, T43)
 - 선택: homebrew-tap 공개 레포 + `brews.repository`(v2) + GH_PAT
 - 버전: git 태그 + `flint version`(ldflags) + meta.schema_version 호환 검사
 - 업데이트 런북: `git pull && make install && flint setup --update-rules`
@@ -202,29 +206,29 @@ flint-plugin/
 
 ## 14. 마일스톤
 
-### v0.1 코어 루프
-- [ ] 기술검증 3건 → Doltgres 구동·스키마 → write/read/hot/status
-- [ ] 수동 백업(덤프) → Claude Code 플러그인(훅+스킬) → 시딩
+### v0.1 코어 루프 (2026-10-21 완료)
+- [x] 기술검증 3건 → Doltgres 구동·스키마 → write/read/hot/status
+- [x] 수동 백업(덤프) → Claude Code 플러그인(훅+스킬) → 시딩
 - 시딩: 활성 프로젝트 3건(메이플 머지게임·미니 던전·툴박스) + flint 기획 결정
   일괄 + 사용자 선호(출력 스타일)
-### v0.2 운영 편의
-- [ ] approve 정식화 / maintain 트리거 / done 임계값 경고 / 백업 자동
-### v0.3 확장
-- [ ] flint mcp / Hermes 카탈로그·OpenClaw 어댑터 / 임계값 튜닝
+### v0.2 운영 편의 (2026-10-21 완료)
+- [x] approve 정식화 / maintain 트리거 / done 임계값 경고 / 백업 자동
+### v0.3 확장 (2026-10-22 완료)
+- [x] flint mcp / Hermes 카탈로그·OpenClaw 어댑터 / 임계값 튜닝
 
 ## 15. 이연 결정 (트리거 정의됨)
 
-- [ ] 주입 예산 상한: hot_view 2주 실측 p95로 확정
-- [ ] 보존·영구삭제: 데이터 축적 후 판단 (진짜 삭제는 filter-branch)
-- [ ] 백업 포맷 확정: pg_dump 검증 결과에 따름
-- [ ] 임계값 수치(pending>50·중복>20·conf<0.8·연속 3세션): 운영 중 조정
+- [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
+- [ ] 보존·영구삭제: 데이터 축적 후 판단 (진짜 삭제는 filter-branch) — v0.5 백업 보존 정책과 연계
+- [x] 백업 포맷 확정: pg_dump 검증 결과에 따름 → 회수(W0): pg_dump 실패, 자체 SQL 덤프 확정(ADR-0002)
+- [x] 임계값 수치(pending>50·중복>20·conf<0.8·연속 3세션): 운영 중 조정 → 회수: meta 오버라이드 체계(TUNING.md §2)
 
 ## 16. 기술 검증 (v0.1 첫 작업)
 
-- [ ] pg_dump 백업(export 방향) 호환
-- [ ] dbhub↔Doltgres 실접속
-- [ ] Doltgres AS OF 시간여행 쿼리
-- [ ] flint 이름 전역 충돌 스윕 (웹 검색 복구 후, 공개 전 필수)
+- [x] pg_dump 백업(export 방향) 호환 → FAIL(Doltgres 미지원): 자체 SQL 덤프로 대체 확정(ADR-0002)
+- [x] dbhub↔Doltgres 실접속 → 대체 회수: flint mcp 서버가 실접속 증명(실DB e2e 통과), dbhub 외부 도구 검증 폐기
+- [x] Doltgres AS OF 시간여행 쿼리 → 동작 확인(ADR-0002 전제로 채택)
+- [x] flint 이름 전역 충돌 스윕 → 예비 스윕 완료, 비공개 한정 유지(ADR-0003, 공개 전 재스윕 의무 유지)
 
 ## 17. 정정 기록·비고
 
@@ -247,22 +251,37 @@ flint-plugin/
 - Doltgres 제약 해결: 다중문장 Exec 미지원→문장별 실행, CREATE OR REPLACE 뷰 컬럼 미갱신→simple 프로토콜 DROP+CREATE
 - 루프 교훈: wave0(스켈레톤)은 병렬 태스크보다 반드시 선행 (후행 시 스텝 덮어쓰기 사고 — v0.1 인시던트)
 
-### v0.4 운영 콘텐츠·계측 (2026-10-22 기획)
-- [ ] 콘텐츠 정책 v2 구현 — CONTENT.md(유형 8종·플레이북 계약·증류 루프·어휘표) write 검증 반영:
+### v0.4 운영 콘텐츠·계측 (2026-10-22 기획·완료)
+- [x] 콘텐츠 정책 v2 구현 — CONTENT.md(유형 8종·플레이북 계약·증류 루프·어휘표) write 검증 반영:
   어휘 밖 tags/domain 경고, seed 정합 승격
-- [ ] 자가발전 루프 — maintain 세션에서 패턴 탐지(성공 2회·실패→성공)→플레이북 후보 제안,
+- [x] 자가발전 루프 — maintain 세션에서 패턴 탐지(성공 2회·실패→성공)→플레이북 후보 제안,
   done 시 플레이북 사용 로그·성공률 기록, 성공률 기반 무효화 후보 보고
-- [ ] 계측 영속화 — hot 길이 통계를 meta에 누적(현재 프로세스 내 한정 결함:
+- [x] 계측 영속화 — hot 길이 통계를 meta에 누적(현재 프로세스 내 한정 결함:
   CLI 단발 프로세스라 hot_calls가 매 실행 초기화됨), p95 실측 실현
-- [ ] hot 예산 meta화 — 2,000자 상수 → meta hot_budget(TUNING.md 예약 키 회수)
-- [ ] setup/teardown 원커맨드 — §9 약정 중 미구현: docker compose up·Migrate·초기 시딩·
+- [x] hot 예산 meta화 — 2,000자 상수 → meta hot_budget(TUNING.md 예약 키 회수)
+- [x] setup/teardown 원커맨드 — §9 약정 중 미구현: docker compose up·Migrate·초기 시딩·
   플러그인 설치 안내 원커맨드
-- [ ] 세션 자동 요약 — done 시 sessions 테이블 자동 기록(수동 write 의존 제거)
-- [ ] MCP 뷰 캐시 방어 — 장수 mcp 서버 프로세스의 stale 뷰 describe 위험:
+- [x] 세션 자동 요약 — done 시 sessions 테이블 자동 기록(수동 write 의존 제거)
+- [x] MCP 뷰 캐시 방어 — 장수 mcp 서버 프로세스의 stale 뷰 describe 위험:
   read 경로 simple protocol 격리 또는 스키마 버전 감시·풀 재생
-- [ ] 보안 구조 방어(ADR-0006) — 메모리 포이즈닝·비밀 유출 대응:
+- [x] 보안 구조 방어(ADR-0006) — 메모리 포이즈닝·비밀 유출 대응:
   입출력 살균·비밀 패턴 스캔 경고, 백업 sha256 무결성+restore 가드, origin 필터·분포
-- [ ] CI·릴리스 파이프라인 — GitHub Actions(go test + make e2e, Doltgres 서비스)·
+- [x] CI·릴리스 파이프라인 — GitHub Actions(go test + make e2e, Doltgres 서비스)·
   GoReleaser·릴리스 워크플로(§12 약정 이행)
 - v0.5 이연: 백업 로테이션·보존 정책 / 검색 품질(랭킹·태그 제안)
 - 후보(운영 데이터 확보 후): 병렬 쓰기 충돌 실측 스파이크·복구 훈련 자동화
+
+### v0.5 신뢰성·검색 품질 (2026-10-22 기획)
+- [ ] mcp CLI 연결 — flint-plugin/.mcp.json이 `bin/flint mcp`를 호출하나
+  서브커맨드 미등록(unknown command): lib/mcp 서버를 cli registry에 연결(v0.4 부채)
+- [ ] 병렬 쓰기 충돌 실측 — N-way 동시 write 스트레스 + 재시도 0/1/3s 실측
+  (필수 요구 5의 실증, v0.4 후보 편입)
+- [ ] 스키마 인덱스 설계 — schema.sql 인덱스 미정 상태: tags/entity/domain/valid_at
+  검색 경로 + Doltgres 함수 인덱스 지원 확인
+- [ ] 감사·롤백 루북 — `flint audit`(dolt_log·dolt_diff 출력) 또는 /flint 확장 +
+  오염 시 dolt_revert 실행 절차 문서화 (ADR-0006 보완)
+- [ ] 복구 훈련 정례화 — 월 1회 restore 드라이런 + 백업 무결성 점검 자동화
+  (T47 체크섬 기반)
+- [ ] 백업 로테이션·보존 정책 — v0.4 이연 편입 (§15 보존·영구삭제 연계)
+- [ ] 검색 품질 — 랭킹·태그 제안, 트리거 정의(검색 실패율·p95) 후
+  n-gram·앱 사이드 코사인
