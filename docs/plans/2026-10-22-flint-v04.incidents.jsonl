@@ -1,0 +1,105 @@
+{"file": "docs/adr/0004-schema-tasks-note.md", "line": 0, "context": "T16: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "19:59:24"}
+{"file": "docs/plans/2026-10-21-flint-v01.incidents.jsonl", "line": 0, "context": "T16: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "19:59:24"}
+{"file": "docs/plans/2026-10-21-flint-v02.spec.md", "line": 0, "context": "T16: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "19:59:24"}
+{"file": "lib/cli/registry.go", "line": 40, "context": "help 등록 시 store 접속 후 dispatch되어 DB 다운 시 flint help exit2 회귀 — 동작 불변 우선으로 미등록, usage는 기존 경로 유지", "agent": "T23", "kind": "spec-ambiguity", "resolution": "help 미등록, 코디네이터 확인 요청", "confidence": "medium", "time": "19:59:53"}
+{"file": "lib/sqlfs/schema.sql", "line": 1, "context": "repo.go는 schema_version='1' 하드코딩+수정금지. v2 값 갱신은 T17 admin.go 버전 게이트 소관이라고 가정, schema.sql은 주석 명시만", "agent": "T21", "kind": "spec-ambiguity", "resolution": "schema.sql 주석에 v2 명시, 실제 meta 갱신은 T17에 위임", "confidence": "medium", "time": "20:01:41"}
+{"file": "lib/db/repo.go", "line": 57, "context": "Migrate가 meta.schema_version='2'를 읽으면 err=nil 경로로 정의되지 않은 실패(v0.1 로직이 '1'만 상정). 운용 시 EnsureSchemaV2 후 다음 Migrate가 죽음", "agent": "T17", "kind": "spec-ambiguity", "resolution": "테스트는 cleanup으로 meta='1' 복원해 격리. repo.go는 v0.1 소유라 미수정 — 코디네이터 룰링 필요", "confidence": "high", "time": "20:07:02"}
+{"file": "lib/db/repo.go", "line": 53, "context": "버전 게이트를 정수 파싱 n>=1로 교체(코디네이터 룰링, 소유 T17 이관). meta='2'에서 Migrate 통과·버전 보존 회귀 TestMigrateAcceptsV2 추가", "agent": "T17", "kind": "spec-ambiguity", "resolution": "해결 — 게이트 교체로 v2 DB에서 Migrate 정상 통과, 양 모드 전 패키지 PASS", "confidence": "high", "time": "20:09:25"}
+{"file": "", "line": 0, "context": "verified: seam T21↔T17", "agent": "pt_review", "kind": "verified", "time": "20:09:57"}
+{"file": "", "line": 0, "context": "verified: seam T16↔T17", "agent": "pt_review", "kind": "verified", "time": "20:09:57"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T18", "agent": "pt_review", "kind": "verified", "time": "20:11:31"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T19", "agent": "pt_review", "kind": "verified", "time": "20:12:26"}
+{"file": "lib/cli/done.go", "line": 28, "context": "T19 maintain.go와 loadThresholds 이름 충돌 — 내 헬퍼 제거, T19 구현 소비(doneThresholds 래핑, 에러 시 기본값 폴백)", "agent": "T20", "kind": "workaround", "resolution": "doneThresholds에서 loadThresholds 재사용", "confidence": "high", "time": "20:14:15"}
+{"file": "", "line": 0, "context": "verified: seam T16↔T20", "agent": "pt_review", "kind": "verified", "time": "20:14:41"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T20", "agent": "pt_review", "kind": "verified", "time": "20:14:41"}
+{"file": "", "line": 0, "context": "verified: seam T20↔T25", "agent": "pt_review", "kind": "verified", "time": "20:15:39"}
+{"file": "lib/cli/done.go", "line": 84, "context": "T24 시나리오④ 요구: done 실행 시 24h 경과 자동 백업 파일 생성 — runDone에 backup.Auto 트리거 부재(T20 브리프에 백업 없었음). 기본 백업 경로 규칙도 부재", "agent": "T24", "kind": "spec-ambiguity", "resolution": "대기: done에 비차단 RunIfNeeded 연결 + FLINT_BACKUP_DIR 경로 제안, 코디네이터 룰링 필요", "confidence": "high", "time": "20:18:05"}
+{"file": "lib/cli/done.go", "line": 87, "context": "T24 ④ 해결: done 판정 후 autoBackupFn(maybeAutoBackup) — FLINT_BACKUP_DIR 기본 ~/.flint/backup, 지연 파일 writer, 실패 stderr 1행 무시, 출력·exit 불변. e2e ③ 누출(홈 백업 파일) 발견→FLINT_BACKUP_DIR 임시 격리로 수정·파일 삭제·meta 복구", "agent": "T24", "kind": "workaround", "resolution": "룰링(a) 적용, e2e 7/7 통과", "confidence": "high", "time": "20:21:16"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T20", "agent": "pt_review", "kind": "verified", "time": "20:21:28"}
+{"file": "", "line": 0, "context": "verified: seam T16↔T20", "agent": "pt_review", "kind": "verified", "time": "20:21:28"}
+{"file": "", "line": 0, "context": "verified: seam T20↔T25", "agent": "pt_review", "kind": "verified", "time": "20:21:28"}
+{"file": "", "line": 0, "context": "verified: seam T22↔T24", "agent": "pt_review", "kind": "verified", "time": "20:21:29"}
+{"file": "", "line": 0, "context": "verified: seam T17↔T24", "agent": "pt_review", "kind": "verified", "time": "20:21:29"}
+{"file": "", "line": 0, "context": "verified: seam T23↔T24", "agent": "pt_review", "kind": "verified", "time": "20:21:29"}
+{"file": "lib/cli/status.go", "line": 0, "context": "T31: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:19:13"}
+{"file": "lib/cli/version.go", "line": 22, "context": "flint version이 root.go Run의 store 접속 경유 — DB 다운 시 exit 2. root.go는 비소유 파일이라 수정 불가", "agent": "T33", "kind": "spec-ambiguity", "confidence": "medium", "time": "00:19:14"}
+{"file": "-", "line": 0, "context": "TestHotRecordsRuneLen: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "00:19:14"}
+{"file": "lib/cli/metrics_test.go", "line": 10, "context": "fast 런 중 TestHotRecordsRuneLen 실패 — T29 동시 편집 시차. 단독 재실행 PASS", "agent": "T33", "kind": "flaky", "resolution": "재실행 통과, T29 소유", "confidence": "medium", "time": "00:19:30"}
+{"file": "docs/check_tuning_meta.sh", "line": 0, "context": "T29: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:19:47"}
+{"file": "lib/cli/status.go", "line": 0, "context": "T29: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:19:47"}
+{"file": "docs/check_tuning_meta.sh", "line": 0, "context": "T31: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:19:47"}
+{"file": "lib/cli/status.go", "line": 0, "context": "T31: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:19:47"}
+{"file": "docs/check_tuning_meta.sh", "line": 0, "context": "T32: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:19:47"}
+{"file": "lib/cli/status.go", "line": 0, "context": "T32: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:19:47"}
+{"file": "-", "line": 0, "context": "./docs [setup failed]: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "00:20:21"}
+{"file": "-", "line": 0, "context": "./docs [setup failed]: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "00:20:27"}
+{"file": "docs/tuning_test.go", "line": 0, "context": "T26: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:20:57"}
+{"file": "docs/TUNING.md", "line": 20, "context": "hot_budget 키는 코드 미반영(어느 태스크도 hot.go 예산 읽기 미소유) — 문서에 예약 키로 표기하고 검증도 표기 존재만 확인", "agent": "T30", "kind": "assumption", "resolution": "문서에 '예약 키 — 코드 반영 선행' 명시, 검증 스크립트는 예약 표기 grep", "confidence": "high", "time": "00:21:00"}
+{"file": "docs/tuning_test.go", "line": 1, "context": "run_tests --fast ./docs/가 go 테스트 요구(문서만 있으면 fail) — 검증 스크립트를 bash 대신 Go 테스트로 구현", "agent": "T30", "kind": "workaround", "resolution": "bash 스크립트 삭제, 동일 grep 논리를 docs/tuning_test.go로 이식", "confidence": "high", "time": "00:21:00"}
+{"file": "-", "line": 0, "context": "TestMCPJSONValid: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "00:21:15"}
+{"file": "", "line": 0, "context": "verified: seam T27↔T28", "agent": "pt_review", "kind": "verified", "time": "00:21:37"}
+{"file": "lib/cli/done.go", "line": 70, "context": "T34④: EnsureSchemaV2 호출처가 CLI에 없어 done 실행 후 meta='2' 불가. 실DB='1' 확인. 룰링 요청(옵션 A e2e 직접 호출 / B 훅 연결 태스크)", "agent": "T34", "kind": "spec-ambiguity", "confidence": "high", "time": "00:24:24"}
+{"file": "-", "line": 0, "context": "tests/e2e [setup failed]: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "00:25:34"}
+{"file": "tests/e2e/e2e_test.go", "line": 741, "context": "④ cleanup의 meta '1' 복구 후에도 1회 관찰에서 DB가 '2'로 잔류(make e2e+go test ./... 조합). 3회 재현 시도 모두 정상 복구. 잔류해도 status v2 허용으로 무해", "agent": "T34", "kind": "flaky", "resolution": "미재현 - 잔류해도 status v2 허용으로 무해", "confidence": "low", "time": "00:30:00"}
+{"file": "lib/cli/status_gate_test.go", "line": 0, "context": "T34: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:30:27"}
+{"file": "lib/cli/status_gate_test.go", "line": 0, "context": "T34: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "00:30:36"}
+{"file": "", "line": 0, "context": "verified: seam T27↔T34", "agent": "pt_review", "kind": "verified", "time": "00:30:57"}
+{"file": "", "line": 0, "context": "verified: seam T29↔T34", "agent": "pt_review", "kind": "verified", "time": "00:30:57"}
+{"file": "", "line": 0, "context": "verified: seam T26↔T34", "agent": "pt_review", "kind": "verified", "time": "00:30:57"}
+{"file": "", "line": 0, "context": "verified: seam T33↔T34", "agent": "pt_review", "kind": "verified", "time": "00:30:57"}
+{"file": "", "line": 0, "context": "verified: seam T29↔T34", "agent": "pt_review", "kind": "verified", "time": "00:34:02"}
+{"file": "-", "line": 0, "context": "flint/lib/store [build failed]: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:12:13"}
+{"file": "lib/store/policy.go", "line": 39, "context": "domain 빈 값은 검사 생략(선택 인자 가정) — 스펙 미명시", "agent": "T35", "kind": "assumption", "resolution": "빈 domain 통과, 비빈 값만 표 검사", "confidence": "medium", "time": "01:12:32"}
+{"file": "lib/cli/metrics.go", "line": 6, "context": "parallel T38 edit mid-build: LoadHotStats undefined, json import unused — package build transient failure", "agent": "T39", "kind": "test-failure", "resolution": "retry after T38 lands; own RED confirmed via HotBudget undefined", "confidence": "high", "time": "01:12:57"}
+{"file": "-", "line": 0, "context": "flint/lib/cli [build failed]: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:13:41"}
+{"file": "-", "line": 0, "context": "flint/lib/db [build failed]: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:13:56"}
+{"file": "/Users/identity/orca/workspaces/flint/main/scripts/validate_yaml.py", "line": 8, "context": "make ci가 runner python3의 PyYAML 선타장착 가정(ubuntu-latest 사전설치 목록 기준)", "agent": "T43", "kind": "assumption", "confidence": "medium", "time": "01:14:33"}
+{"file": "data/seed_test.go", "line": 0, "context": "T46: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:14:38"}
+{"file": "docs/TUNING.md", "line": 0, "context": "T46: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:14:38"}
+{"file": "scripts/validate_yaml.py", "line": 0, "context": "T46: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:14:38"}
+{"file": "lib/cli/done.go", "line": 98, "context": "done.go 'playbook' declared-not-used: lib/cli build fail blocks lib/mcp test red step (parallel T37/T41 in progress)", "agent": "T42", "kind": "test-failure", "resolution": "wait for parallel task, retry", "confidence": "high", "time": "01:14:38"}
+{"file": "lib/db/usage_test.go", "line": 25, "context": "run_tests --fast ./lib/db/ 빌드 실패 — 병렬 T37 usage_test.go가 usage.go보다 먼저 적립. 내 파일 아님", "agent": "T36", "kind": "test-failure", "resolution": "T37 usage.go 적립 후 자동 해결, 재검증 passed 1 failed 0", "confidence": "high", "time": "01:14:50"}
+{"file": "data/seed_test.go", "line": 0, "context": "T43: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:14:58"}
+{"file": "docs/TUNING.md", "line": 0, "context": "T43: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:14:58"}
+{"file": "data/seed_test.go", "line": 0, "context": "T46: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:14:58"}
+{"file": "docs/TUNING.md", "line": 0, "context": "T46: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:14:58"}
+{"file": "data/seed_test.go", "line": 72, "context": "TestSeedLinesValid 기존 집계(결정 5건)가 플레이북 2건 추가로 위반 — 플랜 T45 '기존 확장' 지시에 따라 playbooks 분류 추가", "agent": "T45", "kind": "spec-ambiguity", "resolution": "seed_test.go에 playbooks 카운터 추가(결정 5 유지, 플레이북 2 별도 집계)", "confidence": "high", "time": "01:15:11"}
+{"file": "lib/cli/metrics_test.go", "line": 121, "context": "패키지 빌드 실패: 병렬 T39/T40 미구현 심볼(HotBudget·RunSetup) 대기 후 해소", "agent": "T38", "kind": "test-failure", "resolution": "45-60초 대기 후 재실행, 전체 통과", "confidence": "high", "time": "01:15:18"}
+{"file": "data/seed_test.go", "line": 0, "context": "T39: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:15:26"}
+{"file": "data/seed_test.go", "line": 0, "context": "T36: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:15:27"}
+{"file": "data/seed_test.go", "line": 0, "context": "T37: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:15:27"}
+{"file": "data/seed_test.go", "line": 0, "context": "T43: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:15:27"}
+{"file": "data/seed_test.go", "line": 0, "context": "T46: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:15:27"}
+{"file": "lib/cli/setup.go", "line": 16, "context": "실 setup 검증 중 docker compose up 일시 실패(컨테이너 기동 경합) — 재실행 all-green, 코드 문제 아님", "agent": "T40", "kind": "flaky", "resolution": "transient-race", "confidence": "medium", "time": "01:16:50"}
+{"file": "lib/cli/root.go", "line": 63, "context": "Run이 store 접속 후 핸들러 호출 — DB 전면 다운 시 setup이 단계 진입 전 exit 2(첫 실행 시나리오와 충돌). root.go는 T40 소유 아님", "agent": "T40", "kind": "spec-ambiguity", "confidence": "high", "time": "01:16:50"}
+{"file": "-", "line": 0, "context": "flint/lib/backup [build failed]: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:16:53"}
+{"file": "-", "line": 0, "context": "TestRestoreChecksumMismatchExit1: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:16:53"}
+{"file": "-", "line": 0, "context": "TestRestoreMissingSidecarWarnProceed: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:16:53"}
+{"file": "-", "line": 0, "context": "TestBackupWritesSidecar: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:16:53"}
+{"file": "lib/cli/root.go", "line": 63, "context": "Run이 store 접속 후 핸들러 호출 — DB 전면 다운 시 setup이 단계 진입 전 exit 2", "agent": "T40", "kind": "spec-ambiguity", "confidence": "high", "time": "01:16:55"}
+{"file": "lib/cli/backup_integrity_test.go", "line": 0, "context": "T45: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:17:39"}
+{"file": "lib/backup/integrity.go", "line": 24, "context": "Checksum(w io.Writer)에 데이터 소스 없음 — '덤프가 기록된 버퍼(io.Reader 겸용) 해시'로 해석, 서명은 유지", "agent": "T47", "kind": "spec-ambiguity", "resolution": "w에서 io.Copy로 읽어 기록량+sha256 반환; *bytes.Buffer만 수용", "confidence": "medium", "time": "01:18:02"}
+{"file": "lib/cli/backup.go", "line": 51, "context": "Owns 제약('restore 가드 1곳')과 Produces('Dump은 사이드카 생성') 충돌 — runBackup에 사이드카 2줄 추가", "agent": "T47", "kind": "assumption", "resolution": "가드는 runRestore 1곳 유지, runBackup은 최소 첨가", "confidence": "medium", "time": "01:18:02"}
+{"file": "docker-compose.yml", "line": 1, "context": "워크트리 compose 프로젝트(main)가 실행 중 flint 프로젝트 컨테이너(flint-doltgres·5433)와 포트 충돌 — setup 1단계 경고는 환경 탓, 코드 아님. 잔해 컨테이너 제거 완료", "agent": "T40", "kind": "flaky", "resolution": "env-project-conflict", "confidence": "high", "time": "01:19:36"}
+{"file": "lib/cli/done_test.go", "line": 272, "context": "패키지 빌드 실패: 병렬 T40 setup.go 편집 중 errors 미임포트 상태 관측, 대기 후 해소", "agent": "T41", "kind": "test-failure", "resolution": "50초 대기 후 재실행, 전체 통과", "confidence": "high", "time": "01:19:59"}
+{"file": "tests/e2e/e2e_test.go", "line": 812, "context": "T44 시나리오 ①: write knowledge 어휘 밖 tag(bogus) 경고 누락 — write.go에 CheckVocabulary 연결 없음. 연결 소유 태스크가 플랜에 없음(T35는 store 함수만, T46은 살균 연결)", "agent": "T44", "kind": "spec-ambiguity", "confidence": "high", "time": "01:26:42"}
+{"file": "lib/cli/done.go", "line": 84, "context": "T41 세션 자동 요약 INSERT 행이 StaleSessionRuns에 미기록으로 카운트 — make e2e 기존 케이스 TestDoneWarnsConsecutiveUnrecordedSessions runs 3→4 실패. T44 변경과 무관(T41 커밋 시점부터 깨짐)", "agent": "T44", "kind": "test-failure", "confidence": "high", "time": "01:28:31"}
+{"file": "lib/cli/done.go", "line": 84, "context": "T41 세션 요약 INSERT가 StaleSessionRuns 오염(runs+1)", "agent": "T44", "kind": "test-failure", "resolution": "룰링 a: writeSessionRecord를 최근 세션 UPDATE로 변경(세션 수 불변). 추가로 pgx int32 스캔 타입 단언 버그도 fmt.Sscan 경유로 해소. done 회귀·make e2e 전체 green", "confidence": "high", "time": "01:31:29"}
+{"file": "", "line": 0, "context": "verified: seam T35↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T36↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T37↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T38↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T43↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T40↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T42↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T46↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T47↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T45↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "", "line": 0, "context": "verified: seam T41↔T44", "agent": "pt_review", "kind": "verified", "time": "01:31:42"}
+{"file": "-", "line": 0, "context": "TestTuningMetaKeysMatch: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:31:43"}
+{"kind":"rule-rewrite","agent":"coordinator","tool":"Bash","command":"go test ./docs/ -run TestTuningMetaKeysMatch -v 21 | head -15"}
+{"file": "-", "line": 0, "context": "TestTuningMetaKeysMatch: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:31:56"}
+{"file": "-", "line": 0, "context": "TestTuningHotStatsKeyMatch: failed", "agent": "run_tests", "kind": "test-failure", "resolution": "open", "time": "01:32:41"}
+{"file": "docs/plans/2026-10-22-flint-v04.md", "line": 0, "context": "T30: change outside Owns blocked by commit_task; nothing committed", "agent": "commit_task", "kind": "exception", "resolution": "open", "time": "01:33:07"}
+{"file": "/Users/identity/orca/workspaces/flint/main/.github/workflows/ci.yml", "line": 33, "context": "PyYAML 선행 패키지 가정 제거 — 워크플로에 pip install 단계 추가", "agent": "T43", "kind": "assumption", "resolution": "ci.yml에 pip install pyyaml 단계 추가로 해소", "confidence": "high", "time": "01:35:03"}
+{"file": "", "line": 0, "context": "verified: seam T43↔T44", "agent": "pt_review", "kind": "verified", "time": "01:35:09"}
