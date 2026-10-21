@@ -4,13 +4,17 @@ package mcp
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"strconv"
 	"strings"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"flint/lib/cli"
+	"flint/lib/db"
 	"flint/lib/query"
 )
 
@@ -147,3 +151,60 @@ func intArg(args map[string]any, key string) (int, bool) {
 	}
 	return 0, false
 }
+
+// Store — mcp 읽기 경로(flint_read/flint_hot) 전용 최소 인터페이스.
+// simple protocol 커넥션이면 뷰 재정의가 즉시 가시다(장수 세션 describe 캐시 우회).
+type Store interface {
+	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
+	Close()
+}
+
+// connectSimple — seam. 기본 실구현(db.Connect 풀), 테스트는 fake 주입.
+var connectSimple = func(ctx context.Context, dsn string) (Store, error) {
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	return &simpleStore{pool: pool}, nil
+}
+
+// NewSimpleStore — dsn에 default_query_exec_mode=simple_protocol를 붙인
+// 읽기 전용 저장소를 만든다(MCP 뷰 캐시 방어, ADR-0006 인접). simple 모드는
+// 준비된 문장 describe 캐시를 쓰지 않아 placeholder($1) 파라미터도 정상 동작한다.
+// write 경로는 기존 cli.Run 위임 그대로(불변).
+func NewSimpleStore(dsn string) (Store, error) {
+	return connectSimple(context.Background(), simpleDSN(dsn))
+}
+
+// simpleDSN — DSN에 simple protocol 실행 모드 파라미터 추가(구분자 자동).
+func simpleDSN(dsn string) string {
+	sep := "?"
+	if strings.Contains(dsn, "?") {
+		sep = "&"
+	}
+	return dsn + sep + "default_query_exec_mode=simple_protocol"
+}
+
+// simpleStore — pgxpool 어댑터. Query는 행 값 전체를 반환한다(cli.realStore와 동일 계약).
+type simpleStore struct {
+	pool *pgxpool.Pool
+}
+
+func (s *simpleStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	rows, err := s.pool.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var out [][]any
+	for rows.Next() {
+		vals, err := rows.Values()
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, vals)
+	}
+	return out, rows.Err()
+}
+
+func (s *simpleStore) Close() { s.pool.Close() }
