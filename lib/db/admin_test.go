@@ -238,6 +238,105 @@ func TestMigrateAcceptsV2(t *testing.T) {
 	}
 }
 
+// dropV3Indexes는 EnsureSchemaV3 테스트가 flint 인덱스를 남기지 않게
+// 되돌린다(다른 테스트의 newTestRepo가 영향받지 않도록).
+func dropV3Indexes(t *testing.T, r *Repo) {
+	t.Helper()
+	t.Cleanup(func() {
+		for _, name := range []string{
+			"flint_knowledge_entity_idx",
+			"flint_knowledge_domain_idx",
+			"flint_knowledge_status_idx",
+		} {
+			_, _ = r.pool.Exec(context.Background(), `DROP INDEX IF EXISTS `+name)
+		}
+	})
+}
+
+// flintIndexCount는 knowledge 테이블의 flint 접두 인덱스 수를 센다.
+func flintIndexCount(t *testing.T, r *Repo) int {
+	t.Helper()
+	var n int
+	if err := r.pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM pg_indexes
+		 WHERE tablename = 'knowledge' AND indexname LIKE 'flint_knowledge_%'`).
+		Scan(&n); err != nil {
+		t.Fatalf("count flint indexes: %v", err)
+	}
+	return n
+}
+
+// TestEnsureSchemaV3Idempotent — Review Focus(state): 2회 호출 → 인덱스 3행·
+// 버전 3, 2회째는 무변화. protocol: v2 게이트를 경유한 DB(기존 배포 경로)도 승격.
+func TestEnsureSchemaV3Idempotent(t *testing.T) {
+	r := newTestRepo(t)
+	resetVersionToV1(t, r)
+	dropV3Indexes(t, r)
+	ctx := context.Background()
+	// 기존 배포 경로: v1 → v2 게이트 경유 DB.
+	if err := r.EnsureSchemaV2(ctx); err != nil {
+		t.Fatalf("EnsureSchemaV2: %v", err)
+	}
+	if err := r.EnsureSchemaV3(ctx); err != nil {
+		t.Fatalf("first EnsureSchemaV3: %v", err)
+	}
+	if n := flintIndexCount(t, r); n != 3 {
+		t.Fatalf("flint indexes = %d, want 3 (entity·domain·status)", n)
+	}
+	for _, name := range []string{
+		"flint_knowledge_entity_idx",
+		"flint_knowledge_domain_idx",
+		"flint_knowledge_status_idx",
+	} {
+		var exists bool
+		if err := r.pool.QueryRow(ctx,
+			`SELECT EXISTS (SELECT 1 FROM pg_indexes
+			 WHERE tablename = 'knowledge' AND indexname = $1)`, name).
+			Scan(&exists); err != nil {
+			t.Fatalf("check index %s: %v", name, err)
+		}
+		if !exists {
+			t.Errorf("index %s missing after EnsureSchemaV3", name)
+		}
+	}
+	var version string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("read schema_version: %v", err)
+	}
+	if version != "3" {
+		t.Fatalf("schema_version = %q, want 3", version)
+	}
+	// 2회째 호출은 멱등 no-op — 인덱스 3행·버전 3 무변화.
+	if err := r.EnsureSchemaV3(ctx); err != nil {
+		t.Fatalf("second EnsureSchemaV3 (want idempotent): %v", err)
+	}
+	if n := flintIndexCount(t, r); n != 3 {
+		t.Fatalf("flint indexes after second call = %d, want 3", n)
+	}
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("re-read schema_version: %v", err)
+	}
+	if version != "3" {
+		t.Fatalf("schema_version after second call = %q, want 3", version)
+	}
+}
+
+// TestEnsureSchemaV3FromV1 — v2를 건너뛴 v1 DB도 v3 게이트 하나로 승격된다
+// (게이트는 버전만 갱신하고 인덱스는 IF NOT EXISTS로 멱등 적용).
+func TestEnsureSchemaV3FromV1(t *testing.T) {
+	r := newTestRepo(t)
+	resetVersionToV1(t, r)
+	dropV3Indexes(t, r)
+	if err := r.EnsureSchemaV3(context.Background()); err != nil {
+		t.Fatalf("EnsureSchemaV3 from v1: %v", err)
+	}
+	if n := flintIndexCount(t, r); n != 3 {
+		t.Fatalf("flint indexes = %d, want 3", n)
+	}
+}
+
 // TestEnsureSchemaV2 — v1 DB(fake DDL) 무손실 승격: ALTER 컬럼 추가+버전 2+기존 데이터 유지+멱등.
 func TestEnsureSchemaV2(t *testing.T) {
 	r := newTestRepo(t)
