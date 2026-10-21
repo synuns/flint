@@ -62,6 +62,11 @@ func TestSplitStatements(t *testing.T) {
 
 // Review Focus(state): 라운드트립 row 수 일치 + 특수문자 값 보존.
 func TestDumpRestoreRoundtrip(t *testing.T) {
+	// Restore 는 public 전체 테이블을 한 트랜잭션에 다시 쓴다 — 타 패키지
+	// 테스트(tests/regression)가 public 에 동시 커밋하면 Doltgres 낙관적
+	// 충돌(40001)로 간헐 실패한다. 드릴 락으로 public 쓰기를 직렬화한다.
+	unlock := drillLock(t)
+	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	dsn := testDSN()

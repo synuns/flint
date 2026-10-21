@@ -38,6 +38,18 @@ func TestStatusSchemaV2OK(t *testing.T) {
 	}
 }
 
+// TestStatusSchemaV3OK — v3 DB(EnsureSchemaV3 인덱스 승격, T51)에서 status는
+// exit 0·버전 그대로 보고(무손실 승격이므로 호환 거부 대상 아님).
+func TestStatusSchemaV3OK(t *testing.T) {
+	m, code := statusWithVersion(t, "3")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(v3 호환)", code)
+	}
+	if m["schema_version"] != "3" || m["status"] != "ok" {
+		t.Fatalf("status 출력=%v, want schema_version=3/ok", m)
+	}
+}
+
 // TestStatusUnknownSchemaExit3 — 미지 버전(9)은 호환 검사 실패로 exit 3.
 func TestStatusUnknownSchemaExit3(t *testing.T) {
 	_, code := statusWithVersion(t, "9")
