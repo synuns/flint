@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"flint/lib/db"
 	"flint/lib/store"
@@ -127,13 +128,49 @@ func maintainCheck(ctx context.Context, ms MaintStore, stdout io.Writer) int {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	line := `{"status":"ok"}`
 	if counts.Pending > th.PendingMax || counts.DupSuspect > th.DupSuspMax {
-		fmt.Fprintf(stdout, `{"status":"review-needed","pending":%d,"dup_suspect":%d}`+"\n",
+		line = fmt.Sprintf(`{"status":"review-needed","pending":%d,"dup_suspect":%d}`,
 			counts.Pending, counts.DupSuspect)
-	} else {
-		fmt.Fprintln(stdout, `{"status":"ok"}`)
 	}
+	// T55: 마지막 복구 훈련(restore --drill) 경과 보고 — 초과 시에만 필드 추가.
+	if extra := drillReport(ctx, ms); extra != "" {
+		line = line[:len(line)-1] + extra + "}"
+	}
+	fmt.Fprintln(stdout, line)
 	return 0
+}
+
+// drillMaxDaysDefault — last_drill 경과 보고 기본 임계일(메타 drill_max_days 우선).
+const drillMaxDaysDefault = 30
+
+// drillReport — last_drill 경과 보고(T55). 30일(메타 drill_max_days) 초과 시
+// `,"drill":"stale"`, 유효한 기록 자체가 없으면 `,"drill":"never"`를 반환한다.
+// 이내면 빈 문자열(보고 없음). 읽기 실패는 --check 결과를 해치지 않게 생략.
+func drillReport(ctx context.Context, st Store) string {
+	rows, err := queryOnce(ctx, st,
+		`SELECT key, value FROM meta WHERE key IN ('last_drill','drill_max_days')`, nil)
+	if err != nil {
+		return ""
+	}
+	kv := map[string]string{}
+	for _, r := range rows {
+		if len(r) == 2 {
+			kv[fmt.Sprint(r[0])] = fmt.Sprint(r[1])
+		}
+	}
+	maxDays := drillMaxDaysDefault
+	if n, err := strconv.Atoi(kv["drill_max_days"]); err == nil && n > 0 {
+		maxDays = n // 무효 값(비수·0·음수)은 기본값 폴백
+	}
+	last, err := time.Parse(time.RFC3339, kv["last_drill"])
+	if err != nil {
+		return `,"drill":"never"`
+	}
+	if time.Since(last) > time.Duration(maxDays)*24*time.Hour {
+		return `,"drill":"stale"`
+	}
+	return ""
 }
 
 // loadThresholds — meta 테이블 키-값 → ParseThresholds(미설정 키 기본값).
