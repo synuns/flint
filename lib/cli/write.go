@@ -50,15 +50,19 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		return 3
 	}
 
-	// 검증 → 정규화 → 해시 dedup → 판정. 첫 실패에서 즉시 반환(exit 3/0).
+	// 검증 → 살균 → 정규화 → 해시 dedup → 판정. 첫 실패에서 즉시 반환(exit 3/0).
 	recs := make([]map[string]any, 0, len(payloads))
 	dropped := map[string]bool{}
+	var warnings []string
 	hash, state := "", "active"
 	for _, p := range payloads {
 		if se := store.Validate(kind, p); se != nil {
 			fmt.Fprintln(stdout, errLine(se))
 			return 3
 		}
+		// 살균(ADR-0006): 저장 전 제어 문자·[flint] 마커 중립화 + 비밀 스캔.
+		// 해시 계산 전 단계라 살균 결과가 곧 저장·해시 본문이 된다.
+		warnings = append(warnings, sanitizePayload(p)...)
 		n := store.Normalize(kind, p)
 		if kind == "knowledge" {
 			// 해시 입력은 휘발성 필드(valid_at 등) 제외 경로(HashCanonical)여야
@@ -111,25 +115,53 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		id = ids[0]
 	}
 	out := store.OutputJSON("committed", hash, state, id)
-	if len(dropped) > 0 {
-		out = withWarnings(out, dropped)
+	if len(dropped) > 0 || len(warnings) > 0 {
+		out = withWarnings(out, dropped, warnings)
 	}
 	fmt.Fprintln(stdout, out)
 	return 0
 }
 
-// withWarnings — 출력 한 줄 JSON에 dropped keys 경고 배열을 추가한다(무경고 삭제 방지).
-func withWarnings(line string, dropped map[string]bool) string {
+// sanitizeFields — 살균 대상 텍스트 컬럼(kind 공통 최소집합).
+var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name"}
+
+// sanitizePayload — 텍스트 필드를 살균해 원본 맵을 갱신하고, 비밀 후보 경고
+// ("possible secret: 패턴명")를 반환한다. 저장 거부 아님(경고+살균).
+func sanitizePayload(p map[string]any) []string {
+	var warns []string
+	for _, f := range sanitizeFields {
+		s, ok := p[f].(string)
+		if !ok {
+			continue
+		}
+		clean := store.SanitizeText(s)
+		if clean != s {
+			p[f] = clean
+		}
+		for _, name := range store.ScanSecrets(clean) {
+			warns = append(warns, "possible secret: "+name)
+		}
+	}
+	return warns
+}
+
+// withWarnings — 출력 한 줄 JSON에 경고 배열(dropped keys·비밀 스캔 병합)을
+// 추가한다(무경고 삭제·감지 누락 방지).
+func withWarnings(line string, dropped map[string]bool, secretWarns []string) string {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(line), &m); err != nil {
 		return line
 	}
-	keys := make([]string, 0, len(dropped))
-	for k := range dropped {
-		keys = append(keys, k)
+	w := append([]string{}, secretWarns...)
+	if len(dropped) > 0 {
+		keys := make([]string, 0, len(dropped))
+		for k := range dropped {
+			keys = append(keys, k)
+		}
+		sort.Strings(keys)
+		w = append(w, "dropped keys: "+strings.Join(keys, ","))
 	}
-	sort.Strings(keys)
-	m["warnings"] = []string{"dropped keys: " + strings.Join(keys, ",")}
+	m["warnings"] = w
 	b, err := json.Marshal(m)
 	if err != nil {
 		return line

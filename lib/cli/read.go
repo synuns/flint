@@ -52,6 +52,15 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	// 출력 중립화(ADR-0006): 저장 단계 살균을 읽기에도 재적용 — 저장 이후
+	// 혹은 경로상 유입된 제어 문자·[flint] 마커가 출력 경계를 위조하지 않게 한다.
+	for _, row := range rows {
+		for i, cell := range row {
+			if s, ok := cell.(string); ok {
+				row[i] = store.SanitizeText(s)
+			}
+		}
+	}
 	fmt.Fprint(stdout, query.FormatRows(rows, fields, jsonMode))
 	return 0
 }
