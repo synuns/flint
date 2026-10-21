@@ -96,6 +96,58 @@ func TestHotRecordsRuneLen(t *testing.T) {
 	}
 }
 
+// TestHotStatsPersistRoundtrip — persist→load 누적 왕복: 단발 CLI 매 실행 값 보존.
+func TestHotStatsPersistRoundtrip(t *testing.T) {
+	resetMetrics()
+	// baseline 초기화(직전 실행 없음)
+	if _, _, ok := LoadHotStats(func(string) (string, error) { return "", nil }); ok {
+		t.Fatalf("빈 meta 로드 ok=true, want false")
+	}
+	RecordHotLen(10)
+	RecordHotLen(20)
+	stored := ""
+	if err := PersistHotStats(func(k, v string) error { stored = v; return nil }); err != nil {
+		t.Fatalf("persist 오류: %v", err)
+	}
+	// 새 프로세스 시뮬레이션: 메모리 비우고 로드
+	resetMetrics()
+	calls, p95, ok := LoadHotStats(func(string) (string, error) { return stored, nil })
+	if !ok || calls != 2 {
+		t.Fatalf("로드 calls=%d ok=%v, want 2/true", calls, ok)
+	}
+	if p95 != 20 {
+		t.Fatalf("로드 p95=%d, want 20", p95)
+	}
+	// 이어지는 실행: 누적 합산으로 값 증가
+	RecordHotLen(30)
+	if err := PersistHotStats(func(k, v string) error { stored = v; return nil }); err != nil {
+		t.Fatalf("persist(2회차) 오류: %v", err)
+	}
+	calls2, _, ok2 := LoadHotStats(func(string) (string, error) { return stored, nil })
+	if !ok2 || calls2 != 3 {
+		t.Fatalf("누적 calls=%d ok=%v, want 3/true(증가)", calls2, ok2)
+	}
+}
+
+// TestHotStatsLoadCorruptFallback — 파손된 hot_stats는 기본값 폴백.
+func TestHotStatsLoadCorruptFallback(t *testing.T) {
+	resetMetrics()
+	calls, p95, ok := LoadHotStats(func(string) (string, error) { return "{not-json", nil })
+	if ok || calls != 0 || p95 != 0 {
+		t.Fatalf("파손 로드=%d/%d/%v, want 0/0/false", calls, p95, ok)
+	}
+	// 폴백 후 persist는 파손값 없이 현실행만 기록
+	RecordHotLen(7)
+	stored := ""
+	if err := PersistHotStats(func(k, v string) error { stored = v; return nil }); err != nil {
+		t.Fatalf("persist 오류: %v", err)
+	}
+	calls2, _, ok2 := LoadHotStats(func(string) (string, error) { return stored, nil })
+	if !ok2 || calls2 != 1 {
+		t.Fatalf("폴백 후 calls=%d ok=%v, want 1/true", calls2, ok2)
+	}
+}
+
 // TestStatusIncludesHotStats — status 한 줄 JSON에 hot_calls·hot_p95 노출.
 func TestStatusIncludesHotStats(t *testing.T) {
 	resetMetrics()
