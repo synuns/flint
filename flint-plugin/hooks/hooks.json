@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "flint hot --session \"${CLAUDE_SESSION_ID:-}\" 2>/dev/null || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "true # v0.2 예정: flint done --session \"${CLAUDE_SESSION_ID:-}\" — v0.1 no-op",
+            "timeout": 2
+          }
+        ]
+      }
+    ]
+  }
+}

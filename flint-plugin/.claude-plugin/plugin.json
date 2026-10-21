@@ -1,0 +1,5 @@
+{
+  "name": "flint",
+  "description": "flint 장기기억 저장소 — Claude Code 세션에 hot 컨텍스트 주입 및 종료 시 기록",
+  "version": "0.1.0"
+}
