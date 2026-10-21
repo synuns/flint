@@ -32,6 +32,12 @@ func ClampLimit(n int) int {
 	return n
 }
 
+// readColumns — BuildRead이 SELECT하는 컬럼(고정 순서). FormatRows의
+// fields 이름→위치 매핑 기준이 된다.
+var readColumns = []string{
+	"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status",
+}
+
 // likeEscape — LIKE 패턴에서 \, %, _ 를 리터럴로 이스케이프.
 // 작은따옴표는 placeholder 파라미터로 전달되므로 별도 이스케이프 불필요.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
@@ -60,7 +66,7 @@ func BuildRead(q string, f Filters) (string, []any) {
 		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
 	}
 
-	sql := "SELECT id, topic, summary FROM active_knowledge"
+	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge"
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -68,6 +74,16 @@ func BuildRead(q string, f Filters) (string, []any) {
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args
+}
+
+// columnIndexOf — fields 이름 → readColumns 인덱스. 없으면 -1.
+func columnIndexOf(name string) int {
+	for i, c := range readColumns {
+		if c == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // truncateRunes — rune 기반 절단(한글 등 멀티바이트 안전).
@@ -82,6 +98,8 @@ func truncateRunes(s string, max int) string {
 // FormatRows — 조회 결과 출력 포맷.
 // 기본: fields 순서의 컬럼을 '|'로 조인, summary는 80자 rune 절단.
 // jsonMode: 행별 한 줄 JSON, 선택 fields 키만 포함.
+// fields 이름은 readColumns 기준으로 매핑하고, 매핑에 없는 이름(hot_view의
+// kind·ts 등)은 행 내 위치순으로 해석한다.
 func FormatRows(rows [][]any, fields string, jsonMode bool) string {
 	if fields == "" {
 		fields = "id,topic,summary"
@@ -91,9 +109,17 @@ func FormatRows(rows [][]any, fields string, jsonMode bool) string {
 	for _, row := range rows {
 		vals := make([]string, 0, len(names))
 		for i, name := range names {
+			var raw any
+			if idx := columnIndexOf(name); idx >= 0 {
+				if idx < len(row) {
+					raw = row[idx]
+				}
+			} else if i < len(row) {
+				raw = row[i] // 매핑 밖 필드는 위치 fallback
+			}
 			v := ""
-			if i < len(row) && row[i] != nil {
-				v = fmt.Sprint(row[i])
+			if raw != nil {
+				v = fmt.Sprint(raw)
 			}
 			if name == "summary" {
 				v = truncateRunes(v, summaryMax)
