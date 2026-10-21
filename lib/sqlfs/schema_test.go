@@ -31,10 +31,22 @@ func TestSchemaV2Columns(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionTwo — 스키마가 v2임을 명시한다.
-// 실제 meta 갱신은 T17 admin.go의 버전 게이트가 담당한다.
-func TestSchemaVersionTwo(t *testing.T) {
-	if !strings.Contains(SchemaSQL(), "meta.schema_version=2") {
-		t.Error("schema.sql 헤더에 meta.schema_version=2 명시 누락")
+// TestSchemaVersionThree — 스키마가 v3임을 명시한다.
+// 실제 meta 갱신은 admin.go의 버전 게이트(EnsureSchemaV2·V3)가 담당한다.
+func TestSchemaVersionThree(t *testing.T) {
+	if !strings.Contains(SchemaSQL(), "meta.schema_version=3") {
+		t.Error("schema.sql 헤더에 meta.schema_version=3 명시 누락")
+	}
+}
+
+// TestSchemaV3Indexes — ADR-0008: 필터 경로(entity·domain·status) B-tree
+// 인덱스 3종이 신규 DB 생성 시점에 포함된다. %q% 무료텍스트는 시퀀셜 수용.
+func TestSchemaV3Indexes(t *testing.T) {
+	for _, col := range []string{"entity", "domain", "status"} {
+		re := regexp.MustCompile(
+			`(?m)^CREATE INDEX IF NOT EXISTS flint_knowledge_` + col + `_idx\s+ON knowledge \(` + col + `\);$`)
+		if !re.MatchString(SchemaSQL()) {
+			t.Errorf("schema.sql에 knowledge(%s) 인덱스 누락", col)
+		}
 	}
 }
