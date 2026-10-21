@@ -1,18 +1,22 @@
--- flint 스키마 (spec §6 데이터모델, meta.schema_version=1)
+-- flint 스키마 (spec §6 데이터모델, meta.schema_version=2)
+-- v2(ADR-0004): sessions.tasks·projects.note 추가. 기존 v1 DB는
+-- admin.go의 버전 게이트가 ALTER로 적용한다(repo.go는 v1 소유 수정 금지).
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
     id      serial PRIMARY KEY,
     name    text NOT NULL UNIQUE,
     status  text NOT NULL DEFAULT 'active',  -- active|paused|done
-    updated timestamptz NOT NULL DEFAULT now()
+    updated timestamptz NOT NULL DEFAULT now(),
+    note    text                               -- v2: 프로젝트 메모(선택)
 );
 
 CREATE TABLE IF NOT EXISTS sessions (
     id      serial PRIMARY KEY,
     ts      timestamptz NOT NULL DEFAULT now(),
     agent   text NOT NULL,
-    summary text NOT NULL
+    summary text NOT NULL,
+    tasks   text                               -- v2: 세션 작업 목록(선택)
 );
 
 CREATE TABLE IF NOT EXISTS knowledge (
