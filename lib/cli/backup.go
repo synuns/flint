@@ -7,6 +7,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -52,6 +53,13 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, errLine(err))
 		return 1
 	}
+	// ADR-0006: 원본+.sha256 사이드카 생성(restore 검증용). 실패는 덤프 성공을 해치지 않는다.
+	if _, sum, cerr := backup.Checksum(&buf); cerr == nil {
+		if serr := backup.WriteSidecar(out, sum); serr == nil {
+			fmt.Fprintln(stdout, `{"status":"ok","path":`+quoteJSON(out)+`,"sha256":`+quoteJSON(sum)+"}")
+			return 0
+		}
+	}
 	fmt.Fprintln(stdout, `{"status":"ok","path":`+quoteJSON(out)+"}")
 	return 0
 }
@@ -76,6 +84,18 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 1
 	}
 
+	// ADR-0006 restore 가드 — 재생 전 체크섬 검증(가드는 이 1곳뿐).
+	// 백업 파일은 임의 SQL을 실행하므로 위조 감지 시 즉시 중단한다.
+	sum, verr := backup.VerifyFile(file)
+	if errors.Is(verr, backup.ErrChecksumMismatch) {
+		fmt.Fprintln(stdout, mismatchLine(file))
+		return 1
+	}
+	if verr != nil && !errors.Is(verr, backup.ErrNoSidecar) {
+		fmt.Fprintln(stdout, errLine(verr))
+		return 1
+	}
+
 	f, err := os.Open(file)
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
@@ -87,8 +107,24 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
-	fmt.Fprintln(stdout, `{"status":"restored"}`)
+	// 결과 한 줄 JSON — 검증 통과 시 sha256, 사이드카 누락 시 경고(진행은 함).
+	if errors.Is(verr, backup.ErrNoSidecar) {
+		fmt.Fprintln(stdout, `{"status":"restored","warn":`+quoteJSON("checksum sidecar missing — integrity unverified")+"}")
+	} else {
+		fmt.Fprintln(stdout, `{"status":"restored","sha256":`+quoteJSON(sum)+"}")
+	}
 	return 0
+}
+
+// mismatchLine — 체크섬 불일치 경고 한 줄 JSON(임의 SQL 실행 차단 안내 포함).
+func mismatchLine(path string) string {
+	m := map[string]string{
+		"error":   "checksum_mismatch",
+		"message": "백업 파일은 임의 SQL을 실행함 — 체크섬 위조 감지",
+		"path":    path,
+	}
+	b, _ := json.Marshal(m)
+	return string(b)
 }
 
 // quoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
