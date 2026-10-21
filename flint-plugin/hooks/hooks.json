@@ -2,11 +2,11 @@
   "hooks": {
     "SessionStart": [
       {
-        "matcher": "*",
+        "matcher": "startup|resume|clear|compact",
         "hooks": [
           {
             "type": "command",
-            "command": "flint hot --session \"${CLAUDE_SESSION_ID:-}\" 2>/dev/null || true",
+            "command": "flint hot --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
             "timeout": 2
           }
         ]
@@ -14,11 +14,10 @@
     ],
     "Stop": [
       {
-        "matcher": "*",
         "hooks": [
           {
             "type": "command",
-            "command": "true # v0.2 예정: flint done --session \"${CLAUDE_SESSION_ID:-}\" — v0.1 no-op",
+            "command": "true # v0.2 예정: flint done --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" — v0.1 no-op",
             "timeout": 2
           }
         ]

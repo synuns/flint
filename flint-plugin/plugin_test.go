@@ -83,6 +83,52 @@ func TestHooksJSONValid(t *testing.T) {
 	}
 }
 
+// TestHookSessionIDFromStdin — Claude Code 훅에는 CLAUDE_SESSION_ID 환경변수가
+// 없다. 세션 id는 stdin JSON의 session_id 필드로 전달되므로, 훅 커맨드는
+// jq로 stdin을 파싱해야 하고 존재하지 않는 환경변수를 참조해선 안 된다.
+func TestHookSessionIDFromStdin(t *testing.T) {
+	raw, err := os.ReadFile("hooks/hooks.json")
+	if err != nil {
+		t.Fatalf("hooks.json 읽기 실패: %v", err)
+	}
+	if strings.Contains(string(raw), "CLAUDE_SESSION_ID") {
+		t.Errorf("존재하지 않는 환경변수 CLAUDE_SESSION_ID 참조가 남아 있음")
+	}
+
+	doc := loadHooksJSON(t)
+	for _, event := range []string{"SessionStart", "Stop"} {
+		hook := hookCommands(t, doc, event)[0]
+		cmd, _ := hook["command"].(string)
+		if !strings.Contains(cmd, `jq -r '.session_id`) {
+			t.Errorf("%s 커맨드가 stdin JSON의 session_id를 파싱하지 않음: %q", event, cmd)
+		}
+	}
+}
+
+// TestHookMatchers — SessionStart matcher는 시작 소스 정규식이며 "*"는
+// 관례가 아니다. Stop은 matcher를 사용하지 않는다.
+func TestHookMatchers(t *testing.T) {
+	doc := loadHooksJSON(t)
+
+	events := doc["hooks"].(map[string]any)
+	startGroups, _ := events["SessionStart"].([]any)
+	for _, g := range startGroups {
+		group := g.(map[string]any)
+		matcher, _ := group["matcher"].(string)
+		if matcher == "*" || matcher == "" {
+			t.Errorf("SessionStart matcher = %q, want 시작 소스 나열 (startup|resume|clear|compact)", matcher)
+		}
+	}
+
+	stopGroups, _ := events["Stop"].([]any)
+	for _, g := range stopGroups {
+		group := g.(map[string]any)
+		if _, ok := group["matcher"]; ok {
+			t.Errorf("Stop 그룹에 matcher 키가 있음: %v (Stop은 matcher 미사용)", group["matcher"])
+		}
+	}
+}
+
 func TestPluginJSONValid(t *testing.T) {
 	raw, err := os.ReadFile(".claude-plugin/plugin.json")
 	if err != nil {
