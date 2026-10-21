@@ -260,6 +260,8 @@ flint-plugin/
 - [ ] 세션 자동 요약 — done 시 sessions 테이블 자동 기록(수동 write 의존 제거)
 - [ ] MCP 뷰 캐시 방어 — 장수 mcp 서버 프로세스의 stale 뷰 describe 위험:
   read 경로 simple protocol 격리 또는 스키마 버전 감시·풀 재생
+- [ ] 보안 구조 방어(ADR-0006) — 메모리 포이즈닝·비밀 유출 대응:
+  입출력 살균·비밀 패턴 스캔 경고, 백업 sha256 무결성+restore 가드, origin 필터·분포
 - [ ] CI·릴리스 파이프라인 — GitHub Actions(go test + make e2e, Doltgres 서비스)·
   GoReleaser·릴리스 워크플로(§12 약정 이행)
 - v0.5 이연: 백업 로테이션·보존 정책 / 검색 품질(랭킹·태그 제안)
