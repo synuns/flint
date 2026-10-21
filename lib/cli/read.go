@@ -62,5 +62,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		}
 	}
 	fmt.Fprint(stdout, query.FormatRows(rows, fields, jsonMode))
+	// 계측(T56): zero 히트 여부를 meta read_stats에 누적. 실패는 조용히(§13).
+	bumpReadStatsToMeta(ctx, st, len(rows) == 0)
 	return 0
 }
