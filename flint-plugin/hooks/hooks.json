@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "true # v0.2 예정: flint done --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" — v0.1 no-op",
+            "command": "flint done --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
             "timeout": 2
           }
         ]

@@ -77,9 +77,16 @@ func TestHooksJSONValid(t *testing.T) {
 	if got := stop["timeout"]; got != float64(2) {
 		t.Errorf("Stop timeout = %v, want 2", got)
 	}
-	// Stop 훅은 세션 종료를 막지 않아야 한다: no-op(true) 또는 비차단.
-	if !strings.Contains(stopCmd, "true") {
-		t.Errorf("Stop v0.1 no-op 표시 없음: %q", stopCmd)
+	// Stop 훅은 세션 종료를 막지 않아야 한다(비차단 원칙 §13).
+	if !strings.Contains(stopCmd, "|| true") {
+		t.Errorf("Stop 비차단 보장('|| true') 없음: %q", stopCmd)
+	}
+	// v0.2: no-op(true) 제거 — 실호출이어야 한다.
+	if strings.HasPrefix(stopCmd, "true") {
+		t.Errorf("Stop 커맨드가 여전히 no-op(true)로 시작: %q", stopCmd)
+	}
+	if strings.Contains(stopCmd, "v0.2") {
+		t.Errorf("Stop 커맨드에 v0.2 예정 주석 잔존: %q", stopCmd)
 	}
 }
 
