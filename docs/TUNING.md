@@ -50,6 +50,7 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('pending_max','40')
 
 - `schema_version` — CLI 호환 검사 전용(수동 갱신 금지).
 - `last_backup` — 자동 백업 판정 전용(`flint backup`이 갱신).
+- `hot_stats` — hot 계측 영속 누적(`flint status`가 읽고 종료 시 갱신).
 
 ## 5. 이연결정 회수 계획 요약
 
