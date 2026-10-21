@@ -278,3 +278,54 @@ func TestBackupRestoreRealRoundtrip(t *testing.T) {
 		t.Fatalf("roundtrip: before=%d after=%d probe=%d, want %d/1", before, after, probeN, before)
 	}
 }
+
+// TestBackupOutJSONWithRotate — F-T54-1 회귀: --out 성공 출력은 유효한 한 줄
+// JSON이어야 한다(quoteJSON 뒤 겹따옴표로 파손 금지). 로테이션 삭제분은
+// "removed":N 요약으로, 사이드카 성공 시 sha256과 공존한다.
+func TestBackupOutJSONWithRotate(t *testing.T) {
+	f := &fakeBackup{dumpText: "-- flint backup probe\n"}
+	withBackupFake(t, f)
+	prevRotate, prevKeep := rotateFn, keepFn
+	rotateFn = func(dir string, keep int) ([]string, error) {
+		return []string{"b.sql", "b.sql.sha256"}, nil
+	}
+	keepFn = func(getKV func(string) (string, error)) int { return 1 }
+	t.Cleanup(func() { rotateFn, keepFn = prevRotate, prevKeep })
+
+	path := filepath.Join(t.TempDir(), "a.sql")
+	out, code := mustBackup(t, []string{"--out", path})
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out) // 겹따옴표면 여기서 파싱 실패(F-T54-1 재현 지점)
+	if m["status"] != "ok" || m["path"] != path {
+		t.Fatalf("성공 JSON=%v, want ok/path", m)
+	}
+	if m["removed"] != float64(2) {
+		t.Fatalf("removed=%v, want 2(.sql+.sha256)", m["removed"])
+	}
+	if m["sha256"] == nil {
+		t.Fatalf("사이드카 성공 시 sha256 누락: %v", m)
+	}
+}
+
+// TestBackupRotateFailureQuiet — 로테이션 실패는 백업 성공을 해치지 않는다
+// (removed 필드 없음·exit 0, §13 비간섭).
+func TestBackupRotateFailureQuiet(t *testing.T) {
+	f := &fakeBackup{dumpText: "-- dump\n"}
+	withBackupFake(t, f)
+	prevRotate, prevKeep := rotateFn, keepFn
+	rotateFn = func(dir string, keep int) ([]string, error) { return nil, errors.New("boom") }
+	keepFn = func(getKV func(string) (string, error)) int { return 1 }
+	t.Cleanup(func() { rotateFn, keepFn = prevRotate, prevKeep })
+
+	path := filepath.Join(t.TempDir(), "a.sql")
+	out, code := mustBackup(t, []string{"--out", path})
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(로테이션 실패는 무시); out=%s", code, out)
+	}
+	m := decode(t, out)
+	if _, ok := m["removed"]; ok {
+		t.Fatalf("로테이션 실패 시 removed 필드 있음: %v", m)
+	}
+}

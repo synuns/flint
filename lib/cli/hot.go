@@ -40,6 +40,9 @@ func metaGetKV(ctx context.Context, st Store) func(string, string) (string, erro
 }
 
 // runHot — hot_view 조회 후 고정 포맷으로 출력하고 상한으로 절단한다.
+// T38 배선(F-T56-1): 시작 시 meta hot_stats 누적을 로드하고 종료 직전
+// persist한다(단발 CLI 프로세스 분리 보존). 둘 다 계측이므로 실패는
+// 조용히 무시된다(§13 — hot 출력·exit에 영향 금지).
 func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	session := ""
 	for i := 0; i < len(args); i++ {
@@ -54,9 +57,12 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
+	loadHotStatsFromMeta(ctx, st)
 	out := query.FormatRows(rows, "kind,topic,summary,ts", false)
 	clamped := query.ClampHot(out, HotBudget(metaGetKV(ctx, st)))
 	fmt.Fprint(stdout, clamped)
 	RecordHotLen(len([]rune(clamped)))
+	persistHotStatsToMeta(ctx, st)
 	return 0
 }
