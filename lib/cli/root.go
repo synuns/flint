@@ -108,6 +108,12 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 		s.Close()
 		return nil, err
 	}
+	// v2 승격(코디네이터 룰링): Migrate(v1 소유) 뒤 버전 게이트로 승격 —
+	// 모든 실DB 커맨드 경로에서 자연 승격(하루 첫 세션 트리거 정신과 정합).
+	if err := repo.EnsureSchemaV2(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
