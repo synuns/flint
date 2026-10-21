@@ -56,9 +56,10 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
-	// version·setup·teardown은 store-free — DB 미기동에도 즉시 응답
-	// (§13, T33 룰링 · T40 확장: DB 다운이 setup의 주 시나리오).
-	if cmd == "version" || cmd == "setup" || cmd == "teardown" {
+	// version·setup·teardown·mcp는 store-free — DB 미기동에도 즉시 응답
+	// (§13, T33 룰링 · T40 확장: DB 다운이 setup의 주 시나리오 · T57: mcp는
+	// 도구 호출이 cli.Run으로 각자 store를 연결한다).
+	if cmd == "version" || cmd == "setup" || cmd == "teardown" || cmd == "mcp" {
 		return run(ctx, nil, rest, stdin, stdout)
 	}
 	st, err := newStore(ctx, dsnFromEnv())
@@ -112,6 +113,12 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 	// v2 승격(코디네이터 룰링): Migrate(v1 소유) 뒤 버전 게이트로 승격 —
 	// 모든 실DB 커맨드 경로에서 자연 승격(하루 첫 세션 트리거 정신과 정합).
 	if err := repo.EnsureSchemaV2(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
+	// v3 승격(T51/T57 배선): 필터 경로 인덱스 3종(ADR-0008). v2와 같은
+	// 자연 승격 경로 — 이미 v3면 no-op라 매 접속 부담 없다.
+	if err := repo.EnsureSchemaV3(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}

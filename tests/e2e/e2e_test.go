@@ -9,11 +9,13 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"io"
 	"net"
 	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -735,22 +737,22 @@ func TestVersionBinaryJSON(t *testing.T) {
 	}
 }
 
-// ④ schema v2 승격 실측 — v1 DB에서 done 1회(=세션 시작 경유) 실행만으로
-// meta가 '2'로 승격되고(EnsureSchemaV2, 코디네이터 룰링: newRealStore 훅),
-// 승격 후에도 read·status가 정상이다(v0.2 관찰 회수).
+// ④ schema 승격 실측 — v1 DB에서 done 1회(=세션 시작 경유) 실행만으로
+// meta가 승격된다(EnsureSchemaV2 → EnsureSchemaV3 연쇄, newRealStore 훅·T57
+// 배선). 최종 버전은 '3'(v2 컬럼 + v3 인덱스), 승격 후에도 read·status 정상.
 func TestSchemaV2PromotedAfterDone(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-v3-")
 	t.Cleanup(func() {
 		cleanupTopics(t, pool, "e2e-v3-")
 		// 후속 실행·다른 status 테스트 보호: 버전을 '1'로 되돌린다
-		// (EnsureSchemaV2는 ADD COLUMN IF NOT EXISTS라 재승격 멱등).
+		// (승격 경로는 IF NOT EXISTS 기반이라 재승격 멱등).
 		setMeta(t, pool, "schema_version", "1")
 	})
 	// 백업 자동 격리(done이 하루 첫 세션 백업을 돌릴 수 있다).
 	t.Setenv("FLINT_BACKUP_DIR", t.TempDir())
 
-	// v1 상태에서 시작(실DB가 이미 '2'여도 이 테스트는 '1'에서 출발).
+	// v1 상태에서 시작(실DB가 이미 승격됐어도 이 테스트는 '1'에서 출발).
 	setMeta(t, pool, "schema_version", "1")
 	writeKnowledge(t, `{"topic":"e2e-v3-k","summary":"v2 승격 프로브","confidence":0.9}`)
 
@@ -764,8 +766,8 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회 실패: %v", err)
 	}
-	if version != "2" {
-		t.Fatalf("done 후 schema_version=%q, want 2(승격 미발생)", version)
+	if version != "3" {
+		t.Fatalf("done 후 schema_version=%q, want 3(v2→v3 연쇄 승격)", version)
 	}
 
 	// 승격 후 read 정상 — 씨딩 토픽이 그대로 보인다.
@@ -774,13 +776,13 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		t.Fatalf("승격 후 read 결과 이상: %v", lines)
 	}
 
-	// 회귀(룰링 ②): v2에서도 status는 exit 0(호환 허용 집합 {"1","2"}).
+	// 회귀: v3에서도 status는 exit 0(호환 허용 집합 {"1","2","3"}).
 	out, code = runCLI(t, []string{"status"}, "")
 	if code != 0 {
-		t.Fatalf("v2 status exit=%d, want 0; out=%s", code, out)
+		t.Fatalf("v3 status exit=%d, want 0; out=%s", code, out)
 	}
-	if m := decode(t, out); m["schema_version"] != "2" {
-		t.Fatalf("status schema_version=%v, want 2; out=%s", m["schema_version"], out)
+	if m := decode(t, out); m["schema_version"] != "3" {
+		t.Fatalf("status schema_version=%v, want 3; out=%s", m["schema_version"], out)
 	}
 }
 
@@ -956,5 +958,281 @@ func TestSetupDrySteps(t *testing.T) {
 	}
 	if steps := toStrings(m["steps"]); len(steps) != 4 {
 		t.Fatalf("단계 %d건, want 4; out=%s", len(steps), out)
+	}
+}
+
+// --- v0.5 섹션: mcp 실 프로세스·감사 필터·로테이션·복구 훈련·랭킹(T57) ---
+
+// rebuildBin — make build 후 bin/flint 경로 반환(실 프로세스 테스트 공용).
+func rebuildBin(t *testing.T) string {
+	t.Helper()
+	root, err := filepath.Abs(filepath.Join("..", ".."))
+	if err != nil {
+		t.Fatalf("루트 경로: %v", err)
+	}
+	build := exec.Command("make", "build")
+	build.Dir = root
+	if b, err := build.CombinedOutput(); err != nil {
+		t.Fatalf("make build 실패: %v; out=%s", err, b)
+	}
+	return filepath.Join(root, "bin", "flint")
+}
+
+// ① mcp 실 프로세스 왕복 — bin/flint mcp가 stdin JSON-RPC(initialize→
+// flint_read)에 순서대로 응답하고 EOF에 exit 0으로 종료한다(T49 배선 실측:
+// main.go blank import가 없으면 not linked로 즉사 → 이 테스트가 RED).
+func TestMCPRealProcessRoundtrip(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-mcpv5-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-mcpv5-") })
+	writeKnowledge(t, `{"topic":"e2e-mcpv5-k","summary":"실 프로세스 MCP 프로브","confidence":0.9}`)
+
+	bin := rebuildBin(t)
+	cmd := exec.Command(bin, "mcp")
+	cmd.Env = os.Environ()
+	stdin, err := cmd.StdinPipe()
+	if err != nil {
+		t.Fatalf("stdin 파이프: %v", err)
+	}
+	var out bytes.Buffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	if err := cmd.Start(); err != nil {
+		t.Fatalf("mcp 프로세스 기동: %v", err)
+	}
+	reqs := strings.Join([]string{
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"flint_read","arguments":{"query":"e2e-mcpv5-k","limit":5}}}`,
+	}, "\n") + "\n"
+	if _, err := io.WriteString(stdin, reqs); err != nil {
+		t.Fatalf("stdin 기록: %v", err)
+	}
+	stdin.Close() // EOF → 서버 정상 종료
+	if err := cmd.Wait(); err != nil {
+		t.Fatalf("mcp exit 오류(EOF 정상 0이어야 함): %v; out=%s", err, out.String())
+	}
+
+	var resps []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(out.String()), "\n") {
+		if l != "" {
+			resps = append(resps, decode(t, l))
+		}
+	}
+	if len(resps) != 2 {
+		t.Fatalf("응답 %d행, want 2; out=%s", len(resps), out.String())
+	}
+	for i, m := range resps {
+		if m["id"] != float64(i+1) {
+			t.Fatalf("응답[%d] id=%v, want %d(순서 대응); out=%s", i, m["id"], i+1, out.String())
+		}
+		if _, bad := m["error"]; bad {
+			t.Fatalf("응답[%d] error=%v; out=%s", i, m["error"], out.String())
+		}
+	}
+	initRes, _ := resps[0]["result"].(map[string]any)
+	if initRes["protocolVersion"] == nil {
+		t.Fatalf("initialize result에 protocolVersion 없음; out=%s", out.String())
+	}
+	callRes, _ := resps[1]["result"].(map[string]any)
+	if callRes["isError"] != false {
+		t.Fatalf("flint_read isError=%v, want false; out=%s", callRes["isError"], out.String())
+	}
+	content, _ := callRes["content"].([]any)
+	if len(content) == 0 {
+		t.Fatalf("flint_read content 비어 있음; out=%s", out.String())
+	}
+	if text, _ := content[0].(map[string]any)["text"].(string); !strings.Contains(text, "e2e-mcpv5-k") {
+		t.Fatalf("flint_read 결과에 씨딩 토픽 없음: %q", text)
+	}
+}
+
+// ② 감사 세션 필터 — --session은 해당 [session:ID] 커밋만 반환한다.
+func TestAuditSessionFilter(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-audit-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-audit-") })
+
+	seed := func(session, topic string) {
+		t.Helper()
+		out, code := runCLI(t, []string{"write", "knowledge", "--session", session},
+			`{"topic":"`+topic+`","summary":"감사 필터 프로브","confidence":0.9}`)
+		if code != 0 {
+			t.Fatalf("write(%s) exit=%d, want 0; out=%s", session, code, out)
+		}
+	}
+	seed("e2e-audit-s1", "e2e-audit-k1")
+	seed("e2e-audit-s2", "e2e-audit-k2")
+
+	out, code := runCLI(t, []string{"audit", "--session", "e2e-audit-s1"}, "")
+	if code != 0 {
+		t.Fatalf("audit exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	log, _ := m["log"].([]any)
+	if len(log) == 0 {
+		t.Fatalf("log 0행, want >=1; out=%s", out)
+	}
+	for _, e := range log {
+		msg, _ := e.(map[string]any)["message"].(string)
+		if !strings.Contains(msg, "[session:e2e-audit-s1]") {
+			t.Fatalf("세션 필터 누출: %q", msg)
+		}
+		if strings.Contains(msg, "e2e-audit-s2") {
+			t.Fatalf("다른 세션 커밋 혼입: %q", msg)
+		}
+	}
+}
+
+// ③ 백업 로테이션 — backup 3회(keep 2)면 가장 오래된 덤프+사이드카 쌍이
+// 삭제되고 최신 2쌍만 남는다(T54 배선 실측: removed 필드로 삭제 수 보고).
+func TestRotateE2E(t *testing.T) {
+	pool := mustDB(t)
+	setMeta(t, pool, "backup_keep", "2")
+	t.Cleanup(func() { delMeta(t, pool, "backup_keep") })
+	dir := t.TempDir()
+
+	// mtime 강제 — 연속 실행은 같은 초에 몰려 정렬이 흔들리므로 결정적으로.
+	base := time.Now().Add(-time.Hour)
+	stamp := func(i int) {
+		t.Helper()
+		when := base.Add(time.Duration(i) * 10 * time.Minute)
+		for _, suffix := range []string{"", ".sha256"} {
+			_ = os.Chtimes(filepath.Join(dir, "d"+strconv.Itoa(i)+".sql"+suffix), when, when)
+		}
+	}
+	backup := func(i int) string {
+		t.Helper()
+		out, code := runCLI(t, []string{"backup", "--out", filepath.Join(dir, "d"+strconv.Itoa(i)+".sql")}, "")
+		if code != 0 {
+			t.Fatalf("backup %d exit=%d, want 0; out=%s", i, code, out)
+		}
+		return out
+	}
+	// removed 추출 — backup --out 출력의 JSON 조립 부채(quoteJSON 뒤 stray
+	// quote, 인시던트 기록)와 무관하게 로테이션 계약만 검증한다.
+	removedOf := func(out string) int {
+		t.Helper()
+		m := regexp.MustCompile(`"removed":(\d+)`).FindStringSubmatch(out)
+		if m == nil {
+			t.Fatalf("출력에 removed 없음: %s", out)
+		}
+		n, _ := strconv.Atoi(m[1])
+		return n
+	}
+
+	backup(1)
+	stamp(1)
+	backup(2)
+	stamp(2)
+	out3 := backup(3) // 이때 rotate: d1 쌍 삭제
+	if !strings.Contains(out3, `"status":"ok"`) {
+		t.Fatalf("3회째 status 미보고; out=%s", out3)
+	}
+	if removed := removedOf(out3); removed != 2 { // d1.sql + d1.sql.sha256
+		t.Fatalf("removed=%d, want 2(원본+사이드카); out=%s", removed, out3)
+	}
+
+	var sqls []string
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("백업 디렉터리 읽기: %v", err)
+	}
+	for _, e := range entries {
+		if strings.HasSuffix(e.Name(), ".sql") {
+			sqls = append(sqls, e.Name())
+		}
+	}
+	if len(sqls) != 2 || sqls[0] != "d2.sql" || sqls[1] != "d3.sql" {
+		t.Fatalf("잔존 덤프=%v, want [d2.sql d3.sql]", sqls)
+	}
+	for _, name := range sqls {
+		if _, err := os.Stat(filepath.Join(dir, name+".sha256")); err != nil {
+			t.Fatalf("사이드카 누락: %s.sha256", name)
+		}
+	}
+}
+
+// ④ 복구 훈련 + 제로히트 계측 — restore --drill은 flint_drill 스키마에
+// 재생해 ok:true를 보고하고(원본 불변), read 1회 뒤 status에 read_stats가
+// 노출된다(read_calls>=1).
+func TestDrillE2EAndStats(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-drill-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-drill-") })
+	delMeta(t, pool, "read_stats")
+	t.Cleanup(func() { delMeta(t, pool, "read_stats") })
+
+	writeKnowledge(t, `{"topic":"e2e-drill-k","summary":"드릴 프로브","confidence":0.9}`)
+	dir := t.TempDir()
+	dump := filepath.Join(dir, "drill.sql")
+	if out, code := runCLI(t, []string{"backup", "--out", dump}, ""); code != 0 {
+		t.Fatalf("backup exit=%d, want 0; out=%s", code, out)
+	}
+
+	out, code := runCLI(t, []string{"restore", "--drill", "--file", dump}, "")
+	if code != 0 {
+		t.Fatalf("restore --drill exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["status"] != "drill" || m["ok"] != true {
+		t.Fatalf("drill 출력=%v, want status=drill/ok=true", m)
+	}
+	if m["expected"] != m["restored"] || m["expected"] == float64(0) {
+		t.Fatalf("expected=%v restored=%v, want 동일且 >=1", m["expected"], m["restored"])
+	}
+	// 드릴은 public 원본 불변 — 스키마 잔존 없음.
+	var n int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).Scan(&n); err != nil || n != 0 {
+		t.Fatalf("flint_drill 잔존=%d(항상 DROP이어야 함), err=%v", n, err)
+	}
+
+	// read 1회(히트) 후 status 노출.
+	readLines(t, "e2e-drill-k")
+	out, code = runCLI(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("status exit=%d, want 0; out=%s", code, out)
+	}
+	sm := decode(t, out)
+	if calls, _ := sm["read_calls"].(float64); calls < 1 {
+		t.Fatalf("read_calls=%v, want >=1; out=%s", sm["read_calls"], out)
+	}
+	if _, ok := sm["read_zero_pct"]; !ok {
+		t.Fatalf("status에 read_zero_pct 미노출; out=%s", out)
+	}
+}
+
+// ⑤ 검색 랭킹 — topic 정합 행이 confidence 더 높은 요약 매칭 행보다 상단,
+// 비정합 행끼리는 confidence 내림차순(T56: topic > confidence > 최신).
+func TestReadRankingOrder(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-rank-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-rank-") })
+
+	// 모든 행이 쿼리 "e2e-rank-k"에 매칭: A는 topic 정확 일치(신뢰 낮음),
+	// B·C는 summary에 쿼리 포함(신뢰 B > C).
+	writeKnowledge(t, `{"topic":"e2e-rank-k","summary":"정합 우선 프로브","confidence":0.5}`)
+	writeKnowledge(t, `{"topic":"e2e-rank-a","summary":"e2e-rank-k 언급 높은 신뢰","confidence":0.9}`)
+	writeKnowledge(t, `{"topic":"e2e-rank-b","summary":"e2e-rank-k 재인용 낮은 신뢰","confidence":0.8}`)
+
+	out, code := runCLI(t, []string{"read", "e2e-rank-k", "--json", "--fields", "topic,confidence"}, "")
+	if code != 0 {
+		t.Fatalf("read exit=%d, want 0; out=%s", code, out)
+	}
+	var got []map[string]any
+	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
+		if l != "" {
+			got = append(got, decode(t, l))
+		}
+	}
+	if len(got) != 3 {
+		t.Fatalf("결과 %d건, want 3; out=%s", len(got), out)
+	}
+	wantTopics := []string{"e2e-rank-k", "e2e-rank-a", "e2e-rank-b"}
+	for i, want := range wantTopics {
+		if got[i]["topic"] != want {
+			t.Fatalf("순위[%d] topic=%v, want %v(topic 정합 > confidence); 전체=%s",
+				i, got[i]["topic"], want, out)
+		}
 	}
 }
