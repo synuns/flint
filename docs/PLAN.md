@@ -272,22 +272,22 @@ flint-plugin/
 - v0.5 이연: 백업 로테이션·보존 정책 / 검색 품질(랭킹·태그 제안)
 - 후보(운영 데이터 확보 후): 병렬 쓰기 충돌 실측 스파이크·복구 훈련 자동화
 
-### v0.5 신뢰성·검색 품질 (2026-10-22 기획·보강 확정)
-- [ ] mcp CLI 연결 — `flint mcp` 서브커맨드 등록+usageLine 갱신.
+### v0.5 신뢰성·검색 품질 (2026-10-22 기획·완료)
+- [x] mcp CLI 연결 — `flint mcp` 서브커맨드 등록+usageLine 갱신.
   검증은 실 bin/flint 프로세스 e2e(JSON-RPC 왕복) — 라이브러리 직접 호출 테스트만으론
   배선 결함이 새어감(v0.4 부채: .mcp.json이 unknown command로 즉사)
-- [ ] 병렬 쓰기 충돌 실측 — N=8 동시 write 프로세스: 통과기준 = exit 1(재시도 소진)
+- [x] 병렬 쓰기 충돌 실측 — N=8 동시 write 프로세스: 통과기준 = exit 1(재시도 소진)
   0건 · 전량 정합 커밋(손실·중복 0). 충돌→재시도 성공률 측정치 ADR화 + e2e 회귀화
-- [ ] 스키마 인덱스 — 스파이크 선행: CREATE INDEX·함수 인덱스(lower) Doltgres
+- [x] 스키마 인덱스 — 스파이크 선행: CREATE INDEX·함수 인덱스(lower) Doltgres
   지원 확인 + ~10k 행 read p95 측정. 지원·효용 입증 시 schema v3 적용,
   무효 시 "시퀀셜 스캔 수용" ADR로 종결(에이전트 기억 규모 수천 건)
-- [ ] 감사·롤백 루북 — `flint audit` 신설(dolt_log 최근 20, --session 필터) +
+- [x] 감사·롤백 루북 — `flint audit` 신설(dolt_log 최근 20, --session 필터) +
   RUNBOOK.md(오염 감지→dolt_revert 절차·복구 훈련 절차). revert 커맨드화는
   사용 빈도 입증 후(룰링 — 문서 루북 우선)
-- [ ] 복구 훈련 정례화 — `flint restore --drill`: 덤프를 임시 스키마에 재생·행수
+- [x] 복구 훈련 정례화 — `flint restore --drill`: 덤프를 임시 스키마에 재생·행수
   대조·maintenance_runs 기록. maintain --check에 30일 경과 보고(meta last_drill)
-- [ ] 백업 로테이션·보존 — meta backup_keep(기본 14): backup 성공 후 구덤프+사이드카
+- [x] 백업 로테이션·보존 — meta backup_keep(기본 14): backup 성공 후 구덤프+사이드카
   삭제. "DB 행은 전 보존, 파일 덤프는 keep-N" 원칙 구분 명시(TUNING.md §15 연계)
-- [ ] 검색 품질(v0.5 범위 축소) — ①제로히트 계측: read 0건 비율 meta 누적·status
+- [x] 검색 품질(v0.5 범위 축소) — ①제로히트 계측: read 0건 비율 meta 누적·status
   노출 ②랭킹: topic 정합 > confidence > 최신 순 정렬.
   n-gram·코사인은 트리거(제로히트율 20% 초과·read_calls≥50) 도달 시 별도 이연
