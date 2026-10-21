@@ -2,12 +2,41 @@ package cli
 
 import (
 	"strings"
+	"sync"
 	"testing"
 )
 
 // resetMetrics — 프로세스 내 통계 초기화(테스트 격리).
 func resetMetrics() {
+	hotMu.Lock()
+	defer hotMu.Unlock()
 	hotLens = hotLens[:0]
+}
+
+// TestHotConcurrentAccess — 병렬 기록·조회 중 레이스 없음(-race 회귀).
+func TestHotConcurrentAccess(t *testing.T) {
+	resetMetrics()
+	var wg sync.WaitGroup
+	for g := 0; g < 4; g++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for i := 0; i < 100; i++ {
+				RecordHotLen(i)
+			}
+		}()
+	}
+	wg.Add(1)
+	go func() {
+		defer wg.Done()
+		for i := 0; i < 100; i++ {
+			HotStats()
+		}
+	}()
+	wg.Wait()
+	if calls, _, _ := HotStats(); calls != 400 {
+		t.Fatalf("calls=%d, want 400(전체 기록 유실 없음)", calls)
+	}
 }
 
 // TestHotStatsEmpty — 0건 경계: 모두 0.
