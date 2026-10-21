@@ -123,6 +123,42 @@ func TestMigrateSetsVersion(t *testing.T) {
 	}
 }
 
+// 회귀(T15 인시던트): schema_version이 같아도 뷰 정의가 갱신되면
+// Migrate가 최신 뷰로 재적용해야 한다 — 낡은 active_knowledge가 read를 깨뜨렸음.
+func TestMigrateReappliesViews(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	// 낡은(stale) 뷰 정의로 덮어쓰기 — 컬럼 축소 재현
+	if _, err := r.pool.Exec(ctx,
+		`CREATE OR REPLACE VIEW active_knowledge AS SELECT id FROM knowledge`); err != nil {
+		t.Fatalf("plant stale view: %v", err)
+	}
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatalf("second Migrate: %v", err)
+	}
+	// Doltgres는 information_schema에 뷰 컬럼을 노출하지 않으므로
+	// 쿼리 필드 메타데이터로 검증한다.
+	rows, err := r.pool.Query(ctx, `SELECT * FROM active_knowledge LIMIT 0`)
+	if err != nil {
+		t.Fatalf("query view: %v", err)
+	}
+	var cols []string
+	for _, fd := range rows.FieldDescriptions() {
+		cols = append(cols, string(fd.Name))
+	}
+	rows.Close()
+	// fake/real 공통: 뷰는 최소 id·topic·summary를 노출해야 한다(fake 3컬럼, real 전체).
+	want := []string{"id", "topic", "summary"}
+	if len(cols) < len(want) {
+		t.Fatalf("view too narrow after Migrate: %v", cols)
+	}
+	for i, w := range want {
+		if cols[i] != w {
+			t.Fatalf("view columns after Migrate = %v, want prefix %v", cols, want)
+		}
+	}
+}
+
 func TestInsertBatchAtomic(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

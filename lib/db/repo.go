@@ -46,18 +46,16 @@ func NewRepo(ctx context.Context, dsn string) (*Repo, error) {
 // Close는 풀을 정리한다.
 func (r *Repo) Close() { r.pool.Close() }
 
-// Migrate는 스키마가 없을 때 SchemaSQL+ViewsSQL을 실행하고
-// meta.schema_version=1을 기록한다. 이미 1이면 아무것도 하지 않는다(멱등).
+// Migrate는 스키마가 없을 때 SchemaSQL을 실행하고 meta.schema_version=1을
+// 기록한다. 뷰는 schema_version과 무관하게 매번 CREATE OR REPLACE로 재적용한다 —
+// 버전이 같아도 뷰 정의가 갱신되는 경우(stale active_knowledge) 때문이다.
 func (r *Repo) Migrate(ctx context.Context) error {
 	var version string
 	err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
-	switch {
-	case err == nil && version == "1":
-		return nil
-	case errors.Is(err, pgx.ErrNoRows), isPgCode(err, "42P01"): // meta 테이블 없음 = 최초
-		// 스키마 생성 경로로 진행
-	default:
+	tablesCurrent := err == nil && version == "1"
+	if !tablesCurrent &&
+		!errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("migrate: check schema_version: %w", err)
 	}
 	tx, err := r.pool.Begin(ctx)
@@ -65,16 +63,18 @@ func (r *Repo) Migrate(ctx context.Context) error {
 		return fmt.Errorf("migrate: begin: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	if _, err := tx.Exec(ctx, schemaSQLFn()); err != nil {
-		return fmt.Errorf("migrate: schema: %w", err)
+	if !tablesCurrent { // 최초 생성 또는 버전 불일치: 테이블+meta 기록
+		if err := execSQLScript(ctx, tx, schemaSQLFn()); err != nil {
+			return fmt.Errorf("migrate: schema: %w", err)
+		}
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO meta (key, value) VALUES ('schema_version', '1')
+			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+			return fmt.Errorf("migrate: meta: %w", err)
+		}
 	}
-	if _, err := tx.Exec(ctx, viewsSQLFn()); err != nil {
+	if err := execSQLScript(ctx, tx, viewsSQLFn()); err != nil { // 뷰는 매번 재적용
 		return fmt.Errorf("migrate: views: %w", err)
-	}
-	if _, err := tx.Exec(ctx,
-		`INSERT INTO meta (key, value) VALUES ('schema_version', '1')
-		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
-		return fmt.Errorf("migrate: meta: %w", err)
 	}
 	return tx.Commit(ctx)
 }
@@ -168,6 +168,21 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 		return "", err
 	}
 	return hash, nil
+}
+
+// execSQLScript는 세미콜론 구분 SQL 스크립트를 문장별로 실행한다.
+// Doltgres가 한 Exec에 여러 문장을 허용하지 않기 때문이다.
+// flint 스키마 SQL은 문자열 리터럴에 세미콜론을 쓰지 않는다.
+func execSQLScript(ctx context.Context, tx pgx.Tx, script string) error {
+	for _, stmt := range strings.Split(script, ";") {
+		if strings.TrimSpace(stmt) == "" {
+			continue
+		}
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // mapInsertErr는 unique 위반(23505)을 store.ErrDuplicate으로 감싼다.
