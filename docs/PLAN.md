@@ -109,7 +109,7 @@ project:  { "name", "status": "active|paused|done", "note"? }
 ### 읽기 — `flint read [query]`
 - `active_knowledge` 뷰로 강제(무효 사실 차단)
 - 무료 텍스트: `lower(topic||summary) LIKE lower('%q%')` (ILIKE 대체)
-- 필터: `--tag --entity --domain --kind --limit`
+- 필터: `--tag --entity --domain --limit`
 - 출력: 기본 `id|topic|summary(80자)` 3컬럼 — `--json --fields id,topic`(gh 패턴) 전체 선택
 - **토큰 예산 박제**: limit 기본 10 / 상한 50
 - `flint hot`: 출력 형식 고정 + 임시 상한 2,000자(2주 실측 p95 후 확정)
@@ -149,7 +149,7 @@ SQL·스키마·CLI 문법은 전부 에이전트 영역 — 사용자 비노출
    backup / restore / done / mcp(v0.3)`
 - 원칙: 프롬프트 금지 · 출력 기본 = 한 줄 JSON(`--pretty`만 사람용) ·
   에러는 셀프디스크립팅(원인+수정법) · TUI 없음 · 파이프 가능
-- 레포 구조: `bin/`(바이너리) `lib/`(Go 패키지) `sql/`(쿼리) `docs/` `data/`(git 무시)
+- 레포 구조: `bin/`(바이너리) `lib/`(Go 패키지, SQL embed 포함) `cmd/flint/`(진입점) `docs/` `data/`(런타임만 git 무시)
 - 테스트: E2E 3케이스(dedup / 재시도 / 이스케이프) + 판정 로직 단위
 
 ## 11. 리스크·기계화
@@ -239,3 +239,10 @@ flint-plugin/
   flint(부싯돌). 도구를 만드는 돌, 불씨를 내는 돌(`flint hot` = 불붙이기).
 - 태그라인: **"version-controlled memory for AI agents"**
 - 네이밍 관행 부합: 자연물·광물 계열(DB 계열 관례), 이름=상징·태그라인=기능 분리
+
+### v0.1 구현 확정 정정 (2026-10-21)
+- SQL embed 경로 `sql/`→`lib/sqlfs/` (go:embed 상위 접근 제약). 커맨드 진입 `cmd/flint/main.go`
+- read `--kind` 필터 제거 — active_knowledge 뷰는 knowledge 단일 테이블
+- 스키마 미정의 payload 키(`session.tasks`·`project.note`)는 저장 전 제거 + `warnings`로 고지
+- Doltgres 제약 해결: 다중문장 Exec 미지원→문장별 실행, CREATE OR REPLACE 뷰 컬럼 미갱신→simple 프로토콜 DROP+CREATE
+- 루프 교훈: wave0(스켈레톤)은 병렬 태스크보다 반드시 선행 (후행 시 스텝 덮어쓰기 사고 — v0.1 인시던트)
