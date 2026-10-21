@@ -202,3 +202,101 @@ func TestDispatchUnknownTool(t *testing.T) {
 		t.Errorf("out = %q, want unknown tool error", out)
 	}
 }
+
+// simpleQuery — fakeSimpleStore가 기록한 쿼리 1건.
+type simpleQuery struct {
+	sql  string
+	args []any
+}
+
+// fakeSimpleStore — connectSimple fake: DSN·쿼리·Close 기록, 고정 행 반환.
+type fakeSimpleStore struct {
+	dsn     string
+	rows    [][]any
+	closed  bool
+	queries []simpleQuery
+}
+
+func (f *fakeSimpleStore) Query(_ context.Context, sql string, args ...any) ([][]any, error) {
+	f.queries = append(f.queries, simpleQuery{sql: sql, args: args})
+	return f.rows, nil
+}
+
+func (f *fakeSimpleStore) Close() { f.closed = true }
+
+// installSimple — connectSimple 교체. 기본 fake(DSN·쿼리 기록),
+// SUPERLITE_REAL=1이면 실구현에 DSN만 위임 기록(실DB 미기동 시 스킵).
+func installSimple(t *testing.T, rows [][]any) (*fakeSimpleStore, bool) {
+	t.Helper()
+	fake := &fakeSimpleStore{rows: rows}
+	real := os.Getenv("SUPERLITE_REAL") == "1"
+	if real {
+		pool, err := db.Connect(context.Background(), os.Getenv("FLINT_DSN"))
+		if err != nil {
+			t.Skipf("real db unavailable: %v", err)
+		}
+		pool.Close()
+	}
+	prev := connectSimple
+	connectSimple = func(ctx context.Context, dsn string) (Store, error) {
+		fake.dsn = dsn
+		if real {
+			return prev(ctx, dsn)
+		}
+		return fake, nil
+	}
+	t.Cleanup(func() { connectSimple = prev })
+	return fake, real
+}
+
+// TestSimpleStoreQuery — NewSimpleStore는 DSN에 simple protocol 파라미터를
+// 붙이고(장수 세션 뷰 describe 캐시 우회), placeholder 인자($1)가 그대로 전달된다.
+func TestSimpleStoreQuery(t *testing.T) {
+	dsn := "postgresql://flint:flint-dev@localhost:5433/flint"
+	if real := os.Getenv("SUPERLITE_REAL") == "1"; real {
+		if d := os.Getenv("FLINT_DSN"); d != "" {
+			dsn = d
+		}
+	}
+	fake, real := installSimple(t, [][]any{{1}})
+	st, err := NewSimpleStore(dsn)
+	if err != nil {
+		t.Fatalf("NewSimpleStore: %v", err)
+	}
+	if !strings.Contains(fake.dsn, "default_query_exec_mode=simple_protocol") {
+		t.Errorf("dsn = %q, want simple_protocol param", fake.dsn)
+	}
+	if _, err := st.Query(context.Background(),
+		`SELECT id FROM active_knowledge WHERE topic = $1`, "e2e-mcp"); err != nil {
+		t.Fatalf("Query placeholder in simple mode: %v", err)
+	}
+	st.Close()
+	if !real {
+		if len(fake.queries) != 1 || len(fake.queries[0].args) != 1 ||
+			fake.queries[0].args[0] != "e2e-mcp" {
+			t.Errorf("queries = %+v, want placeholder arg passthrough", fake.queries)
+		}
+		if !fake.closed {
+			t.Error("Close not recorded")
+		}
+	}
+}
+
+// TestSimpleStoreDSNSeparator — DSN에 이미 쿼리 파라미터가 있으면 &로 붙인다.
+// 순수 문자열 테스트: 실접속 없음(SUPERLITE_REAL과 무관).
+func TestSimpleStoreDSNSeparator(t *testing.T) {
+	var got string
+	prev := connectSimple
+	connectSimple = func(_ context.Context, dsn string) (Store, error) {
+		got = dsn
+		return &fakeSimpleStore{}, nil
+	}
+	t.Cleanup(func() { connectSimple = prev })
+	if _, err := NewSimpleStore("postgresql://u:p@h:5433/d?sslmode=disable"); err != nil {
+		t.Fatalf("NewSimpleStore: %v", err)
+	}
+	want := "postgresql://u:p@h:5433/d?sslmode=disable&default_query_exec_mode=simple_protocol"
+	if got != want {
+		t.Errorf("dsn = %q, want %q", got, want)
+	}
+}
