@@ -5,9 +5,15 @@ VERSION ?= dev
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 LDFLAGS := -X flint/lib/cli.version=$(VERSION) -X flint/lib/cli.commit=$(GIT_COMMIT)
 
-.PHONY: test tidy up down build install seed e2e release
+.PHONY: test tidy up down build install seed e2e release ci
 
 test:
+	go test ./...
+
+# CI(T43): 로컬 검증 = YAML 구조 검증 + 전체 단위 테스트.
+# Actions(ci.yml)도 이 타깃 실행 후 make e2e — 로컬과 CI 동일 경로.
+ci:
+	python3 scripts/validate_yaml.py
 	go test ./...
 
 tidy:
