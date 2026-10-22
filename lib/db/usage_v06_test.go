@@ -1,6 +1,7 @@
 // usage_v06_test.go — T60 RecordUsage: 유입 계측 meta 기록(실DB slow 테스트).
 // 계약: last_<kind>_at RFC3339 upsert(dup 제외) + daily:YYYY-MM-DD JSON 증분,
-// 14일 초과 daily 키 정리(PruneDaily), 경합 last-write-wins 수용.
+// 14일 초과 daily 키 정리(PruneDaily — 오늘 키 신규 생성 시에만), 경합
+// last-write-wins 수용.
 package db
 
 import (
@@ -80,7 +81,9 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 		t.Fatalf("last_dup_at exists — dup은 last_ 시각을 기록하지 않는다")
 	}
 
-	// 15일치(어제~15일 전) 심기 → 다음 기록의 PruneDaily로 초과 키 삭제.
+	// 15일치(어제~15일 전) 심기 + 오늘 키 삭제(롤오버 첫 이벤트 시뮬레이션)
+	// → 다음 기록이 오늘 키를 신규 생성하며 PruneDaily(신규 생성 시에만
+	// 실행)로 초과 키 삭제.
 	for i := 1; i <= 15; i++ {
 		d := time.Now().UTC().AddDate(0, 0, -i).Format("2006-01-02")
 		if _, err := r.pool.Exec(ctx,
@@ -88,6 +91,9 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 			"daily:"+d); err != nil {
 			t.Fatalf("seed daily:%s: %v", d, err)
 		}
+	}
+	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:"+today); err != nil {
+		t.Fatalf("delete today key: %v", err)
 	}
 	if err := r.RecordUsage(ctx, "read", ""); err != nil {
 		t.Fatalf("RecordUsage(read) after seeding: %v", err)
@@ -103,7 +109,7 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 			t.Fatalf("daily key %d일 전 잔존 — 14일 초과 미삭제", age)
 		}
 	}
-	// 어제~13일 전 키는 보존·오늘 read는 2로 증분 유지.
+	// 어제~13일 전 키는 보존·오늘 키는 신규 생성 경로로 재기록(read=1).
 	for _, age := range []int{1, 13} {
 		d := time.Now().UTC().AddDate(0, 0, -age).Format("2006-01-02")
 		if err := r.pool.QueryRow(ctx,
@@ -114,8 +120,52 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 			t.Fatalf("보존 범위 키 daily:%s 삭제됨", d)
 		}
 	}
-	if got := dailyValue(t, r, today); got["read"] != 2 {
-		t.Fatalf("daily:%s read = %d, want 2", today, got["read"])
+	if got := dailyValue(t, r, today); got["read"] != 1 {
+		t.Fatalf("daily:%s read = %d, want 1(신규 생성 재기록)", today, got["read"])
+	}
+}
+
+// TestRecordUsagePrunesOnlyOnNewDayKey — PruneDaily는 오늘 daily 키가 신규
+// 생성된 경우(롤오버 첫 이벤트)에만 실행된다(회귀: RecordUsage마다 DELETE
+// 실행 — 핫패스 낭비·duplicate write 2회 정리).
+func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	cleanUsageKeys(t, r)
+	old := time.Now().UTC().AddDate(0, 0, -20).Format("2006-01-02")
+	seed := func() {
+		t.Helper()
+		if _, err := r.pool.Exec(ctx,
+			`INSERT INTO meta (key, value) VALUES ($1, '{"write":9}')`,
+			"daily:"+old); err != nil {
+			t.Fatalf("seed old daily: %v", err)
+		}
+	}
+	var n int
+	countOld := func() int {
+		t.Helper()
+		if err := r.pool.QueryRow(ctx,
+			`SELECT count(*) FROM meta WHERE key = $1`, "daily:"+old).Scan(&n); err != nil {
+			t.Fatalf("count old daily: %v", err)
+		}
+		return n
+	}
+
+	// 1회째: 오늘 키 신규 생성 → 정리 실행 → 20일 전 키 삭제.
+	seed()
+	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
+		t.Fatalf("RecordUsage #1: %v", err)
+	}
+	if countOld() != 0 {
+		t.Fatalf("신규 생성 시 20일 전 키 잔존 — PruneDaily 미실행")
+	}
+	// 2회째: 오늘 키 이미 존재 → 정리 건너뜀 → 재심은 20일 전 키 잔존.
+	seed()
+	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
+		t.Fatalf("RecordUsage #2: %v", err)
+	}
+	if countOld() != 1 {
+		t.Fatalf("기존 키 기록 시 PruneDaily 실행됨 — 롤오버 첫 이벤트에만 허용")
 	}
 }
 
