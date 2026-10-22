@@ -738,8 +738,10 @@ func TestVersionBinaryJSON(t *testing.T) {
 }
 
 // ④ schema 승격 실측 — v1 DB에서 done 1회(=세션 시작 경유) 실행만으로
-// meta가 승격된다(EnsureSchemaV2 → EnsureSchemaV3 연쇄, newRealStore 훅·T57
-// 배선). 최종 버전은 '3'(v2 컬럼 + v3 인덱스), 승격 후에도 read·status 정상.
+// meta가 승격된다(EnsureSchemaV2 → V3 → V4 연쇄, newRealStore 훅·T57·T62
+// 배선). 최종 버전은 '4'(v2 컬럼 + v3 인덱스 + v4 계측 컬럼) — v0.5의
+// '3' 기대치는 연쇄 승격 계약이 v4로 확장되며 갱신(완화 사유: 연쇄 승격
+// 계약 확장, CI run 39717583172). 승격 후에도 read·status 정상.
 func TestSchemaV2PromotedAfterDone(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-v3-")
@@ -766,8 +768,8 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회 실패: %v", err)
 	}
-	if version != "3" {
-		t.Fatalf("done 후 schema_version=%q, want 3(v2→v3 연쇄 승격)", version)
+	if version != "4" {
+		t.Fatalf("done 후 schema_version=%q, want 4(v2→v3→v4 연쇄 승격)", version)
 	}
 
 	// 승격 후 read 정상 — 씨딩 토픽이 그대로 보인다.
@@ -776,13 +778,13 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		t.Fatalf("승격 후 read 결과 이상: %v", lines)
 	}
 
-	// 회귀: v3에서도 status는 exit 0(호환 허용 집합 {"1","2","3"}).
+	// 회귀: v4에서도 status는 exit 0(호환 허용 집합 {"1","2","3","4"}).
 	out, code = runCLI(t, []string{"status"}, "")
 	if code != 0 {
-		t.Fatalf("v3 status exit=%d, want 0; out=%s", code, out)
+		t.Fatalf("v4 status exit=%d, want 0; out=%s", code, out)
 	}
-	if m := decode(t, out); m["schema_version"] != "3" {
-		t.Fatalf("status schema_version=%v, want 3; out=%s", m["schema_version"], out)
+	if m := decode(t, out); m["schema_version"] != "4" {
+		t.Fatalf("status schema_version=%v, want 4; out=%s", m["schema_version"], out)
 	}
 }
 
