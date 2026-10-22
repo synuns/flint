@@ -82,10 +82,13 @@ func TestReadInstrumentsSilently(t *testing.T) {
 	}
 }
 
-// hotQueryFn — hot_view 본질의는 1행, 지식 id 동반 질의는 [3 7].
+// hotQueryFn — hot_view 본질의는 지식 2행, 동반 질의는 같은 순서의 id [3 7].
 func hotQueryFn(sql string, args []any) ([][]any, error) {
 	if strings.Contains(sql, "FROM hot_view") {
-		return [][]any{{"pending", "토픽", "요약", "2026-10-22"}}, nil
+		return [][]any{
+			{"pending", "토픽", "요약", "2026-10-22"},
+			{"decision", "토픽2", "요약2", "2026-10-21"},
+		}, nil
 	}
 	if strings.Contains(sql, "FROM projects p") {
 		return [][]any{{int32(3)}, {int32(7)}}, nil
@@ -190,6 +193,87 @@ func TestHotUsageRecordedWhenCompanionFails(t *testing.T) {
 	}
 	if len(f.usage) != 1 || f.usage[0] != [2]string{"hot", ""} {
 		t.Errorf("RecordUsage = %v, want [[hot ]] (유입 기록 유지)", f.usage)
+	}
+}
+
+// TestHotBudgetTruncationSkipsCutRows — ClampHot rune 예산에 잘려 실제
+// 출력에 남지 않은 행은 read_count/last_read_at 증분 대상이 아니다(회귀:
+// 동반 질의 상위 N 전체를 무조건 증분 — 잘린 행까지 올라가 랭킹·stale
+// 집계를 왜곡). 예산은 첫 행 포맷 길이와 정확히 같게 잡아 둘째 행 시작
+// 오프셋==예산(완전 절단 경계)을 만든다.
+func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
+	ctx := context.Background()
+	hotRows := [][]any{
+		{"pending", "토픽", "요약", "2026-10-22"},
+		{"decision", "잘린행토픽", "잘린행요약", "2026-10-21"},
+	}
+	budget := len([]rune(query.FormatRows(hotRows[:1], "kind,topic,summary,ts", false)))
+	qfn := func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM hot_view"):
+			return hotRows, nil
+		case strings.Contains(sql, "FROM meta") && len(args) > 0 && fmt.Sprint(args[0]) == "hot_budget":
+			return [][]any{{strconv.Itoa(budget)}}, nil
+		case strings.Contains(sql, "FROM projects p"):
+			return [][]any{{int32(3)}, {int32(7)}}, nil
+		}
+		return nil, nil
+	}
+	f := &instrumentedFake{fakeStore: fakeStore{queryFn: qfn}}
+	var out bytes.Buffer
+	if code := runHot(ctx, f, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("runHot exit = %d, want 0", code)
+	}
+	if strings.Contains(out.String(), "잘린행토픽") {
+		t.Fatalf("예산 절단된 행이 출력에 남음: %q", out.String())
+	}
+	if len(f.bumped) != 1 || len(f.bumped[0]) != 1 || f.bumped[0][0] != 3 {
+		t.Errorf("BumpReads ids = %v, want [3](생존 첫 행만 — 잘린 둘째 행 id 7 제외)", f.bumped)
+	}
+	if len(f.usage) != 1 || f.usage[0] != [2]string{"hot", ""} {
+		t.Errorf("RecordUsage = %v, want [[hot ]]", f.usage)
+	}
+}
+
+// TestHotProjectRowsDontConsumeIDSLOTS — 생존 행 중 project 팔(id 없음)은
+// 증분 id를 소비하지 않는다: 프로젝트 행이 예산 안에 남아도 동반 질의의
+// 지식 id는 그만큼 앞당겨지지 않는다.
+func TestHotProjectRowsDontConsumeIDSLOTS(t *testing.T) {
+	rows := [][]any{
+		{"project", "p1", "active", "2026-10-23"},
+		{"pending", "k1", "s", "2026-10-22"},
+	}
+	got := injectedKnowledgeIDs(rows, []int{11, 12}, 10_000) // 예산 넉넉 — 전부 생존
+	if len(got) != 1 || got[0] != 11 {
+		t.Errorf("injectedKnowledgeIDs = %v, want [11](project 행은 id 슬롯 없음)", got)
+	}
+	// 프로젝트 행만 생존(예산이 첫 행 끝까지)하면 증분 없음.
+	budget := len([]rune(query.FormatRows(rows[:1], "kind,topic,summary,ts", false)))
+	if got := injectedKnowledgeIDs(rows, []int{11}, budget); len(got) != 0 {
+		t.Errorf("지식 행 전체 절단 시 증분 = %v, want []", got)
+	}
+}
+
+// TestUsageInstrumentationSingleSeam — read·hot 계측이 전부 UsageStore 단일
+// seam(write.go recordUsage)을 경유한다(회귀: read.go usageRecorder 이중
+// seam 부활 방지 — UsageStore만 구현한 Store로 전 경로 기록 확인).
+func TestUsageInstrumentationSingleSeam(t *testing.T) {
+	ctx := context.Background()
+	rec := &writeUsageRecorder{Store: &fakeStore{queryFn: readQueryFn}}
+	var out bytes.Buffer
+	if code := runRead(ctx, rec, []string{"topic"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("runRead exit = %d, want 0", code)
+	}
+	if len(rec.calls) != 1 || rec.calls[0] != (usageCall{"read", ""}) {
+		t.Fatalf("read 계측 = %v, want [read ]]", rec.calls)
+	}
+	rec2 := &writeUsageRecorder{Store: &fakeStore{queryFn: hotQueryFn}}
+	var out2 bytes.Buffer
+	if code := runHot(ctx, rec2, nil, strings.NewReader(""), &out2); code != 0 {
+		t.Fatalf("runHot exit = %d, want 0", code)
+	}
+	if len(rec2.calls) != 1 || rec2.calls[0] != (usageCall{"hot", ""}) {
+		t.Fatalf("hot 계측 = %v, want [[hot ]]", rec2.calls)
 	}
 }
 
