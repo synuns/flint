@@ -157,15 +157,19 @@ func maintainStale(ctx context.Context, ms MaintStore, stdout io.Writer, daysOve
 	if daysOverride > 0 {
 		days = daysOverride // --days N이 meta stale_days보다 우선
 	}
+	// T70: 컷오프를 Go에서 계산해 timestamptz 파라미터로 전달한다. SQL의
+	// ($1 * interval) 곱은 Doltgres가 $1을 interval(OID 1186)로 추론해 pgx가
+	// int 인코딩에 실패한다(maintain --stale exit 1). SQL·Go 필터가 같은
+	// 컷오프를 쓰므로 경계도 일치한다.
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	rows, err := queryOnce(ctx, ms, `
 		SELECT id, topic, last_read_at, ingested_at, read_count
 		FROM knowledge
 		WHERE status = 'active' AND invalid_at IS NULL
-		  AND ((last_read_at IS NOT NULL AND last_read_at < now() - ($1 * interval '1 day'))
-		   OR (read_count = 0 AND ingested_at < now() - ($1 * interval '1 day')))
+		  AND ((last_read_at IS NOT NULL AND last_read_at < $1)
+		   OR (read_count = 0 AND ingested_at < $1))
 		ORDER BY COALESCE(last_read_at, ingested_at) ASC
-		LIMIT $2`, []any{days, limit})
+		LIMIT $2`, []any{cutoff, limit})
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)

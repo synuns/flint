@@ -194,8 +194,10 @@ func TestReportRegistered(t *testing.T) {
 }
 
 // TestReportSQLDoltgresCompat — 회귀: report SQL은 Doltgres에서 실행돼야
-// 한다. FILTER 집계·make_interval·Ssprintf 주입 interval 리터럴 금지
-// (pattern.go·maintain.go 관례). interval은 $1 파라미터 곱으로만.
+// 한다. FILTER 집계 금지(pattern.go 관례)·SQL 내 interval 산술 전면 금지
+// (make_interval·리터럴·$1 곱 모두 — T70 e2e: ($1 * interval)은 Doltgres가
+// $1을 interval로 추론해 pgx 인코딩 실패). 컷오프는 Go 계산 timestamptz
+// 파라미터($1)로만 스캔에 전달한다.
 func TestReportSQLDoltgresCompat(t *testing.T) {
 	type q struct {
 		sql  string
@@ -229,26 +231,38 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		if strings.Contains(q.sql, "FILTER (") || strings.Contains(q.sql, "FILTER(") {
 			t.Errorf("FILTER 집계 금지(Doltgres 비호환): %q", q.sql)
 		}
-		if strings.Contains(q.sql, "make_interval") {
-			t.Errorf("make_interval 금지(Doltgres 비호환): %q", q.sql)
-		}
-		if strings.Contains(q.sql, "interval") && !strings.Contains(q.sql, "$1") {
-			t.Errorf("interval은 $1 파라미터 곱이어야 함(리터럴 주입 금지): %q", q.sql)
+		if strings.Contains(q.sql, "make_interval") || strings.Contains(q.sql, "interval") {
+			t.Errorf("SQL 내 interval 산술 금지(T70: Doltgres pgx 추론 결함): %q", q.sql)
 		}
 		if strings.Contains(q.sql, "read_count") {
 			sawStale = true
-			if len(q.args) != 1 || q.args[0] != 90 {
-				t.Errorf("stale 쿼리 인자=%v, want [90]", q.args)
-			}
+			assertCutoffArg(t, "stale", q.args, 90*24*time.Hour)
 		}
 		if strings.Contains(q.sql, "invalid_at >=") {
 			sawPeriod = true
-			if len(q.args) != 1 || q.args[0] != 7 {
-				t.Errorf("기간 쿼리 인자=%v, want [7](기본 --days)", q.args)
-			}
+			assertCutoffArg(t, "기간", q.args, 7*24*time.Hour) // 기본 --days
 		}
 	}
 	if !sawStale || !sawPeriod {
 		t.Errorf("stale(%v)·기간(%v) 쿼리 미관측", sawStale, sawPeriod)
+	}
+}
+
+// assertCutoffArg — 컷오프 인자는 timestamptz(time.Time) 1개이며 now-backoff
+// (±5분 허용, 실행 지연 여유)임을 단언. int 인자였다면 타입 단언이 실패한다.
+func assertCutoffArg(t *testing.T, name string, args []any, backoff time.Duration) {
+	t.Helper()
+	if len(args) != 1 {
+		t.Errorf("%s 쿼리 인자 %d건, want 1(timestamptz 컷오프): %v", name, len(args), args)
+		return
+	}
+	cut, ok := args[0].(time.Time)
+	if !ok {
+		t.Errorf("%s 쿼리 인자 타입 %T, want time.Time(timestamptz 컷오프)", name, args[0])
+		return
+	}
+	want := time.Now().Add(-backoff)
+	if d := cut.Sub(want); d < -5*time.Minute || d > 5*time.Minute {
+		t.Errorf("%s 컷오프=%v, want %v(±5분)", name, cut, want)
 	}
 }
