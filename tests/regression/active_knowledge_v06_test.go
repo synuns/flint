@@ -10,7 +10,9 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -40,10 +42,34 @@ func regViewDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
+// regSharedDBLock — 공유 Doltgres DB를 쓰는 패키지 간 상호 배제(파일
+// 잠금). go test ./...는 패키지 바이너리를 병렬로 띄우므로 잠금 없이는
+// lib/db의 useFakeSQL(fake active_knowledge 뷰 재적용)이 이 테스트의
+// read와 겹쳐 42703(column confidence)으로 실패한다. 잠금 파일 경로는
+// lib/db repo_test.go sharedDBLock·lib/backup drillLock과 동일해야
+// 상호 배제가 성립한다(v0.5 선례).
+func regSharedDBLock(t *testing.T) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
+		os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("잠금 파일: %v", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		t.Fatalf("flock: %v", err)
+	}
+	t.Cleanup(func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	})
+}
+
 // TestActiveKnowledgeExposesReadColumns — read가 Migrate(뷰 게이트)를
 // 거친 뒤 exit 0이고, 뷰가 v4 컬럼 2개를 노출하는지. 낡은 뷰(컬럼
 // 미노출)에서는 ORDER BY last_read_at이 42703이 되어 이 테스트는 실패한다.
 func TestActiveKnowledgeExposesReadColumns(t *testing.T) {
+	regSharedDBLock(t)
 	pool := regViewDB(t)
 	defer pool.Close()
 	ctx := context.Background()
