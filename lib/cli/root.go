@@ -106,28 +106,42 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 		return nil, err
 	}
 	s := &realStore{repo: repo, pool: pool}
+	// 컬럼이 뷰보다 먼저: 승격 게이트(v2~v4)를 Migrate의 뷰 재적용 앞에
+	// 돌린다. v4 뷰(views.sql)가 knowledge.read_count·last_read_at을
+	// 참조하므로, 레거시 v3 DB에서 컬럼 없이 뷰부터 만들면 CREATE VIEW가
+	// 42703으로 실패해 재시도를 소진하고(전 커맨드 실패) 뷰 DROP만 남아
+	// 구형 CLI도 파손한다. 신규 DB(테이블 부재)는 게이트가 no-op로 지나친다.
+	if err := ensureSchemas(ctx, repo); err != nil {
+		s.Close()
+		return nil, err
+	}
 	if err := s.Migrate(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
-	// v2 승격(코디네이터 룰링): Migrate(v1 소유) 뒤 버전 게이트로 승격 —
-	// 모든 실DB 커맨드 경로에서 자연 승격(하루 첫 세션 트리거 정신과 정합).
-	if err := repo.EnsureSchemaV2(ctx); err != nil {
-		s.Close()
-		return nil, err
-	}
-	// v3 승격(T51/T57 배선): 필터 경로 인덱스 3종(ADR-0008). v2와 같은
-	// 자연 승격 경로 — 이미 v3면 no-op라 매 접속 부담 없다.
-	if err := repo.EnsureSchemaV3(ctx); err != nil {
-		s.Close()
-		return nil, err
-	}
-	// v4 승격(T62 배선): 참조 계측 컬럼(read_count·last_read_at). 동일 경로.
-	if err := repo.EnsureSchemaV4(ctx); err != nil {
+	// 2차 게이트 — 신규 DB는 Migrate가 schema_version=1로 테이블을 만들므로
+	// 여기서 v2→v4로 자연 승격된다(기존 배포 경로 동일). 승격된 DB는 수치
+	// 비교 단락 no-op라 매 접속 부담 없다.
+	if err := ensureSchemas(ctx, repo); err != nil {
 		s.Close()
 		return nil, err
 	}
 	return s, nil
+}
+
+// ensureSchemas — 버전 게이트 v2→v3→v4 순차 승격(newRealStore 전용).
+// 순서 불변: v1 DB가 v4로 건너뛰며 v2 컬럼·v3 인덱스를 놓치지 않게 한다.
+func ensureSchemas(ctx context.Context, repo *db.Repo) error {
+	// v2 승격(코디네이터 룰링): sessions.tasks·projects.note 컬럼.
+	if err := repo.EnsureSchemaV2(ctx); err != nil {
+		return err
+	}
+	// v3 승격(T51/T57 배선): 필터 경로 인덱스 3종(ADR-0008).
+	if err := repo.EnsureSchemaV3(ctx); err != nil {
+		return err
+	}
+	// v4 승격(T62 배선): 참조 계측 컬럼(read_count·last_read_at).
+	return repo.EnsureSchemaV4(ctx)
 }
 
 // Close — 풀 정리.
