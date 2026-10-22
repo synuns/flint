@@ -216,6 +216,46 @@ flint-plugin/
 - [x] approve 정식화 / maintain 트리거 / done 임계값 경고 / 백업 자동
 ### v0.3 확장 (2026-10-22 완료)
 - [x] flint mcp / Hermes 카탈로그·OpenClaw 어댑터 / 임계값 튜닝
+### v0.4 운영 콘텐츠·계측 (2026-10-22 기획·완료)
+- [x] 콘텐츠 정책 v2 구현 — CONTENT.md(유형 8종·플레이북 계약·증류 루프·어휘표) write 검증 반영:
+  어휘 밖 tags/domain 경고, seed 정합 승격
+- [x] 자가발전 루프 — maintain 세션에서 패턴 탐지(성공 2회·실패→성공)→플레이북 후보 제안,
+  done 시 플레이북 사용 로그·성공률 기록, 성공률 기반 무효화 후보 보고
+- [x] 계측 영속화 — hot 길이 통계를 meta에 누적(현재 프로세스 내 한정 결함:
+  CLI 단발 프로세스라 hot_calls가 매 실행 초기화됨), p95 실측 실현
+- [x] hot 예산 meta화 — 2,000자 상수 → meta hot_budget(TUNING.md 예약 키 회수)
+- [x] setup/teardown 원커맨드 — §9 약정 중 미구현: docker compose up·Migrate·초기 시딩·
+  플러그인 설치 안내 원커맨드
+- [x] 세션 자동 요약 — done 시 sessions 테이블 자동 기록(수동 write 의존 제거)
+- [x] MCP 뷰 캐시 방어 — 장수 mcp 서버 프로세스의 stale 뷰 describe 위험:
+  read 경로 simple protocol 격리 또는 스키마 버전 감시·풀 재생
+- [x] 보안 구조 방어(ADR-0006) — 메모리 포이즈닝·비밀 유출 대응:
+  입출력 살균·비밀 패턴 스캔 경고, 백업 sha256 무결성+restore 가드, origin 필터·분포
+- [x] CI·릴리스 파이프라인 — GitHub Actions(go test + make e2e, Doltgres 서비스)·
+  GoReleaser·릴리스 워크플로(§12 약정 이행)
+- v0.5 이연: 백업 로테이션·보존 정책 / 검색 품질(랭킹·태그 제안)
+- 후보(운영 데이터 확보 후): 병렬 쓰기 충돌 실측 스파이크·복구 훈련 자동화
+
+### v0.5 신뢰성·검색 품질 (2026-10-22 기획·완료)
+- [x] mcp CLI 연결 — `flint mcp` 서브커맨드 등록+usageLine 갱신.
+  검증은 실 bin/flint 프로세스 e2e(JSON-RPC 왕복) — 라이브러리 직접 호출 테스트만으론
+  배선 결함이 새어감(v0.4 부채: .mcp.json이 unknown command로 즉사)
+- [x] 병렬 쓰기 충돌 실측 — N=8 동시 write 프로세스: 통과기준 = exit 1(재시도 소진)
+  0건 · 전량 정합 커밋(손실·중복 0). 충돌→재시도 성공률 측정치 ADR화 + e2e 회귀화
+- [x] 스키마 인덱스 — 스파이크 선행: CREATE INDEX·함수 인덱스(lower) Doltgres
+  지원 확인 + ~10k 행 read p95 측정. 지원·효용 입증 시 schema v3 적용,
+  무효 시 "시퀀셜 스캔 수용" ADR로 종결(에이전트 기억 규모 수천 건)
+- [x] 감사·롤백 루북 — `flint audit` 신설(dolt_log 최근 20, --session 필터) +
+  RUNBOOK.md(오염 감지→dolt_revert 절차·복구 훈련 절차). revert 커맨드화는
+  사용 빈도 입증 후(룰링 — 문서 루북 우선)
+- [x] 복구 훈련 정례화 — `flint restore --drill`: 덤프를 임시 스키마에 재생·행수
+  대조·maintenance_runs 기록. maintain --check에 30일 경과 보고(meta last_drill)
+- [x] 백업 로테이션·보존 — meta backup_keep(기본 14): backup 성공 후 구덤프+사이드카
+  삭제. "DB 행은 전 보존, 파일 덤프는 keep-N" 원칙 구분 명시(TUNING.md §15 연계)
+- [x] 검색 품질(v0.5 범위 축소) — ①제로히트 계측: read 0건 비율 meta 누적·status
+  노출 ②랭킹: topic 정합 > confidence > 최신 순 정렬.
+  n-gram·코사인은 트리거(제로히트율 20% 초과·read_calls≥50) 도달 시 별도 이연
+
 ### v0.6 적립 가시성·데이터 유지보수 (2026-10-22, 스펙 §1·§2)
 
 적립 가시성(§1):
@@ -296,43 +336,3 @@ flint-plugin/
 - 스키마 미정의 payload 키(`session.tasks`·`project.note`)는 저장 전 제거 + `warnings`로 고지
 - Doltgres 제약 해결: 다중문장 Exec 미지원→문장별 실행, CREATE OR REPLACE 뷰 컬럼 미갱신→simple 프로토콜 DROP+CREATE
 - 루프 교훈: wave0(스켈레톤)은 병렬 태스크보다 반드시 선행 (후행 시 스텝 덮어쓰기 사고 — v0.1 인시던트)
-
-### v0.4 운영 콘텐츠·계측 (2026-10-22 기획·완료)
-- [x] 콘텐츠 정책 v2 구현 — CONTENT.md(유형 8종·플레이북 계약·증류 루프·어휘표) write 검증 반영:
-  어휘 밖 tags/domain 경고, seed 정합 승격
-- [x] 자가발전 루프 — maintain 세션에서 패턴 탐지(성공 2회·실패→성공)→플레이북 후보 제안,
-  done 시 플레이북 사용 로그·성공률 기록, 성공률 기반 무효화 후보 보고
-- [x] 계측 영속화 — hot 길이 통계를 meta에 누적(현재 프로세스 내 한정 결함:
-  CLI 단발 프로세스라 hot_calls가 매 실행 초기화됨), p95 실측 실현
-- [x] hot 예산 meta화 — 2,000자 상수 → meta hot_budget(TUNING.md 예약 키 회수)
-- [x] setup/teardown 원커맨드 — §9 약정 중 미구현: docker compose up·Migrate·초기 시딩·
-  플러그인 설치 안내 원커맨드
-- [x] 세션 자동 요약 — done 시 sessions 테이블 자동 기록(수동 write 의존 제거)
-- [x] MCP 뷰 캐시 방어 — 장수 mcp 서버 프로세스의 stale 뷰 describe 위험:
-  read 경로 simple protocol 격리 또는 스키마 버전 감시·풀 재생
-- [x] 보안 구조 방어(ADR-0006) — 메모리 포이즈닝·비밀 유출 대응:
-  입출력 살균·비밀 패턴 스캔 경고, 백업 sha256 무결성+restore 가드, origin 필터·분포
-- [x] CI·릴리스 파이프라인 — GitHub Actions(go test + make e2e, Doltgres 서비스)·
-  GoReleaser·릴리스 워크플로(§12 약정 이행)
-- v0.5 이연: 백업 로테이션·보존 정책 / 검색 품질(랭킹·태그 제안)
-- 후보(운영 데이터 확보 후): 병렬 쓰기 충돌 실측 스파이크·복구 훈련 자동화
-
-### v0.5 신뢰성·검색 품질 (2026-10-22 기획·완료)
-- [x] mcp CLI 연결 — `flint mcp` 서브커맨드 등록+usageLine 갱신.
-  검증은 실 bin/flint 프로세스 e2e(JSON-RPC 왕복) — 라이브러리 직접 호출 테스트만으론
-  배선 결함이 새어감(v0.4 부채: .mcp.json이 unknown command로 즉사)
-- [x] 병렬 쓰기 충돌 실측 — N=8 동시 write 프로세스: 통과기준 = exit 1(재시도 소진)
-  0건 · 전량 정합 커밋(손실·중복 0). 충돌→재시도 성공률 측정치 ADR화 + e2e 회귀화
-- [x] 스키마 인덱스 — 스파이크 선행: CREATE INDEX·함수 인덱스(lower) Doltgres
-  지원 확인 + ~10k 행 read p95 측정. 지원·효용 입증 시 schema v3 적용,
-  무효 시 "시퀀셜 스캔 수용" ADR로 종결(에이전트 기억 규모 수천 건)
-- [x] 감사·롤백 루북 — `flint audit` 신설(dolt_log 최근 20, --session 필터) +
-  RUNBOOK.md(오염 감지→dolt_revert 절차·복구 훈련 절차). revert 커맨드화는
-  사용 빈도 입증 후(룰링 — 문서 루북 우선)
-- [x] 복구 훈련 정례화 — `flint restore --drill`: 덤프를 임시 스키마에 재생·행수
-  대조·maintenance_runs 기록. maintain --check에 30일 경과 보고(meta last_drill)
-- [x] 백업 로테이션·보존 — meta backup_keep(기본 14): backup 성공 후 구덤프+사이드카
-  삭제. "DB 행은 전 보존, 파일 덤프는 keep-N" 원칙 구분 명시(TUNING.md §15 연계)
-- [x] 검색 품질(v0.5 범위 축소) — ①제로히트 계측: read 0건 비율 meta 누적·status
-  노출 ②랭킹: topic 정합 > confidence > 최신 순 정렬.
-  n-gram·코사인은 트리거(제로히트율 20% 초과·read_calls≥50) 도달 시 별도 이연
