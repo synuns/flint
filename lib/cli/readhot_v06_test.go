@@ -175,8 +175,8 @@ func TestHotUsageRecordedWhenCompanionFails(t *testing.T) {
 	if code := runHot(ctx, f, nil, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runHot exit = %d, want 0", code)
 	}
-	if len(f.bumped) > 1 || (len(f.bumped) == 1 && len(f.bumped[0]) > 0) {
-		t.Errorf("동반 질의 실패 시 증분 id 없어야 함(빈 슬라이스 no-op), got %v", f.bumped)
+	if len(f.bumped) != 0 {
+		t.Errorf("동반 질의 실패 시 BumpReads 호출 자체 금지, got %v", f.bumped)
 	}
 	if len(f.usage) != 1 || f.usage[0] != [2]string{"hot", ""} {
 		t.Errorf("RecordUsage = %v, want [[hot ]] (유입 기록 유지)", f.usage)

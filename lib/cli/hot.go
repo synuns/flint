@@ -88,12 +88,12 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	RecordHotLen(len([]rune(clamped)))
 	persistHotStatsToMeta(ctx, st)
 	// 계측(T62): 주입 지식 id 전수 참조 증분 + hot 유입 1회. 조용히(§13).
-	// 동반 질의 실패 시 증분만 건너뛴다(빈 슬라이스 no-op) — 유입 1회 기록은
+	// 동반 질의 실패 시 BumpReads 호출 자체를 건너뛴다 — 유입 1회 기록은
 	// 조회 성공 사실과 무관하므로 유지한다.
-	var ids []int
 	if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
-		ids = rowIDs(idRows)
+		instrumentReads(ctx, st, "hot", rowIDs(idRows))
+	} else if us, ok := st.(usageRecorder); ok {
+		_ = us.RecordUsage(ctx, "hot", "")
 	}
-	instrumentReads(ctx, st, "hot", ids)
 	return 0
 }
