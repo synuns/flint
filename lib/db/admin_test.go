@@ -205,10 +205,19 @@ func TestStaleSessionRuns(t *testing.T) {
 	}
 }
 
-// resetVersionToV1은 EnsureSchemaV2 테스트가 meta='2'를 남기지 않게
-// 되돌린다(다른 테스트의 newTestRepo가 영향받지 않도록).
+// resetVersionToV1은 승격 게이트 테스트의 v1 출발 전제를 성립시킨다.
+// 호출 시점에 '1'을 실제로 기록한다 — 공유 DB가 타 패키지(lib/cli·data의
+// newRealStore 연쇄)로 인해 이미 상위 버전일 때, 게이트의 수치 비교 단락
+// (n>=N이면 no-op) 때문에 EnsureSchemaV2가 '2'를 기록하지 않아 테스트의
+// "meta='2' 상태" 전제가 깨진다(CI 39717583172 계기). 문자열 동등 검사
+// 시절에는 상위 버전에서도 되돌려 '2'를 기록해 전제가 우연히 성립했다.
+// 종료 후에도 '1'로 되돌려 다른 테스트의 newTestRepo가 영향받지 않게 한다.
 func resetVersionToV1(t *testing.T, r *Repo) {
 	t.Helper()
+	if _, err := r.pool.Exec(context.Background(),
+		`UPDATE meta SET value = '1' WHERE key = 'schema_version'`); err != nil {
+		t.Fatalf("reset schema_version to 1: %v", err)
+	}
 	t.Cleanup(func() {
 		_, _ = r.pool.Exec(context.Background(),
 			`UPDATE meta SET value = '1' WHERE key = 'schema_version'`)

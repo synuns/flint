@@ -7,6 +7,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 )
@@ -20,18 +22,32 @@ type Counts struct {
 	DupSuspect int // 같은 topic에 active 2건 이상인 중복 의심 항목 수
 }
 
+// gateRetryBackoff — 승격 커밋의 40001(직렬화 실패) 재시도 간격. 병렬
+// 기동(예: e2e 8동시 writer)에서는 다른 writer의 승격 커밋과 충돌날 수
+// 있어, views 재적용(repo.go Migrate)과 동일한 백오프로 회복한다.
+// 재시도 도중 다른 writer가 승격을 완료하면 각 게이트의 수치 비교
+// 단락으로 즉시 no-op가 된다(CI run 39717583172).
+var gateRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second, 5 * time.Second, 9 * time.Second}
+
 // EnsureSchemaV2는 meta.schema_version<2인 DB를 v2로 무손실 승격한다:
 // sessions.tasks·projects.note 컬럼을 ADD COLUMN IF NOT EXISTS로 추가하고
 // 버전 2를 기록한다(repo.go Migrate는 v1 소유라 건드리지 않는다).
-// 이미 v2면 no-op이며, 신규 DB(schema.sql v2로 생성)에서도 멱등하다.
+// 이미 v2 이상이면 트랜잭션·커밋 시도 자체를 하지 않는다(수치 비교
+// 단락 — 문자열 동등 검사였을 때는 상위 버전 DB에서도 승격 트랜잭션을
+// 열어 버전을 되돌리며 병렬 기동의 40001 창을 넓혔다). 신규 DB(schema.sql
+// v2로 생성)에서도 멱등하다.
 func (r *Repo) EnsureSchemaV2(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV2(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV2(ctx context.Context) error {
 	var version string
 	err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("schema v2: check version: %w", err)
 	}
-	if version == "2" {
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 2 {
 		return nil
 	}
 	tx, err := r.pool.Begin(ctx)
@@ -62,15 +78,20 @@ func (r *Repo) EnsureSchemaV2(ctx context.Context) error {
 // knowledge 필터 경로(entity·domain·status) B-tree 인덱스 3종을
 // CREATE INDEX IF NOT EXISTS로 만들고 버전 3을 기록한다(ADR-0008:
 // %q% 무료텍스트는 B-tree가 불가해 시퀀셜 스캔을 수용한다).
-// 이미 v3면 no-op이며, v1·v2 게이트를 경유한 어느 DB에서도 멱등하다.
+// 이미 v3 이상이면 트랜잭션·커밋 없이 no-op(수치 비교 단락)이며,
+// v1·v2 게이트를 경유한 어느 DB에서도 멱등하다.
 func (r *Repo) EnsureSchemaV3(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV3(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV3(ctx context.Context) error {
 	var version string
 	err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("schema v3: check version: %w", err)
 	}
-	if version == "3" {
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 3 {
 		return nil
 	}
 	tx, err := r.pool.Begin(ctx)
@@ -102,15 +123,20 @@ func (r *Repo) EnsureSchemaV3(ctx context.Context) error {
 // knowledge 참조 계측 컬럼(read_count·last_read_at)을 ADD COLUMN IF NOT EXISTS로
 // 추가하고 버전 4를 기록한다(spec §2: 신규 인덱스 없음 — status 인덱스 재사용,
 // 개인 규모 시퀀셜 수용). 승격 전 기존 행은 기본값 0/null을 받는다.
-// 이미 v4면 no-op이며, v1~v3 게이트를 경유한 어느 DB에서도 멱등하다.
+// 이미 v4면 트랜잭션·커밋 없이 no-op(수치 비교 단락)이며, v1~v3 게이트를
+// 경유한 어느 DB에서도 멱등하다.
 func (r *Repo) EnsureSchemaV4(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV4(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV4(ctx context.Context) error {
 	var version string
 	err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("schema v4: check version: %w", err)
 	}
-	if version == "4" {
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 4 {
 		return nil
 	}
 	tx, err := r.pool.Begin(ctx)
