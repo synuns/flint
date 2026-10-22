@@ -28,4 +28,8 @@ setup은 Doltgres를 띄우고(호스트 5433, ADR-0001) 스키마를 마이그�
 ```sh
 ./bin/flint read 덤프        # 검색: active_knowledge 뷰만
 ./bin/flint hot --session x  # 세션 시작 시 주입 (hot_budget 기본 2,000자)
+./bin/flint audit --limit 5  # 감사: dolt_log 최근 5건
+./bin/flint restore --file <dump> --drill  # 복구 훈련(원본 불변, 행수 대조만)
 ```
+
+감사·오염 대응·복구 훈련·백업 보존 절차는 [docs/RUNBOOK.md](RUNBOOK.md).

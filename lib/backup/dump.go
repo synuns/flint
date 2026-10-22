@@ -313,7 +313,7 @@ func dumpRows(ctx context.Context, pool *pgxpool.Pool, w io.Writer, table string
 	return rows.Err()
 }
 
-// sqlLit 는 Go 값을 SQL 리터럴로 변환한다(작은따옴표 '' 이스케이프).
+// sqlLit 는 Go 값을 SQL 리터럴로 변환한다(작은따옴표 ” 이스케이프).
 func sqlLit(v any) string {
 	switch x := v.(type) {
 	case nil:
@@ -339,7 +339,7 @@ func quoteIdent(s string) string {
 }
 
 // splitStatements 는 SQL 스크립트를 문장 단위로 쪼갠다.
-// 작은따옴표 문자열('' 이스케이프), -- 한 줄 주석, 블록 주석,
+// 작은따옴표 문자열(” 이스케이프), -- 한 줄 주석, 블록 주석,
 // 달러 인용($tag$...$tag$) 안의 세미콜론은 분리자로 취급하지 않는다.
 func splitStatements(script string) []string {
 	var stmts []string
