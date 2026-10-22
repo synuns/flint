@@ -6,8 +6,10 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strconv"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -135,6 +137,9 @@ func (errSilent) Error() string { return "계측 실패" }
 // TestHotCompanionQueryMirrorsHotSQL — 동반 질의가 HotSQL과 같은 상한을
 // 상위 N행 선택 시점에 적용하고(프로젝트 팔 포함 순위), 그 뒤에 지식만
 // 걸러낸다. 무제한 재조합(주입되지 않은 지식 전수 증분) 회귀 방지.
+// 동률 ts에서는 플래너가 임의 순서를 고를 수 있어 양쪽 질의가 같은
+// ORDER BY라도 LIMIT 내 집합이 어긋난다(CI run 39713526850) — HotSQL과
+// 동일한 ", id DESC" tie-break로 주입 집합=증분 집합을 보장해야 한다.
 func TestHotCompanionQueryMirrorsHotSQL(t *testing.T) {
 	sql := hotKnowledgeIDsSQL()
 	for _, frag := range []string{
@@ -142,12 +147,17 @@ func TestHotCompanionQueryMirrorsHotSQL(t *testing.T) {
 		"k.status = 'pending'",                      // 뷰 팔 2
 		"interval '7 days'",                         // 뷰 팔 3
 		"k.domain = 'decision'",
-		"ORDER BY ts DESC LIMIT " + strconv.Itoa(query.ClampLimit(0)), // HotSQL 동일 상한
+		"ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(query.ClampLimit(0)), // HotSQL 동일 상한·tie-break
 		") top WHERE id IS NOT NULL", // 상한 적용 '후' 지식만 필터
 	} {
 		if !strings.Contains(sql, frag) {
 			t.Errorf("동반 질의에 %q 누락: %s", frag, sql)
 		}
+	}
+	// HotSQL도 동일 tie-break — 한쪽만 고치면 주입 집합과 증분 집합이
+	// 동률에서 어긋난다(회귀: 수정 전 양쪽 다 "ts DESC"뿐이었음).
+	if hot := query.HotSQL(""); !strings.Contains(hot, "ORDER BY ts DESC, id DESC LIMIT ") {
+		t.Errorf("HotSQL에 동률 tie-break(id DESC) 누락: %s", hot)
 	}
 	// LIMIT이 id IS NOT NULL 필터보다 안쪽(먼저 적용)이어야 한다.
 	lim := strings.Index(sql, "LIMIT")
@@ -183,6 +193,30 @@ func TestHotUsageRecordedWhenCompanionFails(t *testing.T) {
 	}
 }
 
+// hotSharedDBLock — 공유 Doltgres DB를 쓰는 패키지 간 상호 배제(파일
+// 잠금, v0.5 선례 e1704b8). go test ./...는 패키지 바이너리를 병렬로
+// 띄우므로 잠금 없이는 lib/db newTestRepo의 테이블 전체 DELETE·pendingRec
+// 승인이 이 테스트의 동반 질의와 자격 조회 사이에 끼어, 반환 id가 조회
+// 사이에 자격을 잃어 "주입 안 된 id 반환" 오탐을 낸다(CI run 39713526850).
+// 잠금 파일 경로는 lib/db sharedDBLock·lib/backup drillLock과 동일해야
+// 상호 배제가 성립한다.
+func hotSharedDBLock(t *testing.T) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
+		os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("잠금 파일: %v", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		t.Fatalf("flock: %v", err)
+	}
+	t.Cleanup(func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	})
+}
+
 // TestHotCompanionQueryLimitsToInjected — 실DB 회귀(FLINT_DSN 설정 시에만):
 // 활성 프로젝트 3건이 상위를 차지하면 주입 지식은 상한(기본 10) - 3건뿐이다.
 // 무제한 동반 질의였던 버그(주입 안 된 지식까지 증분)의 엔드투엔드 방지.
@@ -191,6 +225,7 @@ func TestHotCompanionQueryLimitsToInjected(t *testing.T) {
 	if dsn == "" {
 		t.Skip("FLINT_DSN 미설정 — 실DB 회귀 건너뜀")
 	}
+	hotSharedDBLock(t)
 	ctx := context.Background()
 	real, err := newRealStore(ctx, dsn)
 	if err != nil {
@@ -264,6 +299,33 @@ func TestHotCompanionQueryLimitsToInjected(t *testing.T) {
 	for _, id := range got {
 		if !kset[id] {
 			t.Errorf("주입 안 된 id %d 반환(프로젝트·상한 밀림 항목 누출)", id)
+		}
+	}
+
+	// 주입 집합=증분 집합(tie-break 결정성, CI 39713526850): HotSQL과 같은
+	// 순서(ts DESC, id DESC)·상한으로 hot_view를 직접 조회해 주입될 지식
+	// id를 뽑으면 동반 질의 결과와 전수 일치해야 한다. 시드 12건은 전부
+	// 동일 ts(동률)라 수정 전(플래너 임의 동률 순서)에는 집합이 어긋날
+	// 수 있었다.
+	hrows, err := queryOnce(ctx, real, `SELECT id FROM (
+		SELECT id, ts FROM hot_view
+		ORDER BY ts DESC, id DESC LIMIT `+strconv.Itoa(query.ClampLimit(0))+`
+	) t WHERE id IS NOT NULL`, nil)
+	if err != nil {
+		t.Fatalf("주입 순위 조회(hot_view): %v", err)
+	}
+	injected := rowIDs(hrows)
+	if len(injected) != len(got) {
+		t.Fatalf("주입 지식 %d건 vs 증분 지식 %d건 — 상한·필터 불일치: injected=%v got=%v",
+			len(injected), len(got), injected, got)
+	}
+	gset := map[int]bool{}
+	for _, id := range got {
+		gset[id] = true
+	}
+	for _, id := range injected {
+		if !gset[id] {
+			t.Errorf("주입됐지만 증분 안 된 id %d(주입 집합=증분 집합 위반)", id)
 		}
 	}
 }

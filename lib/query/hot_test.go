@@ -18,6 +18,12 @@ func TestHotSQLQueriesView(t *testing.T) {
 	if !strings.Contains(strings.ToUpper(sql), "LIMIT") {
 		t.Errorf("HotSQL()에 LIMIT(토큰 예산) 누락: %s", sql)
 	}
+	// 동률 tie-break(CI 39713526850): ts 동률에서 플래너 임의 순서로는
+	// 주입 집합과 증분 집합(hot.go hotKnowledgeIDsSQL)이 어긋난다 —
+	// hot_view 말미의 id로 완전 순서를 만들어야 한다.
+	if !strings.Contains(sql, "ORDER BY ts DESC, id DESC LIMIT ") {
+		t.Errorf("HotSQL()에 동률 tie-break(id DESC) 누락: %s", sql)
+	}
 }
 
 // TestClampHotBoundaries — 1999/2000/2001 경계: 상한 이하 그대로, 초과는 절단+접미.
