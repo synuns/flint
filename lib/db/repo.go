@@ -3,11 +3,15 @@ package db
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
@@ -22,6 +26,9 @@ var (
 	schemaSQLFn = sqlfs.SchemaSQL
 	viewsSQLFn  = sqlfs.ViewsSQL
 )
+
+// reapplyViews seam — 게이트 테스트가 재적용 발생을 센다(F-T50-1).
+var reapplyViewsFn = (*Repo).reapplyViews
 
 // kind → 대상 테이블. write는 INSERT 전용이라 각 kind마다 단일 테이블에만 쓴다.
 var kindTables = map[string]string{
@@ -52,8 +59,9 @@ func (r *Repo) Close() { r.pool.Close() }
 // 기록한다. 버전 게이트는 정수 비교다: schema_version>=1이면 테이블이
 // 이미 있다고 본다(v2 승격은 admin.go EnsureSchemaV2 소관 — '1' 문자열
 // 일치만 검사하던 v0.1 게이트는 v2 DB에서 nil wrap 실패를 냈다).
-// 뷰는 schema_version과 무관하게 매번 재적용한다 — 버전이 같아도
-// 뷰 정의가 갱신되는 경우(stale active_knowledge) 때문이다.
+// 뷰는 schema_version과 무관하게 최신성(views_hash)으로 게이트한다 —
+// 버전이 같아도 뷰 정의가 갱신되는 경우(stale active_knowledge)는
+// hash 불일치로 재적용되지만, 이미 최신이면 재작성하지 않는다.
 func (r *Repo) Migrate(ctx context.Context) error {
 	var version string
 	err := r.pool.QueryRow(ctx,
@@ -87,7 +95,101 @@ func (r *Repo) Migrate(ctx context.Context) error {
 		}
 	}
 	// 뷰는 테이블과 달리 트랜잭션 밖 simple protocol로 재적용한다.
-	return r.reapplyViews(ctx)
+	// 다만 매 커맨드마다 DROP+CREATE하면 dolt_schemas가 매번 재작성돼
+	// 신규 DB의 병렬 write에서 working-set merge 충돌이 났다(F-T50-1).
+	// 뷰가 이미 최신이면 스킵한다 — 최신 판정은 ①배포 SQL 지문(views_hash)
+	// ②실제 뷰 컬럼 서명(views_sig, 재적용 직후 스냅샷) 이중 게이트.
+	// ①은 뷰 정의 갱신 배포를, ②는 외부로 낡아진 뷰(stale active_knowledge,
+	// T15 인시던트)를 각각 잡는다. 신규 DB의 동시 첫 실행은 재적용끼리
+	// merge 충돌을 낼 수 있어 재시도로 회복한다(루프 안에서 다른 writer가
+	// 완료한 재적용을 viewsCurrent로 흡수). 신규 DB 경합은 수 초간 지속될
+	// 수 있어 Commit 기본간격(0s/1s/3s)보다 긴 백오프를 쓴다(실측: 기본
+	// 4시도로 회복 못 한 사례 존재).
+	viewsSQL := viewsSQLFn()
+	return Retry(ctx, func() error {
+		if r.viewsCurrent(ctx, viewsSQL) {
+			return nil
+		}
+		if err := reapplyViewsFn(r, ctx); err != nil {
+			return err
+		}
+		sig, err := r.viewsSig(ctx, viewsSQL)
+		if err != nil {
+			return err
+		}
+		if _, err := r.pool.Exec(ctx,
+			`INSERT INTO meta (key, value) VALUES ('views_hash', $1), ('views_sig', $2)
+			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+			hashSQL(viewsSQL), sig); err != nil {
+			return fmt.Errorf("views: hash/sig 기록: %w", err)
+		}
+		return nil
+	}, []time.Duration{0, time.Second, 3 * time.Second, 5 * time.Second, 9 * time.Second})
+}
+
+// viewsCurrent — 배포 SQL 지문과 실제 뷰 서명이 모두 기록된 값과 같으면
+// true. 조회 실패(최초 생성·뷰 결측·외부 변조)는 false로 귀결해 재적용으로.
+func (r *Repo) viewsCurrent(ctx context.Context, viewsSQL string) bool {
+	var storedHash, storedSig string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'views_hash'`).Scan(&storedHash); err != nil {
+		return false
+	}
+	if storedHash != hashSQL(viewsSQL) {
+		return false
+	}
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'views_sig'`).Scan(&storedSig); err != nil {
+		return false
+	}
+	sig, err := r.viewsSig(ctx, viewsSQL)
+	if err != nil {
+		return false
+	}
+	return sig == storedSig
+}
+
+// viewsSig — 각 뷰의 실제 컬럼 순서를 "name:col1,col2\n" 형태로 모은다.
+// 뷰가 하나라도 없으면 오류(재적용 트리거). SELECT * LIMIT 0의 필드
+// 메타데이터로 읽는다 — Doltgres는 information_schema에 뷰 컬럼을
+// 노출하지 않는다(T15).
+func (r *Repo) viewsSig(ctx context.Context, viewsSQL string) (string, error) {
+	names := viewNames(viewsSQL)
+	if len(names) == 0 {
+		return "", fmt.Errorf("views: SQL에서 뷰 이름 미발견")
+	}
+	var b strings.Builder
+	for _, name := range names {
+		rows, err := r.pool.Query(ctx, "SELECT * FROM "+name+" LIMIT 0")
+		if err != nil {
+			return "", fmt.Errorf("views: %s 조회: %w", name, err)
+		}
+		var cols []string
+		for _, fd := range rows.FieldDescriptions() {
+			cols = append(cols, string(fd.Name))
+		}
+		rows.Close()
+		fmt.Fprintf(&b, "%s:%s\n", name, strings.Join(cols, ","))
+	}
+	return b.String(), nil
+}
+
+// viewNames — SQL 스크립트에서 CREATE OR REPLACE VIEW 대상 이름 추출.
+var viewNameRe = regexp.MustCompile(`(?is)CREATE\s+OR\s+REPLACE\s+VIEW\s+([a-zA-Z_][a-zA-Z0-9_]*)`)
+
+func viewNames(script string) []string {
+	matches := viewNameRe.FindAllStringSubmatch(script, -1)
+	out := make([]string, 0, len(matches))
+	for _, m := range matches {
+		out = append(out, m[1])
+	}
+	return out
+}
+
+// hashSQL — 뷰 정의 지문(SHA-256 hex).
+func hashSQL(sqlText string) string {
+	sum := sha256.Sum256([]byte(sqlText))
+	return hex.EncodeToString(sum[:])
 }
 
 // reapplyViews는 뷰를 최신 정의로 재생성한다(테이블·데이터는 불가침).
@@ -194,6 +296,13 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 				hash = ""
 				return nil
 			}
+			if isNothingToCommit(err) {
+				// 병렬 writer의 dolt_add('-A')가 전역 스테이징이라 이
+				// 세션의 변경까지 이미 커밋한 경우(F-T50-1 실측) —
+				// 데이터는 영속됐으므로 성공으로 처리한다.
+				hash = ""
+				return nil
+			}
 			return fmt.Errorf("dolt_commit: %w", err)
 		}
 		if h != nil {
@@ -250,4 +359,13 @@ func mapInsertErr(err error) error {
 func isPgCode(err error, code string) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == code
+}
+
+// isNothingToCommit — dolt_commit의 "nothing to commit"(XX000).
+// 스테이징이 비었다는 뜻으로, 병렬 write에서는 다른 writer가 대신
+// 커밋했음을 가리킨다(F-T50-1).
+func isNothingToCommit(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "XX000" &&
+		strings.Contains(pgErr.Message, "nothing to commit")
 }
