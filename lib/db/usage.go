@@ -48,6 +48,11 @@ func bumpMeta(ctx context.Context, pool *pgxpool.Pool, key string) error {
 	return err
 }
 
+// usageRetryBackoff — RecordUsage 기록의 40001(직렬화 실패) 재시도 간격.
+// 병렬 기동(공유 DB 풀 스위트 부하)에서 daily 카운터 upsert가 타 세션
+// 커밋과 낙관적 충돌한다 — 드릴 DROP·승격 커밋과 같은 회복 패턴.
+var usageRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second}
+
 // RecordUsage — v0.6 유입 계측 1회를 meta에 기록한다(플랜 T60).
 // kind = write|hot|read|dup. last_<kind>_at을 RFC3339로 upsert하고(dup는
 // 시각 키 없음 — write 시각 준용) `daily:YYYY-MM-DD` JSON 카운터를 증분한다.
@@ -56,29 +61,35 @@ func bumpMeta(ctx context.Context, pool *pgxpool.Pool, key string) error {
 // daily 증분은 읽고-쓰기다: 경합은 last-write-wins로 수용(플랜 계약 —
 // bumpMeta 단일 문장 확장은 doltgres에 jsonb_object_agg가 없어 불가,
 // 2026-10-22 확인). 파손된 기존 daily JSON은 0에서 재기작한다.
+// 기록 upsert는 병렬 세션과 40001 충돌이 가능해 재시도로 회복하며, 소진
+// 시 조용히 넘긴다 — 호출부(write·read·hot)가 이미 오류를 폐기하는 계측
+// 원칙(사용 로그 유실이 호출 실패보다 낫다)을 RecordUsage도 따른다.
 func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 	switch kind {
 	case "write", "hot", "read", "dup":
 	default:
 		return fmt.Errorf("record usage: invalid kind %q", kind)
 	}
-	if kind != "dup" {
-		now := time.Now().UTC().Format(time.RFC3339)
-		if _, err := r.pool.Exec(ctx,
-			`INSERT INTO meta (key, value) VALUES ($1, $2)
-			 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-			"last_"+kind+"_at", now); err != nil {
-			return fmt.Errorf("record usage: last_%s_at: %w", kind, err)
-		}
-	}
 	delta := map[string]int{kind: 1}
 	if kind == "write" && source != "" {
 		delta[source] = 1
 	}
 	day := time.Now().UTC().Format("2006-01-02")
-	if err := r.bumpDaily(ctx, day, delta); err != nil {
-		return fmt.Errorf("record usage: daily: %w", err)
-	}
+	_ = Retry(ctx, func() error {
+		if kind != "dup" {
+			now := time.Now().UTC().Format(time.RFC3339)
+			if _, err := r.pool.Exec(ctx,
+				`INSERT INTO meta (key, value) VALUES ($1, $2)
+				 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+				"last_"+kind+"_at", now); err != nil {
+				return fmt.Errorf("record usage: last_%s_at: %w", kind, err)
+			}
+		}
+		if err := r.bumpDaily(ctx, day, delta); err != nil {
+			return fmt.Errorf("record usage: daily: %w", err)
+		}
+		return nil
+	}, usageRetryBackoff) // 재시도 소진 조용히(계측 원칙).
 	_ = r.PruneDaily(ctx) // 14일 정리 실패는 조용히(계약).
 	return nil
 }
