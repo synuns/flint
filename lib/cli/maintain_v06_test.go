@@ -173,3 +173,38 @@ func TestStaleLimitDefault(t *testing.T) {
 		t.Fatalf("LIMIT 있는 stale 조회 미발생: %v", f.queries)
 	}
 }
+
+// TestMaintainModeFlagValidation — 모드 무관 플래그는 조용히 무시하지 않고
+// 에러 한 줄 + exit 1(회귀: --days·--limit이 --stale 아닌 모드에서, --id 등이
+// 역으로 흐르던 결함). 허용 조합은 기존 동작 유지.
+func TestMaintainModeFlagValidation(t *testing.T) {
+	bad := [][]string{
+		{"--check", "--days", "5"},   // --stale 전용
+		{"--check", "--limit", "5"},  // --stale 전용
+		{"--check", "--id", "3"},     // --invalidate 전용
+		{"--stale", "--id", "3"},     // --invalidate 전용
+		{"--stale", "--reason", "x"}, // --invalidate 전용
+		{"--invalidate", "--id", "3", "--reason", "x", "--days", "5"},
+		{"--merge", "--from", "1", "--to", "2", "--limit", "4"},
+	}
+	for _, args := range bad {
+		f := &fakeMaint{fakeStore: &fakeStore{}}
+		out, code := runMaintainArgs(t, f, args...)
+		if code != 1 {
+			t.Errorf("%v: exit=%d, want 1(모드 무관 플래그); out=%s", args, code, out)
+		}
+		if !strings.Contains(out, `"error"`) {
+			t.Errorf("%v: 에러 JSON 아님: %q", args, out)
+		}
+		if len(f.invalidateCalls) != 0 || len(f.mergeCalls) != 0 {
+			t.Errorf("%v: 거부됐는데 갱신 실행됨(invalidate=%v merge=%v)",
+				args, f.invalidateCalls, f.mergeCalls)
+		}
+	}
+	// 허용 조합은 동작 유지: --stale --days·--limit 함께 exit 0.
+	f := &fakeMaint{fakeStore: &fakeStore{}}
+	staleQueryFixture(t, f, nil, nil)
+	if _, code := runMaintainArgs(t, f, "--stale", "--days", "30", "--limit", "5"); code != 0 {
+		t.Errorf("--stale --days/--limit: exit=%d, want 0", code)
+	}
+}
