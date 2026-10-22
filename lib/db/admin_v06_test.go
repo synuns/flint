@@ -106,3 +106,28 @@ func TestEnsureSchemaV4FromV1(t *testing.T) {
 		t.Errorf("read_count after bump = %d, want 1", readCount)
 	}
 }
+
+// TestEnsureSchemaGatesShortCircuitAbove — 상위 버전 DB에서 하위 게이트는
+// 트랜잭션·커밋 자체를 skip한다(수치 비교 단락). 문자열 동등 검사였을 때는
+// v3 DB에서 EnsureSchemaV2가 승격 트랜잭션을 열어 버전을 '2'로 되돌렸다
+// (하강 기록 + 병렬 기동의 40001 창 확대 — CI run 39717583172).
+func TestEnsureSchemaGatesShortCircuitAbove(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '3')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		t.Fatalf("버전 '3' 설정: %v", err)
+	}
+	if err := r.EnsureSchemaV2(ctx); err != nil {
+		t.Fatalf("EnsureSchemaV2(상위 버전 DB): %v", err)
+	}
+	var version string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("schema_version 조회: %v", err)
+	}
+	if version != "3" {
+		t.Fatalf("게이트 하강 기록: schema_version=%q, want 3(상위 버전에서 no-op)", version)
+	}
+}
