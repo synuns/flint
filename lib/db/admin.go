@@ -47,6 +47,11 @@ func (r *Repo) ensureSchemaV2(ctx context.Context) error {
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("schema v2: check version: %w", err)
 	}
+	if isPgCode(err, "42P01") {
+		// meta 테이블 자체가 없다(신규 DB) — 게이트는 스킵하고 Migrate가
+		// 스키마를 만들면 2차 게이트(newRealStore)가 승격한다.
+		return nil
+	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 2 {
 		return nil
 	}
@@ -90,6 +95,9 @@ func (r *Repo) ensureSchemaV3(ctx context.Context) error {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("schema v3: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 3 {
 		return nil
@@ -135,6 +143,9 @@ func (r *Repo) ensureSchemaV4(ctx context.Context) error {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
 	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
 		return fmt.Errorf("schema v4: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 4 {
 		return nil
