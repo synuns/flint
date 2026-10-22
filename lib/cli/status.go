@@ -57,9 +57,10 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	}
 	// meta.schema_version 호환 검사(PLAN §10): 이 CLI가 아는 버전만 허용.
 	// v2는 newRealStore의 EnsureSchemaV2 승격 후, v3는 EnsureSchemaV3 인덱스
-	// 승격(T51·ADR-0008, 무손실) 후 정상 상태다.
-	if version != "1" && version != "2" && version != "3" {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~3"}))
+	// 승격(T51·ADR-0008) 후, v4는 EnsureSchemaV4 계측 컬럼 승격(v0.6) 후
+	// 정상 상태다.
+	if version != "1" && version != "2" && version != "3" && version != "4" {
+		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~4"}))
 		return 3
 	}
 	rows, err = queryOnce(ctx, st,
