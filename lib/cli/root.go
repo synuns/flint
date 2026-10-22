@@ -122,6 +122,11 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 		s.Close()
 		return nil, err
 	}
+	// v4 승격(T62 배선): 참조 계측 컬럼(read_count·last_read_at). 동일 경로.
+	if err := repo.EnsureSchemaV4(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
 	return s, nil
 }
 
