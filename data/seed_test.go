@@ -9,7 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
@@ -160,6 +162,31 @@ func seedDSN() string {
 	return "postgresql://flint:flint-dev@localhost:5433/flint"
 }
 
+// seedSharedDBLock — 공유 Doltgres DB를 쓰는 패키지 간 상호 배제(파일
+// 잠금). go test ./...는 패키지 바이너리를 병렬로 띄우므로 잠금 없이는
+// lib/db newTestRepo의 knowledge 전체 DELETE가 이 테스트의 1차 시딩과
+// 2차 시딩(멱등 계약 검증) 사이에 끼어, 2차가 hash 미발견 신규 insert
+// (status committed)로 멱등 계약이 깨진다(CI run 39716547383, 로컬 재현
+// ./data ./lib/db -count=3 -p 2 3/3 red). 잠금 파일 경로는 lib/db
+// sharedDBLock·lib/backup drillLock과 동일해야 상호 배제가 성립한다
+// (v0.5 선례 e1704b8).
+func seedSharedDBLock(t *testing.T) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
+		os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("잠금 파일: %v", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		t.Fatalf("flock: %v", err)
+	}
+	t.Cleanup(func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	})
+}
+
 // TestSeedIdempotent — 시딩 2회 실행 시 2회째는 전부 duplicate·exit 0.
 // 실 Doltgres 필요: 서버가 없으면 스킵(exit 2 철학 — 조용히 진행).
 func TestSeedIdempotent(t *testing.T) {
@@ -170,6 +197,7 @@ func TestSeedIdempotent(t *testing.T) {
 		t.Skipf("doltgres 미기동, 스킵: %v", err)
 	}
 	pool.Close()
+	seedSharedDBLock(t)
 
 	_, lines := loadSeed(t)
 	byKind := map[string][]string{}
