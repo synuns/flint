@@ -27,6 +27,9 @@ flint의 임계값·예산은 하드코딩 금지 원칙 아래 meta 테이블�
 | `dup_susp_max` | 20 | 중복의심 결정 상한 | maintain |
 | `conf_floor` | 0.8 | 확신 하한(0~1) | maintain |
 | `stale_sessions` | 3 | 연속 미기록 세션 수 | done |
+| `stale_days` | 90 | 미참조·미갱신 스테일 판정 기준(일) — Confluence 스테일 스캔 표준·분기 리뷰 관례 | maintain --stale |
+| `stall_hot_h` | 48 | hot 부재 경고 grace(시간, Healthchecks.io nodata 준용) | doctor·maintain --check |
+| `stall_write_h` | 72 | write 부재 경고 grace(시간) | doctor·maintain --check |
 
 갱신(미설정 키는 기본값, 즉시 재적용 — 재시작 불필요):
 
