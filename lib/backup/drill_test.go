@@ -96,8 +96,12 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 			return false, 0
 		}
 		var last int
+		// NULL 안전(CI run 39715701573): 마이그레이션만 된 신규 DB의
+		// 미사용 시퀀스는 last_value가 NULL이다(한 번도 nextval 안 됨).
+		// 미사용은 되감김 대상이 아니므로 0으로 읽어 판정한다 — 시딩
+		// setval 뒤에는 항상 실값이므로 전후 불변 판정은 그대로 엄격하다.
 		if err := pool.QueryRow(ctx,
-			`SELECT last_value FROM pg_sequences WHERE schemaname='public' AND sequencename='knowledge_id_seq'`).Scan(&last); err != nil {
+			`SELECT COALESCE(last_value, 0) FROM pg_sequences WHERE schemaname='public' AND sequencename='knowledge_id_seq'`).Scan(&last); err != nil {
 			t.Fatalf("sequence last_value: %v", err)
 		}
 		return true, last
@@ -138,6 +142,18 @@ SELECT setval('public.knowledge_id_seq', COALESCE((SELECT MAX("id") FROM "knowle
 	path := filepath.Join(t.TempDir(), "old-dump.sql")
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
 		t.Fatal(err)
+	}
+
+	// 마이그레이션 전 신규 DB 대응(헤르메틱, 실측 round4): RunDrill은 성공
+	// 기록을 public.meta에 쓰는데 maintenance_runs과 달리 meta 보장이
+	// 없다(42P01 "table not found: meta"). 병렬 패키지가 아직 마이그레이션
+	// 전일 때 이 테스트가 최초 드릴이 될 수 있으므로 스키마.sql 정의로
+	// 보장한다(아래 TestDrillRestoresAndCleans의 maintenance_runs 보장과
+	// 같은 패턴).
+	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.meta (
+		key   text PRIMARY KEY,
+		value text NOT NULL)`); err != nil {
+		t.Fatalf("ensure meta: %v", err)
 	}
 
 	// 재시도 1회 허용: 병렬 패키지의 마이그레이션이 드릴 사이에 시퀀스를
