@@ -48,8 +48,10 @@ var quoteEscaper = strings.NewReplacer(`'`, `''`)
 // RankOrder — 검색 랭킹 정렬 절(T56): 주제어 정확 일치 우선 → confidence →
 // 최신 수집 순. q는 작은따옴표를 ''로 이스케이프해 인라인한다(ORDER BY 식
 // 조립용 문자열 절 계약).
+// v0.6(T68): 동률에서만 최근 참조 우선 — 말미에 last_read_at DESC NULLS LAST
+// 추가(조회시 파생·저장값 불변). NULLS LAST로 미참조 항목은 동률 꼴찌.
 func RankOrder(q string) string {
-	return fmt.Sprintf("ORDER BY (lower(topic)=lower('%s')) DESC, confidence DESC, ingested_at DESC",
+	return fmt.Sprintf("ORDER BY (lower(topic)=lower('%s')) DESC, confidence DESC, ingested_at DESC, last_read_at DESC NULLS LAST",
 		quoteEscaper.Replace(q))
 }
 
