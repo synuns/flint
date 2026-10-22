@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -113,5 +114,49 @@ func TestStatusLastSeenFieldOrder(t *testing.T) {
 	}
 	if m["status"] != "ok" || m["schema_version"] != "3" {
 		t.Fatalf("기존 필드 회귀: %v", m)
+	}
+}
+
+// TestStatusLastSeenEmptyAndQueryError — 빈값·last_* 조회 오류는 null 폴백,
+// status 자체는 exit 0을 유지한다(계측 표시이므로 조회를 깨지 않는다).
+func TestStatusLastSeenEmptyAndQueryError(t *testing.T) {
+	f := &fakeStore{}
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		key := ""
+		if len(args) > 0 {
+			if k, ok := args[0].(string); ok {
+				key = k
+			}
+		}
+		if strings.Contains(sql, "'schema_version'") {
+			// runStatus의 스키마 조회는 키를 SQL에 인라인한다(args nil).
+			return [][]any{{"3"}}, nil
+		}
+		if strings.HasPrefix(sql, "SELECT value FROM meta") {
+			switch key {
+			case "last_write_at":
+				// 빈값 — 키는 있으나 값이 빈 문자열.
+				return [][]any{{""}}, nil
+			case "last_hot_at", "last_read_at":
+				// 조회 오류 — last_* 조회만 실패.
+				return nil, errors.New("boom")
+			}
+			return nil, nil
+		}
+		return [][]any{{int64(0)}}, nil
+	}
+	withFake(t, f)
+	out, code := mustRun(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (last_* 조회 오류는 status를 깨지 않음): %s", code, out)
+	}
+	m := decode(t, out)
+	for _, k := range []string{"last_write_at", "last_hot_at", "last_read_at"} {
+		if v, ok := m[k]; !ok || v != nil {
+			t.Fatalf("%s=%v(ok=%v), want null", k, v, ok)
+		}
+	}
+	if m["status"] != "ok" {
+		t.Fatalf("status=%v, want ok", m["status"])
 	}
 }
