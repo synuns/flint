@@ -109,6 +109,7 @@ project:  { "name", "status": "active|paused|done", "note"? }
 ### 읽기 — `flint read [query]`
 - `active_knowledge` 뷰로 강제(무효 사실 차단)
 - 무료 텍스트: `lower(topic||summary) LIKE lower('%q%')` (ILIKE 대체)
+- 랭킹 정렬: topic 정합 > confidence > 최신 순(v0.5 — §14)
 - 필터: `--tag --entity --domain --limit`
 - 출력: 기본 `id|topic|summary(80자)` 3컬럼 — `--json --fields id,topic`(gh 패턴) 전체 선택
 - **토큰 예산 박제**: limit 기본 10 / 상한 50
@@ -145,10 +146,10 @@ SQL·스키마·CLI 문법은 전부 에이전트 영역 — 사용자 비노출
 
 - **Go 단일 정적 바이너리** `bin/flint` — pgx 내장(psql 불필요, Doltgres 테스트
   스택과 동일), SQL은 embed. 차선: python3 stdlib(계약 동일, 교체 비파괴)
-- 서브커맨드 12종:
+- 서브커맨드 14종:
   `setup / teardown / write / read / approve / maintain / hot / status /
-   backup / restore / done / version(v0.3 추가)`
-  — `mcp`: 서버 코어(lib/mcp)는 구현됐으나 CLI 미연결 → v0.5 수선(§14)
+   backup / restore / done / version(v0.3 추가) / mcp·audit(v0.5 추가)`
+  — `mcp` CLI 연결 완료(v0.5, 실 프로세스 JSON-RPC e2e 검증 — §14)
 - 원칙: 프롬프트 금지 · 출력 기본 = 한 줄 JSON(`--pretty`만 사람용) ·
   에러는 셀프디스크립팅(원인+수정법) · TUI 없음 · 파이프 가능
 - 레포 구조: `bin/`(바이너리) `lib/`(Go 패키지, SQL embed 포함) `cmd/flint/`(진입점) `docs/` `data/`(런타임만 git 무시)

@@ -3,12 +3,15 @@ package backup
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"syscall"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"flint/lib/db"
 )
@@ -161,6 +164,48 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 // Review Focus(state): 실DB 덤프 재생 → Ok true·스키마 무잔존.
 // Review Focus(numeric): 행수 대조 — Expected==Restored==실제 knowledge 행수.
 
+// 회귀(커넥션 잔류): 드릴 재생이 flint_drill로 바꾼 search_path를 풀 반납
+// 커넥션에 남기지 않는다. MaxConns=1 풀에서 drillConn 실행 전후 같은
+// 커넥션으로 current_setting을 읽어 잔류 여부를 검증한다(잔류 시 이후
+// 비한정 쿼리가 public 테이블을 못 찾는다 — CI PR #1 42P01).
+func TestDrillConnResetsSearchPath(t *testing.T) {
+	unlock := drillLock(t)
+	defer unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	cfg, err := pgxpool.ParseConfig(testDSN())
+	if err != nil {
+		t.Fatalf("parse dsn: %v", err)
+	}
+	cfg.MaxConns = 1 // 반납 후 재취득이 같은 커넥션이 되게 강제
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		t.Fatalf("connect: %v", err)
+	}
+	defer pool.Close()
+
+	if err := drillConn(ctx, pool, func(conn *pgxpool.Conn) error {
+		var sp string
+		if err := conn.QueryRow(ctx, `SELECT current_setting('search_path')`).Scan(&sp); err != nil {
+			return err
+		}
+		if !strings.Contains(sp, DrillSchema) {
+			return fmt.Errorf("드릴 커넥션 search_path=%q, want %q 포함", sp, DrillSchema)
+		}
+		return nil
+	}); err != nil {
+		t.Fatalf("drillConn: %v", err)
+	}
+
+	var after string
+	if err := pool.QueryRow(ctx, `SELECT current_setting('search_path')`).Scan(&after); err != nil {
+		t.Fatalf("search_path(after): %v", err)
+	}
+	if strings.Contains(after, DrillSchema) || !strings.Contains(after, "public") {
+		t.Fatalf("search_path 잔류: %q, want public", after)
+	}
+}
+
 // drillLock — flint_drill 스키마는 패키지 간(프로세스 간) 공유 자원이다.
 // go test가 패키지를 병렬 실행하므로 파일 잠금으로 상호 배제한다.
 func drillLock(t *testing.T) func() {
@@ -212,26 +257,25 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	}
 	cleanup()
 	defer cleanup()
-	for i := 1; i <= 3; i++ {
-		if _, err := pool.Exec(ctx, `INSERT INTO knowledge
-			(topic, summary, tags, confidence, content_hash)
-			VALUES ('drill', 't55 probe', ':t55:', 0.9, $1)`,
-			"t55-drill-"+strings.Repeat("p", i)); err != nil {
-			t.Fatalf("seed %d: %v", i, err)
-		}
-	}
 
-	// 타 패키지 테스트가 public 테이블을 동시 생성/삭제하면 덤프가 일시적으로
-	// 오염될 수 있다 — 1회 재시도로 흡수한다(파일 잠금은 flint_drill 경합 방지용).
+	// 헤르메틱 대조: 사전 시딩(로컬 잔류 데이터)에 의존하지 않고 매 시도마다
+	// 자체 행을 심는다. 잠금 없는 타 패키지 테스트가 count와 dump 사이에
+	// knowledge를 비우면 행수가 어긋난다(CI PR #1: expected=1 restored=1,
+	// want 12/12) — 에러뿐 아니라 불일치도 재시도로 흡수한다.
 	var res DrillResult
+	var before int
 	var runErr error
-	before := 0
-	for attempt := 0; attempt < 2; attempt++ {
+	for attempt := 0; attempt < 3; attempt++ {
+		for i := 1; i <= 3; i++ {
+			if _, err := pool.Exec(ctx, `INSERT INTO knowledge
+				(topic, summary, tags, confidence, content_hash)
+				VALUES ('drill', 't55 probe', ':t55:', 0.9, $1)`,
+				fmt.Sprintf("t55-drill-a%d-%s", attempt, strings.Repeat("p", i))); err != nil {
+				t.Fatalf("seed %d: %v", i, err)
+			}
+		}
 		if err := pool.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&before); err != nil {
 			t.Fatalf("count before: %v", err)
-		}
-		if before < 3 {
-			t.Fatalf("프로브 미삽입: count=%d", before)
 		}
 		var dump bytes.Buffer
 		if err := Dump(ctx, dsn, &dump); err != nil {
@@ -242,8 +286,8 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 			t.Fatal(err)
 		}
 		res, runErr = RunDrill(dsn, path)
-		if runErr == nil {
-			break
+		if runErr == nil && res.Ok && res.Expected == before && res.Restored == before {
+			break // 일관된 스냅샷 — 대조 성립
 		}
 	}
 	if runErr != nil {
@@ -251,6 +295,9 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	}
 	if !res.Ok {
 		t.Fatalf("Ok=false: %+v", res)
+	}
+	if before < 3 {
+		t.Fatalf("프로브 미삽입: count=%d", before)
 	}
 	if res.Expected != before || res.Restored != before {
 		t.Fatalf("행수 대조 실패: expected=%d restored=%d, want %d/%d",
