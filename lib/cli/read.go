@@ -12,6 +12,56 @@ import (
 	"flint/lib/store"
 )
 
+// usageRecorder — v0.6 유입 계측 seam(T60 RecordUsage). 미구현 Store는
+// no-op이고 실패는 조용히(§13 — 조회 결과·exit 불변). realStore 위임은
+// usage_wire.go(T61) 소유다.
+type usageRecorder interface {
+	RecordUsage(ctx context.Context, kind, source string) error
+}
+
+// readBumper — v0.6 항목 참조 계측 seam(T62 BumpReads).
+type readBumper interface {
+	BumpReads(ctx context.Context, ids []int) error
+}
+
+// realStore 위임 — reads.go(T62) 실구현 연결. 메서드 정의만 여기 둔다.
+func (s *realStore) BumpReads(ctx context.Context, ids []int) error {
+	return s.repo.BumpReads(ctx, ids)
+}
+
+// rowIDs — 조회 결과 행에서 id 컬럼(위치 0)을 int로 모은다. 매핑 불가 칸은
+// 조용히 건너뛴다(계측 누락은 조회를 깨지 않는다).
+func rowIDs(rows [][]any) []int {
+	ids := make([]int, 0, len(rows))
+	for _, row := range rows {
+		if len(row) == 0 {
+			continue
+		}
+		switch v := row[0].(type) {
+		case int32:
+			ids = append(ids, int(v))
+		case int64:
+			ids = append(ids, int(v))
+		case int:
+			ids = append(ids, v)
+		case float64:
+			ids = append(ids, int(v))
+		}
+	}
+	return ids
+}
+
+// instrumentReads — 참조 계측(T62): 결과 항목 id 전수 증분 + 유입 1회 기록.
+// 둘 다 계측이라 실패는 조용히 무시된다.
+func instrumentReads(ctx context.Context, st Store, kind string, ids []int) {
+	if rb, ok := st.(readBumper); ok {
+		_ = rb.BumpReads(ctx, ids)
+	}
+	if us, ok := st.(usageRecorder); ok {
+		_ = us.RecordUsage(ctx, kind, "")
+	}
+}
+
 // runRead — 무료 텍스트 query와 --tag --entity --domain --limit 필터.
 // --kind는 active_knowledge가 knowledge 단일 kind 뷰라 의미가 없어 받지 않는다.
 func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
@@ -64,5 +114,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	fmt.Fprint(stdout, query.FormatRows(rows, fields, jsonMode))
 	// 계측(T56): zero 히트 여부를 meta read_stats에 누적. 실패는 조용히(§13).
 	bumpReadStatsToMeta(ctx, st, len(rows) == 0)
+	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회. 조용히(§13).
+	instrumentReads(ctx, st, "read", rowIDs(rows))
 	return 0
 }
