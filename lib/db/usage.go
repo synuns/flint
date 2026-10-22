@@ -5,12 +5,16 @@ package db
 
 import (
 	"context"
+	"encoding/json"
+	"errors"
 	"fmt"
 	"math"
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
+	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
@@ -41,6 +45,80 @@ func bumpMeta(ctx context.Context, pool *pgxpool.Pool, key string) error {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, '1')
 		 ON CONFLICT (key) DO UPDATE SET value = (meta.value::bigint + 1)::text`, key)
+	return err
+}
+
+// RecordUsage — v0.6 유입 계측 1회를 meta에 기록한다(플랜 T60).
+// kind = write|hot|read|dup. last_<kind>_at을 RFC3339로 upsert하고(dup는
+// 시각 키 없음 — write 시각 준용) `daily:YYYY-MM-DD` JSON 카운터를 증분한다.
+// write는 source 카운터(hook|manual|mcp)를 병행한다. 기록 후 14일 초과 daily
+// 키를 PruneDaily로 정리하되 정리 실패는 기록에 영향 주지 않는다(무시).
+// daily 증분은 읽고-쓰기다: 경합은 last-write-wins로 수용(플랜 계약 —
+// bumpMeta 단일 문장 확장은 doltgres에 jsonb_object_agg가 없어 불가,
+// 2026-10-22 확인). 파손된 기존 daily JSON은 0에서 재기작한다.
+func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
+	switch kind {
+	case "write", "hot", "read", "dup":
+	default:
+		return fmt.Errorf("record usage: invalid kind %q", kind)
+	}
+	if kind != "dup" {
+		now := time.Now().UTC().Format(time.RFC3339)
+		if _, err := r.pool.Exec(ctx,
+			`INSERT INTO meta (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
+			"last_"+kind+"_at", now); err != nil {
+			return fmt.Errorf("record usage: last_%s_at: %w", kind, err)
+		}
+	}
+	delta := map[string]int{kind: 1}
+	if kind == "write" && source != "" {
+		delta[source] = 1
+	}
+	day := time.Now().UTC().Format("2006-01-02")
+	if err := r.bumpDaily(ctx, day, delta); err != nil {
+		return fmt.Errorf("record usage: daily: %w", err)
+	}
+	_ = r.PruneDaily(ctx) // 14일 정리 실패는 조용히(계약).
+	return nil
+}
+
+// bumpDaily — daily:<date> JSON 카운터 증분. 파손된 값은 0에서 재기작.
+func (r *Repo) bumpDaily(ctx context.Context, day string, delta map[string]int) error {
+	key := "daily:" + day
+	cur := map[string]int{}
+	var val string
+	err := r.pool.QueryRow(ctx, `SELECT value FROM meta WHERE key = $1`, key).Scan(&val)
+	switch {
+	case err == nil:
+		_ = json.Unmarshal([]byte(val), &cur) // 파손 → cur 공란(0 재기작)
+	case errors.Is(err, pgx.ErrNoRows):
+		// 첫 기록 — cur 공란.
+	default:
+		return fmt.Errorf("bump daily: read: %w", err)
+	}
+	for k, n := range delta {
+		cur[k] += n
+	}
+	out, err := json.Marshal(cur)
+	if err != nil {
+		return fmt.Errorf("bump daily: marshal: %w", err)
+	}
+	_, err = r.pool.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, key, string(out))
+	if err != nil {
+		return fmt.Errorf("bump daily: upsert: %w", err)
+	}
+	return nil
+}
+
+// PruneDaily — 14일 보존(오늘+직전 13일)을 넘는 daily 키 삭제. 날짜 형식이
+// 아닌 키(daily:*)는 건드리지 않는다(형식 검사 후 cast).
+func (r *Repo) PruneDaily(ctx context.Context) error {
+	_, err := r.pool.Exec(ctx,
+		`DELETE FROM meta WHERE key ~ '^daily:[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+		   AND substring(key from 7)::date <= current_date - 14`)
 	return err
 }
 
