@@ -8,6 +8,7 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -23,10 +24,6 @@ import (
 // TestParallel8WritersAllCommitted — N=8 고정(numeric). 실 프로세스 왕복으로
 // 병렬 write가 전원 exit 0·knowledge +8·exit 1 0건임을 실측한다(state).
 func TestParallel8WritersAllCommitted(t *testing.T) {
-	pool := mustDB(t)
-	cleanupTopics(t, pool, "e2e-par-")
-	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-par-") })
-
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
 		t.Fatalf("루트 경로: %v", err)
@@ -37,6 +34,26 @@ func TestParallel8WritersAllCommitted(t *testing.T) {
 	if b, err := build.CombinedOutput(); err != nil {
 		t.Fatalf("go build 실패: %v; out=%s", err, b)
 	}
+
+	// 웜업(F-T50-1): 병렬 구간 전 write 1회를 순차 실행해 스키마를
+	// 안정화한다. 신규 DB에서는 이 1회가 Migrate(테이블·뷰 생성 +
+	// views_hash 기록)와 초기 커밋을 전부 마쳐, 8동시 writer가
+	// dolt_schemas 재작성 경합에 빠지지 않게 한다. mustDB보다 먼저
+	// 돌아야 신규 DB에서 뷰 재생성(테이블 필요)이 실패하지 않는다.
+	warmup := exec.Command(bin, "write", "knowledge")
+	warmup.Env = os.Environ()
+	warmup.Stdin = strings.NewReader(
+		`{"topic":"e2e-par-warmup","summary":"병렬 웜업","confidence":0.9}`)
+	if werr := warmupRun(warmup); werr != nil {
+		// 서버 미기동일 수 있다 — mustDB가 스킵 판정·정리를 맡는다.
+		pool := mustDB(t)
+		cleanupTopics(t, pool, "e2e-par-")
+		t.Fatalf("웜업 write 실패: %v", werr)
+	}
+
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-par-") // 웜업 행이 판정에 섞이지 않게
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-par-") })
 
 	const n = 8 // numeric: N 고정
 	before := countPrefix(t, pool, "e2e-par-")
@@ -145,6 +162,15 @@ func TestParallel8WritersAllCommitted(t *testing.T) {
 	rate := float64(conflicts) / float64(n)
 	t.Logf("N=%d wall=%v committed=%d duplicate=%d exit1=%d conflicts=%d(%.1f%%) max_elapsed=%v",
 		n, wall.Round(time.Millisecond), committed, dup, exit1, conflicts, rate*100, maxElapsed.Round(time.Millisecond))
+}
+
+// warmupRun — 웜업 write 실행. exit 0이면 nil, 아니면 출력과 함께 오류.
+func warmupRun(cmd *exec.Cmd) error {
+	b, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("%v; out=%s", err, b)
+	}
+	return nil
 }
 
 // countPrefix — 프리픽스 행 수(손실·중복 판정 baseline).
