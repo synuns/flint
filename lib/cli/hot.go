@@ -39,14 +39,28 @@ func metaGetKV(ctx context.Context, st Store) func(string, string) (string, erro
 	}
 }
 
-// hotKnowledgeIDsSQL — hot 주입 대상 지식의 id 전수(참조 계측용 동반 질의).
-// hot_view는 id 컬럼을 노출하지 않아 지식 팔(pending + 최근 결정 7일)을
-// 뷰 정의와 동일한 조건으로 다시 모은다. 프로젝트 팔은 knowledge 행이
-// 아니라(read_count 없음) 제외된다.
-const hotKnowledgeIDsSQL = `SELECT k.id FROM knowledge k
- WHERE k.invalid_at IS NULL
-   AND (k.status = 'pending'
-        OR (k.ingested_at >= now() - interval '7 days' AND k.domain = 'decision'))`
+// hotKnowledgeIDsSQL — 실제 주입된 지식의 id 전수(참조 계측용 동반 질의).
+// hot_view는 id를 노출하지 않아 뷰의 세 팔(활성 프로젝트·pending·최근
+// 결정 7일)을 동일 조건으로 다시 모은 뒤, HotSQL과 같은 ORDER BY ts DESC
+// LIMIT으로 상위 N행을 먼저 가른다. 프로젝트 팔은 knowledge 행이 아니어서
+// (read_count 없음) id NULL로 순위를 메운 뒤 제외된다 — 주입되지도 않은
+// 지식(상한 밀려난 항목)까지 증분하는 이중 과다 계측을 막는다.
+func hotKnowledgeIDsSQL() string {
+	return `SELECT id FROM (
+		SELECT id, ts FROM (
+			SELECT NULL::int AS id, p.updated AS ts
+			FROM projects p WHERE p.status = 'active'
+			UNION ALL
+			SELECT k.id, k.ingested_at FROM knowledge k
+			WHERE k.invalid_at IS NULL AND k.status = 'pending'
+			UNION ALL
+			SELECT k.id, k.valid_at FROM knowledge k
+			WHERE k.invalid_at IS NULL
+			  AND k.ingested_at >= now() - interval '7 days'
+			  AND k.domain = 'decision'
+		) u ORDER BY ts DESC LIMIT ` + strconv.Itoa(query.ClampLimit(0)) + `
+	) top WHERE id IS NOT NULL`
+}
 
 // runHot — hot_view 조회 후 고정 포맷으로 출력하고 상한으로 절단한다.
 // T38 배선(F-T56-1): 시작 시 meta hot_stats 누적을 로드하고 종료 직전
@@ -74,9 +88,12 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	RecordHotLen(len([]rune(clamped)))
 	persistHotStatsToMeta(ctx, st)
 	// 계측(T62): 주입 지식 id 전수 참조 증분 + hot 유입 1회. 조용히(§13).
-	idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL, nil)
-	if err == nil {
-		instrumentReads(ctx, st, "hot", rowIDs(idRows))
+	// 동반 질의 실패 시 증분만 건너뛴다(빈 슬라이스 no-op) — 유입 1회 기록은
+	// 조회 성공 사실과 무관하므로 유지한다.
+	var ids []int
+	if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
+		ids = rowIDs(idRows)
 	}
+	instrumentReads(ctx, st, "hot", ids)
 	return 0
 }
