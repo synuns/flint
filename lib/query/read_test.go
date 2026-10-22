@@ -184,20 +184,22 @@ func TestFormatRowsFieldMapping(t *testing.T) {
 }
 
 // TestRankOrderEscapes — q의 작은따옴표는 ''로 이스케이프(인젝션 차단, T56).
+// v0.6(T68) tie-breaker 접미 허용 — 접두(이스케이프 포함 기존 절)만 정확 검사.
 func TestRankOrderEscapes(t *testing.T) {
 	got := RankOrder("a'b")
-	want := "ORDER BY (lower(topic)=lower('a''b')) DESC, confidence DESC, ingested_at DESC"
-	if got != want {
-		t.Errorf("RankOrder(%q) = %q, want %q", "a'b", got, want)
+	wantPrefix := "ORDER BY (lower(topic)=lower('a''b')) DESC, confidence DESC, ingested_at DESC"
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Errorf("RankOrder(%q) = %q, want 접두 %q", "a'b", got, wantPrefix)
 	}
 }
 
-// TestRankOrderPlain — 평범한 q는 계약 절 그대로(정확일치 → confidence → 최신순).
+// TestRankOrderPlain — 평범한 q는 기존 절(정확일치 → confidence → 최신순)을
+// 접두로 그대로 유지(T68 접미 tie-breaker 이후에도 선행 순위 불변).
 func TestRankOrderPlain(t *testing.T) {
 	got := RankOrder("flint")
-	want := "ORDER BY (lower(topic)=lower('flint')) DESC, confidence DESC, ingested_at DESC"
-	if got != want {
-		t.Errorf("RankOrder(%q) = %q, want %q", "flint", got, want)
+	wantPrefix := "ORDER BY (lower(topic)=lower('flint')) DESC, confidence DESC, ingested_at DESC"
+	if !strings.HasPrefix(got, wantPrefix) {
+		t.Errorf("RankOrder(%q) = %q, want 접두 %q", "flint", got, wantPrefix)
 	}
 }
 
