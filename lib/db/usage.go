@@ -56,8 +56,10 @@ var usageRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second}
 // RecordUsage — v0.6 유입 계측 1회를 meta에 기록한다(플랜 T60).
 // kind = write|hot|read|dup. last_<kind>_at을 RFC3339로 upsert하고(dup는
 // 시각 키 없음 — write 시각 준용) `daily:YYYY-MM-DD` JSON 카운터를 증분한다.
-// write는 source 카운터(hook|manual|mcp)를 병행한다. 기록 후 14일 초과 daily
-// 키를 PruneDaily로 정리하되 정리 실패는 기록에 영향 주지 않는다(무시).
+// write는 source 카운터(hook|manual|mcp)를 병행한다. 14일 초과 daily 키는
+// PruneDaily로 정리하되 오늘 daily 키가 신규 생성된 경우(날짜 롤오버 첫
+// 이벤트)에만 실행한다 — 매 기록마다 DELETE하면 핫패스 낭비고 duplicate
+// write는 2회 실행된다. 정리 실패는 기록에 영향 주지 않는다(무시).
 // daily 증분은 읽고-쓰기다: 경합은 last-write-wins로 수용(플랜 계약 —
 // bumpMeta 단일 문장 확장은 doltgres에 jsonb_object_agg가 없어 불가,
 // 2026-10-22 확인). 파손된 기존 daily JSON은 0에서 재기작한다.
@@ -75,6 +77,7 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 		delta[source] = 1
 	}
 	day := time.Now().UTC().Format("2006-01-02")
+	created := false // 이 호출으로 오늘 daily 키가 신규 생성됐는가(롤오버 첫 이벤트)
 	_ = Retry(ctx, func() error {
 		if kind != "dup" {
 			now := time.Now().UTC().Format(time.RFC3339)
@@ -85,21 +88,29 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 				return fmt.Errorf("record usage: last_%s_at: %w", kind, err)
 			}
 		}
-		if err := r.bumpDaily(ctx, day, delta); err != nil {
+		made, err := r.bumpDaily(ctx, day, delta)
+		if err != nil {
 			return fmt.Errorf("record usage: daily: %w", err)
 		}
+		created = created || made
 		return nil
 	}, usageRetryBackoff) // 재시도 소진 조용히(계측 원칙).
-	_ = r.PruneDaily(ctx) // 14일 정리 실패는 조용히(계약).
+	// 14일 정리는 오늘 daily 키가 신규 생성된 경우(날짜 롤오버 후 첫 이벤트)
+	// 에만 실행한다 — RecordUsage마다 DELETE를 돌리면 핫패스 낭비고 duplicate
+	// write는 같은 기록에 2회 실행된다. 정리 실패는 조용히(계약).
+	if created {
+		_ = r.PruneDaily(ctx)
+	}
 	return nil
 }
 
 // bumpDaily — daily:<date> JSON 카운터 증분. 파손된 값은 0에서 재기작.
-func (r *Repo) bumpDaily(ctx context.Context, day string, delta map[string]int) error {
+// 신규 키 생성(기존 행 부재) 시 created=true를 돌려준다(PruneDaily 트리거).
+func (r *Repo) bumpDaily(ctx context.Context, day string, delta map[string]int) (created bool, err error) {
 	key := "daily:" + day
 	cur := map[string]int{}
 	var val string
-	err := r.pool.QueryRow(ctx, `SELECT value FROM meta WHERE key = $1`, key).Scan(&val)
+	err = r.pool.QueryRow(ctx, `SELECT value FROM meta WHERE key = $1`, key).Scan(&val)
 	switch {
 	case err == nil:
 		// 파손(부분 디코드 포함)이거나 JSON null이면 cur를 공란으로 되돌려
@@ -108,24 +119,24 @@ func (r *Repo) bumpDaily(ctx context.Context, day string, delta map[string]int) 
 			cur = map[string]int{}
 		}
 	case errors.Is(err, pgx.ErrNoRows):
-		// 첫 기록 — cur 공란.
+		created = true // 첫 기록 — cur 공란, 이 호출로 키가 생성된다.
 	default:
-		return fmt.Errorf("bump daily: read: %w", err)
+		return false, fmt.Errorf("bump daily: read: %w", err)
 	}
 	for k, n := range delta {
 		cur[k] += n
 	}
 	out, err := json.Marshal(cur)
 	if err != nil {
-		return fmt.Errorf("bump daily: marshal: %w", err)
+		return false, fmt.Errorf("bump daily: marshal: %w", err)
 	}
 	_, err = r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, key, string(out))
 	if err != nil {
-		return fmt.Errorf("bump daily: upsert: %w", err)
+		return false, fmt.Errorf("bump daily: upsert: %w", err)
 	}
-	return nil
+	return created, nil
 }
 
 // PruneDaily — 14일 보존(오늘+직전 13일)을 넘는 daily 키 삭제. 키 날짜는
