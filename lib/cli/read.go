@@ -12,13 +12,6 @@ import (
 	"flint/lib/store"
 )
 
-// usageRecorder — v0.6 유입 계측 seam(T60 RecordUsage). 미구현 Store는
-// no-op이고 실패는 조용히(§13 — 조회 결과·exit 불변). realStore 위임은
-// usage_wire.go(T61) 소유다.
-type usageRecorder interface {
-	RecordUsage(ctx context.Context, kind, source string) error
-}
-
 // readBumper — v0.6 항목 참조 계측 seam(T62 BumpReads).
 type readBumper interface {
 	BumpReads(ctx context.Context, ids []int) error
@@ -29,6 +22,27 @@ func (s *realStore) BumpReads(ctx context.Context, ids []int) error {
 	return s.repo.BumpReads(ctx, ids)
 }
 
+// cellToInt — 셀(any)→int 단일 강제 변환 유틸. read rowIDs·maintain stale·
+// report 집계가 공유한다(구현 3중 복제 방지). pgx 숫자형(int·int32·int64)
+// ·float64·10진 문자열을 수용하고 nil·비수는 (0, false).
+func cellToInt(v any) (int, bool) {
+	switch n := v.(type) {
+	case int:
+		return n, true
+	case int32:
+		return int(n), true
+	case int64:
+		return int(n), true
+	case float64:
+		return int(n), true
+	case string:
+		i, err := strconv.Atoi(n)
+		return i, err == nil
+	default:
+		return 0, false
+	}
+}
+
 // rowIDs — 조회 결과 행에서 id 컬럼(위치 0)을 int로 모은다. 매핑 불가 칸은
 // 조용히 건너뛴다(계측 누락은 조회를 깨지 않는다).
 func rowIDs(rows [][]any) []int {
@@ -37,29 +51,21 @@ func rowIDs(rows [][]any) []int {
 		if len(row) == 0 {
 			continue
 		}
-		switch v := row[0].(type) {
-		case int32:
-			ids = append(ids, int(v))
-		case int64:
-			ids = append(ids, int(v))
-		case int:
-			ids = append(ids, v)
-		case float64:
-			ids = append(ids, int(v))
+		if id, ok := cellToInt(row[0]); ok {
+			ids = append(ids, id)
 		}
 	}
 	return ids
 }
 
 // instrumentReads — 참조 계측(T62): 결과 항목 id 전수 증분 + 유입 1회 기록.
+// 유입 기록은 UsageStore 단일 seam(write.go recordUsage)을 경유한다.
 // 둘 다 계측이라 실패는 조용히 무시된다.
 func instrumentReads(ctx context.Context, st Store, kind string, ids []int) {
 	if rb, ok := st.(readBumper); ok {
 		_ = rb.BumpReads(ctx, ids)
 	}
-	if us, ok := st.(usageRecorder); ok {
-		_ = us.RecordUsage(ctx, kind, "")
-	}
+	recordUsage(ctx, st, kind, "")
 }
 
 // runRead — 무료 텍스트 query와 --tag --entity --domain --limit 필터.

@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"flint/lib/query"
 	"flint/lib/store"
@@ -65,6 +66,42 @@ func hotKnowledgeIDsSQL() string {
 	) top WHERE id IS NOT NULL`
 }
 
+// hotFields — hot 출력 컬럼(포맷·예산 생존 판정이 공유하는 고정 순서).
+const hotFields = "kind,topic,summary,ts"
+
+// hotSurvivorCount — ClampHot(budget) 절단 뒤에도 출력에 남은 rows 행 수.
+// FormatRows는 행독립(헤더 없음)이라 k행의 시작 오프셋은 rows[:k] 포맷
+// 결과의 rune 수와 같다. 시작 오프셋이 budget 미만인 행만 살아남는다
+// (경계에 걸려 부분 노출된 행도 노출분은 주입된 것으로 본다).
+func hotSurvivorCount(rows [][]any, budget int) int {
+	n := 0
+	for i := range rows {
+		if utf8.RuneCountInString(query.FormatRows(rows[:i], hotFields, false)) >= budget {
+			break
+		}
+		n++
+	}
+	return n
+}
+
+// injectedKnowledgeIDs — 실제 주입된 지식 id만 동반 질의 결과에서 고른다:
+// 예산 생존 행 중 project 팔(id 없음)을 제외한 수만큼 앞에서 취한다.
+// hot_view와 동반 질의가 같은 ORDER BY·LIMIT을 쓰므로 k번째 지식 행은
+// 동반 질의의 k번째 id와 대응한다(잘린 행의 id는 증분하지 않는다).
+func injectedKnowledgeIDs(rows [][]any, ids []int, budget int) []int {
+	k := 0
+	survivors := hotSurvivorCount(rows, budget)
+	for i := 0; i < survivors && i < len(rows); i++ {
+		if len(rows[i]) == 0 || fmt.Sprint(rows[i][0]) != "project" {
+			k++
+		}
+	}
+	if k > len(ids) {
+		k = len(ids)
+	}
+	return ids[:k]
+}
+
 // runHot — hot_view 조회 후 고정 포맷으로 출력하고 상한으로 절단한다.
 // T38 배선(F-T56-1): 시작 시 meta hot_stats 누적을 로드하고 종료 직전
 // persist한다(단발 CLI 프로세스 분리 보존). 둘 다 계측이므로 실패는
@@ -85,18 +122,19 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	}
 	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
 	loadHotStatsFromMeta(ctx, st)
-	out := query.FormatRows(rows, "kind,topic,summary,ts", false)
-	clamped := query.ClampHot(out, HotBudget(metaGetKV(ctx, st)))
+	out := query.FormatRows(rows, hotFields, false)
+	budget := HotBudget(metaGetKV(ctx, st))
+	clamped := query.ClampHot(out, budget)
 	fmt.Fprint(stdout, clamped)
 	RecordHotLen(len([]rune(clamped)))
 	persistHotStatsToMeta(ctx, st)
-	// 계측(T62): 주입 지식 id 전수 참조 증분 + hot 유입 1회. 조용히(§13).
-	// 동반 질의 실패 시 BumpReads 호출 자체를 건너뛴다 — 유입 1회 기록은
-	// 조회 성공 사실과 무관하므로 유지한다.
+	// 계측(T62): 실제 주입된(예산 절단 후 출력에 남은) 지식 id만 참조 증분
+	// + hot 유입 1회. 조용히(§13). 동반 질의 실패 시 BumpReads 호출 자체를
+	// 건너뛴다 — 유입 1회 기록은 조회 성공 사실과 무관하므로 유지한다.
 	if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
-		instrumentReads(ctx, st, "hot", rowIDs(idRows))
-	} else if us, ok := st.(usageRecorder); ok {
-		_ = us.RecordUsage(ctx, "hot", "")
+		instrumentReads(ctx, st, "hot", injectedKnowledgeIDs(rows, rowIDs(idRows), budget))
+	} else {
+		recordUsage(ctx, st, "hot", "")
 	}
 	return 0
 }
