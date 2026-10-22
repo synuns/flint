@@ -39,6 +39,15 @@ func metaGetKV(ctx context.Context, st Store) func(string, string) (string, erro
 	}
 }
 
+// hotKnowledgeIDsSQL — hot 주입 대상 지식의 id 전수(참조 계측용 동반 질의).
+// hot_view는 id 컬럼을 노출하지 않아 지식 팔(pending + 최근 결정 7일)을
+// 뷰 정의와 동일한 조건으로 다시 모은다. 프로젝트 팔은 knowledge 행이
+// 아니라(read_count 없음) 제외된다.
+const hotKnowledgeIDsSQL = `SELECT k.id FROM knowledge k
+ WHERE k.invalid_at IS NULL
+   AND (k.status = 'pending'
+        OR (k.ingested_at >= now() - interval '7 days' AND k.domain = 'decision'))`
+
 // runHot — hot_view 조회 후 고정 포맷으로 출력하고 상한으로 절단한다.
 // T38 배선(F-T56-1): 시작 시 meta hot_stats 누적을 로드하고 종료 직전
 // persist한다(단발 CLI 프로세스 분리 보존). 둘 다 계측이므로 실패는
@@ -64,5 +73,10 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	fmt.Fprint(stdout, clamped)
 	RecordHotLen(len([]rune(clamped)))
 	persistHotStatsToMeta(ctx, st)
+	// 계측(T62): 주입 지식 id 전수 참조 증분 + hot 유입 1회. 조용히(§13).
+	idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL, nil)
+	if err == nil {
+		instrumentReads(ctx, st, "hot", rowIDs(idRows))
+	}
 	return 0
 }
