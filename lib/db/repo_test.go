@@ -4,8 +4,10 @@ import (
 	"context"
 	"errors"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/jackc/pgx/v5"
@@ -77,9 +79,36 @@ func useFakeSQL(t *testing.T) {
 	t.Cleanup(func() { schemaSQLFn, viewsSQLFn = savedSchema, savedViews })
 }
 
+// sharedDBLock은 공유 Doltgres DB를 쓰는 슬로우 테스트의 상호 배제(파일
+// 잠금)다. go test ./...는 패키지 바이너리를 병렬로 띄우므로 잠금 없는
+// 이 패키지의 DELETE·INSERT가 lib/backup의 dump·restore·drill 테스트(동일
+// 잠금 사용)와 겹치면 Doltgres 낙관적 충돌(40001)·행수 어긋남이 간헐
+// 실패한다(CI PR #1). 잠금 파일 경로는 lib/backup drillLock과 동일해야
+// 상호 배제가 성립한다.
+func sharedDBLock(t *testing.T) func() {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
+		os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("잠금 파일: %v", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		t.Fatalf("flock: %v", err)
+	}
+	return func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	}
+}
+
 // newTestRepo는 접속+마이그레이션 후 데이터를 비운 Repo를 돌려준다.
+// 공유 DB 쓰기 전체(테스트 본문 포함)를 잠금으로 직렬화한다.
 func newTestRepo(t *testing.T) *Repo {
 	t.Helper()
+	unlock := sharedDBLock(t)
+	// t.Cleanup은 LIFO — r.Close(아래 등록)가 먼저 실행되고 그다음 잠금 해제.
+	t.Cleanup(unlock)
 	useFakeSQL(t)
 	ctx := context.Background()
 	r, err := NewRepo(ctx, testDSN())
@@ -110,20 +139,67 @@ func knowledgeRec(hash string) map[string]any {
 	}
 }
 
+// TestMigrateSetsVersion — Migrate는 schema_version 부재(최초 생성) 시
+// 스키마를 만들고 '1'을 기록한다. 공유 DB는 타 패키지(e2e·mcp)가 v3으로
+// 올릴 수 있어 "방금 newTestRepo가 마이그레이션한 값=1" 기대는 상태
+// 의존적이다(CI PR #1: want 1, got 3). meta 행을 지워 최초 생성 경로를
+// 강제로 재현해 상태 무관하게 검증한다. 버전 상한은 Migrate 소관이
+// 아니다(승격은 admin.go EnsureSchemaV2/V3 담당).
 func TestMigrateSetsVersion(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
+	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = 'schema_version'`); err != nil {
+		t.Fatalf("reset schema_version: %v", err)
+	}
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate after reset: %v", err)
+	}
 	var version string
-	err := r.pool.QueryRow(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
-	if err != nil {
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("read schema_version: %v", err)
 	}
 	if version != "1" {
-		t.Fatalf("want schema_version 1, got %q", version)
+		t.Fatalf("want schema_version 1 after fresh Migrate, got %q", version)
 	}
 	// 재호급은 멱등이어야 한다.
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("second Migrate: %v", err)
+	}
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("re-read schema_version: %v", err)
+	}
+	if version != "1" {
+		t.Fatalf("second Migrate changed version: %q, want 1", version)
+	}
+}
+
+// TestMigratePreservesV3 — 회귀(CI PR #1): 공유 DB가 이미 v3일 때 Migrate는
+// 버전을 내리거나 올리지 않는다(게이트는 n>=1 하한만 판정 — 상한·승격은
+// EnsureSchemaV3 소관).
+func TestMigratePreservesV3(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '3')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		t.Fatalf("plant v3: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = r.pool.Exec(context.Background(),
+			`UPDATE meta SET value = '1' WHERE key = 'schema_version'`)
+	})
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate under v3: %v", err)
+	}
+	var version string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
+		t.Fatalf("read schema_version: %v", err)
+	}
+	if version != "3" {
+		t.Fatalf("schema_version = %q, want 3 preserved by Migrate", version)
 	}
 }
 

@@ -86,31 +86,33 @@ func RunDrill(dsn string, dumpPath string) (DrillResult, error) {
 		return DrillResult{}, fmt.Errorf("drill: create schema: %w", err)
 	}
 
+	var expected int
+
 	// SET search_path는 커넥션 단위 — 풀에서 1커넥션을 잡아 재생 전체에 사용.
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return DrillResult{}, err
-	}
-	defer conn.Release()
-	if _, err := conn.Exec(ctx, `SET search_path = `+DrillSchema); err != nil {
-		return DrillResult{}, fmt.Errorf("drill: search_path: %w", err)
-	}
-
-	stmts := splitStatements(string(data))
-	expected := countInserts(stmts, "knowledge")
-	for _, stmt := range stmts {
-		if stripComments(stmt) == "" || skipForDrill(stmt) {
-			continue
-		}
-		if _, err := conn.Exec(ctx, stmt); err != nil {
-			return DrillResult{}, fmt.Errorf("drill: %v\n  in: %.120s", err, stmt)
-		}
-	}
-
+	// 반납 전에 반드시 public으로 되돌린다: 잔류한 flint_drill search_path로
+	// 풀에 돌아간 커넥션에서 이후 비한정 쿼리가 public 테이블을 못 찾는다
+	// (42P01). 드릴 성공 기록(public.maintenance_runs·public.meta)은 재생
+	// 커넥션과 분리된 풀 쿼리로 실행한다.
 	var restored int
-	if err := conn.QueryRow(ctx,
-		`SELECT count(*) FROM `+DrillSchema+`.knowledge`).Scan(&restored); err != nil {
-		return DrillResult{}, fmt.Errorf("drill: knowledge 행수: %w", err)
+	err = drillConn(ctx, pool, func(conn *pgxpool.Conn) error {
+		stmts := splitStatements(string(data))
+		expected = countInserts(stmts, "knowledge")
+		for _, stmt := range stmts {
+			if stripComments(stmt) == "" || skipForDrill(stmt) {
+				continue
+			}
+			if _, err := conn.Exec(ctx, stmt); err != nil {
+				return fmt.Errorf("drill: %v\n  in: %.120s", err, stmt)
+			}
+		}
+		if err := conn.QueryRow(ctx,
+			`SELECT count(*) FROM `+DrillSchema+`.knowledge`).Scan(&restored); err != nil {
+			return fmt.Errorf("drill: knowledge 행수: %w", err)
+		}
+		return nil
+	})
+	if err != nil {
+		return DrillResult{Expected: expected}, err
 	}
 	res := DrillResult{Expected: expected, Restored: restored, Ok: expected == restored}
 	if !res.Ok {
@@ -138,6 +140,25 @@ func RunDrill(dsn string, dumpPath string) (DrillResult, error) {
 		return res, fmt.Errorf("drill: meta last_drill: %w", err)
 	}
 	return res, nil
+}
+
+// drillConn — 풀에서 1커넥션을 잡아 search_path를 flint_drill로 바꾼 뒤
+// fn을 실행하고, 반환 전(에러 포함) 반드시 public으로 되돌려 반납한다.
+// SET search_path는 커넥션 단위 상태라 잔류하면 그 커넥션을 이후 얻는
+// 쿼리가 public 테이블을 flint_drill에서 찾다 실패한다(42P01).
+func drillConn(ctx context.Context, pool *pgxpool.Pool, fn func(conn *pgxpool.Conn) error) error {
+	conn, err := pool.Acquire(ctx)
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_, _ = conn.Exec(ctx, `SET search_path TO public`) // 잔류 방지(최선)
+		conn.Release()
+	}()
+	if _, err := conn.Exec(ctx, `SET search_path = `+DrillSchema); err != nil {
+		return fmt.Errorf("drill: search_path: %w", err)
+	}
+	return fn(conn)
 }
 
 // dropDrillSchema — flint_drill 스키마 제거. Doltgres 제약 3가지 대응:

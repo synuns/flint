@@ -9,8 +9,8 @@ OpenClaw·Hermes 등 모든 에이전트가 공유하는 지식·상태 저장�
 
 ## 상태
 
-- v0.4 완료 (2026-10-22) — 전체 내용은 [docs/PLAN.md](docs/PLAN.md)
-- v0.5 신뢰성·검색 품질 기획 — 빠른 시작은 [docs/QUICKSTART.md](docs/QUICKSTART.md)
+- v0.5 완료 (2026-10-22) — 신뢰성·검색 품질. 전체 내용은 [docs/PLAN.md](docs/PLAN.md)
+- 빠른 시작은 [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ## 구조
 
