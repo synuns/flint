@@ -57,7 +57,7 @@ L3 milestone 루프   v0.1 → v0.2 → v0.3 (각 DoD 체크리스트로 완료 
 |---|---|---|---|
 | G1 | 태스크마다 | `go test` 영향 패키지만 + `go vet` | ≤30초 |
 | G2 | wave마다 1회 | 통합(Doltgres docker) + E2E 시나리오 + lint 전체 | ≤5분 |
-| G3 | milestone마다 1회 | 전체 E2E 3케이스(dedup/재시도/이스케이프) + 신선한 최종 리뷰 | ≤20분 |
+| G3 | milestone마다 1회 | 전체 E2E 3케이스(dedup/재시도/이스케이프) + `go test ./...` 전체(slow 포함, CI 패리티) + 신선한 최종 리뷰 | ≤20분 |
 
 **최적화 규칙**
 1. 영향 받은 패키지만 테스트(`go test ./lib/store/...`). 전체 스위트는 G2/G3에서만.
