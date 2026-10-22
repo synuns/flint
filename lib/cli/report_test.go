@@ -192,3 +192,63 @@ func TestReportRegistered(t *testing.T) {
 		t.Fatal("report 미등록")
 	}
 }
+
+// TestReportSQLDoltgresCompat — 회귀: report SQL은 Doltgres에서 실행돼야
+// 한다. FILTER 집계·make_interval·Ssprintf 주입 interval 리터럴 금지
+// (pattern.go·maintain.go 관례). interval은 $1 파라미터 곱으로만.
+func TestReportSQLDoltgresCompat(t *testing.T) {
+	type q struct {
+		sql  string
+		args []any
+	}
+	got := []q{}
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		got = append(got, q{sql, args})
+		switch {
+		case strings.Contains(sql, "daily:"):
+			return nil, nil
+		case strings.Contains(sql, "read_stats"):
+			return [][]any{{"read_stats", `{"calls":0,"zero":0}`}, {"hot_stats", `{"lens":[]}`}}, nil
+		case strings.Contains(sql, "invalid_at IS NOT NULL"):
+			return [][]any{{int64(0), int64(0), int64(0)}}, nil
+		case strings.Contains(sql, "read_count"):
+			return [][]any{{int64(0), int64(0)}}, nil
+		case strings.Contains(sql, "invalid_at >="):
+			return [][]any{{int64(0)}}, nil
+		}
+		return nil, nil
+	}}
+	if _, code := runReportArgs(t, f); code != 0 {
+		t.Fatalf("exit=%d, want 0", code)
+	}
+	if len(got) < 4 {
+		t.Fatalf("쿼리 %d건, want ≥4", len(got))
+	}
+	sawStale, sawPeriod := false, false
+	for _, q := range got {
+		if strings.Contains(q.sql, "FILTER (") || strings.Contains(q.sql, "FILTER(") {
+			t.Errorf("FILTER 집계 금지(Doltgres 비호환): %q", q.sql)
+		}
+		if strings.Contains(q.sql, "make_interval") {
+			t.Errorf("make_interval 금지(Doltgres 비호환): %q", q.sql)
+		}
+		if strings.Contains(q.sql, "interval") && !strings.Contains(q.sql, "$1") {
+			t.Errorf("interval은 $1 파라미터 곱이어야 함(리터럴 주입 금지): %q", q.sql)
+		}
+		if strings.Contains(q.sql, "read_count") {
+			sawStale = true
+			if len(q.args) != 1 || q.args[0] != 90 {
+				t.Errorf("stale 쿼리 인자=%v, want [90]", q.args)
+			}
+		}
+		if strings.Contains(q.sql, "invalid_at >=") {
+			sawPeriod = true
+			if len(q.args) != 1 || q.args[0] != 7 {
+				t.Errorf("기간 쿼리 인자=%v, want [7](기본 --days)", q.args)
+			}
+		}
+	}
+	if !sawStale || !sawPeriod {
+		t.Errorf("stale(%v)·기간(%v) 쿼리 미관측", sawStale, sawPeriod)
+	}
+}

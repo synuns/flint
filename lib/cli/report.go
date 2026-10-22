@@ -184,24 +184,27 @@ func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 // collectCounts — knowledge 집계 3종. pending·active(invalid_at 없음)·
 // invalidated(총) · stale(days90·never_read 분리, §2 ruling) · 기간(N일) 내
 // 무효화 수. 무효화 상태는 status가 아니라 invalid_at 유무로 판정한다(가역 무효화).
+// Doltgres 호환: FILTER 대신 CASE 집계(pattern.go 관례), make_interval 대신
+// 파라미터 곱 interval(maintain.go 관례).
 func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) error {
-	rows, err := queryOnce(ctx, st, fmt.Sprintf(`
-		SELECT count(*) FILTER (WHERE status = 'pending' AND invalid_at IS NULL),
-		       count(*) FILTER (WHERE status = 'active' AND invalid_at IS NULL),
-		       count(*) FILTER (WHERE invalid_at IS NOT NULL)
-		  FROM knowledge`), nil)
+	rows, err := queryOnce(ctx, st, `
+		SELECT count(CASE WHEN status = 'pending' AND invalid_at IS NULL THEN 1 END),
+		       count(CASE WHEN status = 'active' AND invalid_at IS NULL THEN 1 END),
+		       count(CASE WHEN invalid_at IS NOT NULL THEN 1 END)
+		  FROM knowledge`, nil)
 	if err != nil {
 		return err
 	}
 	if len(rows) > 0 {
 		readCounters(rows[0], &out.Counts.Pending, &out.Counts.Active, &out.Counts.Invalidated)
 	}
-	rows, err = queryOnce(ctx, st, fmt.Sprintf(`
-		SELECT count(*) FILTER (WHERE last_read_at < now() - interval '%d days'
-		                         OR (read_count = 0 AND ingested_at < now() - interval '%d days')),
-		       count(*) FILTER (WHERE read_count = 0 AND ingested_at < now() - interval '%d days')
+	rows, err = queryOnce(ctx, st, `
+		SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < now() - ($1 * interval '1 day'))
+		                         OR (read_count = 0 AND ingested_at < now() - ($1 * interval '1 day')) THEN 1 END),
+		       count(CASE WHEN read_count = 0 AND ingested_at < now() - ($1 * interval '1 day') THEN 1 END)
 		  FROM knowledge
-		 WHERE status = 'active' AND invalid_at IS NULL`, reportStaleDays, reportStaleDays, reportStaleDays), nil)
+		 WHERE status = 'active' AND invalid_at IS NULL`,
+		[]any{reportStaleDays})
 	if err != nil {
 		return err
 	}
@@ -209,7 +212,7 @@ func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) e
 		readCounters(rows[0], &out.Stale.Days90, &out.Stale.NeverRead)
 	}
 	rows, err = queryOnce(ctx, st, `
-		SELECT count(*) FROM knowledge WHERE invalid_at >= now() - make_interval(days => $1)`,
+		SELECT count(*) FROM knowledge WHERE invalid_at >= now() - ($1 * interval '1 day')`,
 		[]any{days})
 	if err != nil {
 		return err
