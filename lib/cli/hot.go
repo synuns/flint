@@ -40,11 +40,14 @@ func metaGetKV(ctx context.Context, st Store) func(string, string) (string, erro
 }
 
 // hotKnowledgeIDsSQL — 실제 주입된 지식의 id 전수(참조 계측용 동반 질의).
-// hot_view는 id를 노출하지 않아 뷰의 세 팔(활성 프로젝트·pending·최근
-// 결정 7일)을 동일 조건으로 다시 모은 뒤, HotSQL과 같은 ORDER BY ts DESC
-// LIMIT으로 상위 N행을 먼저 가른다. 프로젝트 팔은 knowledge 행이 아니어서
-// (read_count 없음) id NULL로 순위를 메운 뒤 제외된다 — 주입되지도 않은
-// 지식(상한 밀려난 항목)까지 증분하는 이중 과다 계측을 막는다.
+// 뷰의 세 팔(활성 프로젝트·pending·최근 결정 7일)을 동일 조건으로 다시
+// 모은 뒤, HotSQL과 같은 ORDER BY ts DESC, id DESC LIMIT으로 상위 N행을
+// 먼저 가른다. tie-break ", id DESC"(CI 39713526850 룰링): 동률 ts에서
+// 플래너 임의 순서로는 주입 집합과 이 증분 집합이 어긋난다 — hot_view가
+// 말미에 노출하는 id와 동일한 완전 순서로 주입 집합=증분 집합을 보장한다.
+// 프로젝트 팔은 knowledge 행이 아니어서(read_count 없음) id NULL로 순위를
+// 메운 뒤 제외된다 — 주입되지도 않은 지식(상한 밀려난 항목)까지 증분하는
+// 이중 과다 계측을 막는다.
 func hotKnowledgeIDsSQL() string {
 	return `SELECT id FROM (
 		SELECT id, ts FROM (
@@ -58,7 +61,7 @@ func hotKnowledgeIDsSQL() string {
 			WHERE k.invalid_at IS NULL
 			  AND k.ingested_at >= now() - interval '7 days'
 			  AND k.domain = 'decision'
-		) u ORDER BY ts DESC LIMIT ` + strconv.Itoa(query.ClampLimit(0)) + `
+		) u ORDER BY ts DESC, id DESC LIMIT ` + strconv.Itoa(query.ClampLimit(0)) + `
 	) top WHERE id IS NOT NULL`
 }
 
