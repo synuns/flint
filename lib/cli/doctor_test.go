@@ -326,14 +326,119 @@ func TestDoctorHotStallWarns(t *testing.T) {
 	}
 }
 
-// 알 수 없는 플래그 — 사용법 에러 exit 1.
+// 알 수 없는 플래그 — 무효 인자 exit 3(전역 계약, 무효 --check명과 일치).
 func TestDoctorUnknownFlag(t *testing.T) {
 	f := &fakeStore{}
 	out, code := runDoctorArgs(t, f, "--bogus")
-	if code != 1 {
-		t.Errorf("exit=%d, want 1 (출력 %q)", code, out)
+	if code != 3 {
+		t.Errorf("exit=%d, want 3 (출력 %q)", code, out)
 	}
 	if !strings.Contains(out, `"error"`) {
 		t.Errorf("에러 JSON 아님: %q", out)
+	}
+}
+
+// --check 값 누락 — 무효 인자 exit 3(unknown flag·무효 --check명과 통일).
+func TestDoctorCheckRequiresNameExit3(t *testing.T) {
+	f := &fakeStore{queryFn: freshDoctorFn()}
+	out, code := runDoctorArgs(t, f, "--check")
+	if code != 3 {
+		t.Errorf("exit=%d, want 3 (출력 %q)", code, out)
+	}
+	if !strings.Contains(out, `"error"`) {
+		t.Errorf("에러 JSON 아님: %q", out)
+	}
+}
+
+// schema — 상위 버전(예: 향후 v5)은 정상. 문자열 동등 "4" 검사였을 때
+// v5 DB가 fail로 오탐됐다(수치 비교 n>=4 계약).
+func TestDoctorSchemaFutureVersionOk(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FLINT_CLAUDE_HOME", home)
+	v5 := func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "schema_version") {
+			return [][]any{{"5"}}, nil
+		}
+		return freshDoctorFn()(sql, args)
+	}
+	f := &fakeStore{queryFn: v5}
+	out, code := runDoctorArgs(t, f, "--check", "schema")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (출력 %q)", code, out)
+	}
+	if !strings.Contains(out, `"ok"`) {
+		t.Errorf("schema v5가 fail로 오탐: %q", out)
+	}
+}
+
+// last-seen — stall_hot_h 메타 오버라이드(24h)를 loadThresholds가 반영:
+// 30h 경과 last_hot_at은 하드코딩 48h였다면 ok, 오버라이드 24h면 warn
+// (maintain --check와 결론 일치).
+func TestDoctorLastSeenThresholdOverride(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FLINT_CLAUDE_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "settings.json"),
+		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	fn := doctorQueryFn(
+		time.Now().Add(-30*time.Hour), // last_write_at — 기본 72h 이내
+		time.Now().Add(-30*time.Hour), // last_hot_at — 기본 48h 이내, 오버라이드 24h 초과
+		time.Now().Add(-time.Hour))
+	over := func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "stall_hot_h") { // loadThresholds 질의
+			return [][]any{{"stall_hot_h", "24"}, {"stall_write_h", "72"}}, nil
+		}
+		return fn(sql, args)
+	}
+	f := &fakeStore{queryFn: over}
+	out, code := runDoctorArgs(t, f, "--check", "last-seen")
+	if code != 0 {
+		t.Fatalf("warn exit=%d, want 0 (출력 %q)", code, out)
+	}
+	if !strings.Contains(out, `"warn"`) {
+		t.Errorf("오버라이드 24h 초과인데 warn 없음(하드코딩 48h 잔존 의심): %q", out)
+	}
+}
+
+// hook-file — hooks.json 실체 형태(이벤트 배열 → hooks[].command 중첩)로
+// 등록된 경우 ok.
+func TestDoctorHookFileNestedShapeOk(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FLINT_CLAUDE_HOME", home)
+	body := `{"hooks":{"SessionStart":[{"matcher":"startup","hooks":[{"type":"command","command":"flint hot --session x"}]}],` +
+		`"Stop":[{"hooks":[{"type":"command","command":"flint done --session x"}]}]}}`
+	if err := os.WriteFile(filepath.Join(home, "settings.json"), []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeStore{queryFn: freshDoctorFn()}
+	out, code := runDoctorArgs(t, f, "--check", "hook-file")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (출력 %q)", code, out)
+	}
+	if !strings.Contains(out, `"ok"`) {
+		t.Errorf("실체 형태 훅 등록인데 fail: %q", out)
+	}
+}
+
+// hook-file — 본문에 'flint' 문자열만 있고 hooks.command 없으면 fail
+// (전문 포함 검사였을 때 통과하던 우연 일치).
+func TestDoctorHookFileFlintWordOnlyFails(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FLINT_CLAUDE_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "settings.json"),
+		[]byte(`{"statusLine":"flint 상태 표시"}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeStore{queryFn: freshDoctorFn()}
+	out, code := runDoctorArgs(t, f, "--check", "hook-file")
+	if code != 1 {
+		t.Fatalf("exit=%d, want 1 (출력 %q)", code, out)
+	}
+	if !strings.Contains(out, `"fail"`) {
+		t.Errorf("flint 단어만으로 통과하면 안 됨: %q", out)
+	}
+	if !strings.Contains(out, "hot(SessionStart)") {
+		t.Errorf("fix 문구가 실제 등록 절차(hot/done 훅)를 안내하지 않음: %q", out)
 	}
 }
