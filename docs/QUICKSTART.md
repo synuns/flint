@@ -6,7 +6,7 @@
 
 ```sh
 git clone <repo-url> flint && cd flint
-make install    # bin/flint 빌드 (Go 1.23+, 의존 pgx/v5만)
+make install    # bin/flint 빌드 (Go 1.25+, 의존 pgx/v5만)
 ```
 
 ## 2. 원커맨드 설정
