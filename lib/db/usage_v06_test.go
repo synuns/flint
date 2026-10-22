@@ -154,6 +154,47 @@ func TestRecordUsageWriteEmptySource(t *testing.T) {
 	}
 }
 
+// TestRecordUsageNullDailyRewrites — 기존 값이 JSON null이면 nil map 증분
+// panic 없이 0에서 재기작한다(회귀: cur[k]+=n on nil map).
+func TestRecordUsageNullDailyRewrites(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	cleanUsageKeys(t, r)
+	today := time.Now().UTC().Format("2006-01-02")
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ($1, 'null')`, "daily:"+today); err != nil {
+		t.Fatalf("seed null daily: %v", err)
+	}
+	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
+		t.Fatalf("RecordUsage on null daily: %v", err)
+	}
+	got := dailyValue(t, r, today)
+	if got["write"] != 1 || got["hook"] != 1 {
+		t.Fatalf("null daily rewrite = %v, want write=1 hook=1", got)
+	}
+}
+
+// TestRecordUsagePartialCorruptDailyRewrites — 부분 파손 JSON(일부 키만 타입
+// 불일치)도 통째로 파손으로 간주해 0에서 재기작한다(부분 디코드 누출 방지).
+func TestRecordUsagePartialCorruptDailyRewrites(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	cleanUsageKeys(t, r)
+	today := time.Now().UTC().Format("2006-01-02")
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ($1, '{"write":5,"hot":"x"}')`,
+		"daily:"+today); err != nil {
+		t.Fatalf("seed partial-corrupt daily: %v", err)
+	}
+	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
+		t.Fatalf("RecordUsage on partial-corrupt daily: %v", err)
+	}
+	got := dailyValue(t, r, today)
+	if got["write"] != 1 || got["hook"] != 1 || got["hot"] != 0 {
+		t.Fatalf("partial-corrupt daily rewrite = %v, want write=1 hook=1 hot=0", got)
+	}
+}
+
 // TestRecordUsageInvalidKind — 계약 밖 kind는 에러(기록 없음).
 func TestRecordUsageInvalidKind(t *testing.T) {
 	r := newTestRepo(t)
