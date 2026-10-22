@@ -133,7 +133,7 @@ func TestDispatchWriteRoundtrip(t *testing.T) {
 			"topic": "t", "summary": "s", "confidence": 0.8,
 		},
 	})
-	wantArgs(t, calls, []string{"write", "knowledge"})
+	wantArgs(t, calls, []string{"write", "knowledge", "--source", "mcp"})
 	if code != 0 {
 		t.Errorf("code = %d, want 0", code)
 	}

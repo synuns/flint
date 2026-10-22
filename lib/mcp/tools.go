@@ -114,7 +114,7 @@ func dispatchWrite(args map[string]any) (string, int) {
 	if err != nil {
 		return fmt.Sprintf(`{"error":"schema","field":"payload","expect":"valid JSON: %s"}`, err), 3
 	}
-	return runCall([]string{"write", kind}, bytes.NewReader(b))
+	return runCall([]string{"write", kind, "--source", "mcp"}, bytes.NewReader(b))
 }
 
 // dispatchHot — flint hot --session 조립.
