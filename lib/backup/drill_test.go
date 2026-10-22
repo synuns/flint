@@ -79,10 +79,53 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 	}
 	defer pool.Close()
 
-	var before int
-	if err := pool.QueryRow(ctx,
-		`SELECT last_value FROM pg_sequences WHERE schemaname='public' AND sequencename='knowledge_id_seq'`).Scan(&before); err != nil {
-		t.Fatalf("sequence last_value: %v", err)
+	// 상태 판정(헤르메틱, CI run 39713526850): 마이그레이션 전 신규 DB에서는
+	// public.knowledge_id_seq가 아예 없다(pg_sequences 0행) — 미사용·부재는
+	// 정상 조건으로 수용하고 "드릴 전후 상태 불변"으로 비간섭을 판정한다.
+	// 시퀀스가 있으면 되감기 검증이 성립하도록 스스로 초기화한다(기존 최대
+	// id보다 항상 앞인 값 — 잔여 DB의 이후 INSERT도 안전). 테스트가 시퀀스를
+	// 새로 만들지는 않는다: 이후 마이그레이션의 CREATE TABLE ... serial이
+	// 시퀀스 자동 생성과 충돌(42P07)하기 때문.
+	probe := func() (bool, int) {
+		var exists bool
+		if err := pool.QueryRow(ctx,
+			`SELECT to_regclass('public.knowledge_id_seq') IS NOT NULL`).Scan(&exists); err != nil {
+			t.Fatalf("sequence 존재 확인: %v", err)
+		}
+		if !exists {
+			return false, 0
+		}
+		var last int
+		if err := pool.QueryRow(ctx,
+			`SELECT last_value FROM pg_sequences WHERE schemaname='public' AND sequencename='knowledge_id_seq'`).Scan(&last); err != nil {
+			t.Fatalf("sequence last_value: %v", err)
+		}
+		return true, last
+	}
+	seed := func() int {
+		exists, _ := probe()
+		if !exists {
+			return 0
+		}
+		base := 0
+		var hasKn bool
+		if err := pool.QueryRow(ctx,
+			`SELECT to_regclass('public.knowledge') IS NOT NULL`).Scan(&hasKn); err != nil {
+			t.Fatalf("knowledge 존재 확인: %v", err)
+		}
+		if hasKn {
+			// 스칼라 서브쿼리 형태여야 한다 — Doltgres는 빈 테이블의
+			// bare 집계(MAX)가 0행을 반환한다(Postgres는 NULL 1행).
+			if err := pool.QueryRow(ctx,
+				`SELECT COALESCE((SELECT MAX("id") FROM "knowledge"), 0)`).Scan(&base); err != nil {
+				t.Fatalf("knowledge max id: %v", err)
+			}
+		}
+		if _, err := pool.Exec(ctx,
+			`SELECT setval('public.knowledge_id_seq', $1::bigint)`, int64(base+7)); err != nil {
+			t.Fatalf("sequence 초기화 setval: %v", err)
+		}
+		return base + 7
 	}
 
 	script := `CREATE SEQUENCE IF NOT EXISTS public.knowledge_id_seq;
@@ -97,20 +140,31 @@ SELECT setval('public.knowledge_id_seq', COALESCE((SELECT MAX("id") FROM "knowle
 		t.Fatal(err)
 	}
 
-	res, err := RunDrill(dsn, path)
-	if err != nil {
-		t.Fatalf("RunDrill: %v", err)
+	// 재시도 1회 허용: 병렬 패키지의 마이그레이션이 드릴 사이에 시퀀스를
+	// 만들면 부재→존재로 보일 수 있다(잠금 밖 lib/cli Migrate). 진짜 회귀
+	// (드릴이 setval·CREATE SEQUENCE public.*을 실행)는 재시도에서도
+	// 불일치로 잡힌다 — 되감기 값은 결정적(2)이라 base+7과 항상 다르다.
+	var before, after int
+	var beforeExists, afterExists bool
+	for attempt := 0; attempt < 2; attempt++ {
+		before = seed()
+		beforeExists, _ = probe()
+
+		res, err := RunDrill(dsn, path)
+		if err != nil {
+			t.Fatalf("RunDrill: %v", err)
+		}
+		if !res.Ok || res.Expected != 2 || res.Restored != 2 {
+			t.Fatalf("드릴 결과: %+v, want Ok true 2/2", res)
+		}
+		afterExists, after = probe()
+		if beforeExists == afterExists && (!beforeExists || before == after) {
+			break
+		}
 	}
-	if !res.Ok || res.Expected != 2 || res.Restored != 2 {
-		t.Fatalf("드릴 결과: %+v, want Ok true 2/2", res)
-	}
-	var after int
-	if err := pool.QueryRow(ctx,
-		`SELECT last_value FROM pg_sequences WHERE schemaname='public' AND sequencename='knowledge_id_seq'`).Scan(&after); err != nil {
-		t.Fatalf("sequence last_value(after): %v", err)
-	}
-	if after != before {
-		t.Fatalf("public 시퀀스 훼손: last_value %d -> %d (드릴은 불가침)", before, after)
+	if beforeExists != afterExists || (beforeExists && after != before) {
+		t.Fatalf("public 시퀀스 훼손: exists %v(last %d) -> %v(last %d) (드릴은 불가침)",
+			beforeExists, before, afterExists, after)
 	}
 	var schemas int
 	if err := pool.QueryRow(ctx,
