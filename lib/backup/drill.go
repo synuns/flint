@@ -63,8 +63,10 @@ func countInserts(stmts []string, table string) int {
 // RunDrill — dumpPath 덤프를 flint_drill 스키마에 재생(CREATE SCHEMA·
 // SET search_path)해 knowledge 행수를 대조한다. 성공 시 maintenance_runs
 // 1행(kind=drill)과 meta last_drill을 기록한다. 스키마는 성공·실패 무관하게
-// 항상 DROP한다. 행수 불일치는 에러가 아닌 Ok=false로 보고한다.
-func RunDrill(dsn string, dumpPath string) (DrillResult, error) {
+// 항상 DROP한다(40001은 재시도로 회복). 행수 불일치는 에러가 아닌 Ok=false로
+// 보고한다. DROP 재시도 소진 시 잔존을 숨기지 않고 성공 대신 명시적 실패를
+// 반환한다(계약: 재생 실패 시에도 잔존 금지 — CI run 39719705178).
+func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), drillTimeout)
 	defer cancel()
 
@@ -78,9 +80,17 @@ func RunDrill(dsn string, dumpPath string) (DrillResult, error) {
 	}
 	defer pool.Close()
 
-	drop := func() { _ = dropDrillSchema(ctx, pool) }
-	drop() // 선행 잔존 정리(이전 비정상 종료 대비)
-	defer drop()
+	drop := func() error {
+		return db.Retry(ctx, func() error { return dropDrillSchemaFn(ctx, pool) }, drillDropBackoff)
+	}
+	if derr := drop(); derr != nil { // 선행 잔존 정리(이전 비정상 종료 대비)
+		return DrillResult{}, fmt.Errorf("drill: 선행 %s 정리 실패: %w", DrillSchema, derr)
+	}
+	defer func() {
+		if derr := drop(); derr != nil && err == nil {
+			err = fmt.Errorf("drill: %s 제거 재시도 소진(잔존): %w", DrillSchema, derr)
+		}
+	}()
 
 	if _, err := pool.Exec(ctx, `CREATE SCHEMA `+DrillSchema); err != nil {
 		return DrillResult{}, fmt.Errorf("drill: create schema: %w", err)
@@ -114,7 +124,7 @@ func RunDrill(dsn string, dumpPath string) (DrillResult, error) {
 	if err != nil {
 		return DrillResult{Expected: expected}, err
 	}
-	res := DrillResult{Expected: expected, Restored: restored, Ok: expected == restored}
+	res = DrillResult{Expected: expected, Restored: restored, Ok: expected == restored}
 	if !res.Ok {
 		return res, nil
 	}
@@ -160,6 +170,15 @@ func drillConn(ctx context.Context, pool *pgxpool.Pool, fn func(conn *pgxpool.Co
 	}
 	return fn(conn)
 }
+
+// drillDropBackoff — 드릴 스키마 DROP의 40001(직렬화 실패) 재시도 간격.
+// CI 직렬화 부하에서 DROP이 타 세션 커밋과 충돌해 실패했는데 오류가
+// 무시되면 스키마가 잔존했다(CI run 39719705178) — 승격 커밋·views 재적용과
+// 같은 회복 패턴으로 짧게 3회 시도한다.
+var drillDropBackoff = []time.Duration{0, time.Second, 3 * time.Second}
+
+// dropDrillSchemaFn — DROP 주입 seam(회귀 테스트가 일시 실패를 흉내 낸다).
+var dropDrillSchemaFn = dropDrillSchema
 
 // dropDrillSchema — flint_drill 스키마 제거. Doltgres 제약 3가지 대응:
 //   - CASCADE 미지원(XX000)

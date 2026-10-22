@@ -449,3 +449,123 @@ func TestDrillFailureCleansSchema(t *testing.T) {
 		t.Fatalf("실패 후 flint_drill 잔존: %d", schemas)
 	}
 }
+
+// dropInjectScaffold — DROP 주입 회귀 공통: 마이그레이션 + 고유 프로브 1행
+// 시딩 + 덤프 파일 경로. 반환 pool의 클린업(프로브 삭제)은 각 테스트
+// defer로 — drillLock 해제보다 먼저 실행되게 한다.
+func dropInjectScaffold(t *testing.T) (dsn, path string, pool *pgxpool.Pool) {
+	t.Helper()
+	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
+	defer cancel()
+	dsn = testDSN()
+	repo, err := db.NewRepo(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect doltgres: %v", err)
+	}
+	t.Cleanup(func() { repo.Close() })
+	if err := repo.Migrate(ctx); err != nil {
+		t.Fatalf("migrate: %v", err)
+	}
+	pool, err = db.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect pool: %v", err)
+	}
+	t.Cleanup(func() { pool.Close() })
+	if _, err := pool.Exec(ctx, `INSERT INTO knowledge
+		(topic, summary, tags, confidence, content_hash)
+		VALUES ('drill', 'drop probe', ':t55:', 0.9, 't55-drop-a1')`); err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	var dump bytes.Buffer
+	if err := Dump(ctx, dsn, &dump); err != nil {
+		t.Fatalf("dump: %v", err)
+	}
+	path = filepath.Join(t.TempDir(), "drill.sql")
+	if err := os.WriteFile(path, dump.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return dsn, path, pool
+}
+
+// TestDrillDropRetriesTransientFailure — 회귀(CI run 39719705178): 최종
+// DROP의 일시 40001은 재시도로 회복된다 — 드릴은 성공하고 스키마 무잔존.
+func TestDrillDropRetriesTransientFailure(t *testing.T) {
+	unlock := drillLock(t)
+	defer unlock()
+	dsn, path, pool := dropInjectScaffold(t)
+	defer pool.Exec(context.Background(),
+		`DELETE FROM knowledge WHERE content_hash LIKE 't55-drop-%'`)
+
+	// 주입: 선행 정리(call 1)는 성공, 최종 DROP 첫 시도(call 2)만 실패.
+	calls := 0
+	saved := dropDrillSchemaFn
+	dropDrillSchemaFn = func(ctx context.Context, p *pgxpool.Pool) error {
+		calls++
+		if calls == 2 {
+			return fmt.Errorf("주입 40001: serialization failure")
+		}
+		return saved(ctx, p)
+	}
+	t.Cleanup(func() { dropDrillSchemaFn = saved })
+
+	res, err := RunDrill(dsn, path)
+	if err != nil {
+		t.Fatalf("RunDrill(일시 DROP 실패): %v", err)
+	}
+	if !res.Ok {
+		t.Fatalf("Ok=false: %+v", res)
+	}
+	if calls < 3 {
+		t.Fatalf("재시도 미발생: drop 호출 %d회, want ≥3(선행+실패+재시도)", calls)
+	}
+	var schemas int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
+		Scan(&schemas); err != nil {
+		t.Fatalf("schema check: %v", err)
+	}
+	if schemas != 0 {
+		t.Fatalf("flint_drill 잔존: %d", schemas)
+	}
+}
+
+// TestDrillDropExhaustionFailsExplicitly — 회귀(CI run 39719705178): 최종
+// DROP 재시도 소진 시 RunDrill은 성공을 가장하지 않고 잔존을 명시적
+// 실패로 돌려준다(드릴 자체는 성공 — 성공 경로의 승격이 핵심).
+func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
+	unlock := drillLock(t)
+	defer unlock()
+	dsn, path, pool := dropInjectScaffold(t)
+	defer pool.Exec(context.Background(),
+		`DELETE FROM knowledge WHERE content_hash LIKE 't55-drop-%'`)
+
+	// 주입: 선행 정리(call 1)는 성공, 최종 DROP은 전부 실패(소진).
+	calls := 0
+	saved := dropDrillSchemaFn
+	dropDrillSchemaFn = func(ctx context.Context, p *pgxpool.Pool) error {
+		calls++
+		if calls > 1 {
+			return fmt.Errorf("주입 40001: serialization failure")
+		}
+		return saved(ctx, p)
+	}
+	t.Cleanup(func() { dropDrillSchemaFn = saved })
+
+	res, err := RunDrill(dsn, path)
+	if err == nil {
+		t.Fatalf("DROP 소진인데 성공 반환: %+v", res)
+	}
+	if !res.Ok {
+		t.Fatalf("드릴 자체는 성공이어야 함(실패 승격 판정 전제): %+v", res)
+	}
+	if !strings.Contains(err.Error(), DrillSchema) {
+		t.Fatalf("에러가 잔존 스키마를 밝히지 않음: %v", err)
+	}
+	if calls < 4 {
+		t.Fatalf("재시도 소진 미관측: drop 호출 %d회, want ≥4(선행+3회 시도)", calls)
+	}
+	// 주입으로 남은 스키마를 실 구현으로 정리(이후 테스트 오염 방지).
+	if derr := saved(context.Background(), pool); derr != nil {
+		t.Fatalf("잔존 정리: %v", derr)
+	}
+}
