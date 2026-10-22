@@ -1,8 +1,12 @@
 -- flint 뷰 (spec §6, §7)
 -- active_knowledge: 무효 사실(invalid_at) 차단 — read는 이 뷰로 강제.
+-- v4(spec §2): 참조 계측 컬럼(read_count·last_read_at)도 노출 — RankOrder의
+-- last_read_at 정렬(T68)이 이 뷰를 대상으로 하므로 누락 시 42703.
+-- 기존 컬럼·순서 불변, 신규 컬럼은 말미에 추가(views_sig 안정).
 CREATE OR REPLACE VIEW active_knowledge AS
 SELECT id, topic, summary, tags, entity, domain, confidence, origin,
-       status, content_hash, session_id, valid_at, ingested_at
+       status, content_hash, session_id, valid_at, ingested_at,
+       read_count, last_read_at
 FROM knowledge
 WHERE invalid_at IS NULL;
 
