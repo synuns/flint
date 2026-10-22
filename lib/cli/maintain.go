@@ -39,6 +39,18 @@ func (s *realStore) Merge(ctx context.Context, fromID, toID int) error {
 
 func init() { Register("maintain", runMaintain) }
 
+// maintainValueFlags — 값을 받는 플래그 전체(모드 귀속 검증 대상).
+var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to", "--reason"}
+
+// maintainModeFlags — 모드별 허용 값 플래그. 무관 플래그는 조용히 무시하지
+// 않고 에러로 거부한다(--days·--limit이 --stale 아닌 모드에서 흐르는 등).
+var maintainModeFlags = map[string]map[string]bool{
+	"--check":      {},
+	"--stale":      {"--days": true, "--limit": true},
+	"--invalidate": {"--id": true, "--reason": true},
+	"--merge":      {"--from": true, "--to": true},
+}
+
 // runMaintain — 서브옵션 파싱 후 모드별 실행. --check는 보고만(exit 0),
 // 갱신 계열은 성공 0 · 대상 부재(ErrNotFound) 1 · 그 외 MapExit.
 func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
@@ -52,11 +64,13 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	id, from, to := 0, 0, 0
 	days, limit := 0, 20 // --stale: days=0 → meta stale_days(기본 90) 폴백
 	reason := ""
+	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--check", "--invalidate", "--merge", "--stale":
 			mode = args[i]
 		case "--days", "--limit":
+			seen[args[i]] = true
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
@@ -73,6 +87,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 				limit = n
 			}
 		case "--id", "--from", "--to":
+			seen[args[i]] = true
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
@@ -92,6 +107,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 				to = n
 			}
 		case "--reason":
+			seen[args[i]] = true
 			i++
 			if i >= len(args) || args[i] == "" {
 				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: --reason requires a value")))
@@ -101,6 +117,16 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		default:
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 1
+		}
+	}
+
+	// 모드 귀속 검증: 해당 모드가 받지 않는 값 플래그는 에러(조용한 무시 금지).
+	if allowed, ok := maintainModeFlags[mode]; ok {
+		for _, f := range maintainValueFlags {
+			if seen[f] && !allowed[f] {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: %s is not valid with %s", f, mode)))
+				return 1
+			}
 		}
 	}
 
@@ -179,12 +205,12 @@ func maintainStale(ctx context.Context, ms MaintStore, stdout io.Writer, daysOve
 		if len(r) < 5 {
 			continue
 		}
-		id, ok := anyToInt(r[0])
+		id, ok := cellToInt(r[0])
 		if !ok {
 			continue
 		}
 		topic, _ := r[1].(string)
-		readCount, _ := anyToInt(r[4])
+		readCount, _ := cellToInt(r[4])
 		ref, ok := anyToTime(r[2]) // last_read_at 우선, 없으면 ingested_at
 		if !ok || ref.IsZero() {
 			ref, ok = anyToTime(r[3])
@@ -211,25 +237,6 @@ func maintainStale(ctx context.Context, ms MaintStore, stdout io.Writer, daysOve
 	}
 	fmt.Fprintln(stdout, string(out))
 	return 0
-}
-
-// anyToInt — 셀 값을 int로(pgx int32·int64·float64·문자열 수용, fake 테스트 대응).
-func anyToInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int32:
-		return int(n), true
-	case int64:
-		return int(n), true
-	case float64:
-		return int(n), true
-	case string:
-		i, err := strconv.Atoi(n)
-		return i, err == nil
-	default:
-		return 0, false
-	}
 }
 
 // anyToTime — 셀 값을 시각으로(time.Time·RFC3339 문자열 수용).
