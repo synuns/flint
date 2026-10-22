@@ -91,7 +91,11 @@ func (r *Repo) bumpDaily(ctx context.Context, day string, delta map[string]int) 
 	err := r.pool.QueryRow(ctx, `SELECT value FROM meta WHERE key = $1`, key).Scan(&val)
 	switch {
 	case err == nil:
-		_ = json.Unmarshal([]byte(val), &cur) // 파손 → cur 공란(0 재기작)
+		// 파손(부분 디코드 포함)이거나 JSON null이면 cur를 공란으로 되돌려
+		// 0에서 재기작한다(null은 cur=nil map이 되어 증분에서 panic).
+		if json.Unmarshal([]byte(val), &cur) != nil || cur == nil {
+			cur = map[string]int{}
+		}
 	case errors.Is(err, pgx.ErrNoRows):
 		// 첫 기록 — cur 공란.
 	default:
@@ -113,12 +117,13 @@ func (r *Repo) bumpDaily(ctx context.Context, day string, delta map[string]int) 
 	return nil
 }
 
-// PruneDaily — 14일 보존(오늘+직전 13일)을 넘는 daily 키 삭제. 날짜 형식이
-// 아닌 키(daily:*)는 건드리지 않는다(형식 검사 후 cast).
+// PruneDaily — 14일 보존(오늘+직전 13일)을 넘는 daily 키 삭제. 키 날짜는
+// UTC(RecordUsage 기록 기준)이므로 기준일도 UTC로 잡는다(서버 TZ 영향 배제).
+// 날짜 형식이 아닌 키(daily:*)는 건드리지 않는다(형식 검사 후 cast).
 func (r *Repo) PruneDaily(ctx context.Context) error {
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM meta WHERE key ~ '^daily:[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-		   AND substring(key from 7)::date <= current_date - 14`)
+		   AND substring(key from 7)::date <= (now() AT TIME ZONE 'UTC')::date - 14`)
 	return err
 }
 
