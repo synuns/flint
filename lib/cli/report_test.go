@@ -193,6 +193,43 @@ func TestReportRegistered(t *testing.T) {
 	}
 }
 
+// TestCellToIntUnifiedCoercion — 셀→int 단일 유틸(cellToInt) 경계 회귀:
+// 문자열 숫자·float·nil·비수. rowIDs(구 구현은 문자열 id 미수용)·
+// readCounters(Sscan 별도 구현)가 같은 규약을 공유한다(3중 구현 방지).
+func TestCellToIntUnifiedCoercion(t *testing.T) {
+	cases := []struct {
+		v    any
+		want int
+		ok   bool
+	}{
+		{int(7), 7, true},
+		{int32(3), 3, true},
+		{int64(9), 9, true},
+		{float64(12.0), 12, true},
+		{"5", 5, true},
+		{nil, 0, false},
+		{"abc", 0, false},
+		{true, 0, false},
+	}
+	for _, c := range cases {
+		got, ok := cellToInt(c.v)
+		if got != c.want || ok != c.ok {
+			t.Errorf("cellToInt(%#v) = (%d,%v), want (%d,%v)", c.v, got, ok, c.want, c.ok)
+		}
+	}
+	// rowIDs — 문자열 숫자 id도 수용, nil·비수는 조용히 건너뛴다.
+	if ids := rowIDs([][]any{{int32(3)}, {"9"}, {nil}, {7.0}, {"x"}, {}}); len(ids) != 3 ||
+		ids[0] != 3 || ids[1] != 9 || ids[2] != 7 {
+		t.Errorf("rowIDs = %v, want [3 9 7]", ids)
+	}
+	// readCounters — 문자열·int64·float·nil 혼합 행(불가칸은 0 유지).
+	var a, b, c, d int
+	readCounters([]any{"5", int64(6), 7.0, nil}, &a, &b, &c, &d)
+	if a != 5 || b != 6 || c != 7 || d != 0 {
+		t.Errorf("readCounters = %d,%d,%d,%d, want 5,6,7,0", a, b, c, d)
+	}
+}
+
 // TestReportSQLDoltgresCompat — 회귀: report SQL은 Doltgres에서 실행돼야
 // 한다. FILTER 집계 금지(pattern.go 관례)·SQL 내 interval 산술 전면 금지
 // (make_interval·리터럴·$1 곱 모두 — T70 e2e: ($1 * interval)은 Doltgres가

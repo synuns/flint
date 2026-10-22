@@ -230,12 +230,16 @@ func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) e
 	return nil
 }
 
-// readCounters — 집계 행의 숫자 컬럼(int16/int32/int64/string 등)을 int로 읽는다.
+// readCounters — 집계 행의 숫자 컬럼(int32/int64/string 등)을 int로 읽는다.
+// 변환은 cellToInt 단일 유틸을 공유한다(read.go — 3중 구현 방지). 매핑
+// 불가 칸(nil·비수)은 기존값(0)을 유지한다.
 func readCounters(row []any, dst ...*int) {
 	for i, p := range dst {
 		if i >= len(row) {
 			return
 		}
-		fmt.Sscan(fmt.Sprint(row[i]), p)
+		if n, ok := cellToInt(row[i]); ok {
+			*p = n
+		}
 	}
 }
