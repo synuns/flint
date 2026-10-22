@@ -24,6 +24,45 @@ var kindColumns = map[string]map[string]bool{
 	"project": {"name": true, "status": true, "updated": true},
 }
 
+// ErrInvalidSource — --source 무효값(exit 3). 유입 계측 소스는 3종뿐이다.
+var ErrInvalidSource = errors.New("write: invalid --source (hook|manual|mcp)")
+
+// validSources — 계측 소스 허용값(spec §1: 훅 hook · 사람/기본 manual · MCP mcp).
+var validSources = map[string]bool{"hook": true, "manual": true, "mcp": true}
+
+// ParseSourceFlag — args에서 --source 값을 파싱한다(플랜 T61). 미지정은
+// "manual", 무효값·값 부재는 ErrInvalidSource(CLI는 exit 3).
+func ParseSourceFlag(args []string) (string, error) {
+	for i := 0; i < len(args); i++ {
+		if args[i] != "--source" {
+			continue
+		}
+		if i+1 >= len(args) {
+			return "", ErrInvalidSource
+		}
+		src := args[i+1]
+		if !validSources[src] {
+			return "", ErrInvalidSource
+		}
+		return src, nil
+	}
+	return "manual", nil
+}
+
+// UsageStore — 유입 계측(RecordUsage, T60)이 가능한 저장소(maintain의
+// MaintStore와 같은 단언 패턴). 미구현 Store는 recordUsage가 no-op로 건너뛴다.
+type UsageStore interface {
+	RecordUsage(ctx context.Context, kind, source string) error
+}
+
+// recordUsage — Store가 UsageStore면 유입 1회를 기록한다. 미구현 no-op,
+// 실패는 조용히(계측이 쓰기 결과·exit 코드를 깨지 않는다 — 플랜 T61).
+func recordUsage(ctx context.Context, st Store, kind, source string) {
+	if us, ok := st.(UsageStore); ok {
+		_ = us.RecordUsage(ctx, kind, source)
+	}
+}
+
 // runWrite — stdin JSON/JSONL 다중(단일 커밋, all-or-nothing)을 처리한다.
 func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	kind, session := "", ""
@@ -34,10 +73,19 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			i++
 			continue
 		}
+		if args[i] == "--source" && i+1 < len(args) {
+			i++ // 값은 ParseSourceFlag에서 검증(아래)
+			continue
+		}
 		pos = append(pos, args[i])
 	}
 	if len(pos) > 0 {
 		kind = pos[0]
+	}
+	source, err := ParseSourceFlag(args)
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return 3
 	}
 
 	payloads, err := readPayloads(stdin)
@@ -86,6 +134,9 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 				return store.MapExit(err)
 			}
 			if exists {
+				// 유입 계측(T61): duplicate도 write 유입 1회 + dup 1회(이중 계수 금지).
+				recordUsage(ctx, st, "write", source)
+				recordUsage(ctx, st, "dup", "")
 				fmt.Fprintln(stdout, store.OutputJSON("duplicate", "", "", 0))
 				return 0
 			}
@@ -108,6 +159,8 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	ids, err := st.InsertBatch(ctx, recs)
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
+			recordUsage(ctx, st, "write", source)
+			recordUsage(ctx, st, "dup", "")
 			fmt.Fprintln(stdout, store.OutputJSON("duplicate", "", "", 0))
 			return 0
 		}
@@ -130,6 +183,7 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	if len(dropped) > 0 || len(warnings) > 0 {
 		out = withWarnings(out, dropped, warnings)
 	}
+	recordUsage(ctx, st, "write", source) // 신규 커밋 성공 후 유입 1회(T61)
 	fmt.Fprintln(stdout, out)
 	return 0
 }
