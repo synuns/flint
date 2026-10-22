@@ -11,16 +11,22 @@ FROM knowledge
 WHERE invalid_at IS NULL;
 
 -- hot_view: 주입용 — 활성 프로젝트 + pending 지식 + 최근 결정 7일.
+-- v0.6(CI 39713526850 룰링): 말미에 id 노출(프로젝트 팔은 NULL) — HotSQL과
+-- 동반 질의(hot.go hotKnowledgeIDsSQL)가 공유하는 ORDER BY ts DESC, id DESC
+-- tie-break의 재료. 동률 ts에서 플래너가 임의 순서를 고르면 주입 집합과
+-- 증분 집합이 어긋나므로 id로 완전 순서를 만든다. 기존 컬럼·순서 불변,
+-- 신규 컬럼은 말미 추가 — views_hash 불일치로 이중 게이트가 재적용한다.
 CREATE OR REPLACE VIEW hot_view AS
-SELECT 'project' AS kind, p.name AS topic, p.status AS summary, p.updated AS ts
+SELECT 'project' AS kind, p.name AS topic, p.status AS summary, p.updated AS ts,
+       NULL::int AS id
 FROM projects p
 WHERE p.status = 'active'
 UNION ALL
-SELECT 'pending' AS kind, k.topic, k.summary, k.ingested_at
+SELECT 'pending' AS kind, k.topic, k.summary, k.ingested_at, k.id
 FROM knowledge k
 WHERE k.invalid_at IS NULL AND k.status = 'pending'
 UNION ALL
-SELECT 'decision' AS kind, k.topic, k.summary, k.valid_at
+SELECT 'decision' AS kind, k.topic, k.summary, k.valid_at, k.id
 FROM knowledge k
 WHERE k.invalid_at IS NULL
   AND k.ingested_at >= now() - interval '7 days'
