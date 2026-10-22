@@ -184,8 +184,13 @@ func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 // collectCounts — knowledge 집계 3종. pending·active(invalid_at 없음)·
 // invalidated(총) · stale(days90·never_read 분리, §2 ruling) · 기간(N일) 내
 // 무효화 수. 무효화 상태는 status가 아니라 invalid_at 유무로 판정한다(가역 무효화).
-// Doltgres 호환: FILTER 대신 CASE 집계(pattern.go 관례), make_interval 대신
-// 파라미터 곱 interval(maintain.go 관례).
+// Doltgres 호환: FILTER 대신 CASE 집계(pattern.go 관례). T70: 컷오프를 Go에서
+// 계산해 timestamptz 파라미터로 전달한다 — SQL의 ($1 * interval) 곱은 Doltgres가
+// $1을 interval로 추론해 pgx 인코딩에 실패하고, ::int 캐스트로 넘겨도 평가가
+// 깨진다(operator does not exist: timestamptz < interval, e2e 실측). maintain
+// --stale과 동일 결함·동일 처방. 주의: report_test.go TestReportSQLDoltgresCompat
+// 의 [90]·[days] int 인자 단언은 이 파라미터 곱 규약 자체를 검증한 것 — 룰링
+// 대상(비소유 파일이라 여기서는 수정하지 않음).
 func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) error {
 	rows, err := queryOnce(ctx, st, `
 		SELECT count(CASE WHEN status = 'pending' AND invalid_at IS NULL THEN 1 END),
@@ -198,22 +203,24 @@ func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) e
 	if len(rows) > 0 {
 		readCounters(rows[0], &out.Counts.Pending, &out.Counts.Active, &out.Counts.Invalidated)
 	}
+	staleCutoff := time.Now().Add(-time.Duration(reportStaleDays) * 24 * time.Hour)
 	rows, err = queryOnce(ctx, st, `
-		SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < now() - ($1 * interval '1 day'))
-		                         OR (read_count = 0 AND ingested_at < now() - ($1 * interval '1 day')) THEN 1 END),
-		       count(CASE WHEN read_count = 0 AND ingested_at < now() - ($1 * interval '1 day') THEN 1 END)
+		SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < $1)
+		                         OR (read_count = 0 AND ingested_at < $1) THEN 1 END),
+		       count(CASE WHEN read_count = 0 AND ingested_at < $1 THEN 1 END)
 		  FROM knowledge
 		 WHERE status = 'active' AND invalid_at IS NULL`,
-		[]any{reportStaleDays})
+		[]any{staleCutoff})
 	if err != nil {
 		return err
 	}
 	if len(rows) > 0 {
 		readCounters(rows[0], &out.Stale.Days90, &out.Stale.NeverRead)
 	}
+	periodCutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	rows, err = queryOnce(ctx, st, `
-		SELECT count(*) FROM knowledge WHERE invalid_at >= now() - ($1 * interval '1 day')`,
-		[]any{days})
+		SELECT count(*) FROM knowledge WHERE invalid_at >= $1`,
+		[]any{periodCutoff})
 	if err != nil {
 		return err
 	}
