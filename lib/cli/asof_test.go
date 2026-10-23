@@ -6,6 +6,7 @@ package cli
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -13,12 +14,13 @@ import (
 )
 
 // asofLogRows — dolt_log 픽스처(인덱스 0이 commit_order DESC 최신).
-// 첫 두 해시는 "abc" 접두어 공유(모호성 케이스).
+// 첫 두 해시는 "abc" 접두어 공유(모호성 케이스), 셋째는 base32계
+// (Doltgres 실측 — [0-9a-z] 전범위) 해시로 완화 검증 회귀.
 func asofLogRows() [][]any {
 	return [][]any{
 		{"abc12f00000000000000000000000000", time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)},
 		{"abc34f00000000000000000000000000", time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)},
-		{"fff99900000000000000000000000000", time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)},
+		{"he08irluq000000000000000000000z", time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)},
 	}
 }
 
@@ -114,6 +116,12 @@ func TestPrefixUniqueAmbiguousZero(t *testing.T) {
 		t.Fatalf("SQL=%v, want LIKE $1||'%%' 파라미터화", f.queries)
 	}
 
+	// base32계 해시 회귀(실측 결함 폐쇄) — 소문자 영숫자 접두어 "he0" 수용.
+	hash, err = ParseAsOfSpec(ctx, st, "he0")
+	if err != nil || hash != "he08irluq000000000000000000000z" {
+		t.Fatalf("base32 prefix he0 → (%q,%v), want 전체 해시", hash, err)
+	}
+
 	// 모호 — "abc"가 2건과 일치 → err.
 	if _, err := ParseAsOfSpec(ctx, st, "abc"); !errors.Is(err, ErrInvalidAsOf) {
 		t.Fatalf("ambiguous err=%v, want ErrInvalidAsOf", err)
@@ -122,10 +130,10 @@ func TestPrefixUniqueAmbiguousZero(t *testing.T) {
 	if _, err := ParseAsOfSpec(ctx, st, "abcd"); !errors.Is(err, ErrInvalidAsOf) {
 		t.Fatalf("zero-match err=%v, want ErrInvalidAsOf", err)
 	}
-	// 3자 미만·비16진 — 질의 없이 즉시 err.
+	// 3자 미만·대문자·특수문자 — 질의 없이 즉시 err.
 	f2 := asofFake(asofLogRows())
 	st2 := asofStore(t, f2)
-	for _, bad := range []string{"ab", "abc12g", "ABC12", "zzz!"} {
+	for _, bad := range []string{"ab", "ABC12", "abc12!", "zzz!"} {
 		if _, err := ParseAsOfSpec(ctx, st2, bad); !errors.Is(err, ErrInvalidAsOf) {
 			t.Fatalf("%q err=%v, want ErrInvalidAsOf", bad, err)
 		}
@@ -156,7 +164,7 @@ func TestIsoBeforeFirst(t *testing.T) {
 
 	// RFC3339 형식도 수용.
 	hash, err = ParseAsOfSpec(ctx, st, "2026-10-21T00:00:00Z")
-	if err != nil || hash != "fff99900000000000000000000000000" {
+	if err != nil || hash != "he08irluq000000000000000000000z" {
 		t.Fatalf("RFC3339 → (%q,%v), want 첫 커밋 해시", hash, err)
 	}
 
@@ -170,7 +178,9 @@ func TestIsoBeforeFirst(t *testing.T) {
 	}
 }
 
-// TestAsOfSpecNaturalLanguageRejected — 자연어·빈 스펙은 질의 없이 err(§1 배제).
+// TestAsOfSpecNaturalLanguageRejected — 자연어·빈 스펙은 ErrInvalidAsOf(§1 배제).
+// 공백 포함·빈 스펙은 질의 없이 즉시 err. 순소문자 단어("yesterday")는 완화
+// 알파벳상 접두어 후보라 질의 후 0건 매칭으로 같은 err(정상 경로).
 func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 	f := asofFake(asofLogRows())
 	st := asofStore(t, f)
@@ -179,7 +189,48 @@ func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 			t.Fatalf("%q err=%v, want ErrInvalidAsOf", bad, err)
 		}
 	}
-	if len(f.queries) != 0 {
-		t.Fatalf("무효 스펙인데 질의함: %v", f.queries)
+	// "2 days ago"(공백) 1건만 질의 — "yesterday" 1건은 접두어 경로 정상 질의.
+	if len(f.queries) != 1 {
+		t.Fatalf("질의 수=%d, want 1(yesterday 접두어 질의만): %v", len(f.queries), f.queries)
+	}
+}
+
+// TestParseAsOfSpecRealPrefix — 실DB 회귀(FLINT_DSN 설정 시에만): write 1건
+// 커밋 후 실제 해시(base32계) 접두어 3자로 ParseAsOfSpec이 전체 해시를
+// 되돌리는지 실측. 소문자 영숫자 완화 검증의 엔드투엔드 보증.
+func TestParseAsOfSpecRealPrefix(t *testing.T) {
+	dsn := os.Getenv("FLINT_DSN")
+	if dsn == "" {
+		t.Skip("FLINT_DSN 미설정 — 실DB 회귀 건너뜀")
+	}
+	ctx := context.Background()
+	real, err := newRealStore(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	t.Cleanup(real.Close)
+	// 변경 없는 커밋 방지 — 고유 content_hash 1건 적립 후 커밋.
+	uniq := fmt.Sprintf("asof-t81-%d", time.Now().UnixNano())
+	recs := []map[string]any{{
+		"kind": "knowledge", "topic": uniq, "summary": "as-of 회귀",
+		"tags": ":asof:", "confidence": 0.9, "content_hash": uniq,
+		"status": "pending", "ingested_at": time.Now(),
+	}}
+	if _, err := real.InsertBatch(ctx, recs); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	full, err := real.Commit(ctx, "asof prefix 회귀 [session:T81]")
+	if err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	if len(full) < asofMinPrefix {
+		t.Fatalf("커밋 해시가 너무 짧음: %q", full)
+	}
+	got, err := ParseAsOfSpec(ctx, real, full[:3])
+	if err != nil {
+		t.Fatalf("ParseAsOfSpec(%q) err=%v (base32 해시 완화 확인)", full[:3], err)
+	}
+	if got != full {
+		t.Fatalf("접두어 정규화=%q, want 전체 해시 %q", got, full)
 	}
 }
