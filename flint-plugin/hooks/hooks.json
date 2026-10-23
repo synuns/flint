@@ -10,6 +10,16 @@
             "timeout": 2
           }
         ]
+      },
+      {
+        "matcher": "startup|resume|clear|compact",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "flint nudge 2>/dev/null || true",
+            "timeout": 2
+          }
+        ]
       }
     ],
     "Stop": [
@@ -18,6 +28,26 @@
           {
             "type": "command",
             "command": "flint done --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
+            "timeout": 2
+          }
+        ]
+      },
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "flint nudge 2>/dev/null || true",
+            "timeout": 2
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "flint compact 2>/dev/null || true",
             "timeout": 2
           }
         ]
