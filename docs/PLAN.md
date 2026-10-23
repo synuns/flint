@@ -316,6 +316,23 @@ flint-plugin/
   전제) / 수명주기 액션(maintain 배치 무효화 dry-run·보존 정책 — stale
   실측치 축적 후)
 
+### v0.8 시간여행 노출·수명주기 액션 (2026-10-23 기획)
+
+시간여행 노출:
+
+- [ ] `flint read --as-of <시점>` — 시점 지정 조회(AS OF 쿼리, §16 검증 전제)
+- [ ] `flint diff` — 두 시점 knowledge/sessions 행 비교 보고(한 줄 JSON)
+- [ ] `flint status --as-of <시점>` — 시점 스냅샷 상태
+- [ ] audit 연계 — dolt_log 기반 시점 목록으로 as-of 후보 보조
+
+수명주기 액션:
+
+- [ ] maintain 배치 무효화 — stale 항목 일괄 무효화 dry-run 기본·실행은
+  명시 플래그(무효화=가역, 기존 원칙 승계)
+- [ ] 보존 정책 — invalidated 항목 보존 기한 관리(물리 삭제는 §15 이연 유지)
+- [ ] superseded 개념 — 갱신 지식 적립 시 구 항목 무효화 연결(Zep
+  invalidated-not-deleted 준거, v0.7 증류 스킬 4연산과 연계)
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
