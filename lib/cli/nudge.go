@@ -12,7 +12,7 @@ import (
 
 // nudgeStopDirective — Stop 넛지 additionalContext 지시문(플랜 T73 문구 고정).
 const nudgeStopDirective = "flint: 미증류 컴팩트 요약이 있다. 세션에서 지속 지식을 추출해 " +
-	"flint write --source hook(status=pending)로 적립하고 flint nudge --clear 로 마커를 지워라."
+	"flint write knowledge --source hook(status=pending)로 적립하고 flint nudge --clear 로 마커를 지워라."
 
 // nudgeStartLine — SessionStart plain 안내 1줄.
 const nudgeStartLine = "flint: 미증류 마커 존재 — 증류 후 flint nudge --clear"

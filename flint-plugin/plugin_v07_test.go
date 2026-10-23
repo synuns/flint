@@ -151,22 +151,29 @@ func TestHooksExistingUntouched(t *testing.T) {
 }
 
 // TestSkillDistillSection — SKILL.md '세션 증류' 섹션이 4연산·pending·
-// approve·--source hook·nudge --clear 종결을 안내한다.
+// approve·--source hook·nudge --clear 종결을 안내한다. 검사 범위는 해당
+// 섹션(헤딩 이후부터 다음 헤딩 전)으로 한정한다 — 문서 전체 탐색 시
+// 다른 섹션의 우연 일치로 오통과한다.
 func TestSkillDistillSection(t *testing.T) {
 	raw, err := os.ReadFile("skills/flint/SKILL.md")
 	if err != nil {
 		t.Fatalf("SKILL.md 읽기 실패: %v", err)
 	}
 	text := string(raw)
-	if !strings.Contains(text, "세션 증류") {
+	start := strings.Index(text, "## 세션 증류")
+	if start < 0 {
 		t.Fatalf("SKILL.md에 '세션 증류' 섹션 없음")
+	}
+	section := text[start:]
+	if next := strings.Index(section[len("## 세션 증류"):], "\n## "); next >= 0 {
+		section = section[:len("## 세션 증류")+next]
 	}
 	for _, want := range []string{
 		"NOOP", "UPDATE", "ADD", "무효화",
 		"pending", "approve", "--source hook", "nudge --clear",
 	} {
-		if !strings.Contains(text, want) {
-			t.Errorf("SKILL.md 세션 증류 안내에 %q 없음", want)
+		if !strings.Contains(section, want) {
+			t.Errorf("SKILL.md 세션 증류 섹션에 %q 없음", want)
 		}
 	}
 }

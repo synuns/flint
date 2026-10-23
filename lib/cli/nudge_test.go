@@ -47,6 +47,7 @@ func TestNudgeStopContextJson(t *testing.T) {
 		t.Errorf("hookEventName = %q, want Stop", got.HookSpecificOutput.HookEventName)
 	}
 	if !strings.Contains(got.HookSpecificOutput.AdditionalContext, "미증류") ||
+		!strings.Contains(got.HookSpecificOutput.AdditionalContext, "write knowledge --source hook") ||
 		!strings.Contains(got.HookSpecificOutput.AdditionalContext, "nudge --clear") {
 		t.Errorf("additionalContext = %q, 지시문 누락", got.HookSpecificOutput.AdditionalContext)
 	}
