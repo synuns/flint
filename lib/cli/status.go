@@ -4,6 +4,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
@@ -26,6 +27,14 @@ type statusOutput struct {
 	LastReadAt    *string `json:"last_read_at"`
 }
 
+// statusAsOfOutput — T85: --as-of 지정 시 출력. 기존 statusOutput 필드를
+// 임베딩해 키 순서를 그대로 두고 as_of(정규화된 커밋 해시)를 말미에 추가한다.
+// statusOutput 자체는 불변(미지정 시 출력 불변 — v0.7 last_* 원칙 승계).
+type statusAsOfOutput struct {
+	statusOutput
+	AsOf string `json:"as_of"`
+}
+
 // lastSeenOrNull — meta에서 RFC3339 last_* 키 조회. 키 부재·파손(비-RFC3339)은
 // nil(JSON null). 계측 표시이므로 조회 오류도 조용히 null로 폴백한다.
 func lastSeenOrNull(getKV func(string, string) (string, error), key string) *string {
@@ -41,10 +50,36 @@ func lastSeenOrNull(getKV func(string, string) (string, error), key string) *str
 }
 
 // runStatus — 서버 생존·스키마 호환·pending 대기 수를 보고한다.
+// T85: --as-of <스펙> 지정 시 카운트 질의에 AS OF '<해시>'를 접합해 과거
+// 스냅샷 pending 수를 보고하고 출력 말미에 as_of(정규화 해시)를 추가한다.
+// 무효 스펙은 ErrInvalidAsOf → exit 3.
 func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if err := st.Ping(ctx); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
+	}
+	asOfSpec := ""
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--as-of" {
+			if i+1 >= len(args) {
+				// 값 없는 --as-of도 무효 스펙(빈 스펙)으로 exit 3.
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf)))
+				return 3
+			}
+			asOfSpec, i = args[i+1], i+1
+		}
+	}
+	asOfHash := ""
+	if asOfSpec != "" {
+		hash, err := ParseAsOfSpec(ctx, st, asOfSpec)
+		if err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			if errors.Is(err, ErrInvalidAsOf) {
+				return 3
+			}
+			return store.MapExit(err)
+		}
+		asOfHash = hash
 	}
 	rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = 'schema_version'`, nil)
 	if err != nil {
@@ -63,8 +98,14 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~4"}))
 		return 3
 	}
-	rows, err = queryOnce(ctx, st,
-		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`, nil)
+	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합(해시는 dolt_log에서
+	// 확정된 16진 문자열이라 인라인해도 안전). meta·계측 조회는 현재 상태 그대로.
+	countSQL := `SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`
+	if asOfHash != "" {
+		countSQL = `SELECT count(*) FROM knowledge AS OF '` + asOfHash +
+			`' WHERE status = 'pending' AND invalid_at IS NULL`
+	}
+	rows, err = queryOnce(ctx, st, countSQL, nil)
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
@@ -80,11 +121,17 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	readCalls, readZero := loadReadStatsFromMeta(ctx, st)
 	// T63: 유입 3경로 last-seen(meta last_*_at, T60 기록) — 부재·파손은 null.
 	getKV := metaGetKV(ctx, st)
-	b, _ := json.Marshal(statusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
+	base := statusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
 		HotCalls: calls, HotP95: p95, ReadCalls: readCalls, ReadZeroPct: readZeroPct(readCalls, readZero),
 		LastWriteAt: lastSeenOrNull(getKV, "last_write_at"),
 		LastHotAt:   lastSeenOrNull(getKV, "last_hot_at"),
-		LastReadAt:  lastSeenOrNull(getKV, "last_read_at")})
+		LastReadAt:  lastSeenOrNull(getKV, "last_read_at")}
+	var b []byte
+	if asOfHash != "" {
+		b, _ = json.Marshal(statusAsOfOutput{statusOutput: base, AsOf: asOfHash})
+	} else {
+		b, _ = json.Marshal(base)
+	}
 	fmt.Fprintln(stdout, string(b))
 	return 0
 }
