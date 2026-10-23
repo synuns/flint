@@ -11,9 +11,11 @@ package e2e
 
 import (
 	"context"
+	"fmt"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"flint/lib/db"
 )
@@ -68,8 +70,18 @@ func TestV08LifecycleChain(t *testing.T) {
 	}
 
 	pool := mustDB(t)
+	// 선행 광역 정리는 기존 "e2e-v08-" 프리픽스로(레거시 잔존 소거),
+	// teardown은 실행 식별자로 한정(동시 실행 중인 다른 프로세스의
+	// 진행 중 행을 지우지 않게).
 	cleanupTopics(t, pool, "e2e-v08-")
-	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-v08-") })
+	runPrefix := fmt.Sprintf("e2e-v08-%d-", time.Now().UnixNano())
+	t.Cleanup(func() { cleanupTopics(t, pool, runPrefix) })
+
+	// 실행마다 유일한 접두사 — 공유 DB 잔존 데이터와 첫 실행 duplicate·
+	// audit --session 혼입 충돌 방지. 유일 이름도 상위 "e2e-v08-" 프리픽스
+	// 안에 있으므로 위 광역 선행 정리가 잡는다.
+	topicA, topicB := runPrefix+"k1", runPrefix+"k2"
+	sessA, sessB := runPrefix+"s1", runPrefix+"s2"
 
 	// 환경 격리 — 설정·플러그인 캐시를 임시 디렉터리로.
 	env := flintEnv(
@@ -81,8 +93,8 @@ func TestV08LifecycleChain(t *testing.T) {
 
 	// ① write 1건(confidence 0.9 → active) — 커밋 A 확보.
 	out, code := runFlint(t, bin, env,
-		[]string{"write", "knowledge", "--session", "e2e-v08-s1"},
-		`{"topic":"e2e-v08-k1","summary":"v0.8 체인 프로브 1","confidence":0.9}`)
+		[]string{"write", "knowledge", "--session", sessA},
+		fmt.Sprintf(`{"topic":%q,"summary":"v0.8 체인 프로브 1","confidence":0.9}`, topicA))
 	if code != 0 {
 		t.Fatalf("① write exit=%d, want 0; out=%s", code, out)
 	}
@@ -91,12 +103,12 @@ func TestV08LifecycleChain(t *testing.T) {
 		t.Fatalf("① write status=%v, want committed; out=%s", wm["status"], out)
 	}
 	oldID := int(wm["id"].(float64))
-	commitA := latestCommitHash(t, bin, env, "e2e-v08-s1")
+	commitA := latestCommitHash(t, bin, env, sessA)
 
 	// ② write 1건 더 — 커밋 B.
 	out, code = runFlint(t, bin, env,
-		[]string{"write", "knowledge", "--session", "e2e-v08-s2"},
-		`{"topic":"e2e-v08-k2","summary":"v0.8 체인 프로브 2","confidence":0.9}`)
+		[]string{"write", "knowledge", "--session", sessB},
+		fmt.Sprintf(`{"topic":%q,"summary":"v0.8 체인 프로브 2","confidence":0.9}`, topicB))
 	if code != 0 {
 		t.Fatalf("② write exit=%d, want 0; out=%s", code, out)
 	}
@@ -105,11 +117,11 @@ func TestV08LifecycleChain(t *testing.T) {
 	if newID == oldID {
 		t.Fatalf("② id=%d, ①과 동일(별도 행 아님)", newID)
 	}
-	commitB := latestCommitHash(t, bin, env, "e2e-v08-s2")
+	commitB := latestCommitHash(t, bin, env, sessB)
 
 	// ③ read --as-of A — 두 토픽 질의로 과거 시점엔 첫 건만 보이는지.
 	out, code = runFlint(t, bin, env,
-		[]string{"read", "e2e-v08-", "--as-of", commitA, "--json", "--fields", "topic"}, "")
+		[]string{"read", runPrefix, "--as-of", commitA, "--json", "--fields", "topic"}, "")
 	if code != 0 {
 		t.Fatalf("③ read --as-of exit=%d, want 0; out=%s", code, out)
 	}
@@ -128,7 +140,7 @@ func TestV08LifecycleChain(t *testing.T) {
 		}
 		rows = append(rows, decode(t, l))
 	}
-	if len(rows) != 1 || rows[0]["topic"] != "e2e-v08-k1" {
+	if len(rows) != 1 || rows[0]["topic"] != topicA {
 		t.Fatalf("③ as-of 결과 %d행(%v), want 1행(k1만); out=%s", len(rows), rows, out)
 	}
 	if got := asOfHash(t, asOfMeta); got != commitA {
