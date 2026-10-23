@@ -1,7 +1,7 @@
 # RUNBOOK — flint 운영 절차
 
-감사·오염 대응·복구 훈련·백업 보존·진단·스테일 관리의 6절 구성. 모든
-절차는 각 커맨드 계약(exit 0/1/2/3, 한 줄 JSON)을 따른다.
+감사·오염 대응·복구 훈련·백업 보존·진단·스테일 관리·유지보수 주기의
+7절 구성. 모든 절차는 각 커맨드 계약(exit 0/1/2/3, 한 줄 JSON)을 따른다.
 
 ## 1. 감사 — `flint audit`
 
@@ -45,7 +45,7 @@
 |---|---|---|
 | hook-file | Claude 설정·플러그인 캐시에 flint 훅 등록 여부 (`FLINT_CLAUDE_HOME` 오버라이드 지원) | fail |
 | db | DB Ping 접속 | fail |
-| schema | meta schema_version = 4 일치 | fail |
+| schema | meta schema_version ≥ 4 일치(v0.8 현재 5) | fail |
 | integrity | `flint_knowledge_*` 인덱스 3행 존재 | fail |
 | last-seen | 3경로(write/hot/read) last-seen 경과 + grace(stall_hot_h 48h·stall_write_h 72h) | warn |
 
@@ -67,14 +67,84 @@ fail 시 대응:
    `flint hot`/`flint write`를 한 번 실행하면 해소된다(지속되면 훅 등록
    상태를 hook-file 검사로 점검).
 
-## 6. 스테일 관리 — `flint maintain --stale` (v0.6)
+## 6. 스테일 관리 — `flint maintain --stale` (v0.6 → v0.8 확장)
 
 - `flint maintain --stale [--days N] [--limit M]` — active 항목 중
   (last_read_at < now-N일) 또는 (read_count=0 AND ingested_at < now-N일)
   항목을 보고한다. `--days` 기본은 meta `stale_days`(기본 90),
   `--limit` 기본 20.
 - 미참조 버킷(read_count=0)은 never_read로 구분 표시한다.
-- **보고 전용·exit 0** — 물리 삭제·자동 confidence 변경 없음. 처리는
-  기존 `maintain --invalidate`(무효화=가역)로 운영자 판단 후 수행.
-- 주기: 분기 리뷰(90일 관례)에 맞춰 cron·수석 회고 시 실행. 결과의
-  `days90`·`never_read` 수치는 `flint report`의 stale 섹션과 상호 확인.
+- **`--stale`·`--invalidate-stale`(dry-run)은 보고 전용·exit 0** —
+  물리 삭제·자동 confidence 변경 없음. 무효화(=가역)만 수행한다.
+- 결과의 `days90`·`never_read` 수치는 `flint report`의 stale 섹션과
+  상호 확인한다.
+
+v0.8 무효화 경로(항상 dry-run 먼저):
+
+1. **대상 확인(dry-run)** — `flint maintain --invalidate-stale`:
+   대상 목록(id·사유 stale|never_read)과 요약행 "N to invalidate"를
+   출력한다(`--days`·`--limit` 플래그는 `--stale`과 동일).
+2. **실행** — `flint maintain --invalidate-stale --yes`: dry-run과 같은
+   조건의 대상 전체를 `status='invalidated'`로 무효화한다(프롬프트
+   없음 — `--yes`가 유일한 게이트).
+3. **id 스냅샷 적용** — dry-run 목록의 일부만 처리하려면
+   `flint maintain --invalidate --ids "1,2,3" --yes`. dry-run 시점의
+   id를 고정 적용하므로 재평가로 대상이 달라져도 영향 없다.
+   존재하지 않는 id는 exit 1. 기존 단일 `--id N`과 병존하며
+   `--ids`가 우선이다.
+4. **선행 관계 무효화** — `flint maintain --supersede OLD --by NEW`:
+   OLD(active인 경우만)를 무효화하고 `superseded_by=NEW`를 기록한다.
+   무효화 시각은 NEW의 valid_at을 따른다. NEW 부재 → exit 1·
+   OLD==NEW → exit 3·OLD 비active → exit 1.
+
+## 7. 유지보수 주기 — 스케줄 실행 가이드 (v0.8)
+
+스테일 판정 기본이 90일(stale_days)이므로 **저빈도 실행을 권장**한다 —
+월 1회면 충분하며, 일 단위 이하의 고빈도는 무의미한 커밋만 늘린다.
+스케줄러는 **dry-run(`--check`·`--invalidate-stale` 마커 없음)만**
+실행하고, `--yes` 적용은 운영자가 dry-run 출력을 보고 수동으로
+판단한다.
+
+흐름(매월):
+
+1. `flint maintain --check` — 백업·drill·스톨 경과 확인.
+2. `flint maintain --invalidate-stale` — dry-run으로 대상 목록·
+   "N to invalidate" 확인.
+3. 운영자 판단 후 `flint maintain --invalidate-stale --yes`(또는
+   `--ids`로 선별 적용).
+
+cron 예(매월 1일 04:00, dry-run만):
+
+```
+0 4 1 * * FLINT_DSN=postgresql://flint:flint-dev@localhost:5433/flint \
+  /usr/local/bin/flint maintain --check >> "$HOME/.flint/maintain.log" 2>&1
+```
+
+launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist`):
+
+```xml
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0"><dict>
+  <key>Label</key><string>dev.flint.maintain</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/usr/local/bin/flint</string>
+    <string>maintain</string>
+    <string>--check</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>FLINT_DSN</key>
+    <string>postgresql://flint:flint-dev@localhost:5433/flint</string>
+  </dict>
+  <key>StartCalendarInterval</key>
+  <dict><key>Day</key><integer>1</integer><key>Hour</key><integer>4</integer></dict>
+  <key>StandardOutPath</key><string>/tmp/flint-maintain.log</string>
+  <key>StandardErrorPath</key><string>/tmp/flint-maintain.log</string>
+</dict></plist>
+```
+
+등록: `launchctl load ~/Library/LaunchAgents/dev.flint.maintain.plist`.
+경과 보고는 `flint report`·§3 drill 주기(30일)와 상호 확인한다.

@@ -174,6 +174,50 @@ func (r *Repo) ensureSchemaV4(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV5는 meta.schema_version<5인 DB를 v5로 무손실 승격한다:
+// knowledge 계보 컬럼(superseded_by)을 ADD COLUMN IF NOT EXISTS로 추가하고
+// 버전 5를 기록한다(spec v0.8 §2: 배치 무효화가 대체 지식 id를 새긴다.
+// views 무변경 — 컬럼은 기존 뷰 정의에 영향 없다). 승격 전 기존 행은
+// 기본값 null을 받는다. 이미 v5 이상이면 트랜잭션·커밋 없이 no-op
+// (수치 비교 단락 — 문자열 비교 금지, v0.6 다운그레이드 사고 재발 방지)이며,
+// v1~v4 게이트를 경유한 어느 DB에서도 멱등하다.
+func (r *Repo) EnsureSchemaV5(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV5(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV5(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v5: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 5 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v5: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS superseded_by int`); err != nil {
+		return fmt.Errorf("schema v5: alter: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '5')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v5: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v5: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
 // 이미 active면 멱등 no-op, 없는 id는 ErrNotFound.
 func (r *Repo) Approve(ctx context.Context, id int) error {

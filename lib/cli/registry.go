@@ -31,7 +31,7 @@ func unregister(name string) {
 
 // usageLine — 인자 없음/도움말 공용 한 줄 JSON.
 func usageLine() string {
-	return `{"error":"usage: flint <write|read|hot|status|backup|restore|approve|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit> [args]"}`
+	return `{"error":"usage: flint <write|read|hot|status|backup|restore|approve|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit|diff> [args]"}`
 }
 
 func init() {
