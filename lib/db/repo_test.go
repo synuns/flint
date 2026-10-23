@@ -15,13 +15,7 @@ import (
 	"flint/lib/store"
 )
 
-// testDSN은 slow 테스트용 DSN — 환경변수가 우선이다(pool_test.go와 동일 규칙).
-func testDSN() string {
-	if dsn := os.Getenv("FLINT_DSN"); dsn != "" {
-		return dsn
-	}
-	return "postgresql://flint:flint-dev@localhost:5433/flint"
-}
+// testDSN은 testutil_test.go로 이동 — FLINT_DSN 비빈 반환, 빈이면 스킵(5433 폴백 폐지).
 
 // fake DDL — 실 sqlfs(schema.sql)의 테스트에 필요한 하위집합.
 // 컬럼 제약(UNIQUE content_hash 포함)은 실제와 동일해야 원자성 테스트가 유효하다.
@@ -111,7 +105,7 @@ func newTestRepo(t *testing.T) *Repo {
 	t.Cleanup(unlock)
 	useFakeSQL(t)
 	ctx := context.Background()
-	r, err := NewRepo(ctx, testDSN())
+	r, err := NewRepo(ctx, testDSN(t))
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
@@ -211,7 +205,7 @@ func TestMigrateReappliesViews(t *testing.T) {
 	// 낡은(stale) 뷰 정의 심기 — simple protocol로 심어야 서버 카탈로그가
 	// 실제로 1컬럼이 된다(확장 프로토콜 CREATE OR REPLACE는 컬럼 목록을
 	// 갱신하지 않는 사고의 재현 조건, 인시던트 참조).
-	plantStaleView(t, testDSN())
+	plantStaleView(t, testDSN(t))
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
