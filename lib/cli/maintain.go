@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"flint/lib/db"
@@ -40,15 +41,31 @@ func (s *realStore) Merge(ctx context.Context, fromID, toID int) error {
 func init() { Register("maintain", runMaintain) }
 
 // maintainValueFlags — 값을 받는 플래그 전체(모드 귀속 검증 대상).
-var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to", "--reason"}
+var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to", "--reason",
+	"--ids", "--supersede", "--by"}
 
 // maintainModeFlags — 모드별 허용 값 플래그. 무관 플래그는 조용히 무시하지
 // 않고 에러로 거부한다(--days·--limit이 --stale 아닌 모드에서 흐르는 등).
 var maintainModeFlags = map[string]map[string]bool{
-	"--check":      {},
-	"--stale":      {"--days": true, "--limit": true},
-	"--invalidate": {"--id": true, "--reason": true},
-	"--merge":      {"--from": true, "--to": true},
+	"--check":            {},
+	"--stale":            {"--days": true, "--limit": true},
+	"--invalidate-stale": {"--days": true, "--limit": true},
+	"--invalidate":       {"--id": true, "--reason": true, "--ids": true},
+	"--merge":            {"--from": true, "--to": true},
+	"--supersede":        {"--supersede": true, "--by": true},
+}
+
+// maintainYesModes — --yes(실행 확정)가 뜻 있는 모드. 나머지 모드에서의
+// --yes도 조용한 무시 대신 에러로 거부한다.
+var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true}
+
+// maintainRetryDelays — 유지보수 쓰기 경로 Retry 간격(전역 제약: 쓰기는
+// 40001 대응 Retry 동반). 테스트는 즉시 재시도로 교체.
+var maintainRetryDelays = db.DefaultDelays
+
+// retryWrite — 쓰기(UPDATE+Commit) 클로저를 Retry로 감싼다(전역 제약).
+func retryWrite(ctx context.Context, fn func() error) error {
+	return db.Retry(ctx, fn, maintainRetryDelays)
 }
 
 // runMaintain — 서브옵션 파싱 후 모드별 실행. --check는 보고만(exit 0),
@@ -62,12 +79,15 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 
 	mode := ""
 	id, from, to := 0, 0, 0
+	old, by := 0, 0 // --supersede OLD --by NEW
 	days, limit := 0, 20 // --stale: days=0 → meta stale_days(기본 90) 폴백
 	reason := ""
+	yes := false
+	var idList []int // --ids 파싱 결과(스냅샷 — 재평가 없음)
 	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--check", "--invalidate", "--merge", "--stale":
+		case "--check", "--merge", "--stale", "--invalidate", "--invalidate-stale":
 			mode = args[i]
 		case "--days", "--limit":
 			seen[args[i]] = true
@@ -114,6 +134,48 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 				return 1
 			}
 			reason = args[i]
+		case "--supersede":
+			mode = args[i]
+			seen[args[i]] = true
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
+				return 1
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n <= 0 {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: invalid number %q", args[i])))
+				return 1
+			}
+			old = n
+		case "--by":
+			seen[args[i]] = true
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
+				return 1
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n <= 0 {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: invalid number %q", args[i])))
+				return 1
+			}
+			by = n
+		case "--ids":
+			seen[args[i]] = true
+			i++
+			if i >= len(args) || args[i] == "" {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: --ids requires a value")))
+				return 1
+			}
+			ids, perr := parseIDList(args[i])
+			if perr != nil {
+				fmt.Fprintln(stdout, errLine(perr))
+				return 1
+			}
+			idList = ids
+		case "--yes":
+			yes = true
 		default:
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 1
@@ -129,13 +191,33 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 			}
 		}
 	}
+	// --yes는 실행 확정 마커 — 해당 없는 모드에서 흐르면 에러(동일 원칙).
+	if yes && !maintainYesModes[mode] {
+		fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: --yes is not valid with %s", mode)))
+		return 1
+	}
 
 	switch mode {
 	case "--check":
 		return maintainCheck(ctx, ms, stdout)
 	case "--stale":
 		return maintainStale(ctx, ms, stdout, days, limit)
+	case "--invalidate-stale":
+		return maintainInvalidateStale(ctx, ms, stdout, days, limit, yes)
+	case "--supersede":
+		if old == 0 || by == 0 {
+			fmt.Fprintln(stdout, errLine(errors.New("maintain: --supersede requires OLD and --by NEW")))
+			return 1
+		}
+		return maintainSupersede(ctx, ms, stdout, old, by)
 	case "--invalidate":
+		if len(idList) > 0 {
+			if !yes { // 스펙 §2: --ids는 --yes 병행 필요(실행 확정)
+				fmt.Fprintln(stdout, errLine(errors.New("maintain: --invalidate --ids requires --yes")))
+				return 1
+			}
+			return maintainInvalidateIDs(ctx, ms, stdout, idList)
+		}
 		if id == 0 || reason == "" {
 			fmt.Fprintln(stdout, errLine(errors.New("maintain: --invalidate requires --id and --reason")))
 			return 1
@@ -156,28 +238,60 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		fmt.Fprintf(stdout, `{"status":"merged","from":%d,"to":%d}`+"\n", from, to)
 		return 0
 	default:
-		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --stale [--days N] [--limit M] | --invalidate --id N --reason S | --merge --from N --to M")))
+		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW")))
 		return 1
 	}
 }
 
+// parseIDList — "1,2,3" 형태 id 스냅샷 파싱(빈 토큰·비양수·비수 거부).
+func parseIDList(s string) ([]int, error) {
+	parts := strings.Split(s, ",")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		p = strings.TrimSpace(p)
+		n, err := strconv.Atoi(p)
+		if err != nil || n <= 0 {
+			return nil, fmt.Errorf("maintain: --ids invalid id %q", p)
+		}
+		out = append(out, n)
+	}
+	return out, nil
+}
+
 // staleItem — maintain --stale 보고 항목. never_read 버킷(read_count=0)을
-// 구분 표시한다(Devin "사용 안 한 노트" 준거). 보고 전용 — 갱신 없음.
+// 사유(reason)로 구분 표시한다(Devin "사용 안 한 노트" 준거). 보고 전용.
 type staleItem struct {
 	ID        int    `json:"id"`
 	Topic     string `json:"topic"`
 	NeverRead bool   `json:"never_read"`
+	Reason    string `json:"reason"` // never_read(미참조) | stale(경과)
 	StaleDays int    `json:"stale_days"` // 기준 시각(last_read_at·없으면 ingested_at) 경과일
 }
 
 // maintainStale — active 중 오래 참조되지 않은 항목 보고(보고 전용·exit 0).
-// 대상: (last_read_at < now-days) OR (read_count=0 AND ingested_at < now-days).
-// 경계는 미만 — 컷오프와 동일 시각은 포함하지 않는다. cron 친화적.
+// v0.8: 항목별 사유(reason)와 요약(summary "N to invalidate") 추가.
 func maintainStale(ctx context.Context, ms MaintStore, stdout io.Writer, daysOverride, limit int) int {
-	th, err := loadThresholds(ctx, ms)
+	items, days, err := listStale(ctx, ms, daysOverride, limit)
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
+	}
+	out, mErr := staleReport(items, days)
+	if mErr != nil {
+		fmt.Fprintln(stdout, errLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, out)
+	return 0
+}
+
+// listStale — stale 대상 산출(공통: --stale 보고·--invalidate-stale 적용).
+// 대상: (last_read_at < now-days) OR (read_count=0 AND ingested_at < now-days).
+// 경계는 미만 — 컷오프와 동일 시각은 포함하지 않는다. cron 친화적.
+func listStale(ctx context.Context, ms MaintStore, daysOverride, limit int) ([]staleItem, int, error) {
+	th, err := loadThresholds(ctx, ms)
+	if err != nil {
+		return nil, 0, err
 	}
 	days := th.StaleDays
 	if daysOverride > 0 {
@@ -197,8 +311,7 @@ func maintainStale(ctx context.Context, ms MaintStore, stdout io.Writer, daysOve
 		ORDER BY COALESCE(last_read_at, ingested_at) ASC
 		LIMIT $2`, []any{cutoff, limit})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
-		return store.MapExit(err)
+		return nil, days, err
 	}
 	items := []staleItem{}
 	for _, r := range rows {
@@ -218,24 +331,178 @@ func maintainStale(ctx context.Context, ms MaintStore, stdout io.Writer, daysOve
 		if !ok || !ref.Before(cutoff) { // 경계 미만 — 컷오프 이후(활성) 제외
 			continue
 		}
+		reason := "stale"
+		if readCount == 0 {
+			reason = "never_read"
+		}
 		items = append(items, staleItem{
 			ID:        id,
 			Topic:     topic,
 			NeverRead: readCount == 0,
+			Reason:    reason,
 			StaleDays: int(time.Since(ref).Hours() / 24),
 		})
 	}
+	return items, days, nil
+}
+
+// staleReport — dry-run(기본) 출력 한 줄 JSON. --stale·--invalidate-stale
+// dry-run이 같은 모양을 쓴다(스펙 §2).
+func staleReport(items []staleItem, days int) (string, error) {
+	out, err := json.Marshal(struct {
+		Status  string      `json:"status"`
+		Days    int         `json:"days"`
+		Count   int         `json:"count"`
+		Items   []staleItem `json:"items"`
+		Summary string      `json:"summary"`
+	}{Status: "ok", Days: days, Count: len(items), Items: items,
+		Summary: fmt.Sprintf("%d to invalidate", len(items))})
+	if err != nil {
+		return "", err
+	}
+	return string(out), nil
+}
+
+// maintainInvalidateStale — 배치 무효화(spec §2). dry-run 기본(마커 없으면
+// --stale과 동일 출력·갱신 없음). --yes 시 목록 산출 시점 id 전체에
+// UPDATE(status='invalidated'·invalid_at=now)+Commit — 쓰기는 Retry 동반.
+func maintainInvalidateStale(ctx context.Context, ms MaintStore, stdout io.Writer,
+	daysOverride, limit int, apply bool) int {
+	items, days, err := listStale(ctx, ms, daysOverride, limit)
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	if !apply || len(items) == 0 {
+		out, mErr := staleReport(items, days)
+		if mErr != nil {
+			fmt.Fprintln(stdout, errLine(mErr))
+			return 1
+		}
+		fmt.Fprintln(stdout, out)
+		return 0
+	}
+	ids := make([]int, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	code := invalidateIDs(ctx, ms, stdout, ids, "invalidate-stale")
+	if code != 0 {
+		return code
+	}
+	return 0
+}
+
+// maintainInvalidateIDs — --invalidate --ids 스냅샷 경로. dry-run 재평가 없이
+// 지정 id 고정 적용(plan-파일 패턴). 존재하지 않는 id는 exit 1.
+func maintainInvalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []int) int {
+	return invalidateIDs(ctx, ms, stdout, ids, "invalidate --ids")
+}
+
+// invalidateIDs — 공통 배치 무효화: 존재 확인 → UPDATE+Commit(Retry).
+func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []int, op string) int {
+	rows, err := queryOnce(ctx, ms,
+		`SELECT id FROM knowledge WHERE id = ANY($1)`, []any{ids})
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	found := map[int]bool{}
+	for _, r := range rows {
+		if id, ok := cellToInt(r[0]); ok {
+			found[id] = true
+		}
+	}
+	var missing []int
+	for _, id := range ids {
+		if !found[id] {
+			missing = append(missing, id)
+		}
+	}
+	if len(missing) > 0 {
+		fmt.Fprintln(stdout, errLine(fmt.Errorf(
+			"maintain: %s: 존재하지 않는 id %v", op, missing)))
+		return 1
+	}
+	if err := retryWrite(ctx, func() error {
+		if _, err := ms.Query(ctx, `
+			UPDATE knowledge SET status = 'invalidated', invalid_at = now()
+			WHERE id = ANY($1)`, ids); err != nil {
+			return err
+		}
+		_, err := ms.Commit(ctx, fmt.Sprintf(
+			"%s: %d건 무효화 (배치 무효화 갱신 경로) [session:0]", op, len(ids)))
+		return err
+	}); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
 	out, mErr := json.Marshal(struct {
-		Status string      `json:"status"`
-		Days   int         `json:"days"`
-		Count  int         `json:"count"`
-		Items  []staleItem `json:"items"`
-	}{Status: "ok", Days: days, Count: len(items), Items: items})
+		Status string `json:"status"`
+		Count  int    `json:"count"`
+		IDs    []int  `json:"ids"`
+	}{Status: "invalidated", Count: len(ids), IDs: ids})
 	if mErr != nil {
 		fmt.Fprintln(stdout, errLine(mErr))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(out))
+	return 0
+}
+
+// maintainSupersede — `--supersede OLD --by NEW`(spec §2 superseded).
+// OLD가 active일 때만: status='invalidated'·superseded_by=NEW·
+// invalid_at=NEW의 valid_at(Zep t_invalid=t_valid 준거). 쓰기는 Retry 동반.
+// NEW 부재 → exit 1 · OLD==NEW → exit 3(무효 스펙) · OLD 비active → exit 1.
+func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, oldID, newID int) int {
+	if oldID == newID {
+		fmt.Fprintln(stdout, errLine(fmt.Errorf(
+			"maintain: --supersede OLD와 --by NEW가 같음(id=%d)", oldID)))
+		return 3
+	}
+	rows, err := queryOnce(ctx, ms, `
+		SELECT (SELECT status FROM knowledge WHERE id = $1),
+		       (SELECT valid_at FROM knowledge WHERE id = $2)`,
+		[]any{oldID, newID})
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	var oldStatus string
+	var newValidAt any
+	if len(rows) > 0 && len(rows[0]) >= 2 {
+		oldStatus, _ = rows[0][0].(string)
+		newValidAt = rows[0][1]
+	}
+	if newValidAt == nil {
+		fmt.Fprintln(stdout, errLine(fmt.Errorf(
+			"maintain: --supersede: NEW 부재 id=%d", newID)))
+		return 1
+	}
+	if oldStatus != "active" { // 부재(빈 상태) 포함 — active일 때만 승격
+		fmt.Fprintln(stdout, errLine(fmt.Errorf(
+			"maintain: --supersede: id=%d가 active 아님(상태 %q)", oldID, oldStatus)))
+		return 1
+	}
+	if err := retryWrite(ctx, func() error {
+		if _, err := ms.Query(ctx, `
+			UPDATE knowledge
+			SET status = 'invalidated',
+			    superseded_by = $2,
+			    invalid_at = (SELECT valid_at FROM knowledge WHERE id = $2)
+			WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`,
+			oldID, newID); err != nil {
+			return err
+		}
+		_, err := ms.Commit(ctx, fmt.Sprintf(
+			"supersede: old=%d by=%d (대체 갱신 경로) [session:0]", oldID, newID))
+		return err
+	}); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	fmt.Fprintf(stdout, `{"status":"superseded","old":%d,"superseded_by":%d}`+"\n",
+		oldID, newID)
 	return 0
 }
 
