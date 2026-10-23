@@ -1,14 +1,8 @@
 # flint 브랜드·디자인 지침
 
-2026-10-23 브랜딩 세션 산출물. 아이콘·비주얼 생성 시 이 문서의 철학과
-지시사항을 프롬프트로 그대로 사용한다.
-
-## 최종 로고 채택 (2026-10-23)
-
-`assets/flint-logo.svg` 확정 — README 이중언어 헤더에 적용. 마스터
-프롬프트 스펙과 달라진 점: 워드마크 포함, 스파크 앰버→그린. 채택 후
-편집: 배경 사각형 제거(투명 배경), 캐릭터 눈 3개 #FFFFFF 분리. 아이콘
-단독 변형(텍스트 없음)이 필요하면 아래 지침으로 파생 생성한다.
+채택 로고 `assets/flint-logo.svg`에서 역으로 정리한 브랜드 사양.
+프롬프트가 로고를 낳은 게 아니라 로고가 먼저 채택됐으므로, 문서는
+실측을 따른다. (2026-10-23 재작성)
 
 ## 철학 (이름이 뜻하는 것)
 
@@ -18,52 +12,41 @@
   2. **날knife** — 깎여 나온 박편은 도구가 된다. 기억은 다듬어 쓰는 것
   3. **흔적edge** — 모든 타격은 흔적을 남긴다. 모든 쓰기는 커밋(Doltgres 셀 단위 이력)
 - 정서: 장인의 정확성, 감사 가능성, 복구 가능성 — 마법이 아니라 세공.
+- 이름 확정 근거: [ADR-0009](adr/0009-name-flint-final.md). 재론 금지.
 
-## 디자인 지시사항 (검증된 원칙)
+## 로고 사양 (채택본 실측)
 
-1. **이름-사물 하나만** — flint(돌·박편·날) 자체를 그린다. 기능 상징
-   (층·스택·노치 등) 금지 — 전부 거부됐다.
-2. **Obsidian급 미니멀리즘** — 단일 피사체, 중앙, 여백. 파셋 헤어라인 최대 1개.
-3. **모던 AI 그라디언트, 정제된 톤** — violet→fuchsia→pink. 2026 기준 강한
-   3스톤보다 부드러운 페이드가 고급스럽다. 글로우는 희미하게.
-4. **액센트는 단 하나** — 작은 앰버 스파크(타격점). "스파크 = 기억 주입".
-5. **다크 라운드 스퀘어 컨테이너** — Obsidian과 나란히 놓여도 복제로 안 보이는
-   차콜(#1A1726~#14161B). Obsidian 로고 형태 복제 금지.
-6. **16px 가독** — 축소 시 실루엣만으로 식별 가능해야 한다. 텍스트 금지.
+### 형태
 
-## 마스터 프롬프트 (이미지 생성용, EN)
+- 캐릭터형 부싯돌 — 위는 둥근 타격면, 아래로 갈수록 날카롭게 깎인 박편.
+  눈 3개로 캐릭터화, 그린 스파크 4곳(우상단 3점 + 좌하단 별 1점).
+- 세로 2단 구성: 아이콘(상) + 소문자 워드마크 "flint"(하).
+  단독 아이콘 변형은 미보유 — 필요 시 아이콘 영역 crop 후 별도 검토.
+- 축소 한계: 워드마크는 16px급에서 소실 — 파비콘·아바타 용도는
+  아이콘 단독 파생이 선행돼야 한다.
 
-```text
-App icon for "flint", a version-controlled memory store for AI agents.
-Dark charcoal rounded-square container (#1A1726 to #14161B), very subtle
-violet glow behind the subject. One centered subject: a knapped flint —
-a clean, faceted stone blade with a rounded striking bulb at the top
-tapering to a sharp tip, drawn with Obsidian-grade minimalism: crisp
-geometric facets, at most one thin hairline facet edge, generous negative
-space. Fill the blade with a smooth, refined gradient from soft violet
-#A78BFA through fuchsia to warm pink #EC4899 — a modern AI-product
-gradient, gentle, not loud. Exactly one accent: a small four-pointed
-amber spark (#FBBF24) at the upper-right strike point — the moment a
-memory is ignited and injected. Flat design with crisp edges, geometric
-precision, must stay legible at 16px. No text, no photorealism, no 3D
-bevel, no multiple subjects, no letters.
-```
+### 색 (SVG 실측)
 
-### 플랫폼 파라미터
-- Midjourney: `--v 6.1 --style raw --ar 1:1 --no text,photo,3d,bevel,letters`
-- Stable Diffusion negative: `text, letters, watermark, photorealistic, 3d render,
-  bevel, chrome, noise, multiple subjects, gradient banding, obsidian logo`
-- ChatGPT/Gemini: 본문 그대로 + "square 1024×1024, flat vector style"
+| 역할 | HEX |
+| :--- | :--- |
+| 본체·워드마크 (주색) | `#1C202B` |
+| 음영 — 하단 | `#323649` |
+| 음영 — 측면 | `#535672` |
+| 하이라이트 — 좌상단 | `#7F7DB9` |
+| 스파크·액센트 | `#23C988` |
+| 눈 | `#FFFFFF` |
 
-### 변형 라인 (마스터에서 한 문장씩 교체)
-- **Pure**: 스파크 문장 삭제 — 가장 무난
-- **Ember**: "spark at the upper-right strike point" → "a small amber ember
-  glowing from a hollow near the blade's center" — 절제형
-- **Flake**: 마지막에 추가 "a tiny triangular flake detaching from the
-  lower-right edge, mid-flight" — 동감형
+### 사용 규칙
 
-## 금지 사항 (세션에서 전부 거부됨)
+- **배경 투명 고정** — 밝은·어두운 배면 모두 허용. 배경 사각형 재추가 금지.
+- **색·형태 변경 금지** — 파생은 크기·크롭만.
+- 다크 배경 제약: 본체 `#1C202B`가 배경과 근접해 실루엣이 낮아진다.
+  식별은 흰 눈·그린 스파크·워드마크가 담당 — 이 요소를 지우는 변형 금지.
 
-- 손코딩 SVG (실행 품질 미달 — 이미지 생성 또는 디자이너만)
-- 다크 크리스탈 Obsidian 복제, 스티커·큐트 이탈, 기능 상징 아이콘
-- agent·memory 직접 은유 네이밍 (ADR-0009: 전부 직접 경쟁물 충돌)
+## 채택 이력
+
+- 2026-10-23 사용자 최종 채택 — 이미지 생성 후보 중 선택. 생성 스펙과
+  다른 결과물(워드마크 포함, 스파크 그린)이며, 프롬프트 경유 재현 불가.
+- 채택 후 편집(`a2b6e0e`): 배경 사각형 제거로 투명화 + 눈 3개 `#FFFFFF`
+  별도 레이어 분리. 렌더 검증 완료(코너 alpha 0, 눈 픽셀 순백).
+- README 이중언어 헤더 적용(`07d8ddf`).
