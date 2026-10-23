@@ -1,5 +1,5 @@
 // setup/teardown 커맨드 — v0.4 원커맨드 설정(QUICKSTART 1커맨드).
-// setup: ①docker compose up -d(exec, 실패는 안내로 계속) ②Migrate ③seed 안내
+// setup: ①docker compose up -d --wait(exec, 실패는 안내로 계속) ②Migrate ③seed 안내
 // ④플러그인 설치 안내 — 진행 요약 한 줄 JSON. teardown: 컨테이너 정지,
 // --purge 시 volume까지 삭제 exec. 실패해도 다음 단계 안내는 유지한다.
 package cli
@@ -14,22 +14,9 @@ import (
 	"strings"
 )
 
-// composeUpFn·composeDownFn — exec seam. 테스트는 fake 교체(순수 단계테스트).
-var (
-	composeUpFn = func(ctx context.Context) error {
-		return composeRun(ctx, "up", "-d")
-	}
-	composeDownFn = func(ctx context.Context, purge bool) error {
-		if purge {
-			return composeRun(ctx, "down", "-v")
-		}
-		return composeRun(ctx, "down")
-	}
-)
-
-// composeRun — docker compose 실행. 실패 시 stderr를 에러에 실어
-// 안내 출력로 원인이 보이게 한다(장애 침묵 금지).
-func composeRun(ctx context.Context, args ...string) error {
+// composeRunFn — docker compose 실행 seam(var). 실패 시 stderr를 에러에
+// 실어 안내 출력로 원인이 보이게 한다(장애 침묵 금지). 테스트는 fake 교체.
+var composeRunFn = func(ctx context.Context, args ...string) error {
 	argv := append([]string{"compose"}, args...)
 	out, err := exec.CommandContext(ctx, "docker", argv...).CombinedOutput()
 	if err != nil {
@@ -38,10 +25,24 @@ func composeRun(ctx context.Context, args ...string) error {
 	return nil
 }
 
+// composeUpFn·composeDownFn — 단계 seam. up은 --wait으로 컨테이너
+// 준비 완료까지 대기(스펙 §2, 60s 타임아웃).
+var (
+	composeUpFn = func(ctx context.Context) error {
+		return composeRunFn(ctx, "up", "-d", "--wait", "--wait-timeout", "60")
+	}
+	composeDownFn = func(ctx context.Context, purge bool) error {
+		if purge {
+			return composeRunFn(ctx, "down", "-v")
+		}
+		return composeRunFn(ctx, "down")
+	}
+)
+
 // SetupSteps — setup 단계 고정 순서(①compose ②migrate ③seed ④플러그인).
 func SetupSteps() []string {
 	return []string{
-		"docker compose up -d",
+		"docker compose up -d --wait --wait-timeout 60",
 		"migrate",
 		"seed (make seed)",
 		"install plugin (flint-plugin/)",
@@ -70,7 +71,12 @@ func RunSetup(ctx context.Context, ping, migrate func() error) (string, int) {
 	status := "ok"
 
 	if err := composeUpFn(ctx); err != nil {
-		warns = append(warns, "docker compose up 실패 — docker 기동 후 재실행: "+err.Error())
+		// docker 미설치(exec not found)는 전용 안내로 구분한다.
+		if errors.Is(err, exec.ErrNotFound) {
+			warns = append(warns, "docker 미설치 — https://docs.docker.com/get-docker/ 설치 후 재실행")
+		} else {
+			warns = append(warns, "docker compose up 실패 — docker 기동 후 재실행: "+err.Error())
+		}
 	}
 	if err := ping(); err != nil {
 		status = "degraded"
