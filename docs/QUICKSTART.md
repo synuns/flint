@@ -5,7 +5,7 @@
 ## 1. 설치
 
 ```sh
-git clone <repo-url> flint && cd flint
+git clone https://github.com/synuns/flint.git flint && cd flint
 make install    # bin/flint 빌드 (Go 1.25+, 의존 pgx/v5만)
 ```
 
