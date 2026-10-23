@@ -260,46 +260,61 @@ flint-plugin/
 
 적립 가시성(§1):
 
-- [ ] 유입 계측: write/hot/read 성공 실행마다 meta 기록 — last_write_at·
+- [x] 유입 계측: write/hot/read 성공 실행마다 meta 기록 — last_write_at·
   last_hot_at·last_read_at(RFC3339) + 일별 키 `daily:YYYY-MM-DD` JSON
   {"write":N,"hook":N,"manual":N,"mcp":N,"dup":N,"hot":N,"read":N}.
   14일 초과 키 자동 정리. write 소스 = `--source hook|manual|mcp`
   (기본 manual·무효값 exit 3), 플러그인 훅은 hook, MCP 경로는 mcp,
   duplicate 응답은 dup 별도 증분.
-- [ ] status 확장: last_* 3필드 추가(기존 필드·순서 불변, 미설정 키는 null).
-- [ ] stall 진단(주기+grace 이원 모델, Healthchecks.io 준용): last-seen =
+- [x] status 확장: last_* 3필드 추가(기존 필드·순서 불변, 미설정 키는 null).
+- [x] stall 진단(주기+grace 이원 모델, Healthchecks.io 준용): last-seen =
   heartbeat(nodata 패턴 — 성공 신호의 부재 감지). 경고 = stall_hot_h
   (기본 48h) 초과 hot 부재·stall_write_h(기본 72h) 초과 write 부재.
   warn은 exit 0 유지.
-- [ ] `flint doctor`: 검사 5종 — hook-file(훅 설정·플러그인 캐시에 flint
+- [x] `flint doctor`: 검사 5종 — hook-file(훅 설정·플러그인 캐시에 flint
   등록 여부, FLINT_CLAUDE_HOME 오버라이드)·db(Ping)·schema(버전 4 일치)·
   integrity(flint_knowledge_* 인덱스 3행)·last-seen(3경로 경과+grace).
   brew doctor 준용: --list-checks·--check NAME 서브셋, fail만 exit 1·
   warn은 0, fail마다 수정 명령 한 줄 제시.
-- [ ] `flint report [--days N(기본 7·상한 14)]`: 일별 유입(소스·dup 구분)·
+- [x] `flint report [--days N(기본 7·상한 14)]`: 일별 유입(소스·dup 구분)·
   zero_pct·hot p95·pending/active/invalidated·stale 수·기간 무효화 수.
   한 줄 JSON.
 
 데이터 유지보수(§2):
 
-- [ ] 항목 참조 계측(schema v4): knowledge.read_count int NOT NULL DEFAULT
+- [x] 항목 참조 계측(schema v4): knowledge.read_count int NOT NULL DEFAULT
   0·last_read_at timestamptz. read 결과·hot 주입 항목 id 전수 증분
   (BumpReads). 신규 인덱스 없음(status 인덱스 재사용·개인 규모 시퀀셜
   수용). 계측 실패는 조회를 깨지 않음(조용히).
-- [ ] `flint maintain --stale [--days N] [--limit M(기본 20)]`: active 중
+- [x] `flint maintain --stale [--days N] [--limit M(기본 20)]`: active 중
   (last_read_at < now-N일) 또는 (read_count=0 AND ingested_at < now-N일).
   미참조 버킷(read_count=0) 구분 표시. 보고 전용·cron 친화적·exit 0.
   처리는 기존 maintain --invalidate(무효화=가역). 물리 삭제·자동
   confidence 변경 없음(§15 이연 유지).
-- [ ] 임계값: stale_days 기본 90(Confluence 스테일 스캔 표준·분기 리뷰
+- [x] 임계값: stale_days 기본 90(Confluence 스테일 스캔 표준·분기 리뷰
   관례)·stall_hot_h 48·stall_write_h 72 — Thresholds 확장 + meta
   오버라이드(기존 체계 재사용, TUNING.md §2).
-- [ ] 랭킹 tie-breaker: 기존 순위(topic 정합>confidence>최신) 뒤에
+- [x] 랭킹 tie-breaker: 기존 순위(topic 정합>confidence>최신) 뒤에
   last_read_at DESC NULLS LAST만 추가(조회시 파생·파라미터 0개·가역).
   가중 freshness 스코어는 민감성(arXiv 2509.19376 자체 보고)으로 이연 —
   트리거 read_calls≥50.
-- [ ] 유지보수 경로(maintain·report·doctor)는 전부 오프라인 CLI —
+- [x] 유지보수 경로(maintain·report·doctor)는 전부 오프라인 CLI —
   핫패스 비간섭(Letta sleep-time 준거).
+
+### v0.7 적립 자동화·실사용 재개 (2026-10-23 기획)
+
+- [ ] 자동 write 훅 — 세션 종료/컴팩트 시점 자동 증류 적립(메커니즘은 레퍼런스
+  조사로 룰링: PreCompact 훅 vs SessionStart 넛지 vs 스킬 주도)
+- [ ] distill 스킬(플러그인) — 에이전트 자가 기억 추출·write --source hook
+- [ ] dup 대응 강화 — 자동화로 늘어나는 중복의 병합 제안 보고
+- [ ] 포트/DSN 설정 — FLINT_DSN 우선·설정 파일·compose 오버라이드 가이드
+  (5433 점유 시 실사용 재개 조건)
+- [ ] 테스트 DSN 미설정 조기 실패
+- [ ] doctor 확장 — 자동 적립 훅 등록 검사·포트 충돌 진단
+- [ ] setup 원커맨드 보강
+- 후보(v0.8): 시간여행 노출(read --as-of·diff·status --as-of — §16 검증
+  전제) / 수명주기 액션(maintain 배치 무효화 dry-run·보존 정책 — stale
+  실측치 축적 후)
 
 ## 15. 이연 결정 (트리거 정의됨)
 
