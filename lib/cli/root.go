@@ -132,8 +132,8 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 	return s, nil
 }
 
-// ensureSchemas — 버전 게이트 v2→v3→v4 순차 승격(newRealStore 전용).
-// 순서 불변: v1 DB가 v4로 건너뛰며 v2 컬럼·v3 인덱스를 놓치지 않게 한다.
+// ensureSchemas — 버전 게이트 v2→v3→v4→v5 순차 승격(newRealStore 전용).
+// 순서 불변: v1 DB가 v5로 건너뛰며 v2 컬럼·v3 인덱스·v4 컬럼을 놓치지 않게 한다.
 func ensureSchemas(ctx context.Context, repo *db.Repo) error {
 	// v2 승격(코디네이터 룰링): sessions.tasks·projects.note 컬럼.
 	if err := repo.EnsureSchemaV2(ctx); err != nil {
@@ -144,7 +144,11 @@ func ensureSchemas(ctx context.Context, repo *db.Repo) error {
 		return err
 	}
 	// v4 승격(T62 배선): 참조 계측 컬럼(read_count·last_read_at).
-	return repo.EnsureSchemaV4(ctx)
+	if err := repo.EnsureSchemaV4(ctx); err != nil {
+		return err
+	}
+	// v5 승격(T82 배선): 계보 컬럼(superseded_by) — 추가만, 기존 게이트 불변.
+	return repo.EnsureSchemaV5(ctx)
 }
 
 // Close — 풀 정리.
