@@ -8,7 +8,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -35,12 +34,10 @@ var newStore = func(ctx context.Context, dsn string) (Store, error) {
 	return newRealStore(ctx, dsn)
 }
 
-// dsnFromEnv — FLINT_DSN 우선, 없으면 기본값.
+// dsnFromEnv — DSN 해결 진입점. T74부터 ResolveDSN 위임:
+// FLINT_DSN > config.json(LoadConfigDSN) > 기본값.
 func dsnFromEnv() string {
-	if d := os.Getenv("FLINT_DSN"); d != "" {
-		return d
-	}
-	return defaultDSN
+	return ResolveDSN()
 }
 
 // Run은 args로 커맨드를 실행해 stdout에 기록하고 exit code를 반환한다.
@@ -56,10 +53,11 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
-	// version·setup·teardown·mcp는 store-free — DB 미기동에도 즉시 응답
+	// version·setup·teardown·mcp·nudge는 store-free — DB 미기동에도 즉시 응답
 	// (§13, T33 룰링 · T40 확장: DB 다운이 setup의 주 시나리오 · T57: mcp는
-	// 도구 호출이 cli.Run으로 각자 store를 연결한다).
-	if cmd == "version" || cmd == "setup" || cmd == "teardown" || cmd == "mcp" {
+	// 도구 호출이 cli.Run으로 각자 store를 연결한다 · T74: nudge는 훅
+	// 커맨드라 비간섭 원칙상 store 없이도 조용히 완결).
+	if cmd == "version" || cmd == "setup" || cmd == "teardown" || cmd == "mcp" || cmd == "nudge" {
 		return run(ctx, nil, rest, stdin, stdout)
 	}
 	st, err := newStore(ctx, dsnFromEnv())
