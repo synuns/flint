@@ -116,7 +116,7 @@ func TestDiffSummaryShape(t *testing.T) {
 func TestDiffInvalidExit3(t *testing.T) {
 	cases := [][]string{
 		{"diff", "2 days ago", "bbbb2"},
-		{"diff", "aaaa1", "zzz9"}, // z는 16진 아님
+		{"diff", "aaaa1", "zzz9"}, // 형식은 유효(base32 소문자)지만 실DB 0매칭 접두어
 		{"diff", "aaaa1"},         // 인자 부족
 	}
 	for _, args := range cases {

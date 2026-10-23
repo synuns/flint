@@ -6,20 +6,23 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // statusAsOfHarness — fake Store에 as-of 경로를 세팅한다. hexPfx 해시
 // 접두어는 단일 커밋 fullHash로 확정되고, pendingCount는 AS OF 접합된
-// 카운트 질의에만 응답한다(비접합 질의는 curCount).
+// 카운트 질의에만 응답한다(비접합 질의는 curCount). 커밋 시각 질의
+//(commit_hash = $1)는 commitDate로 응답.
 func statusAsOfHarness(t *testing.T, _, fullHash string, curCount, asofCount int64) *fakeStore {
 	t.Helper()
+	commitDate := time.Date(2026, 10, 20, 9, 30, 0, 0, time.UTC)
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM dolt_log") {
 			if strings.Contains(sql, "LIKE") {
 				return [][]any{{fullHash}}, nil
 			}
-			return nil, nil
+			return [][]any{{commitDate}}, nil
 		}
 		if strings.Contains(sql, "FROM meta") {
 			return [][]any{{"4"}}, nil
@@ -42,8 +45,16 @@ func TestStatusAsOfCounts(t *testing.T) {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
 	m := decode(t, out)
-	if m["as_of"] != "abcdef0123456789" {
-		t.Fatalf("as_of=%v, want abcdef0123456789", m["as_of"])
+	// as_of는 read --as-of와 동일한 {hash,commit_date} 객체(e2e asOfHash 정합).
+	ao, ok := m["as_of"].(map[string]any)
+	if !ok {
+		t.Fatalf("as_of가 객체 아님: %v", m["as_of"])
+	}
+	if ao["hash"] != "abcdef0123456789" {
+		t.Fatalf("as_of.hash=%v, want abcdef0123456789", ao["hash"])
+	}
+	if ao["commit_date"] != "2026-10-20T09:30:00Z" {
+		t.Fatalf("as_of.commit_date=%v, want 2026-10-20T09:30:00Z", ao["commit_date"])
 	}
 	if m["pending"] != float64(0) {
 		t.Fatalf("pending=%v, want 0(과거 스냅샷)", m["pending"])
@@ -104,8 +115,9 @@ func TestStatusAsOfFieldOrder(t *testing.T) {
 	if !strings.HasPrefix(strings.TrimSpace(out), `{"status":`) {
 		t.Fatalf("첫 키 불변 위반: %s", out)
 	}
-	if !strings.HasSuffix(strings.TrimSpace(out), `,"as_of":"abcdef0123456789"}`) {
-		t.Fatalf("as_of가 말미 아님: %s", out)
+	if !strings.HasSuffix(strings.TrimSpace(out),
+		`,"as_of":{"hash":"abcdef0123456789","commit_date":"2026-10-20T09:30:00Z"}}`) {
+		t.Fatalf("as_of가 말미 아님(객체 형태): %s", out)
 	}
 	// 미지정 시 as_of 키 부재(출력 불변).
 	f2 := statusAsOfHarness(t, "", "", 2, 0)

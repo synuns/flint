@@ -76,6 +76,7 @@ func instrumentReads(ctx context.Context, st Store, kind string, ids []int) {
 func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	f := query.Filters{}
 	jsonMode, fields, asOfSpec := false, "", ""
+	asOfGiven := false
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -99,6 +100,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			f.Limit, i = n, i+1
 		case "--as-of":
 			asOfSpec, i = v, i+1
+			asOfGiven = true
 		case "--json":
 			jsonMode = true
 		case "--fields":
@@ -109,6 +111,13 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	}
 	sql, qargs := query.BuildRead(strings.Join(pos, " "), f)
 	asOfHash, asOfDate := "", ""
+	// 값 없는 --as-of(마지막 인자)도 무효 스펙 exit 3 — 조용히 현재 시점
+	// 데이터를 돌려주면 잘못된 결과가 되므로(status와 동일 규칙).
+	if asOfGiven && asOfSpec == "" {
+		fmt.Fprintln(stdout, asOfErrLine("invalid_as_of",
+			fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf).Error()))
+		return 3
+	}
 	if asOfSpec != "" {
 		hash, err := ParseAsOfSpec(ctx, st, asOfSpec)
 		if err != nil {

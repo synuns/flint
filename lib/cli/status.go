@@ -28,11 +28,13 @@ type statusOutput struct {
 }
 
 // statusAsOfOutput — T85: --as-of 지정 시 출력. 기존 statusOutput 필드를
-// 임베딩해 키 순서를 그대로 두고 as_of(정규화된 커밋 해시)를 말미에 추가한다.
-// statusOutput 자체는 불변(미지정 시 출력 불변 — v0.7 last_* 원칙 승계).
+// 임베딩해 키 순서를 그대로 두고 as_of{hash,commit_date}를 말미에 추가한다.
+// as_of 형태는 read --as-of(asOfInfo)와 동일 — 소비자가 한 형태로 파싱한다
+//(스펙 §1 "as_of 해시·시각"·e2e asOfHash 정합). statusOutput 자체는 불변
+//(미지정 시 출력 불변 — v0.7 last_* 원칙 승계).
 type statusAsOfOutput struct {
 	statusOutput
-	AsOf string `json:"as_of"`
+	AsOf asOfInfo `json:"as_of"`
 }
 
 // lastSeenOrNull — meta에서 RFC3339 last_* 키 조회. 키 부재·파손(비-RFC3339)은
@@ -69,7 +71,7 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			asOfSpec, i = args[i+1], i+1
 		}
 	}
-	asOfHash := ""
+	asOfHash, asOfDate := "", ""
 	if asOfSpec != "" {
 		hash, err := ParseAsOfSpec(ctx, st, asOfSpec)
 		if err != nil {
@@ -80,6 +82,13 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			return store.MapExit(err)
 		}
 		asOfHash = hash
+		// 커밋 시각 첨부(read --as-of와 동일 질의·조용한 폴백 — 메타데이터
+		// 조회 실패 시 빈 값, §13).
+		if dr, err := queryOnce(ctx, st,
+			`SELECT date FROM dolt_log WHERE commit_hash = $1`, []any{hash}); err == nil &&
+			len(dr) == 1 && len(dr[0]) > 0 {
+			asOfDate = fmtAsOfDate(dr[0][0])
+		}
 	}
 	rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = 'schema_version'`, nil)
 	if err != nil {
@@ -129,7 +138,8 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		LastReadAt:  lastSeenOrNull(getKV, "last_read_at")}
 	var b []byte
 	if asOfHash != "" {
-		b, _ = json.Marshal(statusAsOfOutput{statusOutput: base, AsOf: asOfHash})
+		b, _ = json.Marshal(statusAsOfOutput{statusOutput: base,
+			AsOf: asOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 	} else {
 		b, _ = json.Marshal(base)
 	}
