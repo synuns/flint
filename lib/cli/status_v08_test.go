@@ -157,3 +157,16 @@ func TestStatusAsOfMissingValueExit3(t *testing.T) {
 	}
 	decode(t, out)
 }
+
+// TestStatusSchemaV5OK — v5 DB(EnsureSchemaV5 superseded_by 승격, T82·v0.8)에서
+// status는 exit 0·버전 그대로 보고. 허용 목록이 "1"~"4" 하드코딩이라 v5를
+// 거부하던 결함(fresh Doltgres schema 에러 exit 3)의 회귀.
+func TestStatusSchemaV5OK(t *testing.T) {
+	m, code := statusWithVersion(t, "5")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(v5 호환)", code)
+	}
+	if m["schema_version"] != "5" || m["status"] != "ok" {
+		t.Fatalf("status 출력=%v, want schema_version=5/ok", m)
+	}
+}
