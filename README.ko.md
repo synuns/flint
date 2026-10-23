@@ -2,7 +2,7 @@
   <br/>
   ◯ ─────────── ◯
   <br/><br/>
-  <img src="https://upload.wikimedia.org/wikipedia/commons/6/67/Flint.jpg" width="120" alt="부싯돌">
+  <img src="assets/flint-logo.svg" width="120" alt="flint 로고">
   <br/><br/>
   <strong>F L I N T</strong>
   <br/><br/>
