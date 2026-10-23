@@ -41,6 +41,24 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('pending_max','40')
 확인: `flint maintain` 보고의 Counts vs Thresholds 비교가 새 값을 따르는지,
 `flint done --session <id>` 경고 기준이 바뀌는지.
 
+### DSN 설정 파일(config.json) — v0.7
+
+임계값은 meta 테이블이지만, DSN은 설정 파일로 오버라이드한다
+(`UserConfigDir()/flint/config.json`, `{"dsn": "..."}` 형식). 위치 재배치는
+환경변수 `FLINT_CONFIG_DIR`로 지정(gh `GH_CONFIG_DIR`·Dolt `DOLT_ROOT_PATH`
+모델 — 마커 파일도 같은 디렉터리에 둔다).
+
+우선순위(높은 순):
+
+1. `FLINT_DSN` 환경변수
+2. `config.json`의 `dsn` 키
+3. 기본값 `postgresql://flint:flint-dev@localhost:5433/flint`
+
+파일 파손·빈값·비문자열 `dsn`은 기본값으로 폴백한다(에러 아님 — 무효 meta
+값 폴백과 동일 원칙). 5433 포트를 다른 컨테이너가 점유해 이동이 필요하면
+(`flint doctor --check port`가 점유자를 보고) 이 우선순위로 `FLINT_DSN` 또는
+`config.json`을 갱신하고 compose 포트 매핑을 함께 조정한다.
+
 ## 3. 실측 예시 (가상 수치)
 
 | 주차 | hot_calls | hot_p95 | 조치 |
