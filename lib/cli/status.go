@@ -92,14 +92,15 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	}
 	// meta.schema_version 호환 검사(PLAN §10): 이 CLI가 아는 버전만 허용.
 	// v2는 newRealStore의 EnsureSchemaV2 승격 후, v3는 EnsureSchemaV3 인덱스
-	// 승격(T51·ADR-0008) 후, v4는 EnsureSchemaV4 계측 컬럼 승격(v0.6) 후
-	// 정상 상태다.
-	if version != "1" && version != "2" && version != "3" && version != "4" {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~4"}))
+	// 승격(T51·ADR-0008) 후, v4는 EnsureSchemaV4 계측 컬럼 승격(v0.6) 후,
+	// v5는 EnsureSchemaV5 superseded_by 승격(T82·v0.8) 후 정상 상태다.
+	if version != "1" && version != "2" && version != "3" && version != "4" && version != "5" {
+		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~5"}))
 		return 3
 	}
 	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합(해시는 dolt_log에서
-	// 확정된 16진 문자열이라 인라인해도 안전). meta·계측 조회는 현재 상태 그대로.
+	// 확정된 base32 소문자 해시라 인라인해도 안전 — T81/T83 룰링). meta·
+	// 계측 조회는 현재 상태 그대로.
 	countSQL := `SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`
 	if asOfHash != "" {
 		countSQL = `SELECT count(*) FROM knowledge AS OF '` + asOfHash +
