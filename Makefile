@@ -20,8 +20,9 @@ tidy:
 	go mod tidy
 
 # Doltgres (ADR-0001: 호스트 5433 -> 컨테이너 5432)
+# v0.7: --wait로 헬스체크 통과까지 대기 후 반환(60s 타임아웃 — setup과 동일).
 up:
-	docker compose up -d
+	docker compose up -d --wait --wait-timeout 60
 
 down:
 	docker compose down
