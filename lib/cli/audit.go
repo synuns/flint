@@ -143,33 +143,52 @@ func RunAudit(st Store, args []string, stdout io.Writer) int {
 			e.Message = fmt.Sprint(r[3])
 		}
 		if stat {
-			// dolt_diff 조인 — 테이블별 data_change·schema_change 요약 부록.
-			diffRows, err := queryOnce(ctx, st,
-				`SELECT table_name, data_change, schema_change FROM dolt_diff WHERE commit_hash = $1 ORDER BY table_name`,
-				[]any{e.CommitHash})
-			if err != nil {
-				fmt.Fprintln(stdout, errLine(err))
-				return store.MapExit(err)
-			}
-			e.Stat = make(map[string]auditTableStat, len(diffRows))
-			for _, dr := range diffRows {
-				if len(dr) < 3 {
-					continue
-				}
-				ts := auditTableStat{}
-				if b, ok := dr[1].(bool); ok {
-					ts.DataChange = b
-				}
-				if b, ok := dr[2].(bool); ok {
-					ts.SchemaChange = b
-				}
-				e.Stat[fmt.Sprint(dr[0])] = ts
-			}
 			if t, ok := parseAuditDate(r[2]); ok {
 				e.DateRel = relTime(t)
 			}
 		}
 		log = append(log, e)
+	}
+	if stat && len(log) > 0 {
+		// dolt_diff 테이블별 data_change·schema_change 요약 부록 — 커밋당
+		// 1회씩 묻는 N+1(상한 100 커밋 = 100왕복) 대신 해시 목록 ANY($1)
+		// 단일 배치 질의로 한 번에 조회한다.
+		hashes := make([]string, 0, len(log))
+		for i := range log {
+			if log[i].CommitHash != "" {
+				hashes = append(hashes, log[i].CommitHash)
+			}
+		}
+		diffRows, err := queryOnce(ctx, st,
+			`SELECT commit_hash, table_name, data_change, schema_change
+FROM dolt_diff WHERE commit_hash = ANY($1)`, []any{hashes})
+		if err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			return store.MapExit(err)
+		}
+		stats := make(map[string]map[string]auditTableStat, len(log))
+		for _, dr := range diffRows {
+			if len(dr) < 4 {
+				continue
+			}
+			h := fmt.Sprint(dr[0])
+			ts := auditTableStat{}
+			if b, ok := dr[2].(bool); ok {
+				ts.DataChange = b
+			}
+			if b, ok := dr[3].(bool); ok {
+				ts.SchemaChange = b
+			}
+			if stats[h] == nil {
+				stats[h] = map[string]auditTableStat{}
+			}
+			stats[h][fmt.Sprint(dr[1])] = ts
+		}
+		for i := range log {
+			if s, ok := stats[log[i].CommitHash]; ok {
+				log[i].Stat = s
+			}
+		}
 	}
 	b, _ := json.Marshal(map[string]any{"log": log})
 	fmt.Fprintln(stdout, string(b))

@@ -130,6 +130,24 @@ func TestReadAsOfLimitRegression(t *testing.T) {
 	}
 }
 
+// TestReadAsOfMissingValueExit3 — 값 없는 --as-of(마지막 인자)는 조용한
+// 현재 시점 조회가 아니라 무효 스펙 exit 3(잘못된 결과 방지 — status 규칙).
+func TestReadAsOfMissingValueExit3(t *testing.T) {
+	ctx := context.Background()
+	var out bytes.Buffer
+	f := &fakeStore{queryFn: asofQueryFn}
+	code := runRead(ctx, asofFakeOrReal(t, f), []string{"--as-of"}, strings.NewReader(""), &out)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3; out=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"error":"invalid_as_of"`) {
+		t.Errorf("invalid_as_of 한 줄 JSON 아님: %q", out.String())
+	}
+	if asofReadSQL(f) != "" {
+		t.Errorf("무효 스펙인데 active_knowledge 질의 실행: %q", asofReadSQL(f))
+	}
+}
+
 // TestReadAsOfViewColumnHint — 뷰-컬럼 미호환 오류(column ... does not
 // exist)는 기본 테이블(knowledge) 조회 안내 문구로 랩된다.
 func TestReadAsOfViewColumnHint(t *testing.T) {

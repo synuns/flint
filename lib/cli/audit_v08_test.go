@@ -34,6 +34,8 @@ func TestRelTimeFormat(t *testing.T) {
 
 // statFake — dolt_log 질의(기존 auditFake 흉내)와 dolt_diff 질의를 구분 응답.
 // diffMap: commit_hash → {table_name, data_change, schema_change} 행목록.
+// dolt_diff는 ANY($1) 배치 질의 — 해시 목록 전체에 대해 commit_hash를
+// 선행 컬럼으로 붙여 응답한다.
 func statFake(t *testing.T, logRows [][]any, diffMap map[string][][]any, seen *[]string) *fakeStore {
 	t.Helper()
 	f := &fakeStore{}
@@ -42,8 +44,14 @@ func statFake(t *testing.T, logRows [][]any, diffMap map[string][][]any, seen *[
 			*seen = append(*seen, sql)
 		}
 		if strings.Contains(sql, "dolt_diff") {
-			h, _ := args[len(args)-1].(string)
-			return diffMap[h], nil
+			list, _ := args[0].([]string)
+			var out [][]any
+			for _, h := range list {
+				for _, r := range diffMap[h] {
+					out = append(out, append([]any{h}, r...))
+				}
+			}
+			return out, nil
 		}
 		out := logRows
 		if limit, ok := args[0].(int); ok && limit > 0 && len(out) > limit {
@@ -164,5 +172,28 @@ func TestAuditStatQueryShape(t *testing.T) {
 	}
 	if !strings.Contains(diffSQL, "$1") || strings.Contains(diffSQL, "hash2") {
 		t.Fatalf("dolt_diff 질의 파라미터화 위반: %q", diffSQL)
+	}
+}
+
+// TestAuditStatSingleBatchQuery — N+1 회귀: 커밋 수와 무관하게 dolt_diff
+// 질의는 1회(해시 목록 ANY($1) 배치 — 상한 100 커밋에서 왕복 1회).
+func TestAuditStatSingleBatchQuery(t *testing.T) {
+	var seen []string
+	f := statFake(t, statLogRows(), map[string][][]any{
+		"hash2": {{"public.knowledge", true, false}},
+		"hash1": {{"public.meta", false, true}},
+	}, &seen)
+	withFake(t, f)
+	if _, code := mustRun(t, []string{"audit", "--stat"}, ""); code != 0 {
+		t.Fatalf("exit=%d, want 0", code)
+	}
+	diffQueries := 0
+	for _, q := range seen {
+		if strings.Contains(q, "dolt_diff") {
+			diffQueries++
+		}
+	}
+	if diffQueries != 1 {
+		t.Fatalf("dolt_diff 질의=%d회, want 1(배치 — N+1 회귀): %v", diffQueries, seen)
 	}
 }
