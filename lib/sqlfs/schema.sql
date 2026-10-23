@@ -5,6 +5,9 @@
 -- %q% 무료텍스트는 B-tree가 불가해 시퀀셜 스캔을 수용한다.
 -- v4(spec §2): knowledge 참조 계측 read_count·last_read_at 추가. 기존 v3 DB는
 -- admin.go의 EnsureSchemaV4 게이트가 ALTER로 적용한다(신규 인덱스 없음).
+-- v5(spec v0.8 §2): knowledge 계보 superseded_by 추가(배치 무효화가 대체 지식
+-- id를 새긴다, 기본 NULL). 기존 v4 DB는 EnsureSchemaV5 게이트가 적용.
+-- views는 무변경 — 컬럼이 기존 뷰 정의에 영향 없다.
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -39,7 +42,8 @@ CREATE TABLE IF NOT EXISTS knowledge (
     invalid_at   timestamptz,
     ingested_at  timestamptz NOT NULL DEFAULT now(),
     read_count   integer NOT NULL DEFAULT 0,  -- v4: 참조 횟수(신규 인덱스 없음)
-    last_read_at timestamptz                  -- v4: 최근 참조 시각
+    last_read_at timestamptz,                 -- v4: 최근 참조 시각
+    superseded_by int                         -- v5: 대체 지식 id(기본 NULL)
 );
 
 CREATE TABLE IF NOT EXISTS maintenance_runs (
