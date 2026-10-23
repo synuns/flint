@@ -191,3 +191,46 @@ func TestDoctorChecksIncludesPort(t *testing.T) {
 		t.Errorf("DoctorChecks 마지막에 port 없음: %v", got)
 	}
 }
+
+// prefix — 이름에 flint가 포함되나 접두가 아닌 컨테이너('conflint')는
+// flint 컨테이너가 아니다. 5433을 게시해도 ok가 아니라 점유자 fail.
+func TestPortFlintSubstringNotPrefix(t *testing.T) {
+	if isFlintContainer("conflint-web-1") {
+		t.Errorf("isFlintContainer(conflint-web-1) = true, want false(접두 아님)")
+	}
+	if !isFlintContainer("flint-doltgres-1") {
+		t.Errorf("isFlintContainer(flint-doltgres-1) = false, want true")
+	}
+
+	withComposePs(t, func(ctx context.Context) ([]byte, error) {
+		return []byte(`{"Name":"conflint-web-1","State":"running",` +
+			`"Publishers":[{"PublishedPort":5433}]}`), nil
+	})
+	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
+	if code != 1 {
+		t.Fatalf("conflint 점유 exit=%d, want 1 (출력 %q)", code, out)
+	}
+	c := doctorPortCheck(t, out)
+	if c["status"] != "fail" {
+		t.Fatalf("status=%v, want fail(오탐 아님 — 점유자 보고): %q", c["status"], out)
+	}
+	if !strings.Contains(fmt.Sprint(c["detail"]), "conflint-web-1") {
+		t.Errorf("점유자 이름 없음: %v", c["detail"])
+	}
+}
+
+// timeout — docker 무응답(컨텍스트 대기) 시 2초 상한으로 skip에 떨어진다.
+func TestPortDockerHangTimeout(t *testing.T) {
+	withComposePs(t, func(ctx context.Context) ([]byte, error) {
+		<-ctx.Done() // docker가 응답하지 않는 무기한 대기 시뮬레이션
+		return nil, ctx.Err()
+	})
+	var buf bytes.Buffer
+	if code := portCheck(context.Background(), &buf); code != 0 {
+		t.Fatalf("portCheck exit=%d, want 0 (출력 %q)", code, buf.String())
+	}
+	c := doctorPortCheck(t, buf.String())
+	if c["status"] != "skip" {
+		t.Errorf("status=%v, want skip(타임아웃은 오류 경로로): %q", c["status"], buf.String())
+	}
+}

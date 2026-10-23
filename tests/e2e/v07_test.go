@@ -106,34 +106,35 @@ func TestV07AutomationChain(t *testing.T) {
 		t.Fatalf("① compact stdout=%q, want 빈(조용히)", got)
 	}
 
-	// ② report --days 1 — 오늘 write≥1·hook≥1(소스 hook 유입 실측).
+	// ② 마커 존재 — compact 적립 성공의 증거. session_id까지 정합.
+	// report 계측(③)보다 먼저 확인해 마커 귀속 순서를 명확히 한다.
+	if _, err := os.Stat(markerPath); err != nil {
+		t.Fatalf("② 마커 미생성(%s): %v", markerPath, err)
+	}
+	mb, err := os.ReadFile(markerPath)
+	if err != nil {
+		t.Fatalf("② 마커 읽기: %v", err)
+	}
+	mm := decode(t, string(mb))
+	if mm["session_id"] != "e2e-v07-s1" {
+		t.Fatalf("② 마커 session_id=%v, want e2e-v07-s1; out=%s", mm["session_id"], mb)
+	}
+
+	// ③ report --days 1 — 오늘 write≥1·hook≥1(소스 hook 유입 실측).
 	out, code = runFlint(t, bin, env, []string{"report", "--days", "1"}, "")
 	if code != 0 {
-		t.Fatalf("② report exit=%d, want 0; out=%s", code, out)
+		t.Fatalf("③ report exit=%d, want 0; out=%s", code, out)
 	}
 	rm := decode(t, out)
 	days, _ := rm["days"].([]any)
 	if len(days) != 1 {
-		t.Fatalf("② days %d행, want 1; out=%s", len(days), out)
+		t.Fatalf("③ days %d행, want 1; out=%s", len(days), out)
 	}
 	today, _ := days[0].(map[string]any)
 	w, _ := today["write"].(float64)
 	h, _ := today["hook"].(float64)
 	if w < 1 || h < 1 {
-		t.Fatalf("② 오늘 write=%v hook=%v, want 각 >=1; out=%s", today["write"], today["hook"], out)
-	}
-
-	// ③ 마커 존재 — compact 적립 성공의 증거. session_id까지 정합.
-	if _, err := os.Stat(markerPath); err != nil {
-		t.Fatalf("③ 마커 미생성(%s): %v", markerPath, err)
-	}
-	mb, err := os.ReadFile(markerPath)
-	if err != nil {
-		t.Fatalf("③ 마커 읽기: %v", err)
-	}
-	mm := decode(t, string(mb))
-	if mm["session_id"] != "e2e-v07-s1" {
-		t.Fatalf("③ 마커 session_id=%v, want e2e-v07-s1; out=%s", mm["session_id"], mb)
+		t.Fatalf("③ 오늘 write=%v hook=%v, want 각 >=1; out=%s", today["write"], today["hook"], out)
 	}
 
 	// ④ Stop 훅 JSON → flint nudge — stdout에 additionalContext 넛지.
@@ -150,8 +151,8 @@ func TestV07AutomationChain(t *testing.T) {
 	if hs["hookEventName"] != "Stop" {
 		t.Fatalf("④ hookEventName=%v, want Stop; out=%s", hs["hookEventName"], out)
 	}
-	if ac, _ := hs["additionalContext"].(string); ac == "" {
-		t.Fatalf("④ additionalContext 비어 있음; out=%s", out)
+	if ac, _ := hs["additionalContext"].(string); !strings.Contains(ac, "write knowledge --source hook") {
+		t.Fatalf("④ additionalContext가 write knowledge 지시문 아님(%q); out=%s", ac, out)
 	}
 
 	// ⑤ nudge --clear — 마커 소비·무출력.

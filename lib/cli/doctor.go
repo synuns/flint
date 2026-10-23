@@ -400,7 +400,11 @@ func portCheck(ctx context.Context, out io.Writer) int {
 // 환경에서 doctor 나머지 검사를 덮지 않는다).
 func checkPort(ctx context.Context) doctorCheck {
 	c := doctorCheck{Name: "port"}
-	b, err := composePsFn(ctx)
+	// docker 무응답 시 무기한 블록 방지 — 2초 상한. 만료는 composePsFn
+	// 오류로 떨어져 기존 skip 경로를 따른다(비간섭).
+	tctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	b, err := composePsFn(tctx)
 	if err != nil {
 		c.Status = "skip"
 		c.Detail = "docker compose ps 실패: " + err.Error()
@@ -474,8 +478,9 @@ func parseComposePs(b []byte) ([]composePsEntry, error) {
 }
 
 // isFlintContainer — 컨테이너 이름이 flint 서비스임(flint-doltgres-1 등).
+// 접두 매칭 — 'conflint'처럼 flint를 포함하나 접두가 아닌 이름의 오탐 배제.
 func isFlintContainer(name string) bool {
-	return strings.Contains(strings.ToLower(name), "flint")
+	return strings.HasPrefix(strings.ToLower(name), "flint")
 }
 
 // publishesPort — 엔트리의 Publishers 중 호스트 게시 포트 일치 여부.

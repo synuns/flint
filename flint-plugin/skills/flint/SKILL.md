@@ -30,10 +30,13 @@ PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은 `flint nudg
 항목은 다음 4연산으로 다룬다:
 
 1. **NOOP** — 기존 항목과 동일한 내용이면 생략한다.
-2. **UPDATE** — 기존 항목을 갱신할 가치가 있으면 해당 항목을 고쳐 쓴다.
+2. **UPDATE** — 갱신할 가치가 있으면 갱신 내용을 신규 항목으로 적립(ADD)한
+   뒤, 구 항목은 `flint maintain --invalidate --id N --reason S`로 무효화한다
+   (수동 — 항목을 직접 고쳐 쓰는 CLI는 없다).
 3. **ADD** — 신규 사실·결정이면 새 항목으로 적립한다.
-4. **모순** — 기존 항목과 충돌하면 구 항목 무효화는 별도 유지보수 경로로
-   처리한다(자동 무효화 아님).
+4. **모순** — 기존 항목과 충돌하면 UPDATE와 같이 신규 항목 적립 후 구 항목을
+   `flint maintain --invalidate`(수동)로 무효화한다. 자동 supersede는
+   v0.8 예정.
 
 증류로 적립된 항목은 `status=pending`으로 시작하며, 검토 후
 `flint approve`로 확정한다. 자동 적립 분류는 항상 `--source hook`로
