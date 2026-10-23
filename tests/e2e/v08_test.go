@@ -113,16 +113,25 @@ func TestV08LifecycleChain(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("③ read --as-of exit=%d, want 0; out=%s", code, out)
 	}
+	// read --as-of는 지식 행(JSONL) 뒤에 as_of 메타데이터 한 줄
+	// ({"as_of":{...}} — read.go asOfLine)을 추가 출력한다. 지식 행만
+	// 카운트하고 메타 줄은 해시 정합 검증에 쓴다.
 	var rows []map[string]any
+	var asOfMeta map[string]any
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
-		if l != "" {
-			rows = append(rows, decode(t, l))
+		if l == "" {
+			continue
 		}
+		if strings.HasPrefix(l, `{"as_of":`) {
+			asOfMeta = decode(t, l)
+			continue
+		}
+		rows = append(rows, decode(t, l))
 	}
 	if len(rows) != 1 || rows[0]["topic"] != "e2e-v08-k1" {
 		t.Fatalf("③ as-of 결과 %d행(%v), want 1행(k1만); out=%s", len(rows), rows, out)
 	}
-	if got := asOfHash(t, rows[0]); got != commitA {
+	if got := asOfHash(t, asOfMeta); got != commitA {
 		t.Fatalf("③ as_of.hash=%q, want %q", got, commitA)
 	}
 
@@ -159,8 +168,14 @@ func TestV08LifecycleChain(t *testing.T) {
 		t.Fatalf("⑥ supersede exit=%d, want 0; out=%s", code, out)
 	}
 	pm := decode(t, out)
-	if pm["status"] != "invalidated" {
-		t.Fatalf("⑥ status=%v, want invalidated; out=%s", pm["status"], out)
+	// T87 스펙(maintain_v08_test.go): 출력은 {"status":"superseded",
+	// "old":OLD,"superseded_by":NEW}. DB 행은 status='invalidated'로
+	// 바뀌지만 CLI 출력 status는 'superseded'다.
+	if pm["status"] != "superseded" {
+		t.Fatalf("⑥ status=%v, want superseded; out=%s", pm["status"], out)
+	}
+	if pm["old"] != float64(oldID) {
+		t.Fatalf("⑥ old=%v, want %d; out=%s", pm["old"], oldID, out)
 	}
 	if pm["superseded_by"] != float64(newID) {
 		t.Fatalf("⑥ superseded_by=%v, want %d; out=%s", pm["superseded_by"], newID, out)
