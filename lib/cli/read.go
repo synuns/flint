@@ -119,12 +119,8 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			fmt.Fprintln(stdout, errLine(err))
 			return store.MapExit(err)
 		}
-		// 접합 안전성 — 해시는 16진 소문자로 확정된 경우만 인라인(§3 주입 방지).
-		if !isHexPrefix(hash) {
-			err := fmt.Errorf("정규화 결과가 16진 해시가 아님 %q: %w", hash, ErrInvalidAsOf)
-			fmt.Fprintln(stdout, asOfErrLine("invalid_as_of", err.Error()))
-			return 3
-		}
+		// Doltgres 커밋 해시는 base32계 소문자([0-9a-z]) — ParseAsOfSpec이
+		// 접두어 검증·유일 해시를 보장하므로 반환값을 그대로 신뢰해 인라인.
 		// AS OF 절은 테이블 참조 바로 뒤(뷰+AS OF "현재 정의+과거 행"). 기존
 		// RankOrder·LIMIT 절은 그대로 둔다.
 		sql = strings.Replace(sql, " FROM active_knowledge",

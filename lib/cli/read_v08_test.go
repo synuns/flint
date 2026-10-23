@@ -33,7 +33,7 @@ func asofFakeOrReal(t *testing.T, f *fakeStore) Store {
 func asofQueryFn(sql string, args []any) ([][]any, error) {
 	switch {
 	case strings.Contains(sql, "FROM dolt_log WHERE date <= $1"):
-		return [][]any{{"abc123def4567890abc123def4567890"}}, nil
+		return [][]any{{"he08irluqn3v2m1k9x7c4jw5z6b8d0f"}}, nil
 	case strings.Contains(sql, "WHERE commit_hash = $1"):
 		return [][]any{{time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)}}, nil
 	case strings.Contains(sql, "FROM active_knowledge"):
@@ -62,7 +62,7 @@ func TestReadAsOfAddsField(t *testing.T) {
 	if code := runRead(ctx, st, []string{"--as-of", "7d", "토픽"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runRead exit = %d, want 0", code)
 	}
-	want := "FROM active_knowledge AS OF 'abc123def4567890abc123def4567890'"
+	want := "FROM active_knowledge AS OF 'he08irluqn3v2m1k9x7c4jw5z6b8d0f'"
 	if got := asofReadSQL(f); !strings.Contains(got, want) {
 		t.Errorf("AS OF 접합 실패:\n got %q\nwant 접미 %q", got, want)
 	}
@@ -78,7 +78,7 @@ func TestReadAsOfAddsField(t *testing.T) {
 	if !strings.HasPrefix(got, "3|토픽|요약\n") {
 		t.Errorf("기존 행 출력 변형: %q", got)
 	}
-	if !strings.Contains(got, `"as_of":{"hash":"abc123def4567890abc123def4567890","commit_date":"2026-10-20T12:00:00Z"}`) {
+	if !strings.Contains(got, `"as_of":{"hash":"he08irluqn3v2m1k9x7c4jw5z6b8d0f","commit_date":"2026-10-20T12:00:00Z"}`) {
 		t.Errorf("as_of 필드 누락/불일치: %q", got)
 	}
 
@@ -122,7 +122,7 @@ func TestReadAsOfLimitRegression(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := asofReadSQL(f)
-	if !strings.Contains(got, " AS OF 'abc123def4567890abc123def4567890'") {
+	if !strings.Contains(got, " AS OF 'he08irluqn3v2m1k9x7c4jw5z6b8d0f'") {
 		t.Errorf("AS OF 접미 유실: %q", got)
 	}
 	if !strings.Contains(got, "LIKE lower($1)") || !strings.Contains(got, "LIMIT $2") {
