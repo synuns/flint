@@ -91,6 +91,8 @@ Default DSN: `postgresql://flint:flint-dev@localhost:5433/flint` — override wi
 `FLINT_DSN`. Tear down with `./bin/flint teardown` (`--purge` removes the volume too).
 </details>
 
+Full walkthrough: [docs/QUICKSTART.md](docs/QUICKSTART.md)
+
 ---
 
 ## How It Works
