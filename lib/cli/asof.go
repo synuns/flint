@@ -41,9 +41,10 @@ func ParseRelative(spec string) (time.Time, error) {
 }
 
 // ParseAsOfSpec — 스펙을 커밋 해시로 정규화. 판정 순서: ① 상대(\d+[hd]는
-// 문서화된 상대 형식이므로 우선) ② ISO(RFC3339·2006-01-02T15:04) ③ 16진
-// 접두어(소문자, 3자 이상 — dolt 해시는 소문자 16진). ISO·상대는 시각 직전
-// 최신 커밋, 접두어는 LIKE 일치 1건일 때만 확정(0건·2건 이상 = ErrInvalidAsOf).
+// 문서화된 상대 형식이므로 우선) ② ISO(RFC3339·2006-01-02T15:04) ③ 해시
+// 접두어(소문자 영숫자 3자 이상 — Doltgres 커밋 해시는 base32계 [0-9a-z]
+// 전범위, T84 실측). ISO·상대는 시각 직전 최신 커밋, 접두어는 LIKE 일치
+// 1건일 때만 확정(0건·2건 이상 = ErrInvalidAsOf — 유일성은 LIKE가 담당).
 func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
@@ -60,7 +61,7 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 		}
 	}
 	// ③ 해시 접두어 — $1 파라미터화로 접합 주입 방지(§3).
-	if len(spec) >= asofMinPrefix && isHexPrefix(spec) {
+	if len(spec) >= asofMinPrefix && isLowerAlnumPrefix(spec) {
 		rows, err := queryOnce(ctx, st,
 			`SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE $1||'%' ORDER BY commit_order DESC`,
 			[]any{spec})
@@ -107,13 +108,15 @@ func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (
 	return "", fmt.Errorf("커밋이 없는 저장소에는 as-of를 사용할 수 없습니다: %w", ErrInvalidAsOf)
 }
 
-// isHexPrefix — 소문자 16진 접두어 여부(빈 문자열 false).
-func isHexPrefix(s string) bool {
+// isLowerAlnumPrefix — 소문자 영숫자 [0-9a-z] 접두어 여부(빈 문자열 false).
+// Doltgres 커밋 해시가 base32계([0-9a-z] 전범위)라 16진 한정 검증은 실DB
+// 해시를 전부 거부했다(T84 실측 결함 폐쇄). 유일성 검증은 LIKE 매칭이 담당.
+func isLowerAlnumPrefix(s string) bool {
 	if s == "" {
 		return false
 	}
 	for _, c := range s {
-		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'f')) {
+		if !((c >= '0' && c <= '9') || (c >= 'a' && c <= 'z')) {
 			return false
 		}
 	}
