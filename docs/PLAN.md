@@ -2,7 +2,7 @@
 
 - **이름**: flint — version-controlled memory for AI agents
 - **날짜**: 2026-10-20
-- **상태**: v0.4 완료(2026-10-22) — v0.5 기획(§14)
+- **상태**: v0.5 완료(2026-10-22) — 다음 마일스톤 미정
 - **태그**: agent, doltgres, cli, mcp, knowledge-base
 
 ---
