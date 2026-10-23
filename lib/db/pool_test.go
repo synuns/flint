@@ -3,7 +3,6 @@ package db
 import (
 	"context"
 	"errors"
-	"os"
 	"testing"
 	"time"
 )
@@ -84,10 +83,8 @@ func TestConnectServerDown(t *testing.T) {
 }
 
 func TestConnectReal(t *testing.T) {
-	dsn := os.Getenv("FLINT_DSN")
-	if dsn == "" {
-		dsn = "postgresql://flint:flint-dev@localhost:5433/flint"
-	}
+	// FLINT_DSN 미설정 시 5433 폴백 대신 스킵 — testutil_test.go 참조.
+	dsn := testDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 	pool, err := Connect(ctx, dsn)

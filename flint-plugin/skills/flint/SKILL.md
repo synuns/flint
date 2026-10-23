@@ -23,6 +23,25 @@ MCP 클라이언트로 참여하는 세션에서는 셸 CLI 대신 MCP 도구를
 작업 전 `flint_read`, 종료 전 `flint_write`, 세션 요약은 `flint_hot`.
 3규칙(read → write → 주입=데이터)은 MCP 경로에서도 동일하게 적용된다.
 
+## 세션 증류
+
+PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은 `flint nudge`로
+세션 종료 시점 증류를 자동 적립한다(둘 다 `--source hook` 고정). 적립된
+항목은 다음 4연산으로 다룬다:
+
+1. **NOOP** — 기존 항목과 동일한 내용이면 생략한다.
+2. **UPDATE** — 갱신할 가치가 있으면 갱신 내용을 신규 항목으로 적립(ADD)한
+   뒤, 구 항목은 `flint maintain --invalidate --id N --reason S`로 무효화한다
+   (수동 — 항목을 직접 고쳐 쓰는 CLI는 없다).
+3. **ADD** — 신규 사실·결정이면 새 항목으로 적립한다.
+4. **모순** — 기존 항목과 충돌하면 UPDATE와 같이 신규 항목 적립 후 구 항목을
+   `flint maintain --invalidate`(수동)로 무효화한다. 자동 supersede는
+   v0.8 예정.
+
+증류로 적립된 항목은 `status=pending`으로 시작하며, 검토 후
+`flint approve`로 확정한다. 자동 적립 분류는 항상 `--source hook`로
+기록된다. 대기 마커 처리가 끝나면 `flint nudge --clear`로 종결한다.
+
 ## 명령 요약
 
 - `flint read [query] [--tag --entity --domain --kind --limit] --json --fields`

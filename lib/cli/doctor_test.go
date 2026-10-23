@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -47,9 +48,9 @@ func freshDoctorFn() func(string, []any) ([][]any, error) {
 	return doctorQueryFn(h, h, h)
 }
 
-// DoctorChecks — 고정 5종 순서 계약.
+// DoctorChecks — 고정 순서 계약(v0.7부터 6종 — port 추가).
 func TestDoctorChecksContract(t *testing.T) {
-	want := []string{"hook-file", "db", "schema", "integrity", "last-seen"}
+	want := []string{"hook-file", "db", "schema", "integrity", "last-seen", "port"}
 	got := DoctorChecks()
 	if len(got) != len(want) {
 		t.Fatalf("DoctorChecks() = %v, want %v", got, want)
@@ -68,7 +69,7 @@ func TestDoctorRegistered(t *testing.T) {
 	}
 }
 
-// --list-checks — 한 줄 JSON에 검사 5종.
+// --list-checks — 한 줄 JSON에 검사 6종(v0.7 port 추가).
 func TestDoctorListChecks(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--list-checks")
@@ -81,8 +82,8 @@ func TestDoctorListChecks(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
 		t.Fatalf("JSON 아님: %q", out)
 	}
-	if len(m.Checks) != 5 || m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" {
-		t.Errorf("checks=%v, want 5종", m.Checks)
+	if len(m.Checks) != 6 || m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
+		t.Errorf("checks=%v, want 6종(port 포함)", m.Checks)
 	}
 }
 
@@ -154,6 +155,9 @@ func TestDoctorHookFileFailWithFix(t *testing.T) {
 
 // file — 훅 등록된 임시 환경(settings.json에 flint 포함) → hook-file ok.
 func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
+	withComposePs(t, func(ctx context.Context) ([]byte, error) {
+		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
+	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
@@ -173,6 +177,9 @@ func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
 
 // state — grace 경과 last-seen은 warn·exit 0. write 72h·hot 48h 초과로 warn.
 func TestDoctorWarnVsFailExit(t *testing.T) {
+	withComposePs(t, func(ctx context.Context) ([]byte, error) {
+		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
+	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
@@ -200,6 +207,9 @@ func TestDoctorWarnVsFailExit(t *testing.T) {
 
 // state — grace 이내면 전부 ok·exit 0.
 func TestDoctorAllOk(t *testing.T) {
+	withComposePs(t, func(ctx context.Context) ([]byte, error) {
+		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
+	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),

@@ -5,23 +5,26 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"time"
 
 	"flint/lib/store"
 )
 
-// DoctorChecks — 검사 5종 고정 순서(스펙 §1).
+// DoctorChecks — 검사 순서(스펙 §1 5종 + v0.7 port).
 func DoctorChecks() []string {
-	return []string{"hook-file", "db", "schema", "integrity", "last-seen"}
+	return []string{"hook-file", "db", "schema", "integrity", "last-seen", "port"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -119,6 +122,8 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 		return checkIntegrity(ctx, st)
 	case "last-seen":
 		return checkLastSeen(ctx, st)
+	case "port":
+		return checkPort(ctx)
 	}
 	return doctorCheck{Name: name, Status: "fail", Detail: "unknown check"}
 }
@@ -349,4 +354,142 @@ func stallDetail(seen map[string]time.Time, key string, graceH int, warns *int) 
 		return fmt.Sprintf("%s 경과 %s(grace %dh 초과)", key, d.Round(time.Hour), graceH)
 	}
 	return ""
+}
+
+// doctorPort — flint 기대 호스트 게시 포트(compose 오버라이드 전 기본값).
+const doctorPort = 5433
+
+// composePsFn — docker compose ps seam(var). docker 부재·compose 프로젝트
+// 부재 등 모든 오류는 checkPort가 skip으로 처리한다(비간섭).
+var composePsFn = func(ctx context.Context) ([]byte, error) {
+	return exec.CommandContext(ctx, "docker", "compose", "ps", "--format", "json").Output()
+}
+
+// composePsPublisher — ps 각 포트 매핑. docker 공식 스키마(B6):
+// PublishedPort = 호스트 게시 포트. Exited 컨테이너는 Publishers null.
+type composePsPublisher struct {
+	PublishedPort int `json:"PublishedPort"`
+}
+
+// composePsEntry — ps 컨테이너 1행.
+type composePsEntry struct {
+	Name       string               `json:"Name"`
+	State      string               `json:"State"`
+	Publishers []composePsPublisher `json:"Publishers"`
+}
+
+// portCheck — port 검사 단독 실행. 결과 한 줄 JSON을 out에 쓰고,
+// fail이면 1, ok·skip면 0을 반환한다(skip는 exit 영향 없음).
+func portCheck(ctx context.Context, out io.Writer) int {
+	c := checkPort(ctx)
+	b, err := json.Marshal(c)
+	if err != nil {
+		fmt.Fprintln(out, errLine(err))
+		return 1
+	}
+	fmt.Fprintln(out, string(b))
+	if c.Status == "fail" {
+		return 1
+	}
+	return 0
+}
+
+// checkPort — 5433 게시 상태 판정. ① flint 실행+5433 → ok
+// ② flint 부재/정지 → fail + up -d 안내 ③ 타 컨테이너 점유 → fail +
+// 점유자 이름 + 포트 이동 안내. composePsFn 오류는 skip(docker 미설치
+// 환경에서 doctor 나머지 검사를 덮지 않는다).
+func checkPort(ctx context.Context) doctorCheck {
+	c := doctorCheck{Name: "port"}
+	// docker 무응답 시 무기한 블록 방지 — 2초 상한. 만료는 composePsFn
+	// 오류로 떨어져 기존 skip 경로를 따른다(비간섭).
+	tctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	b, err := composePsFn(tctx)
+	if err != nil {
+		c.Status = "skip"
+		c.Detail = "docker compose ps 실패: " + err.Error()
+		return c
+	}
+	entries, perr := parseComposePs(b)
+	if perr != nil {
+		c.Status = "skip"
+		c.Detail = "compose ps 출력 파싱 실패: " + perr.Error()
+		return c
+	}
+	// ① flint 컨테이너 실행 중 + 5433 게시.
+	for _, e := range entries {
+		if isFlintContainer(e.Name) && e.State == "running" && publishesPort(e, doctorPort) {
+			c.Status = "ok"
+			c.Detail = fmt.Sprintf("%s가 %d 게시", e.Name, doctorPort)
+			return c
+		}
+	}
+	// ③ 타 컨테이너가 5433 점유 — 점유자를 지목한다.
+	for _, e := range entries {
+		if publishesPort(e, doctorPort) {
+			c.Status = "fail"
+			c.Detail = fmt.Sprintf("포트 %d을(를) %s이(가) 점유", doctorPort, e.Name)
+			c.Fix = "fix: 포트 이동 — FLINT_DSN + compose 오버라이드(TUNING §2)"
+			return c
+		}
+	}
+	// ② flint 없음/정지.
+	c.Status = "fail"
+	c.Detail = fmt.Sprintf("flint 컨테이너가 %d을(를) 게시하지 않음", doctorPort)
+	c.Fix = "fix: docker compose up -d (flint 저장소)"
+	return c
+}
+
+// parseComposePs — ps --format json 출력 파싱. 최신 docker는 연속 객체
+// (JSONL), 구버전은 배열을 내보내므로 json.Decoder 스트리밍으로 양쪽을
+// 처리한다.
+func parseComposePs(b []byte) ([]composePsEntry, error) {
+	trimmed := bytes.TrimSpace(b)
+	dec := json.NewDecoder(bytes.NewReader(trimmed))
+	var out []composePsEntry
+	if len(trimmed) > 0 && trimmed[0] == '[' {
+		tok, err := dec.Token() // '[' 소비
+		if err != nil {
+			return nil, err
+		}
+		if d, ok := tok.(json.Delim); !ok || d != '[' {
+			return nil, errors.New("배열 시작 아님")
+		}
+		for dec.More() {
+			var e composePsEntry
+			if err := dec.Decode(&e); err != nil {
+				return nil, err
+			}
+			out = append(out, e)
+		}
+		return out, nil
+	}
+	for {
+		var e composePsEntry
+		err := dec.Decode(&e)
+		if errors.Is(err, io.EOF) {
+			return out, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, e)
+	}
+}
+
+// isFlintContainer — 컨테이너 이름이 flint 서비스임(flint-doltgres-1 등).
+// 접두 매칭 — 'conflint'처럼 flint를 포함하나 접두가 아닌 이름의 오탐 배제.
+func isFlintContainer(name string) bool {
+	return strings.HasPrefix(strings.ToLower(name), "flint")
+}
+
+// publishesPort — 엔트리의 Publishers 중 호스트 게시 포트 일치 여부.
+// Exited 컨테이너의 Publishers null은 빈 슬라이스로 디코딩된다.
+func publishesPort(e composePsEntry, port int) bool {
+	for _, p := range e.Publishers {
+		if p.PublishedPort == port {
+			return true
+		}
+	}
+	return false
 }
