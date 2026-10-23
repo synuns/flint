@@ -151,6 +151,32 @@ func TestCompact(t *testing.T) {
 	t.Run("no_session_id_no_marker", test_compact_no_session_id_no_marker)
 	t.Run("write_fail_exit0", test_compact_write_fail_exit0)
 	t.Run("st_nil_noop", test_compact_st_nil_noop)
+	t.Run("store_error_quiet", test_compact_store_error_quiet)
+}
+
+// test_compact_store_error_quiet — Run 진입에서 newStore 실패(DB 다운)도
+// 조용히 exit 0(§3 비간섭 — 훅 stdout에 에러 JSON이 새어 나가지 않아야 함).
+func test_compact_store_error_quiet(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	prev := newStore
+	newStore = func(ctx context.Context, dsn string) (Store, error) {
+		return nil, errors.New("connection refused")
+	}
+	t.Cleanup(func() { newStore = prev })
+
+	var out bytes.Buffer
+	code := Run([]string{"compact"},
+		strings.NewReader(`{"hook_event_name":"PostCompact","session_id":"s1","compact_summary":"요약"}`),
+		&out)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0", code)
+	}
+	if out.String() != "" {
+		t.Fatalf("stdout=%q, want 빈 문자열(에러 JSON 누출)", out.String())
+	}
+	if m, _ := ReadMarker(); m != nil {
+		t.Fatalf("마커 존재: %+v", m)
+	}
 }
 
 // errFakeInsert — fakeStore.insertErr용 sentinel(적립 실패 경로 점검).
