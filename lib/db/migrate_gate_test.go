@@ -24,7 +24,7 @@ func TestMigrateGatesViewReapply(t *testing.T) {
 	t.Cleanup(func() { reapplyViewsFn = saved })
 
 	ctx := context.Background()
-	r, err := NewRepo(ctx, testDSN())
+	r, err := NewRepo(ctx, testDSN(t))
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
