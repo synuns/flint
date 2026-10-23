@@ -62,6 +62,11 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 	}
 	st, err := newStore(ctx, dsnFromEnv())
 	if err != nil {
+		// compact는 훅 진입 커맨드 — DB 부재도 조용히 exit 0(§3 비간섭).
+		// st nil로 실행하면 runCompact가 무동작 0을 반환한다.
+		if cmd == "compact" {
+			return run(ctx, nil, rest, stdin, stdout)
+		}
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}

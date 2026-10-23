@@ -6,6 +6,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -123,5 +125,16 @@ func TestNudgeBadStdinExit0(t *testing.T) {
 	out, code := nudgeRun(nil, "not json")
 	if code != 0 || out != "" {
 		t.Errorf("파손 stdin: (out=%q, exit=%d), want (%q, 0)", out, code, "")
+	}
+
+	// 파손 마커도 조용히 — ReadMarker 오류는 빈 출력 exit 0.
+	dir2 := t.TempDir()
+	t.Setenv("FLINT_CONFIG_DIR", dir2)
+	if err := os.WriteFile(filepath.Join(dir2, "pending-distill.json"), []byte("{not json"), 0o600); err != nil {
+		t.Fatalf("파손 마커 기록 실패: %v", err)
+	}
+	out2, code2 := nudgeRun(nil, `{"hook_event_name":"Stop","session_id":"s1","stop_hook_active":false}`)
+	if code2 != 0 || out2 != "" {
+		t.Errorf("파손 마커: (out=%q, exit=%d), want (%q, 0)", out2, code2, "")
 	}
 }
