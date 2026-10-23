@@ -303,15 +303,15 @@ flint-plugin/
 
 ### v0.7 적립 자동화·실사용 재개 (2026-10-23 기획)
 
-- [ ] 자동 write 훅 — 세션 종료/컴팩트 시점 자동 증류 적립(메커니즘은 레퍼런스
+- [x] 자동 write 훅 — 세션 종료/컴팩트 시점 자동 증류 적립(메커니즘은 레퍼런스
   조사로 룰링: PreCompact 훅 vs SessionStart 넛지 vs 스킬 주도)
-- [ ] distill 스킬(플러그인) — 에이전트 자가 기억 추출·write --source hook
-- [ ] dup 대응 강화 — 자동화로 늘어나는 중복의 병합 제안 보고
-- [ ] 포트/DSN 설정 — FLINT_DSN 우선·설정 파일·compose 오버라이드 가이드
+- [x] distill 스킬(플러그인) — 에이전트 자가 기억 추출·write --source hook
+- [x] dup 대응 강화 — 자동화로 늘어나는 중복의 병합 제안 보고
+- [x] 포트/DSN 설정 — FLINT_DSN 우선·설정 파일·compose 오버라이드 가이드
   (5433 점유 시 실사용 재개 조건)
-- [ ] 테스트 DSN 미설정 조기 실패
-- [ ] doctor 확장 — 자동 적립 훅 등록 검사·포트 충돌 진단
-- [ ] setup 원커맨드 보강
+- [x] 테스트 DSN 미설정 조기 실패
+- [x] doctor 확장 — 자동 적립 훅 등록 검사·포트 충돌 진단
+- [x] setup 원커맨드 보강
 - 후보(v0.8): 시간여행 노출(read --as-of·diff·status --as-of — §16 검증
   전제) / 수명주기 액션(maintain 배치 무효화 dry-run·보존 정책 — stale
   실측치 축적 후)

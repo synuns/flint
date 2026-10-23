@@ -94,14 +94,15 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 		t.Fatalf("read 출력에 seed 행 없음: %q", out)
 	}
 
-	// 승격 단언 — schema_version=4.
+	// 승격 단언 — schema_version=5(v0.8: V5 게이트 체인 추가로 레거시 v3 DB는
+	// v3→v4→v5 전부 승격. 컬럼-뷰 순서 회귀 아님 — 아래 read·뷰 단언은 그대로).
 	var version string
 	if err := pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회: %v", err)
 	}
-	if version != "4" {
-		t.Fatalf("schema_version=%q, want 4", version)
+	if version != "5" {
+		t.Fatalf("schema_version=%q, want 5", version)
 	}
 
 	// 뷰 단언 — active_knowledge가 v4 컬럼 2종을 노출.
