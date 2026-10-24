@@ -145,6 +145,19 @@ func TestInitializeFallbackProtocolVersion(t *testing.T) {
 	}
 }
 
+// TestNegotiateVersionNonStringFallsBack — protocolVersion이 문자열이
+// 아니거나(123) 빈 문자열이면 fallback(문자열만 echo하는 타입 가드).
+func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
+	for _, p := range []map[string]any{
+		{"protocolVersion": 123},
+		{"protocolVersion": ""},
+	} {
+		if got := negotiateVersion(p); got != "2024-11-05" {
+			t.Errorf("fallback 기대, got %q (params %v)", got, p)
+		}
+	}
+}
+
 // TestInitializeIncludesInstructions — hermes.md §2 3규칙 문구가
 // instructions에 포함(도구명 flint_read·flint_write 명시).
 func TestInitializeIncludesInstructions(t *testing.T) {
