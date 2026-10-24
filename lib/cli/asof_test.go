@@ -198,6 +198,7 @@ func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 // TestParseAsOfSpecRealPrefix — 실DB 회귀(FLINT_DSN 설정 시에만): write 1건
 // 커밋 후 실제 해시(base32계) 접두어 3자로 ParseAsOfSpec이 전체 해시를
 // 되돌리는지 실측. 소문자 영숫자 완화 검증의 엔드투엔드 보증.
+// uniq 행은 cleanup에서 삭제·커밋(공유 DB pending 오염 방지).
 func TestParseAsOfSpecRealPrefix(t *testing.T) {
 	dsn := os.Getenv("FLINT_DSN")
 	if dsn == "" {
@@ -219,6 +220,22 @@ func TestParseAsOfSpecRealPrefix(t *testing.T) {
 	if _, err := real.InsertBatch(ctx, recs); err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
+	// 공유 DB 오염 방지 — 이 테스트가 남기는 uniq pending 행을 종료 시
+	// 삭제·커밋(e2e 전역 pending 단정 오염원). t.Cleanup은 LIFO라 본
+	// 정리가 real.Close(위 등록)보다 먼저 실행되도록 이후에 등록한다.
+	t.Cleanup(func() {
+		rs, ok := real.(*realStore)
+		if !ok {
+			t.Fatalf("uniq 행 정리 실패: real이 *realStore 아님(%T)", real)
+		}
+		if _, err := rs.pool.Exec(ctx,
+			`DELETE FROM knowledge WHERE topic = $1`, uniq); err != nil {
+			t.Fatalf("uniq 행 정리 실패: %v", err)
+		}
+		if _, err := real.Commit(ctx, "asof prefix 회귀 정리 [session:T81]"); err != nil {
+			t.Fatalf("정리 커밋 실패: %v", err)
+		}
+	})
 	full, err := real.Commit(ctx, "asof prefix 회귀 [session:T81]")
 	if err != nil {
 		t.Fatalf("Commit: %v", err)
