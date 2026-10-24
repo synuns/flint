@@ -100,6 +100,10 @@ Full walkthrough: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 flint is the bridge between **agents**, the **memory store**, and its **git-like history**.
 
+![flint session demo](assets/flint-demo.gif)
+
+*A real session: `hot` injects context, `write` records a decision (idempotent, hash-deduped), `read` recalls it. Regenerate the GIF with `vhs assets/flint-demo.tape`.*
+
 ```text
 [ Claude Code ] <----> [ flint ] <----> [ Doltgres ]
 [ OpenClaw    ]          CLI + MCP        versioned

@@ -104,6 +104,10 @@ DSN 기본값 `postgresql://flint:flint-dev@localhost:5433/flint` — 환경변�
 
 flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사이의 다리입니다.
 
+![flint 세션 데모](assets/flint-demo.gif)
+
+*실제 세션: `hot`이 문맥을 주입하고, `write`가 결정을 기록하고(멱등·해시 dedup), `read`가 회상한다. GIF는 `vhs assets/flint-demo.tape`로 재생성.*
+
 ```text
 [ Claude Code ] <----> [ flint ] <----> [ Doltgres ]
 [ OpenClaw    ]          CLI + MCP        버전 관리되는
