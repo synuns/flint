@@ -26,7 +26,7 @@ func TestV09AdapterDocsOpencode(t *testing.T) {
 		}
 	}
 	if strings.Contains(doc, "mcpServers") {
-		t.Error("adapters/opencode.md에 mcpServers 없음 — opencode는 mcp 키(C4a)")
+		t.Error("adapters/opencode.md에 mcpServers 있음 — 금지, opencode는 mcp 키(C4a)")
 	}
 }
 
