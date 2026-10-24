@@ -160,6 +160,7 @@ func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
+	setHarnessEnvs(t) // 하니스 5종 격리 — 실홈 설정 파일이 전체 실행에 끼어들지 않게
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write --source hook"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -182,6 +183,7 @@ func TestDoctorWarnVsFailExit(t *testing.T) {
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
+	setHarnessEnvs(t) // 하니스 5종 격리 — 실홈 설정 파일이 전체 실행에 끼어들지 않게
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -212,6 +214,7 @@ func TestDoctorAllOk(t *testing.T) {
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
+	setHarnessEnvs(t) // 하니스 5종 격리 — 실홈 설정 파일이 전체 실행에 끼어들지 않게
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -428,6 +431,96 @@ func TestDoctorHookFileNestedShapeOk(t *testing.T) {
 	}
 	if !strings.Contains(out, `"ok"`) {
 		t.Errorf("실체 형태 훅 등록인데 fail: %q", out)
+	}
+}
+
+// setHarnessEnvs — 하니스 5종 env를 전부 빈 임시 디렉터리로 격리.
+// harnessChecks 단위 테스트의 전제(실홈 설정 파일 영향 차단).
+func setHarnessEnvs(t *testing.T) {
+	t.Helper()
+	for _, e := range []string{
+		"FLINT_CODEX_HOME", "FLINT_GEMINI_HOME", "FLINT_OPENCODE_HOME",
+		"FLINT_COPILOT_HOME", "FLINT_CURSOR_DIR",
+	} {
+		t.Setenv(e, t.TempDir())
+	}
+}
+
+// state — 설정 파일 전부 부재 → 하니스 검사 생성 없음(빈 슬라이스).
+// 미설치 하니스는 경고가 아니다(§4 a).
+func TestHarnessChecksSkipWhenAbsent(t *testing.T) {
+	setHarnessEnvs(t)
+	if got := harnessChecks(); len(got) != 0 {
+		t.Fatalf("harnessChecks() = %v, want 빈 슬라이스", got)
+	}
+}
+
+// file — codex config만 있고 flint 미등록 → 1건 fail. Name "harness-codex"·
+// Fix에 문서 경로(§4 b).
+func TestHarnessChecksFailWhenUnregistered(t *testing.T) {
+	setHarnessEnvs(t)
+	home := t.TempDir()
+	t.Setenv("FLINT_CODEX_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "config.toml"),
+		[]byte("[mcp_servers.other]\ncommand = \"other\"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := harnessChecks()
+	if len(got) != 1 {
+		t.Fatalf("harnessChecks() = %v, want 1건", got)
+	}
+	if got[0].Name != "harness-codex" {
+		t.Errorf("Name = %q, want harness-codex", got[0].Name)
+	}
+	if got[0].Status != "fail" {
+		t.Errorf("Status = %q, want fail", got[0].Status)
+	}
+	if !strings.Contains(got[0].Fix, "docs/adapters/codex.md") {
+		t.Errorf("Fix = %q, want docs/adapters/codex.md 경로", got[0].Fix)
+	}
+}
+
+// file — 본문에 "flint" 포함 → ok(등록 판정은 문자열 매칭, 포맷 무관 — C6).
+func TestHarnessChecksOkWhenRegistered(t *testing.T) {
+	setHarnessEnvs(t)
+	home := t.TempDir()
+	t.Setenv("FLINT_GEMINI_HOME", home)
+	if err := os.WriteFile(filepath.Join(home, "settings.json"),
+		[]byte(`{"mcpServers":{"flint":{"command":"flint","args":["mcp"],"trust":true}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := harnessChecks()
+	if len(got) != 1 {
+		t.Fatalf("harnessChecks() = %v, want 1건", got)
+	}
+	if got[0].Name != "harness-gemini" || got[0].Status != "ok" {
+		t.Errorf("결과 = %+v, want harness-gemini ok", got[0])
+	}
+}
+
+// file — cursor는 프로젝트 스코프(.cursor/mcp.json) 우선: FLINT_CURSOR_DIR
+// 루트의 프로젝트 파일을 검사 대상으로 삼는다(C5).
+func TestHarnessChecksCursorProjectScope(t *testing.T) {
+	setHarnessEnvs(t)
+	root := t.TempDir()
+	t.Setenv("FLINT_CURSOR_DIR", root)
+	if err := os.MkdirAll(filepath.Join(root, ".cursor"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(root, ".cursor", "mcp.json")
+	if err := os.WriteFile(path,
+		[]byte(`{"mcpServers":{"flint":{"command":"flint","args":["mcp"]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got := harnessChecks()
+	if len(got) != 1 {
+		t.Fatalf("harnessChecks() = %v, want 1건", got)
+	}
+	if got[0].Name != "harness-cursor" || got[0].Status != "ok" {
+		t.Errorf("결과 = %+v, want harness-cursor ok", got[0])
+	}
+	if !strings.Contains(got[0].Detail, path) {
+		t.Errorf("Detail = %q, want 프로젝트 경로 %q", got[0].Detail, path)
 	}
 }
 

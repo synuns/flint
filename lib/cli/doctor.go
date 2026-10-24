@@ -86,6 +86,12 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	for _, n := range names {
 		checks = append(checks, runDoctorCheck(ctx, st, n))
 	}
+	// 하니스 검진(v0.9 §4)은 전체 검사 체인 끝에 추가. --check 서브셋은
+	// DoctorChecks() 이름 공간만 대상 — harness-*는 이름 없는 별도 체인이므로
+	// 서브셋 실행에는 끼지 않는다.
+	if subset == "" {
+		checks = append(checks, harnessChecks()...)
+	}
 	overall := "ok"
 	for _, c := range checks {
 		switch c.Status {
@@ -214,6 +220,87 @@ func valueHasFlintCommand(v any) bool {
 		}
 	}
 	return false
+}
+
+// harnessSpec — v0.9 하니스 검진 대상 1종(스펙 C1~C5). Name은 체크명
+// 접미·문서 파일명과 일치. Rel은 홈 기준 상대 경로(cursor만 프로젝트
+// 루트=워킹디렉터리 기준). EnvOverride는 해당 디렉터리 자체를 교체
+// (claudeHome·FLINT_CLAUDE_HOME 패턴 승계 — 테스트 주입용).
+type harnessSpec struct {
+	Name        string
+	Rel         string
+	EnvOverride string
+	Project     bool // true면 Rel의 기준이 홈이 아닌 워킹디렉터리(cursor)
+}
+
+// harnessRegistry — 하니스 5종. C6: 전 하니스 MCP stdio JSON-RPC.
+var harnessRegistry = []harnessSpec{
+	{Name: "codex", Rel: ".codex/config.toml", EnvOverride: "FLINT_CODEX_HOME"},
+	{Name: "gemini", Rel: ".gemini/settings.json", EnvOverride: "FLINT_GEMINI_HOME"},
+	{Name: "opencode", Rel: ".config/opencode/opencode.json", EnvOverride: "FLINT_OPENCODE_HOME"},
+	{Name: "copilot", Rel: ".copilot/mcp-config.json", EnvOverride: "FLINT_COPILOT_HOME"},
+	{Name: "cursor", Rel: ".cursor/mcp.json", EnvOverride: "FLINT_CURSOR_DIR", Project: true},
+}
+
+// path — 검사 대상 설정 파일 절대 경로. 오버라이드 env는 Rel이 붙던
+// 기존 디렉터리(cursor는 프로젝트 루트) 자체를 교체한다. 홈·wd 조회
+// 불능은 빈 문자열(부재 취급 — 미설치 하니스는 경고가 아님).
+func (h harnessSpec) path() string {
+	if h.Project {
+		root := ""
+		if v := os.Getenv(h.EnvOverride); v != "" {
+			root = v
+		} else if wd, err := os.Getwd(); err == nil {
+			root = wd
+		}
+		if root == "" {
+			return ""
+		}
+		return filepath.Join(root, h.Rel)
+	}
+	if v := os.Getenv(h.EnvOverride); v != "" {
+		return filepath.Join(v, filepath.Base(h.Rel))
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, h.Rel)
+}
+
+// harnessChecks — 하니스 5종 검진(§4). 설정 파일이 있는 하니스만
+// 결과를 생성한다(부재 → 빈 슬라이스). 읽기 전용(비간섭).
+func harnessChecks() []doctorCheck {
+	var out []doctorCheck
+	for _, h := range harnessRegistry {
+		if c, ok := checkHarnessFile(h); ok {
+			out = append(out, c)
+		}
+	}
+	return out
+}
+
+// checkHarnessFile — 하니스 1종 판정. (a) 파일 부재 → 검사 생략(ok=false),
+// (b) 본문에 "flint" 없음 → fail + 문서 경로 fix, (c) 포함 → ok.
+// 등록 판정은 문자열 포함(포맷 무관 — C6. 주석만 있어도 ok).
+func checkHarnessFile(h harnessSpec) (doctorCheck, bool) {
+	path := h.path()
+	if path == "" {
+		return doctorCheck{}, false
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return doctorCheck{}, false // 미설치 하니스 — 검사 생략
+	}
+	c := doctorCheck{Name: "harness-" + h.Name}
+	if strings.Contains(string(b), "flint") {
+		c.Status, c.Detail = "ok", path
+		return c, true
+	}
+	c.Status = "fail"
+	c.Detail = path + "에 flint 미등록"
+	c.Fix = "fix: docs/adapters/" + h.Name + ".md 참조해 flint MCP 서버 등록"
+	return c, true
 }
 
 // checkDB — Ping.
