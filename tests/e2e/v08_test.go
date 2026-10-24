@@ -91,6 +91,16 @@ func TestV08LifecycleChain(t *testing.T) {
 	)
 	bin := rebuildBin(t)
 
+	// 공유 DB 오염 격리 — 다른 테스트가 남긴 pending 행(seed·asof 회귀
+	// 등)과 무관하게 ⑤가 판정되게 시작 시점 pending 수를 baseline으로
+	// 확보(maintain --check 임계값 패턴 재사용).
+	var basePending int
+	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`).
+		Scan(&basePending); err != nil {
+		t.Fatalf("baseline pending 수 실패: %v", err)
+	}
+
 	// ① write 1건(confidence 0.9 → active) — 커밋 A 확보.
 	out, code := runFlint(t, bin, env,
 		[]string{"write", "knowledge", "--session", sessA},
@@ -160,14 +170,16 @@ func TestV08LifecycleChain(t *testing.T) {
 		t.Fatalf("④ added=%v, want 1; out=%s", dm["added"], out)
 	}
 
-	// ⑤ status --as-of A — 커밋 A 시점 pending 0·as_of 해시 정합.
+	// ⑤ status --as-of A — 커밋 A 시점 pending은 시작 baseline과 동일
+	// (이 실행은 confidence 0.9만 써 pending을 추가하지 않음)·as_of 해시 정합.
 	out, code = runFlint(t, bin, env, []string{"status", "--as-of", commitA}, "")
 	if code != 0 {
 		t.Fatalf("⑤ status --as-of exit=%d, want 0; out=%s", code, out)
 	}
 	sm := decode(t, out)
-	if sm["pending"] != float64(0) {
-		t.Fatalf("⑤ pending=%v, want 0(시점 스냅샷); out=%s", sm["pending"], out)
+	if sm["pending"] != float64(basePending) {
+		t.Fatalf("⑤ pending=%v, want %d(시작 baseline — 공유 DB 잔존 pending과 무관); out=%s",
+			sm["pending"], basePending, out)
 	}
 	if got := asOfHash(t, sm); got != commitA {
 		t.Fatalf("⑤ as_of.hash=%q, want %q", got, commitA)
