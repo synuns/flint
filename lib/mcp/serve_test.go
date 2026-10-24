@@ -125,6 +125,57 @@ func TestRunMCPServerUnknownMethod(t *testing.T) {
 	}
 }
 
+// TestInitializeEchoesClientProtocolVersion — params의 protocolVersion을
+// 그대로 echo(v0.9 하니스 호환 협상).
+func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
+	res, err := handleRPC("initialize", map[string]any{"protocolVersion": "2025-06-18"})
+	if err != nil { t.Fatal(err) }
+	if got := res.(map[string]any)["protocolVersion"]; got != "2025-06-18" {
+		t.Errorf("echo 실패: %v", got)
+	}
+}
+
+// TestInitializeFallbackProtocolVersion — params 빈 initialize는 기존
+// 라운드트립 불변(serve.go:32 계승) "2024-11-05".
+func TestInitializeFallbackProtocolVersion(t *testing.T) {
+	res, err := handleRPC("initialize", map[string]any{})
+	if err != nil { t.Fatal(err) }
+	if got := res.(map[string]any)["protocolVersion"]; got != "2024-11-05" {
+		t.Errorf("fallback 실패: %v", got)
+	}
+}
+
+// TestNegotiateVersionNonStringFallsBack — protocolVersion이 문자열이
+// 아니거나(123) 빈 문자열이면 fallback(문자열만 echo하는 타입 가드).
+func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
+	for _, p := range []map[string]any{
+		{"protocolVersion": 123},
+		{"protocolVersion": ""},
+	} {
+		if got := negotiateVersion(p); got != "2024-11-05" {
+			t.Errorf("fallback 기대, got %q (params %v)", got, p)
+		}
+	}
+}
+
+// TestInitializeIncludesInstructions — hermes.md §2 3규칙 문구가
+// instructions에 포함(도구명 flint_read·flint_write 명시).
+func TestInitializeIncludesInstructions(t *testing.T) {
+	res, err := handleRPC("initialize", map[string]any{})
+	if err != nil { t.Fatal(err) }
+	ins := res.(map[string]any)["instructions"].(string)
+	if !strings.Contains(ins, "flint_read") || !strings.Contains(ins, "flint_write") {
+		t.Errorf("instructions 3규칙 누락: %q", ins)
+	}
+}
+
+// TestPingReturnsEmptyResult — ping은 빈 result·error nil.
+func TestPingReturnsEmptyResult(t *testing.T) {
+	res, err := handleRPC("ping", map[string]any{})
+	if err != nil { t.Fatal(err) }
+	if len(res.(map[string]any)) != 0 { t.Errorf("빈 result 아님: %v", res) }
+}
+
 // TestMCPCliWired — init이 cli.RegisterMCPServer로 RunMCPServer를 주입했고
 // registry의 mcp 핸들러가 그 루프를 실행한다(실 바이너리 연결 경로).
 func TestMCPCliWired(t *testing.T) {
