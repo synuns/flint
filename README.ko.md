@@ -24,6 +24,7 @@
   <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" alt="Go 1.25"></a>
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
+  <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
   <img src="https://img.shields.io/badge/release-v0.5-blue" alt="v0.5">
 </p>
 
@@ -107,6 +108,8 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 [ Claude Code ] <----> [ flint ] <----> [ Doltgres ]
 [ OpenClaw    ]          CLI + MCP        버전 관리되는
 [ Hermes      ]          /plugin          기억 저장소
+[ Codex · Gemini · Copilot · OpenCode · Cursor ]
+        MCP + 지시파일 어댑터 (v0.9)
 ```
 
 | 단계 | 동작 |
@@ -147,6 +150,11 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 | **MCP 클라이언트** | `flint mcp` 서버 | `lib/mcp` |
 | **OpenClaw** | 어댑터 | [docs/adapters/openclaw.md](docs/adapters/openclaw.md) |
 | **Hermes** | 어댑터 | [docs/adapters/hermes.md](docs/adapters/hermes.md) |
+| **Codex CLI** | MCP + AGENTS.md 어댑터 | [docs/adapters/codex.md](docs/adapters/codex.md) |
+| **Gemini CLI** | MCP + GEMINI.md 어댑터 | [docs/adapters/gemini.md](docs/adapters/gemini.md) |
+| **Copilot CLI** | MCP + instructions.md 어댑터 | [docs/adapters/copilot.md](docs/adapters/copilot.md) |
+| **OpenCode** | MCP + AGENTS.md 어댑터 | [docs/adapters/opencode.md](docs/adapters/opencode.md) |
+| **Cursor** | MCP + AGENTS.md 어댑터 | [docs/adapters/cursor.md](docs/adapters/cursor.md) |
 
 ---
 

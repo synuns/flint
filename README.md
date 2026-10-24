@@ -24,6 +24,7 @@
   <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" alt="Go 1.25"></a>
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
+  <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <img src="https://img.shields.io/badge/release-v0.5-blue" alt="v0.5">
 </p>
 
@@ -103,6 +104,8 @@ flint is the bridge between **agents**, the **memory store**, and its **git-like
 [ Claude Code ] <----> [ flint ] <----> [ Doltgres ]
 [ OpenClaw    ]          CLI + MCP        versioned
 [ Hermes      ]          /plugin          memory store
+[ Codex · Gemini · Copilot · OpenCode · Cursor ]
+        MCP + instruction-file adapters (v0.9)
 ```
 
 | Phase | Action |
@@ -143,6 +146,11 @@ Also: `version`, `teardown`. Operations runbook: [docs/RUNBOOK.md](docs/RUNBOOK.
 | **MCP clients** | `flint mcp` server | `lib/mcp` |
 | **OpenClaw** | Adapter | [docs/adapters/openclaw.md](docs/adapters/openclaw.md) |
 | **Hermes** | Adapter | [docs/adapters/hermes.md](docs/adapters/hermes.md) |
+| **Codex CLI** | MCP + AGENTS.md adapter | [docs/adapters/codex.md](docs/adapters/codex.md) |
+| **Gemini CLI** | MCP + GEMINI.md adapter | [docs/adapters/gemini.md](docs/adapters/gemini.md) |
+| **Copilot CLI** | MCP + instructions.md adapter | [docs/adapters/copilot.md](docs/adapters/copilot.md) |
+| **OpenCode** | MCP + AGENTS.md adapter | [docs/adapters/opencode.md](docs/adapters/opencode.md) |
+| **Cursor** | MCP + AGENTS.md adapter | [docs/adapters/cursor.md](docs/adapters/cursor.md) |
 
 ---
 
