@@ -304,6 +304,59 @@ func TestDoneWritesSession(t *testing.T) {
 	}
 }
 
+// TestDoneStaleWarningReachable — 실배선 도달성 회귀(코드리뷰 #3): 훅은
+// Claude session_id(UUID)를 --session으로 넘긴다. UUID가 그대로 agent가
+// 되면 세션마다 agent가 갈라져 StaleSessionRuns가 1을 못 넘어 stale 경고가
+// 영구히 발화되지 않는다(T17/T44 무효). 서로 다른 UUID 세션이 끝나도
+// 집계 agent는 하니스 기본(claude)으로 안정되어야 임계값(기본 3) 도달
+// 시 4번째 done에서 경고가 실제 발화된다.
+func TestDoneStaleWarningReachable(t *testing.T) {
+	sessions := []string{
+		"3f2a1c9e-6b7d-4c8e-9f0a-1b2c3d4e5f67",
+		"8e1d0b7a-4c2f-4a9b-b3c5-7d6e5f4a3b21",
+		"c5b9a2d4-7e3f-4d1a-8f2b-9a1b2c3d4e5f",
+	}
+	f := &fakeStore{}
+	d := &doneFake{fakeStore: f, stubbed: true}
+	// 서로 다른 세션 3회(카운트 후 적립 모델 — 세션 행은 done이 세고 나서
+	// 쌓이므로 0→1→2) — 어느 UUID로 끝나도 집계 agent는 하나로 안정되고
+	// 임계값 직전이라 ok.
+	for i, sid := range sessions {
+		d.runs = i
+		d.gotAgent = ""
+		out, code := mustDone(t, d, []string{"--session", sid})
+		if code != 0 {
+			t.Fatalf("%d세션 exit=%d, want 0; out=%s", i+1, code, out)
+		}
+		if d.gotAgent != "claude" {
+			t.Fatalf("%d세션 집계 agent=%q, want claude(세션 UUID가 새면 누적 불가)", i+1, d.gotAgent)
+		}
+		if m := decode(t, out); m["status"] != "ok" {
+			t.Fatalf("%d세션 status=%v, want ok(임계값 직전); out=%s", i+1, m["status"], out)
+		}
+	}
+	// 4번째 done — 누적 3 도달, 경고 실제 발화.
+	uuid4 := "d1c2b3a4-9f8e-4d7c-b6a5-4e3f2d1c0b9a"
+	d.runs = 3
+	out, code := mustDone(t, d, []string{"--session", uuid4})
+	if code != 0 {
+		t.Fatalf("4번째 exit=%d, want 0(경고여도 종료); out=%s", code, out)
+	}
+	if d.gotAgent != "claude" {
+		t.Fatalf("4번째 집계 agent=%q, want claude", d.gotAgent)
+	}
+	m := decode(t, out)
+	if m["status"] != "stale" || m["runs"] != float64(3) {
+		t.Fatalf("4번째 출력=%v, want stale/3(경고 실제 발화)", m)
+	}
+	// sessions 행 agent도 안정 식별자 — 누적 카운트의 집계 키.
+	for i, rec := range f.inserted {
+		if rec["agent"] != "claude" {
+			t.Fatalf("삽입 %d건째 agent=%v, want claude", i+1, rec["agent"])
+		}
+	}
+}
+
 // 2회 done 시 갱신(중복 행 금지) — 최근 세션이 종료 마커면 UPDATE만.
 func TestDoneUpdatesExistingSession(t *testing.T) {
 	f := &fakeStore{}
