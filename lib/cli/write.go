@@ -63,7 +63,8 @@ func recordUsage(ctx context.Context, st Store, kind, source string) {
 	}
 }
 
-// runWrite — stdin JSON/JSONL 다중(단일 커밋, all-or-nothing)을 처리한다.
+// runWrite — stdin JSON/JSONL 다중을 처리한다. 커밋은 배치 1회, dedup은
+// 줄별(duplicate 줄 skip·신규 줄 부분 커밋; 전부 duplicate면 0건 커밋).
 func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	kind, session := "", ""
 	var pos []string
@@ -98,11 +99,14 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		return 3
 	}
 
-	// 검증 → 살균 → 정규화 → 해시 dedup → 판정. 첫 실패에서 즉시 반환(exit 3/0).
+	// 검증 → 살균 → 정규화 → 해시 dedup(줄별 skip) → 판정. 검증 실패에서만 즉시
+	// 반환(exit 3). duplicate 줄은 배치 전체를 폐기하지 않고 skip — 부분 커밋.
 	recs := make([]map[string]any, 0, len(payloads))
 	dropped := map[string]bool{}
 	var warnings []string
 	hash, state := "", "active"
+	dups := 0
+	seen := map[string]bool{} // 배치 내 동일 content_hash 줄: InsertBatch 전체 실패 방지
 	for _, p := range payloads {
 		if se := store.Validate(kind, p); se != nil {
 			fmt.Fprintln(stdout, errLine(se))
@@ -128,17 +132,19 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			// 해시 입력은 휘발성 필드(valid_at 등) 제외 경로(HashCanonical)여야
 			// 동일 payload 재전송이 duplicate로 판정된다(시딩 멱등).
 			h := store.ContentHash(store.HashCanonical(n))
+			if seen[h] { // 같은 배치 내 중복 줄도 skip 대상
+				dups++
+				continue
+			}
+			seen[h] = true
 			exists, err := st.ExistsHash(ctx, h)
 			if err != nil {
 				fmt.Fprintln(stdout, errLine(err))
 				return store.MapExit(err)
 			}
 			if exists {
-				// 유입 계측(T61): duplicate도 write 유입 1회 + dup 1회(이중 계수 금지).
-				recordUsage(ctx, st, "write", source)
-				recordUsage(ctx, st, "dup", "")
-				fmt.Fprintln(stdout, store.OutputJSON("duplicate", "", "", 0))
-				return 0
+				dups++ // 줄별 dedup: 이 줄만 skip, 나머지 신규 줄은 커밋된다
+				continue
 			}
 			conf, _ := n["confidence"].(float64)
 			state = store.Classify(kind, conf)
@@ -156,9 +162,18 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		recs = append(recs, n)
 	}
 
+	if len(recs) == 0 {
+		// 전부 duplicate: 시딩 멱등 — 0건 커밋·exit 0. 유입 계측(T61)은 write
+		// 1회 + dup(skip 줄 수)회, 이중 계수 금지.
+		recordUsage(ctx, st, "write", source)
+		recordDups(ctx, st, dups)
+		fmt.Fprintln(stdout, store.OutputJSON("duplicate", "", "", 0))
+		return 0
+	}
 	ids, err := st.InsertBatch(ctx, recs)
 	if err != nil {
 		if errors.Is(err, store.ErrDuplicate) {
+			// 레이스(ExistsHash 통과 후 동시 삽입): 트랜잭션 전체 롤백 상태.
 			recordUsage(ctx, st, "write", source)
 			recordUsage(ctx, st, "dup", "")
 			fmt.Fprintln(stdout, store.OutputJSON("duplicate", "", "", 0))
@@ -171,21 +186,52 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	if session != "" {
 		msg += fmt.Sprintf(" [session:%s]", session)
 	}
-	if _, err := st.Commit(ctx, msg); err != nil {
+	commitHash, err := st.Commit(ctx, msg)
+	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
-	id := 0
-	if len(ids) > 0 {
-		id = ids[0]
+	var out string
+	if len(payloads) == 1 {
+		// 단일 줄은 기존 {status,hash,state,id} 불변(하위호환).
+		id := 0
+		if len(ids) > 0 {
+			id = ids[0]
+		}
+		out = store.OutputJSON("committed", hash, state, id)
+	} else {
+		// 다중 줄: 마지막 줄 hash·state + 첫 줄 id 혼합 대신 집계형 단일 커밋 해시.
+		out = multiCommitOutput(len(recs), dups, commitHash)
 	}
-	out := store.OutputJSON("committed", hash, state, id)
 	if len(dropped) > 0 || len(warnings) > 0 {
 		out = withWarnings(out, dropped, warnings)
 	}
 	recordUsage(ctx, st, "write", source) // 신규 커밋 성공 후 유입 1회(T61)
+	recordDups(ctx, st, dups)             // 혼합 배치의 skip 줄도 dup 계측
 	fmt.Fprintln(stdout, out)
 	return 0
+}
+
+// recordDups — skip된 duplicate 줄 수만큼 dup 유입을 계측한다(0은 no-op).
+func recordDups(ctx context.Context, st Store, n int) {
+	for i := 0; i < n; i++ {
+		recordUsage(ctx, st, "dup", "")
+	}
+}
+
+// multiCommitOutput — JSONL 다중(2줄 이상) 커밋 출력. 줄별 hash·state·id
+// 혼합 대신 집계(inserted·duplicates)와 배치 커밋 해시 1개만 남긴다.
+func multiCommitOutput(inserted, duplicates int, commitHash string) string {
+	b, err := json.Marshal(map[string]any{
+		"status":     "committed",
+		"inserted":   inserted,
+		"duplicates": duplicates,
+		"hash":       commitHash,
+	})
+	if err != nil {
+		return `{"status":"committed"}`
+	}
+	return string(b)
 }
 
 // sanitizeFields — 살균 대상 텍스트 컬럼(kind 공통 최소집합).
