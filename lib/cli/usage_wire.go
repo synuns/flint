@@ -10,4 +10,11 @@ func (s *realStore) RecordUsage(ctx context.Context, kind, source string) error 
 	return s.repo.RecordUsage(ctx, kind, source)
 }
 
+// RecordUsageCount — realStore 위임: 유입 계측 count회 일괄 증분
+// (write.go recordDups의 UsageCountStore 세임 — dup N을 1회 호출로).
+func (s *realStore) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
+	return s.repo.RecordUsageCount(ctx, kind, source, count)
+}
+
 var _ UsageStore = (*realStore)(nil)
+var _ UsageCountStore = (*realStore)(nil)

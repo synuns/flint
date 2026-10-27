@@ -121,7 +121,9 @@ func TestWriteRecordsUsage(t *testing.T) {
 // 호출 순서 [write,source]→[dup,""]). dedup 이중 경로(ExistsHash·InsertBatch
 // ErrDuplicate) 모두 동일.
 func TestWriteDupCountsOnceEach(t *testing.T) {
-	payload := `{"topic":"t","summary":"s","confidence":0.9,"tags":["x"]}`
+	// tags 없는 페이로드: 어휘 경고가 없어 duplicate 한 줄 exact-match가
+	// 유지된다(#6 이후 dup 출력에도 경고가 병행되므로).
+	payload := `{"topic":"t","summary":"s","confidence":0.9}`
 	t.Run("exists-hash", func(t *testing.T) {
 		rec := withRecorder(t, &fakeStore{exists: true})
 		out, code := mustRun(t, []string{"write", "knowledge", "--source", "hook"}, payload)
@@ -134,9 +136,16 @@ func TestWriteDupCountsOnceEach(t *testing.T) {
 		}
 	})
 	t.Run("insert-batch-dup", func(t *testing.T) {
-		rec := withRecorder(t, &fakeStore{insertErr: errDuplicateSentinel()})
-		out, code := mustRun(t, []string{"write", "session", "--source", "mcp"},
-			`{"agent":"claude","summary":"s"}`)
+		// 레이스(사전 확인 통과 후 배치에서 ErrDuplicate): 재확인에서 존재로
+		// 판명되면 유실 없이 duplicate — write 1 + dup 1 계약은 불변.
+		// (재시도까지 ErrDuplicate인 실제 충돌은 write_test.go가 다룬다.)
+		rs := &raceDupStore{fakeStore: &fakeStore{}, racedDups: 1}
+		rec := &writeUsageRecorder{Store: rs}
+		prev := newStore
+		newStore = func(ctx context.Context, dsn string) (Store, error) { return rec, nil }
+		t.Cleanup(func() { newStore = prev })
+		out, code := mustRun(t, []string{"write", "knowledge", "--source", "mcp"},
+			`{"topic":"t","summary":"s","confidence":0.9}`)
 		if code != 0 {
 			t.Fatalf("exit=%d out=%s, want 0", code, out)
 		}

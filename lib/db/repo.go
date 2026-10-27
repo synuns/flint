@@ -282,6 +282,18 @@ func (r *Repo) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return exists, nil
 }
 
+// ExistsProject는 해당 name이 projects에 이미 있는지 돌려준다(project dedup
+// 사전 확인 — knowledge content_hash와 대칭인 자연키 확인, unique(name)).
+func (r *Repo) ExistsProject(ctx context.Context, name string) (bool, error) {
+	var exists bool
+	err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM projects WHERE name = $1)`, name).Scan(&exists)
+	if err != nil {
+		return false, fmt.Errorf("exists_project: %w", err)
+	}
+	return exists, nil
+}
+
 // Commit은 dolt_add('-A') 후 dolt_commit('-m', msg)을 실행해 커밋 해시를 돌려준다.
 // 충돌 가능성을 고려해 기본 delays(0s/1s/3s)로 Retry한다.
 func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {

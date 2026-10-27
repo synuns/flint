@@ -66,6 +66,9 @@ func (d *delegatingDone) InsertBatch(ctx context.Context, recs []map[string]any)
 func (d *delegatingDone) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return d.real.ExistsHash(ctx, hash)
 }
+func (d *delegatingDone) ExistsProject(ctx context.Context, name string) (bool, error) {
+	return d.real.ExistsProject(ctx, name)
+}
 func (d *delegatingDone) Commit(ctx context.Context, msg string) (string, error) {
 	return d.real.Commit(ctx, msg)
 }
@@ -136,7 +139,7 @@ func TestDoneStaleBoundary(t *testing.T) {
 		runs   int
 		status string
 	}{
-		{2, "ok"}, // 임계값 직전
+		{2, "ok"},    // 임계값 직전
 		{3, "stale"}, // 기본 StaleSessions=3 도달
 	}
 	for _, c := range cases {
@@ -353,6 +356,38 @@ func TestDoneStaleWarningReachable(t *testing.T) {
 	for i, rec := range f.inserted {
 		if rec["agent"] != "claude" {
 			t.Fatalf("삽입 %d건째 agent=%v, want claude", i+1, rec["agent"])
+		}
+	}
+}
+
+// 2차 리뷰 #1 — UUID 형식(훅 실배선 형식)만 claude로 집계된다.
+func TestAgentForSessionUUIDMapsClaude(t *testing.T) {
+	f := &fakeStore{}
+	d := &doneFake{fakeStore: f, stubbed: true}
+	for _, sid := range []string{
+		"3f2a1c9e-6b7d-4c8e-9f0a-1b2c3d4e5f67",
+		"D1C2B3A4-9F8E-4D7C-B6A5-4E3F2D1C0B9A", // 대문자 hex도 UUID
+	} {
+		if got := agentForSession(context.Background(), d, sid); got != "claude" {
+			t.Fatalf("UUID %s agent=%q, want claude", sid, got)
+		}
+	}
+}
+
+// 2차 리뷰 #1 — UUID가 아닌 미해석 문자열(e2e·타 하니스)은 그 값 자체를
+// agent로 쓴다. claude로 흡수되면 실제 claude 세션 summary를 덮어쓰고
+// stale 경고가 오발화된다.
+func TestAgentForSessionNonUUIDStaysOwn(t *testing.T) {
+	f := &fakeStore{}
+	d := &doneFake{fakeStore: f, stubbed: true}
+	for _, sid := range []string{
+		"e2e-backup-probe",
+		"codex-xyz",
+		"done-seam-probe",
+		"42", // 숫자 id 미발견 — 원본 문자열 유지
+	} {
+		if got := agentForSession(context.Background(), d, sid); got != sid {
+			t.Fatalf("비-UUID %q agent=%q, want 원본 문자열(고립 행)", sid, got)
 		}
 	}
 }
