@@ -23,6 +23,7 @@ type Store interface {
 	Migrate(ctx context.Context) error
 	InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error)
 	ExistsHash(ctx context.Context, hash string) (bool, error)
+	ExistsProject(ctx context.Context, name string) (bool, error)
 	Commit(ctx context.Context, msg string) (string, error)
 	Ping(ctx context.Context) error
 	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
@@ -165,6 +166,10 @@ func (s *realStore) InsertBatch(ctx context.Context, recs []map[string]any) ([]i
 
 func (s *realStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return s.repo.ExistsHash(ctx, hash)
+}
+
+func (s *realStore) ExistsProject(ctx context.Context, name string) (bool, error) {
+	return s.repo.ExistsProject(ctx, name)
 }
 
 func (s *realStore) Commit(ctx context.Context, msg string) (string, error) {

@@ -54,6 +54,13 @@ func bumpMeta(ctx context.Context, pool *pgxpool.Pool, key string) error {
 var usageRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second}
 
 // RecordUsage — v0.6 유입 계측 1회를 meta에 기록한다(플랜 T60).
+// count 일괄 증분 본체는 RecordUsageCount — 이 메서드는 count=1 위임.
+func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
+	return r.RecordUsageCount(ctx, kind, source, 1)
+}
+
+// RecordUsageCount — 유입 계측 count회를 daily 카운터에 일괄 증분한다
+// (dup N 회계의 O(N) 읽기-쓰기 회피 — bumpDaily가 delta map을 수용).
 // kind = write|hot|read|dup. last_<kind>_at을 RFC3339로 upsert하고(dup는
 // 시각 키 없음 — write 시각 준용) `daily:YYYY-MM-DD` JSON 카운터를 증분한다.
 // write는 source 카운터(hook|manual|mcp)를 병행한다. 14일 초과 daily 키는
@@ -66,15 +73,18 @@ var usageRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second}
 // 기록 upsert는 병렬 세션과 40001 충돌이 가능해 재시도로 회복하며, 소진
 // 시 조용히 넘긴다 — 호출부(write·read·hot)가 이미 오류를 폐기하는 계측
 // 원칙(사용 로그 유실이 호출 실패보다 낫다)을 RecordUsage도 따른다.
-func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
+func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	switch kind {
 	case "write", "hot", "read", "dup":
 	default:
 		return fmt.Errorf("record usage: invalid kind %q", kind)
 	}
-	delta := map[string]int{kind: 1}
+	if count < 1 {
+		return fmt.Errorf("record usage: invalid count %d", count)
+	}
+	delta := map[string]int{kind: count}
 	if kind == "write" && source != "" {
-		delta[source] = 1
+		delta[source] = count
 	}
 	day := time.Now().UTC().Format("2006-01-02")
 	created := false // 이 호출으로 오늘 daily 키가 신규 생성됐는가(롤오버 첫 이벤트)

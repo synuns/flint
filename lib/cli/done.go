@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"sync"
 	"time"
@@ -113,9 +114,22 @@ func doneThresholds(ctx context.Context, st Store) store.Thresholds {
 	return th
 }
 
+// hookDefaultAgent — UUID 세션의 집계 agent 기본값. 훅 실배선은 Claude
+// session_id(UUID)를 --session으로 넘기는데, UUID를 그대로 agent로 쓰면
+// 세션마다 agent가 갈라져 StaleSessionRuns가 영구히 1을 못 넘어 stale
+// 경고가 발화되지 않는다(T17/T44 도달성 결함). compact 적립 행의 agent
+// (compact.go "claude")와 같은 하니스 식별자로 안정시킨다.
+const hookDefaultAgent = "claude"
+
+// hookSessionUUIDRe — 훅 실배선이 넘기는 Claude session_id 형식
+// (8-4-4-4-12 hex). claude 흡수는 이 형식에만 해당한다(2차 리뷰 #1).
+var hookSessionUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
+
 // agentForSession — session 값으로 집계 대상 agent를 찾는다. 숫자면
-// sessions.id 조회 결과를 쓰고, 아니거나 미발견이면 값을 그대로 agent로
-// 쓴다(훅이 넘기는 세션 식별자 형식이 섞여 있어 둘 다 수용).
+// sessions.id 조회 결과를 쓰고, UUID면 하니스 기본 agent(hookDefaultAgent,
+// 훅 UUID 세션이 compact 행과 한 agent로 집계). 그 외 미해석 값(e2e·타
+// 하니스 문자 세션, 미발견 숫자 id)은 그 값 자체를 agent로 쓴다 —
+// 흡수하면 실제 claude 세션 summary를 덮어쓰고 stale 경고가 오발화된다.
 func agentForSession(ctx context.Context, st Store, session string) string {
 	if id, err := strconv.Atoi(session); err == nil {
 		rows, err := queryOnce(ctx, st, `SELECT agent FROM sessions WHERE id = $1`, []any{id})
@@ -124,6 +138,9 @@ func agentForSession(ctx context.Context, st Store, session string) string {
 				return a
 			}
 		}
+	}
+	if hookSessionUUIDRe.MatchString(session) {
+		return hookDefaultAgent
 	}
 	return session
 }

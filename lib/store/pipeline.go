@@ -5,9 +5,6 @@ import (
 	"errors"
 )
 
-// 판정 경계: knowledge의 confidence가 이 값 미만이면 pending.
-const pendingThreshold = 0.8
-
 // exit 판정 기준 에러 심볼. db 계층(T2 pool·T7 repo)은 이 값을 그대로
 // 사용하거나(errors.Is로 통과) 자체 심볼을 별칭 지정한다.
 var (
@@ -31,10 +28,12 @@ type duplicateOutput struct {
 	Status string `json:"status"`
 }
 
-// Classify는 쓰기 판정 규칙: kind==knowledge && confidence<0.8 → pending,
-// 그 외(경계 0.8 포함)는 active.
-func Classify(kind string, conf float64) string {
-	if kind == "knowledge" && conf < pendingThreshold {
+// Classify는 쓰기 판정 규칙: kind==knowledge && confidence<floor → pending,
+// 그 외(경계 포함)는 active. floor는 호출자가 meta conf_floor에서 읽어 값으로
+// 전달한다(전역 주입 없음 — doneThresholds 관례). 범위 검사는 파서
+// (ParseThresholds, 0~1 수용)가 단일 출처다.
+func Classify(kind string, conf, floor float64) string {
+	if kind == "knowledge" && conf < floor {
 		return "pending"
 	}
 	return "active"
@@ -73,4 +72,20 @@ func MapExit(err error) int {
 	default:
 		return 1
 	}
+}
+
+// MultiCommitOutput — JSONL 다중(2줄 이상) 커밋 출력 바디. 줄별 hash·state·id
+// 혼합 대신 집계(inserted·duplicates)와 배치 dolt 커밋 해시 1개만 남긴다
+// (출력 계약 소유는 store 계층 — committedOutput 옆).
+func MultiCommitOutput(inserted, duplicates int, commitHash string) string {
+	b, err := json.Marshal(map[string]any{
+		"status":     "committed",
+		"inserted":   inserted,
+		"duplicates": duplicates,
+		"hash":       commitHash,
+	})
+	if err != nil {
+		return `{"status":"committed"}`
+	}
+	return string(b)
 }

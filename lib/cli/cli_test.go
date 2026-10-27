@@ -16,14 +16,15 @@ import (
 // rows·queryFn 미지정 시 영(零) 동작을 반환한다.
 type fakeStore struct {
 	// stub 조건
-	exists    bool
-	existsErr error
-	insertErr error
-	commitErr error
-	pingErr   error
-	queryErr  error
-	rows      [][]any
-	queryFn   func(sql string, args []any) ([][]any, error)
+	exists        bool
+	existsErr     error
+	existsProject map[string]bool // name별 존재 판정(nil이면 전부 false)
+	insertErr     error
+	commitErr     error
+	pingErr       error
+	queryErr      error
+	rows          [][]any
+	queryFn       func(sql string, args []any) ([][]any, error)
 
 	// 기록
 	inserted []map[string]any
@@ -31,7 +32,7 @@ type fakeStore struct {
 	queries  []string
 }
 
-func (f *fakeStore) Migrate(ctx context.Context) error              { return nil }
+func (f *fakeStore) Migrate(ctx context.Context) error { return nil }
 func (f *fakeStore) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	f.inserted = append(f.inserted, recs...)
 	if f.insertErr != nil {
@@ -45,6 +46,9 @@ func (f *fakeStore) InsertBatch(ctx context.Context, recs []map[string]any) ([]i
 }
 func (f *fakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return f.exists, f.existsErr
+}
+func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
+	return f.existsProject[name], nil // nil map 조회는 false(영 동작)
 }
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	f.commits = append(f.commits, msg)
@@ -108,6 +112,12 @@ func (d *delegatingFake) ExistsHash(ctx context.Context, hash string) (bool, err
 		return d.fake.exists, d.fake.existsErr
 	}
 	return d.real.ExistsHash(ctx, hash)
+}
+func (d *delegatingFake) ExistsProject(ctx context.Context, name string) (bool, error) {
+	if d.fake.existsProject != nil {
+		return d.fake.ExistsProject(ctx, name)
+	}
+	return d.real.ExistsProject(ctx, name)
 }
 func (d *delegatingFake) Commit(ctx context.Context, msg string) (string, error) {
 	d.fake.commits = append(d.fake.commits, msg)
