@@ -94,7 +94,12 @@ Doltgres (localhost:5433, docker compose 상시 — restart 정책)
 3. **판정**: `kind==knowledge && confidence<0.8` → pending, 그 외 active
 4. **커밋**: 배치 INSERT → `dolt_add` → `dolt_commit`(메시지 `유형: 내용 [session:ID]`)
    — 충돌 재시도 0s/1s/3s, 3회 실패 시 exit 1
-5. **출력**: `{"status":"committed","hash":"...","state":"pending","id":N}`
+5. **출력**: 단일 줄(JSON 1개)은 `{"status":"committed","hash":"...","state":"pending","id":N}`
+   불변. JSONL 다중(2줄 이상, 단일 커밋)은 집계형
+   `{"status":"committed","inserted":N,"duplicates":M,"hash":"..."}` —
+   `hash`는 **dolt 커밋 해시**(content_hash 아님), inserted/duplicates는
+   실제 삽입·skip 줄 수(부분 커밋). duplicate 줄의 살균·비밀 경고는
+   `"warnings"` 배열로 병행 출력된다.
 
 payload (stdin JSON / JSONL 다중 = 단일 커밋, 원자성 all-or-nothing):
 ```json

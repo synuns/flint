@@ -233,14 +233,20 @@ func TestSeedIdempotent(t *testing.T) {
 	if code, outs := seedOnce(); code != 0 {
 		t.Fatalf("첫 시딩 exit=%d outputs=%v", code, outs)
 	}
-	// 2회째: 전부 duplicate 한 줄·exit 0(멱등 계약).
+	// 2회째: 전부 duplicate·exit 0(멱등 계약). duplicate 경로도 경고를
+	// 병행 출력하므로(v0.9.2 #6) status 필드로 판정한다.
 	code, outs := seedOnce()
 	if code != 0 {
 		t.Fatalf("재시딩 exit=%d, want 0", code)
 	}
 	for i, out := range outs {
-		if out != `{"status":"duplicate"}` {
-			t.Errorf("재시딩 %d번째 출력 = %q, want duplicate", i+1, out)
+		var m map[string]any
+		if err := json.Unmarshal([]byte(out), &m); err != nil {
+			t.Errorf("재시딩 %d번째 출력 파싱 실패: %q", i+1, out)
+			continue
+		}
+		if m["status"] != "duplicate" {
+			t.Errorf("재시딩 %d번째 status = %v, want duplicate (out=%q)", i+1, m["status"], out)
 		}
 	}
 }
