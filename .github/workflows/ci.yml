@@ -30,6 +30,16 @@ jobs:
           go-version-file: go.mod
       - name: PyYAML 설치 (validate_yaml.py 의존 — runner 선행 패키지 가정 제거)
         run: python3 -m pip install pyyaml
+      - name: DB 준비 대기 (Doltgres 워밍업 — 포트 오픈≠쿼리 준비, 초기 패키지 retries_exhausted 방지)
+        run: |
+          go build -o /tmp/flint-wait ./cmd/flint
+          for i in $(seq 1 30); do
+            if /tmp/flint-wait doctor --check db >/dev/null 2>&1; then
+              echo "DB ready (attempt $i)"; exit 0
+            fi
+            sleep 2
+          done
+          echo "DB not query-ready after 60s"; exit 1
       - name: YAML 검증 + 단위 테스트
         run: make ci
       - name: e2e (실 Doltgres)
