@@ -55,12 +55,30 @@ type UsageStore interface {
 	RecordUsage(ctx context.Context, kind, source string) error
 }
 
+// UsageCountStore — count회를 일괄 증분하는 유입 계측 확장. recordDups가
+// dup N을 1회 호출로 기록한다(O(N) 읽기-쓰기 회피 — db.Repo.RecordUsageCount).
+// 미구현 Store(레거시 fake)는 recordDups가 1회씩 N번 폴백.
+type UsageCountStore interface {
+	RecordUsageCount(ctx context.Context, kind, source string, count int) error
+}
+
 // recordUsage — Store가 UsageStore면 유입 1회를 기록한다. 미구현 no-op,
 // 실패는 조용히(계측이 쓰기 결과·exit 코드를 깨지 않는다 — 플랜 T61).
 func recordUsage(ctx context.Context, st Store, kind, source string) {
 	if us, ok := st.(UsageStore); ok {
 		_ = us.RecordUsage(ctx, kind, source)
 	}
+}
+
+// writeThresholds — loadThresholds(maintain.go 소유) 재사용(doneThresholds
+// 관례 승계): 판정 임계값은 쓰기 시점 meta 값. 읽기 실패 시 기본값 폴백
+// (비간섭: 판정 로드가 쓰기 결과·exit를 바꾸지 않는다).
+func writeThresholds(ctx context.Context, st Store) store.Thresholds {
+	th, err := loadThresholds(ctx, st)
+	if err != nil {
+		return store.DefaultThresholds()
+	}
+	return th
 }
 
 // runWrite — stdin JSON/JSONL 다중을 처리한다. 커밋은 배치 1회, dedup은
@@ -101,12 +119,15 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 
 	// 검증 → 살균 → 정규화 → 해시 dedup(줄별 skip) → 판정. 검증 실패에서만 즉시
 	// 반환(exit 3). duplicate 줄은 배치 전체를 폐기하지 않고 skip — 부분 커밋.
+	// 판정 floor는 이번 쓰기가 읽은 meta conf_floor(값 전달 — 전역 주입 없음).
+	floor := writeThresholds(ctx, st).ConfFloor
 	recs := make([]map[string]any, 0, len(payloads))
 	dropped := map[string]bool{}
 	var warnings []string
 	hash, state := "", "active"
 	dups := 0
-	seen := map[string]bool{} // 배치 내 동일 content_hash 줄: InsertBatch 전체 실패 방지
+	// 배치 내 동일 키 줄(knowledge content_hash·project name): InsertBatch 전체 실패 방지
+	seen := map[string]bool{}
 	for _, p := range payloads {
 		if se := store.Validate(kind, p); se != nil {
 			fmt.Fprintln(stdout, errLine(se))
@@ -147,10 +168,29 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
-			state = store.Classify(kind, conf)
+			state = store.Classify(kind, conf, floor)
 			n["content_hash"] = h
 			n["status"] = state
 			hash = h
+		}
+		if kind == "project" {
+			// 자연키 name 줄별 dedup(knowledge content_hash와 동일 계약 —
+			// unique(name) 충돌을 배치 전에 skip해 시딩 멱등 확보).
+			name, _ := n["name"].(string)
+			if seen["project:"+name] { // 같은 배치 내 동일 name 줄도 skip 대상
+				dups++
+				continue
+			}
+			seen["project:"+name] = true
+			exists, err := st.ExistsProject(ctx, name)
+			if err != nil {
+				fmt.Fprintln(stdout, errLine(err))
+				return store.MapExit(err)
+			}
+			if exists {
+				dups++ // 줄별 dedup: 이 줄만 skip, 나머지 신규 줄은 커밋된다
+				continue
+			}
 		}
 		n["kind"] = kind
 		for k := range n {
@@ -162,25 +202,83 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		recs = append(recs, n)
 	}
 
-	if len(recs) == 0 {
-		// 전부 duplicate: 시딩 멱등 — 0건 커밋·exit 0. 유입 계측(T61)은 write
-		// 1회 + dup(skip 줄 수)회, 이중 계수 금지.
+	// emitDuplicate — 전부 duplicate(사전 확인·레이스 재확인 공통): 0건 커밋·
+	// exit 0 "duplicate"(시딩 멱등). 유입 계측(T61)은 write 1회 + 실제 skip 줄
+	// 수(이중 계수 금지), 경고는 폐기하지 않는다(dup 줄의 살균·비밀 경고 유지).
+	emitDuplicate := func() {
 		recordUsage(ctx, st, "write", source)
 		recordDups(ctx, st, dups)
-		fmt.Fprintln(stdout, store.OutputJSON("duplicate", "", "", 0))
+		out := store.OutputJSON("duplicate", "", "", 0)
+		if len(dropped) > 0 || len(warnings) > 0 {
+			out = withWarnings(out, dropped, warnings)
+		}
+		fmt.Fprintln(stdout, out)
+	}
+
+	if len(recs) == 0 {
+		emitDuplicate()
 		return 0
 	}
 	ids, err := st.InsertBatch(ctx, recs)
 	if err != nil {
-		if errors.Is(err, store.ErrDuplicate) {
-			// 레이스(ExistsHash 통과 후 동시 삽입): 트랜잭션 전체 롤백 상태.
-			recordUsage(ctx, st, "write", source)
-			recordUsage(ctx, st, "dup", "")
-			fmt.Fprintln(stdout, store.OutputJSON("duplicate", "", "", 0))
+		if !errors.Is(err, store.ErrDuplicate) {
+			fmt.Fprintln(stdout, errLine(err))
+			return store.MapExit(err)
+		}
+		// 레이스(사전 확인 통과 후 동시 삽입)로 배치가 롤백됐다: 생존 recs의
+		// 고유 키(knowledge content_hash·project name)를 재확인해 실제 존재하는
+		// 줄만 skip하고 잔여만 1회 재시도 — 전체 폐기 후 exit 0 "duplicate"는
+		// 신규줄 유실이므로 금지.
+		survive := make([]map[string]any, 0, len(recs))
+		for _, r := range recs {
+			if r["kind"] == "project" {
+				// project 줄은 자연키 name 재확인(content_hash가 없어 재시도로
+				// 판정하면 재충돌해 에러화된다 — 첫 시딩 실패의 사슬).
+				name, _ := r["name"].(string)
+				exists, err2 := st.ExistsProject(ctx, name)
+				if err2 != nil {
+					fmt.Fprintln(stdout, errLine(err2))
+					return store.MapExit(err2)
+				}
+				if exists {
+					dups++ // 동시 삽입된 줄: skip — 계측도 실제 skip 수만 반영
+					continue
+				}
+				survive = append(survive, r)
+				continue
+			}
+			h, _ := r["content_hash"].(string)
+			if h == "" {
+				survive = append(survive, r) // 해시 없는 kind는 재확인 불가 — 재시도로 판정
+				continue
+			}
+			exists, err2 := st.ExistsHash(ctx, h)
+			if err2 != nil {
+				fmt.Fprintln(stdout, errLine(err2))
+				return store.MapExit(err2)
+			}
+			if exists {
+				dups++ // 동시 삽입된 줄: skip — 계측도 실제 skip 수만 반영
+				continue
+			}
+			survive = append(survive, r)
+		}
+		if len(survive) == 0 {
+			// 재확인 전부 존재: 신규줄 유실 없는 경로 — exit 0 "duplicate".
+			emitDuplicate()
 			return 0
 		}
-		fmt.Fprintln(stdout, errLine(err))
-		return store.MapExit(err)
+		ids, err = st.InsertBatch(ctx, survive)
+		if err != nil {
+			if errors.Is(err, store.ErrDuplicate) {
+				// 재시도까지 ErrDuplicate: 재확인을 통과한 해시의 실제 충돌 —
+				// ErrDuplicate 자격을 벗겨 에러로 보고(유실 없는 경로만 exit 0).
+				err = fmt.Errorf("write: batch conflict after dedup recheck: %v", err)
+			}
+			fmt.Fprintln(stdout, errLine(err))
+			return store.MapExit(err)
+		}
+		recs = survive
 	}
 	msg := fmt.Sprintf("%s: %v", kind, recs[0]["summary"])
 	if session != "" {
@@ -201,7 +299,7 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		out = store.OutputJSON("committed", hash, state, id)
 	} else {
 		// 다중 줄: 마지막 줄 hash·state + 첫 줄 id 혼합 대신 집계형 단일 커밋 해시.
-		out = multiCommitOutput(len(recs), dups, commitHash)
+		out = store.MultiCommitOutput(len(recs), dups, commitHash)
 	}
 	if len(dropped) > 0 || len(warnings) > 0 {
 		out = withWarnings(out, dropped, warnings)
@@ -213,25 +311,18 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 }
 
 // recordDups — skip된 duplicate 줄 수만큼 dup 유입을 계측한다(0은 no-op).
+// UsageCountStore(실구현)는 count 1회 호출로 일괄 증분, 미구현 Store는 1회씩.
 func recordDups(ctx context.Context, st Store, n int) {
+	if n <= 0 {
+		return
+	}
+	if cs, ok := st.(UsageCountStore); ok {
+		_ = cs.RecordUsageCount(ctx, "dup", "", n)
+		return
+	}
 	for i := 0; i < n; i++ {
 		recordUsage(ctx, st, "dup", "")
 	}
-}
-
-// multiCommitOutput — JSONL 다중(2줄 이상) 커밋 출력. 줄별 hash·state·id
-// 혼합 대신 집계(inserted·duplicates)와 배치 커밋 해시 1개만 남긴다.
-func multiCommitOutput(inserted, duplicates int, commitHash string) string {
-	b, err := json.Marshal(map[string]any{
-		"status":     "committed",
-		"inserted":   inserted,
-		"duplicates": duplicates,
-		"hash":       commitHash,
-	})
-	if err != nil {
-		return `{"status":"committed"}`
-	}
-	return string(b)
 }
 
 // sanitizeFields — 살균 대상 텍스트 컬럼(kind 공통 최소집합).

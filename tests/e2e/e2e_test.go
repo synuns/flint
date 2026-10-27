@@ -146,8 +146,9 @@ func TestDedupIdenticalPayloadTwice(t *testing.T) {
 	if code2 != 0 {
 		t.Fatalf("2회째 exit=%d, want 0(중복도 성공); out=%s", code2, out2)
 	}
-	if got := strings.TrimSpace(out2); got != `{"status":"duplicate"}` {
-		t.Fatalf("2회째 출력=%q, want {\"status\":\"duplicate\"}", got)
+	// duplicate 경로도 경고(어휘 등)를 병행 출력한다(v0.9.2 #6) — status로 판정.
+	if m := decode(t, out2); m["status"] != "duplicate" {
+		t.Fatalf("2회째 status=%v, want duplicate; out=%s", m["status"], out2)
 	}
 
 	if n := countTopic(t, pool, "e2e-dedup-k"); n != 1 {

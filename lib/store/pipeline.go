@@ -5,22 +5,6 @@ import (
 	"errors"
 )
 
-// 판정 경계: knowledge의 confidence가 이 값 미만이면 pending.
-// 기본은 thresholds.go의 defaultConfFloor(단일 출처)이며, meta의 conf_floor를
-// 읽은 호출자(cli newRealStore)가 SetClassifyThresholds로 주입한다
-// (전역 제약: 임계값 하드코딩 금지 → conf_floor 소비).
-var classifyFloor = defaultConfFloor
-
-// SetClassifyThresholds — Classify 판정 기준을 meta에서 읽은 임계값으로 주입.
-// 무효 ConfFloor(≤0, >1)는 거부해 현재 값을 유지 — meta 부재·조회 실패 시
-// 기본 0.8 불변(하위호환).
-func SetClassifyThresholds(th Thresholds) {
-	if th.ConfFloor <= 0 || th.ConfFloor > 1 {
-		return
-	}
-	classifyFloor = th.ConfFloor
-}
-
 // exit 판정 기준 에러 심볼. db 계층(T2 pool·T7 repo)은 이 값을 그대로
 // 사용하거나(errors.Is로 통과) 자체 심볼을 별칭 지정한다.
 var (
@@ -44,10 +28,12 @@ type duplicateOutput struct {
 	Status string `json:"status"`
 }
 
-// Classify는 쓰기 판정 규칙: kind==knowledge && confidence<conf_floor → pending,
-// 그 외(경계 포함)는 active. conf_floor는 미주입 시 기본 0.8.
-func Classify(kind string, conf float64) string {
-	if kind == "knowledge" && conf < classifyFloor {
+// Classify는 쓰기 판정 규칙: kind==knowledge && confidence<floor → pending,
+// 그 외(경계 포함)는 active. floor는 호출자가 meta conf_floor에서 읽어 값으로
+// 전달한다(전역 주입 없음 — doneThresholds 관례). 범위 검사는 파서
+// (ParseThresholds, 0~1 수용)가 단일 출처다.
+func Classify(kind string, conf, floor float64) string {
+	if kind == "knowledge" && conf < floor {
 		return "pending"
 	}
 	return "active"
@@ -86,4 +72,20 @@ func MapExit(err error) int {
 	default:
 		return 1
 	}
+}
+
+// MultiCommitOutput — JSONL 다중(2줄 이상) 커밋 출력 바디. 줄별 hash·state·id
+// 혼합 대신 집계(inserted·duplicates)와 배치 dolt 커밋 해시 1개만 남긴다
+// (출력 계약 소유는 store 계층 — committedOutput 옆).
+func MultiCommitOutput(inserted, duplicates int, commitHash string) string {
+	b, err := json.Marshal(map[string]any{
+		"status":     "committed",
+		"inserted":   inserted,
+		"duplicates": duplicates,
+		"hash":       commitHash,
+	})
+	if err != nil {
+		return `{"status":"committed"}`
+	}
+	return string(b)
 }
