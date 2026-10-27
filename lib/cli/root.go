@@ -129,7 +129,21 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 		s.Close()
 		return nil, err
 	}
+	// 쓰기 판정 배선: meta conf_floor → store.Classify 소비(TUNING.md §2
+	// "갱신 즉시 재적용" — 커맨드별 store 생성 시점 재로드). 실패는 조용히.
+	applyClassifyThresholds(ctx, s)
 	return s, nil
+}
+
+// applyClassifyThresholds — meta 임계값을 읽어 Classify 판정 기준에 주입한다.
+// 조회 실패·미설정은 주입 생략으로 기본 0.8 유지(하위호환) — 판정 로드가
+// 커맨드 결과·exit을 바꾸지 않는다.
+func applyClassifyThresholds(ctx context.Context, st Store) {
+	th, err := loadThresholds(ctx, st)
+	if err != nil {
+		return
+	}
+	store.SetClassifyThresholds(th)
 }
 
 // ensureSchemas — 버전 게이트 v2→v3→v4→v5 순차 승격(newRealStore 전용).
