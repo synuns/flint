@@ -22,12 +22,10 @@ import (
 	"flint/lib/db"
 )
 
-// regDrillDSN — FLINT_DSN 우선, 없으면 기본(ADR-0001: 포트 5433).
+// regDrillDSN — v0.9.3 R1: regTestDSN 위임(FLINT_TEST_DSN 우선·flint_test
+// 기본. FLINT_DSN 운영값은 무시).
 func regDrillDSN() string {
-	if d := os.Getenv("FLINT_DSN"); d != "" {
-		return d
-	}
-	return "postgresql://flint:flint-dev@localhost:5433/flint"
+	return regTestDSN()
 }
 
 // regDrillDB — 실DB 접속. 미기동 시 스킵(회귀는 slow 계층).
