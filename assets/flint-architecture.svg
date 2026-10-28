@@ -1,0 +1,68 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" font-family="-apple-system, 'Segoe UI', 'Noto Sans KR', sans-serif">
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .ink { fill:#e6edf3; } .sub { fill:#8b949e; } .box { stroke:#3d444d; fill:#151b23; }
+      .arrow { stroke:#8b949e; } .arrowh { fill:#8b949e; }
+    }
+    @media (prefers-color-scheme: light) {
+      .ink { fill:#24292f; } .sub { fill:#57606a; } .box { stroke:#d0d7de; fill:#f6f8fa; }
+      .arrow { stroke:#57606a; } .arrowh { fill:#57606a; }
+    }
+    .card { font-size:15px; font-weight:600; }
+    .lbl  { font-size:12.5px; }
+  </style>
+
+  <!-- 에이전트 3그룹 -->
+  <rect class="box" x="20" y="30" width="230" height="58" rx="10"/>
+  <text class="ink card" x="135" y="55" text-anchor="middle">Claude Code</text>
+  <text class="sub lbl"  x="135" y="74" text-anchor="middle">hook plugin · 자동 주입</text>
+
+  <rect class="box" x="20" y="104" width="230" height="74" rx="10"/>
+  <text class="ink card" x="135" y="130" text-anchor="middle">Codex · Gemini · Copilot</text>
+  <text class="ink card" x="135" y="150" text-anchor="middle">OpenCode · Cursor</text>
+  <text class="sub lbl"  x="135" y="168" text-anchor="middle">MCP tools 3종</text>
+
+  <rect class="box" x="20" y="194" width="230" height="58" rx="10"/>
+  <text class="ink card" x="135" y="219" text-anchor="middle">OpenClaw · Hermes</text>
+  <text class="sub lbl"  x="135" y="238" text-anchor="middle">doc adapters</text>
+
+  <!-- flint 코어 -->
+  <rect x="370" y="86" width="220" height="110" rx="14" fill="#f59e0b22" stroke="#f59e0b" stroke-width="2.5"/>
+  <text x="480" y="126" text-anchor="middle" font-size="26" font-weight="800" fill="#b45309">flint</text>
+  <text x="480" y="150" text-anchor="middle" font-size="13" fill="#b45309">CLI · MCP server</text>
+  <text x="480" y="170" text-anchor="middle" font-size="12" fill="#92600a">단일 인터페이스</text>
+
+  <!-- Doltgres -->
+  <path d="M740 96 v96 a110 26 0 0 0 200 0 v-96 a110 26 0 0 1 -200 0 a110 26 0 0 0 200 0"
+        fill="#10b98118" stroke="#10b981" stroke-width="2.5"/>
+  <text x="840" y="140" text-anchor="middle" font-size="19" font-weight="700" fill="#047857">Doltgres</text>
+  <text x="840" y="163" text-anchor="middle" font-size="12" fill="#047857">모든 셀이 커밋</text>
+  <text x="840" y="181" text-anchor="middle" font-size="12" fill="#047857">시간여행 가능</text>
+
+  <!-- 화살표: 에이전트 ⇄ flint -->
+  <g stroke-width="2.5" fill="none" marker-end="url(#ah)">
+    <path class="arrow" d="M250 76 C310 76 320 106 366 114"/>
+    <path class="arrow" d="M250 145 L366 145"/>
+    <path class="arrow" d="M250 230 C310 230 320 190 366 175"/>
+  </g>
+  <text class="sub lbl" x="308" y="66" text-anchor="middle">문맥 주입 ↑</text>
+  <text class="sub lbl" x="308" y="137" text-anchor="middle">read · write</text>
+  <text class="sub lbl" x="308" y="252" text-anchor="middle">기록 ↓</text>
+
+  <!-- 화살표: flint ⇄ Doltgres -->
+  <g stroke="#047857" stroke-width="3" fill="none">
+    <path d="M596 125 C660 115 680 110 736 108" marker-end="url(#ag)"/>
+    <path d="M736 168 C680 170 660 172 596 160" marker-end="url(#ag)"/>
+  </g>
+  <text x="666" y="98" text-anchor="middle" font-size="12" fill="#047857">쓰기·해시 dedup</text>
+  <text x="666" y="192" text-anchor="middle" font-size="12" fill="#047857">git 같은 이력 ↩</text>
+
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path class="arrowh" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#047857"/>
+    </marker>
+  </defs>
+</svg>
