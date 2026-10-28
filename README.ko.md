@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.5-blue" alt="v0.5">
+  <img src="https://img.shields.io/badge/release-v0.9.3-blue" alt="v0.9.3">
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 사람의 노트는 Obsidian(흑요석)에, 에이전트의 기억은 flint(부싯돌)에 — 불과 도구를
 얻기 위해 두드리는 돌.
 
-> v0.5 완료 (2026-10-22) — 신뢰성·검색 품질. 로드맵: [docs/PLAN.md](docs/PLAN.md)
+> v0.9.3 완료 (2026-10-28) — 운영 정착: 테스트 격리·중복 대응. 로드맵: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
@@ -112,12 +112,22 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
         MCP + 지시파일 어댑터 (v0.9)
 ```
 
+<p align="center">
+  <img src="assets/flint-architecture.svg" width="640" alt="flint 아키텍처: 에이전트, flint CLI+MCP, Doltgres 기억 저장소">
+</p>
+
 | 단계 | 동작 |
 | :--- | :--- |
 | **주입** | 세션 시작: 훅이 `flint hot`을 실행해 2,000자 이내 `[flint]` 맥락 블록 스트리밍 |
 | **작업** | 에이전트가 CLI 또는 MCP로 읽고 쓴다 |
 | **기록** | `write` / `done`이 해시 dedup로 JSONL 추가 — 재실행도 멱등 |
 | **검증** | `audit`는 `dolt_log` 조회; `restore --drill`은 원본 불변 복구 훈련 |
+
+네 단계가 하나의 세션 라이프사이클을 이룹니다:
+
+<p align="center">
+  <img src="assets/flint-lifecycle.svg" width="640" alt="flint 세션 라이프사이클: 주입, 작업, 기록, 검증">
+</p>
 
 ---
 
@@ -179,5 +189,5 @@ flint/
   <br/><br/>
   <strong>F L I N T</strong>
   <br/><br/>
-  <code>v0.5 · DoltgreSQL · Go</code>
+  <code>v0.9.3 · DoltgreSQL · Go</code>
 </p>

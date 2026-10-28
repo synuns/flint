@@ -24,8 +24,11 @@ type committedOutput struct {
 	ID     int    `json:"id"`
 }
 
+// duplicateOutput — id>0일 때만 id 필드를 노출한다(R3: 기존 행 id.
+// id 0(미지원 Store·다중 줄)은 맨몸 {"status":"duplicate"} 불변).
 type duplicateOutput struct {
 	Status string `json:"status"`
+	ID     int    `json:"id,omitempty"`
 }
 
 // Classify는 쓰기 판정 규칙: kind==knowledge && confidence<floor → pending,
@@ -40,10 +43,10 @@ func Classify(kind string, conf, floor float64) string {
 }
 
 // OutputJSON은 파이프라인 출력을 한 줄 JSON으로 직렬화한다.
-// status=="duplicate"면 {"status":"duplicate"}만 출력하고 나머지 필드는 버린다.
+// status=="duplicate"면 status·(id>0인 경우)id만 출력하고 나머지 필드는 버린다.
 func OutputJSON(status, hash, state string, id int) string {
 	if status == "duplicate" {
-		b, err := json.Marshal(duplicateOutput{Status: status})
+		b, err := json.Marshal(duplicateOutput{Status: status, ID: id})
 		if err != nil {
 			return `{"status":"duplicate"}`
 		}
