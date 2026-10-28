@@ -43,17 +43,24 @@ type doctorOutput struct {
 	Checks []doctorCheck `json:"checks"`
 }
 
-// runDoctor — --list-checks·--check NAME 서브셋·기본 전체 검사.
-// 무효 인자(unknown flag·--check 값 누락·무효 --check명)는 exit 3(전역
-// 계약: 무효 인자 3). fail 있으면 1, warn은 0.
+// Check — doctor 검사 결과 공개 별명(v0.9.4 --fix 리포트 인자).
+type Check = doctorCheck
+
+// runDoctor — --list-checks·--check NAME 서브셋·--fix 자가수복(v0.9.4,
+// hook-file에만 적용)·기본 전체 검사. 무효 인자(unknown flag·--check 값
+// 누락·무효 --check명)는 exit 3(전역 계약: 무효 인자 3). fail 있으면 1,
+// warn은 0. 무 --fix 경로의 출력·exit은 완전 불변.
 func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	subset := ""
+	fix := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--list-checks":
 			b, _ := json.Marshal(map[string][]string{"checks": DoctorChecks()})
 			fmt.Fprintln(stdout, string(b))
 			return 0
+		case "--fix":
+			fix = true
 		case "--check":
 			i++
 			if i >= len(args) {
@@ -92,6 +99,28 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if subset == "" {
 		checks = append(checks, harnessChecks()...)
 	}
+	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
+	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
+	// 해당 검사만 재평가하고 doctorFixReport 한 줄로 보고한다.
+	fixed := false
+	if fix {
+		for i, c := range checks {
+			if c.Name != "hook-file" || c.Status != "fail" {
+				continue
+			}
+			path := filepath.Join(claudeHome(), "settings.json")
+			bin := flintBinPathFn()
+			applied, _, err := applyHookFix(path, bin)
+			if err != nil {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("doctor --fix: 훅 복구 중단(파일 무변경): %w", err)))
+				return 1
+			}
+			if applied {
+				checks[i] = checkHookFile() // 재평가
+				fixed = true
+			}
+		}
+	}
 	overall := "ok"
 	for _, c := range checks {
 		switch c.Status {
@@ -102,6 +131,13 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 				overall = "warn"
 			}
 		}
+	}
+	if fixed {
+		fmt.Fprintln(stdout, doctorFixReport(checks))
+		if overall == "fail" {
+			return 1
+		}
+		return 0
 	}
 	b, err := json.Marshal(doctorOutput{Status: overall, Checks: checks})
 	if err != nil {
@@ -220,6 +256,112 @@ func valueHasFlintCommand(v any) bool {
 		}
 	}
 	return false
+}
+
+// flintBinPathFn — 훅 명령에 쓸 flint 바이너리 절대경로 seam(var).
+// PATH에 flint가 없으면 bare 명령이 조용히 죽는다(v0.9.4 배경) —
+// os.Executable로 직접 해석한다. 해석 실패 시 빈 문자열.
+var flintBinPathFn = func() string {
+	p, err := os.Executable()
+	if err != nil {
+		return ""
+	}
+	return p
+}
+
+// flintHookCmd — hooks.json 명령의 bare `flint`를 binPath 절대경로로
+// 치환한 훅 명령 1개. 2>/dev/null || true — 훅 실패가 세션을 흔들지
+// 않게 한다(원본 flint-plugin/hooks/hooks.json 승계).
+func flintHookCmd(binPath, sub string) map[string]any {
+	cmd := binPath + " " + sub + " 2>/dev/null || true"
+	return map[string]any{"type": "command", "command": cmd, "timeout": 2}
+}
+
+// flintHookDefs — flint 훅 5개(이벤트 → 추가 엔트리 목록). 명령 셋
+// (hot·nudge/done·nudge/compact)과 matcher는 flint-plugin/hooks/hooks.json
+// 그대로 승계한다.
+func flintHookDefs(binPath string) map[string][]map[string]any {
+	session := "startup|resume|clear|compact"
+	withSession := func(sub string) map[string]any {
+		return map[string]any{
+			"matcher": session,
+			"hooks":   []any{flintHookCmd(binPath, sub)},
+		}
+	}
+	plain := func(sub string) map[string]any {
+		return map[string]any{"hooks": []any{flintHookCmd(binPath, sub)}}
+	}
+	return map[string][]map[string]any{
+		"SessionStart": {
+			withSession(`hot --session "$(jq -r '.session_id // empty' 2>/dev/null)"`),
+			withSession("nudge"),
+		},
+		"Stop": {
+			plain(`done --session "$(jq -r '.session_id // empty' 2>/dev/null)"`),
+			plain("nudge"),
+		},
+		"PostCompact": {plain("compact")},
+	}
+}
+
+// applyHookFix — settings.json에 flint 훅 5개 추가(자가수복 R1).
+// 읽기→파싱→flint 훅 존재 검사(멱등)→타임스탬프 백업→기존 이벤트 배열
+// append→MarshalIndent 쓰기. 기존 훅·다른 키는 전부 불변. 이미 flint 훅이
+// 있으면 (false, "", nil) skip. 파싱 실패는 파일·백업 모두 무변경 채로 err.
+func applyHookFix(path string, binPath string) (applied bool, backupPath string, err error) {
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return false, "", err
+	}
+	if containsFlintHook(string(b)) {
+		return false, "", nil // 멱등 — 이미 등록됨
+	}
+	var doc map[string]any
+	if err := json.Unmarshal(b, &doc); err != nil {
+		return false, "", fmt.Errorf("settings.json 파싱 실패: %w", err)
+	}
+	hooks, _ := doc["hooks"].(map[string]any)
+	if hooks == nil {
+		hooks = map[string]any{}
+	}
+	backupPath = path + ".flint-bak-" + time.Now().Format("20060102-150405")
+	if err := os.WriteFile(backupPath, b, 0o644); err != nil {
+		return false, "", err
+	}
+	for ev, add := range flintHookDefs(binPath) {
+		entries := add // []map[string]any → []any 변환해 append
+		merged := make([]any, 0, len(add)+2)
+		if prev, ok := hooks[ev].([]any); ok {
+			merged = append(merged, prev...)
+		}
+		for _, e := range entries {
+			merged = append(merged, e)
+		}
+		hooks[ev] = merged
+	}
+	doc["hooks"] = hooks
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return false, "", err
+	}
+	if err := os.WriteFile(path, out, 0o644); err != nil {
+		return false, "", err
+	}
+	return true, backupPath, nil
+}
+
+// doctorFixReport — --fix 적용 후 결과 보고 한 줄 JSON. status "fixed" +
+// 검사별 name:status. 다른 fail 검사도 이름:상태로 그대로 노출된다.
+func doctorFixReport(checks []Check) string {
+	m := map[string]any{"status": "fixed"}
+	for _, c := range checks {
+		m[c.Name] = c.Status
+	}
+	b, err := json.Marshal(m)
+	if err != nil {
+		return `{"status":"fixed"}`
+	}
+	return string(b)
 }
 
 // harnessSpec — v0.9 하니스 검진 대상 1종(스펙 C1~C5). Name은 체크명
