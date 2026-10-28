@@ -20,6 +20,10 @@ type fakeMaint struct {
 	counts    db.Counts
 	countsErr error
 
+	dupGroups      []db.DupGroup
+	dupGroupsErr   error
+	dupGroupsCalls []int
+
 	invalErr error
 	mergeErr error
 
@@ -30,6 +34,11 @@ type fakeMaint struct {
 
 func (f *fakeMaint) Counts(ctx context.Context) (db.Counts, error) {
 	return f.counts, f.countsErr
+}
+
+func (f *fakeMaint) DupGroups(ctx context.Context, limit int) ([]db.DupGroup, error) {
+	f.dupGroupsCalls = append(f.dupGroupsCalls, limit)
+	return f.dupGroups, f.dupGroupsErr
 }
 
 func (f *fakeMaint) Invalidate(ctx context.Context, id int, reason string) error {

@@ -320,6 +320,40 @@ func (r *Repo) Counts(ctx context.Context) (Counts, error) {
 	return c, nil
 }
 
+// DupGroup — maintain --dup-suspects 보고용 중복 그룹(active 동일 topic 묶음).
+type DupGroup struct {
+	Topic string
+	IDs   []int
+}
+
+// DupGroups는 active 중 동일 topic 2건 이상 그룹을 반환한다(보고 전용).
+// 산식은 Counts의 dup_suspect와 동일한 GROUP BY이며, ids는 오름차순,
+// 그룹은 topic 오름차순·limit 상한이다.
+func (r *Repo) DupGroups(ctx context.Context, limit int) ([]DupGroup, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT topic, array_agg(id ORDER BY id) FROM knowledge
+		WHERE invalid_at IS NULL AND status = 'active'
+		GROUP BY topic HAVING count(*) > 1
+		ORDER BY topic
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("dup groups: %w", err)
+	}
+	defer rows.Close()
+	groups := []DupGroup{}
+	for rows.Next() {
+		var g DupGroup
+		if err := rows.Scan(&g.Topic, &g.IDs); err != nil {
+			return nil, fmt.Errorf("dup groups: scan: %w", err)
+		}
+		groups = append(groups, g)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("dup groups: rows: %w", err)
+	}
+	return groups, nil
+}
+
 // StaleSessionRuns는 agent의 최근 세션부터 knowledge write 없이 이어진
 // 연속 수다(done 경고 판정). 기록 있는 세션을 만나면 집계가 멈춘다.
 func (r *Repo) StaleSessionRuns(ctx context.Context, agent string) (int, error) {
