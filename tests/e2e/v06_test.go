@@ -9,7 +9,6 @@ package e2e
 
 import (
 	"context"
-	"strings"
 	"testing"
 	"time"
 
@@ -54,20 +53,28 @@ func TestV06VisibilityChain(t *testing.T) {
 	}
 
 	// write --source hook 2건 — 동일 payload 1회 → duplicate 1(exit 0).
+	// duplicate 응답은 기존 행 id 노출 계약(R3): {"status":"duplicate","id":N} —
+	// 1회차 커밋 행 id와 정합 비교로 멱등까지 함께 검증한다.
 	payload := `{"topic":"e2e-v06-k","summary":"v0.6 체인 프로브","confidence":0.9}`
 	out, code = runCLI(t, []string{"write", "knowledge", "--source", "hook"}, payload)
 	if code != 0 {
 		t.Fatalf("write 1회차 exit=%d, want 0; out=%s", code, out)
 	}
-	if m := decode(t, out); m["status"] != "committed" {
+	m := decode(t, out)
+	if m["status"] != "committed" {
 		t.Fatalf("write 1회차 status=%v, want committed; out=%s", m["status"], out)
 	}
+	firstID, _ := m["id"].(float64)
 	out, code = runCLI(t, []string{"write", "knowledge", "--source", "hook"}, payload)
 	if code != 0 {
 		t.Fatalf("write 2회차(duplicate) exit=%d, want 0; out=%s", code, out)
 	}
-	if got := strings.TrimSpace(out); got != `{"status":"duplicate"}` {
-		t.Fatalf("write 2회차 출력=%q, want duplicate", got)
+	dm := decode(t, out)
+	if dm["status"] != "duplicate" {
+		t.Fatalf("write 2회차 status=%v, want duplicate; out=%s", dm["status"], out)
+	}
+	if firstID == 0 || dm["id"] != firstID {
+		t.Fatalf("write 2회차 id=%v, want %v(1회차 커밋 행 id); out=%s", dm["id"], firstID, out)
 	}
 
 	// read → hot: 유입 3경로 완결.

@@ -30,11 +30,13 @@ import (
 	"flint/lib/sqlfs"
 )
 
-// baseDSN — ADR-0001: 포트 5433.
-const baseDSN = "postgresql://flint:flint-dev@localhost:5433/flint"
+// baseDSN — ADR-0001: 포트 5433. v0.9.3 R1: 테스트 격리 DB flint_test.
+const baseDSN = "postgresql://flint:flint-dev@localhost:5433/flint_test"
 
+// dsn — v0.9.3 R1: FLINT_TEST_DSN 우선, 없으면 flint_test 기본.
+// FLINT_DSN(운영)은 e2e에서 무시한다.
 func dsn() string {
-	if d := os.Getenv("FLINT_DSN"); d != "" {
+	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
 		return d
 	}
 	return baseDSN
@@ -169,7 +171,7 @@ func TestRetryRecoversAfterTransientCommitFailure(t *testing.T) {
 
 	backend := backendAddr(t)
 	proxy := newKillProxy(t, backend)
-	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@"+proxy.Addr().String()+"/flint")
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@"+proxy.Addr().String()+dsnPath(t))
 
 	payload := `{"topic":"e2e-retry-k","summary":"재시도 회복 프로브","confidence":0.9}`
 	start := time.Now()
@@ -199,6 +201,17 @@ func backendAddr(t *testing.T) string {
 		t.Fatalf("DSN 파싱: %v", err)
 	}
 	return u.Host
+}
+
+// dsnPath — dsn()의 DB 경로("/flint_test" 등). 프록시 DSN 조립에 쓴다
+// (v0.9.3 R1: 하드코딩 "/flint"는 운영 DB로 직결했었다).
+func dsnPath(t *testing.T) string {
+	t.Helper()
+	u, err := url.Parse(dsn())
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	return u.Path
 }
 
 // killProxy — 첫 dolt_add 요청 바이트만 서버 전달 없이 연결을 끊는 TCP 프록시.

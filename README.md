@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.5-blue" alt="v0.5">
+  <img src="https://img.shields.io/badge/release-v0.9.3-blue" alt="v0.9.3">
 </p>
 
 <p align="center">
@@ -42,7 +42,7 @@ Agents are capable but forget everything between sessions. flint stores project 
 
 Humans keep notes in Obsidian. Agents keep memory in flint — the stone you strike to make fire and tools.
 
-> v0.5 shipped 2026-10-22 — reliability & search quality. Roadmap: [docs/PLAN.md](docs/PLAN.md)
+> v0.9.3 shipped 2026-10-28 — operational hardening: test isolation, duplicate handling. Roadmap: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
@@ -108,12 +108,22 @@ flint is the bridge between **agents**, the **memory store**, and its **git-like
         MCP + instruction-file adapters (v0.9)
 ```
 
+<p align="center">
+  <img src="assets/flint-architecture.svg" width="640" alt="flint architecture: agents, flint CLI+MCP, Doltgres memory store">
+</p>
+
 | Phase | Action |
 | :--- | :--- |
 | **Inject** | Session start: a hook runs `flint hot` and streams a ≤2,000-char `[flint]` context block |
 | **Work** | Agents read and write through the CLI or MCP |
 | **Record** | `write` / `done` append JSONL with hash dedup — reruns stay idempotent |
 | **Verify** | `audit` reads `dolt_log`; `restore --drill` rehearses recovery without touching data |
+
+The four phases form one session lifecycle:
+
+<p align="center">
+  <img src="assets/flint-lifecycle.svg" width="640" alt="flint session lifecycle: inject, work, record, verify">
+</p>
 
 ---
 
@@ -175,5 +185,5 @@ flint/
   <br/><br/>
   <strong>F L I N T</strong>
   <br/><br/>
-  <code>v0.5 · DoltgreSQL · Go</code>
+  <code>v0.9.3 · DoltgreSQL · Go</code>
 </p>

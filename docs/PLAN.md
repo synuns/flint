@@ -338,6 +338,23 @@ flint-plugin/
 - [x] superseded 개념 — 갱신 지식 적립 시 구 항목 무효화 연결(Zep
   invalidated-not-deleted 준거, v0.7 증류 스킬 4연산과 연계)
 
+### v0.9.2 2차 코드리뷰 수정 (2026-10-27 완료, PR #9)
+
+- [x] 코드리뷰 지적 8건 — 레이스 ErrDuplicate 재확인 skip·잔여 재시도,
+  agentForSession UUID만 claude 매핑, Classify 전역 상태 제거(conf_floor
+  0~1 단일 게이트), dup 계측 일괄 증분(RecordUsageCount) 등
+- [x] project kind 멱등 회귀 수정 — 자연키(name) 사전 dedup,
+  ExistsProject 배선으로 시딩 멱등 복원
+
+### v0.9.3 운영 정착 (2026-10-28 기획·완료)
+
+- [x] R1 테스트 격리 — regression 고유 스키마·DSN, e2e DSN 헬퍼 교체
+- [x] R2 실DB 정크 정리 — regression 잔여 행 삭제
+- [x] R3 duplicate 응답 id 노출 — `{"status":"duplicate","id":N}`
+- [x] R4 maintain 중복 그룹 보고 — `{"status":"dup-suspects","groups":[{"topic":T,"ids":[…]}]}`
+- [x] R5 문서 동기화 — README(EN/KO) 배지 v0.9.3·아키텍처/라이프사이클
+  SVG 임베드, 마일스톤 기록
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

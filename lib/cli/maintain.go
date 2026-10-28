@@ -21,6 +21,7 @@ import (
 type MaintStore interface {
 	Store
 	Counts(ctx context.Context) (db.Counts, error)
+	DupGroups(ctx context.Context, limit int) ([]db.DupGroup, error)
 	Invalidate(ctx context.Context, id int, reason string) error
 	Merge(ctx context.Context, fromID, toID int) error
 }
@@ -28,6 +29,10 @@ type MaintStore interface {
 // realStore 위임 — admin.go(T17) 실구현 연결. 메서드 정의만 여기 둔다.
 func (s *realStore) Counts(ctx context.Context) (db.Counts, error) {
 	return s.repo.Counts(ctx)
+}
+
+func (s *realStore) DupGroups(ctx context.Context, limit int) ([]db.DupGroup, error) {
+	return s.repo.DupGroups(ctx, limit)
 }
 
 func (s *realStore) Invalidate(ctx context.Context, id int, reason string) error {
@@ -48,6 +53,7 @@ var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to",
 // 않고 에러로 거부한다(--days·--limit이 --stale 아닌 모드에서 흐르는 등).
 var maintainModeFlags = map[string]map[string]bool{
 	"--check":            {},
+	"--dup-suspects":     {"--limit": true},
 	"--stale":            {"--days": true, "--limit": true},
 	"--invalidate-stale": {"--days": true, "--limit": true},
 	"--invalidate":       {"--id": true, "--reason": true, "--ids": true},
@@ -81,13 +87,14 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	id, from, to := 0, 0, 0
 	old, by := 0, 0 // --supersede OLD --by NEW
 	days, limit := 0, 20 // --stale: days=0 → meta stale_days(기본 90) 폴백
+	dupLimit := 10       // --dup-suspects 기본(스펙 R4: --limit M 기본 10)
 	reason := ""
 	yes := false
 	var idList []int // --ids 파싱 결과(스냅샷 — 재평가 없음)
 	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--check", "--merge", "--stale", "--invalidate", "--invalidate-stale":
+		case "--check", "--dup-suspects", "--merge", "--stale", "--invalidate", "--invalidate-stale":
 			mode = args[i]
 		case "--days", "--limit":
 			seen[args[i]] = true
@@ -104,7 +111,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 			if args[i-1] == "--days" {
 				days = n
 			} else {
-				limit = n
+				limit, dupLimit = n, n
 			}
 		case "--id", "--from", "--to":
 			seen[args[i]] = true
@@ -200,6 +207,8 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	switch mode {
 	case "--check":
 		return maintainCheck(ctx, ms, stdout)
+	case "--dup-suspects":
+		return maintainDupSuspects(ctx, ms, stdout, dupLimit)
 	case "--stale":
 		return maintainStale(ctx, ms, stdout, days, limit)
 	case "--invalidate-stale":
@@ -238,7 +247,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		fmt.Fprintf(stdout, `{"status":"merged","from":%d,"to":%d}`+"\n", from, to)
 		return 0
 	default:
-		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW")))
+		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW")))
 		return 1
 	}
 }
@@ -266,6 +275,44 @@ type staleItem struct {
 	NeverRead bool   `json:"never_read"`
 	Reason    string `json:"reason"` // never_read(미참조) | stale(경과)
 	StaleDays int    `json:"stale_days"` // 기준 시각(last_read_at·없으면 ingested_at) 경과일
+}
+
+// maintainDupSuspects — active 중 동일 topic 2건+ 그룹 보고(보고 전용·
+// exit 0). 판정(병합·무효화)은 기존 --merge·--invalidate로 에이전트 수행
+// — SQL 자동 판정 금지 원칙 유지(spec R4).
+func maintainDupSuspects(ctx context.Context, ms MaintStore, stdout io.Writer, limit int) int {
+	groups, err := ms.DupGroups(ctx, limit)
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	fmt.Fprintln(stdout, dupSuspectsJSON(groups))
+	return 0
+}
+
+// dupSuspectsJSON — --dup-suspects 출력 한 줄 JSON. ids null 방지를 위해
+// 빈 슬라이스로 정규화한다(nil이면 "ids":null이 되어 형식 계약 위반).
+func dupSuspectsJSON(groups []db.DupGroup) string {
+	type dupGroupJSON struct {
+		Topic string `json:"topic"`
+		IDs   []int  `json:"ids"`
+	}
+	out := struct {
+		Status string         `json:"status"`
+		Groups []dupGroupJSON `json:"groups"`
+	}{Status: "dup-suspects", Groups: make([]dupGroupJSON, 0, len(groups))}
+	for _, g := range groups {
+		ids := g.IDs
+		if ids == nil {
+			ids = []int{}
+		}
+		out.Groups = append(out.Groups, dupGroupJSON{Topic: g.Topic, IDs: ids})
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return `{"status":"dup-suspects","groups":[]}`
+	}
+	return string(b)
 }
 
 // maintainStale — active 중 오래 참조되지 않은 항목 보고(보고 전용·exit 0).
