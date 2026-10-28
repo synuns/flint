@@ -1,5 +1,9 @@
 DSN ?= postgresql://flint:flint-dev@localhost:5433/flint
 
+# v0.9.3 R1 테스트 격리: tests/는 이 DSN만 쓴다(기본 flint_test — 운영
+# flint와 분리). test·e2e 타깃에만 주입하고 DSN(운영) 기본값은 그대로.
+FLINT_TEST_DSN ?= postgresql://flint:flint-dev@localhost:5433/flint_test
+
 # 버전 주입(T33): 기본 dev, 릴리스는 make build VERSION=0.3.0
 VERSION ?= dev
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
@@ -8,13 +12,13 @@ LDFLAGS := -X flint/lib/cli.version=$(VERSION) -X flint/lib/cli.commit=$(GIT_COM
 .PHONY: test tidy up down build install seed e2e release ci
 
 test:
-	go test ./...
+	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test ./...
 
 # CI(T43): 로컬 검증 = YAML 구조 검증 + 전체 단위 테스트.
 # Actions(ci.yml)도 이 타깃 실행 후 make e2e — 로컬과 CI 동일 경로.
 ci:
 	python3 scripts/validate_yaml.py
-	go test ./...
+	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test ./...
 
 tidy:
 	go mod tidy
@@ -42,7 +46,7 @@ seed: build
 
 # e2e(T11): 실 Doltgres 필수, 빌드 태그로 분리
 e2e:
-	go test -tags e2e ./tests/e2e/
+	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test -tags e2e ./tests/e2e/
 
 # 릴리스(T33): 빌드 후 태그 push 안내만 — 실제 태그·push는 사용자 확인 후 수행.
 release: build
