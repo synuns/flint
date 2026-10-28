@@ -32,3 +32,15 @@ func TestRunbookHasIncidentReference(t *testing.T) {
 		t.Error("v093 사고 실례 커밋 미언급")
 	}
 }
+
+// TestRunbookIncidentDateMatchesLog — 실례 날짜가 v0.9.3 인시던트 로그
+// (2026-10-28 09:44, 아카이브 커밋 3cf3081)와 일치하는지 검증한다.
+func TestRunbookIncidentDateMatchesLog(t *testing.T) {
+	s := runbookStr(t)
+	if !strings.Contains(s, "2026-10-28") {
+		t.Error("사고 실례 날짜가 인시던트 로그(2026-10-28)와 불일치")
+	}
+	if strings.Contains(s, "2026-10-29") {
+		t.Error("잘못된 사고 날짜(2026-10-29) 잔존 — 인시던트는 10-28 발생")
+	}
+}
