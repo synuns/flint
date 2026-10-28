@@ -271,15 +271,26 @@ func insertOne(ctx context.Context, tx pgx.Tx, rec map[string]any) (int, error) 
 	return id, nil
 }
 
-// ExistsHash는 해당 content_hash가 knowledge에 이미 있는지 돌려준다(dedup 사전 확인).
-func (r *Repo) ExistsHash(ctx context.Context, hash string) (bool, error) {
-	var exists bool
+// DupIDByHash는 해당 content_hash가 knowledge에 이미 있으면 기존 행 id와
+// dup=true를 돌려준다(dedup 사전 확인 + duplicate 응답 id 노출, R3).
+// 없으면 (0, false, nil).
+func (r *Repo) DupIDByHash(ctx context.Context, hash string) (int, bool, error) {
+	var id int
 	err := r.pool.QueryRow(ctx,
-		`SELECT EXISTS (SELECT 1 FROM knowledge WHERE content_hash = $1)`, hash).Scan(&exists)
-	if err != nil {
-		return false, fmt.Errorf("exists_hash: %w", err)
+		`SELECT id FROM knowledge WHERE content_hash = $1`, hash).Scan(&id)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, false, nil
 	}
-	return exists, nil
+	if err != nil {
+		return 0, false, fmt.Errorf("dup_id_by_hash: %w", err)
+	}
+	return id, true, nil
+}
+
+// ExistsHash는 DupIDByHash의 하위 호환 래퍼(dup 여부만 — root.go 어댑터).
+func (r *Repo) ExistsHash(ctx context.Context, hash string) (bool, error) {
+	_, dup, err := r.DupIDByHash(ctx, hash)
+	return dup, err
 }
 
 // ExistsProject는 해당 name이 projects에 이미 있는지 돌려준다(project dedup

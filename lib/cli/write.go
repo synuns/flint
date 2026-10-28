@@ -55,6 +55,29 @@ type UsageStore interface {
 	RecordUsage(ctx context.Context, kind, source string) error
 }
 
+// DupIDStore — duplicate 줄의 기존 행 id를 제공하는 확장(R3). realStore는
+// db.Repo.DupIDByHash로 구현하고, 미구현 Store(레거시 fake)는 ExistsHash
+// 폴백(id 0 — 맨몸 duplicate 출력, 하위호환).
+type DupIDStore interface {
+	DupIDByHash(ctx context.Context, hash string) (int, bool, error)
+}
+
+// realStore.DupIDByHash — root.go 소유 파일을 건드리지 않고 어댑터 배선
+// (DupIDStore 확장의 실구현).
+func (s *realStore) DupIDByHash(ctx context.Context, hash string) (int, bool, error) {
+	return s.repo.DupIDByHash(ctx, hash)
+}
+
+// lookupHash — content_hash 중복 확인. DupIDStore면 기존 행 id까지 함께
+// 돌려준다(duplicate 응답 id 노출, R3). 미구현 Store은 ExistsHash 폴백.
+func lookupHash(ctx context.Context, st Store, hash string) (int, bool, error) {
+	if ds, ok := st.(DupIDStore); ok {
+		return ds.DupIDByHash(ctx, hash)
+	}
+	exists, err := st.ExistsHash(ctx, hash)
+	return 0, exists, err
+}
+
 // UsageCountStore — count회를 일괄 증분하는 유입 계측 확장. recordDups가
 // dup N을 1회 호출로 기록한다(O(N) 읽기-쓰기 회피 — db.Repo.RecordUsageCount).
 // 미구현 Store(레거시 fake)는 recordDups가 1회씩 N번 폴백.
@@ -126,6 +149,7 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	var warnings []string
 	hash, state := "", "active"
 	dups := 0
+	dupID := 0 // 단일 줄 duplicate의 기존 행 id(R3) — 미지원 Store·다중 줄은 0 유지
 	// 배치 내 동일 키 줄(knowledge content_hash·project name): InsertBatch 전체 실패 방지
 	seen := map[string]bool{}
 	for _, p := range payloads {
@@ -158,13 +182,16 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 				continue
 			}
 			seen[h] = true
-			exists, err := st.ExistsHash(ctx, h)
+			existsID, exists, err := lookupHash(ctx, st, h)
 			if err != nil {
 				fmt.Fprintln(stdout, errLine(err))
 				return store.MapExit(err)
 			}
 			if exists {
 				dups++ // 줄별 dedup: 이 줄만 skip, 나머지 신규 줄은 커밋된다
+				if len(payloads) == 1 {
+					dupID = existsID // 단일 줄 재전송: 기존 행 id 노출(R3)
+				}
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
@@ -208,7 +235,7 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	emitDuplicate := func() {
 		recordUsage(ctx, st, "write", source)
 		recordDups(ctx, st, dups)
-		out := store.OutputJSON("duplicate", "", "", 0)
+		out := store.OutputJSON("duplicate", "", "", dupID)
 		if len(dropped) > 0 || len(warnings) > 0 {
 			out = withWarnings(out, dropped, warnings)
 		}
@@ -252,13 +279,16 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 				survive = append(survive, r) // 해시 없는 kind는 재확인 불가 — 재시도로 판정
 				continue
 			}
-			exists, err2 := st.ExistsHash(ctx, h)
+			existsID, exists, err2 := lookupHash(ctx, st, h)
 			if err2 != nil {
 				fmt.Fprintln(stdout, errLine(err2))
 				return store.MapExit(err2)
 			}
 			if exists {
 				dups++ // 동시 삽입된 줄: skip — 계측도 실제 skip 수만 반영
+				if len(payloads) == 1 {
+					dupID = existsID // 레이스 재확인 경로도 기존 행 id 노출(R3)
+				}
 				continue
 			}
 			survive = append(survive, r)
