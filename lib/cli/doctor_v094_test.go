@@ -55,6 +55,42 @@ func TestApplyHookFixAddsFlintHooks(t *testing.T) {
 	}
 }
 
+// file — hooks 외 최상위 키(env·permissions 등)와 기존 이벤트 배열
+// 엔트리는 병합 후에도 무손실이어야 한다(스펙 R1 "다른 키 전부 불변").
+func TestApplyHookFixPreservesOtherKeys(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "settings.json")
+	orig := []byte(`{"permissions":{"allow":["Bash"]},"hooks":{"Stop":[{"hooks":[{"type":"command","command":"orca"}]}]},"env":{"FOO":"bar"}}`)
+	if err := os.WriteFile(p, orig, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := applyHookFix(p, "/x/flint"); err != nil {
+		t.Fatal(err)
+	}
+	var got map[string]any
+	b, _ := os.ReadFile(p)
+	if err := json.Unmarshal(b, &got); err != nil {
+		t.Fatalf("결과 JSON 파싱 실패: %v", err)
+	}
+	if perm, ok := got["permissions"].(map[string]any); !ok || perm["allow"] == nil {
+		t.Errorf("permissions 키 무손실 아님: %v", got["permissions"])
+	}
+	if env, ok := got["env"].(map[string]any); !ok || env["FOO"] != "bar" {
+		t.Errorf("env 키 무손실 아님: %v", got["env"])
+	}
+	// 기존 Stop 엔트리는 배열 앞쪽 그대로(append만).
+	stop, _ := got["hooks"].(map[string]any)["Stop"].([]any)
+	if len(stop) != 3 {
+		t.Fatalf("Stop 배열 길이=%d, want 3", len(stop))
+	}
+	first, _ := stop[0].(map[string]any)
+	inner, _ := first["hooks"].([]any)
+	cmd, _ := inner[0].(map[string]any)["command"].(string)
+	if cmd != "orca" {
+		t.Errorf("Stop[0] 기존 orca 엔트리 아님: %q", cmd)
+	}
+}
+
 func TestApplyHookFixIdempotent(t *testing.T) {
 	p := writeFixture(t, map[string]any{})
 	if _, _, err := applyHookFix(p, "/x/flint"); err != nil {
