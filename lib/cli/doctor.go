@@ -604,7 +604,8 @@ func stallDetail(seen map[string]time.Time, key string, graceH int, warns *int) 
 }
 
 // doctorPort — flint 기대 호스트 게시 포트(compose 오버라이드 전 기본값).
-const doctorPort = 5433
+// v0.9.7 ADR-0010: 외부 컨테이너의 5433 점유로 5434로 이전.
+const doctorPort = 5434
 
 // composePsFn — docker compose ps seam(var). docker 부재·compose 프로젝트
 // 부재 등 모든 오류는 checkPort가 skip으로 처리한다(비간섭).
@@ -641,7 +642,7 @@ func portCheck(ctx context.Context, out io.Writer) int {
 	return 0
 }
 
-// checkPort — 5433 게시 상태 판정. ① flint 실행+5433 → ok
+// checkPort — 5434 게시 상태 판정. ① flint 실행+5434 → ok
 // ② flint 부재/정지 → fail + up -d 안내 ③ 타 컨테이너 점유 → fail +
 // 점유자 이름 + 포트 이동 안내. composePsFn 오류는 skip(docker 미설치
 // 환경에서 doctor 나머지 검사를 덮지 않는다).
@@ -663,7 +664,7 @@ func checkPort(ctx context.Context) doctorCheck {
 		c.Detail = "compose ps 출력 파싱 실패: " + perr.Error()
 		return c
 	}
-	// ① flint 컨테이너 실행 중 + 5433 게시.
+	// ① flint 컨테이너 실행 중 + 5434 게시.
 	for _, e := range entries {
 		if isFlintContainer(e.Name) && e.State == "running" && publishesPort(e, doctorPort) {
 			c.Status = "ok"
@@ -671,7 +672,7 @@ func checkPort(ctx context.Context) doctorCheck {
 			return c
 		}
 	}
-	// ③ 타 컨테이너가 5433 점유 — 점유자를 지목한다.
+	// ③ 타 컨테이너가 5434 점유 — 점유자를 지목한다.
 	for _, e := range entries {
 		if publishesPort(e, doctorPort) {
 			c.Status = "fail"
