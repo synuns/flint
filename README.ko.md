@@ -148,6 +148,8 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 | `flint status` | **점검** | 스키마 버전·pending·hot p95 |
 | `flint mcp` | **서빙** | MCP 서버 실행 |
 
+`flint read`는 구문 미스 시 단어 단위 재검색(fallback)한다.
+
 그 외: `version`, `teardown`. 운영 절차는 [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝은 [docs/TUNING.md](docs/TUNING.md)
 
 ---
