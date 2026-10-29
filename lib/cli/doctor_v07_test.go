@@ -42,11 +42,11 @@ func doctorPortCheck(t *testing.T, out string) map[string]any {
 	return single
 }
 
-// pass — flint 컨테이너 실행 중 + 5433 매핑(JSONL 연속 객체) → ok·exit 0.
+// pass — flint 컨테이너 실행 중 + 5434 매핑(JSONL 연속 객체) → ok·exit 0.
 // portCheck 자체는 한 줄 JSON을 out에 쓰고 0 반환.
 func TestPortPass(t *testing.T) {
 	line := `{"Name":"flint-doltgres-1","State":"running",` +
-		`"Publishers":[{"URL":"","TargetPort":5432,"PublishedPort":5433,"Protocol":"tcp"}]}`
+		`"Publishers":[{"URL":"","TargetPort":5432,"PublishedPort":5434,"Protocol":"tcp"}]}`
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(line + "\n" + `{"Name":"flint-cache-1","State":"running","Publishers":[]}` + "\n"), nil
 	})
@@ -69,12 +69,12 @@ func TestPortPass(t *testing.T) {
 	}
 }
 
-// foreign — 타 컨테이너(branding)가 5433 점유 → fail + 점유자 이름 +
+// foreign — 타 컨테이너(branding)가 5434 점유 → fail + 점유자 이름 +
 // 포트 이동 fix. exit 1.
 func TestPortForeign(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"branding-web-1","State":"running",` +
-			`"Publishers":[{"TargetPort":5433,"PublishedPort":5433,"Protocol":"tcp"}]}`), nil
+			`"Publishers":[{"TargetPort":5434,"PublishedPort":5434,"Protocol":"tcp"}]}`), nil
 	})
 
 	var buf bytes.Buffer
@@ -161,7 +161,7 @@ func TestPortNoFlintContainer(t *testing.T) {
 // JSONL pass·배열 pass 양쪽 계약.
 func TestPortJSONArray(t *testing.T) {
 	arr := `[{"Name":"flint-doltgres-1","State":"running",` +
-		`"Publishers":[{"PublishedPort":5433}]}]`
+		`"Publishers":[{"PublishedPort":5434}]}]`
 	withComposePs(t, func(ctx context.Context) ([]byte, error) { return []byte(arr), nil })
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
 	if code != 0 {
@@ -173,7 +173,7 @@ func TestPortJSONArray(t *testing.T) {
 
 	// 배열 + 타 컨테이너 점유도 점유자 보고.
 	foreign := `[{"Name":"flint-doltgres-1","State":"running","Publishers":[]},` +
-		`{"Name":"branding-1","State":"running","Publishers":[{"PublishedPort":5433}]}]`
+		`{"Name":"branding-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`
 	withComposePs(t, func(ctx context.Context) ([]byte, error) { return []byte(foreign), nil })
 	out2, code2 := runDoctorArgs(t, &fakeStore{}, "--check", "port")
 	if code2 != 1 {
@@ -193,7 +193,7 @@ func TestDoctorChecksIncludesPort(t *testing.T) {
 }
 
 // prefix — 이름에 flint가 포함되나 접두가 아닌 컨테이너('conflint')는
-// flint 컨테이너가 아니다. 5433을 게시해도 ok가 아니라 점유자 fail.
+// flint 컨테이너가 아니다. 5434을 게시해도 ok가 아니라 점유자 fail.
 func TestPortFlintSubstringNotPrefix(t *testing.T) {
 	if isFlintContainer("conflint-web-1") {
 		t.Errorf("isFlintContainer(conflint-web-1) = true, want false(접두 아님)")
@@ -204,7 +204,7 @@ func TestPortFlintSubstringNotPrefix(t *testing.T) {
 
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"conflint-web-1","State":"running",` +
-			`"Publishers":[{"PublishedPort":5433}]}`), nil
+			`"Publishers":[{"PublishedPort":5434}]}`), nil
 	})
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
 	if code != 1 {
