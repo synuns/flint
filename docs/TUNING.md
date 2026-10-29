@@ -52,7 +52,7 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('pending_max','40')
 
 1. `FLINT_DSN` 환경변수
 2. `config.json`의 `dsn` 키
-3. 기본값 `postgresql://flint:flint-dev@localhost:5433/flint`
+3. 기본값 `postgresql://flint:flint-dev@localhost:5434/flint`
 
 파일 파손·빈값·비문자열 `dsn`은 기본값으로 폴백한다(에러 아님 — 무효 meta
 값 폴백과 동일 원칙). 5433 포트를 다른 컨테이너가 점유해 이동이 필요하면
