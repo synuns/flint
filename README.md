@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.9.3-blue" alt="v0.9.3">
+  <img src="https://img.shields.io/badge/release-v0.9.7-blue" alt="v0.9.7">
 </p>
 
 <p align="center">
@@ -42,7 +42,7 @@ Agents are capable but forget everything between sessions. flint stores project 
 
 Humans keep notes in Obsidian. Agents keep memory in flint — the stone you strike to make fire and tools.
 
-> v0.9.3 shipped 2026-10-28 — operational hardening: test isolation, duplicate handling. Roadmap: [docs/PLAN.md](docs/PLAN.md)
+> v0.9.7 shipped 2026-10-29 — propagation & migration cleanup: skill sync, port 5434, badge refresh, observability. Roadmap: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
@@ -187,5 +187,5 @@ flint/
   <br/><br/>
   <strong>F L I N T</strong>
   <br/><br/>
-  <code>v0.9.3 · DoltgreSQL · Go</code>
+  <code>v0.9.7 · DoltgreSQL · Go</code>
 </p>

@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.9.3-blue" alt="v0.9.3">
+  <img src="https://img.shields.io/badge/release-v0.9.7-blue" alt="v0.9.7">
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 사람의 노트는 Obsidian(흑요석)에, 에이전트의 기억은 flint(부싯돌)에 — 불과 도구를
 얻기 위해 두드리는 돌.
 
-> v0.9.3 완료 (2026-10-28) — 운영 정착: 테스트 격리·중복 대응. 로드맵: [docs/PLAN.md](docs/PLAN.md)
+> v0.9.7 완료 (2026-10-29) — 전파·이전 정리: 스킬 싱크·포트 5434·배지 갱신·관측 통합. 로드맵: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
@@ -191,5 +191,5 @@ flint/
   <br/><br/>
   <strong>F L I N T</strong>
   <br/><br/>
-  <code>v0.9.3 · DoltgreSQL · Go</code>
+  <code>v0.9.7 · DoltgreSQL · Go</code>
 </p>
