@@ -2,11 +2,11 @@ services:
   doltgres:
     image: dolthub/doltgresql:latest
     ports:
-      - "5433:5432"
+      - "5434:5432"
     environment:
       DOLTGRES_USER: flint
       DOLTGRES_PASSWORD: flint-dev
-      # ADR-0001 DSN(postgresql://flint:flint-dev@localhost:5433/flint)의 DB명
+      # ADR-0010 DSN(postgresql://flint:flint-dev@localhost:5434/flint)의 DB명
       DOLTGRES_DB: flint
     restart: unless-stopped
     volumes:
