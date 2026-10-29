@@ -355,6 +355,20 @@ flint-plugin/
 - [x] R5 문서 동기화 — README(EN/KO) 배지 v0.9.3·아키텍처/라이프사이클
   SVG 임베드, 마일스톤 기록
 
+### v0.9.5 채택 품질 (2026-10-29 기획·완료, PR #13)
+
+- [x] R1 중복 절감 — SKILL.md 규칙 3종 추가(프롬프트 토큰 절감)
+- [x] R2 read 촉진 — nudge 힌트 문구 반영(v0.7 계약 문구는 불변)
+- [x] R3 설정 신규 생성 — `doctor --fix`가 settings.json 부재 시
+  최소 뼈대 생성(백업 없음, 기존 merge·멱등 경로 승계)
+
+### v0.9.6 검색 고도화 (2026-10-29 기획·완료)
+
+- [x] R1 토큰 폴백 — read 구문 제로히트 시 단어 단위 OR 재검색·
+  정합수 재랭킹, `read_fallback_calls` 계측
+- [x] R2 계측 노출 — status JSON에 `read_fallback_calls` 필드
+- [x] R3 문서 동기화 — README(EN/KO) read 폴백 1줄, 마일스톤 기록
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
