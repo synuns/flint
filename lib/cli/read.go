@@ -109,7 +109,8 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			pos = append(pos, a)
 		}
 	}
-	sql, qargs := query.BuildRead(strings.Join(pos, " "), f)
+	q := strings.Join(pos, " ")
+	sql, qargs := query.BuildRead(q, f)
 	asOfHash, asOfDate := "", ""
 	// 값 없는 --as-of(마지막 인자)도 무효 스펙 exit 3 — 조용히 현재 시점
 	// 데이터를 돌려주면 잘못된 결과가 되므로(status와 동일 규칙).
@@ -151,6 +152,20 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	// v0.9.6 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
+	// 정합수 내림 재랭킹(룰링 — 구문 히트 경로는 완전 불변). 1-토큰 질의는
+	// 구문과 동질이라 생략. --as-of(과거 시점)는 현재 시점 폴백이 시점
+	// 정합성을 깨므로 생략. 폴백 시도는 meta read_fallback_calls에 1회
+	// 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
+	if len(rows) == 0 && asOfSpec == "" {
+		if fsql, fargs, ok := query.BuildReadFallback(q, f); ok {
+			bumpReadFallbackToMeta(ctx, st)
+			if frows, ferr := queryOnce(ctx, st, fsql, fargs); ferr == nil && len(frows) > 0 {
+				rows = frows
+				query.ReorderByFallbackCount(rows, query.TokenizeQuery(q))
+			}
+		}
+	}
 	// 출력 중립화(ADR-0006): 저장 단계 살균을 읽기에도 재적용 — 저장 이후
 	// 혹은 경로상 유입된 제어 문자·[flint] 마커가 출력 경계를 위조하지 않게 한다.
 	for _, row := range rows {
@@ -172,6 +187,23 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회. 조용히(§13).
 	instrumentReads(ctx, st, "read", rowIDs(rows))
 	return 0
+}
+
+// bumpReadFallbackToMeta — 폴백 시도 1회 증분(v0.9.6). 기존 계측 패턴
+// (bumpReadStatsToMeta) 승계 — 실패는 조용히 무시(비간섭 §13).
+func bumpReadFallbackToMeta(ctx context.Context, st Store) {
+	n := 0
+	if rows, err := queryOnce(ctx, st,
+		`SELECT value FROM meta WHERE key = $1`, []any{query.ReadFallbackCountKey}); err == nil &&
+		len(rows) > 0 && len(rows[0]) > 0 {
+		if v, ok := cellToInt(rows[0][0]); ok {
+			n = v
+		}
+	}
+	_, _ = queryOnce(ctx, st,
+		`INSERT INTO meta (key, value) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+		[]any{query.ReadFallbackCountKey, strconv.Itoa(n + 1)})
 }
 
 // asOfInfo / asOfLine — --as-of 결과 첨부 한 줄 JSON {as_of:{hash,commit_date}}.
