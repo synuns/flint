@@ -15,7 +15,7 @@ func testDSN() string {
 	if dsn := os.Getenv("FLINT_DSN"); dsn != "" {
 		return dsn
 	}
-	return "postgresql://flint:flint-dev@localhost:5433/flint"
+	return "postgresql://flint:flint-dev@localhost:5434/flint"
 }
 
 // Review Focus(file): 작은따옴표·줄바꿈·백슬래시 이스케이프.
