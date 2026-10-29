@@ -16,14 +16,14 @@ make install    # bin/flint 빌드 (Go 1.25+, 의존 pgx/v5만)
 make seed           # 예시 데이터: 프로젝트 3 + 결정 5 + pending 1 + 선호 1 + 플레이북 2
 ```
 
-setup은 Doltgres를 띄우고(호스트 5433, ADR-0001) 스키마를 마이그레이션한 뒤
+setup은 Doltgres를 띄우고(호스트 5434, ADR-0010) 스키마를 마이그레이션한 뒤
 진행 요약 한 줄 JSON을 출력한다. v0.7부터 compose 대기는
 `up -d --wait --wait-timeout 60` — 컨테이너 헬스체크 통과까지 최대 60초
 기다린 뒤 다음 단계로 진행한다. docker 미설치·compose 실패는 즉시 실패가
 아니라 경고로 남고 설치 안내(`https://docs.docker.com/get-docker/`)를 한 줄
 출력한 뒤 계속 진행한다 — DB가 이미 기동 상태면 이후 단계(migrate 등)까지
 정상 완료된다. DSN 기본값
-`postgresql://flint:flint-dev@localhost:5433/flint` — 환경변수 `FLINT_DSN` 또는
+`postgresql://flint:flint-dev@localhost:5434/flint` — 환경변수 `FLINT_DSN` 또는
 설정 파일(아래 3절)로 덮어쓴다. 해제는 `./bin/flint teardown`(`--purge` 시
 volume까지).
 
@@ -46,7 +46,7 @@ DSN을 매번 환경변수로 넘기지 않으려면 설정 파일에 둔다(v0.
 ```sh
 # Linux: ~/.config/flint/config.json · macOS: ~/Library/Application Support/flint/config.json
 mkdir -p ~/.config/flint        # macOS는 mkdir -p "$HOME/Library/Application Support/flint"
-printf '{"dsn":"postgresql://flint:flint-dev@localhost:5433/flint"}' \
+printf '{"dsn":"postgresql://flint:flint-dev@localhost:5434/flint"}' \
   > ~/.config/flint/config.json
 ```
 
@@ -55,7 +55,7 @@ printf '{"dsn":"postgresql://flint:flint-dev@localhost:5433/flint"}' \
   Linux `~/.config/flint/config.json`).
 - 디렉터리 재배치는 환경변수 `FLINT_CONFIG_DIR`(gh `GH_CONFIG_DIR` 모델).
 - 우선순위: `FLINT_DSN` env > `config.json`의 `dsn` > 기본값
-  `localhost:5433`. 파일 파손·빈값은 기본값으로 폴백(에러 아님).
+  `localhost:5434`. 파일 파손·빈값은 기본값으로 폴백(에러 아님).
 - 상세는 [docs/TUNING.md](TUNING.md) §2.
 
 감사·오염 대응·복구 훈련·백업 보존 절차는 [docs/RUNBOOK.md](RUNBOOK.md).

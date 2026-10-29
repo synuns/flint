@@ -30,8 +30,8 @@ import (
 	"flint/lib/sqlfs"
 )
 
-// baseDSN — ADR-0001: 포트 5433. v0.9.3 R1: 테스트 격리 DB flint_test.
-const baseDSN = "postgresql://flint:flint-dev@localhost:5433/flint_test"
+// baseDSN — ADR-0010: 포트 5434. v0.9.3 R1: 테스트 격리 DB flint_test.
+const baseDSN = "postgresql://flint:flint-dev@localhost:5434/flint_test"
 
 // dsn — v0.9.3 R1: FLINT_TEST_DSN 우선, 없으면 flint_test 기본.
 // FLINT_DSN(운영)은 e2e에서 무시한다.
