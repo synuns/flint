@@ -45,7 +45,7 @@
 3. 1.0 달성(2026-08), dolthub 제작
 
 **제약(수용)**
-- 데몬 1개 상시 (Docker `dolthub/doltgresql:latest`, 호스트 포트 5433(ADR-0010),
+- 데몬 1개 상시 (Docker `dolthub/doltgresql:latest`, 호스트 포트 5434(ADR-0010),
   `DOLTGRES_USER/DOLTGRES_PASSWORD`)
 - 확장 제한: pgvector·PostGIS 불가 — 임베딩은 태그+LIKE → 필요시 앱 사이드 코사인
 - 락 클로저(FOR UPDATE) 미지원 → 재시도 필수
