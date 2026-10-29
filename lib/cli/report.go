@@ -54,6 +54,38 @@ type reportOutput struct {
 		NeverRead int `json:"never_read"`
 	} `json:"stale"`
 	InvalidatedPeriod int `json:"invalidated_period"`
+	// v0.9.7 R4 관측 지표 — 기존 필드·순서 계약(status 리플렉션 테스트 관례)을
+	// 지키기 위해 말미에만 추가한다.
+	DupPct      int `json:"dup_pct"`
+	FallbackPct int `json:"fallback_pct"`
+
+	readCalls int // 직렬화 제외 — fallback_pct 분모(read_stats calls)
+}
+
+// DailyRow — 관측 지표 산입용 일별 행 뷰(v0.9.7 R4). 기존 reportDay 별칭.
+type DailyRow = reportDay
+
+// dupPct — 기간 중복률: 기간 전체 합계 기반 Σdup/(Σwrite+Σdup),
+// 버림 정수%. 제로 분모·빈 기간은 0.
+func dupPct(days []DailyRow) int {
+	var write, dup int
+	for _, d := range days {
+		write += d.Write
+		dup += d.Dup
+	}
+	if write+dup == 0 {
+		return 0
+	}
+	return int(100.0 * float64(dup) / float64(write+dup))
+}
+
+// fallbackPct — 폴백 비율: read_fallback_calls/read_calls, 버림 정수%.
+// 제로 분모는 0.
+func fallbackPct(fallbackCalls int, readCalls int) int {
+	if readCalls == 0 {
+		return 0
+	}
+	return int(100.0 * float64(fallbackCalls) / float64(readCalls))
 }
 
 // runReport — --days 파싱 후 집계 조회·출력. 성공 0 · 인자 오류 1 ·
@@ -100,6 +132,14 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	// R4 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 meta
+	// read_fallback_calls(T85·v096 status와 동일 조회 패턴)에서. 부재는 0.
+	out.DupPct = dupPct(out.Days)
+	fallbackCalls := 0
+	if fb := fallbackCallsOrNull(metaGetKV(ctx, st)); fb != nil {
+		fallbackCalls = *fb
+	}
+	out.FallbackPct = fallbackPct(fallbackCalls, out.readCalls)
 	b, err := json.Marshal(out)
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
@@ -166,6 +206,7 @@ func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 				continue
 			}
 			out.ZeroPct = readZeroPct(rs.Calls, rs.Zero)
+			out.readCalls = rs.Calls
 		case "hot_stats":
 			var hs struct {
 				Lens []int `json:"lens"`
