@@ -144,6 +144,8 @@ The four phases form one session lifecycle:
 | `flint status` | **Inspect** | Schema version, pending writes, hot p95 |
 | `flint mcp` | **Serve** | Run the MCP server |
 
+`flint read` retries word-by-word (fallback) when the phrase query hits nothing.
+
 Also: `version`, `teardown`. Operations runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md) · tuning: [docs/TUNING.md](docs/TUNING.md)
 
 ---
