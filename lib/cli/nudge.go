@@ -17,6 +17,9 @@ const nudgeStopDirective = "flint: 미증류 컴팩트 요약이 있다. 세션�
 // nudgeStartLine — SessionStart plain 안내 1줄.
 const nudgeStartLine = "flint: 미증류 마커 존재 — 증류 후 flint nudge --clear"
 
+// nudgeReadHint — SessionStart 안내에 병합되는 read 촉진 힌트(v0.9.5).
+const nudgeReadHint = "작업 전 flint read <쿼리> — 기존 지식 확인"
+
 // nudgeStdin — Claude Code 훅 stdin 중 nudge가 보는 필드.
 type nudgeStdin struct {
 	HookEventName  string `json:"hook_event_name"`
@@ -62,7 +65,8 @@ func runNudge(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		}
 		fmt.Fprintln(stdout, string(b))
 	case "SessionStart":
-		fmt.Fprintln(stdout, nudgeStartLine)
+		// 기존 안내 뒤에 read 힌트를 같은 줄로 병합(plain 1줄 계약 유지).
+		fmt.Fprintln(stdout, nudgeStartLine+" · "+nudgeReadHint)
 	}
 	return 0
 }

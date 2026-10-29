@@ -308,10 +308,20 @@ func flintHookDefs(binPath string) map[string][]map[string]any {
 // 읽기→파싱→flint 훅 존재 검사(멱등)→타임스탬프 백업→기존 이벤트 배열
 // append→MarshalIndent 쓰기. 기존 훅·다른 키는 전부 불변. 이미 flint 훅이
 // 있으면 (false, "", nil) skip. 파싱 실패는 파일·백업 모두 무변경 채로 err.
+// 파일 부재 시(v0.9.5 R3) 최소 뼈대 {"hooks":{}}를 새로 생성한다 — 원본이
+// 없으니 백업은 생략(backup=""), 부모 디렉터리도 함께 생성. 이후 merge
+// 경로(멱등·절대경로·timeout 계약)를 그대로 재사용한다.
 func applyHookFix(path string, binPath string) (applied bool, backupPath string, err error) {
-	b, err := os.ReadFile(path)
-	if err != nil {
-		return false, "", err
+	b, rerr := os.ReadFile(path)
+	if rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
+		return false, "", rerr
+	}
+	existed := rerr == nil
+	if !existed {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			return false, "", err
+		}
+		b = []byte(`{"hooks":{}}`)
 	}
 	if containsFlintHook(string(b)) {
 		return false, "", nil // 멱등 — 이미 등록됨
@@ -324,9 +334,11 @@ func applyHookFix(path string, binPath string) (applied bool, backupPath string,
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
-	backupPath = path + ".flint-bak-" + time.Now().Format("20060102-150405")
-	if err := os.WriteFile(backupPath, b, 0o644); err != nil {
-		return false, "", err
+	if existed { // 백업은 원본이 있을 때만
+		backupPath = path + ".flint-bak-" + time.Now().Format("20060102-150405")
+		if err := os.WriteFile(backupPath, b, 0o644); err != nil {
+			return false, "", err
+		}
 	}
 	for ev, add := range flintHookDefs(binPath) {
 		entries := add // []map[string]any → []any 변환해 append
