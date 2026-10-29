@@ -98,17 +98,35 @@ func RunSetup(ctx context.Context, ping, migrate func() error) (string, int) {
 }
 
 // runSetup — 커맨드 진입점. --dry는 단계만 출력(exec·쿼리 없음).
-// store-free 디스패치로 st== nil일 수 있다(첫 실행) — ping/migrate는
-// degraded 경고로 연기하고 1단계 compose는 수행한다.
+// --update-rules(v0.9.7 R1)는 스킬 싱크만 수행하고 즉시 반환 — compose·
+// migrate 체인에 끼지 않는다. store-free 디스패치로 st== nil일 수 있다
+// (첫 실행) — ping/migrate는 degraded 경고로 연기하고 1단계 compose는
+// 수행한다.
 func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	for _, a := range args {
-		if a == "--dry" {
+	updateRules := false
+	srcOverride := ""
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--dry":
 			b, _ := json.Marshal(map[string]any{"status": "dry", "steps": SetupSteps()})
 			fmt.Fprintln(stdout, string(b))
 			return 0
+		case "--update-rules":
+			updateRules = true
+		case "--src":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, errLine(errors.New("setup: --src requires a path")))
+				return 1
+			}
+			srcOverride = args[i]
+		default:
+			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
+			return 1
 		}
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
-		return 1
+	}
+	if updateRules {
+		return runUpdateRules(stdout, srcOverride)
 	}
 	ping := func() error {
 		if st == nil {
