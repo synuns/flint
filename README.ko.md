@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.9.3-blue" alt="v0.9.3">
+  <img src="https://img.shields.io/badge/release-v0.9.7-blue" alt="v0.9.7">
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 사람의 노트는 Obsidian(흑요석)에, 에이전트의 기억은 flint(부싯돌)에 — 불과 도구를
 얻기 위해 두드리는 돌.
 
-> v0.9.3 완료 (2026-10-28) — 운영 정착: 테스트 격리·중복 대응. 로드맵: [docs/PLAN.md](docs/PLAN.md)
+> v0.9.7 완료 (2026-10-29) — 전파·이전 정리: 스킬 싱크·포트 5434·배지 갱신·관측 통합. 로드맵: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
@@ -87,12 +87,12 @@ make seed             # 예시 데이터, 멱등(해시 dedup)
 <details>
 <summary><strong>setup 중에 무슨 일이 벌어지나?</strong></summary>
 
-1. `docker compose up -d`가 호스트 5433에 Doltgres를 띄운다 (ADR-0001).
+1. `docker compose up -d`가 호스트 5434에 Doltgres를 띄운다 (ADR-0010).
 2. 스키마는 첫 store 커맨드에서 자동 마이그레이션(멱등).
 3. 시딩은 안내형 — 재실행 안전: 동일 payload는 `{"status":"duplicate"}` exit 0.
 4. `flint-plugin/` 설치가 안내된다.
 
-DSN 기본값 `postgresql://flint:flint-dev@localhost:5433/flint` — 환경변수
+DSN 기본값 `postgresql://flint:flint-dev@localhost:5434/flint` — 환경변수
 `FLINT_DSN`으로 덮어쓴다. 해제는 `./bin/flint teardown`(`--purge` 시 volume까지).
 </details>
 
@@ -135,7 +135,7 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 
 | 커맨드 | 역할 | 설명 |
 | :--- | :--- | :--- |
-| `flint setup` | **부트스트랩** | Doltgres 기동(5433) + 마이그레이션 + 안내 |
+| `flint setup` | **부트스트랩** | Doltgres 기동(5434) + 마이그레이션 + 안내 |
 | `flint write <kind>` | **기록** | stdin JSONL 추가; 해시 dedup 멱등 |
 | `flint read <query>` | **조회** | active_knowledge 뷰 검색 |
 | `flint hot --session <id>` | **주입** | 예산 내 세션 시작 맥락 |
@@ -181,7 +181,7 @@ flint/
 ├── docs/               # PLAN · QUICKSTART · RUNBOOK · TUNING · ADR · adapters
 ├── data/               # seed.jsonl(추적) + 런타임(git 무시)
 ├── scripts/            # CI 검증
-└── docker-compose.yml  # Doltgres (호스트 5433)
+└── docker-compose.yml  # Doltgres (호스트 5434)
 ```
 
 ---
@@ -191,5 +191,5 @@ flint/
   <br/><br/>
   <strong>F L I N T</strong>
   <br/><br/>
-  <code>v0.9.3 · DoltgreSQL · Go</code>
+  <code>v0.9.7 · DoltgreSQL · Go</code>
 </p>

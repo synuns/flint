@@ -15,8 +15,8 @@ import (
 	"flint/lib/store"
 )
 
-// defaultDSN — FLINT_DSN 미지정 시 기본 접속 문자열(ADR-0001: 포트 5433).
-const defaultDSN = "postgresql://flint:flint-dev@localhost:5433/flint"
+// defaultDSN — FLINT_DSN 미지정 시 기본 접속 문자열(ADR-0010: 포트 5434).
+const defaultDSN = "postgresql://flint:flint-dev@localhost:5434/flint"
 
 // Store — 커맨드가 필요한 저장소 연산. cli_test는 fake으로 주입한다.
 type Store interface {

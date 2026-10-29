@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.9.3-blue" alt="v0.9.3">
+  <img src="https://img.shields.io/badge/release-v0.9.7-blue" alt="v0.9.7">
 </p>
 
 <p align="center">
@@ -42,7 +42,7 @@ Agents are capable but forget everything between sessions. flint stores project 
 
 Humans keep notes in Obsidian. Agents keep memory in flint — the stone you strike to make fire and tools.
 
-> v0.9.3 shipped 2026-10-28 — operational hardening: test isolation, duplicate handling. Roadmap: [docs/PLAN.md](docs/PLAN.md)
+> v0.9.7 shipped 2026-10-29 — propagation & migration cleanup: skill sync, port 5434, badge refresh, observability. Roadmap: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
@@ -83,12 +83,12 @@ Verify:
 <details>
 <summary><strong>What happens during setup?</strong></summary>
 
-1. `docker compose up -d` starts Doltgres on host port 5433 (ADR-0001).
+1. `docker compose up -d` starts Doltgres on host port 5434 (ADR-0010).
 2. Schema migrates on first store command (auto, idempotent).
 3. Seeding is guided — reruns are safe: identical payloads return `{"status":"duplicate"}` exit 0.
 4. Plugin install is guided for `flint-plugin/`.
 
-Default DSN: `postgresql://flint:flint-dev@localhost:5433/flint` — override with
+Default DSN: `postgresql://flint:flint-dev@localhost:5434/flint` — override with
 `FLINT_DSN`. Tear down with `./bin/flint teardown` (`--purge` removes the volume too).
 </details>
 
@@ -131,7 +131,7 @@ The four phases form one session lifecycle:
 
 | Command | Role | Description |
 | :--- | :--- | :--- |
-| `flint setup` | **Bootstrap** | Doltgres up (5433) + migrate + next-step guide |
+| `flint setup` | **Bootstrap** | Doltgres up (5434) + migrate + next-step guide |
 | `flint write <kind>` | **Record** | Append JSONL from stdin; idempotent via hash dedup |
 | `flint read <query>` | **Retrieve** | Search the active-knowledge view |
 | `flint hot --session <id>` | **Inject** | Budgeted session-start context |
@@ -177,7 +177,7 @@ flint/
 ├── docs/               # PLAN · QUICKSTART · RUNBOOK · TUNING · ADR · adapters
 ├── data/               # seed.jsonl (tracked) + runtime data (ignored)
 ├── scripts/            # CI validation
-└── docker-compose.yml  # Doltgres on host 5433
+└── docker-compose.yml  # Doltgres on host 5434
 ```
 
 ---
@@ -187,5 +187,5 @@ flint/
   <br/><br/>
   <strong>F L I N T</strong>
   <br/><br/>
-  <code>v0.9.3 · DoltgreSQL · Go</code>
+  <code>v0.9.7 · DoltgreSQL · Go</code>
 </p>

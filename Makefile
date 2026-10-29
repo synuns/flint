@@ -1,8 +1,8 @@
-DSN ?= postgresql://flint:flint-dev@localhost:5433/flint
+DSN ?= postgresql://flint:flint-dev@localhost:5434/flint
 
 # v0.9.3 R1 테스트 격리: tests/는 이 DSN만 쓴다(기본 flint_test — 운영
 # flint와 분리). test·e2e 타깃에만 주입하고 DSN(운영) 기본값은 그대로.
-FLINT_TEST_DSN ?= postgresql://flint:flint-dev@localhost:5433/flint_test
+FLINT_TEST_DSN ?= postgresql://flint:flint-dev@localhost:5434/flint_test
 
 # 버전 주입(T33): 기본 dev, 릴리스는 make build VERSION=0.3.0
 VERSION ?= dev
@@ -23,7 +23,7 @@ ci:
 tidy:
 	go mod tidy
 
-# Doltgres (ADR-0001: 호스트 5433 -> 컨테이너 5432)
+# Doltgres (ADR-0010: 호스트 5434 -> 컨테이너 5432)
 # v0.7: --wait로 헬스체크 통과까지 대기 후 반환(60s 타임아웃 — setup과 동일).
 up:
 	docker compose up -d --wait --wait-timeout 60

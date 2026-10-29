@@ -11,18 +11,18 @@ jobs:
   test:
     runs-on: ubuntu-latest
     services:
-      # ADR-0001: 호스트 5433 -> 컨테이너 5432 (docker-compose.yml과 동일 설정)
+      # ADR-0010: 호스트 5434 -> 컨테이너 5432 (docker-compose.yml과 동일 설정)
       doltgres:
         image: dolthub/doltgresql:latest
         ports:
-          - 5433:5432
+          - 5434:5432
         env:
           DOLTGRES_USER: flint
           DOLTGRES_PASSWORD: flint-dev
           DOLTGRES_DB: flint
     env:
       # e2e DSN 주입: tests/e2e는 FLINT_DSN 우선
-      FLINT_DSN: postgresql://flint:flint-dev@localhost:5433/flint
+      FLINT_DSN: postgresql://flint:flint-dev@localhost:5434/flint
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5

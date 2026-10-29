@@ -99,9 +99,9 @@ func TestMain(m *testing.M) {
 
 // TestE2EDSNIsolated — Review Focus(명명): e2e dsn() 기본값이 flint_test.
 func TestE2EDSNIsolated(t *testing.T) {
-	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5433/flint")
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
 	t.Setenv("FLINT_TEST_DSN", "")
-	if got := dsn(); got != "postgresql://flint:flint-dev@localhost:5433/flint_test" {
+	if got := dsn(); got != "postgresql://flint:flint-dev@localhost:5434/flint_test" {
 		t.Errorf("dsn = %q, want 운영 DSN 무시 + flint_test 기본값", got)
 	}
 }
