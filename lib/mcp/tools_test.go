@@ -252,7 +252,7 @@ func installSimple(t *testing.T, rows [][]any) (*fakeSimpleStore, bool) {
 // TestSimpleStoreQuery — NewSimpleStore는 DSN에 simple protocol 파라미터를
 // 붙이고(장수 세션 뷰 describe 캐시 우회), placeholder 인자($1)가 그대로 전달된다.
 func TestSimpleStoreQuery(t *testing.T) {
-	dsn := "postgresql://flint:flint-dev@localhost:5433/flint"
+	dsn := "postgresql://flint:flint-dev@localhost:5434/flint"
 	if real := os.Getenv("SUPERLITE_REAL") == "1"; real {
 		if d := os.Getenv("FLINT_DSN"); d != "" {
 			dsn = d
