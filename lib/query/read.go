@@ -4,7 +4,9 @@ package query
 import (
 	"encoding/json"
 	"fmt"
+	"sort"
 	"strings"
+	"unicode"
 )
 
 // Filters — flint read 필터(--tag --entity --domain --limit).
@@ -19,6 +21,11 @@ const (
 	defaultLimit = 10
 	maxLimit     = 50
 	summaryMax   = 80
+
+	// ReadFallbackCountKey — 제로히트 폴백 시도 횟수 meta 계측 키(v0.9.6).
+	ReadFallbackCountKey = "read_fallback_calls"
+	// maxQueryTokens — 폴백 OR 스캔 비용 가드(룰링): 초과 토큰은 버린다.
+	maxQueryTokens = 8
 )
 
 // ClampLimit — limit 기본 10, 상한 50 (토큰 예산 박제).
@@ -36,6 +43,53 @@ func ClampLimit(n int) int {
 // fields 이름→위치 매핑 기준이 된다.
 var readColumns = []string{
 	"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status",
+}
+
+// tokenizeQuery — 무료 텍스트 q를 검색 토큰으로 쪼갠다(v0.9.6 폴백용).
+// strings.Fields 분리 후 각 토큰의 선행/후행 구두점(unicode.IsPunct)을
+// 제거하고 빈 토큰은 버린다. 상한 8 — 초과 토큰은 조용히 버림(에러 아님).
+func tokenizeQuery(q string) []string {
+	fields := strings.Fields(q)
+	tokens := make([]string, 0, len(fields))
+	for _, f := range fields {
+		f = trimPunct(f)
+		if f != "" {
+			tokens = append(tokens, f)
+		}
+		if len(tokens) == maxQueryTokens {
+			break
+		}
+	}
+	return tokens
+}
+
+// TokenizeQuery — tokenizeQuery 내보내기(폴백 재랭킹 호출부·lib/cli용).
+func TokenizeQuery(q string) []string { return tokenizeQuery(q) }
+
+// trimPunct — 토큰 양끝 구두점 제거(내부 구두점은 유지 — 'a-b' 등).
+func trimPunct(s string) string {
+	r := []rune(s)
+	for len(r) > 0 && unicode.IsPunct(r[0]) {
+		r = r[1:]
+	}
+	for len(r) > 0 && unicode.IsPunct(r[len(r)-1]) {
+		r = r[:len(r)-1]
+	}
+	return string(r)
+}
+
+// fallbackMatchCount — 토큰이 topic·summary에 포함되는 개수(재랭킹 점수).
+// 대소문자 무시 lower 부분문자열 매칭.
+func fallbackMatchCount(tokens []string, topic string, summary string) int {
+	t, s := strings.ToLower(topic), strings.ToLower(summary)
+	n := 0
+	for _, tok := range tokens {
+		tok = strings.ToLower(tok)
+		if strings.Contains(t, tok) || strings.Contains(s, tok) {
+			n++
+		}
+	}
+	return n
 }
 
 // likeEscape — LIKE 패턴에서 \, %, _ 를 리터럴로 이스케이프.
@@ -87,6 +141,59 @@ func BuildRead(q string, f Filters) (string, []any) {
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args
+}
+
+// BuildReadFallback — 제로히트 폴백 조회 SQL 조립(v0.9.6). 토큰별
+// OR LIKE + 기존 필터(tag·entity·domain)·active_knowledge 뷰·likeEscape·
+// RankOrder·LIMIT 승계. 토큰 2개 미만은 구문 매칭과 동질이라 ok=false
+// (폴백 생략 — 룰링).
+func BuildReadFallback(q string, f Filters) (string, []any, bool) {
+	tokens := tokenizeQuery(q)
+	if len(tokens) < 2 {
+		return "", nil, false
+	}
+	var conds []string
+	var args []any
+	for _, tok := range tokens {
+		args = append(args, "%"+likeEscaper.Replace(tok)+"%")
+		conds = append(conds, fmt.Sprintf("lower(topic || ' ' || summary) LIKE lower($%d)", len(args)))
+	}
+	where := []string{"(" + strings.Join(conds, " OR ") + ")"}
+	if f.Tag != "" {
+		args = append(args, f.Tag)
+		where = append(where, fmt.Sprintf("strpos(tags, ':' || $%d || ':') > 0", len(args)))
+	}
+	if f.Entity != "" {
+		args = append(args, f.Entity)
+		where = append(where, fmt.Sprintf("entity = $%d", len(args)))
+	}
+	if f.Domain != "" {
+		args = append(args, f.Domain)
+		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
+	}
+	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge WHERE " +
+		strings.Join(where, " AND ") + " " + RankOrder(q)
+	args = append(args, ClampLimit(f.Limit))
+	sql += fmt.Sprintf(" LIMIT $%d", len(args))
+	return sql, args, true
+}
+
+// ReorderByFallbackCount — 폴백 결과 앱 재랭킹(v0.9.6): fallbackMatchCount
+// DESC. sort.SliceStable — 동률은 SQL RankOrder 순(조회 순)을 유지한다.
+func ReorderByFallbackCount(rows [][]any, tokens []string) {
+	rowCount := func(row []any) int {
+		topic, summary := "", ""
+		if i := columnIndexOf("topic"); i >= 0 && i < len(row) {
+			topic, _ = row[i].(string)
+		}
+		if i := columnIndexOf("summary"); i >= 0 && i < len(row) {
+			summary, _ = row[i].(string)
+		}
+		return fallbackMatchCount(tokens, topic, summary)
+	}
+	sort.SliceStable(rows, func(i, j int) bool {
+		return rowCount(rows[i]) > rowCount(rows[j])
+	})
 }
 
 // columnIndexOf — fields 이름 → readColumns 인덱스. 없으면 -1.
