@@ -1,0 +1,56 @@
+{
+ "projection_note": "projection: fixed forecast saved at lint 2026-10-29T01:18:22 (plan edited since)",
+ "headline": {
+  "wall_min": {
+   "projected": 1.704,
+   "actual": null
+  },
+  "cost_usd_agents": {
+   "projected": 0.17963,
+   "actual": 0
+  },
+  "task_min": {
+   "projected": 3.408,
+   "actual": 0
+  },
+  "agents": {
+   "projected": 2,
+   "actual": 0
+  }
+ },
+ "cost_split": {
+  "agents_usd": 0,
+  "rework_usd": 0,
+  "coordinator_usd": null,
+  "total_usd": 0.0
+ },
+ "concurrency": {
+  "peak": 0,
+  "projected_peak": 2
+ },
+ "critical_path": {
+  "actual": [],
+  "projected": [
+   "T1"
+  ],
+  "projected_min": 1.704
+ },
+ "model_mix": {},
+ "coordinator_cost_by_model": null,
+ "quality": {
+  "tests": {
+   "passed": 11,
+   "failed": 0,
+   "skipped": 0,
+   "seconds": 8.2,
+   "mode": "full",
+   "failures": [],
+   "skipped_tests": []
+  },
+  "first_time_pass": 0,
+  "first_time_n": 0,
+  "rework_dispatches": 0,
+  "open_incidents": 0
+ },
+ "tasks": []
+}
