@@ -7,6 +7,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 // fallbackRow — active_knowledge 행 픽스처(readColumns 순서).
@@ -109,6 +110,60 @@ func TestReadPhraseHitUnchanged(t *testing.T) {
 	for _, q := range f.queries {
 		if strings.Contains(q, "FROM active_knowledge") && strings.Contains(q, " OR ") {
 			t.Errorf("구문 히트인데 폴백 OR 질의 발행: %q", q)
+		}
+	}
+}
+
+// TestReadFallbackSkippedOnAsOf — --as-of 질의는 현재 시점 폴백이 시점
+// 정합성을 깨므로 제로히트여도 폴백 미발생(룰링).
+func TestReadFallbackSkippedOnAsOf(t *testing.T) {
+	ctx := context.Background()
+	var out bytes.Buffer
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM dolt_log WHERE date <= $1"):
+			return [][]any{{"he08irluqn3v2m1k9x7c4jw5z6b8d0f"}}, nil
+		case strings.Contains(sql, "WHERE commit_hash = $1"):
+			return [][]any{{time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)}}, nil
+		case strings.Contains(sql, "FROM active_knowledge"):
+			return nil, nil // 과거 시점 제로히트
+		}
+		return nil, nil
+	}}
+	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"--as-of", "7d", "백업 복구"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("runRead exit = %d, want 0 (출력 %q)", code, out.String())
+	}
+	for _, q := range f.queries {
+		if strings.Contains(q, "FROM active_knowledge") && strings.Contains(q, " OR ") {
+			t.Errorf("as-of 질의에 폴백 OR 발행: %q", q)
+		}
+	}
+	if got := out.String(); !strings.Contains(got, `"as_of"`) {
+		t.Errorf("as_of 첨부 누락: %q", got)
+	}
+}
+
+// TestReadFallbackSkippedOnSingleToken — 1-토큰 질의 제로히트는 구문
+// 매칭과 동질이라 폴백 없이 기존 제로히트 출력(계측 증분도 없음).
+func TestReadFallbackSkippedOnSingleToken(t *testing.T) {
+	ctx := context.Background()
+	var out bytes.Buffer
+	var metaKeys []string
+	f := &fakeStore{queryFn: fallbackQueryFn(&metaKeys)}
+	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("runRead exit = %d, want 0", code)
+	}
+	if got := out.String(); got != "" {
+		t.Errorf("1-토큰 제로히트 출력 있음: %q", got)
+	}
+	for _, q := range f.queries {
+		if strings.Contains(q, "FROM active_knowledge") && strings.Contains(q, " OR ") {
+			t.Errorf("1-토큰 질의에 폴백 OR 발행: %q", q)
+		}
+	}
+	for _, k := range metaKeys {
+		if k == "set:read_fallback_calls" {
+			t.Errorf("폴백 미시도인데 read_fallback_calls 증분")
 		}
 	}
 }
