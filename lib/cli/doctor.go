@@ -100,9 +100,13 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		checks = append(checks, harnessChecks()...)
 		// skill-file(v0.9.7 R1)도 harness와 같은 별도 체인 — 소스가
 		// 탐지되는 경우에만 결과를 생성하고 warn은 exit를 깨지 않는다
-		// (룰링: 스킬 없어도 훅은 동작 — fail은 과잉).
-		if c, ok := checkSkillFile(skillSrcDir(flintBinPathFn()), filepath.Join(claudeHome(), "skills", "flint")); ok {
-			checks = append(checks, c)
+		// (룰링: 스킬 없어도 훅은 동작 — fail은 과잉). home 미탐지 시
+		// 검사를 생략한다(checkHookFile와 같은 처리 — Join("",…)은
+		// 상대경로가 돼 cwd 오탐).
+		if home := claudeHome(); home != "" {
+			if c, ok := checkSkillFile(skillSrcDir(flintBinPathFn()), filepath.Join(home, "skills", "flint")); ok {
+				checks = append(checks, c)
+			}
 		}
 	}
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자

@@ -159,6 +159,26 @@ func TestDoctorSkillFileWarnExitZero(t *testing.T) {
 	}
 }
 
+// claudeHome 미탐지(FLINT_CLAUDE_HOME·HOME 모두 빈) 시 skill-file 검사는
+// 생성되지 않는다 — filepath.Join("",…) 상대경로를 cwd에서 오탐하지 않는다.
+func TestDoctorSkillFileOmittedWhenNoHome(t *testing.T) {
+	withComposePs(t, func(ctx context.Context) ([]byte, error) {
+		return nil, errors.New("stub: docker 없음 가정") // port skip
+	})
+	withSkillBin(t, map[string]string{"flint-plugin/skills/flint/SKILL.md": "v097"}) // 소스는 탐지됨
+	t.Setenv("FLINT_CLAUDE_HOME", "")
+	t.Setenv("HOME", "")
+	setHarnessEnvs(t)
+
+	out, code := runDoctorArgs(t, &fakeStore{queryFn: freshDoctorFn()})
+	if code != 1 { // hook-file fail(home 미탐지)은 정상 — 여기선 skill-file 부재만 본다
+		t.Logf("exit=%d(참고)", code)
+	}
+	if strings.Contains(out, `"skill-file"`) {
+		t.Errorf("home 미탐지인데 skill-file 검사 생성됨: %q", out)
+	}
+}
+
 // setup --update-rules — 싱크 실행 보고 {"status":"synced","copied":N,"dest":…}.
 func TestSetupUpdateRulesReport(t *testing.T) {
 	withFake(t, &fakeStore{})
