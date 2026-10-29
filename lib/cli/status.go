@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"strconv"
 	"strings"
 	"time"
 
@@ -27,14 +28,39 @@ type statusOutput struct {
 	LastReadAt    *string `json:"last_read_at"`
 }
 
+// statusV096Output — v0.9.6: statusOutput 필드를 임베딩해 키 순서를 그대로
+// 두고 read_fallback_calls(T1 계측 meta 노출)를 말미에 추가한다. 미설정은
+// null(v0.6 last_* 패턴 승계). statusOutput 자체는 불변(기존 필드·순서
+// 계약 — status_v06/v08 리플렉션 테스트가 담보).
+type statusV096Output struct {
+	statusOutput
+	ReadFallbackCalls *int `json:"read_fallback_calls"`
+}
+
 // statusAsOfOutput — T85: --as-of 지정 시 출력. 기존 statusOutput 필드를
 // 임베딩해 키 순서를 그대로 두고 as_of{hash,commit_date}를 말미에 추가한다.
+// v0.9.6부터는 statusV096Output(끝에 read_fallback_calls)을 임베딩한다.
 // as_of 형태는 read --as-of(asOfInfo)와 동일 — 소비자가 한 형태로 파싱한다
 //(스펙 §1 "as_of 해시·시각"·e2e asOfHash 정합). statusOutput 자체는 불변
 //(미지정 시 출력 불변 — v0.7 last_* 원칙 승계).
 type statusAsOfOutput struct {
-	statusOutput
+	statusV096Output
 	AsOf asOfInfo `json:"as_of"`
+}
+
+// fallbackCallsOrNull — meta read_fallback_calls(T1 폴백 계측) 조회.
+// 부재·파손(비정수)·조회 오류는 nil(JSON null) — 계측 표시이므로 status를
+// 깨지 않는다(lastSeenOrNull과 같은 원칙).
+func fallbackCallsOrNull(getKV func(string, string) (string, error)) *int {
+	v, err := getKV("read_fallback_calls", "")
+	if err != nil || v == "" {
+		return nil
+	}
+	n, perr := strconv.Atoi(strings.TrimSpace(v))
+	if perr != nil {
+		return nil
+	}
+	return &n
 }
 
 // lastSeenOrNull — meta에서 RFC3339 last_* 키 조회. 키 부재·파손(비-RFC3339)은
@@ -131,14 +157,15 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	readCalls, readZero := loadReadStatsFromMeta(ctx, st)
 	// T63: 유입 3경로 last-seen(meta last_*_at, T60 기록) — 부재·파손은 null.
 	getKV := metaGetKV(ctx, st)
-	base := statusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
+	base := statusV096Output{statusOutput: statusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
 		HotCalls: calls, HotP95: p95, ReadCalls: readCalls, ReadZeroPct: readZeroPct(readCalls, readZero),
 		LastWriteAt: lastSeenOrNull(getKV, "last_write_at"),
 		LastHotAt:   lastSeenOrNull(getKV, "last_hot_at"),
-		LastReadAt:  lastSeenOrNull(getKV, "last_read_at")}
+		LastReadAt:  lastSeenOrNull(getKV, "last_read_at")},
+		ReadFallbackCalls: fallbackCallsOrNull(getKV)}
 	var b []byte
 	if asOfHash != "" {
-		b, _ = json.Marshal(statusAsOfOutput{statusOutput: base,
+		b, _ = json.Marshal(statusAsOfOutput{statusV096Output: base,
 			AsOf: asOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 	} else {
 		b, _ = json.Marshal(base)
