@@ -1,7 +1,7 @@
 # RUNBOOK — flint 운영 절차
 
 감사·오염 대응·복구 훈련·백업 보존·진단·스테일 관리·유지보수 주기의
-7절 구성. 모든 절차는 각 커맨드 계약(exit 0/1/2/3, 한 줄 JSON)을 따른다.
+8절 구성. 모든 절차는 각 커맨드 계약(exit 0/1/2/3, 한 줄 JSON)을 따른다.
 
 ## 1. 감사 — `flint audit`
 
@@ -148,3 +148,41 @@ launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist`):
 
 등록: `launchctl load ~/Library/LaunchAgents/dev.flint.maintain.plist`.
 경과 보고는 `flint report`·§3 drill 주기(30일)와 상호 확인한다.
+
+## 8. 실DB 파손 복구 — AS OF 선택 복원 (v0.9.4)
+
+v0.9.3 빌드 중 실DB wipe 사고에서 실증한 복구 절차다. §2의 revert
+절차로 되돌리지 못하는 충돌 상황(아래 원인)에서 이 절을 따른다.
+
+- **증상**: `knowledge` active 행수가 급감하고, `flint audit`의
+  `dolt_log` 커밋 이력과 실제 행수가 불일치한다.
+- **원인**: 커밋되지 않은 raw `DELETE`(작업집합)를 후속
+  `dolt_add --all` 커밋이 함께 흡수해, 파괴가 커밋 이력 안으로
+  들어간 상태. revert 대상 커밋에 무관 변경이 섞여 충돌이 난다.
+
+**절차 5단계**(실례: `jkfa904` 파괴 → `001nnpn` 복구, 2026-10-28):
+
+1. 작업집합 확인 — psql에서 `dolt_status`로 미커밋 변경을 조사한다.
+2. 정크 정리 + 체크포인트 커밋 — 남은 정크(빌드 잔여물 등)를 버리고
+   작업집합을 비워 체크포인트 커밋한다.
+3. `dolt_revert` 시도 — 파괴 커밋을 되돌린다(§2와 동일).
+
+   ```
+   psql "$FLINT_DSN" -c "CALL dolt_revert('<파괴 커밋>')"
+   ```
+
+4. 충돌 시 **선택 복원** — revert가 충돌로 막히면, 직전 정상 커밋의
+   스냅샷에서 대상 행만 복원한다(선택 복원).
+
+   ```sql
+   INSERT INTO knowledge SELECT * FROM knowledge
+     AS OF '<직전 정상 커밋>'
+     WHERE id IN ('<id1>', '<id2>', …);
+   ```
+
+5. 검증 — `flint read`(또는 SQL 조회)로 행 복원을 확인하고
+   `dolt_status`로 작업집합이 비었는지 확인한 뒤 커밋한다.
+
+- **세션 테이블 유실은 수용**한다(PLAN §8 — 세션은 재수집 대상).
+- **정크는 미복원 원칙**: 복구 범위는 유효 지식(active) 행만으로
+  한정하고, 빌드 정크는 되살리지 않는다.
