@@ -58,7 +58,7 @@ fail 시 대응:
    (플러그인 설치·`FLINT_CLAUDE_HOME` 경로 확인). 훅 없이도 flint CLI는
    동작하므로 세션은 즉시 복구 필요 없음.
 2. **db** — `docker compose up -d`로 Doltgres 기동 후 재실행.
-   DSN은 `FLINT_DSN` 확인(기본 `localhost:5433`).
+   DSN은 `FLINT_DSN` 확인(기본 `localhost:5434`).
 3. **schema** — `flint setup`(마이그레이션) 실행 후 `flint doctor --check schema`
    로 재확인.
 4. **integrity** — 인덱스 재생성 필요. 최신 백업 덤프가 있으면 §4 절차로
@@ -116,7 +116,7 @@ v0.8 무효화 경로(항상 dry-run 먼저):
 cron 예(매월 1일 04:00, dry-run만):
 
 ```
-0 4 1 * * FLINT_DSN=postgresql://flint:flint-dev@localhost:5433/flint \
+0 4 1 * * FLINT_DSN=postgresql://flint:flint-dev@localhost:5434/flint \
   /usr/local/bin/flint maintain --check >> "$HOME/.flint/maintain.log" 2>&1
 ```
 
@@ -137,7 +137,7 @@ launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist`):
   <key>EnvironmentVariables</key>
   <dict>
     <key>FLINT_DSN</key>
-    <string>postgresql://flint:flint-dev@localhost:5433/flint</string>
+    <string>postgresql://flint:flint-dev@localhost:5434/flint</string>
   </dict>
   <key>StartCalendarInterval</key>
   <dict><key>Day</key><integer>1</integer><key>Hour</key><integer>4</integer></dict>
