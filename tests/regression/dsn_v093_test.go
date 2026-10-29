@@ -26,8 +26,8 @@ import (
 	"flint/lib/db"
 )
 
-// regTestDefaultDSN — ADR-0001 포트 5433 위 격리 DB flint_test(v0.9.3 R1).
-const regTestDefaultDSN = "postgresql://flint:flint-dev@localhost:5433/flint_test"
+// regTestDefaultDSN — ADR-0010 포트 5434 위 격리 DB flint_test(v0.9.3 R1).
+const regTestDefaultDSN = "postgresql://flint:flint-dev@localhost:5434/flint_test"
 
 // regTestDSN — FLINT_TEST_DSN 우선, 없으면 flint_test 기본. FLINT_DSN(운영)은
 // 이 패키지에서 무시한다.
@@ -116,16 +116,16 @@ func TestMain(m *testing.M) {
 }
 
 func TestRegTestDSNDefaultsToIsolatedDB(t *testing.T) {
-	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5433/flint")
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
 	t.Setenv("FLINT_TEST_DSN", "")
-	if got := regTestDSN(); got != "postgresql://flint:flint-dev@localhost:5433/flint_test" {
+	if got := regTestDSN(); got != "postgresql://flint:flint-dev@localhost:5434/flint_test" {
 		t.Errorf("regTestDSN = %q, want 운영 DSN 무시 + flint_test 기본값", got)
 	}
 }
 
 func TestRegTestDSNEnvOverride(t *testing.T) {
-	t.Setenv("FLINT_TEST_DSN", "postgresql://flint:t@h:5433/flint_ci")
-	if got := regTestDSN(); got != "postgresql://flint:t@h:5433/flint_ci" {
+	t.Setenv("FLINT_TEST_DSN", "postgresql://flint:t@h:5434/flint_ci")
+	if got := regTestDSN(); got != "postgresql://flint:t@h:5434/flint_ci" {
 		t.Errorf("regTestDSN = %q, want FLINT_TEST_DSN 우선", got)
 	}
 }
