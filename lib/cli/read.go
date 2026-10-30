@@ -166,6 +166,16 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			}
 		}
 	}
+	// v0.10.0 R1 did-you-mean: 구문·폴백 모두 제로히트 && 현재 시점일 때만
+	// active_knowledge 전체 스캔(필터 무관)으로 근접 후보 상위 3건 제안.
+	// 스캔 실패·제안 0건은 조용히 — 기존 제로히트 출력 바이트 불변.
+	var suggestions []query.Suggestion
+	if len(rows) == 0 && asOfSpec == "" {
+		ssql, sargs := query.BuildSuggestScan()
+		if srows, serr := queryOnce(ctx, st, ssql, sargs); serr == nil {
+			suggestions = query.SuggestSimilar(q, srows, 3)
+		}
+	}
 	// 출력 중립화(ADR-0006): 저장 단계 살균을 읽기에도 재적용 — 저장 이후
 	// 혹은 경로상 유입된 제어 문자·[flint] 마커가 출력 경계를 위조하지 않게 한다.
 	for _, row := range rows {
@@ -176,6 +186,16 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		}
 	}
 	fmt.Fprint(stdout, query.FormatRows(rows, fields, jsonMode))
+	// R1: 제로히트 제안은 별도 JSON 한 줄로 결과 뒤에 추가(as_of 라인과
+	// 동일한 additive 경로 — 룰링). 빈 슬라이스면 미출력. 제안 topic도
+	// 출력 경계 살균(ADR-0006)을 적용한다.
+	if len(suggestions) > 0 {
+		for i := range suggestions {
+			suggestions[i].Topic = store.SanitizeText(suggestions[i].Topic)
+		}
+		b, _ := json.Marshal(suggestLine{Suggestions: suggestions})
+		fmt.Fprintln(stdout, string(b))
+	}
 	// --as-of 지정 시 결과 뒤에 as_of{hash,commit_date} 한 줄(JSON) 추가.
 	// 미지정이면 기존 필드만 그대로.
 	if asOfHash != "" {
@@ -204,6 +224,11 @@ func bumpReadFallbackToMeta(ctx context.Context, st Store) {
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
 		[]any{query.ReadFallbackCountKey, strconv.Itoa(n + 1)})
+}
+
+// suggestLine — 제로히트 제안 첨부 한 줄 JSON {"suggestions":[…]}(v0.10.0 R1).
+type suggestLine struct {
+	Suggestions []query.Suggestion `json:"suggestions"`
 }
 
 // asOfInfo / asOfLine — --as-of 결과 첨부 한 줄 JSON {as_of:{hash,commit_date}}.

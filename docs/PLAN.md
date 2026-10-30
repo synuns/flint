@@ -369,6 +369,16 @@ flint-plugin/
 - [x] R2 계측 노출 — status JSON에 `read_fallback_calls` 필드
 - [x] R3 문서 동기화 — README(EN/KO) read 폴백 1줄, 마일스톤 기록
 
+### v0.10.0 검색 품질·백업 신뢰성 (2026-10-30 기획·완료, PR #16(예정))
+
+- [x] R1 did-you-mean — read 제로히트 시 근접 후보 제안(suggestions)
+- [x] R2 NFKC 유니코드 정규화 검색 — 매칭 비교 문자열 양측 정규화
+- [x] R3 자동 백업 사이드카 — `flint done` 자동 백업 sha256 사이드카
+  무결 검증
+- [x] R4 doctor backup-age — 마지막 백업 72h 초과 시 warn 진단
+- [x] R5 문서 동기화 — README(EN/KO) 배지 v0.10.0·제안/무결성 1줄,
+  마일스톤 기록
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
