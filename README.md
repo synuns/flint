@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.9.7-blue" alt="v0.9.7">
+  <img src="https://img.shields.io/badge/release-v0.10.0-blue" alt="v0.10.0">
 </p>
 
 <p align="center">
@@ -42,7 +42,7 @@ Agents are capable but forget everything between sessions. flint stores project 
 
 Humans keep notes in Obsidian. Agents keep memory in flint — the stone you strike to make fire and tools.
 
-> v0.9.7 shipped 2026-10-29 — propagation & migration cleanup: skill sync, port 5434, badge refresh, observability. Roadmap: [docs/PLAN.md](docs/PLAN.md)
+> v0.10.0 shipped 2026-10-30 — search quality & backup reliability: did-you-mean suggestions, NFKC normalization, sha256 backup sidecar, doctor backup-age. Roadmap: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
@@ -145,6 +145,8 @@ The four phases form one session lifecycle:
 | `flint mcp` | **Serve** | Run the MCP server |
 
 `flint read` retries word-by-word (fallback) when the phrase query hits nothing.
+`flint read` suggests near-miss candidates (suggestions) when the query still hits nothing.
+Backup dumps are integrity-checked via a sha256 sidecar — including `flint done` auto-backups (v0.10.0).
 
 Also: `version`, `teardown`. Operations runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md) · tuning: [docs/TUNING.md](docs/TUNING.md)
 

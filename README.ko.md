@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.9.7-blue" alt="v0.9.7">
+  <img src="https://img.shields.io/badge/release-v0.10.0-blue" alt="v0.10.0">
 </p>
 
 <p align="center">
@@ -46,7 +46,7 @@
 사람의 노트는 Obsidian(흑요석)에, 에이전트의 기억은 flint(부싯돌)에 — 불과 도구를
 얻기 위해 두드리는 돌.
 
-> v0.9.7 완료 (2026-10-29) — 전파·이전 정리: 스킬 싱크·포트 5434·배지 갱신·관측 통합. 로드맵: [docs/PLAN.md](docs/PLAN.md)
+> v0.10.0 완료 (2026-10-30) — 검색 품질·백업 신뢰성: did-you-mean 제안·NFKC 정규화·sha256 백업 사이드카·doctor backup-age. 로드맵: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
@@ -149,6 +149,8 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 | `flint mcp` | **서빙** | MCP 서버 실행 |
 
 `flint read`는 구문 미스 시 단어 단위 재검색(fallback)한다.
+`flint read`는 재검색까지 제로히트 시 근접 후보 제안(suggestions)을 출력한다.
+백업 덤프는 sha256 사이드카로 무결성을 검증한다 — `flint done` 자동 백업 포함(v0.10.0).
 
 그 외: `version`, `teardown`. 운영 절차는 [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝은 [docs/TUNING.md](docs/TUNING.md)
 
