@@ -4,8 +4,11 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"os"
 	"path/filepath"
@@ -253,10 +256,13 @@ func maybeAutoBackup(ctx context.Context) {
 
 // lazyDumpFile — 첫 Write 시에만 덤프 파일을 만드는 지연 writer.
 // RunIfNeeded가 비경과 no-op일 때 빈 파일을 남기지 않게 한다.
+// 기록 바이트는 sha256 tee로 합산되고 close가 .sha256 사이드카를
+// 남긴다(R3 — ADR-0006 무결 검증을 자동 파일에도 적용).
 type lazyDumpFile struct {
 	dir    string
 	once   sync.Once
 	f      *os.File
+	h      hash.Hash
 	failed bool
 }
 
@@ -274,17 +280,32 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 			return
 		}
 		l.f = f
+		l.h = sha256.New()
 	})
 	if l.failed {
 		return 0, errors.New("backup auto: dump 파일 생성 불가")
 	}
+	l.h.Write(p) // 해시 갱신은 본문 기록 성공 여부와 무관하게 항상 동기
 	return l.f.Write(p)
 }
 
-func (l *lazyDumpFile) close() {
-	if l.f != nil {
-		l.f.Close()
+// close — 덤프 close 성공 후 .sha256 사이드카 기록. once 미발동(0바이트
+// no-op)이면 파일·사이드카 모두 만들지 않는다. 사이드카 실패는 경고 로그
+// 후 진행(비차단 — done 반환·exit 불변).
+func (l *lazyDumpFile) close() error {
+	if l.f == nil {
+		return nil
 	}
+	name := l.f.Name()
+	if err := l.f.Close(); err != nil {
+		return err
+	}
+	sum := hex.EncodeToString(l.h.Sum(nil))
+	if err := backup.WriteSidecar(name, sum); err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] backup sidecar: %v\n", err)
+		return fmt.Errorf("sidecar: %w", err)
+	}
+	return nil
 }
 
 func init() {
