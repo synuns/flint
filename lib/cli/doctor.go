@@ -108,6 +108,10 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 				checks = append(checks, c)
 			}
 		}
+		// backup-age(v0.10.0 R4)도 같은 별도 체인 — 실행 목록 말미.
+		// DoctorChecks() 이름 공간(6종·port 마지막)은 기존 계약 그대로
+		// 둔다(기존 검사·필드 순서 불변).
+		checks = append(checks, checkBackupAge(ctx, st))
 	}
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
@@ -587,6 +591,49 @@ func checkLastSeen(ctx context.Context, st Store) doctorCheck {
 	}
 	if warns > 0 {
 		c.Status = "warn"
+		return c
+	}
+	c.Status = "ok"
+	return c
+}
+
+// backupAgeWarn — 자동 백업 신선도 임계값(v0.10.0 R4). 72h 상수 —
+// TUNING 이연(스펙 §3 R4 Notes).
+const backupAgeWarn = 72 * time.Hour
+
+// checkBackupAge — meta last_backup 경과 판정(v0.10.0 R4). 72h 이상
+// 경과·미설정·파손 값·조회 실패·st nil 전부 warn — 백업 부재가 flint
+// 동작을 막지 않으므로 fail 아니다(룰링). checkLastSeen과 같은
+// queryOnce·RFC3339 패턴을 승계한다.
+func checkBackupAge(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "backup-age"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "last_backup 미설정 — flint done 훅·수동 backup 확인"
+		return c
+	}
+	rows, err := queryOnce(ctx, st, `SELECT key, value FROM meta WHERE key = 'last_backup'`, nil)
+	if err != nil {
+		c.Status = "warn"
+		c.Detail = "last_backup 조회 실패: " + err.Error() + " — flint done 훅·수동 backup 확인"
+		return c
+	}
+	last := ""
+	if len(rows) > 0 && len(rows[0]) > 1 && rows[0][1] != nil {
+		last = fmt.Sprint(rows[0][1])
+	}
+	ts, perr := time.Parse(time.RFC3339, last)
+	if perr != nil {
+		ts = time.Time{} // 파손 값은 미설정 취급(무효 값 폴백)
+	}
+	if ts.IsZero() {
+		c.Status = "warn"
+		c.Detail = "last_backup 미설정 — flint done 훅·수동 backup 확인"
+		return c
+	}
+	if d := time.Since(ts); d >= backupAgeWarn {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("자동 백업 %d시간 경과 — flint done 훅·수동 backup 확인", int(d.Hours()))
 		return c
 	}
 	c.Status = "ok"
