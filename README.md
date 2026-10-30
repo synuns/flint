@@ -146,7 +146,7 @@ The four phases form one session lifecycle:
 
 `flint read` retries word-by-word (fallback) when the phrase query hits nothing.
 `flint read` suggests near-miss candidates (suggestions) when the query still hits nothing.
-`flint backup` verifies dump integrity via an automatic sha256 sidecar checksum.
+Backup dumps are integrity-checked via a sha256 sidecar — including `flint done` auto-backups (v0.10.0).
 
 Also: `version`, `teardown`. Operations runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md) · tuning: [docs/TUNING.md](docs/TUNING.md)
 
