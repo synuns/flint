@@ -79,12 +79,13 @@ func trimPunct(s string) string {
 }
 
 // fallbackMatchCount — 토큰이 topic·summary에 포함되는 개수(재랭킹 점수).
-// 대소문자 무시 lower 부분문자열 매칭.
+// 대소문자 무시 lower 부분문자열 매칭. 비교 문자열 양측에 NFKC 정규화
+// 적용(v0.10.0 R2 — NFC/NFD 표기 차이 미스 차단. 원문·SQL 불변).
 func fallbackMatchCount(tokens []string, topic string, summary string) int {
-	t, s := strings.ToLower(topic), strings.ToLower(summary)
+	t, s := nfkc(strings.ToLower(topic)), nfkc(strings.ToLower(summary))
 	n := 0
 	for _, tok := range tokens {
-		tok = strings.ToLower(tok)
+		tok = nfkc(strings.ToLower(tok))
 		if strings.Contains(t, tok) || strings.Contains(s, tok) {
 			n++
 		}
