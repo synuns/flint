@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"crypto/sha256"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -34,5 +36,29 @@ func TestLazyDumpNoopNoSidecar(t *testing.T) {
 	}
 	if m, _ := filepath.Glob(filepath.Join(dir, "*")); len(m) != 0 {
 		t.Errorf("no-op 잔존 파일: %v", m)
+	}
+}
+
+// 덤프 close 실패 시 사이드카를 남기지 않는다(불완전 파일을 검증
+// 통과로 위장하지 않는다) — 이중 close로 실패 경로를 유도한다.
+func TestLazyDumpCloseFailNoSidecar(t *testing.T) {
+	dir := t.TempDir()
+	name := filepath.Join(dir, "flint-closefail.sql")
+	f, err := os.Create(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString("partial"); err != nil {
+		t.Fatal(err)
+	}
+	lf := &lazyDumpFile{f: f, h: sha256.New()}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := lf.close(); err == nil {
+		t.Fatal("이미 닫힌 파일 close = nil, want 오류")
+	}
+	if _, err := os.Stat(name + ".sha256"); !os.IsNotExist(err) {
+		t.Errorf("close 실패 시 사이드카 미생성 기대: %v", err)
 	}
 }
