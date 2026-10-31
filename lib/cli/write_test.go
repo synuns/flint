@@ -331,9 +331,10 @@ func withCounter(t *testing.T, c *countRecorder) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// TestWriteDupBatchSingleCountCall — dup 계측은 줄 수와 무관하게
+// TestWriteDupBatchSingleCountCall — dup 계측은 줄 수와 무관하게 각 키
 // RecordUsageCount 1회 호출(회귀: recordDups가 RecordUsage를 N회 루프 — O(N)
-// 읽기-쓰기). write 1회(RecordUsage)·dup N(RecordUsageCount) 각 1회.
+// 읽기-쓰기). write 1회(RecordUsage)·총계 dup N + 소스 dup_<source> N
+// (RecordUsageCount 각 1회 — v0.10.2 R2 additive, 룰링 갱신).
 func TestWriteDupBatchSingleCountCall(t *testing.T) {
 	t.Run("all-dup", func(t *testing.T) {
 		c := &countRecorder{fakeStore: &fakeStore{exists: true}}
@@ -349,8 +350,9 @@ func TestWriteDupBatchSingleCountCall(t *testing.T) {
 		if len(c.singles) != 1 || c.singles[0] != (countCall{"write", "manual", 1}) {
 			t.Fatalf("write 계측=%v, want [write manual] 1회", c.singles)
 		}
-		if len(c.counts) != 1 || c.counts[0] != (countCall{"dup", "", 3}) {
-			t.Fatalf("dup 계측=%v, want [dup \"\" 3] 1회 일괄", c.counts)
+		if len(c.counts) != 2 || c.counts[0] != (countCall{"dup", "", 3}) ||
+			c.counts[1] != (countCall{"dup_manual", "", 3}) {
+			t.Fatalf("dup 계측=%v, want [dup \"\" 3, dup_manual \"\" 3] 각 1회 일괄", c.counts)
 		}
 	})
 	t.Run("mixed", func(t *testing.T) {
@@ -374,8 +376,9 @@ func TestWriteDupBatchSingleCountCall(t *testing.T) {
 		if len(c.singles) != 1 || c.singles[0] != (countCall{"write", "manual", 1}) {
 			t.Fatalf("write 계측=%v, want [write manual] 1회", c.singles)
 		}
-		if len(c.counts) != 1 || c.counts[0] != (countCall{"dup", "", 2}) {
-			t.Fatalf("dup 계측=%v, want [dup \"\" 2] 1회 일괄(실제 skip 수)", c.counts)
+		if len(c.counts) != 2 || c.counts[0] != (countCall{"dup", "", 2}) ||
+			c.counts[1] != (countCall{"dup_manual", "", 2}) {
+			t.Fatalf("dup 계측=%v, want [dup \"\" 2, dup_manual \"\" 2] 각 1회 일괄(실제 skip 수)", c.counts)
 		}
 	})
 }
