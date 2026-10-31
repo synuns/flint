@@ -26,6 +26,12 @@ type MaintStore interface {
 	Merge(ctx context.Context, fromID, toID int) error
 }
 
+// ConflictStore — 모순 후보 보고에 필요한 추가 조회(요약 포함 그룹).
+// MaintStore와 분리된 조건부 인터페이스 — 기존 fake는 그대로 둔다.
+type ConflictStore interface {
+	ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error)
+}
+
 // realStore 위임 — admin.go(T17) 실구현 연결. 메서드 정의만 여기 둔다.
 func (s *realStore) Counts(ctx context.Context) (db.Counts, error) {
 	return s.repo.Counts(ctx)
@@ -43,6 +49,10 @@ func (s *realStore) Merge(ctx context.Context, fromID, toID int) error {
 	return s.repo.Merge(ctx, fromID, toID)
 }
 
+func (s *realStore) ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error) {
+	return s.repo.ConflictGroups(ctx, limit)
+}
+
 func init() { Register("maintain", runMaintain) }
 
 // maintainValueFlags — 값을 받는 플래그 전체(모드 귀속 검증 대상).
@@ -52,13 +62,14 @@ var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to",
 // maintainModeFlags — 모드별 허용 값 플래그. 무관 플래그는 조용히 무시하지
 // 않고 에러로 거부한다(--days·--limit이 --stale 아닌 모드에서 흐르는 등).
 var maintainModeFlags = map[string]map[string]bool{
-	"--check":            {},
-	"--dup-suspects":     {"--limit": true},
-	"--stale":            {"--days": true, "--limit": true},
-	"--invalidate-stale": {"--days": true, "--limit": true},
-	"--invalidate":       {"--id": true, "--reason": true, "--ids": true},
-	"--merge":            {"--from": true, "--to": true},
-	"--supersede":        {"--supersede": true, "--by": true},
+	"--check":             {},
+	"--dup-suspects":      {"--limit": true},
+	"--conflict-suspects": {"--limit": true},
+	"--stale":             {"--days": true, "--limit": true},
+	"--invalidate-stale":  {"--days": true, "--limit": true},
+	"--invalidate":        {"--id": true, "--reason": true, "--ids": true},
+	"--merge":             {"--from": true, "--to": true},
+	"--supersede":         {"--supersede": true, "--by": true},
 }
 
 // maintainYesModes — --yes(실행 확정)가 뜻 있는 모드. 나머지 모드에서의
@@ -85,7 +96,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 
 	mode := ""
 	id, from, to := 0, 0, 0
-	old, by := 0, 0 // --supersede OLD --by NEW
+	old, by := 0, 0      // --supersede OLD --by NEW
 	days, limit := 0, 20 // --stale: days=0 → meta stale_days(기본 90) 폴백
 	dupLimit := 10       // --dup-suspects 기본(스펙 R4: --limit M 기본 10)
 	reason := ""
@@ -94,7 +105,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--check", "--dup-suspects", "--merge", "--stale", "--invalidate", "--invalidate-stale":
+		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale", "--invalidate", "--invalidate-stale":
 			mode = args[i]
 		case "--days", "--limit":
 			seen[args[i]] = true
@@ -209,6 +220,13 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		return maintainCheck(ctx, ms, stdout)
 	case "--dup-suspects":
 		return maintainDupSuspects(ctx, ms, stdout, dupLimit)
+	case "--conflict-suspects":
+		cs, ok := ms.(ConflictStore)
+		if !ok {
+			fmt.Fprintln(stdout, `{"error":"maintain: unsupported store"}`)
+			return 1
+		}
+		return maintainConflictSuspects(ctx, cs, stdout, dupLimit)
 	case "--stale":
 		return maintainStale(ctx, ms, stdout, days, limit)
 	case "--invalidate-stale":
@@ -247,7 +265,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		fmt.Fprintf(stdout, `{"status":"merged","from":%d,"to":%d}`+"\n", from, to)
 		return 0
 	default:
-		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW")))
+		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW")))
 		return 1
 	}
 }
@@ -273,7 +291,7 @@ type staleItem struct {
 	ID        int    `json:"id"`
 	Topic     string `json:"topic"`
 	NeverRead bool   `json:"never_read"`
-	Reason    string `json:"reason"` // never_read(미참조) | stale(경과)
+	Reason    string `json:"reason"`     // never_read(미참조) | stale(경과)
 	StaleDays int    `json:"stale_days"` // 기준 시각(last_read_at·없으면 ingested_at) 경과일
 }
 
@@ -311,6 +329,122 @@ func dupSuspectsJSON(groups []db.DupGroup) string {
 	b, err := json.Marshal(out)
 	if err != nil {
 		return `{"status":"dup-suspects","groups":[]}`
+	}
+	return string(b)
+}
+
+// conflictDupThreshold — 모순 분류 상수(룰링): 그룹 내 요약 유사도가
+// 0.6 이상이면 중복 후보(기존 --dup-suspects), 미만이면 모순 후보.
+// 제안 임계값(0.15)과 목적이 다른 독립 상수다.
+const conflictDupThreshold = 0.6
+
+// conflictDice — rune bigram Dice 계수(로컬 구현. lib/query bigramDice는
+// 공개 승격 대상이 아니어서 여기에 둔다). 두 문자열의 bigram 다중집합
+// 교집합으로 유사도 0~1을 낸다. bigram이 없는 짧은 문자열(2 미만 rune)은
+// 둘 다 비면 1(동일), 아니면 0(비교 불가=이질)로 처리한다.
+func conflictDice(a, b string) float64 {
+	ra, rb := []rune(a), []rune(b)
+	if len(ra) < 2 || len(rb) < 2 {
+		if len(ra) == 0 && len(rb) == 0 {
+			return 1
+		}
+		return 0
+	}
+	ma := map[string]int{}
+	for i := 0; i+1 < len(ra); i++ {
+		ma[string(ra[i:i+2])]++
+	}
+	mb := map[string]int{}
+	for i := 0; i+1 < len(rb); i++ {
+		mb[string(rb[i:i+2])]++
+	}
+	inter := 0
+	for k, n := range ma {
+		if m, ok := mb[k]; ok {
+			if m < n {
+				inter += m
+			} else {
+				inter += n
+			}
+		}
+	}
+	return 2 * float64(inter) / float64(len(ra)-1+len(rb)-1)
+}
+
+// classifyConflict — 요약 두 건의 모순 여부: 유사도가 conflictDupThreshold
+// 미만이면 모순 후보(같은 주제에 서로 다른 주장), 이상이면 중복 후보.
+func classifyConflict(summA, summB string) bool {
+	return conflictDice(summA, summB) < conflictDupThreshold
+}
+
+// conflictSummaryPrefix — 보고용 요약 앞 40자(rune 기준 절단).
+func conflictSummaryPrefix(s string) string {
+	r := []rune(s)
+	if len(r) <= 40 {
+		return s
+	}
+	return string(r[:40])
+}
+
+// isConflictGroup — 그룹이 모순 후보인지: 어느 한 쌍이라도 유사도가
+// 임계값 미만이면 이질 주장이 섞인 것으로 본다(전 쌍 동일·유사만 중복).
+func isConflictGroup(g db.ConflictGroup) bool {
+	for i := 0; i < len(g.Summaries); i++ {
+		for j := i + 1; j < len(g.Summaries); j++ {
+			if classifyConflict(g.Summaries[i], g.Summaries[j]) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// maintainConflictSuspects — active 동일 topic 그룹 중 요약 유사도
+// 미만(모순 후보) 그룹만 보고(보고 전용·exit 0). 그룹핑은 --dup-suspects
+// 승계, 출력도 그 형식에 요약 앞 40자를 더한다. 판정(무효화·승격)은
+// 기존 --invalidate·--supersede로 에이전트 수행 — SQL 자동 판정 금지 유지.
+func maintainConflictSuspects(ctx context.Context, cs ConflictStore, stdout io.Writer, limit int) int {
+	groups, err := cs.ConflictGroups(ctx, limit)
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	out := make([]db.ConflictGroup, 0, len(groups))
+	for _, g := range groups {
+		if isConflictGroup(g) {
+			out = append(out, g)
+		}
+	}
+	fmt.Fprintln(stdout, conflictSuspectsJSON(out))
+	return 0
+}
+
+// conflictSuspectsJSON — --conflict-suspects 출력 한 줄 JSON. dup-suspects
+// 형식 승계 + 요약 앞 40자. nil 슬라이스 정규화로 null 방지.
+func conflictSuspectsJSON(groups []db.ConflictGroup) string {
+	type conflictGroupJSON struct {
+		Topic     string   `json:"topic"`
+		IDs       []int    `json:"ids"`
+		Summaries []string `json:"summaries"`
+	}
+	out := struct {
+		Status string              `json:"status"`
+		Groups []conflictGroupJSON `json:"groups"`
+	}{Status: "conflict-suspects", Groups: make([]conflictGroupJSON, 0, len(groups))}
+	for _, g := range groups {
+		ids := g.IDs
+		if ids == nil {
+			ids = []int{}
+		}
+		sums := make([]string, 0, len(g.Summaries))
+		for _, s := range g.Summaries {
+			sums = append(sums, conflictSummaryPrefix(s))
+		}
+		out.Groups = append(out.Groups, conflictGroupJSON{Topic: g.Topic, IDs: ids, Summaries: sums})
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return `{"status":"conflict-suspects","groups":[]}`
 	}
 	return string(b)
 }

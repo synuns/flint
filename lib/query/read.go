@@ -48,6 +48,7 @@ func ClampLimit(n int) int {
 // fields 이름→위치 매핑 기준이 된다.
 var readColumns = []string{
 	"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status",
+	"read_count",
 }
 
 // tokenizeQuery — 무료 텍스트 q를 검색 토큰으로 쪼갠다(v0.9.6 폴백용).
@@ -110,8 +111,10 @@ var quoteEscaper = strings.NewReplacer(`'`, `''`)
 // 조립용 문자열 절 계약).
 // v0.6(T68): 동률에서만 최근 참조 우선 — 말미에 last_read_at DESC NULLS LAST
 // 추가(조회시 파생·저장값 불변). NULLS LAST로 미참조 항목은 동률 꼴찌.
+// v0.13.0(R1): 채택 재랭킹 — last_read_at 뒤 최종 타이브레이크로 read_count
+// DESC 추가(많이 읽힌 항목 우선). 상위 순위 요소는 불변.
 func RankOrder(q string) string {
-	return fmt.Sprintf("ORDER BY (lower(topic)=lower('%s')) DESC, confidence DESC, ingested_at DESC, last_read_at DESC NULLS LAST",
+	return fmt.Sprintf("ORDER BY (lower(topic)=lower('%s')) DESC, confidence DESC, ingested_at DESC, last_read_at DESC NULLS LAST, read_count DESC",
 		quoteEscaper.Replace(q))
 }
 
@@ -220,7 +223,9 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 }
 
 // ReorderByFallbackCount — 폴백 결과 앱 재랭킹(v0.9.6): fallbackMatchCount
-// DESC. sort.SliceStable — 동률은 SQL RankOrder 순(조회 순)을 유지한다.
+// DESC. v0.13.0(R1): 정합수 동률 시 read_count DESC 2차 타이브레이크 —
+// SQL RankOrder의 채택 재랭킹과 같은 기준이다. sort.SliceStable — 동률은
+// SQL RankOrder 순(조회 순)을 유지한다.
 func ReorderByFallbackCount(rows [][]any, tokens []string) {
 	rowCount := func(row []any) int {
 		topic, summary := "", ""
@@ -233,8 +238,32 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 		return fallbackMatchCount(tokens, topic, summary)
 	}
 	sort.SliceStable(rows, func(i, j int) bool {
-		return rowCount(rows[i]) > rowCount(rows[j])
+		ci, cj := rowCount(rows[i]), rowCount(rows[j])
+		if ci != cj {
+			return ci > cj
+		}
+		return readCountOf(rows[i]) > readCountOf(rows[j])
 	})
+}
+
+// readCountOf — 행에서 read_count 값(readColumns 인덱스 기준). pgx 숫자형을
+// 수용하고 칼럼 부재·비수·nil은 0(동률 취급 — 정렬 불변).
+func readCountOf(row []any) int {
+	i := columnIndexOf("read_count")
+	if i < 0 || i >= len(row) {
+		return 0
+	}
+	switch n := row[i].(type) {
+	case int:
+		return n
+	case int32:
+		return int(n)
+	case int64:
+		return int(n)
+	case float64:
+		return int(n)
+	}
+	return 0
 }
 
 // columnIndexOf — fields 이름 → readColumns 인덱스. 없으면 -1.

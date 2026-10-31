@@ -156,6 +156,8 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 `flint read`는 구문 미스 시 단어 단위 재검색(fallback)한다.
 `flint read`는 재검색까지 제로히트 시 근접 후보 제안(suggestions)을 출력한다.
 `flint read --status pending`은 승격 대기 중인 지식 항목을 나열한다.
+`flint read`는 랭킹 동률을 채택(read_count DESC) 순으로 재랭킹한다 — 인기는 최종 타이브레이크일 뿐(v0.13.0).
+`flint maintain --conflict-suspects`는 모순 의심 지식(동일 topic·상이 요약)을 리스팅한다(v0.13.0).
 백업 덤프는 sha256 사이드카로 무결성을 검증한다 — `flint done` 자동 백업 포함(v0.10.0).
 
 그 외: `version`, `teardown`. 운영 절차는 [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝은 [docs/TUNING.md](docs/TUNING.md)
