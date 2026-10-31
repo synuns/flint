@@ -118,12 +118,11 @@ func RankOrder(q string) string {
 		quoteEscaper.Replace(q))
 }
 
-// BuildRead — active_knowledge 뷰 조회 SQL과 placeholder 인자를 조립한다.
-// 무료 텍스트 q는 lower(topic||' '||summary) LIKE lower('%q%') 매칭(ILIKE 대체).
-func BuildRead(q string, f Filters) (string, []any) {
-	var where []string
-	var args []any
-
+// appendReadFilters — q·tag·entity·domain 필터의 where절·placeholder 인자
+// 조립 공유체: BuildRead·BuildReadStatus 양쪽이 호출해 두 조립기의 필터
+// 해석이 항상 동일하다(복붙 분열 방지). append 순서 = where 절 순서 =
+// placeholder 번호 — 호출부의 선행 조건(status 등) 뒤에 이어 붙인다.
+func appendReadFilters(where []string, args []any, q string, f Filters) ([]string, []any) {
 	if q != "" {
 		args = append(args, "%"+likeEscaper.Replace(q)+"%")
 		where = append(where, fmt.Sprintf("lower(topic || ' ' || summary) LIKE lower($%d)", len(args)))
@@ -141,6 +140,16 @@ func BuildRead(q string, f Filters) (string, []any) {
 		args = append(args, f.Domain)
 		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
 	}
+	return where, args
+}
+
+// BuildRead — active_knowledge 뷰 조회 SQL과 placeholder 인자를 조립한다.
+// 무료 텍스트 q는 lower(topic||' '||summary) LIKE lower('%q%') 매칭(ILIKE 대체).
+func BuildRead(q string, f Filters) (string, []any) {
+	var where []string
+	var args []any
+
+	where, args = appendReadFilters(where, args, q, f)
 
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge"
 	if len(where) > 0 {
@@ -155,30 +164,24 @@ func BuildRead(q string, f Filters) (string, []any) {
 // BuildReadStatus — --status 지정 경로 조회 SQL 조립(v0.12.0 R1). 뷰가
 // invalid_at IS NULL 행만 노출하므로 pending·invalidated 행을 보려면 base
 // 테이블 knowledge에서 직접 걸러야 한다. status 조건을 첫 파라미터로 두고
-// q·tag·entity·domain 필터·RankOrder·LIMIT·likeEscape는 BuildRead 조립을
-// 승계한다. 컬럼·순서는 readColumns 그대로(뷰와 동일 원본 테이블).
+// q·tag·entity·domain 필터는 appendReadFilters 공유 조립, RankOrder·LIMIT·
+// likeEscape는 BuildRead 조립을 승계한다. 컬럼·순서는 readColumns 그대로
+// (뷰와 동일 원본 테이블).
+// status='active'는 뷰의 노출 규칙(invalid_at IS NULL)과 동치로 걸러
+// 뷰에 없는 행이 --status active에만 보이는 정의 분열을 막는다.
+// pending·invalidated에는 이 조건을 붙이지 않는다 — invalidated는
+// invalid_at 설정이 그 상태의 본질(부착 시 영(零)히트), pending은 승격 전
+// 상태로 invalid_at 규약이 다르다(룰링).
 func BuildReadStatus(q string, f Filters) (string, []any) {
 	var where []string
 	var args []any
 
 	args = append(args, f.Status)
 	where = append(where, fmt.Sprintf("status = $%d", len(args)))
-	if q != "" {
-		args = append(args, "%"+likeEscaper.Replace(q)+"%")
-		where = append(where, fmt.Sprintf("lower(topic || ' ' || summary) LIKE lower($%d)", len(args)))
+	if f.Status == "active" {
+		where = append(where, "invalid_at IS NULL")
 	}
-	if f.Tag != "" {
-		args = append(args, f.Tag)
-		where = append(where, fmt.Sprintf("strpos(tags, ':' || $%d || ':') > 0", len(args)))
-	}
-	if f.Entity != "" {
-		args = append(args, f.Entity)
-		where = append(where, fmt.Sprintf("entity = $%d", len(args)))
-	}
-	if f.Domain != "" {
-		args = append(args, f.Domain)
-		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
-	}
+	where, args = appendReadFilters(where, args, q, f)
 
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM knowledge WHERE " +
 		strings.Join(where, " AND ") + " " + RankOrder(q)

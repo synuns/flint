@@ -51,6 +51,45 @@ func bigramSet(r []rune) map[string]struct{} {
 	return set
 }
 
+// BigramDice — rune bigram 집합 Dice 계수 공개 래퍼(집합판 bigramDice).
+// suggest 제안 점수와 같은 측정을 패키지 밖(cli 등)에서 재사용할 때 쓴다.
+func BigramDice(a string, b string) float64 { return bigramDice(a, b) }
+
+// BigramDiceMultiset — rune bigram 다중집합 Dice 계수(maintain 모순 분류
+// 측정). 반복 bigram을 집합처럼 접지 않고 출현 수로 세아려, 같은 bigram이
+// 반복되는 문장에서 집합판보다 유사도를 보수적으로 낸다 —
+// cli.conflictDupThreshold(0.6) 룰링은 이 측정 기준이므로 집합판으로
+// 통합하지 않는다. bigram이 없는 짧은 문자열(2 미만 rune)은 둘 다 비면
+// 1(동일), 아니면 0(비교 불가=이질)으로 처리한다.
+func BigramDiceMultiset(a, b string) float64 {
+	ra, rb := []rune(a), []rune(b)
+	if len(ra) < 2 || len(rb) < 2 {
+		if len(ra) == 0 && len(rb) == 0 {
+			return 1
+		}
+		return 0
+	}
+	ma := map[string]int{}
+	for i := 0; i+1 < len(ra); i++ {
+		ma[string(ra[i:i+2])]++
+	}
+	mb := map[string]int{}
+	for i := 0; i+1 < len(rb); i++ {
+		mb[string(rb[i:i+2])]++
+	}
+	inter := 0
+	for k, n := range ma {
+		if m, ok := mb[k]; ok {
+			if m < n {
+				inter += m
+			} else {
+				inter += n
+			}
+		}
+	}
+	return 2 * float64(inter) / float64(len(ra)-1+len(rb)-1)
+}
+
 // suggestCellInt — 스캔 id 셀(any)→int. pgx 숫자형·float64·10진 문자열
 // 수용, 그 외 (0, false) — cli.cellToInt와 같은 계약의 query 국소 복제.
 func suggestCellInt(v any) (int, bool) {

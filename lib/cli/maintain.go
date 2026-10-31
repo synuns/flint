@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"flint/lib/db"
+	"flint/lib/query"
 	"flint/lib/store"
 )
 
@@ -98,7 +99,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	id, from, to := 0, 0, 0
 	old, by := 0, 0      // --supersede OLD --by NEW
 	days, limit := 0, 20 // --stale: days=0 → meta stale_days(기본 90) 폴백
-	dupLimit := 10       // --dup-suspects 기본(스펙 R4: --limit M 기본 10)
+	dupLimit := suspectsDefaultLimit // --dup-suspects 기본(스펙 R4: --limit M 기본 10)
 	reason := ""
 	yes := false
 	var idList []int // --ids 파싱 결과(스냅샷 — 재평가 없음)
@@ -338,37 +339,16 @@ func dupSuspectsJSON(groups []db.DupGroup) string {
 // 제안 임계값(0.15)과 목적이 다른 독립 상수다.
 const conflictDupThreshold = 0.6
 
-// conflictDice — rune bigram Dice 계수(로컬 구현. lib/query bigramDice는
-// 공개 승격 대상이 아니어서 여기에 둔다). 두 문자열의 bigram 다중집합
-// 교집합으로 유사도 0~1을 낸다. bigram이 없는 짧은 문자열(2 미만 rune)은
-// 둘 다 비면 1(동일), 아니면 0(비교 불가=이질)로 처리한다.
+// suspectsDefaultLimit — --dup-suspects·--conflict-suspects 공통 기본
+// 상한(스펙 R4: --limit M 기본 10). doctor conflicts 검사(v0.13.1 F7/F9)도
+// 그룹 조회를 이 상한으로 묶는다 — 무제한 스캔 방지.
+const suspectsDefaultLimit = 10
+
+// conflictDice — rune bigram 다중집합 Dice 계수. 구현은 lib/query
+// BigramDiceMultiset 위임(집합판 BigramDice와는 반복 bigram 출현 수에서
+// 갈린다 — 임계값 0.6은 다중집합 기준 룰링이므로 기존 분류 동작 유지).
 func conflictDice(a, b string) float64 {
-	ra, rb := []rune(a), []rune(b)
-	if len(ra) < 2 || len(rb) < 2 {
-		if len(ra) == 0 && len(rb) == 0 {
-			return 1
-		}
-		return 0
-	}
-	ma := map[string]int{}
-	for i := 0; i+1 < len(ra); i++ {
-		ma[string(ra[i:i+2])]++
-	}
-	mb := map[string]int{}
-	for i := 0; i+1 < len(rb); i++ {
-		mb[string(rb[i:i+2])]++
-	}
-	inter := 0
-	for k, n := range ma {
-		if m, ok := mb[k]; ok {
-			if m < n {
-				inter += m
-			} else {
-				inter += n
-			}
-		}
-	}
-	return 2 * float64(inter) / float64(len(ra)-1+len(rb)-1)
+	return query.BigramDiceMultiset(a, b)
 }
 
 // classifyConflict — 요약 두 건의 모순 여부: 유사도가 conflictDupThreshold

@@ -78,7 +78,7 @@ func instrumentReads(ctx context.Context, st Store, kind string, ids []int) {
 func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	f := query.Filters{}
 	jsonMode, fields, asOfSpec, statusSpec := false, "", "", ""
-	asOfGiven := false
+	asOfGiven, statusGiven := false, false
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
@@ -102,6 +102,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			f.Limit, i = n, i+1
 		case "--status":
 			statusSpec, i = v, i+1
+			statusGiven = true
 		case "--as-of":
 			asOfSpec, i = v, i+1
 			asOfGiven = true
@@ -122,12 +123,17 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf).Error()))
 		return 3
 	}
-	// --as-of 병용 시 as-of 우선·status 무시(룰링 — 경고 없이). 단독 지정
-	// 시에만 유효성 검사 후 Filters.Status로 반영한다.
-	if asOfSpec == "" && statusSpec != "" {
+	// 값 없는 --status(마지막 인자)도 무효 스펙 exit 3 — 값 없는 --as-of
+	// 가드와 동일 규칙: 조용히 무시하면 의도와 다른 결과를 돌려준다. 무효
+	// status 값 검증은 --as-of 지정 여부와 무관하게 항상 수행한다. --as-of
+	// 병용 시 as-of 우선·status 무시(룰링 — 경고 없이)는 유효한 값에만
+	// 적용되며, Filters.Status 반영은 단독 지정 시에만 한다.
+	if statusGiven || statusSpec != "" {
 		switch statusSpec {
 		case "pending", "active", "invalidated":
-			f.Status = statusSpec
+			if asOfSpec == "" {
+				f.Status = statusSpec
+			}
 		default:
 			fmt.Fprintln(stdout, errLine(&store.SchemaError{
 				Field: "status", Expect: "pending|active|invalidated"}))
