@@ -30,7 +30,7 @@ func TestNudgeMinimalAutoClears(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runNudge(nil, fakeProfileStore("minimal"), nil, strings.NewReader(""), &out)
+	code := runNudge(nil, fakeProfileStore(t, "minimal"), nil, strings.NewReader(""), &out)
 	if code != 0 || out.Len() != 0 {
 		t.Fatalf("출력 있음/exit=%d: %q", code, out.String())
 	}
@@ -42,8 +42,10 @@ func TestNudgeMinimalAutoClears(t *testing.T) {
 // fakeProfileStore — meta exposure_profile 반환 페이크. 기본은 ExposureProfile
 // seam을 페이크로 교체(T1 미구현 패닉 회피), SUPERLITE_REAL=1이면 실구현이
 // 스토어 질의(meta exposure_profile=p)를 읽도록 놔둔다.
-func fakeProfileStore(p string) Store {
+func fakeProfileStore(t *testing.T, p string) Store {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
+		orig := exposureProfileFn
+		t.Cleanup(func() { exposureProfileFn = orig }) // 패키지 후속 테스트 오염 방지
 		exposureProfileFn = func(func(string) (string, error)) string { return p }
 	}
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
