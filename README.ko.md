@@ -96,6 +96,10 @@ DSN 기본값 `postgresql://flint:flint-dev@localhost:5434/flint` — 환경변�
 `FLINT_DSN`으로 덮어쓴다. 해제는 `./bin/flint teardown`(`--purge` 시 volume까지).
 </details>
 
+노출 프로파일(exposure profile): `flint setup --exposure <profile>`로 `hot`
+주입량을 조정한다. 훅은 3엔트리로 통합 설치: SessionStart(`hot`)·
+PostCompact(`compact`)·Stop(`nudge`).
+
 전체 안내: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ---

@@ -50,8 +50,10 @@ PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은 `flint nudg
 - `flint read [query] [--tag --entity --domain --limit] --json --fields`
 - `flint write knowledge --source hook` — stdin JSON/JSONL
   (confidence<0.8 → pending · 소스 미지정 시 manual 취급)
-- `flint hot` — 활성 프로젝트+pending+최근 결정 7일 (2,000자 상한)
+- `flint hot` — 활성 프로젝트+pending+최근 결정 7일 (2,000자 상한),
+  전체 펼침은 `flint hot --full`
   (pending — 대기 승격 대상 조회)
+- `flint setup --exposure <profile>` — 노출 프로파일 지정 (주입량 조정)
 - `flint maintain --supersede OLD --by NEW` — 구 항목 무효화+선행 관계 기록
   (NEW 미존재·OLD==NEW·OLD 비active → exit 1·3·1)
 - exit code: 0 성공·중복 / 1 재시도 소진 / 2 서버 다운(조용히 진행) /
