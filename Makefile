@@ -5,7 +5,8 @@ DSN ?= postgresql://flint:flint-dev@localhost:5434/flint
 FLINT_TEST_DSN ?= postgresql://flint:flint-dev@localhost:5434/flint_test
 
 # 버전 주입(T33): 기본 dev, 릴리스는 make build VERSION=0.3.0
-VERSION ?= dev
+# v0.12.0 R2: 최근 git 태그에서 파생, 태그 부재 클론은 dev 폴백.
+VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 LDFLAGS := -X flint/lib/cli.version=$(VERSION) -X flint/lib/cli.commit=$(GIT_COMMIT)
 
