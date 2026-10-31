@@ -7,6 +7,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"flint/lib/query"
@@ -102,6 +103,63 @@ func injectedKnowledgeIDs(rows [][]any, ids []int, budget int) []int {
 	return ids[:k]
 }
 
+// pendingAgeSuffix — pending 팔 대기일수 접미(v0.12.1 R2): valid_at 경과
+// 24시간 미만은 빈 문자열, 이상은 내림 일수 "·+N일".
+func pendingAgeSuffix(validAt time.Time, now time.Time) string {
+	if days := int64(now.Sub(validAt) / (24 * time.Hour)); days > 0 {
+		return fmt.Sprintf("·+%d일", days)
+	}
+	return ""
+}
+
+// pendingValidAtsSQL — pending 팔 valid_at 동반 질의(v0.12.1 R2). hot_view
+// pending 팔은 ts로 ingested_at을 쓰고 valid_at을 노출하지 않아, HotSQL과
+// 동일 조건·정렬(ingested_at DESC, id DESC tie-break)·상한으로 별도 조회한다.
+// HotSQL 출력의 k번째 pending 행은 이 질의의 k번째 valid_at과 대응한다.
+func pendingValidAtsSQL() string {
+	return `SELECT k.valid_at FROM knowledge k
+		WHERE k.invalid_at IS NULL AND k.status = 'pending'
+		ORDER BY k.ingested_at DESC, k.id DESC LIMIT ` + strconv.Itoa(query.ClampLimit(0))
+}
+
+// hotFullOutput — --full 전체 출력(FormatRows 승계)에 pending 행 끝에만
+// 대기일수 접미를 붙인다. 동반 질의 실패·결과 부족·time.Time 아닌 값은
+// 해당 행 접미 생략(기존 출력 불변 승계). now는 UTC.
+func hotFullOutput(ctx context.Context, st Store, rows [][]any, now time.Time) string {
+	out := query.FormatRows(rows, hotFields, false)
+	hasPending := false
+	for _, r := range rows {
+		if len(r) > 0 && fmt.Sprint(r[0]) == "pending" {
+			hasPending = true
+			break
+		}
+	}
+	if !hasPending || out == "" {
+		return out
+	}
+	vaRows, err := queryOnce(ctx, st, pendingValidAtsSQL(), nil)
+	if err != nil {
+		return out
+	}
+	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	k := 0
+	for i, r := range rows {
+		if i >= len(lines) {
+			break
+		}
+		if len(r) == 0 || fmt.Sprint(r[0]) != "pending" {
+			continue
+		}
+		if k < len(vaRows) && len(vaRows[k]) > 0 {
+			if va, ok := vaRows[k][0].(time.Time); ok {
+				lines[i] += pendingAgeSuffix(va, now)
+			}
+		}
+		k++
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
 // hotHeadline — hot 요약 헤드라인 1줄(R2). minimal은 활성·대기 카운트만,
 // 그 외 프로파일(미설정·파손 포함)은 normal 문구(펼치기 안내 포함).
 func hotHeadline(profile string, active int, pending int, recent int) string {
@@ -161,7 +219,7 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	// 그대로 따라야 하므로(계측 불변).
 	budget := HotBudget(metaGetKV(ctx, st))
 	if full {
-		out := query.FormatRows(rows, hotFields, false)
+		out := hotFullOutput(ctx, st, rows, time.Now().UTC())
 		clamped := query.ClampHot(out, budget)
 		fmt.Fprint(stdout, clamped)
 		RecordHotLen(len([]rune(clamped)))
