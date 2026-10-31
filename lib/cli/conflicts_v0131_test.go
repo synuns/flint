@@ -75,7 +75,8 @@ func (s *seamConflictStore) ConflictGroups(ctx context.Context, limit int) ([]db
 
 // TestConflictsUsesConflictGroupsSeam — F7/F9 회귀: checkConflicts의 그룹
 // 조회는 ConflictStore.ConflictGroups seam만 경유하고(직접 SQL 조회 금지),
-// 상한은 maintain 기본값(suspectsDefaultLimit=10)과 같다.
+// 상한은 doctor 전용 doctorConflictLimit=50이다(v0.13.2 N8 갱신 — 상위
+// 10그룹만 세면 초과 모순이 미보고로 누락).
 func TestConflictsUsesConflictGroupsSeam(t *testing.T) {
 	inner := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		t.Errorf("checkConflicts가 인라인 SQL 조회 사용: %q", sql)
@@ -88,8 +89,11 @@ func TestConflictsUsesConflictGroupsSeam(t *testing.T) {
 	if c.Status != "warn" {
 		t.Errorf("모순 1그룹 = %s, want warn", c.Status)
 	}
-	if len(s.calls) != 1 || s.calls[0] != suspectsDefaultLimit {
-		t.Errorf("ConflictGroups 호출 limit = %v, want [%d](maintain 기본 상한)", s.calls, suspectsDefaultLimit)
+	if len(s.calls) != 1 || s.calls[0] != doctorConflictLimit {
+		t.Errorf("ConflictGroups 호출 limit = %v, want [%d](doctor 상한)", s.calls, doctorConflictLimit)
+	}
+	if doctorConflictLimit != 50 {
+		t.Errorf("doctorConflictLimit = %d, want 50(N8)", doctorConflictLimit)
 	}
 	if suspectsDefaultLimit != 10 {
 		t.Errorf("suspectsDefaultLimit = %d, want 10(스펙 R4 기본)", suspectsDefaultLimit)

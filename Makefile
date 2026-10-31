@@ -11,6 +11,10 @@ VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
 # 0.9.2; dev처럼 v 없는 값은 불변).
 VERSION_NU := $(patsubst v%,%,$(VERSION))
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
+# NEXT_TAG — 릴리스 안내용 다음 패치 버전(최신 태그의 패치 +1; 태그 부재
+# 시 v0.1.0). v0.13.2 N12: 기존 안내가 VERSION_NU(최신 태그)를 그대로
+# 지시해 이미 존재하는 태그 생성을 유도하던 문제 수정.
+NEXT_TAG ?= $(shell cur=$$(git describe --tags --abbrev=0 2>/dev/null); if [ -n "$$cur" ]; then echo "$$cur" | awk -F. '{print $$1"."$$2"."($$3+1)}'; else echo v0.1.0; fi)
 # version은 goreleaser와 동일하게 v 접두 없이 주입(VERSION_NU) —
 # `flint version`·goreleaser 빌드가 같은 형식(0.13.0)을 출력한다.
 LDFLAGS := -X flint/lib/cli.version=$(VERSION_NU) -X flint/lib/cli.commit=$(GIT_COMMIT)
@@ -55,6 +59,8 @@ e2e:
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test -tags e2e ./tests/e2e/
 
 # 릴리스(T33): 빌드 후 태그 push 안내만 — 실제 태그·push는 사용자 확인 후 수행.
+# 안내 태그는 NEXT_TAG(최신 태그 +패치) — 이미 존재하는 태그를 지시하지
+# 않는다(v0.13.2 N12).
 release: build
-	@echo "릴리스 절차(사용자 확인 후): git tag v$(VERSION_NU) && git push origin v$(VERSION_NU) -> Actions 빌드 -> Release 첨부"
+	@echo "릴리스 절차(사용자 확인 후): git tag $(NEXT_TAG) && git push origin $(NEXT_TAG) -> Actions 빌드 -> Release 첨부"
 	@echo "현재 빌드: $$(./bin/flint version)"

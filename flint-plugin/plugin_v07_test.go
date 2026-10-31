@@ -71,7 +71,7 @@ func readHooksJSON(t *testing.T) map[string]any {
 	return doc
 }
 
-// assertNudgeEntry — 세션 훅 커맨드에 가드·timeout 2가 갖춰졌는지 확인.
+// assertNudgeEntry — 세션 훅 커맨드에 가드·timeout 10이 갖춰졌는지 확인.
 // v0.11.0 R4 통합: nudge는 session-start·session-end 내부 시퀀스로 흡수
 // 됐다 — 가드·타임아웃 단언은 통합 커맨드 대상으로 승계한다.
 func assertNudgeEntry(t *testing.T, group map[string]any, sub string) {
@@ -91,13 +91,13 @@ func assertNudgeEntry(t *testing.T, group map[string]any, sub string) {
 	if !strings.Contains(cmd, "2>/dev/null || true") {
 		t.Errorf("통합 엔트리에 가드(2>/dev/null || true) 없음: %q", cmd)
 	}
-	if timeout, _ := hm["timeout"].(float64); timeout != 2 {
-		t.Errorf("통합 엔트리 timeout != 2: %v", hm["timeout"])
+	if timeout, _ := hm["timeout"].(float64); timeout != 10 {
+		t.Errorf("통합 엔트리 timeout != 10: %v", hm["timeout"])
 	}
 }
 
 // TestHooksPostcompact — PostCompact 이벤트가 존재하고 flint compact
-// 커맨드가 가드·timeout 2를 갖춘다.
+// 커맨드가 가드·timeout 10을 갖춘다.
 func TestHooksPostcompact(t *testing.T) {
 	doc := readHooksJSON(t)
 	groups := hookGroups(t, doc, "PostCompact")
@@ -119,13 +119,13 @@ func TestHooksPostcompact(t *testing.T) {
 	if !strings.Contains(cmd, "2>/dev/null || true") {
 		t.Errorf("PostCompact 커맨드에 가드 없음: %q", cmd)
 	}
-	if timeout, _ := hm["timeout"].(float64); timeout != 2 {
-		t.Errorf("PostCompact timeout != 2: %v", hm["timeout"])
+	if timeout, _ := hm["timeout"].(float64); timeout != 10 {
+		t.Errorf("PostCompact timeout != 10: %v", hm["timeout"])
 	}
 }
 
 // TestHooksNudgeGuards — SessionStart·Stop 배열의 통합 엔트리
-// (session-start·session-end)가 가드·timeout 2를 갖춘다.
+// (session-start·session-end)가 가드·timeout 10을 갖춘다.
 func TestHooksNudgeGuards(t *testing.T) {
 	doc := readHooksJSON(t)
 	assertNudgeEntry(t, hookGroups(t, doc, "SessionStart")[0], "session-start")
