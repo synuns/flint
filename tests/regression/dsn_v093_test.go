@@ -112,7 +112,12 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("FLINT_DSN", regTestDSN())
-	os.Exit(m.Run())
+	// slow 스위트 전체를 세션 어드바이저리 락으로 교차 프로세스 직렬화
+	// (Doltgres 40001 플레이크 — slowlock_test.go).
+	release := lockSlowSuite(regTestDSN())
+	code := m.Run()
+	release()
+	os.Exit(code)
 }
 
 func TestRegTestDSNDefaultsToIsolatedDB(t *testing.T) {
