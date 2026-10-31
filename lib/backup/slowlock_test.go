@@ -83,6 +83,21 @@ func TestMain(m *testing.M) {
 	os.Exit(code)
 }
 
+// TestSlowLockUsesTestDSN — TestMain 직렬화(testDSN 경유)가 tests/와 동일한
+// 테스트 DSN 계약(FLINT_TEST_DSN 우선·기본 flint_test)을 따름을 단얱.
+// FLINT_DSN(운영)이 설정돼 있어도 무시해야 한다(운영 DB 접속 차단).
+func TestSlowLockUsesTestDSN(t *testing.T) {
+	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
+	t.Setenv("FLINT_TEST_DSN", "postgresql://flint:t@h:5434/flint_ci")
+	if got := testDSN(); got != "postgresql://flint:t@h:5434/flint_ci" {
+		t.Errorf("testDSN = %q, want FLINT_TEST_DSN 우선", got)
+	}
+	t.Setenv("FLINT_TEST_DSN", "")
+	if got := testDSN(); got != "postgresql://flint:flint-dev@localhost:5434/flint_test" {
+		t.Errorf("기본 testDSN = %q, want flint_test(FLINT_DSN 무시)", got)
+	}
+}
+
 // fakeSlowConn — 락 SQL 발행 단얱용 fake 접속.
 type fakeSlowConn struct {
 	stmts []string
