@@ -175,7 +175,9 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		return store.MapExit(err)
 	}
 	// v0.9.6 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
-	// 정합수 내림 재랭킹(룰링 — 구문 히트 경로는 완전 불변). 1-토큰 질의는
+	// 정합수 내림 재랭킹(룰링 — 구문 히트 경로는 완전 불변). v0.13.0 R1:
+	// 정합수 동률 시 read_count DESC 2차 타이브레이크(ReorderByFallbackCount).
+	// 1-토큰 질의는
 	// 구문과 동질이라 생략. --as-of(과거 시점)는 현재 시점 폴백이 시점
 	// 정합성을 깨므로 생략. --status는 상태 필터 자체가 재시도 대상이
 	// 아니라 폴백·제안 미발동(룰링). 폴백 시도는 meta read_fallback_calls에

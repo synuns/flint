@@ -354,6 +354,44 @@ func (r *Repo) DupGroups(ctx context.Context, limit int) ([]DupGroup, error) {
 	return groups, nil
 }
 
+// ConflictGroup — maintain --conflict-suspects 보고용 그룹(DupGroup에
+// 행별 요약을 더한 것. summaries는 ids와 동일한 id 오름차순).
+type ConflictGroup struct {
+	Topic     string
+	IDs       []int
+	Summaries []string
+}
+
+// ConflictGroups는 active 중 동일 topic 2건 이상 그룹을 요약과 함께
+// 반환한다(보고 전용). 그룹핑 산식은 DupGroups와 동일하되 요약 유사도
+// 분류(conflict-suspects)에 필요한 summary를 같이 실어 올린다 — 기존
+// DupGroups 시그니처·출력은 불변(병행 신규 조회).
+func (r *Repo) ConflictGroups(ctx context.Context, limit int) ([]ConflictGroup, error) {
+	rows, err := r.pool.Query(ctx, `
+		SELECT topic, array_agg(id ORDER BY id), array_agg(summary ORDER BY id)
+		FROM knowledge
+		WHERE invalid_at IS NULL AND status = 'active'
+		GROUP BY topic HAVING count(*) > 1
+		ORDER BY topic
+		LIMIT $1`, limit)
+	if err != nil {
+		return nil, fmt.Errorf("conflict groups: %w", err)
+	}
+	defer rows.Close()
+	groups := []ConflictGroup{}
+	for rows.Next() {
+		var g ConflictGroup
+		if err := rows.Scan(&g.Topic, &g.IDs, &g.Summaries); err != nil {
+			return nil, fmt.Errorf("conflict groups: scan: %w", err)
+		}
+		groups = append(groups, g)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("conflict groups: rows: %w", err)
+	}
+	return groups, nil
+}
+
 // StaleSessionRuns는 agent의 최근 세션부터 knowledge write 없이 이어진
 // 연속 수다(done 경고 판정). 기록 있는 세션을 만나면 집계가 멈춘다.
 func (r *Repo) StaleSessionRuns(ctx context.Context, agent string) (int, error) {
