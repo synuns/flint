@@ -97,14 +97,56 @@ func RunSetup(ctx context.Context, ping, migrate func() error) (string, int) {
 	return string(b), code
 }
 
+// exposureSummary — setup --exposure 기록 보고 한 줄 JSON 모양(v0.11.0 R1).
+type exposureSummary struct {
+	Status   string `json:"status"`
+	Exposure string `json:"exposure"`
+}
+
+// runSetupExposure — --exposure normal|minimal 기록만 수행하고 즉시 반환
+// (compose·migrate 체인에 끼지 않는다 — --update-rules와 같은 단독 모드).
+// setup은 store-free 진입이라 st==nil이면 여기서만 접속한다. 무효 값은
+// 무효 인자 exit 3(전역 계약), 기록 실패는 exit 1.
+func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Writer) int {
+	switch val {
+	case "normal", "minimal":
+	default:
+		fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: --exposure must be normal|minimal, got %q", val)))
+		return 3
+	}
+	if st == nil {
+		s, err := newStore(ctx, dsnFromEnv())
+		if err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			return 1
+		}
+		defer s.Close()
+		st = s
+	}
+	if _, err := queryOnce(ctx, st,
+		`INSERT INTO meta (key, value) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{ExposureKey, val}); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return 1
+	}
+	b, err := json.Marshal(exposureSummary{Status: "ok", Exposure: val})
+	if err != nil {
+		return 1
+	}
+	fmt.Fprintln(stdout, string(b))
+	return 0
+}
+
 // runSetup — 커맨드 진입점. --dry는 단계만 출력(exec·쿼리 없음).
 // --update-rules(v0.9.7 R1)는 스킬 싱크만 수행하고 즉시 반환 — compose·
-// migrate 체인에 끼지 않는다. store-free 디스패치로 st== nil일 수 있다
+// migrate 체인에 끼지 않는다. --exposure(v0.11.0 R1)도 프로파일 기록만
+// 수행하고 즉시 반환한다. store-free 디스패치로 st== nil일 수 있다
 // (첫 실행) — ping/migrate는 degraded 경고로 연기하고 1단계 compose는
 // 수행한다.
 func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	updateRules := false
 	srcOverride := ""
+	exposure := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--dry":
@@ -120,10 +162,20 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 				return 1
 			}
 			srcOverride = args[i]
+		case "--exposure":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, errLine(errors.New("setup: --exposure requires normal|minimal")))
+				return 3
+			}
+			exposure = args[i]
 		default:
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 1
 		}
+	}
+	if exposure != "" {
+		return runSetupExposure(ctx, st, exposure, stdout)
 	}
 	if updateRules {
 		return runUpdateRules(stdout, srcOverride)
