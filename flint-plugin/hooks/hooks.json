@@ -6,17 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "flint hot --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
-            "timeout": 2
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume|clear|compact",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "flint nudge 2>/dev/null || true",
+            "command": "flint session-start --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
             "timeout": 2
           }
         ]
@@ -27,16 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "flint done --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
-            "timeout": 2
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "flint nudge 2>/dev/null || true",
+            "command": "flint session-end --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
             "timeout": 2
           }
         ]

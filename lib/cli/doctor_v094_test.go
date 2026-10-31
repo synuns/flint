@@ -45,7 +45,7 @@ func TestApplyHookFixAddsFlintHooks(t *testing.T) {
 		}
 	}
 	s := string(b)
-	for _, cmd := range []string{"hot", "nudge", "done", "compact"} {
+	for _, cmd := range []string{"session-start", "session-end", "compact"} {
 		if !strings.Contains(s, "\"/x/flint "+cmd) {
 			t.Errorf("%s 명령 누락", cmd)
 		}
@@ -78,10 +78,10 @@ func TestApplyHookFixPreservesOtherKeys(t *testing.T) {
 	if env, ok := got["env"].(map[string]any); !ok || env["FOO"] != "bar" {
 		t.Errorf("env 키 무손실 아님: %v", got["env"])
 	}
-	// 기존 Stop 엔트리는 배열 앞쪽 그대로(append만).
+	// 기존 Stop 엔트리는 배열 앞쪽 그대로(교체·append 후 orca 1 + flint 1).
 	stop, _ := got["hooks"].(map[string]any)["Stop"].([]any)
-	if len(stop) != 3 {
-		t.Fatalf("Stop 배열 길이=%d, want 3", len(stop))
+	if len(stop) != 2 {
+		t.Fatalf("Stop 배열 길이=%d, want 2", len(stop))
 	}
 	first, _ := stop[0].(map[string]any)
 	inner, _ := first["hooks"].([]any)
@@ -211,7 +211,7 @@ func TestDoctorFixFlagAppliesHookFix(t *testing.T) {
 	}
 	body, _ := os.ReadFile(p)
 	s := string(body)
-	if !strings.Contains(s, "orca") || !strings.Contains(s, " hot ") {
+	if !strings.Contains(s, "orca") || !strings.Contains(s, " session-start ") {
 		t.Errorf("훅 병합 결과 이상: %q", s)
 	}
 	matches, _ := filepath.Glob(p + ".flint-bak-*")

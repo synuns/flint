@@ -541,7 +541,7 @@ func TestDoctorHookFileFlintWordOnlyFails(t *testing.T) {
 	if !strings.Contains(out, `"fail"`) {
 		t.Errorf("flint 단어만으로 통과하면 안 됨: %q", out)
 	}
-	if !strings.Contains(out, "hot(SessionStart)") {
+	if !strings.Contains(out, "session-start(SessionStart)") {
 		t.Errorf("fix 문구가 실제 등록 절차(hot/done 훅)를 안내하지 않음: %q", out)
 	}
 }
