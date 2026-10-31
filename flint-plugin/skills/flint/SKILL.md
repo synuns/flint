@@ -27,8 +27,9 @@ MCP 클라이언트로 참여하는 세션에서는 셸 CLI 대신 MCP 도구를
 
 ## 세션 증류
 
-PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은 `flint nudge`로
-세션 종료 시점 증류를 자동 적립한다(둘 다 `--source hook` 고정). 증류 전
+PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은
+`flint session-end`로 세션 종료 판정과 증류 안내를 자동 적립한다
+(둘 다 `--source hook` 고정). 증류 전
 `flint read <topic>`으로 근사 중복을 확인하고 신규만 적립한다. 적립된
 항목은 다음 4연산으로 다룬다:
 
@@ -53,7 +54,8 @@ PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은 `flint nudg
 - `flint hot` — 활성 프로젝트+pending+최근 결정 7일 (2,000자 상한),
   전체 펼침은 `flint hot --full`
   (pending — 대기 승격 대상 조회)
-- `flint setup --exposure <profile>` — 노출 프로파일 지정 (주입량 조정)
+- `flint setup --exposure normal|minimal` — 노출 프로파일 지정
+  (기본 normal · minimal은 주입 요약화·nudge 자동 종결)
 - `flint maintain --supersede OLD --by NEW` — 구 항목 무효화+선행 관계 기록
   (NEW 미존재·OLD==NEW·OLD 비active → exit 1·3·1)
 - exit code: 0 성공·중복 / 1 재시도 소진 / 2 서버 다운(조용히 진행) /
