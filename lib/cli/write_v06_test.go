@@ -117,9 +117,10 @@ func TestWriteRecordsUsage(t *testing.T) {
 	})
 }
 
-// TestWriteDupCountsOnceEach — duplicate 시 write 1 + dup 1(이중 계수 금지,
-// 호출 순서 [write,source]→[dup,""]). dedup 이중 경로(ExistsHash·InsertBatch
-// ErrDuplicate) 모두 동일.
+// TestWriteDupCountsOnceEach — duplicate 시 write 1 + dup 각 키 1회(이중 계수
+// 금지, 호출 순서 [write,source]→[dup,""]→[dup_<source>,""] — v0.10.2 R2
+// additive, 룰링 갱신). dedup 이중 경로(ExistsHash·InsertBatch ErrDuplicate)
+// 모두 동일.
 func TestWriteDupCountsOnceEach(t *testing.T) {
 	// tags 없는 페이로드: 어휘 경고가 없어 duplicate 한 줄 exact-match가
 	// 유지된다(#6 이후 dup 출력에도 경고가 병행되므로).
@@ -130,8 +131,8 @@ func TestWriteDupCountsOnceEach(t *testing.T) {
 		if code != 0 || strings.TrimSpace(out) != `{"status":"duplicate"}` {
 			t.Fatalf("exit=%d out=%s, want duplicate/0", code, out)
 		}
-		want := []usageCall{{"write", "hook"}, {"dup", ""}}
-		if len(rec.calls) != 2 || rec.calls[0] != want[0] || rec.calls[1] != want[1] {
+		want := []usageCall{{"write", "hook"}, {"dup", ""}, {"dup_hook", ""}}
+		if len(rec.calls) != 3 || rec.calls[0] != want[0] || rec.calls[1] != want[1] || rec.calls[2] != want[2] {
 			t.Fatalf("calls=%v, want %v", rec.calls, want)
 		}
 	})
@@ -152,8 +153,8 @@ func TestWriteDupCountsOnceEach(t *testing.T) {
 		if !strings.Contains(out, "duplicate") {
 			t.Fatalf("out=%s, want duplicate", out)
 		}
-		want := []usageCall{{"write", "mcp"}, {"dup", ""}}
-		if len(rec.calls) != 2 || rec.calls[0] != want[0] || rec.calls[1] != want[1] {
+		want := []usageCall{{"write", "mcp"}, {"dup", ""}, {"dup_mcp", ""}}
+		if len(rec.calls) != 3 || rec.calls[0] != want[0] || rec.calls[1] != want[1] || rec.calls[2] != want[2] {
 			t.Fatalf("calls=%v, want %v", rec.calls, want)
 		}
 	})
