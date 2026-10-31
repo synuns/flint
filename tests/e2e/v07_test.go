@@ -151,8 +151,8 @@ func TestV07AutomationChain(t *testing.T) {
 	if hs["hookEventName"] != "Stop" {
 		t.Fatalf("④ hookEventName=%v, want Stop; out=%s", hs["hookEventName"], out)
 	}
-	if ac, _ := hs["additionalContext"].(string); !strings.Contains(ac, "write knowledge --source hook") {
-		t.Fatalf("④ additionalContext가 write knowledge 지시문 아님(%q); out=%s", ac, out)
+	if ac, _ := hs["additionalContext"].(string); !strings.Contains(ac, "flint nudge") {
+		t.Fatalf("④ additionalContext가 짧은 증류 지시문 아님(%q); out=%s", ac, out)
 	}
 
 	// ⑤ nudge --clear — 마커 소비·무출력.
