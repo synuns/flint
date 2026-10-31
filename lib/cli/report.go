@@ -28,23 +28,28 @@ const (
 const reportStaleDays = 90
 
 // reportDay — 일별 유입 1행. 소스(hook/manual/mcp)와 dup는 write와 별도 증분.
+// dup_* 3필드는 v0.10.2 R2 소스별 계측(미기록 일 0 — daily JSON 키 부재는
+// zero 값으로 디코딩).
 type reportDay struct {
-	Date   string `json:"date"`
-	Write  int    `json:"write"`
-	Hook   int    `json:"hook"`
-	Manual int    `json:"manual"`
-	Mcp    int    `json:"mcp"`
-	Dup    int    `json:"dup"`
-	Hot    int    `json:"hot"`
-	Read   int    `json:"read"`
+	Date      string `json:"date"`
+	Write     int    `json:"write"`
+	Hook      int    `json:"hook"`
+	Manual    int    `json:"manual"`
+	Mcp       int    `json:"mcp"`
+	Dup       int    `json:"dup"`
+	DupHook   int    `json:"dup_hook"`
+	DupManual int    `json:"dup_manual"`
+	DupMcp    int    `json:"dup_mcp"`
+	Hot       int    `json:"hot"`
+	Read      int    `json:"read"`
 }
 
 // reportOutput — 한 줄 JSON 출력. 창 밖 날짜·부재 키·파손 키는 0행으로 채운다.
 type reportOutput struct {
-	Days              []reportDay `json:"days"`
-	ZeroPct           int         `json:"zero_pct"`
-	HotP95            int         `json:"hot_p95"`
-	Counts            struct {
+	Days    []reportDay `json:"days"`
+	ZeroPct int         `json:"zero_pct"`
+	HotP95  int         `json:"hot_p95"`
+	Counts  struct {
 		Pending     int `json:"pending"`
 		Active      int `json:"active"`
 		Invalidated int `json:"invalidated"`
@@ -58,6 +63,9 @@ type reportOutput struct {
 	// 지키기 위해 말미에만 추가한다.
 	DupPct      int `json:"dup_pct"`
 	FallbackPct int `json:"fallback_pct"`
+	// v0.10.2 R2 소스별 dup 기간 합계 — 기존 필드·순서 불변, 말미 추가.
+	DupHook   int `json:"dup_hook"`
+	DupManual int `json:"dup_manual"`
 
 	readCalls int // 직렬화 제외 — fallback_pct 분모(read_stats calls)
 }
@@ -135,6 +143,11 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	// R4 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 meta
 	// read_fallback_calls(T85·v096 status와 동일 조회 패턴)에서. 부재는 0.
 	out.DupPct = dupPct(out.Days)
+	// R2 소스별 dup 기간 합계 — 일별 행 합산(미기록 일은 0으로 합산됨).
+	for _, d := range out.Days {
+		out.DupHook += d.DupHook
+		out.DupManual += d.DupManual
+	}
 	fallbackCalls := 0
 	if fb := fallbackCallsOrNull(metaGetKV(ctx, st)); fb != nil {
 		fallbackCalls = *fb
