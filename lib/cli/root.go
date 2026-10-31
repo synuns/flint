@@ -48,6 +48,11 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		return 1
 	}
 	cmd, rest := args[0], args[1:]
+	// help도 store-free fast path(코디네이터 룰링): registry 핸들러가
+	// 아니라 접속 전에 직접 출력한다. 인자(`help foo`)는 무시(R1).
+	if cmd == "help" {
+		return runHelp(stdout)
+	}
 	run, ok := Lookup(cmd)
 	if !ok {
 		fmt.Fprintln(stdout, `{"error":"unknown command: `+cmd+`"}`)
@@ -72,6 +77,19 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		return store.MapExit(err)
 	}
 	return run(ctx, st, rest, stdin, stdout)
+}
+
+// runHelp — `flint help` 출력. usage JSON 1줄 + 명령 요약 1줄, exit 0.
+// help는 인자 없음 — 남는 인자는 무시한다(R1).
+func runHelp(w io.Writer) int {
+	fmt.Fprintln(w, usageLine())
+	fmt.Fprintln(w, helpSummary())
+	return 0
+}
+
+// helpSummary — 명령별 1줄 요약(v0.10.2 R1).
+func helpSummary() string {
+	return "write 기록 · read 검색 · hot 주입 · status 상태 · doctor 진단 · report 관측 · backup/restore 백업 · maintain/supersede · approve 승격 · done/compact/nudge 훅 · setup/teardown 설치 · audit/diff 시간여행 · mcp 서버 · version"
 }
 
 // errLine — 에러를 한 줄 JSON으로. 서버 다운은 조용히(server_down) 한 줄만.
