@@ -11,11 +11,14 @@ import (
 	"flint/lib/db"
 )
 
+// testDSN — FLINT_TEST_DSN 우선, 없으면 flint_test 기본(tests/regression·
+// tests/e2e와 동일 계약). FLINT_DSN(운영)은 이 패키지가 무시한다 — slowlock
+// TestMain의 교차 스위트 직렬화가 운영 DB에 접속하지 않게 한다.
 func testDSN() string {
-	if dsn := os.Getenv("FLINT_DSN"); dsn != "" {
-		return dsn
+	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
+		return d
 	}
-	return "postgresql://flint:flint-dev@localhost:5434/flint"
+	return "postgresql://flint:flint-dev@localhost:5434/flint_test"
 }
 
 // Review Focus(file): 작은따옴표·줄바꿈·백슬래시 이스케이프.
