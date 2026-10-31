@@ -71,9 +71,13 @@ func suggestCellInt(v any) (int, bool) {
 	}
 }
 
+// suggestMinScore — 제안 채택 하한(v0.10.1 R1). 이 점수 미만 행은
+// 무관 후보로 간주해 제외한다. 메타 오버라이드는 데이터 부족으로 이연.
+const suggestMinScore = 0.15
+
 // SuggestSimilar — 질의 q와 스캔 행([0]=id·[1]=topic·[2]=summary)의
-// NFKC 정규화 bigram Dice 유사도로 상위 topN 제안. 유사도 0은 제외,
-// 내림차순·동률은 id 오름차순. topN 이하는 그대로 반환.
+// NFKC 정규화 bigram Dice 유사도로 상위 topN 제안. suggestMinScore
+// 미만(0 포함)은 제외, 내림차순·동률은 id 오름차순. topN 이하는 그대로 반환.
 func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 	nq := nfkc(q)
 	type scored struct {
@@ -92,7 +96,7 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 		topic, _ := row[1].(string)
 		summary, _ := row[2].(string)
 		score := bigramDice(nq, nfkc(topic+summary))
-		if score <= 0 {
+		if score < suggestMinScore {
 			continue
 		}
 		cs = append(cs, scored{Suggestion{ID: id, Topic: topic}, score})
