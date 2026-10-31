@@ -20,8 +20,9 @@ func TestRankOrderTieBreak(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			got := RankOrder(tc.q)
-			// 접미: last_read_at DESC NULLS LAST 추가.
-			if !strings.HasSuffix(got, "last_read_at DESC NULLS LAST") {
+			// 접미: last_read_at DESC NULLS LAST 추가 + v0.13.0 R1 최종
+			// 타이브레이크 read_count DESC(룰링 갱신).
+			if !strings.HasSuffix(got, "last_read_at DESC NULLS LAST, read_count DESC") {
 				t.Fatalf("RankOrder(%q) 접미 불일치: %q", tc.q, got)
 			}
 			// 접두: 기존 절(topic 정합 > confidence > 최신) 불변.
