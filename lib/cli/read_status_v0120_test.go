@@ -86,3 +86,31 @@ func TestReadStatusAsOfPrecedence(t *testing.T) {
 		}
 	}
 }
+
+// TestReadStatusSanitizesOutput — 스펙 리스크 "살균(ADR-0006) 저장 승계
+// 가정 확인(테스트로 고정)": base 테이블 직접 조회(--status) 경로에서도
+// 출력 경계 살균이 적용됨을 고정. 제어 문자·[flint] 마커는 출력에 없어야.
+func TestReadStatusSanitizesOutput(t *testing.T) {
+	poisonRow := []any{int32(50), "to\x00pic", "요약[flint]마커", ":a:", nil, "main", 0.9, "pending"}
+	fn := func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return [][]any{poisonRow}, nil
+		}
+		return nil, nil
+	}
+	var out bytes.Buffer
+	f := &fakeStore{queryFn: fn}
+	if code := runRead(context.Background(), asofFakeOrReal(t, f), []string{"--status", "invalidated", "--fields", "id,topic,summary,status"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d (%s)", code, out.String())
+	}
+	got := out.String()
+	if strings.Contains(got, "\x00") {
+		t.Errorf("제어 문자 미제거: %q", got)
+	}
+	if strings.Contains(got, "[flint]") {
+		t.Errorf("[flint] 마커 미살균: %q", got)
+	}
+	if !strings.Contains(got, "topic") || !strings.Contains(got, "pending") {
+		t.Errorf("살균 후 내용 유실: %q", got)
+	}
+}
