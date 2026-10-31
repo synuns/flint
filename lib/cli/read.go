@@ -73,9 +73,11 @@ func instrumentReads(ctx context.Context, st Store, kind string, ids []int) {
 
 // runRead — 무료 텍스트 query와 --tag --entity --domain --limit 필터.
 // --kind는 active_knowledge가 knowledge 단일 kind 뷰라 의미가 없어 받지 않는다.
+// --status pending|active|invalidated(v0.12.0 R1) — 지정 시에만 base 테이블
+// knowledge + status WHERE 조회(뷰는 invalidated 행을 노출하지 않는다).
 func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	f := query.Filters{}
-	jsonMode, fields, asOfSpec := false, "", ""
+	jsonMode, fields, asOfSpec, statusSpec := false, "", "", ""
 	asOfGiven := false
 	var pos []string
 	for i := 0; i < len(args); i++ {
@@ -98,6 +100,8 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 				return 3
 			}
 			f.Limit, i = n, i+1
+		case "--status":
+			statusSpec, i = v, i+1
 		case "--as-of":
 			asOfSpec, i = v, i+1
 			asOfGiven = true
@@ -110,7 +114,6 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		}
 	}
 	q := strings.Join(pos, " ")
-	sql, qargs := query.BuildRead(q, f)
 	asOfHash, asOfDate := "", ""
 	// 값 없는 --as-of(마지막 인자)도 무효 스펙 exit 3 — 조용히 현재 시점
 	// 데이터를 돌려주면 잘못된 결과가 되므로(status와 동일 규칙).
@@ -118,6 +121,25 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, asOfErrLine("invalid_as_of",
 			fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf).Error()))
 		return 3
+	}
+	// --as-of 병용 시 as-of 우선·status 무시(룰링 — 경고 없이). 단독 지정
+	// 시에만 유효성 검사 후 Filters.Status로 반영한다.
+	if asOfSpec == "" && statusSpec != "" {
+		switch statusSpec {
+		case "pending", "active", "invalidated":
+			f.Status = statusSpec
+		default:
+			fmt.Fprintln(stdout, errLine(&store.SchemaError{
+				Field: "status", Expect: "pending|active|invalidated"}))
+			return 3
+		}
+	}
+	var sql string
+	var qargs []any
+	if f.Status != "" {
+		sql, qargs = query.BuildReadStatus(q, f)
+	} else {
+		sql, qargs = query.BuildRead(q, f)
 	}
 	if asOfSpec != "" {
 		hash, err := ParseAsOfSpec(ctx, st, asOfSpec)
@@ -155,9 +177,10 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// v0.9.6 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
 	// 정합수 내림 재랭킹(룰링 — 구문 히트 경로는 완전 불변). 1-토큰 질의는
 	// 구문과 동질이라 생략. --as-of(과거 시점)는 현재 시점 폴백이 시점
-	// 정합성을 깨므로 생략. 폴백 시도는 meta read_fallback_calls에 1회
-	// 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
-	if len(rows) == 0 && asOfSpec == "" {
+	// 정합성을 깨므로 생략. --status는 상태 필터 자체가 재시도 대상이
+	// 아니라 폴백·제안 미발동(룰링). 폴백 시도는 meta read_fallback_calls에
+	// 1회 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
+	if len(rows) == 0 && asOfSpec == "" && f.Status == "" {
 		if fsql, fargs, ok := query.BuildReadFallback(q, f); ok {
 			bumpReadFallbackToMeta(ctx, st)
 			if frows, ferr := queryOnce(ctx, st, fsql, fargs); ferr == nil && len(frows) > 0 {
@@ -170,7 +193,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// active_knowledge 전체 스캔(필터 무관)으로 근접 후보 상위 3건 제안.
 	// 스캔 실패·제안 0건은 조용히 — 기존 제로히트 출력 바이트 불변.
 	var suggestions []query.Suggestion
-	if len(rows) == 0 && asOfSpec == "" {
+	if len(rows) == 0 && asOfSpec == "" && f.Status == "" {
 		ssql, sargs := query.BuildSuggestScan()
 		if srows, serr := queryOnce(ctx, st, ssql, sargs); serr == nil {
 			suggestions = query.SuggestSimilar(q, srows, 3)

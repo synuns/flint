@@ -1,4 +1,5 @@
-// Package query — flint read/hot 조회 조립. 읽기는 항상 active_knowledge 뷰로 강제한다.
+// Package query — flint read/hot 조회 조립. 읽기는 기본 active_knowledge 뷰,
+// --status 지정 시에만 base 테이블 knowledge를 직접 조회한다(v0.12.0 R1).
 package query
 
 import (
@@ -9,12 +10,16 @@ import (
 	"unicode"
 )
 
-// Filters — flint read 필터(--tag --entity --domain --limit).
+// Filters — flint read 필터(--tag --entity --domain --limit --status).
 type Filters struct {
 	Tag    string
 	Entity string
 	Domain string
 	Limit  int
+	// Status — --status pending|active|invalidated(v0.12.0 R1). 지정 시
+	// BuildRead 대신 BuildReadStatus이 base 테이블을 조회한다. BuildRead의
+	// 미지정 경로는 이 값을 무시한다(뷰 경로 완전 불변 — 룰링).
+	Status string
 }
 
 const (
@@ -139,6 +144,41 @@ func BuildRead(q string, f Filters) (string, []any) {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
 	sql += " " + RankOrder(q)
+	args = append(args, ClampLimit(f.Limit))
+	sql += fmt.Sprintf(" LIMIT $%d", len(args))
+	return sql, args
+}
+
+// BuildReadStatus — --status 지정 경로 조회 SQL 조립(v0.12.0 R1). 뷰가
+// invalid_at IS NULL 행만 노출하므로 pending·invalidated 행을 보려면 base
+// 테이블 knowledge에서 직접 걸러야 한다. status 조건을 첫 파라미터로 두고
+// q·tag·entity·domain 필터·RankOrder·LIMIT·likeEscape는 BuildRead 조립을
+// 승계한다. 컬럼·순서는 readColumns 그대로(뷰와 동일 원본 테이블).
+func BuildReadStatus(q string, f Filters) (string, []any) {
+	var where []string
+	var args []any
+
+	args = append(args, f.Status)
+	where = append(where, fmt.Sprintf("status = $%d", len(args)))
+	if q != "" {
+		args = append(args, "%"+likeEscaper.Replace(q)+"%")
+		where = append(where, fmt.Sprintf("lower(topic || ' ' || summary) LIKE lower($%d)", len(args)))
+	}
+	if f.Tag != "" {
+		args = append(args, f.Tag)
+		where = append(where, fmt.Sprintf("strpos(tags, ':' || $%d || ':') > 0", len(args)))
+	}
+	if f.Entity != "" {
+		args = append(args, f.Entity)
+		where = append(where, fmt.Sprintf("entity = $%d", len(args)))
+	}
+	if f.Domain != "" {
+		args = append(args, f.Domain)
+		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
+	}
+
+	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM knowledge WHERE " +
+		strings.Join(where, " AND ") + " " + RankOrder(q)
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args

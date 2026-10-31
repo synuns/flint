@@ -17,7 +17,7 @@ func readmeStr(t *testing.T, path string) string {
 
 func TestReadmeBadgeIsV093(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(readmeStr(t, p), "release-v0.10.0") {
+		if !strings.Contains(readmeStr(t, p), "release-v0.12.0") {
 			t.Errorf("%s 배지가 v0.9.7 아님", p)
 		}
 	}

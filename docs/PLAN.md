@@ -400,6 +400,13 @@ flint-plugin/
 - [x] R4 훅 통합 — 플러그인 훅 3엔트리 통합
 - [x] R5 문서 동기화 — SKILL/README(EN/KO) 노출·펼침 안내, 마일스톤 기록
 
+### v0.12.0 pending 열람 완결·버전 파생 (2026-10-31 기획·완료) — read --status·VERSION 태그
+
+- [x] R1 read --status — pending 상태 조건 열람(--as-of 병용 시 as-of 우선)
+- [x] R2 make build VERSION 태그 — 최근 git 태그에서 버전 파생(태그 부재 시 dev 폴백)
+- [x] R3 문서 동기화 — README(EN/KO) 배지 v0.12.0·read --status·make build
+  1줄, SKILL pending 열람 안내, 마일스톤 기록
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

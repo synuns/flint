@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.10.0-blue" alt="v0.10.0">
+  <img src="https://img.shields.io/badge/release-v0.12.0-blue" alt="v0.12.0">
 </p>
 
 <p align="center">
@@ -70,6 +70,7 @@
 # 1. 설치 — Go 단일 바이너리, 의존은 pgx/v5뿐
 git clone https://github.com/synuns/flint.git flint && cd flint
 make install          # bin/flint 빌드
+make build            # 운영 빌드, 버전은 최근 git 태그에서 파생
 
 # 2. 원커맨드 설정 — Doltgres 기동 + 마이그레이션 + 안내
 ./bin/flint setup
@@ -154,6 +155,7 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 
 `flint read`는 구문 미스 시 단어 단위 재검색(fallback)한다.
 `flint read`는 재검색까지 제로히트 시 근접 후보 제안(suggestions)을 출력한다.
+`flint read --status pending`은 승격 대기 중인 지식 항목을 나열한다.
 백업 덤프는 sha256 사이드카로 무결성을 검증한다 — `flint done` 자동 백업 포함(v0.10.0).
 
 그 외: `version`, `teardown`. 운영 절차는 [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝은 [docs/TUNING.md](docs/TUNING.md)

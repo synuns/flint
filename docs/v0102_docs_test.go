@@ -32,20 +32,21 @@ func TestSkillDocumentsReadFlags(t *testing.T) {
 }
 
 // TestSkillReadLineDocumentsOnlyRealFlags — read는 runRead(lib/cli/read.go)가
-// 받는 플래그만 문서화해야 한다. --status·--kind는 파싱되지 않는 미구현
-// 플래그라 read 줄에 등장하면 안 된다(pending 조회는 `flint hot` 팔).
+// 받는 플래그만 문서화해야 한다. --kind는 파싱되지 않는 미구현 플래그라
+// read 줄에 등장하면 안 된다. --status는 v0.12.0 R1로 실구현되어
+// `read --status pending` 안내가 SKILL.md에 존재해야 한다.
 func TestSkillReadLineDocumentsOnlyRealFlags(t *testing.T) {
 	s := docStrV0102(t, "../flint-plugin/skills/flint/SKILL.md")
 	for _, line := range strings.Split(s, "\n") {
 		if strings.Contains(line, "`flint read ") {
-			for _, ghost := range []string{"--status", "--kind"} {
+			for _, ghost := range []string{"--kind"} {
 				if strings.Contains(line, ghost) {
 					t.Errorf("SKILL.md read 줄이 미구현 플래그 문서화: %s — %s", ghost, line)
 				}
 			}
 		}
 	}
-	if !strings.Contains(s, "pending — 대기 승격 대상 조회") {
-		t.Error("SKILL.md 대기 승격 대상 조회(hot pending) 안내 누락")
+	if !strings.Contains(s, "read --status pending") {
+		t.Error("SKILL.md pending 열람(read --status pending) 안내 누락")
 	}
 }

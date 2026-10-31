@@ -1,0 +1,107 @@
+//go:build e2e
+
+// slowlock_test.go — slow(실DB) 스위트의 교차 프로세스 직렬화(e2e측).
+// 드릴 락(flock)은 프로세스 간이지만 락을 잡는 테스트만 보호한다: 병렬
+// Claude 세션의 타 프로세스 slow 스위트(하위 bin/flint 프로세스 포함)가
+// flint_test에 동시 커밋하면 Doltgres 낙관적 충돌(40001)로 플레이크한다.
+// TestMain이 전용 접속으로 세션 어드바이저리 락을 잡고 m.Run() 내내
+// 유지해 DB 서버 단위로 상호 배제한다(lib/backup·tests/regression와
+// 동일 키 — 패키지 공유가 불가해 중복, dsn_v093_test.go 관례).
+package e2e
+
+import (
+	"context"
+	"fmt"
+	"os"
+	"reflect"
+	"testing"
+	"time"
+
+	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
+)
+
+// slowLockKey — slow 스위트 직렬화 어드바이저리 락 키. 세션 락은 DB 단위
+// 로 유효하므로 같은 DB를 쓰는 프로세스끼리만 상호 배제된다.
+const slowLockKey = "flint_test_slow"
+
+const (
+	slowLockSQL   = `SELECT pg_advisory_lock(hashtext('` + slowLockKey + `'))`
+	slowUnlockSQL = `SELECT pg_advisory_unlock(hashtext('` + slowLockKey + `'))`
+)
+
+// slowLockConn — 어드바이저리 락 SQL 발행 최소 세임(*pgx.Conn·fake 공통).
+type slowLockConn interface {
+	Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error)
+}
+
+var _ slowLockConn = (*pgx.Conn)(nil)
+
+// acquireSlowLock — 세션 어드바이저리 락 획득(블로킹: 타 프로세스 slow
+// 스위트가 종료해 해제할 때까지 대기 — 직렬화 본체).
+func acquireSlowLock(ctx context.Context, conn slowLockConn) error {
+	_, err := conn.Exec(ctx, slowLockSQL)
+	return err
+}
+
+// releaseSlowLock — 세션 어드바이저리 락 해제.
+func releaseSlowLock(ctx context.Context, conn slowLockConn) error {
+	_, err := conn.Exec(ctx, slowUnlockSQL)
+	return err
+}
+
+// lockSlowSuite — dsn에 전용 접속을 열어 세션 어드바이저리 락을 잡고,
+// 반환 함수에서 해제+접속 종료한다. 실DB 접속 실패(미기동·CI 마이그레이션
+// 전)면 락 없이 진행해 기존 스킵 계약을 승계한다.
+func lockSlowSuite(dsn string) func() {
+	connectCtx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+	conn, err := pgx.Connect(connectCtx, dsn)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "slow 스위트 락 생략(실DB 접속 실패): %v\n", err)
+		return func() {}
+	}
+	if err := acquireSlowLock(context.Background(), conn); err != nil {
+		fmt.Fprintf(os.Stderr, "slow 스위트 락 획득 실패(계속): %v\n", err)
+		conn.Close(context.Background())
+		return func() {}
+	}
+	return func() {
+		ctx, c := context.WithTimeout(context.Background(), 10*time.Second)
+		defer c()
+		if err := releaseSlowLock(ctx, conn); err != nil {
+			fmt.Fprintf(os.Stderr, "slow 스위트 락 해제 실패: %v\n", err)
+		}
+		// 해제에 실패해도 접속 종료로 세션 락은 서버가 회수한다.
+		conn.Close(ctx)
+	}
+}
+
+// fakeSlowConn — 락 SQL 발행 단얱용 fake 접속.
+type fakeSlowConn struct {
+	stmts []string
+}
+
+func (f *fakeSlowConn) Exec(_ context.Context, sql string, _ ...any) (pgconn.CommandTag, error) {
+	f.stmts = append(f.stmts, sql)
+	return pgconn.CommandTag{}, nil
+}
+
+// TestSlowLockIssuesAdvisorySQL — TestMain 직렬화 경로가 어드바이저리 락
+// 획득·해제 SQL을 실제로 발행함을 고정(fake 접속 — 실DB 불필요).
+func TestSlowLockIssuesAdvisorySQL(t *testing.T) {
+	var conn fakeSlowConn
+	if err := acquireSlowLock(context.Background(), &conn); err != nil {
+		t.Fatalf("acquireSlowLock: %v", err)
+	}
+	if err := releaseSlowLock(context.Background(), &conn); err != nil {
+		t.Fatalf("releaseSlowLock: %v", err)
+	}
+	want := []string{
+		`SELECT pg_advisory_lock(hashtext('flint_test_slow'))`,
+		`SELECT pg_advisory_unlock(hashtext('flint_test_slow'))`,
+	}
+	if !reflect.DeepEqual(conn.stmts, want) {
+		t.Fatalf("발행 SQL = %q, want %q", conn.stmts, want)
+	}
+}
