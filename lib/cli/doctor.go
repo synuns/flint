@@ -221,13 +221,13 @@ func checkHookFile() doctorCheck {
 	if err != nil {
 		c.Status = "fail"
 		c.Detail = path + " 없음"
-		c.Fix = "fix: settings.json 생성 후 flint hot(SessionStart)·done(Stop) 훅 등록 — flint-plugin/hooks/hooks.json 참조"
+		c.Fix = "fix: settings.json 생성 후 flint session-start(SessionStart)·session-end(Stop) 훅 등록 — flint-plugin/hooks/hooks.json 참조"
 		return c
 	}
 	if !containsFlintHook(string(b)) {
 		c.Status = "fail"
 		c.Detail = path + "에 flint 훅 없음"
-		c.Fix = "fix: settings.json hooks에 flint hot(SessionStart)·done(Stop) 훅 추가 — flint-plugin/hooks/hooks.json 참조"
+		c.Fix = "fix: settings.json hooks에 flint session-start(SessionStart)·session-end(Stop) 훅 추가 — flint-plugin/hooks/hooks.json 참조"
 		return c
 	}
 	c.Status = "ok"
@@ -302,9 +302,10 @@ func flintHookCmd(binPath, sub string) map[string]any {
 	return map[string]any{"type": "command", "command": cmd, "timeout": 2}
 }
 
-// flintHookDefs — flint 훅 5개(이벤트 → 추가 엔트리 목록). 명령 셋
-// (hot·nudge/done·nudge/compact)과 matcher는 flint-plugin/hooks/hooks.json
-// 그대로 승계한다.
+// flintHookDefs — flint 훅 3개(v0.11.0 R4 통합: 이벤트 → 추가 엔트리
+// 목록). 세션 시작·종료 시퀀스는 session-start·session-end 1커맨드가
+// 내부에서 실행하고, matcher·jq session_id 파싱·타임아웃·리다이렉션
+// 패턴은 flint-plugin/hooks/hooks.json 그대로 승계한다.
 func flintHookDefs(binPath string) map[string][]map[string]any {
 	session := "startup|resume|clear|compact"
 	withSession := func(sub string) map[string]any {
@@ -318,24 +319,89 @@ func flintHookDefs(binPath string) map[string][]map[string]any {
 	}
 	return map[string][]map[string]any{
 		"SessionStart": {
-			withSession(`hot --session "$(jq -r '.session_id // empty' 2>/dev/null)"`),
-			withSession("nudge"),
+			withSession(`session-start --session "$(jq -r '.session_id // empty' 2>/dev/null)"`),
 		},
 		"Stop": {
-			plain(`done --session "$(jq -r '.session_id // empty' 2>/dev/null)"`),
-			plain("nudge"),
+			plain(`session-end --session "$(jq -r '.session_id // empty' 2>/dev/null)"`),
 		},
 		"PostCompact": {plain("compact")},
 	}
 }
 
-// applyHookFix — settings.json에 flint 훅 5개 추가(자가수복 R1).
-// 읽기→파싱→flint 훅 존재 검사(멱등)→타임스탬프 백업→기존 이벤트 배열
-// append→MarshalIndent 쓰기. 기존 훅·다른 키는 전부 불변. 이미 flint 훅이
-// 있으면 (false, "", nil) skip. 파싱 실패는 파일·백업 모두 무변경 채로 err.
-// 파일 부재 시(v0.9.5 R3) 최소 뼈대 {"hooks":{}}를 새로 생성한다 — 원본이
-// 없으니 백업은 생략(backup=""), 부모 디렉터리도 함께 생성. 이후 merge
-// 경로(멱등·절대경로·timeout 계약)를 그대로 재사용한다.
+// flintHookSubRe — flint 훅 커맨드 1개 식별(실행 파일 경로 무관). flint
+// 실행 뒤 훅 서브커맨드(hot·done·nudge·compact·session-start·
+// session-end)가 오는 명령 — 구형 5엔트리 직접 실행과 신형 통합 커맨드
+// 모두 잡는다. 'myflint'·'flintx' 같은 접두·접미 우연 일치는 경계 클래스
+// 로 배제(flintWordRe와 같은 규칙 + 경로 접두 허용).
+var flintHookSubRe = regexp.MustCompile(
+	`(?:^|[^A-Za-z0-9_-])(?:\S*/)?flint(?:\.\S+)?\s+"?(session-start|session-end|hot|done|nudge|compact)(?:[\s"]|$)`)
+
+// anyHookCommand — hooks 값 트리 안 command 필드 중 pred를 만족하는
+// 것이 하나라도 있는지(valueHasFlintCommand와 같은 순회).
+func anyHookCommand(v any, pred func(string) bool) bool {
+	switch t := v.(type) {
+	case map[string]any:
+		if cmd, ok := t["command"].(string); ok && pred(cmd) {
+			return true
+		}
+		for _, child := range t {
+			if anyHookCommand(child, pred) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range t {
+			if anyHookCommand(child, pred) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+// hasFlintSub — 트리 안에 flint <sub> 커맨드 존재 여부.
+func hasFlintSub(v any, sub string) bool {
+	return anyHookCommand(v, func(cmd string) bool {
+		m := flintHookSubRe.FindStringSubmatch(cmd)
+		return m != nil && m[1] == sub
+	})
+}
+
+// stripFlintHookEntry — 훅 그룹 1개에서 flint 훅 커맨드를 걷어낸다
+// (교체 대상 식별 — 플러그인이 등록한 엔트리만, 타 도구 커맨드는 불변).
+// 남는 커맨드가 없으면 그룹 자체를 삭제한다(false).
+func stripFlintHookEntry(g map[string]any) bool {
+	hs, ok := g["hooks"].([]any)
+	if !ok {
+		return true
+	}
+	kept := make([]any, 0, len(hs))
+	for _, h := range hs {
+		hm, ok := h.(map[string]any)
+		if ok {
+			if cmd, _ := hm["command"].(string); cmd != "" && flintHookSubRe.MatchString(cmd) {
+				continue
+			}
+		}
+		kept = append(kept, h)
+	}
+	if len(kept) == 0 {
+		return false
+	}
+	g["hooks"] = kept
+	return true
+}
+
+// applyHookFix — settings.json에 flint 훅 3개 등록·교체(자가수복 R1,
+// v0.11.0 R4 통합 3엔트리). 읽기→파싱→신형 존재 검사(멱등)→타임스탬프
+// 백업→구형 flint 엔트리 걷어내고 신형 append→MarshalIndent 쓰기.
+// 기존 구형 5엔트리(hot·nudge/done·nudge 직접 실행)는 교체 대상 —
+// flint 커맨드가 섞인 그룹만 정리하고 타 도구 훅·다른 키는 전부 불변.
+// 신형(session-start·session-end)이 이미 있으면 (false, "", nil) skip.
+// 파싱 실패는 파일·백업 모두 무변경 채로 err. 파일 부재 시(v0.9.5 R3)
+// 최소 뼈대 {"hooks":{}}를 새로 생성한다 — 원본이 없으니 백업은
+// 생략(backup=""), 부모 디렉터리도 함께 생성. 이후 merge 경로(멱등·
+// 절대경로·timeout 계약)를 그대로 재사용한다.
 func applyHookFix(path string, binPath string) (applied bool, backupPath string, err error) {
 	b, rerr := os.ReadFile(path)
 	if rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
@@ -348,9 +414,6 @@ func applyHookFix(path string, binPath string) (applied bool, backupPath string,
 		}
 		b = []byte(`{"hooks":{}}`)
 	}
-	if containsFlintHook(string(b)) {
-		return false, "", nil // 멱등 — 이미 등록됨
-	}
 	var doc map[string]any
 	if err := json.Unmarshal(b, &doc); err != nil {
 		return false, "", fmt.Errorf("settings.json 파싱 실패: %w", err)
@@ -359,11 +422,30 @@ func applyHookFix(path string, binPath string) (applied bool, backupPath string,
 	if hooks == nil {
 		hooks = map[string]any{}
 	}
+	if hasFlintSub(hooks, "session-start") && hasFlintSub(hooks, "session-end") {
+		return false, "", nil // 멱등 — 신형 3엔트리 이미 등록됨
+	}
 	if existed { // 백업은 원본이 있을 때만
 		backupPath = path + ".flint-bak-" + time.Now().Format("20060102-150405")
 		if err := os.WriteFile(backupPath, b, 0o644); err != nil {
 			return false, "", err
 		}
+	}
+	// 구형 flint 직접 실행 훅(hot·done·nudge·compact) 교체 — flint
+	// 커맨드만 걷어내고 빈 그룹은 삭제. 타 도구 그룹은 그대로 앞쪽에 남는다.
+	for ev, prev := range hooks {
+		list, ok := prev.([]any)
+		if !ok {
+			continue
+		}
+		merged := make([]any, 0, len(list))
+		for _, g := range list {
+			if gm, ok := g.(map[string]any); ok && !stripFlintHookEntry(gm) {
+				continue // flint 커맨드만 있던 그룹 — 통합 엔트리로 대체
+			}
+			merged = append(merged, g)
+		}
+		hooks[ev] = merged
 	}
 	for ev, add := range flintHookDefs(binPath) {
 		entries := add // []map[string]any → []any 변환해 append

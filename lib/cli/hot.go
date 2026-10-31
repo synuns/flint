@@ -102,16 +102,51 @@ func injectedKnowledgeIDs(rows [][]any, ids []int, budget int) []int {
 	return ids[:k]
 }
 
-// runHot — hot_view 조회 후 고정 포맷으로 출력하고 상한으로 절단한다.
+// hotHeadline — hot 요약 헤드라인 1줄(R2). minimal은 활성·대기 카운트만,
+// 그 외 프로파일(미설정·파손 포함)은 normal 문구(펼치기 안내 포함).
+func hotHeadline(profile string, active int, pending int, recent int) string {
+	if profile == "minimal" {
+		return fmt.Sprintf("[flint] 활성 %d · 대기 %d", active, pending)
+	}
+	return fmt.Sprintf("[flint] 활성 %d · 대기 %d · 최근 결정 %d — 펼치기: flint hot --full",
+		active, pending, recent)
+}
+
+// hotCounts — hot_view 조회 행(전체 출력과 동일 데이터 소스)에서
+// 헤드라인 카운트를 뽑는다: 활성=projects 팔, 대기=pending, 최근 결정=7일.
+func hotCounts(rows [][]any) (active, pending, recent int) {
+	for _, r := range rows {
+		if len(r) == 0 {
+			continue
+		}
+		switch fmt.Sprint(r[0]) {
+		case "project":
+			active++
+		case "pending":
+			pending++
+		case "decision":
+			recent++
+		}
+	}
+	return active, pending, recent
+}
+
+// runHot — hot_view 조회 후 --full이면 기존 전체 출력(바이트 불변),
+// 아니면 프로파일별 헤드라인 1줄만 출력한다(카운트는 동일 조회에서 추출,
+// 전체 조립은 생략). 계측·exit·--session은 양 경로 공통 불변.
 // T38 배선(F-T56-1): 시작 시 meta hot_stats 누적을 로드하고 종료 직전
 // persist한다(단발 CLI 프로세스 분리 보존). 둘 다 계측이므로 실패는
 // 조용히 무시된다(§13 — hot 출력·exit에 영향 금지).
 func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	session := ""
+	full := false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--session" && i+1 < len(args) {
 			session = args[i+1]
 			i++
+		}
+		if args[i] == "--full" {
+			full = true
 		}
 	}
 	sql := query.HotSQL(session)
@@ -122,11 +157,22 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	}
 	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
 	loadHotStatsFromMeta(ctx, st)
-	out := query.FormatRows(rows, hotFields, false)
+	// 예산은 양 경로 공통: 요약 경로도 실제 주입될 id 증분은 절단 규칙을
+	// 그대로 따라야 하므로(계측 불변).
 	budget := HotBudget(metaGetKV(ctx, st))
-	clamped := query.ClampHot(out, budget)
-	fmt.Fprint(stdout, clamped)
-	RecordHotLen(len([]rune(clamped)))
+	if full {
+		out := query.FormatRows(rows, hotFields, false)
+		clamped := query.ClampHot(out, budget)
+		fmt.Fprint(stdout, clamped)
+		RecordHotLen(len([]rune(clamped)))
+	} else {
+		kv := metaGetKV(ctx, st)
+		profile := ExposureProfile(func(key string) (string, error) { return kv(key, "") })
+		active, pending, recent := hotCounts(rows)
+		line := hotHeadline(profile, active, pending, recent)
+		fmt.Fprintln(stdout, line)
+		RecordHotLen(len([]rune(line)))
+	}
 	persistHotStatsToMeta(ctx, st)
 	// 계측(T62): 실제 주입된(예산 절단 후 출력에 남은) 지식 id만 참조 증분
 	// + hot 유입 1회. 조용히(§13). 동반 질의 실패 시 BumpReads 호출 자체를

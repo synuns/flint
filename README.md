@@ -92,6 +92,9 @@ Default DSN: `postgresql://flint:flint-dev@localhost:5434/flint` — override wi
 `FLINT_DSN`. Tear down with `./bin/flint teardown` (`--purge` removes the volume too).
 </details>
 
+Exposure profile: `flint setup --exposure normal|minimal` tunes how much `hot` injects.
+Hooks install as 3 entries: SessionStart (`session-start`), PostCompact (`compact`), Stop (`session-end`).
+
 Full walkthrough: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 ---

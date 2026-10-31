@@ -1,8 +1,9 @@
 package flintplugin
 
 // T78 플러그인 훅·스킬 — v0.7 적립 자동화 배선의 정적 검사.
-// PostCompact 신규 훅 + Stop·SessionStart 두 번째 엔트리(flint nudge 가드).
-// 기존 hot·done 엔트리는 원문 그대로 보존되어야 한다.
+// PostCompact 신규 훅 + 세션 훅 통합 엔트리(v0.11.0 R4: session-start·
+// session-end가 nudge 시퀀스를 흡수, 가드·timeout 승계).
+// 통합 엔트리 커맨드는 원문 그대로 보존되어야 한다.
 
 import (
 	"encoding/json"
@@ -70,26 +71,28 @@ func readHooksJSON(t *testing.T) map[string]any {
 	return doc
 }
 
-// assertNudgeEntry — nudge 커맨드에 가드·timeout 2가 갖춰졌는지 확인.
-func assertNudgeEntry(t *testing.T, group map[string]any) {
+// assertNudgeEntry — 세션 훅 커맨드에 가드·timeout 2가 갖춰졌는지 확인.
+// v0.11.0 R4 통합: nudge는 session-start·session-end 내부 시퀀스로 흡수
+// 됐다 — 가드·타임아웃 단언은 통합 커맨드 대상으로 승계한다.
+func assertNudgeEntry(t *testing.T, group map[string]any, sub string) {
 	t.Helper()
 	hs, ok := group["hooks"].([]any)
 	if !ok || len(hs) == 0 {
-		t.Fatalf("nudge 엔트리에 hooks 배열 없음")
+		t.Fatalf("세션 훅 엔트리에 hooks 배열 없음")
 	}
 	hm, ok := hs[0].(map[string]any)
 	if !ok {
-		t.Fatalf("nudge 훅이 객체 아님")
+		t.Fatalf("세션 훅이 객체 아님")
 	}
 	cmd, _ := hm["command"].(string)
-	if !strings.Contains(cmd, "flint nudge") {
-		t.Errorf("nudge 엔트리 커맨드에 'flint nudge' 없음: %q", cmd)
+	if !strings.Contains(cmd, "flint "+sub) {
+		t.Errorf("통합 엔트리 커맨드에 'flint %s' 없음: %q", sub, cmd)
 	}
 	if !strings.Contains(cmd, "2>/dev/null || true") {
-		t.Errorf("nudge 엔트리에 가드(2>/dev/null || true) 없음: %q", cmd)
+		t.Errorf("통합 엔트리에 가드(2>/dev/null || true) 없음: %q", cmd)
 	}
 	if timeout, _ := hm["timeout"].(float64); timeout != 2 {
-		t.Errorf("nudge 엔트리 timeout != 2: %v", hm["timeout"])
+		t.Errorf("통합 엔트리 timeout != 2: %v", hm["timeout"])
 	}
 }
 
@@ -121,32 +124,27 @@ func TestHooksPostcompact(t *testing.T) {
 	}
 }
 
-// TestHooksNudgeGuards — Stop·SessionStart 배열의 두 번째 엔트리가
-// flint nudge 가드 커맨드다.
+// TestHooksNudgeGuards — SessionStart·Stop 배열의 통합 엔트리
+// (session-start·session-end)가 가드·timeout 2를 갖춘다.
 func TestHooksNudgeGuards(t *testing.T) {
 	doc := readHooksJSON(t)
-	for _, event := range []string{"Stop", "SessionStart"} {
-		groups := hookGroups(t, doc, event)
-		if len(groups) < 2 {
-			t.Fatalf("이벤트 %s 엔트리 수 = %d, want >= 2", event, len(groups))
-		}
-		assertNudgeEntry(t, groups[len(groups)-1])
-	}
+	assertNudgeEntry(t, hookGroups(t, doc, "SessionStart")[0], "session-start")
+	assertNudgeEntry(t, hookGroups(t, doc, "Stop")[0], "session-end")
 }
 
-// TestHooksExistingUntouched — 기존 hot·done 엔트리는 원문 보존.
+// TestHooksExistingUntouched — 세션 훅 통합 엔트리는 원문 보존.
 func TestHooksExistingUntouched(t *testing.T) {
 	doc := readHooksJSON(t)
-	const hotCmd = `flint hot --session "$(jq -r '.session_id // empty' 2>/dev/null)" 2>/dev/null || true`
-	const doneCmd = `flint done --session "$(jq -r '.session_id // empty' 2>/dev/null)" 2>/dev/null || true`
+	const startCmd = `flint session-start --session "$(jq -r '.session_id // empty' 2>/dev/null)" 2>/dev/null || true`
+	const endCmd = `flint session-end --session "$(jq -r '.session_id // empty' 2>/dev/null)" 2>/dev/null || true`
 
 	startCmds := groupCommands(t, hookGroups(t, doc, "SessionStart"))
-	if len(startCmds) < 2 || startCmds[0] != hotCmd {
-		t.Errorf("SessionStart 첫 엔트리(hot) 원문 불변 위반: %q", startCmds)
+	if len(startCmds) < 1 || startCmds[0] != startCmd {
+		t.Errorf("SessionStart 첫 엔트리(session-start) 원문 불변 위반: %q", startCmds)
 	}
 	stopCmds := groupCommands(t, hookGroups(t, doc, "Stop"))
-	if len(stopCmds) < 2 || stopCmds[0] != doneCmd {
-		t.Errorf("Stop 첫 엔트리(done) 원문 불변 위반: %q", stopCmds)
+	if len(stopCmds) < 1 || stopCmds[0] != endCmd {
+		t.Errorf("Stop 첫 엔트리(session-end) 원문 불변 위반: %q", stopCmds)
 	}
 }
 

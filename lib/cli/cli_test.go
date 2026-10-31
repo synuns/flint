@@ -368,7 +368,7 @@ func TestReadLimitClampAndJSON(t *testing.T) {
 func TestHotTruncatedToBudget(t *testing.T) {
 	f := &fakeStore{rows: [][]any{{"decision", strings.Repeat("가", 3000), "s", "ts"}}}
 	withFake(t, f)
-	out, code := mustRun(t, []string{"hot", "--session", "S1"}, "")
+	out, code := mustRun(t, []string{"hot", "--session", "S1", "--full"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
