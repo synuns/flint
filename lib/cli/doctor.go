@@ -19,7 +19,6 @@ import (
 	"strings"
 	"time"
 
-	"flint/lib/db"
 	"flint/lib/store"
 )
 
@@ -742,30 +741,28 @@ func checkBackupAge(ctx context.Context, st Store) doctorCheck {
 // 요약 유사도로 분류해(isConflictGroup — T2와 같은 기준) 모순 후보만
 // 세어 1+면 warn, 0이면 ok. 순수 중복 그룹(유사 요약)은 세지 않는다 —
 // T2 출력과 동치여야 안내받은 --conflict-suspects가 결과를 보장한다.
-// 조회 실패·st nil도 warn — fail 아니다(모순 의심은 동작을 막지 않는다).
-// 쿼리는 T2 그룹 조회 조건의 중복 구현(플랜 승인 — lib/db/admin.go는
-// T2 소유).
+// 조회는 maintain와 같은 ConflictStore seam(ConflictGroups)으로만 —
+// GROUP BY SQL을 여기 다시 쓰지 않고 상한도 maintain 기본
+// (suspectsDefaultLimit)과 같아 무제한 스캔이 없다(v0.13.1 F7/F9).
+// seam 미지원·조회 실패·st nil도 warn — fail 아니다(모순 의심은
+// 동작을 막지 않는다).
 func checkConflicts(ctx context.Context, st Store) doctorCheck {
 	c := doctorCheck{Name: "conflicts"}
-	if st == nil {
+	cs, ok := st.(ConflictStore)
+	if st == nil || !ok {
 		c.Status = "warn"
 		c.Detail = "모순 후보 조회 불가 — maintain --conflict-suspects 확인"
 		return c
 	}
-	rows, err := queryOnce(ctx, st,
-		`SELECT topic, array_agg(summary ORDER BY id) FROM knowledge WHERE invalid_at IS NULL AND status = 'active' GROUP BY topic HAVING count(*) > 1`, nil)
+	groups, err := cs.ConflictGroups(ctx, suspectsDefaultLimit)
 	if err != nil {
 		c.Status = "warn"
 		c.Detail = "모순 후보 조회 실패: " + err.Error() + " — maintain --conflict-suspects 확인"
 		return c
 	}
 	n := 0
-	for _, r := range rows {
-		sums, ok := groupSummaries(r)
-		if !ok {
-			continue
-		}
-		if isConflictGroup(db.ConflictGroup{Summaries: sums}) {
+	for _, g := range groups {
+		if isConflictGroup(g) {
 			n++
 		}
 	}
@@ -776,17 +773,6 @@ func checkConflicts(ctx context.Context, st Store) doctorCheck {
 	}
 	c.Status = "ok"
 	return c
-}
-
-// groupSummaries — checkConflicts 조회 행에서 요약 슬라이스 추출.
-// pgx Values()는 text[]를 []string으로 돌려준다. 형태가 다른 행은
-// 분류 불가로 건너뛴다(과소 판정 — fail 아닌 warn 검사의 보수 선택).
-func groupSummaries(row []any) ([]string, bool) {
-	if len(row) < 2 {
-		return nil, false
-	}
-	sums, ok := row[1].([]string)
-	return sums, ok
 }
 
 // stallDetail — 키의 경과가 grace를 넘으면 경고 문구 반환(부재=never).
