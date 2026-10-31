@@ -234,7 +234,7 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	// 수(이중 계수 금지), 경고는 폐기하지 않는다(dup 줄의 살균·비밀 경고 유지).
 	emitDuplicate := func() {
 		recordUsage(ctx, st, "write", source)
-		recordDups(ctx, st, dups)
+		recordDups(ctx, st, source, dups)
 		out := store.OutputJSON("duplicate", "", "", dupID)
 		if len(dropped) > 0 || len(warnings) > 0 {
 			out = withWarnings(out, dropped, warnings)
@@ -335,23 +335,27 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		out = withWarnings(out, dropped, warnings)
 	}
 	recordUsage(ctx, st, "write", source) // 신규 커밋 성공 후 유입 1회(T61)
-	recordDups(ctx, st, dups)             // 혼합 배치의 skip 줄도 dup 계측
+	recordDups(ctx, st, source, dups)     // 혼합 배치의 skip 줄도 dup 계측(총계+소스)
 	fmt.Fprintln(stdout, out)
 	return 0
 }
 
 // recordDups — skip된 duplicate 줄 수만큼 dup 유입을 계측한다(0은 no-op).
-// UsageCountStore(실구현)는 count 1회 호출로 일괄 증분, 미구현 Store는 1회씩.
-func recordDups(ctx context.Context, st Store, n int) {
+// 총계 "dup" 키는 불변(루링)이고 소스별 "dup_"+source(hook·manual·mcp)를
+// 추가 증분한다(additive — v0.10.2 R2). UsageCountStore(실구현)는 각 키를
+// count 1회 호출로 일괄 증분, 미구현 Store는 1회씩.
+func recordDups(ctx context.Context, st Store, source string, n int) {
 	if n <= 0 {
 		return
 	}
 	if cs, ok := st.(UsageCountStore); ok {
 		_ = cs.RecordUsageCount(ctx, "dup", "", n)
+		_ = cs.RecordUsageCount(ctx, "dup_"+source, "", n)
 		return
 	}
 	for i := 0; i < n; i++ {
 		recordUsage(ctx, st, "dup", "")
+		recordUsage(ctx, st, "dup_"+source, "")
 	}
 }
 
