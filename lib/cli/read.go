@@ -79,20 +79,27 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	f := query.Filters{}
 	jsonMode, fields, asOfSpec, statusSpec := false, "", "", ""
 	asOfGiven, statusGiven := false, false
+	tagGiven, entityGiven, domainGiven, fieldsGiven := false, false, false, false
 	var pos []string
 	for i := 0; i < len(args); i++ {
 		a := args[i]
+		// 표준 관례(N9): "--" 이후 전부 위치 인자 — MCP 등 외부 입력의
+		// query가 "--json"처럼 플래그처럼 보여도 플래그로 파싱하지 않는다.
+		if a == "--" {
+			pos = append(pos, args[i+1:]...)
+			break
+		}
 		var v string
 		if i+1 < len(args) {
 			v = args[i+1]
 		}
 		switch a {
 		case "--tag":
-			f.Tag, i = v, i+1
+			f.Tag, i, tagGiven = v, i+1, true
 		case "--entity":
-			f.Entity, i = v, i+1
+			f.Entity, i, entityGiven = v, i+1, true
 		case "--domain":
-			f.Domain, i = v, i+1
+			f.Domain, i, domainGiven = v, i+1, true
 		case "--limit":
 			n, err := strconv.Atoi(v)
 			if err != nil {
@@ -109,12 +116,30 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		case "--json":
 			jsonMode = true
 		case "--fields":
-			fields, i = v, i+1
+			fields, i, fieldsGiven = v, i+1, true
 		default:
 			pos = append(pos, a)
 		}
 	}
 	q := strings.Join(pos, " ")
+	// 값 없는 trailing --tag/--entity/--domain/--fields(N10)도 값 없는
+	// --status/--as-of(F1)와 동일 규칙 exit 3 — 빈 값이 조용히 무시되면
+	// 의도와 다른 필터로 결과를 돌려준다. --limit은 이미 Atoi 실패로 exit 3.
+	for _, g := range []struct {
+		given bool
+		val   string
+		field string
+	}{
+		{tagGiven, f.Tag, "tag"},
+		{entityGiven, f.Entity, "entity"},
+		{domainGiven, f.Domain, "domain"},
+		{fieldsGiven, fields, "fields"},
+	} {
+		if g.given && g.val == "" {
+			fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: g.field, Expect: "non-empty"}))
+			return 3
+		}
+	}
 	asOfHash, asOfDate := "", ""
 	// 값 없는 --as-of(마지막 인자)도 무효 스펙 exit 3 — 조용히 현재 시점
 	// 데이터를 돌려주면 잘못된 결과가 되므로(status와 동일 규칙).

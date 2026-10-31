@@ -2,7 +2,6 @@ package docs
 
 import (
 	"os"
-	"os/exec"
 	"regexp"
 	"strings"
 	"testing"
@@ -27,25 +26,27 @@ func TestReadmeBadgeIsLatest(t *testing.T) {
 	}
 }
 
-// TestReadmeBadgeMatchesLatestTag — 배지 문자열이 git 최신 태그와 일치
-// ("release-"+tag). 태그 부재 환경(일부 CI·shallow clone)은 스킵.
+// TestReadmeBadgeMatchesLatestTag — 배지 문자열이 git 최신 태그 또는
+// 다음 예정 버전(최신 태그의 +패치/+마이너, plannedBadgeVersions)과
+// 일치("release-"+버전). 태그 부재 환경(일부 CI·shallow clone)은 스킵.
+// v0.13.2 N2 갱신: 릴리스 준비 커밋→태그 사이 창의 일시 레드 해소.
 func TestReadmeBadgeMatchesLatestTag(t *testing.T) {
-	out, err := exec.Command("git", "describe", "--tags", "--abbrev=0").Output()
-	if err != nil {
-		t.Skipf("최신 태그 조회 불가(태그 부재 환경): %v", err)
-	}
-	tag := strings.TrimSpace(string(out))
-	if tag == "" {
-		t.Skip("최신 태그 없음")
-	}
-	want := "release-" + tag
+	tag := latestTag(t)
+	allowed := plannedBadgeVersions(tag)
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		b, err := os.ReadFile(p)
 		if err != nil {
 			t.Fatal(err)
 		}
-		if !strings.Contains(string(b), want) {
-			t.Errorf("%s 배지 = 최신 태그 불일치: %q 없음", p, want)
+		ok := false
+		for _, v := range allowed {
+			if strings.Contains(string(b), "release-"+v) {
+				ok = true
+				break
+			}
+		}
+		if !ok {
+			t.Errorf("%s 배지 = 최신 태그·예정 버전 불일치: %q 없음", p, "release-"+tag)
 		}
 	}
 }

@@ -98,11 +98,13 @@ func hotQueryFn(sql string, args []any) ([][]any, error) {
 
 // TestHotInstrumentsSilently — hot 종료 시 주입 지식 id 전수 BumpReads +
 // recordUsage("hot",""). 계측 실패·미구현 Store exit 0·출력 불변.
+// v0.13.2 N3: 증분은 --full(실제 주입) 경로에서만 — 호출을 --full로 재지정
+// (헤드라인 경로 스킵은 hot_v0132_test.go TestHotHeadlineSkipsReadBump 담보).
 func TestHotInstrumentsSilently(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
 	f := &instrumentedFake{fakeStore: fakeStore{queryFn: hotQueryFn}}
-	code := runHot(ctx, f, nil, strings.NewReader(""), &out)
+	code := runHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out)
 	if code != 0 {
 		t.Fatalf("runHot exit = %d, want 0", code)
 	}
@@ -117,7 +119,7 @@ func TestHotInstrumentsSilently(t *testing.T) {
 	// usageErr·bumpErr 모두 exit 0·출력 불변.
 	var out2 bytes.Buffer
 	f2 := &instrumentedFake{fakeStore: fakeStore{queryFn: hotQueryFn}, usageErr: errSilent{}}
-	if code := runHot(ctx, f2, nil, strings.NewReader(""), &out2); code != 0 {
+	if code := runHot(ctx, f2, []string{"--full"}, strings.NewReader(""), &out2); code != 0 {
 		t.Fatalf("usageErr 시 exit = %d, want 0", code)
 	}
 	if out2.String() != out.String() {
@@ -127,7 +129,7 @@ func TestHotInstrumentsSilently(t *testing.T) {
 	// 미구현 Store(plain fakeStore)에서도 no-op — exit 0.
 	var out3 bytes.Buffer
 	plain := &fakeStore{queryFn: hotQueryFn}
-	if code := runHot(ctx, plain, nil, strings.NewReader(""), &out3); code != 0 {
+	if code := runHot(ctx, plain, []string{"--full"}, strings.NewReader(""), &out3); code != 0 {
 		t.Fatalf("미구현 Store exit = %d, want 0", code)
 	}
 }
@@ -200,7 +202,8 @@ func TestHotUsageRecordedWhenCompanionFails(t *testing.T) {
 // 출력에 남지 않은 행은 read_count/last_read_at 증분 대상이 아니다(회귀:
 // 동반 질의 상위 N 전체를 무조건 증분 — 잘린 행까지 올라가 랭킹·stale
 // 집계를 왜곡). 예산은 첫 행 포맷 길이와 정확히 같게 잡아 둘째 행 시작
-// 오프셋==예산(완전 절단 경계)을 만든다.
+// 오프셋==예산(완전 절단 경계)을 만든다. v0.13.2 N3: 증분은 --full 경로
+// — 호출을 --full로 재지정(헤드라인 스킵은 hot_v0132_test.go가 담보).
 func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -221,7 +224,7 @@ func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
 	}
 	f := &instrumentedFake{fakeStore: fakeStore{queryFn: qfn}}
 	var out bytes.Buffer
-	if code := runHot(ctx, f, nil, strings.NewReader(""), &out); code != 0 {
+	if code := runHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runHot exit = %d, want 0", code)
 	}
 	if strings.Contains(out.String(), "잘린행토픽") {

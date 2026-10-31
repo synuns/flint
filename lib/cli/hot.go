@@ -74,6 +74,7 @@ const hotFields = "kind,topic,summary,ts"
 // FormatRows는 행독립(헤더 없음)이라 k행의 시작 오프셋은 rows[:k] 포맷
 // 결과의 rune 수와 같다. 시작 오프셋이 budget 미만인 행만 살아남는다
 // (경계에 걸려 부분 노출된 행도 노출분은 주입된 것으로 본다).
+// 접미 없는 기본 포맷 기준 — --full 접미 포함 산정은 hotLineSurvivorCount.
 func hotSurvivorCount(rows [][]any, budget int) int {
 	n := 0
 	for i := range rows {
@@ -85,13 +86,32 @@ func hotSurvivorCount(rows [][]any, budget int) int {
 	return n
 }
 
-// injectedKnowledgeIDs — 실제 주입된 지식 id만 동반 질의 결과에서 고른다:
-// 예산 생존 행 중 project 팔(id 없음)을 제외한 수만큼 앞에서 취한다.
+// hotLineSurvivorCount — 행별 '표시 문자열' 기준 생존 수(N4). --full 접미
+// (·+N일)가 붙은 최종 텍스트로 잰다: k행 시작 오프셋은 lines[:k]의 rune
+// 수(행 구분 줄바꿈 포함)와 같고, 그 오프셋이 budget 미만인 행만 살아남는다.
+// ClampHot이 절단하는 실출력과 같은 문자열을 재므로, 접미가 밀어낸 행이
+// 실출력에서 잘렸는데도 생존으로 세어 증분되는 부정합이 없다.
+func hotLineSurvivorCount(lines []string, budget int) int {
+	n, off := 0, 0
+	for i, ln := range lines {
+		if i > 0 {
+			off++ // 행 구분 줄바꿈
+		}
+		if off >= budget {
+			break
+		}
+		off += utf8.RuneCountInString(ln)
+		n++
+	}
+	return n
+}
+
+// injectedIDsForSurvivors — 실제 주입된 지식 id만 동반 질의 결과에서 고른다:
+// 생존 survivors행 중 project 팔(id 없음)을 제외한 수만큼 앞에서 취한다.
 // hot_view와 동반 질의가 같은 ORDER BY·LIMIT을 쓰므로 k번째 지식 행은
 // 동반 질의의 k번째 id와 대응한다(잘린 행의 id는 증분하지 않는다).
-func injectedKnowledgeIDs(rows [][]any, ids []int, budget int) []int {
+func injectedIDsForSurvivors(rows [][]any, ids []int, survivors int) []int {
 	k := 0
-	survivors := hotSurvivorCount(rows, budget)
 	for i := 0; i < survivors && i < len(rows); i++ {
 		if len(rows[i]) == 0 || fmt.Sprint(rows[i][0]) != "project" {
 			k++
@@ -101,6 +121,12 @@ func injectedKnowledgeIDs(rows [][]any, ids []int, budget int) []int {
 		k = len(ids)
 	}
 	return ids[:k]
+}
+
+// injectedKnowledgeIDs — hotSurvivorCount(접미 없는 기본 포맷) 기준의
+// 증분 id. --full 접미 포함 산정은 runHot이 hotLineSurvivorCount로 한다.
+func injectedKnowledgeIDs(rows [][]any, ids []int, budget int) []int {
+	return injectedIDsForSurvivors(rows, ids, hotSurvivorCount(rows, budget))
 }
 
 // pendingAgeSuffix — pending 팔 대기일수 접미(v0.12.1 R2): valid_at 경과
@@ -122,11 +148,19 @@ func pendingValidAtsSQL() string {
 		ORDER BY k.ingested_at DESC, k.id DESC LIMIT ` + strconv.Itoa(query.ClampLimit(0))
 }
 
-// hotFullOutput — --full 전체 출력(FormatRows 승계)에 pending 행 끝에만
-// 대기일수 접미를 붙인다. 동반 질의 실패·결과 부족·time.Time 아닌 값은
-// 해당 행 접미 생략(기존 출력 불변 승계). now는 UTC.
-func hotFullOutput(ctx context.Context, st Store, rows [][]any, now time.Time) string {
-	out := query.FormatRows(rows, hotFields, false)
+// hotSuffixedLines — --full 전체 출력의 행별 표시 문자열(접미 포함, N4).
+// ClampHot 절단 대상이 되는 실출력 텍스트와 증분 생존 판정
+// (hotLineSurvivorCount)이 같은 문자열을 기준으로 정합하도록 출력 조립과
+// 생존 산정이 공유한다. pending 행 끝에만 대기일수 접미를 붙이고, 동반 질의
+// 실패·결과 부족·time.Time 아닌 값·줄바꿈 포함(안전 가드)은 접미 생략해
+// 기본 포맷 라인을 반환한다(기존 출력 불변 승계). rows가 비면 nil.
+// now는 UTC.
+func hotSuffixedLines(ctx context.Context, st Store, rows [][]any, now time.Time) []string {
+	base := query.FormatRows(rows, hotFields, false)
+	if base == "" {
+		return nil
+	}
+	lines := strings.Split(strings.TrimSuffix(base, "\n"), "\n")
 	hasPending := false
 	for _, r := range rows {
 		if len(r) > 0 && fmt.Sprint(r[0]) == "pending" {
@@ -134,19 +168,18 @@ func hotFullOutput(ctx context.Context, st Store, rows [][]any, now time.Time) s
 			break
 		}
 	}
-	if !hasPending || out == "" {
-		return out
+	if !hasPending {
+		return lines
 	}
 	vaRows, err := queryOnce(ctx, st, pendingValidAtsSQL(), nil)
 	if err != nil {
-		return out
+		return lines
 	}
-	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
 	// 안전 가드: 필드 값에 줄바꿈이 포함되면 FormatRows 한 행이 여러 line으로
 	// 쪼개져 lines[i]↔rows[i] 대응이 어긋난다 — 접미가 잘못된 행에 붙지 않도록
 	// 행 수가 다르면 접미 전체를 생략한다(기존 출력 불변 승계).
 	if len(lines) != len(rows) {
-		return out
+		return lines
 	}
 	k := 0
 	for i, r := range rows {
@@ -162,6 +195,15 @@ func hotFullOutput(ctx context.Context, st Store, rows [][]any, now time.Time) s
 			}
 		}
 		k++
+	}
+	return lines
+}
+
+// hotFullOutput — 행별 표시 문자열(접미 포함)을 --full 전체 출력 텍스트로
+// 조립한다. nil(빈 rows)은 기존 빈 출력("") 승계.
+func hotFullOutput(lines []string) string {
+	if lines == nil {
+		return ""
 	}
 	return strings.Join(lines, "\n") + "\n"
 }
@@ -221,12 +263,14 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	}
 	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
 	loadHotStatsFromMeta(ctx, st)
-	// 예산은 양 경로 공통: 요약 경로도 실제 주입될 id 증분은 절단 규칙을
-	// 그대로 따라야 하므로(계측 불변).
+	// 예산은 양 경로 공통 산출: --full 절단 규칙과 증분 생존 판정이 같은
+	// 예산을 공유한다(계측 불변).
 	budget := HotBudget(metaGetKV(ctx, st))
+	// 접미 포함 행별 텍스트(N4) — --full 출력과 증분 생존 판정이 공유한다.
+	var lines []string
 	if full {
-		out := hotFullOutput(ctx, st, rows, time.Now().UTC())
-		clamped := query.ClampHot(out, budget)
+		lines = hotSuffixedLines(ctx, st, rows, time.Now().UTC())
+		clamped := query.ClampHot(hotFullOutput(lines), budget)
 		fmt.Fprint(stdout, clamped)
 		RecordHotLen(len([]rune(clamped)))
 	} else {
@@ -239,10 +283,17 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	}
 	persistHotStatsToMeta(ctx, st)
 	// 계측(T62): 실제 주입된(예산 절단 후 출력에 남은) 지식 id만 참조 증분
-	// + hot 유입 1회. 조용히(§13). 동반 질의 실패 시 BumpReads 호출 자체를
-	// 건너뛴다 — 유입 1회 기록은 조회 성공 사실과 무관하므로 유지한다.
-	if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
-		instrumentReads(ctx, st, "hot", injectedKnowledgeIDs(rows, rowIDs(idRows), budget))
+	// + hot 유입 1회. 조용히(§13). 지식 주입은 --full 전체 출력 경로에서만
+	// 일어난다(N3) — 헤드라인 경로는 카운트만 노출하므로 실제 주입 없는
+	// 증분(read_count·last_read_at 왜곡으로 stale 판정 동결) 없이 유입 1회만
+	// 기록한다. 생존 판정은 접미 포함 텍스트 기준(N4): 접미가 밀어낸 행이
+	// 실출력에서 잘렸으면 증분하지 않는다. 동반 질의 실패 시 BumpReads 호출
+	// 자체를 건너뛴다 — 유입 1회 기록은 조회 성공 사실과 무관하므로 유지한다.
+	if !full {
+		recordUsage(ctx, st, "hot", "")
+	} else if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
+		instrumentReads(ctx, st, "hot",
+			injectedIDsForSurvivors(rows, rowIDs(idRows), hotLineSurvivorCount(lines, budget)))
 	} else {
 		recordUsage(ctx, st, "hot", "")
 	}

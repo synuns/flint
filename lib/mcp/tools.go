@@ -84,17 +84,18 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 }
 
 // dispatchRead — flint read [query] --tag --limit 조립. limit은 토큰 예산
-// (ClampLimit 상한 50)을 도구 경로에도 박제한다.
+// (ClampLimit 상한 50)을 도구 경로에도 박제한다. query는 외부 입력이라
+// 플래그로 파싱되지 않게 "--" 뒤에 둔다(N9 — runRead의 end-of-options 규칙).
 func dispatchRead(args map[string]any) (string, int) {
 	var cliArgs []string
-	if q := strArg(args, "query"); q != "" {
-		cliArgs = append(cliArgs, q)
-	}
 	if tag := strArg(args, "tag"); tag != "" {
 		cliArgs = append(cliArgs, "--tag", tag)
 	}
 	if n, ok := intArg(args, "limit"); ok {
 		cliArgs = append(cliArgs, "--limit", strconv.Itoa(query.ClampLimit(n)))
+	}
+	if q := strArg(args, "query"); q != "" {
+		cliArgs = append(cliArgs, "--", q)
 	}
 	return runCall(append([]string{"read"}, cliArgs...), strings.NewReader(""))
 }
