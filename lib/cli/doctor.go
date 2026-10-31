@@ -75,16 +75,22 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	}
 	names := DoctorChecks()
 	if subset != "" {
-		ok := false
-		for _, n := range names {
-			if n == subset {
-				ok = true
-				break
+		// v0.10.2 R3: backup-age 단독 실행 — DoctorChecks() 이름 공간 밖
+		// 별도 체인의 유일한 서브셋 예외(룰링: 6종·port 마지막 계약 불변,
+		// harness-*·skill-file은 미확장). 실행·출력·--fix·exit 계약은
+		// 기존 서브셋 경로를 그대로 승계한다.
+		if subset != "backup-age" {
+			ok := false
+			for _, n := range names {
+				if n == subset {
+					ok = true
+					break
+				}
 			}
-		}
-		if !ok {
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("doctor: unknown check %q", subset)))
-			return 3
+			if !ok {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("doctor: unknown check %q", subset)))
+				return 3
+			}
 		}
 		names = []string{subset}
 	}
@@ -180,6 +186,11 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 		return checkLastSeen(ctx, st)
 	case "port":
 		return checkPort(ctx)
+	case "backup-age":
+		// v0.10.2 R3 서브셋 특수경로 전용 — 전체 실행은 이름 공간 밖
+		// 별도 체인(subset=="" 블록)에서 직접 append하므로 여기는
+		// --check backup-age 단독 실행에서만 도달한다.
+		return checkBackupAge(ctx, st)
 	}
 	return doctorCheck{Name: name, Status: "fail", Detail: "unknown check"}
 }
