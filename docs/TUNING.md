@@ -135,6 +135,7 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
 |---|---|---|
 | `backupAgeWarn` | `72h` | 자동 백업 24h 주기 기준 3회분 여유 — 백업 2회 연속 실패까지는 경고하지 않고, 3회째 실패(나이 72h 도달)부터 경고 |
 | `suggestMinScore` | `0.15` | 무관 top 제안 관측 차단 — 2026-10-30 스모크에서 "환경설정 초기화 방법" 질의에 "flint v0.9.6 방향"이 top으로 제안되던 사례 기준 |
+| `conflictDupThreshold` | `0.6` | 모순/중복 후보 분기 문턱 — 동일 topic 요약 유사도(bigramDice) 0.6 이상은 기존 중복 후보, 미만은 모순 후보(maintain --conflict-suspects) |
 
 조정 지침:
 

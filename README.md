@@ -151,6 +151,8 @@ The four phases form one session lifecycle:
 `flint read` retries word-by-word (fallback) when the phrase query hits nothing.
 `flint read` suggests near-miss candidates (suggestions) when the query still hits nothing.
 `flint read --status pending` lists knowledge items awaiting approval.
+`flint read` breaks ranking ties by adoption (`read_count` DESC) — popularity only as the final tiebreaker (v0.13.0).
+`flint maintain --conflict-suspects` lists suspected contradicting knowledge (same topic, diverging summaries) (v0.13.0).
 Backup dumps are integrity-checked via a sha256 sidecar — including `flint done` auto-backups (v0.10.0).
 
 Also: `version`, `teardown`. Operations runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md) · tuning: [docs/TUNING.md](docs/TUNING.md)
