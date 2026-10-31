@@ -142,6 +142,12 @@ func hotFullOutput(ctx context.Context, st Store, rows [][]any, now time.Time) s
 		return out
 	}
 	lines := strings.Split(strings.TrimSuffix(out, "\n"), "\n")
+	// 안전 가드: 필드 값에 줄바꿈이 포함되면 FormatRows 한 행이 여러 line으로
+	// 쪼개져 lines[i]↔rows[i] 대응이 어긋난다 — 접미가 잘못된 행에 붙지 않도록
+	// 행 수가 다르면 접미 전체를 생략한다(기존 출력 불변 승계).
+	if len(lines) != len(rows) {
+		return out
+	}
 	k := 0
 	for i, r := range rows {
 		if i >= len(lines) {
