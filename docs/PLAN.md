@@ -407,6 +407,17 @@ flint-plugin/
 - [x] R3 문서 동기화 — README(EN/KO) 배지 v0.12.0·read --status·make build
   1줄, SKILL pending 열람 안내, 마일스톤 기록
 
+### v0.13.0 지능 축 (2026-10-31 기획) — 채택 재랭킹·모순 탐지
+
+- [x] R1 채택 재랭킹 — RankOrder 최종 타이브레이크 read_count DESC
+  (안정 정렬·기존 순서 존중)
+- [x] R2 maintain --conflict-suspects — 동일 topic 요약 유사도 0.6
+  미만 그룹 리스팅(dup-suspects 출력 승계 + 요약 앞 40자)
+- [x] R3 doctor conflicts 검사 — 모순 후보 그룹 1+ warn(안내:
+  maintain --conflict-suspects)·0이면 ok
+- [x] R4 문서·TUNING 기록 — README(EN/KO) 채택 재랭킹·conflict-suspects
+  1줄, TUNING conflictDupThreshold, 마일스톤 기록
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
