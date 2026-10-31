@@ -6,7 +6,6 @@ package cli
 import (
 	"context"
 	"fmt"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -160,10 +159,12 @@ func TestDiffPrefixParameterized(t *testing.T) {
 
 // TestDiffSeamReal — SUPERLITE_REAL=1 실구현 seam: write 2커밋(A·B) 후
 // diff A B로 added ≥ 1·from/to 해시 일치. 해시는 커밋 메시지 세션 태그로
-// 특정해 병행 커밋과 무관하게 결정적. 실DB 미기동 시 스킵.
+// 특정해 병행 커밋과 무관하게 결정적. 실DB 미기동 시 스킵. 실DB는
+// FLINT_TEST_DSN 설정 시만(N1 — 운영 기본 DSN 접속 금지).
 func TestDiffSeamReal(t *testing.T) {
-	if os.Getenv("SUPERLITE_REAL") != "1" {
-		t.Skip("실구현 seam 검증은 SUPERLITE_REAL=1에서만")
+	dsn, ok := seamRealDSN()
+	if !ok {
+		t.Skip("실구현 seam 검증은 SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만")
 	}
 	f := &fakeStore{}
 	withFake(t, f) // stub 미설정 — 전부 실구현 위임
@@ -180,7 +181,7 @@ func TestDiffSeamReal(t *testing.T) {
 	// 스펙으로 지정한다(인시던트 기록 — from/to가 해당 커밋 date 직전
 	// 최신이 되도록 나노초 정밀도 시각 사용).
 	ctx := context.Background()
-	real, err := newRealStore(ctx, dsnFromEnv())
+	real, err := newRealStore(ctx, dsn)
 	if err != nil {
 		t.Skipf("real store unavailable: %v", err)
 	}

@@ -57,16 +57,17 @@ func asofFake(rows [][]any) *fakeStore {
 	return f
 }
 
-// asofStore — 기본 fake, SUPERLITE_REAL=1이면 실구현 위임 store.
+// asofStore — 기본 fake, FLINT_TEST_DSN 설정 + SUPERLITE_REAL=1이면 실구현
+// 위임 store(미설정 시 fake 폴백 — N1 seamRealDSN).
 func asofStore(t *testing.T, f *fakeStore) Store {
 	t.Helper()
-	if os.Getenv("SUPERLITE_REAL") == "1" {
-		real, err := newRealStore(context.Background(), dsnFromEnv())
+	if dsn, real := seamRealDSN(); real {
+		realStore, err := newRealStore(context.Background(), dsn)
 		if err != nil {
 			t.Skipf("real store unavailable: %v", err)
 		}
-		t.Cleanup(real.Close)
-		return &delegatingFake{fake: f, real: real}
+		t.Cleanup(realStore.Close)
+		return &delegatingFake{fake: f, real: realStore}
 	}
 	return f
 }

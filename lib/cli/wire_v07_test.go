@@ -27,19 +27,21 @@ func TestLookupCompactNudge(t *testing.T) {
 	}
 }
 
-// TestNudgeStoreFree — Run("nudge")는 newStore 시임을 호출하지 않는다.
-// nudge 핸들러는 가짜로 등록(T73 커밋 전에도 배선 자체를 검증).
+// TestNudgeStoreFree — Run("nudge")은 store 경유(v0.13.2 N5 갱신):
+// newStore 시임을 호출하고 핸들러에 store가 주입된다(nudgeProfile가
+// exposure_profile을 조회해 minimal 계약 유지). nudge 핸들러는 가짜로
+// 등록(배선 자체를 검증 — 원래 구조 승계).
 func TestNudgeStoreFree(t *testing.T) {
 	called := false
 	orig := newStore
 	newStore = func(ctx context.Context, dsn string) (Store, error) {
 		called = true
-		return nil, nil
+		return &fakeStore{}, nil
 	}
 	t.Cleanup(func() { newStore = orig })
 	Register("nudge", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-		if st != nil {
-			t.Error("nudge에 store가 주입됨 — store-free여야 함")
+		if st == nil {
+			t.Error("nudge에 store가 미주입 — store 경유여야 함(N5)")
 		}
 		return 0
 	})
@@ -48,8 +50,8 @@ func TestNudgeStoreFree(t *testing.T) {
 	if code := Run([]string{"nudge"}, strings.NewReader("{}"), &out); code != 0 {
 		t.Fatalf("Run(nudge) exit=%d out=%s", code, out.String())
 	}
-	if called {
-		t.Error("newStore 호출됨 — nudge는 store-free여야 함")
+	if !called {
+		t.Error("newStore 미호출 — nudge는 store 경유여야 함(N5)")
 	}
 }
 

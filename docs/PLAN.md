@@ -418,6 +418,11 @@ flint-plugin/
 - [x] R4 문서·TUNING 기록 — README(EN/KO) 채택 재랭킹·conflict-suspects
   1줄, TUNING conflictDupThreshold, 마일스톤 기록
 
+### v0.13.2 패치 정합 (2026-11-01 기획) — 심층 리뷰 2차 수정
+
+- [x] 프로세스 룰: 각 릴리스의 마지막 커밋에 README(EN/KO) release 배지
+  갱신 포함(배지 가드는 최신 태그·다음 예정 버전 허용 — 커밋→태그 창 레드 없음)
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 )
@@ -30,18 +29,19 @@ func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, err
 	return d.runs, nil
 }
 
-// withDoneFake — Run 경로 seam. 기본 fake, SUPERLITE_REAL=1이면 stub
-// 미지정 연산을 실구현에 위임(실DB 미기동 시 스킵).
+// withDoneFake — Run 경로 seam. 기본 fake, FLINT_TEST_DSN 설정 +
+// SUPERLITE_REAL=1이면 stub 미지정 연산을 실구현에 위임(실DB 미기동 시
+// 스킵). FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
 func withDoneFake(t *testing.T, d *doneFake) {
 	t.Helper()
 	prev := newStore
-	if os.Getenv("SUPERLITE_REAL") == "1" {
-		real, err := newRealStore(context.Background(), dsnFromEnv())
+	if dsn, real := seamRealDSN(); real {
+		realSt, err := newRealStore(context.Background(), dsn)
 		if err != nil {
 			t.Skipf("real store unavailable: %v", err)
 		}
-		t.Cleanup(real.Close)
-		rs := real.(*realStore)
+		t.Cleanup(realSt.Close)
+		rs := realSt.(*realStore)
 		newStore = func(ctx context.Context, dsn string) (Store, error) {
 			return &delegatingDone{done: d, real: rs}, nil
 		}

@@ -27,6 +27,13 @@ func DoctorChecks() []string {
 	return []string{"hook-file", "db", "schema", "integrity", "last-seen", "port"}
 }
 
+// doctorTailChecks — DoctorChecks() 이름 공간 밖, 전체 실행 체인 말미에
+// 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
+// conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
+func doctorTailChecks() []string {
+	return []string{"backup-age", "conflicts"}
+}
+
 func init() { Register("doctor", runDoctor) }
 
 // doctorCheck — 개별 검사 결과. status = ok|warn|fail.
@@ -76,21 +83,27 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	names := DoctorChecks()
 	if subset != "" {
 		// v0.10.2 R3: backup-age 단독 실행 — DoctorChecks() 이름 공간 밖
-		// 별도 체인의 유일한 서브셋 예외(룰링: 6종·port 마지막 계약 불변,
-		// harness-*·skill-file은 미확장). 실행·출력·--fix·exit 계약은
-		// 기존 서브셋 경로를 그대로 승계한다.
-		if subset != "backup-age" {
-			ok := false
-			for _, n := range names {
-				if n == subset {
-					ok = true
-					break
-				}
+		// 별도 체인의 서브셋 예외(룰링: 6종·port 마지막 계약 불변,
+		// harness-*·skill-file은 미확장). v0.13.2 N7: 예외를 backup-age
+		// 단독에서 tail-chain 전체(doctorTailChecks)로 일반화 — conflicts도
+		// 단독 실행 가능. 실행·출력·--fix·exit 계약은 기존 서브셋 경로를
+		// 그대로 승계한다.
+		ok := false
+		for _, n := range names {
+			if n == subset {
+				ok = true
+				break
 			}
-			if !ok {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("doctor: unknown check %q", subset)))
-				return 3
+		}
+		for _, n := range doctorTailChecks() {
+			if n == subset {
+				ok = true
+				break
 			}
+		}
+		if !ok {
+			fmt.Fprintln(stdout, errLine(fmt.Errorf("doctor: unknown check %q", subset)))
+			return 3
 		}
 		names = []string{subset}
 	}
@@ -194,6 +207,11 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 		// 별도 체인(subset=="" 블록)에서 직접 append하므로 여기는
 		// --check backup-age 단독 실행에서만 도달한다.
 		return checkBackupAge(ctx, st)
+	case "conflicts":
+		// v0.13.2 N7 — backup-age와 같은 tail-chain 서브셋 경로.
+		// 전체 실행은 체인 말리 append 블록이 직접 실행하므로 여기는
+		// --check conflicts 단독 실행에서만 도달한다.
+		return checkConflicts(ctx, st)
 	}
 	return doctorCheck{Name: name, Status: "fail", Detail: "unknown check"}
 }
@@ -299,10 +317,11 @@ var flintBinPathFn = func() string {
 
 // flintHookCmd — hooks.json 명령의 bare `flint`를 binPath 절대경로로
 // 치환한 훅 명령 1개. 2>/dev/null || true — 훅 실패가 세션을 흔들지
-// 않게 한다(원본 flint-plugin/hooks/hooks.json 승계).
+// 않게 한다(원본 flint-plugin/hooks/hooks.json 승계). timeout 10은
+// v0.13.2 N6 — DB 지연 시 2초 안에 주입이 통째로 소실되던 것을 흡수.
 func flintHookCmd(binPath, sub string) map[string]any {
 	cmd := binPath + " " + sub + " 2>/dev/null || true"
-	return map[string]any{"type": "command", "command": cmd, "timeout": 2}
+	return map[string]any{"type": "command", "command": cmd, "timeout": 10}
 }
 
 // flintHookDefs — flint 훅 3개(v0.11.0 R4 통합: 이벤트 → 추가 엔트리
@@ -736,14 +755,20 @@ func checkBackupAge(ctx context.Context, st Store) doctorCheck {
 	return c
 }
 
+// doctorConflictLimit — doctor conflicts 조회 상한(v0.13.2 N8).
+// maintain 기본(10)보다 넉넉히 — 상위 10그룹만 세면 초과 모순이
+// 미보고로 누락된다. 여전히 상한이 있어 무제한 스캔은 없다(F7/F9 승계).
+const doctorConflictLimit = 50
+
 // checkConflicts — 모순 후보 그룹 수 판정(v0.13.0 R3). active 동일
 // topic 2건+ 그룹(maintain --conflict-suspects와 같은 GROUP BY 조건)을
 // 요약 유사도로 분류해(isConflictGroup — T2와 같은 기준) 모순 후보만
 // 세어 1+면 warn, 0이면 ok. 순수 중복 그룹(유사 요약)은 세지 않는다 —
 // T2 출력과 동치여야 안내받은 --conflict-suspects가 결과를 보장한다.
 // 조회는 maintain와 같은 ConflictStore seam(ConflictGroups)으로만 —
-// GROUP BY SQL을 여기 다시 쓰지 않고 상한도 maintain 기본
-// (suspectsDefaultLimit)과 같아 무제한 스캔이 없다(v0.13.1 F7/F9).
+// GROUP BY SQL을 여기 다시 쓰지 않는다(v0.13.1 F7/F9). 상한은 doctor
+// 전용 doctorConflictLimit(50, N8) — 결과가 상한에 도달하면 detail에
+// 초과 가능을 밝혀 미보고로 오인하지 않게 한다.
 // seam 미지원·조회 실패·st nil도 warn — fail 아니다(모순 의심은
 // 동작을 막지 않는다).
 func checkConflicts(ctx context.Context, st Store) doctorCheck {
@@ -754,7 +779,7 @@ func checkConflicts(ctx context.Context, st Store) doctorCheck {
 		c.Detail = "모순 후보 조회 불가 — maintain --conflict-suspects 확인"
 		return c
 	}
-	groups, err := cs.ConflictGroups(ctx, suspectsDefaultLimit)
+	groups, err := cs.ConflictGroups(ctx, doctorConflictLimit)
 	if err != nil {
 		c.Status = "warn"
 		c.Detail = "모순 후보 조회 실패: " + err.Error() + " — maintain --conflict-suspects 확인"
@@ -769,6 +794,9 @@ func checkConflicts(ctx context.Context, st Store) doctorCheck {
 	if n > 0 {
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("모순 후보 %d그룹 — maintain --conflict-suspects", n)
+		if len(groups) >= doctorConflictLimit {
+			c.Detail += fmt.Sprintf(" · 그룹 조회 상한 %d 도달 — 상한 초과 가능", doctorConflictLimit)
+		}
 		return c
 	}
 	c.Status = "ok"

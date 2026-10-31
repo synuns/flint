@@ -70,18 +70,34 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return f.rows, nil
 }
 
-// withFake — newStore seam 교체. 기본 fake, SUPERLITE_REAL=1이면 실구현 위임
-// fake(미설정 stub만 위임). 실DB 미기동 시 스킵.
+// seamRealDSN — SUPERLITE_REAL=1 실구현 seam의 DSN 해결(N1): FLINT_TEST_DSN
+// 설정 시만 실DB 접속을 허용한다. 미설정이면 dsnFromEnv 기본값(운영
+// 5434/flint)으로 폴백하지 않고 ("", false) — 호출원 seam은 fake 경로로
+// 내려가 운영 지표 오염을 원천 차단한다.
+func seamRealDSN() (string, bool) {
+	if os.Getenv("SUPERLITE_REAL") != "1" {
+		return "", false
+	}
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	if dsn == "" {
+		return "", false
+	}
+	return dsn, true
+}
+
+// withFake — newStore seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +
+// SUPERLITE_REAL=1이면 실구현 위임 fake(미설정 stub만 위임). 실DB 미기동 시
+// 스킵. FLINT_TEST_DSN 미설정 시에는 실구현으로 폴백하지 않는다(N1).
 func withFake(t *testing.T, f *fakeStore) {
 	t.Helper()
 	prev := newStore
-	if os.Getenv("SUPERLITE_REAL") == "1" {
-		real, err := newRealStore(context.Background(), dsnFromEnv())
+	if dsn, real := seamRealDSN(); real {
+		realStore, err := newRealStore(context.Background(), dsn)
 		if err != nil {
 			t.Skipf("real store unavailable: %v", err)
 		}
-		t.Cleanup(func() { real.Close() })
-		delegate := real
+		t.Cleanup(func() { realStore.Close() })
+		delegate := realStore
 		newStore = func(ctx context.Context, dsn string) (Store, error) {
 			return &delegatingFake{fake: f, real: delegate}, nil
 		}

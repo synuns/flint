@@ -62,8 +62,8 @@ func TestHooksJSONValid(t *testing.T) {
 	if !strings.Contains(cmd, "flint session-start --session") {
 		t.Errorf("SessionStart 커맨드에 'flint session-start --session' 없음: %q", cmd)
 	}
-	if got := start["timeout"]; got != float64(2) {
-		t.Errorf("SessionStart timeout = %v, want 2", got)
+	if got := start["timeout"]; got != float64(10) {
+		t.Errorf("SessionStart timeout = %v, want 10", got)
 	}
 	if !strings.Contains(cmd, "|| true") {
 		t.Errorf("SessionStart 비차단 보장('|| true') 없음: %q", cmd)
@@ -74,8 +74,8 @@ func TestHooksJSONValid(t *testing.T) {
 	if !strings.Contains(stopCmd, "flint session-end --session") {
 		t.Errorf("Stop 커맨드에 'flint session-end --session' 없음: %q", stopCmd)
 	}
-	if got := stop["timeout"]; got != float64(2) {
-		t.Errorf("Stop timeout = %v, want 2", got)
+	if got := stop["timeout"]; got != float64(10) {
+		t.Errorf("Stop timeout = %v, want 10", got)
 	}
 	// Stop 훅은 세션 종료를 막지 않아야 한다(비차단 원칙 §13).
 	if !strings.Contains(stopCmd, "|| true") {
