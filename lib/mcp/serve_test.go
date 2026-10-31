@@ -92,7 +92,7 @@ func TestRunMCPServerProtocolOrder(t *testing.T) {
 			t.Errorf("lines[%d]에 result 없음: %v", i, lines[i])
 		}
 	}
-	wantArgs(t, calls, []string{"read", "포트", "--limit", "3"})
+	wantArgs(t, calls, []string{"read", "--limit", "3", "--", "포트"})
 	callRes := lines[2]["result"].(map[string]any)
 	content, _ := callRes["content"].([]any)
 	if len(content) != 1 {

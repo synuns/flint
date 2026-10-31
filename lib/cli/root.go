@@ -59,11 +59,12 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
-	// version·setup·teardown·mcp·nudge는 store-free — DB 미기동에도 즉시 응답
+	// version·setup·teardown·mcp는 store-free — DB 미기동에도 즉시 응답
 	// (§13, T33 룰링 · T40 확장: DB 다운이 setup의 주 시나리오 · T57: mcp는
-	// 도구 호출이 cli.Run으로 각자 store를 연결한다 · T74: nudge는 훅
-	// 커맨드라 비간섭 원칙상 store 없이도 조용히 완결).
-	if cmd == "version" || cmd == "setup" || cmd == "teardown" || cmd == "mcp" || cmd == "nudge" {
+	// 도구 호출이 cli.Run으로 각자 store를 연결한다). nudge는 v0.13.2 N5부터
+	// store 경유 — nudgeProfile가 exposure_profile을 조회해 minimal 계약을
+	// 지킨다(구형 store-free 시 minimal 자동 종결 불가).
+	if cmd == "version" || cmd == "setup" || cmd == "teardown" || cmd == "mcp" {
 		return run(ctx, nil, rest, stdin, stdout)
 	}
 	st, err := newStore(ctx, dsnFromEnv())
@@ -72,6 +73,11 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		// st nil로 실행하면 runCompact가 무동작 0을 반환한다.
 		if cmd == "compact" {
 			return run(ctx, nil, rest, stdin, stdout)
+		}
+		// nudge도 훅 진입 커맨드(N5) — 에러 JSON을 stdout에 흘리지 않고
+		// 조용히 MapExit 코드로만 종료한다(서버 다운=2, 훅 quiet 계약).
+		if cmd == "nudge" {
+			return store.MapExit(err)
 		}
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)

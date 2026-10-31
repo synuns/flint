@@ -26,14 +26,16 @@ type fakeBackup struct {
 	gotRestore string
 }
 
-// withBackupFake — dumpFn·restoreFn seam 교체. 기본 fake,
-// SUPERLITE_REAL=1이면 stub 미설정 연산을 실Dump/Restore에 위임(실DB 미기동 시 스킵).
+// withBackupFake — dumpFn·restoreFn seam 교체. 기본 fake, FLINT_TEST_DSN 설정
+// + SUPERLITE_REAL=1이면 stub 미설정 연산을 실Dump/Restore에 위임(위임 DSN도
+// FLINT_TEST_DSN — 생산 코드가 넘긴 dsnFromEnv 결과에 우선). 실DB 미기동 시
+// 스킵. FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
 func withBackupFake(t *testing.T, f *fakeBackup) {
 	t.Helper()
 	prevDump, prevRestore := dumpFn, restoreFn
-	real := os.Getenv("SUPERLITE_REAL") == "1"
+	seamDSN, real := seamRealDSN()
 	if real {
-		pool, err := db.Connect(context.Background(), dsnFromEnv())
+		pool, err := db.Connect(context.Background(), seamDSN)
 		if err != nil {
 			t.Skipf("real backup unavailable: %v", err)
 		}
@@ -47,7 +49,7 @@ func withBackupFake(t *testing.T, f *fakeBackup) {
 			_, err := io.WriteString(w, f.dumpText)
 			return err
 		}
-		return backup.Dump(ctx, dsn, w)
+		return backup.Dump(ctx, seamDSN, w)
 	}
 	restoreFn = func(ctx context.Context, dsn string, r io.Reader) error {
 		data, err := io.ReadAll(r)
@@ -61,7 +63,7 @@ func withBackupFake(t *testing.T, f *fakeBackup) {
 		if !real {
 			return nil
 		}
-		return backup.Restore(ctx, dsn, strings.NewReader(string(data)))
+		return backup.Restore(ctx, seamDSN, strings.NewReader(string(data)))
 	}
 	t.Cleanup(func() { dumpFn, restoreFn = prevDump, prevRestore })
 }
@@ -230,13 +232,15 @@ func TestRestoreErrorExit1(t *testing.T) {
 	decode(t, out)
 }
 
-// 실 Doltgres 왕복 — 덤프→전체 삭제→복구로 행 보존 검증(SUPERLITE_REAL=1에서만).
+// 실 Doltgres 왕복 — 덤프→전체 삭제→복구로 행 보존 검증(SUPERLITE_REAL=1 +
+// FLINT_TEST_DSN 설정 시만 — N1, 전체 삭제를 하므로 운영 기본 DSN 금지).
 func TestBackupRestoreRealRoundtrip(t *testing.T) {
-	if os.Getenv("SUPERLITE_REAL") != "1" {
-		t.Skip("SUPERLITE_REAL=1 required")
+	dsn, ok := seamRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
 	ctx := context.Background()
-	pool, err := db.Connect(ctx, dsnFromEnv())
+	pool, err := db.Connect(ctx, dsn)
 	if err != nil {
 		t.Skipf("doltgres unavailable: %v", err)
 	}
@@ -256,13 +260,13 @@ func TestBackupRestoreRealRoundtrip(t *testing.T) {
 	}
 
 	var dump bytes.Buffer
-	if err := backup.Dump(ctx, dsnFromEnv(), &dump); err != nil {
+	if err := backup.Dump(ctx, dsn, &dump); err != nil {
 		t.Fatalf("dump: %v", err)
 	}
 	if _, err := pool.Exec(ctx, `DELETE FROM knowledge`); err != nil {
 		t.Fatalf("wipe: %v", err)
 	}
-	if err := backup.Restore(ctx, dsnFromEnv(), &dump); err != nil {
+	if err := backup.Restore(ctx, dsn, &dump); err != nil {
 		t.Fatalf("restore: %v", err)
 	}
 

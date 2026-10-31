@@ -159,8 +159,15 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 	return out
 }
 
-// BuildSuggestScan — 제안용 active_knowledge 전체 스캔 SQL. 필터·상한
-// 없음(제안은 필터 무관 전체 active 대상 — 스펙 §3 R1).
+// suggestScanCap — 제안 스캔 행 상한(N13). 스펙 §3 R1의 '스캔 상한 없음'을
+// 정정한다: 개인 지식관리 규모(수천 행)는 전부 수용하면서, 대량 유입 등
+// 이상 규모에서 무상한 스캔이 제로히트 경로를 지연시키는 것을 방어한다.
+// 상한은 정렬 없는 방어선이다 — 제안은 상위 topN 재랭킹이므로 어느 5000행이
+// 걸리든 근접 후보 제공이라는 목적은 유지된다.
+const suggestScanCap = 5000
+
+// BuildSuggestScan — 제안용 active_knowledge 스캔 SQL. 필터 없음(제안은
+// 필터 무관 전체 active 대상 — 스펙 §3 R1), 상한은 suggestScanCap.
 func BuildSuggestScan() (string, []any) {
-	return "SELECT id, topic, summary FROM active_knowledge", nil
+	return "SELECT id, topic, summary FROM active_knowledge LIMIT " + strconv.Itoa(suggestScanCap), nil
 }

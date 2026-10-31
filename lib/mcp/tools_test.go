@@ -97,7 +97,7 @@ func TestDispatchReadRoundtrip(t *testing.T) {
 	out, code := DispatchTool("flint_read", map[string]any{
 		"query": "인코딩 테스트", "tag": "go", "limit": 3,
 	})
-	wantArgs(t, calls, []string{"read", "인코딩 테스트", "--tag", "go", "--limit", "3"})
+	wantArgs(t, calls, []string{"read", "--tag", "go", "--limit", "3", "--", "인코딩 테스트"})
 	if code != 0 {
 		t.Errorf("code = %d, want 0", code)
 	}
@@ -224,14 +224,29 @@ func (f *fakeSimpleStore) Query(_ context.Context, sql string, args ...any) ([][
 
 func (f *fakeSimpleStore) Close() { f.closed = true }
 
+// seamRealDSN — 실구현 seam의 DSN 해결(N11): FLINT_TEST_DSN 설정 시만
+// 실DB 접속을 허용한다. 미설정이면 운영 기본 DSN으로 폴백하지 않고
+// ("", false) — 호출원은 fake 경로로 내려간다.
+func seamRealDSN() (string, bool) {
+	if os.Getenv("SUPERLITE_REAL") != "1" {
+		return "", false
+	}
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	if dsn == "" {
+		return "", false
+	}
+	return dsn, true
+}
+
 // installSimple — connectSimple 교체. 기본 fake(DSN·쿼리 기록),
-// SUPERLITE_REAL=1이면 실구현에 DSN만 위임 기록(실DB 미기동 시 스킵).
+// FLINT_TEST_DSN 설정 + SUPERLITE_REAL=1이면 실구현에 DSN만 위임 기록
+// (실DB 미기동 시 스킵). FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N11).
 func installSimple(t *testing.T, rows [][]any) (*fakeSimpleStore, bool) {
 	t.Helper()
 	fake := &fakeSimpleStore{rows: rows}
-	real := os.Getenv("SUPERLITE_REAL") == "1"
+	dsn, real := seamRealDSN()
 	if real {
-		pool, err := db.Connect(context.Background(), os.Getenv("FLINT_DSN"))
+		pool, err := db.Connect(context.Background(), dsn)
 		if err != nil {
 			t.Skipf("real db unavailable: %v", err)
 		}
@@ -251,12 +266,11 @@ func installSimple(t *testing.T, rows [][]any) (*fakeSimpleStore, bool) {
 
 // TestSimpleStoreQuery — NewSimpleStore는 DSN에 simple protocol 파라미터를
 // 붙이고(장수 세션 뷰 describe 캐시 우회), placeholder 인자($1)가 그대로 전달된다.
+// 실DB는 FLINT_TEST_DSN 설정 시만 — 미설정 시 스킵(운영 기본 접속 금지, N11).
 func TestSimpleStoreQuery(t *testing.T) {
-	dsn := "postgresql://flint:flint-dev@localhost:5434/flint"
-	if real := os.Getenv("SUPERLITE_REAL") == "1"; real {
-		if d := os.Getenv("FLINT_DSN"); d != "" {
-			dsn = d
-		}
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	if dsn == "" {
+		t.Skip("FLINT_TEST_DSN 미설정 — 운영 기본 DSN 접속 금지(N11)")
 	}
 	fake, real := installSimple(t, [][]any{{1}})
 	st, err := NewSimpleStore(dsn)

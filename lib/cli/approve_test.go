@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"errors"
-	"os"
 	"strings"
 	"testing"
 
@@ -19,14 +18,15 @@ type fakeApprove struct {
 	calledN int
 }
 
-// withApproveFake — approveFn seam 교체. 기본 fake,
-// SUPERLITE_REAL=1이면 stub 미설정 시 실구현 위임.
+// withApproveFake — approveFn seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +
+// SUPERLITE_REAL=1이면 stub 미설정 시 실구현 위임(위임 DSN도 FLINT_TEST_DSN).
+// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
 func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Helper()
 	prev := approveFn
-	real := os.Getenv("SUPERLITE_REAL") == "1"
+	dsn, real := seamRealDSN()
 	if real {
-		repo, err := db.NewRepo(context.Background(), dsnFromEnv())
+		repo, err := db.NewRepo(context.Background(), dsn)
 		if err != nil {
 			t.Skipf("real db unavailable: %v", err)
 		}
@@ -41,7 +41,7 @@ func withApproveFake(t *testing.T, f *fakeApprove) {
 		if !real {
 			return nil
 		}
-		repo, err := db.NewRepo(ctx, dsnFromEnv())
+		repo, err := db.NewRepo(ctx, dsn)
 		if err != nil {
 			return err
 		}

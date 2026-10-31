@@ -53,4 +53,6 @@ jobs:
       - name: 릴리스 안내
         run: |
           echo "태그 감지: ${GITHUB_REF#refs/tags/}"
-          echo "릴리스 절차(사용자 확인 후): git tag vX.Y.Z && git push origin vX.Y.Z -> goreleaser 빌드(darwin arm64/amd64) -> Release 첨부"
+          # 다음 릴리스 안내는 현재 태그 +패치로 계산(기존 태그 재지시 방지, v0.13.2 N12)
+          next=$(echo "${GITHUB_REF#refs/tags/}" | awk -F. '{print $1"."$2"."($3+1)}')
+          echo "릴리스 절차(사용자 확인 후): git tag v$next && git push origin v$next -> goreleaser 빌드(darwin arm64/amd64) -> Release 첨부"
