@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.10.0-blue" alt="v0.10.0">
+  <img src="https://img.shields.io/badge/release-v0.12.0-blue" alt="v0.12.0">
 </p>
 
 <p align="center">
@@ -66,6 +66,7 @@ Most AI agents start every session with a blank slate.
 # 1. Install — single Go binary, pgx/v5 only
 git clone https://github.com/synuns/flint.git flint && cd flint
 make install          # builds bin/flint
+make build            # production build; version derived from the latest git tag
 
 # 2. One-command setup — Doltgres up + migrate + guides
 ./bin/flint setup
@@ -149,6 +150,7 @@ The four phases form one session lifecycle:
 
 `flint read` retries word-by-word (fallback) when the phrase query hits nothing.
 `flint read` suggests near-miss candidates (suggestions) when the query still hits nothing.
+`flint read --status pending` lists knowledge items awaiting approval.
 Backup dumps are integrity-checked via a sha256 sidecar — including `flint done` auto-backups (v0.10.0).
 
 Also: `version`, `teardown`. Operations runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md) · tuning: [docs/TUNING.md](docs/TUNING.md)

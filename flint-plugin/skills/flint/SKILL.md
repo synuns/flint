@@ -53,7 +53,7 @@ PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은
   (confidence<0.8 → pending · 소스 미지정 시 manual 취급)
 - `flint hot` — 활성 프로젝트+pending+최근 결정 7일 (2,000자 상한),
   전체 펼침은 `flint hot --full`
-  (pending — 대기 승격 대상 조회)
+  (pending 열람 — `flint read --status pending`, --as-of 병용 시 as-of 우선)
 - `flint setup --exposure normal|minimal` — 노출 프로파일 지정
   (기본 normal · minimal은 주입 요약화·nudge 자동 종결)
 - `flint maintain --supersede OLD --by NEW` — 구 항목 무효화+선행 관계 기록
