@@ -59,8 +59,8 @@ func TestHooksJSONValid(t *testing.T) {
 
 	start := hookCommands(t, doc, "SessionStart")[0]
 	cmd, _ := start["command"].(string)
-	if !strings.Contains(cmd, "flint hot --session") {
-		t.Errorf("SessionStart 커맨드에 'flint hot --session' 없음: %q", cmd)
+	if !strings.Contains(cmd, "flint session-start --session") {
+		t.Errorf("SessionStart 커맨드에 'flint session-start --session' 없음: %q", cmd)
 	}
 	if got := start["timeout"]; got != float64(2) {
 		t.Errorf("SessionStart timeout = %v, want 2", got)
@@ -71,8 +71,8 @@ func TestHooksJSONValid(t *testing.T) {
 
 	stop := hookCommands(t, doc, "Stop")[0]
 	stopCmd, _ := stop["command"].(string)
-	if !strings.Contains(stopCmd, "flint done --session") {
-		t.Errorf("Stop 커맨드에 'flint done --session' 없음: %q", stopCmd)
+	if !strings.Contains(stopCmd, "flint session-end --session") {
+		t.Errorf("Stop 커맨드에 'flint session-end --session' 없음: %q", stopCmd)
 	}
 	if got := stop["timeout"]; got != float64(2) {
 		t.Errorf("Stop timeout = %v, want 2", got)
