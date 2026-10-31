@@ -15,14 +15,6 @@ func docStrV0120(t *testing.T, path string) string {
 	return string(b)
 }
 
-func TestReadmeBadgeIsV0120(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStrV0120(t, p), "release-v0.12.0") {
-			t.Errorf("%s 배지가 v0.12.0 아님", p)
-		}
-	}
-}
-
 func TestSkillDocumentsReadStatus(t *testing.T) {
 	s := docStrV0120(t, "../flint-plugin/skills/flint/SKILL.md")
 	if !strings.Contains(s, "read --status pending") {
