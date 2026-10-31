@@ -7,6 +7,9 @@ FLINT_TEST_DSN ?= postgresql://flint:flint-dev@localhost:5434/flint_test
 # 버전 주입(T33): 기본 dev, 릴리스는 make build VERSION=0.3.0
 # v0.12.0 R2: 최근 git 태그에서 파생, 태그 부재 클론은 dev 폴백.
 VERSION ?= $(shell git describe --tags --abbrev=0 2>/dev/null || echo dev)
+# VERSION_NU — 태그명의 v 접두 제거(release 타깃 안내용. 파생값 v0.9.2 →
+# 0.9.2; dev처럼 v 없는 값은 불변).
+VERSION_NU := $(patsubst v%,%,$(VERSION))
 GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 LDFLAGS := -X flint/lib/cli.version=$(VERSION) -X flint/lib/cli.commit=$(GIT_COMMIT)
 
@@ -51,5 +54,5 @@ e2e:
 
 # 릴리스(T33): 빌드 후 태그 push 안내만 — 실제 태그·push는 사용자 확인 후 수행.
 release: build
-	@echo "릴리스 절차(사용자 확인 후): git tag v$(VERSION) && git push origin v$(VERSION) -> Actions 빌드 -> Release 첨부"
+	@echo "릴리스 절차(사용자 확인 후): git tag v$(VERSION_NU) && git push origin v$(VERSION_NU) -> Actions 빌드 -> Release 첨부"
 	@echo "현재 빌드: $$(./bin/flint version)"
