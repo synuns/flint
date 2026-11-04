@@ -28,14 +28,6 @@ func TestTuningRecordsWindowed(t *testing.T) {
 	}
 }
 
-func TestBadgeIsV0150(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStrV0150(t, p), "release-v0.15.0") {
-			t.Errorf("%s 배지 v0.15.0 미갱신", p)
-		}
-	}
-}
-
 func TestReadmeExitTable(t *testing.T) {
 	cases := []struct{ path, expr string }{
 		{"../README.md", "invalid `read` arguments"},

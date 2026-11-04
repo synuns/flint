@@ -371,7 +371,16 @@ func TestReadEscapesLikeWildcards(t *testing.T) {
 	assertRead("100%", "e2e-esc-k1", 1)       // % 리터럴: 100x(k2) 오탐 차단
 	assertRead("snake_case", "e2e-esc-k3", 1) // _ 리터럴: snakexcase(k4) 오탐 차단
 	assertRead("o'brien", "e2e-esc-k5", 1)    // 작은따옴표 파라미터 전달
-	assertRead(`%' OR '1'='1`, "", 0)         // 주입 시도: 오류 없이 빈 결과
+	// v0.15.1 R1: 주입 시도 — 이스케이프 정상 작동으로 제로히트.
+	// v0.14.0 침묵 계약: exit 1·출력 완전 무(에러 JSON 부재=오류 없음,
+	// 0건=인젝션 무효 — 기존 의도 승계).
+	outInj, codeInj := runCLI(t, []string{"read", `%' OR '1'='1`}, "")
+	if codeInj != 1 {
+		t.Fatalf("주입 시도 exit=%d, want 1; out=%s", codeInj, outInj)
+	}
+	if outInj != "" {
+		t.Fatalf("주입 시도 출력 있음(침묵 계약 위반): %q", outInj)
+	}
 }
 
 // --- v0.2 섹션: approve·maintain·done·백업 자동(T24) ---
