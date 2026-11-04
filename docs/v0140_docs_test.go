@@ -28,13 +28,7 @@ func TestTuningRecordsZeroNear(t *testing.T) {
 	}
 }
 
-func TestBadgeIsV0140(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStrV0140(t, p), "release-v0.14.0") {
-			t.Errorf("%s 배지 v0.14.0 미갱신", p)
-		}
-	}
-}
+// TestBadgeIsV0140 — v0.15.0 배지 전환으로 삭제(코디네이터 룰링, 선례 승계).
 
 func TestReadmeSilenceContract(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
