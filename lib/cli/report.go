@@ -42,6 +42,10 @@ type reportDay struct {
 	DupMcp    int    `json:"dup_mcp"`
 	Hot       int    `json:"hot"`
 	Read      int    `json:"read"`
+	// v0.15.0 R2 zero 지표 기간화 — 일별 zero·근접 카운트(미기록 일은
+	// zero 값으로 디코딩, 구버전 daily JSON 호환).
+	ReadZero int `json:"read_zero"`
+	ReadNear int `json:"read_zero_near"`
 }
 
 // reportOutput — 한 줄 JSON 출력. 창 밖 날짜·부재 키·파손 키는 0행으로 채운다.
@@ -178,6 +182,11 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 		window[d] = len(out.Days)
 		out.Days = append(out.Days, reportDay{Date: d})
 	}
+	// v0.15.0 R2 zero 지표 기간화 — 파싱된 daily 행 전체의 read·zero 합산으로
+	// zero_pct·zero_near_pct 산출(누적 read_stats 의존 제거). 합산은 조회된
+	// 행 전체 기준(보존 한도 14일·PruneDaily가 창 상한을 담보), 창 밖 행도
+	// days 배열 배제와 무관하게 합산에 포함된다(버림 정수%, 제로 분모 0).
+	var sumRead, sumZero, sumNear int
 	for _, r := range rows {
 		if len(r) < 2 {
 			continue
@@ -186,21 +195,28 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 		if _, err := fmt.Sscanf(fmt.Sprint(r[0]), "daily:%s", &key); err != nil {
 			continue
 		}
-		idx, ok := window[key]
-		if !ok {
-			continue // 창 밖(초과 보존분 등)
-		}
 		var d reportDay
 		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &d) != nil {
-			continue // 파손 → 0 유지
+			continue // 파손 → 0 유지(합산에서도 제외)
+		}
+		sumRead += d.Read
+		sumZero += d.ReadZero
+		sumNear += d.ReadNear
+		idx, ok := window[key]
+		if !ok {
+			continue // 창 밖(초과 보존분 등) — days 배열에는 배제
 		}
 		d.Date = out.Days[idx].Date
 		out.Days[idx] = d
 	}
+	out.ZeroPct = readZeroPct(sumRead, sumZero)
+	out.ZeroNearPct = readZeroPct(sumRead, sumNear)
 	return nil
 }
 
-// collectStats — meta read_stats(zero_pct)·hot_stats(p95). 부재·파손은 0.
+// collectStats — meta hot_stats(p95)·read_stats(fallback_pct 분모 calls.
+// v0.15.0 R2 — zero_pct·zero_near_pct는 누적 read_stats가 아니라 daily
+// 합산(collectDaily)에서 산출한다). 부재·파손은 0.
 func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 	rows, err := queryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('read_stats','hot_stats')`, nil)
@@ -214,16 +230,11 @@ func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 		switch fmt.Sprint(r[0]) {
 		case "read_stats":
 			var rs struct {
-				Calls    int `json:"calls"`
-				Zero     int `json:"zero"`
-				ZeroNear int `json:"zero_near"`
+				Calls int `json:"calls"`
 			}
 			if json.Unmarshal([]byte(fmt.Sprint(r[1])), &rs) != nil {
 				continue
 			}
-			out.ZeroPct = readZeroPct(rs.Calls, rs.Zero)
-			// v0.14.0 R3 — zero_near*100/calls 버림(제로 분모 0, readZeroPct 가드 승계).
-			out.ZeroNearPct = readZeroPct(rs.Calls, rs.ZeroNear)
 			out.readCalls = rs.Calls
 		case "hot_stats":
 			var hs struct {
