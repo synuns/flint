@@ -7,6 +7,7 @@ package mcp
 import (
 	"encoding/json"
 	"io"
+	"strings"
 
 	"flint/lib/cli"
 )
@@ -68,7 +69,10 @@ func handleRPC(method string, params map[string]any) (any, error) {
 		out, code := DispatchTool(name, args)
 		return map[string]any{
 			"content": []map[string]any{{"type": "text", "text": out}},
-			"isError": code != 0,
+			// 빈 출력의 exit 1은 제로히트 침묵 계약(v0.14.0 R1)의 정상
+			// 결과다. 모든 flint 오류는 errLine 한 줄을 출력하므로 출력이
+			// 있는 exit 1만 isError로 전파한다.
+			"isError": code != 0 && strings.TrimSpace(out) != "",
 		}, nil
 	default:
 		return nil, ErrUnknownMethod

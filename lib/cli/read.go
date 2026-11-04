@@ -214,7 +214,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 정합성을 깨므로 생략. --status는 상태 필터 자체가 재시도 대상이
 	// 아니라 폴백·제안 미발동(룰링). 폴백 시도는 meta read_fallback_calls에
 	// 1회 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
-	if len(rows) == 0 && asOfSpec == "" && f.Status == "" {
+	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
 		if fsql, fargs, ok := query.BuildReadFallback(q, f); ok {
 			bumpReadFallbackToMeta(ctx, st)
 			if frows, ferr := queryOnce(ctx, st, fsql, fargs); ferr == nil && len(frows) > 0 {
@@ -228,7 +228,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 제안 스캔을 출력 없이 승계 — 결과는 에이전트에게 보이지 않는 내부 분류
 	// (zero_near 계측)에만 쓰인다. 스캔 실패·후보 0건은 조용히(§13).
 	var suggestions []query.Suggestion
-	if len(rows) == 0 && asOfSpec == "" && f.Status == "" {
+	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
 		ssql, sargs := query.BuildSuggestScan()
 		if srows, serr := queryOnce(ctx, st, ssql, sargs); serr == nil {
 			suggestions = query.SuggestSimilar(q, srows, 3)
@@ -264,10 +264,17 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	}
 	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
 	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.
-	if len(rows) == 0 && asOfSpec == "" && f.Status == "" {
+	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
 		return 1
 	}
 	return 0
+}
+
+// readSuggestEligible — 폴백 게이트·제안 스캔 게이트·침묵 exit 판정이
+// 공유하는 eligible 조건(3지점 복붙 통일): 현재 시점(--as-of 미지정)·
+// 무상태필터(--status 미지정) 제로히트일 때만 참. 동작 불변.
+func readSuggestEligible(rows int, asOfSpec, status string) bool {
+	return rows == 0 && asOfSpec == "" && status == ""
 }
 
 // bumpReadFallbackToMeta — 폴백 시도 1회 증분(v0.9.6). 기존 계측 패턴
@@ -288,24 +295,11 @@ func bumpReadFallbackToMeta(ctx context.Context, st Store) {
 }
 
 // bumpZeroNearToMeta — zero_near 계측 wiring(v0.14.0 R2): bumpReadStatsToMeta
-// 패턴 승계 — getKV/setKV 클로저로 BumpZeroNear을 호출한다. 실패는 stderr
+// 패턴 승계 — metaKV 클로저로 BumpZeroNear을 호출한다. 실패는 stderr
 // 1행 이하로 조용히 무시(비간섭 §13).
 func bumpZeroNearToMeta(ctx context.Context, st Store) {
-	err := BumpZeroNear(
-		func(key string) (string, error) {
-			rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
-			if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
-				return "", err
-			}
-			return fmt.Sprint(rows[0][0]), nil
-		},
-		func(key, value string) error {
-			_, err := queryOnce(ctx, st,
-				`INSERT INTO meta (key, value) VALUES ($1, $2)
-				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{key, value})
-			return err
-		})
-	if err != nil {
+	getKV, setKV := metaKV(ctx, st)
+	if err := BumpZeroNear(getKV, setKV); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] zero near persist: %v\n", err)
 	}
 }
