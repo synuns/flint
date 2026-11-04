@@ -9,14 +9,18 @@ on:
     # release 잡 실행을 위해 태그 트리거 명시 필요.
     tags: ["v*"]
   pull_request:
+  # v0.16.1: 수동 발동(태그 push 없이 release 잡 디버깅·검증용).
+  workflow_dispatch:
 
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     services:
       # ADR-0010: 호스트 5434 -> 컨테이너 5432 (docker-compose.yml과 동일 설정)
+      # v0.16.1: latest 부유 digest 고정 — v0.15.2 이후 실증 빌드. 갱신 시 e2e 재검증 필요.
       doltgres:
-        image: dolthub/doltgresql:latest
+        image: dolthub/doltgresql@sha256:3a119bb6726a0be283cfda2a73fa9fbdff58df06c0b850f245cd1828f57281a6
         ports:
           - 5434:5432
         env:
@@ -46,10 +50,15 @@ jobs:
       - name: flint_test 데이터베이스 생성 (서비스는 flint만 생성 — make ci의 FLINT_TEST_DSN 기본값 대상)
         run: |
           PSQL="psql postgresql://flint:flint-dev@localhost:5434/flint"
+          ready=0
           for i in $(seq 1 15); do
-            $PSQL -c "SELECT 1" >/dev/null 2>&1 && break
+            if $PSQL -c "SELECT 1" >/dev/null 2>&1; then ready=1; break; fi
             sleep 2
           done
+          # v0.16.1: 준비 실패 시 무조건 진행 → CREATE가 서버 미기동 오류로 실패. 15회 소진 시 즉시 중단.
+          if [ "$ready" -ne 1 ]; then
+            echo "psql 30s 내 준비 안 됨 — CI 중단"; exit 1
+          fi
           $PSQL -c "CREATE DATABASE flint_test" 2>/dev/null || echo "flint_test 이미 존재 — 계속"
       - name: YAML 검증 + 단위 테스트
         run: make ci GO_TEST_FLAGS="-p 1"
@@ -60,7 +69,9 @@ jobs:
   # 실 태그 push는 사용자 확인 후 수행(비간섭 원칙 유지).
   release:
     if: startsWith(github.ref, 'refs/tags/v')
+    needs: test
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     permissions:
       contents: write
     steps:
@@ -73,7 +84,8 @@ jobs:
       - uses: goreleaser/goreleaser-action@v6
         with:
           args: release --clean
-          version: latest
+          # v0.16.1: latest 부유 → 고정(로컬 실증 버전과 동일 계열). 상향 시 snapshot 재실증 필요.
+          version: v2.19.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: 릴리스 링크

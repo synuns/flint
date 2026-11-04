@@ -476,6 +476,20 @@ flint-plugin/
 - 원칙 갱신: 태그 push가 곧 사용자 확인 — Release 자동 생성(v0.16.0부터
   수동 릴리스 절차 없음)
 
+### v0.16.1 패치 (2026-11-05) — CI 리뷰 10건·플러그인 배포 결함
+
+- [x] HIGH-1 release 잡 `needs: test` — 테스트 그린 후에만 릴리스 발행
+- [x] HIGH-2 `.mcp.json` command `bin/flint`→`flint` (PATH — hooks와 기준
+  통일, 배포 zip에 바이너리 없어도 MCP 기동)
+- [x] HIGH-3 linux 교차빌드 — `goos`에 linux(amd64·arm64) 추가
+- [x] MED goreleaser 버전 고정(latest 부양 제거)·`workflow_dispatch`
+  트리거(재발사 외 재시도 경로)·doltgres digest 고정·잡별
+  `timeout-minutes`(test 20·release 15)
+- [x] LOW psql 준비 실패 `|| echo` 위장 삼킴 제거(exit 1)·플러그인 zip에서
+  `*_test.go` 제외·validate_yaml이 release 잡·hooks.json 검사
+- [x] 문서 — 배지 v0.16.1(EN/KO)·plugin.json 0.16.1 동기·README PATH
+  요구 문구에 MCP 포함
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
