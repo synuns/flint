@@ -213,11 +213,13 @@ func LoadReadStats(getKV func(string) (string, error)) (calls int, zero int, ok 
 	return st.Calls, st.Zero, ok
 }
 
-// BumpReadStats — read 호출 1회 누적. 기존 read_stats는 getKV로 읽어
-// 합산 후 setKV로 저장(hot_stats 패턴). 파손·부재는 0에서 재기산한다.
-// getKV 전송 오류는 얼리리턴(재기작하면 읽지 못한 기존 값을 와이프한다).
-// 기존 zero_near는 보존한다(보존값 0이면 omitempty로 바이트 불변).
-func BumpReadStats(zeroHits bool, getKV func(string) (string, error), setKV func(string, string) error) error {
+// BumpReadStats — read 호출 1회 누적(v0.15.0 R1 단일 라이터): read_stats를
+// 한 번 읽어 calls/zero/zero_near를 전부 갱신해 저장한다(왕복 1회).
+// 기존 read_stats는 getKV로 읽어 합산 후 setKV로 저장(hot_stats 패턴).
+// 파손·부재는 0에서 재기산한다. getKV 전송 오류는 얼리리턴(재기작하면
+// 읽지 못한 기존 값을 와이프한다). 이번 호출에 해당하지 않는 지표는
+// 기존값을 보존한다(보존값 0이면 omitempty로 바이트 불변).
+func BumpReadStats(zeroHits bool, zeroNear bool, getKV func(string) (string, error), setKV func(string, string) error) error {
 	st, _, err := loadReadStatsJSON(getKV) // 파손·부재 폴백 후 재누적
 	if err != nil {
 		return err
@@ -226,23 +228,9 @@ func BumpReadStats(zeroHits bool, getKV func(string) (string, error), setKV func
 	if zeroHits {
 		st.Zero++
 	}
-	b, err := json.Marshal(st)
-	if err != nil {
-		return err
+	if zeroNear {
+		st.ZeroNear++
 	}
-	return setKV("read_stats", string(b))
-}
-
-// BumpZeroNear — 제로히트 중 내부 스캔 후보가 있던 read 1회 누적
-// (v0.14.0 "문서 없음/못 찾음" 분해 계측). 기존 read_stats는 getKV로 읽어
-// zero_near만 증분 후 setKV로 저장(BumpReadStats 패턴 — loadReadStatsJSON
-// 재사용). 파손·부재는 0에서 재기작, getKV 전송 오류는 얼리리턴(와이프 방지).
-func BumpZeroNear(getKV func(string) (string, error), setKV func(string, string) error) error {
-	st, _, err := loadReadStatsJSON(getKV) // 파손·부재 → 0 폴백 후 재누적
-	if err != nil {
-		return err
-	}
-	st.ZeroNear++
 	b, err := json.Marshal(st)
 	if err != nil {
 		return err
@@ -266,11 +254,12 @@ func loadReadStatsFromMeta(ctx context.Context, st Store) (calls int, zero int) 
 	return calls, zero
 }
 
-// bumpReadStatsToMeta — read 계측 wiring: zero 히트 여부를 meta read_stats에
-// 누적. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
-func bumpReadStatsToMeta(ctx context.Context, st Store, zeroHits bool) {
+// bumpReadStatsToMeta — read 계측 wiring(v0.15.0 R1 단일 라이터): zero 히트
+// 여부·제로근접 여부를 meta read_stats 1회 쓰기에 누적. 실패는 stderr 1행
+// 이하로 조용히 무시(비간섭 §13).
+func bumpReadStatsToMeta(ctx context.Context, st Store, zeroHits, zeroNear bool) {
 	getKV, setKV := metaKV(ctx, st)
-	if err := BumpReadStats(zeroHits, getKV, setKV); err != nil {
+	if err := BumpReadStats(zeroHits, zeroNear, getKV, setKV); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] read stats persist: %v\n", err)
 	}
 }
