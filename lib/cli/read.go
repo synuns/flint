@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -24,6 +23,18 @@ type readBumper interface {
 // realStore 위임 — reads.go(T62) 실구현 연결. 메서드 정의만 여기 둔다.
 func (s *realStore) BumpReads(ctx context.Context, ids []int) error {
 	return s.repo.BumpReads(ctx, ids)
+}
+
+// ReadUsageStore — read 1회 계측에 제로·근접 분류를 동반하는 확장
+// (v0.15.0 R2, UsageStore 단언 패턴 승계). realStore는 db.Repo.RecordReadUsage
+// 로 구현하고, 미구현 Store(fake)는 기존 recordUsage 경로로 폴백.
+type ReadUsageStore interface {
+	RecordReadUsage(ctx context.Context, zero bool, near bool) error
+}
+
+// realStore 위임 — RecordReadUsage(T3) 실구현 연결.
+func (s *realStore) RecordReadUsage(ctx context.Context, zero, near bool) error {
+	return s.repo.RecordReadUsage(ctx, zero, near)
 }
 
 // cellToInt — 셀(any)→int 단일 강제 변환 유틸. read rowIDs·maintain stale·
@@ -63,11 +74,19 @@ func rowIDs(rows [][]any) []int {
 }
 
 // instrumentReads — 참조 계측(T62): 결과 항목 id 전수 증분 + 유입 1회 기록.
-// 유입 기록은 UsageStore 단일 seam(write.go recordUsage)을 경유한다.
-// 둘 다 계측이라 실패는 조용히 무시된다.
-func instrumentReads(ctx context.Context, st Store, kind string, ids []int) {
+// read kind는 분류(zero·near)를 동반해 ReadUsageStore 경로(RecordReadUsage,
+// v0.15.0 R2)로 기록하고, 미구현 Store(fake)는 기존 recordUsage 경로로
+// 폴백한다. 그 외 kind는 기존 recordUsage 경로 불변. 둘 다 계측이라
+// 실패는 조용히 무시된다.
+func instrumentReads(ctx context.Context, st Store, kind string, ids []int, zero, near bool) {
 	if rb, ok := st.(readBumper); ok {
 		_ = rb.BumpReads(ctx, ids)
+	}
+	if kind == "read" {
+		if ru, ok := st.(ReadUsageStore); ok {
+			_ = ru.RecordReadUsage(ctx, zero, near)
+			return
+		}
 	}
 	recordUsage(ctx, st, kind, "")
 }
@@ -253,15 +272,12 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		b, _ := json.Marshal(asOfLine{AsOf: asOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 		fmt.Fprintln(stdout, string(b))
 	}
-	// 계측(T56): zero 히트 여부를 meta read_stats에 누적. 실패는 조용히(§13).
-	bumpReadStatsToMeta(ctx, st, len(rows) == 0)
-	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회. 조용히(§13).
-	instrumentReads(ctx, st, "read", rowIDs(rows))
-	// 계측(v0.14.0 R2): 제로히트 중 내부 스캔 후보가 있던 read 1회 누적.
-	// BumpReadStats는 기존 zero_near를 보존하므로 실행 순서 무관. 조용히(§13).
-	if len(suggestions) > 0 {
-		bumpZeroNearToMeta(ctx, st)
-	}
+	// 계측(v0.15.0 R1 단일 라이터): zero 히트·제로근접 분류를 한 번의
+	// read_stats 읽기-쓰기에 누적. 실패는 조용히(§13).
+	bumpReadStatsToMeta(ctx, st, len(rows) == 0, len(suggestions) > 0)
+	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회(분류 동반
+	// 전달 — R2 RecordReadUsage 경로). 조용히(§13).
+	instrumentReads(ctx, st, "read", rowIDs(rows), len(rows) == 0, len(suggestions) > 0)
 	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
 	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.
 	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
@@ -292,16 +308,6 @@ func bumpReadFallbackToMeta(ctx context.Context, st Store) {
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
 		[]any{query.ReadFallbackCountKey, strconv.Itoa(n + 1)})
-}
-
-// bumpZeroNearToMeta — zero_near 계측 wiring(v0.14.0 R2): bumpReadStatsToMeta
-// 패턴 승계 — metaKV 클로저로 BumpZeroNear을 호출한다. 실패는 stderr
-// 1행 이하로 조용히 무시(비간섭 §13).
-func bumpZeroNearToMeta(ctx context.Context, st Store) {
-	getKV, setKV := metaKV(ctx, st)
-	if err := BumpZeroNear(getKV, setKV); err != nil {
-		fmt.Fprintf(os.Stderr, "[flint] zero near persist: %v\n", err)
-	}
 }
 
 // asOfInfo / asOfLine — --as-of 결과 첨부 한 줄 JSON {as_of:{hash,commit_date}}.
