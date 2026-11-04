@@ -2,6 +2,7 @@
 # T43: CI YAML 구조 검증 — make ci 첫 단계에서 실행.
 # 파싱 실패·구조 위반 시 0이 아닌 exit(워크플로 조기 실패).
 # 실행: python3 scripts/validate_yaml.py (대상 2건: ci.yml, .goreleaser.yml)
+import json
 import sys
 from pathlib import Path
 
@@ -58,11 +59,39 @@ def main():
     ldflags = " ".join(str(f) for b in builds for f in (b.get("ldflags") or []))
     check(".goreleaser.yml", "flint/lib/cli.version" in ldflags, "버전 주입 ldflags 없음")
 
+    # 3) 플러그인 매니페스트 — 파싱 + name/version/마켓플레이스 구조
+    for label, path in [
+        ("plugin.json", ROOT / "flint-plugin" / ".claude-plugin" / "plugin.json"),
+        ("marketplace.json", ROOT / ".claude-plugin" / "marketplace.json"),
+    ]:
+        try:
+            manifest = json.loads(path.read_text(encoding="utf-8"))
+        except FileNotFoundError:
+            print(f"FAIL {path} 없음")
+            return 1
+        except json.JSONDecodeError as e:
+            print(f"FAIL {label} 파싱 오류: {e}")
+            return 1
+        check(label, isinstance(manifest.get("name"), str), "name 없음")
+
+    plugin = json.loads((ROOT / "flint-plugin" / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    check("plugin.json", isinstance(plugin.get("version"), str), "version 없음")
+
+    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
+    plugins = market.get("plugins") or []
+    check("marketplace.json", bool(plugins), "plugins 없음")
+    if plugins:
+        check(
+            "marketplace.json",
+            plugins[0].get("source") == "./flint-plugin",
+            "plugins[0].source != ./flint-plugin",
+        )
+
     if FAILURES:
         for f in FAILURES:
             print(f"FAIL {f}")
         return 1
-    print("OK ci.yml + .goreleaser.yml 구조 유효")
+    print("OK ci.yml + .goreleaser.yml + 매니페스트 2종 구조 유효")
     return 0
 
 
