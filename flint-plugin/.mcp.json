@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "flint": {
-      "command": "bin/flint",
+      "command": "flint",
       "args": ["mcp"]
     }
   }
