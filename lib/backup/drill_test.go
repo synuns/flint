@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"flint/lib/db"
+	"github.com/jackc/pgx/v5"
 )
 
 // Review Focus(numeric): INSERT 문 수와 테이블명 매칭 — knowledge만 세고
@@ -67,6 +68,12 @@ func TestSkipForDrill(t *testing.T) {
 // 회귀(비간섭): 덤프의 setval('public.*')·CREATE SEQUENCE public.* 문이
 // 드릴 재생에서 원본 public 시퀀스를 건드리지 않는다. 오래된 keep-N 덤프로
 // 훈련해도 public 시퀀스가 과거 값으로 되감기지 않아야 한다(PK 충돌 방지).
+
+// requireDropVisibility 가드(v2 — 전용 DB 프로브)는 v0.15.2 격리 전환으로
+// 삭제했다: RunDrill이 전용 데이터베이스(flint_drill_db)에서 자가 정리형이
+// 되어 엔진 결함(DROP 무음 no-op)이 발동해도 실패는 드릴 DB 내부에 갇히고
+// 공유 flint_test는 무오염이다. 우리는 테이블을 DROP하지 않고 DB를 DROP한다.
+
 func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -182,11 +189,11 @@ SELECT setval('public.knowledge_id_seq', COALESCE((SELECT MAX("id") FROM "knowle
 		t.Fatalf("public 시퀀스 훼손: exists %v(last %d) -> %v(last %d) (드릴은 불가침)",
 			beforeExists, before, afterExists, after)
 	}
-	var schemas int
+	var dbs int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
-		Scan(&schemas); err != nil || schemas != 0 {
-		t.Fatalf("flint_drill 잔존: %d err=%v", schemas, err)
+		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
+		Scan(&dbs); err != nil || dbs != 0 {
+		t.Fatalf("%s 잔존: %d err=%v", DrillDB, dbs, err)
 	}
 }
 
@@ -234,11 +241,13 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 // Review Focus(state): 실DB 덤프 재생 → Ok true·스키마 무잔존.
 // Review Focus(numeric): 행수 대조 — Expected==Restored==실제 knowledge 행수.
 
-// 회귀(커넥션 잔류): 드릴 재생이 flint_drill로 바꾼 search_path를 풀 반납
-// 커넥션에 남기지 않는다. MaxConns=1 풀에서 drillConn 실행 전후 같은
-// 커넥션으로 current_setting을 읽어 잔류 여부를 검증한다(잔류 시 이후
-// 비한정 쿼리가 public 테이블을 못 찾는다 — CI PR #1 42P01).
-func TestDrillConnResetsSearchPath(t *testing.T) {
+// 회귀(원본 풀 무오염, 구 TestDrillConnResetsSearchPath 승계 — v0.15.2
+// 격리 전환): 드릴 재생이 별도 flint_drill_db 풀에서만 일어나므로 원본
+// DSN 풀의 커넥션 상태(search_path 등)를 오염시키지 않는다. MaxConns=1
+// 풀에서 RunDrill 전후 같은 커넥션으로 current_setting을 읽어 잔류
+// 여부를 검증한다(잔류 시 이후 비한정 쿼리가 public 테이블을 못 찾는다
+// — CI PR #1 42P01).
+func TestDrillReplayDoesNotContaminateOriginalPool(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -247,36 +256,39 @@ func TestDrillConnResetsSearchPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
-	cfg.MaxConns = 1 // 반납 후 재취득이 같은 커넥션이 되게 강제
+	cfg.MaxConns = 1 // 재취득이 같은 커넥션이 되게 강제
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
 	}
 	defer pool.Close()
 
-	if err := drillConn(ctx, pool, func(conn *pgxpool.Conn) error {
-		var sp string
-		if err := conn.QueryRow(ctx, `SELECT current_setting('search_path')`).Scan(&sp); err != nil {
-			return err
-		}
-		if !strings.Contains(sp, DrillSchema) {
-			return fmt.Errorf("드릴 커넥션 search_path=%q, want %q 포함", sp, DrillSchema)
-		}
-		return nil
-	}); err != nil {
-		t.Fatalf("drillConn: %v", err)
+	var before string
+	if err := pool.QueryRow(ctx, `SELECT current_setting('search_path')`).Scan(&before); err != nil {
+		t.Fatalf("search_path(before): %v", err)
+	}
+
+	script := `CREATE TABLE "knowledge" ("id" integer);
+INSERT INTO "knowledge" ("id") VALUES (1);`
+	path := filepath.Join(t.TempDir(), "mini.sql")
+	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := RunDrill(testDSN(), path); err != nil {
+		t.Fatalf("RunDrill: %v", err)
 	}
 
 	var after string
 	if err := pool.QueryRow(ctx, `SELECT current_setting('search_path')`).Scan(&after); err != nil {
 		t.Fatalf("search_path(after): %v", err)
 	}
-	if strings.Contains(after, DrillSchema) || !strings.Contains(after, "public") {
-		t.Fatalf("search_path 잔류: %q, want public", after)
+	if after != before || strings.Contains(after, DrillDB) || !strings.Contains(after, "public") {
+		t.Fatalf("search_path 오염: before=%q after=%q, want 불변(public)", before, after)
 	}
 }
 
-// drillLock — flint_drill 스키마는 패키지 간(프로세스 간) 공유 자원이다.
+// drillLock — 드릴 재생 대상(flint_drill_db)은 패키지 간(프로세스 간)
+// 공유 자원이다.
 // go test가 패키지를 병렬 실행하므로 파일 잠금으로 상호 배제한다.
 func drillLock(t *testing.T) func() {
 	t.Helper()
@@ -375,14 +387,15 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	}
 
 	// state — 스키마 무잔존.
-	var schemas int
+	// state — 드릴 DB 무잔존.
+	var dbs int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
-		Scan(&schemas); err != nil {
-		t.Fatalf("schema check: %v", err)
+		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
+		Scan(&dbs); err != nil {
+		t.Fatalf("db check: %v", err)
 	}
-	if schemas != 0 {
-		t.Fatalf("flint_drill 잔존: %d", schemas)
+	if dbs != 0 {
+		t.Fatalf("%s 잔존: %d", DrillDB, dbs)
 	}
 
 	// 비간섭 — 원본 knowledge 행수 불변.
@@ -417,7 +430,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	}
 }
 
-// Review Focus(state): 재생 실패 시에도 flint_drill 잔존 금지.
+// Review Focus(state): 재생 실패 시에도 드릴 DB 잔존 금지.
 func TestDrillFailureCleansSchema(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -439,14 +452,14 @@ func TestDrillFailureCleansSchema(t *testing.T) {
 	if err == nil {
 		t.Fatalf("고장 덤프인데 에러 없음: %+v", res)
 	}
-	var schemas int
+	var dbs int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
-		Scan(&schemas); err != nil {
-		t.Fatalf("schema check: %v", err)
+		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
+		Scan(&dbs); err != nil {
+		t.Fatalf("db check: %v", err)
 	}
-	if schemas != 0 {
-		t.Fatalf("실패 후 flint_drill 잔존: %d", schemas)
+	if dbs != 0 {
+		t.Fatalf("실패 후 %s 잔존: %d", DrillDB, dbs)
 	}
 }
 
@@ -488,7 +501,8 @@ func dropInjectScaffold(t *testing.T) (dsn, path string, pool *pgxpool.Pool) {
 }
 
 // TestDrillDropRetriesTransientFailure — 회귀(CI run 39719705178): 최종
-// DROP의 일시 40001은 재시도로 회복된다 — 드릴은 성공하고 스키마 무잔존.
+// 드릴 DB DROP의 일시 40001은 재시도로 회복된다 — 드릴은 성공하고
+// 드릴 DB 무잔존.
 func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -498,15 +512,15 @@ func TestDrillDropRetriesTransientFailure(t *testing.T) {
 
 	// 주입: 선행 정리(call 1)는 성공, 최종 DROP 첫 시도(call 2)만 실패.
 	calls := 0
-	saved := dropDrillSchemaFn
-	dropDrillSchemaFn = func(ctx context.Context, p *pgxpool.Pool) error {
+	saved := dropDrillDBFn
+	dropDrillDBFn = func(ctx context.Context, p *pgxpool.Pool) error {
 		calls++
 		if calls == 2 {
 			return fmt.Errorf("주입 40001: serialization failure")
 		}
 		return saved(ctx, p)
 	}
-	t.Cleanup(func() { dropDrillSchemaFn = saved })
+	t.Cleanup(func() { dropDrillDBFn = saved })
 
 	res, err := RunDrill(dsn, path)
 	if err != nil {
@@ -518,14 +532,95 @@ func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	if calls < 3 {
 		t.Fatalf("재시도 미발생: drop 호출 %d회, want ≥3(선행+실패+재시도)", calls)
 	}
-	var schemas int
+	var dbs int
 	if err := pool.QueryRow(context.Background(),
+		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
+		Scan(&dbs); err != nil {
+		t.Fatalf("db check: %v", err)
+	}
+	if dbs != 0 {
+		t.Fatalf("%s 잔존: %d", DrillDB, dbs)
+	}
+}
+
+// 회귀(v0.15.2 격리 전환): 드릴 재생은 전용 데이터베이스 flint_drill_db에서
+// 일어나고 종료 시(성공·실패 무관) 항상 제거한다. 선행 잔존(이전 비정상
+// 종료로 남은 flint_drill_db)은 재생 전에 정리된다 — 감시 테이블이 든
+// 잔존 DB를 심어 두고 드릴 후 DB 부재로 라이프사이클 전체(선행 제거→
+// 재생→종료 정리)를 검증한다. 테이블·스키마 개별 DROP이 무음 no-op로
+// 잔존하는 doltgresql 결함과 무관하게 DB 단위 삭제는 동작한다(실측).
+func TestDrillIsolatedInDedicatedDatabase(t *testing.T) {
+	unlock := drillLock(t)
+	defer unlock()
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	dsn := testDSN()
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("connect doltgres: %v", err)
+	}
+	defer pool.Close()
+
+	// 선행 잔존 흉내 — 감시 테이블 1개가 든 flint_drill_db를 남긴다.
+	if _, err := pool.Exec(ctx, `DROP DATABASE IF EXISTS `+DrillDB); err != nil {
+		t.Fatalf("잔존 조립 전 정리: %v", err)
+	}
+	if _, err := pool.Exec(ctx, `CREATE DATABASE `+DrillDB); err != nil {
+		t.Fatalf("잔존 DB 생성: %v", err)
+	}
+	remnantCfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		t.Fatalf("parse dsn: %v", err)
+	}
+	remnantCfg.Database = DrillDB
+	remnant, err := pgx.ConnectConfig(ctx, remnantCfg)
+	if err != nil {
+		t.Fatalf("잔존 DB 접속: %v", err)
+	}
+	if _, err := remnant.Exec(ctx, `CREATE TABLE sentinel (id int)`);
+		err != nil {
+		remnant.Close(context.Background())
+		t.Fatalf("감시 테이블: %v", err)
+	}
+	_, _ = remnant.Exec(ctx, `INSERT INTO sentinel (id) VALUES (1)`)
+	if err := remnant.Close(context.Background()); err != nil {
+		t.Fatalf("잔존 커넥션 종료: %v", err)
+	}
+
+	script := `CREATE TABLE "knowledge" ("id" integer);
+INSERT INTO "knowledge" ("id") VALUES (1);`
+	path := filepath.Join(t.TempDir(), "mini.sql")
+	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	res, err := RunDrill(dsn, path)
+	if err != nil {
+		t.Fatalf("RunDrill: %v", err)
+	}
+	if !res.Ok || res.Expected != 1 || res.Restored != 1 {
+		t.Fatalf("드릴 결과: %+v, want Ok true 1/1", res)
+	}
+
+	// 종료 정리 — 드릴 DB는 재생 성공 여부와 무관하게 부재해야 한다.
+	var dbs int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
+		Scan(&dbs); err != nil {
+		t.Fatalf("db check: %v", err)
+	}
+	if dbs != 0 {
+		t.Fatalf("%s 잔존: %d", DrillDB, dbs)
+	}
+	// 스키마 경로 부활 방지 — 구(flint_drill 스키마) 격리 잔재도 없다.
+	var schemas int
+	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
 		Scan(&schemas); err != nil {
 		t.Fatalf("schema check: %v", err)
 	}
 	if schemas != 0 {
-		t.Fatalf("flint_drill 잔존: %d", schemas)
+		t.Fatalf("flint_drill 스키마 잔존: %d", schemas)
 	}
 }
 
@@ -541,15 +636,15 @@ func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
 
 	// 주입: 선행 정리(call 1)는 성공, 최종 DROP은 전부 실패(소진).
 	calls := 0
-	saved := dropDrillSchemaFn
-	dropDrillSchemaFn = func(ctx context.Context, p *pgxpool.Pool) error {
+	saved := dropDrillDBFn
+	dropDrillDBFn = func(ctx context.Context, p *pgxpool.Pool) error {
 		calls++
 		if calls > 1 {
 			return fmt.Errorf("주입 40001: serialization failure")
 		}
 		return saved(ctx, p)
 	}
-	t.Cleanup(func() { dropDrillSchemaFn = saved })
+	t.Cleanup(func() { dropDrillDBFn = saved })
 
 	res, err := RunDrill(dsn, path)
 	if err == nil {
@@ -558,13 +653,13 @@ func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
 	if !res.Ok {
 		t.Fatalf("드릴 자체는 성공이어야 함(실패 승격 판정 전제): %+v", res)
 	}
-	if !strings.Contains(err.Error(), DrillSchema) {
-		t.Fatalf("에러가 잔존 스키마를 밝히지 않음: %v", err)
+	if !strings.Contains(err.Error(), DrillDB) {
+		t.Fatalf("에러가 잔존 드릴 DB를 밝히지 않음: %v", err)
 	}
 	if calls < 4 {
 		t.Fatalf("재시도 소진 미관측: drop 호출 %d회, want ≥4(선행+3회 시도)", calls)
 	}
-	// 주입으로 남은 스키마를 실 구현으로 정리(이후 테스트 오염 방지).
+	// 주입으로 남은 드릴 DB를 실 구현으로 정리(이후 테스트 오염 방지).
 	if derr := saved(context.Background(), pool); derr != nil {
 		t.Fatalf("잔존 정리: %v", derr)
 	}

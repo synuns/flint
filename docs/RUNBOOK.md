@@ -24,8 +24,9 @@
 
 ## 3. 복구 훈련 — `flint restore --drill` (30일 주기)
 
-- `flint restore --drill <file>` — 덤프 파일을 임시 스키마 `flint_drill`에
-  재생하고 행수를 대조한다. 결과는 `maintenance_runs`에 기록되고
+- `flint restore --drill <file>` — 덤프 파일을 임시 데이터베이스
+  `flint_drill_db`에 재생하고 행수를 대조한다(v0.15.2 — DB 수준 격리,
+  종료 시 항상 삭제). 결과는 `maintenance_runs`에 기록되고
   `meta.last_drill`이 갱신된다.
 - `flint maintain --check`가 30일 경과를 보고한다. 경과 시 최신 덤프로
   drill을 반복한다. 주기: **30일마다 1회**.

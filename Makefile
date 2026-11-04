@@ -26,9 +26,12 @@ test:
 
 # CI(T43): 로컬 검증 = YAML 구조 검증 + 전체 단위 테스트.
 # Actions(ci.yml)도 이 타깃 실행 후 make e2e — 로컬과 CI 동일 경로.
+# GO_TEST_FLAGS: CI가 -p 1(패키지 직렬화) 주입 — 서비스 Doltgres 1개에
+# slow 스위트 3개(db·backup·regression) 병렬이 연결 소진시킴(v0.15.2).
+GO_TEST_FLAGS ?=
 ci:
 	python3 scripts/validate_yaml.py
-	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test ./...
+	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test $(GO_TEST_FLAGS) ./...
 
 tidy:
 	go mod tidy

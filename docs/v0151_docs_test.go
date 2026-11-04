@@ -21,10 +21,4 @@ func TestPlanRecordsV0151(t *testing.T) {
 	}
 }
 
-func TestBadgeIsV0151(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStrV0151(t, p), "release-v0.15.1") {
-			t.Errorf("%s 배지 v0.15.1 미갱신", p)
-		}
-	}
-}
+// TestBadgeIsV0151 — v0.15.2 배지 전환으로 삭제(선례 승계).
