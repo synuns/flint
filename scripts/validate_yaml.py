@@ -36,7 +36,7 @@ def main():
     services = test_job.get("services") or {}
     check("ci.yml", "doltgres" in services, "doltgres 서비스 컨테이너 없음")
     dolt = services.get("doltgres") or {}
-    check("ci.yml", "5433" in str(dolt.get("ports")), "포트 5433 매핑 없음")
+    check("ci.yml", "5434" in str(dolt.get("ports")), "포트 5434 매핑 없음")
 
     # 2) GoReleaser — 파싱 + darwin 빌드 타깃
     gr_path = ROOT / ".goreleaser.yml"
