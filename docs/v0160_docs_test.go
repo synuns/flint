@@ -21,13 +21,8 @@ func TestPlanRecordsV0160(t *testing.T) {
 	}
 }
 
-func TestBadgeIsV0160(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStrV0160(t, p), "release-v0.16.0") {
-			t.Errorf("%s 배지 v0.16.0 미갱신", p)
-		}
-	}
-}
+// v0.16.1: TestBadgeIsV0160 삭제 — 배지는 TestBadgeIsV0161
+// (v0161_docs_test.go)로 대체.
 
 // TestCiTriggersOnVersionTags — branches 필터만 있는 push 트리거는 태그
 // push를 발동시키지 않는다(GitHub Actions 필터 규칙). release 잡이
