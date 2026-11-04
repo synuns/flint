@@ -143,3 +143,17 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
   경고면 여유를 늘리고, 장애 감지 지연이 문제면 줄인다.
 - `suggestMinScore` — 유효 제안이 누락되면 낮추고, 무관 제안이 다시
   관측되면 높인다. 변경 후 스모크 질의 세트로 top 제안을 재확인한다.
+
+## 9. zero_near — 제로히트 침묵 계약 계측 (v0.14.0)
+
+`flint read`는 재검색(fallback)까지 제로히트면 무출력·exit 1로 침묵한다
+(제안 출력 폐지 — 근접 후보는 에이전트에 노출하지 않는다). 대신 근접
+후보 유무를 `zero_near` 지표로 내부 계측해 report가 노출한다.
+
+- 분류 임계 — 제안 스캔 `suggestMinScore` `0.15`를 그대로 재사용한다
+  (별도 상수 없음). 최고 근접 점수가 0.15 이상인 제로히트를 zero_near로
+  분류한다.
+- 해석 — `zero_near_pct` = 검색 품질 문제 비율(지식은 있으나 질의가
+  못 찾음), `zero_pct − zero_near_pct` = 지식 부재 비율(추가해야 할
+  지식). zero_near_pct가 높으면 임계·색인을 점검하고, 낮으면 지식
+  축적이 우선 과제다.

@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.13.2-blue" alt="v0.13.2">
+  <img src="https://img.shields.io/badge/release-v0.14.0-blue" alt="v0.14.0">
 </p>
 
 <p align="center">
@@ -149,7 +149,7 @@ The four phases form one session lifecycle:
 | `flint mcp` | **Serve** | Run the MCP server |
 
 `flint read` retries word-by-word (fallback) when the phrase query hits nothing.
-`flint read` suggests near-miss candidates (suggestions) when the query still hits nothing.
+`flint read` prints nothing and exits 1 when even the fallback hits nothing (silence contract) — near-miss candidates are measured internally as the `zero_near` metric, never shown to the agent (v0.14.0).
 `flint read --status pending` lists knowledge items awaiting approval.
 `flint read` breaks ranking ties by adoption (`read_count` DESC) — popularity only as the final tiebreaker (v0.13.0).
 `flint maintain --conflict-suspects` lists suspected contradicting knowledge (same topic, diverging summaries) (v0.13.0).

@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.13.2-blue" alt="v0.13.2">
+  <img src="https://img.shields.io/badge/release-v0.14.0-blue" alt="v0.14.0">
 </p>
 
 <p align="center">
@@ -154,7 +154,7 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 | `flint mcp` | **서빙** | MCP 서버 실행 |
 
 `flint read`는 구문 미스 시 단어 단위 재검색(fallback)한다.
-`flint read`는 재검색까지 제로히트 시 근접 후보 제안(suggestions)을 출력한다.
+`flint read`는 재검색까지 제로히트면 아무것도 출력하지 않고 exit 1로 종료한다(침묵 계약, v0.14.0) — 기존 근접 후보 suggestions 출력은 폐지했고, 근접 후보는 `zero_near` 지표로 내부 계측만 한다(에이전트 노출 없음).
 `flint read --status pending`은 승격 대기 중인 지식 항목을 나열한다.
 `flint read`는 랭킹 동률을 채택(read_count DESC) 순으로 재랭킹한다 — 인기는 최종 타이브레이크일 뿐(v0.13.0).
 `flint maintain --conflict-suspects`는 모순 의심 지식(동일 topic·상이 요약)을 리스팅한다(v0.13.0).
