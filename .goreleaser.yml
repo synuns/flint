@@ -15,7 +15,7 @@ builds:
 
 archives:
   - id: flint
-    builds: [flint]
+    ids: [flint]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
   # T1 플러그인 마켓플레이스 배포용 — flint-plugin/ 소스 일괄 zip(바이너리 미포함).
   # meta: true → 바이너리 0개 아카이브(name_template에 Os/Arch 금지).
