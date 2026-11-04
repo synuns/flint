@@ -49,7 +49,7 @@ jobs:
           done
           $PSQL -c "CREATE DATABASE flint_test" 2>/dev/null || echo "flint_test 이미 존재 — 계속"
       - name: YAML 검증 + 단위 테스트
-        run: make ci GO_TEST_FLAGS="-p 1"
+        run: make ci
       - name: e2e (실 Doltgres)
         run: make e2e
 
