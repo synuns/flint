@@ -186,10 +186,10 @@ func readStatsMeta(meta map[string]string) (func(string) (string, error), func(s
 func TestReadStatsAccumulate(t *testing.T) {
 	meta := map[string]string{}
 	get, set := readStatsMeta(meta)
-	if err := BumpReadStats(true, get, set); err != nil {
+	if err := BumpReadStats(true, false, get, set); err != nil {
 		t.Fatalf("bump(1) 오류: %v", err)
 	}
-	if err := BumpReadStats(true, get, set); err != nil {
+	if err := BumpReadStats(true, false, get, set); err != nil {
 		t.Fatalf("bump(2) 오류: %v", err)
 	}
 	calls, zero, ok := LoadReadStats(get)
@@ -202,10 +202,10 @@ func TestReadStatsAccumulate(t *testing.T) {
 func TestReadStatsMixed(t *testing.T) {
 	meta := map[string]string{}
 	get, set := readStatsMeta(meta)
-	if err := BumpReadStats(false, get, set); err != nil {
+	if err := BumpReadStats(false, false, get, set); err != nil {
 		t.Fatalf("bump(false) 오류: %v", err)
 	}
-	if err := BumpReadStats(true, get, set); err != nil {
+	if err := BumpReadStats(true, false, get, set); err != nil {
 		t.Fatalf("bump(true) 오류: %v", err)
 	}
 	calls, zero, _ := LoadReadStats(get)
@@ -218,7 +218,7 @@ func TestReadStatsMixed(t *testing.T) {
 func TestReadStatsCorruptFallback(t *testing.T) {
 	meta := map[string]string{"read_stats": "{not-json"}
 	get, set := readStatsMeta(meta)
-	if err := BumpReadStats(true, get, set); err != nil {
+	if err := BumpReadStats(true, false, get, set); err != nil {
 		t.Fatalf("파손 상태 bump 오류: %v", err)
 	}
 	if meta["read_stats"] != `{"calls":1,"zero":1}` {

@@ -31,7 +31,7 @@ func DoctorChecks() []string {
 // 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
 // conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts"}
+	return []string{"backup-age", "conflicts", "zero-near"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -134,6 +134,9 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		// conflicts(v0.13.0 R3)도 backup-age 뒤 체인 말미 — 모순 후보는
 		// warn이면 족하다(fail 아님, 스펙 §3 R3).
 		checks = append(checks, checkConflicts(ctx, st))
+		// zero-near(v0.15.0 R3)도 conflicts 뒤 체인 말미 — 검색 품질
+		// 의심은 warn이면 족하다(fail 아님, 기존 검사 순서 불변).
+		checks = append(checks, checkZeroNear(ctx, st))
 	}
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
@@ -212,6 +215,9 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 		// 전체 실행은 체인 말리 append 블록이 직접 실행하므로 여기는
 		// --check conflicts 단독 실행에서만 도달한다.
 		return checkConflicts(ctx, st)
+	case "zero-near":
+		// v0.15.0 R3 — tail-chain 서브셋 경로 승계(--check zero-near).
+		return checkZeroNear(ctx, st)
 	}
 	return doctorCheck{Name: name, Status: "fail", Detail: "unknown check"}
 }
@@ -800,6 +806,70 @@ func checkConflicts(ctx context.Context, st Store) doctorCheck {
 		return c
 	}
 	c.Status = "ok"
+	return c
+}
+
+// doctorZeroNearWindow — zero_near 검사 aggregation 창(일, v0.15.0 R3).
+// 오늘 포함 최근 7일 — report --days 기본창과 같은 규모.
+const doctorZeroNearWindow = 7
+
+// doctorZeroNearMinRead — zero_near warn 표본 하한. 창 내 read 합산이
+// 이보다 적으면 표본 부족으로 오판 경고를 내지 않는다(TUNING §10).
+const doctorZeroNearMinRead = 10
+
+// doctorZeroNearWarnPct — zero_near warn 임계(%). Σread_zero_near*100/
+// Σread가 이 값 이상이면 어휘 불일치(질의가 지식을 못 찾는 상태) 의심.
+const doctorZeroNearWarnPct = 30
+
+// checkZeroNear — 최근 7일 일별 read 계측 합산에서 근접 제로히트 비율
+// 판정(v0.15.0 R3). 직접 meta daily: 조회로 7일 컷을 건다 — PruneDaily와
+// 같은 substring 날짜 비교 패턴(키 날짜는 UTC). read ≥ 10 &&
+// read_zero_near*100/read ≥ 30이면 warn, 아니면 ok, 조회 실패·st nil은
+// warn. 검색 품질 의심은 동작을 막지 않으므로 fail 아니다(룰링).
+func checkZeroNear(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "zero-near"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "일별 계측 조회 불가 — flint report로 read_zero_near 확인"
+		return c
+	}
+	rows, err := queryOnce(ctx, st,
+		`SELECT key, value FROM meta WHERE key ~ '^daily:[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+		   AND substring(key from 7)::date >= (now() AT TIME ZONE 'UTC')::date - `+
+			strconv.Itoa(doctorZeroNearWindow-1), nil)
+	if err != nil {
+		c.Status = "warn"
+		c.Detail = "일별 계측 조회 실패: " + err.Error() + " — flint report로 read_zero_near 확인"
+		return c
+	}
+	read, near := 0, 0
+	for _, r := range rows {
+		if len(r) < 2 {
+			continue
+		}
+		var d struct {
+			Read     int `json:"read"`
+			ReadNear int `json:"read_zero_near"`
+		}
+		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &d) != nil {
+			continue // 파손 JSON은 없는 취급(무효 값 폴백)
+		}
+		read += d.Read
+		near += d.ReadNear
+	}
+	if read < doctorZeroNearMinRead {
+		c.Status = "ok"
+		c.Detail = fmt.Sprintf("표본 부족(7일 read %d < %d) — 판정 보류", read, doctorZeroNearMinRead)
+		return c
+	}
+	if pct := near * 100 / read; pct >= doctorZeroNearWarnPct {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("zero_near_pct %d%% (7일 read %d 중 근접 %d) — 어휘 불일치 의심 — 검색 품질 개선 여지",
+			pct, read, near)
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("zero_near_pct %d%% (7일 read %d)", near*100/read, read)
 	return c
 }
 

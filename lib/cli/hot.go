@@ -293,7 +293,7 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 		recordUsage(ctx, st, "hot", "")
 	} else if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
 		instrumentReads(ctx, st, "hot",
-			injectedIDsForSurvivors(rows, rowIDs(idRows), hotLineSurvivorCount(lines, budget)))
+			injectedIDsForSurvivors(rows, rowIDs(idRows), hotLineSurvivorCount(lines, budget)), false, false)
 	} else {
 		recordUsage(ctx, st, "hot", "")
 	}

@@ -42,6 +42,10 @@ type reportDay struct {
 	DupMcp    int    `json:"dup_mcp"`
 	Hot       int    `json:"hot"`
 	Read      int    `json:"read"`
+	// v0.15.0 R2 zero 지표 기간화 — 일별 zero·근접 카운트(미기록 일은
+	// zero 값으로 디코딩, 구버전 daily JSON 호환).
+	ReadZero int `json:"read_zero"`
+	ReadNear int `json:"read_zero_near"`
 }
 
 // reportOutput — 한 줄 JSON 출력. 창 밖 날짜·부재 키·파손 키는 0행으로 채운다.
@@ -197,10 +201,23 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 		d.Date = out.Days[idx].Date
 		out.Days[idx] = d
 	}
+	// v0.15.0 R2 zero 지표 기간화 — zero_pct·zero_near_pct는 --days 창 내
+	// 일별 합산으로 산출(누적 read_stats 의존 제거). days 배열은 창 마킹
+	// 이후라 창 밖 행은 합산에서도 배제된다(버림 정수%, 제로 분모 0).
+	var sumRead, sumZero, sumNear int
+	for _, d := range out.Days {
+		sumRead += d.Read
+		sumZero += d.ReadZero
+		sumNear += d.ReadNear
+	}
+	out.ZeroPct = readZeroPct(sumRead, sumZero)
+	out.ZeroNearPct = readZeroPct(sumRead, sumNear)
 	return nil
 }
 
-// collectStats — meta read_stats(zero_pct)·hot_stats(p95). 부재·파손은 0.
+// collectStats — meta hot_stats(p95)·read_stats(fallback_pct 분모 calls.
+// v0.15.0 R2 — zero_pct·zero_near_pct는 누적 read_stats가 아니라 daily
+// 합산(collectDaily)에서 산출한다). 부재·파손은 0.
 func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 	rows, err := queryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('read_stats','hot_stats')`, nil)
@@ -214,16 +231,11 @@ func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 		switch fmt.Sprint(r[0]) {
 		case "read_stats":
 			var rs struct {
-				Calls    int `json:"calls"`
-				Zero     int `json:"zero"`
-				ZeroNear int `json:"zero_near"`
+				Calls int `json:"calls"`
 			}
 			if json.Unmarshal([]byte(fmt.Sprint(r[1])), &rs) != nil {
 				continue
 			}
-			out.ZeroPct = readZeroPct(rs.Calls, rs.Zero)
-			// v0.14.0 R3 — zero_near*100/calls 버림(제로 분모 0, readZeroPct 가드 승계).
-			out.ZeroNearPct = readZeroPct(rs.Calls, rs.ZeroNear)
 			out.readCalls = rs.Calls
 		case "hot_stats":
 			var hs struct {
