@@ -301,8 +301,8 @@ func TestReadWiringBumpsReadStats(t *testing.T) {
 		return nil, nil // active_knowledge 조회 → 0행
 	}
 	withFake(t, f)
-	if out, code := mustRun(t, []string{"read", "flint"}, ""); code != 0 {
-		t.Fatalf("read exit=%d, want 0; out=%s", code, out)
+	if out, code := mustRun(t, []string{"read", "flint"}, ""); code != 1 {
+		t.Fatalf("read exit=%d, want 1; out=%s", code, out)
 	}
 	if meta["read_stats"] != `{"calls":1,"zero":1}` {
 		t.Fatalf("read_stats=%q, want {\"calls\":1,\"zero\":1}(zero hit 1회)", meta["read_stats"])
