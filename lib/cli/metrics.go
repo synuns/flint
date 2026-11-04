@@ -164,9 +164,12 @@ func loadHotStatsFromMeta(ctx context.Context, st Store) {
 }
 
 // readStatsJSON — meta read_stats 영속 포맷(T56 제로히트 계측).
+// zero_near는 v0.14.0 additive 추가 — 기존 blobs은 0 디폴트 디코딩,
+// 0이면 생략(omitempty)해 BumpReadStats 저장 바이트는 불변으로 유지.
 type readStatsJSON struct {
-	Calls int `json:"calls"`
-	Zero  int `json:"zero"`
+	Calls    int `json:"calls"`
+	Zero     int `json:"zero"`
+	ZeroNear int `json:"zero_near,omitempty"`
 }
 
 // LoadReadStats — meta read_stats 로드. 키 부재·오류·JSON 파손 시 기본값
@@ -193,6 +196,23 @@ func BumpReadStats(zeroHits bool, getKV func(string) (string, error), setKV func
 	} else {
 		st.Zero = zero
 	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	return setKV("read_stats", string(b))
+}
+
+// BumpZeroNear — 제로히트 중 내부 스캔 후보가 있던 read 1회 누적
+// (v0.14.0 "문서 없음/못 찾음" 분해 계측). 기존 read_stats는 getKV로 읽어
+// zero_near만 증분 후 setKV로 저장(BumpReadStats 패턴). 파손·부재는
+// 0에서 재기작한다.
+func BumpZeroNear(getKV func(string) (string, error), setKV func(string, string) error) error {
+	st := readStatsJSON{}
+	if v, err := getKV("read_stats"); err == nil && v != "" {
+		_ = json.Unmarshal([]byte(v), &st) // 파손 → 0 폴백 후 재누적
+	}
+	st.ZeroNear++
 	b, err := json.Marshal(st)
 	if err != nil {
 		return err
