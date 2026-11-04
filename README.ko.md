@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.16.0-blue" alt="v0.16.0">
+  <img src="https://img.shields.io/badge/release-v0.16.1-blue" alt="v0.16.1">
 </p>
 
 <p align="center">
@@ -86,8 +86,8 @@ make seed             # 예시 데이터, 멱등(해시 dedup)
 ### Claude Code 플러그인 설치 (v0.16.0부터)
 
 플러그인을 마켓플레이스에 공개했다(`.claude-plugin/marketplace.json`).
-선행 조건: `flint` 바이너리가 `PATH`에 있을 것 — 플러그인 훅은 `PATH`의
-`flint`를 호출한다.
+선행 조건: `flint` 바이너리가 `PATH`에 있을 것 — 플러그인 훅과 MCP 서버는
+`PATH`의 `flint`를 호출한다.
 
 ```text
 /plugin marketplace add synuns/flint

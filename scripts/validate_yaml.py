@@ -87,11 +87,35 @@ def main():
             "plugins[0].source != ./flint-plugin",
         )
 
+    # v0.16.1: release 잡 구조 — 테스트 그린 후 발행·Release 쓰기 권한.
+    release_job = jobs.get("release") or {}
+    check("ci.yml", bool(release_job), "release 잡 없음")
+    needs = release_job.get("needs")
+    needs_list = [needs] if isinstance(needs, str) else (needs or [])
+    check("ci.yml", "test" in needs_list, "release 잡 needs에 test 없음")
+    perms = release_job.get("permissions") or {}
+    check("ci.yml", perms.get("contents") == "write", "release 잡 contents: write 없음")
+
+    # v0.16.1: 플러그인 hooks.json — 훅 3종 존재(PATH 기반 flint 호출).
+    hooks_path = ROOT / "flint-plugin" / "hooks" / "hooks.json"
+    try:
+        hooks = json.loads(hooks_path.read_text(encoding="utf-8"))
+    except FileNotFoundError:
+        print(f"FAIL {hooks_path} 없음")
+        return 1
+    except json.JSONDecodeError as e:
+        print(f"FAIL hooks.json 파싱 오류: {e}")
+        return 1
+    entries = hooks.get("hooks") or {}
+    check("hooks.json", bool(entries), "hooks 키 없음")
+    for event in ("SessionStart", "Stop", "PostCompact"):
+        check("hooks.json", bool(entries.get(event)), f"{event} 훅 없음")
+
     if FAILURES:
         for f in FAILURES:
             print(f"FAIL {f}")
         return 1
-    print("OK ci.yml + .goreleaser.yml + 매니페스트 2종 구조 유효")
+    print("OK ci.yml + .goreleaser.yml + 매니페스트 2종 + hooks.json 구조 유효")
     return 0
 
 
