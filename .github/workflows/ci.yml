@@ -40,6 +40,14 @@ jobs:
             sleep 2
           done
           echo "DB not query-ready after 60s"; exit 1
+      - name: flint_test 데이터베이스 생성 (서비스는 flint만 생성 — make ci의 FLINT_TEST_DSN 기본값 대상)
+        run: |
+          PSQL="psql postgresql://flint:flint-dev@localhost:5434/flint"
+          for i in $(seq 1 15); do
+            $PSQL -c "SELECT 1" >/dev/null 2>&1 && break
+            sleep 2
+          done
+          $PSQL -c "CREATE DATABASE flint_test" 2>/dev/null || echo "flint_test 이미 존재 — 계속"
       - name: YAML 검증 + 단위 테스트
         run: make ci
       - name: e2e (실 Doltgres)
