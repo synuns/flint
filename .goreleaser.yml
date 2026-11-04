@@ -1,6 +1,6 @@
 # T43 GoReleaser — darwin arm64/amd64 교차 빌드, 버전 ldflags 주입.
 # 실행(로컬): goreleaser release --snapshot --clean
-# 실 릴리스는 사용자 확인 후 태그 push로 수행(워크플로는 안내만).
+# 실 릴리스는 사용자 확인 후 태그 push로 수행(ci.yml release 잡이 자동 생성).
 version: 2
 
 builds:
@@ -16,6 +16,14 @@ archives:
   - id: flint
     builds: [flint]
     name_template: "{{ .ProjectName }}_{{ .Version }}_{{ .Os }}_{{ .Arch }}"
+  # T1 플러그인 마켓플레이스 배포용 — flint-plugin/ 소스 일괄 zip(바이너리 미포함).
+  # meta: true → 바이너리 0개 아카이브(name_template에 Os/Arch 금지).
+  - id: flint-plugin
+    name_template: "flint_plugin_{{ .Version }}"
+    formats: ["zip"]
+    meta: true
+    files:
+      - flint-plugin/**
 
 checksum:
   name_template: checksums.txt
