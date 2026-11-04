@@ -29,6 +29,16 @@ func TestBadgeIsV0160(t *testing.T) {
 	}
 }
 
+// TestCiTriggersOnVersionTags — branches 필터만 있는 push 트리거는 태그
+// push를 발동시키지 않는다(GitHub Actions 필터 규칙). release 잡이
+// 돌려면 tags: ["v*"] 트리거가 명시돼 있어야 한다.
+func TestCiTriggersOnVersionTags(t *testing.T) {
+	yml := docStrV0160(t, "../.github/workflows/ci.yml")
+	if !strings.Contains(yml, `tags: ["v*"]`) {
+		t.Error("ci.yml push 트리거에 tags: [\"v*\"] 없음 — 태그 push로 release 잡 미발동")
+	}
+}
+
 func TestReadmePluginInstall(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		if !strings.Contains(docStrV0160(t, p), "marketplace add synuns/flint") {

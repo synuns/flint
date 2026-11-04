@@ -5,6 +5,9 @@ name: ci
 on:
   push:
     branches: [main]
+    # v0.16.0 R1: branches 필터만 있으면 태그 push는 워크플로 미발동 —
+    # release 잡 실행을 위해 태그 트리거 명시 필요.
+    tags: ["v*"]
   pull_request:
 
 jobs:

@@ -29,18 +29,6 @@ func TestReleaseHintUsesNextTag(t *testing.T) {
 	}
 }
 
-// TestCiReleaseNoticeComputesNext — ci.yml 릴리스 안내도 다음 패치
-// 버전을 동적으로 계산한다(정적 vX.Y.Z 플레이스홀더 폐지).
-func TestCiReleaseNoticeComputesNext(t *testing.T) {
-	b, err := os.ReadFile("../.github/workflows/ci.yml")
-	if err != nil {
-		t.Fatal(err)
-	}
-	yml := string(b)
-	if strings.Contains(yml, "git tag vX.Y.Z") {
-		t.Errorf("ci.yml 안내가 정적 플레이스홀더 vX.Y.Z 사용")
-	}
-	if !strings.Contains(yml, `awk -F. '{print $1"."$2"."($3+1)}'`) {
-		t.Errorf("ci.yml 안내에 다음 패치 버전 계산 없음")
-	}
-}
+// TestCiReleaseNoticeComputesNext — v0.16.0 R1로 release-notice 잡이
+// 자동 release 잡으로 대체되며 삭제(선례: TestBadgeIsV0152 삭제 룰링).
+// 태그 트리거 회귀는 v0160_docs_test.go TestCiTriggersOnVersionTags가 승계.
