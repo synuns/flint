@@ -1,6 +1,6 @@
 services:
   doltgres:
-    image: dolthub/doltgresql:latest
+    image: dolthub/doltgresql@sha256:74cedde648438b25818aa4bac23514ff346c9245e5ea583358ca6a9159a1e378
     ports:
       - "5434:5432"
     environment:
