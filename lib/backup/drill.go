@@ -1,6 +1,7 @@
 // drill.go — T55 restore --drill: 백업 복구 훈련(리스토어 리허설).
-// 덤프 SQL을 임시 스키마 flint_drill에 재생해 knowledge 행수를 대조하고,
-// 종료 시(실패 포함) 스키마를 항상 DROP한다. 원본 public 데이터는 불가침.
+// 덤프 SQL을 임시 데이터베이스 flint_drill_db에 재생해 knowledge 행수를
+// 대조하고, 종료 시(실패 포함) 데이터베이스를 항상 DROP한다. 원본 public
+// 데이터는 불가침.
 package backup
 
 import (
@@ -16,8 +17,8 @@ import (
 )
 
 const (
-	// DrillSchema — 드릴 재생 전용 임시 스키마.
-	DrillSchema = "flint_drill"
+	// DrillDB — 드릴 재생 전용 임시 데이터베이스.
+	DrillDB = "flint_drill_db"
 	// LastDrillKey — 마지막 드릴 성공 시각(RFC3339) meta 키. maintain --check가 읽는다.
 	LastDrillKey = "last_drill"
 	// drillTimeout — 드릴 1회 상한.
@@ -25,7 +26,7 @@ const (
 )
 
 // DrillResult — 드릴 결과. Expected는 덤프 내 knowledge INSERT 문 수,
-// Restored는 flint_drill에 실제 재생된 knowledge 행수. Ok는 양자 일치.
+// Restored는 flint_drill_db에 실제 재생된 knowledge 행수. Ok는 양자 일치.
 type DrillResult struct {
 	Expected int
 	Restored int
@@ -34,15 +35,14 @@ type DrillResult struct {
 
 // dump가 생성하는 public 시퀀스 조작문 — 드릴 재생에서는 건너뛴다.
 // Dump의 CREATE SEQUENCE IF NOT EXISTS public.x·SELECT setval('public.x',…)을
-// 그대로 재생하면 flint_drill 이 아니라 원본 public 시퀀스가 바뀐다(비간섭 위반.
-// 오래된 keep-N 덤프로 훈련하면 시퀀스가 과거 값으로 되감겨 다음 실제 INSERT가
-// PK 충돌한다). 행수 대조에는 영향이 없으므로 드릴에서는 생략해도 된다.
+// 그대로 재생하면 재생 대상 DB의 public 시퀀스가 바뀐다. 드릴 DB는 통째로
+// 폐기되므로 사실상 무해하지만, 행수 대조에도 불필요하므로 생략한다.
 var (
 	drillCreateSeqRe = regexp.MustCompile(`(?i)^CREATE\s+SEQUENCE\s+IF\s+NOT\s+EXISTS\s+public\.`)
 	drillSetvalRe    = regexp.MustCompile(`(?i)^SELECT\s+setval\s*\(\s*'public\.`)
 )
 
-// skipForDrill — 드릴 재생에서 제외할 문장(원본 public 조작문) 판정.
+// skipForDrill — 드릴 재생에서 제외할 문장(public 시퀀스 조작문) 판정.
 func skipForDrill(stmt string) bool {
 	s := stripComments(stmt)
 	return drillCreateSeqRe.MatchString(s) || drillSetvalRe.MatchString(s)
@@ -60,12 +60,16 @@ func countInserts(stmts []string, table string) int {
 	return n
 }
 
-// RunDrill — dumpPath 덤프를 flint_drill 스키마에 재생(CREATE SCHEMA·
-// SET search_path)해 knowledge 행수를 대조한다. 성공 시 maintenance_runs
-// 1행(kind=drill)과 meta last_drill을 기록한다. 스키마는 성공·실패 무관하게
-// 항상 DROP한다(40001은 재시도로 회복). 행수 불일치는 에러가 아닌 Ok=false로
-// 보고한다. DROP 재시도 소진 시 잔존을 숨기지 않고 성공 대신 명시적 실패를
-// 반환한다(계약: 재생 실패 시에도 잔존 금지 — CI run 39719705178).
+// RunDrill — dumpPath 덤프를 임시 데이터베이스 flint_drill_db에 재생해
+// knowledge 행수를 대조한다. 재생은 원본 DSN과 분리된 드릴 DB 전용 풀에서
+// 일어나므로 원본 풀의 어떤 커넥션 상태(search_path 등)도 오염되지 않는다.
+// 성공 시 maintenance_runs 1행(kind=drill)과 meta last_drill을 원본 DSN에
+// 기록한다. 드릴 DB는 성공·실패 무관하게 항상 DROP한다(40001은 재시도로
+// 회복). 행수 불일치는 에러가 아닌 Ok=false로 보고한다. DROP 재시도 소진
+// 시 잔존을 숨기지 않고 성공 대신 명시적 실패를 반환한다(계약: 재생 실패
+// 시에도 잔존 금지 — CI run 39719705178). 테이블·스키마 개별 DROP이 무음
+// no-op로 잔존하는 doltgresql 결함(1.3.3·1.4.0 실측)과 무관하게 DB 단위
+// 삭제는 이 결함 조합에서도 동작한다(실측) — v0.15.2 스키마→DB 격리 전환.
 func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
 	ctx, cancel := context.WithTimeout(context.Background(), drillTimeout)
 	defer cancel()
@@ -81,30 +85,44 @@ func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
 	defer pool.Close()
 
 	drop := func() error {
-		return db.Retry(ctx, func() error { return dropDrillSchemaFn(ctx, pool) }, drillDropBackoff)
+		return db.Retry(ctx, func() error { return dropDrillDBFn(ctx, pool) }, drillDropBackoff)
 	}
 	if derr := drop(); derr != nil { // 선행 잔존 정리(이전 비정상 종료 대비)
-		return DrillResult{}, fmt.Errorf("drill: 선행 %s 정리 실패: %w", DrillSchema, derr)
+		return DrillResult{}, fmt.Errorf("drill: 선행 %s 정리 실패: %w", DrillDB, derr)
 	}
 	defer func() {
 		if derr := drop(); derr != nil && err == nil {
-			err = fmt.Errorf("drill: %s 제거 재시도 소진(잔존): %w", DrillSchema, derr)
+			err = fmt.Errorf("drill: %s 제거 재시도 소진(잔존): %w", DrillDB, derr)
 		}
 	}()
 
-	if _, err := pool.Exec(ctx, `CREATE SCHEMA `+DrillSchema); err != nil {
-		return DrillResult{}, fmt.Errorf("drill: create schema: %w", err)
+	if _, err := pool.Exec(ctx, `CREATE DATABASE `+DrillDB); err != nil {
+		return DrillResult{}, fmt.Errorf("drill: create database: %w", err)
 	}
 
-	var expected int
+	// 드릴 DB 접속 — 원본 DSN 설정(자격증명·호스트)을 승계하고 대상 DB만
+	// 바꾼다. 재생은 이 별도 풀에서만 일어난다.
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return DrillResult{}, fmt.Errorf("drill: 드릴 DSN 조립: %w", err)
+	}
+	cfg.ConnConfig.Database = DrillDB
+	drillPool, err := pgxpool.NewWithConfig(ctx, cfg)
+	if err != nil {
+		return DrillResult{}, fmt.Errorf("drill: 드릴 DB 접속: %w", err)
+	}
 
-	// SET search_path는 커넥션 단위 — 풀에서 1커넥션을 잡아 재생 전체에 사용.
-	// 반납 전에 반드시 public으로 되돌린다: 잔류한 flint_drill search_path로
-	// 풀에 돌아간 커넥션에서 이후 비한정 쿼리가 public 테이블을 못 찾는다
-	// (42P01). 드릴 성공 기록(public.maintenance_runs·public.meta)은 재생
-	// 커넥션과 분리된 풀 쿼리로 실행한다.
-	var restored int
-	err = drillConn(ctx, pool, func(conn *pgxpool.Conn) error {
+	// 재생 — 덤프는 BEGIN/COMMIT을 포함하므로 트랜잭션 상태가 커넥션에
+	// 남는다: 전체를 1커넥션에서 실행한다. 커넥션·풀은 모든 경로에서
+	// 반납·종료한다 — DROP DATABASE는 드릴 DB 커넥션이 닫혀야 성공한다.
+	var expected, restored int
+	replayErr := func() error {
+		defer drillPool.Close()
+		conn, err := drillPool.Acquire(ctx)
+		if err != nil {
+			return fmt.Errorf("drill: 재생 커넥션: %w", err)
+		}
+		defer conn.Release()
 		stmts := splitStatements(string(data))
 		expected = countInserts(stmts, "knowledge")
 		for _, stmt := range stmts {
@@ -115,23 +133,22 @@ func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
 				return fmt.Errorf("drill: %v\n  in: %.120s", err, stmt)
 			}
 		}
-		if err := conn.QueryRow(ctx,
-			`SELECT count(*) FROM `+DrillSchema+`.knowledge`).Scan(&restored); err != nil {
+		if err := conn.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&restored); err != nil {
 			return fmt.Errorf("drill: knowledge 행수: %w", err)
 		}
 		return nil
-	})
-	if err != nil {
-		return DrillResult{Expected: expected}, err
+	}()
+	if replayErr != nil {
+		return DrillResult{Expected: expected}, replayErr
 	}
 	res = DrillResult{Expected: expected, Restored: restored, Ok: expected == restored}
 	if !res.Ok {
 		return res, nil
 	}
 
-	// 성공 기록 — 재생 커넥션과 분리해 공용 스키마에 명시 한정 기록.
-	// 개발 DB가 v0.4 이전 생성이면 maintenance_runs이 없을 수 있다(마이그레이션
-	// 게이트 공백) — 드릴 성공이 기록 실패로 뭉개지지 않게 테이블을 보장한다.
+	// 성공 기록 — 원본 DSN 공용 스키마에 명시 한정 기록. 개발 DB가 v0.4
+	// 이전 생성이면 maintenance_runs이 없을 수 있다(마이그레이션 게이트
+	// 공백) — 드릴 성공이 기록 실패로 뭉개지지 않게 테이블을 보장한다.
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.maintenance_runs (
 		id serial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
 		kind text NOT NULL, details text)`); err != nil {
@@ -152,118 +169,19 @@ func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
 	return res, nil
 }
 
-// drillConn — 풀에서 1커넥션을 잡아 search_path를 flint_drill로 바꾼 뒤
-// fn을 실행하고, 반환 전(에러 포함) 반드시 public으로 되돌려 반납한다.
-// SET search_path는 커넥션 단위 상태라 잔류하면 그 커넥션을 이후 얻는
-// 쿼리가 public 테이블을 flint_drill에서 찾다 실패한다(42P01).
-func drillConn(ctx context.Context, pool *pgxpool.Pool, fn func(conn *pgxpool.Conn) error) error {
-	conn, err := pool.Acquire(ctx)
-	if err != nil {
-		return err
-	}
-	defer func() {
-		_, _ = conn.Exec(ctx, `SET search_path TO public`) // 잔류 방지(최선)
-		conn.Release()
-	}()
-	if _, err := conn.Exec(ctx, `SET search_path = `+DrillSchema); err != nil {
-		return fmt.Errorf("drill: search_path: %w", err)
-	}
-	return fn(conn)
-}
-
-// drillDropBackoff — 드릴 스키마 DROP의 40001(직렬화 실패) 재시도 간격.
+// drillDropBackoff — 드릴 DB DROP의 40001(직렬화 실패) 재시도 간격.
 // CI 직렬화 부하에서 DROP이 타 세션 커밋과 충돌해 실패했는데 오류가
-// 무시되면 스키마가 잔존했다(CI run 39719705178) — 승격 커밋·views 재적용과
+// 무시되면 DB가 잔존했다(CI run 39719705178) — 승격 커밋·views 재적용과
 // 같은 회복 패턴으로 짧게 3회 시도한다.
 var drillDropBackoff = []time.Duration{0, time.Second, 3 * time.Second}
 
-// dropDrillSchemaFn — DROP 주입 seam(회귀 테스트가 일시 실패를 흉내 낸다).
-var dropDrillSchemaFn = dropDrillSchema
+// dropDrillDBFn — DROP 주입 seam(회귀 테스트가 일시 실패를 흉내 낸다).
+var dropDrillDBFn = dropDrillDB
 
-// dropDrillSchema — flint_drill 스키마 제거. Doltgres 제약 3가지 대응:
-//   - CASCADE 미지원(XX000)
-//   - 비어 있지 않은 스키마의 DROP을 에러 없이 조용히 무시
-//   - DROP TABLE이 FK 참조를 남겨 부모 테이블 제거를 차단(dangling FK)
-//
-// 따라서 (1) FK 제약 선행 제거 → (2) 테이블 반복 제거 → (3) 스키마 DROP.
-func dropDrillSchema(ctx context.Context, pool *pgxpool.Pool) error {
-	if err := dropDrillFKs(ctx, pool); err != nil {
-		return err
-	}
-	for pass := 0; ; pass++ {
-		tables, err := drillTables(ctx, pool)
-		if err != nil {
-			return err
-		}
-		if len(tables) == 0 {
-			break
-		}
-		if pass > 50 {
-			return fmt.Errorf("drill: %s 테이블 제거 진행 불가: %v", DrillSchema, tables)
-		}
-		progress := false
-		var lastErr error
-		for _, t := range tables {
-			if _, err := pool.Exec(ctx,
-				`DROP TABLE IF EXISTS `+DrillSchema+"."+quoteIdent(t)); err == nil {
-				progress = true
-			} else {
-				lastErr = err
-			}
-		}
-		if !progress {
-			return fmt.Errorf("drill: %s 테이블 제거 실패: %v: %v", DrillSchema, tables, lastErr)
-		}
-	}
-	_, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+DrillSchema)
+// dropDrillDB — flint_drill_db 데이터베이스 제거. 테이블·스키마 개별
+// DROP 대신 DB 단위로 지운다 — doltgresql의 무음 DROP no-op 결함이
+// 재생 테이블 잔존으로 번지지 않는다(실측).
+func dropDrillDB(ctx context.Context, pool *pgxpool.Pool) error {
+	_, err := pool.Exec(ctx, `DROP DATABASE IF EXISTS `+DrillDB)
 	return err
-}
-
-// dropDrillFKs — 스키마 내 FK 제약 선행 제거(최선 노력 — 개별 실패는
-// 테이블 제거 단계에서 잡힌다).
-func dropDrillFKs(ctx context.Context, pool *pgxpool.Pool) error {
-	rows, err := pool.Query(ctx, `SELECT constraint_name, table_name
-		FROM information_schema.table_constraints
-		WHERE table_schema = $1 AND constraint_type = 'FOREIGN KEY'`, DrillSchema)
-	if err != nil {
-		return err
-	}
-	type fk struct{ name, table string }
-	var fks []fk
-	for rows.Next() {
-		var c fk
-		if err := rows.Scan(&c.name, &c.table); err != nil {
-			rows.Close()
-			return err
-		}
-		fks = append(fks, c)
-	}
-	rows.Close()
-	if err := rows.Err(); err != nil {
-		return err
-	}
-	for _, c := range fks {
-		_, _ = pool.Exec(ctx, `ALTER TABLE `+DrillSchema+"."+quoteIdent(c.table)+
-			" DROP CONSTRAINT "+quoteIdent(c.name))
-	}
-	return nil
-}
-
-// drillTables — flint_drill에 남은 테이블 목록.
-func drillTables(ctx context.Context, pool *pgxpool.Pool) ([]string, error) {
-	rows, err := pool.Query(ctx,
-		`SELECT table_name FROM information_schema.tables WHERE table_schema = $1`, DrillSchema)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	var tables []string
-	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
-			return nil, err
-		}
-		tables = append(tables, name)
-	}
-	return tables, rows.Err()
 }
