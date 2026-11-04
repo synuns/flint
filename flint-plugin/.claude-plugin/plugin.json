@@ -1,5 +1,6 @@
 {
   "name": "flint",
-  "description": "flint 장기기억 저장소 — Claude Code 세션에 hot 컨텍스트 주입 및 종료 시 기록",
-  "version": "0.1.0"
+  "version": "0.16.0",
+  "description": "flint 장기기억 — 세션 훅·스킬·명령 (에이전트 비간섭)",
+  "repository": "https://github.com/synuns/flint"
 }

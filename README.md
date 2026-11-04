@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.15.2-blue" alt="v0.15.1">
+  <img src="https://img.shields.io/badge/release-v0.16.0-blue" alt="v0.16.0">
 </p>
 
 <p align="center">
@@ -64,13 +64,29 @@ Most AI agents start every session with a blank slate.
 
 ```bash
 # 1. Install — single Go binary, pgx/v5 only
+
+# Option A: download a release binary (v0.16.0+)
+#   Pushing a tag creates the Release automatically — binaries, checksums,
+#   and the plugin zip: https://github.com/synuns/flint/releases
+
+# Option B: build from source
 git clone https://github.com/synuns/flint.git flint && cd flint
 make install          # builds bin/flint
 make build            # production build; version derived from the latest git tag
 
 # 2. One-command setup — Doltgres up + migrate + guides
-./bin/flint setup
+flint setup           # or ./bin/flint setup from a source build
 make seed             # example data, idempotent (hash dedup)
+```
+
+### Install the Claude Code plugin (v0.16.0+)
+
+The plugin is published on the marketplace (`.claude-plugin/marketplace.json`).
+Prerequisite: the `flint` binary on `PATH` — plugin hooks invoke `flint` from `PATH`.
+
+```text
+/plugin marketplace add synuns/flint
+/plugin install flint@flint
 ```
 
 Verify:
