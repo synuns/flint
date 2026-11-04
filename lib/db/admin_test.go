@@ -228,8 +228,6 @@ func resetVersionToV1(t *testing.T, r *Repo) {
 // err=nil로 통과하고 버전을 '1'로 되돌리지 않는다. v0.1 게이트가 '1'만
 // 상정해 nil wrap 실패("%!w(<nil>)")를 냈다.
 func TestMigrateAcceptsV2(t *testing.T) {
-	unlock := sharedDBLock(t)
-	defer unlock()
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
 	ctx := context.Background()
@@ -280,8 +278,6 @@ func flintIndexCount(t *testing.T, r *Repo) int {
 // TestEnsureSchemaV3Idempotent — Review Focus(state): 2회 호출 → 인덱스 3행·
 // 버전 3, 2회째는 무변화. protocol: v2 게이트를 경유한 DB(기존 배포 경로)도 승격.
 func TestEnsureSchemaV3Idempotent(t *testing.T) {
-	unlock := sharedDBLock(t)
-	defer unlock()
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
 	dropV3Indexes(t, r)
@@ -339,8 +335,6 @@ func TestEnsureSchemaV3Idempotent(t *testing.T) {
 // TestEnsureSchemaV3FromV1 — v2를 건너뛴 v1 DB도 v3 게이트 하나로 승격된다
 // (게이트는 버전만 갱신하고 인덱스는 IF NOT EXISTS로 멱등 적용).
 func TestEnsureSchemaV3FromV1(t *testing.T) {
-	unlock := sharedDBLock(t)
-	defer unlock()
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
 	dropV3Indexes(t, r)
@@ -354,8 +348,6 @@ func TestEnsureSchemaV3FromV1(t *testing.T) {
 
 // TestEnsureSchemaV2 — v1 DB(fake DDL) 무손실 승격: ALTER 컬럼 추가+버전 2+기존 데이터 유지+멱등.
 func TestEnsureSchemaV2(t *testing.T) {
-	unlock := sharedDBLock(t)
-	defer unlock()
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
 	ctx := context.Background()
