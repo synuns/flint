@@ -1,10 +1,13 @@
 # T43 CI 파이프라인 — 단위 테스트 + 실 Doltgres e2e.
-# 태그 push는 안내만 출력(실 릴리스 push는 사용자 확인 후 수행 — 비간섭 원칙).
+# 태그 push(v*) 시 release 잡이 goreleaser로 자동 Release 생성(실 태그 push는 사용자 확인 후 수행 — 비간섭 원칙).
 name: ci
 
 on:
   push:
     branches: [main]
+    # v0.16.0 R1: branches 필터만 있으면 태그 push는 워크플로 미발동 —
+    # release 잡 실행을 위해 태그 트리거 명시 필요.
+    tags: ["v*"]
   pull_request:
 
 jobs:
@@ -53,14 +56,23 @@ jobs:
       - name: e2e (실 Doltgres)
         run: make e2e
 
-  # 태그 push(v*) 시 릴리스 절차 안내만 — 실 태그·push는 사용자 확인 후.
-  release-notice:
+  # T1 태그 push(v*) 시 goreleaser 자동 Release 생성 — 바이너리(tar.gz) + 플러그인 zip 첨부.
+  # 실 태그 push는 사용자 확인 후 수행(비간섭 원칙 유지).
+  release:
     if: startsWith(github.ref, 'refs/tags/v')
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
-      - name: 릴리스 안내
-        run: |
-          echo "태그 감지: ${GITHUB_REF#refs/tags/}"
-          # 다음 릴리스 안내는 현재 태그 +패치로 계산(기존 태그 재지시 방지, v0.13.2 N12)
-          next=$(echo "${GITHUB_REF#refs/tags/}" | awk -F. '{print $1"."$2"."($3+1)}')
-          echo "릴리스 절차(사용자 확인 후): git tag v$next && git push origin v$next -> goreleaser 빌드(darwin arm64/amd64) -> Release 첨부"
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - uses: goreleaser/goreleaser-action@v6
+        with:
+          args: release --clean
+          version: latest
+      - name: 릴리스 링크
+        run: echo "https://github.com/synuns/flint/releases/tag/${GITHUB_REF#refs/tags/}"

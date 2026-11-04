@@ -1,0 +1,7 @@
+{
+  "name": "flint",
+  "owner": { "name": "synuns" },
+  "plugins": [
+    { "name": "flint", "source": "./flint-plugin", "description": "flint 장기기억 플러그인" }
+  ]
+}
