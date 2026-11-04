@@ -456,7 +456,8 @@ flint-plugin/
 - [x] R1 validate_yaml.py 포트 단얱 5433→5434(실제 ci.yml doltgres 매핑
   과 정합 — v0.9.3 포트 전환 잔존)·CI flint_test 프로비저닝 스텝 추가
   (v0.15.0 격리 가드가 드러낸 서비스 DB 누락 — CI는 v0.13.2부터 레드)·
-  R2 배지 v0.15.2
+  R2 배지 v0.15.2 · Doltgres 이미지 digest 핀(양쪽) — latest(10-02 빌드)의
+  drill DROP 회귀가 검증자 레드에 가려진 채 축적(5435 일회용 재현으로 판명)
 
 ## 15. 이연 결정 (트리거 정의됨)
 

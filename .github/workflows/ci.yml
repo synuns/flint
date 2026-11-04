@@ -13,7 +13,7 @@ jobs:
     services:
       # ADR-0010: 호스트 5434 -> 컨테이너 5432 (docker-compose.yml과 동일 설정)
       doltgres:
-        image: dolthub/doltgresql:latest
+        image: dolthub/doltgresql@sha256:74cedde648438b25818aa4bac23514ff346c9245e5ea583358ca6a9159a1e378
         ports:
           - 5434:5432
         env:
