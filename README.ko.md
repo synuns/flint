@@ -155,6 +155,7 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 
 `flint read`는 구문 미스 시 단어 단위 재검색(fallback)한다.
 `flint read`는 재검색까지 제로히트면 아무것도 출력하지 않고 exit 1로 종료한다(침묵 계약, v0.14.0) — 기존 근접 후보 suggestions 출력은 폐지했고, 근접 후보는 `zero_near` 지표로 내부 계측만 한다(에이전트 노출 없음).
+출력 없는 exit 1 = 지식 없음(정상 침묵) · 오류 JSON 한 줄을 동반한 exit 1 = 실제 실패(저장소 오류, MapExit 기본).
 `flint read --status pending`은 승격 대기 중인 지식 항목을 나열한다.
 `flint read`는 랭킹 동률을 채택(read_count DESC) 순으로 재랭킹한다 — 인기는 최종 타이브레이크일 뿐(v0.13.0).
 `flint maintain --conflict-suspects`는 모순 의심 지식(동일 topic·상이 요약)을 리스팅한다(v0.13.0).

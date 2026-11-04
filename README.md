@@ -150,6 +150,7 @@ The four phases form one session lifecycle:
 
 `flint read` retries word-by-word (fallback) when the phrase query hits nothing.
 `flint read` prints nothing and exits 1 when even the fallback hits nothing (silence contract) — near-miss candidates are measured internally as the `zero_near` metric, never shown to the agent (v0.14.0).
+exit 1 with no output = no knowledge (normal silence); exit 1 with an error JSON line = actual failure (storage error via MapExit).
 `flint read --status pending` lists knowledge items awaiting approval.
 `flint read` breaks ranking ties by adoption (`read_count` DESC) — popularity only as the final tiebreaker (v0.13.0).
 `flint maintain --conflict-suspects` lists suspected contradicting knowledge (same topic, diverging summaries) (v0.13.0).

@@ -142,7 +142,10 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
 - `backupAgeWarn` — 백업 주기 변경 시 주기×3을 유지한다. 잦은 허위
   경고면 여유를 늘리고, 장애 감지 지연이 문제면 줄인다.
 - `suggestMinScore` — 유효 제안이 누락되면 낮추고, 무관 제안이 다시
-  관측되면 높인다. 변경 후 스모크 질의 세트로 top 제안을 재확인한다.
+  관측되면 높인다. 제안 라인은 폐지돼(§9) top 제안을 직접 볼 수 없으므로
+  `flint report`의 `zero_near_pct`로 관측한다 — 근접 지식이 있는 제로히트
+  질의가 zero_near에 안 잡히면 임계가 높은 것(낮춘다), 무관 지식까지
+  잡히면 낮은 것(높인다).
 
 ## 9. zero_near — 제로히트 침묵 계약 계측 (v0.14.0)
 
@@ -150,6 +153,8 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
 (제안 출력 폐지 — 근접 후보는 에이전트에 노출하지 않는다). 대신 근접
 후보 유무를 `zero_near` 지표로 내부 계측해 report가 노출한다.
 
+- exit 1 구분 — exit 1은 저장소 오류(MapExit 기본)와 공존한다: 무출력
+  exit 1이 침묵 계약(정상), 오류 JSON 한 줄을 동반한 exit 1이 실패다.
 - 분류 임계 — 제안 스캔 `suggestMinScore` `0.15`를 그대로 재사용한다
   (별도 상수 없음). 최고 근접 점수가 0.15 이상인 제로히트를 zero_near로
   분류한다.
