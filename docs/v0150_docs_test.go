@@ -48,3 +48,19 @@ func TestReadmeExitTable(t *testing.T) {
 		}
 	}
 }
+
+// TestReadmeExit3TrailingWording — exit 3의 trailing은 값 없는 trailing
+// 플래그(F1/N10)다. read는 위치 인자를 전부 질의로 join하므로 "질의 뒤
+// 잔여 텍스트"는 exit 3이 아니라는 오표현을 방어한다.
+func TestReadmeExit3TrailingWording(t *testing.T) {
+	cases := []struct{ path, want, stale string }{
+		{"../README.md", "valueless trailing flags", "trailing text after the query"},
+		{"../README.ko.md", "값 없는 trailing 플래그", "질의 뒤 잔여 텍스트"},
+	}
+	for _, c := range cases {
+		s := docStrV0150(t, c.path)
+		if !strings.Contains(s, c.want) || strings.Contains(s, c.stale) {
+			t.Errorf("%s exit 3 문안: %q 포함·%q 부재여야 함", c.path, c.want, c.stale)
+		}
+	}
+}

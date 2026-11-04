@@ -168,7 +168,7 @@ exit 코드(v0.15.0 — 현행 de-facto 동작 명시):
 | `exit 0` | 성공 |
 | `exit 1` | 명령·검증 오류 — 오류 JSON 한 줄 동반(지식 없는 침묵 `read`도 무출력 exit 1 — 위 침묵 계약) |
 | `exit 2` | 저장소 장애(`MapExit`) |
-| `exit 3` | read 인자 규칙 위반 — 질의 뒤 잔여 텍스트(trailing)·무효 `--status` / `--as-of` 값 |
+| `exit 3` | read 인자 규칙 위반 — 값 없는 trailing 플래그·무효 `--status` / `--as-of` 값 |
 
 그 외: `version`, `teardown`. 운영 절차는 [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝은 [docs/TUNING.md](docs/TUNING.md)
 
