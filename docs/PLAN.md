@@ -465,6 +465,17 @@ flint-plugin/
   드릴 스킵. 정상 엔진 전량 실행. 업스트림 이슈 후속.
 - [x] R5 배지 v0.15.2·v0.15.1 태그 #27 머지 커밋에 지연 발행
 
+### v0.16.0 (2026-11-05) — 릴리스 자동화·플러그인 마켓플레이스 배포
+
+- [x] R1 릴리스 자동화 — 태그 push 시 Release 자동 생성(바이너리·
+  checksums·플러그인 zip)
+- [x] R2 플러그인 매니페스트 — `.claude-plugin/` 2종으로 마켓플레이스
+  배포(`/plugin marketplace add synuns/flint` → `/plugin install flint@flint`)
+- [x] R3 문서·배지 — README(EN/KO) 설치 섹션(릴리스 바이너리·플러그인
+  설치·기존 setup 병기)·배지 v0.16.0
+- 원칙 갱신: 태그 push가 곧 사용자 확인 — Release 자동 생성(v0.16.0부터
+  수동 릴리스 절차 없음)
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
