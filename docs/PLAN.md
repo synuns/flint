@@ -433,6 +433,18 @@ flint-plugin/
   README(EN/KO) 침묵 계약 서술 갱신, TUNING zero_near 소절, 배지
   v0.14.0
 
+### v0.15.0 우아함 축 (2026-11-05 기획) — 핫패스 계측 단일화·지표 기간화·진단 폐쇄
+
+- [x] R1 핫패스 계측 단일화 — read_stats 단일 읽기-수정-쓰기
+  (BumpReadStats 통합), 계측 왕복 예산 ≤ 5(병합 upsert)
+- [x] R2 zero 지표 기간화 — daily read_zero·read_zero_near 키·
+  report --days 창 합산 산출(zero_pct·zero_near_pct, 누적 read_stats
+  오염 절연)
+- [x] R3 doctor zero_near 검사 — 최근 7일 daily 합산 표본 read ≥ 10 &&
+  zero_near 비율 ≥ 30%면 warn(어휘 불일치 의심), 체인 말미 등록
+- [x] R4 계약 문서화 — README(EN/KO) exit 코드 표(0/1/2/3)·TUNING
+  기간화 지표·doctor 임계·왕복 계약 소절, 배지 v0.15.0
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

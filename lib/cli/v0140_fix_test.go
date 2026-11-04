@@ -12,16 +12,15 @@ import (
 
 // TestBumpStatsGetKVErrorKeepsStats — getKV 전송 오류(err != nil) 시
 // setKV 미호출·read_stats 미변경(기존 calls/zero 와이프 방지). 키 부재·JSON
-// 파손은 기존 계약("0에서 재기작")대로 setKV를 호출한다.
+// 파손은 기존 계약("0에서 재기작")대로 setKV를 호출한다. v0.15.0 룰링으로
+// BumpZeroNear 단얱은 제거(BumpReadStats 통합 대상 — 승계는
+// TestBumpReadStatsUnified).
 func TestBumpStatsGetKVErrorKeepsStats(t *testing.T) {
 	boom := errors.New("kv transport down")
 	get := func(string) (string, error) { return "", boom }
 	sets := 0
 	set := func(k, v string) error { sets++; return nil }
-	if err := BumpZeroNear(get, set); !errors.Is(err, boom) {
-		t.Errorf("BumpZeroNear getKV 오류 미반환: %v", err)
-	}
-	if err := BumpReadStats(true, get, set); !errors.Is(err, boom) {
+	if err := BumpReadStats(true, false, get, set); !errors.Is(err, boom) {
 		t.Errorf("BumpReadStats getKV 오류 미반환: %v", err)
 	}
 	if sets != 0 {

@@ -162,3 +162,34 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
   못 찾음), `zero_pct − zero_near_pct` = 지식 부재 비율(추가해야 할
   지식). zero_near_pct가 높으면 임계·색인을 점검하고, 낮으면 지식
   축적이 우선 과제다.
+
+## 10. 기간화 지표·doctor 임계·계측 왕복 계약 (v0.15.0)
+
+### 기간화 지표 — Σ daily 합산 산출
+
+`flint report`의 `zero_pct`·`zero_near_pct`는 누적 `read_stats`가 아니라
+`--days` 창의 일별 `daily:YYYY-MM-DD` 행 합산(Σread_zero·Σread_zero_near
+/ Σread, 버림 정수%)으로 산출한다. 누적 `read_stats`는 임계 변경 이력·
+스키마 전환 등으로 오염될 수 있어 지표 원천으로 쓰지 않는다(절연) —
+일별 키는 PruneDaily가 14일만 보존하므로 창도 그 범위 안에서만 유효하다.
+
+### doctor zero-near 임계
+
+`flint doctor`의 zero-near 검사는 최근 7일 daily 합산에서 판정한다:
+
+| 상수 | 기본값 | 의미 |
+|---|---|---|
+| 표본 하한 | `10` | 창 내 Σread가 10 미만이면 표본 부족으로 ok(판정 보류) |
+| 경고 임계 | `30`% | Σread_zero_near×100/Σread ≥ 30이면 warn — 어휘 불일치 의심, 검색 품질 개선 여지 |
+
+경고는 동작을 막지 않는다(warn — fail 아님). 값은 코드 상수
+(`lib/cli/doctor.go`) — meta 오버라이드 확장은 허위 경고 관측 시 검토한다.
+
+### 계측 왕복 계약 — 단일 라이터·병합 upsert
+
+read 경로 계측은 왕복 예산(본 쿼리 제외 ≤ 5회)을 지킨다:
+
+- **단일 라이터** — `read_stats`는 BumpReadStats 하나가 단일 읽기-수정-
+  쓰기로 calls·zero·zero_near를 한 번에 갱신한다(부분 갱신 금지).
+- **병합 upsert** — daily 행과 `last_read_at`은 단일 2행
+  `INSERT ... ON CONFLICT DO UPDATE`로 함께 쓴다(왕복 1절감).
