@@ -74,5 +74,7 @@ jobs:
         with:
           args: release --clean
           version: latest
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: 릴리스 링크
         run: echo "https://github.com/synuns/flint/releases/tag/${GITHUB_REF#refs/tags/}"
