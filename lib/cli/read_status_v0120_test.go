@@ -47,8 +47,8 @@ func TestReadStatusInvalidExit3(t *testing.T) {
 func TestReadDefaultUnchanged(t *testing.T) {
 	var out bytes.Buffer
 	f := &fakeStore{queryFn: statusQueryFn()}
-	if code := runRead(context.Background(), asofFakeOrReal(t, f), []string{"토픽"}, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("exit = %d, want 0", code)
+	if code := runRead(context.Background(), asofFakeOrReal(t, f), []string{"토픽"}, strings.NewReader(""), &out); code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
 	}
 	wantSQL, wantArgs := query.BuildRead("토픽", query.Filters{})
 	if got := asofReadSQL(f); got != wantSQL {

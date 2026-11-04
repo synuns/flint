@@ -423,6 +423,16 @@ flint-plugin/
 - [x] 프로세스 룰: 각 릴리스의 마지막 커밋에 README(EN/KO) release 배지
   갱신 포함(배지 가드는 최신 태그·다음 예정 버전 허용 — 커밋→태그 창 레드 없음)
 
+### v0.14.0 패치 (2026-11-04 기획) — 제로히트 침묵 계약·zero_near 계측
+
+- [x] R1 제로히트 침묵 계약 — read 재검색까지 제로히트 시 무출력·
+  exit 1(제안 출력 폐지)
+- [x] R2 zero_near 판별 계측 — 최고 근접 점수 suggestMinScore 0.15
+  이상 제로히트를 zero_near로 계측
+- [x] R3 report 노출·문서 정합 — report에 zero_near 계열 필드 노출,
+  README(EN/KO) 침묵 계약 서술 갱신, TUNING zero_near 소절, 배지
+  v0.14.0
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
