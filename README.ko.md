@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.15.2-blue" alt="v0.15.1">
+  <img src="https://img.shields.io/badge/release-v0.16.0-blue" alt="v0.16.0">
 </p>
 
 <p align="center">
@@ -68,13 +68,30 @@
 
 ```bash
 # 1. 설치 — Go 단일 바이너리, 의존은 pgx/v5뿐
+
+# 방법 A: 릴리스 바이너리 다운로드 (v0.16.0부터)
+#   태그 push 시 Release가 자동 생성된다 — 바이너리·checksums·플러그인 zip:
+#   https://github.com/synuns/flint/releases
+
+# 방법 B: 소스 빌드
 git clone https://github.com/synuns/flint.git flint && cd flint
 make install          # bin/flint 빌드
 make build            # 운영 빌드, 버전은 최근 git 태그에서 파생
 
 # 2. 원커맨드 설정 — Doltgres 기동 + 마이그레이션 + 안내
-./bin/flint setup
+flint setup           # 소스 빌드는 ./bin/flint setup
 make seed             # 예시 데이터, 멱등(해시 dedup)
+```
+
+### Claude Code 플러그인 설치 (v0.16.0부터)
+
+플러그인을 마켓플레이스에 공개했다(`.claude-plugin/marketplace.json`).
+선행 조건: `flint` 바이너리가 `PATH`에 있을 것 — 플러그인 훅은 `PATH`의
+`flint`를 호출한다.
+
+```text
+/plugin marketplace add synuns/flint
+/plugin install flint@flint
 ```
 
 확인:
