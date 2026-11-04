@@ -172,29 +172,36 @@ type readStatsJSON struct {
 	ZeroNear int `json:"zero_near,omitempty"`
 }
 
-// LoadReadStats — meta read_stats 로드. 키 부재·오류·JSON 파손 시 기본값
-// 폴백(ok=false, 0/0).
-func LoadReadStats(getKV func(string) (string, error)) (calls int, zero int, ok bool) {
+// loadReadStatsJSON — meta read_stats를 전체 구조체로 로드(v0.14.0 내부
+// 파서 — zero_near 보존용). 키 부재·오류·JSON 파손 시 기본값 폴백
+// (ok=false, 제로값).
+func loadReadStatsJSON(getKV func(string) (string, error)) (readStatsJSON, bool) {
 	v, err := getKV("read_stats")
 	if err != nil || v == "" {
-		return 0, 0, false
+		return readStatsJSON{}, false
 	}
 	var st readStatsJSON
 	if json.Unmarshal([]byte(v), &st) != nil {
-		return 0, 0, false // 파손 → 기본값 폴백
+		return readStatsJSON{}, false // 파손 → 기본값 폴백
 	}
-	return st.Calls, st.Zero, true
+	return st, true
+}
+
+// LoadReadStats — meta read_stats 로드. 키 부재·오류·JSON 파손 시 기본값
+// 폴백(ok=false, 0/0).
+func LoadReadStats(getKV func(string) (string, error)) (calls int, zero int, ok bool) {
+	st, ok := loadReadStatsJSON(getKV)
+	return st.Calls, st.Zero, ok
 }
 
 // BumpReadStats — read 호출 1회 누적. 기존 read_stats는 getKV로 읽어
 // 합산 후 setKV로 저장(hot_stats 패턴). 파손·부재는 0에서 재기산한다.
+// 기존 zero_near는 보존한다(보존값 0이면 omitempty로 바이트 불변).
 func BumpReadStats(zeroHits bool, getKV func(string) (string, error), setKV func(string, string) error) error {
-	calls, zero, _ := LoadReadStats(getKV) // 파손·부재 폴백 후 재누적
-	st := readStatsJSON{Calls: calls + 1}
+	st, _ := loadReadStatsJSON(getKV) // 파손·부재 폴백 후 재누적
+	st.Calls++
 	if zeroHits {
-		st.Zero = zero + 1
-	} else {
-		st.Zero = zero
+		st.Zero++
 	}
 	b, err := json.Marshal(st)
 	if err != nil {
