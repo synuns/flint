@@ -3,7 +3,6 @@ package flintplugin
 import (
 	"encoding/json"
 	"os"
-	"strings"
 	"testing"
 )
 
@@ -20,16 +19,9 @@ func readV0160(t *testing.T, path string) map[string]any {
 	return m
 }
 
-func TestPluginManifestSync(t *testing.T) {
-	p := readV0160(t, ".claude-plugin/plugin.json")
-	v, _ := p["version"].(string)
-	if !strings.HasPrefix(v, "0.16.0") {
-		t.Errorf("plugin.json version=%q, want 0.16.0 계열(배지 동기)", v)
-	}
-	if p["name"] != "flint" {
-		t.Errorf("plugin.json name=%v, want flint", p["name"])
-	}
-}
+// v0.16.1: TestPluginManifestSync 삭제 — 0.16.0 prefix 강제(버전 동기).
+// TestPluginVersionV0161(plugin_v0161_test.go)이 대체. name 검증은
+// validate_yaml.py가 담당.
 
 func TestMarketplaceStructure(t *testing.T) {
 	m := readV0160(t, "../.claude-plugin/marketplace.json")
