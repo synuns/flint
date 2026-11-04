@@ -39,6 +39,7 @@ func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 // fn이 nil을 돌려주면 즉시 nil, ErrServerDown이면 재시도 없이 즉시 반환,
 // 모두 실패하면 ErrRetriesExhausted. 재시도 중 ctx 취소는 ctx.Err() 반환.
 func Retry(ctx context.Context, fn func() error, delays []time.Duration) error {
+	var last error
 	for i, d := range delays {
 		if i > 0 || d > 0 {
 			if err := sleepCtx(ctx, d); err != nil {
@@ -55,6 +56,12 @@ func Retry(ctx context.Context, fn func() error, delays []time.Duration) error {
 		if errors.Is(err, ErrServerDown) {
 			return err
 		}
+		last = err
+	}
+	// 마지막 오류를 함께 감싼다 — 소진 사실만 돌려주면 원인이 묻혀
+	// 진단 불가(v0.15.2 CI 조사에서 드러난 진단성 결함).
+	if last != nil {
+		return fmt.Errorf("%w: %v", ErrRetriesExhausted, last)
 	}
 	return ErrRetriesExhausted
 }
