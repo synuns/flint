@@ -163,7 +163,7 @@ Exit codes (v0.15.0 — de-facto behavior made explicit):
 | `exit 0` | success |
 | `exit 1` | command or validation error — one error JSON line (a silent no-knowledge `read` also exits 1 with no output: silence contract above) |
 | `exit 2` | storage failure (`MapExit`) |
-| `exit 3` | invalid `read` arguments — trailing text after the query, invalid `--status` / `--as-of` values |
+| `exit 3` | invalid `read` arguments — valueless trailing flags, invalid `--status` / `--as-of` values |
 
 Also: `version`, `teardown`. Operations runbook: [docs/RUNBOOK.md](docs/RUNBOOK.md) · tuning: [docs/TUNING.md](docs/TUNING.md)
 

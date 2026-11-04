@@ -182,11 +182,6 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 		window[d] = len(out.Days)
 		out.Days = append(out.Days, reportDay{Date: d})
 	}
-	// v0.15.0 R2 zero 지표 기간화 — 파싱된 daily 행 전체의 read·zero 합산으로
-	// zero_pct·zero_near_pct 산출(누적 read_stats 의존 제거). 합산은 조회된
-	// 행 전체 기준(보존 한도 14일·PruneDaily가 창 상한을 담보), 창 밖 행도
-	// days 배열 배제와 무관하게 합산에 포함된다(버림 정수%, 제로 분모 0).
-	var sumRead, sumZero, sumNear int
 	for _, r := range rows {
 		if len(r) < 2 {
 			continue
@@ -195,19 +190,25 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 		if _, err := fmt.Sscanf(fmt.Sprint(r[0]), "daily:%s", &key); err != nil {
 			continue
 		}
-		var d reportDay
-		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &d) != nil {
-			continue // 파손 → 0 유지(합산에서도 제외)
-		}
-		sumRead += d.Read
-		sumZero += d.ReadZero
-		sumNear += d.ReadNear
 		idx, ok := window[key]
 		if !ok {
-			continue // 창 밖(초과 보존분 등) — days 배열에는 배제
+			continue // 창 밖(초과 보존분 등)
+		}
+		var d reportDay
+		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &d) != nil {
+			continue // 파손 → 0 유지
 		}
 		d.Date = out.Days[idx].Date
 		out.Days[idx] = d
+	}
+	// v0.15.0 R2 zero 지표 기간화 — zero_pct·zero_near_pct는 --days 창 내
+	// 일별 합산으로 산출(누적 read_stats 의존 제거). days 배열은 창 마킹
+	// 이후라 창 밖 행은 합산에서도 배제된다(버림 정수%, 제로 분모 0).
+	var sumRead, sumZero, sumNear int
+	for _, d := range out.Days {
+		sumRead += d.Read
+		sumZero += d.ReadZero
+		sumNear += d.ReadNear
 	}
 	out.ZeroPct = readZeroPct(sumRead, sumZero)
 	out.ZeroNearPct = readZeroPct(sumRead, sumNear)

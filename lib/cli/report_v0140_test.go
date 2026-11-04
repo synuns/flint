@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestReportZeroNearPct(t *testing.T) {
@@ -13,7 +14,8 @@ func TestReportZeroNearPct(t *testing.T) {
 			return [][]any{{"read_stats", `{"calls":10,"zero":4,"zero_near":3}`}}, nil
 		case strings.Contains(sql, "daily:"):
 			// v0.15.0 기간화 — 픽스처 daily 행 추가(룰링): 합산 4/10·3/10.
-			return [][]any{{"daily:2001-01-01", `{"read":10,"read_zero":4,"read_zero_near":3}`}}, nil
+			// 창 필터(v0.15.0 리뷰 수정) 이후 창 내 날짜만 합산되므로 오늘 날짜로.
+			return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":10,"read_zero":4,"read_zero_near":3}`}}, nil
 		case strings.Contains(sql, "count"):
 			return [][]any{{"1", "2", "3"}}, nil
 		}
