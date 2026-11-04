@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.14.0-blue" alt="v0.14.0">
+  <img src="https://img.shields.io/badge/release-v0.15.0-blue" alt="v0.15.0">
 </p>
 
 <p align="center">
@@ -160,6 +160,15 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 `flint read`는 랭킹 동률을 채택(read_count DESC) 순으로 재랭킹한다 — 인기는 최종 타이브레이크일 뿐(v0.13.0).
 `flint maintain --conflict-suspects`는 모순 의심 지식(동일 topic·상이 요약)을 리스팅한다(v0.13.0).
 백업 덤프는 sha256 사이드카로 무결성을 검증한다 — `flint done` 자동 백업 포함(v0.10.0).
+
+exit 코드(v0.15.0 — 현행 de-facto 동작 명시):
+
+| exit | 의미 |
+| :--- | :--- |
+| `exit 0` | 성공 |
+| `exit 1` | 명령·검증 오류 — 오류 JSON 한 줄 동반(지식 없는 침묵 `read`도 무출력 exit 1 — 위 침묵 계약) |
+| `exit 2` | 저장소 장애(`MapExit`) |
+| `exit 3` | read 인자 규칙 위반 — 질의 뒤 잔여 텍스트(trailing)·무효 `--status` / `--as-of` 값 |
 
 그 외: `version`, `teardown`. 운영 절차는 [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝은 [docs/TUNING.md](docs/TUNING.md)
 
