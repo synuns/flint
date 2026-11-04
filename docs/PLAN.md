@@ -456,8 +456,8 @@ flint-plugin/
 - [x] R1 validate_yaml 포트 단얱 5433→5434(v0.9.3 포트 전환 잔존 스테일 —
   CI test 잡은 #20 이상 전부 FAILURE였음이 판명, 즉시머지가 은폐)
 - [x] R2 CI flint_test 프로비저닝(psql CREATE DATABASE — 서비스는 flint만
-  생성)·GO_TEST_FLAGS 훅으로 CI만 -p 1 패키지 직렬화(신규 Doltgres의
-  병렬 부하 불안정 완화)
+  생성)·GO_TEST_FLAGS 훅 추가(직렬화 필요 시 즉시 적용 가능한 예비선,
+  현행은 평행 — 신규 DB 로컬 전수 그린 실측)
 - [x] R3 진단성 — db.Retry 소진 시 마지막 오류 래핑(기존 폐기로 원인
   은폐)·드릴 테이블 제거 실패 시 오류 노출
 - [x] R4 드릴 가드 requireDropVisibility — doltgresql 업스트림 결함(신규

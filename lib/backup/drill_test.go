@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"flint/lib/db"
+	"github.com/jackc/pgx/v5"
 )
 
 // Review Focus(numeric): INSERT 문 수와 테이블명 매칭 — knowledge만 세고
@@ -71,26 +72,43 @@ func TestSkipForDrill(t *testing.T) {
 // requireDropVisibility — doltgresql 업스트림 결함 가드(v0.15.2): 신규
 // 초기화 스토리지에서 세션·시점에 따라 DROP TABLE이 무음 no-op(성공
 // 보고 후 잔존)한다(1.3.3·1.4.0 실측 — CI flint_test 프로비저닝 노출).
-// 드릴은 "종료 시 잔존 없음"이 계약이라 결함 엔진에서는 스킵한다.
-// 정상 엔진(로컬 구축 스토리지 등)은 전량 실행된다. 업스트림 이슈화
-// 대상 — PLAN §14 v0.15.2 기록.
-func requireDropVisibility(t *testing.T, pool *pgxpool.Pool) {
+// 잔존 스키마는 공유 flint_test의 비한정 쿼리까지 오염시키므로 프로브는
+// 전용 데이터베이스에서 실행·DROP DATABASE로 확실히 정리한다(본 엔진
+// 결함 조합에서도 DB 삭제는 동작 — 실측). 결함 시 드릴 스킵, 정상
+// 엔진은 전량 실행. 업스트림 이슈화 대상 — PLAN §14 v0.15.2.
+func requireDropVisibility(t *testing.T) {
 	t.Helper()
-	ctx := context.Background()
-	_, _ = pool.Exec(ctx, `DROP SCHEMA IF EXISTS flint_drop_probe`)
-	if _, err := pool.Exec(ctx, `CREATE SCHEMA flint_drop_probe`); err != nil {
-		t.Skipf("가시성 프로브 스키마 생성 실패: %v", err)
+	base := testDSN()
+	probeDSN := strings.Replace(base, "/flint_test", "/flint_drop_probe", 1)
+	if !strings.Contains(probeDSN, "flint_drop_probe") {
+		t.Skipf("프로브 DSN 조립 실패: %s", base)
 	}
-	if _, err := pool.Exec(ctx, `CREATE TABLE flint_drop_probe.t (id int)`); err != nil {
-		t.Skipf("가시성 프로브 테이블 생성 실패: %v", err)
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	admin, err := pgx.Connect(ctx, base)
+	if err != nil {
+		t.Skipf("프로브 접속 실패: %v", err)
 	}
-	_, _ = pool.Exec(ctx, `DROP TABLE IF EXISTS flint_drop_probe.t`)
+	defer admin.Close(context.Background())
+	_, _ = admin.Exec(ctx, `DROP DATABASE IF EXISTS flint_drop_probe`)
+	if _, err := admin.Exec(ctx, `CREATE DATABASE flint_drop_probe`); err != nil {
+		t.Skipf("프로브 DB 생성 실패: %v", err)
+	}
+	conn, err := pgx.Connect(ctx, probeDSN)
+	if err != nil {
+		t.Skipf("프로브 DB 접속 실패: %v", err)
+	}
+	defer conn.Close(context.Background())
+	_, _ = conn.Exec(ctx, `CREATE TABLE flint_drop_probe_t (id int)`)
+	_, _ = conn.Exec(ctx, `DROP TABLE IF EXISTS flint_drop_probe_t`)
 	var left int
-	_ = pool.QueryRow(ctx,
-		`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'flint_drop_probe'`).Scan(&left)
-	_, _ = pool.Exec(ctx, `DROP SCHEMA IF EXISTS flint_drop_probe`)
+	_ = conn.QueryRow(ctx,
+		`SELECT count(*) FROM information_schema.tables WHERE table_schema = 'public' AND table_name = 'flint_drop_probe_t'`).Scan(&left)
+	_, _ = conn.Exec(ctx, `DROP TABLE IF EXISTS flint_drop_probe_t`)
+	conn.Close(context.Background())
+	_, _ = admin.Exec(ctx, `DROP DATABASE IF EXISTS flint_drop_probe`)
 	if left != 0 {
-		t.Skipf("doltgresql DROP 무음 no-op 결함(업스트림, 테이블 %d건 잔존) — 드릴 스킵", left)
+		t.Skipf("doltgresql DROP 무음 no-op 결함(업스트림, 테이블 잔존) — 드릴 스킵")
 	}
 }
 
@@ -105,7 +123,7 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 		t.Fatalf("connect doltgres: %v", err)
 	}
 	defer pool.Close()
-	requireDropVisibility(t, pool)
+	requireDropVisibility(t)
 
 	// 상태 판정(헤르메틱, CI run 39713526850): 마이그레이션 전 신규 DB에서는
 	// public.knowledge_id_seq가 아예 없다(pg_sequences 0행) — 미사용·부재는
@@ -231,7 +249,7 @@ func TestDrillWithoutMaintenanceRuns(t *testing.T) {
 		t.Fatalf("connect doltgres: %v", err)
 	}
 	defer pool.Close()
-	requireDropVisibility(t, pool)
+	requireDropVisibility(t)
 	if _, err := pool.Exec(ctx, `DROP TABLE IF EXISTS public.maintenance_runs`); err != nil {
 		t.Fatalf("drop maintenance_runs: %v", err)
 	}
@@ -343,7 +361,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		t.Fatalf("connect pool: %v", err)
 	}
 	defer pool.Close()
-	requireDropVisibility(t, pool)
+	requireDropVisibility(t)
 
 	cleanup := func() {
 		pool.Exec(ctx, `DELETE FROM knowledge WHERE content_hash LIKE 't55-drill-%'`)
@@ -459,7 +477,7 @@ func TestDrillFailureCleansSchema(t *testing.T) {
 		t.Fatalf("connect doltgres: %v", err)
 	}
 	defer pool.Close()
-	requireDropVisibility(t, pool)
+	requireDropVisibility(t)
 
 	path := filepath.Join(t.TempDir(), "broken.sql")
 	if err := os.WriteFile(path, []byte("CREATE TABLE broken (a int;\n"), 0o644); err != nil {
@@ -502,7 +520,7 @@ func dropInjectScaffold(t *testing.T) (dsn, path string, pool *pgxpool.Pool) {
 		t.Fatalf("connect pool: %v", err)
 	}
 	t.Cleanup(func() { pool.Close() })
-	requireDropVisibility(t, pool)
+	requireDropVisibility(t)
 	if _, err := pool.Exec(ctx, `INSERT INTO knowledge
 		(topic, summary, tags, confidence, content_hash)
 		VALUES ('drill', 'drop probe', ':t55:', 0.9, 't55-drop-a1')`); err != nil {
