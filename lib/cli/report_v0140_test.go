@@ -12,7 +12,8 @@ func TestReportZeroNearPct(t *testing.T) {
 		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
 			return [][]any{{"read_stats", `{"calls":10,"zero":4,"zero_near":3}`}}, nil
 		case strings.Contains(sql, "daily:"):
-			return nil, nil
+			// v0.15.0 기간화 — 픽스처 daily 행 추가(룰링): 합산 4/10·3/10.
+			return [][]any{{"daily:2001-01-01", `{"read":10,"read_zero":4,"read_zero_near":3}`}}, nil
 		case strings.Contains(sql, "count"):
 			return [][]any{{"1", "2", "3"}}, nil
 		}

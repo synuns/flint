@@ -66,7 +66,7 @@ func TestReportSevenDayWindow(t *testing.T) {
 	daily := map[string]string{}
 	for i := 0; i <= 7; i++ { // 오늘 포함 8일치
 		d := now.AddDate(0, 0, -i).Format("2006-01-02")
-		daily["daily:"+d] = `{"write":1,"hook":1,"manual":0,"mcp":0,"dup":0,"hot":2,"read":3}`
+		daily["daily:"+d] = `{"write":1,"hook":1,"manual":0,"mcp":0,"dup":0,"hot":2,"read":3,"read_zero":1}`
 	}
 	daily["daily:"+reportDates(7)[1]] = `{broken json` // 파손 → 0 폴백(스킵)
 	f := newReportFake(daily)
@@ -117,8 +117,8 @@ func TestReportSevenDayWindow(t *testing.T) {
 	if m.Days[1].Write != 0 || m.Days[1].Read != 0 {
 		t.Errorf("파손 키 스킵 실패(0이어야): %+v", m.Days[1])
 	}
-	if m.ZeroPct != 20 { // read_stats zero 2/10
-		t.Errorf("zero_pct=%d, want 20", m.ZeroPct)
+	if m.ZeroPct != 33 { // v0.15.0 기간화 — daily 합산 zero 7/21(파손 1행 제외)
+		t.Errorf("zero_pct=%d, want 33", m.ZeroPct)
 	}
 	if m.HotP95 != 400 { // lens [100..400] p95=400
 		t.Errorf("hot_p95=%d, want 400", m.HotP95)
