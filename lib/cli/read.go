@@ -258,8 +258,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회. 조용히(§13).
 	instrumentReads(ctx, st, "read", rowIDs(rows))
 	// 계측(v0.14.0 R2): 제로히트 중 내부 스캔 후보가 있던 read 1회 누적.
-	// bumpReadStatsToMeta 이후에 실행한다 — BumpReadStats는 기존 zero_near를
-	// 보존하지 않아 먼저 쓰면 증분이 덮어 쓰인다. 조용히(§13).
+	// BumpReadStats는 기존 zero_near를 보존하므로 실행 순서 무관. 조용히(§13).
 	if len(suggestions) > 0 {
 		bumpZeroNearToMeta(ctx, st)
 	}
