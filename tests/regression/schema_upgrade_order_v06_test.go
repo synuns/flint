@@ -56,8 +56,9 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 	defer cleanup()
 
 	// 준비 1 — 현행 스키마 구축(실bin 1회: Migrate+게이트) 후 seed.
-	if out, code := runBin("read", topic); code != 0 {
-		t.Fatalf("준비 read exit=%d: %s", code, out)
+	// 빈 topic 제로히트 — v0.14.0 침묵 계약상 exit 1(무출력).
+	if out, code := runBin("read", topic); code != 1 {
+		t.Fatalf("준비 read exit=%d, want 1: %s", code, out)
 	}
 	if _, err := pool.Exec(ctx, `INSERT INTO knowledge
 		(topic, summary, tags, confidence, content_hash)
