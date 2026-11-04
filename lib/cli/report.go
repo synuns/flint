@@ -66,6 +66,8 @@ type reportOutput struct {
 	// v0.10.2 R2 소스별 dup 기간 합계 — 기존 필드·순서 불변, 말미 추가.
 	DupHook   int `json:"dup_hook"`
 	DupManual int `json:"dup_manual"`
+	// v0.14.0 R3 zero_near 비율 — 기존 필드·순서 불변, 말미 추가.
+	ZeroNearPct int `json:"zero_near_pct"`
 
 	readCalls int // 직렬화 제외 — fallback_pct 분모(read_stats calls)
 }
@@ -212,13 +214,16 @@ func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 		switch fmt.Sprint(r[0]) {
 		case "read_stats":
 			var rs struct {
-				Calls int `json:"calls"`
-				Zero  int `json:"zero"`
+				Calls    int `json:"calls"`
+				Zero     int `json:"zero"`
+				ZeroNear int `json:"zero_near"`
 			}
 			if json.Unmarshal([]byte(fmt.Sprint(r[1])), &rs) != nil {
 				continue
 			}
 			out.ZeroPct = readZeroPct(rs.Calls, rs.Zero)
+			// v0.14.0 R3 — zero_near*100/calls 버림(제로 분모 0, readZeroPct 가드 승계).
+			out.ZeroNearPct = readZeroPct(rs.Calls, rs.ZeroNear)
 			out.readCalls = rs.Calls
 		case "hot_stats":
 			var hs struct {

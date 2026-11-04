@@ -151,48 +151,98 @@ func hotSum(lens []int) int {
 	return s
 }
 
-// loadHotStatsFromMeta — 명령 시작 시 meta hot_stats 로드(wiring).
-// 조회 실패·부재는 LoadHotStats 폴백과 동일(경고 없이 baseline 0).
-func loadHotStatsFromMeta(ctx context.Context, st Store) {
-	LoadHotStats(func(key string) (string, error) {
+// metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. hot·read 계측 wiring
+// 4곳에 복제되던 인라인 쿼리를 통일한다. getKV는 키 부재 시 ("", nil),
+// 전송 오류는 err 그대로(호출부 폴백·와이프 방지 판단에 쓰인다).
+func metaKV(ctx context.Context, st Store) (func(string) (string, error), func(string, string) error) {
+	getKV := func(key string) (string, error) {
 		rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
 		if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
 			return "", err
 		}
 		return fmt.Sprint(rows[0][0]), nil
-	})
+	}
+	setKV := func(key, value string) error {
+		_, err := queryOnce(ctx, st,
+			`INSERT INTO meta (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{key, value})
+		return err
+	}
+	return getKV, setKV
+}
+
+// loadHotStatsFromMeta — 명령 시작 시 meta hot_stats 로드(wiring).
+// 조회 실패·부재는 LoadHotStats 폴백과 동일(경고 없이 baseline 0).
+func loadHotStatsFromMeta(ctx context.Context, st Store) {
+	getKV, _ := metaKV(ctx, st)
+	LoadHotStats(getKV)
 }
 
 // readStatsJSON — meta read_stats 영속 포맷(T56 제로히트 계측).
+// zero_near는 v0.14.0 additive 추가 — 기존 blobs은 0 디폴트 디코딩,
+// 0이면 생략(omitempty)해 BumpReadStats 저장 바이트는 불변으로 유지.
 type readStatsJSON struct {
-	Calls int `json:"calls"`
-	Zero  int `json:"zero"`
+	Calls    int `json:"calls"`
+	Zero     int `json:"zero"`
+	ZeroNear int `json:"zero_near,omitempty"`
+}
+
+// loadReadStatsJSON — meta read_stats를 전체 구조체로 로드(v0.14.0 내부
+// 파서 — zero_near 보존용). 키 부재·JSON 파손은 기본값 폴백(ok=false, 제로값).
+// getKV 전송 오류는 err로 구분해 반환한다 — 호출부(Bump*)는 오류 시 setKV를
+// 생략해 기존 calls/zero를 와이프하지 않는다.
+func loadReadStatsJSON(getKV func(string) (string, error)) (readStatsJSON, bool, error) {
+	v, err := getKV("read_stats")
+	if err != nil {
+		return readStatsJSON{}, false, err
+	}
+	if v == "" {
+		return readStatsJSON{}, false, nil
+	}
+	var st readStatsJSON
+	if json.Unmarshal([]byte(v), &st) != nil {
+		return readStatsJSON{}, false, nil // 파손 → 기본값 폴백
+	}
+	return st, true, nil
 }
 
 // LoadReadStats — meta read_stats 로드. 키 부재·오류·JSON 파손 시 기본값
 // 폴백(ok=false, 0/0).
 func LoadReadStats(getKV func(string) (string, error)) (calls int, zero int, ok bool) {
-	v, err := getKV("read_stats")
-	if err != nil || v == "" {
-		return 0, 0, false
-	}
-	var st readStatsJSON
-	if json.Unmarshal([]byte(v), &st) != nil {
-		return 0, 0, false // 파손 → 기본값 폴백
-	}
-	return st.Calls, st.Zero, true
+	st, ok, _ := loadReadStatsJSON(getKV)
+	return st.Calls, st.Zero, ok
 }
 
 // BumpReadStats — read 호출 1회 누적. 기존 read_stats는 getKV로 읽어
 // 합산 후 setKV로 저장(hot_stats 패턴). 파손·부재는 0에서 재기산한다.
+// getKV 전송 오류는 얼리리턴(재기작하면 읽지 못한 기존 값을 와이프한다).
+// 기존 zero_near는 보존한다(보존값 0이면 omitempty로 바이트 불변).
 func BumpReadStats(zeroHits bool, getKV func(string) (string, error), setKV func(string, string) error) error {
-	calls, zero, _ := LoadReadStats(getKV) // 파손·부재 폴백 후 재누적
-	st := readStatsJSON{Calls: calls + 1}
-	if zeroHits {
-		st.Zero = zero + 1
-	} else {
-		st.Zero = zero
+	st, _, err := loadReadStatsJSON(getKV) // 파손·부재 폴백 후 재누적
+	if err != nil {
+		return err
 	}
+	st.Calls++
+	if zeroHits {
+		st.Zero++
+	}
+	b, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	return setKV("read_stats", string(b))
+}
+
+// BumpZeroNear — 제로히트 중 내부 스캔 후보가 있던 read 1회 누적
+// (v0.14.0 "문서 없음/못 찾음" 분해 계측). 기존 read_stats는 getKV로 읽어
+// zero_near만 증분 후 setKV로 저장(BumpReadStats 패턴 — loadReadStatsJSON
+// 재사용). 파손·부재는 0에서 재기작, getKV 전송 오류는 얼리리턴(와이프 방지).
+func BumpZeroNear(getKV func(string) (string, error), setKV func(string, string) error) error {
+	st, _, err := loadReadStatsJSON(getKV) // 파손·부재 → 0 폴백 후 재누적
+	if err != nil {
+		return err
+	}
+	st.ZeroNear++
 	b, err := json.Marshal(st)
 	if err != nil {
 		return err
@@ -211,34 +261,16 @@ func readZeroPct(calls, zero int) int {
 // loadReadStatsFromMeta — status 노출용 meta read_stats 로드(wiring).
 // 조회 실패·부재·파손은 LoadReadStats 폴백과 동일(0/0).
 func loadReadStatsFromMeta(ctx context.Context, st Store) (calls int, zero int) {
-	calls, zero, _ = LoadReadStats(func(key string) (string, error) {
-		rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
-		if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
-			return "", err
-		}
-		return fmt.Sprint(rows[0][0]), nil
-	})
+	getKV, _ := metaKV(ctx, st)
+	calls, zero, _ = LoadReadStats(getKV)
 	return calls, zero
 }
 
 // bumpReadStatsToMeta — read 계측 wiring: zero 히트 여부를 meta read_stats에
 // 누적. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
 func bumpReadStatsToMeta(ctx context.Context, st Store, zeroHits bool) {
-	err := BumpReadStats(zeroHits,
-		func(key string) (string, error) {
-			rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
-			if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
-				return "", err
-			}
-			return fmt.Sprint(rows[0][0]), nil
-		},
-		func(key, value string) error {
-			_, err := queryOnce(ctx, st,
-				`INSERT INTO meta (key, value) VALUES ($1, $2)
-				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{key, value})
-			return err
-		})
-	if err != nil {
+	getKV, setKV := metaKV(ctx, st)
+	if err := BumpReadStats(zeroHits, getKV, setKV); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] read stats persist: %v\n", err)
 	}
 }
@@ -246,13 +278,8 @@ func bumpReadStatsToMeta(ctx context.Context, st Store, zeroHits bool) {
 // persistHotStatsToMeta — 명령 종료 직전 meta hot_stats 누적 저장(wiring).
 // 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13 — 계측이 본말을 바꾸지 않는다).
 func persistHotStatsToMeta(ctx context.Context, st Store) {
-	err := PersistHotStats(func(key, value string) error {
-		_, err := queryOnce(ctx, st,
-			`INSERT INTO meta (key, value) VALUES ($1, $2)
-			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{key, value})
-		return err
-	})
-	if err != nil {
+	_, setKV := metaKV(ctx, st)
+	if err := PersistHotStats(setKV); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] hot stats persist: %v\n", err)
 	}
 }

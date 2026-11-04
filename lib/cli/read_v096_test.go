@@ -150,8 +150,8 @@ func TestReadFallbackSkippedOnSingleToken(t *testing.T) {
 	var out bytes.Buffer
 	var metaKeys []string
 	f := &fakeStore{queryFn: fallbackQueryFn(&metaKeys)}
-	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업"}, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runRead exit = %d, want 0", code)
+	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업"}, strings.NewReader(""), &out); code != 1 {
+		t.Fatalf("runRead exit = %d, want 1", code)
 	}
 	if got := out.String(); got != "" {
 		t.Errorf("1-토큰 제로히트 출력 있음: %q", got)
