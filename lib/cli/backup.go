@@ -105,7 +105,7 @@ func rotateAfterBackup(ctx context.Context, st Store, out string) string {
 }
 
 // runRestore — 덤프 스크립트 재생. --file 필수. --drill은 실재생 대신
-// flint_drill 임시 스키마 재생 훈련(T55) — 원본 불변, 결과만 보고.
+// flint_drill_db 임시 데이터베이스 재생 훈련(T55) — 원본 불변, 결과만 보고.
 func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	file := ""
 	drill := false
@@ -149,7 +149,7 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	}
 	defer f.Close()
 
-	// --drill — 실재생 대신 훈련: flint_drill 스키마에 재생해 행수 대조.
+	// --drill — 실재생 대신 훈련: flint_drill_db 데이터베이스에 재생해 행수 대조.
 	// 원본은 불변이며, 결과는 한 줄 JSON(불일치 시 ok:false + exit 1).
 	if drill {
 		res, derr := drillFn(dsnFromEnv(), file)
