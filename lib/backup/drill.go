@@ -202,14 +202,17 @@ func dropDrillSchema(ctx context.Context, pool *pgxpool.Pool) error {
 			return fmt.Errorf("drill: %s 테이블 제거 진행 불가: %v", DrillSchema, tables)
 		}
 		progress := false
+		var lastErr error
 		for _, t := range tables {
 			if _, err := pool.Exec(ctx,
 				`DROP TABLE IF EXISTS `+DrillSchema+"."+quoteIdent(t)); err == nil {
 				progress = true
+			} else {
+				lastErr = err
 			}
 		}
 		if !progress {
-			return fmt.Errorf("drill: %s 테이블 제거 실패: %v", DrillSchema, tables)
+			return fmt.Errorf("drill: %s 테이블 제거 실패: %v: %v", DrillSchema, tables, lastErr)
 		}
 	}
 	_, err := pool.Exec(ctx, `DROP SCHEMA IF EXISTS `+DrillSchema)
