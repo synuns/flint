@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -222,9 +223,10 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			}
 		}
 	}
-	// v0.10.0 R1 did-you-mean: 구문·폴백 모두 제로히트 && 현재 시점일 때만
-	// active_knowledge 전체 스캔(필터 무관)으로 근접 후보 상위 3건 제안.
-	// 스캔 실패·제안 0건은 조용히 — 기존 제로히트 출력 바이트 불변.
+	// v0.14.0 R2 zero_near 판별: 구문·폴백 모두 제로히트 && 현재 시점일 때만
+	// active_knowledge 전체 스캔(필터 무관)으로 근접 후보를 계산한다. v0.10.0
+	// 제안 스캔을 출력 없이 승계 — 결과는 에이전트에게 보이지 않는 내부 분류
+	// (zero_near 계측)에만 쓰인다. 스캔 실패·후보 0건은 조용히(§13).
 	var suggestions []query.Suggestion
 	if len(rows) == 0 && asOfSpec == "" && f.Status == "" {
 		ssql, sargs := query.BuildSuggestScan()
@@ -241,17 +243,10 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			}
 		}
 	}
+	// v0.14.0 R1 침묵 계약: eligible(현재 시점·무상태필터) 제로히트는
+	// 완전 무출력 — FormatRows도 빈 rows에 ""를 반환하므로 별도 분기가
+	// 필요 없다. 제안 라인은 폐지(제로히트 결과 행 0 + 스캔 무출력).
 	fmt.Fprint(stdout, query.FormatRows(rows, fields, jsonMode))
-	// R1: 제로히트 제안은 별도 JSON 한 줄로 결과 뒤에 추가(as_of 라인과
-	// 동일한 additive 경로 — 룰링). 빈 슬라이스면 미출력. 제안 topic도
-	// 출력 경계 살균(ADR-0006)을 적용한다.
-	if len(suggestions) > 0 {
-		for i := range suggestions {
-			suggestions[i].Topic = store.SanitizeText(suggestions[i].Topic)
-		}
-		b, _ := json.Marshal(suggestLine{Suggestions: suggestions})
-		fmt.Fprintln(stdout, string(b))
-	}
 	// --as-of 지정 시 결과 뒤에 as_of{hash,commit_date} 한 줄(JSON) 추가.
 	// 미지정이면 기존 필드만 그대로.
 	if asOfHash != "" {
@@ -262,6 +257,17 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	bumpReadStatsToMeta(ctx, st, len(rows) == 0)
 	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회. 조용히(§13).
 	instrumentReads(ctx, st, "read", rowIDs(rows))
+	// 계측(v0.14.0 R2): 제로히트 중 내부 스캔 후보가 있던 read 1회 누적.
+	// bumpReadStatsToMeta 이후에 실행한다 — BumpReadStats는 기존 zero_near를
+	// 보존하지 않아 먼저 쓰면 증분이 덮어 쓰인다. 조용히(§13).
+	if len(suggestions) > 0 {
+		bumpZeroNearToMeta(ctx, st)
+	}
+	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
+	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.
+	if len(rows) == 0 && asOfSpec == "" && f.Status == "" {
+		return 1
+	}
 	return 0
 }
 
@@ -282,9 +288,27 @@ func bumpReadFallbackToMeta(ctx context.Context, st Store) {
 		[]any{query.ReadFallbackCountKey, strconv.Itoa(n + 1)})
 }
 
-// suggestLine — 제로히트 제안 첨부 한 줄 JSON {"suggestions":[…]}(v0.10.0 R1).
-type suggestLine struct {
-	Suggestions []query.Suggestion `json:"suggestions"`
+// bumpZeroNearToMeta — zero_near 계측 wiring(v0.14.0 R2): bumpReadStatsToMeta
+// 패턴 승계 — getKV/setKV 클로저로 BumpZeroNear을 호출한다. 실패는 stderr
+// 1행 이하로 조용히 무시(비간섭 §13).
+func bumpZeroNearToMeta(ctx context.Context, st Store) {
+	err := BumpZeroNear(
+		func(key string) (string, error) {
+			rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
+			if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+				return "", err
+			}
+			return fmt.Sprint(rows[0][0]), nil
+		},
+		func(key, value string) error {
+			_, err := queryOnce(ctx, st,
+				`INSERT INTO meta (key, value) VALUES ($1, $2)
+				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{key, value})
+			return err
+		})
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] zero near persist: %v\n", err)
+	}
 }
 
 // asOfInfo / asOfLine — --as-of 결과 첨부 한 줄 JSON {as_of:{hash,commit_date}}.

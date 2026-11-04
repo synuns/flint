@@ -24,21 +24,18 @@ func suggestQueryFn() func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestReadZeroHitSuggests — Review Focus: 구문·폴백 모두 제로히트 →
-// suggestions 라인에 유사도>0 후보만.
+// TestReadZeroHitSuggests — v0.14.0 R1 재작성(룰링): 제안 라인 폐지 —
+// 구문·폴백 모두 제로히트면 완전 무출력·exit 1. 스캔 후보가 있어도
+// 에이전트에게 보이지 않는다(내부 분류는 zero_near 계측으로만).
 func TestReadZeroHitSuggests(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
 	f := &fakeStore{queryFn: suggestQueryFn()}
-	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("exit = %d", code)
+	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 1 {
+		t.Fatalf("exit = %d, want 1", code)
 	}
-	got := out.String()
-	if !strings.Contains(got, `"suggestions"`) || !strings.Contains(got, `"topic":"flint 백업 절차"`) {
-		t.Errorf("suggestions 라인 미출력: %q", got)
-	}
-	if strings.Contains(got, `"topic":"환영인사"`) {
-		t.Errorf("유사도 0 항목 제안됨: %q", got)
+	if got := out.String(); got != "" {
+		t.Errorf("제로히트 출력 = %q, want \"\"", got)
 	}
 }
 
