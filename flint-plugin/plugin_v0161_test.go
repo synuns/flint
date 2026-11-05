@@ -1,7 +1,6 @@
 package flintplugin
 
 import (
-	"strings"
 	"testing"
 )
 
@@ -13,10 +12,4 @@ func TestMcpUsesPathCommand(t *testing.T) {
 	}
 }
 
-func TestPluginVersionV0161(t *testing.T) {
-	p := readDoc(t, ".claude-plugin/plugin.json")
-	v, _ := p["version"].(string)
-	if !strings.HasPrefix(v, "0.16.1") {
-		t.Errorf("plugin.json version=%q, want 0.16.1", v)
-	}
-}
+// v0.16.2: TestPluginVersionV0161 삭제 — plugin_v0162_test.go가 대체.
