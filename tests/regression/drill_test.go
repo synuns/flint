@@ -1,6 +1,6 @@
 // drill — T55 restore --drill 회귀(코디네이터 룰링: lib/cli 소유 블록 동결로
 // tests/regression/에 배치). cli.Run·backup 공개 계약 수준에서 Review Focus
-// 2건(state: flint_drill 잔존 금지 — 실패 시에도 DROP, numeric: 행수 대조)을
+// 2건(state: flint_drill_db 잔존 금지 — 실패 시에도 DROP, numeric: 행수 대조)을
 // 실DB로 재검증한다. 내부 seam 케이스는 lib/backup/drill_test.go.
 package regression
 
@@ -40,7 +40,7 @@ func regDrillDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// drillLock — flint_drill 스키마는 패키지 간(프로세스 간) 공유 자원이다.
+// drillLock — flint_drill_db는 패키지 간(프로세스 간) 공유 자원이다.
 // go test가 패키지를 병렬 실행하므로 파일 잠금으로 상호 배제한다.
 func drillLock(t *testing.T) func() {
 	t.Helper()
@@ -94,7 +94,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		}
 	}
 	// 타 패키지 테스트가 public 테이블을 동시 생성/삭제하면 덤프가 일시적으로
-	// 오염될 수 있다 — 1회 재시도로 흡수한다(파일 잠금은 flint_drill 경합 방지용).
+	// 오염될 수 있다 — 1회 재시도로 흡수한다(파일 잠금은 flint_drill_db 경합 방지용).
 	var out string
 	var code int
 	before := 0
@@ -126,15 +126,16 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		t.Fatalf("행수 대조 실패(기대 %d): %q", before, out)
 	}
 
-	// state — 스키마 무잔존 + 원본 불변.
-	var schemas, after int
+	// state — 드릴 DB 무잔존 + 원본 불변(v0.16.2 룰링: 스키마 공허 검사에서
+	// pg_database 부재 검사로 승계).
+	var dbs, after int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
-		Scan(&schemas); err != nil {
-		t.Fatalf("schema check: %v", err)
+		`SELECT count(*) FROM pg_database WHERE datname = '`+backup.DrillDB+`'`).
+		Scan(&dbs); err != nil {
+		t.Fatalf("db check: %v", err)
 	}
-	if schemas != 0 {
-		t.Fatalf("flint_drill 잔존: %d", schemas)
+	if dbs != 0 {
+		t.Fatalf("%s 잔존: %d", backup.DrillDB, dbs)
 	}
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&after); err != nil {
 		t.Fatalf("count after: %v", err)
@@ -170,7 +171,6 @@ func TestDrillMismatchExit1(t *testing.T) {
 	pool := regDrillDB(t)
 	defer pool.Close()
 	ctx := context.Background()
-	pool.Exec(ctx, `DROP SCHEMA IF EXISTS flint_drill`)
 
 	script := `CREATE TABLE "knowledge" ("id" integer);
 BEGIN;
@@ -190,25 +190,24 @@ COMMIT;`
 		!strings.Contains(out, `"restored":1`) {
 		t.Fatalf("불일치 출력=%q", out)
 	}
-	var schemas int
+	var dbs int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
-		Scan(&schemas); err != nil {
-		t.Fatalf("schema check: %v", err)
+		`SELECT count(*) FROM pg_database WHERE datname = '`+backup.DrillDB+`'`).
+		Scan(&dbs); err != nil {
+		t.Fatalf("db check: %v", err)
 	}
-	if schemas != 0 {
-		t.Fatalf("flint_drill 잔존: %d", schemas)
+	if dbs != 0 {
+		t.Fatalf("%s 잔존: %d", backup.DrillDB, dbs)
 	}
 }
 
-// Review Focus(state) — 고장 덤프 재생 실패 시에도 flint_drill 잔존 금지.
+// Review Focus(state) — 고장 덤프 재생 실패 시에도 flint_drill_db 잔존 금지.
 func TestDrillFailureCleansSchema(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
 	pool := regDrillDB(t)
 	defer pool.Close()
 	ctx := context.Background()
-	pool.Exec(ctx, `DROP SCHEMA IF EXISTS flint_drill`)
 
 	path := filepath.Join(t.TempDir(), "broken.sql")
 	if err := os.WriteFile(path, []byte("CREATE TABLE broken (a int;\n"), 0o644); err != nil {
@@ -218,14 +217,14 @@ func TestDrillFailureCleansSchema(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("고장 덤프인데 exit 0: %q", out)
 	}
-	var schemas int
+	var dbs int
 	if err := pool.QueryRow(ctx,
-		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
-		Scan(&schemas); err != nil {
-		t.Fatalf("schema check: %v", err)
+		`SELECT count(*) FROM pg_database WHERE datname = '`+backup.DrillDB+`'`).
+		Scan(&dbs); err != nil {
+		t.Fatalf("db check: %v", err)
 	}
-	if schemas != 0 {
-		t.Fatalf("실패 후 flint_drill 잔존: %d", schemas)
+	if dbs != 0 {
+		t.Fatalf("실패 후 %s 잔존: %d", backup.DrillDB, dbs)
 	}
 }
 

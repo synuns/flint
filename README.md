@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.16.1-blue" alt="v0.16.1">
+  <img src="https://img.shields.io/badge/release-v0.16.2-blue" alt="v0.16.2">
 </p>
 
 <p align="center">
@@ -165,7 +165,7 @@ The four phases form one session lifecycle:
 | `flint mcp` | **Serve** | Run the MCP server |
 
 `flint read` retries word-by-word (fallback) when the phrase query hits nothing.
-`flint read` prints nothing and exits 1 when even the fallback hits nothing (silence contract) — near-miss candidates are measured internally as the `zero_near` metric, never shown to the agent (v0.14.0).
+`flint read` prints nothing and exits 1 when even the fallback hits nothing (silence contract) — near-miss candidates are measured internally as the `zero_near` metric, never shown to the agent (v0.14.0). The former did-you-mean suggestion output was removed by this contract.
 exit 1 with no output = no knowledge (normal silence); exit 1 with an error JSON line = actual failure (storage error via MapExit).
 `flint read --status pending` lists knowledge items awaiting approval.
 `flint read` breaks ranking ties by adoption (`read_count` DESC) — popularity only as the final tiebreaker (v0.13.0).

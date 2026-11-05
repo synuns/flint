@@ -21,8 +21,11 @@ const (
 	DrillDB = "flint_drill_db"
 	// LastDrillKey — 마지막 드릴 성공 시각(RFC3339) meta 키. maintain --check가 읽는다.
 	LastDrillKey = "last_drill"
-	// drillTimeout — 드릴 1회 상한.
+	// drillTimeout — 드릴 1회(재생) 상한.
 	drillTimeout = 120 * time.Second
+	// drillCleanupTimeout — 종료 정리 DROP 전용 상한. 재생 ctx(120s)와
+	// 분리 — 재생이 상한을 전부 소진해도 정리는 살아 있는 ctx로 실행된다.
+	drillCleanupTimeout = 30 * time.Second
 )
 
 // DrillResult — 드릴 결과. Expected는 덤프 내 knowledge INSERT 문 수,
@@ -67,11 +70,14 @@ func countInserts(stmts []string, table string) int {
 // 기록한다. 드릴 DB는 성공·실패 무관하게 항상 DROP한다(40001은 재시도로
 // 회복). 행수 불일치는 에러가 아닌 Ok=false로 보고한다. DROP 재시도 소진
 // 시 잔존을 숨기지 않고 성공 대신 명시적 실패를 반환한다(계약: 재생 실패
-// 시에도 잔존 금지 — CI run 39719705178). 테이블·스키마 개별 DROP이 무음
-// no-op로 잔존하는 doltgresql 결함(1.3.3·1.4.0 실측)과 무관하게 DB 단위
-// 삭제는 이 결함 조합에서도 동작한다(실측) — v0.15.2 스키마→DB 격리 전환.
+// 시에도 잔존 금지 — CI run 39719705178). DROP이 nil을 반환해도 pg_database
+// 로 잔존을 검증한다(무음 no-op 엔진 결함 방어 — v0.16.2). 테이블·스키마
+// 개별 DROP이 무음 no-op로 잔존하는 doltgresql 결함(1.3.3·1.4.0 실측)과
+// 무관하게 DB 단위 삭제는 이 결함 조합에서도 동작한다(실측) — v0.15.2
+// 스키마→DB 격리 전환. 종료 정리 DROP은 재생 ctx와 독립된 짧은 타임아웃
+// 으로 실행된다(재생이 120s를 소진해도 정리는 항상 실행).
 func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
-	ctx, cancel := context.WithTimeout(context.Background(), drillTimeout)
+	ctx, cancel := drillCtxFn()
 	defer cancel()
 
 	data, err := os.ReadFile(dumpPath)
@@ -84,14 +90,18 @@ func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
 	}
 	defer pool.Close()
 
-	drop := func() error {
+	drop := func(ctx context.Context) error {
 		return db.Retry(ctx, func() error { return dropDrillDBFn(ctx, pool) }, drillDropBackoff)
 	}
-	if derr := drop(); derr != nil { // 선행 잔존 정리(이전 비정상 종료 대비)
+	if derr := drop(ctx); derr != nil { // 선행 잔존 정리(이전 비정상 종료 대비)
 		return DrillResult{}, fmt.Errorf("drill: 선행 %s 정리 실패: %w", DrillDB, derr)
 	}
 	defer func() {
-		if derr := drop(); derr != nil && err == nil {
+		// 종료 정리 DROP은 재생 ctx와 독립된 별도 타임아웃(v0.16.2) —
+		// 재생이 상한을 전부 소진해도 정리는 살아 있는 ctx로 항상 실행된다.
+		cctx, ccancel := context.WithTimeout(context.Background(), drillCleanupTimeout)
+		defer ccancel()
+		if derr := drop(cctx); derr != nil && err == nil {
 			err = fmt.Errorf("drill: %s 제거 재시도 소진(잔존): %w", DrillDB, derr)
 		}
 	}()
@@ -178,10 +188,40 @@ var drillDropBackoff = []time.Duration{0, time.Second, 3 * time.Second}
 // dropDrillDBFn — DROP 주입 seam(회귀 테스트가 일시 실패를 흉내 낸다).
 var dropDrillDBFn = dropDrillDB
 
-// dropDrillDB — flint_drill_db 데이터베이스 제거. 테이블·스키마 개별
-// DROP 대신 DB 단위로 지운다 — doltgresql의 무음 DROP no-op 결함이
-// 재생 테이블 잔존으로 번지지 않는다(실측).
+// drillCtxFn — 재생 컨텍스트 조립 seam(단위 테스트가 만료를 주입한다).
+var drillCtxFn = func() (context.Context, context.CancelFunc) {
+	return context.WithTimeout(context.Background(), drillTimeout)
+}
+
+// drillResidueFn — pg_database 잔존 조사 seam(단위 테스트가 잔존을 주입).
+var drillResidueFn = drillDBResidue
+
+// dropDrillDB — flint_drill_db 데이터베이스 제거+잔존 검증. 테이블·스키마
+// 개별 DROP 대신 DB 단위로 지운다 — doltgresql의 무음 DROP no-op 결함이
+// 재생 테이블 잔존으로 번지지 않는다(실측). DROP이 nil을 반환해도 믿지
+// 않는다: no-op 엔진 결함은 에러 없이 잔존시킨다. pg_database로 직접
+// 확인해 잔존을 숨기지 않고 명시적 실패로 돌려준다(v0.16.2 계약 회복).
 func dropDrillDB(ctx context.Context, pool *pgxpool.Pool) error {
-	_, err := pool.Exec(ctx, `DROP DATABASE IF EXISTS `+DrillDB)
-	return err
+	if _, err := pool.Exec(ctx, `DROP DATABASE IF EXISTS `+DrillDB); err != nil {
+		return err
+	}
+	n, err := drillResidueFn(ctx, pool)
+	if err != nil {
+		return err
+	}
+	if n != 0 {
+		return fmt.Errorf("drill: %s 잔존 — 수동 DROP 필요", DrillDB)
+	}
+	return nil
+}
+
+// drillDBResidue — pg_database의 flint_drill_db 행수(0=부재).
+func drillDBResidue(ctx context.Context, pool *pgxpool.Pool) (int, error) {
+	var n int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
+		Scan(&n); err != nil {
+		return 0, err
+	}
+	return n, nil
 }

@@ -1,37 +1,22 @@
 package docs
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
 
-func docStrV0161(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
-
 func TestPlanRecordsV0161(t *testing.T) {
-	if !strings.Contains(docStrV0161(t, "PLAN.md"), "v0.16.1") {
+	if !strings.Contains(docStr(t, "PLAN.md"), "v0.16.1") {
 		t.Error("PLAN.md v0.16.1 마일스톤 누락")
 	}
 }
 
-func TestBadgeIsV0161(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStrV0161(t, p), "release-v0.16.1") {
-			t.Errorf("%s 배지 v0.16.1 미갱신", p)
-		}
-	}
-}
+// TestBadgeIsV0161 — v0.16.2 배지 전환으로 삭제(선례 승계).
+// 배지는 TestBadgeIsV0162(v0162_docs_test.go)가 대체.
 
 func TestReadmePathRequirement(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		s := docStrV0161(t, p)
+		s := docStr(t, p)
 		if !strings.Contains(s, "PATH") {
 			t.Errorf("%s 바이너리 PATH 요구 미기록", p)
 		}

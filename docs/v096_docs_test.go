@@ -1,19 +1,9 @@
 package docs
 
 import (
-	"os"
 	"strings"
 	"testing"
 )
-
-func docStr(t *testing.T, path string) string {
-	t.Helper()
-	b, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return string(b)
-}
 
 func TestReadmeMentionsFallback(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
