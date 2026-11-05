@@ -31,6 +31,7 @@ test:
 GO_TEST_FLAGS ?=
 ci:
 	python3 scripts/validate_yaml.py
+	python3 scripts/check_personal.py
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test $(GO_TEST_FLAGS) ./...
 
 tidy:
