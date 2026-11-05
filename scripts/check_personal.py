@@ -28,9 +28,17 @@ LOCAL_MARKERS = Path.home() / ".config" / "flint" / "personal-markers.txt"
 BINARY_SUFFIX = {".png", ".jpg", ".jpeg", ".gif", ".webp", ".pdf", ".zip",
                  ".gz", ".tar", ".tgz", ".ico", ".icns", ".woff", ".woff2"}
 
-# 이메일: 일반 형식 전면 검출(TLD 제한 없음 — F2), noreply만 예외.
+# 이메일: 일반 형식 전면 검출(TLD 제한 없음 — F2). 예외는 GitHub noreply
+# 식별과 RFC 2606/5737 예약 도메인(테스트 전용 — 개인일 수 없음).
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
 NOREPLY = re.compile(r"^\d+\+[\w.-]+@users\.noreply\.github\.com$")
+RESERVED = re.compile(
+    r"@([\w.-]+)\.(example|invalid|test|localhost)$|"
+    r"@(example\.(com|net|org))$", re.IGNORECASE)
+
+
+def email_allowed(addr: str) -> bool:
+    return bool(NOREPLY.match(addr) or RESERVED.search(addr))
 GENERIC = [
     ("기기 절대경로", re.compile(r"/Users/[A-Za-z0-9_.-]+|/home/[A-Za-z0-9_.-]+")),
 ]
@@ -47,7 +55,7 @@ def scan_text(text, markers):
     hits = []
     for m in EMAIL.finditer(text):
         addr = m.group(0)
-        if NOREPLY.match(addr):
+        if email_allowed(addr):
             continue
         hits.append("이메일: " + addr)
     for name, pat in GENERIC:
@@ -96,7 +104,7 @@ def scan_index_blobs(markers):
             # 예외를 적용한다 — 행 내 이메일 전부가 GitHub noreply면
             # 합법(작성자 식별 표준)으로 통과시킨다.
             if pat is EMAIL and EMAIL.search(line) and all(
-                    NOREPLY.match(a) for a in EMAIL.findall(line)):
+                    email_allowed(a) for a in EMAIL.findall(line)):
                 continue
             print("FAIL(스테이지) " + line[:100])
             hits.append(line)
