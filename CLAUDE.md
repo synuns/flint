@@ -2,27 +2,29 @@
 
 ## 저장소 목적 (최상위 원칙)
 
-이 저장소는 **flint 오픈소스 패키지만** 담는다. 개인 DB 사용(운영 지식·
-프로젝트 기록)과 엄격 분리한다.
+이 저장소는 **flint 오픈소스 패키지만** 담는다. 패키지 개발과 개인
+DB 사용(각자의 운영 지식·프로젝트 기록)은 엄격히 분리한다.
 
-- 개인 데이터(실제 프로젝트명·개인 문서 발췌·기기 경로·실명·이메일)를
-  어떤 파일에도 넣지 않는다. 스펙·플랜·테스트 픽스처의 예시는 항상
-  중성 데모 데이터로만 만든다.
-- 데모/시드 데이터는 합성 데이터만(`data/seed.jsonl` 참조).
-- 운영 DB의 실제 행(pending·knowledge·hot 출력)을 문서·스펙·커밋에
-  인용·복사하지 않는다.
-- 런 아카이브(incidents·progress)는 repo에 커밋하지 않는다(.superlite
-  로컬 보관).
+- 개인 데이터 — 실제 프로젝트명·개인 문서 발췌·기기 경로·실명·이메일
+  — 를 어떤 파일(코드·문서·테스트·스펙)에도 넣지 않는다.
+- 예시·픽스처·시드는 항상 **합성 데모 데이터**로만 만든다
+  (`data/seed.jsonl` 참조).
+- 운영 DB의 실제 행(pending·knowledge·주입 출력)을 문서·스펙·커밋
+  메시지에 인용·복사하지 않는다.
+- 개발 자동화의 런 로그(인시던트·진행 기록)는 로컬에만 보관하고
+  커밋하지 않는다.
 
 ## 방어 계층
 
-- `make ci` → `scripts/check_personal.py`(범용: 이메일·기기 절대경로)
-- 하네스 PreToolUse 훅(`.claude/settings.json` → `scripts/hook_personal_guard.sh`)
-  — git commit/push/add 직전 차단
-- 개인 고유 마커 목록: `~/.config/flint/personal-markers.txt` (repo 밖)
+- `make ci` → `scripts/check_personal.py`: 이메일·기기 절대경로 등
+  범용 패턴 검사(커밋/CI에서 실패).
+- 하네스 훅(선택): `.claude/settings.json`의 PreToolUse 가드가
+  git commit/push/add 직전 같은 검사로 차단한다.
+- 개인 고유 마커가 필요한 기여자는 **repo 밖** 로컬 파일
+  (`~/.config/flint/personal-markers.txt`, 한 줄 하나)로 추가 검사할
+  수 있다 — 개인 문자열을 이 repo에 두지 않는 원칙.
 
 ## 기타
 
-- 커밋 작성자는 GitHub 식별(`synuns <57736547+synuns@users.noreply.github.com>`)
-  — 로컬 git config로 고정됨(전역 아님).
-- 개발 루프·아키텍처 관례는 docs/PLAN.md·docs/TUNING.md 참조.
+- 아키텍처·운영 관례는 docs/PLAN.md·docs/TUNING.md 참조.
+- 커밋 작성자 식별 방식은 각 기여자의 로컬 git 설정을 따른다.
