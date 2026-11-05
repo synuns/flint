@@ -13,3 +13,7 @@ bin/flint
 # flint seed files are source-controlled; only runtime data is ignored
 !data/seed.jsonl
 !data/seed_test.go
+
+# 하네스 로컬 계층(개인 지침·로컬 훅) — repo 미커밋
+CLAUDE.local.md
+.claude/settings.local.json
