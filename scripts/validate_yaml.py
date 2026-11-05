@@ -59,26 +59,26 @@ def main():
     ldflags = " ".join(str(f) for b in builds for f in (b.get("ldflags") or []))
     check(".goreleaser.yml", "flint/lib/cli.version" in ldflags, "버전 주입 ldflags 없음")
 
-    # 3) 플러그인 매니페스트 — 파싱 + name/version/마켓플레이스 구조
+    # 3) 플러그인 매니페스트 — 파싱 1회(결과 재사용) + name/version/마켓플레이스 구조
+    manifests = {}
     for label, path in [
         ("plugin.json", ROOT / "flint-plugin" / ".claude-plugin" / "plugin.json"),
         ("marketplace.json", ROOT / ".claude-plugin" / "marketplace.json"),
     ]:
         try:
-            manifest = json.loads(path.read_text(encoding="utf-8"))
+            manifests[label] = json.loads(path.read_text(encoding="utf-8"))
         except FileNotFoundError:
             print(f"FAIL {path} 없음")
             return 1
         except json.JSONDecodeError as e:
             print(f"FAIL {label} 파싱 오류: {e}")
             return 1
-        check(label, isinstance(manifest.get("name"), str), "name 없음")
+        check(label, isinstance(manifests[label].get("name"), str), "name 없음")
 
-    plugin = json.loads((ROOT / "flint-plugin" / ".claude-plugin" / "plugin.json").read_text(encoding="utf-8"))
+    plugin = manifests["plugin.json"]
     check("plugin.json", isinstance(plugin.get("version"), str), "version 없음")
 
-    market = json.loads((ROOT / ".claude-plugin" / "marketplace.json").read_text(encoding="utf-8"))
-    plugins = market.get("plugins") or []
+    plugins = manifests["marketplace.json"].get("plugins") or []
     check("marketplace.json", bool(plugins), "plugins 없음")
     if plugins:
         check(
