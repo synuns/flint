@@ -511,6 +511,11 @@ flint-plugin/
   thresholds.go 단일 소스·meta 오버라이드 우선)·TUNING.md §2 갱신·
   SKILL.md 개인 관측 인용 제거·CLAUDE.md 방어 계층 1줄·배지 v0.16.3(EN/KO)
 
+### v0.16.4 패치 (2026-11-05) — release 잡 멱등 가드
+
+- [x] 이미 발행된 태그는 자산 업로드 스킵(422 already_exists 방지 —
+  이력 재작성의 태그 재푸시로 발견)·배지·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

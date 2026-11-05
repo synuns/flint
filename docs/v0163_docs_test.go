@@ -13,13 +13,7 @@ func TestPlanRecordsV0163(t *testing.T) {
 	}
 }
 
-func TestBadgeIsV0163(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStr(t, p), "release-v0.16.3") {
-			t.Errorf("%s 배지 v0.16.3 미갱신", p)
-		}
-	}
-}
+// TestBadgeIsV0163 — v0.16.4 전환으로 삭제(선례·MatchesBadge가 동기 가드).
 
 // TUNING.md §2 표에 신규 튜닝 키 7종이 모두 문서화됐는지(코드 키와 대조는
 // TestTuningMetaKeysMatch 계약 승계 — 여기는 행 존재 단얱).
