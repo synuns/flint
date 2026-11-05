@@ -16,6 +16,8 @@ DB 사용(각자의 운영 지식·프로젝트 기록)은 엄격히 분리한�
 
 ## 방어 계층
 
+- 모든 튜닝값은 코드 기본값 + meta 오버라이드(`lib/store/thresholds.go`·
+  docs/TUNING.md §2)로만 조정한다 — 개인 튜닝값을 코드·문서에 커밋 금지.
 - `make ci` → `scripts/check_personal.py`: 이메일·기기 절대경로 등
   범용 패턴 검사(커밋/CI에서 실패).
 - 하네스 훅(선택): `.claude/settings.json`의 PreToolUse 가드가

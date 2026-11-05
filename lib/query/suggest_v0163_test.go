@@ -42,7 +42,7 @@ func TestSetSuggestThresholdsApplies(t *testing.T) {
 	}
 
 	rows := [][]any{
-		{int32(1), "flint 백업 절차", "덤프"},
+		{int32(1), "flint 백업 절차", ""}, // 질의와 동일 → Dice 1.0(상한 통과)
 		{int32(2), "전혀 다른 주제", "무관 요약"},
 	}
 	got := SuggestSimilar("flint 백업 절차", rows, 3)

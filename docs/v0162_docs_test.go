@@ -20,10 +20,5 @@ func TestPlanRecordsV0162(t *testing.T) {
 	}
 }
 
-func TestBadgeIsV0162(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStr(t, p), "release-v0.16.2") {
-			t.Errorf("%s 배지 v0.16.2 미갱신", p)
-		}
-	}
-}
+// TestBadgeIsV0162 — v0.16.3 배지 범프로 삭제(선례: 26bdf0e 버전 동기
+// 선례 삭제 룰링. 대체 가드는 v0163_docs_test.go·plannedBadgeVersions).

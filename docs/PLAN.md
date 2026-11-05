@@ -503,6 +503,14 @@ flint-plugin/
 - [x] R5 쓰기 프로토콜·문서 — SKILL 쓰기 우선순위 3계층(갱신 우선·
   최소화·read 선행)·배지 v0.16.2(EN/KO)
 
+### v0.16.3 패치 (2026-11-05 기획) — 튜닝값 레지스트리화
+
+- [x] 튜닝 상수 7종 Thresholds 레지스트리화 — suggest_min_score·
+  suggest_scan_cap·conflict_dup_threshold·backup_age_warn_h·
+  zero_near_min_read·zero_near_warn_pct·pending_age_days(기본값은
+  thresholds.go 단일 소스·meta 오버라이드 우선)·TUNING.md §2 갱신·
+  SKILL.md 개인 관측 인용 제거·CLAUDE.md 방어 계층 1줄·배지 v0.16.3(EN/KO)
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
