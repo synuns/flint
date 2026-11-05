@@ -516,6 +516,14 @@ flint-plugin/
 - [x] 이미 발행된 태그는 자산 업로드 스킵(422 already_exists 방지 —
   이력 재작성의 태그 재푸시로 발견)·배지·plugin.json 동기
 
+### v0.16.5 패치 (2026-11-05) — setup --mcp·MCP Registry 준비
+
+- [x] `flint setup --mcp` — 하네스 자동 탐지·등록(exec.LookPath,
+  결과 한 줄 JSON)·플랫폼별 `.mcpb` 번들 Release 자산화
+  (scripts/make_mcpb.sh·goreleaser post hook + extra_files,
+  checksums 불변)·mcp-registry/server.json(플레이스홀더)·README
+  사용법·발행 3단계 안내·배지 v0.16.5(EN/KO)·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

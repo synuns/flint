@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.16.4-blue" alt="v0.16.3">
+  <img src="https://img.shields.io/badge/release-v0.16.5-blue" alt="v0.16.5">
 </p>
 
 <p align="center">
@@ -82,6 +82,31 @@ make build            # 운영 빌드, 버전은 최근 git 태그에서 파생
 flint setup           # 소스 빌드는 ./bin/flint setup
 make seed             # 예시 데이터, 멱등(해시 dedup)
 ```
+
+### 다른 MCP 하네스 등록 (v0.16.5부터)
+
+명령 하나로 설치된 모든 하네스를 탐지해 `flint` MCP 서버를 등록한다
+(Claude Code는 위 플러그인 사용 — 여기는 나머지 하네스 대상):
+
+```bash
+flint setup --mcp
+```
+
+출력은 한 줄 JSON — `{"status":"ok","registered":[...],"skipped":[...]}`.
+미설치 하네스는 `skipped`에 기록되고, 이미 등록된 경우도 무해하게 건너뛴다.
+전부 스킵이어도 exit 코드는 0이다.
+
+### MCP Registry 발행 (관리자)
+
+`flint`는 플랫폼별 `.mcpb` 번들로 모든 Release에 첨부된다.
+`mcp-registry/server.json`을
+[MCP Registry](https://github.com/modelcontextprotocol/registry)에 발행하려면:
+
+1. `brew install mcp-publisher`
+2. `mcp-publisher login github`
+3. `mcp-publisher publish mcp-registry/server.json` — 먼저 버전 URL과
+   `fileSha256` 플레이스홀더를 실제 Release 값으로 교체한다
+   (`shasum -a 256 dist/flint_<ver>_<os>_<arch>.mcpb`).
 
 ### Claude Code 플러그인 설치 (v0.16.0부터)
 

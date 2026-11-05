@@ -1,0 +1,14 @@
+{
+  "name": "io.github.synuns/flint",
+  "description": "Agent long-term memory with search, recording, and hot injection for AI coding agents",
+  "package": {
+    "registryType": "mcpb",
+    "identifier": "https://github.com/synuns/flint/releases/download/v0.16.5/flint_0.16.5_PLACEHOLDER.mcpb",
+    "fileSha256": "PLACEHOLDER",
+    "transport": {
+      "type": "stdio",
+      "command": "flint",
+      "args": ["mcp"]
+    }
+  }
+}

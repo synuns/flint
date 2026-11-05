@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.16.4-blue" alt="v0.16.3">
+  <img src="https://img.shields.io/badge/release-v0.16.5-blue" alt="v0.16.5">
 </p>
 
 <p align="center">
@@ -78,6 +78,31 @@ make build            # production build; version derived from the latest git ta
 flint setup           # or ./bin/flint setup from a source build
 make seed             # example data, idempotent (hash dedup)
 ```
+
+### Register with other MCP harnesses (v0.16.5+)
+
+One command detects every installed harness and registers the `flint` MCP server
+(Claude Code uses the plugin above; this covers the rest):
+
+```bash
+flint setup --mcp
+```
+
+Output is one line of JSON — `{"status":"ok","registered":[...],"skipped":[...]}`.
+Harnesses that aren't installed are reported in `skipped`; already-registered
+ones are skipped harmlessly. Exit code is 0 even when everything is skipped.
+
+### Publish to the MCP Registry (maintainers)
+
+`flint` ships as `.mcpb` bundles (one per platform) attached to every Release.
+To publish `mcp-registry/server.json` to the
+[MCP Registry](https://github.com/modelcontextprotocol/registry):
+
+1. `brew install mcp-publisher`
+2. `mcp-publisher login github`
+3. `mcp-publisher publish mcp-registry/server.json` — replace the version
+   URL and `fileSha256` placeholders with the actual Release values first
+   (`shasum -a 256 dist/flint_<ver>_<os>_<arch>.mcpb`).
 
 ### Install the Claude Code plugin (v0.16.0+)
 
