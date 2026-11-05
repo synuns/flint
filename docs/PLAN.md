@@ -490,6 +490,19 @@ flint-plugin/
 - [x] 문서 — 배지 v0.16.1(EN/KO)·plugin.json 0.16.1 동기·README PATH
   요구 문구에 MCP 포함
 
+### v0.16.2 패치 (2026-11-05 기획) — 드릴 계약 완결·pending 만료·쓰기 프로토콜
+
+- [x] R1 드릴 계약 완결 — DROP 잔존 검증(수동 DROP 안내)·지연 정리
+  독립 ctx·regression 단얱 갱신
+- [x] R2 CI CREATE 가드 — flint_test 생성 실패 시 already exists 외
+  exit 1(진단 위치 보존)
+- [x] R3 헬퍼·검증 정리 — docs 공유 docStr·flint-plugin 공유 readDoc
+  통합·validate_yaml 매니페스트 파싱 1회화
+- [x] R4 pending 만료 — `maintain --expire-pending <days> [--commit]`
+  (dry-run 기본·invalidated 전환)·doctor 만료 안내
+- [x] R5 쓰기 프로토콜·문서 — SKILL 쓰기 우선순위 3계층(갱신 우선·
+  최소화·read 선행)·배지 v0.16.2(EN/KO)
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
