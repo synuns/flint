@@ -1,0 +1,16 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash scripts/hook_personal_guard.sh",
+            "timeout": 30
+          }
+        ]
+      }
+    ]
+  }
+}
