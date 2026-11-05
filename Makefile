@@ -53,9 +53,11 @@ install: build
 
 # 시딩: seed.jsonl을 kind별로 나눠 flint write에 파이프.
 # 2회째는 전부 duplicate·exit 0(멱등 — 해시는 valid_at·ts 제외 경로).
+# 데모 시드 — 기본 대상 없음(운영 DB 오염 방지): FLINT_SEED_DSN 필수.
 seed: build
+	@if [ -z "$(FLINT_SEED_DSN)" ]; then echo "FLINT_SEED_DSN 미지정 — 데모 시드 대상(예: 테스트 DSN)을 명시하세요" >&2; exit 2; fi
 	@for kind in project knowledge; do \
-	  grep '"kind":"'"$$kind"'"' data/seed.jsonl | FLINT_DSN='$(DSN)' ./bin/flint write $$kind || exit 1; \
+	  grep '"kind":"'"$$kind"'"' data/seed.jsonl | FLINT_DSN='$(FLINT_SEED_DSN)' ./bin/flint write $$kind || exit 1; \
 	done
 
 # e2e(T11): 실 Doltgres 필수, 빌드 태그로 분리
