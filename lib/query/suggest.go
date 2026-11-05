@@ -7,6 +7,8 @@ import (
 	"strconv"
 
 	"golang.org/x/text/unicode/norm"
+
+	"flint/lib/store"
 )
 
 // Suggestion — 제안 한 건(active_knowledge 행의 id·topic).
@@ -111,8 +113,22 @@ func suggestCellInt(v any) (int, bool) {
 }
 
 // suggestMinScore — 제안 채택 하한(v0.10.1 R1). 이 점수 미만 행은
-// 무관 후보로 간주해 제외한다. 메타 오버라이드는 데이터 부족으로 이연.
-const suggestMinScore = 0.15
+// 무관 후보로 간주해 제외한다. 기본값은 thresholds 레지스트리
+// (store.DefaultThresholds)의 단일 소스를 쓰고, 런타임에는 cli read
+// 경로가 meta suggest_min_score 오버라이드를 SetSuggestThresholds로
+// 주입한다(v0.16.3 — 이연됐던 메타 오버라이드 회수).
+var suggestMinScore = store.DefaultThresholds().SuggestMinScore
+
+// SetSuggestThresholds — 제안 임계값(minScore·scanCap) 주입 seam.
+// cli가 loadThresholds 결과를 건넨다. 0 이하는 무시(미설정 폴백 이중 방어).
+func SetSuggestThresholds(minScore float64, scanCap int) {
+	if minScore > 0 {
+		suggestMinScore = minScore
+	}
+	if scanCap > 0 {
+		suggestScanCap = scanCap
+	}
+}
 
 // SuggestSimilar — 질의 q와 스캔 행([0]=id·[1]=topic·[2]=summary)의
 // NFKC 정규화 bigram Dice 유사도로 상위 topN 제안. suggestMinScore
@@ -162,9 +178,10 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 // suggestScanCap — 제안 스캔 행 상한(N13). 스펙 §3 R1의 '스캔 상한 없음'을
 // 정정한다: 개인 지식관리 규모(수천 행)는 전부 수용하면서, 대량 유입 등
 // 이상 규모에서 무상한 스캔이 제로히트 경로를 지연시키는 것을 방어한다.
-// 상한은 정렬 없는 방어선이다 — 제안은 상위 topN 재랭킹이므로 어느 5000행이
-// 걸리든 근접 후보 제공이라는 목적은 유지된다.
-const suggestScanCap = 5000
+// 상한은 정렬 없는 방어선이다 — 제안은 상위 topN 재랭킹이므로 어느 행이
+// 걸리든 근접 후보 제공이라는 목적은 유지된다. 기본값·오버라이드는
+// suggestMinScore와 같은 seam(v0.16.3, meta suggest_scan_cap).
+var suggestScanCap = store.DefaultThresholds().SuggestScanCap
 
 // BuildSuggestScan — 제안용 active_knowledge 스캔 SQL. 필터 없음(제안은
 // 필터 무관 전체 active 대상 — 스펙 §3 R1), 상한은 suggestScanCap.
