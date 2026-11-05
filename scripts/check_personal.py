@@ -90,9 +90,16 @@ def scan_index_blobs(markers):
         r = subprocess.run(["git", "grep", "--cached", "-I", "-E", "-e", pat.pattern],
                            cwd=ROOT, capture_output=True, text=True)
         for line in r.stdout.splitlines():
-            if line:
-                print("FAIL(스테이지) " + line[:100])
-                hits.append(line)
+            if not line:
+                continue
+            # 이메일 패턴 행은 워킹트리 검사(scan_text)와 같은 noreply
+            # 예외를 적용한다 — 행 내 이메일 전부가 GitHub noreply면
+            # 합법(작성자 식별 표준)으로 통과시킨다.
+            if pat is EMAIL and EMAIL.search(line) and all(
+                    NOREPLY.match(a) for a in EMAIL.findall(line)):
+                continue
+            print("FAIL(스테이지) " + line[:100])
+            hits.append(line)
     return hits
 
 

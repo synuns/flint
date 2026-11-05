@@ -2,6 +2,7 @@
 package docs
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -40,5 +41,19 @@ func TestSkillRationaleNeutral(t *testing.T) {
 	b := docStr(t, "../flint-plugin/skills/flint/SKILL.md")
 	if !strings.Contains(b, "중복 재제출") {
 		t.Error("SKILL.md 쓰기 프로토콜 근거 문구(중립 서술) 없음")
+	}
+}
+
+// plugin.json 버전이 README 배지와 동기되는지 — v0.16.3 범프 누락 회귀
+// (역대 릴리스는 항상 범프됐으나 v0.16.3에서 누락됐었다).
+func TestPluginVersionMatchesBadge(t *testing.T) {
+	m := regexp.MustCompile(`release-v(\d+\.\d+\.\d+)-blue`).FindStringSubmatch(docStr(t, "../README.md"))
+	if m == nil {
+		t.Fatal("README 배지 버전 파싱 실패")
+	}
+	manifest := docStr(t, "../flint-plugin/.claude-plugin/plugin.json")
+	v := regexp.MustCompile(`"version":\s*"(\d+\.\d+\.\d+)"`).FindStringSubmatch(manifest)
+	if v == nil || v[1] != m[1] {
+		t.Errorf("plugin.json 버전 %q != README 배지 %q", v, m[1])
 	}
 }
