@@ -59,7 +59,17 @@ jobs:
           if [ "$ready" -ne 1 ]; then
             echo "psql 30s 내 준비 안 됨 — CI 중단"; exit 1
           fi
-          $PSQL -c "CREATE DATABASE flint_test" 2>/dev/null || echo "flint_test 이미 존재 — 계속"
+          # v0.16.2: `|| echo`가 위장 실패(이미 존재 외 오류)를 삼키지 않게
+          # 출력을 캡처 판정 — already exists만 통과, 그 외 실패는 즉시 중단
+          # (위 프로브 준비 exit 1과 대칭).
+          if out=$($PSQL -c "CREATE DATABASE flint_test" 2>&1); then
+            echo "flint_test 생성 완료"
+          elif echo "$out" | grep -qi "already exists"; then
+            echo "flint_test 이미 존재 — 계속"
+          else
+            echo "flint_test 생성 실패: $out"
+            exit 1
+          fi
       - name: YAML 검증 + 단위 테스트
         run: make ci GO_TEST_FLAGS="-p 1"
       - name: e2e (실 Doltgres)
