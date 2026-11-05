@@ -91,7 +91,20 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: 이미 발행된 릴리스 확인 (멱등 가드 — 태그 재푸시·재실행 시 422 방지)
+        id: relcheck
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "이미 발행됨: $TAG — 자산 업로드 스킵(goreleaser 422 already_exists 방지)"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: goreleaser/goreleaser-action@v6
+        if: steps.relcheck.outputs.skip != 'true'
         with:
           args: release --clean
           # v0.16.1: latest 부유 → 고정(로컬 실증 버전과 동일 계열). 상향 시 snapshot 재실증 필요.
