@@ -248,6 +248,12 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// (zero_near 계측)에만 쓰인다. 스캔 실패·후보 0건은 조용히(§13).
 	var suggestions []query.Suggestion
 	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
+		// 제안 임계값(min_score·scan_cap)은 thresholds 레지스트리 우선
+		// (meta 오버라이드 → SetSuggestThresholds 주입, v0.16.3). 조회 실패는
+		// query 패키지 기본값(=DefaultThresholds) 유지 — 조용히(§13).
+		if th, thErr := loadThresholds(ctx, st); thErr == nil {
+			query.SetSuggestThresholds(th.SuggestMinScore, th.SuggestScanCap)
+		}
 		ssql, sargs := query.BuildSuggestScan()
 		if srows, serr := queryOnce(ctx, st, ssql, sargs); serr == nil {
 			suggestions = query.SuggestSimilar(q, srows, 3)

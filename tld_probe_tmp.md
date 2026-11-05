@@ -1,1 +1,0 @@
-contact: foo@bar.ai

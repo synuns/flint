@@ -799,9 +799,13 @@ func checkConflicts(ctx context.Context, st Store) doctorCheck {
 		c.Detail = "모순 후보 조회 실패: " + err.Error() + " — maintain --conflict-suspects 확인"
 		return c
 	}
+	// 분류 임계값은 thresholds 레지스트리 기본값(conflictDupThreshold,
+	// v0.16.3 단일 소스화). meta 오버라이드 적용 경로는 maintain
+	// --conflict-suspects — doctor 검사는 F7/F9 계약상 ConflictGroups
+	// seam 외 조회(임계값 읽기를 포함)를 하지 않는다.
 	n := 0
 	for _, g := range groups {
-		if isConflictGroup(g) {
+		if isConflictGroup(g, conflictDupThreshold) {
 			n++
 		}
 	}
@@ -880,16 +884,12 @@ func checkZeroNear(ctx context.Context, st Store) doctorCheck {
 	return c
 }
 
-// doctorPendingAgeWarn — pending 최고령 경고 임계(v0.16.2 R4). 7일 상수 —
-// 관측된 "+5일 방치 재제글" 원천 차단 안내 수준(backup-age 72h와 같은
-// 상수 관례. TUNING 이연).
-const doctorPendingAgeWarn = 7 * 24 * time.Hour
-
-// checkPendingAge — pending 최고령 valid_at 경과 판정(v0.16.2 R4). 임계
-// 이상 경과·조회 실패·st nil은 warn(방치가 동작을 막지 않는다 — backup-age
-// 룰링 승계), 임계 이내·pending 부재는 ok. detail에 만료 명령
-// (maintain --expire-pending N) 안내를 붙인다. 정리 자체는 dry-run 기본
-// 명령에 맡긴다(자동 전환 아님).
+// checkPendingAge — pending 최고령 valid_at 경과 판정(v0.16.2 R4). 경과
+// 임계는 thresholds 레지스트리(meta pending_age_days, 기본 7일 — v0.16.3
+// 레지스트리화·TUNING 이연 회수). 임계 이상 경과·조회 실패·st nil은
+// warn(방치가 동작을 막지 않는다 — backup-age 룰링 승계), 임계 이내·
+// pending 부재는 ok. detail에 만료 명령(maintain --expire-pending N) 안내를
+// 붙인다. 정리 자체는 dry-run 기본 명령에 맡긴다(자동 전환 아님).
 func checkPendingAge(ctx context.Context, st Store) doctorCheck {
 	c := doctorCheck{Name: "pending-age"}
 	if st == nil {
@@ -915,7 +915,12 @@ func checkPendingAge(ctx context.Context, st Store) doctorCheck {
 		c.Status = "ok" // 파손 값은 pending 부재 취급(무효 값 폴백)
 		return c
 	}
-	if d := time.Since(va); d >= doctorPendingAgeWarn {
+	// 임계값은 meta 오버라이드 우선(loadThresholds) — 조회 실패는 기본값.
+	th, thErr := loadThresholds(ctx, st)
+	if thErr != nil || th.PendingAgeDays <= 0 {
+		th = store.DefaultThresholds()
+	}
+	if d := time.Since(va); d >= time.Duration(th.PendingAgeDays)*24*time.Hour {
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("pending 최고령 %d일 경과 — maintain --expire-pending N으로 정리",
 			int(d.Hours()/24))

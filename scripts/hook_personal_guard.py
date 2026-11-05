@@ -32,6 +32,14 @@ def fail(msg: str) -> None:
 
 
 def main() -> None:
+    # 관리자 명시 우회 — 유출 치유 등 가드가 자기 자신을 교착시키는
+    # 작업용. 훅 프로세스엔 커맨드라인 환경변수가 상속되지 않아 파일
+    # 기반: touch .superlite/GUARD_BYPASS 후 git 작업, 끝나면 반드시 삭제.
+    if os.environ.get("GUARD_BYPASS") == "1" or os.path.exists(
+        os.path.join(HERE, "..", ".superlite", "GUARD_BYPASS")
+    ):
+        print("guard: GUARD_BYPASS — 관리자 우회로 진행", file=sys.stderr)
+        return
     try:
         d = json.load(sys.stdin)
         cmd = (d.get("tool_input") or {}).get("command", "") or ""
