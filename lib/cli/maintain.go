@@ -71,11 +71,17 @@ var maintainModeFlags = map[string]map[string]bool{
 	"--invalidate":        {"--id": true, "--reason": true, "--ids": true},
 	"--merge":             {"--from": true, "--to": true},
 	"--supersede":         {"--supersede": true, "--by": true},
+	// --expire-pending N — 일수는 모드 값으로 받는다(--days 아님).
+	"--expire-pending": {},
 }
 
 // maintainYesModes — --yes(실행 확정)가 뜻 있는 모드. 나머지 모드에서의
 // --yes도 조용한 무시 대신 에러로 거부한다.
 var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true}
+
+// maintainCommitModes — --commit(전환 확정)이 뜻 있는 모드. 나머지 모드의
+// --commit도 --yes와 같은 원칙으로 에러 거부한다(v0.16.2 R4).
+var maintainCommitModes = map[string]bool{"--expire-pending": true}
 
 // maintainRetryDelays — 유지보수 쓰기 경로 Retry 간격(전역 제약: 쓰기는
 // 40001 대응 Retry 동반). 테스트는 즉시 재시도로 교체.
@@ -100,8 +106,9 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	old, by := 0, 0      // --supersede OLD --by NEW
 	days, limit := 0, 20 // --stale: days=0 → meta stale_days(기본 90) 폴백
 	dupLimit := suspectsDefaultLimit // --dup-suspects 기본(스펙 R4: --limit M 기본 10)
+	expireDays := 0                  // --expire-pending N — 기본값 없음(오삭제 방지)
 	reason := ""
-	yes := false
+	yes, commit := false, false
 	var idList []int // --ids 파싱 결과(스냅샷 — 재평가 없음)
 	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
@@ -125,6 +132,21 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 			} else {
 				limit, dupLimit = n, n
 			}
+		case "--expire-pending":
+			mode = args[i]
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: %s requires a number of days", args[i-1])))
+				return 1
+			}
+			n, err := strconv.Atoi(args[i])
+			if err != nil || n <= 0 {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: invalid number %q", args[i])))
+				return 1
+			}
+			expireDays = n
+		case "--commit":
+			commit = true
 		case "--id", "--from", "--to":
 			seen[args[i]] = true
 			i++
@@ -215,6 +237,11 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: --yes is not valid with %s", mode)))
 		return 1
 	}
+	// --commit도 같은 원칙(v0.16.2 R4 — dry-run 기본 모드의 전환 마커).
+	if commit && !maintainCommitModes[mode] {
+		fmt.Fprintln(stdout, errLine(fmt.Errorf("maintain: --commit is not valid with %s", mode)))
+		return 1
+	}
 
 	switch mode {
 	case "--check":
@@ -255,6 +282,12 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		}
 		fmt.Fprintf(stdout, `{"status":"invalidated","id":%d}`+"\n", id)
 		return 0
+	case "--expire-pending":
+		if expireDays <= 0 { // 파싱 통과 시 도달 불가 — 이중 방어(오삭제 방지)
+			fmt.Fprintln(stdout, errLine(errors.New("maintain: --expire-pending requires a positive number of days")))
+			return 1
+		}
+		return maintainExpirePending(ctx, ms, stdout, expireDays, commit)
 	case "--merge":
 		if from == 0 || to == 0 {
 			fmt.Fprintln(stdout, errLine(errors.New("maintain: --merge requires --from and --to")))
@@ -266,7 +299,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		fmt.Fprintf(stdout, `{"status":"merged","from":%d,"to":%d}`+"\n", from, to)
 		return 0
 	default:
-		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW")))
+		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit]")))
 		return 1
 	}
 }
@@ -603,6 +636,112 @@ func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []i
 		Count  int    `json:"count"`
 		IDs    []int  `json:"ids"`
 	}{Status: "invalidated", Count: len(ids), IDs: ids})
+	if mErr != nil {
+		fmt.Fprintln(stdout, errLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
+	return 0
+}
+
+// expireItem — --expire-pending 나열 항목(v0.16.2 R4). pending 경과일은
+// valid_at 기준이고 요약은 앞 40자로 절단해 나열한다(conflict 접두 승계).
+type expireItem struct {
+	ID      int    `json:"id"`
+	Topic   string `json:"topic"`
+	Summary string `json:"summary"`
+	AgeDays int    `json:"age_days"` // valid_at 경과일
+}
+
+// listExpiredPending — pending 만료 대상 산출: status='pending' AND
+// invalid_at IS NULL AND valid_at < now-days. 컷오프는 Go 계산 후
+// timestamptz 파라미터로 전달하고(listStale T70 관례 승계 — Doltgres
+// interval 추론 회피) Go 필터로 같은 경계를 재확인한다.
+func listExpiredPending(ctx context.Context, ms MaintStore, days int) ([]expireItem, time.Time, error) {
+	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	rows, err := queryOnce(ctx, ms, `
+		SELECT id, topic, summary, valid_at
+		FROM knowledge
+		WHERE status = 'pending' AND invalid_at IS NULL AND valid_at < $1
+		ORDER BY valid_at ASC`, []any{cutoff})
+	if err != nil {
+		return nil, cutoff, err
+	}
+	items := []expireItem{}
+	for _, r := range rows {
+		if len(r) < 4 {
+			continue
+		}
+		id, ok := cellToInt(r[0])
+		if !ok {
+			continue
+		}
+		topic, _ := r[1].(string)
+		summary, _ := r[2].(string)
+		va, ok := anyToTime(r[3])
+		if !ok || !va.Before(cutoff) { // 경계 미만 — 컷오프 이후(미만료) 제외
+			continue
+		}
+		items = append(items, expireItem{
+			ID:      id,
+			Topic:   topic,
+			Summary: conflictSummaryPrefix(summary),
+			AgeDays: int(time.Since(va).Hours() / 24),
+		})
+	}
+	return items, cutoff, nil
+}
+
+// maintainExpirePending — pending 만료(v0.16.2 R4). dry-run 기본: 대상
+// 나열만(staleReport 형식 승계)·exit 0. --commit 시 동일 조건으로
+// UPDATE(status='invalidated'·invalid_at=now)+Commit — 기존 무효화 경로
+// 승계(신규 상태 없음·스키마 불변). 쓰기는 Retry 동반.
+func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer, days int, apply bool) int {
+	items, cutoff, err := listExpiredPending(ctx, ms, days)
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	if !apply || len(items) == 0 {
+		out, mErr := json.Marshal(struct {
+			Status  string       `json:"status"`
+			Days    int          `json:"days"`
+			Count   int          `json:"count"`
+			Items   []expireItem `json:"items"`
+			Summary string       `json:"summary"`
+		}{Status: "expire-pending", Days: days, Count: len(items), Items: items,
+			Summary: fmt.Sprintf("%d to invalidate", len(items))})
+		if mErr != nil {
+			fmt.Fprintln(stdout, errLine(mErr))
+			return 1
+		}
+		fmt.Fprintln(stdout, string(out))
+		return 0
+	}
+	if err := retryWrite(ctx, func() error {
+		if _, err := ms.Query(ctx, `
+			UPDATE knowledge SET status = 'invalidated', invalid_at = now()
+			WHERE status = 'pending' AND invalid_at IS NULL AND valid_at < $1`,
+			cutoff); err != nil {
+			return err
+		}
+		_, err := ms.Commit(ctx, fmt.Sprintf(
+			"expire-pending: %d건 무효화 (pending 만료 갱신 경로) [session:0]", len(items)))
+		return err
+	}); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	ids := make([]int, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
+	out, mErr := json.Marshal(struct {
+		Status string `json:"status"`
+		Days   int    `json:"days"`
+		Count  int    `json:"count"`
+		IDs    []int  `json:"ids"`
+	}{Status: "invalidated", Days: days, Count: len(items), IDs: ids})
 	if mErr != nil {
 		fmt.Fprintln(stdout, errLine(mErr))
 		return 1

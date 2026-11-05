@@ -31,7 +31,7 @@ func DoctorChecks() []string {
 // 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
 // conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts", "zero-near"}
+	return []string{"backup-age", "conflicts", "zero-near", "pending-age"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -137,6 +137,9 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		// zero-near(v0.15.0 R3)도 conflicts 뒤 체인 말미 — 검색 품질
 		// 의심은 warn이면 족하다(fail 아님, 기존 검사 순서 불변).
 		checks = append(checks, checkZeroNear(ctx, st))
+		// pending-age(v0.16.2 R4)도 체인 말미 — 만료된 pending 방치는
+		// warn이면 족하다(fail 아님) + 만료 명령 안내.
+		checks = append(checks, checkPendingAge(ctx, st))
 	}
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
@@ -218,6 +221,9 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 	case "zero-near":
 		// v0.15.0 R3 — tail-chain 서브셋 경로 승계(--check zero-near).
 		return checkZeroNear(ctx, st)
+	case "pending-age":
+		// v0.16.2 R4 — 같은 tail-chain 서브셋 경로 승계(--check pending-age).
+		return checkPendingAge(ctx, st)
 	}
 	return doctorCheck{Name: name, Status: "fail", Detail: "unknown check"}
 }
@@ -870,6 +876,51 @@ func checkZeroNear(ctx context.Context, st Store) doctorCheck {
 	}
 	c.Status = "ok"
 	c.Detail = fmt.Sprintf("zero_near_pct %d%% (7일 read %d)", near*100/read, read)
+	return c
+}
+
+// doctorPendingAgeWarn — pending 최고령 경고 임계(v0.16.2 R4). 7일 상수 —
+// 관측된 "+5일 방치 재제글" 원천 차단 안내 수준(backup-age 72h와 같은
+// 상수 관례. TUNING 이연).
+const doctorPendingAgeWarn = 7 * 24 * time.Hour
+
+// checkPendingAge — pending 최고령 valid_at 경과 판정(v0.16.2 R4). 임계
+// 이상 경과·조회 실패·st nil은 warn(방치가 동작을 막지 않는다 — backup-age
+// 룰링 승계), 임계 이내·pending 부재는 ok. detail에 만료 명령
+// (maintain --expire-pending N) 안내를 붙인다. 정리 자체는 dry-run 기본
+// 명령에 맡긴다(자동 전환 아님).
+func checkPendingAge(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "pending-age"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "pending 경과 조회 불가 — maintain --expire-pending N으로 정리"
+		return c
+	}
+	rows, err := queryOnce(ctx, st, `
+		SELECT valid_at FROM knowledge
+		WHERE status = 'pending' AND invalid_at IS NULL
+		ORDER BY valid_at ASC LIMIT 1`, nil)
+	if err != nil {
+		c.Status = "warn"
+		c.Detail = "pending 경과 조회 실패: " + err.Error() + " — maintain --expire-pending N으로 정리"
+		return c
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 || rows[0][0] == nil {
+		c.Status = "ok"
+		return c
+	}
+	va, ok := anyToTime(rows[0][0])
+	if !ok {
+		c.Status = "ok" // 파손 값은 pending 부재 취급(무효 값 폴백)
+		return c
+	}
+	if d := time.Since(va); d >= doctorPendingAgeWarn {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("pending 최고령 %d일 경과 — maintain --expire-pending N으로 정리",
+			int(d.Hours()/24))
+		return c
+	}
+	c.Status = "ok"
 	return c
 }
 
