@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash scripts/hook_personal_guard.sh",
+            "command": "\"$CLAUDE_PROJECT_DIR/scripts/hook_personal_guard.py\"",
             "timeout": 30
           }
         ]

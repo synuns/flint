@@ -367,10 +367,13 @@ func dupSuspectsJSON(groups []db.DupGroup) string {
 	return string(b)
 }
 
-// conflictDupThreshold — 모순 분류 상수(룰링): 그룹 내 요약 유사도가
-// 0.6 이상이면 중복 후보(기존 --dup-suspects), 미만이면 모순 후보.
-// 제안 임계값(0.15)과 목적이 다른 독립 상수다.
-const conflictDupThreshold = 0.6
+// conflictDupThreshold — 모순 분류 기준(룰링): 그룹 내 요약 유사도가
+// 이 값 이상이면 중복 후보(기존 --dup-suspects), 미만이면 모순 후보.
+// 제안 임계값(0.15)과 목적이 다른 독립 값이다. 기본값은 thresholds
+// 레지스트리(store.DefaultThresholds) 단일 소스이고, 런타임에는 meta
+// conflict_dup_threshold 오버라이드가 classifyConflictAt 주입으로
+// 우선한다(v0.16.3). var인 것은 레지스트리 참조 때문(값 불변 계약).
+var conflictDupThreshold = store.DefaultThresholds().ConflictDupThreshold
 
 // suspectsDefaultLimit — --dup-suspects·--conflict-suspects 공통 기본
 // 상한(스펙 R4: --limit M 기본 10). doctor conflicts 검사(v0.13.1 F7/F9)도
@@ -384,10 +387,18 @@ func conflictDice(a, b string) float64 {
 	return query.BigramDiceMultiset(a, b)
 }
 
-// classifyConflict — 요약 두 건의 모순 여부: 유사도가 conflictDupThreshold
-// 미만이면 모순 후보(같은 주제에 서로 다른 주장), 이상이면 중복 후보.
+// classifyConflict — 요약 두 건의 모순 여부(기본 임계값): 유사도가
+// conflictDupThreshold 미만이면 모순 후보(같은 주제에 서로 다른 주장),
+// 이상이면 중복 후보. 오버라이드 경로는 classifyConflictAt.
 func classifyConflict(summA, summB string) bool {
-	return conflictDice(summA, summB) < conflictDupThreshold
+	return classifyConflictAt(summA, summB, conflictDupThreshold)
+}
+
+// classifyConflictAt — 임계값 주입판(classifyConflict). 소비자
+// (maintain --conflict-suspects·doctor conflicts)는 loadThresholds의
+// meta 오버라이드 값을 넘긴다(v0.16.3).
+func classifyConflictAt(summA, summB string, dupThreshold float64) bool {
+	return conflictDice(summA, summB) < dupThreshold
 }
 
 // conflictSummaryPrefix — 보고용 요약 앞 40자(rune 기준 절단).
@@ -400,11 +411,12 @@ func conflictSummaryPrefix(s string) string {
 }
 
 // isConflictGroup — 그룹이 모순 후보인지: 어느 한 쌍이라도 유사도가
-// 임계값 미만이면 이질 주장이 섞인 것으로 본다(전 쌍 동일·유사만 중복).
-func isConflictGroup(g db.ConflictGroup) bool {
+// 임계값(dupThreshold) 미만이면 이질 주장이 섞인 것으로 본다(전 쌍
+// 동일·유사만 중복). 임계값은 호출자가 loadThresholds 값으로 주입한다.
+func isConflictGroup(g db.ConflictGroup, dupThreshold float64) bool {
 	for i := 0; i < len(g.Summaries); i++ {
 		for j := i + 1; j < len(g.Summaries); j++ {
-			if classifyConflict(g.Summaries[i], g.Summaries[j]) {
+			if classifyConflictAt(g.Summaries[i], g.Summaries[j], dupThreshold) {
 				return true
 			}
 		}
@@ -414,17 +426,27 @@ func isConflictGroup(g db.ConflictGroup) bool {
 
 // maintainConflictSuspects — active 동일 topic 그룹 중 요약 유사도
 // 미만(모순 후보) 그룹만 보고(보고 전용·exit 0). 그룹핑은 --dup-suspects
-// 승계, 출력도 그 형식에 요약 앞 40자를 더한다. 판정(무효화·승격)은
-// 기존 --invalidate·--supersede로 에이전트 수행 — SQL 자동 판정 금지 유지.
+// 승계, 출력도 그 형식에 요약 앞 40자를 더한다. 분류 임계값은 meta
+// conflict_dup_threshold 오버라이드 우선(조회 실패는 기본값 — v0.16.3).
+// 판정(무효화·승격)은 기존 --invalidate·--supersede로 에이전트 수행 —
+// SQL 자동 판정 금지 유지.
 func maintainConflictSuspects(ctx context.Context, cs ConflictStore, stdout io.Writer, limit int) int {
 	groups, err := cs.ConflictGroups(ctx, limit)
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	// ConflictStore 시그니처에는 Query가 없다 — 구체 타입이 Store(및
+	// MaintStore)를 구현하면 그것으로 임계값을 읽는다(read 경로와 동일 원칙).
+	th := store.DefaultThresholds()
+	if ms, ok := cs.(Store); ok {
+		if loaded, lErr := loadThresholds(ctx, ms); lErr == nil {
+			th = loaded
+		}
+	}
 	out := make([]db.ConflictGroup, 0, len(groups))
 	for _, g := range groups {
-		if isConflictGroup(g) {
+		if isConflictGroup(g, th.ConflictDupThreshold) {
 			out = append(out, g)
 		}
 	}
@@ -920,11 +942,13 @@ func drillReport(ctx context.Context, st Store) string {
 }
 
 // loadThresholds — meta 테이블 키-값 → ParseThresholds(미설정 키 기본값).
-// v0.6 키(stale_days·stall_hot_h·stall_write_h)는 ParseThresholds가 미설정을
-// 0으로 두므로(기존 테스트 호환 규약) DefaultThresholds 값으로 폴백한다.
+// v0.6 키(stale_days·stall_hot_h·stall_write_h)와 v0.16.3 키(suggest_*·
+// conflict_dup_threshold·backup_age_warn_h·zero_near_*·pending_age_days)는
+// ParseThresholds가 미설정을 0으로 두므로(기존 테스트 호환 규약)
+// DefaultThresholds 값으로 폴백한다.
 func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	rows, err := queryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h')`, nil)
+		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h','suggest_min_score','suggest_scan_cap','conflict_dup_threshold','backup_age_warn_h','zero_near_min_read','zero_near_warn_pct','pending_age_days')`, nil)
 	if err != nil {
 		return store.Thresholds{}, err
 	}
@@ -947,6 +971,27 @@ func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	}
 	if th.StallWriteH <= 0 {
 		th.StallWriteH = def.StallWriteH
+	}
+	if th.SuggestMinScore <= 0 {
+		th.SuggestMinScore = def.SuggestMinScore
+	}
+	if th.SuggestScanCap <= 0 {
+		th.SuggestScanCap = def.SuggestScanCap
+	}
+	if th.ConflictDupThreshold <= 0 {
+		th.ConflictDupThreshold = def.ConflictDupThreshold
+	}
+	if th.BackupAgeWarnH <= 0 {
+		th.BackupAgeWarnH = def.BackupAgeWarnH
+	}
+	if th.ZeroNearMinRead <= 0 {
+		th.ZeroNearMinRead = def.ZeroNearMinRead
+	}
+	if th.ZeroNearWarnPct <= 0 {
+		th.ZeroNearWarnPct = def.ZeroNearWarnPct
+	}
+	if th.PendingAgeDays <= 0 {
+		th.PendingAgeDays = def.PendingAgeDays
 	}
 	return th, nil
 }

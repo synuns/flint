@@ -724,14 +724,11 @@ func checkLastSeen(ctx context.Context, st Store) doctorCheck {
 	return c
 }
 
-// backupAgeWarn — 자동 백업 신선도 임계값(v0.10.0 R4). 72h 상수 —
-// TUNING 이연(스펙 §3 R4 Notes).
-const backupAgeWarn = 72 * time.Hour
-
-// checkBackupAge — meta last_backup 경과 판정(v0.10.0 R4). 72h 이상
-// 경과·미설정·파손 값·조회 실패·st nil 전부 warn — 백업 부재가 flint
-// 동작을 막지 않으므로 fail 아니다(룰링). checkLastSeen과 같은
-// queryOnce·RFC3339 패턴을 승계한다.
+// checkBackupAge — meta last_backup 경과 판정(v0.10.0 R4). 경과 임계는
+// thresholds 레지스트리(meta backup_age_warn_h, 기본 72h — v0.16.3 레지스트
+// 리화·TUNING §2 스펙 §3 R4 Notes 이연 회수). 이상 경과·미설정·파손 값·
+// 조회 실패·st nil 전부 warn — 백업 부재가 flint 동작을 막지 않으므로
+// fail 아니다(룰링). checkLastSeen과 같은 queryOnce·RFC3339 패턴을 승계한다.
 func checkBackupAge(ctx context.Context, st Store) doctorCheck {
 	c := doctorCheck{Name: "backup-age"}
 	if st == nil {
@@ -758,7 +755,12 @@ func checkBackupAge(ctx context.Context, st Store) doctorCheck {
 		c.Detail = "last_backup 미설정 — flint done 훅·수동 backup 확인"
 		return c
 	}
-	if d := time.Since(ts); d >= backupAgeWarn {
+	// 임계값은 meta 오버라이드 우선(loadThresholds) — 조회 실패는 기본값 폴백.
+	th, thErr := loadThresholds(ctx, st)
+	if thErr != nil || th.BackupAgeWarnH <= 0 {
+		th = store.DefaultThresholds()
+	}
+	if d := time.Since(ts); d >= time.Duration(th.BackupAgeWarnH)*time.Hour {
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("자동 백업 %d시간 경과 — flint done 훅·수동 backup 확인", int(d.Hours()))
 		return c
@@ -816,28 +818,27 @@ func checkConflicts(ctx context.Context, st Store) doctorCheck {
 }
 
 // doctorZeroNearWindow — zero_near 검사 aggregation 창(일, v0.15.0 R3).
-// 오늘 포함 최근 7일 — report --days 기본창과 같은 규모.
+// 오늘 포함 최근 7일 — report --days 기본창과 같은 규모. 표본 하한·경고
+// 비율은 thresholds 레지스트리(zero_near_min_read 기본 10·
+// zero_near_warn_pct 기본 30 — v0.16.3 레지스트리화, TUNING §10 이연 회수).
 const doctorZeroNearWindow = 7
-
-// doctorZeroNearMinRead — zero_near warn 표본 하한. 창 내 read 합산이
-// 이보다 적으면 표본 부족으로 오판 경고를 내지 않는다(TUNING §10).
-const doctorZeroNearMinRead = 10
-
-// doctorZeroNearWarnPct — zero_near warn 임계(%). Σread_zero_near*100/
-// Σread가 이 값 이상이면 어휘 불일치(질의가 지식을 못 찾는 상태) 의심.
-const doctorZeroNearWarnPct = 30
 
 // checkZeroNear — 최근 7일 일별 read 계측 합산에서 근접 제로히트 비율
 // 판정(v0.15.0 R3). 직접 meta daily: 조회로 7일 컷을 건다 — PruneDaily와
-// 같은 substring 날짜 비교 패턴(키 날짜는 UTC). read ≥ 10 &&
-// read_zero_near*100/read ≥ 30이면 warn, 아니면 ok, 조회 실패·st nil은
-// warn. 검색 품질 의심은 동작을 막지 않으므로 fail 아니다(룰링).
+// 같은 substring 날짜 비교 패턴(키 날짜는 UTC). read ≥ 표본 하한 &&
+// read_zero_near*100/read ≥ 경고 비율이면 warn, 아니면 ok, 조회 실패·st
+// nil은 warn. 검색 품질 의심은 동작을 막지 않으므로 fail 아니다(룰링).
 func checkZeroNear(ctx context.Context, st Store) doctorCheck {
 	c := doctorCheck{Name: "zero-near"}
 	if st == nil {
 		c.Status = "warn"
 		c.Detail = "일별 계측 조회 불가 — flint report로 read_zero_near 확인"
 		return c
+	}
+	// 임계값 2종은 meta 오버라이드 우선(loadThresholds) — 조회 실패는 기본값.
+	th, thErr := loadThresholds(ctx, st)
+	if thErr != nil {
+		th = store.DefaultThresholds()
 	}
 	rows, err := queryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key ~ '^daily:[0-9]{4}-[0-9]{2}-[0-9]{2}$'
@@ -863,12 +864,12 @@ func checkZeroNear(ctx context.Context, st Store) doctorCheck {
 		read += d.Read
 		near += d.ReadNear
 	}
-	if read < doctorZeroNearMinRead {
+	if read < th.ZeroNearMinRead {
 		c.Status = "ok"
-		c.Detail = fmt.Sprintf("표본 부족(7일 read %d < %d) — 판정 보류", read, doctorZeroNearMinRead)
+		c.Detail = fmt.Sprintf("표본 부족(7일 read %d < %d) — 판정 보류", read, th.ZeroNearMinRead)
 		return c
 	}
-	if pct := near * 100 / read; pct >= doctorZeroNearWarnPct {
+	if pct := near * 100 / read; pct >= th.ZeroNearWarnPct {
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("zero_near_pct %d%% (7일 read %d 중 근접 %d) — 어휘 불일치 의심 — 검색 품질 개선 여지",
 			pct, read, near)
