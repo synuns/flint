@@ -12,6 +12,10 @@ builds:
     goarch: [arm64, amd64]
     ldflags:
       - -s -w -X flint/lib/cli.version={{.Version}} -X flint/lib/cli.commit={{.Commit}}
+    # v0.16.5: 타깃별 .mcpb 번들(zip: manifest.json + 바이너리) 생성.
+    hooks:
+      post:
+        - cmd: ./scripts/make_mcpb.sh {{ .Target }} {{ .Version }} {{ .Path }}
 
 archives:
   - id: flint
@@ -34,6 +38,12 @@ archives:
 
 checksum:
   name_template: checksums.txt
+
+# v0.16.5: .mcpb를 Release 자산에 추가(checksums 대상 외 — 기존 자산 불변).
+# 실제 릴리스에서만 업로드되며 snapshot 검증은 dist 산출물로 확인.
+release:
+  extra_files:
+    - glob: ./dist/*.mcpb
 
 changelog:
   sort: asc
