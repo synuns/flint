@@ -7,28 +7,8 @@ import (
 	"testing"
 )
 
-// TestVersion0170 — VERSION 파일(단일 버전 소스, v0.16.7 도입)과 plugin.json이
-// 모두 v0.17.0인지. scripts/bump_version.sh 일괄 범프 누락 회귀.
-func TestVersion0170(t *testing.T) {
-	if v := strings.TrimSpace(docStr(t, "../VERSION")); v != "0.17.0" {
-		t.Errorf("VERSION=%q, want 0.17.0", v)
-	}
-	m := regexp.MustCompile(`"version":\s*"(\d+\.\d+\.\d+)"`).
-		FindStringSubmatch(docStr(t, "../flint-plugin/.claude-plugin/plugin.json"))
-	if m == nil || m[1] != "0.17.0" {
-		t.Errorf("plugin.json version=%v, want 0.17.0", m)
-	}
-}
-
-// TestBadgeV0170 — EN/KO README 배지 동기(누락 사고 3회 방지가 범프
-// 스크립트 도입 동기).
-func TestBadgeV0170(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		if !strings.Contains(docStr(t, p), "release-v0.17.0-blue") {
-			t.Errorf("%s 배지 v0.17.0 미기록", p)
-		}
-	}
-}
+// v0.17.1: TestVersion0170·TestBadgeV0170 삭제 — 버전 동기 가드는
+// VERSION 파일 기반 TestVersionArtifactsSync(v0171_docs_test.go)로 범용화.
 
 // TestDependabotConfigured — R1: gomod·github-actions 주간 업데이트 2 ecosystem.
 func TestDependabotConfigured(t *testing.T) {
