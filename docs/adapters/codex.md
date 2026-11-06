@@ -7,6 +7,9 @@
 
 ## 1. MCP 참여 설정
 
+`flint setup --mcp`가 설치된 Codex를 자동 감지해 아래 설정을 등록한다
+(v0.16.5). 수동으로 설정하거나 자동 등록 결과를 확인하려면 아래를 따른다.
+
 `~/.codex/config.toml`에 다음 스니펫을 추가한다 (stdio, TOML 포맷).
 
 ```toml

@@ -35,7 +35,7 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 | `stale_days` | 90 | 미참조·미갱신 스테일 판정 기준(일) — Confluence 스테일 스캔 표준·분기 리뷰 관례 | maintain --stale |
 | `stall_hot_h` | 48 | hot 부재 경고 grace(시간, Healthchecks.io nodata 준용) | doctor·maintain --check |
 | `stall_write_h` | 72 | write 부재 경고 grace(시간) | doctor·maintain --check |
-| `suggest_min_score` | 0.15 | 제안(did-you-mean) 채택 유사도 하한(0~1) — 미만 행은 무관 후보로 제외 | read(제로히트 스캔) |
+| `suggest_min_score` | 0.15 | zero_near 근접 판정 유사도 하한(0~1) — 미만 행은 무관 후보로 제외. 제안(did-you-mean) 출력은 v0.14.0 폐지, 지표 분류만 담당 | read(제로히트 스캔) |
 | `suggest_scan_cap` | 5000 | 제안 스캔 행 상한 — 이상 규모 유입 시 무상한 스캔 방어 | read |
 | `conflict_dup_threshold` | 0.6 | 모순/중복 분류 유사도 기준(0~1, 이상=중복·미만=모순). doctor conflicts도 같은 기본값 소스를 쓰나 오버라이드 적용 경로는 maintain | maintain --conflict-suspects |
 | `backup_age_warn_h` | 72 | 백업 신선도 경고 시간(h) — 이상 경과 시 warn | doctor backup-age |

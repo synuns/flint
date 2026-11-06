@@ -7,6 +7,9 @@
 
 ## 1. MCP 참여 설정
 
+`flint setup --mcp`가 설치된 OpenCode를 자동 감지해 아래 설정을 등록한다
+(v0.16.5). 수동으로 설정하거나 자동 등록 결과를 확인하려면 아래를 따른다.
+
 글로벌 `~/.config/opencode/opencode.json` 또는 프로젝트 루트 `opencode.json`
 의 `"mcp"` 키에 다음 스니펫을 추가한다.
 
