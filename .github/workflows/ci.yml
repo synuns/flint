@@ -113,3 +113,12 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - name: 릴리스 링크
         run: echo "https://github.com/synuns/flint/releases/tag/${GITHUB_REF#refs/tags/}"
+      # MCP Registry 자동 발행 — goreleaser 성공 후 .mcpb에서 SHA256
+      # 계산·server.json 렌더·github-oidc 인증으로 발행(무인).
+      - name: MCP Registry 발행
+        if: steps.relcheck.outputs.skip != 'true'
+        run: |
+          curl -sL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_Linux_x86_64.tar.gz | tar xz -C /tmp
+          chmod +x /tmp/mcp-publisher
+          /tmp/mcp-publisher login github-oidc
+          bash scripts/publish_mcp.sh "${GITHUB_REF#refs/tags/}"
