@@ -15,6 +15,12 @@ on:
   pull_request:
   workflow_dispatch:
 
+# 같은 레프의 연속 실행은 이전 실행 취소(러너 절약).
+# deploy는 멱등 가드(태그·릴리스 존재 감지)가 있어 취소 후 재실행이 안전.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   test:
     runs-on: ubuntu-latest
@@ -35,9 +41,14 @@ jobs:
       - uses: actions/setup-go@v7
         with:
           go-version-file: go.mod
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.x'
+          cache: pip
+          cache-dependency-path: scripts/requirements.txt
       - name: PyYAML 설치
-        run: python3 -m pip install pyyaml
-      - name: DB 준비 대기
+        run: python3 -m pip install -r scripts/requirements.txt
+      - name: DB 준비 대기 (단일 게이트)
         run: |
           go build -o /tmp/flint-wait ./cmd/flint
           for i in $(seq 1 30); do
@@ -48,15 +59,11 @@ jobs:
           done
           echo "DB not query-ready after 60s"; exit 1
       - name: flint_test 데이터베이스 생성
+        # doctor 통과 = 쿼리 준비 완료. psql 대기 루프 없이 1회 시행만.
         run: |
           PSQL="psql postgresql://flint:flint-dev@localhost:5434/flint"
-          ready=0
-          for i in $(seq 1 15); do
-            if $PSQL -c "SELECT 1" >/dev/null 2>&1; then ready=1; break; fi
-            sleep 2
-          done
-          if [ "$ready" -ne 1 ]; then
-            echo "psql 30s 내 준비 안 됨 — CI 중단"; exit 1
+          if ! $PSQL -c "SELECT 1" >/dev/null 2>&1; then
+            echo "psql 접속 실패 — doctor 통과 직후 불일치"; exit 1
           fi
           if out=$($PSQL -c "CREATE DATABASE flint_test" 2>&1); then
             echo "flint_test 생성 완료"
@@ -124,7 +131,9 @@ jobs:
             git config user.name "synuns"
             git config user.email "57736547+synuns@users.noreply.github.com"
             git tag "$TAG"
-            git push origin "$TAG" || true  # GITHUB_TOKEN push는 cascade 없음 — 무관
+            # 태그 push 실패는 원격 태그 없는 릴리스 URL 붕괴로 이어짐 — 즉시 중단.
+            # GITHUB_TOKEN push는 cascade 없음 — 재실행 안전.
+            git push origin "$TAG"
             echo "deploy=true" >> "$GITHUB_OUTPUT"
             echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
             echo "ver=${VERSION}" >> "$GITHUB_OUTPUT"
