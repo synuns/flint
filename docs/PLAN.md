@@ -564,13 +564,39 @@ flint-plugin/
   서술 정정
 - [x] R5 버전 — VERSION·배지 v0.17.1(EN/KO)·plugin.json 동기
 
+### v0.18.0 (2026-11-06) — 회상 우선 메모리 (recall-first memory)
+
+테마 선정 근거: 관측 정합 결과 누적 zero_pct(구 메트릭, 초기 이력 지배)와
+기간화 zero_pct(0%)가 갈라 검색 품질 트리거는 미도달 — 실측 신호는
+dup_pct 71%(재제출 지배)·read:write 불균형(회상 부재). 내부 전수(중복
+경로·read 유도 장치)·외부 조사(mem0 NOOP·Anthropic already-exists·세션
+시작 프로토콜·Doltgres 확장 현황)를 종합해 "기록만 하고 회상 안 함"을
+write·주입·종료·관측 4개 접점에서 교정한다.
+
+- [x] R1 duplicate 응답 피드백(#61) — 기존 행 topic·state 노출(재기록
+  대신 read/supersede/approve 유도)·SKILL.md 가이드
+- [x] R2 hot 헤드라인 주제 노출(#63) — normal 프로파일에 최근 결정 주제
+  상위 3·회상 힌트(minimal 불변·--full 바이트 불변)
+- [x] R3 done 회상 경고(#64) — 오늘 read 0회·기록 임계 이상 시 종료 경고
+  (recall_warn_writes 기본 3, thresholds 레지스트리 등록)
+- [x] R5 폴백 검색면 tags 포함(#65) — 태그로만 분류된 지식 회수(구문
+  접합면 불변)
+- [x] R4 status 기간화 지표(#62) — read_calls_14d·read_zero_pct_14d 병기
+  (누적값 오독 방지, report와 동일 산식)
+- [x] 버전 — VERSION·배지 v0.18.0(EN/KO)·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
 - [ ] 보존·영구삭제: 데이터 축적 후 판단 (진짜 삭제는 filter-branch) — v0.5 백업 보존 정책과 연계
 - [x] 백업 포맷 확정: pg_dump 검증 결과에 따름 → 회수(W0): pg_dump 실패, 자체 SQL 덤프 확정(ADR-0002)
 - [x] 임계값 수치(pending>50·중복>20·conf<0.8·연속 3세션): 운영 중 조정 → 회수: meta 오버라이드 체계(TUNING.md §2)
-- [ ] 검색 품질 고도화(n-gram·코사인): 제로히트율 20% 초과 + read_calls≥50 트리거 도달 시 별도 마일스톤 — 계측은 v0.5 T56(read_stats) 개시
+- [ ] 검색 품질 고도화(자모 bigram·RRF 융합 랭킹): 제로히트율 20% 초과 +
+  read_calls≥50 트리거 도달 시 별도 마일스톤 — v0.18.0 정합: 기간화
+  zero_pct 기준 미도달(누적 구 메트릭은 초기 이력 지배로 폐기 판단).
+  fallback_pct가 지속 20%+ 시 폴백 tags 확장(R5) 효과 먼저 실측.
+  코사인은 Doltgres pgvector 에뮬레이션(2026-09 발표, 부분 지원) 실증
+  전까지 보류
 
 ## 16. 기술 검증 (v0.1 첫 작업)
 
