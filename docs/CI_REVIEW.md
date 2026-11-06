@@ -1,6 +1,6 @@
 # flint CI 설계 리뷰 — v0.17.0 (2026-11-06)
 
-대상: `.github/workflows/ci.yml`(v0.16.7 주석 기준 현행 파일 전수 읽기 기준).
+대상: `.github/workflows/ci.yml`(v0.16.7 주석 기준 — 현행 워킹트리, v0.17.0 T1의 mcp-publisher v1.8.7 고정 포함).
 
 ## 1. 현재 구조 다이어그램
 
@@ -32,11 +32,12 @@ workflow_dispatch ▶ test (deploy는 push에서만)
 
 ## 4. 개선 후보 (실행 가능 수준)
 
-1. **mcp-publisher 버전 고정** — 현재 `releases/latest/download`(재현성·상류 breaking 위험). `releases/download/v1.8.7/...`로 고정(v0.17.0 T1 진행 예정).
-2. **태그 push 실패 무시 제거** — `git push origin "$TAG" || true`가 실패를 삼키면 원격 태그 없는 릴리스 URL이 깨질 수 있다. `|| true` 제거해 실패 시 잡을 중단.
-3. **동시 실행 취소** — `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }` 추가로 같은 PR의 연속 push 실행을 취소해 러너 절약(deploy는 멱등 가드가 있어 안전).
-4. **DB 대기 루프 병합** — `doctor --check db` 대기와 psql `SELECT 1` 대기가 사실상 동일한 준비 확인. psql 루프를 doctor 통과 직후 1회 시행으로 줄여 단계·시간 절감.
-5. **PyYAML 설치 캐시** — 매 실행 `pip install pyyaml`. `actions/setup-python` + `cache: pip` 도입으로 설치 단계 단축.
+반영 이력: **mcp-publisher 버전 고정**(latest → v1.8.7)은 v0.17.0 T1에서 ci.yml에 적용 완료 — 이제 상류 breaking·재현성 위험이 제거됐다(상향 시 수동 실증 후 버전만 갱신).
+
+1. **태그 push 실패 무시 제거** — `git push origin "$TAG" || true`가 실패를 삼키면 원격 태그 없는 릴리스 URL이 깨질 수 있다. `|| true` 제거해 실패 시 잡을 중단.
+2. **동시 실행 취소** — `concurrency: { group: ci-${{ github.ref }}, cancel-in-progress: true }` 추가로 같은 PR의 연속 push 실행을 취소해 러너 절약(deploy는 멱등 가드가 있어 안전).
+3. **DB 대기 루프 병합** — `doctor --check db` 대기와 psql `SELECT 1` 대기가 사실상 동일한 준비 확인. psql 루프를 doctor 통과 직후 1회 시행으로 줄여 단계·시간 절감.
+4. **PyYAML 설치 캐시** — 매 실행 `pip install pyyaml`. `actions/setup-python` + `cache: pip` 도입으로 설치 단계 단축.
 
 ## 5. 결론
 
