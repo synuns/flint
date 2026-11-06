@@ -1,24 +1,22 @@
-# T43 CI 파이프라인 — 단위 테스트 + 실 Doltgres e2e.
-# 태그 push(v*) 시 release 잡이 goreleaser로 자동 Release 생성(실 태그 push는 사용자 확인 후 수행 — 비간섭 원칙).
+# T43 CI 파이프라인 — 단위 테스트 + 실 Doltgres e2e + 완전 자동 릴리스.
+# VERSION 파일이 갱신되어 main에 push되면 → 자동 태그 → test → goreleaser
+# Release → MCP Registry 발행까지 전부 무인(v0.16.7 — 사용자 제로 터치).
 name: ci
 
 on:
   push:
     branches: [main]
-    # v0.16.0 R1: branches 필터만 있으면 태그 push는 워크플로 미발동 —
-    # release 잡 실행을 위해 태그 트리거 명시 필요.
     tags: ["v*"]
   pull_request:
-  # v0.16.1: 수동 발동(태그 push 없이 release 잡 디버깅·검증용).
   workflow_dispatch:
 
 jobs:
   test:
+    # 태그 push 시에만 실행(브랜치 push는 autotag이 담당)
+    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
-      # ADR-0010: 호스트 5434 -> 컨테이너 5432 (docker-compose.yml과 동일 설정)
-      # v0.16.1: latest 부유 digest 고정 — v0.15.2 이후 실증 빌드. 갱신 시 e2e 재검증 필요.
       doltgres:
         image: dolthub/doltgresql@sha256:3a119bb6726a0be283cfda2a73fa9fbdff58df06c0b850f245cd1828f57281a6
         ports:
@@ -28,16 +26,15 @@ jobs:
           DOLTGRES_PASSWORD: flint-dev
           DOLTGRES_DB: flint
     env:
-      # e2e DSN 주입: tests/e2e는 FLINT_DSN 우선
       FLINT_DSN: postgresql://flint:flint-dev@localhost:5434/flint
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: PyYAML 설치 (validate_yaml.py 의존 — runner 선행 패키지 가정 제거)
+      - name: PyYAML 설치
         run: python3 -m pip install pyyaml
-      - name: DB 준비 대기 (Doltgres 워밍업 — 포트 오픈≠쿼리 준비, 초기 패키지 retries_exhausted 방지)
+      - name: DB 준비 대기 (Doltgres 워밍업)
         run: |
           go build -o /tmp/flint-wait ./cmd/flint
           for i in $(seq 1 30); do
@@ -47,7 +44,7 @@ jobs:
             sleep 2
           done
           echo "DB not query-ready after 60s"; exit 1
-      - name: flint_test 데이터베이스 생성 (서비스는 flint만 생성 — make ci의 FLINT_TEST_DSN 기본값 대상)
+      - name: flint_test 데이터베이스 생성
         run: |
           PSQL="psql postgresql://flint:flint-dev@localhost:5434/flint"
           ready=0
@@ -55,13 +52,9 @@ jobs:
             if $PSQL -c "SELECT 1" >/dev/null 2>&1; then ready=1; break; fi
             sleep 2
           done
-          # v0.16.1: 준비 실패 시 무조건 진행 → CREATE가 서버 미기동 오류로 실패. 15회 소진 시 즉시 중단.
           if [ "$ready" -ne 1 ]; then
             echo "psql 30s 내 준비 안 됨 — CI 중단"; exit 1
           fi
-          # v0.16.2: `|| echo`가 위장 실패(이미 존재 외 오류)를 삼키지 않게
-          # 출력을 캡처 판정 — already exists만 통과, 그 외 실패는 즉시 중단
-          # (위 프로브 준비 exit 1과 대칭).
           if out=$($PSQL -c "CREATE DATABASE flint_test" 2>&1); then
             echo "flint_test 생성 완료"
           elif echo "$out" | grep -qi "already exists"; then
@@ -75,8 +68,40 @@ jobs:
       - name: e2e (실 Doltgres)
         run: make e2e
 
-  # T1 태그 push(v*) 시 goreleaser 자동 Release 생성 — 바이너리(tar.gz) + 플러그인 zip 첨부.
-  # 실 태그 push는 사용자 확인 후 수행(비간섭 원칙 유지).
+  # v0.16.7: VERSION 파일 변경 감지 → 자동 태그 생성·push → release 파이프라인 발동.
+  # 사용자는 PR에 버전 관련 파일 갱신만 하면 나머지는 전부 자동.
+  autotag:
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: VERSION 변경 감지 → 자동 태그
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          # VERSION 파일의 값 (예: 0.16.7)
+          VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]')
+          if [ -z "$VERSION" ]; then
+            echo "VERSION 파일 없음 — 스킵"; exit 0
+          fi
+          TAG="v${VERSION}"
+          # 이미 존재하는 태그면 스킵
+          if git tag -l "$TAG" | grep -q .; then
+            echo "태그 ${TAG} 이미 존재 — 스킵"
+            exit 0
+          fi
+          echo "새 버전 감지: ${TAG} → 자동 태그 생성·push"
+          git config user.name "synuns"
+          git config user.email "57736547+synuns@users.noreply.github.com"
+          git tag "$TAG"
+          git push origin "$TAG"
+
+  # 완전 자동 릴리스: 태그 push(autotag 또는 수동) → test 통과 → goreleaser → MCP Registry.
   release:
     if: startsWith(github.ref, 'refs/tags/v')
     needs: test
@@ -84,6 +109,7 @@ jobs:
     timeout-minutes: 15
     permissions:
       contents: write
+      id-token: write  # MCP Registry github-oidc 인증용
     steps:
       - uses: actions/checkout@v4
         with:
@@ -91,34 +117,48 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: 이미 발행된 릴리스 확인 (멱등 가드 — 태그 재푸시·재실행 시 422 방지)
+      - name: 이미 발행된 릴리스 확인 (goreleaser 멱등 가드)
         id: relcheck
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           TAG="${GITHUB_REF#refs/tags/}"
           if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "이미 발행됨: $TAG — 자산 업로드 스킵(goreleaser 422 already_exists 방지)"
-            echo "skip=true" >> "$GITHUB_OUTPUT"
+            echo "goreleaser 스킵(릴리스 존재)"; echo "skip=true" >> "$GITHUB_OUTPUT"
           else
             echo "skip=false" >> "$GITHUB_OUTPUT"
           fi
+      # goreleaser — 릴리스가 없을 때만 실행.
       - uses: goreleaser/goreleaser-action@v6
         if: steps.relcheck.outputs.skip != 'true'
         with:
           args: release --clean
-          # v0.16.1: latest 부유 → 고정(로컬 실증 버전과 동일 계열). 상향 시 snapshot 재실증 필요.
           version: v2.19.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      - name: 릴리스 링크
-        run: echo "https://github.com/synuns/flint/releases/tag/${GITHUB_REF#refs/tags/}"
-      # MCP Registry 자동 발행 — goreleaser 성공 후 .mcpb에서 SHA256
-      # 계산·server.json 렌더·github-oidc 인증으로 발행(무인).
+      # 릴리스 자산에서 .mcpb 다운로드 → MCP Registry 발행 (항상 실행 — 멱등).
       - name: MCP Registry 발행
-        if: steps.relcheck.outputs.skip != 'true'
         run: |
+          TAG="${GITHUB_REF#refs/tags/}"
+          VER="${TAG#v}"
+          # mcp-publisher 설치
           curl -sL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz | tar xz -C /tmp
           chmod +x /tmp/mcp-publisher
+          # github-oidc 인증 (Actions 환경에서 자동)
           /tmp/mcp-publisher login github-oidc
-          bash scripts/publish_mcp.sh "${GITHUB_REF#refs/tags/}"
+          # .mcpb 다운로드 (goreleaser가 방금 올렸거나 기존 릴리스에서)
+          MCPB_URL="https://github.com/synuns/flint/releases/download/${TAG}/flint_${VER}_darwin_arm64.mcpb"
+          curl -sL "$MCPB_URL" -o /tmp/flint.mcpb
+          if [ ! -s /tmp/flint.mcpb ]; then
+            echo "error: .mcpb 다운로드 실패(${MCPB_URL})"; exit 1
+          fi
+          SHA256=$(sha256sum /tmp/flint.mcpb | cut -d' ' -f1)
+          # server.json 렌더
+          sed -e "s|{{URL}}|${MCPB_URL}|g" \
+              -e "s|{{SHA256}}|${SHA256}|g" \
+              -e "s|{{VERSION}}|${VER}|g" \
+              mcp-registry/server.json.template > /tmp/server.json
+          # 발행 (멱등 — 동일 버전 재발행은 갱신)
+          /tmp/mcp-publisher publish /tmp/server.json
+      - name: 릴리스 링크
+        run: echo "https://github.com/synuns/flint/releases/tag/${GITHUB_REF#refs/tags/}"

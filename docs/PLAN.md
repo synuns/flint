@@ -529,6 +529,12 @@ flint-plugin/
 - [x] server.json template($schema·version)·publish_mcp.sh·CI github-oidc
   스텝 — 태그 push 시 무인 발행
 
+### v0.16.7 패치 (2026-11-06) — 완전 자동 릴리스 파이프라인
+
+- [x] VERSION 파일(단일 버전 소스)·autotag 잡(main push→버전 변경 감지→
+  자동 태그)·MCP Registry 발행 항상 실행(goreleaser 스킵과 분리)·
+  github-oidc id-token: write. 사용자는 PR에 버전만 올리면 끝.
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
