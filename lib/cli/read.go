@@ -37,6 +37,20 @@ func (s *realStore) RecordReadUsage(ctx context.Context, zero, near bool) error 
 	return s.repo.RecordReadUsage(ctx, zero, near)
 }
 
+// ReadEventStore — 효과 계측 이벤트 1행 기록 접합면(v0.19.0,
+// docs/METRICS.md §4). realStore는 db.Repo.RecordReadEvent로 구현하고,
+// 미구현 Store(fake)는 이 계측을 건너뛴다(카운터 폴백과 달리 대체
+// 경로가 없다 — read_events 없이도 나머지 지표는 daily·knowledge에서
+// 도출된다).
+type ReadEventStore interface {
+	RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session string) error
+}
+
+// realStore 위임 — RecordReadEvent 실구현 연결.
+func (s *realStore) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session string) error {
+	return s.repo.RecordReadEvent(ctx, hits, zero, near, fallback, session)
+}
+
 // cellToInt — 셀(any)→int 단일 강제 변환 유틸. read rowIDs·maintain stale·
 // report 집계가 공유한다(구현 3중 복제 방지). pgx 숫자형(int·int32·int64)
 // ·float64·10진 문자열을 수용하고 nil·비수는 (0, false).
@@ -97,8 +111,8 @@ func instrumentReads(ctx context.Context, st Store, kind string, ids []int, zero
 // knowledge + status WHERE 조회(뷰는 invalidated 행을 노출하지 않는다).
 func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	f := query.Filters{}
-	jsonMode, fields, asOfSpec, statusSpec := false, "", "", ""
-	asOfGiven, statusGiven := false, false
+	jsonMode, fields, asOfSpec, statusSpec, session := false, "", "", "", ""
+	asOfGiven, statusGiven, sessionGiven := false, false, false
 	tagGiven, entityGiven, domainGiven, fieldsGiven := false, false, false, false
 	var pos []string
 	for i := 0; i < len(args); i++ {
@@ -137,6 +151,10 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			jsonMode = true
 		case "--fields":
 			fields, i, fieldsGiven = v, i+1, true
+		case "--session":
+			// v0.19.0: 효과 계측용 세션 라벨(선택 — docs/METRICS.md §4).
+			// 조회 동작에는 영향 없고 read_events 기록에만 쓰인다.
+			session, i, sessionGiven = v, i+1, true
 		default:
 			pos = append(pos, a)
 		}
@@ -154,6 +172,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		{entityGiven, f.Entity, "entity"},
 		{domainGiven, f.Domain, "domain"},
 		{fieldsGiven, fields, "fields"},
+		{sessionGiven, session, "session"},
 	} {
 		if g.given && g.val == "" {
 			fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: g.field, Expect: "non-empty"}))
@@ -233,9 +252,12 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 정합성을 깨므로 생략. --status는 상태 필터 자체가 재시도 대상이
 	// 아니라 폴백·제안 미발동(룰링). 폴백 시도는 meta read_fallback_calls에
 	// 1회 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
+	// v0.19.0: 폴백 시도 여부를 read_events 기록에 전달(METRICS §4 G1).
+	fallbackTried := false
 	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
 		if fsql, fargs, ok := query.BuildReadFallback(q, f); ok {
 			bumpReadFallbackToMeta(ctx, st)
+			fallbackTried = true
 			if frows, ferr := queryOnce(ctx, st, fsql, fargs); ferr == nil && len(frows) > 0 {
 				rows = frows
 				query.ReorderByFallbackCount(rows, query.TokenizeQuery(q))
@@ -284,6 +306,11 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회(분류 동반
 	// 전달 — R2 RecordReadUsage 경로). 조용히(§13).
 	instrumentReads(ctx, st, "read", rowIDs(rows), len(rows) == 0, len(suggestions) > 0)
+	// 효과 계측(v0.19.0, docs/METRICS.md §4): read 1회를 read_events에
+	// 기록. 미구현 Store(fake)는 건너뛰고 실패는 조용히(§13 계측 원칙).
+	if res, ok := st.(ReadEventStore); ok {
+		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session)
+	}
 	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
 	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.
 	if readSuggestEligible(len(rows), asOfSpec, f.Status) {

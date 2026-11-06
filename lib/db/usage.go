@@ -108,12 +108,37 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 	return nil
 }
 
+// RecordReadEvent — 효과 계측 이벤트 1행 기록(v0.19.0, docs/METRICS.md §4).
+// read 1회의 수치·플래그·세션 라벨만 남긴다(쿼리 본문·결과 내용 없음 —
+// 개인 문구 부재 원칙). 컷오프는 Go 계산 파라미터로 넘긴다(PruneDaily
+// 산술·report stale 관례 — SQL interval 곱은 Doltgres 파라미터 추론 결함).
+// INSERT 전용이라 읽기-쓰기 경합(40001)이 없고 재시도 없이 단발 실행한다.
+func (r *Repo) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session string) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO read_events (hits, zero, near, fallback, session)
+		 VALUES ($1, $2, $3, $4, $5)`, hits, zero, near, fallback, session)
+	if err != nil {
+		return fmt.Errorf("record read event: %w", err)
+	}
+	return nil
+}
+
+// PruneReadEvents — 14일 보존(daily 카운터와 동일 정책)을 넘은 이벤트
+// 삭제. 트리거는 recordWithRetry의 롤오버 훅(PruneDaily와 동시) — 첫
+// read가 날짜를 넘기면 그 시점에 정리된다. 테이블 부재(v6 미승격 구DB
+// 접속 등)는 조용히 넘긴다(계측 원칙).
+func (r *Repo) PruneReadEvents(ctx context.Context) error {
+	cutoff := time.Now().UTC().Add(-14 * 24 * time.Hour)
+	_, err := r.pool.Exec(ctx, `DELETE FROM read_events WHERE ts < $1`, cutoff)
+	return err
+}
+
 // recordWithRetry — daily 증분 기록 공통 절차(RecordUsageCount·RecordReadUsage
 // 공유). fn을 40001 재시도(usageRetryBackoff)로 실행하고, fn이 오늘 daily 키
-// 신규 생성(롤오버 첫 이벤트)을 보고하면 PruneDaily(14일 정리)를 실행한다 —
-// 매 기록마다 DELETE하면 핫패스 낭비고 duplicate write는 2회 실행된다.
-// 재시도 소진·정리 실패는 조용히 넘긴다(계측 원칙 — 사용 로그 유실이 호출
-// 실패보다 낫다).
+// 신규 생성(롤오버 첫 이벤트)을 보고하면 PruneDaily·PruneReadEvents(각 14일
+// 정리)를 실행한다 — 매 기록마다 DELETE하면 핫패스 낭비고 duplicate write는
+// 2회 실행된다. 재시도 소진·정리 실패는 조용히 넘긴다(계측 원칙 — 사용 로그
+// 유실이 호출 실패보다 낫다).
 func (r *Repo) recordWithRetry(ctx context.Context, fn func(ctx context.Context, day string) (created bool, err error)) {
 	day := time.Now().UTC().Format("2006-01-02")
 	created := false
@@ -127,6 +152,7 @@ func (r *Repo) recordWithRetry(ctx context.Context, fn func(ctx context.Context,
 	}, usageRetryBackoff)
 	if created {
 		_ = r.PruneDaily(ctx)
+		_ = r.PruneReadEvents(ctx)
 	}
 }
 
