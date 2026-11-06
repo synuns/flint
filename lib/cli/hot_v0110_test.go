@@ -13,13 +13,13 @@ import (
 )
 
 func TestHotHeadline(t *testing.T) {
-	if got := hotHeadline("normal", 20, 7, 3); got != "[flint] 활성 20 · 대기 7 · 최근 결정 3 — 펼치기: flint hot --full" {
+	if got := hotHeadline("normal", 20, 7, 3, nil); got != "[flint] 활성 20 · 대기 7 · 최근 결정 3 — 펼치기: flint hot --full" {
 		t.Errorf("normal 헤드라인 = %q", got)
 	}
-	if got := hotHeadline("minimal", 20, 7, 3); got != "[flint] 활성 20 · 대기 7" {
+	if got := hotHeadline("minimal", 20, 7, 3, []string{"x"}); got != "[flint] 활성 20 · 대기 7" {
 		t.Errorf("minimal 헤드라인 = %q", got)
 	}
-	if got := hotHeadline("other", 1, 2, 3); !strings.Contains(got, "펼치기") {
+	if got := hotHeadline("other", 1, 2, 3, nil); !strings.Contains(got, "펼치기") {
 		t.Errorf("미확인 프로파일 = normal 취급 아님: %q", got)
 	}
 }
@@ -55,7 +55,7 @@ func TestHotSummaryHeadlineByProfile(t *testing.T) {
 		{"decision", "토픽3", "요약3", "2026-10-20"},
 	}
 	cases := []struct{ name, profile, want string }{
-		{"미설정 normal", "", "[flint] 활성 1 · 대기 2 · 최근 결정 1 — 펼치기: flint hot --full"},
+		{"미설정 normal", "", "[flint] 활성 1 · 대기 2 · 최근 결정: 토픽3 — 회상: flint read <쿼리>"},
 		{"minimal", "minimal", "[flint] 활성 1 · 대기 2"},
 	}
 	for _, tc := range cases {
