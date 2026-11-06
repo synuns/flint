@@ -1,48 +1,61 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" font-family="-apple-system, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 880 240" font-family="-apple-system, 'Segoe UI', sans-serif">
   <style>
     @media (prefers-color-scheme: dark) {
       .ink { fill:#e6edf3; } .sub { fill:#8b949e; } .box { stroke:#3d444d; fill:#151b23; }
       .arrow { stroke:#8b949e; } .arrowh { fill:#8b949e; }
       .num { fill:#58a6ff; font-weight:700; } .bg { fill:#0d1117; }
+      .loop { stroke:#58a6ff44; } .looph { fill:#58a6ff; }
     }
     @media (prefers-color-scheme: light) {
       .ink { fill:#1f2328; } .sub { fill:#656d76; } .box { stroke:#d0d7de; fill:#f6f8fa; }
       .arrow { stroke:#656d76; } .arrowh { fill:#656d76; }
       .num { fill:#0969da; font-weight:700; } .bg { fill:#ffffff; }
+      .loop { stroke:#0969da44; } .looph { fill:#0969da; }
     }
   </style>
-  <rect class="bg" width="960" height="320" rx="8"/>
-  <text class="ink" x="480" y="32" text-anchor="middle" font-size="14" font-weight="700">One session — the cycle of accumulating memory</text>
+  <rect class="bg" width="880" height="240" rx="8"/>
 
-  <rect class="box" x="100" y="220" width="160" height="70" rx="8"/>
-  <text class="num" x="180" y="244" text-anchor="middle" font-size="11">1</text>
-  <text class="ink" x="180" y="262" text-anchor="middle" font-size="11" font-weight="600">Session Start</text>
-  <text class="sub" x="180" y="278" text-anchor="middle" font-size="9">hot — context injection</text>
+  <!-- Title -->
+  <text class="ink" x="440" y="30" text-anchor="middle" font-size="14" font-weight="700">One session — the cycle of accumulating memory</text>
 
-  <line class="arrow" x1="260" y1="255" x2="360" y2="140" stroke-width="1.5"/>
-  <polygon class="arrowh" points="360,140 353,144 362,147"/>
+  <!-- Phase 1: Session Start -->
+  <rect class="box" x="40" y="60" width="160" height="80" rx="10"/>
+  <text class="num" x="120" y="86" text-anchor="middle" font-size="12">1</text>
+  <text class="ink" x="120" y="106" text-anchor="middle" font-size="12" font-weight="600">Session Start</text>
+  <text class="sub" x="120" y="122" text-anchor="middle" font-size="10">hot — context injection</text>
 
-  <rect class="box" x="360" y="110" width="160" height="70" rx="8"/>
-  <text class="num" x="440" y="134" text-anchor="middle" font-size="11">2</text>
-  <text class="ink" x="440" y="152" text-anchor="middle" font-size="11" font-weight="600">Work</text>
-  <text class="sub" x="440" y="168" text-anchor="middle" font-size="9">read — recall, decide, build</text>
+  <!-- Arrow 1→2 -->
+  <line class="arrow" x1="200" y1="100" x2="240" y2="100" stroke-width="2"/>
+  <polygon class="arrowh" points="240,100 234,96 234,104"/>
 
-  <line class="arrow" x1="520" y1="145" x2="600" y2="220" stroke-width="1.5"/>
-  <polygon class="arrowh" points="600,220 593,216 600,210"/>
+  <!-- Phase 2: Work -->
+  <rect class="box" x="250" y="60" width="160" height="80" rx="10"/>
+  <text class="num" x="330" y="86" text-anchor="middle" font-size="12">2</text>
+  <text class="ink" x="330" y="106" text-anchor="middle" font-size="12" font-weight="600">Work</text>
+  <text class="sub" x="330" y="122" text-anchor="middle" font-size="10">read — recall, decide, build</text>
 
-  <rect class="box" x="590" y="220" width="160" height="70" rx="8"/>
-  <text class="num" x="670" y="244" text-anchor="middle" font-size="11">3</text>
-  <text class="ink" x="670" y="262" text-anchor="middle" font-size="11" font-weight="600">Session End</text>
-  <text class="sub" x="670" y="278" text-anchor="middle" font-size="9">write — record (idempotent)</text>
+  <!-- Arrow 2→3 -->
+  <line class="arrow" x1="410" y1="100" x2="450" y2="100" stroke-width="2"/>
+  <polygon class="arrowh" points="450,100 444,96 444,104"/>
 
-  <line class="arrow" x1="750" y1="255" x2="820" y2="120" stroke-width="1.5"/>
-  <polygon class="arrowh" points="820,120 813,124 820,130"/>
+  <!-- Phase 3: Record -->
+  <rect class="box" x="460" y="60" width="160" height="80" rx="10"/>
+  <text class="num" x="540" y="86" text-anchor="middle" font-size="12">3</text>
+  <text class="ink" x="540" y="106" text-anchor="middle" font-size="12" font-weight="600">Session End</text>
+  <text class="sub" x="540" y="122" text-anchor="middle" font-size="10">write — record (idempotent)</text>
 
-  <rect class="box" x="780" y="90" width="140" height="70" rx="8"/>
-  <text class="num" x="850" y="114" text-anchor="middle" font-size="11">4</text>
-  <text class="ink" x="850" y="132" text-anchor="middle" font-size="11" font-weight="600">Verify</text>
-  <text class="sub" x="850" y="148" text-anchor="middle" font-size="9">audit · restore drill</text>
+  <!-- Arrow 3→4 -->
+  <line class="arrow" x1="620" y1="100" x2="660" y2="100" stroke-width="2"/>
+  <polygon class="arrowh" points="660,100 654,96 654,104"/>
 
-  <line class="arrow" x1="780" y1="125" x2="180" y2="125" stroke-width="1" stroke-dasharray="6 3" opacity="0.5"/>
-  <text class="sub" x="480" y="115" text-anchor="middle" font-size="9">memory grows → next session starts smarter</text>
+  <!-- Phase 4: Verify -->
+  <rect class="box" x="670" y="60" width="160" height="80" rx="10"/>
+  <text class="num" x="750" y="86" text-anchor="middle" font-size="12">4</text>
+  <text class="ink" x="750" y="106" text-anchor="middle" font-size="12" font-weight="600">Verify</text>
+  <text class="sub" x="750" y="122" text-anchor="middle" font-size="10">audit · restore drill</text>
+
+  <!-- Feedback loop: Verify → Session Start (memory compounds) -->
+  <path class="loop" d="M750 140 C750 190 120 190 120 140" fill="none" stroke-width="1.5" stroke-dasharray="4 4"/>
+  <polygon class="looph" points="120,140 116,148 124,148" opacity="0.6"/>
+  <text class="sub" x="440" y="185" text-anchor="middle" font-size="10" opacity="0.7">memory compounds → next session starts smarter</text>
 </svg>

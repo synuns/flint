@@ -149,16 +149,8 @@ Full walkthrough: [docs/QUICKSTART.md](docs/QUICKSTART.md)
 
 flint is the bridge between **agents**, the **memory store**, and its **git-like history**.
 
-```text
-[ Claude Code ] <----> [ flint ] <----> [ Doltgres ]
-[ OpenClaw    ]          CLI + MCP        versioned
-[ Hermes      ]          /plugin          memory store
-[ Codex · Gemini · Copilot · OpenCode · Cursor ]
-        MCP + instruction-file adapters (v0.9)
-```
-
 <p align="center">
-  <img src="assets/flint-architecture-en.svg" width="640" alt="flint architecture: agents, flint CLI+MCP, Doltgres memory store">
+  <img src="assets/flint-architecture-en.svg" width="880" alt="flint architecture: agents, flint CLI+MCP, Doltgres memory store">
 </p>
 
 | Phase | Action |
@@ -171,7 +163,7 @@ flint is the bridge between **agents**, the **memory store**, and its **git-like
 The four phases form one session lifecycle:
 
 <p align="center">
-  <img src="assets/flint-lifecycle-en.svg" width="640" alt="flint session lifecycle: inject, work, record, verify — memory compounds">
+  <img src="assets/flint-lifecycle-en.svg" width="880" alt="flint session lifecycle: inject, work, record, verify — memory compounds">
 </p>
 
 ---

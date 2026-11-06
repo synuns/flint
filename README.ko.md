@@ -154,16 +154,8 @@ SessionStart(`session-start`)·PostCompact(`compact`)·Stop(`session-end`).
 
 flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사이의 다리입니다.
 
-```text
-[ Claude Code ] <----> [ flint ] <----> [ Doltgres ]
-[ OpenClaw    ]          CLI + MCP        버전 관리되는
-[ Hermes      ]          /plugin          기억 저장소
-[ Codex · Gemini · Copilot · OpenCode · Cursor ]
-        MCP + 지시파일 어댑터 (v0.9)
-```
-
 <p align="center">
-  <img src="assets/flint-architecture.svg" width="640" alt="flint 아키텍처: 에이전트, flint CLI+MCP, Doltgres 기억 저장소">
+  <img src="assets/flint-architecture.svg" width="880" alt="flint 아키텍처: 에이전트, flint CLI+MCP, Doltgres 기억 저장소">
 </p>
 
 | 단계 | 동작 |
@@ -176,7 +168,7 @@ flint은 **에이전트**, **기억 저장소**, 그 **git 같은 이력** 사�
 네 단계가 하나의 세션 라이프사이클을 이룹니다:
 
 <p align="center">
-  <img src="assets/flint-lifecycle.svg" width="640" alt="flint 세션 라이프사이클: 주입, 작업, 기록, 검증">
+  <img src="assets/flint-lifecycle.svg" width="880" alt="flint 세션 라이프사이클: 주입, 작업, 기록, 검증">
 </p>
 
 ---
