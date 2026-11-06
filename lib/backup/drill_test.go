@@ -577,8 +577,7 @@ func TestDrillIsolatedInDedicatedDatabase(t *testing.T) {
 	if err != nil {
 		t.Fatalf("잔존 DB 접속: %v", err)
 	}
-	if _, err := remnant.Exec(ctx, `CREATE TABLE sentinel (id int)`);
-		err != nil {
+	if _, err := remnant.Exec(ctx, `CREATE TABLE sentinel (id int)`); err != nil {
 		remnant.Close(context.Background())
 		t.Fatalf("감시 테이블: %v", err)
 	}

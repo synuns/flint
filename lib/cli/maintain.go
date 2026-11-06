@@ -103,8 +103,8 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 
 	mode := ""
 	id, from, to := 0, 0, 0
-	old, by := 0, 0      // --supersede OLD --by NEW
-	days, limit := 0, 20 // --stale: days=0 → meta stale_days(기본 90) 폴백
+	old, by := 0, 0                  // --supersede OLD --by NEW
+	days, limit := 0, 20             // --stale: days=0 → meta stale_days(기본 90) 폴백
 	dupLimit := suspectsDefaultLimit // --dup-suspects 기본(스펙 R4: --limit M 기본 10)
 	expireDays := 0                  // --expire-pending N — 기본값 없음(오삭제 방지)
 	reason := ""

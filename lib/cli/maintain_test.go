@@ -200,10 +200,10 @@ func TestMaintainUsageErrors(t *testing.T) {
 	cases := [][]string{
 		{},
 		{"--id", "5"},
-		{"--invalidate"},             // --id 없음
-		{"--merge", "--from", "3"},   // --to 없음
-		{"--check", "--bogus"},       // 알 수 없는 플래그
-		{"--check", "--id", "abc"},   // 숫자 아님 — id는 check에서 무시되지만 파싱은 실패해야
+		{"--invalidate"},           // --id 없음
+		{"--merge", "--from", "3"}, // --to 없음
+		{"--check", "--bogus"},     // 알 수 없는 플래그
+		{"--check", "--id", "abc"}, // 숫자 아님 — id는 check에서 무시되지만 파싱은 실패해야
 	}
 	for _, args := range cases {
 		f := &fakeMaint{fakeStore: &fakeStore{}}

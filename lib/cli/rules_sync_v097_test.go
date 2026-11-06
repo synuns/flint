@@ -145,7 +145,7 @@ func TestDoctorSkillFileWarnExitZero(t *testing.T) {
 	t.Setenv("FLINT_CLAUDE_HOME", home)
 	setHarnessEnvs(t) // 하니스 5종 격리
 	writeTree(t, home, map[string]string{
-		"settings.json":        `{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`,
+		"settings.json":         `{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`,
 		"skills/flint/SKILL.md": "v093", // 불일치 → warn
 	})
 
@@ -183,8 +183,8 @@ func TestDoctorSkillFileOmittedWhenNoHome(t *testing.T) {
 func TestSetupUpdateRulesReport(t *testing.T) {
 	withFake(t, &fakeStore{})
 	src := writeTree(t, t.TempDir(), map[string]string{
-		"SKILL.md":  "rules v097",
-		"extra.md":  "x",
+		"SKILL.md": "rules v097",
+		"extra.md": "x",
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)

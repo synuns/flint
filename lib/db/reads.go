@@ -9,7 +9,7 @@ import (
 )
 
 // BumpReads는 ids에 해당하는 knowledge 행의 참조를 1씩 증분한다
-//(read_count+1, last_read_at=now()). 빈 슬라이스는 no-op이고, 슬라이스 내
+// (read_count+1, last_read_at=now()). 빈 슬라이스는 no-op이고, 슬라이스 내
 // 중복 id는 WHERE id=ANY의 행 매칭 기준이라 행당 1회만 반영된다.
 func (r *Repo) BumpReads(ctx context.Context, ids []int) error {
 	if len(ids) == 0 {

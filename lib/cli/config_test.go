@@ -69,10 +69,10 @@ func TestResolvePrecedence(t *testing.T) {
 func TestConfigCorruptFallback(t *testing.T) {
 	unsetDSN(t)
 	cases := map[string]string{
-		"corrupt json":  `{"dsn":`,
-		"empty dsn":     `{"dsn":""}`,
-		"non-string":    `{"dsn":5433}`,
-		"null dsn":      `{"dsn":null}`,
+		"corrupt json":   `{"dsn":`,
+		"empty dsn":      `{"dsn":""}`,
+		"non-string":     `{"dsn":5433}`,
+		"null dsn":       `{"dsn":null}`,
 		"dsn key absent": `{"other":"x"}`,
 	}
 	for name, body := range cases {

@@ -85,9 +85,9 @@ func TestReportSevenDayWindow(t *testing.T) {
 			Hot    int    `json:"hot"`
 			Read   int    `json:"read"`
 		} `json:"days"`
-		ZeroPct           int `json:"zero_pct"`
-		HotP95            int `json:"hot_p95"`
-		Counts            struct {
+		ZeroPct int `json:"zero_pct"`
+		HotP95  int `json:"hot_p95"`
+		Counts  struct {
 			Pending     int `json:"pending"`
 			Active      int `json:"active"`
 			Invalidated int `json:"invalidated"`

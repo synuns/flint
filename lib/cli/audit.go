@@ -24,10 +24,10 @@ const (
 // auditEntry — 감사 출력 최소 컬럼(토큰 예산 룰링: 4종만).
 // v0.8 --stat 전용 부록 필드(stat·date_rel)는 omitempty — 기본 출력 키 불변.
 type auditEntry struct {
-	CommitHash string `json:"commit_hash"`
-	Committer  string `json:"committer"`
-	Date       string `json:"date"`
-	Message    string `json:"message"`
+	CommitHash string                    `json:"commit_hash"`
+	Committer  string                    `json:"committer"`
+	Date       string                    `json:"date"`
+	Message    string                    `json:"message"`
 	Stat       map[string]auditTableStat `json:"stat,omitempty"`
 	DateRel    string                    `json:"date_rel,omitempty"`
 }

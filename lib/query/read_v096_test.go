@@ -74,9 +74,9 @@ func TestBuildReadFallbackEscapesLike(t *testing.T) {
 // 유지한다(SliceStable 계약).
 func TestReorderByFallbackCountStableTies(t *testing.T) {
 	rows := [][]any{
-		{int32(1), "백업", "요약1", ":a:", nil, "main", 0.9, "active"}, // 정합수 1
+		{int32(1), "백업", "요약1", ":a:", nil, "main", 0.9, "active"},              // 정합수 1
 		{int32(2), "flint 백업", "복구는 저장소 정지", ":a:", nil, "main", 0.8, "active"}, // 정합수 2
-		{int32(3), "복구", "요약3", ":a:", nil, "main", 0.7, "active"}, // 정합수 1 (동률 — 기존 1→3 순서)
+		{int32(3), "복구", "요약3", ":a:", nil, "main", 0.7, "active"},              // 정합수 1 (동률 — 기존 1→3 순서)
 	}
 	ReorderByFallbackCount(rows, []string{"백업", "복구"})
 	if rows[0][0] != int32(2) {
