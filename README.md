@@ -52,7 +52,7 @@ Humans keep notes in Obsidian. Agents keep memory in flint — the stone you str
 
 ## Why flint?
 
-Most AI agents start every session with a blank slate. **flint agents start with everything they've ever learned.**
+Most AI agents start every session with a blank slate. **Agents using flint start with everything they've ever learned.**
 
 | Problem | What Happens | flint Fix |
 | :--- | :--- | :--- |
