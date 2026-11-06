@@ -244,9 +244,23 @@ func TestParseAsOfSpecRealPrefix(t *testing.T) {
 	if len(full) < asofMinPrefix {
 		t.Fatalf("커밋 해시가 너무 짧음: %q", full)
 	}
-	got, err := ParseAsOfSpec(ctx, real, full[:3])
+	// 접두어 창 선택 — 제품 계약상 상대 문법(\d+[hd])이 접두어보다 우선
+	// 파싱되므로(asof.go ① 우선), 우연히 "97h"처럼 상대 형식과 겹치는
+	// 창은 피한다(신규 DB에서 상대 해석이 먼저 실패하는 플레이크 방지).
+	pre := ""
+	for i := 0; i+asofMinPrefix <= len(full); i++ {
+		w := full[i : i+asofMinPrefix]
+		if _, err := ParseRelative(w); err != nil {
+			pre = w
+			break
+		}
+	}
+	if pre == "" {
+		t.Fatalf("상대 문법과 충돌하지 않는 접두어 창을 못 찾음: %q", full)
+	}
+	got, err := ParseAsOfSpec(ctx, real, pre)
 	if err != nil {
-		t.Fatalf("ParseAsOfSpec(%q) err=%v (base32 해시 완화 확인)", full[:3], err)
+		t.Fatalf("ParseAsOfSpec(%q) err=%v (base32 해시 완화 확인)", pre, err)
 	}
 	if got != full {
 		t.Fatalf("접두어 정규화=%q, want 전체 해시 %q", got, full)
