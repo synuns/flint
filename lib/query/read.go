@@ -203,7 +203,10 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 	var args []any
 	for _, tok := range tokens {
 		args = append(args, "%"+likeEscaper.Replace(tok)+"%")
-		conds = append(conds, fmt.Sprintf("lower(topic || ' ' || summary) LIKE lower($%d)", len(args)))
+		// v0.18.0 R5: 폴백 접합면에 tags 포함 — 태그로만 분류된 지식도
+		// 단어 폴백에서 회수된다(tags 저장형 ':a:b:'의 부분 문자열 매칭).
+		// 구문(phrase) 쿼리의 접합면은 불변(tags는 --tag 필터 영역).
+		conds = append(conds, fmt.Sprintf("lower(topic || ' ' || summary || ' ' || tags) LIKE lower($%d)", len(args)))
 	}
 	where := []string{"(" + strings.Join(conds, " OR ") + ")"}
 	if f.Tag != "" {
