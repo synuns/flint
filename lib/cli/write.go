@@ -68,14 +68,41 @@ func (s *realStore) DupIDByHash(ctx context.Context, hash string) (int, bool, er
 	return s.repo.DupIDByHash(ctx, hash)
 }
 
-// lookupHash — content_hash 중복 확인. DupIDStore면 기존 행 id까지 함께
-// 돌려준다(duplicate 응답 id 노출, R3). 미구현 Store은 ExistsHash 폴백.
-func lookupHash(ctx context.Context, st Store, hash string) (int, bool, error) {
+// DupMeta — duplicate 줄의 기존 행 메타(v0.18.0 R1). 재전송 라이터에게
+// topic·state를 돌려줘 재기록 대신 read(회상)·supersede(승계)·
+// approve(대기 승격) 전환을 유도한다 — 이미 존재함 피드백 루프.
+type DupMeta struct {
+	ID    int
+	Topic string
+	State string
+}
+
+// DupMetaStore — DupIDStore의 메타 확장(v0.18.0 R1). realStore는
+// db.Repo.DupRowByHash로 구현. 미구현 Store는 DupIDStore→ExistsHash
+// 순서로 폴백(메타 없이 id만·또는 맨몸 duplicate — 하위호환).
+type DupMetaStore interface {
+	DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error)
+}
+
+// realStore.DupRowByHash — DupMetaStore 확장의 실구현(db.Repo 5값 → 메타).
+func (s *realStore) DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error) {
+	id, topic, state, exists, err := s.repo.DupRowByHash(ctx, hash)
+	return DupMeta{ID: id, Topic: topic, State: state}, exists, err
+}
+
+// lookupHash — content_hash 중복 확인. DupMetaStore면 기존 행 메타까지
+// 함께 돌려준다(duplicate 응답 topic·state 노출, R1). DupIDStore는 id만,
+// 미구현 Store은 ExistsHash 폴백.
+func lookupHash(ctx context.Context, st Store, hash string) (DupMeta, bool, error) {
+	if ms, ok := st.(DupMetaStore); ok {
+		return ms.DupRowByHash(ctx, hash)
+	}
 	if ds, ok := st.(DupIDStore); ok {
-		return ds.DupIDByHash(ctx, hash)
+		id, exists, err := ds.DupIDByHash(ctx, hash)
+		return DupMeta{ID: id}, exists, err
 	}
 	exists, err := st.ExistsHash(ctx, hash)
-	return 0, exists, err
+	return DupMeta{}, exists, err
 }
 
 // UsageCountStore — count회를 일괄 증분하는 유입 계측 확장. recordDups가
@@ -149,7 +176,9 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	var warnings []string
 	hash, state := "", "active"
 	dups := 0
-	dupID := 0 // 단일 줄 duplicate의 기존 행 id(R3) — 미지원 Store·다중 줄은 0 유지
+	dupID := 0     // 단일 줄 duplicate의 기존 행 id(R3) — 미지원 Store·다중 줄은 0 유지
+	dupTopic := "" // v0.18.0 R1: 기존 행 topic·state — 재전송 라이터 피드백
+	dupState := ""
 	// 배치 내 동일 키 줄(knowledge content_hash·project name): InsertBatch 전체 실패 방지
 	seen := map[string]bool{}
 	for _, p := range payloads {
@@ -182,7 +211,7 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 				continue
 			}
 			seen[h] = true
-			existsID, exists, err := lookupHash(ctx, st, h)
+			existsMeta, exists, err := lookupHash(ctx, st, h)
 			if err != nil {
 				fmt.Fprintln(stdout, errLine(err))
 				return store.MapExit(err)
@@ -190,7 +219,8 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			if exists {
 				dups++ // 줄별 dedup: 이 줄만 skip, 나머지 신규 줄은 커밋된다
 				if len(payloads) == 1 {
-					dupID = existsID // 단일 줄 재전송: 기존 행 id 노출(R3)
+					dupID = existsMeta.ID // 단일 줄 재전송: 기존 행 메타 노출(R3·R1)
+					dupTopic, dupState = existsMeta.Topic, existsMeta.State
 				}
 				continue
 			}
@@ -235,7 +265,7 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	emitDuplicate := func() {
 		recordUsage(ctx, st, "write", source)
 		recordDups(ctx, st, source, dups)
-		out := store.OutputJSON("duplicate", "", "", dupID)
+		out := store.DuplicateMetaJSON(dupID, dupTopic, dupState)
 		if len(dropped) > 0 || len(warnings) > 0 {
 			out = withWarnings(out, dropped, warnings)
 		}
@@ -279,7 +309,7 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 				survive = append(survive, r) // 해시 없는 kind는 재확인 불가 — 재시도로 판정
 				continue
 			}
-			existsID, exists, err2 := lookupHash(ctx, st, h)
+			existsMeta, exists, err2 := lookupHash(ctx, st, h)
 			if err2 != nil {
 				fmt.Fprintln(stdout, errLine(err2))
 				return store.MapExit(err2)
@@ -287,7 +317,8 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			if exists {
 				dups++ // 동시 삽입된 줄: skip — 계측도 실제 skip 수만 반영
 				if len(payloads) == 1 {
-					dupID = existsID // 레이스 재확인 경로도 기존 행 id 노출(R3)
+					dupID = existsMeta.ID // 레이스 재확인 경로도 기존 행 메타 노출(R3·R1)
+					dupTopic, dupState = existsMeta.Topic, existsMeta.State
 				}
 				continue
 			}

@@ -25,10 +25,13 @@ type committedOutput struct {
 }
 
 // duplicateOutput — id>0일 때만 id 필드를 노출한다(R3: 기존 행 id.
-// id 0(미지원 Store·다중 줄)은 맨몸 {"status":"duplicate"} 불변).
+// v0.18.0 R1: topic·state 추가 — 이미 존재함 피드백. 빈 메타는 omitempty로
+// 기존 바이트 불변. id 0(미지원 Store·다중 줄)은 맨몸 {"status":"duplicate"}).
 type duplicateOutput struct {
 	Status string `json:"status"`
 	ID     int    `json:"id,omitempty"`
+	Topic  string `json:"topic,omitempty"`
+	State  string `json:"state,omitempty"`
 }
 
 // Classify는 쓰기 판정 규칙: kind==knowledge && confidence<floor → pending,
@@ -55,6 +58,17 @@ func OutputJSON(status, hash, state string, id int) string {
 	b, err := json.Marshal(committedOutput{Status: status, Hash: hash, State: state, ID: id})
 	if err != nil {
 		return `{"status":"` + status + `"}`
+	}
+	return string(b)
+}
+
+// DuplicateMetaJSON — 단일 줄 재전송의 duplicate 출력(v0.18.0 R1): 기존 행
+// topic·state를 additive 노출해 라이터가 read/supersede/approve로 전환하게
+// 한다(이미 존재함 피드백 루프). id 0·빈 메타는 기존 바이트와 동일(하위호환).
+func DuplicateMetaJSON(id int, topic, state string) string {
+	b, err := json.Marshal(duplicateOutput{Status: "duplicate", ID: id, Topic: topic, State: state})
+	if err != nil {
+		return `{"status":"duplicate"}`
 	}
 	return string(b)
 }

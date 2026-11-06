@@ -287,6 +287,22 @@ func (r *Repo) DupIDByHash(ctx context.Context, hash string) (int, bool, error) 
 	return id, true, nil
 }
 
+// DupRowByHash — duplicate 줄의 기존 행 메타 조회(v0.18.0 R1). content_hash
+// UNIQUE라 최대 1행. status·invalid_at 무관(무효화 행도 동일 재기록 차단 —
+// NOOP 의도)은 DupIDByHash와 동일 계약.
+func (r *Repo) DupRowByHash(ctx context.Context, hash string) (id int, topic, state string, exists bool, err error) {
+	err = r.pool.QueryRow(ctx,
+		`SELECT id, topic, status FROM knowledge WHERE content_hash = $1`, hash).
+		Scan(&id, &topic, &state)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return 0, "", "", false, nil
+	}
+	if err != nil {
+		return 0, "", "", false, fmt.Errorf("dup_row_by_hash: %w", err)
+	}
+	return id, topic, state, true, nil
+}
+
 // ExistsHash는 DupIDByHash의 하위 호환 래퍼(dup 여부만 — root.go 어댑터).
 func (r *Repo) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	_, dup, err := r.DupIDByHash(ctx, hash)
