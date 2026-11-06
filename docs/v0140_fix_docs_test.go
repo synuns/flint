@@ -29,10 +29,10 @@ func TestTuningSuggestAdjustmentObservable(t *testing.T) {
 // TestExit1DisambiguationDocs — exit 1 구분(무출력=침묵 정상 · 오류 JSON 한
 // 줄 동반=실패)이 README EN/KO·TUNING에 문서화됐다.
 func TestExit1DisambiguationDocs(t *testing.T) {
-	if !strings.Contains(docStrV0140(t, "../README.md"), "exit 1 with no output") {
+	if !strings.Contains(docStrV0140(t, "../README.md"), "silent no-results") && !strings.Contains(docStrV0140(t, "../README.md"), "exit 1 with no output") {
 		t.Error("README.md exit 1 구분 문구 누락")
 	}
-	if !strings.Contains(docStrV0140(t, "../README.ko.md"), "출력 없는 exit 1") {
+	if !strings.Contains(docStrV0140(t, "../README.ko.md"), "무결과 침묵") && !strings.Contains(docStrV0140(t, "../README.ko.md"), "출력 없는 exit 1") {
 		t.Error("README.ko.md exit 1 구분 문구 누락")
 	}
 	if !strings.Contains(docStrV0140(t, "TUNING.md"), "무출력") {

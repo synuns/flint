@@ -28,11 +28,5 @@ func TestTuningRecordsConflictThreshold(t *testing.T) {
 	}
 }
 
-func TestReadmeMentionsAdoption(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		s := docStrV0130(t, p)
-		if !strings.Contains(s, "read_count") && !strings.Contains(s, "채택") && !strings.Contains(s, "adoption") {
-			t.Errorf("%s 채택 재랭킹 미언급", p)
-		}
-	}
-}
+// TestReadmeMentionsAdoption — README 전면 재작성(v0.17.0)으로 채택 랭킹 세부는
+// TUNING.md 영역으로 이동. README 요구 철회.
