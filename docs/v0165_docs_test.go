@@ -33,11 +33,4 @@ func TestReadmeSetupMcp(t *testing.T) {
 	}
 }
 
-func TestBadgeIsV0165(t *testing.T) {
-	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		b, _ := os.ReadFile(p)
-		if !strings.Contains(string(b), "release-v0.16.5") {
-			t.Errorf("%s 배지 v0.16.5 미갱신", p)
-		}
-	}
-}
+// TestBadgeIsV0165 — v0.16.6 전환으로 삭제(선례).
