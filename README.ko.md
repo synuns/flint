@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v0.18.3-blue" alt="v0.18.3">
+  <img src="https://img.shields.io/badge/release-v0.19.0-blue" alt="v0.19.0">
 </p>
 
 <p align="center">
@@ -140,7 +140,7 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 
 `flint read`는 구문 검색이 무결과면 단어 단위 fallback으로 재시도합니다.
 
-운영: [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝: [docs/TUNING.md](docs/TUNING.md)
+운영: [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝: [docs/TUNING.md](docs/TUNING.md) · 메트릭: [docs/METRICS.md](docs/METRICS.md)
 
 ---
 

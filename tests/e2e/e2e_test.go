@@ -796,8 +796,8 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회 실패: %v", err)
 	}
-	if version != "5" {
-		t.Fatalf("done 후 schema_version=%q, want 5(v2→v3→v4→v5 연쇄 승격)", version)
+	if version != "6" {
+		t.Fatalf("done 후 schema_version=%q, want 6(v2→v3→v4→v5→v6 연쇄 승격)", version)
 	}
 
 	// 승격 후 read 정상 — 씨딩 토픽이 그대로 보인다.
@@ -806,13 +806,13 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		t.Fatalf("승격 후 read 결과 이상: %v", lines)
 	}
 
-	// 회귀: v5에서도 status는 exit 0(호환 허용 집합 {"1",...,"5"}).
+	// 회귀: v6에서도 status는 exit 0(호환 허용 집합 {"1",...,"6"}).
 	out, code = runCLI(t, []string{"status"}, "")
 	if code != 0 {
-		t.Fatalf("v5 status exit=%d, want 0; out=%s", code, out)
+		t.Fatalf("v6 status exit=%d, want 0; out=%s", code, out)
 	}
-	if m := decode(t, out); m["schema_version"] != "5" {
-		t.Fatalf("status schema_version=%v, want 5; out=%s", m["schema_version"], out)
+	if m := decode(t, out); m["schema_version"] != "6" {
+		t.Fatalf("status schema_version=%v, want 6; out=%s", m["schema_version"], out)
 	}
 }
 
@@ -1264,5 +1264,65 @@ func TestReadRankingOrder(t *testing.T) {
 			t.Fatalf("순위[%d] topic=%v, want %v(topic 정합 > confidence); 전체=%s",
 				i, got[i]["topic"], want, out)
 		}
+	}
+}
+
+// TestReportEffectFlow — v0.19.0 효과 계측(docs/METRICS.md §4): read --session
+// 이 read_events에 기록되고(스키마 v6 게이트 실bin 경유 승격), 회상 뒤 짧은
+// 시간 내 기록이 report effect 섹션에 페어로 잡힌다.
+func TestReportEffectFlow(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-effect-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-effect-") })
+	ctx := context.Background()
+	// read_events 프로브 정리(공유 DB 무결 — 이전 실패 잔여 대비).
+	const label = "e2e-s1"
+	if _, err := pool.Exec(ctx, `DELETE FROM read_events WHERE session = $1`, label); err != nil {
+		t.Fatalf("read_events 사전 정리: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM read_events WHERE session = $1`, label)
+	})
+
+	writeKnowledge(t, `{"topic":"e2e-effect-k","summary":"효과 계측 프로브","confidence":0.9}`)
+	out, code := runCLI(t, []string{"read", "e2e-effect-k", "--session", label}, "")
+	if code != 0 {
+		t.Fatalf("read exit=%d, want 0; out=%s", code, out)
+	}
+	// 회상 뒤 짧은 시간 내 기록 — 30분 페어 창 성립.
+	writeKnowledge(t, `{"topic":"e2e-effect-w","summary":"회상 후 기록 프로브","confidence":0.9}`)
+
+	var events int
+	if err := pool.QueryRow(ctx,
+		`SELECT count(*) FROM read_events WHERE session = $1`, label).Scan(&events); err != nil {
+		t.Fatalf("read_events 조회: %v", err)
+	}
+	if events != 1 {
+		t.Fatalf("session %s 이벤트 %d건, want 1", label, events)
+	}
+
+	out, code = runCLI(t, []string{"report", "--days", "1"}, "")
+	if code != 0 {
+		t.Fatalf("report exit=%d, want 0; out=%s", code, out)
+	}
+	rep := decode(t, strings.TrimSpace(out))
+	effect, ok := rep["effect"].(map[string]any)
+	if !ok {
+		t.Fatalf("report에 effect 섹션 없음: %s", out)
+	}
+	for _, key := range []string{
+		"hit_pct", "dup_prevented", "reuse_pct", "dead_pct",
+		"read_events_n", "read_write_pairs", "pair_pct",
+	} {
+		if _, ok := effect[key]; !ok {
+			t.Errorf("effect.%s 누락: %v", key, effect)
+		}
+	}
+	// 공유 DB라 타 테스트 간섭이 있어 ≥로 단언(정확치는 단위 테스트 담당).
+	if n, _ := effect["read_events_n"].(float64); n < 1 {
+		t.Errorf("read_events_n = %v, want ≥ 1", effect["read_events_n"])
+	}
+	if p, _ := effect["read_write_pairs"].(float64); p < 1 {
+		t.Errorf("read_write_pairs = %v, want ≥ 1(회상 뒤 기록 동반)", effect["read_write_pairs"])
 	}
 }
