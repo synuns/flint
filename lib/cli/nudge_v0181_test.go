@@ -12,11 +12,11 @@ import (
 )
 
 // TestNudgeRecallMarkerOneShot — recall 마커 + SessionStart → 전용 문구
-// 1줄 출력 후 마커 자동 소진(재실행은 무출력).
+// 1줄 출력 후 마커 자동 소진(재실행은 무출력). v0.18.2: recall 전용 파일.
 func TestNudgeRecallMarkerOneShot(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	if err := WriteMarker("s1", nudgeReasonRecall); err != nil {
-		t.Fatalf("WriteMarker err = %v", err)
+	if err := WriteTypedMarker(markerKindRecall, "s1", nudgeReasonRecall); err != nil {
+		t.Fatalf("WriteTypedMarker err = %v", err)
 	}
 	out, code := nudgeRun(nil, `{"hook_event_name":"SessionStart","session_id":"s2"}`)
 	if code != 0 {
@@ -25,7 +25,7 @@ func TestNudgeRecallMarkerOneShot(t *testing.T) {
 	if strings.TrimSpace(out) != nudgeRecallStartLine {
 		t.Fatalf("out=%q, want recall 문구", out)
 	}
-	if _, err := os.Stat(MarkerFile()); !os.IsNotExist(err) {
+	if _, err := os.Stat(RecallMarkerFile()); !os.IsNotExist(err) {
 		t.Fatalf("recall 마커 미소진: %v", err)
 	}
 	// 소진 후 재실행 — 무출력(1회성).

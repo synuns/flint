@@ -206,9 +206,11 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 경고로 종료(stale 경고와 같은 패턴 — 임계값 기반·종료 불가, §13).
 	// v0.18.1: Stop 훅 stdout은 자동 배선에서 안 보이므로 recall 마커도
 	// 남긴다 — 다음 SessionStart(nudge)가 1회 표시 후 소진한다.
+	// v0.18.2: 별도 파일(recall-hint.json) — 증류 대기 마커와 덮어쓰기
+	// 충돌 방지(수명 주기 상이: 1회성 vs 내구).
 	if w, starved := recallStarvedToday(ctx, st, th); starved {
 		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"오늘 회상 0회에 기록 %d회 — 다음 세션은 작업 전 flint read부터"}`+"\n", w, w)
-		if merr := WriteMarker(session, nudgeReasonRecall); merr != nil {
+		if merr := WriteTypedMarker(markerKindRecall, session, nudgeReasonRecall); merr != nil {
 			fmt.Fprintf(os.Stderr, "[flint] recall marker: %v\n", merr)
 		}
 	} else {

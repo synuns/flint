@@ -1,5 +1,7 @@
 // marker.go — T71 마커 헬퍼: PostCompact가 남기고 Stop/SessionStart가 소비하는
 // pending-distill.json (적립 증류 대기 표시). 개인 단일 에이전트 가정 — 원자성 불요.
+// v0.18.2: 회상 부재 1회성 마커(recall-hint.json) 분리 — 내구성(증류 대기)과
+// 1회성(회상 안내)은 수명 주기가 달라 같은 파일을 쓰면 서로를 덮어쓴다.
 package cli
 
 import (
@@ -9,11 +11,30 @@ import (
 	"time"
 )
 
-// Marker — 증류 대기 마커 파일 내용.
+// Marker — 마커 파일 내용(종류 공통).
 type Marker struct {
 	SessionID string `json:"session_id"`
 	Reason    string `json:"reason"`
 	CreatedAt string `json:"created_at"`
+}
+
+// 마커 종류 — 파일명이 달라진다(동시 존재 가능).
+const (
+	markerKindDistill = "distill" // pending-distill.json — 내구(증류 시까지)
+	markerKindRecall  = "recall"  // recall-hint.json — 1회성(다음 SessionStart)
+)
+
+// markerFileOf — 종류별 마커 파일 전체 경로. configDir이 ""면 "".
+func markerFileOf(kind string) string {
+	d := configDir()
+	if d == "" {
+		return ""
+	}
+	name := "pending-distill.json"
+	if kind == markerKindRecall {
+		name = "recall-hint.json"
+	}
+	return filepath.Join(d, name)
 }
 
 // configDir — FLINT_CONFIG_DIR 우선, 없으면 os.UserConfigDir()/flint.
@@ -29,19 +50,21 @@ func configDir() string {
 	return filepath.Join(base, "flint")
 }
 
-// MarkerFile — 마커 파일 전체 경로. configDir이 ""면 "".
-func MarkerFile() string {
-	d := configDir()
-	if d == "" {
-		return ""
-	}
-	return filepath.Join(d, "pending-distill.json")
+// MarkerFile — 증류 대기 마커 파일 전체 경로(하위 호환 별명).
+func MarkerFile() string { return markerFileOf(markerKindDistill) }
+
+// RecallMarkerFile — 회상 부재 마커 파일 전체 경로(v0.18.2).
+func RecallMarkerFile() string { return markerFileOf(markerKindRecall) }
+
+// WriteMarker — 증류 대기 마커 기록(하위 호환 별명).
+func WriteMarker(sessionID string, reason string) error {
+	return WriteTypedMarker(markerKindDistill, sessionID, reason)
 }
 
-// WriteMarker — JSON 마샬 후 디렉터리(0700) 생성하고 마커 기록.
+// WriteTypedMarker — JSON 마샬 후 디렉터리(0700) 생성하고 종류별 마커 기록.
 // CreatedAt은 현재 UTC RFC3339.
-func WriteMarker(sessionID string, reason string) error {
-	path := MarkerFile()
+func WriteTypedMarker(kind, sessionID, reason string) error {
+	path := markerFileOf(kind)
 	if path == "" {
 		return os.ErrInvalid
 	}
@@ -57,8 +80,11 @@ func WriteMarker(sessionID string, reason string) error {
 }
 
 // ReadMarker — 마커 조회. 부재 시 (nil, nil), 파손 시 (nil, err).
-func ReadMarker() (*Marker, error) {
-	path := MarkerFile()
+func ReadMarker() (*Marker, error) { return ReadTypedMarker(markerKindDistill) }
+
+// ReadTypedMarker — 종류별 마커 읽기(v0.18.2). 부재는 (nil, nil).
+func ReadTypedMarker(kind string) (*Marker, error) {
+	path := markerFileOf(kind)
 	if path == "" {
 		return nil, nil
 	}
@@ -76,9 +102,12 @@ func ReadMarker() (*Marker, error) {
 	return &m, nil
 }
 
-// ClearMarker — 마커 삭제. 파일이 없어도 nil.
-func ClearMarker() error {
-	path := MarkerFile()
+// ClearMarker — 증류 대기 마커 삭제(하위 호환 별명). 파일이 없어도 nil.
+func ClearMarker() error { return ClearTypedMarker(markerKindDistill) }
+
+// ClearTypedMarker — 종류별 마커 삭제(v0.18.2). 파일이 없어도 nil.
+func ClearTypedMarker(kind string) error {
+	path := markerFileOf(kind)
 	if path == "" {
 		return nil
 	}

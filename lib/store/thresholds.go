@@ -124,17 +124,9 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "pending_age_days":
 			th.PendingAgeDays = parseIntOrDefault(val, defaultPendingAgeDays, ks)
 		case "recall_warn_writes":
-			// v0.18.1: -1은 "끔"(recallStarvedToday 가드) — 공유 파서가
-			// 음수를 기본값 코안다려 이 키만 -1까지 수용한다(0은 미설정과
-			// 구분 불가라 loadThresholds가 기본값으로 폴백).
-			if s, ok := toString(val); ok {
-				if n, err := strconv.Atoi(s); err == nil && n >= -1 {
-					th.RecallWarnWrites = n
-					continue
-				}
-			}
-			log.Printf("[flint] thresholds: %s=%v 파싱 불가 — 기본값 %d", ks, val, defaultRecallWarnWrites)
-			th.RecallWarnWrites = defaultRecallWarnWrites
+			// v0.18.2: min=-1 수용(-1=끔). 0은 미설정과 구분 불가 —
+			// loadThresholds가 기본값으로 폴백한다(TUNING §2 문서화).
+			th.RecallWarnWrites = parseIntInRangeOrDefault(val, defaultRecallWarnWrites, -1, ks)
 		}
 	}
 	return th, nil
@@ -157,15 +149,23 @@ func toString(val any) (string, bool) {
 }
 
 // parseIntOrDefault는 정수 파싱 실패 시 기본값+경고.
+// parseIntOrDefault — 정수 파싱(하한 0: 음수는 기본값). v0.18.2: 하한
+// 일반화 본체(parseIntInRangeOrDefault)의 별명.
 func parseIntOrDefault(val any, def int, key string) int {
+	return parseIntInRangeOrDefault(val, def, 0, key)
+}
+
+// parseIntInRangeOrDefault — min 이상만 수용(min 미만·파싱 불가는 기본값).
+// 센티넬을 쓰는 키(예: recall_warn_writes -1=끔)는 min=-1로 확장한다.
+func parseIntInRangeOrDefault(val any, def, min int, key string) int {
 	s, ok := toString(val)
 	if !ok {
 		log.Printf("[flint] thresholds: %s 값 타입 이상(%v) — 기본값 %d", key, val, def)
 		return def
 	}
 	n, err := strconv.Atoi(s)
-	if err != nil || n < 0 {
-		log.Printf("[flint] thresholds: %s=%q 파싱 불가 — 기본값 %d", key, s, def)
+	if err != nil || n < min {
+		log.Printf("[flint] thresholds: %s=%q 파싱 불가(하한 %d) — 기본값 %d", key, s, min, def)
 		return def
 	}
 	return n
