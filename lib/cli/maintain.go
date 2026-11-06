@@ -993,7 +993,7 @@ func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	if th.PendingAgeDays <= 0 {
 		th.PendingAgeDays = def.PendingAgeDays
 	}
-	if th.RecallWarnWrites <= 0 {
+	if th.RecallWarnWrites == 0 { // -1(끔)은 유지 — v0.18.1
 		th.RecallWarnWrites = def.RecallWarnWrites
 	}
 	return th, nil

@@ -1,6 +1,6 @@
 // read_v0180_test.go — v0.18.0 R5: 폴백 검색면에 tags 포함. 태그로만
 // 분류된 지식(topic·summary에 어휘 없음)이 단어 폴백에서 회수된다 —
-// 관측 fallback_pct 18%의 주요 원인 중 하나를 제거한다.
+// 폴백 유입의 주요 원인 중 하나를 제거한다.
 package query
 
 import (

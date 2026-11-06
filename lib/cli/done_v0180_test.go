@@ -5,6 +5,8 @@ package cli
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -28,8 +30,9 @@ func recallFake(t *testing.T, read, write int) *doneFake {
 	return d
 }
 
-// TestDoneRecallWarn — 회상 0·기록 3(기본 임계)이면 recall 경고 줄.
+// TestDoneRecallWarn — 회상 0·기록 3(기본 임계)이면 recall 경고 줄·마커 기록.
 func TestDoneRecallWarn(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // 마커가 실사용자 config에 남지 않게
 	d := recallFake(t, 0, 3)
 	withDoneFake(t, d)
 	out, code := mustRun(t, []string{"done", "--session", "s1"}, "")
@@ -64,5 +67,23 @@ func TestDoneRecallBelowThreshold(t *testing.T) {
 	}
 	if strings.TrimSpace(out) != `{"status":"ok"}` {
 		t.Fatalf("out=%s, want ok(임계 미만)", out)
+	}
+}
+
+// TestDoneRecallMarkerWritten — 회상 부재 시 recall 마커가 남는다(다음
+// SessionStart nudge 소비 연결).
+func TestDoneRecallMarkerWritten(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FLINT_CONFIG_DIR", dir)
+	d := recallFake(t, 0, 3)
+	withDoneFake(t, d)
+	if _, code := mustRun(t, []string{"done", "--session", "sm"}, ""); code != 0 {
+		t.Fatalf("exit=%d", code)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "pending-distill.json")); err != nil {
+		t.Fatalf("recall 마커 미기록: %v", err)
+	}
+	if _, err := os.Stat(MarkerFile()); err != nil {
+		t.Fatalf("마커 경로 불일치: %v", err)
 	}
 }

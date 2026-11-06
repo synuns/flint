@@ -170,17 +170,44 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 
 // collectDaily — meta daily:* 키를 N일 창(오늘 포함, UTC)에 맞춰 병합.
 // 창 밖 키는 배제하고(8일치가 심여도 7행), 파손 JSON은 0행 폴백(스킵).
+// v0.18.1: 창 병합 본체는 windowedDaily 공유 리더로 추출 — status 기간화
+// 지표(R4)와 파서를 단일화한다(포맷 변경 시 분기 위험 제거).
 func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) error {
-	rows, err := queryOnce(ctx, st, `SELECT key, value FROM meta WHERE key LIKE 'daily:%'`, nil)
+	dayRows, err := windowedDaily(ctx, st, days)
 	if err != nil {
 		return err
 	}
+	out.Days = dayRows
+	// v0.15.0 R2 zero 지표 기간화 — zero_pct·zero_near_pct는 --days 창 내
+	// 일별 합산으로 산출(누적 read_stats 의존 제거). days 배열은 창 마킹
+	// 이후라 창 밖 행은 합산에서도 배제된다(버림 정수%, 제로 분모 0).
+	var sumRead, sumZero, sumNear int
+	for _, d := range out.Days {
+		sumRead += d.Read
+		sumZero += d.ReadZero
+		sumNear += d.ReadNear
+	}
+	out.ZeroPct = readZeroPct(sumRead, sumZero)
+	out.ZeroNearPct = readZeroPct(sumRead, sumNear)
+	return nil
+}
+
+// windowedDaily — meta daily:* 키를 N일 창(오늘 포함, UTC) 행으로 병합해
+// 반환(오래된 날부터 — 오늘이 마지막 행). 창 밖 키 배제·파손 JSON 0행
+// 폴백. report(collectDaily)·status(statusWindowedRead) 양쪽의 단일
+// 소스(v0.18.1 — daily 파서 3중 복제 해소).
+func windowedDaily(ctx context.Context, st Store, days int) ([]reportDay, error) {
+	rows, err := queryOnce(ctx, st, `SELECT key, value FROM meta WHERE key LIKE 'daily:%'`, nil)
+	if err != nil {
+		return nil, err
+	}
+	daysOut := make([]reportDay, 0, days)
 	window := make(map[string]int, days)
 	now := time.Now().UTC()
 	for i := days - 1; i >= 0; i-- { // 오래된 날부터 — 오늘이 마지막 행
 		d := now.AddDate(0, 0, -i).Format("2006-01-02")
-		window[d] = len(out.Days)
-		out.Days = append(out.Days, reportDay{Date: d})
+		window[d] = len(daysOut)
+		daysOut = append(daysOut, reportDay{Date: d})
 	}
 	for _, r := range rows {
 		if len(r) < 2 {
@@ -198,21 +225,10 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &d) != nil {
 			continue // 파손 → 0 유지
 		}
-		d.Date = out.Days[idx].Date
-		out.Days[idx] = d
+		d.Date = daysOut[idx].Date
+		daysOut[idx] = d
 	}
-	// v0.15.0 R2 zero 지표 기간화 — zero_pct·zero_near_pct는 --days 창 내
-	// 일별 합산으로 산출(누적 read_stats 의존 제거). days 배열은 창 마킹
-	// 이후라 창 밖 행은 합산에서도 배제된다(버림 정수%, 제로 분모 0).
-	var sumRead, sumZero, sumNear int
-	for _, d := range out.Days {
-		sumRead += d.Read
-		sumZero += d.ReadZero
-		sumNear += d.ReadNear
-	}
-	out.ZeroPct = readZeroPct(sumRead, sumZero)
-	out.ZeroNearPct = readZeroPct(sumRead, sumNear)
-	return nil
+	return daysOut, nil
 }
 
 // collectStats — meta hot_stats(p95)·read_stats(fallback_pct 분모 calls.

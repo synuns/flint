@@ -274,22 +274,16 @@ func insertOne(ctx context.Context, tx pgx.Tx, rec map[string]any) (int, error) 
 // DupIDByHash는 해당 content_hash가 knowledge에 이미 있으면 기존 행 id와
 // dup=true를 돌려준다(dedup 사전 확인 + duplicate 응답 id 노출, R3).
 // 없으면 (0, false, nil).
+// DupIDByHash — id만 필요한 하위 호환 경로(ExistsHash 어댑터·DupIDStore
+// 폴백). v0.18.1: 질의 중복 해소 — 판정 본체는 DupRowByHash 위임.
 func (r *Repo) DupIDByHash(ctx context.Context, hash string) (int, bool, error) {
-	var id int
-	err := r.pool.QueryRow(ctx,
-		`SELECT id FROM knowledge WHERE content_hash = $1`, hash).Scan(&id)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return 0, false, nil
-	}
-	if err != nil {
-		return 0, false, fmt.Errorf("dup_id_by_hash: %w", err)
-	}
-	return id, true, nil
+	id, _, _, exists, err := r.DupRowByHash(ctx, hash)
+	return id, exists, err
 }
 
 // DupRowByHash — duplicate 줄의 기존 행 메타 조회(v0.18.0 R1). content_hash
 // UNIQUE라 최대 1행. status·invalid_at 무관(무효화 행도 동일 재기록 차단 —
-// NOOP 의도)은 DupIDByHash와 동일 계약.
+// NOOP 의도). dedup 판정의 단일 소스다.
 func (r *Repo) DupRowByHash(ctx context.Context, hash string) (id int, topic, state string, exists bool, err error) {
 	err = r.pool.QueryRow(ctx,
 		`SELECT id, topic, status FROM knowledge WHERE content_hash = $1`, hash).

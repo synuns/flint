@@ -30,8 +30,10 @@ fi
 echo "$NEW" > VERSION
 
 for f in README.md README.ko.md; do
-  # 배지 URL의 release-v<x.y.z>만 교체(alt 텍스트 등 다른 v 표기는 불간섭).
+  # 배지 URL의 release-v<x.y.z>과 같은 줄의 alt="v<x.y.z>"를 함께 교체
+  # (v0.18.1 — alt가 구버전으로 남아 스크린리더가 잘못 읽던 갭).
   perl -pi -e "s{release-v[0-9]+(?:\.[0-9]+)+-blue}{release-v${NEW}-blue}g" "$f"
+  perl -ni -e 'if (/release-v/) { s{alt="v[0-9]+(?:\.[0-9]+)+"}{alt="v'"${NEW}"'"}g } print' "$f"
 done
 
 perl -pi -e "s{\"version\": \"[0-9]+(?:\.[0-9]+)+\"}{\"version\": \"${NEW}\"}" \
