@@ -134,7 +134,9 @@ Each session cycles through four phases:
 | `flint status` | Schema version, pending count, hot p95 |
 | `flint mcp` | Run the MCP server |
 
-**Exit codes:** 0 success · 1 error (or silent no-results on `read`) · 2 storage failure · 3 bad arguments.
+**Exit codes:** 0 success · 1 error (or silent no-results on `read`) · 2 storage failure · 3 invalid read arguments (valueless trailing flags, bad `--status` / `--as-of` values).
+
+`flint read` falls back to word-by-word search when the phrase query returns nothing.
 
 Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/TUNING.md)
 
