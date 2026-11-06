@@ -37,10 +37,10 @@
   sha256 사이드카를 함께 삭제한다(keep-N).
 - 보존 수는 `meta` 테이블의 `backup_keep` 값으로 조정한다(기본 14).
 
-## 5. 진단 — `flint doctor` (v0.6)
+## 5. 진단 — `flint doctor` (v0.6 → v0.16.2 확장)
 
-검사 5종(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
-서브셋 실행, 무효 검사명은 exit 3):
+검사 10종(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
+서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 4종:
 
 | 검사 | 내용 | fail/warn |
 |---|---|---|
@@ -49,14 +49,21 @@
 | schema | meta schema_version ≥ 4 일치(v0.8 현재 5) | fail |
 | integrity | `flint_knowledge_*` 인덱스 3행 존재 | fail |
 | last-seen | 3경로(write/hot/read) last-seen 경과 + grace(stall_hot_h 48h·stall_write_h 72h) | warn |
+| port | 호스트 5434 포트 점유 충돌(타 프로세스 점유 시 이동 안내) | fail |
+| backup-age | 최신 백업 경과(backup_age_warn_h 기본 72h 초과 시) | warn |
+| conflicts | 모순 후보 그룹 1+ 탐지(conflict_dup_threshold 기준 중복/모순 분류) | warn |
+| zero-near | 제로히트 중 근접 후보 존재 비율(어휘 불일치 신호, zero_near_min_read 이상 표본에서) | warn |
+| pending-age | pending 최고령 경과(pending_age_days 기본 7일 초과 시) — 만료 안내와 연계 | warn |
 
 - **fail만 exit 1**, warn은 exit 0. fail마다 수정 명령 한 줄이 함께 출력된다.
-- 경고(stall)는 `stall_hot_h`·`stall_write_h` meta 키로 조정(TUNING.md §2).
+- 경고 임계값은 meta 키로 조정(TUNING.md §2 — `stall_hot_h`·`stall_write_h`·
+  `backup_age_warn_h`·`zero_near_warn_pct`·`pending_age_days` 등).
 
 fail 시 대응:
 
 1. **hook-file** — 출력된 fix 문구의 안내 설치 커맨드를 실행한다
-   (플러그인 설치·`FLINT_CLAUDE_HOME` 경로 확인). 훅 없이도 flint CLI는
+   (플러그인 설치 — `/plugin marketplace add synuns/flint` — 또는
+   `FLINT_CLAUDE_HOME` 경로 확인). 훅 없이도 flint CLI는
    동작하므로 세션은 즉시 복구 필요 없음.
 2. **db** — `docker compose up -d`로 Doltgres 기동 후 재실행.
    DSN은 `FLINT_DSN` 확인(기본 `localhost:5434`).
@@ -64,11 +71,20 @@ fail 시 대응:
    로 재확인.
 4. **integrity** — 인덱스 재생성 필요. 최신 백업 덤프가 있으면 §4 절차로
    복구 검토, 없으면 `flint backup` 후 대응.
-5. **last-seen(warn)** — hot 48시간·write 72시간 부재. 세션을 시작해
+5. **port** — 5434를 타 프로세스가 점유. fix 문구의 이동 안내대로
+   `FLINT_DSN` + compose 포트 오버라이드로 조정.
+6. **last-seen(warn)** — hot 48시간·write 72시간 부재. 세션을 시작해
    `flint hot`/`flint write`를 한 번 실행하면 해소된다(지속되면 훅 등록
    상태를 hook-file 검사로 점검).
+7. **backup-age(warn)** — `flint backup` 실행으로 갱신(§4 keep-N 정책).
+8. **conflicts(warn)** — `flint maintain --conflict-suspects`로 후보를
+   확인하고 §6 무효화/병합 경로로 정리한다.
+9. **zero-near(warn)** — 지식은 있는데 검색이 놓치는 상태(어휘 불일치).
+   태그·topic 표현을 다듬거나 TUNING §2 임계를 점검한다.
+10. **pending-age(warn)** — 만료 기준 초과 pending은
+    `flint maintain --expire-pending N [--commit]`으로 정리한다(§6).
 
-## 6. 스테일 관리 — `flint maintain --stale` (v0.6 → v0.8 확장)
+## 6. 스테일 관리 — `flint maintain --stale` (v0.6 → v0.16.2 확장)
 
 - `flint maintain --stale [--days N] [--limit M]` — active 항목 중
   (last_read_at < now-N일) 또는 (read_count=0 AND ingested_at < now-N일)
@@ -97,6 +113,10 @@ v0.8 무효화 경로(항상 dry-run 먼저):
    OLD(active인 경우만)를 무효화하고 `superseded_by=NEW`를 기록한다.
    무효화 시각은 NEW의 valid_at을 따른다. NEW 부재 → exit 1·
    OLD==NEW → exit 3·OLD 비active → exit 1.
+5. **만료 pending 정리** — `flint maintain --expire-pending N`:
+   N일 초과 경과 pending을 만료(invalidated)한다. 기본 dry-run,
+   `--commit`으로 실행(doctor pending-age 경고의 정리 경로).
+   일수는 모드 값으로 받는다(`--days` 아님).
 
 ## 7. 유지보수 주기 — 스케줄 실행 가이드 (v0.8)
 
@@ -113,6 +133,8 @@ v0.8 무효화 경로(항상 dry-run 먼저):
    "N to invalidate" 확인.
 3. 운영자 판단 후 `flint maintain --invalidate-stale --yes`(또는
    `--ids`로 선별 적용).
+4. `flint maintain --expire-pending 30` — 만료 pending dry-run 확인 후
+   판단 시 `--commit`(doctor pending-age 경과 시).
 
 cron 예(매월 1일 04:00, dry-run만):
 

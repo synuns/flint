@@ -13,14 +13,14 @@ Hermes의 MCP 서버 설정에 다음 스니펫을 추가한다 (stdio).
 {
   "mcpServers": {
     "flint": {
-      "command": "bin/flint",
+      "command": "flint",
       "args": ["mcp"]
     }
   }
 }
 ```
 
-경로 `bin/flint`는 flint 바이너리 설치 위치에 맞게 조정한다.
+경로 `flint`는 flint 바이너리 설치 위치에 맞게 조정한다.
 
 ## 2. 프롬프트 스니펫 (시스템 프롬프트에 삽입)
 
