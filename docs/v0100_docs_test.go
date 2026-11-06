@@ -18,9 +18,8 @@ func docStrV0100(t *testing.T, path string) string {
 func TestReadmeMentionsSuggest(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		s := docStrV0100(t, p)
-		if !strings.Contains(s, "suggestions") {
-			t.Errorf("%s read 제안 미언급", p)
-		}
+		// v0.14.0 침묵 계약으로 "suggestions" 문자열 요구는 철회 —
+		// README 전면 재작성(v0.17.0)에서 제안 언급 불필요.
 		if !strings.Contains(s, "sha256") {
 			t.Errorf("%s 백업 무결성 미언급", p)
 		}
