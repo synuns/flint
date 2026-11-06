@@ -1,49 +1,68 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" font-family="-apple-system, 'Segoe UI', sans-serif">
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" font-family="-apple-system, 'Segoe UI', 'Noto Sans KR', sans-serif">
   <style>
     @media (prefers-color-scheme: dark) {
       .ink { fill:#e6edf3; } .sub { fill:#8b949e; } .box { stroke:#3d444d; fill:#151b23; }
       .arrow { stroke:#8b949e; } .arrowh { fill:#8b949e; }
-      .glow { stroke:#58a6ff; } .bg { fill:#0d1117; }
     }
     @media (prefers-color-scheme: light) {
-      .ink { fill:#1f2328; } .sub { fill:#656d76; } .box { stroke:#d0d7de; fill:#f6f8fa; }
-      .arrow { stroke:#656d76; } .arrowh { fill:#656d76; }
-      .glow { stroke:#0969da; } .bg { fill:#ffffff; }
+      .ink { fill:#24292f; } .sub { fill:#57606a; } .box { stroke:#d0d7de; fill:#f6f8fa; }
+      .arrow { stroke:#57606a; } .arrowh { fill:#57606a; }
     }
+    .card { font-size:15px; font-weight:600; }
+    .lbl  { font-size:12.5px; }
   </style>
-  <rect class="bg" width="960" height="280" rx="8"/>
-  <text class="ink" x="480" y="28" text-anchor="middle" font-size="13" font-weight="600">AI Coding Agents</text>
-  <text class="sub" x="480" y="46" text-anchor="middle" font-size="10">any agent that reads and writes</text>
 
-  <rect class="box glow" x="80" y="60" width="200" height="58" rx="8"/>
-  <text class="ink" x="180" y="84" text-anchor="middle" font-size="12" font-weight="600">Claude Code</text>
-  <text class="sub" x="180" y="100" text-anchor="middle" font-size="9">hook plugin · auto-inject</text>
+  <!-- Agent groups -->
+  <rect class="box" x="20" y="30" width="230" height="58" rx="10"/>
+  <text class="ink card" x="135" y="55" text-anchor="middle">Claude Code</text>
+  <text class="sub lbl"  x="135" y="74" text-anchor="middle">hook plugin · auto-inject</text>
 
-  <rect class="box" x="310" y="60" width="200" height="58" rx="8"/>
-  <text class="ink" x="410" y="84" text-anchor="middle" font-size="12" font-weight="600">Codex · Gemini · Copilot</text>
-  <text class="sub" x="410" y="100" text-anchor="middle" font-size="9">MCP tools</text>
+  <rect class="box" x="20" y="104" width="230" height="74" rx="10"/>
+  <text class="ink card" x="135" y="130" text-anchor="middle">Codex · Gemini · Copilot</text>
+  <text class="ink card" x="135" y="150" text-anchor="middle">OpenCode · Cursor</text>
+  <text class="sub lbl"  x="135" y="168" text-anchor="middle">MCP tools</text>
 
-  <rect class="box" x="540" y="60" width="200" height="58" rx="8"/>
-  <text class="ink" x="640" y="84" text-anchor="middle" font-size="12" font-weight="600">OpenCode · Cursor</text>
-  <text class="sub" x="640" y="100" text-anchor="middle" font-size="9">MCP + doc adapters</text>
+  <rect class="box" x="20" y="194" width="230" height="58" rx="10"/>
+  <text class="ink card" x="135" y="219" text-anchor="middle">OpenClaw · Hermes</text>
+  <text class="sub lbl"  x="135" y="238" text-anchor="middle">doc adapters</text>
 
-  <rect class="box" x="770" y="60" width="160" height="58" rx="8"/>
-  <text class="ink" x="850" y="84" text-anchor="middle" font-size="12" font-weight="600">OpenClaw</text>
-  <text class="sub" x="850" y="100" text-anchor="middle" font-size="9">doc adapters</text>
+  <!-- flint core -->
+  <rect x="370" y="86" width="220" height="110" rx="14" fill="#f59e0b22" stroke="#f59e0b" stroke-width="2.5"/>
+  <text x="480" y="126" text-anchor="middle" font-size="26" font-weight="800" fill="#b45309">flint</text>
+  <text x="480" y="150" text-anchor="middle" font-size="13" fill="#b45309">CLI · MCP server</text>
+  <text x="480" y="170" text-anchor="middle" font-size="12" fill="#92600a">single interface</text>
 
-  <line class="arrow" x1="180" y1="118" x2="480" y2="160" stroke-width="1.5"/>
-  <polygon class="arrowh" points="480,160 474,154 483,155" />
-  <line class="arrow" x1="410" y1="118" x2="480" y2="160" stroke-width="1.5"/>
-  <line class="arrow" x1="640" y1="118" x2="480" y2="160" stroke-width="1.5"/>
-  <line class="arrow" x1="850" y1="118" x2="480" y2="160" stroke-width="1.5"/>
+  <!-- Doltgres -->
+  <path d="M740 96 v96 a110 26 0 0 0 200 0 v-96 a110 26 0 0 1 -200 0 a110 26 0 0 0 200 0"
+        fill="#10b98118" stroke="#10b981" stroke-width="2.5"/>
+  <text x="840" y="140" text-anchor="middle" font-size="19" font-weight="700" fill="#047857">Doltgres</text>
+  <text x="840" y="163" text-anchor="middle" font-size="12" fill="#047857">every cell is a commit</text>
+  <text x="840" y="181" text-anchor="middle" font-size="12" fill="#047857">time travel</text>
 
-  <rect class="box glow" x="330" y="160" width="300" height="56" rx="8"/>
-  <text class="ink" x="480" y="184" text-anchor="middle" font-size="14" font-weight="700">flint</text>
-  <text class="sub" x="480" y="200" text-anchor="middle" font-size="10">single interface: CLI + MCP</text>
+  <!-- Arrows: agents ⇄ flint -->
+  <g stroke-width="2.5" fill="none" marker-end="url(#ah)">
+    <path class="arrow" d="M250 76 C310 76 320 106 366 114"/>
+    <path class="arrow" d="M250 145 L366 145"/>
+    <path class="arrow" d="M250 230 C310 230 320 190 366 175"/>
+  </g>
+  <text class="sub lbl" x="308" y="66" text-anchor="middle">context inject ↑</text>
+  <text class="sub lbl" x="308" y="137" text-anchor="middle">read · write</text>
+  <text class="sub lbl" x="308" y="252" text-anchor="middle">record ↓</text>
 
-  <line class="arrow" x1="480" y1="216" x2="480" y2="240" stroke-width="1.5"/>
-  <polygon class="arrowh" points="480,240 474,234 486,234" />
+  <!-- Arrows: flint ⇄ Doltgres -->
+  <g stroke="#047857" stroke-width="3" fill="none">
+    <path d="M596 125 C660 115 680 110 736 108" marker-end="url(#ag)"/>
+    <path d="M736 168 C680 170 660 172 596 160" marker-end="url(#ag)"/>
+  </g>
+  <text x="666" y="98" text-anchor="middle" font-size="12" fill="#047857">write · hash dedup</text>
+  <text x="666" y="192" text-anchor="middle" font-size="12" fill="#047857">git-like history ↩</text>
 
-  <rect class="box" x="310" y="240" width="340" height="32" rx="6"/>
-  <text class="ink" x="480" y="260" text-anchor="middle" font-size="11" font-weight="600">Doltgres — every cell is a commit</text>
+  <defs>
+    <marker id="ah" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path class="arrowh" d="M0 0 L10 5 L0 10 z"/>
+    </marker>
+    <marker id="ag" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto">
+      <path d="M0 0 L10 5 L0 10 z" fill="#047857"/>
+    </marker>
+  </defs>
 </svg>
