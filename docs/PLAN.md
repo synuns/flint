@@ -546,6 +546,24 @@ flint-plugin/
 - [x] R3 CI 파이프라인 설계 리뷰 — docs/CI_REVIEW.md(구조 진단·개선점)
 - [x] R4 버전·문서 — VERSION·배지 v0.17.0(EN/KO)·plugin.json 동기
 
+### v0.17.1 패치 (2026-11-06) — CI 리뷰 후속·코드 위생·문서 정합
+
+- [x] R1 CI_REVIEW §4 청산 — 태그 push `|| true` 제거(실패 시 중단)·
+  concurrency cancel-in-progress(같은 레프 연속 실행 취소)·DB 대기
+  단일화(doctor 통과 후 psql 1회)·PyYAML pip 캐시(setup-python+
+  requirements.txt)
+- [x] R2 코드 위생 — gofmt 18파일 정리 + `make ci` fmt 게이트 신설·
+  as-of 접두어 플레이크 방지(해시 접두어가 상대 문법 \d+[hd]와 겹칠 때
+  회피 창 선택 — 제품 계약 "① 상대 우선"은 불변)
+- [x] R3 Quick Start 실패 수정 — `make install` GOPATH/bin 실설치화
+  (bare `flint` 동작)·`make seed` FLINT_SEED_DSN 명시·Go 배지 1.26·
+  exit 3 서술 확장(스키마 위반 포함)·Copilot 자동 등록 과대 표기 정정
+- [x] R4 문서 스위트 정합 — QUICKSTART v0.17(setup --mcp·플러그인·
+  시각 진행 서술)·RUNBOOK doctor 검사 10종 표+`--expire-pending`
+  계약·adapters 4종 자동 등록 안내·TUNING suggest_min_score 폐지 기능
+  서술 정정
+- [x] R5 버전 — VERSION·배지 v0.17.1(EN/KO)·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
