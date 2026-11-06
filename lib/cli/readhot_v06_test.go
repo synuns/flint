@@ -238,25 +238,6 @@ func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
 	}
 }
 
-// TestHotProjectRowsDontConsumeIDSLOTS — 생존 행 중 project 팔(id 없음)은
-// 증분 id를 소비하지 않는다: 프로젝트 행이 예산 안에 남아도 동반 질의의
-// 지식 id는 그만큼 앞당겨지지 않는다.
-func TestHotProjectRowsDontConsumeIDSLOTS(t *testing.T) {
-	rows := [][]any{
-		{"project", "p1", "active", "2026-10-23"},
-		{"pending", "k1", "s", "2026-10-22"},
-	}
-	got := injectedKnowledgeIDs(rows, []int{11, 12}, 10_000) // 예산 넉넉 — 전부 생존
-	if len(got) != 1 || got[0] != 11 {
-		t.Errorf("injectedKnowledgeIDs = %v, want [11](project 행은 id 슬롯 없음)", got)
-	}
-	// 프로젝트 행만 생존(예산이 첫 행 끝까지)하면 증분 없음.
-	budget := len([]rune(query.FormatRows(rows[:1], "kind,topic,summary,ts", false)))
-	if got := injectedKnowledgeIDs(rows, []int{11}, budget); len(got) != 0 {
-		t.Errorf("지식 행 전체 절단 시 증분 = %v, want []", got)
-	}
-}
-
 // TestUsageInstrumentationSingleSeam — read·hot 계측이 전부 UsageStore 단일
 // seam(write.go recordUsage)을 경유한다(회귀: read.go usageRecorder 이중
 // seam 부활 방지 — UsageStore만 구현한 Store로 전 경로 기록 확인).

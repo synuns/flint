@@ -4,6 +4,7 @@ package cli
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
@@ -30,7 +31,7 @@ func TestNudgeMinimalAutoClears(t *testing.T) {
 		t.Fatal(err)
 	}
 	var out bytes.Buffer
-	code := runNudge(nil, fakeProfileStore(t, "minimal"), nil, strings.NewReader(""), &out)
+	code := runNudge(context.Background(), fakeProfileStore(t, "minimal"), nil, strings.NewReader(""), &out)
 	if code != 0 || out.Len() != 0 {
 		t.Fatalf("출력 있음/exit=%d: %q", code, out.String())
 	}

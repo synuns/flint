@@ -967,22 +967,6 @@ type composePsEntry struct {
 	Publishers []composePsPublisher `json:"Publishers"`
 }
 
-// portCheck — port 검사 단독 실행. 결과 한 줄 JSON을 out에 쓰고,
-// fail이면 1, ok·skip면 0을 반환한다(skip는 exit 영향 없음).
-func portCheck(ctx context.Context, out io.Writer) int {
-	c := checkPort(ctx)
-	b, err := json.Marshal(c)
-	if err != nil {
-		fmt.Fprintln(out, errLine(err))
-		return 1
-	}
-	fmt.Fprintln(out, string(b))
-	if c.Status == "fail" {
-		return 1
-	}
-	return 0
-}
-
 // checkPort — 5434 게시 상태 판정. ① flint 실행+5434 → ok
 // ② flint 부재/정지 → fail + up -d 안내 ③ 타 컨테이너 점유 → fail +
 // 점유자 이름 + 포트 이동 안내. composePsFn 오류는 skip(docker 미설치

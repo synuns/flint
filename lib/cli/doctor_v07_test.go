@@ -4,7 +4,6 @@
 package cli
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -51,15 +50,6 @@ func TestPortPass(t *testing.T) {
 		return []byte(line + "\n" + `{"Name":"flint-cache-1","State":"running","Publishers":[]}` + "\n"), nil
 	})
 
-	var buf bytes.Buffer
-	if code := portCheck(context.Background(), &buf); code != 0 {
-		t.Fatalf("portCheck exit=%d, want 0 (출력 %q)", code, buf.String())
-	}
-	c := doctorPortCheck(t, buf.String())
-	if c["status"] != "ok" {
-		t.Errorf("status=%v, want ok: %q", c["status"], buf.String())
-	}
-
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
 	if code != 0 {
 		t.Fatalf("runDoctor exit=%d, want 0 (출력 %q)", code, out)
@@ -77,13 +67,13 @@ func TestPortForeign(t *testing.T) {
 			`"Publishers":[{"TargetPort":5434,"PublishedPort":5434,"Protocol":"tcp"}]}`), nil
 	})
 
-	var buf bytes.Buffer
-	if code := portCheck(context.Background(), &buf); code != 1 {
-		t.Fatalf("portCheck exit=%d, want 1 (출력 %q)", code, buf.String())
+	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
+	if code != 1 {
+		t.Fatalf("runDoctor exit=%d, want 1 (출력 %q)", code, out)
 	}
-	c := doctorPortCheck(t, buf.String())
+	c := doctorPortCheck(t, out)
 	if c["status"] != "fail" {
-		t.Fatalf("status=%v, want fail: %q", c["status"], buf.String())
+		t.Fatalf("status=%v, want fail: %q", c["status"], out)
 	}
 	if !strings.Contains(fmt.Sprint(c["detail"]), "branding-web-1") {
 		t.Errorf("점유자 이름 없음: %v", c["detail"])
@@ -91,11 +81,6 @@ func TestPortForeign(t *testing.T) {
 	fix, _ := c["fix"].(string)
 	if !strings.Contains(fix, "FLINT_DSN") || !strings.Contains(fix, "compose") {
 		t.Errorf("포트 이동 fix 문구 부족: %q", fix)
-	}
-
-	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
-	if code != 1 {
-		t.Fatalf("runDoctor exit=%d, want 1 (출력 %q)", code, out)
 	}
 }
 
@@ -105,18 +90,12 @@ func TestPortDockerMissing(t *testing.T) {
 		return nil, errors.New("exec: docker: executable file not found")
 	})
 
-	var buf bytes.Buffer
-	if code := portCheck(context.Background(), &buf); code != 0 {
-		t.Fatalf("portCheck exit=%d, want 0 (출력 %q)", code, buf.String())
-	}
-	c := doctorPortCheck(t, buf.String())
-	if c["status"] != "skip" {
-		t.Errorf("status=%v, want skip: %q", c["status"], buf.String())
-	}
-
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
 	if code != 0 {
 		t.Fatalf("skip가 exit에 영향: exit=%d (출력 %q)", code, out)
+	}
+	if c := doctorPortCheck(t, out); c["status"] != "skip" {
+		t.Errorf("status=%v, want skip: %q", c["status"], out)
 	}
 	if strings.Contains(out, `"fail"`) {
 		t.Errorf("skip인데 fail 존재: %q", out)
@@ -225,12 +204,11 @@ func TestPortDockerHangTimeout(t *testing.T) {
 		<-ctx.Done() // docker가 응답하지 않는 무기한 대기 시뮬레이션
 		return nil, ctx.Err()
 	})
-	var buf bytes.Buffer
-	if code := portCheck(context.Background(), &buf); code != 0 {
-		t.Fatalf("portCheck exit=%d, want 0 (출력 %q)", code, buf.String())
+	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")
+	if code != 0 {
+		t.Fatalf("timeout skip가 exit에 영향: exit=%d (출력 %q)", code, out)
 	}
-	c := doctorPortCheck(t, buf.String())
-	if c["status"] != "skip" {
-		t.Errorf("status=%v, want skip(타임아웃은 오류 경로로): %q", c["status"], buf.String())
+	if c := doctorPortCheck(t, out); c["status"] != "skip" {
+		t.Errorf("status=%v, want skip(타임아웃은 오류 경로로): %q", c["status"], out)
 	}
 }

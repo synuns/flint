@@ -70,22 +70,6 @@ func hotKnowledgeIDsSQL() string {
 // hotFields — hot 출력 컬럼(포맷·예산 생존 판정이 공유하는 고정 순서).
 const hotFields = "kind,topic,summary,ts"
 
-// hotSurvivorCount — ClampHot(budget) 절단 뒤에도 출력에 남은 rows 행 수.
-// FormatRows는 행독립(헤더 없음)이라 k행의 시작 오프셋은 rows[:k] 포맷
-// 결과의 rune 수와 같다. 시작 오프셋이 budget 미만인 행만 살아남는다
-// (경계에 걸려 부분 노출된 행도 노출분은 주입된 것으로 본다).
-// 접미 없는 기본 포맷 기준 — --full 접미 포함 산정은 hotLineSurvivorCount.
-func hotSurvivorCount(rows [][]any, budget int) int {
-	n := 0
-	for i := range rows {
-		if utf8.RuneCountInString(query.FormatRows(rows[:i], hotFields, false)) >= budget {
-			break
-		}
-		n++
-	}
-	return n
-}
-
 // hotLineSurvivorCount — 행별 '표시 문자열' 기준 생존 수(N4). --full 접미
 // (·+N일)가 붙은 최종 텍스트로 잰다: k행 시작 오프셋은 lines[:k]의 rune
 // 수(행 구분 줄바꿈 포함)와 같고, 그 오프셋이 budget 미만인 행만 살아남는다.
@@ -121,12 +105,6 @@ func injectedIDsForSurvivors(rows [][]any, ids []int, survivors int) []int {
 		k = len(ids)
 	}
 	return ids[:k]
-}
-
-// injectedKnowledgeIDs — hotSurvivorCount(접미 없는 기본 포맷) 기준의
-// 증분 id. --full 접미 포함 산정은 runHot이 hotLineSurvivorCount로 한다.
-func injectedKnowledgeIDs(rows [][]any, ids []int, budget int) []int {
-	return injectedIDsForSurvivors(rows, ids, hotSurvivorCount(rows, budget))
 }
 
 // pendingAgeSuffix — pending 팔 대기일수 접미(v0.12.1 R2): valid_at 경과

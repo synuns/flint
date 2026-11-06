@@ -72,6 +72,11 @@ jobs:
           else
             echo "flint_test 생성 실패: $out"; exit 1
           fi
+      - name: 정적 분석 (staticcheck)
+        # 버전 고정(재현성) — 상향 시 로컬 실증 후 이 버전만 갱신.
+        run: |
+          go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
+          make lint
       - name: YAML 검증 + 단위 테스트
         run: make ci GO_TEST_FLAGS="-p 1"
       - name: e2e (실 Doltgres)
