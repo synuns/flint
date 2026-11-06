@@ -134,7 +134,7 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 | `flint status` | 스키마 버전 · 대기 건수 · hot p95 |
 | `flint mcp` | MCP 서버 실행 |
 
-**종료 코드:** 0 성공 · 1 오류 (또는 `read` 무결과 침묵) · 2 저장소 장애 · 3 read 인자 규칙 위반 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값).
+**종료 코드:** 0 성공 · 1 오류 (또는 `read` 무결과 침묵) · 2 저장소 장애 · exit 3 — read 인자 규칙 위반 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값).
 
 `flint read`는 구문 검색이 무결과면 단어 단위 fallback으로 재시도합니다.
 
@@ -147,7 +147,11 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 | 에이전트 | 방법 |
 | :--- | :--- |
 | **Claude Code** | 플러그인: 훅 + `/flint` 커맨드 |
-| **Codex · Gemini · Copilot · Cursor · OpenCode** | `flint setup --mcp`로 MCP 서버 등록 |
+| **Codex** | MCP ([docs/adapters/codex.md](docs/adapters/codex.md)) |
+| **Gemini** | MCP ([docs/adapters/gemini.md](docs/adapters/gemini.md)) |
+| **Copilot** | MCP ([docs/adapters/copilot.md](docs/adapters/copilot.md)) |
+| **Cursor** | MCP ([docs/adapters/cursor.md](docs/adapters/cursor.md)) |
+| **OpenCode** | MCP ([docs/adapters/opencode.md](docs/adapters/opencode.md)) |
 | **OpenClaw · Hermes** | 문서 어댑터 |
 
 어댑터 문서: [docs/adapters/](docs/adapters/)
