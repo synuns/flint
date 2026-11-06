@@ -144,7 +144,7 @@ jobs:
           else
             echo "skip_goreleaser=false" >> "$GITHUB_OUTPUT"
           fi
-      - uses: goreleaser/goreleaser-action@v6
+      - uses: goreleaser/goreleaser-action@v7
         if: steps.version.outputs.deploy == 'true' && steps.relcheck.outputs.skip_goreleaser != 'true'
         with:
           args: release --clean
