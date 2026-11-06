@@ -147,8 +147,13 @@ Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/
 | Agent | Method |
 | :--- | :--- |
 | **Claude Code** | Plugin: hooks + `/flint` command |
-| **Codex · Gemini · Copilot · Cursor · OpenCode** | MCP server via `flint setup --mcp` |
-| **OpenClaw · Hermes** | Doc adapters |
+| **Codex** | MCP ([docs/adapters/codex.md](docs/adapters/codex.md)) |
+| **Gemini** | MCP ([docs/adapters/gemini.md](docs/adapters/gemini.md)) |
+| **Copilot** | MCP ([docs/adapters/copilot.md](docs/adapters/copilot.md)) |
+| **Cursor** | MCP ([docs/adapters/cursor.md](docs/adapters/cursor.md)) |
+| **OpenCode** | MCP ([docs/adapters/opencode.md](docs/adapters/opencode.md)) |
+| **OpenClaw** | Adapter ([docs/adapters/openclaw.md](docs/adapters/openclaw.md)) |
+| **Hermes** | Adapter ([docs/adapters/hermes.md](docs/adapters/hermes.md)) |
 
 Adapter docs: [docs/adapters/](docs/adapters/)
 
