@@ -524,6 +524,11 @@ flint-plugin/
   checksums 불변)·mcp-registry/server.json(플레이스홀더)·README
   사용법·발행 3단계 안내·배지 v0.16.5(EN/KO)·plugin.json 동기
 
+### v0.16.6 패치 (2026-11-06) — MCP Registry 자동 발행
+
+- [x] server.json template($schema·version)·publish_mcp.sh·CI github-oidc
+  스텝 — 태그 push 시 무인 발행
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
