@@ -41,8 +41,8 @@ type statusV096Output struct {
 // 임베딩해 키 순서를 그대로 두고 as_of{hash,commit_date}를 말미에 추가한다.
 // v0.9.6부터는 statusV096Output(끝에 read_fallback_calls)을 임베딩한다.
 // as_of 형태는 read --as-of(asOfInfo)와 동일 — 소비자가 한 형태로 파싱한다
-//(스펙 §1 "as_of 해시·시각"·e2e asOfHash 정합). statusOutput 자체는 불변
-//(미지정 시 출력 불변 — v0.7 last_* 원칙 승계).
+// (스펙 §1 "as_of 해시·시각"·e2e asOfHash 정합). statusOutput 자체는 불변
+// (미지정 시 출력 불변 — v0.7 last_* 원칙 승계).
 type statusAsOfOutput struct {
 	statusV096Output
 	AsOf asOfInfo `json:"as_of"`

@@ -129,7 +129,9 @@ func TestRunMCPServerUnknownMethod(t *testing.T) {
 // 그대로 echo(v0.9 하니스 호환 협상).
 func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{"protocolVersion": "2025-06-18"})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := res.(map[string]any)["protocolVersion"]; got != "2025-06-18" {
 		t.Errorf("echo 실패: %v", got)
 	}
@@ -139,7 +141,9 @@ func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
 // 라운드트립 불변(serve.go:32 계승) "2024-11-05".
 func TestInitializeFallbackProtocolVersion(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	if got := res.(map[string]any)["protocolVersion"]; got != "2024-11-05" {
 		t.Errorf("fallback 실패: %v", got)
 	}
@@ -162,7 +166,9 @@ func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
 // instructions에 포함(도구명 flint_read·flint_write 명시).
 func TestInitializeIncludesInstructions(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{})
-	if err != nil { t.Fatal(err) }
+	if err != nil {
+		t.Fatal(err)
+	}
 	ins := res.(map[string]any)["instructions"].(string)
 	if !strings.Contains(ins, "flint_read") || !strings.Contains(ins, "flint_write") {
 		t.Errorf("instructions 3규칙 누락: %q", ins)
@@ -172,8 +178,12 @@ func TestInitializeIncludesInstructions(t *testing.T) {
 // TestPingReturnsEmptyResult — ping은 빈 result·error nil.
 func TestPingReturnsEmptyResult(t *testing.T) {
 	res, err := handleRPC("ping", map[string]any{})
-	if err != nil { t.Fatal(err) }
-	if len(res.(map[string]any)) != 0 { t.Errorf("빈 result 아님: %v", res) }
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(res.(map[string]any)) != 0 {
+		t.Errorf("빈 result 아님: %v", res)
+	}
 }
 
 // TestMCPCliWired — init이 cli.RegisterMCPServer로 RunMCPServer를 주입했고

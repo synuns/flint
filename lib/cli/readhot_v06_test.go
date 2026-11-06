@@ -20,9 +20,9 @@ import (
 // 실패 주입(bumpErr·usageErr)으로 조용한 실패 경로를 검증한다.
 type instrumentedFake struct {
 	fakeStore
-	bumped  [][]int
-	usage   [][2]string
-	bumpErr error
+	bumped   [][]int
+	usage    [][2]string
+	bumpErr  error
 	usageErr error
 }
 
@@ -327,7 +327,7 @@ func TestHotCompanionQueryLimitsToInjected(t *testing.T) {
 			"kind": "knowledge", "topic": fmt.Sprintf("hot-reg-k-%d", i),
 			"summary": "회귀", "tags": ":a:", "confidence": 0.9,
 			"content_hash": fmt.Sprintf("hot-reg-k-%d", i),
-			"status": "pending", "ingested_at": older,
+			"status":       "pending", "ingested_at": older,
 		})
 	}
 	// 프로젝트는 updated=now()로 지식(2시간 전)보다 최신 — 상위 3슬롯 점유.

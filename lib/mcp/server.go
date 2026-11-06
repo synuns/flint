@@ -50,6 +50,7 @@ func Serve(r io.Reader, w io.Writer, handle func(method string, params map[strin
 	}
 	return sc.Err()
 }
+
 // response is one outgoing JSON-RPC line; exactly one of Result/Error is set.
 type response struct {
 	JSONRPC string    `json:"jsonrpc"`

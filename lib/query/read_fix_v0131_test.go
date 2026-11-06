@@ -55,5 +55,5 @@ func fixWhereClause(sql string) string {
 	if i < 0 || j < 0 || j < i {
 		return ""
 	}
-	return sql[i+len(" WHERE "):j]
+	return sql[i+len(" WHERE ") : j]
 }

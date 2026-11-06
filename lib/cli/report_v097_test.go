@@ -1,11 +1,11 @@
 // report_v097_test.go — v0.9.7 T5 R4: dupPct·fallbackPct 순수 함수 고정
-//(기간 중복률·폴백 비율, 제로 분모 0).
+// (기간 중복률·폴백 비율, 제로 분모 0).
 package cli
 
 import "testing"
 
 func TestDupPctCalc(t *testing.T) {
-	days := []DailyRow{ {Date: "d1", Write: 10, Dup: 30}, {Date: "d2", Write: 0, Dup: 10} }
+	days := []DailyRow{{Date: "d1", Write: 10, Dup: 30}, {Date: "d2", Write: 0, Dup: 10}}
 	if got := dupPct(days); got != 80 {
 		t.Errorf("dupPct = %d, want 80", got)
 	}

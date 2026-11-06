@@ -103,11 +103,11 @@ func fallbackMatchCount(tokens []string, topic string, summary string) int {
 // 작은따옴표는 placeholder 파라미터로 전달되므로 별도 이스케이프 불필요.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-// quoteEscaper — SQL 리터럴 인라인 시 작은따옴표 이스케이프(' → '').
+// quoteEscaper — SQL 리터럴 인라인 시 작은따옴표 이스케이프(' → ”).
 var quoteEscaper = strings.NewReplacer(`'`, `''`)
 
 // RankOrder — 검색 랭킹 정렬 절(T56): 주제어 정확 일치 우선 → confidence →
-// 최신 수집 순. q는 작은따옴표를 ''로 이스케이프해 인라인한다(ORDER BY 식
+// 최신 수집 순. q는 작은따옴표를 ”로 이스케이프해 인라인한다(ORDER BY 식
 // 조립용 문자열 절 계약).
 // v0.6(T68): 동률에서만 최근 참조 우선 — 말미에 last_read_at DESC NULLS LAST
 // 추가(조회시 파생·저장값 불변). NULLS LAST로 미참조 항목은 동률 꼴찌.

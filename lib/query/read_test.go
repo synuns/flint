@@ -37,7 +37,7 @@ func TestBuildReadUsesActiveKnowledge(t *testing.T) {
 
 // TestBuildReadEscapesLike — q의 %·_는 LIKE 와일드카드로 해석되지 않는다
 // (WHERE는 placeholder 주입). 랭킹 절(T56)에 인라인되는 복사본은 작은따옴표가
-// ''로 이스케이프된 형태만 허용한다.
+// ”로 이스케이프된 형태만 허용한다.
 func TestBuildReadEscapesLike(t *testing.T) {
 	sql, args := BuildRead("100%_drop'", Filters{})
 	if !strings.Contains(sql, "LIKE lower($1)") {
@@ -183,7 +183,7 @@ func TestFormatRowsFieldMapping(t *testing.T) {
 	}
 }
 
-// TestRankOrderEscapes — q의 작은따옴표는 ''로 이스케이프(인젝션 차단, T56).
+// TestRankOrderEscapes — q의 작은따옴표는 ”로 이스케이프(인젝션 차단, T56).
 // v0.6(T68) tie-breaker 접미 허용 — 접두(이스케이프 포함 기존 절)만 정확 검사.
 func TestRankOrderEscapes(t *testing.T) {
 	got := RankOrder("a'b")

@@ -12,7 +12,7 @@ import (
 // statusAsOfHarness — fake Store에 as-of 경로를 세팅한다. hexPfx 해시
 // 접두어는 단일 커밋 fullHash로 확정되고, pendingCount는 AS OF 접합된
 // 카운트 질의에만 응답한다(비접합 질의는 curCount). 커밋 시각 질의
-//(commit_hash = $1)는 commitDate로 응답.
+// (commit_hash = $1)는 commitDate로 응답.
 func statusAsOfHarness(t *testing.T, _, fullHash string, curCount, asofCount int64) *fakeStore {
 	t.Helper()
 	commitDate := time.Date(2026, 10, 20, 9, 30, 0, 0, time.UTC)
