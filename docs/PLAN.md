@@ -628,6 +628,21 @@ write·주입·종료·관측 4개 접점에서 교정한다.
 - [x] R-c 경미 결함 — nil Context(SA1012)·불필요 Sprintf 3건·미사용
   sentinel·CanonicalJSON 결정성 비교 명료화(2회 호출 변수 비교)
 
+### v0.19.0 마이너 (2026-11-07) — 효과 계측 (effect instrumentation)
+
+- [x] R1 측정 기준 문서 — docs/METRICS.md: "도움"의 정의 4목표(GSM
+  매핑)·증거 등급(Tier 1 상관 프록시 / Tier 2 연결 상관 / Tier 3 합성
+  인과=floor)·금지조항(사용량≠효과·단일 지표 게이밍·상관의 인과 서술
+  금지·실측치 미인용). 기준이 코드보다 앞선다(HEART/GSM 관례)
+- [x] R3 read 이벤트 additive 계측 — 스키마 v6 read_events(ts·hits·
+  zero·near·fallback·session, 14일 보존), EnsureSchemaV6 게이트,
+  read --session 선택 라벨(조회 동작 불변). 쿼리 본문·개인 문구 미기록
+- [x] R2+R4 report 효과 섹션 — effect 객체: hit_pct(G1)·dup_prevented
+  (G2, 절약 프레임 재해석)·reuse_pct·dead_pct(G3)·read_events_n·
+  read_write_pairs·pair_pct(G4, 30분 창 Go-사이드 조인 — Doltgres
+  interval 리스크 회피)
+- [x] 버전 — VERSION·배지 v0.19.0(EN/KO)·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

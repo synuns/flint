@@ -72,9 +72,37 @@ type reportOutput struct {
 	DupManual int `json:"dup_manual"`
 	// v0.14.0 R3 zero_near 비율 — 기존 필드·순서 불변, 말미 추가.
 	ZeroNearPct int `json:"zero_near_pct"`
+	// v0.19.0 효과 계측 섹션(docs/METRICS.md §4 정의의 단일 산출 소스).
+	// 기존 필드·순서 불변, 말미 추가.
+	Effect effectOutput `json:"effect"`
 
 	readCalls int // 직렬화 제외 — fallback_pct 분모(read_stats calls)
 }
+
+// effectOutput — "도움" 지표(METRICS §2 GSM 표의 산출). hit_pct·near_pct·
+// dup_prevented·read_events_n·read_write_pairs·pair_pct·fallback_pct는
+// --days 창, reuse_pct·dead_pct는 시점 지표(기간 아님). 전부 상관
+// 프록시(Tier 1·2) — 세트로 해석하고 단독 증명으로 읽지 않는다(METRICS §5).
+type effectOutput struct {
+	HitPct         int `json:"hit_pct"`          // G1: 1−zero/read
+	NearPct        int `json:"near_pct"`         // G1: 근접 회수 여지(Σnear/read)
+	FallbackPct    int `json:"fallback_pct"`     // G1: 창 내 폴백 경유율(누적 키와 별개)
+	DupPrevented   int `json:"dup_prevented"`    // G2: Σdup(절대량)
+	ReusePct       int `json:"reuse_pct"`        // G3: 회상된 active 비율
+	DeadPct        int `json:"dead_pct"`         // G3: 회상 0·30일+ 비율
+	ReadEventsN    int `json:"read_events_n"`    // G4 분모: 창 내 read 이벤트
+	ReadWritePairs int `json:"read_write_pairs"` // G4: read 뒤 30분 내 write
+	PairPct        int `json:"pair_pct"`         // G4: pairs/read_events_n
+}
+
+// reportDeadDays — dead_pct 판정 기준일(METRICS §4: 증류·중복 사이클이
+// 주 단위라는 일반 근거의 기본 상수. 개인 튜닝 불요 — 필요 시 다음
+// 버전에서 thresholds 레지스트리로 이양).
+const reportDeadDays = 30
+
+// reportPairWindow — read→write 동반 판정 창(G4 상관 프록시의 근접성
+// 가정 기본값 — METRICS §4).
+const reportPairWindow = 30 * time.Minute
 
 // DailyRow — 관측 지표 산입용 일별 행 뷰(v0.9.7 R4). 기존 reportDay 별칭.
 type DailyRow = reportDay
@@ -146,6 +174,11 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	// v0.19.0 효과 계측 — METRICS §4 정의 산출(days 창·knowledge 시점).
+	if err := collectEffect(ctx, st, days, &out); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
 	// R4 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 meta
 	// read_fallback_calls(T85·v096 status와 동일 조회 패턴)에서. 부재는 0.
 	out.DupPct = dupPct(out.Days)
@@ -181,14 +214,20 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 	// v0.15.0 R2 zero 지표 기간화 — zero_pct·zero_near_pct는 --days 창 내
 	// 일별 합산으로 산출(누적 read_stats 의존 제거). days 배열은 창 마킹
 	// 이후라 창 밖 행은 합산에서도 배제된다(버림 정수%, 제로 분모 0).
-	var sumRead, sumZero, sumNear int
+	var sumRead, sumZero, sumNear, sumDup int
 	for _, d := range out.Days {
 		sumRead += d.Read
 		sumZero += d.ReadZero
 		sumNear += d.ReadNear
+		sumDup += d.Dup
 	}
 	out.ZeroPct = readZeroPct(sumRead, sumZero)
 	out.ZeroNearPct = readZeroPct(sumRead, sumNear)
+	// v0.19.0 효과 뷰 G1·G2 — 같은 합산에서 유도(단일 유도 사슬 —
+	// collectEffect에서 재합산하지 않는다).
+	out.Effect.HitPct = pctOf(sumRead-sumZero, sumRead)
+	out.Effect.NearPct = pctOf(sumNear, sumRead)
+	out.Effect.DupPrevented = sumDup
 	return nil
 }
 
@@ -329,4 +368,145 @@ func readCounters(row []any, dst ...*int) {
 			*p = n
 		}
 	}
+}
+
+// pctOf — n/total 정수 백분율(버림). total 0은 0(readZeroPct 가드 관례).
+func pctOf(n, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	return n * 100 / total
+}
+
+// collectEffect — 효과 계측 섹션 산출(v0.19.0, docs/METRICS.md §4).
+// G1(hit·near)·G2(dup_prevented)는 collectDaily 합산에서 유도되고(여기서
+// 재합산하지 않는다), G3(reuse·dead)은 knowledge 시점 집계(Doltgres 호환
+// CASE 관례), G4는 read_events × knowledge ingested_at의 시간 창 페어링 —
+// Go-사이드 조인으로 산출해 SQL interval 곱의 Doltgres 파라미터 추론
+// 리스크를 받지 않는다.
+//
+// 룰링(리뷰 #6): G3을 collectCounts의 stale 쿼리에 병합하지 않는다 —
+// stale은 "인자 1개(timestamptz)" 계약을 T70 회귀 테스트가 검증하며
+// dead 컷오프(30일)는 인자가 달라 계약을 깬다. 유지보수 경로의 소형
+// CASE 쿼리 1회 추가를 대가로 두 관심을 분리 유지.
+func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) error {
+	deadCutoff := time.Now().Add(-time.Duration(reportDeadDays) * 24 * time.Hour)
+	rows, err := queryOnce(ctx, st, `
+		SELECT count(*),
+		       count(CASE WHEN read_count > 0 THEN 1 END),
+		       count(CASE WHEN read_count = 0 AND ingested_at < $1 THEN 1 END)
+		  FROM knowledge
+		 WHERE status = 'active' AND invalid_at IS NULL`,
+		[]any{deadCutoff})
+	if err != nil {
+		return err
+	}
+	if len(rows) > 0 {
+		var active, reused, dead int
+		readCounters(rows[0], &active, &reused, &dead)
+		out.Effect.ReusePct = pctOf(reused, active)
+		out.Effect.DeadPct = pctOf(dead, active)
+	}
+	// G4 — 계측 원칙(§13·METRICS §4): 이벤트 로그 조회 실패(read_events
+	// 테이블 부재 등)는 G4·fallback_pct를 0으로 강등할 뿐 보고 전체를
+	// 깨지 않는다 — 다른 지표 공백의 0 폴백 관례와 동일(리뷰 #2).
+	windowStart := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	reads, fallbacks, err := queryReadEvents(ctx, st, windowStart)
+	if err != nil {
+		return nil
+	}
+	out.Effect.ReadEventsN = len(reads)
+	out.Effect.FallbackPct = pctOf(fallbacks, len(reads))
+	if len(reads) == 0 {
+		return nil // 분모 0 — 페어링 불필요(제로 가드 관례)
+	}
+	writes, err := queryTimes(ctx, st,
+		`SELECT ingested_at FROM knowledge WHERE ingested_at >= $1`, windowStart)
+	if err != nil {
+		return nil // 동일 강등 — 페어링 불가, pairs 0
+	}
+	out.Effect.ReadWritePairs = pairReadWrites(reads, writes, reportPairWindow)
+	out.Effect.PairPct = pctOf(out.Effect.ReadWritePairs, len(reads))
+	return nil
+}
+
+// queryReadEvents — 창 내 read 이벤트 시각과 폴백 경유 수를 1쿼리로
+// 읽는다(G4 페어링 + fallback_pct 분자). 매핑 불가 칸은 조용히 건너뛴다
+// (cellToInt 관례 — 계측 누락이 보고를 깨지 않는다).
+func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]time.Time, int, error) {
+	rows, err := queryOnce(ctx, st,
+		`SELECT ts, fallback FROM read_events WHERE ts >= $1`, []any{cutoff})
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]time.Time, 0, len(rows))
+	fallbacks := 0
+	for _, r := range rows {
+		if len(r) < 2 {
+			continue
+		}
+		t, ok := cellToTime(r[0])
+		if !ok {
+			continue
+		}
+		out = append(out, t)
+		if b, ok := r[1].(bool); ok && b {
+			fallbacks++
+		}
+	}
+	return out, fallbacks, nil
+}
+
+// queryTimes — 1열 시각 쿼리를 time 슬라이스로 읽는다(G4 페어링 전용).
+// 매핑 불가 칸은 조용히 건너뛴다(cellToInt 관례 — 계측 누락이 보고를
+// 깨지 않는다).
+func queryTimes(ctx context.Context, st Store, sql string, cutoff time.Time) ([]time.Time, error) {
+	rows, err := queryOnce(ctx, st, sql, []any{cutoff})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]time.Time, 0, len(rows))
+	for _, r := range rows {
+		if len(r) == 0 {
+			continue
+		}
+		if t, ok := cellToTime(r[0]); ok {
+			out = append(out, t)
+		}
+	}
+	return out, nil
+}
+
+// cellToTime — 셀(any)→time 변환(pgx timestamptz=time.Time, fake·
+// 문자열은 RFC3339). cellToInt 형제 유틸.
+func cellToTime(v any) (time.Time, bool) {
+	switch t := v.(type) {
+	case time.Time:
+		return t, true
+	case string:
+		p, err := time.Parse(time.RFC3339, t)
+		return p, err == nil
+	default:
+		return time.Time{}, false
+	}
+}
+
+// pairReadWrites — 각 read 시각 뒤 window 안에 write가 하나라도 있으면
+// 1쌍(G4). writes 정렬 후 이진 탐색 — 창 규모(수백)에서 충분하고
+// SQL interval 조인의 Doltgres 리스크를 받지 않는다.
+func pairReadWrites(reads, writes []time.Time, window time.Duration) int {
+	if len(writes) == 0 {
+		return 0
+	}
+	sorted := append([]time.Time(nil), writes...)
+	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Before(sorted[j]) })
+	pairs := 0
+	for _, r := range reads {
+		end := r.Add(window)
+		i := sort.Search(len(sorted), func(i int) bool { return !sorted[i].Before(r) })
+		if i < len(sorted) && !sorted[i].After(end) {
+			pairs++
+		}
+	}
+	return pairs
 }

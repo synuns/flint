@@ -218,6 +218,57 @@ func (r *Repo) ensureSchemaV5(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV6는 meta.schema_version<6인 DB를 v6로 무손실 승격한다:
+// 효과 계측 이벤트 로그 테이블 read_events를 CREATE TABLE IF NOT EXISTS로
+// 추가한다(v0.19.0 docs/METRICS.md — 기존 테이블·views 무변경, additive).
+// 승격 전 DB는 빈 로그를 받는다. 이미 v6 이상이면 트랜잭션·커밋 없이
+// no-op(수치 비교 단락 — v0.6 다운그레이드 사고 재발 방지)이며, v1~v5
+// 게이트를 경유한 어느 DB에서도 멱등하다.
+func (r *Repo) EnsureSchemaV6(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV6(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV6(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v6: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 6 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v6: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS read_events (
+		    id        serial PRIMARY KEY,
+		    ts        timestamptz NOT NULL DEFAULT now(),
+		    hits      integer NOT NULL,
+		    zero      boolean NOT NULL,
+		    near      boolean NOT NULL,
+		    fallback  boolean NOT NULL,
+		    session   text NOT NULL DEFAULT ''
+		)`); err != nil {
+		return fmt.Errorf("schema v6: create: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '6')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v6: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v6: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
 // 이미 active면 멱등 no-op, 없는 id는 ErrNotFound.
 func (r *Repo) Approve(ctx context.Context, id int) error {

@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.18.3-blue" alt="v0.18.3">
+  <img src="https://img.shields.io/badge/release-v0.19.0-blue" alt="v0.19.0">
 </p>
 
 <p align="center">
@@ -140,7 +140,7 @@ Each session cycles through four phases:
 
 `flint read` uses word-by-word fallback search when the phrase query returns nothing.
 
-Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/TUNING.md)
+Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/TUNING.md) · Metrics: [docs/METRICS.md](docs/METRICS.md)
 
 ---
 

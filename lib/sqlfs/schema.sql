@@ -7,6 +7,8 @@
 -- admin.go의 EnsureSchemaV4 게이트가 ALTER로 적용한다(신규 인덱스 없음).
 -- v5(spec v0.8 §2): knowledge 계보 superseded_by 추가(배치 무효화가 대체 지식
 -- id를 새긴다, 기본 NULL). 기존 v4 DB는 EnsureSchemaV5 게이트가 적용.
+-- v6(v0.19.0 docs/METRICS.md): 효과 계측 이벤트 로그 read_events 추가(신규
+-- 테이블 — 기존 테이블 무변경). 기존 v5 DB는 EnsureSchemaV6 게이트가 적용.
 -- views는 무변경 — 컬럼이 기존 뷰 정의에 영향 없다.
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
@@ -56,6 +58,19 @@ CREATE TABLE IF NOT EXISTS maintenance_runs (
 CREATE TABLE IF NOT EXISTS meta (
     key   text PRIMARY KEY,
     value text NOT NULL
+);
+
+-- v6: read 1회당 1행 효과 계측 이벤트(G4 — docs/METRICS.md §4).
+-- 개인 문구·쿼리 본문 없이 수치·플래그·세션 라벨만. 14일 보존
+-- (daily 카운터와 동일 정책 — 롤오버 시 PruneReadEvents 정리).
+CREATE TABLE IF NOT EXISTS read_events (
+    id        serial PRIMARY KEY,
+    ts        timestamptz NOT NULL DEFAULT now(),
+    hits      integer NOT NULL,             -- 반환 행 수
+    zero      boolean NOT NULL,             -- 결과 0(read_zero 분류)
+    near      boolean NOT NULL,             -- 제로근접(read_zero_near 분류)
+    fallback  boolean NOT NULL,             -- 폴백 재쿼리 경유
+    session   text NOT NULL DEFAULT ''      -- 호출자 세션 라벨(선택)
 );
 
 -- v3(ADR-0008): 검색 필터 경로 인덱스 — 신규 DB 생성 시점에 포함.

@@ -42,17 +42,23 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 	if _, code := runReportArgs(t, f, "--days", "7"); code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
-	sawStale, sawPeriod := false, false
+	sawStale, sawPeriod, sawDead := false, false, false
 	for _, q := range argsBySQL {
-		isStale := strings.Contains(q.sql, "read_count")
+		// stale 판별은 last_read_at 고유 형태로 — v0.19.0 effect의 G3
+		// 집계(read_count 30일 컷오프)도 "read_count"을 포함해 오판된다.
+		isStale := strings.Contains(q.sql, "last_read_at")
 		isPeriod := strings.Contains(q.sql, "invalid_at >=")
+		isDead := strings.Contains(q.sql, "read_count > 0") // effect G3(dead_pct)
 		if isStale {
 			sawStale = true
 		}
 		if isPeriod {
 			sawPeriod = true
 		}
-		if !isStale && !isPeriod {
+		if isDead {
+			sawDead = true
+		}
+		if !isStale && !isPeriod && !isDead {
 			continue
 		}
 		if strings.Contains(q.sql, "interval") {
@@ -69,11 +75,14 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 		if isStale {
 			wantDays = 90 // stale 집계 기준일(reportStaleDays)
 		}
+		if isDead {
+			wantDays = 30 // dead_pct 기준일(reportDeadDays, 리뷰 #4)
+		}
 		if el := time.Since(cut); el < time.Duration(wantDays-1)*24*time.Hour || el > time.Duration(wantDays+1)*24*time.Hour {
 			t.Errorf("컷오프 경과=%v, want 약 %d일", el, wantDays)
 		}
 	}
-	if !sawStale || !sawPeriod {
-		t.Fatalf("stale(%v)·기간(%v) 조회 미관측(총 %d건)", sawStale, sawPeriod, len(queries))
+	if !sawStale || !sawPeriod || !sawDead {
+		t.Fatalf("stale(%v)·기간(%v)·dead(%v) 조회 미관측(총 %d건)", sawStale, sawPeriod, sawDead, len(queries))
 	}
 }

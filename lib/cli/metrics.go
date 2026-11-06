@@ -239,11 +239,10 @@ func BumpReadStats(zeroHits bool, zeroNear bool, getKV func(string) (string, err
 }
 
 // readZeroPct — zero 비율(정수 백분율). calls 0이면 0(나눗셈 가드).
+// v0.19.0: 반올림 본체는 pctOf(단일 소스 — effect 지표와 버림 방식
+// 일관)에 위임한다.
 func readZeroPct(calls, zero int) int {
-	if calls <= 0 {
-		return 0
-	}
-	return zero * 100 / calls
+	return pctOf(zero, calls)
 }
 
 // loadReadStatsFromMeta — status 노출용 meta read_stats 로드(wiring).

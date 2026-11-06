@@ -271,7 +271,9 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		if strings.Contains(q.sql, "make_interval") || strings.Contains(q.sql, "interval") {
 			t.Errorf("SQL 내 interval 산술 금지(T70: Doltgres pgx 추론 결함): %q", q.sql)
 		}
-		if strings.Contains(q.sql, "read_count") {
+		// stale 판별은 last_read_at 고유 형태로 — v0.19.0 effect의 G3
+		// 집계(read_count, 30일 컷오프)도 "read_count"을 포함해 오판된다.
+		if strings.Contains(q.sql, "last_read_at") {
 			sawStale = true
 			assertCutoffArg(t, "stale", q.args, 90*24*time.Hour)
 		}
