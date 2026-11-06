@@ -13,7 +13,7 @@
 <p align="center">
   <strong>Version-controlled memory for AI agents.</strong>
   <br/>
-  <sub>A shared, Doltgres-backed second brain for Claude Code, OpenClaw, and Hermes.</sub>
+  <sub>A shared, version-controlled memory store for any AI coding agent — Claude Code, Codex, Gemini, Copilot, Cursor, and more.</sub>
 </p>
 
 <p align="center">

@@ -13,7 +13,7 @@
 <p align="center">
   <strong>에이전트의 기억을 버전 관리합니다.</strong>
   <br/>
-  <sub>Claude Code·OpenClaw·Hermes가 공유하는 Doltgres 기반 세컨드 브레인.</sub>
+  <sub>모든 AI 코딩 에이전트가 공유하는 버전 관리 기억 저장소 — Claude Code, Codex, Gemini, Copilot, Cursor 등.</sub>
 </p>
 
 <p align="center">
