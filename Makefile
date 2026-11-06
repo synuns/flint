@@ -48,8 +48,11 @@ down:
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/flint ./cmd/flint
 
-# QUICKSTART 1단계: 설치 = 빌드(bin/flint 하나면 끝)
+# QUICKSTART 1단계: 설치 = 빌드 후 GOPATH/bin에 복사(README의 bare `flint`
+# 호출·플러그인 PATH 요구 충족). ldflags 주입 버전이라 bin/flint를 그대로 쓴다.
 install: build
+	@dest="$$(go env GOPATH)/bin"; mkdir -p "$$dest" && cp bin/flint "$$dest/flint"
+	@echo "설치됨: $$(go env GOPATH)/bin/flint"
 
 # 시딩: seed.jsonl을 kind별로 나눠 flint write에 파이프.
 # 2회째는 전부 duplicate·exit 0(멱등 — 해시는 valid_at·ts 제외 경로).

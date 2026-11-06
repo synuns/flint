@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" alt="Go 1.25"></a>
+  <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26"></a>
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
@@ -50,13 +50,15 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 ## Quick Start
 
 ```bash
-# Install
+# Install (builds flint into GOPATH/bin)
 git clone https://github.com/synuns/flint.git && cd flint
 make install
 
-# Start Doltgres, migrate, seed demo data
+# Start Doltgres, migrate the schema
 flint setup
-make seed
+
+# Load demo data (seed target must be explicit)
+make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
 ```
 
 Or [download a release binary](https://github.com/synuns/flint/releases) — binaries, checksums, and the plugin zip are attached automatically.
@@ -70,13 +72,13 @@ Or [download a release binary](https://github.com/synuns/flint/releases) — bin
 
 The plugin needs the `flint` binary on your `PATH`. Hooks and the MCP server both call it.
 
-### Other agents (Codex, Gemini, Cursor, OpenCode, Copilot)
+### Other agents (Codex, Gemini, Cursor, OpenCode)
 
 ```bash
 flint setup --mcp
 ```
 
-Detects which harnesses are installed, registers the MCP server with each one. Anything not installed gets skipped. Exit 0 regardless.
+Detects which harnesses are installed and registers the MCP server with each one. Copilot has no verified native CLI — use the manual config in [docs/adapters/copilot.md](docs/adapters/copilot.md). Anything not installed gets skipped. Exit 0 regardless.
 
 <details>
 <summary>What <code>flint setup</code> does</summary>
@@ -134,7 +136,7 @@ Each session cycles through four phases:
 | `flint status` | Schema version, pending count, hot p95 |
 | `flint mcp` | Run the MCP server |
 
-**Exit codes:** 0 success · 1 error (or silent no-results on `read`) · 2 storage failure · exit 3 — invalid `read` arguments (valueless trailing flags, bad `--status` / `--as-of` values).
+**Exit codes:** 0 success · 1 error (or silent no-results on `read`) · 2 storage failure · exit 3 — invalid input (valueless trailing flags, bad `--status` / `--as-of` values, schema violations on `write`).
 
 `flint read` uses word-by-word fallback search when the phrase query returns nothing.
 
