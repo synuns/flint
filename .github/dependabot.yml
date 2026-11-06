@@ -1,0 +1,12 @@
+# v0.17.0 R1: 의존성 자동 관리 — gomod(pgx/v5)·github-actions 주간.
+# Renovate는 비목표(Dependabot로 충분 — 스펙 §2).
+version: 2
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
