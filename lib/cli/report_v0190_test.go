@@ -6,6 +6,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -59,12 +60,16 @@ func TestReportEffectSection(t *testing.T) {
 			return [][]any{{"read_stats", `{"calls":10,"zero":4}`}}, nil
 		case strings.Contains(sql, "daily:"):
 			return [][]any{{"daily:" + now.Format("2006-01-02"),
-				`{"read":10,"read_zero":4,"write":8,"dup":6}`}}, nil
+				`{"read":10,"read_zero":4,"read_zero_near":3,"write":8,"dup":6}`}}, nil
 		case strings.Contains(sql, "read_count > 0"):
 			// G3 시점 집계 — active 100·회상 60·dead 20.
 			return [][]any{{int64(100), int64(60), int64(20)}}, nil
 		case strings.Contains(sql, "read_events"):
-			return [][]any{{readA.Format(time.RFC3339)}, {readB.Format(time.RFC3339)}}, nil
+			// readA 폴백 경유·readB 정경로 — fallback_pct=50.
+			return [][]any{
+				{readA.Format(time.RFC3339), true},
+				{readB.Format(time.RFC3339), false},
+			}, nil
 		case strings.Contains(sql, "last_read_at"):
 			return [][]any{{"0", "0"}}, nil
 		case strings.Contains(sql, "ingested_at"):
@@ -83,6 +88,8 @@ func TestReportEffectSection(t *testing.T) {
 	var rep struct {
 		Effect struct {
 			HitPct         int `json:"hit_pct"`
+			NearPct        int `json:"near_pct"`
+			FallbackPct    int `json:"fallback_pct"`
 			DupPrevented   int `json:"dup_prevented"`
 			ReusePct       int `json:"reuse_pct"`
 			DeadPct        int `json:"dead_pct"`
@@ -95,10 +102,12 @@ func TestReportEffectSection(t *testing.T) {
 		t.Fatalf("report JSON 파싱: %v\n%s", err, out.String())
 	}
 	e := rep.Effect
-	// G1: 1−4/10=60 · G2: Σdup=6 · G3: 60/100·20/100 · G4: 2 read 중 1 페어=50.
-	if e.HitPct != 60 || e.DupPrevented != 6 || e.ReusePct != 60 || e.DeadPct != 20 ||
+	// G1: 1−4/10=60·3/10=30·폴백 1/2=50 · G2: Σdup=6 · G3: 60/100·20/100
+	// · G4: 2 read 중 1 페어=50.
+	if e.HitPct != 60 || e.NearPct != 30 || e.FallbackPct != 50 ||
+		e.DupPrevented != 6 || e.ReusePct != 60 || e.DeadPct != 20 ||
 		e.ReadEventsN != 2 || e.ReadWritePairs != 1 || e.PairPct != 50 {
-		t.Errorf("effect = %+v, want {60 6 60 20 2 1 50}", e)
+		t.Errorf("effect = %+v, want {60 30 50 6 60 20 2 1 50}", e)
 	}
 }
 
@@ -130,7 +139,7 @@ func TestReportEffectZeroReads(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"hit_pct":0`, `"read_events_n":0`, `"read_write_pairs":0`, `"pair_pct":0`,
-		`"reuse_pct":0`, `"dead_pct":100`,
+		`"fallback_pct":0`, `"reuse_pct":0`, `"dead_pct":100`,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("%s 누락: %s", want, out.String())
@@ -141,6 +150,47 @@ func TestReportEffectZeroReads(t *testing.T) {
 	for _, q := range st.queries {
 		if strings.Contains(q, "ingested_at >=") {
 			t.Errorf("read 0인데 ingested_at 페어링 쿼리 실행: %s", q)
+		}
+	}
+}
+
+// TestReportEffectDegradesOnEventLogError — Review Focus(리뷰 #2):
+// read_events 조회 실패(테이블 부재 등)는 G4·fallback_pct를 0으로
+// 강등할 뿐 report 전체를 깨지 않는다(계측 원칙 — 다른 지표는 그대로).
+func TestReportEffectDegradesOnEventLogError(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "daily:"):
+			return nil, nil
+		case strings.Contains(sql, "read_count > 0"):
+			return [][]any{{"50", "10", "5"}}, nil // G3 — 강등 대상 아님
+		case strings.Contains(sql, "read_events"):
+			return nil, fmt.Errorf("relation \"read_events\" does not exist (42P01)")
+		case strings.Contains(sql, "last_read_at"):
+			return [][]any{{"0", "0"}}, nil
+		case strings.Contains(sql, "invalid_at >="):
+			return [][]any{{"0"}}, nil
+		case strings.Contains(sql, "count"):
+			return [][]any{{"0", "0", "0"}}, nil
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	if code := runReport(context.Background(), st, nil, nil, &out); code != 0 {
+		t.Fatalf("exit %d, want 0(강등 — 이벤트 로그 장애가 보고를 깨지 않음): %s", code, out.String())
+	}
+	for _, want := range []string{
+		`"read_events_n":0`, `"read_write_pairs":0`, `"pair_pct":0`, `"fallback_pct":0`,
+		`"reuse_pct":20`, `"dead_pct":10`, // G3은 강등 없이 산출
+	} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("%s 누락: %s", want, out.String())
+		}
+	}
+	// 강등 이후 ingested_at 페어링 쿼리도 미실행.
+	for _, q := range st.queries {
+		if strings.Contains(q, "ingested_at >=") {
+			t.Errorf("이벤트 조회 실패 후 페어링 쿼리 실행: %s", q)
 		}
 	}
 }

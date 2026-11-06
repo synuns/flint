@@ -28,8 +28,8 @@ func TestMetricsDocContract(t *testing.T) {
 		"G2 재발견 저지",
 		"G3 자산 건전성",
 		"G4 회상 우선 정착",
-		"hit_pct", "dup_prevented", "reuse_pct", "dead_pct",
-		"read_write_pairs", "pair_pct",
+		"hit_pct", "near_pct", "fallback_pct", "dup_prevented",
+		"reuse_pct", "dead_pct", "read_write_pairs", "pair_pct",
 		"Tier 1", "Tier 2", // 증거 등급
 		"금지조항",            // 반론 방어
 	} {

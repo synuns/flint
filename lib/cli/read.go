@@ -179,6 +179,13 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			return 3
 		}
 	}
+	// --session 값은 read_events에 14일간 저장되는 라벨이다 — 다른 값형
+	// 플래그와 달리 오타(`--session --json`처럼 플래그를 흡수)가 DB 오염으로
+	// 남는다. 플래그형 값은 즉시 exit 3(리뷰 #3 — 조회 결과 오염 방지).
+	if sessionGiven && strings.HasPrefix(session, "-") {
+		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "session", Expect: "flag 아닌 라벨"}))
+		return 3
+	}
 	asOfHash, asOfDate := "", ""
 	// 값 없는 --as-of(마지막 인자)도 무효 스펙 exit 3 — 조용히 현재 시점
 	// 데이터를 돌려주면 잘못된 결과가 되므로(status와 동일 규칙).

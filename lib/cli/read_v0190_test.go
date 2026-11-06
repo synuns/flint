@@ -104,15 +104,23 @@ func TestReadEventRecordsFallback(t *testing.T) {
 }
 
 // TestReadSessionFlagValidation — Review Focus: 값 없는 trailing --session은
-// 다른 값형 플래그와 동일 규칙 exit 3(N10/F1 관례 — 조용한 무시 금지).
+// 다른 값형 플래그와 동일 규칙 exit 3(N10/F1 관례). 플래그형 값
+// (`--session --json` 흡수 오타)도 exit 3 — 라벨이 read_events에 14일
+// 남는 만큼 DB 오염 방지가 조회 편의보다 우선(리뷰 #3).
 func TestReadSessionFlagValidation(t *testing.T) {
-	st := &fakeStore{}
-	var out strings.Builder
-	code := runRead(context.Background(), st, []string{"--session"}, strings.NewReader(""), &out)
-	if code != 3 {
-		t.Fatalf("exit = %d, want 3(값 없는 --session): %s", code, out.String())
-	}
-	if !strings.Contains(out.String(), `"session"`) {
-		t.Errorf("오류 필드에 session 없음: %s", out.String())
+	for _, args := range [][]string{
+		{"--session"},           // 값 없음
+		{"--session", "--json"}, // 플래그 흡수 오타
+		{"--session", "-q"},     // 짧은 플래그형
+	} {
+		st := &fakeStore{}
+		var out strings.Builder
+		code := runRead(context.Background(), st, args, strings.NewReader(""), &out)
+		if code != 3 {
+			t.Fatalf("args=%v exit = %d, want 3: %s", args, code, out.String())
+		}
+		if !strings.Contains(out.String(), `"session"`) {
+			t.Errorf("args=%v 오류 필드에 session 없음: %s", args, out.String())
+		}
 	}
 }

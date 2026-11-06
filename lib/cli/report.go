@@ -79,12 +79,14 @@ type reportOutput struct {
 	readCalls int // 직렬화 제외 — fallback_pct 분모(read_stats calls)
 }
 
-// effectOutput — "도움" 지표(METRICS §2 GSM 표의 산출). hit_pct·
-// dup_prevented·read_events_n·read_write_pairs·pair_pct는 --days 창,
-// reuse_pct·dead_pct는 시점 지표(기간 아님). 전부 상관 프록시(Tier 1·2)
-// — 세트로 해석하고 단독 증명으로 읽지 않는다(METRICS §5).
+// effectOutput — "도움" 지표(METRICS §2 GSM 표의 산출). hit_pct·near_pct·
+// dup_prevented·read_events_n·read_write_pairs·pair_pct·fallback_pct는
+// --days 창, reuse_pct·dead_pct는 시점 지표(기간 아님). 전부 상관
+// 프록시(Tier 1·2) — 세트로 해석하고 단독 증명으로 읽지 않는다(METRICS §5).
 type effectOutput struct {
 	HitPct         int `json:"hit_pct"`          // G1: 1−zero/read
+	NearPct        int `json:"near_pct"`         // G1: 근접 회수 여지(Σnear/read)
+	FallbackPct    int `json:"fallback_pct"`     // G1: 창 내 폴백 경유율(누적 키와 별개)
 	DupPrevented   int `json:"dup_prevented"`    // G2: Σdup(절대량)
 	ReusePct       int `json:"reuse_pct"`        // G3: 회상된 active 비율
 	DeadPct        int `json:"dead_pct"`         // G3: 회상 0·30일+ 비율
@@ -212,14 +214,20 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 	// v0.15.0 R2 zero 지표 기간화 — zero_pct·zero_near_pct는 --days 창 내
 	// 일별 합산으로 산출(누적 read_stats 의존 제거). days 배열은 창 마킹
 	// 이후라 창 밖 행은 합산에서도 배제된다(버림 정수%, 제로 분모 0).
-	var sumRead, sumZero, sumNear int
+	var sumRead, sumZero, sumNear, sumDup int
 	for _, d := range out.Days {
 		sumRead += d.Read
 		sumZero += d.ReadZero
 		sumNear += d.ReadNear
+		sumDup += d.Dup
 	}
 	out.ZeroPct = readZeroPct(sumRead, sumZero)
 	out.ZeroNearPct = readZeroPct(sumRead, sumNear)
+	// v0.19.0 효과 뷰 G1·G2 — 같은 합산에서 유도(단일 유도 사슬 —
+	// collectEffect에서 재합산하지 않는다).
+	out.Effect.HitPct = pctOf(sumRead-sumZero, sumRead)
+	out.Effect.NearPct = pctOf(sumNear, sumRead)
+	out.Effect.DupPrevented = sumDup
 	return nil
 }
 
@@ -371,19 +379,17 @@ func pctOf(n, total int) int {
 }
 
 // collectEffect — 효과 계측 섹션 산출(v0.19.0, docs/METRICS.md §4).
-// G1(hit_pct)·G2(dup_prevented)는 daily 창 합산, G3(reuse·dead)은
-// knowledge 시점 집계(Doltgres 호환 CASE 관례), G4는 read_events ×
-// knowledge ingested_at의 시간 창 페어링 — Go-사이드 조인으로 산출해
-// SQL interval 곱의 Doltgres 파라미터 추론 리스크를 받지 않는다.
+// G1(hit·near)·G2(dup_prevented)는 collectDaily 합산에서 유도되고(여기서
+// 재합산하지 않는다), G3(reuse·dead)은 knowledge 시점 집계(Doltgres 호환
+// CASE 관례), G4는 read_events × knowledge ingested_at의 시간 창 페어링 —
+// Go-사이드 조인으로 산출해 SQL interval 곱의 Doltgres 파라미터 추론
+// 리스크를 받지 않는다.
+//
+// 룰링(리뷰 #6): G3을 collectCounts의 stale 쿼리에 병합하지 않는다 —
+// stale은 "인자 1개(timestamptz)" 계약을 T70 회귀 테스트가 검증하며
+// dead 컷오프(30일)는 인자가 달라 계약을 깬다. 유지보수 경로의 소형
+// CASE 쿼리 1회 추가를 대가로 두 관심을 분리 유지.
 func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) error {
-	var sumRead, sumZero, sumDup int
-	for _, d := range out.Days {
-		sumRead += d.Read
-		sumZero += d.ReadZero
-		sumDup += d.Dup
-	}
-	out.Effect.HitPct = pctOf(sumRead-sumZero, sumRead)
-	out.Effect.DupPrevented = sumDup
 	deadCutoff := time.Now().Add(-time.Duration(reportDeadDays) * 24 * time.Hour)
 	rows, err := queryOnce(ctx, st, `
 		SELECT count(*),
@@ -401,24 +407,54 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		out.Effect.ReusePct = pctOf(reused, active)
 		out.Effect.DeadPct = pctOf(dead, active)
 	}
+	// G4 — 계측 원칙(§13·METRICS §4): 이벤트 로그 조회 실패(read_events
+	// 테이블 부재 등)는 G4·fallback_pct를 0으로 강등할 뿐 보고 전체를
+	// 깨지 않는다 — 다른 지표 공백의 0 폴백 관례와 동일(리뷰 #2).
 	windowStart := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-	reads, err := queryTimes(ctx, st,
-		`SELECT ts FROM read_events WHERE ts >= $1`, windowStart)
+	reads, fallbacks, err := queryReadEvents(ctx, st, windowStart)
 	if err != nil {
-		return err
+		return nil
 	}
 	out.Effect.ReadEventsN = len(reads)
+	out.Effect.FallbackPct = pctOf(fallbacks, len(reads))
 	if len(reads) == 0 {
 		return nil // 분모 0 — 페어링 불필요(제로 가드 관례)
 	}
 	writes, err := queryTimes(ctx, st,
 		`SELECT ingested_at FROM knowledge WHERE ingested_at >= $1`, windowStart)
 	if err != nil {
-		return err
+		return nil // 동일 강등 — 페어링 불가, pairs 0
 	}
 	out.Effect.ReadWritePairs = pairReadWrites(reads, writes, reportPairWindow)
 	out.Effect.PairPct = pctOf(out.Effect.ReadWritePairs, len(reads))
 	return nil
+}
+
+// queryReadEvents — 창 내 read 이벤트 시각과 폴백 경유 수를 1쿼리로
+// 읽는다(G4 페어링 + fallback_pct 분자). 매핑 불가 칸은 조용히 건너뛴다
+// (cellToInt 관례 — 계측 누락이 보고를 깨지 않는다).
+func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]time.Time, int, error) {
+	rows, err := queryOnce(ctx, st,
+		`SELECT ts, fallback FROM read_events WHERE ts >= $1`, []any{cutoff})
+	if err != nil {
+		return nil, 0, err
+	}
+	out := make([]time.Time, 0, len(rows))
+	fallbacks := 0
+	for _, r := range rows {
+		if len(r) < 2 {
+			continue
+		}
+		t, ok := cellToTime(r[0])
+		if !ok {
+			continue
+		}
+		out = append(out, t)
+		if b, ok := r[1].(bool); ok && b {
+			fallbacks++
+		}
+	}
+	return out, fallbacks, nil
 }
 
 // queryTimes — 1열 시각 쿼리를 time 슬라이스로 읽는다(G4 페어링 전용).
