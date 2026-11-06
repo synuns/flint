@@ -948,7 +948,7 @@ func drillReport(ctx context.Context, st Store) string {
 // DefaultThresholds 값으로 폴백한다.
 func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	rows, err := queryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h','suggest_min_score','suggest_scan_cap','conflict_dup_threshold','backup_age_warn_h','zero_near_min_read','zero_near_warn_pct','pending_age_days')`, nil)
+		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h','suggest_min_score','suggest_scan_cap','conflict_dup_threshold','backup_age_warn_h','zero_near_min_read','zero_near_warn_pct','pending_age_days','recall_warn_writes')`, nil)
 	if err != nil {
 		return store.Thresholds{}, err
 	}
@@ -992,6 +992,9 @@ func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	}
 	if th.PendingAgeDays <= 0 {
 		th.PendingAgeDays = def.PendingAgeDays
+	}
+	if th.RecallWarnWrites <= 0 {
+		th.RecallWarnWrites = def.RecallWarnWrites
 	}
 	return th, nil
 }

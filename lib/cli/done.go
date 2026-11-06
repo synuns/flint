@@ -6,6 +6,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"hash"
@@ -201,11 +202,36 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		autoBackupFn(ctx)
 		return 0
 	}
-	fmt.Fprintln(stdout, `{"status":"ok"}`)
+	// v0.18.0 R3: 회상 경고 — 오늘 회상 0회에 기록이 임계 이상이면 한 줄
+	// 경고로 종료(stale 경고와 같은 패턴 — 임계값 기반·종료 불가, §13).
+	if w, starved := recallStarvedToday(ctx, st, th); starved {
+		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"오늘 회상 0회에 기록 %d회 — 다음 세션은 작업 전 flint read부터"}`+"\n", w, w)
+	} else {
+		fmt.Fprintln(stdout, `{"status":"ok"}`)
+	}
 	writeSessionRecord(ctx, st, res.SessionRecord())
 	logPlaybookUse(ctx, st, playbook, playbookOK)
 	autoBackupFn(ctx)
 	return 0
+}
+
+// recallStarvedToday — 오늘 daily 카운터로 회상 부재 판정(v0.18.0 R3).
+// read 0 && write >= RecallWarnWrites일 때만 true. 카운터 조회·파손은
+// 조용히 false(경고 부재 = 종료 경로 불변 — §13).
+func recallStarvedToday(ctx context.Context, st Store, th store.Thresholds) (writes int, starved bool) {
+	if th.RecallWarnWrites <= 0 {
+		return 0, false
+	}
+	getKV, _ := metaKV(ctx, st)
+	v, err := getKV("daily:" + time.Now().UTC().Format("2006-01-02"))
+	if err != nil || v == "" {
+		return 0, false
+	}
+	var d reportDay
+	if json.Unmarshal([]byte(v), &d) != nil {
+		return 0, false
+	}
+	return d.Write, d.Read == 0 && d.Write >= th.RecallWarnWrites
 }
 
 // autoBackupFn — seam. 기본 실동작, fast 단위 테스트는 no-op으로 교체
