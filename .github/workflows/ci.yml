@@ -112,9 +112,11 @@ jobs:
               exit 0
             fi
             TAG="v${VERSION}"
-            # 태그가 아니라 릴리스 존재로 판단 — 태그만 있고 릴리스 없으면 배포.
-            if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-              echo "릴리스 ${TAG} 이미 존재 — 배포 스킵"
+            # 태그 존재로만 판단 — goreleaser·MCP는 각자 멱등(자체 가드).
+            # 태그 없으면 새 버전 → 무조건 배포 시도(goreleaser는 릴리스
+            # 존재 시 스킵, MCP는 항상 실행 — 이전 실패 재시도 포함).
+            if git tag -l "$TAG" | grep -q .; then
+              echo "태그 ${TAG} 이미 존재 — 배포 스킵"
               echo "deploy=false" >> "$GITHUB_OUTPUT"
               exit 0
             fi

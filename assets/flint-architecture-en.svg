@@ -1,0 +1,49 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 280" font-family="-apple-system, 'Segoe UI', sans-serif">
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .ink { fill:#e6edf3; } .sub { fill:#8b949e; } .box { stroke:#3d444d; fill:#151b23; }
+      .arrow { stroke:#8b949e; } .arrowh { fill:#8b949e; }
+      .glow { stroke:#58a6ff; } .bg { fill:#0d1117; }
+    }
+    @media (prefers-color-scheme: light) {
+      .ink { fill:#1f2328; } .sub { fill:#656d76; } .box { stroke:#d0d7de; fill:#f6f8fa; }
+      .arrow { stroke:#656d76; } .arrowh { fill:#656d76; }
+      .glow { stroke:#0969da; } .bg { fill:#ffffff; }
+    }
+  </style>
+  <rect class="bg" width="960" height="280" rx="8"/>
+  <text class="ink" x="480" y="28" text-anchor="middle" font-size="13" font-weight="600">AI Coding Agents</text>
+  <text class="sub" x="480" y="46" text-anchor="middle" font-size="10">any agent that reads and writes</text>
+
+  <rect class="box glow" x="80" y="60" width="200" height="58" rx="8"/>
+  <text class="ink" x="180" y="84" text-anchor="middle" font-size="12" font-weight="600">Claude Code</text>
+  <text class="sub" x="180" y="100" text-anchor="middle" font-size="9">hook plugin · auto-inject</text>
+
+  <rect class="box" x="310" y="60" width="200" height="58" rx="8"/>
+  <text class="ink" x="410" y="84" text-anchor="middle" font-size="12" font-weight="600">Codex · Gemini · Copilot</text>
+  <text class="sub" x="410" y="100" text-anchor="middle" font-size="9">MCP tools</text>
+
+  <rect class="box" x="540" y="60" width="200" height="58" rx="8"/>
+  <text class="ink" x="640" y="84" text-anchor="middle" font-size="12" font-weight="600">OpenCode · Cursor</text>
+  <text class="sub" x="640" y="100" text-anchor="middle" font-size="9">MCP + doc adapters</text>
+
+  <rect class="box" x="770" y="60" width="160" height="58" rx="8"/>
+  <text class="ink" x="850" y="84" text-anchor="middle" font-size="12" font-weight="600">OpenClaw</text>
+  <text class="sub" x="850" y="100" text-anchor="middle" font-size="9">doc adapters</text>
+
+  <line class="arrow" x1="180" y1="118" x2="480" y2="160" stroke-width="1.5"/>
+  <polygon class="arrowh" points="480,160 474,154 483,155" />
+  <line class="arrow" x1="410" y1="118" x2="480" y2="160" stroke-width="1.5"/>
+  <line class="arrow" x1="640" y1="118" x2="480" y2="160" stroke-width="1.5"/>
+  <line class="arrow" x1="850" y1="118" x2="480" y2="160" stroke-width="1.5"/>
+
+  <rect class="box glow" x="330" y="160" width="300" height="56" rx="8"/>
+  <text class="ink" x="480" y="184" text-anchor="middle" font-size="14" font-weight="700">flint</text>
+  <text class="sub" x="480" y="200" text-anchor="middle" font-size="10">single interface: CLI + MCP</text>
+
+  <line class="arrow" x1="480" y1="216" x2="480" y2="240" stroke-width="1.5"/>
+  <polygon class="arrowh" points="480,240 474,234 486,234" />
+
+  <rect class="box" x="310" y="240" width="340" height="32" rx="6"/>
+  <text class="ink" x="480" y="260" text-anchor="middle" font-size="11" font-weight="600">Doltgres — every cell is a commit</text>
+</svg>

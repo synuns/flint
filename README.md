@@ -36,19 +36,23 @@
   <a href="#agents--adapters">Agents &amp; Adapters</a>
 </p>
 
-**flint gives AI coding agents persistent, version-controlled long-term memory.**
+**flint gives AI coding agents persistent, version-controlled long-term memory — so they get smarter with every session.**
 
-Agents are capable but forget everything between sessions. flint stores project decisions, session notes, and preferences in Doltgres — a Postgres-compatible database where every cell change is a commit — then injects the right context back at session start. Every write is auditable, every memory is recoverable.
+Every AI agent you've used starts each conversation with a blank slate. It re-learns your project structure, re-makes decisions you already settled, re-discovers pitfalls you already documented. It's a brilliant colleague with amnesia.
+
+flint changes that. Each session, the agent records what it learned — decisions, conventions, pitfalls, preferences — into Doltgres, a version-controlled memory store. At the next session start, flint injects the accumulated context back. **The agent compounds knowledge instead of resetting to zero.**
+
+Week 1: it learns your architecture. Week 4: it remembers why you chose gRPC over REST. Week 12: it knows the migration order, the flaky test workarounds, the deployment checklist — because it wrote them down, and now it reads them back.
 
 Humans keep notes in Obsidian. Agents keep memory in flint — the stone you strike to make fire and tools.
 
-> v0.10.0 shipped 2026-10-30 — search quality & backup reliability: did-you-mean suggestions, NFKC normalization, sha256 backup sidecar, doctor backup-age. Roadmap: [docs/PLAN.md](docs/PLAN.md)
+> v0.16.5 shipped 2026-11-05 — automatic MCP harness registration (`setup --mcp`), MCP Registry distribution, multi-platform `.mcpb` bundles. Roadmap: [docs/PLAN.md](docs/PLAN.md)
 
 ---
 
 ## Why flint?
 
-Most AI agents start every session with a blank slate.
+Most AI agents start every session with a blank slate. **flint agents start with everything they've ever learned.**
 
 | Problem | What Happens | flint Fix |
 | :--- | :--- | :--- |
@@ -154,7 +158,7 @@ flint is the bridge between **agents**, the **memory store**, and its **git-like
 ```
 
 <p align="center">
-  <img src="assets/flint-architecture.svg" width="640" alt="flint architecture: agents, flint CLI+MCP, Doltgres memory store">
+  <img src="assets/flint-architecture-en.svg" width="640" alt="flint architecture: agents, flint CLI+MCP, Doltgres memory store">
 </p>
 
 | Phase | Action |
@@ -167,7 +171,7 @@ flint is the bridge between **agents**, the **memory store**, and its **git-like
 The four phases form one session lifecycle:
 
 <p align="center">
-  <img src="assets/flint-lifecycle.svg" width="640" alt="flint session lifecycle: inject, work, record, verify">
+  <img src="assets/flint-lifecycle-en.svg" width="640" alt="flint session lifecycle: inject, work, record, verify — memory compounds">
 </p>
 
 ---
@@ -191,7 +195,7 @@ The four phases form one session lifecycle:
 
 `flint read` retries word-by-word (fallback) when the phrase query hits nothing.
 `flint read` prints nothing and exits 1 when even the fallback hits nothing (silence contract) — near-miss candidates are measured internally as the `zero_near` metric, never shown to the agent (v0.14.0). The former did-you-mean suggestion output was removed by this contract.
-exit 1 with no output = no knowledge (normal silence); exit 1 with an error JSON line = actual failure (storage error via MapExit).
+exit 1 with no output = no knowledge (normal silence; former did-you-mean suggestions removed by this contract); exit 1 with an error JSON line = actual failure (storage error via MapExit).
 `flint read --status pending` lists knowledge items awaiting approval.
 `flint read` breaks ranking ties by adoption (`read_count` DESC) — popularity only as the final tiebreaker (v0.13.0).
 `flint maintain --conflict-suspects` lists suspected contradicting knowledge (same topic, diverging summaries) (v0.13.0).

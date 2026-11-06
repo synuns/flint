@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 320" font-family="-apple-system, 'Segoe UI', sans-serif">
+  <style>
+    @media (prefers-color-scheme: dark) {
+      .ink { fill:#e6edf3; } .sub { fill:#8b949e; } .box { stroke:#3d444d; fill:#151b23; }
+      .arrow { stroke:#8b949e; } .arrowh { fill:#8b949e; }
+      .num { fill:#58a6ff; font-weight:700; } .bg { fill:#0d1117; }
+    }
+    @media (prefers-color-scheme: light) {
+      .ink { fill:#1f2328; } .sub { fill:#656d76; } .box { stroke:#d0d7de; fill:#f6f8fa; }
+      .arrow { stroke:#656d76; } .arrowh { fill:#656d76; }
+      .num { fill:#0969da; font-weight:700; } .bg { fill:#ffffff; }
+    }
+  </style>
+  <rect class="bg" width="960" height="320" rx="8"/>
+  <text class="ink" x="480" y="32" text-anchor="middle" font-size="14" font-weight="700">One session — the cycle of accumulating memory</text>
+
+  <rect class="box" x="100" y="220" width="160" height="70" rx="8"/>
+  <text class="num" x="180" y="244" text-anchor="middle" font-size="11">1</text>
+  <text class="ink" x="180" y="262" text-anchor="middle" font-size="11" font-weight="600">Session Start</text>
+  <text class="sub" x="180" y="278" text-anchor="middle" font-size="9">hot — context injection</text>
+
+  <line class="arrow" x1="260" y1="255" x2="360" y2="140" stroke-width="1.5"/>
+  <polygon class="arrowh" points="360,140 353,144 362,147"/>
+
+  <rect class="box" x="360" y="110" width="160" height="70" rx="8"/>
+  <text class="num" x="440" y="134" text-anchor="middle" font-size="11">2</text>
+  <text class="ink" x="440" y="152" text-anchor="middle" font-size="11" font-weight="600">Work</text>
+  <text class="sub" x="440" y="168" text-anchor="middle" font-size="9">read — recall, decide, build</text>
+
+  <line class="arrow" x1="520" y1="145" x2="600" y2="220" stroke-width="1.5"/>
+  <polygon class="arrowh" points="600,220 593,216 600,210"/>
+
+  <rect class="box" x="590" y="220" width="160" height="70" rx="8"/>
+  <text class="num" x="670" y="244" text-anchor="middle" font-size="11">3</text>
+  <text class="ink" x="670" y="262" text-anchor="middle" font-size="11" font-weight="600">Session End</text>
+  <text class="sub" x="670" y="278" text-anchor="middle" font-size="9">write — record (idempotent)</text>
+
+  <line class="arrow" x1="750" y1="255" x2="820" y2="120" stroke-width="1.5"/>
+  <polygon class="arrowh" points="820,120 813,124 820,130"/>
+
+  <rect class="box" x="780" y="90" width="140" height="70" rx="8"/>
+  <text class="num" x="850" y="114" text-anchor="middle" font-size="11">4</text>
+  <text class="ink" x="850" y="132" text-anchor="middle" font-size="11" font-weight="600">Verify</text>
+  <text class="sub" x="850" y="148" text-anchor="middle" font-size="9">audit · restore drill</text>
+
+  <line class="arrow" x1="780" y1="125" x2="180" y2="125" stroke-width="1" stroke-dasharray="6 3" opacity="0.5"/>
+  <text class="sub" x="480" y="115" text-anchor="middle" font-size="9">memory grows → next session starts smarter</text>
+</svg>

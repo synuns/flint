@@ -18,7 +18,9 @@ func readmeStr(t *testing.T, path string) string {
 func TestReadmeEmbedsDiagrams(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		s := readmeStr(t, p)
-		if !strings.Contains(s, "assets/flint-architecture.svg") || !strings.Contains(s, "assets/flint-lifecycle.svg") {
+		hasArch := strings.Contains(s, "assets/flint-architecture.svg") || strings.Contains(s, "assets/flint-architecture-en.svg")
+		hasLife := strings.Contains(s, "assets/flint-lifecycle.svg") || strings.Contains(s, "assets/flint-lifecycle-en.svg")
+		if !hasArch || !hasLife {
 			t.Errorf("%s 다이어그램 임베드 누락", p)
 		}
 	}
