@@ -1,6 +1,11 @@
-# T43 CI 파이프라인 — 단위 테스트 + 실 Doltgres e2e + 완전 자동 릴리스.
-# VERSION 파일이 갱신되어 main에 push되면 → 자동 태그 → test → goreleaser
-# Release → MCP Registry 발행까지 전부 무인(v0.16.7 — 사용자 제로 터치).
+# flint CI — 완전 자동 파이프라인 (v0.16.7)
+#
+# 흐름:
+#   PR → test (게이트)
+#   main push → test → deploy (VERSION 변경 감지 → 태그 → goreleaser → MCP Registry)
+#   태그 push(수동 폴백) → test → deploy
+#
+# 사용자는 PR에 VERSION+배지+plugin.json 갱신만 하면 나머지 전부 자동.
 name: ci
 
 on:
@@ -12,8 +17,6 @@ on:
 
 jobs:
   test:
-    # 태그 push 시에만 실행(브랜치 push는 autotag이 담당)
-    if: startsWith(github.ref, 'refs/tags/v') || github.event_name == 'pull_request' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -34,7 +37,7 @@ jobs:
           go-version-file: go.mod
       - name: PyYAML 설치
         run: python3 -m pip install pyyaml
-      - name: DB 준비 대기 (Doltgres 워밍업)
+      - name: DB 준비 대기
         run: |
           go build -o /tmp/flint-wait ./cmd/flint
           for i in $(seq 1 30); do
@@ -60,56 +63,24 @@ jobs:
           elif echo "$out" | grep -qi "already exists"; then
             echo "flint_test 이미 존재 — 계속"
           else
-            echo "flint_test 생성 실패: $out"
-            exit 1
+            echo "flint_test 생성 실패: $out"; exit 1
           fi
       - name: YAML 검증 + 단위 테스트
         run: make ci GO_TEST_FLAGS="-p 1"
       - name: e2e (실 Doltgres)
         run: make e2e
 
-  # v0.16.7: VERSION 파일 변경 감지 → 자동 태그 생성·push → release 파이프라인 발동.
-  # 사용자는 PR에 버전 관련 파일 갱신만 하면 나머지는 전부 자동.
-  autotag:
-    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    permissions:
-      contents: write
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          fetch-depth: 0
-      - name: VERSION 변경 감지 → 자동 태그
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          # VERSION 파일의 값 (예: 0.16.7)
-          VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]')
-          if [ -z "$VERSION" ]; then
-            echo "VERSION 파일 없음 — 스킵"; exit 0
-          fi
-          TAG="v${VERSION}"
-          # 이미 존재하는 태그면 스킵
-          if git tag -l "$TAG" | grep -q .; then
-            echo "태그 ${TAG} 이미 존재 — 스킵"
-            exit 0
-          fi
-          echo "새 버전 감지: ${TAG} → 자동 태그 생성·push"
-          git config user.name "synuns"
-          git config user.email "57736547+synuns@users.noreply.github.com"
-          git tag "$TAG"
-          git push origin "$TAG"
-
-  # 완전 자동 릴리스: 태그 push(autotag 또는 수동) → test 통과 → goreleaser → MCP Registry.
-  release:
-    if: startsWith(github.ref, 'refs/tags/v')
+  # 완전 자동 배포: test 통과 후 실행.
+  #   main push: VERSION 파일 변경 감지 → 새 버전이면 태그+릴리스+MCP 발행
+  #   태그 push: 무조건 릴리스(수동 폴백)
+  deploy:
     needs: test
+    if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
     permissions:
       contents: write
-      id-token: write  # MCP Registry github-oidc 인증용
+      id-token: write
     steps:
       - uses: actions/checkout@v4
         with:
@@ -117,48 +88,95 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
-      - name: 이미 발행된 릴리스 확인 (goreleaser 멱등 가드)
-        id: relcheck
+
+      # ── 배포 대상 결정 ──
+      - name: 버전 감지·태그 생성 (main push 시)
+        id: version
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "goreleaser 스킵(릴리스 존재)"; echo "skip=true" >> "$GITHUB_OUTPUT"
+          if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
+            # 태그 push — 수동 폴백
+            TAG="${GITHUB_REF#refs/tags/}"
+            VER="${TAG#v}"
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "ver=${VER}" >> "$GITHUB_OUTPUT"
+            echo "모드: 태그 push(${TAG})"
           else
-            echo "skip=false" >> "$GITHUB_OUTPUT"
+            # main push — VERSION 파일 감지
+            VERSION=$(cat VERSION 2>/dev/null | tr -d '[:space:]')
+            if [ -z "$VERSION" ]; then
+              echo "VERSION 파일 없음 — 배포 스킵"
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            TAG="v${VERSION}"
+            if git tag -l "$TAG" | grep -q .; then
+              echo "태그 ${TAG} 이미 존재 — 배포 스킵"
+              echo "deploy=false" >> "$GITHUB_OUTPUT"
+              exit 0
+            fi
+            echo "새 버전 감지: ${TAG} → 태그 생성"
+            git config user.name "synuns"
+            git config user.email "57736547+synuns@users.noreply.github.com"
+            git tag "$TAG"
+            git push origin "$TAG" || true  # GITHUB_TOKEN push는 cascade 없음 — 무관
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+            echo "ver=${VERSION}" >> "$GITHUB_OUTPUT"
+            echo "모드: main push 자동 태그(${TAG})"
           fi
-      # goreleaser — 릴리스가 없을 때만 실행.
+
+      # ── goreleaser (릴리스가 아직 없을 때만 — 멱등) ──
+      - name: 릴리스 존재 확인
+        id: relcheck
+        if: steps.version.outputs.deploy == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.version.outputs.tag }}"
+          if gh release view "$TAG" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "skip_goreleaser=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "skip_goreleaser=false" >> "$GITHUB_OUTPUT"
+          fi
       - uses: goreleaser/goreleaser-action@v6
-        if: steps.relcheck.outputs.skip != 'true'
+        if: steps.version.outputs.deploy == 'true' && steps.relcheck.outputs.skip_goreleaser != 'true'
         with:
           args: release --clean
           version: v2.19.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-      # 릴리스 자산에서 .mcpb 다운로드 → MCP Registry 발행 (항상 실행 — 멱등).
+
+      # ── MCP Registry 발행 (항상 실행 — 멱등) ──
       - name: MCP Registry 발행
+        if: steps.version.outputs.deploy == 'true'
         run: |
-          TAG="${GITHUB_REF#refs/tags/}"
-          VER="${TAG#v}"
+          TAG="${{ steps.version.outputs.tag }}"
+          VER="${{ steps.version.outputs.ver }}"
           # mcp-publisher 설치
           curl -sL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz | tar xz -C /tmp
           chmod +x /tmp/mcp-publisher
-          # github-oidc 인증 (Actions 환경에서 자동)
+          # github-oidc 인증 (Actions 환경 자동)
           /tmp/mcp-publisher login github-oidc
-          # .mcpb 다운로드 (goreleaser가 방금 올렸거나 기존 릴리스에서)
+          # .mcpb 다운로드 (goreleaser가 올렸거나 기존 릴리스에서)
           MCPB_URL="https://github.com/synuns/flint/releases/download/${TAG}/flint_${VER}_darwin_arm64.mcpb"
           curl -sL "$MCPB_URL" -o /tmp/flint.mcpb
           if [ ! -s /tmp/flint.mcpb ]; then
             echo "error: .mcpb 다운로드 실패(${MCPB_URL})"; exit 1
           fi
           SHA256=$(sha256sum /tmp/flint.mcpb | cut -d' ' -f1)
-          # server.json 렌더
+          # server.json 렌더·발행
           sed -e "s|{{URL}}|${MCPB_URL}|g" \
               -e "s|{{SHA256}}|${SHA256}|g" \
               -e "s|{{VERSION}}|${VER}|g" \
               mcp-registry/server.json.template > /tmp/server.json
-          # 발행 (멱등 — 동일 버전 재발행은 갱신)
           /tmp/mcp-publisher publish /tmp/server.json
-      - name: 릴리스 링크
-        run: echo "https://github.com/synuns/flint/releases/tag/${GITHUB_REF#refs/tags/}"
+
+      - name: 배포 요약
+        if: steps.version.outputs.deploy == 'true'
+        run: |
+          echo "✅ 배포 완료: ${{ steps.version.outputs.tag }}"
+          echo "   Release: https://github.com/synuns/flint/releases/tag/${{ steps.version.outputs.tag }}"
+          echo "   MCP Registry: https://registry.modelcontextprotocol.io"

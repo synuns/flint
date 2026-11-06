@@ -88,8 +88,8 @@ def main():
         )
 
     # v0.16.1: release 잡 구조 — 테스트 그린 후 발행·Release 쓰기 권한.
-    release_job = jobs.get("release") or {}
-    check("ci.yml", bool(release_job), "release 잡 없음")
+    release_job = jobs.get("deploy") or {}
+    check("ci.yml", bool(release_job), "deploy 잡 없음")
     needs = release_job.get("needs")
     needs_list = [needs] if isinstance(needs, str) else (needs or [])
     check("ci.yml", "test" in needs_list, "release 잡 needs에 test 없음")
