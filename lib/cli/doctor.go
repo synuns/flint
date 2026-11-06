@@ -254,13 +254,13 @@ func checkHookFile() doctorCheck {
 	if err != nil {
 		c.Status = "fail"
 		c.Detail = path + " 없음"
-		c.Fix = "fix: settings.json 생성 후 flint session-start(SessionStart)·session-end(Stop) 훅 등록 — flint-plugin/hooks/hooks.json 참조"
+		c.Fix = "fix: 플러그인 설치(/plugin marketplace add synuns/flint → /plugin install flint@flint) 또는 settings.json에 flint 훅 등록 — flint-plugin/hooks/hooks.json 참조"
 		return c
 	}
 	if !containsFlintHook(string(b)) {
 		c.Status = "fail"
 		c.Detail = path + "에 flint 훅 없음"
-		c.Fix = "fix: settings.json hooks에 flint session-start(SessionStart)·session-end(Stop) 훅 추가 — flint-plugin/hooks/hooks.json 참조"
+		c.Fix = "fix: 플러그인 재설치 또는 settings.json hooks에 flint session-start(SessionStart)·session-end(Stop) 훅 추가 — flint-plugin/hooks/hooks.json 참조"
 		return c
 	}
 	c.Status = "ok"

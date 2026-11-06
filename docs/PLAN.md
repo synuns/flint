@@ -601,6 +601,22 @@ write·주입·종료·관측 4개 접점에서 교정한다.
   격리(FLINT_CONFIG_DIR — 테스트가 실사용자 config에 마커 남기던 오염)
 - [x] 버전 — VERSION·배지 v0.18.1(EN/KO)·plugin.json 동기
 
+### v0.18.2 패치 (2026-11-06) — 2차 리뷰 5건 — 마커 수명 주기 분리
+
+- [x] R-a recall 마커 파일 분리(recall-hint.json) — v0.18.1의 단일
+  마커 파일 설계 결함 2건 폐쇄: ① Stop 이벤트에서 recall 마커를 증류로
+  오인해 엉터리 넛지 + --clear로 회상 알림 소멸 ② recall 기록이 내구성
+  증류 마커(pending-distill)를 덮어써 증류 체인 유실. Stop은 증류만
+  넛지, SessionStart는 둘 다 안내(회상만 자동 소진)·v0.18.1 잔존
+  마이그레이션(증류 파일의 Reason=recall 식별)
+- [x] R-b thresholds 파서 범용화 — parseIntInRangeOrDefault(min 하한)
+  도입, recall_warn_writes 특수 분기 제거·TUNING에 0 폴백·1=매기록
+  경고 문서화
+- [x] R-c 관측 수치 잔존 중화 완료 — 아카이브 spec 3건 추가 항목
+- [x] R-d doctor hook-file fix 문구 현대화 — settings.json 수동 등록
+  안내를 플러그인 마켓플레이스 설치 우선으로
+- [x] 버전 — VERSION·배지 v0.18.2(EN/KO)·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

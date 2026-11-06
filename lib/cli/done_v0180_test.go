@@ -71,7 +71,7 @@ func TestDoneRecallBelowThreshold(t *testing.T) {
 }
 
 // TestDoneRecallMarkerWritten — 회상 부재 시 recall 마커가 남는다(다음
-// SessionStart nudge 소비 연결).
+// SessionStart nudge 소비 연결). v0.18.2: 별도 파일(recall-hint.json).
 func TestDoneRecallMarkerWritten(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -80,10 +80,10 @@ func TestDoneRecallMarkerWritten(t *testing.T) {
 	if _, code := mustRun(t, []string{"done", "--session", "sm"}, ""); code != 0 {
 		t.Fatalf("exit=%d", code)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "pending-distill.json")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, "recall-hint.json")); err != nil {
 		t.Fatalf("recall 마커 미기록: %v", err)
 	}
-	if _, err := os.Stat(MarkerFile()); err != nil {
-		t.Fatalf("마커 경로 불일치: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, "pending-distill.json")); !os.IsNotExist(err) {
+		t.Fatalf("증류 마커 파일 오염(분리 계약 위반): %v", err)
 	}
 }
