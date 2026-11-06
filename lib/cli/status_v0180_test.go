@@ -19,8 +19,8 @@ func windowedReadHarness(t *testing.T) *fakeStore {
 	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
 	old := now.AddDate(0, 0, -40).Format("2006-01-02")
 	daily := fmt.Sprintf(`{"read":10,"read_zero":4,"read_zero_near":1}`) // 오늘
-	dailyY := fmt.Sprintf(`{"read":10,"read_zero":1}`)                  // 어제
-	dailyOld := fmt.Sprintf(`{"read":100,"read_zero":100}`)             // 창 밖
+	dailyY := fmt.Sprintf(`{"read":10,"read_zero":1}`)                   // 어제
+	dailyOld := fmt.Sprintf(`{"read":100,"read_zero":100}`)              // 창 밖
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "LIKE 'daily:%'") {
