@@ -9,8 +9,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	"flint/lib/store"
 )
 
 // usageCall — RecordUsage 호출 기록(kind, source).
@@ -159,9 +157,6 @@ func TestWriteDupCountsOnceEach(t *testing.T) {
 		}
 	})
 }
-
-// errDuplicateSentinel — InsertBatch 경로 dedup용 store.ErrDuplicate.
-func errDuplicateSentinel() error { return store.ErrDuplicate }
 
 // TestWriteNoUsageStoreNoop — RecordUsage 미구현 Store는 no-op(정상 동작).
 func TestWriteNoUsageStoreNoop(t *testing.T) {

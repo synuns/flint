@@ -617,6 +617,17 @@ write·주입·종료·관측 4개 접점에서 교정한다.
   안내를 플러그인 마켓플레이스 설치 우선으로
 - [x] 버전 — VERSION·배지 v0.18.2(EN/KO)·plugin.json 동기
 
+### v0.18.3 패치 (2026-11-06) — staticcheck 도입·사체 코드 청산
+
+- [x] R-a staticcheck 2026.2.2 도입 — make lint 타깃(PATH→GOPATH/bin
+  폴백)·CI test 잡 게이트 추가(버전 고정 — mcp-publisher 관례 준용)
+- [x] R-b 사체 코드 제거 — portCheck(doctor v0.7 구판 래퍼, runDoctor
+  경로가 실경로)·injectedKnowledgeIDs+hotSurvivorCount(접미 없는 구판
+  생존 산정, hotLineSurvivorCount 체인이 실경로) — 각자의 테스트를
+  실경로(runDoctor --check port)로 이관 후 제거
+- [x] R-c 경미 결함 — nil Context(SA1012)·불필요 Sprintf 3건·미사용
+  sentinel·CanonicalJSON 결정성 비교 명료화(2회 호출 변수 비교)
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

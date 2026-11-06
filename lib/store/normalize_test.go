@@ -63,7 +63,8 @@ func TestCanonicalJSONKeyOrder(t *testing.T) {
 // TestCanonicalJSONStable — 직렬화는 호출마다 동일해야 한다(해시 안정 선행 조건).
 func TestCanonicalJSONStable(t *testing.T) {
 	p := map[string]any{"topic": "x", "tags": []any{"b", "a"}, "n": 1.5}
-	if CanonicalJSON(p) != CanonicalJSON(p) {
+	a, b := CanonicalJSON(p), CanonicalJSON(p) // 2회 호출 비교(비결정성 탐지)
+	if a != b {
 		t.Error("CanonicalJSON 비결정적 출력")
 	}
 }

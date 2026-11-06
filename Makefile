@@ -38,6 +38,14 @@ ci:
 tidy:
 	go mod tidy
 
+# lint — staticcheck 정적 분석(v0.18.3). 버전 고정(재현성 — mcp-publisher
+# 고정 관례 준용). PATH 우선, 없으면 GOPATH/bin 폴백 조회.
+STATICCHECK_VERSION ?= 2026.2.2
+STATICCHECK := $(shell command -v staticcheck 2>/dev/null || echo "$(shell go env GOPATH 2>/dev/null)/bin/staticcheck")
+lint:
+	@test -x "$(STATICCHECK)" || { echo "staticcheck 미설치 — go install honnef.co/go/tools/cmd/staticcheck@$(STATICCHECK_VERSION)"; exit 2; }
+	"$(STATICCHECK)" ./...
+
 # Doltgres (ADR-0010: 호스트 5434 -> 컨테이너 5432)
 # v0.7: --wait로 헬스체크 통과까지 대기 후 반환(60s 타임아웃 — setup과 동일).
 up:
