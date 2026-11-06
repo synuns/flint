@@ -44,7 +44,9 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 	}
 	sawStale, sawPeriod := false, false
 	for _, q := range argsBySQL {
-		isStale := strings.Contains(q.sql, "read_count")
+		// stale 판별은 last_read_at 고유 형태로 — v0.19.0 effect의 G3
+		// 집계(read_count 30일 컷오프)도 "read_count"을 포함해 오판된다.
+		isStale := strings.Contains(q.sql, "last_read_at")
 		isPeriod := strings.Contains(q.sql, "invalid_at >=")
 		if isStale {
 			sawStale = true
