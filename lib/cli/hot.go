@@ -209,13 +209,59 @@ func hotFullOutput(lines []string) string {
 }
 
 // hotHeadline — hot 요약 헤드라인 1줄(R2). minimal은 활성·대기 카운트만,
-// 그 외 프로파일(미설정·파손 포함)은 normal 문구(펼치기 안내 포함).
-func hotHeadline(profile string, active int, pending int, recent int) string {
+// 그 외 프로파일(미설정·파손 포함)은 normal 문구.
+// v0.18.0 R2: normal은 최근 결정 주제 K개 + 회상 힌트 — 주입이 카운트만
+// 주면 다음 세션이 뭘 검색할지 몰라 read가 굶는다(관측: read:write 불균형).
+// 주제 없는 세션은 기존 카운트+펼치기 문구로 폴백(문구 열거는 데이터 —
+// 펼치기 안내와 같은 클래스, §13 경계 준수).
+func hotHeadline(profile string, active int, pending int, recent int, topics []string) string {
 	if profile == "minimal" {
 		return fmt.Sprintf("[flint] 활성 %d · 대기 %d", active, pending)
 	}
+	if len(topics) > 0 {
+		return fmt.Sprintf("[flint] 활성 %d · 대기 %d · 최근 결정: %s — 회상: flint read <쿼리>",
+			active, pending, strings.Join(topics, " · "))
+	}
 	return fmt.Sprintf("[flint] 활성 %d · 대기 %d · 최근 결정 %d — 펼치기: flint hot --full",
 		active, pending, recent)
+}
+
+// hotHeadlineTopicMax — 헤드라인 주제 rune 상한(절산 시 … 접미).
+const hotHeadlineTopicMax = 16
+
+// hotTopics — hot_view 조회 행(최신순)에서 decision 주제 상위 K를 뽑는다.
+// 동일 주제 중복 제거(최신 1건만)·rune 절산. 주제는 검색 큐리로 쓰이므로
+// 원문 접두를 보존한다(16 rune + …).
+func hotTopics(rows [][]any, k int) []string {
+	if k <= 0 {
+		return nil
+	}
+	topics := make([]string, 0, k)
+	seen := map[string]bool{}
+	for _, r := range rows {
+		if len(r) < 2 || fmt.Sprint(r[0]) != "decision" {
+			continue
+		}
+		topic := strings.TrimSpace(fmt.Sprint(r[1]))
+		if topic == "" || seen[topic] {
+			continue
+		}
+		seen[topic] = true
+		topics = append(topics, clampHeadlineTopic(topic))
+		if len(topics) == k {
+			break
+		}
+	}
+	return topics
+}
+
+// clampHeadlineTopic — 주제 rune 상한 절산(초과 시 … 접미).
+func clampHeadlineTopic(s string) string {
+	runes := []rune(s)
+	if len(runes) <= hotHeadlineTopicMax {
+		return s
+	}
+	return string(runes[:hotHeadlineTopicMax]) + "…"
 }
 
 // hotCounts — hot_view 조회 행(전체 출력과 동일 데이터 소스)에서
@@ -277,7 +323,7 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 		kv := metaGetKV(ctx, st)
 		profile := ExposureProfile(func(key string) (string, error) { return kv(key, "") })
 		active, pending, recent := hotCounts(rows)
-		line := hotHeadline(profile, active, pending, recent)
+		line := hotHeadline(profile, active, pending, recent, hotTopics(rows, 3))
 		fmt.Fprintln(stdout, line)
 		RecordHotLen(len([]rune(line)))
 	}
