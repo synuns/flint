@@ -29,9 +29,11 @@ func TestTuningRecordsWindowed(t *testing.T) {
 }
 
 func TestReadmeExitTable(t *testing.T) {
+	// v0.17.1: exit 3 서술은 MapExit SchemaError 전반으로 확장(read 인자
+	// 한정 → 잘못된 입력 전반) — 고정 문구도 함께 갱신.
 	cases := []struct{ path, expr string }{
-		{"../README.md", "invalid `read` arguments"},
-		{"../README.ko.md", "read 인자 규칙 위반"},
+		{"../README.md", "invalid input (valueless trailing flags"},
+		{"../README.ko.md", "잘못된 입력 (값 없는 trailing 플래그"},
 	}
 	for _, c := range cases {
 		s := docStrV0150(t, c.path)
