@@ -42,6 +42,7 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 | `zero_near_min_read` | 10 | zero_near 판정 표본 하한(7일 read 합산) — 미만이면 판정 보류 | doctor zero-near |
 | `zero_near_warn_pct` | 30 | zero_near 경고 비율(%) — 이상이면 어휘 불일치 의심 warn | doctor zero-near |
 | `pending_age_days` | 7 | pending 최고령 경과 안내 기준일 — 이상 경과 시 warn+만료 안내 | doctor pending-age |
+| `recall_warn_writes` | 3 | 회상 부재 경고 기록 수 임계 — 오늘 read 0회 상태의 write 이상 시 done 종료 경고 | done |
 
 갱신(미설정 키는 기본값, 즉시 재적용 — 재시작 불필요):
 

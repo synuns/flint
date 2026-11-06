@@ -25,6 +25,8 @@ type Thresholds struct {
 	ZeroNearMinRead      int     // zero_near 판정 표본 하한(doctor)
 	ZeroNearWarnPct      int     // zero_near 경고 비율 %(doctor)
 	PendingAgeDays       int     // pending 만료 안내 기준일(doctor)
+	// v0.18.0 R3: done 회상 경고 — 오늘 회상 0회 상태의 기록 수 임계.
+	RecallWarnWrites int // 이상이면 "회상 없이 기록만" 경고(done)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -44,6 +46,7 @@ const (
 	defaultZeroNearMinRead      = 10
 	defaultZeroNearWarnPct      = 30
 	defaultPendingAgeDays       = 7
+	defaultRecallWarnWrites     = 3
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -65,6 +68,7 @@ func DefaultThresholds() Thresholds {
 		ZeroNearMinRead:      defaultZeroNearMinRead,
 		ZeroNearWarnPct:      defaultZeroNearWarnPct,
 		PendingAgeDays:       defaultPendingAgeDays,
+		RecallWarnWrites:     defaultRecallWarnWrites,
 	}
 }
 
@@ -119,6 +123,8 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			th.ZeroNearWarnPct = parseIntOrDefault(val, defaultZeroNearWarnPct, ks)
 		case "pending_age_days":
 			th.PendingAgeDays = parseIntOrDefault(val, defaultPendingAgeDays, ks)
+		case "recall_warn_writes":
+			th.RecallWarnWrites = parseIntOrDefault(val, defaultRecallWarnWrites, ks)
 		}
 	}
 	return th, nil
