@@ -21,7 +21,7 @@
 </p>
 
 <p align="center">
-  <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.25-00ADD8?logo=go&logoColor=white" alt="Go 1.25"></a>
+  <a href="https://go.dev"><img src="https://img.shields.io/badge/Go-1.26-00ADD8?logo=go&logoColor=white" alt="Go 1.26"></a>
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
@@ -50,13 +50,15 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 ## 빠른 시작
 
 ```bash
-# 설치
+# 설치 (GOPATH/bin에 flint 설치)
 git clone https://github.com/synuns/flint.git && cd flint
 make install
 
-# Doltgres 기동 · 스키마 마이그레이션 · 데모 데이터
+# Doltgres 기동 · 스키마 마이그레이션
 flint setup
-make seed
+
+# 데모 데이터 적재 (시드 대상은 명시적으로)
+make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
 ```
 
 [릴리스 바이너리](https://github.com/synuns/flint/releases)를 받아도 됩니다 — 바이너리, 체크섬, 플러그인 zip이 자동으로 첨부됩니다.
@@ -70,13 +72,13 @@ make seed
 
 플러그인은 `flint` 바이너리가 `PATH`에 있어야 합니다. 훅과 MCP 서버가 모두 이 바이너리를 호출합니다.
 
-### 다른 에이전트 (Codex, Gemini, Cursor, OpenCode, Copilot)
+### 다른 에이전트 (Codex, Gemini, Cursor, OpenCode)
 
 ```bash
 flint setup --mcp
 ```
 
-설치된 하네스를 자동으로 감지해서 MCP 서버를 등록합니다. 미설치 하네스는 건너뛰고, 결과는 한 줄 JSON으로 출력됩니다.
+설치된 하네스를 자동으로 감지해서 MCP 서버를 등록합니다. Copilot은 검증된 네이티브 CLI가 없어 수동 설정입니다([docs/adapters/copilot.md](docs/adapters/copilot.md)). 미설치 하네스는 건너뛰고, 어떤 경우도 exit 0입니다.
 
 <details>
 <summary><code>flint setup</code>이 하는 일</summary>
@@ -134,7 +136,7 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 | `flint status` | 스키마 버전 · 대기 건수 · hot p95 |
 | `flint mcp` | MCP 서버 실행 |
 
-**종료 코드:** 0 성공 · 1 오류 (또는 `read` 무결과 침묵) · 2 저장소 장애 · exit 3 — read 인자 규칙 위반 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값).
+**종료 코드:** 0 성공 · 1 오류 (또는 `read` 무결과 침묵) · 2 저장소 장애 · exit 3 — 잘못된 입력 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값, `write` 스키마 위반).
 
 `flint read`는 구문 검색이 무결과면 단어 단위 fallback으로 재시도합니다.
 
@@ -152,7 +154,8 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 | **Copilot** | MCP ([docs/adapters/copilot.md](docs/adapters/copilot.md)) |
 | **Cursor** | MCP ([docs/adapters/cursor.md](docs/adapters/cursor.md)) |
 | **OpenCode** | MCP ([docs/adapters/opencode.md](docs/adapters/opencode.md)) |
-| **OpenClaw · Hermes** | 문서 어댑터 |
+| **OpenClaw** | 어댑터 ([docs/adapters/openclaw.md](docs/adapters/openclaw.md)) |
+| **Hermes** | 어댑터 ([docs/adapters/hermes.md](docs/adapters/hermes.md)) |
 
 어댑터 문서: [docs/adapters/](docs/adapters/)
 
