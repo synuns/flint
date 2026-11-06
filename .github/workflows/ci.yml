@@ -118,7 +118,7 @@ jobs:
       - name: MCP Registry 발행
         if: steps.relcheck.outputs.skip != 'true'
         run: |
-          curl -sL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_Linux_x86_64.tar.gz | tar xz -C /tmp
+          curl -sL https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_linux_amd64.tar.gz | tar xz -C /tmp
           chmod +x /tmp/mcp-publisher
           /tmp/mcp-publisher login github-oidc
           bash scripts/publish_mcp.sh "${GITHUB_REF#refs/tags/}"
