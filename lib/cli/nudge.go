@@ -21,6 +21,15 @@ const nudgeStartLine = "flint: 증류 대기 — flint nudge"
 // nudgeReadHint — SessionStart 안내에 병합되는 read 촉진 힌트(v0.9.5).
 const nudgeReadHint = "작업 전 flint read <쿼리> — 기존 지식 확인"
 
+// nudgeRecallStartLine — v0.18.1: 회상 부재 마커(Reason "recall")의
+// SessionStart 안내 1줄. done이 오늘 회상 0회·기록 임계 상태를 마커로
+// 남기면 다음 세션 시작에 1회 표시 후 자동 소진된다(경고가 자동 배선
+// Stop stdout으로만 나가 안 보이던 갭 폐쇄 — R3 후속).
+const nudgeRecallStartLine = "flint: 지난 세션 회상 없이 기록만 — 작업 전 flint read <쿼리>부터"
+
+// nudgeReasonRecall — done 회상 부재 마커의 Reason 값.
+const nudgeReasonRecall = "recall"
+
 // exposureProfileFn — T1 ExposureProfile seam. 기본 실구현, 테스트는
 // fakeProfileStore가 페이크로 교체(SUPERLITE_REAL=1은 실구현 통과).
 var exposureProfileFn = ExposureProfile
@@ -91,6 +100,14 @@ func runNudge(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		}
 		fmt.Fprintln(stdout, string(b))
 	case "SessionStart":
+		// v0.18.1: 회상 부재 마커는 전용 문구 1회 표시 후 자동 소진 —
+		// 증류 마커와 달리 별도 행동(--clear) 없이 다음 세션이 read로
+		// 대응하면 끝(1회성 알림 의미론).
+		if m.Reason == nudgeReasonRecall {
+			fmt.Fprintln(stdout, nudgeRecallStartLine)
+			_ = ClearMarker()
+			return 0
+		}
 		// 기존 안내 뒤에 read 힌트를 같은 줄로 병합(plain 1줄 계약 유지).
 		fmt.Fprintln(stdout, nudgeStartLine+" · "+nudgeReadHint)
 	}

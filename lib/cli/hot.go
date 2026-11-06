@@ -229,6 +229,9 @@ func hotHeadline(profile string, active int, pending int, recent int, topics []s
 // hotHeadlineTopicMax — 헤드라인 주제 rune 상한(절산 시 … 접미).
 const hotHeadlineTopicMax = 16
 
+// hotHeadlineTopicCount — 헤드라인에 나열할 주제 수(상위 K).
+const hotHeadlineTopicCount = 3
+
 // hotTopics — hot_view 조회 행(최신순)에서 decision 주제 상위 K를 뽑는다.
 // 동일 주제 중복 제거(최신 1건만)·rune 절산. 주제는 검색 큐리로 쓰이므로
 // 원문 접두를 보존한다(16 rune + …).
@@ -323,7 +326,7 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 		kv := metaGetKV(ctx, st)
 		profile := ExposureProfile(func(key string) (string, error) { return kv(key, "") })
 		active, pending, recent := hotCounts(rows)
-		line := hotHeadline(profile, active, pending, recent, hotTopics(rows, 3))
+		line := hotHeadline(profile, active, pending, recent, hotTopics(rows, hotHeadlineTopicCount))
 		fmt.Fprintln(stdout, line)
 		RecordHotLen(len([]rune(line)))
 	}

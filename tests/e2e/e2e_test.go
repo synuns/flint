@@ -530,8 +530,10 @@ func TestDoneWarnsConsecutiveUnrecordedSessions(t *testing.T) {
 	})
 	setMeta(t, pool, "stale_sessions", "3")
 	t.Cleanup(func() { delMeta(t, pool, "stale_sessions") })
-	// done이 자동 백업을 동반하므로 홈 디렉터리 대신 임시 디렉터리로 격리.
+	// done이 자동 백업·(회상 부재 시)recall 마커를 동반하므로 홈 대신
+	// 임시 디렉터리로 격리(v0.18.1 — 마커가 실사용자 config에 남던 오염).
 	t.Setenv("FLINT_BACKUP_DIR", t.TempDir())
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
 	latestSessionID := func() string {
 		t.Helper()
@@ -586,6 +588,7 @@ func TestDoneTriggersAutoBackupAfter24h(t *testing.T) {
 
 	dir := t.TempDir()
 	t.Setenv("FLINT_BACKUP_DIR", dir)
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // recall 마커 격리(v0.18.1)
 
 	out, code := runCLI(t, []string{"done", "--session", "e2e-backup-probe"}, "")
 	if code != 0 {
@@ -782,6 +785,7 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 	setMeta(t, pool, "schema_version", "1")
 	writeKnowledge(t, `{"topic":"e2e-v3-k","summary":"v2 승격 프로브","confidence":0.9}`)
 
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // recall 마커 격리(v0.18.1)
 	out, code := runCLI(t, []string{"done", "--session", "e2e-v3-probe"}, "")
 	if code != 0 {
 		t.Fatalf("done exit=%d, want 0; out=%s", code, out)

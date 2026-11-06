@@ -43,40 +43,24 @@ type statusV096Output struct {
 // 병기한다(report zero_pct와 동일 산식). 기존 키·순서 불변(additive).
 type statusV0180Output struct {
 	statusV096Output
-	ReadCalls14d   int `json:"read_calls_14d"`
-	ReadZeroPct14d int `json:"read_zero_pct_14d"`
+	ReadCalls14d       int `json:"read_calls_14d"`
+	ReadZeroPct14d     int `json:"read_zero_pct_14d"`
+	ReadZeroNearPct14d int `json:"read_zero_near_pct_14d"`
 }
 
 // statusWindowedDays — status 기간화 창(일). report 기본 14일과 동일.
 const statusWindowedDays = 14
 
-// statusWindowedRead — meta daily:* 키를 N일 창(오늘 포함, UTC)에서
-// 합산해 read·zero%/near%(report collectDaily와 동일 원칙 — 창 밖 배제,
-// 파손 JSON 스킵, 버림 정수%). 조회 실패는 전부 0(계측 표시 — status를
-// 깨지 않는다, fallbackCallsOrNull와 같은 원칙).
+// statusWindowedRead — N일 창 일별 합산으로 read·zero%/near%(버림 정수%).
+// v0.18.1: 파서는 windowedDaily 공유 리더(report와 단일 소스). 조회 실패는
+// 전부 0(계측 표시 — status를 깨지 않는다, fallbackCallsOrNull와 같은 원칙).
 func statusWindowedRead(ctx context.Context, st Store, days int) (read, zeroPct, nearPct int) {
-	rows, err := queryOnce(ctx, st, `SELECT key, value FROM meta WHERE key LIKE 'daily:%'`, nil)
+	dayRows, err := windowedDaily(ctx, st, days)
 	if err != nil {
 		return 0, 0, 0
 	}
-	window := make(map[string]bool, days)
-	now := time.Now().UTC()
-	for i := days - 1; i >= 0; i-- {
-		window[now.AddDate(0, 0, -i).Format("2006-01-02")] = true
-	}
 	var zero, near int
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		var key string
-		if _, err := fmt.Sscanf(fmt.Sprint(r[0]), "daily:%s", &key); err != nil || !window[key] {
-			continue
-		}
-		var d reportDay
-		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &d) != nil {
-			continue // 파손 → 0 취급
-		}
+	for _, d := range dayRows {
 		read += d.Read
 		zero += d.ReadZero
 		near += d.ReadNear
@@ -182,7 +166,7 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		return 3
 	}
 	// v0.18.0 R4: 기간화 read 지표(14일 창) — 누적값과 병기.
-	winRead, winZeroPct, _ := statusWindowedRead(ctx, st, statusWindowedDays)
+	winRead, winZeroPct, winNearPct := statusWindowedRead(ctx, st, statusWindowedDays)
 	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합(해시는 dolt_log에서
 	// 확정된 base32 소문자 해시라 인라인해도 안전 — T81/T83 룰링). meta·
 	// 계측 조회는 현재 상태 그대로.
@@ -216,11 +200,11 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	var b []byte
 	if asOfHash != "" {
 		b, _ = json.Marshal(statusAsOfOutput{statusV0180Output: statusV0180Output{statusV096Output: base,
-			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct},
+			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct},
 			AsOf: asOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 	} else {
 		b, _ = json.Marshal(statusV0180Output{statusV096Output: base,
-			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct})
+			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct})
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 0

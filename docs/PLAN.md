@@ -567,10 +567,10 @@ flint-plugin/
 ### v0.18.0 (2026-11-06) — 회상 우선 메모리 (recall-first memory)
 
 테마 선정 근거: 관측 정합 결과 누적 zero_pct(구 메트릭, 초기 이력 지배)와
-기간화 zero_pct(0%)가 갈라 검색 품질 트리거는 미도달 — 실측 신호는
-dup_pct 71%(재제출 지배)·read:write 불균형(회상 부재). 내부 전수(중복
-경로·read 유도 장치)·외부 조사(mem0 NOOP·Anthropic already-exists·세션
-시작 프로토콜·Doltgres 확장 현황)를 종합해 "기록만 하고 회상 안 함"을
+기간화 zero_pct가 갈라 검색 품질 트리거는 미도달 — 실측 신호는 중복
+재제출이 지배적이고 회상이 굶는 상태라는 것. 내부 전수(중복 경로·read
+유도 장치)·외부 조사(mem0 NOOP·Anthropic already-exists·세션 시작
+프로토콜·Doltgres 확장 현황)를 종합해 "기록만 하고 회상 안 함"을
 write·주입·종료·관측 4개 접점에서 교정한다.
 
 - [x] R1 duplicate 응답 피드백(#61) — 기존 행 topic·state 노출(재기록
@@ -584,6 +584,22 @@ write·주입·종료·관측 4개 접점에서 교정한다.
 - [x] R4 status 기간화 지표(#62) — read_calls_14d·read_zero_pct_14d 병기
   (누적값 오독 방지, report와 동일 산식)
 - [x] 버전 — VERSION·배지 v0.18.0(EN/KO)·plugin.json 동기
+
+### v0.18.1 패치 (2026-11-06) — v0.18.0 코드리뷰 8건·완성도 2건
+
+- [x] R-a 개인 관측 수치 서술 중화 — PLAN 엔트리·테스트 주석·아카이브
+  spec 2건에서 실측 백분율 인용 제거(원칙: 근거는 일반 서술로)
+- [x] R-b 회상 경고 전달 경로 폐쇄 — Stop 훅 stdout은 자동 배선에서 안
+  보이므로 done이 recall 마커를 남기고 다음 SessionStart(nudge)가 전용
+  문구 1회 표시 후 자동 소진(증류 마커와 Reason 분기·기존 경로 불변)
+- [x] R-c recall_warn_writes -1=끔 의미론(파서·폴백·TUNING 문서화)
+- [x] R-d daily 파서 단일화 — windowedDaily 공유 리더(report·status가
+  소비, 3중 복제 해소)·read_zero_near_pct_14d 노출(데드 반환 폐지)
+- [x] R-e DupIDByHash를 DupRowByHash 위임으로 통합(dedup SQL 단일 소스)
+- [x] R-f bump_version.sh가 배지 alt도 교체(구버전 alt 잔존 갭)·README
+  alt 정합·hotTopics 상수화·DupRowByHash 실DB 테스트·done/e2e 마커
+  격리(FLINT_CONFIG_DIR — 테스트가 실사용자 config에 마커 남기던 오염)
+- [x] 버전 — VERSION·배지 v0.18.1(EN/KO)·plugin.json 동기
 
 ## 15. 이연 결정 (트리거 정의됨)
 

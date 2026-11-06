@@ -76,3 +76,16 @@ func TestStatusWindowedKeys(t *testing.T) {
 		}
 	}
 }
+
+// TestStatusZeroNearKey — v0.18.1: read_zero_near_pct_14d 노출(폴백 표면화).
+func TestStatusZeroNearKey(t *testing.T) {
+	windowedReadHarness(t)
+	out, code := mustRun(t, []string{"status"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d", code)
+	}
+	m := decode(t, out)
+	if v, ok := m["read_zero_near_pct_14d"].(float64); !ok || int(v) != 5 {
+		t.Fatalf("read_zero_near_pct_14d=%v, want 5(1/20)", m["read_zero_near_pct_14d"])
+	}
+}

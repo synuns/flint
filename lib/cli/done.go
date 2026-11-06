@@ -204,8 +204,13 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	}
 	// v0.18.0 R3: 회상 경고 — 오늘 회상 0회에 기록이 임계 이상이면 한 줄
 	// 경고로 종료(stale 경고와 같은 패턴 — 임계값 기반·종료 불가, §13).
+	// v0.18.1: Stop 훅 stdout은 자동 배선에서 안 보이므로 recall 마커도
+	// 남긴다 — 다음 SessionStart(nudge)가 1회 표시 후 소진한다.
 	if w, starved := recallStarvedToday(ctx, st, th); starved {
 		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"오늘 회상 0회에 기록 %d회 — 다음 세션은 작업 전 flint read부터"}`+"\n", w, w)
+		if merr := WriteMarker(session, nudgeReasonRecall); merr != nil {
+			fmt.Fprintf(os.Stderr, "[flint] recall marker: %v\n", merr)
+		}
 	} else {
 		fmt.Fprintln(stdout, `{"status":"ok"}`)
 	}

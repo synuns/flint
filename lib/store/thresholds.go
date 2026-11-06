@@ -124,7 +124,17 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "pending_age_days":
 			th.PendingAgeDays = parseIntOrDefault(val, defaultPendingAgeDays, ks)
 		case "recall_warn_writes":
-			th.RecallWarnWrites = parseIntOrDefault(val, defaultRecallWarnWrites, ks)
+			// v0.18.1: -1은 "끔"(recallStarvedToday 가드) — 공유 파서가
+			// 음수를 기본값 코안다려 이 키만 -1까지 수용한다(0은 미설정과
+			// 구분 불가라 loadThresholds가 기본값으로 폴백).
+			if s, ok := toString(val); ok {
+				if n, err := strconv.Atoi(s); err == nil && n >= -1 {
+					th.RecallWarnWrites = n
+					continue
+				}
+			}
+			log.Printf("[flint] thresholds: %s=%v 파싱 불가 — 기본값 %d", ks, val, defaultRecallWarnWrites)
+			th.RecallWarnWrites = defaultRecallWarnWrites
 		}
 	}
 	return th, nil
