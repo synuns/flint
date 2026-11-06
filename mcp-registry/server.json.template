@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/modelcontextprotocol/registry/main/schema/draft01/server.json",
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
   "name": "io.github.synuns/flint",
   "description": "Agent long-term memory with search, recording, and hot injection for AI coding agents",
   "version": "{{VERSION}}",
