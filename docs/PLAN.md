@@ -535,6 +535,17 @@ flint-plugin/
   자동 태그)·MCP Registry 발행 항상 실행(goreleaser 스킵과 분리)·
   github-oidc id-token: write. 사용자는 PR에 버전만 올리면 끝.
 
+### v0.17.0 패치 (2026-11-06) — 의존성 관리·setup UX·CI 리뷰
+
+- [x] R1 의존성 자동 관리 — dependabot(gomod·github-actions 주간)·
+  CI mcp-publisher 다운로드 latest→v1.8.7 고정(재현성)·
+  scripts/bump_version.sh(VERSION·배지 EN/KO·plugin.json 일괄 범프 —
+  배지 누락 사고 3회 방지 자동화)
+- [x] R2 setup UX 고도화 — 단계별 시각적 프로그레스(ANSI ✓/✗·딤 세부,
+  비TTY 자동 plain)·`--json` 출력 불변
+- [x] R3 CI 파이프라인 설계 리뷰 — docs/CI_REVIEW.md(구조 진단·개선점)
+- [x] R4 버전·문서 — VERSION·배지 v0.17.0(EN/KO)·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

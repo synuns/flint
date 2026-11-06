@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="하니스 8종">
-  <img src="https://img.shields.io/badge/release-v0.16.7-blue" alt="v0.16.5">
+  <img src="https://img.shields.io/badge/release-v0.17.0-blue" alt="v0.16.5">
 </p>
 
 <p align="center">

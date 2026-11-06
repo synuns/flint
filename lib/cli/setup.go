@@ -67,9 +67,18 @@ type setupSummary struct {
 // compose 실패는 경고로만(ping이 성공하면 계속), ping/migrate 실패는
 // degraded + 수동 재시도 안내로 exit 1.
 func RunSetup(ctx context.Context, ping, migrate func() error) (string, int) {
+	return runSetupSteps(ctx, ping, migrate, nil)
+}
+
+// runSetupSteps — RunSetup 본체. ux가 nil이 아니면 각 단계 진행을
+// setupUX로 표시한다(요약 JSON·경고·exit 계약은 ux 유무와 무관하게 동일).
+func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX) (string, int) {
 	var warns []string
 	status := "ok"
 
+	if ux != nil {
+		ux.Step("Doltgres 기동 (docker compose up)")
+	}
 	if err := composeUpFn(ctx); err != nil {
 		// docker 미설치(exec not found)는 전용 안내로 구분한다.
 		if errors.Is(err, exec.ErrNotFound) {
@@ -77,13 +86,35 @@ func RunSetup(ctx context.Context, ping, migrate func() error) (string, int) {
 		} else {
 			warns = append(warns, "docker compose up 실패 — docker 기동 후 재실행: "+err.Error())
 		}
+		if ux != nil {
+			ux.Fail(err)
+		}
+	} else if ux != nil {
+		ux.Success("up --wait 완료")
+	}
+	if ux != nil {
+		ux.Step("DB 연결 확인 (ping)")
 	}
 	if err := ping(); err != nil {
 		status = "degraded"
 		warns = append(warns, "DB ping 실패 — make up 후 flint setup 재실행")
-	} else if err := migrate(); err != nil {
-		status = "degraded"
-		warns = append(warns, "migrate 실패: "+err.Error())
+		if ux != nil {
+			ux.Fail(err)
+		}
+	} else {
+		if ux != nil {
+			ux.Success("연결됨")
+			ux.Step("마이그레이션")
+		}
+		if err := migrate(); err != nil {
+			status = "degraded"
+			warns = append(warns, "migrate 실패: "+err.Error())
+			if ux != nil {
+				ux.Fail(err)
+			}
+		} else if ux != nil {
+			ux.Success("스키마 동기")
+		}
 	}
 
 	b, err := json.Marshal(setupSummary{Status: status, Steps: SetupSteps(), Warnings: warns, Next: setupNext})
@@ -138,6 +169,9 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 }
 
 // runSetup — 커맨드 진입점. --dry는 단계만 출력(exec·쿼리 없음).
+// --json(v0.17.0 R2)은 기존 한 줄 JSON 요약 완전 불변, 미지정 시 TTY면
+// setupUX 시각 진행으로 출력한다(동작 계약은 동일 — ping·migrate 동일
+// 순서·횟수). non-TTY(리다이렉션·스크립트)는 기존 JSON을 그대로 둔다.
 // --update-rules(v0.9.7 R1)는 스킬 싱크만 수행하고 즉시 반환 — compose·
 // migrate 체인에 끼지 않는다. --exposure(v0.11.0 R1)도 프로파일 기록만,
 // --mcp(v0.16.5 R1)도 하네스 MCP 등록만 수행하고 즉시 반환한다.
@@ -148,12 +182,15 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	updateRules := false
 	srcOverride := ""
 	exposure := ""
+	jsonMode := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--dry":
 			b, _ := json.Marshal(map[string]any{"status": "dry", "steps": SetupSteps()})
 			fmt.Fprintln(stdout, string(b))
 			return 0
+		case "--json":
+			jsonMode = true
 		case "--update-rules":
 			updateRules = true
 		case "--mcp":
@@ -195,8 +232,21 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		}
 		return st.Migrate(ctx)
 	}
-	line, code := RunSetup(ctx, ping, migrate)
-	fmt.Fprintln(stdout, line)
+	if jsonMode {
+		line, code := RunSetup(ctx, ping, migrate)
+		fmt.Fprintln(stdout, line)
+		return code
+	}
+	// 미지정 시 시각 진행 — 단, TTY에서만(터미널이 아니면 기존 한 줄
+	// JSON 유지: 스크립트·파이프 소비자 호환).
+	ux := newSetupUX(stdout, false)
+	if !ux.isTTY {
+		line, code := RunSetup(ctx, ping, migrate)
+		fmt.Fprintln(stdout, line)
+		return code
+	}
+	_, code := runSetupSteps(ctx, ping, migrate, ux)
+	ux.Summary(setupNext)
 	return code
 }
 
