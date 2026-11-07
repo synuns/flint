@@ -292,6 +292,24 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 템플릿) ④ 수요 실증 — report 텍스트 소비로 충분한지 관측 기간 후
 판정. 기본 방향: 도입 확정이 아니라 평가 후 결정.
 
+**G. 고도화 로드맵 (2026-11-08 서브에이전트 다각 조사 — 8각도·외부 레퍼런스 대조)**
+
+| 테마 | 항목 | 레퍼런스 | 우선순위 | 트리거 |
+|---|---|---|---|---|
+| 검색 품질 1막 | RRF 융합 랭킹(정합수+read_count 통합)·자모 bigram·pgvector 에뮬 실증 probe(ADR, 채택 분리) | sqlite.org/fts5.html·dolthub.com/blog/2026-09-03-doltgres-extensions-update | **high** | RRF 무조건·pgvector 채택은 zero_pct 20%+read 50 트리거 |
+| F 프라이버시 실행 | doctor secrets 사후 스캔(gitleaks 관례·레포 밖 커스텀 룰)·백업 age 암호화(순수 Go)·하드 삭제·덤프 마스킹 | github.com/gitleaks/gitleaks·github.com/FiloSottile/age | **high** | 이미 지시됨 |
+| 온보딩 임포트 | CLAUDE.md/AGENTS.md → flint 지식 변환(전환 마찰 제거)·dedup 자동 승격 | Claude Code memory·Cursor Rules 관례 | med | 외부 사용자 전환 수요 |
+| 증류 자동화(규칙 기반) | pending 임계 → maintain 자동 지시 배선·compact 요약 압축(Letta lossy 관례) | MemGPT core 상한·Mem0(LLM 판정은 비간섭 원칙상 배제) | med | marker 적립→소비 주기 관측 |
+| E 대시보드 — 정적 export | flint report --html 단일 파일(임베드 템플릿·합성 데모) | Grafana 대비 정적 export(E 기준 ①~③) | med | 텍스트 소비 관측 후 |
+| 성능 관측 저비용 | doctor active 행 수·DB 용량 체크 | — | low | active 1만 행 도달 시 인덱싱 재평가 |
+| 다중 에이전트 | domain 스코프(D④) 승계·전용 기능 이연 사유 명시 | mem0.ai multi-agent 문서 | low | 팀 사용 수요 증거 시 |
+
+판정: 플러그인·확장면 불필요(기존 plugin+tuning+어댑터로 커버). 다음
+마이너 추천: **v0.25.0 검색 품질 1막**(RRF+probe) — 계측 체계가 이미
+있어 개선 효과 검증이 즉시 가능(GSM 원칙상 지표 선행). pgvector 채택은
+임베딩 생성 경로(외부 API 프라이버시/로컬 모델 비대) 미해결 — probe로
+가능성 확인만, 채택은 트리거 후 별도 ADR.
+
 **F. 프라이버시 기능 (2026-11-08 지시)** — ① 저장 지식 사후 비밀 스캔:
 doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·이후
 유입을 못 잡으므로 보유 지식 전수 재스캔·발견 시 warn(수정 안내) ②
