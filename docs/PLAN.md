@@ -317,6 +317,21 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.22.2 패치 (2026-11-07) — v0.22.x 패치 루프 2차: 리뷰 6건 — 프록시·리다이렉트·테스트 seam
+
+- [x] ① 프록시 회귀 수정 — updateClient가 DefaultTransport 복제로
+  ProxyFromEnvironment 유지(v0.22.1의 bare Transport가 프록시 환경
+  전체를 단절시켰던 것)
+- [x] ② 리다이렉트 https 가드 — CheckRedirect로 https→http 다운그레이드
+  거부(S1의 실질 방어 완결)
+- [x] ③ InsecureSkipVerify 전역 제거 — 클라이언트 팩토리 seam +
+  httptest srv.Client() 주입(프로덕션 바이너리에서 검증 비활성 코드
+  소멸, gosec G402 해소)
+- [x] ④ 다운로드 상한 초과 명시적 에러 — 체크섬 불일치 오탐 진단 방지
+- [x] ⑤ API 응답 8MiB 상한 해석 — 메타 경로 무한 적립 방어
+- [x] ⑥ README 태그라인 실내용 반영 — 이후 매 패치 갱신 관례 명시
+- [x] 버전 — VERSION·배지 v0.22.2(EN/KO)·plugin.json 동기
+
 ### v0.22.1 패치 (2026-11-07) — v0.22.x 패치 루프 1차: update 경로 보강
 
 - [x] S1 다운로드 URL https 강제 — API 응답의 browser_download_url이

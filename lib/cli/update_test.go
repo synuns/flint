@@ -97,11 +97,17 @@ func TestExtractBinary(t *testing.T) {
 // 내용(실행 시 version JSON을 출력하는 셸 스크립트여야 검증 통과).
 func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Server {
 	t.Helper()
-	prevTLS := updateTLSVerify
-	updateTLSVerify = false // httptest 자체 서명 수용(프로덕션 불변)
-	t.Cleanup(func() { updateTLSVerify = prevTLS })
 	mux := http.NewServeMux()
 	srv := httptest.NewTLSServer(mux)
+	// 클라이언트 팩토리 주입 — srv.Client()는 자체 서명을 신뢰(프로덕션
+	// 바이너리에 InsecureSkipVerify 없음, v0.22.2 리뷰 ③).
+	prevClient := updateClientFn
+	updateClientFn = func(timeout time.Duration) *http.Client {
+		c := srv.Client()
+		c.Timeout = timeout
+		return c
+	}
+	t.Cleanup(func() { updateClientFn = prevClient })
 	t.Cleanup(srv.Close)
 	assetName := fmt.Sprintf("flint_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
 	archive := buildTarGz(t, newBin)
@@ -160,6 +166,7 @@ func TestUpdateFlowReplacesBinary(t *testing.T) {
 }
 
 // TestUpdateFlowChecksumMismatch — 체크섬 불일치면 원본 불본(즉시 중단).
+// 단일 TLS 서버가 메타·자산(정상)+오염 체크섬을 모두 제공한다.
 func TestUpdateFlowChecksumMismatch(t *testing.T) {
 	dir := t.TempDir()
 	self := filepath.Join(dir, "flint")
@@ -171,21 +178,30 @@ func TestUpdateFlowChecksumMismatch(t *testing.T) {
 	t.Cleanup(func() { executablePathFn = prevExe })
 
 	newBin := []byte("#!/bin/sh\necho '{\"version\":\"9.9.9\"}'\n")
-	// 정상 릴리스 서버 + 오염 checksums(해시 불일치) 재정의.
-	srv := newUpdateServer(t, "9.9.9", newBin)
+	archive := buildTarGz(t, newBin)
+	assetName := fmt.Sprintf("flint_9.9.9_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
 	mux := http.NewServeMux()
-	assetName := fmt.Sprintf("flint_%s_%s_%s.tar.gz", "9.9.9", runtime.GOOS, runtime.GOARCH)
+	srv := httptest.NewTLSServer(mux) // 먼저 생성 — URL 확정
+	t.Cleanup(srv.Close)
 	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":%q},{"name":"checksums.txt","browser_download_url":%q}]}`,
 			assetName, srv.URL+"/dl/"+assetName, srv.URL+"/bad")
 	})
+	mux.HandleFunc("/dl/"+assetName, func(w http.ResponseWriter, r *http.Request) {
+		w.Write(archive)
+	})
 	mux.HandleFunc("/bad", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "0000000000000000000000000000000000000000000000000000000000000000  "+assetName+"\n")
 	})
-	badSrv := httptest.NewTLSServer(mux)
-	t.Cleanup(badSrv.Close)
+	prevClient := updateClientFn
+	updateClientFn = func(timeout time.Duration) *http.Client {
+		c := srv.Client()
+		c.Timeout = timeout
+		return c
+	}
+	t.Cleanup(func() { updateClientFn = prevClient })
 	prev := updateAPIBase
-	updateAPIBase = badSrv.URL
+	updateAPIBase = srv.URL
 	t.Cleanup(func() { updateAPIBase = prev })
 
 	if _, err := applyUpdate("9.9.9"); err == nil {
