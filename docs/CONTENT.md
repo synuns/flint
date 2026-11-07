@@ -55,7 +55,7 @@ session(episodic 기록) → maintain 세션에서 패턴 탐지
 
 ## 4. 어휘표 (tags·domain 표준)
 
-- **domain**: `main`(기본)·`infra`(환경·도구)·`preference`(사용자 선호) — 3종만.
+- **domain**: `main`(기본)·`infra`(환경·도구)·`preference`(사용자 선호)·`decision`(확정 결정 — hot_view 최근 결정 팔) — 4종.
 - **tags** 소관(필요시 확장하되 본 표에 먼저 추가):
   `adr`(결정 기록)·`correction`(교정)·`failure`(실패 학습)·`env`(환경)·`process`(작업 방식)·`contract`(계약·인터페이스)·`playbook`(증류된 절차)
 
