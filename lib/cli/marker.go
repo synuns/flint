@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 )
 
@@ -116,4 +117,47 @@ func ClearTypedMarker(kind string) error {
 		return nil
 	}
 	return err
+}
+
+// SessionLabelFile — 현재 세션 라벨 파일 경로(v0.20.5 패치 루프 5차·
+// 마일스톤 B②). session-start 훅이 하니스 세션 id를 남기고 read가
+// --session 미지정 시 조용히 채택한다 — G4 라벨 자동화(에이전트 협조
+// 불필요). session-end가 지운다(종료 후 스테일 라벨 방지). 병렬 세션은
+// last-writer-wins(라벨은 보조 계정 — 룰링).
+func SessionLabelFile() string {
+	d := configDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "session-current")
+}
+
+// WriteSessionLabel — 현재 세션 라벨 1줄 기록(빈 라벨은 미기록).
+func WriteSessionLabel(label string) error {
+	if label == "" {
+		return nil
+	}
+	path := SessionLabelFile()
+	if path == "" {
+		return os.ErrInvalid
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+		return err
+	}
+	return os.WriteFile(path, []byte(label), 0o600)
+}
+
+// ReadSessionLabel — 현재 세션 라벨(부재·빈 파일은 ok=false).
+func ReadSessionLabel() (string, bool) {
+	b, err := os.ReadFile(SessionLabelFile())
+	if err != nil {
+		return "", false
+	}
+	s := strings.TrimSpace(string(b))
+	return s, s != ""
+}
+
+// ClearSessionLabel — 세션 라벨 파일 제거(session-end).
+func ClearSessionLabel() {
+	_ = os.Remove(SessionLabelFile())
 }

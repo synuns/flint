@@ -209,6 +209,13 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			return 3
 		}
 	}
+	// v0.20.5(B②): --session 미지정 시 현재 세션 라벨 자동 채택
+	// (session-start 훅이 기록 — G4 라벨 자동화, 조용히).
+	if !sessionGiven {
+		if label, ok := ReadSessionLabel(); ok {
+			session = label
+		}
+	}
 	// --session 값은 read_events에 14일간 저장되는 라벨이다 — 다른 값형
 	// 플래그와 달리 오타(`--session --json`처럼 플래그를 흡수)가 DB 오염으로
 	// 남는다. 플래그형 값은 즉시 exit 3(리뷰 #3 — 조회 결과 오염 방지).
