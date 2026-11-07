@@ -562,3 +562,32 @@ func TestDoctorCheckNameSpace(t *testing.T) {
 		t.Errorf("미등록 하니스 = %+v, want unknown check", unknown)
 	}
 }
+
+// TestDoctorEventVolume — v0.20.4(마일스톤 C①): 계측 3테이블 합계가
+// events_volume_warn 임계를 넘으면 warn, 미만이면 ok(성장은 fail 아님).
+func TestDoctorEventVolume(t *testing.T) {
+	base := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "key IN ('pending_max'"):
+			return nil, nil // thresholds 기본값(50000)
+		case strings.Contains(sql, "count(*) FROM read_events"):
+			return [][]any{{int64(60000)}}, nil
+		}
+		return nil, nil
+	}}
+	if c := checkEventVolume(context.Background(), base); c.Status != "warn" {
+		t.Errorf("60000행 = %+v, want warn", c)
+	}
+	small := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "key IN ('pending_max'"):
+			return nil, nil
+		case strings.Contains(sql, "count(*) FROM read_events"):
+			return [][]any{{int64(120)}}, nil
+		}
+		return nil, nil
+	}}
+	if c := checkEventVolume(context.Background(), small); c.Status != "ok" {
+		t.Errorf("120행 = %+v, want ok", c)
+	}
+}

@@ -99,19 +99,10 @@ type effectOutput struct {
 	ChainPct     int `json:"chain_pct"`      // G4: 반환→사용 연쇄율(24h)
 }
 
-// reportDeadDays — dead_pct 판정 기준일(METRICS §4: 증류·중복 사이클이
-// 주 단위라는 일반 근거의 기본 상수. 개인 튜닝 불요 — 필요 시 다음
-// 버전에서 thresholds 레지스트리로 이양).
-const reportDeadDays = 30
-
-// reportPairWindow — read→write 동반 판정 창(G4 상관 프록시의 근접성
-// 가정 기본값 — METRICS §4). v0.20.0: 세션 경계 안에서 적용(같은 세션
-// 여부가 1차 판정, 창은 세션 내 근접성 상한).
-const reportPairWindow = 30 * time.Minute
-
-// reportChainWindow — 사용 연쇄 판정 창(v0.20.0 B: 반환 id가 재반환 또는
-// 같은 topic write로 이어지는 근접성 가정).
-const reportChainWindow = 24 * time.Hour
+// v0.20.4(패치 루프 4차·마일스톤 B③): 효과 계측 판정 창은 thresholds
+// 레지스트리(meta 오버라이드)로 이양 — 기본값 단일 소스는
+// store.DefaultThresholds(dead_days 30·pair_window_minutes 30·
+// chain_window_hours 24, TUNING §2).
 
 // reportSessionLookback — 세션 배정 조회 마진: 창 시작 직전에 시작된
 // 세션까지 포함해 창 첫 이벤트의 배정이 빠지지 않게 한다. 이보다 긴
@@ -411,9 +402,13 @@ func pctOf(n, total int) int {
 func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) error {
 	now := time.Now()
 	windowStart := now.Add(-time.Duration(days) * 24 * time.Hour)
+	// 판정 창 임계값(v0.20.4 이양) — 로드 실패는 기본값 폴백(§13).
+	th := writeThresholds(ctx, st)
+	pairWindow := time.Duration(th.PairWindowMin) * time.Minute
+	chainWindow := time.Duration(th.ChainWindowH) * time.Hour
 
 	// ── G3(+노출 정합 가드) ──
-	deadCutoff := now.Add(-time.Duration(reportDeadDays) * 24 * time.Hour)
+	deadCutoff := now.Add(-time.Duration(th.DeadDays) * 24 * time.Hour)
 	// 최근 hot 노출 집합 — hot --full은 BumpReads로 주입 id의 read_count를
 	// 올리므로(T62 참조 계측) 정상 경로에서 노출 지식은 애초에 read_count=0
 	// 후보 밖이다. 이 가드는 참조 증분과 노출 기록이 별도 경로라 계측
@@ -510,7 +505,7 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 				cands = sessWriteTimes[si]
 			}
 		}
-		if timeWindowHit(cands, e.ts, reportPairWindow) {
+		if timeWindowHit(cands, e.ts, pairWindow) {
 			pairs++
 		}
 	}
@@ -550,7 +545,7 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 			}
 		}
 	}
-	out.Effect.ChainPct = chainPct(evs, writes, topics)
+	out.Effect.ChainPct = chainPct(evs, writes, topics, chainWindow)
 	return nil
 }
 
@@ -712,7 +707,7 @@ func recallLedPct(starts []time.Time, evs []readEventRow, writes []writeRow, win
 // chainPct — 사용 연쇄율(v0.20.0 B): 반환 id가 있는 read 중 24h 내
 // (a) 이후 read에서 같은 id 재반환 또는 (b) 같은 topic write로 이어진
 // 비율. evs·writes는 ts 오름차순 가정.
-func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string) int {
+func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string, window time.Duration) int {
 	withIDs, used := 0, 0
 	for i, e := range evs {
 		if len(e.ids) == 0 {
@@ -727,7 +722,7 @@ func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string) int 
 		// (a) 이후 24h 내 재반환 — Δ>0 필요(페어링의 0 < Δ 규칙과 일관,
 		// 동시 기록(Δ=0)은 연쇄 아님, 리뷰 #5).
 		for j := i + 1; j < len(evs) && !hit; j++ {
-			if evs[j].ts.After(e.ts.Add(reportChainWindow)) {
+			if evs[j].ts.After(e.ts.Add(window)) {
 				break
 			}
 			if !evs[j].ts.After(e.ts) {
@@ -745,7 +740,7 @@ func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string) int 
 			if hit {
 				break
 			}
-			if !w.ts.After(e.ts) || w.ts.After(e.ts.Add(reportChainWindow)) {
+			if !w.ts.After(e.ts) || w.ts.After(e.ts.Add(window)) {
 				continue
 			}
 			for _, id := range e.ids {

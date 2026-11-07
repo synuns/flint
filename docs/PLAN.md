@@ -729,6 +729,20 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.20.4 패치 (2026-11-07) — 패치 루프 4차: 마일스톤 B③·C①의 패치 규모 항목 조기 회수
+
+사용자 지시로 패치 루프 연속 진행(버전마다 정지하지 않음) — v0.21.0+
+후보 중 패치 규모 항목을 회수:
+
+- [x] B③ 계측 임계값 thresholds 레지스트리 이양 — dead_days·
+  pair_window_minutes·chain_window_hours·events_retention_days·
+  hot_events_retention_days·events_volume_warn 6키(판정 창·보존·용량,
+  TUNING §2 동기)
+- [x] C① doctor event-volume 체크 — 계측 3테이블 합계 행 수 warn
+  (성장은 정상 동작이므로 warn 안내만, fail 아님)·--check 지원
+- [x] PruneReadEvents 보존일 meta 오버라이드·report 판정 창 오버라이드
+- [x] 버전 — VERSION·배지 v0.20.4(EN/KO)·plugin.json 동기
+
 ### v0.20.3 패치 (2026-11-07) — 패치 루프 3차: 문서·매니페스트 정합 7건
 
 관측(문서·매니페스트·배포 자산 스윕 + 운영 G4 파이프라인 실증) → 수정:

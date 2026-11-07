@@ -43,6 +43,12 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 | `zero_near_warn_pct` | 30 | zero_near 경고 비율(%) — 이상이면 어휘 불일치 의심 warn | doctor zero-near |
 | `pending_age_days` | 7 | pending 최고령 경과 안내 기준일 — 이상 경과 시 warn+만료 안내 | doctor pending-age |
 | `recall_warn_writes` | 3 | 회상 부재 경고 기록 수 임계 — 오늘 read 0회 상태의 write 이상 시 done 종료 경고·다음 SessionStart 안내. **-1이면 끔**(1로 설정 시 기록마다 경고). 0은 미설정과 같게 기본값 폴백 | done·nudge |
+| `dead_days` | 30 | dead_pct 기준일 — 회상 0·이 기간 경과 지식 비율(증류·중복 사이클이 주 단위라는 근거) | report effect |
+| `pair_window_minutes` | 30 | read→write 페어 판정 창(분) — 같은 세션 배정 내 근접성 상한 | report effect |
+| `chain_window_hours` | 24 | 사용 연쇄 판정 창(시간) — 반환 id 재반환·같은 topic write 인정 범위 | report effect |
+| `events_retention_days` | 14 | read_events·session_starts 보존일(daily 카운터 정책 승계) | 계측 정리 |
+| `hot_events_retention_days` | 30 | hot_events 보존일(dead_pct 노출 가드 창과 정렬) | 계측 정리 |
+| `events_volume_warn` | 50000 | 계측 3테이블 합계 경고 행 수 — 이상 시 doctor event-volume warn | doctor event-volume |
 
 갱신(미설정 키는 기본값, 즉시 재적용 — 재시작 불필요):
 

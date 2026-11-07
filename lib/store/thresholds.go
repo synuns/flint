@@ -27,6 +27,13 @@ type Thresholds struct {
 	PendingAgeDays       int     // pending 만료 안내 기준일(doctor)
 	// v0.18.0 R3: done 회상 경고 — 오늘 회상 0회 상태의 기록 수 임계.
 	RecallWarnWrites int // 이상이면 "회상 없이 기록만" 경고(done)
+	// v0.20.4(패치 루프 4차·마일스톤 B③·C①): 효과 계측 판정 창·보존.
+	DeadDays         int // dead_pct 기준일(기본 30)
+	PairWindowMin    int // read→write 페어 판정 창(분, 기본 30)
+	ChainWindowH     int // 사용 연쇄 판정 창(시간, 기본 24)
+	EventsRetentionD int // read_events·session_starts 보존(일, 기본 14)
+	HotRetentionD    int // hot_events 보존(일, 기본 30 — dead 가드 창 정렬)
+	EventsVolumeWarn int // doctor 계측 테이블 경고 행 수(기본 50000)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -47,6 +54,13 @@ const (
 	defaultZeroNearWarnPct      = 30
 	defaultPendingAgeDays       = 7
 	defaultRecallWarnWrites     = 3
+	// v0.20.4 — 효과 계측 판정 창·보존 기본값.
+	defaultDeadDays         = 30
+	defaultPairWindowMin    = 30
+	defaultChainWindowH     = 24
+	defaultEventsRetentionD = 14
+	defaultHotRetentionD    = 30
+	defaultEventsVolumeWarn = 50000
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -69,6 +83,12 @@ func DefaultThresholds() Thresholds {
 		ZeroNearWarnPct:      defaultZeroNearWarnPct,
 		PendingAgeDays:       defaultPendingAgeDays,
 		RecallWarnWrites:     defaultRecallWarnWrites,
+		DeadDays:             defaultDeadDays,
+		PairWindowMin:        defaultPairWindowMin,
+		ChainWindowH:         defaultChainWindowH,
+		EventsRetentionD:     defaultEventsRetentionD,
+		HotRetentionD:        defaultHotRetentionD,
+		EventsVolumeWarn:     defaultEventsVolumeWarn,
 	}
 }
 
@@ -127,6 +147,18 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// v0.18.2: min=-1 수용(-1=끔). 0은 미설정과 구분 불가 —
 			// loadThresholds가 기본값으로 폴백한다(TUNING §2 문서화).
 			th.RecallWarnWrites = parseIntInRangeOrDefault(val, defaultRecallWarnWrites, -1, ks)
+		case "dead_days":
+			th.DeadDays = parseIntOrDefault(val, defaultDeadDays, ks)
+		case "pair_window_minutes":
+			th.PairWindowMin = parseIntOrDefault(val, defaultPairWindowMin, ks)
+		case "chain_window_hours":
+			th.ChainWindowH = parseIntOrDefault(val, defaultChainWindowH, ks)
+		case "events_retention_days":
+			th.EventsRetentionD = parseIntOrDefault(val, defaultEventsRetentionD, ks)
+		case "hot_events_retention_days":
+			th.HotRetentionD = parseIntOrDefault(val, defaultHotRetentionD, ks)
+		case "events_volume_warn":
+			th.EventsVolumeWarn = parseIntOrDefault(val, defaultEventsVolumeWarn, ks)
 		}
 	}
 	return th, nil
