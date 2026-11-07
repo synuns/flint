@@ -909,15 +909,21 @@ func stallWarnings(ctx context.Context, st Store, th store.Thresholds) []string 
 	return warns
 }
 
-// drillMaxDaysDefault — last_drill 경과 보고 기본 임계일(메타 drill_max_days 우선).
-const drillMaxDaysDefault = 30
+// drillThresholds — 드릴 경과 임계일(레지스트리 경유, 실패 시 기본).
+// v0.23.0: drillReport가 메타를 직접 읽던 것을 thresholds 단일 소스로 이관.
+func drillThresholds(ctx context.Context, st Store) int {
+	if th, err := loadThresholds(ctx, st); err == nil {
+		return th.DrillMaxDays
+	}
+	return 30
+}
 
 // drillReport — last_drill 경과 보고(T55). 30일(메타 drill_max_days) 초과 시
 // `,"drill":"stale"`, 유효한 기록 자체가 없으면 `,"drill":"never"`를 반환한다.
 // 이내면 빈 문자열(보고 없음). 읽기 실패는 --check 결과를 해치지 않게 생략.
 func drillReport(ctx context.Context, st Store) string {
 	rows, err := queryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('last_drill','drill_max_days')`, nil)
+		`SELECT key, value FROM meta WHERE key IN ('last_drill')`, nil)
 	if err != nil {
 		return ""
 	}
@@ -927,10 +933,7 @@ func drillReport(ctx context.Context, st Store) string {
 			kv[fmt.Sprint(r[0])] = fmt.Sprint(r[1])
 		}
 	}
-	maxDays := drillMaxDaysDefault
-	if n, err := strconv.Atoi(kv["drill_max_days"]); err == nil && n > 0 {
-		maxDays = n // 무효 값(비수·0·음수)은 기본값 폴백
-	}
+	maxDays := drillThresholds(ctx, st) // v0.23.0 이관 — 단일 소스(아래 last_drill은 kv 유지)
 	last, err := time.Parse(time.RFC3339, kv["last_drill"])
 	if err != nil {
 		return `,"drill":"never"`
@@ -947,8 +950,7 @@ func drillReport(ctx context.Context, st Store) string {
 // ParseThresholds가 미설정을 0으로 두므로(기존 테스트 호환 규약)
 // DefaultThresholds 값으로 폴백한다.
 func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
-	rows, err := queryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h','suggest_min_score','suggest_scan_cap','conflict_dup_threshold','backup_age_warn_h','zero_near_min_read','zero_near_warn_pct','pending_age_days','recall_warn_writes','dead_days','pair_window_minutes','chain_window_hours','events_retention_days','hot_events_retention_days','events_volume_warn')`, nil)
+	rows, err := queryOnce(ctx, st, thresholdsKeySQL(), nil)
 	if err != nil {
 		return store.Thresholds{}, err
 	}
@@ -962,60 +964,44 @@ func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	if err != nil {
 		return th, err
 	}
+	return applyThresholdsFallback(th), nil
+}
+
+func applyThresholdsFallback(th store.Thresholds) store.Thresholds {
 	def := store.DefaultThresholds()
-	if th.StaleDays <= 0 {
-		th.StaleDays = def.StaleDays
-	}
-	if th.StallHotH <= 0 {
-		th.StallHotH = def.StallHotH
-	}
-	if th.StallWriteH <= 0 {
-		th.StallWriteH = def.StallWriteH
+	for _, f := range []struct {
+		cur   *int
+		def   int
+		allow bool // true면 -1 등 음수 센티널 허용 키(RecallWarnWrites)
+	}{
+		{&th.StaleDays, def.StaleDays, false},
+		{&th.StallHotH, def.StallHotH, false},
+		{&th.StallWriteH, def.StallWriteH, false},
+		{&th.SuggestScanCap, def.SuggestScanCap, false},
+		{&th.BackupAgeWarnH, def.BackupAgeWarnH, false},
+		{&th.ZeroNearMinRead, def.ZeroNearMinRead, false},
+		{&th.ZeroNearWarnPct, def.ZeroNearWarnPct, false},
+		{&th.PendingAgeDays, def.PendingAgeDays, false},
+		{&th.RecallWarnWrites, def.RecallWarnWrites, true},
+		{&th.DeadDays, def.DeadDays, false},
+		{&th.PairWindowMin, def.PairWindowMin, false},
+		{&th.ChainWindowH, def.ChainWindowH, false},
+		{&th.EventsRetentionD, def.EventsRetentionD, false},
+		{&th.HotRetentionD, def.HotRetentionD, false},
+		{&th.EventsVolumeWarn, def.EventsVolumeWarn, false},
+		{&th.DrillMaxDays, def.DrillMaxDays, false},
+	} {
+		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
+			*f.cur = f.def
+		}
 	}
 	if th.SuggestMinScore <= 0 {
 		th.SuggestMinScore = def.SuggestMinScore
 	}
-	if th.SuggestScanCap <= 0 {
-		th.SuggestScanCap = def.SuggestScanCap
-	}
 	if th.ConflictDupThreshold <= 0 {
 		th.ConflictDupThreshold = def.ConflictDupThreshold
 	}
-	if th.BackupAgeWarnH <= 0 {
-		th.BackupAgeWarnH = def.BackupAgeWarnH
-	}
-	if th.ZeroNearMinRead <= 0 {
-		th.ZeroNearMinRead = def.ZeroNearMinRead
-	}
-	if th.ZeroNearWarnPct <= 0 {
-		th.ZeroNearWarnPct = def.ZeroNearWarnPct
-	}
-	if th.PendingAgeDays <= 0 {
-		th.PendingAgeDays = def.PendingAgeDays
-	}
-	if th.RecallWarnWrites == 0 { // -1(끔)은 유지 — v0.18.1
-		th.RecallWarnWrites = def.RecallWarnWrites
-	}
-	// v0.20.4: 효과 계측 창·보존·용량(미설정 0 → 기본값).
-	if th.DeadDays == 0 {
-		th.DeadDays = def.DeadDays
-	}
-	if th.PairWindowMin == 0 {
-		th.PairWindowMin = def.PairWindowMin
-	}
-	if th.ChainWindowH == 0 {
-		th.ChainWindowH = def.ChainWindowH
-	}
-	if th.EventsRetentionD == 0 {
-		th.EventsRetentionD = def.EventsRetentionD
-	}
-	if th.HotRetentionD == 0 {
-		th.HotRetentionD = def.HotRetentionD
-	}
-	if th.EventsVolumeWarn == 0 {
-		th.EventsVolumeWarn = def.EventsVolumeWarn
-	}
-	return th, nil
+	return th
 }
 
 // adminErrLine — 갱신 경로 에러 출력. ErrNotFound는 1, 그 외 MapExit.
@@ -1025,4 +1011,26 @@ func adminErrLine(stdout io.Writer, err error) int {
 		return 1
 	}
 	return store.MapExit(err)
+}
+
+// thresholdsKeys — thresholds 메타 키 결정적 목록(v0.23.0 리뷰 ⑧: SQL·
+// tuningKeys 3중 유지를 공유 소스로 — 드리프트 테스트가 이 리스트와
+// tuningKeys의 동질성을 단언한다).
+func thresholdsKeys() []string {
+	return []string{
+		"pending_max", "dup_susp_max", "conf_floor", "stale_sessions",
+		"stale_days", "stall_hot_h", "stall_write_h",
+		"suggest_min_score", "suggest_scan_cap", "conflict_dup_threshold",
+		"backup_age_warn_h", "zero_near_min_read", "zero_near_warn_pct",
+		"pending_age_days", "recall_warn_writes",
+		"dead_days", "pair_window_minutes", "chain_window_hours",
+		"events_retention_days", "hot_events_retention_days",
+		"events_volume_warn", "drill_max_days",
+	}
+}
+
+// thresholdsKeySQL — IN 목록 SQL 조각(결정적 순서).
+func thresholdsKeySQL() string {
+	return "SELECT key, value FROM meta WHERE key IN ('" +
+		strings.Join(thresholdsKeys(), "','") + "')"
 }

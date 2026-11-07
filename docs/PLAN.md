@@ -317,6 +317,19 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.23.0 마이너 (2026-11-07) — 개인화 1막: tuning 커맨드·어휘 제안
+
+사용자 지시(다음 마이너 = D개인화 브레인스토밍 순서표):
+
+- [x] D③ `flint tuning` — TUNING §2 전체 키의 list/get/set/reset.
+  값 검증은 실경로 파싱으로(폴백되면 거부) — 문서·레지스트리·명령이
+  단일 소스. 이전까지 psql 직접 갱신이던 관리 진입장벽 해소
+- [x] drill_max_days 레지스트리 이관 — drillReport가 메타 직독에서
+  thresholds 단일 소스로(키 메타 22종 전량 tuning 노출)
+- [x] D② 어휘 제안 — 어휘 밖 tag·domain에 근사 후보(접두 우선·편집거리
+  ≤2) 경고에 병합("유사: adr") — 오타 수정 가이드
+- [x] 버전 — VERSION·배지 v0.23.0(EN/KO)·plugin.json 동기
+
 ### v0.22.2 패치 (2026-11-07) — v0.22.x 패치 루프 2차: 리뷰 6건 — 프록시·리다이렉트·테스트 seam
 
 - [x] ① 프록시 회귀 수정 — updateClient가 DefaultTransport 복제로
