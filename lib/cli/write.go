@@ -170,7 +170,26 @@ func runWrite(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	// 검증 → 살균 → 정규화 → 해시 dedup(줄별 skip) → 판정. 검증 실패에서만 즉시
 	// 반환(exit 3). duplicate 줄은 배치 전체를 폐기하지 않고 skip — 부분 커밋.
 	// 판정 floor는 이번 쓰기가 읽은 meta conf_floor(값 전달 — 전역 주입 없음).
-	floor := writeThresholds(ctx, st).ConfFloor
+	th := writeThresholds(ctx, st)
+	floor := th.ConfFloor
+	// v0.24.0 R4a: 개인 어휘(vocab_tags·vocab_domains 콤마 목록) 합집합
+	// 주입 — repo가 아닌 운영 DB에 개인 어휘.
+	if rows, err := queryOnce(ctx, st,
+		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains')`, nil); err == nil {
+		var tags, domains []string
+		for _, r := range rows {
+			if len(r) != 2 {
+				continue
+			}
+			vals := strings.Split(fmt.Sprint(r[1]), ",")
+			if fmt.Sprint(r[0]) == "vocab_tags" {
+				tags = vals
+			} else {
+				domains = vals
+			}
+		}
+		store.SetVocabExtras(tags, domains)
+	}
 	recs := make([]map[string]any, 0, len(payloads))
 	dropped := map[string]bool{}
 	var warnings []string

@@ -302,9 +302,20 @@ func mergeDaily(cur map[string]int, delta map[string]int) (string, error) {
 // UTC(RecordUsage 기록 기준)이므로 기준일도 UTC로 잡는다(서버 TZ 영향 배제).
 // 날짜 형식이 아닌 키(daily:*)는 건드리지 않는다(형식 검사 후 cast).
 func (r *Repo) PruneDaily(ctx context.Context) error {
+	days := 14
+	var v string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = $1`, "daily_retention_days").Scan(&v); err == nil {
+		if n, perr := strconv.Atoi(strings.TrimSpace(v)); perr == nil && n > 0 {
+			days = n
+		}
+	}
+	// 컷오프는 Go 계산 date 파라미터(T70 관례 — `date - $1` 산술은
+	// Doltgres가 $1을 interval로 추론해 실패한다, v0.24.0 회귀 방어).
+	cutoff := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM meta WHERE key ~ '^daily:[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-		   AND substring(key from 7)::date <= (now() AT TIME ZONE 'UTC')::date - 14`)
+		   AND substring(key from 7)::date <= $1::date`, cutoff)
 	return err
 }
 

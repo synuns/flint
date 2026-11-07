@@ -47,7 +47,7 @@ func TestShouldBackupBoundary(t *testing.T) {
 		{"잘못된 형식", "not-a-time", true},
 	}
 	for _, c := range cases {
-		if got := ShouldBackup(c.last, now); got != c.want {
+		if got := ShouldBackup(c.last, now, 0); got != c.want {
 			t.Errorf("%s: ShouldBackup(%q) = %v, want %v", c.name, c.last, got, c.want)
 		}
 	}
@@ -171,5 +171,18 @@ func TestRunIfNeededRealDump(t *testing.T) {
 	}
 	if !strings.Contains(buf.String(), "flint backup") {
 		t.Error("실 덤프 헤더 없음")
+	}
+}
+
+// TestShouldBackupIntervalOverride — v0.24.0 R1c: backup_interval_h가
+// 주기 판정을 바꾼다(기본 24h, 오버라이드 6h).
+func TestShouldBackupIntervalOverride(t *testing.T) {
+	now := time.Now().UTC()
+	last := now.Add(-12 * time.Hour).Format(time.RFC3339)
+	if ShouldBackup(last, now, 0) {
+		t.Error("12h 경과에 기본 24h — 백업하면 안 됨")
+	}
+	if !ShouldBackup(last, now, 6) {
+		t.Error("12h 경과에 6h 오버라이드 — 백업해야 함")
 	}
 }

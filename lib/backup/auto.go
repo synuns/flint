@@ -9,11 +9,17 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+	"strings"
 	"time"
 )
 
-// backupInterval 은 자동 백업 최소 간격이다.
-const backupInterval = 24 * time.Hour
+// DefaultBackupIntervalH — 자동 백업 최소 주기 기본(시간). meta
+// backup_interval_h 오버라이드(v0.24.0 R1c — backup_keep과 한 세트).
+const DefaultBackupIntervalH = 24
+
+// BackupIntervalKey — 주기 meta 키.
+const BackupIntervalKey = "backup_interval_h"
 
 // LastBackupKey 는 마지막 백업 시각을 저장하는 meta 키다.
 const LastBackupKey = "last_backup"
@@ -23,9 +29,13 @@ var dumpFn = Dump
 
 func realDumpEnabled() bool { return os.Getenv("SUPERLITE_REAL") == "1" }
 
-// ShouldBackup 은 마지막 백업(lastISO, RFC3339)으로부터 24h가 경과했는지
-// 판정한다. 비었거나 해석 불가능한 값은 첫 백업으로 보고 true다.
-func ShouldBackup(lastISO string, now time.Time) bool {
+// ShouldBackup 은 마지막 백업(lastISO, RFC3339)으로부터 intervalH 시간이
+// 경과했는지 판정한다. 비었거나 해석 불가능한 값은 첫 백업으로 보고
+// true다. intervalH ≤ 0은 기본 24h 폴백.
+func ShouldBackup(lastISO string, now time.Time, intervalH int) bool {
+	if intervalH <= 0 {
+		intervalH = DefaultBackupIntervalH
+	}
 	if lastISO == "" {
 		return true
 	}
@@ -33,7 +43,7 @@ func ShouldBackup(lastISO string, now time.Time) bool {
 	if err != nil {
 		return true
 	}
-	return now.Sub(last) >= backupInterval
+	return now.Sub(last) >= time.Duration(intervalH)*time.Hour
 }
 
 // Auto 는 DSN 대상 자동 백업 실행기다.
@@ -53,8 +63,14 @@ func (a *Auto) RunIfNeeded(ctx context.Context,
 	if err != nil {
 		return fmt.Errorf("backup auto: meta 읽기: %w", err)
 	}
+	intervalH := 0
+	if v, err := metaKV(BackupIntervalKey); err == nil {
+		if n, perr := strconv.Atoi(strings.TrimSpace(v)); perr == nil {
+			intervalH = n
+		}
+	}
 	now := time.Now().UTC()
-	if !ShouldBackup(last, now) {
+	if !ShouldBackup(last, now, intervalH) {
 		return nil
 	}
 	if err := dumpFn(ctx, a.DSN, dump); err != nil {

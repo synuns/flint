@@ -990,6 +990,7 @@ func applyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.HotRetentionD, def.HotRetentionD, false},
 		{&th.EventsVolumeWarn, def.EventsVolumeWarn, false},
 		{&th.DrillMaxDays, def.DrillMaxDays, false},
+		{&th.DailyRetentionD, def.DailyRetentionD, false},
 	} {
 		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
 			*f.cur = f.def
@@ -1025,7 +1026,7 @@ func thresholdsKeys() []string {
 		"pending_age_days", "recall_warn_writes",
 		"dead_days", "pair_window_minutes", "chain_window_hours",
 		"events_retention_days", "hot_events_retention_days",
-		"events_volume_warn", "drill_max_days",
+		"events_volume_warn", "drill_max_days", "daily_retention_days",
 	}
 }
 

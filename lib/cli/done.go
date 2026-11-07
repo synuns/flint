@@ -210,6 +210,9 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 충돌 방지(수명 주기 상이: 1회성 vs 내구).
 	if w, starved := recallStarvedToday(ctx, st, th); starved {
 		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"오늘 회상 0회에 기록 %d회 — 다음 세션은 작업 전 flint read부터"}`+"\n", w, w)
+		// v0.24.0 R2a: 마커와 병행 meta 카운터 적립 — minimal 프로파일이
+		// 마커를 조용히 종결해도 doctor가 프로파일 무관 관측한다.
+		bumpMetaCounter(ctx, st, "recall_starved_count")
 		if merr := WriteTypedMarker(markerKindRecall, session, nudgeReasonRecall); merr != nil {
 			fmt.Fprintf(os.Stderr, "[flint] recall marker: %v\n", merr)
 		}
@@ -371,4 +374,12 @@ func (l *lazyDumpFile) closeAndPath() string {
 
 func init() {
 	Register("done", runDone)
+}
+
+// bumpMetaCounter — meta 카운터 1 증분(done 회상 카운터 전용 유틸).
+// 실패는 조용히(§13 — 계측 원칙).
+func bumpMetaCounter(ctx context.Context, st Store, key string) {
+	_, _ = queryOnce(ctx, st,
+		`INSERT INTO meta (key, value) VALUES ($1, '1')
+		 ON CONFLICT (key) DO UPDATE SET value = (meta.value::bigint + 1)::text`, []any{key})
 }

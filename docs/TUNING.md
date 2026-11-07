@@ -4,6 +4,29 @@ flint의 임계값·예산은 하드코딩 금지 원칙 아래 meta 테이블�
 기본값은 코드(`lib/store/thresholds.go`)에 있고, meta 키가 우선한다.
 잘못된 값은 경고와 함께 기본값으로 폴백한다(에러 아님).
 
+## 0. 조정 가이드 (v0.24.0 — 임계값 설계 점검 반영)
+
+**언제 조정하나** — 기본값으로 시작하고 **관측 창(14일) 후 첫 반복
+경고 패턴에서만** 오버라이드한다. 관측 없는 선제 튜닝은 분포를 모른
+채 값을 고르는 것(관측 선행 원칙 — zero-near의 표본 하한이 이 원칙의
+기존 구현).
+
+**재조정 트리거** — 아래 패턴이 반복될 때만 해당 키를 조정한다:
+
+| 반복 관측 | 조정 키 | 방향 |
+|---|---|---|
+| 어휘 밖 경고가 계속(오타 아님) | vocab_tags·vocab_domains | 개인 어휘 추가 |
+| zero-near warn 반복 | suggest_min_score | 하향(제안 문턱) |
+| zero-near '판정 보류' 지속 | — | 조정 아님 — 표본 축적 대기 |
+| pending-age warn 반복·방치 | pending_max 또는 승격 플로 | 값보다 프로세스 |
+| dup_susp warn 반복 | dup_susp_max | 상향(정상 다양성 수용) |
+| 회상 부재 누적(doctor recall-starved) | recall_warn_writes | 하향(경고 문턱) |
+| 폴백률 지속 상승 | (검색 품질 영역 — PLAN §15) | 키 아님 |
+
+**경고는 행동 가능해야 한다** — 조치를 못 정하면 튜닝 대상이 아니다.
+매 경고는 fix 안내를 동반한다(doctor). 발동 창구: 대부분 수동
+doctor·maintain이며 세션 시작 안내는 pending·갱신만(비간섭 §13).
+
 ## 1. hot 예산(주입 상한) 튜닝
 
 절차(§15 이연결정 "주입 예산 상한: hot_view 2주 실측 p95로 확정" 회수):
@@ -32,7 +55,7 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 
 | meta 키 | 기본값 | 의미 | 경고 발동 |
 |---|---|---|---|
-| `pending_max` | 50 | 미기록(pending) 결정 상한 | maintain·done |
+| `pending_max` | 50 | 미기록(pending) 결정 상한 | maintain --check |
 | `dup_susp_max` | 20 | 중복의심 결정 상한 | maintain |
 | `conf_floor` | 0.8 | 확신 하한(0~1) | maintain |
 | `stale_sessions` | 3 | 연속 미기록 세션 수 | done |
@@ -52,8 +75,12 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 | `chain_window_hours` | 24 | 사용 연쇄 판정 창(시간) — 반환 id 재반환·같은 topic write 인정 범위 | report effect |
 | `events_retention_days` | 14 | read_events·session_starts 보존일(daily 카운터 정책 승계) | 계측 정리 |
 | `hot_events_retention_days` | 30 | hot_events 보존일(dead_pct 노출 가드 창과 정렬) | 계측 정리 |
-| `events_volume_warn` | 50000 | 계측 3테이블 합계 경고 행 수 — 이상 시 doctor event-volume warn | doctor event-volume |
-| `drill_max_days` | 30 | 백업 드릴 경과 보고 기준일 — 초과 시 `,"drill":"stale"`(doctor·maintain 경로) | doctor·maintain 보고 |
+| `events_volume_warn` | 50000 | 계측 3테이블 합계 **방어 상한**(대량 유입 안전장치 — 일반 운영 도달 전제 아님, v0.24.0 표기 정정) | doctor event-volume |
+| `backup_interval_h` | 24 | 자동 백업 최소 주기(시간) — backup_keep과 한 세트(v0.24.0) | done 자동 백업 |
+| `vocab_tags` | (빈) | 개인 tag 어휘(콤마 목록) — 기본 7종과 **합집합**, repo 아닌 운영 DB에(v0.24.0 R4) | write 어휘 경고 |
+| `vocab_domains` | (빈) | 개인 domain 어휘(콤마 목록) — 기본 4종과 합집합 | write 어휘 경고 |
+| `daily_retention_days` | 14 | daily:* 카운터 보존·기간화 창 상한 — report/status 창·PruneDaily 단일 소스(v0.24.0 — 3곳 하드코딩 통합) | 보존·창 |
+| `drill_max_days` | 30 | 백업 드릴 경과 보고 기준일 — 초과 시 `,"drill":"stale"` | maintain --check |
 
 갱신(미설정 키는 기본값, 즉시 재적용 — 재시작 불필요):
 

@@ -41,7 +41,7 @@ func CheckVocabulary(tags []string, domain string) []string {
 	var warnings []string
 	for _, tag := range tags {
 		n := normalizeVocab(tag)
-		if !knownTags[n] {
+		if !knownTag(n) {
 			w := fmt.Sprintf("unknown tag: %s", n)
 			if s := SuggestTag(n); len(s) > 0 {
 				w += " (유사: " + strings.Join(s, ", ") + ")"
@@ -49,7 +49,7 @@ func CheckVocabulary(tags []string, domain string) []string {
 			warnings = append(warnings, w)
 		}
 	}
-	if d := normalizeVocab(domain); d != "" && !knownDomains[d] {
+	if d := normalizeVocab(domain); d != "" && !knownDomain(d) {
 		w := fmt.Sprintf("unknown domain: %s", d)
 		if s := SuggestDomain(d); len(s) > 0 {
 			w += " (유사: " + strings.Join(s, ", ") + ")"
@@ -120,5 +120,51 @@ func editDistance(a, b string) int {
 }
 
 // SuggestTag·SuggestDomain — 어휘 밖 값의 수정 후보.
-func SuggestTag(in string) []string    { return suggestFrom(in, knownTags) }
-func SuggestDomain(in string) []string { return suggestFrom(in, knownDomains) }
+func SuggestTag(in string) []string {
+	return suggestFrom(in, unionVocab(knownTags, vocabExtraTags))
+}
+
+func SuggestDomain(in string) []string {
+	return suggestFrom(in, unionVocab(knownDomains, vocabExtraDomains))
+}
+
+// unionVocab — 기본 ∪ 개인(제안도 개인 어휘에서).
+func unionVocab(base, extra map[string]bool) map[string]bool {
+	out := make(map[string]bool, len(base)+len(extra))
+	for k := range base {
+		out[k] = true
+	}
+	for k := range extra {
+		out[k] = true
+	}
+	return out
+}
+
+// VocabExtras — meta 오버라이드 어휘(v0.24.0 R4a: 개인 어휘를 repo가
+// 아닌 운영 DB meta에 — 합집합. 어휘는 늘리는 게 일반 케이스라 기본
+// 집합을 대체하지 않는다). SetVocabExtras는 write 경로 시작 시 1회
+// 주입(단발 CLI 프로세스 — 갱신 경합 없음).
+var (
+	vocabExtraTags    = map[string]bool{}
+	vocabExtraDomains = map[string]bool{}
+)
+
+// SetVocabExtras — 개인 어휘 주입(정규화 후 합집합 반영).
+func SetVocabExtras(tags, domains []string) {
+	for _, t := range tags {
+		if n := normalizeVocab(t); n != "" {
+			vocabExtraTags[n] = true
+		}
+	}
+	for _, d := range domains {
+		if n := normalizeVocab(d); n != "" {
+			vocabExtraDomains[n] = true
+		}
+	}
+}
+
+// knownTag — 기본 ∪ 개인.
+func knownTag(s string) bool { return knownTags[s] || vocabExtraTags[s] }
+
+// knownDomain — 기본 ∪ 개인.
+func knownDomain(s string) bool { return knownDomains[s] || vocabExtraDomains[s] }

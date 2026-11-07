@@ -18,14 +18,12 @@ import (
 
 func init() { Register("report", runReport) }
 
-// reportDaysDefault·reportDaysMax — --days 기본 7·상한 14(14일 보존 계약과 정렬).
-const (
-	reportDaysDefault = 7
-	reportDaysMax     = 14
-)
+// reportDaysDefault — --days 기본 7. 상한은 보존 창(thresholds
+// daily_retention_days, v0.24.0 R1b — 상수 reportDaysMax 폐지).
+const reportDaysDefault = 7
 
-// reportStaleDays — stale 집계 기준일(Confluence 분기 리뷰 관례, §2 ruling).
-const reportStaleDays = 90
+// (v0.24.0 R1a: reportStaleDays 상수 폐지 — thresholds stale_days
+// 키와 단일화, 오버라이드가 report 집계에도 반영된다.)
 
 // reportDay — 일별 유입 1행. 소스(hook/manual/mcp)와 dup는 write와 별도 증분.
 // dup_* 3필드는 v0.10.2 R2 소스별 계측(미기록 일 0 — daily JSON 키 부재는
@@ -97,6 +95,9 @@ type effectOutput struct {
 	// v0.20.0 — 세션 경계(D)·사용 연쇄(B).
 	RecallLedPct int `json:"recall_led_pct"` // G4: 기록한 세션 중 회상이 앞선 비율
 	ChainPct     int `json:"chain_pct"`      // G4: 반환→사용 연쇄율(24h)
+	// v0.24.0 R4b: 프로파일 관측 힌트(D① 축소형) — 표본 하한 미달이면
+	// "보류"(관측 선행 원칙 — 추측 금지, METRICS §5 준수: 보고 전용).
+	ProfileHint string `json:"profile_hint"`
 }
 
 // v0.20.4(패치 루프 4차·마일스톤 B③): 효과 계측 판정 창은 thresholds
@@ -156,8 +157,8 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 				fmt.Fprintln(stdout, errLine(fmt.Errorf("report: invalid days %q", args[i])))
 				return 1
 			}
-			if n > reportDaysMax {
-				n = reportDaysMax // 상한 14 — 보존 한도를 넘는 창은 무의미
+			if max := writeThresholds(ctx, st).DailyRetentionD; n > max {
+				n = max // 상한 = 보존 창(그 너머 데이터는 존재하지 않는다)
 			}
 			days = n
 		default:
@@ -334,7 +335,7 @@ func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) e
 	if len(rows) > 0 {
 		readCounters(rows[0], &out.Counts.Pending, &out.Counts.Active, &out.Counts.Invalidated)
 	}
-	staleCutoff := time.Now().Add(-time.Duration(reportStaleDays) * 24 * time.Hour)
+	staleCutoff := time.Now().Add(-time.Duration(writeThresholds(ctx, st).StaleDays) * 24 * time.Hour)
 	rows, err = queryOnce(ctx, st, `
 		/* stale */ SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < $1)
 		                         OR (read_count = 0 AND ingested_at < $1) THEN 1 END),
@@ -546,7 +547,21 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		}
 	}
 	out.Effect.ChainPct = chainPct(evs, writes, topics, chainWindow)
+	out.Effect.ProfileHint = profileHint(th, out.Effect)
 	return nil
+}
+
+// profileHint — D① 축소형: 관측 기반 프로파일 힌트(보고 전용 — 자동
+// 전환 금지 METRICS §5). 표본 하한(회상 이벤트 10 — zero-near 표본
+// 관례 승계) 미달은 "보류", 이후 recall_led_pct 기반 안내.
+func profileHint(th store.Thresholds, e effectOutput) string {
+	if e.ReadEventsN < 10 {
+		return "보류(표본 부족 — 관측 선행)"
+	}
+	if e.RecallLedPct >= 50 {
+		return "normal 유지 근거 충분(회상 선도 다수)"
+	}
+	return "회상 선도 낮음 — minimal 전환 고려 가능(안내만, 자동 전환 없음)"
 }
 
 // readEventRow — read_events 1행의 계산 뷰(G4).

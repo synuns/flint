@@ -136,3 +136,35 @@ func TestTuningSetRejectsZero(t *testing.T) {
 		t.Fatalf("pending_max=0(실값 유효) exit=%d: %s", code, out.String())
 	}
 }
+
+// TestTuningMetaKeysSetReset — v0.24.0 R1d/R4a: thresholds 밖 meta 키의
+// set 검증(열거·정수·목록)과 reset --all.
+func TestTuningMetaKeysSetReset(t *testing.T) {
+	f := newTuningFake()
+	var out strings.Builder
+	// exposure_profile 열거 검증.
+	if code := runTuning(context.Background(), f, []string{"set", "exposure_profile", "loud"}, nil, &out); code != 3 {
+		t.Fatalf("무효 열거 exit=%d: %s", code, out.String())
+	}
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"set", "exposure_profile", "minimal"}, nil, &out); code != 0 {
+		t.Fatalf("minimal set exit=%d: %s", code, out.String())
+	}
+	// vocab 목록 검증 — 빈 원소 거부·정상 목록 허용.
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"set", "vocab_tags", "a,,b"}, nil, &out); code != 3 {
+		t.Fatalf("빈 원소 exit=%d: %s", code, out.String())
+	}
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"set", "vocab_tags", "ops,k8s"}, nil, &out); code != 0 {
+		t.Fatalf("정상 목록 exit=%d: %s", code, out.String())
+	}
+	// reset --all — 전체 삭제.
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"reset", "--all"}, nil, &out); code != 0 {
+		t.Fatalf("reset --all exit=%d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"status":"reset-all"`) {
+		t.Fatalf("reset --all 출력: %s", out.String())
+	}
+}
