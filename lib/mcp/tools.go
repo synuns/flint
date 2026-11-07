@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"flint/lib/cli"
-	"flint/lib/query"
+	"github.com/synuns/flint/lib/cli"
+	"github.com/synuns/flint/lib/query"
 )
 
 // ToolDef — MCP tools/list 항목. InputSchema는 JSON Schema 객체.

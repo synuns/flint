@@ -11,8 +11,8 @@ import (
 	"strings"
 	"time"
 
-	"flint/lib/query"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/query"
+	"github.com/synuns/flint/lib/store"
 )
 
 // readBumper — v0.6 항목 참조 계측 seam(T62 BumpReads).

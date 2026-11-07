@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // composeRecorder — composeUpFn/composeDownFn seam 교체 기록(순수 단계테스트, exec 없음).

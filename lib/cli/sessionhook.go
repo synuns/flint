@@ -8,6 +8,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
 )
 
@@ -37,6 +38,11 @@ func runSessionStart(ctx context.Context, st Store, args []string, stdin io.Read
 	code := runHot(ctx, st, args, stdin, stdout)
 	if ncode := runNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
 		return ncode
+	}
+	// v0.22.0(A·R2): 갱신 안내 — [flint] 경계 내 1줄, 캐시 TTL로 하루
+	// 1회 확인. 네트워크 실패·최신 아님은 무출력(§13).
+	if line := maybeUpdateNotice(); line != "" {
+		fmt.Fprintln(stdout, line)
 	}
 	return code
 }

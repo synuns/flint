@@ -9,7 +9,7 @@ import (
 	"io"
 	"strings"
 
-	"flint/lib/cli"
+	"github.com/synuns/flint/lib/cli"
 )
 
 // serverInfoMeta — cli.VersionString(ldflags 주입)을 초기화 응답에 녹인다.

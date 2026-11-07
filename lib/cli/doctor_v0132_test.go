@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // TestDoctorCheckConflictsSubset — N7: `doctor --check conflicts`는

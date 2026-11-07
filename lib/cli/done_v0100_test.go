@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/backup"
+	"github.com/synuns/flint/lib/backup"
 )
 
 func TestLazyDumpWritesSidecar(t *testing.T) {

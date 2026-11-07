@@ -19,9 +19,9 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/backup"
-	"flint/lib/cli"
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/cli"
+	"github.com/synuns/flint/lib/db"
 )
 
 // regDrillDSN — v0.9.3 R1: regTestDSN 위임(FLINT_TEST_DSN 우선·flint_test

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/query"
+	"github.com/synuns/flint/lib/query"
 )
 
 func TestHotHeadline(t *testing.T) {

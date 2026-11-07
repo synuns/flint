@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/backup"
+	"github.com/synuns/flint/lib/backup"
 )
 
 // regDump — dir에 name(.sql)+선택 사이드카를 mtime으로 생성.

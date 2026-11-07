@@ -11,8 +11,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/db"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/store"
 )
 
 // defaultDSN — FLINT_DSN 미지정 시 기본 접속 문자열(ADR-0010: 포트 5434).
@@ -64,7 +64,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 	// store를 연결한다). nudge는 v0.13.2 N5부터 store 경유 — nudgeProfile가
 	// exposure_profile을 조회해 minimal 계약을 지킨다(구형 store-free 시
 	// minimal 자동 종결 불가).
-	if cmd == "version" || cmd == "teardown" || cmd == "mcp" {
+	if cmd == "version" || cmd == "teardown" || cmd == "mcp" || cmd == "update" {
 		return run(ctx, nil, rest, stdin, stdout)
 	}
 	// setup도 DB 다운이 주 시나리오(T40)라 store 없이도 응답한다 — 다만

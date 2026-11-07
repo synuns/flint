@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // miniDump — 최소 덤프 1개. 이 계약 테스트는 재생 결과가 아니라 DROP

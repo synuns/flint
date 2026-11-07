@@ -13,7 +13,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/query"
+	"github.com/synuns/flint/lib/query"
 )
 
 // instrumentedFake — fakeStore에 BumpReads·RecordUsage 계측을 얹은 fake.

@@ -13,7 +13,7 @@ import (
 	"strconv"
 	"time"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 func init() { Register("report", runReport) }

@@ -11,7 +11,7 @@ builds:
     goos: [darwin, linux]
     goarch: [arm64, amd64]
     ldflags:
-      - -s -w -X flint/lib/cli.version={{.Version}} -X flint/lib/cli.commit={{.Commit}}
+      - -s -w -X github.com/synuns/flint/lib/cli.version={{.Version}} -X github.com/synuns/flint/lib/cli.commit={{.Commit}}
     # v0.16.5: 타깃별 .mcpb 번들(zip: manifest.json + 바이너리) 생성.
     hooks:
       post:

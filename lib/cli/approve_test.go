@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // fakeApprove — T17 admin Approve fake. errErr 미지정 시 성공,

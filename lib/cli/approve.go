@@ -10,8 +10,8 @@ import (
 	"io"
 	"strconv"
 
-	"flint/lib/db"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/store"
 )
 
 // approveFn — seam. 기본 T17 실구현(자체 Repo open — Store 인터페이스에

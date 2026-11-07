@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/cli"
+	"github.com/synuns/flint/lib/cli"
 )
 
 // lookupMCPHandler — cli registry의 mcp 핸들러를 RunMCPServer와 같은

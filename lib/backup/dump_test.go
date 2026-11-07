@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // testDSN — FLINT_TEST_DSN 우선, 없으면 flint_test 기본(tests/regression·

@@ -5,7 +5,7 @@ import (
 	"context"
 	"testing"
 
-	"flint/lib/sqlfs"
+	"github.com/synuns/flint/lib/sqlfs"
 )
 
 // setVersion — 게이트 입력용으로 meta.schema_version을 강제한다.

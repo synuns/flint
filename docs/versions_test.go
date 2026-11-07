@@ -39,6 +39,9 @@ var versionDocContracts = []struct {
 		"AGENTS.md",
 		"flint mcp",
 	}},
+	{name: "TestVersion0220Milestone", doc: "PLAN.md", wants: []string{
+		"v0.22.0", "자동 업데이트",
+	}},
 	{name: "TestV0210AdapterDocsQwen", doc: "adapters/qwen.md", wants: []string{
 		"flint_read", "flint_write", "flint mcp", "지시파일",
 	}},

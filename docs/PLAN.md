@@ -317,6 +317,22 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.22.0 마이너 (2026-11-07) — 자동 업데이트 + go install 배포 경로
+
+사용자 지시(브레인스토밍 확정: 출시≠실행 갭 — 루프가 직접 실증한 고통):
+
+- [x] R1 `flint update` — 최신 Release 확인→자산 다운로드→checksums.txt
+  sha256 검증(필수)→tar 추출→version 실행 검증(verify-then-swap)→
+  원자 교체(rename). 실패 경로 전부 원본 불변. --check 드라이런
+- [x] R2 세션 시작 갱신 안내 — 캐시 TTL 24h(하루 1회 왕복), [flint]
+  경계 내 1줄, 네트워크 실패 조용히(§13 — 안내만, 자동 실행 없음)
+- [x] R3 doctor update 체크 — 릴리스 지연 warn(안내만)
+- [x] R4 모듈 경로 전환 `flint`→`github.com/synuns/flint`(임포트 63파일·
+  Makefile·goreleaser ldflags) — `go install github.com/synuns/flint/
+  cmd/flint@latest` 배포 경로 개통. ReadBuildInfo 폴백으로 go install
+  빌드의 버전 자가 보고(CurrentVersion)
+- [x] 버전 — VERSION·배지 v0.22.0(EN/KO)·plugin.json 동기
+
 ### v0.21.2 패치 (2026-11-07) — 패치 루프 8차: C③ PLAN 이력 아카이브
 
 - [x] §14 마일스톤 과거 엔트리(v0.1~v0.18.x)를 docs/HISTORY.md로

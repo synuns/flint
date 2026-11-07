@@ -20,9 +20,9 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"flint/lib/backup"
-	"flint/lib/db"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/store"
 )
 
 // staleSessionStore — T17 StaleSessionRuns 접근. Store 인터페이스는

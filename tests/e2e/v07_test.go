@@ -18,7 +18,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // flintEnv — os.Environ에서 overrides 키를 제거한 뒤 append(뒤가 아닌

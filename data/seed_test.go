@@ -15,9 +15,9 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/cli"
-	"flint/lib/db"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/cli"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/store"
 )
 
 // loadSeed — seed.jsonl을 줄 단위 JSON으로 읽는다(원본 텍스트도 함께).

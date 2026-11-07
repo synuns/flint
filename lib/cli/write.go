@@ -11,7 +11,7 @@ import (
 	"sort"
 	"strings"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // kindColumns — kind별 저장 가능 컬럼(spec §6). payload의 비컬럼 키(예: session의

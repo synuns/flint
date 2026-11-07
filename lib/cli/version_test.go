@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // TestVersionJSON — 기본 dev 폴백 한 줄 JSON(ldflags 미주입 시).

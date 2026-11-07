@@ -6,7 +6,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // staleQueryFixture — meta 조회는 임계값 rows, knowledge 조회는 지정 rows를 반환.

@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // 기본값이 레지스트리(thresholds.go)와 동일 소스인지 — 하드코딩 이중 소스 방지.

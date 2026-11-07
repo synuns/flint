@@ -13,9 +13,9 @@ import (
 	"strings"
 	"time"
 
-	"flint/lib/db"
-	"flint/lib/query"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/query"
+	"github.com/synuns/flint/lib/store"
 )
 
 // MaintStore — maintain이 필요한 저장소 연산(Store + admin 갱신·집계).

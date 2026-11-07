@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"flint/lib/query"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/query"
+	"github.com/synuns/flint/lib/store"
 )
 
 // defaultHotBudget — meta hot_budget 미설정 시 기본 상한(TUNING.md §1).

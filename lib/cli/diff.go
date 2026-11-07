@@ -12,7 +12,7 @@ import (
 	"io"
 	"time"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // diffCommitsMax — 요약 커밋 목록 상한(계약: 기본 20).

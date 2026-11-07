@@ -9,7 +9,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // fakeStore — Store 인터페이스 fake. stub 필드(exists·*Err)는 지정 시 우선되고,

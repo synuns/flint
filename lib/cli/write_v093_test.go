@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 func TestDuplicateSingleLineCarriesExistingID(t *testing.T) {

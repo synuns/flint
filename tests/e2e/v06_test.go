@@ -12,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // TestV06VisibilityChain — Review Focus(state): 전 체인 end-to-end·재read 증분.

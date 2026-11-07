@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 func TestClassifyConflictBoundary(t *testing.T) {

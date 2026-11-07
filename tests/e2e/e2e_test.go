@@ -25,10 +25,10 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/cli"
-	"flint/lib/db"
-	"flint/lib/mcp"
-	"flint/lib/sqlfs"
+	"github.com/synuns/flint/lib/cli"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/mcp"
+	"github.com/synuns/flint/lib/sqlfs"
 )
 
 // baseDSN — ADR-0010: 포트 5434. v0.9.3 R1: 테스트 격리 DB flint_test.

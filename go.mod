@@ -1,4 +1,4 @@
-module flint
+module github.com/synuns/flint
 
 go 1.26.0
 

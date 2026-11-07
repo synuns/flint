@@ -9,7 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // 에러 심볼 단일 소유는 lib/store — db는 별칭만 제공한다.
