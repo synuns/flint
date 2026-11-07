@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v0.20.6-blue" alt="v0.20.6">
+  <img src="https://img.shields.io/badge/release-v0.21.0-blue" alt="v0.21.0">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v0.20.6 · 효과 계측 정밀화 · 문서 테스트 통합 · [전체 변경 이력](docs/PLAN.md)
+> v0.21.0 · 효과 계측 정밀화 · 문서 테스트 통합 · [전체 변경 이력](docs/PLAN.md)
 
 ---
 
@@ -154,6 +154,16 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 | **Copilot** | MCP ([docs/adapters/copilot.md](docs/adapters/copilot.md)) |
 | **Cursor** | MCP ([docs/adapters/cursor.md](docs/adapters/cursor.md)) |
 | **OpenCode** | MCP ([docs/adapters/opencode.md](docs/adapters/opencode.md)) |
+| **Qwen Code** | MCP ([docs/adapters/qwen.md](docs/adapters/qwen.md)) |
+| **Devin CLI** | MCP ([docs/adapters/devin.md](docs/adapters/devin.md)) |
+| **Cline** | MCP ([docs/adapters/cline.md](docs/adapters/cline.md)) |
+| **Windsurf** | MCP ([docs/adapters/windsurf.md](docs/adapters/windsurf.md)) |
+| **Zed** | MCP ([docs/adapters/zed.md](docs/adapters/zed.md)) |
+| **Amp** | MCP ([docs/adapters/amp.md](docs/adapters/amp.md)) |
+| **VS Code** | MCP ([docs/adapters/vscode.md](docs/adapters/vscode.md)) |
+| **Continue** | MCP ([docs/adapters/continue.md](docs/adapters/continue.md)) |
+| **Goose** | MCP ([docs/adapters/goose.md](docs/adapters/goose.md)) |
+| **Trae** | MCP ([docs/adapters/trae.md](docs/adapters/trae.md)) |
 | **OpenClaw** | 어댑터 ([docs/adapters/openclaw.md](docs/adapters/openclaw.md)) |
 | **Hermes** | 어댑터 ([docs/adapters/hermes.md](docs/adapters/hermes.md)) |
 

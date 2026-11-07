@@ -27,7 +27,9 @@ func TestSetupMcpDetectsInstalled(t *testing.T) {
 	if !strings.Contains(s, `"registered":["codex","gemini"]`) {
 		t.Errorf("등록 목록: %s", s)
 	}
-	if !strings.Contains(s, `"skipped":["opencode","cursor","copilot"]`) {
+	// v0.21.0: A급 확장 — 미설치 하니스는 레지스트리 순서(opencode·
+	// copilot·cursor·qwen·devin·cline). B급(파일 설정형)은 목록 제외.
+	if !strings.Contains(s, `"skipped":["opencode","copilot","cursor","qwen","devin","cline"]`) {
 		t.Errorf("스킵 목록: %s", s)
 	}
 }

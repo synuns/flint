@@ -261,17 +261,8 @@ var execCommandFn = func(name string, args ...string) error {
 	return exec.Command(name, args...).Run()
 }
 
-// mcpAddArgs — 하네스별 `flint mcp` MCP 등록 인자(v0.16.5 R1).
-// copilot은 네이티브 CLI 미검증 — nil(안내만).
-func mcpAddArgs(harness string) []string {
-	switch harness {
-	case "codex", "opencode":
-		return []string{"mcp", "add", "flint", "--", "flint", "mcp"}
-	case "gemini", "cursor":
-		return []string{"mcp", "add", "flint", "flint", "mcp"}
-	}
-	return nil
-}
+// (v0.21.0: mcpAddArgs switch는 harnessSpec.MCPAdd 필드로 이전 —
+// 하니스 추가가 레지스트리 1행으로 끝나게.)
 
 // mcpSetupSummary — setup --mcp 결과 한 줄 JSON 모양(v0.16.5 R1).
 type mcpSetupSummary struct {
@@ -281,34 +272,29 @@ type mcpSetupSummary struct {
 	Detail     []string `json:"detail,omitempty"`
 }
 
-// runSetupMCP — harnessRegistry 5종 순회: exec.LookPath 탐지 후 각
-// 네이티브 CLI로 `flint mcp`를 등록한다. 미설치는 skipped(무해 — exit 0).
-// copilot은 CLI 미검증이라 안내만 — 루프 후미에 배치해 스킵 순서가
-// 등록 4종 이후가 되도록 한다(출력 계약: opencode·cursor·copilot).
-// 등록 실행 실패(이미 등록 등) 역시 치명 아님 — 설치 자체는 확인됐으므로
-// registered 유지·사유는 detail에.
+// runSetupMCP — A급 하니스(MCPAdd 보유) 순회: exec.LookPath 탐지 후
+// 각 네이티브 CLI로 `flint mcp`를 등록한다(v0.21.0: copilot CLI 검증
+// 승격 — 안내 전용 분기 폐지, 인자는 spec에서). B급(MCPAdd nil — 파일
+// 설정형)은 setup 대상 아님: 목록에서 제외(doctor 의사체크·문서 안내).
+// 미설치는 skipped(무해 — exit 0). 등록 실행 실패(이미 등록 등) 역시
+// 치명 아님 — 설치 자체는 확인됐으므로 registered 유지·사유는 detail에.
 func runSetupMCP(stdout io.Writer) int {
 	registered := []string{}
 	skipped := []string{}
 	var detail []string
 	for _, h := range harnessRegistry {
-		if h.Name == "copilot" {
-			continue // 안내 전용 — 후미 처리
+		if h.MCPAdd == nil {
+			continue // B급 — 파일 설정형
 		}
 		path, err := lookPathFn(h.Name)
 		if err != nil {
 			skipped = append(skipped, h.Name)
 			continue
 		}
-		if err := execCommandFn(path, mcpAddArgs(h.Name)...); err != nil {
+		if err := execCommandFn(path, h.MCPAdd...); err != nil {
 			detail = append(detail, fmt.Sprintf("%s: %v", h.Name, err))
 		}
 		registered = append(registered, h.Name)
-	}
-	// copilot: 네이티브 CLI 미검증 — 설치된 경우에만 수동 설정 안내.
-	skipped = append(skipped, "copilot")
-	if _, err := lookPathFn("copilot"); err == nil {
-		detail = append(detail, "copilot: 수동 설정 — .copilot/mcp-config.json")
 	}
 	b, err := json.Marshal(mcpSetupSummary{Status: "ok", Registered: registered, Skipped: skipped, Detail: detail})
 	if err != nil {

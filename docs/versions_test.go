@@ -39,6 +39,36 @@ var versionDocContracts = []struct {
 		"AGENTS.md",
 		"flint mcp",
 	}},
+	{name: "TestV0210AdapterDocsQwen", doc: "adapters/qwen.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsDevin", doc: "adapters/devin.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsCline", doc: "adapters/cline.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsWindsurf", doc: "adapters/windsurf.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsZed", doc: "adapters/zed.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsAmp", doc: "adapters/amp.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsVscode", doc: "adapters/vscode.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsContinue", doc: "adapters/continue.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsGoose", doc: "adapters/goose.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
+	{name: "TestV0210AdapterDocsTrae", doc: "adapters/trae.md", wants: []string{
+		"flint_read", "flint_write", "flint mcp", "지시파일",
+	}},
 
 	// v093_docs_test.go
 	{name: "TestPlanRecordsV092AndV093", doc: "PLAN.md", wants: []string{"v0.9.2", "v0.9.3"}},
