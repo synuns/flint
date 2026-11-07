@@ -209,3 +209,18 @@ v0.9.3 빌드 중 실DB wipe 사고에서 실증한 복구 절차다. §2의 rev
 - **세션 테이블 유실은 수용**한다(PLAN §8 — 세션은 재수집 대상).
 - **정크는 미복원 원칙**: 복구 범위는 유효 지식(active) 행만으로
   한정하고, 빌드 정크는 되살리지 않는다.
+
+## 테스트 DB 장기 운영 위생 (v0.21.2)
+
+`make e2e`가 Doltgres 엔진 내부 패닉(interface conversion류)으로 실패하면
+공유 `flint_test`의 **커밋 이력 누적**이 원인일 수 있다 — 모든 쓰기가
+Doltgres 커밋을 만들어 이력이 무한히 자라며, 오래된 DB에서 플래너
+버그를 건드릴 수 있다(2026-11-07 실측 사례). 해결:
+
+```sh
+psql postgresql://flint:flint-dev@localhost:5434/flint \
+  -c "DROP DATABASE flint_test" -c "CREATE DATABASE flint_test"
+make e2e   # 신규 DB에서 게이트가 스키마를 재구축한다
+```
+
+운영 DB(`flint`)는 해당 없다 — 이력은 시간여행(as-of) 기능의 자산이다.
