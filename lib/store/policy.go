@@ -64,27 +64,30 @@ func suggestFrom(in string, known map[string]bool) []string {
 		return nil
 	}
 	var out []string
-	// ① 접두 일치(의도 확실) — 대소 정렬로 결정적 순서.
+	seen := map[string]bool{}
+	add := func(k string) bool {
+		if seen[k] {
+			return false
+		}
+		seen[k] = true
+		out = append(out, k)
+		return len(out) == 2
+	}
 	keys := make([]string, 0, len(known))
 	for k := range known {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
+	// ① 접두 일치(의도 확실).
 	for _, k := range keys {
-		if strings.HasPrefix(k, n) || strings.HasPrefix(n, k) {
-			out = append(out, k)
-			if len(out) == 2 {
-				return out
-			}
+		if (strings.HasPrefix(k, n) || strings.HasPrefix(n, k)) && add(k) {
+			return out
 		}
 	}
 	// ② 편집거리 ≤2 근사.
 	for _, k := range keys {
-		if editDistance(n, k) <= 2 {
-			out = append(out, k)
-			if len(out) == 2 {
-				return out
-			}
+		if editDistance(n, k) <= 2 && add(k) {
+			return out
 		}
 	}
 	return out
@@ -105,21 +108,11 @@ func editDistance(a, b string) int {
 			if ra[i-1] == rb[j-1] {
 				cost = 0
 			}
-			cur[j] = minInt(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
+			cur[j] = min(prev[j]+1, cur[j-1]+1, prev[j-1]+cost)
 		}
 		prev, cur = cur, prev
 	}
 	return prev[len(rb)]
-}
-
-func minInt(vs ...int) int {
-	m := vs[0]
-	for _, v := range vs[1:] {
-		if v < m {
-			m = v
-		}
-	}
-	return m
 }
 
 // SuggestTag·SuggestDomain — 어휘 밖 값의 수정 후보.

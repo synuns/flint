@@ -116,34 +116,37 @@ func tuningUsage(stdout io.Writer, usage string) int {
 
 // tuningCurrent — 현재 값(오버라이드 여부 판별용 원시 메타 값 포함).
 func tuningCurrent(ctx context.Context, st Store) (store.Thresholds, map[string]string, error) {
-	th, err := loadThresholds(ctx, st)
-	if err != nil {
-		return th, nil, err
-	}
+	// v0.23.0 리뷰 ⑦: 단일 쿼리 — 같은 키 집합을 한 번 읽어 원시 맵과
+	// 파싱 결과를 모두 도출한다(loadThresholds와 이중 조회 제거).
 	raw := map[string]string{}
-	keys := tuningKeyList()
-	qmarks := make([]string, len(keys))
-	args := make([]any, len(keys))
-	for i, k := range keys {
-		qmarks[i] = "$" + strconv.Itoa(i+1)
-		args[i] = k
-	}
 	rows, err := queryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN (`+strings.Join(qmarks, ",")+`)`, args)
+		`SELECT key, value FROM meta WHERE key IN ('`+strings.Join(thresholdsKeys(), "','")+`')`, nil)
 	if err != nil {
-		return th, raw, nil // 원시 조회 실패는 source=default 표기로 강등
+		return store.Thresholds{}, raw, err
 	}
+	kv := make([][2]any, 0, len(rows))
 	for _, r := range rows {
 		if len(r) == 2 {
-			raw[fmt.Sprint(r[0])] = fmt.Sprint(r[1])
+			k := fmt.Sprint(r[0])
+			raw[k] = fmt.Sprint(r[1])
+			kv = append(kv, [2]any{r[0], r[1]})
 		}
 	}
+	th, perr := store.ParseThresholds(kv)
+	if perr != nil {
+		return th, raw, perr
+	}
+	th = applyThresholdsFallback(th)
 	return th, raw, nil
 }
 
 // tuningList — 전체 키의 현재값·기본값·소스 한 줄 JSON.
 func tuningList(ctx context.Context, st Store, stdout io.Writer) int {
-	th, raw, _ := tuningCurrent(ctx, st)
+	th, raw, err := tuningCurrent(ctx, st)
+	if err != nil { // v0.23.0 리뷰 ①: 영값 출력이 아니라 오류로.
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
 	km := tuningKeyMap()
 	type row struct {
 		Key      string `json:"key"`
@@ -173,9 +176,14 @@ func tuningGet(ctx context.Context, st Store, key string, stdout io.Writer) int 
 	if !ok {
 		return tuningUnknownKey(stdout, key)
 	}
-	th, raw, _ := tuningCurrent(ctx, st)
+	th, raw, err := tuningCurrent(ctx, st)
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	_, overridden := raw[key] // ⑨: list와 동일하게 bool.
 	b, _ := json.Marshal(map[string]any{
-		"key": key, "value": info.Get(th), "default": info.Default, "override": raw[key],
+		"key": key, "value": info.Get(th), "default": info.Default, "override": overridden,
 	})
 	fmt.Fprintln(stdout, string(b))
 	return 0
@@ -187,7 +195,7 @@ func tuningSet(ctx context.Context, st Store, key, val string, stdout io.Writer)
 	if !ok {
 		return tuningUnknownKey(stdout, key)
 	}
-	// 검증: 후보 값을 파싱해 필드에 그대로 반영되는지(폴백 아님).
+	// 검증 ①: 후보 값을 파싱해 필드에 그대로 반영되는지(폴백 아님).
 	cand, err := store.ParseThresholds([][2]any{{key, val}})
 	if err == nil && info.Get(cand) != val {
 		err = fmt.Errorf("파싱 폴백 — 무효 값")
@@ -196,6 +204,15 @@ func tuningSet(ctx context.Context, st Store, key, val string, stdout io.Writer)
 		fmt.Fprintln(stdout, errLine(&store.SchemaError{
 			Field:  key,
 			Expect: "유효 값(기본 " + info.Default + ", TUNING §2 참조)",
+		}))
+		return 3
+	}
+	// 검증 ②(v0.23.0 리뷰 ②): 폴백 키는 0이 "미설정" 의미라 저장해도
+	// 소비자가 기본값으로 되돌린다 — 표현 불가 값 사전 거부.
+	if val == "0" && zeroMeansUnset(key) {
+		fmt.Fprintln(stdout, errLine(&store.SchemaError{
+			Field:  key,
+			Expect: "0 불가(미설정 의미) — 기본 복귀는 reset",
 		}))
 		return 3
 	}
@@ -227,4 +244,14 @@ func tuningReset(ctx context.Context, st Store, key string, stdout io.Writer) in
 func tuningUnknownKey(stdout io.Writer, key string) int {
 	fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "tuning", Expect: "알려진 키: " + strings.Join(tuningKeyList()[:5], ", ") + ", …"}))
 	return 3
+}
+
+// zeroMeansUnset — loadThresholds가 0을 미설정으로 폴백하는 키(v0.5
+// 4키 제외 — 0이 실값으로 유효). 리뷰 ②의 표현 불가 집합.
+func zeroMeansUnset(key string) bool {
+	switch key {
+	case "pending_max", "dup_susp_max", "conf_floor", "stale_sessions":
+		return false
+	}
+	return true
 }

@@ -101,3 +101,38 @@ func TestTuningUnknownKeyAndList(t *testing.T) {
 		t.Fatalf("dels=%v", f.dels)
 	}
 }
+
+// TestTuningKeysMatchRegistry — v0.23.0 리뷰 ⑧: tuningKeys와
+// thresholdsKeys(공유 소스)의 동질성 — 새 키 추가 시 3중 유지 드리프트 방어.
+func TestTuningKeysMatchRegistry(t *testing.T) {
+	reg := map[string]bool{}
+	for _, k := range thresholdsKeys() {
+		reg[k] = true
+	}
+	km := tuningKeyMap()
+	if len(km) != len(reg) {
+		t.Fatalf("키 수 불일치: tuning %d vs registry %d", len(km), len(reg))
+	}
+	for k := range km {
+		if !reg[k] {
+			t.Errorf("tuning 전용 키 %q — thresholdsKeys에 없음", k)
+		}
+	}
+}
+
+// TestTuningSetRejectsZero — 리뷰 ②: 폴백 키의 0은 "미설정" 의미라
+// 표현 불가 — 거부되어야 한다(v0.5 4키 제외).
+func TestTuningSetRejectsZero(t *testing.T) {
+	f := newTuningFake()
+	var out strings.Builder
+	if code := runTuning(context.Background(), f, []string{"set", "dead_days", "0"}, nil, &out); code != 3 {
+		t.Fatalf("dead_days=0 exit=%d, want 3: %s", code, out.String())
+	}
+	if len(f.sets) != 0 {
+		t.Fatalf("0이 기록됨: %v", f.sets)
+	}
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"set", "pending_max", "0"}, nil, &out); code != 0 {
+		t.Fatalf("pending_max=0(실값 유효) exit=%d: %s", code, out.String())
+	}
+}
