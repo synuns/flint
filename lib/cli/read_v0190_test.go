@@ -11,7 +11,7 @@ import (
 
 // readEventRecorder — fakeStore에 ReadEventStore(v0.19.0 seam)를 얹은
 // fake(readUsageRecorder 패턴 승계). RecordReadUsage도 흡수해 카운터
-// 경로를 단순화한다.
+// 경로를 단순화한다. v0.20.0: ids(반환 id CSV) 녹음 추가.
 type readEventRecorder struct {
 	*fakeStore
 	events []readEventRecord
@@ -24,14 +24,15 @@ type readEventRecord struct {
 	near     bool
 	fallback bool
 	session  string
+	ids      string
 }
 
 func (r *readEventRecorder) RecordReadUsage(ctx context.Context, zero, near bool) error {
 	return nil
 }
 
-func (r *readEventRecorder) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session string) error {
-	r.events = append(r.events, readEventRecord{hits, zero, near, fallback, session})
+func (r *readEventRecorder) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string) error {
+	r.events = append(r.events, readEventRecord{hits, zero, near, fallback, session, ids})
 	return nil
 }
 
@@ -68,6 +69,10 @@ func TestReadEventRecordedOnHit(t *testing.T) {
 	}
 	if ev.session != "s-42" {
 		t.Errorf("session = %q, want s-42", ev.session)
+	}
+	// v0.20.0: 반환 id CSV(상위 10) — 2행 히트이므로 "1,2".
+	if ev.ids != "1,2" {
+		t.Errorf("ids = %q, want 1,2", ev.ids)
 	}
 }
 

@@ -269,6 +269,64 @@ func (r *Repo) ensureSchemaV6(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV7는 meta.schema_version<7인 DB를 v7로 무손실 승격한다:
+// 효과 계측 정밀화(v0.20.0, docs/METRICS.md §4) — read_events에 ids 컬럼
+// 추가(ALTER)·session_starts·hot_events 테이블 생성(CREATE IF NOT EXISTS).
+// 기존 테이블·views 무변경(additive). 이미 v7 이상이면 no-op(수치 비교
+// 단락)이며 v1~v6 게이트를 경유한 어느 DB에서도 멱등하다.
+func (r *Repo) EnsureSchemaV7(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV7(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV7(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v7: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 7 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v7: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`ALTER TABLE read_events ADD COLUMN IF NOT EXISTS ids text NOT NULL DEFAULT ''`); err != nil {
+		return fmt.Errorf("schema v7: alter read_events: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS session_starts (
+		    id      serial PRIMARY KEY,
+		    ts      timestamptz NOT NULL DEFAULT now(),
+		    session text NOT NULL DEFAULT ''
+		)`); err != nil {
+		return fmt.Errorf("schema v7: create session_starts: %w", err)
+	}
+	if _, err := tx.Exec(ctx, `
+		CREATE TABLE IF NOT EXISTS hot_events (
+		    id  serial PRIMARY KEY,
+		    ts  timestamptz NOT NULL DEFAULT now(),
+		    ids text NOT NULL DEFAULT ''
+		)`); err != nil {
+		return fmt.Errorf("schema v7: create hot_events: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '7')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v7: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v7: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
 // 이미 active면 멱등 no-op, 없는 id는 ErrNotFound.
 func (r *Repo) Approve(ctx context.Context, id int) error {

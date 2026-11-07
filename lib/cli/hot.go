@@ -271,12 +271,16 @@ func hotCounts(rows [][]any) (active, pending, recent int) {
 // persist한다(단발 CLI 프로세스 분리 보존). 둘 다 계측이므로 실패는
 // 조용히 무시된다(§13 — hot 출력·exit에 영향 금지).
 func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	session := ""
+	// 세션 라벨은 공유 파서(sessionLabel)로 — session-start 경계 기록과
+	// 단일 소스(v0.20.0 리뷰 #7). --full 판별은 세션 값으로 소비된 토큰을
+	// 플래그로 재판독하지 않는다(변칙 입력 `--session --full`의 기존
+	// full=true 부작용 제거 — read의 플래그형 값 방어와 같은 방향).
+	session := sessionLabel(args)
 	full := false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--session" && i+1 < len(args) {
-			session = args[i+1]
 			i++
+			continue
 		}
 		if args[i] == "--full" {
 			full = true
@@ -319,10 +323,26 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	if !full {
 		recordUsage(ctx, st, "hot", "")
 	} else if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
-		instrumentReads(ctx, st, "hot",
-			injectedIDsForSurvivors(rows, rowIDs(idRows), hotLineSurvivorCount(lines, budget)), false, false)
+		injected := injectedIDsForSurvivors(rows, rowIDs(idRows), hotLineSurvivorCount(lines, budget))
+		instrumentReads(ctx, st, "hot", injected, false, false)
+		// v0.20.0(E): 실제 주입된 지식 id를 hot_events에 노출 기록 —
+		// dead_pct의 hot 노출 보정 원천. 실패는 조용히(§13 계측 원칙).
+		if rec, ok := st.(HotEventRecorder); ok {
+			_ = rec.RecordHotEvent(ctx, idsCSV(injected))
+		}
 	} else {
 		recordUsage(ctx, st, "hot", "")
 	}
 	return 0
+}
+
+// HotEventRecorder — hot --full 주입 노출 기록 접합면(v0.20.0).
+// realStore는 db.Repo.RecordHotEvent로 구현, 미구현 Store(fake)는 건너뛴다.
+type HotEventRecorder interface {
+	RecordHotEvent(ctx context.Context, ids string) error
+}
+
+// realStore 위임 — RecordHotEvent 실구현 연결.
+func (s *realStore) RecordHotEvent(ctx context.Context, ids string) error {
+	return s.repo.RecordHotEvent(ctx, ids)
 }

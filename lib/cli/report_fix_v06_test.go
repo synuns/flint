@@ -48,7 +48,9 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 		// 집계(read_count 30일 컷오프)도 "read_count"을 포함해 오판된다.
 		isStale := strings.Contains(q.sql, "last_read_at")
 		isPeriod := strings.Contains(q.sql, "invalid_at >=")
-		isDead := strings.Contains(q.sql, "read_count > 0") // effect G3(dead_pct)
+		// effect G3 dead 후보 조회 — stale도 "read_count = 0"을 포함하지만
+		// isStale이 먼저 흡수한다(판별 순서 계약).
+		isDead := strings.Contains(q.sql, "read_count = 0 AND ingested_at")
 		if isStale {
 			sawStale = true
 		}
@@ -75,7 +77,9 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 		if isStale {
 			wantDays = 90 // stale 집계 기준일(reportStaleDays)
 		}
-		if isDead {
+		if isDead && !isStale {
+			// stale 쿼리는 "read_count = 0 AND ingested_at"을 포함하지만
+			// 90일 게이트가 선행한다(판별 우선순위 계약).
 			wantDays = 30 // dead_pct 기준일(reportDeadDays, 리뷰 #4)
 		}
 		if el := time.Since(cut); el < time.Duration(wantDays-1)*24*time.Hour || el > time.Duration(wantDays+1)*24*time.Hour {
