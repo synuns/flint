@@ -704,6 +704,31 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 템플릿) ④ 수요 실증 — report 텍스트 소비로 충분한지 관측 기간 후
 판정. 기본 방향: 도입 확정이 아니라 평가 후 결정.
 
+### v0.20.1 패치 (2026-11-07) — 패치 루프 1차: 전수 조사 18건 중 정확성 4건·테스트 왜곡 2건
+
+관측·조사 → 레퍼런싱 → 브레인스토밍 → 수정 4단계의 1차 이터레이션
+(전체 기능 스윕 7건 + 테스트 품질 감사 9건 + 운영 관측 2건):
+
+- [x] F1 무효화 상태 정합(high) — Invalidate·Merge(from)이
+  status='invalidated' 병기(배치 경로와 단일 법칙 — read --status
+  invalidated 노출·report counts 정합) + Approve 승격 시 invalid_at
+  청소(active+invalid_at 좀비 방어)
+- [x] F2 setup 배선 — st 고정 nil로 정상 DB에서도 매번 degraded(QUICKSTART
+  약속 불이행). 연결 시도 후 실패 시에만 nil 진행으로 수정 — 깨진 동작을
+  '계약'으로 문서화하던 테스트(TestSetupJSONMode)도 재작성(테스트 감사
+  축2 사례) + DB 다운 degraded 경로 별도 테스트로 보존
+- [x] F3 hot 헤드라인 카운트 왜곡 — 카운트 경로 상한 50(HotHeadlineSQL),
+  주입(--full)은 예산 상한 10 계약 불변
+- [x] F4 자동 백업 로테이션 — maybeAutoBackup이 keep-N 로테이션 호출
+  (수동 경로와 동일 계약, 이전엔 무한 축적)
+- [x] T1·T8 테스트 왜곡 즉치 — effect fixture 미매칭 쿼리 t.Fatalf
+  계약화(즉시 3종 잠복 흡수 발견)·hot_full_guard want 리터럴 고정
+- [x] 버전 — VERSION·배지 v0.20.1(EN/KO)·plugin.json 동기
+
+이월(v0.20.2+): docs 테스트 통합(34→1)·doctor --check 체크명 정합·
+F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
+판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)

@@ -287,6 +287,11 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 		}
 	}
 	sql := query.HotSQL(session)
+	if !full {
+		// v0.20.1(F3): 헤드라인 경로는 카운트 왜곡 방지 상한(50) —
+		// 주입(--full)은 예산 상한 계약 불변.
+		sql = query.HotHeadlineSQL(session)
+	}
 	rows, err := queryOnce(ctx, st, sql, nil)
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
