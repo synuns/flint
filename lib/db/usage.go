@@ -151,19 +151,34 @@ func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
 // PruneReadEvents — 보존 한도를 넘은 효과 계측 이벤트 삭제. v0.20.0:
 // read_events·session_starts는 14일(daily 카운터와 동일 정책), hot_events는
 // 30일(dead_pct 노출 정합 가드 창과 정렬 — 14일이면 가드가 문서 계약의
-// 절반만 커버한다, 리뷰 #3). 트리거는 recordWithRetry의 롤오버 훅
-// (PruneDaily와 동시) — 첫 read가 날짜를 넘기면 그 시점에 정리된다.
-// 실패는 호출부가 조용히 넘긴다(계측 원칙).
+// 절반만 커버한다, 리뷰 #3). v0.20.4: 보존일은 meta 오버라이드
+// (events_retention_days·hot_events_retention_days, TUNING §2) — 키
+// 부재·파손은 기본값. 트리거는 recordWithRetry의 롤오버 훅(PruneDaily와
+// 동시) — 첫 read가 날짜를 넘기면 그 시점에 정리된다(하루 1회라 메타
+// 읽기 왕복 부담 없음). 실패는 호출부가 조용히 넘긴다(계측 원칙).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
-	now := time.Now().UTC()
-	cutoffs := map[string]time.Time{
-		"read_events":    now.Add(-14 * 24 * time.Hour),
-		"session_starts": now.Add(-14 * 24 * time.Hour),
-		"hot_events":     now.Add(-30 * 24 * time.Hour),
+	retention := map[string]int{
+		"read_events":    14,
+		"session_starts": 14,
+		"hot_events":     30,
 	}
-	for table, cutoff := range cutoffs {
+	for _, kc := range []struct{ key, table string }{
+		{"events_retention_days", "read_events"},
+		{"events_retention_days", "session_starts"},
+		{"hot_events_retention_days", "hot_events"},
+	} {
+		var v string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT value FROM meta WHERE key = $1`, kc.key).Scan(&v); err == nil {
+			if n, perr := strconv.Atoi(strings.TrimSpace(v)); perr == nil && n > 0 {
+				retention[kc.table] = n
+			}
+		}
+	}
+	now := time.Now().UTC()
+	for table, days := range retention {
 		if _, err := r.pool.Exec(ctx,
-			`DELETE FROM `+table+` WHERE ts < $1`, cutoff); err != nil {
+			`DELETE FROM `+table+` WHERE ts < $1`, now.Add(-time.Duration(days)*24*time.Hour)); err != nil {
 			return err
 		}
 	}

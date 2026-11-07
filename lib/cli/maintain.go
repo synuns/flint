@@ -948,7 +948,7 @@ func drillReport(ctx context.Context, st Store) string {
 // DefaultThresholds 값으로 폴백한다.
 func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	rows, err := queryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h','suggest_min_score','suggest_scan_cap','conflict_dup_threshold','backup_age_warn_h','zero_near_min_read','zero_near_warn_pct','pending_age_days','recall_warn_writes')`, nil)
+		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h','suggest_min_score','suggest_scan_cap','conflict_dup_threshold','backup_age_warn_h','zero_near_min_read','zero_near_warn_pct','pending_age_days','recall_warn_writes','dead_days','pair_window_minutes','chain_window_hours','events_retention_days','hot_events_retention_days','events_volume_warn')`, nil)
 	if err != nil {
 		return store.Thresholds{}, err
 	}
@@ -995,6 +995,25 @@ func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	}
 	if th.RecallWarnWrites == 0 { // -1(끔)은 유지 — v0.18.1
 		th.RecallWarnWrites = def.RecallWarnWrites
+	}
+	// v0.20.4: 효과 계측 창·보존·용량(미설정 0 → 기본값).
+	if th.DeadDays == 0 {
+		th.DeadDays = def.DeadDays
+	}
+	if th.PairWindowMin == 0 {
+		th.PairWindowMin = def.PairWindowMin
+	}
+	if th.ChainWindowH == 0 {
+		th.ChainWindowH = def.ChainWindowH
+	}
+	if th.EventsRetentionD == 0 {
+		th.EventsRetentionD = def.EventsRetentionD
+	}
+	if th.HotRetentionD == 0 {
+		th.HotRetentionD = def.HotRetentionD
+	}
+	if th.EventsVolumeWarn == 0 {
+		th.EventsVolumeWarn = def.EventsVolumeWarn
 	}
 	return th, nil
 }

@@ -62,7 +62,9 @@ func TestReportEffectSection(t *testing.T) {
 		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
 			return [][]any{{"read_stats", `{"calls":10,"zero":4}`}}, nil
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
-			return nil, nil // read_fallback_calls 부재(누적 폴백률 0)
+			return nil, nil // read_fallback_calls 부재
+		case strings.Contains(sql, "key IN ('pending_max'"):
+			return nil, nil // thresholds 미설정 — 기본값(v0.20.4 이양)(누적 폴백률 0)
 		case strings.Contains(sql, "daily:"):
 			return [][]any{{"daily:" + now.Format("2006-01-02"),
 				`{"read":10,"read_zero":4,"read_zero_near":3,"write":8,"dup":6}`}}, nil
@@ -151,6 +153,8 @@ func TestReportEffectZeroReads(t *testing.T) {
 			return nil, nil // 노출 이력 없음
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
 			return nil, nil // read_fallback_calls 부재
+		case strings.Contains(sql, "key IN ('pending_max'"):
+			return nil, nil // thresholds 미설정 — 기본값(v0.20.4 이양)
 		case strings.Contains(sql, "read_events"):
 			return nil, nil
 		case strings.Contains(sql, "last_read_at"):
@@ -208,6 +212,8 @@ func TestReportEffectSessionPairing(t *testing.T) {
 			return nil, nil
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
 			return nil, nil // read_fallback_calls 부재
+		case strings.Contains(sql, "key IN ('pending_max'"):
+			return nil, nil // thresholds 미설정 — 기본값(v0.20.4 이양)
 		case strings.Contains(sql, "read_events"):
 			return [][]any{{readA.Format(time.RFC3339), false, ""}}, nil
 		case strings.Contains(sql, "session_starts"):
@@ -286,16 +292,16 @@ func TestChainPct(t *testing.T) {
 	topics := map[int]string{7: "t7", 9: "t9", 11: "t11"}
 	// 히트: ev0·ev1((a) +2h 재반환)·ev3((b)) = 3/5 = 60. ev2는 이후
 	// 재반환 없음(t7 write는 24h 밖) → 비히트.
-	if got := chainPct(evs, writes, topics); got != 60 {
+	if got := chainPct(evs, writes, topics, 24*time.Hour); got != 60 {
 		t.Errorf("chainPct = %d, want 60(3/5)", got)
 	}
 	// Δ=0만 있는 경우 — 동시 기록은 연쇄 아님(0/1).
 	sameTS := []readEventRow{{ts: base, ids: []int{7}}, {ts: base, ids: []int{7}}}
-	if got := chainPct(sameTS, nil, topics); got != 0 {
+	if got := chainPct(sameTS, nil, topics, 24*time.Hour); got != 0 {
 		t.Errorf("Δ=0만 있을 때 chainPct = %d, want 0", got)
 	}
 	// ids 없는 read는 분모에서 제외 — 전부 비히트면 0.
-	if got := chainPct([]readEventRow{{ts: base}}, writes, topics); got != 0 {
+	if got := chainPct([]readEventRow{{ts: base}}, writes, topics, 24*time.Hour); got != 0 {
 		t.Errorf("ids 없는 read 단독 chainPct = %d, want 0", got)
 	}
 }
@@ -318,6 +324,8 @@ func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 			return nil, nil // 노출 이력 없음
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
 			return nil, nil // read_fallback_calls 부재
+		case strings.Contains(sql, "key IN ('pending_max'"):
+			return nil, nil // thresholds 미설정 — 기본값(v0.20.4 이양)
 		case strings.Contains(sql, "read_events"):
 			return nil, fmt.Errorf("relation \"read_events\" does not exist (42P01)")
 		case strings.Contains(sql, "last_read_at"):

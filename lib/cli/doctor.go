@@ -31,7 +31,7 @@ func DoctorChecks() []string {
 // 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
 // conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts", "zero-near", "pending-age"}
+	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -145,6 +145,9 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		// pending-age(v0.16.2 R4)도 체인 말미 — 만료된 pending 방치는
 		// warn이면 족하다(fail 아님) + 만료 명령 안내.
 		checks = append(checks, checkPendingAge(ctx, st))
+		// event-volume(v0.20.4 마일스톤 C①)도 체인 말미 — 계측 테이블
+		// 성장은 warn 안내만(fail 아님).
+		checks = append(checks, checkEventVolume(ctx, st))
 	}
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
@@ -229,6 +232,9 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 	case "pending-age":
 		// v0.16.2 R4 — 같은 tail-chain 서브셋 경로 승계(--check pending-age).
 		return checkPendingAge(ctx, st)
+	case "event-volume":
+		// v0.20.4(마일스톤 C①) — 계측 테이블 용량 warn.
+		return checkEventVolume(ctx, st)
 	case "skill-file":
 		// v0.20.2(O2) — 전체 리포트 체크명과 --check 이름 공간 정합.
 		// home 미탐지·소스 미탐지는 skip 판정(전체 체인과 동일 규칙).
@@ -1092,4 +1098,37 @@ func publishesPort(e composePsEntry, port int) bool {
 		}
 	}
 	return false
+}
+
+// checkEventVolume — v0.20.4(패치 루프 4차·마일스톤 C①): 효과 계측
+// 테이블 용량 점검. 3테이블 합계 행 수가 events_volume_warn(기본
+// 50000, meta 오버라이드)을 넘으면 warn — 보존일(events_retention_days)
+// 단축 또는 PruneReadEvents 정상 작동 여부 점검 안내. 성장은 정상
+// 동작의 결과이므로 fail 아니다(비간섭 원칙 — warn 안내만).
+func checkEventVolume(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "event-volume"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "계측 테이블 조회 불가"
+		return c
+	}
+	rows, err := queryOnce(ctx, st, `
+		SELECT (SELECT count(*) FROM read_events)
+		     + (SELECT count(*) FROM session_starts)
+		     + (SELECT count(*) FROM hot_events)`, nil)
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		c.Status = "warn"
+		c.Detail = "계측 테이블 집계 실패 — 스키마 v7 미승격 가능"
+		return c
+	}
+	n, _ := cellToInt(rows[0][0])
+	th := writeThresholds(ctx, st)
+	if n >= th.EventsVolumeWarn {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("계측 테이블 %d행 — 임계 %d(events_volume_warn). 보존일(events_retention_days·hot_events_retention_days) 점검", n, th.EventsVolumeWarn)
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("계측 테이블 %d행", n)
+	return c
 }
