@@ -97,8 +97,11 @@ func TestExtractBinary(t *testing.T) {
 // 내용(실행 시 version JSON을 출력하는 셸 스크립트여야 검증 통과).
 func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Server {
 	t.Helper()
+	prevTLS := updateTLSVerify
+	updateTLSVerify = false // httptest 자체 서명 수용(프로덕션 불변)
+	t.Cleanup(func() { updateTLSVerify = prevTLS })
 	mux := http.NewServeMux()
-	srv := httptest.NewServer(mux)
+	srv := httptest.NewTLSServer(mux)
 	t.Cleanup(srv.Close)
 	assetName := fmt.Sprintf("flint_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
 	archive := buildTarGz(t, newBin)
@@ -179,7 +182,7 @@ func TestUpdateFlowChecksumMismatch(t *testing.T) {
 	mux.HandleFunc("/bad", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprint(w, "0000000000000000000000000000000000000000000000000000000000000000  "+assetName+"\n")
 	})
-	badSrv := httptest.NewServer(mux)
+	badSrv := httptest.NewTLSServer(mux)
 	t.Cleanup(badSrv.Close)
 	prev := updateAPIBase
 	updateAPIBase = badSrv.URL
@@ -222,5 +225,13 @@ func TestMaybeUpdateNoticeCache(t *testing.T) {
 	_ = json.Unmarshal(rb, &after)
 	if after.Latest != "9.9.9" {
 		t.Errorf("캐시 갱신 실패: %+v", after)
+	}
+}
+
+// TestDownloadRejectsNonHTTPS — v0.22.1(S1): 평문 스킴 URL은 다운로드
+// 거부(응답 변조·다운그레이드 방어).
+func TestDownloadRejectsNonHTTPS(t *testing.T) {
+	if _, err := download("http://example.com/asset"); err == nil {
+		t.Error("http:// URL 거부 안 됨")
 	}
 }
