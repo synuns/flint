@@ -76,33 +76,50 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
 ### G3 자산 건전성
 
 - **reuse_pct** = `100 × count(read_count > 0) / count(active)` —
-  한 번이라도 회상된 active 지식 비율. 시점 지표(기간 아님).
-- **dead_pct** = `100 × count(read_count = 0 AND ingested_at <
-  now() − 30일) / count(active)` — 한 번도 회상되지 않은 채 한 달을
-  넘긴 비율. 30일은 증류·중복 사이클이 주 단위로 돈다는 일반 근거에서
-  정한 기본값(report 상수 — 개인 튜닝 불요, 필요 시 다음 버전에서
-  thresholds 레지스트리로 이양).
+  한 번이라도 회상된(검색 경로) active 지식 비율. 시점 지표(기간
+  아님). hot 주입은 stale 왜곡 방지를 위해 read_count를 올리지
+  않는다 — 그래서 이 지표는 "검색 재사용"만 잰다.
+- **dead_pct** = `100 × dead / active`, dead = 회상 0·30일 경과 후보
+  중 **최근 30일 hot 노출 제외**(v0.20.0 보정 — 주입된 지식은
+  "회상 못 된 자산"이 아니라 "노출된 자산"). 30일은 증류·중복
+  사이클이 주 단위로 돈다는 일반 근거의 기본 상수.
 
 ### G4 회상 우선 정착
 
-- **read_write_pairs** — 창 내 read 이벤트 e 각각에 대해 `e.ts` 뒤
-  30분 안에 knowledge 커밋(ingested_at)이 존재하면 1쌍. Go-사이드
-  조인으로 산출(Doltgres 호환 리스크 제거). 30분은 "회상이 같은
-  작업 흐름 안에서 생산으로 이어졌다"는 근접성 가정의 기본값.
-- **pair_pct** = `100 × read_write_pairs / read_events_n` — read가
-  생산으로 이어진 비율. 분모는 같은 소스(read_events)에서 세야
-  자기일관된다(daily Σread는 v0.19 이전 이력 포함).
-- read의 `--session` 라벨(선택)은 read_events에 기록만 한다 —
-  세션 일치 페어링은 후속 버전 과제(현재는 시간 창 페어링).
+- **read_write_pairs** — 같은 세션으로 배정된 read의 직후 30분
+  (0 < Δ ≤ 30분) 안에 knowledge 커밋이 있으면 1쌍(v0.20.0: 세션
+  경계가 1차 판정 — 시간만 겹치는 타 세션 write는 우연 동반으로
+  제외된다). 세션 경계가 없는 환경(구배포·계측 첫일)은 시간창
+  폴백(v0.19.0 규칙). 세션 구간은 `[start_i, start_{i+1})`이고
+  시작 경계는 SessionStart 훅이 기록한다. compact·resume 재발발은
+  같은 세션의 보수적 분할로 수용한다.
+- **pair_pct** = `100 × pairs / read_events_n` — 분모·분자가 같은
+  소스(read_events)에서 나온 자기일관 값.
+- **recall_led_pct** = 기록(write ≥1)이 있는 세션 중 첫 read가 첫
+  write보다 앞선 세션 비율(v0.20.0) — "세션이 회상으로 시작했다"의
+  세션 단위 관측. done의 회상 경고(v0.18.0 R3)와 같은 관점의 측정
+  버전이다.
+- **chain_pct** = 반환 id가 있는 read 중 24시간 내 (a) 이후 read에서
+  같은 id 재반환 또는 (b) 같은 topic write로 이어진 비율(v0.20.0
+  사용 연쇄) — hit_pct가 못 주는 "쓸 만한 게 나왔다"의 가장 가까운
+  프록시. 반환 id는 상위 10개만 기록한다(저장 예산).
 
-### 계측 원천(read_events, 스키마 v6)
+### 계측 원천(스키마 v6·v7)
 
-read 1회마다 1행: `ts·hits·zero·near·fallback·session`. 14일
-보존(daily 카운터와 동일 정책, 롤오버 시 정리). 계측 실패는 조용히
-넘긴다(§13 — 사용 로그 유실이 조회 실패보다 낫다). 이벤트 로그 조회
-장애 시 효과 섹션의 G4·fallback_pct는 0으로 강등되고 보고 전체는
-깨지 않는다(다른 지표 공백의 0 폴백 관례). 개인 문구·쿼리 본문은
-저장하지 않는다(라벨·플래그·수치만).
+- **read_events**(v6, v0.20.0에 ids 추가): read 1회당 1행
+  `ts·hits·zero·near·fallback·session·ids`.
+- **session_starts**(v7): SessionStart 훅 1회당 1행 `ts·session` —
+  세션 구간 배정의 원천. 출력 없는 내부 계정(§13).
+- **hot_events**(v7): hot --full 주입 1회당 1행 `ts·ids`(실출력에
+  남은 지식만) — dead_pct 노출 보정의 원천.
+- 3테이블 모두 14일 보존(daily 카운터와 동일 정책, 롤오버 시
+  정리). 계측 실패는 조용히 넘기고(§13 — 사용 로그 유실이 조회
+  실패보다 낫다), 이벤트 로그 조회 장애 시 해당 지표는 0/폴백으로
+  강등되고 보고 전체는 깨지 않는다(다른 지표 공백의 0 폴백 관례).
+- 개인 문구·쿼리 본문은 저장하지 않는다(수치·플래그·id·라벨만).
+- **룰링(기저율 셔플 이연)**: pair의 우연 동반 보정용 시간 셔플
+  귀무 모델은 세션 경계 배정이 구조적으로 그 역할을 대신하므로
+  이연한다. 잔여 우연(세션 내 독립 발생)은 표본 축적 후 재평가.
 
 ## 5. 금지조항
 
@@ -118,7 +135,7 @@ read 1회마다 1행: `ts·hits·zero·near·fallback·session`. 14일
 ## 6. 연계
 
 - 산출: `flint report`의 `effect` 객체(§4 정의의 단일 소스).
-- 이력: docs/PLAN.md v0.19.0 엔트리.
+- 이력: docs/PLAN.md v0.19.0·v0.20.0 엔트리.
 - 기준 출처: Google HEART/GSM(Rodden et al., 2010) · RAGAS 지표
   분리 · Mem0 평가 관례(동일 조건 비교) · 오프라인-온라인 갭
-  관례(floor, not ceiling).
+  관례(floor, not ceiling) · IR 암시적 피드백(반환→사용 연쇄).

@@ -643,6 +643,26 @@ write·주입·종료·관측 4개 접점에서 교정한다.
   interval 리스크 회피)
 - [x] 버전 — VERSION·배지 v0.19.0(EN/KO)·plugin.json 동기
 
+### v0.20.0 마이너 (2026-11-07) — 효과 계측 정밀화 (effect precision)
+
+- [x] R1 스키마 v7(additive) — read_events.ids(반환 id CSV, 상위
+  10)·session_starts(세션 경계)·hot_events(주입 노출), 3테이블 14일
+  통합 보존 정리
+- [x] R2 세션 경계(D) — session-start 훅이 SessionStart 1회당 경계
+  기록(출력 없는 내부 계정, 전 프로파일). compact·resume 재발발은
+  보수적 분할로 수용(룰링)
+- [x] R3 페어링 정밀화(D) — 같은 세션 배정에서 read 직후 30분 내
+  write만 페어(타 세션 우연 동반 제외). 경계 부재 환경은 시간창
+  폴백. 신지표 recall_led_pct(회상 선도 세션 비율 — done 회상
+  경고와 같은 관점의 관측 버전)
+- [x] R4 사용 연쇄(B) — 반환 id 기록 + chain_pct(24h 내 재반환 또는
+  같은 topic write). IR 암시적 피드백 관례 — 프라이버시 무해·비간섭
+- [x] R5 노출 보정(E) — hot --full 주입 id 기록 + dead_pct에서 최근
+  노출 제외("회상 못 된 자산"→"노출된 자산" 분류 수정)
+- [x] 룰링: 기저율 셔플(C) 이연 — 세션 경계가 우연 동반을 구조적으로
+  제거, 잔여는 표본 축적 후 재평가(METRICS §4 명시)
+- [x] 버전 — VERSION·배지 v0.20.0(EN/KO)·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
