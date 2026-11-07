@@ -26,6 +26,10 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 않는다(저장소 규칙). v0.16.3까지 하드코딩됐던 소비부 상수
 (suggest·conflict·backup-age·zero-near·pending-age)도 이 표로 통합됐다.
 
+오버라이드 관리는 `flint tuning`(v0.23.0) — `list`·`get <key>`·
+`set <key> <value>`·`reset <key>`. set은 실경로 파싱으로 검증하며(무효
+값·폴백 키의 0은 거부), 개인 튜닝값은 이 경로로 운영 DB에만 둔다.
+
 | meta 키 | 기본값 | 의미 | 경고 발동 |
 |---|---|---|---|
 | `pending_max` | 50 | 미기록(pending) 결정 상한 | maintain·done |
