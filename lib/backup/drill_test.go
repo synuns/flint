@@ -13,8 +13,8 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/db"
 	"github.com/jackc/pgx/v5"
+	"github.com/synuns/flint/lib/db"
 )
 
 // Review Focus(numeric): INSERT 문 수와 테이블명 매칭 — knowledge만 세고

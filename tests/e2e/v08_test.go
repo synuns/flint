@@ -17,7 +17,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // latestCommitHash — audit --session 출력 파싱으로 해당 세션 커밋의 해시

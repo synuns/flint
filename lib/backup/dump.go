@@ -12,8 +12,8 @@ import (
 	"strings"
 	"time"
 
-	"flint/lib/db"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/synuns/flint/lib/db"
 )
 
 var (

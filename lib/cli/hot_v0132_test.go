@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/query"
+	"github.com/synuns/flint/lib/query"
 )
 
 // hotN3QueryFn — hot_view 본질의는 hotRows, 동반 id 질의(FROM projects p)는

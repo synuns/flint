@@ -19,7 +19,7 @@ import (
 	"strings"
 	"time"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // DoctorChecks — 검사 순서(스펙 §1 5종 + v0.7 port).
@@ -31,7 +31,7 @@ func DoctorChecks() []string {
 // 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
 // conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume"}
+	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "update"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -148,6 +148,8 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		// event-volume(v0.20.4 마일스톤 C①)도 체인 말미 — 계측 테이블
 		// 성장은 warn 안내만(fail 아님).
 		checks = append(checks, checkEventVolume(ctx, st))
+		// update(v0.22.0 마이너 A)도 체인 말미 — 릴리스 지연 warn 안내.
+		checks = append(checks, checkUpdate(ctx, st))
 	}
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
@@ -235,6 +237,9 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 	case "event-volume":
 		// v0.20.4(마일스톤 C①) — 계측 테이블 용량 warn.
 		return checkEventVolume(ctx, st)
+	case "update":
+		// v0.22.0(마이너 A·R3) — 릴리스 지연 warn.
+		return checkUpdate(ctx, st)
 	case "skill-file":
 		// v0.20.2(O2) — 전체 리포트 체크명과 --check 이름 공간 정합.
 		// home 미탐지·소스 미탐지는 skip 판정(전체 체인과 동일 규칙).
@@ -1156,5 +1161,33 @@ func checkEventVolume(ctx context.Context, st Store) doctorCheck {
 	}
 	c.Status = "ok"
 	c.Detail = fmt.Sprintf("계측 테이블 %d행", n)
+	return c
+}
+
+// checkUpdate — v0.22.0(마이너 A·R3): 현재 빌드 대비 최신 릴리스 지연
+// 경고. doctor는 사용자 실행 경로라 네트워크 확인을 직접 수행한다(5초
+// 타임아웃). 지연은 warn 안내만(fail 아님 — 업데이트는 명시적 실행 계약).
+func checkUpdate(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "update"}
+	if !validVersion(CurrentVersion()) {
+		c.Status = "ok"
+		c.Detail = "빌드 버전 미확정(dev) — 판정 보류"
+		return c
+	}
+	latest, err := fetchLatestVersion()
+	cur := CurrentVersion()
+	if err != nil {
+		c.Status = "ok"
+		c.Detail = "최신 버전 확인 실패(오프라인 가능) — 판정 보류"
+		return c
+	}
+	if compareVersions(latest, cur) > 0 {
+		c.Status = "warn"
+		c.Detail = "v" + cur + " → v" + latest + " 지연"
+		c.Fix = "fix: flint update"
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = "v" + cur + " 최신"
 	return c
 }

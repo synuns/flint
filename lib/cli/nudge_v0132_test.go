@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // TestNudgeStoreDownQuiet — store 접속 실패(DB 다운) 시 Run("nudge")은

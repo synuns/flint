@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // ADR-0006 백업 무결성 — Checksum·WriteSidecar·VerifyFile 단위 테스트(fast).

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // auditRows — dolt_log 2행 픽스처(session 태그 서로 다름).

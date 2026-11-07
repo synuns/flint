@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // newReportFake — report 조회 5종(meta daily·stats·counts·stale·기간 무효화)을

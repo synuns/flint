@@ -12,7 +12,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // call — runFn 호출 기록(조립된 CLI 인자 + stdin).

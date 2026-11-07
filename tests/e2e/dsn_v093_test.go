@@ -22,7 +22,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // ensureTestDB — flint_test 부재 시 생성(postgres→flint 순 admin 접속,

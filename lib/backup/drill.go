@@ -13,7 +13,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 const (

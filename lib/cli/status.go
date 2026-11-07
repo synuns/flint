@@ -11,7 +11,7 @@ import (
 	"strings"
 	"time"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // statusOutput — 키 순서 status·schema_version·pending으로 직렬화된다.

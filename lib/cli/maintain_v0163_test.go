@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // conflict_dup_threshold 오버라이드 — 임계를 요약 쌍 실측 유사도 초과로

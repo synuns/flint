@@ -17,7 +17,7 @@ GIT_COMMIT ?= $(shell git rev-parse --short HEAD 2>/dev/null || echo dev)
 NEXT_TAG ?= $(shell cur=$$(git describe --tags --abbrev=0 2>/dev/null); if [ -n "$$cur" ]; then echo "$$cur" | awk -F. '{print $$1"."$$2"."($$3+1)}'; else echo v0.1.0; fi)
 # version은 goreleaser와 동일하게 v 접두 없이 주입(VERSION_NU) —
 # `flint version`·goreleaser 빌드가 같은 형식(0.13.0)을 출력한다.
-LDFLAGS := -X flint/lib/cli.version=$(VERSION_NU) -X flint/lib/cli.commit=$(GIT_COMMIT)
+LDFLAGS := -X github.com/synuns/flint/lib/cli.version=$(VERSION_NU) -X github.com/synuns/flint/lib/cli.commit=$(GIT_COMMIT)
 
 .PHONY: test tidy up down build install seed e2e release ci
 

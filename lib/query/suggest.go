@@ -8,7 +8,7 @@ import (
 
 	"golang.org/x/text/unicode/norm"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // Suggestion — 제안 한 건(active_knowledge 행의 id·topic).

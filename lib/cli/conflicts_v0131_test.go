@@ -8,8 +8,8 @@ import (
 	"context"
 	"testing"
 
-	"flint/lib/db"
-	"flint/lib/query"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/query"
 )
 
 // fakeStore.ConflictGroups — ConflictStore seam fake(F7). 실 Repo의 그룹

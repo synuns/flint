@@ -15,8 +15,8 @@ import (
 	"path/filepath"
 	"strconv"
 
-	"flint/lib/backup"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/store"
 )
 
 // dumpFn·restoreFn — seam. 기본 T12 실구현, 테스트는 fake 교체(SUPERLITE_REAL=1은 위임).

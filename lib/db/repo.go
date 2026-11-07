@@ -17,8 +17,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/sqlfs"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/sqlfs"
+	"github.com/synuns/flint/lib/store"
 )
 
 // sqlfs seam — 테스트가 fake DDL로 교체한다(SUPERLITE_REAL=1이면 실구현 사용).

@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/query"
+	"github.com/synuns/flint/lib/query"
 )
 
 func statusQueryFn() func(string, []any) ([][]any, error) {

@@ -9,8 +9,8 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/query"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/query"
+	"github.com/synuns/flint/lib/store"
 )
 
 // suggest_scan_cap=42 오버라이드 — 제안 스캔 SQL의 LIMIT이 42로 바뀐다

@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/query"
+	"github.com/synuns/flint/lib/query"
 )
 
 func TestPendingAgeSuffix(t *testing.T) {

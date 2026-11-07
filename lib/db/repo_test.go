@@ -12,7 +12,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // testDSN은 testutil_test.go로 이동 — FLINT_DSN 비빈 반환, 빈이면 스킵(5433 폴백 폐지).

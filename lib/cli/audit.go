@@ -12,7 +12,7 @@ import (
 	"strconv"
 	"time"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // audit 기본·상한 limit.

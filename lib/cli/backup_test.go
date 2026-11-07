@@ -12,9 +12,9 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/backup"
-	"flint/lib/db"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/store"
 )
 
 // fakeBackup — lib/backup(T12) fake. stub(dumpErr·dumpText·restoreErr) 미지정

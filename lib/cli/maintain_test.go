@@ -9,8 +9,8 @@ import (
 	"testing"
 	"time"
 
-	"flint/lib/db"
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/store"
 )
 
 // fakeMaint — fakeStore에 admin 연산(Counts/Invalidate/Merge)을 얹은 fake.

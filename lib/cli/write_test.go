@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"flint/lib/store"
+	"github.com/synuns/flint/lib/store"
 )
 
 // existsHashStore — ExistsHash만 호출 시점별로 바꾼 fake(줄별 dedup 시나리오).

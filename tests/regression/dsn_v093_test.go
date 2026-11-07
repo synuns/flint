@@ -23,7 +23,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"flint/lib/db"
+	"github.com/synuns/flint/lib/db"
 )
 
 // regTestDefaultDSN — ADR-0010 포트 5434 위 격리 DB flint_test(v0.9.3 R1).
