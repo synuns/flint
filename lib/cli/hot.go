@@ -62,7 +62,7 @@ func hotKnowledgeIDsSQL() string {
 			SELECT k.id, k.valid_at FROM knowledge k
 			WHERE k.invalid_at IS NULL
 			  AND k.ingested_at >= now() - interval '7 days'
-			  AND k.domain = 'decision'
+			  AND k.tags LIKE '%:adr:%'
 		) u ORDER BY ts DESC, id DESC LIMIT ` + strconv.Itoa(query.ClampLimit(0)) + `
 	) top WHERE id IS NOT NULL`
 }

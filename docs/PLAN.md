@@ -327,6 +327,14 @@ doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·�
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.24.2 패치 (2026-11-08) — v0.24.x 패치 루프 2차: 개인화 평가 발견 — 결정 판정 adr 태그 전환
+
+- [x] hot_view '최근 결정' 팔을 domain='decision'에서 tag='adr'
+  기준으로(v0.23.2 정합에도 실사용 0건 — 결정은 domain=main+tag=adr
+  관례. 개인화 평가 실측이 확정, 기획 리뷰 대안 b 채택). CONTENT §4에
+  정준 경로 문서화·decision은 레거시 표기
+- [x] 버전 — VERSION·배지 v0.24.2(EN/KO)·plugin.json 동기
+
 ### v0.24.1 패치 (2026-11-08) — v0.24.x 패치 루프 1차: profile_hint 조기 return 결함
 
 - [x] 운영 관측 발견 — profile_hint가 ids 없는 read 이벤트만 있는

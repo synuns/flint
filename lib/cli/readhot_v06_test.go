@@ -151,7 +151,7 @@ func TestHotCompanionQueryMirrorsHotSQL(t *testing.T) {
 		"FROM projects p WHERE p.status = 'active'", // 뷰 팔 1: 순위에 포함
 		"k.status = 'pending'",                      // 뷰 팔 2
 		"interval '7 days'",                         // 뷰 팔 3
-		"k.domain = 'decision'",
+		"k.tags LIKE '%:adr:%'",
 		"ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(query.ClampLimit(0)), // HotSQL 동일 상한·tie-break
 		") top WHERE id IS NOT NULL", // 상한 적용 '후' 지식만 필터
 	} {
@@ -356,7 +356,7 @@ func TestHotCompanionQueryLimitsToInjected(t *testing.T) {
 		`SELECT id FROM knowledge k WHERE k.invalid_at IS NULL
 		   AND (k.status = 'pending'
 		        OR (k.ingested_at >= now() - interval '7 days'
-		            AND k.domain = 'decision'))`, nil)
+		            AND k.tags LIKE '%:adr:%'))`, nil)
 	if err != nil {
 		t.Fatalf("자격 지식 조회 실패: %v", err)
 	}
