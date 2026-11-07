@@ -109,6 +109,11 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
 
 ## 5. 기타 meta 키
 
+- `exposure_profile` = `normal` | `minimal`(기본 normal) — 에이전트 노출
+  축소 스위치: minimal은 hot 헤드라인에서 회상 힌트 제거·nudge 출력
+  전면 억제(마커는 자동 종결). 설정: `flint setup --exposure minimal`
+  (v0.11) — v0.24 후보로 tuning 커버 확장 예정(기획 리뷰).
+
 - `schema_version` — CLI 호환 검사 전용(수동 갱신 금지).
 - `last_backup` — 자동 백업 판정 전용(`flint backup`이 갱신).
 - `hot_stats` — hot 계측 영속 누적(`flint status`가 읽고 종료 시 갱신).

@@ -317,6 +317,23 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.23.2 패치 (2026-11-07) — v0.23.x 패치 루프 2차: 개인화 기획 리뷰 — 결함 1·문서 1
+
+개인화 기획 리뷰(에이전트 설계 조사, 지시 반영) 결과 처리:
+
+- [x] 결함 1(high) hot_view decision 팔 ↔ 어휘표 모순 — domain 어휘
+  4종화(knownDomains·CONTENT §4에 decision 추가). 초기 스키마부터
+  존재한 은폐 계약 불일치(어휘 준수 시 '최근 결정' 팔 공회전·
+  decision 사용 시 unknown domain 경고)
+- [x] 갭 TUNING §5 exposure_profile 문서화(값·효과·설정 경로)
+- [x] 버전 — VERSION·배지 v0.23.2(EN/KO)·plugin.json 동기
+
+v0.24 후보 적립(기획 리뷰 권고): 어휘 meta 오버라이드(vocab_tags·
+vocab_domains 합집합)·tuning 커버리스 확장(hot_budget·backup_keep·
+exposure_profile)·reset --all·consumer 표시·D① 축소형(profile_hint
+표본 하한 포함·경계 내 안내)·D④ 관측 패치(도메인별 read 분해) 후
+계층 도메인 §15 이연.
+
 ### v0.23.1 패치 (2026-11-07) — v0.23.x 패치 루프 1차: TUNING 관리 경로 문서화
 
 - [x] TUNING §2 서두에 `flint tuning` 오버라이드 관리 경로 문서화

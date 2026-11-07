@@ -21,6 +21,10 @@ var (
 		"main":       true,
 		"infra":      true,
 		"preference": true,
+		// v0.23.2(기획 리뷰 결함 1): hot_view '최근 결정' 팔이 domain='decision'을
+		// 요구(views.sql)하는데 어휘표에 없어 unknown domain 경고·팔 공회전 —
+		// 어휘 4종으로 정합(확정 결정은 CONTENT §1 유형 1 최상위).
+		"decision": true,
 	}
 )
 
