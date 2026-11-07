@@ -46,6 +46,9 @@ type statusV0180Output struct {
 	ReadCalls14d       int `json:"read_calls_14d"`
 	ReadZeroPct14d     int `json:"read_zero_pct_14d"`
 	ReadZeroNearPct14d int `json:"read_zero_near_pct_14d"`
+	// v0.24.0 리뷰 ④: *_14d 명칭은 역호환 유지, 실제 창은 이 필드로
+	// 표시(daily_retention_days 오버라이드 반영 — 거짓 이름 방어).
+	ReadWindowDays int `json:"read_window_days"`
 }
 
 // (v0.24.0 R1b: statusWindowedDays 상수 폐지 — 보존 창과 단일화.)
@@ -166,8 +169,10 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~7"}))
 		return 3
 	}
-	// v0.18.0 R4: 기간화 read 지표(14일 창) — 누적값과 병기.
-	winRead, winZeroPct, winNearPct := statusWindowedRead(ctx, st, writeThresholds(ctx, st).DailyRetentionD)
+	// v0.18.0 R4: 기간화 read 지표(창 = daily_retention_days, v0.24.0) —
+	// 누적값과 복기. *_14d 필드명은 역호환 유지(실제 창은 read_window_days).
+	winDays := writeThresholds(ctx, st).DailyRetentionD
+	winRead, winZeroPct, winNearPct := statusWindowedRead(ctx, st, winDays)
 	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합(해시는 dolt_log에서
 	// 확정된 base32 소문자 해시라 인라인해도 안전 — T81/T83 룰링). meta·
 	// 계측 조회는 현재 상태 그대로.
@@ -201,11 +206,11 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	var b []byte
 	if asOfHash != "" {
 		b, _ = json.Marshal(statusAsOfOutput{statusV0180Output: statusV0180Output{statusV096Output: base,
-			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct},
+			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays},
 			AsOf: asOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 	} else {
 		b, _ = json.Marshal(statusV0180Output{statusV096Output: base,
-			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct})
+			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays})
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 0

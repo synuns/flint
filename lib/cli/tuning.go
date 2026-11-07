@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/synuns/flint/lib/backup"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -79,9 +80,9 @@ func tuningMetaKeys() []tuningMetaKey {
 		}
 	}
 	return []tuningMetaKey{
-		{Key: "hot_budget", Default: "2000", Validate: intPositive("hot_budget")},
-		{Key: "backup_keep", Default: "14", Validate: intPositive("backup_keep")},
-		{Key: "backup_interval_h", Default: "24", Validate: intPositive("backup_interval_h")},
+		{Key: "hot_budget", Default: strconv.Itoa(defaultHotBudget), Validate: intPositive("hot_budget")},
+		{Key: "backup_keep", Default: strconv.Itoa(backup.DefaultBackupKeep), Validate: intPositive("backup_keep")},
+		{Key: "backup_interval_h", Default: strconv.Itoa(backup.DefaultBackupIntervalH), Validate: intPositive("backup_interval_h")},
 		{Key: "exposure_profile", Default: "normal", Validate: func(v string) error {
 			if v != "normal" && v != "minimal" {
 				return fmt.Errorf("exposure_profile: normal|minimal 필요")
@@ -236,6 +237,26 @@ func tuningList(ctx context.Context, st Store, stdout io.Writer) int {
 
 // tuningGet — 단일 키 상태.
 func tuningGet(ctx context.Context, st Store, key string, stdout io.Writer) int {
+	// v0.24.0 리뷰 ①: meta 관리 키도 get 대상(set/list/reset과 표면 일치).
+	for _, mk := range tuningMetaKeys() {
+		if mk.Key == key {
+			th, raw, err := tuningCurrent(ctx, st)
+			_ = th
+			if err != nil {
+				fmt.Fprintln(stdout, errLine(err))
+				return store.MapExit(err)
+			}
+			value, overridden := mk.Default, false
+			if v, ok := raw[mk.Key]; ok {
+				value, overridden = v, true
+			}
+			b, _ := json.Marshal(map[string]any{
+				"key": key, "value": value, "default": mk.Default, "override": overridden,
+			})
+			fmt.Fprintln(stdout, string(b))
+			return 0
+		}
+	}
 	info, ok := tuningKeyMap()[key]
 	if !ok {
 		return tuningUnknownKey(stdout, key)

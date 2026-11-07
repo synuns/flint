@@ -351,6 +351,10 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 - [x] 설계 점검 결론 반영: 키 수 과잉 아님(제거 후보 0) — 부족한 것은
   누수 4건(수정)과 자동 노출(연결)이었다
 - [x] 버전 — VERSION·배지 v0.24.0(EN/KO)·plugin.json 동기
+- [x] 리뷰 7건 — tuning get meta키 분기·정비 캐시 실패 시 미갱신·
+  recall 조회 실패 warn 위장 방지·status read_window_days 필드(거짓
+  14d 명칭 방어)·SetVocabExtras 대체语义(mcp 장기 프로세스)·meta키
+  기본값 소비자 상수 단일소스·profileHint 표본 하한 th 연동
 
 ### v0.23.2 패치 (2026-11-07) — v0.23.x 패치 루프 2차: 개인화 기획 리뷰 — 결함 1·문서 1
 

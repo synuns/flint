@@ -555,7 +555,8 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 // 전환 금지 METRICS §5). 표본 하한(회상 이벤트 10 — zero-near 표본
 // 관례 승계) 미달은 "보류", 이후 recall_led_pct 기반 안내.
 func profileHint(th store.Thresholds, e effectOutput) string {
-	if e.ReadEventsN < 10 {
+	// 표본 하한은 zero-near 표본 관례(zero_near_min_read) 승계 — 튜닝 가능.
+	if e.ReadEventsN < th.ZeroNearMinRead {
 		return "보류(표본 부족 — 관측 선행)"
 	}
 	if e.RecallLedPct >= 50 {

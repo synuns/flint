@@ -149,8 +149,12 @@ var (
 	vocabExtraDomains = map[string]bool{}
 )
 
-// SetVocabExtras — 개인 어휘 주입(정규화 후 합집합 반영).
+// SetVocabExtras — 개인 어휘 주입(정규화 후 합집합 반영). 호출 시
+// 기존 extras를 대체한다(v0.24.0 리뷰 ⑤: flint mcp 장기 프로세스에서
+// reset·변경이 반영되게 — 추가만 하면 영구 잔존).
 func SetVocabExtras(tags, domains []string) {
+	vocabExtraTags = map[string]bool{}
+	vocabExtraDomains = map[string]bool{}
 	for _, t := range tags {
 		if n := normalizeVocab(t); n != "" {
 			vocabExtraTags[n] = true

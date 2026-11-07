@@ -1212,7 +1212,12 @@ func checkRecallStarved(ctx context.Context, st Store) doctorCheck {
 	}
 	rows, err := queryOnce(ctx, st,
 		`SELECT value FROM meta WHERE key = $1`, []any{"recall_starved_count"})
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+	if err != nil {
+		c.Status = "warn" // 조회 실패를 깨끗한 소견으로 위장하지 않는다(리뷰 ③).
+		c.Detail = "회상 카운터 조회 실패"
+		return c
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
 		c.Status = "ok"
 		c.Detail = "회상 부재 이력 없음"
 		return c
