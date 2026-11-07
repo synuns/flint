@@ -523,3 +523,16 @@ func TestVersionArtifactsSync(t *testing.T) {
 		}
 	}
 }
+
+// TestReadmeHighlightMatchesVersion — v0.20.3(패치 루프 3차): README
+// 인용 하이라이트 줄은 최신 VERSION을 언급해야 한다. 이 줄은 배지·
+// plugin.json 동기 게이트 밖이라 3마이너 방치됐던 전례(패치 루프 3차).
+func TestReadmeHighlightMatchesVersion(t *testing.T) {
+	ver := strings.TrimSpace(read(t, "../VERSION"))
+	for _, name := range []string{"../README.md", "../README.ko.md"} {
+		doc := read(t, name)
+		if !strings.Contains(doc, "> v"+ver+" ") {
+			t.Errorf("%s 하이라이트 줄에 v%s 없음(최신 버전 동기)", name, ver)
+		}
+	}
+}

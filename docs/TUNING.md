@@ -139,10 +139,10 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
 - `flint maintain --supersede OLD --by NEW`가 OLD에 NEW의 id를
   기록한다(무효화 시각 = NEW의 valid_at). 수동 갱신 대상이 아니다.
 
-## 8. v0.10.1 상수
+## 8. v0.10.1 상수 — v0.16.3부터 §2 표의 meta 키로 레지스트리화
 
-코드 상수 두 개의 기본값·근거(값 변경은 코드 상수 직접 수정 — meta
-오버라이드는 정상 제안이 차단되는 관측이 있을 때 확장한다):
+세 상수의 기본값·근거(조정은 §2 표의 meta 키 오버라이드로 — 코드
+기본값 직접 수정은 아키텍처 위반, 2026-11-07 패치 루프 3차 정정):
 
 | 상수 | 기본값 | 근거 |
 |---|---|---|
@@ -195,8 +195,8 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
 | 표본 하한 | `10` | 창 내 Σread가 10 미만이면 표본 부족으로 ok(판정 보류) |
 | 경고 임계 | `30`% | Σread_zero_near×100/Σread ≥ 30이면 warn — 어휘 불일치 의심, 검색 품질 개선 여지 |
 
-경고는 동작을 막지 않는다(warn — fail 아님). 값은 코드 상수
-(`lib/cli/doctor.go`) — meta 오버라이드 확장은 허위 경고 관측 시 검토한다.
+경고는 동작을 막지 않는다(warn — fail 아님). 표본 하한·경고 임계는
+§2 표의 meta 키(`zero_near_min_read`·`zero_near_warn_pct`)로 조정한다.
 
 ### 계측 왕복 계약 — 단일 라이터·병합 upsert
 

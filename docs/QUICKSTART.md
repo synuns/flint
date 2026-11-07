@@ -6,7 +6,7 @@
 
 ```sh
 git clone https://github.com/synuns/flint.git flint && cd flint
-make install    # 빌드 후 GOPATH/bin/flint에 설치 (Go 1.26+, 의존 pgx/v5만)
+make install    # 빌드 후 GOPATH/bin/flint에 설치 (Go 1.26+, 의존 pgx/v5·x/text)
 ```
 
 [릴리스 바이너리](https://github.com/synuns/flint/releases)를 받아 PATH에
@@ -16,8 +16,8 @@ make install    # 빌드 후 GOPATH/bin/flint에 설치 (Go 1.26+, 의존 pgx/v5
 
 ```sh
 flint setup     # ①compose up --wait(60s) ②migrate ③seed 안내 ④플러그인 안내
-make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint \
-  # 예시 데이터: 프로젝트 3 + 결정 5 + pending 1 + 선호 1 + 플레이북 2
+# 예시 데이터: 프로젝트 3 + 결정 5 + pending 1 + 선호 1 + 플레이북 2
+make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
 ```
 
 setup은 Doltgres를 띄우고(호스트 5434, ADR-0010) 스키마를 마이그레이션한

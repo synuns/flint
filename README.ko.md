@@ -13,7 +13,7 @@
 <p align="center">
   <strong>AI 코딩 에이전트를 위한 장기기억</strong>
   <br/>
-  <sub>세션이 쌓일수록 에이전트가 똑똑해집니다 — Claude Code, Codex, Gemini, Copilot, Cursor 지원</sub>
+  <sub>세션이 쌓일수록 에이전트가 똑똑해집니다 — Claude Code, Codex, Gemini, Copilot, Cursor 등 8종 지원</sub>
 </p>
 
 <p align="center">
@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v0.20.2-blue" alt="v0.20.2">
+  <img src="https://img.shields.io/badge/release-v0.20.3-blue" alt="v0.20.3">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v0.17.0 · Dependabot · setup UX · CI 설계 리뷰 · [전체 변경 이력](docs/PLAN.md)
+> v0.20.3 · 효과 계측 정밀화 · 문서 테스트 통합 · [전체 변경 이력](docs/PLAN.md)
 
 ---
 
@@ -123,7 +123,7 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 
 | 커맨드 | 설명 |
 | :--- | :--- |
-| `flint setup` | Doltgres 기동 · 마이그레이션 · 시드 |
+| `flint setup` | Doltgres 기동 · 마이그레이션 · 시드/플러그인 다음 단계 안내 |
 | `flint write <kind>` | 표준 입력에서 지식 기록 (멱등) |
 | `flint read <query>` | 활성 지식 검색 |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |

@@ -725,13 +725,28 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
   계약화(즉시 3종 잠복 흡수 발견)·hot_full_guard want 리터럴 고정
 - [x] 버전 — VERSION·배지 v0.20.1(EN/KO)·plugin.json 동기
 
-이월(v0.20.2+): docs 테스트 통합(34→1)·doctor --check 체크명 정합·
+이월(v0.20.2+): docs 테스트 통합(26파일→1)·doctor --check 체크명 정합·
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.20.3 패치 (2026-11-07) — 패치 루프 3차: 문서·매니페스트 정합 7건
+
+관측(문서·매니페스트·배포 자산 스윕 + 운영 G4 파이프라인 실증) → 수정:
+
+- [x] D1 TUNING §8·§10 낡은 '코드 상수 직접 수정' 서술 정정(high) —
+  §2 레지스트리화 이후 실상과 정면 모순(튜닝 원칙 위반을 문서가 유도)
+- [x] D2 README 하이라이트 줄 v0.17.0→현재(EN/KO) + 재방치 방지
+  게이트(TestReadmeHighlightMatchesVersion — 배지 동기 밖 영역)
+- [x] D3~D7 사소 정합 — setup 행 '시드 안내' 정확화·PLAN 파일 수
+  34→26·QUICKSTART 의존(x/text)·RUNBOOK 스키마 v7·검사 조건부
+  보충·KO 서브텍스트 8종·QUICKSTART 주석 위치
+- [x] 운영 실증 — session_starts 기록 파이프라인 정상(0건은 설치 후
+  SessionStart 미발생, 결함 아님)
+- [x] 버전 — VERSION·배지 v0.20.3(EN/KO)·plugin.json 동기
+
 ### v0.20.2 패치 (2026-11-07) — 패치 루프 2차: 이월 8건 완료
 
-- [x] T5 docs 테스트 통합 — 버전별 34파일 → docs/versions_test.go 단일
+- [x] T5 docs 테스트 통합 — 버전별 26파일(v0접두) → docs/versions_test.go 단일
   table-driven(표 50행 + 커스텀 로직 18함수 원본 보존, 커버리지 불변)
 - [x] O2 doctor --check 정합 — 전체 리포트 체크명(skill-file·harness-*)
   단독 실행 허용(이름 공간 불일치 해소)
