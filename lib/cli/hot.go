@@ -319,10 +319,26 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	if !full {
 		recordUsage(ctx, st, "hot", "")
 	} else if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
-		instrumentReads(ctx, st, "hot",
-			injectedIDsForSurvivors(rows, rowIDs(idRows), hotLineSurvivorCount(lines, budget)), false, false)
+		injected := injectedIDsForSurvivors(rows, rowIDs(idRows), hotLineSurvivorCount(lines, budget))
+		instrumentReads(ctx, st, "hot", injected, false, false)
+		// v0.20.0(E): 실제 주입된 지식 id를 hot_events에 노출 기록 —
+		// dead_pct의 hot 노출 보정 원천. 실패는 조용히(§13 계측 원칙).
+		if rec, ok := st.(HotEventRecorder); ok {
+			_ = rec.RecordHotEvent(ctx, idsCSV(injected))
+		}
 	} else {
 		recordUsage(ctx, st, "hot", "")
 	}
 	return 0
+}
+
+// HotEventRecorder — hot --full 주입 노출 기록 접합면(v0.20.0).
+// realStore는 db.Repo.RecordHotEvent로 구현, 미구현 Store(fake)는 건너뛴다.
+type HotEventRecorder interface {
+	RecordHotEvent(ctx context.Context, ids string) error
+}
+
+// realStore 위임 — RecordHotEvent 실구현 연결.
+func (s *realStore) RecordHotEvent(ctx context.Context, ids string) error {
+	return s.repo.RecordHotEvent(ctx, ids)
 }

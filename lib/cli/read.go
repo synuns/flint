@@ -41,14 +41,44 @@ func (s *realStore) RecordReadUsage(ctx context.Context, zero, near bool) error 
 // docs/METRICS.md §4). realStore는 db.Repo.RecordReadEvent로 구현하고,
 // 미구현 Store(fake)는 이 계측을 건너뛴다(카운터 폴백과 달리 대체
 // 경로가 없다 — read_events 없이도 나머지 지표는 daily·knowledge에서
-// 도출된다).
+// 도출된다). v0.20.0: ids(반환 지식 id CSV, 상위 10) 추가 — 사용
+// 연쇄(chain) 산출 원천.
 type ReadEventStore interface {
-	RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session string) error
+	RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string) error
 }
 
 // realStore 위임 — RecordReadEvent 실구현 연결.
-func (s *realStore) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session string) error {
-	return s.repo.RecordReadEvent(ctx, hits, zero, near, fallback, session)
+func (s *realStore) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string) error {
+	return s.repo.RecordReadEvent(ctx, hits, zero, near, fallback, session, ids)
+}
+
+// idsCSV — 정수 id 슬라이스를 CSV로(저장 예산 상한 10 — hit 전수는
+// hits 컬럼이 유지한다). v0.20.0 chain 산출 원천의 직렬화.
+func idsCSV(ids []int) string {
+	if len(ids) > 10 {
+		ids = ids[:10]
+	}
+	parts := make([]string, 0, len(ids))
+	for _, id := range ids {
+		parts = append(parts, strconv.Itoa(id))
+	}
+	return strings.Join(parts, ",")
+}
+
+// parseIDsCSV — idsCSV 역직렬화(report 소비용). 빈 문자열·빈 칸은
+// 공란, 파싱 불가 칸은 조용히 건너뛴다(계측 관례).
+func parseIDsCSV(s string) []int {
+	if s == "" {
+		return nil
+	}
+	parts := strings.Split(s, ",")
+	out := make([]int, 0, len(parts))
+	for _, p := range parts {
+		if n, err := strconv.Atoi(strings.TrimSpace(p)); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
 }
 
 // cellToInt — 셀(any)→int 단일 강제 변환 유틸. read rowIDs·maintain stale·
@@ -315,8 +345,9 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	instrumentReads(ctx, st, "read", rowIDs(rows), len(rows) == 0, len(suggestions) > 0)
 	// 효과 계측(v0.19.0, docs/METRICS.md §4): read 1회를 read_events에
 	// 기록. 미구현 Store(fake)는 건너뛰고 실패는 조용히(§13 계측 원칙).
+	// v0.20.0: 반환 id CSV 동반(사용 연쇄 원천).
 	if res, ok := st.(ReadEventStore); ok {
-		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session)
+		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session, idsCSV(rowIDs(rows)))
 	}
 	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
 	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.
