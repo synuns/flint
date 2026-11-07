@@ -327,6 +327,13 @@ doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·�
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.24.1 패치 (2026-11-08) — v0.24.x 패치 루프 1차: profile_hint 조기 return 결함
+
+- [x] 운영 관측 발견 — profile_hint가 ids 없는 read 이벤트만 있는
+  운영에서 영구 공백: 힌트 할당이 hasIDs 조기 return 뒤에 있었다.
+  표본 하한 판정은 ids 유무와 무관하므로 가드 앞으로 이동
+- [x] 버전 — VERSION·배지 v0.24.1(EN/KO)·plugin.json 동기
+
 ### v0.24.0 마이너 (2026-11-08) — 개인화 2막 + 임계값 설계 완결
 
 사용자 지시: 개인화 2막에 임계값 효과 실증·재조정 기준·조정 시점·

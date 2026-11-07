@@ -524,6 +524,10 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	// (분모 0 확정 — 불필요한 스캔 제거, 리뷰 #6). topic 맵은 전체 knowledge
 	// 조회(무효화·대체 지식도 연쇄 매칭에 필요 — read 시점엔 active였을
 	// 수 있다, 리뷰 #4). 조회 실패는 (b) 경로만 강등.
+	// v0.24.1(패치 루프 1차 관측): 힌트는 표본 수만으로 판정 — ids
+	// 유무와 무관하게 가드 앞에서 산출한다(이전엔 hasIDs 조기 return
+	// 뒤에 있어 zero-hit read만 있는 운영에서 영구 공백).
+	out.Effect.ProfileHint = profileHint(th, out.Effect)
 	hasIDs := false
 	for _, e := range evs {
 		if len(e.ids) > 0 {
@@ -547,7 +551,6 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		}
 	}
 	out.Effect.ChainPct = chainPct(evs, writes, topics, chainWindow)
-	out.Effect.ProfileHint = profileHint(th, out.Effect)
 	return nil
 }
 

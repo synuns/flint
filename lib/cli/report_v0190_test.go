@@ -159,6 +159,8 @@ func TestReportEffectZeroReads(t *testing.T) {
 			return nil, nil
 		case strings.Contains(sql, "last_read_at"):
 			return [][]any{{"0", "0"}}, nil
+		case strings.Contains(sql, "ingested_at"):
+			return nil, nil
 		case strings.Contains(sql, "invalid_at >="):
 			return [][]any{{"0"}}, nil
 		case strings.Contains(sql, "count"):
@@ -330,6 +332,8 @@ func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 			return nil, fmt.Errorf("relation \"read_events\" does not exist (42P01)")
 		case strings.Contains(sql, "last_read_at"):
 			return [][]any{{"0", "0"}}, nil
+		case strings.Contains(sql, "ingested_at"):
+			return nil, nil
 		case strings.Contains(sql, "invalid_at >="):
 			return [][]any{{"0"}}, nil
 		case strings.Contains(sql, "count"):
@@ -355,5 +359,58 @@ func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 		if strings.Contains(q, "ingested_at >=") {
 			t.Errorf("이벤트 조회 실패 후 페어링 쿼리 실행: %s", q)
 		}
+	}
+}
+
+// TestReportProfileHintWithoutIDs — v0.24.1: ids 없는 read 이벤트만
+// 있어도 profile_hint가 표본 하한 판정을 출력한다(hasIDs 조기 return
+// 뒤에 있어 영구 공백이던 결함 — 운영 관측 발견).
+func TestReportProfileHintWithoutIDs(t *testing.T) {
+	now := time.Now().UTC()
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+			return nil, nil
+		case strings.Contains(sql, "key IN ('pending_max'"):
+			return nil, nil // thresholds 기본값
+		case strings.Contains(sql, "daily:"):
+			return nil, nil
+		case strings.Contains(sql, "read_count > 0"):
+			return [][]any{{"100", "60"}}, nil
+		case strings.Contains(sql, "id FROM knowledge"):
+			return nil, nil
+		case strings.Contains(sql, "read_events"):
+			// ids 없는(read 이벤트만) 표본 3건 — hasIDs false 경로.
+			return [][]any{
+				{now.Add(-2 * time.Hour).Format(time.RFC3339), false, ""},
+				{now.Add(-1 * time.Hour).Format(time.RFC3339), false, ""},
+				{now.Add(-30 * time.Minute).Format(time.RFC3339), false, ""},
+			}, nil
+		case strings.Contains(sql, "hot_events"):
+			return nil, nil
+		case strings.Contains(sql, "ingested_at"):
+			return nil, nil
+		case strings.Contains(sql, "session_starts"):
+			return nil, nil
+		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
+			return nil, nil
+		case strings.Contains(sql, "last_read_at"):
+			return [][]any{{"0", "0"}}, nil
+		case strings.Contains(sql, "ingested_at"):
+			return nil, nil
+		case strings.Contains(sql, "invalid_at >="):
+			return [][]any{{"0"}}, nil
+		case strings.Contains(sql, "count"):
+			return [][]any{{"0", "0", "0"}}, nil
+		}
+		t.Fatalf("미매칭 쿼리: %s", sql)
+		return nil, nil
+	}}
+	var out strings.Builder
+	if code := runReport(context.Background(), st, []string{"--days", "3"}, nil, &out); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"profile_hint":"보류`) {
+		t.Fatalf("ids 없는 표본에 힌트 공백: %s", out.String())
 	}
 }
