@@ -909,8 +909,14 @@ func stallWarnings(ctx context.Context, st Store, th store.Thresholds) []string 
 	return warns
 }
 
-// drillMaxDaysDefault — last_drill 경과 보고 기본 임계일(메타 drill_max_days 우선).
-const drillMaxDaysDefault = 30
+// drillThresholds — 드릴 경과 임계일(레지스트리 경유, 실패 시 기본).
+// v0.23.0: drillReport가 메타를 직접 읽던 것을 thresholds 단일 소스로 이관.
+func drillThresholds(ctx context.Context, st Store) int {
+	if th, err := loadThresholds(ctx, st); err == nil {
+		return th.DrillMaxDays
+	}
+	return 30
+}
 
 // drillReport — last_drill 경과 보고(T55). 30일(메타 drill_max_days) 초과 시
 // `,"drill":"stale"`, 유효한 기록 자체가 없으면 `,"drill":"never"`를 반환한다.
@@ -927,10 +933,7 @@ func drillReport(ctx context.Context, st Store) string {
 			kv[fmt.Sprint(r[0])] = fmt.Sprint(r[1])
 		}
 	}
-	maxDays := drillMaxDaysDefault
-	if n, err := strconv.Atoi(kv["drill_max_days"]); err == nil && n > 0 {
-		maxDays = n // 무효 값(비수·0·음수)은 기본값 폴백
-	}
+	maxDays := drillThresholds(ctx, st) // v0.23.0 이관 — 단일 소스(아래 last_drill은 kv 유지)
 	last, err := time.Parse(time.RFC3339, kv["last_drill"])
 	if err != nil {
 		return `,"drill":"never"`
@@ -948,7 +951,7 @@ func drillReport(ctx context.Context, st Store) string {
 // DefaultThresholds 값으로 폴백한다.
 func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	rows, err := queryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h','suggest_min_score','suggest_scan_cap','conflict_dup_threshold','backup_age_warn_h','zero_near_min_read','zero_near_warn_pct','pending_age_days','recall_warn_writes','dead_days','pair_window_minutes','chain_window_hours','events_retention_days','hot_events_retention_days','events_volume_warn')`, nil)
+		`SELECT key, value FROM meta WHERE key IN ('pending_max','dup_susp_max','conf_floor','stale_sessions','stale_days','stall_hot_h','stall_write_h','suggest_min_score','suggest_scan_cap','conflict_dup_threshold','backup_age_warn_h','zero_near_min_read','zero_near_warn_pct','pending_age_days','recall_warn_writes','dead_days','pair_window_minutes','chain_window_hours','events_retention_days','hot_events_retention_days','events_volume_warn','drill_max_days')`, nil)
 	if err != nil {
 		return store.Thresholds{}, err
 	}
@@ -1014,6 +1017,9 @@ func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	}
 	if th.EventsVolumeWarn == 0 {
 		th.EventsVolumeWarn = def.EventsVolumeWarn
+	}
+	if th.DrillMaxDays == 0 {
+		th.DrillMaxDays = def.DrillMaxDays
 	}
 	return th, nil
 }

@@ -1,0 +1,103 @@
+// tuning_test.go — v0.23.0(D③): tuning 커맨드 계약 — list/get/set/reset·
+// 실경로 값 검증(폴백 값 거부)·알려지지 않은 키 exit 3.
+package cli
+
+import (
+	"context"
+	"fmt"
+	"strings"
+	"testing"
+)
+
+// tuningFake — meta IN 조회·upsert·delete를 기록하는 fake.
+type tuningFake struct {
+	*fakeStore
+	meta map[string]string
+	sets []string
+	dels []string
+}
+
+func newTuningFake() *tuningFake {
+	return &tuningFake{fakeStore: &fakeStore{}, meta: map[string]string{}}
+}
+
+func (f *tuningFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	f.queries = append(f.queries, sql)
+	switch {
+	case strings.Contains(sql, "key IN ("):
+		rows := [][]any{}
+		for _, k := range f.meta {
+			_ = k
+		}
+		for k, v := range f.meta {
+			if containsKey(args, k) {
+				rows = append(rows, [][]any{{k, v}}[0])
+			}
+		}
+		return rows, nil
+	case strings.Contains(sql, "INSERT INTO meta"):
+		f.sets = append(f.sets, fmt.Sprint(args[0], "=", args[1]))
+		f.meta[fmt.Sprint(args[0])] = fmt.Sprint(args[1])
+		return nil, nil
+	case strings.Contains(sql, "DELETE FROM meta"):
+		f.dels = append(f.dels, fmt.Sprint(args[0]))
+		delete(f.meta, fmt.Sprint(args[0]))
+		return nil, nil
+	}
+	// loadThresholds의 meta IN 조회는 위 key IN 케이스가 담당 — 여기
+	// 도달하면 fixture 라우팅 계약 위반(Fatalf 불가 — 에러로 식별).
+	return nil, fmt.Errorf("tuningFake 미매칭: %s", sql)
+}
+
+func containsKey(args []any, k string) bool {
+	for _, a := range args {
+		if fmt.Sprint(a) == k {
+			return true
+		}
+	}
+	return false
+}
+
+func TestTuningSetValidatesThroughRealParse(t *testing.T) {
+	f := newTuningFake()
+	var out strings.Builder
+	// 유효 값 — 저장.
+	if code := runTuning(context.Background(), f, []string{"set", "dead_days", "45"}, nil, &out); code != 0 {
+		t.Fatalf("set exit=%d: %s", code, out.String())
+	}
+	if len(f.sets) != 1 || f.meta["dead_days"] != "45" {
+		t.Fatalf("sets=%v meta=%v", f.sets, f.meta)
+	}
+	// 무효 값 — 파싱 폴백 감지·거부(exit 3, 미기록).
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"set", "dead_days", "many"}, nil, &out); code != 3 {
+		t.Fatalf("무효 값 exit=%d, want 3: %s", code, out.String())
+	}
+	if len(f.sets) != 1 {
+		t.Fatalf("무효 값까지 기록: %v", f.sets)
+	}
+}
+
+func TestTuningUnknownKeyAndList(t *testing.T) {
+	f := newTuningFake()
+	var out strings.Builder
+	if code := runTuning(context.Background(), f, []string{"get", "nonexistent_key"}, nil, &out); code != 3 {
+		t.Fatalf("unknown key exit=%d, want 3", code)
+	}
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"list"}, nil, &out); code != 0 {
+		t.Fatalf("list exit=%d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"key":"dead_days"`) || !strings.Contains(out.String(), `"override":false`) {
+		t.Errorf("list 출력 계약 위반: %s", out.String())
+	}
+	// reset — 오버라이드 set 후 삭제.
+	runTuning(context.Background(), f, []string{"set", "stale_days", "60"}, nil, &out)
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"reset", "stale_days"}, nil, &out); code != 0 {
+		t.Fatalf("reset exit=%d: %s", code, out.String())
+	}
+	if len(f.dels) != 1 || f.dels[0] != "stale_days" {
+		t.Fatalf("dels=%v", f.dels)
+	}
+}
