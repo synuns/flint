@@ -12,6 +12,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -42,6 +43,20 @@ const updateAPITimeout = 5 * time.Second
 
 // updateHTTPTimeout — 자산 다운로드 클라이언트 타임아웃.
 const updateHTTPTimeout = 30 * time.Second
+
+// updateTLSVerify — TLS 인증서 검증(프로덕션 항상 true — 테스트만
+// httptest 자체 서명 수용으로 false 주입, v0.22.1 S1과 함께 도입).
+var updateTLSVerify = true
+
+// updateClient — API·다운로드 공통 클라이언트(공통 TLS 정책).
+func updateClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		Transport: &http.Transport{
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: !updateTLSVerify},
+		},
+	}
+}
 
 // updateNoticeTTL — 세션 시작 갱신 확인 캐시 수명(하루 1회 확인).
 const updateNoticeTTL = 24 * time.Hour
@@ -123,7 +138,7 @@ func fetchLatestVersion() (string, error) {
 
 // fetchReleaseMeta — releases/latest 조회(공식 API만).
 func fetchReleaseMeta() (*releaseMeta, error) {
-	client := &http.Client{Timeout: updateAPITimeout}
+	client := updateClient(updateAPITimeout)
 	resp, err := client.Get(updateAPIBase + "/repos/synuns/flint/releases/latest")
 	if err != nil {
 		return nil, err
@@ -185,9 +200,18 @@ func applyUpdate(latest string) (string, error) {
 	return swapBinary(bin)
 }
 
+// updateMaxBytes — 자산·체크섬 다운로드 상한(v0.22.1 패치 루프 1차 S2 —
+// io.ReadAll 무한 적립 방어. 릴리스 자산은 통상 수 MB — 여유 상한).
+const updateMaxBytes = 128 << 20 // 128MiB
+
 // download — 전체 다운로드(자산·체크섬 모두 소형·단발).
+// v0.22.1(S1): 다운로드 URL은 https 강제 — API 응답의 browser_download_url이
+// 평문 스킴을 가리키면 거부한다(응답 변조·다운그레이드 방지).
 func download(url string) ([]byte, error) {
-	client := &http.Client{Timeout: updateHTTPTimeout}
+	if !strings.HasPrefix(url, "https://") {
+		return nil, fmt.Errorf("비-https 다운로드 URL 거부: %s", url)
+	}
+	client := updateClient(updateHTTPTimeout)
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
@@ -196,7 +220,7 @@ func download(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d (%s)", resp.StatusCode, url)
 	}
-	return io.ReadAll(resp.Body)
+	return io.ReadAll(io.LimitReader(resp.Body, updateMaxBytes+1))
 }
 
 // checksumFor — sha256sum 관련 checksums.txt에서 해당 파일 해시 추출.
