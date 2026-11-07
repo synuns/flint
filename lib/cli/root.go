@@ -59,13 +59,25 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		return 1
 	}
 	ctx := context.Background()
-	// version·setup·teardown·mcp는 store-free — DB 미기동에도 즉시 응답
-	// (§13, T33 룰링 · T40 확장: DB 다운이 setup의 주 시나리오 · T57: mcp는
-	// 도구 호출이 cli.Run으로 각자 store를 연결한다). nudge는 v0.13.2 N5부터
-	// store 경유 — nudgeProfile가 exposure_profile을 조회해 minimal 계약을
-	// 지킨다(구형 store-free 시 minimal 자동 종결 불가).
-	if cmd == "version" || cmd == "setup" || cmd == "teardown" || cmd == "mcp" {
+	// version·teardown·mcp는 store-free — DB 미기동에도 즉시 응답
+	// (§13, T33 룰링 · T40 · T57: mcp는 도구 호출이 cli.Run으로 각자
+	// store를 연결한다). nudge는 v0.13.2 N5부터 store 경유 — nudgeProfile가
+	// exposure_profile을 조회해 minimal 계약을 지킨다(구형 store-free 시
+	// minimal 자동 종결 불가).
+	if cmd == "version" || cmd == "teardown" || cmd == "mcp" {
 		return run(ctx, nil, rest, stdin, stdout)
+	}
+	// setup도 DB 다운이 주 시나리오(T40)라 store 없이도 응답한다 — 다만
+	// v0.20.1: 정상 기동 DB에선 ping·migrate 단계가 실제로 돌아야 한다.
+	// 이전 배선(st 고정 nil)은 ping 클로저가 항상 실패해 건전한 DB에서도
+	// 매번 degraded로 끝났다(패치 루프 1차 F2). 연결 시도 후 실패 시에만
+	// nil로 진행 — setup의 nil 가드는 DB 다운 안내 경로로 유효 유지.
+	if cmd == "setup" {
+		var st Store
+		if s, err := newStore(ctx, dsnFromEnv()); err == nil {
+			st = s
+		}
+		return run(ctx, st, rest, stdin, stdout)
 	}
 	st, err := newStore(ctx, dsnFromEnv())
 	if err != nil {

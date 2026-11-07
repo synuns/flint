@@ -19,6 +19,20 @@ func HotSQL(sessionID string) string {
 	return "SELECT kind, topic, summary, ts FROM hot_view ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(limit)
 }
 
+// hotHeadlineLimit — 헤드라인(카운트) 경로 행 상한. 주입 예산(ClampLimit
+// 기본 10)과 달리 카운트가 목적이라 넉넉히(v0.20.1 패치 루프 1차 F3 —
+// 상한 10에서 카운트를 내며 활성 20이 '활성 10'으로, 상위 10행에 밀린
+// pending이 '대기 0'으로 왜곡되던 결함).
+const hotHeadlineLimit = 50
+
+// HotHeadlineSQL — hot_view 조회 중 헤드라인 경로용(상한 hotHeadlineLimit).
+// 주입(--full) 경로는 HotSQL(예산 상한)을 그대로 쓴다 — 출력 예산·생존
+// 판정 계약 불변.
+func HotHeadlineSQL(sessionID string) string {
+	_ = sessionID
+	return "SELECT kind, topic, summary, ts FROM hot_view ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(hotHeadlineLimit)
+}
+
 // ClampHot는 s가 max rune을 넘으면 max로 절단하고 접미사를 붙인다.
 func ClampHot(s string, max int) string {
 	if utf8.RuneCountInString(s) <= max {

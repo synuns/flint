@@ -265,25 +265,38 @@ func maybeAutoBackup(ctx context.Context) {
 
 	lf := &lazyDumpFile{dir: dir}
 	defer lf.close()
+	metaGet := func(key string) (string, error) {
+		var v string
+		err := pool.QueryRow(ctx,
+			`SELECT value FROM meta WHERE key = $1`, key).Scan(&v)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return v, err
+	}
 	auto := backup.Auto{DSN: dsnFromEnv()}
-	if err := auto.RunIfNeeded(ctx,
-		func(key string) (string, error) {
-			var v string
-			err := pool.QueryRow(ctx,
-				`SELECT value FROM meta WHERE key = $1`, key).Scan(&v)
-			if errors.Is(err, pgx.ErrNoRows) {
-				return "", nil
-			}
-			return v, err
-		},
+	runErr := auto.RunIfNeeded(ctx,
+		metaGet,
 		func(key, value string) error {
 			_, err := pool.Exec(ctx,
 				`INSERT INTO meta (key, value) VALUES ($1, $2)
 				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
 			return err
 		},
-		lf); err != nil {
-		fmt.Fprintf(os.Stderr, "[flint] backup auto: %v\n", err)
+		lf)
+	// v0.20.1(패치 루프 1차 F4): 자동 백업도 로테이션 — 파일 확정(사이드카
+	// 포함) 뒤 keep-N 정책을 적용한다. 이전엔 수동 `flint backup --out`
+	// 경로(rotateAfterBackup)에만 묶여 있어 자동 파일이 무한히 축적됐다.
+	// 실패는 경고만(백업 성공 불변 — 수동 경로와 동일 계약).
+	if runErr == nil {
+		if name := lf.closeAndPath(); name != "" {
+			if _, rerr := rotateFn(dir, keepFn(metaGet)); rerr != nil {
+				fmt.Fprintf(os.Stderr, "[flint] backup auto rotate: %v\n", rerr)
+			}
+		}
+	}
+	if runErr != nil {
+		fmt.Fprintf(os.Stderr, "[flint] backup auto: %v\n", runErr)
 	}
 }
 
@@ -333,12 +346,27 @@ func (l *lazyDumpFile) close() error {
 	if err := l.f.Close(); err != nil {
 		return err
 	}
+	l.f = nil // 멱등 — closeAndPath 이후 defer close의 이중 close 방어
 	sum := hex.EncodeToString(l.h.Sum(nil))
 	if err := backup.WriteSidecar(name, sum); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] backup sidecar: %v\n", err)
 		return fmt.Errorf("sidecar: %w", err)
 	}
 	return nil
+}
+
+// closeAndPath — 파일을 확정(close·사이드카)하고 경로를 반환한다.
+// 기록이 없던 no-op면 빈 문자열. v0.20.1: 자동 백업 로테이션이 확정된
+// 경로를 얻는 접합(이후 defer close는 l.f=nil로 no-op).
+func (l *lazyDumpFile) closeAndPath() string {
+	if l.f == nil {
+		return ""
+	}
+	name := l.f.Name()
+	if err := l.close(); err != nil {
+		return ""
+	}
+	return name
 }
 
 func init() {

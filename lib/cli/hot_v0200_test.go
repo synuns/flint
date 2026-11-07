@@ -60,3 +60,38 @@ func TestHotHeadlineNoExposureRecord(t *testing.T) {
 		t.Errorf("헤드라인 경로 노출 기록 = %v, want 없음(주입 없음)", st.events)
 	}
 }
+
+// TestHotHeadlineLimitWidened — Review Focus(v0.20.1 F3): 헤드라인(카운트)
+// 경로는 상한 50 쿼리를, --full 주입 경로는 예산 상한(10) 계약 불변.
+func TestHotHeadlineLimitWidened(t *testing.T) {
+	ctx := context.Background()
+	hotRows := [][]any{{"pending", "토픽", "요약", "2026-10-22"}}
+	st := &hotEventRecorder{fakeStore: &fakeStore{queryFn: hotProfileQueryFn("normal", hotRows)}}
+	var out strings.Builder
+	if code := runHot(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("runHot exit=%d, want 0; out=%s", code, out.String())
+	}
+	found := false
+	for _, q := range st.queries {
+		if strings.Contains(q, "FROM hot_view") {
+			found = true
+			if !strings.Contains(q, "LIMIT 50") {
+				t.Errorf("헤드라인 쿼리 상한 = %q, want LIMIT 50(카운트 왜곡 방지)", q)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("hot_view 조회 미관측")
+	}
+
+	st2 := &hotEventRecorder{fakeStore: &fakeStore{queryFn: hotProfileQueryFn("normal", hotRows)}}
+	var out2 strings.Builder
+	if code := runHot(ctx, st2, []string{"--full"}, strings.NewReader(""), &out2); code != 0 {
+		t.Fatalf("runHot --full exit=%d, want 0; out=%s", code, out2.String())
+	}
+	for _, q := range st2.queries {
+		if strings.Contains(q, "FROM hot_view") && strings.Contains(q, "LIMIT 50") {
+			t.Errorf("--full 주입 경로가 헤드라인 상한 사용: %q(예산 계약 위반)", q)
+		}
+	}
+}

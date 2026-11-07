@@ -3,6 +3,8 @@
 package cli
 
 import (
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 )
@@ -32,24 +34,23 @@ func TestSetupUXNonTTY(t *testing.T) {
 	}
 }
 
-// TestSetupJSONMode — setup --json은 기존 한 줄 JSON 요약 완전 불변
-// (setup은 store-free 진입이라 st=nil → degraded 계약).
+// TestSetupJSONMode — v0.20.1 재작성: 이 테스트는 이전 배선 결함(정상
+// DB에서도 st=nil 고정 → 항상 degraded)을 '계약'으로 문서화하고 있었다
+// (패치 루프 1차 F2 + 테스트 감사 축2). 새 계약: store 가용 시 ping·
+// migrate가 실제로 돌아 ok. --json 한 줄·compose 1회·plain 동일성 불변.
 func TestSetupJSONMode(t *testing.T) {
-	withFake(t, &fakeStore{})
+	withFake(t, &fakeStore{}) // Ping·Migrate 성공 fake — 건전 DB 경로.
 	rec := withFakeCompose(t)
 	out, code := mustRun(t, []string{"setup", "--json"}, "")
-	if code != 1 {
-		t.Fatalf("exit=%d, want 1(degraded); out=%s", code, out)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(건전 DB ok); out=%s", code, out)
 	}
 	if strings.Count(strings.TrimSpace(out), "\n") != 0 {
 		t.Fatalf("--json 출력은 한 줄이어야 한다: %q", out)
 	}
 	m := decode(t, out)
-	if m["status"] != "degraded" {
-		t.Fatalf("status=%v, want degraded; out=%s", m["status"], out)
-	}
-	if nexts, _ := m["next"].([]any); len(nexts) == 0 {
-		t.Fatal("next 안내 유실")
+	if m["status"] != "ok" {
+		t.Fatalf("status=%v, want ok; out=%s", m["status"], out)
 	}
 	if rec.upCalls != 1 {
 		t.Fatalf("compose=%d회, want 1(동작 불변)", rec.upCalls)
@@ -58,5 +59,28 @@ func TestSetupJSONMode(t *testing.T) {
 	plain, code2 := mustRun(t, []string{"setup"}, "")
 	if code2 != code || strings.TrimSpace(plain) != strings.TrimSpace(out) {
 		t.Fatalf("plain(--json 미지정, non-TTY) 불일치:\nplain=%q\njson =%q", plain, out)
+	}
+}
+
+// TestSetupDegradedWhenStoreDown — DB 접속 불가(주 시나리오, T40)는
+// st nil로 진행해 degraded·exit 1·next 안내(T40 계약 — v0.20.1 배선
+// 수정 이후에도 nil 가드 경로 유지).
+func TestSetupDegradedWhenStoreDown(t *testing.T) {
+	prev := newStore
+	newStore = func(ctx context.Context, dsn string) (Store, error) {
+		return nil, fmt.Errorf("db down")
+	}
+	t.Cleanup(func() { newStore = prev })
+	withFakeCompose(t)
+	out, code := mustRun(t, []string{"setup", "--json"}, "")
+	if code != 1 {
+		t.Fatalf("exit=%d, want 1(degraded); out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["status"] != "degraded" {
+		t.Fatalf("status=%v, want degraded; out=%s", m["status"], out)
+	}
+	if nexts, _ := m["next"].([]any); len(nexts) == 0 {
+		t.Fatal("next 안내 유실")
 	}
 }

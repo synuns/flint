@@ -5,23 +5,26 @@ package cli
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
-
-	"flint/lib/query"
 )
 
 // TestHotFullNewlineSummarySkipsSuffix — pending 요약에 개행 포함 시 행 수
-// 불일치로 접미 전체 생략. 기존 전체 출력(FormatRows)과 바이트 동일해야
-// 하고 어느 행에도 "·+" 접미가 붙어선 안 된다.
+// 불일치로 접미 전체 생략. 기존 전체 출력과 바이트 동일해야 하고 어느
+// 행에도 "·+" 접미가 붙어선 안 된다. want는 리터럴 고정(v0.20.1 테스트
+// 감사 T8 — 구현 함수 호출로 생성하면 runHot이 같은 호출로 폴백하는 한
+// 무조건 통과하는 자기복창이 된다).
 func TestHotFullNewlineSummarySkipsSuffix(t *testing.T) {
 	ctx := context.Background()
 	validAt := time.Now().UTC().Add(-49 * time.Hour)
 	hotRows := [][]any{
 		{"pending", "토픽", "요약\n둘째 줄", validAt},
 	}
-	want := query.FormatRows(hotRows, hotFields, false)
+	// 리터럴 형식: 필드 구분 "|"·시각은 fmt.Sprint 기본형(FormatRows 비JSON
+	// 계약). 입력값 자체의 표준 포맷팅은 자기복창이 아니다(생산 코드 무관).
+	want := "pending|토픽|요약\n둘째 줄|" + fmt.Sprint(validAt) + "\n"
 	var out bytes.Buffer
 	f := &fakeStore{queryFn: pendingAgeQueryFn(hotRows, [][]any{{validAt}})}
 	if code := runHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {

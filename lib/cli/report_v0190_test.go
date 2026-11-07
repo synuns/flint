@@ -61,6 +61,8 @@ func TestReportEffectSection(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
 			return [][]any{{"read_stats", `{"calls":10,"zero":4}`}}, nil
+		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
+			return nil, nil // read_fallback_calls 부재(누적 폴백률 0)
 		case strings.Contains(sql, "daily:"):
 			return [][]any{{"daily:" + now.Format("2006-01-02"),
 				`{"read":10,"read_zero":4,"read_zero_near":3,"write":8,"dup":6}`}}, nil
@@ -92,6 +94,7 @@ func TestReportEffectSection(t *testing.T) {
 		case strings.Contains(sql, "count"):
 			return [][]any{{"0", "0", "0"}}, nil
 		}
+		t.Fatalf("미매칭 쿼리 — fixture 라우팅 계약 위반(새 쿼리 추가 시 이 테스트 갱신): %s", sql)
 		return nil, nil
 	}}
 	var out strings.Builder
@@ -135,6 +138,8 @@ func TestReportEffectZeroReads(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
 			return nil, nil
+		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
 		case strings.Contains(sql, "read_count > 0"):
@@ -142,6 +147,10 @@ func TestReportEffectZeroReads(t *testing.T) {
 		case strings.Contains(sql, "id FROM knowledge"):
 			// dead 후보 2행(노출 없음 → 전부 dead) → 2/10=20%.
 			return [][]any{{int64(4)}, {int64(6)}}, nil
+		case strings.Contains(sql, "hot_events"):
+			return nil, nil // 노출 이력 없음
+		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
+			return nil, nil // read_fallback_calls 부재
 		case strings.Contains(sql, "read_events"):
 			return nil, nil
 		case strings.Contains(sql, "last_read_at"):
@@ -151,6 +160,7 @@ func TestReportEffectZeroReads(t *testing.T) {
 		case strings.Contains(sql, "count"):
 			return [][]any{{"0", "0", "0"}}, nil
 		}
+		t.Fatalf("미매칭 쿼리 — fixture 라우팅 계약 위반(새 쿼리 추가 시 이 테스트 갱신): %s", sql)
 		return nil, nil
 	}}
 	var out strings.Builder
@@ -186,12 +196,18 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	sessionsUp := true
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
+		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
 		case strings.Contains(sql, "read_count > 0"):
 			return [][]any{{"10", "0"}}, nil
 		case strings.Contains(sql, "id FROM knowledge"):
 			return nil, nil
+		case strings.Contains(sql, "hot_events"):
+			return nil, nil
+		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
+			return nil, nil // read_fallback_calls 부재
 		case strings.Contains(sql, "read_events"):
 			return [][]any{{readA.Format(time.RFC3339), false, ""}}, nil
 		case strings.Contains(sql, "session_starts"):
@@ -213,6 +229,7 @@ func TestReportEffectSessionPairing(t *testing.T) {
 		case strings.Contains(sql, "count"):
 			return [][]any{{"0", "0", "0"}}, nil
 		}
+		t.Fatalf("미매칭 쿼리 — fixture 라우팅 계약 위반(새 쿼리 추가 시 이 테스트 갱신): %s", sql)
 		return nil, nil
 	}}
 	run := func(t *testing.T) (pairs, recallLed int) {
@@ -289,12 +306,18 @@ func TestChainPct(t *testing.T) {
 func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
+		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
 		case strings.Contains(sql, "read_count > 0"):
 			return [][]any{{"10", "1"}}, nil // G3 카운터 — 강등 대상 아님(active 10·회상 1)
 		case strings.Contains(sql, "id FROM knowledge"):
 			return [][]any{{int64(5)}}, nil // dead 후보 1행 → 1/10=10%
+		case strings.Contains(sql, "hot_events"):
+			return nil, nil // 노출 이력 없음
+		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
+			return nil, nil // read_fallback_calls 부재
 		case strings.Contains(sql, "read_events"):
 			return nil, fmt.Errorf("relation \"read_events\" does not exist (42P01)")
 		case strings.Contains(sql, "last_read_at"):
@@ -304,6 +327,7 @@ func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 		case strings.Contains(sql, "count"):
 			return [][]any{{"0", "0", "0"}}, nil
 		}
+		t.Fatalf("미매칭 쿼리 — fixture 라우팅 계약 위반(새 쿼리 추가 시 이 테스트 갱신): %s", sql)
 		return nil, nil
 	}}
 	var out strings.Builder
