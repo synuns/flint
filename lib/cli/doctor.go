@@ -101,6 +101,11 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 				break
 			}
 		}
+		// v0.20.2(패치 루프 1차 O2): 전체 리포트가 보여주는 체크명을
+		// --check로 실행할 수 있어야 한다 — skill-file·harness-* 허용.
+		if subset == "skill-file" || strings.HasPrefix(subset, "harness-") {
+			ok = true
+		}
 		if !ok {
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("doctor: unknown check %q", subset)))
 			return 3
@@ -224,6 +229,28 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 	case "pending-age":
 		// v0.16.2 R4 — 같은 tail-chain 서브셋 경로 승계(--check pending-age).
 		return checkPendingAge(ctx, st)
+	case "skill-file":
+		// v0.20.2(O2) — 전체 리포트 체크명과 --check 이름 공간 정합.
+		// home 미탐지·소스 미탐지는 skip 판정(전체 체인과 동일 규칙).
+		if home := claudeHome(); home != "" {
+			if c, ok := checkSkillFile(skillSrcDir(flintBinPathFn()), filepath.Join(home, "skills", "flint")); ok {
+				return c
+			}
+		}
+		return doctorCheck{Name: name, Status: "ok", Detail: "스킬 소스 미탐지 — 검사 생략"}
+	}
+	if strings.HasPrefix(name, "harness-") {
+		// v0.20.2(O2): harness-<name> 단독 실행 — 등록 레지스트리에서
+		// 해당 하니스만 판정. 미설치(파일 부재)는 skip, 미등록 하니스명은
+		// unknown.
+		for _, h := range harnessRegistry {
+			if "harness-"+h.Name == name {
+				if c, ok := checkHarnessFile(h); ok {
+					return c
+				}
+				return doctorCheck{Name: name, Status: "ok", Detail: "미설치 하니스 — 검사 생략"}
+			}
+		}
 	}
 	return doctorCheck{Name: name, Status: "fail", Detail: "unknown check"}
 }

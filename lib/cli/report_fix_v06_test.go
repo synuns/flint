@@ -44,13 +44,11 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 	}
 	sawStale, sawPeriod, sawDead := false, false, false
 	for _, q := range argsBySQL {
-		// stale 판별은 last_read_at 고유 형태로 — v0.19.0 effect의 G3
-		// 집계(read_count 30일 컷오프)도 "read_count"을 포함해 오판된다.
-		isStale := strings.Contains(q.sql, "last_read_at")
+		// 쿼리 식별은 제품 SQL의 자기 식별 마커로(v0.20.2 T2 — substring
+		// 추측 판별이 제품 SQL 재작성과 공진화하던 왜곡 구조 해소).
+		isStale := strings.Contains(q.sql, "/* stale */")
 		isPeriod := strings.Contains(q.sql, "invalid_at >=")
-		// effect G3 dead 후보 조회 — stale도 "read_count = 0"을 포함하지만
-		// isStale이 먼저 흡수한다(판별 순서 계약).
-		isDead := strings.Contains(q.sql, "read_count = 0 AND ingested_at")
+		isDead := strings.Contains(q.sql, "/* dead */")
 		if isStale {
 			sawStale = true
 		}
@@ -77,9 +75,7 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 		if isStale {
 			wantDays = 90 // stale 집계 기준일(reportStaleDays)
 		}
-		if isDead && !isStale {
-			// stale 쿼리는 "read_count = 0 AND ingested_at"을 포함하지만
-			// 90일 게이트가 선행한다(판별 우선순위 계약).
+		if isDead {
 			wantDays = 30 // dead_pct 기준일(reportDeadDays, 리뷰 #4)
 		}
 		if el := time.Since(cut); el < time.Duration(wantDays-1)*24*time.Hour || el > time.Duration(wantDays+1)*24*time.Hour {

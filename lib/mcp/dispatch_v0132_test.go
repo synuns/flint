@@ -5,7 +5,6 @@
 package mcp
 
 import (
-	"context"
 	"testing"
 )
 
@@ -16,37 +15,4 @@ func TestDispatchReadFlagLikeQueryGuard(t *testing.T) {
 	calls, _ := installRun(t, "", 0)
 	DispatchTool("flint_read", map[string]any{"query": "--json"})
 	wantArgs(t, calls, []string{"read", "--", "--json"})
-}
-
-// TestSimpleStoreTestDSNGate — N11: SUPERLITE_REAL=1이라도 FLINT_TEST_DSN
-// 미설정이면 installSimple은 실구현이 아니라 fake 경로 — 운영 기본 DSN
-// 접속 시도 부재. 설정 시에만 (dsn, true).
-func TestSimpleStoreTestDSNGate(t *testing.T) {
-	t.Setenv("SUPERLITE_REAL", "1")
-	t.Setenv("FLINT_TEST_DSN", "")
-	t.Setenv("FLINT_DSN", "")
-	if dsn, real := seamRealDSN(); real || dsn != "" {
-		t.Fatalf("seamRealDSN = (%q, %v), want (\"\", false) — 미설정 시 fake 폴백", dsn, real)
-	}
-	fake, real := installSimple(t, [][]any{{1}})
-	if real {
-		t.Fatal("FLINT_TEST_DSN 미설정인데 실구현 경로 — 운영 DB 접속 시도 위험")
-	}
-	st, err := NewSimpleStore("postgresql://u:p@h:5432/d")
-	if err != nil {
-		t.Fatalf("NewSimpleStore(fake): %v", err)
-	}
-	if _, err := st.Query(context.Background(), `SELECT 1`); err != nil {
-		t.Fatalf("Query(fake): %v", err)
-	}
-	st.Close()
-	if len(fake.queries) != 1 || !fake.closed {
-		t.Fatalf("fake 기록 queries=%d closed=%v, want 1/true", len(fake.queries), fake.closed)
-	}
-
-	const want = "postgresql://flint:t@h:5434/flint_ci"
-	t.Setenv("FLINT_TEST_DSN", want)
-	if dsn, real := seamRealDSN(); !real || dsn != want {
-		t.Fatalf("seamRealDSN = (%q, %v), want (%q, true)", dsn, real, want)
-	}
 }

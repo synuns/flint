@@ -273,6 +273,23 @@ func readCountOf(row []any) int {
 }
 
 // columnIndexOf — fields 이름 → readColumns 인덱스. 없으면 -1.
+// ReadFieldKnown — --fields 이름이 read 결과의 알려진 컬럼인지 판별
+// (v0.20.2 패치 루프 1차 F5: 오타 필드가 FormatRows의 위치 fallback으로
+// 조용히 다른 컬럼 값을 채우던 왜곡 방지 — read 경로 사전 검증용).
+func ReadFieldKnown(name string) bool {
+	for _, c := range readColumns {
+		if c == name {
+			return true
+		}
+	}
+	return false
+}
+
+// ReadColumnsHint — 검증 오류 안내용 알려진 컬럼 목록(단일 소스).
+func ReadColumnsHint() string {
+	return strings.Join(readColumns, ",")
+}
+
 func columnIndexOf(name string) int {
 	for i, c := range readColumns {
 		if c == name {

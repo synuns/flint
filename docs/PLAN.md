@@ -729,6 +729,24 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.20.2 패치 (2026-11-07) — 패치 루프 2차: 이월 8건 완료
+
+- [x] T5 docs 테스트 통합 — 버전별 34파일 → docs/versions_test.go 단일
+  table-driven(표 50행 + 커스텀 로직 18함수 원본 보존, 커버리지 불변)
+- [x] O2 doctor --check 정합 — 전체 리포트 체크명(skill-file·harness-*)
+  단독 실행 허용(이름 공간 불일치 해소)
+- [x] F5 --fields 검증 — 알려진 컬럼만 허용, 오타 위치 fallback 왜곡
+  exit 3으로(ReadFieldKnown 사전 검증)
+- [x] F6 nudge 죽은 조건문 제거·F7 MCP 사체 제거(NewSimpleStore 체인 —
+  테스트 순환까지 정리)
+- [x] T2 판별 계약 — 제품 SQL 자기 식별 마커(/* stale */·/* dead */),
+  substring 추측 판별 폐지
+- [x] T3 게이트 산출물 표 단언 — v2~v7 컬럼·인덱스·테이블 존재 검증
+  (게이트 no-op 회귀 방어)
+- [x] T6 테스트 작성 규약 — docs/TESTING.md(네이밍·fixture 라우팅·
+  단언 원칙)
+- [x] 버전 — VERSION·배지 v0.20.2(EN/KO)·plugin.json 동기
+
 ## 15. 이연 결정 (트리거 정의됨)
 
 - [x] 주입 예산 상한: hot_view 2주 실측 p95로 확정 → 회수(v0.4): hot_budget meta + p95 계측(TUNING.md §1)
