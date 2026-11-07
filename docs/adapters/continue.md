@@ -11,14 +11,22 @@ Continue은 등록 CLI가 없다(파일 설정형 — B급). `flint doctor`의 `
 `.continue/mcpServers/flint.yaml`에 다음 스니펫을 추가한다.
 
 ```yaml
-version: 1
-schema:
-  type: stdio
-  command: flint
-  args: ["mcp"]
+name: flint
+version: 0.1.0
+schema: v1
+mcpServers:
+  - name: flint
+    type: stdio
+    command: flint
+    args:
+      - mcp
 ```
 
 경로 `flint`는 flint 바이너리 설치 위치에 맞게 조정한다.
+
+
+등록 확인: `flint doctor --check harness-continue`(설정 파일에 flint 등록
+여부).
 
 ## 2. 지시파일
 

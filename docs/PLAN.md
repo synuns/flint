@@ -729,6 +729,15 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.21.1 패치 (2026-11-07) — 패치 루프 7차: 어댑터 문서 스니펫 공식 검증
+
+- [x] 신규 10종 스니펫을 공식 문서와 대조 검증(에이전트 웹 조사) —
+  6종 정확·4종 수정: qwen(유효 JSON), zed(command 문자열·args 형제),
+  continue(v1 스키마 메타데이터 필수), goose(command→cmd)
+- [x] 전 10종에 등록 확인(`flint doctor --check harness-<name>`)·
+  홈 경로 env 오버라이드 안내 보강
+- [x] 버전 — VERSION·배지 v0.21.1(EN/KO)·plugin.json 동기
+
 ### v0.21.0 마이너 (2026-11-07) — 전 AI 에이전트 어댑터 지원 (adapter coverage)
 
 사용자 지시(2026-11-07): 일부 하니스만 명시하던 어댑터를 모든 AI
