@@ -27,6 +27,10 @@ VS Code (GitHub Copilot 에이전트)은 등록 CLI가 없다(파일 설정형 �
 주의: `.mcp.json`은 Copilot CLI가 프로젝트 루트에서도 읽는다 — 한 파일로
 양쪽을 동시에 커버한다.
 
+
+등록 확인: `flint doctor --check harness-vscode`(설정 파일에 flint 등록
+여부). 홈 경로 오버라이드: `FLINT_VSCODE_DIR` env.
+
 ## 2. 지시파일
 
 지시파일(.github/copilot-instructions.md)에 다음 스니펫을 둔다.

@@ -11,16 +11,22 @@
 `~/.qwen/settings.json`에 다음 스니펫을 추가한다.
 
 ```json
-mcpServers: {
-  "flint": {
-    "command": "flint",
-    "args": ["mcp"],
-    "env": {}
+{
+  "mcpServers": {
+    "flint": {
+      "command": "flint",
+      "args": ["mcp"],
+      "env": {}
+    }
   }
 }
 ```
 
 경로 `flint`는 flint 바이너리 설치 위치에 맞게 조정한다.
+
+
+등록 확인: `flint doctor --check harness-qwen`(설정 파일에 flint 등록
+여부). 홈 경로 오버라이드: `FLINT_QWEN_HOME` env.
 
 ## 2. 지시파일
 
