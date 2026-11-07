@@ -12,7 +12,6 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
-	"crypto/tls"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -44,16 +43,24 @@ const updateAPITimeout = 5 * time.Second
 // updateHTTPTimeout — 자산 다운로드 클라이언트 타임아웃.
 const updateHTTPTimeout = 30 * time.Second
 
-// updateTLSVerify — TLS 인증서 검증(프로덕션 항상 true — 테스트만
-// httptest 자체 서명 수용으로 false 주입, v0.22.1 S1과 함께 도입).
-var updateTLSVerify = true
+// updateClientFn — 클라이언트 팩토리 seam(v0.22.2 리뷰 ③: 프로덕션
+// 바이너리에서 InsecureSkipVerify를 완전히 제거 — 테스트는 httptest
+// srv.Client() 주입으로 자체 서명을 수용한다).
+var updateClientFn = func(timeout time.Duration) *http.Client { return updateClient(timeout) }
 
-// updateClient — API·다운로드 공통 클라이언트(공통 TLS 정책).
+// updateClient — API·다운로드 공통 클라이언트. DefaultTransport 복제로
+// ProxyFromEnvironment 유지(리뷰 ① — 프록시 환경 단절 회귀 방지),
+// 리다이렉트는 https만 추적(리뷰 ② — https→http 다운그레이드 방어).
 func updateClient(timeout time.Duration) *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
 	return &http.Client{
-		Timeout: timeout,
-		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: !updateTLSVerify},
+		Timeout:   timeout,
+		Transport: tr,
+		CheckRedirect: func(req *http.Request, via []*http.Request) error {
+			if req.URL.Scheme != "https" {
+				return fmt.Errorf("비-https 리다이렉트 거부: %s", req.URL)
+			}
+			return nil
 		},
 	}
 }
@@ -138,7 +145,7 @@ func fetchLatestVersion() (string, error) {
 
 // fetchReleaseMeta — releases/latest 조회(공식 API만).
 func fetchReleaseMeta() (*releaseMeta, error) {
-	client := updateClient(updateAPITimeout)
+	client := updateClientFn(updateAPITimeout)
 	resp, err := client.Get(updateAPIBase + "/repos/synuns/flint/releases/latest")
 	if err != nil {
 		return nil, err
@@ -148,7 +155,9 @@ func fetchReleaseMeta() (*releaseMeta, error) {
 		return nil, fmt.Errorf("api status %d", resp.StatusCode)
 	}
 	var meta releaseMeta
-	if err := json.NewDecoder(resp.Body).Decode(&meta); err != nil {
+	// v0.22.2 리뷰 ⑤: API 응답도 상한 해석(무한 JSON 적립 방어 — 릴리스
+	// 메타는 수 KB 규모라 8MiB면 충분).
+	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&meta); err != nil {
 		return nil, err
 	}
 	if meta.TagName == "" {
@@ -211,7 +220,7 @@ func download(url string) ([]byte, error) {
 	if !strings.HasPrefix(url, "https://") {
 		return nil, fmt.Errorf("비-https 다운로드 URL 거부: %s", url)
 	}
-	client := updateClient(updateHTTPTimeout)
+	client := updateClientFn(updateHTTPTimeout)
 	resp, err := client.Get(url)
 	if err != nil {
 		return nil, err
@@ -220,7 +229,14 @@ func download(url string) ([]byte, error) {
 	if resp.StatusCode != http.StatusOK {
 		return nil, fmt.Errorf("status %d (%s)", resp.StatusCode, url)
 	}
-	return io.ReadAll(io.LimitReader(resp.Body, updateMaxBytes+1))
+	body, err := io.ReadAll(io.LimitReader(resp.Body, updateMaxBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(body)) > updateMaxBytes {
+		return nil, fmt.Errorf("다운로드 상한 %d바이트 초과 — 중단", updateMaxBytes)
+	}
+	return body, nil
 }
 
 // checksumFor — sha256sum 관련 checksums.txt에서 해당 파일 해시 추출.
