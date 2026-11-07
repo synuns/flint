@@ -39,14 +39,14 @@
 
 ## 5. 진단 — `flint doctor` (v0.6 → v0.16.2 확장)
 
-검사 10종(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
+검사 10종 + 설치 환경 조건부 하니스·스킬 검사(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
 서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 4종:
 
 | 검사 | 내용 | fail/warn |
 |---|---|---|
 | hook-file | Claude 설정·플러그인 캐시에 flint 훅 등록 여부 (`FLINT_CLAUDE_HOME` 오버라이드 지원) | fail |
 | db | DB Ping 접속 | fail |
-| schema | meta schema_version ≥ 4 일치(v0.8 현재 5) | fail |
+| schema | meta schema_version ≥ 4 일치(현재 v7) | fail |
 | integrity | `flint_knowledge_*` 인덱스 3행 존재 | fail |
 | last-seen | 3경로(write/hot/read) last-seen 경과 + grace(stall_hot_h 48h·stall_write_h 72h) | warn |
 | port | 호스트 5434 포트 점유 충돌(타 프로세스 점유 시 이동 안내) | fail |
