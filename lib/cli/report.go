@@ -412,10 +412,13 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	now := time.Now()
 	windowStart := now.Add(-time.Duration(days) * 24 * time.Hour)
 
-	// ── G3(+E 노출 보정) ──
+	// ── G3(+노출 정합 가드) ──
 	deadCutoff := now.Add(-time.Duration(reportDeadDays) * 24 * time.Hour)
-	// 최근 hot 노출 집합 — 주입된 지식은 "회상 못 된 자산"이 아니라
-	// "노출된 자산"(dead 분자 제외). 조회 실패는 공집합(보정 생략 강등).
+	// 최근 hot 노출 집합 — hot --full은 BumpReads로 주입 id의 read_count를
+	// 올리므로(T62 참조 계측) 정상 경로에서 노출 지식은 애초에 read_count=0
+	// 후보 밖이다. 이 가드는 참조 증분과 노출 기록이 별도 경로라 계측
+	// 유실(증분만 실패) 시 생기는 불일치를 메운다(리뷰 #2 재정의).
+	// 조회 실패는 공집합(가드 생략 강등).
 	exposed := map[int]bool{}
 	if rows, err := queryOnce(ctx, st,
 		`SELECT ids FROM hot_events WHERE ts >= $1`, []any{deadCutoff}); err == nil {
@@ -483,7 +486,7 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 
 	// 세션 경계(D) — 조회 실패·부재 시 시간창 폴백(구환경·첫일).
 	starts, serr := queryTimes(ctx, st,
-		`SELECT ts FROM session_starts WHERE ts >= $1`,
+		`SELECT ts FROM session_starts WHERE ts >= $1 ORDER BY ts`,
 		windowStart.Add(-reportSessionLookback))
 	hasSessions := serr == nil && len(starts) > 0
 
@@ -521,13 +524,23 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	}
 
 	// 사용 연쇄(B) — 반환 id가 24h 내 재반환 또는 같은 topic write로
-	// 이어진 read 비율. topic 맵은 active 전체 조회(개인 규모 — 수십~수백
-	// 행, 창 이벤트 id만 필요하지만 맵 조회가 단순하다). 실패는 (b)
-	// 경로만 강등.
+	// 이어진 read 비율. ids를 가진 이벤트가 없으면 topics 조회를 건너뛴다
+	// (분모 0 확정 — 불필요한 스캔 제거, 리뷰 #6). topic 맵은 전체 knowledge
+	// 조회(무효화·대체 지식도 연쇄 매칭에 필요 — read 시점엔 active였을
+	// 수 있다, 리뷰 #4). 조회 실패는 (b) 경로만 강등.
+	hasIDs := false
+	for _, e := range evs {
+		if len(e.ids) > 0 {
+			hasIDs = true
+			break
+		}
+	}
+	if !hasIDs {
+		return nil
+	}
 	topics := map[int]string{}
 	if rows, err := queryOnce(ctx, st,
-		`SELECT id, topic FROM knowledge
-		 WHERE status = 'active' AND invalid_at IS NULL`, nil); err == nil {
+		`SELECT id, topic FROM knowledge`, nil); err == nil {
 		for _, r := range rows {
 			if len(r) < 2 {
 				continue
@@ -711,10 +724,14 @@ func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string) int 
 			idset[id] = true
 		}
 		hit := false
-		// (a) 이후 24h 내 재반환.
+		// (a) 이후 24h 내 재반환 — Δ>0 필요(페어링의 0 < Δ 규칙과 일관,
+		// 동시 기록(Δ=0)은 연쇄 아님, 리뷰 #5).
 		for j := i + 1; j < len(evs) && !hit; j++ {
 			if evs[j].ts.After(e.ts.Add(reportChainWindow)) {
 				break
+			}
+			if !evs[j].ts.After(e.ts) {
+				continue
 			}
 			for _, id := range evs[j].ids {
 				if idset[id] {

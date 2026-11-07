@@ -271,12 +271,16 @@ func hotCounts(rows [][]any) (active, pending, recent int) {
 // persist한다(단발 CLI 프로세스 분리 보존). 둘 다 계측이므로 실패는
 // 조용히 무시된다(§13 — hot 출력·exit에 영향 금지).
 func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	session := ""
+	// 세션 라벨은 공유 파서(sessionLabel)로 — session-start 경계 기록과
+	// 단일 소스(v0.20.0 리뷰 #7). --full 판별은 세션 값으로 소비된 토큰을
+	// 플래그로 재판독하지 않는다(변칙 입력 `--session --full`의 기존
+	// full=true 부작용 제거 — read의 플래그형 값 방어와 같은 방향).
+	session := sessionLabel(args)
 	full := false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--session" && i+1 < len(args) {
-			session = args[i+1]
 			i++
+			continue
 		}
 		if args[i] == "--full" {
 			full = true

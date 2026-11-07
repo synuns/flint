@@ -148,14 +148,20 @@ func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
 	return nil
 }
 
-// PruneReadEvents — 14일 보존(daily 카운터와 동일 정책)을 넘은 효과
-// 계측 이벤트 삭제. v0.20.0: read_events·session_starts·hot_events 3종
-// 통합 정리(동일 보존 정책 — 이름은 read 관례 승계). 트리거는
-// recordWithRetry의 롤오버 훅(PruneDaily와 동시) — 첫 read가 날짜를
-// 넘기면 그 시점에 정리된다. 실패는 호출부가 조용히 넘긴다(계측 원칙).
+// PruneReadEvents — 보존 한도를 넘은 효과 계측 이벤트 삭제. v0.20.0:
+// read_events·session_starts는 14일(daily 카운터와 동일 정책), hot_events는
+// 30일(dead_pct 노출 정합 가드 창과 정렬 — 14일이면 가드가 문서 계약의
+// 절반만 커버한다, 리뷰 #3). 트리거는 recordWithRetry의 롤오버 훅
+// (PruneDaily와 동시) — 첫 read가 날짜를 넘기면 그 시점에 정리된다.
+// 실패는 호출부가 조용히 넘긴다(계측 원칙).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
-	cutoff := time.Now().UTC().Add(-14 * 24 * time.Hour)
-	for _, table := range []string{"read_events", "session_starts", "hot_events"} {
+	now := time.Now().UTC()
+	cutoffs := map[string]time.Time{
+		"read_events":    now.Add(-14 * 24 * time.Hour),
+		"session_starts": now.Add(-14 * 24 * time.Hour),
+		"hot_events":     now.Add(-30 * 24 * time.Hour),
+	}
+	for table, cutoff := range cutoffs {
 		if _, err := r.pool.Exec(ctx,
 			`DELETE FROM `+table+` WHERE ts < $1`, cutoff); err != nil {
 			return err

@@ -25,7 +25,7 @@ func TestMetricsDocV0200(t *testing.T) {
 		"recall_led_pct", "chain_pct",
 		"session_starts", "hot_events",
 		"구배포·계측 첫일", // 시간창 폴백 조건 문서화
-		"최근 30일 hot 노출 제외",
+		"최근 30일 hot 노출 기록 제외",
 		"기저율 셔플 이연",
 	} {
 		if !strings.Contains(doc, want) {

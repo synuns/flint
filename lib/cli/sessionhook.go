@@ -29,7 +29,7 @@ func (s *realStore) RecordSessionStart(ctx context.Context, session string) erro
 // 세션 지표만 0 강등, 주입·안내는 불변).
 func runSessionStart(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if rec, ok := st.(SessionStartRecorder); ok {
-		_ = rec.RecordSessionStart(ctx, hotSessionArg(args))
+		_ = rec.RecordSessionStart(ctx, sessionLabel(args))
 	}
 	code := runHot(ctx, st, args, stdin, stdout)
 	if ncode := runNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
@@ -38,15 +38,17 @@ func runSessionStart(ctx context.Context, st Store, args []string, stdin io.Read
 	return code
 }
 
-// hotSessionArg — 인자에서 --session 값을 추출(hot·done 파서와 동일
-// 관례의 읽기 전용 미러 — 기록이 파싱 결과를 바꾸지 않는다).
-func hotSessionArg(args []string) string {
+// sessionLabel — 인자에서 --session 값을 추출(hot·session-start 공유
+// 단일 파서 — 미러 복제로 두 경로가 어긋나는 일을 방지한다, 리뷰 #7).
+func sessionLabel(args []string) string {
+	s := ""
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--session" && i+1 < len(args) {
-			return args[i+1]
+			s = args[i+1]
+			i++
 		}
 	}
-	return ""
+	return s
 }
 
 // runSessionEnd — Stop 훅 1회: done 판정 뒤 nudge(Stop 추가 컨텍스트).

@@ -242,28 +242,40 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	if pairs, _ := run(t); pairs != 1 {
 		t.Errorf("폴백: pairs=%d, want 1(시간창 규칙)", pairs)
 	}
+	// ids 없는 read 단독 — topics 조회 미실행(분모 0 skip, 리뷰 #6).
+	for _, q := range st.queries {
+		if strings.Contains(q, "id, topic FROM knowledge") {
+			t.Errorf("ids 없는 이벤트만 있는데 topics 조회 실행: %s", q)
+		}
+	}
 }
 
 // TestChainPct — Review Focus(v0.20.0 B): 사용 연쇄의 두 경로와 비히트 —
-// (a) 24h 내 같은 id 재반환 히트, (b) 같은 topic write 히트, 24h 경과·
-// 다른 id·다른 topic은 비히트.
+// (a) 24h 내 같은 id 재반환 히트(Δ=0 동시 기록은 제외 — 페어링 규칙과
+// 일관), (b) 같은 topic write 히트, 24h 경과·다른 topic은 비히트.
 func TestChainPct(t *testing.T) {
 	base := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
 	evs := []readEventRow{
-		{ts: base, ids: []int{7}},                     // (a) 재반환 히트
-		{ts: base.Add(2 * time.Hour), ids: []int{7}},  // (a)의 상대(재반환)
+		{ts: base, ids: []int{7}},                     // (a) 히트(+2h 재반환)
+		{ts: base, ids: []int{7}},                     // Δ=0 동시 — (a) 아니지만 +2h로 히트
+		{ts: base.Add(2 * time.Hour), ids: []int{7}},  // ev0·ev1의 재반환 상대
 		{ts: base.Add(3 * time.Hour), ids: []int{9}},  // (b) 같은 topic write 히트
-		{ts: base.Add(4 * time.Hour), ids: []int{11}}, // 비히트(다른 topic·24h 경과)
+		{ts: base.Add(4 * time.Hour), ids: []int{11}}, // 비히트
 	}
 	writes := []writeRow{
 		{ts: base.Add(3*time.Hour + 5*time.Minute), topic: "t9"},
 		{ts: base.Add(30 * time.Hour), topic: "t7"}, // 24h 창 밖
 	}
 	topics := map[int]string{7: "t7", 9: "t9", 11: "t11"}
-	// (a): ev0→ev1(2h 내 7 재반환) · (b): ev2(9)→write t9 · ev3(11): 히트 없음
-	// → 2/3 ≈ 66%.
-	if got := chainPct(evs, writes, topics); got != 66 {
-		t.Errorf("chainPct = %d, want 66(2/3)", got)
+	// 히트: ev0·ev1((a) +2h 재반환)·ev3((b)) = 3/5 = 60. ev2는 이후
+	// 재반환 없음(t7 write는 24h 밖) → 비히트.
+	if got := chainPct(evs, writes, topics); got != 60 {
+		t.Errorf("chainPct = %d, want 60(3/5)", got)
+	}
+	// Δ=0만 있는 경우 — 동시 기록은 연쇄 아님(0/1).
+	sameTS := []readEventRow{{ts: base, ids: []int{7}}, {ts: base, ids: []int{7}}}
+	if got := chainPct(sameTS, nil, topics); got != 0 {
+		t.Errorf("Δ=0만 있을 때 chainPct = %d, want 0", got)
 	}
 	// ids 없는 read는 분모에서 제외 — 전부 비히트면 0.
 	if got := chainPct([]readEventRow{{ts: base}}, writes, topics); got != 0 {
