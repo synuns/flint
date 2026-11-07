@@ -26,8 +26,11 @@ SELECT 'pending' AS kind, k.topic, k.summary, k.ingested_at, k.id
 FROM knowledge k
 WHERE k.invalid_at IS NULL AND k.status = 'pending'
 UNION ALL
+-- v0.24.2(개인화 평가 실측): 결정 판정을 tag='adr' 기준으로 —
+-- domain='decision'은 실사용 0건(결정은 domain=main+tag=adr 관례로
+-- 기록된다)이라 영구 공회전이었다. 기획 리뷰 대안 (b) 채택.
 SELECT 'decision' AS kind, k.topic, k.summary, k.valid_at, k.id
 FROM knowledge k
 WHERE k.invalid_at IS NULL
   AND k.ingested_at >= now() - interval '7 days'
-  AND k.domain = 'decision';
+  AND k.tags LIKE '%:adr:%';
