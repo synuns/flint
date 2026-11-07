@@ -80,19 +80,23 @@ type reportOutput struct {
 }
 
 // effectOutput — "도움" 지표(METRICS §2 GSM 표의 산출). hit_pct·near_pct·
-// dup_prevented·read_events_n·read_write_pairs·pair_pct·fallback_pct는
-// --days 창, reuse_pct·dead_pct는 시점 지표(기간 아님). 전부 상관
-// 프록시(Tier 1·2) — 세트로 해석하고 단독 증명으로 읽지 않는다(METRICS §5).
+// dup_prevented·read_events_n·read_write_pairs·pair_pct·fallback_pct·
+// recall_led_pct·chain_pct는 --days 창, reuse_pct·dead_pct는 시점 지표
+// (기간 아님). 전부 상관 프록시(Tier 1·2) — 세트로 해석하고 단독 증명으로
+// 읽지 않는다(METRICS §5).
 type effectOutput struct {
 	HitPct         int `json:"hit_pct"`          // G1: 1−zero/read
 	NearPct        int `json:"near_pct"`         // G1: 근접 회수 여지(Σnear/read)
 	FallbackPct    int `json:"fallback_pct"`     // G1: 창 내 폴백 경유율(누적 키와 별개)
 	DupPrevented   int `json:"dup_prevented"`    // G2: Σdup(절대량)
-	ReusePct       int `json:"reuse_pct"`        // G3: 회상된 active 비율
-	DeadPct        int `json:"dead_pct"`         // G3: 회상 0·30일+ 비율
+	ReusePct       int `json:"reuse_pct"`        // G3: 회상된 active 비율(검색 기반)
+	DeadPct        int `json:"dead_pct"`         // G3: 회상 0·30일+(hot 노출 제외)
 	ReadEventsN    int `json:"read_events_n"`    // G4 분모: 창 내 read 이벤트
-	ReadWritePairs int `json:"read_write_pairs"` // G4: read 뒤 30분 내 write
+	ReadWritePairs int `json:"read_write_pairs"` // G4: 같은 세션 read 뒤 30분 내 write
 	PairPct        int `json:"pair_pct"`         // G4: pairs/read_events_n
+	// v0.20.0 — 세션 경계(D)·사용 연쇄(B).
+	RecallLedPct int `json:"recall_led_pct"` // G4: 기록한 세션 중 회상이 앞선 비율
+	ChainPct     int `json:"chain_pct"`      // G4: 반환→사용 연쇄율(24h)
 }
 
 // reportDeadDays — dead_pct 판정 기준일(METRICS §4: 증류·중복 사이클이
@@ -101,8 +105,18 @@ type effectOutput struct {
 const reportDeadDays = 30
 
 // reportPairWindow — read→write 동반 판정 창(G4 상관 프록시의 근접성
-// 가정 기본값 — METRICS §4).
+// 가정 기본값 — METRICS §4). v0.20.0: 세션 경계 안에서 적용(같은 세션
+// 여부가 1차 판정, 창은 세션 내 근접성 상한).
 const reportPairWindow = 30 * time.Minute
+
+// reportChainWindow — 사용 연쇄 판정 창(v0.20.0 B: 반환 id가 재반환 또는
+// 같은 topic write로 이어지는 근접성 가정).
+const reportChainWindow = 24 * time.Hour
+
+// reportSessionLookback — 세션 배정 조회 마진: 창 시작 직전에 시작된
+// 세션까지 포함해 창 첫 이벤트의 배정이 빠지지 않게 한다. 이보다 긴
+// 세션에 속한 이벤트는 미배정 — 폴백 페어링(보수적).
+const reportSessionLookback = 24 * time.Hour
 
 // DailyRow — 관측 지표 산입용 일별 행 뷰(v0.9.7 R4). 기존 reportDay 별칭.
 type DailyRow = reportDay
@@ -378,69 +392,179 @@ func pctOf(n, total int) int {
 	return n * 100 / total
 }
 
-// collectEffect — 효과 계측 섹션 산출(v0.19.0, docs/METRICS.md §4).
-// G1(hit·near)·G2(dup_prevented)는 collectDaily 합산에서 유도되고(여기서
-// 재합산하지 않는다), G3(reuse·dead)은 knowledge 시점 집계(Doltgres 호환
-// CASE 관례), G4는 read_events × knowledge ingested_at의 시간 창 페어링 —
-// Go-사이드 조인으로 산출해 SQL interval 곱의 Doltgres 파라미터 추론
-// 리스크를 받지 않는다.
+// collectEffect — 효과 계측 섹션 산출(v0.19.0 docs/METRICS.md §4·
+// v0.20.0 정밀화). G1(hit·near)·G2(dup_prevented)는 collectDaily 합산에서
+// 유도되고(여기서 재합산하지 않는다), G3(reuse·dead)은 knowledge 시점
+// 집계 + hot 노출 보정(E), G4는 세션 경계 배정 페어링(D)·사용 연쇄(B) —
+// 전부 Go-사이드 조인으로 산출해 SQL interval 곱의 Doltgres 파라미터
+// 추론 리스크를 받지 않는다.
 //
 // 룰링(리뷰 #6): G3을 collectCounts의 stale 쿼리에 병합하지 않는다 —
 // stale은 "인자 1개(timestamptz)" 계약을 T70 회귀 테스트가 검증하며
 // dead 컷오프(30일)는 인자가 달라 계약을 깬다. 유지보수 경로의 소형
-// CASE 쿼리 1회 추가를 대가로 두 관심을 분리 유지.
+// 쿼리 추가를 대가로 두 관심을 분리 유지.
+//
+// 계측 원칙(§13·METRICS §4): 이벤트 로그(read_events·session_starts·
+// hot_events) 조회 실패는 해당 지표를 0/폴백으로 강등할 뿐 보고 전체를
+// 깨지 않는다. knowledge 조회 실패는 전파(다른 report 쿼리도 같이
+// 실패할 테니).
 func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) error {
-	deadCutoff := time.Now().Add(-time.Duration(reportDeadDays) * 24 * time.Hour)
+	now := time.Now()
+	windowStart := now.Add(-time.Duration(days) * 24 * time.Hour)
+
+	// ── G3(+E 노출 보정) ──
+	deadCutoff := now.Add(-time.Duration(reportDeadDays) * 24 * time.Hour)
+	// 최근 hot 노출 집합 — 주입된 지식은 "회상 못 된 자산"이 아니라
+	// "노출된 자산"(dead 분자 제외). 조회 실패는 공집합(보정 생략 강등).
+	exposed := map[int]bool{}
+	if rows, err := queryOnce(ctx, st,
+		`SELECT ids FROM hot_events WHERE ts >= $1`, []any{deadCutoff}); err == nil {
+		for _, r := range rows {
+			if len(r) > 0 {
+				if s, ok := r[0].(string); ok {
+					for _, id := range parseIDsCSV(s) {
+						exposed[id] = true
+					}
+				}
+			}
+		}
+	}
 	rows, err := queryOnce(ctx, st, `
 		SELECT count(*),
-		       count(CASE WHEN read_count > 0 THEN 1 END),
-		       count(CASE WHEN read_count = 0 AND ingested_at < $1 THEN 1 END)
+		       count(CASE WHEN read_count > 0 THEN 1 END)
 		  FROM knowledge
-		 WHERE status = 'active' AND invalid_at IS NULL`,
-		[]any{deadCutoff})
+		 WHERE status = 'active' AND invalid_at IS NULL`, nil)
 	if err != nil {
 		return err
 	}
+	var active, reused int
 	if len(rows) > 0 {
-		var active, reused, dead int
-		readCounters(rows[0], &active, &reused, &dead)
-		out.Effect.ReusePct = pctOf(reused, active)
-		out.Effect.DeadPct = pctOf(dead, active)
+		readCounters(rows[0], &active, &reused)
 	}
-	// G4 — 계측 원칙(§13·METRICS §4): 이벤트 로그 조회 실패(read_events
-	// 테이블 부재 등)는 G4·fallback_pct를 0으로 강등할 뿐 보고 전체를
-	// 깨지 않는다 — 다른 지표 공백의 0 폴백 관례와 동일(리뷰 #2).
-	windowStart := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-	reads, fallbacks, err := queryReadEvents(ctx, st, windowStart)
+	out.Effect.ReusePct = pctOf(reused, active)
+	deadIDs, err := queryOnce(ctx, st, `
+		SELECT id FROM knowledge
+		 WHERE status = 'active' AND invalid_at IS NULL
+		   AND read_count = 0 AND ingested_at < $1`, []any{deadCutoff})
+	if err != nil {
+		return err
+	}
+	dead := 0
+	for _, r := range deadIDs {
+		if len(r) == 0 {
+			continue
+		}
+		if id, ok := cellToInt(r[0]); ok && !exposed[id] {
+			dead++
+		}
+	}
+	out.Effect.DeadPct = pctOf(dead, active)
+
+	// ── G4 ── 이벤트 로그 — 실패 시 G4 전량 0 강등.
+	evs, err := queryReadEvents(ctx, st, windowStart)
 	if err != nil {
 		return nil
 	}
-	out.Effect.ReadEventsN = len(reads)
-	out.Effect.FallbackPct = pctOf(fallbacks, len(reads))
-	if len(reads) == 0 {
-		return nil // 분모 0 — 페어링 불필요(제로 가드 관례)
+	out.Effect.ReadEventsN = len(evs)
+	fallbacks := 0
+	for _, e := range evs {
+		if e.fallback {
+			fallbacks++
+		}
 	}
-	writes, err := queryTimes(ctx, st,
-		`SELECT ingested_at FROM knowledge WHERE ingested_at >= $1`, windowStart)
+	out.Effect.FallbackPct = pctOf(fallbacks, len(evs))
+	if len(evs) == 0 {
+		return nil // 분모 0 — 페어링·연쇄 불필요(제로 가드 관례)
+	}
+	writes, err := queryWrites(ctx, st, windowStart)
 	if err != nil {
 		return nil // 동일 강등 — 페어링 불가, pairs 0
 	}
-	out.Effect.ReadWritePairs = pairReadWrites(reads, writes, reportPairWindow)
-	out.Effect.PairPct = pctOf(out.Effect.ReadWritePairs, len(reads))
+
+	// 세션 경계(D) — 조회 실패·부재 시 시간창 폴백(구환경·첫일).
+	starts, serr := queryTimes(ctx, st,
+		`SELECT ts FROM session_starts WHERE ts >= $1`,
+		windowStart.Add(-reportSessionLookback))
+	hasSessions := serr == nil && len(starts) > 0
+
+	// 페어링 — 같은 세션(배정된 양쪽)에서 read 직후 30분 내 write.
+	// 미배정 이벤트·세션 부재 환경은 시간창 폴백(v0.19.0 규칙 승계).
+	writeTimes := make([]time.Time, 0, len(writes))
+	sessWriteTimes := map[int][]time.Time{}
+	for _, w := range writes {
+		writeTimes = append(writeTimes, w.ts)
+		if hasSessions {
+			if si := sessionIndexOf(starts, w.ts); si >= 0 {
+				sessWriteTimes[si] = append(sessWriteTimes[si], w.ts)
+			}
+		}
+	}
+	pairs := 0
+	for _, e := range evs {
+		cands := writeTimes
+		if hasSessions {
+			if si := sessionIndexOf(starts, e.ts); si >= 0 {
+				cands = sessWriteTimes[si]
+			}
+		}
+		if timeWindowHit(cands, e.ts, reportPairWindow) {
+			pairs++
+		}
+	}
+	out.Effect.ReadWritePairs = pairs
+	out.Effect.PairPct = pctOf(pairs, len(evs))
+
+	// 회상 선도 세션 비율(D) — 창 내 시작 세션 중 기록(write)이 있고,
+	// 그 세션의 첫 read가 첫 write보다 앞선 비율.
+	if hasSessions {
+		out.Effect.RecallLedPct = recallLedPct(starts, evs, writes, windowStart)
+	}
+
+	// 사용 연쇄(B) — 반환 id가 24h 내 재반환 또는 같은 topic write로
+	// 이어진 read 비율. topic 맵은 active 전체 조회(개인 규모 — 수십~수백
+	// 행, 창 이벤트 id만 필요하지만 맵 조회가 단순하다). 실패는 (b)
+	// 경로만 강등.
+	topics := map[int]string{}
+	if rows, err := queryOnce(ctx, st,
+		`SELECT id, topic FROM knowledge
+		 WHERE status = 'active' AND invalid_at IS NULL`, nil); err == nil {
+		for _, r := range rows {
+			if len(r) < 2 {
+				continue
+			}
+			if id, ok := cellToInt(r[0]); ok {
+				topics[id] = fmt.Sprint(r[1])
+			}
+		}
+	}
+	out.Effect.ChainPct = chainPct(evs, writes, topics)
 	return nil
 }
 
-// queryReadEvents — 창 내 read 이벤트 시각과 폴백 경유 수를 1쿼리로
-// 읽는다(G4 페어링 + fallback_pct 분자). 매핑 불가 칸은 조용히 건너뛴다
-// (cellToInt 관례 — 계측 누락이 보고를 깨지 않는다).
-func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]time.Time, int, error) {
+// readEventRow — read_events 1행의 계산 뷰(G4).
+type readEventRow struct {
+	ts       time.Time
+	fallback bool
+	ids      []int
+}
+
+// writeRow — 창 내 knowledge 커밋 1행의 계산 뷰(페어링·연쇄).
+type writeRow struct {
+	ts    time.Time
+	topic string
+}
+
+// queryReadEvents — 창 내 read 이벤트를 ts 오름차순으로 읽는다(연쇄의
+// 이후-판정이 순서를 가정). 매핑 불가 칸은 조용히 건너뛴다(cellToInt
+// 관례 — 계측 누락이 보고를 깨지 않는다).
+func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]readEventRow, error) {
 	rows, err := queryOnce(ctx, st,
-		`SELECT ts, fallback FROM read_events WHERE ts >= $1`, []any{cutoff})
+		`SELECT ts, fallback, ids FROM read_events WHERE ts >= $1 ORDER BY ts`,
+		[]any{cutoff})
 	if err != nil {
-		return nil, 0, err
+		return nil, err
 	}
-	out := make([]time.Time, 0, len(rows))
-	fallbacks := 0
+	out := make([]readEventRow, 0, len(rows))
 	for _, r := range rows {
 		if len(r) < 2 {
 			continue
@@ -449,17 +573,44 @@ func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]time.Ti
 		if !ok {
 			continue
 		}
-		out = append(out, t)
-		if b, ok := r[1].(bool); ok && b {
-			fallbacks++
+		e := readEventRow{ts: t}
+		if b, ok := r[1].(bool); ok {
+			e.fallback = b
 		}
+		if len(r) > 2 {
+			if s, ok := r[2].(string); ok {
+				e.ids = parseIDsCSV(s)
+			}
+		}
+		out = append(out, e)
 	}
-	return out, fallbacks, nil
+	return out, nil
 }
 
-// queryTimes — 1열 시각 쿼리를 time 슬라이스로 읽는다(G4 페어링 전용).
-// 매핑 불가 칸은 조용히 건너뛴다(cellToInt 관례 — 계측 누락이 보고를
-// 깨지 않는다).
+// queryWrites — 창 내 knowledge 커밋(시각·topic)을 ts 오름차순으로 읽는다.
+func queryWrites(ctx context.Context, st Store, cutoff time.Time) ([]writeRow, error) {
+	rows, err := queryOnce(ctx, st,
+		`SELECT ingested_at, topic FROM knowledge WHERE ingested_at >= $1 ORDER BY ingested_at`,
+		[]any{cutoff})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]writeRow, 0, len(rows))
+	for _, r := range rows {
+		if len(r) < 2 {
+			continue
+		}
+		t, ok := cellToTime(r[0])
+		if !ok {
+			continue
+		}
+		out = append(out, writeRow{ts: t, topic: fmt.Sprint(r[1])})
+	}
+	return out, nil
+}
+
+// queryTimes — 1열 시각 쿼리를 time 슬라이스로 읽는다(세션 경계 조회).
+// 매핑 불가 칸은 조용히 건너뛴다(계측 누락이 보고를 깨지 않는다).
 func queryTimes(ctx context.Context, st Store, sql string, cutoff time.Time) ([]time.Time, error) {
 	rows, err := queryOnce(ctx, st, sql, []any{cutoff})
 	if err != nil {
@@ -491,22 +642,105 @@ func cellToTime(v any) (time.Time, bool) {
 	}
 }
 
-// pairReadWrites — 각 read 시각 뒤 window 안에 write가 하나라도 있으면
-// 1쌍(G4). writes 정렬 후 이진 탐색 — 창 규모(수백)에서 충분하고
-// SQL interval 조인의 Doltgres 리스크를 받지 않는다.
-func pairReadWrites(reads, writes []time.Time, window time.Duration) int {
-	if len(writes) == 0 {
-		return 0
+// sessionIndexOf — starts(오름차순)에서 ts가 속한 세션 인덱스(마지막
+// start ≤ ts). 첫 시작보다 앞이면 −1(미배정 — 폴백 페어링 대상).
+func sessionIndexOf(starts []time.Time, ts time.Time) int {
+	return sort.Search(len(starts), func(i int) bool { return starts[i].After(ts) }) - 1
+}
+
+// timeWindowHit — base 직후 window 안(0 < Δ ≤ window)에 시각이 하나라도
+// 있으면 참. times는 오름차순 정렬 가정.
+func timeWindowHit(times []time.Time, base time.Time, window time.Duration) bool {
+	i := sort.Search(len(times), func(i int) bool { return times[i].After(base) })
+	return i < len(times) && !times[i].After(base.Add(window))
+}
+
+// recallLedPct — 창 내 시작 세션의 회상 선도율: 기록(write ≥1) 세션 중
+// 첫 read가 첫 write보다 앞선(회상이 생산을 이끈) 세션 비율. 창 밖 시작
+// 세션(마진분)은 제외, 미배정 이벤트는 그 세션에 귀속되지 않는다.
+func recallLedPct(starts []time.Time, evs []readEventRow, writes []writeRow, windowStart time.Time) int {
+	type sess struct {
+		firstRead, firstWrite time.Time
+		hasRead, hasWrite     bool
 	}
-	sorted := append([]time.Time(nil), writes...)
-	sort.Slice(sorted, func(i, j int) bool { return sorted[i].Before(sorted[j]) })
-	pairs := 0
-	for _, r := range reads {
-		end := r.Add(window)
-		i := sort.Search(len(sorted), func(i int) bool { return !sorted[i].Before(r) })
-		if i < len(sorted) && !sorted[i].After(end) {
-			pairs++
+	sessions := map[int]*sess{}
+	for i, s := range starts {
+		if !s.Before(windowStart) {
+			sessions[i] = &sess{}
 		}
 	}
-	return pairs
+	for _, e := range evs {
+		if si := sessionIndexOf(starts, e.ts); si >= 0 {
+			if ss := sessions[si]; ss != nil && (!ss.hasRead || e.ts.Before(ss.firstRead)) {
+				ss.firstRead, ss.hasRead = e.ts, true
+			}
+		}
+	}
+	for _, w := range writes {
+		if si := sessionIndexOf(starts, w.ts); si >= 0 {
+			if ss := sessions[si]; ss != nil && (!ss.hasWrite || w.ts.Before(ss.firstWrite)) {
+				ss.firstWrite, ss.hasWrite = w.ts, true
+			}
+		}
+	}
+	active, led := 0, 0
+	for _, ss := range sessions {
+		if !ss.hasWrite {
+			continue
+		}
+		active++
+		if ss.hasRead && ss.firstRead.Before(ss.firstWrite) {
+			led++
+		}
+	}
+	return pctOf(led, active)
+}
+
+// chainPct — 사용 연쇄율(v0.20.0 B): 반환 id가 있는 read 중 24h 내
+// (a) 이후 read에서 같은 id 재반환 또는 (b) 같은 topic write로 이어진
+// 비율. evs·writes는 ts 오름차순 가정.
+func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string) int {
+	withIDs, used := 0, 0
+	for i, e := range evs {
+		if len(e.ids) == 0 {
+			continue
+		}
+		withIDs++
+		idset := make(map[int]bool, len(e.ids))
+		for _, id := range e.ids {
+			idset[id] = true
+		}
+		hit := false
+		// (a) 이후 24h 내 재반환.
+		for j := i + 1; j < len(evs) && !hit; j++ {
+			if evs[j].ts.After(e.ts.Add(reportChainWindow)) {
+				break
+			}
+			for _, id := range evs[j].ids {
+				if idset[id] {
+					hit = true
+					break
+				}
+			}
+		}
+		// (b) 이후 24h 내 같은 topic write.
+		for _, w := range writes {
+			if hit {
+				break
+			}
+			if !w.ts.After(e.ts) || w.ts.After(e.ts.Add(reportChainWindow)) {
+				continue
+			}
+			for _, id := range e.ids {
+				if t := topics[id]; t != "" && t == w.topic {
+					hit = true
+					break
+				}
+			}
+		}
+		if hit {
+			used++
+		}
+	}
+	return pctOf(used, withIDs)
 }

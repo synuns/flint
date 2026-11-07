@@ -12,23 +12,25 @@ import (
 	"time"
 )
 
-// TestPairReadWrites — Review Focus(test_pair_window_boundary): read 뒤
-// 정확히 창 끝의 write는 페어, 창 밖은 미페어. writes 입력 순서 무관
-// (내부 정렬).
-func TestPairReadWrites(t *testing.T) {
+// TestTimeWindowHit — Review Focus(test_pair_window_boundary, v0.20.0
+// 이식): base 직후 창 안(0 < Δ ≤ window)의 시각만 히트 — 동시(Δ=0)·
+// 직전·창 밖은 제외, 창 끝은 포함. times 오름차순 가정.
+func TestTimeWindowHit(t *testing.T) {
 	base := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
-	reads := []time.Time{base, base.Add(2 * time.Hour)}
-	writes := []time.Time{
-		base.Add(31 * time.Minute),             // read1 창(30분) 밖
-		base.Add(2*time.Hour + 30*time.Minute), // read2 창 끝(경계 포함) — 순서 뒤섞임
-		base.Add(25 * time.Minute),             // read1 창 내
+	times := []time.Time{
+		base.Add(-time.Minute),     // 직전 — 불히트
+		base.Add(25 * time.Minute), // 창 내 — 히트
 	}
-	got := pairReadWrites(reads, writes, 30*time.Minute)
-	if got != 2 {
-		t.Errorf("pairs = %d, want 2(경계 포함·창 밖 제외)", got)
+	if !timeWindowHit(times, base, 30*time.Minute) {
+		t.Error("창 내(+25m) 히트 실패")
 	}
-	if pairReadWrites(reads, nil, 30*time.Minute) != 0 {
-		t.Error("writes 공백 시 pairs ≠ 0")
+	edge := []time.Time{base, base.Add(30 * time.Minute)} // 동시(스킵)·창 끝(히트)
+	if !timeWindowHit(edge, base, 30*time.Minute) {
+		t.Error("Δ=0 스킵 후 창 끝(+30m) 히트 실패")
+	}
+	miss := []time.Time{base, base.Add(-time.Minute), base.Add(31 * time.Minute)}
+	if timeWindowHit(miss, base, 30*time.Minute) {
+		t.Error("동시·직전·창 밖만 있을 때 히트 오판")
 	}
 }
 
@@ -48,11 +50,12 @@ func TestCellToTime(t *testing.T) {
 
 // TestReportEffectSection — Review Focus(test_effect_section): 효과
 // 섹션이 METRICS §4 정의대로 산출된다 — daily 합산(G1·G2)·knowledge 시점
-// 집계(G3)·read_events 페어링(G4).
+// 집계+노출 보정(G3)·세션 경계 페어링·회상 선도·연쇄(G4, v0.20.0).
 func TestReportEffectSection(t *testing.T) {
 	now := time.Now().UTC()
-	readA := now.Add(-2 * time.Hour) // 창 내(1일)
-	readB := now.Add(-1 * time.Hour) // 이 read 뒤 10분에 write → 페어
+	sessStart := now.Add(-3 * time.Hour) // 모든 이벤트의 세션 경계
+	readA := now.Add(-2 * time.Hour)     // 창 내(1일)·폴백 경유·ids=7
+	readB := now.Add(-1 * time.Hour)     // 정경로·ids 없음
 	writeAt := readB.Add(10 * time.Minute)
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -62,18 +65,28 @@ func TestReportEffectSection(t *testing.T) {
 			return [][]any{{"daily:" + now.Format("2006-01-02"),
 				`{"read":10,"read_zero":4,"read_zero_near":3,"write":8,"dup":6}`}}, nil
 		case strings.Contains(sql, "read_count > 0"):
-			// G3 시점 집계 — active 100·회상 60·dead 20.
-			return [][]any{{int64(100), int64(60), int64(20)}}, nil
+			// G3 카운터 — active 100·회상 60.
+			return [][]any{{int64(100), int64(60)}}, nil
+		case strings.Contains(sql, "id FROM knowledge"):
+			// G3 dead 후보 id — 20·30(아래 hot 노출로 20은 제외).
+			return [][]any{{int64(20)}, {int64(30)}}, nil
+		case strings.Contains(sql, "hot_events"):
+			return [][]any{{"20,99"}}, nil
 		case strings.Contains(sql, "read_events"):
-			// readA 폴백 경유·readB 정경로 — fallback_pct=50.
+			// readA 폴백 경유(ids=7)·readB 정경로 — fallback_pct=50.
 			return [][]any{
-				{readA.Format(time.RFC3339), true},
-				{readB.Format(time.RFC3339), false},
+				{readA.Format(time.RFC3339), true, "7"},
+				{readB.Format(time.RFC3339), false, ""},
 			}, nil
+		case strings.Contains(sql, "session_starts"):
+			return [][]any{{sessStart.Format(time.RFC3339)}}, nil
 		case strings.Contains(sql, "last_read_at"):
 			return [][]any{{"0", "0"}}, nil
+		case strings.Contains(sql, "id, topic FROM knowledge"):
+			// chain(b) — 반환 id 7의 topic과 같은 write.
+			return [][]any{{int64(7), "chain-topic"}}, nil
 		case strings.Contains(sql, "ingested_at"):
-			return [][]any{{writeAt.Format(time.RFC3339)}}, nil
+			return [][]any{{writeAt.Format(time.RFC3339), "chain-topic"}}, nil
 		case strings.Contains(sql, "invalid_at >="):
 			return [][]any{{"0"}}, nil
 		case strings.Contains(sql, "count"):
@@ -96,18 +109,22 @@ func TestReportEffectSection(t *testing.T) {
 			ReadEventsN    int `json:"read_events_n"`
 			ReadWritePairs int `json:"read_write_pairs"`
 			PairPct        int `json:"pair_pct"`
+			RecallLedPct   int `json:"recall_led_pct"`
+			ChainPct       int `json:"chain_pct"`
 		} `json:"effect"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &rep); err != nil {
 		t.Fatalf("report JSON 파싱: %v\n%s", err, out.String())
 	}
 	e := rep.Effect
-	// G1: 1−4/10=60·3/10=30·폴백 1/2=50 · G2: Σdup=6 · G3: 60/100·20/100
-	// · G4: 2 read 중 1 페어=50.
+	// G1: 1−4/10=60·3/10=30·폴백 1/2=50 · G2: Σdup=6 · G3: 60/100·
+	// dead 후보 2 중 hot 노출 20 제외→1% · G4: 세션 1개에서 readB만
+	// 페어(1/2=50)·회상 선도 1/1=100·연쇄 readA(7→같은 topic write) 1/1=100.
 	if e.HitPct != 60 || e.NearPct != 30 || e.FallbackPct != 50 ||
-		e.DupPrevented != 6 || e.ReusePct != 60 || e.DeadPct != 20 ||
-		e.ReadEventsN != 2 || e.ReadWritePairs != 1 || e.PairPct != 50 {
-		t.Errorf("effect = %+v, want {60 30 50 6 60 20 2 1 50}", e)
+		e.DupPrevented != 6 || e.ReusePct != 60 || e.DeadPct != 1 ||
+		e.ReadEventsN != 2 || e.ReadWritePairs != 1 || e.PairPct != 50 ||
+		e.RecallLedPct != 100 || e.ChainPct != 100 {
+		t.Errorf("effect = %+v, want {60 30 50 6 60 1 2 1 50 100 100}", e)
 	}
 }
 
@@ -121,7 +138,10 @@ func TestReportEffectZeroReads(t *testing.T) {
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
 		case strings.Contains(sql, "read_count > 0"):
-			return [][]any{{"10", "0", "10"}}, nil // active 10·회상 0·dead 10
+			return [][]any{{"10", "0"}}, nil // active 10·회상 0
+		case strings.Contains(sql, "id FROM knowledge"):
+			// dead 후보 2행(노출 없음 → 전부 dead) → 2/10=20%.
+			return [][]any{{int64(4)}, {int64(6)}}, nil
 		case strings.Contains(sql, "read_events"):
 			return nil, nil
 		case strings.Contains(sql, "last_read_at"):
@@ -139,7 +159,7 @@ func TestReportEffectZeroReads(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"hit_pct":0`, `"read_events_n":0`, `"read_write_pairs":0`, `"pair_pct":0`,
-		`"fallback_pct":0`, `"reuse_pct":0`, `"dead_pct":100`,
+		`"fallback_pct":0`, `"reuse_pct":0`, `"dead_pct":20`,
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("%s 누락: %s", want, out.String())
@@ -154,6 +174,103 @@ func TestReportEffectZeroReads(t *testing.T) {
 	}
 }
 
+// TestReportEffectSessionPairing — Review Focus(v0.20.0 D): 세션 경계가
+// 페어링을 판별한다 — read(세션1) 뒤 20분 write(세션2)는 시간창 폴백과
+// 달리 페어가 아니다. 회상 선도는 write-only 세션에서 0.
+func TestReportEffectSessionPairing(t *testing.T) {
+	now := time.Now().UTC()
+	start1 := now.Add(-3 * time.Hour)    // 세션1 시작
+	readA := now.Add(-90 * time.Minute)  // 세션1 소속 read
+	start2 := now.Add(-80 * time.Minute) // 세션2 시작
+	writeB := now.Add(-70 * time.Minute) // 세션2 소속 write(readA+20m — 폴백이면 페어)
+	sessionsUp := true
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "daily:"):
+			return nil, nil
+		case strings.Contains(sql, "read_count > 0"):
+			return [][]any{{"10", "0"}}, nil
+		case strings.Contains(sql, "id FROM knowledge"):
+			return nil, nil
+		case strings.Contains(sql, "read_events"):
+			return [][]any{{readA.Format(time.RFC3339), false, ""}}, nil
+		case strings.Contains(sql, "session_starts"):
+			if !sessionsUp {
+				return nil, fmt.Errorf("relation missing")
+			}
+			return [][]any{
+				{start1.Format(time.RFC3339)},
+				{start2.Format(time.RFC3339)},
+			}, nil
+		case strings.Contains(sql, "last_read_at"):
+			return [][]any{{"0", "0"}}, nil
+		case strings.Contains(sql, "id, topic FROM knowledge"):
+			return nil, nil
+		case strings.Contains(sql, "ingested_at"):
+			return [][]any{{writeB.Format(time.RFC3339), "other"}}, nil
+		case strings.Contains(sql, "invalid_at >="):
+			return [][]any{{"0"}}, nil
+		case strings.Contains(sql, "count"):
+			return [][]any{{"0", "0", "0"}}, nil
+		}
+		return nil, nil
+	}}
+	run := func(t *testing.T) (pairs, recallLed int) {
+		t.Helper()
+		var out strings.Builder
+		if code := runReport(context.Background(), st, []string{"--days", "1"}, nil, &out); code != 0 {
+			t.Fatalf("exit %d: %s", code, out.String())
+		}
+		var rep struct {
+			Effect struct {
+				ReadWritePairs int `json:"read_write_pairs"`
+				RecallLedPct   int `json:"recall_led_pct"`
+			} `json:"effect"`
+		}
+		if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &rep); err != nil {
+			t.Fatalf("report JSON 파싱: %v\n%s", err, out.String())
+		}
+		return rep.Effect.ReadWritePairs, rep.Effect.RecallLedPct
+	}
+
+	// 세션 경계 있음 — 세간 write는 페어 아님(시간창이었다면 1).
+	if pairs, led := run(t); pairs != 0 || led != 0 {
+		t.Errorf("세션 판별: pairs=%d led=%d, want 0/0(write-only 세션)", pairs, led)
+	}
+	// 폴백(세션 조회 실패) — 기존 v0.19.0 시간창 규칙: 20m 내 페어 1.
+	sessionsUp = false
+	if pairs, _ := run(t); pairs != 1 {
+		t.Errorf("폴백: pairs=%d, want 1(시간창 규칙)", pairs)
+	}
+}
+
+// TestChainPct — Review Focus(v0.20.0 B): 사용 연쇄의 두 경로와 비히트 —
+// (a) 24h 내 같은 id 재반환 히트, (b) 같은 topic write 히트, 24h 경과·
+// 다른 id·다른 topic은 비히트.
+func TestChainPct(t *testing.T) {
+	base := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
+	evs := []readEventRow{
+		{ts: base, ids: []int{7}},                     // (a) 재반환 히트
+		{ts: base.Add(2 * time.Hour), ids: []int{7}},  // (a)의 상대(재반환)
+		{ts: base.Add(3 * time.Hour), ids: []int{9}},  // (b) 같은 topic write 히트
+		{ts: base.Add(4 * time.Hour), ids: []int{11}}, // 비히트(다른 topic·24h 경과)
+	}
+	writes := []writeRow{
+		{ts: base.Add(3*time.Hour + 5*time.Minute), topic: "t9"},
+		{ts: base.Add(30 * time.Hour), topic: "t7"}, // 24h 창 밖
+	}
+	topics := map[int]string{7: "t7", 9: "t9", 11: "t11"}
+	// (a): ev0→ev1(2h 내 7 재반환) · (b): ev2(9)→write t9 · ev3(11): 히트 없음
+	// → 2/3 ≈ 66%.
+	if got := chainPct(evs, writes, topics); got != 66 {
+		t.Errorf("chainPct = %d, want 66(2/3)", got)
+	}
+	// ids 없는 read는 분모에서 제외 — 전부 비히트면 0.
+	if got := chainPct([]readEventRow{{ts: base}}, writes, topics); got != 0 {
+		t.Errorf("ids 없는 read 단독 chainPct = %d, want 0", got)
+	}
+}
+
 // TestReportEffectDegradesOnEventLogError — Review Focus(리뷰 #2):
 // read_events 조회 실패(테이블 부재 등)는 G4·fallback_pct를 0으로
 // 강등할 뿐 report 전체를 깨지 않는다(계측 원칙 — 다른 지표는 그대로).
@@ -163,7 +280,9 @@ func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
 		case strings.Contains(sql, "read_count > 0"):
-			return [][]any{{"50", "10", "5"}}, nil // G3 — 강등 대상 아님
+			return [][]any{{"10", "1"}}, nil // G3 카운터 — 강등 대상 아님(active 10·회상 1)
+		case strings.Contains(sql, "id FROM knowledge"):
+			return [][]any{{int64(5)}}, nil // dead 후보 1행 → 1/10=10%
 		case strings.Contains(sql, "read_events"):
 			return nil, fmt.Errorf("relation \"read_events\" does not exist (42P01)")
 		case strings.Contains(sql, "last_read_at"):
@@ -181,7 +300,7 @@ func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 	}
 	for _, want := range []string{
 		`"read_events_n":0`, `"read_write_pairs":0`, `"pair_pct":0`, `"fallback_pct":0`,
-		`"reuse_pct":20`, `"dead_pct":10`, // G3은 강등 없이 산출
+		`"reuse_pct":10`, `"dead_pct":10`, // G3은 강등 없이 산출(1/10)
 	} {
 		if !strings.Contains(out.String(), want) {
 			t.Errorf("%s 누락: %s", want, out.String())
