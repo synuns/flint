@@ -71,12 +71,12 @@ var versionDocContracts = []struct {
 	}},
 
 	// v093_docs_test.go
-	{name: "TestPlanRecordsV092AndV093", doc: "PLAN.md", wants: []string{"v0.9.2", "v0.9.3"}},
+	{name: "TestPlanRecordsV092AndV093", doc: "HISTORY.md", wants: []string{"v0.9.2", "v0.9.3"}},
 
 	// v096_docs_test.go
 	{name: "TestReadmeMentionsFallback/README.md", doc: "../README.md", wants: []string{"fallback"}},
 	{name: "TestReadmeMentionsFallback/README.ko.md", doc: "../README.ko.md", wants: []string{"fallback"}},
-	{name: "TestPlanRecordsV095AndV096", doc: "PLAN.md", wants: []string{"v0.9.5", "v0.9.6"}},
+	{name: "TestPlanRecordsV095AndV096", doc: "HISTORY.md", wants: []string{"v0.9.5", "v0.9.6"}},
 
 	// v0100_docs_test.go — "suggestions" 문자열 요구는 v0.14.0 침묵 계약으로
 	// 철회(README v0.17.0 재작성) — 백업 무결성만 단얱.
@@ -94,7 +94,7 @@ var versionDocContracts = []struct {
 	}},
 
 	// v0102_docs_test.go
-	{name: "TestPlanRecordsV094AndV097", doc: "PLAN.md", wants: []string{"v0.9.4", "v0.9.7"}},
+	{name: "TestPlanRecordsV094AndV097", doc: "HISTORY.md", wants: []string{"v0.9.4", "v0.9.7"}},
 	{name: "TestSkillDocumentsReadFlags", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{
 		"--tag", "--entity", "--domain", "--limit",
 	}},
@@ -103,22 +103,22 @@ var versionDocContracts = []struct {
 	{name: "TestSkillMentionsHotFull", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{"hot --full"}},
 	{name: "TestReadmeMentionsExposure/README.md", doc: "../README.md", wants: []string{"exposure"}},
 	{name: "TestReadmeMentionsExposure/README.ko.md", doc: "../README.ko.md", wants: []string{"exposure"}},
-	{name: "TestPlanRecordsV0110", doc: "PLAN.md", wants: []string{"v0.11.0"}},
+	{name: "TestPlanRecordsV0110", doc: "HISTORY.md", wants: []string{"v0.11.0"}},
 
 	// v0120_docs_test.go
 	{name: "TestSkillDocumentsReadStatus", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{"read --status pending"}},
-	{name: "TestPlanRecordsV0120", doc: "PLAN.md", wants: []string{"v0.12.0"}},
+	{name: "TestPlanRecordsV0120", doc: "HISTORY.md", wants: []string{"v0.12.0"}},
 
 	// v0130_docs_test.go — TestReadmeMentionsAdoption은 v0.17.0 README 재작성으로 요구 철회.
-	{name: "TestPlanRecordsV0130", doc: "PLAN.md", wants: []string{"v0.13.0"}},
+	{name: "TestPlanRecordsV0130", doc: "HISTORY.md", wants: []string{"v0.13.0"}},
 	{name: "TestTuningRecordsConflictThreshold", doc: "TUNING.md", wants: []string{"conflictDupThreshold", "0.6"}},
 
 	// v0140_docs_test.go
-	{name: "TestPlanRecordsV0140", doc: "PLAN.md", wants: []string{"v0.14.0"}},
+	{name: "TestPlanRecordsV0140", doc: "HISTORY.md", wants: []string{"v0.14.0"}},
 	{name: "TestTuningRecordsZeroNear", doc: "TUNING.md", wants: []string{"zero_near"}},
 
 	// v0150_docs_test.go — exit 3 서술은 v0.17.1 MapExit SchemaError 전반으로 확장.
-	{name: "TestPlanRecordsV0150", doc: "PLAN.md", wants: []string{"v0.15.0"}},
+	{name: "TestPlanRecordsV0150", doc: "HISTORY.md", wants: []string{"v0.15.0"}},
 	{name: "TestTuningRecordsWindowed", doc: "TUNING.md", wants: []string{"read_zero_near", "30"}},
 	{name: "TestReadmeExitTable/README.md", doc: "../README.md", wants: []string{
 		"exit 3", "invalid input (valueless trailing flags",
@@ -128,19 +128,19 @@ var versionDocContracts = []struct {
 	}},
 
 	// v0151_docs_test.go
-	{name: "TestPlanRecordsV0151", doc: "PLAN.md", wants: []string{"v0.15.1"}},
+	{name: "TestPlanRecordsV0151", doc: "HISTORY.md", wants: []string{"v0.15.1"}},
 
 	// v0152_docs_test.go
-	{name: "TestPlanRecordsV0152", doc: "PLAN.md", wants: []string{"v0.15.2"}},
+	{name: "TestPlanRecordsV0152", doc: "HISTORY.md", wants: []string{"v0.15.2"}},
 
 	// v0160_docs_test.go
-	{name: "TestPlanRecordsV0160", doc: "PLAN.md", wants: []string{"v0.16.0"}},
+	{name: "TestPlanRecordsV0160", doc: "HISTORY.md", wants: []string{"v0.16.0"}},
 	{name: "TestCiTriggersOnVersionTags", doc: "../.github/workflows/ci.yml", wants: []string{`tags: ["v*"]`}},
 	{name: "TestReadmePluginInstall/README.md", doc: "../README.md", wants: []string{"marketplace add synuns/flint"}},
 	{name: "TestReadmePluginInstall/README.ko.md", doc: "../README.ko.md", wants: []string{"marketplace add synuns/flint"}},
 
 	// v0161_docs_test.go
-	{name: "TestPlanRecordsV0161", doc: "PLAN.md", wants: []string{"v0.16.1"}},
+	{name: "TestPlanRecordsV0161", doc: "HISTORY.md", wants: []string{"v0.16.1"}},
 	{name: "TestReadmePathRequirement/README.md", doc: "../README.md", wants: []string{"PATH"}},
 	{name: "TestReadmePathRequirement/README.ko.md", doc: "../README.ko.md", wants: []string{"PATH"}},
 
@@ -148,10 +148,10 @@ var versionDocContracts = []struct {
 	{name: "TestSkillWriteProtocol", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{
 		"갱신 우선", "최소화", "flint read",
 	}},
-	{name: "TestPlanRecordsV0162", doc: "PLAN.md", wants: []string{"v0.16.2"}},
+	{name: "TestPlanRecordsV0162", doc: "HISTORY.md", wants: []string{"v0.16.2"}},
 
 	// v0163_docs_test.go
-	{name: "TestPlanRecordsV0163", doc: "PLAN.md", wants: []string{"v0.16.3"}},
+	{name: "TestPlanRecordsV0163", doc: "HISTORY.md", wants: []string{"v0.16.3"}},
 	{name: "TestTuningKeysV0163Documented", doc: "TUNING.md", wants: []string{
 		"suggest_min_score", "suggest_scan_cap", "conflict_dup_threshold",
 		"backup_age_warn_h", "zero_near_min_read", "zero_near_warn_pct",
@@ -171,7 +171,7 @@ var versionDocContracts = []struct {
 	}},
 
 	// v0180_docs_test.go — recall_warn_writes는 thresholds 레지스트리+TUNING §2 동기 키.
-	{name: "TestVersion0180Milestone/PLAN", doc: "PLAN.md", wants: []string{"v0.18.0", "회상 우선 메모리"}},
+	{name: "TestVersion0180Milestone/PLAN", doc: "HISTORY.md", wants: []string{"v0.18.0", "회상 우선 메모리"}},
 	{name: "TestVersion0180Milestone/TUNING", doc: "TUNING.md", wants: []string{"recall_warn_writes"}},
 
 	// v0190_docs_test.go — METRICS.md는 GSM 목표 4종·지표명·증거 등급·금지조항의 단일 소스.
@@ -239,8 +239,8 @@ func TestDocsV06(t *testing.T) {
 		}
 	}
 
-	// ② PLAN.md §14에 v0.6 섹션(스펙 §1·§2 체크리스트).
-	plan := read(t, "PLAN.md")
+	// ② 이력(HISTORY.md — v0.21.2 아카이브 이전에는 PLAN §14)의 v0.6 섹션.
+	plan := read(t, "HISTORY.md")
 	if !strings.Contains(plan, "v0.6") {
 		t.Error("PLAN.md에 v0.6 섹션 없음")
 	}
@@ -312,10 +312,10 @@ func TestReadmePortIs5434(t *testing.T) {
 // 다음 ## 헤더 전)까지를 잘라 반환한다.
 func planV0100Section(t *testing.T) string {
 	t.Helper()
-	s := docStr(t, "../docs/PLAN.md")
+	s := docStr(t, "../docs/HISTORY.md") // v0.21.2 아카이브 이관
 	i := strings.Index(s, "### v0.10.0")
 	if i < 0 {
-		t.Fatal("PLAN.md에 v0.10.0 마일스톤 없음")
+		t.Fatal("HISTORY.md에 v0.10.0 마일스톤 없음")
 	}
 	s = s[i:]
 	if j := strings.Index(s, "\n## "); j >= 0 {
@@ -411,9 +411,9 @@ func TestReadmeHookEntriesUseR4Commands(t *testing.T) {
 // TestPlanV0110MilestonesChecked — R1~R5 전 구현 완료 시점부터 v0.11.0
 // 마일스톤 섹션에 미완료 체크박스가 남으면 실패(관례: 완료 항목 [x]).
 func TestPlanV0110MilestonesChecked(t *testing.T) {
-	plan := docStr(t, "PLAN.md")
+	plan := docStr(t, "HISTORY.md") // v0.21.2 아카이브 이관
 	start := strings.Index(plan, "v0.11.0")
-	end := strings.Index(plan[start:], "\n## 15.")
+	end := strings.Index(plan[start:], "\n### v0.12.0")
 	if start < 0 || end < 0 {
 		t.Fatal("PLAN.md v0.11.0 섹션 경계 탐색 실패")
 	}
