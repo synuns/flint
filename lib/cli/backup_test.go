@@ -3,6 +3,8 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"os"
@@ -182,7 +184,13 @@ func TestRestoreFromFile(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)
 	path := filepath.Join(t.TempDir(), "dump.sql")
-	if err := os.WriteFile(path, []byte("BEGIN;\nCOMMIT;\n"), 0o644); err != nil {
+	if err := os.WriteFile(path, []byte("BEGIN;\nCOMMIT;\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// v0.20.6 S4: 사이드카 필수 — 정상 경로는 무결 검증 통과 분기.
+	// 체크섬은 VerifyFile과 동일 알고리즘(sha256 hex)으로 계산해 기록.
+	digest := sha256.Sum256([]byte("BEGIN;\nCOMMIT;\n"))
+	if err := backup.WriteSidecar(path, hex.EncodeToString(digest[:])); err != nil {
 		t.Fatal(err)
 	}
 	out, code := mustRestore(t, []string{"--file", path})

@@ -49,6 +49,7 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 | `events_retention_days` | 14 | read_events·session_starts 보존일(daily 카운터 정책 승계) | 계측 정리 |
 | `hot_events_retention_days` | 30 | hot_events 보존일(dead_pct 노출 가드 창과 정렬) | 계측 정리 |
 | `events_volume_warn` | 50000 | 계측 3테이블 합계 경고 행 수 — 이상 시 doctor event-volume warn | doctor event-volume |
+| `drill_max_days` | 30 | 백업 드릴 경과 보고 기준일 — 초과 시 `,"drill":"stale"`(doctor·maintain 경로) | doctor·maintain 보고 |
 
 갱신(미설정 키는 기본값, 즉시 재적용 — 재시작 불필요):
 

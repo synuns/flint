@@ -3,6 +3,8 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -268,5 +270,32 @@ func TestTeardownStoreFree(t *testing.T) {
 	}
 	if rec.downCalls != 1 {
 		t.Fatalf("down=%d회, want 1", rec.downCalls)
+	}
+}
+
+// TestSyncRulesSkipsSymlinks — v0.20.6(패치 루프 6차 S5): 소스의 심볼릭
+// 링크는 복사하지 않는다(링크 대상 민감 파일 노출 차단).
+func TestSyncRulesSkipsSymlinks(t *testing.T) {
+	src := t.TempDir()
+	dest := t.TempDir()
+	secret := filepath.Join(t.TempDir(), "secret")
+	if err := os.WriteFile(secret, []byte("topsecret"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(secret, filepath.Join(src, "leak")); err != nil {
+		t.Skip("심볼릭 링크 생성 불가 환경")
+	}
+	if err := os.WriteFile(filepath.Join(src, "normal.md"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	copied, err := syncRules(src, dest)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if copied != 1 {
+		t.Fatalf("복사 %d건, want 1(링크 제외)", copied)
+	}
+	if _, err := os.Stat(filepath.Join(dest, "leak")); !os.IsNotExist(err) {
+		t.Errorf("심볼릭 링크가 복사됨: %v", err)
 	}
 }

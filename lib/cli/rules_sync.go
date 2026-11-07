@@ -25,6 +25,12 @@ func syncRules(srcDir string, destDir string) (copied int, err error) {
 		if e.IsDir() {
 			continue // 1단계 파일만 — 스킬 디렉터리는 평면(SKILL.md+부속)
 		}
+		// v0.20.6(패치 루프 6차 S5): 심볼릭 링크는 skip — ReadFile이 링크
+		// 대상(소스 디렉터리에 심어진 민감 파일 포인터)을 따라가 복사·
+		// 노출하는 것을 차단한다.
+		if e.Type()&os.ModeSymlink != 0 {
+			continue
+		}
 		srcPath := filepath.Join(srcDir, e.Name())
 		body, err := os.ReadFile(srcPath)
 		if err != nil {

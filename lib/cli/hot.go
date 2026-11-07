@@ -297,6 +297,17 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	// 출력 재살균(ADR-0006, v0.20.6 패치 루프 6차 S1): read.go와 동일
+	// 방어 — 저장 후 유입(restore·직접 SQL·살균 이전 데이터)된 [flint]
+	// 마커·제어 문자가 세션 시작 주입 경계를 위조하지 않게 한다. hot은
+	// 훅으로 프롬프트에 직접 주입되는 최우선 출력 경로다.
+	for _, row := range rows {
+		for i, cell := range row {
+			if cs, ok := cell.(string); ok {
+				row[i] = store.SanitizeText(cs)
+			}
+		}
+	}
 	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
 	loadHotStatsFromMeta(ctx, st)
 	// 예산은 양 경로 공통 산출: --full 절단 규칙과 증분 생존 판정이 같은

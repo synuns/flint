@@ -729,6 +729,30 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.20.6 패치 (2026-11-07) — 패치 루프 6차: 보안 경화 5건 + C② 위생
+
+- [x] S1(medium) hot 출력 재살균 — read와 동일 방어(ADR-0006): 저장 후
+  유입 [flint] 마커·제어 문자가 세션 시작 주입 경계를 위조하지 않게
+- [x] S2(medium) 살균·비밀 스캔 필드 확장 — tags 배열 원소·domain·origin
+  적용(이전 사각지대 — 비밀 경고 없이 저장·백업 영속)
+- [x] S3(low) 백업 파일 권한 0600·디렉터리 0700(자동·수동 덤프·사이드카)
+- [x] S4(low) restore 사이드카 부재 시 재생 전 차단 — 무검증 임의 SQL
+  재생 폐지(종료 후 경고→가드, ADR-0006 즉시 중단 취지)
+- [x] S5(low) 스킬 싱크 심볼릭 링크 skip(링크 대상 민감 파일 노출 차단)
+- [x] C② meta 키 위생 — 고아 키(last_dup_manual_at, 코드 무참조) 운영
+  정리·drill_max_days TUNING §2 등록(문서 미등록 오버라이드)
+- [x] 검증 차단 확인 3건 — MCP 인자 주입·SQL 접합·read 이중 방어(스윕
+  보고)
+- [x] 버전 — VERSION·배지 v0.20.6(EN/KO)·plugin.json 동기
+
+### v0.20.5 패치 (2026-11-07) — 패치 루프 5차: B② 세션 라벨 자동 주입
+
+- [x] session-start 훅이 현재 세션 라벨을 config 경로 파일
+  (session-current)에 기록, read가 --session 미지정 시 조용히 자동
+  채택 — G4 라벨링이 에이전트 협조 없이 자동화. session-end가 정리
+  (스테일 방지). 병렬 세션 last-writer-wins(룰링 — 보조 계정)
+- [x] 버전 — VERSION·배지 v0.20.5(EN/KO)·plugin.json 동기
+
 ### v0.20.4 패치 (2026-11-07) — 패치 루프 4차: 마일스톤 B③·C①의 패치 규모 항목 조기 회수
 
 사용자 지시로 패치 루프 연속 진행(버전마다 정지하지 않음) — v0.21.0+
@@ -742,17 +766,6 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
   (성장은 정상 동작이므로 warn 안내만, fail 아님)·--check 지원
 - [x] PruneReadEvents 보존일 meta 오버라이드·report 판정 창 오버라이드
 - [x] 버전 — VERSION·배지 v0.20.4(EN/KO)·plugin.json 동기
-
-### v0.20.5 패치 (2026-11-07) — 패치 루프 5차: B② 세션 라벨 자동 주입
-
-- [x] session-start 훅이 현재 세션 라벨을 config 경로 파일
-  (session-current)에 기록, read가 --session 미지정 시 조용히 자동
-  채택 — G4 라벨링이 에이전트 협조 없이 자동화. session-end가 정리
-  (스테일 방지). 병렬 세션 last-writer-wins(룰링 — 보조 계정)
-- [x] 버전 — VERSION·배지 v0.20.5(EN/KO)·plugin.json 동기
-
-다음 패치 후보(연속 루프): C② meta 키 위생(레거시 키 실태 조사·
-롤링 정리 방안) 또는 보안 각도 스윑.
 
 ### v0.20.3 패치 (2026-11-07) — 패치 루프 3차: 문서·매니페스트 정합 7건
 

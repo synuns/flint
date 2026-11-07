@@ -11,11 +11,10 @@ import (
 	"time"
 )
 
-// TestHotFullNewlineSummarySkipsSuffix — pending 요약에 개행 포함 시 행 수
-// 불일치로 접미 전체 생략. 기존 전체 출력과 바이트 동일해야 하고 어느
-// 행에도 "·+" 접미가 붙어선 안 된다. want는 리터럴 고정(v0.20.1 테스트
-// 감사 T8 — 구현 함수 호출로 생성하면 runHot이 같은 호출로 폴백하는 한
-// 무조건 통과하는 자기복창이 된다).
+// TestHotFullNewlineSummarySkipsSuffix — 개행 포함 요약은 v0.20.6 S1
+// 출력 재살균으로 개행이 중립화된 뒤 절단 출력된다(프롬프트 주입 경계
+// 방어 — read 경로와 동일). want는 리터럴 고정(v0.20.1 테스트 감사 T8).
+// 접미 가드(lines↔rows 대응)는 재살균과 무관한 심층 방어로 유지.
 func TestHotFullNewlineSummarySkipsSuffix(t *testing.T) {
 	ctx := context.Background()
 	validAt := time.Now().UTC().Add(-49 * time.Hour)
@@ -24,7 +23,8 @@ func TestHotFullNewlineSummarySkipsSuffix(t *testing.T) {
 	}
 	// 리터럴 형식: 필드 구분 "|"·시각은 fmt.Sprint 기본형(FormatRows 비JSON
 	// 계약). 입력값 자체의 표준 포맷팅은 자기복창이 아니다(생산 코드 무관).
-	want := "pending|토픽|요약\n둘째 줄|" + fmt.Sprint(validAt) + "\n"
+	// 재살균된 요약(개행 제거)은 정상 접미 대상 — -49h는 ·+2일.
+	want := "pending|토픽|요약둘째 줄|" + fmt.Sprint(validAt) + "·+2일\n"
 	var out bytes.Buffer
 	f := &fakeStore{queryFn: pendingAgeQueryFn(hotRows, [][]any{{validAt}})}
 	if code := runHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
@@ -33,7 +33,5 @@ func TestHotFullNewlineSummarySkipsSuffix(t *testing.T) {
 	if out.String() != want {
 		t.Fatalf("출력 = %q, want %q(접미 생략·기존 출력 승계)", out.String(), want)
 	}
-	if strings.Contains(out.String(), "·+") {
-		t.Errorf("개행 포함 요약에 접미 부착: %q", out.String())
-	}
+
 }
