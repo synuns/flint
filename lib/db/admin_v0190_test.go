@@ -30,7 +30,7 @@ func TestV6PromoteIdempotent(t *testing.T) {
 		t.Fatalf("schema_version = %q, want 6", v)
 	}
 	// 테이블 존재의 동작 증명 — 이벤트 1행 기록·가독.
-	if err := r.RecordReadEvent(ctx, 2, false, false, false, "v6-probe"); err != nil {
+	if err := r.RecordReadEvent(ctx, 2, false, false, false, "v6-probe", ""); err != nil {
 		t.Fatalf("RecordReadEvent on promoted table: %v", err)
 	}
 	var hits int

@@ -161,9 +161,10 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	// v2는 newRealStore의 EnsureSchemaV2 승격 후, v3는 EnsureSchemaV3 인덱스
 	// 승격(T51·ADR-0008) 후, v4는 EnsureSchemaV4 계측 컬럼 승격(v0.6) 후,
 	// v5는 EnsureSchemaV5 superseded_by 승격(T82·v0.8) 후, v6는
-	// EnsureSchemaV6 read_events 승격(v0.19.0) 후 정상 상태다.
-	if version != "1" && version != "2" && version != "3" && version != "4" && version != "5" && version != "6" {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~6"}))
+	// EnsureSchemaV6 read_events 승격(v0.19.0) 후, v7는 EnsureSchemaV7
+	// 계측 정밀화 승격(v0.20.0) 후 정상 상태다.
+	if version != "1" && version != "2" && version != "3" && version != "4" && version != "5" && version != "6" && version != "7" {
+		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~7"}))
 		return 3
 	}
 	// v0.18.0 R4: 기간화 read 지표(14일 창) — 누적값과 병기.

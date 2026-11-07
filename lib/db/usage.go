@@ -110,27 +110,58 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 
 // RecordReadEvent — 효과 계측 이벤트 1행 기록(v0.19.0, docs/METRICS.md §4).
 // read 1회의 수치·플래그·세션 라벨만 남긴다(쿼리 본문·결과 내용 없음 —
-// 개인 문구 부재 원칙). 컷오프는 Go 계산 파라미터로 넘긴다(PruneDaily
+// 개인 문구 부재 원칙). v0.20.0: 반환 지식 id CSV(ids, 상위 10) 추가 —
+// 사용 연쇄(chain) 산출 원천. 컷오프는 Go 계산 파라미터로 넘긴다(PruneDaily
 // 산술·report stale 관례 — SQL interval 곱은 Doltgres 파라미터 추론 결함).
 // INSERT 전용이라 읽기-쓰기 경합(40001)이 없고 재시도 없이 단발 실행한다.
-func (r *Repo) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session string) error {
+func (r *Repo) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO read_events (hits, zero, near, fallback, session)
-		 VALUES ($1, $2, $3, $4, $5)`, hits, zero, near, fallback, session)
+		`INSERT INTO read_events (hits, zero, near, fallback, session, ids)
+		 VALUES ($1, $2, $3, $4, $5, $6)`, hits, zero, near, fallback, session, ids)
 	if err != nil {
 		return fmt.Errorf("record read event: %w", err)
 	}
 	return nil
 }
 
-// PruneReadEvents — 14일 보존(daily 카운터와 동일 정책)을 넘은 이벤트
-// 삭제. 트리거는 recordWithRetry의 롤오버 훅(PruneDaily와 동시) — 첫
-// read가 날짜를 넘기면 그 시점에 정리된다. 테이블 부재(v6 미승격 구DB
-// 접속 등)는 조용히 넘긴다(계측 원칙).
+// RecordSessionStart — 세션 시작 경계 1행(v0.20.0, session-start 커맨드).
+// 세션 구간 [start_i, start_{i+1}) 배정의 원천 — 출력 없는 내부 계정이라
+// 어느 프로파일에서도 기록한다(§13 — 에이전트 노출 아님).
+func (r *Repo) RecordSessionStart(ctx context.Context, session string) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO session_starts (session) VALUES ($1)`, session)
+	if err != nil {
+		return fmt.Errorf("record session start: %w", err)
+	}
+	return nil
+}
+
+// RecordHotEvent — hot --full 주입 노출 1행(v0.20.0, 실출력에 남은 지식
+// id CSV). dead_pct의 hot 노출 보정 원천 — 주입은 --full 경로에서만
+// 일어난다(hot.go N3 계약 승계).
+func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
+	_, err := r.pool.Exec(ctx,
+		`INSERT INTO hot_events (ids) VALUES ($1)`, ids)
+	if err != nil {
+		return fmt.Errorf("record hot event: %w", err)
+	}
+	return nil
+}
+
+// PruneReadEvents — 14일 보존(daily 카운터와 동일 정책)을 넘은 효과
+// 계측 이벤트 삭제. v0.20.0: read_events·session_starts·hot_events 3종
+// 통합 정리(동일 보존 정책 — 이름은 read 관례 승계). 트리거는
+// recordWithRetry의 롤오버 훅(PruneDaily와 동시) — 첫 read가 날짜를
+// 넘기면 그 시점에 정리된다. 실패는 호출부가 조용히 넘긴다(계측 원칙).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
 	cutoff := time.Now().UTC().Add(-14 * 24 * time.Hour)
-	_, err := r.pool.Exec(ctx, `DELETE FROM read_events WHERE ts < $1`, cutoff)
-	return err
+	for _, table := range []string{"read_events", "session_starts", "hot_events"} {
+		if _, err := r.pool.Exec(ctx,
+			`DELETE FROM `+table+` WHERE ts < $1`, cutoff); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // recordWithRetry — daily 증분 기록 공통 절차(RecordUsageCount·RecordReadUsage
