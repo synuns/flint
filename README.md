@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.20.6-blue" alt="v0.20.6">
+  <img src="https://img.shields.io/badge/release-v0.21.0-blue" alt="v0.21.0">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v0.20.6 · effect precision · 효과 계측 정밀화 · docs test 통합 · [full changelog](docs/PLAN.md)
+> v0.21.0 · effect precision · 효과 계측 정밀화 · docs test 통합 · [full changelog](docs/PLAN.md)
 
 ---
 
@@ -78,7 +78,7 @@ The plugin needs the `flint` binary on your `PATH`. Hooks and the MCP server bot
 flint setup --mcp
 ```
 
-Detects which harnesses are installed and registers the MCP server with each one. Copilot has no verified native CLI — use the manual config in [docs/adapters/copilot.md](docs/adapters/copilot.md). Anything not installed gets skipped. Exit 0 regardless.
+Detects installed harnesses (Codex, Gemini, OpenCode, Copilot, Cursor, Qwen, Devin, Cline) and registers the MCP server via each native CLI. File-based harnesses (Windsurf, Zed, Amp, VS Code, Continue, Goose, Trae) get a doctor check + adapter docs. Anything not installed gets skipped. Exit 0 regardless.
 
 <details>
 <summary>What <code>flint setup</code> does</summary>
@@ -154,6 +154,16 @@ Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/
 | **Copilot** | MCP ([docs/adapters/copilot.md](docs/adapters/copilot.md)) |
 | **Cursor** | MCP ([docs/adapters/cursor.md](docs/adapters/cursor.md)) |
 | **OpenCode** | MCP ([docs/adapters/opencode.md](docs/adapters/opencode.md)) |
+| **Qwen Code** | MCP ([docs/adapters/qwen.md](docs/adapters/qwen.md)) |
+| **Devin CLI** | MCP ([docs/adapters/devin.md](docs/adapters/devin.md)) |
+| **Cline** | MCP ([docs/adapters/cline.md](docs/adapters/cline.md)) |
+| **Windsurf** | MCP ([docs/adapters/windsurf.md](docs/adapters/windsurf.md)) |
+| **Zed** | MCP ([docs/adapters/zed.md](docs/adapters/zed.md)) |
+| **Amp** | MCP ([docs/adapters/amp.md](docs/adapters/amp.md)) |
+| **VS Code** | MCP ([docs/adapters/vscode.md](docs/adapters/vscode.md)) |
+| **Continue** | MCP ([docs/adapters/continue.md](docs/adapters/continue.md)) |
+| **Goose** | MCP ([docs/adapters/goose.md](docs/adapters/goose.md)) |
+| **Trae** | MCP ([docs/adapters/trae.md](docs/adapters/trae.md)) |
 | **OpenClaw** | Adapter ([docs/adapters/openclaw.md](docs/adapters/openclaw.md)) |
 | **Hermes** | Adapter ([docs/adapters/hermes.md](docs/adapters/hermes.md)) |
 

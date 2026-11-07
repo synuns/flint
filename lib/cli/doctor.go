@@ -558,16 +558,42 @@ type harnessSpec struct {
 	Name        string
 	Rel         string
 	EnvOverride string
-	Project     bool // true면 Rel의 기준이 홈이 아닌 워킹디렉터리(cursor)
+	Project     bool // true면 Rel의 기준이 홈이 아닌 워킹디렉터리(cursor·vscode·trae)
+	// MCPAdd — 네이티브 CLI 자동 등록 인자(v0.21.0: mcpAddArgs switch에서
+	// 이전). nil이면 파일 설정형(B급) — setup --mcp 대상 아님(doctor
+	// 의사체크·문서 안내만).
+	MCPAdd []string
 }
 
-// harnessRegistry — 하니스 5종. C6: 전 하니스 MCP stdio JSON-RPC.
+// harnessRegistry — 하니스 14종(v0.21.0 전 에이전트 확장). C6: 전 하니스
+// MCP stdio JSON-RPC. A급(자동 등록, 공식 문서로 CLI 검증) 8종 +
+// B급(파일 설정형 — doctor 의사체크만) 6종. continue는 설정 경로가
+// 파일 단위로 확정되지 않아 문서 전용(룰링).
 var harnessRegistry = []harnessSpec{
-	{Name: "codex", Rel: ".codex/config.toml", EnvOverride: "FLINT_CODEX_HOME"},
-	{Name: "gemini", Rel: ".gemini/settings.json", EnvOverride: "FLINT_GEMINI_HOME"},
-	{Name: "opencode", Rel: ".config/opencode/opencode.json", EnvOverride: "FLINT_OPENCODE_HOME"},
-	{Name: "copilot", Rel: ".copilot/mcp-config.json", EnvOverride: "FLINT_COPILOT_HOME"},
-	{Name: "cursor", Rel: ".cursor/mcp.json", EnvOverride: "FLINT_CURSOR_DIR", Project: true},
+	// A급 — 자동 감지·등록.
+	{Name: "codex", Rel: ".codex/config.toml", EnvOverride: "FLINT_CODEX_HOME",
+		MCPAdd: []string{"mcp", "add", "flint", "--", "flint", "mcp"}},
+	{Name: "gemini", Rel: ".gemini/settings.json", EnvOverride: "FLINT_GEMINI_HOME",
+		MCPAdd: []string{"mcp", "add", "flint", "flint", "mcp"}},
+	{Name: "opencode", Rel: ".config/opencode/opencode.json", EnvOverride: "FLINT_OPENCODE_HOME",
+		MCPAdd: []string{"mcp", "add", "flint", "--", "flint", "mcp"}},
+	{Name: "copilot", Rel: ".copilot/mcp-config.json", EnvOverride: "FLINT_COPILOT_HOME",
+		MCPAdd: []string{"mcp", "add", "flint", "--", "flint", "mcp"}},
+	{Name: "cursor", Rel: ".cursor/mcp.json", EnvOverride: "FLINT_CURSOR_DIR", Project: true,
+		MCPAdd: []string{"mcp", "add", "flint", "flint", "mcp"}},
+	{Name: "qwen", Rel: ".qwen/settings.json", EnvOverride: "FLINT_QWEN_HOME",
+		MCPAdd: []string{"mcp", "add", "flint", "--", "flint", "mcp"}},
+	{Name: "devin", Rel: ".config/devin/mcp_config.json", EnvOverride: "FLINT_DEVIN_HOME",
+		MCPAdd: []string{"mcp", "add", "flint", "--", "flint", "mcp"}},
+	{Name: "cline", Rel: ".cline/data/settings/cline_mcp_settings.json", EnvOverride: "FLINT_CLINE_HOME",
+		MCPAdd: []string{"mcp", "add", "flint", "--yes", "--", "flint", "mcp"}},
+	// B급 — 파일 설정형(등록 CLI 없음).
+	{Name: "windsurf", Rel: ".codeium/windsurf/mcp_config.json", EnvOverride: "FLINT_WINDSURF_HOME"},
+	{Name: "zed", Rel: ".config/zed/settings.json", EnvOverride: "FLINT_ZED_HOME"},
+	{Name: "amp", Rel: ".config/amp/settings.json", EnvOverride: "FLINT_AMP_HOME"},
+	{Name: "vscode", Rel: ".mcp.json", EnvOverride: "FLINT_VSCODE_DIR", Project: true},
+	{Name: "goose", Rel: ".config/goose/config.yaml", EnvOverride: "FLINT_GOOSE_HOME"},
+	{Name: "trae", Rel: ".trae/mcp.json", EnvOverride: "FLINT_TRAE_DIR", Project: true},
 }
 
 // path — 검사 대상 설정 파일 절대 경로. 오버라이드 env는 Rel이 붙던
@@ -596,7 +622,7 @@ func (h harnessSpec) path() string {
 	return filepath.Join(home, h.Rel)
 }
 
-// harnessChecks — 하니스 5종 검진(§4). 설정 파일이 있는 하니스만
+// harnessChecks — 등록 하니스 검진(§4, v0.21.0 14종). 설정 파일이 있는 하니스만
 // 결과를 생성한다(부재 → 빈 슬라이스). 읽기 전용(비간섭).
 func harnessChecks() []doctorCheck {
 	var out []doctorCheck

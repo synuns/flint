@@ -729,6 +729,23 @@ reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.21.0 마이너 (2026-11-07) — 전 AI 에이전트 어댑터 지원 (adapter coverage)
+
+사용자 지시(2026-11-07): 일부 하니스만 명시하던 어댑터를 모든 AI
+에이전트로 확장. 외부 조사(공식 문서 기반) → A/B/C급 분류 → 구현.
+
+- [x] R1 harnessSpec.MCPAdd 필드화 — mcpAddArgs switch 제거, 하니스
+  추가가 레지스트리 1행으로 종결
+- [x] R2 A급 8종 자동 등록 — 기존 5종 + Qwen Code·Devin CLI·Cline
+  신규 + Copilot CLI 검증 승격(안내 전용 분기 폐지)
+- [x] R3 B급 6종 의사체크 — Windsurf·Zed·Amp·VS Code(.mcp.json)·
+  Goose·Trae: doctor harness 체크+문서(등록 CLI 없음 — 파일 설정형).
+  룰링: continue는 설정 경로가 파일 단위로 확정되지 않아 문서 전용
+- [x] R4 어댑터 문서 10종 신규 + copilot.md 승격 갱신 + README 하니스
+  표(EN/KO) 확장 — `.mcp.json`이 Copilot CLI·VS Code 양쪽을 커버하는
+  수렴 표준임을 문서화
+- [x] 버전 — VERSION·배지 v0.21.0(EN/KO)·plugin.json 동기
+
 ### v0.20.6 패치 (2026-11-07) — 패치 루프 6차: 보안 경화 5건 + C② 위생
 
 - [x] S1(medium) hot 출력 재살균 — read와 동일 방어(ADR-0006): 저장 후
