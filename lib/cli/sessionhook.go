@@ -8,8 +8,13 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
+	"strconv"
+	"time"
 )
 
 // SessionStartRecorder — 세션 시작 경계 기록 접합면(v0.20.0). realStore는
@@ -44,7 +49,54 @@ func runSessionStart(ctx context.Context, st Store, args []string, stdin io.Read
 	if line := maybeUpdateNotice(); line != "" {
 		fmt.Fprintln(stdout, line)
 	}
+	// v0.24.0 R2b: 정비 경고 요약(24h 캐시 — 임계값 감사 ③-1 창구 정당화).
+	// 발동 창구가 수동 커맨드뿐이던 pending_max를 하루 1회 [flint] 경계
+	// 내 1줄로 연결한다. 실패는 무출력(§13).
+	if line := maybeMaintenanceNotice(ctx, st); line != "" {
+		fmt.Fprintln(stdout, line)
+	}
 	return code
+}
+
+// maintenanceCacheFile — 정비 요약 캐시 경로(갱신 캐시 패턴 승계).
+func maintenanceCacheFile() string {
+	d := configDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "maintenance-check.json")
+}
+
+// maybeMaintenanceNotice — pending_max 초과만 검사(가장 발동 빈번한
+// 정비 경고 — 24h 캐시로 왕복 1회). 최소 왕복 원칙(§2) 유지.
+func maybeMaintenanceNotice(ctx context.Context, st Store) string {
+	path := maintenanceCacheFile()
+	if path == "" {
+		return ""
+	}
+	if b, err := os.ReadFile(path); err == nil {
+		var c updateCache
+		if json.Unmarshal(b, &c) == nil {
+			if checked, err := time.Parse(time.RFC3339, c.CheckedAt); err == nil &&
+				time.Since(checked) < updateNoticeTTL {
+				return "" // 오늘 확인 완료 — 무출력
+			}
+		}
+	}
+	th := writeThresholds(ctx, st)
+	rows, err := queryOnce(ctx, st,
+		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`, nil)
+	if err != nil {
+		return "" // 검사 실패 — 캐시 갱신 안 함(갱신 안내 패턴: 다음 세션 재시도)
+	}
+	_ = os.WriteFile(path, []byte(`{"checked_at":"`+time.Now().UTC().Format(time.RFC3339)+`"}`), 0o600)
+	if len(rows) == 0 {
+		return ""
+	}
+	if n, ok := cellToInt(rows[0][0]); ok && n > th.PendingMax {
+		return "[flint] pending " + strconv.Itoa(n) + "건(상한 " + strconv.Itoa(th.PendingMax) + ") — flint doctor·maintain 확인"
+	}
+	return ""
 }
 
 // sessionLabel — 인자에서 --session 값을 추출(hot·session-start 공유

@@ -35,6 +35,7 @@ type Thresholds struct {
 	HotRetentionD    int // hot_events 보존(일, 기본 30 — dead 가드 창 정렬)
 	EventsVolumeWarn int // doctor 계측 테이블 경고 행 수(기본 50000)
 	DrillMaxDays     int // 드릴 경과 보고 기준일(기본 30, v0.23.0 이관)
+	DailyRetentionD  int // daily:* 보존·기간화 창 상한(기본 14, v0.24.0 R1b)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -63,6 +64,7 @@ const (
 	defaultHotRetentionD    = 30
 	defaultEventsVolumeWarn = 50000
 	defaultDrillMaxDays     = 30
+	defaultDailyRetentionD  = 14
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -92,6 +94,7 @@ func DefaultThresholds() Thresholds {
 		HotRetentionD:        defaultHotRetentionD,
 		EventsVolumeWarn:     defaultEventsVolumeWarn,
 		DrillMaxDays:         defaultDrillMaxDays,
+		DailyRetentionD:      defaultDailyRetentionD,
 	}
 }
 
@@ -166,6 +169,9 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// v0.23.0: drillReport가 직접 읽던 메타 키를 레지스트리로
 			// 이관 — tuning 커맨드의 단일 소스.
 			th.DrillMaxDays = parseIntOrDefault(val, defaultDrillMaxDays, ks)
+		case "daily_retention_days":
+			th.DailyRetentionD = parseIntOrDefault(val, defaultDailyRetentionD, ks)
+
 		}
 	}
 	return th, nil

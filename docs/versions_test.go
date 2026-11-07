@@ -39,6 +39,13 @@ var versionDocContracts = []struct {
 		"AGENTS.md",
 		"flint mcp",
 	}},
+	{name: "TestTuningGuideV0240", doc: "TUNING.md", wants: []string{
+		"조정 가이드", "재조정 트리거", "daily_retention_days", "backup_interval_h",
+		"vocab_tags", "방어 상한",
+	}},
+	{name: "TestVersion0240Milestone", doc: "PLAN.md", wants: []string{
+		"v0.24.0", "임계값 설계 완결",
+	}},
 	{name: "TestVersion0230Milestone", doc: "PLAN.md", wants: []string{
 		"v0.23.0", "tuning",
 	}},

@@ -31,7 +31,7 @@ func DoctorChecks() []string {
 // 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
 // conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "update"}
+	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "update", "recall-starved"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -150,6 +150,9 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		checks = append(checks, checkEventVolume(ctx, st))
 		// update(v0.22.0 마이너 A)도 체인 말미 — 릴리스 지연 warn 안내.
 		checks = append(checks, checkUpdate(ctx, st))
+		// recall-starved(v0.24.0 R2a)도 체인 말미 — minimal 프로파일
+		// 침묵의 최후 관측 창구.
+		checks = append(checks, checkRecallStarved(ctx, st))
 	}
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
@@ -240,6 +243,9 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 	case "update":
 		// v0.22.0(마이너 A·R3) — 릴리스 지연 warn.
 		return checkUpdate(ctx, st)
+	case "recall-starved":
+		// v0.24.0 R2a — 누적 회상 부재 관측(프로파일 무관).
+		return checkRecallStarved(ctx, st)
 	case "skill-file":
 		// v0.20.2(O2) — 전체 리포트 체크명과 --check 이름 공간 정합.
 		// home 미탐지·소스 미탐지는 skip 판정(전체 체인과 동일 규칙).
@@ -1189,5 +1195,39 @@ func checkUpdate(ctx context.Context, st Store) doctorCheck {
 	}
 	c.Status = "ok"
 	c.Detail = "v" + cur + " 최신"
+	return c
+}
+
+// checkRecallStarved — v0.24.0 R2a: 누적 회상 부재 카운터 관측. minimal
+// 프로파일이 마커를 자동 종결해도 이 카운터는 프로파일 무관 —
+// doctor가 피드백 루프의 최후 관측 창구가 된다. 카운터 자체는 안내
+// (warn), 리셋 안내는 flint tuning reset 개념이 없는 비레지스트리
+// 키라 삭제 안내로.
+func checkRecallStarved(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "recall-starved"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "회상 카운터 조회 불가"
+		return c
+	}
+	rows, err := queryOnce(ctx, st,
+		`SELECT value FROM meta WHERE key = $1`, []any{"recall_starved_count"})
+	if err != nil {
+		c.Status = "warn" // 조회 실패를 깨끗한 소견으로 위장하지 않는다(리뷰 ③).
+		c.Detail = "회상 카운터 조회 실패"
+		return c
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		c.Status = "ok"
+		c.Detail = "회상 부재 이력 없음"
+		return c
+	}
+	if n, ok := cellToInt(rows[0][0]); ok && n > 0 {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("회상 부재 세션 누적 %d회 — done 경고가 프로파일(minimal) 또는 훅 배선에서 보이지 않았을 수 있음", n)
+		c.Fix = "fix: 다음 세션 시작 전 flint read — 해소 후 psql로 카운터 삭제(meta 키 recall_starved_count)"
+		return c
+	}
+	c.Status = "ok"
 	return c
 }

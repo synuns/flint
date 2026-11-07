@@ -327,6 +327,35 @@ doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·�
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.24.0 마이너 (2026-11-08) — 개인화 2막 + 임계값 설계 완결
+
+사용자 지시: 개인화 2막에 임계값 효과 실증·재조정 기준·조정 시점·
+리스트 충분/과잉의 전체 설계 점검 포함(관측+완전성 감사+레퍼런싱 합성).
+
+- [x] R1 튜닝 누수 4건 — reportStaleDays→stale_days 단일화(오버라이드
+  우회 결함)·daily 보존 3곳→daily_retention_days 신규 키(Doltgres
+  파라미터 회피: Go 계산 컷오프)·backup_interval_h 신규(주기 오버라이드,
+  backup_keep과 세트)·tuning 커버리스 확장(hot_budget·backup_keep·
+  backup_interval_h·exposure_profile)
+- [x] R2 발동 창구 정당화(감사 ③-1) — done이 recall_starved_count meta
+  적립(마커 병행) + doctor recall-starved 체크: minimal 프로파일이
+  마커를 침묵시켜도 관측 유지. session-start 정비 요약(pending_max,
+  24h 캐시 — 임계값 6키의 유일 창구가 수동 커맨드였던 것의 최소 연결)
+- [x] R3 TUNING §0 조정 가이드 — 언제(관측 창 후)·재조정 트리거 표·
+  표기 정정 3건(pending_max·drill_max_days 소비 경로, events_volume_warn
+  방어 상한 성격)
+- [x] R4 개인 어휘 meta 합집합(vocab_tags·vocab_domains — repo가 아닌
+  운영 DB, 기본 집합과 union)·reset --all·consumer 표시·profile_hint
+  (D① 축소형 — 표본 하한 미달 '보류', METRICS §5 보고 전용 준수)
+- [x] R5 hot_events 원천 문서화(--full 수동 전용 — 운영 공백이 정상)
+- [x] 설계 점검 결론 반영: 키 수 과잉 아님(제거 후보 0) — 부족한 것은
+  누수 4건(수정)과 자동 노출(연결)이었다
+- [x] 버전 — VERSION·배지 v0.24.0(EN/KO)·plugin.json 동기
+- [x] 리뷰 7건 — tuning get meta키 분기·정비 캐시 실패 시 미갱신·
+  recall 조회 실패 warn 위장 방지·status read_window_days 필드(거짓
+  14d 명칭 방어)·SetVocabExtras 대체语义(mcp 장기 프로세스)·meta키
+  기본값 소비자 상수 단일소스·profileHint 표본 하한 th 연동
+
 ### v0.23.2 패치 (2026-11-07) — v0.23.x 패치 루프 2차: 개인화 기획 리뷰 — 결함 1·문서 1
 
 개인화 기획 리뷰(에이전트 설계 조사, 지시 반영) 결과 처리:
