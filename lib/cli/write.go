@@ -397,6 +397,9 @@ var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name"}
 // ("possible secret: 패턴명")를 반환한다. 저장 거부 아님(경고+살균).
 func sanitizePayload(p map[string]any) []string {
 	var warns []string
+	// v0.20.6(패치 루프 6차 S2): 살균·비밀 스캔 대상을 문자열 필드
+	// 5종에서 tags 배열 원소·domain·origin까지 확장 — 이 필드들은
+	// 정규화·저장·백업 덤프에 그대로 남아 경고 계약의 사각지대였다.
 	for _, f := range sanitizeFields {
 		s, ok := p[f].(string)
 		if !ok {
@@ -408,6 +411,34 @@ func sanitizePayload(p map[string]any) []string {
 		}
 		for _, name := range store.ScanSecrets(clean) {
 			warns = append(warns, "possible secret: "+name)
+		}
+	}
+	for _, f := range []string{"domain", "origin"} {
+		s, ok := p[f].(string)
+		if !ok {
+			continue
+		}
+		clean := store.SanitizeText(s)
+		if clean != s {
+			p[f] = clean
+		}
+		for _, name := range store.ScanSecrets(clean) {
+			warns = append(warns, "possible secret: "+name)
+		}
+	}
+	if raw, ok := p["tags"].([]any); ok {
+		for i, t := range raw {
+			s, ok := t.(string)
+			if !ok {
+				continue
+			}
+			clean := store.SanitizeText(s)
+			if clean != s {
+				raw[i] = clean
+			}
+			for _, name := range store.ScanSecrets(clean) {
+				warns = append(warns, "possible secret: "+name)
+			}
 		}
 	}
 	return warns

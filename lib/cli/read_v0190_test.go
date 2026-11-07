@@ -79,6 +79,9 @@ func TestReadEventRecordedOnHit(t *testing.T) {
 // TestReadEventRecordsFallback — Review Focus: 제로히트→폴백 재쿼리로
 // 살아난 read는 fallback=true로 기록된다(폴백 플래그 전달).
 func TestReadEventRecordsFallback(t *testing.T) {
+	// v0.20.5 자동 라벨 채택 격리 — 주변 세션 라벨 상속 방지(v0.18.1
+	// config 오염 교훈 승계).
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, " OR "):

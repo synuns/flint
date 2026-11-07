@@ -38,7 +38,10 @@ func TestRestoreChecksumMismatchExit1(t *testing.T) {
 }
 
 // Review Focus(file): 사이드카 누락 — 경고(warn) + 진행, exit 0.
-func TestRestoreMissingSidecarWarnProceed(t *testing.T) {
+// v0.20.6(S4) 재작성 — 이 테스트는 '무검증 재생 진행'을 계약으로
+// 문서화했으나 보안 스윕이 사이드카 부재 재생을 차단 계약으로 바꿨다
+// (백업=임의 SQL 매체, ADR-0006 즉시 중단 취지).
+func TestRestoreMissingSidecarBlocked(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)
 	path := filepath.Join(t.TempDir(), "dump.sql")
@@ -46,18 +49,14 @@ func TestRestoreMissingSidecarWarnProceed(t *testing.T) {
 		t.Fatal(err)
 	}
 	out, code := mustRestore(t, []string{"--file", path})
-	if code != 0 {
-		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	if code != 1 {
+		t.Fatalf("exit=%d, want 1(무검증 재생 차단); out=%s", code, out)
 	}
-	m := decode(t, out)
-	if m["status"] != "restored" {
-		t.Fatalf("status=%v, want restored", m["status"])
+	if !strings.Contains(out, "sidecar") {
+		t.Fatalf("차단 사유에 sidecar 없음: %s", out)
 	}
-	if warn, _ := m["warn"].(string); !strings.Contains(warn, "sidecar") {
-		t.Fatalf("warn=%v, 사이드카 누락 경고 없음", m["warn"])
-	}
-	if !strings.Contains(f.gotRestore, "BEGIN;") {
-		t.Fatalf("누락 시에도 restore 진행해야 함: %q", f.gotRestore)
+	if f.gotRestore != "" {
+		t.Fatalf("차단됐는데 재생 실행: %q", f.gotRestore)
 	}
 }
 

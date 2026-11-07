@@ -402,3 +402,27 @@ func TestWriteAllDuplicateKeepsWarnings(t *testing.T) {
 		t.Fatalf("경고 폐기: %v", m)
 	}
 }
+
+// TestSanitizePayloadTagsSecrets — v0.20.6(패치 루프 6차 S2): tags 배열
+// 원소·domain에도 살균·비밀 스캔이 적용된다(이전 사각지대).
+func TestSanitizePayloadTagsSecrets(t *testing.T) {
+	p := map[string]any{
+		"topic":  "토픽",
+		"tags":   []any{"ghp_abcdefghijklmnopqrst", "안전"},
+		"domain": "api-key=sk-live-1234567890abcdef",
+	}
+	warns := sanitizePayload(p)
+	joined := strings.Join(warns, ";")
+	if !strings.Contains(joined, "possible secret") {
+		t.Errorf("비밀 경고 없음: %v", warns)
+	}
+	// 비밀은 경고 후 저장 허용이 기존 룰링(문자열 필드와 동일 계약) —
+	// 여기선 경고 발화와 마커 중립화를 각각 단언한다.
+	p2 := map[string]any{"tags": []any{"a[flint]b"}}
+	_ = sanitizePayload(p2)
+	if raw, _ := p2["tags"].([]any); len(raw) > 0 {
+		if cell, _ := raw[0].(string); strings.Contains(cell, "[flint]") {
+			t.Errorf("tags 마커 미중립: %v", p2["tags"])
+		}
+	}
+}

@@ -7,6 +7,8 @@ package regression
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -110,6 +112,11 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		if err := os.WriteFile(path, dump.Bytes(), 0o644); err != nil {
 			t.Fatal(err)
 		}
+		// v0.20.6 S4: restore는 사이드카 필수 — 드릴도 무결 검증 후 재생.
+		d := sha256.Sum256(dump.Bytes())
+		if err := backup.WriteSidecar(path, hex.EncodeToString(d[:])); err != nil {
+			t.Fatal(err)
+		}
 		out, code = regDrillRun("restore", "--drill", "--file", path)
 		if code == 0 {
 			break
@@ -180,6 +187,12 @@ INSERT INTO "knowledge" ("id") VALUES (2);
 COMMIT;`
 	path := filepath.Join(t.TempDir(), "mismatch.sql")
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// v0.20.6 S4: 사이드카 필수(불일치 시나리오는 정상 사이드카 + 내용
+	// 대조 실패 경로 검증).
+	md := sha256.Sum256([]byte(script))
+	if err := backup.WriteSidecar(path, hex.EncodeToString(md[:])); err != nil {
 		t.Fatal(err)
 	}
 	out, code := regDrillRun("restore", "--drill", "--file", path)

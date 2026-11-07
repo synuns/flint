@@ -40,7 +40,7 @@ func Checksum(w io.Writer) (written int64, sum string, err error) {
 // ("<hex>  <basename>\n")으로 사이드카를 기록한다.
 func WriteSidecar(path, sum string) error {
 	line := sum + "  " + filepath.Base(path) + "\n"
-	return os.WriteFile(path+".sha256", []byte(line), 0o644)
+	return os.WriteFile(path+".sha256", []byte(line), 0o600) // v0.20.6 S3
 }
 
 // VerifyFile 은 path 원본의 sha256를 계산해 사이드카(path+".sha256")의

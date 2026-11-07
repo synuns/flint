@@ -55,7 +55,7 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		buf.WriteTo(stdout)
 		return 0
 	}
-	if err := os.WriteFile(out, buf.Bytes(), 0o644); err != nil {
+	if err := os.WriteFile(out, buf.Bytes(), 0o600); err != nil { // v0.20.6 S3: 민감 평문 덤프
 		fmt.Fprintln(stdout, errLine(err))
 		return 1
 	}
@@ -137,10 +137,19 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		fmt.Fprintln(stdout, mismatchLine(file))
 		return 1
 	}
-	if verr != nil && !errors.Is(verr, backup.ErrNoSidecar) {
+	// v0.20.6(패치 루프 6차 S4): 사이드카 부재도 재생 전 차단 — 백업은
+	// 임의 SQL 매체라 무결 검증 없는 재생은 ADR-0006 '위조 감지 시 즉시
+	// 중단' 취지 위반이었다(종료 후 경고만으로 진행되던 것을 가드로).
+	// sidecar 재생성은 `flint backup --out <동일경로>`로 가능.
+	if errors.Is(verr, backup.ErrNoSidecar) {
+		fmt.Fprintln(stdout, `{"error":"checksum sidecar missing — 무결 검증 없는 재생 차단(백업 재생성: flint backup --out)"}`)
+		return 1
+	}
+	if verr != nil {
 		fmt.Fprintln(stdout, errLine(verr))
 		return 1
 	}
+	_ = sum
 
 	f, err := os.Open(file)
 	if err != nil {
@@ -173,12 +182,9 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
-	// 결과 한 줄 JSON — 검증 통과 시 sha256, 사이드카 누락 시 경고(진행은 함).
-	if errors.Is(verr, backup.ErrNoSidecar) {
-		fmt.Fprintln(stdout, `{"status":"restored","warn":`+quoteJSON("checksum sidecar missing — integrity unverified")+"}")
-	} else {
-		fmt.Fprintln(stdout, `{"status":"restored","sha256":`+quoteJSON(sum)+"}")
-	}
+	// 결과 한 줄 JSON — v0.20.6 S4 이후 사이드카 누락은 재생 전 차단되므로
+	// 여기는 항상 검증 통과 분기다.
+	fmt.Fprintln(stdout, `{"status":"restored","sha256":`+quoteJSON(sum)+"}")
 	return 0
 }
 

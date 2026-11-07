@@ -314,13 +314,13 @@ type lazyDumpFile struct {
 
 func (l *lazyDumpFile) Write(p []byte) (int, error) {
 	l.once.Do(func() {
-		if err := os.MkdirAll(l.dir, 0o755); err != nil {
+		if err := os.MkdirAll(l.dir, 0o700); err != nil { // v0.20.6 S3: 덤프는 민감 평문 — 0700
 			l.failed = true
 			return
 		}
 		name := filepath.Join(l.dir,
 			"flint-"+time.Now().UTC().Format("20060102-150405")+".sql")
-		f, err := os.Create(name)
+		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // v0.20.6 S3
 		if err != nil {
 			l.failed = true
 			return
