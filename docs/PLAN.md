@@ -743,9 +743,16 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 - [x] PruneReadEvents 보존일 meta 오버라이드·report 판정 창 오버라이드
 - [x] 버전 — VERSION·배지 v0.20.4(EN/KO)·plugin.json 동기
 
-다음 패치 후보(연속 루프): B② 세션 라벨 자동 주입 — session-start
-훅이 현재 세션 라벨을 config 경로 파일에 기록, read가 --session
-미지정 시 조용히 채택(G4 라벨 자동화·세션 일치 페어링 기반).
+### v0.20.5 패치 (2026-11-07) — 패치 루프 5차: B② 세션 라벨 자동 주입
+
+- [x] session-start 훅이 현재 세션 라벨을 config 경로 파일
+  (session-current)에 기록, read가 --session 미지정 시 조용히 자동
+  채택 — G4 라벨링이 에이전트 협조 없이 자동화. session-end가 정리
+  (스테일 방지). 병렬 세션 last-writer-wins(룰링 — 보조 계정)
+- [x] 버전 — VERSION·배지 v0.20.5(EN/KO)·plugin.json 동기
+
+다음 패치 후보(연속 루프): C② meta 키 위생(레거시 키 실태 조사·
+롤링 정리 방안) 또는 보안 각도 스윑.
 
 ### v0.20.3 패치 (2026-11-07) — 패치 루프 3차: 문서·매니페스트 정합 7건
 

@@ -31,6 +31,9 @@ func runSessionStart(ctx context.Context, st Store, args []string, stdin io.Read
 	if rec, ok := st.(SessionStartRecorder); ok {
 		_ = rec.RecordSessionStart(ctx, sessionLabel(args))
 	}
+	// v0.20.5(B②): 현재 세션 라벨을 config 경로에 남겨 read가 자동
+	// 채택하게 한다 — G4 라벨 자동화. 실패는 조용히(§13 — 라벨은 보조).
+	_ = WriteSessionLabel(sessionLabel(args))
 	code := runHot(ctx, st, args, stdin, stdout)
 	if ncode := runNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
 		return ncode
@@ -56,6 +59,8 @@ func sessionLabel(args []string) string {
 // 세션 구간은 session_starts만으로 정의([start_i, start_{i+1})) —
 // 종료 경계는 별도 기록하지 않는다(룰링, v0.20.0).
 func runSessionEnd(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+	// v0.20.5(B②): 세션 종료 — 현재 라벨 정리(종료 후 스테일 방지).
+	ClearSessionLabel()
 	code := runDone(ctx, st, args, stdin, stdout)
 	if ncode := runNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
 		return ncode
