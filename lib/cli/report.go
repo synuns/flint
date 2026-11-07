@@ -345,7 +345,7 @@ func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) e
 	}
 	staleCutoff := time.Now().Add(-time.Duration(reportStaleDays) * 24 * time.Hour)
 	rows, err = queryOnce(ctx, st, `
-		SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < $1)
+		/* stale */ SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < $1)
 		                         OR (read_count = 0 AND ingested_at < $1) THEN 1 END),
 		       count(CASE WHEN read_count = 0 AND ingested_at < $1 THEN 1 END)
 		  FROM knowledge
@@ -446,7 +446,7 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	}
 	out.Effect.ReusePct = pctOf(reused, active)
 	deadIDs, err := queryOnce(ctx, st, `
-		SELECT id FROM knowledge
+		/* dead */ SELECT id FROM knowledge
 		 WHERE status = 'active' AND invalid_at IS NULL
 		   AND read_count = 0 AND ingested_at < $1`, []any{deadCutoff})
 	if err != nil {

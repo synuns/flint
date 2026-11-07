@@ -80,13 +80,13 @@ func runNudge(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	if distill != nil && distill.Reason == nudgeReasonRecall && recall == nil {
 		recall, distill, legacyRecall = distill, nil, true
 	}
-	if (derr != nil && distill == nil) || (rerr != nil && recall == nil) {
-		if distill == nil && recall == nil {
-			return 0 // 둘 다 부재·파손 모두 조용히
-		}
-	}
+	// 파손(derr·rerr)은 읽힌 마커가 있으면 무시하고 진행한다. v0.20.2:
+	// 외곽 동치 조건문 제거(패치 루프 1차 F6 — 어느 경로에서도 추가 동작
+	// 없던 불가능 분기).
+	_ = derr
+	_ = rerr
 	if distill == nil && recall == nil {
-		return 0
+		return 0 // 둘 다 부재·파손 모두 조용히
 	}
 
 	// minimal: 에이전트 노출 0 — 출력 없이 마커 자동 종결만. 종결 실패는

@@ -389,3 +389,77 @@ func TestEnsureSchemaV2(t *testing.T) {
 		t.Fatalf("second EnsureSchemaV2 (want idempotent): %v", err)
 	}
 }
+
+// TestAllGatesArtifacts — v0.20.2(패치 루프 1차 T3): 게이트 v2~v7이 각자
+// 약속한 산출물(컬럼·인덱스·테이블)을 실제로 만드는지 표 기반 단언.
+// 이전엔 최신 게이트(v6·v7)만 내용 검증되고 v2~v5는 체인 '순차 통과'
+// 사실만 봤다 — 게이트 하나가 조용히 no-op으로 변해도 잡히지 않았다.
+func TestAllGatesArtifacts(t *testing.T) {
+	r := newTestRepo(t)
+	resetVersionToV1(t, r)
+	ctx := context.Background()
+
+	gates := []struct {
+		name  string
+		gate  func(context.Context) error
+		check func(t *testing.T)
+	}{
+		{"v2", r.EnsureSchemaV2, func(t *testing.T) {
+			assertColumn(t, r, ctx, "sessions", "tasks")
+			assertColumn(t, r, ctx, "projects", "note")
+		}},
+		{"v3", r.EnsureSchemaV3, func(t *testing.T) {
+			for _, idx := range []string{"flint_knowledge_entity_idx", "flint_knowledge_domain_idx", "flint_knowledge_status_idx"} {
+				assertObject(t, r, ctx, idx)
+			}
+		}},
+		{"v4", r.EnsureSchemaV4, func(t *testing.T) {
+			assertColumn(t, r, ctx, "knowledge", "read_count")
+			assertColumn(t, r, ctx, "knowledge", "last_read_at")
+		}},
+		{"v5", r.EnsureSchemaV5, func(t *testing.T) {
+			assertColumn(t, r, ctx, "knowledge", "superseded_by")
+		}},
+		{"v6", r.EnsureSchemaV6, func(t *testing.T) {
+			assertObject(t, r, ctx, "read_events")
+		}},
+		{"v7", r.EnsureSchemaV7, func(t *testing.T) {
+			assertColumn(t, r, ctx, "read_events", "ids")
+			assertObject(t, r, ctx, "session_starts")
+			assertObject(t, r, ctx, "hot_events")
+		}},
+	}
+	for _, g := range gates {
+		if err := g.gate(ctx); err != nil {
+			t.Fatalf("게이트 %s: %v", g.name, err)
+		}
+		g.check(t)
+	}
+}
+
+// assertColumn — 테이블 컬럼 존재 단언(information_schema).
+func assertColumn(t *testing.T, r *Repo, ctx context.Context, table, column string) {
+	t.Helper()
+	var n int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM information_schema.columns
+		 WHERE table_name = $1 AND column_name = $2`, table, column).Scan(&n); err != nil {
+		t.Fatalf("%s.%s 조회: %v", table, column, err)
+	}
+	if n != 1 {
+		t.Errorf("게이트 산출물 %s.%s 부재(컬럼)", table, column)
+	}
+}
+
+// assertObject — 테이블·인덱스 존재 단언(to_regclass).
+func assertObject(t *testing.T, r *Repo, ctx context.Context, name string) {
+	t.Helper()
+	var exists bool
+	if err := r.pool.QueryRow(ctx,
+		`SELECT to_regclass('public.`+name+`') IS NOT NULL`).Scan(&exists); err != nil {
+		t.Fatalf("%s 존재 조회: %v", name, err)
+	}
+	if !exists {
+		t.Errorf("게이트 산출물 %s 부재(테이블/인덱스)", name)
+	}
+}

@@ -545,3 +545,20 @@ func TestDoctorHookFileFlintWordOnlyFails(t *testing.T) {
 		t.Errorf("fix 문구가 실제 등록 절차(hot/done 훅)를 안내하지 않음: %q", out)
 	}
 }
+
+// TestDoctorCheckNameSpace — v0.20.2(패치 루프 1차 O2): 전체 리포트가
+// 보여주는 체크명(skill-file·harness-*)이 --check 단독 실행으로 가능하다.
+func TestDoctorCheckNameSpace(t *testing.T) {
+	c := runDoctorCheck(context.Background(), &fakeStore{}, "skill-file")
+	if c.Name != "skill-file" || (c.Status != "ok" && c.Status != "warn" && c.Status != "fail") {
+		t.Errorf("skill-file 체크 = %+v", c)
+	}
+	h := runDoctorCheck(context.Background(), &fakeStore{}, "harness-codex")
+	if h.Name != "harness-codex" {
+		t.Errorf("harness-codex 체크 이름 = %q", h.Name)
+	}
+	unknown := runDoctorCheck(context.Background(), &fakeStore{}, "harness-nope")
+	if unknown.Status != "fail" || unknown.Detail != "unknown check" {
+		t.Errorf("미등록 하니스 = %+v, want unknown check", unknown)
+	}
+}

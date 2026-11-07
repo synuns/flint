@@ -216,6 +216,21 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "session", Expect: "flag 아닌 라벨"}))
 		return 3
 	}
+	// v0.20.2(패치 루프 1차 F5): --fields 이름은 알려진 컬럼만 허용 —
+	// 오타("sumary")가 FormatRows의 위치 fallback으로 조용히 다른 컬럼
+	// 값을 채우던 왜곡을 검증 에러로 바꾼다. hot의 kind·ts 등 read 밖
+	// 필드는 hot이 --fields를 받지 않아 영향 없다.
+	if fieldsGiven {
+		for _, name := range strings.Split(fields, ",") {
+			if name = strings.TrimSpace(name); name == "" || !query.ReadFieldKnown(name) {
+				fmt.Fprintln(stdout, errLine(&store.SchemaError{
+					Field:  "fields",
+					Expect: "알려진 컬럼: " + query.ReadColumnsHint(),
+				}))
+				return 3
+			}
+		}
+	}
 	asOfHash, asOfDate := "", ""
 	// 값 없는 --as-of(마지막 인자)도 무효 스펙 exit 3 — 조용히 현재 시점
 	// 데이터를 돌려주면 잘못된 결과가 되므로(status와 동일 규칙).
