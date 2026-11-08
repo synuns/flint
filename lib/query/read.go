@@ -260,7 +260,7 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 		if idx := readColumnIndexOf("summary"); idx >= 0 && idx < len(row) {
 			summary, _ = row[idx].(string)
 		}
-		// 정규화 1회(리뷰 ⑥) — 두 스코어러가 같은 문자열을 쓴다.
+		// 정규화 사전 적용 — 스코어러 내부 재적용은 멱등(결과 동일).
 		t := nfkc(strings.ToLower(topic))
 		sm := nfkc(strings.ToLower(summary))
 		values[i] = []int{
@@ -319,7 +319,9 @@ func rrfFuse(values [][]int) []float64 {
 }
 
 // topicMatchCount — topic에 출현하는 토큰 수(v0.25.1: RRF 제4신호 —
-// topic 정합이 summary 정합보다 강하다는 RankOrder 관례의 융합 반영).
+// topic 정합이 summary 정합보다 강하다는 RankOrder 관례의 융합 반영.
+// 설계 특성(2차 리뷰 ③): matchCount의 부분집합이라 토큰당 이중 가중 —
+// RankOrder topic 우선 회수라는 의도적 가중이다.)
 func topicMatchCount(tokens []string, t string) int {
 	n := 0
 	for _, tok := range tokens {
@@ -355,8 +357,11 @@ func jamoOverlap(tokenSets []map[string]struct{}, t, s string) int {
 func jamoTokenSets(tokens []string) []map[string]struct{} {
 	var out []map[string]struct{}
 	for _, tok := range tokens {
-		if containsHangul(tok) {
-			out = append(out, jamoBigramSet(nfkc(strings.ToLower(tok))))
+		// v0.25.3(2차 리뷰 ②): 정규화 '후' 검사 — NFD 분해형 토큰(macOS
+		// 붙여넣기 경로)의 자모 신호가 조용히 누락되던 것을 회수.
+		n := nfkc(strings.ToLower(tok))
+		if containsHangul(n) {
+			out = append(out, jamoBigramSet(n))
 		}
 	}
 	return out

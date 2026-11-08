@@ -94,6 +94,10 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	// v0.25.3(미커버 스윕 high): 명령 완료 후 store 종결 — 단발 CLI는
+	// 프로세스 종료가 회수했지만 flint mcp(tools/call마다 cli.Run 호출)의
+	// 장기 프로세스에서 pgxpool 2개씩 영구 누적되던 것을 닫는다.
+	defer st.Close()
 	return run(ctx, st, rest, stdin, stdout)
 }
 

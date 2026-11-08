@@ -345,6 +345,28 @@ doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·�
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.25.3 패치 (2026-11-08) — v0.25.x 패치 루프 3차: 2차 리뷰·미커버 스윕 13건 중 7건
+
+다각도 재검(사용자 챌린지) — v0.25.x 2차 심층 리뷰 6건 + 미커버 표면
+스윕 7건 병렬:
+
+- [x] U1(high) MCP store 누수 — tools/call마다 cli.Run이 pgxpool 2개를
+  열고 닫지 않아 장기 세션에서 풀·고루틴·커넥션 영구 누적(max_connections
+  고갈 시 전 명령 마비). Run 완료 후 defer st.Close()
+- [x] R2(medium) NFD 토큰 자모 신호 누락 — containsHangul을 nfkc 후
+  검사(NFD 분해형 질의의 자모 신호 회수)
+- [x] U3(medium) tuning 동등 float 표기 거부 — '0.30'·'60.0'·'.5'가
+  문자열 비교로 exit 3이던 것을 수치 비교로 수용
+- [x] R4(low) rrfFuse 직접 단위 테스트 — 동률·0값 미기여·k 오버라이드
+  격차(비대칭 픽스처) 단얜
+- [x] R5(low) ADR-0011 재현 절차 기재(환경·SQL·합성 데이터)
+- [x] R3·R6(info) 주석 정정 — topic 신호 이중 가중 의도 명시·정규화 멱급
+- [x] 버전 — VERSION·배지 v0.25.3(EN/KO)·plugin.json 동기
+
+이월(v0.25.4+ 후보): U2 lazyDumpFile 부분 실패 사이드카·U4 pattern.go
+죽은 표면(distill 미실종)·U5 JSON-RPC 오류 응답 부재·U6 스캐너 4MB
+상한 서버 사망·U7 expire-pending 무상한 나열.
+
 ### v0.25.2 패치 (2026-11-08) — v0.25.x 패치 루프 2차: rrf_k 주입 순서 배선 결함
 
 - [x] 직접 검증 발견(사용자 챌린지 "잘 살펴봐") — SetRRFK 주입이 폴백

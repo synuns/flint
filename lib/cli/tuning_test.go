@@ -168,3 +168,21 @@ func TestTuningMetaKeysSetReset(t *testing.T) {
 		t.Fatalf("reset --all 출력: %s", out.String())
 	}
 }
+
+// TestTuningSetEquivalentFloatNotation — v0.25.3(미커버 스윕 ③):
+// '0.30'처럼 수치는 유효하되 포맷이 다른 표기가 문자열 비교로 거부되던
+// 것을 수치 비교로 수용.
+func TestTuningSetEquivalentFloatNotation(t *testing.T) {
+	f := newTuningFake()
+	var out strings.Builder
+	if code := runTuning(context.Background(), f, []string{"set", "conf_floor", "0.30"}, nil, &out); code != 0 {
+		t.Fatalf("0.30 exit=%d(수치 유효): %s", code, out.String())
+	}
+	if f.meta["conf_floor"] != "0.30" {
+		t.Fatalf("기록값 = %v", f.meta)
+	}
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"set", "conf_floor", "1.5"}, nil, &out); code != 3 {
+		t.Fatalf("범위 밖 1.5 exit=%d, want 3: %s", code, out.String())
+	}
+}
