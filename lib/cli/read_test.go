@@ -4,6 +4,7 @@ package cli
 
 import (
 	"context"
+	"github.com/synuns/flint/lib/store"
 	"strings"
 	"testing"
 )
@@ -30,5 +31,39 @@ func TestReadFieldsValidation(t *testing.T) {
 		[]string{"백업", "--fields", "topic,confidence"}, strings.NewReader(""), &out2)
 	if code2 == 3 {
 		t.Fatalf("정상 필드 exit 3: %s", out2.String())
+	}
+}
+
+// TestReadRRFKInjectionBeforeReorder — v0.25.1(패치 루프 2차 직접 발견):
+// rrf_k 주입이 폴백 재랭킹 '뒤'(제안 블록)에 있어 단발 CLI에서 같은
+// 실행에 반영되지 않던 배선 결함 — loadThresholds 호출 순서 단얜.
+func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
+	var order []string
+	savedLT := loadThresholdsFn
+	loadThresholdsFn = func(ctx context.Context, st Store) (store.Thresholds, error) {
+		order = append(order, "loadThresholds")
+		return store.DefaultThresholds(), nil
+	}
+	t.Cleanup(func() { loadThresholdsFn = savedLT })
+	// 폴백 경로 read(제로히트 구문 → OR 재쿼리 히트).
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM active_knowledge"):
+			if strings.Contains(sql, " OR ") {
+				return [][]any{{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"}}, nil
+			}
+			return nil, nil
+		case strings.Contains(sql, "SELECT value FROM meta"):
+			return nil, nil
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	code := runRead(context.Background(), f, []string{"백업 정책"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit=%d: %s", code, out.String())
+	}
+	if len(order) == 0 {
+		t.Fatal("폴백 경로에서 loadThresholds 미호출 — rrf_k 주입 누락")
 	}
 }

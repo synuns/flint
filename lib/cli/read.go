@@ -304,8 +304,10 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		return store.MapExit(err)
 	}
 	// v0.9.6 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
-	// 정합수 내림 재랭킹(룰링 — 구문 히트 경로는 완전 불변). v0.13.0 R1:
-	// 정합수 동률 시 read_count DESC 2차 타이브레이크(ReorderByFallbackCount).
+	// RRF 융합 재랭킹(룰링 — 구문 히트 경로는 완전 불변). v0.25.0:
+	// ReorderByFallbackCount는 정합수·read_count·자모·topic 4신호 RRF.
+	// rrf_k 오버라이드 주입을 재랭킹 **앞**으로(v0.25.1 패치 루프 — 이전엔
+	// 뒤의 제안 블록에 있어 단발 CLI에서 같은 실행에 반영되지 않았다).
 	// 1-토큰 질의는
 	// 구문과 동질이라 생략. --as-of(과거 시점)는 현재 시점 폴백이 시점
 	// 정합성을 깨므로 생략. --status는 상태 필터 자체가 재시도 대상이
@@ -314,6 +316,11 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// v0.19.0: 폴백 시도 여부를 read_events 기록에 전달(METRICS §4 G1).
 	fallbackTried := false
 	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
+		// rrf_k 주입 hoist — 폴백 재랭킹이 같은 실행에서 오버라이드를
+		// 반영한다(실패는 기본값 유지 — 조용히 §13).
+		if th, thErr := loadThresholdsFn(ctx, st); thErr == nil {
+			query.SetRRFK(th.RrfK)
+		}
 		if fsql, fargs, ok := query.BuildReadFallback(q, f); ok {
 			bumpReadFallbackToMeta(ctx, st)
 			fallbackTried = true
@@ -332,9 +339,9 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		// 제안 임계값(min_score·scan_cap)은 thresholds 레지스트리 우선
 		// (meta 오버라이드 → SetSuggestThresholds 주입, v0.16.3). 조회 실패는
 		// query 패키지 기본값(=DefaultThresholds) 유지 — 조용히(§13).
-		if th, thErr := loadThresholds(ctx, st); thErr == nil {
+		if th, thErr := loadThresholdsFn(ctx, st); thErr == nil {
 			query.SetSuggestThresholds(th.SuggestMinScore, th.SuggestScanCap)
-			query.SetRRFK(th.RrfK) // v0.25.0: RRF k 오버라이드(리뷰 ③)
+			query.SetRRFK(th.RrfK) // 이미 앞에서 주입 — 멱등 재확정(제안 경로)
 		}
 		ssql, sargs := query.BuildSuggestScan()
 		if srows, serr := queryOnce(ctx, st, ssql, sargs); serr == nil {
