@@ -949,6 +949,10 @@ func drillReport(ctx context.Context, st Store) string {
 // conflict_dup_threshold·backup_age_warn_h·zero_near_*·pending_age_days)는
 // ParseThresholds가 미설정을 0으로 두므로(기존 테스트 호환 규약)
 // DefaultThresholds 값으로 폴백한다.
+// loadThresholdsFn — loadThresholds seam(v0.25.1 패치 루프: rrf_k 주입
+// 순서 테스트용 주입점).
+var loadThresholdsFn = loadThresholds
+
 func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	rows, err := queryOnce(ctx, st, thresholdsKeySQL(), nil)
 	if err != nil {

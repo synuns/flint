@@ -345,6 +345,14 @@ doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·�
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.25.2 패치 (2026-11-08) — v0.25.x 패치 루프 2차: rrf_k 주입 순서 배선 결함
+
+- [x] 직접 검증 발견(사용자 챌린지 "잘 살펴봐") — SetRRFK 주입이 폴백
+  재랭킹 뒤(제안 블록)에 있어 단발 CLI에서 rrf_k 오버라이드가 같은
+  실행에 반영되지 않음. 주입을 재랭킹 앞으로 hoist·loadThresholdsFn
+  seam으로 순서 회귀 테스트. 낡은 v0.13.0 재랭킹 주석 갱신
+- [x] 버전 — VERSION·배지 v0.25.2(EN/KO)·plugin.json 동기
+
 ### v0.25.1 패치 (2026-11-08) — v0.25.x 패치 루프 1차: RRF 제4신호 topic 정합
 
 - [x] 운영 관측 발견 — 폴백 재랭킹에서 topic 정합 신호가 융합에 빠져
