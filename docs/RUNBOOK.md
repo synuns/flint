@@ -224,3 +224,20 @@ make e2e   # 신규 DB에서 게이트가 스키마를 재구축한다
 ```
 
 운영 DB(`flint`)는 해당 없다 — 이력은 시간여행(as-of) 기능의 자산이다.
+
+## 비밀 스캔 오탐 완화 — allowlist (v0.26.1)
+
+문서용 예시 토큰·프로젝트 고유 접두사가 비밀 패턴에 오탐되면
+`~/.config/flint/secrets-allowlist.txt`(repo 밖, 한 줄 하나, `#` 주석)
+에 등록한다 — 등록 문자열은 쓰기 경고·doctor secrets 모두에서 제외된다.
+
+```sh
+mkdir -p ~/.config/flint
+echo 'ghp_example_token_for_docs_12345' >> ~/.config/flint/secrets-allowlist.txt
+```
+
+## 백업 권한 경화(v0.20.6) 호환성 주의
+
+백업 덤프·사이드카는 0600, 디렉터리는 0700이다. 다른 사용자로 실행되는
+동기화·크론 잡이 `~/.flint/backup`을 읽고 있었다면 v0.20.6부터 접근
+거부된다 — 해당 잡을 동일 사용자로 옮기거나 권한을 명시 조정한다.

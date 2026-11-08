@@ -91,3 +91,18 @@ func TestScanSecretsNoDoubleReport(t *testing.T) {
 		t.Errorf("sk-(비ant) 스캔 = %v, want [openai-key]", got2)
 	}
 }
+
+// TestScanSecretsAllowlist — v0.26.1(패치 루프 1차): 사용자 allowlist
+// 등록 문자열은 오탐에서 제외(repo 밖 파일 — 문서용 예시 토큰 완화).
+func TestScanSecretsAllowlist(t *testing.T) {
+	ResetSecretsAllowlistForTest([]string{"ghp_example_token_for_docs_12345"})
+	t.Cleanup(func() { ResetSecretsAllowlistForTest(nil) })
+	got := ScanSecrets("문서: 토큰은 ghp_example_token_for_docs_12345 형태다")
+	if len(got) != 0 {
+		t.Errorf("allowlist 항목 경고 = %v, want 통과", got)
+	}
+	got2 := ScanSecrets("실제 ghp_realsecretvalue12345678 포함")
+	if len(got2) != 1 || got2[0] != "github-token" {
+		t.Errorf("비등록 토큰 = %v, want [github-token]", got2)
+	}
+}

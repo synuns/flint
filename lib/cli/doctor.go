@@ -1256,10 +1256,19 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 	// (Store.Query 커서 — 전체 테이블 구체화 회피).
 	rows, err := queryOnce(ctx, st, `
 		SELECT id, topic, summary, tags, entity, domain, origin
-		FROM knowledge WHERE invalid_at IS NULL`, nil)
+		FROM knowledge WHERE invalid_at IS NULL
+		LIMIT $1`, []any{writeThresholds(ctx, st).SecretsScanRows})
 	if err != nil {
 		c.Status = "warn"
 		c.Detail = "지식 조회 실패 — 스키마 확인"
+		return c
+	}
+	if len(rows) >= writeThresholds(ctx, st).SecretsScanRows {
+		// 리스크 #5 대비(v0.26.1): 상한 도달 — 부분 스캔임을 명시(오탐
+		// 아닌 미도달 오탐 방지 — '미발견'으로 거짓 보고하지 않는다).
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("행 상한 %d 도달 — 스캔 범위 초과분 미검사(대형 DB)", writeThresholds(ctx, st).SecretsScanRows)
+		c.Fix = "fix: 유입 단계 경고(write)로 보완 — 상한은 secrets_scan_row_limit 키로 조정"
 		return c
 	}
 	// 리뷰 ⑥ 룰링: Store.Query는 [][]any(전체 구체화)라 진짜 스트리밍은

@@ -363,6 +363,24 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 - [x] R3·R6(info) 주석 정정 — topic 신호 이중 가중 의도 명시·정규화 멱급
 - [x] 버전 — VERSION·배지 v0.25.3(EN/KO)·plugin.json 동기
 
+### v0.26.1 패치 (2026-11-09) — v0.26.x 패치 루프 1차: 프라이버시 사이드 이펙트 대비
+
+리스크 브레인스토밍(오탐·가용성·권한 호환·메타데이터·성능 5종 식별) 대응:
+
+- [x] #1(최대 리스크) 오탐 완화 — secrets allowlist
+  (~/.config/flint/secrets-allowlist.txt, repo 밖·personal-markers 관례
+  승계): 등록 문자열을 마스킹 후 스캔 — 쓰기 경고·doctor secrets 모두
+  적용. 문서용 예시 토큰·JWT 문서 오탐 해소
+- [x] #5 성능·자원 방어 — doctor secrets 행 상한
+  (secrets_scan_row_limit, 기본 10000·thresholds 튜닝): 도달 시 부분
+  스캔임을 명시 warn('미발견' 거짓 보고 방지) + write 경고 보완 안내
+- [x] #3 백업 권한 경화 호환성 — RUNBOOK에 절차 기록(타 사용자 잡
+  접근 거부 대응)
+- [x] 버전 — VERSION·배지 v0.26.1(EN/KO)·plugin.json 동기
+
+잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
+#4 --reason 메타데이터(의도된 감사 흔적).
+
 ### v0.26.0 마이너 (2026-11-08) — 프라이버시 실행 (F) + 증류 예산 가시성
 
 다음 마이너 심층 레퍼런스 조사(에이전트: gitleaks 룰셋·age API·
