@@ -591,3 +591,27 @@ func TestDoctorEventVolume(t *testing.T) {
 		t.Errorf("120행 = %+v, want ok", c)
 	}
 }
+
+// TestDoctorSecretsScan — v0.26.0 R1: 보유 지식에서 비밀 후보 발견 시
+// warn(패턴명+id만 — 본문 미출력).
+func TestDoctorSecretsScan(t *testing.T) {
+	hit := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
+			// v0.26.0 리뷰 ②: 전열 스캔(7열)·무효화 제외.
+			return [][]any{{int64(7), "토픽", "토큰 ghp_abcdefghijklmnopqrst 포함", "", "", "", ""}}, nil
+		}
+		return nil, nil
+	}}
+	if c := checkSecrets(context.Background(), hit); c.Status != "warn" || !strings.Contains(c.Detail, "github-token#7") {
+		t.Errorf("발견 케이스 = %+v", c)
+	}
+	clean := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
+			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
+		}
+		return nil, nil
+	}}
+	if c := checkSecrets(context.Background(), clean); c.Status != "ok" {
+		t.Errorf("무해 케이스 = %+v", c)
+	}
+}

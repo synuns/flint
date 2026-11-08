@@ -19,6 +19,8 @@ import (
 	"strings"
 	"time"
 
+	"sort"
+
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -31,7 +33,7 @@ func DoctorChecks() []string {
 // 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
 // conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "update", "recall-starved"}
+	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "update", "recall-starved", "secrets"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -153,6 +155,8 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		// recall-starved(v0.24.0 R2a)도 체인 말미 — minimal 프로파일
 		// 침묵의 최후 관측 창구.
 		checks = append(checks, checkRecallStarved(ctx, st))
+		// secrets(v0.26.0 R1)도 체인 말미 — 사후 스캔.
+		checks = append(checks, checkSecrets(ctx, st))
 	}
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
@@ -246,6 +250,9 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 	case "recall-starved":
 		// v0.24.0 R2a — 누적 회상 부재 관측(프로파일 무관).
 		return checkRecallStarved(ctx, st)
+	case "secrets":
+		// v0.26.0 R1 — 보유 지식 사후 비밀 스캔(F 프라이버시).
+		return checkSecrets(ctx, st)
 	case "skill-file":
 		// v0.20.2(O2) — 전체 리포트 체크명과 --check 이름 공간 정합.
 		// home 미탐지·소스 미탐지는 skip 판정(전체 체인과 동일 규칙).
@@ -1230,4 +1237,76 @@ func checkRecallStarved(ctx context.Context, st Store) doctorCheck {
 	}
 	c.Status = "ok"
 	return c
+}
+
+// checkSecrets — v0.26.0 R1(F·마일스톤 G): 보유 지식 사후 비밀 스캔.
+// 저장 시점 스캔(write ScanSecrets)은 회피·이후 유입을 못 잡는다 —
+// doctor가 knowledge 전수를 재스캔해 발견 시 warn(본문 아닌 패턴명+id만
+// 출력 — CLAUDE.md 개인 데이터 원칙). 세션 summary도 포함(PII 최다).
+func checkSecrets(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "secrets"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "비밀 스캔 조회 불가"
+		return c
+	}
+	// 리뷰 ①②⑥: 무효화(soft) 행은 제외(무효화 자체가 이 체크의 해소
+	// 경로)·스캔 열은 쓰기 시점과 동일 전열(topic·summary·tags·entity·
+	// domain·origin — sanitizePayload 참조)·메모리는 행 단위 스트리밍
+	// (Store.Query 커서 — 전체 테이블 구체화 회피).
+	rows, err := queryOnce(ctx, st, `
+		SELECT id, topic, summary, tags, entity, domain, origin
+		FROM knowledge WHERE invalid_at IS NULL`, nil)
+	if err != nil {
+		c.Status = "warn"
+		c.Detail = "지식 조회 실패 — 스키마 확인"
+		return c
+	}
+	// 리뷰 ⑥ 룰링: Store.Query는 [][]any(전체 구체화)라 진짜 스트리밍은
+	// 인터페이스 확장이 필요 — 개인 규모(수천 행)에서 과잉. 전열 확장·
+	// 중복 방지·무효화 제외만으로 취지(사각 폐쇄)를 달성하고 메모리는
+	// doctor의 다른 전수 쿼리(checkRecallStarved 등)와 동일 수준.
+	found := 0
+	seen := map[string]bool{} // 리뷰 ③: id+패턴 중복 계수 방지
+	for _, r := range rows {
+		if len(r) < 7 {
+			continue
+		}
+		text := strings.Join([]string{fmt.Sprint(r[1]), fmt.Sprint(r[2]), fmt.Sprint(r[3]), fmt.Sprint(r[4]), fmt.Sprint(r[5]), fmt.Sprint(r[6])}, " ")
+		for _, name := range store.ScanSecrets(text) {
+			id := fmt.Sprint(r[0])
+			key := name + "#" + id
+			if seen[key] {
+				continue
+			}
+			seen[key] = true
+			found++
+		}
+	}
+	if found == 0 {
+		c.Status = "ok"
+		c.Detail = "보유 지식에서 비밀 미발견"
+		return c
+	}
+	c.Status = "warn"
+	disp := make([]string, 0, 5)
+	for _, k := range sortedKeys(seen) {
+		if len(disp) == 5 {
+			break
+		}
+		disp = append(disp, k)
+	}
+	c.Detail = fmt.Sprintf("비밀 후보 %d건(%s) — 대상 무효화 후 소멸", found, strings.Join(disp, ", "))
+	c.Fix = "fix: flint maintain --invalidate --id N --reason secret(무효화 행 제외 재스캔)"
+	return c
+}
+
+// sortedKeys — map 키 정렬(결정적 출력).
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

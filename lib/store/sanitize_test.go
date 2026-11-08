@@ -78,3 +78,16 @@ func TestScanSecretsDedup(t *testing.T) {
 		t.Errorf("ScanSecrets 중복 = %v, want [github-token]", got)
 	}
 }
+
+// TestScanSecretsNoDoubleReport — v0.26.0 리뷰 ③: sk-ant- 키는
+// anthropic만 보고(openai 이중 보고 방지).
+func TestScanSecretsNoDoubleReport(t *testing.T) {
+	got := ScanSecrets("키 sk-ant-api03-abcdefghijklmnopqrst 포함")
+	if len(got) != 1 || got[0] != "anthropic-key" {
+		t.Errorf("sk-ant 스캔 = %v, want [anthropic-key] 단독", got)
+	}
+	got2 := ScanSecrets("키 sk-proj-abcdefghijklmnopqrst 포함")
+	if len(got2) != 1 || got2[0] != "openai-key" {
+		t.Errorf("sk-(비ant) 스캔 = %v, want [openai-key]", got2)
+	}
+}
