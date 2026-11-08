@@ -363,6 +363,24 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 - [x] R3·R6(info) 주석 정정 — topic 신호 이중 가중 의도 명시·정규화 멱급
 - [x] 버전 — VERSION·배지 v0.25.3(EN/KO)·plugin.json 동기
 
+### v0.26.0 마이너 (2026-11-08) — 프라이버시 실행 (F) + 증류 예산 가시성
+
+다음 마이너 심층 레퍼런스 조사(에이전트: gitleaks 룰셋·age API·
+Doltgres 이력·Letta/Mem0·Claude Code memory 포맷) → 권고 F 채택:
+
+- [x] R1 doctor secrets 사후 스캔 — 비밀 패턴 카탈로그 확장(anthropic
+  ·gitlab-pat·jwt·google — gitleaks 상위 룰 이식) + doctor secrets
+  체크: knowledge 전수 재스캔, 발견 시 warn(패턴명+id만 출력 — 본문
+  인용 금지). 저장 시점 스캔의 사각(회피·이후 유입) 폐쇄
+- [x] R4(조사 확정) 하드 삭제 ADR-0012 — Doltgres filter-branch
+  부재 확인(전수 문서 조사)으로 경로=백업 재구축 확정·구현 별도 이연
+- [x] R5(부탐) 증류 예산 가시성 — nudge SessionStart 문구에 pending
+  N/상한 M 동봉(PendingMax 재사용·임계 초과 시에만 — Letta 인밴드
+  예산 노출 관례, 규칙 기반 정합)
+- [x] R2·R3(백업 age 암호화·마스킹) — 이버전 제외: age 의존 추가는
+  별도 실증 후(스코프 절제 — R1·R5로 핵심 가치 선공급)
+- [x] 버전 — VERSION·배지 v0.26.0(EN/KO)·plugin.json 동기
+
 ### v0.25.4 패치 (2026-11-08) — v0.25.x 패치 루프 4차: 이월 5건 완결
 
 - [x] U2(medium) lazyDumpFile 부분 실패 방어 — 본문 Write 실패 시 해시

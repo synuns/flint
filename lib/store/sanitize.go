@@ -33,6 +33,11 @@ var secretPatterns = []struct {
 	{"aws-access-key", regexp.MustCompile(`AKIA[0-9A-Z]{16}`)},
 	{"pem-block", regexp.MustCompile(`-----BEGIN [A-Z ]*PRIVATE KEY-----`)},
 	{"slack-token", regexp.MustCompile(`xoxb-[0-9A-Za-z-]{10,}`)},
+	// v0.26.0 R1: gitleaks 상위 룰 이식(저장 시점+doctor 사후 스캔 공용).
+	{"anthropic-key", regexp.MustCompile(`sk-ant-[0-9A-Za-z_-]{20,}`)},
+	{"gitlab-pat", regexp.MustCompile(`glpat-[0-9A-Za-z_\-]{20,}`)},
+	{"jwt", regexp.MustCompile(`eyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}`)},
+	{"google-api-key", regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`)},
 }
 
 // ScanSecrets는 비밀 후보 패턴명을 반환한다(빈 슬라이스=통과).

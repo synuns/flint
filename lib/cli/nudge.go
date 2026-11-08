@@ -140,7 +140,15 @@ func runNudge(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		}
 		if distill != nil {
 			// 기존 안내 뒤에 read 힌트를 같은 줄로 병합(plain 1줄 계약 유지).
-			fmt.Fprintln(stdout, nudgeStartLine+" · "+nudgeReadHint)
+			// v0.26.0 R5(예산 가시성 — Letta 인밴드 관례): pending 수/상한을
+			// 데이터로 동봉(임계 PendingMax 초과 시에만 — 기본 문구 불변).
+			line := nudgeStartLine + " · " + nudgeReadHint
+			if n, ok := pendingCount(ctx, st); ok {
+				if max := writeThresholds(ctx, st).PendingMax; n >= max {
+					line = fmt.Sprintf("flint: 증류 대기 %d건(상한 %d) — flint maintain --dup-suspects · %s", n, max, nudgeReadHint)
+				}
+			}
+			fmt.Fprintln(stdout, line)
 		}
 	}
 	return 0
@@ -148,4 +156,18 @@ func runNudge(ctx context.Context, st Store, args []string, stdin io.Reader, std
 
 func init() {
 	Register("nudge", runNudge)
+}
+
+// pendingCount — pending 지식 수(조회 실패·부재는 ok=false — 조용히 §13).
+func pendingCount(ctx context.Context, st Store) (int, bool) {
+	if st == nil {
+		return 0, false
+	}
+	rows, err := queryOnce(ctx, st,
+		`SELECT count(*) FROM knowledge WHERE status='pending' AND invalid_at IS NULL`, nil)
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0, false
+	}
+	n, ok := cellToInt(rows[0][0])
+	return n, ok
 }
