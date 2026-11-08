@@ -240,7 +240,9 @@ func SetRRFK(k float64) {
 }
 
 // ReorderByFallbackCount — 폴백 결과 앱 재랭킹. v0.25.0: RRF 융합 —
-// 정합수·read_count·자모 유사도 3신호를 각자 내림 순위에서
+// 정합수·read_count·자모 유사도·topic 정합(v0.25.1 추가 — 구문 경로
+// RankOrder의 topic 정확 일치 우선이 폴백 융합에서 소실되던 것을
+// 회수) 4신호를 각자 내림 순위에서
 // 1/(k+rank) 합산. 다중 신호 기여가 단일 신호 우위를 이길 수 있다
 // (v0.9.6 정합수 우선·v0.13.0 순차 타이브레이크와 계약이 다르다).
 // 동률은 기존 조회 순(SQL RankOrder)을 유지한다.
@@ -265,6 +267,7 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 			fallbackMatchCount(tokens, t, sm),
 			readCountOf(row),
 			jamoOverlap(tokenJamo, t, sm),
+			topicMatchCount(tokens, t), // v0.25.1: topic 정합 신호
 		}
 	}
 	scores := rrfFuse(values)
@@ -313,6 +316,18 @@ func rrfFuse(values [][]int) []float64 {
 		}
 	}
 	return scores
+}
+
+// topicMatchCount — topic에 출현하는 토큰 수(v0.25.1: RRF 제4신호 —
+// topic 정합이 summary 정합보다 강하다는 RankOrder 관례의 융합 반영).
+func topicMatchCount(tokens []string, t string) int {
+	n := 0
+	for _, tok := range tokens {
+		if strings.Contains(t, nfkc(strings.ToLower(tok))) {
+			n++
+		}
+	}
+	return n
 }
 
 // jamoOverlap — v0.25.0 R2(자모 bigram): 한글 토큰의 자모 분해 bigram
