@@ -220,3 +220,31 @@ func TestFormatRowsUnknownFieldPositional(t *testing.T) {
 		t.Errorf("위치 fallback = %q, want %q", got, want)
 	}
 }
+
+// TestReorderByFallbackCountRRF — v0.25.0 R1: RRF 융합 — 다중 신호
+// 조합이 순차 타이브레이크와 다르게 행렬을 매긴다(정합수 낮아도
+// read_count·자모 신호 합산이 크면 상위).
+func TestReorderByFallbackCountRRF(t *testing.T) {
+	rows := [][]any{
+		{int32(1), "백업 정책", "매일 자동", "", "", "", 0.9, "active", 0},     // 정합 2·read 0
+		{int32(2), "백업 절차", "주간 수동 점검", "", "", "", 0.8, "active", 30}, // 정합 1·read 30·자모 2
+		{int32(3), "포트", "5433", "", "", "", 0.7, "active", 100},       // 정합 0·read 100
+	}
+	ReorderByFallbackCount(rows, []string{"백업", "자동"})
+	if rows[0][0] != int32(2) {
+		t.Errorf("RRF 상위 = %v, want 2(3신호 융합 합산 최고)", rows[0][0])
+	}
+	if rows[2][0] != int32(3) {
+		t.Errorf("최하위 = %v, want 3(정합·자모 0은 read 100 단일 신호로 못 이긴다)", rows[2][0])
+	}
+}
+
+// TestJamoOverlap — v0.25.0 R2: 자모 bigram이 어미 변형을 흡수한다.
+func TestJamoOverlap(t *testing.T) {
+	if jamoOverlap([]string{"백업"}, "백업용 스크립트", "") == 0 {
+		t.Error("'백업' ↔ '백업용' 자모 bigram 미매칭")
+	}
+	if jamoOverlap([]string{"포트"}, "환경설정", "") != 0 {
+		t.Error("무관 문자열 매칭 오판")
+	}
+}

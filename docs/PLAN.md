@@ -345,6 +345,21 @@ doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·�
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.25.0 마이너 (2026-11-08) — 검색 품질 1막: RRF 융합·자모 bigram·pgvector probe
+
+마일스톤 G 추천 이행(계측 체계 선행 — 개선 효과 검증 즉시 가능):
+
+- [x] R1 RRF(Reciprocal Rank Fusion) 융합 랭킹 — 폴백 재랭킹을 순차
+  타이브레이크(정합>read)에서 정합수·read_count·자모 유사도 3신호
+  RRF 융합으로(k=60). 구현 초판의 부호 반전 결함(값=rank 혼동)을
+  순위 기반 rrfFuse로 수정·회귀 테스트로 봉쇄
+- [x] R2 자모 bigram — 한글 토큰을 초·중·종성 분해 bigram으로 근사
+  매칭(오타·어미 변형 흡수 — "백업"↔"백업용"·자동↔수동 부분 공유)
+- [x] R3 pgvector 에뮬 실증 probe — ADR-0011: CREATE EXTENSION·
+  vector(3)·cosine `<=>` 순위까지 실증 성공. 채택은 보류(임베딩 생성
+  경로·인덱스 성능·트리거 미도달 — ADR에 명시)
+- [x] 버전 — VERSION·배지 v0.25.0(EN/KO)·plugin.json 동기
+
 ### v0.24.2 패치 (2026-11-08) — v0.24.x 패치 루프 2차: 개인화 평가 발견 — 결정 판정 adr 태그 전환
 
 - [x] hot_view '최근 결정' 팔을 domain='decision'에서 tag='adr'
