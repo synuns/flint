@@ -262,3 +262,31 @@ func TestReorderByTopicSignal(t *testing.T) {
 		t.Errorf("topic 정합 행 우선 위반: 상위=%v", rows[0][0])
 	}
 }
+
+// TestRRFFuseDirect — v0.25.3(2차 리뷰 ④): rrfFuse 수학 계약 직접
+// 단얜 — 동률 경쟁 순위·0값 미기여·k 오버라이드가 순서를 바꾼다.
+func TestRRFFuseDirect(t *testing.T) {
+	// 동률: sig1에서 a·b 동순위(2), c 후순(1) — a·b 동점, c 미기여(0).
+	sc := rrfFuse([][]int{{2, 0}, {2, 0}, {1, 0}})
+	if sc[0] != sc[1] {
+		t.Errorf("동률 행 스코어 불일치: %v", sc)
+	}
+	if sc[2] >= sc[0] {
+		t.Errorf("후순위가 동률 최상위와 같거나 큼: %v", sc)
+	}
+	// 0값 미기여: 전 신호 0이면 스코어 0.
+	if got := rrfFuse([][]int{{0, 0}, {0, 0}}); got[0] != 0 || got[1] != 0 {
+		t.Errorf("0값 행이 신호 기여: %v", got)
+	}
+	// k 오버라이드: k 작으면 순위 격차 확대 — 다중 신호 우위가 강화된다.
+	prev := rrfK
+	t.Cleanup(func() { rrfK = prev })
+	// 비대칭 픽스처(전 신호 동일 우위) — k 축소가 절대 격차를 확대.
+	rrfK = 1
+	tight := rrfFuse([][]int{{2, 3}, {1, 1}})
+	rrfK = 60
+	loose := rrfFuse([][]int{{2, 3}, {1, 1}})
+	if tight[0]-tight[1] <= loose[0]-loose[1] {
+		t.Errorf("k 축소가 격차를 확대하지 않음: k1=%v k60=%v", tight, loose)
+	}
+}

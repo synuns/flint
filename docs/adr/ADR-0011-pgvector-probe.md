@@ -16,6 +16,18 @@ Doltgres가 2026-09-03 확장 에뮬레이션 발표(dolthub.com/blog/2026-09-03
 - `vector(3)` 컬럼 테이블 생성·INSERT → 성공
 - cosine 거리 연산자 `<=>` ORDER BY → **성공**(기대 상위 반환)
 
+## 재현 절차 (2026-11-08 기록)
+
+- 환경: 운영 Doltgres 컨테이너(docker compose, 이미지 digests는
+  docker-compose.yml 고정 분)·flint_test DB
+- SQL: `CREATE EXTENSION IF NOT EXISTS vector` →
+  `CREATE TABLE p(id int, v vector(3))` →
+  `INSERT INTO p VALUES (1,'[1,0,0]'),(2,'[0,1,0]')` →
+  `SELECT id FROM p ORDER BY v <=> '[1,0.1,0]' LIMIT 1`
+- 합성 데이터: 위 INSERT 2행(개인 데이터 무관). extversion=0.8.6
+  확인. 검증 후 테이블 DROP(extension DROP은 Doltgres 미구현 —
+  잔존 무해).
+
 ## 판정
 
 에뮬레이션이 **기본 CRUD·cosine 순위 쿼리에서 동작함을 확인**했다.

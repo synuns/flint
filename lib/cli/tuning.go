@@ -292,11 +292,21 @@ func tuningSet(ctx context.Context, st Store, key, val string, stdout io.Writer)
 		return tuningUnknownKey(stdout, key)
 	}
 	// 검증 ①: 후보 값을 파싱해 필드에 그대로 반영되는지(폴백 아님).
+	// v0.25.3(미커버 스윑 ③): 비교는 수치로 — '0.30'·'60.0'·'.5' 같은
+	// 동등 표기가 문자열 비교로 거부되던 것을 수용(포맷 차이 ≠ 무효 값).
 	cand, err := store.ParseThresholds([][2]any{{key, val}})
-	if err == nil && info.Get(cand) != val {
+	reflected := err == nil && info.Get(cand) == val
+	if !reflected && err == nil {
+		if got, perr := strconv.ParseFloat(info.Get(cand), 64); perr == nil {
+			if want, werr := strconv.ParseFloat(strings.TrimSpace(val), 64); werr == nil {
+				reflected = got == want
+			}
+		}
+	}
+	if err == nil && !reflected {
 		err = fmt.Errorf("파싱 폴백 — 무효 값")
 	}
-	if err != nil || info.Get(cand) != val {
+	if err != nil || !reflected {
 		fmt.Fprintln(stdout, errLine(&store.SchemaError{
 			Field:  key,
 			Expect: "유효 값(기본 " + info.Default + ", TUNING §2 참조)",
