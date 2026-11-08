@@ -7,8 +7,7 @@
 ## 배경
 
 PLAN §15의 pgvector 보류 사유는 "Doltgres 에뮬레이션 실증 전"이었다.
-Doltgres가 2026-09-03 확장 에뮬레이션 발표(dolthub.com/blog/
-2026-09-03-doltgres-extensions-update)로 vector 확장이 구현됐다는
+Doltgres가 2026-09-03 확장 에뮬레이션 발표(dolthub.com/blog/2026-09-03-doltgres-extensions-update)로 vector 확장이 구현됐다는
 발표가 있어 합성 데이터 probe로 실증했다.
 
 ## probe 결과 (flint_test DB·합성 데이터)

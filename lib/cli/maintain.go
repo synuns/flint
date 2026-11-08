@@ -1026,7 +1026,7 @@ func thresholdsKeys() []string {
 		"pending_age_days", "recall_warn_writes",
 		"dead_days", "pair_window_minutes", "chain_window_hours",
 		"events_retention_days", "hot_events_retention_days",
-		"events_volume_warn", "drill_max_days", "daily_retention_days",
+		"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k",
 	}
 }
 

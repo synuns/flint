@@ -28,14 +28,15 @@ type Thresholds struct {
 	// v0.18.0 R3: done 회상 경고 — 오늘 회상 0회 상태의 기록 수 임계.
 	RecallWarnWrites int // 이상이면 "회상 없이 기록만" 경고(done)
 	// v0.20.4(패치 루프 4차·마일스톤 B③·C①): 효과 계측 판정 창·보존.
-	DeadDays         int // dead_pct 기준일(기본 30)
-	PairWindowMin    int // read→write 페어 판정 창(분, 기본 30)
-	ChainWindowH     int // 사용 연쇄 판정 창(시간, 기본 24)
-	EventsRetentionD int // read_events·session_starts 보존(일, 기본 14)
-	HotRetentionD    int // hot_events 보존(일, 기본 30 — dead 가드 창 정렬)
-	EventsVolumeWarn int // doctor 계측 테이블 경고 행 수(기본 50000)
-	DrillMaxDays     int // 드릴 경과 보고 기준일(기본 30, v0.23.0 이관)
-	DailyRetentionD  int // daily:* 보존·기간화 창 상한(기본 14, v0.24.0 R1b)
+	DeadDays         int     // dead_pct 기준일(기본 30)
+	PairWindowMin    int     // read→write 페어 판정 창(분, 기본 30)
+	ChainWindowH     int     // 사용 연쇄 판정 창(시간, 기본 24)
+	EventsRetentionD int     // read_events·session_starts 보존(일, 기본 14)
+	HotRetentionD    int     // hot_events 보존(일, 기본 30 — dead 가드 창 정렬)
+	EventsVolumeWarn int     // doctor 계측 테이블 경고 행 수(기본 50000)
+	DrillMaxDays     int     // 드릴 경과 보고 기준일(기본 30, v0.23.0 이관)
+	DailyRetentionD  int     // daily:* 보존·기간화 창 상한(기본 14, v0.24.0 R1b)
+	RrfK             float64 // 검색 RRF 순위 완화 계수(기본 60, v0.25.0)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -65,6 +66,7 @@ const (
 	defaultEventsVolumeWarn = 50000
 	defaultDrillMaxDays     = 30
 	defaultDailyRetentionD  = 14
+	defaultRrfK             = 60.0
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -95,6 +97,7 @@ func DefaultThresholds() Thresholds {
 		EventsVolumeWarn:     defaultEventsVolumeWarn,
 		DrillMaxDays:         defaultDrillMaxDays,
 		DailyRetentionD:      defaultDailyRetentionD,
+		RrfK:                 defaultRrfK,
 	}
 }
 
@@ -171,6 +174,8 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			th.DrillMaxDays = parseIntOrDefault(val, defaultDrillMaxDays, ks)
 		case "daily_retention_days":
 			th.DailyRetentionD = parseIntOrDefault(val, defaultDailyRetentionD, ks)
+		case "rrf_k":
+			th.RrfK = parseFloatOrDefault(val, defaultRrfK, ks)
 
 		}
 	}

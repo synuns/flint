@@ -359,6 +359,11 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
   vector(3)·cosine `<=>` 순위까지 실증 성공. 채택은 보류(임베딩 생성
   경로·인덱스 성능·트리거 미도달 — ADR에 명시)
 - [x] 버전 — VERSION·배지 v0.25.0(EN/KO)·plugin.json 동기
+- [x] 리뷰 7건 — ① 자모 신호 한글 토큰 한정(비한글 이중 계상 방지)
+  ② RRF 계약 주석 갱신(구 순차 타이브레이크 서술 폐기) ③ rrf_k를
+  thresholds 레지스트리로(SetRRFK 주입·tuning 노출·TUNING §2) ④
+  bigramSet 재사용(자모 분해만 신규) ⑤ FormatRows 주석 복원 ⑥ 정규화·
+  토큰 집합 hoist(행당 중복 계산 제거) ⑦ ADR URL 개행 수정
 
 ### v0.24.2 패치 (2026-11-08) — v0.24.x 패치 루프 2차: 개인화 평가 발견 — 결정 판정 adr 태그 전환
 

@@ -58,6 +58,7 @@ func tuningKeys() []tuningKeyInfo {
 		{"events_volume_warn", i(d.EventsVolumeWarn), "doctor event-volume", func(t store.Thresholds) string { return i(t.EventsVolumeWarn) }},
 		{"drill_max_days", i(d.DrillMaxDays), "maintain --check", func(t store.Thresholds) string { return i(t.DrillMaxDays) }},
 		{"daily_retention_days", i(d.DailyRetentionD), "보존·report/status 창", func(t store.Thresholds) string { return i(t.DailyRetentionD) }},
+		{"rrf_k", f(d.RrfK), "read 폴백 재랭킹", func(t store.Thresholds) string { return f(t.RrfK) }},
 	}
 }
 

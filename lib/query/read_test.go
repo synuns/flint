@@ -241,10 +241,10 @@ func TestReorderByFallbackCountRRF(t *testing.T) {
 
 // TestJamoOverlap — v0.25.0 R2: 자모 bigram이 어미 변형을 흡수한다.
 func TestJamoOverlap(t *testing.T) {
-	if jamoOverlap([]string{"백업"}, "백업용 스크립트", "") == 0 {
+	if jamoOverlap(jamoTokenSets([]string{"백업"}), "백업용 스크립트", "") == 0 {
 		t.Error("'백업' ↔ '백업용' 자모 bigram 미매칭")
 	}
-	if jamoOverlap([]string{"포트"}, "환경설정", "") != 0 {
+	if jamoOverlap(jamoTokenSets([]string{"포트"}), "환경설정", "") != 0 {
 		t.Error("무관 문자열 매칭 오판")
 	}
 }
