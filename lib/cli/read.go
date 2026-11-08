@@ -334,6 +334,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		// query 패키지 기본값(=DefaultThresholds) 유지 — 조용히(§13).
 		if th, thErr := loadThresholds(ctx, st); thErr == nil {
 			query.SetSuggestThresholds(th.SuggestMinScore, th.SuggestScanCap)
+			query.SetRRFK(th.RrfK) // v0.25.0: RRF k 오버라이드(리뷰 ③)
 		}
 		ssql, sargs := query.BuildSuggestScan()
 		if srows, serr := queryOnce(ctx, st, ssql, sargs); serr == nil {

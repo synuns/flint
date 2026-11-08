@@ -228,34 +228,174 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 	return sql, args, true
 }
 
-// ReorderByFallbackCount — 폴백 결과 앱 재랭킹(v0.9.6): fallbackMatchCount
-// DESC. v0.13.0(R1): 정합수 동률 시 read_count DESC 2차 타이브레이크 —
-// SQL RankOrder의 채택 재랭킹과 같은 기준이다. sort.SliceStable — 동률은
-// SQL RankOrder 순(조회 순)을 유지한다.
-func ReorderByFallbackCount(rows [][]any, tokens []string) {
-	rowCount := func(row []any) int {
-		topic, summary := "", ""
-		if i := columnIndexOf("topic"); i >= 0 && i < len(row) {
-			topic, _ = row[i].(string)
-		}
-		if i := columnIndexOf("summary"); i >= 0 && i < len(row) {
-			summary, _ = row[i].(string)
-		}
-		return fallbackMatchCount(tokens, topic, summary)
+// rrfK — RRF 순위 완화 계수(원 논문 표준 60). 런타임 오버라이드는
+// SetRRFK(thresholds rrf_k 키 — v0.25.0 리뷰 ③: 튜닝값 단일 소스).
+var rrfK = 60.0
+
+// SetRRFK — thresholds 레지스트리 → query 주입(SetSuggestThresholds 승계).
+func SetRRFK(k float64) {
+	if k > 0 {
+		rrfK = k
 	}
-	sort.SliceStable(rows, func(i, j int) bool {
-		ci, cj := rowCount(rows[i]), rowCount(rows[j])
-		if ci != cj {
-			return ci > cj
+}
+
+// ReorderByFallbackCount — 폴백 결과 앱 재랭킹. v0.25.0: RRF 융합 —
+// 정합수·read_count·자모 유사도 3신호를 각자 내림 순위에서
+// 1/(k+rank) 합산. 다중 신호 기여가 단일 신호 우위를 이길 수 있다
+// (v0.9.6 정합수 우선·v0.13.0 순차 타이브레이크와 계약이 다르다).
+// 동률은 기존 조회 순(SQL RankOrder)을 유지한다.
+func ReorderByFallbackCount(rows [][]any, tokens []string) {
+	if len(rows) < 2 {
+		return
+	}
+	tokenJamo := jamoTokenSets(tokens)
+	values := make([][]int, len(rows))
+	for i, row := range rows {
+		topic, summary := "", ""
+		if idx := readColumnIndexOf("topic"); idx >= 0 && idx < len(row) {
+			topic, _ = row[idx].(string)
 		}
-		return readCountOf(rows[i]) > readCountOf(rows[j])
+		if idx := readColumnIndexOf("summary"); idx >= 0 && idx < len(row) {
+			summary, _ = row[idx].(string)
+		}
+		// 정규화 1회(리뷰 ⑥) — 두 스코어러가 같은 문자열을 쓴다.
+		t := nfkc(strings.ToLower(topic))
+		sm := nfkc(strings.ToLower(summary))
+		values[i] = []int{
+			fallbackMatchCount(tokens, t, sm),
+			readCountOf(row),
+			jamoOverlap(tokenJamo, t, sm),
+		}
+	}
+	scores := rrfFuse(values)
+	idx := make([]int, len(rows))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		if scores[idx[a]] != scores[idx[b]] {
+			return scores[idx[a]] > scores[idx[b]]
+		}
+		return idx[a] < idx[b] // 동률은 기존 순서(SQL RankOrder) 유지
 	})
+	out := make([][]any, len(rows))
+	for pos, src := range idx {
+		out[pos] = rows[src]
+	}
+	copy(rows, out)
+}
+
+// rrfFuse — 행별 신호값 → RRF 스코어: 각 신호 내림 순위(1=최상, 동률
+// 동순위)에서 1/(k+rank) 합산. 값 자체를 rank에 대입하면 부호가 뒤집혀
+// 최솟값이 이긴다(구현 초판 결함 — 회귀 테스트로 봉쇄).
+func rrfFuse(values [][]int) []float64 {
+	n := len(values)
+	if n == 0 {
+		return nil
+	}
+	scores := make([]float64, n)
+	for sig := range values[0] {
+		order := make([]int, n)
+		for i := range order {
+			order[i] = i
+		}
+		sort.SliceStable(order, func(a, b int) bool {
+			return values[order[a]][sig] > values[order[b]][sig]
+		})
+		rank := 1
+		for pos, row := range order {
+			if pos > 0 && values[row][sig] != values[order[pos-1]][sig] {
+				rank = pos + 1
+			}
+			if values[row][sig] > 0 { // 0값은 신호 미기여
+				scores[row] += 1.0 / (rrfK + float64(rank))
+			}
+		}
+	}
+	return scores
+}
+
+// jamoOverlap — v0.25.0 R2(자모 bigram): 한글 토큰의 자모 분해 bigram
+// 중첩으로 근사 유사도(오타·어미 변형 흡수). 한글 없는 토큰은 0(신호
+// 미기여 — 부분 문자열 신호와의 이중 계상 방지, 리뷰 ①). tokenSets는
+// 행 루프 밖 사전 계산(리뷰 ⑥).
+func jamoOverlap(tokenSets []map[string]struct{}, t, s string) int {
+	if len(tokenSets) == 0 {
+		return 0
+	}
+	hay := jamoBigramSet(nfkc(strings.ToLower(t + " " + s)))
+	n := 0
+	for _, set := range tokenSets {
+		for bg := range set {
+			if _, ok := hay[bg]; ok {
+				n++
+				break // 토큰당 1점
+			}
+		}
+	}
+	return n
+}
+
+// jamoTokenSets — 한글 포함 토큰만 자모 bigram 집합으로.
+func jamoTokenSets(tokens []string) []map[string]struct{} {
+	var out []map[string]struct{}
+	for _, tok := range tokens {
+		if containsHangul(tok) {
+			out = append(out, jamoBigramSet(nfkc(strings.ToLower(tok))))
+		}
+	}
+	return out
+}
+
+// containsHangul — 한글 음절 포함 여부.
+func containsHangul(s string) bool {
+	for _, r := range s {
+		if r >= 0xAC00 && r <= 0xD7A3 {
+			return true
+		}
+	}
+	return false
+}
+
+// jamoBigramSet — 자모 분해 rune열의 bigram 집합(집합화는 bigramSet
+// 위임 — 구현 단일화, 리뷰 ④). 음절은 초·중·종성 분해.
+func jamoBigramSet(s string) map[string]struct{} {
+	const (
+		syllableBase = 0xAC00
+		leadBase     = 0x1100 // ㄱ
+		vowelBase    = 0x1161 // ㅏ
+		trailBase    = 0x11A7 // 없음+1
+	)
+	var jamo []rune
+	for _, r := range s {
+		if r >= syllableBase && r <= 0xD7A3 {
+			off := r - syllableBase
+			jamo = append(jamo, leadBase+off/588, vowelBase+(off%588)/28)
+			if t := off % 28; t > 0 {
+				jamo = append(jamo, trailBase+t)
+			}
+		} else {
+			jamo = append(jamo, r)
+		}
+	}
+	return bigramSet(jamo)
+}
+
+// readColumnIndexOf — readColumns 내 컬럼 위치(-1=부재). query 패키지
+// 내 재랭킹 신호 추출용(cli.columnIndexOf와 동일 규약).
+func readColumnIndexOf(name string) int {
+	for i, c := range readColumns {
+		if c == name {
+			return i
+		}
+	}
+	return -1
 }
 
 // readCountOf — 행에서 read_count 값(readColumns 인덱스 기준). pgx 숫자형을
 // 수용하고 칼럼 부재·비수·nil은 0(동률 취급 — 정렬 불변).
 func readCountOf(row []any) int {
-	i := columnIndexOf("read_count")
+	i := readColumnIndexOf("read_count")
 	if i < 0 || i >= len(row) {
 		return 0
 	}
@@ -290,15 +430,6 @@ func ReadColumnsHint() string {
 	return strings.Join(readColumns, ",")
 }
 
-func columnIndexOf(name string) int {
-	for i, c := range readColumns {
-		if c == name {
-			return i
-		}
-	}
-	return -1
-}
-
 // truncateRunes — rune 기반 절단(한글 등 멀티바이트 안전).
 func truncateRunes(s string, max int) string {
 	r := []rune(s)
@@ -323,7 +454,7 @@ func FormatRows(rows [][]any, fields string, jsonMode bool) string {
 		vals := make([]string, 0, len(names))
 		for i, name := range names {
 			var raw any
-			if idx := columnIndexOf(name); idx >= 0 {
+			if idx := readColumnIndexOf(name); idx >= 0 {
 				if idx < len(row) {
 					raw = row[idx]
 				}
