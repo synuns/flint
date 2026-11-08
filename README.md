@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.25.3-blue" alt="v0.25.3">
+  <img src="https://img.shields.io/badge/release-v0.25.4-blue" alt="v0.25.4">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v0.25.3 · auto-update · go install · 전체 배포 폐회 · [full changelog](docs/PLAN.md)
+> v0.25.4 · auto-update · go install · 전체 배포 폐회 · [full changelog](docs/PLAN.md)
 
 ---
 

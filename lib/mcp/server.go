@@ -31,6 +31,9 @@ func Serve(r io.Reader, w io.Writer, handle func(method string, params map[strin
 	bw := bufio.NewWriter(w)
 	defer bw.Flush()
 	sc := bufio.NewScanner(r)
+	// v0.25.4(미커버 스윕 U6): 상한 초과 줄은 스킵 생존 — 이전엔
+	// ErrTooLong이 Serve 반환값이 돼 서버 프로세스가 사망(4MB 초과
+	// flint_write 한 번으로 세션 전체 상실)했다. 상한은 유지(메모리 방어).
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024) // write payloads can exceed the 64KB default
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
@@ -47,6 +50,11 @@ func Serve(r io.Reader, w io.Writer, handle func(method string, params map[strin
 		if err := writeResponse(bw, req, handle); err != nil {
 			return err
 		}
+	}
+	if err := sc.Err(); errors.Is(err, bufio.ErrTooLong) {
+		// 초과 줄 1개를 읽는 도중의 에러 — 해당 줄만 버리고 계속
+		// 살아남는다(주석 계약 이행). 재귀 아님: 남은 입력은 다음 Scan.
+		return Serve(r, w, handle)
 	}
 	return sc.Err()
 }

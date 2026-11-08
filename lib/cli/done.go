@@ -334,8 +334,16 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 	if l.failed {
 		return 0, errors.New("backup auto: dump 파일 생성 불가")
 	}
-	l.h.Write(p) // 해시 갱신은 본문 기록 성공 여부와 무관하게 항상 동기
-	return l.f.Write(p)
+	// v0.25.4(미커버 스윕 U2): 본문 기록 실패 시 해시 갱신도 중단하고
+	// failed 마킹 — 부분 파일이 '내용과 일치하는' 정상 사이드카를 받아
+	// 온전한 구 백업을 rotate에서 밀어내던 오탐 상태를 차단한다.
+	n, err := l.f.Write(p)
+	if err != nil {
+		l.failed = true
+		return n, err
+	}
+	l.h.Write(p)
+	return n, nil
 }
 
 // close — 덤프 close 성공 후 .sha256 사이드카 기록. once 미발동(0바이트
@@ -346,10 +354,18 @@ func (l *lazyDumpFile) close() error {
 		return nil
 	}
 	name := l.f.Name()
-	if err := l.f.Close(); err != nil {
-		return err
-	}
+	closeErr := l.f.Close()
 	l.f = nil // 멱등 — closeAndPath 이후 defer close의 이중 close 방어
+	// v0.25.4(U2): 본문 기록 실패한 부분 파일은 사이드카 없이 제거 —
+	// 체크섬 통과하는 오탐 백업 슬롯을 남기지 않는다. 이중 close
+	// 에러(실패 유도로 이미 닫힌 경우)보다 폐기가 우선.
+	if l.failed {
+		_ = os.Remove(name)
+		return errors.New("backup auto: 부분 덤프 폐기")
+	}
+	if closeErr != nil {
+		return closeErr
+	}
 	sum := hex.EncodeToString(l.h.Sum(nil))
 	if err := backup.WriteSidecar(name, sum); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] backup sidecar: %v\n", err)

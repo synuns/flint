@@ -1,7 +1,7 @@
-// pattern.go — T36 패턴 탐지(maintain --distill 입력). sessions+knowledge
-// 축적에서 같은 topic의 성공 반복·실패→성공 전환을 순수 SQL 집계로 찾는다.
-// 실패 판정은 CONTENT.md §4 어휘표의 failure 태그(실패 학습) — failure가
-// 아닌 active 지식이 그 topic의 성공 기록이 된다.
+// pattern.go — T36 패턴 탐지 내부 유틸. 유의(v0.25.4 미커버 스윕 U4):
+// `maintain --distill` 플래그는 존재하지 않는다 — 이 함수들은 어떤 CLI
+// 경로에서도 소비되지 않는 내부 유틸이다(향후 증류 자동화 마일스톤 G
+// 후보의 원천). 테스트는 유틸 자체 계약을 검증한다.
 package db
 
 import (

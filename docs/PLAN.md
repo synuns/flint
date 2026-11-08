@@ -363,7 +363,22 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 - [x] R3·R6(info) 주석 정정 — topic 신호 이중 가중 의도 명시·정규화 멱급
 - [x] 버전 — VERSION·배지 v0.25.3(EN/KO)·plugin.json 동기
 
-이월(v0.25.4+ 후보): U2 lazyDumpFile 부분 실패 사이드카·U4 pattern.go
+### v0.25.4 패치 (2026-11-08) — v0.25.x 패치 루프 4차: 이월 5건 완결
+
+- [x] U2(medium) lazyDumpFile 부분 실패 방어 — 본문 Write 실패 시 해시
+  갱신 중단·failed 마킹, close는 사이드카 없이 부분 파일 폐기(체크섬
+  통과 오탐 백업 슬롯이 온전한 구 백업을 rotate에서 밀어내던 것 차단)
+- [x] U4(low) pattern.go·usage.go 죽은 표면 주석 정정 —
+  maintain --distill 플래그는 존재하지 않음(내부 유틸임을 명시)
+- [x] U5(low) JSON-RPC 이월 유지 — 오류 응답은 프로토콜 준수 강화라
+  별도 스코프(현 주요 클라이언트는 객체 params만 사용, 실발견률 낮음)
+- [x] U6(low) MCP 스캐너 초과 줄 생존 — 4MB 상한 유지하되 ErrTooLong
+  시 서버 사망 아닌 스킵 생존(재귀 재개) — 4MB 초과 flint_write 한
+  번으로 세션 전체 상실 방어
+- [x] U7(low) expire-pending dry-run 나열 상한 20(무상한 JSON 방어)
+- [x] 버전 — VERSION·배지 v0.25.4(EN/KO)·plugin.json 동기
+
+(v0.25.3 이월 — 처리 완료:
 죽은 표면(distill 미실종)·U5 JSON-RPC 오류 응답 부재·U6 스캐너 4MB
 상한 서버 사망·U7 expire-pending 무상한 나열.
 

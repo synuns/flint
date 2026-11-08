@@ -679,13 +679,19 @@ type expireItem struct {
 // invalid_at IS NULL AND valid_at < now-days. 컷오프는 Go 계산 후
 // timestamptz 파라미터로 전달하고(listStale T70 관례 승계 — Doltgres
 // interval 추론 회피) Go 필터로 같은 경계를 재확인한다.
+// expireListLimit — dry-run 나열 상한(무상한 JSON 방어, v0.25.4).
+const expireListLimit = 20
+
 func listExpiredPending(ctx context.Context, ms MaintStore, days int) ([]expireItem, time.Time, error) {
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	// v0.25.4(미커버 스윑 U7): dry-run 나열 상한 — listStale과 동일
+	// LIMIT 관례(기본 20)로 무상한 JSON 나열을 막는다.
 	rows, err := queryOnce(ctx, ms, `
 		SELECT id, topic, summary, valid_at
 		FROM knowledge
 		WHERE status = 'pending' AND invalid_at IS NULL AND valid_at < $1
-		ORDER BY valid_at ASC`, []any{cutoff})
+		ORDER BY valid_at ASC
+		LIMIT $2`, []any{cutoff, expireListLimit})
 	if err != nil {
 		return nil, cutoff, err
 	}

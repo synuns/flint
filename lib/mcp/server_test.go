@@ -3,6 +3,7 @@ package mcp
 import (
 	"bytes"
 	"encoding/json"
+	"io"
 	"strings"
 	"testing"
 )
@@ -103,5 +104,22 @@ func TestUnknownMethod(t *testing.T) {
 	}
 	if second["result"] != "ok" {
 		t.Errorf("server died after malformed line, result = %v", second["result"])
+	}
+}
+
+// TestServeSkipTooLongLine — v0.25.4(U6): 상한 초과 줄 이후 요청은
+// 여전히 처리된다(서버 생존).
+func TestServeSkipTooLongLine(t *testing.T) {
+	huge := strings.Repeat("x", 5*1024*1024) + "\n"
+	normal := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n"
+	var out bytes.Buffer
+	err := Serve(io.MultiReader(strings.NewReader(huge), strings.NewReader(normal)), &out, func(m string, p map[string]any) (any, error) {
+		return map[string]any{"ok": true}, nil
+	})
+	if err != nil {
+		t.Fatalf("Serve err=%v — 초과 줄로 서버 사망(생존 계약 위반)", err)
+	}
+	if !strings.Contains(out.String(), `"id":1`) {
+		t.Fatalf("초과 줄 이후 정상 요청 미처리: %q", out.String())
 	}
 }
