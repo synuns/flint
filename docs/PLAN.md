@@ -379,7 +379,12 @@ Doltgres 이력·Letta/Mem0·Claude Code memory 포맷) → 권고 F 채택:
   예산 노출 관례, 규칙 기반 정합)
 - [x] R2·R3(백업 age 암호화·마스킹) — 이버전 제외: age 의존 추가는
   별도 실증 후(스코프 절제 — R1·R5로 핵심 가치 선공급)
-- [x] 버전 — VERSION·배지 v0.26.0(EN/KO)·plugin.json 동기
+- [x] 리뷰 7건 — ① 무효화 행 제외 재스캔(Fix 해소 경로 정합) ② 스캔
+  전열 확장(쓰기 시점과 동일 — tags·entity·domain·origin) ③ sk-ant
+  이중 보고 방지(특수 패턴 마스킹 — gitleaks 우선순위 관례, RE2
+  lookahead 불가 대응) ④ nudge 초과 계약 정렬(>) ⑥ 전수 구체화
+  룰링(Store[][]any 추상화 내 동일 수준) ⑦ sort 임포트 그룹. ⑤
+  캐시 공유는 유지보치(24h 캐시와 즉시성 요구가 다름 — 룰링)
 
 ### v0.25.4 패치 (2026-11-08) — v0.25.x 패치 루프 4차: 이월 5건 완결
 

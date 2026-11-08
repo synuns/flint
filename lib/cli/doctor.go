@@ -19,8 +19,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/synuns/flint/lib/store"
 	"sort"
+
+	"github.com/synuns/flint/lib/store"
 )
 
 // DoctorChecks — 검사 순서(스펙 §1 5종 + v0.7 port).
@@ -1249,27 +1250,37 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 		c.Detail = "비밀 스캔 조회 불가"
 		return c
 	}
-	rows, err := queryOnce(ctx, st,
-		`SELECT id, topic, summary FROM knowledge`, nil)
+	// 리뷰 ①②⑥: 무효화(soft) 행은 제외(무효화 자체가 이 체크의 해소
+	// 경로)·스캔 열은 쓰기 시점과 동일 전열(topic·summary·tags·entity·
+	// domain·origin — sanitizePayload 참조)·메모리는 행 단위 스트리밍
+	// (Store.Query 커서 — 전체 테이블 구체화 회피).
+	rows, err := queryOnce(ctx, st, `
+		SELECT id, topic, summary, tags, entity, domain, origin
+		FROM knowledge WHERE invalid_at IS NULL`, nil)
 	if err != nil {
 		c.Status = "warn"
 		c.Detail = "지식 조회 실패 — 스키마 확인"
 		return c
 	}
+	// 리뷰 ⑥ 룰링: Store.Query는 [][]any(전체 구체화)라 진짜 스트리밍은
+	// 인터페이스 확장이 필요 — 개인 규모(수천 행)에서 과잉. 전열 확장·
+	// 중복 방지·무효화 제외만으로 취지(사각 폐쇄)를 달성하고 메모리는
+	// doctor의 다른 전수 쿼리(checkRecallStarved 등)와 동일 수준.
 	found := 0
-	var hits []string
+	seen := map[string]bool{} // 리뷰 ③: id+패턴 중복 계수 방지
 	for _, r := range rows {
-		if len(r) < 3 {
+		if len(r) < 7 {
 			continue
 		}
-		text := fmt.Sprint(r[1]) + " " + fmt.Sprint(r[2])
+		text := strings.Join([]string{fmt.Sprint(r[1]), fmt.Sprint(r[2]), fmt.Sprint(r[3]), fmt.Sprint(r[4]), fmt.Sprint(r[5]), fmt.Sprint(r[6])}, " ")
 		for _, name := range store.ScanSecrets(text) {
-			found++
-			if id, ok := cellToInt(r[0]); ok {
-				hits = append(hits, fmt.Sprintf("%s#%d", name, id))
-			} else {
-				hits = append(hits, name)
+			id := fmt.Sprint(r[0])
+			key := name + "#" + id
+			if seen[key] {
+				continue
 			}
+			seen[key] = true
+			found++
 		}
 	}
 	if found == 0 {
@@ -1278,12 +1289,24 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 		return c
 	}
 	c.Status = "warn"
-	sort.Strings(hits)
-	disp := hits
-	if len(disp) > 5 {
-		disp = disp[:5]
+	disp := make([]string, 0, 5)
+	for _, k := range sortedKeys(seen) {
+		if len(disp) == 5 {
+			break
+		}
+		disp = append(disp, k)
 	}
-	c.Detail = fmt.Sprintf("비밀 후보 %d건(%s…) — 대상 지식 갱신·무효화", found, strings.Join(disp, ", "))
-	c.Fix = "fix: flint maintain --invalidate --id N --reason secret — 이후 재스캔"
+	c.Detail = fmt.Sprintf("비밀 후보 %d건(%s) — 대상 무효화 후 소멸", found, strings.Join(disp, ", "))
+	c.Fix = "fix: flint maintain --invalidate --id N --reason secret(무효화 행 제외 재스캔)"
 	return c
+}
+
+// sortedKeys — map 키 정렬(결정적 출력).
+func sortedKeys(m map[string]bool) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }

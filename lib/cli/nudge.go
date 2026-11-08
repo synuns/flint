@@ -144,7 +144,7 @@ func runNudge(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			// 데이터로 동봉(임계 PendingMax 초과 시에만 — 기본 문구 불변).
 			line := nudgeStartLine + " · " + nudgeReadHint
 			if n, ok := pendingCount(ctx, st); ok {
-				if max := writeThresholds(ctx, st).PendingMax; n >= max {
+				if max := writeThresholds(ctx, st).PendingMax; n > max { // 리뷰 ④: 초과 계약(maintain·sessionhook와 정렬)
 					line = fmt.Sprintf("flint: 증류 대기 %d건(상한 %d) — flint maintain --dup-suspects · %s", n, max, nudgeReadHint)
 				}
 			}
