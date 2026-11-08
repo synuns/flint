@@ -248,3 +248,17 @@ func TestJamoOverlap(t *testing.T) {
 		t.Error("무관 문자열 매칭 오판")
 	}
 }
+
+// TestReorderByTopicSignal — v0.25.1: topic 정합 제4신호 — read_count
+// 지배적 행(관례 RankOrder의 topic 우선이 폴백 융합에서 소실되던 것)을
+// topic 정합 행이 이긴다.
+func TestReorderByTopicSignal(t *testing.T) {
+	rows := [][]any{
+		{int32(1), "flint 백업 복구 절차", "요약", "", "", "", 0.9, "active", int32(6)},
+		{int32(2), "flint v0.10.0 스코프·버전 결정", "백업 신뢰성 언급", "", "", "", 0.8, "active", int32(109)},
+	}
+	ReorderByFallbackCount(rows, []string{"백업", "절차"})
+	if rows[0][0] != int32(1) {
+		t.Errorf("topic 정합 행 우선 위반: 상위=%v", rows[0][0])
+	}
+}

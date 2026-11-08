@@ -345,6 +345,14 @@ doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·�
 F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 판별 계약·T3 게이트 v2~v5 내용 단언·T6 신규 테스트 네이밍 정책.
 
+### v0.25.1 패치 (2026-11-08) — v0.25.x 패치 루프 1차: RRF 제4신호 topic 정합
+
+- [x] 운영 관측 발견 — 폴백 재랭킹에서 topic 정합 신호가 융합에 빠져
+  read_count 지배적 주제 외 행이 topic 정합 행을 누름(구문 경로
+  RankOrder의 topic 우선 관례가 폴백 융합에서 소실). topicMatchCount
+  제4신호로 회수 — 운영 실측에서 topic=2/rc=6 행이 rc=109 행 선회
+- [x] 버전 — VERSION·배지 v0.25.1(EN/KO)·plugin.json 동기
+
 ### v0.25.0 마이너 (2026-11-08) — 검색 품질 1막: RRF 융합·자모 bigram·pgvector probe
 
 마일스톤 G 추천 이행(계측 체계 선행 — 개선 효과 검증 즉시 가능):
