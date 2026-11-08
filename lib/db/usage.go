@@ -18,7 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// Stat — 플레이북별 사용 통계(maintain --distill·성공률 노출용).
+// Stat — 플레이북별 사용 통계(내부 유틸 — 소비 CLI 경로 없음, v0.25.4 U4 표기 정정).
 type Stat struct {
 	ID   int
 	Uses int
