@@ -37,6 +37,7 @@ type Thresholds struct {
 	DrillMaxDays     int     // 드릴 경과 보고 기준일(기본 30, v0.23.0 이관)
 	DailyRetentionD  int     // daily:* 보존·기간화 창 상한(기본 14, v0.24.0 R1b)
 	RrfK             float64 // 검색 RRF 순위 완화 계수(기본 60, v0.25.0)
+	SecretsScanRows  int     // doctor secrets 1회 스캔 행 상한(기본 10000, v0.26.1)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -67,6 +68,7 @@ const (
 	defaultDrillMaxDays     = 30
 	defaultDailyRetentionD  = 14
 	defaultRrfK             = 60.0
+	defaultSecretsScanRows  = 10000
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -98,6 +100,7 @@ func DefaultThresholds() Thresholds {
 		DrillMaxDays:         defaultDrillMaxDays,
 		DailyRetentionD:      defaultDailyRetentionD,
 		RrfK:                 defaultRrfK,
+		SecretsScanRows:      defaultSecretsScanRows,
 	}
 }
 
@@ -176,6 +179,8 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			th.DailyRetentionD = parseIntOrDefault(val, defaultDailyRetentionD, ks)
 		case "rrf_k":
 			th.RrfK = parseFloatOrDefault(val, defaultRrfK, ks)
+		case "secrets_scan_row_limit":
+			th.SecretsScanRows = parseIntOrDefault(val, defaultSecretsScanRows, ks)
 
 		}
 	}

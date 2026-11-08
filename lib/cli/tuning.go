@@ -59,6 +59,7 @@ func tuningKeys() []tuningKeyInfo {
 		{"drill_max_days", i(d.DrillMaxDays), "maintain --check", func(t store.Thresholds) string { return i(t.DrillMaxDays) }},
 		{"daily_retention_days", i(d.DailyRetentionD), "보존·report/status 창", func(t store.Thresholds) string { return i(t.DailyRetentionD) }},
 		{"rrf_k", f(d.RrfK), "read 폴백 재랭킹", func(t store.Thresholds) string { return f(t.RrfK) }},
+		{"secrets_scan_row_limit", i(d.SecretsScanRows), "doctor secrets 행 상한", func(t store.Thresholds) string { return i(t.SecretsScanRows) }},
 	}
 }
 

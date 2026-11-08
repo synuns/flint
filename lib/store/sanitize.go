@@ -1,8 +1,11 @@
 package store
 
 import (
+	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
+	"sync"
 	"unicode"
 )
 
@@ -48,8 +51,12 @@ var secretPatterns = []struct {
 // 동일 패턴 반복은 1건만 — 경고 배열 절제. 저장 거부 아님(경고용).
 // e.g. ScanSecrets("ghp_...") -> ["github-token"]
 func ScanSecrets(s string) []string {
+	secretsAllowlistOnce.Do(LoadSecretsAllowlist)
 	var found []string
 	seen := map[string]bool{}
+	// v0.26.1: 사용자 allowlist 항목 우선 마스킹(오탐 완화 — 문서용
+	// 예시 토큰 등) 후 특수 패턴 마스킹.
+	s = maskAllowlisted(s)
 	// v0.26.0 리뷰 ③: 특수 패턴 매칭 구간을 먼저 마스킹 — 포함 관계
 	// (sk-ant- ⊂ sk-)의 이중 보고 방지(gitleaks 우선순위 관례).
 	masked := s
@@ -70,4 +77,51 @@ func ScanSecrets(s string) []string {
 		}
 	}
 	return found
+}
+
+// ── v0.26.1(패치 루프 1차): 비밀 스캔 allowlist — 오탐 완화(F 리스크 #1).
+// repo 밖 사용자 파일(~/.config/flint/secrets-allowlist.txt, 한 줄 하나)로
+// 지식·필드에 안전하게 나타나는 문자열(문서용 예시 토큰·프로젝트 고유
+// 접두사 등)을 등록하면 해당 부분 문자열을 마스킹 후 스캔(personal-markers
+// 관례 승계 — repo에 개인 기준을 두지 않는다). FLINT_SECRETS_ALLOWLIST
+// env로 경로 오버라이드(테스트 격리).
+var (
+	secretsAllowlistOnce sync.Once
+	secretsAllowlist     []string
+)
+
+// LoadSecretsAllowlist — allowlist 파일을 읽어 저장(단발 프로세스 캐시).
+func LoadSecretsAllowlist() {
+	path := os.Getenv("FLINT_SECRETS_ALLOWLIST")
+	if path == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			path = filepath.Join(home, ".config", "flint", "secrets-allowlist.txt")
+		}
+	}
+	if path == "" {
+		return
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		return // 부재·읽기 실패는 빈 목록 — 조용히(계측 아님, 스캔 계약 유지)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		if t := strings.TrimSpace(line); t != "" && !strings.HasPrefix(t, "#") {
+			secretsAllowlist = append(secretsAllowlist, t)
+		}
+	}
+}
+
+// ResetSecretsAllowlistForTest — 테스트 격리(프로덕션 미사용).
+func ResetSecretsAllowlistForTest(entries []string) {
+	secretsAllowlistOnce = sync.Once{}
+	secretsAllowlist = entries
+}
+
+// maskAllowlisted — allowlist 항목을 마스킹한 사본 반환.
+func maskAllowlisted(s string) string {
+	for _, a := range secretsAllowlist {
+		s = strings.ReplaceAll(s, a, "[ALLOWED]")
+	}
+	return s
 }
