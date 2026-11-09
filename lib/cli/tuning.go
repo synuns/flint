@@ -60,6 +60,7 @@ func tuningKeys() []tuningKeyInfo {
 		{"daily_retention_days", i(d.DailyRetentionD), "보존·report/status 창", func(t store.Thresholds) string { return i(t.DailyRetentionD) }},
 		{"rrf_k", f(d.RrfK), "read 폴백 재랭킹", func(t store.Thresholds) string { return f(t.RrfK) }},
 		{"secrets_scan_row_limit", i(d.SecretsScanRows), "doctor secrets 행 상한", func(t store.Thresholds) string { return i(t.SecretsScanRows) }},
+		{"session_knowledge_days", i(d.SessionKnowledgeDays), "세션 지식화 최소 간격", func(t store.Thresholds) string { return i(t.SessionKnowledgeDays) }},
 	}
 }
 

@@ -69,9 +69,16 @@ PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은
 - `flint hot` — 활성 프로젝트+pending+최근 결정 7일 (2,000자 상한),
   전체 펼침은 `flint hot --full`
   (pending 열람 — `flint read --status pending`, --as-of 병용 시 as-of 우선)
+- `flint import [path] [--commit]` — CLAUDE.md·AGENTS.md 규칙을 pending
+  지식으로 변환(헤딩 단위·중복 스킵 — dry-run 기본, --commit 적립)
+- `flint tuning list|get|set|reset` — 임계값 조회·오버라이드
+  (`flint tuning`로 현재값 확인, 개인값은 운영 DB에만)
+- `flint update [--check]` — 최신 릴리스 자가 업데이트
 - `flint setup --exposure normal|minimal` — 노출 프로파일 지정
   (기본 normal · minimal은 주입 요약화·nudge 자동 종결)
 - `flint maintain --supersede OLD --by NEW` — 구 항목 무효화+선행 관계 기록
   (NEW 미존재·OLD==NEW·OLD 비active → exit 1·3·1)
+- `flint doctor --check secrets` — 보유 지식·세션 비밀 사후 스캔
+  (오탐은 ~/.config/flint/secrets-allowlist.txt로 완화)
 - exit code: 0 성공·중복 / 1 재시도 소진 / 2 서버 다운(조용히 진행) /
   3 검증 실패(자가수정 후 재시도)

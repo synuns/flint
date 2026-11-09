@@ -28,16 +28,17 @@ type Thresholds struct {
 	// v0.18.0 R3: done 회상 경고 — 오늘 회상 0회 상태의 기록 수 임계.
 	RecallWarnWrites int // 이상이면 "회상 없이 기록만" 경고(done)
 	// v0.20.4(패치 루프 4차·마일스톤 B③·C①): 효과 계측 판정 창·보존.
-	DeadDays         int     // dead_pct 기준일(기본 30)
-	PairWindowMin    int     // read→write 페어 판정 창(분, 기본 30)
-	ChainWindowH     int     // 사용 연쇄 판정 창(시간, 기본 24)
-	EventsRetentionD int     // read_events·session_starts 보존(일, 기본 14)
-	HotRetentionD    int     // hot_events 보존(일, 기본 30 — dead 가드 창 정렬)
-	EventsVolumeWarn int     // doctor 계측 테이블 경고 행 수(기본 50000)
-	DrillMaxDays     int     // 드릴 경과 보고 기준일(기본 30, v0.23.0 이관)
-	DailyRetentionD  int     // daily:* 보존·기간화 창 상한(기본 14, v0.24.0 R1b)
-	RrfK             float64 // 검색 RRF 순위 완화 계수(기본 60, v0.25.0)
-	SecretsScanRows  int     // doctor secrets 1회 스캔 행 상한(기본 10000, v0.26.1)
+	DeadDays             int     // dead_pct 기준일(기본 30)
+	PairWindowMin        int     // read→write 페어 판정 창(분, 기본 30)
+	ChainWindowH         int     // 사용 연쇄 판정 창(시간, 기본 24)
+	EventsRetentionD     int     // read_events·session_starts 보존(일, 기본 14)
+	HotRetentionD        int     // hot_events 보존(일, 기본 30 — dead 가드 창 정렬)
+	EventsVolumeWarn     int     // doctor 계측 테이블 경고 행 수(기본 50000)
+	DrillMaxDays         int     // 드릴 경과 보고 기준일(기본 30, v0.23.0 이관)
+	DailyRetentionD      int     // daily:* 보존·기간화 창 상한(기본 14, v0.24.0 R1b)
+	RrfK                 float64 // 검색 RRF 순위 완화 계수(기본 60, v0.25.0)
+	SecretsScanRows      int     // doctor secrets 1회 스캔 행 상한(기본 10000, v0.26.1)
+	SessionKnowledgeDays int     // 세션 지식화 최소 간격(일, 기본 1 — v0.27.0. -1=끔)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -59,16 +60,17 @@ const (
 	defaultPendingAgeDays       = 7
 	defaultRecallWarnWrites     = 3
 	// v0.20.4 — 효과 계측 판정 창·보존 기본값.
-	defaultDeadDays         = 30
-	defaultPairWindowMin    = 30
-	defaultChainWindowH     = 24
-	defaultEventsRetentionD = 14
-	defaultHotRetentionD    = 30
-	defaultEventsVolumeWarn = 50000
-	defaultDrillMaxDays     = 30
-	defaultDailyRetentionD  = 14
-	defaultRrfK             = 60.0
-	defaultSecretsScanRows  = 10000
+	defaultDeadDays             = 30
+	defaultPairWindowMin        = 30
+	defaultChainWindowH         = 24
+	defaultEventsRetentionD     = 14
+	defaultHotRetentionD        = 30
+	defaultEventsVolumeWarn     = 50000
+	defaultDrillMaxDays         = 30
+	defaultDailyRetentionD      = 14
+	defaultRrfK                 = 60.0
+	defaultSecretsScanRows      = 10000
+	defaultSessionKnowledgeDays = 1
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -101,6 +103,7 @@ func DefaultThresholds() Thresholds {
 		DailyRetentionD:      defaultDailyRetentionD,
 		RrfK:                 defaultRrfK,
 		SecretsScanRows:      defaultSecretsScanRows,
+		SessionKnowledgeDays: defaultSessionKnowledgeDays,
 	}
 }
 
@@ -181,6 +184,9 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			th.RrfK = parseFloatOrDefault(val, defaultRrfK, ks)
 		case "secrets_scan_row_limit":
 			th.SecretsScanRows = parseIntOrDefault(val, defaultSecretsScanRows, ks)
+		case "session_knowledge_days":
+			// -1=끔 센티넬(recall_warn_writes 관례 승계).
+			th.SessionKnowledgeDays = parseIntInRangeOrDefault(val, defaultSessionKnowledgeDays, -1, ks)
 
 		}
 	}

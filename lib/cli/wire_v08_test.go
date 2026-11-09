@@ -27,7 +27,7 @@ func TestLookupDiff(t *testing.T) {
 // 정확히 일치해야 한다(v0.22.0 update·v0.23.0 tuning 추가 반영).
 func TestUsageRestInvariant(t *testing.T) {
 	want := `{"error":"usage: flint <write|read|hot|status|backup|restore|approve|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit> [args]"}`
-	got := strings.Replace(usageLine(), "audit|diff|update|tuning", "audit", 1)
+	got := strings.Replace(usageLine(), "audit|diff|update|tuning|import", "audit", 1)
 	if got != want {
 		t.Fatalf("usage 나머지 불변 위반:\n got=%s\nwant=%s", got, want)
 	}
