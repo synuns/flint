@@ -115,7 +115,7 @@ func vocabListValidator(key string) func(string) error {
 
 // tuningKeyMap — 키 → 메타(빠른 조회).
 func tuningKeyMap() map[string]tuningKeyInfo {
-	out := make(map[string]tuningKeyInfo, 22)
+	out := make(map[string]tuningKeyInfo, len(thresholdsKeys())+len(tuningMetaKeys()))
 	for _, k := range tuningKeys() {
 		out[k.Key] = k
 	}
@@ -385,7 +385,7 @@ func tuningMetaUpsert(ctx context.Context, st Store, key, val string, stdout io.
 }
 
 // tuningResetAll — 전체 오버라이드 일괄 삭제(v0.24.0 R4b: 22+왕복 → 1회).
-// thresholds 23키 + meta 관리 6키 전부 — 리셋된 키 목록을 합산 JSON으로.
+// thresholds 키 + meta 관리 6키 전부 — 리셋된 키 목록을 합산 JSON으로.
 func tuningResetAll(ctx context.Context, st Store, stdout io.Writer) int {
 	all := append(append([]string{}, thresholdsKeys()...), "hot_budget", "backup_keep", "backup_interval_h", "exposure_profile", "vocab_tags", "vocab_domains")
 	qmarks := make([]string, len(all))

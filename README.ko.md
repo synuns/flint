@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v0.27.2-blue" alt="v0.27.2">
+  <img src="https://img.shields.io/badge/release-v0.27.3-blue" alt="v0.27.3">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v0.27.2 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
+> v0.27.3 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
 
 ---
 

@@ -402,6 +402,40 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.27.3 패치 (2026-11-09) — v0.27.x 패치 루프 3차: import 견고화
+
+재감사 이월(import 주관 — 전건 실증 확인 후 수정):
+
+- [x] 파서 상태기 재작성(stripImportNoise) — ①주석 블록 내부 ```
+  라인이 펜스를 열어 이후 섹션 전체를 삼키던 결함(주석 처리 우선·
+  펜스 판정은 주석 제거 후 라인만) ②같은 줄 `<!-- 주석 --> 뒷텍스트`의
+  inComment 잔류로 이후 문서 무음 삭제 ③줄 중간 인라인 주석 잔존
+- [x] ~~~ 펜스 인식(CommonMark) — parseMarkdownSections·주석 제거
+  양쪽. 물결 펜스 내부 헤딩 오판 유사 지식("규칙[가짜]") 적립 차단.
+  펜스 추적기(fenceTracker) 공유 — 여는/닫는 마커 문자 일치 검사
+- [x] 배치 내 dedup(seen 맵) — 같은 파일 2회 지정이 unique 위반
+  롤백+exit 0(호출자 성공 오인)이 되던 결함 → skipped 보고
+- [x] 혼재 읽기 불가 보고 — 읽기 가능·불가 혼합 시 unreadable 배열을
+  dry-run·commit 출력에 포함(부분 유실의 무음 누락 제거). 파일명은
+  JSON 인코딩(경로 내 따옴표 파손 방지)
+- [x] origin 파일명 정규화 — CLAUDE.md·./CLAUDE.md 재임포트가 동일
+  해시로 멱등(경로 표기 차이의 이중 적립 수선)
+- [x] ExistsHash 오류 계약 — 조회 실패 항목 skip+stderr 경고(존재
+  아님 처리 금지, write 계약 정렬)
+- [x] 미확인 플래그 exit 3 — 오타 플래그의 무음 경로화 방지
+- [x] 사소 — tuning 키 맵 capacity·코멘트 갱신, v0.27.0 R3 엔트리
+  .cursorrules 제거 후주
+- [x] 테스트 — 주석-펜스·같은 줄 종결·인라인·물결 펜스·미닫힌 펜스
+  EOF·배치 dedup·혼재 보고·origin 멱등·미확인 플래그 9종
+- [x] 리뷰 6건 반영 — origin basename→Clean 정규화(디렉터리 다른 동일
+  파일명 충돌 방지)·미종결 펜스 개시 라인 본문 중립화(나머지 헤딩
+  보존)·dedup 조회 전량 실패 시 실패 보고(거짓 성공 금지·부분 실패는
+  dedup_errors 카운트)·같은 줄 주석 2쌍 전부 제거·미확인 플래그
+  errLine·exit 1 관례 정렬·tuning 맵 capacity len 기반
+- [x] 버전 — VERSION·배지 v0.27.3(EN/KO)·plugin.json 동기
+
+남은 이월: doctor secrets sessions 발견 경로·행 상한 도달 테스트 2종.
+
 ### v0.27.2 패치 (2026-11-09) — v0.27.x 패치 루프 2차: 세션 지식화 실질화
 
 다각도 재감사(5에이전트 병렬 + 실증) 24건 발견 중 세션 지식화 주관 8건:
@@ -459,7 +493,8 @@ ExistsHash 오류 계약)·doctor secrets sessions/행 상한 테스트·SKILL �
 - [x] R2 증류 회로 폐쇄 — R1이 distill 마커를 남겨 nudge 예산 문구
   (v0.26.0 R5)와 자연 연결: 세션→지식→nudge→maintain→approve 순환
 - [x] R3 `flint import [path] [--commit]` — CLAUDE.md·AGENTS.md·
-  .cursorrules·GEMINI.md·copilot-instructions를 헤딩 단위 pending
+  .cursorrules(리뷰 5에서 제외 — 불릿 규칙이라 헤딩 분할과 약속 불일치)·
+  GEMINI.md·copilot-instructions를 헤딩 단위 pending
   지식으로 변환(dry-run 기본·dedup 멱등·confidence 0.5 승격 경로)
 - [x] R4 confidence 감쇠 산출 — doctor stale 체크에 시간 경과 정보
   확장은 이버전 제외(스코프 절제 — R1 순환 데이터가 먼저)
