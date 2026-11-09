@@ -410,7 +410,7 @@ func recordDups(ctx context.Context, st Store, source string, n int) {
 }
 
 // sanitizeFields — 살균 대상 텍스트 컬럼(kind 공통 최소집합).
-var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name"}
+var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id"} // v0.26.2 재검수 발견4: session_id 추가(임의 문자열 무살균 방어)
 
 // sanitizePayload — 텍스트 필드를 살균해 원본 맵을 갱신하고, 비밀 후보 경고
 // ("possible secret: 패턴명")를 반환한다. 저장 거부 아님(경고+살균).

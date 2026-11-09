@@ -88,6 +88,14 @@ func (d *DoneResult) SessionRecord() map[string]any {
 // maintain 갱신 경로 준용. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
 func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) {
 	agent, _ := rec["agent"].(string)
+	// v0.26.2(재검수 발견2): agent 라벨 살균·비밀 스캔 — InsertBatch 직접
+	// 호출이라 sanitizePayload를 우회하던 사각([flint] 마커·비밀 무검사
+	// 저장). 경고만(저장은 계약대로 계속 — §13).
+	for _, name := range store.ScanSecrets(agent) {
+		fmt.Fprintf(os.Stderr, "[flint] session agent: possible secret: %s\n", name)
+	}
+	agent = store.SanitizeText(agent)
+	rec["agent"] = agent
 	rows, err := queryOnce(ctx, st,
 		`SELECT id FROM sessions WHERE agent = $1
 		 ORDER BY ts DESC, id DESC LIMIT 1`, []any{agent})

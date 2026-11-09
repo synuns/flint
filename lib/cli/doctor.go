@@ -1267,7 +1267,7 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 		// 리스크 #5 대비(v0.26.1): 상한 도달 — 부분 스캔임을 명시(오탐
 		// 아닌 미도달 오탐 방지 — '미발견'으로 거짓 보고하지 않는다).
 		c.Status = "warn"
-		c.Detail = fmt.Sprintf("행 상한 %d 도달 — 스캔 범위 초과분 미검사(대형 DB)", writeThresholds(ctx, st).SecretsScanRows)
+		c.Detail = fmt.Sprintf("행 상한 %d 도달 — 스캔 미실행(대형 DB)", writeThresholds(ctx, st).SecretsScanRows)
 		c.Fix = "fix: 유입 단계 경고(write)로 보완 — 상한은 secrets_scan_row_limit 키로 조정"
 		return c
 	}
@@ -1292,9 +1292,28 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 			found++
 		}
 	}
+	// v0.26.2(재검수 발견1): sessions 테이블 사후 스캔 — summary가 PII
+	// 최다 필드라 주석 의도가 코드에 없던 것을 회수.
+	srows, serr := queryOnce(ctx, st, `
+		SELECT id, agent, summary FROM sessions`, nil)
+	if serr == nil {
+		for _, r := range srows {
+			if len(r) < 3 {
+				continue
+			}
+			text := fmt.Sprint(r[1]) + " " + fmt.Sprint(r[2])
+			for _, name := range store.ScanSecrets(text) {
+				key := name + "#session:" + fmt.Sprint(r[0])
+				if !seen[key] {
+					seen[key] = true
+					found++
+				}
+			}
+		}
+	}
 	if found == 0 {
 		c.Status = "ok"
-		c.Detail = "보유 지식에서 비밀 미발견"
+		c.Detail = "보유 지식·세션에서 비밀 미발견"
 		return c
 	}
 	c.Status = "warn"
@@ -1305,7 +1324,8 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 		}
 		disp = append(disp, k)
 	}
-	c.Detail = fmt.Sprintf("비밀 후보 %d건(%s) — 대상 무효화 후 소멸", found, strings.Join(disp, ", "))
+	// v0.26.2(발견3): allowlist 적용 상태 노출 — 오타·무단 등록 감지 수단.
+	c.Detail = fmt.Sprintf("비밀 후보 %d건(%s) — 대상 무효화 후 소멸 · allowlist %d항목", found, strings.Join(disp, ", "), store.SecretsAllowlistCount())
 	c.Fix = "fix: flint maintain --invalidate --id N --reason secret(무효화 행 제외 재스캔)"
 	return c
 }

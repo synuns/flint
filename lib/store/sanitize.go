@@ -125,3 +125,9 @@ func maskAllowlisted(s string) string {
 	}
 	return s
 }
+
+// SecretsAllowlistCount — 현재 로드된 allowlist 항목 수(doctor 가시성 —
+// v0.26.2 재검수 발견3: 오타·무단 등록 감지).
+func SecretsAllowlistCount() int {
+	return len(secretsAllowlist)
+}
