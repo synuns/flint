@@ -12,7 +12,6 @@ import (
 	"fmt"
 	"io"
 	"os"
-	"path/filepath"
 	"strconv"
 	"time"
 )
@@ -60,11 +59,7 @@ func runSessionStart(ctx context.Context, st Store, args []string, stdin io.Read
 
 // maintenanceCacheFile — 정비 요약 캐시 경로(갱신 캐시 패턴 승계).
 func maintenanceCacheFile() string {
-	d := configDir()
-	if d == "" {
-		return ""
-	}
-	return filepath.Join(d, "maintenance-check.json")
+	return dataFile("maintenance-check.json")
 }
 
 // maybeMaintenanceNotice — pending_max 초과만 검사(가장 발동 빈번한

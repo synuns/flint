@@ -27,15 +27,14 @@ const (
 
 // markerFileOf — 종류별 마커 파일 전체 경로. configDir이 ""면 "".
 func markerFileOf(kind string) string {
-	d := configDir()
-	if d == "" {
+	if flintHome() == "" {
 		return ""
 	}
 	name := "pending-distill.json"
 	if kind == markerKindRecall {
 		name = "recall-hint.json"
 	}
-	return filepath.Join(d, name)
+	return dataFile(name)
 }
 
 // configDir — FLINT_CONFIG_DIR 우선, 없으면 os.UserConfigDir()/flint.
@@ -49,6 +48,47 @@ func configDir() string {
 		return ""
 	}
 	return filepath.Join(base, "flint")
+}
+
+// flintHome — 개인 DB 인프라 데이터 루트(v0.28.3: 백업·키·마커·캐시를
+// 한 공간에 — 설정(configDir)과 데이터의 의미 분리). FLINT_HOME env >
+// FLINT_CONFIG_DIR(단일 디렉터리 오버라이드 겸 테스트 격리) > ~/.flint.
+func flintHome() string {
+	if d := os.Getenv("FLINT_HOME"); d != "" {
+		return d
+	}
+	if d := os.Getenv("FLINT_CONFIG_DIR"); d != "" {
+		return d
+	}
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
+	return filepath.Join(home, ".flint")
+}
+
+// dataFile — FLINT_HOME 하위 런타임 아티팩트 경로. 레거시 위치
+// (configDir)에 파일이 있고 새 위치에 없으면 이전한다(1회 마이그레이션
+// — 복사 후 원본 제거, 실패는 조용히: 다음 호출 재시도).
+func dataFile(name string) string {
+	home := flintHome()
+	if home == "" {
+		return ""
+	}
+	dst := filepath.Join(home, name)
+	if _, err := os.Stat(dst); err != nil {
+		if old := configDir(); old != "" && old != home {
+			src := filepath.Join(old, name)
+			if b, rerr := os.ReadFile(src); rerr == nil {
+				if merr := os.MkdirAll(home, 0o700); merr == nil {
+					if werr := os.WriteFile(dst, b, 0o600); werr == nil {
+						_ = os.Remove(src) // 이전 완료 — 레거시 잔삭제
+					}
+				}
+			}
+		}
+	}
+	return dst
 }
 
 // MarkerFile — 증류 대기 마커 파일 전체 경로(하위 호환 별명).

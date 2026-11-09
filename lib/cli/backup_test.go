@@ -464,3 +464,31 @@ func TestOutInsideGitRepo(t *testing.T) {
 		t.Error("저장소 밖 오탐")
 	}
 }
+
+// TestFlintHomeOverrideAndMigration — v0.28.3: FLINT_HOME 오버라이드와
+// 레거시(configDir) 아티팩트 자동 이전 — 백업 키가 설정 공간에서 인프라
+// 데이터 공간(~/.flint)으로 옮겨질 때 기존 키가 따라온다.
+func TestFlintHomeOverrideAndMigration(t *testing.T) {
+	legacy := t.TempDir()
+	home := t.TempDir()
+	t.Setenv("FLINT_CONFIG_DIR", legacy) // flintHome 폴백 겸 레거시 원본
+	t.Setenv("FLINT_HOME", home)
+	os.WriteFile(filepath.Join(legacy, "backup.key"), []byte("AGE-SECRET-KEY-1SAMPLE"), 0o600)
+	got := BackupKeyPath()
+	if got != filepath.Join(home, "backup.key") {
+		t.Fatalf("BackupKeyPath = %q, want FLINT_HOME 하위", got)
+	}
+	b, err := os.ReadFile(got)
+	if err != nil || string(b) != "AGE-SECRET-KEY-1SAMPLE" {
+		t.Fatalf("이전된 키 미수신: %v %q", err, b)
+	}
+	if _, err := os.Stat(filepath.Join(legacy, "backup.key")); !os.IsNotExist(err) {
+		t.Error("레거시 잔존 — 이전 후 제거 계약 위반")
+	}
+	// 신규가 이미 있으면 레거시를 덮어쓰지 않는다(both → new wins).
+	os.WriteFile(filepath.Join(legacy, "backup.key"), []byte("OLD-SHOULD-NOT-WIN"), 0o600)
+	b2, _ := os.ReadFile(BackupKeyPath())
+	if string(b2) != "AGE-SECRET-KEY-1SAMPLE" {
+		t.Errorf("신규 우선 위반: %q", b2)
+	}
+}
