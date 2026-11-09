@@ -77,10 +77,12 @@ func TestReportEffectSection(t *testing.T) {
 		case strings.Contains(sql, "hot_events"):
 			return [][]any{{"20,99"}}, nil
 		case strings.Contains(sql, "read_events"):
-			// readA 폴백 경유(ids=7)·readB 정경로 — fallback_pct=50.
+			// v0.30.0 리뷰 4: 실 SELECT 열 모양 (ts, zero, fallback, ids,
+			// first_rank) — readA 폴백 경유(ids=7, rank 0)·readB 정경로
+			// 정합 1위(rank 1) — fallback_pct=50·exact/top1/mrr 검증.
 			return [][]any{
-				{readA.Format(time.RFC3339), true, "7"},
-				{readB.Format(time.RFC3339), false, ""},
+				{readA.Format(time.RFC3339), false, true, "7", 0},
+				{readB.Format(time.RFC3339), false, false, "", 1},
 			}, nil
 		case strings.Contains(sql, "session_starts"):
 			return [][]any{{sessStart.Format(time.RFC3339)}}, nil

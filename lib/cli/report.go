@@ -481,33 +481,38 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	out.Effect.DeadPct = pctOf(dead, active)
 
 	// ── G4 ── 이벤트 로그 — 실패 시 G4 전량 0 강등.
-	evs, err := queryReadEvents(ctx, st, windowStart)
+	// v0.30.0 리뷰 3: 페치 창은 max(days, 14일) — 추세 prev 창(직전
+	// 7일)이 보고창 컷오프에 잘려 trend가 기본 --days 7에서 영원히
+	// 공란이던 결함. 집계는 각 지표 창(Σ는 windowStart 이후) 그대로.
+	fetchStart := windowStart
+	if min14 := now.Add(-14 * 24 * time.Hour); min14.Before(fetchStart) {
+		fetchStart = min14
+	}
+	evs, err := queryReadEvents(ctx, st, fetchStart)
 	if err != nil {
 		return nil
 	}
-	out.Effect.ReadEventsN = len(evs)
-	fallbacks := 0
+	// 보고창 내 이벤트만 G4 지표 분모로(페치는 추세용으로 14일 — 위).
+	inWin := make([]readEventRow, 0, len(evs))
 	for _, e := range evs {
+		if !e.ts.Before(windowStart) {
+			inWin = append(inWin, e)
+		}
+	}
+	out.Effect.ReadEventsN = len(inWin)
+	fallbacks := 0
+	for _, e := range inWin {
 		if e.fallback {
 			fallbacks++
 		}
 	}
 	out.Effect.FallbackPct = pctOf(fallbacks, len(evs))
-	// v0.30.0 R2 — hit 품질 근사(first_rank, 폴백 제외 계약).
-	var exact, top1 int
-	rrSum := 0.0
-	for _, e := range evs {
-		if e.firstRank > 0 {
-			exact++
-			rrSum += 1.0 / float64(e.firstRank)
-			if e.firstRank == 1 {
-				top1++
-			}
-		}
-	}
-	out.Effect.ExactPct = pctOf(exact, len(evs))
-	out.Effect.Top1Pct = pctOf(top1, exact)
-	out.Effect.MRR = math.Round(rrSum/math.Max(float64(exact), 1)*1000) / 1000
+	// v0.30.0 R2 — hit 품질 근사(first_rank, 폴백 제외 계약). 리뷰 8:
+	// 정합/top1 정의는 trendOf와 단일 구현을 공유한다.
+	q := qualityOf(inWin)
+	out.Effect.ExactPct = pctOf(q.exact, len(inWin))
+	out.Effect.Top1Pct = pctOf(q.top1, q.exact)
+	out.Effect.MRR = math.Round(q.rrSum/math.Max(float64(q.exact), 1)*1000) / 1000
 	// v0.30.0 R1 — 7일 창 추세(cur=최근 7일, prev=직전 7일). 표본 부족
 	// 창(0 이벤트)은 0으로 강등(§13 — 빈 창에 해석 없음).
 	cur, prev := trendWindow(now, evs)
@@ -647,12 +652,33 @@ func trendWindow(now time.Time, evs []readEventRow) (cur, prev trendStat) {
 	return trendOf(ce), trendOf(pe)
 }
 
+// qualityCounts — first_rank 기반 품질 집계(정합·1위·역순위 합).
+// 정의 단일 소스: effect 지표·trendOf 양쪽이 공유(v0.30.0 리뷰 8).
+type qualityCounts struct {
+	exact, top1 int
+	rrSum       float64
+}
+
+func qualityOf(evs []readEventRow) qualityCounts {
+	var q qualityCounts
+	for _, e := range evs {
+		if e.firstRank > 0 {
+			q.exact++
+			q.rrSum += 1.0 / float64(e.firstRank)
+			if e.firstRank == 1 {
+				q.top1++
+			}
+		}
+	}
+	return q
+}
+
 // trendOf — 이벤트 슬라이스 통계(빈 창은 0).
 func trendOf(evs []readEventRow) trendStat {
 	if len(evs) == 0 {
 		return trendStat{}
 	}
-	hit, fb, top1, exact := 0, 0, 0, 0
+	hit, fb := 0, 0
 	for _, e := range evs {
 		if !e.zero {
 			hit++
@@ -660,16 +686,11 @@ func trendOf(evs []readEventRow) trendStat {
 		if e.fallback {
 			fb++
 		}
-		if e.firstRank > 0 {
-			exact++
-			if e.firstRank == 1 {
-				top1++
-			}
-		}
 	}
+	q := qualityOf(evs)
 	return trendStat{
 		hitPct: pctOf(hit, len(evs)), fallbackPct: pctOf(fb, len(evs)),
-		top1Pct: pctOf(top1, exact), n: len(evs),
+		top1Pct: pctOf(q.top1, q.exact), n: len(evs),
 	}
 }
 
@@ -712,18 +733,18 @@ func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]readEve
 		if !ok {
 			continue
 		}
+		// v0.30.0 리뷰 1·2: 열 순서 (ts, zero, fallback, ids, first_rank) —
+		// 구 SELECT(ts,fallback,ids) 잔여 파싱 2블록이 fallback=zero 오염·
+		// ids 미파싱(연쇄 붕괴)을 냈다. 단일 경로로 정리.
 		e := readEventRow{ts: t, zero: cellToBool(r[1]), fallback: cellToBool(r[2])}
+		if len(r) > 3 {
+			if s, ok := r[3].(string); ok {
+				e.ids = parseIDsCSV(s)
+			}
+		}
 		if len(r) >= 5 {
 			if n, ok := cellToInt(r[4]); ok {
 				e.firstRank = n
-			}
-		}
-		if b, ok := r[1].(bool); ok {
-			e.fallback = b
-		}
-		if len(r) > 2 {
-			if s, ok := r[2].(string); ok {
-				e.ids = parseIDsCSV(s)
 			}
 		}
 		out = append(out, e)
