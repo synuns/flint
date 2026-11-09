@@ -1,7 +1,9 @@
 package store
 
 import (
+	"os"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -104,5 +106,39 @@ func TestScanSecretsAllowlist(t *testing.T) {
 	got2 := ScanSecrets("실제 ghp_realsecretvalue12345678 포함")
 	if len(got2) != 1 || got2[0] != "github-token" {
 		t.Errorf("비등록 토큰 = %v, want [github-token]", got2)
+	}
+}
+
+// TestScanSecretsExpandedPatterns — v0.26.2(재검수 발견6): v0.26.0
+// 신규 3종 패턴(gitlab-pat·jwt·google) 회귀.
+func TestScanSecretsExpandedPatterns(t *testing.T) {
+	cases := []struct{ name, text string }{
+		{"gitlab-pat", "토큰 glpat-abcdefghijklmnopqrst"},
+		{"jwt", "eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiIxIn0.abcdefghijklmnopqrstuvwxyz"},
+		{"google-api-key", "키 AIzaSyABCDEFGHIJKLMNOPQRSTUVWXYZ1234567"},
+	}
+	for _, c := range cases {
+		got := ScanSecrets(c.text)
+		if len(got) != 1 || got[0] != c.name {
+			t.Errorf("%s 스캔 = %v", c.name, got)
+		}
+	}
+}
+
+// TestLoadSecretsAllowlistFile — 발견7: 파일 로딩 파싱(# 주석·빈 줄·env).
+func TestLoadSecretsAllowlistFile(t *testing.T) {
+	dir := t.TempDir()
+	path := dir + "/allow.txt"
+	if err := os.WriteFile(path, []byte("# 주석\n토큰123\n\n  공백줄스킵  \n토큰456"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("FLINT_SECRETS_ALLOWLIST", path)
+	ResetSecretsAllowlistForTest(nil)
+	secretsAllowlistOnce = sync.Once{} // 재로드 유도
+	ResetSecretsAllowlistForTest(nil)  // once 리셋 후
+	// once 재실행 — ScanSecrets 첫 호출이 로드
+	_ = ScanSecrets("무해")
+	if got := SecretsAllowlistCount(); got != 3 {
+		t.Errorf("allowlist 로드 = %d항목, want 3(주석·빈 줄 제외)", got)
 	}
 }

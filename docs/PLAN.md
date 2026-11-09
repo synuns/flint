@@ -363,6 +363,27 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 - [x] R3·R6(info) 주석 정정 — topic 신호 이중 가중 의도 명시·정규화 멱급
 - [x] 버전 — VERSION·배지 v0.25.3(EN/KO)·plugin.json 동기
 
+### v0.26.2 패치 (2026-11-09) — v0.26.x 패치 루프 2차: 프라이버시 전체 재검수 10건 중 7건
+
+독립 재검수 에이전트(6각도: 우회·오남용·정합·재노출·문서·테스트):
+
+- [x] 발견1(high) sessions 사후 스캔 부재 — 주석은 '세션 summary 포함'
+  의도였으나 코드는 knowledge만. sessions(id·agent·summary) 스캔 추가
+- [x] 발견2(medium) done 세션 기록 agent 무살균 — InsertBatch 직접
+  호출이 sanitizePayload 우회([flint] 마커·비밀 무검사 저장 + 발견1로
+  사후 스캔도 없던 이중 사각). SanitizeText+ScanSecrets 적용
+- [x] 발견3(medium) allowlist 가시성 — doctor 출력에 'allowlist N항목'
+  표시(오타·무단 등록 감지) + RUNBOOK 확인 절차
+- [x] 발견4 session_id 무살균 컬럼 — sanitizeFields에 추가
+- [x] 발견5 RUNBOOK doctor 검사 목록 갱신(13종)·발견9 재노출 주의
+  (read 평문 반환·덤프 평문) 서술 추가
+- [x] 발견6 신규 3종 패턴 회귀 테스트·발견7 allowlist 파일 로딩
+  테스트(env·주석·빈 줄)
+- [x] 발견8 상한 도달 문구 정확화('스캔 미실행')
+- [x] 발견10(스캔 비대칭) 룰링: doctor는 조인·write는 필드별 — doctor
+  조인이 상위집합 감지라 유지, 주석 명시는 차후
+- [x] 버전 — VERSION·배지 v0.26.2(EN/KO)·plugin.json 동기
+
 ### v0.26.1 패치 (2026-11-09) — v0.26.x 패치 루프 1차: 프라이버시 사이드 이펙트 대비
 
 리스크 브레인스토밍(오탐·가용성·권한 호환·메타데이터·성능 5종 식별) 대응:

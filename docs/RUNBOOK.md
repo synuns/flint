@@ -39,7 +39,7 @@
 
 ## 5. 진단 — `flint doctor` (v0.6 → v0.16.2 확장)
 
-검사 10종 + 설치 환경 조건부 하니스·스킬 검사(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
+검사 13종 + 설치 환경 조건부 하니스·스킬 검사(v0.26.0 secrets·v0.24 recall-starved·v0.22 update 포함 — brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
 서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 4종:
 
 | 검사 | 내용 | fail/warn |
@@ -241,3 +241,14 @@ echo 'ghp_example_token_for_docs_12345' >> ~/.config/flint/secrets-allowlist.txt
 백업 덤프·사이드카는 0600, 디렉터리는 0700이다. 다른 사용자로 실행되는
 동기화·크론 잡이 `~/.flint/backup`을 읽고 있었다면 v0.20.6부터 접근
 거부된다 — 해당 잡을 동일 사용자로 옮기거나 권한을 명시 조정한다.
+
+## 비밀 재노출 주의 (v0.26.2 재검수)
+
+doctor secrets가 경고한 지식을 `flint read <질의>`로 확인하면 **본문이
+평문으로 재노출**된다(read는 저장 내용 반환 — 설계상 정상). 무효화 전
+확인은 최소한으로. 백업 덤프 역시 전량 평문(이연: age 암호화·마스킹 —
+마일스톤 F)이므로 덤프 보관 위치 권한(0700)을 유지한다.
+
+allowlist 등록 확인: doctor secrets 출력의 'allowlist N항목' 표시로
+적용 상태를 확인한다(0항목이면 파일 미로드·경로 오타 의심 —
+FLINT_SECRETS_ALLOWLIST 또는 ~/.config/flint/secrets-allowlist.txt).
