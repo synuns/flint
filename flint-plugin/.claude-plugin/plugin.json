@@ -1,6 +1,6 @@
 {
   "name": "flint",
-  "version": "0.27.2",
+  "version": "0.27.3",
   "description": "flint 장기기억 — 세션 훅·스킬·명령 (에이전트 비간섭)",
   "repository": "https://github.com/synuns/flint"
 }
