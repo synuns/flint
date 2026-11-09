@@ -27,7 +27,7 @@ func knFake(last string) *fakeStore {
 func TestMaybeSessionKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
-	maybeSessionKnowledge(context.Background(), st, "검색 품질 개선 작업을 완료했다", "test-agent", "s1")
+	maybeSessionKnowledge(context.Background(), st, "검색 품질 개선 작업을 완료했다", "test-agent", "s1", 0)
 	if len(st.inserted) != 1 {
 		t.Fatalf("적립 = %d건, want 1", len(st.inserted))
 	}
@@ -54,7 +54,7 @@ func TestMaybeSessionKnowledge(t *testing.T) {
 func TestMaybeSessionKnowledgeShortSummary(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
-	maybeSessionKnowledge(context.Background(), st, "짧다", "a", "s1")
+	maybeSessionKnowledge(context.Background(), st, "짧다", "a", "s1", 0)
 	if len(st.inserted) != 0 {
 		t.Fatalf("짧은 요약 적립 = %d건, want 0", len(st.inserted))
 	}
@@ -65,7 +65,7 @@ func TestMaybeSessionKnowledgeShortSummary(t *testing.T) {
 func TestMaybeSessionKnowledgeControlOnlyGate(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
-	maybeSessionKnowledge(context.Background(), st, "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e", "a", "s1")
+	maybeSessionKnowledge(context.Background(), st, "\x01\x02\x03\x04\x05\x06\x07\x08\x09\x0a\x0b\x0c\x0d\x0e", "a", "s1", 0)
 	if len(st.inserted) != 0 {
 		t.Fatalf("제어문자 요약 적립 = %d건, want 0(살균 후 게이트)", len(st.inserted))
 	}
@@ -77,7 +77,7 @@ func TestMaybeSessionKnowledgeTruncates(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
 	long := strings.Repeat("가", 800)
-	maybeSessionKnowledge(context.Background(), st, long, "a", "s1")
+	maybeSessionKnowledge(context.Background(), st, long, "a", "s1", 0)
 	if len(st.inserted) != 1 {
 		t.Fatalf("적립 = %d건, want 1", len(st.inserted))
 	}
@@ -92,18 +92,18 @@ func TestMaybeSessionKnowledgeFrequencyCap(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	today := time.Now().UTC().Format(time.RFC3339)
 	st := knFake(today)
-	maybeSessionKnowledge(context.Background(), st, "오늘 이미 적립한 상태의 요약", "a", "s1")
+	maybeSessionKnowledge(context.Background(), st, "오늘 이미 적립한 상태의 요약", "a", "s1", 0)
 	if len(st.inserted) != 0 {
 		t.Fatalf("당일 재적립 = %d건, want 0(빈도 상한)", len(st.inserted))
 	}
 	twoDaysAgo := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339)
 	st2 := knFake(twoDaysAgo)
-	maybeSessionKnowledge(context.Background(), st2, "이틀 전 적립 이후의 새 요약", "a", "s1")
+	maybeSessionKnowledge(context.Background(), st2, "이틀 전 적립 이후의 새 요약", "a", "s1", 0)
 	if len(st2.inserted) != 1 {
 		t.Fatalf("경과 후 적립 = %d건, want 1", len(st2.inserted))
 	}
 	st3 := knFake("not-a-timestamp")
-	maybeSessionKnowledge(context.Background(), st3, "파손된 메타 값 이후의 요약", "a", "s1")
+	maybeSessionKnowledge(context.Background(), st3, "파손된 메타 값 이후의 요약", "a", "s1", 0)
 	if len(st3.inserted) != 1 {
 		t.Fatalf("파손 값 적립 = %d건, want 1(fail-open 재시도)", len(st3.inserted))
 	}
@@ -119,7 +119,7 @@ func TestMaybeSessionKnowledgeOffSentinel(t *testing.T) {
 		}
 		return nil, nil
 	}}
-	maybeSessionKnowledge(context.Background(), st, "끔 상태에서는 적립되지 않는 요약", "a", "s1")
+	maybeSessionKnowledge(context.Background(), st, "끔 상태에서는 적립되지 않는 요약", "a", "s1", 0)
 	if len(st.inserted) != 0 {
 		t.Fatalf("-1 끔 적립 = %d건, want 0", len(st.inserted))
 	}
@@ -131,7 +131,7 @@ func TestMaybeSessionKnowledgeDedupSkip(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	st.exists = true
-	maybeSessionKnowledge(context.Background(), st, "이미 적립된 동일 내용의 요약", "a", "s1")
+	maybeSessionKnowledge(context.Background(), st, "이미 적립된 동일 내용의 요약", "a", "s1", 0)
 	if len(st.inserted) != 0 {
 		t.Fatalf("dedup 적립 = %d건, want 0", len(st.inserted))
 	}

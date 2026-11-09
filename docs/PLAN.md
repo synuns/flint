@@ -385,6 +385,37 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+#4 --reason 메타데이터(의도된 감사 흔적).
+
+### v0.29.0 마이너 (2026-11-10) — 증류 2막: 승격 보조와 지식 위생
+
+브레인스토밍(사용자 방향 확정 A) — 회로(세션→지식→승격→회상)의 마지막
+마찰은 사람 게이트: pending이 며칠씩 방치되는 관측·검수 대화 비용.
+규칙 기반 보조로 게이트를 낮춘다(LLM 판정 배제 §13·신뢰 게이트 불변):
+
+- [x] R1 `flint pending` 심사 뷰 — 삼단 추천(승격/병합/만료/보류) +
+  사유·명령 안내. 판정 규칙: 만료(경과>PendingAgeDays) > 병합(유사
+  active 접두 일치) > 승격(최근 3일+본문 40룬) > 보류
+- [x] R2 approve 병합 보조 — 유사 active 존재 시 similar_active 안내 +
+  `approve --id N --supersede OLD` 한 번에 승격·무효화·선수 기록
+  (maintain --supersede 갱신 경로 승계)
+- [x] R3 세션 지식 topic 품질 — "세션[claude]"에 요약 키워드(첫 문장
+  구분자·20룬) 반영 — 회상 topic 정합 신호 직결. 콜론은 구분자 제외
+  (제목 핵심이 뒤에 오는 형태 보존)
+- [x] R4 session_id 연결 — knowledge.session_id(기존 컬럼·스키마
+  무변경)에 세션 지식 귀속. 조회 실패는 조용히(연결은 보조)
+- [x] 리뷰 10건 반영 — supersede 커밋 Store.Commit 정경로(dolt_commit은
+  내장 함수·테이블 아님)·OLD active 사전 확인(rows 무시 무음 성공 금지)·
+  유사 근사 topicKey 단일 구현(세션 공통 접두 제거 — 접두 퇴화 오탐
+  수정)·N+1 배치·writeSessionRecord id 승계(종료당 1회 조회)·키워드
+  최이른 경계·판정 임계 레지스트리화(pending_promote_days·
+  pending_promote_min_runes)·origin 출력·엔트리 실측 서술 일반화
+- [x] 테스트 — 키워드 추출·topic 품질·session_id·삼단 판정 3종·병합 힌트
+- [x] 버전 — VERSION·배지 v0.29.0(EN/KO)·plugin.json 동기
+
+룰링: 추천 전부 규칙 기반(판정 안내일 뿐 — 실행은 approve·maintain)·
+R5 confidence 감쇠는 v0.27.0 R4가 이미 반영해 제외(스코프 절제).
+
 ### v0.28.3 패치 (2026-11-09) — v0.28.x 패치 루프 3차: FLINT_HOME 인프라 데이터 루트 통일
 
 사용자 지시("개인 DB 백업은 인프라쪽") — 3곳 산재(백업=~/.flint·키·

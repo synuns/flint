@@ -49,6 +49,8 @@ func tuningKeys() []tuningKeyInfo {
 		{"zero_near_min_read", i(d.ZeroNearMinRead), "doctor zero-near", func(t store.Thresholds) string { return i(t.ZeroNearMinRead) }},
 		{"zero_near_warn_pct", i(d.ZeroNearWarnPct), "doctor zero-near", func(t store.Thresholds) string { return i(t.ZeroNearWarnPct) }},
 		{"pending_age_days", i(d.PendingAgeDays), "doctor pending-age", func(t store.Thresholds) string { return i(t.PendingAgeDays) }},
+		{"pending_promote_days", i(d.PendingPromoteDays), "pending 승격 추천(최근 N일)", func(t store.Thresholds) string { return i(t.PendingPromoteDays) }},
+		{"pending_promote_min_runes", i(d.PendingPromoteMinRunes), "pending 승격 추천(본문 최소 룬)", func(t store.Thresholds) string { return i(t.PendingPromoteMinRunes) }},
 		{"recall_warn_writes", i(d.RecallWarnWrites), "done 회상 경고", func(t store.Thresholds) string { return i(t.RecallWarnWrites) }},
 		{"dead_days", i(d.DeadDays), "report effect", func(t store.Thresholds) string { return i(t.DeadDays) }},
 		{"pair_window_minutes", i(d.PairWindowMin), "report effect", func(t store.Thresholds) string { return i(t.PairWindowMin) }},
