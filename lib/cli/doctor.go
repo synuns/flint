@@ -150,6 +150,8 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		// event-volume(v0.20.4 마일스톤 C①)도 체인 말미 — 계측 테이블
 		// 성장은 warn 안내만(fail 아님).
 		checks = append(checks, checkEventVolume(ctx, st))
+		// backup-key(v0.28.0 H⑤)도 체인 말미 — 암호화 백업 키 상태.
+		checks = append(checks, checkBackupKey(ctx, st))
 		// update(v0.22.0 마이너 A)도 체인 말미 — 릴리스 지연 warn 안내.
 		checks = append(checks, checkUpdate(ctx, st))
 		// recall-starved(v0.24.0 R2a)도 체인 말미 — minimal 프로파일
