@@ -445,3 +445,22 @@ func TestRestoreDecryptsEncrypted(t *testing.T) {
 		t.Fatalf("키 없음 = exit %d %s", code2, got2)
 	}
 }
+
+// TestOutInsideGitRepo — v0.28.2: --out의 git 저장소 내부 판정(.git
+// 디렉터리·하위 디렉터리 탐색).
+func TestOutInsideGitRepo(t *testing.T) {
+	dir := t.TempDir()
+	repo := filepath.Join(dir, "repo")
+	os.MkdirAll(filepath.Join(repo, ".git"), 0o755)
+	sub := filepath.Join(repo, "deep", "nested")
+	os.MkdirAll(sub, 0o755)
+	if !outInsideGitRepo(filepath.Join(sub, "dump.sql")) {
+		t.Error("저장소 하위 디렉터리 미감지")
+	}
+	if !outInsideGitRepo(filepath.Join(repo, "dump.sql")) {
+		t.Error("저장소 루트 미감지")
+	}
+	if outInsideGitRepo(filepath.Join(dir, "outside.sql")) {
+		t.Error("저장소 밖 오탐")
+	}
+}

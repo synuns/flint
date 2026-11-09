@@ -51,6 +51,12 @@ def local_markers():
             if l.strip() and not l.startswith("#")]
 
 
+# v0.28.2: flint 백업 덤프 형상 — 이름 패턴(자동 명명)·매직 헤더.
+# 덤프는 개인 DB 전문이라 마커 문자열과 무관하게 반입 금지.
+DUMP_NAME = re.compile(r"flint-\d{8}-\d{6}.*\.sql(\.age)?(\.sha256)?$")
+DUMP_HEADER = "-- flint backup (ADR-0002)"
+
+
 def scan_text(text, markers):
     hits = []
     for m in EMAIL.finditer(text):
@@ -77,11 +83,20 @@ def scan_working_tree(files, markers):
     hits = []
     for f in files:
         p = ROOT / f
+        # v0.28.2: 덤프 형상 — 자동 명명 파일명 또는 매직 헤더 첫 줄.
+        if DUMP_NAME.search(f):
+            print(f"FAIL {f}: 백업 덤프 형상(개인 DB 전문) — repo 반입 금지")
+            hits.append(f)
+            continue
         if not p.is_file() or p.suffix.lower() in BINARY_SUFFIX:
             continue
         try:
             s = p.read_text(encoding="utf-8", errors="ignore")
         except OSError:
+            continue
+        if s.startswith(DUMP_HEADER):
+            print(f"FAIL {f}: 백업 덤프 헤더 — repo 반입 금지")
+            hits.append(f)
             continue
         for h in scan_text(s, markers):
             print(f"FAIL {f}: {h}")
