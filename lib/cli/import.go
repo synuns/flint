@@ -125,7 +125,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			"kind":       "knowledge",
 			"topic":      topic,
 			"summary":    store.SanitizeText(it.Summary),
-			"tags":       ":process:",
+			"tags":       []string{"process"}, // v0.27.2: 문자열은 normalizeTags에서 소거
 			"domain":     "main",
 			"confidence": 0.5,
 			"status":     "pending",
@@ -138,6 +138,10 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 				continue // dedup — 재임포트 멱등
 			}
 		}
+		// v0.27.2: 저장 시점 비밀 스캔 — write 경로 계약 정렬(경고만, doctor
+		// 사후 스캔과 이중 방어). dedup 통과분만 경고(리뷰 3 — 영구 skip
+		// 항목의 재경고 소음 방지).
+		warnSecrets("import "+it.File, it.Summary)
 		batch = append(batch, rec)
 	}
 	if len(batch) == 0 {

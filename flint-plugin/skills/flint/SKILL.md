@@ -61,6 +61,16 @@ PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은
 `flint approve`로 확정한다. 자동 적립 분류는 항상 `--source hook`로
 기록된다. 대기 마커 처리가 끝나면 `flint nudge --clear`로 종결한다.
 
+## 세션 지식화 (v0.27)
+
+Compact 시 PostCompact 훅이 전달한 요약(compact_summary)이 pending
+지식 후보로 자동 적립된다(topic `세션[...]`·confidence 0.5·태그
+process). Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
+요약을 실어주는 하네스도 지원된다. 빈도 상한(`session_knowledge_days`,
+기본 1일·-1 끔)·content_hash 중복 방지가 적용되고, 승격은 다른 pending과
+같이 `flint approve`다. pending은 `maintain --expire-pending` 만료의
+대상이므로 임포트분·세션 지식 모두 만료 전 승격 검토가 필요하다.
+
 ## 명령 요약
 
 - `flint read [query] [--tag --entity --domain --limit] --json --fields`
@@ -69,8 +79,9 @@ PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은
 - `flint hot` — 활성 프로젝트+pending+최근 결정 7일 (2,000자 상한),
   전체 펼침은 `flint hot --full`
   (pending 열람 — `flint read --status pending`, --as-of 병용 시 as-of 우선)
-- `flint import [path] [--commit]` — CLAUDE.md·AGENTS.md 규칙을 pending
-  지식으로 변환(헤딩 단위·중복 스킵 — dry-run 기본, --commit 적립)
+- `flint import [path] [--commit]` — CLAUDE.md·AGENTS.md·GEMINI.md·
+  .github/copilot-instructions.md 규칙을 pending 지식으로 변환
+  (헤딩 단위·중복 스킵 — dry-run 기본, --commit 적립)
 - `flint tuning list|get|set|reset` — 임계값 조회·오버라이드
   (`flint tuning`로 현재값 확인, 개인값은 운영 DB에만)
 - `flint update [--check]` — 최신 릴리스 자가 업데이트
