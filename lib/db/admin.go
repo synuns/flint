@@ -269,6 +269,47 @@ func (r *Repo) ensureSchemaV6(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV8는 meta.schema_version<8인 DB를 v8로 무손실 승격한다:
+// hit 품질 근사(v0.30.0, METRICS §2 R2) — read_events에 first_rank 컬럼
+// 추가(ALTER, additive). 기존 테이블·views 무변경. 이미 v8 이상이면
+// no-op이며 어느 하위 버전 DB에서도 멱등한다.
+func (r *Repo) EnsureSchemaV8(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV8(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV8(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v8: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB — 신규 생성 경로가 v8 컬럼 포함
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 8 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v8: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	if _, err := tx.Exec(ctx,
+		`ALTER TABLE read_events ADD COLUMN IF NOT EXISTS first_rank integer NOT NULL DEFAULT 0`); err != nil {
+		return fmt.Errorf("schema v8: alter read_events: %w", err)
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '8')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v8: version: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v8: commit: %w", err)
+	}
+	return nil
+}
+
 // EnsureSchemaV7는 meta.schema_version<7인 DB를 v7로 무손실 승격한다:
 // 효과 계측 정밀화(v0.20.0, docs/METRICS.md §4) — read_events에 ids 컬럼
 // 추가(ALTER)·session_starts·hot_events 테이블 생성(CREATE IF NOT EXISTS).

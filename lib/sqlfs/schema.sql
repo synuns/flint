@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS read_events (
     near      boolean NOT NULL,             -- 제로근접(read_zero_near 분류)
     fallback  boolean NOT NULL,             -- 폴백 재쿼리 경유
     session   text NOT NULL DEFAULT '',     -- 호출자 세션 라벨(선택)
-    ids       text NOT NULL DEFAULT ''      -- 반환 지식 id CSV(v0.20.0, 상위 10)
+    ids       text NOT NULL DEFAULT '',     -- 반환 지식 id CSV(v0.20.0, 상위 10)
+    first_rank integer NOT NULL DEFAULT 0   -- 첫 topic 정합 순위(v0.30.0, 0=정합 없음/폴백)
 );
 
 -- v7: 세션 시작 경로 1행(SessionStart 훅 — session-start 커맨드가 기록).

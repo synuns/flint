@@ -31,7 +31,7 @@ func (r *readEventRecorder) RecordReadUsage(ctx context.Context, zero, near bool
 	return nil
 }
 
-func (r *readEventRecorder) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string) error {
+func (r *readEventRecorder) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error {
 	r.events = append(r.events, readEventRecord{hits, zero, near, fallback, session, ids})
 	return nil
 }

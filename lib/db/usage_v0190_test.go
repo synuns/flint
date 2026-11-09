@@ -27,10 +27,10 @@ func TestRecordReadEventAndPrune(t *testing.T) {
 			`DELETE FROM read_events WHERE session = $1`, label)
 	})
 
-	if err := r.RecordReadEvent(ctx, 3, false, true, true, label, ""); err != nil {
+	if err := r.RecordReadEvent(ctx, 3, false, true, true, label, "", 0); err != nil {
 		t.Fatalf("RecordReadEvent: %v", err)
 	}
-	if err := r.RecordReadEvent(ctx, 0, true, false, false, label, ""); err != nil {
+	if err := r.RecordReadEvent(ctx, 0, true, false, false, label, "", 0); err != nil {
 		t.Fatalf("RecordReadEvent(zero): %v", err)
 	}
 	// 첫 행을 20일 전으로 되돌려 보존 한도 밖으로(컷오프 파라미터 검증).

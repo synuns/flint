@@ -45,12 +45,12 @@ func (s *realStore) RecordReadUsage(ctx context.Context, zero, near bool) error 
 // 도출된다). v0.20.0: ids(반환 지식 id CSV, 상위 10) 추가 — 사용
 // 연쇄(chain) 산출 원천.
 type ReadEventStore interface {
-	RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string) error
+	RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error
 }
 
 // realStore 위임 — RecordReadEvent 실구현 연결.
-func (s *realStore) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string) error {
-	return s.repo.RecordReadEvent(ctx, hits, zero, near, fallback, session, ids)
+func (s *realStore) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error {
+	return s.repo.RecordReadEvent(ctx, hits, zero, near, fallback, session, ids, firstRank)
 }
 
 // idsCSV — 정수 id 슬라이스를 CSV로(저장 예산 상한 10 — hit 전수는
@@ -64,6 +64,24 @@ func idsCSV(ids []int) string {
 		parts = append(parts, strconv.Itoa(id))
 	}
 	return strings.Join(parts, ",")
+}
+
+// firstExactRank — 반환 행에서 첫 topic 정합(lower 일치, RankOrder
+// 정의 승계)의 1-기반 순위. 정합 없음 0(v0.30.0 R2 — 품질 근사 원천).
+func firstExactRank(rows [][]any, q string) int {
+	lq := strings.ToLower(strings.TrimSpace(q))
+	if lq == "" {
+		return 0 // 빈 쿼리(전체 조회)는 정합 개념 없음
+	}
+	for i, r := range rows {
+		if len(r) < 2 {
+			continue
+		}
+		if strings.ToLower(fmt.Sprint(r[1])) == lq { // 열 1 = topic
+			return i + 1
+		}
+	}
+	return 0
 }
 
 // parseIDsCSV — idsCSV 역직렬화(report 소비용). 빈 문자열·빈 칸은
@@ -384,7 +402,12 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 기록. 미구현 Store(fake)는 건너뛰고 실패는 조용히(§13 계측 원칙).
 	// v0.20.0: 반환 id CSV 동반(사용 연쇄 원천).
 	if res, ok := st.(ReadEventStore); ok {
-		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session, idsCSV(rowIDs(rows)))
+		// v0.30.0 R2: 첫 정합 순위 — 폴백 경유는 품질 지표에서 제외(0).
+		rank := 0
+		if !fallbackTried {
+			rank = firstExactRank(rows, q)
+		}
+		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session, idsCSV(rowIDs(rows)), rank)
 	}
 	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
 	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.
