@@ -402,6 +402,24 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.27.0 마이너 (2026-11-09) — 세션 지식화: 기억이 자라는 루프
+
+브레인스토밍(신규 발굴+운영 데이터+경쟁 동향) → "유입은 많고 순환이
+막힘"(pending 방치·dup 79%·hit 98% 포화) 판정:
+
+- [x] R1 세션 지식화 — done이 세션 종료 요약에서 지식 후보를 pending
+  으로 적립(규칙 기반: 최소 길이·빈도 상한 session_knowledge_days·
+  content_hash 중복 방지). LLM 판정 배제(§13)·approve 게이트 승계
+- [x] R2 증류 회로 폐쇄 — R1이 distill 마커를 남겨 nudge 예산 문구
+  (v0.26.0 R5)와 자연 연결: 세션→지식→nudge→maintain→approve 순환
+- [x] R3 `flint import [path] [--commit]` — CLAUDE.md·AGENTS.md·
+  .cursorrules·GEMINI.md·copilot-instructions를 헤딩 단위 pending
+  지식으로 변환(dry-run 기본·dedup 멱등·confidence 0.5 승격 경로)
+- [x] R4 confidence 감쇠 산출 — doctor stale 체크에 시간 경과 정보
+  확장은 이버전 제외(스코프 절제 — R1 순환 데이터가 먼저)
+- [x] R5 SKILL.md 최신화 — import·tuning·update·secrets 명령 반영
+- [x] 버전 — VERSION·배지 v0.27.0(EN/KO)·plugin.json 동기
+
 ### v0.26.0 마이너 (2026-11-08) — 프라이버시 실행 (F) + 증류 예산 가시성
 
 다음 마이너 심층 레퍼런스 조사(에이전트: gitleaks 룰셋·age API·

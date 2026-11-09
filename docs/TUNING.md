@@ -79,6 +79,7 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 | `backup_interval_h` | 24 | 자동 백업 최소 주기(시간) — backup_keep과 한 세트(v0.24.0) | done 자동 백업 |
 | `vocab_tags` | (빈) | 개인 tag 어휘(콤마 목록) — 기본 7종과 **합집합**, repo 아닌 운영 DB에(v0.24.0 R4) | write 어휘 경고 |
 | `vocab_domains` | (빈) | 개인 domain 어휘(콤마 목록) — 기본 4종과 합집합 | write 어휘 경고 |
+| `session_knowledge_days` | 1 | 세션 지식화(done pending 적립) 최소 간격(일) — **-1이면 끔** | done 세션 지식화 |
 | `secrets_scan_row_limit` | 10000 | doctor secrets 1회 스캔 행 상한(대형 DB 자원 방어 — 도달 시 부분 스캔 명시, v0.26.1) | doctor secrets |
 | `rrf_k` | 60 | 검색 폴백 RRF 순위 완화 계수 — 낮을수록 상위 신호 지배(v0.25.0) | read 폴백 재랭킹 |
 | `daily_retention_days` | 14 | daily:* 카운터 보존·기간화 창 상한 — report/status 창·PruneDaily 단일 소스(v0.24.0 — 3곳 하드코딩 통합) | 보존·창 |

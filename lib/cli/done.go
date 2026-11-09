@@ -15,6 +15,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"strconv"
+	"strings"
 	"sync"
 	"time"
 
@@ -66,6 +67,9 @@ func logPlaybookUse(ctx context.Context, st Store, id int, ok bool) {
 type DoneResult struct {
 	Agent      string // 집계 대상 agent
 	Unrecorded int    // 미기록 연속 세션 수
+	// v0.27.0 R1: 종료 요약(세션 지식화 소스) — Compact 결과 요약이
+	// 전달되지 않으면 종료 상태 요약으로 폴백.
+	Summary string
 }
 
 // sessionEndPrefix — 종료 요약 마커 접두(세션 갱신 대상 식별용).
@@ -228,9 +232,70 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, `{"status":"ok"}`)
 	}
 	writeSessionRecord(ctx, st, res.SessionRecord())
+	maybeSessionKnowledge(ctx, st, res, agent, session)
 	logPlaybookUse(ctx, st, playbook, playbookOK)
 	autoBackupFn(ctx)
 	return 0
+}
+
+// maybeSessionKnowledge — v0.27.0 R1(세션 지식화): 세션 종료 시 세션
+// 요약에서 지식 후보를 pending knowledge로 적립한다. 규칙 기반만
+// (LLM 판정 배제 — §13·조사 확정): 최소 길이·중복(content_hash dedup)·
+// 빈도 상한(임계 session_knowledge_max_days로 일 1회)을 지닌 요약만.
+// 적립은 pending(검수 대기) — approve 경로로 승격된다(신뢰 게이트 승계).
+func maybeSessionKnowledge(ctx context.Context, st Store, res *DoneResult, agent, session string) {
+	th := writeThresholds(ctx, st)
+	summary := strings.TrimSpace(res.Summary)
+	// v0.27.0 리뷰 1: 실제 요약(Compact 결과 등)이 전달된 경우만 적립 —
+	// 폴백 상용구("세션 종료(미기록 N)")는 지식이 아니므로 스킵.
+	// 전달 경로(표준화) 활성 전까지 사실상 대기 상태: 마커·임계 회로는
+	// 유지되고 Summary가 채워지는 순간부터 자동 작동한다.
+	if summary == "" || len([]rune(summary)) < 12 {
+		return
+	}
+	if th.SessionKnowledgeDays <= 0 {
+		return // -1 = 끔
+	}
+	// 일 빈도 상한 — 마지막 적립이 N일 이내면 skip(연속 세션 스팸 방지).
+	getKV, _ := metaKV(ctx, st)
+	if v, err := getKV("session_knowledge_last"); err == nil && v != "" {
+		if last, perr := time.Parse(time.RFC3339, v); perr == nil &&
+			time.Since(last) < time.Duration(th.SessionKnowledgeDays)*24*time.Hour {
+			return
+		}
+	}
+	rec := map[string]any{
+		"kind":       "knowledge",
+		"topic":      fmt.Sprintf("세션[%s]", agentLabel(agent, 24)),
+		"summary":    store.SanitizeText(summary),
+		"tags":       ":process:",
+		"domain":     "main",
+		"confidence": 0.5, // pending 게이트 — approve 경로 승격
+		"status":     "pending",
+	}
+	rec = store.Normalize("knowledge", rec)
+	rec["content_hash"] = store.ContentHash(store.HashCanonical(rec))
+	if exists, err := st.ExistsHash(ctx, rec["content_hash"].(string)); err == nil && exists {
+		return // 중복 방지(같은 세션 재종료 재적립 차단)
+	}
+	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
+		return // 조용히 — 비간섭(§13): 지식화 실패가 done 종료를 깨지 않는다
+	}
+	// 마커 적립 — 증류 회로(nudge 예산 문구)로 자연 연결(R2).
+	_ = WriteTypedMarker(markerKindDistill, session, "session-knowledge")
+	_, setKV := metaKV(ctx, st)
+	if setKV != nil {
+		_ = setKV("session_knowledge_last", time.Now().UTC().Format(time.RFC3339))
+	}
+}
+
+// agentLabel — 세션 라벨(빈 값 폴백 + truncateRunesImport 재사용 —
+// 리뷰 9: 절단 헬퍼 단일화).
+func agentLabel(agent string, max int) string {
+	if agent == "" {
+		return "unknown"
+	}
+	return truncateRunesImport(agent, max)
 }
 
 // recallStarvedToday — 오늘 daily 카운터로 회상 부재 판정(v0.18.0 R3).

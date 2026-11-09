@@ -296,8 +296,21 @@ func TestDoneWritesSession(t *testing.T) {
 	if m := decode(t, out); m["status"] != "ok" {
 		t.Fatalf("status=%v, want ok(출력 불변)", m["status"])
 	}
-	if len(f.inserted) != 1 {
-		t.Fatalf("세션 레코드 삽입 %d건, want 1; inserted=%v", len(f.inserted), f.inserted)
+	// v0.27.0: done은 세션 레코드 + 세션 지식화(pending)를 적립한다 —
+	// kind별로 검증(done_v0270_test이 지식 계약 단독 담당).
+	sessions, knowledge := 0, 0
+	for _, rec := range f.inserted {
+		if rec["kind"] == "session" {
+			sessions++
+		} else if rec["kind"] == "knowledge" {
+			knowledge++
+		}
+	}
+	if sessions != 1 {
+		t.Fatalf("세션 레코드 삽입 %d건, want 1; inserted=%v", sessions, f.inserted)
+	}
+	if knowledge > 1 {
+		t.Fatalf("지식 적립 %d건, want ≤1(빈도 상한)", knowledge)
 	}
 	if got := f.inserted[0]["summary"]; got != "세션 종료(미기록 1)" {
 		t.Fatalf("삽입 summary=%v, want 세션 종료(미기록 1)", got)
@@ -353,8 +366,10 @@ func TestDoneStaleWarningReachable(t *testing.T) {
 		t.Fatalf("4번째 출력=%v, want stale/3(경고 실제 발화)", m)
 	}
 	// sessions 행 agent도 안정 식별자 — 누적 카운트의 집계 키.
+	// v0.27.0: 지식화 pending(kind knowledge)도 agent 기반 topic을 쓰지만
+	// agent 키가 없다 — kind가 session인 행만 검증.
 	for i, rec := range f.inserted {
-		if rec["agent"] != "claude" {
+		if rec["kind"] == "session" && rec["agent"] != "claude" {
 			t.Fatalf("삽입 %d건째 agent=%v, want claude", i+1, rec["agent"])
 		}
 	}
@@ -409,8 +424,12 @@ func TestDoneUpdatesExistingSession(t *testing.T) {
 		}
 		decode(t, out)
 	}
-	if len(f.inserted) != 0 {
-		t.Fatalf("갱신 경로에서 삽입 %d건, want 0(중복 행 금지)", len(f.inserted))
+	// v0.27.0: 세션 행 갱신(INSERT 아님) — inserted엔 지식화 pending만
+	// 남는다(정상). session kind의 INSERT 부재를 단언.
+	for _, rec := range f.inserted {
+		if rec["kind"] == "session" {
+			t.Fatalf("갱신 경로에서 세션 INSERT 발생(중복 행 금지 위반): %v", rec)
+		}
 	}
 	updated := false
 	for _, q := range f.queries {

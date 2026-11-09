@@ -1001,6 +1001,7 @@ func applyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.EventsVolumeWarn, def.EventsVolumeWarn, false},
 		{&th.DrillMaxDays, def.DrillMaxDays, false},
 		{&th.SecretsScanRows, def.SecretsScanRows, false},
+		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, true}, // -1=끔 센티넬 허용
 		{&th.DailyRetentionD, def.DailyRetentionD, false},
 	} {
 		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
@@ -1037,7 +1038,7 @@ func thresholdsKeys() []string {
 		"pending_age_days", "recall_warn_writes",
 		"dead_days", "pair_window_minutes", "chain_window_hours",
 		"events_retention_days", "hot_events_retention_days",
-		"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit",
+		"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit", "session_knowledge_days",
 	}
 }
 
