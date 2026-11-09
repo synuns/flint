@@ -267,7 +267,17 @@ func extractBinary(archive []byte) ([]byte, error) {
 			return nil, fmt.Errorf("tar: %w", err)
 		}
 		if hdr.Typeflag == tar.TypeReg && filepath.Base(hdr.Name) == "flint" {
-			return io.ReadAll(tr)
+			// v0.28.0(H④): 해제 스트림에도 동일 상한 — 압축 바이트 상한만으론
+			// gzip 폭발(작은 압축분의 수십 GiB 팽창)을 막지 못한다. 상한+1
+			// 읽기로 초과를 명시적 에러 처리(무음 절단 금지 — 리뷰 4).
+			b, rerr := io.ReadAll(io.LimitReader(tr, updateMaxBytes+1))
+			if rerr != nil {
+				return nil, fmt.Errorf("아카이브 읽기: %w", rerr)
+			}
+			if int64(len(b)) > updateMaxBytes {
+				return nil, fmt.Errorf("아카이브 항목이 %dMiB 상한 초과", updateMaxBytes>>20)
+			}
+			return b, nil
 		}
 	}
 }

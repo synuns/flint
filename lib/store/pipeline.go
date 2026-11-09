@@ -66,7 +66,9 @@ func OutputJSON(status, hash, state string, id int) string {
 // topic·state를 additive 노출해 라이터가 read/supersede/approve로 전환하게
 // 한다(이미 존재함 피드백 루프). id 0·빈 메타는 기존 바이트와 동일(하위호환).
 func DuplicateMetaJSON(id int, topic, state string) string {
-	b, err := json.Marshal(duplicateOutput{Status: "duplicate", ID: id, Topic: topic, State: state})
+	// v0.28.0(H③): 기존 행 topic echo 재살균 — 저장 본문이 살균 이전
+	// 데이터·직접 SQL 유입이라도 출력 경계에서 마커를 중립화한다.
+	b, err := json.Marshal(duplicateOutput{Status: "duplicate", ID: id, Topic: SanitizeText(topic), State: state})
 	if err != nil {
 		return `{"status":"duplicate"}`
 	}

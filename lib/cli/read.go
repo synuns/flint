@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -284,6 +285,12 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		// 접두어 검증·유일 해시를 보장하므로 반환값을 그대로 신뢰해 인라인.
 		// AS OF 절은 테이블 참조 바로 뒤(뷰+AS OF "현재 정의+과거 행"). 기존
 		// RankOrder·LIMIT 절은 그대로 둔다.
+		// v0.28.0(H③): 해시 값은 dolt_log 행 출처라 엔진 구현에 의존하지
+		// 않게 엄격 문자셋 재검증 — 벗어나면 인라인 대신 오류(종료 계약).
+		if !asOfHashRe.MatchString(hash) {
+			fmt.Fprintln(stdout, errLine(fmt.Errorf("as-of hash 문자셋 위반: %q", hash)))
+			return 1
+		}
 		sql = strings.Replace(sql, " FROM active_knowledge",
 			" FROM active_knowledge AS OF '"+hash+"'", 1)
 		asOfHash = hash
@@ -438,6 +445,10 @@ func fmtAsOfDate(v any) string {
 }
 
 // wrapViewColumnMismatch — 뷰-컬럼 미호환(column ... does not exist) 오류에
+// asOfHashRe — v0.28.0(H③): AS OF 인라인 해시의 엄격 문자셋(소문자
+// base32계 — dolt_log commit_hash 규격). 엔진 반환값 신뢰의 이중 확인.
+var asOfHashRe = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
+
 // 기본 테이블 조회 안내를 붙인다. 뷰+AS OF는 "현재 정의 + 과거 행" 규칙
 // (C3)이라 과거 커밋에 없는 컬럼에서 이 오류가 난다. 그 외 오류는 불변.
 func wrapViewColumnMismatch(err error) error {

@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.27.4-blue" alt="v0.27.4">
+  <img src="https://img.shields.io/badge/release-v0.28.0-blue" alt="v0.28.0">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v0.27.4 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
+> v0.28.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
 
 ---
 
@@ -142,7 +142,7 @@ Each session cycles through four phases:
 | `flint approve --id n` | Promote pending to active |
 | `flint maintain` | Curate: check thresholds, invalidate, merge |
 | `flint audit --limit n` | Show last n commits |
-| `flint backup` | Dump to SQL with sha256 checksum |
+| `flint backup` | Dump to SQL with sha256 checksum (`--encrypt` age at-rest, `--mask` redacted diagnostics) |
 | `flint restore --file f` | Restore from backup (`--drill` to rehearse) |
 | `flint status` | Schema version, pending count, hot p95 |
 | `flint mcp` | Run the MCP server |

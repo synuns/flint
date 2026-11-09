@@ -4,26 +4,64 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
 )
 
 // SanitizeText는 메모리 포이즈닝 대응(ADR-0006) 텍스트 중립화를 수행한다.
-// ①제어 문자(ANSI 이스케이프·NUL 등) 제거 — 유니코드 본문은 보존
-// ②콘텐츠 내 "[flint]" 마커를 공백으로 치환 — 주입 경계 위조 방지
+// ①제어 문자(ANSI 이스케이프·NUL 등)·형식 문자(U+200B ZWSP·U+202E RLO·
+//
+//	U+FEFF — v0.28.0: IsControl이 Latin-1만 검사해 통과하던 위조 보이지
+//	않는 문자 차단) 제거 — 유니코드 본문은 보존
+//
+// ②콘텐츠 내 "[flint]" 마커를 공백으로 치환 — 대소문자 무시(v0.28.0:
+//
+//	"[FLINT]"·"[Flint]" 위조 변형 차단)
+//
 // 저장 거부가 아닌 경고+살균이며, 멱등이다(재적용 시 동일 결과).
 // e.g. SanitizeText("a\x00b[flint]c") -> "ab c"
 func SanitizeText(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			continue
 		}
 		b.WriteRune(r)
 	}
-	return strings.ReplaceAll(b.String(), "[flint]", " ")
+	return replaceMarkerFold(b.String())
+}
+
+// replaceMarkerFold — "[flint]" 마커의 대소문자 무시 치환(ASCII 마커라
+// 룬 스캔으로 길이 불일치 없이 원문을 보존하며 치환한다).
+func replaceMarkerFold(s string) string {
+	const marker = "[flint]"
+	runes := []rune(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(runes); {
+		if markerFoldAt(runes, i) {
+			b.WriteString(" ")
+			i += len(marker)
+			continue
+		}
+		b.WriteRune(runes[i])
+		i++
+	}
+	return b.String()
+}
+
+// markerFoldAt — runes[i:]가 대소문자 무시 마커로 시작하는지.
+func markerFoldAt(runes []rune, i int) bool {
+	const marker = "[flint]"
+	for j := 0; j < len(marker); j++ {
+		if i+j >= len(runes) || unicode.ToLower(runes[i+j]) != rune(marker[j]) {
+			return false
+		}
+	}
+	return true
 }
 
 // secretPatterns — 비밀 패턴 카탈로그. 감지 순서=배열 순서(결정적).
@@ -42,6 +80,14 @@ var secretPatterns = []struct {
 	{"gitlab-pat", regexp.MustCompile(`glpat-[0-9A-Za-z_\-]{20,}`), false},
 	{"jwt", regexp.MustCompile(`eyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}`), false},
 	{"google-api-key", regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`), false},
+	// v0.28.0(H⑦): AI 도구생태계 상위 토큰 갱신(gitleaks 추적).
+	// openrouter는 sk-or-가 sk-(openai)에 포함 — specific 마스킹 우선.
+	// github-app은 gh[osr](OAuth·server·refresh) — p(ghp_)는 기존
+	// github-token이 이미 커버해 제외(리뷰 2: 이중 보고 방지).
+	{"openrouter-key", regexp.MustCompile(`sk-or-[0-9A-Za-z-]{20,}`), true},
+	{"github-app-token", regexp.MustCompile(`gh[osr]_[0-9A-Za-z]{36,}`), false},
+	{"groq-key", regexp.MustCompile(`gsk_[0-9A-Za-z]{30,}`), false},
+	{"xai-key", regexp.MustCompile(`xai-[0-9A-Za-z]{30,}`), false},
 }
 
 // ScanSecrets는 비밀 후보 패턴명을 반환한다(빈 슬라이스=통과).
@@ -77,6 +123,39 @@ func ScanSecrets(s string) []string {
 		}
 	}
 	return found
+}
+
+// MaskSecrets — 비밀 패턴 매칭 구간을 [REDACTED:패턴명]으로 치환한 사본
+// 반환(v0.28.0 백업 마스킹 — 진단·공유용 덤프). allowlist 항목은 원문
+// 그대로 유지(사용자가 등록한 문서용 예시는 치환하지 않는다 — 치환
+// 전 sentinel로 보호·치환 후 복원. maskAllowlisted의 [ALLOWED] 개조와
+// 달리 내용을 보존한다). 특수→일반 순서는 ScanSecrets와 동일(포함
+// 관계 이중 치환 방지).
+func MaskSecrets(s string) string {
+	type keep struct{ sentinel, orig string }
+	var keeps []keep
+	for i, a := range secretsAllowlist {
+		if a == "" || !strings.Contains(s, a) {
+			continue
+		}
+		sent := "\x00FLINTMASKKEEP" + strconv.Itoa(i) + "\x00" // 패턴 형태와 무충돌
+		s = strings.ReplaceAll(s, a, sent)
+		keeps = append(keeps, keep{sent, a})
+	}
+	for _, p := range secretPatterns {
+		if p.specific {
+			s = p.re.ReplaceAllString(s, "[REDACTED:"+p.name+"]")
+		}
+	}
+	for _, p := range secretPatterns {
+		if !p.specific {
+			s = p.re.ReplaceAllString(s, "[REDACTED:"+p.name+"]")
+		}
+	}
+	for _, k := range keeps {
+		s = strings.ReplaceAll(s, k.sentinel, k.orig)
+	}
+	return s
 }
 
 // ── v0.26.1(패치 루프 1차): 비밀 스캔 allowlist — 오탐 완화(F 리스크 #1).

@@ -258,17 +258,27 @@ func insertOne(ctx context.Context, tx pgx.Tx, rec map[string]any) (int, error) 
 	sort.Strings(cols) // SQL 문자열 안정(쿼리 캐시·로그 비교용)
 	args := make([]any, len(cols))
 	ph := make([]string, len(cols))
+	qc := make([]string, len(cols))
 	for i, c := range cols {
 		args[i] = rec[c]
 		ph[i] = fmt.Sprintf("$%d", i+1)
+		qc[i] = quoteIdent(c)
 	}
+	// v0.28.0(H③): 식별자 위치는 DB 계층에서도 인용 — 방어가 CLI 컬럼
+	// 화이트리스트에만 존재하던 구조적 위험(신규 호출처 하나로 즉시
+	// 식별자 인젝션으로 전이)을 깊이 방어로 닫는다.
 	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING id",
-		table, strings.Join(cols, ", "), strings.Join(ph, ", "))
+		quoteIdent(table), strings.Join(qc, ", "), strings.Join(ph, ", "))
 	var id int
 	if err := tx.QueryRow(ctx, stmt, args...).Scan(&id); err != nil {
 		return 0, mapInsertErr(err)
 	}
 	return id, nil
+}
+
+// quoteIdent — SQL 식별자 인용(" doubling — dump.go와 동일 규칙).
+func quoteIdent(s string) string {
+	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
 // DupIDByHash는 해당 content_hash가 knowledge에 이미 있으면 기존 행 id와

@@ -19,6 +19,7 @@ import (
 	"sync"
 	"time"
 
+	"filippo.io/age"
 	"github.com/jackc/pgx/v5"
 
 	"github.com/synuns/flint/lib/backup"
@@ -375,6 +376,20 @@ func maybeAutoBackup(ctx context.Context) {
 	defer pool.Close()
 
 	lf := &lazyDumpFile{dir: dir}
+	// v0.28.0(H②): meta backup_encrypt=true면 자동 백업도 암호화
+	// (키는 config 디렉터리 — 첫 암호화 시 자동 생성). 판독 실패는 기본
+	// 평문(비간섭 §13 — 백업 실패가 종료를 깨지 않는 계약 유지).
+	if v, verr := func() (string, error) {
+		var v string
+		err := pool.QueryRow(ctx,
+			`SELECT value FROM meta WHERE key = $1`, "backup_encrypt").Scan(&v)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return "", nil
+		}
+		return v, err
+	}(); verr == nil && backupEncryptOn(v) {
+		lf.encrypt = true
+	}
 	defer lf.close()
 	metaGet := func(key string) (string, error) {
 		var v string
@@ -415,12 +430,31 @@ func maybeAutoBackup(ctx context.Context) {
 // RunIfNeeded가 비경과 no-op일 때 빈 파일을 남기지 않게 한다.
 // 기록 바이트는 sha256 tee로 합산되고 close가 .sha256 사이드카를
 // 남긴다(R3 — ADR-0006 무결 검증을 자동 파일에도 적용).
+// v0.28.0(H②): encrypt=true면 age 암호화 — 체인은 평문→age writer→
+// hashFile(파일+sha256 tee)로, 해시·사이드카는 암호문 기준이 된다.
 type lazyDumpFile struct {
-	dir    string
-	once   sync.Once
-	f      *os.File
-	h      hash.Hash
-	failed bool
+	dir     string
+	encrypt bool
+	once    sync.Once
+	f       *os.File
+	h       hash.Hash
+	hw      *hashFile
+	aw      io.WriteCloser // age 래핑(encrypt 시)
+	failed  bool
+}
+
+// hashFile — 파일 기록 + sha256 tee 동시 기록(sink).
+type hashFile struct {
+	f *os.File
+	h hash.Hash
+}
+
+func (w *hashFile) Write(p []byte) (int, error) {
+	n, err := w.f.Write(p)
+	if n > 0 {
+		w.h.Write(p[:n])
+	}
+	return n, err
 }
 
 func (l *lazyDumpFile) Write(p []byte) (int, error) {
@@ -429,8 +463,30 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 			l.failed = true
 			return
 		}
+		ext := ".sql"
+		if l.encrypt {
+			ext = ".sql.age"
+		}
+		// 키 확보를 파일 생성보다 먼저 — 키 실패가 부분 파일을 남기지
+		// 않게 한다(v0.28.0).
+		var recipient *age.X25519Recipient
+		if l.encrypt {
+			key := BackupKeyPath()
+			if key == "" {
+				l.failed = true
+				return
+			}
+			id, err := ensureKeyFn(key)
+			if err != nil {
+				l.failed = true
+				return
+			}
+			recipient = id.Recipient()
+		}
+		// v0.28.0(H③): 파일명에 PID — 병렬 세션이 같은 초에 종료해도
+		// O_TRUNC 상호 덮어쓰기(내용 뒤섞임)가 없게 한다.
 		name := filepath.Join(l.dir,
-			"flint-"+time.Now().UTC().Format("20060102-150405")+".sql")
+			"flint-"+time.Now().UTC().Format("20060102-150405")+"-"+strconv.Itoa(os.Getpid())+ext)
 		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // v0.20.6 S3
 		if err != nil {
 			l.failed = true
@@ -438,30 +494,57 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 		}
 		l.f = f
 		l.h = sha256.New()
+		l.hw = &hashFile{f: f, h: l.h}
+		if l.encrypt {
+			aw, aerr := age.Encrypt(l.hw, recipient)
+			if aerr != nil {
+				l.failed = true
+				return
+			}
+			l.aw = aw
+		}
 	})
 	if l.failed {
 		return 0, errors.New("backup auto: dump 파일 생성 불가")
 	}
-	// v0.25.4(미커버 스윕 U2): 본문 기록 실패 시 해시 갱신도 중단하고
-	// failed 마킹 — 부분 파일이 '내용과 일치하는' 정상 사이드카를 받아
-	// 온전한 구 백업을 rotate에서 밀어내던 오탐 상태를 차단한다.
-	n, err := l.f.Write(p)
+	// v0.25.4(미커버 스윕 U2): 본문 기록 실패 시 failed 마킹 — 부분 파일이
+	// '내용과 일치하는' 정상 사이드카를 받아 온전한 구 백업을 rotate에서
+	// 밀어내던 오탐 상태를 차단한다.
+	if l.aw != nil {
+		n, err := l.aw.Write(p)
+		if err != nil {
+			l.failed = true
+		}
+		return n, err
+	}
+	n, err := l.hw.Write(p)
 	if err != nil {
 		l.failed = true
 		return n, err
 	}
-	l.h.Write(p)
 	return n, nil
 }
 
 // close — 덤프 close 성공 후 .sha256 사이드카 기록. once 미발동(0바이트
 // no-op)이면 파일·사이드카 모두 만들지 않는다. 사이드카 실패는 경고 로그
 // 후 진행(비차단 — done 반환·exit 불변).
+// v0.28.0: age 래핑이 있으면 age writer 종결(최종 플러시)을 파일 close
+// 보다 먼저 — 종결 실패는 부분 파일 폐기 대상.
 func (l *lazyDumpFile) close() error {
 	if l.f == nil {
 		return nil
 	}
 	name := l.f.Name()
+	if l.aw != nil {
+		if aerr := l.aw.Close(); aerr != nil {
+			l.failed = true // age 종결 실패 — 부분 암호문
+			_ = l.f.Close()
+			l.f = nil
+			_ = os.Remove(name)
+			return errors.New("backup auto: age 종결 실패 — 부분 덤프 폐기")
+		}
+		l.aw = nil
+	}
 	closeErr := l.f.Close()
 	l.f = nil // 멱등 — closeAndPath 이후 defer close의 이중 close 방어
 	// v0.25.4(U2): 본문 기록 실패한 부분 파일은 사이드카 없이 제거 —

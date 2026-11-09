@@ -7,7 +7,6 @@ package backup
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"time"
 
@@ -77,13 +76,26 @@ func countInserts(stmts []string, table string) int {
 // 스키마→DB 격리 전환. 종료 정리 DROP은 재생 ctx와 독립된 짧은 타임아웃
 // 으로 실행된다(재생이 120s를 소진해도 정리는 항상 실행).
 func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
-	ctx, cancel := drillCtxFn()
-	defer cancel()
+	return RunDrillWithKey(dsn, dumpPath, "")
+}
 
-	data, err := os.ReadFile(dumpPath)
+// RunDrillWithKey — v0.28.0: 암호화 덤프 지원 드릴(keyPath = age
+// identity 경로, 공백이면 평문 전용). 파일 판독 후 RunDrillData로.
+func RunDrillWithKey(dsn string, dumpPath string, keyPath string) (res DrillResult, err error) {
+	// v0.28.0: 판독 단일 경로 — age 복호·마스킹 거부가 여기서 적용된다.
+	data, err := ReadDumpBytes(dumpPath, keyPath)
 	if err != nil {
 		return DrillResult{}, err
 	}
+	return RunDrillData(dsn, data)
+}
+
+// RunDrillData — 미리 읽은(검증·복호 완료) 바이트 재생 드릴(v0.28.0
+// H③: CLI가 검증한 바이트를 그대로 재생 — TOCTOU 창 없음).
+func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
+	ctx, cancel := drillCtxFn()
+	defer cancel()
+
 	pool, err := db.Connect(ctx, dsn)
 	if err != nil {
 		return DrillResult{}, err

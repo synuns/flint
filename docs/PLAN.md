@@ -253,72 +253,55 @@ v0.19.0+) 엔트리.
   제거, 잔여는 표본 축적 후 재평가(METRICS §4 명시)
 - [x] 버전 — VERSION·배지 v0.20.0(EN/KO)·plugin.json 동기
 
-### v0.21.0+ 마이너 후보 (2026-11-07 사용자 지시 — 방향 확정)
+### v0.21.0+ 마이너 후보 (2026-11-07 사용자 지시 — 2026-11-09 완료 상태로 롤업)
 
-**A. 자동 업데이트** — 릴리스는 완전 자동(VERSION→태그→goreleaser→
-MCP)이나 설치 단말 갱신이 수동. 후보: ① `flint update`(최신 Release
-확인·자가 교체·실패 롤백) ② 세션 시작 시점 버전 확인 후 [flint]
-경계 내 1줄 갱신 안내 ③ 플러그인 마켓 갱신 경로 안내. 제약: 비간섭
-원칙(§13) — 자동 다운로드·교체는 명시 opt-in, 기본은 안내만.
+> 원문 지시 항목을 현재 버전(v0.27.4 기준) 상태로 정리했다. 완료
+> 상세는 아래 각 버전 엔트리 참조. 진행/이월 항목은 H(v0.28.0)와
+> 잔여 목록으로 승계.
 
-**B. 지표 고도화** — v0.20.0 계측 위 후속: ① 기저율 셔플 재평가(표본
-축적 후 세션 내 잔여 우연) ② 세션 라벨 자동 주입(훅→read 배선)으로
-세션 일치 페어링 정밀화 ③ 계측 상한·보존 창(dead_days·pair·chain)의
-thresholds 레지스트리 이양(meta 오버라이드) ④ 트렌드 보고(전기 대비
-Δ — 단면→추세) ⑤ hit 품질 근사(반환 순위·재사용 가중).
+**A. 자동 업데이트 — 완료 (v0.22.0·v0.22.x)** — `flint update` 자가
+갱신(sha256 checksums.txt 검증·verify-then-swap·https 가드·128MiB
+상한)·세션 시작 [flint] 경계 내 1줄 갱신 안내(24h 캐시)·MCP Registry
+자동 발행. 배포 폐회 — 21연속 자가 갱신 홉 실증.
 
-**C. 내부 테이블·문서 관리 고도화** — ① 계측 테이블 운영체계: 보존
-기간 meta 오버라이드·용량 점검(doctor 신규 체크)·이벤트 테이블
-통합/분리 재평가(v7 3테이블 구조 지속 여부) ② meta 키 위생: 레거시
-키 롤링 정리·키 네임스페이스 규약 문서화 ③ 문서 체계: PLAN 장기
-이력 아카이브(docs/plans 분리), 버전별 docs 테스트 파일 통합(패턴
-중복 축소), METRICS·TUNING·RUNBOOK 상호 링크 정비.
+**B. 지표 고도화 — 부분 완료** — ✓ 세션 라벨 자동 주입(v0.20.5 라벨
+파일·v0.25.x read --session 채택)·임계값 레지스트리 이양(v0.24.0
+tuning 30+키). 잔여(관측 창 후): 기저율 셔플 재평가(룰링 이연 —
+표본 축적 후)·트렌드 Δ 보고·hit 품질 근사.
 
-**D. 개인화 기능 고도화** — ① 프로파일 체계(minimal·normal) 확장:
-사용 패턴 관측(effect 지표) 기반 프로파일 추천·전환 안내 ② 개인
-어휘 관리: 도메인·태그 어휘집 등록·경고 고도화(CheckVocabulary
-확장 — 어휘 밖 태그의 자동 후보 제안) ③ 임계값 오버라이드 인터페이스:
-meta 수동 갱신을 `flint tuning` 류 커맨드로(TUNING §2 키 조회·설정·
-reset, 문서와 단일 소스) ④ 스코프 개인화: 프로젝트·에이전트별
-지식 스코프 필터 확장(domain 경로 승계). 원칙: 개인값은 운영 DB에만
-(repo 기본 불침투 — CLAUDE.md 방어 계층 승계).
+**C. 내부 테이블·문서 관리 고도화 — 대부분 완료** — ✓ 보존 기간 meta
+오버라이드(daily_retention_d 등)·doctor 용량 점검(event-volume)·
+PLAN→HISTORY 아카이브(v0.21.2)·버전별 docs 테스트 통합
+(versions_test.go)·문서 상호 링크. v7 3테이블 구조 유지 판정. 잔여:
+meta 키 롤링 정리(low).
 
-**E. 대시보드 도입 여부(평가 항목)** — effect 지표의 추세 관측이
-개발 루프의 판정 근거라 시각화 수요는 실재. 도입 여부 판정 기준:
-① 아키텍처 정합 — 단일 바이너리·한 줄 JSON 원칙과 양립하는 형태
-(후보: `flint report --html` 정적 내보내기 > 상시 웹서버) ② 프라이버시
-— 운영 DB를 떠나지 않는 로컬 렌더링만(외부 전송 금지, 합성 데모로
-실증) ③ 유지 비용 — 프레임워크 의존 없는 단일 파일 HTML(임베드
-템플릿) ④ 수요 실증 — report 텍스트 소비로 충분한지 관측 기간 후
-판정. 기본 방향: 도입 확정이 아니라 평가 후 결정.
+**D. 개인화 기능 고도화 — 부분 완료** — ✓ 어휘 후보 제안(v0.24
+suggestFrom)·`flint tuning` 인터페이스(v0.24.0 list|get|set|reset).
+잔여: 프로파일 추천(effect 관측 기반 — 관측 창 후)·프로젝트/에이전트
+스코프 필터(다중 에이전트와 함께 이연). 원칙 유지: 개인값은 운영
+DB에만(repo 기본 불침투).
 
-**G. 고도화 로드맵 (2026-11-08 서브에이전트 다각 조사 — 8각도·외부 레퍼런스 대조)**
+**E. 대시보드 — 평가 항목 유지** — 미판정(report 텍스트 소비 관측
+중). 후보 `flint report --html` 정적 내보내기(단일 파일·로컬 렌더만).
 
-| 테마 | 항목 | 레퍼런스 | 우선순위 | 트리거 |
-|---|---|---|---|---|
-| 검색 품질 1막 | RRF 융합 랭킹(정합수+read_count 통합)·자모 bigram·pgvector 에뮬 실증 probe(ADR, 채택 분리) | sqlite.org/fts5.html·dolthub.com/blog/2026-09-03-doltgres-extensions-update | **high** | RRF 무조건·pgvector 채택은 zero_pct 20%+read 50 트리거 |
-| F 프라이버시 실행 | doctor secrets 사후 스캔(gitleaks 관례·레포 밖 커스텀 룰)·백업 age 암호화(순수 Go)·하드 삭제·덤프 마스킹 | github.com/gitleaks/gitleaks·github.com/FiloSottile/age | **high** | 이미 지시됨 |
-| 온보딩 임포트 | CLAUDE.md/AGENTS.md → flint 지식 변환(전환 마찰 제거)·dedup 자동 승격 | Claude Code memory·Cursor Rules 관례 | med | 외부 사용자 전환 수요 |
-| 증류 자동화(규칙 기반) | pending 임계 → maintain 자동 지시 배선·compact 요약 압축(Letta lossy 관례) | MemGPT core 상한·Mem0(LLM 판정은 비간섭 원칙상 배제) | med | marker 적립→소비 주기 관측 |
-| E 대시보드 — 정적 export | flint report --html 단일 파일(임베드 템플릿·합성 데모) | Grafana 대비 정적 export(E 기준 ①~③) | med | 텍스트 소비 관측 후 |
-| 성능 관측 저비용 | doctor active 행 수·DB 용량 체크 | — | low | active 1만 행 도달 시 인덱싱 재평가 |
-| 다중 에이전트 | domain 스코프(D④) 승계·전용 기능 이연 사유 명시 | mem0.ai multi-agent 문서 | low | 팀 사용 수요 증거 시 |
+**G. 고도화 로드맵 (2026-11-08 8각도 조사) — 대부분 반영**
 
-판정: 플러그인·확장면 불필요(기존 plugin+tuning+어댑터로 커버). 다음
-마이너 추천: **v0.25.0 검색 품질 1막**(RRF+probe) — 계측 체계가 이미
-있어 개선 효과 검증이 즉시 가능(GSM 원칙상 지표 선행). pgvector 채택은
-임베딩 생성 경로(외부 API 프라이버시/로컬 모델 비대) 미해결 — probe로
-가능성 확인만, 채택은 트리거 후 별도 ADR.
+| 테마 | 상태 | 반영 버전 |
+|---|---|---|
+| 검색 품질 1막(RRF·자모 bigram·pgvector probe) | **완료** | v0.25.0~v0.25.4 |
+| F 프라이버시 실행(secrets 스캔·백업 암호화·마스킹·하드 삭제) | 스캔 **완료**(v0.26.0~v0.27.4)·암호화·마스킹 **v0.28.0 진행**·하드 삭제 이연(ADR-0012) | v0.26.0+ |
+| 온보딩 임포트(CLAUDE.md→지식 변환) | **완료** | v0.27.0·v0.27.3 |
+| 증류 자동화(규칙 기반) | 회로 폐쇄 **완료**(v0.27.0 세션 지식화·v0.27.2 실질화)·maintain 자동 배선 잔여 | v0.27.0+ |
+| E 정적 export(report --html) | 잔여(텍스트 소비 관측 후) | — |
+| 성능 관측 저비용(doctor active 행수·용량) | 잔여(low) | — |
+| 다중 에이전트(domain 스코프) | 이연(트리거 대기 — 팀 수요 증거) | — |
 
-**F. 프라이버시 기능 (2026-11-08 지시)** — ① 저장 지식 사후 비밀 스캔:
-doctor 신규 체크(secrets) — 저장 시점 스캔(ScanSecrets)은 회피·이후
-유입을 못 잡으므로 보유 지식 전수 재스캔·발견 시 warn(수정 안내) ②
-백업 암호화(옵트인): ~/.flint/backup 평문 SQL에 대한 passphrase 암호화
-— 사이드카 체크섬과 한 세트, restore 복호 경로 ③ 선택 삭제·스크럽:
-무효화(soft)가 아닌 하드 삭제 — §15 '보존·영구삭제'(filter-branch) 이연
-항목과 연계, Doltgres 재작성 실험 전제 ④ 덤프/내보내기 마스킹 옵션.
-원칙: 기존 방어 계층(저장 살균·비밀 스캔·0600 권한·개인값 repo
-불침투·계측 최소화 — METRICS §4 '쿼리 본문 미기록') 승계·강화.
+**F. 프라이버시 기능 (2026-11-08 지시) — 진행/이월 혼재** — ✓ ① 저장
+지식·세션 사후 비밀 스캔(doctor secrets — v0.26.0~v0.27.4, allowlist·
+행 상한 포함). 진행 ② 백업 age 암호화·④ 덤프 마스킹(v0.28.0 — H②로
+승계). 이연 ③ 하드 삭제(ADR-0012 — 백업 재구축 경로, 트리거 대기).
+원칙 승계: 저장 살균·비밀 스캔·0600 권한·개인값 repo 불침투·계측
+최소화(METRICS §4 '쿼리 본문 미기록').
 
 ### v0.20.1 패치 (2026-11-07) — 패치 루프 1차: 전수 조사 18건 중 정확성 4건·테스트 왜곡 2건
 
@@ -401,6 +384,50 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
+
+### v0.28.0 마이너 (2026-11-09) — 전체 보안 점검·경화 (H)
+
+원칙: 아키텍처 틀(단일 바이너리·한 줄 JSON·exit 계약·비간섭 §13·
+스키마 v7·Doltgres 로컬 전제)은 불변 — 보안 층만 강화한다. 로컬 단일
+사용자 위협 모델을 문서화하고 그 경계 안팎의 위협을 구분한다.
+
+- [x] ① 위협 모델 문서화 — ADR-0013(자산 4종·경계 5면 표·가정·명시적
+  비대상 4항: 기기 탈취·로컬 권한 상승·원격 DB 배치·로컬 DoS)
+- [x] ② 백업 at-rest 보호 — age 암호화(filippo.io/age v1.2.1·X25519
+  키 파일 0600 자동 생성·backup_encrypt 옵트인으로 자동+수동·
+  restore/drill 복호 경로·rotate .age 인식·doctor backup-key 체크)·
+  마스킹 덤프(--mask — 패턴명 치환·allowlist 원문 보존·사이드카
+  미부여+마커 이중 방어) — F②④ 승계 완료
+- [x] ③ 전체 코드베이스 보안 감사(4각도 병렬: SQL·파일시스템·네트워크·
+  주입/누설 — 발견 22건) — 즉시 수정 16건: doctor 백업 권한 승계·
+  EnsureIdentity 원자 쓰기+불량 키 거부·backup --out chmod 강제·자동
+  덤프 파일명 PID(병렬 경합)·restore TOCTOU 폐쇄(단일 판독 검증·재생)·
+  insertOne 식별자 DB 계층 인용·RankOrder 파라미터화·as-of 해시 엄격
+  문자셋·maintain/audit/diff/duplicate 출력 재살균(hot·read와 대칭)·
+  SanitizeText Cf 문자(ZWSP·RLO) 제거+마커 대소문자 무시 치환·
+  backup 무인자 stdout 경고·unknown command/tool JSON 인코딩
+- [x] ④ 업데이트 공급망 — gzip 폭발 상한(해제 스트림 128MiB)·CI 액션
+  커밋 SHA 고정(유동 태그 태그 재작성 공격 차단)·루트 permissions
+  박탈+잡별 최소. 수용 룰링: 같은 오리진 체크섬(계정 침해 시 무력 —
+  서명은 다음 경화 단계)·.mcpb checksums 대상 외(레지스트리 사슬이
+  무결)·mcp-publisher 다운로드 TLS 오리진 신뢰
+- [x] ⑤ 노출면 최소화 — docker-compose 127.0.0.1 바인딩(0.0.0.0 LAN
+  노출 폐쇄, 실행 컨테이너 재생성 적용)·MCP stdio 전용·파괴 연산
+  미노출 확인(감사)·doctor backup-key 체크(②)
+- [x] ⑥ 정적 보안 게이트 도입 검토 — gosec v2.22.7 시험: 31건 전부
+  설계 의도(공개 스킬 파일 0644·하네스 설정 관례·검증된 자가 갱신
+  exec·로컬 기본 DSN) — 신규 결함 0. 룰링: make ci 편입 불채택
+  (설계 FP 25+건 억제 소음 비용 > 효과 — staticcheck·리뷰 게이트·
+  본 감사가 커버)
+- [x] ⑦ secrets 패턴 갱신 — AI 생태계 4종 추가(openrouter sk-or-
+  specific·github-app gh[opsr]_·groq gsk_·xai) — gitleaks 상위 추적
+- [x] 버전 — VERSION·배지 v0.28.0(EN/KO)·plugin.json 동기
+
+룰링: 의존 filippo.io/age v1.2.1 추가(자체 crypto 회피 — PLAN F 명시
+후보·감사된 순수 Go 구현)·키 파일 방식(자동 백업 비대화형 호환 —
+passphrase는 요청 시)·암호화 기본 OFF 옵트인·사이드카는 암호문 기준
+(평문 무결성은 age AEAD가 담보)·수동 백업도 meta backup_encrypt 일관
+적용(stdout 파이프는 평문 계약 유지).
 
 ### v0.27.4 패치 (2026-11-09) — v0.27.x 패치 루프 4차: doctor secrets 스캔 계약 완결
 

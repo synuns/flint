@@ -31,11 +31,28 @@
 - `flint maintain --check`가 30일 경과를 보고한다. 경과 시 최신 덤프로
   drill을 반복한다. 주기: **30일마다 1회**.
 
-## 4. 백업 보존 — keep-N
+## 4. 백업 보존 — keep-N · 암호화 (v0.28.0)
 
 - `flint backup` — `meta.backup_keep`(기본 14)에 따라 오래된 덤프와
-  sha256 사이드카를 함께 삭제한다(keep-N).
+  sha256 사이드카를 함께 삭제한다(keep-N). `.sql`(평문)·`.sql.age`
+  (암호문) 모두 로테이션 대상.
 - 보존 수는 `meta` 테이블의 `backup_keep` 값으로 조정한다(기본 14).
+
+### 백업 암호화 (옵트인)
+
+- 켜기: `flint tuning set backup_encrypt true`(또는 1회성
+  `flint backup --out <경로> --encrypt`). 키 파일
+  `설정 디렉터리의 backup.key(FLINT_CONFIG_DIR 또는 OS 표준 — macOS ~/Library/Application Support/flint, Linux ~/.config/flint · `flint doctor --check backup-key`가 실제 경로 표시)`(0600)가 첫 암호화 시 자동 생성된다.
+- **키 분실 = 암호화 백업 해독 불가** — 키 파일은 패스워드 매니저 등에
+  별도 사본을 보관한다. 기기 교체 시 키 파일 이전이 먼저다.
+- 위협 모델: 백업 파일이 기기를 벗어나는 유출(클라우드 동기화·복사·
+  업로드 사고) 방지. 키까지 함께 탈취되는 기기 전체 침해·로컬 권한
+  상승은 방어 대상이 아니다(로컬 단일 사용자 전제).
+- 복호은 `flint restore`가 형식 감지 후 자동 수행(`--drill` 동일) —
+  키 부재 시 명확 에러로 차단된다.
+- 진단·공유용 마스킹 덤프(`flint backup --mask --out`)는 비밀 패턴을
+  치환한 비복원 아티팩트다(사이드카 미부여·마커 이중 방어).
+- doctor `backup-key` 체크: 암호화 켜짐인데 키 부재·권한 이완 경고.
 
 ## 5. 진단 — `flint doctor` (v0.6 → v0.16.2 확장)
 

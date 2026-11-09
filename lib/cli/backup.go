@@ -21,28 +21,65 @@ import (
 
 // dumpFn·restoreFn — seam. 기본 T12 실구현, 테스트는 fake 교체(SUPERLITE_REAL=1은 위임).
 var (
-	dumpFn    = backup.Dump
-	restoreFn = backup.Restore
-	drillFn   = backup.RunDrill
-	rotateFn  = backup.Rotate
-	keepFn    = backup.BackupKeep
+	dumpFn       = backup.Dump
+	restoreFn    = backup.Restore
+	drillDataFn  = backup.RunDrillData
+	rotateFn     = backup.Rotate
+	keepFn       = backup.BackupKeep
+	ensureKeyFn  = backup.EnsureIdentity
+	encryptToFn  = backup.EncryptTo
+	maskSecretsF = store.MaskSecrets
 )
+
+// BackupKeyPath — 암호화 백업 identity 경로(config 디렉터리, v0.28.0).
+func BackupKeyPath() string {
+	d := configDir()
+	if d == "" {
+		return ""
+	}
+	return filepath.Join(d, "backup.key")
+}
+
+// backupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(리뷰 8:
+// 수동·자동·doctor 3곳이 각자 판정하면 형식 확장 시 정합 분기).
+func backupEncryptOn(v string) bool {
+	return v == "true" || v == "1"
+}
 
 // runBackup — 덤프 생성. Store는 root 디스패치 호환용이며 사용하지 않는다
 // (Dump가 자체 풀을 연다). stdout 모드는 버퍼 경유로 깨끗한 출력을 보장한다.
+// v0.28.0(H②): --encrypt(age 암호화·--out 필수)·--mask(비밀 패턴 치환
+// 진단 덤프 — 사이드카 미부여 비복원 아티팩트).
 func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	out := ""
+	encrypt, mask := false, false
 	for i := 0; i < len(args); i++ {
-		if args[i] != "--out" {
+		switch args[i] {
+		case "--out":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("--out requires a path")))
+				return 1
+			}
+			out = args[i]
+		case "--encrypt":
+			encrypt = true
+		case "--mask":
+			mask = true
+		default:
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 1
 		}
-		i++
-		if i >= len(args) {
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("--out requires a path")))
-			return 1
-		}
-		out = args[i]
+	}
+	if encrypt && out == "" {
+		fmt.Fprintln(stdout, errLine(fmt.Errorf("--encrypt requires --out (암호문은 파일로만)")))
+		return 1
+	}
+	// v0.28.0: meta backup_encrypt=true면 수동 백업도 암호화(일관성 —
+	// 플래그 없이 평문·자동만 암호문인 혼재 방지). stdout 파이프는
+	// 평문 계약 유지(암호화는 파일 출력만).
+	if !encrypt && out != "" && backupEncryptMeta(ctx, st) {
+		encrypt = true
 	}
 
 	var buf bytes.Buffer
@@ -50,27 +87,83 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
+	data := buf.Bytes()
+
+	extra := ""
+	if mask {
+		// 마스킹 — 진단·공유용: 비밀 패턴 치환 + 비복원 마커 선두 부착.
+		data = append([]byte(backup.MaskDumpHeader+"\n"), maskSecretsF(string(data))...)
+		extra += `,"masked":true`
+	}
+	if encrypt {
+		key := BackupKeyPath()
+		if key == "" {
+			fmt.Fprintln(stdout, errLine(fmt.Errorf("config 디렉터리 미확인 — 키 경로 조립 불가")))
+			return 1
+		}
+		id, err := ensureKeyFn(key)
+		if err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			return 1
+		}
+		var eb bytes.Buffer
+		if err := encryptToFn(&eb, data, id.Recipient()); err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			return 1
+		}
+		data = eb.Bytes()
+		extra += `,"encrypted":true`
+	}
 
 	if out == "" {
-		buf.WriteTo(stdout)
+		// v0.28.0(H③): 무인자 stdout은 전체 DB 평문 노출(터미널 스크롤백·
+		// 로그·에이전트 컨텍스트) — 파일 0600 정책과의 자세 상충을 경고로
+		// 메운다(사용은 허용 — 파이프 리다이렉션 관례).
+		if !encrypt && !mask {
+			fmt.Fprintln(os.Stderr, "[flint] backup: 평문 덤프를 stdout에 출력 — 터미널·로그 유출 주의(파일 저장 권장)")
+		}
+		stdout.Write(data)
 		return 0
 	}
-	if err := os.WriteFile(out, buf.Bytes(), 0o600); err != nil { // v0.20.6 S3: 민감 평문 덤프
+	if err := os.WriteFile(out, data, 0o600); err != nil { // v0.20.6 S3: 민감 평문 덤프
 		fmt.Fprintln(stdout, errLine(err))
 		return 1
 	}
+	// v0.28.0(H③): WriteFile의 퍼모드는 신규 파일에만 적용 — 기존 파일
+	// 재사용 시 완화된 모드가 남아 민감 덤프가 느슨하게 노출된다. 강제.
+	if err := os.Chmod(out, 0o600); err != nil {
+		fmt.Fprintln(os.Stderr, "[flint] backup: 권한 0600 강제 실패:", err)
+	}
 	// ADR-0006: 원본+.sha256 사이드카 생성(restore 검증용). 실패는 덤프 성공을 해치지 않는다.
+	// v0.28.0: 암호화 백업의 사이드카는 암호문 기준(저장 아티팩트 무결성 —
+	// 평문 무결성은 age AEAD가 담보). 마스킹 덤프는 비복원 아티팩트라
+	// 사이드카를 부여하지 않는다(restore 원천 차단 + 마커 이중 방어).
 	sumField := ""
-	if _, sum, cerr := backup.Checksum(&buf); cerr == nil {
-		if serr := backup.WriteSidecar(out, sum); serr == nil {
-			sumField = `,"sha256":` + quoteJSON(sum)
+	if !mask {
+		if _, sum, cerr := backup.Checksum(bytes.NewBuffer(data)); cerr == nil {
+			if serr := backup.WriteSidecar(out, sum); serr == nil {
+				sumField = `,"sha256":` + quoteJSON(sum)
+			}
 		}
 	}
 	// T54: 백업 성공 경로 마지막에 로테이션 — keep은 meta backup_keep(기본 14).
 	// 로테이션 실패도 백업 성공을 해치지 않는다. quoteJSON이 이미 따옴표를
 	// 감싸므로 추가 `"` 금지(F-T54-1 회귀 — 겹따옴표로 JSON 파손).
-	fmt.Fprintln(stdout, `{"status":"ok","path":`+quoteJSON(out)+sumField+rotateAfterBackup(ctx, st, out)+"}")
+	fmt.Fprintln(stdout, `{"status":"ok","path":`+quoteJSON(out)+sumField+extra+rotateAfterBackup(ctx, st, out)+"}")
 	return 0
+}
+
+// backupEncryptMeta — meta backup_encrypt 판정(오류·미설정=false 폴백).
+func backupEncryptMeta(ctx context.Context, st Store) bool {
+	if st == nil {
+		return false
+	}
+	rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{"backup_encrypt"})
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return false
+	}
+	v, _ := rows[0][0].(string)
+	return backupEncryptOn(v)
 }
 
 // rotateAfterBackup — 성공한 --out 경로 뒤 로테이션 요약 필드(`,"removed":N`)를
@@ -132,7 +225,14 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 
 	// ADR-0006 restore 가드 — 재생 전 체크섬 검증(가드는 이 1곳뿐).
 	// 백업 파일은 임의 SQL을 실행하므로 위조 감지 시 즉시 중단한다.
-	sum, verr := backup.VerifyFile(file)
+	// v0.28.0(H③): 파일을 1회만 읽고 그 바이트를 검증·재생한다 —
+	// 검증 후 재오픈(VerifyFile→os.Open)의 TOCTOU 창을 제거.
+	raw, rerr2 := os.ReadFile(file)
+	if rerr2 != nil {
+		fmt.Fprintln(stdout, errLine(rerr2))
+		return 1
+	}
+	sum, verr := backup.VerifyBytes(raw, file+".sha256")
 	if errors.Is(verr, backup.ErrChecksumMismatch) {
 		fmt.Fprintln(stdout, mismatchLine(file))
 		return 1
@@ -151,17 +251,28 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	}
 	_ = sum
 
-	f, err := os.Open(file)
-	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+	// v0.28.0(H②): 판독 단일 경로 — age 복호·마스킹 거부가 검증된 바이트에
+	// 적용된다. 키 경로는 항상 전달(평문이면 사용하지 않는다).
+	key := BackupKeyPath()
+	data, rerr := backup.ReadDumpFrom(raw, key)
+	if errors.Is(rerr, backup.ErrMaskedDump) {
+		fmt.Fprintln(stdout, `{"error":"masked dump — 마스킹 덤프는 진단·공유 전용(복원 불가)"}`)
 		return 1
 	}
-	defer f.Close()
+	if errors.Is(rerr, backup.ErrKeyPathRequired) || errors.Is(rerr, backup.ErrEncryptKeyMissing) || errors.Is(rerr, backup.ErrEncryptKeyCorrupt) {
+		fmt.Fprintf(stdout, `{"error":"암호화 백업 복호 불가 — 키 파일 필요/불량(%s). 키 분실·손상 시 해독 불가(RUNBOOK)"}`+"\n", key)
+		return 1
+	}
+	if rerr != nil {
+		fmt.Fprintln(stdout, errLine(rerr))
+		return 1
+	}
 
 	// --drill — 실재생 대신 훈련: flint_drill_db 데이터베이스에 재생해 행수 대조.
 	// 원본은 불변이며, 결과는 한 줄 JSON(불일치 시 ok:false + exit 1).
+	// v0.28.0(H③): 검증·복호된 바이트를 그대로 재생(drillDataFn).
 	if drill {
-		res, derr := drillFn(dsnFromEnv(), file)
+		res, derr := drillDataFn(dsnFromEnv(), data)
 		if derr != nil {
 			fmt.Fprintln(stdout, errLine(derr))
 			return store.MapExit(derr)
@@ -178,7 +289,7 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 0
 	}
 
-	if err := restoreFn(ctx, dsnFromEnv(), f); err != nil {
+	if err := restoreFn(ctx, dsnFromEnv(), bytes.NewReader(data)); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
