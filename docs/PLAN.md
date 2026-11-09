@@ -385,6 +385,15 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.28.1 패치 (2026-11-09) — v0.28.x 패치 루프 1차: doctor 전체 체인 backup-key 배선
+
+- [x] v0.28.0 결함 수선 — backup-key 체크를 doctorTailChecks(--check 허용
+  목록)에만 추가하고 전체 실행 체인 append를 누락해 `flint doctor`가
+  체크를 실행하지 않았다. 체인 말미(event-volume 뒤)에 삽입
+- [x] 재발 방지 — 전체 체인 출력이 doctorTailChecks 전 항목을 포함하는
+  정합 테스트(이름 소스 불일치 배선 누락 클래스 봉쇄)
+- [x] 버전 — VERSION·배지 v0.28.1(EN/KO)·plugin.json 동기
+
 ### v0.28.0 마이너 (2026-11-09) — 전체 보안 점검·경화 (H)
 
 원칙: 아키텍처 틀(단일 바이너리·한 줄 JSON·exit 계약·비간섭 §13·

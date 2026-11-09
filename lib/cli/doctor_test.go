@@ -710,3 +710,21 @@ func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 		t.Errorf("격차 미주석 = %+v", c)
 	}
 }
+
+// TestDoctorFullChainIncludesTailChecks — v0.28.1: 전체 실행 체인과
+// doctorTailChecks(--check 허용 목록)의 정합 — v0.28.0에서 backup-key를
+// 목록에만 추가하고 체인 append를 누락해 전체 doctor가 체크를 실행하지
+// 않던 배선 누락의 재발 방지(이름 소스 단일화 검증).
+func TestDoctorFullChainIncludesTailChecks(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	f := &fakeStore{queryFn: doctorQueryFn(time.Now().Add(-time.Hour), time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))}
+	out, code := runDoctorArgs(t, f)
+	if code != 0 && !strings.Contains(out, `"status":"warn"`) {
+		t.Fatalf("doctor exit=%d: %s", code, out)
+	}
+	for _, name := range doctorTailChecks() {
+		if !strings.Contains(out, `"name":"`+name+`"`) {
+			t.Errorf("전체 체인에 %s 부재 — doctorTailChecks와 실행 체인 불일치", name)
+		}
+	}
+}
