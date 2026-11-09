@@ -2,7 +2,9 @@ services:
   doltgres:
     image: dolthub/doltgresql:latest
     ports:
-      - "5434:5432"
+      # v0.28.0(H⑤): 루프백 바인딩 — 미지정 시 0.0.0.0로 LAN 노출
+      # (기본 자격증명과 결합해 같은 네트워크 기기의 DB 접근 허용).
+      - "127.0.0.1:5434:5432"
     environment:
       DOLTGRES_USER: flint
       DOLTGRES_PASSWORD: flint-dev

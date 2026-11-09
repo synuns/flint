@@ -483,8 +483,10 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 			}
 			recipient = id.Recipient()
 		}
+		// v0.28.0(H③): 파일명에 PID — 병렬 세션이 같은 초에 종료해도
+		// O_TRUNC 상호 덮어쓰기(내용 뒤섞임)가 없게 한다.
 		name := filepath.Join(l.dir,
-			"flint-"+time.Now().UTC().Format("20060102-150405")+ext)
+			"flint-"+time.Now().UTC().Format("20060102-150405")+"-"+strconv.Itoa(os.Getpid())+ext)
 		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // v0.20.6 S3
 		if err != nil {
 			l.failed = true

@@ -21,10 +21,16 @@ import (
 // ageHeader — age 바이너리 형식 고정 접두(형식 감지).
 const ageHeader = "age-encryption.org/"
 
-// EncryptKeyMissing — identity 파일 부재·불량 시 복호 불가 에러.
-var EncryptKeyMissing = errors.New("backup encrypt: identity 키 파일 부재·불량 — RUNBOOK '백업 암호화' 참조")
+// EncryptKeyMissing — identity 파일 부재(첫 사용 등).
+var EncryptKeyMissing = errors.New("backup encrypt: identity 키 파일 부재 — RUNBOOK '백업 암호화' 참조")
 
-// LoadIdentity — path에서 age X25519 identity 로드(부재·불량 → EncryptKeyMissing).
+// EncryptKeyCorrupt — identity 파일 존재하나 해석 불가(덮어쓰기 금지 —
+// 기존 키 암호문의 영구 복호 불가 확정 방지).
+var EncryptKeyCorrupt = errors.New("backup encrypt: identity 키 파일 불량 — 새 키 생성은 기존 암호문을 해독 불능으로 만든다(수동 확인: RUNBOOK)")
+
+// LoadIdentity — path에서 age X25519 identity 로드(부재 → EncryptKeyMissing,
+// 불량 → EncryptKeyCorrupt — v0.28.0: 구분해 EnsureIdentity가 불량 키를
+// 조용히 덮어쓰지 않게 한다).
 func LoadIdentity(path string) (*age.X25519Identity, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -32,16 +38,19 @@ func LoadIdentity(path string) (*age.X25519Identity, error) {
 	}
 	id, err := age.ParseX25519Identity(strings.TrimSpace(string(b)))
 	if err != nil {
-		return nil, EncryptKeyMissing
+		return nil, EncryptKeyCorrupt
 	}
 	return id, nil
 }
 
-// EnsureIdentity — identity 로드, 부재 시 생성·저장(0600 — 키 파일은
-// 기기 로컬 비밀). 첫 암호화 백업 시 자동 생성된다.
+// EnsureIdentity — identity 로드, 부재 시에만 생성·저장. 불량 기존 키는
+// 에러(기존 키로 암호화된 백업의 영구 복호 불가가 조용히 확정되는 것을
+// 방지 — 감사 발견). 저장은 임시 파일+rename 원자화(잘린 키 잔존 방지).
 func EnsureIdentity(path string) (*age.X25519Identity, error) {
 	if id, err := LoadIdentity(path); err == nil {
 		return id, nil
+	} else if !errors.Is(err, EncryptKeyMissing) {
+		return nil, err // 불량 키 — 덮어쓰지 않는다
 	}
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -50,8 +59,28 @@ func EnsureIdentity(path string) (*age.X25519Identity, error) {
 	if err := os.MkdirAll(dirOf(path), 0o700); err != nil {
 		return nil, fmt.Errorf("backup encrypt: 키 디렉터리: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(id.String()+"\n"), 0o600); err != nil {
-		return nil, fmt.Errorf("backup encrypt: 키 저장: %w", err)
+	// 원자 쓰기 — 같은 디렉터리 임시 파일(O_EXCL)+rename(0600).
+	tmp, err := os.CreateTemp(dirOf(path), ".backup.key-*")
+	if err != nil {
+		return nil, fmt.Errorf("backup encrypt: 임시 파일: %w", err)
+	}
+	tmpName := tmp.Name()
+	if _, err := tmp.WriteString(id.String() + "\n"); err != nil {
+		tmp.Close()
+		os.Remove(tmpName)
+		return nil, fmt.Errorf("backup encrypt: 키 기록: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		os.Remove(tmpName)
+		return nil, fmt.Errorf("backup encrypt: 키 기록: %w", err)
+	}
+	if err := os.Chmod(tmpName, 0o600); err != nil {
+		os.Remove(tmpName)
+		return nil, fmt.Errorf("backup encrypt: 키 권한: %w", err)
+	}
+	if err := os.Rename(tmpName, path); err != nil {
+		os.Remove(tmpName)
+		return nil, fmt.Errorf("backup encrypt: 키 확정: %w", err)
 	}
 	return id, nil
 }

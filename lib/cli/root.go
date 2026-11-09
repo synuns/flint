@@ -55,7 +55,10 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 	}
 	run, ok := Lookup(cmd)
 	if !ok {
-		fmt.Fprintln(stdout, `{"error":"unknown command: `+cmd+`"}`)
+		// v0.28.0(H③): 이름 이스케이프 — 원시 결합은 호출자 제어 문자열로
+		// JSON 구조 자체를 파손할 수 있다.
+		b, _ := json.Marshal(map[string]string{"error": "unknown command: " + cmd})
+		fmt.Fprintln(stdout, string(b))
 		return 1
 	}
 	ctx := context.Background()

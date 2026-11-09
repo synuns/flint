@@ -27,6 +27,12 @@ func ReadDumpBytes(path, keyPath string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	return ReadDumpFrom(b, keyPath)
+}
+
+// ReadDumpFrom — 미리 읽은(검증된) 바이트의 판독(v0.28.0 H③: restore
+// TOCTOU 폐쇄 — 파일 재판독 없이 검증한 바이트를 복호·검사한다).
+func ReadDumpFrom(b []byte, keyPath string) ([]byte, error) {
 	if ok, _ := IsEncrypted(bytes.NewReader(b)); ok {
 		if keyPath == "" {
 			return nil, ErrKeyPathRequired

@@ -515,7 +515,13 @@ func applyHookFix(path string, binPath string) (applied bool, backupPath string,
 	}
 	if existed { // 백업은 원본이 있을 때만
 		backupPath = path + ".flint-bak-" + time.Now().Format("20060102-150405")
-		if err := os.WriteFile(backupPath, b, 0o644); err != nil {
+		// v0.28.0(H③): 백업 사본은 원본 권한을 승계 — WriteFile 고정
+		// 퍼모드(0644)가 0600으로 관리되던 원본의 사본을 강등하던 결함.
+		mode := os.FileMode(0o600)
+		if fi, serr := os.Stat(path); serr == nil {
+			mode = fi.Mode().Perm()
+		}
+		if err := os.WriteFile(backupPath, b, mode); err != nil {
 			return false, "", err
 		}
 	}

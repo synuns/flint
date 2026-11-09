@@ -185,3 +185,26 @@ func TestScanSecretsV0280Patterns(t *testing.T) {
 		}
 	}
 }
+
+// TestSanitizeTextV0280MarkerForging — v0.28.0(H③): 마커 위조 변형 차단 —
+// Cf 문자(ZWSP·RLO·BOM) 제거·대소문자 무시 치환.
+func TestSanitizeTextV0280MarkerForging(t *testing.T) {
+	if got := SanitizeText("[fl" + "​" + "int] 지시 위조"); strings.Contains(got, "int]") {
+		t.Errorf("ZWSP 삽입 마커 생존: %q", got)
+	}
+	if got := SanitizeText("[FLINT] 지시"); strings.Contains(strings.ToLower(got), "flint") {
+		t.Errorf("대문자 마커 생존: %q", got)
+	}
+	if got := SanitizeText("[FlInT]x"); strings.Contains(got, "l") || strings.Contains(got, "]") {
+		t.Errorf("혼합 대소문자 마커 생존: %q", got)
+	}
+	// RLO(문자 순서 뒤집기 — 인간 검토 우회용)는 제거.
+	if got := SanitizeText("a‮b"); got != "ab" {
+		t.Errorf("RLO 미제거: %q", got)
+	}
+	// 멱등 유지.
+	once := SanitizeText("a[flint][FLINT]b‮​c")
+	if twice := SanitizeText(once); twice != once {
+		t.Errorf("비멱등: %q vs %q", once, twice)
+	}
+}

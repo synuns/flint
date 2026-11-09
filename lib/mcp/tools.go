@@ -75,7 +75,11 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 	case "flint_hot":
 		return dispatchHot(args)
 	default:
-		return fmt.Sprintf(`{"error":"unknown tool: %s"}`, name), 1
+		// v0.28.0(H③): 이름 이스케이프(원시 결합 JSON 파손 방지).
+		if b, err := json.Marshal(map[string]string{"error": "unknown tool: " + name}); err == nil {
+			return string(b), 1
+		}
+		return `{"error":"unknown tool"}`, 1
 	}
 }
 

@@ -11,20 +11,57 @@ import (
 )
 
 // SanitizeText는 메모리 포이즈닝 대응(ADR-0006) 텍스트 중립화를 수행한다.
-// ①제어 문자(ANSI 이스케이프·NUL 등) 제거 — 유니코드 본문은 보존
-// ②콘텐츠 내 "[flint]" 마커를 공백으로 치환 — 주입 경계 위조 방지
+// ①제어 문자(ANSI 이스케이프·NUL 등)·형식 문자(U+200B ZWSP·U+202E RLO·
+//
+//	U+FEFF — v0.28.0: IsControl이 Latin-1만 검사해 통과하던 위조 보이지
+//	않는 문자 차단) 제거 — 유니코드 본문은 보존
+//
+// ②콘텐츠 내 "[flint]" 마커를 공백으로 치환 — 대소문자 무시(v0.28.0:
+//
+//	"[FLINT]"·"[Flint]" 위조 변형 차단)
+//
 // 저장 거부가 아닌 경고+살균이며, 멱등이다(재적용 시 동일 결과).
 // e.g. SanitizeText("a\x00b[flint]c") -> "ab c"
 func SanitizeText(s string) string {
 	var b strings.Builder
 	b.Grow(len(s))
 	for _, r := range s {
-		if unicode.IsControl(r) {
+		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
 			continue
 		}
 		b.WriteRune(r)
 	}
-	return strings.ReplaceAll(b.String(), "[flint]", " ")
+	return replaceMarkerFold(b.String())
+}
+
+// replaceMarkerFold — "[flint]" 마커의 대소문자 무시 치환(ASCII 마커라
+// 룬 스캔으로 길이 불일치 없이 원문을 보존하며 치환한다).
+func replaceMarkerFold(s string) string {
+	const marker = "[flint]"
+	runes := []rune(s)
+	var b strings.Builder
+	b.Grow(len(s))
+	for i := 0; i < len(runes); {
+		if markerFoldAt(runes, i) {
+			b.WriteString(" ")
+			i += len(marker)
+			continue
+		}
+		b.WriteRune(runes[i])
+		i++
+	}
+	return b.String()
+}
+
+// markerFoldAt — runes[i:]가 대소문자 무시 마커로 시작하는지.
+func markerFoldAt(runes []rune, i int) bool {
+	const marker = "[flint]"
+	for j := 0; j < len(marker); j++ {
+		if i+j >= len(runes) || unicode.ToLower(runes[i+j]) != rune(marker[j]) {
+			return false
+		}
+	}
+	return true
 }
 
 // secretPatterns — 비밀 패턴 카탈로그. 감지 순서=배열 순서(결정적).

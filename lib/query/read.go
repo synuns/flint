@@ -107,15 +107,17 @@ var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 var quoteEscaper = strings.NewReplacer(`'`, `''`)
 
 // RankOrder — 검색 랭킹 정렬 절(T56): 주제어 정확 일치 우선 → confidence →
-// 최신 수집 순. q는 작은따옴표를 ”로 이스케이프해 인라인한다(ORDER BY 식
-// 조립용 문자열 절 계약).
+// 최신 수집 순.
 // v0.6(T68): 동률에서만 최근 참조 우선 — 말미에 last_read_at DESC NULLS LAST
 // 추가(조회시 파생·저장값 불변). NULLS LAST로 미참조 항목은 동률 꼴찌.
 // v0.13.0(R1): 채택 재랭킹 — last_read_at 뒤 최종 타이브레이크로 read_count
 // DESC 추가(많이 읽힌 항목 우선). 상위 순위 요소는 불변.
-func RankOrder(q string) string {
-	return fmt.Sprintf("ORDER BY (lower(topic)=lower('%s')) DESC, confidence DESC, ingested_at DESC, last_read_at DESC NULLS LAST, read_count DESC",
-		quoteEscaper.Replace(q))
+// v0.28.0(H③): q는 인라인 리터럴이 아니라 파라미터 — 호출부가 args에
+// append한 뒤 그 인덱스를 받는다(같은 쿼리의 LIKE 절과 계약 일치,
+// standard_conforming_strings 의존 제거).
+func RankOrder(placeholder int) string {
+	return fmt.Sprintf("ORDER BY (lower(topic)=lower($%d)) DESC, confidence DESC, ingested_at DESC, last_read_at DESC NULLS LAST, read_count DESC",
+		placeholder)
 }
 
 // appendReadFilters — q·tag·entity·domain 필터의 where절·placeholder 인자
@@ -155,7 +157,8 @@ func BuildRead(q string, f Filters) (string, []any) {
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
-	sql += " " + RankOrder(q)
+	args = append(args, q) // v0.28.0(H③): 랭킹 정합값 파라미터화
+	sql += " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args
@@ -183,8 +186,9 @@ func BuildReadStatus(q string, f Filters) (string, []any) {
 	}
 	where, args = appendReadFilters(where, args, q, f)
 
+	args = append(args, q) // v0.28.0(H③): 랭킹 정합값 파라미터화
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM knowledge WHERE " +
-		strings.Join(where, " AND ") + " " + RankOrder(q)
+		strings.Join(where, " AND ") + " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args
@@ -221,8 +225,9 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 		args = append(args, f.Domain)
 		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
 	}
+	args = append(args, q) // v0.28.0(H③): 랭킹 정합값 파라미터화
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge WHERE " +
-		strings.Join(where, " AND ") + " " + RankOrder(q)
+		strings.Join(where, " AND ") + " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args, true

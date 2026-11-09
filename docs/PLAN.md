@@ -398,13 +398,22 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
   restore/drill 복호 경로·rotate .age 인식·doctor backup-key 체크)·
   마스킹 덤프(--mask — 패턴명 치환·allowlist 원문 보존·사이드카
   미부여+마커 이중 방어) — F②④ 승계 완료
-- [ ] ③ 전체 코드베이스 보안 감사 — 4각도 병렬 감사(SQL·파일시스템·
-  네트워크·주입/누설) 진행 중 — 발견 반영 대기
-- [ ] ④ 업데이트 공급망 — sha256 checksums.txt 검증 재점검(체인
-  무결)·https 가드·리다이렉트 정책·다운로드 크기 상한 재확인
-- [ ] ⑤ 노출면 최소화 — MCP 서버 바인딩·Doltgres 기본 자격 증명
-  경고(flint-dev)·doctor 통합 보안 체크(키 부재·권한 이완 —
-  backup-key 체크 ②에서 선행 구현)
+- [x] ③ 전체 코드베이스 보안 감사(4각도 병렬: SQL·파일시스템·네트워크·
+  주입/누설 — 발견 22건) — 즉시 수정 16건: doctor 백업 권한 승계·
+  EnsureIdentity 원자 쓰기+불량 키 거부·backup --out chmod 강제·자동
+  덤프 파일명 PID(병렬 경합)·restore TOCTOU 폐쇄(단일 판독 검증·재생)·
+  insertOne 식별자 DB 계층 인용·RankOrder 파라미터화·as-of 해시 엄격
+  문자셋·maintain/audit/diff/duplicate 출력 재살균(hot·read와 대칭)·
+  SanitizeText Cf 문자(ZWSP·RLO) 제거+마커 대소문자 무시 치환·
+  backup 무인자 stdout 경고·unknown command/tool JSON 인코딩
+- [x] ④ 업데이트 공급망 — gzip 폭발 상한(해제 스트림 128MiB)·CI 액션
+  커밋 SHA 고정(유동 태그 태그 재작성 공격 차단)·루트 permissions
+  박탈+잡별 최소. 수용 룰링: 같은 오리진 체크섬(계정 침해 시 무력 —
+  서명은 다음 경화 단계)·.mcpb checksums 대상 외(레지스트리 사슬이
+  무결)·mcp-publisher 다운로드 TLS 오리진 신뢰
+- [x] ⑤ 노출면 최소화 — docker-compose 127.0.0.1 바인딩(0.0.0.0 LAN
+  노출 폐쇄, 실행 컨테이너 재생성 적용)·MCP stdio 전용·파괴 연산
+  미노출 확인(감사)·doctor backup-key 체크(②)
 - [x] ⑥ 정적 보안 게이트 도입 검토 — gosec v2.22.7 시험: 31건 전부
   설계 의도(공개 스킬 파일 0644·하네스 설정 관례·검증된 자가 갱신
   exec·로컬 기본 DSN) — 신규 결함 0. 룰링: make ci 편입 불채택

@@ -7,9 +7,9 @@ import (
 )
 
 func TestRankOrderEndsWithReadCount(t *testing.T) {
-	got := RankOrder("백업")
+	got := RankOrder(2) // v0.28.0: 파라미터 인덱스
 	if !strings.Contains(got, "last_read_at DESC NULLS LAST, read_count DESC") {
-		t.Errorf("read_count 타이브레이크 누락: %s", got)
+		t.Errorf("read_count 타이브레이커 누락: %s", got)
 	}
 }
 
