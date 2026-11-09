@@ -55,12 +55,20 @@ func runCompact(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 0
 	}
 	// 적립 성공 + 세션 식별 가능 → Stop 훅 nudge용 마커. 실패는 stderr
-	// 1행 경고로 조용히(done 패턴, 비간섭 §13).
+	// 1행 경고로 조용히(done 패턴, 비간섭 §13). v0.27.2 리뷰 1: 세션
+	// 지식화 마커보다 먼저 — maybeSessionKnowledge가 적립하면 그 마커가
+	// 이 파일을 덮어쓰고(같은 markerKindDistill), 스킵(짧음·중복·빈도)
+	// 시 이 compact 마커가 남는다. 어느 쪽이든 증류 nudge는 유지된다.
 	if h.SessionID != "" {
 		if err := WriteMarker(h.SessionID, "compact"); err != nil {
 			fmt.Fprintf(os.Stderr, "[flint] compact marker: %v\n", err)
 		}
 	}
+	// v0.27.2: 세션 지식화(R1)의 표준 경로 — Claude Code 규격상
+	// compact_summary를 실제로 전달하는 훅은 PostCompact뿐(Stop stdin에는
+	// 이 필드가 없다). 세션 행(계측 원천)과 별개로 pending 지식 후보를
+	// 적립한다 — 빈도 상한·dedup는 maybeSessionKnowledge가 지닌다.
+	maybeSessionKnowledge(ctx, st, h.CompactSummary, "claude", h.SessionID)
 	return 0
 }
 

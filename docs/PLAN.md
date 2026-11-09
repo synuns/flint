@@ -402,6 +402,44 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.27.2 패치 (2026-11-09) — v0.27.x 패치 루프 2차: 세션 지식화 실질화
+
+다각도 재감사(5에이전트 병렬 + 실증) 24건 발견 중 세션 지식화 주관 8건:
+
+- [x] [정책] v0.27.0 엔트리의 운영 실측치 인용(백분율 2종) 일반 서술화 —
+  저장소 최상위 원칙(실측 수치 근거 인용 금지) 위반 수선
+- [x] [활성화] PostCompact 표준 경로 연결 — Claude Code 훅 규격상
+  compact_summary를 전달하는 훅은 PostCompact뿐(Stop stdin에는 해당
+  필드가 없음 — 공식 문서·운영 관측으로 확인). flint compact가 세션
+  행 적립과 별개로 maybeSessionKnowledge를 호출한다. Stop stdin 경로는
+  타 하네스 폴백으로 유지
+- [x] [활성화] stale 종료 경로에서도 지식화 — 조기 return 분기에 갇혀
+  미기록 연속 시 요약이 폐기되던 사각 제거
+- [x] [계약] tags를 []string{"process"}로 전달 — ":process:" 문자열은
+  normalizeTags default 분기에서 빈 문자열로 소거되어 모든 적립 행의
+  tags가 빈 값으로 저장되던 결함(done·import 양 경로)
+- [x] [계약] 요약 500룬 절단(import 대칭)·살균 후 길이 게이트·topic
+  살균(write 경로 대칭)
+- [x] [보안] done·import 적립 시점 ScanSecrets 경고 — write 경로 계약
+  정렬(경고만, doctor 사후 스캔과 이중 방어)
+- [x] [가시성] 적립 실패·마커 실패 stderr 1줄(완전 침묵 관례 비대칭 수선)
+- [x] 테스트 — 빈도 상한(당일 skip·경과 적립·파손 fail-open)·-1 끔
+  센티널·dedup skip·살균 후 게이트·절단·stale 경로 적립·PostCompact
+  적립·stdin 4분기·tags 단언. allowlist 테스트 전역 상태 cleanup 추가
+- [x] 리뷰 8건 반영 — 마커 순서(compact 마커 먼저, 지식화 마커 생존)·
+  세션 식별 가능할 때만 마커·비밀 경고는 dedup 통과분만(재경고 소음
+  방지)·빈 게이트를 임계값 로드 앞으로(불필요 왕복 제거)·origin hook
+  명시(기계 적립 식별)·runDone 꼬리 단일화(분기 이중 유지 드리프트
+  방지)·warnSecrets 헬퍼 3중 복제 수렴·폴백 주석 정정
+- [x] 버전 — VERSION·배지 v0.27.2(EN/KO)·plugin.json 동기
+
+이월(v0.27.3 후보): import 파서 견고화(주석-펜스 상태기 재작성·~~~
+펜스)·import 계약(배치 내 dedup·혼재 읽기 불가 보고·origin 정규화·
+ExistsHash 오류 계약)·doctor secrets sessions/행 상한 테스트·SKILL 낡은
+표현. 수용 룰링: 빈도 상한 경쟁(계측 목적·피해 제한적)·500룬 절단 후
+본문 수정 재적립 미반영(문서 언급). 지식 행 session_id 연결은 스키마
+무변경 원칙으로 마이너 후보.
+
 ### v0.27.1 패치 (2026-11-09) — v0.27.x 패치 루프 1차: 세션 지식화 활성화
 
 - [x] 운영 관측 발견 — v0.27.0 리뷰 1로 '대기 상태'였던 세션 지식화의
@@ -413,7 +451,7 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 ### v0.27.0 마이너 (2026-11-09) — 세션 지식화: 기억이 자라는 루프
 
 브레인스토밍(신규 발굴+운영 데이터+경쟁 동향) → "유입은 많고 순환이
-막힘"(pending 방치·dup 79%·hit 98% 포화) 판정:
+막힘"(pending 방치·재발견 다수·회상 포화 신호) 판정:
 
 - [x] R1 세션 지식화 — done이 세션 종료 요약에서 지식 후보를 pending
   으로 적립(규칙 기반: 최소 길이·빈도 상한 session_knowledge_days·

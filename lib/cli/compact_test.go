@@ -152,6 +152,41 @@ func TestCompact(t *testing.T) {
 	t.Run("write_fail_exit0", test_compact_write_fail_exit0)
 	t.Run("st_nil_noop", test_compact_st_nil_noop)
 	t.Run("store_error_quiet", test_compact_store_error_quiet)
+	t.Run("accrues_session_knowledge", test_compact_accrues_session_knowledge)
+}
+
+// test_compact_accrues_session_knowledge — v0.27.2: PostCompact의
+// compact_summary가 세션 지식화의 표준 경로 — 세션 행(계측)과 별개로
+// pending knowledge가 적립된다(최소 길이 충족 요약).
+func test_compact_accrues_session_knowledge(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	f := &fakeStore{}
+	out, code := compactRun(t, f,
+		`{"hook_event_name":"PostCompact","session_id":"s1","compact_summary":"API 설계와 구현을 마쳤고 리뷰 피드백을 반영했다"}`)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	var session, knowledge int
+	for _, rec := range f.inserted {
+		if rec["kind"] == "session" {
+			session++
+		}
+		if rec["kind"] == "knowledge" {
+			knowledge++
+			if rec["status"] != "pending" {
+				t.Errorf("지식 상태=%v, want pending", rec["status"])
+			}
+			if tags, ok := rec["tags"].(string); !ok || tags != ":process:" {
+				t.Errorf("지식 tags=%#v, want \":process:\"", rec["tags"])
+			}
+		}
+	}
+	if session != 1 {
+		t.Fatalf("세션 행=%d, want 1", session)
+	}
+	if knowledge != 1 {
+		t.Fatalf("세션 지식화 적립=%d, want 1(PostCompact 표준 경로)", knowledge)
+	}
 }
 
 // test_compact_store_error_quiet — Run 진입에서 newStore 실패(DB 다운)도

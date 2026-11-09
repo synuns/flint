@@ -67,8 +67,9 @@ func logPlaybookUse(ctx context.Context, st Store, id int, ok bool) {
 type DoneResult struct {
 	Agent      string // 집계 대상 agent
 	Unrecorded int    // 미기록 연속 세션 수
-	// v0.27.0 R1: 종료 요약(세션 지식화 소스) — Compact 결과 요약이
-	// 전달되지 않으면 종료 상태 요약으로 폴백.
+	// v0.27.0 R1: 종료 요약(세션 지식화 소스) — Stop 훅 stdin이 요약을
+	// 전달하지 않으면 빈 값(폴백 상용구는 SessionRecord 전용 — 지식화는
+	// 빈 요약을 스킵한다, v0.27.0 리뷰 1).
 	Summary string
 }
 
@@ -94,10 +95,8 @@ func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) {
 	agent, _ := rec["agent"].(string)
 	// v0.26.2(재검수 발견2): agent 라벨 살균·비밀 스캔 — InsertBatch 직접
 	// 호출이라 sanitizePayload를 우회하던 사각([flint] 마커·비밀 무검사
-	// 저장). 경고만(저장은 계약대로 계속 — §13).
-	for _, name := range store.ScanSecrets(agent) {
-		fmt.Fprintf(os.Stderr, "[flint] session agent: possible secret: %s\n", name)
-	}
+	// 저장). 경고만(저장은 계약대로 계속 — §13). v0.27.2: warnSecrets 헬퍼로.
+	warnSecrets("session agent", agent)
 	agent = store.SanitizeText(agent)
 	rec["agent"] = agent
 	rows, err := queryOnce(ctx, st,
@@ -207,23 +206,22 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		return 0
 	}
 	// v0.27.1(패치 루프 1차): Stop 훅 stdin의 compact_summary를 세션
-	// 지식화 소스로 연결 — 리뷰 1 대기 상태 활성화. PostCompact 훅이
-	// 이미 이 필드를 생성하므로 표준 경로에서 실제 요약이 흐른다.
+	// 지식화 소스로 연결. v0.27.2 정정 — Claude Code 규격상 Stop stdin에
+	// 이 필드가 없으므로 이 경로는 타 하네스 폴백이고, 표준 경로는
+	// PostCompact(flint compact)의 maybeSessionKnowledge 호출이다.
 	res := &DoneResult{Agent: agent, Unrecorded: runs, Summary: doneStdinSummary(stdin)}
+	// v0.27.2: stale·recall·ok 출력 분기 뒤 공통 꼬리로 흐른다(종료 시퀀스
+	// 이중 유지로 인한 드리프트 방지 — stale 조기 return이 지식화를
+	// 누락시키던 사각의 재발 차단).
 	if runs >= th.StaleSessions {
 		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"연속 %d세션 미기록"}`+"\n", runs, runs)
-		writeSessionRecord(ctx, st, res.SessionRecord())
-		logPlaybookUse(ctx, st, playbook, playbookOK)
-		autoBackupFn(ctx)
-		return 0
-	}
-	// v0.18.0 R3: 회상 경고 — 오늘 회상 0회에 기록이 임계 이상이면 한 줄
-	// 경고로 종료(stale 경고와 같은 패턴 — 임계값 기반·종료 불가, §13).
-	// v0.18.1: Stop 훅 stdout은 자동 배선에서 안 보이므로 recall 마커도
-	// 남긴다 — 다음 SessionStart(nudge)가 1회 표시 후 소진한다.
-	// v0.18.2: 별도 파일(recall-hint.json) — 증류 대기 마커와 덮어쓰기
-	// 충돌 방지(수명 주기 상이: 1회성 vs 내구).
-	if w, starved := recallStarvedToday(ctx, st, th); starved {
+	} else if w, starved := recallStarvedToday(ctx, st, th); starved {
+		// v0.18.0 R3: 회상 경고 — 오늘 회상 0회에 기록이 임계 이상이면 한 줄
+		// 경고로 종료(stale 경고와 같은 패턴 — 임계값 기반·종료 불가, §13).
+		// v0.18.1: Stop 훅 stdout은 자동 배선에서 안 보이므로 recall 마커도
+		// 남긴다 — 다음 SessionStart(nudge)가 1회 표시 후 소진한다.
+		// v0.18.2: 별도 파일(recall-hint.json) — 증류 대기 마커와 덮어쓰기
+		// 충돌 방지(수명 주기 상이: 1회성 vs 내구).
 		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"오늘 회상 0회에 기록 %d회 — 다음 세션은 작업 전 flint read부터"}`+"\n", w, w)
 		// v0.24.0 R2a: 마커와 병행 meta 카운터 적립 — minimal 프로파일이
 		// 마커를 조용히 종결해도 doctor가 프로파일 무관 관측한다.
@@ -235,7 +233,9 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, `{"status":"ok"}`)
 	}
 	writeSessionRecord(ctx, st, res.SessionRecord())
-	maybeSessionKnowledge(ctx, st, res, agent, session)
+	// v0.27.2: stale 종료에서도 요약이 있으면 지식화 — 미기록 연속은
+	// 지식 보존이 가장 필요한 상황이므로 스킵하면 기능이 죽는다.
+	maybeSessionKnowledge(ctx, st, res.Summary, agent, session)
 	logPlaybookUse(ctx, st, playbook, playbookOK)
 	autoBackupFn(ctx)
 	return 0
@@ -244,18 +244,26 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 // maybeSessionKnowledge — v0.27.0 R1(세션 지식화): 세션 종료 시 세션
 // 요약에서 지식 후보를 pending knowledge로 적립한다. 규칙 기반만
 // (LLM 판정 배제 — §13·조사 확정): 최소 길이·중복(content_hash dedup)·
-// 빈도 상한(임계 session_knowledge_max_days로 일 1회)을 지닌 요약만.
+// 빈도 상한(임계 session_knowledge_days로 일 1회)을 지닌 요약만.
 // 적립은 pending(검수 대기) — approve 경로로 승격된다(신뢰 게이트 승계).
-func maybeSessionKnowledge(ctx context.Context, st Store, res *DoneResult, agent, session string) {
-	th := writeThresholds(ctx, st)
-	summary := strings.TrimSpace(res.Summary)
+// v0.27.2: 소스를 문자열로 받는다 — Stop 훅 stdin(타 하네스 폴백)과
+// PostCompact(flint compact — Claude Code 표준 경로, 요약의 실제 도달
+// 지점) 양쪽에서 호출. 계약 수선: 살균 후 길이 게이트·topic 살균·요약
+// 500룬 절단(import와 대칭)·tags []string("process" 문자열은
+// normalizeTags에서 빈 값으로 소거됨)·저장 시점 비밀 스캔 경고(write
+// 경로 계약 정렬).
+func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, session string) {
+	// v0.27.2 리뷰 4: 빈 게이트를 임계값 로드 앞으로 — 요약 없는 종료(일반
+	// Stop)가 thresholds 왕복을 물리지 않게 한다.
+	summary = truncateRunesImport(store.SanitizeText(strings.TrimSpace(summary)), 500)
 	// v0.27.0 리뷰 1: 실제 요약(Compact 결과 등)이 전달된 경우만 적립 —
 	// 폴백 상용구("세션 종료(미기록 N)")는 지식이 아니므로 스킵.
-	// 전달 경로(표준화) 활성 전까지 사실상 대기 상태: 마커·임계 회로는
-	// 유지되고 Summary가 채워지는 순간부터 자동 작동한다.
+	// v0.27.2: 게이트는 살균·절단 후 기준(제어문자뿐인 입력이 빈 summary
+	// 행으로 저장되는 사각 방지).
 	if summary == "" || len([]rune(summary)) < 12 {
 		return
 	}
+	th := writeThresholds(ctx, st)
 	if th.SessionKnowledgeDays <= 0 {
 		return // -1 = 끔
 	}
@@ -267,28 +275,52 @@ func maybeSessionKnowledge(ctx context.Context, st Store, res *DoneResult, agent
 			return
 		}
 	}
+	topic := store.SanitizeText(truncateRunesImport(
+		fmt.Sprintf("세션[%s]", agentLabel(agent, 24)), 80)) // v0.27.2: topic 살균(write 경로 대칭)
 	rec := map[string]any{
 		"kind":       "knowledge",
-		"topic":      fmt.Sprintf("세션[%s]", agentLabel(agent, 24)),
-		"summary":    store.SanitizeText(summary),
-		"tags":       ":process:",
+		"topic":      topic,
+		"summary":    summary,
+		"tags":       []string{"process"}, // v0.27.2: 문자열은 normalizeTags에서 소거
 		"domain":     "main",
 		"confidence": 0.5, // pending 게이트 — approve 경로 승격
 		"status":     "pending",
+		"origin":     "hook", // v0.27.2 리뷰 5: 기계 적립 식별(기본 "agent"와 구분)
 	}
 	rec = store.Normalize("knowledge", rec)
 	rec["content_hash"] = store.ContentHash(store.HashCanonical(rec))
 	if exists, err := st.ExistsHash(ctx, rec["content_hash"].(string)); err == nil && exists {
 		return // 중복 방지(같은 세션 재종료 재적립 차단)
 	}
+	// 저장 시점 비밀 스캔 — write 경로 계약 정렬(v0.27.2 리뷰 3: dedup
+	// 통과분만 경고 — 영구 skip되는 내용의 재경고 소음 방지). 경고만
+	// (저장 거부 아님 — doctor 사후 스캔과 이중 방어).
+	warnSecrets("session knowledge", summary)
 	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
-		return // 조용히 — 비간섭(§13): 지식화 실패가 done 종료를 깨지 않는다
+		// v0.27.2: 완전 침묵 대신 stderr 1줄(recall 마커 관례 정렬) —
+		// 종료는 막지 않는다(§13).
+		fmt.Fprintf(os.Stderr, "[flint] session knowledge: %v\n", err)
+		return
 	}
-	// 마커 적립 — 증류 회로(nudge 예산 문구)로 자연 연결(R2).
-	_ = WriteTypedMarker(markerKindDistill, session, "session-knowledge")
+	// 마커 적립 — 증류 회로(nudge 예산 문구)로 자연 연결(R2). 세션
+	// 식별 가능할 때만(v0.27.2 리뷰 2 — compact의 session_id 부재 폴백
+	// 마커와 인접 WriteMarker 가드 정렬).
+	if session != "" {
+		if merr := WriteTypedMarker(markerKindDistill, session, "session-knowledge"); merr != nil {
+			fmt.Fprintf(os.Stderr, "[flint] distill marker: %v\n", merr)
+		}
+	}
 	_, setKV := metaKV(ctx, st)
 	if setKV != nil {
 		_ = setKV("session_knowledge_last", time.Now().UTC().Format(time.RFC3339))
+	}
+}
+
+// warnSecrets — 저장 시점 비밀 스캔 경고의 단일 헬퍼(v0.27.2 리뷰 7:
+// writeSessionRecord·세션 지식화·import 3중 복제 수렴). stderr 1줄씩.
+func warnSecrets(prefix, s string) {
+	for _, name := range store.ScanSecrets(s) {
+		fmt.Fprintf(os.Stderr, "[flint] %s: possible secret: %s\n", prefix, name)
 	}
 }
 

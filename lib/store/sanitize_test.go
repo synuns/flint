@@ -126,7 +126,10 @@ func TestScanSecretsExpandedPatterns(t *testing.T) {
 }
 
 // TestLoadSecretsAllowlistFile — 발견7: 파일 로딩 파싱(# 주석·빈 줄·env).
+// v0.27.2: 종료 시 전역 상태 원복(잔존 항목이 같은 패키지 이후 테스트의
+// ScanSecrets를 오염 — 순서 의존 오탐 방지).
 func TestLoadSecretsAllowlistFile(t *testing.T) {
+	t.Cleanup(func() { ResetSecretsAllowlistForTest(nil) })
 	dir := t.TempDir()
 	path := dir + "/allow.txt"
 	if err := os.WriteFile(path, []byte("# 주석\n토큰123\n\n  공백줄스킵  \n토큰456"), 0o600); err != nil {
