@@ -22,24 +22,24 @@ import (
 // ageHeader — age 바이너리 형식 고정 접두(형식 감지).
 const ageHeader = "age-encryption.org/"
 
-// EncryptKeyMissing — identity 파일 부재(첫 사용 등).
-var EncryptKeyMissing = errors.New("backup encrypt: identity 키 파일 부재 — RUNBOOK '백업 암호화' 참조")
+// ErrEncryptKeyMissing — identity 파일 부재(첫 사용 등).
+var ErrEncryptKeyMissing = errors.New("backup encrypt: identity 키 파일 부재 — RUNBOOK '백업 암호화' 참조")
 
-// EncryptKeyCorrupt — identity 파일 존재하나 해석 불가(덮어쓰기 금지 —
+// ErrEncryptKeyCorrupt — identity 파일 존재하나 해석 불가(덮어쓰기 금지 —
 // 기존 키 암호문의 영구 복호 불가 확정 방지).
-var EncryptKeyCorrupt = errors.New("backup encrypt: identity 키 파일 불량 — 새 키 생성은 기존 암호문을 해독 불능으로 만든다(수동 확인: RUNBOOK)")
+var ErrEncryptKeyCorrupt = errors.New("backup encrypt: identity 키 파일 불량 — 새 키 생성은 기존 암호문을 해독 불능으로 만든다(수동 확인: RUNBOOK)")
 
-// LoadIdentity — path에서 age X25519 identity 로드(부재 → EncryptKeyMissing,
-// 불량 → EncryptKeyCorrupt — v0.28.0: 구분해 EnsureIdentity가 불량 키를
+// LoadIdentity — path에서 age X25519 identity 로드(부재 → ErrEncryptKeyMissing,
+// 불량 → ErrEncryptKeyCorrupt — v0.28.0: 구분해 EnsureIdentity가 불량 키를
 // 조용히 덮어쓰지 않게 한다).
 func LoadIdentity(path string) (*age.X25519Identity, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return nil, EncryptKeyMissing
+		return nil, ErrEncryptKeyMissing
 	}
 	id, err := age.ParseX25519Identity(strings.TrimSpace(string(b)))
 	if err != nil {
-		return nil, EncryptKeyCorrupt
+		return nil, ErrEncryptKeyCorrupt
 	}
 	return id, nil
 }
@@ -53,7 +53,7 @@ func LoadIdentity(path string) (*age.X25519Identity, error) {
 func EnsureIdentity(path string) (*age.X25519Identity, error) {
 	if id, err := LoadIdentity(path); err == nil {
 		return id, nil
-	} else if !errors.Is(err, EncryptKeyMissing) {
+	} else if !errors.Is(err, ErrEncryptKeyMissing) {
 		return nil, err // 불량 키 — 덮어쓰지 않는다
 	}
 	id, err := age.GenerateX25519Identity()

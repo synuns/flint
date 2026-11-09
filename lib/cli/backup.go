@@ -259,7 +259,7 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		fmt.Fprintln(stdout, `{"error":"masked dump — 마스킹 덤프는 진단·공유 전용(복원 불가)"}`)
 		return 1
 	}
-	if errors.Is(rerr, backup.ErrKeyPathRequired) || errors.Is(rerr, backup.EncryptKeyMissing) || errors.Is(rerr, backup.EncryptKeyCorrupt) {
+	if errors.Is(rerr, backup.ErrKeyPathRequired) || errors.Is(rerr, backup.ErrEncryptKeyMissing) || errors.Is(rerr, backup.ErrEncryptKeyCorrupt) {
 		fmt.Fprintf(stdout, `{"error":"암호화 백업 복호 불가 — 키 파일 필요/불량(%s). 키 분실·손상 시 해독 불가(RUNBOOK)"}`+"\n", key)
 		return 1
 	}

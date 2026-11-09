@@ -102,11 +102,11 @@ func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	if _, err := ReadDumpBytes(e, ""); err != ErrKeyPathRequired {
 		t.Errorf("키 없음 = %v, want ErrKeyPathRequired", err)
 	}
-	// 암호문 — 잘못된 키 파일이면 EncryptKeyCorrupt(v0.28.0: 부재와 구분).
+	// 암호문 — 잘못된 키 파일이면 ErrEncryptKeyCorrupt(v0.28.0: 부재와 구분).
 	bad := filepath.Join(dir, "bad.key")
 	os.WriteFile(bad, []byte("AGE-SECRET-KEY-NOTVALID"), 0o600)
-	if _, err := ReadDumpBytes(e, bad); err != EncryptKeyCorrupt {
-		t.Errorf("불량 키 = %v, want EncryptKeyCorrupt", err)
+	if _, err := ReadDumpBytes(e, bad); err != ErrEncryptKeyCorrupt {
+		t.Errorf("불량 키 = %v, want ErrEncryptKeyCorrupt", err)
 	}
 	// 마스킹 덤프 — 거부(평문·암호문 무관).
 	m := filepath.Join(dir, "m.sql")
@@ -142,8 +142,8 @@ func TestIsEncryptedFile(t *testing.T) {
 func TestEnsureIdentityRefusesCorruptKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backup.key")
 	os.WriteFile(path, []byte("AGE-SECRET-KEY-NOTVALID"), 0o600)
-	if _, err := EnsureIdentity(path); err != EncryptKeyCorrupt {
-		t.Fatalf("불량 키 EnsureIdentity = %v, want EncryptKeyCorrupt", err)
+	if _, err := EnsureIdentity(path); err != ErrEncryptKeyCorrupt {
+		t.Fatalf("불량 키 EnsureIdentity = %v, want ErrEncryptKeyCorrupt", err)
 	}
 	if b, _ := os.ReadFile(path); string(b) != "AGE-SECRET-KEY-NOTVALID" {
 		t.Errorf("불량 키가 덮어쓰임: %q", b)
