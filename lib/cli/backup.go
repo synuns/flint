@@ -23,13 +23,10 @@ import (
 var (
 	dumpFn       = backup.Dump
 	restoreFn    = backup.Restore
-	drillFn      = backup.RunDrill
-	drillKeyFn   = backup.RunDrillWithKey
 	drillDataFn  = backup.RunDrillData
 	rotateFn     = backup.Rotate
 	keepFn       = backup.BackupKeep
 	ensureKeyFn  = backup.EnsureIdentity
-	readDumpFn   = backup.ReadDumpBytes
 	encryptToFn  = backup.EncryptTo
 	maskSecretsF = store.MaskSecrets
 )
@@ -41,6 +38,12 @@ func BackupKeyPath() string {
 		return ""
 	}
 	return filepath.Join(d, "backup.key")
+}
+
+// backupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(리뷰 8:
+// 수동·자동·doctor 3곳이 각자 판정하면 형식 확장 시 정합 분기).
+func backupEncryptOn(v string) bool {
+	return v == "true" || v == "1"
 }
 
 // runBackup — 덤프 생성. Store는 root 디스패치 호환용이며 사용하지 않는다
@@ -160,7 +163,7 @@ func backupEncryptMeta(ctx context.Context, st Store) bool {
 		return false
 	}
 	v, _ := rows[0][0].(string)
-	return v == "true" || v == "1"
+	return backupEncryptOn(v)
 }
 
 // rotateAfterBackup — 성공한 --out 경로 뒤 로테이션 요약 필드(`,"removed":N`)를

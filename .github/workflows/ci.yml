@@ -29,6 +29,9 @@ jobs:
   test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    permissions: # v0.28.0(H④): 루트 박탈 — 캐시 복원에 필요한 최소만
+      actions: read
+      contents: read
     services:
       doltgres:
         image: dolthub/doltgresql@sha256:3a119bb6726a0be283cfda2a73fa9fbdff58df06c0b850f245cd1828f57281a6
@@ -94,7 +97,7 @@ jobs:
     if: github.event_name == 'push'
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    permissions:
+    permissions: # deploy만 write(릴리스·OIDC) — 루트는 박탈(v0.28.0 H④)
       contents: write
       id-token: write
     steps:

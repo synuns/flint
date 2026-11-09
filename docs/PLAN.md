@@ -385,7 +385,7 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
-### v0.28.0 마이너 (2026-11-09, 진행 중) — 전체 보안 점검·경화 (H)
+### v0.28.0 마이너 (2026-11-09) — 전체 보안 점검·경화 (H)
 
 원칙: 아키텍처 틀(단일 바이너리·한 줄 JSON·exit 계약·비간섭 §13·
 스키마 v7·Doltgres 로컬 전제)은 불변 — 보안 층만 강화한다. 로컬 단일
@@ -421,7 +421,7 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
   본 감사가 커버)
 - [x] ⑦ secrets 패턴 갱신 — AI 생태계 4종 추가(openrouter sk-or-
   specific·github-app gh[opsr]_·groq gsk_·xai) — gitleaks 상위 추적
-- [ ] 버전 — VERSION·배지 v0.28.0(EN/KO)·plugin.json 동기
+- [x] 버전 — VERSION·배지 v0.28.0(EN/KO)·plugin.json 동기
 
 룰링: 의존 filippo.io/age v1.2.1 추가(자체 crypto 회피 — PLAN F 명시
 후보·감사된 순수 Go 구현)·키 파일 방식(자동 백업 비대화형 호환 —

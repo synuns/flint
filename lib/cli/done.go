@@ -387,7 +387,7 @@ func maybeAutoBackup(ctx context.Context) {
 			return "", nil
 		}
 		return v, err
-	}(); verr == nil && (v == "true" || v == "1") {
+	}(); verr == nil && backupEncryptOn(v) {
 		lf.encrypt = true
 	}
 	defer lf.close()
