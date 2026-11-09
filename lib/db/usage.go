@@ -111,13 +111,14 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 // RecordReadEvent — 효과 계측 이벤트 1행 기록(v0.19.0, docs/METRICS.md §4).
 // read 1회의 수치·플래그·세션 라벨만 남긴다(쿼리 본문·결과 내용 없음 —
 // 개인 문구 부재 원칙). v0.20.0: 반환 지식 id CSV(ids, 상위 10) 추가 —
+// v0.30.0: 첫 topic 정합 순위(firstRank, 0=정합 없음·폴백 제외) 추가.
 // 사용 연쇄(chain) 산출 원천. 컷오프는 Go 계산 파라미터로 넘긴다(PruneDaily
 // 산술·report stale 관례 — SQL interval 곱은 Doltgres 파라미터 추론 결함).
 // INSERT 전용이라 읽기-쓰기 경합(40001)이 없고 재시도 없이 단발 실행한다.
-func (r *Repo) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string) error {
+func (r *Repo) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO read_events (hits, zero, near, fallback, session, ids)
-		 VALUES ($1, $2, $3, $4, $5, $6)`, hits, zero, near, fallback, session, ids)
+		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`, hits, zero, near, fallback, session, ids, firstRank)
 	if err != nil {
 		return fmt.Errorf("record read event: %w", err)
 	}

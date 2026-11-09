@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
 	"time"
@@ -98,6 +99,26 @@ type effectOutput struct {
 	// v0.24.0 R4b: 프로파일 관측 힌트(D① 축소형) — 표본 하한 미달이면
 	// "보류"(관측 선행 원칙 — 추측 금지, METRICS §5 준수: 보고 전용).
 	ProfileHint string `json:"profile_hint"`
+	// v0.30.0 R2 — hit 품질 근사(first_rank 기반, 폴백 제외).
+	ExactPct int     `json:"exact_pct"` // 첫 topic 정합 반환율(정확일치 회수)
+	Top1Pct  int     `json:"top1_pct"`  // 정합 1위율(정합 있는 read 중)
+	MRR      float64 `json:"mrr"`       // 평균 역순위(정합 있는 read 중, 0~1)
+	// v0.30.0 R1 — 7일 창 전후 추세(단면→추세, read_events 단일 표).
+	Trend *trendOutput `json:"trend,omitempty"`
+}
+
+// trendOutput — 직전 7일(cur) vs 그 이전 7일(prev) 대비. delta=cur-prev.
+type trendOutput struct {
+	HitPct      trendPoint `json:"hit_pct"`
+	FallbackPct trendPoint `json:"fallback_pct"`
+	Top1Pct     trendPoint `json:"top1_pct"`
+}
+
+// trendPoint — 전기·당기·증감(정수 pct).
+type trendPoint struct {
+	Prev  int `json:"prev"`
+	Cur   int `json:"cur"`
+	Delta int `json:"delta"`
 }
 
 // v0.20.4(패치 루프 4차·마일스톤 B③): 효과 계측 판정 창은 thresholds
@@ -472,6 +493,25 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		}
 	}
 	out.Effect.FallbackPct = pctOf(fallbacks, len(evs))
+	// v0.30.0 R2 — hit 품질 근사(first_rank, 폴백 제외 계약).
+	var exact, top1 int
+	rrSum := 0.0
+	for _, e := range evs {
+		if e.firstRank > 0 {
+			exact++
+			rrSum += 1.0 / float64(e.firstRank)
+			if e.firstRank == 1 {
+				top1++
+			}
+		}
+	}
+	out.Effect.ExactPct = pctOf(exact, len(evs))
+	out.Effect.Top1Pct = pctOf(top1, exact)
+	out.Effect.MRR = math.Round(rrSum/math.Max(float64(exact), 1)*1000) / 1000
+	// v0.30.0 R1 — 7일 창 추세(cur=최근 7일, prev=직전 7일). 표본 부족
+	// 창(0 이벤트)은 0으로 강등(§13 — 빈 창에 해석 없음).
+	cur, prev := trendWindow(now, evs)
+	out.Effect.Trend = cur.diff(prev)
 	if len(evs) == 0 {
 		return nil // 분모 0 — 페어링·연쇄 불필요(제로 가드 관례)
 	}
@@ -570,9 +610,81 @@ func profileHint(th store.Thresholds, e effectOutput) string {
 
 // readEventRow — read_events 1행의 계산 뷰(G4).
 type readEventRow struct {
-	ts       time.Time
-	fallback bool
-	ids      []int
+	ts        time.Time
+	zero      bool
+	fallback  bool
+	firstRank int
+	ids       []int
+}
+
+// cellToBool — 셀 bool 변환(문자열 "true"/bool 양쪽 수용).
+func cellToBool(v any) bool {
+	if b, ok := v.(bool); ok {
+		return b
+	}
+	return fmt.Sprint(v) == "true"
+}
+
+// trendStat — 창 내 이벤트의 (hit%, fallback%, top1%).
+type trendStat struct {
+	hitPct, fallbackPct, top1Pct int
+	n                            int
+}
+
+// trendWindow — cur(최근 7일)·prev(직전 7일) 창 통계.
+func trendWindow(now time.Time, evs []readEventRow) (cur, prev trendStat) {
+	cut := now.Add(-7 * 24 * time.Hour)
+	prevCut := now.Add(-14 * 24 * time.Hour)
+	var ce, pe []readEventRow
+	for _, e := range evs {
+		switch {
+		case !e.ts.Before(cut):
+			ce = append(ce, e)
+		case e.ts.Before(cut) && !e.ts.Before(prevCut):
+			pe = append(pe, e)
+		}
+	}
+	return trendOf(ce), trendOf(pe)
+}
+
+// trendOf — 이벤트 슬라이스 통계(빈 창은 0).
+func trendOf(evs []readEventRow) trendStat {
+	if len(evs) == 0 {
+		return trendStat{}
+	}
+	hit, fb, top1, exact := 0, 0, 0, 0
+	for _, e := range evs {
+		if !e.zero {
+			hit++
+		}
+		if e.fallback {
+			fb++
+		}
+		if e.firstRank > 0 {
+			exact++
+			if e.firstRank == 1 {
+				top1++
+			}
+		}
+	}
+	return trendStat{
+		hitPct: pctOf(hit, len(evs)), fallbackPct: pctOf(fb, len(evs)),
+		top1Pct: pctOf(top1, exact), n: len(evs),
+	}
+}
+
+// diff — 전기 대비 당기 추세 포인트(빈 창은 0 강등 — 표본 없는 비교 금지).
+func (cur trendStat) diff(prev trendStat) *trendOutput {
+	c, p := cur, prev
+	if c.n == 0 || p.n == 0 {
+		return nil
+	}
+	tp := func(a, b int) trendPoint { return trendPoint{Prev: b, Cur: a, Delta: a - b} }
+	return &trendOutput{
+		HitPct:      tp(c.hitPct, p.hitPct),
+		FallbackPct: tp(c.fallbackPct, p.fallbackPct),
+		Top1Pct:     tp(c.top1Pct, p.top1Pct),
+	}
 }
 
 // writeRow — 창 내 knowledge 커밋 1행의 계산 뷰(페어링·연쇄).
@@ -586,21 +698,26 @@ type writeRow struct {
 // 관례 — 계측 누락이 보고를 깨지 않는다).
 func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]readEventRow, error) {
 	rows, err := queryOnce(ctx, st,
-		`SELECT ts, fallback, ids FROM read_events WHERE ts >= $1 ORDER BY ts`,
+		`SELECT ts, zero, fallback, ids, first_rank FROM read_events WHERE ts >= $1 ORDER BY ts`,
 		[]any{cutoff})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]readEventRow, 0, len(rows))
 	for _, r := range rows {
-		if len(r) < 2 {
+		if len(r) < 3 {
 			continue
 		}
 		t, ok := cellToTime(r[0])
 		if !ok {
 			continue
 		}
-		e := readEventRow{ts: t}
+		e := readEventRow{ts: t, zero: cellToBool(r[1]), fallback: cellToBool(r[2])}
+		if len(r) >= 5 {
+			if n, ok := cellToInt(r[4]); ok {
+				e.firstRank = n
+			}
+		}
 		if b, ok := r[1].(bool); ok {
 			e.fallback = b
 		}

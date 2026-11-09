@@ -797,8 +797,8 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회 실패: %v", err)
 	}
-	if version != "7" {
-		t.Fatalf("done 후 schema_version=%q, want 7(v2→…→v7 연쇄 승격)", version)
+	if version != "8" {
+		t.Fatalf("done 후 schema_version=%q, want 8(v2→…→v8 연쇄 승격)", version)
 	}
 
 	// 승격 후 read 정상 — 씨딩 토픽이 그대로 보인다.
@@ -812,7 +812,7 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("v7 status exit=%d, want 0; out=%s", code, out)
 	}
-	if m := decode(t, out); m["schema_version"] != "7" {
+	if m := decode(t, out); m["schema_version"] != "8" {
 		t.Fatalf("status schema_version=%v, want 7; out=%s", m["schema_version"], out)
 	}
 }

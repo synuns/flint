@@ -389,6 +389,22 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+#4 --reason 메타데이터(의도된 감사 흔적).
+
+### v0.30.0 마이너 (2026-11-10) — 계측 2막: hit 품질 근사와 추세 (B 잔여)
+
+- [x] R1 트렌드 — report effect.trend: 최근 7일 vs 직전 7일
+  (hit_pct·fallback_pct·top1_pct의 prev/cur/delta). 빈 창 미표시.
+  pair_pct 추세는 표본 확대 후(룰링)
+- [x] R2 hit 품질 근사 — 스키마 v8(read_events.first_rank additive):
+  read 시점 첫 topic 정합 순위 기록(폴백 제외·빈 쿼리 0) →
+  exact_pct·top1_pct·mrr 산출. status 스키마 게이트 1~8
+- [x] R3 기저율 셔플 재판정 — 표본 미달(read_events_n<200)로 재이연,
+  트리거 METRICS §4 명시(세션 경계가 구조적 보정 승계 룰링 유지)
+- [x] 테스트 — firstExactRank(순위·대소문자·빈 쿼리)·trend 창 분할·
+  빈 창 nil·레거시 v3→v8 연쇄 승격 회귀 갱신
+- [x] 버전 — VERSION·배지 v0.30.0(EN/KO)·plugin.json 동기
+
 ### v0.29.1 패치 (2026-11-10) — v0.29.x 패치 루프 1차: 동시성 감사 이월 + 가드 갭 폐쇄
 
 - [x] 세션 종료 감사 커밋(동시성 감사 발견 8) — done 꼬리의 세션 행·

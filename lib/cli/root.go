@@ -200,7 +200,11 @@ func ensureSchemas(ctx context.Context, repo *db.Repo) error {
 		return err
 	}
 	// v7 승격(v0.20.0 배선): 계측 정밀화(ids·session_starts·hot_events).
-	return repo.EnsureSchemaV7(ctx)
+	if err := repo.EnsureSchemaV7(ctx); err != nil {
+		return err
+	}
+	// v8 승격(v0.30.0 배선): hit 품질 근사(first_rank) — 추가만.
+	return repo.EnsureSchemaV8(ctx)
 }
 
 // Close — 풀 정리.
