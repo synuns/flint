@@ -92,7 +92,7 @@ func (d *DoneResult) SessionRecord() map[string]any {
 // 유지한다(신규 행이 StaleSessionRuns 미기록 카운트를 오염시키는 결함
 // 해소 — T44 인시던트). agent의 세션이 없을 때만 INSERT. sessions 갱신은
 // maintain 갱신 경로 준용. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
-func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) {
+func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) int {
 	agent, _ := rec["agent"].(string)
 	// v0.26.2(재검수 발견2): agent 라벨 살균·비밀 스캔 — InsertBatch 직접
 	// 호출이라 sanitizePayload를 우회하던 사각([flint] 마커·비밀 무검사
@@ -112,12 +112,13 @@ func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) {
 				[]any{rec["summary"], rec["tasks"], id}); err != nil {
 				fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
 			}
-			return
+			return id // v0.29.0 리뷰 6: 세션 종료당 1회 조회로 지식화 session_id 공유
 		}
 	}
 	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
 	}
+	return 0
 }
 
 // doneThresholds — loadThresholds(maintain.go 소유) 재사용. 읽기 실패 시
@@ -233,10 +234,10 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	} else {
 		fmt.Fprintln(stdout, `{"status":"ok"}`)
 	}
-	writeSessionRecord(ctx, st, res.SessionRecord())
+	sessionRowID := writeSessionRecord(ctx, st, res.SessionRecord())
 	// v0.27.2: stale 종료에서도 요약이 있으면 지식화 — 미기록 연속은
 	// 지식 보존이 가장 필요한 상황이므로 스킵하면 기능이 죽는다.
-	maybeSessionKnowledge(ctx, st, res.Summary, agent, session)
+	maybeSessionKnowledge(ctx, st, res.Summary, agent, session, sessionRowID)
 	logPlaybookUse(ctx, st, playbook, playbookOK)
 	autoBackupFn(ctx)
 	return 0
@@ -253,7 +254,7 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 // 500룬 절단(import와 대칭)·tags []string("process" 문자열은
 // normalizeTags에서 빈 값으로 소거됨)·저장 시점 비밀 스캔 경고(write
 // 경로 계약 정렬).
-func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, session string) {
+func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, session string, sessionRowID int) {
 	// v0.27.2 리뷰 4: 빈 게이트를 임계값 로드 앞으로 — 요약 없는 종료(일반
 	// Stop)가 thresholds 왕복을 물리지 않게 한다.
 	summary = truncateRunesImport(store.SanitizeText(strings.TrimSpace(summary)), 500)
@@ -276,8 +277,11 @@ func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, sessio
 			return
 		}
 	}
+	// v0.29.0 R3: topic에 요약 키워드 — "세션[claude]"는 회상 topic 정합
+	// 신호로 무의미했다. 첫 문장의 앞부분(첫 구분자 또는 20룬)을 반영해
+	// 브라우징·검색 품질을 높인다(규칙 기반 — LLM 판정 배제 §13).
 	topic := store.SanitizeText(truncateRunesImport(
-		fmt.Sprintf("세션[%s]", agentLabel(agent, 24)), 80)) // v0.27.2: topic 살균(write 경로 대칭)
+		fmt.Sprintf("세션[%s] %s", agentLabel(agent, 24), summaryKeyword(summary)), 80))
 	rec := map[string]any{
 		"kind":       "knowledge",
 		"topic":      topic,
@@ -287,6 +291,15 @@ func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, sessio
 		"confidence": 0.5, // pending 게이트 — approve 경로 승격
 		"status":     "pending",
 		"origin":     "hook", // v0.27.2 리뷰 5: 기계 적립 식별(기본 "agent"와 구분)
+	}
+	// v0.29.0 R4(리뷰 6 갱신): session_id는 writeSessionRecord가 찾은 id를
+	// 승계(세션 종료당 1회 조회). compact 등 이 경로 밖 호출은 0 —
+	// sessionRowIDForAgent 폴백으로 1회만 더 조회한다.
+	if sessionRowID <= 0 {
+		sessionRowID = sessionRowIDForAgent(ctx, st, agent)
+	}
+	if sessionRowID > 0 {
+		rec["session_id"] = sessionRowID
 	}
 	rec = store.Normalize("knowledge", rec)
 	rec["content_hash"] = store.ContentHash(store.HashCanonical(rec))
@@ -315,6 +328,43 @@ func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, sessio
 	if setKV != nil {
 		_ = setKV("session_knowledge_last", time.Now().UTC().Format(time.RFC3339))
 	}
+}
+
+// summaryKeyword — 요약 첫 문장에서 topic용 키워드(첫 구분자·20룬
+// 상한 — v0.29.0 R3 규칙 기반).
+func summaryKeyword(summary string) string {
+	first := strings.SplitN(summary, "\n", 2)[0]
+	// 콜론은 제외 — "X 패치: 핵심 주제" 형태에서 핵심이 콜론 뒤에 온다.
+	// 리뷰 7: 목록 순서가 아니라 가장 이른 경계에서 자른다.
+	cut := -1
+	for _, sep := range []string{"。", "다.", ". ", "— "} {
+		if i := strings.Index(first, sep); i > 4 && (cut < 0 || i < cut) {
+			cut = i + len(sep)
+		}
+	}
+	if cut > 0 {
+		first = first[:cut]
+	}
+	return strings.TrimSpace(truncateRunesImport(first, 20))
+}
+
+// sessionRowIDForAgent — agent의 최신 sessions.id(writeSessionRecord
+// 조회 승계 — v0.29.0 R4). 미발견·오류는 0.
+func sessionRowIDForAgent(ctx context.Context, st Store, agent string) int {
+	if agent == "" {
+		return 0
+	}
+	rows, err := queryOnce(ctx, st,
+		`SELECT id FROM sessions WHERE agent = $1 ORDER BY ts DESC, id DESC LIMIT 1`,
+		[]any{agent})
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0
+	}
+	var id int
+	if n, _ := fmt.Sscan(fmt.Sprint(rows[0][0]), &id); n == 1 {
+		return id
+	}
+	return 0
 }
 
 // warnSecrets — 저장 시점 비밀 스캔 경고의 단일 헬퍼(v0.27.2 리뷰 7:

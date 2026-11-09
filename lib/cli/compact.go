@@ -68,7 +68,7 @@ func runCompact(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	// compact_summary를 실제로 전달하는 훅은 PostCompact뿐(Stop stdin에는
 	// 이 필드가 없다). 세션 행(계측 원천)과 별개로 pending 지식 후보를
 	// 적립한다 — 빈도 상한·dedup는 maybeSessionKnowledge가 지닌다.
-	maybeSessionKnowledge(ctx, st, h.CompactSummary, "claude", h.SessionID)
+	maybeSessionKnowledge(ctx, st, h.CompactSummary, "claude", h.SessionID, 0) // 0=폴백 조회(done과 달리 세션 행 id를 이미 알지 못함)
 	return 0
 }
 

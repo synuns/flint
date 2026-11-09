@@ -18,13 +18,15 @@ type Thresholds struct {
 	StallWriteH int // last_write_at stall grace 시간(72)
 	// v0.16.3: 하드코딩됐던 튜닝 상수의 레지스트리화(개인 튜닝값은
 	// meta 오버라이드로만 — 코드·문서 커밋 금지 원칙).
-	SuggestMinScore      float64 // 제안(did-you-mean) 채택 유사도 하한
-	SuggestScanCap       int     // 제안 스캔 행 상한(무상한 스캔 방어)
-	ConflictDupThreshold float64 // 모순/중복 분류 유사도 기준(이상=중복)
-	BackupAgeWarnH       int     // 백업 신선도 경고 시간(doctor backup-age)
-	ZeroNearMinRead      int     // zero_near 판정 표본 하한(doctor)
-	ZeroNearWarnPct      int     // zero_near 경고 비율 %(doctor)
-	PendingAgeDays       int     // pending 만료 안내 기준일(doctor)
+	SuggestMinScore        float64 // 제안(did-you-mean) 채택 유사도 하한
+	SuggestScanCap         int     // 제안 스캔 행 상한(무상한 스캔 방어)
+	ConflictDupThreshold   float64 // 모순/중복 분류 유사도 기준(이상=중복)
+	BackupAgeWarnH         int     // 백업 신선도 경고 시간(doctor backup-age)
+	ZeroNearMinRead        int     // zero_near 판정 표본 하한(doctor)
+	ZeroNearWarnPct        int     // zero_near 경고 비율 %(doctor)
+	PendingAgeDays         int     // pending 만료 안내 기준일(doctor)
+	PendingPromoteDays     int     // pending 승격 추천 근사: 최근 N일(v0.29.0 R1)
+	PendingPromoteMinRunes int     // 승격 추천 본문 최소 룬 수(v0.29.0 R1)
 	// v0.18.0 R3: done 회상 경고 — 오늘 회상 0회 상태의 기록 수 임계.
 	RecallWarnWrites int // 이상이면 "회상 없이 기록만" 경고(done)
 	// v0.20.4(패치 루프 4차·마일스톤 B③·C①): 효과 계측 판정 창·보존.
@@ -51,14 +53,16 @@ const (
 	defaultStallHotH     = 48
 	defaultStallWriteH   = 72
 	// v0.16.3 — 소비부에서 제거한 하드코딩 상수의 기본값(단일 소스).
-	defaultSuggestMinScore      = 0.15
-	defaultSuggestScanCap       = 5000
-	defaultConflictDupThreshold = 0.6
-	defaultBackupAgeWarnH       = 72
-	defaultZeroNearMinRead      = 10
-	defaultZeroNearWarnPct      = 30
-	defaultPendingAgeDays       = 7
-	defaultRecallWarnWrites     = 3
+	defaultSuggestMinScore        = 0.15
+	defaultSuggestScanCap         = 5000
+	defaultConflictDupThreshold   = 0.6
+	defaultBackupAgeWarnH         = 72
+	defaultZeroNearMinRead        = 10
+	defaultZeroNearWarnPct        = 30
+	defaultPendingAgeDays         = 7
+	defaultPendingPromoteDays     = 3
+	defaultPendingPromoteMinRunes = 40
+	defaultRecallWarnWrites       = 3
 	// v0.20.4 — 효과 계측 판정 창·보존 기본값.
 	defaultDeadDays             = 30
 	defaultPairWindowMin        = 30
@@ -85,25 +89,27 @@ func DefaultThresholds() Thresholds {
 		StallWriteH:   defaultStallWriteH,
 		// v0.16.3 키 — 미설정 시 0을 유지하는 ParseThresholds와 달리
 		// 여기는 항상 기본값(소비자 폴백 기준).
-		SuggestMinScore:      defaultSuggestMinScore,
-		SuggestScanCap:       defaultSuggestScanCap,
-		ConflictDupThreshold: defaultConflictDupThreshold,
-		BackupAgeWarnH:       defaultBackupAgeWarnH,
-		ZeroNearMinRead:      defaultZeroNearMinRead,
-		ZeroNearWarnPct:      defaultZeroNearWarnPct,
-		PendingAgeDays:       defaultPendingAgeDays,
-		RecallWarnWrites:     defaultRecallWarnWrites,
-		DeadDays:             defaultDeadDays,
-		PairWindowMin:        defaultPairWindowMin,
-		ChainWindowH:         defaultChainWindowH,
-		EventsRetentionD:     defaultEventsRetentionD,
-		HotRetentionD:        defaultHotRetentionD,
-		EventsVolumeWarn:     defaultEventsVolumeWarn,
-		DrillMaxDays:         defaultDrillMaxDays,
-		DailyRetentionD:      defaultDailyRetentionD,
-		RrfK:                 defaultRrfK,
-		SecretsScanRows:      defaultSecretsScanRows,
-		SessionKnowledgeDays: defaultSessionKnowledgeDays,
+		SuggestMinScore:        defaultSuggestMinScore,
+		SuggestScanCap:         defaultSuggestScanCap,
+		ConflictDupThreshold:   defaultConflictDupThreshold,
+		BackupAgeWarnH:         defaultBackupAgeWarnH,
+		ZeroNearMinRead:        defaultZeroNearMinRead,
+		ZeroNearWarnPct:        defaultZeroNearWarnPct,
+		PendingAgeDays:         defaultPendingAgeDays,
+		PendingPromoteDays:     defaultPendingPromoteDays,
+		PendingPromoteMinRunes: defaultPendingPromoteMinRunes,
+		RecallWarnWrites:       defaultRecallWarnWrites,
+		DeadDays:               defaultDeadDays,
+		PairWindowMin:          defaultPairWindowMin,
+		ChainWindowH:           defaultChainWindowH,
+		EventsRetentionD:       defaultEventsRetentionD,
+		HotRetentionD:          defaultHotRetentionD,
+		EventsVolumeWarn:       defaultEventsVolumeWarn,
+		DrillMaxDays:           defaultDrillMaxDays,
+		DailyRetentionD:        defaultDailyRetentionD,
+		RrfK:                   defaultRrfK,
+		SecretsScanRows:        defaultSecretsScanRows,
+		SessionKnowledgeDays:   defaultSessionKnowledgeDays,
 	}
 }
 
@@ -158,6 +164,10 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			th.ZeroNearWarnPct = parseIntOrDefault(val, defaultZeroNearWarnPct, ks)
 		case "pending_age_days":
 			th.PendingAgeDays = parseIntOrDefault(val, defaultPendingAgeDays, ks)
+		case "pending_promote_days":
+			th.PendingPromoteDays = parseIntOrDefault(val, defaultPendingPromoteDays, ks)
+		case "pending_promote_min_runes":
+			th.PendingPromoteMinRunes = parseIntOrDefault(val, defaultPendingPromoteMinRunes, ks)
 		case "recall_warn_writes":
 			// v0.18.2: min=-1 수용(-1=끔). 0은 미설정과 구분 불가 —
 			// loadThresholds가 기본값으로 폴백한다(TUNING §2 문서화).
