@@ -621,3 +621,92 @@ func TestDoctorSecretsScan(t *testing.T) {
 		t.Errorf("무해 케이스 = %+v", c)
 	}
 }
+
+// TestDoctorSecretsScanSessions — v0.27.4(이월 T4): sessions.summary
+// 발견 경로 — PII 최다 필드라는 도입 취지의 발견 케이스가 무테스트였다.
+func TestDoctorSecretsScanSessions(t *testing.T) {
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "key IN ('pending_max'") {
+			return nil, nil
+		}
+		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
+			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
+		}
+		if strings.Contains(sql, "FROM sessions") {
+			// 세션 요약에 실제 패턴 — 발견되어야 warn.
+			return [][]any{{int64(3), "claude", "요약에 토큰 ghp_abcdefghijklmnopqrst 포함"}}, nil
+		}
+		return nil, nil
+	}}
+	c := checkSecrets(context.Background(), f)
+	if c.Status != "warn" || !strings.Contains(c.Detail, "github-token#session:3") {
+		t.Errorf("세션 발견 케이스 = %+v", c)
+	}
+}
+
+// TestDoctorSecretsScanRowLimitReached — v0.27.4(이월 T5): 행 상한 도달
+// 분기 — 부분 스캔을 '미발견 ok'로 거짓 보고하지 않는다(LIMIT 경계 >=).
+func TestDoctorSecretsScanRowLimitReached(t *testing.T) {
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "key IN ('pending_max'") {
+			return [][]any{{"secrets_scan_row_limit", "2"}}, nil
+		}
+		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
+			// 상한 2와 동일 수 반환 → 상한 도달(LIMIT 잘리면 더 있음).
+			return [][]any{
+				{int64(1), "토픽", "무해한 요약", "", "", "", ""},
+				{int64(2), "토픽", "또 다른 무해한 요약", "", "", "", ""},
+			}, nil
+		}
+		return nil, nil
+	}}
+	c := checkSecrets(context.Background(), f)
+	if c.Status != "warn" || !strings.Contains(c.Detail, "행 상한") {
+		t.Errorf("행 상한 케이스 = %+v", c)
+	}
+}
+
+// TestDoctorSecretsScanSessionsError — v0.27.4: 세션 조회 실패는 거짓
+// ok가 아니라 warn(지식 경로 '지식 조회 실패'와 대칭).
+func TestDoctorSecretsScanSessionsError(t *testing.T) {
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "key IN ('pending_max'") {
+			return nil, nil
+		}
+		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
+			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
+		}
+		if strings.Contains(sql, "FROM sessions") {
+			return nil, errors.New("relation missing")
+		}
+		return nil, nil
+	}}
+	c := checkSecrets(context.Background(), f)
+	if c.Status != "warn" || !strings.Contains(c.Detail, "세션 조회 실패") {
+		t.Errorf("세션 조회 실패 케이스 = %+v", c)
+	}
+}
+
+// TestDoctorSecretsFindingsSurviveSessionError — v0.27.4 리뷰 3: 세션
+// 조회 실패가 이미 잡은 지식 발견을 버리지 않는다(격차는 주석으로).
+func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "key IN ('pending_max'") {
+			return nil, nil
+		}
+		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
+			return [][]any{{int64(7), "토픽", "토큰 ghp_abcdefghijklmnopqrst 포함", "", "", "", ""}}, nil
+		}
+		if strings.Contains(sql, "FROM sessions") {
+			return nil, errors.New("relation missing")
+		}
+		return nil, nil
+	}}
+	c := checkSecrets(context.Background(), f)
+	if c.Status != "warn" || !strings.Contains(c.Detail, "github-token#7") {
+		t.Errorf("지식 발견 유실 = %+v", c)
+	}
+	if !strings.Contains(c.Detail, "세션 조회 실패") {
+		t.Errorf("격차 미주석 = %+v", c)
+	}
+}

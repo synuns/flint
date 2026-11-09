@@ -1254,20 +1254,22 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 	// 경로)·스캔 열은 쓰기 시점과 동일 전열(topic·summary·tags·entity·
 	// domain·origin — sanitizePayload 참조)·메모리는 행 단위 스트리밍
 	// (Store.Query 커서 — 전체 테이블 구체화 회피).
+	// v0.27.4 리뷰 4: 임계값 로드는 1회(체크 내 스냅샷 일관성·왕복 절약).
+	th := writeThresholds(ctx, st)
 	rows, err := queryOnce(ctx, st, `
 		SELECT id, topic, summary, tags, entity, domain, origin
 		FROM knowledge WHERE invalid_at IS NULL
-		LIMIT $1`, []any{writeThresholds(ctx, st).SecretsScanRows})
+		LIMIT $1`, []any{th.SecretsScanRows})
 	if err != nil {
 		c.Status = "warn"
 		c.Detail = "지식 조회 실패 — 스키마 확인"
 		return c
 	}
-	if len(rows) >= writeThresholds(ctx, st).SecretsScanRows {
+	if len(rows) >= th.SecretsScanRows {
 		// 리스크 #5 대비(v0.26.1): 상한 도달 — 부분 스캔임을 명시(오탐
 		// 아닌 미도달 오탐 방지 — '미발견'으로 거짓 보고하지 않는다).
 		c.Status = "warn"
-		c.Detail = fmt.Sprintf("행 상한 %d 도달 — 스캔 미실행(대형 DB)", writeThresholds(ctx, st).SecretsScanRows)
+		c.Detail = fmt.Sprintf("행 상한 %d 도달 — 스캔 미실행(대형 DB)", th.SecretsScanRows)
 		c.Fix = "fix: 유입 단계 경고(write)로 보완 — 상한은 secrets_scan_row_limit 키로 조정"
 		return c
 	}
@@ -1294,8 +1296,20 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 	}
 	// v0.26.2(재검수 발견1): sessions 테이블 사후 스캔 — summary가 PII
 	// 최다 필드라 주석 의도가 코드에 없던 것을 회수.
+	// v0.27.4: 조회 실패·상한 도달은 이미 잡은 지식 발견을 버리지 않고
+	// 격차만 명시(리뷰 2·3) — '세션까지 스캔했고 미발견'이라는 거짓 ok도
+	// 내지 않는다. LIMIT는 지식 경로와 동일 상한(메모리 무한 증식 방지).
 	srows, serr := queryOnce(ctx, st, `
-		SELECT id, agent, summary FROM sessions`, nil)
+		SELECT id, agent, summary FROM sessions
+		LIMIT $1`, []any{th.SecretsScanRows})
+	gap := "" // 스캔 격차 주석(발견이 있으면 함께 보고)
+	switch {
+	case serr != nil:
+		gap = "· 세션 조회 실패(세션 미스캔)"
+	case len(srows) >= th.SecretsScanRows:
+		gap = "· 세션 행 상한 도달(부분 스캔)"
+	}
+	sessionFound := false
 	if serr == nil {
 		for _, r := range srows {
 			if len(r) < 3 {
@@ -1307,9 +1321,16 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 				if !seen[key] {
 					seen[key] = true
 					found++
+					sessionFound = true
 				}
 			}
 		}
+	}
+	if found == 0 && gap != "" {
+		c.Status = "warn"
+		c.Detail = "세션 스캔 불완전 " + gap
+		c.Fix = "fix: flint doctor 재실행 — 지속되면 스키마·secrets_scan_row_limit 확인"
+		return c
 	}
 	if found == 0 {
 		c.Status = "ok"
@@ -1325,8 +1346,16 @@ func checkSecrets(ctx context.Context, st Store) doctorCheck {
 		disp = append(disp, k)
 	}
 	// v0.26.2(발견3): allowlist 적용 상태 노출 — 오타·무단 등록 감지 수단.
-	c.Detail = fmt.Sprintf("비밀 후보 %d건(%s) — 대상 무효화 후 소멸 · allowlist %d항목", found, strings.Join(disp, ", "), store.SecretsAllowlistCount())
-	c.Fix = "fix: flint maintain --invalidate --id N --reason secret(무효화 행 제외 재스캔)"
+	// v0.27.4 리뷰 1: 세션 유래 발견(session:N)의 해소는 knowledge 무효화가
+	// 아니다 — 세션 요약은 재종료(done) 갱신·운영 DB 정리 경로만 존재.
+	// 안내가 무관 지식 행 무효화를 유도하지 않게 분기한다.
+	c.Detail = fmt.Sprintf("비밀 후보 %d건(%s) %s· allowlist %d항목",
+		found, strings.Join(disp, ", "), gapSuffix(gap), store.SecretsAllowlistCount())
+	if sessionFound {
+		c.Fix = "fix: 세션 발견(session:N)은 해당 agent 재종료(done)로 요약 갱신 또는 운영 DB sessions 행 정리 — 지식 발견만 maintain --invalidate --id N --reason secret"
+	} else {
+		c.Fix = "fix: flint maintain --invalidate --id N --reason secret(무효화 행 제외 재스캔)"
+	}
 	return c
 }
 
@@ -1338,4 +1367,12 @@ func sortedKeys(m map[string]bool) []string {
 	}
 	sort.Strings(out)
 	return out
+}
+
+// gapSuffix — 스캔 격차 주석의 detail 접미 정규화(빈 값은 "— ... " 유지).
+func gapSuffix(gap string) string {
+	if gap == "" {
+		return "— 대상 무효화 후 소멸 "
+	}
+	return gap + " "
 }
