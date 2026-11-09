@@ -42,3 +42,26 @@ func TestMaybeSessionKnowledgeShortSummary(t *testing.T) {
 		t.Fatalf("짧은 요약 적립 = %d건, want 0", len(st.inserted))
 	}
 }
+
+// TestDoneStdinSummaryActivatesKnowledge — v0.27.1: Stop 훅 stdin의
+// compact_summary가 세션 지식화를 활성화한다.
+func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
+	var out strings.Builder
+	code := runDone(context.Background(), st, []string{"--session", "claude"},
+		strings.NewReader(`{"hook_event_name":"Stop","compact_summary":"검색 품질 개선 작업 — RRF 융합 구현 완료"}`), &out)
+	if code != 0 {
+		t.Fatalf("exit=%d: %s", code, out.String())
+	}
+	// 적립 — knowledge pending 1건(Summary가 채워진 경우만).
+	knowledge := 0
+	for _, rec := range st.inserted {
+		if rec["kind"] == "knowledge" {
+			knowledge++
+		}
+	}
+	if knowledge != 1 {
+		t.Fatalf("세션 지식화 적립 = %d건, want 1(stdin 요약 활성)", knowledge)
+	}
+}
