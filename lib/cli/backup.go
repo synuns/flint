@@ -75,6 +75,11 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, errLine(fmt.Errorf("--encrypt requires --out (암호문은 파일로만)")))
 		return 1
 	}
+	// v0.28.2: --out이 git 저장소 내부면 경고(진행 유지 — 사용자 명시
+	// 선택이나 개인 데이터 덤프의 repo 반입·커밋·동기화 유출 사고 예방).
+	if out != "" && outInsideGitRepo(out) {
+		fmt.Fprintf(os.Stderr, "[flint] backup: --out 경로가 git 저장소 내부 — 덤프 커밋·동기화 유출 위험. ~/.flint/backup 권장\n")
+	}
 	// v0.28.0: meta backup_encrypt=true면 수동 백업도 암호화(일관성 —
 	// 플래그 없이 평문·자동만 암호문인 혼재 방지). stdout 파이프는
 	// 평문 계약 유지(암호화는 파일 출력만).
@@ -317,4 +322,24 @@ func quoteJSON(s string) string {
 		return `""`
 	}
 	return string(b)
+}
+
+// outInsideGitRepo — 경로가 git 저장소(작업 트리) 내부인지 판정(v0.28.2).
+// .git 디렉터리(일반)·파일(워크트리) 모두 인식, 상위로 최대 64단계.
+func outInsideGitRepo(out string) bool {
+	dir, err := filepath.Abs(filepath.Dir(out))
+	if err != nil {
+		return false
+	}
+	for i := 0; i < 64; i++ {
+		if _, err := os.Stat(filepath.Join(dir, ".git")); err == nil {
+			return true
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return false
+		}
+		dir = parent
+	}
+	return false
 }

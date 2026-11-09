@@ -17,3 +17,7 @@ bin/flint
 # 하네스 로컬 계층(개인 지침·로컬 훅) — repo 미커밋
 CLAUDE.local.md
 .claude/settings.local.json
+
+# flint 백업 덤프 실수 반입 방지(v0.28.2) — 자동 명명 덤프+사이드카.
+# 기본 백업 디렉터리는 ~/.flint/backup(repo 밖).
+flint-*.sql*

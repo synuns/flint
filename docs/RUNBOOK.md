@@ -38,6 +38,13 @@
   (암호문) 모두 로테이션 대상.
 - 보존 수는 `meta` 테이블의 `backup_keep` 값으로 조정한다(기본 14).
 
+### 백업 위치 원칙
+
+- 백업은 repo 밖(`~/.flint/backup`)이 원칙 — 개인 DB 전문 덤프를 git
+  저장소에 두면 커밋·동기화 유출 경로가 된다. `--out`이 git 저장소
+  내부면 flint가 경고하고(v0.28.2), 이 repo는 .gitignore·가드가
+  덤프 형상(자동 명명·매직 헤더)을 반입 차단한다.
+
 ### 백업 암호화 (옵트인)
 
 - 켜기: `flint tuning set backup_encrypt true`(또는 1회성

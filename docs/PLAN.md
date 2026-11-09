@@ -385,6 +385,20 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.28.2 패치 (2026-11-09) — v0.28.x 패치 루프 2차: 백업 덤프 repo 반입 3층 방어
+
+사용자 지시("개인 데이터는 repo 안에서 관리되지 않는다") — 감사 결과
+현재 오염 0건(워킹트리·git 전체 이력·가드 실증), 설계 구멍 3건 수선:
+
+- [x] 패키지: `backup --out`이 git 저장소 내부면 stderr 경고(진행 유지
+  — 사용자 명시 선택, 사고 예방 고지)
+- [x] repo: .gitignore `flint-*.sql*` 패턴 — 자동 명명 덤프·사이드카
+  add 원천 차단
+- [x] 가드: check_personal.py 덤프 형상 검사 — 자동 명명 파일명·
+  `-- flint backup (ADR-0002)` 매직 헤더를 마커와 무관하게 FAIL
+  (마커 없는 개인 지식 덤프도 차단). 3층 전부 실증(무시·차단·FAIL)
+- [x] RUNBOOK '백업 위치 원칙'·테스트(outInsideGitRepo)·버전 동기
+
 ### v0.28.1 패치 (2026-11-09) — v0.28.x 패치 루프 1차: doctor 전체 체인 backup-key 배선
 
 - [x] v0.28.0 결함 수선 — backup-key 체크를 doctorTailChecks(--check 허용
