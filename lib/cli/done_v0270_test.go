@@ -211,3 +211,25 @@ func TestDoneStdinSummaryBranches(t *testing.T) {
 		t.Errorf("nil stdin = %q, want \"\"", got)
 	}
 }
+
+// TestDoneCommitsAuditTrail — v0.29.1(동시성 감사 발견 8): 세션 종료는
+// 세션 행·지식화·카운터 쓰기를 감사 커밋으로 귀속시킨다(무관한 다음
+// write의 전역 스테이징 흡수 방지).
+func TestDoneCommitsAuditTrail(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	st := knFake("")
+	var out strings.Builder
+	if code := runDone(context.Background(), st, []string{"--session", "claude"},
+		strings.NewReader(`{"compact_summary":"감사 귀속 검증용 세션 요약 본문"}`), &out); code != 0 {
+		t.Fatalf("exit=%d: %s", code, out.String())
+	}
+	found := false
+	for _, c := range st.commits {
+		if strings.Contains(c, "session-end:") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("세션 종료 감사 커밋 부재: %v", st.commits)
+	}
+}

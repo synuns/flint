@@ -239,6 +239,14 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 지식 보존이 가장 필요한 상황이므로 스킵하면 기능이 죽는다.
 	maybeSessionKnowledge(ctx, st, res.Summary, agent, session, sessionRowID)
 	logPlaybookUse(ctx, st, playbook, playbookOK)
+	// v0.29.1(동시성 감사 발견 8): 세션 행·지식화·meta 카운터는 dolt
+	// 커밋 없이 종료되던 것을 무관한 다음 write의 전역 스테이징이 흡수해
+	// 감사 귀속이 어긋났다 — 종료 경계에서 커밋(실패는 stderr·비간섭 §13).
+	if _, cerr := st.Commit(ctx, fmt.Sprintf(
+		"session-end: agent=%s runs=%d (세션 종료 감사 귀속) [session:0]",
+		agentLabel(agent, 24), runs)); cerr != nil {
+		fmt.Fprintf(os.Stderr, "[flint] session-end commit: %v\n", cerr)
+	}
 	autoBackupFn(ctx)
 	return 0
 }
