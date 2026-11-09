@@ -18,8 +18,9 @@ func init() { Register("import", runImport) }
 
 // importCandidates — 발견 순위(조사 확정: Claude Code /import 준용).
 var importCandidates = []string{
-	"CLAUDE.md", "AGENTS.md", ".cursorrules", "GEMINI.md",
-	".github/copilot-instructions.md",
+	"CLAUDE.md", "AGENTS.md", "GEMINI.md", ".github/copilot-instructions.md",
+	// .cursorrules 제거(리뷰 5): 평문 불릿 규칙이라 ## 헤딩 분할이 비는
+	// 약속 불일치 — 지원 시 불릿 단위 분할 확장과 함께 추가.
 }
 
 // importSection — 헤딩 단위 분할 결과 1건.
@@ -28,10 +29,19 @@ type importSection struct {
 }
 
 // parseMarkdownSections — 헤딩 단위 분할(## 기준 — 표준 라이브러리만).
+// v0.27.0 리뷰 6: 코드 펜스(``` ) 내부의 "## "는 헤딩이 아니다.
 func parseMarkdownSections(body string) []importSection {
 	var out []importSection
 	var cur importSection
+	inFence := false
 	for _, line := range strings.Split(body, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "```") {
+			inFence = !inFence
+		}
+		if inFence {
+			cur.Text += line + "\n"
+			continue
+		}
 		if strings.HasPrefix(line, "## ") {
 			if cur.Heading != "" && strings.TrimSpace(cur.Text) != "" {
 				out = append(out, cur)
@@ -64,6 +74,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		}
 	}
 	var files []string
+	var unreadable []string
 	if len(pos) > 0 {
 		files = pos
 	} else {
@@ -82,6 +93,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
+			unreadable = append(unreadable, f) // 리뷰 5: 원인 숨김 방지
 			continue
 		}
 		for _, sec := range parseMarkdownSections(stripImportNoise(string(b))) {
@@ -93,6 +105,10 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		}
 	}
 	if len(items) == 0 {
+		if len(unreadable) > 0 {
+			fmt.Fprintln(stdout, `{"status":"error","detail":"읽기 불가: `+strings.Join(unreadable, ", ")+`"}`)
+			return 1
+		}
 		fmt.Fprintln(stdout, `{"status":"empty","detail":"변환 가능 섹션 없음(## 헤딩 필요)"}`)
 		return 0
 	}
@@ -100,38 +116,56 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintf(stdout, `{"status":"dry-run","files":%d,"sections":%d,"next":"--commit 적립 후 flint approve로 승격"}`+"\n", len(files), len(items))
 		return 0
 	}
-	inserted := 0
+	// 리뷰 8: dedup 예측 후 단일 배치 커밋(write 경로 패턴 — N트랜잭션 회피).
+	var batch []map[string]any
 	for _, it := range items {
+		topic := store.SanitizeText(truncateRunesImport("규칙["+it.Heading+"]", 80))
+		origin := store.SanitizeText("import:" + it.File)
 		rec := map[string]any{
 			"kind":       "knowledge",
-			"topic":      truncateRunesImport("규칙["+it.Heading+"]", 80),
+			"topic":      topic,
 			"summary":    store.SanitizeText(it.Summary),
 			"tags":       ":process:",
 			"domain":     "main",
 			"confidence": 0.5,
 			"status":     "pending",
-			"origin":     "import:" + it.File,
+			"origin":     origin,
 		}
-		rec["content_hash"] = store.HashCanonical(rec)
+		rec = store.Normalize("knowledge", rec)
+		rec["content_hash"] = store.ContentHash(store.HashCanonical(rec))
 		if h, _ := rec["content_hash"].(string); h != "" {
 			if exists, err := st.ExistsHash(ctx, h); err == nil && exists {
 				continue // dedup — 재임포트 멱등
 			}
 		}
-		if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err == nil {
-			inserted++
-		}
+		batch = append(batch, rec)
 	}
-	fmt.Fprintf(stdout, `{"status":"imported","inserted":%d,"skipped":%d}`+"\n", inserted, len(items)-inserted)
+	if len(batch) == 0 {
+		fmt.Fprintln(stdout, `{"status":"imported","inserted":0,"skipped":`+fmt.Sprint(len(items))+`}`)
+		return 0
+	}
+	if _, err := st.InsertBatch(ctx, batch); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	fmt.Fprintf(stdout, `{"status":"imported","inserted":%d,"skipped":%d}`+"\n", len(batch), len(items)-len(batch))
 	return 0
 }
 
-// stripImportNoise — HTML 주석 제거(코드 펜스 내부는 문자열로만 취급).
+// stripImportNoise — HTML 주석 제거. 코드 펜스 내부는 보존(리뷰 6).
 func stripImportNoise(s string) string {
 	var b strings.Builder
 	inComment := false
+	inFence := false
 	for _, line := range strings.Split(s, "\n") {
 		t := strings.TrimSpace(line)
+		if strings.HasPrefix(t, "```") {
+			inFence = !inFence
+		}
+		if inFence { // 펜스 내부 주석은 콘텐츠 — 제거하지 않는다(리뷰 6)
+			b.WriteString(line + "\n")
+			continue
+		}
 		if strings.HasPrefix(t, "<!--") {
 			inComment = true
 		}

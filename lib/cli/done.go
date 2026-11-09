@@ -76,16 +76,6 @@ type DoneResult struct {
 const sessionEndPrefix = "세션 종료"
 
 // SessionRecord — sessions upsert용 레코드(kind·agent·종료 요약·빈 tasks).
-func (d *DoneResult) sessionEndSummary() string {
-	if d.Summary != "" {
-		return d.Summary
-	}
-	if d.Unrecorded > 0 {
-		return fmt.Sprintf("세션 종료(미기록 %d)", d.Unrecorded)
-	}
-	return ""
-}
-
 func (d *DoneResult) SessionRecord() map[string]any {
 	return map[string]any{
 		"kind":    "session",
@@ -255,9 +245,13 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 // 적립은 pending(검수 대기) — approve 경로로 승격된다(신뢰 게이트 승계).
 func maybeSessionKnowledge(ctx context.Context, st Store, res *DoneResult, agent, session string) {
 	th := writeThresholds(ctx, st)
-	summary := strings.TrimSpace(res.sessionEndSummary())
+	summary := strings.TrimSpace(res.Summary)
+	// v0.27.0 리뷰 1: 실제 요약(Compact 결과 등)이 전달된 경우만 적립 —
+	// 폴백 상용구("세션 종료(미기록 N)")는 지식이 아니므로 스킵.
+	// 전달 경로(표준화) 활성 전까지 사실상 대기 상태: 마커·임계 회로는
+	// 유지되고 Summary가 채워지는 순간부터 자동 작동한다.
 	if summary == "" || len([]rune(summary)) < 12 {
-		return // 최소 길이 미달 — 미완성 요약
+		return
 	}
 	if th.SessionKnowledgeDays <= 0 {
 		return // -1 = 끔
@@ -279,7 +273,8 @@ func maybeSessionKnowledge(ctx context.Context, st Store, res *DoneResult, agent
 		"confidence": 0.5, // pending 게이트 — approve 경로 승격
 		"status":     "pending",
 	}
-	rec["content_hash"] = store.HashCanonical(rec) // 해시는 전체 정규화 후
+	rec = store.Normalize("knowledge", rec)
+	rec["content_hash"] = store.ContentHash(store.HashCanonical(rec))
 	if exists, err := st.ExistsHash(ctx, rec["content_hash"].(string)); err == nil && exists {
 		return // 중복 방지(같은 세션 재종료 재적립 차단)
 	}
@@ -294,16 +289,13 @@ func maybeSessionKnowledge(ctx context.Context, st Store, res *DoneResult, agent
 	}
 }
 
-// agentLabel — 세션 라벨(빈 값·과긴 대비 — topic 상한 근사).
+// agentLabel — 세션 라벨(빈 값 폴백 + truncateRunesImport 재사용 —
+// 리뷰 9: 절단 헬퍼 단일화).
 func agentLabel(agent string, max int) string {
 	if agent == "" {
 		return "unknown"
 	}
-	r := []rune(agent)
-	if len(r) > max {
-		return string(r[:max])
-	}
-	return agent
+	return truncateRunesImport(agent, max)
 }
 
 // recallStarvedToday — 오늘 daily 카운터로 회상 부재 판정(v0.18.0 R3).

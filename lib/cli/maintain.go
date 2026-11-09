@@ -1001,7 +1001,7 @@ func applyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.EventsVolumeWarn, def.EventsVolumeWarn, false},
 		{&th.DrillMaxDays, def.DrillMaxDays, false},
 		{&th.SecretsScanRows, def.SecretsScanRows, false},
-		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, false},
+		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, true}, // -1=끔 센티넬 허용
 		{&th.DailyRetentionD, def.DailyRetentionD, false},
 	} {
 		if *f.cur == 0 || (!f.allow && *f.cur < 0) {

@@ -13,8 +13,9 @@ import (
 func TestParseMarkdownSections(t *testing.T) {
 	body := "# 제목\n\n## 규칙 A\n내용 12자 이상 있습니다.\n\n## 규칙 B\n\n짧\n\n## 규칙 C\n<!-- 주석 -->\n충분한 내용이 여기 있습니다.\n"
 	got := parseMarkdownSections(stripImportNoise(body))
-	if len(got) != 2 { // B는 너무 짧아 parse에서 남지만 호출부에서 걸러짐 — 여기선 3섹션
-		t.Logf("섹션 수=%d(짧은 B 포함 — 호출부 필터)", len(got))
+	// 리뷰 10: 수 계약 단언 — A·B·C 3섹션(짧은 B 포함 — 호출부 필터).
+	if len(got) != 3 {
+		t.Fatalf("섹션 수=%d, want 3(A·B·C)", len(got))
 	}
 	if len(got) >= 1 && got[0].Heading != "규칙 A" {
 		t.Errorf("첫 헤딩=%q", got[0].Heading)
@@ -60,5 +61,18 @@ func TestRunImportDryRunAndCommit(t *testing.T) {
 	code = runImport(context.Background(), f2, []string{claude, "--commit"}, strings.NewReader(""), &out)
 	if code != 0 || !strings.Contains(out.String(), `"inserted":0`) {
 		t.Fatalf("재임포트 멱등 위반: exit=%d %s", code, out.String())
+	}
+}
+
+// TestParseMarkdownFenceGuard — v0.27.0 리뷰 6: 펜스 내부 "## "는
+// 헤딩 아니다 — 섹션 분할·주석 제거 모두 펜스 보존.
+func TestParseMarkdownFenceGuard(t *testing.T) {
+	body := "## 규칙\n실제 내용 충분합니다.\n\n```markdown\n## 펜스 내부 예시\n```\n"
+	secs := parseMarkdownSections(body)
+	if len(secs) != 1 || secs[0].Heading != "규칙" {
+		t.Fatalf("펜스 내부 헤딩 오판: %d sections %+v", len(secs), secs)
+	}
+	if !strings.Contains(secs[0].Text, "## 펜스 내부 예시") {
+		t.Errorf("펜스 내부 콘텐츠 미보존: %q", secs[0].Text)
 	}
 }
