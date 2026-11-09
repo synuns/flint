@@ -79,6 +79,15 @@ def ls_files():
     return [f for f in out.split("\0") if f]
 
 
+def untracked_files():
+    """미추적(무시 제외) 신규 파일 — v0.29.1: add/commit 전 스캔이
+    신규 파일을 놓쳐 도입 갭이었다(커밋 시점 ls-files은 add 이전)."""
+    out = subprocess.run(
+        ["git", "ls-files", "--others", "--exclude-standard", "-z"], cwd=ROOT,
+        capture_output=True, text=True, check=True).stdout
+    return [f for f in out.split("\0") if f]
+
+
 def scan_working_tree(files, markers):
     hits = []
     for f in files:
@@ -128,7 +137,10 @@ def scan_index_blobs(markers):
 
 def main() -> int:
     markers = local_markers()
-    failed = bool(scan_working_tree(ls_files(), markers))
+    files = ls_files()
+    if "--untracked" in sys.argv:
+        files += untracked_files()  # v0.29.1: 도입 예정 신규 파일 포함
+    failed = bool(scan_working_tree(files, markers))
     if "--cached" in sys.argv:
         failed = bool(scan_index_blobs(markers)) or failed
     if failed:

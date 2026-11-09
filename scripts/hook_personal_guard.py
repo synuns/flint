@@ -46,14 +46,19 @@ def main() -> None:
     except Exception:
         fail("BLOCK 훅 입력 파싱 실패(fail-closed)")
     bare = QUOTED.sub(" ", cmd)
-    if not GIT_STATE.search(bare):
+    m = GIT_STATE.search(bare)
+    if not m:
         return
     if "--author" in bare:
         fail("BLOCK --author 주입 금지 — 커밋 작성자는 로컬 git config(noreply)로 고정.")
-    r = subprocess.run(
-        [sys.executable, os.path.join(HERE, "check_personal.py"), "--cached"],
-        capture_output=True, text=True,
-    )
+    # v0.29.1: 도입류 조작은 미추적 신규 파일도 스캔 — add 전 ls_files이
+    # 신규 파일을 놓치던 갭(커밋 시점 우회 경로) 폐쇄. push는 스테이지
+    # 전량 스캔 유지(게시 경계 강도 불변).
+    introducing = m.group(1) in ("add", "commit", "stage", "update-index")
+    args = [sys.executable, os.path.join(HERE, "check_personal.py"), "--cached"]
+    if introducing:
+        args.append("--untracked")
+    r = subprocess.run(args, capture_output=True, text=True)
     if r.returncode != 0:
         fail("BLOCK: 개인 데이터 마커 감지 — scripts/check_personal.py 기준 위반. 치환 후 재시도.\n" + r.stdout.strip()[:800])
 
