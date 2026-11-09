@@ -174,13 +174,13 @@ jobs:
           VER="${{ steps.version.outputs.ver }}"
           # mcp-publisher 설치 — v0.17.0 R1: latest 부유 → v1.8.7 고정(재현성).
           # 상향 시 수동 실증 후 이 버전만 갱신.
-          curl -sL https://github.com/modelcontextprotocol/registry/releases/download/v1.8.7/mcp-publisher_linux_amd64.tar.gz | tar xz -C /tmp
+          curl -sfL --retry 3 --retry-delay 5 https://github.com/modelcontextprotocol/registry/releases/download/v1.8.7/mcp-publisher_linux_amd64.tar.gz | tar xz -C /tmp
           chmod +x /tmp/mcp-publisher
           # github-oidc 인증 (Actions 환경 자동)
           /tmp/mcp-publisher login github-oidc
           # .mcpb 다운로드 (goreleaser가 올렸거나 기존 릴리스에서)
           MCPB_URL="https://github.com/synuns/flint/releases/download/${TAG}/flint_${VER}_darwin_arm64.mcpb"
-          curl -sL "$MCPB_URL" -o /tmp/flint.mcpb
+          curl -sfL --retry 3 --retry-delay 5 "$MCPB_URL" -o /tmp/flint.mcpb
           if [ ! -s /tmp/flint.mcpb ]; then
             echo "error: .mcpb 다운로드 실패(${MCPB_URL})"; exit 1
           fi
