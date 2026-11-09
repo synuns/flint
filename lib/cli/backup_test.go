@@ -341,3 +341,107 @@ func TestBackupRotateFailureQuiet(t *testing.T) {
 		t.Fatalf("로테이션 실패 시 removed 필드 있음: %v", m)
 	}
 }
+
+// TestBackupEncryptWritesAgeFile — v0.28.0(H②): --encrypt은 age 암호문
+// 파일+사이드카(암호문 기준)·출력에 encrypted:true.
+func TestBackupEncryptWritesAgeFile(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	withBackupFake(t, &fakeBackup{dumpText: "-- flint dump\nINSERT INTO knowledge VALUES (1,'평문 본문');"})
+	out := filepath.Join(t.TempDir(), "b.sql.age")
+	got, code := mustBackup(t, []string{"--out", out, "--encrypt"})
+	if code != 0 {
+		t.Fatalf("exit=%d: %s", code, got)
+	}
+	if !strings.Contains(got, `"encrypted":true`) {
+		t.Fatalf("출력: %s", got)
+	}
+	b, err := os.ReadFile(out)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(b, []byte("age-encryption.org/")) {
+		t.Error("age 헤더 없음")
+	}
+	if bytes.Contains(b, []byte("평문 본문")) {
+		t.Error("평문 노출")
+	}
+	// 사이드카는 암호문 체크섬.
+	sum, verr := backup.VerifyFile(out)
+	if verr != nil {
+		t.Fatalf("사이드카 검증: %v", verr)
+	}
+	h := sha256.Sum256(b)
+	if sum != hex.EncodeToString(h[:]) {
+		t.Error("사이드카가 암호문 기준 아님")
+	}
+}
+
+// TestBackupMaskDump — v0.28.0: --mask은 마커 선두·패턴 치환·사이드카
+// 미부여(비복원 아티팩트)·restore 거부.
+func TestBackupMaskDump(t *testing.T) {
+	withBackupFake(t, &fakeBackup{dumpText: "-- flint dump\nINSERT INTO knowledge VALUES (1,'토큰 ghp_0123456789abcdefghijklmnopqrst');"})
+	out := filepath.Join(t.TempDir(), "m.sql")
+	got, code := mustBackup(t, []string{"--out", out, "--mask"})
+	if code != 0 {
+		t.Fatalf("exit=%d: %s", code, got)
+	}
+	if !strings.Contains(got, `"masked":true`) {
+		t.Fatalf("출력: %s", got)
+	}
+	b, _ := os.ReadFile(out)
+	if !bytes.HasPrefix(b, []byte(backup.MaskDumpHeader)) {
+		t.Error("마스킹 마커 없음")
+	}
+	if bytes.Contains(b, []byte("ghp_0123456789")) {
+		t.Error("토큰 미치환")
+	}
+	if _, serr := os.Stat(out + ".sha256"); serr == nil {
+		t.Error("마스킹 덤프에 사이드카 부여 — 비복원 계약 위반")
+	}
+	// restore 거부(사이드카 부재 가드가 먼저 — 마커 가드와 이중 방어).
+	rgot, rcode := mustRestore(t, []string{"--file", out})
+	if rcode != 1 || !strings.Contains(rgot, "sidecar") {
+		t.Fatalf("마스킹 restore = exit %d %s, want 사이드카 차단", rcode, rgot)
+	}
+}
+
+// TestRestoreDecryptsEncrypted — v0.28.0: 암호화 백업 restore 복호 경로
+// (restoreFn이 평문을 받는다) + 키 없으면 명확 에러.
+func TestRestoreDecryptsEncrypted(t *testing.T) {
+	cfg := t.TempDir()
+	key := filepath.Join(cfg, "backup.key")
+	id, err := backup.EnsureIdentity(key)
+	if err != nil {
+		t.Fatal(err)
+	}
+	dir := t.TempDir()
+	plain := "-- flint dump\nINSERT INTO knowledge VALUES (1,'복호 검증 본문');"
+	var ct bytes.Buffer
+	if err := backup.EncryptTo(&ct, []byte(plain), id.Recipient()); err != nil {
+		t.Fatal(err)
+	}
+	f := filepath.Join(dir, "b.sql.age")
+	os.WriteFile(f, ct.Bytes(), 0o600)
+	h := sha256.Sum256(ct.Bytes())
+	backup.WriteSidecar(f, hex.EncodeToString(h[:]))
+
+	// 키 있는 config — 복호되어 restoreFn 도달.
+	t.Setenv("FLINT_CONFIG_DIR", cfg)
+	fb := &fakeBackup{}
+	withBackupFake(t, fb)
+	got, code := mustRestore(t, []string{"--file", f})
+	if code != 0 || !strings.Contains(got, `"status":"restored"`) {
+		t.Fatalf("복호 restore = exit %d %s", code, got)
+	}
+	if !strings.Contains(fb.gotRestore, "복호 검증 본문") {
+		t.Errorf("restoreFn 평문 미수신: %q", fb.gotRestore)
+	}
+
+	// 키 없는 config — 명확 에러(암호문 임의 재생 차단).
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	withBackupFake(t, &fakeBackup{})
+	got2, code2 := mustRestore(t, []string{"--file", f})
+	if code2 != 1 || !strings.Contains(got2, "키 파일 필요") {
+		t.Fatalf("키 없음 = exit %d %s", code2, got2)
+	}
+}

@@ -7,7 +7,6 @@ package backup
 import (
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"time"
 
@@ -77,10 +76,18 @@ func countInserts(stmts []string, table string) int {
 // 스키마→DB 격리 전환. 종료 정리 DROP은 재생 ctx와 독립된 짧은 타임아웃
 // 으로 실행된다(재생이 120s를 소진해도 정리는 항상 실행).
 func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
+	return RunDrillWithKey(dsn, dumpPath, "")
+}
+
+// RunDrillWithKey — v0.28.0: 암호화 덤프 지원 드릴(keyPath = age
+// identity 경로, 공백이면 평문 전용). 본체는 이 함수 — RunDrill은
+// 기존 시그니처 호환 위임.
+func RunDrillWithKey(dsn string, dumpPath string, keyPath string) (res DrillResult, err error) {
 	ctx, cancel := drillCtxFn()
 	defer cancel()
 
-	data, err := os.ReadFile(dumpPath)
+	// v0.28.0: 판독 단일 경로 — age 복호·마스킹 거부가 여기서 적용된다.
+	data, err := ReadDumpBytes(dumpPath, keyPath)
 	if err != nil {
 		return DrillResult{}, err
 	}

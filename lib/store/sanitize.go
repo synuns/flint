@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"sync"
 	"unicode"
@@ -42,6 +43,12 @@ var secretPatterns = []struct {
 	{"gitlab-pat", regexp.MustCompile(`glpat-[0-9A-Za-z_\-]{20,}`), false},
 	{"jwt", regexp.MustCompile(`eyJ[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}\.[0-9A-Za-z_-]{10,}`), false},
 	{"google-api-key", regexp.MustCompile(`AIza[0-9A-Za-z_-]{35}`), false},
+	// v0.28.0(H⑦): AI 도구생태계 상위 토큰 갱신(gitleaks 추적).
+	// openrouter는 sk-or-가 sk-(openai)에 포함 — specific 마스킹 우선.
+	{"openrouter-key", regexp.MustCompile(`sk-or-[0-9A-Za-z-]{20,}`), true},
+	{"github-app-token", regexp.MustCompile(`gh[opsr]_[0-9A-Za-z]{36,}`), false},
+	{"groq-key", regexp.MustCompile(`gsk_[0-9A-Za-z]{30,}`), false},
+	{"xai-key", regexp.MustCompile(`xai-[0-9A-Za-z]{30,}`), false},
 }
 
 // ScanSecrets는 비밀 후보 패턴명을 반환한다(빈 슬라이스=통과).
@@ -77,6 +84,39 @@ func ScanSecrets(s string) []string {
 		}
 	}
 	return found
+}
+
+// MaskSecrets — 비밀 패턴 매칭 구간을 [REDACTED:패턴명]으로 치환한 사본
+// 반환(v0.28.0 백업 마스킹 — 진단·공유용 덤프). allowlist 항목은 원문
+// 그대로 유지(사용자가 등록한 문서용 예시는 치환하지 않는다 — 치환
+// 전 sentinel로 보호·치환 후 복원. maskAllowlisted의 [ALLOWED] 개조와
+// 달리 내용을 보존한다). 특수→일반 순서는 ScanSecrets와 동일(포함
+// 관계 이중 치환 방지).
+func MaskSecrets(s string) string {
+	type keep struct{ sentinel, orig string }
+	var keeps []keep
+	for i, a := range secretsAllowlist {
+		if a == "" || !strings.Contains(s, a) {
+			continue
+		}
+		sent := "\x00FLINTMASKKEEP" + strconv.Itoa(i) + "\x00" // 패턴 형태와 무충돌
+		s = strings.ReplaceAll(s, a, sent)
+		keeps = append(keeps, keep{sent, a})
+	}
+	for _, p := range secretPatterns {
+		if p.specific {
+			s = p.re.ReplaceAllString(s, "[REDACTED:"+p.name+"]")
+		}
+	}
+	for _, p := range secretPatterns {
+		if !p.specific {
+			s = p.re.ReplaceAllString(s, "[REDACTED:"+p.name+"]")
+		}
+	}
+	for _, k := range keeps {
+		s = strings.ReplaceAll(s, k.sentinel, k.orig)
+	}
+	return s
 }
 
 // ── v0.26.1(패치 루프 1차): 비밀 스캔 allowlist — 오탐 완화(F 리스크 #1).

@@ -142,7 +142,7 @@ Each session cycles through four phases:
 | `flint approve --id n` | Promote pending to active |
 | `flint maintain` | Curate: check thresholds, invalidate, merge |
 | `flint audit --limit n` | Show last n commits |
-| `flint backup` | Dump to SQL with sha256 checksum |
+| `flint backup` | Dump to SQL with sha256 checksum (`--encrypt` age at-rest, `--mask` redacted diagnostics) |
 | `flint restore --file f` | Restore from backup (`--drill` to rehearse) |
 | `flint status` | Schema version, pending count, hot p95 |
 | `flint mcp` | Run the MCP server |

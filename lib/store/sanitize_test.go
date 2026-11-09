@@ -145,3 +145,43 @@ func TestLoadSecretsAllowlistFile(t *testing.T) {
 		t.Errorf("allowlist 로드 = %d항목, want 3(주석·빈 줄 제외)", got)
 	}
 }
+
+// TestMaskSecrets — v0.28.0: 마스킹 치환(패턴명 라벨·allowlist 유지·멱등).
+func TestMaskSecrets(t *testing.T) {
+	in := "토큰 ghp_0123456789abcdefghijklmnopqrst 와 키 sk-abc0123456789defghijklmn 포함"
+	got := MaskSecrets(in)
+	if strings.Contains(got, "ghp_0123456789") {
+		t.Errorf("github 토큰 미치환: %q", got)
+	}
+	if !strings.Contains(got, "[REDACTED:github-token]") || !strings.Contains(got, "[REDACTED:openai-key]") {
+		t.Errorf("패턴명 라벨 부재: %q", got)
+	}
+	// 치환 결과 재적용 멱등 — [REDACTED:...]가 새 패턴을 만들지 않는다.
+	if twice := MaskSecrets(got); twice != got {
+		t.Errorf("비멱등: %q vs %q", got, twice)
+	}
+	// allowlist 항목은 유지.
+	ResetSecretsAllowlistForTest([]string{"ghp_docs_example_123456789"})
+	t.Cleanup(func() { ResetSecretsAllowlistForTest(nil) })
+	got2 := MaskSecrets("문서용 ghp_docs_example_123456789 토큰")
+	if !strings.Contains(got2, "ghp_docs_example_123456789") {
+		t.Errorf("allowlist 항목 치환: %q", got2)
+	}
+}
+
+// TestScanSecretsV0280Patterns — v0.28.0(H⑦): AI 생태계 토큰 4종 회귀
+// (openrouter는 sk- 포함 관계 — 단독 보고).
+func TestScanSecretsV0280Patterns(t *testing.T) {
+	cases := []struct{ name, text string }{
+		{"openrouter-key", "키 sk-or-v1-70b3b0d28f1d4a1c9c5b1e2d3f4a5b6c7d8e9f0a"},
+		{"github-app-token", "앱 gho_0123456789abcdefghijklmnopqrstuvwxyz0123"},
+		{"groq-key", "키 gsk_0123456789abcdefghijklmnopqrstuvwxyz0123"},
+		{"xai-key", "키 xai-0123456789abcdefghijklmnopqrstuvwxyz0123"},
+	}
+	for _, c := range cases {
+		got := ScanSecrets(c.text)
+		if len(got) != 1 || got[0] != c.name {
+			t.Errorf("%s 스캔 = %v, want [%s]", c.name, got, c.name)
+		}
+	}
+}

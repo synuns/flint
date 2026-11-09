@@ -1364,3 +1364,55 @@ func TestReportEffectFlow(t *testing.T) {
 		t.Errorf("recall_led_pct = %v, want 100(회상 선도 세션)", effect["recall_led_pct"])
 	}
 }
+
+// TestBackupEncryptDrillE2E — v0.28.0(H②): 실DB 암호화 백업 왕복 —
+// backup --encrypt(age 파일·사이드카) → restore --drill 복호 재생.
+// 키는 임시 config에 생성(RunDrillWithKey 복호 경로).
+func TestBackupEncryptDrillE2E(t *testing.T) {
+	pool := mustDB(t)
+	cleanupTopics(t, pool, "e2e-encdrill-")
+	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-encdrill-") })
+	writeKnowledge(t, `{"topic":"e2e-encdrill-k","summary":"암호화 드릴 프로브","confidence":0.9}`)
+
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	dir := t.TempDir()
+	dump := filepath.Join(dir, "drill.sql.age")
+	out, code := runCLI(t, []string{"backup", "--out", dump, "--encrypt"}, "")
+	if code != 0 {
+		t.Fatalf("backup --encrypt exit=%d; out=%s", code, out)
+	}
+	b, err := os.ReadFile(dump)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.HasPrefix(b, []byte("age-encryption.org/")) {
+		t.Fatalf("age 헤더 없음: %q", b[:20])
+	}
+	out, code = runCLI(t, []string{"restore", "--drill", "--file", dump}, "")
+	if code != 0 {
+		t.Fatalf("restore --drill(암호문) exit=%d; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["status"] != "drill" || m["ok"] != true {
+		t.Fatalf("암호문 drill 출력=%v, want ok=true", m)
+	}
+	if m["expected"] != m["restored"] || m["expected"] == float64(0) {
+		t.Fatalf("expected=%v restored=%v", m["expected"], m["restored"])
+	}
+	// 마스킹 덤프는 실DB에서도 restore 거부(사이드카 미부여 이중 방어).
+	masked := filepath.Join(dir, "m.sql")
+	out, code = runCLI(t, []string{"backup", "--out", masked, "--mask"}, "")
+	if code != 0 {
+		t.Fatalf("backup --mask exit=%d; out=%s", code, out)
+	}
+	if _, serr := os.Stat(masked + ".sha256"); serr == nil {
+		t.Fatal("마스킹 덤프에 사이드카 부여 — 비복원 계약 위반")
+	}
+	out, code = runCLI(t, []string{"restore", "--drill", "--file", masked}, "")
+	if code == 1 && strings.Contains(out, "sidecar") {
+		return // 사이드카 가드 선행 — 통과
+	}
+	if code != 1 {
+		t.Fatalf("마스킹 drill = exit %d %s, want 1", code, out)
+	}
+}

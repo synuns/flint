@@ -61,7 +61,8 @@ func Rotate(dir string, keep int) ([]string, error) {
 	}
 	var dumps []dump
 	for _, e := range entries {
-		if e.IsDir() || filepath.Ext(e.Name()) != ".sql" {
+		// v0.28.0: 암호화 백업(.sql.age)도 로테이션 대상 — ext는 .age.
+		if e.IsDir() || !isDumpExt(filepath.Ext(e.Name())) {
 			continue
 		}
 		info, ierr := e.Info()
@@ -90,4 +91,9 @@ func Rotate(dir string, keep int) ([]string, error) {
 		}
 	}
 	return removed, nil
+}
+
+// isDumpExt — 로테이션 대상 덤프 확장자(.sql 평문·.age 암호문, v0.28.0).
+func isDumpExt(ext string) bool {
+	return ext == ".sql" || ext == ".age"
 }

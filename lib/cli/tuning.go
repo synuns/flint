@@ -95,6 +95,14 @@ func tuningMetaKeys() []tuningMetaKey {
 		// v0.24.0 R4a: 개인 어휘(빈 허용=미설정, 콤마 목록).
 		{Key: "vocab_tags", Default: "", Validate: vocabListValidator("vocab_tags")},
 		{Key: "vocab_domains", Default: "", Validate: vocabListValidator("vocab_domains")},
+		// v0.28.0(H②): 백업 암호화 옵트인 스위치(false=평문 유지 — 기존
+		// 백업·restore 불변). true면 자동·수동 백업이 age 암호화된다.
+		{Key: "backup_encrypt", Default: "false", Validate: func(v string) error {
+			if v != "true" && v != "false" {
+				return fmt.Errorf("backup_encrypt: true|false 필요")
+			}
+			return nil
+		}},
 	}
 }
 

@@ -33,7 +33,7 @@ func DoctorChecks() []string {
 // 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
 // conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "update", "recall-starved", "secrets"}
+	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "backup-key", "update", "recall-starved", "secrets"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -244,6 +244,9 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 	case "event-volume":
 		// v0.20.4(마일스톤 C①) — 계측 테이블 용량 warn.
 		return checkEventVolume(ctx, st)
+	case "backup-key":
+		// v0.28.0(H⑤) — 암호화 백업 키 파일 상태(부재·권한 이완 warn).
+		return checkBackupKey(ctx, st)
 	case "update":
 		// v0.22.0(마이너 A·R3) — 릴리스 지연 warn.
 		return checkUpdate(ctx, st)
@@ -804,6 +807,52 @@ func checkLastSeen(ctx context.Context, st Store) doctorCheck {
 // checkBackupAge — meta last_backup 경과 판정(v0.10.0 R4). 경과 임계는
 // thresholds 레지스트리(meta backup_age_warn_h, 기본 72h — v0.16.3 레지스트
 // 리화·TUNING §2 스펙 §3 R4 Notes 이연 회수). 이상 경과·미설정·파손 값·
+// checkBackupKey — v0.28.0(H⑤): 암호화 백업 키 상태. meta
+// backup_encrypt=true일 때만 실검사 — 키 부재면 다음 자동 백업이 새
+// 키를 만들어 기존 암호문과 호환되지 않는 혼재가 생긴다(사전 경고가
+// 존재 이유). 권한은 0600 기준(다른 로컬 계정·프로세스로부터 보호).
+func checkBackupKey(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "backup-key"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "키 상태 조회 불가"
+		return c
+	}
+	rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = 'backup_encrypt'`, nil)
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		c.Status = "ok"
+		c.Detail = "암호화 미사용(평문 백업 — backup_encrypt로 옵트인)"
+		return c
+	}
+	if v, _ := rows[0][0].(string); v != "true" && v != "1" {
+		c.Status = "ok"
+		c.Detail = "암호화 미사용(평문 백업 — backup_encrypt로 옵트인)"
+		return c
+	}
+	key := BackupKeyPath()
+	if key == "" {
+		c.Status = "warn"
+		c.Detail = "config 디렉터리 미확인 — 키 경로 조립 불가"
+		return c
+	}
+	fi, err := os.Stat(key)
+	if err != nil {
+		c.Status = "warn"
+		c.Detail = "backup_encrypt 켜짐인데 키 파일 부재 — 다음 암호화 백업이 새 키를 생성해 기존 암호문과 호환 불가 혼재 위험"
+		c.Fix = "fix: 기존 키 위치 확인(~/.config/flint/backup.key) 후 flint backup --encrypt --out <경로>로 키 재확인"
+		return c
+	}
+	if fi.Mode().Perm() != 0o600 {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("키 파일 권한 %o — 0600 필요(다른 로컬 계정 접근 차단)", fi.Mode().Perm())
+		c.Fix = "fix: chmod 600 " + key
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = "암호화 백업 키 정상(0600)"
+	return c
+}
+
 // 조회 실패·st nil 전부 warn — 백업 부재가 flint 동작을 막지 않으므로
 // fail 아니다(룰링). checkLastSeen과 같은 queryOnce·RFC3339 패턴을 승계한다.
 func checkBackupAge(ctx context.Context, st Store) doctorCheck {

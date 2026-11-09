@@ -121,11 +121,12 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('pending_max','40')
 | 2주차 | 41 | 1,960자 | 상한 2,000자 근접 — `hot_budget` 2,400 갱신 |
 | 갱신 후 | 12 | 2,310자 | 절단 0건 — 예산 적정 |
 
-## 4. backup 로테이션 (backup_keep)
+## 4. backup 로테이션 (backup_keep) · 암호화 (backup_encrypt)
 
 `flint backup --out` 성공 시 같은 디렉터리의 덤프를 로테이션한다(v0.5 T54):
 
-- 대상은 `.sql` 파일, **mtime 최신순**으로 `backup_keep`개 유지.
+- 대상은 `.sql`(평문)·`.sql.age`(암호문, v0.28.0) 파일, **mtime 최신순**으로
+  `backup_keep`개 유지.
 - 나머지는 삭제하며 짝이루는 `.sha256` 사이드카가 있으면 함께 삭제
   (사이드카가 없는 파일은 단독 삭제). 요약 JSON의 `removed`에 개수 출력.
 - 기본값 **14**. `backup_keep`이 1 미만이거나 무효하면 기본값 폴백,
@@ -135,6 +136,27 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('pending_max','40')
 ```sh
 psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
   ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value"
+```
+
+### 백업 암호화 — `backup_encrypt` (v0.28.0, 기본 false)
+
+옵트인. `true`면 자동·수동 파일 백업이 age 암호화된다(X25519 키 파일
+`~/.config/flint/backup.key`, 0600 — 첫 암호화 시 자동 생성). 1회성은
+`flint backup --out <경로> --encrypt`.
+
+- 키 파일은 기기에 남는 비밀 — **분실 시 암호화 백업 해독 불가**(패스워드
+  매니저 등 별도 사본 권장). 위협 모델: 백업 파일이 기기를 벗어나는
+  유출 방지(동기화·복사 사고). 기기 전체 탈취는 방어 대상 아님.
+- 암호문의 `.sha256` 사이드카는 **암호문 기준**(저장 무결성 — 평문은
+  age AEAD가 담보). `flint restore`는 형식 감지 후 자동 복호·재생,
+  `--drill`도 동일 경로.
+- 마스킹 덤프(`flint backup --mask --out <경로>`)는 비밀 패턴을
+  `[REDACTED:패턴명]` 치환한 **진단·공유 전용** 아티팩트 — 사이드카
+  미부여로 restore가 원천 차단된다.
+- 갱신:
+
+```sh
+flint tuning set backup_encrypt true
 ```
 
 ## 5. 기타 meta 키
