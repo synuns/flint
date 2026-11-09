@@ -206,7 +206,10 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, errLine(err))
 		return 0
 	}
-	res := &DoneResult{Agent: agent, Unrecorded: runs}
+	// v0.27.1(패치 루프 1차): Stop 훅 stdin의 compact_summary를 세션
+	// 지식화 소스로 연결 — 리뷰 1 대기 상태 활성화. PostCompact 훅이
+	// 이미 이 필드를 생성하므로 표준 경로에서 실제 요약이 흐른다.
+	res := &DoneResult{Agent: agent, Unrecorded: runs, Summary: doneStdinSummary(stdin)}
 	if runs >= th.StaleSessions {
 		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"연속 %d세션 미기록"}`+"\n", runs, runs)
 		writeSessionRecord(ctx, st, res.SessionRecord())
@@ -471,4 +474,23 @@ func bumpMetaCounter(ctx context.Context, st Store, key string) {
 	_, _ = queryOnce(ctx, st,
 		`INSERT INTO meta (key, value) VALUES ($1, '1')
 		 ON CONFLICT (key) DO UPDATE SET value = (meta.value::bigint + 1)::text`, []any{key})
+}
+
+// doneStdinSummary — Stop 훅 stdin JSON에서 compact_summary 추출
+// (v0.27.1). 파싱 실패·부재는 빈 값 — 폴백 상용구 스킵 계약 유지.
+func doneStdinSummary(stdin io.Reader) string {
+	if stdin == nil {
+		return ""
+	}
+	b, err := io.ReadAll(stdin)
+	if err != nil {
+		return ""
+	}
+	var h struct {
+		CompactSummary string `json:"compact_summary"`
+	}
+	if json.Unmarshal(b, &h) != nil {
+		return ""
+	}
+	return strings.TrimSpace(h.CompactSummary)
 }
