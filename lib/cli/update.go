@@ -70,11 +70,7 @@ const updateNoticeTTL = 24 * time.Hour
 
 // updateCacheFile — 갱신 확인 캐시 경로(configDir — 마커 패턴 승계).
 func updateCacheFile() string {
-	d := configDir()
-	if d == "" {
-		return ""
-	}
-	return filepath.Join(d, "update-check.json")
+	return dataFile("update-check.json")
 }
 
 // updateCache — 갱신 확인 캐시 1행.

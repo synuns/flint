@@ -49,7 +49,7 @@
 
 - 켜기: `flint tuning set backup_encrypt true`(또는 1회성
   `flint backup --out <경로> --encrypt`). 키 파일
-  `설정 디렉터리의 backup.key(FLINT_CONFIG_DIR 또는 OS 표준 — macOS ~/Library/Application Support/flint, Linux ~/.config/flint · `flint doctor --check backup-key`가 실제 경로 표시)`(0600)가 첫 암호화 시 자동 생성된다.
+  `인프라 데이터 루트 FLINT_HOME의 backup.key(기본 ~/.flint, FLINT_HOME env 오버라이드 · `flint doctor --check backup-key`가 실제 경로 표시)`(0600)가 첫 암호화 시 자동 생성된다.
 - **키 분실 = 암호화 백업 해독 불가** — 키 파일은 패스워드 매니저 등에
   별도 사본을 보관한다. 기기 교체 시 키 파일 이전이 먼저다.
 - 위협 모델: 백업 파일이 기기를 벗어나는 유출(클라우드 동기화·복사·

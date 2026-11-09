@@ -141,7 +141,7 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('backup_keep','7')
 ### 백업 암호화 — `backup_encrypt` (v0.28.0, 기본 false)
 
 옵트인. `true`면 자동·수동 파일 백업이 age 암호화된다(X25519 키 파일
-`설정 디렉터리의 backup.key(FLINT_CONFIG_DIR 또는 OS 표준 — macOS ~/Library/Application Support/flint, Linux ~/.config/flint · `flint doctor --check backup-key`가 실제 경로 표시)`, 0600 — 첫 암호화 시 자동 생성). 1회성은
+`인프라 데이터 루트 FLINT_HOME의 backup.key(기본 ~/.flint, FLINT_HOME env 오버라이드 · `flint doctor --check backup-key`가 실제 경로 표시)`, 0600 — 첫 암호화 시 자동 생성). 1회성은
 `flint backup --out <경로> --encrypt`.
 
 - 키 파일은 기기에 남는 비밀 — **분실 시 암호화 백업 해독 불가**(패스워드

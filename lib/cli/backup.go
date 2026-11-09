@@ -31,13 +31,10 @@ var (
 	maskSecretsF = store.MaskSecrets
 )
 
-// BackupKeyPath — 암호화 백업 identity 경로(config 디렉터리, v0.28.0).
+// BackupKeyPath — 암호화 백업 identity 경로(FLINT_HOME 인프라 루트,
+// v0.28.3 — config에서 데이터 공간으로 이전·레거시 자동 마이그레이션).
 func BackupKeyPath() string {
-	d := configDir()
-	if d == "" {
-		return ""
-	}
-	return filepath.Join(d, "backup.key")
+	return dataFile("backup.key")
 }
 
 // backupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(리뷰 8:

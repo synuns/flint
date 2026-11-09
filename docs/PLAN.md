@@ -385,6 +385,29 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.28.3 패치 (2026-11-09) — v0.28.x 패치 루프 3차: FLINT_HOME 인프라 데이터 루트 통일
+
+사용자 지시("개인 DB 백업은 인프라쪽") — 3곳 산재(백업=~/.flint·키·
+마커·캐시=설정 디렉터리)를 2공간 모델로 정리:
+
+- [x] FLINT_HOME(기본 ~/.flint, FLINT_HOME env > FLINT_CONFIG_DIR 폴백)
+  = 인프라 데이터 루트 — backup/·backup.key·마커(pending-distill·
+  recall-hint)·세션 라벨·캐시(갱신·정비). DB 도커 볼륨과는 독립
+  (백업의 존재 이유가 볼륨 손실에서의 생존이므로 볼륨 내부 배치는
+  재난복구 자기모순 — 룰링)
+- [x] 레퍼런스 대조 — taskwarrior가 같은 계층 구조: 데이터 루트 ~/.task
+  (데이터·hooks/·backups/) + 설정 ~/.taskrc 분리 + TASKDATA env 오버라이드
+  (XDG는 옵트인). pass도 ~/.password-store 단일 루트. XDG 표준
+  (DATA=이식 데이터·STATE=기계 국소 상태)은 다중 홈 세분화 — 단일 홈
+  계열 선례(taskwarrior·pass)가 flint 인프라 루트 모델과 일치,
+  XDG 배치 원하면 FLINT_HOME env(TASKDATA 관례 승계)
+- [x] config 공간(사용자 편집: config.json·allowlist·personal-markers)은
+  기존 문서화 경로 유지 — 설정과 데이터의 의미 분리
+- [x] dataFile() 단일 헬퍼 — 레거시(configDir) 아티팩트 자동 이전
+  (복사 후 원본 제거, 신규 우선, 실패 조용히 재시도)
+- [x] 테스트 — FLINT_HOME 오버라이드·이전 수신·레거시 제거·신규 우선
+- [x] RUNBOOK·TUNING 경로 문서 갱신·버전 동기
+
 ### v0.28.2 패치 (2026-11-09) — v0.28.x 패치 루프 2차: 백업 덤프 repo 반입 3층 방어
 
 사용자 지시("개인 데이터는 repo 안에서 관리되지 않는다") — 감사 결과
