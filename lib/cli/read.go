@@ -69,7 +69,9 @@ func idsCSV(ids []int) string {
 // firstExactRank — 반환 행에서 첫 topic 정합(lower 일치, RankOrder
 // 정의 승계)의 1-기반 순위. 정합 없음 0(v0.30.0 R2 — 품질 근사 원천).
 func firstExactRank(rows [][]any, q string) int {
-	lq := strings.ToLower(strings.TrimSpace(q))
+	// v0.31.3(감사 4): RankOrder 원천은 SQL lower(원 q) — trim 없음.
+	// 품질 기록도 동일 정의를 쓴다(공백 포함 q에서 순위 왜곡 방지).
+	lq := strings.ToLower(q)
 	if lq == "" {
 		return 0 // 빈 쿼리(전체 조회)는 정합 개념 없음
 	}
@@ -403,8 +405,11 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// v0.20.0: 반환 id CSV 동반(사용 연쇄 원천).
 	if res, ok := st.(ReadEventStore); ok {
 		// v0.30.0 R2: 첫 정합 순위 — 폴백 경유는 품질 지표에서 제외(0).
+		// v0.31.3(감사 5): --as-of(과거 시점 검사)·--status(상태 필터
+		// 조회)도 현재 검색 품질 지표에서 배제 — 품질 원천은 통상
+		// 회상 경로만(METRICS §2 계약 문서화와 함께).
 		rank := 0
-		if !fallbackTried {
+		if !fallbackTried && asOfSpec == "" && f.Status == "" {
 			rank = firstExactRank(rows, q)
 		}
 		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session, idsCSV(rowIDs(rows)), rank)

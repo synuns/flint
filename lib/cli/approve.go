@@ -137,6 +137,17 @@ func supersedeAfterApprove(ctx context.Context, st Store, oldID, newID int) erro
 		[]any{oldID, newID}); err != nil {
 		return err
 	}
+	// v0.31.3(감사 2): 후검사 — queryOnce가 rows-affected를 폐기하므로
+	// 사전 확인과 UPDATE 사이 경합(병렬 무효화)에서 0행 갱신이 무음
+	// 성공으로 남던 창을 결과 확인으로 닫는다.
+	rows, verr := queryOnce(ctx, st,
+		`SELECT superseded_by FROM knowledge WHERE id = $1`, []any{oldID})
+	if verr != nil {
+		return verr
+	}
+	if len(rows) == 0 || rows[0][0] == nil || fmt.Sprint(rows[0][0]) != fmt.Sprint(newID) {
+		return fmt.Errorf("supersede: id=%d 갱신 미반영(경합 — 재시도)", oldID)
+	}
 	_, err = st.Commit(ctx, fmt.Sprintf(
 		"approve+supersede: id=%d superseded=%d (승격 병합 경로) [session:0]", newID, oldID))
 	return err
