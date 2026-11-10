@@ -171,6 +171,9 @@ flint tuning set backup_encrypt true
 - `schema_version` — CLI 호환 검사 전용(수동 갱신 금지).
 - `last_backup` — 자동 백업 판정 전용(`flint backup`이 갱신).
 - `hot_stats` — hot 계측 영속 누적(`flint status`가 읽고 종료 시 갱신).
+- `brief_budget` — `flint brief`(외부 AI 브리프, v0.34) 전체 출력 rune
+  상한. 미설정·무효 값은 기본 3,000(hot_budget과 같은 계약 — 조회
+  실패·무효는 에러 아님).
 
 ## 6. 이연결정 회수 계획 요약
 

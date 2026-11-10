@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.33.0-blue" alt="v0.33.0">
+  <img src="https://img.shields.io/badge/release-v0.34.0-blue" alt="v0.34.0">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v0.33.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
+> v0.34.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
 
 ---
 
@@ -127,6 +127,18 @@ Each session cycles through four phases:
 
 ---
 
+## Beyond local agents — the bridge
+
+flint's surfaces (hooks, stdio MCP, localhost Doltgres) assume the agent runs on your machine — that's deliberate ([ADR-0013](docs/adr/0013-threat-model.md)). For AIs that don't — a cloud assistant, a phone app — use the bridge instead of a connector:
+
+```bash
+flint brief [query]        # masked, read-only context block — paste it into any chat
+```
+
+`brief` searches active knowledge only (pending never leaves the machine), masks secret patterns (`[REDACTED:…]`), and carries the `[flint]` data-block marker so the receiving AI treats it as data, not instructions ([ADR-0015](docs/adr/0015-bridge-surface.md)). To bring an assistant's answer back, feed it to `flint write --status pending` (or `flint import`) — it lands in the same review queue as any unreviewed writer, and `flint approve` promotes it. Remote live writes are off the table by design.
+
+---
+
 ## Commands
 
 | Command | What it does |
@@ -138,6 +150,7 @@ Each session cycles through four phases:
 | `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`) |
 | `flint read <query>` | Search active knowledge |
 | `flint hot --session <id>` | Inject context at session start |
+| `flint brief [query]` | Masked, read-only brief to paste into any external AI (the bridge) |
 | `flint done --session <id>` | Wrap up a session |
 | `flint approve --id n` | Promote pending to active |
 | `flint maintain` | Curate: check thresholds, invalidate, merge |
@@ -156,6 +169,8 @@ Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/
 ---
 
 ## Agents & Adapters
+
+Every adapter below runs locally — MCP support means MCP clients that can spawn the `flint` binary. AIs without a local runtime use the [bridge](#beyond-local-agents--the-bridge) instead.
 
 | Agent | Method |
 | :--- | :--- |
