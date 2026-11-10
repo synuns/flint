@@ -12,6 +12,7 @@ import (
 	"math"
 	"sort"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/synuns/flint/lib/store"
@@ -165,8 +166,21 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		return store.MapExit(err)
 	}
 	days := reportDaysDefault
+	htmlOut := ""
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
+		case "--html": // v0.36.0(E): 정적 단일 파일 대시보드
+			htmlOut = "report.html"
+		case "--out":
+			i++
+			if i >= len(args) {
+				fmt.Fprintln(stdout, errLine(fmt.Errorf("report: --out requires a path")))
+				return 1
+			}
+			htmlOut = args[i]
+			if !strings.HasSuffix(htmlOut, ".html") {
+				htmlOut += ".html"
+			}
 		case "--days":
 			i++
 			if i >= len(args) {
@@ -188,6 +202,9 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		}
 	}
 
+	if htmlOut != "" { // v0.36.0: HTML 경로 — 동일 수집 체인 재사용
+		return runReportHTML(ctx, st, days, htmlOut, stdout)
+	}
 	out := reportOutput{Days: make([]reportDay, 0, days)}
 	if err := collectDaily(ctx, st, days, &out); err != nil {
 		fmt.Fprintln(stdout, errLine(err))

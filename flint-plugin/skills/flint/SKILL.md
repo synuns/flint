@@ -95,6 +95,8 @@ process). Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
   (오탐은 ~/.config/flint/secrets-allowlist.txt로 완화)
 - `flint profile [--apply normal|minimal]` — 프로파일 판정(근거 지표·추천·
   전환 — profile_hint의 실행 회로)
+- `flint report --html [--out f] [--days N]` — 정적 단일 파일 대시보드
+  (GSM 4목표 카드·추세·품질 — 외부 요청 없음)
 - exit code: 0 성공·중복 / 1 재시도 소진 / 2 서버 다운(조용히 진행) /
   3 검증 실패(자가수정 후 재시도)
 - exit 1은 재시도 소진 외에 read eligible 제로히트(침묵 계약)·doctor

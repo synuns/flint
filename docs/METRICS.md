@@ -150,6 +150,24 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
 근거 지표(read_events_n·recall_led_pct·fallback_pct·pair_pct)를 판정
 출력에 동반해 사용자가 검증할 수 있게 한다(관측 투명성). 전환은
 `--apply normal|minimal`만 — 자동 전환 없음(안내와 실행 분리).
+## 4.6 수집 후보(토큰 경제·조사 완료 — 미구현 로드맵)
+
+2026-11-11 다각 조사(토큰 경제 중심) 기반 후보. 구현 시점·버전은 별도
+조율(구조 수렴 시리즈와 스케줄 공존):
+
+- **A1 hot 주입 경로 분리** — RecordHotLen에 headline/--full 태깅(1순위:
+  기존 500샘플 분포가 예산 분석으로 살아남. 파생 budget_fill_pct)
+- **A2 read 출력 크기** — read_events.out_len(additive, 스키마 버전필요).
+  파생 read_out_avg·out_per_hit
+- **A3 토큰 환산 표시** — rune→토큰 근사(한글×1.1+기타÷4·±30% 명시)는
+  report 표시 전용. **v0.36.0 대시보드에 이미 반영**(footer 추정 라벨)
+- **B1 회상 지식 나이** — read_events.ids ⋈ knowledge.ingested_at 집계만
+  (신규 계측 0. 증류 주기 판단)
+- **B2~B6** — write→첫 read 지연(first_read_at)·주입→회상 전환·세션
+  길이 분포·무효화 증가율·zero 후 재시도 성공률(전부 기존 테이블
+  집계 위주)
+- **금지(C)** — 절약 토큰 절대량의 효과 보고(반사실 추정)·토큰 지표의
+  자동 행동 트리거(§13)·하네스 실측 총 토큰 수집(범위 초과)
 
 ## 5. 금지조항
 
