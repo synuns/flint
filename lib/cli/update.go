@@ -12,6 +12,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -130,6 +131,13 @@ type releaseMeta struct {
 	} `json:"assets"`
 }
 
+// releasePubPEM — 릴리스 서명 검증 공개키(신뢰 뿌리 — ADR-0014).
+// repo 루트 cosign.pub을 빌드 시점에 임베드. 빈 파일 = 미구성 전환 모드
+// (서명 자산이 있어도 경고만 하고 통과 — 키 등록 후 하드 검증으로 전환).
+//
+//go:embed cosign.pub
+var releasePubPEM []byte
+
 // fetchLatestVersion — 최신 태그(v 접두 제거) 조회. 캐시 갱신은 호출부.
 func fetchLatestVersion() (string, error) {
 	meta, err := fetchReleaseMeta()
@@ -189,6 +197,18 @@ func applyUpdate(latest string) (string, error) {
 	sums, err := download(sumsURL)
 	if err != nil {
 		return "", fmt.Errorf("checksums 다운로드: %w", err)
+	}
+	// v0.31.0(ADR-0014): checksums.txt 서명 검증 — GitHub 오리진과 분리된
+	// 신뢰 뿌리(임베드 공개키). .sig 자산이 있으면 검증, 불일치는 즉시
+	// 거부(체크섬보다 앞선다 — 위조 체크섬은 서명을 못 갖는다). 공개키
+	// 미구성(전환 모드)·서명 부재는 경고 후 진행(구 릴리스 호환).
+	if sig, serr := download(sumsURL + ".sig"); serr == nil && len(sig) > 0 {
+		if verr := (ReleaseVerifier{PublicPEM: releasePubPEM}).Verify(sums, string(sig)); verr != nil {
+			if errors.Is(verr, ErrSignatureInvalid) {
+				return "", fmt.Errorf("릴리스 서명 불일치 — 업데이트 거부(오리진 확인 필요)")
+			}
+			fmt.Fprintf(os.Stderr, "[flint] update: 서명 검증 경고(전환 모드일 수 있음): %v\n", verr)
+		}
 	}
 	want, err := checksumFor(string(sums), asset)
 	if err != nil {

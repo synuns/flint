@@ -276,3 +276,28 @@ doctor secrets가 경고한 지식을 `flint read <질의>`로 확인하면 **�
 allowlist 등록 확인: doctor secrets 출력의 'allowlist N항목' 표시로
 적용 상태를 확인한다(0항목이면 파일 미로드·경로 오타 의심 —
 FLINT_SECRETS_ALLOWLIST 또는 ~/.config/flint/secrets-allowlist.txt).
+
+## 9. 릴리스 서명 키 등록 (v0.31.0, ADR-0014 — 최초 1회)
+
+전환 모드(현재)에서 하드 검증으로 넘어가는 단계. 비밀키는 이 문서를
+읽는 본인만 생성·보관한다(에이전트·세션이 만지면 신뢰 뿌리 오염).
+
+1. 키쌍 생성(비밀번호 설정 — 패스워드 매니저에 보관):
+
+```sh
+COSIGN_PASSWORD="" cosign generate-key-pair --output-key-prefix release
+```
+
+2. 시크릿 등록 + 공개키 커밋:
+
+```sh
+gh secret set COSIGN_PRIVATE_KEY < release.key
+gh secret set COSIGN_PASSWORD        # 대화식 입력: 1단계 비밀번호
+cp release.pub lib/cli/cosign.pub    # 다음 릴리스부터 바이너리가 임베드
+git commit -am "chore: 릴리스 서명 공개키 등록 (ADR-0014)"
+```
+
+3. 이후 자동 — CI가 checksums.txt에 서명(.sig 업로드), flint update가
+   임베드 공개키로 검증. 기억할 것 없음.
+
+키 유출 시: 위 1~2를 새 키로 반복(롤링 — ADR-0014).
