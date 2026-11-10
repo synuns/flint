@@ -135,7 +135,7 @@ flint's surfaces (hooks, stdio MCP, localhost Doltgres) assume the agent runs on
 flint brief [query]        # masked, read-only context block — paste it into any chat
 ```
 
-`brief` searches active knowledge only (pending never leaves the machine), masks secret patterns (`[REDACTED:…]`), and carries the `[flint]` data-block marker so the receiving AI treats it as data, not instructions ([ADR-0015](docs/adr/0015-bridge-surface.md)). To bring an assistant's answer back, feed it to `flint write --status pending` (or `flint import`) — it lands in the same review queue as any unreviewed writer, and `flint approve` promotes it. Remote live writes are off the table by design.
+`brief` searches active knowledge only (pending never leaves the machine), masks secret patterns (`[REDACTED:…]`), and carries the `[flint]` data-block marker so the receiving AI treats it as data, not instructions ([ADR-0015](docs/adr/0015-bridge-surface.md)). To bring an assistant's answer back, feed it to `flint write knowledge` with a confidence below `conf_floor` (low-confidence writes are classified pending), or use `flint import` (always pending) — it lands in the same review queue as any unreviewed writer, and `flint approve` promotes it. Remote live writes are off the table by design.
 
 ---
 
