@@ -616,11 +616,11 @@ func init() {
 }
 
 // bumpMetaCounter — meta 카운터 1 증분(done 회상 카운터 전용 유틸).
-// 실패는 조용히(§13 — 계측 원칙).
+// 실패는 조용히(§13 — 계측 원칙). v0.34.3 T2: 증분 본체는 bumpMetaKV
+// 단일 진입 위임 — 미가드 ::bigint 캐스트는 파손값에서 오류로 증분이
+// 영구 얼어붙었으나, 단일 구현의 파손값 1 리셋 가드로 회수된다.
 func bumpMetaCounter(ctx context.Context, st Store, key string) {
-	_, _ = queryOnce(ctx, st,
-		`INSERT INTO meta (key, value) VALUES ($1, '1')
-		 ON CONFLICT (key) DO UPDATE SET value = (meta.value::bigint + 1)::text`, []any{key})
+	_ = bumpMetaKV(ctx, st, key)
 }
 
 // doneStdinSummary — Stop 훅 stdin JSON에서 compact_summary 추출

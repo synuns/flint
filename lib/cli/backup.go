@@ -192,18 +192,16 @@ func rotateAfterBackup(ctx context.Context, st Store, out string) string {
 		if st == nil {
 			return "", errors.New("no store")
 		}
-		rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
+		// v0.34.3 T2: 조회 본체는 getMetaKVErr 단일 진입 위임 — 키 부재
+		// ("", false, nil)를 기존 미설정 오류로 치환한다.
+		v, ok, err := getMetaKVErr(ctx, st, key)
 		if err != nil {
 			return "", err
 		}
-		if len(rows) == 0 || len(rows[0]) == 0 {
+		if !ok {
 			return "", fmt.Errorf("meta %s 미설정", key)
 		}
-		s, ok := rows[0][0].(string)
-		if !ok {
-			return "", fmt.Errorf("meta %s 값이 문자열 아님", key)
-		}
-		return s, nil
+		return v, nil
 	}
 	removed, err := rotateFn(filepath.Dir(out), keepFn(getKV))
 	if err != nil {
