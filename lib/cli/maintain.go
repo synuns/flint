@@ -223,8 +223,10 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		case "--yes":
 			yes = true
 		default:
+			// v0.34.3: 무효 플래그는 무효 인자 계약 exit 3(doctor·tuning·
+			// diff·import 정합).
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
-			return 1
+			return 3
 		}
 	}
 
@@ -292,10 +294,8 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		fmt.Fprintf(stdout, `{"status":"invalidated","id":%d}`+"\n", id)
 		return 0
 	case "--expire-pending":
-		if expireDays <= 0 { // 파싱 통과 시 도달 불가 — 이중 방어(오삭제 방지)
-			fmt.Fprintln(stdout, errLine(errors.New("maintain: --expire-pending requires a positive number of days")))
-			return 1
-		}
+		// expireDays<=0 이중 방어는 제거(v0.34.3 죽은 방어 정리) — 파서가
+		// 이미 양수만 통과시킨다.
 		return maintainExpirePending(ctx, ms, stdout, expireDays, commit)
 	case "--merge":
 		if from == 0 || to == 0 {
@@ -410,13 +410,10 @@ func classifyConflictAt(summA, summB string, dupThreshold float64) bool {
 	return conflictDice(summA, summB) < dupThreshold
 }
 
-// conflictSummaryPrefix — 보고용 요약 앞 40자(rune 기준 절단).
+// conflictSummaryPrefix — 보고용 요약 앞 40자(단일 구현 truncateRunes
+// 위임 — v0.34.3 복제 수렴).
 func conflictSummaryPrefix(s string) string {
-	r := []rune(s)
-	if len(r) <= 40 {
-		return s
-	}
-	return string(r[:40])
+	return truncateRunes(s, 40)
 }
 
 // isConflictGroup — 그룹이 모순 후보인지: 어느 한 쌍이라도 유사도가
@@ -830,6 +827,17 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 			WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`,
 			oldID, newID); err != nil {
 			return err
+		}
+		// v0.34.3: 후견사(supersedeAfterApprove 패턴 승계) — 사전 확인과
+		// UPDATE 사이 경합(병렬 무효화)에서 0행 갱신이 무음 성공으로 남던
+		// 창을 결과 확인으로 닫는다. 오류는 Retry로 재시도된다(경합 해소 기대).
+		rows, verr := queryOnce(ctx, ms,
+			`SELECT superseded_by FROM knowledge WHERE id = $1`, []any{oldID})
+		if verr != nil {
+			return verr
+		}
+		if len(rows) == 0 || rows[0][0] == nil || fmt.Sprint(rows[0][0]) != fmt.Sprint(newID) {
+			return fmt.Errorf("supersede: id=%d 갱신 미반영(경합 — 재시도)", oldID)
 		}
 		_, err := ms.Commit(ctx, fmt.Sprintf(
 			"supersede: old=%d by=%d (대체 갱신 경로) [session:0]", oldID, newID))

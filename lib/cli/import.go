@@ -162,9 +162,10 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			commit = true
 		} else if strings.HasPrefix(a, "-") {
 			// v0.27.3: 미확인 플래그는 사용법 오류 — 오타 플래그가 읽기 불가
-			// 파일로 조용히 버려지던 사각 제거. errLine 관례(approve 등) 정렬.
+			// 파일로 조용히 버려지던 사각 제거. v0.34.3: 무효 인자 계약
+			// exit 3(doctor·tuning·diff 정합 — 주석·코드 불일치 해소).
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
-			return 1
+			return 3
 		} else {
 			pos = append(pos, a)
 		}
@@ -353,11 +354,8 @@ func stripImportNoise(s string) string {
 	return b.String()
 }
 
-// truncateRunesImport — rune 상한 절단.
+// truncateRunesImport — rune 상한 절단(단일 구현 truncateRunes 위임 —
+// v0.34.3 복제 수렴. done.go 호출부는 해당 파일 소유 태스크가 옮긴다).
 func truncateRunesImport(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max])
+	return truncateRunes(s, max)
 }

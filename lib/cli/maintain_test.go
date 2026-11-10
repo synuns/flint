@@ -202,9 +202,10 @@ func TestMaintainUsageErrors(t *testing.T) {
 		{"--id", "5"},
 		{"--invalidate"},           // --id 없음
 		{"--merge", "--from", "3"}, // --to 없음
-		{"--check", "--bogus"},     // 알 수 없는 플래그
 		{"--check", "--id", "abc"}, // 숫자 아님 — id는 check에서 무시되지만 파싱은 실패해야
 	}
+	// 무효 플래그(--bogus)는 v0.34.3부터 exit 3(무효 인자 계약) —
+	// TestUnknownFlagExitContract(textutil_test.go)이 담당.
 	for _, args := range cases {
 		f := &fakeMaint{fakeStore: &fakeStore{}}
 		out, code := runMaintainArgs(t, f, args...)

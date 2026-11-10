@@ -199,7 +199,9 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 	}
 }
 
-// supersedeFixture — OLD 상태·NEW valid_at 조회 응답.
+// supersedeFixture — OLD 상태·NEW valid_at 조회 응답. v0.34.3 후견사
+// (0행 갱신 방어) SELECT superseded_by에는 UPDATE 파라미터의 NEW로
+// 갱신 반영 응답(정상 경로).
 func supersedeFixture(t *testing.T, f *fakeMaint, row []any) (updateSQL *string, updateArgs *[]any) {
 	t.Helper()
 	sqlp, argp := new(string), new([]any)
@@ -210,6 +212,12 @@ func supersedeFixture(t *testing.T, f *fakeMaint, row []any) (updateSQL *string,
 		if strings.HasPrefix(strings.TrimSpace(sql), "UPDATE") {
 			*sqlp, *argp = sql, args
 			return nil, nil
+		}
+		if strings.Contains(sql, "SELECT superseded_by FROM knowledge") {
+			if *argp == nil {
+				return nil, errors.New("post-check before UPDATE: " + sql)
+			}
+			return [][]any{{(*argp)[1]}}, nil
 		}
 		return nil, errors.New("unexpected query: " + sql)
 	}

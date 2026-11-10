@@ -206,19 +206,19 @@ func TestRunImportOriginNormalized(t *testing.T) {
 }
 
 // TestRunImportUnknownFlag — v0.27.3(발견12): 미확인 플래그는 사용법
-// 오류(오타 플래그의 무음 경로화 방지) — errLine 관례·exit 1(approve 등
-// 타 명령 정렬, 리뷰 5).
+// 오류(오타 플래그의 무음 경로화 방지) — errLine 관례·v0.34.3부터 무효
+// 인자 계약 exit 3(doctor·tuning·diff·maintain 정합).
 func TestRunImportUnknownFlag(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
 	code := runImport(context.Background(), f, []string{"--verbose"}, strings.NewReader(""), &out)
-	if code != 1 || !strings.Contains(out.String(), `"unknown flag: --verbose"`) {
-		t.Fatalf("미확인 플래그 = exit %d %s, want 1 unknown flag", code, out.String())
+	if code != 3 || !strings.Contains(out.String(), `"unknown flag: --verbose"`) {
+		t.Fatalf("미확인 플래그 = exit %d %s, want 3 unknown flag", code, out.String())
 	}
 	// 따옴표 포함 플래그도 JSON 파싱 가능(errLine 이스케이프).
 	out.Reset()
 	code = runImport(context.Background(), f, []string{`--x"y`}, strings.NewReader(""), &out)
-	if code != 1 {
+	if code != 3 {
 		t.Fatalf("이상 플래그 exit=%d", code)
 	}
 	if !json.Valid([]byte(strings.TrimRight(out.String(), "\n"))) {

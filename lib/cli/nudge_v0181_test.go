@@ -48,7 +48,7 @@ func TestNudgeCompactMarkerUnchanged(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d", code)
 	}
-	if !strings.Contains(out.String(), nudgeStartLine) {
+	if !strings.Contains(out.String(), nudgePendingLine) {
 		t.Fatalf("out=%q, want 기존 증류 안내", out.String())
 	}
 	if _, err := os.Stat(MarkerFile()); err != nil {

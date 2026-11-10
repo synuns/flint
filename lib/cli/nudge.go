@@ -12,11 +12,9 @@ import (
 	"io"
 )
 
-// nudgeStopShort — v0.11.0 R3 Stop 넛지 additionalContext 짧은 지시문(문구 고정).
-const nudgeStopShort = "flint: 증류 대기 — flint nudge"
-
-// nudgeStartLine — SessionStart plain 안내 1줄(R3: Stop과 동일 축소).
-const nudgeStartLine = "flint: 증류 대기 — flint nudge"
+// nudgePendingLine — v0.11.0 R3 Stop 넛지 additionalContext 짧은 지시문이자
+// SessionStart plain 안내 1줄(동일 문구 — v0.34.3 상수 2종 병합).
+const nudgePendingLine = "flint: 증류 대기 — flint nudge"
 
 // nudgeReadHint — SessionStart 안내에 병합되는 read 촉진 힌트(v0.9.5).
 const nudgeReadHint = "작업 전 flint read <쿼리> — 기존 지식 확인"
@@ -120,7 +118,7 @@ func runNudge(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		b, jerr := json.Marshal(map[string]any{
 			"hookSpecificOutput": map[string]any{
 				"hookEventName":     "Stop",
-				"additionalContext": nudgeStopShort,
+				"additionalContext": nudgePendingLine,
 			},
 		})
 		if jerr != nil {
@@ -142,7 +140,7 @@ func runNudge(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			// 기존 안내 뒤에 read 힌트를 같은 줄로 병합(plain 1줄 계약 유지).
 			// v0.26.0 R5(예산 가시성 — Letta 인밴드 관례): pending 수/상한을
 			// 데이터로 동봉(임계 PendingMax 초과 시에만 — 기본 문구 불변).
-			line := nudgeStartLine + " · " + nudgeReadHint
+			line := nudgePendingLine + " · " + nudgeReadHint
 			if n, ok := pendingCount(ctx, st); ok {
 				if max := writeThresholds(ctx, st).PendingMax; n > max { // 리뷰 ④: 초과 계약(maintain·sessionhook와 정렬)
 					line = fmt.Sprintf("flint: 증류 대기 %d건(상한 %d) — flint maintain --dup-suspects · %s", n, max, nudgeReadHint)
@@ -159,15 +157,14 @@ func init() {
 }
 
 // pendingCount — pending 지식 수(조회 실패·부재는 ok=false — 조용히 §13).
+// 조회 자체는 countPending 단일 구현 위임(v0.34.3 3중 쿼리 복제 수렴).
 func pendingCount(ctx context.Context, st Store) (int, bool) {
 	if st == nil {
 		return 0, false
 	}
-	rows, err := queryOnce(ctx, st,
-		`SELECT count(*) FROM knowledge WHERE status='pending' AND invalid_at IS NULL`, nil)
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+	n, err := countPending(ctx, st)
+	if err != nil {
 		return 0, false
 	}
-	n, ok := cellToInt(rows[0][0])
-	return n, ok
+	return n, true
 }
