@@ -25,7 +25,7 @@ func read(t *testing.T, path string) string {
 func TestTuningMetaKeysMatch(t *testing.T) {
 	doc := read(t, "TUNING.md")
 
-	for _, key := range []string{"pending_max", "dup_susp_max", "conf_floor", "stale_sessions"} {
+	for _, key := range []string{"pending_max", "dup_susp_max", "conf_floor", "stale_sessions", "pending_promote_days", "pending_promote_min_runes"} {
 		if !strings.Contains(read(t, "../lib/store/thresholds.go"), `"`+key+`"`) {
 			t.Errorf("코드에 임계값 키 %s 없음 (thresholds.go)", key)
 		}

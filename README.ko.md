@@ -25,7 +25,11 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v0.34.1-blue" alt="v0.34.1">
+  <img src="https://img.shields.io/badge/release-v0.34.2-blue" alt="v0.34.2">
+</p>
+
+<p align="center">
+  <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
 </p>
 
 <p align="center">
@@ -43,7 +47,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v0.34.1 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
+> v0.34.2 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
 
 ---
 
@@ -72,13 +76,21 @@ make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
 
 플러그인은 `flint` 바이너리가 `PATH`에 있어야 합니다. 훅과 MCP 서버가 모두 이 바이너리를 호출합니다.
 
+### go install로 설치
+
+```sh
+go install github.com/synuns/flint/cmd/flint@latest
+```
+
+모듈 경로는 `github.com/synuns/flint`(v0.22.0+) — 버전은 빌드 정보(debug.ReadBuildInfo)에서 옵니다. 이후 바이너리 갱신은 `flint update`가 담당합니다.
+
 ### 다른 에이전트 (Codex, Gemini, Cursor, OpenCode)
 
 ```bash
 flint setup --mcp
 ```
 
-설치된 하네스를 자동으로 감지해서 MCP 서버를 등록합니다. Copilot은 검증된 네이티브 CLI가 없어 수동 설정입니다([docs/adapters/copilot.md](docs/adapters/copilot.md)). 미설치 하네스는 건너뛰고, 어떤 경우도 exit 0입니다.
+설치된 하네스(Codex, Gemini, OpenCode, Copilot, Cursor, Qwen, Devin, Cline)를 감지해 각 네이티브 CLI로 MCP 서버를 등록합니다 — Copilot도 v0.21.0부터 자동 등록 대상입니다([docs/adapters/copilot.md](docs/adapters/copilot.md)). 파일 설정형 하네스(Windsurf, Zed, Amp, VS Code, Continue, Goose, Trae)는 doctor 체크와 어댑터 문서로 안내합니다. 미설치 하네스는 건너뛰고, 어떤 경우도 exit 0입니다.
 
 <details>
 <summary><code>flint setup</code>이 하는 일</summary>

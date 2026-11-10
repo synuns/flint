@@ -6,8 +6,10 @@
 
 ## 1. MCP 참여 설정
 
-Copilot은 검증된 네이티브 CLI가 없어 `flint setup --mcp` 자동 등록 대상이
-아니다(설치된 경우 수동 설정 안내만 출력) — 아래 절차로 직접 등록한다.
+Copilot CLI는 v0.21.0부터 자동 등록 대상이다 — `flint setup --mcp`가
+설치를 감지하면 네이티브 CLI(`copilot mcp add flint -- flint mcp`)로
+직접 등록한다(A급). 아래 수동 절차는 자동 등록이 불가한 환경용
+대체 절차다.
 
 `~/.copilot/mcp-config.json`에 다음 스니펫을 추가한다 (stdio). 대화형
 `/mcp add`로 등록해도 동일하다.

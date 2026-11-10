@@ -2,7 +2,7 @@
 
 - **이름**: flint — version-controlled memory for AI agents
 - **날짜**: 2026-10-20
-- **상태**: v0.5 완료(2026-10-22) — 다음 마일스톤 미정
+- **상태**: v0.5 완료(2026-10-22) — 구조 수렴 에라(v0.37+, 2026-11-11 리뷰)
 - **태그**: agent, doltgres, cli, mcp, knowledge-base
 
 ---
@@ -385,6 +385,52 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.34.2 패치 (2026-11-11) — 전면 설계·기획 리뷰 잔여 처리 + 구조 수렴 에라 선언
+
+**구조 수렴 에라 선언.** 2026-11-11 전면 설계·기획 리뷰(3에이전트 병렬
+심층 + 직접 실증 39건)는 개별 수정 사항 너머의 구조 병인 5개를 특정했다:
+
+- ① 계약을 복제 + 주석으로 시행 — 같은 계약이 여러 파일에 복제되고
+  동기는 주석에만 달려 있어 드리프트가 상시 발생한다.
+- ② 진실의 원천이 산문 — 코드의 진실을 산문 문서가 지정하는 구조라
+  정합 유지가 사람 손에 의존한다.
+- ③ seam 파편화 — 테스트 seam이 저마다 달라 테스트-프로덕션 괴리가
+  벌어진다.
+- ④ 계측의 도메인 침식 — 계측 코드가 도메인 로직 사이로 스며들어
+  경계를 흐린다.
+- ⑤ 기획 문서 사망 — PLAN이 이력 아카이브로만 존재하고 살아 있는
+  계획으로 기능하지 않는다.
+
+이에 구조 수렴 에라(v0.37+)를 선언한다 — 로드맵:
+
+| 버전 | 수렴 과제 |
+| :--- | :--- |
+| v0.37 | render·meta·util 수렴 |
+| v0.38 | 패키지 3분할(cliwire·knowledge·ops) |
+| v0.39 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
+| v0.40 | 계측·튜닝 단일 원천 |
+| v0.41~v0.42 | seam 동질화·PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
+
+신규 신기능은 병인 해소 우선, 트리거 대기 원칙 전면 적용(진행 중
+v0.35.0 프로파일·v0.36.0 report-html은 예외).
+
+같은 리뷰의 즉시 수정 분류 잔여 처리:
+
+- [x] R1 tuning 관리 키 단일소스화 — backup_encrypt list 거짓보고·reset
+  누락 수선, tuningKeyAll+동질 가드
+- [x] R2 usage 문장 레지스트리 파생 — pending 누락 해소+드리프트 가드
+- [x] R3 Copilot 자동 등록 오안내 3곳 정정
+- [x] R4 doctor 검사 수 16종 통일
+- [x] R5 스키마 v8
+- [x] R6 TUNING §2 2키
+- [x] R7 SKILL MCP 5종
+- [x] R8 PLAN 실측치 일반 서술화
+- [x] R9 README.ko go install 절
+- [x] R10 소규모 — CONTENT 8종·exit 1 서술·배지 기준
+- [x] 버전 — VERSION·배지 v0.34.2(EN/KO)·plugin.json 동기
+
+세부: [docs/plans/2026-11-11-flint-v0342.spec.md](plans/2026-11-11-flint-v0342.spec.md)
+
 ### v0.34.1 패치 (2026-11-11) — v0.34.x 패치 루프 1차: brief·브리지 사후 감사 4건
 
 - [x] [높음] brief pending 유출 차단 — active_knowledge 뷰는 invalid_at만
@@ -432,8 +478,8 @@ Follow-up: active_knowledge 뷰 status 무필터로 flint read도 pending
 
 ### v0.33.0 마이너 (2026-11-10) — 지식 위생·이력 관리
 
-브레인스토밍(사용자 방향 확정 B) — 관측: active 54건·invalidated 11건
-축적·meta 26키·dolt 90커밋·pending 0(회전 중). 시스템 건강 — 남은 병목은
+브레인스토밍(사용자 방향 확정 B) — 관측: active·invalidated 지식과
+meta 키·dolt 커밋이 축적되고 pending은 회전 중. 시스템 건강 — 남은 병목은
 이력 위생 도구 부재. 도구 제공이 본질(긴급 정리 아님):
 
 - [x] R1 `maintain --meta-audit` — 키 분류 보고(known/thresholds/
@@ -452,7 +498,7 @@ Follow-up: active_knowledge 뷰 status 무필터로 flint read도 pending
   return 제거·knownMetaKey 단일 소스·quoteJSON 중복 제거·DELETE 실제
   영향 행수 보고(스냅샷 아님)·meta 이중 스캔 제거·죽은 방어 정리
 - [x] 테스트 — 분류(known 2·daily·unknown)·prune dry-run/commit/exit·
-  실운영 실증(meta-audit 26키·prune 5일 dry 5건·doctor ok)
+  실운영에서 meta-audit·prune dry-run·doctor 검증 완료
 - [x] 버전 — VERSION·배지 v0.33.0(EN/KO)·plugin.json 동기
 
 
@@ -639,7 +685,7 @@ R5 confidence 감쇠는 v0.27.0 R4가 이미 반영해 제외(스코프 절제).
 ### v0.28.2 패치 (2026-11-09) — v0.28.x 패치 루프 2차: 백업 덤프 repo 반입 3층 방어
 
 사용자 지시("개인 데이터는 repo 안에서 관리되지 않는다") — 감사 결과
-현재 오염 0건(워킹트리·git 전체 이력·가드 실증), 설계 구멍 3건 수선:
+현재 오염은 관측되지 않음(워킹트리·git 전체 이력·가드 실증), 설계 구멍 3건 수선:
 
 - [x] 패키지: `backup --out`이 git 저장소 내부면 stderr 경고(진행 유지
   — 사용자 명시 선택, 사고 예방 고지)
@@ -901,7 +947,8 @@ Doltgres 이력·Letta/Mem0·Claude Code memory 포맷) → 권고 F 채택:
 ### v0.24.2 패치 (2026-11-08) — v0.24.x 패치 루프 2차: 개인화 평가 발견 — 결정 판정 adr 태그 전환
 
 - [x] hot_view '최근 결정' 팔을 domain='decision'에서 tag='adr'
-  기준으로(v0.23.2 정합에도 실사용 0건 — 결정은 domain=main+tag=adr
+  기준으로(실사용 관측에서 decision domain 관례는 채택되지 않았다 — 결정은
+  domain=main+tag=adr
   관례. 개인화 평가 실측이 확정, 기획 리뷰 대안 b 채택). CONTENT §4에
   정준 경로 문서화·decision은 레거시 표기
 - [x] 버전 — VERSION·배지 v0.24.2(EN/KO)·plugin.json 동기
@@ -1103,7 +1150,7 @@ exposure_profile)·reset --all·consumer 표시·D① 축소형(profile_hint
 - [x] D3~D7 사소 정합 — setup 행 '시드 안내' 정확화·PLAN 파일 수
   34→26·QUICKSTART 의존(x/text)·RUNBOOK 스키마 v7·검사 조건부
   보충·KO 서브텍스트 8종·QUICKSTART 주석 위치
-- [x] 운영 실증 — session_starts 기록 파이프라인 정상(0건은 설치 후
+- [x] 운영 실증 — session_starts 기록 파이프라인 정상(빈 기록은 설치 후
   SessionStart 미발생, 결함 아님)
 - [x] 버전 — VERSION·배지 v0.20.3(EN/KO)·plugin.json 동기
 

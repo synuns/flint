@@ -40,7 +40,7 @@ volume까지).
 flint read 덤프        # 검색: active_knowledge 뷰만
 flint hot --session x  # 세션 시작 시 주입 (hot_budget 기본 2,000자)
 flint audit --limit 5  # 감사: dolt_log 최근 5건
-flint doctor --check db   # 진단: 검사 10종 중 db 서브셋(fail만 exit 1)
+flint doctor --check db   # 진단: 검사 16종 중 db 서브셋(fail만 exit 1)
 flint report --days 7     # 리포트: 일별 유입·zero_pct·p95·stale (기본 7일)
 flint restore --file <dump> --drill  # 복구 훈련(원본 불변, 행수 대조만)
 ```
@@ -54,15 +54,15 @@ flint restore --file <dump> --drill  # 복구 훈련(원본 불변, 행수 대�
 /plugin install flint@flint
 ```
 
-**Codex·Gemini·Cursor·OpenCode** — 자동 등록:
+**Codex·Gemini·Cursor·OpenCode·Copilot** — 자동 등록:
 
 ```sh
 flint setup --mcp
 ```
 
-설치된 하네스를 감지해 각자의 MCP 설정에 등록한다. Copilot은 수동
-설정([adapters/copilot.md](adapters/copilot.md)), OpenClaw·Hermes는
-문서 어댑터([adapters/](adapters/)).
+설치된 하네스를 감지해 각자의 MCP 설정에 등록한다. Copilot 자동
+등록이 불가한 환경은 수동 절차([adapters/copilot.md](adapters/copilot.md)),
+OpenClaw·Hermes는 문서 어댑터([adapters/](adapters/)).
 
 ## 4. 설정 파일 재배치(선택)
 
