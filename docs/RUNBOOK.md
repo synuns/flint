@@ -305,6 +305,14 @@ git commit -am "chore: 릴리스 서명 공개키 등록 (ADR-0014)"
 `~/.config/flint/release.key`(0600)로 이동(위 백업 사본·gitignore
 패턴 적용됨). 시크릿이 원본이므로 로컬 사본은 백업용이다.
 
+서명 스텝 실패 시 복구(키 불일치·일시 실패): 태그가 이미 존재해 재실행이
+스킵되므로 태그 재push로 서명만 재수행한다 —
+
+```sh
+git tag -d v0.X.Y && git push origin :refs/tags/v0.X.Y   # 원격 태그 삭제
+git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 스텝 재실행
+```
+
 키 유출 시 롤링(ADR-0014): 위 1~2를 새 키로 반복. 구 공개키를 임베드한
 기존 설치는 새 키 서명을 거부한다 — 의도된 경보다. 각 기기에서 1회
 `flint update --insecure-skip-signature`로 신규 키 바이너리로 넘어간

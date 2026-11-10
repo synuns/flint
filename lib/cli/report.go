@@ -506,7 +506,7 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 			fallbacks++
 		}
 	}
-	out.Effect.FallbackPct = pctOf(fallbacks, len(evs))
+	out.Effect.FallbackPct = pctOf(fallbacks, len(inWin)) // v0.31.3(감사 1): 분모도 보고창
 	// v0.30.0 R2 — hit 품질 근사(first_rank, 폴백 제외 계약). 리뷰 8:
 	// 정합/top1 정의는 trendOf와 단일 구현을 공유한다.
 	q := qualityOf(inWin)
@@ -517,8 +517,10 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	// 창(0 이벤트)은 0으로 강등(§13 — 빈 창에 해석 없음).
 	cur, prev := trendWindow(now, evs)
 	out.Effect.Trend = cur.diff(prev)
-	if len(evs) == 0 {
+	if len(inWin) == 0 {
 		return nil // 분모 0 — 페어링·연쇄 불필요(제로 가드 관례)
+		// v0.31.3(감사 1~3): G4 집계(pair·chain·recall_led)는 전부
+		// 보고창(inWin) 소스 — 페치(14일, 추세용) 누유 금지.
 	}
 	writes, err := queryWrites(ctx, st, windowStart)
 	if err != nil {
@@ -544,7 +546,7 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		}
 	}
 	pairs := 0
-	for _, e := range evs {
+	for _, e := range inWin { // v0.31.3(감사 2): 보고창 이벤트만 페어링
 		cands := writeTimes
 		if hasSessions {
 			if si := sessionIndexOf(starts, e.ts); si >= 0 {
@@ -556,12 +558,12 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		}
 	}
 	out.Effect.ReadWritePairs = pairs
-	out.Effect.PairPct = pctOf(pairs, len(evs))
+	out.Effect.PairPct = pctOf(pairs, len(inWin))
 
 	// 회상 선도 세션 비율(D) — 창 내 시작 세션 중 기록(write)이 있고,
 	// 그 세션의 첫 read가 첫 write보다 앞선 비율.
 	if hasSessions {
-		out.Effect.RecallLedPct = recallLedPct(starts, evs, writes, windowStart)
+		out.Effect.RecallLedPct = recallLedPct(starts, inWin, writes, windowStart)
 	}
 
 	// 사용 연쇄(B) — 반환 id가 24h 내 재반환 또는 같은 topic write로
@@ -595,7 +597,7 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 			}
 		}
 	}
-	out.Effect.ChainPct = chainPct(evs, writes, topics, chainWindow)
+	out.Effect.ChainPct = chainPct(inWin, writes, topics, chainWindow) // v0.31.3(감사 3): 보고창 소스
 	return nil
 }
 

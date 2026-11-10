@@ -389,6 +389,29 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+#4 --reason 메타데이터(의도된 감사 흔적).
+
+### v0.31.3 패치 (2026-11-10) — v0.29~0.31 사후 감사 12건 (3에이전트 병렬)
+
+- [x] [높음·계측] G4 집계 소스 오염 3건 — 페치 창(14일, 추세용)이
+  fallback_pct 분모·페어링 루프·pair_pct 분모·chain_pct·recall_led로
+  누유. 전부 보고창(inWin) 소스로 교체 — 기본 --days 7에서
+  fallback/pair_pct가 절반 이하 과소평가되던 결함
+- [x] [중간·보안] pending 출력 재살균 회귀 — v0.28 H③ 패턴(read·hot·
+  maintain 계열)을 v0.29 신규 코드가 누락. topic·summary·origin에
+  SanitizeText 적용(ESC 주입·Cf 왜곡·[flint] 마커 차단)
+- [x] approve --supersede 후검사 — 사전 확인~UPDATE 경합의 0행 갱신
+  무음 성공 창 폐쇄·CI 서명 검증→업로드 순서 교환(불일치 .sig 오염
+  예방)·서명 실패 태그 재push 복구 RUNBOOK §9 추가
+- [x] firstExactRank trim 제거(SQL lower(원q) 정의 정렬)·--as-of·
+  --status 조회의 rank 혼입 배제(METRICS §2 계약화)
+- [x] .sig URL 자산 목록 캡터(조립 금지)·dataFile 원자 쓰기(tmp+rename)
+  ·updateSkipSignature 진입 리셋(방어)·pending actives 1회 조회·
+  ValidAt cellToTime 정경로
+- [x] 실증 — pending 판정·approve·supersede 종단(운영 DB, 대상 실수
+  복구 완료)·v0.31.2 .sig 임베드 키 검증(감사 에이전트)
+- [x] 버전 — VERSION·배지 v0.31.3(EN/KO)·plugin.json 동기
+
 ### v0.31.2 패치 (2026-11-10) — 서명 CI 수선: cosign v2.6.0 고정
 
 - [x] v0.31.1 서명 스텝 실패 원인 수선 — cosign-installer v4가 최신

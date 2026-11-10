@@ -81,8 +81,17 @@ func dataFile(name string) string {
 			src := filepath.Join(old, name)
 			if b, rerr := os.ReadFile(src); rerr == nil {
 				if merr := os.MkdirAll(home, 0o700); merr == nil {
-					if werr := os.WriteFile(dst, b, 0o600); werr == nil {
-						_ = os.Remove(src) // 이전 완료 — 레거시 잔삭제
+					// v0.31.3(감사 3): 원자 쓰기 — tmp+rename으로 부분
+					// 실패가 불완전 dst를 영구화하는 것을 방지한다.
+					if tmp, terr := os.CreateTemp(home, "."+name+"-*"); terr == nil {
+						tmpName := tmp.Name()
+						_, werr := tmp.Write(b)
+						tmp.Close()
+						if werr == nil && os.Chmod(tmpName, 0o600) == nil && os.Rename(tmpName, dst) == nil {
+							_ = os.Remove(src) // 이전 완료 — 레거시 잔삭제
+						} else {
+							_ = os.Remove(tmpName)
+						}
 					}
 				}
 			}

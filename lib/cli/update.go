@@ -83,11 +83,14 @@ type updateCache struct {
 // runUpdateCmd — `flint update` 진입: --check 드라이런, 기본은 확인·
 // 다운로드·검증·교체. store-free(네트워크·파일시스템만).
 // updateSkipSignature — --insecure-skip-signature(키 롤링 등 신뢰 이전
-// 시 1회 명시 우회 — ADR-0014. 테스트 주입 접합면 겸용).
+// 시 1회 명시 우회 — ADR-0014). 프로세스 상태로 유지되므로 MCP 등
+// 재진입 호출처가 update를 노출하는 미래 변경에 대비해 진입마다
+// 리셋된다(v0.31.3 감사 4 — 방어).
 var updateSkipSignature = false
 
 func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	dry := false
+	updateSkipSignature = false // 진입 리셋(v0.31.3 감사 4)
 	for _, a := range args {
 		switch a {
 		case "--check":
@@ -186,13 +189,15 @@ func applyUpdate(latest string) (string, error) {
 		return "", err
 	}
 	asset := fmt.Sprintf("flint_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
-	var assetURL, sumsURL string
+	var assetURL, sumsURL, sigURL string
 	for _, a := range meta.Assets {
 		switch a.Name {
 		case asset:
 			assetURL = a.BrowserDownloadURL
 		case "checksums.txt":
 			sumsURL = a.BrowserDownloadURL
+		case "checksums.txt.sig":
+			sigURL = a.BrowserDownloadURL // v0.31.3(감사 2): 목록 URL 사용 — 조립 금지
 		}
 	}
 	if assetURL == "" || sumsURL == "" {
@@ -212,20 +217,13 @@ func applyUpdate(latest string) (string, error) {
 	//     (fail-closed — .sig 삭제·쓰레기 서명 회피 차단, 리뷰 1)
 	//   - 미구성(전환 모드): .sig 있으면 경고 후 진행, 없으면 진행
 	// 키 롤링 등 신뢰 이전은 --insecure-skip-signature(사용자 명시).
-	sigAsset := false
-	for _, a := range meta.Assets {
-		if a.Name == "checksums.txt.sig" {
-			sigAsset = true
-			break
-		}
-	}
 	verifier := ReleaseVerifier{PublicPEM: releasePubPEM}
 	if updateSkipSignature {
 		fmt.Fprintln(os.Stderr, "[flint] update: 서명 검증 우회(--insecure-skip-signature)")
 		verifier = ReleaseVerifier{} // 미구성 취급 — 경로는 통과
 	}
-	if sigAsset {
-		sig, serr := download(sumsURL + ".sig")
+	if sigURL != "" {
+		sig, serr := download(sigURL)
 		if serr != nil || len(sig) == 0 {
 			if verifier.Configured() {
 				return "", fmt.Errorf("서명 자산 다운로드 실패 — 업데이트 거부(fail-closed)")
