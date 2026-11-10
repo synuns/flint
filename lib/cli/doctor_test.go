@@ -69,7 +69,8 @@ func TestDoctorRegistered(t *testing.T) {
 	}
 }
 
-// --list-checks — 한 줄 JSON에 검사 6종(v0.7 port 추가).
+// --list-checks — 한 줄 JSON에 등록표 전량 16종(v0.34.3 R11 — 구 6종만
+// 내던 미노출 결함 회수). 코어 6종은 기존 순서(hook-file…port) 선두 유지.
 func TestDoctorListChecks(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--list-checks")
@@ -82,8 +83,11 @@ func TestDoctorListChecks(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
 		t.Fatalf("JSON 아님: %q", out)
 	}
-	if len(m.Checks) != 6 || m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
-		t.Errorf("checks=%v, want 6종(port 포함)", m.Checks)
+	if len(m.Checks) != 16 {
+		t.Errorf("checks %d종, want 16종(코어6+tail10): %v", len(m.Checks), m.Checks)
+	}
+	if m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
+		t.Errorf("코어 6종 순서 회귀: %v", m.Checks)
 	}
 }
 
