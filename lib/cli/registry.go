@@ -5,6 +5,7 @@ package cli
 import (
 	"context"
 	"io"
+	"strings"
 )
 
 // Handler — 서브커맨드 실행 함수. Run이 store 접속 후 호출한다.
@@ -29,9 +30,29 @@ func unregister(name string) {
 	delete(registry, name)
 }
 
-// usageLine — 인자 없음/도움말 공용 한 줄 JSON.
+// usageOrder — usage 문장에 나열할 커맨드 순서(v0.34.2 R2: 하드코딩
+// 리터럴 제거, 이 슬라이스에서 조립). 신규 커맨드는 Register와 함께
+// 여기에도 추가해야 usage에 노출된다
+// (TestUsageOrderMatchesRegistry가 드리프트를 잡는다).
+// 제약: "audit|diff|update|tuning|import"는 항목 연속·후미 고정
+// (wire_v08 TestUsageRestInvariant 계약), "done|compact|nudge"·
+// "approve|pending"·"hot|brief" 순서 역시 기존 배선 테스트가 지킨다.
+var usageOrder = []string{
+	"write", "read", "hot", "brief", "status", "backup", "restore",
+	"approve", "pending", "maintain", "doctor", "report",
+	"done", "compact", "nudge", "setup", "teardown", "version", "mcp",
+	"audit", "diff", "update", "tuning", "import",
+}
+
+// hiddenFromUsage — registry에는 등록됐지만 usage 문장에 노출하지 않는
+// 훅 전용 진입점(hook이 호출, 사람 대상 커맨드 아님).
+func hiddenFromUsage(name string) bool {
+	return name == "session-start" || name == "session-end"
+}
+
+// usageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
 func usageLine() string {
-	return `{"error":"usage: flint <write|read|hot|brief|status|backup|restore|approve|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit|diff|update|tuning|import> [args]"}`
+	return `{"error":"usage: flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
 }
 
 func init() {
