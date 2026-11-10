@@ -385,6 +385,28 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.34.1 패치 (2026-11-11) — v0.34.x 패치 루프 1차: brief·브리지 사후 감사 4건
+
+- [x] [높음] brief pending 유출 차단 — active_knowledge 뷰는 invalid_at만
+  걸러 pending 행을 포함, BuildRead 경로가 미검수 지식을 기기 밖으로
+  내보냈다(ADR-0015 결정4 위반 — 격리 DB 종단 실증). BuildReadStatus
+  status='active' 전환으로 이중 조건(status·invalid_at) 차단. 회귀
+  TestBriefExcludesPending
+- [x] ClampHot 역설정 예산에서 [flint] 경계 헤더 중간 절단 보정(하한=
+  헤더 길이) — 회귀 TestBriefHeaderSurvivesTinyBudget·엣지 계약 고정
+  회귀 TestBriefLimitContract·TestBriefDashDashGuard
+- [x] brief 계측 kind 화이트리스트 추가(RecordUsageCount) — 실DB 계측
+  계약 회복(daily additive)
+- [x] 브리지 회수 경로 문서 정정 — `write --status pending`은 허구
+  (플래그 부재)였다: confidence<conf_floor pending 분류·import는 항상
+  pending이 실제 계약(README EN/KO·ADR-0015)
+- [x] 프로브 자동생성 산출물 회수 — tests/regression → .superlite/probes
+  보관(chore)
+- [x] 버전 — VERSION·배지 v0.34.1(EN/KO)·plugin.json 동기
+
+Follow-up: active_knowledge 뷰 status 무필터로 flint read도 pending
+노출(선결함, 이번 범위 밖 — 별도 결정).
+
 ### v0.34.0 마이너 (2026-11-11) — 비서 AI 브리지(flint brief)
 
 브레인스토밍(사용자 방향 확정: B 먼저·필요시 C 재론) — flint의 표면은
