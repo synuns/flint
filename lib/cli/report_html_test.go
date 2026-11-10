@@ -52,7 +52,8 @@ func synthDash5() htmlDashboard {
 	}
 	d.TrendRows = []trendRow{mk("회상 명중", d.Effect.Trend.HitPct, false), mk("폴백 경유", d.Effect.Trend.FallbackPct, true)}
 	max := 5
-	d.BarsRead = []barSeg{{H: "100%", Title: "2026-01-01 · 5"}, {H: "60%", Title: "2026-01-02 · 3"}}
+	seg2 := []barSeg{{H: "100%", Title: "2026-01-01 · 5"}, {H: "60%", Title: "2026-01-02 · 3"}}
+	d.BarsRead, d.BarsWrite, d.BarsDup = seg2, seg2, seg2
 	_ = max
 	return d
 }
