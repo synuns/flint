@@ -21,3 +21,7 @@ CLAUDE.local.md
 # flint 백업 덤프 실수 반입 방지(v0.28.2) — 자동 명명 덤프+사이드카.
 # 기본 백업 디렉터리는 ~/.flint/backup(repo 밖).
 flint-*.sql*
+
+# 릴리스 서명 키 — repo 안 두지 않는다(백업은 ~/.config/flint/)
+release.key
+release.pub
