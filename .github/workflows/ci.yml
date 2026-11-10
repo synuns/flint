@@ -193,6 +193,14 @@ jobs:
           cosign sign-blob --key env://COSIGN_PRIVATE_KEY --tlog-upload=false \
             --output-signature /tmp/checksums.txt.sig /tmp/checksums.txt
           gh release upload "$TAG" /tmp/checksums.txt.sig --clobber
+          # v0.31.0 리뷰 3: 임베드 공개키와 시크릿 키의 쌍 불일치 조기 차단 —
+          # 빈 cosign.pub(전환 모드)은 경고만.
+          if [ -s lib/cli/cosign.pub ]; then
+            cosign verify-blob --key lib/cli/cosign.pub \
+              --insecure-ignore-tlog --signature /tmp/checksums.txt.sig /tmp/checksums.txt
+          else
+            echo "경고: lib/cli/cosign.pub 미임베드(전환 모드) — 다음 릴리스 전 공개키 커밋 권장"
+          fi
 
       # ── MCP Registry 발행 (항상 실행 — 멱등) ──
       - name: MCP Registry 발행

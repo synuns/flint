@@ -282,22 +282,26 @@ FLINT_SECRETS_ALLOWLIST 또는 ~/.config/flint/secrets-allowlist.txt).
 전환 모드(현재)에서 하드 검증으로 넘어가는 단계. 비밀키는 이 문서를
 읽는 본인만 생성·보관한다(에이전트·세션이 만지면 신뢰 뿌리 오염).
 
-1. 키쌍 생성(비밀번호 설정 — 패스워드 매니저에 보관):
+1. 키쌍 생성 — **비밀번호를 설정한다**(프롬프트에 입력, 패스워드
+   매니저에 보관. 빈 비밀번호 금지):
 
 ```sh
-COSIGN_PASSWORD="" cosign generate-key-pair --output-key-prefix release
+cosign generate-key-pair --output-key-prefix release
 ```
 
-2. 시크릿 등록 + 공개키 커밋:
+2. 시크릿 등록(비밀번호는 대화식으로 안전하게) + 공개키 커밋:
 
 ```sh
 gh secret set COSIGN_PRIVATE_KEY < release.key
-gh secret set COSIGN_PASSWORD        # 대화식 입력: 1단계 비밀번호
-cp release.pub lib/cli/cosign.pub    # 다음 릴리스부터 바이너리가 임베드
+gh secret set COSIGN_PASSWORD          # 프롬프트에 1단계 비밀번호 입력
+cp release.pub lib/cli/cosign.pub      # 다음 릴리스부터 바이너리가 임베드
 git commit -am "chore: 릴리스 서명 공개키 등록 (ADR-0014)"
 ```
 
 3. 이후 자동 — CI가 checksums.txt에 서명(.sig 업로드), flint update가
    임베드 공개키로 검증. 기억할 것 없음.
 
-키 유출 시: 위 1~2를 새 키로 반복(롤링 — ADR-0014).
+키 유출 시 롤링(ADR-0014): 위 1~2를 새 키로 반복. 구 공개키를 임베드한
+기존 설치는 새 키 서명을 거부한다 — 의도된 경보다. 각 기기에서 1회
+`flint update --insecure-skip-signature`로 신규 키 바이너리로 넘어간
+뒤 이후부터는 새 공개키로 자동 검증된다.

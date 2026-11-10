@@ -402,6 +402,12 @@ GitHub라 계정 침해 방어가 없고 flint update 직접 검증에 sigstore 
   sign-blob(tlog-upload=false)→.sig 업로드·cosign-installer SHA 고정
 - [x] ADR-0014(전환→하드 검증 이행·키 롤링·비밀키 에이전트 취급 금지)
   ·RUNBOOK §9(사용자 최초 1회 명령 3줄)·테스트 4종
+- [x] 리뷰 7건 반영 — 하드 검증 fail-closed 구현(공개키 임베드 시 .sig
+  부재·스킴 오류도 거부 — 부재 판정은 자산 목록 기준)·키 롤링 탈출
+  경로 --insecure-skip-signature(신뢰 이전은 조용히 일어나지 않는다)·
+  CI 서명 후 임베드 공개키로 사후 검증(쌍 불일치 조기 차단)·RUNBOOK
+  비밀번호 모순 수정(프롬프트 방식)·배선 테스트(쓰레기 서명 거부·부재
+  거부·우회 통과·전환 모드 통과)·주석 경로 정정
 - [x] 버전 — VERSION·배지 v0.31.0(EN/KO)·plugin.json 동기
 
 ### v0.30.0 마이너 (2026-11-10) — 계측 2막: hit 품질 근사와 추세 (B 잔여)

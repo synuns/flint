@@ -16,8 +16,6 @@ import (
 	"testing"
 )
 
-func ellipticP256() elliptic.Curve { return elliptic.P256() }
-
 // TestReleaseVerifierCosignFixture — 실제 cosign이 생성·서명한 픽스처 검증.
 func TestReleaseVerifierCosignFixture(t *testing.T) {
 	pub, err := os.ReadFile("testdata/cosign-ecdsa.pub")
@@ -63,7 +61,7 @@ func TestReleaseVerifierEd25519(t *testing.T) {
 
 // TestReleaseVerifierECDSAStd — ECDSA 스킴(SHA-256+ASN.1 — cosign 기본).
 func TestReleaseVerifierECDSAStd(t *testing.T) {
-	priv, _ := ecdsa.GenerateKey(ellipticP256(), rand.Reader)
+	priv, _ := ecdsa.GenerateKey(elliptic.P256(), rand.Reader)
 	der, _ := x509.MarshalPKIXPublicKey(&priv.PublicKey)
 	pemBytes := pem.EncodeToMemory(&pem.Block{Type: "PUBLIC KEY", Bytes: der})
 	data := []byte("checksums payload")
