@@ -31,7 +31,8 @@
   .legend { display:flex; gap:14px; font-size:13px; color:var(--ink2); padding-top:12px; }
   .legend i { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; }
   .chart { display:flex; align-items:flex-end; gap:2px; height:170px; border-bottom:1px solid var(--hair); }
-  .chart b { flex:1; min-height:1px; border-radius:2px 2px 0 0; }
+  .chart .day { flex:1; display:flex; align-items:flex-end; gap:1px; min-width:0; }
+  .chart .day b { flex:1; min-height:1px; border-radius:1px 1px 0 0; min-width:1px; }
   .axis { display:flex; justify-content:space-between; font-size:12px; color:var(--ink2); padding-top:6px; }
 
   .kpis { display:flex; margin-top:26px; }
@@ -96,9 +97,10 @@
   </div>
   {{if .Rep.Days}}
   <div class="chart">
-    {{range .BarsRead}}<b style="height:{{.H}}; background:var(--accent)"><title>{{.Title}}번 검색</title></b>{{end}}
+    {{$r := .BarsRead}}{{$w := .BarsWrite}}{{$d := .BarsDup}}
+    {{range $i, $b := .Rep.Days}}<span class="day" title="{{$b.Date}} — 검색 {{(index $r $i).Title}} · 기록 {{(index $w $i).Title}} · 차단 {{(index $d $i).Title}}"><b style="height:{{(index $r $i).H}}; background:var(--accent)"></b><b style="height:{{(index $w $i).H}}; background:var(--accent);opacity:.45"></b><b style="height:{{(index $d $i).H}}; background:var(--ink2)"></b></span>{{end}}
   </div>
-  <div class="axis"><span>{{(index .Rep.Days 0).Date}}</span><span>매일 검색 횟수</span><span>오늘</span></div>
+  <div class="axis"><span>{{(index .Rep.Days 0).Date}}</span><span>검색 · 기록 · 중복 차단</span><span>오늘</span></div>
   {{end}}
 </div>
 
@@ -110,6 +112,7 @@
   <div class="kpi"><div class="num" title="찾은 지식이 하루 안에 다시 사용된 비율 (사용 연쇄)">{{.Effect.ChainPct}}%</div><div class="exp">재사용 연쇄</div></div>
 </div>
 
+{{if not .Effect.Trend}}<div class="h2sub" style="margin-top:22px">지난주와 비교: 직전 7일 데이터가 아직 부족해 비교를 표시하지 않아요</div>{{end}}
 {{if .Effect.Trend}}
 <h2>7일 추세 — 지난주 대비</h2>
 <div class="h2sub">막대 길이는 이번 주 수치입니다</div>
