@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v0.34.0-blue" alt="v0.34.0">
+  <img src="https://img.shields.io/badge/release-v0.34.1-blue" alt="v0.34.1">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v0.34.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
+> v0.34.1 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
 
 ---
 
@@ -132,9 +132,10 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 `brief`는 활성 지식만 조회한다(pending은 기기 밖으로 나가지 않는다).
 비밀 패턴은 치환(`[REDACTED:…]`)하고 `[flint]` 데이터 블록 마커를 실어
 수신 AI가 지시가 아닌 데이터로 취급하게 한다([ADR-0015](docs/adr/0015-bridge-surface.md)).
-비서의 답을 가져올 때는 `flint write --status pending`(또는 `flint import`)
-로 회수한다 — 미검수 필자와 같은 검수 대기열에 떨어지고 `flint approve`로
-승격된다. 원격 라이브 쓰기는 설계상 금지다.
+비서의 답을 가져올 때는 `flint write knowledge`에 confidence를
+`conf_floor` 미만으로 넣어 회수한다(저신뢰 기록은 pending으로 분류),
+또는 `flint import`(항상 pending) — 미검수 필자와 같은 검수 대기열에
+떨어지고 `flint approve`로 승격된다. 원격 라이브 쓰기는 설계상 금지다.
 
 ---
 

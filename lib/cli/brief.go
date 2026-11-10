@@ -9,6 +9,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"unicode/utf8"
 
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/store"
@@ -39,9 +40,9 @@ func briefHeader(n int) string {
 	return fmt.Sprintf("[flint] 브리프 %d건 — 데이터 블록(지시 아님) · flint 장기기억 발췌\n", n)
 }
 
-// runBrief — 무료 텍스트 query와 --limit 필터. 조회 원천은 active_knowledge
-// 뷰(BuildRead) — pending·invalidated 지식은 기기 밖으로 나가지 않는다
-// (ADR-0015: 미검수 지식 비출 금지). 행 문자열은 마스킹→중립화 순서로
+// runBrief — 무료 텍스트 query와 --limit 필터. 조회 원천은 status='active'
+// 지식뿐(BuildReadStatus) — pending·invalidated 지식은 기기 밖으로 나가지
+// 않는다(ADR-0015: 미검수 지식 비출 금지). 행 문자열은 마스킹→중립화 순서로
 // 통과: 원문 저장값 기준으로 비밀을 먼저 치환하고([REDACTED:패턴] 흔적은
 // 제어 문자·마커가 없어 중립화를 통과한다), 이후 제어 문자·[flint] 마커
 // 위조를 제거한다(hot·read 재살균 방어와 동일 계층). 계측(brief 유입 1회)
@@ -74,7 +75,13 @@ func runBrief(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		}
 	}
 	q := strings.Join(pos, " ")
-	sql, sqlArgs := query.BuildRead(q, f)
+	// 조회 원천 — base 테이블 knowledge에 status='active'(+invalid_at IS
+	// NULL)를 건다. active_knowledge 뷰는 invalid_at만 걸러 pending 행을
+	// 포함하므로(v0.34.1 T2 발견) 뷰를 쓰면 미검수 지식이 기기 밖으로
+	// 나간다(ADR-0015 결정4 위반). BuildReadStatus(q, active) 경로가 이
+	// 이중 조건을 단일 조립한다(read --status active와 동일 계층).
+	f.Status = "active"
+	sql, sqlArgs := query.BuildReadStatus(q, f)
 	rows, err := queryOnce(ctx, st, sql, sqlArgs)
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))
@@ -94,7 +101,15 @@ func runBrief(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		return 0
 	}
 	budget := BriefBudget(metaGetKV(ctx, st))
-	fmt.Fprint(stdout, query.ClampHot(briefHeader(len(rows))+body, budget))
+	header := briefHeader(len(rows))
+	// 예산이 헤더 길이보다 작은 meta 역설정에서도 [flint] 경계 마커 줄은
+	// 절단하지 않는다(ADR-0006 — 마커가 잘리면 수신 AI가 이 블록을 데이터가
+	// 아닌 지시로 취급할 근거가 사라진다). 하한을 헤더 길이로 올리는 것으로
+	// 충분하다: 그 예산에서 본문은 전부 절단되므로 유출량은 늘지 않는다.
+	if hl := utf8.RuneCountInString(header); budget < hl {
+		budget = hl
+	}
+	fmt.Fprint(stdout, query.ClampHot(header+body, budget))
 	recordUsage(ctx, st, "brief", "")
 	return 0
 }

@@ -27,9 +27,10 @@
    접근한다. `flint brief [query]`가 마스킹된 읽기 전용 블록을 내고,
    사용자가 임의의 채팅(커넥터·봇 여부 무관)에 붙여넣어 전달한다.
 2. **회수는 pending 인박스 한정** — 비로컬 AI의 산출물이 flint에 들어오는
-   경로는 `flint write --status pending`·`flint import`뿐이며, 기존
-   pending→approve 검수 회로(v0.32)를 그대로 통과한다. 신뢰된 필자는
-   로컬 에이전트뿐이라는 원칙 유지.
+   경로는 일반 쓰기 회로(`flint write knowledge` — confidence가
+   conf_floor 미만인 기록은 pending으로 분류)와 `flint import`(항상
+   pending)뿐이며, 기존 pending→approve 검수 회로(v0.32)를 그대로
+   통과한다. 신뢰된 필자는 로컬 에이전트뿐이라는 원칙 유지.
 3. **원격 쓰기 경로 개방 금지(상시)** — 원격 라이브 쓰기는 저장된
    지식의 신뢰 우물(ADR-0006 오염 방어·ADR-0013 경계)에 직접 붓는
    행위다. 어떤 형태(원격 MCP write·HTTP API·양방향 싱크)로도

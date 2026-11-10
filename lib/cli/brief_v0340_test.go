@@ -44,11 +44,14 @@ func briefRows(n int, summary string) [][]any {
 	return rows
 }
 
-// briefQueryFn — meta brief_budget 조회(미설정=빈)·active_knowledge 조회 응답.
+// briefQueryFn — meta brief_budget 조회(미설정=빈)·knowledge(status 필터)
+// 조회 응답.
 func briefQueryFn(rows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
+		// v0.34.1: 조회 원천이 base 테이블 knowledge + status 필터로
+		// 이동(뷰는 pending을 노출 — TestBriefExcludesPending 참조).
+		case strings.Contains(sql, "FROM knowledge"):
 			return rows, nil
 		case strings.Contains(sql, "FROM meta"):
 			return nil, nil
@@ -58,7 +61,7 @@ func briefQueryFn(rows [][]any) func(string, []any) ([][]any, error) {
 }
 
 // TestBriefOutputContract — exit 0·[flint] 헤더 1줄·topic|summary|tags 행·
-// 조회 원천은 active_knowledge 뷰(pending·invalidated는 기기 밖 금지).
+// 조회 원천은 status='active' 한정 지식(pending·invalidated는 기기 밖 금지).
 func TestBriefOutputContract(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(2, "요약 본문")
@@ -74,8 +77,9 @@ func TestBriefOutputContract(t *testing.T) {
 	if !strings.Contains(got, "토픽|요약 본문|demo:tag") {
 		t.Errorf("topic|summary|tags 행 미출력: %q", got)
 	}
-	if !strings.Contains(st.queries[0], "FROM active_knowledge") {
-		t.Errorf("조회 원천이 active_knowledge 아님: %q", st.queries[0])
+	if !strings.Contains(st.queries[0], "status = $1") ||
+		!strings.Contains(st.queries[0], "invalid_at IS NULL") {
+		t.Errorf("조회가 status='active'+invalid_at 이중 조건 아님: %q", st.queries[0])
 	}
 }
 
