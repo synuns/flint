@@ -1,0 +1,73 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>flint 대시보드</title>
+<style>
+  :root { --ink:#1c2333; --dim:#6b7280; --card:#f7f8fa; --line:#e3e6eb; --accent:#2563eb; --good:#059669; --warn:#d97706; }
+  * { box-sizing:border-box; }
+  body { font:15px/1.55 -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; color:var(--ink); margin:0; padding:32px; background:#fff; }
+  h1 { font-size:19px; margin:0 0 4px; }
+  .meta { color:var(--dim); font-size:13px; margin-bottom:24px; }
+  .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(210px,1fr)); gap:14px; margin-bottom:28px; }
+  .card { background:var(--card); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+  .card .label { font-size:12px; color:var(--dim); letter-spacing:.02em; }
+  .card .value { font-size:26px; font-weight:650; margin-top:2px; }
+  .card .sub { font-size:12px; color:var(--dim); margin-top:2px; }
+  .bar { height:6px; background:#e9edf2; border-radius:3px; overflow:hidden; margin-top:8px; }
+  .bar > i { display:block; height:100%; background:var(--accent); }
+  h2 { font-size:15px; margin:26px 0 10px; }
+  table { border-collapse:collapse; width:100%; font-size:13px; }
+  th,td { text-align:right; padding:6px 10px; border-bottom:1px solid var(--line); }
+  th:first-child,td:first-child { text-align:left; }
+  .note { color:var(--dim); font-size:12px; margin-top:22px; }
+  .warn { color:var(--warn); }
+  .good { color:var(--good); }
+</style>
+</head>
+<body>
+<h1>flint 효과 대시보드</h1>
+<div class="meta">생성 {{.GeneratedAt}} · 관측창 {{.Days}}일 · 정적 파일(외부 요청 없음)</div>
+
+<div class="grid">
+  <div class="card"><div class="label">G1 회상 명중</div><div class="value">{{.Effect.HitPct}}%</div>
+    <div class="bar"><i style="width:{{.Effect.HitPct}}%"></i></div>
+    <div class="sub">fallback {{.Effect.FallbackPct}}% · 근접 {{.Effect.NearPct}}%</div></div>
+  <div class="card"><div class="label">G2 재발견 저지</div><div class="value">{{.Effect.DupPrevented}}</div>
+    <div class="sub">누적 중복 차단(절대량)</div></div>
+  <div class="card"><div class="label">G3 자산 건전성</div><div class="value">{{.Effect.ReusePct}}%</div>
+    <div class="bar"><i style="width:{{.Effect.ReusePct}}%"></i></div>
+    <div class="sub">dead {{.Effect.DeadPct}}%</div></div>
+  <div class="card"><div class="label">G4 회상 우선</div><div class="value">{{.Effect.PairPct}}%</div>
+    <div class="bar"><i style="width:{{.Effect.PairPct}}%"></i></div>
+    <div class="sub">회상 선도 {{.Effect.RecallLedPct}}% · 연쇄 {{.Effect.ChainPct}}%</div></div>
+  <div class="card"><div class="label">hit 품질(v0.30)</div><div class="value">{{.Effect.Top1Pct}}%</div>
+    <div class="sub">정합 {{.Effect.ExactPct}}% · MRR {{printf "%.2f" .Effect.MRR}}</div></div>
+</div>
+
+{{if .Effect.Trend}}
+<h2>7일 추세(전기 대비)</h2>
+<table>
+  <tr><th>지표</th><th>직전 7일</th><th>최근 7일</th><th>증감</th></tr>
+  <tr><td>회상 명중</td><td>{{.Effect.Trend.HitPct.Prev}}%</td><td>{{.Effect.Trend.HitPct.Cur}}%</td>
+      <td class="{{if ge .Effect.Trend.HitPct.Delta 0}}good{{else}}warn{{end}}">{{if ge .Effect.Trend.HitPct.Delta 0}}+{{end}}{{.Effect.Trend.HitPct.Delta}}</td></tr>
+  <tr><td>폴백</td><td>{{.Effect.Trend.FallbackPct.Prev}}%</td><td>{{.Effect.Trend.FallbackPct.Cur}}%</td>
+      <td class="{{if le .Effect.Trend.FallbackPct.Delta 0}}good{{else}}warn{{end}}">{{if ge .Effect.Trend.FallbackPct.Delta 0}}+{{end}}{{.Effect.Trend.FallbackPct.Delta}}</td></tr>
+  <tr><td>정합 1위</td><td>{{.Effect.Trend.Top1Pct.Prev}}%</td><td>{{.Effect.Trend.Top1Pct.Cur}}%</td>
+      <td class="{{if ge .Effect.Trend.Top1Pct.Delta 0}}good{{else}}warn{{end}}">{{if ge .Effect.Trend.Top1Pct.Delta 0}}+{{end}}{{.Effect.Trend.Top1Pct.Delta}}</td></tr>
+</table>
+{{end}}
+
+<h2>일별 활동(최근 {{.Days}}일)</h2>
+<table>
+  <tr><th>날짜</th><th>read</th><th>write</th><th>중복 차단</th><th>zero</th></tr>
+  {{range .EffectDays}}
+  <tr><td>{{.Date}}</td><td>{{.Read}}</td><td>{{.Write}}</td><td>{{.Dup}}</td><td>{{.ReadZero}}</td></tr>
+  {{end}}
+</table>
+
+<div class="note">지표 정의·금지조항: docs/METRICS.md — 상관 프록시(Tier 1·2)는 세트로 해석하고
+단독 인과로 읽지 않는다. 이 파일은 생성 시점 스냅숏(자동 갱신 없음).</div>
+</body>
+</html>
