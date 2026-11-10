@@ -133,6 +133,27 @@ func tuningKeyMap() map[string]tuningKeyInfo {
 	return out
 }
 
+// tuningKeyAll — v0.34.2 R1: thresholdsKeys(maintain.go)와
+// tuningMetaKeys의 .Key 필드의 정렬 합집합(중복 제거). tuningCurrent·
+// tuningResetAll이 하드코딩 6키 목록을 복제해 backup_encrypt(7번째
+// meta 키)가 누락되던 드리프트의 단일 소스.
+func tuningKeyAll() []string {
+	all := append([]string{}, thresholdsKeys()...)
+	for _, mk := range tuningMetaKeys() {
+		all = append(all, mk.Key)
+	}
+	seen := map[string]bool{}
+	out := make([]string, 0, len(all))
+	for _, k := range all {
+		if !seen[k] {
+			seen[k] = true
+			out = append(out, k)
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
 // tuningKeyList — 결정적 정렬 키 목록.
 func tuningKeyList() []string {
 	out := make([]string, 0, 22)
@@ -188,7 +209,7 @@ func tuningCurrent(ctx context.Context, st Store) (store.Thresholds, map[string]
 	// v0.23.0 리뷰 ⑦: 단일 쿼리 — 같은 키 집합을 한 번 읽어 원시 맵과
 	// 파싱 결과를 모두 도출한다(loadThresholds와 이중 조회 제거).
 	raw := map[string]string{}
-	all := append(append([]string{}, thresholdsKeys()...), "hot_budget", "backup_keep", "backup_interval_h", "exposure_profile", "vocab_tags", "vocab_domains")
+	all := tuningKeyAll()
 	rows, err := queryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('`+strings.Join(all, "','")+`')`, nil)
 	if err != nil {
@@ -396,9 +417,10 @@ func tuningMetaUpsert(ctx context.Context, st Store, key, val string, stdout io.
 }
 
 // tuningResetAll — 전체 오버라이드 일괄 삭제(v0.24.0 R4b: 22+왕복 → 1회).
-// thresholds 키 + meta 관리 6키 전부 — 리셋된 키 목록을 합산 JSON으로.
+// thresholds 키 + meta 관리 키 전부(tuningKeyAll 단일 소스) — 리셋된
+// 키 목록을 합산 JSON으로.
 func tuningResetAll(ctx context.Context, st Store, stdout io.Writer) int {
-	all := append(append([]string{}, thresholdsKeys()...), "hot_budget", "backup_keep", "backup_interval_h", "exposure_profile", "vocab_tags", "vocab_domains")
+	all := tuningKeyAll()
 	qmarks := make([]string, len(all))
 	args := make([]any, len(all))
 	for i, k := range all {
