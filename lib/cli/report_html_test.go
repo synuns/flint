@@ -58,7 +58,6 @@ func synthDash5() htmlDashboard {
 	return d
 }
 
-
 // TestRenderDashboardV5 — 서사 흐름 구조·카드 그리드 부재·색 규율.
 func TestRenderDashboardV5(t *testing.T) {
 	var b strings.Builder
