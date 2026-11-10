@@ -11,6 +11,7 @@ import (
 	"html/template"
 	"io"
 	"os"
+	"sort"
 	"strings"
 	"time"
 )
@@ -187,11 +188,23 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 			mk("첫 결과 정답", t.Top1Pct, false),
 		}
 	}
+	// v8.1(사용자 지시 — 동적 스케일): 이상치 하루가 절대 최댓값 기준이
+	// 되면 나머지가 전부 납작해진다. p90 기준 스케일 + 초과분 클리핑:
+	// 초과 막대는 100%에서 자르고 툴팁에 '기준 초과' 표시(Grafana
+	// percentile 스케일 관례).
 	mkBars := func(vals []int, dates []string) []barSeg {
-		max := 1
-		for _, v := range vals {
-			if v > max {
-				max = v
+		sorted := append([]int(nil), vals...)
+		sort.Ints(sorted)
+		// p90(빈/1건 가드: 기본 1)
+		ref := 1
+		if n := len(sorted); n > 0 {
+			idx := n * 9 / 10
+			if idx >= n {
+				idx = n - 1
+			}
+			ref = sorted[idx]
+			if ref < 1 {
+				ref = 1
 			}
 		}
 		out := make([]barSeg, len(vals))
@@ -200,7 +213,13 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 			if i < len(dates) {
 				date = dates[i]
 			}
-			out[i] = barSeg{H: fmt.Sprintf("%d%%", v*100/max), Title: date + " · " + fmt.Sprint(v)}
+			title := date + " · " + fmt.Sprint(v)
+			h := v * 100 / ref
+			if h > 100 {
+				h = 100
+				title += " · 기준(p90) 초과"
+			}
+			out[i] = barSeg{H: fmt.Sprintf("%d%%", h), Title: title}
 		}
 		return out
 	}
