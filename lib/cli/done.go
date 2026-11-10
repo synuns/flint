@@ -255,7 +255,7 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, session string, sessionRowID int) {
 	// v0.27.2 리뷰 4: 빈 게이트를 임계값 로드 앞으로 — 요약 없는 종료(일반
 	// Stop)가 thresholds 왕복을 물리지 않게 한다.
-	summary = truncateRunesImport(store.SanitizeText(strings.TrimSpace(summary)), 500)
+	summary = truncateRunes(store.SanitizeText(strings.TrimSpace(summary)), 500)
 	// v0.27.0 리뷰 1: 실제 요약(Compact 결과 등)이 전달된 경우만 적립 —
 	// 폴백 상용구("세션 종료(미기록 N)")는 지식이 아니므로 스킵.
 	// v0.27.2: 게이트는 살균·절단 후 기준(제어문자뿐인 입력이 빈 summary
@@ -278,7 +278,7 @@ func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, sessio
 	// v0.29.0 R3: topic에 요약 키워드 — "세션[claude]"는 회상 topic 정합
 	// 신호로 무의미했다. 첫 문장의 앞부분(첫 구분자 또는 20룬)을 반영해
 	// 브라우징·검색 품질을 높인다(규칙 기반 — LLM 판정 배제 §13).
-	topic := store.SanitizeText(truncateRunesImport(
+	topic := store.SanitizeText(truncateRunes(
 		fmt.Sprintf("세션[%s] %s", agentLabel(agent, 24), summaryKeyword(summary)), 80))
 	rec := map[string]any{
 		"kind":       "knowledge",
@@ -343,7 +343,7 @@ func summaryKeyword(summary string) string {
 	if cut > 0 {
 		first = first[:cut]
 	}
-	return strings.TrimSpace(truncateRunesImport(first, 20))
+	return strings.TrimSpace(truncateRunes(first, 20))
 }
 
 // sessionRowIDForAgent — agent의 최신 sessions.id(writeSessionRecord
@@ -373,13 +373,14 @@ func warnSecrets(prefix, s string) {
 	}
 }
 
-// agentLabel — 세션 라벨(빈 값 폴백 + truncateRunesImport 재사용 —
-// 리뷰 9: 절단 헬퍼 단일화).
+// agentLabel — 세션 라벨(빈 값 폴백 + truncateRunes 재사용 — 리뷰 9:
+// 절단 헬퍼 단일화. v0.34.3 T4: import.go 별칭 truncateRunesImport 대신
+// 단일 구현 직접 호출).
 func agentLabel(agent string, max int) string {
 	if agent == "" {
 		return "unknown"
 	}
-	return truncateRunesImport(agent, max)
+	return truncateRunes(agent, max)
 }
 
 // recallStarvedToday — 오늘 daily 카운터로 회상 부재 판정(v0.18.0 R3).
@@ -423,24 +424,31 @@ func maybeAutoBackup(ctx context.Context, st Store) {
 		dir = filepath.Join(home, ".flint", "backup")
 	}
 
-	getKV, setKV := metaKV(ctx, st)
+	// v0.34.3 T4: meta 접근은 getMetaKV/setMetaKV 단일 진입(meta_kv.go)
+	// 경유. RunIfNeeded는 (string, error) 클로저를 받으므로 getMetaKVErr
+	// 원형으로 감싼다(키 부재 ("", nil)·전송 오류 구분 계약 유지).
+	metaGet := func(key string) (string, error) {
+		v, _, err := getMetaKVErr(ctx, st, key)
+		return v, err
+	}
+	setKV := func(key, value string) error { return setMetaKV(ctx, st, key, value) }
 	lf := &lazyDumpFile{dir: dir}
 	// v0.28.0(H②): meta backup_encrypt=true면 자동 백업도 암호화
 	// (키는 config 디렉터리 — 첫 암호화 시 자동 생성). 판독 실패는 기본
 	// 평문(비간섭 §13 — 백업 실패가 종료를 깨지 않는 계약 유지).
-	if v, verr := getKV("backup_encrypt"); verr == nil && backupEncryptOn(v) {
+	if v, ok := getMetaKV(ctx, st, "backup_encrypt"); ok && backupEncryptOn(v) {
 		lf.encrypt = true
 	}
 	defer lf.close()
 	auto := backup.Auto{DSN: dsnFromEnv()}
-	runErr := auto.RunIfNeeded(ctx, getKV, setKV, lf)
+	runErr := auto.RunIfNeeded(ctx, metaGet, setKV, lf)
 	// v0.20.1(패치 루프 1차 F4): 자동 백업도 로테이션 — 파일 확정(사이드카
 	// 포함) 뒤 keep-N 정책을 적용한다. 이전엔 수동 `flint backup --out`
 	// 경로(rotateAfterBackup)에만 묶여 있어 자동 파일이 무한히 축적됐다.
 	// 실패는 경고만(백업 성공 불변 — 수동 경로와 동일 계약).
 	if runErr == nil {
 		if name := lf.closeAndPath(); name != "" {
-			if _, rerr := rotateFn(dir, keepFn(getKV)); rerr != nil {
+			if _, rerr := rotateFn(dir, keepFn(metaGet)); rerr != nil {
 				fmt.Fprintf(os.Stderr, "[flint] backup auto rotate: %v\n", rerr)
 			}
 		}

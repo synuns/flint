@@ -176,16 +176,13 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 }
 
 // backupEncryptMeta — meta backup_encrypt 판정(오류·미설정=false 폴백).
+// v0.34.3 T4: meta 접근은 getMetaKV 단일 진입(meta_kv.go) 경유.
 func backupEncryptMeta(ctx context.Context, st Store) bool {
 	if st == nil {
 		return false
 	}
-	rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{"backup_encrypt"})
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
-		return false
-	}
-	v, _ := rows[0][0].(string)
-	return backupEncryptOn(v)
+	v, ok := getMetaKV(ctx, st, "backup_encrypt")
+	return ok && backupEncryptOn(v)
 }
 
 // rotateAfterBackup — 성공한 --out 경로 뒤 로테이션 요약 필드(`,"removed":N`)를
