@@ -139,6 +139,18 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
   직전 7일(hit·fallback·top1). 한쪽 창 표본 0이면 미표시(빈 창
   비교 금지). pair_pct 추세는 표본 확대 후 확장.
 
+## 4.5 프로파일 판정 규칙 (v0.35.0 — flint profile)
+
+판정은 report의 profile_hint와 **단일 소스**다(규칙 분열 금지):
+
+- 표본 하한: read_events_n < zero_near_min_read → "유지(관측 선행)"
+- recall_led_pct >= 50 → normal 유지(회상 선도 다수)
+- recall_led_pct < 50 → minimal 추천(hot 헤드라인 축소·nudge 억제)
+
+근거 지표(read_events_n·recall_led_pct·fallback_pct·pair_pct)를 판정
+출력에 동반해 사용자가 검증할 수 있게 한다(관측 투명성). 전환은
+`--apply normal|minimal`만 — 자동 전환 없음(안내와 실행 분리).
+
 ## 5. 금지조항
 
 1. read/write 총량을 효과처럼 보고하지 않는다(원칙 2).

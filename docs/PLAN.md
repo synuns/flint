@@ -385,6 +385,29 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+#4 --reason 메타데이터(의도된 감사 흔적).
+
+### v0.35.0 마이너 (2026-11-11) — 프로파일 판정 완결: 추천에서 전환까지 (D①)
+
+브레인스토밍(사용자 방향 확정 A·버전 0.35.0 — v0.34.0은 병렬 세션).
+profile_hint가 "회상 선도 낮음 — minimal 전환 고려"를 매번 안내만
+하던 미완결 회로를 실행 가능 회로로 완결:
+
+- [x] `flint profile` — 현재 프로파일 + 추천(유지/normal/minimal) +
+  근거 지표(read_events_n·recall_led_pct·fallback_pct·pair_pct) +
+  전환 next 안내(추천==현재면 미표기)
+- [x] `flint profile --apply normal|minimal` — 전환(setup --exposure
+  재사용 — 기록 경로 단일 소스). 자동 전환 없음(안내·실행 분리)
+- [x] 판정 규칙 METRICS §4.5 문서화 — profile_hint와 단일 소스
+- [x] 테스트 — 표본 부족 보류(유지)·minimal 추천+next·근거 지표·
+  무효 apply/플래그 exit 1·실운영 왕복(전환·복원)
+- [x] 버전 — VERSION·배지 v0.35.0(EN/KO)·plugin.json 동기
+
+후보 문서화(사용자 지시 — B·C):
+- **report --html (E)**: 다음 마이너 후보 1순위 — read_events 표본이
+  쌓여 trend·품질 게이지가 비어 있지 않은 시점이 적기(빈 대시보드 방지)
+- **nudge-pending 배선 (G 잔여)**: 세션 시작 nudge에 flint pending
+  추천 요약 연결 — 소규모 패치급
 ### v0.34.2 패치 (2026-11-11) — 전면 설계·기획 리뷰 잔여 처리 + 구조 수렴 에라 선언
 
 **구조 수렴 에라 선언.** 2026-11-11 전면 설계·기획 리뷰(3에이전트 병렬

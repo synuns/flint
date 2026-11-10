@@ -28,7 +28,8 @@ func TestLookupDiff(t *testing.T) {
 // v0.34.0 brief·v0.34.2 pending 추가 — 커맨드 추가의 본질적 동반 갱신).
 func TestUsageRestInvariant(t *testing.T) {
 	want := `{"error":"usage: flint <write|read|hot|brief|status|backup|restore|approve|pending|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit> [args]"}`
-	got := strings.Replace(usageLine(), "audit|diff|update|tuning|import", "audit", 1)
+	got := strings.Replace(usageLine(), "|profile", "", 1) // v0.35.0 삽입 제거
+	got = strings.Replace(got, "audit|diff|update|tuning|import", "audit", 1)
 	if got != want {
 		t.Fatalf("usage 나머지 불변 위반:\n got=%s\nwant=%s", got, want)
 	}
