@@ -33,7 +33,7 @@ func DoctorChecks() []string {
 // 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
 // conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "backup-key", "update", "recall-starved", "secrets"}
+	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "backup-key", "meta-hygiene", "update", "recall-starved", "secrets"}
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -152,6 +152,8 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		checks = append(checks, checkEventVolume(ctx, st))
 		// backup-key(v0.28.0 H⑤)도 체인 말미 — 암호화 백업 키 상태.
 		checks = append(checks, checkBackupKey(ctx, st))
+		// meta-hygiene(v0.33.0 R3)도 체인 말미 — 미지 키·보존 창 초과 daily 경고.
+		checks = append(checks, checkMetaHygiene(ctx, st))
 		// update(v0.22.0 마이너 A)도 체인 말미 — 릴리스 지연 warn 안내.
 		checks = append(checks, checkUpdate(ctx, st))
 		// recall-starved(v0.24.0 R2a)도 체인 말미 — minimal 프로파일
@@ -247,6 +249,11 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 		// v0.20.4(마일스톤 C①) — 계측 테이블 용량 warn.
 		return checkEventVolume(ctx, st)
 	case "backup-key":
+		// v0.28.0(H⑤) — 아래 원 주석 참조.
+		return checkBackupKey(ctx, st)
+	case "meta-hygiene":
+		// v0.33.0(R3) — meta 키 위생(미지 키·daily 보존 초과).
+		return checkMetaHygiene(ctx, st)
 		// v0.28.0(H⑤) — 암호화 백업 키 파일 상태(부재·권한 이완 warn).
 		return checkBackupKey(ctx, st)
 	case "update":
@@ -809,6 +816,82 @@ func checkLastSeen(ctx context.Context, st Store) doctorCheck {
 		return c
 	}
 	c.Status = "ok"
+	return c
+}
+
+// checkMetaHygiene — v0.33.0(R3): meta 키 위생. 미지 키(사용 중단 후보)·
+// 보존 창(daily_retention_days)+7일 유예 초과 daily 카운터 경고.
+func checkMetaHygiene(ctx context.Context, st Store) doctorCheck {
+	c := doctorCheck{Name: "meta-hygiene"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "meta 조회 불가"
+		return c
+	}
+	rows, err := queryOnce(ctx, st, `SELECT key FROM meta ORDER BY key`, nil)
+	if err != nil {
+		c.Status = "warn"
+		c.Detail = "meta 조회 실패: " + err.Error()
+		return c
+	}
+	thKeys := map[string]bool{}
+	for _, k := range thresholdsKeys() {
+		thKeys[k] = true
+	}
+	th := writeThresholds(ctx, st)
+	retention := th.DailyRetentionD
+	if retention <= 0 {
+		retention = 14
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -(retention + 7)).Format("2006-01-02")
+	unknown, staleDaily := 0, 0
+	var samples []string
+	for _, r := range rows {
+		if len(r) == 0 {
+			continue
+		}
+		k := fmt.Sprint(r[0])
+		switch {
+		case strings.HasPrefix(k, "daily:"):
+			if strings.TrimPrefix(k, "daily:") < cutoff {
+				staleDaily++
+			}
+		case metaKnownKeys[k] || thKeys[k]:
+		default:
+			// tuning meta 키도 허용.
+			known := false
+			for _, mk := range tuningMetaKeys() {
+				if mk.Key == k {
+					known = true
+					break
+				}
+			}
+			if !known {
+				unknown++
+				if len(samples) < 5 {
+					samples = append(samples, k)
+				}
+			}
+		}
+	}
+	if unknown == 0 && staleDaily == 0 {
+		c.Status = "ok"
+		c.Detail = "meta 키 위생 정상(전체 " + strconv.Itoa(len(rows)) + "키)"
+		return c
+	}
+	c.Status = "warn"
+	detail := ""
+	if unknown > 0 {
+		detail = fmt.Sprintf("미지 키 %d건(%s)", unknown, strings.Join(samples, ", "))
+	}
+	if staleDaily > 0 {
+		if detail != "" {
+			detail += " · "
+		}
+		detail += fmt.Sprintf("daily 카운터 %d건 보존 창+%d일 초과", staleDaily, 7)
+	}
+	c.Detail = detail
+	c.Fix = "fix: flint maintain --meta-audit 확인 — 사용 중단 키·낡은 daily 수동 정리"
 	return c
 }
 
