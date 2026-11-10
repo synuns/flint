@@ -1,4 +1,4 @@
-// nudge_v0110_test.go — v0.11.0 R3: normal 넛지 짧은 문구(nudgeStopShort)·
+// nudge_v0110_test.go — v0.11.0 R3: normal 넛지 짧은 문구(nudgePendingLine)·
 // minimal 자동 마커 종결(출력 0바이트) 검증.
 package cli
 
@@ -12,10 +12,10 @@ import (
 )
 
 func TestNudgeShortDirectiveNormal(t *testing.T) {
-	if nudgeStopShort != "flint: 증류 대기 — flint nudge" {
-		t.Errorf("짧은 문구 = %q", nudgeStopShort)
+	if nudgePendingLine != "flint: 증류 대기 — flint nudge" {
+		t.Errorf("짧은 문구 = %q", nudgePendingLine)
 	}
-	if strings.Contains(nudgeStopShort, "flint write knowledge") {
+	if strings.Contains(nudgePendingLine, "flint write knowledge") {
 		t.Error("명령문 잔존 — 최소화 위반")
 	}
 }

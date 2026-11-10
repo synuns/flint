@@ -176,20 +176,26 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	winRead, winZeroPct, winNearPct := statusWindowedRead(ctx, st, winDays)
 	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합(해시는 dolt_log에서
 	// 확정된 base32 소문자 해시라 인라인해도 안전 — T81/T83 룰링). meta·
-	// 계측 조회는 현재 상태 그대로.
-	countSQL := `SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`
-	if asOfHash != "" {
-		countSQL = `SELECT count(*) FROM knowledge AS OF '` + asOfHash +
-			`' WHERE status = 'pending' AND invalid_at IS NULL`
-	}
-	rows, err = queryOnce(ctx, st, countSQL, nil)
-	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
-		return store.MapExit(err)
-	}
+	// 계측 조회는 현재 상태 그대로. 현재 시점 카운트는 countPending 단일
+	// 구현(v0.34.3 3중 쿼리 복제 수렴).
 	pending := 0
-	if len(rows) > 0 {
-		fmt.Sscan(fmt.Sprint(rows[0][0]), &pending)
+	if asOfHash != "" {
+		rows, err = queryOnce(ctx, st, `SELECT count(*) FROM knowledge AS OF '`+asOfHash+
+			`' WHERE status = 'pending' AND invalid_at IS NULL`, nil)
+		if err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			return store.MapExit(err)
+		}
+		if len(rows) > 0 {
+			fmt.Sscan(fmt.Sprint(rows[0][0]), &pending)
+		}
+	} else {
+		n, cerr := countPending(ctx, st)
+		if cerr != nil {
+			fmt.Fprintln(stdout, errLine(cerr))
+			return store.MapExit(cerr)
+		}
+		pending = n
 	}
 	// T38 배선 회수(F-T56-1): status는 별도 프로세스이므로 in-memory 샘플이
 	// 비어 있다 — meta hot_stats baseline을 로드해 직전 실행 누적을 보고한다.

@@ -154,9 +154,8 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 		defer s.Close()
 		st = s
 	}
-	if _, err := queryOnce(ctx, st,
-		`INSERT INTO meta (key, value) VALUES ($1, $2)
-		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{ExposureKey, val}); err != nil {
+	// v0.34.3 T2: 노출 기록 upsert는 setMetaKV 단일 진입 위임.
+	if err := setMetaKV(ctx, st, ExposureKey, val); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return 1
 	}

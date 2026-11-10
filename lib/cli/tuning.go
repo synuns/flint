@@ -356,10 +356,7 @@ func tuningSet(ctx context.Context, st Store, key, val string, stdout io.Writer)
 		}))
 		return 3
 	}
-	if _, err := queryOnce(ctx, st,
-		`INSERT INTO meta (key, value) VALUES ($1, $2)
-		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
-		[]any{key, val}); err != nil {
+	if err := setMetaKV(ctx, st, key, val); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
@@ -404,11 +401,9 @@ func zeroMeansUnset(key string) bool {
 }
 
 // tuningMetaUpsert — 검증 완료 값의 meta upsert 공통(§2·meta키 동일 경로).
+// v0.34.3 T2: upsert 본체는 setMetaKV 단일 진입에 위임.
 func tuningMetaUpsert(ctx context.Context, st Store, key, val string, stdout io.Writer) int {
-	if _, err := queryOnce(ctx, st,
-		`INSERT INTO meta (key, value) VALUES ($1, $2)
-		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
-		[]any{key, val}); err != nil {
+	if err := setMetaKV(ctx, st, key, val); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}

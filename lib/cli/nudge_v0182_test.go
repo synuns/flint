@@ -68,7 +68,7 @@ func TestNudgeSessionStartBothMarkers(t *testing.T) {
 	if lines[0] != nudgeRecallStartLine {
 		t.Fatalf("첫 줄=%q, want recall 문구", lines[0])
 	}
-	if !strings.Contains(lines[1], nudgeStartLine) {
+	if !strings.Contains(lines[1], nudgePendingLine) {
 		t.Fatalf("둘째 줄=%q, want 증류 안내", lines[1])
 	}
 	if _, err := os.Stat(RecallMarkerFile()); !os.IsNotExist(err) {

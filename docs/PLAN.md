@@ -387,6 +387,32 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.36.1 패치 (2026-11-11) — 리뷰 잔여 구조 스윕 1차 (무충돌 항목)
+
+2026-11-11 전면 리뷰 잔여 항목 중 v0.35.0(프로파일)·v0.36.0
+(report-html) 트랙과 파일이 겹치지 않는 것만 선별한 구조 스윕 —
+전 항목 '단일 소스화 + 동질 가드' 패턴(v0.34.2 관례 승계):
+
+- [x] R11 doctor 체크 등록표 통합 — 31종 체크 등록이 4곳에 분산된
+  것을 CheckSpec 단일 소스로 수렴(전체 체인·--check 허용목록·
+  runDoctorCheck 디스패치 파생). --list-checks 6종→16종 전량
+  (미노출 결함 회수), st==nil 판정을 등록표 속성(onStoreNil)으로
+  명문화
+- [x] R12 meta 접근 단일 진입점 — getMetaKV/setMetaKV(원자 upsert)
+  신설, SELECT·ON CONFLICT SQL 5곳 복제 해소. read 폴백 카운터
+  증분도 원자 경로로(비원자 창 제거)
+- [x] R13 util군·계약 위생 — truncateRunes·countPending 수렴,
+  maintain·import unknown flag exit 3 통일, nudge 상수 병합,
+  maintainSupersede 경합 후견사(0행 갱신 오류화)
+- [x] R14 자체 연결 제거 — approve·done·backup이 root가 주입한
+  Store를 사용(mcp 풀 누수 사각 폐쇄), quoteJSON·thresholds 로더
+  통합
+- [x] 버전 — VERSION·배지 v0.36.1(EN/KO)·plugin.json 동기
+
+리넘버 룰링: 스펙 작성 시 v0.34.3 → v0.35.0 선행 병합으로 v0.35.1 →
+v0.36.0 선행 병합으로 v0.36.1 (스펙 §2 조항 2회 발동·스펙 파일명은
+작성 시점 그대로). report.go·profile.go는 무결(v0.36.0 트랙 충돌 회피). 세부: [docs/plans/2026-11-11-flint-v0343.spec.md](plans/2026-11-11-flint-v0343.spec.md)
+
 ### v0.36.0 마이너 (2026-11-11) — report --html: 정적 단일 파일 대시보드 (E)
 
 후보 문서화 1순위(v0.35.0 엔트리) 이행 — E 평가 기준 ①~③ 충족

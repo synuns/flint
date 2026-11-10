@@ -20,10 +20,8 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/synuns/flint/lib/backup"
-	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -121,16 +119,6 @@ func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) int {
 	return 0
 }
 
-// doneThresholds — loadThresholds(maintain.go 소유) 재사용. 읽기 실패 시
-// 기본값 폴백(비간섭: 경고 경로가 본말을 바꾸지 않는다).
-func doneThresholds(ctx context.Context, st Store) store.Thresholds {
-	th, err := loadThresholds(ctx, st)
-	if err != nil {
-		return store.DefaultThresholds()
-	}
-	return th
-}
-
 // hookDefaultAgent — UUID 세션의 집계 agent 기본값. 훅 실배선은 Claude
 // session_id(UUID)를 --session으로 넘기는데, UUID를 그대로 agent로 쓰면
 // 세션마다 agent가 갈라져 StaleSessionRuns가 영구히 1을 못 넘어 stale
@@ -200,7 +188,9 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, `{"error":"usage: flint done --session <id>"}`)
 		return 0
 	}
-	th := doneThresholds(ctx, st)
+	// v0.34.3 R14: thresholds 로더 단일화 — write.go의 writeThresholds
+	// 공용(바이트 동일한 로컬 복제 폐지).
+	th := writeThresholds(ctx, st)
 	agent := agentForSession(ctx, st, session)
 	runs, err := staleRuns(ctx, st, agent)
 	if err != nil {
@@ -247,7 +237,7 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		agentLabel(agent, 24), runs)); cerr != nil {
 		fmt.Fprintf(os.Stderr, "[flint] session-end commit: %v\n", cerr)
 	}
-	autoBackupFn(ctx)
+	autoBackupFn(ctx, st)
 	return 0
 }
 
@@ -265,7 +255,7 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, session string, sessionRowID int) {
 	// v0.27.2 리뷰 4: 빈 게이트를 임계값 로드 앞으로 — 요약 없는 종료(일반
 	// Stop)가 thresholds 왕복을 물리지 않게 한다.
-	summary = truncateRunesImport(store.SanitizeText(strings.TrimSpace(summary)), 500)
+	summary = truncateRunes(store.SanitizeText(strings.TrimSpace(summary)), 500)
 	// v0.27.0 리뷰 1: 실제 요약(Compact 결과 등)이 전달된 경우만 적립 —
 	// 폴백 상용구("세션 종료(미기록 N)")는 지식이 아니므로 스킵.
 	// v0.27.2: 게이트는 살균·절단 후 기준(제어문자뿐인 입력이 빈 summary
@@ -288,7 +278,7 @@ func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, sessio
 	// v0.29.0 R3: topic에 요약 키워드 — "세션[claude]"는 회상 topic 정합
 	// 신호로 무의미했다. 첫 문장의 앞부분(첫 구분자 또는 20룬)을 반영해
 	// 브라우징·검색 품질을 높인다(규칙 기반 — LLM 판정 배제 §13).
-	topic := store.SanitizeText(truncateRunesImport(
+	topic := store.SanitizeText(truncateRunes(
 		fmt.Sprintf("세션[%s] %s", agentLabel(agent, 24), summaryKeyword(summary)), 80))
 	rec := map[string]any{
 		"kind":       "knowledge",
@@ -353,7 +343,7 @@ func summaryKeyword(summary string) string {
 	if cut > 0 {
 		first = first[:cut]
 	}
-	return strings.TrimSpace(truncateRunesImport(first, 20))
+	return strings.TrimSpace(truncateRunes(first, 20))
 }
 
 // sessionRowIDForAgent — agent의 최신 sessions.id(writeSessionRecord
@@ -383,13 +373,14 @@ func warnSecrets(prefix, s string) {
 	}
 }
 
-// agentLabel — 세션 라벨(빈 값 폴백 + truncateRunesImport 재사용 —
-// 리뷰 9: 절단 헬퍼 단일화).
+// agentLabel — 세션 라벨(빈 값 폴백 + truncateRunes 재사용 — 리뷰 9:
+// 절단 헬퍼 단일화. v0.34.3 T4: import.go 별칭 truncateRunesImport 대신
+// 단일 구현 직접 호출).
 func agentLabel(agent string, max int) string {
 	if agent == "" {
 		return "unknown"
 	}
-	return truncateRunesImport(agent, max)
+	return truncateRunes(agent, max)
 }
 
 // recallStarvedToday — 오늘 daily 카운터로 회상 부재 판정(v0.18.0 R3).
@@ -418,7 +409,12 @@ var autoBackupFn = maybeAutoBackup
 // maybeAutoBackup — 하루 1회 자동 백업(spec §8 "하루 첫 세션 지연 트리거").
 // done 판정 뒤에만 실행하며 출력·exit code는 완전 불변, 실패는 stderr 1행
 // 이하로 조용히 무시한다(비간섭 §13 — 코디네이터 룰링 T24 ④).
-func maybeAutoBackup(ctx context.Context) {
+// v0.34.3 R14: meta 접근은 주입 st 경유 — 자체 db.Connect 풀을 여는 것을
+// 폐지했다(mcp 장기 프로세스 연결 적립 차단).
+func maybeAutoBackup(ctx context.Context, st Store) {
+	if st == nil {
+		return
+	}
 	dir := os.Getenv("FLINT_BACKUP_DIR")
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -427,47 +423,25 @@ func maybeAutoBackup(ctx context.Context) {
 		}
 		dir = filepath.Join(home, ".flint", "backup")
 	}
-	pool, err := db.Connect(ctx, dsnFromEnv())
-	if err != nil {
-		return
-	}
-	defer pool.Close()
 
+	// v0.34.3 T4: meta 접근은 getMetaKV/setMetaKV 단일 진입(meta_kv.go)
+	// 경유. RunIfNeeded는 (string, error) 클로저를 받으므로 getMetaKVErr
+	// 원형으로 감싼다(키 부재 ("", nil)·전송 오류 구분 계약 유지).
+	metaGet := func(key string) (string, error) {
+		v, _, err := getMetaKVErr(ctx, st, key)
+		return v, err
+	}
+	setKV := func(key, value string) error { return setMetaKV(ctx, st, key, value) }
 	lf := &lazyDumpFile{dir: dir}
 	// v0.28.0(H②): meta backup_encrypt=true면 자동 백업도 암호화
 	// (키는 config 디렉터리 — 첫 암호화 시 자동 생성). 판독 실패는 기본
 	// 평문(비간섭 §13 — 백업 실패가 종료를 깨지 않는 계약 유지).
-	if v, verr := func() (string, error) {
-		var v string
-		err := pool.QueryRow(ctx,
-			`SELECT value FROM meta WHERE key = $1`, "backup_encrypt").Scan(&v)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return v, err
-	}(); verr == nil && backupEncryptOn(v) {
+	if v, ok := getMetaKV(ctx, st, "backup_encrypt"); ok && backupEncryptOn(v) {
 		lf.encrypt = true
 	}
 	defer lf.close()
-	metaGet := func(key string) (string, error) {
-		var v string
-		err := pool.QueryRow(ctx,
-			`SELECT value FROM meta WHERE key = $1`, key).Scan(&v)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return v, err
-	}
 	auto := backup.Auto{DSN: dsnFromEnv()}
-	runErr := auto.RunIfNeeded(ctx,
-		metaGet,
-		func(key, value string) error {
-			_, err := pool.Exec(ctx,
-				`INSERT INTO meta (key, value) VALUES ($1, $2)
-				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
-			return err
-		},
-		lf)
+	runErr := auto.RunIfNeeded(ctx, metaGet, setKV, lf)
 	// v0.20.1(패치 루프 1차 F4): 자동 백업도 로테이션 — 파일 확정(사이드카
 	// 포함) 뒤 keep-N 정책을 적용한다. 이전엔 수동 `flint backup --out`
 	// 경로(rotateAfterBackup)에만 묶여 있어 자동 파일이 무한히 축적됐다.
@@ -642,11 +616,11 @@ func init() {
 }
 
 // bumpMetaCounter — meta 카운터 1 증분(done 회상 카운터 전용 유틸).
-// 실패는 조용히(§13 — 계측 원칙).
+// 실패는 조용히(§13 — 계측 원칙). v0.34.3 T2: 증분 본체는 bumpMetaKV
+// 단일 진입 위임 — 미가드 ::bigint 캐스트는 파손값에서 오류로 증분이
+// 영구 얼어붙었으나, 단일 구현의 파손값 1 리셋 가드로 회수된다.
 func bumpMetaCounter(ctx context.Context, st Store, key string) {
-	_, _ = queryOnce(ctx, st,
-		`INSERT INTO meta (key, value) VALUES ($1, '1')
-		 ON CONFLICT (key) DO UPDATE SET value = (meta.value::bigint + 1)::text`, []any{key})
+	_ = bumpMetaKV(ctx, st, key)
 }
 
 // doneStdinSummary — Stop 훅 stdin JSON에서 compact_summary 추출

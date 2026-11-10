@@ -37,6 +37,18 @@ func BackupKeyPath() string {
 	return dataFile("backup.key")
 }
 
+// dumpStore — 전체 덤프 접근(approveStore와 동일 관례의 타입 단언 seam).
+// v0.34.3 R14: runBackup이 주입 st 경유로 덤프한다(미구현 st만 dumpFn
+// seam 폴백). 물리적 풀은 lib/backup.Dump 내부에서 열고 닫는다(defer).
+type dumpStore interface {
+	Dump(ctx context.Context, w io.Writer) error
+}
+
+// realStore 위임 메서드 — 같은 패키지 파일이라 여기서 추가만 한다.
+func (s *realStore) Dump(ctx context.Context, w io.Writer) error {
+	return backup.Dump(ctx, dsnFromEnv(), w)
+}
+
 // backupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(리뷰 8:
 // 수동·자동·doctor 3곳이 각자 판정하면 형식 확장 시 정합 분기).
 func backupEncryptOn(v string) bool {
@@ -85,9 +97,17 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	}
 
 	var buf bytes.Buffer
-	if err := dumpFn(ctx, dsnFromEnv(), &buf); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
-		return store.MapExit(err)
+	// v0.34.3 R14: 주입 st 우선(realStore는 Dump 위임). 미구현 st만
+	// dumpFn seam 폴백(기존 테스트 fake) — 폴백 시에만 자체 연결이 열린다.
+	var dumpErr error
+	if ds, ok := st.(dumpStore); ok {
+		dumpErr = ds.Dump(ctx, &buf)
+	} else {
+		dumpErr = dumpFn(ctx, dsnFromEnv(), &buf)
+	}
+	if dumpErr != nil {
+		fmt.Fprintln(stdout, errLine(dumpErr))
+		return store.MapExit(dumpErr)
 	}
 	data := buf.Bytes()
 
@@ -156,16 +176,13 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 }
 
 // backupEncryptMeta — meta backup_encrypt 판정(오류·미설정=false 폴백).
+// v0.34.3 T4: meta 접근은 getMetaKV 단일 진입(meta_kv.go) 경유.
 func backupEncryptMeta(ctx context.Context, st Store) bool {
 	if st == nil {
 		return false
 	}
-	rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{"backup_encrypt"})
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
-		return false
-	}
-	v, _ := rows[0][0].(string)
-	return backupEncryptOn(v)
+	v, ok := getMetaKV(ctx, st, "backup_encrypt")
+	return ok && backupEncryptOn(v)
 }
 
 // rotateAfterBackup — 성공한 --out 경로 뒤 로테이션 요약 필드(`,"removed":N`)를
@@ -175,18 +192,16 @@ func rotateAfterBackup(ctx context.Context, st Store, out string) string {
 		if st == nil {
 			return "", errors.New("no store")
 		}
-		rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
+		// v0.34.3 T2: 조회 본체는 getMetaKVErr 단일 진입 위임 — 키 부재
+		// ("", false, nil)를 기존 미설정 오류로 치환한다.
+		v, ok, err := getMetaKVErr(ctx, st, key)
 		if err != nil {
 			return "", err
 		}
-		if len(rows) == 0 || len(rows[0]) == 0 {
+		if !ok {
 			return "", fmt.Errorf("meta %s 미설정", key)
 		}
-		s, ok := rows[0][0].(string)
-		if !ok {
-			return "", fmt.Errorf("meta %s 값이 문자열 아님", key)
-		}
-		return s, nil
+		return v, nil
 	}
 	removed, err := rotateFn(filepath.Dir(out), keepFn(getKV))
 	if err != nil {

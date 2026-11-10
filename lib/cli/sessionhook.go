@@ -79,16 +79,13 @@ func maybeMaintenanceNotice(ctx context.Context, st Store) string {
 		}
 	}
 	th := writeThresholds(ctx, st)
-	rows, err := queryOnce(ctx, st,
-		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`, nil)
+	// pending 수 조회는 countPending 단일 구현 위임(v0.34.3 3중 쿼리 복제 수렴).
+	n, err := countPending(ctx, st)
 	if err != nil {
 		return "" // 검사 실패 — 캐시 갱신 안 함(갱신 안내 패턴: 다음 세션 재시도)
 	}
 	_ = os.WriteFile(path, []byte(`{"checked_at":"`+time.Now().UTC().Format(time.RFC3339)+`"}`), 0o600)
-	if len(rows) == 0 {
-		return ""
-	}
-	if n, ok := cellToInt(rows[0][0]); ok && n > th.PendingMax {
+	if n > th.PendingMax {
 		return "[flint] pending " + strconv.Itoa(n) + "건(상한 " + strconv.Itoa(th.PendingMax) + ") — flint doctor·maintain 확인"
 	}
 	return ""

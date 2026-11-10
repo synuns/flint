@@ -162,9 +162,10 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			commit = true
 		} else if strings.HasPrefix(a, "-") {
 			// v0.27.3: 미확인 플래그는 사용법 오류 — 오타 플래그가 읽기 불가
-			// 파일로 조용히 버려지던 사각 제거. errLine 관례(approve 등) 정렬.
+			// 파일로 조용히 버려지던 사각 제거. v0.34.3: 무효 인자 계약
+			// exit 3(doctor·tuning·diff 정합 — 주석·코드 불일치 해소).
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
-			return 1
+			return 3
 		} else {
 			pos = append(pos, a)
 		}
@@ -197,7 +198,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			if len([]rune(summary)) < 12 {
 				continue
 			}
-			items = append(items, item{f, sec.Heading, truncateRunesImport(summary, 500)})
+			items = append(items, item{f, sec.Heading, truncateRunes(summary, 500)})
 		}
 	}
 	// v0.27.3: 혼재(읽기 가능+불가)일 때도 읽기 불가 파일을 보고 — 부분
@@ -231,7 +232,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	seen := map[string]bool{} // 배치 내 중복(같은 파일 2회 지정 등) 차단
 	dedupErrs := 0
 	for _, it := range items {
-		topic := store.SanitizeText(truncateRunesImport("규칙["+it.Heading+"]", 80))
+		topic := store.SanitizeText(truncateRunes("규칙["+it.Heading+"]", 80))
 		origin := store.SanitizeText("import:" + filepath.Clean(it.File))
 		rec := map[string]any{
 			"kind":       "knowledge",
@@ -351,13 +352,4 @@ func stripImportNoise(s string) string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
-}
-
-// truncateRunesImport — rune 상한 절단.
-func truncateRunesImport(s string, max int) string {
-	r := []rune(s)
-	if len(r) <= max {
-		return s
-	}
-	return string(r[:max])
 }

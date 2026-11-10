@@ -24,16 +24,81 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// DoctorChecks — 검사 순서(스펙 §1 5종 + v0.7 port).
-func DoctorChecks() []string {
-	return []string{"hook-file", "db", "schema", "integrity", "last-seen", "port"}
+// CheckSpec — doctor 검사 1종의 등록 표현(v0.34.3 R11 등록표 통합).
+// Name·Fn·Chain("core"|"tail")·OnStoreNil("fail"|"warn"|""=st 미사용)이
+// 단일 등록표에 모여 있고, 전체 실행 체인·runDoctorCheck 디스패치·
+// --check 허용 목록·--list-checks가 전부 여기서 파생한다.
+type CheckSpec struct {
+	Name string
+	Fn   func(ctx context.Context, st Store) doctorCheck
+	// Chain — "core"는 DoctorChecks 이름 공간(6종·port 마지막 계약),
+	// "tail"은 전체 실행 체인 말미의 tail 체인(10종).
+	Chain string
+	// OnStoreNil — st==nil일 때의 판정("fail"|"warn"). 검사가 st를 쓰지
+	// 않으면 ""(hook-file·port·update). 코어 4종(db·schema·integrity·
+	// last-seen) fail·tail warn의 기존 행동을 속성으로 명문화한다.
+	OnStoreNil string
 }
 
-// doctorTailChecks — DoctorChecks() 이름 공간 밖, 전체 실행 체인 말미에
-// 붙는 검사들. --check 단독 실행도 허용한다(backup-age는 v0.10.2 R3,
-// conflicts는 v0.13.2 N7부터). harness-*·skill-file은 미확장.
+// doctorChecks — 체크 등록표(코어6+tail10 = 16종). harness-* 14종·
+// skill-file은 파일 존재 감지(동적 하네스/스킬 감지)라 등록표 밖 별도
+// 체인 — 통합 대상 아니다(룰링). 새 검사 추가는 이 표에 1행만.
+func doctorChecks() []CheckSpec {
+	return []CheckSpec{
+		{Name: "hook-file", Chain: "core", OnStoreNil: "",
+			Fn: func(ctx context.Context, st Store) doctorCheck { return checkHookFile() }},
+		{Name: "db", Chain: "core", OnStoreNil: "fail", Fn: checkDB},
+		{Name: "schema", Chain: "core", OnStoreNil: "fail", Fn: checkSchema},
+		{Name: "integrity", Chain: "core", OnStoreNil: "fail", Fn: checkIntegrity},
+		{Name: "last-seen", Chain: "core", OnStoreNil: "fail", Fn: checkLastSeen},
+		{Name: "port", Chain: "core", OnStoreNil: "",
+			Fn: func(ctx context.Context, st Store) doctorCheck { return checkPort(ctx) }},
+		{Name: "backup-age", Chain: "tail", OnStoreNil: "warn", Fn: checkBackupAge},
+		{Name: "conflicts", Chain: "tail", OnStoreNil: "warn", Fn: checkConflicts},
+		{Name: "zero-near", Chain: "tail", OnStoreNil: "warn", Fn: checkZeroNear},
+		{Name: "pending-age", Chain: "tail", OnStoreNil: "warn", Fn: checkPendingAge},
+		{Name: "event-volume", Chain: "tail", OnStoreNil: "warn", Fn: checkEventVolume},
+		{Name: "backup-key", Chain: "tail", OnStoreNil: "warn", Fn: checkBackupKey},
+		{Name: "meta-hygiene", Chain: "tail", OnStoreNil: "warn", Fn: checkMetaHygiene},
+		{Name: "update", Chain: "tail", OnStoreNil: "", Fn: checkUpdate},
+		{Name: "recall-starved", Chain: "tail", OnStoreNil: "warn", Fn: checkRecallStarved},
+		{Name: "secrets", Chain: "tail", OnStoreNil: "warn", Fn: checkSecrets},
+	}
+}
+
+// doctorSpec — 등록표에서 이름으로 검색.
+func doctorSpec(name string) (CheckSpec, bool) {
+	for _, s := range doctorChecks() {
+		if s.Name == name {
+			return s, true
+		}
+	}
+	return CheckSpec{}, false
+}
+
+// doctorChainNames — 등록표에서 특정 체인("core"|"tail")의 이름 순서.
+func doctorChainNames(chain string) []string {
+	var names []string
+	for _, s := range doctorChecks() {
+		if s.Chain == chain {
+			names = append(names, s.Name)
+		}
+	}
+	return names
+}
+
+// DoctorChecks — 코어 체인 이름 순서(스펙 §1 5종 + v0.7 port). v0.34.3
+// R11부터 등록표(doctorChecks) chain=="core" 필터 파생 — 공개 표면 유지.
+func DoctorChecks() []string {
+	return doctorChainNames("core")
+}
+
+// doctorTailChecks — tail 체인 이름 순서(DoctorChecks() 이름 공간 밖,
+// 전체 실행 체인 말미). 등록표 chain=="tail" 필터 파생 — --check 단독
+// 실행 허용 목록도 이 목록과 정합(backup-age는 v0.10.2 R3, conflicts는
+// v0.13.2 N7부터). harness-*·skill-file은 미확장(별도 체인).
 func doctorTailChecks() []string {
-	return []string{"backup-age", "conflicts", "zero-near", "pending-age", "event-volume", "backup-key", "meta-hygiene", "update", "recall-starved", "secrets"}
+	return doctorChainNames("tail")
 }
 
 func init() { Register("doctor", runDoctor) }
@@ -65,7 +130,13 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--list-checks":
-			b, _ := json.Marshal(map[string][]string{"checks": DoctorChecks()})
+			// v0.34.3 R11: 등록표 전량(코어6+tail10) — 구 6종만 내던
+			// 회귀 방지(실제 실행 16종 중 10종이 발견 불가했음).
+			names := make([]string, 0, len(doctorChecks()))
+			for _, s := range doctorChecks() {
+				names = append(names, s.Name)
+			}
+			b, _ := json.Marshal(map[string][]string{"checks": names})
 			fmt.Fprintln(stdout, string(b))
 			return 0
 		case "--fix":
@@ -82,29 +153,13 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			return 3
 		}
 	}
-	names := DoctorChecks()
 	if subset != "" {
-		// v0.10.2 R3: backup-age 단독 실행 — DoctorChecks() 이름 공간 밖
-		// 별도 체인의 서브셋 예외(룰링: 6종·port 마지막 계약 불변,
-		// harness-*·skill-file은 미확장). v0.13.2 N7: 예외를 backup-age
-		// 단독에서 tail-chain 전체(doctorTailChecks)로 일반화 — conflicts도
-		// 단독 실행 가능. 실행·출력·--fix·exit 계약은 기존 서브셋 경로를
-		// 그대로 승계한다.
-		ok := false
-		for _, n := range names {
-			if n == subset {
-				ok = true
-				break
-			}
-		}
-		for _, n := range doctorTailChecks() {
-			if n == subset {
-				ok = true
-				break
-			}
-		}
-		// v0.20.2(패치 루프 1차 O2): 전체 리포트가 보여주는 체크명을
-		// --check로 실행할 수 있어야 한다 — skill-file·harness-* 허용.
+		// --check 허용 목록은 등록표 전량에서 파생(v0.34.3 R11) — 코어
+		// 6종·tail 10종 전부 단독 실행 가능(v0.13.2 N7 일반화 승계).
+		// v0.20.2 O2: 전체 리포트가 보여주는 체크명을 --check로 실행할
+		// 수 있어야 한다 — skill-file·harness-*는 등록표 밖 별도 체인
+		// 이지만 단독 실행을 허용한다.
+		_, ok := doctorSpec(subset)
 		if subset == "skill-file" || strings.HasPrefix(subset, "harness-") {
 			ok = true
 		}
@@ -112,56 +167,42 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("doctor: unknown check %q", subset)))
 			return 3
 		}
-		names = []string{subset}
+		checks := []doctorCheck{runDoctorCheck(ctx, st, subset)}
+		return doctorReport(checks, fix, stdout)
 	}
 
-	checks := make([]doctorCheck, 0, len(names))
-	for _, n := range names {
-		checks = append(checks, runDoctorCheck(ctx, st, n))
-	}
-	// 하니스 검진(v0.9 §4)은 전체 검사 체인 끝에 추가. --check 서브셋은
-	// DoctorChecks() 이름 공간만 대상 — harness-*는 이름 없는 별도 체인이므로
-	// 서브셋 실행에는 끼지 않는다.
-	if subset == "" {
-		checks = append(checks, harnessChecks()...)
-		// skill-file(v0.9.7 R1)도 harness와 같은 별도 체인 — 소스가
-		// 탐지되는 경우에만 결과를 생성하고 warn은 exit를 깨지 않는다
-		// (룰링: 스킬 없어도 훅은 동작 — fail은 과잉). home 미탐지 시
-		// 검사를 생략한다(checkHookFile와 같은 처리 — Join("",…)은
-		// 상대경로가 돼 cwd 오탐).
-		if home := claudeHome(); home != "" {
-			if c, ok := checkSkillFile(skillSrcDir(flintBinPathFn()), filepath.Join(home, "skills", "flint")); ok {
-				checks = append(checks, c)
-			}
+	// 전체 실행 체인 — 등록표 파생(코어 6종, 하니스·스킬 별도 체인,
+	// tail 10종 순서는 기존 append 순서와 동일하게 유지).
+	checks := make([]doctorCheck, 0, len(doctorChecks())+len(harnessRegistry))
+	for _, s := range doctorChecks() {
+		if s.Chain == "core" {
+			checks = append(checks, s.Fn(ctx, st))
 		}
-		// backup-age(v0.10.0 R4)도 같은 별도 체인 — 실행 목록 말미.
-		// DoctorChecks() 이름 공간(6종·port 마지막)은 기존 계약 그대로
-		// 둔다(기존 검사·필드 순서 불변).
-		checks = append(checks, checkBackupAge(ctx, st))
-		// conflicts(v0.13.0 R3)도 backup-age 뒤 체인 말미 — 모순 후보는
-		// warn이면 족하다(fail 아님, 스펙 §3 R3).
-		checks = append(checks, checkConflicts(ctx, st))
-		// zero-near(v0.15.0 R3)도 conflicts 뒤 체인 말미 — 검색 품질
-		// 의심은 warn이면 족하다(fail 아님, 기존 검사 순서 불변).
-		checks = append(checks, checkZeroNear(ctx, st))
-		// pending-age(v0.16.2 R4)도 체인 말미 — 만료된 pending 방치는
-		// warn이면 족하다(fail 아님) + 만료 명령 안내.
-		checks = append(checks, checkPendingAge(ctx, st))
-		// event-volume(v0.20.4 마일스톤 C①)도 체인 말미 — 계측 테이블
-		// 성장은 warn 안내만(fail 아님).
-		checks = append(checks, checkEventVolume(ctx, st))
-		// backup-key(v0.28.0 H⑤)도 체인 말미 — 암호화 백업 키 상태.
-		checks = append(checks, checkBackupKey(ctx, st))
-		// meta-hygiene(v0.33.0 R3)도 체인 말미 — 미지 키·보존 창 초과 daily 경고.
-		checks = append(checks, checkMetaHygiene(ctx, st))
-		// update(v0.22.0 마이너 A)도 체인 말미 — 릴리스 지연 warn 안내.
-		checks = append(checks, checkUpdate(ctx, st))
-		// recall-starved(v0.24.0 R2a)도 체인 말미 — minimal 프로파일
-		// 침묵의 최후 관측 창구.
-		checks = append(checks, checkRecallStarved(ctx, st))
-		// secrets(v0.26.0 R1)도 체인 말미 — 사후 스캔.
-		checks = append(checks, checkSecrets(ctx, st))
 	}
+	// 하니스 검진(v0.9 §4)은 코어 체인 뒤에 추가 — 파일이 있는 하니스만
+	// 결과를 생성한다(동적 감지라 등록표 밖 별도 체인).
+	checks = append(checks, harnessChecks()...)
+	// skill-file(v0.9.7 R1)도 harness와 같은 별도 체인 — 소스가
+	// 탐지되는 경우에만 결과를 생성하고 warn은 exit를 깨지 않는다
+	// (룰링: 스킬 없어도 훅은 동작 — fail은 과잉). home 미탐지 시
+	// 검사를 생략한다(checkHookFile와 같은 처리 — Join("",…)은
+	// 상대경로가 돼 cwd 오탐).
+	if home := claudeHome(); home != "" {
+		if c, ok := checkSkillFile(skillSrcDir(flintBinPathFn()), filepath.Join(home, "skills", "flint")); ok {
+			checks = append(checks, c)
+		}
+	}
+	for _, s := range doctorChecks() {
+		if s.Chain == "tail" {
+			checks = append(checks, s.Fn(ctx, st))
+		}
+	}
+	return doctorReport(checks, fix, stdout)
+}
+
+// doctorReport — 검사 결과 취합·--fix 자가수복·출력·exit. 등록표 파생
+// 재구성(v0.34.3 R11)에서 서브셋·전체 경로가 공유하는 후반부.
+func doctorReport(checks []doctorCheck, fix bool, stdout io.Writer) int {
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
 	// 해당 검사만 재평가하고 doctorFixReport 한 줄로 보고한다.
@@ -214,55 +255,14 @@ func runDoctor(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	return 0
 }
 
-// runDoctorCheck — 검사명 디스패치.
+// runDoctorCheck — 검사명 디스패치. 등록표(doctorChecks) 조회가 1차
+// 소스(v0.34.3 R11 — switch 하드코딩 폐지), 등록표 밖 별도 체인
+// (skill-file·harness-*)만 여기 사례로 남는다.
 func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
+	if s, ok := doctorSpec(name); ok {
+		return s.Fn(ctx, st)
+	}
 	switch name {
-	case "hook-file":
-		return checkHookFile()
-	case "db":
-		return checkDB(ctx, st)
-	case "schema":
-		return checkSchema(ctx, st)
-	case "integrity":
-		return checkIntegrity(ctx, st)
-	case "last-seen":
-		return checkLastSeen(ctx, st)
-	case "port":
-		return checkPort(ctx)
-	case "backup-age":
-		// v0.10.2 R3 서브셋 특수경로 전용 — 전체 실행은 이름 공간 밖
-		// 별도 체인(subset=="" 블록)에서 직접 append하므로 여기는
-		// --check backup-age 단독 실행에서만 도달한다.
-		return checkBackupAge(ctx, st)
-	case "conflicts":
-		// v0.13.2 N7 — backup-age와 같은 tail-chain 서브셋 경로.
-		// 전체 실행은 체인 말리 append 블록이 직접 실행하므로 여기는
-		// --check conflicts 단독 실행에서만 도달한다.
-		return checkConflicts(ctx, st)
-	case "zero-near":
-		// v0.15.0 R3 — tail-chain 서브셋 경로 승계(--check zero-near).
-		return checkZeroNear(ctx, st)
-	case "pending-age":
-		// v0.16.2 R4 — 같은 tail-chain 서브셋 경로 승계(--check pending-age).
-		return checkPendingAge(ctx, st)
-	case "event-volume":
-		// v0.20.4(마일스톤 C①) — 계측 테이블 용량 warn.
-		return checkEventVolume(ctx, st)
-	case "backup-key":
-		// v0.28.0(H⑤): 암호화 백업 키 상태.
-		return checkBackupKey(ctx, st)
-	case "meta-hygiene":
-		// v0.33.0(R3): meta 키 위생(미지 키·daily 보존 초과).
-		return checkMetaHygiene(ctx, st)
-	case "update":
-		// v0.22.0(마이너 A·R3) — 릴리스 지연 warn.
-		return checkUpdate(ctx, st)
-	case "recall-starved":
-		// v0.24.0 R2a — 누적 회상 부재 관측(프로파일 무관).
-		return checkRecallStarved(ctx, st)
-	case "secrets":
-		// v0.26.0 R1 — 보유 지식 사후 비밀 스캔(F 프라이버시).
-		return checkSecrets(ctx, st)
 	case "skill-file":
 		// v0.20.2(O2) — 전체 리포트 체크명과 --check 이름 공간 정합.
 		// home 미탐지·소스 미탐지는 skip 판정(전체 체인과 동일 규칙).

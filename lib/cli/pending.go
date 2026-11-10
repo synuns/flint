@@ -185,7 +185,7 @@ func topicSimilarityKey(topic string) string {
 // matchTopicPrefix — key 12룬 접두가 일치하는 active (id,topic) 행의 id.
 // approve·pending 양쪽이 공유하는 단일 근사 구현(리뷰 5).
 func matchTopicPrefix(key string, actives [][]any) []int {
-	prefix := truncateRunesImport(key, 12)
+	prefix := truncateRunes(key, 12)
 	if prefix == "" {
 		return nil
 	}
@@ -196,7 +196,7 @@ func matchTopicPrefix(key string, actives [][]any) []int {
 		}
 		var id int
 		if n, _ := fmt.Sscan(fmt.Sprint(r[0]), &id); n == 1 &&
-			truncateRunesImport(topicSimilarityKey(fmt.Sprint(r[1])), 12) == prefix {
+			truncateRunes(topicSimilarityKey(fmt.Sprint(r[1])), 12) == prefix {
 			out = append(out, id)
 		}
 	}
@@ -237,10 +237,27 @@ func ageDays(now, t time.Time) int {
 // summaryLen — 요약 룬 수.
 func summaryLen(s string) int { return len([]rune(s)) }
 
-// oneLine — 한 줄화(개행 제거·상한).
+// oneLine — 한 줄화(개행 제거·상한 — 절단은 단일 구현 truncateRunes 위임).
 func oneLine(s string, max int) string {
 	s = strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", "")
-	return truncateRunesImport(strings.TrimSpace(s), max)
+	return truncateRunes(strings.TrimSpace(s), max)
+}
+
+// countPending — pending 지식 수 단일 조회(v0.34.3: status·nudge·
+// sessionhook의 3중 쿼리 복제 수렴 — report.go는 v0.36 트랙 제외).
+// 조회 실패만 오류; 빈 응답·해석 불가 값은 0(기존 소비자 관례: 조용한
+// 0 처리)이다.
+func countPending(ctx context.Context, st Store) (int, error) {
+	rows, err := queryOnce(ctx, st,
+		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`, nil)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		return 0, nil
+	}
+	n, _ := cellToInt(rows[0][0])
+	return n, nil
 }
 
 // joinInts — 콤마 결합(상한 5).
