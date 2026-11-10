@@ -58,23 +58,6 @@ func synthDash5() htmlDashboard {
 	return d
 }
 
-func fmt_Sprint(n int) string {
-	if n < 0 {
-		return "-" + itoa(-n)
-	}
-	return itoa(n)
-}
-func itoa(n int) string {
-	if n == 0 {
-		return "0"
-	}
-	var b []byte
-	for n > 0 {
-		b = append([]byte{byte('0' + n%10)}, b...)
-		n /= 10
-	}
-	return string(b)
-}
 
 // TestRenderDashboardV5 — 서사 흐름 구조·카드 그리드 부재·색 규율.
 func TestRenderDashboardV5(t *testing.T) {
