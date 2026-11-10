@@ -62,7 +62,8 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 // RecordUsageCount — 유입 계측 count회를 daily 카운터에 일괄 증분한다
 // (dup N 회계의 O(N) 읽기-쓰기 회피 — bumpDaily가 delta map을 수용).
 // kind = write|hot|read|dup + dup_hook|dup_manual|dup_mcp(v0.10.2 R2 소스별
-// dup, additive). last_<kind>_at을 RFC3339로 upsert하고(dup는
+// dup, additive) + brief(v0.34.1 brief 유입 계측, additive). last_<kind>_at을
+// RFC3339로 upsert하고(dup는
 // 시각 키 없음 — write 시각 준용) `daily:YYYY-MM-DD` JSON 카운터를 증분한다.
 // write는 source 카운터(hook|manual|mcp)를 병행한다. 14일 초과 daily 키는
 // PruneDaily로 정리하되 오늘 daily 키가 신규 생성된 경우(날짜 롤오버 첫
@@ -76,7 +77,7 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 // 원칙(사용 로그 유실이 호출 실패보다 낫다)을 RecordUsage도 따른다.
 func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	switch kind {
-	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp":
+	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "brief":
 	default:
 		return fmt.Errorf("record usage: invalid kind %q", kind)
 	}
