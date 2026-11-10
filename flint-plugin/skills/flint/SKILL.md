@@ -38,6 +38,8 @@ write 실행 전 아래 순서를 따른다:
 
 MCP 클라이언트로 참여하는 세션에서는 셸 CLI 대신 MCP 도구를 사용한다:
 작업 전 `flint_read`, 종료 전 `flint_write`, 세션 요약은 `flint_hot`.
+- `flint_pending` — 대기(pending) 지식 검수 뷰(승격·병합·만료·보류 판정 포함)
+- `flint_approve` — 검수 완료 pending의 승격(active 확정)
 3규칙(read → write → 주입=데이터)은 MCP 경로에서도 동일하게 적용된다.
 
 ## 세션 증류
@@ -93,3 +95,5 @@ process). Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
   (오탐은 ~/.config/flint/secrets-allowlist.txt로 완화)
 - exit code: 0 성공·중복 / 1 재시도 소진 / 2 서버 다운(조용히 진행) /
   3 검증 실패(자가수정 후 재시도)
+- exit 1은 재시도 소진 외에 read eligible 제로히트(침묵 계약)·doctor
+  fail에서도 쓰인다

@@ -69,6 +69,8 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 | `zero_near_min_read` | 10 | zero_near 판정 표본 하한(7일 read 합산) — 미만이면 판정 보류 | doctor zero-near |
 | `zero_near_warn_pct` | 30 | zero_near 경고 비율(%) — 이상이면 어휘 불일치 의심 warn | doctor zero-near |
 | `pending_age_days` | 7 | pending 최고령 경과 안내 기준일 — 이상 경과 시 warn+만료 안내 | doctor pending-age |
+| `pending_promote_days` | 3 | pending 승격 추천(최근 N일) — 이 창 내 적립을 승격 후보로 판정(v0.29.0 R1) | pending 검수 판정 |
+| `pending_promote_min_runes` | 40 | pending 승격 추천(본문 최소 룬) — 미만 본문은 보류(유의미성 근사) | pending 검수 판정 |
 | `recall_warn_writes` | 3 | 회상 부재 경고 기록 수 임계 — 오늘 read 0회 상태의 write 이상 시 done 종료 경고·다음 SessionStart 안내. **-1이면 끔**(1로 설정 시 기록마다 경고). 0은 미설정과 같게 기본값 폴백 | done·nudge |
 | `dead_days` | 30 | dead_pct 기준일 — 회상 0·이 기간 경과 지식 비율(증류·중복 사이클이 주 단위라는 근거) | report effect |
 | `pair_window_minutes` | 30 | read→write 페어 판정 창(분) — 같은 세션 배정 내 근접성 상한 | report effect |

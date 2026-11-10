@@ -15,7 +15,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// defaultBriefBudget — meta brief_budget 미설정 시 기본 상한(TUNING.md §1).
+// defaultBriefBudget — meta brief_budget 미설정 시 기본 상한(TUNING.md §5).
 const defaultBriefBudget = 3000
 
 func init() { Register("brief", runBrief) }
