@@ -398,6 +398,9 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
   현재 상태만 — dolt 이력 보존(버전 기억·감사 원칙, ADR-0012 무관)
 - [x] R3 doctor meta-hygiene — 미지 키·daily 보존 창+7일 유예 초과 warn
 - [x] R4 임계값 invalidated_prune_days(기본 90) 레지스트리 등록
+- [x] 패치 루프 감사 반영(병행 v0.31.x~v0.32.x 사후) — v0.32.1 age_days
+  보정 유실 회귀 수선(292년 표기·테스트 봉쇄)·hasIDs 루프 inWin·빈 창
+  ProfileHint "보류" 완결·마이그레이션 tmp 잔존 청산
 - [x] 테스트 — 분류(known 2·daily·unknown)·prune dry-run/commit/exit·
   실운영 실증(meta-audit 26키·prune 5일 dry 5건·doctor ok)
 - [x] 버전 — VERSION·배지 v0.33.0(EN/KO)·plugin.json 동기

@@ -81,6 +81,13 @@ func dataFile(name string) string {
 			src := filepath.Join(old, name)
 			if b, rerr := os.ReadFile(src); rerr == nil {
 				if merr := os.MkdirAll(home, 0o700); merr == nil {
+					// v0.33.0(패치 감사 4): 이전 시도의 크래시 잔존 tmp 청산 —
+					// CreateTemp 직전에 동일 패턴을 지운다(1회성 마이그레이션).
+					if leftovers, gerr := filepath.Glob(filepath.Join(home, "."+name+"-*")); gerr == nil {
+						for _, lv := range leftovers {
+							_ = os.Remove(lv)
+						}
+					}
 					// v0.31.3(감사 3): 원자 쓰기 — tmp+rename으로 부분
 					// 실패가 불완전 dst를 영구화하는 것을 방지한다.
 					if tmp, terr := os.CreateTemp(home, "."+name+"-*"); terr == nil {

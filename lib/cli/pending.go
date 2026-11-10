@@ -92,15 +92,21 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 			v = pendingVerdict{"hold", "valid_at 파싱 불가 — 데이터 확인 필요"}
 		}
 		counts[v.Kind]++
+		// v0.33.0(패치 감사 1): zero valid_at의 age 표기 0 보정 복원 —
+		// v0.32.1 가드 이동 시 유실돼 292년치 나이가 출력되던 회귀 수선.
+		age := 0
+		if !it.ValidAt.IsZero() {
+			age = ageDays(now, it.ValidAt)
+		}
 		if jsonMode {
 			jsonItems = append(jsonItems, jsonItem{
-				ID: it.ID, Verdict: v.Kind, AgeDays: ageDays(now, it.ValidAt),
+				ID: it.ID, Verdict: v.Kind, AgeDays: age,
 				SummaryRunes: summaryLen(it.Summary), Origin: originLabel(it.Origin),
 				Topic: oneLine(it.Topic, 80), Why: oneLine(v.Why, 120),
 			})
 		} else {
 			fmt.Fprintf(stdout, "%d|%s|%d일|%d자|%s|%s\n",
-				it.ID, verdictLabel(v.Kind), ageDays(now, it.ValidAt), summaryLen(it.Summary), originLabel(it.Origin), oneLine(it.Topic, 48))
+				it.ID, verdictLabel(v.Kind), age, summaryLen(it.Summary), originLabel(it.Origin), oneLine(it.Topic, 48))
 			if v.Why != "" {
 				fmt.Fprintf(stdout, "  ↳ %s\n", oneLine(v.Why, 70))
 			}

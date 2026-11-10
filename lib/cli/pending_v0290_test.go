@@ -142,6 +142,10 @@ func TestRunPendingJSONCountsConsistency(t *testing.T) {
 	if !strings.Contains(s, `"hold":1`) || !strings.Contains(s, `"verdict":"hold"`) {
 		t.Errorf("양쪽 hold 일치 없음: %s", s)
 	}
+	// v0.33.0(패치 감사 1): age_days도 0 — 292년치 표기 회귀 봉쇄.
+	if !strings.Contains(s, `"age_days":0`) {
+		t.Errorf("zero valid_at의 age_days 비정상: %s", s)
+	}
 	if strings.Contains(s, `"items":null`) {
 		t.Errorf("items null: %s", s)
 	}
