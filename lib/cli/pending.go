@@ -68,7 +68,7 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		Topic        string `json:"topic"`
 		Why          string `json:"why,omitempty"`
 	}
-	var jsonItems []jsonItem
+	jsonItems := make([]jsonItem, 0) // v0.32.0 리뷰 3: 빈 경우 null 아닌 []
 	for _, r := range rows {
 		if len(r) < 5 {
 			continue
@@ -86,11 +86,18 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		}
 		v := verdictFor(it, th, now, actives)
 		counts[v.Kind]++
-		jsonItems = append(jsonItems, jsonItem{
-			ID: it.ID, Verdict: v.Kind, AgeDays: ageDays(now, it.ValidAt),
-			SummaryRunes: summaryLen(it.Summary), Origin: originLabel(it.Origin),
-			Topic: oneLine(it.Topic, 80), Why: oneLine(v.Why, 120),
-		})
+		if jsonMode { // v0.32.0 리뷰 9: 텍스트 모드는 구조화 비용 없이
+			age := ageDays(now, it.ValidAt)
+			if it.ValidAt.IsZero() { // 리뷰 6: valid_at 파싱 불가 — 터무니 나이·expire 오판 방지
+				age = 0
+				v = pendingVerdict{"hold", "valid_at 파싱 불가 — 데이터 확인 필요"}
+			}
+			jsonItems = append(jsonItems, jsonItem{
+				ID: it.ID, Verdict: v.Kind, AgeDays: age,
+				SummaryRunes: summaryLen(it.Summary), Origin: originLabel(it.Origin),
+				Topic: oneLine(it.Topic, 80), Why: oneLine(v.Why, 120),
+			})
+		}
 		if !jsonMode {
 			fmt.Fprintf(stdout, "%d|%s|%d일|%d자|%s|%s\n",
 				it.ID, verdictLabel(v.Kind), ageDays(now, it.ValidAt), summaryLen(it.Summary), originLabel(it.Origin), oneLine(it.Topic, 48))

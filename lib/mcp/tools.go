@@ -1,4 +1,4 @@
-// tools.go — flint mcp 도구 3종. Dispatch는 cli.Run 인자를 조립해 호출하고
+// tools.go — flint mcp 도구 5종(v0.32.0). Dispatch는 cli.Run 인자를 조립해 호출하고
 // CLI 출력 문자열과 exit 코드(0/1/2/3 계약)를 그대로 반환한다(실DB·계약 재사용).
 package mcp
 
@@ -24,7 +24,7 @@ type ToolDef struct {
 // runFn — seam. 기본 실 cli.Run, 테스트는 fake 주입(SUPERLITE_REAL=1은 실구현).
 var runFn = cli.Run
 
-// ToolsManifest — 도구 3종 정의(flint read/write/hot 대응).
+// ToolsManifest — 도구 5종 정의(read·write·hot·pending·approve — v0.32.0).
 func ToolsManifest() []ToolDef {
 	return []ToolDef{
 		{
@@ -64,7 +64,7 @@ func ToolsManifest() []ToolDef {
 		{
 			// v0.32.0: 검수 회로 — 세션 안에서 대기 지식 심사·승격.
 			Name:        "flint_pending",
-			Description: "대기 지식 목록 + 규칙 기반 추천(승격/병합/만료/보류). JSON 반환.",
+			Description: "대기 지식 목록 + 규칙 기반 추천. verdict는 promote|merge|expire|hold. JSON 반환.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
@@ -124,14 +124,21 @@ func dispatchRead(args map[string]any) (string, int) {
 
 // dispatchApprove — flint approve --id N [--supersede OLD]. v0.32.0 검수
 // 회로: 신뢰 게이트(write와 동일 신뢰 수준 — 로컬 stdio 단일 사용자).
-// id는 양의 정수, supersede는 id와 상이해야 한다(3이 아닌 1 — 검증 실패).
+// id는 양의 정수, supersede는 id와 상이해야 한다exit 3(검증 실패 계약).
 func dispatchApprove(args map[string]any) (string, int) {
 	id, ok := intArg(args, "id")
 	if !ok || id < 1 {
 		return `{"error":"schema","field":"id","expect":"양의 정수"}`, 3
 	}
 	cliArgs := []string{"approve", "--id", strconv.Itoa(id)}
-	if sup, ok := intArg(args, "supersede"); ok {
+	// v0.32.0 리뷰 1: supersede 키가 존재하면 타입·값 오류가 무음 스킵이
+	// 아니라 반드시 exit 3 — 문자열 "3" 등 LLM 호출기 오타이 승격만
+	// 실행되는 의미 변질을 차단한다.
+	if _, has := args["supersede"]; has {
+		sup, ok := intArg(args, "supersede")
+		if !ok {
+			return `{"error":"schema","field":"supersede","expect":"정수"}`, 3
+		}
 		if sup < 1 {
 			return `{"error":"schema","field":"supersede","expect":"양의 정수"}`, 3
 		}

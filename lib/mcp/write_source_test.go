@@ -46,7 +46,7 @@ func TestDispatchApproveAssembly(t *testing.T) {
 	}
 	got := (*calls)[0].args
 	want := []string{"approve", "--id", "7"}
-	if !sliceEq(got, want) {
+	if !equal(got, want) {
 		t.Errorf("조립 = %v, want %v", got, want)
 	}
 	// supersede 동반.
@@ -54,7 +54,7 @@ func TestDispatchApproveAssembly(t *testing.T) {
 	DispatchTool("flint_approve", map[string]any{"id": 7, "supersede": 3})
 	got = (*calls)[0].args
 	want = []string{"approve", "--id", "7", "--supersede", "3"}
-	if !sliceEq(got, want) {
+	if !equal(got, want) {
 		t.Errorf("supersede 조립 = %v, want %v", got, want)
 	}
 	// 검증 실패 3종 — 실행 안 함.
@@ -69,17 +69,4 @@ func TestDispatchApproveAssembly(t *testing.T) {
 			t.Errorf("무효 입력인데 실행됨: %v", bad)
 		}
 	}
-}
-
-// sliceEq — 문자열 슬라이스 동등.
-func sliceEq(a, b []string) bool {
-	if len(a) != len(b) {
-		return false
-	}
-	for i := range a {
-		if a[i] != b[i] {
-			return false
-		}
-	}
-	return true
 }

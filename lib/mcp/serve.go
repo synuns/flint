@@ -1,4 +1,4 @@
-// serve.go — flint mcp 진입. Serve(JSON-RPC 루프)와 DispatchTool(도구 3종)를
+// serve.go — flint mcp 진입. Serve(JSON-RPC 루프)와 DispatchTool(도구 5종(v0.32.0))를
 // 잇는다: initialize → tools/list → tools/call 순서 응답, EOF 정상 종료 0.
 // lib/mcp는 cli를 import하므로(tools.go runFn), 역방향 참조는 cli가 노출하는
 // RegisterMCPServer 주입 시점으로 해결한다(순환 import 방지).

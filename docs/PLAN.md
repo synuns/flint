@@ -385,13 +385,9 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
-#4 --reason 메타데이터(의도된 감사 흔적).
 
-#4 --reason 메타데이터(의도된 감사 흔적).
 
-#4 --reason 메타데이터(의도된 감사 흔적).
 
-#4 --reason 메타데이터(의도된 감사 흔적).
 
 ### v0.32.0 마이너 (2026-11-10) — MCP 검수 회로: pending·approve 노출
 
@@ -404,6 +400,12 @@ flint_pending·flint_approve 추가(read·write·hot에 이어 5종).
   supersede 동반 조립 — 무효 입력 exit 3 실행 없음). 신뢰 게이트는
   write와 동일 수준(로컬 stdio 단일 사용자)
 - [x] 도구 목록 5종 갱신·테스트(조립·검증 3종·매니페스트)·README
+- [x] 리뷰 10건 반영 — supersede 키 존재 시 타입 오류 무음 스킵→exit 3
+  (문자열 "3" 오타이 승격만 실행되는 의미 변질 차단)·items 빈 경우
+  null→[]·valid_at 파싱 불가 행의 터무니 나이·expire 오판 가드(hold)·
+  verdict 어휘 promote|merge|expire|hold 통일·어댑터 문서 5종 갱신
+  (copilot·openclaw allowlist 정합)·PLAN 앵커 중복 정리·텍스트 모드
+  구조화 비용 가드·sliceEq 중복 제거·주석 정정
 - [x] 버전 — VERSION·배지 v0.32.0(EN/KO)·plugin.json 동기
 
 ### v0.31.3 패치 (2026-11-10) — v0.29~0.31 사후 감사 12건 (3에이전트 병렬)
