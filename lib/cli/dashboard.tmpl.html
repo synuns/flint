@@ -3,120 +3,141 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>flint 효과 대시보드</title>
-
+<title>flint 사용 리포트</title>
 <style>
-/*__BASE_CSS__*/
-/* — flint 컴포넌트층(water 토큰 승계 + 대시보드 전용) — */
-:root { --read:#0076d1; --write:#e4572e; --dup:#1b9e77; --good:var(--text-bright); --bad:#c0392b; }
-@media (prefers-color-scheme: dark) { :root { --write:#e4572e; --read:#4ea1f3; } }
-body { padding:32px; max-width:1080px; margin:0 auto; }
-h1 { font-size:20px; font-weight:650; margin-bottom:4px; }
-.meta { color:var(--text-muted); font-size:13px; margin-bottom:24px; }
-h2 { font-size:15px; font-weight:600; margin:32px 0 12px; }
-.grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:12px; }
-.card { background:var(--background); border:1px solid var(--border); border-radius:10px; padding:16px; }
-.hero { grid-column:span 2; } .hero .value { font-size:40px; }
-.label { font-size:12px; color:var(--text-muted); }
-.value { font-size:28px; font-weight:650; margin-top:2px; }
-.sub { font-size:12px; color:var(--text-muted); margin-top:2px; }
-.chip { display:inline-block; font-size:12px; margin-top:6px; }
-.chip.good { color:var(--good); } .chip.bad { color:var(--bad); }
-.bar { height:6px; background:var(--border); border-radius:3px; overflow:hidden; margin-top:10px; }
-.bar > i { display:block; height:100%; }
-.spark { width:100%; height:36px; display:block; margin-top:8px; }
-.mult { display:grid; gap:10px; }
-.mult .row { display:grid; grid-template-columns:52px 1fr; gap:8px; align-items:end; }
-.mult .k { font-size:12px; color:var(--text-muted); padding-bottom:4px; }
-.bars { display:flex; align-items:flex-end; gap:2px; height:72px; border-bottom:1px solid var(--border); }
-.bars > b { flex:1; max-width:24px; border-radius:4px 4px 0 0; min-height:1px; }
-.tablewrap { overflow-x:auto; }
-table { font-size:13px; font-variant-numeric:tabular-nums; }
-th,td { white-space:nowrap; }
-th:first-child,td:first-child { text-align:left; }
-.inv { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:8px; }
-.inv .cell { border:1px solid var(--border); border-radius:8px; padding:10px 12px; }
-.hint { margin-top:22px; padding:10px 14px; border-left:3px solid var(--read); font-size:13px; border-radius:0 8px 8px 0; }
-.note { color:var(--text-muted); font-size:12px; margin-top:22px; }
-@media (max-width:599px) { body { padding:16px; } .hero { grid-column:span 1; } .hero .value { font-size:28px; } }
-@media print { .card,.inv .cell { break-inside:avoid; } }
+  :root { color-scheme: light dark;
+    --ink:#111; --ink2:#6b7280; --hair:#e5e7eb; --page:#fafafa; --surface:#fff;
+    --accent:#4f46e5; --accent-soft:rgba(79,70,229,.10); --good:#059669; }
+  @media (prefers-color-scheme: dark) { :root {
+    --ink:#f0efec; --ink2:#9ca3af; --hair:#2c2c2a; --page:#0d0d0d; --surface:#1a1a19;
+    --accent:#818cf8; --accent-soft:rgba(129,140,248,.14); --good:#34d399; } }
+  * { box-sizing:border-box; margin:0; }
+  body { font:15px/1.6 -apple-system,BlinkMacSystemFont,"Segoe UI",Roboto,"Apple SD Gothic Neo","Noto Sans KR",sans-serif;
+    color:var(--ink); background:var(--page); padding:28px 32px 40px; }
+  .wrap { max-width:1080px; margin:0 auto; }
+
+  header { display:flex; justify-content:space-between; align-items:baseline; margin-bottom:8px; }
+  header .t { font-size:17px; font-weight:650; }
+  header .m { font-size:13px; color:var(--ink2); }
+  header .lead { font-size:14px; color:var(--ink2); margin-bottom:20px; }
+
+  .panel { background:var(--surface); border:1px solid var(--hair); border-radius:8px; padding:20px 24px 14px; }
+  .hero { display:flex; justify-content:space-between; align-items:flex-start; margin-bottom:10px; }
+  .hero .q { font-size:14px; color:var(--ink2); }
+  .hero .num { font-size:44px; font-weight:650; line-height:1.2; font-variant-numeric:tabular-nums; }
+  .hero .delta { font-size:14px; margin-left:8px; }
+  .hero .delta.up { color:var(--good); }
+  .hero .exp { font-size:13.5px; color:var(--ink2); margin-top:4px; }
+  .legend { display:flex; gap:14px; font-size:13px; color:var(--ink2); padding-top:12px; }
+  .legend i { display:inline-block; width:7px; height:7px; border-radius:50%; margin-right:5px; }
+  .chart { display:flex; align-items:flex-end; gap:2px; height:170px; border-bottom:1px solid var(--hair); }
+  .chart b { flex:1; min-height:1px; border-radius:2px 2px 0 0; }
+  .axis { display:flex; justify-content:space-between; font-size:12px; color:var(--ink2); padding-top:6px; }
+
+  .kpis { display:flex; margin-top:26px; }
+  .kpi { flex:1; padding:0 18px; border-left:1px solid var(--hair); }
+  .kpi:first-child { border-left:none; padding-left:0; }
+  .kpi .num { font-size:22px; font-weight:600; font-variant-numeric:tabular-nums; margin-top:3px; }
+  .kpi .exp { font-size:12.5px; color:var(--ink2); margin-top:3px; line-height:1.45; }
+
+  h2 { font-size:14.5px; font-weight:600; margin:36px 0 4px; }
+  .h2sub { font-size:13px; color:var(--ink2); margin-bottom:6px; }
+  .trow { display:flex; align-items:center; height:46px; font-size:14px; border-bottom:1px solid var(--hair); position:relative; }
+  .trow .bar { position:absolute; inset:0 auto 0 0; background:var(--accent-soft); border-radius:3px; }
+  .trow .k { position:relative; flex:1; padding:0 14px; }
+  .trow .v { position:relative; font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; min-width:96px; text-align:right; }
+  .trow .d { position:relative; font-size:12.5px; color:var(--ink2); min-width:150px; text-align:right; padding-right:14px; }
+  .trow .d.up { color:var(--good); }
+
+  .inv div { display:flex; justify-content:space-between; align-items:baseline; padding:8px 0;
+    border-bottom:1px solid var(--hair); }
+  .inv { margin-top:8px; }
+  .inv .k { font-size:14px; }
+  .inv .v { font-size:17px; font-weight:600; font-variant-numeric:tabular-nums; }
+  .inv .sub { font-size:12.5px; color:var(--ink2); margin-left:8px; }
+
+  .hintline { margin-top:26px; font-size:14px; }
+  footer { margin-top:30px; padding-top:12px; border-top:1px solid var(--hair);
+    font-size:12.5px; color:var(--ink2); display:flex; justify-content:space-between; flex-wrap:wrap; gap:6px; }
+
+  @media (max-width:720px) {
+    body { padding:16px 16px 32px; }
+    .kpis { flex-wrap:wrap; row-gap:18px; }
+    .kpi { flex:1 1 45%; border-left:none; padding:0; }
+    .hero .num { font-size:32px; }
+    .chart { height:110px; }
+  }
+  @media print { .panel,.trow,footer { break-inside:avoid; } }
 </style>
 </head>
 <body>
-<h1>flint 효과 대시보드</h1>
-<div class="meta">생성 {{.GeneratedAt}} · 관측창 {{.Days}}일 · 정적 스냅숏(자동 갱신 없음·외부 요청 0)</div>
+<div class="wrap">
 
-<div class="grid">
-  <div class="card hero"><div class="label">G1 회상 명중 hit_pct</div>
-    <div class="value">{{.Effect.HitPct}}%</div>
-    {{if .ChipHit.Show}}<div class="chip {{if .ChipHit.Good}}good{{else}}bad{{end}}" title="{{.ChipHit.Label}}">{{.ChipHit.Text}}</div>{{end}}
-    <div class="sub">fallback {{.Effect.FallbackPct}}% · 근접 {{.Effect.NearPct}}% · n={{.Effect.ReadEventsN}}</div>
-    <div class="bar"><i style="width:{{.Effect.HitPct}}%; background:var(--read)"></i></div>
-    {{if .SparkRead.Line}}<svg class="spark" viewBox="0 0 20 36" preserveAspectRatio="none" role="img"><title>read 흐름</title><path d="{{.SparkRead.Area}}" fill="var(--read)" opacity=".1"/><path d="{{.SparkRead.Line}}" fill="none" stroke="var(--read)" stroke-width="1.5" stroke-linecap="round" vector-effect="non-scaling-stroke"/></svg>{{end}}
+<header>
+  <div>
+    <div class="t">flint 사용 리포트</div>
+    <div class="lead">flint에 저장한 기억이 실제로 도움되고 있는지 14일치 사용으로 봅니다</div>
   </div>
-  <div class="card"><div class="label">G2 재발견 저지</div><div class="value">{{.Effect.DupPrevented}}</div>
-    <div class="sub">dup_pct {{.Rep.DupPct}}% · 행동 개선 신호</div></div>
-  <div class="card"><div class="label">G3 자산 건전성</div><div class="value">{{.Effect.ReusePct}}%</div>
-    <div class="sub">dead {{.Effect.DeadPct}}% · active {{.Rep.Counts.Active}}</div>
-    <div class="bar"><i style="width:{{.Effect.ReusePct}}%; background:var(--dup)"></i></div></div>
-  <div class="card"><div class="label">G4 회상 우선</div><div class="value">{{.Effect.PairPct}}%</div>
-    <div class="sub">선도 {{.Effect.RecallLedPct}}% · 연쇄 {{.Effect.ChainPct}}% · n={{.Effect.ReadWritePairs}}쌍</div>
-    <div class="bar"><i style="width:{{.Effect.PairPct}}%; background:var(--write)"></i></div></div>
-  <div class="card"><div class="label">hit 품질</div><div class="value">{{.Effect.Top1Pct}}%</div>
-    {{if .ChipTop1.Show}}<div class="chip {{if .ChipTop1.Good}}good{{else}}bad{{end}}" title="{{.ChipTop1.Label}}">{{.ChipTop1.Text}}</div>{{end}}
-    <div class="sub">정합 {{.Effect.ExactPct}}% · MRR {{printf "%.2f" .Effect.MRR}}</div></div>
-  <div class="card"><div class="label">폴백 경유</div><div class="value">{{.Effect.FallbackPct}}%</div>
-    {{if .ChipFallback.Show}}<div class="chip {{if .ChipFallback.Good}}good{{else}}bad{{end}}" title="{{.ChipFallback.Label}}">{{.ChipFallback.Text}}</div>{{end}}
-    <div class="sub">표본 n={{.Effect.ReadEventsN}} — 세트 해석(METRICS §5)</div></div>
+  <div class="m">최근 14일 · {{.GeneratedAt}} 생성</div>
+</header>
+
+<div class="panel">
+  <div class="hero">
+    <div>
+      <div class="q" title="{{.Effect.ReadEventsN}}번 검색 중 결과를 찾은 비율{{if .ChipFallback.Show}} · 못 찾아 비슷한 말로 다시 찾은 경우 {{.Effect.FallbackPct}}% 포함{{end}}">회상 명중</div>
+      <div><span class="num">{{.Effect.HitPct}}%</span>{{if .ChipHit.Show}}<span class="delta {{if .ChipHit.Good}}up{{end}}">지난주보다 {{.ChipHit.Text}}</span>{{end}}</div>
+      <div class="exp">최근 {{.Days}}일 · {{.Effect.ReadEventsN}}번 검색</div>
+    </div>
+    <div class="legend">
+      <span><i style="background:var(--accent)"></i>검색</span>
+      <span><i style="background:var(--accent);opacity:.45"></i>기록</span>
+      <span><i style="background:var(--ink2)"></i>중복 차단</span>
+    </div>
+  </div>
+  {{if .Rep.Days}}
+  <div class="chart">
+    {{range .BarsRead}}<b style="height:{{.H}}; background:var(--accent)"><title>{{.Title}}번 검색</title></b>{{end}}
+  </div>
+  <div class="axis"><span>{{(index .Rep.Days 0).Date}}</span><span>매일 검색 횟수</span><span>오늘</span></div>
+  {{end}}
+</div>
+
+<div class="kpis">
+  <div class="kpi"><div class="num" title="같은 내용을 다시 저장하려던 것을 알리고 막은 횟수 (재발견 저지)">{{.Effect.DupPrevented}}건</div><div class="exp">중복 저지</div></div>
+  <div class="kpi"><div class="num" title="저장한 지식 중 나중에 다시 검색된 비율 (활성 {{.Rep.Counts.Active}}건 기준)">{{.Effect.ReusePct}}%</div><div class="exp">재사용률</div></div>
+  <div class="kpi"><div class="num" title="검색 후 30분 안에 작업을 기록으로 남긴 비율 ({{.Effect.ReadWritePairs}}쌍 / {{.Effect.ReadEventsN}}번)">{{.Effect.PairPct}}%</div><div class="exp">회상→기록</div></div>
+  <div class="kpi"><div class="num" title="정확히 찾은 검색 중 첫 번째 결과가 바로 정답인 비율 (정합 {{.Effect.ExactPct}}%)">{{.Effect.Top1Pct}}%</div><div class="exp">첫 결과 정답</div></div>
+  <div class="kpi"><div class="num" title="찾은 지식이 하루 안에 다시 사용된 비율 (사용 연쇄)">{{.Effect.ChainPct}}%</div><div class="exp">재사용 연쇄</div></div>
 </div>
 
 {{if .Effect.Trend}}
-<h2>7일 추세 — 전기 대비</h2>
-<div class="tablewrap"><table>
-  <thead><tr><th>지표</th><th>직전 7일</th><th>최근 7일</th><th>증감</th></tr></thead>
-  <tr><td>회상 명중</td><td>{{.Effect.Trend.HitPct.Prev}}%</td><td>{{.Effect.Trend.HitPct.Cur}}%</td>
-      <td class="{{if ge .Effect.Trend.HitPct.Delta 0}}good{{else}}bad{{end}}">{{if ge .Effect.Trend.HitPct.Delta 0}}+{{end}}{{.Effect.Trend.HitPct.Delta}}pp</td></tr>
-  <tr><td>폴백</td><td>{{.Effect.Trend.FallbackPct.Prev}}%</td><td>{{.Effect.Trend.FallbackPct.Cur}}%</td>
-      <td class="{{if le .Effect.Trend.FallbackPct.Delta 0}}good{{else}}bad{{end}}">{{if ge .Effect.Trend.FallbackPct.Delta 0}}+{{end}}{{.Effect.Trend.FallbackPct.Delta}}pp</td></tr>
-  <tr><td>정합 1위</td><td>{{.Effect.Trend.Top1Pct.Prev}}%</td><td>{{.Effect.Trend.Top1Pct.Cur}}%</td>
-      <td class="{{if ge .Effect.Trend.Top1Pct.Delta 0}}good{{else}}bad{{end}}">{{if ge .Effect.Trend.Top1Pct.Delta 0}}+{{end}}{{.Effect.Trend.Top1Pct.Delta}}pp</td></tr>
-</table></div>
+<h2>7일 추세 — 지난주 대비</h2>
+<div class="h2sub">막대 길이는 이번 주 수치입니다</div>
+{{range .TrendRows}}
+<div class="trow">
+  <div class="bar" style="width:{{.Cur}}%"></div>
+  <div class="k">{{.Name}}</div>
+  <div class="v">{{.Cur}}%</div>
+  <div class="d {{if .Up}}up{{end}}">{{.DeltaText}}</div>
+</div>
+{{end}}
 {{end}}
 
-<h2>일별 흐름 — read · write · 중복 차단</h2>
-<div class="mult">
-  <div class="row"><div class="k">read</div><div class="bars">
-    {{range .BarsRead}}<b style="height:{{.H}}; background:var(--read)"><title>{{.Title}}</title></b>{{end}}
-  </div></div>
-  <div class="row"><div class="k">write</div><div class="bars">
-    {{range .BarsWrite}}<b style="height:{{.H}}; background:var(--write)"><title>{{.Title}}</title></b>{{end}}
-  </div></div>
-  <div class="row"><div class="k">차단</div><div class="bars">
-    {{range .BarsDup}}<b style="height:{{.H}}; background:var(--dup)"><title>{{.Title}}</title></b>{{end}}
-  </div></div>
-</div>
-
-<h2>지식 재고·위생</h2>
+<h2>기억 보관함</h2>
 <div class="inv">
-  <div class="cell"><div class="label">active</div><div class="value" style="font-size:20px">{{.Rep.Counts.Active}}</div></div>
-  <div class="cell"><div class="label">pending</div><div class="value" style="font-size:20px">{{.Rep.Counts.Pending}}</div></div>
-  <div class="cell"><div class="label">invalidated</div><div class="value" style="font-size:20px">{{.Rep.Counts.Invalidated}}</div></div>
-  <div class="cell"><div class="label">미참조(stale)</div><div class="value" style="font-size:20px">{{.Rep.Stale.Days90}}</div><div class="sub">never-read {{.Rep.Stale.NeverRead}}</div></div>
+  <div><span class="k" title="검색되고 있는 활성 지식">활성 지식</span><span class="v">{{.Rep.Counts.Active}}</span></div>
+  <div><span class="k" title="자동 적립된 후보 — flint pending으로 검토·승격">승인 대기</span><span class="v">{{.Rep.Counts.Pending}}</span></div>
+  <div><span class="k" title="오래되거나 대체되어 정리된 지식">폐기</span><span class="v">{{.Rep.Counts.Invalidated}}</span></div>
+  <div><span class="k" title="한 번도 안 읽혔거나 오래된 지식 — 정리 대상 후보">안 읽힘</span><span class="v">{{.Rep.Stale.Days90}}</span></div>
 </div>
 
-{{if .Effect.ProfileHint}}<div class="hint">프로파일 판정 — {{.Effect.ProfileHint}}</div>{{end}}
+{{if .Effect.ProfileHint}}<div class="hintline">{{.Effect.ProfileHint}}</div>{{end}}
 
-<div class="sub" style="margin-top:10px">관측 메타 — hot p95 {{.Rep.HotP95}}ms · invalidated(관측창) {{.Rep.InvalidatedPeriod}}</div>
+<footer>
+  <span>세션 시작 시 주입되는 요약 크기: 평균보다 큰 경우 {{.Rep.HotP95}}글자 ≈ {{EstTok .Rep.HotP95}}토큰</span>
+  <span>수치는 참고용 추세 지표입니다 · 자세한 정의는 터미널에서 flint report</span>
+</footer>
 
-<div class="tablewrap" style="margin-top:24px"><details><summary style="cursor:pointer;color:var(--ink2);font-size:13px">일별 상세 표</summary>
-<table style="margin-top:8px">
-  <thead><tr><th>날짜</th><th>read</th><th>write</th><th>hook</th><th>manual</th><th>mcp</th><th>중복 차단</th><th>zero</th></tr></thead>
-  {{range .Rep.Days}}
-  <tr><td>{{.Date}}</td><td>{{.Read}}</td><td>{{.Write}}</td><td>{{.Hook}}</td><td>{{.Manual}}</td><td>{{.Mcp}}</td><td>{{.Dup}}</td><td>{{.ReadZero}}</td></tr>
-  {{end}}
-</table></details></div>
-
-<div class="note">지표 정의·금지조항: docs/METRICS.md — 상관 프록시(Tier 1·2)는 세트로 해석하고 단독
-인과로 읽지 않는다. 바차트의 read/write 총량은 흐름 맥락(헤드라인은 G지표만).</div>
+</div>
 </body>
 </html>

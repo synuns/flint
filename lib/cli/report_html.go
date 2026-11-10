@@ -20,13 +20,6 @@ import (
 //go:embed dashboard.tmpl.html
 var dashboardTmpl string
 
-// baseCSS — 클래스리스 베이스(Water.css v2, MIT — vendor/water.min.css).
-// 컴포넌트 라이브러리 기반 설계: 상류 유지보수 토큰·다크모드를 임베드로
-// 계승하고 외부 요청은 0을 유지한다(단일 파일·로컬 렌더 원칙).
-//
-//go:embed vendor/water.min.css
-var baseCSS string
-
 // sparkPaths — 값 슬라이스로 (line, area) SVG path d 문자열(Go 계산 —
 // 템플릿 산술 금지 원칙). 평평 가드(min==max→max+1), 점 1개는 빈 값.
 func sparkPaths(vals []int) (line, area string) {
@@ -83,17 +76,34 @@ func chipFor(label string, p trendPoint, invert bool) deltaChip {
 	if d < 0 {
 		sign = ""
 	}
-	arrow := "▲"
-	if d < 0 {
-		arrow = "▼"
+	// v5 규율(Stripe): 녹=개선만. 악화는 빨강이 아니라 회색 ▼ — 칩 Good는
+	// '녹색 표기' 의미로만(회색은 .delta 기본색).
+	// v5.1 사람말 사본: "10%포인트 좋아짐" — pp·기호 조합 폐기(컨텍스트
+	// 없는 독자 기준 — 방향 화살표는 템플릿 CSS/색이 담당).
+	word := "좋아짐"
+	if !good {
+		word = "나빠짐"
 	}
-	return deltaChip{Show: true, Text: arrow + " " + sign + fmt.Sprint(d) + "pp",
-		Good: good, Label: label + " · 전 7일 대비"}
+	return deltaChip{Show: true, Text: sign + fmt.Sprint(d) + "%포인트 " + word,
+		Good: good, Label: label + " · 지난주 대비"}
+}
+
+// trendRow — 추세 표 1행(Go 사전계산 — 템플릿 산술 금지).
+type trendRow struct {
+	Name, DeltaText string
+	Cur             int
+	Up              bool // 개선 방향(녹) — 회색 ▼와 구분(빨강 금지 규율)
+}
+
+// EstTok — rune 수 → 토큰 추정(표시 전용·±30% 명시 — A3 스펙):
+// 한글 룬 ≈ 1.1토큰, 기타 ≈ ÷4(cl100k급 근사).
+func EstTok(runes int) int {
+	return int(float64(runes)*0.55 + float64(runes)*0.45/4)
 }
 
 // renderDashboard — 템플릿 렌더(html/template — Go 측 렌더라 JS 불필요).
 func renderDashboard(w io.Writer, d htmlDashboard) error {
-	t, err := template.New("dashboard").Parse(strings.Replace(dashboardTmpl, "/*__BASE_CSS__*/", baseCSS, 1))
+	t, err := template.New("dashboard").Funcs(template.FuncMap{"EstTok": EstTok}).Parse(dashboardTmpl)
 	if err != nil {
 		return fmt.Errorf("report html: 템플릿: %w", err)
 	}
@@ -111,7 +121,8 @@ type htmlDashboard struct {
 	// v0.36.0 재설계 — Go 계산 산물(템플릿 산술 금지).
 	ChipHit, ChipFallback, ChipTop1 deltaChip
 	SparkRead, SparkWrite           struct{ Line, Area string }
-	BarsRead, BarsWrite, BarsDup    []barSeg // 일별 바(스몰 멀티플 — 계열별 스케일·Go 사전계산)
+	BarsRead, BarsWrite, BarsDup    []barSeg   // 일별 바(스몰 멀티플 — 계열별 스케일·Go 사전계산)
+	TrendRows                       []trendRow // 추세 표 행(서사 재구성 — v5)
 }
 
 // barSeg — 바 1개(높이 % 문자열 + 날짜·값 툴팁 — no-JS 네이티브).
@@ -150,10 +161,31 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 		Effect:      rep.Effect,
 		Rep:         rep,
 	}
-	if rep.Effect.Trend != nil {
-		d.ChipHit = chipFor("회상 명중", rep.Effect.Trend.HitPct, false)
-		d.ChipFallback = chipFor("폴백", rep.Effect.Trend.FallbackPct, true)
-		d.ChipTop1 = chipFor("정합 1위", rep.Effect.Trend.Top1Pct, false)
+	if t := rep.Effect.Trend; t != nil {
+		d.ChipHit = chipFor("회상 명중", t.HitPct, false)
+		d.ChipFallback = chipFor("폴백", t.FallbackPct, true)
+		d.ChipTop1 = chipFor("정합 1위", t.Top1Pct, false)
+		mk := func(name string, p trendPoint, invert bool) trendRow {
+			up := p.Delta >= 0
+			if invert {
+				up = !up
+			}
+			sign := "+"
+			if p.Delta < 0 {
+				sign = ""
+			}
+			word := "좋아짐"
+			if !up {
+				word = "나빠짐"
+			}
+			return trendRow{Name: name, Cur: p.Cur, Up: up,
+				DeltaText: fmt.Sprintf("지난주보다 %s%d%%포인트 %s", sign, p.Delta, word)}
+		}
+		d.TrendRows = []trendRow{
+			mk("회상 명중", t.HitPct, false),
+			mk("폴백 경유", t.FallbackPct, true),
+			mk("첫 결과 정답", t.Top1Pct, false),
+		}
 	}
 	mkBars := func(vals []int, dates []string) []barSeg {
 		max := 1
@@ -196,4 +228,4 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 }
 
 // timeNowUTC — 테스트 주입 접합면(고정 시각 주입).
-var timeNowUTC = func() string { return time.Now().UTC().Format(time.RFC3339) }
+var timeNowUTC = func() string { return time.Now().Format("1월 2일") }
