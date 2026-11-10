@@ -27,6 +27,7 @@ type Thresholds struct {
 	PendingAgeDays         int     // pending 만료 안내 기준일(doctor)
 	PendingPromoteDays     int     // pending 승격 추천 근사: 최근 N일(v0.29.0 R1)
 	PendingPromoteMinRunes int     // 승격 추천 본문 최소 룬 수(v0.29.0 R1)
+	InvalidatedPruneDays   int     // invalidated 정리 기준일(v0.33.0 R4)
 	// v0.18.0 R3: done 회상 경고 — 오늘 회상 0회 상태의 기록 수 임계.
 	RecallWarnWrites int // 이상이면 "회상 없이 기록만" 경고(done)
 	// v0.20.4(패치 루프 4차·마일스톤 B③·C①): 효과 계측 판정 창·보존.
@@ -62,6 +63,7 @@ const (
 	defaultPendingAgeDays         = 7
 	defaultPendingPromoteDays     = 3
 	defaultPendingPromoteMinRunes = 40
+	defaultInvalidatedPruneDays   = 90
 	defaultRecallWarnWrites       = 3
 	// v0.20.4 — 효과 계측 판정 창·보존 기본값.
 	defaultDeadDays             = 30
@@ -98,6 +100,7 @@ func DefaultThresholds() Thresholds {
 		PendingAgeDays:         defaultPendingAgeDays,
 		PendingPromoteDays:     defaultPendingPromoteDays,
 		PendingPromoteMinRunes: defaultPendingPromoteMinRunes,
+		InvalidatedPruneDays:   defaultInvalidatedPruneDays,
 		RecallWarnWrites:       defaultRecallWarnWrites,
 		DeadDays:               defaultDeadDays,
 		PairWindowMin:          defaultPairWindowMin,
@@ -168,6 +171,8 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			th.PendingPromoteDays = parseIntOrDefault(val, defaultPendingPromoteDays, ks)
 		case "pending_promote_min_runes":
 			th.PendingPromoteMinRunes = parseIntOrDefault(val, defaultPendingPromoteMinRunes, ks)
+		case "invalidated_prune_days":
+			th.InvalidatedPruneDays = parseIntOrDefault(val, defaultInvalidatedPruneDays, ks)
 		case "recall_warn_writes":
 			// v0.18.2: min=-1 수용(-1=끔). 0은 미설정과 구분 불가 —
 			// loadThresholds가 기본값으로 폴백한다(TUNING §2 문서화).

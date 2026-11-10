@@ -518,6 +518,9 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	cur, prev := trendWindow(now, evs)
 	out.Effect.Trend = cur.diff(prev)
 	if len(inWin) == 0 {
+		// v0.33.0(패치 감사 3): 빈 창에도 힌트는 "보류(표본 부족)"로
+		// 완결 — 공백 영구화 패턴(v0.24.1과 동일 부류) 수선.
+		out.Effect.ProfileHint = profileHint(th, out.Effect)
 		return nil // 분모 0 — 페어링·연쇄 불필요(제로 가드 관례)
 		// v0.31.3(감사 1~3): G4 집계(pair·chain·recall_led)는 전부
 		// 보고창(inWin) 소스 — 페치(14일, 추세용) 누유 금지.
@@ -576,7 +579,7 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	// 뒤에 있어 zero-hit read만 있는 운영에서 영구 공백).
 	out.Effect.ProfileHint = profileHint(th, out.Effect)
 	hasIDs := false
-	for _, e := range evs {
+	for _, e := range inWin {
 		if len(e.ids) > 0 {
 			hasIDs = true
 			break

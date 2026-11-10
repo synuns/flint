@@ -63,7 +63,11 @@ var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to",
 // maintainModeFlags — 모드별 허용 값 플래그. 무관 플래그는 조용히 무시하지
 // 않고 에러로 거부한다(--days·--limit이 --stale 아닌 모드에서 흐르는 등).
 var maintainModeFlags = map[string]map[string]bool{
-	"--check":             {},
+	"--check":      {},
+	"--meta-audit": {}, // v0.33.0 R1: meta 키 위생 보고(읽기 전용)
+	// --prune-invalidated N — N일 경과 invalidated 정리(dry-run 기본,
+	// --commit 확정 — expire-pending 관례 승계. 일수는 모드 값).
+	"--prune-invalidated": {},
 	"--dup-suspects":      {"--limit": true},
 	"--conflict-suspects": {"--limit": true},
 	"--stale":             {"--days": true, "--limit": true},
@@ -81,7 +85,7 @@ var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale
 
 // maintainCommitModes — --commit(전환 확정)이 뜻 있는 모드. 나머지 모드의
 // --commit도 --yes와 같은 원칙으로 에러 거부한다(v0.16.2 R4).
-var maintainCommitModes = map[string]bool{"--expire-pending": true}
+var maintainCommitModes = map[string]bool{"--expire-pending": true, "--prune-invalidated": true}
 
 // maintainRetryDelays — 유지보수 쓰기 경로 Retry 간격(전역 제약: 쓰기는
 // 40001 대응 Retry 동반). 테스트는 즉시 재시도로 교체.
@@ -113,7 +117,8 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	seen := map[string]bool{}
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
-		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale", "--invalidate", "--invalidate-stale":
+		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale", "--invalidate", "--invalidate-stale",
+			"--meta-audit":
 			mode = args[i]
 		case "--days", "--limit":
 			seen[args[i]] = true
@@ -132,7 +137,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 			} else {
 				limit, dupLimit = n, n
 			}
-		case "--expire-pending":
+		case "--expire-pending", "--prune-invalidated": // v0.33.0: 위치 인자 N 공통 파싱
 			mode = args[i]
 			i++
 			if i >= len(args) {
@@ -246,6 +251,10 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	switch mode {
 	case "--check":
 		return maintainCheck(ctx, ms, stdout)
+	case "--meta-audit": // v0.33.0 R1
+		return maintainMetaAudit(ctx, ms, stdout)
+	case "--prune-invalidated": // v0.33.0 R2
+		return maintainPruneInvalidated(ctx, ms, stdout, expireDays, commit)
 	case "--dup-suspects":
 		return maintainDupSuspects(ctx, ms, stdout, dupLimit)
 	case "--conflict-suspects":
@@ -299,7 +308,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		fmt.Fprintf(stdout, `{"status":"merged","from":%d,"to":%d}`+"\n", from, to)
 		return 0
 	default:
-		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit]")))
+		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit]")))
 		return 1
 	}
 }
@@ -994,6 +1003,7 @@ func applyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.PendingAgeDays, def.PendingAgeDays, false},
 		{&th.PendingPromoteDays, def.PendingPromoteDays, false},
 		{&th.PendingPromoteMinRunes, def.PendingPromoteMinRunes, false},
+		{&th.InvalidatedPruneDays, def.InvalidatedPruneDays, false},
 		{&th.RecallWarnWrites, def.RecallWarnWrites, true},
 		{&th.DeadDays, def.DeadDays, false},
 		{&th.PairWindowMin, def.PairWindowMin, false},
@@ -1037,7 +1047,7 @@ func thresholdsKeys() []string {
 		"stale_days", "stall_hot_h", "stall_write_h",
 		"suggest_min_score", "suggest_scan_cap", "conflict_dup_threshold",
 		"backup_age_warn_h", "zero_near_min_read", "zero_near_warn_pct",
-		"pending_age_days", "pending_promote_days", "pending_promote_min_runes", "recall_warn_writes",
+		"pending_age_days", "pending_promote_days", "pending_promote_min_runes", "invalidated_prune_days", "recall_warn_writes",
 		"dead_days", "pair_window_minutes", "chain_window_hours",
 		"events_retention_days", "hot_events_retention_days",
 		"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit", "session_knowledge_days",
@@ -1048,4 +1058,172 @@ func thresholdsKeys() []string {
 func thresholdsKeySQL() string {
 	return "SELECT key, value FROM meta WHERE key IN ('" +
 		strings.Join(thresholdsKeys(), "','") + "')"
+}
+
+// ── v0.33.0: 지식 위생·이력 관리 (R1·R2) ──
+
+// metaKnownKeys — 알려진 meta 키(네임스페이스·고정 키). 위생 감사의
+// 분류 기준 — 여기 없는 키는 미지(unknown)로 보고한다.
+var metaKnownKeys = map[string]bool{
+	"schema_version": true, "views_hash": true, "views_sig": true,
+	"exposure_profile": true, "last_backup": true, "last_drill": true,
+	"last_hot_at": true, "last_read_at": true, "last_write_at": true,
+	"read_stats": true, "read_fallback_calls": true, "hot_stats": true,
+	"session_knowledge_last": true, "recall_starved_count": true,
+}
+
+// metaKnownPrefixes — 알려진 접두(daily: 날짜 카운터·pb_: 플레이북
+// 사용 카운터 pb_<id>_uses/_ok — v0.33.0 리뷰 1: 활성 통계의 미지 오탐
+// 방지. 임계값 오버라이드 키는 thresholdsKeys가 담당 — 동적 조회).
+var metaKnownPrefixes = []string{"daily:", "pb_"}
+
+// knownMetaKey — 분류 단일 소스(접두 포함 — 리뷰 7: 하드코딩 분열 방지).
+func knownMetaKey(k string) bool {
+	if metaKnownKeys[k] {
+		return true
+	}
+	for _, p := range metaKnownPrefixes {
+		if strings.HasPrefix(k, p) {
+			return true
+		}
+	}
+	return false
+}
+
+// maintainMetaAudit — R1: meta 키 위생 보고(읽기 전용·항상 exit 0).
+// 분류: known(고정)·threshold(임계값)·daily(나이 표기)·unknown(점검 권장).
+func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int {
+	rows, err := queryOnce(ctx, ms, `SELECT key, value FROM meta ORDER BY key`, nil)
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	thKeys := map[string]bool{}
+	for _, k := range thresholdsKeys() {
+		thKeys[k] = true
+	}
+	tunKeys := map[string]bool{}
+	for _, mk := range tuningMetaKeys() {
+		tunKeys[mk.Key] = true
+	}
+	now := time.Now().UTC()
+	known, thresholdN, tuningN, dailyN, unknown := 0, 0, 0, 0, 0
+	var oldestDaily string
+	var unknownList []string
+	for _, r := range rows {
+		if len(r) < 1 {
+			continue
+		}
+		k := fmt.Sprint(r[0])
+		switch {
+		case strings.HasPrefix(k, "daily:"):
+			dailyN++
+			if strings.TrimPrefix(k, "daily:") < now.Format("2006-01-02") {
+				if oldestDaily == "" || k < oldestDaily {
+					oldestDaily = k
+				}
+			}
+		case knownMetaKey(k): // daily: 제외 경로 — pb_ 등 접두 포함
+			known++
+		case thKeys[k]:
+			thresholdN++
+		case tunKeys[k]:
+			tuningN++
+		default:
+			unknown++
+			unknownList = append(unknownList, k)
+		}
+	}
+	// daily 나이 — 보존 창(daily_retention_days) 대비. 이미 받은 전체
+	// rows에서 직접 파싱(리뷰 10 — meta 이중 스캔 제거).
+	retention := 0
+	for _, r := range rows {
+		if len(r) >= 2 && fmt.Sprint(r[0]) == "daily_retention_days" {
+			if n, ok := cellToInt(r[1]); ok {
+				retention = n
+			}
+		}
+	}
+	if retention <= 0 {
+		retention = 14
+	}
+	fmt.Fprintf(stdout, `{"status":"meta-audit","total":%d,"known":%d,"thresholds":%d,"tuning":%d,"daily":%d,"retention_days":%d,"oldest_daily":%q,"unknown":%d,"unknown_keys":[`,
+		len(rows), known, thresholdN, tuningN, dailyN, retention, oldestDaily, unknown)
+	for i, k := range unknownList {
+		if i > 0 {
+			fmt.Fprint(stdout, ",")
+		}
+		fmt.Fprint(stdout, quoteJSON(k))
+	}
+	fmt.Fprintln(stdout, `]}`)
+	if unknown > 0 {
+		fmt.Fprintln(stdout, `{"hint":"unknown 키는 사용 중단 후보 — 확인 후 수동 정리: DELETE FROM meta WHERE key = '...'"}`)
+	}
+	return 0
+}
+
+// maintainPruneInvalidated — R2: N일 경과 invalidated 지식 정리. dry-run
+// 기본(대상 목록·건수)·--commit 확정. DELETE는 현재 상태만 정리 — dolt
+// 이력에 행 내용이 남는다(버전 기억·감사 원칙 유지, ADR-0012와 무관).
+func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writer, days int, commit bool) int {
+	if days <= 0 {
+		// v0.33.0 리뷰 3: 임계값 폴백 — invalidated_prune_days(tuning
+		// 오버라이드, --stale stale_days 관례). 파싱 도달 방어 겸용.
+		days = writeThresholds(ctx, ms).InvalidatedPruneDays
+		if days <= 0 {
+			days = 90
+		}
+	}
+	cutoff := time.Now().UTC().AddDate(0, 0, -days) // timestamptz 파라미터(리뷰 2 — 문자열 비교 관례 위반 수선)
+	rows, err := queryOnce(ctx, ms,
+		`SELECT id FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1 ORDER BY invalid_at`,
+		[]any{cutoff})
+	if err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	ids := make([]int, 0, len(rows))
+	for _, r := range rows {
+		if len(r) == 0 {
+			continue
+		}
+		if n, ok := cellToInt(r[0]); ok {
+			ids = append(ids, n)
+		}
+	}
+	if len(ids) == 0 {
+		fmt.Fprintln(stdout, `{"status":"prune-invalidated","deleted":0,"detail":"대상 없음"}`)
+		return 0
+	}
+	if !commit {
+		idStrs := make([]string, 0, len(ids))
+		for _, id := range ids {
+			idStrs = append(idStrs, strconv.Itoa(id))
+		}
+		list := strings.Join(idStrs, ",")
+		if len(list) > 200 {
+			list = list[:200] + "…"
+		}
+		fmt.Fprintf(stdout, `{"status":"dry-run","would_delete":%d,"older_than_days":%d,"ids":"%s","next":"--commit 확정"}`+"\n",
+			len(ids), days, list)
+		return 0
+	}
+	deleted := 0
+	if err := retryWrite(ctx, func() error {
+		rows, err := queryOnce(ctx, ms,
+			`DELETE FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1`,
+			[]any{cutoff})
+		if err != nil {
+			return err
+		}
+		deleted = len(rows) // DELETE 반환 행 = 실제 영향(리뷰 9 — 스냅샷 아님)
+		_, err = ms.Commit(ctx, fmt.Sprintf(
+			"prune-invalidated: %d건(경과 %d일+) 삭제 (지식 위생 경로) [session:0]", deleted, days))
+		return err
+	}); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return store.MapExit(err)
+	}
+	fmt.Fprintf(stdout, `{"status":"prune-invalidated","deleted":%d,"older_than_days":%d}`+"\n", deleted, days)
+	return 0
 }

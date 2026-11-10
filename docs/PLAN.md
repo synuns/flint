@@ -385,6 +385,31 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.33.0 마이너 (2026-11-10) — 지식 위생·이력 관리
+
+브레인스토밍(사용자 방향 확정 B) — 관측: active 54건·invalidated 11건
+축적·meta 26키·dolt 90커밋·pending 0(회전 중). 시스템 건강 — 남은 병목은
+이력 위생 도구 부재. 도구 제공이 본질(긴급 정리 아님):
+
+- [x] R1 `maintain --meta-audit` — 키 분류 보고(known/thresholds/
+  tuning/daily+나이/unknown). unknown은 사용 중단 후보로 안내
+- [x] R2 `maintain --prune-invalidated N` — N일 경과 invalidated 정리
+  (dry-run 기본·--commit 확정 — expire-pending 관례 승계). DELETE는
+  현재 상태만 — dolt 이력 보존(버전 기억·감사 원칙, ADR-0012 무관)
+- [x] R3 doctor meta-hygiene — 미지 키·daily 보존 창+7일 유예 초과 warn
+- [x] R4 임계값 invalidated_prune_days(기본 90) 레지스트리 등록
+- [x] 패치 루프 감사 반영(병행 v0.31.x~v0.32.x 사후) — v0.32.1 age_days
+  보정 유실 회귀 수선(292년 표기·테스트 봉쇄)·hasIDs 루프 inWin·빈 창
+  ProfileHint "보류" 완결·마이그레이션 tmp 잔존 청산
+- [x] 리뷰 10건 반영 — pb_ 플레이북 카운터 접두 분류(활성 통계 미지
+  오탐·삭제 유도 방지)·cutoff timestamptz 파라미터(Doltgres 관례)·
+  N 부재 임계값 폴백(invalidated_prune_days)·usage 갱신·doctor 고아
+  return 제거·knownMetaKey 단일 소스·quoteJSON 중복 제거·DELETE 실제
+  영향 행수 보고(스냅샷 아님)·meta 이중 스캔 제거·죽은 방어 정리
+- [x] 테스트 — 분류(known 2·daily·unknown)·prune dry-run/commit/exit·
+  실운영 실증(meta-audit 26키·prune 5일 dry 5건·doctor ok)
+- [x] 버전 — VERSION·배지 v0.33.0(EN/KO)·plugin.json 동기
+
 
 ### v0.32.1 패치 (2026-11-10) — v0.32.x 패치 루프 1차: MCP 표면 사후 감사 4건
 
