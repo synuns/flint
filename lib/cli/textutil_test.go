@@ -37,10 +37,6 @@ func TestTruncateRunesSingleSource(t *testing.T) {
 	if oneLine(long, 48) != truncateRunes(long, 48) {
 		t.Errorf("oneLine 미위임")
 	}
-	// import 경로 상한 500룬도 동일 구현.
-	if truncateRunesImport(long, 500) != truncateRunes(long, 500) {
-		t.Errorf("truncateRunesImport 미위임")
-	}
 }
 
 // TestUnknownFlagExitContract — Review Focus(c): maintain·import의 무효

@@ -198,7 +198,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			if len([]rune(summary)) < 12 {
 				continue
 			}
-			items = append(items, item{f, sec.Heading, truncateRunesImport(summary, 500)})
+			items = append(items, item{f, sec.Heading, truncateRunes(summary, 500)})
 		}
 	}
 	// v0.27.3: 혼재(읽기 가능+불가)일 때도 읽기 불가 파일을 보고 — 부분
@@ -232,7 +232,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	seen := map[string]bool{} // 배치 내 중복(같은 파일 2회 지정 등) 차단
 	dedupErrs := 0
 	for _, it := range items {
-		topic := store.SanitizeText(truncateRunesImport("규칙["+it.Heading+"]", 80))
+		topic := store.SanitizeText(truncateRunes("규칙["+it.Heading+"]", 80))
 		origin := store.SanitizeText("import:" + filepath.Clean(it.File))
 		rec := map[string]any{
 			"kind":       "knowledge",
@@ -352,10 +352,4 @@ func stripImportNoise(s string) string {
 		b.WriteString(line + "\n")
 	}
 	return b.String()
-}
-
-// truncateRunesImport — rune 상한 절단(단일 구현 truncateRunes 위임 —
-// v0.34.3 복제 수렴. done.go 호출부는 해당 파일 소유 태스크가 옮긴다).
-func truncateRunesImport(s string, max int) string {
-	return truncateRunes(s, max)
 }
