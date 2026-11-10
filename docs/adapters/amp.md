@@ -40,6 +40,8 @@ flint 규칙:
 | `flint_read` | `query?`, `tag?`, `limit?` (상한 50) | 결정·지식 검색 (CLI `flint read` 동일 계약) |
 | `flint_write` | `kind`, `payload` | 결정·지식 기록+커밋 (CLI `flint write` 동일 계약, 멱등) |
 | `flint_hot` | `session_id?` | 활성 프로젝트+pending+최근 결정 요약 (2,000자 상한) |
+| `flint_pending` | — | 대기 지식 목록+추천(verdict: promote\|merge\|expire\|hold) JSON |
+| `flint_approve` | `id`, `supersede?` | 대기 지식 승격(·구 활성 대체 병합) |
 
 토큰 예산(limit 상한 50·hot 2,000자)은 MCP 경로에도 동일하게 적용된다.
 훅이 없는 하니스는 `flint_hot`을 세션 첫 도구 호출로, `flint_write`를

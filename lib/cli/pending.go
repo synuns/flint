@@ -84,21 +84,21 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		if ts, ok := cellToTime(r[4]); ok { // v0.31.3(감사 4): 타입 단언 폴백 정경로
 			it.ValidAt = ts.UTC()
 		}
+		// v0.32.1(감사 1·2): valid_at 파싱 불가 가드를 판정·counts 앞으로 —
+		// jsonMode 한정 오버라이드가 counts(원 kind)와 items(보정 kind)를
+		// 어긋나게 하던 모순 수선, 텍스트 모드에도 동일 적용.
 		v := verdictFor(it, th, now, actives)
+		if it.ValidAt.IsZero() {
+			v = pendingVerdict{"hold", "valid_at 파싱 불가 — 데이터 확인 필요"}
+		}
 		counts[v.Kind]++
-		if jsonMode { // v0.32.0 리뷰 9: 텍스트 모드는 구조화 비용 없이
-			age := ageDays(now, it.ValidAt)
-			if it.ValidAt.IsZero() { // 리뷰 6: valid_at 파싱 불가 — 터무니 나이·expire 오판 방지
-				age = 0
-				v = pendingVerdict{"hold", "valid_at 파싱 불가 — 데이터 확인 필요"}
-			}
+		if jsonMode {
 			jsonItems = append(jsonItems, jsonItem{
-				ID: it.ID, Verdict: v.Kind, AgeDays: age,
+				ID: it.ID, Verdict: v.Kind, AgeDays: ageDays(now, it.ValidAt),
 				SummaryRunes: summaryLen(it.Summary), Origin: originLabel(it.Origin),
 				Topic: oneLine(it.Topic, 80), Why: oneLine(v.Why, 120),
 			})
-		}
-		if !jsonMode {
+		} else {
 			fmt.Fprintf(stdout, "%d|%s|%d일|%d자|%s|%s\n",
 				it.ID, verdictLabel(v.Kind), ageDays(now, it.ValidAt), summaryLen(it.Summary), originLabel(it.Origin), oneLine(it.Topic, 48))
 			if v.Why != "" {
