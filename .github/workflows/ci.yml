@@ -177,6 +177,8 @@ jobs:
       # 임베드 공개키로 검증. 시크릿 미설정(전환 모드)은 스킵.
       - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
         if: steps.version.outputs.deploy == 'true'
+        with:
+          cosign-release: v2.6.0 # v3은 sign-blob 번들 형식 상이 — 검증기·로컬과 v2 고정
       - name: 릴리스 서명 (checksums.txt)
         if: steps.version.outputs.deploy == 'true'
         env:
