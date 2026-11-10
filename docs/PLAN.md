@@ -386,7 +386,16 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 #4 --reason 메타데이터(의도된 감사 흔적).
 
 
+### v0.32.1 패치 (2026-11-10) — v0.32.x 패치 루프 1차: MCP 표면 사후 감사 4건
 
+- [x] [높음] pending --json counts·items 모순 수선 — valid_at 파싱 불가
+  가드를 jsonMode 한정에서 판정·counts 공통 앞으로(원 kind 집계와 보정
+  verdict의 분리 제거 — MCP 소비자의 무효화 유도 경로 차단). 회귀
+  테스트로 모순 실증 후 수선(테스트 주도 확인)
+- [x] intArgStrict — approve id·supersede의 소수 절삭 금지(7.9→7 오지정
+  방지, exit 3). read limit의 관대 절삭과 구분되는 엄격 계약
+- [x] 어댑터 문서 15종 도구 표에 pending·approve 행 추가·e2e 주석 갱신
+- [x] 버전 — VERSION·배지 v0.32.1(EN/KO)·plugin.json 동기
 
 
 ### v0.32.0 마이너 (2026-11-10) — MCP 검수 회로: pending·approve 노출

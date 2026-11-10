@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
 
@@ -124,9 +125,9 @@ func dispatchRead(args map[string]any) (string, int) {
 
 // dispatchApprove — flint approve --id N [--supersede OLD]. v0.32.0 검수
 // 회로: 신뢰 게이트(write와 동일 신뢰 수준 — 로컬 stdio 단일 사용자).
-// id는 양의 정수, supersede는 id와 상이해야 한다exit 3(검증 실패 계약).
+// id는 양의 정수, supersede는 id와 상이해야 한다 — exit 3(검증 실패 계약).
 func dispatchApprove(args map[string]any) (string, int) {
-	id, ok := intArg(args, "id")
+	id, ok := intArgStrict(args, "id")
 	if !ok || id < 1 {
 		return `{"error":"schema","field":"id","expect":"양의 정수"}`, 3
 	}
@@ -135,9 +136,9 @@ func dispatchApprove(args map[string]any) (string, int) {
 	// 아니라 반드시 exit 3 — 문자열 "3" 등 LLM 호출기 오타이 승격만
 	// 실행되는 의미 변질을 차단한다.
 	if _, has := args["supersede"]; has {
-		sup, ok := intArg(args, "supersede")
+		sup, ok := intArgStrict(args, "supersede")
 		if !ok {
-			return `{"error":"schema","field":"supersede","expect":"정수"}`, 3
+			return `{"error":"schema","field":"supersede","expect":"정수(소수 절삭 없음)"}`, 3
 		}
 		if sup < 1 {
 			return `{"error":"schema","field":"supersede","expect":"양의 정수"}`, 3
@@ -148,6 +149,22 @@ func dispatchApprove(args map[string]any) (string, int) {
 		cliArgs = append(cliArgs, "--supersede", strconv.Itoa(sup))
 	}
 	return runCall(cliArgs, strings.NewReader(""))
+}
+
+// intArgStrict — 정수성 검사 intArg(v0.32.1 감사 3): 소수(7.9)는 절삭이
+// 아니라 실패 — 승격·대체 대상 오지정 방지(read limit의 관대 절삭과
+// 구분되는 검증 엄격 계약).
+func intArgStrict(args map[string]any, key string) (int, bool) {
+	switch v := args[key].(type) {
+	case float64:
+		if v != math.Trunc(v) {
+			return 0, false
+		}
+		return int(v), true
+	case int:
+		return v, true
+	}
+	return 0, false
 }
 
 // dispatchWrite — flint write <kind> + stdin payload JSON. dedup는 CLI 파이프라인

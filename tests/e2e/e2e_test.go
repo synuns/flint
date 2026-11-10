@@ -648,7 +648,7 @@ func mcpHandle(method string, params map[string]any) (any, error) {
 	}
 }
 
-// ① MCP stdio 왕복 — initialize→tools/list(3도구)→tools/call flint_read 실DB.
+// ① MCP stdio 왕복 — initialize→tools/list(5도구)→tools/call flint_read 실DB.
 // Review Focus(protocol): 응답 id 대응, MCP 경로도 실DB 계약·예산 준수.
 func TestMCPRoundtripRealDB(t *testing.T) {
 	pool := mustDB(t)

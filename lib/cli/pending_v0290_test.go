@@ -119,3 +119,30 @@ func TestRunPendingMergeHint(t *testing.T) {
 		t.Errorf("병합 추천 미출력:\n%s", out.String())
 	}
 }
+
+// TestRunPendingJSONCountsConsistency — v0.32.1(감사 1): valid_at 파싱
+// 불가 행의 counts·items 모순 수선 — 양쪽 다 hold로 일치.
+func TestRunPendingJSONCountsConsistency(t *testing.T) {
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	// valid_at 셀에 time.Time 아닌 값 → cellToTime 실패 → zero ValidAt.
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "status = 'pending'") {
+			return [][]any{{int32(11), "파손 시각 행", "본문이 충분히 긴 합성 요약 행입니다", "agent", "not-a-time"}}, nil
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	if code := runPending(context.Background(), st, []string{"--json"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit=%d: %s", code, out.String())
+	}
+	s := out.String()
+	if strings.Contains(s, `"expire":1`) {
+		t.Errorf("counts 모순 — 파손 행이 expire로 집계: %s", s)
+	}
+	if !strings.Contains(s, `"hold":1`) || !strings.Contains(s, `"verdict":"hold"`) {
+		t.Errorf("양쪽 hold 일치 없음: %s", s)
+	}
+	if strings.Contains(s, `"items":null`) {
+		t.Errorf("items null: %s", s)
+	}
+}
