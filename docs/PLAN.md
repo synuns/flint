@@ -401,6 +401,11 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 - [x] 패치 루프 감사 반영(병행 v0.31.x~v0.32.x 사후) — v0.32.1 age_days
   보정 유실 회귀 수선(292년 표기·테스트 봉쇄)·hasIDs 루프 inWin·빈 창
   ProfileHint "보류" 완결·마이그레이션 tmp 잔존 청산
+- [x] 리뷰 10건 반영 — pb_ 플레이북 카운터 접두 분류(활성 통계 미지
+  오탐·삭제 유도 방지)·cutoff timestamptz 파라미터(Doltgres 관례)·
+  N 부재 임계값 폴백(invalidated_prune_days)·usage 갱신·doctor 고아
+  return 제거·knownMetaKey 단일 소스·quoteJSON 중복 제거·DELETE 실제
+  영향 행수 보고(스냅샷 아님)·meta 이중 스캔 제거·죽은 방어 정리
 - [x] 테스트 — 분류(known 2·daily·unknown)·prune dry-run/commit/exit·
   실운영 실증(meta-audit 26키·prune 5일 dry 5건·doctor ok)
 - [x] 버전 — VERSION·배지 v0.33.0(EN/KO)·plugin.json 동기

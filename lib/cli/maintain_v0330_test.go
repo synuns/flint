@@ -42,6 +42,10 @@ func TestMaintainPruneInvalidatedDryRunCommit(t *testing.T) {
 		if strings.Contains(sql, "status = 'invalidated'") && strings.Contains(sql, "SELECT") {
 			return [][]any{{int32(3)}, {int32(7)}}, nil
 		}
+		if strings.Contains(sql, "DELETE FROM knowledge") {
+			// v0.33.0 리뷰 9: DELETE 반환 행 = 실제 영향(2건).
+			return [][]any{{int32(3)}, {int32(7)}}, nil
+		}
 		return nil, nil
 	}}}
 	var out strings.Builder

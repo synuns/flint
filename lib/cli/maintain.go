@@ -308,7 +308,7 @@ func runMaintain(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		fmt.Fprintf(stdout, `{"status":"merged","from":%d,"to":%d}`+"\n", from, to)
 		return 0
 	default:
-		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit]")))
+		fmt.Fprintln(stdout, errLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit]")))
 		return 1
 	}
 }
@@ -1072,9 +1072,23 @@ var metaKnownKeys = map[string]bool{
 	"session_knowledge_last": true, "recall_starved_count": true,
 }
 
-// metaKnownPrefixes — 알려진 접두(daily: 날짜 카운터·임계값 오버라이드
-// 키는 thresholdsKeys가 담당 — 동적 조회).
-var metaKnownPrefixes = []string{"daily:"}
+// metaKnownPrefixes — 알려진 접두(daily: 날짜 카운터·pb_: 플레이북
+// 사용 카운터 pb_<id>_uses/_ok — v0.33.0 리뷰 1: 활성 통계의 미지 오탐
+// 방지. 임계값 오버라이드 키는 thresholdsKeys가 담당 — 동적 조회).
+var metaKnownPrefixes = []string{"daily:", "pb_"}
+
+// knownMetaKey — 분류 단일 소스(접두 포함 — 리뷰 7: 하드코딩 분열 방지).
+func knownMetaKey(k string) bool {
+	if metaKnownKeys[k] {
+		return true
+	}
+	for _, p := range metaKnownPrefixes {
+		if strings.HasPrefix(k, p) {
+			return true
+		}
+	}
+	return false
+}
 
 // maintainMetaAudit — R1: meta 키 위생 보고(읽기 전용·항상 exit 0).
 // 분류: known(고정)·threshold(임계값)·daily(나이 표기)·unknown(점검 권장).
@@ -1109,7 +1123,7 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 					oldestDaily = k
 				}
 			}
-		case metaKnownKeys[k]:
+		case knownMetaKey(k): // daily: 제외 경로 — pb_ 등 접두 포함
 			known++
 		case thKeys[k]:
 			thresholdN++
@@ -1120,9 +1134,16 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 			unknownList = append(unknownList, k)
 		}
 	}
-	// daily 나이 — 보존 창(daily_retention_days) 대비.
-	th := writeThresholds(ctx, ms)
-	retention := th.DailyRetentionD
+	// daily 나이 — 보존 창(daily_retention_days) 대비. 이미 받은 전체
+	// rows에서 직접 파싱(리뷰 10 — meta 이중 스캔 제거).
+	retention := 0
+	for _, r := range rows {
+		if len(r) >= 2 && fmt.Sprint(r[0]) == "daily_retention_days" {
+			if n, ok := cellToInt(r[1]); ok {
+				retention = n
+			}
+		}
+	}
 	if retention <= 0 {
 		retention = 14
 	}
@@ -1132,7 +1153,7 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 		if i > 0 {
 			fmt.Fprint(stdout, ",")
 		}
-		fmt.Fprint(stdout, quoteJSONMaint(k))
+		fmt.Fprint(stdout, quoteJSON(k))
 	}
 	fmt.Fprintln(stdout, `]}`)
 	if unknown > 0 {
@@ -1155,10 +1176,14 @@ func quoteJSONMaint(s string) string {
 // 이력에 행 내용이 남는다(버전 기억·감사 원칙 유지, ADR-0012와 무관).
 func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writer, days int, commit bool) int {
 	if days <= 0 {
-		fmt.Fprintln(stdout, `{"error":"maintain: --prune-invalidated N — N일(양수) 필요"}`)
-		return 3
+		// v0.33.0 리뷰 3: 임계값 폴백 — invalidated_prune_days(tuning
+		// 오버라이드, --stale stale_days 관례). 파싱 도달 방어 겸용.
+		days = writeThresholds(ctx, ms).InvalidatedPruneDays
+		if days <= 0 {
+			days = 90
+		}
 	}
-	cutoff := time.Now().UTC().AddDate(0, 0, -days).Format(time.RFC3339)
+	cutoff := time.Now().UTC().AddDate(0, 0, -days) // timestamptz 파라미터(리뷰 2 — 문자열 비교 관례 위반 수선)
 	rows, err := queryOnce(ctx, ms,
 		`SELECT id FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1 ORDER BY invalid_at`,
 		[]any{cutoff})
@@ -1192,19 +1217,22 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 			len(ids), days, list)
 		return 0
 	}
+	deleted := 0
 	if err := retryWrite(ctx, func() error {
-		if _, err := ms.Query(ctx,
+		rows, err := queryOnce(ctx, ms,
 			`DELETE FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1`,
-			[]any{cutoff}); err != nil {
+			[]any{cutoff})
+		if err != nil {
 			return err
 		}
-		_, err := ms.Commit(ctx, fmt.Sprintf(
-			"prune-invalidated: %d건(경과 %d일+) 삭제 (지식 위생 경로) [session:0]", len(ids), days))
+		deleted = len(rows) // DELETE 반환 행 = 실제 영향(리뷰 9 — 스냅샷 아님)
+		_, err = ms.Commit(ctx, fmt.Sprintf(
+			"prune-invalidated: %d건(경과 %d일+) 삭제 (지식 위생 경로) [session:0]", deleted, days))
 		return err
 	}); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return store.MapExit(err)
 	}
-	fmt.Fprintf(stdout, `{"status":"prune-invalidated","deleted":%d,"older_than_days":%d}`+"\n", len(ids), days)
+	fmt.Fprintf(stdout, `{"status":"prune-invalidated","deleted":%d,"older_than_days":%d}`+"\n", deleted, days)
 	return 0
 }

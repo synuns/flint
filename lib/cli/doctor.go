@@ -249,13 +249,11 @@ func runDoctorCheck(ctx context.Context, st Store, name string) doctorCheck {
 		// v0.20.4(마일스톤 C①) — 계측 테이블 용량 warn.
 		return checkEventVolume(ctx, st)
 	case "backup-key":
-		// v0.28.0(H⑤) — 아래 원 주석 참조.
+		// v0.28.0(H⑤): 암호화 백업 키 상태.
 		return checkBackupKey(ctx, st)
 	case "meta-hygiene":
-		// v0.33.0(R3) — meta 키 위생(미지 키·daily 보존 초과).
+		// v0.33.0(R3): meta 키 위생(미지 키·daily 보존 초과).
 		return checkMetaHygiene(ctx, st)
-		// v0.28.0(H⑤) — 암호화 백업 키 파일 상태(부재·권한 이완 warn).
-		return checkBackupKey(ctx, st)
 	case "update":
 		// v0.22.0(마이너 A·R3) — 릴리스 지연 warn.
 		return checkUpdate(ctx, st)
@@ -856,7 +854,7 @@ func checkMetaHygiene(ctx context.Context, st Store) doctorCheck {
 			if strings.TrimPrefix(k, "daily:") < cutoff {
 				staleDaily++
 			}
-		case metaKnownKeys[k] || thKeys[k]:
+		case knownMetaKey(k) || thKeys[k]: // pb_ 등 접두 포함(리뷰 1)
 		default:
 			// tuning meta 키도 허용.
 			known := false
