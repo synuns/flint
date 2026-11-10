@@ -1162,15 +1162,6 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 	return 0
 }
 
-// quoteJSONMaint — 문자열 JSON 리터럸(maintain 로컬 — report quoteJSON와 동일 규칙).
-func quoteJSONMaint(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return `""`
-	}
-	return string(b)
-}
-
 // maintainPruneInvalidated — R2: N일 경과 invalidated 지식 정리. dry-run
 // 기본(대상 목록·건수)·--commit 확정. DELETE는 현재 상태만 정리 — dolt
 // 이력에 행 내용이 남는다(버전 기억·감사 원칙 유지, ADR-0012와 무관).
