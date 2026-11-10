@@ -114,7 +114,7 @@ func runHelp(w io.Writer) int {
 
 // helpSummary — 명령별 1줄 요약(v0.10.2 R1).
 func helpSummary() string {
-	return "write 기록 · read 검색 · hot 주입 · status 상태 · doctor 진단 · report 관측 · backup/restore 백업 · maintain/supersede · approve 승격 · done/compact/nudge 훅 · setup/teardown 설치 · audit/diff 시간여행 · mcp 서버 · version"
+	return "write 기록 · read 검색 · hot 주입 · brief 외부 AI 브리프 · status 상태 · doctor 진단 · report 관측 · backup/restore 백업 · maintain/supersede · approve 승격 · done/compact/nudge 훅 · setup/teardown 설치 · audit/diff 시간여행 · mcp 서버 · version"
 }
 
 // errLine — 에러를 한 줄 JSON으로. 서버 다운은 조용히(server_down) 한 줄만.

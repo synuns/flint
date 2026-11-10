@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v0.33.0-blue" alt="v0.33.0">
+  <img src="https://img.shields.io/badge/release-v0.34.0-blue" alt="v0.34.0">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v0.33.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
+> v0.34.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
 
 ---
 
@@ -119,6 +119,25 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 
 ---
 
+## 로컬 밖의 AI — 브리지
+
+flint의 표면(훅·stdio MCP·localhost Doltgres)은 에이전트가 내 기기에서
+실행된다고 가정한다 — 의도된 설계다([ADR-0013](docs/adr/0013-threat-model.md)).
+그렇지 않은 AI — 클라우드 비서, 폰 앱 — 에는 커넥터 대신 브리지를 쓴다:
+
+```bash
+flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅에 붙여넣어 전달
+```
+
+`brief`는 활성 지식만 조회한다(pending은 기기 밖으로 나가지 않는다).
+비밀 패턴은 치환(`[REDACTED:…]`)하고 `[flint]` 데이터 블록 마커를 실어
+수신 AI가 지시가 아닌 데이터로 취급하게 한다([ADR-0015](docs/adr/0015-bridge-surface.md)).
+비서의 답을 가져올 때는 `flint write --status pending`(또는 `flint import`)
+로 회수한다 — 미검수 필자와 같은 검수 대기열에 떨어지고 `flint approve`로
+승격된다. 원격 라이브 쓰기는 설계상 금지다.
+
+---
+
 ## 커맨드
 
 | 커맨드 | 설명 |
@@ -130,6 +149,7 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`) |
 | `flint read <query>` | 활성 지식 검색 |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |
+| `flint brief [query]` | 외부 AI에 붙여넣는 마스킹 브리프(읽기 전용) |
 | `flint done --session <id>` | 세션 마무리 기록 |
 | `flint approve --id n` | 대기 중 지식을 활성으로 승격 |
 | `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 |
@@ -148,6 +168,9 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 ---
 
 ## 에이전트 & 어댑터
+
+아래 어댑터는 전부 로컬 실행이다 — "MCP 지원"은 `flint` 바이너리를 spawn할
+수 있는 로컬 MCP 클라이언트를 뜻한다. 로컬 런타임 없는 AI는 [브리지](#로컬-밖의-ai--브리지)를 쓴다.
 
 | 에이전트 | 방법 |
 | :--- | :--- |

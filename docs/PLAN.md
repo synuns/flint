@@ -385,6 +385,25 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.34.0 마이너 (2026-11-11) — 비서 AI 브리지(flint brief)
+
+브레인스토밍(사용자 방향 확정: B 먼저·필요시 C 재론) — flint의 표면은
+전부 로컬 전제다(stdio 전송·localhost DB·훅 주입·ADR-0013 단일 사용자).
+클라우드 비서 AI는 기존 표면으로 닿을 수 없으므로, 원격 표면 개방 대신
+수출면(브리지)을 만든다 — ADR-0015.
+
+- [x] `flint brief [query] [--limit N]` — active_knowledge 뷰만 조회
+  (pending·invalidated 비출 금지)·MaskSecrets+SanitizeText 유출 방어
+  (마스킹→중립화 순서)·[flint] 데이터 블록 헤더·brief_budget(기본
+  3,000·ClampHot 절단)·brief 유입 계측(§13 조용히)
+- [x] 회수 경로는 기존 프리미티브 재사용 — write --status pending·
+  import→approve(신규 코드 없음, README 브리지 절에 문서화)
+- [x] ADR-0015 — 브리지 채택·원격 쓰기 경로 상시 금지·원격 MCP(C)
+  재론 조건(실사용 관측·커넥터 특정·노출 감수 + ADR-0013 개정 선행)
+- [x] 문서 — README EN/KO: 배지·커맨드 표·브리지 절·"MCP=로컬
+  클라이언트" 정직성 한 줄·TUNING.md §5 brief_budget
+- [x] 버전 — VERSION·배지 v0.34.0(EN/KO)·plugin.json 동기
+
 ### v0.33.0 마이너 (2026-11-10) — 지식 위생·이력 관리
 
 브레인스토밍(사용자 방향 확정 B) — 관측: active 54건·invalidated 11건
