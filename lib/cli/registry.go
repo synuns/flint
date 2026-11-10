@@ -38,7 +38,7 @@ func unregister(name string) {
 // (wire_v08 TestUsageRestInvariant 계약), "done|compact|nudge"·
 // "approve|pending"·"hot|brief" 순서 역시 기존 배선 테스트가 지킨다.
 var usageOrder = []string{
-	"write", "read", "hot", "brief", "status", "backup", "restore",
+	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
 	"approve", "pending", "maintain", "doctor", "report",
 	"done", "compact", "nudge", "setup", "teardown", "version", "mcp",
 	"audit", "diff", "update", "tuning", "import",
@@ -52,11 +52,7 @@ func hiddenFromUsage(name string) bool {
 
 // usageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
 func usageLine() string {
-<<<<<<< HEAD
 	return `{"error":"usage: flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
-=======
-	return `{"error":"usage: flint <write|read|hot|status|profile|backup|restore|approve|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit|diff|update|tuning|import> [args]"}`
->>>>>>> 5f82563 (feat: v0.35.0 — 프로파일 판정 완결: 추천에서 전환까지 (D①))
 }
 
 func init() {
