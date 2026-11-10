@@ -106,6 +106,8 @@ th:first-child,td:first-child { text-align:left; }
 
 {{if .Effect.ProfileHint}}<div class="hint">프로파일 판정 — {{.Effect.ProfileHint}}</div>{{end}}
 
+<div class="sub" style="margin-top:10px">관측 메타 — hot p95 {{.Rep.HotP95}}ms · invalidated(관측창) {{.Rep.InvalidatedPeriod}}</div>
+
 <div class="tablewrap" style="margin-top:24px"><details><summary style="cursor:pointer;color:var(--ink2);font-size:13px">일별 상세 표</summary>
 <table style="margin-top:8px">
   <thead><tr><th>날짜</th><th>read</th><th>write</th><th>hook</th><th>manual</th><th>mcp</th><th>중복 차단</th><th>zero</th></tr></thead>

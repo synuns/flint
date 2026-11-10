@@ -134,6 +134,9 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 	rep := reportOutput{Days: make([]reportDay, 0, days)}
 	for _, step := range []func(context.Context, Store, int, *reportOutput) error{
 		collectDaily, collectCounts, collectEffect,
+		func(c context.Context, s Store, _ int, o *reportOutput) error { // hot_p95(관측 메타)
+			return collectStats(c, s, o)
+		},
 	} {
 		if err := step(ctx, st, days, &rep); err != nil {
 			fmt.Fprintln(stdout, errLine(err))

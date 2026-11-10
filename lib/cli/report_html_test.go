@@ -98,9 +98,10 @@ func TestRenderDashboardSpec(t *testing.T) {
 	if !strings.HasPrefix(s[strings.Index(s, "<head>")+6:strings.Index(s, "<head>")+30], "\n<meta charset") {
 		t.Error("charset가 head 첫 요소 아님")
 	}
-	// 예산 48KB(v0.36.0 재설계: Water.css 베이스 23KB + 컴포넌트층·데이터).
-	if n := len(s); n > 48*1024 {
-		t.Errorf("렌더 크기 %d bytes — 48KB 예산 초과", n)
+	// 예산 128KB 상한만(사용자 지시: KB는 어느 정도 감안 — 디자인 완성도
+	// 최우선. 현재 Water 베이스+컴포넌트층 ~34KB로 여유).
+	if n := len(s); n > 128*1024 {
+		t.Errorf("렌더 크기 %d bytes — 128KB 상한 초과", n)
 	}
 }
 
