@@ -8,7 +8,6 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"sort"
 	"strings"
 	"time"
 
@@ -50,17 +49,25 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return store.MapExit(err)
 	}
 	now := time.Now().UTC()
+	// v0.31.3(감사 3): active 전체 1회 조회 — 행마다 재조회(O(P×A)) 제거.
+	actives := fetchActiveTopicRows(ctx, st)
 	counts := map[string]int{}
 	for _, r := range rows {
 		if len(r) < 5 {
 			continue
 		}
-		it := pendingItem{Topic: fmt.Sprint(r[1]), Summary: fmt.Sprint(r[2]), Origin: fmt.Sprint(r[3])}
+		// v0.31.3(감사 1): 저장값 출력 재살균 — v0.28 H③ 패턴(read·hot·
+		// maintain 계열) 회귀 수선. 제어 문자·Cf·[flint] 마커 중립화.
+		it := pendingItem{
+			Topic:   store.SanitizeText(fmt.Sprint(r[1])),
+			Summary: store.SanitizeText(fmt.Sprint(r[2])),
+			Origin:  store.SanitizeText(fmt.Sprint(r[3])),
+		}
 		fmt.Sscan(fmt.Sprint(r[0]), &it.ID)
-		if ts, ok := r[4].(time.Time); ok {
+		if ts, ok := cellToTime(r[4]); ok { // v0.31.3(감사 4): 타입 단언 폴백 정경로
 			it.ValidAt = ts.UTC()
 		}
-		v := verdictFor(ctx, st, it, th, now)
+		v := verdictFor(it, th, now, actives)
 		counts[v.Kind]++
 		fmt.Fprintf(stdout, "%d|%s|%d일|%d자|%s|%s\n",
 			it.ID, verdictLabel(v.Kind), ageDays(now, it.ValidAt), summaryLen(it.Summary), originLabel(it.Origin), oneLine(it.Topic, 48))
@@ -83,13 +90,13 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 //   - 병합: 유사 active 존재(topic 접두 일치 — approve R2와 동일 근사)
 //   - 승격: 최근 3일 이내 + 본문 40룬 이상(유의미성 근사)
 //   - 보류: 그 외(짧은 최근 행 등 — 더 쌓여서 판단)
-func verdictFor(ctx context.Context, st Store, it pendingItem, th store.Thresholds, now time.Time) pendingVerdict {
+func verdictFor(it pendingItem, th store.Thresholds, now time.Time, actives [][]any) pendingVerdict {
 	age := now.Sub(it.ValidAt)
 	if d := th.PendingAgeDays; d > 0 && age > time.Duration(d)*24*time.Hour {
 		return pendingVerdict{"expire", fmt.Sprintf("%d일 경과(기준 %d일) — 만료 검토: maintain --invalidate --id %d --reason review", int(age.Hours()/24), d, it.ID)}
 	}
-	// 병합 후보 — 유사 active 탐색(승격 대상의 topic과 접두 일치).
-	if sims := similarByTopicPrefix(ctx, st, it.Topic, it.ID); len(sims) > 0 {
+	// 병합 후보 — 유사 active 탐색(사전 조회 세트에서 접두 일치).
+	if sims := matchTopicPrefix(topicSimilarityKey(it.Topic), actives); len(sims) > 0 {
 		return pendingVerdict{"merge", fmt.Sprintf("유사 active %d건(id %s) — approve --id %d --supersede OLD 검토",
 			len(sims), joinInts(sims), it.ID)}
 	}
@@ -99,17 +106,16 @@ func verdictFor(ctx context.Context, st Store, it pendingItem, th store.Threshol
 	return pendingVerdict{"hold", "본문 짧음 또는 관측 중 — 다음 검수까지 보류"}
 }
 
-// similarByTopicPrefix — topic 12룬 접두 일치 active id들(공유 Go 구현).
-func similarByTopicPrefix(ctx context.Context, st Store, topic string, excludeID int) []int {
-	actives, err := queryOnce(ctx, st,
-		`SELECT id, topic FROM knowledge WHERE status = 'active' AND invalid_at IS NULL AND id != $1`,
-		[]any{excludeID})
+// fetchActiveTopicRows — 유사 판정용 active (id, topic) 전체 1회 조회
+// (v0.31.3 감사 3 — 행당 재조회 제거. 실패는 빈 세트: 병합 판정만
+// 생략되고 나머지 판정·출력 계약 불변).
+func fetchActiveTopicRows(ctx context.Context, st Store) [][]any {
+	rows, err := queryOnce(ctx, st,
+		`SELECT id, topic FROM knowledge WHERE status = 'active' AND invalid_at IS NULL`, nil)
 	if err != nil {
 		return nil
 	}
-	out := matchTopicPrefix(topicSimilarityKey(topic), actives)
-	sort.Ints(out)
-	return out
+	return rows
 }
 
 // topicSimilarityKey — 유사 판정 기준 키. 리뷰 3: 세션 지식 topic은 전부
