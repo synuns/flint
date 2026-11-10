@@ -6,6 +6,7 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -137,5 +138,43 @@ func TestBumpFallbackAtomic(t *testing.T) {
 	}
 	if v, ok := getMetaKV(ctx, st, query.ReadFallbackCountKey); !ok || v != "2" {
 		t.Fatalf("read_fallback_calls = (%q,%v), want (\"2\",true)", v, ok)
+	}
+}
+
+// TestMetaKVSingleSource — Review Focus: 소유 파일(metrics·tuning·setup·
+// hot·read·done·backup)에 meta SQL 리터럴 잔존 0 — 조회·증감 전부
+// meta_kv.go 단일 진입 위임(v0.34.3 리뷰 픽스: done bumpMetaCounter·
+// backup rotate getKV 잔존 수렴).
+func TestMetaKVSingleSource(t *testing.T) {
+	for _, f := range []string{"metrics.go", "tuning.go", "setup.go", "hot.go", "read.go", "done.go", "backup.go"} {
+		b, err := os.ReadFile(f)
+		if err != nil {
+			t.Fatal(err)
+		}
+		src := string(b)
+		for _, lit := range []string{"INSERT INTO meta", "SELECT value FROM meta"} {
+			if strings.Contains(src, lit) {
+				t.Errorf("%s: meta SQL 리터럴 잔존(%q) — meta_kv.go 단일 진입 위임 필요", f, lit)
+			}
+		}
+	}
+}
+
+// TestBumpMetaCounterDelegates — Review Focus: done 회상 카운터 증분이
+// bumpMetaKV 단일 진입을 쓴다(파손값 1 리셋 가드 승계 — 미가드 캐스트
+// 오류로 카운터가 얼어붙던 이전 구현 회귀 방지).
+func TestBumpMetaCounterDelegates(t *testing.T) {
+	ctx := context.Background()
+	f := newMetaKVFake()
+	st := metaKVStore(t, f)
+	metaKVCleanup(t, st, "recall_starved_count")
+	// 파손값 시드 — 리셋 가드가 없으면 캐스트 오류로 증분이 얼어붙는다.
+	if err := setMetaKV(ctx, st, "recall_starved_count", "corrupt"); err != nil {
+		t.Fatalf("시드 err: %v", err)
+	}
+	bumpMetaCounter(ctx, st, "recall_starved_count")
+	bumpMetaCounter(ctx, st, "recall_starved_count")
+	if v, ok := getMetaKV(ctx, st, "recall_starved_count"); !ok || v != "2" {
+		t.Fatalf("recall_starved_count = (%q,%v), want (\"2\",true) — 파손값 1 리셋 후 증분", v, ok)
 	}
 }
