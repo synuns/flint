@@ -686,10 +686,10 @@ func TestMCPRoundtripRealDB(t *testing.T) {
 		}
 	}
 
-	// tools/list — 도구 3종·이름 정합.
+	// tools/list — 도구 5종·이름 정합(v0.32.0: pending·approve 추가).
 	tools, _ := resps[1]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 3 {
-		t.Fatalf("도구 %d건, want 3; out=%s", len(tools), out.String())
+	if len(tools) != 5 {
+		t.Fatalf("도구 %d건, want 5; out=%s", len(tools), out.String())
 	}
 	got := map[string]bool{}
 	for _, tl := range tools {

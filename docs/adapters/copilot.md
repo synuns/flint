@@ -28,7 +28,7 @@ Copilot은 검증된 네이티브 CLI가 없어 `flint setup --mcp` 자동 등�
 ## 2. 승인 노트 (allowlist)
 
 Copilot CLI의 MCP 도구는 기본 승인 게이트를 통과해야 한다. flint 도구
-3종(`flint_read`·`flint_write`·`flint_hot`)을 allowlist에 추가해 자율
+5종(`flint_read`·`flint_write`·`flint_hot`·`flint_pending`·`flint_approve` — v0.32.0 검수 회로 포함)을 allowlist에 추가해 자율
 기록이 막히지 않게 한다.
 
 ## 3. 지시파일 (instructions.md · AGENTS.md — 병기 필수)

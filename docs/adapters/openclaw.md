@@ -7,7 +7,7 @@
 
 OpenClaw는 SessionStart·Stop 훅이 없다(부재 전제). flint의 비간섭 5원칙
 중 "훅 없는 하니스는 MCP 도구만으로 참여"(PLAN §13)에 따라, 이 어댑터는
-훅 주입 없이 MCP 도구 3종(`flint_read`·`flint_write`·`flint_hot`)만으로
+훅 주입 없이 MCP 도구 5종(`flint_read`·`flint_write`·`flint_hot`·`flint_pending`·`flint_approve` — v0.32.0 검수 회로 포함)만으로
 flint에 참여한다. 세션 시작 주입(hot)과 종료 경고(done)는 자동이 아니라
 아래 프롬프트 스니펫의 규칙으로 대체한다.
 
@@ -27,7 +27,7 @@ OpenClaw MCP 설정에 flint 서버(stdio)를 등록한다:
 ```
 
 - `command`는 PATH의 flint 바이너리(절대 경로 지정 권장).
-- 서버는 stdio JSON-RPC 2.0. 도구는 `flint mcp`가 제공하는 3종뿐.
+- 서버는 stdio JSON-RPC 2.0. 도구는 `flint mcp`가 제공하는 5종.
 
 ## 3. 프롬프트 스니펫 — 3규칙
 

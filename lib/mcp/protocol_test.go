@@ -38,8 +38,8 @@ func TestProtocolSequenceModernClient(t *testing.T) {
 		t.Errorf("ping result = %v, want 빈 객체", ping)
 	}
 	tools, _ := lines[2]["result"].(map[string]any)["tools"].([]any)
-	if len(tools) != 3 {
-		t.Errorf("tools/list = %v건, want 3", len(tools))
+	if len(tools) != 5 {
+		t.Errorf("tools/list = %v건, want 5", len(tools))
 	}
 	for i, id := range []float64{1, 2, 3} {
 		if got, ok := lines[i]["id"].(float64); !ok || got != id {
