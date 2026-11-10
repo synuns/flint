@@ -52,7 +52,11 @@ func hiddenFromUsage(name string) bool {
 
 // usageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
 func usageLine() string {
+<<<<<<< HEAD
 	return `{"error":"usage: flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
+=======
+	return `{"error":"usage: flint <write|read|hot|status|profile|backup|restore|approve|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit|diff|update|tuning|import> [args]"}`
+>>>>>>> 5f82563 (feat: v0.35.0 — 프로파일 판정 완결: 추천에서 전환까지 (D①))
 }
 
 func init() {

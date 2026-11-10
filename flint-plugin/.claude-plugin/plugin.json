@@ -1,6 +1,10 @@
 {
   "name": "flint",
-  "version": "0.34.2",
+<<<<<<< HEAD
+  "version": "0.35.0",
+=======
+  "version": "0.35.0",
+>>>>>>> 5f82563 (feat: v0.35.0 — 프로파일 판정 완결: 추천에서 전환까지 (D①))
   "description": "flint 장기기억 — 세션 훅·스킬·명령 (에이전트 비간섭)",
   "repository": "https://github.com/synuns/flint"
 }
