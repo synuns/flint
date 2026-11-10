@@ -61,6 +61,24 @@ func ToolsManifest() []ToolDef {
 				},
 			},
 		},
+		{
+			// v0.32.0: 검수 회로 — 세션 안에서 대기 지식 심사·승격.
+			Name:        "flint_pending",
+			Description: "대기 지식 목록 + 규칙 기반 추천(승격/병합/만료/보류). JSON 반환.",
+			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+		},
+		{
+			Name:        "flint_approve",
+			Description: "대기 지식 승격. supersede 지정 시 구 활성 지식을 새 것으로 대체 병합.",
+			InputSchema: map[string]any{
+				"type": "object",
+				"properties": map[string]any{
+					"id":        map[string]any{"type": "integer", "description": "승격할 pending id"},
+					"supersede": map[string]any{"type": "integer", "description": "대체할 구 active id(선택)"},
+				},
+				"required": []string{"id"},
+			},
+		},
 	}
 }
 
@@ -74,6 +92,10 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 		return dispatchWrite(args)
 	case "flint_hot":
 		return dispatchHot(args)
+	case "flint_pending":
+		return runCall([]string{"pending", "--json"}, strings.NewReader(""))
+	case "flint_approve":
+		return dispatchApprove(args)
 	default:
 		// v0.28.0(H③): 이름 이스케이프(원시 결합 JSON 파손 방지).
 		if b, err := json.Marshal(map[string]string{"error": "unknown tool: " + name}); err == nil {
@@ -98,6 +120,27 @@ func dispatchRead(args map[string]any) (string, int) {
 		cliArgs = append(cliArgs, "--", q)
 	}
 	return runCall(append([]string{"read"}, cliArgs...), strings.NewReader(""))
+}
+
+// dispatchApprove — flint approve --id N [--supersede OLD]. v0.32.0 검수
+// 회로: 신뢰 게이트(write와 동일 신뢰 수준 — 로컬 stdio 단일 사용자).
+// id는 양의 정수, supersede는 id와 상이해야 한다(3이 아닌 1 — 검증 실패).
+func dispatchApprove(args map[string]any) (string, int) {
+	id, ok := intArg(args, "id")
+	if !ok || id < 1 {
+		return `{"error":"schema","field":"id","expect":"양의 정수"}`, 3
+	}
+	cliArgs := []string{"approve", "--id", strconv.Itoa(id)}
+	if sup, ok := intArg(args, "supersede"); ok {
+		if sup < 1 {
+			return `{"error":"schema","field":"supersede","expect":"양의 정수"}`, 3
+		}
+		if sup == id {
+			return `{"error":"schema","field":"supersede","expect":"id와 상이"}`, 3
+		}
+		cliArgs = append(cliArgs, "--supersede", strconv.Itoa(sup))
+	}
+	return runCall(cliArgs, strings.NewReader(""))
 }
 
 // dispatchWrite — flint write <kind> + stdin payload JSON. dedup는 CLI 파이프라인

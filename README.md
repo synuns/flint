@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.31.3-blue" alt="v0.31.3">
+  <img src="https://img.shields.io/badge/release-v0.32.0-blue" alt="v0.32.0">
 </p>
 
 <p align="center">
@@ -43,7 +43,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v0.31.3 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
+> v0.32.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
 
 ---
 
@@ -145,7 +145,7 @@ Each session cycles through four phases:
 | `flint backup` | Dump to SQL with sha256 checksum (`--encrypt` age at-rest, `--mask` redacted diagnostics) |
 | `flint restore --file f` | Restore from backup (`--drill` to rehearse) |
 | `flint status` | Schema version, pending count, hot p95 |
-| `flint mcp` | Run the MCP server |
+| `flint mcp` | MCP server (read·write·hot·pending·approve tools) |
 
 **Exit codes:** 0 success · 1 error (or silent no-results on `read`) · 2 storage failure · exit 3 — invalid input (valueless trailing flags, bad `--status` / `--as-of` values, schema violations on `write`).
 

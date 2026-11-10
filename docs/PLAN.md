@@ -391,6 +391,21 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+#4 --reason 메타데이터(의도된 감사 흔적).
+
+### v0.32.0 마이너 (2026-11-10) — MCP 검수 회로: pending·approve 노출
+
+사용자 방향 확정(B) — 세션 안 대기 지식 검수 회로: MCP 도구면에
+flint_pending·flint_approve 추가(read·write·hot에 이어 5종).
+
+- [x] `flint pending --json` — 기계 판독 출력(id·verdict·age·origin·
+  topic·why·counts·next 안내). MCP·스크립트 소비 단일 소스
+- [x] MCP flint_pending(pending --json 위임)·flint_approve(id 검증·
+  supersede 동반 조립 — 무효 입력 exit 3 실행 없음). 신뢰 게이트는
+  write와 동일 수준(로컬 stdio 단일 사용자)
+- [x] 도구 목록 5종 갱신·테스트(조립·검증 3종·매니페스트)·README
+- [x] 버전 — VERSION·배지 v0.32.0(EN/KO)·plugin.json 동기
+
 ### v0.31.3 패치 (2026-11-10) — v0.29~0.31 사후 감사 12건 (3에이전트 병렬)
 
 - [x] [높음·계측] G4 집계 소스 오염 3건 — 페치 창(14일, 추세용)이

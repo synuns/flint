@@ -6,6 +6,7 @@ package cli
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -31,8 +32,13 @@ type pendingVerdict struct {
 
 // runPending — `flint pending` — 보류 지식 목록 + 추천.
 func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	if len(args) > 0 {
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s — 사용법: flint pending", args[0])))
+	jsonMode := false
+	for _, a := range args {
+		if a == "--json" {
+			jsonMode = true // v0.32.0: MCP·스크립트용 기계 판독 출력
+			continue
+		}
+		fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s — 사용법: flint pending [--json]", a)))
 		return 1
 	}
 	if err := st.Ping(ctx); err != nil {
@@ -52,6 +58,17 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	// v0.31.3(감사 3): active 전체 1회 조회 — 행마다 재조회(O(P×A)) 제거.
 	actives := fetchActiveTopicRows(ctx, st)
 	counts := map[string]int{}
+	// v0.32.0: JSON 모드용 행 구조 — 판정 데이터를 그대로 직렬화한다.
+	type jsonItem struct {
+		ID           int    `json:"id"`
+		Verdict      string `json:"verdict"`
+		AgeDays      int    `json:"age_days"`
+		SummaryRunes int    `json:"summary_runes"`
+		Origin       string `json:"origin"`
+		Topic        string `json:"topic"`
+		Why          string `json:"why,omitempty"`
+	}
+	var jsonItems []jsonItem
 	for _, r := range rows {
 		if len(r) < 5 {
 			continue
@@ -69,11 +86,35 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		}
 		v := verdictFor(it, th, now, actives)
 		counts[v.Kind]++
-		fmt.Fprintf(stdout, "%d|%s|%d일|%d자|%s|%s\n",
-			it.ID, verdictLabel(v.Kind), ageDays(now, it.ValidAt), summaryLen(it.Summary), originLabel(it.Origin), oneLine(it.Topic, 48))
-		if v.Why != "" {
-			fmt.Fprintf(stdout, "  ↳ %s\n", oneLine(v.Why, 70))
+		jsonItems = append(jsonItems, jsonItem{
+			ID: it.ID, Verdict: v.Kind, AgeDays: ageDays(now, it.ValidAt),
+			SummaryRunes: summaryLen(it.Summary), Origin: originLabel(it.Origin),
+			Topic: oneLine(it.Topic, 80), Why: oneLine(v.Why, 120),
+		})
+		if !jsonMode {
+			fmt.Fprintf(stdout, "%d|%s|%d일|%d자|%s|%s\n",
+				it.ID, verdictLabel(v.Kind), ageDays(now, it.ValidAt), summaryLen(it.Summary), originLabel(it.Origin), oneLine(it.Topic, 48))
+			if v.Why != "" {
+				fmt.Fprintf(stdout, "  ↳ %s\n", oneLine(v.Why, 70))
+			}
 		}
+	}
+	if jsonMode {
+		b, err := json.Marshal(map[string]any{
+			"status": "ok",
+			"items":  jsonItems,
+			"counts": map[string]int{
+				"pending": len(jsonItems), "promote": counts["promote"],
+				"merge": counts["merge"], "expire": counts["expire"], "hold": counts["hold"],
+			},
+			"next": "approve --id N [--supersede OLD] · maintain --invalidate --id N --reason ...",
+		})
+		if err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			return 1
+		}
+		fmt.Fprintln(stdout, string(b))
+		return 0
 	}
 	total := counts["promote"] + counts["merge"] + counts["expire"] + counts["hold"]
 	if total == 0 {

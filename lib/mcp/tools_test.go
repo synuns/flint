@@ -1,4 +1,4 @@
-// tools_test.go — 도구 3종 왕복 테스트. runFn seam: 기본 fake,
+// tools_test.go — 도구 왕복 테스트(v0.32.0: 5종). runFn seam: 기본 fake,
 // SUPERLITE_REAL=1이면 실 cli.Run 위임(인자 기록은 유지, 실DB 미기동 시 스킵).
 package mcp
 
@@ -71,13 +71,13 @@ func equal(a, b []string) bool {
 	return true
 }
 
-// TestToolsManifest — 도구 3종 정의: 이름·설명·스키마 존재.
+// TestToolsManifest — 도구 5종 정의: 이름·설명·스키마 존재.
 func TestToolsManifest(t *testing.T) {
 	tools := ToolsManifest()
-	if len(tools) != 3 {
-		t.Fatalf("len(ToolsManifest) = %d, want 3", len(tools))
+	if len(tools) != 5 {
+		t.Fatalf("len(ToolsManifest) = %d, want 5", len(tools))
 	}
-	want := []string{"flint_read", "flint_write", "flint_hot"}
+	want := []string{"flint_read", "flint_write", "flint_hot", "flint_pending", "flint_approve"}
 	for i, td := range tools {
 		if td.Name != want[i] {
 			t.Errorf("tools[%d].Name = %q, want %q", i, td.Name, want[i])
