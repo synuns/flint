@@ -45,7 +45,18 @@ func TestNudgeStoreFree(t *testing.T) {
 		}
 		return 0
 	})
-	t.Cleanup(func() { unregister("nudge") })
+	// v0.34.1 T1c(race 게이트 선결함): 클린업에서 무조건 unregister하면
+	// init이 등록한 원 nudge 핸들러까지 사라진다 — init()은 -count≥2에서
+	// 재실행되지 않으므로 2회차부터 Lookup("nudge") 미등록·nudge계 테스트
+	// 전체 오염. 원 핸들러를 캡처해 복원한다(부재 시에만 unregister).
+	origNudge, hadNudge := Lookup("nudge")
+	t.Cleanup(func() {
+		if hadNudge {
+			Register("nudge", origNudge)
+		} else {
+			unregister("nudge")
+		}
+	})
 	var out bytes.Buffer
 	if code := Run([]string{"nudge"}, strings.NewReader("{}"), &out); code != 0 {
 		t.Fatalf("Run(nudge) exit=%d out=%s", code, out.String())
