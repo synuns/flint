@@ -37,6 +37,18 @@ func BackupKeyPath() string {
 	return dataFile("backup.key")
 }
 
+// dumpStore — 전체 덤프 접근(approveStore와 동일 관례의 타입 단언 seam).
+// v0.34.3 R14: runBackup이 주입 st 경유로 덤프한다(미구현 st만 dumpFn
+// seam 폴백). 물리적 풀은 lib/backup.Dump 내부에서 열고 닫는다(defer).
+type dumpStore interface {
+	Dump(ctx context.Context, w io.Writer) error
+}
+
+// realStore 위임 메서드 — 같은 패키지 파일이라 여기서 추가만 한다.
+func (s *realStore) Dump(ctx context.Context, w io.Writer) error {
+	return backup.Dump(ctx, dsnFromEnv(), w)
+}
+
 // backupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(리뷰 8:
 // 수동·자동·doctor 3곳이 각자 판정하면 형식 확장 시 정합 분기).
 func backupEncryptOn(v string) bool {
@@ -85,9 +97,17 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	}
 
 	var buf bytes.Buffer
-	if err := dumpFn(ctx, dsnFromEnv(), &buf); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
-		return store.MapExit(err)
+	// v0.34.3 R14: 주입 st 우선(realStore는 Dump 위임). 미구현 st만
+	// dumpFn seam 폴백(기존 테스트 fake) — 폴백 시에만 자체 연결이 열린다.
+	var dumpErr error
+	if ds, ok := st.(dumpStore); ok {
+		dumpErr = ds.Dump(ctx, &buf)
+	} else {
+		dumpErr = dumpFn(ctx, dsnFromEnv(), &buf)
+	}
+	if dumpErr != nil {
+		fmt.Fprintln(stdout, errLine(dumpErr))
+		return store.MapExit(dumpErr)
 	}
 	data := buf.Bytes()
 

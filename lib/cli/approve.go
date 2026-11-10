@@ -5,7 +5,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -15,18 +14,28 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// approveFn — seam. 기본 T17 실구현(자체 Repo open — Store 인터페이스에
-// 갱신 경로가 없어 backup과 동일 방식), 테스트는 fake 교체(SUPERLITE_REAL=1은 위임).
-var approveFn = func(ctx context.Context, id int) error {
-	repo, err := db.NewRepo(ctx, dsnFromEnv())
-	if err != nil {
-		return err
-	}
-	defer repo.Close()
-	return repo.Approve(ctx, id)
+// approveStore — Approve 승격 접근. Store 인터페이스는 v0.1 소유라 확장
+// 대신 타입 단언으로 소비한다(root.go 수정 금지 — done.go staleSessionStore
+// 관례). v0.34.3 R14: 실경로(root·mcp)가 넘기는 realStore는 항상 구현하며
+// 자체 db.NewRepo 연결은 폐지됐다.
+type approveStore interface {
+	Approve(ctx context.Context, id int) error
 }
 
-// runApprove — 승인 실행. st는 root 디스패치 호환용이며 사용하지 않는다.
+// realStore 위임 메서드 — 같은 패키지 파일이라 여기서 추가만 한다.
+func (s *realStore) Approve(ctx context.Context, id int) error {
+	return s.repo.Approve(ctx, id)
+}
+
+// approveFn — 레거시 폴백 seam. st가 Approve를 구현하지 않는(주입 없는
+// 테스트 harness) 경우에만 쓰인다 — 기본은 에러(실경로 st 위임 전제).
+// 테스트는 fake 교체(approve_test.go).
+var approveFn = func(ctx context.Context, id int) error {
+	return errors.New("approve: 주입 store가 Approve를 구현하지 않음")
+}
+
+// runApprove — 승인 실행. 승격은 주어진 st 경유(R14 재배선 — 이전엔 st를
+// 무시하고 자체 Repo를 열었다).
 func runApprove(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	id := -1
 	supersede := -1
@@ -63,7 +72,15 @@ func runApprove(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 1
 	}
 
-	if err := approveFn(ctx, id); err != nil {
+	// v0.34.3 R14: 주입 st 우선 — realStore는 Approve를 위임한다. 미구현
+	// st(nil 포함)만 레거시 approveFn seam으로 폴백.
+	var err error
+	if as, ok := st.(approveStore); ok {
+		err = as.Approve(ctx, id)
+	} else {
+		err = approveFn(ctx, id)
+	}
+	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
 			fmt.Fprintln(stdout, `{"error":"not_found","id":`+strconv.Itoa(id)+`}`)
 			return 1
@@ -81,7 +98,7 @@ func runApprove(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		}
 		if serr := supersedeAfterApprove(ctx, st, supersede, id); serr != nil {
 			fmt.Fprintln(stdout, `{"status":"approved","id":`+strconv.Itoa(id)+
-				`,"supersede_error":`+quoteJSONApprove(serr.Error())+`}`)
+				`,"supersede_error":`+quoteJSON(serr.Error())+`}`)
 			return 1
 		}
 		fmt.Fprintln(stdout, `{"status":"approved","id":`+strconv.Itoa(id)+
@@ -170,13 +187,4 @@ func similarActiveIDs(ctx context.Context, st Store, id int) []int {
 		return nil
 	}
 	return matchTopicPrefix(key, actives)
-}
-
-// quoteJSONApprove — 에러 문자열 JSON 리터럴.
-func quoteJSONApprove(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return `""`
-	}
-	return string(b)
 }

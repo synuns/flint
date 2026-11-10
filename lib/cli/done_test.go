@@ -108,7 +108,8 @@ func mustDoneRun(t *testing.T, args []string) (string, int) {
 func stubAutoBackup(t *testing.T) {
 	t.Helper()
 	prev := autoBackupFn
-	autoBackupFn = func(ctx context.Context) {}
+	// v0.34.3 R14: st 파라미터 확장(코디네이터 룰링 A안) — 스텁은 무시.
+	autoBackupFn = func(ctx context.Context, st Store) {}
 	t.Cleanup(func() { autoBackupFn = prev })
 }
 
@@ -119,7 +120,7 @@ func TestDoneTriggersAutoBackupHook(t *testing.T) {
 		d := &doneFake{fakeStore: f, stubbed: true, runs: runs}
 		called := 0
 		prev := autoBackupFn
-		autoBackupFn = func(ctx context.Context) { called++ }
+		autoBackupFn = func(ctx context.Context, st Store) { called++ }
 		t.Cleanup(func() { autoBackupFn = prev })
 		var out bytes.Buffer
 		code := runDone(context.Background(), d,

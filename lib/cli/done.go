@@ -20,10 +20,8 @@ import (
 	"time"
 
 	"filippo.io/age"
-	"github.com/jackc/pgx/v5"
 
 	"github.com/synuns/flint/lib/backup"
-	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -121,16 +119,6 @@ func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) int {
 	return 0
 }
 
-// doneThresholds — loadThresholds(maintain.go 소유) 재사용. 읽기 실패 시
-// 기본값 폴백(비간섭: 경고 경로가 본말을 바꾸지 않는다).
-func doneThresholds(ctx context.Context, st Store) store.Thresholds {
-	th, err := loadThresholds(ctx, st)
-	if err != nil {
-		return store.DefaultThresholds()
-	}
-	return th
-}
-
 // hookDefaultAgent — UUID 세션의 집계 agent 기본값. 훅 실배선은 Claude
 // session_id(UUID)를 --session으로 넘기는데, UUID를 그대로 agent로 쓰면
 // 세션마다 agent가 갈라져 StaleSessionRuns가 영구히 1을 못 넘어 stale
@@ -200,7 +188,9 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, `{"error":"usage: flint done --session <id>"}`)
 		return 0
 	}
-	th := doneThresholds(ctx, st)
+	// v0.34.3 R14: thresholds 로더 단일화 — write.go의 writeThresholds
+	// 공용(바이트 동일한 로컬 복제 폐지).
+	th := writeThresholds(ctx, st)
 	agent := agentForSession(ctx, st, session)
 	runs, err := staleRuns(ctx, st, agent)
 	if err != nil {
@@ -247,7 +237,7 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		agentLabel(agent, 24), runs)); cerr != nil {
 		fmt.Fprintf(os.Stderr, "[flint] session-end commit: %v\n", cerr)
 	}
-	autoBackupFn(ctx)
+	autoBackupFn(ctx, st)
 	return 0
 }
 
@@ -418,7 +408,12 @@ var autoBackupFn = maybeAutoBackup
 // maybeAutoBackup — 하루 1회 자동 백업(spec §8 "하루 첫 세션 지연 트리거").
 // done 판정 뒤에만 실행하며 출력·exit code는 완전 불변, 실패는 stderr 1행
 // 이하로 조용히 무시한다(비간섭 §13 — 코디네이터 룰링 T24 ④).
-func maybeAutoBackup(ctx context.Context) {
+// v0.34.3 R14: meta 접근은 주입 st 경유 — 자체 db.Connect 풀을 여는 것을
+// 폐지했다(mcp 장기 프로세스 연결 적립 차단).
+func maybeAutoBackup(ctx context.Context, st Store) {
+	if st == nil {
+		return
+	}
 	dir := os.Getenv("FLINT_BACKUP_DIR")
 	if dir == "" {
 		home, err := os.UserHomeDir()
@@ -427,54 +422,25 @@ func maybeAutoBackup(ctx context.Context) {
 		}
 		dir = filepath.Join(home, ".flint", "backup")
 	}
-	pool, err := db.Connect(ctx, dsnFromEnv())
-	if err != nil {
-		return
-	}
-	defer pool.Close()
 
+	getKV, setKV := metaKV(ctx, st)
 	lf := &lazyDumpFile{dir: dir}
 	// v0.28.0(H②): meta backup_encrypt=true면 자동 백업도 암호화
 	// (키는 config 디렉터리 — 첫 암호화 시 자동 생성). 판독 실패는 기본
 	// 평문(비간섭 §13 — 백업 실패가 종료를 깨지 않는 계약 유지).
-	if v, verr := func() (string, error) {
-		var v string
-		err := pool.QueryRow(ctx,
-			`SELECT value FROM meta WHERE key = $1`, "backup_encrypt").Scan(&v)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return v, err
-	}(); verr == nil && backupEncryptOn(v) {
+	if v, verr := getKV("backup_encrypt"); verr == nil && backupEncryptOn(v) {
 		lf.encrypt = true
 	}
 	defer lf.close()
-	metaGet := func(key string) (string, error) {
-		var v string
-		err := pool.QueryRow(ctx,
-			`SELECT value FROM meta WHERE key = $1`, key).Scan(&v)
-		if errors.Is(err, pgx.ErrNoRows) {
-			return "", nil
-		}
-		return v, err
-	}
 	auto := backup.Auto{DSN: dsnFromEnv()}
-	runErr := auto.RunIfNeeded(ctx,
-		metaGet,
-		func(key, value string) error {
-			_, err := pool.Exec(ctx,
-				`INSERT INTO meta (key, value) VALUES ($1, $2)
-				 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, key, value)
-			return err
-		},
-		lf)
+	runErr := auto.RunIfNeeded(ctx, getKV, setKV, lf)
 	// v0.20.1(패치 루프 1차 F4): 자동 백업도 로테이션 — 파일 확정(사이드카
 	// 포함) 뒤 keep-N 정책을 적용한다. 이전엔 수동 `flint backup --out`
 	// 경로(rotateAfterBackup)에만 묶여 있어 자동 파일이 무한히 축적됐다.
 	// 실패는 경고만(백업 성공 불변 — 수동 경로와 동일 계약).
 	if runErr == nil {
 		if name := lf.closeAndPath(); name != "" {
-			if _, rerr := rotateFn(dir, keepFn(metaGet)); rerr != nil {
+			if _, rerr := rotateFn(dir, keepFn(getKV)); rerr != nil {
 				fmt.Fprintf(os.Stderr, "[flint] backup auto rotate: %v\n", rerr)
 			}
 		}
