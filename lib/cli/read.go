@@ -431,19 +431,10 @@ func readSuggestEligible(rows int, asOfSpec, status string) bool {
 
 // bumpReadFallbackToMeta — 폴백 시도 1회 증분(v0.9.6). 기존 계측 패턴
 // (bumpReadStatsToMeta) 승계 — 실패는 조용히 무시(비간섭 §13).
+// v0.34.3 T2: SELECT→INSERT 비원자 왕복을 bumpMetaKV 단일 원자
+// upsert로 수렴(증분 중 동시 실행 유실 방지).
 func bumpReadFallbackToMeta(ctx context.Context, st Store) {
-	n := 0
-	if rows, err := queryOnce(ctx, st,
-		`SELECT value FROM meta WHERE key = $1`, []any{query.ReadFallbackCountKey}); err == nil &&
-		len(rows) > 0 && len(rows[0]) > 0 {
-		if v, ok := cellToInt(rows[0][0]); ok {
-			n = v
-		}
-	}
-	_, _ = queryOnce(ctx, st,
-		`INSERT INTO meta (key, value) VALUES ($1, $2)
-		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
-		[]any{query.ReadFallbackCountKey, strconv.Itoa(n + 1)})
+	_ = bumpMetaKV(ctx, st, query.ReadFallbackCountKey)
 }
 
 // asOfInfo / asOfLine — --as-of 결과 첨부 한 줄 JSON {as_of:{hash,commit_date}}.

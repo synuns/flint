@@ -31,13 +31,14 @@ func HotBudget(getKV func(string, string) (string, error)) int {
 }
 
 // metaGetKV — meta 키 조회를 getKV 형태로 감싼다(미설정·오류는 def).
+// v0.34.3 T2: 질의 본체는 meta_kv.go 단일 진입(getMetaKVErr)에 위임.
 func metaGetKV(ctx context.Context, st Store) func(string, string) (string, error) {
 	return func(key, def string) (string, error) {
-		rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
-		if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		v, ok, err := getMetaKVErr(ctx, st, key)
+		if err != nil || !ok {
 			return def, err
 		}
-		return fmt.Sprint(rows[0][0]), nil
+		return v, nil
 	}
 }
 

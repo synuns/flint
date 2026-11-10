@@ -154,19 +154,18 @@ func hotSum(lens []int) int {
 // metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. hot·read 계측 wiring
 // 4곳에 복제되던 인라인 쿼리를 통일한다. getKV는 키 부재 시 ("", nil),
 // 전송 오류는 err 그대로(호출부 폴백·와이프 방지 판단에 쓰인다).
+// v0.34.3 T2: 질의 본체는 meta_kv.go 단일 진입(getMetaKVErr·setMetaKV)
+// 에 위임 — 이 클로저는 오류 구분 계약만 유지한다.
 func metaKV(ctx context.Context, st Store) (func(string) (string, error), func(string, string) error) {
 	getKV := func(key string) (string, error) {
-		rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
-		if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		v, ok, err := getMetaKVErr(ctx, st, key)
+		if err != nil || !ok {
 			return "", err
 		}
-		return fmt.Sprint(rows[0][0]), nil
+		return v, nil
 	}
 	setKV := func(key, value string) error {
-		_, err := queryOnce(ctx, st,
-			`INSERT INTO meta (key, value) VALUES ($1, $2)
-			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`, []any{key, value})
-		return err
+		return setMetaKV(ctx, st, key, value)
 	}
 	return getKV, setKV
 }
