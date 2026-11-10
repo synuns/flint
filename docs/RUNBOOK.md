@@ -63,21 +63,27 @@
 
 ## 5. 진단 — `flint doctor` (v0.6 → v0.16.2 확장)
 
-검사 13종 + 설치 환경 조건부 하니스·스킬 검사(v0.26.0 secrets·v0.24 recall-starved·v0.22 update 포함 — brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
-서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 4종:
+검사 16종 + 설치 환경 조건부 하니스·스킬 검사(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
+서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 10종 — 표 순서는 doctor 실행 체인 순서:
 
-| 검사 | 내용 | fail/warn |
-|---|---|---|
-| hook-file | Claude 설정·플러그인 캐시에 flint 훅 등록 여부 (`FLINT_CLAUDE_HOME` 오버라이드 지원) | fail |
-| db | DB Ping 접속 | fail |
-| schema | meta schema_version ≥ 4 일치(현재 v7) | fail |
-| integrity | `flint_knowledge_*` 인덱스 3행 존재 | fail |
-| last-seen | 3경로(write/hot/read) last-seen 경과 + grace(stall_hot_h 48h·stall_write_h 72h) | warn |
-| port | 호스트 5434 포트 점유 충돌(타 프로세스 점유 시 이동 안내) | fail |
-| backup-age | 최신 백업 경과(backup_age_warn_h 기본 72h 초과 시) | warn |
-| conflicts | 모순 후보 그룹 1+ 탐지(conflict_dup_threshold 기준 중복/모순 분류) | warn |
-| zero-near | 제로히트 중 근접 후보 존재 비율(어휘 불일치 신호, zero_near_min_read 이상 표본에서) | warn |
-| pending-age | pending 최고령 경과(pending_age_days 기본 7일 초과 시) — 만료 안내와 연계 | warn |
+| 검사 | 내용 | 수정 명령 | fail/warn |
+|---|---|---|---|
+| hook-file | Claude 설정·플러그인 캐시에 flint 훅 등록 여부 (`FLINT_CLAUDE_HOME` 오버라이드 지원) | 플러그인 (재)설치(`/plugin marketplace add synuns/flint`) 또는 `FLINT_CLAUDE_HOME` 경로 확인 | fail |
+| db | DB Ping 접속 | `docker compose up -d` 후 재실행(`FLINT_DSN` 확인) | fail |
+| schema | meta schema_version ≥ 4 일치(현재 v8) | `flint setup`(마이그레이션) 후 `flint doctor --check schema` | fail |
+| integrity | `flint_knowledge_*` 인덱스 3행 존재 | `flint status`로 인덱스 승격 재시도(최신 백업 있으면 §4 복구 검토) | fail |
+| last-seen | 3경로(write/hot/read) last-seen 경과 + grace(stall_hot_h 48h·stall_write_h 72h) | 세션 시작해 `flint hot`/`flint write` 1회 실행 | warn |
+| port | 호스트 5434 포트 점유 충돌(타 프로세스 점유 시 이동 안내) | `FLINT_DSN` + compose 포트 오버라이드로 이동(TUNING §2) | fail |
+| backup-age | 최신 백업 경과(backup_age_warn_h 기본 72h 초과 시) | `flint backup`(§4 keep-N 정책) | warn |
+| conflicts | 모순 후보 그룹 1+ 탐지(conflict_dup_threshold 기준 중복/모순 분류, 조회 상한 50그룹) | `flint maintain --conflict-suspects` 후 §6 정리 | warn |
+| zero-near | 제로히트 중 근접 후보 존재 비율(어휘 불일치 신호, zero_near_min_read 이상 표본에서) | 태그·topic 표현 정리·TUNING §2 임계 점검 | warn |
+| pending-age | pending 최고령 경과(pending_age_days 기본 7일 초과 시) — 만료 안내와 연계 | `flint maintain --expire-pending N [--commit]`(§6) | warn |
+| event-volume | 계측 3테이블(read_events·session_starts·hot_events) 합계 행 수가 events_volume_warn(기본 50000) 이상 | 보존일(events_retention_days·hot_events_retention_days) 점검(TUNING §2) | warn |
+| backup-key | backup_encrypt 켜짐인데 키 파일 부재·권한 이완(0600 아님) — 키 재생성 시 기존 암호문과 호환 불가 혼재 위험 | 기존 키 위치 확인 후 `flint backup --encrypt --out <경로>` · 권한은 `chmod 600 <키>` | warn |
+| meta-hygiene | 미지 meta 키(사용 중단 후보)·보존 창(daily_retention_days)+7일 유예 초과 daily 카운터 | `flint maintain --meta-audit` 확인 — 낡은 키·daily 수동 정리 | warn |
+| update | 최신 릴리스 대비 현재 빌드 지연(5초 타임아웃 네트워크 확인, 오프라인은 판정 보류) | `flint update` | warn |
+| recall-starved | 회상 부재 세션 누적 카운터(recall_starved_count, 프로파일 무관 — 최후 관측 창구) | 다음 세션 시작 전 `flint read` 1회 — 해소 후 psql로 meta 키 삭제 | warn |
+| secrets | 보유 지식·세션 사후 비밀 스캔(무효화 행 제외, 행 상한 secrets_scan_row_limit — 도달 시 부분 스캔 명시) | 지식: `flint maintain --invalidate --id N --reason secret` · 세션: 해당 agent 재종료(done) | warn |
 
 - **fail만 exit 1**, warn은 exit 0. fail마다 수정 명령 한 줄이 함께 출력된다.
 - 경고 임계값은 meta 키로 조정(TUNING.md §2 — `stall_hot_h`·`stall_write_h`·

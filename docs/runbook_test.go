@@ -1,5 +1,5 @@
-// runbook_test.go — RUNBOOK.md에 운영 4절(감사·오염 대응·복구 훈련·백업
-// 보존)이 모두 존재하는지 검증한다(T53 — 신뢰성 런북의 계약).
+// runbook_test.go — RUNBOOK.md에 운영 절차들과 doctor 검사 표 계약이
+// 존재하는지 검증한다(T53·v0.34.2 T5 — 검사 16종 표·스키마 v8).
 package docs
 
 import (
@@ -16,5 +16,50 @@ func TestRunbookSections(t *testing.T) {
 		if !strings.Contains(doc, kw) {
 			t.Errorf("RUNBOOK.md에 %s 절 없음", kw)
 		}
+	}
+}
+
+// doctorCheckChain — lib/cli/doctor.go 실행 체인 순서(코어 6종 →
+// tail-chain 10종). 표 순서 계약의 원천이다.
+var doctorCheckChain = []string{
+	"hook-file", "db", "schema", "integrity", "last-seen", "port",
+	"backup-age", "conflicts", "zero-near", "pending-age",
+	"event-volume", "backup-key", "meta-hygiene", "update",
+	"recall-starved", "secrets",
+}
+
+// TestRunbookDoctorCheckTable — 검사 표가 16종 전부를 체인 순서대로
+// 각 1행(이름·내용·수정 명령·warn/fail)으로 담는지 검증(v0.34.2 T5).
+func TestRunbookDoctorCheckTable(t *testing.T) {
+	doc := read(t, "RUNBOOK.md")
+
+	if !strings.Contains(doc, "검사 16종") {
+		t.Error("RUNBOOK.md에 '검사 16종' 없음 — 체인 총계(코어 6 + tail 10) 불일치")
+	}
+	last := -1
+	for _, name := range doctorCheckChain {
+		row := "| " + name + " |"
+		i := strings.Index(doc, row)
+		if i < 0 {
+			t.Errorf("검사 표에 %s 행 없음", name)
+			continue
+		}
+		if i < last {
+			t.Errorf("%s 행이 체인 순서(doctor 실행 순서)보다 앞에 있음", name)
+		}
+		last = i
+	}
+}
+
+// TestRunbookSchemaVersion — schema 검사 행이 현재 스키마 버전 v8를
+// 기술하는지 검증(v0.34.2 T5 — lib/db EnsureSchemaV8 기준).
+func TestRunbookSchemaVersion(t *testing.T) {
+	doc := read(t, "RUNBOOK.md")
+
+	if !strings.Contains(doc, "현재 v8") {
+		t.Error("RUNBOOK.md schema 행에 '현재 v8' 없음")
+	}
+	if strings.Contains(doc, "현재 v7") {
+		t.Error("RUNBOOK.md에 낡은 '현재 v7' 잔존")
 	}
 }
