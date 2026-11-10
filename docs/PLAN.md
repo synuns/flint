@@ -404,6 +404,10 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
   보관(chore)
 - [x] 버전 — VERSION·배지 v0.34.1(EN/KO)·plugin.json 동기
 
+- [x] wire_v07 nudge 레지스트리 오염 수선 — t.Cleanup unregister가
+  패키지 registry를 영구 오염해 -count=3 재실행에서 플래키(선결함,
+  main 재현). 원 핸들러 복원으로 hermetic화(race 게이트 green)
+
 Follow-up: active_knowledge 뷰 status 무필터로 flint read도 pending
 노출(선결함, 이번 범위 밖 — 별도 결정).
 
