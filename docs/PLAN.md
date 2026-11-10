@@ -387,6 +387,15 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+#4 --reason 메타데이터(의도된 감사 흔적).
+
+### v0.31.2 패치 (2026-11-10) — 서명 CI 수선: cosign v2.6.0 고정
+
+- [x] v0.31.1 서명 스텝 실패 원인 수선 — cosign-installer v4가 최신
+  v3을 설치하는데 v3 sign-blob은 신규 번들 형식(--bundle)을 기본 요구.
+  검증기·로컬 툴과 v2.6.0 고정(버전 드리프트 방지)
+- [x] 버전 — VERSION·배지 v0.31.2(EN/KO)·plugin.json 동기
+
 ### v0.31.1 패치 (2026-11-10) — 서명 활성화: 공개키 임베드
 
 사용자 키 등록 완료(시크릿 2종·비밀키는 repo 밖 ~/.config/flint 보관)
