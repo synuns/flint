@@ -301,6 +301,10 @@ git commit -am "chore: 릴리스 서명 공개키 등록 (ADR-0014)"
 3. 이후 자동 — CI가 checksums.txt에 서명(.sig 업로드), flint update가
    임베드 공개키로 검증. 기억할 것 없음.
 
+키 파일 보관: `release.key`(비밀키)는 repo 안에 두지 않는다 — 생성 후
+`~/.config/flint/release.key`(0600)로 이동(위 백업 사본·gitignore
+패턴 적용됨). 시크릿이 원본이므로 로컬 사본은 백업용이다.
+
 키 유출 시 롤링(ADR-0014): 위 1~2를 새 키로 반복. 구 공개키를 임베드한
 기존 설치는 새 키 서명을 거부한다 — 의도된 경보다. 각 기기에서 1회
 `flint update --insecure-skip-signature`로 신규 키 바이너리로 넘어간

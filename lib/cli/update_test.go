@@ -199,6 +199,11 @@ func withUpdateServer(t *testing.T, latest string, newBin []byte) {
 // executablePathFn을 임시 '현재 바이너리'로 주입해 실제 파일 교체를
 // 검증한다(검증 통과용 새 바이너리는 version 출력 셸 스크립트).
 func TestUpdateFlowReplacesBinary(t *testing.T) {
+	// v0.31.1: 실제 공개키가 임베드되어 기본 하드 검증이 켜진다 — 본
+	// 테스트는 교체 흐름 검증이므로 전환 모드(빈 키)로 고정.
+	prevPub := releasePubPEM
+	releasePubPEM = nil
+	t.Cleanup(func() { releasePubPEM = prevPub })
 	withFakeVersion(t, "0.1.0")
 	dir := t.TempDir()
 	self := filepath.Join(dir, "flint")
@@ -228,6 +233,11 @@ func TestUpdateFlowReplacesBinary(t *testing.T) {
 // TestUpdateFlowChecksumMismatch — 체크섬 불일치면 원본 불본(즉시 중단).
 // 단일 TLS 서버가 메타·자산(정상)+오염 체크섬을 모두 제공한다.
 func TestUpdateFlowChecksumMismatch(t *testing.T) {
+	// v0.31.1: 실제 공개키가 임베드되어 기본 하드 검증이 켜진다 — 본
+	// 테스트는 교체 흐름 검증이므로 전환 모드(빈 키)로 고정.
+	prevPub := releasePubPEM
+	releasePubPEM = nil
+	t.Cleanup(func() { releasePubPEM = prevPub })
 	dir := t.TempDir()
 	self := filepath.Join(dir, "flint")
 	if err := os.WriteFile(self, []byte("original"), 0o755); err != nil {

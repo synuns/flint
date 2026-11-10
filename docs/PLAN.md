@@ -385,6 +385,18 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+#4 --reason 메타데이터(의도된 감사 흔적).
+
+### v0.31.1 패치 (2026-11-10) — 서명 활성화: 공개키 임베드
+
+사용자 키 등록 완료(시크릿 2종·비밀키는 repo 밖 ~/.config/flint 보관)
+— 전환 모드 종료, 다음 릴리스부터 하드 검증:
+
+- [x] lib/cli/cosign.pub 임베드(실제 공개키) — 이 릴리스 바이너리부터
+  .sig 부재·불일치 거부. CI 사후 검증(cosign verify-blob) 동시 활성
+- [x] RUNBOOK §9 키 보관 경로·gitignore 패턴(release.key repo 반입 방지)
+- [x] 버전 — VERSION·배지 v0.31.1(EN/KO)·plugin.json 동기
+
 ### v0.31.0 마이너 (2026-11-10) — 서명 공급망: 릴리스 키 서명 (D)
 
 사용자 방향 확정(키 기반 + GitHub Secrets — keyless는 신뢰 뿌리가
