@@ -385,8 +385,30 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.31.0 마이너 (2026-11-10) — 서명 공급망: 릴리스 키 서명 (D)
 
+사용자 방향 확정(키 기반 + GitHub Secrets — keyless는 신뢰 뿌리가
+GitHub라 계정 침해 방어가 없고 flint update 직접 검증에 sigstore 의존
+트리가 필요해 기각, 수동 서명은 배포 폐회 위반으로 기각 — ADR-0014):
 
+- [x] 검증기 lib/cli/sigverify.go — cosign 키 서명을 Go 표준 라이브러
+  리만으로 검증(ECDSA P-256 SPKI+SHA-256+ASN.1 기본·ed25519 순수
+  지원, 신규 의존 0). 실제 cosign v2.6 픽스처로 실증
+- [x] update 배선 — checksums.txt .sig 자산 검증이 sha256 대조보다
+  선행(위조 체크섬은 서명을 못 갖는다). 불일치 즉시 거부
+- [x] 공개키 임베드(go:embed lib/cli/cosign.pub) — 빈 파일 = 전환
+  모드(.sig 있어도 경고 후 진행, 키 등록 전 배포 차단 없음)
+- [x] CI 서명 스텝 — COSIGN_PRIVATE_KEY 시크릿 있을 때 cosign
+  sign-blob(tlog-upload=false)→.sig 업로드·cosign-installer SHA 고정
+- [x] ADR-0014(전환→하드 검증 이행·키 롤링·비밀키 에이전트 취급 금지)
+  ·RUNBOOK §9(사용자 최초 1회 명령 3줄)·테스트 4종
+- [x] 리뷰 7건 반영 — 하드 검증 fail-closed 구현(공개키 임베드 시 .sig
+  부재·스킴 오류도 거부 — 부재 판정은 자산 목록 기준)·키 롤링 탈출
+  경로 --insecure-skip-signature(신뢰 이전은 조용히 일어나지 않는다)·
+  CI 서명 후 임베드 공개키로 사후 검증(쌍 불일치 조기 차단)·RUNBOOK
+  비밀번호 모순 수정(프롬프트 방식)·배선 테스트(쓰레기 서명 거부·부재
+  거부·우회 통과·전환 모드 통과)·주석 경로 정정
+- [x] 버전 — VERSION·배지 v0.31.0(EN/KO)·plugin.json 동기
 
 ### v0.30.0 마이너 (2026-11-10) — 계측 2막: hit 품질 근사와 추세 (B 잔여)
 

@@ -93,6 +93,57 @@ func TestExtractBinary(t *testing.T) {
 	}
 }
 
+// TestApplyUpdateRejectsBadSignature — v0.31.0 리뷰 5: 서명 게이트 배선 —
+// 공개키 임베드 상태에서 .sig 불일치는 하드 거부, .sig 부재도 거부
+// (fail-closed). 전환 모드(빈 키)는 통과.
+func TestApplyUpdateRejectsBadSignature(t *testing.T) {
+	newBin := []byte("#!/bin/sh\necho '{\"version\":\"9.9.9\"}'\n")
+	// 실제 키 픽스처로 검증기 동작까지 포함(불일치 유도: 타인 키).
+	pub, err := os.ReadFile("testdata/cosign-ecdsa.pub")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prevPub := releasePubPEM
+	t.Cleanup(func() { releasePubPEM = prevPub; updateSkipSignature = false })
+	updateSkipSignature = false
+
+	// (a) .sig 존재 + 공개키 임베드 + 쓰레기 서명 → 거부.
+	releasePubPEM = pub
+	updateTestSigAsset = "bm90LWEtc2ln" // base64 디코딩은 되지만 서명 불일치
+	t.Cleanup(func() { updateTestSigAsset = "" })
+	withUpdateServer(t, "9.9.9", newBin)
+	if _, err := applyUpdate("9.9.9"); err == nil || !strings.Contains(err.Error(), "거부") {
+		t.Fatalf("쓰레기 서명 = %v, want 거부", err)
+	}
+	// (a-2) 같은 상태에서 --insecure-skip-signature → 통과.
+	updateSkipSignature = true
+	withUpdateServer(t, "9.9.8", newBin)
+	_, err2 := applyUpdate("9.9.8")
+	updateSkipSignature = false
+	if err2 != nil {
+		t.Fatalf("우회 플래그 통과 실패: %v", err2)
+	}
+	updateTestSigAsset = ""
+
+	// (b) .sig 부재 + Configured → 거부.
+	releasePubPEM = pub
+	withUpdateServer(t, "9.8.0", newBin)
+	if _, err := applyUpdate("9.8.0"); err == nil || !strings.Contains(err.Error(), "부재") {
+		t.Fatalf(".sig 부재 = %v, want 거부", err)
+	}
+
+	// (c) 전환 모드(빈 공개키) + .sig 없음 → 통과(기존 호환).
+	releasePubPEM = nil
+	withUpdateServer(t, "9.7.0", newBin)
+	if _, err := applyUpdate("9.7.0"); err != nil {
+		t.Fatalf("전환 모드 통과 실패: %v", err)
+	}
+}
+
+// updateTestSigAsset — .sig 자산 서빙 주입(빈 = 미제공). 서버 핸들러가
+// 목록과 내용 모두에 반영한다(v0.31.0 서명 게이트 배선 테스트).
+var updateTestSigAsset string
+
 // newUpdateServer — 가짜 릴리스 API+자산 서버. newBin은 새 바이너리
 // 내용(실행 시 version JSON을 출력하는 셸 스크립트여야 검증 통과).
 func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Server {
@@ -112,8 +163,17 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	assetName := fmt.Sprintf("flint_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
 	archive := buildTarGz(t, newBin)
 	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, `{"tag_name":"v%s","assets":[{"name":%q,"browser_download_url":%q},{"name":"checksums.txt","browser_download_url":%q}]}`,
-			latest, assetName, srv.URL+"/dl/"+assetName, srv.URL+"/dl/checksums.txt")
+		// v0.31.0: updateTestSigAsset(테스트 주입)이 비지 않으면 .sig
+		// 자산도 목록에 포함해 서빙한다(서명 게이트 배선 검증용).
+		sigAsset := ""
+		if updateTestSigAsset != "" {
+			sigAsset = fmt.Sprintf(`,{"name":"checksums.txt.sig","browser_download_url":%q}`, srv.URL+"/dl/checksums.txt.sig")
+			mux.HandleFunc("/dl/checksums.txt.sig", func(w http.ResponseWriter, r *http.Request) {
+				fmt.Fprint(w, updateTestSigAsset)
+			})
+		}
+		fmt.Fprintf(w, `{"tag_name":"v%s","assets":[{"name":%q,"browser_download_url":%q},{"name":"checksums.txt","browser_download_url":%q}%s]}`,
+			latest, assetName, srv.URL+"/dl/"+assetName, srv.URL+"/dl/checksums.txt", sigAsset)
 	})
 	mux.HandleFunc("/dl/"+assetName, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(archive)

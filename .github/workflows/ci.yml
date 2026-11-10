@@ -172,6 +172,35 @@ jobs:
           version: v2.19.0
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      # ── 릴리스 서명 (v0.31.0 ADR-0014) — COSIGN_PRIVATE_KEY 시크릿이
+      # 있을 때만 checksums.txt에 키 서명(.sig 자산 업로드). flint update는
+      # 임베드 공개키로 검증. 시크릿 미설정(전환 모드)은 스킵.
+      - uses: sigstore/cosign-installer@756fe2d284c7292c4e9b62c8a28f1e5629c59532 # v4.1.3
+        if: steps.version.outputs.deploy == 'true'
+      - name: 릴리스 서명 (checksums.txt)
+        if: steps.version.outputs.deploy == 'true'
+        env:
+          COSIGN_PRIVATE_KEY: ${{ secrets.COSIGN_PRIVATE_KEY }}
+          COSIGN_PASSWORD: ${{ secrets.COSIGN_PASSWORD }}
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ -z "$COSIGN_PRIVATE_KEY" ]; then
+            echo "서명 미구성(COSIGN_PRIVATE_KEY 시크릿 부재) — 스킵(전환 모드)"
+            exit 0
+          fi
+          TAG="${{ steps.version.outputs.tag }}"
+          gh release download "$TAG" -p checksums.txt -O /tmp/checksums.txt
+          cosign sign-blob --key env://COSIGN_PRIVATE_KEY --tlog-upload=false \
+            --output-signature /tmp/checksums.txt.sig /tmp/checksums.txt
+          gh release upload "$TAG" /tmp/checksums.txt.sig --clobber
+          # v0.31.0 리뷰 3: 임베드 공개키와 시크릿 키의 쌍 불일치 조기 차단 —
+          # 빈 cosign.pub(전환 모드)은 경고만.
+          if [ -s lib/cli/cosign.pub ]; then
+            cosign verify-blob --key lib/cli/cosign.pub \
+              --insecure-ignore-tlog --signature /tmp/checksums.txt.sig /tmp/checksums.txt
+          else
+            echo "경고: lib/cli/cosign.pub 미임베드(전환 모드) — 다음 릴리스 전 공개키 커밋 권장"
+          fi
 
       # ── MCP Registry 발행 (항상 실행 — 멱등) ──
       - name: MCP Registry 발행

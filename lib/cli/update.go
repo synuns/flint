@@ -12,6 +12,7 @@ import (
 	"compress/gzip"
 	"context"
 	"crypto/sha256"
+	_ "embed"
 	"encoding/hex"
 	"encoding/json"
 	"errors"
@@ -81,12 +82,19 @@ type updateCache struct {
 
 // runUpdateCmd — `flint update` 진입: --check 드라이런, 기본은 확인·
 // 다운로드·검증·교체. store-free(네트워크·파일시스템만).
+// updateSkipSignature — --insecure-skip-signature(키 롤링 등 신뢰 이전
+// 시 1회 명시 우회 — ADR-0014. 테스트 주입 접합면 겸용).
+var updateSkipSignature = false
+
 func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	dry := false
 	for _, a := range args {
 		switch a {
 		case "--check":
 			dry = true
+		case "--insecure-skip-signature":
+			updateSkipSignature = true
+			fmt.Fprintln(os.Stderr, "[flint] update: 서명 검증 우회(신뢰 이전 1회용 — ADR-0014 키 롤링 절차)")
 		default:
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
 			return 1
@@ -129,6 +137,14 @@ type releaseMeta struct {
 		BrowserDownloadURL string `json:"browser_download_url"`
 	} `json:"assets"`
 }
+
+// releasePubPEM — 릴리스 서명 검증 공개키(신뢰 뿌리 — ADR-0014).
+// lib/cli/cosign.pub을 빌드 시점에 임베드. 빈 파일 = 미구성 전환 모드
+// (.sig가 있어도 경고만 하고 통과). 공개키 임베드 후 하드 검증: .sig
+// 부재·불일치·스킴 오류 전부 거부(fail-closed — 리뷰 1).
+//
+//go:embed cosign.pub
+var releasePubPEM []byte
 
 // fetchLatestVersion — 최신 태그(v 접두 제거) 조회. 캐시 갱신은 호출부.
 func fetchLatestVersion() (string, error) {
@@ -189,6 +205,39 @@ func applyUpdate(latest string) (string, error) {
 	sums, err := download(sumsURL)
 	if err != nil {
 		return "", fmt.Errorf("checksums 다운로드: %w", err)
+	}
+	// v0.31.0(ADR-0014): checksums.txt 서명 검증 — GitHub 오리진과 분리된
+	// 신뢰 뿌리(임베드 공개키). 자산 목록으로 .sig 존재를 판정하고:
+	//   - 공개키 임베드(하드 검증): .sig 부재·불일치·스킴 오류 전부 거부
+	//     (fail-closed — .sig 삭제·쓰레기 서명 회피 차단, 리뷰 1)
+	//   - 미구성(전환 모드): .sig 있으면 경고 후 진행, 없으면 진행
+	// 키 롤링 등 신뢰 이전은 --insecure-skip-signature(사용자 명시).
+	sigAsset := false
+	for _, a := range meta.Assets {
+		if a.Name == "checksums.txt.sig" {
+			sigAsset = true
+			break
+		}
+	}
+	verifier := ReleaseVerifier{PublicPEM: releasePubPEM}
+	if updateSkipSignature {
+		fmt.Fprintln(os.Stderr, "[flint] update: 서명 검증 우회(--insecure-skip-signature)")
+		verifier = ReleaseVerifier{} // 미구성 취급 — 경로는 통과
+	}
+	if sigAsset {
+		sig, serr := download(sumsURL + ".sig")
+		if serr != nil || len(sig) == 0 {
+			if verifier.Configured() {
+				return "", fmt.Errorf("서명 자산 다운로드 실패 — 업데이트 거부(fail-closed)")
+			}
+		} else if verr := verifier.Verify(sums, string(sig)); verr != nil {
+			if verifier.Configured() || errors.Is(verr, ErrSignatureInvalid) {
+				return "", fmt.Errorf("릴리스 서명 오류 — 업데이트 거부: %v", verr)
+			}
+			fmt.Fprintf(os.Stderr, "[flint] update: 서명 검증 경고(전환 모드): %v\n", verr)
+		}
+	} else if verifier.Configured() {
+		return "", fmt.Errorf("서명 자산(checksums.txt.sig) 부재 — 업데이트 거부(하드 검증·롤링이면 --insecure-skip-signature)")
 	}
 	want, err := checksumFor(string(sums), asset)
 	if err != nil {
