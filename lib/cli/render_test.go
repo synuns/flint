@@ -67,8 +67,8 @@ func TestRenderDelegates(t *testing.T) {
 // TestSanitizeTextChokepoint — lib/ 비테스트 소스에서 SanitizeText 직접
 // 호출은 허용 파일(render.go·write.go·import.go·done.go·
 // lib/store/sanitize.go·lib/store/pipeline.go)에만 존재해야 한다.
+// T5(v0.37.0)부터 활성 — render 우회는 영구 차단.
 func TestSanitizeTextChokepoint(t *testing.T) {
-	t.Skip("activated at T5 — T2~T4 채택 전 16곡 위반 예상")
 	allow := map[string]bool{
 		"lib/cli/render.go":     true,
 		"lib/cli/write.go":      true,

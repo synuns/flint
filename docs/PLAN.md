@@ -387,6 +387,26 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.37.0 마이너 (2026-11-12) — 구조 수렴 1막: 출력 살균 조크포인트 (render)
+
+구조 수렴 에라(v0.34.2 선언) 1막 — lib/cli 산재 출력 살균 호출을
+render 단일 출구로 수렴(패키지 분할 없음, 위임만 — 출력 바이트 불변):
+
+- [x] render.go 신설 — Text(SanitizeText 위임)·Masked(마스킹→살균
+  순서 보존, ADR-0015 계약)·Cells(셀 전수 살균·원 슬라이스 갱신)·
+  Rows(Cells 후 FormatRows 위임)
+- [x] 출력 경로 16곳(cli) 수렴 — read·hot(셀 루프)·maintain·audit·
+  diff(구조체 필드)·pending·brief(Text·Masked) 채택
+- [x] TestSanitizeTextChokepoint 소스 가드 — lib/ 비테스트 소스의
+  SanitizeText 직접 호출을 화이트리스트 밖 탐지 시 위반 파일:줄과
+  함께 FAIL(렌더 우회 영구 차단, 병인 ① '계약 복제+주석 시행'의
+  출력 부분 해소)
+- [x] 명시적 예외 — 입력 살균(write·import·done)과 store 측
+  pipeline(lib/store/sanitize.go·pipeline.go)은 화이트리스트 유지
+- [x] 버전 — VERSION·배지 v0.37.0(EN/KO)·plugin.json 동기
+
+세부: [docs/plans/2026-11-12-flint-v0370.spec.md](plans/2026-11-12-flint-v0370.spec.md)
+
 ### v0.36.1 패치 (2026-11-11) — 리뷰 잔여 구조 스윕 1차 (무충돌 항목)
 
 2026-11-11 전면 리뷰 잔여 항목 중 v0.35.0(프로파일)·v0.36.0
