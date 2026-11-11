@@ -3,6 +3,7 @@
 package cli
 
 import (
+	"fmt"
 	"io/fs"
 	"os"
 	"path/filepath"
@@ -65,10 +66,21 @@ func TestRenderDelegates(t *testing.T) {
 }
 
 // TestSanitizeTextChokepoint — lib/ 비테스트 소스에서 SanitizeText 직접
-// 호출은 허용 파일(render.go·write.go·import.go·done.go·
-// lib/store/sanitize.go·lib/store/pipeline.go)에만 존재해야 한다.
-// T5(v0.37.0)부터 활성 — render 우회는 영구 차단.
+// 언급(직접 호출·간접 참조 `f := store.SanitizeText` 모두)은 허용 파일
+// (render.go·write.go·import.go·done.go·lib/store/sanitize.go·
+// lib/store/pipeline.go)에만 존재해야 한다. T5(v0.37.0)부터 활성 —
+// render 우회는 영구 차단.
 func TestSanitizeTextChokepoint(t *testing.T) {
+	for _, v := range chokepointViolations("../..") {
+		t.Errorf("%s — render 우회: render.Text/Rows/Cells 사용", v)
+	}
+}
+
+// chokepointViolations — root 하위 lib/ 비테스트 .go 소스에서 SanitizeText
+// 토큰(호출 `SanitizeText(`·간접 참조 `:= store.SanitizeText`·인자 전달
+// 모두 포함)을 화이트리스트 밖에서 보고한다("file:line" 목록). 라인
+// 주석(// 이후)은 검사에서 제외 — 주석 언급은 우회가 아니다.
+func chokepointViolations(root string) []string {
 	allow := map[string]bool{
 		"lib/cli/render.go":     true,
 		"lib/cli/write.go":      true,
@@ -77,8 +89,8 @@ func TestSanitizeTextChokepoint(t *testing.T) {
 		"lib/store/sanitize.go": true,
 		"lib/store/pipeline.go": true,
 	}
-	re := regexp.MustCompile(`SanitizeText\(`)
-	root := "../.."
+	re := regexp.MustCompile(`\bSanitizeText\b`)
+	var found []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
@@ -99,14 +111,49 @@ func TestSanitizeTextChokepoint(t *testing.T) {
 			return err
 		}
 		for i, line := range strings.Split(string(data), "\n") {
+			if c := strings.Index(line, "//"); c >= 0 {
+				line = line[:c]
+			}
 			if re.MatchString(line) && !allow[rel] {
-				t.Errorf("%s:%d — render 우회: render.Text/Rows/Cells 사용", rel, i+1)
+				found = append(found, fmt.Sprintf("%s:%d", rel, i+1))
 			}
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("WalkDir: %v", err)
+		return []string{fmt.Sprintf("WalkDir: %v", err)}
+	}
+	return found
+}
+
+// TestSanitizeTextChokepointIndirect — 가드 우회 회귀: 간접 참조
+// (`leaky := store.SanitizeText` — 괄호 없는 토큰 언급)도 탐지되어야
+// 한다. 직접 호출 탐지·주석 언급 무시·화이트리스트 통과도 함께 단언.
+func TestSanitizeTextChokepointIndirect(t *testing.T) {
+	root := t.TempDir()
+	dir := filepath.Join(root, "lib", "cli")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	files := map[string]string{
+		// 간접 참조 우회 시도 — 탐지 대상.
+		"bypass.go": "package cli\n\nvar leaky = store.SanitizeText\n",
+		// 직접 호출 — 탐지 대상.
+		"direct.go": "package cli\n\nfunc f(s string) string { return store.SanitizeText(s) }\n",
+		// 주석 언급 — 무시.
+		"comment.go": "package cli\n\n// SanitizeText 주석 언급은 우회가 아니다\nvar x = 1\n",
+		// 화이트리스트 파일의 직접 호출 — 통과.
+		"render.go": "package cli\n\nfunc Text(s string) string { return store.SanitizeText(s) }\n",
+	}
+	for name, body := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
+			t.Fatalf("WriteFile %s: %v", name, err)
+		}
+	}
+	got := chokepointViolations(root)
+	want := []string{"lib/cli/bypass.go:3", "lib/cli/direct.go:3"}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("chokepointViolations = %v, want %v", got, want)
 	}
 }
 
