@@ -75,10 +75,11 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		}
 		// v0.31.3(감사 1): 저장값 출력 재살균 — v0.28 H③ 패턴(read·hot·
 		// maintain 계열) 회귀 수선. 제어 문자·Cf·[flint] 마커 중립화.
+		// v0.37.0: render 조크포인트 경유(render.Text).
 		it := pendingItem{
-			Topic:   store.SanitizeText(fmt.Sprint(r[1])),
-			Summary: store.SanitizeText(fmt.Sprint(r[2])),
-			Origin:  store.SanitizeText(fmt.Sprint(r[3])),
+			Topic:   Text(fmt.Sprint(r[1])),
+			Summary: Text(fmt.Sprint(r[2])),
+			Origin:  Text(fmt.Sprint(r[3])),
 		}
 		fmt.Sscan(fmt.Sprint(r[0]), &it.ID)
 		if ts, ok := cellToTime(r[4]); ok { // v0.31.3(감사 4): 타입 단언 폴백 정경로

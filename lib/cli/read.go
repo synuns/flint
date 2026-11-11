@@ -376,14 +376,9 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		}
 	}
 	// 출력 중립화(ADR-0006): 저장 단계 살균을 읽기에도 재적용 — 저장 이후
-	// 혹은 경로상 유입된 제어 문자·[flint] 마커가 출력 경계를 위조하지 않게 한다.
-	for _, row := range rows {
-		for i, cell := range row {
-			if s, ok := cell.(string); ok {
-				row[i] = store.SanitizeText(s)
-			}
-		}
-	}
+	// 혹은 경로상 유입된 제어 문자·[flint] 마커가 출력 경계를 위조하지 않게
+	// 한다. v0.37.0: 살균은 render 조크포인트(render.Cells)로 수렴.
+	rows = Cells(rows)
 	// v0.14.0 R1 침묵 계약: eligible(현재 시점·무상태필터) 제로히트는
 	// 완전 무출력 — FormatRows도 빈 rows에 ""를 반환하므로 별도 분기가
 	// 필요 없다. 제안 라인은 폐지(제로히트 결과 행 0 + 스캔 무출력).

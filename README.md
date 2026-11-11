@@ -25,9 +25,9 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.36.1-blue" alt="v0.35.0">
-  <img src="https://img.shields.io/badge/release-v0.36.1-blue" alt="v0.36.0">
-  <img src="https://img.shields.io/badge/release-v0.36.1-blue" alt="v0.36.1"></p>
+  <img src="https://img.shields.io/badge/release-v0.37.0-blue" alt="v0.36.0">
+  <img src="https://img.shields.io/badge/release-v0.37.0-blue" alt="v0.36.1">
+  <img src="https://img.shields.io/badge/release-v0.37.0-blue" alt="v0.37.0"></p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
@@ -44,9 +44,9 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v0.35.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
 > v0.36.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
 > v0.36.1 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
+> v0.37.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
 ---
 
 ## Quick Start

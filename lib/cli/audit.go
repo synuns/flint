@@ -140,7 +140,7 @@ func RunAudit(st Store, args []string, stdout io.Writer) int {
 			e.Date = fmt.Sprint(r[2])
 		}
 		if len(r) > 3 {
-			e.Message = store.SanitizeText(fmt.Sprint(r[3])) // v0.28.0(H③): dolt_log message 재살균
+			e.Message = Text(fmt.Sprint(r[3])) // v0.37.0: render.Text 경유(dolt_log message 재살균 승계)
 		}
 		if stat {
 			if t, ok := parseAuditDate(r[2]); ok {
