@@ -90,7 +90,7 @@ func runBrief(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	for _, row := range rows {
 		for i, cell := range row {
 			if cs, ok := cell.(string); ok {
-				row[i] = store.SanitizeText(store.MaskSecrets(cs))
+				row[i] = Masked(cs) // v0.37.0: render 조크포인트(마스킹→살균 순서 보존)
 			}
 		}
 	}
