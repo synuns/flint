@@ -131,7 +131,7 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 			row.ID = r[1]
 		}
 		if len(r) > 2 {
-			row.Topic = store.SanitizeText(fmt.Sprint(r[2])) // v0.28.0(H③): 출력 재살균
+			row.Topic = Text(fmt.Sprint(r[2])) // v0.37.0: render.Text 경유(출력 재살균 승계)
 		}
 		detail = append(detail, row)
 	}
@@ -146,7 +146,7 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 		if len(r) < 5 {
 			continue
 		}
-		c := diffCommit{Hash: fmt.Sprint(r[0]), Message: store.SanitizeText(fmt.Sprint(r[2]))} // v0.28.0(H③)
+		c := diffCommit{Hash: fmt.Sprint(r[0]), Message: Text(fmt.Sprint(r[2]))} // v0.37.0: render.Text 경유
 		if t, ok := parseAuditDate(r[1]); ok {
 			c.Date = t
 		}

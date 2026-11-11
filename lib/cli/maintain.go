@@ -367,7 +367,7 @@ func dupSuspectsJSON(groups []db.DupGroup) string {
 		if ids == nil {
 			ids = []int{}
 		}
-		out.Groups = append(out.Groups, dupGroupJSON{Topic: store.SanitizeText(g.Topic), IDs: ids}) // v0.28.0(H③): 출력 재살균
+		out.Groups = append(out.Groups, dupGroupJSON{Topic: Text(g.Topic), IDs: ids}) // v0.37.0: render.Text 경유(출력 재살균 승계)
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -479,9 +479,9 @@ func conflictSuspectsJSON(groups []db.ConflictGroup) string {
 		}
 		sums := make([]string, 0, len(g.Summaries))
 		for _, s := range g.Summaries {
-			sums = append(sums, conflictSummaryPrefix(store.SanitizeText(s))) // v0.28.0(H③): 출력 재살균
+			sums = append(sums, conflictSummaryPrefix(Text(s))) // v0.37.0: render.Text 경유(출력 재살균 승계)
 		}
-		out.Groups = append(out.Groups, conflictGroupJSON{Topic: store.SanitizeText(g.Topic), IDs: ids, Summaries: sums}) // v0.28.0(H③)
+		out.Groups = append(out.Groups, conflictGroupJSON{Topic: Text(g.Topic), IDs: ids, Summaries: sums}) // v0.37.0: render.Text 경유
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -559,7 +559,7 @@ func listStale(ctx context.Context, ms MaintStore, daysOverride, limit int) ([]s
 		}
 		items = append(items, staleItem{
 			ID:        id,
-			Topic:     store.SanitizeText(topic), // v0.28.0(H③): 출력 재살균
+			Topic:     Text(topic), // v0.37.0: render.Text 경유(출력 재살균 승계)
 			NeverRead: readCount == 0,
 			Reason:    reason,
 			StaleDays: int(time.Since(ref).Hours() / 24),
@@ -718,8 +718,8 @@ func listExpiredPending(ctx context.Context, ms MaintStore, days int) ([]expireI
 		}
 		items = append(items, expireItem{
 			ID:      id,
-			Topic:   store.SanitizeText(topic),                          // v0.28.0(H③)
-			Summary: conflictSummaryPrefix(store.SanitizeText(summary)), // v0.28.0(H③)
+			Topic:   Text(topic),                          // v0.37.0: render.Text 경유
+			Summary: conflictSummaryPrefix(Text(summary)), // v0.37.0: render.Text 경유
 			AgeDays: int(time.Since(va).Hours() / 24),
 		})
 	}
