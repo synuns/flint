@@ -1,7 +1,8 @@
-// brief_v0370_test.go — v0.37.0 T4: brief 셀 살균은 render 조크포인트
+// brief_mask_order_test.go — v0.37.0 T4: brief 셀 살균은 render 조크포인트
 // (render.Masked — MaskSecrets→SanitizeText 순서 보존, ADR-0015)를
 // 경유한다. [REDACTED:…] 흔적은 중립화를 통과해 생존한다.
-package cli
+// v0.39.0 T4: lib/cli에서 이동(cli/brief_mask_order_test.go 원본).
+package knowledge
 
 import (
 	"context"
@@ -18,8 +19,8 @@ func TestBriefMaskOrder(t *testing.T) {
 	rows := briefRows(1, "토큰 "+secret+" 와 [flint] 위조\x00동반")
 	st := &fakeStore{queryFn: briefQueryFn(rows)}
 	var out strings.Builder
-	if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runBrief exit=%d: %s", code, out.String())
+	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	got := out.String()
 	if strings.Contains(got, secret) {

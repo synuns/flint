@@ -1,7 +1,10 @@
 // done_v0270_test.go — v0.27.0 R1: 세션 지식화 적립 계약.
 // v0.27.2: 소스 문자열 시그니처 + 빈도 상한·-1 센티널·dedup·tags·
 // stale 경로·PostCompact 경로 계약 추가.
-package cli
+// v0.39.0 T4: lib/cli에서 이동. 증류 마커 적립 검증은 cli 마커 저장
+// 구현(ReadTypedMarker) 대신 WriteTypedMarkerFn seam 캡처로 동등 검증
+// (마커 파일 IO는 cli 잔류 compact_test가 실경로로 담당).
+package knowledge
 
 import (
 	"context"
@@ -10,22 +13,22 @@ import (
 	"time"
 )
 
-// knFake — 빈도 상한·meta 경로 stub(queryFn이 session_knowledge_last
-// 조회에 값을 반환 — 키는 $1 파라미터로 전달되므로 args도 검사).
-// 나머지는 기본 fake(nil = 키 부재 → 빈도 통과).
-func knFake(last string) *fakeStore {
-	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		for _, a := range args {
-			if s, ok := a.(string); ok && s == "session_knowledge_last" && last != "" {
-				return [][]any{{last}}, nil
-			}
-		}
-		return nil, nil
-	}}
+// captureTypedMarker — WriteTypedMarkerFn seam 교체(호출 기록).
+func captureTypedMarker(t *testing.T) *[]string {
+	t.Helper()
+	var calls []string
+	prev := WriteTypedMarkerFn
+	WriteTypedMarkerFn = func(kind, sessionID, reason string) error {
+		calls = append(calls, kind+"|"+sessionID+"|"+reason)
+		return nil
+	}
+	t.Cleanup(func() { WriteTypedMarkerFn = prev })
+	return &calls
 }
 
 func TestMaybeSessionKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	markers := captureTypedMarker(t)
 	st := knFake("")
 	maybeSessionKnowledge(context.Background(), st, "검색 품질 개선 작업을 완료했다", "test-agent", "s1", 0)
 	if len(st.inserted) != 1 {
@@ -44,9 +47,15 @@ func TestMaybeSessionKnowledge(t *testing.T) {
 	if tags, ok := got["tags"].(string); !ok || tags != ":process:" {
 		t.Errorf("tags = %#v, want \":process:\"", got["tags"])
 	}
-	// 증류 마커 적립(R2 회로 연결).
-	if _, err := ReadTypedMarker(markerKindDistill); err != nil {
-		t.Fatalf("증류 마커 미적립: %v", err)
+	// 증류 마커 적립(R2 회로 연결) — distill 종류·session 일치.
+	found := false
+	for _, c := range *markers {
+		if strings.HasPrefix(c, "distill|s1|") {
+			found = true
+		}
+	}
+	if !found {
+		t.Fatalf("증류 마커 미적립: %v", *markers)
 	}
 }
 
@@ -141,9 +150,10 @@ func TestMaybeSessionKnowledgeDedupSkip(t *testing.T) {
 // compact_summary가 세션 지식화를 활성화한다(타 하네스 폴백 경로).
 func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	stubAutoBackup(t)
 	st := knFake("")
 	var out strings.Builder
-	code := runDone(context.Background(), st, []string{"--session", "claude"},
+	code := RunDone(context.Background(), st, []string{"--session", "claude"},
 		strings.NewReader(`{"hook_event_name":"Stop","compact_summary":"검색 품질 개선 작업 — RRF 융합 구현 완료"}`), &out)
 	if code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
@@ -174,9 +184,10 @@ func (s *staleFake) StaleSessionRuns(ctx context.Context, agent string) (int, er
 // 경고)에서도 요약이 있으면 지식화 — 조기 return에 갇히지 않는다.
 func TestDoneStalePathAccruesKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	stubAutoBackup(t)
 	st := &staleFake{fakeStore: knFake(""), runs: 99}
 	var out strings.Builder
-	code := runDone(context.Background(), st, []string{"--session", "claude"},
+	code := RunDone(context.Background(), st, []string{"--session", "claude"},
 		strings.NewReader(`{"compact_summary":"stale 상태에서도 보존돼야 하는 세션 요약"}`), &out)
 	if code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
@@ -217,9 +228,10 @@ func TestDoneStdinSummaryBranches(t *testing.T) {
 // write의 전역 스테이징 흡수 방지).
 func TestDoneCommitsAuditTrail(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	stubAutoBackup(t)
 	st := knFake("")
 	var out strings.Builder
-	if code := runDone(context.Background(), st, []string{"--session", "claude"},
+	if code := RunDone(context.Background(), st, []string{"--session", "claude"},
 		strings.NewReader(`{"compact_summary":"감사 귀속 검증용 세션 요약 본문"}`), &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}

@@ -2,7 +2,9 @@
 // 병목 해소 — 규칙 기반 삼단 추천(승격/병합/만료/보류)으로 검수 안내.
 // 판정은 안내일 뿐 실행은 approve·maintain이 담당(신뢰 게이트 불변 —
 // LLM 판정 배제 §13). 출력은 사람 읽는 테이블(read 형식 승계).
-package cli
+// v0.39.0 T4: lib/cli에서 이동(cli/pending.go 원본 + lib/render/text.go
+// 소유 CountPending — 룰링: render에는 임시 소속이었다).
+package knowledge
 
 import (
 	"context"
@@ -12,10 +14,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
-func init() { Register("pending", runPending) }
+func init() { wire.Register("pending", RunPending) }
 
 // pendingItem — 심사 행.
 type pendingItem struct {
@@ -30,28 +34,46 @@ type pendingVerdict struct {
 	Why  string
 }
 
-// runPending — `flint pending` — 보류 지식 목록 + 추천.
-func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+// CountPending — pending 지식 수 단일 조회(v0.34.3: status·nudge·
+// sessionhook의 3중 쿼리 복제 수렴 — report.go는 v0.36 트랙 제외).
+// 조회 실패만 오류; 빈 응답·해석 불가 값은 0(기존 소비자 관례: 조용한
+// 0 처리)이다. v0.39.0 T4 룰링: lib/render에서 knowledge로 이동(정의는
+// pending 도메인 소유 — render→knowledge 임포트는 사이클이라 불가).
+func CountPending(ctx context.Context, st wire.Store) (int, error) {
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`, nil)
+	if err != nil {
+		return 0, err
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		return 0, nil
+	}
+	n, _ := render.CellToInt(rows[0][0])
+	return n, nil
+}
+
+// RunPending — `flint pending` — 보류 지식 목록 + 추천.
+func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	jsonMode := false
 	for _, a := range args {
 		if a == "--json" {
 			jsonMode = true // v0.32.0: MCP·스크립트용 기계 판독 출력
 			continue
 		}
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s — 사용법: flint pending [--json]", a)))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint pending [--json]", a)))
 		return 1
 	}
 	if err := st.Ping(ctx); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	th := writeThresholds(ctx, st)
-	rows, err := queryOnce(ctx, st, `
+	th := WriteThresholds(ctx, st)
+	rows, err := wire.QueryOnce(ctx, st, `
 		SELECT id, topic, summary, origin, valid_at
 		FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL
 		ORDER BY valid_at, id`, nil)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	now := time.Now().UTC()
@@ -77,9 +99,9 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		// maintain 계열) 회귀 수선. 제어 문자·Cf·[flint] 마커 중립화.
 		// v0.37.0: render 조크포인트 경유(render.Text).
 		it := pendingItem{
-			Topic:   Text(fmt.Sprint(r[1])),
-			Summary: Text(fmt.Sprint(r[2])),
-			Origin:  Text(fmt.Sprint(r[3])),
+			Topic:   render.Text(fmt.Sprint(r[1])),
+			Summary: render.Text(fmt.Sprint(r[2])),
+			Origin:  render.Text(fmt.Sprint(r[3])),
 		}
 		fmt.Sscan(fmt.Sprint(r[0]), &it.ID)
 		if ts, ok := cellToTime(r[4]); ok { // v0.31.3(감사 4): 타입 단언 폴백 정경로
@@ -103,13 +125,13 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 			jsonItems = append(jsonItems, jsonItem{
 				ID: it.ID, Verdict: v.Kind, AgeDays: age,
 				SummaryRunes: summaryLen(it.Summary), Origin: originLabel(it.Origin),
-				Topic: oneLine(it.Topic, 80), Why: oneLine(v.Why, 120),
+				Topic: OneLine(it.Topic, 80), Why: OneLine(v.Why, 120),
 			})
 		} else {
 			fmt.Fprintf(stdout, "%d|%s|%d일|%d자|%s|%s\n",
-				it.ID, verdictLabel(v.Kind), age, summaryLen(it.Summary), originLabel(it.Origin), oneLine(it.Topic, 48))
+				it.ID, verdictLabel(v.Kind), age, summaryLen(it.Summary), originLabel(it.Origin), OneLine(it.Topic, 48))
 			if v.Why != "" {
-				fmt.Fprintf(stdout, "  ↳ %s\n", oneLine(v.Why, 70))
+				fmt.Fprintf(stdout, "  ↳ %s\n", OneLine(v.Why, 70))
 			}
 		}
 	}
@@ -124,7 +146,7 @@ func runPending(ctx context.Context, st Store, args []string, stdin io.Reader, s
 			"next": "approve --id N [--supersede OLD] · maintain --invalidate --id N --reason ...",
 		})
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		fmt.Fprintln(stdout, string(b))
@@ -164,8 +186,8 @@ func verdictFor(it pendingItem, th store.Thresholds, now time.Time, actives [][]
 // fetchActiveTopicRows — 유사 판정용 active (id, topic) 전체 1회 조회
 // (v0.31.3 감사 3 — 행당 재조회 제거. 실패는 빈 세트: 병합 판정만
 // 생략되고 나머지 판정·출력 계약 불변).
-func fetchActiveTopicRows(ctx context.Context, st Store) [][]any {
-	rows, err := queryOnce(ctx, st,
+func fetchActiveTopicRows(ctx context.Context, st wire.Store) [][]any {
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT id, topic FROM knowledge WHERE status = 'active' AND invalid_at IS NULL`, nil)
 	if err != nil {
 		return nil
@@ -186,7 +208,7 @@ func topicSimilarityKey(topic string) string {
 // matchTopicPrefix — key 12룬 접두가 일치하는 active (id,topic) 행의 id.
 // approve·pending 양쪽이 공유하는 단일 근사 구현(리뷰 5).
 func matchTopicPrefix(key string, actives [][]any) []int {
-	prefix := truncateRunes(key, 12)
+	prefix := render.TruncateRunes(key, 12)
 	if prefix == "" {
 		return nil
 	}
@@ -197,7 +219,7 @@ func matchTopicPrefix(key string, actives [][]any) []int {
 		}
 		var id int
 		if n, _ := fmt.Sscan(fmt.Sprint(r[0]), &id); n == 1 &&
-			truncateRunes(topicSimilarityKey(fmt.Sprint(r[1])), 12) == prefix {
+			render.TruncateRunes(topicSimilarityKey(fmt.Sprint(r[1])), 12) == prefix {
 			out = append(out, id)
 		}
 	}
@@ -238,15 +260,29 @@ func ageDays(now, t time.Time) int {
 // summaryLen — 요약 룬 수.
 func summaryLen(s string) int { return len([]rune(s)) }
 
-// oneLine — 한 줄화(개행 제거·상한 — 절단은 단일 구현 truncateRunes 위임).
-func oneLine(s string, max int) string {
+// OneLine — 한 줄화(개행 제거·상한 — 절단은 단일 구현 TruncateRunes 위임).
+// v0.39.0 T4 내보내기: cli 잔류 소비자(textutil_test의 관례 위임 동치
+// 검증)가 knowledge.OneLine 별칭으로 무편집 컴파일된다.
+func OneLine(s string, max int) string {
 	s = strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", "")
-	return truncateRunes(strings.TrimSpace(s), max)
+	return render.TruncateRunes(strings.TrimSpace(s), max)
 }
 
-// countPending — lib/render.CountPending 이동(v0.38.0): 별칭은
-// render_alias.go가 제공한다.
-//
+// cellToTime — 셀(any)→time 변환(pgx timestamptz=time.Time, fake·
+// 문자열은 RFC3339). lib/cli/report.go 소유분과 동일 구현(knowledge는
+// cli를 임포트할 수 없다 — 사이클 금지. 순수 함수 복제, 향후 수렴 부채).
+func cellToTime(v any) (time.Time, bool) {
+	switch t := v.(type) {
+	case time.Time:
+		return t, true
+	case string:
+		p, err := time.Parse(time.RFC3339, t)
+		return p, err == nil
+	default:
+		return time.Time{}, false
+	}
+}
+
 // joinInts — 콤마 결합(상한 5).
 func joinInts(ids []int) string {
 	if len(ids) > 5 {

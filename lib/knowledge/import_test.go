@@ -1,6 +1,7 @@
-// import_test.go — v0.27.0 R3: 온보딩 임포트 계약 — 후보 탐색·헤딩 분할·
-// dry-run 기본·--commit 적립·dedup 멱등.
-package cli
+// import_test.go — v0.39.0 T2: lib/cli/import_test.go 이동(온보딩 임포트
+// 계약 — 후보 탐색·헤딩 분할·dry-run 기본·--commit 적립·dedup 멱등).
+// runImport 직접 호출 테스트는 RunImport로 치환(계약 불변).
+package knowledge
 
 import (
 	"context"
@@ -37,7 +38,7 @@ func TestRunImportDryRunAndCommit(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
 	// 후보 명시 + dry-run.
-	code := runImport(context.Background(), f, []string{claude}, strings.NewReader(""), &out)
+	code := RunImport(context.Background(), f, []string{claude}, strings.NewReader(""), &out)
 	if code != 0 {
 		t.Fatalf("dry-run exit=%d: %s", code, out.String())
 	}
@@ -46,7 +47,7 @@ func TestRunImportDryRunAndCommit(t *testing.T) {
 	}
 	// --commit.
 	out.Reset()
-	code = runImport(context.Background(), f, []string{claude, "--commit"}, strings.NewReader(""), &out)
+	code = RunImport(context.Background(), f, []string{claude, "--commit"}, strings.NewReader(""), &out)
 	if code != 0 {
 		t.Fatalf("commit exit=%d: %s", code, out.String())
 	}
@@ -60,14 +61,14 @@ func TestRunImportDryRunAndCommit(t *testing.T) {
 	f2 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	f2.exists = true // 모든 해시 존재 → skip
 	out.Reset()
-	code = runImport(context.Background(), f2, []string{claude, "--commit"}, strings.NewReader(""), &out)
+	code = RunImport(context.Background(), f2, []string{claude, "--commit"}, strings.NewReader(""), &out)
 	if code != 0 || !strings.Contains(out.String(), `"inserted":0`) {
 		t.Fatalf("재임포트 멱등 위반: exit=%d %s", code, out.String())
 	}
 }
 
 // TestParseMarkdownFenceGuard — v0.27.0 리뷰 6: 펜스 내부 "## "는
-// 헤딩 아니다 — 섹션 분할·주석 제거 모두 펜스 보존.
+// 헤딩이 아니다 — 섹션 분할·주석 제거 모두 펜스 보존.
 func TestParseMarkdownFenceGuard(t *testing.T) {
 	body := "## 규칙\n실제 내용 충분합니다.\n\n```markdown\n## 펜스 내부 예시\n```\n"
 	secs := parseMarkdownSections(body)
@@ -156,7 +157,7 @@ func TestRunImportSameFileTwice(t *testing.T) {
 	os.WriteFile(p, []byte("## 중복\n동일 내용 섹션 — 최소 길이 충분합니다.\n"), 0o644)
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
-	code := runImport(context.Background(), f, []string{p, p, "--commit"}, strings.NewReader(""), &out)
+	code := RunImport(context.Background(), f, []string{p, p, "--commit"}, strings.NewReader(""), &out)
 	if code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
@@ -176,7 +177,7 @@ func TestRunImportPartialUnreadableReported(t *testing.T) {
 	os.WriteFile(p, []byte("## 규칙\n읽히는 파일의 본문이 충분히 있습니다.\n"), 0o644)
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
-	code := runImport(context.Background(), f, []string{p, dir + "/없는파일.md", "--commit"}, strings.NewReader(""), &out)
+	code := RunImport(context.Background(), f, []string{p, dir + "/없는파일.md", "--commit"}, strings.NewReader(""), &out)
 	if code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
@@ -195,11 +196,11 @@ func TestRunImportOriginNormalized(t *testing.T) {
 	os.WriteFile(dir+"/CLAUDE.md", []byte("## 규칙\n경로 정규화 검증용 충분한 본문입니다.\n"), 0o644)
 	t.Chdir(dir) // 상대경로 후보 탐색도 같은 디렉터리에서
 	f1 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
-	runImport(context.Background(), f1, []string{"CLAUDE.md", "--commit"}, strings.NewReader(""), &strings.Builder{})
+	RunImport(context.Background(), f1, []string{"CLAUDE.md", "--commit"}, strings.NewReader(""), &strings.Builder{})
 	f2 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	f2.exists = true // 첫 적립과 동일 해시 → ExistsHash 참으로 멱등 skip
 	var out strings.Builder
-	code := runImport(context.Background(), f2, []string{"./CLAUDE.md", "--commit"}, strings.NewReader(""), &out)
+	code := RunImport(context.Background(), f2, []string{"./CLAUDE.md", "--commit"}, strings.NewReader(""), &out)
 	if code != 0 || !strings.Contains(out.String(), `"inserted":0`) {
 		t.Fatalf("경로 재임포트 멱등 위반: exit=%d %s", code, out.String())
 	}
@@ -211,13 +212,13 @@ func TestRunImportOriginNormalized(t *testing.T) {
 func TestRunImportUnknownFlag(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
-	code := runImport(context.Background(), f, []string{"--verbose"}, strings.NewReader(""), &out)
+	code := RunImport(context.Background(), f, []string{"--verbose"}, strings.NewReader(""), &out)
 	if code != 3 || !strings.Contains(out.String(), `"unknown flag: --verbose"`) {
 		t.Fatalf("미확인 플래그 = exit %d %s, want 3 unknown flag", code, out.String())
 	}
 	// 따옴표 포함 플래그도 JSON 파싱 가능(errLine 이스케이프).
 	out.Reset()
-	code = runImport(context.Background(), f, []string{`--x"y`}, strings.NewReader(""), &out)
+	code = RunImport(context.Background(), f, []string{`--x"y`}, strings.NewReader(""), &out)
 	if code != 3 {
 		t.Fatalf("이상 플래그 exit=%d", code)
 	}
@@ -238,7 +239,7 @@ func TestRunImportOriginCleanNotBase(t *testing.T) {
 	os.WriteFile(dir+"/b/rules.md", []byte(body), 0o644)
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
-	code := runImport(context.Background(), f, []string{dir + "/a/rules.md", dir + "/b/rules.md", "--commit"}, strings.NewReader(""), &out)
+	code := RunImport(context.Background(), f, []string{dir + "/a/rules.md", dir + "/b/rules.md", "--commit"}, strings.NewReader(""), &out)
 	if code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
@@ -256,7 +257,7 @@ func TestRunImportDedupErrorAllFail(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	f.existsErr = errors.New("db down")
 	var out strings.Builder
-	code := runImport(context.Background(), f, []string{p, "--commit"}, strings.NewReader(""), &out)
+	code := RunImport(context.Background(), f, []string{p, "--commit"}, strings.NewReader(""), &out)
 	if code != 1 || !strings.Contains(out.String(), `"status":"error"`) {
 		t.Fatalf("전량 조회 실패 = exit %d %s, want 1 error", code, out.String())
 	}

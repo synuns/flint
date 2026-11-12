@@ -119,9 +119,10 @@ func TestBumpFallbackAtomic(t *testing.T) {
 // TestMetaKVSingleSource — Review Focus: 소유 파일(metrics·tuning·setup·
 // hot·read·done·backup)에 meta SQL 리터럴 잔존 0 — 조회·증감 전부
 // meta_kv.go 단일 진입 위임(v0.34.3 리뷰 픽스: done bumpMetaCounter·
-// backup rotate getKV 잔존 수렴).
+// backup rotate getKV 잔존 수렴). v0.39.0 T3: hot·read은 lib/knowledge로
+// 이동 — 가드도 이동 위치를 검사한다. v0.39.0 T4: done.go 동일.
 func TestMetaKVSingleSource(t *testing.T) {
-	for _, f := range []string{"metrics.go", "tuning.go", "setup.go", "hot.go", "read.go", "done.go", "backup.go"} {
+	for _, f := range []string{"metrics.go", "tuning.go", "setup.go", "../knowledge/hot.go", "../knowledge/read.go", "../knowledge/done.go", "backup.go"} {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)

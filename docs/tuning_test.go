@@ -1,7 +1,8 @@
 // tuning_test.go — TUNING.md의 메타 키 이름이 코드에서 실제 사용하는
 // 키와 일치하는지 grep 정합 검증한다(T30 — 문서 임계값 절차의 계약).
 // thresholds 4키는 lib/store/thresholds.go, last_backup은 lib/backup/auto.go,
-// hot_budget은 lib/cli/hot.go, hot_stats는 lib/cli/metrics.go와 각각 대조한다.
+// hot_budget은 lib/knowledge/hot.go(v0.39.0 T3 이동), hot_stats는
+// lib/cli/metrics.go와 각각 대조한다.
 package docs
 
 import (
@@ -40,7 +41,7 @@ func TestTuningMetaKeysMatch(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(read(t, "../lib/cli/hot.go"), `"hot_budget"`) {
+	if !strings.Contains(read(t, "../lib/knowledge/hot.go"), `"hot_budget"`) {
 		t.Error("hot_budget 키 hot.go와 불일치")
 	}
 	if !strings.Contains(doc, "hot_budget") {

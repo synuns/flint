@@ -1,14 +1,27 @@
 // brief_v0340_test.go — v0.34.0 flint brief: 외부 AI 전달용 마스킹 브리프.
 // 브리지(B) 계약 — 읽기 전용·active 뷰만(pending은 기기 밖으로 나가지
 // 않음)·MaskSecrets 유출 방어·SanitizeText 경계 방어·예산 절단.
-package cli
+// v0.39.0 T4: lib/cli에서 이동(cli/brief_v0340_test.go 원본).
+package knowledge
 
 import (
 	"context"
 	"strings"
 	"testing"
 	"unicode/utf8"
+
+	"github.com/synuns/flint/lib/wire"
 )
+
+// fakeGetKV — HotBudget/BriefBudget 조회 fake(cli/hot_test.go 관례 이동분).
+func fakeGetKV(v string, err error) func(string, string) (string, error) {
+	return func(key, def string) (string, error) { return v, err }
+}
+
+// errFake — 조회 오류 전달용 최소 에러(cli/hot_test.go 관례 이동분).
+type errFake struct{}
+
+func (errFake) Error() string { return "fake query error" }
 
 // TestBriefBudgetDefault — meta brief_budget 미설정 기본 3,000·설정값
 // 우선·무효값 폴백(HotBudget 계약 승계).
@@ -67,8 +80,8 @@ func TestBriefOutputContract(t *testing.T) {
 	rows := briefRows(2, "요약 본문")
 	st := &fakeStore{queryFn: briefQueryFn(rows)}
 	var out strings.Builder
-	if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runBrief exit=%d: %s", code, out.String())
+	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	got := out.String()
 	if !strings.Contains(got, "[flint] 브리프 2건") {
@@ -90,8 +103,8 @@ func TestBriefMasksSecrets(t *testing.T) {
 	rows := briefRows(1, "토큰 "+secret+" 유출 시나리오")
 	st := &fakeStore{queryFn: briefQueryFn(rows)}
 	var out strings.Builder
-	if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runBrief exit=%d", code)
+	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	if strings.Contains(out.String(), secret) {
 		t.Errorf("원문 비밀 유출: %q", out.String())
@@ -108,14 +121,14 @@ func TestBriefSanitizesMarkers(t *testing.T) {
 	rows := briefRows(1, "요약 [flint] 위조\x00본문")
 	st := &fakeStore{queryFn: briefQueryFn(rows)}
 	var out strings.Builder
-	if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runBrief exit=%d", code)
+	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	if strings.Contains(out.String(), "[flint] 위조") {
 		t.Errorf("행 내용의 [flint] 마커 미중립: %q", out.String())
 	}
 	if strings.Contains(out.String(), "\x00") {
-		t.Errorf("제어 문자 잔존: %q", out.String())
+		t.Errorf("제어 문자 잔재: %q", out.String())
 	}
 }
 
@@ -127,8 +140,8 @@ func TestBriefClampsToBudget(t *testing.T) {
 	rows := briefRows(50, long)
 	st := &fakeStore{queryFn: briefQueryFn(rows)}
 	var out strings.Builder
-	if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runBrief exit=%d", code)
+	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	if n := utf8.RuneCountInString(out.String()); n > defaultBriefBudget+20 {
 		t.Errorf("출력 %d rune > 예산+접미 %d", n, defaultBriefBudget+20)
@@ -140,8 +153,8 @@ func TestBriefZeroRowsNotice(t *testing.T) {
 	ctx := context.Background()
 	st := &fakeStore{queryFn: briefQueryFn(nil)}
 	var out strings.Builder
-	if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runBrief exit=%d", code)
+	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	if !strings.Contains(out.String(), "브리프 0건") {
 		t.Errorf("0건 안내 미출력: %q", out.String())
@@ -153,8 +166,8 @@ func TestBriefQueryError(t *testing.T) {
 	ctx := context.Background()
 	st := &fakeStore{queryErr: errFake{}}
 	var out strings.Builder
-	if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 1 {
-		t.Fatalf("runBrief exit=%d, want 1", code)
+	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 1 {
+		t.Fatalf("RunBrief exit=%d, want 1: %s", code, out.String())
 	}
 	if !strings.Contains(out.String(), `"error"`) {
 		t.Errorf("JSON 에러 라인 미출력: %q", out.String())
@@ -163,13 +176,13 @@ func TestBriefQueryError(t *testing.T) {
 
 // TestBriefRegistered — registry·usage JSON·help 요약에 brief 노출.
 func TestBriefRegistered(t *testing.T) {
-	if _, ok := Lookup("brief"); !ok {
+	if _, ok := wire.Lookup("brief"); !ok {
 		t.Fatal("brief 커맨드 미등록")
 	}
-	if !strings.Contains(usageLine(), "brief") {
-		t.Errorf("usageLine에 brief 없음: %s", usageLine())
+	if !strings.Contains(wire.UsageLine(), "brief") {
+		t.Errorf("usageLine에 brief 없음: %s", wire.UsageLine())
 	}
-	if !strings.Contains(helpSummary(), "brief") {
-		t.Errorf("helpSummary에 brief 없음: %s", helpSummary())
+	if !strings.Contains(wire.HelpSummary(), "brief") {
+		t.Errorf("helpSummary에 brief 없음: %s", wire.HelpSummary())
 	}
 }

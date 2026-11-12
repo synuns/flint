@@ -9,6 +9,8 @@ import (
 
 // ADR-0006 — restore 체크섬 가드(T47). 가드는 runRestore 1곳에만 존재한다.
 // fake backup seam(backup_test.go) 재사용 — restoreFn 위임 여부로 가드 선행 검증.
+// v0.39.0 T4: TestLazyDumpPartialWriteDiscards(lazyDumpFile 소유)은
+// lib/knowledge/done_v0100_test.go로 이동했다.
 
 // 불일치 — 한 줄 JSON 경고 + exit 1, restoreFn 미호출(임의 SQL 실행 차단).
 func TestRestoreChecksumMismatchExit1(t *testing.T) {
@@ -79,31 +81,5 @@ func TestBackupWritesSidecar(t *testing.T) {
 	}
 	if m := decode(t, out); m["sha256"] != fields[0] {
 		t.Fatalf("출력 sha256=%v, sidecar=%s", m["sha256"], fields[0])
-	}
-}
-
-// TestLazyDumpPartialWriteDiscards — v0.25.4(U2): 본문 기록 실패 시
-// 부분 파일이 정상 사이드카를 받지 않고 폐기된다(체크섬 통과 오탐
-// 백업 슬롯 방어).
-func TestLazyDumpPartialWriteDiscards(t *testing.T) {
-	dir := t.TempDir()
-	lf := &lazyDumpFile{dir: dir}
-	if _, err := lf.Write([]byte("BEGIN;\n")); err != nil {
-		t.Fatal(err)
-	}
-	// 파일을 닫아버려 후속 Write 실패 유도 → failed 마킹.
-	lf.f.Close()
-	if _, err := lf.Write([]byte("more")); err == nil {
-		t.Fatal("닫힌 파일 Write 성공 — 픽스처 결함")
-	}
-	if err := lf.close(); err == nil {
-		t.Fatal("failed 상태 close가 에러 아님")
-	}
-	// 부분 파일 폐기 확인 — dir에 .sql/.sha256 잔존 없음.
-	ents, _ := os.ReadDir(dir)
-	for _, e := range ents {
-		if strings.HasSuffix(e.Name(), ".sql") || strings.HasSuffix(e.Name(), ".sha256") {
-			t.Errorf("부분 파일 잔존: %s", e.Name())
-		}
 	}
 }
