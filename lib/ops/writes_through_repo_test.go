@@ -68,6 +68,13 @@
 //   - 자기 참조 재할당 누적 — `s = s + 피연산자` 재할당을 += 와 동등한
 //     누적으로 체인에 잇는다(⑥ splitSelfAdd).
 //
+// v1.0.7 R8 보강(실증 우회 2종 추가 폐쇄 — 재프로브로 우회 확인 후):
+//   - const 형식 — fmt 결합 호출의 형식 피연산자가 패키지 블록 const
+//     Ident여도 접힌 값으로 판정한다(formatOperand Ident case).
+//   - 중첩 Join/Concat — ④의 결합 본체를 sliceCombined로 추출해
+//     stringOperand가 depth 한계 내 재귀 접기한다(내부 결합이 무해할 때
+//     외부 판정에서 공란 대입되던 우회 폐쇄).
+//
 // 오탐(안내문·검사명의 비SQL "update" 단어)은 writeLiteralAllow 정확
 // 일치 화이트리스트로만 면제한다 — 신규 면제는 이 표에 대한 명시적
 // 선언이어야 한다.
@@ -287,13 +294,11 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	})
 	// ④ 슬라이스 결합(strings.Join·slices.Concat) — 슬라이스 요소를 합친
 	//    결과에서만 성립하는 쓰기 동사(strings.Join([]string{"DEL","ETE…"},
-	//    "") 분할 우회, R3)도 잡는다. Join은 구분자(리터럴 본문, 비리터럴
-	//    공란 근사)로, Concat은 무구분자로 전체 요소를 잇는다(R6). Join 첫
-	//    인자·Concat 인자 각각은 슬라이스 리터럴([]string{…}) 또는 패키지
-	//    블록 var 슬라이스 테이블의 Ident(R5 슬라이스 접기)여야 정적 결합이
-	//    가능하다 — 그 외(지역 변수·함수 결과)는 건너뛴다. 요소는
-	//    combineParts로 접는다(리터럴·const Ident·중첩 fmt 결합, 그 외
-	//    공란 보수 대입). 면제·중복 보고 원칙은 ②와 동일.
+	//    "") 분할 우회, R3)도 잡는다. 결합 본체는 sliceCombined(요소·구분
+	//    자 접기, R8 추출)이고 ④는 요소 수 ≥2의 보고 관문이다 — 1요소
+	//    Join은 단독 결합이 없으므로 보고하지 않되, stringOperand 재귀에서
+	//    값으로는 접힌다(중첩 Join의 내부 무해 결합 폐쇄). 면제·중복 보고
+	//    원칙은 ②와 동일.
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -303,60 +308,22 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		if !ok {
 			return true
 		}
-		var sliceArgs []ast.Expr
-		sep := ""
-		what := ""
+		var what string
 		switch sel.Sel.Name {
 		case "Join":
-			if len(call.Args) != 2 {
-				return true
-			}
-			sliceArgs = call.Args[:1]
-			if slit, ok := call.Args[1].(*ast.BasicLit); ok && slit.Kind == token.STRING {
-				sep = unquoteLiteral(slit.Value)
-			}
 			what = "strings.Join"
 		case "Concat":
-			if len(call.Args) == 0 {
-				return true
-			}
-			sliceArgs = call.Args
 			what = "slices.Concat"
 		default:
 			return true
 		}
-		var parts []string
-		var marked []token.Pos
-		joinable := true
-		for _, arg := range sliceArgs {
-			switch a := arg.(type) {
-			case *ast.CompositeLit:
-				ps, marks, ok := combineParts(a.Elts, consts, slices, flagged, 0)
-				if !ok {
-					joinable = false
-					continue
-				}
-				parts = append(parts, ps...)
-				marked = append(marked, marks...)
-			case *ast.Ident:
-				si, ok := slices[a.Name]
-				if !ok || anyFlagged(si.lits, flagged) {
-					joinable = false
-					continue
-				}
-				parts = append(parts, si.vals...)
-				marked = append(marked, si.lits...)
-			default:
-				joinable = false
-			}
+		joined, marked, count, ok := sliceCombined(call, consts, slices, flagged, 0)
+		if !ok || count < 2 || writeLiteralAllow[joined] || !writeTokenRe.MatchString(joined) {
+			return true
 		}
-		joined := strings.Join(parts, sep)
-		if joinable && len(parts) >= 2 && !writeLiteralAllow[joined] &&
-			writeTokenRe.MatchString(joined) {
-			report(call.Pos(), what+" 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
-			for _, p := range marked {
-				flagged[p] = true
-			}
+		report(call.Pos(), what+" 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
+		for _, p := range marked {
+			flagged[p] = true
 		}
 		return true
 	})
@@ -573,6 +540,11 @@ func stringOperand(e ast.Expr, consts map[string]constInfo, slices map[string]sl
 			if combined, ok := fmtCombined(v, consts, slices, flagged, depth+1); ok {
 				return combined
 			}
+			// R8: 중첩 Join/Concat — 내부 결합이 무해해도 외부 판정의
+			// 피연산자 값으로 접힌다(공란 대입 우회 폐쇄).
+			if joined, _, _, ok := sliceCombined(v, consts, slices, flagged, depth+1); ok {
+				return joined
+			}
 		}
 	}
 	return ""
@@ -625,10 +597,69 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 	return "", false
 }
 
+// sliceCombined — Join/Concat 호출의 정적 결합 근사(④ 판정 본체·
+// stringOperand 재귀 공유, R8 추출). Join은 구분자(리터럴 본문, 비리터럴
+// 공란 근사)로 첫 인자 요소를, Concat은 무구분자로 전 인자 요소를 잇는다.
+// 슬라이스 인자는 슬라이스 리터럴([]string{…}) 또는 패키지 블록 var
+// 슬라이스 테이블의 Ident여야 하고, 요소는 combineParts로 접는다(리터럴·
+// const Ident·중첩 fmt/Join/Concat 결합, 그 외 공란 보수 대입). 결합
+// 가능하면 (결합 문자열, 원천 리터럴 위치, 요소 수, true), 비접힘 인자·
+// 원천 이미 보고면 false다.
+func sliceCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) (string, []token.Pos, int, bool) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "", nil, 0, false
+	}
+	var sliceArgs []ast.Expr
+	sep := ""
+	switch sel.Sel.Name {
+	case "Join":
+		if len(call.Args) != 2 {
+			return "", nil, 0, false
+		}
+		sliceArgs = call.Args[:1]
+		if slit, ok := call.Args[1].(*ast.BasicLit); ok && slit.Kind == token.STRING {
+			sep = unquoteLiteral(slit.Value)
+		}
+	case "Concat":
+		if len(call.Args) == 0 {
+			return "", nil, 0, false
+		}
+		sliceArgs = call.Args
+	default:
+		return "", nil, 0, false
+	}
+	var parts []string
+	var marked []token.Pos
+	for _, arg := range sliceArgs {
+		switch a := arg.(type) {
+		case *ast.CompositeLit:
+			ps, marks, ok := combineParts(a.Elts, consts, slices, flagged, depth)
+			if !ok {
+				return "", nil, 0, false
+			}
+			parts = append(parts, ps...)
+			marked = append(marked, marks...)
+		case *ast.Ident:
+			si, ok := slices[a.Name]
+			if !ok || anyFlagged(si.lits, flagged) {
+				return "", nil, 0, false
+			}
+			parts = append(parts, si.vals...)
+			marked = append(marked, si.lits...)
+		default:
+			return "", nil, 0, false
+		}
+	}
+	return strings.Join(parts, sep), marked, len(parts), true
+}
+
 // formatOperand — fmt 결합 호출의 형식 피연산자 접기: 문자열 리터럴은
 // 본문, 이어붙이기(+ ) 식은 ②와 동일한 조립 접기(foldAddString — R7:
-// Errorf("DEL"+"%s…")·Fprintf(w,"%s"+"ETE…") 형태 폐쇄), 그 외는 실패.
-// marked는 형식 원천 리터럴 위치(원천이 이미 보고됐으면 실패).
+// Errorf("DEL"+"%s…")·Fprintf(w,"%s"+"ETE…") 형태 폐쇄), 패키지 블록
+// const Ident는 접힌 값(R8: Errorf(constFmt, …) 형태 폐쇄 — foldAddString
+// 과 동일 패턴), 그 외는 실패. marked는 형식 원천 리터럴 위치(원천이 이미
+// 보고됐으면 실패).
 func formatOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool) (string, []token.Pos, bool) {
 	switch v := e.(type) {
 	case *ast.BasicLit:
@@ -637,6 +668,10 @@ func formatOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Po
 		}
 	case *ast.BinaryExpr:
 		return foldAddString(v, consts, flagged)
+	case *ast.Ident:
+		if ci, ok := consts[v.Name]; ok && !anyFlagged(ci.lits, flagged) {
+			return ci.val, ci.lits, true
+		}
 	}
 	return "", nil, false
 }
@@ -1106,6 +1141,21 @@ func f() string {
 	s = s + "update"
 	return s
 }`,
+		},
+		{
+			name: "const 형식 결합(R8: 형식이 const Ident)",
+			src: `package ops
+const r8Fmt = "DEL%s FROM meta WHERE key='demo'"
+func f() error { return fmt.Errorf(r8Fmt, "ETE") }`,
+			wantHit: true,
+		},
+		{
+			name: "중첩 Join 결합(R8: 내부 결합 무해)",
+			src: `package ops
+func f() string {
+	return strings.Join([]string{strings.Join([]string{"DEL"}, ""), "ETE FROM meta WHERE key='demo'"}, "")
+}`,
+			wantHit: true,
 		},
 		{
 			name: "오탐 방어: 비SQL 안내문(화이트리스트)",
