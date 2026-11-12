@@ -585,6 +585,26 @@ func TestVersionArtifactsSync(t *testing.T) {
 	}
 }
 
+// TestReadmeReleaseBadgeSingle — v1.0.1 감사(릴리스 동기): release 배지는
+// README당 1개뿐이어야 한다. 릴리스마다 배지를 갱신하지 않고 추가해 온
+// 드리프트가 v1.0.1에서 동일 src 3중 배지(alt만 v0.43.0·v0.44.0·v1.0.1)
+// 로 드러났다 — src 전량 동기(갱신)는 맞지만 중복 행은 남아 있다. 배지
+// 1개·alt=VERSION 동기까지 강제한다.
+func TestReadmeReleaseBadgeSingle(t *testing.T) {
+	ver := strings.TrimSpace(docStr(t, "../VERSION"))
+	badgeRe := regexp.MustCompile(`<img src="https://img\.shields\.io/badge/release-v(\d+\.\d+\.\d+)-blue" alt="v(\d+\.\d+\.\d+)">`)
+	for _, p := range []string{"../README.md", "../README.ko.md"} {
+		ms := badgeRe.FindAllStringSubmatch(docStr(t, p), -1)
+		if len(ms) != 1 {
+			t.Errorf("%s release 배지 %d건, want 1(중복 배지 드리프트)", p, len(ms))
+			continue
+		}
+		if ms[0][1] != ver || ms[0][2] != ver {
+			t.Errorf("%s release 배지 src=v%s alt=v%s, want 둘 다 v%s(VERSION)", p, ms[0][1], ms[0][2], ver)
+		}
+	}
+}
+
 // TestPlanRearmedTwoPageContract — v0.44.0 T1(PLAN 재무장): PLAN.md는
 // 현행 계약 2페이지(≤150줄)로 유지된다. ① 줄 수 상한 ② 현행 구조·원칙·
 // v1.0.0 마일스톤 서술 ③ 구 본문 4개 모순 지점(서브커맨드 14·MCP 도구

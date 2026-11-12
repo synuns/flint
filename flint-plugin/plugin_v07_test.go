@@ -133,8 +133,10 @@ func TestHooksNudgeGuards(t *testing.T) {
 }
 
 // TestHooksExistingUntouched — 세션 훅 통합 엔트리는 원문 보존.
-// v1.0.1 감사(F4): session_id 치환은 jq @sh+eval — 이중따옴표 치환은
-// id 원문의 "·$가 이중 인용 안에서 해석되는 셸 삽입 창이었다(원문 갱신).
+// v1.0.1 감사(F4): session_id 치환은 jq @sh+eval — @sh가 만드는 홑따옴표
+// 인용을 eval이 파싱해 원문 그대로 단일 인자로 전달한다(구 이중 인용
+// 형태도 치환 결과가 재해석되지는 않았으나 인용 계층이 암묵적이었다 —
+// 명시 인용으로 원문 보존을 구조적으로 보장, 원문 갱신).
 func TestHooksExistingUntouched(t *testing.T) {
 	doc := readHooksJSON(t)
 	const startCmd = `eval "flint session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)" 2>/dev/null || true`

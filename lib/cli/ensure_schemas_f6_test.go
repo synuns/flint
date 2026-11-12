@@ -39,11 +39,11 @@ func TestEnsureSchemasLatestSkipsGates(t *testing.T) {
 // 비정수·빈 결과·조회 오류 → (…,false)로 순차 승격 경로에 폴백.
 func TestSchemaVersionFnParsing(t *testing.T) {
 	cases := []struct {
-		name  string
-		rows  [][]any
-		err   bool
-		v     int
-		ok    bool
+		name string
+		rows [][]any
+		err  bool
+		v    int
+		ok   bool
 	}{
 		{"최신 버전", [][]any{{"9"}}, false, 9, true},
 		{"레거시 버전", [][]any{{"3"}}, false, 3, true},

@@ -100,8 +100,8 @@ func TestSchemaGatesCoverAdmin(t *testing.T) {
 func TestSchemaGateDefsSpanAllFiles(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
-		"admin.go":     "package db\n\nfunc (r *Repo) EnsureSchemaV2() {}\nfunc (r *Repo) EnsureSchemaV3() {}\n",
-		"gates_new.go": "package db\n\n// 신규 게이트 — 다른 파일 정의(구 가드 사각).\nfunc (r *Repo) EnsureSchemaV5() {}\n",
+		"admin.go":      "package db\n\nfunc (r *Repo) EnsureSchemaV2() {}\nfunc (r *Repo) EnsureSchemaV3() {}\n",
+		"gates_new.go":  "package db\n\n// 신규 게이트 — 다른 파일 정의(구 가드 사각).\nfunc (r *Repo) EnsureSchemaV5() {}\n",
 		"noise_test.go": "package db\n\n// _test.go는 대상 아님.\nfunc (r *Repo) EnsureSchemaV9() {}\n",
 	}
 	for name, body := range files {

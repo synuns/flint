@@ -17,6 +17,7 @@
 //     순서대로 합친 결과에서만 성립하는 쓰기 동사도 잡는다.
 //   - 순회 사각 — 비재귀 os.ReadDir 대신 WalkDir 재귀(하위 디렉터리 전부,
 //     Go 관례 testdata 제외).
+//
 // 오탐(안내문·검사명의 비SQL "update" 단어)은 writeLiteralAllow 정확
 // 일치 화이트리스트로만 면제한다 — 신규 면제는 이 표에 대한 명시적
 // 선언이어야 한다.
@@ -45,12 +46,12 @@ var writeTokenRe = regexp.MustCompile(`(?i)\b(UPDATE|DELETE|INSERT)\b`)
 // 경로다 — 본문 수정 시 이 표도 함께 갱신한다(자동 면제 없음).
 var writeLiteralAllow = map[string]bool{
 	// doctor 검사명·처방 문구(사람 대향 안내, 비SQL).
-	"update": true,
+	"update":            true,
 	"fix: flint update": true,
 	"fix: flint setup --update-rules — 스킬 싱크": true,
 	// rules_sync 오류 안내문.
 	"update-rules: 소스 flint-plugin/skills/flint 미탐지 — --src 플래그로 지정": true,
-	"update-rules: FLINT_CLAUDE_HOME 또는 HOME을 설정해 싱크 대상 경로를 지정": true,
+	"update-rules: FLINT_CLAUDE_HOME 또는 HOME을 설정해 싱크 대상 경로를 지정":      true,
 	"update-rules 싱크 실패: %w": true,
 	// maintain unknown-키 힌트: 사람이 수동 실행할 문구 안내(실행 아님).
 	`{"hint":"unknown 키는 사용 중단 후보 — 확인 후 수동 정리: DELETE FROM meta WHERE key = '...'"}`: true,

@@ -491,8 +491,10 @@ func flintHookDefs(binPath string) map[string][]map[string]any {
 	return map[string][]map[string]any{
 		"SessionStart": {
 			// v1.0.1 감사(F4): jq @sh가 홑따옴표 셸 인용을 만들고 eval이
-			// 이를 올바르게 파싱해 단일 인자로 전달 — 이중따옴표 치환은
-			// id 원문의 "·$가 해석되는 삽입 창이었다. hooks.json과 동일 패턴.
+			// 이를 올바르게 파싱해 단일 인자로 전달한다. 구 이중 인용 치환도
+			// 결과가 재해석되지는 않았으나 인용 계층이 암묵적이었다 — 명시
+			// 인용(@sh)+eval 파싱으로 원문 보존을 구조적으로 보장한다.
+			// hooks.json과 동일 패턴.
 			withSession(`session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)`),
 		},
 		"Stop": {
