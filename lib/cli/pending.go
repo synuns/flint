@@ -244,23 +244,9 @@ func oneLine(s string, max int) string {
 	return truncateRunes(strings.TrimSpace(s), max)
 }
 
-// countPending — pending 지식 수 단일 조회(v0.34.3: status·nudge·
-// sessionhook의 3중 쿼리 복제 수렴 — report.go는 v0.36 트랙 제외).
-// 조회 실패만 오류; 빈 응답·해석 불가 값은 0(기존 소비자 관례: 조용한
-// 0 처리)이다.
-func countPending(ctx context.Context, st Store) (int, error) {
-	rows, err := queryOnce(ctx, st,
-		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`, nil)
-	if err != nil {
-		return 0, err
-	}
-	if len(rows) == 0 || len(rows[0]) == 0 {
-		return 0, nil
-	}
-	n, _ := cellToInt(rows[0][0])
-	return n, nil
-}
-
+// countPending — lib/render.CountPending 이동(v0.38.0): 별칭은
+// render_alias.go가 제공한다.
+//
 // joinInts — 콤마 결합(상한 5).
 func joinInts(ids []int) string {
 	if len(ids) > 5 {
