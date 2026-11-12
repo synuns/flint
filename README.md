@@ -162,6 +162,14 @@ flint brief [query]        # masked, read-only context block — paste it into a
 | `flint profile` | Profile verdict: evidence + recommendation, `--apply normal\|minimal` |
 | `flint status` | Schema version, pending count, hot p95 |
 | `flint mcp` | MCP server (read·write·hot·pending·approve tools) |
+| `flint pending` | Pending review queue with verdicts (promote·merge·expire·hold, `--json`) |
+| `flint compact` | Record a compact summary as pending knowledge (PostCompact hook entry) |
+| `flint nudge` | Session-end distillation reminder for markers left by compact (`--clear` closes) |
+| `flint doctor --check c` | Health checks (16 kinds, subset via `--check`, fail → exit 1) |
+| `flint report --days n` | Daily intake·zero_pct·p95·stale report (`--html` static dashboard) |
+| `flint diff <from> <to>` | Compare knowledge between two as-of points |
+| `flint teardown` | Undo setup (hooks/config; `--purge` also removes data) |
+| `flint version` | Print version |
 
 **Exit codes:** 0 success · 1 error (or silent no-results on `read`) · 2 storage failure · exit 3 — invalid input (valueless trailing flags, bad `--status` / `--as-of` values, schema violations on `write`).
 

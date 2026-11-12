@@ -173,6 +173,14 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 | `flint profile` | 프로파일 판정: 근거 지표+추천, `--apply normal\|minimal` |
 | `flint status` | 스키마 버전 · 대기 건수 · hot p95 |
 | `flint mcp` | MCP 서버 (read·write·hot·pending·approve 도구) |
+| `flint pending` | 대기 지식 검수 뷰 (승격·병합·만료·보류 판정, `--json`) |
+| `flint compact` | compact 요약을 pending 지식으로 적립 (PostCompact 훅 진입점) |
+| `flint nudge` | compact가 남긴 마커의 세션 종료 증류 리마인더 (`--clear` 종결) |
+| `flint doctor --check c` | 건강 검진 16종 (`--check` 서브셋, fail 시 exit 1) |
+| `flint report --days n` | 일별 유입·zero_pct·p95·stale 리포트 (`--html` 정적 대시보드) |
+| `flint diff <from> <to>` | 두 as-of 지점 간 지식 변경 비교 |
+| `flint teardown` | 설정 해제 (훅·설정, `--purge` 시 데이터도 제거) |
+| `flint version` | 버전 출력 |
 
 **종료 코드:** 0 성공 · 1 오류 (또는 `read` 무결과 침묵) · 2 저장소 장애 · exit 3 — 잘못된 입력 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값, `write` 스키마 위반).
 
