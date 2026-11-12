@@ -44,7 +44,6 @@ var (
 	hotHeadline            = knowledge.HotHeadline
 	hotTopics              = knowledge.HotTopics
 	pendingAgeSuffix       = knowledge.PendingAgeSuffix
-	hotKnowledgeIDsSQL     = knowledge.HotKnowledgeIDsSQL
 	bumpReadFallbackToMeta = knowledge.BumpReadFallbackToMeta
 	parseIDsCSV            = knowledge.ParseIDsCSV
 	rowIDs                 = knowledge.RowIDs

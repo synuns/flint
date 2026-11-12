@@ -152,35 +152,17 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 	return s, nil
 }
 
-// ensureSchemas — 버전 게이트 v2→v3→v4→v5→v6→v7 순차 승격(newRealStore 전용).
-// 순서 불변: v1 DB가 v7로 건너뛰며 중간 컬럼·인덱스·테이블을 놓치지 않게 한다.
+// ensureSchemas — 등록표(db.SchemaGates) 순차 승격(newRealStore 전용).
+// 순서 불변: v1 DB가 최신 버전으로 건너뛰며 중간 컬럼·인덱스·테이블을
+// 놓치지 않게 한다. 게이트 목록·순서는 등록표 단일 소스(연속성은
+// TestSchemaGatesContiguous·파생은 TestEnsureSchemasUsesGates 가드).
 func ensureSchemas(ctx context.Context, repo *db.Repo) error {
-	// v2 승격(코디네이터 룰링): sessions.tasks·projects.note 컬럼.
-	if err := repo.EnsureSchemaV2(ctx); err != nil {
-		return err
+	for _, g := range db.SchemaGates() {
+		if err := g.Ensure(ctx, repo); err != nil {
+			return err
+		}
 	}
-	// v3 승격(T51/T57 배선): 필터 경로 인덱스 3종(ADR-0008).
-	if err := repo.EnsureSchemaV3(ctx); err != nil {
-		return err
-	}
-	// v4 승격(T62 배선): 참조 계측 컬럼(read_count·last_read_at).
-	if err := repo.EnsureSchemaV4(ctx); err != nil {
-		return err
-	}
-	// v5 승격(T82 배선): 계보 컬럼(superseded_by) — 추가만, 기존 게이트 불변.
-	if err := repo.EnsureSchemaV5(ctx); err != nil {
-		return err
-	}
-	// v6 승격(v0.19.0 배선): 효과 계측 테이블(read_events) — 추가만.
-	if err := repo.EnsureSchemaV6(ctx); err != nil {
-		return err
-	}
-	// v7 승격(v0.20.0 배선): 계측 정밀화(ids·session_starts·hot_events).
-	if err := repo.EnsureSchemaV7(ctx); err != nil {
-		return err
-	}
-	// v8 승격(v0.30.0 배선): hit 품질 근사(first_rank) — 추가만.
-	return repo.EnsureSchemaV8(ctx)
+	return nil
 }
 
 // Close — 풀 정리.

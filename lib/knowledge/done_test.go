@@ -26,6 +26,8 @@ type doneFake struct {
 
 	// 기록
 	gotAgent string
+	// v0.41.0 T3: UpdateSessionSummary 위임 캡처
+	updatedSessions []int
 }
 
 func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, error) {
@@ -34,6 +36,13 @@ func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, err
 		return 0, d.runsErr
 	}
 	return d.runs, nil
+}
+
+// UpdateSessionSummary — v0.41.0 T3: 종료 요약 갱신은 db.Repo.
+// UpdateSessionSummary 위임(쓰기 가드) — fake는 갱신 id를 기록.
+func (d *doneFake) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
+	d.updatedSessions = append(d.updatedSessions, id)
+	return 1, nil
 }
 
 // mustDone — RunDone 직접 실행(root.go 등록과 무관한 단위 경로).
@@ -338,6 +347,11 @@ func TestDoneUpdatesExistingSession(t *testing.T) {
 			t.Fatalf("%d회차 exit=%d, want 0; out=%s", i+1, code, out)
 		}
 		decode(t, out)
+		// v0.41.0 T3: 갱신은 UpdateSessionSummary 위임 — 최근 세션 id(7)로
+		// 회차당 1회 실행.
+		if len(d.updatedSessions) != 1 || d.updatedSessions[0] != 7 {
+			t.Fatalf("%d회차 UPDATE sessions 미실행(위임 캡처=%v)", i+1, d.updatedSessions)
+		}
 	}
 	// v0.27.0: 세션 행 갱신(INSERT 아님) — inserted엔 지식화 pending만
 	// 남는다(정상). session kind의 INSERT 부재를 단언.
@@ -345,15 +359,6 @@ func TestDoneUpdatesExistingSession(t *testing.T) {
 		if rec["kind"] == "session" {
 			t.Fatalf("갱신 경로에서 세션 INSERT 발생(중복 행 금지 위반): %v", rec)
 		}
-	}
-	updated := false
-	for _, q := range f.queries {
-		if strings.HasPrefix(q, "UPDATE sessions") {
-			updated = true
-		}
-	}
-	if !updated {
-		t.Fatalf("UPDATE sessions 미실행: %v", f.queries)
 	}
 }
 

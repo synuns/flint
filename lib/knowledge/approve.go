@@ -8,11 +8,11 @@ package knowledge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
+	"time"
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
@@ -35,15 +35,8 @@ var ApproveFn = func(ctx context.Context, id int) error {
 }
 
 // quoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
-// cli/backup.go 소유분과 동일 구현(knowledge는 cli를 임포트할 수
-// 없다 — 사이클 금지. 순수 함수 복제, 향후 수렴 부채).
-func quoteJSON(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return `""`
-	}
-	return string(b)
-}
+// v0.41.0 T4: 순수 함수 복제 폐지 — wire.QuoteJSON 단일 구현 별칭.
+var quoteJSON = wire.QuoteJSON
 
 // RunApprove — 승인 실행. 승격은 주어진 st 경유(R14 재배선 — 이전엔 st를
 // 무시하고 자체 Repo를 열었다).
@@ -142,12 +135,22 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 
 func init() { wire.Register("approve", RunApprove) }
 
-// supersedeAfterApprove — 승격 직후 OLD를 NEW로 대체 무효화(maintain
-// --supersede 갱신 UPDATE 승계 — v0.29.0 R2). 리뷰 1: 커밋은 Store.Commit
-// (dolt_add -A + dolt_commit — dolt_commit은 테이블이 아닌 내장 함수).
-// 리뷰 2: OLD active 사전 확인(maintainSupersede 계약 정렬 — rows-affected
-// 무시 무음 성공 금지).
+// supersedeStore — 대체 전이 capability(v0.41.0 T2). realStore가 구현하며
+// 갱신 UPDATE는 db.Repo.Supersede 단일 경로다(rows-affected 후견사 내장 —
+// approveStore 관례: wire.Store는 v0.1 소유라 타입 단언으로 소비).
+type supersedeStore interface {
+	Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error)
+}
+
+// supersedeAfterApprove — 승격 직후 OLD를 NEW로 대체 무효화(v0.29.0 R2
+// 갱신 경로의 repo 단일화). 리뷰 1: 커밋은 Store.Commit(dolt_add -A +
+// dolt_commit — dolt_commit은 테이블이 아닌 내장 함수). 리뷰 2: OLD active
+// 사전 확인·0행 경합 후견사는 Repo.Supersede rows-affected로 승계.
 func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int) error {
+	ss, ok := st.(supersedeStore)
+	if !ok {
+		return fmt.Errorf("supersede: 주입 store가 Supersede를 구현하지 않음")
+	}
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT status FROM knowledge WHERE id = $1`, []any{oldID})
 	if err != nil {
@@ -156,25 +159,21 @@ func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int)
 	if len(rows) == 0 || rows[0][0] == nil || fmt.Sprint(rows[0][0]) != "active" {
 		return fmt.Errorf("supersede: id=%d가 active 아님", oldID)
 	}
-	if _, err := wire.QueryOnce(ctx, st, `
-		UPDATE knowledge
-		SET status = 'invalidated',
-		    superseded_by = $2,
-		    invalid_at = (SELECT valid_at FROM knowledge WHERE id = $2)
-		WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`,
-		[]any{oldID, newID}); err != nil {
-		return err
-	}
-	// v0.31.3(감사 2): 후검사 — QueryOnce가 rows-affected를 폐기하므로
-	// 사전 확인과 UPDATE 사이 경합(병렬 무효화)에서 0행 갱신이 무음
-	// 성공으로 남던 창을 결과 확인으로 닫는다.
-	rows, verr := wire.QueryOnce(ctx, st,
-		`SELECT superseded_by FROM knowledge WHERE id = $1`, []any{oldID})
+	// invalid_at=NEW의 valid_at 병기 값(Zep t_invalid=t_valid 준거).
+	vrows, verr := wire.QueryOnce(ctx, st,
+		`SELECT valid_at FROM knowledge WHERE id = $1`, []any{newID})
 	if verr != nil {
 		return verr
 	}
-	if len(rows) == 0 || rows[0][0] == nil || fmt.Sprint(rows[0][0]) != fmt.Sprint(newID) {
-		return fmt.Errorf("supersede: id=%d 갱신 미반영(경합 — 재시도)", oldID)
+	if len(vrows) == 0 || vrows[0][0] == nil {
+		return fmt.Errorf("supersede: NEW 부재 id=%d", newID)
+	}
+	at, atOK := cellToTime(vrows[0][0])
+	if !atOK {
+		return fmt.Errorf("supersede: id=%d valid_at 판독 불가", newID)
+	}
+	if _, err := ss.Supersede(ctx, oldID, newID, at); err != nil {
+		return err
 	}
 	_, err = st.Commit(ctx, fmt.Sprintf(
 		"approve+supersede: id=%d superseded=%d (승격 병합 경로) [session:0]", newID, oldID))

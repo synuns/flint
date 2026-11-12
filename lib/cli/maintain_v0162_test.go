@@ -9,15 +9,11 @@ import (
 	"time"
 )
 
-// expireFixture — pending 2건(경과 7일·2일)을 반환하는 queryFn. UPDATE는
-// updSQL·updArgs에 캡처한다(승계 fakeStore 패턴 — fakeMaint 내장).
-func expireFixture(updSQL *[]string, updArgs *[][]any, old, recent time.Time) *fakeMaint {
+// expireFixture — pending 2건(경과 7일·2일)을 반환하는 queryFn. 전이
+// 갱신은 Repo.Invalidate 위임이라 queryFn은 조회(SELECT)만 담당한다
+// (v0.41.0 T2 — UPDATE 캡처는 fakeMaint Invalidate가 대신한다).
+func expireFixture(old, recent time.Time) *fakeMaint {
 	return &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "UPDATE") {
-			*updSQL = append(*updSQL, sql)
-			*updArgs = append(*updArgs, args)
-			return [][]any{{int64(1)}}, nil
-		}
 		return [][]any{
 			{int64(3), "backup-policy", "오래된 백업 정책 요약", old},
 			{int64(4), "port-config", "최근 포트 정책", recent},
@@ -26,13 +22,11 @@ func expireFixture(updSQL *[]string, updArgs *[][]any, old, recent time.Time) *f
 }
 
 // TestExpirePendingDryRun — Review Focus: pending 2건(경과 7일·2일)에서
-// days=5 나열 시 7일 행 1건만 출력·UPDATE·Commit 미호출.
+// days=5 나열 시 7일 행 1건만 출력·전이·Commit 미호출.
 func TestExpirePendingDryRun(t *testing.T) {
 	old := time.Now().Add(-7 * 24 * time.Hour)
 	recent := time.Now().Add(-2 * 24 * time.Hour)
-	var updSQL []string
-	var updArgs [][]any
-	f := expireFixture(&updSQL, &updArgs, old, recent)
+	f := expireFixture(old, recent)
 
 	out, code := runMaintainArgs(t, f, "--expire-pending", "5")
 	if code != 0 {
@@ -48,47 +42,35 @@ func TestExpirePendingDryRun(t *testing.T) {
 	if !strings.Contains(out, `"status":"expire-pending"`) {
 		t.Errorf("status 불일치: %q", out)
 	}
-	// dry-run — UPDATE·Commit 무변경.
-	if len(updSQL) != 0 {
-		t.Errorf("dry-run에서 UPDATE 실행: %v", updSQL)
+	// dry-run — 전이·Commit 무변경.
+	if len(f.invalidateCalls) != 0 {
+		t.Errorf("dry-run에서 Invalidate 실행: %v", f.invalidateCalls)
 	}
 	if len(f.commits) != 0 {
 		t.Errorf("dry-run에서 Commit 실행: %v", f.commits)
 	}
 }
 
-// TestExpirePendingCommit — Review Focus: UPDATE 캡처 — status='invalidated'·
-// invalid_at=now() 설정·컷오프가 대상 id(7일 행)만 포함·건수 출력.
+// TestExpirePendingCommit — Review Focus: 전이 위임 캡처 — 대상 id(7일 행)
+// 스냅숏만 Invalidate에 전달·건수 출력·커밋 메시지.
 func TestExpirePendingCommit(t *testing.T) {
 	old := time.Now().Add(-7 * 24 * time.Hour)
 	recent := time.Now().Add(-2 * 24 * time.Hour)
-	var updSQL []string
-	var updArgs [][]any
-	f := expireFixture(&updSQL, &updArgs, old, recent)
+	f := expireFixture(old, recent)
 
 	out, code := runMaintainArgs(t, f, "--expire-pending", "5", "--commit")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0 (출력 %q)", code, out)
 	}
-	if len(updSQL) != 1 {
-		t.Fatalf("UPDATE 호출 수=%d, want 1", len(updSQL))
+	if len(f.invalidateCalls) != 1 {
+		t.Fatalf("Invalidate 호출 수=%d, want 1", len(f.invalidateCalls))
 	}
-	if !strings.Contains(updSQL[0], "status = 'invalidated'") {
-		t.Errorf("UPDATE가 status 전환 아님: %q", updSQL[0])
+	// 나열된 7일 행(id 3)만 — dry-run 대상과 확정 대상 일치.
+	if len(f.invalidateCalls[0]) != 1 || f.invalidateCalls[0][0] != 3 {
+		t.Errorf("Invalidate 파라미터=%v, want [[3]]", f.invalidateCalls)
 	}
-	if !strings.Contains(updSQL[0], "invalid_at = now()") {
-		t.Errorf("UPDATE가 invalid_at 설정 아님: %q", updSQL[0])
-	}
-	// 대상 id 일치 — 동일 조건 파라미터(컷오프)가 7일 행만 포함하는지.
-	if len(updArgs[0]) != 1 {
-		t.Fatalf("UPDATE 파라미터=%v, want 컷오프 1개", updArgs[0])
-	}
-	cutoff, ok := updArgs[0][0].(time.Time)
-	if !ok {
-		t.Fatalf("컷오프 파라미터 타입=%T, want time.Time", updArgs[0][0])
-	}
-	if !cutoff.After(old) || !cutoff.Before(recent) {
-		t.Errorf("컷오프 %v가 7일 행만 포함하지 않음(old=%v recent=%v)", cutoff, old, recent)
+	if len(f.invalidateMsgs) != 1 || f.invalidateMsgs[0] != "expire-pending" {
+		t.Errorf("Invalidate 사유=%v, want expire-pending", f.invalidateMsgs)
 	}
 	// 전환 건수 출력·커밋 메시지.
 	if !strings.Contains(out, `"status":"invalidated"`) || !strings.Contains(out, `"count":1`) {

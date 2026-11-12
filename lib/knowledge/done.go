@@ -81,6 +81,14 @@ func (d *DoneResult) SessionRecord() map[string]any {
 	}
 }
 
+// sessionSummaryStore — sessions 종료 요약 갱신의 단일 경로 capability
+// (v0.41.0 T3). realStore는 db.Repo.UpdateSessionSummary 위임 — 쓰기 가드
+// (writes_through_repo_test)로 lib/{ops,knowledge} 소스의 Query/queryOnce
+// 호출부 쓰기 토큰이 금지된다.
+type sessionSummaryStore interface {
+	UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error)
+}
+
 // writeSessionRecord — 세션 자동 요약 upsert(T41, 코디네이터 룰링 a):
 // 같은 agent의 최근 세션 행을 종료 요약으로 갱신해 세션 수를 불변으로
 // 유지한다(신규 행이 StaleSessionRuns 미기록 카운트를 오염시키는 결함
@@ -101,9 +109,17 @@ func writeSessionRecord(ctx context.Context, st wire.Store, rec map[string]any) 
 		// pgx는 int4를 int32로 스캔한다 — 타입 단언 대신 문자열 경유 파싱.
 		var id int
 		if n, _ := fmt.Sscan(fmt.Sprint(rows[0][0]), &id); n == 1 {
-			if _, err := wire.QueryOnce(ctx, st,
-				`UPDATE sessions SET summary = $1, tasks = $2 WHERE id = $3`,
-				[]any{rec["summary"], rec["tasks"], id}); err != nil {
+			// v0.41.0 T3: 갱신 UPDATE는 db.Repo.UpdateSessionSummary 단일
+			// 경로. capability 미구현(레거시 fake)은 stderr 1행으로 조용히
+			// 알리고 갱신 생략(비간섭 §13 — 종료는 계속).
+			us, ok := st.(sessionSummaryStore)
+			if !ok {
+				fmt.Fprintln(os.Stderr, "[flint] session summary: unsupported store")
+				return id // v0.29.0 리뷰 6: 세션 종료당 1회 조회로 지식화 session_id 공유
+			}
+			summary, _ := rec["summary"].(string)
+			tasks, _ := rec["tasks"].(string)
+			if _, err := us.UpdateSessionSummary(ctx, id, summary, tasks); err != nil {
 				fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
 			}
 			return id // v0.29.0 리뷰 6: 세션 종료당 1회 조회로 지식화 session_id 공유
@@ -463,8 +479,9 @@ func maybeAutoBackup(ctx context.Context, st wire.Store) {
 	}
 }
 
-// metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. cli/metrics.go 소유분과
-// 동일 구현(knowledge는 cli를 임포트할 수 없다 — 사이클 금지). getKV는
+// metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. 조회·쓰기 본체는
+// wire.GetMetaKVErr·wire.SetMetaKV 단일 진입 직접 경유(v0.34.3 T4 —
+// ops.MetaKV와 같은 패턴, 이 클로저는 오류 구분 계약만 유지). getKV는
 // 키 부재 시 ("", nil), 전송 오류는 err 그대로.
 func metaKV(ctx context.Context, st wire.Store) (func(string) (string, error), func(string, string) error) {
 	getKV := func(key string) (string, error) {
@@ -480,8 +497,10 @@ func metaKV(ctx context.Context, st wire.Store) (func(string) (string, error), f
 	return getKV, setKV
 }
 
-// backupEncryptOn — meta backup_encrypt 값 판정(cli/backup.go 소유분과
-// 동일 구현 — 사이클 금지. 순수 함수 복제, 향후 수렴 부채).
+// backupEncryptOn — meta backup_encrypt 값 판정. 판정의 단일 소스는
+// ops.BackupEncryptOn(수동·자동·doctor 3경로)이며 knowledge는 ops를
+// 임포트할 수 없다(사이클 금지) — 순수 함수 복제. meta 조회 자체는
+// 양쪽 모두 wire.GetMetaKV 직접 경유로 수렴(v0.41.0 T4 상태).
 func backupEncryptOn(v string) bool {
 	return v == "true" || v == "1"
 }

@@ -34,7 +34,8 @@ func TestTuningKeyAllContainsBackupEncrypt(t *testing.T) {
 	}
 }
 
-// resetAllCaptureFake — DELETE FROM meta의 인자(삭제 대상 키)를 기록.
+// resetAllCaptureFake — meta 삭제 위임(db.Repo.MetaDelete)의 인자(삭제
+// 대상 키)를 기록. v0.41.0 T3: DELETE 리터럴은 db 계층 소유(쓰기 가드).
 type resetAllCaptureFake struct {
 	*fakeStore
 	deleted []any
@@ -42,10 +43,14 @@ type resetAllCaptureFake struct {
 
 func (f *resetAllCaptureFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	f.queries = append(f.queries, sql)
-	if strings.Contains(sql, "DELETE FROM meta") {
-		f.deleted = append(f.deleted, args...)
-	}
 	return nil, nil
+}
+
+func (f *resetAllCaptureFake) MetaDelete(ctx context.Context, keys []string) (int64, error) {
+	for _, k := range keys {
+		f.deleted = append(f.deleted, k)
+	}
+	return int64(len(keys)), nil
 }
 
 // TestTuningResetAllCoversAllKeys — reset --all이 tuningKeyAll() 전체를

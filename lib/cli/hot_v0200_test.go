@@ -26,8 +26,8 @@ func (h *hotEventRecorder) RecordHotEvent(ctx context.Context, ids string) error
 func TestHotFullRecordsExposure(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
-		{"pending", "토픽", "요약", "2026-10-22"},
-		{"decision", "토픽2", "요약2", "2026-10-21"},
+		{"pending", "토픽", "요약", "2026-10-22", int32(3), nil, nil},
+		{"decision", "토픽2", "요약2", "2026-10-21", int32(7), nil, nil},
 	}
 	st := &hotEventRecorder{fakeStore: &fakeStore{queryFn: hotProfileQueryFn("minimal", hotRows)}}
 	var out strings.Builder

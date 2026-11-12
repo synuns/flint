@@ -68,34 +68,19 @@ func MetaGetKV(ctx context.Context, st wire.Store) func(string, string) (string,
 	}
 }
 
-// HotKnowledgeIDsSQL — 실제 주입된 지식의 id 전수(참조 계측용 동반 질의).
-// 뷰의 세 팔(활성 프로젝트·pending·최근 결정 7일)을 동일 조건으로 다시
-// 모은 뒤, HotSQL과 같은 ORDER BY ts DESC, id DESC LIMIT으로 상위 N행을
-// 먼저 가른다. tie-break ", id DESC"(CI 39713526850 룰링): 동률 ts에서
-// 플래너 임의 순서로는 주입 집합과 이 증분 집합이 어긋난다 — hot_view가
-// 말미에 노출하는 id와 동일한 완전 순서로 주입 집합=증분 집합을 보장한다.
-// 프로젝트 팔은 knowledge 행이 아니어서(read_count 없음) id NULL로 순위를
-// 메운 뒤 제외된다 — 주입되지도 않은 지식(상한 밀려난 항목)까지 증분하는
-// 이중 과다 계측을 막는다.
-func HotKnowledgeIDsSQL() string {
-	return `SELECT id FROM (
-		SELECT id, ts FROM (
-			SELECT NULL::int AS id, p.updated AS ts
-			FROM projects p WHERE p.status = 'active'
-			UNION ALL
-			SELECT k.id, k.ingested_at FROM knowledge k
-			WHERE k.invalid_at IS NULL AND k.status = 'pending'
-			UNION ALL
-			SELECT k.id, k.valid_at FROM knowledge k
-			WHERE k.invalid_at IS NULL
-			  AND k.ingested_at >= now() - interval '7 days'
-			  AND k.tags LIKE '%:adr:%'
-		) u ORDER BY ts DESC, id DESC LIMIT ` + strconv.Itoa(query.ClampLimit(0)) + `
-	) top WHERE id IS NOT NULL`
-}
-
 // HotFields — hot 출력 컬럼(포맷·예산 생존 판정이 공유하는 고정 순서).
+// HotSQL SELECT의 앞 4컬럼과 대응한다 — FormatRows는 kind·ts를 위치
+// fallback, topic·summary를 readColumns 매핑(위치 1·2)으로 읽으므로
+// 말미의 id·valid_at·ingested_at 증분 컬럼이 출력에 끼지 않는다.
 const HotFields = "kind,topic,summary,ts"
+
+// HotSQL SELECT 말미의 증분·접미 소비 컬럼 인덱스(T5 단일 정의 —
+// hot_view가 노출하는 id·valid_at·ingested_at을 본질의에서 직접 읽는다).
+const (
+	hotViewIDIdx         = 4
+	hotViewValidAtIdx    = 5
+	hotViewIngestedAtIdx = 6 // 팔별 확인용(현재 미소비 — 뷰 노출과 쌍)
+)
 
 // hotLineSurvivorCount — 행별 '표시 문자열' 기준 생존 수(N4). --full 접미
 // (·+N일)가 붙은 최종 텍스트로 잰다: k행 시작 오프셋은 lines[:k]의 rune
@@ -117,21 +102,25 @@ func hotLineSurvivorCount(lines []string, budget int) int {
 	return n
 }
 
-// injectedIDsForSurvivors — 실제 주입된 지식 id만 동반 질의 결과에서 고른다:
-// 생존 survivors행 중 project 팔(id 없음)을 제외한 수만큼 앞에서 취한다.
-// hot_view와 동반 질의가 같은 ORDER BY·LIMIT을 쓰므로 k번째 지식 행은
-// 동반 질의의 k번째 id와 대응한다(잘린 행의 id는 증분하지 않는다).
-func injectedIDsForSurvivors(rows [][]any, ids []int, survivors int) []int {
-	k := 0
+// injectedIDsForSurvivors — 실제 주입된 지식 id를 hot_view 본질의 행에서
+// 직접 모은다(T5 단일 정의): 생존 survivors행 중 project 팔(id NULL)을
+// 제외한 행의 id 셀(hotViewIDIdx)을 취한다. 주입 출력과 증분 원천이 같은
+// 조회·같은 순서(ORDER BY ts DESC, id DESC tie-break)라 주입 집합=증분
+// 집합이 구조적으로 성립한다 — 세 팔 조건을 다시 모은 동반 질의와의
+// 정합 계약을 폐지하고도 동등하다. id 셀 부재(구형 뷰·fake)·변환 불가는
+// 조용히 건너뛴다(잘린 행의 id는 증분하지 않는다).
+func injectedIDsForSurvivors(rows [][]any, survivors int) []int {
+	injected := make([]int, 0, survivors)
 	for i := 0; i < survivors && i < len(rows); i++ {
-		if len(rows[i]) == 0 || fmt.Sprint(rows[i][0]) != "project" {
-			k++
+		r := rows[i]
+		if len(r) <= hotViewIDIdx || fmt.Sprint(r[0]) == "project" {
+			continue
+		}
+		if id, ok := render.CellToInt(r[hotViewIDIdx]); ok {
+			injected = append(injected, id)
 		}
 	}
-	if k > len(ids) {
-		k = len(ids)
-	}
-	return ids[:k]
+	return injected
 }
 
 // PendingAgeSuffix — pending 팔 대기일수 접미(v0.12.1 R2): valid_at 경과
@@ -143,24 +132,15 @@ func PendingAgeSuffix(validAt time.Time, now time.Time) string {
 	return ""
 }
 
-// pendingValidAtsSQL — pending 팔 valid_at 동반 질의(v0.12.1 R2). hot_view
-// pending 팔은 ts로 ingested_at을 쓰고 valid_at을 노출하지 않아, HotSQL과
-// 동일 조건·정렬(ingested_at DESC, id DESC tie-break)·상한으로 별도 조회한다.
-// HotSQL 출력의 k번째 pending 행은 이 질의의 k번째 valid_at과 대응한다.
-func pendingValidAtsSQL() string {
-	return `SELECT k.valid_at FROM knowledge k
-		WHERE k.invalid_at IS NULL AND k.status = 'pending'
-		ORDER BY k.ingested_at DESC, k.id DESC LIMIT ` + strconv.Itoa(query.ClampLimit(0))
-}
-
 // hotSuffixedLines — --full 전체 출력의 행별 표시 문자열(접미 포함, N4).
 // ClampHot 절단 대상이 되는 실출력 텍스트와 증분 생존 판정
 // (hotLineSurvivorCount)이 같은 문자열을 기준으로 정합하도록 출력 조립과
-// 생존 산정이 공유한다. pending 행 끝에만 대기일수 접미를 붙이고, 동반 질의
-// 실패·결과 부족·time.Time 아닌 값·줄바꿈 포함(안전 가드)은 접미 생략해
-// 기본 포맷 라인을 반환한다(기존 출력 불변 승계). rows가 비면 nil.
-// now는 UTC.
-func hotSuffixedLines(ctx context.Context, st wire.Store, rows [][]any, now time.Time) []string {
+// 생존 산정이 공유한다. pending 행 끝에만 대기일수 접미를 붙인다 —
+// valid_at은 hot_view 본질의 컬럼(hotViewValidAtIdx, T5 단일 정의)에서
+// 직접 읽는다(동반 질의 폐지). 셀 부재·time.Time 아닌 값·줄바꿈 포함
+// (안전 가드)은 접미 생략해 기본 포맷 라인을 반환한다(기존 출력 불변
+// 승계). rows가 비면 nil. now는 UTC.
+func hotSuffixedLines(rows [][]any, now time.Time) []string {
 	base := query.FormatRows(rows, HotFields, false)
 	if base == "" {
 		return nil
@@ -176,30 +156,22 @@ func hotSuffixedLines(ctx context.Context, st wire.Store, rows [][]any, now time
 	if !hasPending {
 		return lines
 	}
-	vaRows, err := wire.QueryOnce(ctx, st, pendingValidAtsSQL(), nil)
-	if err != nil {
-		return lines
-	}
 	// 안전 가드: 필드 값에 줄바꿈이 포함되면 FormatRows 한 행이 여러 line으로
 	// 쪼개져 lines[i]↔rows[i] 대응이 어긋난다 — 접미가 잘못된 행에 붙지 않도록
 	// 행 수가 다르면 접미 전체를 생략한다(기존 출력 불변 승계).
 	if len(lines) != len(rows) {
 		return lines
 	}
-	k := 0
 	for i, r := range rows {
 		if i >= len(lines) {
 			break
 		}
-		if len(r) == 0 || fmt.Sprint(r[0]) != "pending" {
+		if len(r) <= hotViewValidAtIdx || fmt.Sprint(r[0]) != "pending" {
 			continue
 		}
-		if k < len(vaRows) && len(vaRows[k]) > 0 {
-			if va, ok := vaRows[k][0].(time.Time); ok {
-				lines[i] += PendingAgeSuffix(va, now)
-			}
+		if va, ok := r[hotViewValidAtIdx].(time.Time); ok {
+			lines[i] += PendingAgeSuffix(va, now)
 		}
-		k++
 	}
 	return lines
 }
@@ -339,7 +311,7 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	// 접미 포함 행별 텍스트(N4) — --full 출력과 증분 생존 판정이 공유한다.
 	var lines []string
 	if full {
-		lines = hotSuffixedLines(ctx, st, rows, time.Now().UTC())
+		lines = hotSuffixedLines(rows, time.Now().UTC())
 		clamped := query.ClampHot(hotFullOutput(lines), budget)
 		fmt.Fprint(stdout, clamped)
 		RecordHotLenFn(len([]rune(clamped)))
@@ -357,20 +329,18 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	// 일어난다(N3) — 헤드라인 경로는 카운트만 노출하므로 실제 주입 없는
 	// 증분(read_count·last_read_at 왜곡으로 stale 판정 동결) 없이 유입 1회만
 	// 기록한다. 생존 판정은 접미 포함 텍스트 기준(N4): 접미가 밀어낸 행이
-	// 실출력에서 잘렸으면 증분하지 않는다. 동반 질의 실패 시 BumpReads 호출
-	// 자체를 건너뛴다 — 유입 1회 기록은 조회 성공 사실과 무관하므로 유지한다.
+	// 실출력에서 잘렸으면 증분하지 않는다. 증분 id는 본질의 hot_view 조회의
+	// id 컬럼에서 직접 뽑는다(T5 단일 정의) — 동반 질의·그 실패 경로는 폐지.
 	if !full {
 		RecordUsage(ctx, st, "hot", "")
-	} else if idRows, err := wire.QueryOnce(ctx, st, HotKnowledgeIDsSQL(), nil); err == nil {
-		injected := injectedIDsForSurvivors(rows, RowIDs(idRows), hotLineSurvivorCount(lines, budget))
+	} else {
+		injected := injectedIDsForSurvivors(rows, hotLineSurvivorCount(lines, budget))
 		InstrumentReads(ctx, st, "hot", injected, false, false)
 		// v0.20.0(E): 실제 주입된 지식 id를 hot_events에 노출 기록 —
 		// dead_pct의 hot 노출 보정 원천. 실패는 조용히(§13 계측 원칙).
 		if rec, ok := st.(HotEventRecorder); ok {
 			_ = rec.RecordHotEvent(ctx, idsCSV(injected))
 		}
-	} else {
-		RecordUsage(ctx, st, "hot", "")
 	}
 	return 0
 }

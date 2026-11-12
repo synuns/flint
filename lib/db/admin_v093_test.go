@@ -33,7 +33,7 @@ func TestDupGroupsSameTopic(t *testing.T) {
 		t.Fatalf("DupGroups = %+v, want %+v", groups, want)
 	}
 	// 무효화하면 그룹에서 빠진다(active만 대상).
-	if err := r.Invalidate(ctx, ids[0], "테스트 무효화"); err != nil {
+	if _, err := r.Invalidate(ctx, []int{ids[0]}, "테스트 무효화"); err != nil {
 		t.Fatalf("Invalidate: %v", err)
 	}
 	groups, err = r.DupGroups(ctx, 10)

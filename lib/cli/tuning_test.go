@@ -39,10 +39,6 @@ func (f *tuningFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 		f.sets = append(f.sets, fmt.Sprint(args[0], "=", args[1]))
 		f.meta[fmt.Sprint(args[0])] = fmt.Sprint(args[1])
 		return nil, nil
-	case strings.Contains(sql, "DELETE FROM meta"):
-		f.dels = append(f.dels, fmt.Sprint(args[0]))
-		delete(f.meta, fmt.Sprint(args[0]))
-		return nil, nil
 	}
 	// loadThresholds의 meta IN 조회는 위 key IN 케이스가 담당 — 여기
 	// 도달하면 fixture 라우팅 계약 위반(Fatalf 불가 — 에러로 식별).
@@ -56,6 +52,16 @@ func containsKey(args []any, k string) bool {
 		}
 	}
 	return false
+}
+
+// MetaDelete — v0.41.0 T3: reset은 db.Repo.MetaDelete 위임(쓰기 가드) —
+// fake는 삭제 키를 기록·반영.
+func (f *tuningFake) MetaDelete(ctx context.Context, keys []string) (int64, error) {
+	for _, k := range keys {
+		f.dels = append(f.dels, k)
+		delete(f.meta, k)
+	}
+	return int64(len(keys)), nil
 }
 
 func TestTuningSetValidatesThroughRealParse(t *testing.T) {

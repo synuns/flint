@@ -63,21 +63,18 @@ func TestUnknownFlagExitContract(t *testing.T) {
 }
 
 // TestSupersedeZeroRowsFails — Review Focus(e): 사전 확인(active) 통과 후
-// 경합 등으로 UPDATE가 0행 갱신되면 무음 성공이 아니라 오류(exit 1·커밋 없음)
-// — supersedeAfterApprove 후견사 패턴 승계.
+// 경합 등으로 갱신이 0행이면 무음 성공이 아니라 오류(exit 1·커밋 없음).
+// v0.41.0 T2: 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 위임이
+// 오류를 돌려주는 것으로 시뮬레이션한다.
 func TestSupersedeZeroRowsFails(t *testing.T) {
 	shortRetryDelays(t)
-	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		switch {
-		case strings.Contains(sql, "SELECT (SELECT status"):
+	f := &fakeMaint{supersedeErr: errors.New("supersede: id=3 갱신 미반영(경합 — 재시도)")}
+	f.fakeStore = &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "SELECT (SELECT status") {
 			return [][]any{{"active", time.Now().Add(-24 * time.Hour)}}, nil
-		case strings.HasPrefix(strings.TrimSpace(sql), "UPDATE"):
-			return nil, nil // no-op 갱신 — 0행 반영(경합 시뮬레이션)
-		case strings.Contains(sql, "superseded_by FROM knowledge"):
-			return nil, nil // 후검사: 미반영
 		}
 		return nil, errors.New("unexpected query: " + sql)
-	}}}
+	}}
 	out, code := runMaintainArgs(t, f, "--supersede", "3", "--by", "7")
 	if code != 1 {
 		t.Errorf("0행 갱신 exit=%d, want 1 (출력 %q)", code, out)

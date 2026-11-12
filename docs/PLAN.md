@@ -387,6 +387,34 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.41.0 마이너 (2026-11-13) — 스키마 진실: 게이트 등록표·상태 전이 단일화·쓰기 repo 집중
+
+스키마 진실 단일화 — 스키마·상태·쓰기의 진실 원천을 lib/db로 모은다.
+동작·출력·exit 불변(데이터 이전 없음, 구조만).
+
+- [x] 승격 게이트 등록표 — lib/db/schema_gates.go 신설:
+  SchemaGates() {Version, Ensure} v2..v8 연속 + LatestSchemaVersion
+  단일 소스, cli ensureSchemas 등록표 파생. 가드 3종
+  (TestSchemaGatesContiguous·TestSchemaGatesCoverAdmin·
+  TestEnsureSchemasUsesGates) — 게이트 함수만 추가하고 등록을
+  잊던 무경고 스킵(v0.28.1류) 폐지
+- [x] 상태 전이 repo 단일화 — Repo.Invalidate(배치)·Repo.Supersede:
+  status·invalid_at·superseded_by 병기(계보 텍스트 마커 이중 모델
+  폐지)·rows-affected 경합 후견사 내장(0행 → 오류). maintain·approve
+  갱신 경로 전부 Repo 경유
+- [x] 쓰기 repo 전용 가드 — Repo.PruneInvalidated·MetaDelete(+잔여
+  갱신 위임)으로 Query 통로 쓰기 전량 폐지,
+  TestWritesThroughRepoOnly가 lib/{ops,knowledge} 비테스트 소스의
+  UPDATE|DELETE|INSERT 토큰을 영구 차단
+- [x] hot_view 단일 정의 — 동반 질의(hotKnowledgeIDsSQL·
+  pendingValidAtsSQL) 폐지, 뷰 id·valid_at·ingested_at 노출로
+  주입=증분 구조 보장(tie-break ", id DESC" 유지)
+- [x] 순수함수 수렴 — wire.CellToTime·wire.QuoteJSON 단일 구현,
+  로컬 복제 4종 삭제(v0.39 이월 부채 회수)
+- [x] 버전 — VERSION·배지 v0.41.0(EN/KO)·plugin.json 동기
+
+세부: [docs/plans/2026-11-13-flint-v0411.spec.md](plans/2026-11-13-flint-v0411.spec.md)
+
 ### v0.40.0 마이너 (2026-11-12) — 패키지 분할 3/3: 진단·정리·관측 lib/ops · 3분할 완결
 
 구조 수렴 에라 3분할의 마지막 단위 — 완결. 이동+별칙만: 시그니처·동작·
@@ -479,7 +507,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 | v0.38 | 패키지 분할 1/3 — 계약층 wire·출력층 render 추출 |
 | v0.39 | 패키지 분할 2/3 — knowledge 분리 (v0.39.0 완료) |
 | v0.40 | 패키지 분할 3/3 — ops 분리 (v0.40.0 완료) |
-| v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
+| v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 (v0.41.0 완료) |
 | v0.42 | 계측·튜닝 단일 원천 |
 | v0.43 | seam 동질화 |
 | v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
@@ -619,7 +647,7 @@ profile_hint가 "회상 선도 낮음 — minimal 전환 고려"를 매번 안�
 | v0.38 | 패키지 분할 1/3 — 계약층 wire·출력층 render 추출 |
 | v0.39 | 패키지 분할 2/3 — knowledge 분리 (v0.39.0 완료) |
 | v0.40 | 패키지 분할 3/3 — ops 분리 (v0.40.0 완료) |
-| v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
+| v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 (v0.41.0 완료) |
 | v0.42 | 계측·튜닝 단일 원천 |
 | v0.43 | seam 동질화 |
 | v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |

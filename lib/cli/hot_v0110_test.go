@@ -24,8 +24,8 @@ func TestHotHeadline(t *testing.T) {
 	}
 }
 
-// hotProfileQueryFn — hot_view 본질의는 hotRows, meta exposure_profile은
-// profile(빈 문자열이면 미설정=0행), 동반 질의는 id [3 7].
+// hotProfileQueryFn — hot_view 본질의는 hotRows(증분 id·valid_at 컬럼 포함
+// 가능), meta exposure_profile은 profile(빈 문자열이면 미설정=0행).
 func hotProfileQueryFn(profile string, hotRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -36,8 +36,6 @@ func hotProfileQueryFn(profile string, hotRows [][]any) func(string, []any) ([][
 				return nil, nil
 			}
 			return [][]any{{profile}}, nil
-		case strings.Contains(sql, "FROM projects p"):
-			return [][]any{{int32(3)}, {int32(7)}}, nil
 		}
 		return nil, nil
 	}

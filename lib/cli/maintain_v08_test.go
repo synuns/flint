@@ -88,24 +88,15 @@ func TestInvalidateStaleDryRunDefault(t *testing.T) {
 	}
 }
 
-// TestInvalidateStaleYesApplies — Review Focus: --yes 시 대상 전체 UPDATE
-// (status·invalid_at=now)+Commit, 쓰기 경로 Retry(40001 1회 후 회복).
+// TestInvalidateStaleYesApplies — Review Focus: --yes 시 대상 전체 전이
+// (Repo.Invalidate 위임 — status·invalid_at 병기는 db 계층 소유)+Commit,
+// 쓰기 경로 Retry(40001 1회 후 회복).
 func TestInvalidateStaleYesApplies(t *testing.T) {
 	shortRetryDelays(t)
-	updateCalls := 0
-	var updateSQL string
-	var updateArgs []any
 	f := &fakeMaint{fakeStore: &fakeStore{}}
+	f.invalSeqErrs = []error{errors.New("40001 serialization failure")}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta") {
-			return nil, nil
-		}
-		if strings.HasPrefix(strings.TrimSpace(sql), "UPDATE") {
-			updateCalls++
-			updateSQL, updateArgs = sql, args
-			if updateCalls == 1 {
-				return nil, errors.New("40001 serialization failure")
-			}
 			return nil, nil
 		}
 		return v08StaleRows(), nil
@@ -114,15 +105,14 @@ func TestInvalidateStaleYesApplies(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
-	if updateCalls != 2 {
-		t.Errorf("UPDATE 시도=%d회, want 2(Retry 후 회복)", updateCalls)
+	if len(f.invalidateCalls) != 2 {
+		t.Errorf("Invalidate 시도=%d회, want 2(Retry 후 회복)", len(f.invalidateCalls))
 	}
-	if !strings.Contains(updateSQL, "status = 'invalidated'") ||
-		!strings.Contains(updateSQL, "invalid_at = now()") {
-		t.Errorf("UPDATE 문 미충족: %q", updateSQL)
+	if len(f.invalidateCalls[0]) != 2 || f.invalidateCalls[0][0] != 1 || f.invalidateCalls[0][1] != 2 {
+		t.Errorf("Invalidate 파라미터=%v, want [[1 2]]", f.invalidateCalls)
 	}
-	if len(updateArgs) != 1 || !reflect.DeepEqual(updateArgs[0], []int{1, 2}) {
-		t.Errorf("UPDATE 파라미터=%v, want [[1 2]]", updateArgs)
+	if len(f.invalidateMsgs) != 2 || f.invalidateMsgs[0] != "invalidate-stale" {
+		t.Errorf("Invalidate 사유=%v, want invalidate-stale", f.invalidateMsgs)
 	}
 	if len(f.commits) != 1 {
 		t.Fatalf("Commit 호출=%d회, want 1: %v", len(f.commits), f.commits)
@@ -137,18 +127,12 @@ func TestInvalidateStaleYesApplies(t *testing.T) {
 
 // TestInvalidateIdsSnapshot — Review Focus: --ids는 dry-run 재평가 무관
 // 지정 id 고정(stale 질의 없음). 부재 id → exit 1. --yes 병행 필수.
+// v0.41.0 T2: 갱신은 Repo.Invalidate 위임(캡처로 단언).
 func TestInvalidateIdsSnapshot(t *testing.T) {
 	shortRetryDelays(t)
-	var updateArgs []any
-	var updateSQL string
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
-		s := strings.TrimSpace(sql)
-		if strings.HasPrefix(s, "UPDATE") {
-			updateSQL, updateArgs = sql, args
-			return nil, nil
-		}
-		if strings.Contains(s, "SELECT id FROM knowledge") {
+		if strings.Contains(sql, "SELECT id FROM knowledge") {
 			return [][]any{{4}, {9}}, nil
 		}
 		return nil, errors.New("unexpected query: " + sql)
@@ -162,22 +146,17 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 			t.Errorf("stale 재평가 질의 발생(스냅샷 위반): %q", q)
 		}
 	}
-	if !strings.Contains(updateSQL, "status = 'invalidated'") {
-		t.Errorf("UPDATE 문 미충족: %q", updateSQL)
-	}
-	if len(updateArgs) != 1 || !reflect.DeepEqual(updateArgs[0], []int{4, 9}) {
-		t.Errorf("UPDATE 파라미터=%v, want [[4 9]]", updateArgs)
+	if len(f.invalidateCalls) != 1 ||
+		!reflect.DeepEqual(f.invalidateCalls[0], []int{4, 9}) {
+		t.Errorf("Invalidate 파라미터=%v, want [[4 9]]", f.invalidateCalls)
 	}
 	if len(f.commits) != 1 {
 		t.Errorf("Commit 호출=%d회, want 1", len(f.commits))
 	}
 
-	// 부재 id — 존재 확인 1건만 → exit 1, UPDATE·Commit 없음.
+	// 부재 id — 존재 확인 1건만 → exit 1, 전이·Commit 없음.
 	f2 := &fakeMaint{fakeStore: &fakeStore{}}
 	f2.queryFn = func(sql string, args []any) ([][]any, error) {
-		if strings.HasPrefix(strings.TrimSpace(sql), "UPDATE") {
-			t.Errorf("부재 시 UPDATE 발생: %q", sql)
-		}
 		return [][]any{{4}}, nil
 	}
 	out2, code2 := runMaintainArgs(t, f2, "--invalidate", "--ids", "4,9", "--yes")
@@ -186,6 +165,9 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 	}
 	if !strings.Contains(out2, `"error"`) || !strings.Contains(out2, "9") {
 		t.Errorf("부재 안내 부재: %q", out2)
+	}
+	if len(f2.invalidateCalls) != 0 {
+		t.Errorf("부재 시 Invalidate 발생: %v", f2.invalidateCalls)
 	}
 	if len(f2.commits) != 0 {
 		t.Errorf("부재 시 Commit 발생: %v", f2.commits)
@@ -199,49 +181,36 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 	}
 }
 
-// supersedeFixture — OLD 상태·NEW valid_at 조회 응답. v0.34.3 후견사
-// (0행 갱신 방어) SELECT superseded_by에는 UPDATE 파라미터의 NEW로
-// 갱신 반영 응답(정상 경로).
-func supersedeFixture(t *testing.T, f *fakeMaint, row []any) (updateSQL *string, updateArgs *[]any) {
+// supersedeFixture — OLD 상태·NEW valid_at 조회 응답. v0.41.0 T2: 갱신은
+// Repo.Supersede 위임(fakeMaint 캡처) — 0행 경합 후견사는 rows-affected로
+// db 계층에 내장돼 SELECT superseded_by 후검사 질의는 폐지됐다.
+func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 	t.Helper()
-	sqlp, argp := new(string), new([]any)
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "SELECT (SELECT status") {
 			return [][]any{row}, nil
 		}
-		if strings.HasPrefix(strings.TrimSpace(sql), "UPDATE") {
-			*sqlp, *argp = sql, args
-			return nil, nil
-		}
-		if strings.Contains(sql, "SELECT superseded_by FROM knowledge") {
-			if *argp == nil {
-				return nil, errors.New("post-check before UPDATE: " + sql)
-			}
-			return [][]any{{(*argp)[1]}}, nil
-		}
 		return nil, errors.New("unexpected query: " + sql)
 	}
-	return sqlp, argp
 }
 
-// TestSupersedeSetsFields — Review Focus: OLD active일 때만
-// status·superseded_by=NEW·invalid_at=NEW valid_at 서브쿼리 + Commit.
+// TestSupersedeSetsFields — Review Focus: OLD active일 때만 전이 위임
+// (status·superseded_by=NEW·invalid_at=NEW valid_at 병기는 Repo.Supersede
+// 소유 — 위임 파라미터로 단언)+Commit. v0.41.0 T2.
 func TestSupersedeSetsFields(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{fakeStore: &fakeStore{}}
-	updateSQL, updateArgs := supersedeFixture(t, f,
-		[]any{"active", time.Now().Add(-24 * time.Hour)})
+	newAt := time.Now().Add(-24 * time.Hour)
+	supersedeFixture(t, f, []any{"active", newAt})
 	out, code := runMaintainArgs(t, f, "--supersede", "3", "--by", "7")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
-	if !strings.Contains(*updateSQL, "status = 'invalidated'") ||
-		!strings.Contains(*updateSQL, "superseded_by = $2") ||
-		!strings.Contains(*updateSQL, "invalid_at = (SELECT valid_at FROM knowledge WHERE id = $2)") {
-		t.Errorf("UPDATE 문 미충족: %q", *updateSQL)
+	if len(f.supersedeCalls) != 1 {
+		t.Fatalf("Supersede 호출=%d회, want 1", len(f.supersedeCalls))
 	}
-	if !reflect.DeepEqual(*updateArgs, []any{3, 7}) {
-		t.Errorf("UPDATE 파라미터=%v, want [3 7]", *updateArgs)
+	if got := f.supersedeCalls[0]; got.oldID != 3 || got.newID != 7 || !got.at.Equal(newAt) {
+		t.Errorf("Supersede 위임=%+v, want {3 7 %v}", got, newAt)
 	}
 	if len(f.commits) != 1 || !strings.Contains(f.commits[0], "supersede") {
 		t.Errorf("Commit=%v", f.commits)
@@ -252,7 +221,7 @@ func TestSupersedeSetsFields(t *testing.T) {
 }
 
 // TestSupersedeRejects — Review Focus: NEW 부재 exit 1 · 자기참조 exit 3 ·
-// OLD 비active(부재 포함) exit 1. 각각 UPDATE·Commit 없음.
+// OLD 비active(부재 포함) exit 1. 각각 전이(위임)·Commit 없음.
 func TestSupersedeRejects(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -279,10 +248,8 @@ func TestSupersedeRejects(t *testing.T) {
 		if len(f.commits) != 0 {
 			t.Errorf("%s: Commit 발생: %v", c.name, f.commits)
 		}
-		for _, q := range f.queries {
-			if strings.HasPrefix(strings.TrimSpace(q), "UPDATE") {
-				t.Errorf("%s: UPDATE 발생: %q", c.name, q)
-			}
+		if len(f.supersedeCalls) != 0 {
+			t.Errorf("%s: Supersede 발생: %v", c.name, f.supersedeCalls)
 		}
 	}
 }

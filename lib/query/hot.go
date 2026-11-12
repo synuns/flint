@@ -10,13 +10,15 @@ const truncatedSuffix = "…[truncated]"
 
 // HotSQL는 hot_view 조회 SQL을 반환한다(활성 프로젝트+pending+최근 결정 7일).
 // sessionID는 v0.1 hot_view에 session_id 컬럼이 없어 서명 호환용으로만 받는다.
-// tie-break ", id DESC"(CI 39713526850 룰링): 동률 ts에서 플래너 임의 순서로는
-// 주입 집합과 증분 집합(hot.go hotKnowledgeIDsSQL)이 어긋날 수 있다 — hot_view
-// 말미의 id로 완전 순서를 만들어 양쪽이 같은 집합을 고르게 한다.
+// v0.41.0 T5(단일 정의): 말미에 id·valid_at·ingested_at까지 함께 조회 —
+// 증분 id·pending 대기일수 접미를 동반 질의 없이 이 질의 하나로 소비한다.
+// tie-break ", id DESC"(CI 39713526850 룰링)는 유지: 동률 ts에서 플래너
+// 임의 순서로는 주입 순서가 흔들린다 — hot_view 말미의 id로 완전 순서를
+// 만들어 출력·증분이 같은 행 집합·순서를 보게 한다.
 func HotSQL(sessionID string) string {
 	_ = sessionID
 	limit := ClampLimit(0) // 토큰 예산: 기본 10
-	return "SELECT kind, topic, summary, ts FROM hot_view ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(limit)
+	return "SELECT kind, topic, summary, ts, id, valid_at, ingested_at FROM hot_view ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(limit)
 }
 
 // hotHeadlineLimit — 헤드라인(카운트) 경로 행 상한. 주입 예산(ClampLimit

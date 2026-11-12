@@ -326,13 +326,8 @@ func mismatchLine(path string) string {
 }
 
 // QuoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
-func QuoteJSON(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return `""`
-	}
-	return string(b)
-}
+// v0.41.0 T4: wire.QuoteJSON 단일 구현 별칭(cli 소비자 호환 export 유지).
+var QuoteJSON = wire.QuoteJSON
 
 // OutInsideGitRepo — 경로가 git 저장소(작업 트리) 내부인지 판정(v0.28.2).
 // .git 디렉터리(일반)·파일(워크트리) 모두 인식, 상위로 최대 64단계.
