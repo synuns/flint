@@ -30,6 +30,15 @@ func RecordHotLen(n int) {
 	hotLens = append(hotLens, n)
 	if over := len(hotLens) - hotMaxSamples; over > 0 {
 		hotLens = hotLens[over:]
+		// 절단분이 persisted 선두를 깎으면 오프셋도 함께 줄인다 —
+		// 그대로 두면 절단 수만큼 pending이 누락되어 과소 보고된다
+		// (v0.42.0 T5 — fr-v0400 기록 엣지). 절단이 persisted 경계를
+		// 넘으면 남은 보관 샘플은 전량 미저장 → 오프셋 0.
+		if over >= hotPersisted {
+			hotPersisted = 0
+		} else {
+			hotPersisted -= over
+		}
 	}
 }
 
