@@ -35,6 +35,23 @@ func SetMetaKV(ctx context.Context, st Store, key, value string) error {
 	return err
 }
 
+// CompareSetMetaKV — 원자 조건부 갱신(CAS): 현재 값이 old면 new로
+// 바꾸고 true, 아니면 false(v1.0.10 감사 A4 — 병렬 세션의 자원 선점).
+// 단일 upsert-WHERE 문으로 부재(최초)·기존값 일치 양쪽을 원자 처리한다.
+// BumpMetaKV와 동일 계약: 조건부 쓰기는 모호 실패에서 재실행해도 안전
+// 하지 않으므로 재시도 없이 단발 st.Query로 실행한다.
+func CompareSetMetaKV(ctx context.Context, st Store, key, oldVal, newVal string) (bool, error) {
+	rows, err := st.Query(ctx,
+		`INSERT INTO meta (key, value) VALUES ($1, $3)
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value
+		 WHERE meta.value = $2
+		 RETURNING key`, []any{key, oldVal, newVal})
+	if err != nil {
+		return false, err
+	}
+	return len(rows) > 0, nil
+}
+
 // BumpMetaKV — 카운터 키 1회 원자 증분. SELECT→INSERT 비원자 왕복
 // 없이 단일 upsert에서 계산한다. 기존값이 양의 정수 표기가 아니면
 // (부재·파손) 1로 리셋 — 기존 read_fallback_calls 폴백과 동일 결과.

@@ -20,6 +20,12 @@ func Masked(s string) string {
 	return store.SanitizeText(store.MaskSecrets(s))
 }
 
+// MaskedStrict — 기기 밖(브리지) 전용: allowlist 등록값도 마스킹
+// (v1.0.10 감사 B2 — 진단용 dump --mask의 Masked와 구분).
+func MaskedStrict(s string) string {
+	return store.SanitizeText(store.MaskSecretsStrict(s))
+}
+
 // Cells — 셀 단위 전수 살균. 문자열 셀만 중립화하고 비문자열 셀은
 // 원값 유지(hot 의존성 — 원 슬라이스를 그대로 갱신 허용).
 // e.g. Cells([][]any{{1, "x[flint]y"}}) -> [][]any{{1, "x y"}}

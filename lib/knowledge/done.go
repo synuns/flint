@@ -466,7 +466,10 @@ func maybeAutoBackup(ctx context.Context, st wire.Store) {
 		v, _, err := wire.GetMetaKVErr(ctx, st, key)
 		return v, err
 	}
-	setKV := func(key, value string) error { return wire.SetMetaKV(ctx, st, key, value) }
+	// v1.0.10(A4): 자동 백업 선점은 CAS — 병렬 세션과 원자 경쟁.
+	claimKV := func(oldVal, newVal string) (bool, error) {
+		return wire.CompareSetMetaKV(ctx, st, "last_backup", oldVal, newVal)
+	}
 	lf := &lazyDumpFile{dir: dir}
 	// v0.28.0(H②): meta backup_encrypt=true면 자동 백업도 암호화
 	// (키는 config 디렉터리 — 첫 암호화 시 자동 생성). 판독 실패는 기본
@@ -476,7 +479,7 @@ func maybeAutoBackup(ctx context.Context, st wire.Store) {
 	}
 	defer lf.close()
 	auto := backup.Auto{DSN: wire.DSNFromEnv()}
-	runErr := auto.RunIfNeeded(ctx, metaGet, setKV, lf)
+	runErr := auto.RunIfNeeded(ctx, metaGet, claimKV, lf)
 	// v0.20.1(패치 루프 1차 F4): 자동 백업도 로테이션 — 파일 확정(사이드카
 	// 포함) 뒤 keep-N 정책을 적용한다. 이전엔 수동 `flint backup --out`
 	// 경로(rotateAfterBackup)에만 묶여 있어 자동 파일이 무한히 축적됐다.
