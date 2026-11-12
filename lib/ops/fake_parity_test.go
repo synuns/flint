@@ -37,7 +37,7 @@ var fakeParityExcluded = map[string]bool{"SessionStartRecorder": true}
 func TestFakeParityOps(t *testing.T) {
 	// ── 발견: 비테스트 소스의 인터페이스 정의 중 타입 단언으로 쓰이는 것 ──
 	ifaceRe := regexp.MustCompile(`(?m)^type (\w+) interface\b`)
-	discovered := map[string]bool{}
+	allSrc, defined := "", map[string]bool{}
 	entries, err := os.ReadDir(".")
 	if err != nil {
 		t.Fatalf("ops 디렉터리 조회: %v", err)
@@ -52,14 +52,21 @@ func TestFakeParityOps(t *testing.T) {
 			t.Fatalf("%s 읽기: %v", name, err)
 		}
 		src := string(b)
+		allSrc += src + "\n"
 		for _, m := range ifaceRe.FindAllStringSubmatch(src, -1) {
-			iface := m[1]
-			if fakeParityExcluded[iface] {
-				continue
-			}
-			if regexp.MustCompile(`\.\(` + iface + `\)`).MatchString(src) {
-				discovered[iface] = true
-			}
+			defined[m[1]] = true
+		}
+	}
+	// v0.43.0 리뷰 수선: 단언 사용(`.(X)`)은 정의 파일과 무관하게 전
+	// 소스에서 찾는다 — 정의 파일 내 사용만 검사하면 다른 파일에서
+	// 소비되는 신규 seam이 새어나간다(가상 인터페이스 프로브로 실증).
+	discovered := map[string]bool{}
+	for iface := range defined {
+		if fakeParityExcluded[iface] {
+			continue
+		}
+		if regexp.MustCompile(`\.\(` + iface + `\)`).MatchString(allSrc) {
+			discovered[iface] = true
 		}
 	}
 
