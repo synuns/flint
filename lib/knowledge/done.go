@@ -81,6 +81,14 @@ func (d *DoneResult) SessionRecord() map[string]any {
 	}
 }
 
+// sessionSummaryStore — sessions 종료 요약 갱신의 단일 경로 capability
+// (v0.41.0 T3). realStore는 db.Repo.UpdateSessionSummary 위임 — 쓰기 가드
+// (writes_through_repo_test)로 lib/{ops,knowledge} 소스의 Query/queryOnce
+// 호출부 쓰기 토큰이 금지된다.
+type sessionSummaryStore interface {
+	UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error)
+}
+
 // writeSessionRecord — 세션 자동 요약 upsert(T41, 코디네이터 룰링 a):
 // 같은 agent의 최근 세션 행을 종료 요약으로 갱신해 세션 수를 불변으로
 // 유지한다(신규 행이 StaleSessionRuns 미기록 카운트를 오염시키는 결함
@@ -101,9 +109,17 @@ func writeSessionRecord(ctx context.Context, st wire.Store, rec map[string]any) 
 		// pgx는 int4를 int32로 스캔한다 — 타입 단언 대신 문자열 경유 파싱.
 		var id int
 		if n, _ := fmt.Sscan(fmt.Sprint(rows[0][0]), &id); n == 1 {
-			if _, err := wire.QueryOnce(ctx, st,
-				`UPDATE sessions SET summary = $1, tasks = $2 WHERE id = $3`,
-				[]any{rec["summary"], rec["tasks"], id}); err != nil {
+			// v0.41.0 T3: 갱신 UPDATE는 db.Repo.UpdateSessionSummary 단일
+			// 경로. capability 미구현(레거시 fake)은 stderr 1행으로 조용히
+			// 알리고 갱신 생략(비간섭 §13 — 종료는 계속).
+			us, ok := st.(sessionSummaryStore)
+			if !ok {
+				fmt.Fprintln(os.Stderr, "[flint] session summary: unsupported store")
+				return id // v0.29.0 리뷰 6: 세션 종료당 1회 조회로 지식화 session_id 공유
+			}
+			summary, _ := rec["summary"].(string)
+			tasks, _ := rec["tasks"].(string)
+			if _, err := us.UpdateSessionSummary(ctx, id, summary, tasks); err != nil {
 				fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
 			}
 			return id // v0.29.0 리뷰 6: 세션 종료당 1회 조회로 지식화 session_id 공유

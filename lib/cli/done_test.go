@@ -32,6 +32,12 @@ func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, err
 	return d.runs, nil
 }
 
+// UpdateSessionSummary — v0.41.0 T3: 종료 요약 갱신 위임(쓰기 가드).
+// fake는 no-op 성공(단위 경로 — 갱신 계약은 knowledge done_test가 단언).
+func (d *doneFake) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
+	return 1, nil
+}
+
 // withDoneFake — Run 경로 seam. 기본 fake, FLINT_TEST_DSN 설정 +
 // SUPERLITE_REAL=1이면 stub 미지정 연산을 실구현에 위임(실DB 미기동 시
 // 스킵). FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
@@ -88,6 +94,11 @@ func (d *delegatingDone) StaleSessionRuns(ctx context.Context, agent string) (in
 		return d.done.StaleSessionRuns(ctx, agent)
 	}
 	return d.real.StaleSessionRuns(ctx, agent)
+}
+
+// UpdateSessionSummary — v0.41.0 T3: 쓰기 가드 전환분 — 실구현 위임.
+func (d *delegatingDone) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
+	return d.real.UpdateSessionSummary(ctx, id, summary, tasks)
 }
 
 // mustDoneRun — Run 전체 경로(등록·seam 포함).

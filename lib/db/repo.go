@@ -380,6 +380,50 @@ func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (i
 	return n, nil
 }
 
+// PruneInvalidated는 N일 경과 invalidated 지식 DELETE의 단일 경로다
+// (v0.41.0 T3): maintain --prune-invalidated --commit이 위임한다.
+// 삭제 0행은 정상 결과다(dry-run과 확정 사이 경합도 "삭제 0건"으로
+// 보고 — Invalidate류 0행 후견사와 달리 대상 소멸이 오류가 아니다).
+// dolt 커밋은 호출자 소관(경로별 메시지).
+func (r *Repo) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
+	n, err := transitionExecFn(ctx, r, `
+		DELETE FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1`,
+		before)
+	if err != nil {
+		return 0, fmt.Errorf("prune_invalidated: %w", err)
+	}
+	return n, nil
+}
+
+// MetaDelete는 meta 행 삭제의 단일 경로다(v0.41.0 T3): tuning reset·
+// reset --all이 위임한다. keys가 비면 no-op(0, nil). 삭제 0행(이미
+// 기본값)도 정상 — reset은 멱등 계약이다.
+func (r *Repo) MetaDelete(ctx context.Context, keys []string) (int64, error) {
+	if len(keys) == 0 {
+		return 0, nil
+	}
+	n, err := transitionExecFn(ctx, r,
+		`DELETE FROM meta WHERE key = ANY($1)`, keys)
+	if err != nil {
+		return 0, fmt.Errorf("meta_delete: %w", err)
+	}
+	return n, nil
+}
+
+// UpdateSessionSummary는 done 종료 요약의 sessions 갱신 단일 경로다
+// (v0.41.0 T3): writeSessionRecord(세션 수 불변 갱신)가 위임한다.
+// 갱신 0행 후견사는 없다 — 기존 계약과 동일하게 조용히 결과만 반환
+// (비간섭 §13 — done 경로의 실패는 호출자가 stderr 1행으로 흡수).
+func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
+	n, err := transitionExecFn(ctx, r,
+		`UPDATE sessions SET summary = $1, tasks = $2 WHERE id = $3`,
+		summary, tasks, id)
+	if err != nil {
+		return 0, fmt.Errorf("update_session_summary: %w", err)
+	}
+	return n, nil
+}
+
 // Commit은 dolt_add('-A') 후 dolt_commit('-m', msg)을 실행해 커밋 해시를 돌려준다.
 // 충돌 가능성을 고려해 기본 delays(0s/1s/3s)로 Retry한다.
 func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {

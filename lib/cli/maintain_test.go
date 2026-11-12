@@ -30,11 +30,13 @@ type fakeMaint struct {
 	invalSeqErrs []error // 호출 순번별 선행 에러(재시도 시뮬레이션)
 	supersedeErr error
 	mergeErr     error
+	pruneErr     error // v0.41.0 T3: PruneInvalidated 선행 에러
 
 	invalidateCalls [][]int
 	invalidateMsgs  []string
 	supersedeCalls  []supersedeCall
 	mergeCalls      [][2]int
+	pruneCalls      []time.Time // v0.41.0 T3: PruneInvalidated 위임 캡처
 }
 
 // supersedeCall — Supersede 위임 캡처(old·new·invalid_at 병기 값).
@@ -76,6 +78,16 @@ func (f *fakeMaint) Supersede(ctx context.Context, oldID, newID int, at time.Tim
 func (f *fakeMaint) Merge(ctx context.Context, fromID, toID int) error {
 	f.mergeCalls = append(f.mergeCalls, [2]int{fromID, toID})
 	return f.mergeErr
+}
+
+// PruneInvalidated — v0.41.0 T3: Repo 위임 메서드 캡처(반환 = 대상 2행
+// 관례 — maintain_v0330 prune 계약과 동일).
+func (f *fakeMaint) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
+	f.pruneCalls = append(f.pruneCalls, before)
+	if f.pruneErr != nil {
+		return 0, f.pruneErr
+	}
+	return 2, nil
 }
 
 func runMaintainArgs(t *testing.T, f *fakeMaint, args ...string) (string, int) {

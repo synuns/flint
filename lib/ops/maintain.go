@@ -32,6 +32,9 @@ type MaintStore interface {
 	DupGroups(ctx context.Context, limit int) ([]db.DupGroup, error)
 	Invalidate(ctx context.Context, ids []int, reason string) (int64, error)
 	Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error)
+	// v0.41.0 T3: invalidated 정리 DELETE도 같은 원칙(쓰기 가드 —
+	// writes_through_repo_test).
+	PruneInvalidated(ctx context.Context, before time.Time) (int64, error)
 	Merge(ctx context.Context, fromID, toID int) error
 }
 
@@ -1112,13 +1115,13 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 	}
 	deleted := 0
 	if err := retryWrite(ctx, func() error {
-		rows, err := wire.QueryOnce(ctx, ms,
-			`DELETE FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1`,
-			[]any{cutoff})
+		// v0.41.0 T3: DELETE는 db.Repo.PruneInvalidated 단일 경로
+		// (반환 = 실제 영향 행 수 — 스냅숏 아님, 리뷰 9 승계).
+		n, err := ms.PruneInvalidated(ctx, cutoff)
 		if err != nil {
 			return err
 		}
-		deleted = len(rows) // DELETE 반환 행 = 실제 영향(리뷰 9 — 스냅샷 아님)
+		deleted = int(n)
 		_, err = ms.Commit(ctx, fmt.Sprintf(
 			"prune-invalidated: %d건(경과 %d일+) 삭제 (지식 위생 경로) [session:0]", deleted, days))
 		return err

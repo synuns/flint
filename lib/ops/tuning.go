@@ -369,6 +369,13 @@ func tuningSet(ctx context.Context, st wire.Store, key, val string, stdout io.Wr
 	return 0
 }
 
+// metaDeleteStore — meta 행 삭제의 단일 경로 capability(v0.41.0 T3).
+// realStore는 db.Repo.MetaDelete 위임 — 쓰기 가드(writes_through_repo_test)
+// 로 lib/{ops,knowledge} 소스의 Query/queryOnce 호출부 쓰기 토큰이 금지된다.
+type metaDeleteStore interface {
+	MetaDelete(ctx context.Context, keys []string) (int64, error)
+}
+
 // tuningReset — 오버라이드 삭제(기본값 복귀).
 func tuningReset(ctx context.Context, st wire.Store, key string, stdout io.Writer) int {
 	_, inTh := TuningKeyMap()[key]
@@ -381,8 +388,13 @@ func tuningReset(ctx context.Context, st wire.Store, key string, stdout io.Write
 	if !inTh && !inMeta {
 		return tuningUnknownKey(stdout, key)
 	}
-	if _, err := wire.QueryOnce(ctx, st,
-		`DELETE FROM meta WHERE key = $1`, []any{key}); err != nil {
+	// v0.41.0 T3: DELETE는 db.Repo.MetaDelete 단일 경로.
+	md, ok := st.(metaDeleteStore)
+	if !ok {
+		fmt.Fprintln(stdout, `{"error":"tuning reset: unsupported store"}`)
+		return 1
+	}
+	if _, err := md.MetaDelete(ctx, []string{key}); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
@@ -418,17 +430,16 @@ func tuningMetaUpsert(ctx context.Context, st wire.Store, key, val string, stdou
 
 // TuningResetAll — 전체 오버라이드 일괄 삭제(v0.24.0 R4b: 22+왕복 → 1회).
 // thresholds 키 + meta 관리 키 전부(TuningKeyAll 단일 소스) — 리셋된
-// 키 목록을 합산 JSON으로.
+// 키 목록을 합산 JSON으로. v0.41.0 T3: DELETE는 db.Repo.MetaDelete 단일
+// 경로(전량 삭제 계약 유지 — TuningKeyAll 전체를 1회 전달).
 func TuningResetAll(ctx context.Context, st wire.Store, stdout io.Writer) int {
 	all := TuningKeyAll()
-	qmarks := make([]string, len(all))
-	args := make([]any, len(all))
-	for i, k := range all {
-		qmarks[i] = "$" + strconv.Itoa(i+1)
-		args[i] = k
+	md, ok := st.(metaDeleteStore)
+	if !ok {
+		fmt.Fprintln(stdout, `{"error":"tuning reset: unsupported store"}`)
+		return 1
 	}
-	if _, err := wire.QueryOnce(ctx, st,
-		`DELETE FROM meta WHERE key IN (`+strings.Join(qmarks, ",")+`)`, args); err != nil {
+	if _, err := md.MetaDelete(ctx, all); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}

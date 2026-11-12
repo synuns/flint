@@ -25,6 +25,7 @@ type fakeMaintStore struct {
 	merged         [][2]int
 	supersedeErr   error
 	superseded     [][2]int
+	prunedAt       []time.Time // v0.41.0 T3: PruneInvalidated 위임 캡처
 }
 
 func (f *fakeMaintStore) Counts(ctx context.Context) (db.Counts, error) {
@@ -47,6 +48,13 @@ func (f *fakeMaintStore) Supersede(ctx context.Context, oldID, newID int, at tim
 func (f *fakeMaintStore) Merge(ctx context.Context, fromID, toID int) error {
 	f.merged = append(f.merged, [2]int{fromID, toID})
 	return nil
+}
+
+// PruneInvalidated — v0.41.0 T3: Repo 위임 메서드 캡처(반환 = 대상 2행
+// 관례 — maintain_v0330 prune 계약과 동일).
+func (f *fakeMaintStore) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
+	f.prunedAt = append(f.prunedAt, before)
+	return 2, nil
 }
 func (f *fakeMaintStore) ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error) {
 	return nil, nil
