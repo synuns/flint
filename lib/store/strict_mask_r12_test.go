@@ -57,3 +57,17 @@ func TestMaskSecretsPreservesAllowlist(t *testing.T) {
 		t.Fatalf("진단용 원문 보존 위반: %q", got)
 	}
 }
+
+// TestNestedAllowlistLongestFirst — v1.0.11(R13-2): 중첩 등록은 긴 항목
+// 우선 — {"doc","doc-token-abc"}에서 잔여 평문 없이 전부 [ALLOWED].
+func TestNestedAllowlistLongestFirst(t *testing.T) {
+	ResetSecretsAllowlistForTest([]string{"doc", "doc-token-abc"})
+	defer ResetSecretsAllowlistForTest(nil)
+	got := MaskSecretsStrict("예시 doc-token-abc 사용")
+	if strings.Contains(got, "token-abc") || strings.Contains(got, "-[ALLOWED]") {
+		t.Fatalf("중첩 등록 잔여: %q", got)
+	}
+	if !strings.Contains(got, "[ALLOWED]") {
+		t.Fatalf("[ALLOWED] 없음: %q", got)
+	}
+}

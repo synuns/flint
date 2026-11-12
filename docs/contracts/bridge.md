@@ -7,7 +7,8 @@
 - 비로컬 AI(챗 비서 등)는 **브리지**로만 접근한다:
   `flint brief [query]`가 마스킹된 읽기 전용 블록을 내고, 사용자가
   임의의 채팅에 붙여넣어 전달한다(단방향 수출면).
-- 유출 방어(기기 밖 문자열 전부): MaskSecrets(비밀 패턴 치환) +
+- 유출 방어(기기 밖 문자열 전부): MaskSecretsStrict(비밀 패턴 치환 +
+  allowlist 등록값 마스킹 — v1.0.11 패턴 우선·중첩 등록 내림차순) →
   SanitizeText(제어 문자·`[flint]` 마커 중립화). 조회 원천은
   active_knowledge 뷰로 한정 — pending·invalidated 미검수 지식은
   기기 밖으로 나가지 않는다.

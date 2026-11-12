@@ -4,6 +4,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -232,7 +233,12 @@ func maskAllowlisted(s string) string {
 		s = strings.Replace(s, m, sent, 1)
 		keeps = append(keeps, keep{sent, m})
 	}
-	for _, a := range secretsAllowlist {
+	// v1.0.11(R13-2): 긴 등록값 우선 — {"doc","doc-token-abc"} 순회 시
+	// 짧은 항목이 먼저 치환되어 "[ALLOWED]-token-abc" 잔여 평문이 남는다
+	// (실증). 내림차순 정렬로 긴 항목이 먼저 매칭된다.
+	sortedAllow := append([]string(nil), secretsAllowlist...)
+	sort.Slice(sortedAllow, func(i, j int) bool { return len(sortedAllow[i]) > len(sortedAllow[j]) })
+	for _, a := range sortedAllow {
 		if a != "" {
 			s = strings.ReplaceAll(s, a, "[ALLOWED]")
 		}
