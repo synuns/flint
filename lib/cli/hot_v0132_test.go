@@ -14,15 +14,13 @@ import (
 	"github.com/synuns/flint/lib/query"
 )
 
-// hotN3QueryFn — hot_view 본질의는 hotRows, 동반 id 질의(FROM projects p)는
-// idRows, 그 외(pending valid_at 동반 질의 포함)는 빈 결과.
-func hotN3QueryFn(hotRows, idRows [][]any) func(string, []any) ([][]any, error) {
+// hotN3QueryFn — hot_view 본질의는 hotRows(증분 id·valid_at 컬럼 포함),
+// 그 외 질의는 빈 결과.
+func hotN3QueryFn(hotRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM hot_view"):
 			return hotRows, nil
-		case strings.Contains(sql, "FROM projects p"):
-			return idRows, nil
 		}
 		return nil, nil
 	}
@@ -35,11 +33,10 @@ func hotN3QueryFn(hotRows, idRows [][]any) func(string, []any) ([][]any, error) 
 func TestHotHeadlineSkipsReadBump(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
-		{"pending", "토픽", "요약", "2026-10-22"},
-		{"decision", "토픽2", "요약2", "2026-10-21"},
+		{"pending", "토픽", "요약", "2026-10-22", int32(3), nil, nil},
+		{"decision", "토픽2", "요약2", "2026-10-21", int32(7), nil, nil},
 	}
-	f := &instrumentedFake{fakeStore: fakeStore{queryFn: hotN3QueryFn(
-		hotRows, [][]any{{int32(3)}, {int32(7)}})}}
+	f := &instrumentedFake{fakeStore: fakeStore{queryFn: hotN3QueryFn(hotRows)}}
 	var out bytes.Buffer
 	if code := runHot(ctx, f, nil, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runHot exit = %d, want 0", code)
@@ -57,14 +54,14 @@ func TestHotHeadlineSkipsReadBump(t *testing.T) {
 
 // TestHotFullStillBumpsInjected — N3 반대편: --full 전체 출력 경로는 실제
 // 주입이 일어나므로 생존 지식 id 전수를 계속 증분한다(예산 넉넉 → 전체).
+// v0.41.0 T5: id는 본질의 hot_view 조회의 id 컬럼에서 직접(동반 질의 폐지).
 func TestHotFullStillBumpsInjected(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
-		{"pending", "토픽", "요약", "2026-10-22"},
-		{"decision", "토픽2", "요약2", "2026-10-21"},
+		{"pending", "토픽", "요약", "2026-10-22", int32(3), nil, nil},
+		{"decision", "토픽2", "요약2", "2026-10-21", int32(7), nil, nil},
 	}
-	f := &instrumentedFake{fakeStore: fakeStore{queryFn: hotN3QueryFn(
-		hotRows, [][]any{{int32(3)}, {int32(7)}})}}
+	f := &instrumentedFake{fakeStore: fakeStore{queryFn: hotN3QueryFn(hotRows)}}
 	var out bytes.Buffer
 	if code := runHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runHot --full exit = %d, want 0", code)
@@ -87,9 +84,9 @@ func TestHotFullSuffixSurvivorMatchesOutput(t *testing.T) {
 	ctx := context.Background()
 	validAt := time.Now().UTC().Add(-72 * time.Hour) // 내림 3일 → ·+3일
 	hotRows := [][]any{
-		{"pending", "펜딩토픽", "요약", validAt},
-		{"decision", "잘린토픽", "요약2", "2026-10-21"},
-		{"decision", "더잘린토픽", "요약3", "2026-10-20"},
+		{"pending", "펜딩토픽", "요약", validAt, int32(10), validAt, validAt},
+		{"decision", "잘린토픽", "요약2", "2026-10-21", int32(11), nil, nil},
+		{"decision", "더잘린토픽", "요약3", "2026-10-20", int32(12), nil, nil},
 	}
 	suffix := "·+3일"
 	baseLines := strings.Split(strings.TrimSuffix(
@@ -105,10 +102,6 @@ func TestHotFullSuffixSurvivorMatchesOutput(t *testing.T) {
 		case strings.Contains(sql, "FROM meta") && len(args) > 0 &&
 			fmt.Sprint(args[0]) == "hot_budget":
 			return [][]any{{strconv.Itoa(budget)}}, nil
-		case strings.Contains(sql, "FROM projects p"):
-			return [][]any{{int32(10)}, {int32(11)}, {int32(12)}}, nil
-		case strings.Contains(sql, "FROM knowledge"):
-			return [][]any{{validAt}}, nil // pending valid_at 동반 질의
 		}
 		return nil, nil
 	}

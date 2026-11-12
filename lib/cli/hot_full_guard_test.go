@@ -19,14 +19,14 @@ func TestHotFullNewlineSummarySkipsSuffix(t *testing.T) {
 	ctx := context.Background()
 	validAt := time.Now().UTC().Add(-49 * time.Hour)
 	hotRows := [][]any{
-		{"pending", "토픽", "요약\n둘째 줄", validAt},
+		{"pending", "토픽", "요약\n둘째 줄", validAt, int32(3), validAt, validAt},
 	}
 	// 리터럴 형식: 필드 구분 "|"·시각은 fmt.Sprint 기본형(FormatRows 비JSON
 	// 계약). 입력값 자체의 표준 포맷팅은 자기복창이 아니다(생산 코드 무관).
 	// 재살균된 요약(개행 제거)은 정상 접미 대상 — -49h는 ·+2일.
 	want := "pending|토픽|요약둘째 줄|" + fmt.Sprint(validAt) + "·+2일\n"
 	var out bytes.Buffer
-	f := &fakeStore{queryFn: pendingAgeQueryFn(hotRows, [][]any{{validAt}})}
+	f := &fakeStore{queryFn: pendingAgeQueryFn(hotRows)}
 	if code := runHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runHot --full exit = %d, want 0", code)
 	}
