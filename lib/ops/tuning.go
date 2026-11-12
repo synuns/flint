@@ -3,7 +3,8 @@
 // 했다(관리 진입장벽). 계약: 한 줄 JSON, exit 0/1/3(3=키·값 오류).
 // 값 검증은 실경로(loadThresholds→ParseThresholds)로 — 파싱 폴백이
 // 일어나면(값이 반영 안 되면) 거부한다(문서와 단일 소스).
-package cli
+// v0.40.0 T1: lib/cli에서 이동(패키지문·내보내기만 변경 — 동작 불변).
+package ops
 
 import (
 	"context"
@@ -15,26 +16,30 @@ import (
 	"strings"
 
 	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
-func init() { Register("tuning", runTuning) }
+// QuoteJSONFn — JSON 문자열 리터럴 인용 seam(cli backup.go quoteJSON —
+// T3 이동 후 직접 호출 수렴).
+var QuoteJSONFn func(s string) string
 
-// tuningKeyInfo — 노출 키 메타(값 직렬화는 필드별 Get).
-type tuningKeyInfo struct {
+// TuningKeyInfo — 노출 키 메타(값 직렬화는 필드별 Get).
+type TuningKeyInfo struct {
 	Key      string
 	Default  string
 	Consumer string // 소비 경로 표시(v0.24.0 R4b — TUNING 표와 상호 참조)
 	Get      func(store.Thresholds) string
 }
 
-// tuningKeys — TUNING §2 전체 키(가나다 아닌 선언 순 = 문서 순서와
-// 상관없이 결정적 정렬은 아래 list에서 수행).
-func tuningKeys() []tuningKeyInfo {
+// TuningKeys — TUNING §2 전체 키(가나다 아닌 선언 순 = 문서 순서와
+// 관계없이 결정적 정렬은 아래 list에서 수행).
+func TuningKeys() []TuningKeyInfo {
 	d := store.DefaultThresholds()
 	i := func(v int) string { return strconv.Itoa(v) }
 	f := func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
-	return []tuningKeyInfo{
+	return []TuningKeyInfo{
 		{"pending_max", i(d.PendingMax), "maintain --check", func(t store.Thresholds) string { return i(t.PendingMax) }},
 		{"dup_susp_max", i(d.DupSuspMax), "maintain --check", func(t store.Thresholds) string { return i(t.DupSuspMax) }},
 		{"conf_floor", f(d.ConfFloor), "write 판정", func(t store.Thresholds) string { return f(t.ConfFloor) }},
@@ -67,16 +72,16 @@ func tuningKeys() []tuningKeyInfo {
 	}
 }
 
-// tuningMetaKey — thresholds 레지스트리 밖 meta 관리 키(v0.24.0 R1d:
+// TuningMetaKey — thresholds 레지스트리 밖 meta 관리 키(v0.24.0 R1d:
 // 관리 경로 단일화 — hot_budget·backup_keep·exposure_profile 등).
-type tuningMetaKey struct {
+type TuningMetaKey struct {
 	Key      string
 	Default  string
 	Validate func(val string) error
 }
 
-// tuningMetaKeys — 관리면 확장 키. 검증은 각 타입 규칙(정수·열거).
-func tuningMetaKeys() []tuningMetaKey {
+// TuningMetaKeys — 관리면 확장 키. 검증은 각 타입 규칙(정수·열거).
+func TuningMetaKeys() []TuningMetaKey {
 	intPositive := func(key string) func(string) error {
 		return func(v string) error {
 			if n, err := strconv.Atoi(v); err != nil || n <= 0 {
@@ -85,8 +90,8 @@ func tuningMetaKeys() []tuningMetaKey {
 			return nil
 		}
 	}
-	return []tuningMetaKey{
-		{Key: "hot_budget", Default: strconv.Itoa(defaultHotBudget), Validate: intPositive("hot_budget")},
+	return []TuningMetaKey{
+		{Key: "hot_budget", Default: strconv.Itoa(knowledge.DefaultHotBudget), Validate: intPositive("hot_budget")},
 		{Key: "backup_keep", Default: strconv.Itoa(backup.DefaultBackupKeep), Validate: intPositive("backup_keep")},
 		{Key: "backup_interval_h", Default: strconv.Itoa(backup.DefaultBackupIntervalH), Validate: intPositive("backup_interval_h")},
 		{Key: "exposure_profile", Default: "normal", Validate: func(v string) error {
@@ -124,22 +129,22 @@ func vocabListValidator(key string) func(string) error {
 	}
 }
 
-// tuningKeyMap — 키 → 메타(빠른 조회).
-func tuningKeyMap() map[string]tuningKeyInfo {
-	out := make(map[string]tuningKeyInfo, len(thresholdsKeys())+len(tuningMetaKeys()))
-	for _, k := range tuningKeys() {
+// TuningKeyMap — 키 → 메타(빠른 조회).
+func TuningKeyMap() map[string]TuningKeyInfo {
+	out := make(map[string]TuningKeyInfo, len(wire.ThresholdsKeys())+len(TuningMetaKeys()))
+	for _, k := range TuningKeys() {
 		out[k.Key] = k
 	}
 	return out
 }
 
-// tuningKeyAll — v0.34.2 R1: thresholdsKeys(maintain.go)와
-// tuningMetaKeys의 .Key 필드의 정렬 합집합(중복 제거). tuningCurrent·
+// TuningKeyAll — v0.34.2 R1: thresholdsKeys(maintain.go)와
+// TuningMetaKeys의 .Key 필드의 정렬 합집합(중복 제거). tuningCurrent·
 // tuningResetAll이 하드코딩 6키 목록을 복제해 backup_encrypt(7번째
 // meta 키)가 누락되던 드리프트의 단일 소스.
-func tuningKeyAll() []string {
-	all := append([]string{}, thresholdsKeys()...)
-	for _, mk := range tuningMetaKeys() {
+func TuningKeyAll() []string {
+	all := append([]string{}, wire.ThresholdsKeys()...)
+	for _, mk := range TuningMetaKeys() {
 		all = append(all, mk.Key)
 	}
 	seen := map[string]bool{}
@@ -157,17 +162,17 @@ func tuningKeyAll() []string {
 // tuningKeyList — 결정적 정렬 키 목록.
 func tuningKeyList() []string {
 	out := make([]string, 0, 22)
-	for _, k := range tuningKeys() {
+	for _, k := range TuningKeys() {
 		out = append(out, k.Key)
 	}
 	sort.Strings(out)
 	return out
 }
 
-// runTuning — 하위명령 디스패치. 인자 없음 = list.
-func runTuning(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+// RunTuning — 하위명령 디스패치. 인자 없음 = list.
+func RunTuning(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if err := st.Ping(ctx); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	cmd := "list"
@@ -176,7 +181,7 @@ func runTuning(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	}
 	switch cmd {
 	case "list":
-		return tuningList(ctx, st, stdout)
+		return TuningList(ctx, st, stdout)
 	case "get":
 		if len(args) != 2 {
 			return tuningUsage(stdout, "get <key>")
@@ -189,7 +194,7 @@ func runTuning(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		return tuningSet(ctx, st, args[1], args[2], stdout)
 	case "reset":
 		if len(args) == 2 && args[1] == "--all" {
-			return tuningResetAll(ctx, st, stdout)
+			return TuningResetAll(ctx, st, stdout)
 		}
 		if len(args) != 2 {
 			return tuningUsage(stdout, "reset <key> | reset --all")
@@ -200,17 +205,17 @@ func runTuning(ctx context.Context, st Store, args []string, stdin io.Reader, st
 }
 
 func tuningUsage(stdout io.Writer, usage string) int {
-	fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "tuning", Expect: usage}))
+	fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "tuning", Expect: usage}))
 	return 3
 }
 
-// tuningCurrent — 현재 값(오버라이드 여부 판별용 원시 메타 값 포함).
-func tuningCurrent(ctx context.Context, st Store) (store.Thresholds, map[string]string, error) {
+// TuningCurrent — 현재 값(오버라이드 여부 판별용 원시 메타 값 포함).
+func TuningCurrent(ctx context.Context, st wire.Store) (store.Thresholds, map[string]string, error) {
 	// v0.23.0 리뷰 ⑦: 단일 쿼리 — 같은 키 집합을 한 번 읽어 원시 맵과
 	// 파싱 결과를 모두 도출한다(loadThresholds와 이중 조회 제거).
 	raw := map[string]string{}
-	all := tuningKeyAll()
-	rows, err := queryOnce(ctx, st,
+	all := TuningKeyAll()
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('`+strings.Join(all, "','")+`')`, nil)
 	if err != nil {
 		return store.Thresholds{}, raw, err
@@ -227,18 +232,18 @@ func tuningCurrent(ctx context.Context, st Store) (store.Thresholds, map[string]
 	if perr != nil {
 		return th, raw, perr
 	}
-	th = applyThresholdsFallback(th)
+	th = wire.ApplyThresholdsFallback(th)
 	return th, raw, nil
 }
 
-// tuningList — 전체 키의 현재값·기본값·소스 한 줄 JSON.
-func tuningList(ctx context.Context, st Store, stdout io.Writer) int {
-	th, raw, err := tuningCurrent(ctx, st)
+// TuningList — 전체 키의 현재값·기본값·소스 한 줄 JSON.
+func TuningList(ctx context.Context, st wire.Store, stdout io.Writer) int {
+	th, raw, err := TuningCurrent(ctx, st)
 	if err != nil { // v0.23.0 리뷰 ①: 영값 출력이 아니라 오류로.
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	km := tuningKeyMap()
+	km := TuningKeyMap()
 	type row struct {
 		Key      string `json:"key"`
 		Value    string `json:"value"`
@@ -254,7 +259,7 @@ func tuningList(ctx context.Context, st Store, stdout io.Writer) int {
 		out = append(out, row{Key: k, Value: value, Default: info.Default, Consumer: info.Consumer, Override: overridden})
 	}
 	// v0.24.0 R1d: thresholds 밖 meta 관리 키 병합 노출.
-	for _, mk := range tuningMetaKeys() {
+	for _, mk := range TuningMetaKeys() {
 		value, overridden := mk.Default, false
 		if v, ok := raw[mk.Key]; ok {
 			value, overridden = v, true
@@ -263,7 +268,7 @@ func tuningList(ctx context.Context, st Store, stdout io.Writer) int {
 	}
 	b, err := json.Marshal(map[string]any{"keys": out})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))
@@ -271,14 +276,14 @@ func tuningList(ctx context.Context, st Store, stdout io.Writer) int {
 }
 
 // tuningGet — 단일 키 상태.
-func tuningGet(ctx context.Context, st Store, key string, stdout io.Writer) int {
+func tuningGet(ctx context.Context, st wire.Store, key string, stdout io.Writer) int {
 	// v0.24.0 리뷰 ①: meta 관리 키도 get 대상(set/list/reset과 표면 일치).
-	for _, mk := range tuningMetaKeys() {
+	for _, mk := range TuningMetaKeys() {
 		if mk.Key == key {
-			th, raw, err := tuningCurrent(ctx, st)
+			th, raw, err := TuningCurrent(ctx, st)
 			_ = th
 			if err != nil {
-				fmt.Fprintln(stdout, errLine(err))
+				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return store.MapExit(err)
 			}
 			value, overridden := mk.Default, false
@@ -292,13 +297,13 @@ func tuningGet(ctx context.Context, st Store, key string, stdout io.Writer) int 
 			return 0
 		}
 	}
-	info, ok := tuningKeyMap()[key]
+	info, ok := TuningKeyMap()[key]
 	if !ok {
 		return tuningUnknownKey(stdout, key)
 	}
-	th, raw, err := tuningCurrent(ctx, st)
+	th, raw, err := TuningCurrent(ctx, st)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	_, overridden := raw[key] // ⑨: list와 동일하게 bool.
@@ -310,23 +315,23 @@ func tuningGet(ctx context.Context, st Store, key string, stdout io.Writer) int 
 }
 
 // tuningSet — 값 검증(실경로 파싱으로 반영 확인) 후 meta upsert.
-func tuningSet(ctx context.Context, st Store, key, val string, stdout io.Writer) int {
+func tuningSet(ctx context.Context, st wire.Store, key, val string, stdout io.Writer) int {
 	// v0.24.0 R1d: thresholds 밖 meta키 — 자체 검증 후 upsert.
-	for _, mk := range tuningMetaKeys() {
+	for _, mk := range TuningMetaKeys() {
 		if mk.Key == key {
 			if err := mk.Validate(val); err != nil {
-				fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: key, Expect: err.Error()}))
+				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: key, Expect: err.Error()}))
 				return 3
 			}
 			return tuningMetaUpsert(ctx, st, key, val, stdout)
 		}
 	}
-	info, ok := tuningKeyMap()[key]
+	info, ok := TuningKeyMap()[key]
 	if !ok {
 		return tuningUnknownKey(stdout, key)
 	}
 	// 검증 ①: 후보 값을 파싱해 필드에 그대로 반영되는지(폴백 아님).
-	// v0.25.3(미커버 스윑 ③): 비교는 수치로 — '0.30'·'60.0'·'.5' 같은
+	// v0.25.3(미커버 스윕 ③): 비교는 수치로 — '0.30'·'60.0'·'.5' 같은
 	// 동등 표기가 문자열 비교로 거부되던 것을 수용(포맷 차이 ≠ 무효 값).
 	cand, err := store.ParseThresholds([][2]any{{key, val}})
 	reflected := err == nil && info.Get(cand) == val
@@ -341,7 +346,7 @@ func tuningSet(ctx context.Context, st Store, key, val string, stdout io.Writer)
 		err = fmt.Errorf("파싱 폴백 — 무효 값")
 	}
 	if err != nil || !reflected {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
 			Field:  key,
 			Expect: "유효 값(기본 " + info.Default + ", TUNING §2 참조)",
 		}))
@@ -350,25 +355,25 @@ func tuningSet(ctx context.Context, st Store, key, val string, stdout io.Writer)
 	// 검증 ②(v0.23.0 리뷰 ②): 폴백 키는 0이 "미설정" 의미라 저장해도
 	// 소비자가 기본값으로 되돌린다 — 표현 불가 값 사전 거부.
 	if val == "0" && zeroMeansUnset(key) {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
 			Field:  key,
 			Expect: "0 불가(미설정 의미) — 기본 복귀는 reset",
 		}))
 		return 3
 	}
-	if err := setMetaKV(ctx, st, key, val); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+	if err := wire.SetMetaKV(ctx, st, key, val); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	fmt.Fprintln(stdout, `{"status":"set","key":`+quoteJSON(key)+`,"value":`+quoteJSON(val)+"}")
+	fmt.Fprintln(stdout, `{"status":"set","key":`+QuoteJSONFn(key)+`,"value":`+QuoteJSONFn(val)+"}")
 	return 0
 }
 
 // tuningReset — 오버라이드 삭제(기본값 복귀).
-func tuningReset(ctx context.Context, st Store, key string, stdout io.Writer) int {
-	_, inTh := tuningKeyMap()[key]
+func tuningReset(ctx context.Context, st wire.Store, key string, stdout io.Writer) int {
+	_, inTh := TuningKeyMap()[key]
 	inMeta := false
-	for _, mk := range tuningMetaKeys() {
+	for _, mk := range TuningMetaKeys() {
 		if mk.Key == key {
 			inMeta = true
 		}
@@ -376,17 +381,17 @@ func tuningReset(ctx context.Context, st Store, key string, stdout io.Writer) in
 	if !inTh && !inMeta {
 		return tuningUnknownKey(stdout, key)
 	}
-	if _, err := queryOnce(ctx, st,
+	if _, err := wire.QueryOnce(ctx, st,
 		`DELETE FROM meta WHERE key = $1`, []any{key}); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	fmt.Fprintln(stdout, `{"status":"reset","key":`+quoteJSON(key)+"}")
+	fmt.Fprintln(stdout, `{"status":"reset","key":`+QuoteJSONFn(key)+"}")
 	return 0
 }
 
 func tuningUnknownKey(stdout io.Writer, key string) int {
-	fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "tuning", Expect: "알려진 키: " + strings.Join(tuningKeyList()[:5], ", ") + ", …"}))
+	fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "tuning", Expect: "알려진 키: " + strings.Join(tuningKeyList()[:5], ", ") + ", …"}))
 	return 3
 }
 
@@ -402,29 +407,29 @@ func zeroMeansUnset(key string) bool {
 
 // tuningMetaUpsert — 검증 완료 값의 meta upsert 공통(§2·meta키 동일 경로).
 // v0.34.3 T2: upsert 본체는 setMetaKV 단일 진입에 위임.
-func tuningMetaUpsert(ctx context.Context, st Store, key, val string, stdout io.Writer) int {
-	if err := setMetaKV(ctx, st, key, val); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+func tuningMetaUpsert(ctx context.Context, st wire.Store, key, val string, stdout io.Writer) int {
+	if err := wire.SetMetaKV(ctx, st, key, val); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	fmt.Fprintln(stdout, `{"status":"set","key":`+quoteJSON(key)+`,"value":`+quoteJSON(val)+"}")
+	fmt.Fprintln(stdout, `{"status":"set","key":`+QuoteJSONFn(key)+`,"value":`+QuoteJSONFn(val)+"}")
 	return 0
 }
 
-// tuningResetAll — 전체 오버라이드 일괄 삭제(v0.24.0 R4b: 22+왕복 → 1회).
-// thresholds 키 + meta 관리 키 전부(tuningKeyAll 단일 소스) — 리셋된
+// TuningResetAll — 전체 오버라이드 일괄 삭제(v0.24.0 R4b: 22+왕복 → 1회).
+// thresholds 키 + meta 관리 키 전부(TuningKeyAll 단일 소스) — 리셋된
 // 키 목록을 합산 JSON으로.
-func tuningResetAll(ctx context.Context, st Store, stdout io.Writer) int {
-	all := tuningKeyAll()
+func TuningResetAll(ctx context.Context, st wire.Store, stdout io.Writer) int {
+	all := TuningKeyAll()
 	qmarks := make([]string, len(all))
 	args := make([]any, len(all))
 	for i, k := range all {
 		qmarks[i] = "$" + strconv.Itoa(i+1)
 		args[i] = k
 	}
-	if _, err := queryOnce(ctx, st,
+	if _, err := wire.QueryOnce(ctx, st,
 		`DELETE FROM meta WHERE key IN (`+strings.Join(qmarks, ",")+`)`, args); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	fmt.Fprintln(stdout, `{"status":"reset-all","keys":`+strconv.Itoa(len(all))+"}")

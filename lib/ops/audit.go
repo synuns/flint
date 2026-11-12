@@ -2,7 +2,8 @@
 // `flint audit [--limit N] [--session ID] [--stat]` — dolt_log 최근 N(기본 20·상한 100)을
 // 컬럼 4종(commit_hash·committer·date·message)만 한 줄 JSON {"log":[...]}로 출력.
 // --session ID는 message LIKE '%[session:ID]%' 필터. 서버 다운 exit 2(§13 조용히).
-package cli
+// v0.40.0 T1: lib/cli에서 이동(패키지문·내보내기만 변경 — 동작 불변).
+package ops
 
 import (
 	"context"
@@ -12,7 +13,9 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // audit 기본·상한 limit.
@@ -38,10 +41,10 @@ type auditTableStat struct {
 	SchemaChange bool `json:"schema_change"`
 }
 
-// relTime — t를 now 대비 상대 시각으로("3h ago"·"2d ago" — log 시각 옵션
+// RelTime — t를 now 대비 상대 시각으로("3h ago"·"2d ago" — log 시각 옵션
 // 부재로 자체 포맷, C13). 1시간 미만은 분, 24시간 미만은 시, 이후는 일(내림).
 // 미래 시각은 0으로 클램프.
-func relTime(t time.Time) string {
+func RelTime(t time.Time) string {
 	d := time.Since(t)
 	if d < 0 {
 		d = 0
@@ -78,7 +81,7 @@ func parseAuditDate(v any) (time.Time, bool) {
 
 // RunAudit — dolt_log 최근 N 조회. limit은 0·음수 → 기본 20, 상한 100 clamp
 // (무효 값 기본값 폴백 전역 제약).
-func RunAudit(st Store, args []string, stdout io.Writer) int {
+func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 	ctx := context.Background()
 	limit := auditDefaultLimit
 	session := ""
@@ -88,7 +91,7 @@ func RunAudit(st Store, args []string, stdout io.Writer) int {
 		case "--limit":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("--limit requires a number")))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--limit requires a number")))
 				return 1
 			}
 			n, err := strconv.Atoi(args[i])
@@ -101,12 +104,12 @@ func RunAudit(st Store, args []string, stdout io.Writer) int {
 		case "--session":
 			i++
 			if i >= len(args) || args[i] == "" {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("--session requires an id")))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--session requires an id")))
 				return 1
 			}
 			session = args[i]
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 1
 		}
 	}
@@ -122,9 +125,9 @@ func RunAudit(st Store, args []string, stdout io.Writer) int {
 	}
 	sql += ` ORDER BY commit_order DESC LIMIT $1`
 
-	rows, err := queryOnce(ctx, st, sql, qargs)
+	rows, err := wire.QueryOnce(ctx, st, sql, qargs)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	log := make([]auditEntry, 0, len(rows)) // 0행도 "log":[] 보장
@@ -140,11 +143,11 @@ func RunAudit(st Store, args []string, stdout io.Writer) int {
 			e.Date = fmt.Sprint(r[2])
 		}
 		if len(r) > 3 {
-			e.Message = Text(fmt.Sprint(r[3])) // v0.37.0: render.Text 경유(dolt_log message 재살균 승계)
+			e.Message = render.Text(fmt.Sprint(r[3])) // v0.37.0: render.Text 경유(dolt_log message 재살균 승계)
 		}
 		if stat {
 			if t, ok := parseAuditDate(r[2]); ok {
-				e.DateRel = relTime(t)
+				e.DateRel = RelTime(t)
 			}
 		}
 		log = append(log, e)
@@ -159,11 +162,11 @@ func RunAudit(st Store, args []string, stdout io.Writer) int {
 				hashes = append(hashes, log[i].CommitHash)
 			}
 		}
-		diffRows, err := queryOnce(ctx, st,
+		diffRows, err := wire.QueryOnce(ctx, st,
 			`SELECT commit_hash, table_name, data_change, schema_change
 FROM dolt_diff WHERE commit_hash = ANY($1)`, []any{hashes})
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
 		stats := make(map[string]map[string]auditTableStat, len(log))
@@ -195,9 +198,8 @@ FROM dolt_diff WHERE commit_hash = ANY($1)`, []any{hashes})
 	return 0
 }
 
-// runAudit — registry 핸들러(approve.go 패턴). ctx·stdin은 사용하지 않는다.
-func runAudit(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+// runAudit — registry 핸들러 래퍼(approve.go 패턴 — RunAudit는 ctx·stdin을
+// 사용하지 않는다).
+func runAudit(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	return RunAudit(st, args, stdout)
 }
-
-func init() { Register("audit", runAudit) }
