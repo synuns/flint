@@ -7,6 +7,7 @@ package docs
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -43,13 +44,20 @@ var versionDocContracts = []struct {
 		"조정 가이드", "재조정 트리거", "daily_retention_days", "backup_interval_h",
 		"vocab_tags", "방어 상한",
 	}},
-	{name: "TestVersion0240Milestone", doc: "PLAN.md", wants: []string{
+	// v0.44.0 T4: 릴리스 엔트리는 재무장본 PLAN의 에라 표·헤더로 기록
+	// (§14 부재 — 병인 ⑤ 해소 완결 선언).
+	{name: "TestVersion0440Milestone", doc: "PLAN.md", wants: []string{
+		"v0.44.0", "병인 ⑤ 해소",
+	}},
+	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
+	// 기록 존재)는 불변, 위치만 재지정.
+	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{
 		"v0.24.0", "임계값 설계 완결",
 	}},
-	{name: "TestVersion0230Milestone", doc: "PLAN.md", wants: []string{
+	{name: "TestVersion0230Milestone", doc: "HISTORY.md", wants: []string{
 		"v0.23.0", "tuning",
 	}},
-	{name: "TestVersion0220Milestone", doc: "PLAN.md", wants: []string{
+	{name: "TestVersion0220Milestone", doc: "HISTORY.md", wants: []string{
 		"v0.22.0", "자동 업데이트",
 	}},
 	{name: "TestV0210AdapterDocsQwen", doc: "adapters/qwen.md", wants: []string{
@@ -188,7 +196,7 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0180Milestone/TUNING", doc: "TUNING.md", wants: []string{"recall_warn_writes"}},
 
 	// v0190_docs_test.go — METRICS.md는 GSM 목표 4종·지표명·증거 등급·금지조항의 단일 소스.
-	{name: "TestVersion0190Milestone", doc: "PLAN.md", wants: []string{"v0.19.0", "효과 계측"}},
+	{name: "TestVersion0190Milestone", doc: "HISTORY.md", wants: []string{"v0.19.0", "효과 계측"}},
 	{name: "TestMetricsDocContract", doc: "METRICS.md", wants: []string{
 		"목표→신호→지표", // GSM 원칙
 		"G1 회상 명중", // 목표 4종
@@ -202,7 +210,7 @@ var versionDocContracts = []struct {
 	}},
 
 	// v0200_docs_test.go — 신지표·계측 원천 3테이블·폴백 규칙(문서-코드 정합).
-	{name: "TestVersion0200Milestone", doc: "PLAN.md", wants: []string{
+	{name: "TestVersion0200Milestone", doc: "HISTORY.md", wants: []string{
 		"v0.20.0", "효과 계측 정밀화", "기저율 셔플(C) 이연",
 	}},
 	{name: "TestMetricsDocV0200", doc: "METRICS.md", wants: []string{
@@ -574,6 +582,91 @@ func TestVersionArtifactsSync(t *testing.T) {
 		if !strings.Contains(docStr(t, p), "release-v"+ver+"-blue") {
 			t.Errorf("%s 배지 v%s 미기록(VERSION 불일치)", p, ver)
 		}
+	}
+}
+
+// TestPlanRearmedTwoPageContract — v0.44.0 T1(PLAN 재무장): PLAN.md는
+// 현행 계약 2페이지(≤150줄)로 유지된다. ① 줄 수 상한 ② 현행 구조·원칙·
+// v1.0.0 마일스톤 서술 ③ 구 본문 4개 모순 지점(서브커맨드 14·MCP 도구
+// 3종·훅 2종·실현된 비목표) 부재 ④ 실측 백분율 부재(저장소 최상위 원칙).
+func TestPlanRearmedTwoPageContract(t *testing.T) {
+	s := docStr(t, "PLAN.md")
+	if n := strings.Count(s, "\n") + 1; n > 150 {
+		t.Errorf("PLAN.md %d줄 — 재무장 계약(≤150줄) 초과", n)
+	}
+	for _, want := range []string{
+		"v1.0.0",           // 다음 마일스톤 1개
+		"wire",             // 계약층
+		"knowledge",        // 지식 명령층
+		"ops",              // 진단·정리·관측층
+		"render",           // 출력층
+		"composition root", // cli 구성 루트
+		"비간섭",              // 5원칙 승계
+		"HISTORY.md",       // 이력 이관처 안내
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("PLAN.md에 %q 누락(현행 계약 요소)", want)
+		}
+	}
+	for _, stale := range []string{
+		"서브커맨드 14",               // 실제는 25+2종
+		"read/write/hot MCP",     // 실제 MCP 도구는 5종
+		"SessionStart→flint hot", // 실제 훅은 3종(session-start·session-end·PostCompact)
+		"self-update",            // v0.22.0 flint update로 실현 — 비목표 잔류 모순
+	} {
+		if strings.Contains(s, stale) {
+			t.Errorf("PLAN.md에 구 본문 모순 표기 %q 잔존", stale)
+		}
+	}
+	if m := regexp.MustCompile(`\d+(?:\.\d+)?%`).FindString(s); m != "" {
+		t.Errorf("PLAN.md에 실측 백분율 %q 인용(저장소 원칙 위반)", m)
+	}
+}
+
+// TestContractsExamplesNotPinned — v0.44.0 리뷰: 계약 문서(docs/contracts/)
+// 예시 코드 블록은 버전 숫자를 고정하지 않는다. plugin.md가 릴리스 직후
+// 구버전(0.43.0) 예시로 부실화된 사례의 재발 방지 — 표면 문서는 버전
+// 동기 게이트(TestVersionArtifactsSync) 대상이 아니므로 여기서 금지.
+func TestContractsExamplesNotPinned(t *testing.T) {
+	files, err := filepath.Glob("contracts/*.md")
+	if err != nil || len(files) != 6 {
+		t.Fatalf("contracts/*.md 6종 탐색 실패: %v %v", files, err)
+	}
+	semver := regexp.MustCompile(`\b\d+\.\d+\.\d+\b`)
+	for _, f := range files {
+		s := docStr(t, f)
+		for _, block := range regexp.MustCompile("(?s)```.*?```").FindAllString(s, -1) {
+			if m := semver.FindString(block); m != "" {
+				t.Errorf("%s 예시 코드 블록에 버전 고정 %q — 버전 불문 서술로(드리프트 원천)", f, m)
+			}
+		}
+	}
+}
+
+// TestHistoryCoversAllErasChronological — v0.44.0 T1(HISTORY 이관): §14
+// 전체 엔트리(v0.19.0+)가 HISTORY.md로 이관됐고 시간순(오름차순) 배열.
+func TestHistoryCoversAllErasChronological(t *testing.T) {
+	s := docStr(t, "HISTORY.md")
+	anchors := []string{
+		"### v0.19.0", "### v0.20.0", "### v0.21.0", "### v0.22.0",
+		"### v0.23.0", "### v0.24.0", "### v0.25.0", "### v0.26.0",
+		"### v0.27.0", "### v0.28.0", "### v0.29.0", "### v0.30.0",
+		"### v0.31.0", "### v0.32.0", "### v0.33.0", "### v0.34.0",
+		"### v0.35.0", "### v0.36.0", "### v0.37.0", "### v0.38.0",
+		"### v0.39.0", "### v0.40.0", "### v0.41.0", "### v0.42.0",
+		"### v0.43.0",
+	}
+	prev := -1
+	for _, a := range anchors {
+		i := strings.Index(s, a)
+		if i < 0 {
+			t.Errorf("HISTORY.md에 %s 엔트리 없음(§14 이관 누락)", a)
+			continue
+		}
+		if prev >= 0 && i < prev {
+			t.Errorf("HISTORY.md 시간순 위반: %s가 이전 엔트리보다 앞섬", a)
+		}
+		prev = i
 	}
 }
 

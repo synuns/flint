@@ -25,12 +25,12 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v0.43.0-blue" alt="v0.41.1">
+  <img src="https://img.shields.io/badge/release-v0.44.0-blue" alt="v0.42.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
-  <img src="https://img.shields.io/badge/release-v0.43.0-blue" alt="v0.42.0">
-  <img src="https://img.shields.io/badge/release-v0.43.0-blue" alt="v0.43.0"></p>
+  <img src="https://img.shields.io/badge/release-v0.44.0-blue" alt="v0.43.0">
+  <img src="https://img.shields.io/badge/release-v0.44.0-blue" alt="v0.44.0"></p>
 
 <p align="center">
   <a href="#빠른-시작">빠른 시작</a> ·
@@ -47,9 +47,9 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v0.41.1 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
-> v0.42.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
-> v0.43.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/PLAN.md)
+> v0.42.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/HISTORY.md)
+> v0.43.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/HISTORY.md)
+> v0.44.0 · PLAN 재무장 · 표면 계약 · 커맨드 표 가드 · [전체 변경 이력](docs/HISTORY.md)
 ---
 
 ## 빠른 시작
@@ -173,6 +173,14 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 | `flint profile` | 프로파일 판정: 근거 지표+추천, `--apply normal\|minimal` |
 | `flint status` | 스키마 버전 · 대기 건수 · hot p95 |
 | `flint mcp` | MCP 서버 (read·write·hot·pending·approve 도구) |
+| `flint pending` | 대기 지식 검수 뷰 (승격·병합·만료·보류 판정, `--json`) |
+| `flint compact` | compact 요약을 pending 지식으로 적립 (PostCompact 훅 진입점) |
+| `flint nudge` | compact가 남긴 마커의 세션 종료 증류 리마인더 (`--clear` 종결) |
+| `flint doctor --check c` | 건강 검진 16종 (`--check` 서브셋, fail 시 exit 1) |
+| `flint report --days n` | 일별 유입·zero_pct·p95·stale 리포트 (`--html` 정적 대시보드) |
+| `flint diff <from> <to>` | 두 as-of 지점 간 지식 변경 비교 |
+| `flint teardown` | 설정 해제 (훅·설정, `--purge` 시 데이터도 제거) |
+| `flint version` | 버전 출력 |
 
 **종료 코드:** 0 성공 · 1 오류 (또는 `read` 무결과 침묵) · 2 저장소 장애 · exit 3 — 잘못된 입력 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값, `write` 스키마 위반).
 
