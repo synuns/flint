@@ -1,6 +1,7 @@
 // metrics.go — hot 출력 길이 계측(프로세스 내 통계 + meta hot_stats 영속 누적).
 // 단발 CLI가 매 실행 값을 보존하도록 종료 시 persist, 시작 시 load한다.
-package cli
+// v0.40.0 T2: lib/cli에서 이동(동작·출력·exit 불변 — 식별자 대문자화).
+package ops
 
 import (
 	"context"
@@ -9,6 +10,8 @@ import (
 	"os"
 	"sort"
 	"sync"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // hotMaxSamples — 보관 샘플 상한. 초과 시 오래된 샘플부터 버린다.
@@ -44,7 +47,7 @@ func HotStats() (calls int, p95 int, max int) {
 	if len(lens) == 0 {
 		return calls, 0, 0
 	}
-	return calls, hotP95(lens), lens[len(lens)-1]
+	return calls, HotP95(lens), lens[len(lens)-1]
 }
 
 // hotPending — 아직 baseline에 합산되지 않은(미저장) in-memory 샘플.
@@ -59,8 +62,9 @@ func hotPending() []int {
 	return hotLens[hotPersisted:]
 }
 
-// hotP95 — 정렬된 샘플에서 p95 근사값(인덱스 ceil(0.95*n)-1).
-func hotP95(sorted []int) int {
+// HotP95 — 정렬된 샘플에서 p95 근사값(인덱스 ceil(0.95*n)-1).
+// 내보내기: cli report.go 효과 지표 산출이 소비(T3 이동 전 별칭 경유).
+func HotP95(sorted []int) int {
 	n := len(sorted)
 	if n == 0 {
 		return 0
@@ -106,7 +110,7 @@ func LoadHotStats(getKV func(string) (string, error)) (calls int, p95 int, ok bo
 	lens := make([]int, len(st.Lens))
 	copy(lens, st.Lens)
 	sort.Ints(lens)
-	return st.Calls, hotP95(lens), true
+	return st.Calls, HotP95(lens), true
 }
 
 // PersistHotStats — 종료 시 meta hot_stats 누적 저장.
@@ -142,6 +146,24 @@ func PersistHotStats(setKV func(string, string) error) error {
 	return nil
 }
 
+// ResetMetrics — 프로세스 내 통계 초기화(테스트 격리 지원 — cli metrics_test
+// resetMetrics 관례 승계). 영속 baseline도 함께 지운다.
+func ResetMetrics() {
+	hotMu.Lock()
+	defer hotMu.Unlock()
+	hotLens = hotLens[:0]
+	hotBase = hotStatsJSON{}
+	hotPersisted = 0
+}
+
+// HotLensSnapshot — 보관 샘플 스냅샷(테스트 단언 지원 — cli metrics_test
+// TestHotRecordsRuneLen 관례 승계). 복사본 반환 — 직접 참조 없이 읽는다.
+func HotLensSnapshot() []int {
+	hotMu.Lock()
+	defer hotMu.Unlock()
+	return append([]int(nil), hotLens...)
+}
+
 // hotSum — 샘플 길이 합.
 func hotSum(lens []int) int {
 	s := 0
@@ -151,60 +173,62 @@ func hotSum(lens []int) int {
 	return s
 }
 
-// metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. hot·read 계측 wiring
+// MetaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. hot·read 계측 wiring
 // 4곳에 복제되던 인라인 쿼리를 통일한다. getKV는 키 부재 시 ("", nil),
 // 전송 오류는 err 그대로(호출부 폴백·와이프 방지 판단에 쓰인다).
-// v0.34.3 T2: 질의 본체는 meta_kv.go 단일 진입(getMetaKVErr·setMetaKV)
-// 에 위임 — 이 클로저는 오류 구분 계약만 유지한다.
-func metaKV(ctx context.Context, st Store) (func(string) (string, error), func(string, string) error) {
+// v0.34.3 T2: 질의 본체는 meta_kv 단일 진입(wire.GetMetaKVErr·wire.SetMetaKV)
+// 에 위임 — 이 클로저는 오류 구분 계약만 유지한다. knowledge가 자체
+// 동일 조립을 두는 것과 같은 패턴(동반 이동분 — cli는 별칭 경유).
+func MetaKV(ctx context.Context, st wire.Store) (func(string) (string, error), func(string, string) error) {
 	getKV := func(key string) (string, error) {
-		v, ok, err := getMetaKVErr(ctx, st, key)
+		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
 		if err != nil || !ok {
 			return "", err
 		}
 		return v, nil
 	}
 	setKV := func(key, value string) error {
-		return setMetaKV(ctx, st, key, value)
+		return wire.SetMetaKV(ctx, st, key, value)
 	}
 	return getKV, setKV
 }
 
-// loadHotStatsFromMeta — 명령 시작 시 meta hot_stats 로드(wiring).
+// LoadHotStatsFromMeta — 명령 시작 시 meta hot_stats 로드(wiring).
 // 조회 실패·부재는 LoadHotStats 폴백과 동일(경고 없이 baseline 0).
-func loadHotStatsFromMeta(ctx context.Context, st Store) {
-	getKV, _ := metaKV(ctx, st)
+func LoadHotStatsFromMeta(ctx context.Context, st wire.Store) {
+	getKV, _ := MetaKV(ctx, st)
 	LoadHotStats(getKV)
 }
 
-// readStatsJSON·loadReadStatsJSON·LoadReadStats·BumpReadStats — v0.39.0
-// T1: lib/wire(thresholds.go)로 이동. cli 잔류 소비자(status 노출
-// loadReadStatsFromMeta·metrics 테스트)는 cliwire_alias.go var 별칭으로
-// 무편집 컴파일된다.
-
-// readZeroPct — zero 비율(정수 백분율). calls 0이면 0(나눗셈 가드).
-// v0.19.0: 반올림 본체는 pctOf(단일 소스 — effect 지표와 버림 방식
-// 일관)에 위임한다.
-func readZeroPct(calls, zero int) int {
-	return pctOf(zero, calls)
+// PctOfFn — 정수 백분율(버림) 단일 소스 seam. 기본값은 cli report.go pctOf와
+// 등가 공식(ops 단독 실행 결함 방지), cli init이 pctOf를 주입해 운영은
+// 단일 소스를 유지한다(T3 report 이동 후 직접 호출 수렴 — QuoteJSONFn 관례).
+var PctOfFn = func(n, total int) int {
+	if total <= 0 {
+		return 0
+	}
+	return n * 100 / total
 }
 
-// loadReadStatsFromMeta — status 노출용 meta read_stats 로드(wiring).
+// ReadZeroPct — zero 비율(정수 백분율). calls 0이면 0(나눗셈 가드).
+// v0.19.0: 반올림 본체는 pctOf(단일 소스 — effect 지표와 버림 방식
+// 일관)에 위임한다(PctOfFn seam 경유).
+func ReadZeroPct(calls, zero int) int {
+	return PctOfFn(zero, calls)
+}
+
+// LoadReadStatsFromMeta — status 노출용 meta read_stats 로드(wiring).
 // 조회 실패·부재·파손은 LoadReadStats 폴백과 동일(0/0).
-func loadReadStatsFromMeta(ctx context.Context, st Store) (calls int, zero int) {
-	getKV, _ := metaKV(ctx, st)
-	calls, zero, _ = LoadReadStats(getKV)
+func LoadReadStatsFromMeta(ctx context.Context, st wire.Store) (calls int, zero int) {
+	getKV, _ := MetaKV(ctx, st)
+	calls, zero, _ = wire.LoadReadStats(getKV)
 	return calls, zero
 }
 
-// bumpReadStatsToMeta — v0.39.0 T1: lib/wire(thresholds.go)로 이동
-// (wire.BumpReadStatsToMeta). cli 잔류 소비자(read)는 cliwire_alias.go
-// var 별칭으로 무편집.
-
-// persistHotStatsToMeta — 명령 종료 직전 meta hot_stats 누적 저장(wiring).
+// PersistHotStatsToMeta — 명령 종료 직전 meta hot_stats 누적 저장(wiring).
 // 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13 — 계측이 본말을 바꾸지 않는다).
-func persistHotStatsToMeta(ctx context.Context, st Store) {
-	_, setKV := metaKV(ctx, st)
+func PersistHotStatsToMeta(ctx context.Context, st wire.Store) {
+	_, setKV := MetaKV(ctx, st)
 	if err := PersistHotStats(setKV); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] hot stats persist: %v\n", err)
 	}
