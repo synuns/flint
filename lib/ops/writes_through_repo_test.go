@@ -492,7 +492,7 @@ func TestWriteGuardBlocksBypasses(t *testing.T) {
 		{
 			name: "2단계 중첩 Sprintf 조립(v1.0.3 R4)",
 			src: `package ops
-func f() string { return fmt.Sprintf("D%s FROM meta", fmt.Sprintf("%s", fmt.Sprintf("%s", "EL"))) }`,
+func f() string { return fmt.Sprintf("D%sETE FROM meta WHERE key='demo'", fmt.Sprintf("%s", fmt.Sprintf("%s", "EL"))) }`,
 			wantHit: true,
 		},
 		{
