@@ -281,13 +281,28 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			fmt.Fprintln(stdout, wire.ErrLine(errors.New("maintain: --invalidate requires --id and --reason")))
 			return 1
 		}
-		if _, err := ms.Invalidate(ctx, []int{id}, reason); err != nil {
+		// v0.41.0 리뷰: 원본 단일 경로(admin.go Invalidate — v0.20.1)의
+		// 멱등 계약 승계. 이미 무효화된 id는 재갱신·재커밋 없는 no-op 성공 —
+		// invalid_at을 now()로 다시 새기면 prune-invalidated 시기가
+		// 미뤄지는 부수효과가 생긴다. 부재 id는 ErrNotFound(원본
+		// ensureExists 계약). 쓰기 자체는 Repo.Invalidate 단일 경로 유지.
+		chk, err := wire.QueryOnce(ctx, ms,
+			`SELECT invalid_at FROM knowledge WHERE id = $1`, []any{id})
+		if err != nil {
 			return adminErrLine(stdout, err)
 		}
-		if _, err := ms.Commit(ctx, fmt.Sprintf(
-			"invalidate: id=%d 사유: %s (무효화 갱신 경로) [session:0]", id, reason)); err != nil {
-			fmt.Fprintln(stdout, wire.ErrLine(err))
-			return store.MapExit(err)
+		if len(chk) == 0 {
+			return adminErrLine(stdout, fmt.Errorf("%w: invalidate: id=%d 없음", db.ErrNotFound, id))
+		}
+		if chk[0][0] == nil {
+			if _, err := ms.Invalidate(ctx, []int{id}, reason); err != nil {
+				return adminErrLine(stdout, err)
+			}
+			if _, err := ms.Commit(ctx, fmt.Sprintf(
+				"invalidate: id=%d 사유: %s (무효화 갱신 경로) [session:0]", id, reason)); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
+				return store.MapExit(err)
+			}
 		}
 		fmt.Fprintf(stdout, `{"status":"invalidated","id":%d}`+"\n", id)
 		return 0
