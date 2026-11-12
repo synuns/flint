@@ -45,7 +45,7 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 
 > v0.43.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/HISTORY.md)
 > v0.44.0 · PLAN rearm · surface contracts · command-table guard · [full changelog](docs/HISTORY.md)
-> v1.0.4 · audit loop closed — converged · [full changelog](docs/HISTORY.md)
+> v1.0.4 · audit R5 fixes — guard round 5 · [full changelog](docs/HISTORY.md)
 ---
 
 ## Quick Start
