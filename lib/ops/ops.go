@@ -5,8 +5,8 @@
 // 인터페이스·마커·계측) 표면을 소유한다. 커맨드 등록은 init에서
 // wire.Register로 — cli는 이 패키지를 임포트하고(cli→ops 단방향 — ops가
 // cli를 임포트하면 사이클), 잔류 cli 소비자는 cli/ops_alias_1·2·3.go 소문자
-// var·타입 별칭으로 무편집 컴파일된다. backup·restore 등록은 아직
-// cli(cliwire_alias init) 경유(동일 핸들러 이중 등록 무해 — T4 수렴).
+// var·타입 별칭으로 무편집 컴파일된다. backup·restore 등록은 cli/root.go
+// composition root init이 ops.RunBackup·RunRestore를 직접 등록한다(T4 수렴).
 package ops
 
 import "github.com/synuns/flint/lib/wire"

@@ -32,7 +32,7 @@ import (
 // cli 소유 구현 주입 seam — ops→cli 임포트 금지 회피(knowledge
 // ParseAsOfSpecFn 관례). 버전·업데이트(version.go·update.go — cli 잔류)
 // 과 T2·T3 이동 예정분(maintain·metrics·backup·rules_sync)이 여기 걸린다.
-// 실구현은 cli/ops_alias_1.go init이 주입한다.
+// 실구현은 cli/root.go composition root init이 주입한다(T4 수렴).
 var (
 	// CurrentVersionFn 등 — checkUpdate(버전 지연 경고).
 	CurrentVersionFn     func() string
@@ -145,9 +145,6 @@ type doctorOutput struct {
 	Status string        `json:"status"`
 	Checks []DoctorCheck `json:"checks"`
 }
-
-// Check — doctor 검사 결과 공개 별명(v0.9.4 --fix 리포트 인자).
-type Check = DoctorCheck
 
 // RunDoctor — --list-checks·--check NAME 서브셋·--fix 자가수복(v0.9.4,
 // hook-file에만 적용)·기본 전체 검사. 무효 인자(unknown flag·--check 값
@@ -603,7 +600,7 @@ func ApplyHookFix(path string, binPath string) (applied bool, backupPath string,
 
 // DoctorFixReport — --fix 적용 후 결과 보고 한 줄 JSON. status "fixed" +
 // 검사별 name:status. 다른 fail 검사도 이름:상태로 그대로 노출된다.
-func DoctorFixReport(checks []Check) string {
+func DoctorFixReport(checks []DoctorCheck) string {
 	m := map[string]any{"status": "fixed"}
 	for _, c := range checks {
 		m[c.Name] = c.Status

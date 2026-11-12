@@ -20,13 +20,13 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ParseAsOfSpecFn — as-of 스펙 정규화 seam. 실구현 cli.ParseAsOfSpec을
-// cli/ops_alias_1.go init이 주입한다(T4 wire 이동 후 직접 호출 수렴).
+// ParseAsOfSpecFn — as-of 스펙 정규화 seam. 실구현 wire.ParseAsOfSpec을
+// cli/root.go composition root init이 주입한다(T4 wire 이동분 직접 주입).
 var ParseAsOfSpecFn func(ctx context.Context, st wire.Store, spec string) (string, error)
 
 // ErrInvalidAsOf — 무효 as-of 스펙(형식 오류·접두어 모호/미발견·첫 커밋
-// 이전). 커맨드 계층에서 exit 3으로 매핑한다. cli.ErrInvalidAsOf와 동일
-// 값(cli init 주입) — errors.Is 판정 불변.
+// 이전). 커맨드 계층에서 exit 3으로 매핑한다. wire.ErrInvalidAsOf와 동일
+// 값(root.go composition root 주입) — errors.Is 판정 불변.
 var ErrInvalidAsOf error
 
 // diffCommitsMax — 요약 커밋 목록 상한(계약: 기본 20).
