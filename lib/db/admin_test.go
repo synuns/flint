@@ -248,7 +248,9 @@ func TestMigrateAcceptsV2(t *testing.T) {
 }
 
 // dropV3Indexes는 EnsureSchemaV3 테스트가 flint 인덱스를 남기지 않게
-// 되돌린다(다른 테스트의 newTestRepo가 영향받지 않도록).
+// 되돌린다(다른 테스트의 newTestRepo가 영향받지 않도록). v0.43.0 T4
+// 수선: v9 flint_knowledge_pending_idx도 함께 정리 — 헬퍼 계약은
+// 게이트별 flint knowledge 인덱스 전부 리셋.
 func dropV3Indexes(t *testing.T, r *Repo) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -256,19 +258,26 @@ func dropV3Indexes(t *testing.T, r *Repo) {
 			"flint_knowledge_entity_idx",
 			"flint_knowledge_domain_idx",
 			"flint_knowledge_status_idx",
+			"flint_knowledge_pending_idx",
 		} {
 			_, _ = r.pool.Exec(context.Background(), `DROP INDEX IF EXISTS `+name)
 		}
 	})
 }
 
-// flintIndexCount는 knowledge 테이블의 flint 접두 인덱스 수를 센다.
+// flintIndexCount는 v3 게이트 인덱스 3종(entity·domain·status)만 명시
+// 카운트한다. v0.43.0 T4 수선: LIKE 'flint_knowledge_%' 전수 카운트는
+// v0.42.0 스키마 v9 flint_knowledge_pending_idx까지 세어 4로 실패 —
+// 검증 대상(이 게이트의 인덱스)만 센다.
 func flintIndexCount(t *testing.T, r *Repo) int {
 	t.Helper()
 	var n int
 	if err := r.pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM pg_indexes
-		 WHERE tablename = 'knowledge' AND indexname LIKE 'flint_knowledge_%'`).
+		 WHERE tablename = 'knowledge' AND indexname IN (
+		   'flint_knowledge_entity_idx',
+		   'flint_knowledge_domain_idx',
+		   'flint_knowledge_status_idx')`).
 		Scan(&n); err != nil {
 		t.Fatalf("count flint indexes: %v", err)
 	}

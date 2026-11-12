@@ -385,7 +385,31 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 잔여(룰링·문서화로 대응): #2 무효화 가용성 트레이드오프(설계상 감수)·
 #4 --reason 메타데이터(의도된 감사 흔적).
 
-#4 --reason 메타데이터(의도된 감사 흔적).
+### v0.43.0 마이너 (2026-11-13) — seam 동질화: fake-capability 단언 전수·술어 수렴·wrapper 사유 명시
+
+프로덕션 동작 불변 — 테스트 인프라 동질화가 본체(2026-11-11 리뷰
+병인 ③ 해소 완결).
+
+- [x] fake-capability 컴파일 단언 전수 — lib/knowledge/
+  fake_parity_test.go(12종)·lib/ops/fake_parity_test.go(5종): 패키지
+  capability 인터페이스 전부를 컴파일 시점 `var _ X = (*fake)(nil)`
+  단언하고 미구현 메서드는 canned 구현(호출 기록 슬라이스·선택적
+  오류 필드)으로 채운다 — 유닛 테스트가 열화 폴백이 아닌 실경로를
+  검증함이 컴파일로 보장된다. 소스 스캔 가드 TestFakeParityKnowledge·
+  TestFakeParityOps가 인터페이스 발견 목록 ↔ 단언 목록 동질을 강제
+  (신규 인터페이스 단언 누락 사각 폐지)
+- [x] backupEncryptOn 술어 수렴 — knowledge 로컬 복제·ops 구현을
+  wire.BackupEncryptOn 단일 소스로(양쪽 소비자는 var 별칭 위임,
+  동작 불변). TestBackupEncryptOnSingle이 func 정의 잔여 0을 소스
+  스캔으로 가드
+- [x] wrapper seam 사유 명시 — cli→ops 교체 전파 래퍼 8종 중 유지분
+  은 각 1줄 사유(소비 cli 테스트가 var 교체로 실행 경로 검증),
+  교체 전파가 불필요한 windowedDaily는 직접 참조 전환
+- [x] 병인 ③(seam 파편화) 해소 완결 — 구조 수렴 에라 병인 5개 중
+  ①②③④ 해소, ⑤(기획 문서 사망 — PLAN 재무장)는 v0.44
+- [x] 버전 — VERSION·배지 v0.43.0(EN/KO)·plugin.json 동기
+
+세부: [docs/plans/2026-11-13-flint-v0433.spec.md](plans/2026-11-13-flint-v0433.spec.md)
 
 ### v0.42.0 마이너 (2026-11-13) — 계측·튜닝 단일 원천: 등록표·파생 산출·이벤트 인덱스
 
@@ -542,7 +566,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 | v0.40 | 패키지 분할 3/3 — ops 분리 (v0.40.0 완료) |
 | v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 (v0.41.0 완료) |
 | v0.42 | 계측·튜닝 단일 원천 (v0.42.0 완료) |
-| v0.43 | seam 동질화 |
+| v0.43 | seam 동질화 (v0.43.0 완료) |
 | v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
 
 세부: [docs/plans/2026-11-12-flint-v0380.spec.md](plans/2026-11-12-flint-v0380.spec.md)
@@ -682,7 +706,7 @@ profile_hint가 "회상 선도 낮음 — minimal 전환 고려"를 매번 안�
 | v0.40 | 패키지 분할 3/3 — ops 분리 (v0.40.0 완료) |
 | v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 (v0.41.0 완료) |
 | v0.42 | 계측·튜닝 단일 원천 (v0.42.0 완료) |
-| v0.43 | seam 동질화 |
+| v0.43 | seam 동질화 (v0.43.0 완료) |
 | v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
 
 신규 신기능은 병인 해소 우선, 트리거 대기 원칙 전면 적용(진행 중
