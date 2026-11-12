@@ -387,6 +387,47 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.38.0 마이너 (2026-11-12) — 패키지 분할 1/3: 계약층 lib/wire · 출력층 lib/render
+
+구조 수렴 에라 2막 — lib/cli(24.8k줄) 3분할의 첫 단위. 이동+별칭만:
+시그니처·동작·출력 바이트·exit 코드 전부 불변, cmd/flint/main.go 무변경.
+
+- [x] lib/wire(계약층 신설) — Store 인터페이스·디스패치 Run(Store 공장
+  주입형 — cli.newStore seam 관례 승계)·Handler·registry·Register/
+  Lookup·usage 생성(usageOrder 조립)·dsn 해결(ResolveDSN — 설정
+  디렉터리는 cli marker.go가 wire.ConfigDir 주입)·ErrLine·QueryOnce·
+  meta 접근(GetMetaKV/SetMetaKV/BumpMetaKV) 이동
+- [x] lib/render(출력층 신설) — render.go(Text·Masked·Cells·Rows)·
+  textutil 통합(TruncateRunes·CountPending — pending.go 정의 이동),
+  render→wire 단방향 의존
+- [x] cli 별칭 호환 — cliwire_alias.go·render_alias.go(var 별칭은
+  테스트 seam 교체 관례 유지)로 잔여 ~30파일 무편집 컴파일.
+  재배선 1차: 저빈도 5파일만 wire 직접 참조(나머지는 v0.39·v0.40
+  이동 시 자연 해소)
+- [x] realStore·ensureSchemas cli 잔류 — 메서드 26개 산재로 대폭발
+  이동 회피, knowledge/ops 분리 시점 재검
+- [x] bridge 가드 — wire.Registered() 집합 ↔ UsageOrder ∪
+  HiddenFromUsage 동질(TestRegisteredMatchesUsage — usage 드리프트
+  영구 가드의 cli 실등록 연결)
+- [x] 버전 — VERSION·배지 v0.38.0(EN/KO)·plugin.json 동기
+
+3분산 룰링(2026-11-12 리뷰 병인 ③): 패키지 3분할을 3릴리스에 분산 —
+대폭발 이동의 회귀 위험 > 속도. 갱신 로드맵(구조 수렴 에라 선언의
+표를 대체):
+
+| 버전 | 수렴 과제 |
+| :--- | :--- |
+| v0.37 | render·meta·util 수렴 |
+| v0.38 | 패키지 분할 1/3 — 계약층 wire·출력층 render 추출 |
+| v0.39 | 패키지 분할 2/3 — knowledge 분리 |
+| v0.40 | 패키지 분할 3/3 — ops 분리 |
+| v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
+| v0.42 | 계측·튜닝 단일 원천 |
+| v0.43 | seam 동질화 |
+| v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
+
+세부: [docs/plans/2026-11-12-flint-v0380.spec.md](plans/2026-11-12-flint-v0380.spec.md)
+
 ### v0.37.0 마이너 (2026-11-12) — 구조 수렴 1막: 출력 살균 조크포인트 (render)
 
 구조 수렴 에라(v0.34.2 선언) 1막 — lib/cli 산재 출력 살균 호출을
@@ -517,10 +558,13 @@ profile_hint가 "회상 선도 낮음 — minimal 전환 고려"를 매번 안�
 | 버전 | 수렴 과제 |
 | :--- | :--- |
 | v0.37 | render·meta·util 수렴 |
-| v0.38 | 패키지 3분할(cliwire·knowledge·ops) |
-| v0.39 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
-| v0.40 | 계측·튜닝 단일 원천 |
-| v0.41~v0.42 | seam 동질화·PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
+| v0.38 | 패키지 분할 1/3 — 계약층 wire·출력층 render 추출 |
+| v0.39 | 패키지 분할 2/3 — knowledge 분리 |
+| v0.40 | 패키지 분할 3/3 — ops 분리 |
+| v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
+| v0.42 | 계측·튜닝 단일 원천 |
+| v0.43 | seam 동질화 |
+| v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
 
 신규 신기능은 병인 해소 우선, 트리거 대기 원칙 전면 적용(진행 중
 v0.35.0 프로파일·v0.36.0 report-html은 예외).

@@ -1,7 +1,7 @@
-// render.go — 출력 살균 조크포인트(v0.37.0, 구조 수렴 1막). lib/cli의
-// 모든 출력 경로는 이 출구를 통해서만 store.SanitizeText·MaskSecrets에
-// 도달한다(직접 호출은 TestSanitizeTextChokepoint가 차단).
-package cli
+// render.go — 출력 살균 조크포인트(v0.38.0 패키지 분할 1/3: lib/cli에서
+// 이동, 스펙 §2). 모든 출력 경로는 이 출구를 통해서만 store.SanitizeText·
+// MaskSecrets에 도달한다(직접 호출은 TestSanitizeTextChokepoint가 차단).
+package render
 
 import (
 	"github.com/synuns/flint/lib/query"

@@ -1,10 +1,11 @@
-// registry — 서브커맨드 등록 테이블. root.go의 switch를 대체해
-// 신규 커맨드가 자기 파일에서 Register만 하면 되게 한다(개방-폐쇄, v0.1 부채).
-package cli
+// registry — 서브커맨드 등록 테이블(계약층). 커맨드 구현 패키지(lib/cli)
+// 각 파일이 init에서 Register만 하면 되게 한다(개방-폐쇄, v0.1 부채).
+package wire
 
 import (
 	"context"
 	"io"
+	"sort"
 	"strings"
 )
 
@@ -25,8 +26,8 @@ func Lookup(name string) (Handler, bool) {
 	return h, ok
 }
 
-// unregister — 테스트 정리용(프로덕션 경로 아님).
-func unregister(name string) {
+// Unregister — 테스트 정리용(프로덕션 경로 아님).
+func Unregister(name string) {
 	delete(registry, name)
 }
 
@@ -50,17 +51,29 @@ func hiddenFromUsage(name string) bool {
 	return name == "session-start" || name == "session-end"
 }
 
-// usageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
-func usageLine() string {
+// UsageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
+func UsageLine() string {
 	return `{"error":"usage: flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
 }
 
-func init() {
-	Register("write", runWrite)
-	Register("read", runRead)
-	Register("hot", runHot)
-	Register("status", runStatus)
-	Register("backup", runBackup)
-	Register("restore", runRestore)
-	// help는 미등록 — Run이 store 접속 전에 출력하는 usage 경로가 그대로 담당한다.
+// Registered — 등록된 커맨드명 열거(정렬 — bridge 가드 비교 안정성).
+// v0.38.0 T3: cli 측 동질 가드(TestRegisteredMatchesUsage)가 실등록
+// 표면을 읽기 위한 읽기 전용 접근자.
+func Registered() []string {
+	names := make([]string, 0, len(registry))
+	for name := range registry {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// UsageOrder — usageOrder 슬라이스 사본(외부 가드용 읽기 접근).
+func UsageOrder() []string {
+	return append([]string(nil), usageOrder...)
+}
+
+// HiddenFromUsage — 훅 전용 진입점 판정의 공개 접근(usage 노출 제어 계약).
+func HiddenFromUsage(name string) bool {
+	return hiddenFromUsage(name)
 }

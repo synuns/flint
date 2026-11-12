@@ -11,6 +11,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // syncRules — srcDir의 파일 전체를 destDir로 싱크. 대상에 동일 내용이
@@ -111,23 +113,23 @@ func runUpdateRules(stdout io.Writer, srcOverride string) int {
 		src = skillSrcDir(flintBinPathFn())
 	}
 	if src == "" {
-		fmt.Fprintln(stdout, errLine(errors.New("update-rules: 소스 flint-plugin/skills/flint 미탐지 — --src 플래그로 지정")))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("update-rules: 소스 flint-plugin/skills/flint 미탐지 — --src 플래그로 지정")))
 		return 1
 	}
 	home := claudeHome()
 	if home == "" {
-		fmt.Fprintln(stdout, errLine(errors.New("update-rules: FLINT_CLAUDE_HOME 또는 HOME을 설정해 싱크 대상 경로를 지정")))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("update-rules: FLINT_CLAUDE_HOME 또는 HOME을 설정해 싱크 대상 경로를 지정")))
 		return 1
 	}
 	dest := filepath.Join(home, "skills", "flint")
 	n, err := syncRules(src, dest)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("update-rules 싱크 실패: %w", err)))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("update-rules 싱크 실패: %w", err)))
 		return 1
 	}
 	b, err := json.Marshal(map[string]any{"status": "synced", "copied": n, "dest": dest})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))

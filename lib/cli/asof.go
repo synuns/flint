@@ -10,6 +10,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // ErrInvalidAsOf — 무효 as-of 스펙(형식 오류·접두어 모호/미발견·첫 커밋 이전).
@@ -62,7 +64,7 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 	}
 	// ③ 해시 접두어 — $1 파라미터화로 접합 주입 방지(§3).
 	if len(spec) >= asofMinPrefix && isLowerAlnumPrefix(spec) {
-		rows, err := queryOnce(ctx, st,
+		rows, err := wire.QueryOnce(ctx, st,
 			`SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE $1||'%' ORDER BY commit_order DESC`,
 			[]any{spec})
 		if err != nil {
@@ -86,7 +88,7 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 // commitAtOrBefore — 시각 직전 최신 커밋 채택. date 비교는 Go 계산
 // time.Time을 timestamptz 파라미터로 전달(v0.6 원칙 — SQL interval 금지).
 func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (string, error) {
-	rows, err := queryOnce(ctx, st,
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT commit_hash FROM dolt_log WHERE date <= $1 ORDER BY commit_order DESC LIMIT 1`,
 		[]any{t})
 	if err != nil {
@@ -96,7 +98,7 @@ func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (
 		return fmt.Sprint(rows[0][0]), nil
 	}
 	// 0행 — 첫 커밋 이전 시점. 문구에 첫 커밋 시각 포함(C11 Snowflake 준용).
-	first, err := queryOnce(ctx, st,
+	first, err := wire.QueryOnce(ctx, st,
 		`SELECT date FROM dolt_log ORDER BY commit_order ASC LIMIT 1`, nil)
 	if err != nil {
 		return "", err

@@ -328,20 +328,9 @@ func TestWriteBadJSONExit3(t *testing.T) {
 	decode(t, out) // 한 줄 JSON 에러여야 한다
 }
 
-func TestServerDownExit2(t *testing.T) {
-	prev := newStore
-	newStore = func(ctx context.Context, dsn string) (Store, error) {
-		return nil, store.ErrServerDown
-	}
-	t.Cleanup(func() { newStore = prev })
-	out, code := mustRun(t, []string{"write", "knowledge"}, `{"topic":"t","summary":"s","confidence":0.9}`)
-	if code != 2 {
-		t.Fatalf("exit=%d, want 2", code)
-	}
-	if strings.TrimSpace(out) != `{"error":"server_down"}` {
-		t.Fatalf("조용히 한 줄 JSON만: %q", out)
-	}
-}
+// TestServerDownExit2 — v0.38.0 §1: Run 디스패치 특수 경로(공장 실패
+// quiet)는 lib/wire TestWireRunDispatch/server_down_quiet_line_exit2로
+// 이동. 아래는 커맨드 핸들러 계약 테스트.
 
 func TestRetriesExhaustedExit1(t *testing.T) {
 	f := &fakeStore{commitErr: store.ErrRetriesExhausted}
