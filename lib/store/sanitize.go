@@ -197,20 +197,54 @@ func ResetSecretsAllowlistForTest(entries []string) {
 	secretsAllowlist = entries
 }
 
+// MaskSecretsStrict — 기기 밖(브리지·공유)용 마스킹: 패턴 비밀과
+// allowlist 등록값을 모두 마스킹한다(v1.0.10 감사 B2 — dump --mask는
+// 진단용 원문 보존, 기기 밖은 등록값도 평문으로 나가지 않는다).
+// v1.0.11(R12-B1): sentinel 보호 없이 패턴 마스킹 먼저 — 등록값이 더
+// 긴 실제 비밀의 접두사인 경우 매칭이 놓여 접미가 평문 유출되던 조합
+// 결함(실증) 폐지. 등록값이 비밀의 일부면 패턴 마스킹이 이긴다.
+func MaskSecretsStrict(s string) string {
+	for _, p := range secretPatterns {
+		if p.specific {
+			s = p.re.ReplaceAllString(s, "[REDACTED:"+p.name+"]")
+		}
+	}
+	for _, p := range secretPatterns {
+		if !p.specific {
+			s = p.re.ReplaceAllString(s, "[REDACTED:"+p.name+"]")
+		}
+	}
+	return maskAllowlisted(s)
+}
+
 // maskAllowlisted — allowlist 항목을 마스킹한 사본 반환.
+// v1.0.11(R12-B2): [REDACTED:…]·[ALLOWED] 마커는 sentinel으로 먼저
+// 보호해 치환 대상에서 제외한다 — 패턴명 부분문자열("token")이 등록
+// 돼도 감사 흔적 마커가 개조되지 않는다(MaskSecrets sentinel 관례 승계).
 func maskAllowlisted(s string) string {
+	type keep struct{ sentinel, orig string }
+	var keeps []keep
+	for i, m := range markerRes.FindAllString(s, -1) {
+		if m == "" {
+			continue
+		}
+		sent := "\x01FLINTMARKKEEP" + strconv.Itoa(i) + "\x01"
+		s = strings.Replace(s, m, sent, 1)
+		keeps = append(keeps, keep{sent, m})
+	}
 	for _, a := range secretsAllowlist {
-		s = strings.ReplaceAll(s, a, "[ALLOWED]")
+		if a != "" {
+			s = strings.ReplaceAll(s, a, "[ALLOWED]")
+		}
+	}
+	for _, k := range keeps {
+		s = strings.Replace(s, k.sentinel, k.orig, 1)
 	}
 	return s
 }
 
-// MaskSecretsStrict — 기기 밖(브리지·공유)용 마스킹: MaskSecrets 결과에서
-// allowlist 항목까지 마스킹한다(v1.0.10 감사 B2 — dump --mask는 진단용
-// 원문 보존, 기기 밖은 등록값도 평문으로 나가지 않는다).
-func MaskSecretsStrict(s string) string {
-	return maskAllowlisted(MaskSecrets(s))
-}
+// markerRes — 보호 대상 감사 마커(REDACTED 패턴명·ALLOWED).
+var markerRes = regexp.MustCompile(`\[(?:REDACTED:[^\]]*|ALLOWED)\]`)
 
 // SecretsAllowlistCount — 현재 로드된 allowlist 항목 수(doctor 가시성 —
 // v0.26.2 재검수 발견3: 오타·무단 등록 감지).
