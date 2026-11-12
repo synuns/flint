@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -209,26 +210,31 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		version = fmt.Sprint(rows[0][0])
 	}
 	// meta.schema_version 호환 검사(PLAN §10): 이 CLI가 아는 버전만 허용.
-	// v2는 newRealStore의 EnsureSchemaV2 승격 후, v3는 EnsureSchemaV3 인덱스
-	// 승격(T51·ADR-0008) 후, v4는 EnsureSchemaV4 계측 컬럼 승격(v0.6) 후,
-	// v5는 EnsureSchemaV5 superseded_by 승격(T82·v0.8) 후, v6는
-	// EnsureSchemaV6 read_events 승격(v0.19.0) 후, v7는 EnsureSchemaV7
-	// 계측 정밀화 승격(v0.20.0) 후, v8는 EnsureSchemaV8 hit 품질
-	// first_rank 승격(v0.30.0) 후 정상 상태다.
-	if version != "1" && version != "2" && version != "3" && version != "4" && version != "5" && version != "6" && version != "7" && version != "8" {
-		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "schema_version", Expect: "1~8"}))
+	// 허용 범위는 db.LatestSchemaVersion에서 파생한다(1..최신 — 각 버전의
+	// 승격 순서는 db.SchemaGates 연속성이 담보). 하드코딩 목록은 스키마
+	// 승격마다 낡는다(v9 DB에서 정상 상태인데 exit 3 — 감사 F1).
+	ver, perr := strconv.Atoi(strings.TrimSpace(version))
+	if perr != nil || ver < 1 || ver > db.LatestSchemaVersion {
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "schema_version",
+			Expect: "1~" + strconv.Itoa(db.LatestSchemaVersion)}))
 		return 3
 	}
 	// v0.18.0 R4: 기간화 read 지표(창 = daily_retention_days, v0.24.0) —
 	// 누적값과 복기. *_14d 필드명은 역호환 유지(실제 창은 read_window_days).
 	winDays := knowledge.WriteThresholds(ctx, st).DailyRetentionD
 	winRead, winZeroPct, winNearPct := StatusWindowedRead(ctx, st, winDays)
-	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합(해시는 dolt_log에서
-	// 확정된 base32 소문자 해시라 인라인해도 안전 — T81/T83 룰링). meta·
-	// 계측 조회는 현재 상태 그대로. 현재 시점 카운트는 countPending 단일
+	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합. meta·계측 조회는
+	// 현재 상태 그대로. 현재 시점 카운트는 countPending 단일
 	// 구현(v0.34.3 3중 쿼리 복제 수렴).
 	pending := 0
 	if asOfHash != "" {
+		// v0.28.0 H③ 승계(read --as-of와 동일 규칙): 접합 전 해시 문자셋을
+		// 재검증한다 — dolt_log 엔진 반환값을 신뢰해 SQL에 인라인하지
+		// 않는다. 위반은 오류 종료(오염 해시 접합 주입 차단).
+		if !knowledge.ValidAsOfHash(asOfHash) {
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash 문자셋 위반: %q", asOfHash)))
+			return 1
+		}
 		rows, err = wire.QueryOnce(ctx, st, `SELECT count(*) FROM knowledge AS OF '`+asOfHash+
 			`' WHERE status = 'pending' AND invalid_at IS NULL`, nil)
 		if err != nil {

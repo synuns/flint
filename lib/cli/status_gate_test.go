@@ -4,8 +4,11 @@
 package cli
 
 import (
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/synuns/flint/lib/db"
 )
 
 // statusWithVersion — meta.schema_version이 version인 fake 저장소로 status 실행.
@@ -50,9 +53,11 @@ func TestStatusSchemaV3OK(t *testing.T) {
 	}
 }
 
-// TestStatusUnknownSchemaExit3 — 미지 버전(9)은 호환 검사 실패로 exit 3.
+// TestStatusUnknownSchemaExit3 — 미지 버전(최신+1)은 호환 검사 실패로 exit 3.
+// v1.0.1 감사 F1: 허용 범위는 db.LatestSchemaVersion 파생 — '미지'도 파생한다
+// (과거 리터럴 "9"는 v9 승격 후 정상 버전이 돼 오판 게이트를 굳혔다).
 func TestStatusUnknownSchemaExit3(t *testing.T) {
-	_, code := statusWithVersion(t, "9")
+	_, code := statusWithVersion(t, strconv.Itoa(db.LatestSchemaVersion+1))
 	if code != 3 {
 		t.Fatalf("exit=%d, want 3(미지 버전 거부)", code)
 	}

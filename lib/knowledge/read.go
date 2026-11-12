@@ -442,6 +442,13 @@ func FmtAsOfDate(v any) string {
 // base32계 — dolt_log commit_hash 규격). 엔진 반환값 신뢰의 이중 확인.
 var asOfHashRe = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
 
+// ValidAsOfHash — AS OF 인라인용 해시의 asOfHashRe 문자셋 검증 노출
+// (v0.28.0 H③와 동일 규칙 — 단일 소스). read 외 인라인 호출자(ops
+// status 카운트 질의)가 같은 규칙으로 재검증하게 한다.
+func ValidAsOfHash(hash string) bool {
+	return asOfHashRe.MatchString(hash)
+}
+
 // 기본 테이블 조회 안내를 붙인다. 뷰+AS OF는 "현재 정의 + 과거 행" 규칙
 // (C3)이라 과거 커밋에 없는 컬럼에서 이 오류가 난다. 그 외 오류는 불변.
 func wrapViewColumnMismatch(err error) error {
