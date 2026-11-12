@@ -75,6 +75,15 @@
 //     stringOperand가 depth 한계 내 재귀 접기한다(내부 결합이 무해할 때
 //     외부 판정에서 공란 대입되던 우회 폐쇄).
 //
+// v1.0.8 R9 보강(실증 우회 3변형 추가 폐쇄 — 재프로브로 우회 확인 후):
+//   - 블록 지역 값 테이블 — ⑥에 같은-블록 지역 문자열 값(locals)을
+//     둔다. 종자 `x := 접힘식`을 기록하고 `y := x`·`y := x+lit`·`y += x`
+//     치환을 전파한다(head+lit·복사 종자 += 폐쇄). 접힘 값 자체가 동사를
+//     이루면 값 수준으로 보고한다.
+//   - 지역 슬라이스 Join — sliceCombined의 Ident 해석에 함수 지역 슬라이스
+//     리터럴(`parts := []string{…}`)을 병합한다(localSliceTable — 이름
+//     재정의는 등록 제외로 오탐 원천 차단).
+//
 // 오탐(안내문·검사명의 비SQL "update" 단어)은 writeLiteralAllow 정확
 // 일치 화이트리스트로만 면제한다 — 신규 면제는 이 표에 대한 명시적
 // 선언이어야 한다.
@@ -211,10 +220,16 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	})
 	// ① 반 뒤 결합 판정(②~⑥) 공통 자산 — 패키지 블록 const 문자열
 	//    테이블(R3 상수 접기)과 var []string 리터럴 테이블(R5 슬라이스
-	//    접기). 접힌 값은 결합 판정에서 Ident 해석 근거로 쓰고, 원천
-	//    리터럴 위치로 중복 보고를 뺀다.
+	//    접기)에 함수 지역 슬라이스 리터럴(R9)을 병합한다. 접힌 값은
+	//    결합 판정에서 Ident 해석 근거로 쓰고, 원천 리터럴 위치로 중복
+	//    보고를 뺀다.
 	consts := constStringTable(f)
 	slices := varStringSliceTable(f, consts)
+	for name, si := range localSliceTable(f, consts) {
+		if _, taken := slices[name]; !taken {
+			slices[name] = si
+		}
+	}
 	// ② 이어붙이기 조각 조립 — 개별 리터럴에는 동사가 없어도 + 로 합쳐
 	//    성립하는 쓰기 동사("UP"+"DATE …" 분할 우회)도 잡는다. R2-B 폐쇄:
 	//    화이트리스트 면제는 단독 리터럴 판정(①)에만 적용 — 조립 결과
@@ -368,12 +383,16 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		return true
 	})
-	// ⑥ 문자열 누적(+=) 결합 — 블록 문장 목록에서 같은 Ident에 이어지는
-	//    대입(=·:=) 종자와 += 의 문자열 피연산자를 순서로 합친 결과에서만
-	//    성립하는 쓰기 동사(s := "DEL"; s += "ETE …" 분할 우회)도 잡는다
-	//    (R6). 비접힘 피연산자는 공란(보수), 재대입은 누적을 마치고 다시
-	//    시작하며, 중첩 블록 내 대입은 그 블록 순회가 따로 본다(보수
-	//    누락 허용 — 실소스 무해 누적의 과잉 결합 방지). 면제·중복 보고
+	// ⑥ 문자열 누적·블록 지역 값 결합 — 블록 문장 목록에서 같은 Ident에
+	//    이어지는 대입(=·:=) 종자와 += ·자기 참조 재할당(R7) 피연산자를
+	//    순서로 합친 결과에서만 성립하는 쓰기 동사(s := "DEL"; s +=
+	//    "ETE …" 분할 우회, R6)를 잡는다. R9 보강: 블록 지역 문자열 값
+	//    테이블(locals)로 종자 `x := 접힘식`을 기록하고 `y := x`·
+	//    `y := x+lit`·`y += x` 치환을 전파한다(head+lit·복사 종자 += 폐쇄)
+	//    — 접힘 값 자체가 동사를 이루면 값 수준으로 보고한다. 스코프는
+	//    기존 같은-블록 보수 경계를 승계한다(중첩 블록은 그 블록 순회가
+	//    따로 본다 — 실소스 무해 조립의 과잉 결합 방지). 비접힘 피연산자는
+	//    공란(보수), 재대입은 누적을 마치고 다시 시작한다. 면제·중복 보고
 	//    원칙은 ②와 동일.
 	ast.Inspect(f, func(n ast.Node) bool {
 		blk, ok := n.(*ast.BlockStmt)
@@ -387,6 +406,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		chain := map[string]*accum{}
 		var order []*accum
+		locals := map[string]localInfo{}
 		flush := func(c *accum) {
 			if c == nil || len(c.parts) < 2 || anyFlagged(c.marked, flagged) {
 				return
@@ -397,6 +417,17 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 				for _, p := range c.marked {
 					flagged[p] = true
 				}
+			}
+		}
+		// 값 수준 결합 판정 — 접힘 값 자체가 쓰기 동사를 이루는 조립
+		// (head+lit 처럼 한 식에서 완성되는 변형).
+		reportValue := func(pos token.Pos, val string, lits []token.Pos) {
+			if anyFlagged(lits, flagged) || writeLiteralAllow[val] || !writeTokenRe.MatchString(val) {
+				return
+			}
+			report(pos, "블록 지역 값 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
+			for _, p := range lits {
+				flagged[p] = true
 			}
 		}
 		for _, stmt := range blk.List {
@@ -412,8 +443,37 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 			case token.ASSIGN, token.DEFINE:
 				// R7: `s = s + 피연산자` 자기 참조 재할당은 += 와 동등한
 				// 누적으로 체인을 잇는다(자기 참조 원천은 결합에 기여하지
-				// 않는다 — 체인 종자가 이미 그 값을 담는다).
+				// 않는다 — 체인 종자가 이미 그 값을 담는다). R9: 피연산자는
+				// locals 치환으로 접고, 접힌 값은 locals 에 반영한다.
 				if rest, self := splitSelfAdd(as.Rhs[0], id.Name); self {
+					var vals []string
+					var lits []token.Pos
+					all := true
+					for _, e := range rest {
+						if v, ls, ok := foldLocalExpr(e, locals, consts, flagged); ok {
+							vals = append(vals, v)
+							lits = append(lits, ls...)
+						} else {
+							all = false
+						}
+					}
+					if all {
+						c := chain[id.Name]
+						if c == nil {
+							c = &accum{first: as.Pos()}
+							chain[id.Name] = c
+							order = append(order, c)
+						}
+						c.parts = append(c.parts, vals...)
+						c.marked = append(c.marked, lits...)
+						if li, ok := locals[id.Name]; ok {
+							locals[id.Name] = localInfo{val: li.val + strings.Join(vals, ""), lits: append(li.lits, lits...)}
+						} else {
+							delete(locals, id.Name)
+						}
+						continue
+					}
+					delete(locals, id.Name)
 					parts, marked, joinable := combineParts(rest, consts, slices, flagged, 0)
 					c := chain[id.Name]
 					if !joinable {
@@ -432,6 +492,17 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 				}
 				flush(chain[id.Name])
 				delete(chain, id.Name)
+				// R9: 종자 접기 — 값을 테이블에 기록하고 값 수준 결합을
+				// 판정한다. 접히지 않으면 값 추적을 끊는다(보수).
+				if val, lits, ok := foldLocalExpr(as.Rhs[0], locals, consts, flagged); ok {
+					reportValue(as.Pos(), val, lits)
+					locals[id.Name] = localInfo{val: val, lits: lits}
+					c := &accum{parts: []string{val}, marked: lits, first: as.Pos()}
+					chain[id.Name] = c
+					order = append(order, c)
+					continue
+				}
+				delete(locals, id.Name)
 				parts, marked, joinable := combineParts(as.Rhs, consts, slices, flagged, 0)
 				if !joinable {
 					continue
@@ -446,6 +517,17 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 					chain[id.Name] = c
 					order = append(order, c)
 				}
+				// R9: 누적 피연산자가 locals 로 접히면 값·체인 모두에
+				// 반영한다(복사 종자 += 전파).
+				if val, lits, ok := foldLocalExpr(as.Rhs[0], locals, consts, flagged); ok {
+					c.parts = append(c.parts, val)
+					c.marked = append(c.marked, lits...)
+					if li, ok := locals[id.Name]; ok {
+						locals[id.Name] = localInfo{val: li.val + val, lits: append(li.lits, lits...)}
+					}
+					continue
+				}
+				delete(locals, id.Name)
 				parts, marked, joinable := combineParts(as.Rhs, consts, slices, flagged, 0)
 				if !joinable {
 					flush(c)
@@ -832,6 +914,51 @@ type sliceInfo struct {
 	lits []token.Pos
 }
 
+// localInfo — 블록 지역 문자열 값 하나와 그 원천 리터럴 위치들(R9 값
+// 테이블 — 종자 기록·치환 전파·중복 보고 방지에 사용).
+type localInfo struct {
+	val  string
+	lits []token.Pos
+}
+
+// foldLocalExpr — ⑥ 블록 지역 값 테이블 locals 를 반영한 식의 문자열
+// 접기: 문자열 리터럴·locals/consts Ident·이어붙이기(+ )를 재귀 접고 그
+// 외(함수 호출·산술 등)는 실패한다. 원천 리터럴이 이미 보고됐으면 실패
+// (중복 보고 방지).
+func foldLocalExpr(e ast.Expr, locals map[string]localInfo, consts map[string]constInfo, flagged map[token.Pos]bool) (string, []token.Pos, bool) {
+	switch v := e.(type) {
+	case *ast.BasicLit:
+		if v.Kind == token.STRING {
+			if flagged[v.Pos()] {
+				return "", nil, false
+			}
+			return unquoteLiteral(v.Value), []token.Pos{v.Pos()}, true
+		}
+	case *ast.Ident:
+		if li, ok := locals[v.Name]; ok {
+			if anyFlagged(li.lits, flagged) {
+				return "", nil, false
+			}
+			return li.val, li.lits, true
+		}
+		if ci, ok := consts[v.Name]; ok {
+			if anyFlagged(ci.lits, flagged) {
+				return "", nil, false
+			}
+			return ci.val, ci.lits, true
+		}
+	case *ast.BinaryExpr:
+		if v.Op == token.ADD {
+			l, lits1, ok1 := foldLocalExpr(v.X, locals, consts, flagged)
+			r, lits2, ok2 := foldLocalExpr(v.Y, locals, consts, flagged)
+			if ok1 && ok2 {
+				return l + r, append(lits1, lits2...), true
+			}
+		}
+	}
+	return "", nil, false
+}
+
 // varStringSliceTable — 파일 패키지 블록의 var 선언 중 []string 리터럴
 // 슬라이스를 접은 테이블(R5 슬라이스 접기). 요소 전부가 문자열로 접히는
 // 경우(리터럴·constStringTable의 const Ident)만 등록한다 — 하나라도
@@ -852,29 +979,92 @@ func varStringSliceTable(f *ast.File, consts map[string]constInfo) map[string]sl
 			if !ok || len(cl.Elts) == 0 || !isStringSliceType(cl.Type) {
 				continue
 			}
-			vals := make([]string, 0, len(cl.Elts))
-			var lits []token.Pos
-			foldable := true
-			for _, e := range cl.Elts {
-				if lit, ok := e.(*ast.BasicLit); ok && lit.Kind == token.STRING {
-					vals = append(vals, unquoteLiteral(lit.Value))
-					lits = append(lits, lit.Pos())
-					continue
-				}
-				if id, ok := e.(*ast.Ident); ok {
-					if ci, ok := consts[id.Name]; ok {
-						vals = append(vals, ci.val)
-						lits = append(lits, ci.lits...)
-						continue
-					}
-				}
-				foldable = false
-				break
-			}
-			if foldable {
+			vals, lits, ok := foldSliceElements(cl.Elts, consts)
+			if ok {
 				table[vs.Names[0].Name] = sliceInfo{vals: vals, lits: lits}
 			}
 		}
+	}
+	return table
+}
+
+// foldSliceElements — 슬라이스 리터럴 요소의 접기: 전 요소가 문자열
+// 리터럴·const Ident일 때만 (값들, 원천 위치들, true)를 돌려준다.
+func foldSliceElements(elts []ast.Expr, consts map[string]constInfo) ([]string, []token.Pos, bool) {
+	vals := make([]string, 0, len(elts))
+	var lits []token.Pos
+	for _, e := range elts {
+		if lit, ok := e.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			vals = append(vals, unquoteLiteral(lit.Value))
+			lits = append(lits, lit.Pos())
+			continue
+		}
+		if id, ok := e.(*ast.Ident); ok {
+			if ci, ok := consts[id.Name]; ok {
+				vals = append(vals, ci.val)
+				lits = append(lits, ci.lits...)
+				continue
+			}
+		}
+		return nil, nil, false
+	}
+	return vals, lits, true
+}
+
+// localSliceTable — 함수 지역 슬라이스 리터럴(`parts := []string{…}`·함수
+// 내 var)을 접은 테이블(R9 — 지역 슬라이스 Join 폐쇄). 같은 이름이 파일
+// 내 여러 번 정의되면(스코프별 재사용) 그 이름은 등록하지 않는다 — 이름
+// 충돌로 타 블록 Join 이 잘못 결합되는 오탐을 원천 차단한다(보수 누락
+// 허용).
+func localSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceInfo {
+	table := map[string]sliceInfo{}
+	dup := map[string]bool{}
+	add := func(name string, cl *ast.CompositeLit) {
+		if !isStringSliceType(cl.Type) {
+			return
+		}
+		if _, taken := table[name]; taken {
+			dup[name] = true
+			return
+		}
+		vals, lits, ok := foldSliceElements(cl.Elts, consts)
+		if !ok {
+			return
+		}
+		table[name] = sliceInfo{vals: vals, lits: lits}
+	}
+	ast.Inspect(f, func(n ast.Node) bool {
+		switch v := n.(type) {
+		case *ast.AssignStmt:
+			if (v.Tok != token.DEFINE && v.Tok != token.ASSIGN) || len(v.Lhs) != 1 || len(v.Rhs) != 1 {
+				return true
+			}
+			id, ok := v.Lhs[0].(*ast.Ident)
+			if !ok {
+				return true
+			}
+			if cl, ok := v.Rhs[0].(*ast.CompositeLit); ok {
+				add(id.Name, cl)
+			}
+		case *ast.DeclStmt:
+			gd, ok := v.Decl.(*ast.GenDecl)
+			if !ok || gd.Tok != token.VAR {
+				return true
+			}
+			for _, s := range gd.Specs {
+				vs, ok := s.(*ast.ValueSpec)
+				if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 {
+					continue
+				}
+				if cl, ok := vs.Values[0].(*ast.CompositeLit); ok {
+					add(vs.Names[0].Name, cl)
+				}
+			}
+		}
+		return true
+	})
+	for name := range dup {
+		delete(table, name)
 	}
 	return table
 }
@@ -1156,6 +1346,63 @@ func f() string {
 	return strings.Join([]string{strings.Join([]string{"DEL"}, ""), "ETE FROM meta WHERE key='demo'"}, "")
 }`,
 			wantHit: true,
+		},
+		{
+			name: "블록 지역 종자 조립(R9: head+lit)",
+			src: `package ops
+func f() string {
+	head := "DEL"
+	s := head + "ETE FROM meta WHERE key='demo'"
+	return s
+}`,
+			wantHit: true,
+		},
+		{
+			name: "블록 지역 복사 종자 누적(R9: y := x 후 +=)",
+			src: `package ops
+func f() string {
+	head := "DEL"
+	s := head
+	s += "ETE FROM meta WHERE key='demo'"
+	return s
+}`,
+			wantHit: true,
+		},
+		{
+			name: "지역 슬라이스 Join 결합(R9)",
+			src: `package ops
+func f() string {
+	parts := []string{"DEL", "ETE FROM meta WHERE key='demo'"}
+	return strings.Join(parts, "")
+}`,
+			wantHit: true,
+		},
+		{
+			name: "오탐 방어: 무해 지역 조립(head+lit)",
+			src: `package ops
+func f() string {
+	head := "가용 지식 "
+	s := head + "요약 완료"
+	return s
+}`,
+		},
+		{
+			name: "오탐 방어: 무해 복사 누적(면제 정확 일치)",
+			src: `package ops
+func f() string {
+	head := "fix: flint "
+	s := head
+	s += "update"
+	return s
+}`,
+		},
+		{
+			name: "오탐 방어: 무해 지역 슬라이스 Join",
+			src: `package ops
+func f() string {
+	parts := []string{"kind", "topic"}
+	return strings.Join(parts, ",")
+}`,
 		},
 		{
 			name: "오탐 방어: 비SQL 안내문(화이트리스트)",
