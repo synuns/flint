@@ -16,6 +16,11 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
+// compactMaxBytes — stdin 훅 JSON 상한(v1.0.3 R3). update 메타 8MiB
+// (lib/cli/update.go) 관례와 정합 — mcp 라인 상한 4MB과 같은 방향의
+// 비간섭 방어. 초과 입력은 에러 대신 조용히 무동작(§13).
+const compactMaxBytes = 8 << 20 // 8MiB
+
 // compactHook — PostCompact 훅이 stdin으로 넘기는 JSON 스키마.
 type compactHook struct {
 	HookEventName  string `json:"hook_event_name"`
@@ -30,8 +35,13 @@ func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	if st == nil {
 		return 0
 	}
-	b, err := io.ReadAll(stdin)
+	// v1.0.3(R3): 무상한 io.ReadAll 대신 상한+1만 읽는다. 초과분은
+	// 파싱 전에 무동작 exit 0(비간섭 — update 8MiB·mcp 4MB 상한 정합).
+	b, err := io.ReadAll(io.LimitReader(stdin, compactMaxBytes+1))
 	if err != nil {
+		return 0
+	}
+	if int64(len(b)) > compactMaxBytes {
 		return 0
 	}
 	var h compactHook
