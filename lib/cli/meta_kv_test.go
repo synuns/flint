@@ -1,6 +1,8 @@
-// meta_kv_test.go — v0.34.3 T2(스펙 §1.2 / R12): meta KV 단일 진입점
-// roundtrip·폴백 증분 원자화. 기본 metaKVFake, SUPERLITE_REAL=1이면
+// meta_kv_test.go — v0.34.3 T2(스펙 §1.2 / R12): meta KV 소비측(증분
+// 위임·단일 소스 가드). 기본 metaKVFake, SUPERLITE_REAL=1이면
 // delegatingFake로 실구현 경유(스텑 미지정 연산은 실DB 위임).
+// v0.38.0 §1: Store 직접 왕복(TestMetaKVStoreRoundtrip)은 lib/wire
+// 패키지 테스트로 이동 — 여기는 cli 소비 핸들러 경로만 담는다.
 package cli
 
 import (
@@ -79,33 +81,6 @@ func metaKVCleanup(t *testing.T, st Store, keys ...string) {
 		t.Cleanup(func() {
 			_, _ = queryOnce(ctx, st, `DELETE FROM meta WHERE key = $1`, []any{key})
 		})
-	}
-}
-
-// TestMetaKVStoreRoundtrip — Review Focus: setMetaKV 후 getMetaKV 왕복.
-// 신규 키 set→get·갱신 upsert 덮어쓰기·미존재 키 ("", false).
-// 이름 참고: TestMetaKVRoundtrip은 v0140_fix_test.go가 클로저(metaKV)
-// 왕복으로 이미 사용 — 스펙 지정명과 충돌해 Store 직접 왕복임을 드러낸다.
-func TestMetaKVStoreRoundtrip(t *testing.T) {
-	ctx := context.Background()
-	f := newMetaKVFake()
-	st := metaKVStore(t, f)
-	key := "meta_kv_roundtrip_test"
-	metaKVCleanup(t, st, key)
-	if err := setMetaKV(ctx, st, key, "v"); err != nil {
-		t.Fatalf("setMetaKV err: %v", err)
-	}
-	if v, ok := getMetaKV(ctx, st, key); v != "v" || !ok {
-		t.Fatalf("getMetaKV(ctx,st,\"k\") = (%q,%v), want (\"v\",true)", v, ok)
-	}
-	if err := setMetaKV(ctx, st, key, "v2"); err != nil {
-		t.Fatalf("setMetaKV 갱신 err: %v", err)
-	}
-	if v, ok := getMetaKV(ctx, st, key); v != "v2" || !ok {
-		t.Fatalf("upsert 덮어쓰기 실패: getMetaKV = (%q,%v), want (\"v2\",true)", v, ok)
-	}
-	if v, ok := getMetaKV(ctx, st, "meta_kv_absent_test"); v != "" || ok {
-		t.Fatalf("미존재 키: getMetaKV = (%q,%v), want (\"\",false)", v, ok)
 	}
 }
 

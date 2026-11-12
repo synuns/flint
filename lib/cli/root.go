@@ -1,138 +1,28 @@
 // Package cli — flint 커맨드 진입점. os.Args 수동 파싱(프롬프트·TUI 금지),
 // 출력은 한 줄 JSON 또는 고정 포맷, exit code 0/1/2/3 계약을 지킨다.
+// v0.38.0 §1: 디스패치·계약은 lib/wire로 추출 — 이 파일은 realStore
+// 어댑터와 cli.Run 위임 래퍼만 소유한다.
 package cli
 
 import (
 	"context"
-	"encoding/json"
-	"errors"
-	"fmt"
 	"io"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/synuns/flint/lib/db"
-	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
-
-// defaultDSN — FLINT_DSN 미지정 시 기본 접속 문자열(ADR-0010: 포트 5434).
-const defaultDSN = "postgresql://flint:flint-dev@localhost:5434/flint"
-
-// Store — 커맨드가 필요한 저장소 연산. cli_test는 fake으로 주입한다.
-type Store interface {
-	Migrate(ctx context.Context) error
-	InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error)
-	ExistsHash(ctx context.Context, hash string) (bool, error)
-	ExistsProject(ctx context.Context, name string) (bool, error)
-	Commit(ctx context.Context, msg string) (string, error)
-	Ping(ctx context.Context) error
-	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
-	Close()
-}
 
 // newStore — seam. 기본 실구현, 테스트는 fake으로 교체(SUPERLITE_REAL=1은 실구현 위임).
 var newStore = func(ctx context.Context, dsn string) (Store, error) {
 	return newRealStore(ctx, dsn)
 }
 
-// dsnFromEnv — DSN 해결 진입점. T74부터 ResolveDSN 위임:
-// FLINT_DSN > config.json(LoadConfigDSN) > 기본값.
-func dsnFromEnv() string {
-	return ResolveDSN()
-}
-
-// Run은 args로 커맨드를 실행해 stdout에 기록하고 exit code를 반환한다.
+// Run은 wire.Run 위임 래퍼 — cli.newStore seam을 공장으로 주입한다
+// (테스트 교체 관례 불변: 호출 시점의 newStore var 값을 전달).
 func Run(args []string, stdin io.Reader, stdout io.Writer) int {
-	if len(args) == 0 {
-		fmt.Fprintln(stdout, usageLine())
-		return 1
-	}
-	cmd, rest := args[0], args[1:]
-	// help도 store-free fast path(코디네이터 룰링): registry 핸들러가
-	// 아니라 접속 전에 직접 출력한다. 인자(`help foo`)는 무시(R1).
-	if cmd == "help" {
-		return runHelp(stdout)
-	}
-	run, ok := Lookup(cmd)
-	if !ok {
-		// v0.28.0(H③): 이름 이스케이프 — 원시 결합은 호출자 제어 문자열로
-		// JSON 구조 자체를 파손할 수 있다.
-		b, _ := json.Marshal(map[string]string{"error": "unknown command: " + cmd})
-		fmt.Fprintln(stdout, string(b))
-		return 1
-	}
-	ctx := context.Background()
-	// version·teardown·mcp는 store-free — DB 미기동에도 즉시 응답
-	// (§13, T33 룰링 · T40 · T57: mcp는 도구 호출이 cli.Run으로 각자
-	// store를 연결한다). nudge는 v0.13.2 N5부터 store 경유 — nudgeProfile가
-	// exposure_profile을 조회해 minimal 계약을 지킨다(구형 store-free 시
-	// minimal 자동 종결 불가).
-	if cmd == "version" || cmd == "teardown" || cmd == "mcp" || cmd == "update" {
-		return run(ctx, nil, rest, stdin, stdout)
-	}
-	// setup도 DB 다운이 주 시나리오(T40)라 store 없이도 응답한다 — 다만
-	// v0.20.1: 정상 기동 DB에선 ping·migrate 단계가 실제로 돌아야 한다.
-	// 이전 배선(st 고정 nil)은 ping 클로저가 항상 실패해 건전한 DB에서도
-	// 매번 degraded로 끝났다(패치 루프 1차 F2). 연결 시도 후 실패 시에만
-	// nil로 진행 — setup의 nil 가드는 DB 다운 안내 경로로 유효 유지.
-	if cmd == "setup" {
-		var st Store
-		if s, err := newStore(ctx, dsnFromEnv()); err == nil {
-			st = s
-		}
-		return run(ctx, st, rest, stdin, stdout)
-	}
-	st, err := newStore(ctx, dsnFromEnv())
-	if err != nil {
-		// compact는 훅 진입 커맨드 — DB 부재도 조용히 exit 0(§3 비간섭).
-		// st nil로 실행하면 runCompact가 무동작 0을 반환한다.
-		if cmd == "compact" {
-			return run(ctx, nil, rest, stdin, stdout)
-		}
-		// nudge도 훅 진입 커맨드(N5) — 에러 JSON을 stdout에 흘리지 않고
-		// 조용히 MapExit 코드로만 종료한다(서버 다운=2, 훅 quiet 계약).
-		if cmd == "nudge" {
-			return store.MapExit(err)
-		}
-		fmt.Fprintln(stdout, errLine(err))
-		return store.MapExit(err)
-	}
-	// v0.25.3(미커버 스윕 high): 명령 완료 후 store 종결 — 단발 CLI는
-	// 프로세스 종료가 회수했지만 flint mcp(tools/call마다 cli.Run 호출)의
-	// 장기 프로세스에서 pgxpool 2개씩 영구 누적되던 것을 닫는다.
-	defer st.Close()
-	return run(ctx, st, rest, stdin, stdout)
-}
-
-// runHelp — `flint help` 출력. usage JSON 1줄 + 명령 요약 1줄, exit 0.
-// help는 인자 없음 — 남는 인자는 무시한다(R1).
-func runHelp(w io.Writer) int {
-	fmt.Fprintln(w, usageLine())
-	fmt.Fprintln(w, helpSummary())
-	return 0
-}
-
-// helpSummary — 명령별 1줄 요약(v0.10.2 R1).
-func helpSummary() string {
-	return "write 기록 · read 검색 · hot 주입 · brief 외부 AI 브리프 · status 상태 · doctor 진단 · report 관측 · backup/restore 백업 · maintain/supersede · approve 승격 · done/compact/nudge 훅 · setup/teardown 설치 · audit/diff 시간여행 · mcp 서버 · version"
-}
-
-// errLine — 에러를 한 줄 JSON으로. 서버 다운은 조용히(server_down) 한 줄만.
-func errLine(err error) string {
-	m := map[string]string{"error": "internal", "message": err.Error()}
-	var se *store.SchemaError
-	switch {
-	case errors.As(err, &se):
-		m = map[string]string{"error": "schema", "field": se.Field, "expect": se.Expect}
-	case errors.Is(err, store.ErrServerDown):
-		m = map[string]string{"error": "server_down"}
-	case errors.Is(err, store.ErrRetriesExhausted):
-		m = map[string]string{"error": "retries_exhausted"}
-	case errors.Is(err, store.ErrDuplicate):
-		m = map[string]string{"error": "duplicate"}
-	}
-	b, _ := json.Marshal(m)
-	return string(b)
+	return wire.Run(args, stdin, stdout, newStore)
 }
 
 // realStore — 쓰기는 db.Repo, 읽기·ping은 풀로 위임하는 어댑터.
@@ -248,13 +138,4 @@ func (s *realStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 		out = append(out, vals)
 	}
 	return out, rows.Err()
-}
-
-// queryOnce — reader 계열 재시도 1회 후 실패 전파(spec §7 읽기).
-func queryOnce(ctx context.Context, st Store, sql string, args []any) ([][]any, error) {
-	rows, err := st.Query(ctx, sql, args...)
-	if err != nil {
-		rows, err = st.Query(ctx, sql, args...)
-	}
-	return rows, err
 }
