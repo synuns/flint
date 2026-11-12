@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // ExposureKey — 노출 프로파일 meta 키. 값 normal(기본)|minimal.
@@ -42,19 +43,19 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		case "--apply":
 			i++
 			if i >= len(args) || (args[i] != "normal" && args[i] != "minimal") {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("profile: --apply requires normal|minimal")))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("profile: --apply requires normal|minimal")))
 				return 1
 			}
 			apply = args[i]
 		case "normal", "minimal":
 			apply = args[i] // 위치 허용(--apply 없이 값만)
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s — 사용법: flint profile [--apply normal|minimal]", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint profile [--apply normal|minimal]", args[i])))
 			return 1
 		}
 	}
 	if err := st.Ping(ctx); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	if apply != "" {
@@ -96,7 +97,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	}
 	b, err := json.Marshal(res)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))

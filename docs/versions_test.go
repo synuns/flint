@@ -235,10 +235,11 @@ func TestVersionDocContracts(t *testing.T) {
 // grep 정합 검증한다. 체크리스트 [x] 표기는 마일스톤 종료 시점이므로 여기서는
 // 섹션 존재만 확인한다.
 func TestDocsV06(t *testing.T) {
-	// ① usageLine(v0.34.2부터 lib/cli/registry.go의 usageOrder 슬라이스에서
-	// 조립 — 리터럴 한 줄 grep 전제는 폐기)에 신규 2커맨드. 슬라이스 블록을
-	// 추출해 항목 존재를 검사한다(단언 의도 불변).
-	reg := read(t, "../lib/cli/registry.go")
+	// ① usageLine(v0.34.2부터 usageOrder 슬라이스에서 조립 — 리터럴 한 줄
+	// grep 전제는 폐기. v0.38.0 §1부터 슬라이스는 lib/wire/registry.go에
+	// 있다)에 신규 2커맨드. 슬라이스 블록을 추출해 항목 존재를 검사한다
+	// (단언 의도 불변).
+	reg := read(t, "../lib/wire/registry.go")
 	order := ""
 	inOrder := false
 	for _, line := range strings.Split(reg, "\n") {
@@ -253,7 +254,7 @@ func TestDocsV06(t *testing.T) {
 		}
 	}
 	if order == "" {
-		t.Fatal("registry.go에 usageOrder 슬라이스 없음")
+		t.Fatal("lib/wire/registry.go에 usageOrder 슬라이스 없음")
 	}
 	for _, cmd := range []string{"doctor", "report"} {
 		if !strings.Contains(order, `"`+cmd+`"`) {

@@ -13,10 +13,12 @@ import (
 	"context"
 	"crypto/sha256"
 	_ "embed"
+
 	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/synuns/flint/lib/wire"
 	"io"
 	"net/http"
 	"os"
@@ -99,7 +101,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 			updateSkipSignature = true
 			fmt.Fprintln(os.Stderr, "[flint] update: 서명 검증 우회(신뢰 이전 1회용 — ADR-0014 키 롤링 절차)")
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", a)))
 			return 1
 		}
 	}
@@ -107,7 +109,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 	if err != nil {
 		// 네트워크 실패 — 조용한 계약은 안내 경로(훅)에만 적용, 명시적
 		// 실행이므로 사유를 알린다(exit 1).
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("update: 최신 버전 확인 실패: %w", err)))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("update: 최신 버전 확인 실패: %w", err)))
 		return 1
 	}
 	cur := CurrentVersion()
@@ -125,7 +127,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 	}
 	path, err := applyUpdate(latest)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("update: %w", err)))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("update: %w", err)))
 		return 1
 	}
 	fmt.Fprintln(stdout, `{"status":"updated","from":`+quoteJSON(cur)+`,"to":`+quoteJSON(latest)+`,"path":`+quoteJSON(path)+"}")

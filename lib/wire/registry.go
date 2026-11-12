@@ -5,6 +5,7 @@ package wire
 import (
 	"context"
 	"io"
+	"sort"
 	"strings"
 )
 
@@ -53,4 +54,26 @@ func hiddenFromUsage(name string) bool {
 // UsageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
 func UsageLine() string {
 	return `{"error":"usage: flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
+}
+
+// Registered — 등록된 커맨드명 열거(정렬 — bridge 가드 비교 안정성).
+// v0.38.0 T3: cli 측 동질 가드(TestRegisteredMatchesUsage)가 실등록
+// 표면을 읽기 위한 읽기 전용 접근자.
+func Registered() []string {
+	names := make([]string, 0, len(registry))
+	for name := range registry {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+	return names
+}
+
+// UsageOrder — usageOrder 슬라이스 사본(외부 가드용 읽기 접근).
+func UsageOrder() []string {
+	return append([]string(nil), usageOrder...)
+}
+
+// HiddenFromUsage — 훅 전용 진입점 판정의 공개 접근(usage 노출 제어 계약).
+func HiddenFromUsage(name string) bool {
+	return hiddenFromUsage(name)
 }

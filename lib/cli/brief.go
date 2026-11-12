@@ -13,6 +13,7 @@ import (
 
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // defaultBriefBudget — meta brief_budget 미설정 시 기본 상한(TUNING.md §5).
@@ -66,7 +67,7 @@ func runBrief(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		case "--limit":
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "limit", Expect: "integer"}))
+				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "limit", Expect: "integer"}))
 				return 3
 			}
 			f.Limit, i = n, i+1
@@ -82,9 +83,9 @@ func runBrief(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	// 이중 조건을 단일 조립한다(read --status active와 동일 계층).
 	f.Status = "active"
 	sql, sqlArgs := query.BuildReadStatus(q, f)
-	rows, err := queryOnce(ctx, st, sql, sqlArgs)
+	rows, err := wire.QueryOnce(ctx, st, sql, sqlArgs)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	for _, row := range rows {
