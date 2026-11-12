@@ -373,7 +373,7 @@ func sprintfCombined(format string, args []ast.Expr, consts map[string]constInfo
 
 // stringOperand — 결합 판정(③ 인자·④ 요소)용 정적 문자열 근사: 문자열
 // 리터럴은 본문, 패키지 블록 const Ident는 접힌 값(원천 리터럴이 이미
-// 보고됐으면 공란 — 중복 보고 방지), Sprintf 호출은 depth 1까지만 재귀
+// 보고됐으면 공란 — 중복 보고 방지), Sprintf 호출은 depth 8까지 재귀
 // 결합(형식 리터럴이 이미 보고됐으면 공란 — 그 호출은 ③이 따로 잡는다),
 // 그 외는 공란(동사 경계 결합 가능성의 보수 대입).
 func stringOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool, depth int) string {
@@ -387,7 +387,7 @@ func stringOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Po
 			return ci.val
 		}
 	case *ast.CallExpr:
-		if depth < 1 {
+		if depth < 8 { // v1.0.3(R4): 2단계 이상 중첩 Sprintf 우회 폐쇄
 			if sel, ok := v.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Sprintf" && len(v.Args) > 0 {
 				if flit, ok := v.Args[0].(*ast.BasicLit); ok && flit.Kind == token.STRING && !flagged[flit.Pos()] {
 					return sprintfCombined(unquoteLiteral(flit.Value), v.Args[1:], consts, flagged, depth+1)
@@ -489,6 +489,12 @@ func TestWriteGuardBlocksBypasses(t *testing.T) {
 		src     string
 		wantHit bool
 	}{
+		{
+			name: "2단계 중첩 Sprintf 조립(v1.0.3 R4)",
+			src: `package ops
+func f() string { return fmt.Sprintf("D%s FROM meta", fmt.Sprintf("%s", fmt.Sprintf("%s", "EL"))) }`,
+			wantHit: true,
+		},
 		{
 			name: "별칭 경유 UPDATE",
 			src: `package ops
