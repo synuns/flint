@@ -133,10 +133,12 @@ func TestHooksNudgeGuards(t *testing.T) {
 }
 
 // TestHooksExistingUntouched — 세션 훅 통합 엔트리는 원문 보존.
+// v1.0.1 감사(F4): session_id 치환은 jq @sh+eval — 이중따옴표 치환은
+// id 원문의 "·$가 이중 인용 안에서 해석되는 셸 삽입 창이었다(원문 갱신).
 func TestHooksExistingUntouched(t *testing.T) {
 	doc := readHooksJSON(t)
-	const startCmd = `flint session-start --session "$(jq -r '.session_id // empty' 2>/dev/null)" 2>/dev/null || true`
-	const endCmd = `flint session-end --session "$(jq -r '.session_id // empty' 2>/dev/null)" 2>/dev/null || true`
+	const startCmd = `eval "flint session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)" 2>/dev/null || true`
+	const endCmd = `eval "flint session-end --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)" 2>/dev/null || true`
 
 	startCmds := groupCommands(t, hookGroups(t, doc, "SessionStart"))
 	if len(startCmds) < 1 || startCmds[0] != startCmd {
