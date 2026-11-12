@@ -1,17 +1,13 @@
 // ops_alias_3.go — v0.40.0 T3: lib/ops로 이동한 report·report_html·backup·
 // sigverify·rules_sync 표면을 소문자 var·타입 별칭으로 재노출해 잔여 cli
 // 파일(profile·setup·update·knowledge_curation_alias 및 잔류 테스트)이
-// 무편집 컴파일되게 한다(ops_alias_1·2 관례 승계). var 별칭은 테스트 seam
-// 교체 관례(소문자 var)를 승계한다. 교체 전파가 필요한 seam(backup 8종 —
-// backup_test가 cli var를 교체한다)은 ops가 cli var를 호출 시점에 읽는
-// 래퍼로 주입한다(composePsFn 패턴). T4 이동 완료 후 소비자 0 별칭은
-// T4가 정리한다.
+// 무편집 컴파일되게 한다(ops_alias_1·2 관례 승계). backup 등록은
+// root.go init이 ops.RunBackup·RunRestore를 직접 등록한다(T4 수렴).
+// 교체 전파가 필요한 backup seam(dumpFn·restoreFn·rotateFn·keepFn —
+// backup_test가 cli var를 교체)은 root.go init이 래퍼로 주입한다.
 package cli
 
 import (
-	"context"
-	"io"
-
 	"github.com/synuns/flint/lib/ops"
 )
 
@@ -63,16 +59,12 @@ var (
 	quoteJSON        = ops.QuoteJSON
 
 	// backup seam var — cli 테스트 교체 관례(backup_test가 dumpFn 등을
-	// 재할당한다). 초기값은 ops 기본 실구현, 아래 init 래퍼가 교체를 ops에
-	// 전파한다.
-	dumpFn       = ops.DumpFn
-	restoreFn    = ops.RestoreFn
-	drillDataFn  = ops.DrillDataFn
-	rotateFn     = ops.RotateFn
-	keepFn       = ops.KeepFn
-	ensureKeyFn  = ops.EnsureKeyFn
-	encryptToFn  = ops.EncryptToFn
-	maskSecretsF = ops.MaskSecretsFn
+	// 재할당한다). 초기값은 ops 기본 실구현, root.go init 래퍼가 교체를
+	// ops에 전파한다.
+	dumpFn    = ops.DumpFn
+	restoreFn = ops.RestoreFn
+	rotateFn  = ops.RotateFn
+	keepFn    = ops.KeepFn
 
 	// sigverify
 	ErrSignatureInvalid = ops.ErrSignatureInvalid
@@ -83,17 +75,3 @@ var (
 	checkSkillFile = ops.CheckSkillFile
 	runUpdateRules = ops.RunUpdateRules
 )
-
-func init() {
-	// seam 주입(교체 전파 래퍼 — composePsFn 패턴 승계): cli var 재할당을
-	// ops가 관측한다. ops 단독 바이너리(테스트)에서는 래퍼가 없어도
-	// ops var 기본 실구현이 그대로 동작한다.
-	ops.DumpFn = func(ctx context.Context, dsn string, w io.Writer) error { return dumpFn(ctx, dsn, w) }
-	ops.RestoreFn = func(ctx context.Context, dsn string, r io.Reader) error { return restoreFn(ctx, dsn, r) }
-	ops.DrillDataFn = drillDataFn
-	ops.RotateFn = func(dir string, keep int) ([]string, error) { return rotateFn(dir, keep) }
-	ops.KeepFn = func(getKV func(string) (string, error)) int { return keepFn(getKV) }
-	ops.EnsureKeyFn = ensureKeyFn
-	ops.EncryptToFn = encryptToFn
-	ops.MaskSecretsFn = maskSecretsF
-}

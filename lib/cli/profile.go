@@ -5,6 +5,8 @@
 // profileHint와 단일 소스(표본 하한 zero_near_min_read·recall_led_pct
 // 50 기준 — METRICS §3 문서화). 근거 지표를 함께 노출해 사용자가 판정을
 // 검증할 수 있게 한다(관측 투명성 — GSM 원칙).
+// v0.40.0 T4: 판독 헬퍼(ExposureKey·ExposureProfile)는 lib/wire/profile.go
+// 로 이동 — 이 파일은 판정 명령 runProfile과 cli 호환 별칭을 소유한다.
 package cli
 
 import (
@@ -18,18 +20,11 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ExposureKey — 노출 프로파일 meta 키. 값 normal(기본)|minimal.
-const ExposureKey = "exposure_profile"
+// 별칭 — wire 이동분 재노출(setup.go 기록 경로·ops_alias_2 seam·
+// profile_v0110_test 호환).
+const ExposureKey = wire.ExposureKey
 
-// ExposureProfile — 노출 프로파일 판독 헬퍼. 값 "minimal"일 때만 minimal,
-// 미설정·파손값·조회 오류는 전부 normal(기본값 폴백).
-func ExposureProfile(getKV func(string) (string, error)) string {
-	v, err := getKV(ExposureKey)
-	if err != nil || v != "minimal" {
-		return "normal"
-	}
-	return "minimal"
-}
+var ExposureProfile = wire.ExposureProfile
 
 func init() { Register("profile", runProfile) }
 

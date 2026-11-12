@@ -1,23 +1,21 @@
 // Package cli — flint 커맨드 진입점. os.Args 수동 파싱(프롬프트·TUI 금지),
 // 출력은 한 줄 JSON 또는 고정 포맷, exit code 0/1/2/3 계약을 지킨다.
-// v0.38.0 §1: 디스패치·계약은 lib/wire로 추출 — 이 파일은 realStore
-// 어댑터와 cli.Run 위임 래퍼만 소유한다.
+// v0.38.0 §1: 디스패치·계약은 lib/wire로 추출. v0.40.0 T4: 이 파일은
+// composition root — realStore 어댑터·cli.Run 위임 래퍼와 함께 커맨드
+// 등록·양방향 seam 주입(ops·knowledge가 cli/wire 실구현을 쓰는 주입점)을
+// 이 init 한 곳에서 소유한다(별칭 파일의 산재 init 수렴).
 package cli
 
 import (
 	"context"
 	"io"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/synuns/flint/lib/db"
-	// 사이드이펙트 임포트 — v0.39.0 T5 등록 활성화. knowledge 패키지의
-	// 각 init가 wire.Register(write·import·read·hot·approve·pending·
-	// brief·done·compact)를 수행한다. knowledge_alias.go도 knowledge를
-	// 임포트하지만 그쪽은 별칭 재노출이 주목적 — Run의 디스패치 의존은
-	// 이 와이어링 지점에서 명시적으로 선언한다(별칭 파일 정리 후에도
-	// 등록이 살아있게).
-	_ "github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/ops"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -30,6 +28,87 @@ var newStore = func(ctx context.Context, dsn string) (Store, error) {
 // (테스트 교체 관례 불변: 호출 시점의 newStore var 값을 전달).
 func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 	return wire.Run(args, stdin, stdout, newStore)
+}
+
+// init — composition root(v0.40.0 T4 수렴). ① wire 설정 주입 ② cli 소유
+// 핵심 커맨드 등록 ③ ops·knowledge 주입 seam(공용 유틸은 wire 직접,
+// cli 잔류 실구현은 별칭 경유). 교체 전파가 필요한 seam(composePsFn·
+// exposureProfileFn·backup 4종)은 cli var를 호출 시점에 읽는 래퍼로
+// 주입한다 — 테스트의 cli var 재할당이 ops 실행 경로에 전파된다.
+// doctor·status·tuning·maintain·nudge·session-*·report 등록은 ops
+// 패키지 init이, write·read·hot·approve·pending·brief·done·compact는
+// knowledge 패키지 init이 담당한다(이 init이 knowledge·ops를 임포트해
+// 활성화).
+func init() {
+	// ① wire 계약층 주입 — 설정 디렉터리 규칙(FLINT_CONFIG_DIR >
+	// os.UserConfigDir()/flint)은 cli(marker.go→ops 이동분) 소유.
+	wire.ConfigDir = configDir
+
+	// ② cli 소유 커맨드 등록 — knowledge 이동분 핵심 3종 + ops 이동분
+	// backup·restore(핸들러 직접 등록). help는 미등록 — wire.Run이
+	// store 접속 전에 출력하는 usage 경로가 담당한다.
+	Register("write", runWrite)
+	Register("read", runRead)
+	Register("hot", runHot)
+	Register("backup", ops.RunBackup)
+	Register("restore", ops.RunRestore)
+
+	// ③-1 knowledge 주입 seam — as-of 정규화는 wire 이동분 직접,
+	// 마커·계측 계열은 ops 이동분 별칭 경유.
+	knowledge.ParseAsOfSpecFn = wire.ParseAsOfSpec
+	knowledge.ErrInvalidAsOf = wire.ErrInvalidAsOf
+	knowledge.SessionLabelFn = sessionLabel
+	knowledge.ExposureProfileFn = ExposureProfile
+	knowledge.RecordHotLenFn = RecordHotLen
+	knowledge.LoadHotStatsFromMetaFn = loadHotStatsFromMeta
+	knowledge.PersistHotStatsToMetaFn = persistHotStatsToMeta
+	knowledge.WriteTypedMarkerFn = WriteTypedMarker
+	knowledge.BackupKeyPathFn = BackupKeyPath
+
+	// ③-2 ops 주입 seam — cli 잔류 실구현(version·update·backup 인프라).
+	ops.CurrentVersionFn = CurrentVersion
+	ops.FetchLatestVersionFn = fetchLatestVersion
+	ops.ValidVersionFn = validVersion
+	ops.CompareVersionsFn = compareVersions
+	ops.KnownMetaKeyFn = knownMetaKey
+	ops.AnyToTimeFn = anyToTime
+	ops.IsConflictGroupFn = isConflictGroup
+	ops.ConflictDupThresholdFn = func() float64 { return conflictDupThreshold }
+	ops.BackupEncryptOnFn = backupEncryptOn
+	ops.BackupKeyPathFn = BackupKeyPath
+	ops.SkillSrcDirFn = skillSrcDir
+	ops.CheckSkillFileFn = checkSkillFile
+	ops.ParseAsOfSpecFn = wire.ParseAsOfSpec
+	ops.ErrInvalidAsOf = wire.ErrInvalidAsOf
+	ops.ReadZeroPctFn = readZeroPct
+	ops.HotStatsFn = HotStats
+	ops.LoadHotStatsFromMetaFn = loadHotStatsFromMeta
+	ops.LoadReadStatsFromMetaFn = loadReadStatsFromMeta
+	ops.QuoteJSONFn = quoteJSON
+	ops.MaybeUpdateNoticeFn = maybeUpdateNotice
+	ops.UpdateNoticeTTL = updateNoticeTTL
+	ops.PctOfFn = pctOf
+
+	// ③-3 교체 전파 래퍼 — cli var 재할당을 ops가 관측(composePsFn 패턴).
+	ops.ComposePsFn = func(ctx context.Context) ([]byte, error) { return composePsFn(ctx) }
+	ops.FlintBinPathFn = func() string { return flintBinPathFn() }
+	ops.MaintainRetryDelaysFn = func() []time.Duration { return maintainRetryDelays }
+	ops.ExposureProfileFn = func(getKV func(string) (string, error)) string { return exposureProfileFn(getKV) }
+	ops.WindowedDailyFn = func(ctx context.Context, st wire.Store, days int) ([]ops.DailyRow, error) {
+		rows, err := windowedDaily(ctx, st, days)
+		if err != nil {
+			return nil, err
+		}
+		out := make([]ops.DailyRow, 0, len(rows))
+		for _, d := range rows {
+			out = append(out, ops.DailyRow{Read: d.Read, ReadZero: d.ReadZero, ReadNear: d.ReadNear})
+		}
+		return out, nil
+	}
+	ops.DumpFn = func(ctx context.Context, dsn string, w io.Writer) error { return dumpFn(ctx, dsn, w) }
+	ops.RestoreFn = func(ctx context.Context, dsn string, r io.Reader) error { return restoreFn(ctx, dsn, r) }
+	ops.RotateFn = func(dir string, keep int) ([]string, error) { return rotateFn(dir, keep) }
+	ops.KeepFn = func(getKV func(string) (string, error)) int { return keepFn(getKV) }
 }
 
 // realStore — 쓰기는 db.Repo, 읽기·ping은 풀로 위임하는 어댑터.
