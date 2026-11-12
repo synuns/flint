@@ -39,6 +39,15 @@ func BackupKeyPath() string {
 	return DataFile("backup.key")
 }
 
+// buildMaskExtra — v1.0.2(R2-C4): allowlist 등록값은 마스킹에서 원문
+// 보존된다(공유 덤프에 평문 잔류). 1건 이상 등록 시 경고를 extra에 병기.
+func buildMaskExtra(allowlistN int) string {
+	if allowlistN <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(`,"allowlist_entries":%d,"warn":"allowlist %d건 등록값은 마스킹되지 않음 — 공유 전 재검토"`, allowlistN, allowlistN)
+}
+
 // dumpStore — 전체 덤프 접근(approveStore와 동일 관례의 타입 단언 seam).
 // v0.34.3 R14: RunBackup이 주입 st 경유로 덤프한다(미구현 st만 DumpFn
 // seam 폴백). 물리적 풀은 lib/backup.Dump 내부에서 열고 닫는다(defer).
@@ -114,6 +123,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		// 마스킹 — 진단·공유용: 비밀 패턴 치환 + 비복원 마커 선두 부착.
 		data = append([]byte(backup.MaskDumpHeader+"\n"), MaskSecretsFn(string(data))...)
 		extra += `,"masked":true`
+		extra += buildMaskExtra(store.SecretsAllowlistCount())
 	}
 	if encrypt {
 		key := BackupKeyPath()
