@@ -11,6 +11,13 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/synuns/flint/lib/db"
+	// 사이드이펙트 임포트 — v0.39.0 T5 등록 활성화. knowledge 패키지의
+	// 각 init가 wire.Register(write·import·read·hot·approve·pending·
+	// brief·done·compact)를 수행한다. knowledge_alias.go도 knowledge를
+	// 임포트하지만 그쪽은 별칭 재노출이 주목적 — Run의 디스패치 의존은
+	// 이 와이어링 지점에서 명시적으로 선언한다(별칭 파일 정리 후에도
+	// 등록이 살아있게).
+	_ "github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/wire"
 )
 

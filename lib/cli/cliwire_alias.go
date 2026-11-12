@@ -22,7 +22,6 @@ var (
 	errLine      = wire.ErrLine
 	queryOnce    = wire.QueryOnce
 	runHelp      = wire.RunHelp
-	helpSummary  = wire.HelpSummary
 	getMetaKV    = wire.GetMetaKV
 	getMetaKVErr = wire.GetMetaKVErr
 	setMetaKV    = wire.SetMetaKV
