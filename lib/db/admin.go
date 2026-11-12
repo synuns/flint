@@ -1,6 +1,8 @@
 // admin.go — T17 갱신·집계. approve·invalidate·merge는 갱신 전용 허용
 // 경로다(전역 제약: write INSERT 전용, projects 제외 UPDATE 금지 —
 // 승인/무효화/병합은 spec §8 큐레이션 경로, 사유를 dolt 커밋 메시지에 남긴다).
+// 승격 게이트 EnsureSchemaV*의 호출 순서·최신 버전은 schema_gates.go
+// 등록표가 단일 소스다(여기에 함수만 추가하면 CoverAdmin 가드가 등록을 요구).
 package db
 
 import (
