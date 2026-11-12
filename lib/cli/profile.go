@@ -31,6 +31,8 @@ func init() { Register("profile", runProfile) }
 // runProfile — `flint profile [--apply normal|minimal]`.
 // 무인자: 현재 프로파일 + 근거 지표 + 추천. --apply: 전환 확정
 // (setup --exposure 재사용 — 기록 경로 단일 소스).
+// v1.0.1(F3): 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
+// --exposure 무효 값 exit 3과 정합).
 func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	apply := ""
 	for i := 0; i < len(args); i++ {
@@ -39,14 +41,14 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 			i++
 			if i >= len(args) || (args[i] != "normal" && args[i] != "minimal") {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("profile: --apply requires normal|minimal")))
-				return 1
+				return 3
 			}
 			apply = args[i]
 		case "normal", "minimal":
 			apply = args[i] // 위치 허용(--apply 없이 값만)
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint profile [--apply normal|minimal]", args[i])))
-			return 1
+			return 3
 		}
 	}
 	if err := st.Ping(ctx); err != nil {

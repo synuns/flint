@@ -160,13 +160,14 @@ func TestReportDaysCapAndEmpty(t *testing.T) {
 	}
 }
 
-// TestReportArgErrors — 무효 --days(비수)·알 수 없는 플래그는 사용법 에러 exit 1.
+// TestReportArgErrors — 무효 --days(비수)·알 수 없는 플래그는 무효 인자
+// exit 3(v1.0.1 F3).
 func TestReportArgErrors(t *testing.T) {
 	for _, args := range [][]string{{"--days", "abc"}, {"--bogus"}, {"--days"}} {
 		f := newReportFake(nil)
 		out, code := runReportArgs(t, f, args...)
-		if code != 1 {
-			t.Errorf("%v: exit=%d, want 1 (출력 %q)", args, code, out)
+		if code != 3 {
+			t.Errorf("%v: exit=%d, want 3 (출력 %q)", args, code, out)
 		}
 		if !strings.Contains(out, `"error"`) {
 			t.Errorf("%v: 에러 JSON 아님: %q", args, out)

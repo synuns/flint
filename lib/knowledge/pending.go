@@ -53,6 +53,8 @@ func CountPending(ctx context.Context, st wire.Store) (int, error) {
 }
 
 // RunPending — `flint pending` — 보류 지식 목록 + 추천.
+// v1.0.1(F3): unknown flag는 무효 인자 exit 3(v0.36.1 maintain·import 관례
+// 통일).
 func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	jsonMode := false
 	for _, a := range args {
@@ -61,7 +63,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			continue
 		}
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint pending [--json]", a)))
-		return 1
+		return 3
 	}
 	if err := st.Ping(ctx); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))

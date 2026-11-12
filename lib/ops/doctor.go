@@ -62,6 +62,11 @@ var (
 type CheckSpec struct {
 	Name string
 	Fn   func(ctx context.Context, st wire.Store) DoctorCheck
+	// ThFn — thresholds 소비 검사의 주입판(F6 성능): 실행 스코프 1회
+	// 로드 값(doctorThresholds)을 받는다. 디스패치(runCheckSpec)는
+	// ThFn이 있으면 우선, 없으면 Fn. thresholds를 쓰지 않는 검사는
+	// Fn만 세운다.
+	ThFn func(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck
 	// Chain — "core"는 DoctorChecks 이름 공간(6종·port 마지막 계약),
 	// "tail"은 전체 실행 체인 말미의 tail 체인(10종).
 	Chain string
@@ -74,6 +79,10 @@ type CheckSpec struct {
 // doctorChecks — 체크 등록표(코어6+tail10 = 16종). harness-* 14종·
 // skill-file은 파일 존재 감지(동적 하네스/스킬 감지)라 등록표 밖 별도
 // 체인 — 통합 대상 아니다(룰링). 새 검사 추가는 이 표에 1행만.
+// F6(성능): thresholds 소비 검사 6종(last-seen·backup-age·zero-near·
+// pending-age·event-volume·meta-hygiene)은 ThFn 주입판으로 등록 —
+// 실행 스코프 1회 로드(doctorThresholds)를 공유한다(secrets는 F4 소유
+// 영역이라 자체 로드 유지).
 func doctorChecks() []CheckSpec {
 	return []CheckSpec{
 		{Name: "hook-file", Chain: "core", OnStoreNil: "",
@@ -81,20 +90,52 @@ func doctorChecks() []CheckSpec {
 		{Name: "db", Chain: "core", OnStoreNil: "fail", Fn: checkDB},
 		{Name: "schema", Chain: "core", OnStoreNil: "fail", Fn: checkSchema},
 		{Name: "integrity", Chain: "core", OnStoreNil: "fail", Fn: checkIntegrity},
-		{Name: "last-seen", Chain: "core", OnStoreNil: "fail", Fn: checkLastSeen},
+		{Name: "last-seen", Chain: "core", OnStoreNil: "fail", ThFn: checkLastSeenTh},
 		{Name: "port", Chain: "core", OnStoreNil: "",
 			Fn: func(ctx context.Context, st wire.Store) DoctorCheck { return checkPort(ctx) }},
-		{Name: "backup-age", Chain: "tail", OnStoreNil: "warn", Fn: CheckBackupAge},
+		{Name: "backup-age", Chain: "tail", OnStoreNil: "warn", ThFn: checkBackupAgeTh},
 		{Name: "conflicts", Chain: "tail", OnStoreNil: "warn", Fn: CheckConflicts},
-		{Name: "zero-near", Chain: "tail", OnStoreNil: "warn", Fn: CheckZeroNear},
-		{Name: "pending-age", Chain: "tail", OnStoreNil: "warn", Fn: CheckPendingAge},
-		{Name: "event-volume", Chain: "tail", OnStoreNil: "warn", Fn: checkEventVolume},
+		{Name: "zero-near", Chain: "tail", OnStoreNil: "warn", ThFn: checkZeroNearTh},
+		{Name: "pending-age", Chain: "tail", OnStoreNil: "warn", ThFn: checkPendingAgeTh},
+		{Name: "event-volume", Chain: "tail", OnStoreNil: "warn", ThFn: checkEventVolumeTh},
 		{Name: "backup-key", Chain: "tail", OnStoreNil: "warn", Fn: checkBackupKey},
-		{Name: "meta-hygiene", Chain: "tail", OnStoreNil: "warn", Fn: checkMetaHygiene},
+		{Name: "meta-hygiene", Chain: "tail", OnStoreNil: "warn", ThFn: checkMetaHygieneTh},
 		{Name: "update", Chain: "tail", OnStoreNil: "", Fn: checkUpdate},
 		{Name: "recall-starved", Chain: "tail", OnStoreNil: "warn", Fn: checkRecallStarved},
 		{Name: "secrets", Chain: "tail", OnStoreNil: "warn", Fn: checkSecrets},
 	}
+}
+
+// doctorThresholds — F6(성능): doctor 실행 스코프 thresholds 로더(지연
+// 1회·메모). 검사 6종이 각자 meta IN 쿼리를 날리던 것(전체 실행에서
+// 최대 6회)을 실행당 1회 공유로 — 로드 실패 기본값 폴백은 WriteThresholds
+// 관례 불변. st==nil은 로드 없이 기본값(검사별 nil 가드가 판정을 소유 —
+// 로드 시점 nil 인터페이스 호출 방지).
+func doctorThresholds(ctx context.Context, st wire.Store) func() store.Thresholds {
+	var (
+		th     store.Thresholds
+		loaded bool
+	)
+	return func() store.Thresholds {
+		if !loaded {
+			if st != nil {
+				th = knowledge.WriteThresholds(ctx, st)
+			} else {
+				th = store.DefaultThresholds()
+			}
+			loaded = true
+		}
+		return th
+	}
+}
+
+// runCheckSpec — 등록표 검사 디스패치: ThFn 검사는 실행 스코프
+// thresholds(th)를 주입받고, 그 외는 Fn을 그대로 실행한다.
+func runCheckSpec(ctx context.Context, st wire.Store, th func() store.Thresholds, s CheckSpec) DoctorCheck {
+	if s.ThFn != nil {
+		return s.ThFn(ctx, st, th())
+	}
+	return s.Fn(ctx, st)
 }
 
 // doctorSpec — 등록표에서 이름으로 검색.
@@ -199,10 +240,13 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 
 	// 전체 실행 체인 — 등록표 파생(코어 6종, 하니스·스킬 별도 체인,
 	// tail 10종 순서는 기존 append 순서와 동일하게 유지).
+	// F6(성능): thresholds는 실행 스코프 1회 로드(doctorThresholds 지연
+	// 메모)를 ThFn 검사 6종이 공유 — 검사 각자의 meta IN 쿼리 폐지.
+	th := doctorThresholds(ctx, st)
 	checks := make([]DoctorCheck, 0, len(doctorChecks())+len(HarnessRegistry))
 	for _, s := range doctorChecks() {
 		if s.Chain == "core" {
-			checks = append(checks, s.Fn(ctx, st))
+			checks = append(checks, runCheckSpec(ctx, st, th, s))
 		}
 	}
 	// 하니스 검진(v0.9 §4)은 코어 체인 뒤에 추가 — 파일이 있는 하니스만
@@ -220,7 +264,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 	for _, s := range doctorChecks() {
 		if s.Chain == "tail" {
-			checks = append(checks, s.Fn(ctx, st))
+			checks = append(checks, runCheckSpec(ctx, st, th, s))
 		}
 	}
 	return doctorReport(checks, fix, stdout)
@@ -283,10 +327,11 @@ func doctorReport(checks []DoctorCheck, fix bool, stdout io.Writer) int {
 
 // runDoctorCheck — 검사명 디스패치. 등록표(doctorChecks) 조회가 1차
 // 소스(v0.34.3 R11 — switch 하드코딩 폐지), 등록표 밖 별도 체인
-// (skill-file·harness-*)만 여기 사례로 남는다.
+// (skill-file·harness-*)만 여기 사례로 남는다. ThFn 검사는 실행 스코프
+// thresholds(doctorThresholds — 단독 실행 1회 로드)를 주입받는다(F6).
 func runDoctorCheck(ctx context.Context, st wire.Store, name string) DoctorCheck {
 	if s, ok := doctorSpec(name); ok {
-		return s.Fn(ctx, st)
+		return runCheckSpec(ctx, st, doctorThresholds(ctx, st), s)
 	}
 	switch name {
 	case "skill-file":
@@ -800,11 +845,12 @@ func checkIntegrity(ctx context.Context, st wire.Store) DoctorCheck {
 	return c
 }
 
-// checkLastSeen — 3경로 last_* 경과 + grace(nodata 패턴). grace는
+// checkLastSeenTh — 3경로 last_* 경과 + grace(nodata 패턴). grace는
 // maintain --check와 같은 loadThresholds 체계(stall_hot_h·stall_write_h
 // 메타 오버라이드, 기본 48/72h)를 쓴다 — 임계값 소스가 둘이면 결론이
 // 상충한다. 초과 또는 기록 부재(never)는 warn — exit를 깨지 않는다.
-func checkLastSeen(ctx context.Context, st wire.Store) DoctorCheck {
+// F6(성능): thresholds는 주입(doctor 체인이 실행 스코프 1회 로드 공유).
+func checkLastSeenTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: "last-seen"}
 	if st == nil {
 		c.Status, c.Fix = "fail", "fix: flint status — DB 접속"
@@ -840,11 +886,8 @@ func checkLastSeen(ctx context.Context, st wire.Store) DoctorCheck {
 			}
 		}
 	}
-	// 임계값은 maintain와 공유 체계 — 조회 실패 시에도 기본 grace로 폴백.
-	th, thErr := wire.LoadThresholds(ctx, st)
-	if thErr != nil {
-		th = store.DefaultThresholds()
-	}
+	// 임계값은 maintain와 공유 체계 — 주입 th(F6: 실행 스코프 1회 로드,
+	// 실패 기본값 폴백은 WriteThresholds가 적용)에서 grace를 읽는다.
 	warns := 0
 	if detail := stallDetail(seen, "last_hot_at", th.StallHotH, &warns); detail != "" {
 		c.Detail = detail
@@ -865,7 +908,13 @@ func checkLastSeen(ctx context.Context, st wire.Store) DoctorCheck {
 
 // checkMetaHygiene — v0.33.0(R3): meta 키 위생. 미지 키(사용 중단 후보)·
 // 보존 창(daily_retention_days)+7일 유예 초과 daily 카운터 경고.
+// F6(성능): 실체는 thresholds 주입판(checkMetaHygieneTh) — doctor 체인은
+// 실행 스코프 1회 로드 값을, 이 래퍼는 직접 호출자용 자체 로드.
 func checkMetaHygiene(ctx context.Context, st wire.Store) DoctorCheck {
+	return checkMetaHygieneTh(ctx, st, doctorThresholds(ctx, st)())
+}
+
+func checkMetaHygieneTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: "meta-hygiene"}
 	if st == nil {
 		c.Status = "warn"
@@ -882,7 +931,6 @@ func checkMetaHygiene(ctx context.Context, st wire.Store) DoctorCheck {
 	for _, k := range wire.ThresholdsKeys() {
 		thKeys[k] = true
 	}
-	th := knowledge.WriteThresholds(ctx, st)
 	retention := th.DailyRetentionD
 	if retention <= 0 {
 		retention = 14
@@ -994,7 +1042,13 @@ func checkBackupKey(ctx context.Context, st wire.Store) DoctorCheck {
 // 리화·TUNING §2 스펙 §3 R4 Notes 이연 회수). 이상 경과·미설정·파손 값·
 // 조회 실패·st nil 전부 warn — 백업 부재가 flint 동작을 막지 않으므로
 // fail 아니다(룰링). checkLastSeen과 같은 queryOnce·RFC3339 패턴을 승계한다.
+// F6(성능): 실체는 thresholds 주입판(checkBackupAgeTh) — doctor 체인은
+// 실행 스코프 1회 로드 값을, 이 공개 래퍼는 직접 호출자용 자체 로드.
 func CheckBackupAge(ctx context.Context, st wire.Store) DoctorCheck {
+	return checkBackupAgeTh(ctx, st, doctorThresholds(ctx, st)())
+}
+
+func checkBackupAgeTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: "backup-age"}
 	if st == nil {
 		c.Status = "warn"
@@ -1020,9 +1074,9 @@ func CheckBackupAge(ctx context.Context, st wire.Store) DoctorCheck {
 		c.Detail = "last_backup 미설정 — flint done 훅·수동 backup 확인"
 		return c
 	}
-	// 임계값은 meta 오버라이드 우선(loadThresholds) — 조회 실패는 기본값 폴백.
-	th, thErr := wire.LoadThresholds(ctx, st)
-	if thErr != nil || th.BackupAgeWarnH <= 0 {
+	// 임계값은 meta 오버라이드 우선(주입 th) — 조회 실패 폴백은 상단
+	// 로더가 적용, 값 폴백(<=0 → 전체 기본값)은 여기서 유지한다.
+	if th.BackupAgeWarnH <= 0 {
 		th = store.DefaultThresholds()
 	}
 	if d := time.Since(ts); d >= time.Duration(th.BackupAgeWarnH)*time.Hour {
@@ -1104,18 +1158,21 @@ const doctorZeroNearWindow = 7
 // 와 단일 소스)로 이전. 판정 식(read ≥ 표본 하한 && read_zero_near*100/
 // read ≥ 경고 비율 → warn)·출력 문구는 전환 전과 동등하다. 조회 실패·st
 // nil은 warn. 검색 품질 의심은 동작을 막지 않으므로 fail 아니다(룰링).
+// F6(성능): 실체는 thresholds 주입판(checkZeroNearTh) — doctor 체인은
+// 실행 스코프 1회 로드 값을, 이 공개 래퍼는 직접 호출자용 자체 로드.
 func CheckZeroNear(ctx context.Context, st wire.Store) DoctorCheck {
+	return checkZeroNearTh(ctx, st, doctorThresholds(ctx, st)())
+}
+
+func checkZeroNearTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: "zero-near"}
 	if st == nil {
 		c.Status = "warn"
 		c.Detail = "일별 계측 조회 불가 — flint report로 read_zero_near 확인"
 		return c
 	}
-	// 임계값 2종은 meta 오버라이드 우선(loadThresholds) — 조회 실패는 기본값.
-	th, thErr := wire.LoadThresholds(ctx, st)
-	if thErr != nil {
-		th = store.DefaultThresholds()
-	}
+	// 임계값 2종은 meta 오버라이드 우선(주입 th) — 조회 실패 폴백(기본값)은
+	// 상단 로더가 적용.
 	days, err := WindowedDaily(ctx, st, doctorZeroNearWindow)
 	if err != nil {
 		c.Status = "warn"
@@ -1149,7 +1206,13 @@ func CheckZeroNear(ctx context.Context, st wire.Store) DoctorCheck {
 // warn(방치가 동작을 막지 않는다 — backup-age 룰링 승계), 임계 이내·
 // pending 부재는 ok. detail에 만료 명령(maintain --expire-pending N) 안내를
 // 붙인다. 정리 자체는 dry-run 기본 명령에 맡긴다(자동 전환 아님).
+// F6(성능): 실체는 thresholds 주입판(checkPendingAgeTh) — doctor 체인은
+// 실행 스코프 1회 로드 값을, 이 공개 래퍼는 직접 호출자용 자체 로드.
 func CheckPendingAge(ctx context.Context, st wire.Store) DoctorCheck {
+	return checkPendingAgeTh(ctx, st, doctorThresholds(ctx, st)())
+}
+
+func checkPendingAgeTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: "pending-age"}
 	if st == nil {
 		c.Status = "warn"
@@ -1174,9 +1237,9 @@ func CheckPendingAge(ctx context.Context, st wire.Store) DoctorCheck {
 		c.Status = "ok" // 파손 값은 pending 부재 취급(무효 값 폴백)
 		return c
 	}
-	// 임계값은 meta 오버라이드 우선(loadThresholds) — 조회 실패는 기본값.
-	th, thErr := wire.LoadThresholds(ctx, st)
-	if thErr != nil || th.PendingAgeDays <= 0 {
+	// 임계값은 meta 오버라이드 우선(주입 th) — 조회 실패 폴백은 상단
+	// 로더가 적용, 값 폴백(<=0 → 전체 기본값)은 여기서 유지한다.
+	if th.PendingAgeDays <= 0 {
 		th = store.DefaultThresholds()
 	}
 	if d := time.Since(va); d >= time.Duration(th.PendingAgeDays)*24*time.Hour {
@@ -1333,7 +1396,13 @@ func publishesPort(e composePsEntry, port int) bool {
 // 50000, meta 오버라이드)을 넘으면 warn — 보존일(events_retention_days)
 // 단축 또는 PruneReadEvents 정상 작동 여부 점검 안내. 성장은 정상
 // 동작의 결과이므로 fail 아니다(비간섭 원칙 — warn 안내만).
+// F6(성능): 실체는 thresholds 주입판(checkEventVolumeTh) — doctor 체인은
+// 실행 스코프 1회 로드 값을, 이 래퍼는 직접 호출자용 자체 로드.
 func checkEventVolume(ctx context.Context, st wire.Store) DoctorCheck {
+	return checkEventVolumeTh(ctx, st, doctorThresholds(ctx, st)())
+}
+
+func checkEventVolumeTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: "event-volume"}
 	if st == nil {
 		c.Status = "warn"
@@ -1350,7 +1419,6 @@ func checkEventVolume(ctx context.Context, st wire.Store) DoctorCheck {
 		return c
 	}
 	n, _ := render.CellToInt(rows[0][0])
-	th := knowledge.WriteThresholds(ctx, st)
 	if n >= th.EventsVolumeWarn {
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("계측 테이블 %d행 — 임계 %d(events_volume_warn). 보존일(events_retention_days·hot_events_retention_days) 점검", n, th.EventsVolumeWarn)

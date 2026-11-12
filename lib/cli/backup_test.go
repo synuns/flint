@@ -153,13 +153,14 @@ func TestBackupServerDownExit2(t *testing.T) {
 	}
 }
 
-// Review Focus(file): 경로 에러 — --out 경로값 누락·쓸 수 없는 경로.
+// Review Focus(file): 경로 에러 — --out 경로값 누락(무효 인자 exit 3,
+// v1.0.1 F3)·쓸 수 없는 경로(파일 오류 exit 1).
 func TestBackupBadPathExit1(t *testing.T) {
 	f := &fakeBackup{dumpText: "x"}
 	withBackupFake(t, f)
 	out, code := mustBackup(t, []string{"--out"})
-	if code != 1 {
-		t.Fatalf("exit=%d, want 1; out=%s", code, out)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out)
 	}
 	decode(t, out)
 
@@ -170,12 +171,12 @@ func TestBackupBadPathExit1(t *testing.T) {
 	decode(t, out)
 }
 
-func TestBackupUnknownFlagExit1(t *testing.T) {
+func TestBackupUnknownFlagExit3(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)
 	out, code := mustBackup(t, []string{"--bogus"})
-	if code != 1 {
-		t.Fatalf("exit=%d, want 1; out=%s", code, out)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out)
 	}
 	decode(t, out)
 }
@@ -205,13 +206,14 @@ func TestRestoreFromFile(t *testing.T) {
 	}
 }
 
-// Review Focus(file): 경로 에러 — --file 누락·존재하지 않는 파일.
-func TestRestoreMissingFileFlagExit1(t *testing.T) {
+// Review Focus(file): 경로 에러 — --file 누락(무효 인자 exit 3, v1.0.1
+// F3)·존재하지 않는 파일(exit 1).
+func TestRestoreMissingFileFlagExit3(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)
 	out, code := mustRestore(t, nil)
-	if code != 1 {
-		t.Fatalf("exit=%d, want 1; out=%s", code, out)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out)
 	}
 	decode(t, out)
 }

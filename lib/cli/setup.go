@@ -198,7 +198,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, errLine(errors.New("setup: --src requires a path")))
-				return 1
+				return 3
 			}
 			srcOverride = args[i]
 		case "--exposure":
@@ -210,7 +210,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			exposure = args[i]
 		default:
 			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
-			return 1
+			return 3
 		}
 	}
 	if exposure != "" {
@@ -313,7 +313,8 @@ type teardownSummary struct {
 }
 
 // runTeardown — 컨테이너 정지 안내 + exec. --purge 시 volume 삭제(down -v).
-// 실패는 경고 + 수동 명령 안내로 exit 1.
+// 실패는 경고 + 수동 명령 안내로 exit 1. v1.0.1(F3): unknown flag는 무효
+// 인자 exit 3.
 func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	purge := false
 	for _, a := range args {
@@ -322,7 +323,7 @@ func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, 
 			continue
 		}
 		fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
-		return 1
+		return 3
 	}
 
 	manual := "docker compose down"

@@ -171,6 +171,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 	days := reportDaysDefault
 	htmlOut := ""
+	daysSet := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--html": // v0.36.0(E): 정적 단일 파일 대시보드
@@ -179,7 +180,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: --out requires a path")))
-				return 1
+				return 3
 			}
 			htmlOut = args[i]
 			if !strings.HasSuffix(htmlOut, ".html") {
@@ -189,20 +190,32 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: --days requires a number")))
-				return 1
+				return 3
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n < 1 {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: invalid days %q", args[i])))
-				return 1
-			}
-			if max := knowledge.WriteThresholds(ctx, st).DailyRetentionD; n > max {
-				n = max // 상한 = 보존 창(그 너머 데이터는 존재하지 않는다)
+				return 3
 			}
 			days = n
+			daysSet = true
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
-			return 1
+			return 3
+		}
+	}
+	// F6(성능): thresholds는 커맨드 스코프 1회 로드 — --days 상한·stale
+	// 컷오프(collectCounts)·효과 판정 창(collectEffect)이 각자 meta IN
+	// 쿼리를 날리던 것(실행당 최대 3회)을 공유 1회로. 폴백은 WriteThresholds
+	// 관례(조회 실패 → DefaultThresholds) 불변. HTML 경로는 수집 체인
+	// (report_html.go)이 자체 로드하므로 상한 적용(--days 지정)에만 쓴다.
+	var th store.Thresholds
+	if daysSet || htmlOut == "" {
+		th = knowledge.WriteThresholds(ctx, st)
+	}
+	if daysSet {
+		if max := th.DailyRetentionD; days > max {
+			days = max // 상한 = 보존 창(그 너머 데이터는 존재하지 않는다)
 		}
 	}
 
@@ -218,12 +231,12 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	if err := CollectCounts(ctx, st, days, &out); err != nil {
+	if err := collectCounts(ctx, st, days, th, &out); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	// v0.19.0 효과 계측 — METRICS §4 정의 산출(days 창·knowledge 시점).
-	if err := CollectEffect(ctx, st, days, &out); err != nil {
+	if err := collectEffect(ctx, st, days, th, &out); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
@@ -411,7 +424,15 @@ func collectStats(ctx context.Context, st wire.Store, out *ReportOutput) error {
 // --stale과 동일 결함·동일 처방. 주의: report_test.go TestReportSQLDoltgresCompat
 // 의 [90]·[days] int 인자 단언은 이 파라미터 곱 규약 자체를 검증한 것 — 룰링
 // 대상(비소유 파일이라 여기서는 수정하지 않음).
+//
+// F6(성능): CollectCounts는 공개 래퍼(직접 호출자 — report_html.go 조합
+// 등 — 는 기존 시그니처로 자체 로드). RunReport 체인은 커맨드 스코프
+// 1회 로드 값(th)을 주입받는 collectCounts를 쓴다.
 func CollectCounts(ctx context.Context, st wire.Store, days int, out *ReportOutput) error {
+	return collectCounts(ctx, st, days, knowledge.WriteThresholds(ctx, st), out)
+}
+
+func collectCounts(ctx context.Context, st wire.Store, days int, th store.Thresholds, out *ReportOutput) error {
 	rows, err := wire.QueryOnce(ctx, st, `
 		SELECT count(CASE WHEN status = 'pending' AND invalid_at IS NULL THEN 1 END),
 		       count(CASE WHEN status = 'active' AND invalid_at IS NULL THEN 1 END),
@@ -423,7 +444,7 @@ func CollectCounts(ctx context.Context, st wire.Store, days int, out *ReportOutp
 	if len(rows) > 0 {
 		ReadCounters(rows[0], &out.Counts.Pending, &out.Counts.Active, &out.Counts.Invalidated)
 	}
-	staleCutoff := time.Now().Add(-time.Duration(knowledge.WriteThresholds(ctx, st).StaleDays) * 24 * time.Hour)
+	staleCutoff := time.Now().Add(-time.Duration(th.StaleDays) * 24 * time.Hour)
 	rows, err = wire.QueryOnce(ctx, st, `
 		/* stale */ SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < $1)
 		                         OR (read_count = 0 AND ingested_at < $1) THEN 1 END),
@@ -488,11 +509,19 @@ func PctOf(n, total int) int {
 // hot_events) 조회 실패는 해당 지표를 0/폴백으로 강등할 뿐 보고 전체를
 // 깨지 않는다. knowledge 조회 실패는 전파(다른 report 쿼리도 같이
 // 실패할 테니).
+//
+// F6(성능): CollectEffect는 공개 래퍼(직접 호출자 — report_html.go 조합
+// 등 — 은 기존 시그니처로 자체 로드). RunReport 체인은 커맨드 스코프
+// 1회 로드 값(th)을 주입받는 collectEffect를 쓴다.
 func CollectEffect(ctx context.Context, st wire.Store, days int, out *ReportOutput) error {
+	return collectEffect(ctx, st, days, knowledge.WriteThresholds(ctx, st), out)
+}
+
+func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresholds, out *ReportOutput) error {
 	now := time.Now()
 	windowStart := now.Add(-time.Duration(days) * 24 * time.Hour)
-	// 판정 창 임계값(v0.20.4 이양) — 로드 실패는 기본값 폴백(§13).
-	th := knowledge.WriteThresholds(ctx, st)
+	// 판정 창 임계값(v0.20.4 이양) — 호출자 주입(th, F6: 커맨드 스코프
+	// 1회 로드 공유 — 로드 실패 폴백은 WriteThresholds가 이미 적용).
 	pairWindow := time.Duration(th.PairWindowMin) * time.Minute
 	chainWindow := time.Duration(th.ChainWindowH) * time.Hour
 

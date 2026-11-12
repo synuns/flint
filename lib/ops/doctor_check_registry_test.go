@@ -126,7 +126,7 @@ func TestDoctorStoreNilSeverity(t *testing.T) {
 		default:
 			t.Errorf("%s: onStoreNil %q — fail|warn|빈값만 허용", s.Name, s.OnStoreNil)
 		}
-		c := s.Fn(context.Background(), nil)
+		c := runCheckSpec(context.Background(), nil, doctorThresholds(context.Background(), nil), s)
 		if c.Status != s.OnStoreNil {
 			t.Errorf("%s: st==nil → %q, 등록표 속성 %q와 불일치", s.Name, c.Status, s.OnStoreNil)
 		}

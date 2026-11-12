@@ -8,7 +8,9 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"io"
+	"strconv"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
@@ -144,7 +146,8 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 	// 참조하므로, 레거시 v3 DB에서 컬럼 없이 뷰부터 만들면 CREATE VIEW가
 	// 42703으로 실패해 재시도를 소진하고(전 커맨드 실패) 뷰 DROP만 남아
 	// 구형 CLI도 파손한다. 신규 DB(테이블 부재)는 게이트가 no-op로 지나친다.
-	if err := ensureSchemas(ctx, repo); err != nil {
+	latest, err := ensureSchemas(ctx, repo, s)
+	if err != nil {
 		s.Close()
 		return nil, err
 	}
@@ -153,26 +156,54 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 		return nil, err
 	}
 	// 2차 게이트 — 신규 DB는 Migrate가 schema_version=1로 테이블을 만들므로
-	// 여기서 v2→v4로 자연 승격된다(기존 배포 경로 동일). 승격된 DB는 수치
-	// 비교 단락 no-op라 매 접속 부담 없다.
-	if err := ensureSchemas(ctx, repo); err != nil {
-		s.Close()
-		return nil, err
+	// 여기서 v2→최신으로 자연 승격된다(기존 배포 경로 동일). F6(성능):
+	// 진입 probe(ensureSchemas)가 최신을 확인했으면 스킵 — Migrate는
+	// 버전을 내리지 않아 승격 원천이 없고, 뷰 최신성은 Migrate의
+	// views_hash 게이트가 계속 담당한다.
+	if !latest {
+		if _, err := ensureSchemas(ctx, repo, s); err != nil {
+			s.Close()
+			return nil, err
+		}
 	}
 	return s, nil
+}
+
+// schemaVersionFn — ensureSchemas 최신 단축의 schema_version 1회 조회
+// seam(F6 성능). ok=false는 조회 실패·meta 부재·미기록·비정수 — 기존
+// 순차 승격 경로(게이트 각자의 오류 처리)가 담당한다. 테스트는 호출
+// 카운트로 순회 스킵을 단언한다.
+var schemaVersionFn = func(ctx context.Context, st Store) (version int, ok bool) {
+	rows, err := st.Query(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`)
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0, false
+	}
+	n, perr := strconv.Atoi(fmt.Sprint(rows[0][0]))
+	if perr != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // ensureSchemas — 등록표(db.SchemaGates) 순차 승격(newRealStore 전용).
 // 순서 불변: v1 DB가 최신 버전으로 건너뛰며 중간 컬럼·인덱스·테이블을
 // 놓치지 않게 한다. 게이트 목록·순서는 등록표 단일 소스(연속성은
 // TestSchemaGatesContiguous·파생은 TestEnsureSchemasUsesGates 가드).
-func ensureSchemas(ctx context.Context, repo *db.Repo) error {
+// F6(성능) 최신 단축: 진입 시 schema_version 1회 조회(schemaVersionFn)
+// 로 최신(LatestSchemaVersion) DB는 순회를 통째로 건너뛴다 — 게이트
+// 8종이 각자 버전을 재조회하던 접속당 16왕복(2회 호출×8)을 probe 1회로.
+// 조회 실패·레거시·신규 DB는 기존 순차 승격 경로 유지. 반환값 latest는
+// 진입 probe가 최신을 확인했는지(newRealStore 2차 게이트 스킵 판정).
+func ensureSchemas(ctx context.Context, repo *db.Repo, st Store) (latest bool, err error) {
+	if v, ok := schemaVersionFn(ctx, st); ok && v >= db.LatestSchemaVersion {
+		return true, nil
+	}
 	for _, g := range db.SchemaGates() {
 		if err := g.Ensure(ctx, repo); err != nil {
-			return err
+			return false, err
 		}
 	}
-	return nil
+	return false, nil
 }
 
 // Close — 풀 정리.

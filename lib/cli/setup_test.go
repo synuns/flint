@@ -147,12 +147,13 @@ func TestSetupDry(t *testing.T) {
 	}
 }
 
-// TestSetupUnknownFlag — 알 수 없는 플래그는 한 줄 JSON 에러 + exit 1.
+// TestSetupUnknownFlag — 알 수 없는 플래그는 한 줄 JSON 에러 + 무효 인자
+// exit 3(v1.0.1 F3).
 func TestSetupUnknownFlag(t *testing.T) {
 	withFake(t, &fakeStore{})
 	out, code := mustRun(t, []string{"setup", "--bogus"}, "")
-	if code != 1 {
-		t.Fatalf("exit=%d, want 1; out=%s", code, out)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out)
 	}
 	decode(t, out)
 }

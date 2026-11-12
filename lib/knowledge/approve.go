@@ -39,7 +39,9 @@ var ApproveFn = func(ctx context.Context, id int) error {
 var quoteJSON = wire.QuoteJSON
 
 // RunApprove — 승인 실행. 승격은 주어진 st 경유(R14 재배선 — 이전엔 st를
-// 무시하고 자체 Repo를 열었다).
+// 무시하고 자체 Repo를 열었다). v1.0.1(F3): 인자 검증 경로(unknown flag·
+// 값 누락·무효 id·--id 부재·supersede==id)는 무효 인자 exit 3으로 통일 —
+// mcp dispatchApprove 검증 실패 계약과 정합.
 func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	id := -1
 	supersede := -1
@@ -50,12 +52,12 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s requires a number", flag)))
-				return 1
+				return 3
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n < 1 {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s: invalid id %q", flag, args[i])))
-				return 1
+				return 3
 			}
 			if flag == "--id" {
 				id = n
@@ -64,16 +66,16 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			}
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
-			return 1
+			return 3
 		}
 	}
 	if id < 1 {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("approve requires --id")))
-		return 1
+		return 3
 	}
 	if supersede == id {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--supersede must differ from --id")))
-		return 1
+		return 3
 	}
 
 	// v0.34.3 R14: 주입 st 우선 — realStore는 Approve를 위임한다. 미구현
