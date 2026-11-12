@@ -15,18 +15,18 @@ type Handler = wire.Handler
 
 // 함수/var 별칭 — 소비 파일의 소문자 호출·seam 교체 호환.
 var (
-	Register    = wire.Register
-	Lookup      = wire.Lookup
-	unregister  = wire.Unregister
-	usageLine   = wire.UsageLine
-	errLine     = wire.ErrLine
-	queryOnce   = wire.QueryOnce
-	runHelp     = wire.RunHelp
-	helpSummary = wire.HelpSummary
-	getMetaKV   = wire.GetMetaKV
+	Register     = wire.Register
+	Lookup       = wire.Lookup
+	unregister   = wire.Unregister
+	usageLine    = wire.UsageLine
+	errLine      = wire.ErrLine
+	queryOnce    = wire.QueryOnce
+	runHelp      = wire.RunHelp
+	helpSummary  = wire.HelpSummary
+	getMetaKV    = wire.GetMetaKV
 	getMetaKVErr = wire.GetMetaKVErr
-	setMetaKV   = wire.SetMetaKV
-	bumpMetaKV  = wire.BumpMetaKV
+	setMetaKV    = wire.SetMetaKV
+	bumpMetaKV   = wire.BumpMetaKV
 
 	// DSN 해결(config.go 이동분) — ResolveDSN·ConfigPath·LoadConfigDSN는
 	// 기존 공개명 그대로 별칭.

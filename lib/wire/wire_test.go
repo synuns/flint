@@ -34,8 +34,8 @@ func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	return "abc123", nil
 }
-func (f *fakeStore) Ping(ctx context.Context) error  { return nil }
-func (f *fakeStore) Close()                           {}
+func (f *fakeStore) Ping(ctx context.Context) error { return nil }
+func (f *fakeStore) Close()                         {}
 func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	f.queries = append(f.queries, sql)
 	return nil, nil

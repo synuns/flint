@@ -38,7 +38,7 @@ func (f *metaKVFake) Commit(ctx context.Context, msg string) (string, error) {
 	return "abc123", nil
 }
 func (f *metaKVFake) Ping(ctx context.Context) error { return nil }
-func (f *metaKVFake) Close()                          {}
+func (f *metaKVFake) Close()                         {}
 
 func (f *metaKVFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	f.queries = append(f.queries, sql)
@@ -84,7 +84,7 @@ func (p *poolStore) Commit(ctx context.Context, msg string) (string, error) {
 	return "abc123", nil
 }
 func (p *poolStore) Ping(ctx context.Context) error { return p.pool.Ping(ctx) }
-func (p *poolStore) Close()                          { p.pool.Close() }
+func (p *poolStore) Close()                         { p.pool.Close() }
 func (p *poolStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	rows, err := p.pool.Query(ctx, sql, args...)
 	if err != nil {
