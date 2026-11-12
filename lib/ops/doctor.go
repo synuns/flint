@@ -420,8 +420,11 @@ var FlintBinPathFn = func() string {
 // 치환한 훅 명령 1개. 2>/dev/null || true — 훅 실패가 세션을 흔들지
 // 않게 한다(원본 flint-plugin/hooks/hooks.json 승계). timeout 10은
 // v0.13.2 N6 — DB 지연 시 2초 안에 주입이 통째로 소실되던 것을 흡수.
+// v1.0.1 감사(F4): eval 래핑 — jq @sh의 홑따옴표 인용을 셸이 인용으로
+// 파싱해 단일 인자로 전달(따옴표 리터럴 잔류 방지). eval 입력은 고정
+// 리터럴(binPath·sub)과 @sh 인용값뿐이라 임의 코드 경로가 없다.
 func flintHookCmd(binPath, sub string) map[string]any {
-	cmd := binPath + " " + sub + " 2>/dev/null || true"
+	cmd := `eval "` + binPath + " " + sub + `" 2>/dev/null || true`
 	return map[string]any{"type": "command", "command": cmd, "timeout": 10}
 }
 
@@ -442,10 +445,13 @@ func flintHookDefs(binPath string) map[string][]map[string]any {
 	}
 	return map[string][]map[string]any{
 		"SessionStart": {
-			withSession(`session-start --session "$(jq -r '.session_id // empty' 2>/dev/null)"`),
+			// v1.0.1 감사(F4): jq @sh가 홑따옴표 셸 인용을 만들고 eval이
+			// 이를 올바르게 파싱해 단일 인자로 전달 — 이중따옴표 치환은
+			// id 원문의 "·$가 해석되는 삽입 창이었다. hooks.json과 동일 패턴.
+			withSession(`session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)`),
 		},
 		"Stop": {
-			plain(`session-end --session "$(jq -r '.session_id // empty' 2>/dev/null)"`),
+			plain(`session-end --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)`),
 		},
 		"PostCompact": {plain("compact")},
 	}
@@ -907,7 +913,9 @@ func checkMetaHygiene(ctx context.Context, st wire.Store) DoctorCheck {
 			if !known {
 				unknown++
 				if len(samples) < 5 {
-					samples = append(samples, k)
+					// v1.0.1 감사(F4): 미지 키 원문도 detail에 노출되는
+					// 출력이라 살균 출구를 통과시킨다.
+					samples = append(samples, render.Text(k))
 				}
 			}
 		}
@@ -1502,15 +1510,43 @@ func checkSecrets(ctx context.Context, st wire.Store) DoctorCheck {
 			}
 		}
 	}
+	// v1.0.1 감사(F4): projects.name 사후 스캔 — restore·레거시 유입은
+	// 쓰기 시점 스캔을 거치지 않는다(세션 경로와 같은 사각). 발견 key는
+	// 패턴명#project:id로 본문 미출력 계약 유지.
+	prows, perr := wire.QueryOnce(ctx, st, `
+		SELECT id, name FROM projects
+		LIMIT $1`, []any{th.SecretsScanRows})
+	switch {
+	case perr != nil:
+		gap += "· 프로젝트 조회 실패(프로젝트 미스캔)"
+	case len(prows) >= th.SecretsScanRows:
+		gap += "· 프로젝트 행 상한 도달(부분 스캔)"
+	}
+	projectFound := false
+	if perr == nil {
+		for _, r := range prows {
+			if len(r) < 2 {
+				continue
+			}
+			for _, name := range store.ScanSecrets(fmt.Sprint(r[1])) {
+				key := name + "#project:" + fmt.Sprint(r[0])
+				if !seen[key] {
+					seen[key] = true
+					found++
+					projectFound = true
+				}
+			}
+		}
+	}
 	if found == 0 && gap != "" {
 		c.Status = "warn"
-		c.Detail = "세션 스캔 불완전 " + gap
+		c.Detail = "스캔 불완전 " + gap
 		c.Fix = "fix: flint doctor 재실행 — 지속되면 스키마·secrets_scan_row_limit 확인"
 		return c
 	}
 	if found == 0 {
 		c.Status = "ok"
-		c.Detail = "보유 지식·세션에서 비밀 미발견"
+		c.Detail = "보유 지식·세션·프로젝트에서 비밀 미발견"
 		return c
 	}
 	c.Status = "warn"
@@ -1527,8 +1563,8 @@ func checkSecrets(ctx context.Context, st wire.Store) DoctorCheck {
 	// 안내가 무관 지식 행 무효화를 유도하지 않게 분기한다.
 	c.Detail = fmt.Sprintf("비밀 후보 %d건(%s) %s· allowlist %d항목",
 		found, strings.Join(disp, ", "), gapSuffix(gap), store.SecretsAllowlistCount())
-	if sessionFound {
-		c.Fix = "fix: 세션 발견(session:N)은 해당 agent 재종료(done)로 요약 갱신 또는 운영 DB sessions 행 정리 — 지식 발견만 maintain --invalidate --id N --reason secret"
+	if sessionFound || projectFound {
+		c.Fix = "fix: 세션·프로젝트 발견(session:N·project:N)은 해당 agent 재종료(done)·운영 DB sessions/projects 행 정리 — 지식 발견만 maintain --invalidate --id N --reason secret"
 	} else {
 		c.Fix = "fix: flint maintain --invalidate --id N --reason secret(무효화 행 제외 재스캔)"
 	}

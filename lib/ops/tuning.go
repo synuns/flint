@@ -18,6 +18,7 @@ import (
 
 	"github.com/synuns/flint/lib/backup"
 	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -230,7 +231,10 @@ func TuningCurrent(ctx context.Context, st wire.Store) (store.Thresholds, map[st
 	for _, r := range rows {
 		if len(r) == 2 {
 			k := fmt.Sprint(r[0])
-			raw[k] = fmt.Sprint(r[1])
+			// v1.0.1 감사(F4): raw 값은 list·get의 "value" 출력으로
+			// 그대로 흐른다(vocab_*는 자유 문자열) — 살균 출구 경유.
+			// 파싱(kv)에는 원본을 쓴다(수치 판정은 원문 기준).
+			raw[k] = render.Text(fmt.Sprint(r[1]))
 			kv = append(kv, [2]any{r[0], r[1]})
 		}
 	}

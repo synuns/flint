@@ -80,7 +80,10 @@ func parseAuditDate(v any) (time.Time, bool) {
 }
 
 // RunAudit — dolt_log 최근 N 조회. limit은 0·음수 → 기본 20, 상한 100 clamp
-// (무효 값 기본값 폴백 전역 제약).
+// (무효 값 기본값 폴백 전역 제약). v1.0.1(F3): 인자 검증 경로(unknown flag·
+// 값 누락·비수 값)는 무효 인자 exit 3 — --limit 비수는 read·brief(--limit
+// Atoi 실패 exit 3)와 동일 규칙. 수치형 0·음수만 조용한 clamp 폴백
+// (read ClampLimit 관례).
 func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 	ctx := context.Background()
 	limit := auditDefaultLimit
@@ -92,11 +95,15 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--limit requires a number")))
-				return 1
+				return 3
 			}
 			n, err := strconv.Atoi(args[i])
-			if err != nil || n < 1 {
-				n = auditDefaultLimit // 무효 값 폴백(에러 아님)
+			if err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("invalid limit %q", args[i])))
+				return 3
+			}
+			if n < 1 {
+				n = auditDefaultLimit // 수치형 0·음수 폴백(에러 아님)
 			}
 			limit = n
 		case "--stat":
@@ -105,12 +112,12 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 			i++
 			if i >= len(args) || args[i] == "" {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--session requires an id")))
-				return 1
+				return 3
 			}
 			session = args[i]
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
-			return 1
+			return 3
 		}
 	}
 	if limit > auditMaxLimit {
@@ -133,11 +140,13 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 	log := make([]auditEntry, 0, len(rows)) // 0행도 "log":[] 보장
 	for _, r := range rows {
 		e := auditEntry{}
+		// v1.0.1 감사: dolt_log 문자열 열은 전부 render.Text 재살균 —
+		// message뿐 아니라 commit_hash·committer도 원문 노출 경로다.
 		if len(r) > 0 {
-			e.CommitHash = fmt.Sprint(r[0])
+			e.CommitHash = render.Text(fmt.Sprint(r[0]))
 		}
 		if len(r) > 1 {
-			e.Committer = fmt.Sprint(r[1])
+			e.Committer = render.Text(fmt.Sprint(r[1]))
 		}
 		if len(r) > 2 && r[2] != nil {
 			e.Date = fmt.Sprint(r[2])
@@ -174,7 +183,10 @@ FROM dolt_diff WHERE commit_hash = ANY($1)`, []any{hashes})
 			if len(dr) < 4 {
 				continue
 			}
-			h := fmt.Sprint(dr[0])
+			// v1.0.1 감사: dolt_diff commit_hash·table_name도 살균 —
+			// stats 맵 키는 살균된 log 측 CommitHash와 매칭되므로 같은
+			// 출구(render.Text)를 통과시켜 일관성을 유지한다.
+			h := render.Text(fmt.Sprint(dr[0]))
 			ts := auditTableStat{}
 			if b, ok := dr[2].(bool); ok {
 				ts.DataChange = b
@@ -185,7 +197,7 @@ FROM dolt_diff WHERE commit_hash = ANY($1)`, []any{hashes})
 			if stats[h] == nil {
 				stats[h] = map[string]auditTableStat{}
 			}
-			stats[h][fmt.Sprint(dr[1])] = ts
+			stats[h][render.Text(fmt.Sprint(dr[1]))] = ts
 		}
 		for i := range log {
 			if s, ok := stats[log[i].CommitHash]; ok {

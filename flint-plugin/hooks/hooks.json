@@ -6,7 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "flint session-start --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
+            "command": "eval \"flint session-start --session $(jq -r '.session_id // \"\" | @sh' 2>/dev/null)\" 2>/dev/null || true",
             "timeout": 10
           }
         ]
@@ -17,7 +17,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "flint session-end --session \"$(jq -r '.session_id // empty' 2>/dev/null)\" 2>/dev/null || true",
+            "command": "eval \"flint session-end --session $(jq -r '.session_id // \"\" | @sh' 2>/dev/null)\" 2>/dev/null || true",
             "timeout": 10
           }
         ]
