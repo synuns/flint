@@ -34,7 +34,6 @@ type (
 var (
 	// report·report_html
 	runReport       = ops.RunReport
-	windowedDaily   = ops.WindowedDaily
 	collectCounts   = ops.CollectCounts
 	collectEffect   = ops.CollectEffect
 	profileHint     = ops.ProfileHint

@@ -47,11 +47,9 @@ type dumpStore interface {
 	Dump(ctx context.Context, w io.Writer) error
 }
 
-// BackupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(리뷰 8:
-// 수동·자동·doctor 3곳이 각자 판정하면 형식 확장 시 정합 분기).
-func BackupEncryptOn(v string) bool {
-	return v == "true" || v == "1"
-}
+// BackupEncryptOn — meta backup_encrypt 값 판정의 위임 별칭(v0.43.0 T3
+// 수렴: 단일 소스는 wire.BackupEncryptOn — 수동·자동·doctor 3경로 정합).
+var BackupEncryptOn = wire.BackupEncryptOn
 
 // RunBackup — 덤프 생성. wire.Store는 root 디스패치 호환용이며 사용하지 않는다
 // (Dump가 자체 풀을 연다). stdout 모드는 버퍼 경유로 깨끗한 출력을 보장한다.
