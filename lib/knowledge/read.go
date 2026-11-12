@@ -424,6 +424,13 @@ func validateSessionLabel(given bool, val string) error {
 	return nil
 }
 
+// ValidateSessionLabel — validateSessionLabel 내보내기(v1.0.2 R2-B1: 세션
+// 훅 진입점 session-start·session-end가 라벨 기록·세션 시작 기록 앞에
+// 쓰는 공용 가드 — 구현은 단일 소스 유지).
+func ValidateSessionLabel(given bool, val string) error {
+	return validateSessionLabel(given, val)
+}
+
 // ReadSuggestEligible — 폴백 게이트·제안 스캔 게이트·침묵 exit 판정이
 // 공유하는 eligible 조건(3지점 복붙 통일): 현재 시점(--as-of 미지정)·
 // 무상태필터(--status 미지정) 제로히트일 때만 참. 동작 불변.

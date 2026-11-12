@@ -34,48 +34,52 @@ type importSection struct {
 
 // fenceTracker — 코드 펜스 상태기(v0.27.3: ```와 ~~~ 양쪽, CommonMark
 // fenced code blocks). 여는 마커와 닫는 마커가 같은 문자여야 닫는다.
+// v1.0.2(R2): 닫는 펜스는 여는 펜스 이상 길이여야 닫는다(CommonMark —
+// ```` 블록의 ``` 라인은 닫는 펜스가 아니라 코드 본문).
 type fenceTracker struct {
 	open   bool
 	marker byte // '`' 또는 '~'
+	length int  // 여는 펜스 길이(닫는 펜스 하한)
 }
 
-// fenceDelim — 라인이 펜스 구분자(동일 문자 3+ 접두)면 그 문자.
-func fenceDelim(line string) (byte, bool) {
+// fenceDelim — 라인이 펜스 구분자(동일 문자 3+ 접두)면 그 문자와 길이.
+func fenceDelim(line string) (byte, int, bool) {
 	t := strings.TrimSpace(line)
 	if len(t) < 3 {
-		return 0, false
+		return 0, 0, false
 	}
 	c := t[0]
 	if c != '`' && c != '~' {
-		return 0, false
+		return 0, 0, false
 	}
 	n := 0
 	for n < len(t) && t[n] == c {
 		n++
 	}
 	if n >= 3 {
-		return c, true
+		return c, n, true
 	}
-	return 0, false
+	return 0, 0, false
 }
 
 // update — 라인으로 펜스 상태 갱신. 반환 true = 이 라인이 구분자(본문
 // 아님) — 헤딩 판정·주석 제거에서 제외한다.
 func (f *fenceTracker) update(line string) bool {
-	c, isDelim := fenceDelim(line)
+	c, n, isDelim := fenceDelim(line)
 	if !isDelim {
 		return false
 	}
 	if !f.open {
 		f.open = true
 		f.marker = c
+		f.length = n
 		return true
 	}
-	if c == f.marker { // 닫는 펜스(열린 마커와 동일 문자)
+	if c == f.marker && n >= f.length { // 닫는 펜스(동일 문자·여는 펜스 이상 길이)
 		f.open = false
 		return true
 	}
-	return false // 다른 문자 펜스는 열린 펜스 내부의 본문
+	return false // 다른 문자·짧은 펜스는 열린 펜스 내부의 본문
 }
 
 // danglingFenceIdx — EOF까지 닫히지 않고 열려 있는 펜스의 개시 라인
@@ -89,7 +93,7 @@ func danglingFenceIdx(lines []string, skip map[int]bool) int {
 		if skip[i] {
 			continue
 		}
-		if _, isDelim := fenceDelim(line); isDelim && !f.open {
+		if _, _, isDelim := fenceDelim(line); isDelim && !f.open {
 			openIdx = i
 		}
 		f.update(line)
@@ -150,6 +154,18 @@ func parseMarkdownSections(body string) []importSection {
 
 // warnSecrets — v0.39.0 T4 수렴 완료: 구현은 done.go 이동분이 단일 소스
 // (세션 레코드·세션 지식화·import 3중 복제 수렴 — v0.27.2 리뷰 7).
+
+// ValidateFlagValue — 값형 플래그 공용 가드(v1.0.2 R2: 값이 뒤 플래그를
+// 흡수하는 오타 — `--out --encrypt` → 경로 "--encrypt" — 를 무효 인자로).
+// validateSessionLabel과 동일 패턴: '-' 접두 값은 SchemaError, 호출부는
+// 출력 후 exit 3. lib/ops(backup --out·restore --file·report --out)가
+// 함께 쓰는 공용 진입(knowledge는 ops의 하위 계층이라 여기 둔다).
+func ValidateFlagValue(field, val string) error {
+	if strings.HasPrefix(val, "-") {
+		return &store.SchemaError{Field: field, Expect: "flag 아닌 값"}
+	}
+	return nil
+}
 
 // RunImport — `flint import [path] [--commit]`. 인자 없음 = 현재
 // 디렉터리 후보 탐색. dry-run 요약 기본·--commit 적립 확정.

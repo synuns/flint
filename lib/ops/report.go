@@ -182,6 +182,12 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: --out requires a path")))
 				return 3
 			}
+			// v1.0.2(R2): 값이 플래그를 흡수하는 오타 가드(backup --out과
+			// 동일 계약). --days 값은 Atoi 실패가 이미 exit 3을 낸다.
+			if err := knowledge.ValidateFlagValue("out", args[i]); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
+				return 3
+			}
 			htmlOut = args[i]
 			if !strings.HasSuffix(htmlOut, ".html") {
 				htmlOut += ".html"
@@ -213,10 +219,12 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	if daysSet || htmlOut == "" {
 		th = knowledge.WriteThresholds(ctx, st)
 	}
-	if daysSet {
-		if max := th.DailyRetentionD; days > max {
-			days = max // 상한 = 보존 창(그 너머 데이터는 존재하지 않는다)
-		}
+	// v1.0.2(R2): 상한 clamp는 기본값(7)에도 적용 — 오버라이드
+	// daily_retention_days<7 환경에서 기본 7이 보존 창 밖 빈 일자 행만
+	// 만들던 비대칭 해소(--days 명시와 동일 규칙). HTML 단독 경로는 th가
+	// 미로드(0값)라 max>0 가드로 스킵 — 수집 체인이 자체 로드한다(F6).
+	if max := th.DailyRetentionD; max > 0 && days > max {
+		days = max // 상한 = 보존 창(그 너머 데이터는 존재하지 않는다)
 	}
 
 	if htmlOut != "" { // v0.36.0: HTML 경로 — 동일 수집 체인 재사용

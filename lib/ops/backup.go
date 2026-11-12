@@ -17,6 +17,7 @@ import (
 	"strconv"
 
 	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -75,6 +76,12 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--out requires a path")))
+				return 3
+			}
+			// v1.0.2(R2): 값이 플래그를 흡수하는 오타('--out --encrypt' →
+			// 경로 "--encrypt")는 read --session 계약과 동일하게 exit 3.
+			if err := knowledge.ValidateFlagValue("out", args[i]); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return 3
 			}
 			out = args[i]
@@ -237,6 +244,11 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--file requires a path")))
+				return 3
+			}
+			// v1.0.2(R2): 플래그 흡수 값 가드(--out과 동일 계약).
+			if err := knowledge.ValidateFlagValue("file", args[i]); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return 3
 			}
 			file = args[i]
