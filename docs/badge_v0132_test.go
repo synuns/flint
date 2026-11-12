@@ -40,7 +40,8 @@ func readmeReleaseBadge(t *testing.T, p string) string {
 }
 
 // plannedBadgeVersions — 최신 태그 기준 허용 배지 버전 후보:
-// 최신 태그 자신 + 다음 패치 + 다음 마이너. 파싱 불가 태그는 자신만.
+// 최신 태그 자신 + 다음 패치 + 다음 마이너 + 다음 메이저(v1.0.0 전환 창).
+// 파싱 불가 태그는 자신만. v1.0.0: 0.x → 1.0.0 메이저 점프 허용 추가.
 func plannedBadgeVersions(tag string) []string {
 	var maj, min, pat int
 	if _, err := fmt.Sscanf(tag, "v%d.%d.%d", &maj, &min, &pat); err != nil {
@@ -50,6 +51,7 @@ func plannedBadgeVersions(tag string) []string {
 		tag,
 		fmt.Sprintf("v%d.%d.%d", maj, min, pat+1),
 		fmt.Sprintf("v%d.%d.0", maj, min+1),
+		fmt.Sprintf("v%d.0.0", maj+1),
 	}
 }
 
@@ -57,7 +59,7 @@ func plannedBadgeVersions(tag string) []string {
 // 파싱 불가 태그는 자기 자신만 허용(과대 허용 방지).
 func TestPlannedBadgeVersions(t *testing.T) {
 	got := plannedBadgeVersions("v0.13.1")
-	want := []string{"v0.13.1", "v0.13.2", "v0.14.0"}
+	want := []string{"v0.13.1", "v0.13.2", "v0.14.0", "v1.0.0"}
 	if len(got) != len(want) {
 		t.Fatalf("후보 = %v, want %v", got, want)
 	}
