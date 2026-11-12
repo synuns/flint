@@ -11,6 +11,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/wire"
@@ -31,10 +32,106 @@ func seamRealDSN() (string, bool) {
 
 // fakeApprove — T17 admin Approve fake. errErr 미지정 시 성공,
 // SUPERLITE_REAL=1이면 실 Repo에 위임(실DB 미기동 시 스킵).
+// v0.43.0 T1(fake 동질 가드): knowledge capability 인터페이스 전부의
+// 패리티 fake를 겸한다 — 미구현 메서드는 아래 canned 구현(호출 기록
+// 슬라이스·선택적 capErr 주입), 단언은 fake_parity_test.go가 든다.
 type fakeApprove struct {
 	err     error
 	gotID   int
 	calledN int
+
+	// canned 공통 오류(미지정 시 영 동작 — 성공·0행·부재).
+	capErr         error
+	approveIDs     []int // Approve
+	superseded     []supersedeCall
+	bumped         [][]int        // BumpReads
+	readEvents     []db.ReadEvent // RecordReadEvent
+	hotEvents      []string       // RecordHotEvent
+	recordedUses   []countCall    // RecordUsage
+	dupIDQueries   []string       // DupIDByHash 질의 해시
+	dupRowQueries  []string       // DupRowByHash 질의 해시
+	countedUses    []countCall    // RecordUsageCount
+	staleAgents    []string       // StaleSessionRuns
+	playbookUses   []playbookUse  // LogPlaybookUse
+	sessionUpdates []sessionUpdate
+}
+
+// supersedeCall — Supersede canned 호출 기록.
+type supersedeCall struct{ oldID, newID int }
+
+// playbookUse — LogPlaybookUse canned 호출 기록.
+type playbookUse struct {
+	id int
+	ok bool
+}
+
+// sessionUpdate — UpdateSessionSummary canned 호출 기록.
+type sessionUpdate struct {
+	id             int
+	summary, tasks string
+}
+
+// 패리티 canned 구현 — 전부 기록 후 capErr(미지정 nil) 반환, 값 반환은
+// 영 동작(rows 0·exists false·runs 0). 폴백이 아닌 capability 경로가
+// 컴파일 시점에 보장된다(스펙 §1).
+func (f *fakeApprove) Approve(ctx context.Context, id int) error {
+	f.approveIDs = append(f.approveIDs, id)
+	return f.capErr
+}
+
+func (f *fakeApprove) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
+	f.superseded = append(f.superseded, supersedeCall{oldID, newID})
+	return 0, f.capErr
+}
+
+func (f *fakeApprove) BumpReads(ctx context.Context, ids []int) error {
+	f.bumped = append(f.bumped, ids)
+	return f.capErr
+}
+
+func (f *fakeApprove) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
+	f.readEvents = append(f.readEvents, ev)
+	return f.capErr
+}
+
+func (f *fakeApprove) RecordHotEvent(ctx context.Context, ids string) error {
+	f.hotEvents = append(f.hotEvents, ids)
+	return f.capErr
+}
+
+func (f *fakeApprove) RecordUsage(ctx context.Context, kind, source string) error {
+	f.recordedUses = append(f.recordedUses, countCall{kind, source, 1})
+	return f.capErr
+}
+
+func (f *fakeApprove) DupIDByHash(ctx context.Context, hash string) (int, bool, error) {
+	f.dupIDQueries = append(f.dupIDQueries, hash)
+	return 0, false, f.capErr
+}
+
+func (f *fakeApprove) DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error) {
+	f.dupRowQueries = append(f.dupRowQueries, hash)
+	return DupMeta{}, false, f.capErr
+}
+
+func (f *fakeApprove) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
+	f.countedUses = append(f.countedUses, countCall{kind, source, count})
+	return f.capErr
+}
+
+func (f *fakeApprove) StaleSessionRuns(ctx context.Context, agent string) (int, error) {
+	f.staleAgents = append(f.staleAgents, agent)
+	return 0, f.capErr
+}
+
+func (f *fakeApprove) LogPlaybookUse(ctx context.Context, id int, ok bool) error {
+	f.playbookUses = append(f.playbookUses, playbookUse{id, ok})
+	return f.capErr
+}
+
+func (f *fakeApprove) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
+	f.sessionUpdates = append(f.sessionUpdates, sessionUpdate{id, summary, tasks})
+	return 0, f.capErr
 }
 
 // withApproveFake — ApproveFn seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +
