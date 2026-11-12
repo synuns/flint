@@ -53,13 +53,14 @@ func ToolsManifest() []ToolDef {
 			},
 		},
 		{
+			// v1.0.1 감사 F7: session_id 파라미터 폐지 — CLI hot의
+			// --session은 조회에 영향 없는 no-op이었으므로 광고-폐기
+			// 불일치. 실 세션 필터링은 신규 기능으로 제외.
 			Name:        "flint_hot",
-			Description: "주입용 핫 요약(2,000자 상한). session_id 생략 시 최근 전체.",
+			Description: "주입용 핫 요약(2,000자 상한). 최근 항목 전체(세션 필터 없음).",
 			InputSchema: map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"session_id": map[string]any{"type": "string"},
-				},
+				"type":       "object",
+				"properties": map[string]any{},
 			},
 		},
 		{

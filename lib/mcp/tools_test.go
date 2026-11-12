@@ -91,6 +91,29 @@ func TestToolsManifest(t *testing.T) {
 	}
 }
 
+// TestHotManifestHasNoSessionID — v1.0.1 감사 F7: flint_hot의 session_id는
+// 조회에 영향 없는 no-op(HotSQL·HotHeadlineSQL 전부 폐기)이므로 매니페스트
+// 광고에서 제거된다(광고-폐기 불일치 — 실구현은 신규 기능으로 제외).
+func TestHotManifestHasNoSessionID(t *testing.T) {
+	for _, td := range ToolsManifest() {
+		if td.Name != "flint_hot" {
+			continue
+		}
+		props, ok := td.InputSchema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("flint_hot InputSchema.properties가 맵 아님: %#v", td.InputSchema["properties"])
+		}
+		if _, has := props["session_id"]; has {
+			t.Error("flint_hot 매니페스트에 session_id 광고 잔존 — no-op 파라미터")
+		}
+		if strings.Contains(td.Description, "session_id") {
+			t.Errorf("flint_hot 설명에 session_id 언급 잔존: %q", td.Description)
+		}
+		return
+	}
+	t.Fatal("flint_hot 도구 정의 없음")
+}
+
 // TestDispatchReadRoundtrip — flint_read{query,tag,limit} → cli read 조립·출력/코드 전달.
 func TestDispatchReadRoundtrip(t *testing.T) {
 	calls, real := installRun(t, `{"rows":[]}`, 0)
