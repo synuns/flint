@@ -6,7 +6,10 @@ package wire
 
 import (
 	"context"
+	"errors"
+
 	"fmt"
+	"github.com/jackc/pgx/v5/pgconn"
 )
 
 // GetMetaKV — meta 단일 키 조회. 키 부재·빈 값·전송 오류는 전부
@@ -50,6 +53,13 @@ func CompareSetMetaKV(ctx context.Context, st Store, key, oldVal, newVal string)
 		 WHERE meta.value = $2
 		 RETURNING key`, key, oldVal, newVal)
 	if err != nil {
+		// v1.0.11(R13-3): 경합 패자의 직렬화 실패(Doltgres 40001)는
+		// 선점 탈락의 정상 경로 — won=false로 매핑해 병렬 no-op 계약
+		// 유지(실DB 8-way: 패자 7이 에러로 복귀하던 것을 no-op화).
+		var pgErr *pgconn.PgError
+		if errors.As(err, &pgErr) && pgErr.Code == "40001" {
+			return false, nil
+		}
 		return false, err
 	}
 	return len(rows) > 0, nil
