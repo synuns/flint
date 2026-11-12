@@ -43,6 +43,11 @@ var versionDocContracts = []struct {
 		"조정 가이드", "재조정 트리거", "daily_retention_days", "backup_interval_h",
 		"vocab_tags", "방어 상한",
 	}},
+	// v0.44.0 T4: 릴리스 엔트리는 재무장본 PLAN의 에라 표·헤더로 기록
+	// (§14 부재 — 병인 ⑤ 해소 완결 선언).
+	{name: "TestVersion0440Milestone", doc: "PLAN.md", wants: []string{
+		"v0.44.0", "병인 ⑤ 해소",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{
