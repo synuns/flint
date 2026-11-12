@@ -39,6 +39,17 @@
 //   - strings.Join 결합(strings.Join([]string{"DEL","ETE…"}, "")) — 슬라이스
 //     리터럴 요소를 구분자와 합친 결과에서만 성립하는 쓰기 동사도 잡는다(④).
 //
+// v1.0.4 R5 보강(실증 우회 3종 추가 폐쇄 — 재프로브로 우회 확인 후):
+//   - fmt.Sprint/Sprintln 결합(fmt.Sprint("DEL","ETE …")) — ③을 Sprintf
+//     형식 대입에 한정하지 않고 Sprint(무구분자)·Sprintln(공백 구분자)
+//     피연산자 결합까지 공통 판정으로 확장한다(fmtCombined).
+//   - var 슬라이스 접기(var parts = []string{"DEL","ETE …"} + Join) —
+//     패키지 블록 var []string 리터럴 테이블을 접어 Join 첫 인자 Ident를
+//     해석한다(varStringSliceTable).
+//   - strings.Builder 결합(b.WriteString("DEL"); b.WriteString("ETE …")) —
+//     동일 Ident 수신자에 연속한 WriteString 인자를 이어붙인 결과에서만
+//     성립하는 쓰기 동사도 잡는다(⑤).
+//
 // 오탐(안내문·검사명의 비SQL "update" 단어)은 writeLiteralAllow 정확
 // 일치 화이트리스트로만 면제한다 — 신규 면제는 이 표에 대한 명시적
 // 선언이어야 한다.
@@ -163,10 +174,12 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		return true
 	})
-	// ① 반 뒤 결합 판정(②③④) 공통 자산 — 패키지 블록 const 문자열
-	//    테이블(R3 상수 접기). 접힌 const 값은 결합 판정에서 Ident 해석
-	//    근거로 쓰고, 원천 리터럴 위치로 중복 보고를 뺀다.
+	// ① 반 뒤 결합 판정(②③④⑤) 공통 자산 — 패키지 블록 const 문자열
+	//    테이블(R3 상수 접기)과 var []string 리터럴 테이블(R5 슬라이스
+	//    접기). 접힌 값은 결합 판정에서 Ident 해석 근거로 쓰고, 원천
+	//    리터럴 위치로 중복 보고를 뺀다.
 	consts := constStringTable(f)
+	slices := varStringSliceTable(f, consts)
 	// ② 이어붙이기 조각 조립 — 개별 리터럴에는 동사가 없어도 + 로 합쳐
 	//    성립하는 쓰기 동사("UP"+"DATE …" 분할 우회)도 잡는다. R2-B 폐쇄:
 	//    화이트리스트 면제는 단독 리터럴 판정(①)에만 적용 — 조립 결과
@@ -222,40 +235,36 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		return true
 	})
-	// ③ Sprintf 동사 결합 — 형식 리터럴의 %s·%v 동사 위치에 문자열 리터럴
-	//    인자를 대입한 결과에서만 성립하는 쓰기 동사(Sprintf("DEL%s…",
-	//    "ETE") 분할 우회)도 잡는다. R3 중첩 Sprintf 폐쇄: 비리터럴 인자가
-	//    Sprintf 결과면 1단계 재귀 결합한다(stringOperand). 그 외 비리터럴
-	//    인자·그 외 동사는 공란 대입(동사 경계를 결합 가능성으로 보수 판정).
-	//    면제 원칙은 ②와 동일 — 단독 형식 리터럴의 면제는 결합 판정에
-	//    적용되지 않고, 결합 결과 전체의 화이트리스트 정확 일치만 면제다.
+	// ③ fmt 결합 호출 — Sprintf는 형식 리터럴의 %s·%v 동사 위치에 인자를
+	//    대입한 결과에서만 성립하는 쓰기 동사(Sprintf("DEL%s…","ETE") 분할
+	//    우회)를 잡는다. R5 폐쇄: Sprint(피연산자 전부 문자열이면 무구분자
+	//    결합 — 공란 근사)·Sprintln(공백 구분자)도 같은 결합 판정으로
+	//    확장한다(fmtCombined). 중첩 fmt 결합 인자는 depth 8까지 재귀
+	//    결합하고 그 외 비리터럴 인자·그 외 동사는 공란 대입(동사 경계를
+	//    결합 가능성으로 보수 판정). 면제 원칙은 ②와 동일 — 단독 형식
+	//    리터럴의 면제는 결합 판정에 적용되지 않고, 결합 결과 전체의
+	//    화이트리스트 정확 일치만 면제다.
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) == 0 {
 			return true
 		}
-		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Sprintf" {
+		combined, ok := fmtCombined(call, consts, slices, flagged, 0)
+		if !ok || writeLiteralAllow[combined] || !writeTokenRe.MatchString(combined) {
 			return true
 		}
-		flit, ok := call.Args[0].(*ast.BasicLit)
-		if !ok || flit.Kind != token.STRING || flagged[flit.Pos()] {
-			return true
-		}
-		combined := sprintfCombined(unquoteLiteral(flit.Value), call.Args[1:], consts, flagged, 0)
-		if writeLiteralAllow[combined] || !writeTokenRe.MatchString(combined) {
-			return true
-		}
-		report(call.Pos(), "Sprintf 동사 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
+		report(call.Pos(), "fmt 결합 호출 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
 		return true
 	})
-	// ④ strings.Join 결합 — 슬라이스 리터럴([]string{…}) 요소를 구분자와
-	//    합친 결과에서만 성립하는 쓰기 동사(strings.Join([]string{"DEL",
-	//    "ETE…"}, "") 분할 우회)도 잡는다(R3). 요소는 문자열 리터럴·접힌
-	//    const Ident·1단계 Sprintf 결합으로 접고 그 외는 공란 대입(보수),
-	//    구분자는 리터럴 본문, 비리터럴 구분자는 공란(인접 결합 가능성의
-	//    보수 근사). 첫 인자가 슬라이스 리터럴이 아니면(변수·함수 결과)
-	//    정적 결합이 불가하므로 건너뛴다. 면제·중복 보고 원칙은 ②와 동일.
+	// ④ strings.Join 결합 — 슬라이스 요소를 구분자와 합친 결과에서만
+	//    성립하는 쓰기 동사(strings.Join([]string{"DEL","ETE…"}, "") 분할
+	//    우회)도 잡는다(R3). 첫 인자는 슬라이스 리터럴([]string{…}) 또는
+	//    패키지 블록 var 슬라이스 테이블의 Ident(R5 슬라이스 접기)여야
+	//    정적 결합이 가능하다 — 그 외(지역 변수·함수 결과)는 건너뛴다.
+	//    요소는 combineParts로 접고(리터럴·const Ident·중첩 fmt 결합, 그
+	//    외 공란 보수 대입), 구분자는 리터럴 본문, 비리터럴 구분자는
+	//    공란(인접 결합 가능성의 보수 근사). 면제·중복 보고 원칙은 ②와
+	//    동일.
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) != 2 {
@@ -265,52 +274,73 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		if !ok || sel.Sel.Name != "Join" {
 			return true
 		}
-		cl, ok := call.Args[0].(*ast.CompositeLit)
-		if !ok || len(cl.Elts) < 2 {
-			return true
-		}
 		sep := ""
 		if slit, ok := call.Args[1].(*ast.BasicLit); ok && slit.Kind == token.STRING {
 			sep = unquoteLiteral(slit.Value)
 		}
-		var parts []string
+		var joined string
 		var marked []token.Pos
-		joinable := true
-		for _, e := range cl.Elts {
-			switch v := e.(type) {
-			case *ast.BasicLit:
-				if v.Kind != token.STRING {
-					joinable = false
-					continue
-				}
-				if flagged[v.Pos()] {
-					joinable = false
-					continue
-				}
-				parts = append(parts, unquoteLiteral(v.Value))
-				marked = append(marked, v.Pos())
-			case *ast.Ident:
-				ci, ok := consts[v.Name]
-				if !ok {
-					parts = append(parts, "")
-					continue
-				}
-				if anyFlagged(ci.lits, flagged) {
-					joinable = false
-					continue
-				}
-				parts = append(parts, ci.val)
-				marked = append(marked, ci.lits...)
-			default:
-				parts = append(parts, stringOperand(e, consts, flagged, 0))
+		joinable := false
+		switch first := call.Args[0].(type) {
+		case *ast.CompositeLit:
+			if len(first.Elts) < 2 {
+				return true
 			}
+			parts, marks, ok := combineParts(first.Elts, consts, slices, flagged, 0)
+			joined, marked, joinable = strings.Join(parts, sep), marks, ok
+		case *ast.Ident:
+			si, ok := slices[first.Name]
+			if !ok || len(si.vals) < 2 || anyFlagged(si.lits, flagged) {
+				return true
+			}
+			joined, marked, joinable = strings.Join(si.vals, sep), si.lits, true
 		}
-		joined := strings.Join(parts, sep)
 		if joinable && !writeLiteralAllow[joined] &&
 			writeTokenRe.MatchString(joined) {
 			report(call.Pos(), "strings.Join 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
 			for _, p := range marked {
 				flagged[p] = true
+			}
+		}
+		return true
+	})
+	// ⑤ strings.Builder 연속 WriteString 결합 — 동일 Ident 수신자에 연속한
+	//    WriteString 호출 인자를 순서로 이어붙인 결과에서만 성립하는 쓰기
+	//    동사(b.WriteString("DEL"); b.WriteString("ETE …") 분할 우회)도
+	//    잡는다(R5). 블록 문장 목록의 연속 실행(ExprStmt)만 대상 — 다른
+	//    문장·다른 수신자가 끼면 실행 단위도 끊긴 것으로 본다(분기별 상호
+	//    배제 쓰기의 과잉 결합 방지). 인자는 combineParts로 접는다. 면제·
+	//    중복 보고 원칙은 ②와 동일.
+	ast.Inspect(f, func(n ast.Node) bool {
+		blk, ok := n.(*ast.BlockStmt)
+		if !ok {
+			return true
+		}
+		for i := 0; i < len(blk.List); {
+			recv, first, ok := writeStringStmt(blk.List[i])
+			if !ok {
+				i++
+				continue
+			}
+			var args []ast.Expr
+			for i < len(blk.List) {
+				r2, c2, ok := writeStringStmt(blk.List[i])
+				if !ok || r2 != recv {
+					break
+				}
+				args = append(args, c2.Args[0])
+				i++
+			}
+			if len(args) >= 2 {
+				parts, marked, joinable := combineParts(args, consts, slices, flagged, 0)
+				joined := strings.Join(parts, "")
+				if joinable && !writeLiteralAllow[joined] &&
+					writeTokenRe.MatchString(joined) {
+					report(first.Pos(), "strings.Builder 연속 WriteString 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
+					for _, p := range marked {
+						flagged[p] = true
+					}
+				}
 			}
 		}
 		return true
@@ -324,7 +354,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 // 폭·정밀도는 건너뛴다). 공란 대입은 인접 글자가 런타임에 결합되는
 // 가능성까지 보수적으로 잡는다 — 판정 전용 근사이며 실제 포맷 출력과의
 // 일치는 목적이 아니다.
-func sprintfCombined(format string, args []ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool, depth int) string {
+func sprintfCombined(format string, args []ast.Expr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) string {
 	var b strings.Builder
 	ai := 0
 	nextArg := func() string {
@@ -333,7 +363,7 @@ func sprintfCombined(format string, args []ast.Expr, consts map[string]constInfo
 		}
 		arg := args[ai]
 		ai++
-		return stringOperand(arg, consts, flagged, depth)
+		return stringOperand(arg, consts, slices, flagged, depth)
 	}
 	for i := 0; i < len(format); i++ {
 		if format[i] != '%' {
@@ -373,10 +403,13 @@ func sprintfCombined(format string, args []ast.Expr, consts map[string]constInfo
 
 // stringOperand — 결합 판정(③ 인자·④ 요소)용 정적 문자열 근사: 문자열
 // 리터럴은 본문, 패키지 블록 const Ident는 접힌 값(원천 리터럴이 이미
-// 보고됐으면 공란 — 중복 보고 방지), Sprintf 호출은 depth 8까지 재귀
-// 결합(형식 리터럴이 이미 보고됐으면 공란 — 그 호출은 ③이 따로 잡는다),
-// 그 외는 공란(동사 경계 결합 가능성의 보수 대입).
-func stringOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool, depth int) string {
+// stringOperand — 결합 판정(③ 인자·④ 요소·⑤ 인자)용 정적 문자열 근사:
+// 문자열 리터럴은 본문, 패키지 블록 const Ident는 접힌 값(원천 리터럴이
+// 이미 보고됐으면 공란 — 중복 보고 방지), fmt 결합 호출(Sprintf·Sprint·
+// Sprintln)은 depth 8까지 재귀 결합(형식·피연산자 원천이 이미 보고됐으면
+// 공란 — 그 호출은 ③이 따로 잡는다), 그 외는 공란(동사 경계 결합 가능성의
+// 보수 대입).
+func stringOperand(e ast.Expr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) string {
 	switch v := e.(type) {
 	case *ast.BasicLit:
 		if v.Kind == token.STRING {
@@ -388,14 +421,86 @@ func stringOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Po
 		}
 	case *ast.CallExpr:
 		if depth < 8 { // v1.0.3(R4): 2단계 이상 중첩 Sprintf 우회 폐쇄
-			if sel, ok := v.Fun.(*ast.SelectorExpr); ok && sel.Sel.Name == "Sprintf" && len(v.Args) > 0 {
-				if flit, ok := v.Args[0].(*ast.BasicLit); ok && flit.Kind == token.STRING && !flagged[flit.Pos()] {
-					return sprintfCombined(unquoteLiteral(flit.Value), v.Args[1:], consts, flagged, depth+1)
-				}
+			if combined, ok := fmtCombined(v, consts, slices, flagged, depth+1); ok {
+				return combined
 			}
 		}
 	}
 	return ""
+}
+
+// fmtCombined — fmt 결합 호출의 정적 결합 근사. Sprintf는 형식 리터럴의
+// %s·%v에 인자를 대입하고, Sprint는 피연산자를 무구분자로, Sprintln은
+// 공백 구분자로 이어붙인다(R5: Sprint·Sprintln 확장). 결합 가능한 호출이면
+// (결합 문자열, true), 아니면 ("", false) — Sprintf 비문자열 형식·
+// Sprint/Sprintln 피연산자 1개(새 결합 불가)·원천 이미 보고는 false다.
+func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) (string, bool) {
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok {
+		return "", false
+	}
+	switch sel.Sel.Name {
+	case "Sprintf":
+		if len(call.Args) == 0 {
+			return "", false
+		}
+		flit, ok := call.Args[0].(*ast.BasicLit)
+		if !ok || flit.Kind != token.STRING || flagged[flit.Pos()] {
+			return "", false
+		}
+		return sprintfCombined(unquoteLiteral(flit.Value), call.Args[1:], consts, slices, flagged, depth), true
+	case "Sprint", "Sprintln":
+		if len(call.Args) < 2 {
+			return "", false
+		}
+		sep := ""
+		if sel.Sel.Name == "Sprintln" {
+			sep = " "
+		}
+		parts, _, joinable := combineParts(call.Args, consts, slices, flagged, depth)
+		if !joinable {
+			return "", false
+		}
+		return strings.Join(parts, sep), true
+	}
+	return "", false
+}
+
+// combineParts — 결합 피연산자 식 목록의 정적 접기: 문자열 리터럴은 본문,
+// 패키지 블록 const Ident는 접힌 값, 그 외는 stringOperand(중첩 fmt 결합
+// 재귀·공란 보수 대입). 원천 리터럴이 이미 보고된 피연산자가 섞이면
+// (nil, nil, false) — 결합을 건너뛰어 중복 보고를 뺀다. marked는 참여한
+// 원천 리터럴 위치(보고 후 처리 완료 표시용).
+func combineParts(exprs []ast.Expr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) ([]string, []token.Pos, bool) {
+	var parts []string
+	var marked []token.Pos
+	for _, e := range exprs {
+		switch v := e.(type) {
+		case *ast.BasicLit:
+			if v.Kind != token.STRING {
+				parts = append(parts, "")
+				continue
+			}
+			if flagged[v.Pos()] {
+				return nil, nil, false
+			}
+			parts = append(parts, unquoteLiteral(v.Value))
+			marked = append(marked, v.Pos())
+		case *ast.Ident:
+			if ci, ok := consts[v.Name]; ok {
+				if anyFlagged(ci.lits, flagged) {
+					return nil, nil, false
+				}
+				parts = append(parts, ci.val)
+				marked = append(marked, ci.lits...)
+				continue
+			}
+			parts = append(parts, "")
+		default:
+			parts = append(parts, stringOperand(e, consts, slices, flagged, depth))
+		}
+	}
+	return parts, marked, true
 }
 
 // constInfo — 패키지 블록 const 하나의 접힌 문자열과 그 원천이 된 문자열
@@ -476,6 +581,93 @@ func anyFlagged(lits []token.Pos, flagged map[token.Pos]bool) bool {
 		}
 	}
 	return false
+}
+
+// sliceInfo — 패키지 블록 var []string 하나의 접힌 요소 값들과 그 원천이
+// 된 문자열 리터럴 위치들(중복 보고 방지·처리 완료 표시에 사용).
+type sliceInfo struct {
+	vals []string
+	lits []token.Pos
+}
+
+// varStringSliceTable — 파일 패키지 블록의 var 선언 중 []string 리터럴
+// 슬라이스를 접은 테이블(R5 슬라이스 접기). 요소 전부가 문자열로 접히는
+// 경우(리터럴·constStringTable의 const Ident)만 등록한다 — 하나라도
+// 비접힘이면 그 이름 자체를 등록하지 않는다(공란 오인 방지).
+func varStringSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceInfo {
+	table := map[string]sliceInfo{}
+	for _, d := range f.Decls {
+		gd, ok := d.(*ast.GenDecl)
+		if !ok || gd.Tok != token.VAR {
+			continue
+		}
+		for _, s := range gd.Specs {
+			vs, ok := s.(*ast.ValueSpec)
+			if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 {
+				continue
+			}
+			cl, ok := vs.Values[0].(*ast.CompositeLit)
+			if !ok || len(cl.Elts) == 0 || !isStringSliceType(cl.Type) {
+				continue
+			}
+			vals := make([]string, 0, len(cl.Elts))
+			var lits []token.Pos
+			foldable := true
+			for _, e := range cl.Elts {
+				if lit, ok := e.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+					vals = append(vals, unquoteLiteral(lit.Value))
+					lits = append(lits, lit.Pos())
+					continue
+				}
+				if id, ok := e.(*ast.Ident); ok {
+					if ci, ok := consts[id.Name]; ok {
+						vals = append(vals, ci.val)
+						lits = append(lits, ci.lits...)
+						continue
+					}
+				}
+				foldable = false
+				break
+			}
+			if foldable {
+				table[vs.Names[0].Name] = sliceInfo{vals: vals, lits: lits}
+			}
+		}
+	}
+	return table
+}
+
+// isStringSliceType — 식이 []string 타입 표기(길이 없는 배열·요소
+// string)인지.
+func isStringSliceType(e ast.Expr) bool {
+	at, ok := e.(*ast.ArrayType)
+	if !ok || at.Len != nil {
+		return false
+	}
+	id, ok := at.Elt.(*ast.Ident)
+	return ok && id.Name == "string"
+}
+
+// writeStringStmt — 문장이 <수신자 Ident>.WriteString(인자 1개) 호출의
+// ExprStmt면 수신자 이름과 호출을 돌려준다(⑤ 연속 실행 판정용).
+func writeStringStmt(s ast.Stmt) (string, *ast.CallExpr, bool) {
+	es, ok := s.(*ast.ExprStmt)
+	if !ok {
+		return "", nil, false
+	}
+	call, ok := es.X.(*ast.CallExpr)
+	if !ok || len(call.Args) != 1 {
+		return "", nil, false
+	}
+	sel, ok := call.Fun.(*ast.SelectorExpr)
+	if !ok || sel.Sel.Name != "WriteString" {
+		return "", nil, false
+	}
+	recv, ok := sel.X.(*ast.Ident)
+	if !ok {
+		return "", nil, false
+	}
+	return recv.Name, call, true
 }
 
 // TestWriteGuardBlocksBypasses — v0.41.0 리뷰·v1.0.1 R1-D·v1.0.2 R2·
@@ -568,6 +760,35 @@ func f() string { return r3Head + r3Tail }`,
 			name: "strings.Join 결합(R3)",
 			src: `package ops
 func f() string { return strings.Join([]string{"DEL", "ETE FROM meta WHERE key='demo'"}, "") }`,
+			wantHit: true,
+		},
+		{
+			name: "fmt.Sprint 무구분자 결합(R5)",
+			src: `package ops
+func f() string { return fmt.Sprint("DEL", "ETE FROM meta WHERE key='demo'") }`,
+			wantHit: true,
+		},
+		{
+			name: "fmt.Sprintln 공백 결합 오탐 방어(R5)",
+			src: `package ops
+func f() string { return fmt.Sprintln("DEL", "ETE FROM meta WHERE key='demo'") }`,
+		},
+		{
+			name: "var 슬라이스 Join 결합(R5)",
+			src: `package ops
+var r5Parts = []string{"DEL", "ETE FROM meta WHERE key='demo'"}
+func f() string { return strings.Join(r5Parts, "") }`,
+			wantHit: true,
+		},
+		{
+			name: "Builder 연속 WriteString 결합(R5)",
+			src: `package ops
+func f() string {
+	var b strings.Builder
+	b.WriteString("DEL")
+	b.WriteString("ETE FROM meta WHERE key='demo'")
+	return b.String()
+}`,
 			wantHit: true,
 		},
 		{
