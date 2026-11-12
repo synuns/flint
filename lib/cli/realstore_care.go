@@ -7,6 +7,7 @@ package cli
 
 import (
 	"context"
+	"time"
 
 	"github.com/synuns/flint/lib/db"
 )
@@ -19,8 +20,15 @@ func (s *realStore) DupGroups(ctx context.Context, limit int) ([]db.DupGroup, er
 	return s.repo.DupGroups(ctx, limit)
 }
 
-func (s *realStore) Invalidate(ctx context.Context, id int, reason string) error {
-	return s.repo.Invalidate(ctx, id, reason)
+// Invalidate — v0.41.0 T2: 무효화 전이는 db.Repo 단일 갱신 경로 위임
+// (rows-affected 후견사 내장).
+func (s *realStore) Invalidate(ctx context.Context, ids []int, reason string) (int64, error) {
+	return s.repo.Invalidate(ctx, ids, reason)
+}
+
+// Supersede — v0.41.0 T2: 대체 전이(계보 superseded_by 병기) 위임.
+func (s *realStore) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
+	return s.repo.Supersede(ctx, oldID, newID, at)
 }
 
 func (s *realStore) Merge(ctx context.Context, fromID, toID int) error {

@@ -23,11 +23,15 @@ import (
 )
 
 // MaintStore — maintain이 필요한 저장소 연산(Store + admin 갱신·집계).
+// v0.41.0 T2: 상태 전이 갱신(무효화·대체)은 db.Repo 단일 경로 위임 —
+// Invalidate(배치·rows-affected 후견사 내장)·Supersede(계보 superseded_by
+// 병기 — 텍스트 마커 이중 모델 폐지).
 type MaintStore interface {
 	wire.Store
 	Counts(ctx context.Context) (db.Counts, error)
 	DupGroups(ctx context.Context, limit int) ([]db.DupGroup, error)
-	Invalidate(ctx context.Context, id int, reason string) error
+	Invalidate(ctx context.Context, ids []int, reason string) (int64, error)
+	Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error)
 	Merge(ctx context.Context, fromID, toID int) error
 }
 
@@ -274,8 +278,13 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			fmt.Fprintln(stdout, wire.ErrLine(errors.New("maintain: --invalidate requires --id and --reason")))
 			return 1
 		}
-		if err := ms.Invalidate(ctx, id, reason); err != nil {
+		if _, err := ms.Invalidate(ctx, []int{id}, reason); err != nil {
 			return adminErrLine(stdout, err)
+		}
+		if _, err := ms.Commit(ctx, fmt.Sprintf(
+			"invalidate: id=%d 사유: %s (무효화 갱신 경로) [session:0]", id, reason)); err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
 		}
 		fmt.Fprintf(stdout, `{"status":"invalidated","id":%d}`+"\n", id)
 		return 0
@@ -607,7 +616,8 @@ func maintainInvalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer,
 	return invalidateIDs(ctx, ms, stdout, ids, "invalidate --ids")
 }
 
-// invalidateIDs — 공통 배치 무효화: 존재 확인 → UPDATE+Commit(Retry).
+// invalidateIDs — 공통 배치 무효화: 존재 확인 → 전이(Repo 위임)+Commit
+// (Retry). v0.41.0 T2: UPDATE 리터럴은 db.Repo.Invalidate 단일 경로.
 func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []int, op string) int {
 	rows, err := wire.QueryOnce(ctx, ms,
 		`SELECT id FROM knowledge WHERE id = ANY($1)`, []any{ids})
@@ -633,9 +643,7 @@ func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []i
 		return 1
 	}
 	if err := retryWrite(ctx, func() error {
-		if _, err := ms.Query(ctx, `
-			UPDATE knowledge SET status = 'invalidated', invalid_at = now()
-			WHERE id = ANY($1)`, ids); err != nil {
+		if _, err := ms.Invalidate(ctx, ids, op); err != nil {
 			return err
 		}
 		_, err := ms.Commit(ctx, fmt.Sprintf(
@@ -713,11 +721,12 @@ func listExpiredPending(ctx context.Context, ms MaintStore, days int) ([]expireI
 }
 
 // maintainExpirePending — pending 만료(v0.16.2 R4). dry-run 기본: 대상
-// 나열만(staleReport 형식 승계)·exit 0. --commit 시 동일 조건으로
-// UPDATE(status='invalidated'·invalid_at=now)+Commit — 기존 무효화 경로
-// 승계(신규 상태 없음·스키마 불변). 쓰기는 Retry 동반.
+// 나열만(staleReport 형식 승계)·exit 0. --commit 시 나열된 id 전체를
+// 무효화(status='invalidated'·invalid_at=now 병기 — db.Repo.Invalidate
+// 단일 경로)+Commit — 기존 무효화 경로 승계(신규 상태 없음·스키마
+// 불변). 쓰기는 Retry 동반.
 func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer, days int, apply bool) int {
-	items, cutoff, err := listExpiredPending(ctx, ms, days)
+	items, _, err := listExpiredPending(ctx, ms, days)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
@@ -738,11 +747,15 @@ func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer,
 		fmt.Fprintln(stdout, string(out))
 		return 0
 	}
+	// v0.41.0 T2: 갱신은 나열된 id 스냅숏 한정(무효화 조건 재평가 대신) —
+	// dry-run이 보여준 대상과 확정 대상이 일치한다. UPDATE 리터럴은
+	// db.Repo.Invalidate 단일 경로.
+	ids := make([]int, len(items))
+	for i, it := range items {
+		ids[i] = it.ID
+	}
 	if err := retryWrite(ctx, func() error {
-		if _, err := ms.Query(ctx, `
-			UPDATE knowledge SET status = 'invalidated', invalid_at = now()
-			WHERE status = 'pending' AND invalid_at IS NULL AND valid_at < $1`,
-			cutoff); err != nil {
+		if _, err := ms.Invalidate(ctx, ids, "expire-pending"); err != nil {
 			return err
 		}
 		_, err := ms.Commit(ctx, fmt.Sprintf(
@@ -751,10 +764,6 @@ func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer,
 	}); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
-	}
-	ids := make([]int, len(items))
-	for i, it := range items {
-		ids[i] = it.ID
 	}
 	out, mErr := json.Marshal(struct {
 		Status string `json:"status"`
@@ -804,26 +813,17 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 			"maintain: --supersede: id=%d가 active 아님(상태 %q)", oldID, oldStatus)))
 		return 1
 	}
+	at, ok := AnyToTime(newValidAt)
+	if !ok {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
+			"maintain: --supersede: NEW valid_at 판독 불가 id=%d", newID)))
+		return 1
+	}
+	// v0.41.0 T2: 갱신 UPDATE·0행 경합 후견사는 db.Repo.Supersede 단일
+	// 경로(rows-affected 후견사 내장 — v0.34.3 결과 확인 후견사 승계).
 	if err := retryWrite(ctx, func() error {
-		if _, err := ms.Query(ctx, `
-			UPDATE knowledge
-			SET status = 'invalidated',
-			    superseded_by = $2,
-			    invalid_at = (SELECT valid_at FROM knowledge WHERE id = $2)
-			WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`,
-			oldID, newID); err != nil {
+		if _, err := ms.Supersede(ctx, oldID, newID, at); err != nil {
 			return err
-		}
-		// v0.34.3: 후견사(supersedeAfterApprove 패턴 승계) — 사전 확인과
-		// UPDATE 사이 경합(병렬 무효화)에서 0행 갱신이 무음 성공으로 남던
-		// 창을 결과 확인으로 닫는다. 오류는 Retry로 재시도된다(경합 해소 기대).
-		rows, verr := wire.QueryOnce(ctx, ms,
-			`SELECT superseded_by FROM knowledge WHERE id = $1`, []any{oldID})
-		if verr != nil {
-			return verr
-		}
-		if len(rows) == 0 || rows[0][0] == nil || fmt.Sprint(rows[0][0]) != fmt.Sprint(newID) {
-			return fmt.Errorf("supersede: id=%d 갱신 미반영(경합 — 재시도)", oldID)
 		}
 		_, err := ms.Commit(ctx, fmt.Sprintf(
 			"supersede: old=%d by=%d (대체 갱신 경로) [session:0]", oldID, newID))

@@ -21,7 +21,7 @@ func TestInvalidateSetsStatus(t *testing.T) {
 	}
 	a, b := ids[0], ids[1]
 
-	if err := r.Invalidate(ctx, a, "패치 루프 회귀"); err != nil {
+	if _, err := r.Invalidate(ctx, []int{a}, "패치 루프 회귀"); err != nil {
 		t.Fatalf("Invalidate: %v", err)
 	}
 	var status string

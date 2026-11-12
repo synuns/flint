@@ -405,30 +405,6 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 	return fmt.Errorf("approve: id=%d 예상 밖 상태 %q", id, status)
 }
 
-// Invalidate는 지식에 invalid_at=now와 status='invalidated'를 새긴다
-// (무효화 갱신 경로). v0.20.1: 단일 경로가 invalid_at만 기록해 배치
-// 경로(maintain invalidateIDs·expire-pending·supersede)와 법칙이 갈렸다
-// — status='invalidated' 병기로 단일화(read --status invalidated 노출·
-// report counts 정합, 패치 루프 1차 F1).
-// 이미 무효화됐으면 멱등 no-op, 없는 id는 ErrNotFound.
-func (r *Repo) Invalidate(ctx context.Context, id int, reason string) error {
-	ct, err := r.pool.Exec(ctx,
-		`UPDATE knowledge SET status = 'invalidated', invalid_at = now()
-		 WHERE id = $1 AND invalid_at IS NULL`, id)
-	if err != nil {
-		return fmt.Errorf("invalidate: %w", err)
-	}
-	if ct.RowsAffected() == 1 {
-		_, err := r.Commit(ctx, fmt.Sprintf(
-			"invalidate: id=%d 사유: %s (무효화 갱신 경로) [session:0]", id, reason))
-		if err != nil {
-			return fmt.Errorf("invalidate: commit: %w", err)
-		}
-		return nil
-	}
-	return r.ensureExists(ctx, id, "invalidate")
-}
-
 // Merge는 from을 무효화하고(status·invalid_at 병기 — v0.20.1 Invalidate
 // 정합) to summary에 병합 표시를 남긴다(중복 정리).
 func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {

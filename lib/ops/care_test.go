@@ -6,6 +6,7 @@ package ops
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,10 +18,13 @@ import (
 )
 
 // fakeMaintStore — fakeStore + MaintStore 갱신 메서드(조회는 queryFn 경유).
+// v0.41.0 T2: 전이 갱신은 Repo 위임 메서드(Invalidate 배치·Supersede).
 type fakeMaintStore struct {
 	*fakeStore
-	invalidatedIDs []int
+	invalidatedIDs [][]int
 	merged         [][2]int
+	supersedeErr   error
+	superseded     [][2]int
 }
 
 func (f *fakeMaintStore) Counts(ctx context.Context) (db.Counts, error) {
@@ -29,9 +33,16 @@ func (f *fakeMaintStore) Counts(ctx context.Context) (db.Counts, error) {
 func (f *fakeMaintStore) DupGroups(ctx context.Context, limit int) ([]db.DupGroup, error) {
 	return nil, nil
 }
-func (f *fakeMaintStore) Invalidate(ctx context.Context, id int, reason string) error {
-	f.invalidatedIDs = append(f.invalidatedIDs, id)
-	return nil
+func (f *fakeMaintStore) Invalidate(ctx context.Context, ids []int, reason string) (int64, error) {
+	f.invalidatedIDs = append(f.invalidatedIDs, ids)
+	return int64(len(ids)), nil
+}
+func (f *fakeMaintStore) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
+	f.superseded = append(f.superseded, [2]int{oldID, newID})
+	if f.supersedeErr != nil {
+		return 0, f.supersedeErr
+	}
+	return 1, nil
 }
 func (f *fakeMaintStore) Merge(ctx context.Context, fromID, toID int) error {
 	f.merged = append(f.merged, [2]int{fromID, toID})
@@ -117,19 +128,17 @@ func TestMaintainExpirePendingDryRun(t *testing.T) {
 	}
 }
 
-// TestMaintainSupersedeGuardian — 후견사: 갱신 미반영(경합)은 무음 성공이
-// 아니라 에러로 종결(재시도 후에도 미반영이면 실패 exit).
+// TestMaintainSupersedeGuardian — 후견사: 갱신 미반영(경합 — Supersede 0행)은
+// 무음 성공이 아니라 에러로 종결(재시도 후에도 미반영이면 실패 exit).
+// v0.41.0 T2: 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 여기선
+// 위임이 ErrNotFound 랩 오류를 돌려주는 것으로 시뮬레이션한다.
 func TestMaintainSupersedeGuardian(t *testing.T) {
 	shortRetry(t)
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
+	f.supersedeErr = fmt.Errorf("%w: supersede: id=5 갱신 미반영(경합 — 재시도)", db.ErrNotFound)
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
-		switch {
-		case strings.Contains(sql, "SELECT (SELECT status"):
+		if strings.Contains(sql, "SELECT (SELECT status") {
 			return [][]any{{"active", time.Now()}}, nil
-		case strings.Contains(sql, "UPDATE knowledge"):
-			return nil, nil // 0행 갱신 시뮬레이션(병렬 무효화 선점)
-		case strings.Contains(sql, "SELECT superseded_by"):
-			return [][]any{{nil}}, nil // 미반영 — 후견사 감지 대상
 		}
 		return nil, nil
 	}

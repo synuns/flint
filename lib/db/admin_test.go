@@ -64,7 +64,7 @@ func TestInvalidateSetsInvalidAt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
-	if err := r.Invalidate(ctx, ids[0], "중복 의심 정리"); err != nil {
+	if _, err := r.Invalidate(ctx, []int{ids[0]}, "중복 의심 정리"); err != nil {
 		t.Fatalf("Invalidate: %v", err)
 	}
 	var invalidAt *time.Time
@@ -76,7 +76,7 @@ func TestInvalidateSetsInvalidAt(t *testing.T) {
 		t.Fatal("invalid_at still NULL after Invalidate")
 	}
 	// 없는 id는 ErrNotFound.
-	if err := r.Invalidate(ctx, 99999, "사유"); !errors.Is(err, ErrNotFound) {
+	if _, err := r.Invalidate(ctx, []int{99999}, "사유"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound for missing id, got %v", err)
 	}
 }

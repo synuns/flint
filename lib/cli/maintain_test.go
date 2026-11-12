@@ -13,7 +13,9 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// fakeMaint — fakeStore에 admin 연산(Counts/Invalidate/Merge)을 얹은 fake.
+// fakeMaint — fakeStore에 admin 연산(Counts/Invalidate/Supersede/Merge)을
+// 얹은 fake. v0.41.0 T2: 전이 갱신(무효화·대체)은 Repo 위임 메서드로
+// 캡처한다(UPDATE 리터럴은 db 계층 소유).
 type fakeMaint struct {
 	*fakeStore
 
@@ -24,12 +26,21 @@ type fakeMaint struct {
 	dupGroupsErr   error
 	dupGroupsCalls []int
 
-	invalErr error
-	mergeErr error
+	invalErr     error
+	invalSeqErrs []error // 호출 순번별 선행 에러(재시도 시뮬레이션)
+	supersedeErr error
+	mergeErr     error
 
-	invalidateCalls []int
+	invalidateCalls [][]int
 	invalidateMsgs  []string
+	supersedeCalls  []supersedeCall
 	mergeCalls      [][2]int
+}
+
+// supersedeCall — Supersede 위임 캡처(old·new·invalid_at 병기 값).
+type supersedeCall struct {
+	oldID, newID int
+	at           time.Time
 }
 
 func (f *fakeMaint) Counts(ctx context.Context) (db.Counts, error) {
@@ -41,10 +52,25 @@ func (f *fakeMaint) DupGroups(ctx context.Context, limit int) ([]db.DupGroup, er
 	return f.dupGroups, f.dupGroupsErr
 }
 
-func (f *fakeMaint) Invalidate(ctx context.Context, id int, reason string) error {
-	f.invalidateCalls = append(f.invalidateCalls, id)
+func (f *fakeMaint) Invalidate(ctx context.Context, ids []int, reason string) (int64, error) {
+	call := len(f.invalidateCalls)
+	f.invalidateCalls = append(f.invalidateCalls, ids)
 	f.invalidateMsgs = append(f.invalidateMsgs, reason)
-	return f.invalErr
+	if call < len(f.invalSeqErrs) {
+		return 0, f.invalSeqErrs[call]
+	}
+	if f.invalErr != nil {
+		return 0, f.invalErr
+	}
+	return int64(len(ids)), nil
+}
+
+func (f *fakeMaint) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
+	f.supersedeCalls = append(f.supersedeCalls, supersedeCall{oldID, newID, at})
+	if f.supersedeErr != nil {
+		return 0, f.supersedeErr
+	}
+	return 1, nil
 }
 
 func (f *fakeMaint) Merge(ctx context.Context, fromID, toID int) error {
@@ -148,8 +174,8 @@ func TestMaintainInvalidateOK(t *testing.T) {
 	if code != 0 {
 		t.Errorf("exit=%d, want 0 (출력 %q)", code, out)
 	}
-	if len(f.invalidateCalls) != 1 || f.invalidateCalls[0] != 7 {
-		t.Errorf("Invalidate 호출 = %v, want [7]", f.invalidateCalls)
+	if len(f.invalidateCalls) != 1 || len(f.invalidateCalls[0]) != 1 || f.invalidateCalls[0][0] != 7 {
+		t.Errorf("Invalidate 호출 = %v, want [[7]]", f.invalidateCalls)
 	}
 	if len(f.invalidateMsgs) != 1 || f.invalidateMsgs[0] != "중복" {
 		t.Errorf("reason 전달 누락: %v", f.invalidateMsgs)

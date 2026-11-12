@@ -325,6 +325,61 @@ func (r *Repo) ExistsProject(ctx context.Context, name string) (bool, error) {
 	return exists, nil
 }
 
+// transitionExecFn — 상태 전이 UPDATE 실행 seam. 테스트(fake)가 SQL·
+// 파라미터와 영향 행 수를 가로채고, 실구현은 pool.Exec이다
+// (SUPERLITE_REAL=1이면 교체 없이 실구현 — repo_transition_test 참조).
+var transitionExecFn = func(ctx context.Context, r *Repo, query string, args ...any) (int64, error) {
+	ct, err := r.pool.Exec(ctx, query, args...)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+// Invalidate는 knowledge 무효화 전이의 단일 갱신 경로다(v0.41.0 T2):
+// status='invalidated'·invalid_at=now() 병기. 유일 소스 — maintain
+// invalidate-stale·--ids·expire-pending·--id 경로가 전부 이 메서드를
+// 경유한다. rows-affected 후견사 내장: 0행(사전 확인과 쓰기 사이 경합 —
+// 병렬 무효화 선점)은 ErrNotFound 랩 오류로 무음 성공을 차단한다(기존
+// supersede 후견사 계약 승계). dolt 커밋은 호출자 소관(경로별 메시지).
+func (r *Repo) Invalidate(ctx context.Context, ids []int, reason string) (int64, error) {
+	if len(ids) == 0 {
+		return 0, nil // 빈 배치 — 갱신 없음(경합 아님)
+	}
+	n, err := transitionExecFn(ctx, r, `
+		UPDATE knowledge SET status = 'invalidated', invalid_at = now()
+		WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return 0, fmt.Errorf("invalidate(%s): %w", reason, err)
+	}
+	if n == 0 {
+		return 0, fmt.Errorf("%w: invalidate(%s): 갱신 0행 (경합)", ErrNotFound, reason)
+	}
+	return n, nil
+}
+
+// Supersede는 knowledge 대체 전이의 단일 갱신 경로다(v0.41.0 T2):
+// status='invalidated'·superseded_by=newID·invalid_at=at(NEW의 valid_at —
+// Zep t_invalid=t_valid 준거) 병기. 계보는 superseded_by 단일 모델 —
+// summary 텍스트 마커 이중 모델은 폐지했다. rows-affected 후견사 내장:
+// 0행(사전 확인 후 경합 — OLD가 이미 active 아님)은 ErrNotFound 랩 오류.
+func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
+	n, err := transitionExecFn(ctx, r, `
+		UPDATE knowledge
+		SET status = 'invalidated',
+		    superseded_by = $2,
+		    invalid_at = $3
+		WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`,
+		oldID, newID, at)
+	if err != nil {
+		return 0, fmt.Errorf("supersede: %w", err)
+	}
+	if n == 0 {
+		return 0, fmt.Errorf("%w: supersede: id=%d 갱신 미반영(경합 — 재시도)", ErrNotFound, oldID)
+	}
+	return n, nil
+}
+
 // Commit은 dolt_add('-A') 후 dolt_commit('-m', msg)을 실행해 커밋 해시를 돌려준다.
 // 충돌 가능성을 고려해 기본 delays(0s/1s/3s)로 Retry한다.
 func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
