@@ -1,5 +1,7 @@
-// v0140_fix_test.go — v0.14.0 리뷰 수정 회귀(cli): P2 getKV 전송 오류 시
-// read_stats 와이프 방지, P3 eligible 헬퍼 단일 소스, P4 metaKV 공유 헬퍼.
+// v0140_fix_test.go — v0.14.0 리뷰 수정 회귀(cli): P3 eligible 헬퍼 단일
+// 소스, P4 metaKV 공유 헬퍼. (P2 BumpReadStats 와이프 방지는 v0.42.0 T2
+// read_stats blob 폐지로 함께 폐지 — 파생 경로 동등성은 lib/ops/
+// report_parity_test.go가 담당한다.)
 package cli
 
 import (
@@ -9,24 +11,6 @@ import (
 	"strings"
 	"testing"
 )
-
-// TestBumpStatsGetKVErrorKeepsStats — getKV 전송 오류(err != nil) 시
-// setKV 미호출·read_stats 미변경(기존 calls/zero 와이프 방지). 키 부재·JSON
-// 파손은 기존 계약("0에서 재기작")대로 setKV를 호출한다. v0.15.0 룰링으로
-// BumpZeroNear 단얱은 제거(BumpReadStats 통합 대상 — 승계는
-// TestBumpReadStatsUnified).
-func TestBumpStatsGetKVErrorKeepsStats(t *testing.T) {
-	boom := errors.New("kv transport down")
-	get := func(string) (string, error) { return "", boom }
-	sets := 0
-	set := func(k, v string) error { sets++; return nil }
-	if err := BumpReadStats(true, false, get, set); !errors.Is(err, boom) {
-		t.Errorf("BumpReadStats getKV 오류 미반환: %v", err)
-	}
-	if sets != 0 {
-		t.Errorf("setKV %d회 호출, want 0(전송 오류 시 기존 stats 보존)", sets)
-	}
-}
 
 // TestReadSuggestEligible — eligible 판정 단일 소스(P3): 현재 시점·
 // 무상태필터·0행일 때만 참(폴백 게이트·제안 스캔 게이트·침묵 exit 공유).

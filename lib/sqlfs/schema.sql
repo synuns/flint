@@ -12,6 +12,11 @@
 -- v7(v0.20.0): 효과 계측 정밀화 — read_events.ids(반환 지식 id CSV)·
 -- session_starts(세션 경계)·hot_events(주입 노출) 추가. 기존 v6 DB는
 -- EnsureSchemaV7 게이트가 적용(ALTER + CREATE 2종, additive).
+-- v9(v0.42.0): 계측·파생 산출 쿼리 인덱스 4종 — read_events(ts)·
+-- hot_events(ts)·session_starts(ts)·knowledge pending partial
+-- (status WHERE status='pending' AND invalid_at IS NULL). 기존 v8 DB는
+-- EnsureSchemaV9 게이트가 적용(인덱스 전용, additive — 신규 생성 경로는
+-- 게이트 체인이 만든다).
 -- views는 무변경 — 컬럼이 기존 뷰 정의에 영향 없다.
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 

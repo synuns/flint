@@ -370,6 +370,57 @@ func (r *Repo) ensureSchemaV7(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV9는 meta.schema_version<9인 DB를 v9로 무손실 승격한다:
+// 계측·파생 산출 쿼리 경로 인덱스 4종(v0.42.0) — read_events(ts)·
+// hot_events(ts)·session_starts(ts) 시간 창 스캔 3종과 knowledge pending
+// partial(status WHERE status='pending' AND invalid_at IS NULL — Counts
+// pending 집계 경로) 1종을 CREATE INDEX IF NOT EXISTS로 만들고 버전 9를
+// 기록한다. 기존 테이블·views·데이터 무변경(additive). 이미 v9 이상이면
+// no-op(수치 비교 단락)이며 v1~v8 게이트를 경유한 어느 DB에서도 멱등한다.
+func (r *Repo) EnsureSchemaV9(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV9(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV9(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v9: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 9 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v9: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`CREATE INDEX IF NOT EXISTS flint_read_events_ts_idx ON read_events (ts)`,
+		`CREATE INDEX IF NOT EXISTS flint_hot_events_ts_idx ON hot_events (ts)`,
+		`CREATE INDEX IF NOT EXISTS flint_session_starts_ts_idx ON session_starts (ts)`,
+		`CREATE INDEX IF NOT EXISTS flint_knowledge_pending_idx ON knowledge (status)
+		 WHERE status = 'pending' AND invalid_at IS NULL`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v9: index: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '9')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v9: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v9: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
 // v0.20.1: 승인은 유효 확정이므로 잔존 invalid_at을 함께 청소한다 —
 // 무효화된 pending을 승인하면 active+invalid_at 좀비(뷰·--status 어디에도

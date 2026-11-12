@@ -428,6 +428,11 @@ func TestAllGatesArtifacts(t *testing.T) {
 			assertObject(t, r, ctx, "session_starts")
 			assertObject(t, r, ctx, "hot_events")
 		}},
+		{"v9", r.EnsureSchemaV9, func(t *testing.T) {
+			for _, idx := range v9IndexNames {
+				assertObject(t, r, ctx, idx)
+			}
+		}},
 	}
 	for _, g := range gates {
 		if err := g.gate(ctx); err != nil {

@@ -34,12 +34,12 @@ var (
 	ConfigPath    = wire.ConfigPath
 	defaultDSN    = wire.DefaultDSN
 
-	// v0.39.0 T1(thresholds.go·session.go 이동분) — 임계값 체계·read
-	// 계측·세션 라벨 읽기. 소문자 var는 잔류 소비자(tuning·doctor·
-	// maintain·read·marker) 호환용이다(v0.40.0 T4 사용 0 별칭 정리 완료).
+	// v0.39.0 T1(thresholds.go·session.go 이동분) — 임계값 체계·세션
+	// 라벨 읽기. 소문자 var는 잔류 소비자(tuning·doctor·maintain·read·
+	// marker) 호환용이다(v0.40.0 T4 사용 0 별칭 정리 완료).
+	// v0.42.0 T2: LoadReadStats·BumpReadStats 별칭 폐지(read_stats blob
+	// 폐지 — 파생 경로는 ops.LoadReadStatsFromMeta가 담당).
 	loadThresholds   = wire.LoadThresholds
 	thresholdsKeys   = wire.ThresholdsKeys
-	LoadReadStats    = wire.LoadReadStats
-	BumpReadStats    = wire.BumpReadStats
 	ReadSessionLabel = wire.ReadSessionLabel
 )

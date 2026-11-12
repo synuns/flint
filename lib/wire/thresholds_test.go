@@ -6,7 +6,6 @@ package wire
 
 import (
 	"context"
-	"encoding/json"
 	"os"
 	"path/filepath"
 	"sort"
@@ -110,41 +109,9 @@ func TestLoadThresholdsFallback(t *testing.T) {
 	}
 }
 
-// TestBumpReadStatsToMeta — read 계측 wiring 왕복: 2회 범프로
-// calls=2·zero=2·zero_near 보존(read_stats 단일 라이터 계약).
-func TestBumpReadStatsToMeta(t *testing.T) {
-	ctx := context.Background()
-	f := &thresholdsFake{metaKVFake: metaKVFake{meta: map[string]string{}}}
-	st := thresholdsStore(t, f)
-	metaKVCleanup(t, st, "read_stats")
-
-	BumpReadStatsToMeta(ctx, st, true, false)
-	BumpReadStatsToMeta(ctx, st, true, true)
-
-	getKV := func(key string) (string, error) {
-		v, ok, err := GetMetaKVErr(ctx, st, key)
-		if err != nil || !ok {
-			return "", err
-		}
-		return v, nil
-	}
-	calls, zero, ok := LoadReadStats(getKV)
-	if !ok || calls != 2 || zero != 2 {
-		t.Fatalf("read_stats 왕복: ok=%v calls=%d zero=%d", ok, calls, zero)
-	}
-	var raw struct {
-		Calls    int `json:"calls"`
-		Zero     int `json:"zero"`
-		ZeroNear int `json:"zero_near"`
-	}
-	b, _ := getKV("read_stats")
-	if err := json.Unmarshal([]byte(b), &raw); err != nil {
-		t.Fatalf("read_stats 파싱: %v", err)
-	}
-	if raw.ZeroNear != 1 {
-		t.Fatalf("zero_near 보존 위반: %d", raw.ZeroNear)
-	}
-}
+// (v0.42.0 T2 폐지 — TestBumpReadStatsToMeta: read_stats blob 폐지로
+// LoadReadStats·BumpReadStatsToMeta가 사라졌다. 파생 경로 동등성은
+// lib/ops/report_parity_test.go(TestEffectParity)가 담당한다.)
 
 // TestReadSessionLabel — 부재·빈 파일 ok=false, 1줄 라벨 ok=true
 // (marker.go 이동분 계약 동일). ConfigDir seam 주입으로 격리.

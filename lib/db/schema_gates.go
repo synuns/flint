@@ -10,7 +10,7 @@ import "context"
 
 // LatestSchemaVersion — 이 CLI가 아는 최신 스키마 버전(status·doctor
 // schema 호환 검사의 상한. 등록표 마지막 원소와 같아야 한다).
-const LatestSchemaVersion = 8
+const LatestSchemaVersion = 9
 
 // SchemaGate — 버전 승격 게이트 1건. Version은 목표 schema_version,
 // Ensure는 그 버전으로 무손실 승격하는 admin.go 게이트(멱등 — 수치
@@ -32,5 +32,6 @@ func SchemaGates() []SchemaGate {
 		{6, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV6(ctx) }}, // 효과 계측 테이블(read_events)
 		{7, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV7(ctx) }}, // 계측 정밀화(ids·session_starts·hot_events)
 		{8, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV8(ctx) }}, // hit 품질 근사(first_rank)
+		{9, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV9(ctx) }}, // 계측·파생 쿼리 인덱스 4종(ts 3종·pending partial)
 	}
 }

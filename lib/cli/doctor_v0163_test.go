@@ -44,7 +44,8 @@ func TestDoctorZeroNearWarnPctOverride(t *testing.T) {
 		[][]any{{"zero_near_warn_pct", "5"}},
 		func(sql string, args []any) ([][]any, error) {
 			if strings.Contains(sql, "daily:") {
-				return [][]any{{"daily:2001-01-01", `{"read":20,"read_zero_near":2}`}}, nil
+				// v0.42.0 T2: 창(오늘) 내 키만 합산된다.
+				return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":20,"read_zero_near":2}`}}, nil
 			}
 			return nil, nil
 		})}
@@ -60,7 +61,8 @@ func TestDoctorZeroNearMinReadOverride(t *testing.T) {
 		[][]any{{"zero_near_min_read", "100"}},
 		func(sql string, args []any) ([][]any, error) {
 			if strings.Contains(sql, "daily:") {
-				return [][]any{{"daily:2001-01-01", `{"read":20,"read_zero_near":2}`}}, nil
+				// v0.42.0 T2: 창(오늘) 내 키만 합산된다.
+				return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":20,"read_zero_near":2}`}}, nil
 			}
 			return nil, nil
 		})}

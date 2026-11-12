@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"reflect"
 	"sort"
 	"strconv"
 	"strings"
@@ -33,42 +34,47 @@ type TuningKeyInfo struct {
 	Get      func(store.Thresholds) string
 }
 
-// TuningKeys — TUNING §2 전체 키(가나다 아닌 선언 순 = 문서 순서와
-// 관계없이 결정적 정렬은 아래 list에서 수행).
+// TuningKeys — TUNING §2 전체 키. v0.42.0 T1(§2): wire 등록표
+// (ThresholdMetas)에서 파생된다 — Key·Default·Consumer(Desc)·Get(Field
+// 리플렉션) 전부 등록표가 단일 소스이고, threshold_meta_test.go가
+// 등록표·DefaultThresholds·ParseThresholds와의 동질성을 가드한다.
+// 순서는 등록표 순(=이전 선언 순) — 결정적 정렬은 list에서 수행.
 func TuningKeys() []TuningKeyInfo {
-	d := store.DefaultThresholds()
-	i := func(v int) string { return strconv.Itoa(v) }
-	f := func(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
-	return []TuningKeyInfo{
-		{"pending_max", i(d.PendingMax), "maintain --check", func(t store.Thresholds) string { return i(t.PendingMax) }},
-		{"dup_susp_max", i(d.DupSuspMax), "maintain --check", func(t store.Thresholds) string { return i(t.DupSuspMax) }},
-		{"conf_floor", f(d.ConfFloor), "write 판정", func(t store.Thresholds) string { return f(t.ConfFloor) }},
-		{"stale_sessions", i(d.StaleSessions), "done", func(t store.Thresholds) string { return i(t.StaleSessions) }},
-		{"stale_days", i(d.StaleDays), "maintain --stale·report", func(t store.Thresholds) string { return i(t.StaleDays) }},
-		{"stall_hot_h", i(d.StallHotH), "doctor·maintain", func(t store.Thresholds) string { return i(t.StallHotH) }},
-		{"stall_write_h", i(d.StallWriteH), "doctor·maintain", func(t store.Thresholds) string { return i(t.StallWriteH) }},
-		{"suggest_min_score", f(d.SuggestMinScore), "read 제안", func(t store.Thresholds) string { return f(t.SuggestMinScore) }},
-		{"suggest_scan_cap", i(d.SuggestScanCap), "read 제안", func(t store.Thresholds) string { return i(t.SuggestScanCap) }},
-		{"conflict_dup_threshold", f(d.ConflictDupThreshold), "maintain 분류", func(t store.Thresholds) string { return f(t.ConflictDupThreshold) }},
-		{"backup_age_warn_h", i(d.BackupAgeWarnH), "doctor backup-age", func(t store.Thresholds) string { return i(t.BackupAgeWarnH) }},
-		{"zero_near_min_read", i(d.ZeroNearMinRead), "doctor zero-near", func(t store.Thresholds) string { return i(t.ZeroNearMinRead) }},
-		{"zero_near_warn_pct", i(d.ZeroNearWarnPct), "doctor zero-near", func(t store.Thresholds) string { return i(t.ZeroNearWarnPct) }},
-		{"pending_age_days", i(d.PendingAgeDays), "doctor pending-age", func(t store.Thresholds) string { return i(t.PendingAgeDays) }},
-		{"pending_promote_days", i(d.PendingPromoteDays), "pending 승격 추천(최근 N일)", func(t store.Thresholds) string { return i(t.PendingPromoteDays) }},
-		{"pending_promote_min_runes", i(d.PendingPromoteMinRunes), "pending 승격 추천(본문 최소 룬)", func(t store.Thresholds) string { return i(t.PendingPromoteMinRunes) }},
-		{"invalidated_prune_days", i(d.InvalidatedPruneDays), "invalidated 정리 기준일(maintain --prune-invalidated)", func(t store.Thresholds) string { return i(t.InvalidatedPruneDays) }},
-		{"recall_warn_writes", i(d.RecallWarnWrites), "done 회상 경고", func(t store.Thresholds) string { return i(t.RecallWarnWrites) }},
-		{"dead_days", i(d.DeadDays), "report effect", func(t store.Thresholds) string { return i(t.DeadDays) }},
-		{"pair_window_minutes", i(d.PairWindowMin), "report effect", func(t store.Thresholds) string { return i(t.PairWindowMin) }},
-		{"chain_window_hours", i(d.ChainWindowH), "report effect", func(t store.Thresholds) string { return i(t.ChainWindowH) }},
-		{"events_retention_days", i(d.EventsRetentionD), "계측 정리", func(t store.Thresholds) string { return i(t.EventsRetentionD) }},
-		{"hot_events_retention_days", i(d.HotRetentionD), "계측 정리", func(t store.Thresholds) string { return i(t.HotRetentionD) }},
-		{"events_volume_warn", i(d.EventsVolumeWarn), "doctor event-volume", func(t store.Thresholds) string { return i(t.EventsVolumeWarn) }},
-		{"drill_max_days", i(d.DrillMaxDays), "maintain --check", func(t store.Thresholds) string { return i(t.DrillMaxDays) }},
-		{"daily_retention_days", i(d.DailyRetentionD), "보존·report/status 창", func(t store.Thresholds) string { return i(t.DailyRetentionD) }},
-		{"rrf_k", f(d.RrfK), "read 폴백 재랭킹", func(t store.Thresholds) string { return f(t.RrfK) }},
-		{"secrets_scan_row_limit", i(d.SecretsScanRows), "doctor secrets 행 상한", func(t store.Thresholds) string { return i(t.SecretsScanRows) }},
-		{"session_knowledge_days", i(d.SessionKnowledgeDays), "세션 지식화 최소 간격", func(t store.Thresholds) string { return i(t.SessionKnowledgeDays) }},
+	metas := wire.ThresholdMetas()
+	out := make([]TuningKeyInfo, 0, len(metas))
+	for _, m := range metas {
+		out = append(out, TuningKeyInfo{
+			Key:      m.Key,
+			Default:  thresholdFormatValue(m.Default),
+			Consumer: m.Desc,
+			Get:      thresholdFieldGet(m.Field),
+		})
+	}
+	return out
+}
+
+// thresholdFormatValue — 등록표 기본값(any)의 표기 규칙(int·float64 —
+// 이전 TuningKeys의 i()/f() 포맷 승계).
+func thresholdFormatValue(v any) string {
+	switch x := v.(type) {
+	case int:
+		return strconv.Itoa(x)
+	case float64:
+		return strconv.FormatFloat(x, 'f', -1, 64)
+	}
+	return ""
+}
+
+// thresholdFieldGet — Thresholds 필드명 → Get 클로저(리플렉션). 필드
+// 부재 시 ""(프로덕션 등록표는 threshold_meta_test.go가 필드 유효성을
+// 가드 — 미발생 경로).
+func thresholdFieldGet(field string) func(store.Thresholds) string {
+	return func(t store.Thresholds) string {
+		fv := reflect.Indirect(reflect.ValueOf(t)).FieldByName(field)
+		if !fv.IsValid() {
+			return ""
+		}
+		return thresholdFormatValue(fv.Interface())
 	}
 }
 
