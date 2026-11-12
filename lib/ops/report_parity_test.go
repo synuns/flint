@@ -125,3 +125,69 @@ func TestZeroNearParity(t *testing.T) {
 		t.Errorf("zero-near detail=%q, want %q(기준선)", c.Detail, legacyDetail)
 	}
 }
+
+// TestDerivedWindowBoundary — Review Focus(창 집산 off-by-one): 파생 병합
+// 컷오프는 창 첫 날의 UTC 자정 "정각 포함"(ts >= cutoff)이어야 한다.
+// 자정 1초 전 이벤트는 창 밖(첫 행 미집계), 자정 정각 이벤트는 첫 행에
+// 집계된다. 컷오프 인자와 일별 버킷 배치를 함께 단언한다.
+func TestDerivedWindowBoundary(t *testing.T) {
+	now := time.Now().UTC()
+	const window = 7
+	oldestMidnight := now.AddDate(0, 0, -(window - 1)).Truncate(24 * time.Hour)
+	var gotCutoff time.Time
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "LIKE 'daily:%'"):
+			return nil, nil // 신규 데이터 — daily read 필드 부재
+		case strings.Contains(sql, "near FROM read_events"):
+			if len(args) > 0 {
+				if ts, ok := args[0].(time.Time); ok {
+					gotCutoff = ts
+				}
+			}
+			// 자정 정각(포함)·직전 1초(배제)·오늘 near 1건.
+			return [][]any{
+				{oldestMidnight, false, false},
+				{oldestMidnight.Add(-time.Second), false, false},
+				{now, false, true},
+			}, nil
+		case strings.Contains(sql, "first_rank FROM read_events"):
+			return [][]any{{oldestMidnight, false, false, "", 0}, {now, false, false, "", 0}}, nil
+		case strings.Contains(sql, "FROM meta"):
+			return nil, nil
+		case strings.Contains(sql, "hot_events"),
+			strings.Contains(sql, "session_starts"),
+			strings.Contains(sql, "ingested_at >="),
+			strings.Contains(sql, "id, topic FROM knowledge"):
+			return nil, nil
+		}
+		return [][]any{{int64(0), int64(0), int64(0)}}, nil
+	}}
+	var out strings.Builder
+	if code := RunReport(context.Background(), f, []string{"--days", "7"}, nil, &out); code != 0 {
+		t.Fatalf("report exit=%d: %s", code, out.String())
+	}
+	// 1. 컷오프 인자 = 창 첫 날 자정 정각(포함 경계 — off-by-one 가드).
+	if !gotCutoff.Equal(oldestMidnight) {
+		t.Errorf("파생 컷오프=%v, want %v(창 첫 날 UTC 자정)", gotCutoff, oldestMidnight)
+	}
+	var rep struct {
+		Days []ReportDay `json:"days"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &rep); err != nil {
+		t.Fatalf("report JSON 파싱: %v (%s)", err, out.String())
+	}
+	if len(rep.Days) != window {
+		t.Fatalf("days 길이=%d, want %d", len(rep.Days), window)
+	}
+	// 2. 첫 행: 자정 정각 이벤트 1건만(1초 전 이벤트는 창 밖).
+	first, last := rep.Days[0], rep.Days[len(rep.Days)-1]
+	if first.Read != 1 || first.ReadZero != 0 || first.ReadNear != 0 {
+		t.Errorf("days[0] read/zero/near = %d/%d/%d, want 1/0/0(자정 1초 전 배제)",
+			first.Read, first.ReadZero, first.ReadNear)
+	}
+	// 3. 마지막 행(오늘): near 1건 포함.
+	if last.Read != 1 || last.ReadNear != 1 {
+		t.Errorf("days[last] read/near = %d/%d, want 1/1", last.Read, last.ReadNear)
+	}
+}

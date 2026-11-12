@@ -140,6 +140,26 @@ func lastSeenOrNull(getKV func(string, string) (string, error), key string) *str
 	return &s
 }
 
+// lastReadAtOrNull — v0.42.0 T2: read 경로가 meta last_read_at을 더 쓰지
+// 않는다(쓰기 4→2 — RecordReadUsage 폐지). 잔존 meta 값과 read_events
+// 최근 시각(max(ts)) 중 더 최근 쪽을 보고한다(doctor checkLastSeen과
+// 동일 병합 룰). 조회 실패·매핑 불가는 기존 meta 값 유지(조용히).
+func lastReadAtOrNull(ctx context.Context, st wire.Store, getKV func(string, string) (string, error)) *string {
+	out := lastSeenOrNull(getKV, "last_read_at")
+	rows, err := wire.QueryOnce(ctx, st, `SELECT max(ts) FROM read_events`, nil)
+	if err == nil && len(rows) > 0 && len(rows[0]) > 0 && rows[0][0] != nil {
+		if t, ok := CellToTime(rows[0][0]); ok {
+			s := t.UTC().Format(time.RFC3339)
+			if out == nil {
+				out = &s
+			} else if prev, perr := time.Parse(time.RFC3339, *out); perr == nil && t.After(prev) {
+				out = &s
+			}
+		}
+	}
+	return out
+}
+
 // RunStatus — 서버 생존·스키마 호환·pending 대기 수를 보고한다.
 // T85: --as-of <스펙> 지정 시 카운트 질의에 AS OF '<해시>'를 접합해 과거
 // 스냅샷 pending 수를 보고하고 출력 말미에 as_of(정규화 해시)를 추가한다.
@@ -237,7 +257,8 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		HotCalls: calls, HotP95: p95, ReadCalls: readCalls, ReadZeroPct: ReadZeroPctFn(readCalls, readZero),
 		LastWriteAt: lastSeenOrNull(getKV, "last_write_at"),
 		LastHotAt:   lastSeenOrNull(getKV, "last_hot_at"),
-		LastReadAt:  lastSeenOrNull(getKV, "last_read_at")},
+		// v0.42.0 T2: last_read_at은 meta 잔존값과 read_events 파생 병합.
+		LastReadAt: lastReadAtOrNull(ctx, st, getKV)},
 		ReadFallbackCalls: FallbackCallsOrNull(getKV)}
 	var b []byte
 	if asOfHash != "" {
