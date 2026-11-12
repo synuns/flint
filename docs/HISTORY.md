@@ -17,7 +17,7 @@ R1~R11 잔여 항목 전수 결정·집행(누적 75건):
 - [x] [수정] CI -count=1 고정(캐시 무효 — v0.41.1 불일치 재발 방지)
 - [x] [기획] PLAN — 감사 정책(재개 조건·정지 규칙·가드 설계 경계
   선언)·에라 표 감사 행·v1.1.0 legacy 라벨 제거 선언
-- [x] [기획] METRICS §4.5 — status read_calls 보존창 의미 서술 정합
+- [x] [기획] METRICS §4.7 — status read_calls 보존창 의미 서술 정합
 - [x] [기획] RUNBOOK — 실DB 격리 룰·go test 러너 표준 문서화
 - [결정] restore 자체 풀 수용 종결(트랜잭션+Exec 필요 — wire.Store
   쓰기-repo-전용 계약상 정당)·doctor schema 상수 유지(v10 시점)

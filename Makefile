@@ -33,7 +33,7 @@ ci:
 	python3 scripts/validate_yaml.py
 	python3 scripts/check_personal.py
 	@test -z "$$(gofmt -l lib cmd)" || { echo 'gofmt 미적용 파일:'; gofmt -l lib cmd; exit 1; }
-	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test $(GO_TEST_FLAGS) ./...
+	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test $(GO_TEST_FLAGS) -count=1 ./...
 
 tidy:
 	go mod tidy
