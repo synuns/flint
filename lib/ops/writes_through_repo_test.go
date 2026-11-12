@@ -50,6 +50,17 @@
 //     동일 Ident 수신자에 연속한 WriteString 인자를 이어붙인 결과에서만
 //     성립하는 쓰기 동사도 잡는다(⑤).
 //
+// v1.0.5 R6 보강(실증 우회 4종 추가 폐쇄 — 재프로브로 우회 확인 후):
+//   - 이스케이프 디코딩 — unquoteLiteral을 strconv.Unquote로 교체해
+//     \xNN·8진 \NNN 표기의 동사("\x44\x45\x4C…" = "DEL")도 ①~⑥·const/var
+//     접기 전 공통 경로에서 디코딩해 판정한다.
+//   - 문자열 누적(+=) 결합(s := "DEL"; s += "ETE …") — 블록 문장 목록의
+//     같은 Ident 대입·누적 피연산자를 순서로 합친 결과로 판정한다(⑥).
+//   - fmt.Errorf·fmt.Fprintf 결합 — Errorf는 Sprintf와 동일, Fprintf는
+//     작성자(writer) 인자를 제외한 형식 대입 결합이다(fmtCombined).
+//   - slices.Concat 결합 — 슬라이스 인자 전체 요소를 무구분자로 잇는
+//     결과로 판정한다(④).
+//
 // 오탐(안내문·검사명의 비SQL "update" 단어)은 writeLiteralAllow 정확
 // 일치 화이트리스트로만 면제한다 — 신규 면제는 이 표에 대한 명시적
 // 선언이어야 한다.
@@ -64,6 +75,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -85,6 +97,9 @@ var writeLiteralAllow = map[string]bool{
 	"update-rules: 소스 flint-plugin/skills/flint 미탐지 — --src 플래그로 지정": true,
 	"update-rules: FLINT_CLAUDE_HOME 또는 HOME을 설정해 싱크 대상 경로를 지정":      true,
 	"update-rules 싱크 실패: %w": true,
+	// 위 Errorf 안내문의 정적 결합 근사 형태(R6: %w 동사 공란 대입 결과) —
+	// fmt.Errorf("update-rules 싱크 실패: %w", err)의 fmtCombined 본문.
+	"update-rules 싱크 실패: ": true,
 	// maintain unknown-키 힌트: 사람이 수동 실행할 문구 안내(실행 아님).
 	`{"hint":"unknown 키는 사용 중단 후보 — 확인 후 수동 정리: DELETE FROM meta WHERE key = '...'"}`: true,
 }
@@ -94,9 +109,15 @@ var writeLiteralAllow = map[string]bool{
 // 폐쇄).
 var writeGuardDirs = []string{".", "../knowledge"}
 
-// unquoteLiteral — BasicLit.Value에서 quote 문자(`"`, backtick)를 양끝
-// 제거한 본문.
+// unquoteLiteral — BasicLit.Value에서 quote를 제거하고 이스케이프(\xNN·
+// 8진 \NNN·\uNNNN 등)까지 디코딩한 본문(R6: strconv.Unquote 교체 —
+// "\x44\x45\x4C…" 표기 디코딩 우회 폐쇄). ①~⑤·const/var 접기 전 공통
+// 경로다. 디코딩 실패 시(파서가 만들지 않는 비정형) 양끝 quote 제거로
+// 근사한다.
 func unquoteLiteral(v string) string {
+	if s, err := strconv.Unquote(v); err == nil {
+		return s
+	}
 	if len(v) >= 2 && (v[0] == '`' || v[0] == '"') && v[len(v)-1] == v[0] {
 		return v[1 : len(v)-1]
 	}
@@ -174,7 +195,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		return true
 	})
-	// ① 반 뒤 결합 판정(②③④⑤) 공통 자산 — 패키지 블록 const 문자열
+	// ① 반 뒤 결합 판정(②~⑥) 공통 자산 — 패키지 블록 const 문자열
 	//    테이블(R3 상수 접기)과 var []string 리터럴 테이블(R5 슬라이스
 	//    접기). 접힌 값은 결합 판정에서 Ident 해석 근거로 쓰고, 원천
 	//    리터럴 위치로 중복 보고를 뺀다.
@@ -239,11 +260,12 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	//    대입한 결과에서만 성립하는 쓰기 동사(Sprintf("DEL%s…","ETE") 분할
 	//    우회)를 잡는다. R5 폐쇄: Sprint(피연산자 전부 문자열이면 무구분자
 	//    결합 — 공란 근사)·Sprintln(공백 구분자)도 같은 결합 판정으로
-	//    확장한다(fmtCombined). 중첩 fmt 결합 인자는 depth 8까지 재귀
-	//    결합하고 그 외 비리터럴 인자·그 외 동사는 공란 대입(동사 경계를
-	//    결합 가능성으로 보수 판정). 면제 원칙은 ②와 동일 — 단독 형식
-	//    리터럴의 면제는 결합 판정에 적용되지 않고, 결합 결과 전체의
-	//    화이트리스트 정확 일치만 면제다.
+	//    확장한다(fmtCombined). R6 폐쇄: Errorf(Sprintf 동일 형식 대입)·
+	//    Fprintf(작성자 인자 제외 형식 대입)도 포함한다. 중첩 fmt 결합
+	//    인자는 depth 8까지 재귀 결합하고 그 외 비리터럴 인자·그 외 동사는
+	//    공란 대입(동사 경계를 결합 가능성으로 보수 판정). 면제 원칙은 ②와
+	//    동일 — 단독 형식 리터럴의 면제는 결합 판정에 적용되지 않고, 결합
+	//    결과 전체의 화이트리스트 정확 일치만 면제다.
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) == 0 {
@@ -256,48 +278,75 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		report(call.Pos(), "fmt 결합 호출 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
 		return true
 	})
-	// ④ strings.Join 결합 — 슬라이스 요소를 구분자와 합친 결과에서만
-	//    성립하는 쓰기 동사(strings.Join([]string{"DEL","ETE…"}, "") 분할
-	//    우회)도 잡는다(R3). 첫 인자는 슬라이스 리터럴([]string{…}) 또는
-	//    패키지 블록 var 슬라이스 테이블의 Ident(R5 슬라이스 접기)여야
-	//    정적 결합이 가능하다 — 그 외(지역 변수·함수 결과)는 건너뛴다.
-	//    요소는 combineParts로 접고(리터럴·const Ident·중첩 fmt 결합, 그
-	//    외 공란 보수 대입), 구분자는 리터럴 본문, 비리터럴 구분자는
-	//    공란(인접 결합 가능성의 보수 근사). 면제·중복 보고 원칙은 ②와
-	//    동일.
+	// ④ 슬라이스 결합(strings.Join·slices.Concat) — 슬라이스 요소를 합친
+	//    결과에서만 성립하는 쓰기 동사(strings.Join([]string{"DEL","ETE…"},
+	//    "") 분할 우회, R3)도 잡는다. Join은 구분자(리터럴 본문, 비리터럴
+	//    공란 근사)로, Concat은 무구분자로 전체 요소를 잇는다(R6). Join 첫
+	//    인자·Concat 인자 각각은 슬라이스 리터럴([]string{…}) 또는 패키지
+	//    블록 var 슬라이스 테이블의 Ident(R5 슬라이스 접기)여야 정적 결합이
+	//    가능하다 — 그 외(지역 변수·함수 결과)는 건너뛴다. 요소는
+	//    combineParts로 접는다(리터럴·const Ident·중첩 fmt 결합, 그 외
+	//    공란 보수 대입). 면제·중복 보고 원칙은 ②와 동일.
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
-		if !ok || len(call.Args) != 2 {
+		if !ok {
 			return true
 		}
 		sel, ok := call.Fun.(*ast.SelectorExpr)
-		if !ok || sel.Sel.Name != "Join" {
+		if !ok {
 			return true
 		}
+		var sliceArgs []ast.Expr
 		sep := ""
-		if slit, ok := call.Args[1].(*ast.BasicLit); ok && slit.Kind == token.STRING {
-			sep = unquoteLiteral(slit.Value)
+		what := ""
+		switch sel.Sel.Name {
+		case "Join":
+			if len(call.Args) != 2 {
+				return true
+			}
+			sliceArgs = call.Args[:1]
+			if slit, ok := call.Args[1].(*ast.BasicLit); ok && slit.Kind == token.STRING {
+				sep = unquoteLiteral(slit.Value)
+			}
+			what = "strings.Join"
+		case "Concat":
+			if len(call.Args) == 0 {
+				return true
+			}
+			sliceArgs = call.Args
+			what = "slices.Concat"
+		default:
+			return true
 		}
-		var joined string
+		var parts []string
 		var marked []token.Pos
-		joinable := false
-		switch first := call.Args[0].(type) {
-		case *ast.CompositeLit:
-			if len(first.Elts) < 2 {
-				return true
+		joinable := true
+		for _, arg := range sliceArgs {
+			switch a := arg.(type) {
+			case *ast.CompositeLit:
+				ps, marks, ok := combineParts(a.Elts, consts, slices, flagged, 0)
+				if !ok {
+					joinable = false
+					continue
+				}
+				parts = append(parts, ps...)
+				marked = append(marked, marks...)
+			case *ast.Ident:
+				si, ok := slices[a.Name]
+				if !ok || anyFlagged(si.lits, flagged) {
+					joinable = false
+					continue
+				}
+				parts = append(parts, si.vals...)
+				marked = append(marked, si.lits...)
+			default:
+				joinable = false
 			}
-			parts, marks, ok := combineParts(first.Elts, consts, slices, flagged, 0)
-			joined, marked, joinable = strings.Join(parts, sep), marks, ok
-		case *ast.Ident:
-			si, ok := slices[first.Name]
-			if !ok || len(si.vals) < 2 || anyFlagged(si.lits, flagged) {
-				return true
-			}
-			joined, marked, joinable = strings.Join(si.vals, sep), si.lits, true
 		}
-		if joinable && !writeLiteralAllow[joined] &&
+		joined := strings.Join(parts, sep)
+		if joinable && len(parts) >= 2 && !writeLiteralAllow[joined] &&
 			writeTokenRe.MatchString(joined) {
-			report(call.Pos(), "strings.Join 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
+			report(call.Pos(), what+" 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
 			for _, p := range marked {
 				flagged[p] = true
 			}
@@ -342,6 +391,79 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 					}
 				}
 			}
+		}
+		return true
+	})
+	// ⑥ 문자열 누적(+=) 결합 — 블록 문장 목록에서 같은 Ident에 이어지는
+	//    대입(=·:=) 종자와 += 의 문자열 피연산자를 순서로 합친 결과에서만
+	//    성립하는 쓰기 동사(s := "DEL"; s += "ETE …" 분할 우회)도 잡는다
+	//    (R6). 비접힘 피연산자는 공란(보수), 재대입은 누적을 마치고 다시
+	//    시작하며, 중첩 블록 내 대입은 그 블록 순회가 따로 본다(보수
+	//    누락 허용 — 실소스 무해 누적의 과잉 결합 방지). 면제·중복 보고
+	//    원칙은 ②와 동일.
+	ast.Inspect(f, func(n ast.Node) bool {
+		blk, ok := n.(*ast.BlockStmt)
+		if !ok {
+			return true
+		}
+		type accum struct {
+			parts  []string
+			marked []token.Pos
+			first  token.Pos
+		}
+		chain := map[string]*accum{}
+		var order []*accum
+		flush := func(c *accum) {
+			if c == nil || len(c.parts) < 2 || anyFlagged(c.marked, flagged) {
+				return
+			}
+			joined := strings.Join(c.parts, "")
+			if !writeLiteralAllow[joined] && writeTokenRe.MatchString(joined) {
+				report(c.first, "문자열 누적(+=) 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
+				for _, p := range c.marked {
+					flagged[p] = true
+				}
+			}
+		}
+		for _, stmt := range blk.List {
+			as, ok := stmt.(*ast.AssignStmt)
+			if !ok || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+				continue
+			}
+			id, ok := as.Lhs[0].(*ast.Ident)
+			if !ok {
+				continue
+			}
+			switch as.Tok {
+			case token.ASSIGN, token.DEFINE:
+				flush(chain[id.Name])
+				delete(chain, id.Name)
+				parts, marked, joinable := combineParts(as.Rhs, consts, slices, flagged, 0)
+				if !joinable {
+					continue
+				}
+				c := &accum{parts: parts, marked: marked, first: as.Pos()}
+				chain[id.Name] = c
+				order = append(order, c)
+			case token.ADD_ASSIGN:
+				c := chain[id.Name]
+				if c == nil {
+					c = &accum{first: as.Pos()}
+					chain[id.Name] = c
+					order = append(order, c)
+				}
+				parts, marked, joinable := combineParts(as.Rhs, consts, slices, flagged, 0)
+				if !joinable {
+					flush(c)
+					delete(chain, id.Name)
+					continue
+				}
+				c.parts = append(c.parts, parts...)
+				c.marked = append(c.marked, marked...)
+			}
+		}
+		for _, c := range order {
+			flush(c)
 		}
 		return true
 	})
@@ -429,18 +551,19 @@ func stringOperand(e ast.Expr, consts map[string]constInfo, slices map[string]sl
 	return ""
 }
 
-// fmtCombined — fmt 결합 호출의 정적 결합 근사. Sprintf는 형식 리터럴의
-// %s·%v에 인자를 대입하고, Sprint는 피연산자를 무구분자로, Sprintln은
-// 공백 구분자로 이어붙인다(R5: Sprint·Sprintln 확장). 결합 가능한 호출이면
-// (결합 문자열, true), 아니면 ("", false) — Sprintf 비문자열 형식·
-// Sprint/Sprintln 피연산자 1개(새 결합 불가)·원천 이미 보고는 false다.
+// fmtCombined — fmt 결합 호출의 정적 결합 근사. Sprintf·Errorf는 형식
+// 리터럴의 %s·%v에 인자를 대입하고(Fprintf는 작성자(writer) 인자를 제외,
+// R6), Sprint는 피연산자를 무구분자로, Sprintln은 공백 구분자로 이어붙인다
+// (R5: Sprint·Sprintln 확장). 결합 가능한 호출이면 (결합 문자열, true),
+// 아니면 ("", false) — 비문자열 형식·Sprint/Sprintln 피연산자 1개(새 결합
+// 불가)·원천 이미 보고는 false다.
 func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) (string, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return "", false
 	}
 	switch sel.Sel.Name {
-	case "Sprintf":
+	case "Sprintf", "Errorf": // R6: Errorf는 Sprintf와 동일 형식 대입 결합
 		if len(call.Args) == 0 {
 			return "", false
 		}
@@ -449,6 +572,15 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 			return "", false
 		}
 		return sprintfCombined(unquoteLiteral(flit.Value), call.Args[1:], consts, slices, flagged, depth), true
+	case "Fprintf": // R6: args[0]은 작성자(writer) — 결합에서 제외
+		if len(call.Args) < 2 {
+			return "", false
+		}
+		flit, ok := call.Args[1].(*ast.BasicLit)
+		if !ok || flit.Kind != token.STRING || flagged[flit.Pos()] {
+			return "", false
+		}
+		return sprintfCombined(unquoteLiteral(flit.Value), call.Args[2:], consts, slices, flagged, depth), true
 	case "Sprint", "Sprintln":
 		if len(call.Args) < 2 {
 			return "", false
@@ -789,6 +921,61 @@ func f() string {
 	b.WriteString("ETE FROM meta WHERE key='demo'")
 	return b.String()
 }`,
+			wantHit: true,
+		},
+		{
+			name: "이스케이프 디코딩 결합(R6: \\xNN)",
+			src: `package ops
+func f() string { return "\x44\x45\x4C\x45\x54\x45 FROM meta WHERE key='demo'" }`,
+			wantHit: true,
+		},
+		{
+			name: "문자열 누적(+=) 결합(R6)",
+			src: `package ops
+func f() string {
+	s := "DEL"
+	s += "ETE FROM meta WHERE key='demo'"
+	return s
+}`,
+			wantHit: true,
+		},
+		{
+			name: "오탐 방어: 무해 누적(토큰 없음 — 실소스 누적 패턴)",
+			src: `package ops
+func f() string {
+	s := "검사 항목: 스키마·인덱스"
+	s += " · "
+	s += fmt.Sprintf("상한 %d건 도달", 5)
+	return s
+}`,
+		},
+		{
+			name: "오탐 방어: 누적 결과가 화이트리스트 본문(정확 일치)",
+			src: `package ops
+func f() string {
+	s := "fix: flint "
+	s += "update"
+	return s
+}`,
+		},
+		{
+			name: "fmt.Errorf 결합(R6)",
+			src: `package ops
+func f() error { return fmt.Errorf("DEL%s FROM meta WHERE key='demo'", "ETE") }`,
+			wantHit: true,
+		},
+		{
+			name: "fmt.Fprintf 결합(R6: 작성자 인자 제외)",
+			src: `package ops
+func f() { fmt.Fprintf(w, "%sETE FROM meta WHERE key='demo'", "DEL") }`,
+			wantHit: true,
+		},
+		{
+			name: "slices.Concat 결합(R6)",
+			src: `package ops
+var r6A = []string{"DEL"}
+var r6B = []string{"ETE FROM meta WHERE key='demo'"}
+func f() []string { return slices.Concat(r6A, r6B) }`,
 			wantHit: true,
 		},
 		{
