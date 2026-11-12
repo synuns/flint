@@ -77,7 +77,12 @@ func (a *Auto) RunIfNeeded(ctx context.Context,
 	if !ShouldBackup(last, now, intervalH) {
 		return nil
 	}
-	won, err := claim(last, now.Format(time.RFC3339))
+	// v1.0.11(R12-A2): RFC3339Nano — 초 단위 타임스탬프는 동일 초 병렬
+	// 세션이 같은 newVal을 쓰는 순간 CAS의 단일 승자 보장이 붕괴한다
+	// (실DB 8-way 실증: 동일값은 WHERE 스냅샷 평가 후 전원 승리).
+	// 나노초로 값 유일성을 확보한다. ShouldBackup은 RFC3339 파싱으로
+	// 나노초도 그대로 읽는다(time.Parse 호환).
+	won, err := claim(last, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("backup auto: 선점(CAS): %w", err)
 	}

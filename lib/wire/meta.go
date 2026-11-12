@@ -41,11 +41,14 @@ func SetMetaKV(ctx context.Context, st Store, key, value string) error {
 // BumpMetaKV와 동일 계약: 조건부 쓰기는 모호 실패에서 재실행해도 안전
 // 하지 않으므로 재시도 없이 단발 st.Query로 실행한다.
 func CompareSetMetaKV(ctx context.Context, st Store, key, oldVal, newVal string) (bool, error) {
+	// v1.0.11(R12-A1): 인자는 스프레드 전달 — variadic Query에 슬라이스
+	// 1개로 넘기면 pgx가 "expected 3, got 1"로 거부해 CAS가 전면 불능
+	// 되었다(실DB 실증 — fake claim 주입 테스트는 이 결함을 못 본다).
 	rows, err := st.Query(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $3)
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value
 		 WHERE meta.value = $2
-		 RETURNING key`, []any{key, oldVal, newVal})
+		 RETURNING key`, key, oldVal, newVal)
 	if err != nil {
 		return false, err
 	}
