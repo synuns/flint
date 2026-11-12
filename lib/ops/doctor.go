@@ -475,7 +475,8 @@ func flintHookCmd(binPath, sub string) map[string]any {
 	return map[string]any{"type": "command", "command": cmd, "timeout": 10}
 }
 
-// shQuote — POSIX 홑따옴표 인용: 내부 '은 '\'' 로 끊어 이스케이프한다
+// shQuote — POSIX 홑따옴표 인용: 내부 홑따옴표는 닫기-이스케이프-여는
+// 3단 시퀀스로 끊어 이스케이프한다(백슬래시+홑따옴표 조합 — gofmt 안정)
 // (공백·메타 문자 무관 단일 인자 — eval 이중 인용 안에서도 안전).
 func shQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
