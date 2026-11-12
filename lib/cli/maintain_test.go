@@ -181,7 +181,14 @@ func TestMaintainCheckReportFields(t *testing.T) {
 
 // --invalidate --id N --reason — 갱신 경로 호출 + exit 0.
 func TestMaintainInvalidateOK(t *testing.T) {
-	f := &fakeMaint{fakeStore: &fakeStore{}}
+	// v0.41.1: 사전 확인(존재·invalid_at 조회)이 Query를 경유하므로
+	// active 행 1건을 시딩한다(멱등 no-op와 구분되는 최초 무효화 경로).
+	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
+		if strings.Contains(sql, "SELECT invalid_at FROM knowledge") {
+			return [][]any{{nil}}, nil // id 7: active(invalid_at NULL)
+		}
+		return nil, nil
+	}}}
 	out, code := runMaintainArgs(t, f, "--invalidate", "--id", "7", "--reason", "중복")
 	if code != 0 {
 		t.Errorf("exit=%d, want 0 (출력 %q)", code, out)

@@ -25,9 +25,9 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v0.41.0-blue" alt="v0.39.0">
-  <img src="https://img.shields.io/badge/release-v0.41.0-blue" alt="v0.40.0">
-  <img src="https://img.shields.io/badge/release-v0.41.0-blue" alt="v0.41.0"></p>
+  <img src="https://img.shields.io/badge/release-v0.41.1-blue" alt="v0.39.0">
+  <img src="https://img.shields.io/badge/release-v0.41.1-blue" alt="v0.40.0">
+  <img src="https://img.shields.io/badge/release-v0.41.1-blue" alt="v0.41.1"></p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
@@ -46,7 +46,7 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 
 > v0.39.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
 > v0.40.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
-> v0.41.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
+> v0.41.1 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/PLAN.md)
 ---
 
 ## Quick Start
