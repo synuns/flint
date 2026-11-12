@@ -61,6 +61,13 @@
 //   - slices.Concat 결합 — 슬라이스 인자 전체 요소를 무구분자로 잇는
 //     결과로 판정한다(④).
 //
+// v1.0.6 R7 보강(실증 우회 3종 추가 폐쇄 — 재프로브로 우회 확인 후):
+//   - 형식 조립 — fmt 결합 호출의 형식 피연산자가 이어붙이기(+ ) 식이면
+//     ②와 동일한 조립 접기를 적용한다(formatOperand·foldAddString —
+//     Errorf("DEL"+"%s…")·Fprintf(w,"%s"+"ETE…") 폐쇄).
+//   - 자기 참조 재할당 누적 — `s = s + 피연산자` 재할당을 += 와 동등한
+//     누적으로 체인에 잇는다(⑥ splitSelfAdd).
+//
 // 오탐(안내문·검사명의 비SQL "update" 단어)은 writeLiteralAllow 정확
 // 일치 화이트리스트로만 면제한다 — 신규 면제는 이 표에 대한 명시적
 // 선언이어야 한다.
@@ -436,6 +443,26 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 			}
 			switch as.Tok {
 			case token.ASSIGN, token.DEFINE:
+				// R7: `s = s + 피연산자` 자기 참조 재할당은 += 와 동등한
+				// 누적으로 체인을 잇는다(자기 참조 원천은 결합에 기여하지
+				// 않는다 — 체인 종자가 이미 그 값을 담는다).
+				if rest, self := splitSelfAdd(as.Rhs[0], id.Name); self {
+					parts, marked, joinable := combineParts(rest, consts, slices, flagged, 0)
+					c := chain[id.Name]
+					if !joinable {
+						flush(c)
+						delete(chain, id.Name)
+						continue
+					}
+					if c == nil {
+						c = &accum{first: as.Pos()}
+						chain[id.Name] = c
+						order = append(order, c)
+					}
+					c.parts = append(c.parts, parts...)
+					c.marked = append(c.marked, marked...)
+					continue
+				}
 				flush(chain[id.Name])
 				delete(chain, id.Name)
 				parts, marked, joinable := combineParts(as.Rhs, consts, slices, flagged, 0)
@@ -567,20 +594,20 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 		if len(call.Args) == 0 {
 			return "", false
 		}
-		flit, ok := call.Args[0].(*ast.BasicLit)
-		if !ok || flit.Kind != token.STRING || flagged[flit.Pos()] {
+		format, _, ok := formatOperand(call.Args[0], consts, flagged)
+		if !ok {
 			return "", false
 		}
-		return sprintfCombined(unquoteLiteral(flit.Value), call.Args[1:], consts, slices, flagged, depth), true
+		return sprintfCombined(format, call.Args[1:], consts, slices, flagged, depth), true
 	case "Fprintf": // R6: args[0]은 작성자(writer) — 결합에서 제외
 		if len(call.Args) < 2 {
 			return "", false
 		}
-		flit, ok := call.Args[1].(*ast.BasicLit)
-		if !ok || flit.Kind != token.STRING || flagged[flit.Pos()] {
+		format, _, ok := formatOperand(call.Args[1], consts, flagged)
+		if !ok {
 			return "", false
 		}
-		return sprintfCombined(unquoteLiteral(flit.Value), call.Args[2:], consts, slices, flagged, depth), true
+		return sprintfCombined(format, call.Args[2:], consts, slices, flagged, depth), true
 	case "Sprint", "Sprintln":
 		if len(call.Args) < 2 {
 			return "", false
@@ -596,6 +623,54 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 		return strings.Join(parts, sep), true
 	}
 	return "", false
+}
+
+// formatOperand — fmt 결합 호출의 형식 피연산자 접기: 문자열 리터럴은
+// 본문, 이어붙이기(+ ) 식은 ②와 동일한 조립 접기(foldAddString — R7:
+// Errorf("DEL"+"%s…")·Fprintf(w,"%s"+"ETE…") 형태 폐쇄), 그 외는 실패.
+// marked는 형식 원천 리터럴 위치(원천이 이미 보고됐으면 실패).
+func formatOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool) (string, []token.Pos, bool) {
+	switch v := e.(type) {
+	case *ast.BasicLit:
+		if v.Kind == token.STRING && !flagged[v.Pos()] {
+			return unquoteLiteral(v.Value), []token.Pos{v.Pos()}, true
+		}
+	case *ast.BinaryExpr:
+		return foldAddString(v, consts, flagged)
+	}
+	return "", nil, false
+}
+
+// foldAddString — 이어붙이기(+ ) 식의 ②식 조립 접기: 문자열 리터럴과
+// 패키지 블록 const Ident 피연산자만 순서대로 합친다. 그 외 피연산자가
+// 섞이거나 원천이 이미 보고됐으면 실패 — 근사 공란 대입으로 형식의 동사
+// 배치를 왜곡하지 않는다.
+func foldAddString(e ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool) (string, []token.Pos, bool) {
+	switch v := e.(type) {
+	case *ast.BasicLit:
+		if v.Kind == token.STRING {
+			if flagged[v.Pos()] {
+				return "", nil, false
+			}
+			return unquoteLiteral(v.Value), []token.Pos{v.Pos()}, true
+		}
+	case *ast.Ident:
+		if ci, ok := consts[v.Name]; ok {
+			if anyFlagged(ci.lits, flagged) {
+				return "", nil, false
+			}
+			return ci.val, ci.lits, true
+		}
+	case *ast.BinaryExpr:
+		if v.Op == token.ADD {
+			l, lits1, ok1 := foldAddString(v.X, consts, flagged)
+			r, lits2, ok2 := foldAddString(v.Y, consts, flagged)
+			if ok1 && ok2 {
+				return l + r, append(lits1, lits2...), true
+			}
+		}
+	}
+	return "", nil, false
 }
 
 // combineParts — 결합 피연산자 식 목록의 정적 접기: 문자열 리터럴은 본문,
@@ -767,6 +842,29 @@ func varStringSliceTable(f *ast.File, consts map[string]constInfo) map[string]sl
 		}
 	}
 	return table
+}
+
+// splitSelfAdd — 이어붙이기(+ ) 재할당 식에서 피할당 Ident(name)의 자기
+// 참조 등장을 걷어낸 나머지 피연산자 목록(R7: `s = s + 피연산자`의 누적
+// 분해). 식에 name이 없으면 (nil, false) — 일반 대입 종자로 판정한다.
+func splitSelfAdd(e ast.Expr, name string) ([]ast.Expr, bool) {
+	found := false
+	var rest []ast.Expr
+	var walk func(e ast.Expr)
+	walk = func(e ast.Expr) {
+		if bin, ok := e.(*ast.BinaryExpr); ok && bin.Op == token.ADD {
+			walk(bin.X)
+			walk(bin.Y)
+			return
+		}
+		if id, ok := e.(*ast.Ident); ok && id.Name == name {
+			found = true
+			return
+		}
+		rest = append(rest, e)
+	}
+	walk(e)
+	return rest, found
 }
 
 // isStringSliceType — 식이 []string 타입 표기(길이 없는 배열·요소
@@ -977,6 +1075,37 @@ var r6A = []string{"DEL"}
 var r6B = []string{"ETE FROM meta WHERE key='demo'"}
 func f() []string { return slices.Concat(r6A, r6B) }`,
 			wantHit: true,
+		},
+		{
+			name: "형식 조립 Errorf 결합(R7)",
+			src: `package ops
+func f() error { return fmt.Errorf("DEL"+"%s FROM meta WHERE key='demo'", "ETE") }`,
+			wantHit: true,
+		},
+		{
+			name: "형식 조립 Fprintf 결합(R7: 작성자 인자 제외)",
+			src: `package ops
+func f() { fmt.Fprintf(w, "%s"+"ETE FROM meta WHERE key='demo'", "DEL") }`,
+			wantHit: true,
+		},
+		{
+			name: "자기 참조 재할당 누적 결합(R7: s = s + 피연산자)",
+			src: `package ops
+func f() string {
+	s := "DEL"
+	s = s + "ETE FROM meta WHERE key='demo'"
+	return s
+}`,
+			wantHit: true,
+		},
+		{
+			name: "오탐 방어: 무해 재할당(누적 결과가 화이트리스트 본문)",
+			src: `package ops
+func f() string {
+	s := "fix: flint "
+	s = s + "update"
+	return s
+}`,
 		},
 		{
 			name: "오탐 방어: 비SQL 안내문(화이트리스트)",
