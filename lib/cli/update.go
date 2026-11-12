@@ -88,6 +88,7 @@ type updateCache struct {
 // 시 1회 명시 우회 — ADR-0014). 프로세스 상태로 유지되므로 MCP 등
 // 재진입 호출처가 update를 노출하는 미래 변경에 대비해 진입마다
 // 리셋된다(v0.31.3 감사 4 — 방어).
+// v1.0.1(F3): unknown flag는 무효 인자 exit 3(네트워크 접근 전 검증).
 var updateSkipSignature = false
 
 func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
@@ -102,7 +103,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 			fmt.Fprintln(os.Stderr, "[flint] update: 서명 검증 우회(신뢰 이전 1회용 — ADR-0014 키 롤링 절차)")
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", a)))
-			return 1
+			return 3
 		}
 	}
 	latest, err := fetchLatestVersion()

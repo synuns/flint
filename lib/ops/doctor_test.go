@@ -826,6 +826,64 @@ func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 	}
 }
 
+// TestDoctorSecretsScanProjects — v1.0.1 감사(F4): projects.name 사후
+// 스캔 — restore·레거시 유입은 쓰기 시점 스캔을 우회한다(세션 경로와 같은
+// 사각 폐쇄). 발견은 패턴명#project:id로만 보고(본문 미출력).
+func TestDoctorSecretsScanProjects(t *testing.T) {
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "key IN ('pending_max'") {
+			return nil, nil
+		}
+		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
+			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
+		}
+		if strings.Contains(sql, "FROM sessions") {
+			return [][]any{{int64(3), "claude", "무해한 요약"}}, nil
+		}
+		if strings.Contains(sql, "FROM projects") {
+			return [][]any{{int64(5), "토큰 ghp_abcdefghijklmnopqrst 담은 프로젝트명"}}, nil
+		}
+		return nil, nil
+	}}
+	c := checkSecrets(context.Background(), f)
+	if c.Status != "warn" || !strings.Contains(c.Detail, "github-token#project:5") {
+		t.Errorf("프로젝트 발견 케이스 = %+v", c)
+	}
+}
+
+// TestDoctorMetaHygieneUnknownKeySanitized — v1.0.1 감사(F4): meta-hygiene
+// 미지 키 샘플은 detail에 그대로 흐르는 출력이라 살균 출구를 통과한다.
+func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM meta") {
+			return [][]any{{"legacy[flint]key"}}, nil
+		}
+		return nil, nil
+	}}
+	c := checkMetaHygiene(context.Background(), f)
+	if c.Status != "warn" || !strings.Contains(c.Detail, "미지 키 1건") {
+		t.Fatalf("미지 키 경고 = %+v", c)
+	}
+	if strings.Contains(c.Detail, "[flint]") {
+		t.Errorf("미지 키 원문 노출: %s", c.Detail)
+	}
+	if !strings.Contains(c.Detail, "legacy key") {
+		t.Errorf("살균된 키 미출력: %s", c.Detail)
+	}
+}
+
+// TestFlintHookCmdEvalWrapped — v1.0.1 감사(F4): doctor가 설치하는 훅
+// 명령도 jq @sh+eval 패턴 — 이중따옴표 치환("$(jq …)") 재발 방지.
+func TestFlintHookCmdEvalWrapped(t *testing.T) {
+	cmd := flintHookCmd("/x/flint", `session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)`)["command"].(string)
+	if !strings.HasPrefix(cmd, `eval "/x/flint `) {
+		t.Errorf("eval 래핑 부재: %q", cmd)
+	}
+	if strings.Contains(cmd, `"$(jq`) {
+		t.Errorf("이중따옴표 치환 잔존: %q", cmd)
+	}
+}
+
 // TestDoctorFullChainIncludesTailChecks — v0.28.1: 전체 실행 체인과
 // doctorTailChecks(--check 허용 목록)의 정합 — v0.28.0에서 backup-key를
 // 목록에만 추가하고 체인 append를 누락해 전체 doctor가 체크를 실행하지

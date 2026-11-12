@@ -65,6 +65,36 @@ func TestHooksJsonThreeEntries(t *testing.T) {
 	}
 }
 
+// TestHooksJsonSessionIdQuotedSafe — v1.0.1 감사(F4): session_id 치환은
+// jq @sh + eval — 이중따옴표 치환("$(jq …)")은 id 원문의 "·$·`가 이중
+// 인용 안에서 해석되는 셸 삽입 창이었다. 정상 id 그대로 전달·부재 시
+// 빈 인자 동등성은 hooks.json command를 bash로 실행해 실증했다(감사 런).
+func TestHooksJsonSessionIdQuotedSafe(t *testing.T) {
+	b, err := os.ReadFile("../../flint-plugin/hooks/hooks.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var h struct {
+		Hooks map[string][]struct {
+			Hooks []struct {
+				Command string `json:"command"`
+			} `json:"hooks"`
+		} `json:"hooks"`
+	}
+	if err := json.Unmarshal(b, &h); err != nil {
+		t.Fatal(err)
+	}
+	for _, ev := range []string{"SessionStart", "Stop"} {
+		cmd := h.Hooks[ev][0].Hooks[0].Command
+		if strings.Contains(cmd, `"$(jq`) {
+			t.Errorf("%s: 이중따옴표 jq 치환 잔존(삽입 창): %q", ev, cmd)
+		}
+		if !strings.Contains(cmd, "@sh") || !strings.HasPrefix(cmd, "eval ") {
+			t.Errorf("%s: @sh+eval 패턴 부재: %q", ev, cmd)
+		}
+	}
+}
+
 // TestApplyHookFixReplacesLegacyFlintEntries — 기존 5엔트리(hot·nudge·done
 // 직접 실행) flint 훅은 3엔트리(session-start·session-end·compact)로 교체.
 // 타 도구 훅(orca)과 그 외 설정은 불변.

@@ -55,6 +55,8 @@ var BackupEncryptOn = wire.BackupEncryptOn
 // (Dump가 자체 풀을 연다). stdout 모드는 버퍼 경유로 깨끗한 출력을 보장한다.
 // v0.28.0(H②): --encrypt(age 암호화·--out 필수)·--mask(비밀 패턴 치환
 // 진단 덤프 — 사이드카 미부여 비복원 아티팩트).
+// v1.0.1(F3): 인자 검증 경로(unknown flag·값 누락·--encrypt 단독)는 무효
+// 인자 exit 3으로 통일.
 func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	out := ""
 	encrypt, mask := false, false
@@ -64,7 +66,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--out requires a path")))
-				return 1
+				return 3
 			}
 			out = args[i]
 		case "--encrypt":
@@ -73,12 +75,12 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			mask = true
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
-			return 1
+			return 3
 		}
 	}
 	if encrypt && out == "" {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--encrypt requires --out (암호문은 파일로만)")))
-		return 1
+		return 3
 	}
 	// v0.28.2: --out이 git 저장소 내부면 경고(진행 유지 — 사용자 명시
 	// 선택이나 개인 데이터 덤프의 repo 반입·커밋·동기화 유출 사고 예방).
@@ -212,6 +214,8 @@ func rotateAfterBackup(ctx context.Context, st wire.Store, out string) string {
 
 // RunRestore — 덤프 스크립트 재생. --file 필수. --drill은 실재생 대신
 // flint_drill_db 임시 데이터베이스 재생 훈련(T55) — 원본 불변, 결과만 보고.
+// v1.0.1(F3): 인자 검증 경로(unknown flag·값 누락·--file 부재)는 무효
+// 인자 exit 3으로 통일.
 func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	file := ""
 	drill := false
@@ -223,17 +227,17 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--file requires a path")))
-				return 1
+				return 3
 			}
 			file = args[i]
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
-			return 1
+			return 3
 		}
 	}
 	if file == "" {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("restore requires --file")))
-		return 1
+		return 3
 	}
 
 	// ADR-0006 restore 가드 — 재생 전 체크섬 검증(가드는 이 1곳뿐).

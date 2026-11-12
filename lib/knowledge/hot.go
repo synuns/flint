@@ -274,17 +274,26 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	// session-start 경계 기록과 단일 소스(v0.20.0 리뷰 #7). --full 판별은
 	// 세션 값으로 소비된 토큰을 플래그로 재판독하지 않는다(변칙 입력
 	// `--session --full`의 기존 full=true 부작용 제거 — read의 플래그형 값
-	// 방어와 같은 방향).
+	// 방어와 같은 방향). v1.0.1(F3): --session 라벨은 read와 같은 공용 가드
+	// (validateSessionLabel)로 검증 — 빈 값·'-' 접두 오타는 무효 인자 exit 3.
 	session := SessionLabelFn(args)
+	sessionGiven := false
 	full := false
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--session" && i+1 < len(args) {
-			i++
+		if args[i] == "--session" {
+			sessionGiven = true
+			if i+1 < len(args) {
+				i++
+			}
 			continue
 		}
 		if args[i] == "--full" {
 			full = true
 		}
+	}
+	if err := validateSessionLabel(sessionGiven, session); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 3
 	}
 	sql := query.HotSQL(session)
 	if !full {

@@ -5,6 +5,7 @@ package wire
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strconv"
@@ -170,5 +171,35 @@ func TestMetaKVStoreRoundtrip(t *testing.T) {
 	}
 	if v, ok := GetMetaKV(ctx, st, "meta_kv_absent_test"); v != "" || ok {
 		t.Fatalf("미존재 키: GetMetaKV = (%q,%v), want (\"\",false)", v, ok)
+	}
+}
+
+// bumpFailFake — 증분 upsert SQL에서 오류를 돌려주는 metaKVFake 래퍼.
+// Query 호출 수를 세어 재시도 여부를 가린다(v1.0.1 F2).
+type bumpFailFake struct {
+	metaKVFake
+	calls int
+}
+
+func (f *bumpFailFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	f.calls++
+	if strings.Contains(sql, "INSERT INTO meta") && strings.Contains(sql, "'1')") {
+		return nil, errors.New("ambiguous write failure")
+	}
+	return f.metaKVFake.Query(ctx, sql, args...)
+}
+
+// TestBumpMetaKVRunsSingleAttempt — Review Focus(v1.0.1 F2): 증분은
+// 비멱등이라 Query 실패 시에도 단발 실행(총 Query 1회)이어야 한다.
+// QueryOnce 재시도는 모호 실패(서버에서 실행된 뒤 응답만 유실)에서
+// 증분을 이중 계상한다.
+func TestBumpMetaKVRunsSingleAttempt(t *testing.T) {
+	ctx := context.Background()
+	f := &bumpFailFake{metaKVFake: metaKVFake{meta: map[string]string{}}}
+	if err := BumpMetaKV(ctx, f, "bump_once_probe"); err == nil {
+		t.Fatalf("BumpMetaKV 오류 = nil, want 실패 전파(호출부 계측 원칙의 전제)")
+	}
+	if f.calls != 1 {
+		t.Fatalf("Query 실행 %d회, want 1 — 비멱등 증분의 재시도는 이중 계상", f.calls)
 	}
 }

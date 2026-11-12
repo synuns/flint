@@ -38,11 +38,16 @@ func SetMetaKV(ctx context.Context, st Store, key, value string) error {
 // BumpMetaKV — 카운터 키 1회 원자 증분. SELECT→INSERT 비원자 왕복
 // 없이 단일 upsert에서 계산한다. 기존값이 양의 정수 표기가 아니면
 // (부재·파손) 1로 리셋 — 기존 read_fallback_calls 폴백과 동일 결과.
+// 계약(v1.0.1 F2): 증분은 비멱등이라 재시도 금지 — QueryOnce(오류 시 1회
+// 재실행)를 쓰면 모호 실패(서버에서 실행된 뒤 응답만 유실)에서 이중
+// 계상한다. 단발 st.Query로 실행하고 실패는 그대로 전파한다(호출부는
+// 계측 원칙으로 흡수 — done.go·read.go 참조). SetMetaKV(멱등 갱신)·
+// GetMetaKVErr(읽기)만 QueryOnce를 쓴다.
 func BumpMetaKV(ctx context.Context, st Store, key string) error {
-	_, err := QueryOnce(ctx, st,
+	_, err := st.Query(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, '1')
 		 ON CONFLICT (key) DO UPDATE SET value = CASE
 		   WHEN meta.value ~ '^[0-9]+$' THEN (meta.value::bigint + 1)::text
-		   ELSE '1' END`, []any{key})
+		   ELSE '1' END`, key)
 	return err
 }

@@ -1,5 +1,5 @@
 // runbook_test.go — RUNBOOK.md에 운영 절차들과 doctor 검사 표 계약이
-// 존재하는지 검증한다(T53·v0.34.2 T5 — 검사 16종 표·스키마 v8).
+// 존재하는지 검증한다(T53·v0.34.2 T5 — 검사 16종 표·스키마 버전 표기).
 package docs
 
 import (
@@ -51,15 +51,18 @@ func TestRunbookDoctorCheckTable(t *testing.T) {
 	}
 }
 
-// TestRunbookSchemaVersion — schema 검사 행이 현재 스키마 버전 v8를
-// 기술하는지 검증(v0.34.2 T5 — lib/db EnsureSchemaV8 기준).
+// TestRunbookSchemaVersion — schema 검사 행이 현재 스키마 버전 v9를
+// 기술하는지 검증(v0.34.2 T5 — lib/db LatestSchemaVersion=9 기준.
+// v1.0.1 감사 F7: v8 고정 서술이 스키마 v9(v0.42.0) 이후 낡음).
 func TestRunbookSchemaVersion(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 
-	if !strings.Contains(doc, "현재 v8") {
-		t.Error("RUNBOOK.md schema 행에 '현재 v8' 없음")
+	if !strings.Contains(doc, "현재 v9") {
+		t.Error("RUNBOOK.md schema 행에 '현재 v9' 없음")
 	}
-	if strings.Contains(doc, "현재 v7") {
-		t.Error("RUNBOOK.md에 낡은 '현재 v7' 잔존")
+	for _, stale := range []string{"현재 v8", "현재 v7"} {
+		if strings.Contains(doc, stale) {
+			t.Errorf("RUNBOOK.md에 낡은 '%s' 잔존", stale)
+		}
 	}
 }

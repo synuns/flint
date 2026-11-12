@@ -129,13 +129,48 @@ func TestAuditServerDownExit2(t *testing.T) {
 	}
 }
 
-// TestAuditBadFlagExit1 — 알 수 없는 플래그는 exit 1 한 줄 JSON.
-func TestAuditBadFlagExit1(t *testing.T) {
+// TestAuditBadFlagExit3 — 알 수 없는 플래그는 무효 인자 exit 3 한 줄 JSON
+// (v1.0.1 F3 — exit 1에서 통일).
+func TestAuditBadFlagExit3(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
 	out, code := mustRun(t, []string{"audit", "--bogus"}, "")
-	if code != 1 {
-		t.Fatalf("exit=%d, want 1", code)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3", code)
 	}
 	decode(t, out)
+}
+
+// TestAuditSanitizesStringColumns — v1.0.1 감사(F4): dolt_log·dolt_diff의
+// 문자열 열(commit_hash·committer·table_name)이 render.Text 재살균을
+// 통과한다 — 미살균이면 [flint] 마커·제어문자가 원문 그대로 노출된다.
+func TestAuditSanitizesStringColumns(t *testing.T) {
+	f := &fakeStore{}
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "dolt_diff") {
+			return [][]any{{"ha\x01sh1", "table_[flint]_x", true, false}}, nil
+		}
+		return [][]any{
+			{"ha\x01sh1", "committer-[flint]-b", "2026-10-22 09:00:00", "m"},
+		}, nil
+	}
+	withFake(t, f)
+	out, code := mustRun(t, []string{"audit", "--stat"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	e := decode(t, out)["log"].([]any)[0].(map[string]any)
+	if e["commit_hash"] != "hash1" {
+		t.Errorf("commit_hash 미살균: %q", e["commit_hash"])
+	}
+	if e["committer"] != "committer- -b" {
+		t.Errorf("committer 미살균: %q", e["committer"])
+	}
+	stat, ok := e["stat"].(map[string]any)
+	if !ok {
+		t.Fatalf("stat 부록 부재: %v", e["stat"])
+	}
+	if _, ok := stat["table_ _x"]; !ok {
+		t.Errorf("table_name 미살균: %v", stat)
+	}
 }

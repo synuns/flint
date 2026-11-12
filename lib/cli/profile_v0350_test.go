@@ -65,12 +65,14 @@ func TestProfileRecommendsBySample(t *testing.T) {
 }
 
 // TestProfileApplyInvalidRejected — 무효 값 exit 1.
+// v1.0.1(F3): 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
+// --exposure와 정합).
 func TestProfileApplyInvalidRejected(t *testing.T) {
 	var out strings.Builder
-	if code := runProfile(context.Background(), profFake(0, 0), []string{"--apply", "bogus"}, nil, &out); code != 1 {
+	if code := runProfile(context.Background(), profFake(0, 0), []string{"--apply", "bogus"}, nil, &out); code != 3 {
 		t.Errorf("무효 apply exit=%d: %s", code, out.String())
 	}
-	if code := runProfile(context.Background(), profFake(0, 0), []string{"--verbose"}, nil, &out); code != 1 {
+	if code := runProfile(context.Background(), profFake(0, 0), []string{"--verbose"}, nil, &out); code != 3 {
 		t.Errorf("무효 플래그 exit=%d", code)
 	}
 }

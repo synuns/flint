@@ -129,6 +129,9 @@ type ReadEvent struct {
 // v0.30.0: 첫 topic 정합 순위(firstRank, 0=정합 없음·폴백 제외) 추가.
 // v0.42.0: ReadEvent 구조체 1값 수렴. 사용 연쇄(chain) 산출 원천.
 // INSERT 전용이라 읽기-쓰기 경합(40001)이 없고 재시도 없이 단발 실행한다.
+// v1.0.1 F2: 성공 경로에서 maybePruneAfterRead(24h 게이트 정리 훅)을
+// 함께 발화한다 — read가 RecordUsage를 우회하는 v0.42 구조에서도 정리가
+// 일어나야 하기 때문(아래 훅 주석 참조).
 func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)
@@ -137,7 +140,54 @@ func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	if err != nil {
 		return fmt.Errorf("record read event: %w", err)
 	}
+	r.maybePruneAfterRead(ctx)
 	return nil
+}
+
+// pruneReadGateKey — read 경로 정리 훅의 24h 게이트 meta 키(last_*_at
+// RFC3339 관례 준용). last_read_at과는 별개 키다(유입 계측 시각 아님).
+const pruneReadGateKey = "last_events_prune_at"
+
+// pruneGateDue — 게이트 판정 순수 함수(단위 테스트 대상): last가 RFC3339로
+// 파싱되고 24h 이내면 거짓(정리 스킵), 그 외(부재·공란·파손·24h 경과)는 참.
+func pruneGateDue(last string, now time.Time) bool {
+	if last == "" {
+		return true
+	}
+	t, err := time.Parse(time.RFC3339, last)
+	if err != nil {
+		return true
+	}
+	return now.Sub(t) >= 24*time.Hour
+}
+
+// maybePruneAfterRead — read 전용 세션의 정리 훅(v1.0.1 F2). v0.42.0 T2가
+// RecordReadUsage(read daily 쓰기)를 폐지하면서 read 경로가
+// recordWithRetry(롤오버 훅)를 지나지 않게 됐다 — write가 없는 세션에서는
+// PruneReadEvents가 발화되지 않아 read_events가 보존 한게 넘게 무한
+// 증가한다. RecordReadEvent 성공 경로에서 last_events_prune_at 게이트가
+// 열릴 때(마지막 정리 후 24h — 매 read마다 DELETE·meta 왕복은 핫패스
+// 낭비) PruneDaily·PruneReadEvents를 실행한다. 정리 성공 시에만 게이트를
+// 새겨 실패한 정리가 하루 동안 묻히지 않게 한다(스탬프-후-실패면 재시도
+// 없이 24h 스킵). 병렬 read가 동시에 통과해도 DELETE는 멱등 — 중복 실행
+// 무해하다. 게이트 읽기·정리·스탬프 실패는 조용히 넘긴다(계측 원칙).
+func (r *Repo) maybePruneAfterRead(ctx context.Context) {
+	var last string
+	_ = r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = $1`, pruneReadGateKey).Scan(&last)
+	if !pruneGateDue(last, time.Now().UTC()) {
+		return
+	}
+	if err := r.PruneDaily(ctx); err != nil {
+		return
+	}
+	if err := r.PruneReadEvents(ctx); err != nil {
+		return
+	}
+	_, _ = r.pool.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+		pruneReadGateKey, time.Now().UTC().Format(time.RFC3339))
 }
 
 // RecordSessionStart — 세션 시작 경계 1행(v0.20.0, session-start 커맨드).
@@ -206,9 +256,11 @@ func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Th
 // 30일(dead_pct 노출 정합 가드 창과 정렬 — 14일이면 가드가 문서 계약의
 // 절반만 커버한다, 리뷰 #3). v0.20.4: 보존일은 meta 오버라이드
 // (events_retention_days·hot_events_retention_days, TUNING §2) — 키
-// 부재·파손은 기본값. 트리거는 recordWithRetry의 롤오버 훅(PruneDaily와
-// 동시) — 첫 read가 날짜를 넘기면 그 시점에 정리된다(하루 1회라 메타
-// 읽기 왕복 부담 없음). 실패는 호출부가 조용히 넘긴다(계측 원칙).
+// 부재·파손은 기본값. 트리거는 2개(PruneDaily와 동시 발화): ① recordWithRetry의
+// 롤오버 훅(오늘 daily 키 신규 생성 — 하루 첫 write 계측), ② v1.0.1 F2
+// maybePruneAfterRead(RecordReadEvent 성공 + last_events_prune_at 24h 게이트
+// — read만 하는 세션에서도 정리가 일어난다). 하루 1회 수준이라 메타
+// 읽기 왕복 부담이 없다. 실패는 호출부가 조용히 넘긴다(계측 원칙).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "events_retention_days", "hot_events_retention_days")
 	retention := map[string]int{

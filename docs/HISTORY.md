@@ -1,12 +1,24 @@
 # flint 버전 이력 (아카이브)
 
-flint의 전체 버전 이력(v0.1~v0.43.0) — v0.21.2(마일스톤 C③)부터
+flint의 전체 버전 이력(v0.1~v1.0.0) — v0.21.2(마일스톤 C③)부터
 PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0(PLAN
 재무장)부터 §14 전체 엔트리가 이관돼 PLAN.md는 현행 계약 2페이지만
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v0.1 코어 루프 (2026-10-21 완료)
+#### v1.0.1 패치 (2026-11-12) — v1.0.0 출시 후 다각도 감사 R1
+
+6각도(정확성·계약·보안·가드 레드팀·성능·문서) 병렬 감사 32건 도출·수정:
+
+- [x] status 스키마 허용 목록 LatestSchemaVersion 파생(v9 DB exit 3 결함)·AS OF 해시 재검증
+- [x] Invalidate 재갱신 가드(invalid_at IS NULL — supersede 계보 보존)·read 경로 prune 훅 복구(24h 게이트)·BumpMetaKV 단발 멱등화
+- [x] exit 3 통일(unknown flag·무효값 전 커맨드 — 표 구동 계약 테스트)·--limit/--session 정합
+- [x] audit 전열 살균·doctor projects 사후스캔·tuning 값 render·hooks.json @sh+eval(재설치 경로 동반)
+- [x] 가드 보강 7종(토큰화·재귀 스캔·패키지 전체·hidden 고정 — 재프로브 전 건 적발)
+- [x] 게이트 순회 probe 스킵(접속당 21→6왕복)·thresholds 1회 로드
+- [x] HISTORY v0.44.0·v1.0.0 엔트리 보강·RUNBOOK v9·cli.md exit 표·flint_hot session_id 제거·MCP -32600 응답
+
+## v0.1 코어 루프 (2026-10-21 완료)
 - [x] 기술검증 3건 → Doltgres 구동·스키마 → write/read/hot/status
 - [x] 수동 백업(덤프) → Claude Code 플러그인(훅+스킬) → 시딩
 - 시딩: 활성 프로젝트 3건(데모 게임 프로젝트·데모 유틸 프로젝트·데모 스크립트 모음) + flint 기획 결정
@@ -1593,7 +1605,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 
 세부: [docs/plans/2026-11-13-flint-v0400.spec.md](plans/2026-11-13-flint-v0400.spec.md)
 
-### v0.41.0 마이너 (2026-11-13) — 스키마 진실: 게이트 등록표·상태 전이 단일화·쓰기 repo 집중
+### v0.41.0 마이너 (2026-11-12) — 스키마 진실: 게이트 등록표·상태 전이 단일화·쓰기 repo 집중
 
 스키마 진실 단일화 — 스키마·상태·쓰기의 진실 원천을 lib/db로 모은다.
 동작·출력·exit 불변(데이터 이전 없음, 구조만).
@@ -1621,7 +1633,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 
 세부: [docs/plans/2026-11-13-flint-v0411.spec.md](plans/2026-11-13-flint-v0411.spec.md)
 
-### v0.42.0 마이너 (2026-11-13) — 계측·튜닝 단일 원천: 등록표·파생 산출·이벤트 인덱스
+### v0.42.0 마이너 (2026-11-12) — 계측·튜닝 단일 원천: 등록표·파생 산출·이벤트 인덱스
 
 지표 수치·보고 값 불변 원칙 아래 계측·튜닝의 진실 원천을 단일화한다.
 스키마 v9는 additive(기존 DB 무손상).
@@ -1654,7 +1666,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 
 세부: [docs/plans/2026-11-13-flint-v0422.spec.md](plans/2026-11-13-flint-v0422.spec.md)
 
-### v0.43.0 마이너 (2026-11-13) — seam 동질화: fake-capability 단언 전수·술어 수렴·wrapper 사유 명시
+### v0.43.0 마이너 (2026-11-12) — seam 동질화: fake-capability 단언 전수·술어 수렴·wrapper 사유 명시
 
 프로덕션 동작 불변 — 테스트 인프라 동질화가 본체(2026-11-11 리뷰
 병인 ③ 해소 완결).
@@ -1680,7 +1692,45 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 
 세부: [docs/plans/2026-11-13-flint-v0433.spec.md](plans/2026-11-13-flint-v0433.spec.md)
 
+### v0.44.0 마이너 (2026-11-12) — PLAN 재무장·표면 계약 6종·커맨드 표 가드: 병인 ⑤ 해소 완결·v1.0.0 게이트 준비
+
+2026-11-11 전면 리뷰 병인 ⑤(기획 문서 사망 — PLAN이 이력 창고화돼
+현행 계약을 기술하지 않음)를 해소한다. 코드 무변경(문서 재구성 +
+문서-코드 동기 가드 신규만).
+
+- [x] PLAN 재무장 1512→106줄 — §14 61엔트리 전수 HISTORY 이관(시간순)·
+  현행 구조 2페이지(아키텍처·데이터 계약·원칙·비목표)로 재작성.
+  구 본문 모순 4지점(서브커맨드 14·MCP 도구 3종·훅 2종·실현된 비목표
+  self-update)은 TestPlanRearmedTwoPageContract가 봉쇄
+- [x] 표면 계약 문서 6종 — docs/contracts/{cli,mcp,hooks,plugin,
+  registry,bridge}.md 각 1페이지(코드 대조 — exit 표·도구 5종·훅 3종·
+  배포 경로). 예시는 버전 숫자를 고정하지 않는다
+  (TestContractsExamplesNotPinned)
+- [x] 커맨드 표 동기 가드 — TestCommandTableMatchesRegistry(README
+  EN/KO 커맨드 나열 == wire.Registered, hiddenFromUsage 제외)·
+  TestSkillToolListMatchesMCP(SKILL 도구 == MCP 5종). 도입 시점 표
+  8커맨드 누락을 포획·수정
+- [x] 버전 — VERSION·배지 v0.44.0(EN/KO)·plugin.json 동기
+
+세부: [docs/plans/2026-11-13-flint-v0444.spec.md](plans/2026-11-13-flint-v0444.spec.md)
+
+### v1.0.0 메이저 (2026-11-12) — 구조 수렴 완결·게이트 충족: 안정 기조 전환
+
+2026-11-11 전면 리뷰(39건·병인 5개) → 구조 수렴 시리즈 v0.37~v0.44로
+전 병인 해소. v1.0.0 게이트(표면 계약 6종·커맨드 표 가드·단일 소스+
+동질 가드 체계) 충족 선언.
+
+- [x] 게이트 충족 — usageOrder·thresholds 등록표·쓰기 repo 전용
+  AST·살균 조크포인트·fake 동질·커맨드 표·스키마 게이트 연속성
+  상시 가드 전부 녹색
+- [x] 배지 가드 메이저 점프 허용 — plannedBadgeVersions에 다음
+  메이저(v(M+1).0.0) 후보 추가(0.x → 1.0.0 전환 창)
+- [x] PLAN v1.0.0 달성 선언 — 다음 마일스톤을 안정 기조(관측 이월
+  재판정·이름 충돌 재스윕·트리거 대기 원칙)로 전환
+- [x] 버전 — VERSION·배지 v1.0.0(EN/KO)·plugin.json 동기
+
 ---
+
 
 <!-- v0.44.0 T1: 구 PLAN.md §15~§18 부록(기획 시대 기록 보존) -->
 

@@ -1,5 +1,6 @@
 // done.go — flint done: Stop 훅 종료 경로. 미기록 연속 경고만 내고
-// 종료를 절대 막지 않는다(PLAN §13 비간섭 5원칙 — 어떤 경로든 exit 0).
+// 종료를 절대 막지 않는다(PLAN §13 비간섭 5원칙 — 어떤 경로든 exit 0.
+// v1.0.1(F3) 예외: --session 무효 값(빈 값·'-' 접두)만 무효 인자 exit 3).
 // v0.39.0 T4: lib/cli에서 이동(cli/done.go 원본. realStore 위임 메서드
 // StaleSessionRuns·LogPlaybookUse는 cli/realstore_curation.go로 추출.
 // 마커 기록은 cli marker.go 소유 — WriteTypedMarkerFn seam 주입).
@@ -173,13 +174,20 @@ func staleRuns(ctx context.Context, st wire.Store, agent string) (int, error) {
 
 // RunDone — `flint done --session <id>`: 미기록 연속 >= StaleSessions면
 // stale 경고, 그 외 ok. 경고일 뿐 종료를 막지 않는다(항상 exit 0).
+// v1.0.1(F3) 예외: --session 무효 값(빈 값·'-' 접두)은 무효 인자 exit 3 —
+// read·hot와 같은 공용 가드. 훅 실배선은 항상 실제 세션 id를 넘기므로
+// 정상 종료 경로는 불변(플래그 미지정의 사용법 안내는 여전히 exit 0).
 func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	session := ""
+	sessionGiven := false
 	playbook, playbookOK := 0, true // --playbook <id>·--playbook-ok <bool>(기본 성공)
 	for i := 0; i < len(args); i++ {
-		if args[i] == "--session" && i+1 < len(args) {
-			session = args[i+1]
-			i++
+		if args[i] == "--session" {
+			sessionGiven = true
+			if i+1 < len(args) {
+				session = args[i+1]
+				i++
+			}
 		}
 		if args[i] == "--playbook" && i+1 < len(args) {
 			// 최근 read가 참조한 플레이북 id를 훅이 넘긴다(T37 사용 로그).
@@ -194,6 +202,12 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			}
 			i++
 		}
+	}
+	// v1.0.1(F3): --session 라벨 가드 — read·hot 공용 계약(빈 값·플래그
+	// 흡수 오타는 무효 인자 exit 3, 세션 라벨의 DB 기록 오염 방지).
+	if err := validateSessionLabel(sessionGiven, session); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 3
 	}
 	if session == "" {
 		// 사용법 오류도 종료를 막지 않는다 — 한 줄 JSON, exit 0(§13).

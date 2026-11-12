@@ -585,6 +585,26 @@ func TestVersionArtifactsSync(t *testing.T) {
 	}
 }
 
+// TestReadmeReleaseBadgeSingle — v1.0.1 감사(릴리스 동기): release 배지는
+// README당 1개뿐이어야 한다. 릴리스마다 배지를 갱신하지 않고 추가해 온
+// 드리프트가 v1.0.1에서 동일 src 3중 배지(alt만 v0.43.0·v0.44.0·v1.0.1)
+// 로 드러났다 — src 전량 동기(갱신)는 맞지만 중복 행은 남아 있다. 배지
+// 1개·alt=VERSION 동기까지 강제한다.
+func TestReadmeReleaseBadgeSingle(t *testing.T) {
+	ver := strings.TrimSpace(docStr(t, "../VERSION"))
+	badgeRe := regexp.MustCompile(`<img src="https://img\.shields\.io/badge/release-v(\d+\.\d+\.\d+)-blue" alt="v(\d+\.\d+\.\d+)">`)
+	for _, p := range []string{"../README.md", "../README.ko.md"} {
+		ms := badgeRe.FindAllStringSubmatch(docStr(t, p), -1)
+		if len(ms) != 1 {
+			t.Errorf("%s release 배지 %d건, want 1(중복 배지 드리프트)", p, len(ms))
+			continue
+		}
+		if ms[0][1] != ver || ms[0][2] != ver {
+			t.Errorf("%s release 배지 src=v%s alt=v%s, want 둘 다 v%s(VERSION)", p, ms[0][1], ms[0][2], ver)
+		}
+	}
+}
+
 // TestPlanRearmedTwoPageContract — v0.44.0 T1(PLAN 재무장): PLAN.md는
 // 현행 계약 2페이지(≤150줄)로 유지된다. ① 줄 수 상한 ② 현행 구조·원칙·
 // v1.0.0 마일스톤 서술 ③ 구 본문 4개 모순 지점(서브커맨드 14·MCP 도구
@@ -623,28 +643,66 @@ func TestPlanRearmedTwoPageContract(t *testing.T) {
 	}
 }
 
+// contractsSemverRe — 고정 금지 대상 semver(단어 경계).
+var contractsSemverRe = regexp.MustCompile(`\b\d+\.\d+\.\d+\b`)
+
+// pinnedExamples — 계약 문서 본문에서 버전 숫자를 고정한 '예시' 조각을
+// 전부 반환한다. 예시 범위 v1.0.1 R1-D 확장: 펜스 코드 블록(``` ```)
+// 뿐 아니라 인라인 백틱 스팬(`flint@0.43.0` — 펜스 밖이라 구 가드가
+// 못 봤다)도 예시로 취급한다. 백틱 없는 산문의 버전 서술("v0.12.0부터"
+// 류 역사 언급)은 예시가 아니므로 대상 아니다.
+func pinnedExamples(doc string) []string {
+	var pinned []string
+	check := func(span string) {
+		if contractsSemverRe.MatchString(span) {
+			pinned = append(pinned, span)
+		}
+	}
+	for _, block := range regexp.MustCompile("(?s)```.*?```").FindAllString(doc, -1) {
+		check(block)
+	}
+	withoutFences := regexp.MustCompile("(?s)```.*?```").ReplaceAllString(doc, "")
+	for _, span := range regexp.MustCompile("`[^`\n]*`").FindAllString(withoutFences, -1) {
+		check(span)
+	}
+	return pinned
+}
+
 // TestContractsExamplesNotPinned — v0.44.0 리뷰: 계약 문서(docs/contracts/)
-// 예시 코드 블록은 버전 숫자를 고정하지 않는다. plugin.md가 릴리스 직후
-// 구버전(0.43.0) 예시로 부실화된 사례의 재발 방지 — 표면 문서는 버전
-// 동기 게이트(TestVersionArtifactsSync) 대상이 아니므로 여기서 금지.
+// 예시(펜스 블록·인라인 백틱)는 버전 숫자를 고정하지 않는다. plugin.md가
+// 릴리스 직후 구버전(0.43.0) 예시로 부실화된 사례의 재발 방지 — 표면
+// 문서는 버전 동기 게이트(TestVersionArtifactsSync) 대상이 아니므로
+// 여기서 금지.
 func TestContractsExamplesNotPinned(t *testing.T) {
 	files, err := filepath.Glob("contracts/*.md")
 	if err != nil || len(files) != 6 {
 		t.Fatalf("contracts/*.md 6종 탐색 실패: %v %v", files, err)
 	}
-	semver := regexp.MustCompile(`\b\d+\.\d+\.\d+\b`)
 	for _, f := range files {
-		s := docStr(t, f)
-		for _, block := range regexp.MustCompile("(?s)```.*?```").FindAllString(s, -1) {
-			if m := semver.FindString(block); m != "" {
-				t.Errorf("%s 예시 코드 블록에 버전 고정 %q — 버전 불문 서술로(드리프트 원천)", f, m)
-			}
+		for _, span := range pinnedExamples(docStr(t, f)) {
+			t.Errorf("%s 예시(펜스·인라인)에 버전 고정 포함 — 버전 불문 서술로(드리프트 원천): %q", f, span)
 		}
+	}
+}
+
+// TestPinnedExamplesCoverInlineBackticks — R1-D 회귀: 인라인 백틱 버전
+// 고정(`flint@0.43.0`)도 검출되고, 백틱 없는 산문 버전 언급은 오탐
+// 아니어야 한다(합성 문서로 단언).
+func TestPinnedExamplesCoverInlineBackticks(t *testing.T) {
+	doc := "설치는 `flint@0.43.0` 태그를 쓴다.\n\n```sh\n/plugin install flint@latest\n```\n"
+	got := pinnedExamples(doc)
+	if len(got) != 1 || !strings.Contains(got[0], "flint@0.43.0") {
+		t.Fatalf("인라인 백틱 버전 고정 미검출: %v", got)
+	}
+	if got := pinnedExamples("v0.12.0부터 도입된 기능이다(산문 서술)."); len(got) != 0 {
+		t.Fatalf("산문 버전 언급 오탐: %v", got)
 	}
 }
 
 // TestHistoryCoversAllErasChronological — v0.44.0 T1(HISTORY 이관): §14
 // 전체 엔트리(v0.19.0+)가 HISTORY.md로 이관됐고 시간순(오름차순) 배열.
+// v1.0.1 감사 F7: v0.44.0·v1.0.0 엔트리도 이관 계약상 여기 있어야
+// 한다(헤더 "v0.1~v1.0.0" 범위와 일치).
 func TestHistoryCoversAllErasChronological(t *testing.T) {
 	s := docStr(t, "HISTORY.md")
 	anchors := []string{
@@ -654,7 +712,10 @@ func TestHistoryCoversAllErasChronological(t *testing.T) {
 		"### v0.31.0", "### v0.32.0", "### v0.33.0", "### v0.34.0",
 		"### v0.35.0", "### v0.36.0", "### v0.37.0", "### v0.38.0",
 		"### v0.39.0", "### v0.40.0", "### v0.41.0", "### v0.42.0",
-		"### v0.43.0",
+		"### v0.43.0", "### v0.44.0", "### v1.0.0",
+	}
+	if !strings.Contains(s, "v0.1~v1.0.0") {
+		t.Error("HISTORY.md 헤더 범위 'v0.1~v1.0.0' 없음")
 	}
 	prev := -1
 	for _, a := range anchors {
@@ -667,6 +728,63 @@ func TestHistoryCoversAllErasChronological(t *testing.T) {
 			t.Errorf("HISTORY.md 시간순 위반: %s가 이전 엔트리보다 앞섬", a)
 		}
 		prev = i
+	}
+}
+
+// TestHistoryEntryDatesMatchMerges — v1.0.1 감사 F7(날짜 오프셋): v0.41~
+// v1.0.0 엔트리 제목 날짜는 실제 릴리스 머지일(2026-11-12)이다. 계획일
+// 오프셋(2026-11-13) 제목 회귀 방지 — 세부 링크의 plans/ 파일명은 제외.
+func TestHistoryEntryDatesMatchMerges(t *testing.T) {
+	s := docStr(t, "HISTORY.md")
+	for _, h := range []string{
+		"### v0.41.0 마이너 (2026-11-12)",
+		"### v0.42.0 마이너 (2026-11-12)",
+		"### v0.43.0 마이너 (2026-11-12)",
+		"### v0.44.0 마이너 (2026-11-12)",
+		"### v1.0.0 메이저 (2026-11-12)",
+	} {
+		if !strings.Contains(s, h) {
+			t.Errorf("HISTORY.md에 머지일 제목 %q 없음", h)
+		}
+	}
+	for _, stale := range []string{
+		"### v0.41.0 마이너 (2026-11-13)",
+		"### v0.42.0 마이너 (2026-11-13)",
+		"### v0.43.0 마이너 (2026-11-13)",
+	} {
+		if strings.Contains(s, stale) {
+			t.Errorf("HISTORY.md에 계획일 오프셋 제목 %q 잔존", stale)
+		}
+	}
+	if !strings.Contains(docStr(t, "PLAN.md"), "2026-11-12 v1.0.0") {
+		t.Error("PLAN.md 날짜줄에 '2026-11-12 v1.0.0' 없음(머지일 오프셋)")
+	}
+}
+
+// TestCliContractExitSemantics — v1.0.1 감사 F7: contracts/cli.md exit 표는
+// 코드(MapExit·read 침묵 계약·doctor fail)와 정합 — exit 3은 무효 인자·
+// 검증 실패(SchemaError)지 스키마 버전 불일치가 아니고(그건 doctor fail
+// = exit 1), exit 1 과적재와 MCP isError 출력 유무 판정·실제 read 출력
+// 형식이 명시된다.
+func TestCliContractExitSemantics(t *testing.T) {
+	s := docStr(t, "contracts/cli.md")
+	for _, want := range []string{
+		"무효 인자·검증 실패",
+		"제로히트 침묵",
+		"isError",
+		"행별 JSONL",
+	} {
+		if !strings.Contains(s, want) {
+			t.Errorf("contracts/cli.md에 %q 누락", want)
+		}
+	}
+	for _, stale := range []string{
+		"| 3 | 스키마 불일치(schema) |",
+		`{"rows":[`,
+	} {
+		if strings.Contains(s, stale) {
+			t.Errorf("contracts/cli.md에 낡은 서술 %q 잔존", stale)
+		}
 	}
 }
 

@@ -339,16 +339,22 @@ var transitionExecFn = func(ctx context.Context, r *Repo, query string, args ...
 // Invalidate는 knowledge 무효화 전이의 단일 갱신 경로다(v0.41.0 T2):
 // status='invalidated'·invalid_at=now() 병기. 유일 소스 — maintain
 // invalidate-stale·--ids·expire-pending·--id 경로가 전부 이 메서드를
-// 경유한다. rows-affected 후견사 내장: 0행(사전 확인과 쓰기 사이 경합 —
-// 병렬 무효화 선점)은 ErrNotFound 랩 오류로 무음 성공을 차단한다(기존
-// supersede 후견사 계약 승계). dolt 커밋은 호출자 소관(경로별 메시지).
+// 경유한다. WHERE의 invalid_at IS NULL 가드(v1.0.1 F2): 이미 처리된 행
+// (병렬 Invalidate·Supersede가 invalid_at을 새긴 행)은 재갱신하지 않는다
+// — 나열(pending·stale — 전부 invalid_at IS NULL로 대상을 뽑는다)과 확정
+// 사이 경합에서 supersede 계보(invalid_at=NEW.valid_at)를 now()로 덮어쓰는
+// 훼손을 차단한다(관례 일치 — listExpiredPending·invalidate-stale 나열과
+// admin.go 승계 무효화의 동일 가드). rows-affected 후견사 내장: 0행(사전
+// 확인과 쓰기 사이 경합 — 병렬 무효화 선점)은 ErrNotFound 랩 오류로 무음
+// 성공을 차단한다(기존 supersede 후견사 계약 승계). dolt 커밋은 호출자
+// 소관(경로별 메시지).
 func (r *Repo) Invalidate(ctx context.Context, ids []int, reason string) (int64, error) {
 	if len(ids) == 0 {
 		return 0, nil // 빈 배치 — 갱신 없음(경합 아님)
 	}
 	n, err := transitionExecFn(ctx, r, `
 		UPDATE knowledge SET status = 'invalidated', invalid_at = now()
-		WHERE id = ANY($1)`, ids)
+		WHERE id = ANY($1) AND invalid_at IS NULL`, ids)
 	if err != nil {
 		return 0, fmt.Errorf("invalidate(%s): %w", reason, err)
 	}

@@ -212,6 +212,8 @@ func TestApproveMissing(t *testing.T) {
 }
 
 // TestApproveUsage — --id 누락·비정수·알 수 없는 플래그 → exit 1.
+// v1.0.1(F3): 인자 검증 경로는 무효 인자 exit 3(unknown flag·값 누락·
+// 무효 id·--id 부재 — mcp dispatchApprove와 정합).
 func TestApproveUsage(t *testing.T) {
 	cases := []struct {
 		name string
@@ -226,8 +228,8 @@ func TestApproveUsage(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			withApproveFake(t, &fakeApprove{})
 			out, code := mustApprove(t, tc.args)
-			if code != 1 {
-				t.Fatalf("exit = %d, want 1 (out: %s)", code, out)
+			if code != 3 {
+				t.Fatalf("exit = %d, want 3 (out: %s)", code, out)
 			}
 			if !strings.Contains(out, `"error"`) {
 				t.Errorf("out = %q, want 에러 JSON", out)

@@ -245,8 +245,9 @@ func TestDrillFailureCleansSchema(t *testing.T) {
 func TestDrillRequiresFile(t *testing.T) {
 	regDrillDB(t) // cli.Run이 store를 연다 — DB 미기동 시 스킵 용도
 	out, code := regDrillRun("restore", "--drill")
-	if code != 1 {
-		t.Fatalf("exit=%d, want 1", code)
+	// v1.0.1(F3): --file 부재는 무효 인자 exit 3(기존 1에서 통일).
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3", code)
 	}
 	if !strings.Contains(out, `"error"`) {
 		t.Fatalf("에러 JSON 아님: %q", out)

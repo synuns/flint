@@ -187,6 +187,8 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// 값 없는 trailing --tag/--entity/--domain/--fields(N10)도 값 없는
 	// --status/--as-of(F1)와 동일 규칙 exit 3 — 빈 값이 조용히 무시되면
 	// 의도와 다른 필터로 결과를 돌려준다. --limit은 이미 Atoi 실패로 exit 3.
+	// (--session의 빈 값·'-' 접두는 validateSessionLabel 공용 가드로 — v1.0.1
+	// F3 승격, 아래.)
 	for _, g := range []struct {
 		given bool
 		val   string
@@ -196,7 +198,6 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		{entityGiven, f.Entity, "entity"},
 		{domainGiven, f.Domain, "domain"},
 		{fieldsGiven, fields, "fields"},
-		{sessionGiven, session, "session"},
 	} {
 		if g.given && g.val == "" {
 			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: g.field, Expect: "non-empty"}))
@@ -213,8 +214,10 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// --session 값은 read_events에 14일간 저장되는 라벨이다 — 다른 값형
 	// 플래그와 달리 오타(`--session --json`처럼 플래그를 흡수)가 DB 오염으로
 	// 남는다. 플래그형 값은 즉시 exit 3(리뷰 #3 — 조회 결과 오염 방지).
-	if sessionGiven && strings.HasPrefix(session, "-") {
-		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "session", Expect: "flag 아닌 라벨"}))
+	// v1.0.1(F3): 가드는 validateSessionLabel 공용 구현으로 승격 — hot·done이
+	// 같은 검증(exit 3)을 쓴다.
+	if err := validateSessionLabel(sessionGiven, session); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 3
 	}
 	// v0.20.2(패치 루프 1차 F5): --fields 이름은 알려진 컬럼만 허용 —
@@ -315,10 +318,16 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// 1회 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
 	// v0.19.0: 폴백 시도 여부를 read_events 기록에 전달(METRICS §4 G1).
 	fallbackTried := false
+	// F6(성능): 제로히트 경로의 thresholds 로드는 1회 — 아래 rrf_k 주입과
+	// 제안 임계값 주입이 같은 실행에서 meta IN 쿼리를 2회 날리던 것을
+	// 공유 1회로(로드 실패는 기본값 유지 — 조용히 §13, 기존과 동일).
+	var th store.Thresholds
+	thOK := false
 	if ReadSuggestEligible(len(rows), asOfSpec, f.Status) {
 		// rrf_k 주입 hoist — 폴백 재랭킹이 같은 실행에서 오버라이드를
 		// 반영한다(실패는 기본값 유지 — 조용히 §13).
-		if th, thErr := wire.LoadThresholdsFn(ctx, st); thErr == nil {
+		if loaded, thErr := wire.LoadThresholdsFn(ctx, st); thErr == nil {
+			th, thOK = loaded, true
 			query.SetRRFK(th.RrfK)
 		}
 		if fsql, fargs, ok := query.BuildReadFallback(q, f); ok {
@@ -339,7 +348,8 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		// 제안 임계값(min_score·scan_cap)은 thresholds 레지스트리 우선
 		// (meta 오버라이드 → SetSuggestThresholds 주입, v0.16.3). 조회 실패는
 		// query 패키지 기본값(=DefaultThresholds) 유지 — 조용히(§13).
-		if th, thErr := wire.LoadThresholdsFn(ctx, st); thErr == nil {
+		// F6(성능): 값은 위 폴백 블록의 1회 로드를 재사용(재조회 없음).
+		if thOK {
 			query.SetSuggestThresholds(th.SuggestMinScore, th.SuggestScanCap)
 			query.SetRRFK(th.RrfK) // 이미 앞에서 주입 — 멱등 재확정(제안 경로)
 		}
@@ -396,6 +406,24 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	return 0
 }
 
+// validateSessionLabel — --session 라벨 공용 가드(v1.0.1 F3: read 계약
+// 승격 — hot·done 동일 적용). given=false(플래그 미지정)은 통과. 빈 값
+// (trailing --session)·'-' 접두(`--session --json`처럼 플래그를 흡수하는
+// 오타 — 세션 라벨은 read_events·hot_view에 저장되는 값이라 오타가 DB
+// 오염으로 남는다)는 무효 값 SchemaError — 호출부는 출력 후 exit 3.
+func validateSessionLabel(given bool, val string) error {
+	if !given {
+		return nil
+	}
+	if val == "" {
+		return &store.SchemaError{Field: "session", Expect: "non-empty"}
+	}
+	if strings.HasPrefix(val, "-") {
+		return &store.SchemaError{Field: "session", Expect: "flag 아닌 라벨"}
+	}
+	return nil
+}
+
 // ReadSuggestEligible — 폴백 게이트·제안 스캔 게이트·침묵 exit 판정이
 // 공유하는 eligible 조건(3지점 복붙 통일): 현재 시점(--as-of 미지정)·
 // 무상태필터(--status 미지정) 제로히트일 때만 참. 동작 불변.
@@ -441,6 +469,13 @@ func FmtAsOfDate(v any) string {
 // asOfHashRe — v0.28.0(H③): AS OF 인라인 해시의 엄격 문자셋(소문자
 // base32계 — dolt_log commit_hash 규격). 엔진 반환값 신뢰의 이중 확인.
 var asOfHashRe = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
+
+// ValidAsOfHash — AS OF 인라인용 해시의 asOfHashRe 문자셋 검증 노출
+// (v0.28.0 H③와 동일 규칙 — 단일 소스). read 외 인라인 호출자(ops
+// status 카운트 질의)가 같은 규칙으로 재검증하게 한다.
+func ValidAsOfHash(hash string) bool {
+	return asOfHashRe.MatchString(hash)
+}
 
 // 기본 테이블 조회 안내를 붙인다. 뷰+AS OF는 "현재 정의 + 과거 행" 규칙
 // (C3)이라 과거 커밋에 없는 컬럼에서 이 오류가 난다. 그 외 오류는 불변.

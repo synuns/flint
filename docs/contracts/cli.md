@@ -15,9 +15,16 @@
 | 코드 | 의미 |
 |---|---|
 | 0 | 성공(중복 duplicate 포함) |
-| 1 | 일반 오류·재시도 소진(retries_exhausted)·unknown command·usage |
+| 1 | 일반 오류 — 과적재 코드: 재시도 소진(retries_exhausted)·unknown command·usage·`doctor` fail(fail 1건 이상)·제로히트 침묵(eligible 제로히트는 무출력 exit 1 — read의 정상 결과) |
 | 2 | 서버 다운(server_down) |
-| 3 | 스키마 불일치(schema) |
+| 3 | 무효 인자·검증 실패(`SchemaError` — 필드 단위 검증: 무효 `--status`·`--limit`, 값 없는 값형 플래그 등) |
+
+- exit 1 과적재 확인: `read` 제로히트 침묵은 무출력, 나머지 exit 1은
+  errLine(JSON) 1줄 동반 — MCP 도구 경로(`flint mcp`)는 이 출력 유무로
+  `isError`를 판정한다(빈 출력 exit 1 = 정상, 출력 있는 exit 1 = 오류).
+- 스키마 버전 불일치(meta schema_version ↔ `db.LatestSchemaVersion`)는
+  exit 3이 아니다 — `doctor` schema 검사 fail(exit 1)과 `setup`
+  마이그레이션(승격 게이트 등록표)으로 표면화된다.
 
 - store-free fast path: `version`·`teardown`·`mcp`·`update`·`help`는
   DB 기동 없이 즉시 응답. `setup`은 DB 다운이 주 시나리오라 연결
@@ -41,8 +48,10 @@
 ## 예시
 
 ```sh
+flint read "마이그레이션 결정"
+# → 행별 "id|topic|summary" 텍스트(기본 필드, 1행 1지식), exit 0
 flint read "마이그레이션 결정" --json
-# → {"rows":[...]} 1줄 JSON, exit 0
+# → 행별 JSONL({"id":...,"summary":...,"topic":...}), exit 0
 flint nosuchcmd
 # → {"error":"unknown command: nosuchcmd"}, exit 1
 ```

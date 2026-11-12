@@ -13,7 +13,7 @@
 |---|---|
 | `flint_read` | 활성 knowledge 검색(query/tag 필터, limit 상한 50) |
 | `flint_write` | kind(knowledge/session/project)+payload 기록, 동일 payload는 duplicate(멱등) |
-| `flint_hot` | 주입용 핫 요약(2,000자 상한, session_id 선택) |
+| `flint_hot` | 주입용 핫 요약(2,000자 상한). 최근 항목 전체(세션 필터 없음) |
 | `flint_pending` | 대기 지식 목록 + 규칙 기반 추천(verdict: promote/merge/expire/hold) |
 | `flint_approve` | pending 승격(선택 supersede — 구 활성 지식 대체 병합) |
 

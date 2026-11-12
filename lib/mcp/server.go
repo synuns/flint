@@ -54,6 +54,22 @@ func Serve(r io.Reader, w io.Writer, handle func(method string, params map[strin
 	if err := sc.Err(); errors.Is(err, bufio.ErrTooLong) {
 		// 초과 줄 1개를 읽는 도중의 에러 — 해당 줄만 버리고 계속
 		// 살아남는다(주석 계약 이행). 재귀 아님: 남은 입력은 다음 Scan.
+		// v1.0.1 감사 F7: 무응답으로 버리면 id로 응답을 기다리는
+		// 클라이언트가 타임아웃한다 — 초과 줄은 id를 복원할 수 없으므로
+		// id:null -32600(Invalid Request) 1줄만 돌려준 뒤 생존한다.
+		// 재귀 Serve는 새 bufio.Writer를 싸므로 응답은 먼저 flush한다.
+		resp := response{JSONRPC: "2.0", Error: &rpcError{
+			Code:    -32600,
+			Message: "invalid request: line exceeds 4MB limit",
+		}}
+		if b, merr := json.Marshal(resp); merr == nil {
+			if _, werr := bw.Write(append(b, '\n')); werr != nil {
+				return werr
+			}
+			if ferr := bw.Flush(); ferr != nil {
+				return ferr
+			}
+		}
 		return Serve(r, w, handle)
 	}
 	return sc.Err()

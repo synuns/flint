@@ -4,11 +4,12 @@ package render
 
 import (
 	"fmt"
+	"go/scanner"
+	"go/token"
 	"io/fs"
 	"os"
 	"path/filepath"
 	"reflect"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -77,9 +78,13 @@ func TestSanitizeTextChokepoint(t *testing.T) {
 }
 
 // chokepointViolations — root 하위 lib/ 비테스트 .go 소스에서 SanitizeText
-// 토큰(호출 `SanitizeText(`·간접 참조 `:= store.SanitizeText`·인자 전달
-// 모두 포함)을 화이트리스트 밖에서 보고한다("file:line" 목록). 라인
-// 주석(// 이후)은 검사에서 제외 — 주석 언급은 우회가 아니다.
+// 식별자 토큰(호출 `SanitizeText(`·간접 참조 `:= store.SanitizeText`·
+// 별칭 import 경유 전부 — 식별자로서의 모든 언급)을 화이트리스트 밖에서
+// 보고한다("file:line" 목록). v1.0.1 가드 보강: go/scanner 토큰화 기반 —
+// 주석(COMMENT 토큰)은 애초에 식별자가 아니어서 무시되고, 문자열 리터럴
+// 내부의 "//"(R1-D 실증 우회 — 구 가드의 문자열 수준 주석 절단이 문자열
+// 속 "//" 이후를 통째로 지워 호출을 숨김)도 STRING 토큰 안이라 절대
+// 우회되지 않는다.
 func chokepointViolations(root string) []string {
 	allowExact := map[string]bool{
 		"lib/knowledge/write.go":  true, // v0.39.0 T2 이동(cli/write.go)
@@ -89,7 +94,7 @@ func chokepointViolations(root string) []string {
 		"lib/store/pipeline.go":   true,
 	}
 	allowPrefix := "lib/render/"
-	re := regexp.MustCompile(`\bSanitizeText\b`)
+	fset := token.NewFileSet()
 	var found []string
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
@@ -110,12 +115,15 @@ func chokepointViolations(root string) []string {
 		if err != nil {
 			return err
 		}
-		for i, line := range strings.Split(string(data), "\n") {
-			if c := strings.Index(line, "//"); c >= 0 {
-				line = line[:c]
+		var s scanner.Scanner
+		s.Init(fset.AddFile(path, fset.Base(), len(data)), data, nil, scanner.ScanComments)
+		for {
+			pos, tok, lit := s.Scan()
+			if tok == token.EOF {
+				break
 			}
-			if re.MatchString(line) && !allowExact[rel] && !strings.HasPrefix(rel, allowPrefix) {
-				found = append(found, fmt.Sprintf("%s:%d", rel, i+1))
+			if tok == token.IDENT && lit == "SanitizeText" && !allowExact[rel] && !strings.HasPrefix(rel, allowPrefix) {
+				found = append(found, fmt.Sprintf("%s:%d", rel, fset.Position(pos).Line))
 			}
 		}
 		return nil
@@ -127,8 +135,11 @@ func chokepointViolations(root string) []string {
 }
 
 // TestSanitizeTextChokepointIndirect — 가드 우회 회귀: 간접 참조
-// (`leaky := store.SanitizeText` — 괄호 없는 토큰 언급)도 탐지되어야
-// 한다. 직접 호출 탐지·주석 언급 무시·화이트리스트 통과도 함께 단언.
+// (`leaky := store.SanitizeText` — 괄호 없는 토큰 언급)과 문자열 속
+// "//" 은폐(R1-D 실증: `"https://x//" + store.SanitizeText(s)` — 구
+// 가드의 주석 절단이 문자열 내 "//" 이후를 지워 호출을 숨겼다) 모두
+// 탐지되어야 한다. 직접 호출 탐지·주석 언급 무시·화이트리스트 통과도
+// 함께 단언.
 func TestSanitizeTextChokepointIndirect(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "lib", "other")
@@ -142,6 +153,10 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 		"direct.go": "package other\n\nfunc f(s string) string { return store.SanitizeText(s) }\n",
 		// 주석 언급 — 무시.
 		"comment.go": "package other\n\n// SanitizeText 주석 언급은 우회가 아니다\nvar x = 1\n",
+		// 문자열 속 "//" 이후 은폐 시도 — 탐지 대상(토큰화 가드의 핵심 회귀).
+		"strslash.go": "package other\n\nvar _ = \"https://demo.invalid//\" + store.SanitizeText(leak)\n",
+		// 블록 주석 언급 — 무시(구 가드는 /* */ 절단 자체가 없었다).
+		"blockcomment.go": "package other\n\n/* SanitizeText 블록 주석 */\nvar y = 2\n",
 	}
 	for name, body := range files {
 		if err := os.WriteFile(filepath.Join(dir, name), []byte(body), 0o644); err != nil {
@@ -158,7 +173,7 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 		t.Fatalf("WriteFile render.go: %v", err)
 	}
 	got := chokepointViolations(root)
-	want := []string{"lib/other/bypass.go:3", "lib/other/direct.go:3"}
+	want := []string{"lib/other/bypass.go:3", "lib/other/direct.go:3", "lib/other/strslash.go:3"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("chokepointViolations = %v, want %v", got, want)
 	}

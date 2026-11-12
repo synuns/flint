@@ -70,7 +70,7 @@
 |---|---|---|---|
 | hook-file | Claude 설정·플러그인 캐시에 flint 훅 등록 여부 (`FLINT_CLAUDE_HOME` 오버라이드 지원) | 플러그인 (재)설치(`/plugin marketplace add synuns/flint`) 또는 `FLINT_CLAUDE_HOME` 경로 확인 | fail |
 | db | DB Ping 접속 | `docker compose up -d` 후 재실행(`FLINT_DSN` 확인) | fail |
-| schema | meta schema_version ≥ 4 일치(현재 v8) | `flint setup`(마이그레이션) 후 `flint doctor --check schema` | fail |
+| schema | meta schema_version ≥ 4 일치(현재 v9) | `flint setup`(마이그레이션) 후 `flint doctor --check schema` | fail |
 | integrity | `flint_knowledge_*` 인덱스 3행 존재 | `flint status`로 인덱스 승격 재시도(최신 백업 있으면 §4 복구 검토) | fail |
 | last-seen | 3경로(write/hot/read) last-seen 경과 + grace(stall_hot_h 48h·stall_write_h 72h) | 세션 시작해 `flint hot`/`flint write` 1회 실행 | warn |
 | port | 호스트 5434 포트 점유 충돌(타 프로세스 점유 시 이동 안내) | `FLINT_DSN` + compose 포트 오버라이드로 이동(TUNING §2) | fail |

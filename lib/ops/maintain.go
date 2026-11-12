@@ -118,12 +118,14 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
-				return 1
+				return 3
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n <= 0 {
+				// v1.0.1(F3): --limit 무효 값은 read·brief·audit 계열과 동일
+				// 무효 인자 exit 3(값 누락 포함).
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: invalid number %q", args[i])))
-				return 1
+				return 3
 			}
 			if args[i-1] == "--days" {
 				days = n
