@@ -90,12 +90,21 @@ func init() {
 	ops.PctOfFn = pctOf
 
 	// ③-3 교체 전파 래퍼 — cli var 재할당을 ops가 관측(composePsFn 패턴).
+	// v0.43.0 T3 조사: 유지분은 각 1줄 사유(소비 cli 테스트가 var 교체로
+	// ops 실행 경로를 검증 — 래퍼 제거 시 전파 단절). 교체 소비 테스트가
+	// 없는 windowedDaily는 직접 참조로 전환했다(아래).
+	// 유지 — doctor_v07·rules_sync_v097_test가 composePsFn 교체 후 runDoctor 검증.
 	ops.ComposePsFn = func(ctx context.Context) ([]byte, error) { return composePsFn(ctx) }
+	// 유지 — doctor_v094·rules_sync_v097_test가 flintBinPathFn 교체 후 runDoctor 검증.
 	ops.FlintBinPathFn = func() string { return flintBinPathFn() }
+	// 유지 — maintain_v08_test가 maintainRetryDelays 교체 후 runMaintain 검증.
 	ops.MaintainRetryDelaysFn = func() []time.Duration { return maintainRetryDelays }
+	// 유지 — nudge_v0110_test가 exposureProfileFn 교체 후 runNudge 검증.
 	ops.ExposureProfileFn = func(getKV func(string) (string, error)) string { return exposureProfileFn(getKV) }
+	// WindowedDailyFn — cli var 교체 소비 테스트 없음: ops 실구현 직접
+	// 참조(ReportDay→DailyRow 변환 어댑터만 — v0.43.0 T3 전환).
 	ops.WindowedDailyFn = func(ctx context.Context, st wire.Store, days int) ([]ops.DailyRow, error) {
-		rows, err := windowedDaily(ctx, st, days)
+		rows, err := ops.WindowedDaily(ctx, st, days)
 		if err != nil {
 			return nil, err
 		}
@@ -105,6 +114,7 @@ func init() {
 		}
 		return out, nil
 	}
+	// 유지 — backup_test·wire_approve_store_test가 4종 교체 후 runBackup·runRestore 검증.
 	ops.DumpFn = func(ctx context.Context, dsn string, w io.Writer) error { return dumpFn(ctx, dsn, w) }
 	ops.RestoreFn = func(ctx context.Context, dsn string, r io.Reader) error { return restoreFn(ctx, dsn, r) }
 	ops.RotateFn = func(dir string, keep int) ([]string, error) { return rotateFn(dir, keep) }

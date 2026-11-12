@@ -457,7 +457,7 @@ func maybeAutoBackup(ctx context.Context, st wire.Store) {
 	// v0.28.0(H②): meta backup_encrypt=true면 자동 백업도 암호화
 	// (키는 config 디렉터리 — 첫 암호화 시 자동 생성). 판독 실패는 기본
 	// 평문(비간섭 §13 — 백업 실패가 종료를 깨지 않는 계약 유지).
-	if v, ok := wire.GetMetaKV(ctx, st, "backup_encrypt"); ok && backupEncryptOn(v) {
+	if v, ok := wire.GetMetaKV(ctx, st, "backup_encrypt"); ok && wire.BackupEncryptOn(v) {
 		lf.encrypt = true
 	}
 	defer lf.close()
@@ -495,14 +495,6 @@ func metaKV(ctx context.Context, st wire.Store) (func(string) (string, error), f
 		return wire.SetMetaKV(ctx, st, key, value)
 	}
 	return getKV, setKV
-}
-
-// backupEncryptOn — meta backup_encrypt 값 판정. 판정의 단일 소스는
-// ops.BackupEncryptOn(수동·자동·doctor 3경로)이며 knowledge는 ops를
-// 임포트할 수 없다(사이클 금지) — 순수 함수 복제. meta 조회 자체는
-// 양쪽 모두 wire.GetMetaKV 직접 경유로 수렴(v0.41.0 T4 상태).
-func backupEncryptOn(v string) bool {
-	return v == "true" || v == "1"
 }
 
 // markerKindDistill·markerKindRecall — 마커 종류(cli/marker.go 소유 상수
