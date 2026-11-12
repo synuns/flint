@@ -171,7 +171,6 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 	days := reportDaysDefault
 	htmlOut := ""
-	daysSet := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--html": // v0.36.0(E): 정적 단일 파일 대시보드
@@ -204,7 +203,6 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 				return 3
 			}
 			days = n
-			daysSet = true
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 3
@@ -213,16 +211,14 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	// F6(성능): thresholds는 커맨드 스코프 1회 로드 — --days 상한·stale
 	// 컷오프(collectCounts)·효과 판정 창(collectEffect)이 각자 meta IN
 	// 쿼리를 날리던 것(실행당 최대 3회)을 공유 1회로. 폴백은 WriteThresholds
-	// 관례(조회 실패 → DefaultThresholds) 불변. HTML 경로는 수집 체인
-	// (report_html.go)이 자체 로드하므로 상한 적용(--days 지정)에만 쓴다.
-	var th store.Thresholds
-	if daysSet || htmlOut == "" {
-		th = knowledge.WriteThresholds(ctx, st)
-	}
+	// 관례(조회 실패 → DefaultThresholds) 불변. v1.0.2 R2 리뷰: HTML 단독
+	// 경로도 로드 — 아래 clamp가 기본 --days에도 적용되는 이상 HTML이
+	// 스킵되면 빈 일자 타일 비대칭이 HTML에만 남는다(수집 체인 자체 로드와
+	// 별개의 상한 판정용 1회).
+	th := knowledge.WriteThresholds(ctx, st)
 	// v1.0.2(R2): 상한 clamp는 기본값(7)에도 적용 — 오버라이드
 	// daily_retention_days<7 환경에서 기본 7이 보존 창 밖 빈 일자 행만
-	// 만들던 비대칭 해소(--days 명시와 동일 규칙). HTML 단독 경로는 th가
-	// 미로드(0값)라 max>0 가드로 스킵 — 수집 체인이 자체 로드한다(F6).
+	// 만들던 비대칭 해소(--days 명시와 동일 규칙). JSON·HTML 공통 적용.
 	if max := th.DailyRetentionD; max > 0 && days > max {
 		days = max // 상한 = 보존 창(그 너머 데이터는 존재하지 않는다)
 	}

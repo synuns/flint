@@ -152,3 +152,19 @@ func TestReportDefaultDaysClampedToRetention(t *testing.T) {
 		t.Errorf("기본값+미설정: days=%d행, want 7(기본 불변)", n)
 	}
 }
+
+// TestReportHTMLDefaultDaysClampedToRetention — R2 리뷰: 기본 days clamp는
+// HTML 단독 경로(report --html 무인자)에도 동일 적용 — 수정 전에는 th
+// 미로드 스킵으로 retention 3 환경의 HTML 대시보드에만 빈 일자 타일 4개가
+// 남았다(JSON 경로와의 비대칭).
+func TestReportHTMLDefaultDaysClampedToRetention(t *testing.T) {
+	t.Chdir(t.TempDir()) // report.html 기본 출력 격리
+	var out strings.Builder
+	code := RunReport(context.Background(), retentionFake("3", nil), []string{"--html"}, nil, &out)
+	if code != 0 {
+		t.Fatalf("report --html exit=%d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"days":3`) {
+		t.Errorf("HTML 기본값 clamp 미적용(빈 일자 타일 비대칭): %s", out.String())
+	}
+}
