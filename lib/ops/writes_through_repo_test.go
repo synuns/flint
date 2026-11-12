@@ -84,6 +84,14 @@
 //     리터럴(`parts := []string{…}`)을 병합한다(localSliceTable — 이름
 //     재정의는 등록 제외로 오탐 원천 차단).
 //
+// v1.0.9 R10 보강(실증 우회 6변형 추가 폐쇄 — 재프로브로 우회 확인 후):
+//   - 지역값 전파 — 함수 지역 문자열 값 대입을 접은 localStringTable을
+//     consts 에 병합해 ②~⑤의 Ident 해석(stringOperand·combineParts·
+//     formatOperand·② BinaryExpr)에 전파한다. 지역값×Sprintf/Errorf
+//     인자·형식 Ident×지역·지역값×Builder·×Join/Concat 요소·×return
+//     조립을 폐쇄한다. localSliceTable 과 동일 패턴(같은 이름 다중 대입
+//     등록 제외)이라 타 스코프 값의 오탐은 원천 차단된다.
+//
 // 오탐(안내문·검사명의 비SQL "update" 단어)은 writeLiteralAllow 정확
 // 일치 화이트리스트로만 면제한다 — 신규 면제는 이 표에 대한 명시적
 // 선언이어야 한다.
@@ -228,6 +236,13 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	for name, si := range localSliceTable(f, consts) {
 		if _, taken := slices[name]; !taken {
 			slices[name] = si
+		}
+	}
+	// R10: 함수 지역 문자열 값을 consts 에 병합해 ②~⑤의 Ident 해석에
+	// 전파한다(지역값×fmt 인자·형식·Builder·Join 요소·return 조립 폐쇄).
+	for name, ci := range localStringTable(f, consts, flagged) {
+		if _, taken := consts[name]; !taken {
+			consts[name] = ci
 		}
 	}
 	// ② 이어붙이기 조각 조립 — 개별 리터럴에는 동사가 없어도 + 로 합쳐
@@ -1013,18 +1028,21 @@ func foldSliceElements(elts []ast.Expr, consts map[string]constInfo) ([]string, 
 
 // localSliceTable — 함수 지역 슬라이스 리터럴(`parts := []string{…}`·함수
 // 내 var)을 접은 테이블(R9 — 지역 슬라이스 Join 폐쇄). 같은 이름이 파일
-// 내 여러 번 정의되면(스코프별 재사용) 그 이름은 등록하지 않는다 — 이름
-// 충돌로 타 블록 Join 이 잘못 결합되는 오탐을 원천 차단한다(보수 누락
-// 허용).
+// 내 여러 번 대입되면(스코프별 재사용·재할당) 그 이름은 등록하지 않는다 —
+// 이름 충돌로 타 블록 Join 이 잘못 결합되는 오탐을 원천 차단한다(보수
+// 누락 허용).
 func localSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceInfo {
 	table := map[string]sliceInfo{}
+	seen := map[string]bool{}
 	dup := map[string]bool{}
-	add := func(name string, cl *ast.CompositeLit) {
-		if !isStringSliceType(cl.Type) {
+	add := func(name string, rhs ast.Expr) {
+		if seen[name] {
+			dup[name] = true
 			return
 		}
-		if _, taken := table[name]; taken {
-			dup[name] = true
+		seen[name] = true
+		cl, ok := rhs.(*ast.CompositeLit)
+		if !ok || !isStringSliceType(cl.Type) {
 			return
 		}
 		vals, lits, ok := foldSliceElements(cl.Elts, consts)
@@ -1039,12 +1057,8 @@ func localSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceI
 			if (v.Tok != token.DEFINE && v.Tok != token.ASSIGN) || len(v.Lhs) != 1 || len(v.Rhs) != 1 {
 				return true
 			}
-			id, ok := v.Lhs[0].(*ast.Ident)
-			if !ok {
-				return true
-			}
-			if cl, ok := v.Rhs[0].(*ast.CompositeLit); ok {
-				add(id.Name, cl)
+			if id, ok := v.Lhs[0].(*ast.Ident); ok {
+				add(id.Name, v.Rhs[0])
 			}
 		case *ast.DeclStmt:
 			gd, ok := v.Decl.(*ast.GenDecl)
@@ -1056,11 +1070,46 @@ func localSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceI
 				if !ok || len(vs.Names) != 1 || len(vs.Values) != 1 {
 					continue
 				}
-				if cl, ok := vs.Values[0].(*ast.CompositeLit); ok {
-					add(vs.Names[0].Name, cl)
-				}
+				add(vs.Names[0].Name, vs.Values[0])
 			}
 		}
+		return true
+	})
+	for name := range dup {
+		delete(table, name)
+	}
+	return table
+}
+
+// localStringTable — 함수 지역 문자열 값 대입(`x := "lit"`·`x := "a"+
+// "b"`·`x := constIdent`)을 접은 파일 단위 테이블(R10 — ②~⑤ Ident 해석
+// 전파). localSliceTable 과 동일 패턴: 같은 이름이 여러 번 대입되면(스코프
+// 재사용·재할당·누적) 등록에서 제외해 타 스코프 값의 잘못된 결합 오탐을
+// 원천 차단한다(보수 누락 허용). 접기에 실패하는 대입(함수 호출 결과 등)도
+// 이름 사용으로 본다 — 이후 접힘 대입과의 충돌을 막는다.
+func localStringTable(f *ast.File, consts map[string]constInfo, flagged map[token.Pos]bool) map[string]constInfo {
+	table := map[string]constInfo{}
+	seen := map[string]bool{}
+	dup := map[string]bool{}
+	ast.Inspect(f, func(n ast.Node) bool {
+		as, ok := n.(*ast.AssignStmt)
+		if !ok || (as.Tok != token.DEFINE && as.Tok != token.ASSIGN) || len(as.Lhs) != 1 || len(as.Rhs) != 1 {
+			return true
+		}
+		id, ok := as.Lhs[0].(*ast.Ident)
+		if !ok {
+			return true
+		}
+		if seen[id.Name] {
+			dup[id.Name] = true
+			return true
+		}
+		seen[id.Name] = true
+		val, lits, ok := foldLocalExpr(as.Rhs[0], nil, consts, flagged)
+		if !ok {
+			return true
+		}
+		table[id.Name] = constInfo{val: val, lits: lits}
 		return true
 	})
 	for name := range dup {
@@ -1402,6 +1451,79 @@ func f() string {
 func f() string {
 	parts := []string{"kind", "topic"}
 	return strings.Join(parts, ",")
+}`,
+		},
+		{
+			name: "지역값 Sprintf 인자 결합(R10)",
+			src: `package ops
+func f() string {
+	head := "DEL"
+	return fmt.Sprintf("%sETE FROM meta WHERE key='demo'", head)
+}`,
+			wantHit: true,
+		},
+		{
+			name: "지역값 Errorf 인자 결합(R10)",
+			src: `package ops
+func f() error {
+	head := "DEL"
+	return fmt.Errorf("%sETE FROM meta WHERE key='demo'", head)
+}`,
+			wantHit: true,
+		},
+		{
+			name: "지역값 형식 Ident 결합(R10)",
+			src: `package ops
+func f() error {
+	format := "DEL%s FROM meta WHERE key='demo'"
+	return fmt.Errorf(format, "ETE")
+}`,
+			wantHit: true,
+		},
+		{
+			name: "지역값 Builder 결합(R10)",
+			src: `package ops
+func f() string {
+	head := "DEL"
+	var b strings.Builder
+	b.WriteString(head)
+	b.WriteString("ETE FROM meta WHERE key='demo'")
+	return b.String()
+}`,
+			wantHit: true,
+		},
+		{
+			name: "지역값 Join 요소 결합(R10)",
+			src: `package ops
+func f() string {
+	head := "DEL"
+	return strings.Join([]string{head, "ETE FROM meta WHERE key='demo'"}, "")
+}`,
+			wantHit: true,
+		},
+		{
+			name: "지역값 return 조립 결합(R10)",
+			src: `package ops
+func f() string {
+	head := "DEL"
+	return head + "ETE FROM meta WHERE key='demo'"
+}`,
+			wantHit: true,
+		},
+		{
+			name: "오탐 방어: 무해 지역값 인자(Sprintf)",
+			src: `package ops
+func f() string {
+	name := "flint"
+	return fmt.Sprintf("%s 검사 완료", name)
+}`,
+		},
+		{
+			name: "오탐 방어: 지역값 조립이 면제 본문(정확 일치)",
+			src: `package ops
+func f() string {
+	hint := "fix: flint "
+	return hint + "update"
 }`,
 		},
 		{
