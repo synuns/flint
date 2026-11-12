@@ -122,8 +122,12 @@ func chokepointViolations(root string) []string {
 			if tok == token.EOF {
 				break
 			}
-			if tok == token.IDENT && lit == "SanitizeText" && !allowExact[rel] && !strings.HasPrefix(rel, allowPrefix) {
-				found = append(found, fmt.Sprintf("%s:%d", rel, fset.Position(pos).Line))
+			// v1.0.11(R12-B3): MaskSecrets·MaskSecretsStrict 식별자도 가드 —
+			// 마스킹만 하고 살균을 건너뛰는 기기 밖 경로 여지 차단.
+			// backup.go MaskSecretsFn은 진단용 dump --mask 교체 seam이라 예외.
+			if tok == token.IDENT && (lit == "SanitizeText" || lit == "MaskSecrets" || lit == "MaskSecretsStrict") &&
+				!allowExact[rel] && !strings.HasPrefix(rel, allowPrefix) && rel != "lib/ops/backup.go" {
+				found = append(found, fmt.Sprintf("%s:%d(%s)", rel, fset.Position(pos).Line, lit))
 			}
 		}
 		return nil
@@ -173,7 +177,7 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 		t.Fatalf("WriteFile render.go: %v", err)
 	}
 	got := chokepointViolations(root)
-	want := []string{"lib/other/bypass.go:3", "lib/other/direct.go:3", "lib/other/strslash.go:3"}
+	want := []string{"lib/other/bypass.go:3(SanitizeText)", "lib/other/direct.go:3(SanitizeText)", "lib/other/strslash.go:3(SanitizeText)"}
 	if !reflect.DeepEqual(got, want) {
 		t.Fatalf("chokepointViolations = %v, want %v", got, want)
 	}
