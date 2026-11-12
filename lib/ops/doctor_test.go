@@ -60,6 +60,10 @@ type fakeStore struct {
 	inserted []map[string]any
 	commits  []string
 	queries  []string
+
+	// v0.43.0 T2 fake 동질: metaDeleteStore canned(호출 기록·오류 주입).
+	metaDeleted   []string
+	metaDeleteErr error
 }
 
 func (f *fakeStore) Migrate(ctx context.Context) error { return nil }
@@ -89,6 +93,17 @@ func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 }
 func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
 func (f *fakeStore) Close()                         {}
+
+// MetaDelete — v0.43.0 T2 fake 동질: metaDeleteStore capability canned
+// 구현. tuning reset 경로가 열화 폴백이 아니라 위임 경로로 검증되게
+// 한다(호출 기록 슬라이스·선택적 오류 필드 — fakeStore 관례).
+func (f *fakeStore) MetaDelete(ctx context.Context, keys []string) (int64, error) {
+	f.metaDeleted = append(f.metaDeleted, keys...)
+	if f.metaDeleteErr != nil {
+		return 0, f.metaDeleteErr
+	}
+	return int64(len(keys)), nil
+}
 func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	f.queries = append(f.queries, sql)
 	if f.queryErr != nil {
