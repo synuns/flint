@@ -6,7 +6,19 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v0.1 코어 루프 (2026-10-21 완료)
+#### v1.0.1 패치 (2026-11-12) — v1.0.0 출시 후 다각도 감사 R1
+
+6각도(정확성·계약·보안·가드 레드팀·성능·문서) 병렬 감사 32건 도출·수정:
+
+- [x] status 스키마 허용 목록 LatestSchemaVersion 파생(v9 DB exit 3 결함)·AS OF 해시 재검증
+- [x] Invalidate 재갱신 가드(invalid_at IS NULL — supersede 계보 보존)·read 경로 prune 훅 복구(24h 게이트)·BumpMetaKV 단발 멱등화
+- [x] exit 3 통일(unknown flag·무효값 전 커맨드 — 표 구동 계약 테스트)·--limit/--session 정합
+- [x] audit 전열 살균·doctor projects 사후스캔·tuning 값 render·hooks.json @sh+eval(재설치 경로 동반)
+- [x] 가드 보강 7종(토큰화·재귀 스캔·패키지 전체·hidden 고정 — 재프로브 전 건 적발)
+- [x] 게이트 순회 probe 스킵(접속당 21→6왕복)·thresholds 1회 로드
+- [x] HISTORY v0.44.0·v1.0.0 엔트리 보강·RUNBOOK v9·cli.md exit 표·flint_hot session_id 제거·MCP -32600 응답
+
+## v0.1 코어 루프 (2026-10-21 완료)
 - [x] 기술검증 3건 → Doltgres 구동·스키마 → write/read/hot/status
 - [x] 수동 백업(덤프) → Claude Code 플러그인(훅+스킬) → 시딩
 - 시딩: 활성 프로젝트 3건(데모 게임 프로젝트·데모 유틸 프로젝트·데모 스크립트 모음) + flint 기획 결정

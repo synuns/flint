@@ -27,7 +27,7 @@
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <img src="https://img.shields.io/badge/release-v1.0.0-blue" alt="v0.43.0">
   <img src="https://img.shields.io/badge/release-v1.0.0-blue" alt="v0.44.0">
-  <img src="https://img.shields.io/badge/release-v1.0.0-blue" alt="v1.0.0">
+  <img src="https://img.shields.io/badge/release-v1.0.1-blue" alt="v1.0.1">
 </p>
 
 <p align="center">
@@ -47,7 +47,7 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 
 > v0.43.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/HISTORY.md)
 > v0.44.0 · PLAN rearm · surface contracts · command-table guard · [full changelog](docs/HISTORY.md)
-> v1.0.0 · consolidation complete — v1.0 gate · [full changelog](docs/HISTORY.md)
+> v1.0.1 · post-release audit R1 — 32 findings fixed · [full changelog](docs/HISTORY.md)
 ---
 
 ## Quick Start
