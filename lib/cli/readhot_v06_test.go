@@ -61,8 +61,10 @@ func TestReadInstrumentsSilently(t *testing.T) {
 		f.bumped[0][0] != 3 || f.bumped[0][1] != 5 {
 		t.Errorf("BumpReads ids = %v, want [3 5] (결과 id 전수)", f.bumped)
 	}
-	if len(f.usage) != 1 || f.usage[0] != [2]string{"read", ""} {
-		t.Errorf("RecordUsage = %v, want [[read ]]", f.usage)
+	// v0.42.0 T2: read kind의 유입 계측(daily read 카운터)은 폐지 —
+	// 계측 원천이 read_events(RecordReadEvent)로 일원화됐다(쓰기 4→2).
+	if len(f.usage) != 0 {
+		t.Errorf("RecordUsage = %v, want [](read kind 유입 계측 폐지)", f.usage)
 	}
 
 	// 계측 실패는 조용히 — exit 0·동일 출력.
@@ -219,9 +221,10 @@ func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
 	}
 }
 
-// TestUsageInstrumentationSingleSeam — read·hot 계측이 전부 UsageStore 단일
-// seam(write.go recordUsage)을 경유한다(회귀: read.go usageRecorder 이중
-// seam 부활 방지 — UsageStore만 구현한 Store로 전 경로 기록 확인).
+// TestUsageInstrumentationSingleSeam — hot 계측이 UsageStore 단일 seam
+// (write.go recordUsage)을 경유한다(회귀: 이중 seam 부활 방지 — UsageStore만
+// 구현한 Store로 경로 기록 확인). v0.42.0 T2: read kind는 유입 계측에서
+// 제외되므로(원천 = read_events) 기록 0건을 함께 단언한다.
 func TestUsageInstrumentationSingleSeam(t *testing.T) {
 	ctx := context.Background()
 	rec := &writeUsageRecorder{Store: &fakeStore{queryFn: readQueryFn}}
@@ -229,8 +232,8 @@ func TestUsageInstrumentationSingleSeam(t *testing.T) {
 	if code := runRead(ctx, rec, []string{"topic"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runRead exit = %d, want 0", code)
 	}
-	if len(rec.calls) != 1 || rec.calls[0] != (usageCall{"read", ""}) {
-		t.Fatalf("read 계측 = %v, want [read ]]", rec.calls)
+	if len(rec.calls) != 0 {
+		t.Fatalf("read 계측 = %v, want [](v0.42.0 T2 — read kind 유입 계측 폐지)", rec.calls)
 	}
 	rec2 := &writeUsageRecorder{Store: &fakeStore{queryFn: hotQueryFn}}
 	var out2 bytes.Buffer

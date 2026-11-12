@@ -65,20 +65,24 @@ func TestReadZeroHitSilent(t *testing.T) {
 	}
 }
 
-// TestReadZeroHitNearCounted — Review Focus: 제로히트·스캔 후보 1건 →
-// meta read_stats INSERT에 zero_near 1 증분 포함.
+// TestReadZeroHitNearCounted — Review Focus(v0.42.0 T2 개정): 제로히트·스캔
+// 후보 1건 → 근접 분류가 read_events 1행(Near=true)으로 기록된다(구
+// read_stats zero_near 증분은 폐지 — meta INSERT에 read_stats 키 부재).
 func TestReadZeroHitNearCounted(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
 	var inserts []string
 	f := nearCountingStore(&inserts)
-	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 1 {
+	st := &readClassRecorder{fakeStore: f}
+	if code := runRead(ctx, st, []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 1 {
 		t.Fatalf("exit = %d, want 1", code)
 	}
+	if len(st.events) != 1 || !st.events[0].Zero || !st.events[0].Near {
+		t.Fatalf("read_events = %+v, want 1행 {Zero:true Near:true}", st.events)
+	}
 	for _, kv := range inserts {
-		if strings.HasPrefix(kv, "read_stats=") && strings.Contains(kv, `"zero_near":1`) {
-			return
+		if strings.HasPrefix(kv, "read_stats=") {
+			t.Errorf("read_stats 쓰기 잔존(폐지): %s", kv)
 		}
 	}
-	t.Errorf("read_stats INSERT에 zero_near:1 미포함: %v", inserts)
 }

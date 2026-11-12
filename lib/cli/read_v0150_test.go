@@ -1,30 +1,38 @@
-// read_v0150_test.go — v0.15.0 T2: read 와이어링 통합 계약(스펙 R1·R2).
-// 계측 왕복 예산(단일 read_stats 라이터)·분류 일괄 전달(RecordReadUsage
-// seam) 검증. fakeStore 질의 캡처 패턴은 read_v0140_test.go 승계.
+// read_v0150_test.go — read 와이어링 계약(스펙 R1·R2의 v0.42.0 T2 개정판).
+// read_stats blob 폐지 후 계측 왕복 예산 축소(쓰기 4→2: BumpReads·
+// RecordReadEvent만)·분류(zero·near)는 read_events 인자로만 전달된다.
+// fakeStore 질의 캡처 패턴은 read_v0140_test.go 승계.
 package cli
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
+
+	"github.com/synuns/flint/lib/db"
 )
 
-// readUsageRecorder — fakeStore에 RecordReadUsage(R2 seam)를 얹은 fake
-// (readhot_v06_test.go instrumentedFake 패턴 승계). 호출 분류를 녹음한다.
-type readUsageRecorder struct {
+// readClassRecorder — RecordReadEvent·RecordReadUsage 호출을 녹음하는 fake
+// (readEventRecorder 관례 — 쓰기 축소 단언에 유입 경로 녹음을 추가).
+type readClassRecorder struct {
 	*fakeStore
-	calls [][2]bool
+	events []db.ReadEvent
+	usages int
 }
 
-func (r *readUsageRecorder) RecordReadUsage(ctx context.Context, zero, near bool) error {
-	r.calls = append(r.calls, [2]bool{zero, near})
+func (r *readClassRecorder) RecordReadUsage(ctx context.Context, zero, near bool) error {
+	r.usages++
+	return nil
+}
+
+func (r *readClassRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
+	r.events = append(r.events, ev)
 	return nil
 }
 
 // TestReadInstrumentationQueryBudget — Review Focus: eligible 히트 read
-// 1회의 쿼리 왕복 ≤ 6(본 쿼리 1 + 계측 ≤ 5). read_stats는 단일 읽기-쓰기로
-// 통합돼야 한다(R1 단일 라이터).
+// 1회의 쿼리 왕복 ≤ 6(본 쿼리 1 + 계측 ≤ 5). v0.42.0 T2 이후 read_stats
+// 읽기-쓰기·daily 유입 기록이 빠져 왕복은 더 줄어야 한다(상한은 유지).
 func TestReadInstrumentationQueryBudget(t *testing.T) {
 	count := 0
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -32,12 +40,6 @@ func TestReadInstrumentationQueryBudget(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "FROM active_knowledge"):
 			return [][]any{{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"}}, nil
-		case strings.Contains(sql, "read_stats"):
-			return [][]any{{`{"calls":5,"zero":2}`}}, nil
-		case strings.Contains(sql, "daily:"):
-			return nil, nil
-		case strings.Contains(sql, "INSERT INTO meta") || strings.Contains(sql, "UPDATE"):
-			return nil, nil
 		}
 		return nil, nil
 	}}
@@ -50,21 +52,20 @@ func TestReadInstrumentationQueryBudget(t *testing.T) {
 	}
 }
 
-// TestReadClassifiesZeroNear — Review Focus: 제로히트+근접 read는 read_stats
-// 1회 쓰기에 calls/zero/zero_near 전부 반영(R1)하고 분류 (true,true)를
-// RecordReadUsage로 전달(R2). 히트 read는 (false,false) 전달.
+// TestReadClassifiesZeroNear — Review Focus(v0.42.0 T2 개정): 제로히트+근접
+// read의 분류 (zero=true, near=true)는 read_events 1행(RecordReadEvent)에만
+// 반영된다 — read_stats blob 쓰기·RecordReadUsage 유입 기록은 폐지(0회).
+// 히트 read는 (false,false) 1행.
 func TestReadClassifiesZeroNear(t *testing.T) {
 	t.Run("zero-near", func(t *testing.T) {
 		var inserts []string
-		st := &readUsageRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		st := &readClassRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 			switch {
 			case strings.Contains(sql, "id, topic, summary FROM active_knowledge"):
-				return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil
-			case strings.Contains(sql, "SELECT value FROM meta"):
-				return [][]any{{`{"calls":5,"zero":2}`}}, nil
+				return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil // 제안 스캔 후보
 			case strings.Contains(sql, "INSERT INTO meta"):
 				if len(args) > 1 {
-					inserts = append(inserts, fmt.Sprint(args[0])+"="+fmt.Sprint(args[1]))
+					inserts = append(inserts, args[0].(string)+"="+args[1].(string))
 				}
 				return nil, nil
 			}
@@ -74,38 +75,22 @@ func TestReadClassifiesZeroNear(t *testing.T) {
 		if code := runRead(context.Background(), st, []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 1 {
 			t.Fatalf("exit = %d, want 1", code)
 		}
-		n := 0
+		if len(st.events) != 1 || !st.events[0].Zero || !st.events[0].Near {
+			t.Errorf("read_events = %+v, want 1행 {Zero:true Near:true}", st.events)
+		}
+		if st.usages != 0 {
+			t.Errorf("RecordReadUsage %d회, want 0(read kind daily 쓰기 폐지)", st.usages)
+		}
 		for _, kv := range inserts {
-			if !strings.HasPrefix(kv, "read_stats=") {
-				continue
+			if strings.HasPrefix(kv, "read_stats=") {
+				t.Errorf("read_stats 쓰기 잔존(폐지): %s", kv)
 			}
-			n++
-			for _, want := range []string{`"calls":6`, `"zero":3`, `"zero_near":1`} {
-				if !strings.Contains(kv, want) {
-					t.Errorf("read_stats 쓰기에 %s 미반영: %s", want, kv)
-				}
-			}
-		}
-		if n != 1 {
-			t.Errorf("read_stats 쓰기 %d회, want 1(단일 라이터): %v", n, inserts)
-		}
-		if len(st.calls) != 1 || st.calls[0] != [2]bool{true, true} {
-			t.Errorf("RecordReadUsage = %v, want [(true true)]", st.calls)
 		}
 	})
 	t.Run("hit", func(t *testing.T) {
-		var inserts []string
-		st := &readUsageRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			switch {
-			case strings.Contains(sql, "FROM active_knowledge"):
+		st := &readClassRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "FROM active_knowledge") {
 				return [][]any{{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"}}, nil
-			case strings.Contains(sql, "SELECT value FROM meta"):
-				return [][]any{{`{"calls":5,"zero":2}`}}, nil
-			case strings.Contains(sql, "INSERT INTO meta"):
-				if len(args) > 1 {
-					inserts = append(inserts, fmt.Sprint(args[0])+"="+fmt.Sprint(args[1]))
-				}
-				return nil, nil
 			}
 			return nil, nil
 		}}}
@@ -113,13 +98,11 @@ func TestReadClassifiesZeroNear(t *testing.T) {
 		if code := runRead(context.Background(), st, []string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
 			t.Fatalf("exit %d: %s", code, out.String())
 		}
-		if len(st.calls) != 1 || st.calls[0] != [2]bool{false, false} {
-			t.Errorf("RecordReadUsage = %v, want [(false false)]", st.calls)
+		if len(st.events) != 1 || st.events[0].Zero || st.events[0].Near {
+			t.Errorf("read_events = %+v, want 1행 {Zero:false Near:false}", st.events)
 		}
-		for _, kv := range inserts {
-			if strings.HasPrefix(kv, "read_stats=") && strings.Contains(kv, "zero_near") {
-				t.Errorf("히트 read에 zero_near 증분: %s", kv)
-			}
+		if st.usages != 0 {
+			t.Errorf("RecordReadUsage %d회, want 0", st.usages)
 		}
 	})
 }

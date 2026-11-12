@@ -1,8 +1,11 @@
 // report.go — T65 `flint report`: N일(기본 7·상한 14) 적립·유지보수 리포트를
 // 한 줄 JSON으로 보고한다. 유지보수 경로(오프라인 CLI)라 핫패스 비간섭(§2).
-// 데이터는 전부 wire.Store.Query로 읽는다 — meta daily:*·read_stats·hot_stats와
+// 데이터는 전부 wire.Store.Query로 읽는다 — meta daily:*·hot_stats와
 // knowledge 집계(counts·stale·기간 무효화). 키 부재는 0, 파손 JSON은 스킵.
 // v0.40.0 T3: lib/cli에서 이동(식별자 대문자화 — 동작·출력·exit 불변).
+// v0.42.0 T2: read_stats blob 폐지 — 일별 read·zero·near는 daily:* 잔존값에
+// read_events 파생값을 병합(mergeDerivedReadDaily), fallback_pct는 read_events
+// 창 집계로 산출(CollectEffect). 지표 산출 값은 전환 전과 동등(동등성 테스트).
 package ops
 
 import (
@@ -77,8 +80,6 @@ type ReportOutput struct {
 	// v0.19.0 효과 계측 섹션(docs/METRICS.md §4 정의의 단일 산출 소스).
 	// 기존 필드·순서 불변, 말미 추가.
 	Effect EffectOutput `json:"effect"`
-
-	readCalls int // 직렬화 제외 — fallback_pct 분모(read_stats calls)
 }
 
 // EffectOutput — "도움" 지표(METRICS §2 GSM 표의 산출). hit_pct·near_pct·
@@ -226,19 +227,15 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// R4 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 meta
-	// read_fallback_calls(T85·v096 status와 동일 조회 패턴)에서. 부재는 0.
+	// R4 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 CollectEffect의
+	// read_events 창 집산에서(v0.42.0 T2 — 구 read_fallback_calls/read_stats
+	// calls 누적 분모 폐지, effect.fallback_pct와 동일 산출).
 	out.DupPct = DupPct(out.Days)
 	// R2 소스별 dup 기간 합계 — 일별 행 합산(미기록 일은 0으로 합산됨).
 	for _, d := range out.Days {
 		out.DupHook += d.DupHook
 		out.DupManual += d.DupManual
 	}
-	fallbackCalls := 0
-	if fb := FallbackCallsOrNull(knowledge.MetaGetKV(ctx, st)); fb != nil {
-		fallbackCalls = *fb
-	}
-	out.FallbackPct = FallbackPct(fallbackCalls, out.readCalls)
 	b, err := json.Marshal(out)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -314,15 +311,73 @@ func WindowedDaily(ctx context.Context, st wire.Store, days int) ([]ReportDay, e
 		d.Date = daysOut[idx].Date
 		daysOut[idx] = d
 	}
+	mergeDerivedReadDaily(ctx, st, daysOut)
 	return daysOut, nil
 }
 
-// collectStats — meta hot_stats(p95)·read_stats(fallback_pct 분모 calls.
-// v0.15.0 R2 — zero_pct·zero_near_pct는 누적 read_stats가 아니라 daily
+// mergeDerivedReadDaily — v0.42.0 T2: read 경로가 daily read 카운터를 더
+// 쓰지 않는다(쓰기 4→2). 일별 read·read_zero·read_zero_near는 read_events를
+// UTC 일자별로 모아 파생 산출해 daily:* 잔존값과 필드별 max 병합한다 —
+// 전환 전 하루(양쪽 원천이 같은 이벤트를 가리키는 날)에는 값이 같아
+// 이중 계산 없이 지표가 연속된다. 조회 실패는 잔존 daily 값 유지(계측
+// 강등 원칙 — 보고를 깨지 않는다).
+func mergeDerivedReadDaily(ctx context.Context, st wire.Store, days []ReportDay) {
+	if len(days) == 0 {
+		return
+	}
+	// 창 첫 날의 UTC 자정 — WindowedDaily 하루 행 전체를 포함하는 컷오프
+	// (Go 계산 timestamptz 파라미터 — T70 관례, SQL interval 산산 금지).
+	cutoff, err := time.Parse("2006-01-02", days[0].Date)
+	if err != nil {
+		return
+	}
+	rows, qerr := wire.QueryOnce(ctx, st,
+		`SELECT ts, zero, near FROM read_events WHERE ts >= $1`, []any{cutoff})
+	if qerr != nil {
+		return
+	}
+	type readCnt struct{ read, zero, near int }
+	byDay := map[string]*readCnt{}
+	for _, r := range rows {
+		if len(r) < 3 {
+			continue
+		}
+		ts, ok := CellToTime(r[0])
+		if !ok {
+			continue // 매핑 불가 칸은 조용히 건너뛴다(계측 관례)
+		}
+		key := ts.UTC().Format("2006-01-02")
+		c := byDay[key]
+		if c == nil {
+			c = &readCnt{}
+			byDay[key] = c
+		}
+		c.read++
+		if cellToBool(r[1]) {
+			c.zero++
+		}
+		if cellToBool(r[2]) {
+			c.near++
+		}
+	}
+	for i := range days {
+		c := byDay[days[i].Date]
+		if c == nil {
+			continue
+		}
+		days[i].Read = max(days[i].Read, c.read)
+		days[i].ReadZero = max(days[i].ReadZero, c.zero)
+		days[i].ReadNear = max(days[i].ReadNear, c.near)
+	}
+}
+
+// collectStats — meta hot_stats(p95). v0.42.0 T2 — read_stats(fallback_pct
+// 분모 calls)는 폐지: fallback_pct는 CollectEffect의 read_events 창 집산에서
+// 나온다. v0.15.0 R2 — zero_pct·zero_near_pct는 누적 read_stats가 아니라 daily
 // 합산(collectDaily)에서 산출한다). 부재·파손은 0.
 func collectStats(ctx context.Context, st wire.Store, out *ReportOutput) error {
 	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key IN ('read_stats','hot_stats')`, nil)
+		`SELECT key, value FROM meta WHERE key IN ('hot_stats')`, nil)
 	if err != nil {
 		return err
 	}
@@ -331,14 +386,6 @@ func collectStats(ctx context.Context, st wire.Store, out *ReportOutput) error {
 			continue
 		}
 		switch fmt.Sprint(r[0]) {
-		case "read_stats":
-			var rs struct {
-				Calls int `json:"calls"`
-			}
-			if json.Unmarshal([]byte(fmt.Sprint(r[1])), &rs) != nil {
-				continue
-			}
-			out.readCalls = rs.Calls
 		case "hot_stats":
 			var hs struct {
 				Lens []int `json:"lens"`
@@ -527,6 +574,10 @@ func CollectEffect(ctx context.Context, st wire.Store, days int, out *ReportOutp
 		}
 	}
 	out.Effect.FallbackPct = PctOf(fallbacks, len(inWin)) // v0.31.3(감사 1): 분모도 보고창
+	// v0.42.0 T2 — 최상위 fallback_pct도 동일 산출로 이관(구 누적
+	// read_fallback_calls/read_stats calls 분모 폐지 — HTML 경로 포함
+	// 단일 소스. 동등성: 같은 창·같은 이벤트 원천이라 값 불변).
+	out.FallbackPct = out.Effect.FallbackPct
 	// v0.30.0 R2 — hit 품질 근사(first_rank, 폴백 제외 계약). 리뷰 8:
 	// 정합/top1 정의는 trendOf와 단일 구현을 공유한다.
 	q := qualityOf(inWin)

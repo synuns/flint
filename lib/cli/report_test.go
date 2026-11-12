@@ -23,7 +23,7 @@ func newReportFake(daily map[string]string) *fakeStore {
 				rows = append(rows, []any{k, v})
 			}
 			return rows, nil
-		case strings.Contains(sql, "read_stats"):
+		case strings.Contains(sql, "hot_stats"): // v0.42.0 T2 — read_stats 폐지
 			return [][]any{
 				{"read_stats", `{"calls":10,"zero":2}`},
 				{"hot_stats", `{"calls":4,"sum":1000,"lens":[100,200,300,400]}`},
@@ -246,7 +246,7 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
-		case strings.Contains(sql, "read_stats"):
+		case strings.Contains(sql, "hot_stats"): // v0.42.0 T2 — read_stats 폐지
 			return [][]any{{"read_stats", `{"calls":0,"zero":0}`}, {"hot_stats", `{"lens":[]}`}}, nil
 		case strings.Contains(sql, "invalid_at IS NOT NULL"):
 			return [][]any{{int64(0), int64(0), int64(0)}}, nil

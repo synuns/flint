@@ -226,11 +226,19 @@ func ReadZeroPct(calls, zero int) int {
 	return PctOfFn(zero, calls)
 }
 
-// LoadReadStatsFromMeta — status 노출용 meta read_stats 로드(wiring).
-// 조회 실패·부재·파손은 LoadReadStats 폴백과 동일(0/0).
+// LoadReadStatsFromMeta — status 노출용 read 계측 로드(wiring).
+// v0.42.0 T2: meta read_stats blob 폐지 — read_events 파생 산출로 전환했다
+// (함수명은 cli 별칭 호환 유지). 누적 범위는 events_retention_days 보존창.
+// 조회 실패·테이블 부재·빈 창은 0/0(status를 깨지 않는다 — 구 폴백과 동일).
 func LoadReadStatsFromMeta(ctx context.Context, st wire.Store) (calls int, zero int) {
-	getKV, _ := MetaKV(ctx, st)
-	calls, zero, _ = wire.LoadReadStats(getKV)
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT count(*), count(CASE WHEN zero THEN 1 END) FROM read_events`, nil)
+	if err != nil {
+		return 0, 0
+	}
+	if len(rows) > 0 {
+		ReadCounters(rows[0], &calls, &zero)
+	}
 	return calls, zero
 }
 

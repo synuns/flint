@@ -59,7 +59,7 @@ func TestReportEffectSection(t *testing.T) {
 	writeAt := readB.Add(10 * time.Minute)
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return [][]any{{"read_stats", `{"calls":10,"zero":4}`}}, nil
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
 			return nil, nil // read_fallback_calls 부재
@@ -140,9 +140,9 @@ func TestReportEffectSection(t *testing.T) {
 func TestReportEffectZeroReads(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
-		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
@@ -204,7 +204,7 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	sessionsUp := true
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
@@ -316,7 +316,7 @@ func TestChainPct(t *testing.T) {
 func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
@@ -371,7 +371,7 @@ func TestReportProfileHintWithoutIDs(t *testing.T) {
 	now := time.Now().UTC()
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "key IN ('pending_max'"):
 			return nil, nil // thresholds 기본값

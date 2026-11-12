@@ -35,14 +35,6 @@ type readBumper interface {
 	BumpReads(ctx context.Context, ids []int) error
 }
 
-// ReadUsageStore — read 1회 계측에 제로·근접 분류를 동반하는 확장
-// (v0.15.0 R2, UsageStore 단언 패턴 승계). realStore는 db.Repo.RecordReadUsage
-// 로 구현하고(cli/realstore_read.go), 미구현 Store(fake)는 기존 RecordUsage
-// 경로로 폴백.
-type ReadUsageStore interface {
-	RecordReadUsage(ctx context.Context, zero bool, near bool) error
-}
-
 // ReadEventStore — 효과 계측 이벤트 1행 기록 접합면(v0.19.0,
 // docs/METRICS.md §4). realStore는 db.Repo.RecordReadEvent로 구현하고
 // (cli/realstore_read.go), 미구현 Store(fake)는 이 계측을 건너뛴다(카운터
@@ -120,19 +112,18 @@ func RowIDs(rows [][]any) []int {
 }
 
 // InstrumentReads — 참조 계측(T62): 결과 항목 id 전수 증분 + 유입 1회
-// 기록. read kind는 분류(zero·near)를 동반해 ReadUsageStore 경로
-// (RecordReadUsage, v0.15.0 R2)로 기록하고, 미구현 Store(fake)는 기존
-// RecordUsage 경로로 폴백한다. 그 외 kind는 기존 RecordUsage 경로 불변.
-// 둘 다 계측이라 실패는 조용히 무시된다.
+// 기록. v0.42.0 T2: read kind의 유입 계측(daily read 카운터·read_stats
+// blob)은 폐지 — 계측 원천이 read_events(RecordReadEvent)로 일원화돼
+// read 1회 쓰기가 4→2(BumpReads·RecordReadEvent)로 줄었다. zero·near
+// 분류는 RecordReadEvent 인자로만 전달된다(서명 호환을 위해 파라미터는
+// 유지). 그 외 kind(hot)는 기존 RecordUsage 경로 불변. 계측이라 실패는
+// 조용히 무시된다.
 func InstrumentReads(ctx context.Context, st wire.Store, kind string, ids []int, zero, near bool) {
 	if rb, ok := st.(readBumper); ok {
 		_ = rb.BumpReads(ctx, ids)
 	}
 	if kind == "read" {
-		if ru, ok := st.(ReadUsageStore); ok {
-			_ = ru.RecordReadUsage(ctx, zero, near)
-			return
-		}
+		return // 유입 계측은 read_events 단일 원천(v0.42.0 T2)
 	}
 	RecordUsage(ctx, st, kind, "")
 }
@@ -371,11 +362,9 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		b, _ := json.Marshal(AsOfLine{AsOf: AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 		fmt.Fprintln(stdout, string(b))
 	}
-	// 계측(v0.15.0 R1 단일 라이터): zero 히트·제로근접 분류를 한 번의
-	// read_stats 읽기-쓰기에 누적. 실패는 조용히(§13).
-	wire.BumpReadStatsToMeta(ctx, st, len(rows) == 0, len(suggestions) > 0)
-	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회(분류 동반
-	// 전달 — R2 RecordReadUsage 경로). 조용히(§13).
+	// 계측(T62): 결과 항목 id 전수 참조 증분. v0.42.0 T2 — read 유입의
+	// read_stats blob·daily 카운터 쓰기는 폐지(쓰기 4→2: BumpReads·
+	// RecordReadEvent만 남는다). 조용히(§13).
 	InstrumentReads(ctx, st, "read", RowIDs(rows), len(rows) == 0, len(suggestions) > 0)
 	// 효과 계측(v0.19.0, docs/METRICS.md §4): read 1회를 read_events에
 	// 기록. 미구현 Store(fake)는 건너뛰고 실패는 조용히(§13 계측 원칙).

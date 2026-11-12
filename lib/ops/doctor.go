@@ -822,6 +822,18 @@ func checkLastSeen(ctx context.Context, st wire.Store) DoctorCheck {
 		}
 		seen[fmt.Sprint(r[0])] = ts
 	}
+	// v0.42.0 T2: read 경로가 meta last_read_at을 더 쓰지 않는다(쓰기
+	// 4→2) — 회상 최근성은 read_events 최대 시각에서 파생해 병합한다
+	// (잔존 meta 값과 더 최근 쪽. 조회 실패는 기존 값 유지 — 조용히).
+	if rows, rerr := wire.QueryOnce(ctx, st,
+		`SELECT max(ts) FROM read_events`, nil); rerr == nil &&
+		len(rows) > 0 && len(rows[0]) > 0 && rows[0][0] != nil {
+		if t, ok := CellToTime(rows[0][0]); ok {
+			if prev, had := seen["last_read_at"]; !had || t.After(prev) {
+				seen["last_read_at"] = t
+			}
+		}
+	}
 	// 임계값은 maintain와 공유 체계 — 조회 실패 시에도 기본 grace로 폴백.
 	th, thErr := wire.LoadThresholds(ctx, st)
 	if thErr != nil {
@@ -1079,9 +1091,10 @@ func CheckConflicts(ctx context.Context, st wire.Store) DoctorCheck {
 const doctorZeroNearWindow = 7
 
 // CheckZeroNear — 최근 7일 일별 read 계측 합산에서 근접 제로히트 비율
-// 판정(v0.15.0 R3). 직접 meta daily: 조회로 7일 컷을 건다 — PruneDaily와
-// 같은 substring 날짜 비교 패턴(키 날짜는 UTC). read ≥ 표본 하한 &&
-// read_zero_near*100/read ≥ 경고 비율이면 warn, 아니면 ok, 조회 실패·st
+// 판정(v0.15.0 R3). v0.42.0 T2: read_stats blob·daily read 카운터 폐지로
+// 산출 원천은 WindowedDaily(daily:* 잔존값 + read_events 파생 병합 — report
+// 와 단일 소스)로 이전. 판정 식(read ≥ 표본 하한 && read_zero_near*100/
+// read ≥ 경고 비율 → warn)·출력 문구는 전환 전과 동등하다. 조회 실패·st
 // nil은 warn. 검색 품질 의심은 동작을 막지 않으므로 fail 아니다(룰링).
 func CheckZeroNear(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "zero-near"}
@@ -1095,27 +1108,14 @@ func CheckZeroNear(ctx context.Context, st wire.Store) DoctorCheck {
 	if thErr != nil {
 		th = store.DefaultThresholds()
 	}
-	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT key, value FROM meta WHERE key ~ '^daily:[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-		   AND substring(key from 7)::date >= (now() AT TIME ZONE 'UTC')::date - `+
-			strconv.Itoa(doctorZeroNearWindow-1), nil)
+	days, err := WindowedDaily(ctx, st, doctorZeroNearWindow)
 	if err != nil {
 		c.Status = "warn"
 		c.Detail = "일별 계측 조회 실패: " + err.Error() + " — flint report로 read_zero_near 확인"
 		return c
 	}
 	read, near := 0, 0
-	for _, r := range rows {
-		if len(r) < 2 {
-			continue
-		}
-		var d struct {
-			Read     int `json:"read"`
-			ReadNear int `json:"read_zero_near"`
-		}
-		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &d) != nil {
-			continue // 파손 JSON은 없는 취급(무효 값 폴백)
-		}
+	for _, d := range days {
 		read += d.Read
 		near += d.ReadNear
 	}
