@@ -35,6 +35,20 @@ var (
 	LoadConfigDSN = wire.LoadConfigDSN
 	ConfigPath    = wire.ConfigPath
 	defaultDSN    = wire.DefaultDSN
+
+	// v0.39.0 T1(thresholds.go·session.go 이동분) — 임계값 체계·read
+	// 계측·세션 라벨 읽기. 소문자 var는 잔류 소비자(tuning·doctor·
+	// maintain·read·marker)와 테스트 seam 교체 관례(read_test의
+	// loadThresholdsFn 주입)를 승계한다.
+	loadThresholds          = wire.LoadThresholds
+	loadThresholdsFn        = wire.LoadThresholdsFn
+	applyThresholdsFallback = wire.ApplyThresholdsFallback
+	thresholdsKeys          = wire.ThresholdsKeys
+	LoadReadStats           = wire.LoadReadStats
+	BumpReadStats           = wire.BumpReadStats
+	bumpReadStatsToMeta     = wire.BumpReadStatsToMeta
+	SessionLabelFile        = wire.SessionLabelFile
+	ReadSessionLabel        = wire.ReadSessionLabel
 )
 
 func init() {
