@@ -1,8 +1,9 @@
 // report_html.go — v0.36.0(E): report --html — 단일 파일 정적 대시보드.
+// v0.40.0 T3: lib/cli에서 이동(식별자 대문자화 — 동작·출력 불변).
 // 원칙: 임베드 템플릿·프레임워크 무의존·외부 요청 없음(로컬 렌더만 —
 // METRICS §4 프라이버시)·수치만(쿼리 본문 없음). Go 템플릿 렌더라
 // JS 의존도 0 — 파일 하나를 브라우저로 열면 끝.
-package cli
+package ops
 
 import (
 	"context"
@@ -14,6 +15,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // dashboardTmpl — 임베드 템플릿(단일 파일 산출물 — 외부 자산 참조 없음).
@@ -63,9 +66,9 @@ type deltaChip struct {
 	Label string // 지표명(title용)
 }
 
-// chipFor — Trend 지점 → 칩. nil(빈 창)·0은 미표시.
-func chipFor(label string, p trendPoint, invert bool) deltaChip {
-	if p == (trendPoint{}) {
+// ChipFor — Trend 지점 → 칩. nil(빈 창)·0은 미표시.
+func ChipFor(label string, p TrendPoint, invert bool) deltaChip {
+	if p == (TrendPoint{}) {
 		return deltaChip{}
 	}
 	d := p.Delta
@@ -89,8 +92,8 @@ func chipFor(label string, p trendPoint, invert bool) deltaChip {
 		Good: good, Label: label + " · 지난주 대비"}
 }
 
-// trendRow — 추세 표 1행(Go 사전계산 — 템플릿 산술 금지).
-type trendRow struct {
+// TrendRow — 추세 표 1행(Go 사전계산 — 템플릿 산술 금지).
+type TrendRow struct {
 	Name, DeltaText string
 	Cur             int
 	Up              bool // 개선 방향(녹) — 회색 ▼와 구분(빨강 금지 규율)
@@ -102,8 +105,8 @@ func EstTok(runes int) int {
 	return int(float64(runes)*0.55 + float64(runes)*0.45/4)
 }
 
-// renderDashboard — 템플릿 렌더(html/template — Go 측 렌더라 JS 불필요).
-func renderDashboard(w io.Writer, d htmlDashboard) error {
+// RenderDashboard — 템플릿 렌더(html/template — Go 측 렌더라 JS 불필요).
+func RenderDashboard(w io.Writer, d HtmlDashboard) error {
 	t, err := template.New("dashboard").Funcs(template.FuncMap{"EstTok": EstTok}).Parse(dashboardTmpl)
 	if err != nil {
 		return fmt.Errorf("report html: 템플릿: %w", err)
@@ -111,62 +114,62 @@ func renderDashboard(w io.Writer, d htmlDashboard) error {
 	return t.Execute(w, d)
 }
 
-// htmlDashboard — 템플릿 데이터(report 원천을 그대로 소비 — 이중 산출 금지).
+// HtmlDashboard — 템플릿 데이터(report 원천을 그대로 소비 — 이중 산출 금지).
 // v0.36.0 재설계: 전체 report를 담는다 — 카드·스파크라인·소스 분해·
 // 위생(관측 갭 메타까지)을 원천 그대로 렌더.
-type htmlDashboard struct {
+type HtmlDashboard struct {
 	GeneratedAt string
 	Days        int
-	Effect      effectOutput
-	Rep         reportOutput // days·hot_p95·counts·stale·dup_pct·fallback_pct·소스별
+	Effect      EffectOutput
+	Rep         ReportOutput // days·hot_p95·counts·stale·dup_pct·fallback_pct·소스별
 	// v0.36.0 재설계 — Go 계산 산물(템플릿 산술 금지).
 	ChipHit, ChipFallback, ChipTop1 deltaChip
 	SparkRead, SparkWrite           struct{ Line, Area string }
-	BarsRead, BarsWrite, BarsDup    []barSeg   // 일별 바(스몰 멀티플 — 계열별 스케일·Go 사전계산)
-	TrendRows                       []trendRow // 추세 표 행(서사 재구성 — v5)
+	BarsRead, BarsWrite, BarsDup    []BarSeg   // 일별 바(스몰 멀티플 — 계열별 스케일·Go 사전계산)
+	TrendRows                       []TrendRow // 추세 표 행(서사 재구성 — v5)
 }
 
-// barSeg — 바 1개(높이 % 문자열 + 날짜·값 툴팁 — no-JS 네이티브).
-type barSeg struct {
+// BarSeg — 바 1개(높이 % 문자열 + 날짜·값 툴팁 — no-JS 네이티브).
+type BarSeg struct {
 	H     string // "62%" — max 대비 비율(최소 1px는 템플릿 baseline 폴백)
 	Title string // "2026-11-05 · 12"
 }
 
 // runReportHTML — `flint report --html [--days N] [--out file]`.
 // 미지정 --out은 report.html(FLINT_HOME 아님 — 사용자가 지정한 곳).
-func runReportHTML(ctx context.Context, st Store, days int, out string, stdout io.Writer) int {
+func runReportHTML(ctx context.Context, st wire.Store, days int, out string, stdout io.Writer) int {
 	if err := st.Ping(ctx); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	// 보고 원천 재사용 — HTML이 별도 지표를 만들지 않는다(단일 소스:
 	// runReport와 동일 수집 체인). v0.36.0 재설계: DupPct(G2 병기 —
 	// METRICS §2)·스파크라인 패스(Go 계산 — 템플릿 산술 금지)까지
 	// 원천 층에서 마친다.
-	rep := reportOutput{Days: make([]reportDay, 0, days)}
-	for _, step := range []func(context.Context, Store, int, *reportOutput) error{
-		collectDaily, collectCounts, collectEffect,
-		func(c context.Context, s Store, _ int, o *reportOutput) error { // hot_p95(관측 메타)
+	rep := ReportOutput{Days: make([]ReportDay, 0, days)}
+	for _, step := range []func(context.Context, wire.Store, int, *ReportOutput) error{
+		collectDaily, CollectCounts, CollectEffect,
+		func(c context.Context, s wire.Store, _ int, o *ReportOutput) error { // hot_p95(관측 메타)
 			return collectStats(c, s, o)
 		},
 	} {
 		if err := step(ctx, st, days, &rep); err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 	}
-	rep.DupPct = dupPct(rep.Days)
-	d := htmlDashboard{
+	rep.DupPct = DupPct(rep.Days)
+	d := HtmlDashboard{
 		GeneratedAt: timeNowUTC(),
 		Days:        days,
 		Effect:      rep.Effect,
 		Rep:         rep,
 	}
 	if t := rep.Effect.Trend; t != nil {
-		d.ChipHit = chipFor("회상 명중", t.HitPct, false)
-		d.ChipFallback = chipFor("폴백", t.FallbackPct, true)
-		d.ChipTop1 = chipFor("정합 1위", t.Top1Pct, false)
-		mk := func(name string, p trendPoint, invert bool) trendRow {
+		d.ChipHit = ChipFor("회상 명중", t.HitPct, false)
+		d.ChipFallback = ChipFor("폴백", t.FallbackPct, true)
+		d.ChipTop1 = ChipFor("정합 1위", t.Top1Pct, false)
+		mk := func(name string, p TrendPoint, invert bool) TrendRow {
 			up := p.Delta >= 0
 			if invert {
 				up = !up
@@ -179,10 +182,10 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 			if !up {
 				word = "나빠짐"
 			}
-			return trendRow{Name: name, Cur: p.Cur, Up: up,
+			return TrendRow{Name: name, Cur: p.Cur, Up: up,
 				DeltaText: fmt.Sprintf("지난주보다 %s%d%%포인트 %s", sign, p.Delta, word)}
 		}
-		d.TrendRows = []trendRow{
+		d.TrendRows = []TrendRow{
 			mk("회상 명중", t.HitPct, false),
 			mk("폴백 경유", t.FallbackPct, true),
 			mk("첫 결과 정답", t.Top1Pct, false),
@@ -192,7 +195,7 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 	// 되면 나머지가 전부 납작해진다. p90 기준 스케일 + 초과분 클리핑:
 	// 초과 막대는 100%에서 자르고 툴팁에 '기준 초과' 표시(Grafana
 	// percentile 스케일 관례).
-	mkBars := func(vals []int, dates []string) []barSeg {
+	mkBars := func(vals []int, dates []string) []BarSeg {
 		sorted := append([]int(nil), vals...)
 		sort.Ints(sorted)
 		// p90(빈/1건 가드: 기본 1)
@@ -207,7 +210,7 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 				ref = 1
 			}
 		}
-		out := make([]barSeg, len(vals))
+		out := make([]BarSeg, len(vals))
 		for i, v := range vals {
 			date := ""
 			if i < len(dates) {
@@ -219,7 +222,7 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 				h = 100
 				title += " · 기준(p90) 초과"
 			}
-			out[i] = barSeg{H: fmt.Sprintf("%d%%", h), Title: title}
+			out[i] = BarSeg{H: fmt.Sprintf("%d%%", h), Title: title}
 		}
 		return out
 	}
@@ -234,15 +237,15 @@ func runReportHTML(ctx context.Context, st Store, days int, out string, stdout i
 	d.SparkWrite.Line, d.SparkWrite.Area = sparkPaths(wr)
 	f, err := os.Create(out)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	defer f.Close()
-	if err := renderDashboard(f, d); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+	if err := RenderDashboard(f, d); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
-	fmt.Fprintf(stdout, `{"status":"ok","path":%s,"days":%d}`+"\n", quoteJSON(out), days)
+	fmt.Fprintf(stdout, `{"status":"ok","path":%s,"days":%d}`+"\n", QuoteJSON(out), days)
 	return 0
 }
 

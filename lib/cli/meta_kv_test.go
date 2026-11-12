@@ -122,9 +122,9 @@ func TestBumpFallbackAtomic(t *testing.T) {
 // backup rotate getKV 잔존 수렴). v0.39.0 T3: hot·read은 lib/knowledge로
 // 이동 — 가드도 이동 위치를 검사한다. v0.39.0 T4: done.go 동일.
 // v0.40.0 T1: tuning.go는 lib/ops로 이동 — 가드도 이동 위치를 검사한다.
-// v0.40.0 T2: metrics.go 동일.
+// v0.40.0 T2: metrics.go 동일. v0.40.0 T3: backup.go 동일.
 func TestMetaKVSingleSource(t *testing.T) {
-	for _, f := range []string{"../ops/metrics.go", "../ops/tuning.go", "setup.go", "../knowledge/hot.go", "../knowledge/read.go", "../knowledge/done.go", "backup.go"} {
+	for _, f := range []string{"../ops/metrics.go", "../ops/tuning.go", "setup.go", "../knowledge/hot.go", "../knowledge/read.go", "../knowledge/done.go", "../ops/backup.go"} {
 		b, err := os.ReadFile(f)
 		if err != nil {
 			t.Fatal(err)

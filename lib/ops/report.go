@@ -1,8 +1,9 @@
 // report.go — T65 `flint report`: N일(기본 7·상한 14) 적립·유지보수 리포트를
 // 한 줄 JSON으로 보고한다. 유지보수 경로(오프라인 CLI)라 핫패스 비간섭(§2).
-// 데이터는 전부 Store.Query로 읽는다 — meta daily:*·read_stats·hot_stats와
+// 데이터는 전부 wire.Store.Query로 읽는다 — meta daily:*·read_stats·hot_stats와
 // knowledge 집계(counts·stale·기간 무효화). 키 부재는 0, 파손 JSON은 스킵.
-package cli
+// v0.40.0 T3: lib/cli에서 이동(식별자 대문자화 — 동작·출력·exit 불변).
+package ops
 
 import (
 	"context"
@@ -15,10 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
-
-func init() { Register("report", runReport) }
 
 // reportDaysDefault — --days 기본 7. 상한은 보존 창(thresholds
 // daily_retention_days, v0.24.0 R1b — 상수 reportDaysMax 폐지).
@@ -27,10 +29,10 @@ const reportDaysDefault = 7
 // (v0.24.0 R1a: reportStaleDays 상수 폐지 — thresholds stale_days
 // 키와 단일화, 오버라이드가 report 집계에도 반영된다.)
 
-// reportDay — 일별 유입 1행. 소스(hook/manual/mcp)와 dup는 write와 별도 증분.
+// ReportDay — 일별 유입 1행. 소스(hook/manual/mcp)와 dup는 write와 별도 증분.
 // dup_* 3필드는 v0.10.2 R2 소스별 계측(미기록 일 0 — daily JSON 키 부재는
 // zero 값으로 디코딩).
-type reportDay struct {
+type ReportDay struct {
 	Date      string `json:"date"`
 	Write     int    `json:"write"`
 	Hook      int    `json:"hook"`
@@ -48,9 +50,9 @@ type reportDay struct {
 	ReadNear int `json:"read_zero_near"`
 }
 
-// reportOutput — 한 줄 JSON 출력. 창 밖 날짜·부재 키·파손 키는 0행으로 채운다.
-type reportOutput struct {
-	Days    []reportDay `json:"days"`
+// ReportOutput — 한 줄 JSON 출력. 창 밖 날짜·부재 키·파손 키는 0행으로 채운다.
+type ReportOutput struct {
+	Days    []ReportDay `json:"days"`
 	ZeroPct int         `json:"zero_pct"`
 	HotP95  int         `json:"hot_p95"`
 	Counts  struct {
@@ -74,17 +76,17 @@ type reportOutput struct {
 	ZeroNearPct int `json:"zero_near_pct"`
 	// v0.19.0 효과 계측 섹션(docs/METRICS.md §4 정의의 단일 산출 소스).
 	// 기존 필드·순서 불변, 말미 추가.
-	Effect effectOutput `json:"effect"`
+	Effect EffectOutput `json:"effect"`
 
 	readCalls int // 직렬화 제외 — fallback_pct 분모(read_stats calls)
 }
 
-// effectOutput — "도움" 지표(METRICS §2 GSM 표의 산출). hit_pct·near_pct·
+// EffectOutput — "도움" 지표(METRICS §2 GSM 표의 산출). hit_pct·near_pct·
 // dup_prevented·read_events_n·read_write_pairs·pair_pct·fallback_pct·
 // recall_led_pct·chain_pct는 --days 창, reuse_pct·dead_pct는 시점 지표
 // (기간 아님). 전부 상관 프록시(Tier 1·2) — 세트로 해석하고 단독 증명으로
 // 읽지 않는다(METRICS §5).
-type effectOutput struct {
+type EffectOutput struct {
 	HitPct         int `json:"hit_pct"`          // G1: 1−zero/read
 	NearPct        int `json:"near_pct"`         // G1: 근접 회수 여지(Σnear/read)
 	FallbackPct    int `json:"fallback_pct"`     // G1: 창 내 폴백 경유율(누적 키와 별개)
@@ -105,18 +107,18 @@ type effectOutput struct {
 	Top1Pct  int     `json:"top1_pct"`  // 정합 1위율(정합 있는 read 중)
 	MRR      float64 `json:"mrr"`       // 평균 역순위(정합 있는 read 중, 0~1)
 	// v0.30.0 R1 — 7일 창 전후 추세(단면→추세, read_events 단일 표).
-	Trend *trendOutput `json:"trend,omitempty"`
+	Trend *TrendOutput `json:"trend,omitempty"`
 }
 
-// trendOutput — 직전 7일(cur) vs 그 이전 7일(prev) 대비. delta=cur-prev.
-type trendOutput struct {
-	HitPct      trendPoint `json:"hit_pct"`
-	FallbackPct trendPoint `json:"fallback_pct"`
-	Top1Pct     trendPoint `json:"top1_pct"`
+// TrendOutput — 직전 7일(cur) vs 그 이전 7일(prev) 대비. delta=cur-prev.
+type TrendOutput struct {
+	HitPct      TrendPoint `json:"hit_pct"`
+	FallbackPct TrendPoint `json:"fallback_pct"`
+	Top1Pct     TrendPoint `json:"top1_pct"`
 }
 
-// trendPoint — 전기·당기·증감(정수 pct).
-type trendPoint struct {
+// TrendPoint — 전기·당기·증감(정수 pct).
+type TrendPoint struct {
 	Prev  int `json:"prev"`
 	Cur   int `json:"cur"`
 	Delta int `json:"delta"`
@@ -132,12 +134,13 @@ type trendPoint struct {
 // 세션에 속한 이벤트는 미배정 — 폴백 페어링(보수적).
 const reportSessionLookback = 24 * time.Hour
 
-// DailyRow — 관측 지표 산입용 일별 행 뷰(v0.9.7 R4). 기존 reportDay 별칭.
-type DailyRow = reportDay
+// (v0.40.0 T3: cli별칭 DailyRow=ReportDay는 이동 폐기 — ops에는 status.go
+// DailyRow(WindowedDailyFn seam 전달형)가 선행 존재한다. cli 잔여 소비자는
+// cli/ops_alias_3.go가 ReportDay 별칭으로 잇는다.)
 
-// dupPct — 기간 중복률: 기간 전체 합계 기반 Σdup/(Σwrite+Σdup),
+// DupPct — 기간 중복률: 기간 전체 합계 기반 Σdup/(Σwrite+Σdup),
 // 버림 정수%. 제로 분모·빈 기간은 0.
-func dupPct(days []DailyRow) int {
+func DupPct(days []ReportDay) int {
 	var write, dup int
 	for _, d := range days {
 		write += d.Write
@@ -149,20 +152,20 @@ func dupPct(days []DailyRow) int {
 	return int(100.0 * float64(dup) / float64(write+dup))
 }
 
-// fallbackPct — 폴백 비율: read_fallback_calls/read_calls, 버림 정수%.
+// FallbackPct — 폴백 비율: read_fallback_calls/read_calls, 버림 정수%.
 // 제로 분모는 0.
-func fallbackPct(fallbackCalls int, readCalls int) int {
+func FallbackPct(fallbackCalls int, readCalls int) int {
 	if readCalls == 0 {
 		return 0
 	}
 	return int(100.0 * float64(fallbackCalls) / float64(readCalls))
 }
 
-// runReport — --days 파싱 후 집계 조회·출력. 성공 0 · 인자 오류 1 ·
+// RunReport — --days 파싱 후 집계 조회·출력. 성공 0 · 인자 오류 1 ·
 // 저장소 오류는 MapExit(서버 다운 2 등).
-func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if err := st.Ping(ctx); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	days := reportDaysDefault
@@ -174,7 +177,7 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		case "--out":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("report: --out requires a path")))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: --out requires a path")))
 				return 1
 			}
 			htmlOut = args[i]
@@ -184,20 +187,20 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		case "--days":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("report: --days requires a number")))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: --days requires a number")))
 				return 1
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n < 1 {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("report: invalid days %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: invalid days %q", args[i])))
 				return 1
 			}
-			if max := writeThresholds(ctx, st).DailyRetentionD; n > max {
+			if max := knowledge.WriteThresholds(ctx, st).DailyRetentionD; n > max {
 				n = max // 상한 = 보존 창(그 너머 데이터는 존재하지 않는다)
 			}
 			days = n
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 1
 		}
 	}
@@ -205,40 +208,40 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if htmlOut != "" { // v0.36.0: HTML 경로 — 동일 수집 체인 재사용
 		return runReportHTML(ctx, st, days, htmlOut, stdout)
 	}
-	out := reportOutput{Days: make([]reportDay, 0, days)}
+	out := ReportOutput{Days: make([]ReportDay, 0, days)}
 	if err := collectDaily(ctx, st, days, &out); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	if err := collectStats(ctx, st, &out); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	if err := collectCounts(ctx, st, days, &out); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+	if err := CollectCounts(ctx, st, days, &out); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	// v0.19.0 효과 계측 — METRICS §4 정의 산출(days 창·knowledge 시점).
-	if err := collectEffect(ctx, st, days, &out); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+	if err := CollectEffect(ctx, st, days, &out); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	// R4 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 meta
 	// read_fallback_calls(T85·v096 status와 동일 조회 패턴)에서. 부재는 0.
-	out.DupPct = dupPct(out.Days)
+	out.DupPct = DupPct(out.Days)
 	// R2 소스별 dup 기간 합계 — 일별 행 합산(미기록 일은 0으로 합산됨).
 	for _, d := range out.Days {
 		out.DupHook += d.DupHook
 		out.DupManual += d.DupManual
 	}
 	fallbackCalls := 0
-	if fb := fallbackCallsOrNull(metaGetKV(ctx, st)); fb != nil {
+	if fb := FallbackCallsOrNull(knowledge.MetaGetKV(ctx, st)); fb != nil {
 		fallbackCalls = *fb
 	}
-	out.FallbackPct = fallbackPct(fallbackCalls, out.readCalls)
+	out.FallbackPct = FallbackPct(fallbackCalls, out.readCalls)
 	b, err := json.Marshal(out)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))
@@ -247,10 +250,10 @@ func runReport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 
 // collectDaily — meta daily:* 키를 N일 창(오늘 포함, UTC)에 맞춰 병합.
 // 창 밖 키는 배제하고(8일치가 심여도 7행), 파손 JSON은 0행 폴백(스킵).
-// v0.18.1: 창 병합 본체는 windowedDaily 공유 리더로 추출 — status 기간화
+// v0.18.1: 창 병합 본체는 WindowedDaily 공유 리더로 추출 — status 기간화
 // 지표(R4)와 파서를 단일화한다(포맷 변경 시 분기 위험 제거).
-func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) error {
-	dayRows, err := windowedDaily(ctx, st, days)
+func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutput) error {
+	dayRows, err := WindowedDaily(ctx, st, days)
 	if err != nil {
 		return err
 	}
@@ -265,32 +268,32 @@ func collectDaily(ctx context.Context, st Store, days int, out *reportOutput) er
 		sumNear += d.ReadNear
 		sumDup += d.Dup
 	}
-	out.ZeroPct = readZeroPct(sumRead, sumZero)
-	out.ZeroNearPct = readZeroPct(sumRead, sumNear)
+	out.ZeroPct = ReadZeroPct(sumRead, sumZero)
+	out.ZeroNearPct = ReadZeroPct(sumRead, sumNear)
 	// v0.19.0 효과 뷰 G1·G2 — 같은 합산에서 유도(단일 유도 사슬 —
-	// collectEffect에서 재합산하지 않는다).
-	out.Effect.HitPct = pctOf(sumRead-sumZero, sumRead)
-	out.Effect.NearPct = pctOf(sumNear, sumRead)
+	// CollectEffect에서 재합산하지 않는다).
+	out.Effect.HitPct = PctOf(sumRead-sumZero, sumRead)
+	out.Effect.NearPct = PctOf(sumNear, sumRead)
 	out.Effect.DupPrevented = sumDup
 	return nil
 }
 
-// windowedDaily — meta daily:* 키를 N일 창(오늘 포함, UTC) 행으로 병합해
+// WindowedDaily — meta daily:* 키를 N일 창(오늘 포함, UTC) 행으로 병합해
 // 반환(오래된 날부터 — 오늘이 마지막 행). 창 밖 키 배제·파손 JSON 0행
 // 폴백. report(collectDaily)·status(statusWindowedRead) 양쪽의 단일
 // 소스(v0.18.1 — daily 파서 3중 복제 해소).
-func windowedDaily(ctx context.Context, st Store, days int) ([]reportDay, error) {
-	rows, err := queryOnce(ctx, st, `SELECT key, value FROM meta WHERE key LIKE 'daily:%'`, nil)
+func WindowedDaily(ctx context.Context, st wire.Store, days int) ([]ReportDay, error) {
+	rows, err := wire.QueryOnce(ctx, st, `SELECT key, value FROM meta WHERE key LIKE 'daily:%'`, nil)
 	if err != nil {
 		return nil, err
 	}
-	daysOut := make([]reportDay, 0, days)
+	daysOut := make([]ReportDay, 0, days)
 	window := make(map[string]int, days)
 	now := time.Now().UTC()
 	for i := days - 1; i >= 0; i-- { // 오래된 날부터 — 오늘이 마지막 행
 		d := now.AddDate(0, 0, -i).Format("2006-01-02")
 		window[d] = len(daysOut)
-		daysOut = append(daysOut, reportDay{Date: d})
+		daysOut = append(daysOut, ReportDay{Date: d})
 	}
 	for _, r := range rows {
 		if len(r) < 2 {
@@ -304,7 +307,7 @@ func windowedDaily(ctx context.Context, st Store, days int) ([]reportDay, error)
 		if !ok {
 			continue // 창 밖(초과 보존분 등)
 		}
-		var d reportDay
+		var d ReportDay
 		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &d) != nil {
 			continue // 파손 → 0 유지
 		}
@@ -317,8 +320,8 @@ func windowedDaily(ctx context.Context, st Store, days int) ([]reportDay, error)
 // collectStats — meta hot_stats(p95)·read_stats(fallback_pct 분모 calls.
 // v0.15.0 R2 — zero_pct·zero_near_pct는 누적 read_stats가 아니라 daily
 // 합산(collectDaily)에서 산출한다). 부재·파손은 0.
-func collectStats(ctx context.Context, st Store, out *reportOutput) error {
-	rows, err := queryOnce(ctx, st,
+func collectStats(ctx context.Context, st wire.Store, out *ReportOutput) error {
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('read_stats','hot_stats')`, nil)
 	if err != nil {
 		return err
@@ -345,13 +348,13 @@ func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 			}
 			lens := append([]int(nil), hs.Lens...)
 			sort.Ints(lens)
-			out.HotP95 = hotP95(lens)
+			out.HotP95 = HotP95(lens)
 		}
 	}
 	return nil
 }
 
-// collectCounts — knowledge 집계 3종. pending·active(invalid_at 없음)·
+// CollectCounts — knowledge 집계 3종. pending·active(invalid_at 없음)·
 // invalidated(총) · stale(days90·never_read 분리, §2 ruling) · 기간(N일) 내
 // 무효화 수. 무효화 상태는 status가 아니라 invalid_at 유무로 판정한다(가역 무효화).
 // Doltgres 호환: FILTER 대신 CASE 집계(pattern.go 관례). T70: 컷오프를 Go에서
@@ -361,8 +364,8 @@ func collectStats(ctx context.Context, st Store, out *reportOutput) error {
 // --stale과 동일 결함·동일 처방. 주의: report_test.go TestReportSQLDoltgresCompat
 // 의 [90]·[days] int 인자 단언은 이 파라미터 곱 규약 자체를 검증한 것 — 룰링
 // 대상(비소유 파일이라 여기서는 수정하지 않음).
-func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) error {
-	rows, err := queryOnce(ctx, st, `
+func CollectCounts(ctx context.Context, st wire.Store, days int, out *ReportOutput) error {
+	rows, err := wire.QueryOnce(ctx, st, `
 		SELECT count(CASE WHEN status = 'pending' AND invalid_at IS NULL THEN 1 END),
 		       count(CASE WHEN status = 'active' AND invalid_at IS NULL THEN 1 END),
 		       count(CASE WHEN invalid_at IS NOT NULL THEN 1 END)
@@ -371,10 +374,10 @@ func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) e
 		return err
 	}
 	if len(rows) > 0 {
-		readCounters(rows[0], &out.Counts.Pending, &out.Counts.Active, &out.Counts.Invalidated)
+		ReadCounters(rows[0], &out.Counts.Pending, &out.Counts.Active, &out.Counts.Invalidated)
 	}
-	staleCutoff := time.Now().Add(-time.Duration(writeThresholds(ctx, st).StaleDays) * 24 * time.Hour)
-	rows, err = queryOnce(ctx, st, `
+	staleCutoff := time.Now().Add(-time.Duration(knowledge.WriteThresholds(ctx, st).StaleDays) * 24 * time.Hour)
+	rows, err = wire.QueryOnce(ctx, st, `
 		/* stale */ SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < $1)
 		                         OR (read_count = 0 AND ingested_at < $1) THEN 1 END),
 		       count(CASE WHEN read_count = 0 AND ingested_at < $1 THEN 1 END)
@@ -385,51 +388,51 @@ func collectCounts(ctx context.Context, st Store, days int, out *reportOutput) e
 		return err
 	}
 	if len(rows) > 0 {
-		readCounters(rows[0], &out.Stale.Days90, &out.Stale.NeverRead)
+		ReadCounters(rows[0], &out.Stale.Days90, &out.Stale.NeverRead)
 	}
 	periodCutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-	rows, err = queryOnce(ctx, st, `
+	rows, err = wire.QueryOnce(ctx, st, `
 		SELECT count(*) FROM knowledge WHERE invalid_at >= $1`,
 		[]any{periodCutoff})
 	if err != nil {
 		return err
 	}
 	if len(rows) > 0 && len(rows[0]) > 0 {
-		readCounters(rows[0], &out.InvalidatedPeriod)
+		ReadCounters(rows[0], &out.InvalidatedPeriod)
 	}
 	return nil
 }
 
-// readCounters — 집계 행의 숫자 컬럼(int32/int64/string 등)을 int로 읽는다.
-// 변환은 cellToInt 단일 유틸을 공유한다(read.go — 3중 구현 방지). 매핑
+// ReadCounters — 집계 행의 숫자 컬럼(int32/int64/string 등)을 int로 읽는다.
+// 변환은 render.CellToInt 단일 유틸을 공유한다(read.go — 3중 구현 방지). 매핑
 // 불가 칸(nil·비수)은 기존값(0)을 유지한다.
-func readCounters(row []any, dst ...*int) {
+func ReadCounters(row []any, dst ...*int) {
 	for i, p := range dst {
 		if i >= len(row) {
 			return
 		}
-		if n, ok := cellToInt(row[i]); ok {
+		if n, ok := render.CellToInt(row[i]); ok {
 			*p = n
 		}
 	}
 }
 
-// pctOf — n/total 정수 백분율(버림). total 0은 0(readZeroPct 가드 관례).
-func pctOf(n, total int) int {
+// PctOf — n/total 정수 백분율(버림). total 0은 0(ReadZeroPct 가드 관례).
+func PctOf(n, total int) int {
 	if total <= 0 {
 		return 0
 	}
 	return n * 100 / total
 }
 
-// collectEffect — 효과 계측 섹션 산출(v0.19.0 docs/METRICS.md §4·
+// CollectEffect — 효과 계측 섹션 산출(v0.19.0 docs/METRICS.md §4·
 // v0.20.0 정밀화). G1(hit·near)·G2(dup_prevented)는 collectDaily 합산에서
 // 유도되고(여기서 재합산하지 않는다), G3(reuse·dead)은 knowledge 시점
 // 집계 + hot 노출 보정(E), G4는 세션 경계 배정 페어링(D)·사용 연쇄(B) —
 // 전부 Go-사이드 조인으로 산출해 SQL interval 곱의 Doltgres 파라미터
 // 추론 리스크를 받지 않는다.
 //
-// 룰링(리뷰 #6): G3을 collectCounts의 stale 쿼리에 병합하지 않는다 —
+// 룰링(리뷰 #6): G3을 CollectCounts의 stale 쿼리에 병합하지 않는다 —
 // stale은 "인자 1개(timestamptz)" 계약을 T70 회귀 테스트가 검증하며
 // dead 컷오프(30일)는 인자가 달라 계약을 깬다. 유지보수 경로의 소형
 // 쿼리 추가를 대가로 두 관심을 분리 유지.
@@ -438,11 +441,11 @@ func pctOf(n, total int) int {
 // hot_events) 조회 실패는 해당 지표를 0/폴백으로 강등할 뿐 보고 전체를
 // 깨지 않는다. knowledge 조회 실패는 전파(다른 report 쿼리도 같이
 // 실패할 테니).
-func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) error {
+func CollectEffect(ctx context.Context, st wire.Store, days int, out *ReportOutput) error {
 	now := time.Now()
 	windowStart := now.Add(-time.Duration(days) * 24 * time.Hour)
 	// 판정 창 임계값(v0.20.4 이양) — 로드 실패는 기본값 폴백(§13).
-	th := writeThresholds(ctx, st)
+	th := knowledge.WriteThresholds(ctx, st)
 	pairWindow := time.Duration(th.PairWindowMin) * time.Minute
 	chainWindow := time.Duration(th.ChainWindowH) * time.Hour
 
@@ -454,19 +457,19 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	// 유실(증분만 실패) 시 생기는 불일치를 메운다(리뷰 #2 재정의).
 	// 조회 실패는 공집합(가드 생략 강등).
 	exposed := map[int]bool{}
-	if rows, err := queryOnce(ctx, st,
+	if rows, err := wire.QueryOnce(ctx, st,
 		`SELECT ids FROM hot_events WHERE ts >= $1`, []any{deadCutoff}); err == nil {
 		for _, r := range rows {
 			if len(r) > 0 {
 				if s, ok := r[0].(string); ok {
-					for _, id := range parseIDsCSV(s) {
+					for _, id := range knowledge.ParseIDsCSV(s) {
 						exposed[id] = true
 					}
 				}
 			}
 		}
 	}
-	rows, err := queryOnce(ctx, st, `
+	rows, err := wire.QueryOnce(ctx, st, `
 		SELECT count(*),
 		       count(CASE WHEN read_count > 0 THEN 1 END)
 		  FROM knowledge
@@ -476,10 +479,10 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	}
 	var active, reused int
 	if len(rows) > 0 {
-		readCounters(rows[0], &active, &reused)
+		ReadCounters(rows[0], &active, &reused)
 	}
-	out.Effect.ReusePct = pctOf(reused, active)
-	deadIDs, err := queryOnce(ctx, st, `
+	out.Effect.ReusePct = PctOf(reused, active)
+	deadIDs, err := wire.QueryOnce(ctx, st, `
 		/* dead */ SELECT id FROM knowledge
 		 WHERE status = 'active' AND invalid_at IS NULL
 		   AND read_count = 0 AND ingested_at < $1`, []any{deadCutoff})
@@ -491,11 +494,11 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		if len(r) == 0 {
 			continue
 		}
-		if id, ok := cellToInt(r[0]); ok && !exposed[id] {
+		if id, ok := render.CellToInt(r[0]); ok && !exposed[id] {
 			dead++
 		}
 	}
-	out.Effect.DeadPct = pctOf(dead, active)
+	out.Effect.DeadPct = PctOf(dead, active)
 
 	// ── G4 ── 이벤트 로그 — 실패 시 G4 전량 0 강등.
 	// v0.30.0 리뷰 3: 페치 창은 max(days, 14일) — 추세 prev 창(직전
@@ -510,34 +513,34 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		return nil
 	}
 	// 보고창 내 이벤트만 G4 지표 분모로(페치는 추세용으로 14일 — 위).
-	inWin := make([]readEventRow, 0, len(evs))
+	inWin := make([]ReadEventRow, 0, len(evs))
 	for _, e := range evs {
-		if !e.ts.Before(windowStart) {
+		if !e.Ts.Before(windowStart) {
 			inWin = append(inWin, e)
 		}
 	}
 	out.Effect.ReadEventsN = len(inWin)
 	fallbacks := 0
 	for _, e := range inWin {
-		if e.fallback {
+		if e.Fallback {
 			fallbacks++
 		}
 	}
-	out.Effect.FallbackPct = pctOf(fallbacks, len(inWin)) // v0.31.3(감사 1): 분모도 보고창
+	out.Effect.FallbackPct = PctOf(fallbacks, len(inWin)) // v0.31.3(감사 1): 분모도 보고창
 	// v0.30.0 R2 — hit 품질 근사(first_rank, 폴백 제외 계약). 리뷰 8:
 	// 정합/top1 정의는 trendOf와 단일 구현을 공유한다.
 	q := qualityOf(inWin)
-	out.Effect.ExactPct = pctOf(q.exact, len(inWin))
-	out.Effect.Top1Pct = pctOf(q.top1, q.exact)
+	out.Effect.ExactPct = PctOf(q.exact, len(inWin))
+	out.Effect.Top1Pct = PctOf(q.top1, q.exact)
 	out.Effect.MRR = math.Round(q.rrSum/math.Max(float64(q.exact), 1)*1000) / 1000
 	// v0.30.0 R1 — 7일 창 추세(cur=최근 7일, prev=직전 7일). 표본 부족
 	// 창(0 이벤트)은 0으로 강등(§13 — 빈 창에 해석 없음).
-	cur, prev := trendWindow(now, evs)
-	out.Effect.Trend = cur.diff(prev)
+	cur, prev := TrendWindow(now, evs)
+	out.Effect.Trend = cur.Diff(prev)
 	if len(inWin) == 0 {
 		// v0.33.0(패치 감사 3): 빈 창에도 힌트는 "보류(표본 부족)"로
 		// 완결 — 공백 영구화 패턴(v0.24.1과 동일 부류) 수선.
-		out.Effect.ProfileHint = profileHint(th, out.Effect)
+		out.Effect.ProfileHint = ProfileHint(th, out.Effect)
 		return nil // 분모 0 — 페어링·연쇄 불필요(제로 가드 관례)
 		// v0.31.3(감사 1~3): G4 집계(pair·chain·recall_led)는 전부
 		// 보고창(inWin) 소스 — 페치(14일, 추세용) 누유 금지.
@@ -558,10 +561,10 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	writeTimes := make([]time.Time, 0, len(writes))
 	sessWriteTimes := map[int][]time.Time{}
 	for _, w := range writes {
-		writeTimes = append(writeTimes, w.ts)
+		writeTimes = append(writeTimes, w.Ts)
 		if hasSessions {
-			if si := sessionIndexOf(starts, w.ts); si >= 0 {
-				sessWriteTimes[si] = append(sessWriteTimes[si], w.ts)
+			if si := sessionIndexOf(starts, w.Ts); si >= 0 {
+				sessWriteTimes[si] = append(sessWriteTimes[si], w.Ts)
 			}
 		}
 	}
@@ -569,16 +572,16 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	for _, e := range inWin { // v0.31.3(감사 2): 보고창 이벤트만 페어링
 		cands := writeTimes
 		if hasSessions {
-			if si := sessionIndexOf(starts, e.ts); si >= 0 {
+			if si := sessionIndexOf(starts, e.Ts); si >= 0 {
 				cands = sessWriteTimes[si]
 			}
 		}
-		if timeWindowHit(cands, e.ts, pairWindow) {
+		if TimeWindowHit(cands, e.Ts, pairWindow) {
 			pairs++
 		}
 	}
 	out.Effect.ReadWritePairs = pairs
-	out.Effect.PairPct = pctOf(pairs, len(inWin))
+	out.Effect.PairPct = PctOf(pairs, len(inWin))
 
 	// 회상 선도 세션 비율(D) — 창 내 시작 세션 중 기록(write)이 있고,
 	// 그 세션의 첫 read가 첫 write보다 앞선 비율.
@@ -594,10 +597,10 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 	// v0.24.1(패치 루프 1차 관측): 힌트는 표본 수만으로 판정 — ids
 	// 유무와 무관하게 가드 앞에서 산출한다(이전엔 hasIDs 조기 return
 	// 뒤에 있어 zero-hit read만 있는 운영에서 영구 공백).
-	out.Effect.ProfileHint = profileHint(th, out.Effect)
+	out.Effect.ProfileHint = ProfileHint(th, out.Effect)
 	hasIDs := false
 	for _, e := range inWin {
-		if len(e.ids) > 0 {
+		if len(e.Ids) > 0 {
 			hasIDs = true
 			break
 		}
@@ -606,25 +609,25 @@ func collectEffect(ctx context.Context, st Store, days int, out *reportOutput) e
 		return nil
 	}
 	topics := map[int]string{}
-	if rows, err := queryOnce(ctx, st,
+	if rows, err := wire.QueryOnce(ctx, st,
 		`SELECT id, topic FROM knowledge`, nil); err == nil {
 		for _, r := range rows {
 			if len(r) < 2 {
 				continue
 			}
-			if id, ok := cellToInt(r[0]); ok {
+			if id, ok := render.CellToInt(r[0]); ok {
 				topics[id] = fmt.Sprint(r[1])
 			}
 		}
 	}
-	out.Effect.ChainPct = chainPct(inWin, writes, topics, chainWindow) // v0.31.3(감사 3): 보고창 소스
+	out.Effect.ChainPct = ChainPct(inWin, writes, topics, chainWindow) // v0.31.3(감사 3): 보고창 소스
 	return nil
 }
 
-// profileHint — D① 축소형: 관측 기반 프로파일 힌트(보고 전용 — 자동
+// ProfileHint — D① 축소형: 관측 기반 프로파일 힌트(보고 전용 — 자동
 // 전환 금지 METRICS §5). 표본 하한(회상 이벤트 10 — zero-near 표본
 // 관례 승계) 미달은 "보류", 이후 recall_led_pct 기반 안내.
-func profileHint(th store.Thresholds, e effectOutput) string {
+func ProfileHint(th store.Thresholds, e EffectOutput) string {
 	// 표본 하한은 zero-near 표본 관례(zero_near_min_read) 승계 — 튜닝 가능.
 	if e.ReadEventsN < th.ZeroNearMinRead {
 		return "보류(표본 부족 — 관측 선행)"
@@ -635,13 +638,13 @@ func profileHint(th store.Thresholds, e effectOutput) string {
 	return "회상 선도 낮음 — minimal 전환 고려 가능(안내만, 자동 전환 없음)"
 }
 
-// readEventRow — read_events 1행의 계산 뷰(G4).
-type readEventRow struct {
-	ts        time.Time
-	zero      bool
-	fallback  bool
-	firstRank int
-	ids       []int
+// ReadEventRow — read_events 1행의 계산 뷰(G4).
+type ReadEventRow struct {
+	Ts        time.Time
+	Zero      bool
+	Fallback  bool
+	FirstRank int
+	Ids       []int
 }
 
 // cellToBool — 셀 bool 변환(문자열 "true"/bool 양쪽 수용).
@@ -652,22 +655,22 @@ func cellToBool(v any) bool {
 	return fmt.Sprint(v) == "true"
 }
 
-// trendStat — 창 내 이벤트의 (hit%, fallback%, top1%).
-type trendStat struct {
-	hitPct, fallbackPct, top1Pct int
-	n                            int
+// TrendStat — 창 내 이벤트의 (hit%, fallback%, top1%).
+type TrendStat struct {
+	HitPct, FallbackPct, Top1Pct int
+	N                            int
 }
 
-// trendWindow — cur(최근 7일)·prev(직전 7일) 창 통계.
-func trendWindow(now time.Time, evs []readEventRow) (cur, prev trendStat) {
+// TrendWindow — cur(최근 7일)·prev(직전 7일) 창 통계.
+func TrendWindow(now time.Time, evs []ReadEventRow) (cur, prev TrendStat) {
 	cut := now.Add(-7 * 24 * time.Hour)
 	prevCut := now.Add(-14 * 24 * time.Hour)
-	var ce, pe []readEventRow
+	var ce, pe []ReadEventRow
 	for _, e := range evs {
 		switch {
-		case !e.ts.Before(cut):
+		case !e.Ts.Before(cut):
 			ce = append(ce, e)
-		case e.ts.Before(cut) && !e.ts.Before(prevCut):
+		case e.Ts.Before(cut) && !e.Ts.Before(prevCut):
 			pe = append(pe, e)
 		}
 	}
@@ -681,13 +684,13 @@ type qualityCounts struct {
 	rrSum       float64
 }
 
-func qualityOf(evs []readEventRow) qualityCounts {
+func qualityOf(evs []ReadEventRow) qualityCounts {
 	var q qualityCounts
 	for _, e := range evs {
-		if e.firstRank > 0 {
+		if e.FirstRank > 0 {
 			q.exact++
-			q.rrSum += 1.0 / float64(e.firstRank)
-			if e.firstRank == 1 {
+			q.rrSum += 1.0 / float64(e.FirstRank)
+			if e.FirstRank == 1 {
 				q.top1++
 			}
 		}
@@ -696,77 +699,77 @@ func qualityOf(evs []readEventRow) qualityCounts {
 }
 
 // trendOf — 이벤트 슬라이스 통계(빈 창은 0).
-func trendOf(evs []readEventRow) trendStat {
+func trendOf(evs []ReadEventRow) TrendStat {
 	if len(evs) == 0 {
-		return trendStat{}
+		return TrendStat{}
 	}
 	hit, fb := 0, 0
 	for _, e := range evs {
-		if !e.zero {
+		if !e.Zero {
 			hit++
 		}
-		if e.fallback {
+		if e.Fallback {
 			fb++
 		}
 	}
 	q := qualityOf(evs)
-	return trendStat{
-		hitPct: pctOf(hit, len(evs)), fallbackPct: pctOf(fb, len(evs)),
-		top1Pct: pctOf(q.top1, q.exact), n: len(evs),
+	return TrendStat{
+		HitPct: PctOf(hit, len(evs)), FallbackPct: PctOf(fb, len(evs)),
+		Top1Pct: PctOf(q.top1, q.exact), N: len(evs),
 	}
 }
 
 // diff — 전기 대비 당기 추세 포인트(빈 창은 0 강등 — 표본 없는 비교 금지).
-func (cur trendStat) diff(prev trendStat) *trendOutput {
+func (cur TrendStat) Diff(prev TrendStat) *TrendOutput {
 	c, p := cur, prev
-	if c.n == 0 || p.n == 0 {
+	if c.N == 0 || p.N == 0 {
 		return nil
 	}
-	tp := func(a, b int) trendPoint { return trendPoint{Prev: b, Cur: a, Delta: a - b} }
-	return &trendOutput{
-		HitPct:      tp(c.hitPct, p.hitPct),
-		FallbackPct: tp(c.fallbackPct, p.fallbackPct),
-		Top1Pct:     tp(c.top1Pct, p.top1Pct),
+	tp := func(a, b int) TrendPoint { return TrendPoint{Prev: b, Cur: a, Delta: a - b} }
+	return &TrendOutput{
+		HitPct:      tp(c.HitPct, p.HitPct),
+		FallbackPct: tp(c.FallbackPct, p.FallbackPct),
+		Top1Pct:     tp(c.Top1Pct, p.Top1Pct),
 	}
 }
 
-// writeRow — 창 내 knowledge 커밋 1행의 계산 뷰(페어링·연쇄).
-type writeRow struct {
-	ts    time.Time
-	topic string
+// WriteRow — 창 내 knowledge 커밋 1행의 계산 뷰(페어링·연쇄).
+type WriteRow struct {
+	Ts    time.Time
+	Topic string
 }
 
 // queryReadEvents — 창 내 read 이벤트를 ts 오름차순으로 읽는다(연쇄의
-// 이후-판정이 순서를 가정). 매핑 불가 칸은 조용히 건너뛴다(cellToInt
+// 이후-판정이 순서를 가정). 매핑 불가 칸은 조용히 건너뛴다(render.CellToInt
 // 관례 — 계측 누락이 보고를 깨지 않는다).
-func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]readEventRow, error) {
-	rows, err := queryOnce(ctx, st,
+func queryReadEvents(ctx context.Context, st wire.Store, cutoff time.Time) ([]ReadEventRow, error) {
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT ts, zero, fallback, ids, first_rank FROM read_events WHERE ts >= $1 ORDER BY ts`,
 		[]any{cutoff})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]readEventRow, 0, len(rows))
+	out := make([]ReadEventRow, 0, len(rows))
 	for _, r := range rows {
 		if len(r) < 3 {
 			continue
 		}
-		t, ok := cellToTime(r[0])
+		t, ok := CellToTime(r[0])
 		if !ok {
 			continue
 		}
 		// v0.30.0 리뷰 1·2: 열 순서 (ts, zero, fallback, ids, first_rank) —
 		// 구 SELECT(ts,fallback,ids) 잔여 파싱 2블록이 fallback=zero 오염·
 		// ids 미파싱(연쇄 붕괴)을 냈다. 단일 경로로 정리.
-		e := readEventRow{ts: t, zero: cellToBool(r[1]), fallback: cellToBool(r[2])}
+		e := ReadEventRow{Ts: t, Zero: cellToBool(r[1]), Fallback: cellToBool(r[2])}
 		if len(r) > 3 {
 			if s, ok := r[3].(string); ok {
-				e.ids = parseIDsCSV(s)
+				e.Ids = knowledge.ParseIDsCSV(s)
 			}
 		}
 		if len(r) >= 5 {
-			if n, ok := cellToInt(r[4]); ok {
-				e.firstRank = n
+			if n, ok := render.CellToInt(r[4]); ok {
+				e.FirstRank = n
 			}
 		}
 		out = append(out, e)
@@ -775,31 +778,31 @@ func queryReadEvents(ctx context.Context, st Store, cutoff time.Time) ([]readEve
 }
 
 // queryWrites — 창 내 knowledge 커밋(시각·topic)을 ts 오름차순으로 읽는다.
-func queryWrites(ctx context.Context, st Store, cutoff time.Time) ([]writeRow, error) {
-	rows, err := queryOnce(ctx, st,
+func queryWrites(ctx context.Context, st wire.Store, cutoff time.Time) ([]WriteRow, error) {
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT ingested_at, topic FROM knowledge WHERE ingested_at >= $1 ORDER BY ingested_at`,
 		[]any{cutoff})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]writeRow, 0, len(rows))
+	out := make([]WriteRow, 0, len(rows))
 	for _, r := range rows {
 		if len(r) < 2 {
 			continue
 		}
-		t, ok := cellToTime(r[0])
+		t, ok := CellToTime(r[0])
 		if !ok {
 			continue
 		}
-		out = append(out, writeRow{ts: t, topic: fmt.Sprint(r[1])})
+		out = append(out, WriteRow{Ts: t, Topic: fmt.Sprint(r[1])})
 	}
 	return out, nil
 }
 
 // queryTimes — 1열 시각 쿼리를 time 슬라이스로 읽는다(세션 경계 조회).
 // 매핑 불가 칸은 조용히 건너뛴다(계측 누락이 보고를 깨지 않는다).
-func queryTimes(ctx context.Context, st Store, sql string, cutoff time.Time) ([]time.Time, error) {
-	rows, err := queryOnce(ctx, st, sql, []any{cutoff})
+func queryTimes(ctx context.Context, st wire.Store, sql string, cutoff time.Time) ([]time.Time, error) {
+	rows, err := wire.QueryOnce(ctx, st, sql, []any{cutoff})
 	if err != nil {
 		return nil, err
 	}
@@ -808,16 +811,16 @@ func queryTimes(ctx context.Context, st Store, sql string, cutoff time.Time) ([]
 		if len(r) == 0 {
 			continue
 		}
-		if t, ok := cellToTime(r[0]); ok {
+		if t, ok := CellToTime(r[0]); ok {
 			out = append(out, t)
 		}
 	}
 	return out, nil
 }
 
-// cellToTime — 셀(any)→time 변환(pgx timestamptz=time.Time, fake·
-// 문자열은 RFC3339). cellToInt 형제 유틸.
-func cellToTime(v any) (time.Time, bool) {
+// CellToTime — 셀(any)→time 변환(pgx timestamptz=time.Time, fake·
+// 문자열은 RFC3339). render.CellToInt 형제 유틸.
+func CellToTime(v any) (time.Time, bool) {
 	switch t := v.(type) {
 	case time.Time:
 		return t, true
@@ -835,9 +838,9 @@ func sessionIndexOf(starts []time.Time, ts time.Time) int {
 	return sort.Search(len(starts), func(i int) bool { return starts[i].After(ts) }) - 1
 }
 
-// timeWindowHit — base 직후 window 안(0 < Δ ≤ window)에 시각이 하나라도
+// TimeWindowHit — base 직후 window 안(0 < Δ ≤ window)에 시각이 하나라도
 // 있으면 참. times는 오름차순 정렬 가정.
-func timeWindowHit(times []time.Time, base time.Time, window time.Duration) bool {
+func TimeWindowHit(times []time.Time, base time.Time, window time.Duration) bool {
 	i := sort.Search(len(times), func(i int) bool { return times[i].After(base) })
 	return i < len(times) && !times[i].After(base.Add(window))
 }
@@ -845,7 +848,7 @@ func timeWindowHit(times []time.Time, base time.Time, window time.Duration) bool
 // recallLedPct — 창 내 시작 세션의 회상 선도율: 기록(write ≥1) 세션 중
 // 첫 read가 첫 write보다 앞선(회상이 생산을 이끈) 세션 비율. 창 밖 시작
 // 세션(마진분)은 제외, 미배정 이벤트는 그 세션에 귀속되지 않는다.
-func recallLedPct(starts []time.Time, evs []readEventRow, writes []writeRow, windowStart time.Time) int {
+func recallLedPct(starts []time.Time, evs []ReadEventRow, writes []WriteRow, windowStart time.Time) int {
 	type sess struct {
 		firstRead, firstWrite time.Time
 		hasRead, hasWrite     bool
@@ -857,16 +860,16 @@ func recallLedPct(starts []time.Time, evs []readEventRow, writes []writeRow, win
 		}
 	}
 	for _, e := range evs {
-		if si := sessionIndexOf(starts, e.ts); si >= 0 {
-			if ss := sessions[si]; ss != nil && (!ss.hasRead || e.ts.Before(ss.firstRead)) {
-				ss.firstRead, ss.hasRead = e.ts, true
+		if si := sessionIndexOf(starts, e.Ts); si >= 0 {
+			if ss := sessions[si]; ss != nil && (!ss.hasRead || e.Ts.Before(ss.firstRead)) {
+				ss.firstRead, ss.hasRead = e.Ts, true
 			}
 		}
 	}
 	for _, w := range writes {
-		if si := sessionIndexOf(starts, w.ts); si >= 0 {
-			if ss := sessions[si]; ss != nil && (!ss.hasWrite || w.ts.Before(ss.firstWrite)) {
-				ss.firstWrite, ss.hasWrite = w.ts, true
+		if si := sessionIndexOf(starts, w.Ts); si >= 0 {
+			if ss := sessions[si]; ss != nil && (!ss.hasWrite || w.Ts.Before(ss.firstWrite)) {
+				ss.firstWrite, ss.hasWrite = w.Ts, true
 			}
 		}
 	}
@@ -880,34 +883,34 @@ func recallLedPct(starts []time.Time, evs []readEventRow, writes []writeRow, win
 			led++
 		}
 	}
-	return pctOf(led, active)
+	return PctOf(led, active)
 }
 
-// chainPct — 사용 연쇄율(v0.20.0 B): 반환 id가 있는 read 중 24h 내
+// ChainPct — 사용 연쇄율(v0.20.0 B): 반환 id가 있는 read 중 24h 내
 // (a) 이후 read에서 같은 id 재반환 또는 (b) 같은 topic write로 이어진
 // 비율. evs·writes는 ts 오름차순 가정.
-func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string, window time.Duration) int {
+func ChainPct(evs []ReadEventRow, writes []WriteRow, topics map[int]string, window time.Duration) int {
 	withIDs, used := 0, 0
 	for i, e := range evs {
-		if len(e.ids) == 0 {
+		if len(e.Ids) == 0 {
 			continue
 		}
 		withIDs++
-		idset := make(map[int]bool, len(e.ids))
-		for _, id := range e.ids {
+		idset := make(map[int]bool, len(e.Ids))
+		for _, id := range e.Ids {
 			idset[id] = true
 		}
 		hit := false
 		// (a) 이후 24h 내 재반환 — Δ>0 필요(페어링의 0 < Δ 규칙과 일관,
 		// 동시 기록(Δ=0)은 연쇄 아님, 리뷰 #5).
 		for j := i + 1; j < len(evs) && !hit; j++ {
-			if evs[j].ts.After(e.ts.Add(window)) {
+			if evs[j].Ts.After(e.Ts.Add(window)) {
 				break
 			}
-			if !evs[j].ts.After(e.ts) {
+			if !evs[j].Ts.After(e.Ts) {
 				continue
 			}
-			for _, id := range evs[j].ids {
+			for _, id := range evs[j].Ids {
 				if idset[id] {
 					hit = true
 					break
@@ -919,11 +922,11 @@ func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string, wind
 			if hit {
 				break
 			}
-			if !w.ts.After(e.ts) || w.ts.After(e.ts.Add(window)) {
+			if !w.Ts.After(e.Ts) || w.Ts.After(e.Ts.Add(window)) {
 				continue
 			}
-			for _, id := range e.ids {
-				if t := topics[id]; t != "" && t == w.topic {
+			for _, id := range e.Ids {
+				if t := topics[id]; t != "" && t == w.Topic {
 					hit = true
 					break
 				}
@@ -933,5 +936,5 @@ func chainPct(evs []readEventRow, writes []writeRow, topics map[int]string, wind
 			used++
 		}
 	}
-	return pctOf(used, withIDs)
+	return PctOf(used, withIDs)
 }

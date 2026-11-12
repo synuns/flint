@@ -1,8 +1,9 @@
 // sigverify.go — v0.31.0(D·ADR-0014): 릴리스 서명 검증. cosign 키 기반
+// v0.40.0 T3: lib/cli에서 이동(패키지문만 변경 — 식별자는 이미 공개명).
 // 서명(ECDSA P-256 기본·ed25519 지원)을 Go 표준 라이브러리만으로 검증
 // 한다(신규 의존 0 — cosign 라이브러리 트리 회피). 신뢰 뿌리는 바이너리에
 // 임베드된 공개키(cosign.pub) — GitHub 오리진과 분리된 제3 신뢰점.
-package cli
+package ops
 
 import (
 	"crypto/ecdsa"

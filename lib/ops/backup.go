@@ -1,7 +1,8 @@
 // backup 커맨드 — ADR-0002 자체 SQL 덤프의 CLI 진입점.
 // `flint backup [--out file]`(미지정 시 stdout) · `flint restore --file path`.
 // 실패는 한 줄 JSON 에러 + exit 코드 계약(MapExit: 1 재시도/일반, 2 서버 다운).
-package cli
+// v0.40.0 T3: lib/cli에서 이동(식별자 대문자화 — 동작·출력·exit 불변).
+package ops
 
 import (
 	"bytes"
@@ -17,49 +18,46 @@ import (
 
 	"github.com/synuns/flint/lib/backup"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
-// dumpFn·restoreFn — seam. 기본 T12 실구현, 테스트는 fake 교체(SUPERLITE_REAL=1은 위임).
+// DumpFn·RestoreFn — seam. 기본 T12 실구현, 테스트는 fake 교체(SUPERLITE_REAL=1은 위임).
 var (
-	dumpFn       = backup.Dump
-	restoreFn    = backup.Restore
-	drillDataFn  = backup.RunDrillData
-	rotateFn     = backup.Rotate
-	keepFn       = backup.BackupKeep
-	ensureKeyFn  = backup.EnsureIdentity
-	encryptToFn  = backup.EncryptTo
-	maskSecretsF = store.MaskSecrets
+	DumpFn        = backup.Dump
+	RestoreFn     = backup.Restore
+	DrillDataFn   = backup.RunDrillData
+	RotateFn      = backup.Rotate
+	KeepFn        = backup.BackupKeep
+	EnsureKeyFn   = backup.EnsureIdentity
+	EncryptToFn   = backup.EncryptTo
+	MaskSecretsFn = store.MaskSecrets
 )
 
 // BackupKeyPath — 암호화 백업 identity 경로(FLINT_HOME 인프라 루트,
 // v0.28.3 — config에서 데이터 공간으로 이전·레거시 자동 마이그레이션).
 func BackupKeyPath() string {
-	return dataFile("backup.key")
+	return DataFile("backup.key")
 }
 
 // dumpStore — 전체 덤프 접근(approveStore와 동일 관례의 타입 단언 seam).
-// v0.34.3 R14: runBackup이 주입 st 경유로 덤프한다(미구현 st만 dumpFn
+// v0.34.3 R14: RunBackup이 주입 st 경유로 덤프한다(미구현 st만 DumpFn
 // seam 폴백). 물리적 풀은 lib/backup.Dump 내부에서 열고 닫는다(defer).
+// realStore 위임 구현은 cli/realstore_supply.go(T3 이동 — cli 소유 타입).
 type dumpStore interface {
 	Dump(ctx context.Context, w io.Writer) error
 }
 
-// realStore 위임 메서드 — 같은 패키지 파일이라 여기서 추가만 한다.
-func (s *realStore) Dump(ctx context.Context, w io.Writer) error {
-	return backup.Dump(ctx, dsnFromEnv(), w)
-}
-
-// backupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(리뷰 8:
+// BackupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(리뷰 8:
 // 수동·자동·doctor 3곳이 각자 판정하면 형식 확장 시 정합 분기).
-func backupEncryptOn(v string) bool {
+func BackupEncryptOn(v string) bool {
 	return v == "true" || v == "1"
 }
 
-// runBackup — 덤프 생성. Store는 root 디스패치 호환용이며 사용하지 않는다
+// RunBackup — 덤프 생성. wire.Store는 root 디스패치 호환용이며 사용하지 않는다
 // (Dump가 자체 풀을 연다). stdout 모드는 버퍼 경유로 깨끗한 출력을 보장한다.
 // v0.28.0(H②): --encrypt(age 암호화·--out 필수)·--mask(비밀 패턴 치환
 // 진단 덤프 — 사이드카 미부여 비복원 아티팩트).
-func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	out := ""
 	encrypt, mask := false, false
 	for i := 0; i < len(args); i++ {
@@ -67,7 +65,7 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		case "--out":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("--out requires a path")))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--out requires a path")))
 				return 1
 			}
 			out = args[i]
@@ -76,17 +74,17 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		case "--mask":
 			mask = true
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 1
 		}
 	}
 	if encrypt && out == "" {
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("--encrypt requires --out (암호문은 파일로만)")))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--encrypt requires --out (암호문은 파일로만)")))
 		return 1
 	}
 	// v0.28.2: --out이 git 저장소 내부면 경고(진행 유지 — 사용자 명시
 	// 선택이나 개인 데이터 덤프의 repo 반입·커밋·동기화 유출 사고 예방).
-	if out != "" && outInsideGitRepo(out) {
+	if out != "" && OutInsideGitRepo(out) {
 		fmt.Fprintf(os.Stderr, "[flint] backup: --out 경로가 git 저장소 내부 — 덤프 커밋·동기화 유출 위험. ~/.flint/backup 권장\n")
 	}
 	// v0.28.0: meta backup_encrypt=true면 수동 백업도 암호화(일관성 —
@@ -98,15 +96,15 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 
 	var buf bytes.Buffer
 	// v0.34.3 R14: 주입 st 우선(realStore는 Dump 위임). 미구현 st만
-	// dumpFn seam 폴백(기존 테스트 fake) — 폴백 시에만 자체 연결이 열린다.
+	// DumpFn seam 폴백(기존 테스트 fake) — 폴백 시에만 자체 연결이 열린다.
 	var dumpErr error
 	if ds, ok := st.(dumpStore); ok {
 		dumpErr = ds.Dump(ctx, &buf)
 	} else {
-		dumpErr = dumpFn(ctx, dsnFromEnv(), &buf)
+		dumpErr = DumpFn(ctx, wire.DSNFromEnv(), &buf)
 	}
 	if dumpErr != nil {
-		fmt.Fprintln(stdout, errLine(dumpErr))
+		fmt.Fprintln(stdout, wire.ErrLine(dumpErr))
 		return store.MapExit(dumpErr)
 	}
 	data := buf.Bytes()
@@ -114,23 +112,23 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	extra := ""
 	if mask {
 		// 마스킹 — 진단·공유용: 비밀 패턴 치환 + 비복원 마커 선두 부착.
-		data = append([]byte(backup.MaskDumpHeader+"\n"), maskSecretsF(string(data))...)
+		data = append([]byte(backup.MaskDumpHeader+"\n"), MaskSecretsFn(string(data))...)
 		extra += `,"masked":true`
 	}
 	if encrypt {
 		key := BackupKeyPath()
 		if key == "" {
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("config 디렉터리 미확인 — 키 경로 조립 불가")))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("config 디렉터리 미확인 — 키 경로 조립 불가")))
 			return 1
 		}
-		id, err := ensureKeyFn(key)
+		id, err := EnsureKeyFn(key)
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		var eb bytes.Buffer
-		if err := encryptToFn(&eb, data, id.Recipient()); err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+		if err := EncryptToFn(&eb, data, id.Recipient()); err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 1
 		}
 		data = eb.Bytes()
@@ -148,7 +146,7 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		return 0
 	}
 	if err := os.WriteFile(out, data, 0o600); err != nil { // v0.20.6 S3: 민감 평문 덤프
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
 	// v0.28.0(H③): WriteFile의 퍼모드는 신규 파일에만 적용 — 기존 파일
@@ -164,37 +162,37 @@ func runBackup(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if !mask {
 		if _, sum, cerr := backup.Checksum(bytes.NewBuffer(data)); cerr == nil {
 			if serr := backup.WriteSidecar(out, sum); serr == nil {
-				sumField = `,"sha256":` + quoteJSON(sum)
+				sumField = `,"sha256":` + QuoteJSON(sum)
 			}
 		}
 	}
 	// T54: 백업 성공 경로 마지막에 로테이션 — keep은 meta backup_keep(기본 14).
-	// 로테이션 실패도 백업 성공을 해치지 않는다. quoteJSON이 이미 따옴표를
+	// 로테이션 실패도 백업 성공을 해치지 않는다. QuoteJSON이 이미 따옴표를
 	// 감싸므로 추가 `"` 금지(F-T54-1 회귀 — 겹따옴표로 JSON 파손).
-	fmt.Fprintln(stdout, `{"status":"ok","path":`+quoteJSON(out)+sumField+extra+rotateAfterBackup(ctx, st, out)+"}")
+	fmt.Fprintln(stdout, `{"status":"ok","path":`+QuoteJSON(out)+sumField+extra+rotateAfterBackup(ctx, st, out)+"}")
 	return 0
 }
 
 // backupEncryptMeta — meta backup_encrypt 판정(오류·미설정=false 폴백).
-// v0.34.3 T4: meta 접근은 getMetaKV 단일 진입(meta_kv.go) 경유.
-func backupEncryptMeta(ctx context.Context, st Store) bool {
+// v0.34.3 T4: meta 접근은 wire.GetMetaKV 단일 진입(meta_kv.go) 경유.
+func backupEncryptMeta(ctx context.Context, st wire.Store) bool {
 	if st == nil {
 		return false
 	}
-	v, ok := getMetaKV(ctx, st, "backup_encrypt")
-	return ok && backupEncryptOn(v)
+	v, ok := wire.GetMetaKV(ctx, st, "backup_encrypt")
+	return ok && BackupEncryptOn(v)
 }
 
 // rotateAfterBackup — 성공한 --out 경로 뒤 로테이션 요약 필드(`,"removed":N`)를
 // 반환한다. 삭제가 없거나 실패하면 빈 문자열(실패는 경고만, exit 불변).
-func rotateAfterBackup(ctx context.Context, st Store, out string) string {
+func rotateAfterBackup(ctx context.Context, st wire.Store, out string) string {
 	getKV := func(key string) (string, error) {
 		if st == nil {
 			return "", errors.New("no store")
 		}
-		// v0.34.3 T2: 조회 본체는 getMetaKVErr 단일 진입 위임 — 키 부재
+		// v0.34.3 T2: 조회 본체는 wire.GetMetaKVErr 단일 진입 위임 — 키 부재
 		// ("", false, nil)를 기존 미설정 오류로 치환한다.
-		v, ok, err := getMetaKVErr(ctx, st, key)
+		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
 		if err != nil {
 			return "", err
 		}
@@ -203,7 +201,7 @@ func rotateAfterBackup(ctx context.Context, st Store, out string) string {
 		}
 		return v, nil
 	}
-	removed, err := rotateFn(filepath.Dir(out), keepFn(getKV))
+	removed, err := RotateFn(filepath.Dir(out), KeepFn(getKV))
 	if err != nil {
 		log.Printf("[flint] backup: rotate 실패: %v", err)
 		return ""
@@ -214,9 +212,9 @@ func rotateAfterBackup(ctx context.Context, st Store, out string) string {
 	return `,"removed":` + strconv.Itoa(len(removed))
 }
 
-// runRestore — 덤프 스크립트 재생. --file 필수. --drill은 실재생 대신
+// RunRestore — 덤프 스크립트 재생. --file 필수. --drill은 실재생 대신
 // flint_drill_db 임시 데이터베이스 재생 훈련(T55) — 원본 불변, 결과만 보고.
-func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	file := ""
 	drill := false
 	for i := 0; i < len(args); i++ {
@@ -226,17 +224,17 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		case "--file":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("--file requires a path")))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--file requires a path")))
 				return 1
 			}
 			file = args[i]
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
 			return 1
 		}
 	}
 	if file == "" {
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("restore requires --file")))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("restore requires --file")))
 		return 1
 	}
 
@@ -246,7 +244,7 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	// 검증 후 재오픈(VerifyFile→os.Open)의 TOCTOU 창을 제거.
 	raw, rerr2 := os.ReadFile(file)
 	if rerr2 != nil {
-		fmt.Fprintln(stdout, errLine(rerr2))
+		fmt.Fprintln(stdout, wire.ErrLine(rerr2))
 		return 1
 	}
 	sum, verr := backup.VerifyBytes(raw, file+".sha256")
@@ -263,7 +261,7 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 1
 	}
 	if verr != nil {
-		fmt.Fprintln(stdout, errLine(verr))
+		fmt.Fprintln(stdout, wire.ErrLine(verr))
 		return 1
 	}
 	_ = sum
@@ -281,17 +279,17 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 1
 	}
 	if rerr != nil {
-		fmt.Fprintln(stdout, errLine(rerr))
+		fmt.Fprintln(stdout, wire.ErrLine(rerr))
 		return 1
 	}
 
 	// --drill — 실재생 대신 훈련: flint_drill_db 데이터베이스에 재생해 행수 대조.
 	// 원본은 불변이며, 결과는 한 줄 JSON(불일치 시 ok:false + exit 1).
-	// v0.28.0(H③): 검증·복호된 바이트를 그대로 재생(drillDataFn).
+	// v0.28.0(H③): 검증·복호된 바이트를 그대로 재생(DrillDataFn).
 	if drill {
-		res, derr := drillDataFn(dsnFromEnv(), data)
+		res, derr := DrillDataFn(wire.DSNFromEnv(), data)
 		if derr != nil {
-			fmt.Fprintln(stdout, errLine(derr))
+			fmt.Fprintln(stdout, wire.ErrLine(derr))
 			return store.MapExit(derr)
 		}
 		ok := "false"
@@ -306,13 +304,13 @@ func runRestore(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 0
 	}
 
-	if err := restoreFn(ctx, dsnFromEnv(), bytes.NewReader(data)); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+	if err := RestoreFn(ctx, wire.DSNFromEnv(), bytes.NewReader(data)); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	// 결과 한 줄 JSON — v0.20.6 S4 이후 사이드카 누락은 재생 전 차단되므로
 	// 여기는 항상 검증 통과 분기다.
-	fmt.Fprintln(stdout, `{"status":"restored","sha256":`+quoteJSON(sum)+"}")
+	fmt.Fprintln(stdout, `{"status":"restored","sha256":`+QuoteJSON(sum)+"}")
 	return 0
 }
 
@@ -327,8 +325,8 @@ func mismatchLine(path string) string {
 	return string(b)
 }
 
-// quoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
-func quoteJSON(s string) string {
+// QuoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
+func QuoteJSON(s string) string {
 	b, err := json.Marshal(s)
 	if err != nil {
 		return `""`
@@ -336,9 +334,9 @@ func quoteJSON(s string) string {
 	return string(b)
 }
 
-// outInsideGitRepo — 경로가 git 저장소(작업 트리) 내부인지 판정(v0.28.2).
+// OutInsideGitRepo — 경로가 git 저장소(작업 트리) 내부인지 판정(v0.28.2).
 // .git 디렉터리(일반)·파일(워크트리) 모두 인식, 상위로 최대 64단계.
-func outInsideGitRepo(out string) bool {
+func OutInsideGitRepo(out string) bool {
 	dir, err := filepath.Abs(filepath.Dir(out))
 	if err != nil {
 		return false

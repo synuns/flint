@@ -283,15 +283,15 @@ func TestReportEffectSessionPairing(t *testing.T) {
 func TestChainPct(t *testing.T) {
 	base := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
 	evs := []readEventRow{
-		{ts: base, ids: []int{7}},                     // (a) 히트(+2h 재반환)
-		{ts: base, ids: []int{7}},                     // Δ=0 동시 — (a) 아니지만 +2h로 히트
-		{ts: base.Add(2 * time.Hour), ids: []int{7}},  // ev0·ev1의 재반환 상대
-		{ts: base.Add(3 * time.Hour), ids: []int{9}},  // (b) 같은 topic write 히트
-		{ts: base.Add(4 * time.Hour), ids: []int{11}}, // 비히트
+		{Ts: base, Ids: []int{7}},                     // (a) 히트(+2h 재반환)
+		{Ts: base, Ids: []int{7}},                     // Δ=0 동시 — (a) 아니지만 +2h로 히트
+		{Ts: base.Add(2 * time.Hour), Ids: []int{7}},  // ev0·ev1의 재반환 상대
+		{Ts: base.Add(3 * time.Hour), Ids: []int{9}},  // (b) 같은 topic write 히트
+		{Ts: base.Add(4 * time.Hour), Ids: []int{11}}, // 비히트
 	}
 	writes := []writeRow{
-		{ts: base.Add(3*time.Hour + 5*time.Minute), topic: "t9"},
-		{ts: base.Add(30 * time.Hour), topic: "t7"}, // 24h 창 밖
+		{Ts: base.Add(3*time.Hour + 5*time.Minute), Topic: "t9"},
+		{Ts: base.Add(30 * time.Hour), Topic: "t7"}, // 24h 창 밖
 	}
 	topics := map[int]string{7: "t7", 9: "t9", 11: "t11"}
 	// 히트: ev0·ev1((a) +2h 재반환)·ev3((b)) = 3/5 = 60. ev2는 이후
@@ -300,12 +300,12 @@ func TestChainPct(t *testing.T) {
 		t.Errorf("chainPct = %d, want 60(3/5)", got)
 	}
 	// Δ=0만 있는 경우 — 동시 기록은 연쇄 아님(0/1).
-	sameTS := []readEventRow{{ts: base, ids: []int{7}}, {ts: base, ids: []int{7}}}
+	sameTS := []readEventRow{{Ts: base, Ids: []int{7}}, {Ts: base, Ids: []int{7}}}
 	if got := chainPct(sameTS, nil, topics, 24*time.Hour); got != 0 {
 		t.Errorf("Δ=0만 있을 때 chainPct = %d, want 0", got)
 	}
 	// ids 없는 read는 분모에서 제외 — 전부 비히트면 0.
-	if got := chainPct([]readEventRow{{ts: base}}, writes, topics, 24*time.Hour); got != 0 {
+	if got := chainPct([]readEventRow{{Ts: base}}, writes, topics, 24*time.Hour); got != 0 {
 		t.Errorf("ids 없는 read 단독 chainPct = %d, want 0", got)
 	}
 }
