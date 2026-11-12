@@ -410,7 +410,9 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 // 승격 — hot·done 동일 적용). given=false(플래그 미지정)은 통과. 빈 값
 // (trailing --session)·'-' 접두(`--session --json`처럼 플래그를 흡수하는
 // 오타 — 세션 라벨은 read_events·hot_view에 저장되는 값이라 오타가 DB
-// 오염으로 남는다)는 무효 값 SchemaError — 호출부는 출력 후 exit 3.
+// 오염으로 남는다)·개행 포함(v1.0.3 R3: 세션 라벨 파일은 값 1줄 —
+// \n·\r이 파일 계약과 저장값 양쪽을 깨뜨린다)은 무효 값 SchemaError —
+// 호출부는 출력 후 exit 3.
 func validateSessionLabel(given bool, val string) error {
 	if !given {
 		return nil
@@ -420,6 +422,9 @@ func validateSessionLabel(given bool, val string) error {
 	}
 	if strings.HasPrefix(val, "-") {
 		return &store.SchemaError{Field: "session", Expect: "flag 아닌 라벨"}
+	}
+	if strings.ContainsAny(val, "\n\r") {
+		return &store.SchemaError{Field: "session", Expect: "개행 없는 1줄 라벨"}
 	}
 	return nil
 }

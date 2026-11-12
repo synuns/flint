@@ -174,6 +174,13 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --reason requires a value")))
 				return 1
 			}
+			// v1.0.3(R3): 값이 뒤 플래그를 흡수하는 오타('--reason
+			// --commit' → 사유 "--commit")는 공용 가드로 무효 인자
+			// exit 3(backup --out·restore --file와 동일 계약).
+			if err := knowledge.ValidateFlagValue("reason", args[i]); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
+				return 3
+			}
 			reason = args[i]
 		case "--supersede":
 			mode = args[i]
