@@ -85,7 +85,7 @@ jobs:
           go install honnef.co/go/tools/cmd/staticcheck@2026.2.2
           make lint
       - name: YAML 검증 + 단위 테스트
-        run: make ci GO_TEST_FLAGS="-p 1"
+        run: make ci GO_TEST_FLAGS="-p 1 -count=1"
       - name: e2e (실 Doltgres)
         run: make e2e
 

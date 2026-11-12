@@ -73,6 +73,9 @@ func Dump(ctx context.Context, dsn string, w io.Writer) error {
 }
 
 // Restore 는 덤프 스크립트를 단일 트랜잭션으로 순차 실행한다.
+// v1.0.10 결정(감사 B4 종결): 자체 풀(db.Connect)은 의도된 설계 —
+// 트랜잭션+Exec가 필요한데 wire.Store는 쓰기-repo-전용 계약상 그 표면이
+// 없다. 단발 CLI 호출·defer Close로 누수 없음(R2 검증). 재배선하지 않는다.
 func Restore(ctx context.Context, dsn string, r io.Reader) error {
 	data, err := io.ReadAll(r)
 	if err != nil {

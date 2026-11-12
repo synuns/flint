@@ -59,13 +59,19 @@ func TestRunIfNeededBacksUp(t *testing.T) {
 	fakeDump(t, &calls)
 
 	old := time.Now().UTC().Add(-25 * time.Hour).Format(time.RFC3339)
-	var gotKey, gotVal string
 	a := &Auto{DSN: "fake-dsn"}
 	var buf bytes.Buffer
 
+	claimVal := ""
 	if err := a.RunIfNeeded(context.Background(),
 		func(k string) (string, error) { return old, nil },
-		func(k, v string) error { gotKey, gotVal = k, v; return nil },
+		func(oldVal, newVal string) (bool, error) {
+			if oldVal != old {
+				return false, nil
+			}
+			claimVal = newVal
+			return true, nil
+		},
 		&buf); err != nil {
 		t.Fatalf("RunIfNeeded error: %v", err)
 	}
@@ -75,11 +81,11 @@ func TestRunIfNeededBacksUp(t *testing.T) {
 	if !strings.Contains(buf.String(), "-- fake dump") {
 		t.Errorf("dump w에 기록 안 됨: %q", buf.String())
 	}
-	if gotKey != "last_backup" {
-		t.Errorf("setKV 키 = %q, want last_backup", gotKey)
+	if claimVal == "" {
+		t.Errorf("claim 승자 없음 — 선점 실패")
 	}
-	if _, err := time.Parse(time.RFC3339, gotVal); err != nil {
-		t.Errorf("setKV 값이 RFC3339 아님: %q", gotVal)
+	if _, err := time.Parse(time.RFC3339, claimVal); err != nil {
+		t.Errorf("claim 값이 RFC3339 아님: %q", claimVal)
 	}
 }
 
@@ -89,22 +95,22 @@ func TestRunIfNeededSkipsRecent(t *testing.T) {
 	fakeDump(t, &calls)
 
 	recent := time.Now().UTC().Add(-time.Hour).Format(time.RFC3339)
-	setCalled := false
+	claimCalled := false
 	a := &Auto{DSN: "fake-dsn"}
 
 	if err := a.RunIfNeeded(context.Background(),
 		func(k string) (string, error) { return recent, nil },
-		func(k, v string) error { setCalled = true; return nil },
+		func(oldVal, newVal string) (bool, error) { claimCalled = true; return false, nil },
 		io.Discard); err != nil {
 		t.Fatalf("RunIfNeeded error: %v", err)
 	}
-	if calls != 0 || setCalled {
-		t.Errorf("no-op 위반: dump %d회, setKV %v", calls, setCalled)
+	if calls != 0 || claimCalled {
+		t.Errorf("no-op 위반: dump %d회, claim %v", calls, claimCalled)
 	}
 }
 
 // Review Focus(state): setKV 실패 시 에러 반환 + 메타 미기록 → 다음 재시도.
-func TestRunIfNeededSetKVFailureRetries(t *testing.T) {
+func TestRunIfNeededClaimFailureRetries(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
 
@@ -114,19 +120,25 @@ func TestRunIfNeededSetKVFailureRetries(t *testing.T) {
 
 	err := a.RunIfNeeded(context.Background(),
 		func(k string) (string, error) { return old, nil },
-		func(k, v string) error { recorded = false; return errors.New("meta down") },
+		func(oldVal, newVal string) (bool, error) {
+			recorded = false
+			return false, errors.New("meta down")
+		},
 		io.Discard)
 	if err == nil {
-		t.Fatal("setKV 실패 시 에러 반환 필요")
+		t.Fatal("claim 실패 시 에러 반환 필요")
 	}
 	if recorded {
 		t.Error("기록 실패했는데 recorded=true")
+	}
+	if calls != 0 {
+		t.Errorf("claim 실패 시 덤프하면 안 됨: %d회", calls)
 	}
 	// 메타가 여전히 과거 값이므로 다음 호출은 다시 백업을 시도한다.
 	calls = 0
 	if err := a.RunIfNeeded(context.Background(),
 		func(k string) (string, error) { return old, nil },
-		func(k, v string) error { recorded = true; return nil },
+		func(oldVal, newVal string) (bool, error) { recorded = true; return true, nil },
 		io.Discard); err != nil {
 		t.Fatalf("재시도 실패: %v", err)
 	}
@@ -143,7 +155,7 @@ func TestRunIfNeededMetaReadError(t *testing.T) {
 	a := &Auto{DSN: "fake-dsn"}
 	err := a.RunIfNeeded(context.Background(),
 		func(k string) (string, error) { return "", errors.New("meta read fail") },
-		func(k, v string) error { return nil },
+		func(oldVal, newVal string) (bool, error) { return false, nil },
 		io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "meta read fail") {
 		t.Fatalf("metaKV 에러 전달 필요: %v", err)
@@ -165,7 +177,7 @@ func TestRunIfNeededRealDump(t *testing.T) {
 	var buf bytes.Buffer
 	if err := a.RunIfNeeded(context.Background(),
 		func(k string) (string, error) { return old, nil },
-		func(k, v string) error { return nil },
+		func(oldVal, newVal string) (bool, error) { return true, nil },
 		&buf); err != nil {
 		t.Fatalf("RunIfNeeded(실 Dump) error: %v", err)
 	}

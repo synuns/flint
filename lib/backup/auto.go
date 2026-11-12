@@ -53,10 +53,14 @@ type Auto struct {
 
 // RunIfNeeded 는 last_backup 메타가 24h 이상 경과했을 때만 덤프를 dump에
 // 기록하고 메타를 갱신한다. 비경과면 no-op, 실패면 에러를 반환한다.
-// setKV가 실패하면 메타가 남지 않아 다음 호출에서 재시도된다.
+// v1.0.10(감사 R2-A4): 원자 선점(CAS)으로 재설계 — claim(old→now)에 성공한
+// 세션만 덤프한다. 이전엔 덤프 뒤 스탬프라 병렬 done 세션이 동시 만료를
+// 함께 통과해 이중 덤프(keep-N 자리 낭비)가 가능했다. claim 값 자체가
+// 타임스탬프라 최종 스탬프 별도 없음. 트레이드오프: 덤프 실패 시 당일
+// 재시도가 다음 날로 미뤄진다(일 1회 백업 계약 정합, 실패는 조용히 §13).
 func (a *Auto) RunIfNeeded(ctx context.Context,
 	metaKV func(string) (string, error),
-	setKV func(string, string) error,
+	claim func(oldVal, newVal string) (bool, error),
 	dump io.Writer) error {
 
 	last, err := metaKV(LastBackupKey)
@@ -73,8 +77,15 @@ func (a *Auto) RunIfNeeded(ctx context.Context,
 	if !ShouldBackup(last, now, intervalH) {
 		return nil
 	}
+	won, err := claim(last, now.Format(time.RFC3339))
+	if err != nil {
+		return fmt.Errorf("backup auto: 선점(CAS): %w", err)
+	}
+	if !won {
+		return nil // 병렬 세션이 선점 — 이 세션은 no-op
+	}
 	if err := dumpFn(ctx, a.DSN, dump); err != nil {
 		return fmt.Errorf("backup auto: 덤프: %w", err)
 	}
-	return setKV(LastBackupKey, now.Format(time.RFC3339))
+	return nil
 }

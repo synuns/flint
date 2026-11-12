@@ -205,6 +205,13 @@ func maskAllowlisted(s string) string {
 	return s
 }
 
+// MaskSecretsStrict — 기기 밖(브리지·공유)용 마스킹: MaskSecrets 결과에서
+// allowlist 항목까지 마스킹한다(v1.0.10 감사 B2 — dump --mask는 진단용
+// 원문 보존, 기기 밖은 등록값도 평문으로 나가지 않는다).
+func MaskSecretsStrict(s string) string {
+	return maskAllowlisted(MaskSecrets(s))
+}
+
 // SecretsAllowlistCount — 현재 로드된 allowlist 항목 수(doctor 가시성 —
 // v0.26.2 재검수 발견3: 오타·무단 등록 감지).
 func SecretsAllowlistCount() int {

@@ -93,7 +93,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	for _, row := range rows {
 		for i, cell := range row {
 			if cs, ok := cell.(string); ok {
-				row[i] = render.Masked(cs) // v0.37.0: render 조크포인트(마스킹→살균 순서 보존)
+				row[i] = render.MaskedStrict(cs) // v1.0.10(B2): allowlist 등록값도 마스킹 — 기기 밖 계약(진단용 dump와 구분)
 			}
 		}
 	}

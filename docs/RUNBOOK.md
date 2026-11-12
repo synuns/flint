@@ -323,3 +323,11 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
 기존 설치는 새 키 서명을 거부한다 — 의도된 경보다. 각 기기에서 1회
 `flint update --insecure-skip-signature`로 신규 키 바이너리로 넘어간
 뒤 이후부터는 새 공개키로 자동 검증된다.
+
+## 실DB 테스트 격리·러너 (v1.0.10 확정)
+
+- 실DB slow 태스크(db·backup·regression 스위트)는 격리 커밋 후 파견 —
+  공유 flint_test 경합(40001·flaky)이 재현 경로. 감사 D2 결정.
+- Go 워크트리에서 sl run_tests(pytest 기반)는 부적합 — `go test ./...
+  -count=1` 직접 실행이 표준(v1.0.1 룰링 승계, 여기에 문서화).
+- CI `make ci`는 `-count=1` 고정 — 로컬과 동일 경로 보장.
