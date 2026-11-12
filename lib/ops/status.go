@@ -1,5 +1,8 @@
 // status.go — flint status: ping + schema_version + pending 수를 한 줄 JSON으로.
-package cli
+// v0.40.0 T1: lib/cli에서 이동(패키지문·내보내기만 변경 — 동작 불변).
+// windowedDaily(cli report.go — T3 이동 예정)·hot/read 계측 로더(cli
+// metrics.go — T2 이동 예정)는 Fn seam으로 주입받는다.
+package ops
 
 import (
 	"context"
@@ -11,11 +14,37 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
-// statusOutput — 키 순서 status·schema_version·pending으로 직렬화된다.
-type statusOutput struct {
+// DailyRow — status 창 지표 산출에 필요한 일별 계측 열(report windowedDaily
+// 호환 — T3 이동 전 seam 전달형).
+type DailyRow struct {
+	Read     int
+	ReadZero int
+	ReadNear int
+}
+
+// WindowedDailyFn — N일 창 일별 행 조회 seam. 실구현(cli report.go
+// windowedDaily)은 cli/ops_alias_1.go init이 변환 래퍼로 주입한다.
+var WindowedDailyFn func(ctx context.Context, st wire.Store, days int) ([]DailyRow, error)
+
+// ReadZeroPctFn — zero 비율(정수 백분율, calls 0 가드) seam(cli metrics.go).
+var ReadZeroPctFn func(calls, zero int) int
+
+// HotStatsFn — 누적 hot 계측 노출 seam(cli metrics.go).
+var HotStatsFn func() (calls int, p95 int, max int)
+
+// LoadHotStatsFromMetaFn — meta hot_stats baseline 로드 seam(cli metrics.go).
+var LoadHotStatsFromMetaFn func(ctx context.Context, st wire.Store)
+
+// LoadReadStatsFromMetaFn — meta read_stats 로드 seam(cli metrics.go).
+var LoadReadStatsFromMetaFn func(ctx context.Context, st wire.Store) (calls int, zero int)
+
+// StatusOutput — 키 순서 status·schema_version·pending으로 직렬화된다.
+type StatusOutput struct {
 	Status        string  `json:"status"`
 	SchemaVersion string  `json:"schema_version"`
 	Pending       int     `json:"pending"`
@@ -28,12 +57,12 @@ type statusOutput struct {
 	LastReadAt    *string `json:"last_read_at"`
 }
 
-// statusV096Output — v0.9.6: statusOutput 필드를 임베딩해 키 순서를 그대로
+// statusV096Output — v0.9.6: StatusOutput 필드를 임베딩해 키 순서를 그대로
 // 두고 read_fallback_calls(T1 계측 meta 노출)를 말미에 추가한다. 미설정은
-// null(v0.6 last_* 패턴 승계). statusOutput 자체는 불변(기존 필드·순서
+// null(v0.6 last_* 패턴 승계). StatusOutput 자체는 불변(기존 필드·순서
 // 계약 — status_v06/v08 리플렉션 테스트가 담보).
 type statusV096Output struct {
-	statusOutput
+	StatusOutput
 	ReadFallbackCalls *int `json:"read_fallback_calls"`
 }
 
@@ -53,11 +82,11 @@ type statusV0180Output struct {
 
 // (v0.24.0 R1b: statusWindowedDays 상수 폐지 — 보존 창과 단일화.)
 
-// statusWindowedRead — N일 창 일별 합산으로 read·zero%/near%(버림 정수%).
+// StatusWindowedRead — N일 창 일별 합산으로 read·zero%/near%(버림 정수%).
 // v0.18.1: 파서는 windowedDaily 공유 리더(report와 단일 소스). 조회 실패는
-// 전부 0(계측 표시 — status를 깨지 않는다, fallbackCallsOrNull와 같은 원칙).
-func statusWindowedRead(ctx context.Context, st Store, days int) (read, zeroPct, nearPct int) {
-	dayRows, err := windowedDaily(ctx, st, days)
+// 전부 0(계측 표시 — status를 깨지 않는다, FallbackCallsOrNull와 같은 원칙).
+func StatusWindowedRead(ctx context.Context, st wire.Store, days int) (read, zeroPct, nearPct int) {
+	dayRows, err := WindowedDailyFn(ctx, st, days)
 	if err != nil {
 		return 0, 0, 0
 	}
@@ -67,25 +96,25 @@ func statusWindowedRead(ctx context.Context, st Store, days int) (read, zeroPct,
 		zero += d.ReadZero
 		near += d.ReadNear
 	}
-	return read, readZeroPct(read, zero), readZeroPct(read, near)
+	return read, ReadZeroPctFn(read, zero), ReadZeroPctFn(read, near)
 }
 
-// statusAsOfOutput — T85: --as-of 지정 시 출력. 기존 statusOutput 필드를
+// statusAsOfOutput — T85: --as-of 지정 시 출력. 기존 StatusOutput 필드를
 // 임베딩해 키 순서를 그대로 두고 as_of{hash,commit_date}를 말미에 추가한다.
 // v0.9.6부터는 statusV096Output(끝에 read_fallback_calls)을, v0.18.0부터는
 // statusV0180Output(끝에 기간화 read 지표)을 임베딩한다.
 // as_of 형태는 read --as-of(asOfInfo)와 동일 — 소비자가 한 형태로 파싱한다
-// (스펙 §1 "as_of 해시·시각"·e2e asOfHash 정합). statusOutput 자체는 불변
+// (스펙 §1 "as_of 해시·시각"·e2e asOfHash 정합). StatusOutput 자체는 불변
 // (미지정 시 출력 불변 — v0.7 last_* 원칙 승계).
 type statusAsOfOutput struct {
 	statusV0180Output
-	AsOf asOfInfo `json:"as_of"`
+	AsOf knowledge.AsOfInfo `json:"as_of"`
 }
 
-// fallbackCallsOrNull — meta read_fallback_calls(T1 폴백 계측) 조회.
+// FallbackCallsOrNull — meta read_fallback_calls(T1 폴백 계측) 조회.
 // 부재·파손(비정수)·조회 오류는 nil(JSON null) — 계측 표시이므로 status를
-// 깨지 않는다(lastSeenOrNull과 같은 원칙).
-func fallbackCallsOrNull(getKV func(string, string) (string, error)) *int {
+// 깨지 않는다(lastSeenOrNull와 같은 원칙).
+func FallbackCallsOrNull(getKV func(string, string) (string, error)) *int {
 	v, err := getKV("read_fallback_calls", "")
 	if err != nil || v == "" {
 		return nil
@@ -111,13 +140,13 @@ func lastSeenOrNull(getKV func(string, string) (string, error), key string) *str
 	return &s
 }
 
-// runStatus — 서버 생존·스키마 호환·pending 대기 수를 보고한다.
+// RunStatus — 서버 생존·스키마 호환·pending 대기 수를 보고한다.
 // T85: --as-of <스펙> 지정 시 카운트 질의에 AS OF '<해시>'를 접합해 과거
 // 스냅샷 pending 수를 보고하고 출력 말미에 as_of(정규화 해시)를 추가한다.
 // 무효 스펙은 ErrInvalidAsOf → exit 3.
-func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if err := st.Ping(ctx); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	asOfSpec := ""
@@ -125,7 +154,7 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		if args[i] == "--as-of" {
 			if i+1 >= len(args) {
 				// 값 없는 --as-of도 무효 스펙(빈 스펙)으로 exit 3.
-				fmt.Fprintln(stdout, errLine(fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf)))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf)))
 				return 3
 			}
 			asOfSpec, i = args[i+1], i+1
@@ -133,9 +162,9 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	}
 	asOfHash, asOfDate := "", ""
 	if asOfSpec != "" {
-		hash, err := ParseAsOfSpec(ctx, st, asOfSpec)
+		hash, err := ParseAsOfSpecFn(ctx, st, asOfSpec)
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			if errors.Is(err, ErrInvalidAsOf) {
 				return 3
 			}
@@ -144,15 +173,15 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		asOfHash = hash
 		// 커밋 시각 첨부(read --as-of와 동일 질의·조용한 폴백 — 메타데이터
 		// 조회 실패 시 빈 값, §13).
-		if dr, err := queryOnce(ctx, st,
+		if dr, err := wire.QueryOnce(ctx, st,
 			`SELECT date FROM dolt_log WHERE commit_hash = $1`, []any{hash}); err == nil &&
 			len(dr) == 1 && len(dr[0]) > 0 {
-			asOfDate = fmtAsOfDate(dr[0][0])
+			asOfDate = knowledge.FmtAsOfDate(dr[0][0])
 		}
 	}
-	rows, err := queryOnce(ctx, st, `SELECT value FROM meta WHERE key = 'schema_version'`, nil)
+	rows, err := wire.QueryOnce(ctx, st, `SELECT value FROM meta WHERE key = 'schema_version'`, nil)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	version := ""
@@ -167,54 +196,54 @@ func runStatus(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	// 계측 정밀화 승격(v0.20.0) 후, v8는 EnsureSchemaV8 hit 품질
 	// first_rank 승격(v0.30.0) 후 정상 상태다.
 	if version != "1" && version != "2" && version != "3" && version != "4" && version != "5" && version != "6" && version != "7" && version != "8" {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "schema_version", Expect: "1~8"}))
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "schema_version", Expect: "1~8"}))
 		return 3
 	}
 	// v0.18.0 R4: 기간화 read 지표(창 = daily_retention_days, v0.24.0) —
 	// 누적값과 복기. *_14d 필드명은 역호환 유지(실제 창은 read_window_days).
-	winDays := writeThresholds(ctx, st).DailyRetentionD
-	winRead, winZeroPct, winNearPct := statusWindowedRead(ctx, st, winDays)
+	winDays := knowledge.WriteThresholds(ctx, st).DailyRetentionD
+	winRead, winZeroPct, winNearPct := StatusWindowedRead(ctx, st, winDays)
 	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합(해시는 dolt_log에서
 	// 확정된 base32 소문자 해시라 인라인해도 안전 — T81/T83 룰링). meta·
 	// 계측 조회는 현재 상태 그대로. 현재 시점 카운트는 countPending 단일
 	// 구현(v0.34.3 3중 쿼리 복제 수렴).
 	pending := 0
 	if asOfHash != "" {
-		rows, err = queryOnce(ctx, st, `SELECT count(*) FROM knowledge AS OF '`+asOfHash+
+		rows, err = wire.QueryOnce(ctx, st, `SELECT count(*) FROM knowledge AS OF '`+asOfHash+
 			`' WHERE status = 'pending' AND invalid_at IS NULL`, nil)
 		if err != nil {
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
 		if len(rows) > 0 {
 			fmt.Sscan(fmt.Sprint(rows[0][0]), &pending)
 		}
 	} else {
-		n, cerr := countPending(ctx, st)
+		n, cerr := knowledge.CountPending(ctx, st)
 		if cerr != nil {
-			fmt.Fprintln(stdout, errLine(cerr))
+			fmt.Fprintln(stdout, wire.ErrLine(cerr))
 			return store.MapExit(cerr)
 		}
 		pending = n
 	}
 	// T38 배선 회수(F-T56-1): status는 별도 프로세스이므로 in-memory 샘플이
 	// 비어 있다 — meta hot_stats baseline을 로드해 직전 실행 누적을 보고한다.
-	loadHotStatsFromMeta(ctx, st)
-	calls, p95, _ := HotStats()
-	readCalls, readZero := loadReadStatsFromMeta(ctx, st)
+	LoadHotStatsFromMetaFn(ctx, st)
+	calls, p95, _ := HotStatsFn()
+	readCalls, readZero := LoadReadStatsFromMetaFn(ctx, st)
 	// T63: 유입 3경로 last-seen(meta last_*_at, T60 기록) — 부재·파손은 null.
-	getKV := metaGetKV(ctx, st)
-	base := statusV096Output{statusOutput: statusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
-		HotCalls: calls, HotP95: p95, ReadCalls: readCalls, ReadZeroPct: readZeroPct(readCalls, readZero),
+	getKV := knowledge.MetaGetKV(ctx, st)
+	base := statusV096Output{StatusOutput: StatusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
+		HotCalls: calls, HotP95: p95, ReadCalls: readCalls, ReadZeroPct: ReadZeroPctFn(readCalls, readZero),
 		LastWriteAt: lastSeenOrNull(getKV, "last_write_at"),
 		LastHotAt:   lastSeenOrNull(getKV, "last_hot_at"),
 		LastReadAt:  lastSeenOrNull(getKV, "last_read_at")},
-		ReadFallbackCalls: fallbackCallsOrNull(getKV)}
+		ReadFallbackCalls: FallbackCallsOrNull(getKV)}
 	var b []byte
 	if asOfHash != "" {
 		b, _ = json.Marshal(statusAsOfOutput{statusV0180Output: statusV0180Output{statusV096Output: base,
 			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays},
-			AsOf: asOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
+			AsOf: knowledge.AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 	} else {
 		b, _ = json.Marshal(statusV0180Output{statusV096Output: base,
 			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays})

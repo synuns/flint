@@ -34,8 +34,8 @@ func TestFirstExactRank(t *testing.T) {
 func TestTrendOfDiff(t *testing.T) {
 	now := time.Now()
 	mk := func(daysAgo int, zero, fallback bool, rank int) readEventRow {
-		return readEventRow{ts: now.Add(-time.Duration(daysAgo) * 24 * time.Hour),
-			zero: zero, fallback: fallback, firstRank: rank}
+		return readEventRow{Ts: now.Add(-time.Duration(daysAgo) * 24 * time.Hour),
+			Zero: zero, Fallback: fallback, FirstRank: rank}
 	}
 	// cur(0~6일 전): 4건 중 hit 3·fallback 1·top1 2(정합 3).
 	// prev(7~13일 전): 2건 중 hit 1·fallback 1·정합 0.
@@ -44,13 +44,13 @@ func TestTrendOfDiff(t *testing.T) {
 		mk(8, false, true, 0), mk(10, true, false, 0),
 	}
 	cur, prev := trendWindow(now, evs)
-	if cur.n != 4 || prev.n != 2 {
-		t.Fatalf("창 크기 cur=%d prev=%d, want 4/2", cur.n, prev.n)
+	if cur.N != 4 || prev.N != 2 {
+		t.Fatalf("창 크기 cur=%d prev=%d, want 4/2", cur.N, prev.N)
 	}
-	if cur.hitPct != 75 || cur.fallbackPct != 25 || cur.top1Pct != 66 {
+	if cur.HitPct != 75 || cur.FallbackPct != 25 || cur.Top1Pct != 66 {
 		t.Errorf("cur = %+v, want hit75/fb25/top1 66(버림 정수)", cur)
 	}
-	tr := cur.diff(prev)
+	tr := cur.Diff(prev)
 	if tr == nil {
 		t.Fatal("추세 nil — 양창 표본 있는데 nil")
 	}
@@ -59,7 +59,7 @@ func TestTrendOfDiff(t *testing.T) {
 	}
 	// 한쪽 창 비면 nil(표본 없는 비교 금지).
 	emptyCur, _ := trendWindow(now, nil)
-	if emptyCur.diff(prev) != nil {
+	if emptyCur.Diff(prev) != nil {
 		t.Error("빈 창 추세가 nil 아님")
 	}
 }

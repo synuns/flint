@@ -2,13 +2,18 @@
 // pending-distill.json (적립 증류 대기 표시). 개인 단일 에이전트 가정 — 원자성 불요.
 // v0.18.2: 회상 부재 1회성 마커(recall-hint.json) 분리 — 내구성(증류 대기)과
 // 1회성(회상 안내)은 수명 주기가 달라 같은 파일을 쓰면 서로를 덮어쓴다.
-package cli
+// v0.40.0 T2: lib/cli에서 이동(동작·출력·exit 불변 — 식별자 대문자화).
+// knowledge의 WriteTypedMarkerFn seam은 cli init이 이 내보내기 함수(별칭
+// 경유)를 주입받는다 — 동일 계약 유지.
+package ops
 
 import (
 	"encoding/json"
 	"os"
 	"path/filepath"
 	"time"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // Marker — 마커 파일 내용(종류 공통).
@@ -20,8 +25,8 @@ type Marker struct {
 
 // 마커 종류 — 파일명이 달라진다(동시 존재 가능).
 const (
-	markerKindDistill = "distill" // pending-distill.json — 내구(증류 시까지)
-	markerKindRecall  = "recall"  // recall-hint.json — 1회성(다음 SessionStart)
+	MarkerKindDistill = "distill" // pending-distill.json — 내구(증류 시까지)
+	MarkerKindRecall  = "recall"  // recall-hint.json — 1회성(다음 SessionStart)
 )
 
 // markerFileOf — 종류별 마커 파일 전체 경로. configDir이 ""면 "".
@@ -30,15 +35,15 @@ func markerFileOf(kind string) string {
 		return ""
 	}
 	name := "pending-distill.json"
-	if kind == markerKindRecall {
+	if kind == MarkerKindRecall {
 		name = "recall-hint.json"
 	}
-	return dataFile(name)
+	return DataFile(name)
 }
 
-// configDir — FLINT_CONFIG_DIR 우선, 없으면 os.UserConfigDir()/flint.
+// ConfigDir — FLINT_CONFIG_DIR 우선, 없으면 os.UserConfigDir()/flint.
 // UserConfigDir 실패 시 "" (MarkerFile도 "" → 호출측 조용히 스킵).
-func configDir() string {
+func ConfigDir() string {
 	if d := os.Getenv("FLINT_CONFIG_DIR"); d != "" {
 		return d
 	}
@@ -66,17 +71,17 @@ func flintHome() string {
 	return filepath.Join(home, ".flint")
 }
 
-// dataFile — FLINT_HOME 하위 런타임 아티팩트 경로. 레거시 위치
+// DataFile — FLINT_HOME 하위 런타임 아티팩트 경로. 레거시 위치
 // (configDir)에 파일이 있고 새 위치에 없으면 이전한다(1회 마이그레이션
 // — 복사 후 원본 제거, 실패는 조용히: 다음 호출 재시도).
-func dataFile(name string) string {
+func DataFile(name string) string {
 	home := flintHome()
 	if home == "" {
 		return ""
 	}
 	dst := filepath.Join(home, name)
 	if _, err := os.Stat(dst); err != nil {
-		if old := configDir(); old != "" && old != home {
+		if old := ConfigDir(); old != "" && old != home {
 			src := filepath.Join(old, name)
 			if b, rerr := os.ReadFile(src); rerr == nil {
 				if merr := os.MkdirAll(home, 0o700); merr == nil {
@@ -106,15 +111,21 @@ func dataFile(name string) string {
 	return dst
 }
 
+func init() {
+	// 계약층 ConfigDir 주입(마커 이동과 함께 ops 소유로 — cli cliwire_alias
+	// init의 동일 주입과 같은 함수값이라 이중 대입 무해).
+	wire.ConfigDir = ConfigDir
+}
+
 // MarkerFile — 증류 대기 마커 파일 전체 경로(하위 호환 별명).
-func MarkerFile() string { return markerFileOf(markerKindDistill) }
+func MarkerFile() string { return markerFileOf(MarkerKindDistill) }
 
 // RecallMarkerFile — 회상 부재 마커 파일 전체 경로(v0.18.2).
-func RecallMarkerFile() string { return markerFileOf(markerKindRecall) }
+func RecallMarkerFile() string { return markerFileOf(MarkerKindRecall) }
 
 // WriteMarker — 증류 대기 마커 기록(하위 호환 별명).
 func WriteMarker(sessionID string, reason string) error {
-	return WriteTypedMarker(markerKindDistill, sessionID, reason)
+	return WriteTypedMarker(MarkerKindDistill, sessionID, reason)
 }
 
 // WriteTypedMarker — JSON 마샬 후 디렉터리(0700) 생성하고 종류별 마커 기록.
@@ -136,7 +147,7 @@ func WriteTypedMarker(kind, sessionID, reason string) error {
 }
 
 // ReadMarker — 마커 조회. 부재 시 (nil, nil), 파손 시 (nil, err).
-func ReadMarker() (*Marker, error) { return ReadTypedMarker(markerKindDistill) }
+func ReadMarker() (*Marker, error) { return ReadTypedMarker(MarkerKindDistill) }
 
 // ReadTypedMarker — 종류별 마커 읽기(v0.18.2). 부재는 (nil, nil).
 func ReadTypedMarker(kind string) (*Marker, error) {
@@ -159,7 +170,7 @@ func ReadTypedMarker(kind string) (*Marker, error) {
 }
 
 // ClearMarker — 증류 대기 마커 삭제(하위 호환 별명). 파일이 없어도 nil.
-func ClearMarker() error { return ClearTypedMarker(markerKindDistill) }
+func ClearMarker() error { return ClearTypedMarker(MarkerKindDistill) }
 
 // ClearTypedMarker — 종류별 마커 삭제(v0.18.2). 파일이 없어도 nil.
 func ClearTypedMarker(kind string) error {
@@ -174,17 +185,13 @@ func ClearTypedMarker(kind string) error {
 	return err
 }
 
-// SessionLabelFile·ReadSessionLabel — v0.39.0 T1: lib/wire(session.go)로
-// 이동(경로 규칙 포함 — ConfigDir seam 경유). 라벨 저장 함수(아래
-// Write·Clear)는 이 파일에 잔류하고 cliwire_alias.go var 별칭으로
-// SessionLabelFile을 재노출해 무편집 컴파일된다.
-
 // WriteSessionLabel — 현재 세션 라벨 1줄 기록(빈 라벨은 미기록).
+// 라벨 파일 경로 규칙은 wire.SessionLabelFile이 소유(v0.39.0 T1 이동분).
 func WriteSessionLabel(label string) error {
 	if label == "" {
 		return nil
 	}
-	path := SessionLabelFile()
+	path := wire.SessionLabelFile()
 	if path == "" {
 		return os.ErrInvalid
 	}
@@ -196,5 +203,5 @@ func WriteSessionLabel(label string) error {
 
 // ClearSessionLabel — 세션 라벨 파일 제거(session-end).
 func ClearSessionLabel() {
-	_ = os.Remove(SessionLabelFile())
+	_ = os.Remove(wire.SessionLabelFile())
 }

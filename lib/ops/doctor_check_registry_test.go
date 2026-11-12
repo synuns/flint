@@ -1,7 +1,8 @@
 // doctor_check_registry_test.go — v0.34.3(R11): doctor 체크 등록표가
 // 전체 실행 체인·--check 허용 목록·--list-checks의 단일 소스인지 검증.
 // harness-* 14종·skill-file은 동적 감지 별도 체인이라 등록표 밖(제외 명시).
-package cli
+// v0.40.0 T1: lib/cli에서 이동(행위명 유지 — v0.39 관례).
+package ops
 
 import (
 	"context"

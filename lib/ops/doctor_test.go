@@ -1,6 +1,8 @@
 // doctor_test.go — T64: flint doctor 검사 5종·exit 계약(fail만 1·warn 0)·
 // FLINT_CLAUDE_HOME 오버라이드(--check 무효명 exit 3).
-package cli
+// v0.40.0 T1: lib/cli에서 이동(행위명 유지 — v0.39 관례). fakeStore·
+// withComposePs 헬퍼도 동반 이동한다(cli_test.go·doctor_v07_test.go 관례).
+package ops
 
 import (
 	"bytes"
@@ -12,13 +14,107 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
-// runDoctorArgs — fake store으로 runDoctor 실행. 출력·exit 반환.
+// init — ops 단독 테스트 바이너리에서는 cli init(ops_alias_1.go)의 seam
+// 주입이 없다 — 진단 체인이 참조하는 seam에 기본 구현을 둔다(cli 실함수와
+// 동일 행동: dev 빌드 버전 미확정·스킬 소스 미탐지·조용한 실패).
+func init() {
+	CurrentVersionFn = func() string { return "" } // dev 빌드 — 판정 보류 경로
+	ValidVersionFn = func(string) bool { return false }
+	FetchLatestVersionFn = func() (string, error) { return "", errors.New("offline") }
+	CompareVersionsFn = func(a, b string) int { return strings.Compare(a, b) }
+	KnownMetaKeyFn = func(string) bool { return false }
+	AnyToTimeFn = func(v any) (time.Time, bool) {
+		t, ok := v.(time.Time)
+		return t, ok
+	}
+	IsConflictGroupFn = func(db.ConflictGroup, float64) bool { return false }
+	ConflictDupThresholdFn = func() float64 { return store.DefaultThresholds().ConflictDupThreshold }
+	BackupEncryptOnFn = func(string) bool { return false }
+	BackupKeyPathFn = func() string { return "" }
+	SkillSrcDirFn = func(string) string { return "" } // 소스 미탐지 — 검사 생략
+	CheckSkillFileFn = func(string, string) (DoctorCheck, bool) { return DoctorCheck{}, false }
+}
+
+// fakeStore — wire.Store 인터페이스 fake(cli_test.go 관례 이동분). stub
+// 필드(exists·*Err)는 지정 시 우선되고, rows·queryFn 미지정 시 영(零)
+// 동작을 반환한다.
+type fakeStore struct {
+	// stub 조건
+	exists        bool
+	existsErr     error
+	existsProject map[string]bool // name별 존재 판정(nil이면 전부 false)
+	insertErr     error
+	commitErr     error
+	pingErr       error
+	queryErr      error
+	rows          [][]any
+	queryFn       func(sql string, args []any) ([][]any, error)
+
+	// 기록
+	inserted []map[string]any
+	commits  []string
+	queries  []string
+}
+
+func (f *fakeStore) Migrate(ctx context.Context) error { return nil }
+func (f *fakeStore) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
+	f.inserted = append(f.inserted, recs...)
+	if f.insertErr != nil {
+		return nil, f.insertErr
+	}
+	ids := make([]int, len(recs))
+	for i := range ids {
+		ids[i] = i + 1
+	}
+	return ids, nil
+}
+func (f *fakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
+	return f.exists, f.existsErr
+}
+func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
+	return f.existsProject[name], nil // nil map 조회는 false(영 동작)
+}
+func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
+	f.commits = append(f.commits, msg)
+	if f.commitErr != nil {
+		return "", f.commitErr
+	}
+	return "abc123", nil
+}
+func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
+func (f *fakeStore) Close()                         {}
+func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	f.queries = append(f.queries, sql)
+	if f.queryErr != nil {
+		return nil, f.queryErr
+	}
+	if f.queryFn != nil {
+		return f.queryFn(sql, args)
+	}
+	return f.rows, nil
+}
+
+// withComposePs — ComposePsFn seam 교체(테스트 후 원복).
+// doctor_v07_test.go 관례 이동분(cli 측 withComposePs는 cli var 교체로
+// ops_alias_1.go 래퍼를 경유해 같은 효과를 낸다).
+func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
+	t.Helper()
+	old := ComposePsFn
+	ComposePsFn = fn
+	t.Cleanup(func() { ComposePsFn = old })
+}
+
+// runDoctorArgs — fake store으로 RunDoctor 실행. 출력·exit 반환.
 func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
-	code := runDoctor(context.Background(), f, args, strings.NewReader(""), &out)
+	code := RunDoctor(context.Background(), f, args, strings.NewReader(""), &out)
 	return out.String(), code
 }
 
@@ -64,7 +160,7 @@ func TestDoctorChecksContract(t *testing.T) {
 
 // registry 등록 — Run이 doctor를 디스패치해야 한다.
 func TestDoctorRegistered(t *testing.T) {
-	if _, ok := Lookup("doctor"); !ok {
+	if _, ok := wire.Lookup("doctor"); !ok {
 		t.Fatal("doctor 미등록")
 	}
 }
@@ -348,7 +444,7 @@ func TestDoctorUnknownFlag(t *testing.T) {
 	f := &fakeStore{}
 	out, code := runDoctorArgs(t, f, "--bogus")
 	if code != 3 {
-		t.Errorf("exit=%d, want 3 (출력 %q)", code, out)
+		t.Errorf("exit=%d, want 3", code)
 	}
 	if !strings.Contains(out, `"error"`) {
 		t.Errorf("에러 JSON 아님: %q", out)
@@ -360,7 +456,7 @@ func TestDoctorCheckRequiresNameExit3(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--check")
 	if code != 3 {
-		t.Errorf("exit=%d, want 3 (출력 %q)", code, out)
+		t.Errorf("exit=%d, want 3", code)
 	}
 	if !strings.Contains(out, `"error"`) {
 		t.Errorf("에러 JSON 아님: %q", out)

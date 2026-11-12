@@ -6,16 +6,15 @@ import (
 	"strings"
 	"sync"
 	"testing"
+
+	"github.com/synuns/flint/lib/ops"
 )
 
 // resetMetrics — 프로세스 내 통계 초기화(테스트 격리). 영속 baseline도
-// 함께 지운다(프로세스 분리 시뮬레이션의 전제).
+// 함께 지운다(프로세스 분리 시뮬레이션의 전제). v0.40.0 T2: 계측 상태는
+// lib/ops로 이동 — ops.ResetMetrics 위임.
 func resetMetrics() {
-	hotMu.Lock()
-	defer hotMu.Unlock()
-	hotLens = hotLens[:0]
-	hotBase = hotStatsJSON{}
-	hotPersisted = 0
+	ops.ResetMetrics()
 }
 
 // TestHotConcurrentAccess — 병렬 기록·조회 중 레이스 없음(-race 회귀).
@@ -96,8 +95,9 @@ func TestHotRecordsRuneLen(t *testing.T) {
 		t.Fatalf("hot 실행 후 calls=%d, want 1", calls)
 	}
 	// 절단 시 접미사("…[truncated]")를 포함한 출력 그대로의 rune 수가 기록되어야 한다.
-	if want := len([]rune(strings.TrimRight(out, "\n"))); hotLens[0] != want {
-		t.Fatalf("기록 글자수=%d, want %d(출력 rune 수)", hotLens[0], want)
+	s := ops.HotLensSnapshot()
+	if want := len([]rune(strings.TrimRight(out, "\n"))); len(s) == 0 || s[0] != want {
+		t.Fatalf("기록 글자수=%v, want %d(출력 rune 수)", s, want)
 	}
 }
 

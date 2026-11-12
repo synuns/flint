@@ -2,7 +2,10 @@
 // 행 상세는 dolt_commit_diff_knowledge(from_commit·to_commit WHERE 각 1개
 // 필수 — 실측 2026-10-24), 요약 커밋 목록은 dolt_log 범위×dolt_diff 조인.
 // 출력은 한 줄 JSON, 무효 as-of 스펙은 exit 3.
-package cli
+// v0.40.0 T1: lib/cli에서 이동(패키지문·내보내기만 변경 — 동작 불변).
+// as-of 정규화는 cli 소유 asof.go(T4 wire 이동 예정) — ParseAsOfSpecFn
+// seam으로 주입받는다.
+package ops
 
 import (
 	"context"
@@ -12,8 +15,19 @@ import (
 	"io"
 	"time"
 
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
+
+// ParseAsOfSpecFn — as-of 스펙 정규화 seam. 실구현 wire.ParseAsOfSpec을
+// cli/root.go composition root init이 주입한다(T4 wire 이동분 직접 주입).
+var ParseAsOfSpecFn func(ctx context.Context, st wire.Store, spec string) (string, error)
+
+// ErrInvalidAsOf — 무효 as-of 스펙(형식 오류·접두어 모호/미발견·첫 커밋
+// 이전). 커맨드 계층에서 exit 3으로 매핑한다. wire.ErrInvalidAsOf와 동일
+// 값(root.go composition root 주입) — errors.Is 판정 불변.
+var ErrInvalidAsOf error
 
 // diffCommitsMax — 요약 커밋 목록 상한(계약: 기본 20).
 const diffCommitsMax = 20
@@ -70,10 +84,10 @@ GROUP BY l.commit_hash, l.commit_order, l.date, l.message
 ORDER BY l.commit_order DESC
 LIMIT %d`, diffCommitsMax)
 
-// runDiff — `flint diff <from> <to> [--summary] [--data|--schema]`.
+// RunDiff — `flint diff <from> <to> [--summary] [--data|--schema]`.
 // from·to는 as-of 스펙(각각 ParseAsOfSpec으로 커밋 해시 정규화). --data·
 // --schema는 커밋 요약을 해당 변경 커밋으로 한정하는 필터.
-func runDiff(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	summary, dataOnly, schemaOnly := false, false, false
 	var pos []string
 	for _, a := range args {
@@ -92,23 +106,23 @@ func runDiff(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, `{"error":"usage: flint diff <from> <to> [--summary] [--data|--schema]"}`)
 		return 3
 	}
-	from, err := ParseAsOfSpec(ctx, st, pos[0])
+	from, err := ParseAsOfSpecFn(ctx, st, pos[0])
 	if err != nil {
 		return diffFail(stdout, err)
 	}
-	to, err := ParseAsOfSpec(ctx, st, pos[1])
+	to, err := ParseAsOfSpecFn(ctx, st, pos[1])
 	if err != nil {
 		return diffFail(stdout, err)
 	}
 
 	// 행 상세 — dolt_commit_diff_knowledge은 from·to 커밋 필터 각 1개가
 	// 쿼리 계획 요구사항이다(실측). COALESCE로 added/removed 공통 표현.
-	rows, err := queryOnce(ctx, st,
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT diff_type, COALESCE(to_id, from_id), COALESCE(to_topic, from_topic)
 FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 		[]any{to, from})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	counts := diffCounts{From: from, To: to, Commits: []diffCommit{}}
@@ -131,22 +145,22 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 			row.ID = r[1]
 		}
 		if len(r) > 2 {
-			row.Topic = Text(fmt.Sprint(r[2])) // v0.37.0: render.Text 경유(출력 재살균 승계)
+			row.Topic = render.Text(fmt.Sprint(r[2])) // v0.37.0: render.Text 경유(출력 재살균 승계)
 		}
 		detail = append(detail, row)
 	}
 
 	// 요약 커밋 목록 — 최신순 상한 20. --data·--schema는 여기서 한정.
-	commits, err := queryOnce(ctx, st, diffCommitsSQL, []any{from, to})
+	commits, err := wire.QueryOnce(ctx, st, diffCommitsSQL, []any{from, to})
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	for _, r := range commits {
 		if len(r) < 5 {
 			continue
 		}
-		c := diffCommit{Hash: fmt.Sprint(r[0]), Message: Text(fmt.Sprint(r[2]))} // v0.37.0: render.Text 경유
+		c := diffCommit{Hash: fmt.Sprint(r[0]), Message: render.Text(fmt.Sprint(r[2]))} // v0.37.0: render.Text 경유
 		if t, ok := parseAuditDate(r[1]); ok {
 			c.Date = t
 		}
@@ -175,7 +189,7 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	fmt.Fprintln(stdout, string(b))
@@ -190,10 +204,6 @@ func diffFail(stdout io.Writer, err error) int {
 		fmt.Fprintln(stdout, string(b))
 		return 3
 	}
-	fmt.Fprintln(stdout, errLine(err))
+	fmt.Fprintln(stdout, wire.ErrLine(err))
 	return store.MapExit(err)
-}
-
-func init() {
-	Register("diff", runDiff)
 }
