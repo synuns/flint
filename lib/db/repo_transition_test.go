@@ -192,3 +192,62 @@ func testSupersedeRecordsLineageDB(t *testing.T) {
 		t.Fatalf("0행 재시도 오류 = %v, want ErrNotFound 랩", err)
 	}
 }
+
+// TestInvalidateGuardsProcessedRows — Review Focus(v1.0.1 F2): Invalidate의
+// WHERE는 invalid_at IS NULL 가드를 병기한다 — dry-run 나열과 --commit 사이
+// 병렬 supersede가 같은 행을 처리했으면 재갱신하지 않는다(계보
+// invalid_at=NEW.valid_at을 now()로 덮어쓰는 훼손 차단). fake — SQL 병기
+// 단언(나열 측 listExpiredPending·invalidate-stale과 같은 가드). REAL — 실DB에서
+// supersede된 행 재 Invalidate 시 0행(ErrNotFound)·계보 불변.
+func TestInvalidateGuardsProcessedRows(t *testing.T) {
+	if os.Getenv("SUPERLITE_REAL") == "1" {
+		testInvalidateGuardsProcessedRowsDB(t)
+		return
+	}
+	rec := useFakeTransitionExec(t)
+	if _, err := (&Repo{}).Invalidate(context.Background(), []int{5}, "expire-pending"); err != nil {
+		t.Fatalf("Invalidate: %v", err)
+	}
+	if len(rec.calls) != 1 {
+		t.Fatalf("전이 실행 %d회, want 1", len(rec.calls))
+	}
+	if sqlText := rec.calls[0].sql; !strings.Contains(sqlText, "WHERE id = ANY($1) AND invalid_at IS NULL") {
+		t.Errorf("Invalidate WHERE 가드 미병기: %q — 이미 처리된 행(invalid_at 기록됨) 재갱신 허용", sqlText)
+	}
+}
+
+// testInvalidateGuardsProcessedRowsDB — slow 실DB 라인(REAL 모드):
+// supersede로 이미 처리된 행에 Invalidate 재호출 — 0행 후견사 + 계보 불변.
+func testInvalidateGuardsProcessedRowsDB(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	newAt := time.Now().Add(-2 * time.Hour).Truncate(time.Microsecond)
+	newRec := knowledgeRec("guard-new")
+	newRec["valid_at"] = newAt
+	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("guard-old"), newRec})
+	if err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	oldID, newID := ids[0], ids[1]
+	if _, err := r.Supersede(ctx, oldID, newID, newAt); err != nil {
+		t.Fatalf("Supersede: %v", err)
+	}
+	// 나열(건너뛴)과 확정 사이 경합 재현 — 가드가 0행으로 차단한다.
+	if _, err := r.Invalidate(ctx, []int{oldID}, "경합 재시도"); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("재 Invalidate 오류 = %v, want ErrNotFound 랩(0행 — 가드)", err)
+	}
+	// 계보 불변 — superseded_by·invalid_at=NEW.valid_at 유지(now() 덮어쓰기 없음).
+	var supBy *int
+	var invalidAt *time.Time
+	if err := r.pool.QueryRow(ctx,
+		`SELECT superseded_by, invalid_at FROM knowledge WHERE id = $1`, oldID).
+		Scan(&supBy, &invalidAt); err != nil {
+		t.Fatalf("조회: %v", err)
+	}
+	if supBy == nil || *supBy != newID {
+		t.Fatalf("계보 훼손: superseded_by=%v, want %d", supBy, newID)
+	}
+	if invalidAt == nil || !invalidAt.Equal(newAt) {
+		t.Fatalf("invalid_at=%v, want NEW.valid_at %v (now() 덮어쓰기 금지)", invalidAt, newAt)
+	}
+}
