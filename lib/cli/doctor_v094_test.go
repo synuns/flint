@@ -46,7 +46,7 @@ func TestApplyHookFixAddsFlintHooks(t *testing.T) {
 	}
 	s := string(b)
 	for _, cmd := range []string{"session-start", "session-end", "compact"} {
-		if !strings.Contains(s, "\"/x/flint "+cmd) {
+		if !strings.Contains(s, "'/x/flint' "+cmd) {
 			t.Errorf("%s 명령 누락", cmd)
 		}
 	}

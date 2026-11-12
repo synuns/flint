@@ -17,6 +17,7 @@ import (
 	"strconv"
 
 	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -37,6 +38,15 @@ var (
 // v0.28.3 — config에서 데이터 공간으로 이전·레거시 자동 마이그레이션).
 func BackupKeyPath() string {
 	return DataFile("backup.key")
+}
+
+// buildMaskExtra — v1.0.2(R2-C4): allowlist 등록값은 마스킹에서 원문
+// 보존된다(공유 덤프에 평문 잔류). 1건 이상 등록 시 경고를 extra에 병기.
+func buildMaskExtra(allowlistN int) string {
+	if allowlistN <= 0 {
+		return ""
+	}
+	return fmt.Sprintf(`,"allowlist_entries":%d,"warn":"allowlist %d건 등록값은 마스킹되지 않음 — 공유 전 재검토"`, allowlistN, allowlistN)
 }
 
 // dumpStore — 전체 덤프 접근(approveStore와 동일 관례의 타입 단언 seam).
@@ -66,6 +76,12 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--out requires a path")))
+				return 3
+			}
+			// v1.0.2(R2): 값이 플래그를 흡수하는 오타('--out --encrypt' →
+			// 경로 "--encrypt")는 read --session 계약과 동일하게 exit 3.
+			if err := knowledge.ValidateFlagValue("out", args[i]); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return 3
 			}
 			out = args[i]
@@ -114,6 +130,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		// 마스킹 — 진단·공유용: 비밀 패턴 치환 + 비복원 마커 선두 부착.
 		data = append([]byte(backup.MaskDumpHeader+"\n"), MaskSecretsFn(string(data))...)
 		extra += `,"masked":true`
+		extra += buildMaskExtra(store.SecretsAllowlistCount())
 	}
 	if encrypt {
 		key := BackupKeyPath()
@@ -227,6 +244,11 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			i++
 			if i >= len(args) {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--file requires a path")))
+				return 3
+			}
+			// v1.0.2(R2): 플래그 흡수 값 가드(--out과 동일 계약).
+			if err := knowledge.ValidateFlagValue("file", args[i]); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return 3
 			}
 			file = args[i]

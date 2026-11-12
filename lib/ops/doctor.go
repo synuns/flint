@@ -79,10 +79,10 @@ type CheckSpec struct {
 // doctorChecks — 체크 등록표(코어6+tail10 = 16종). harness-* 14종·
 // skill-file은 파일 존재 감지(동적 하네스/스킬 감지)라 등록표 밖 별도
 // 체인 — 통합 대상 아니다(룰링). 새 검사 추가는 이 표에 1행만.
-// F6(성능): thresholds 소비 검사 6종(last-seen·backup-age·zero-near·
-// pending-age·event-volume·meta-hygiene)은 ThFn 주입판으로 등록 —
-// 실행 스코프 1회 로드(doctorThresholds)를 공유한다(secrets는 F4 소유
-// 영역이라 자체 로드 유지).
+// F6(성능): thresholds 소비 검사 7종(last-seen·backup-age·zero-near·
+// pending-age·event-volume·meta-hygiene·secrets)은 ThFn 주입판으로
+// 등록 — 실행 스코프 1회 로드(doctorThresholds)를 공유한다(v1.0.2 R2:
+// secrets 마지막 편입 — 자체 meta IN 쿼리 폐지).
 func doctorChecks() []CheckSpec {
 	return []CheckSpec{
 		{Name: "hook-file", Chain: "core", OnStoreNil: "",
@@ -102,7 +102,7 @@ func doctorChecks() []CheckSpec {
 		{Name: "meta-hygiene", Chain: "tail", OnStoreNil: "warn", ThFn: checkMetaHygieneTh},
 		{Name: "update", Chain: "tail", OnStoreNil: "", Fn: checkUpdate},
 		{Name: "recall-starved", Chain: "tail", OnStoreNil: "warn", Fn: checkRecallStarved},
-		{Name: "secrets", Chain: "tail", OnStoreNil: "warn", Fn: checkSecrets},
+		{Name: "secrets", Chain: "tail", OnStoreNil: "warn", ThFn: checkSecretsTh},
 	}
 }
 
@@ -468,9 +468,17 @@ var FlintBinPathFn = func() string {
 // v1.0.1 감사(F4): eval 래핑 — jq @sh의 홑따옴표 인용을 셸이 인용으로
 // 파싱해 단일 인자로 전달(따옴표 리터럴 잔류 방지). eval 입력은 고정
 // 리터럴(binPath·sub)과 @sh 인용값뿐이라 임의 코드 경로가 없다.
+// v1.0.2 감사(R2-A1): binPath 홑따옴표 인용 — 설치 경로의 공백이 eval
+// 안에서 단어 분할되어 훅을 무음 소실시키던 것 폐쇄(shQuote).
 func flintHookCmd(binPath, sub string) map[string]any {
-	cmd := `eval "` + binPath + " " + sub + `" 2>/dev/null || true`
+	cmd := `eval "` + shQuote(binPath) + " " + sub + `" 2>/dev/null || true`
 	return map[string]any{"type": "command", "command": cmd, "timeout": 10}
+}
+
+// shQuote — POSIX 홑따옴표 인용: 내부 '은 '\'' 로 끊어 이스케이프한다
+// (공백·메타 문자 무관 단일 인자 — eval 이중 인용 안에서도 안전).
+func shQuote(s string) string {
+	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
 // flintHookDefs — flint 훅 3개(v0.11.0 R4 통합: 이벤트 → 추가 엔트리
@@ -494,11 +502,13 @@ func flintHookDefs(binPath string) map[string][]map[string]any {
 			// 이를 올바르게 파싱해 단일 인자로 전달한다. 구 이중 인용 치환도
 			// 결과가 재해석되지는 않았으나 인용 계층이 암묵적이었다 — 명시
 			// 인용(@sh)+eval 파싱으로 원문 보존을 구조적으로 보장한다.
-			// hooks.json과 동일 패턴.
-			withSession(`session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)`),
+			// v1.0.2 R2-B2: jq 폴백은 "" 대신 empty — session_id 부재 시
+			// 빈 라벨을 흘려보내지 않고 플래그 자체를 생략한다(훅 진입점의
+			// 무효=부재 취급과 동일 방향). hooks.json과 동일 패턴.
+			withSession(`session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`),
 		},
 		"Stop": {
-			plain(`session-end --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)`),
+			plain(`session-end --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`),
 		},
 		"PostCompact": {plain("compact")},
 	}
@@ -508,9 +518,10 @@ func flintHookDefs(binPath string) map[string][]map[string]any {
 // 실행 뒤 훅 서브커맨드(hot·done·nudge·compact·session-start·
 // session-end)가 오는 명령 — 구형 5엔트리 직접 실행과 신형 통합 커맨드
 // 모두 잡는다. 'myflint'·'flintx' 같은 접두·접미 우연 일치는 경계 클래스
-// 로 배제(flintWordRe와 같은 규칙 + 경로 접두 허용).
+// 로 배제(flintWordRe와 같은 규칙 + 경로 접두 허용). v1.0.2 R2-A1: 홑따옴표
+// 인용된 경로의 닫는 ' 수용(shQuote 형식 — 구 무인용 형식도 계속 매칭).
 var flintHookSubRe = regexp.MustCompile(
-	`(?:^|[^A-Za-z0-9_-])(?:\S*/)?flint(?:\.\S+)?\s+"?(session-start|session-end|hot|done|nudge|compact)(?:[\s"]|$)`)
+	`(?:^|[^A-Za-z0-9_-])(?:\S*/)?flint(?:\.\S+)?'?\s+"?(session-start|session-end|hot|done|nudge|compact)(?:[\s"]|$)`)
 
 // anyHookCommand — hooks 값 트리 안 command 필드 중 pred를 만족하는
 // 것이 하나라도 있는지(valueHasFlintCommand와 같은 순회).
@@ -1497,7 +1508,14 @@ func checkRecallStarved(ctx context.Context, st wire.Store) DoctorCheck {
 // 저장 시점 스캔(write ScanSecrets)은 회피·이후 유입을 못 잡는다 —
 // doctor가 knowledge 전수를 재스캔해 발견 시 warn(본문 아닌 패턴명+id만
 // 출력 — CLAUDE.md 개인 데이터 원칙). 세션 summary도 포함(PII 최다).
+// v1.0.2 R2(성능): 실체는 thresholds 주입판(checkSecretsTh) — doctor
+// 체인은 실행 스코프 1회 로드 값(doctorThresholds)을 공유하고, 이 래퍼는
+// 직접 호출자용 자체 로드(checkMetaHygiene F6 패턴 승계).
 func checkSecrets(ctx context.Context, st wire.Store) DoctorCheck {
+	return checkSecretsTh(ctx, st, doctorThresholds(ctx, st)())
+}
+
+func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: "secrets"}
 	if st == nil {
 		c.Status = "warn"
@@ -1508,8 +1526,8 @@ func checkSecrets(ctx context.Context, st wire.Store) DoctorCheck {
 	// 경로)·스캔 열은 쓰기 시점과 동일 전열(topic·summary·tags·entity·
 	// domain·origin — sanitizePayload 참조)·메모리는 행 단위 스트리밍
 	// (Store.Query 커서 — 전체 테이블 구체화 회피).
-	// v0.27.4 리뷰 4: 임계값 로드는 1회(체크 내 스냅샷 일관성·왕복 절약).
-	th := knowledge.WriteThresholds(ctx, st)
+	// v0.27.4 리뷰 4→v1.0.2 R2: 임계값은 주입 th(실행 스코프 1회 로드,
+	// 실패 기본값 폴백은 WriteThresholds가 적용)에서 읽는다.
 	rows, err := wire.QueryOnce(ctx, st, `
 		SELECT id, topic, summary, tags, entity, domain, origin
 		FROM knowledge WHERE invalid_at IS NULL

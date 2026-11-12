@@ -874,13 +874,32 @@ func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
 
 // TestFlintHookCmdEvalWrapped — v1.0.1 감사(F4): doctor가 설치하는 훅
 // 명령도 jq @sh+eval 패턴 — 이중따옴표 치환("$(jq …)") 재발 방지.
+// v1.0.2 R2-A1: binPath 홑따옴표 인용 — 공백 경로의 무음 소실 방지.
 func TestFlintHookCmdEvalWrapped(t *testing.T) {
-	cmd := flintHookCmd("/x/flint", `session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)`)["command"].(string)
-	if !strings.HasPrefix(cmd, `eval "/x/flint `) {
-		t.Errorf("eval 래핑 부재: %q", cmd)
+	cmd := flintHookCmd("/x/flint", `session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`)["command"].(string)
+	if !strings.HasPrefix(cmd, `eval "'/x/flint' `) {
+		t.Errorf("eval 래핑·경로 인용 부재: %q", cmd)
 	}
 	if strings.Contains(cmd, `"$(jq`) {
 		t.Errorf("이중따옴표 치환 잔존: %q", cmd)
+	}
+}
+
+// TestFlintHookCmdQuotesBinPath — v1.0.2 감사(R2-A1): 공백 포함 설치 경로도
+// 홑따옴표 1개 인자로 조립(무인용 시 eval 단어 분할로 훅 무음 소실).
+// 조립 문자열 단언 + 멱등 식별 정합(flintHookSubRe가 신형 인용 형식과
+// 구형 무인용 형식 모두 잡아야 재설치 중복 방지 유지).
+func TestFlintHookCmdQuotesBinPath(t *testing.T) {
+	cmd := flintHookCmd("/My Tools/flint", `session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`)["command"].(string)
+	if !strings.HasPrefix(cmd, `eval "'/My Tools/flint' session-start `) {
+		t.Errorf("공백 경로 미인용: %q", cmd)
+	}
+	if !flintHookSubRe.MatchString(cmd) {
+		t.Errorf("신형 인용 형식을 flintHookSubRe 미식별(멱등 파손): %q", cmd)
+	}
+	legacy := `eval "/x/flint session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)" 2>/dev/null || true`
+	if !flintHookSubRe.MatchString(legacy) {
+		t.Errorf("구형 무인용 형식을 flintHookSubRe 미식별(기존 설치 교체 파손): %q", legacy)
 	}
 }
 

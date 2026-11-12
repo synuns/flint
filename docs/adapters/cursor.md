@@ -45,7 +45,7 @@ flint 규칙:
 |---|---|---|
 | `flint_read` | `query?`, `tag?`, `limit?` (상한 50) | 결정·지식 검색 (CLI `flint read` 동일 계약) |
 | `flint_write` | `kind`, `payload` | 결정·지식 기록+커밋 (CLI `flint write` 동일 계약, 멱등) |
-| `flint_hot` | `session_id?` | 활성 프로젝트+pending+최근 결정 요약 (2,000자 상한) |
+| `flint_hot` | — | 활성 프로젝트+pending+최근 결정 요약 (2,000자 상한) |
 | `flint_pending` | — | 대기 지식 목록+추천(verdict: promote\|merge\|expire\|hold) JSON |
 | `flint_approve` | `id`, `supersede?` | 대기 지식 승격(·구 활성 대체 병합) |
 

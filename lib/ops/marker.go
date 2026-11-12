@@ -187,11 +187,13 @@ func ClearTypedMarker(kind string) error {
 
 // WriteSessionLabel — 현재 세션 라벨 1줄 기록(빈 라벨은 미기록).
 // 라벨 파일 경로 규칙은 wire.SessionLabelFile이 소유(v0.39.0 T1 이동분).
+// v1.0.2 R2-A2: 세션별 파일(session-<id>.label) — 병렬 세션이 서로의
+// 라벨을 덮어쓰지 않는다(구 단일 공유 파일 경합 폐쇄).
 func WriteSessionLabel(label string) error {
 	if label == "" {
 		return nil
 	}
-	path := wire.SessionLabelFile()
+	path := wire.SessionLabelFile(label)
 	if path == "" {
 		return os.ErrInvalid
 	}
@@ -201,7 +203,17 @@ func WriteSessionLabel(label string) error {
 	return os.WriteFile(path, []byte(label), 0o600)
 }
 
-// ClearSessionLabel — 세션 라벨 파일 제거(session-end).
-func ClearSessionLabel() {
-	_ = os.Remove(wire.SessionLabelFile())
+// ClearSessionLabel — 이 세션의 라벨 파일 제거(session-end). v1.0.2
+// R2-A2: 세션별 제거 — 병렬 세션의 라벨을 지우지 않는다(구 공유 파일
+// 제거 경합 폐쇄). session 미지정·무효(레거시 훅)는 구 session-current만
+// 청산(신규 쓰기가 없는 파일 — 업그레이드 잔존).
+func ClearSessionLabel(session string) {
+	if session != "" {
+		if p := wire.SessionLabelFile(session); p != "" {
+			_ = os.Remove(p)
+		}
+	}
+	if legacy := wire.SessionLabelLegacyFile(); legacy != "" {
+		_ = os.Remove(legacy)
+	}
 }

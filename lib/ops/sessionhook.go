@@ -27,18 +27,66 @@ type SessionStartRecorder interface {
 	RecordSessionStart(ctx context.Context, session string) error
 }
 
+// sanitizeHookSession — 훅 진입점(session-start·session-end) 전용
+// --session 정리(v1.0.2 R2-B1·B2). 무효 라벨(빈 값·'-' 접두 플래그 흡수
+// 오타 — knowledge.ValidateSessionLabel 공용 가드)은 라벨 부재 취급:
+// --session 쌍을 걷어낸 인자와 남은 유효 라벨을 반환한다. 훅 stdout은
+// 프롬프트 주입 경로라 무효 인자도 조용히(비간섭 §3·§13) — 검증 에러
+// exit 3은 CLI 직접 호출(hot·done·read) 계약에만 남는다. hooks.json의
+// session-start·session-end는 하니스 session_id만 전달하므로 이 정리는
+// 폴백(레거시·변형 훅) 경로 정합.
+func sanitizeHookSession(args []string) ([]string, string) {
+	out := make([]string, 0, len(args))
+	for i := 0; i < len(args); i++ {
+		if args[i] == "--session" {
+			val := ""
+			if i+1 < len(args) {
+				val = args[i+1]
+				i++
+			}
+			if knowledge.ValidateSessionLabel(true, val) == nil {
+				out = append(out, "--session", val)
+			}
+			continue
+		}
+		out = append(out, args[i])
+	}
+	return out, SessionLabel(out)
+}
+
+// sessionLabelMaxAge — 세션 라벨 만료 창(v1.0.2 R2-A2): events_retention_days
+// 재사용 — 라벨이 가리키는 read_events 행의 보존 창과 정렬(행이 정리된
+// 뒤의 라벨은 스테일). 신규 튜닝값 없이 meta 오버라이드 승계, 조회 실패·
+// 비값은 기본 14일(threshold_meta 등록값).
+func sessionLabelMaxAge(ctx context.Context, st wire.Store) time.Duration {
+	d := knowledge.WriteThresholds(ctx, st).EventsRetentionD
+	if d <= 0 {
+		d = 14
+	}
+	return time.Duration(d) * 24 * time.Hour
+}
+
 // RunSessionStart — SessionStart 훅 1회: 세션 경계 기록 뒤 hot 주입·nudge.
 // stdin은 hot·done이 소비하지 않으므로 nudge가 그대로 파싱한다(훅 stdin
 // JSON의 hook_event_name으로 nudge 분기). nudge는 언제나 0이라 exit은
 // 실질적으로 hot의 코드. 경계 기록 실패는 조용히(§13 계측 원칙 —
 // 세션 지표만 0 강등, 주입·안내는 불변).
+// v1.0.2 R2-B1: 무효 라벨 검증을 라벨 기록·세션 시작 기록 앞으로 —
+// 무효 값("--json" 플래그 흡수 등)이 라벨 파일과 경계에 남아 read 자동
+// 채택으로 오염을 부활시키던 경로 폐쇄(무효는 부재 취급, 조용히).
 func RunSessionStart(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+	args, label := sanitizeHookSession(args)
 	if rec, ok := st.(SessionStartRecorder); ok {
-		_ = rec.RecordSessionStart(ctx, SessionLabel(args))
+		_ = rec.RecordSessionStart(ctx, label)
 	}
 	// v0.20.5(B②): 현재 세션 라벨을 config 경로에 남겨 read가 자동
 	// 채택하게 한다 — G4 라벨 자동화. 실패는 조용히(§13 — 라벨은 보조).
-	_ = WriteSessionLabel(SessionLabel(args))
+	// v1.0.2 R2-A2: 세션별 파일 + 만료 정리(session-end 못 만난 잔존
+	// 청산 — nudge·compact가 타는 같은 훅 경로).
+	_ = WriteSessionLabel(label)
+	if label != "" {
+		wire.PruneSessionLabels(sessionLabelMaxAge(ctx, st))
+	}
 	code := knowledge.RunHot(ctx, st, args, stdin, stdout)
 	if ncode := RunNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
 		return ncode
@@ -127,8 +175,11 @@ func SessionLabel(args []string) string {
 // 세션 구간은 session_starts만으로 정의([start_i, start_{i+1})) —
 // 종료 경계는 별도 기록하지 않는다(룰링, v0.20.0).
 func RunSessionEnd(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// v0.20.5(B②): 세션 종료 — 현재 라벨 정리(종료 후 스테일 방지).
-	ClearSessionLabel()
+	// v1.0.2 R2-B2: 무효 라벨은 부재 취급(조용히 — Stop stdout도 훅 경로).
+	args, label := sanitizeHookSession(args)
+	// v0.20.5(B②) + v1.0.2 R2-A2: 세션 종료 — 이 세션의 라벨 파일만 정리
+	// (종료 후 스테일 방지·병렬 세션 라벨 보존).
+	ClearSessionLabel(label)
 	code := knowledge.RunDone(ctx, st, args, stdin, stdout)
 	if ncode := RunNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
 		return ncode
