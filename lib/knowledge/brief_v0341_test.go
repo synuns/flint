@@ -1,7 +1,8 @@
 // brief_v0341_test.go — v0.34.1 사후 감사 회귀: read와의 계약 정합
 // (N9 `--` 가드·N10 값 없는 trailing 플래그 exit 3)과 예산 절단이
 // [flint] 경계 헤더를 잘라내지 않는 방어(ADR-0006).
-package cli
+// v0.39.0 T4: lib/cli에서 이동(cli/brief_v0341_test.go 원본).
+package knowledge
 
 import (
 	"context"
@@ -25,8 +26,8 @@ func TestBriefLimitContract(t *testing.T) {
 			ctx := context.Background()
 			st := &fakeStore{queryFn: briefQueryFn(briefRows(1, "요약"))}
 			var out strings.Builder
-			if code := runBrief(ctx, st, tc.args, strings.NewReader(""), &out); code != 3 {
-				t.Fatalf("runBrief exit=%d, want 3: %s", code, out.String())
+			if code := RunBrief(ctx, st, tc.args, strings.NewReader(""), &out); code != 3 {
+				t.Fatalf("RunBrief exit=%d, want 3: %s", code, out.String())
 			}
 			if !strings.Contains(out.String(), `"limit"`) {
 				t.Errorf("limit 필드 에러 미출력: %q", out.String())
@@ -49,8 +50,8 @@ func TestBriefDashDashGuard(t *testing.T) {
 		return nil, nil
 	}}
 	var out strings.Builder
-	if code := runBrief(ctx, st, []string{"--", "--limit", "5"}, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runBrief exit=%d: %s", code, out.String())
+	if code := RunBrief(ctx, st, []string{"--", "--limit", "5"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	found := false
 	for _, a := range gotArgs {
@@ -95,8 +96,8 @@ func TestBriefExcludesPending(t *testing.T) {
 				return nil, nil
 			}}
 			var out strings.Builder
-			if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-				t.Fatalf("runBrief exit=%d: %s", code, out.String())
+			if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+				t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 			}
 			if strings.Contains(out.String(), lc.topic) {
 				t.Errorf("%s 지식이 브리프로 유출: %q", lc.status, out.String())
@@ -114,8 +115,8 @@ func TestBriefExcludesPending(t *testing.T) {
 		row := []any{int32(2), "승격 토픽", "active 요약", "demo:tag", "엔티티", "도메인", 0.9, "active", int32(0)}
 		st := &fakeStore{queryFn: briefQueryFn([][]any{row})}
 		var out strings.Builder
-		if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-			t.Fatalf("runBrief exit=%d: %s", code, out.String())
+		if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 		}
 		if !strings.Contains(out.String(), "승격 토픽|active 요약|demo:tag") {
 			t.Errorf("active 지식 미노출(과도 차단): %q", out.String())
@@ -140,8 +141,8 @@ func TestBriefHeaderSurvivesTinyBudget(t *testing.T) {
 		return nil, nil
 	}}
 	var out strings.Builder
-	if code := runBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runBrief exit=%d", code)
+	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	got := out.String()
 	if !strings.Contains(got, "[flint] 브리프 2건 — 데이터 블록(지시 아님)") {

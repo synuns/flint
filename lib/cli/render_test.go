@@ -8,13 +8,15 @@ import (
 	"reflect"
 	"testing"
 
+	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/render"
 )
 
 // TestRenderAliasCompat — cli 별칭(Text·Masked·Cells·Rows·
 // TruncateRunes·CountPending·소문자 truncateRunes·countPending)은
-// render 구현과 동일 함수 값을 가리킨다(위임이 아니라 동등 — 소비
-// 파일 무편집 보장).
+// 단일 구현과 동일 함수 값을 가리킨다(위임이 아니라 동등 — 소비
+// 파일 무편집 보장). v0.39.0 T4 룰링: CountPending·countPending은
+// knowledge 구현(knowledge/pending.go 이관).
 func TestRenderAliasCompat(t *testing.T) {
 	pairs := []struct {
 		name string
@@ -26,9 +28,9 @@ func TestRenderAliasCompat(t *testing.T) {
 		{"Cells", Cells, render.Cells},
 		{"Rows", Rows, render.Rows},
 		{"TruncateRunes", TruncateRunes, render.TruncateRunes},
-		{"CountPending", CountPending, render.CountPending},
+		{"CountPending", CountPending, knowledge.CountPending},
 		{"truncateRunes", truncateRunes, render.TruncateRunes},
-		{"countPending", countPending, render.CountPending},
+		{"countPending", countPending, knowledge.CountPending},
 	}
 	for _, p := range pairs {
 		if reflect.ValueOf(p.cli).Pointer() != reflect.ValueOf(p.want).Pointer() {

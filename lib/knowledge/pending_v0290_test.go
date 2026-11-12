@@ -1,6 +1,7 @@
 // pending_v0290_test.go — v0.29.0 증류 2막 계약: pending 심사 뷰·approve
 // 병합·세션 지식 topic 품질·session_id 연결.
-package cli
+// v0.39.0 T4: lib/cli에서 이동(cli/pending_v0290_test.go 원본).
+package knowledge
 
 import (
 	"context"
@@ -8,6 +9,20 @@ import (
 	"testing"
 	"time"
 )
+
+// knFake — 빈도 상한·meta 경로 stub(queryFn이 session_knowledge_last
+// 조회에 값을 반환 — 키는 $1 파라미터로 전달되므로 args도 검사).
+// 나머지는 기본 fake(nil = 키 부재 → 빈도 통과).
+func knFake(last string) *fakeStore {
+	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		for _, a := range args {
+			if s, ok := a.(string); ok && s == "session_knowledge_last" && last != "" {
+				return [][]any{{last}}, nil
+			}
+		}
+		return nil, nil
+	}}
+}
 
 // TestSummaryKeyword — R3: topic 키워드 추출(첫 구분자·20룬 상한).
 func TestSummaryKeyword(t *testing.T) {
@@ -82,7 +97,7 @@ func TestRunPendingVerdicts(t *testing.T) {
 		return nil, nil
 	}}
 	var out strings.Builder
-	code := runPending(context.Background(), st, nil, strings.NewReader(""), &out)
+	code := RunPending(context.Background(), st, nil, strings.NewReader(""), &out)
 	if code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
@@ -112,7 +127,7 @@ func TestRunPendingMergeHint(t *testing.T) {
 		return nil, nil
 	}}
 	var out strings.Builder
-	if code := runPending(context.Background(), st, nil, strings.NewReader(""), &out); code != 0 {
+	if code := RunPending(context.Background(), st, nil, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
 	if !strings.Contains(out.String(), "9|병합|") || !strings.Contains(out.String(), `"merge":1`) {
@@ -132,7 +147,7 @@ func TestRunPendingJSONCountsConsistency(t *testing.T) {
 		return nil, nil
 	}}
 	var out strings.Builder
-	if code := runPending(context.Background(), st, []string{"--json"}, strings.NewReader(""), &out); code != 0 {
+	if code := RunPending(context.Background(), st, []string{"--json"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
 	s := out.String()

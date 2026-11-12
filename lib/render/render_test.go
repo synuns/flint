@@ -82,11 +82,11 @@ func TestSanitizeTextChokepoint(t *testing.T) {
 // 주석(// 이후)은 검사에서 제외 — 주석 언급은 우회가 아니다.
 func chokepointViolations(root string) []string {
 	allowExact := map[string]bool{
-		"lib/cli/write.go":      true,
-		"lib/cli/import.go":     true,
-		"lib/cli/done.go":       true,
-		"lib/store/sanitize.go": true,
-		"lib/store/pipeline.go": true,
+		"lib/knowledge/write.go":  true, // v0.39.0 T2 이동(cli/write.go)
+		"lib/knowledge/import.go": true, // v0.39.0 T2 이동(cli/import.go)
+		"lib/knowledge/done.go":   true, // v0.39.0 T4 이동(cli/done.go)
+		"lib/store/sanitize.go":   true,
+		"lib/store/pipeline.go":   true,
 	}
 	allowPrefix := "lib/render/"
 	re := regexp.MustCompile(`\bSanitizeText\b`)

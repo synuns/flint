@@ -1,5 +1,8 @@
 // read.go — flint read [query]: active_knowledge 뷰 강제 조회 + 토큰 예산.
-package cli
+// v0.39.0 T3: lib/cli/read.go 이동(동작·출력·exit 불변). as-of 스펙 파서는
+// cli asof.go 소유라 주입 seam(ParseAsOfSpecFn·ErrInvalidAsOf) 경유 —
+// cli init이 실구현을 주입한다(사이클 방지: knowledge는 cli 임포트 불가).
+package knowledge
 
 import (
 	"context"
@@ -13,44 +16,40 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/query"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
+
+// ParseAsOfSpecFn — as-of 스펙 → 커밋 해시 정규화의 주입 점(cli asof.go
+// ParseAsOfSpec). cli init(knowledge_alias.go)이 실구현을 주입한다.
+var ParseAsOfSpecFn func(ctx context.Context, st wire.Store, spec string) (string, error)
+
+// ErrInvalidAsOf — 무효 as-of 스펙 판정 errors.Is 원천 주입 점(cli asof.go
+// ErrInvalidAsOf와 동일 인스턴스를 cli init이 주입한다).
+var ErrInvalidAsOf error
 
 // readBumper — v0.6 항목 참조 계측 seam(T62 BumpReads).
 type readBumper interface {
 	BumpReads(ctx context.Context, ids []int) error
 }
 
-// realStore 위임 — reads.go(T62) 실구현 연결. 메서드 정의만 여기 둔다.
-func (s *realStore) BumpReads(ctx context.Context, ids []int) error {
-	return s.repo.BumpReads(ctx, ids)
-}
-
 // ReadUsageStore — read 1회 계측에 제로·근접 분류를 동반하는 확장
 // (v0.15.0 R2, UsageStore 단언 패턴 승계). realStore는 db.Repo.RecordReadUsage
-// 로 구현하고, 미구현 Store(fake)는 기존 recordUsage 경로로 폴백.
+// 로 구현하고(cli/realstore_read.go), 미구현 Store(fake)는 기존 RecordUsage
+// 경로로 폴백.
 type ReadUsageStore interface {
 	RecordReadUsage(ctx context.Context, zero bool, near bool) error
 }
 
-// realStore 위임 — RecordReadUsage(T3) 실구현 연결.
-func (s *realStore) RecordReadUsage(ctx context.Context, zero, near bool) error {
-	return s.repo.RecordReadUsage(ctx, zero, near)
-}
-
 // ReadEventStore — 효과 계측 이벤트 1행 기록 접합면(v0.19.0,
-// docs/METRICS.md §4). realStore는 db.Repo.RecordReadEvent로 구현하고,
-// 미구현 Store(fake)는 이 계측을 건너뛴다(카운터 폴백과 달리 대체
-// 경로가 없다 — read_events 없이도 나머지 지표는 daily·knowledge에서
-// 도출된다). v0.20.0: ids(반환 지식 id CSV, 상위 10) 추가 — 사용
-// 연쇄(chain) 산출 원천.
+// docs/METRICS.md §4). realStore는 db.Repo.RecordReadEvent로 구현하고
+// (cli/realstore_read.go), 미구현 Store(fake)는 이 계측을 건너뛴다(카운터
+// 폴백과 달리 대체 경로가 없다 — read_events 없이도 나머지 지표는
+// daily·knowledge에서 도출된다). v0.20.0: ids(반환 지식 id CSV, 상위 10)
+// 추가 — 사용 연쇄(chain) 산출 원천.
 type ReadEventStore interface {
 	RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error
-}
-
-// realStore 위임 — RecordReadEvent 실구현 연결.
-func (s *realStore) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error {
-	return s.repo.RecordReadEvent(ctx, hits, zero, near, fallback, session, ids, firstRank)
 }
 
 // idsCSV — 정수 id 슬라이스를 CSV로(저장 예산 상한 10 — hit 전수는
@@ -66,9 +65,9 @@ func idsCSV(ids []int) string {
 	return strings.Join(parts, ",")
 }
 
-// firstExactRank — 반환 행에서 첫 topic 정합(lower 일치, RankOrder
+// FirstExactRank — 반환 행에서 첫 topic 정합(lower 일치, RankOrder
 // 정의 승계)의 1-기반 순위. 정합 없음 0(v0.30.0 R2 — 품질 근사 원천).
-func firstExactRank(rows [][]any, q string) int {
+func FirstExactRank(rows [][]any, q string) int {
 	// v0.31.3(감사 4): RankOrder 원천은 SQL lower(원 q) — trim 없음.
 	// 품질 기록도 동일 정의를 쓴다(공백 포함 q에서 순위 왜곡 방지).
 	lq := strings.ToLower(q)
@@ -86,9 +85,9 @@ func firstExactRank(rows [][]any, q string) int {
 	return 0
 }
 
-// parseIDsCSV — idsCSV 역직렬화(report 소비용). 빈 문자열·빈 칸은
+// ParseIDsCSV — idsCSV 역직렬화(report 소비용). 빈 문자열·빈 칸은
 // 공란, 파싱 불가 칸은 조용히 건너뛴다(계측 관례).
-func parseIDsCSV(s string) []int {
+func ParseIDsCSV(s string) []int {
 	if s == "" {
 		return nil
 	}
@@ -102,48 +101,28 @@ func parseIDsCSV(s string) []int {
 	return out
 }
 
-// cellToInt — 셀(any)→int 단일 강제 변환 유틸. read rowIDs·maintain stale·
-// report 집계가 공유한다(구현 3중 복제 방지). pgx 숫자형(int·int32·int64)
-// ·float64·10진 문자열을 수용하고 nil·비수는 (0, false).
-func cellToInt(v any) (int, bool) {
-	switch n := v.(type) {
-	case int:
-		return n, true
-	case int32:
-		return int(n), true
-	case int64:
-		return int(n), true
-	case float64:
-		return int(n), true
-	case string:
-		i, err := strconv.Atoi(n)
-		return i, err == nil
-	default:
-		return 0, false
-	}
-}
-
-// rowIDs — 조회 결과 행에서 id 컬럼(위치 0)을 int로 모은다. 매핑 불가 칸은
-// 조용히 건너뛴다(계측 누락은 조회를 깨지 않는다).
-func rowIDs(rows [][]any) []int {
+// RowIDs — 조회 결과 행에서 id 컬럼(위치 0)을 int로 모은다. 매핑 불가
+// 칸은 조용히 건너뛴다(계측 누락은 조회를 깨지 않는다). 셀 변환은
+// render.CellToInt 단일 구현(v0.39.0 T3 부채 수렴).
+func RowIDs(rows [][]any) []int {
 	ids := make([]int, 0, len(rows))
 	for _, row := range rows {
 		if len(row) == 0 {
 			continue
 		}
-		if id, ok := cellToInt(row[0]); ok {
+		if id, ok := render.CellToInt(row[0]); ok {
 			ids = append(ids, id)
 		}
 	}
 	return ids
 }
 
-// instrumentReads — 참조 계측(T62): 결과 항목 id 전수 증분 + 유입 1회 기록.
-// read kind는 분류(zero·near)를 동반해 ReadUsageStore 경로(RecordReadUsage,
-// v0.15.0 R2)로 기록하고, 미구현 Store(fake)는 기존 recordUsage 경로로
-// 폴백한다. 그 외 kind는 기존 recordUsage 경로 불변. 둘 다 계측이라
-// 실패는 조용히 무시된다.
-func instrumentReads(ctx context.Context, st Store, kind string, ids []int, zero, near bool) {
+// InstrumentReads — 참조 계측(T62): 결과 항목 id 전수 증분 + 유입 1회
+// 기록. read kind는 분류(zero·near)를 동반해 ReadUsageStore 경로
+// (RecordReadUsage, v0.15.0 R2)로 기록하고, 미구현 Store(fake)는 기존
+// RecordUsage 경로로 폴백한다. 그 외 kind는 기존 RecordUsage 경로 불변.
+// 둘 다 계측이라 실패는 조용히 무시된다.
+func InstrumentReads(ctx context.Context, st wire.Store, kind string, ids []int, zero, near bool) {
 	if rb, ok := st.(readBumper); ok {
 		_ = rb.BumpReads(ctx, ids)
 	}
@@ -153,14 +132,15 @@ func instrumentReads(ctx context.Context, st Store, kind string, ids []int, zero
 			return
 		}
 	}
-	recordUsage(ctx, st, kind, "")
+	RecordUsage(ctx, st, kind, "")
 }
 
-// runRead — 무료 텍스트 query와 --tag --entity --domain --limit 필터.
-// --kind는 active_knowledge가 knowledge 단일 kind 뷰라 의미가 없어 받지 않는다.
-// --status pending|active|invalidated(v0.12.0 R1) — 지정 시에만 base 테이블
-// knowledge + status WHERE 조회(뷰는 invalidated 행을 노출하지 않는다).
-func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+// RunRead — 무료 텍스트 query와 --tag --entity --domain --limit 필터.
+// --kind는 active_knowledge가 knowledge 단일 kind 뷰라 의미가 없어 받지
+// 않는다. --status pending|active|invalidated(v0.12.0 R1) — 지정 시에만
+// base 테이블 knowledge + status WHERE 조회(뷰는 invalidated 행을
+// 노출하지 않는다).
+func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	f := query.Filters{}
 	jsonMode, fields, asOfSpec, statusSpec, session := false, "", "", "", ""
 	asOfGiven, statusGiven, sessionGiven := false, false, false
@@ -188,7 +168,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		case "--limit":
 			n, err := strconv.Atoi(v)
 			if err != nil {
-				fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "limit", Expect: "integer"}))
+				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "limit", Expect: "integer"}))
 				return 3
 			}
 			f.Limit, i = n, i+1
@@ -226,14 +206,14 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		{sessionGiven, session, "session"},
 	} {
 		if g.given && g.val == "" {
-			fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: g.field, Expect: "non-empty"}))
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: g.field, Expect: "non-empty"}))
 			return 3
 		}
 	}
 	// v0.20.5(B②): --session 미지정 시 현재 세션 라벨 자동 채택
 	// (session-start 훅이 기록 — G4 라벨 자동화, 조용히).
 	if !sessionGiven {
-		if label, ok := ReadSessionLabel(); ok {
+		if label, ok := wire.ReadSessionLabel(); ok {
 			session = label
 		}
 	}
@@ -241,7 +221,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 플래그와 달리 오타(`--session --json`처럼 플래그를 흡수)가 DB 오염으로
 	// 남는다. 플래그형 값은 즉시 exit 3(리뷰 #3 — 조회 결과 오염 방지).
 	if sessionGiven && strings.HasPrefix(session, "-") {
-		fmt.Fprintln(stdout, errLine(&store.SchemaError{Field: "session", Expect: "flag 아닌 라벨"}))
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "session", Expect: "flag 아닌 라벨"}))
 		return 3
 	}
 	// v0.20.2(패치 루프 1차 F5): --fields 이름은 알려진 컬럼만 허용 —
@@ -251,7 +231,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	if fieldsGiven {
 		for _, name := range strings.Split(fields, ",") {
 			if name = strings.TrimSpace(name); name == "" || !query.ReadFieldKnown(name) {
-				fmt.Fprintln(stdout, errLine(&store.SchemaError{
+				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
 					Field:  "fields",
 					Expect: "알려진 컬럼: " + query.ReadColumnsHint(),
 				}))
@@ -279,7 +259,7 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 				f.Status = statusSpec
 			}
 		default:
-			fmt.Fprintln(stdout, errLine(&store.SchemaError{
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
 				Field: "status", Expect: "pending|active|invalidated"}))
 			return 3
 		}
@@ -292,13 +272,13 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		sql, qargs = query.BuildRead(q, f)
 	}
 	if asOfSpec != "" {
-		hash, err := ParseAsOfSpec(ctx, st, asOfSpec)
+		hash, err := ParseAsOfSpecFn(ctx, st, asOfSpec)
 		if err != nil {
 			if errors.Is(err, ErrInvalidAsOf) {
 				fmt.Fprintln(stdout, asOfErrLine("invalid_as_of", err.Error()))
 				return 3
 			}
-			fmt.Fprintln(stdout, errLine(err))
+			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
 		// Doltgres 커밋 해시는 base32계 소문자([0-9a-z]) — ParseAsOfSpec이
@@ -308,26 +288,26 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		// v0.28.0(H③): 해시 값은 dolt_log 행 출처라 엔진 구현에 의존하지
 		// 않게 엄격 문자셋 재검증 — 벗어나면 인라인 대신 오류(종료 계약).
 		if !asOfHashRe.MatchString(hash) {
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("as-of hash 문자셋 위반: %q", hash)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash 문자셋 위반: %q", hash)))
 			return 1
 		}
 		sql = strings.Replace(sql, " FROM active_knowledge",
 			" FROM active_knowledge AS OF '"+hash+"'", 1)
 		asOfHash = hash
 		// 커밋 시각 첨부 — 메타데이터 조회 실패는 조용히(빈 값, §13).
-		if dr, err := queryOnce(ctx, st,
+		if dr, err := wire.QueryOnce(ctx, st,
 			`SELECT date FROM dolt_log WHERE commit_hash = $1`, []any{hash}); err == nil &&
 			len(dr) == 1 && len(dr[0]) > 0 {
-			asOfDate = fmtAsOfDate(dr[0][0])
+			asOfDate = FmtAsOfDate(dr[0][0])
 		}
 	}
-	rows, err := queryOnce(ctx, st, sql, qargs)
+	rows, err := wire.QueryOnce(ctx, st, sql, qargs)
 	if err != nil {
 		// 뷰-컬럼 미호환(과거 행에 없는 컬럼)은 기본 테이블 조회 안내로 랩(C3).
 		if asOfSpec != "" {
 			err = wrapViewColumnMismatch(err)
 		}
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	// v0.9.6 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
@@ -342,16 +322,16 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 1회 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
 	// v0.19.0: 폴백 시도 여부를 read_events 기록에 전달(METRICS §4 G1).
 	fallbackTried := false
-	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
+	if ReadSuggestEligible(len(rows), asOfSpec, f.Status) {
 		// rrf_k 주입 hoist — 폴백 재랭킹이 같은 실행에서 오버라이드를
 		// 반영한다(실패는 기본값 유지 — 조용히 §13).
-		if th, thErr := loadThresholdsFn(ctx, st); thErr == nil {
+		if th, thErr := wire.LoadThresholdsFn(ctx, st); thErr == nil {
 			query.SetRRFK(th.RrfK)
 		}
 		if fsql, fargs, ok := query.BuildReadFallback(q, f); ok {
-			bumpReadFallbackToMeta(ctx, st)
+			BumpReadFallbackToMeta(ctx, st)
 			fallbackTried = true
-			if frows, ferr := queryOnce(ctx, st, fsql, fargs); ferr == nil && len(frows) > 0 {
+			if frows, ferr := wire.QueryOnce(ctx, st, fsql, fargs); ferr == nil && len(frows) > 0 {
 				rows = frows
 				query.ReorderByFallbackCount(rows, query.TokenizeQuery(q))
 			}
@@ -362,23 +342,23 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// 제안 스캔을 출력 없이 승계 — 결과는 에이전트에게 보이지 않는 내부 분류
 	// (zero_near 계측)에만 쓰인다. 스캔 실패·후보 0건은 조용히(§13).
 	var suggestions []query.Suggestion
-	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
+	if ReadSuggestEligible(len(rows), asOfSpec, f.Status) {
 		// 제안 임계값(min_score·scan_cap)은 thresholds 레지스트리 우선
 		// (meta 오버라이드 → SetSuggestThresholds 주입, v0.16.3). 조회 실패는
 		// query 패키지 기본값(=DefaultThresholds) 유지 — 조용히(§13).
-		if th, thErr := loadThresholdsFn(ctx, st); thErr == nil {
+		if th, thErr := wire.LoadThresholdsFn(ctx, st); thErr == nil {
 			query.SetSuggestThresholds(th.SuggestMinScore, th.SuggestScanCap)
 			query.SetRRFK(th.RrfK) // 이미 앞에서 주입 — 멱등 재확정(제안 경로)
 		}
 		ssql, sargs := query.BuildSuggestScan()
-		if srows, serr := queryOnce(ctx, st, ssql, sargs); serr == nil {
+		if srows, serr := wire.QueryOnce(ctx, st, ssql, sargs); serr == nil {
 			suggestions = query.SuggestSimilar(q, srows, 3)
 		}
 	}
 	// 출력 중립화(ADR-0006): 저장 단계 살균을 읽기에도 재적용 — 저장 이후
 	// 혹은 경로상 유입된 제어 문자·[flint] 마커가 출력 경계를 위조하지 않게
 	// 한다. v0.37.0: 살균은 render 조크포인트(render.Cells)로 수렴.
-	rows = Cells(rows)
+	rows = render.Cells(rows)
 	// v0.14.0 R1 침묵 계약: eligible(현재 시점·무상태필터) 제로히트는
 	// 완전 무출력 — FormatRows도 빈 rows에 ""를 반환하므로 별도 분기가
 	// 필요 없다. 제안 라인은 폐지(제로히트 결과 행 0 + 스캔 무출력).
@@ -386,15 +366,15 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	// --as-of 지정 시 결과 뒤에 as_of{hash,commit_date} 한 줄(JSON) 추가.
 	// 미지정이면 기존 필드만 그대로.
 	if asOfHash != "" {
-		b, _ := json.Marshal(asOfLine{AsOf: asOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
+		b, _ := json.Marshal(AsOfLine{AsOf: AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 		fmt.Fprintln(stdout, string(b))
 	}
 	// 계측(v0.15.0 R1 단일 라이터): zero 히트·제로근접 분류를 한 번의
 	// read_stats 읽기-쓰기에 누적. 실패는 조용히(§13).
-	bumpReadStatsToMeta(ctx, st, len(rows) == 0, len(suggestions) > 0)
+	wire.BumpReadStatsToMeta(ctx, st, len(rows) == 0, len(suggestions) > 0)
 	// 계측(T62): 결과 항목 id 전수 참조 증분 + read 유입 1회(분류 동반
 	// 전달 — R2 RecordReadUsage 경로). 조용히(§13).
-	instrumentReads(ctx, st, "read", rowIDs(rows), len(rows) == 0, len(suggestions) > 0)
+	InstrumentReads(ctx, st, "read", RowIDs(rows), len(rows) == 0, len(suggestions) > 0)
 	// 효과 계측(v0.19.0, docs/METRICS.md §4): read 1회를 read_events에
 	// 기록. 미구현 Store(fake)는 건너뛰고 실패는 조용히(§13 계측 원칙).
 	// v0.20.0: 반환 id CSV 동반(사용 연쇄 원천).
@@ -405,53 +385,53 @@ func runRead(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		// 회상 경로만(METRICS §2 계약 문서화와 함께).
 		rank := 0
 		if !fallbackTried && asOfSpec == "" && f.Status == "" {
-			rank = firstExactRank(rows, q)
+			rank = FirstExactRank(rows, q)
 		}
-		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session, idsCSV(rowIDs(rows)), rank)
+		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session, idsCSV(RowIDs(rows)), rank)
 	}
 	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
 	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.
-	if readSuggestEligible(len(rows), asOfSpec, f.Status) {
+	if ReadSuggestEligible(len(rows), asOfSpec, f.Status) {
 		return 1
 	}
 	return 0
 }
 
-// readSuggestEligible — 폴백 게이트·제안 스캔 게이트·침묵 exit 판정이
+// ReadSuggestEligible — 폴백 게이트·제안 스캔 게이트·침묵 exit 판정이
 // 공유하는 eligible 조건(3지점 복붙 통일): 현재 시점(--as-of 미지정)·
 // 무상태필터(--status 미지정) 제로히트일 때만 참. 동작 불변.
-func readSuggestEligible(rows int, asOfSpec, status string) bool {
+func ReadSuggestEligible(rows int, asOfSpec, status string) bool {
 	return rows == 0 && asOfSpec == "" && status == ""
 }
 
-// bumpReadFallbackToMeta — 폴백 시도 1회 증분(v0.9.6). 기존 계측 패턴
-// (bumpReadStatsToMeta) 승계 — 실패는 조용히 무시(비간섭 §13).
+// BumpReadFallbackToMeta — 폴백 시도 1회 증분(v0.9.6). 기존 계측 패턴
+// (BumpReadStatsToMeta) 승계 — 실패는 조용히 무시(비간섭 §13).
 // v0.34.3 T2: SELECT→INSERT 비원자 왕복을 bumpMetaKV 단일 원자
 // upsert로 수렴(증분 중 동시 실행 유실 방지).
-func bumpReadFallbackToMeta(ctx context.Context, st Store) {
-	_ = bumpMetaKV(ctx, st, query.ReadFallbackCountKey)
+func BumpReadFallbackToMeta(ctx context.Context, st wire.Store) {
+	_ = wire.BumpMetaKV(ctx, st, query.ReadFallbackCountKey)
 }
 
-// asOfInfo / asOfLine — --as-of 결과 첨부 한 줄 JSON {as_of:{hash,commit_date}}.
-type asOfInfo struct {
+// AsOfInfo / AsOfLine — --as-of 결과 첨부 한 줄 JSON {as_of:{hash,commit_date}}.
+type AsOfInfo struct {
 	Hash       string `json:"hash"`
 	CommitDate string `json:"commit_date"`
 }
 
-type asOfLine struct {
-	AsOf asOfInfo `json:"as_of"`
+type AsOfLine struct {
+	AsOf AsOfInfo `json:"as_of"`
 }
 
-// asOfErrLine — {error,message} 한 줄 JSON 조립(errLine의 cli 국소 변형 —
-// root.go 공용 errLine은 store 계층 에러만 분류한다).
+// asOfErrLine — {error,message} 한 줄 JSON 조립(ErrLine의 국소 변형 —
+// wire.ErrLine은 store 계층 에러만 분류한다).
 func asOfErrLine(code, msg string) string {
 	b, _ := json.Marshal(map[string]string{"error": code, "message": msg})
 	return string(b)
 }
 
-// fmtAsOfDate — dolt_log date 셀을 RFC3339 문자열로. time.Time이 아니면
+// FmtAsOfDate — dolt_log date 셀을 RFC3339 문자열로. time.Time이 아니면
 // 그대로 문자열화한다.
-func fmtAsOfDate(v any) string {
+func FmtAsOfDate(v any) string {
 	if t, ok := v.(time.Time); ok {
 		return t.Format(time.RFC3339)
 	}

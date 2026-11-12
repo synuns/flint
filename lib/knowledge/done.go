@@ -1,6 +1,9 @@
 // done.go — flint done: Stop 훅 종료 경로. 미기록 연속 경고만 내고
 // 종료를 절대 막지 않는다(PLAN §13 비간섭 5원칙 — 어떤 경로든 exit 0).
-package cli
+// v0.39.0 T4: lib/cli에서 이동(cli/done.go 원본. realStore 위임 메서드
+// StaleSessionRuns·LogPlaybookUse는 cli/realstore_curation.go로 추출.
+// 마커 기록은 cli marker.go 소유 — WriteTypedMarkerFn seam 주입).
+package knowledge
 
 import (
 	"context"
@@ -22,34 +25,27 @@ import (
 	"filippo.io/age"
 
 	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
-// staleSessionStore — T17 StaleSessionRuns 접근. Store 인터페이스는
+// staleSessionStore — T17 StaleSessionRuns 접근. wire.Store 인터페이스는
 // v0.1 소유라 확장 대신 타입 단언으로 소비한다(root.go 수정 금지).
 type staleSessionStore interface {
 	StaleSessionRuns(ctx context.Context, agent string) (int, error)
 }
 
-// realStore 위임 메서드 — 같은 패키지 파일이라 여기서 추가만 한다.
-func (s *realStore) StaleSessionRuns(ctx context.Context, agent string) (int, error) {
-	return s.repo.StaleSessionRuns(ctx, agent)
-}
-
-// usageStore — T37 LogPlaybookUse 접근. Store 인터페이스는 v0.1 소유라
-// 확장 대신 타입 단언으로 소비한다(root.go 수정 금지).
+// usageStore — T37 LogPlaybookUse 접근. wire.Store 인터페이스는 v0.1
+// 소유라 확장 대신 타입 단언으로 소비한다(root.go 수정 금지).
 type usageStore interface {
 	LogPlaybookUse(ctx context.Context, id int, ok bool) error
 }
 
-func (s *realStore) LogPlaybookUse(ctx context.Context, id int, ok bool) error {
-	return s.repo.LogPlaybookUse(ctx, id, ok)
-}
-
 // logPlaybookUse — 종료 직전 사용 로그 1건(T37). --playbook으로 받은 id가
 // 있을 때만 기록하며 done 출력·exit code는 완전 불변, 실패는 stderr 1행
-// 이하로 조용히 무시한다(비간섭 §13 — maybeAutoBackup과 같은 격).
-func logPlaybookUse(ctx context.Context, st Store, id int, ok bool) {
+// 이하로 조용히 무시한다(비간섭 §13 — AutoBackupFn과 같은 격).
+func logPlaybookUse(ctx context.Context, st wire.Store, id int, ok bool) {
 	if id <= 0 {
 		return
 	}
@@ -90,7 +86,7 @@ func (d *DoneResult) SessionRecord() map[string]any {
 // 유지한다(신규 행이 StaleSessionRuns 미기록 카운트를 오염시키는 결함
 // 해소 — T44 인시던트). agent의 세션이 없을 때만 INSERT. sessions 갱신은
 // maintain 갱신 경로 준용. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
-func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) int {
+func writeSessionRecord(ctx context.Context, st wire.Store, rec map[string]any) int {
 	agent, _ := rec["agent"].(string)
 	// v0.26.2(재검수 발견2): agent 라벨 살균·비밀 스캔 — InsertBatch 직접
 	// 호출이라 sanitizePayload를 우회하던 사각([flint] 마커·비밀 무검사
@@ -98,14 +94,14 @@ func writeSessionRecord(ctx context.Context, st Store, rec map[string]any) int {
 	warnSecrets("session agent", agent)
 	agent = store.SanitizeText(agent)
 	rec["agent"] = agent
-	rows, err := queryOnce(ctx, st,
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT id FROM sessions WHERE agent = $1
 		 ORDER BY ts DESC, id DESC LIMIT 1`, []any{agent})
 	if err == nil && len(rows) > 0 && rows[0][0] != nil {
 		// pgx는 int4를 int32로 스캔한다 — 타입 단언 대신 문자열 경유 파싱.
 		var id int
 		if n, _ := fmt.Sscan(fmt.Sprint(rows[0][0]), &id); n == 1 {
-			if _, err := queryOnce(ctx, st,
+			if _, err := wire.QueryOnce(ctx, st,
 				`UPDATE sessions SET summary = $1, tasks = $2 WHERE id = $3`,
 				[]any{rec["summary"], rec["tasks"], id}); err != nil {
 				fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
@@ -135,9 +131,9 @@ var hookSessionUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a
 // 훅 UUID 세션이 compact 행과 한 agent로 집계). 그 외 미해석 값(e2e·타
 // 하니스 문자 세션, 미발견 숫자 id)은 그 값 자체를 agent로 쓴다 —
 // 흡수하면 실제 claude 세션 summary를 덮어쓰고 stale 경고가 오발화된다.
-func agentForSession(ctx context.Context, st Store, session string) string {
+func agentForSession(ctx context.Context, st wire.Store, session string) string {
 	if id, err := strconv.Atoi(session); err == nil {
-		rows, err := queryOnce(ctx, st, `SELECT agent FROM sessions WHERE id = $1`, []any{id})
+		rows, err := wire.QueryOnce(ctx, st, `SELECT agent FROM sessions WHERE id = $1`, []any{id})
 		if err == nil && len(rows) > 0 {
 			if a, ok := rows[0][0].(string); ok && a != "" {
 				return a
@@ -152,16 +148,16 @@ func agentForSession(ctx context.Context, st Store, session string) string {
 
 // staleRuns — Store가 StaleSessionRuns를 미구현(레거시 fake)이면
 // 경고 없는 0이 안전한 기본값이다.
-func staleRuns(ctx context.Context, st Store, agent string) (int, error) {
+func staleRuns(ctx context.Context, st wire.Store, agent string) (int, error) {
 	if ss, ok := st.(staleSessionStore); ok {
 		return ss.StaleSessionRuns(ctx, agent)
 	}
 	return 0, nil
 }
 
-// runDone — `flint done --session <id>`: 미기록 연속 >= StaleSessions면
+// RunDone — `flint done --session <id>`: 미기록 연속 >= StaleSessions면
 // stale 경고, 그 외 ok. 경고일 뿐 종료를 막지 않는다(항상 exit 0).
-func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	session := ""
 	playbook, playbookOK := 0, true // --playbook <id>·--playbook-ok <bool>(기본 성공)
 	for i := 0; i < len(args); i++ {
@@ -188,13 +184,13 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, `{"error":"usage: flint done --session <id>"}`)
 		return 0
 	}
-	// v0.34.3 R14: thresholds 로더 단일화 — write.go의 writeThresholds
+	// v0.34.3 R14: thresholds 로더 단일화 — write.go의 WriteThresholds
 	// 공용(바이트 동일한 로컬 복제 폐지).
-	th := writeThresholds(ctx, st)
+	th := WriteThresholds(ctx, st)
 	agent := agentForSession(ctx, st, session)
 	runs, err := staleRuns(ctx, st, agent)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 0
 	}
 	// v0.27.1(패치 루프 1차): Stop 훅 stdin의 compact_summary를 세션
@@ -217,8 +213,8 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"오늘 회상 0회에 기록 %d회 — 다음 세션은 작업 전 flint read부터"}`+"\n", w, w)
 		// v0.24.0 R2a: 마커와 병행 meta 카운터 적립 — minimal 프로파일이
 		// 마커를 조용히 종결해도 doctor가 프로파일 무관 관측한다.
-		bumpMetaCounter(ctx, st, "recall_starved_count")
-		if merr := WriteTypedMarker(markerKindRecall, session, nudgeReasonRecall); merr != nil {
+		BumpMetaCounter(ctx, st, "recall_starved_count")
+		if merr := writeTypedMarker(markerKindRecall, session, nudgeReasonRecall); merr != nil {
 			fmt.Fprintf(os.Stderr, "[flint] recall marker: %v\n", merr)
 		}
 	} else {
@@ -237,7 +233,7 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		agentLabel(agent, 24), runs)); cerr != nil {
 		fmt.Fprintf(os.Stderr, "[flint] session-end commit: %v\n", cerr)
 	}
-	autoBackupFn(ctx, st)
+	AutoBackupFn(ctx, st)
 	return 0
 }
 
@@ -252,10 +248,10 @@ func runDone(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 // 500룬 절단(import와 대칭)·tags []string("process" 문자열은
 // normalizeTags에서 빈 값으로 소거됨)·저장 시점 비밀 스캔 경고(write
 // 경로 계약 정렬).
-func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, session string, sessionRowID int) {
+func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, session string, sessionRowID int) {
 	// v0.27.2 리뷰 4: 빈 게이트를 임계값 로드 앞으로 — 요약 없는 종료(일반
-	// Stop)가 thresholds 왕복을 물리지 않게 한다.
-	summary = truncateRunes(store.SanitizeText(strings.TrimSpace(summary)), 500)
+	// Stop)이 thresholds 왕복을 물리지 않게 한다.
+	summary = render.TruncateRunes(store.SanitizeText(strings.TrimSpace(summary)), 500)
 	// v0.27.0 리뷰 1: 실제 요약(Compact 결과 등)이 전달된 경우만 적립 —
 	// 폴백 상용구("세션 종료(미기록 N)")는 지식이 아니므로 스킵.
 	// v0.27.2: 게이트는 살균·절단 후 기준(제어문자뿐인 입력이 빈 summary
@@ -263,7 +259,7 @@ func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, sessio
 	if summary == "" || len([]rune(summary)) < 12 {
 		return
 	}
-	th := writeThresholds(ctx, st)
+	th := WriteThresholds(ctx, st)
 	if th.SessionKnowledgeDays <= 0 {
 		return // -1 = 끔
 	}
@@ -278,7 +274,7 @@ func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, sessio
 	// v0.29.0 R3: topic에 요약 키워드 — "세션[claude]"는 회상 topic 정합
 	// 신호로 무의미했다. 첫 문장의 앞부분(첫 구분자 또는 20룬)을 반영해
 	// 브라우징·검색 품질을 높인다(규칙 기반 — LLM 판정 배제 §13).
-	topic := store.SanitizeText(truncateRunes(
+	topic := store.SanitizeText(render.TruncateRunes(
 		fmt.Sprintf("세션[%s] %s", agentLabel(agent, 24), summaryKeyword(summary)), 80))
 	rec := map[string]any{
 		"kind":       "knowledge",
@@ -318,7 +314,7 @@ func maybeSessionKnowledge(ctx context.Context, st Store, summary, agent, sessio
 	// 식별 가능할 때만(v0.27.2 리뷰 2 — compact의 session_id 부재 폴백
 	// 마커와 인접 WriteMarker 가드 정렬).
 	if session != "" {
-		if merr := WriteTypedMarker(markerKindDistill, session, "session-knowledge"); merr != nil {
+		if merr := writeTypedMarker(markerKindDistill, session, "session-knowledge"); merr != nil {
 			fmt.Fprintf(os.Stderr, "[flint] distill marker: %v\n", merr)
 		}
 	}
@@ -343,16 +339,16 @@ func summaryKeyword(summary string) string {
 	if cut > 0 {
 		first = first[:cut]
 	}
-	return strings.TrimSpace(truncateRunes(first, 20))
+	return strings.TrimSpace(render.TruncateRunes(first, 20))
 }
 
 // sessionRowIDForAgent — agent의 최신 sessions.id(writeSessionRecord
 // 조회 승계 — v0.29.0 R4). 미발견·오류는 0.
-func sessionRowIDForAgent(ctx context.Context, st Store, agent string) int {
+func sessionRowIDForAgent(ctx context.Context, st wire.Store, agent string) int {
 	if agent == "" {
 		return 0
 	}
-	rows, err := queryOnce(ctx, st,
+	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT id FROM sessions WHERE agent = $1 ORDER BY ts DESC, id DESC LIMIT 1`,
 		[]any{agent})
 	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
@@ -367,26 +363,28 @@ func sessionRowIDForAgent(ctx context.Context, st Store, agent string) int {
 
 // warnSecrets — 저장 시점 비밀 스캔 경고의 단일 헬퍼(v0.27.2 리뷰 7:
 // writeSessionRecord·세션 지식화·import 3중 복제 수렴). stderr 1줄씩.
+// v0.39.0 T4 수렴: T2가 import.go에 둔 임시 복제를 폐지하고 이 구현
+// (done.go 이동분)이 단일 소스다.
 func warnSecrets(prefix, s string) {
 	for _, name := range store.ScanSecrets(s) {
 		fmt.Fprintf(os.Stderr, "[flint] %s: possible secret: %s\n", prefix, name)
 	}
 }
 
-// agentLabel — 세션 라벨(빈 값 폴백 + truncateRunes 재사용 — 리뷰 9:
+// agentLabel — 세션 라벨(빈 값 폴백 + TruncateRunes 재사용 — 리뷰 9:
 // 절단 헬퍼 단일화. v0.34.3 T4: import.go 별칭 truncateRunesImport 대신
 // 단일 구현 직접 호출).
 func agentLabel(agent string, max int) string {
 	if agent == "" {
 		return "unknown"
 	}
-	return truncateRunes(agent, max)
+	return render.TruncateRunes(agent, max)
 }
 
 // recallStarvedToday — 오늘 daily 카운터로 회상 부재 판정(v0.18.0 R3).
 // read 0 && write >= RecallWarnWrites일 때만 true. 카운터 조회·파손은
 // 조용히 false(경고 부재 = 종료 경로 불변 — §13).
-func recallStarvedToday(ctx context.Context, st Store, th store.Thresholds) (writes int, starved bool) {
+func recallStarvedToday(ctx context.Context, st wire.Store, th store.Thresholds) (writes int, starved bool) {
 	if th.RecallWarnWrites <= 0 {
 		return 0, false
 	}
@@ -395,23 +393,31 @@ func recallStarvedToday(ctx context.Context, st Store, th store.Thresholds) (wri
 	if err != nil || v == "" {
 		return 0, false
 	}
-	var d reportDay
+	// v0.39.0 T4: reportDay(cli/report.go 소유)는 cli를 임포트할 수 없어
+	// 필요한 2필드(write·read)만 로컬 디코딩 — JSON 키 부재는 zero 값으로
+	// 디코딩되는 reportDay 계약과 동일하다.
+	var d struct {
+		Write int `json:"write"`
+		Read  int `json:"read"`
+	}
 	if json.Unmarshal([]byte(v), &d) != nil {
 		return 0, false
 	}
 	return d.Write, d.Read == 0 && d.Write >= th.RecallWarnWrites
 }
 
-// autoBackupFn — seam. 기본 실동작, fast 단위 테스트는 no-op으로 교체
-// (실동작 검증은 e2e ④가 실DB·실덤프로 한다).
-var autoBackupFn = maybeAutoBackup
+// AutoBackupFn — seam. 기본 실동작, fast 단위 테스트는 no-op으로 교체
+// (실동작 검증은 e2e ④가 실DB·실덤프로 한다). v0.39.0 T4 내보내기:
+// seam 교체는 구현 소유 패키지 var여야 전파되므로 대문자화했다
+// (cli 잔류 done_test가 knowledge.AutoBackupFn을 직접 스텁).
+var AutoBackupFn = maybeAutoBackup
 
 // maybeAutoBackup — 하루 1회 자동 백업(spec §8 "하루 첫 세션 지연 트리거").
 // done 판정 뒤에만 실행하며 출력·exit code는 완전 불변, 실패는 stderr 1행
 // 이하로 조용히 무시한다(비간섭 §13 — 코디네이터 룰링 T24 ④).
 // v0.34.3 R14: meta 접근은 주입 st 경유 — 자체 db.Connect 풀을 여는 것을
 // 폐지했다(mcp 장기 프로세스 연결 적립 차단).
-func maybeAutoBackup(ctx context.Context, st Store) {
+func maybeAutoBackup(ctx context.Context, st wire.Store) {
 	if st == nil {
 		return
 	}
@@ -424,23 +430,22 @@ func maybeAutoBackup(ctx context.Context, st Store) {
 		dir = filepath.Join(home, ".flint", "backup")
 	}
 
-	// v0.34.3 T4: meta 접근은 getMetaKV/setMetaKV 단일 진입(meta_kv.go)
-	// 경유. RunIfNeeded는 (string, error) 클로저를 받으므로 getMetaKVErr
-	// 원형으로 감싼다(키 부재 ("", nil)·전송 오류 구분 계약 유지).
+	// v0.34.3 T4: meta 접근은 GetMetaKVErr/SetMetaKV 단일 진입 위임
+	// (키 부재 ("", nil)·전송 오류 구분 계약 유지).
 	metaGet := func(key string) (string, error) {
-		v, _, err := getMetaKVErr(ctx, st, key)
+		v, _, err := wire.GetMetaKVErr(ctx, st, key)
 		return v, err
 	}
-	setKV := func(key, value string) error { return setMetaKV(ctx, st, key, value) }
+	setKV := func(key, value string) error { return wire.SetMetaKV(ctx, st, key, value) }
 	lf := &lazyDumpFile{dir: dir}
 	// v0.28.0(H②): meta backup_encrypt=true면 자동 백업도 암호화
 	// (키는 config 디렉터리 — 첫 암호화 시 자동 생성). 판독 실패는 기본
 	// 평문(비간섭 §13 — 백업 실패가 종료를 깨지 않는 계약 유지).
-	if v, ok := getMetaKV(ctx, st, "backup_encrypt"); ok && backupEncryptOn(v) {
+	if v, ok := wire.GetMetaKV(ctx, st, "backup_encrypt"); ok && backupEncryptOn(v) {
 		lf.encrypt = true
 	}
 	defer lf.close()
-	auto := backup.Auto{DSN: dsnFromEnv()}
+	auto := backup.Auto{DSN: wire.DSNFromEnv()}
 	runErr := auto.RunIfNeeded(ctx, metaGet, setKV, lf)
 	// v0.20.1(패치 루프 1차 F4): 자동 백업도 로테이션 — 파일 확정(사이드카
 	// 포함) 뒤 keep-N 정책을 적용한다. 이전엔 수동 `flint backup --out`
@@ -457,6 +462,66 @@ func maybeAutoBackup(ctx context.Context, st Store) {
 		fmt.Fprintf(os.Stderr, "[flint] backup auto: %v\n", runErr)
 	}
 }
+
+// metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. cli/metrics.go 소유분과
+// 동일 구현(knowledge는 cli를 임포트할 수 없다 — 사이클 금지). getKV는
+// 키 부재 시 ("", nil), 전송 오류는 err 그대로.
+func metaKV(ctx context.Context, st wire.Store) (func(string) (string, error), func(string, string) error) {
+	getKV := func(key string) (string, error) {
+		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
+		if err != nil || !ok {
+			return "", err
+		}
+		return v, nil
+	}
+	setKV := func(key, value string) error {
+		return wire.SetMetaKV(ctx, st, key, value)
+	}
+	return getKV, setKV
+}
+
+// backupEncryptOn — meta backup_encrypt 값 판정(cli/backup.go 소유분과
+// 동일 구현 — 사이클 금지. 순수 함수 복제, 향후 수렴 부채).
+func backupEncryptOn(v string) bool {
+	return v == "true" || v == "1"
+}
+
+// markerKindDistill·markerKindRecall — 마커 종류(cli/marker.go 소유 상수
+// 값과 동일 — pending-distill.json·recall-hint.json 파일명 계약).
+const (
+	markerKindDistill = "distill"
+	markerKindRecall  = "recall"
+)
+
+// nudgeReasonRecall — done 회상 부재 마커의 Reason 값(cli/nudge.go 소유
+// 상수와 동일 — 진단 표시).
+const nudgeReasonRecall = "recall"
+
+// WriteTypedMarkerFn — 마커 기록 seam(cli marker.go 소유 구현 주입 —
+// knowledge는 cli를 임포트할 수 없다. cli/knowledge_curation_alias.go
+// init이 주입한다. 미주입(단위 테스트) 호출은 조용히 무시한다 — 마커
+// 누락은 비간섭 §13 경로와 같은 격).
+var WriteTypedMarkerFn func(kind, sessionID, reason string) error
+
+// writeTypedMarker — seam 경유 마커 기록 래퍼.
+func writeTypedMarker(kind, sessionID, reason string) error {
+	if WriteTypedMarkerFn == nil {
+		return nil
+	}
+	return WriteTypedMarkerFn(kind, sessionID, reason)
+}
+
+// BackupKeyPathFn — 암호화 키 경로 seam(cli BackupKeyPath — dataFile
+// 인프라가 cli 소유). cli init이 주입한다.
+var BackupKeyPathFn func() string
+
+// 백업 보조 seam — cli/backup.go 소유 var와 동일하게 backup 패키지
+// 실구현 기본값(테스트 교체 관례 승계).
+var (
+	rotateFn    = backup.Rotate
+	keepFn      = backup.BackupKeep
+	ensureKeyFn = backup.EnsureIdentity
+)
 
 // lazyDumpFile — 첫 Write 시에만 덤프 파일을 만드는 지연 writer.
 // RunIfNeeded가 비경과 no-op일 때 빈 파일을 남기지 않게 한다.
@@ -503,7 +568,11 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 		// 않게 한다(v0.28.0).
 		var recipient *age.X25519Recipient
 		if l.encrypt {
-			key := BackupKeyPath()
+			if BackupKeyPathFn == nil {
+				l.failed = true
+				return
+			}
+			key := BackupKeyPathFn()
 			if key == "" {
 				l.failed = true
 				return
@@ -612,15 +681,16 @@ func (l *lazyDumpFile) closeAndPath() string {
 }
 
 func init() {
-	Register("done", runDone)
+	wire.Register("done", RunDone)
 }
 
-// bumpMetaCounter — meta 카운터 1 증분(done 회상 카운터 전용 유틸).
-// 실패는 조용히(§13 — 계측 원칙). v0.34.3 T2: 증분 본체는 bumpMetaKV
+// BumpMetaCounter — meta 카운터 1 증분(done 회상 카운터 전용 유틸).
+// 실패는 조용히(§13 — 계측 원칙). v0.34.3 T2: 증분 본체는 BumpMetaKV
 // 단일 진입 위임 — 미가드 ::bigint 캐스트는 파손값에서 오류로 증분이
-// 영구 얼어붙었으나, 단일 구현의 파손값 1 리셋 가드로 회수된다.
-func bumpMetaCounter(ctx context.Context, st Store, key string) {
-	_ = bumpMetaKV(ctx, st, key)
+// 영구히 얼어붙었으나, 단일 구현의 파손값 1 리셋 가드로 회수된다.
+// v0.39.0 T4 내보내기: cli 잔류 소비자(meta_kv_test)가 별칭으로 호출.
+func BumpMetaCounter(ctx context.Context, st wire.Store, key string) {
+	_ = wire.BumpMetaKV(ctx, st, key)
 }
 
 // doneStdinSummary — Stop 훅 stdin JSON에서 compact_summary 추출

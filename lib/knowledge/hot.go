@@ -1,5 +1,9 @@
 // hot.go — flint hot: 주입용 요약. 형식 고정 + 상한은 meta hot_budget(기본 2,000).
-package cli
+// v0.39.0 T3: lib/cli/hot.go 이동(동작·출력·exit 불변). 세션 라벨 파서·
+// 노출 프로파일 판독·hot 통계 로드/persist·출력 길이 기록은 cli 잔류
+// 소유라 주입 seam(*Fn var) 경유 — cli init(knowledge_alias.go)이 실구현을
+// 주입한다(사이클 방지: knowledge는 cli 임포트 불가).
+package knowledge
 
 import (
 	"context"
@@ -11,30 +15,52 @@ import (
 	"unicode/utf8"
 
 	"github.com/synuns/flint/lib/query"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
-// defaultHotBudget — meta hot_budget 미설정 시 기본 상한(TUNING.md §1).
-const defaultHotBudget = 2000
+// DefaultHotBudget — meta hot_budget 미설정 시 기본 상한(TUNING.md §1).
+const DefaultHotBudget = 2000
+
+// SessionLabelFn — 인자에서 --session 값을 추출하는 공유 파서 주입 점
+// (cli sessionhook.go sessionLabel). cli init이 실구현을 주입한다.
+var SessionLabelFn func(args []string) string
+
+// ExposureProfileFn — 노출 프로파일 판독 주입 점(cli profile.go
+// ExposureProfile). cli init이 실구현을 주입한다.
+var ExposureProfileFn func(getKV func(string) (string, error)) string
+
+// RecordHotLenFn — hot 출력 글자수 기록 주입 점(cli metrics.go
+// RecordHotLen). cli init이 실구현을 주입한다.
+var RecordHotLenFn func(n int)
+
+// LoadHotStatsFromMetaFn — hot_stats 누적 로드 주입 점(cli metrics.go).
+// cli init이 실구현을 주입한다.
+var LoadHotStatsFromMetaFn func(ctx context.Context, st wire.Store)
+
+// PersistHotStatsToMetaFn — hot_stats 누적 persist 주입 점(cli metrics.go).
+// cli init이 실구현을 주입한다.
+var PersistHotStatsToMetaFn func(ctx context.Context, st wire.Store)
 
 // HotBudget — meta hot_budget 우선, 미설정·무효 값은 기본 2,000(에러 아님).
 func HotBudget(getKV func(string, string) (string, error)) int {
 	v, err := getKV("hot_budget", "")
 	if err != nil || v == "" {
-		return defaultHotBudget
+		return DefaultHotBudget
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(v))
 	if err != nil || n <= 0 {
-		return defaultHotBudget
+		return DefaultHotBudget
 	}
 	return n
 }
 
-// metaGetKV — meta 키 조회를 getKV 형태로 감싼다(미설정·오류는 def).
-// v0.34.3 T2: 질의 본체는 meta_kv.go 단일 진입(getMetaKVErr)에 위임.
-func metaGetKV(ctx context.Context, st Store) func(string, string) (string, error) {
+// MetaGetKV — meta 키 조회를 getKV 형태로 감싼다(미설정·오류는 def).
+// v0.34.3 T2: 질의 본체는 meta_kv 단일 진입(wire.GetMetaKVErr)에 위임.
+func MetaGetKV(ctx context.Context, st wire.Store) func(string, string) (string, error) {
 	return func(key, def string) (string, error) {
-		v, ok, err := getMetaKVErr(ctx, st, key)
+		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
 		if err != nil || !ok {
 			return def, err
 		}
@@ -42,7 +68,7 @@ func metaGetKV(ctx context.Context, st Store) func(string, string) (string, erro
 	}
 }
 
-// hotKnowledgeIDsSQL — 실제 주입된 지식의 id 전수(참조 계측용 동반 질의).
+// HotKnowledgeIDsSQL — 실제 주입된 지식의 id 전수(참조 계측용 동반 질의).
 // 뷰의 세 팔(활성 프로젝트·pending·최근 결정 7일)을 동일 조건으로 다시
 // 모은 뒤, HotSQL과 같은 ORDER BY ts DESC, id DESC LIMIT으로 상위 N행을
 // 먼저 가른다. tie-break ", id DESC"(CI 39713526850 룰링): 동률 ts에서
@@ -51,7 +77,7 @@ func metaGetKV(ctx context.Context, st Store) func(string, string) (string, erro
 // 프로젝트 팔은 knowledge 행이 아니어서(read_count 없음) id NULL로 순위를
 // 메운 뒤 제외된다 — 주입되지도 않은 지식(상한 밀려난 항목)까지 증분하는
 // 이중 과다 계측을 막는다.
-func hotKnowledgeIDsSQL() string {
+func HotKnowledgeIDsSQL() string {
 	return `SELECT id FROM (
 		SELECT id, ts FROM (
 			SELECT NULL::int AS id, p.updated AS ts
@@ -68,8 +94,8 @@ func hotKnowledgeIDsSQL() string {
 	) top WHERE id IS NOT NULL`
 }
 
-// hotFields — hot 출력 컬럼(포맷·예산 생존 판정이 공유하는 고정 순서).
-const hotFields = "kind,topic,summary,ts"
+// HotFields — hot 출력 컬럼(포맷·예산 생존 판정이 공유하는 고정 순서).
+const HotFields = "kind,topic,summary,ts"
 
 // hotLineSurvivorCount — 행별 '표시 문자열' 기준 생존 수(N4). --full 접미
 // (·+N일)가 붙은 최종 텍스트로 잰다: k행 시작 오프셋은 lines[:k]의 rune
@@ -108,9 +134,9 @@ func injectedIDsForSurvivors(rows [][]any, ids []int, survivors int) []int {
 	return ids[:k]
 }
 
-// pendingAgeSuffix — pending 팔 대기일수 접미(v0.12.1 R2): valid_at 경과
+// PendingAgeSuffix — pending 팔 대기일수 접미(v0.12.1 R2): valid_at 경과
 // 24시간 미만은 빈 문자열, 이상은 내림 일수 "·+N일".
-func pendingAgeSuffix(validAt time.Time, now time.Time) string {
+func PendingAgeSuffix(validAt time.Time, now time.Time) string {
 	if days := int64(now.Sub(validAt) / (24 * time.Hour)); days > 0 {
 		return fmt.Sprintf("·+%d일", days)
 	}
@@ -134,8 +160,8 @@ func pendingValidAtsSQL() string {
 // 실패·결과 부족·time.Time 아닌 값·줄바꿈 포함(안전 가드)은 접미 생략해
 // 기본 포맷 라인을 반환한다(기존 출력 불변 승계). rows가 비면 nil.
 // now는 UTC.
-func hotSuffixedLines(ctx context.Context, st Store, rows [][]any, now time.Time) []string {
-	base := query.FormatRows(rows, hotFields, false)
+func hotSuffixedLines(ctx context.Context, st wire.Store, rows [][]any, now time.Time) []string {
+	base := query.FormatRows(rows, HotFields, false)
 	if base == "" {
 		return nil
 	}
@@ -150,7 +176,7 @@ func hotSuffixedLines(ctx context.Context, st Store, rows [][]any, now time.Time
 	if !hasPending {
 		return lines
 	}
-	vaRows, err := queryOnce(ctx, st, pendingValidAtsSQL(), nil)
+	vaRows, err := wire.QueryOnce(ctx, st, pendingValidAtsSQL(), nil)
 	if err != nil {
 		return lines
 	}
@@ -170,7 +196,7 @@ func hotSuffixedLines(ctx context.Context, st Store, rows [][]any, now time.Time
 		}
 		if k < len(vaRows) && len(vaRows[k]) > 0 {
 			if va, ok := vaRows[k][0].(time.Time); ok {
-				lines[i] += pendingAgeSuffix(va, now)
+				lines[i] += PendingAgeSuffix(va, now)
 			}
 		}
 		k++
@@ -187,13 +213,13 @@ func hotFullOutput(lines []string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// hotHeadline — hot 요약 헤드라인 1줄(R2). minimal은 활성·대기 카운트만,
+// HotHeadline — hot 요약 헤드라인 1줄(R2). minimal은 활성·대기 카운트만,
 // 그 외 프로파일(미설정·파손 포함)은 normal 문구.
 // v0.18.0 R2: normal은 최근 결정 주제 K개 + 회상 힌트 — 주입이 카운트만
 // 주면 다음 세션이 뭘 검색할지 몰라 read가 굶는다(관측: read:write 불균형).
 // 주제 없는 세션은 기존 카운트+펼치기 문구로 폴백(문구 열거는 데이터 —
 // 펼치기 안내와 같은 클래스, §13 경계 준수).
-func hotHeadline(profile string, active int, pending int, recent int, topics []string) string {
+func HotHeadline(profile string, active int, pending int, recent int, topics []string) string {
 	if profile == "minimal" {
 		return fmt.Sprintf("[flint] 활성 %d · 대기 %d", active, pending)
 	}
@@ -211,10 +237,10 @@ const hotHeadlineTopicMax = 16
 // hotHeadlineTopicCount — 헤드라인에 나열할 주제 수(상위 K).
 const hotHeadlineTopicCount = 3
 
-// hotTopics — hot_view 조회 행(최신순)에서 decision 주제 상위 K를 뽑는다.
+// HotTopics — hot_view 조회 행(최신순)에서 decision 주제 상위 K를 뽑는다.
 // 동일 주제 중복 제거(최신 1건만)·rune 절산. 주제는 검색 큐리로 쓰이므로
 // 원문 접두를 보존한다(16 rune + …).
-func hotTopics(rows [][]any, k int) []string {
+func HotTopics(rows [][]any, k int) []string {
 	if k <= 0 {
 		return nil
 	}
@@ -265,18 +291,19 @@ func hotCounts(rows [][]any) (active, pending, recent int) {
 	return active, pending, recent
 }
 
-// runHot — hot_view 조회 후 --full이면 기존 전체 출력(바이트 불변),
+// RunHot — hot_view 조회 후 --full이면 기존 전체 출력(바이트 불변),
 // 아니면 프로파일별 헤드라인 1줄만 출력한다(카운트는 동일 조회에서 추출,
 // 전체 조립은 생략). 계측·exit·--session은 양 경로 공통 불변.
 // T38 배선(F-T56-1): 시작 시 meta hot_stats 누적을 로드하고 종료 직전
 // persist한다(단발 CLI 프로세스 분리 보존). 둘 다 계측이므로 실패는
 // 조용히 무시된다(§13 — hot 출력·exit에 영향 금지).
-func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 세션 라벨은 공유 파서(sessionLabel)로 — session-start 경계 기록과
-	// 단일 소스(v0.20.0 리뷰 #7). --full 판별은 세션 값으로 소비된 토큰을
-	// 플래그로 재판독하지 않는다(변칙 입력 `--session --full`의 기존
-	// full=true 부작용 제거 — read의 플래그형 값 방어와 같은 방향).
-	session := sessionLabel(args)
+func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+	// 세션 라벨은 공유 파서(SessionLabelFn — cli sessionLabel 주입)로 —
+	// session-start 경계 기록과 단일 소스(v0.20.0 리뷰 #7). --full 판별은
+	// 세션 값으로 소비된 토큰을 플래그로 재판독하지 않는다(변칙 입력
+	// `--session --full`의 기존 full=true 부작용 제거 — read의 플래그형 값
+	// 방어와 같은 방향).
+	session := SessionLabelFn(args)
 	full := false
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--session" && i+1 < len(args) {
@@ -293,38 +320,38 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 		// 주입(--full)은 예산 상한 계약 불변.
 		sql = query.HotHeadlineSQL(session)
 	}
-	rows, err := queryOnce(ctx, st, sql, nil)
+	rows, err := wire.QueryOnce(ctx, st, sql, nil)
 	if err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 출력 재살균(ADR-0006, v0.20.6 패치 루프 6차 S1): read.go와 동일
+	// 출력 재살균(ADR-0006, v0.20.6 패치 루프 6차 S1): read와 동일
 	// 방어 — 저장 후 유입(restore·직접 SQL·살균 이전 데이터)된 [flint]
 	// 마커·제어 문자가 세션 시작 주입 경계를 위조하지 않게 한다. hot은
 	// 훅으로 프롬프트에 직접 주입되는 최우선 출력 경로다. v0.37.0: 살균은
 	// read와 같은 render 조크포인트(render.Cells)로 수렴.
-	rows = Cells(rows)
+	rows = render.Cells(rows)
 	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
-	loadHotStatsFromMeta(ctx, st)
+	LoadHotStatsFromMetaFn(ctx, st)
 	// 예산은 양 경로 공통 산출: --full 절단 규칙과 증분 생존 판정이 같은
 	// 예산을 공유한다(계측 불변).
-	budget := HotBudget(metaGetKV(ctx, st))
+	budget := HotBudget(MetaGetKV(ctx, st))
 	// 접미 포함 행별 텍스트(N4) — --full 출력과 증분 생존 판정이 공유한다.
 	var lines []string
 	if full {
 		lines = hotSuffixedLines(ctx, st, rows, time.Now().UTC())
 		clamped := query.ClampHot(hotFullOutput(lines), budget)
 		fmt.Fprint(stdout, clamped)
-		RecordHotLen(len([]rune(clamped)))
+		RecordHotLenFn(len([]rune(clamped)))
 	} else {
-		kv := metaGetKV(ctx, st)
-		profile := ExposureProfile(func(key string) (string, error) { return kv(key, "") })
+		kv := MetaGetKV(ctx, st)
+		profile := ExposureProfileFn(func(key string) (string, error) { return kv(key, "") })
 		active, pending, recent := hotCounts(rows)
-		line := hotHeadline(profile, active, pending, recent, hotTopics(rows, hotHeadlineTopicCount))
+		line := HotHeadline(profile, active, pending, recent, HotTopics(rows, hotHeadlineTopicCount))
 		fmt.Fprintln(stdout, line)
-		RecordHotLen(len([]rune(line)))
+		RecordHotLenFn(len([]rune(line)))
 	}
-	persistHotStatsToMeta(ctx, st)
+	PersistHotStatsToMetaFn(ctx, st)
 	// 계측(T62): 실제 주입된(예산 절단 후 출력에 남은) 지식 id만 참조 증분
 	// + hot 유입 1회. 조용히(§13). 지식 주입은 --full 전체 출력 경로에서만
 	// 일어난다(N3) — 헤드라인 경로는 카운트만 노출하므로 실제 주입 없는
@@ -333,28 +360,24 @@ func runHot(ctx context.Context, st Store, args []string, stdin io.Reader, stdou
 	// 실출력에서 잘렸으면 증분하지 않는다. 동반 질의 실패 시 BumpReads 호출
 	// 자체를 건너뛴다 — 유입 1회 기록은 조회 성공 사실과 무관하므로 유지한다.
 	if !full {
-		recordUsage(ctx, st, "hot", "")
-	} else if idRows, err := queryOnce(ctx, st, hotKnowledgeIDsSQL(), nil); err == nil {
-		injected := injectedIDsForSurvivors(rows, rowIDs(idRows), hotLineSurvivorCount(lines, budget))
-		instrumentReads(ctx, st, "hot", injected, false, false)
+		RecordUsage(ctx, st, "hot", "")
+	} else if idRows, err := wire.QueryOnce(ctx, st, HotKnowledgeIDsSQL(), nil); err == nil {
+		injected := injectedIDsForSurvivors(rows, RowIDs(idRows), hotLineSurvivorCount(lines, budget))
+		InstrumentReads(ctx, st, "hot", injected, false, false)
 		// v0.20.0(E): 실제 주입된 지식 id를 hot_events에 노출 기록 —
 		// dead_pct의 hot 노출 보정 원천. 실패는 조용히(§13 계측 원칙).
 		if rec, ok := st.(HotEventRecorder); ok {
 			_ = rec.RecordHotEvent(ctx, idsCSV(injected))
 		}
 	} else {
-		recordUsage(ctx, st, "hot", "")
+		RecordUsage(ctx, st, "hot", "")
 	}
 	return 0
 }
 
 // HotEventRecorder — hot --full 주입 노출 기록 접합면(v0.20.0).
-// realStore는 db.Repo.RecordHotEvent로 구현, 미구현 Store(fake)는 건너뛴다.
+// realStore는 db.Repo.RecordHotEvent로 구현(cli/realstore_read.go),
+// 미구현 Store(fake)는 건너뛴다.
 type HotEventRecorder interface {
 	RecordHotEvent(ctx context.Context, ids string) error
-}
-
-// realStore 위임 — RecordHotEvent 실구현 연결.
-func (s *realStore) RecordHotEvent(ctx context.Context, ids string) error {
-	return s.repo.RecordHotEvent(ctx, ids)
 }

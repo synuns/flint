@@ -1,14 +1,33 @@
-package cli
+// approve_test.go — approve 커맨드 계약(exit 매핑·주입 st 재배선).
+// v0.39.0 T4: lib/cli에서 이동(cli/approve_test.go 원본 + cli/
+// wire_approve_store_test.go의 TestApproveUsesInjectedStore — approveFn
+// seam 교체는 구현 소유 패키지에서만 전파되므로 함께 이동).
+package knowledge
 
 import (
 	"bytes"
 	"context"
 	"errors"
+	"os"
 	"strings"
 	"testing"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/wire"
 )
+
+// seamRealDSN — SUPERLITE_REAL=1 실구현 seam의 DSN 해결(cli/cli_test.go
+// 관례 이동분, N1): FLINT_TEST_DSN 설정 시만 실DB 접속을 허용한다.
+func seamRealDSN() (string, bool) {
+	if os.Getenv("SUPERLITE_REAL") != "1" {
+		return "", false
+	}
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	if dsn == "" {
+		return "", false
+	}
+	return dsn, true
+}
 
 // fakeApprove — T17 admin Approve fake. errErr 미지정 시 성공,
 // SUPERLITE_REAL=1이면 실 Repo에 위임(실DB 미기동 시 스킵).
@@ -18,12 +37,12 @@ type fakeApprove struct {
 	calledN int
 }
 
-// withApproveFake — approveFn seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +
+// withApproveFake — ApproveFn seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +
 // SUPERLITE_REAL=1이면 stub 미설정 시 실구현 위임(위임 DSN도 FLINT_TEST_DSN).
 // FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
 func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Helper()
-	prev := approveFn
+	prev := ApproveFn
 	dsn, real := seamRealDSN()
 	if real {
 		repo, err := db.NewRepo(context.Background(), dsn)
@@ -32,7 +51,7 @@ func withApproveFake(t *testing.T, f *fakeApprove) {
 		}
 		repo.Close()
 	}
-	approveFn = func(ctx context.Context, id int) error {
+	ApproveFn = func(ctx context.Context, id int) error {
 		f.calledN++
 		f.gotID = id
 		if f.err != nil {
@@ -48,13 +67,13 @@ func withApproveFake(t *testing.T, f *fakeApprove) {
 		defer repo.Close()
 		return repo.Approve(ctx, id)
 	}
-	t.Cleanup(func() { approveFn = prev })
+	t.Cleanup(func() { ApproveFn = prev })
 }
 
-// mustApprove — Lookup("approve") 경로 실행(등록·디스패치 동시 검증).
+// mustApprove — wire.Lookup("approve") 경로 실행(등록·디스패치 동시 검증).
 func mustApprove(t *testing.T, args []string) (string, int) {
 	t.Helper()
-	h, ok := Lookup("approve")
+	h, ok := wire.Lookup("approve")
 	if !ok {
 		t.Fatal("approve 미등록")
 	}
@@ -129,5 +148,60 @@ func TestApproveOtherError(t *testing.T) {
 	}
 	if !strings.Contains(out, `"error"`) {
 		t.Errorf("out = %q, want 에러 JSON", out)
+	}
+}
+
+// approveStoreFake — fakeStore에 Approve 승격 스텁을 얹은 fake.
+// 승격 행위(실DB UPDATE)는 ApproveFn real seam이 담당 — 여기는
+// 배선(주입 st 사용·자체 연결 미발동)만 계약으로 삼는다.
+type approveStoreFake struct {
+	*fakeStore
+
+	approveN   int
+	gotID      int
+	approveErr error
+}
+
+func (a *approveStoreFake) Approve(ctx context.Context, id int) error {
+	a.approveN++
+	a.gotID = id
+	return a.approveErr
+}
+
+// errSelfConnectDisabled — sentinel 전용 에러(재배선 후 도달 불가 경로).
+var errSelfConnectDisabled = &selfConnectError{}
+
+type selfConnectError struct{}
+
+func (*selfConnectError) Error() string { return "self-connect path must not run" }
+
+// TestApproveUsesInjectedStore — Review Focus: fake st 주입 시 자체 연결
+// 경로(ApproveFn 기본 실구현의 db.NewRepo) 미호출·승격은 주입 st 경유.
+func TestApproveUsesInjectedStore(t *testing.T) {
+	f := &approveStoreFake{fakeStore: &fakeStore{}}
+	// sentinel — 재배선 전 RunApprove는 st를 무시하고 이 seam을 부르므로
+	// 호출 자체가 실패 신호다(기본 실구현 대신 호출 카운터로 안전하게).
+	prev := ApproveFn
+	selfConn := 0
+	ApproveFn = func(ctx context.Context, id int) error {
+		selfConn++
+		return errSelfConnectDisabled
+	}
+	t.Cleanup(func() { ApproveFn = prev })
+
+	var out bytes.Buffer
+	code := RunApprove(context.Background(), f,
+		[]string{"--id", "7"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0; out=%s", code, out.String())
+	}
+	if selfConn != 0 {
+		t.Fatalf("자체 연결 경로(ApproveFn) 호출 %d회, want 0 — st 재배선 미적용", selfConn)
+	}
+	if f.approveN != 1 || f.gotID != 7 {
+		t.Fatalf("주입 st Approve 호출 (n=%d, id=%d), want (1, 7)", f.approveN, f.gotID)
+	}
+	if !strings.Contains(out.String(), `"status":"approved"`) {
+		t.Fatalf("out=%q, want approved JSON", out.String())
 	}
 }

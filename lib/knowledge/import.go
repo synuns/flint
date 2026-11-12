@@ -2,7 +2,9 @@
 // AGENTS.md 등)을 pending 지식으로 변환 — 조사 설계 승계(헤딩 단위 분할·
 // confidence 0.5 → approve 경로·content_hash dedup). dry-run 기본·
 // --commit 확정(maintain --expire-pending 관례 승계).
-package cli
+// v0.39.0 T2: lib/cli/import.go 이동(계약 불변). 커맨드 등록 init은
+// knowledge.go로 통합.
+package knowledge
 
 import (
 	"context"
@@ -13,10 +15,10 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
-
-func init() { Register("import", runImport) }
 
 // importCandidates — 발견 순위(조사 확정: Claude Code /import 준용).
 var importCandidates = []string{
@@ -146,13 +148,16 @@ func parseMarkdownSections(body string) []importSection {
 	return out
 }
 
-// runImport — `flint import [path] [--commit]`. 인자 없음 = 현재
+// warnSecrets — v0.39.0 T4 수렴 완료: 구현은 done.go 이동분이 단일 소스
+// (세션 레코드·세션 지식화·import 3중 복제 수렴 — v0.27.2 리뷰 7).
+
+// RunImport — `flint import [path] [--commit]`. 인자 없음 = 현재
 // 디렉터리 후보 탐색. dry-run 요약 기본·--commit 적립 확정.
 // v0.27.3: 미확인 플래그는 경로가 아니라 사용법 오류(exit 3) — 오타
 // 플래그가 읽기 불가 파일로 조용히 버려지던 사각 제거.
-func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if err := st.Ping(ctx); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	commit := false
@@ -164,7 +169,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			// v0.27.3: 미확인 플래그는 사용법 오류 — 오타 플래그가 읽기 불가
 			// 파일로 조용히 버려지던 사각 제거. v0.34.3: 무효 인자 계약
 			// exit 3(doctor·tuning·diff 정합 — 주석·코드 불일치 해소).
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", a)))
 			return 3
 		} else {
 			pos = append(pos, a)
@@ -198,7 +203,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			if len([]rune(summary)) < 12 {
 				continue
 			}
-			items = append(items, item{f, sec.Heading, truncateRunes(summary, 500)})
+			items = append(items, item{f, sec.Heading, render.TruncateRunes(summary, 500)})
 		}
 	}
 	// v0.27.3: 혼재(읽기 가능+불가)일 때도 읽기 불가 파일을 보고 — 부분
@@ -232,7 +237,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	seen := map[string]bool{} // 배치 내 중복(같은 파일 2회 지정 등) 차단
 	dedupErrs := 0
 	for _, it := range items {
-		topic := store.SanitizeText(truncateRunes("규칙["+it.Heading+"]", 80))
+		topic := store.SanitizeText(render.TruncateRunes("규칙["+it.Heading+"]", 80))
 		origin := store.SanitizeText("import:" + filepath.Clean(it.File))
 		rec := map[string]any{
 			"kind":       "knowledge",
@@ -280,7 +285,7 @@ func runImport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		return 0
 	}
 	if _, err := st.InsertBatch(ctx, batch); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
+		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
 	if dedupErrs > 0 {

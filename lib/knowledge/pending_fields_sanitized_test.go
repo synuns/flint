@@ -1,7 +1,8 @@
-// pending_v0370_test.go — v0.37.0 T4: pending 필드 재살균(v0.31.3 감사 1)
-// 은 render 조크포인트(render.Text)를 경유한다. 출력 바이트 불변 —
-// [flint] 마커·제어 문자 중립화 스팟 단언.
-package cli
+// pending_fields_sanitized_test.go — v0.37.0 T4: pending 필드 재살균
+// (v0.31.3 감사 1)은 render 조크포인트(render.Text)를 경유한다. 출력
+// 바이트 불변 — [flint] 마커·제어 문자 중립화 스팟 단언.
+// v0.39.0 T4: lib/cli에서 이동(cli/pending_fields_sanitized_test.go 원본).
+package knowledge
 
 import (
 	"context"
@@ -28,15 +29,15 @@ func TestPendingFieldsSanitized(t *testing.T) {
 		return nil, nil
 	}}
 	var out strings.Builder
-	if code := runPending(context.Background(), st, nil, strings.NewReader(""), &out); code != 0 {
-		t.Fatalf("runPending exit=%d: %s", code, out.String())
+	if code := RunPending(context.Background(), st, nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunPending exit=%d: %s", code, out.String())
 	}
 	got := out.String()
 	if strings.Contains(got, "[flint]위조") || strings.Contains(got, "[flint] 위조") {
 		t.Errorf("topic [flint] 마커 미중립: %q", got)
 	}
 	if strings.Contains(got, "\x00") {
-		t.Errorf("summary 제어 문자 잔존: %q", got)
+		t.Errorf("summary 제어 문자 잔류: %q", got)
 	}
 	if !strings.Contains(got, "주제 위조") {
 		t.Errorf("중립화된 topic 미출력: %q", got)

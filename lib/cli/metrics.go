@@ -177,65 +177,10 @@ func loadHotStatsFromMeta(ctx context.Context, st Store) {
 	LoadHotStats(getKV)
 }
 
-// readStatsJSON — meta read_stats 영속 포맷(T56 제로히트 계측).
-// zero_near는 v0.14.0 additive 추가 — 기존 blobs은 0 디폴트 디코딩,
-// 0이면 생략(omitempty)해 BumpReadStats 저장 바이트는 불변으로 유지.
-type readStatsJSON struct {
-	Calls    int `json:"calls"`
-	Zero     int `json:"zero"`
-	ZeroNear int `json:"zero_near,omitempty"`
-}
-
-// loadReadStatsJSON — meta read_stats를 전체 구조체로 로드(v0.14.0 내부
-// 파서 — zero_near 보존용). 키 부재·JSON 파손은 기본값 폴백(ok=false, 제로값).
-// getKV 전송 오류는 err로 구분해 반환한다 — 호출부(Bump*)는 오류 시 setKV를
-// 생략해 기존 calls/zero를 와이프하지 않는다.
-func loadReadStatsJSON(getKV func(string) (string, error)) (readStatsJSON, bool, error) {
-	v, err := getKV("read_stats")
-	if err != nil {
-		return readStatsJSON{}, false, err
-	}
-	if v == "" {
-		return readStatsJSON{}, false, nil
-	}
-	var st readStatsJSON
-	if json.Unmarshal([]byte(v), &st) != nil {
-		return readStatsJSON{}, false, nil // 파손 → 기본값 폴백
-	}
-	return st, true, nil
-}
-
-// LoadReadStats — meta read_stats 로드. 키 부재·오류·JSON 파손 시 기본값
-// 폴백(ok=false, 0/0).
-func LoadReadStats(getKV func(string) (string, error)) (calls int, zero int, ok bool) {
-	st, ok, _ := loadReadStatsJSON(getKV)
-	return st.Calls, st.Zero, ok
-}
-
-// BumpReadStats — read 호출 1회 누적(v0.15.0 R1 단일 라이터): read_stats를
-// 한 번 읽어 calls/zero/zero_near를 전부 갱신해 저장한다(왕복 1회).
-// 기존 read_stats는 getKV로 읽어 합산 후 setKV로 저장(hot_stats 패턴).
-// 파손·부재는 0에서 재기산한다. getKV 전송 오류는 얼리리턴(재기작하면
-// 읽지 못한 기존 값을 와이프한다). 이번 호출에 해당하지 않는 지표는
-// 기존값을 보존한다(보존값 0이면 omitempty로 바이트 불변).
-func BumpReadStats(zeroHits bool, zeroNear bool, getKV func(string) (string, error), setKV func(string, string) error) error {
-	st, _, err := loadReadStatsJSON(getKV) // 파손·부재 폴백 후 재누적
-	if err != nil {
-		return err
-	}
-	st.Calls++
-	if zeroHits {
-		st.Zero++
-	}
-	if zeroNear {
-		st.ZeroNear++
-	}
-	b, err := json.Marshal(st)
-	if err != nil {
-		return err
-	}
-	return setKV("read_stats", string(b))
-}
+// readStatsJSON·loadReadStatsJSON·LoadReadStats·BumpReadStats — v0.39.0
+// T1: lib/wire(thresholds.go)로 이동. cli 잔류 소비자(status 노출
+// loadReadStatsFromMeta·metrics 테스트)는 cliwire_alias.go var 별칭으로
+// 무편집 컴파일된다.
 
 // readZeroPct — zero 비율(정수 백분율). calls 0이면 0(나눗셈 가드).
 // v0.19.0: 반올림 본체는 pctOf(단일 소스 — effect 지표와 버림 방식
@@ -252,15 +197,9 @@ func loadReadStatsFromMeta(ctx context.Context, st Store) (calls int, zero int) 
 	return calls, zero
 }
 
-// bumpReadStatsToMeta — read 계측 wiring(v0.15.0 R1 단일 라이터): zero 히트
-// 여부·제로근접 여부를 meta read_stats 1회 쓰기에 누적. 실패는 stderr 1행
-// 이하로 조용히 무시(비간섭 §13).
-func bumpReadStatsToMeta(ctx context.Context, st Store, zeroHits, zeroNear bool) {
-	getKV, setKV := metaKV(ctx, st)
-	if err := BumpReadStats(zeroHits, zeroNear, getKV, setKV); err != nil {
-		fmt.Fprintf(os.Stderr, "[flint] read stats persist: %v\n", err)
-	}
-}
+// bumpReadStatsToMeta — v0.39.0 T1: lib/wire(thresholds.go)로 이동
+// (wire.BumpReadStatsToMeta). cli 잔류 소비자(read)는 cliwire_alias.go
+// var 별칭으로 무편집.
 
 // persistHotStatsToMeta — 명령 종료 직전 meta hot_stats 누적 저장(wiring).
 // 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13 — 계측이 본말을 바꾸지 않는다).

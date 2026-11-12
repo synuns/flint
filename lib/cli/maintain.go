@@ -967,76 +967,10 @@ func drillReport(ctx context.Context, st Store) string {
 	return ""
 }
 
-// loadThresholds — meta 테이블 키-값 → ParseThresholds(미설정 키 기본값).
-// v0.6 키(stale_days·stall_hot_h·stall_write_h)와 v0.16.3 키(suggest_*·
-// conflict_dup_threshold·backup_age_warn_h·zero_near_*·pending_age_days)는
-// ParseThresholds가 미설정을 0으로 두므로(기존 테스트 호환 규약)
-// DefaultThresholds 값으로 폴백한다.
-// loadThresholdsFn — loadThresholds seam(v0.25.1 패치 루프: rrf_k 주입
-// 순서 테스트용 주입점).
-var loadThresholdsFn = loadThresholds
-
-func loadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
-	rows, err := queryOnce(ctx, st, thresholdsKeySQL(), nil)
-	if err != nil {
-		return store.Thresholds{}, err
-	}
-	kv := make([][2]any, 0, len(rows))
-	for _, r := range rows {
-		if len(r) == 2 {
-			kv = append(kv, [2]any{r[0], r[1]})
-		}
-	}
-	th, err := store.ParseThresholds(kv)
-	if err != nil {
-		return th, err
-	}
-	return applyThresholdsFallback(th), nil
-}
-
-func applyThresholdsFallback(th store.Thresholds) store.Thresholds {
-	def := store.DefaultThresholds()
-	for _, f := range []struct {
-		cur   *int
-		def   int
-		allow bool // true면 -1 등 음수 센티널 허용 키(RecallWarnWrites)
-	}{
-		{&th.StaleDays, def.StaleDays, false},
-		{&th.StallHotH, def.StallHotH, false},
-		{&th.StallWriteH, def.StallWriteH, false},
-		{&th.SuggestScanCap, def.SuggestScanCap, false},
-		{&th.BackupAgeWarnH, def.BackupAgeWarnH, false},
-		{&th.ZeroNearMinRead, def.ZeroNearMinRead, false},
-		{&th.ZeroNearWarnPct, def.ZeroNearWarnPct, false},
-		{&th.PendingAgeDays, def.PendingAgeDays, false},
-		{&th.PendingPromoteDays, def.PendingPromoteDays, false},
-		{&th.PendingPromoteMinRunes, def.PendingPromoteMinRunes, false},
-		{&th.InvalidatedPruneDays, def.InvalidatedPruneDays, false},
-		{&th.RecallWarnWrites, def.RecallWarnWrites, true},
-		{&th.DeadDays, def.DeadDays, false},
-		{&th.PairWindowMin, def.PairWindowMin, false},
-		{&th.ChainWindowH, def.ChainWindowH, false},
-		{&th.EventsRetentionD, def.EventsRetentionD, false},
-		{&th.HotRetentionD, def.HotRetentionD, false},
-		{&th.EventsVolumeWarn, def.EventsVolumeWarn, false},
-		{&th.DrillMaxDays, def.DrillMaxDays, false},
-		{&th.SecretsScanRows, def.SecretsScanRows, false},
-		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, true}, // -1=끔 센티넬 허용
-		{&th.DailyRetentionD, def.DailyRetentionD, false},
-	} {
-		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
-			*f.cur = f.def
-		}
-	}
-	if th.SuggestMinScore <= 0 {
-		th.SuggestMinScore = def.SuggestMinScore
-	}
-	if th.ConflictDupThreshold <= 0 {
-		th.ConflictDupThreshold = def.ConflictDupThreshold
-	}
-	return th
-}
-
+// loadThresholds·loadThresholdsFn·applyThresholdsFallback·thresholdsKeys·
+// thresholdsKeySQL — v0.39.0 T1: lib/wire(thresholds.go)로 이동. cli 잔류
+// 소비자(tuning·doctor·maintain·meta 감사)는 cliwire_alias.go var 별칭으로
+// 무편집 컴파일된다.
 // adminErrLine — 갱신 경로 에러 출력. ErrNotFound는 1, 그 외 MapExit.
 func adminErrLine(stdout io.Writer, err error) int {
 	fmt.Fprintln(stdout, errLine(err))
@@ -1044,28 +978,6 @@ func adminErrLine(stdout io.Writer, err error) int {
 		return 1
 	}
 	return store.MapExit(err)
-}
-
-// thresholdsKeys — thresholds 메타 키 결정적 목록(v0.23.0 리뷰 ⑧: SQL·
-// tuningKeys 3중 유지를 공유 소스로 — 드리프트 테스트가 이 리스트와
-// tuningKeys의 동질성을 단언한다).
-func thresholdsKeys() []string {
-	return []string{
-		"pending_max", "dup_susp_max", "conf_floor", "stale_sessions",
-		"stale_days", "stall_hot_h", "stall_write_h",
-		"suggest_min_score", "suggest_scan_cap", "conflict_dup_threshold",
-		"backup_age_warn_h", "zero_near_min_read", "zero_near_warn_pct",
-		"pending_age_days", "pending_promote_days", "pending_promote_min_runes", "invalidated_prune_days", "recall_warn_writes",
-		"dead_days", "pair_window_minutes", "chain_window_hours",
-		"events_retention_days", "hot_events_retention_days",
-		"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit", "session_knowledge_days",
-	}
-}
-
-// thresholdsKeySQL — IN 목록 SQL 조각(결정적 순서).
-func thresholdsKeySQL() string {
-	return "SELECT key, value FROM meta WHERE key IN ('" +
-		strings.Join(thresholdsKeys(), "','") + "')"
 }
 
 // ── v0.33.0: 지식 위생·이력 관리 (R1·R2) ──

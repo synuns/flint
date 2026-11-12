@@ -387,6 +387,35 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.39.0 마이너 (2026-11-12) — 패키지 분할 2/3: 지식 명령층 lib/knowledge
+
+구조 수렴 에라 3분할의 2단위. 이동+별칙만: 시그니처·동작·출력 바이트·
+exit 코드 전부 불변, cmd/flint/main.go 무변경.
+
+- [x] lib/knowledge(지식 명령층 신설) — 9커맨드(write·read·hot·
+  brief·pending·approve·import·done·compact) 이동·내보내기,
+  wire.Register로 계약층 연결(cli 초기 등록 6커맨드의 이중 등록은
+  별칭 경유 동일 핸들러 — 무해)
+- [x] 공용 헬퍼 wire 이동 — LoadThresholds(LoadThresholdsFn seam·
+  ThresholdsKeys·ApplyThresholdsFallback 동반)·BumpReadStatsToMeta
+  (LoadReadStats·BumpReadStats 동반)·ReadSessionLabel(SessionLabelFile —
+  ConfigDir seam 경유)
+- [x] realStore 메서드 cli 추출 파일 3종 — realstore_write.go·
+  realstore_read.go·realstore_curation.go로 양쪽 소유분 분리(realStore
+  본체는 cli 잔류 — v0.40 ops 분리 시 재검)
+- [x] 단일 구현 수렴 — warnSecrets(knowledge 귀속)·cellToInt
+  (render.CellToInt 단일화, read 측 복제 삭제)
+- [x] CountPending knowledge 귀속 — ops 잔류(status·nudge)는 별칭 소비
+- [x] 별칭 호환 — knowledge_alias.go·knowledge_curation_alias.go로
+  잔여 cli 파일 무편집 컴파일, bridge 가드
+  (TestRegisteredMatchesUsage) 녹색
+- [x] 부채(1줄) — 순수함수 복제 4종(cellToTime·quoteJSON·
+  backupEncryptOn·metaKV 클로저쌍): knowledge→cli 임포트 사이클
+  금지로 임시 복제. v0.41 wire 재편 시 계약층 수렴 예정
+- [x] 버전 — VERSION·배지 v0.39.0(EN/KO)·plugin.json 동기
+
+세부: [docs/plans/2026-11-12-flint-v0390.spec.md](plans/2026-11-12-flint-v0390.spec.md)
+
 ### v0.38.0 마이너 (2026-11-12) — 패키지 분할 1/3: 계약층 lib/wire · 출력층 lib/render
 
 구조 수렴 에라 2막 — lib/cli(24.8k줄) 3분할의 첫 단위. 이동+별칭만:
@@ -419,7 +448,7 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 | :--- | :--- |
 | v0.37 | render·meta·util 수렴 |
 | v0.38 | 패키지 분할 1/3 — 계약층 wire·출력층 render 추출 |
-| v0.39 | 패키지 분할 2/3 — knowledge 분리 |
+| v0.39 | 패키지 분할 2/3 — knowledge 분리 (v0.39.0 완료) |
 | v0.40 | 패키지 분할 3/3 — ops 분리 |
 | v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
 | v0.42 | 계측·튜닝 단일 원천 |
@@ -559,7 +588,7 @@ profile_hint가 "회상 선도 낮음 — minimal 전환 고려"를 매번 안�
 | :--- | :--- |
 | v0.37 | render·meta·util 수렴 |
 | v0.38 | 패키지 분할 1/3 — 계약층 wire·출력층 render 추출 |
-| v0.39 | 패키지 분할 2/3 — knowledge 분리 |
+| v0.39 | 패키지 분할 2/3 — knowledge 분리 (v0.39.0 완료) |
 | v0.40 | 패키지 분할 3/3 — ops 분리 |
 | v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
 | v0.42 | 계측·튜닝 단일 원천 |

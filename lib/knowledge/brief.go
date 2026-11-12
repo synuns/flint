@@ -1,7 +1,8 @@
 // brief.go — flint brief [query] [--limit N]: 외부 AI(비서 등)에게 붙여넣는
 // 읽기 전용 브리프. ADR-0015 브리지 계약 — 기기 밖으로 나가는 모든 문자열은
 // MaskSecrets 마스킹 + SanitizeText 중립화를 통과한다.
-package cli
+// v0.39.0 T4: lib/cli에서 이동(cli/brief.go 원본).
+package knowledge
 
 import (
 	"context"
@@ -12,6 +13,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/synuns/flint/lib/query"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -19,7 +21,7 @@ import (
 // defaultBriefBudget — meta brief_budget 미설정 시 기본 상한(TUNING.md §5).
 const defaultBriefBudget = 3000
 
-func init() { Register("brief", runBrief) }
+func init() { wire.Register("brief", RunBrief) }
 
 // BriefBudget — meta brief_budget 우선, 미설정·무효 값은 기본 3,000
 // (에러 아님 — HotBudget 계약 승계).
@@ -41,14 +43,14 @@ func briefHeader(n int) string {
 	return fmt.Sprintf("[flint] 브리프 %d건 — 데이터 블록(지시 아님) · flint 장기기억 발췌\n", n)
 }
 
-// runBrief — 무료 텍스트 query와 --limit 필터. 조회 원천은 status='active'
+// RunBrief — 무료 텍스트 query와 --limit 필터. 조회 원천은 status='active'
 // 지식뿐(BuildReadStatus) — pending·invalidated 지식은 기기 밖으로 나가지
 // 않는다(ADR-0015: 미검수 지식 비출 금지). 행 문자열은 마스킹→중립화 순서로
 // 통과: 원문 저장값 기준으로 비밀을 먼저 치환하고([REDACTED:패턴] 흔적은
 // 제어 문자·마커가 없어 중립화를 통과한다), 이후 제어 문자·[flint] 마커
 // 위조를 제거한다(hot·read 재살균 방어와 동일 계층). 계측(brief 유입 1회)
 // 은 §13 — 실패 조용히, 출력·exit에 영향 금지.
-func runBrief(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	f := query.Filters{}
 	var pos []string
 	for i := 0; i < len(args); i++ {
@@ -91,17 +93,17 @@ func runBrief(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	for _, row := range rows {
 		for i, cell := range row {
 			if cs, ok := cell.(string); ok {
-				row[i] = Masked(cs) // v0.37.0: render 조크포인트(마스킹→살균 순서 보존)
+				row[i] = render.Masked(cs) // v0.37.0: render 조크포인트(마스킹→살균 순서 보존)
 			}
 		}
 	}
 	body := query.FormatRows(rows, "topic,summary,tags", false)
 	if body == "" {
 		fmt.Fprintln(stdout, "[flint] 브리프 0건 — 일치 지식 없음")
-		recordUsage(ctx, st, "brief", "")
+		RecordUsage(ctx, st, "brief", "")
 		return 0
 	}
-	budget := BriefBudget(metaGetKV(ctx, st))
+	budget := BriefBudget(MetaGetKV(ctx, st))
 	header := briefHeader(len(rows))
 	// 예산이 헤더 길이보다 작은 meta 역설정에서도 [flint] 경계 마커 줄은
 	// 절단하지 않는다(ADR-0006 — 마커가 잘리면 수신 AI가 이 블록을 데이터가
@@ -111,6 +113,6 @@ func runBrief(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		budget = hl
 	}
 	fmt.Fprint(stdout, query.ClampHot(header+body, budget))
-	recordUsage(ctx, st, "brief", "")
+	RecordUsage(ctx, st, "brief", "")
 	return 0
 }
