@@ -7,6 +7,8 @@ package cli
 
 import (
 	"context"
+
+	"github.com/synuns/flint/lib/db"
 )
 
 // realStore.BumpReads — knowledge.readBumper 확장의 실구현
@@ -22,9 +24,10 @@ func (s *realStore) RecordReadUsage(ctx context.Context, zero, near bool) error 
 }
 
 // realStore.RecordReadEvent — knowledge.ReadEventStore 확장의 실구현
-// (db.Repo.RecordReadEvent 위임, v0.19.0 효과 계측).
-func (s *realStore) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error {
-	return s.repo.RecordReadEvent(ctx, hits, zero, near, fallback, session, ids, firstRank)
+// (db.Repo.RecordReadEvent 위임, v0.19.0 효과 계측). v0.42.0 T3:
+// db.ReadEvent 구조체 1값 전달로 수렴.
+func (s *realStore) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
+	return s.repo.RecordReadEvent(ctx, ev)
 }
 
 // realStore.RecordHotEvent — knowledge.HotEventRecorder 확장의 실구현

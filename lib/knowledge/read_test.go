@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -40,8 +41,8 @@ func (r *readEventRecorder) RecordReadUsage(ctx context.Context, zero, near bool
 	return nil
 }
 
-func (r *readEventRecorder) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error {
-	r.events = append(r.events, readEventRecord{hits, zero, near, fallback, session, ids})
+func (r *readEventRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
+	r.events = append(r.events, readEventRecord{ev.Hits, ev.Zero, ev.Near, ev.Fallback, ev.Session, ev.IDs})
 	return nil
 }
 

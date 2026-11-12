@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -47,9 +48,10 @@ type ReadUsageStore interface {
 // (cli/realstore_read.go), 미구현 Store(fake)는 이 계측을 건너뛴다(카운터
 // 폴백과 달리 대체 경로가 없다 — read_events 없이도 나머지 지표는
 // daily·knowledge에서 도출된다). v0.20.0: ids(반환 지식 id CSV, 상위 10)
-// 추가 — 사용 연쇄(chain) 산출 원천.
+// 추가 — 사용 연쇄(chain) 산출 원천. v0.42.0 T3: 인자 산재 호출을
+// db.ReadEvent 구조체 1값으로 수렴(동작 불변).
 type ReadEventStore interface {
-	RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error
+	RecordReadEvent(ctx context.Context, ev db.ReadEvent) error
 }
 
 // idsCSV — 정수 id 슬라이스를 CSV로(저장 예산 상한 10 — hit 전수는
@@ -387,7 +389,15 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		if !fallbackTried && asOfSpec == "" && f.Status == "" {
 			rank = FirstExactRank(rows, q)
 		}
-		_ = res.RecordReadEvent(ctx, len(rows), len(rows) == 0, len(suggestions) > 0, fallbackTried, session, idsCSV(RowIDs(rows)), rank)
+		_ = res.RecordReadEvent(ctx, db.ReadEvent{
+			Hits:      len(rows),
+			Zero:      len(rows) == 0,
+			Near:      len(suggestions) > 0,
+			Fallback:  fallbackTried,
+			Session:   session,
+			IDs:       idsCSV(RowIDs(rows)),
+			FirstRank: rank,
+		})
 	}
 	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
 	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.

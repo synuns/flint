@@ -24,7 +24,7 @@ func TestV7PromoteIdempotent(t *testing.T) {
 		}
 	}
 	// v6 행 1건 — 승격 후 ids 기본값 ''로 읽힌다(additive 기본값).
-	if err := r.RecordReadEvent(ctx, 1, false, false, false, "v7-probe", "", 0); err != nil {
+	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 1, Session: "v7-probe"}); err != nil {
 		t.Fatalf("pre-v7 RecordReadEvent: %v", err)
 	}
 	t.Cleanup(func() {
@@ -51,7 +51,7 @@ func TestV7PromoteIdempotent(t *testing.T) {
 	if ids != "" {
 		t.Errorf("승격 전 행 ids = %q, want 빈 문자열(기본값)", ids)
 	}
-	if err := r.RecordReadEvent(ctx, 2, false, false, false, "v7-probe", "7,9", 0); err != nil {
+	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 2, Session: "v7-probe", IDs: "7,9"}); err != nil {
 		t.Fatalf("post-v7 RecordReadEvent(ids): %v", err)
 	}
 	if err := r.pool.QueryRow(ctx,

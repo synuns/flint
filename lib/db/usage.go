@@ -16,6 +16,7 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/synuns/flint/lib/store"
 )
 
 // Stat — 플레이북별 사용 통계(내부 유틸 — 소비 CLI 경로 없음, v0.25.4 U4 표기 정정).
@@ -109,17 +110,30 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 	return nil
 }
 
+// ReadEvent — 효과 계측 이벤트 1행(v0.42.0 T3 구조체화 — 7파라미터 산재
+// 호출부를 값 하나로 수렴, 지표·저장 불변). IDs는 반환 지식 id CSV(상위
+// 10), FirstRank는 첫 topic 정합 순위(0=정합 없음·폴백 제외).
+type ReadEvent struct {
+	Hits      int
+	Zero      bool
+	Near      bool
+	Fallback  bool
+	Session   string
+	IDs       string
+	FirstRank int
+}
+
 // RecordReadEvent — 효과 계측 이벤트 1행 기록(v0.19.0, docs/METRICS.md §4).
 // read 1회의 수치·플래그·세션 라벨만 남긴다(쿼리 본문·결과 내용 없음 —
 // 개인 문구 부재 원칙). v0.20.0: 반환 지식 id CSV(ids, 상위 10) 추가 —
 // v0.30.0: 첫 topic 정합 순위(firstRank, 0=정합 없음·폴백 제외) 추가.
-// 사용 연쇄(chain) 산출 원천. 컷오프는 Go 계산 파라미터로 넘긴다(PruneDaily
-// 산술·report stale 관례 — SQL interval 곱은 Doltgres 파라미터 추론 결함).
+// v0.42.0: ReadEvent 구조체 1값 수렴. 사용 연쇄(chain) 산출 원천.
 // INSERT 전용이라 읽기-쓰기 경합(40001)이 없고 재시도 없이 단발 실행한다.
-func (r *Repo) RecordReadEvent(ctx context.Context, hits int, zero, near, fallback bool, session, ids string, firstRank int) error {
+func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`, hits, zero, near, fallback, session, ids, firstRank)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
+		ev.Hits, ev.Zero, ev.Near, ev.Fallback, ev.Session, ev.IDs, ev.FirstRank)
 	if err != nil {
 		return fmt.Errorf("record read event: %w", err)
 	}
@@ -150,6 +164,43 @@ func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
 	return nil
 }
 
+// thresholdsForPrune — PruneReadEvents·PruneDaily 공유: meta 임계값
+// 오버라이드를 등록표 파생 경로(store.ParseThresholds — threshold_meta.go
+// 가드 대상)로 읽는다(v0.42.0 T1 §2 — 키별 SELECT+Atoi 재파싱 제거).
+// 조회 실패·키 부재·파손·0(미설정)은 기본값(DefaultThresholds) 폴백
+// — 이전 per-key 규약(n>0만 수용)과 동일 결과.
+func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Thresholds, error) {
+	def := store.DefaultThresholds()
+	rows, err := r.pool.Query(ctx,
+		`SELECT key, value FROM meta WHERE key = ANY($1)`, keys)
+	if err != nil {
+		return def, nil // 메타 읽기 실패는 기본값 폴백(이전 규약 승계)
+	}
+	defer rows.Close()
+	var kv [][2]any
+	for rows.Next() {
+		var k, v string
+		if err := rows.Scan(&k, &v); err != nil {
+			continue
+		}
+		kv = append(kv, [2]any{k, v})
+	}
+	th, err := store.ParseThresholds(kv)
+	if err != nil {
+		return def, nil
+	}
+	if th.EventsRetentionD == 0 {
+		th.EventsRetentionD = def.EventsRetentionD
+	}
+	if th.HotRetentionD == 0 {
+		th.HotRetentionD = def.HotRetentionD
+	}
+	if th.DailyRetentionD == 0 {
+		th.DailyRetentionD = def.DailyRetentionD
+	}
+	return th, nil
+}
+
 // PruneReadEvents — 보존 한도를 넘은 효과 계측 이벤트 삭제. v0.20.0:
 // read_events·session_starts는 14일(daily 카운터와 동일 정책), hot_events는
 // 30일(dead_pct 노출 정합 가드 창과 정렬 — 14일이면 가드가 문서 계약의
@@ -159,23 +210,11 @@ func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
 // 동시) — 첫 read가 날짜를 넘기면 그 시점에 정리된다(하루 1회라 메타
 // 읽기 왕복 부담 없음). 실패는 호출부가 조용히 넘긴다(계측 원칙).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
+	th, _ := r.thresholdsForPrune(ctx, "events_retention_days", "hot_events_retention_days")
 	retention := map[string]int{
-		"read_events":    14,
-		"session_starts": 14,
-		"hot_events":     30,
-	}
-	for _, kc := range []struct{ key, table string }{
-		{"events_retention_days", "read_events"},
-		{"events_retention_days", "session_starts"},
-		{"hot_events_retention_days", "hot_events"},
-	} {
-		var v string
-		if err := r.pool.QueryRow(ctx,
-			`SELECT value FROM meta WHERE key = $1`, kc.key).Scan(&v); err == nil {
-			if n, perr := strconv.Atoi(strings.TrimSpace(v)); perr == nil && n > 0 {
-				retention[kc.table] = n
-			}
-		}
+		"read_events":    th.EventsRetentionD,
+		"session_starts": th.EventsRetentionD,
+		"hot_events":     th.HotRetentionD,
 	}
 	now := time.Now().UTC()
 	for table, days := range retention {
@@ -303,15 +342,11 @@ func mergeDaily(cur map[string]int, delta map[string]int) (string, error) {
 // PruneDaily — 14일 보존(오늘+직전 13일)을 넘는 daily 키 삭제. 키 날짜는
 // UTC(RecordUsage 기록 기준)이므로 기준일도 UTC로 잡는다(서버 TZ 영향 배제).
 // 날짜 형식이 아닌 키(daily:*)는 건드리지 않는다(형식 검사 후 cast).
+// 보존일은 meta 오버라이드(daily_retention_days) — v0.42.0 T1: 파생
+// 경로(thresholdsForPrune)로 재파싱(키 부재·파손·0은 기본값).
 func (r *Repo) PruneDaily(ctx context.Context) error {
-	days := 14
-	var v string
-	if err := r.pool.QueryRow(ctx,
-		`SELECT value FROM meta WHERE key = $1`, "daily_retention_days").Scan(&v); err == nil {
-		if n, perr := strconv.Atoi(strings.TrimSpace(v)); perr == nil && n > 0 {
-			days = n
-		}
-	}
+	th, _ := r.thresholdsForPrune(ctx, "daily_retention_days")
+	days := th.DailyRetentionD
 	// 컷오프는 Go 계산 date 파라미터(T70 관례 — `date - $1` 산술은
 	// Doltgres가 $1을 interval로 추론해 실패한다, v0.24.0 회귀 방어).
 	cutoff := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
