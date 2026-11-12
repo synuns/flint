@@ -12,6 +12,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5"
@@ -161,17 +162,47 @@ func pruneGateDue(last string, now time.Time) bool {
 	return now.Sub(t) >= 24*time.Hour
 }
 
+// pruneGateCheckedAt — 프로세스 내 게이트 재확인 캐시(v1.0.2 R2 성능):
+// 마지막 게이트 확인 시각의 unix 초(atomic — Repo 인스턴스 무관 공유).
+// 0=미확인. RecordReadEvent마다 meta 게이트 SELECT가 남던 read 핫패스
+// 왕복을 1h마다 1회로 축소한다.
+var pruneGateCheckedAt atomic.Int64
+
+// pruneGateCacheTTL — 프로세스 내 게이트 캐시 수명. DB 게이트(24h)보다
+// 짧은 1h — 단발 CLI는 물론 장기 프로세스도 최대 1h마다 게이트를 재평가
+// 해 정리가 하루 통째로 밀리지 않게 한다.
+const pruneGateCacheTTL = time.Hour
+
+// pruneGateProbe — 게이트 캐시 판정(순수·단위 테스트 대상): 마지막 확인
+// 후 TTL 이내면 거짓(게이트 meta SELECT 스킵 — TTL 내 재확인 0회), 경과
+// 했거나 최초면 참이고 확인 시각을 스탬프한다(SELECT 1회). 스탬프는 게이트
+// 확인 시점 기준 — 이후 정리 실패가 있어도 DB 게이트는 새겨지지 않아 다른
+// 프로세스·TTL 경과 후 재시도가 열려 있다.
+func pruneGateProbe(now time.Time) bool {
+	if last := pruneGateCheckedAt.Load(); last != 0 &&
+		now.Sub(time.Unix(last, 0)) < pruneGateCacheTTL {
+		return false
+	}
+	pruneGateCheckedAt.Store(now.Unix())
+	return true
+}
+
 // maybePruneAfterRead — read 전용 세션의 정리 훅(v1.0.1 F2). v0.42.0 T2가
 // RecordReadUsage(read daily 쓰기)를 폐지하면서 read 경로가
 // recordWithRetry(롤오버 훅)를 지나지 않게 됐다 — write가 없는 세션에서는
 // PruneReadEvents가 발화되지 않아 read_events가 보존 한게 넘게 무한
 // 증가한다. RecordReadEvent 성공 경로에서 last_events_prune_at 게이트가
 // 열릴 때(마지막 정리 후 24h — 매 read마다 DELETE·meta 왕복은 핫패스
-// 낭비) PruneDaily·PruneReadEvents를 실행한다. 정리 성공 시에만 게이트를
+// 낭비) PruneDaily·PruneReadEvents를 실행한다. v1.0.2 R2(성능): 게이트
+// 재확인은 프로세스 내 1h 캐시(pruneGateProbe)로 축소 — 캐시 미충족
+// 시에만 DB 게이트(24h) SELECT를 실행한다. 정리 성공 시에만 DB 게이트를
 // 새겨 실패한 정리가 하루 동안 묻히지 않게 한다(스탬프-후-실패면 재시도
 // 없이 24h 스킵). 병렬 read가 동시에 통과해도 DELETE는 멱등 — 중복 실행
 // 무해하다. 게이트 읽기·정리·스탬프 실패는 조용히 넘긴다(계측 원칙).
 func (r *Repo) maybePruneAfterRead(ctx context.Context) {
+	if !pruneGateProbe(time.Now().UTC()) {
+		return
+	}
 	var last string
 	_ = r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = $1`, pruneReadGateKey).Scan(&last)

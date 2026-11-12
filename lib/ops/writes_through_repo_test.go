@@ -1,7 +1,10 @@
 // writes_through_repo_test.go — v0.41.0 T3: 쓰기 가드. lib/{ops,knowledge}
 // 비테스트 소스의 Query/queryOnce 호출부에 UPDATE|DELETE|INSERT 토큰이
-// 있으면 FAIL — 쓰기 SQL 리터럴은 db.Repo 단일 경로(Invalidate·Supersede·
-// PruneInvalidated·MetaDelete·UpdateSessionSummary)만 소유한다.
+// 있으면 FAIL — 이 가드의 스코프(lib/{ops,knowledge})에서 쓰기 SQL 리터럴은
+// db.Repo 경로(Invalidate·Supersede·PruneInvalidated·MetaDelete·
+// UpdateSessionSummary)만 소유한다. v1.0.2 R2 정정: "db.Repo 단일 경로"는
+// 이 스코프 한정 주장이다 — 스코프 밖(lib/wire/meta.go의 meta INSERT 등)은
+// 이 가드가 보지 않는 별도 소유다.
 //
 // v0.41.0 리뷰 보강(우회 차단 2종 — 실증 후 폐쇄):
 //   - 별칭 경유(q := wire.QueryOnce; q(..., "UPDATE ...")) — Query/QueryOnce를
@@ -17,6 +20,15 @@
 //     순서대로 합친 결과에서만 성립하는 쓰기 동사도 잡는다.
 //   - 순회 사각 — 비재귀 os.ReadDir 대신 WalkDir 재귀(하위 디렉터리 전부,
 //     Go 관례 testdata 제외).
+//
+// v1.0.2 R2 보강(실증 우회 2종 추가 폐쇄):
+//   - 면제×조립 교차("update"+" knowledge …") — 화이트리스트 면제는
+//     단독 리터럴 판정에만 적용하고, 조립(+)·Sprintf 결합 판정에는 면제
+//     피연산자 본문도 참여한다. 조립·결합 결과 전체가 화이트리스트 본문과
+//     정확 일치하면 면제다(정확 일치 원칙의 결합 수준 확장).
+//   - Sprintf 동사 분할(Sprintf("DEL%s…","ETE")) — 형식 리터럴의 %s·%v
+//     동사에 문자열 리터럴 인자를 대입한 결합 결과에서만 성립하는 쓰기
+//     동사도 잡는다(sprintfCombined).
 //
 // 오탐(안내문·검사명의 비SQL "update" 단어)은 writeLiteralAllow 정확
 // 일치 화이트리스트로만 면제한다 — 신규 면제는 이 표에 대한 명시적
@@ -143,9 +155,12 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		return true
 	})
 	// ② 이어붙이기 조각 조립 — 개별 리터럴에는 동사가 없어도 + 로 합쳐
-	//    성립하는 쓰기 동사("UP"+"DATE …" 분할 우회)도 잡는다. 피연산자
-	//    중 하나라 이미 ①에서 보고됐거나 화이트리스트면 건너뛴다(중복·
-	//    오탐 방지).
+	//    성립하는 쓰기 동사("UP"+"DATE …" 분할 우회)도 잡는다. R2-B 폐쇄:
+	//    화이트리스트 면제는 단독 리터럴 판정(①)에만 적용 — 조립 결과
+	//    판정에는 면제 피연산자 본문도 parts에 포함한다("update"+
+	//    " knowledge …" 교차 우회 차단). 이미 ①에서 보고된 피연산자가
+	//    섞인 조립은 건너뛴다(중복 보고 방지). 조립 결과 전체가 화이트
+	//    리스트 본문과 정확 일치하면 면제다(①과 같은 정확 일치 원칙).
 	ast.Inspect(f, func(n ast.Node) bool {
 		bin, ok := n.(*ast.BinaryExpr)
 		if !ok || bin.Op != token.ADD {
@@ -158,15 +173,16 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 			if !ok || lit.Kind != token.STRING {
 				return true
 			}
-			body := unquoteLiteral(lit.Value)
-			if writeLiteralAllow[body] || flagged[lit.Pos()] {
+			if flagged[lit.Pos()] {
 				joinable = false
 				return false
 			}
-			parts = append(parts, body)
+			parts = append(parts, unquoteLiteral(lit.Value))
 			return true
 		})
-		if joinable && len(parts) >= 2 && writeTokenRe.MatchString(strings.Join(parts, "")) {
+		joined := strings.Join(parts, "")
+		if joinable && len(parts) >= 2 && !writeLiteralAllow[joined] &&
+			writeTokenRe.MatchString(joined) {
 			report(bin.Pos(), "이어붙이기 조립 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
 			// 이 조립에 참여한 리터럴은 처리 완료로 표시(중복 보고 방지).
 			ast.Inspect(bin, func(m ast.Node) bool {
@@ -178,12 +194,94 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		return true
 	})
+	// ③ Sprintf 동사 결합 — 형식 리터럴의 %s·%v 동사 위치에 문자열 리터럴
+	//    인자를 대입한 결과에서만 성립하는 쓰기 동사(Sprintf("DEL%s…",
+	//    "ETE") 분할 우회)도 잡는다. 비리터럴 인자·그 외 동사는 공란 대입
+	//    (동사 경계를 결합 가능성으로 보수 판정). 면제 원칙은 ②와 동일 —
+	//    단독 형식 리터럴의 면제는 결합 판정에 적용되지 않고, 결합 결과
+	//    전체의 화이트리스트 정확 일치만 면제다.
+	ast.Inspect(f, func(n ast.Node) bool {
+		call, ok := n.(*ast.CallExpr)
+		if !ok || len(call.Args) == 0 {
+			return true
+		}
+		sel, ok := call.Fun.(*ast.SelectorExpr)
+		if !ok || sel.Sel.Name != "Sprintf" {
+			return true
+		}
+		flit, ok := call.Args[0].(*ast.BasicLit)
+		if !ok || flit.Kind != token.STRING || flagged[flit.Pos()] {
+			return true
+		}
+		combined := sprintfCombined(unquoteLiteral(flit.Value), call.Args[1:])
+		if writeLiteralAllow[combined] || !writeTokenRe.MatchString(combined) {
+			return true
+		}
+		report(call.Pos(), "Sprintf 동사 결합 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
+		return true
+	})
 	return violations
 }
 
-// TestWriteGuardBlocksBypasses — v0.41.0 리뷰·v1.0.1 R1-D 회귀: 실증된
-// 우회 기법 전수(별칭·변수 조립·다중문 리터럴·Sprintf 인자·동사 분할
-// 조립)가 가드에 잡히는지 합성 소스로 단언(구멍 폐쇄의 영구화).
+// sprintfCombined — Sprintf(형식, 인자…)의 정적 결합 문자열(R2-B 동사
+// 분할 판정). %s·%v에는 문자열 리터럴 인자 본문을 순서대로 대입하고,
+// 그 외 동사·비리터럴 인자는 공란을 대입한다(플래그·폭·정밀도는 건너
+// 뛴다). 공란 대입은 인접 글자가 런타임에 결합되는 가능성까지 보수적으로
+// 잡는다 — 판정 전용 근사이며 실제 포맷 출력과의 일치는 목적이 아니다.
+func sprintfCombined(format string, args []ast.Expr) string {
+	var b strings.Builder
+	ai := 0
+	nextArg := func() string {
+		if ai >= len(args) {
+			return ""
+		}
+		arg := args[ai]
+		ai++
+		if lit, ok := arg.(*ast.BasicLit); ok && lit.Kind == token.STRING {
+			return unquoteLiteral(lit.Value)
+		}
+		return ""
+	}
+	for i := 0; i < len(format); i++ {
+		if format[i] != '%' {
+			b.WriteByte(format[i])
+			continue
+		}
+		j := i + 1
+		for j < len(format) && strings.IndexByte("+-#0 ", format[j]) >= 0 {
+			j++
+		}
+		for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+			j++
+		}
+		if j < len(format) && format[j] == '.' {
+			j++
+			for j < len(format) && format[j] >= '0' && format[j] <= '9' {
+				j++
+			}
+		}
+		if j >= len(format) {
+			b.WriteByte(format[i]) // 미완성 '%' — 나머지를 그대로 둔다
+			continue
+		}
+		verb := format[j]
+		i = j
+		switch {
+		case verb == '%':
+			b.WriteByte('%')
+		case verb == 's' || verb == 'v':
+			b.WriteString(nextArg())
+		default:
+			nextArg() // 비문자열 동사 — 인자 소비만(공란 대입)
+		}
+	}
+	return b.String()
+}
+
+// TestWriteGuardBlocksBypasses — v0.41.0 리뷰·v1.0.1 R1-D·v1.0.2 R2 회귀:
+// 실증된 우회 기법 전수(별칭·변수 조립·다중문 리터럴·Sprintf 인자·동사
+// 분할 조립·면제 리터럴 조립·Sprintf 동사 분할)가 가드에 잡히는지 합성
+// 소스로 단언(구멍 폐쇄의 영구화).
 func TestWriteGuardBlocksBypasses(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -228,8 +326,31 @@ func f() string { return "UP" + "DATE meta SET v=1" }`,
 			wantHit: true,
 		},
 		{
+			name: "면제 리터럴 조립 우회(R2-B: update+쓰기문)",
+			src: `package ops
+func f() string { return "update" + " knowledge SET status='invalidated' WHERE id=1" }`,
+			wantHit: true,
+		},
+		{
+			name: "Sprintf 동사 분할(DEL%s·ETE)",
+			src: `package ops
+func f() string { return fmt.Sprintf("DEL%s FROM meta WHERE key='demo'", "ETE") }`,
+			wantHit: true,
+		},
+		{
+			name: "Sprintf 역방향 분할(%sETE·DEL)",
+			src: `package ops
+func f() string { return fmt.Sprintf("%sETE FROM meta WHERE key='demo'", "DEL") }`,
+			wantHit: true,
+		},
+		{
 			name: "오탐 방어: 비SQL 안내문(화이트리스트)",
 			src:  "package ops\n" + `const hint = "update-rules: 소스 flint-plugin/skills/flint 미탐지 — --src 플래그로 지정"`,
+		},
+		{
+			name: "오탐 방어: 결합 결과가 화이트리스트 본문(정확 일치)",
+			src: `package ops
+func f() string { return "fix: flint up" + "date" }`,
 		},
 		{
 			name: "오탐 방어: 쓰기 단어 없는 문자열",
