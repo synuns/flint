@@ -39,6 +39,6 @@
 ## 예시
 
 ```sh
-flint --version   # 0.43.0
-grep '"version"' flint-plugin/.claude-plugin/plugin.json   # "0.43.0" — 동일
+flint --version
+grep '"version"' flint-plugin/.claude-plugin/plugin.json   # 두 출력은 항상 동일(VERSION이 원천)
 ```

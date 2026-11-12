@@ -34,6 +34,6 @@
 ## 예시
 
 ```sh
-./scripts/publish_mcp.sh v0.44.0
+./scripts/publish_mcp.sh   # 태그 인자 생략 시 git describe로 최신 태그 감지
 # dist/ .mcpb SHA256 → template 렌더 → mcp-publisher publish
 ```

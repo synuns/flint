@@ -7,6 +7,7 @@ package docs
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"regexp"
 	"strings"
 	"testing"
@@ -619,6 +620,26 @@ func TestPlanRearmedTwoPageContract(t *testing.T) {
 	}
 	if m := regexp.MustCompile(`\d+(?:\.\d+)?%`).FindString(s); m != "" {
 		t.Errorf("PLAN.md에 실측 백분율 %q 인용(저장소 원칙 위반)", m)
+	}
+}
+
+// TestContractsExamplesNotPinned — v0.44.0 리뷰: 계약 문서(docs/contracts/)
+// 예시 코드 블록은 버전 숫자를 고정하지 않는다. plugin.md가 릴리스 직후
+// 구버전(0.43.0) 예시로 부실화된 사례의 재발 방지 — 표면 문서는 버전
+// 동기 게이트(TestVersionArtifactsSync) 대상이 아니므로 여기서 금지.
+func TestContractsExamplesNotPinned(t *testing.T) {
+	files, err := filepath.Glob("contracts/*.md")
+	if err != nil || len(files) != 6 {
+		t.Fatalf("contracts/*.md 6종 탐색 실패: %v %v", files, err)
+	}
+	semver := regexp.MustCompile(`\b\d+\.\d+\.\d+\b`)
+	for _, f := range files {
+		s := docStr(t, f)
+		for _, block := range regexp.MustCompile("(?s)```.*?```").FindAllString(s, -1) {
+			if m := semver.FindString(block); m != "" {
+				t.Errorf("%s 예시 코드 블록에 버전 고정 %q — 버전 불문 서술로(드리프트 원천)", f, m)
+			}
+		}
 	}
 }
 
