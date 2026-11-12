@@ -268,20 +268,9 @@ func OneLine(s string, max int) string {
 	return render.TruncateRunes(strings.TrimSpace(s), max)
 }
 
-// cellToTime — 셀(any)→time 변환(pgx timestamptz=time.Time, fake·
-// 문자열은 RFC3339). lib/cli/report.go 소유분과 동일 구현(knowledge는
-// cli를 임포트할 수 없다 — 사이클 금지. 순수 함수 복제, 향후 수렴 부채).
-func cellToTime(v any) (time.Time, bool) {
-	switch t := v.(type) {
-	case time.Time:
-		return t, true
-	case string:
-		p, err := time.Parse(time.RFC3339, t)
-		return p, err == nil
-	default:
-		return time.Time{}, false
-	}
-}
+// cellToTime — 셀(any)→time 변환. v0.41.0 T4: 순수 함수 복제 폐지 —
+// wire.CellToTime 단일 구현 별칭(사이클 금지 해소, 동일 계약).
+var cellToTime = wire.CellToTime
 
 // joinInts — 콤마 결합(상한 5).
 func joinInts(ids []int) string {

@@ -463,8 +463,9 @@ func maybeAutoBackup(ctx context.Context, st wire.Store) {
 	}
 }
 
-// metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. cli/metrics.go 소유분과
-// 동일 구현(knowledge는 cli를 임포트할 수 없다 — 사이클 금지). getKV는
+// metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. 조회·쓰기 본체는
+// wire.GetMetaKVErr·wire.SetMetaKV 단일 진입 직접 경유(v0.34.3 T4 —
+// ops.MetaKV와 같은 패턴, 이 클로저는 오류 구분 계약만 유지). getKV는
 // 키 부재 시 ("", nil), 전송 오류는 err 그대로.
 func metaKV(ctx context.Context, st wire.Store) (func(string) (string, error), func(string, string) error) {
 	getKV := func(key string) (string, error) {
@@ -480,8 +481,10 @@ func metaKV(ctx context.Context, st wire.Store) (func(string) (string, error), f
 	return getKV, setKV
 }
 
-// backupEncryptOn — meta backup_encrypt 값 판정(cli/backup.go 소유분과
-// 동일 구현 — 사이클 금지. 순수 함수 복제, 향후 수렴 부채).
+// backupEncryptOn — meta backup_encrypt 값 판정. 판정의 단일 소스는
+// ops.BackupEncryptOn(수동·자동·doctor 3경로)이며 knowledge는 ops를
+// 임포트할 수 없다(사이클 금지) — 순수 함수 복제. meta 조회 자체는
+// 양쪽 모두 wire.GetMetaKV 직접 경유로 수렴(v0.41.0 T4 상태).
 func backupEncryptOn(v string) bool {
 	return v == "true" || v == "1"
 }

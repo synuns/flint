@@ -8,7 +8,6 @@ package knowledge
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -36,15 +35,8 @@ var ApproveFn = func(ctx context.Context, id int) error {
 }
 
 // quoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
-// cli/backup.go 소유분과 동일 구현(knowledge는 cli를 임포트할 수
-// 없다 — 사이클 금지. 순수 함수 복제, 향후 수렴 부채).
-func quoteJSON(s string) string {
-	b, err := json.Marshal(s)
-	if err != nil {
-		return `""`
-	}
-	return string(b)
-}
+// v0.41.0 T4: 순수 함수 복제 폐지 — wire.QuoteJSON 단일 구현 별칭.
+var quoteJSON = wire.QuoteJSON
 
 // RunApprove — 승인 실행. 승격은 주어진 st 경유(R14 재배선 — 이전엔 st를
 // 무시하고 자체 Repo를 열었다).

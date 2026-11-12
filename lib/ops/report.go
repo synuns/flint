@@ -818,19 +818,9 @@ func queryTimes(ctx context.Context, st wire.Store, sql string, cutoff time.Time
 	return out, nil
 }
 
-// CellToTime — 셀(any)→time 변환(pgx timestamptz=time.Time, fake·
-// 문자열은 RFC3339). render.CellToInt 형제 유틸.
-func CellToTime(v any) (time.Time, bool) {
-	switch t := v.(type) {
-	case time.Time:
-		return t, true
-	case string:
-		p, err := time.Parse(time.RFC3339, t)
-		return p, err == nil
-	default:
-		return time.Time{}, false
-	}
-}
+// CellToTime — 셀(any)→time 변환. v0.41.0 T4: wire.CellToTime 단일
+// 구현 별칭(cli 소비자 호환 export 유지 — 동일 계약).
+var CellToTime = wire.CellToTime
 
 // sessionIndexOf — starts(오름차순)에서 ts가 속한 세션 인덱스(마지막
 // start ≤ ts). 첫 시작보다 앞이면 −1(미배정 — 폴백 페어링 대상).
