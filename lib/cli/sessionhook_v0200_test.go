@@ -55,7 +55,9 @@ func TestSessionStartNoSessionLabel(t *testing.T) {
 }
 
 // TestSessionLabelLifecycle — v0.20.5(B②): session-start가 라벨 파일을
-// 남기고 session-end가 지운다(스테일 방지).
+// 남기고 session-end가 지운다(스테일 방지). v1.0.2 R2-A2: 라벨 파일은
+// 세션별(session-<id>.label) — session-end는 자기 --session id의 파일만
+// 지운다(hooks.json의 session-end가 항상 session_id를 넘기는 것과 정합).
 func TestSessionLabelLifecycle(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &sessionStartRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -70,7 +72,8 @@ func TestSessionLabelLifecycle(t *testing.T) {
 		t.Fatalf("라벨 = (%q %v), want auto-label-1", got, ok)
 	}
 	var out2 strings.Builder
-	if code := runSessionEnd(context.Background(), st, nil, strings.NewReader(""), &out2); code != 0 {
+	if code := runSessionEnd(context.Background(), st,
+		[]string{"--session", "auto-label-1"}, strings.NewReader(""), &out2); code != 0 {
 		t.Fatalf("session-end exit=%d: %s", code, out2.String())
 	}
 	if _, ok := ReadSessionLabel(); ok {

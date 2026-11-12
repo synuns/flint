@@ -137,10 +137,12 @@ func TestHooksNudgeGuards(t *testing.T) {
 // 인용을 eval이 파싱해 원문 그대로 단일 인자로 전달한다(구 이중 인용
 // 형태도 치환 결과가 재해석되지는 않았으나 인용 계층이 암묵적이었다 —
 // 명시 인용으로 원문 보존을 구조적으로 보장, 원문 갱신).
+// v1.0.2 R2-C3: jq 폴백은 "" 대신 empty — session_id 부재 시 빈 라벨을
+// 흘려보내지 않는다(훅 진입점의 무효=부재 취급과 동일 방향, 원문 갱신).
 func TestHooksExistingUntouched(t *testing.T) {
 	doc := readHooksJSON(t)
-	const startCmd = `eval "flint session-start --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)" 2>/dev/null || true`
-	const endCmd = `eval "flint session-end --session $(jq -r '.session_id // "" | @sh' 2>/dev/null)" 2>/dev/null || true`
+	const startCmd = `eval "flint session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)" 2>/dev/null || true`
+	const endCmd = `eval "flint session-end --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)" 2>/dev/null || true`
 
 	startCmds := groupCommands(t, hookGroups(t, doc, "SessionStart"))
 	if len(startCmds) < 1 || startCmds[0] != startCmd {

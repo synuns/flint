@@ -34,6 +34,29 @@ func TestPruneGateDueOpensAfter24h(t *testing.T) {
 	}
 }
 
+// TestPruneGateProbeCachesWithinTTL — Review Focus(v1.0.2 R2 성능): 프로세스
+// 내 게이트 캐시. probe 참 = maybePruneAfterRead가 게이트 meta SELECT를
+// 실행한다 — 최초 확인 1회(참), TTL 내 재확인 0회(거짓 — 매 read SELECT
+// 잔존 회귀 방어), TTL 경과 후 재확인 1회(참 — 게이트가 1h 넘게 얼어붙지
+// 않음).
+func TestPruneGateProbeCachesWithinTTL(t *testing.T) {
+	pruneGateCheckedAt.Store(0)
+	t.Cleanup(func() { pruneGateCheckedAt.Store(0) })
+	base := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
+	if !pruneGateProbe(base) {
+		t.Fatal("최초 확인 미발화 — 캐시 스탬프 오염(초기화 누락)")
+	}
+	if pruneGateProbe(base.Add(30 * time.Minute)) {
+		t.Fatal("TTL 내 재확인 발화 — read 핫패스 게이트 SELECT 잔존")
+	}
+	if pruneGateProbe(base.Add(59 * time.Minute)) {
+		t.Fatal("TTL 직전 재확인 발화")
+	}
+	if !pruneGateProbe(base.Add(time.Hour + time.Minute)) {
+		t.Fatal("TTL 경과 후 재확인 미발화 — 게이트가 캐시에 얼어붙음")
+	}
+}
+
 // TestRecordReadEventPrunesStaleRows — Review Focus(v1.0.1 F2): read만
 // 반복하는 세션(write 계측 없음 — recordWithRetry 롤오버 훅 미발화)에서도
 // RecordReadEvent 성공 경로의 24h 게이트 훅이 보존 한게 넘은 read_events
@@ -51,6 +74,10 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 			`DELETE FROM read_events WHERE session = $1`, label)
 		_, _ = r.pool.Exec(context.Background(),
 			`DELETE FROM meta WHERE key = $1`, pruneReadGateKey)
+		// 프로세스 내 게이트 캐시(v1.0.2 R2)도 함께 리셋 — 같은 패키지의
+		// 다른 테스트가 스탬프한 시각이 이 테스트의 DB 게이트 판정을
+		// 우연히 덮어쓰지 않게 한다.
+		pruneGateCheckedAt.Store(0)
 	}
 	cleanup()
 	t.Cleanup(cleanup)
@@ -81,7 +108,10 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 	}
 
 	// 게이트 닫힘(직전 정리 성공 — 24h 이내 스탬프): 다시 심은 과거 행은
-	// 정리되지 않고 살아남는다.
+	// 정리되지 않고 살아남는다. 캐시를 리셋하고 DB 게이트(24h 스탬프)의
+	// 닫힘을 직접 검증한다 — 프로세스 캐시 스킵과 결과가 같아 우연
+	// 통과가 아니어야 한다.
+	pruneGateCheckedAt.Store(0)
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)
 		 VALUES (3, false, false, false, $1, '', 0)`, label); err != nil {
