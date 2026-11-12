@@ -15,20 +15,17 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// ThresholdsKeys — thresholds 메타 키 결정적 목록(v0.23.0 리뷰 ⑧: SQL·
-// tuningKeys 3중 유지를 공유 소스로 — 드리프트 테스트가 이 리스트와
-// tuningKeys의 동질성을 단언한다). cli maintain.go 이동분.
+// ThresholdsKeys — thresholds 메타 키 결정적 목록. v0.42.0 T1(§2):
+// threshold_meta.go 등록표에서 파생된다(키 집합·순서는 이전 하드코딩
+// 목록과 동일 — 가드 테스트가 단언). SQL IN·maintain meta 감사·tuningKeys
+// 동질성 드리프트 테스트의 공유 소스 계약은 불변.
 func ThresholdsKeys() []string {
-	return []string{
-		"pending_max", "dup_susp_max", "conf_floor", "stale_sessions",
-		"stale_days", "stall_hot_h", "stall_write_h",
-		"suggest_min_score", "suggest_scan_cap", "conflict_dup_threshold",
-		"backup_age_warn_h", "zero_near_min_read", "zero_near_warn_pct",
-		"pending_age_days", "pending_promote_days", "pending_promote_min_runes", "invalidated_prune_days", "recall_warn_writes",
-		"dead_days", "pair_window_minutes", "chain_window_hours",
-		"events_retention_days", "hot_events_retention_days",
-		"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit", "session_knowledge_days",
+	metas := ThresholdMetas()
+	out := make([]string, 0, len(metas))
+	for _, m := range metas {
+		out = append(out, m.Key)
 	}
+	return out
 }
 
 // thresholdsKeySQL — IN 목록 SQL 조각(결정적 순서).
