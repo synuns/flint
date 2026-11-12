@@ -387,6 +387,35 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.40.0 마이너 (2026-11-12) — 패키지 분할 3/3: 진단·정리·관측 lib/ops · 3분할 완결
+
+구조 수렴 에라 3분할의 마지막 단위 — 완결. 이동+별칙만: 시그니처·동작·
+출력 바이트·exit 코드 전부 불변, cmd/flint/main.go 무변경.
+
+- [x] lib/ops(진단·정리·관측층 신설) — 15파일 3탄 직렬 이동·내보내기:
+  1탄 doctor·audit·diff·status·tuning / 2탄 maintain·metrics·marker·
+  nudge·sessionhook / 3탄 report·report_html·backup·sigverify·rules_sync
+  (+dashboard.tmpl.html 동반). wire.Register로 계약층 연결
+- [x] realStore 메서드 cli 추출 파일 3종 — realstore_diag.go(1탄분 —
+  조사 결과 메서드 0, 관례 선언만)·realstore_care.go(2탄 6종)·
+  realstore_supply.go(3탄 Dump 위임 1종)
+- [x] 공용 Store 유틸 wire 이동 — ParseAsOfSpec·ErrInvalidAsOf(asof.go)·
+  ExposureProfile(profile.go — ExposureKey 동반) — knowledge·ops seam 소비
+- [x] cli composition root 수렴 — root.go init 일원화(커맨드 등록·
+  양방향 seam 주입·교체 전파 래퍼), 사용 0 별칭 24종 제거(ops_alias_1·2·3·
+  knowledge_alias·cliwire_alias 축소) — cli 잔여는 root·realstore_*·setup·
+  update·version·mcp·별칭 최소 22파일
+- [x] 의존 방향 실증 — ops→cli 임포트 0(go list), ops→wire·render·
+  knowledge 단방향 유지
+- [x] 동작 불변 — 전체 스위트 녹색, bridge 가드
+  (TestRegisteredMatchesUsage) 녹색
+- [x] 버전 — VERSION·배지 v0.40.0(EN/KO)·plugin.json 동기
+
+3분할 완결(v0.38 wire·render / v0.39 knowledge / v0.40 ops). cli 이상
+축소·realStore 본체 이동은 v0.43 seam 동질화에서 재검.
+
+세부: [docs/plans/2026-11-13-flint-v0400.spec.md](plans/2026-11-13-flint-v0400.spec.md)
+
 ### v0.39.0 마이너 (2026-11-12) — 패키지 분할 2/3: 지식 명령층 lib/knowledge
 
 구조 수렴 에라 3분할의 2단위. 이동+별칙만: 시그니처·동작·출력 바이트·
@@ -449,7 +478,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 | v0.37 | render·meta·util 수렴 |
 | v0.38 | 패키지 분할 1/3 — 계약층 wire·출력층 render 추출 |
 | v0.39 | 패키지 분할 2/3 — knowledge 분리 (v0.39.0 완료) |
-| v0.40 | 패키지 분할 3/3 — ops 분리 |
+| v0.40 | 패키지 분할 3/3 — ops 분리 (v0.40.0 완료) |
 | v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
 | v0.42 | 계측·튜닝 단일 원천 |
 | v0.43 | seam 동질화 |
@@ -589,7 +618,7 @@ profile_hint가 "회상 선도 낮음 — minimal 전환 고려"를 매번 안�
 | v0.37 | render·meta·util 수렴 |
 | v0.38 | 패키지 분할 1/3 — 계약층 wire·출력층 render 추출 |
 | v0.39 | 패키지 분할 2/3 — knowledge 분리 (v0.39.0 완료) |
-| v0.40 | 패키지 분할 3/3 — ops 분리 |
+| v0.40 | 패키지 분할 3/3 — ops 분리 (v0.40.0 완료) |
 | v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 |
 | v0.42 | 계측·튜닝 단일 원천 |
 | v0.43 | seam 동질화 |
