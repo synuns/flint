@@ -387,6 +387,39 @@ F5 --fields 오타 검증·F6 nudge 죽은 분기·F7 MCP 사체·T2 stale/dead
 
 #4 --reason 메타데이터(의도된 감사 흔적).
 
+### v0.42.0 마이너 (2026-11-13) — 계측·튜닝 단일 원천: 등록표·파생 산출·이벤트 인덱스
+
+지표 수치·보고 값 불변 원칙 아래 계측·튜닝의 진실 원천을 단일화한다.
+스키마 v9는 additive(기존 DB 무손상).
+
+- [x] thresholds 키 등록표 — lib/wire/threshold_meta.go 신설:
+  ThresholdMeta{Field, Key, Default, Desc} 29키 단일 소스.
+  ThresholdsKeys(SQL IN·maintain 감사)·ops TuningKeys(TUNING §2 표
+  Default·Consumer·Get)·PruneReadEvents/PruneDaily 재파싱이 전부 등록표
+  파생. 가드 TestThresholdRegistrySingleSource(등록표 ↔ 기존 키 집합·
+  Parse 인식·Default 동질)·TestNewKeyPropagates(가상 키 등록 시
+  4경로 동시 반영) — 키 추가 드리프트(4곳 수동 유지) 폐지
+- [x] read_stats blob 폐지·파생 산출 — meta read_stats 누적 blob
+  (read-modify-write, 병렬 유실) 폐지: read 1회 쓰기 4→2
+  (BumpReads·RecordReadEvent). report 효과·doctor zero-near는
+  daily:*·read_events 파생 산출. TestEffectParity가 같은 픽스처에서
+  전환 전후 수치 동등을 단언. 운영 DB 잔존 blob은 읽지 않는 무해 잔류
+- [x] RecordReadEvent 구조체화 — 위치인자 7개 → db.ReadEvent{Hits,
+  Zero, Near, Fallback, Session, IDs, FirstRank}(db·knowledge 인터페이스
+  동시 갱신)
+- [x] 스키마 v9(이벤트 인덱스, additive) — CREATE INDEX IF NOT EXISTS:
+  read_events(ts)·hot_events(ts)·session_starts(ts) + knowledge partial
+  (status='pending' WHERE invalid_at IS NULL). 게이트 등록표 v9 등록으로
+  연속성 가드 자동 — 실DB 실증
+- [x] hotLens/hotPersisted 엣지 수선 — hotLens 절산(상한 초과 세션
+  절단) 시 hotPersisted 오프셋 재조정(fr-v0400 기록 엣지),
+  TestHotLensTruncateConsistency
+- read_calls 보존창 의미 변화 — status read_calls는 누적 blob이 아니라
+  events_retention_days 보존창(기본 14일)의 read_events 집계가 된다
+- [x] 버전 — VERSION·배지 v0.42.0(EN/KO)·plugin.json 동기
+
+세부: [docs/plans/2026-11-13-flint-v0422.spec.md](plans/2026-11-13-flint-v0422.spec.md)
+
 ### v0.41.0 마이너 (2026-11-13) — 스키마 진실: 게이트 등록표·상태 전이 단일화·쓰기 repo 집중
 
 스키마 진실 단일화 — 스키마·상태·쓰기의 진실 원천을 lib/db로 모은다.
@@ -508,7 +541,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 | v0.39 | 패키지 분할 2/3 — knowledge 분리 (v0.39.0 완료) |
 | v0.40 | 패키지 분할 3/3 — ops 분리 (v0.40.0 완료) |
 | v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 (v0.41.0 완료) |
-| v0.42 | 계측·튜닝 단일 원천 |
+| v0.42 | 계측·튜닝 단일 원천 (v0.42.0 완료) |
 | v0.43 | seam 동질화 |
 | v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
 
@@ -648,7 +681,7 @@ profile_hint가 "회상 선도 낮음 — minimal 전환 고려"를 매번 안�
 | v0.39 | 패키지 분할 2/3 — knowledge 분리 (v0.39.0 완료) |
 | v0.40 | 패키지 분할 3/3 — ops 분리 (v0.40.0 완료) |
 | v0.41 | 스키마 진실 단일화·상태 전이 단일화·Store 읽기전용 (v0.41.0 완료) |
-| v0.42 | 계측·튜닝 단일 원천 |
+| v0.42 | 계측·튜닝 단일 원천 (v0.42.0 완료) |
 | v0.43 | seam 동질화 |
 | v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
 
