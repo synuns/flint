@@ -169,12 +169,23 @@ func intArgStrict(args map[string]any, key string) (int, bool) {
 	return 0, false
 }
 
+// writeKindExpect — flint write가 수용하는 kind 집합. 원천은
+// lib/store/validate.go의 kindExpect(비수출 상수 — MCP 계층에서 재사용
+// 불가라 값 계약으로 복제). 변경 시 양쪽을 같이 고친다.
+// v1.2.3 R17-B5: 무효 kind의 runFn 도달 전 서버측 차단.
+const writeKindExpect = "knowledge|session|project"
+
 // dispatchWrite — flint write <kind> + stdin payload JSON. dedup는 CLI 파이프라인
-// 위임으로 도구 호출로도 멱등이다.
+// 위임으로 도구 호출로도 멱등이다. kind는 화이트리스트 서버측 검증(B5).
 func dispatchWrite(args map[string]any) (string, int) {
 	kind := strArg(args, "kind")
 	if kind == "" {
 		return `{"error":"schema","field":"kind","expect":"required"}`, 3
+	}
+	switch kind {
+	case "knowledge", "session", "project":
+	default:
+		return `{"error":"schema","field":"kind","expect":"` + writeKindExpect + `"}`, 3
 	}
 	payload, ok := args["payload"]
 	if !ok {
@@ -187,13 +198,11 @@ func dispatchWrite(args map[string]any) (string, int) {
 	return runCall([]string{"write", kind, "--source", "mcp"}, bytes.NewReader(b))
 }
 
-// dispatchHot — flint hot --session 조립.
+// dispatchHot — flint hot 조립. v1.2.3 R17-B6: session_id 잔여 제거 —
+// v1.0.1 F7로 --session은 조회 무영향 no-op였고 광고에서도 폐기됐다.
+// 알 수 없는 인자는 무시한다(도구 계약상 인자 없음).
 func dispatchHot(args map[string]any) (string, int) {
-	var cliArgs []string
-	if s := strArg(args, "session_id"); s != "" {
-		cliArgs = append(cliArgs, "--session", s)
-	}
-	return runCall(append([]string{"hot"}, cliArgs...), strings.NewReader(""))
+	return runCall([]string{"hot"}, strings.NewReader(""))
 }
 
 // runCall — 조립된 인자로 runFn 실행, 출력의 끝 개행만 제거해 반환.

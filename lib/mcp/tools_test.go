@@ -201,11 +201,12 @@ func TestDispatchWriteMissingKind(t *testing.T) {
 	}
 }
 
-// TestDispatchHotRoundtrip — flint_hot{session_id} → cli hot 조립.
+// TestDispatchHotRoundtrip — flint_hot → cli hot 조립(v1.2.3 B6: session_id
+// 잔여 제거 — 인자 없음).
 func TestDispatchHotRoundtrip(t *testing.T) {
 	calls, real := installRun(t, "hot summary", 0)
-	out, code := DispatchTool("flint_hot", map[string]any{"session_id": "s1"})
-	wantArgs(t, calls, []string{"hot", "--session", "s1"})
+	out, code := DispatchTool("flint_hot", nil)
+	wantArgs(t, calls, []string{"hot"})
 	if code != 0 {
 		t.Errorf("code = %d, want 0", code)
 	}

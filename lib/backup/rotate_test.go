@@ -47,76 +47,84 @@ func mustGone(t *testing.T, path string) {
 }
 
 // 계획 지정: 3쌍 → keep 2 → 1쌍 삭제(최신 2쌍 유지).
+// R17-B1 이후 파일명은 flintDumpName 패턴(flint- 생성 파일)을 사용.
 func TestRotateKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	writeDump(t, dir, "a.sql", base, true)                   // 최신
-	writeDump(t, dir, "b.sql", base.Add(-time.Hour), true)   // 중간
-	writeDump(t, dir, "c.sql", base.Add(-2*time.Hour), true) // 가장 오래됨
+	a := "flint-20261022-120000-101.sql" // 최신
+	b := "flint-20261022-110000-102.sql" // 중간
+	c := "flint-20261022-100000-103.sql" // 가장 오래됨
+	writeDump(t, dir, a, base, true)
+	writeDump(t, dir, b, base.Add(-time.Hour), true)
+	writeDump(t, dir, c, base.Add(-2*time.Hour), true)
 
 	removed, err := Rotate(dir, 2)
 	if err != nil {
 		t.Fatalf("Rotate 에러: %v", err)
 	}
-	if len(removed) != 2 || removed[0] != "c.sql" || removed[1] != "c.sql.sha256" {
-		t.Fatalf("removed=%v, want [c.sql c.sql.sha256]", removed)
+	if len(removed) != 2 || removed[0] != c || removed[1] != c+".sha256" {
+		t.Fatalf("removed=%v, want [%s %s.sha256]", removed, c, c)
 	}
-	mustExist(t, filepath.Join(dir, "a.sql"))
-	mustExist(t, filepath.Join(dir, "a.sql.sha256"))
-	mustExist(t, filepath.Join(dir, "b.sql"))
-	mustExist(t, filepath.Join(dir, "b.sql.sha256"))
-	mustGone(t, filepath.Join(dir, "c.sql"))
-	mustGone(t, filepath.Join(dir, "c.sql.sha256"))
+	mustExist(t, filepath.Join(dir, a))
+	mustExist(t, filepath.Join(dir, a+".sha256"))
+	mustExist(t, filepath.Join(dir, b))
+	mustExist(t, filepath.Join(dir, b+".sha256"))
+	mustGone(t, filepath.Join(dir, c))
+	mustGone(t, filepath.Join(dir, c+".sha256"))
 }
 
 // Review Focus(file): 사이드카 누락 파일은 .sql 단독 삭제(removed에도 단독).
 func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	writeDump(t, dir, "new.sql", base, true)
-	writeDump(t, dir, "old.sql", base.Add(-time.Hour), false) // 사이드카 없음
+	newName := "flint-20261022-120000-201.sql"
+	oldName := "flint-20261022-110000-202.sql"
+	writeDump(t, dir, newName, base, true)
+	writeDump(t, dir, oldName, base.Add(-time.Hour), false) // 사이드카 없음
 
 	removed, err := Rotate(dir, 1)
 	if err != nil {
 		t.Fatalf("Rotate 에러: %v", err)
 	}
-	if len(removed) != 1 || removed[0] != "old.sql" {
-		t.Fatalf("removed=%v, want [old.sql] (사이드카 없으므로 단독)", removed)
+	if len(removed) != 1 || removed[0] != oldName {
+		t.Fatalf("removed=%v, want [%s] (사이드카 없으므로 단독)", removed, oldName)
 	}
-	mustGone(t, filepath.Join(dir, "old.sql"))
-	mustExist(t, filepath.Join(dir, "new.sql"))
-	mustExist(t, filepath.Join(dir, "new.sql.sha256"))
+	mustGone(t, filepath.Join(dir, oldName))
+	mustExist(t, filepath.Join(dir, newName))
+	mustExist(t, filepath.Join(dir, newName+".sha256"))
 }
 
 // Review Focus(numeric): keep≤0은 전체 삭제 아님 — 최소 1 보장.
 func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	writeDump(t, dir, "new.sql", base, true)
-	writeDump(t, dir, "old.sql", base.Add(-time.Hour), true)
+	newName := "flint-20261022-120000-301.sql"
+	oldName := "flint-20261022-110000-302.sql"
+	writeDump(t, dir, newName, base, true)
+	writeDump(t, dir, oldName, base.Add(-time.Hour), true)
 
 	removed, err := Rotate(dir, 0)
 	if err != nil {
 		t.Fatalf("Rotate 에러: %v", err)
 	}
-	if len(removed) != 2 || removed[0] != "old.sql" || removed[1] != "old.sql.sha256" {
-		t.Fatalf("removed=%v, want [old.sql old.sql.sha256] (최신 1쌍은 잔존)", removed)
+	if len(removed) != 2 || removed[0] != oldName || removed[1] != oldName+".sha256" {
+		t.Fatalf("removed=%v, want [%s %s.sha256] (최신 1쌍은 잔존)", removed, oldName, oldName)
 	}
-	mustExist(t, filepath.Join(dir, "new.sql"))
-	mustExist(t, filepath.Join(dir, "new.sql.sha256"))
+	mustExist(t, filepath.Join(dir, newName))
+	mustExist(t, filepath.Join(dir, newName+".sha256"))
 
 	// 음수도 동일 — 최소 1.
-	writeDump(t, dir, "old.sql", base.Add(-time.Hour), true)
+	writeDump(t, dir, oldName, base.Add(-time.Hour), true)
 	if removed, err = Rotate(dir, -3); err != nil || len(removed) != 2 {
 		t.Fatalf("keep=-3: removed=%v err=%v, want 2항목 잔존 1쌍", removed, err)
 	}
-	mustExist(t, filepath.Join(dir, "new.sql"))
+	mustExist(t, filepath.Join(dir, newName))
 }
 
 // keep 이하 — no-op, removed 빈 목록.
 func TestRotateNoopWhenUnderKeep(t *testing.T) {
 	dir := t.TempDir()
-	writeDump(t, dir, "only.sql", time.Now(), true)
+	writeDump(t, dir, "flint-20261022-120000-401.sql", time.Now(), true)
 
 	removed, err := Rotate(dir, 14)
 	if err != nil {
@@ -125,14 +133,14 @@ func TestRotateNoopWhenUnderKeep(t *testing.T) {
 	if len(removed) != 0 {
 		t.Fatalf("removed=%v, want 빈 목록", removed)
 	}
-	mustExist(t, filepath.Join(dir, "only.sql"))
+	mustExist(t, filepath.Join(dir, "flint-20261022-120000-401.sql"))
 }
 
 // .sql 외 파일(.sha256 단독 orphan 등)은 건드리지 않는다.
 func TestRotateIgnoresNonSql(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Now()
-	writeDump(t, dir, "new.sql", base, true)
+	writeDump(t, dir, "flint-20261022-120000-501.sql", base, true)
 	other := filepath.Join(dir, "notes.txt")
 	if err := os.WriteFile(other, []byte("x"), 0o644); err != nil {
 		t.Fatal(err)

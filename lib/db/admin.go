@@ -515,12 +515,25 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 	return fmt.Errorf("approve: id=%d 예상 밖 상태 %q", id, status)
 }
 
-// Merge는 from을 무효화하고(status·invalid_at 병기 — v0.20.1 Invalidate
-// 정합) to summary에 병합 표시를 남긴다(중복 정리).
+// Merge는 from을 무효화하고(status·superseded_by·invalid_at 병기 —
+// Supersede와 동일한 열·갱신 형식, v1.2.3 T4) to summary에 병합 표시를
+// 남긴다(중복 정리). 계보는 superseded_by 단일 모델 — 마커 suffix 관례는
+// 유지하되 계보 질의가 유실되지 않게 두 갱신을 한 트랜잭션 블록으로 묶는다
+// (부분 갱신 — 마커만 남고 superseded_by 누락 — 차단). 이미 invalidated된
+// from의 재병합은 0행 후견사로 거부(Supersede 관례 계승 — 마커 재부착
+// 방지).
 func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
-	ct, err := r.pool.Exec(ctx,
-		`UPDATE knowledge SET status = 'invalidated', invalid_at = now()
-		 WHERE id = $1 AND invalid_at IS NULL`, fromID)
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("merge: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	ct, err := tx.Exec(ctx, `
+		UPDATE knowledge
+		SET status = 'invalidated',
+		    superseded_by = $2,
+		    invalid_at = now()
+		WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`, fromID, toID)
 	if err != nil {
 		return fmt.Errorf("merge: invalidate from: %w", err)
 	}
@@ -528,19 +541,24 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 		if err := r.ensureExists(ctx, fromID, "merge from"); err != nil {
 			return err
 		}
+		return fmt.Errorf("%w: merge: id=%d 갱신 미반영(이미 처리된 from — 재병합 거부)",
+			ErrNotFound, fromID)
 	}
 	marker := fmt.Sprintf(" [merged:from=%d]", fromID)
-	ct, err = r.pool.Exec(ctx,
+	ct, err = tx.Exec(ctx,
 		`UPDATE knowledge SET summary = summary || $2
 		 WHERE id = $1 AND summary NOT LIKE '%' || $2`, toID, marker)
 	if err != nil {
 		return fmt.Errorf("merge: mark to: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
+		// 마커가 이미 suffix면 재부착하지 않는다(멱등 통과).
 		if err := r.ensureExists(ctx, toID, "merge to"); err != nil {
 			return err
 		}
-		// 이미 표시돼 있으면 멱등 통과.
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("merge: tx commit: %w", err)
 	}
 	_, err = r.Commit(ctx, fmt.Sprintf(
 		"merge: from=%d into=%d (중복 정리 병합 갱신 경로) [session:0]", fromID, toID))

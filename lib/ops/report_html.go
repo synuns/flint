@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -139,9 +140,12 @@ type BarSeg struct {
 // runReportHTML — `flint report --html [--days N] [--out file]`.
 // 미지정 --out은 report.html(FLINT_HOME 아님 — 사용자가 지정한 곳).
 func runReportHTML(ctx context.Context, st wire.Store, days int, out string, stdout io.Writer) int {
+	// v1.2.3 R17 C2: 수집 오류 exit 코드는 JSON 경로(RunReport)와 동일한
+	// store.MapExit — server_down→2·SchemaError→3. 수정 전에는 전 스텝
+	// 오류를 하드코딩 1로 돌려 같은 커맨드의 두 뷰가 코드가 갈렸다.
 	if err := st.Ping(ctx); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
-		return 1
+		return store.MapExit(err)
 	}
 	// 보고 원천 재사용 — HTML이 별도 지표를 만들지 않는다(단일 소스:
 	// runReport와 동일 수집 체인). v0.36.0 재설계: DupPct(G2 병기 —
@@ -156,7 +160,7 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 	} {
 		if err := step(ctx, st, days, &rep); err != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(err))
-			return 1
+			return store.MapExit(err)
 		}
 	}
 	rep.DupPct = DupPct(rep.Days)

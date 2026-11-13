@@ -41,6 +41,10 @@ func SessionLabelFile(session string) string {
 // 내용. 부재·빈 내용은 ok=false(구 session-current 폴백은 v1.1.0 T2
 // 제거 — 잔존 파일 무시). 동시 병렬 세션의 판정 불가 채택은 기존
 // last-writer-wins 룰링 승계(라벨은 보조 계정 — METRICS.md).
+// v1.2.3 T9(A4): 채택(읽기 성공) 시 그 라벨 파일의 mtime을 터치 —
+// 14일(기본) 초과 활성 세션의 라벨이 타 세션 session-start 정리
+// (PruneSessionLabels)에서 사라지는 것을 막는다. mtime 갱신 실패는
+// 조용히 무시(읽기전용 FS — 라벨 조회 실패 경로는 불변).
 func ReadSessionLabel() (string, bool) {
 	d := configDirOrEmpty()
 	if d == "" {
@@ -68,7 +72,13 @@ func ReadSessionLabel() (string, bool) {
 		return "", false
 	}
 	s := strings.TrimSpace(string(b))
-	return s, s != ""
+	if s == "" {
+		return "", false
+	}
+	// 채택 mtime 터치(T9 A4) — 활성 사용 라벨의 정리 생존. 실패 무시.
+	now := time.Now()
+	_ = os.Chtimes(newest, now, now)
+	return s, true
 }
 
 // PruneSessionLabels — 만료된 세션 라벨 파일 제거(v1.0.2 R2-A2).

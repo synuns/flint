@@ -107,15 +107,17 @@
   bytes·zero_reason·source·knowledge_reads 테이블)·daily 카운터 플랫
   키 전환(구 JSON 폴백 승계)·제로히트 분해(zero_unowned/owned_miss)·
   토큰 회계 cost 객체(p95·절약 하한·주입 원가)·G6 회상 운명
-  (survived/bad_recall)·hot→read 연쇄·검수·발화 카운터·구조화 진단
-  `report --diag`(METRICS §4·TUNING §2)
+  (survived/bad_recall)·hot→read 연쇄·검수·발화 카운터·구조화 진단 —
+  진단은 항상 포함(별도 플래그 없음)·세 뷰 동일 원천: 기본(한 줄
+  JSON)·--text(사람 읽기·진단 Sentence, v1.2.3 신설)·--html(대시보드
+  카드)이 동일 Diagnose() 산출(METRICS §4.8·TUNING §2)
 - 감사 정책(v1.0.10 확정): 감사는 신규 변경 시에만 재개. 무인 루프의
   정지 규칙 — 한 라운드 도출이 단일 계열의 구문 변형만 남기면 근본
   수정 또는 한계 선언 후 종결(R3~R10이 증명한 교훈). 쓰기 가드의
   설계 경계(함수 간 데이터플로우·분기 조건부 재할당·append 동적
   확장)는 패키지 리뷰·실DB 테스트가 담당 — 정적 가드 영역 밖으로
   선언됨.
-- 배포 전 문서 정합(v1.2.0): `make docs-sync` — 문서 계약 테스트 20종
+- 배포 전 문서 정합(v1.2.0): `make docs-sync` — 문서 계약 테스트 41종
   (버전·배지·커맨드 표·SKILL·contracts·PLAN·RUNBOOK·TUNING)을 릴리스
   게이트에서 명시 선행 단계로 격상(문서=코드와 동일 게이트 원칙).
 - CI 신뢰성(v1.0.10): `make ci` 타깃 자체에 `-count=1` 고정(캐시 무효) —

@@ -416,26 +416,45 @@ func agentLabel(agent string, max int) string {
 // recallStarvedToday — 오늘 daily 카운터로 회상 부재 판정(v0.18.0 R3).
 // read 0 && write >= RecallWarnWrites일 때만 true. 카운터 조회·파손은
 // 조용히 false(경고 부재 = 종료 경로 불변 — §13).
+// v1.2.3 T1(R17 A1): 기록 원천을 실제 생산자와 정렬 — write는 v1.2.0 T1
+// 플랫 키 `daily:write:<date>` int 값 직독(구 daily:<date> JSON 폴백 폐지
+// — RecordUsage가 그 키를 더 쓰지 않아 폴백이 항상 0을 돌려주며 카운터가
+// 영구 동결, 회상 경고·recall_starved_count가 사망했다). read는 v0.42
+// read_events 당일(UTC 자정 이후·내일 자정 미만) 행 수 — 일자 절단은
+// ops.mergeDerivedReadDaily와 동일 관례(Go 계산 UTC 자정 컷오프 파라미터,
+// SQL interval 산산 금지). read_events 부재 스키마·조회 실패는 read=0
+// 취급이 아니라 조용히 (0, false). 파손된 플랫 값(비int)도 기존처럼 조용히 0.
 func recallStarvedToday(ctx context.Context, st wire.Store, th store.Thresholds) (writes int, starved bool) {
 	if th.RecallWarnWrites <= 0 {
 		return 0, false
 	}
+	day := time.Now().UTC().Format("2006-01-02")
 	getKV, _ := metaKV(ctx, st)
-	v, err := getKV("daily:" + time.Now().UTC().Format("2006-01-02"))
-	if err != nil || v == "" {
+	v, err := getKV("daily:write:" + day)
+	if err != nil {
 		return 0, false
 	}
-	// v0.39.0 T4: reportDay(cli/report.go 소유)는 cli를 임포트할 수 없어
-	// 필요한 2필드(write·read)만 로컬 디코딩 — JSON 키 부재는 zero 값으로
-	// 디코딩되는 reportDay 계약과 동일하다.
-	var d struct {
-		Write int `json:"write"`
-		Read  int `json:"read"`
+	if writes, err = strconv.Atoi(strings.TrimSpace(v)); err != nil {
+		return 0, false // 파손된 플랫 값 — 조용히 0
 	}
-	if json.Unmarshal([]byte(v), &d) != nil {
+	if writes < th.RecallWarnWrites {
+		return writes, false // 임계 미달 — read 조회 없이 경고 없음
+	}
+	cutoff, cerr := time.Parse("2006-01-02", day)
+	if cerr != nil {
 		return 0, false
 	}
-	return d.Write, d.Read == 0 && d.Write >= th.RecallWarnWrites
+	rows, qerr := wire.QueryOnce(ctx, st,
+		`SELECT count(*) FROM read_events WHERE ts >= $1 AND ts < $2`,
+		[]any{cutoff, cutoff.AddDate(0, 0, 1)})
+	if qerr != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0, false
+	}
+	var reads int
+	if n, _ := fmt.Sscan(fmt.Sprint(rows[0][0]), &reads); n != 1 {
+		return 0, false
+	}
+	return writes, reads == 0
 }
 
 // AutoBackupFn — seam. 기본 실동작, fast 단위 테스트는 no-op으로 교체

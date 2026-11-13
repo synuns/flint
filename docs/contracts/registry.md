@@ -4,9 +4,10 @@
 
 ## 계약
 
-- 발행물: `mcp-registry/server.json` — MCP Registry 스키마
-  (name `io.github.synuns/flint`·description·package). 서버 정의의
-  원천은 **template**이며 server.json은 렌더 결과다.
+- 발행물: MCP Registry 스키마 매니페스트(name
+  `io.github.synuns/flint`·description·package) — 발행 원천은
+  **template + CI 렌더**이며 렌더 결과물 server.json은 repo에
+  없다(v1.2.3 잔재 삭제).
 - 발행 경로: 태그 push 시 CI가 `scripts/publish_mcp.sh`를 실행한다
   (로컬 수동 실행 가능 — mcp-publisher login 후). 스크립트는
   dist/의 `.mcpb`에서 SHA256을 계산해 template의 `{{URL}}`·

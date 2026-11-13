@@ -978,7 +978,9 @@ func checkMetaHygieneTh(ctx context.Context, st wire.Store, th store.Thresholds)
 		k := fmt.Sprint(r[0])
 		switch {
 		case strings.HasPrefix(k, "daily:"):
-			if strings.TrimPrefix(k, "daily:") < cutoff {
+			// v1.2.3 T3: 플랫 키(daily:<kind>:<date>) 지원 — 마지막
+			// 세그먼트 날짜로 판정(maintain.go dailyKeyDate 공유).
+			if d, ok := dailyKeyDate(k); ok && d < cutoff {
 				staleDaily++
 			}
 		case KnownMetaKeyFn(k) || thKeys[k]: // pb_ 등 접두 포함(리뷰 1)

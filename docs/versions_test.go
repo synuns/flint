@@ -49,6 +49,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0440Milestone", doc: "PLAN.md", wants: []string{
 		"v0.44.0", "병인 ⑤ 해소",
 	}},
+	// v1.2.3 T10: R17 감사 수정의 버전 기록 존재 계약(HISTORY 이관분).
+	{name: "TestVersion0123Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.2.3", "감사 R17",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{
@@ -532,9 +536,11 @@ func TestPluginVersionMatchesBadge(t *testing.T) {
 	}
 }
 
-// TestServerJsonValid — mcp-registry server.json 스키마 계약(이름·설명 길이).
+// TestServerJsonValid — mcp-registry manifest 스키마 계약(이름·설명 길이).
+// v1.2.3 R17-B2: 렌더 결과물 server.json은 repo에서 제거(발행 원천은
+// template + ci.yml 렌더) — 계약 검증도 template을 대상으로 한다.
 func TestServerJsonValid(t *testing.T) {
-	b, err := os.ReadFile("../mcp-registry/server.json")
+	b, err := os.ReadFile("../mcp-registry/server.json.template")
 	if err != nil {
 		t.Fatal(err)
 	}

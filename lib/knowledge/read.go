@@ -71,9 +71,9 @@ func recordKnowledgeReads(ctx context.Context, st wire.Store, ids []int, session
 }
 
 // defaultZeroOwnedFloor — 제로히트 분해 임계 기본값(spec §2.2: active≥1이면
-// owned_miss). meta 오버라이드(zero_owned_floor)는 T1 stopgap 관례
-// (knowledge_reads_retention_days와 동일 — 등록표 키 등록 전 per-key 직접
-// 읽기·n>0만 수용)로 읽는다. thresholds 등록표 키 등록은 T5/T6가 수렴.
+// owned_miss). meta 오버라이드(zero_owned_floor)는 per-key 직접 읽기
+// stopgap(등록표 키 등록 전 — n>0만 수용. v1.2.3 T9로 동일 관례의
+// knowledge_reads_retention_days는 등록표 경유로 수렴됨)로 읽는다.
 const defaultZeroOwnedFloor = 1
 
 // zeroOwnedFloorKey — 제로히트 분해 임계 meta 오버라이드 키.

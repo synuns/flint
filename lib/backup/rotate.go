@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -40,11 +41,20 @@ func BackupKeep(getKV func(string) (string, error)) int {
 	return n
 }
 
-// Rotate 는 dir 안의 .sql 파일을 mtime 최신순으로 keep개 유지하고
-// 나머지를 삭제한다. 삭제 대상 각각에 대해 짝이루는 <name>.sha256 사이드카가
-// 있으면 함께 삭제하고(누락 시 .sql 단독), removed에 삭제한 basename을
-// 기록한다(오래된 것부터: 원본 직후 사이드카). keep<1은 최소 1로 보정
-// (전체 삭제 금지). dir 읽기 실패는 에러, 삭제 실패는 부분 목록+에러.
+// flintDumpName — flint 생성 덤프 파일명(flint-YYYYMMDD-HHMMSS-PID.sql
+// 및 암호화 .sql.age, lazyDumpFile 조립 형식 그대로 — done.go ext 참조.
+// bare .age는 v0.28.0 로테이션 계약 승계). R17-B1: 로테이션은 이 패턴에
+// 일치하는 파일만 대상으로 삼는다 — 사용자가 같은 디렉터리에 둔
+// .sql/.age는 삭제도 keep 집계도 제외한다.
+var flintDumpName = regexp.MustCompile(`^flint-\d{8}-\d{6}-\d+\.(sql|sql\.age|age)$`)
+
+// Rotate 는 dir 안의 flint 생성 덤프(파일명 패턴은 flintDumpName)를
+// mtime 최신순으로 keep개 유지하고 나머지를 삭제한다. 패턴 외 .sql/.age는
+// 사용자 파일로 간주해 keep 집계에서도 제외한다. 삭제 대상 각각에 대해
+// 짝이루는 <name>.sha256 사이드카가 있으면 함께 삭제하고(누락 시 단독),
+// removed에 삭제한 basename을 기록한다(오래된 것부터: 원본 직후 사이드카).
+// keep<1은 최소 1로 보정(전체 삭제 금지). dir 읽기 실패는 에러,
+// 삭제 실패는 부분 목록+에러.
 // e.g. Rotate(dir,1) with a.sql(new)·b.sql(old) -> removed=[b.sql b.sql.sha256]
 func Rotate(dir string, keep int) ([]string, error) {
 	if keep < 1 {
@@ -62,7 +72,8 @@ func Rotate(dir string, keep int) ([]string, error) {
 	var dumps []dump
 	for _, e := range entries {
 		// v0.28.0: 암호화 백업(.sql.age)도 로테이션 대상 — ext는 .age.
-		if e.IsDir() || !isDumpExt(filepath.Ext(e.Name())) {
+		// R17-B1: flint 생성 패턴만 대상 — 사용자 .sql/.age는 집계 제외.
+		if e.IsDir() || !isDumpExt(filepath.Ext(e.Name())) || !flintDumpName.MatchString(e.Name()) {
 			continue
 		}
 		info, ierr := e.Info()

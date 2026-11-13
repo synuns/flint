@@ -36,21 +36,26 @@ func regDump(t *testing.T, dir, name string, mtime time.Time, withSide bool) {
 }
 
 // 계획 지정 케이스 — 3쌍 → keep 2 → 최신 2쌍 유지·1쌍 삭제.
+// R17-B1 이후 로테이션 대상은 flint 생성 패턴(flint-YYYYMMDD-HHMMSS-PID)
+// 이므로 회귀 픽스처도 패턴 준수 파일명을 쓴다.
 func TestRotateKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	regDump(t, dir, "a.sql", base, true)
-	regDump(t, dir, "b.sql", base.Add(-time.Hour), true)
-	regDump(t, dir, "c.sql", base.Add(-2*time.Hour), true)
+	a := "flint-20261022-120000-101.sql"
+	b := "flint-20261022-110000-102.sql"
+	c := "flint-20261022-100000-103.sql"
+	regDump(t, dir, a, base, true)
+	regDump(t, dir, b, base.Add(-time.Hour), true)
+	regDump(t, dir, c, base.Add(-2*time.Hour), true)
 
 	removed, err := backup.Rotate(dir, 2)
 	if err != nil {
 		t.Fatalf("Rotate 에러: %v", err)
 	}
-	if len(removed) != 2 || removed[0] != "c.sql" || removed[1] != "c.sql.sha256" {
-		t.Fatalf("removed=%v, want [c.sql c.sql.sha256]", removed)
+	if len(removed) != 2 || removed[0] != c || removed[1] != c+".sha256" {
+		t.Fatalf("removed=%v, want [%s %s.sha256]", removed, c, c)
 	}
-	for _, name := range []string{"a.sql", "a.sql.sha256", "b.sql", "b.sql.sha256"} {
+	for _, name := range []string{a, a + ".sha256", b, b + ".sha256"} {
 		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
 			t.Fatalf("잔존해야 함: %s: %v", name, err)
 		}
@@ -61,21 +66,23 @@ func TestRotateKeepsNewest(t *testing.T) {
 func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	regDump(t, dir, "new.sql", base, true)
-	regDump(t, dir, "old.sql", base.Add(-time.Hour), false)
+	newName := "flint-20261022-120000-201.sql"
+	oldName := "flint-20261022-110000-202.sql"
+	regDump(t, dir, newName, base, true)
+	regDump(t, dir, oldName, base.Add(-time.Hour), false)
 
 	removed, err := backup.Rotate(dir, 1)
 	if err != nil {
 		t.Fatalf("Rotate 에러: %v", err)
 	}
-	if len(removed) != 1 || removed[0] != "old.sql" {
-		t.Fatalf("removed=%v, want [old.sql]", removed)
+	if len(removed) != 1 || removed[0] != oldName {
+		t.Fatalf("removed=%v, want [%s]", removed, oldName)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "old.sql")); !os.IsNotExist(err) {
-		t.Fatalf("old.sql 미삭제: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, oldName)); !os.IsNotExist(err) {
+		t.Fatalf("%s 미삭제: %v", oldName, err)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "new.sql")); err != nil {
-		t.Fatalf("new.sql 유지 실패: %v", err)
+	if _, err := os.Stat(filepath.Join(dir, newName)); err != nil {
+		t.Fatalf("%s 유지 실패: %v", newName, err)
 	}
 }
 
@@ -83,18 +90,46 @@ func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	regDump(t, dir, "new.sql", base, true)
-	regDump(t, dir, "old.sql", base.Add(-time.Hour), true)
+	newName := "flint-20261022-120000-301.sql"
+	oldName := "flint-20261022-110000-302.sql"
+	regDump(t, dir, newName, base, true)
+	regDump(t, dir, oldName, base.Add(-time.Hour), true)
 
 	removed, err := backup.Rotate(dir, 0)
 	if err != nil {
 		t.Fatalf("Rotate 에러: %v", err)
 	}
 	if len(removed) != 2 {
-		t.Fatalf("removed=%v, want [old.sql old.sql.sha256]", removed)
+		t.Fatalf("removed=%v, want [%s %s.sha256]", removed, oldName, oldName)
 	}
-	if _, err := os.Stat(filepath.Join(dir, "new.sql")); err != nil {
+	if _, err := os.Stat(filepath.Join(dir, newName)); err != nil {
 		t.Fatalf("keep 0에도 최신 1쌍은 유지: %v", err)
+	}
+}
+
+// R17-B1 회귀 가드 — flint 생성 패턴 외 .sql/.age는 삭제도 keep 집계도
+// 제외(구 계약의 무차별 삭제가 재발하면 이 테스트가 잡는다).
+func TestRotatePreservesForeignFiles(t *testing.T) {
+	dir := t.TempDir()
+	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
+	mine := "mine.sql"
+	manual := "manual-export.age"
+	regDump(t, dir, mine, base.Add(-48*time.Hour), true) // 가장 구 mtime
+	regDump(t, dir, manual, base.Add(-47*time.Hour), false)
+	regDump(t, dir, "flint-20261022-120000-401.sql", base, true) // 최신
+	regDump(t, dir, "flint-20261022-110000-402.sql", base.Add(-time.Hour), false)
+
+	removed, err := backup.Rotate(dir, 1)
+	if err != nil {
+		t.Fatalf("Rotate 에러: %v", err)
+	}
+	if len(removed) != 1 || removed[0] != "flint-20261022-110000-402.sql" {
+		t.Fatalf("removed=%v, want [flint-20261022-110000-402.sql] — 사용자 파일은 제외", removed)
+	}
+	for _, name := range []string{mine, mine + ".sha256", manual} {
+		if _, err := os.Stat(filepath.Join(dir, name)); err != nil {
+			t.Fatalf("사용자 파일 보존 실패: %s: %v", name, err)
+		}
 	}
 }
 

@@ -6,6 +6,18 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.2.3 패치 (2026-11-13) — 감사 R17: 12건 수정
+
+- [x] 문서 정합 4건 — PLAN 진단 플래그 서술 정정(진단은 항상
+  포함 — 별도 플래그 없음)·METRICS §4.6 잔여 후보 자기모순 해소
+  (A2는 회수 완료·A1은 파생 지표만 잔여로 정정)·METRICS 진단
+  섹션 신설(§4.8 — 8규칙·A/B/C계층·신호→지표 교차참조·diag_* 키)·
+  goreleaser 주석 잡명 정정(ci.yml deploy 잡)
+- [x] docs-sync 테스트 수 표기 실측 통일(41종)·세 뷰 동일 원천 완성 —
+  기본(한 줄 JSON)·--text(사람 읽기·진단 Sentence, 이번에 신설 —
+  그 전엔 JSON·HTML 2뷰)·--html(대시보드 카드)이 동일 Diagnose()
+  산출
+
 ### v1.2.2 패치 (2026-11-13) — 감사 R16 종결
 
 - [x] parseFloatPositive·parseFloatOrDefault에 NaN·±Inf 거부 가드 —
@@ -31,7 +43,7 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
   G6 회상 운명(survived_pct·bad_recall_pct)
 - [x] 규칙 진단 D — DiagnosisItem{signal·value·basis·action·
   tuning_key}·8규칙·3뷰 동일 원천(뷰 분열 금지)·정상 침묵
-- [x] make docs-sync — 배포 전 문서 정합 게이트(계약 테스트 20종)
+- [x] make docs-sync — 배포 전 문서 정합 게이트(계약 테스트 41종)
 
 ### v1.1.0 마이너 (2026-11-13) — 토큰 관측(G5)·마일스톤 잔여
 
