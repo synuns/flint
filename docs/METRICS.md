@@ -1,4 +1,4 @@
-# flint 효과 계측 기준 (v0.19.0)
+# flint 효과 계측 기준 (v1.2.3)
 
 flint가 에이전트에게 "도움이 되는가"를 재는 기준. 사용량(read·write
 호출 수)은 필요조건이지 효과가 아니다 — 이 문서는 무엇을 도움으로
@@ -224,14 +224,14 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
 ## 4.6 수집 후보(토큰 경제·조사 완료 — 미구현 로드맵)
 
 2026-11-11 다각 조사(토큰 경제 중심) 기반 후보. 구현 시점·버전은 별도
-조율(구조 수렴 시리즈와 스케줄 공존). **v1.2.0이 A1·A2·B3 상당을
-회수**(knowledge_reads kind 태깅·read_events.bytes·hot_read_chain_pct) —
-잔여 후보는 아래:
+조율(구조 수렴 시리즈와 스케줄 공존). **v1.2.0이 A1·A2·B3을 회수** —
+A1 경로 분리는 knowledge_reads kind 태깅('hot'|'read' 전수 기록)·A2는
+read_events.bytes 열(스키마 v10 — 파생 read_out_avg·out_per_hit 원천
+확보)·B3 상당은 hot_read_chain_pct. 잔여 후보는 아래(A1은 파생
+지표만 잔여):
 
-- **A1 hot 주입 경로 분리** — RecordHotLen에 headline/--full 태깅(1순위:
-  기존 500샘플 분포가 예산 분석으로 살아남. 파생 budget_fill_pct)
-- **A2 read 출력 크기** — read_events.out_len(additive, 스키마 버전필요).
-  파생 read_out_avg·out_per_hit
+- **A1 잔여 — 파생 budget_fill_pct** — 경로 분리(kind 태깅)는 v1.2.0
+  회수 완료. hot_budget 대비 주입 채움 비율 파생만 미구현
 - **A3 토큰 환산 표시** — rune→토큰 근사(한글×1.1+기타÷4·±30% 명시)는
   report 표시 전용. **v0.36.0 대시보드에 이미 반영**(footer 추정 라벨)
 - **B1 회상 지식 나이** — read_events.ids ⋈ knowledge.ingested_at 집계만
@@ -249,6 +249,31 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
 `daily_retention_days` 창 내 합(기본 14일). `*_14d` 명칭 필드가
 실제 창을 표시한다(오버라이드 반영 — 거짓 이름 방어, v0.24.0).
 report의 기간 지표와 동일 산식이므로 해석 차이 없다.
+
+## 4.8 구조화 진단 (v1.2.0)
+
+진단은 별도 플래그 없이 report에 **항상 포함**된다(정상 침묵 — 문제
+없으면 빈 배열). 각 항목은 신호+수치+기준 출처+행동의 1줄 구조
+(DiagnosisItem)이며 세 뷰 — 기본(한 줄 JSON)·--text(사람 읽기·진단
+Sentence)·--html(대시보드 카드) — 가 같은 원천(ReportOutput.Diagnosis,
+단일 Diagnose() 산출)에서 렌더된다(뷰 간 데이터 분열 금지). --text는
+v1.2.3 신설(그 전엔 JSON·HTML 2뷰).
+원천 코드: lib/ops/diagnosis.go·설계: docs/plans/2026-11-13-flint-v1200.spec.md.
+
+기준 3계층·규칙 8항목(표의 지표 열은 §4 신호→지표 교차참조):
+
+| 계층 | 신호(규칙) | 관련 지표 | 조정 키 |
+|---|---|---|---|
+| A 자기참조 | hot_budget_saturation / hot_budget_slack(hot 주입 평균 vs hot_budget 밴드 양방) | G5 `bytes.hot.avg_bytes` | `hot_budget`·`diag_hot_budget_high`·`diag_hot_budget_low` |
+| A 자기참조 | hot_bytes_trend(창 전반/후반 hot_bytes 합 급변) | G5 `hot_bytes` | `diag_trend_pct` |
+| A 자기참조 | hit_cost_exceeds_savings(주입 원가 > 절약 하한 — 상회가 순손실 증명은 아님) | G5 `cost` 객체 | 없음(라벨 계약) |
+| B 레지스트리 승계 | zero_near_high | G1 `zero_near_pct` | `zero_near_warn_pct`·`zero_near_min_read` |
+| B 레지스트리 승계 | dead_knowledge | G3 `dead_pct` | `diag_dead_warn`·`dead_days` |
+| B 레지스트리 승계 | pending_backlog(승인 대기 적체) | 검수 대기(운영 상태) | `pending_age_days` |
+| C 가치 기본값 | recall_led_below_goal('기본 목표' 라벨 — 습관 목표, 개인 목표 아님) | G4 `recall_led_pct` | `diag_recall_led_goal` |
+
+B계층은 doctor 기존 키를 승계 읽기한다(신규 diag 키 중복 방지).
+`diag_*` 튜닝 키 전체 목록·기본값은 docs/TUNING.md §2.
 
 ## 5. 금지조항
 

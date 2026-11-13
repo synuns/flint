@@ -355,15 +355,11 @@ func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Th
 	if th.DailyRetentionD == 0 {
 		th.DailyRetentionD = def.DailyRetentionD
 	}
+	if th.KreadsRetentionD == 0 {
+		th.KreadsRetentionD = def.KreadsRetentionD
+	}
 	return th, nil
 }
-
-// knowledgeReadsRetentionD — v1.2.0 T1 knowledge_reads 보존 기본값(초기
-// 14일, spec §1.2 — read_events와 동일 창). meta 오버라이드
-// (knowledge_reads_retention_days)는 등록표(store.ParseThresholds) 키
-// 등록 전까지 per-key 직접 읽기로 수용한다(구 v0.42 이전 규약 — n>0만
-// 수용). 등록표 등록은 thresholds 키 확장 태스크(T5/T6)에서 수렴한다.
-const knowledgeReadsRetentionD = 14
 
 // PruneReadEvents — 보존 한도를 넘은 효과 계측 이벤트 삭제. v0.20.0:
 // read_events·session_starts는 14일(daily 카운터와 동일 정책), hot_events는
@@ -372,26 +368,22 @@ const knowledgeReadsRetentionD = 14
 // (events_retention_days·hot_events_retention_days, TUNING §2) — 키
 // 부재·파손은 기본값. v1.2.0 T1: knowledge_reads 항목별 회상 이력도 같은
 // 트리거로 정리한다(초기 14일·knowledge_reads_retention_days 분리 오버라이드).
+// v1.2.3 T9(A5): knowledge_reads 보존일 per-key 직접 SELECT stopgap 제거
+// — thresholdsForPrune(등록표 store.ParseThresholds 파생) 경유 단일화.
 // 트리거는 2개(PruneDaily와 동시 발화): ① recordWithRetry의
 // 롤오버 훅(오늘 daily 키 신규 생성 — 하루 첫 write 계측), ② v1.0.1 F2
 // maybePruneAfterRead(RecordReadEvent 성공 + last_events_prune_at 24h 게이트
 // — read만 하는 세션에서도 정리가 일어난다). 하루 1회 수준이라 메타
 // 읽기 왕복 부담이 없다. 실패는 호출부가 조용히 넘긴다(계측 원칙).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
-	th, _ := r.thresholdsForPrune(ctx, "events_retention_days", "hot_events_retention_days")
-	kreadsDays := knowledgeReadsRetentionD
-	var v string
-	if err := r.pool.QueryRow(ctx,
-		`SELECT value FROM meta WHERE key = 'knowledge_reads_retention_days'`).Scan(&v); err == nil {
-		if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
-			kreadsDays = n
-		}
-	}
+	th, _ := r.thresholdsForPrune(ctx,
+		"events_retention_days", "hot_events_retention_days",
+		"knowledge_reads_retention_days")
 	retention := map[string]int{
 		"read_events":     th.EventsRetentionD,
 		"session_starts":  th.EventsRetentionD,
 		"hot_events":      th.HotRetentionD,
-		"knowledge_reads": kreadsDays,
+		"knowledge_reads": th.KreadsRetentionD,
 	}
 	now := time.Now().UTC()
 	for table, days := range retention {

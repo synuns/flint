@@ -7,23 +7,28 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 )
 
-// recallFake — daily:오늘 키로 read/write JSON을 반환하는 doneFake.
+// recallFake — v1.2.3 T1(R17 A1) 원천 갱신: write는 daily:write:<오늘>
+// 플랫 키 int, read는 read_events 당일 COUNT를 반환하는 doneFake(실제
+// 생산자 원천 — RecordUsage 플랫 키·read_events 일원화 이후 계약).
 func recallFake(t *testing.T, read, write int) *doneFake {
 	t.Helper()
 	today := time.Now().UTC().Format("2006-01-02")
-	daily := fmt.Sprintf(`{"write":%d,"read":%d}`, write, read)
 	d := &doneFake{fakeStore: &fakeStore{}}
 	d.queryFn = func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "FROM meta") && len(args) > 0 && fmt.Sprint(args[0]) == "daily:"+today {
-			return [][]any{{daily}}, nil
-		}
-		if strings.Contains(sql, "FROM meta") {
+		switch {
+		case strings.Contains(sql, "FROM meta"):
+			if len(args) > 0 && fmt.Sprint(args[0]) == "daily:write:"+today {
+				return [][]any{{strconv.Itoa(write)}}, nil
+			}
 			return nil, nil // thresholds 미설정 → 기본값
+		case strings.Contains(sql, "FROM read_events"):
+			return [][]any{{int64(read)}}, nil
 		}
 		return nil, nil
 	}

@@ -19,7 +19,7 @@ NEXT_TAG ?= $(shell cur=$$(git describe --tags --abbrev=0 2>/dev/null); if [ -n 
 # `flint version`·goreleaser 빌드가 같은 형식(0.13.0)을 출력한다.
 LDFLAGS := -X github.com/synuns/flint/lib/cli.version=$(VERSION_NU) -X github.com/synuns/flint/lib/cli.commit=$(GIT_COMMIT)
 
-.PHONY: test tidy up down build install seed e2e release ci
+.PHONY: test tidy up down build install seed e2e release ci lint docs-sync
 
 test:
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test ./...
@@ -36,11 +36,12 @@ ci:
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test $(GO_TEST_FLAGS) -count=1 ./...
 
 # v1.2.0(사용자 지시): 배포 전 문서 정합 게이트 — 문서 계약 테스트는
-# go test ./docs(계약 테스트 15종: versions·badge·runbook·tuning 등)로
+# go test ./docs(계약 테스트 41종: versions·badge·runbook·tuning 등)로
 # 이미 포함되나 배포 타깃에서 명시적 선행 단계로 격상·문서=코드와 동일
 # 게이트. docs-sync는 README·SKILL·contracts 6종의 코드-문서 동기
 # 단얫(커맨드 표==Registered 등)을 별도 타깃으로 노출해 릴리스 체크리스트
-# 에서 보이게 한다.
+# 에서 보이게 한다(v1.2.3 T7: release 타깃이 docs-sync를 선행 의존).
+# v1.2.3 T7 실측: -run 정규식에 매칭되는 문서 계약 테스트 41종.
 docs-sync:
 	go test ./docs -count=1 -run 'TestVersion|TestReadme|TestCommand|TestSkill|TestContracts|TestPlan|TestRunbook|TestTuning|TestPlugin|TestServer|TestMcpPublisher' -v 2>&1 | grep -E "^(=== RUN|--- FAIL|--- PASS)" | tail -50
 
@@ -88,6 +89,6 @@ e2e:
 # 릴리스(T33): 빌드 후 태그 push 안내만 — 실제 태그·push는 사용자 확인 후 수행.
 # 안내 태그는 NEXT_TAG(최신 태그 +패치) — 이미 존재하는 태그를 지시하지
 # 않는다(v0.13.2 N12).
-release: build
+release: docs-sync build
 	@echo "릴리스 절차(사용자 확인 후): git tag $(NEXT_TAG) && git push origin $(NEXT_TAG) -> Actions 빌드 -> Release 첨부"
 	@echo "현재 빌드: $$(./bin/flint version)"

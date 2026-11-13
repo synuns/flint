@@ -1,6 +1,6 @@
 # T43 GoReleaser — darwin arm64/amd64 교차 빌드, 버전 ldflags 주입.
 # 실행(로컬): goreleaser release --snapshot --clean
-# 실 릴리스는 사용자 확인 후 태그 push로 수행(ci.yml release 잡이 자동 생성).
+# 실 릴리스는 사용자 확인 후 태그 push로 수행(ci.yml deploy 잡이 자동 생성).
 version: 2
 
 builds:

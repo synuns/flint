@@ -1027,6 +1027,23 @@ func KnownMetaKey(k string) bool {
 	return false
 }
 
+// dailyKeyDate — daily 카운터 키에서 날짜 세그먼트 추출(v1.2.3 T3·R17 A3).
+// daily:<date>(2세그먼트)와 daily:<kind>:<date>(3세그먼트) 모두 지원 —
+// 판정 대상은 마지막 세그먼트. 무효 날짜(YYYY-MM-DD 아님)면 false(기존
+// 관례: 그 키는 나이 판정에서 제외, daily 카운트에는 포함). maintain
+// oldest-daily와 doctor staleDaily가 공유하는 단일 구현.
+func dailyKeyDate(k string) (string, bool) {
+	segs := strings.Split(strings.TrimPrefix(k, "daily:"), ":")
+	d := segs[len(segs)-1]
+	if len(d) != 10 { // YYYY-MM-DD 엄격 길이(2026-1-1 등 느슨형 제외)
+		return "", false
+	}
+	if _, err := time.Parse("2006-01-02", d); err != nil {
+		return "", false
+	}
+	return d, true
+}
+
 // maintainMetaAudit — R1: meta 키 위생 보고(읽기 전용·항상 exit 0).
 // 분류: known(고정)·threshold(임계값)·daily(나이 표기)·unknown(점검 권장).
 func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int {
@@ -1045,7 +1062,7 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 	}
 	now := time.Now().UTC()
 	known, thresholdN, tuningN, dailyN, unknown := 0, 0, 0, 0, 0
-	var oldestDaily string
+	var oldestDaily, oldestDate string
 	var unknownList []string
 	for _, r := range rows {
 		if len(r) < 1 {
@@ -1055,9 +1072,11 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 		switch {
 		case strings.HasPrefix(k, "daily:"):
 			dailyN++
-			if strings.TrimPrefix(k, "daily:") < now.Format("2006-01-02") {
-				if oldestDaily == "" || k < oldestDaily {
-					oldestDaily = k
+			// v1.2.3 T3: 플랫 키(daily:<kind>:<date>) 지원 — 날짜 세그먼트
+			// 기준 비교(키 원문 비교는 kind 정렬에 좌우됨).
+			if d, ok := dailyKeyDate(k); ok && d < now.Format("2006-01-02") {
+				if oldestDaily == "" || d < oldestDate {
+					oldestDaily, oldestDate = k, d
 				}
 			}
 		case KnownMetaKey(k): // daily: 제외 경로 — pb_ 등 접두 포함

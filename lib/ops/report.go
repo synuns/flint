@@ -268,10 +268,13 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 	days := reportDaysDefault
 	htmlOut := ""
+	textOut := false
 	for i := 0; i < len(args); i++ {
 		switch args[i] {
 		case "--html": // v0.36.0(E): 정적 단일 파일 대시보드
 			htmlOut = "report.html"
+		case "--text": // v1.2.3 R17 C3: 사람 읽기 text 뷰(기본 한 줄 JSON 불변)
+			textOut = true
 		case "--out":
 			i++
 			if i >= len(args) {
@@ -356,6 +359,10 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	// daily)으로 순수 함수 판정. hot_budget(A계층 자기참조 기준)은 meta
 	// 로드값(미설정 기본 2000 — HotBudget 폴백).
 	out.Diagnosis = Diagnose(out, th, knowledge.HotBudget(knowledge.MetaGetKV(ctx, st)))
+	if textOut { // v1.2.3 R17 C3: text 렌더 — JSON 수집 산물을 그대로 소비(--html은 위에서 이미 반환 — 우선)
+		printReportText(stdout, out, days)
+		return 0
+	}
 	b, err := json.Marshal(out)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -363,6 +370,33 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 0
+}
+
+// printReportText — v1.2.3 R17 C3: `flint report --text` — 사람 읽기
+// text 뷰. 기본 한 줄 JSON·--html 카드와 같은 수집 산물(ReportOutput)을
+// 렌더한다(세 뷰 동일 원천 — Diagnosis 필드 주석 계약의 text 담당 배선.
+// text가 별도 지표를 만들지 않는다). 진단은 Diagnose 산물의 Sentence()
+// 라인으로만 출력 — 0건이면 섹션 미출력(정상 침묵 계약 승계). 요약은
+// 핵심 지표만(간결 유지 — 과도한 포맷 설계 금지).
+func printReportText(w io.Writer, out ReportOutput, days int) {
+	var write, read, dup int
+	for _, d := range out.Days {
+		write += d.Write
+		read += d.Read
+		dup += d.Dup
+	}
+	fmt.Fprintf(w, "flint report · %d일 창(%s)\n", days, timeNowUTC())
+	fmt.Fprintf(w, "적립 %d · 회상 %d · 중복 방지 %d(dup %d%%) · 제로히트 %d%% · 폴백 %d%%\n",
+		write, read, dup, out.DupPct, out.ZeroPct, out.FallbackPct)
+	fmt.Fprintf(w, "지식: 활성 %d · 승인 대기 %d · 폐기 %d · 안 읽힘 %d · hot p95 %d\n",
+		out.Counts.Active, out.Counts.Pending, out.Counts.Invalidated, out.Stale.Days90, out.HotP95)
+	if len(out.Diagnosis) == 0 {
+		return // 정상 침묵 — 진단 섹션 없음
+	}
+	fmt.Fprintln(w, "진단")
+	for _, d := range out.Diagnosis {
+		fmt.Fprintf(w, "- %s\n", d.Sentence())
+	}
 }
 
 // collectDaily — meta daily:* 키를 N일 창(오늘 포함, UTC)에 맞춰 병합.
