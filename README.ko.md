@@ -48,7 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 > v0.43.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/HISTORY.md)
 > v0.44.0 · PLAN 재무장 · 표면 계약 6종 · [전체 변경 이력](docs/HISTORY.md)
-> v1.0.13 · CI 수리 — 릴리스 파이프라인 복구 · [전체 변경 이력](docs/HISTORY.md)
+> v1.1.0 · 토큰 관측 G5 — bytes 계측·legacy 라벨 제거 · [전체 변경 이력](docs/HISTORY.md)
 ---
 
 ## 빠른 시작
