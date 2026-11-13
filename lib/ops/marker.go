@@ -205,15 +205,12 @@ func WriteSessionLabel(label string) error {
 
 // ClearSessionLabel — 이 세션의 라벨 파일 제거(session-end). v1.0.2
 // R2-A2: 세션별 제거 — 병렬 세션의 라벨을 지우지 않는다(구 공유 파일
-// 제거 경합 폐쇄). session 미지정·무효(레거시 훅)는 구 session-current만
-// 청산(신규 쓰기가 없는 파일 — 업그레이드 잔존).
+// 제거 경합 폐쇄). 구 session-current 청산은 v1.1.0 T2 제거 — 잔존
+// 파일은 무시한다(사용자 디스크 — 미삭제).
 func ClearSessionLabel(session string) {
 	if session != "" {
 		if p := wire.SessionLabelFile(session); p != "" {
 			_ = os.Remove(p)
 		}
-	}
-	if legacy := wire.SessionLabelLegacyFile(); legacy != "" {
-		_ = os.Remove(legacy)
 	}
 }

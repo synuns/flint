@@ -1,5 +1,6 @@
 // sessionlabel_v102_test.go — v1.0.2 R2 수정 라운드(훅·세션 라벨 클러스터)
-// 회귀: R2-A2 세션별 라벨 파일 분리(병렬 경합·만료 정리·레거시 폴백),
+// 회귀: R2-A2 세션별 라벨 파일 분리(병렬 경합·만료 정리·레거시 무시
+// — v1.1.0 T2 폴백 제거),
 // R2-B1 무효 라벨 검증의 기록 앞 이동, R2-B2 훅 진입점 무효 인자 조용함,
 // R2-C3 hooks.json·doctor jq 폴백 정합(empty — 무효=부재 취급과 동일 방향).
 package ops
@@ -140,27 +141,28 @@ func TestSessionLabelParallelSeparation(t *testing.T) {
 	}
 }
 
-// TestSessionLabelLegacyFallback — R2-A2 업그레이드 경계: 구 session-current
-// 단독 시 폴백 채택, 세션별 파일 등장 후에는 세션별이 우선, session-end가
-// 구 파일까지 청산.
-func TestSessionLabelLegacyFallback(t *testing.T) {
+// TestSessionLabelLegacyIgnored — v1.1.0 T2: 구 session-current 잔존
+// 파일은 읽지도·청산하지도 않는다(사용자 디스크 — 미삭제 원칙). 세션별
+// 파일 없이 부재 취급, ClearSessionLabel은 자기 세션 파일만 제거.
+func TestSessionLabelLegacyIgnored(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
-	if err := os.WriteFile(filepath.Join(dir, "session-current"), []byte("old-label\n"), 0o600); err != nil {
+	legacy := filepath.Join(dir, "session-current")
+	if err := os.WriteFile(legacy, []byte("old-label\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if got, ok := wire.ReadSessionLabel(); !ok || got != "old-label" {
-		t.Fatalf("레거시 폴백 = (%q %v), want old-label", got, ok)
+	if _, ok := wire.ReadSessionLabel(); ok {
+		t.Fatal("잔존 session-current 폴백 읽기 — v1.1.0 제거 위반")
 	}
 	if err := WriteSessionLabel("new-sess"); err != nil {
 		t.Fatalf("WriteSessionLabel: %v", err)
 	}
-	if got, ok := wire.ReadSessionLabel(); !ok || got != "new-sess" {
-		t.Fatalf("세션별 우선 = (%q %v), want new-sess", got, ok)
-	}
 	ClearSessionLabel("new-sess")
+	if _, err := os.Stat(legacy); err != nil {
+		t.Fatalf("session-end가 잔존 session-current 청산(미삭제 원칙 위반): %v", err)
+	}
 	if _, ok := wire.ReadSessionLabel(); ok {
-		t.Error("session-end 후 라벨 잔존(레거시 포함 청산)")
+		t.Error("자기 세션 파일 제거 후 라벨 잔존")
 	}
 }
 
