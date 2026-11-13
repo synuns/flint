@@ -51,16 +51,17 @@ func TestRunbookDoctorCheckTable(t *testing.T) {
 	}
 }
 
-// TestRunbookSchemaVersion — schema 검사 행이 현재 스키마 버전 v9를
-// 기술하는지 검증(v0.34.2 T5 — lib/db LatestSchemaVersion=9 기준.
-// v1.0.1 감사 F7: v8 고정 서술이 스키마 v9(v0.42.0) 이후 낡음).
+// TestRunbookSchemaVersion — schema 검사 행이 현재 스키마 버전 v10을
+// 기술하는지 검증(v0.34.2 T5 — lib/db LatestSchemaVersion 기준.
+// v1.0.1 감사 F7: v8 고정 서술이 스키마 v9(v0.42.0) 이후 낡음.
+// v1.2.0 T6: 스키마 v10(read_events 열 3종·knowledge_reads) 갱신).
 func TestRunbookSchemaVersion(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 
-	if !strings.Contains(doc, "현재 v9") {
-		t.Error("RUNBOOK.md schema 행에 '현재 v9' 없음")
+	if !strings.Contains(doc, "현재 v10") {
+		t.Error("RUNBOOK.md schema 행에 '현재 v10' 없음")
 	}
-	for _, stale := range []string{"현재 v8", "현재 v7"} {
+	for _, stale := range []string{"현재 v9", "현재 v8", "현재 v7"} {
 		if strings.Contains(doc, stale) {
 			t.Errorf("RUNBOOK.md에 낡은 '%s' 잔존", stale)
 		}

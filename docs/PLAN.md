@@ -103,6 +103,12 @@
   제거(감사 B3 — 세션별 파일 전환 안정화 확인)·G5 토큰 관측: 세 표면
   출력 바이트 계측(daily 카운터 신규 키)·report `effect.bytes`·status
   `hot_bytes_14d`(METRICS §2·§4 G5)
+- [x] v1.2.0(2026-11-13) — 관측 고도화: 스키마 v10(read_events
+  bytes·zero_reason·source·knowledge_reads 테이블)·daily 카운터 플랫
+  키 전환(구 JSON 폴백 승계)·제로히트 분해(zero_unowned/owned_miss)·
+  토큰 회계 cost 객체(p95·절약 하한·주입 원가)·G6 회상 운명
+  (survived/bad_recall)·hot→read 연쇄·검수·발화 카운터·구조화 진단
+  `report --diag`(METRICS §4·TUNING §2)
 - 감사 정책(v1.0.10 확정): 감사는 신규 변경 시에만 재개. 무인 루프의
   정지 규칙 — 한 라운드 도출이 단일 계열의 구문 변형만 남기면 근본
   수정 또는 한계 선언 후 종결(R3~R10이 증명한 교훈). 쓰기 가드의

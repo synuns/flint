@@ -70,7 +70,7 @@
 |---|---|---|---|
 | hook-file | Claude 설정·플러그인 캐시에 flint 훅 등록 여부 (`FLINT_CLAUDE_HOME` 오버라이드 지원) | 플러그인 (재)설치(`/plugin marketplace add synuns/flint`) 또는 `FLINT_CLAUDE_HOME` 경로 확인 | fail |
 | db | DB Ping 접속 | `docker compose up -d` 후 재실행(`FLINT_DSN` 확인) | fail |
-| schema | meta schema_version ≥ 4 일치(현재 v9) | `flint setup`(마이그레이션) 후 `flint doctor --check schema` | fail |
+| schema | meta schema_version ≥ 4 일치(현재 v10) | `flint setup`(마이그레이션) 후 `flint doctor --check schema` | fail |
 | integrity | `flint_knowledge_*` 인덱스 3행 존재 | `flint status`로 인덱스 승격 재시도(최신 백업 있으면 §4 복구 검토) | fail |
 | last-seen | 3경로(write/hot/read) last-seen 경과 + grace(stall_hot_h 48h·stall_write_h 72h) | 세션 시작해 `flint hot`/`flint write` 1회 실행 | warn |
 | port | 호스트 5434 포트 점유 충돌(타 프로세스 점유 시 이동 안내) | `FLINT_DSN` + compose 포트 오버라이드로 이동(TUNING §2) | fail |
@@ -239,6 +239,14 @@ v0.9.3 빌드 중 실DB wipe 사고에서 실증한 복구 절차다. §2의 rev
 - **세션 테이블 유실은 수용**한다(PLAN §8 — 세션은 재수집 대상).
 - **정크는 미복원 원칙**: 복구 범위는 유효 지식(active) 행만으로
   한정하고, 빌드 정크는 되살리지 않는다.
+
+## 스키마 v10 마이그레이션 (v1.2.0)
+
+- `flint setup`이 additive 마이그레이션을 적용한다 — read_events 신규
+  열(bytes·zero_reason·source)·`knowledge_reads` 테이블.
+- daily 카운터는 플랫 키(`daily:<kind>:<date>` 정수값)로 전환되었다 —
+  구 `daily:<date>` JSON 키는 읽기 폴백으로만 승계되므로 기존 창 통계
+  손실 없이 `flint report`가 그대로 이어진다(보존 14일 불변).
 
 ## 테스트 DB 장기 운영 위생 (v0.21.2)
 
