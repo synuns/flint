@@ -6,7 +6,6 @@ package db
 
 import (
 	"context"
-	"encoding/json"
 	"sync"
 	"testing"
 	"time"
@@ -22,23 +21,12 @@ func cleanUsageKeys(t *testing.T, r *Repo) {
 	}
 }
 
-// dailyValue — daily:<date> 값을 map으로 디코드한다(파손 시 nil).
-func dailyValue(t *testing.T, r *Repo, date string) map[string]int {
-	t.Helper()
-	var val string
-	if err := r.pool.QueryRow(context.Background(),
-		`SELECT value FROM meta WHERE key = $1`, "daily:"+date).Scan(&val); err != nil {
-		t.Fatalf("read daily:%s: %v", date, err)
-	}
-	m := map[string]int{}
-	if err := json.Unmarshal([]byte(val), &m); err != nil {
-		t.Fatalf("daily:%s not JSON: %q", date, val)
-	}
-	return m
-}
+// dailyValue(구 daily:<date> JSON 디코더)는 v1.2.0 T1 플랫 키 전환으로
+// 폐지 — 플랫 읽기는 flatDailyValue(usage_flatkey_test.go)·구 JSON 폴백은
+// readDailyFlat이 담당한다.
 
-// TestRecordUsageDailyAndPrune — write·hot·read·dup 기록 → JSON 값·last_* 갱신
-// ·15일치 심기 → 초과 키 삭제(플랜 T60 테스트 코드).
+// TestRecordUsageDailyAndPrune — write·hot·read·dup 기록 → 플랫 키 값·last_*
+// 갱신·15일치 심기 → 초과 키 삭제(플랜 T60. v1.2.0 T1: 플랫 키 단언으로 갱신).
 func TestRecordUsageDailyAndPrune(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -53,11 +41,10 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 			t.Fatalf("RecordUsage(%q,%q): %v", call.kind, call.source, err)
 		}
 	}
-	got := dailyValue(t, r, today)
 	want := map[string]int{"write": 2, "hook": 1, "mcp": 1, "hot": 1, "read": 1, "dup": 1}
 	for k, n := range want {
-		if got[k] != n {
-			t.Fatalf("daily:%s[%q] = %d, want %d (full=%v)", today, k, got[k], n, got)
+		if got := flatDailyValue(t, r, k, today); got != n {
+			t.Fatalf("daily:%s:%s = %d, want %d", today, k, got, n)
 		}
 	}
 
@@ -95,6 +82,11 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:"+today); err != nil {
 		t.Fatalf("delete today key: %v", err)
 	}
+	// 플랫 키도 함께 지운다(v1.2.0 T1 — read kind는 플랫 키 daily:read:<오늘>이
+	// 롤오버 created 판정의 대상이다).
+	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:read:"+today); err != nil {
+		t.Fatalf("delete today flat key: %v", err)
+	}
 	if err := r.RecordUsage(ctx, "read", ""); err != nil {
 		t.Fatalf("RecordUsage(read) after seeding: %v", err)
 	}
@@ -120,8 +112,8 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 			t.Fatalf("보존 범위 키 daily:%s 삭제됨", d)
 		}
 	}
-	if got := dailyValue(t, r, today); got["read"] != 1 {
-		t.Fatalf("daily:%s read = %d, want 1(신규 생성 재기록)", today, got["read"])
+	if got := flatDailyValue(t, r, "read", today); got != 1 {
+		t.Fatalf("daily:%s read = %d, want 1(신규 생성 재기록)", today, got)
 	}
 }
 
@@ -169,23 +161,26 @@ func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
 	}
 }
 
-// TestRecordUsageCorruptDailyRewrites — 파손된 daily JSON은 0에서 재기작
-// (Review Focus encoding: 파손 daily JSON 0 재기작).
+// TestRecordUsageCorruptDailyRewrites — 파손된 플랫 키 값은 0에서 재기작
+// (v1.2.0 T1: 구 JSON 파손 재기작 계약의 플랫 승계 — 정수 아닌 기존 값).
 func TestRecordUsageCorruptDailyRewrites(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 	if _, err := r.pool.Exec(ctx,
-		`INSERT INTO meta (key, value) VALUES ($1, '{broken-json')`, "daily:"+today); err != nil {
-		t.Fatalf("seed corrupt daily: %v", err)
+		`INSERT INTO meta (key, value) VALUES ($1, '{broken-json')`,
+		"daily:write:"+today); err != nil {
+		t.Fatalf("seed corrupt flat daily: %v", err)
 	}
 	if err := r.RecordUsage(ctx, "write", "manual"); err != nil {
 		t.Fatalf("RecordUsage on corrupt daily: %v", err)
 	}
-	got := dailyValue(t, r, today)
-	if got["write"] != 1 || got["manual"] != 1 {
-		t.Fatalf("corrupt daily rewrite = %v, want write=1 manual=1", got)
+	if got := flatDailyValue(t, r, "write", today); got != 1 {
+		t.Fatalf("corrupt daily rewrite write = %d, want 1", got)
+	}
+	if got := flatDailyValue(t, r, "manual", today); got != 1 {
+		t.Fatalf("corrupt daily rewrite manual = %d, want 1", got)
 	}
 }
 
@@ -198,50 +193,49 @@ func TestRecordUsageWriteEmptySource(t *testing.T) {
 	if err := r.RecordUsage(ctx, "write", ""); err != nil {
 		t.Fatalf("RecordUsage(write,\"\"): %v", err)
 	}
-	got := dailyValue(t, r, today)
-	if got["write"] != 1 || len(got) != 1 {
-		t.Fatalf("daily = %v, want {write:1} only", got)
+	if got := flatDailyValue(t, r, "write", today); got != 1 {
+		t.Fatalf("daily:write:%s = %d, want 1", today, got)
+	}
+	var n int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM meta WHERE key LIKE 'daily:%:' || $1`, today).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("오늘 플랫 키 %d건, want 1(write만 — source 부재)", n)
 	}
 }
 
-// TestRecordUsageNullDailyRewrites — 기존 값이 JSON null이면 nil map 증분
-// panic 없이 0에서 재기작한다(회귀: cur[k]+=n on nil map).
-func TestRecordUsageNullDailyRewrites(t *testing.T) {
+// TestRecordUsageLegacyJSONIgnoredByWrite — 구 daily:<date> JSON은 쓰기
+// 경로가 건드리지 않는다(v1.2.0 T1 읽기 폴백 전용 승계 — null·부분
+// 파손 파상 재기작 회귀는 readDailyFlat 폴백 계약으로 이전,
+// usage_flatkey_test.go TestReadDailyFlatLegacyFallback 참조).
+func TestRecordUsageLegacyJSONIgnoredByWrite(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
-	if _, err := r.pool.Exec(ctx,
-		`INSERT INTO meta (key, value) VALUES ($1, 'null')`, "daily:"+today); err != nil {
-		t.Fatalf("seed null daily: %v", err)
-	}
-	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
-		t.Fatalf("RecordUsage on null daily: %v", err)
-	}
-	got := dailyValue(t, r, today)
-	if got["write"] != 1 || got["hook"] != 1 {
-		t.Fatalf("null daily rewrite = %v, want write=1 hook=1", got)
-	}
-}
-
-// TestRecordUsagePartialCorruptDailyRewrites — 부분 파손 JSON(일부 키만 타입
-// 불일치)도 통째로 파손으로 간주해 0에서 재기작한다(부분 디코드 누출 방지).
-func TestRecordUsagePartialCorruptDailyRewrites(t *testing.T) {
-	r := newTestRepo(t)
-	ctx := context.Background()
-	cleanUsageKeys(t, r)
-	today := time.Now().UTC().Format("2006-01-02")
-	if _, err := r.pool.Exec(ctx,
-		`INSERT INTO meta (key, value) VALUES ($1, '{"write":5,"hot":"x"}')`,
-		"daily:"+today); err != nil {
-		t.Fatalf("seed partial-corrupt daily: %v", err)
-	}
-	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
-		t.Fatalf("RecordUsage on partial-corrupt daily: %v", err)
-	}
-	got := dailyValue(t, r, today)
-	if got["write"] != 1 || got["hook"] != 1 || got["hot"] != 0 {
-		t.Fatalf("partial-corrupt daily rewrite = %v, want write=1 hook=1 hot=0", got)
+	for i, legacy := range []string{"null", `{"write":5,"hot":"x"}`} {
+		if _, err := r.pool.Exec(ctx,
+			`INSERT INTO meta (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+			"daily:"+today, legacy); err != nil {
+			t.Fatalf("seed legacy %q: %v", legacy, err)
+		}
+		if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
+			t.Fatalf("RecordUsage on legacy %q: %v", legacy, err)
+		}
+		var keep string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT value FROM meta WHERE key = $1`, "daily:"+today).Scan(&keep); err != nil {
+			t.Fatalf("read legacy: %v", err)
+		}
+		if keep != legacy {
+			t.Fatalf("구 JSON 키가 쓰기에 의해 변경됨: %q → %q(폴백 원본 보존)", legacy, keep)
+		}
+		if got := flatDailyValue(t, r, "write", today); got != i+1 {
+			t.Fatalf("플랫 write = %d, want %d(legacy %q 무관 증분)", got, i+1, legacy)
+		}
 	}
 }
 
@@ -254,9 +248,11 @@ func TestRecordUsageInvalidKind(t *testing.T) {
 	}
 }
 
-// TestRecordUsageConcurrentLastWriteWins — 병렬 기록은 에러 없이 last-write-wins
-// 로 수용(플랜 T60: 경합 수용 계약 — 총계 불일치 가능, 손실 없는 것은 보장하지 않음).
-func TestRecordUsageConcurrentLastWriteWins(t *testing.T) {
+// TestRecordUsageConcurrentNoError — 병렬 기록은 에러 없이 수용된다(v1.2.0
+// T1: 구 last-write-wins JSON 경합 계약의 플랫 승계. Doltgres는 같은 행
+// 동시 UPSERT를 에러 없이 last-write-wins 수용 — 총계 정합은 보장하지
+// 않음, 유실 < 호출 실패 계측 원칙. 원자성은 Postgres 기준).
+func TestRecordUsageConcurrentNoError(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
@@ -277,7 +273,7 @@ func TestRecordUsageConcurrentLastWriteWins(t *testing.T) {
 		}
 	}
 	today := time.Now().UTC().Format("2006-01-02")
-	if got := dailyValue(t, r, today); got["write"] < 1 || got["hook"] < 1 {
-		t.Fatalf("daily = %v, want write≥1 hook≥1 (last-write-wins)", got)
+	if got := flatDailyValue(t, r, "write", today); got < 1 {
+		t.Fatalf("daily:write:%s = %d, want ≥1(최후 승자라도 기록)", today, got)
 	}
 }

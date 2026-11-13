@@ -792,6 +792,8 @@ func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer,
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	// v1.2.0 T4 검수 카운터 — 확정(무효화) 행수. dry-run은 미계상.
+	knowledge.BumpCurationCounter(ctx, ms, "maintain_expire", len(items))
 	out, mErr := json.Marshal(struct {
 		Status string `json:"status"`
 		Days   int    `json:"days"`
@@ -859,6 +861,7 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	knowledge.BumpCurationCounter(ctx, ms, "maintain_supersede", 1) // v1.2.0 T4 검수 카운터 — 성공 1회
 	fmt.Fprintf(stdout, `{"status":"superseded","old":%d,"superseded_by":%d}`+"\n",
 		oldID, newID)
 	return 0
@@ -999,12 +1002,17 @@ var metaKnownKeys = map[string]bool{
 	"last_hot_at": true, "last_read_at": true, "last_write_at": true,
 	"read_stats": true, "read_fallback_calls": true, "hot_stats": true,
 	"session_knowledge_last": true, "recall_starved_count": true,
+	"last_brief_at": true, // v1.2.0 T1 즉치(spec §1.3 — brief 시각 키 unknown 오탐 해소)
 }
 
 // metaKnownPrefixes — 알려진 접두(daily: 날짜 카운터·pb_: 플레이북
 // 사용 카운터 pb_<id>_uses/_ok — v0.33.0 리뷰 1: 활성 통계의 미지 오탐
-// 방지. 임계값 오버라이드 키는 thresholdsKeys가 담당 — 동적 조회).
-var metaKnownPrefixes = []string{"daily:", "pb_"}
+// 방지. fired_: v1.2.0 T4 발화 카운터 누적 키(fired_nudge_{distill,recall,
+// update} 3종·fired_done_stale 1종·fired_doctor_<check> — 검사 등록표
+// 16종+harness 14종+skill-file 1종 = 종류 상한 31). doctor가 자기 카운터를
+// 미지 키로 경고하는 자기참조 오탐 방지. 임계값 오버라이드 키는
+// thresholdsKeys가 담당 — 동적 조회).
+var metaKnownPrefixes = []string{"daily:", "pb_", "fired_"}
 
 // KnownMetaKey — 분류 단일 소스(접두 포함 — 리뷰 7: 하드코딩 분열 방지).
 func KnownMetaKey(k string) bool {
@@ -1153,6 +1161,8 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	// v1.2.0 T4 검수 카운터 — 실제 삭제 행수(Repo 반환값). dry-run은 미계상.
+	knowledge.BumpCurationCounter(ctx, ms, "maintain_prune_rows", deleted)
 	fmt.Fprintf(stdout, `{"status":"prune-invalidated","deleted":%d,"older_than_days":%d}`+"\n", deleted, days)
 	return 0
 }

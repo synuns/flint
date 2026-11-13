@@ -21,9 +21,8 @@ func TestRecordUsageCountBrief(t *testing.T) {
 	if err := r.RecordUsageCount(context.Background(), "brief", "", 2); err != nil {
 		t.Fatalf("RecordUsageCount(brief,2): %v", err)
 	}
-	got := dailyValue(t, r, today)
-	if got["brief"] != 2 {
-		t.Fatalf("daily:%s[\"brief\"] = %d, want 2 (full=%v)", today, got["brief"], got)
+	if got := flatDailyValue(t, r, "brief", today); got != 2 {
+		t.Fatalf("daily:%s:brief = %d, want 2", today, got)
 	}
 	var last string
 	if err := r.pool.QueryRow(context.Background(),

@@ -31,7 +31,8 @@ flint가 에이전트에게 "도움이 되는가"를 재는 기준. 사용량(re
 | G2 재발견 저지 | 아는 것을 다시 발견하는 낭비를 막는다 | 같은 내용 재기록 시도가 duplicate로 종결된다 | `dup_prevented`(절대량) | daily 카운터 |
 | G3 자산 건전성 | 쌓은 지식이 썩지 않고 재사용된다 | active 지식이 회상된다 | `reuse_pct`·`dead_pct` | knowledge 계측 컬럼 |
 | G4 회상 우선 정착 | 세션이 기록만 하지 않고 회상으로 시작한다 | read 뒤 짧은 창 내 write가 뒤따른다 | `read_write_pairs`·`pair_pct` | read_events × knowledge |
-| G5 최소 주입 | 컨텍스트에 들어간 바이트가 예산 안에서 최소인가 | 세 표면(read·hot·brief)의 실측 출력 바이트 | `bytes.<표면>.bytes_14d`·`avg_bytes` | daily 카운터(바이트, v1.1.0) |
+| G5 최소 주입 | 컨텍스트에 들어간 바이트가 예산 안에서 최소인가 | 세 표면(read·hot·brief)의 실측 출력 바이트 | `bytes.<표면>.bytes_14d`·`avg_bytes`·`cost`(p95·절약 하한·주입 원가) | daily 카운터(바이트, v1.1.0)·read_events.bytes·hot_events(v1.2.0) |
+| G6 회상 운명 | 회상된 지식이 시간이 지나도 살아남는다 | 회상 7일 후에도 active 상태다 | `survived_pct`·`bad_recall_pct` | knowledge_reads × knowledge(schema v10, v1.2.0) |
 
 dup 카운터는 v0.18까지 "결함" 프레임(dup_pct)으로만 소비됐다. 이
 문서부터 동일 카운터를 G2의 긍정 지표(`dup_prevented`)로도 읽는다 —
@@ -44,7 +45,7 @@ dup_prevented는 누적 절약 신호 — 방향이 다른 두 질문).
 | 등급 | 의미 | 지표 | 한계 |
 |---|---|---|---|
 | Tier 1 | 기존 패시브 데이터의 파생 프록시 | hit_pct·dup_prevented·reuse_pct·dead_pct | 상관까지만 — 회상이 "도움됐는가"는 말하지 않는다 |
-| Tier 2 | 세션·시간 연결 계측에서 유도한 상관 | read_write_pairs·pair_pct | 우연 동반(같은 시기에 쓴 것)이 섞인다 |
+| Tier 2 | 세션·시간 연결 계측에서 유도한 상관 | read_write_pairs·pair_pct·survived_pct·bad_recall_pct | 우연 동반(같은 시기에 쓴 것)이 섞인다 |
 | Tier 3 | 인과 — 합성 시나리오에서만 | e2e 재현·회상 품질 스위트 | 실운영 분포와 어긋난다(floor, not ceiling) |
 
 Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 원칙
@@ -68,6 +69,14 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
   의존도(read_events `fallback` 플래그 기반). 누적 키
   `read_fallback_calls` 기반의 기존 `fallback_pct`(누적)와 달리
   기간화된 값이다.
+- **zero_unowned_pct** = `100 × Σzero_reason='unowned' / Σread` —
+  제로히트 분해(v1.2.0, CRAG 3분류의 적용판): 제로히트 중 판정
+  시점 활성 지식 수가 `zero_owned_floor`(기본 1) 미달이라 사실상
+  미보유였던 비율. 사유 기록 후 `zero_unowned_pct` +
+  `zero_owned_miss_pct`의 합이 zero_pct와 정합한다(같은 분모).
+- **zero_owned_miss_pct** = 동일 분모에서 `owned_miss`(보유 탐색
+  실패) 비율 — 지식은 있는데 검색이 놓친 경우로, zero_near_pct와
+  같은 검색면 개선 여지 신호의 소유 여부 분해판.
 
 ### G2 재발견 저지
 
@@ -104,6 +113,15 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
 - 라벨 자동 주입(v0.20.5·B②): session-start 훅이 현재 세션 라벨을
   남기고 read가 `--session` 미지정 시 조용히 채택한다 — 라벨 지정이
   에이전트 협조 없이 자동화. 병렬 세션은 last-writer-wins(보조 계정).
+- **recall_led_pct 원천 전환(v1.2.0)** — 산출 원천이 read_events에서
+  knowledge_reads(kind 불문 — hot 주입·헤드라인 노출 포함)의 세션
+  배정으로 바뀌었다. hot-led 세션(주입만으로 시작)도 회상 선도로
+  계상된다(설계 결함 수선). knowledge_reads가 비어 있으면(업그레이드
+  직후) 구 read_events 배정 산출을 승계한다(동등 폴백).
+- **hot_read_chain_pct** = 창 내 hot 노출(knowledge_reads kind='hot',
+  항목 단위) 후 페어 판정 창(`pair_window_minutes` 기본 30분) 내
+  같은 지식 read로 이어난 비율(v1.2.0) — "주입이 회상으로 이어졌다"의
+  직접 연쇄 신호. hot --full 주입과 헤드라인 노출을 함께 계상한다.
 - **chain_pct** = 반환 id가 있는 read 중 24시간 내 (a) 이후 read에서
   같은 id 재반환 또는 (b) 같은 topic write로 이어진 비율(v0.20.0
   사용 연쇄) — hit_pct가 못 주는 "쓸 만한 게 나왔다"의 가장 가까운
@@ -121,10 +139,50 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
 - **status `hot_bytes_14d`·`read_bytes_14d`** — 동일 산식의 창 합산
   병기(hot_budget 준수 감시 — TUNING §1).
 
-### 계측 원천(스키마 v6·v7)
+### G5 토큰 회계 — cost 객체 (v1.2.0)
+
+- **cost.<표면>.p95_bytes** — 표면별 출력 바이트 nearest-rank p95.
+  read는 read_events.bytes 사건 분포(bytes>0 기록 행), hot은
+  hot_events 주입 ids × 지식 요약 길이의 사건별 합 분포 파생,
+  brief는 사건별 원천이 없어 0. 표본 5 미만은 0(제로 가드 관례).
+- **cost.<표면>.mode** — 주입 성격 구분 표기: hot은 `always-on`
+  (세션 시작마다 무조건 주입), read·brief는 `on-invoke`(호출 시에만
+  출력). 해석(예산 배분 판단)은 이 구분과 함께 한다.
+- **cost.savings_lower_bound_bytes** = `Σdup_prevented × 평균 기록
+  요약 바이트`(knowledge 전체 요약 길이 평균, 버림) — dedup 논리-
+  물리 공식의 결정적 하한(중복 방지로 저장되지 않은 바이트). 라벨
+  **"절약 하한 추정"** — 반사실 상한이 아니라 하한임을 문구로 못박는다.
+- **cost.hit_injection_cost_bytes** = `Σhit × 평균 요약 바이트` —
+  회상 반환의 **"주입 원가"** 라벨(절약 주장 아님 — 회상도 컨텍스트를
+  쓴다는 비용 관점, 조사 결론 준수).
+- 토큰·달러 환산 금지(§5)는 그대로 적용 — 바이트 수 그대로 보고.
+
+### G6 회상 운명 (v1.2.0)
+
+- **survived_pct** = 창 내 첫 회상 후 7일(`recallFateDays`)이 경과한
+  지식 중 현재 invalid_at·superseded_by 없이 살아남은 비율.
+- **bad_recall_pct** = 동일 판정 대상 중 superseded/invalidated 비율.
+  "회상이 나빴다"가 아니라 "회상된 것이 뒤져졌다"의 관측 — 무효화·
+  대체 정책의 결과까지 함께 반영한다.
+- 분모는 판정 대상 id 수(첫 회상 7일 미경과 제외, 행 부재 포함).
+  원천은 knowledge_reads × knowledge 조인(schema v10) — 항목별
+  회상 이력이 쌓여야 판정되는 지연 지표다. 증거 등급 **Tier 2 상관**
+  (§3) — 인과로 서술하지 않는다(§5).
+
+### 계측 원천(스키마 v6·v7·v10)
 
 - **read_events**(v6, v0.20.0에 ids 추가): read 1회당 1행
   `ts·hits·zero·near·fallback·session·ids`.
+- **read_events 신규 열(v10, v1.2.0)** — `bytes`(출력 바이트 — p95·
+  cost 원천)·`zero_reason`('unowned'|'owned_miss'|'' — 제로히트 분해,
+  zero=1 행만)·`source`('hook'|'cli'|'mcp' — 채널 믹스 관측). additive.
+- **knowledge_reads(v10 신규 테이블, v1.2.0)**: 항목별 회상 이력
+  `knowledge_id·ts·session·kind('hot'|'read')` 1행 — hot 헤드라인
+  (비 --full) 주입도 kind='hot'으로 전수 기록된다(G4 계상·회상 운명·
+  hot→read 연쇄의 공용 원천). 보존은 read_events와 동일 창(초기 14일)
+  에서 분리 오버라이드 `knowledge_reads_retention_days`(TUNING §2).
+  write 경로의 read_count·last_read_at은 파생 캐시로 격하 유지(호환·
+  성능).
 - **session_starts**(v7): SessionStart 훅 1회당 1행 `ts·session` —
   세션 구간 배정의 원천. 출력 없는 내부 계정(§13).
 - **hot_events**(v7): hot --full 주입 1회당 1행 `ts·ids`(실출력에
@@ -166,7 +224,9 @@ Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 
 ## 4.6 수집 후보(토큰 경제·조사 완료 — 미구현 로드맵)
 
 2026-11-11 다각 조사(토큰 경제 중심) 기반 후보. 구현 시점·버전은 별도
-조율(구조 수렴 시리즈와 스케줄 공존):
+조율(구조 수렴 시리즈와 스케줄 공존). **v1.2.0이 A1·A2·B3 상당을
+회수**(knowledge_reads kind 태깅·read_events.bytes·hot_read_chain_pct) —
+잔여 후보는 아래:
 
 - **A1 hot 주입 경로 분리** — RecordHotLen에 headline/--full 태깅(1순위:
   기존 500샘플 분포가 예산 분석으로 살아남. 파생 budget_fill_pct)

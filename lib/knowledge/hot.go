@@ -347,9 +347,19 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	// id 컬럼에서 직접 뽑는다(T5 단일 정의) — 동반 질의·그 실패 경로는 폐지.
 	if !full {
 		RecordUsage(ctx, st, "hot", "")
+		// v1.2.0 T2: 헤드라인(비 --full) 노출 id 전수도 회상 이력에
+		// kind=hot로 남긴다(spec §2.1 — 주입은 --full 경로뿐이지만 헤드라인
+		// 도 회상을 유도하는 노출 표면이라 G4 계정에 포함). id는 헤드라인
+		// 질의의 id 컬럼에서 회수한다(HotSQL 단일 정의 관례 — 프로젝트 팔
+		// id NULL 제외, 셀 부재·변환 불가는 조용히 건너뛴다). read_count
+		// 캐시(BumpReads)는 헤드라인 경로에서 계속 불볕한다.
+		recordKnowledgeReads(ctx, st, injectedIDsForSurvivors(rows, len(rows)), session, "hot")
 	} else {
 		injected := injectedIDsForSurvivors(rows, hotLineSurvivorCount(lines, budget))
 		InstrumentReads(ctx, st, "hot", injected, false, false)
+		// v1.2.0 T2: 주입 id 전수도 회상 이력에 kind=hot로(주입=증분=기록
+		// 집합 — 같은 조회·같은 순서 원천). 조용히(§13).
+		recordKnowledgeReads(ctx, st, injected, session, "hot")
 		// v0.20.0(E): 실제 주입된 지식 id를 hot_events에 노출 기록 —
 		// dead_pct의 hot 노출 보정 원천. 실패는 조용히(§13 계측 원칙).
 		if rec, ok := st.(HotEventRecorder); ok {

@@ -103,41 +103,34 @@
   제거(감사 B3 — 세션별 파일 전환 안정화 확인)·G5 토큰 관측: 세 표면
   출력 바이트 계측(daily 카운터 신규 키)·report `effect.bytes`·status
   `hot_bytes_14d`(METRICS §2·§4 G5)
-- [ ] v1.2.0(예정 — 2026-11-13 사용자 지시·미착수, 현행 개발 세션
-  완료 후 착수) — 국제화(i18n)·영어 디폴트(해외 채널 마케팅 전제)·
-  지식 export·마케팅 문서 계열. 조사 정리(2026-11-13):
-  - seam 선행 — 사용자 노출 문자열 전부 t(msgid,args) 단일 래퍼로
-    회수(영어 단일 상태 시작 — 카탈로그는 후속, 나중 회수는 고비용)
-  - 범위 — 번역: help 본문·진행/에러 메시지·report 라벨. 비번역:
-    명령·플래그·설정 키·--json 필드명·exit 코드·로그(검색성)
-  - 카탈로그 — 키 기반 vs gettext 택일. Go 후보 go-i18n(키+ICU)·
-    x/text/message·gotext. 문자열 조립 금지·ICU 복수형
-  - 언어 인식·변경 UX — --lang > 저장 설정 > LANGUAGE > LC_ALL >
-    LC_MESSAGES > LANG > 기본 en·ko-KR→ko→en 폴백. 자동 추종·변경은
-    지속·즉시 적용(설정값은 meta 오버라이드 — 개인값 운영 DB)
-  - 영어 디폴트 전환 — CLI 출력·하네스 접점([flint]·nudge·갱신 안내)·
-    docs/ 본문. 한국어는 ko 카탈로그·번역 제공(기존 기록 소급 없음).
-    CJK 표 정렬 wcwidth(go-runewidth)·날짜/숫자 CLDR
-  - 지식 export(신규 명령) — 파일 형식은 옵션 지정: 이관 교환
-    (JSONL·import 쌍)·문서 변환(Markdown)·살균 덤프(render Masked)·
-    DB 덤프(완전 백업·복원). 계약 상세는 스펙 확정 시
-  - 마케팅 문서 — README 고도화·재현 가능 합성 벤치마크(실측
-    미인용 원칙)·그래픽 점검·LICENSE 추가(현재 부재 — 최우선 갭)
-- [ ] v1.3.0(예정 — 2026-11-13 사용자 지시·미착수) — 마케팅 준비
-  기능 계열: 데모 체험(asciinema·Codespaces)·대시보드 고도화
-  (React는 vendor 임베드 양안)·TUI 설계(사람 전용 표면)·설치 확장
-  (brew — 비목표 반전)·신뢰 아티팩트(SBOM·Scorecard·SECURITY.md)·
-  정적 웹(필수 아님)·UX 이중 트랙(에이전트 비간섭·사람 표면 분리).
-  상세: docs/plans/2026-11-13-flint-marketing-prep.md
+- [x] v1.2.0(2026-11-13) — 관측 고도화: 스키마 v10(read_events
+  bytes·zero_reason·source·knowledge_reads 테이블)·daily 카운터 플랫
+  키 전환(구 JSON 폴백 승계)·제로히트 분해(zero_unowned/owned_miss)·
+  토큰 회계 cost 객체(p95·절약 하한·주입 원가)·G6 회상 운명
+  (survived/bad_recall)·hot→read 연쇄·검수·발화 카운터·구조화 진단
+  `report --diag`(METRICS §4·TUNING §2)
 - 감사 정책(v1.0.10 확정): 감사는 신규 변경 시에만 재개. 무인 루프의
   정지 규칙 — 한 라운드 도출이 단일 계열의 구문 변형만 남기면 근본
   수정 또는 한계 선언 후 종결(R3~R10이 증명한 교훈). 쓰기 가드의
   설계 경계(함수 간 데이터플로우·분기 조건부 재할당·append 동적
   확장)는 패키지 리뷰·실DB 테스트가 담당 — 정적 가드 영역 밖으로
   선언됨.
+- 배포 전 문서 정합(v1.2.0): `make docs-sync` — 문서 계약 테스트 20종
+  (버전·배지·커맨드 표·SKILL·contracts·PLAN·RUNBOOK·TUNING)을 릴리스
+  게이트에서 명시 선행 단계로 격상(문서=코드와 동일 게이트 원칙).
 - CI 신뢰성(v1.0.10): `make ci` 타깃 자체에 `-count=1` 고정(캐시 무효) —
   v0.41.1 CI 통과/로컬 적색 불일치의 재발 방지.
 - 신규 기능은 트리거 대기 원칙 유지 — 변경은 계약 문서·가드 동반
+- [ ] v1.3.0(예정 — 2026-11-13 사용자 지시·미착수, 마케팅 착수 선언
+  시) — 국제화(i18n)·영어 디폴트·지식 export(형식 옵션: 이관 JSONL·
+  Markdown·살균 덤프·DB 덤프)·마케팅 문서 계열(README 고도화·재현
+  합성 벤치마크·그래픽 점검·LICENSE 추가 — 파일 부재 확인, 최우선).
+  설계 조사 상세: docs/plans/2026-11-13-flint-marketing-prep.md
+- [ ] v1.4.0(예정 — 2026-11-13 사용자 지시·미착수) — 마케팅 기능
+  계열: 데모 체험(asciinema·Codespaces)·대시보드 고도화(React는
+  vendor 임베드 양안)·TUI 설계(사람 전용 표면)·설치 확장(brew)·신뢰
+  아티팩트(SBOM·Scorecard·SECURITY.md)·정적 웹(필수 아님)·UX 이중
+  트랙(에이전트 비간섭·사람 표면 분리) — 상세 동일 문서
 
 ## 7. 비목표
 
@@ -146,4 +139,4 @@
 - 임베딩 검색(pgvector 채택 보류 — ADR-0011)·다중 에이전트 domain
   스코프(트리거 대기)·METRICS.md 개편·ADR 재편
 - 대시보드 동적 서버(정적 export만 유지)·linux 배포 — brew·TUI는
-  v1.3.0 반전(2026-11-13 사용자 지시)
+  v1.4.0 반전(2026-11-13 사용자 지시)

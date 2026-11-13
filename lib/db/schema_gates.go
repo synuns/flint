@@ -10,7 +10,7 @@ import "context"
 
 // LatestSchemaVersion — 이 CLI가 아는 최신 스키마 버전(status·doctor
 // schema 호환 검사의 상한. 등록표 마지막 원소와 같아야 한다).
-const LatestSchemaVersion = 9
+const LatestSchemaVersion = 10
 
 // SchemaGate — 버전 승격 게이트 1건. Version은 목표 schema_version,
 // Ensure는 그 버전으로 무손실 승격하는 admin.go 게이트(멱등 — 수치
@@ -25,13 +25,14 @@ type SchemaGate struct {
 // 메서드 값 참조라 게이트 함수 부재는 컴파일 수준에서 노출된다.
 func SchemaGates() []SchemaGate {
 	return []SchemaGate{
-		{2, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV2(ctx) }}, // sessions.tasks·projects.note 컬럼
-		{3, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV3(ctx) }}, // 필터 경로 인덱스 3종(ADR-0008)
-		{4, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV4(ctx) }}, // 참조 계측 컬럼(read_count·last_read_at)
-		{5, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV5(ctx) }}, // 계보 컬럼(superseded_by)
-		{6, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV6(ctx) }}, // 효과 계측 테이블(read_events)
-		{7, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV7(ctx) }}, // 계측 정밀화(ids·session_starts·hot_events)
-		{8, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV8(ctx) }}, // hit 품질 근사(first_rank)
-		{9, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV9(ctx) }}, // 계측·파생 쿼리 인덱스 4종(ts 3종·pending partial)
+		{2, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV2(ctx) }},   // sessions.tasks·projects.note 컬럼
+		{3, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV3(ctx) }},   // 필터 경로 인덱스 3종(ADR-0008)
+		{4, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV4(ctx) }},   // 참조 계측 컬럼(read_count·last_read_at)
+		{5, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV5(ctx) }},   // 계보 컬럼(superseded_by)
+		{6, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV6(ctx) }},   // 효과 계측 테이블(read_events)
+		{7, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV7(ctx) }},   // 계측 정밀화(ids·session_starts·hot_events)
+		{8, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV8(ctx) }},   // hit 품질 근사(first_rank)
+		{9, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV9(ctx) }},   // 계측·파생 쿼리 인덱스 4종(ts 3종·pending partial)
+		{10, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV10(ctx) }}, // 관측 확장: read_events bytes·zero_reason·source·knowledge_reads
 	}
 }

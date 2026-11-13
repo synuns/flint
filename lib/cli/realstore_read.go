@@ -36,3 +36,9 @@ func (s *realStore) RecordHotEvent(ctx context.Context, ids string) error {
 func (s *realStore) RecordBytes(ctx context.Context, kind string, n int) error {
 	return s.repo.RecordBytes(ctx, kind, n)
 }
+
+// realStore.RecordKnowledgeReads — knowledge.KnowledgeReadRecorder 확장의
+// 실구현(db.Repo.RecordKnowledgeReads 위임, v1.2.0 T2 — 항목별 회상 이력).
+func (s *realStore) RecordKnowledgeReads(ctx context.Context, ids []int, session, kind string) error {
+	return s.repo.RecordKnowledgeReads(ctx, ids, session, kind)
+}

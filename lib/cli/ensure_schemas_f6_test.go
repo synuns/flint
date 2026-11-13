@@ -7,6 +7,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -18,7 +19,7 @@ import (
 func TestEnsureSchemasLatestSkipsGates(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "schema_version") {
-			return [][]any{{"9"}}, nil // LatestSchemaVersion
+			return [][]any{{fmt.Sprint(db.LatestSchemaVersion)}}, nil // LatestSchemaVersion
 		}
 		t.Errorf("예상 밖 쿼리(게이트 순회 누출): %s", sql)
 		return nil, nil
@@ -69,12 +70,9 @@ func TestSchemaVersionFnParsing(t *testing.T) {
 	// ensureSchemas의 단축 조건 v >= LatestSchemaVersion에서 걸러진다).
 	if _, ok := schemaVersionFn(context.Background(), &fakeStore{
 		queryFn: func(string, []any) ([][]any, error) {
-			return [][]any{{"8"}}, nil
+			return [][]any{{fmt.Sprint(db.LatestSchemaVersion - 1)}}, nil
 		},
 	}); !ok {
-		t.Fatal("정수 8은 ok=true여야 한다(레거시 판정은 ensureSchemas가 소유)")
-	}
-	if db.LatestSchemaVersion != 9 {
-		t.Fatalf("픽스처가 LatestSchemaVersion(%d)와 어긋남 — 갱신 필요", db.LatestSchemaVersion)
+		t.Fatal("정수(최신-1)은 ok=true여야 한다(레거시 판정은 ensureSchemas가 소유)")
 	}
 }

@@ -50,6 +50,15 @@ var thresholdMetas = []ThresholdMeta{
 	{"RrfK", "rrf_k", 60.0, "read 폴백 재랭킹"},
 	{"SecretsScanRows", "secrets_scan_row_limit", 10000, "doctor secrets 행 상한"},
 	{"SessionKnowledgeDays", "session_knowledge_days", 1, "세션 지식화 최소 간격"},
+
+	// v1.2.0 T5: 진단 엔진(diagnosis.go)·knowledge_reads 보존 — meta
+	// 오버라이드 실로드를 위한 등록표 항목(T5 concern 수렴).
+	{"DiagHotBudgetHigh", "diag_hot_budget_high", 0.8, "report 진단"},
+	{"DiagHotBudgetLow", "diag_hot_budget_low", 0.2, "report 진단"},
+	{"DiagTrendPct", "diag_trend_pct", 50, "report 진단"},
+	{"DiagRecallLedGoal", "diag_recall_led_goal", 50, "report 진단"},
+	{"DiagDeadWarn", "diag_dead_warn", 10, "report 진단"},
+	{"KreadsRetentionD", "knowledge_reads_retention_days", 14, "db 정리"},
 }
 
 // ThresholdMetas — 등록표 결정적 복사본(29항목 — 키 집합은 기존
@@ -66,4 +75,5 @@ func ThresholdMetasAppendForTest(m ThresholdMeta) (restore func()) {
 	next := append([]ThresholdMeta(nil), saved...)
 	thresholdMetas = append(next, m)
 	return func() { thresholdMetas = saved }
+
 }

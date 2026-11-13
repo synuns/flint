@@ -421,6 +421,65 @@ func (r *Repo) ensureSchemaV9(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV10는 meta.schema_version<10인 DB를 v10으로 무손실 승격한다
+// (v1.2.0 T1, spec §1.2 — 관측 고도화 저장 기반, additive): read_events에
+// bytes(출력 바이트)·zero_reason('unowned'|'owned_miss'|”)·source
+// ('hook'|'cli'|'mcp') 3열을 ADD COLUMN IF NOT EXISTS로 추가하고 항목별
+// 회상 이력 테이블 knowledge_reads(knowledge_id·ts·session·kind)를 CREATE
+// TABLE IF NOT EXISTS로 만들며 ts 인덱스를 건다. 승격 전 read_events 행은
+// 기본값 0·”·”을 받는다. 기존 테이블·views·데이터 무변경. 이미 v10
+// 이상이면 no-op(수치 비교 단락)이며 v1~v9 게이트를 경유한 어느 DB에서도
+// 멱등하다.
+func (r *Repo) EnsureSchemaV10(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV10(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV10(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v10: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 10 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v10: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`ALTER TABLE read_events ADD COLUMN IF NOT EXISTS bytes integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE read_events ADD COLUMN IF NOT EXISTS zero_reason text NOT NULL DEFAULT ''`,
+		`ALTER TABLE read_events ADD COLUMN IF NOT EXISTS source text NOT NULL DEFAULT ''`,
+		`CREATE TABLE IF NOT EXISTS knowledge_reads (
+		    id           serial PRIMARY KEY,
+		    knowledge_id integer NOT NULL,
+		    ts           timestamptz NOT NULL DEFAULT now(),
+		    session      text NOT NULL DEFAULT '',
+		    kind         text NOT NULL DEFAULT 'read'
+		)`,
+		`CREATE INDEX IF NOT EXISTS flint_knowledge_reads_ts_idx ON knowledge_reads (ts)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v10: alter: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '10')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v10: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v10: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
 // v0.20.1: 승인은 유효 확정이므로 잔존 invalid_at을 함께 청소한다 —
 // 무효화된 pending을 승인하면 active+invalid_at 좀비(뷰·--status 어디에도

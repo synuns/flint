@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v1.1.0-blue" alt="v1.1.0">
+  <img src="https://img.shields.io/badge/release-v1.2.0-blue" alt="v1.2.0">
 </p>
 
 <p align="center">
@@ -45,7 +45,7 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 
 > v0.43.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/HISTORY.md)
 > v0.44.0 · PLAN rearm · surface contracts · command-table guard · [full changelog](docs/HISTORY.md)
-> v1.1.0 · token observability G5 — byte metrics·legacy label removal · [full changelog](docs/HISTORY.md)
+> v1.2.0 · observability — cost·fate·diagnosis·docs-sync gate · [full changelog](docs/HISTORY.md)
 ---
 
 ## Quick Start

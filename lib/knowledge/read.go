@@ -53,6 +53,71 @@ type BytesRecorder interface {
 	RecordBytes(ctx context.Context, kind string, n int) error
 }
 
+// KnowledgeReadsRecorder — 항목별 회상 이력 기록 접합면(v1.2.0 T2, spec
+// §2.1 G4 정합·§2.6 회상 운명). realStore는 db.Repo.RecordKnowledgeReads로
+// 구현하고, 미구현 Store(fake)는 이 계측을 건너뛴다(ReadEventStore 소비
+// 패턴 승계). read 반환 id 전수(kind=read)·hot 주입/헤드라인 노출 id
+// 전수(kind=hot)를 knowledge_reads 테이블에 남긴다 — read_count 캐시
+// (BumpReads)와 별개의 이력 계층이다.
+type KnowledgeReadsRecorder interface {
+	RecordKnowledgeReads(ctx context.Context, ids []int, session, kind string) error
+}
+
+// recordKnowledgeReads — 회상 이력 기록(계측 — 실패는 조용히, §13).
+func recordKnowledgeReads(ctx context.Context, st wire.Store, ids []int, session, kind string) {
+	if kr, ok := st.(KnowledgeReadsRecorder); ok {
+		_ = kr.RecordKnowledgeReads(ctx, ids, session, kind)
+	}
+}
+
+// defaultZeroOwnedFloor — 제로히트 분해 임계 기본값(spec §2.2: active≥1이면
+// owned_miss). meta 오버라이드(zero_owned_floor)는 T1 stopgap 관례
+// (knowledge_reads_retention_days와 동일 — 등록표 키 등록 전 per-key 직접
+// 읽기·n>0만 수용)로 읽는다. thresholds 등록표 키 등록은 T5/T6가 수렴.
+const defaultZeroOwnedFloor = 1
+
+// zeroOwnedFloorKey — 제로히트 분해 임계 meta 오버라이드 키.
+const zeroOwnedFloorKey = "zero_owned_floor"
+
+// zeroOwnedFloor — 제로히트 분해 임계값(부재·파손·0 이하는 기본값 — 조용히 §13).
+func zeroOwnedFloor(ctx context.Context, st wire.Store) int {
+	if v, ok := wire.GetMetaKV(ctx, st, zeroOwnedFloorKey); ok {
+		if n, err := strconv.Atoi(strings.TrimSpace(v)); err == nil && n > 0 {
+			return n
+		}
+	}
+	return defaultZeroOwnedFloor
+}
+
+// activeKnowledgeCount — 현재 시점 활성 지식 수(제로히트 분해 판정 원천,
+// spec §2.2). 승인은 invalid_at을 청소하므로 status='active' AND
+// invalid_at IS NULL이 활성의 단일 정의다. 조회 실패·빈 결과는 0(조용히 §13).
+func activeKnowledgeCount(ctx context.Context, st wire.Store) int {
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT count(*) FROM knowledge WHERE status = 'active' AND invalid_at IS NULL`, nil)
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0
+	}
+	if n, ok := render.CellToInt(rows[0][0]); ok {
+		return n
+	}
+	return 0
+}
+
+// ZeroReason — 제로히트 분해 순수 함수(spec §2.2 CRAG): zero=1 && 활성
+// 지식 수 < floor → "unowned"(사실상 미보유), zero=1 && ≥floor →
+// "owned_miss"(보유탐색실패), zero=0 → ""(분해 대상 아님). 쿼리 본문은
+// 기록하지 않는다(개인 문구 부재 원칙).
+func ZeroReason(zero bool, active, floor int) string {
+	if !zero {
+		return ""
+	}
+	if active < floor {
+		return "unowned"
+	}
+	return "owned_miss"
+}
+
 // recordBytes — 표면 출력 직후 len(최종 출력)을 kind 바이트로 기록한다
 // (UTF-8 바이트 — io.Writer에 쓴 총량). 미구현 no-op, 실패는 조용히
 // (§13 계측 원칙 — 바이트 로그 유실이 호출 실패보다 낫다).
@@ -151,8 +216,8 @@ func InstrumentReads(ctx context.Context, st wire.Store, kind string, ids []int,
 // 노출하지 않는다).
 func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	f := query.Filters{}
-	jsonMode, fields, asOfSpec, statusSpec, session := false, "", "", "", ""
-	asOfGiven, statusGiven, sessionGiven := false, false, false
+	jsonMode, fields, asOfSpec, statusSpec, session, sourceSpec := false, "", "", "", "", ""
+	asOfGiven, statusGiven, sessionGiven, sourceGiven := false, false, false, false
 	tagGiven, entityGiven, domainGiven, fieldsGiven := false, false, false, false
 	var pos []string
 	for i := 0; i < len(args); i++ {
@@ -195,6 +260,11 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			// v0.19.0: 효과 계측용 세션 라벨(선택 — docs/METRICS.md §4).
 			// 조회 동작에는 영향 없고 read_events 기록에만 쓰인다.
 			session, i, sessionGiven = v, i+1, true
+		case "--source":
+			// v1.2.0 T2: 채널 라벨(선택 — read_events.source 계측). lib/mcp
+			// 도구가 cli.Run을 재사용하므로 MCP 경로 구분은 호출부 전달로
+			// 최소 배선한다(write --source 관례 승계). 조회 동작 불변.
+			sourceSpec, i, sourceGiven = v, i+1, true
 		default:
 			pos = append(pos, a)
 		}
@@ -235,6 +305,27 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	if err := validateSessionLabel(sessionGiven, session); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 3
+	}
+	// v1.2.0 T2: source 라벨 확정(read_events.source — spec §2.3 채널 믹스).
+	// 명시 --source(hook|cli|mcp)가 우선하고, 미지정 시 진입 시점 규칙 —
+	// 세션 라벨이 있으면 'hook'(세션 훅 주입 경로), 없으면 'cli'. 무효값·
+	// 값 없음은 무효 인자 exit 3(write --source 관례 승계 — 저장되는 라벨의
+	// 오타가 DB 오염으로 남는 것을 막는다).
+	source := sourceSpec
+	if sourceGiven {
+		switch source {
+		case "hook", "cli", "mcp":
+		case "":
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "source", Expect: "non-empty"}))
+			return 3
+		default:
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "source", Expect: "hook|cli|mcp"}))
+			return 3
+		}
+	} else if session != "" {
+		source = "hook"
+	} else {
+		source = "cli"
 	}
 	// v0.20.2(패치 루프 1차 F5): --fields 이름은 알려진 컬럼만 허용 —
 	// 오타("sumary")가 FormatRows의 위치 fallback으로 조용히 다른 컬럼
@@ -396,8 +487,14 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	recordBytes(ctx, st, "read", byteLen)
 	// 계측(T62): 결과 항목 id 전수 참조 증분. v0.42.0 T2 — read 유입의
 	// read_stats blob·daily 카운터 쓰기는 폐지(쓰기 4→2: BumpReads·
-	// RecordReadEvent만 남는다). 조용히(§13).
-	InstrumentReads(ctx, st, "read", RowIDs(rows), len(rows) == 0, len(suggestions) > 0)
+	// RecordReadEvent만 남는다). v1.2.0 T2: id 전수는 knowledge_reads
+	// 기록에도 재사용한다. 조용히(§13).
+	rowIDs := RowIDs(rows)
+	InstrumentReads(ctx, st, "read", rowIDs, len(rows) == 0, len(suggestions) > 0)
+	// v1.2.0 T2: 반환 id 전수를 항목별 회상 이력(kind=read)으로 남긴다
+	// (G4 정합·회상 운명 원천 — ids CSV의 상위 10 절사와 무관한 전수).
+	// 조용히(§13).
+	recordKnowledgeReads(ctx, st, rowIDs, session, "read")
 	// 효과 계측(v0.19.0, docs/METRICS.md §4): read 1회를 read_events에
 	// 기록. 미구현 Store(fake)는 건너뛰고 실패는 조용히(§13 계측 원칙).
 	// v0.20.0: 반환 id CSV 동반(사용 연쇄 원천).
@@ -410,14 +507,23 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		if !fallbackTried && asOfSpec == "" && f.Status == "" {
 			rank = FirstExactRank(rows, q)
 		}
+		// v1.2.0 T2: 제로히트 행은 활성 지식 보유 여부로 unowned/owned_miss
+		// 를 갈라 기록한다(spec §2.2 — zero=0 행은 ''). 조용히(§13).
+		zeroReason := ""
+		if len(rows) == 0 {
+			zeroReason = ZeroReason(true, activeKnowledgeCount(ctx, st), zeroOwnedFloor(ctx, st))
+		}
 		_ = res.RecordReadEvent(ctx, db.ReadEvent{
-			Hits:      len(rows),
-			Zero:      len(rows) == 0,
-			Near:      len(suggestions) > 0,
-			Fallback:  fallbackTried,
-			Session:   session,
-			IDs:       idsCSV(RowIDs(rows)),
-			FirstRank: rank,
+			Hits:       len(rows),
+			Zero:       len(rows) == 0,
+			Near:       len(suggestions) > 0,
+			Fallback:   fallbackTried,
+			Session:    session,
+			IDs:        idsCSV(rowIDs),
+			FirstRank:  rank,
+			Bytes:      byteLen,
+			ZeroReason: zeroReason,
+			Source:     source,
 		})
 	}
 	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게

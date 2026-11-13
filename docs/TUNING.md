@@ -90,6 +90,17 @@ meta 키 오버라이드로만 조정한다 — 개인 튜닝값을 코드·문�
 | `rrf_k` | 60 | 검색 폴백 RRF 순위 완화 계수 — 낮을수록 상위 신호 지배(v0.25.0) | read 폴백 재랭킹 |
 | `daily_retention_days` | 14 | daily:* 카운터 보존·기간화 창 상한 — report/status 창·PruneDaily 단일 소스(v0.24.0 — 3곳 하드코딩 통합) | 보존·창 |
 | `drill_max_days` | 30 | 백업 드릴 경과 보고 기준일 — 초과 시 `,"drill":"stale"` | maintain --check |
+| `diag_hot_budget_high` | 0.8 | 진단(v1.2.0) A계층 자기참조 — hot 주입 평균/`hot_budget` 비율 '만성 절단' 판정 상한(0~1, 이상 트리거) | report diagnosis |
+| `diag_hot_budget_low` | 0.2 | 진단 A계층 — 같은 비율의 정보성(여유) 하한(0~1, 이하 트리거) | report diagnosis |
+| `diag_trend_pct` | 50 | 진단 A계층 — hot 주입 바이트 추세 급변 판정 %(report 창 전반/후반 합 비교, 절댓값) | report diagnosis |
+| `diag_dead_warn` | 10 | 진단 B계층 — dead_pct 경고 %(이상 트리거·`dead_days` 참조) | report diagnosis |
+| `diag_recall_led_goal` | 50 | 진단 C계층 가치 기본값 — 회상 선도 세션 '기본 목표' %(미만 트리거, 습관 목표 라벨) | report diagnosis |
+| `knowledge_reads_retention_days` | 14 | knowledge_reads 보존일(항목별 회상 이력 — read_events 보존과 분리 오버라이드, v1.2.0 T5 등록) | 계측 정리 |
+| `zero_owned_floor` | 1 | 제로히트 분해 임계(v1.2.0 §2.2) — zero 판정 시점 활성 지식 수 미달이면 'unowned'(사실상 미보유)·이상이면 'owned_miss'(보유 탐색 실패). per-key 직접 읽기·n>0만 수용 | read zero_reason |
+
+진단 B계층 규칙은 doctor 기존 키를 승계 읽기한다(중복 키 방지 —
+`zero_near_warn_pct`·`pending_age_days` 행 참조). 진단은 문제가 있을 때만
+항목을 만든다(정상 침묵 — 빈 배열).
 
 갱신(미설정 키는 기본값, 즉시 재적용 — 재시작 불필요):
 

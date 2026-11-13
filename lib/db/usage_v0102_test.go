@@ -21,11 +21,10 @@ func TestRecordUsageCountDupSources(t *testing.T) {
 			t.Fatalf("RecordUsageCount(%s,%d): %v", kind, n, err)
 		}
 	}
-	got := dailyValue(t, r, today)
 	want := map[string]int{"dup_hook": 2, "dup_manual": 3, "dup_mcp": 1}
 	for k, n := range want {
-		if got[k] != n {
-			t.Fatalf("daily:%s[%q] = %d, want %d (full=%v)", today, k, got[k], n, got)
+		if got := flatDailyValue(t, r, k, today); got != n {
+			t.Fatalf("daily:%s:%s = %d, want %d", today, k, got, n)
 		}
 	}
 	// 무효 kind 거부는 기존 계약 그대로(화이트리스트 검증 구조 불변).

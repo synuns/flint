@@ -120,7 +120,7 @@ func TestDispatchReadRoundtrip(t *testing.T) {
 	out, code := DispatchTool("flint_read", map[string]any{
 		"query": "인코딩 테스트", "tag": "go", "limit": 3,
 	})
-	wantArgs(t, calls, []string{"read", "--tag", "go", "--limit", "3", "--", "인코딩 테스트"})
+	wantArgs(t, calls, []string{"read", "--source", "mcp", "--tag", "go", "--limit", "3", "--", "인코딩 테스트"})
 	if code != 0 {
 		t.Errorf("code = %d, want 0", code)
 	}

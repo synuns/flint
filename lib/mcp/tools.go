@@ -111,7 +111,8 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 // (ClampLimit 상한 50)을 도구 경로에도 박제한다. query는 외부 입력이라
 // 플래그로 파싱되지 않게 "--" 뒤에 둔다(N9 — runRead의 end-of-options 규칙).
 func dispatchRead(args map[string]any) (string, int) {
-	var cliArgs []string
+	// v1.2.0 T2 잔여: MCP 경로 라벨 — read_events.source='mcp' 계량.
+	cliArgs := []string{"--source", "mcp"}
 	if tag := strArg(args, "tag"); tag != "" {
 		cliArgs = append(cliArgs, "--tag", tag)
 	}
