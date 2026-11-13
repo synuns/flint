@@ -130,11 +130,15 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return 0
 		}
 		fmt.Fprintln(stdout, string(b))
+		// v1.2.0 T4 발화 카운터 — Stop 넛지(distill) 실제 발화 1회.
+		knowledge.BumpMetaCounter(ctx, st, "fired_nudge_distill")
 	case "SessionStart":
 		// 회상 부재: 전용 문구 1회 표시 후 자동 소진 — 별도 행동(--clear)
 		// 없이 다음 세션이 read로 대응하면 끝(1회성 알림 의미론).
 		if recall != nil {
 			fmt.Fprintln(stdout, NudgeRecallStartLine)
+			// v1.2.0 T4 발화 카운터 — 회상 부재 안내 실제 발화 1회.
+			knowledge.BumpMetaCounter(ctx, st, "fired_nudge_recall")
 			if legacyRecall {
 				_ = ClearMarker() // 레거시: 기록 파일(pending-distill)에서 소진
 			} else {

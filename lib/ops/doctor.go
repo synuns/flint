@@ -235,6 +235,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			return 3
 		}
 		checks := []DoctorCheck{runDoctorCheck(ctx, st, subset)}
+		bumpDoctorWarnCounters(ctx, st, checks) // v1.2.0 T4 발화 카운터
 		return doctorReport(checks, fix, stdout)
 	}
 
@@ -267,7 +268,25 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			checks = append(checks, runCheckSpec(ctx, st, th, s))
 		}
 	}
+	bumpDoctorWarnCounters(ctx, st, checks) // v1.2.0 T4 발화 카운터
 	return doctorReport(checks, fix, stdout)
+}
+
+// bumpDoctorWarnCounters — v1.2.0 T4 발화 카운터: warn 판정 검사별
+// `fired_doctor_<check>` meta 누적 증분(spec §2.5 — 진단 D 원천, 횟수만
+// 기록·개인정보 무관). 실행당 각 검사 종류 최대 1증분. 종류 수 상한은
+// 검사 이름 공간 그대로 — 등록표 16종 + harness-* 14종 + skill-file 1종
+// = 31종. fail·ok·skip은 경고 발화가 아니므로 미계상, 최종 checks 슬라이스
+// 기준이라 --fix 재평가 전 판정의 이중 계상도 없다. 실패는 조용히(§13).
+func bumpDoctorWarnCounters(ctx context.Context, st wire.Store, checks []DoctorCheck) {
+	if st == nil {
+		return
+	}
+	for _, c := range checks {
+		if c.Status == "warn" {
+			knowledge.BumpMetaCounter(ctx, st, "fired_doctor_"+c.Name)
+		}
+	}
 }
 
 // doctorReport — 검사 결과 취합·--fix 자가수복·출력·exit. 등록표 파생

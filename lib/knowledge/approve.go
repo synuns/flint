@@ -38,6 +38,34 @@ var ApproveFn = func(ctx context.Context, id int) error {
 // v0.41.0 T4: 순수 함수 복제 폐지 — wire.QuoteJSON 단일 구현 별칭.
 var quoteJSON = wire.QuoteJSON
 
+// curationCounterKinds — v1.2.0 T4 검수(curation) daily 카운터 kind
+// 화이트리스트(spec §2.4 갭1). 키 종류는 이 8종으로 상한(오타 kind의
+// 무한 키 증식 방지 — T5 진단·T3 report curation 객체가 같은 이름 공간을
+// 소비한다). 기존 유입 계측(RecordUsageCount kind)과 구분된 전용 키다
+// (룰링: 승격·무효화 결과는 유입이 아니라 검수 결과).
+var curationCounterKinds = map[string]bool{
+	"approve_done": true, "approve_not_found": true, "approve_supersede_err": true,
+	"maintain_supersede": true, "maintain_expire": true, "maintain_prune_rows": true,
+	"import_added": true, "import_skipped": true,
+}
+
+// BumpCurationCounter — 검수 결과 daily 플랫 키 1종 증분(v1.2.0 T4).
+// `daily:<kind>:<date>`(UTC) 정수 값을 단일 UPSERT로 올린다 — 쿼리 본체는
+// db.BumpDailyFlatKey 단일 소유(쓰기 SQL 리터럴의 db 패키지 소유 원칙 —
+// writes_through_repo 가드 스코프)를 st가 구조적으로 만족하는 db.Querier
+// 경유로 실행한다(wire.Store·fake 전부 해당). 증분은 비멱등이라 재시도
+// 없이 단발 실행(BumpMetaKV 계약 승계 — 모호 실패 이중 계상 방지),
+// n<=0·무효 kind·실패는 조용히(§13 계측 원칙 — 카운터 유실이 호출 실패보다
+// 낫다). 정리는 PruneDaily의 daily:* 정규식이 양쪽 형식(구 JSON·플랫)을
+// 함께 정리한다. kind 화이트리스트에 없는 호출은 계측되지 않는다(상한
+// 원칙 — 오타 kind의 메타 키 증식 방지).
+func BumpCurationCounter(ctx context.Context, st wire.Store, kind string, n int) {
+	if st == nil || n <= 0 || !curationCounterKinds[kind] {
+		return
+	}
+	_ = db.BumpDailyFlatKey(ctx, st, kind, time.Now().UTC().Format("2006-01-02"), n)
+}
+
 // RunApprove — 승인 실행. 승격은 주어진 st 경유(R14 재배선 — 이전엔 st를
 // 무시하고 자체 Repo를 열었다). v1.0.1(F3): 인자 검증 경로(unknown flag·
 // 값 누락·무효 id·--id 부재·supersede==id)는 무효 인자 exit 3으로 통일 —
@@ -88,12 +116,14 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	}
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
+			BumpCurationCounter(ctx, st, "approve_not_found", 1) // v1.2.0 T4 검수 카운터
 			fmt.Fprintln(stdout, `{"error":"not_found","id":`+strconv.Itoa(id)+`}`)
 			return 1
 		}
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	BumpCurationCounter(ctx, st, "approve_done", 1) // v1.2.0 T4 검수 카운터 — 승격 성공 1회
 	// v0.29.0 R2: 승격과 동시 대체 — approve --id N --supersede OLD는
 	// OLD(구 활성 지식)를 N으로 무효화·선수 관계 기록까지 한 번에
 	// (maintain --supersede 갱신 경로와 동일 UPDATE).
@@ -103,6 +133,7 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			return 1
 		}
 		if serr := supersedeAfterApprove(ctx, st, supersede, id); serr != nil {
+			BumpCurationCounter(ctx, st, "approve_supersede_err", 1) // v1.2.0 T4 검수 카운터
 			fmt.Fprintln(stdout, `{"status":"approved","id":`+strconv.Itoa(id)+
 				`,"supersede_error":`+quoteJSON(serr.Error())+`}`)
 			return 1

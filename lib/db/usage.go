@@ -148,6 +148,36 @@ func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
 	return nil
 }
 
+// Querier — meta 접근 최소 접합면(v1.2.0 T4). wire.Store(및 그 fake)이
+// 구조적으로 만족한다 — 커맨드층 카운터가 db.Repo 없이 이 패키지의
+// 단일 UPSERT 구현을 재사용한다(쓰기 SQL 리터럴의 db 소유 원칙 유지).
+type Querier interface {
+	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
+}
+
+// BumpDailyFlatKey — `daily:<kind>:<date>` 플랫 키 카운터 증분의 쿼리
+// 본체(v1.2.0 T4 검수 카운터 — approve·maintain·import 결과). bumpDailyFlat
+// 과 동일 문장·동일 파손 가드(^[0-9]+$ 아님 → n 재기작)를 임의 Querier로
+// 실행한다(커맨드측 wire.Store 경유). 비멱등 증분이라 재시도 없이 단발
+// 실행(BumpMetaKV 계약) — 오류는 그대로 반환하고 호출부가 계측 원칙으로
+// 흡수한다. kind 화이트리스트는 호출부(knowledge.BumpCurationCounter)
+// 소유 — 여기는 키 조립·증분만.
+func BumpDailyFlatKey(ctx context.Context, q Querier, kind, day string, n int) error {
+	key := "daily:" + kind + ":" + day
+	// EXCLUDED.value로 증분값을 받는다 — 같은 플레이스홀더($2) 재사용은
+	// Doltgres 확장 프로토콜이 인덱스 추론에 실패한다(bumpDailyFlat 주석
+	// 승계, 2026-11-13 확인).
+	_, err := q.Query(ctx,
+		`INSERT INTO meta (key, value) VALUES ($1, $2)
+		 ON CONFLICT (key) DO UPDATE SET value =
+		   CASE WHEN meta.value ~ '^[0-9]+$' THEN (meta.value::bigint + EXCLUDED.value::bigint)::text
+		        ELSE EXCLUDED.value END`, key, strconv.Itoa(n))
+	if err != nil {
+		return fmt.Errorf("bump daily flat key: %w", err)
+	}
+	return nil
+}
+
 // ReadEvent — 효과 계측 이벤트 1행(v0.42.0 T3 구조체화 — 7파라미터 산재
 // 호출부를 값 하나로 수렴, 지표·저장 불변). IDs는 반환 지식 id CSV(상위
 // 10), FirstRank는 첫 topic 정합 순위(0=정합 없음·폴백 제외). v1.2.0 T2:
