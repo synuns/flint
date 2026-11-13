@@ -58,7 +58,7 @@ var thresholdMetas = []ThresholdMeta{
 	{"DiagTrendPct", "diag_trend_pct", 50, "report 진단"},
 	{"DiagRecallLedGoal", "diag_recall_led_goal", 50, "report 진단"},
 	{"DiagDeadWarn", "diag_dead_warn", 10, "report 진단"},
-	{"KnowledgeReadsRetentionDays", "knowledge_reads_retention_days", 14, "db 정리"},
+	{"KreadsRetentionD", "knowledge_reads_retention_days", 14, "db 정리"},
 }
 
 // ThresholdMetas — 등록표 결정적 복사본(29항목 — 키 집합은 기존
