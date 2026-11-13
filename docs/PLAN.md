@@ -118,22 +118,18 @@
     문장, 미번역 시 영어 폴백 자동) 택일. Go 후보: nicksnyder/go-i18n
     (키+ICU 복수형)·x/text/message·gotext. 문자열 조립 금지 —
     placeholder 포함 전체 문장 템플릿, 복수형은 ICU MessageFormat
-  - 언어 인식·변경 UX — 감지 체인: --lang 플래그 > 저장 설정 >
-    LANGUAGE > LC_ALL > LC_MESSAGES > LANG > 기본 en. ko-KR→ko→en
-    단계 폴백. 별도 조작 없으면 터미널 로케일 자동 추종(설정 0회),
-    한번 바꾸면 지속·즉시 적용. 언어 설정값은 meta 오버라이드 —
-    개인값 운영 DB 원칙 승계(repo 불침투)
+  - 언어 인식·변경 UX — 감지 체인: --lang > 저장 설정 > LANGUAGE >
+    LC_ALL > LC_MESSAGES > LANG > 기본 en. ko-KR→ko→en 폴백. 조작
+    없으면 터미널 로케일 자동 추종·변경은 지속·즉시 적용(설정값은
+    meta 오버라이드 — 개인값 운영 DB 원칙 승계)
   - 영어 디폴트 전환 — CLI 출력·하네스 접점([flint] 주입·nudge·갱신
     안내)·docs/ 본문 전부를 영어 디폴트로, 한국어는 ko 카탈로그·번역
     본문으로 제공. 기존 한국어 기록(커밋·HISTORY)은 소급 없음
   - 터미널 특유 — CJK 전각 문자 표 정렬 wcwidth 기반
     (mattn/go-runewidth)·날짜·숫자 포맷 CLDR(x/text)
-  - 지식 export(신규 명령) — 파일 형식은 옵션으로 지정. 대상 4종:
-    ① 이관 교환 포맷(JSONL 구조 아카이브 — flint import와 쌍,
-    머신 간 이전·보존) ② 문서 변환(Markdown 등 사람 읽기 — flint
-    밖 소비) ③ 살균 덤프(마스킹 후 안전 공유·디버그 — render Masked
-    계층 활용) ④ DB 덤프(원시 dump — 완전 백업·복원 이관). 스펙
-    확정 시 형식·필터·경로 계약 정의
+  - 지식 export(신규 명령) — 파일 형식은 옵션 지정: 이관 교환
+    (JSONL·import 쌍)·문서 변환(Markdown)·살균 덤프(render Masked)·
+    DB 덤프(원시 dump — 완전 백업·복원). 계약 상세는 스펙 확정 시
 - 감사 정책(v1.0.10 확정): 감사는 신규 변경 시에만 재개. 무인 루프의
   정지 규칙 — 한 라운드 도출이 단일 계열의 구문 변형만 남기면 근본
   수정 또는 한계 선언 후 종결(R3~R10이 증명한 교훈). 쓰기 가드의
