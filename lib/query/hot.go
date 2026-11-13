@@ -32,7 +32,9 @@ const hotHeadlineLimit = 50
 // 판정 계약 불변.
 func HotHeadlineSQL(sessionID string) string {
 	_ = sessionID
-	return "SELECT kind, topic, summary, ts FROM hot_view ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(hotHeadlineLimit)
+	// v1.2.0 T2 잔여: id 노출 — 헤드라인 주입 id 전수(knowledge_reads kind=hot
+	// 기록 원천). v0.37.0 T5가 --full에 id를 노출한 것과 동일 계약.
+	return "SELECT kind, topic, summary, ts, id FROM hot_view ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(hotHeadlineLimit)
 }
 
 // ClampHot는 s가 max rune을 넘으면 max로 절단하고 접미사를 붙인다.
