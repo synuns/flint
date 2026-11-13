@@ -297,6 +297,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 1
 	}
 	if len(batch) == 0 {
+		BumpCurationCounter(ctx, st, "import_skipped", len(items)) // v1.2.0 T4 — 전량 스킵
 		fmt.Fprintln(stdout, `{"status":"imported","inserted":0,"skipped":`+fmt.Sprint(len(items))+`,"unreadable":`+unreadableJSON+`}`)
 		return 0
 	}
@@ -304,6 +305,14 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	// v1.2.0 T4 검수 카운터 — 적립·스킵 행수(출력의 inserted/skipped와
+	// 같은 산식. dedup 조회 오류건은 스킵이 아니라 실패라 제외).
+	BumpCurationCounter(ctx, st, "import_added", len(batch))
+	skipped := len(items) - len(batch)
+	if dedupErrs > 0 {
+		skipped -= dedupErrs
+	}
+	BumpCurationCounter(ctx, st, "import_skipped", skipped)
 	if dedupErrs > 0 {
 		fmt.Fprintf(stdout, `{"status":"imported","inserted":%d,"skipped":%d,"dedup_errors":%d,"unreadable":%s}`+"\n",
 			len(batch), len(items)-len(batch)-dedupErrs, dedupErrs, unreadableJSON)

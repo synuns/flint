@@ -30,7 +30,7 @@ func parityFake(n int, zeroN, nearN, fbN int) *fakeStore {
 			return nil, nil // 신규 데이터 — daily read 필드 부재
 		case strings.Contains(sql, "near FROM read_events"):
 			return mergeRows, nil // WindowedDaily 파생 병합
-		case strings.Contains(sql, "first_rank FROM read_events"):
+		case strings.Contains(sql, "fallback, ids"):
 			return effectRows, nil // CollectEffect(G4)
 		case strings.Contains(sql, "FROM meta"):
 			return nil, nil // hot_stats·thresholds 부재 — 기본값
@@ -151,7 +151,7 @@ func TestDerivedWindowBoundary(t *testing.T) {
 				{oldestMidnight.Add(-time.Second), false, false},
 				{now, false, true},
 			}, nil
-		case strings.Contains(sql, "first_rank FROM read_events"):
+		case strings.Contains(sql, "fallback, ids"):
 			return [][]any{{oldestMidnight, false, false, "", 0}, {now, false, false, "", 0}}, nil
 		case strings.Contains(sql, "FROM meta"):
 			return nil, nil

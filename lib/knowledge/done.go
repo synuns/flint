@@ -233,6 +233,8 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// 누락시키던 사각의 재발 차단).
 	if runs >= th.StaleSessions {
 		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"연속 %d세션 미기록"}`+"\n", runs, runs)
+		// v1.2.0 T4 발화 카운터 — stale 경고 발화 1회(진단 D 원천, spec §2.5).
+		BumpMetaCounter(ctx, st, "fired_done_stale")
 	} else if w, starved := recallStarvedToday(ctx, st, th); starved {
 		// v0.18.0 R3: 회상 경고 — 오늘 회상 0회에 기록이 임계 이상이면 한 줄
 		// 경고로 종료(stale 경고와 같은 패턴 — 임계값 기반·종료 불가, §13).
@@ -717,7 +719,12 @@ func init() {
 // 단일 진입 위임 — 미가드 ::bigint 캐스트는 파손값에서 오류로 증분이
 // 영구히 얼어붙었으나, 단일 구현의 파손값 1 리셋 가드로 회수된다.
 // v0.39.0 T4 내보내기: cli 잔류 소비자(meta_kv_test)가 별칭으로 호출.
+// v1.2.0 T4: st nil(네트지향 훅 경로 — nudge 무store 호출)도 조용히
+// 스킵(BumpMetaKV의 nil 인터페이스 호출 패닉 방지).
 func BumpMetaCounter(ctx context.Context, st wire.Store, key string) {
+	if st == nil {
+		return
+	}
 	_ = wire.BumpMetaKV(ctx, st, key)
 }
 

@@ -83,6 +83,11 @@ type statusV0180Output struct {
 	// (hot_budget 준수 실측 감시, METRICS §4 G5). additive 말미 추가.
 	HotBytes14d  int `json:"hot_bytes_14d"`
 	ReadBytes14d int `json:"read_bytes_14d"`
+	// v1.2.0 T3 — 표면별 bytes p95(spec §2.3). read는 read_events bytes
+	// 분포(nearest-rank·표본<5는 0), hot은 hot_events×요약 길이 파생
+	// (DerivedHotStats). additive 말미 추가.
+	ReadBytesP95 int `json:"read_bytes_p95"`
+	HotBytesP95  int `json:"hot_bytes_p95"`
 }
 
 // (v0.24.0 R1b: statusWindowedDays 상수 폐지 — 보존 창과 단일화.)
@@ -246,6 +251,16 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	winRead, winZeroPct, winNearPct := StatusWindowedRead(ctx, st, winDays)
 	// v1.1.0 G5 — hot·read 출력 바이트 창 합산(조회 실패는 0 폴백).
 	winHotBytes, winReadBytes := StatusWindowedBytes(ctx, st, winDays)
+	// v1.2.0 T3 — 표면별 bytes p95(spec §2.3). read는 read_events bytes
+	// 분포, hot은 hot_events×요약 길이 파생(DerivedHotStats). as-of 모드에선
+	// 카운트 스냅샷 전용(T85 계약 — 계측 질의는 현재 상태 원칙)이므로 0.
+	// 조회 실패는 0(계측 표시 — status를 깨지 않는다, StatusWindowedBytes와
+	// 동일 원칙).
+	readBytesP95, hotBytesP95 := 0, 0
+	if asOfSpec == "" {
+		readBytesP95 = ReadBytesP95Of(ctx, st)
+		_, hotBytesP95 = DerivedHotStats(ctx, st)
+	}
 	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합. meta·계측 조회는
 	// 현재 상태 그대로. 현재 시점 카운트는 countPending 단일
 	// 구현(v0.34.3 3중 쿼리 복제 수렴).
@@ -293,12 +308,14 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	if asOfHash != "" {
 		b, _ = json.Marshal(statusAsOfOutput{statusV0180Output: statusV0180Output{statusV096Output: base,
 			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays,
-			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes},
+			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes,
+			ReadBytesP95: readBytesP95, HotBytesP95: hotBytesP95},
 			AsOf: knowledge.AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 	} else {
 		b, _ = json.Marshal(statusV0180Output{statusV096Output: base,
 			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays,
-			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes})
+			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes,
+			ReadBytesP95: readBytesP95, HotBytesP95: hotBytesP95})
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 0

@@ -23,11 +23,10 @@ func TestRecordUsageCountBatches(t *testing.T) {
 		t.Fatalf("RecordUsageCount(write,hook,2): %v", err)
 	}
 
-	got := dailyValue(t, r, today)
 	want := map[string]int{"dup": 3, "write": 2, "hook": 2}
 	for k, n := range want {
-		if got[k] != n {
-			t.Fatalf("daily:%s[%q] = %d, want %d (full=%v)", today, k, got[k], n, got)
+		if got := flatDailyValue(t, r, k, today); got != n {
+			t.Fatalf("daily:%s:%s = %d, want %d", today, k, got, n)
 		}
 	}
 	var n int

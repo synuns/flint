@@ -1,7 +1,8 @@
 // usage_bytes_test.go — v1.1.0 T1 RecordBytes: G5 바이트 계측 daily 증분
 // (실DB slow — fast에서는 FLINT_DSN 부재로 스킵). 계약: kind=read|hot|brief
-// 만 daily:<date> JSON에 <kind>_bytes 증분, last_ 시각 키 없음(횟수
-// last_<kind>_at 준용), 파손 기존 JSON은 0에서 재기작, 무효 kind·음수 거부.
+// 만 daily:<kind>_bytes:<date> 플랫 키 증분(v1.2.0 T1 플랫 전환), last_ 시각
+// 키 없음(횟수 last_<kind>_at 준용), 파손 기존 값은 0에서 재기작, 무효
+// kind·음수 거부.
 package db
 
 import (
@@ -11,7 +12,7 @@ import (
 )
 
 // TestRecordBytesDaily — Review Focus: 증분(연속 가산)·파손 재기작·무효 kind
-// 거부. e.g. RecordBytes("hot", 1180) → daily:<오늘> hot_bytes +1180.
+// 거부. e.g. RecordBytes("hot", 1180) → daily:hot_bytes:<오늘> +1180.
 func TestRecordBytesDaily(t *testing.T) {
 	r := newTestRepo(t)
 	cleanUsageKeys(t, r)
@@ -24,9 +25,8 @@ func TestRecordBytesDaily(t *testing.T) {
 	if err := r.RecordBytes(context.Background(), "hot", 820); err != nil {
 		t.Fatalf("RecordBytes(hot,820): %v", err)
 	}
-	got := dailyValue(t, r, today)
-	if got["hot_bytes"] != 2000 {
-		t.Fatalf("daily:%s[\"hot_bytes\"] = %d, want 2000(1180+820 증분)", today, got["hot_bytes"])
+	if got := flatDailyValue(t, r, "hot_bytes", today); got != 2000 {
+		t.Fatalf("daily:hot_bytes:%s = %d, want 2000(1180+820 증분)", today, got)
 	}
 
 	// 다른 kind는 별도 키 — read·brief 0바이트 포함(제로히트 분모 정합).
@@ -36,9 +36,11 @@ func TestRecordBytesDaily(t *testing.T) {
 	if err := r.RecordBytes(context.Background(), "brief", 42); err != nil {
 		t.Fatalf("RecordBytes(brief,42): %v", err)
 	}
-	got = dailyValue(t, r, today)
-	if got["read_bytes"] != 0 || got["brief_bytes"] != 42 {
-		t.Fatalf("read_bytes=%d brief_bytes=%d, want 0·42(키 kind별 분리)", got["read_bytes"], got["brief_bytes"])
+	if got := flatDailyValue(t, r, "read_bytes", today); got != 0 {
+		t.Fatalf("daily:read_bytes:%s = %d, want 0(제로히트 기록)", today, got)
+	}
+	if got := flatDailyValue(t, r, "brief_bytes", today); got != 42 {
+		t.Fatalf("daily:brief_bytes:%s = %d, want 42(키 kind별 분리)", today, got)
 	}
 
 	// last_ 시각 키 없음 — 바이트는 횟수 계측의 last_<kind>_at을 준용한다.
@@ -63,8 +65,8 @@ func TestRecordBytesDaily(t *testing.T) {
 	}
 }
 
-// TestRecordBytesCorruptRewrite — 파손된 기존 daily JSON은 0에서 재기작한다
-// (bumpDaily readDaily 계약 승계 — 부분 디코드·non-JSON 모두).
+// TestRecordBytesCorruptRewrite — 파손된 기존 플랫 값은 0에서 재기작한다
+// (bumpDailyFlat 계약 승계 — non-정수 전부).
 func TestRecordBytesCorruptRewrite(t *testing.T) {
 	r := newTestRepo(t)
 	cleanUsageKeys(t, r)
@@ -72,14 +74,13 @@ func TestRecordBytesCorruptRewrite(t *testing.T) {
 
 	if _, err := r.pool.Exec(context.Background(),
 		`INSERT INTO meta (key, value) VALUES ($1, $2)`,
-		"daily:"+today, "{oops not json"); err != nil {
+		"daily:brief_bytes:"+today, "{oops not json"); err != nil {
 		t.Fatal(err)
 	}
 	if err := r.RecordBytes(context.Background(), "brief", 7); err != nil {
 		t.Fatalf("RecordBytes(brief,7) 파손 키 위에서: %v", err)
 	}
-	got := dailyValue(t, r, today)
-	if got["brief_bytes"] != 7 {
-		t.Fatalf("파손 재기작 후 brief_bytes = %d, want 7(0에서 재기작)", got["brief_bytes"])
+	if got := flatDailyValue(t, r, "brief_bytes", today); got != 7 {
+		t.Fatalf("파손 재기작 후 brief_bytes = %d, want 7(0에서 재기작)", got)
 	}
 }

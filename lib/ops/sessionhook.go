@@ -97,6 +97,9 @@ func RunSessionStart(ctx context.Context, st wire.Store, args []string, stdin io
 	if MaybeUpdateNoticeFn != nil {
 		if line := MaybeUpdateNoticeFn(); line != "" {
 			fmt.Fprintln(stdout, line)
+			// v1.2.0 T4 발화 카운터 — 갱신 안내 실제 발화 1회(종류 3종
+			// distill·recall·update의 하나, spec §2.5).
+			knowledge.BumpMetaCounter(ctx, st, "fired_nudge_update")
 		}
 	}
 	// v0.24.0 R2b: 정비 경고 요약(24h 캐시 — 임계값 감사 ③-1 창구 정당화).

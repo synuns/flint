@@ -59,6 +59,10 @@ func TestReportEffectSection(t *testing.T) {
 	writeAt := readB.Add(10 * time.Minute)
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
+			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
+			return nil, nil
 		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return [][]any{{"read_stats", `{"calls":10,"zero":4}`}}, nil
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
@@ -140,7 +144,15 @@ func TestReportEffectSection(t *testing.T) {
 func TestReportEffectZeroReads(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
+			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
+			return nil, nil
 		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
+			return nil, nil
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
+			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
 			return nil, nil
 		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
@@ -204,6 +216,10 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	sessionsUp := true
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
+			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
+			return nil, nil
 		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "daily:"):
@@ -316,6 +332,10 @@ func TestChainPct(t *testing.T) {
 func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
+			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
+			return nil, nil
 		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "daily:"):
@@ -371,6 +391,10 @@ func TestReportProfileHintWithoutIDs(t *testing.T) {
 	now := time.Now().UTC()
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
+			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
+			return nil, nil
 		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "key IN ('pending_max'"):

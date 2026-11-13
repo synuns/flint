@@ -26,6 +26,8 @@ var frozenThresholdKeys = []string{
 	"dead_days", "pair_window_minutes", "chain_window_hours",
 	"events_retention_days", "hot_events_retention_days",
 	"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit", "session_knowledge_days",
+	// v1.2.0 T5: 진단 엔진·kreads 보존(diagnosis.go·TUNING §2)
+	"diag_hot_budget_high", "diag_hot_budget_low", "diag_trend_pct", "diag_recall_led_goal", "diag_dead_warn", "knowledge_reads_retention_days",
 }
 
 // TestThresholdRegistrySingleSource — Review Focus. 등록표가 4곳(기존 키

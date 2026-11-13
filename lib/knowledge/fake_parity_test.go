@@ -25,19 +25,20 @@ import (
 // TestFakeParityKnowledge가 발견 목록 ≠ 단언 목록으로 실패해 이 블록
 // 갱신을 강제한다(인터페이스마다 최소 1단언).
 var (
-	_ approveStore        = (*fakeApprove)(nil)
-	_ supersedeStore      = (*fakeApprove)(nil)
-	_ readBumper          = (*fakeApprove)(nil)
-	_ ReadEventStore      = (*fakeApprove)(nil)
-	_ HotEventRecorder    = (*fakeApprove)(nil)
-	_ UsageStore          = (*fakeApprove)(nil)
-	_ DupIDStore          = (*fakeApprove)(nil)
-	_ DupMetaStore        = (*fakeApprove)(nil)
-	_ UsageCountStore     = (*fakeApprove)(nil)
-	_ BytesRecorder       = (*fakeApprove)(nil)
-	_ staleSessionStore   = (*fakeApprove)(nil)
-	_ usageStore          = (*fakeApprove)(nil)
-	_ sessionSummaryStore = (*fakeApprove)(nil)
+	_ approveStore           = (*fakeApprove)(nil)
+	_ supersedeStore         = (*fakeApprove)(nil)
+	_ readBumper             = (*fakeApprove)(nil)
+	_ ReadEventStore         = (*fakeApprove)(nil)
+	_ HotEventRecorder       = (*fakeApprove)(nil)
+	_ UsageStore             = (*fakeApprove)(nil)
+	_ DupIDStore             = (*fakeApprove)(nil)
+	_ DupMetaStore           = (*fakeApprove)(nil)
+	_ UsageCountStore        = (*fakeApprove)(nil)
+	_ BytesRecorder          = (*fakeApprove)(nil)
+	_ KnowledgeReadsRecorder = (*fakeApprove)(nil)
+	_ staleSessionStore      = (*fakeApprove)(nil)
+	_ usageStore             = (*fakeApprove)(nil)
+	_ sessionSummaryStore    = (*fakeApprove)(nil)
 
 	// 기존 capability fake의 자연 단언(이미 구현 — 문서화 + 시그니처
 	// 드리프트 회귀 가드).
@@ -135,6 +136,7 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 		func() error { _, _, err := f.DupRowByHash(ctx, "해시"); return err },
 		func() error { return f.RecordUsageCount(ctx, "dup", "", 3) },
 		func() error { return f.RecordBytes(ctx, "hot", 1180) },
+		func() error { return f.RecordKnowledgeReads(ctx, []int{1, 2}, "kr", "read") },
 		func() error { _, err := f.StaleSessionRuns(ctx, "claude"); return err },
 		func() error { return f.LogPlaybookUse(ctx, 9, true) },
 		func() error { _, err := f.UpdateSessionSummary(ctx, 7, "요약", "[]"); return err },
@@ -175,6 +177,9 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 	}
 	if len(f.recordedBytes) != 1 || f.recordedBytes[0] != (bytesCall{"hot", 1180}) {
 		t.Errorf("RecordBytes 기록=%v, want [hot 1180]", f.recordedBytes)
+	}
+	if len(f.kreads) != 1 || len(f.kreads[0].ids) != 2 || f.kreads[0].kind != "read" {
+		t.Errorf("RecordKnowledgeReads 기록=%v, want 1회(ids 2건·kind=read)", f.kreads)
 	}
 	if len(f.staleAgents) != 1 || f.staleAgents[0] != "claude" {
 		t.Errorf("StaleSessionRuns 기록=%v, want [claude]", f.staleAgents)
