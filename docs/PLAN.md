@@ -104,32 +104,31 @@
   출력 바이트 계측(daily 카운터 신규 키)·report `effect.bytes`·status
   `hot_bytes_14d`(METRICS §2·§4 G5)
 - [ ] v1.2.0(예정 — 2026-11-13 사용자 지시·미착수, 현행 개발 세션
-  완료 후 착수) — 국제화(i18n)·영어 디폴트 작성(해외 채널 마케팅
-  전제)·지식 export 신규 명령(2026-11-13 추가 지시). 조사 정리
-  (2026-11-13):
-  - seam 선행 — 번역 인프라보다 출구 통일이 먼저: 사용자 노출
-    문자열 전부를 t(msgid,args) 단일 래퍼로 회수. 영어 단일 상태에서
-    시작 — 카탈로그·번역 파일은 후속 추가(문자열 회수를 나중에
-    하면 비용 급증)
-  - 범위 계약 — 번역: help 본문·진행/에러 메시지·report --html 라벨.
-    비번역: 명령·플래그·설정 키(스크립트 호환)·--json 필드명·exit
-    코드·로그(검색성 — 영어 고정 관례)
-  - 카탈로그 — 키 기반(err.not_found+ko.json) vs gettext(msgid=영어
-    문장, 미번역 시 영어 폴백 자동) 택일. Go 후보: nicksnyder/go-i18n
-    (키+ICU 복수형)·x/text/message·gotext. 문자열 조립 금지 —
-    placeholder 포함 전체 문장 템플릿, 복수형은 ICU MessageFormat
-  - 언어 인식·변경 UX — 감지 체인: --lang > 저장 설정 > LANGUAGE >
-    LC_ALL > LC_MESSAGES > LANG > 기본 en. ko-KR→ko→en 폴백. 조작
-    없으면 터미널 로케일 자동 추종·변경은 지속·즉시 적용(설정값은
-    meta 오버라이드 — 개인값 운영 DB 원칙 승계)
-  - 영어 디폴트 전환 — CLI 출력·하네스 접점([flint] 주입·nudge·갱신
-    안내)·docs/ 본문 전부를 영어 디폴트로, 한국어는 ko 카탈로그·번역
-    본문으로 제공. 기존 한국어 기록(커밋·HISTORY)은 소급 없음
-  - 터미널 특유 — CJK 전각 문자 표 정렬 wcwidth 기반
-    (mattn/go-runewidth)·날짜·숫자 포맷 CLDR(x/text)
+  완료 후 착수) — 국제화(i18n)·영어 디폴트(해외 채널 마케팅 전제)·
+  지식 export·마케팅 문서 계열. 조사 정리(2026-11-13):
+  - seam 선행 — 사용자 노출 문자열 전부 t(msgid,args) 단일 래퍼로
+    회수(영어 단일 상태 시작 — 카탈로그는 후속, 나중 회수는 고비용)
+  - 범위 — 번역: help 본문·진행/에러 메시지·report 라벨. 비번역:
+    명령·플래그·설정 키·--json 필드명·exit 코드·로그(검색성)
+  - 카탈로그 — 키 기반 vs gettext 택일. Go 후보 go-i18n(키+ICU)·
+    x/text/message·gotext. 문자열 조립 금지·ICU 복수형
+  - 언어 인식·변경 UX — --lang > 저장 설정 > LANGUAGE > LC_ALL >
+    LC_MESSAGES > LANG > 기본 en·ko-KR→ko→en 폴백. 자동 추종·변경은
+    지속·즉시 적용(설정값은 meta 오버라이드 — 개인값 운영 DB)
+  - 영어 디폴트 전환 — CLI 출력·하네스 접점([flint]·nudge·갱신 안내)·
+    docs/ 본문. 한국어는 ko 카탈로그·번역 제공(기존 기록 소급 없음).
+    CJK 표 정렬 wcwidth(go-runewidth)·날짜/숫자 CLDR
   - 지식 export(신규 명령) — 파일 형식은 옵션 지정: 이관 교환
     (JSONL·import 쌍)·문서 변환(Markdown)·살균 덤프(render Masked)·
-    DB 덤프(원시 dump — 완전 백업·복원). 계약 상세는 스펙 확정 시
+    DB 덤프(완전 백업·복원). 계약 상세는 스펙 확정 시
+  - 마케팅 문서 — README 고도화·재현 가능 합성 벤치마크(실측
+    미인용 원칙)·그래픽 점검·LICENSE 추가(현재 부재 — 최우선 갭)
+- [ ] v1.3.0(예정 — 2026-11-13 사용자 지시·미착수) — 마케팅 준비
+  기능 계열: 데모 체험(asciinema·Codespaces)·대시보드 고도화
+  (React는 vendor 임베드 양안)·TUI 설계(사람 전용 표면)·설치 확장
+  (brew — 비목표 반전)·신뢰 아티팩트(SBOM·Scorecard·SECURITY.md)·
+  정적 웹(필수 아님)·UX 이중 트랙(에이전트 비간섭·사람 표면 분리).
+  상세: docs/plans/2026-11-13-flint-marketing-prep.md
 - 감사 정책(v1.0.10 확정): 감사는 신규 변경 시에만 재개. 무인 루프의
   정지 규칙 — 한 라운드 도출이 단일 계열의 구문 변형만 남기면 근본
   수정 또는 한계 선언 후 종결(R3~R10이 증명한 교훈). 쓰기 가드의
@@ -146,4 +145,5 @@
   멀티머신 동기화(터널 옵션만 유지)
 - 임베딩 검색(pgvector 채택 보류 — ADR-0011)·다중 에이전트 domain
   스코프(트리거 대기)·METRICS.md 개편·ADR 재편
-- brew 본체 등재·linux 배포·TUI/대시보드 서버(정적 export만)
+- 대시보드 동적 서버(정적 export만 유지)·linux 배포 — brew·TUI는
+  v1.3.0 반전(2026-11-13 사용자 지시)
