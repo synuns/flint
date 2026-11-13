@@ -115,7 +115,10 @@ func TestReadDailyFlatLegacyFallback(t *testing.T) {
 		"daily:"+today, `{"write":4,"hot":7}`); err != nil {
 		t.Fatal(err)
 	}
-	for _, tc := range []struct{ kind string; want int }{
+	for _, tc := range []struct {
+		kind string
+		want int
+	}{
 		{"hot", 7}, {"write", 4}, {"read", 0},
 	} {
 		got, err := r.readDailyFlat(ctx, tc.kind, today)

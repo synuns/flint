@@ -423,11 +423,11 @@ func (r *Repo) ensureSchemaV9(ctx context.Context) error {
 
 // EnsureSchemaV10는 meta.schema_version<10인 DB를 v10으로 무손실 승격한다
 // (v1.2.0 T1, spec §1.2 — 관측 고도화 저장 기반, additive): read_events에
-// bytes(출력 바이트)·zero_reason('unowned'|'owned_miss'|'')·source
+// bytes(출력 바이트)·zero_reason('unowned'|'owned_miss'|”)·source
 // ('hook'|'cli'|'mcp') 3열을 ADD COLUMN IF NOT EXISTS로 추가하고 항목별
 // 회상 이력 테이블 knowledge_reads(knowledge_id·ts·session·kind)를 CREATE
 // TABLE IF NOT EXISTS로 만들며 ts 인덱스를 건다. 승격 전 read_events 행은
-// 기본값 0·''·''을 받는다. 기존 테이블·views·데이터 무변경. 이미 v10
+// 기본값 0·”·”을 받는다. 기존 테이블·views·데이터 무변경. 이미 v10
 // 이상이면 no-op(수치 비교 단락)이며 v1~v9 게이트를 경유한 어느 DB에서도
 // 멱등하다.
 func (r *Repo) EnsureSchemaV10(ctx context.Context) error {

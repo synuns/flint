@@ -150,15 +150,22 @@ func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
 
 // ReadEvent — 효과 계측 이벤트 1행(v0.42.0 T3 구조체화 — 7파라미터 산재
 // 호출부를 값 하나로 수렴, 지표·저장 불변). IDs는 반환 지식 id CSV(상위
-// 10), FirstRank는 첫 topic 정합 순위(0=정합 없음·폴백 제외).
+// 10), FirstRank는 첫 topic 정합 순위(0=정합 없음·폴백 제외). v1.2.0 T2:
+// Bytes(출력 바이트 — G5와 동일 정의 len 최종 출력)·ZeroReason
+// ('unowned'|'owned_miss'|빈값, zero=1 행만 — spec §2.2 제로히트 분해)·
+// Source('hook'|'cli'|'mcp' 채널 라벨 — 세션 라벨 유무 hook/cli, MCP
+// 경로는 호출부 전달) 3열 확장(additive — 미채워 행은 기본값 0·빈값).
 type ReadEvent struct {
-	Hits      int
-	Zero      bool
-	Near      bool
-	Fallback  bool
-	Session   string
-	IDs       string
-	FirstRank int
+	Hits       int
+	Zero       bool
+	Near       bool
+	Fallback   bool
+	Session    string
+	IDs        string
+	FirstRank  int
+	Bytes      int
+	ZeroReason string
+	Source     string
 }
 
 // RecordReadEvent — 효과 계측 이벤트 1행 기록(v0.19.0, docs/METRICS.md §4).
@@ -166,15 +173,17 @@ type ReadEvent struct {
 // 개인 문구 부재 원칙). v0.20.0: 반환 지식 id CSV(ids, 상위 10) 추가 —
 // v0.30.0: 첫 topic 정합 순위(firstRank, 0=정합 없음·폴백 제외) 추가.
 // v0.42.0: ReadEvent 구조체 1값 수렴. 사용 연쇄(chain) 산출 원천.
+// v1.2.0 T2: bytes·zero_reason·source 3열(schema v10) 동반 기록.
 // INSERT 전용이라 읽기-쓰기 경합(40001)이 없고 재시도 없이 단발 실행한다.
 // v1.0.1 F2: 성공 경로에서 maybePruneAfterRead(24h 게이트 정리 훅)을
 // 함께 발화한다 — read가 RecordUsage를 우회하는 v0.42 구조에서도 정리가
 // 일어나야 하기 때문(아래 훅 주석 참조).
 func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7)`,
-		ev.Hits, ev.Zero, ev.Near, ev.Fallback, ev.Session, ev.IDs, ev.FirstRank)
+		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank, bytes, zero_reason, source)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		ev.Hits, ev.Zero, ev.Near, ev.Fallback, ev.Session, ev.IDs, ev.FirstRank,
+		ev.Bytes, ev.ZeroReason, ev.Source)
 	if err != nil {
 		return fmt.Errorf("record read event: %w", err)
 	}

@@ -54,7 +54,16 @@ type fakeApprove struct {
 	staleAgents    []string       // StaleSessionRuns
 	playbookUses   []playbookUse  // LogPlaybookUse
 	sessionUpdates []sessionUpdate
-	recordedBytes  []bytesCall // RecordBytes(G5 바이트 계측, v1.1.0 T1)
+	recordedBytes  []bytesCall   // RecordBytes(G5 바이트 계측, v1.1.0 T1)
+	kreads         []kreadsCallV // RecordKnowledgeReads(회상 이력, v1.2.0 T2)
+}
+
+// kreadsCallV — RecordKnowledgeReads canned 호출 기록(kreadsCall과 동일
+// 모양 — fake 소유 로컬 정의).
+type kreadsCallV struct {
+	ids     []int
+	session string
+	kind    string
 }
 
 // supersedeCall — Supersede canned 호출 기록.
@@ -122,6 +131,11 @@ func (f *fakeApprove) RecordUsageCount(ctx context.Context, kind, source string,
 
 func (f *fakeApprove) RecordBytes(ctx context.Context, kind string, n int) error {
 	f.recordedBytes = append(f.recordedBytes, bytesCall{kind, n})
+	return f.capErr
+}
+
+func (f *fakeApprove) RecordKnowledgeReads(ctx context.Context, ids []int, session, kind string) error {
+	f.kreads = append(f.kreads, kreadsCallV{ids, session, kind})
 	return f.capErr
 }
 
