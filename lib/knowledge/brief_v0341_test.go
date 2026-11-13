@@ -124,6 +124,49 @@ func TestBriefExcludesPending(t *testing.T) {
 	})
 }
 
+// TestBriefRecordsBytes — Review Focus(v1.1.0 T1): brief 출력 직후
+// len(최종 출력)을 kind="brief"로 기록 — ClampHot 절단 '후' 길이(기기 밖
+// 유출량 실측), 0건 안내 경로도 쓴 총량을 기록한다(분모 정합).
+func TestBriefRecordsBytes(t *testing.T) {
+	ctx := context.Background()
+	t.Run("히트 — ClampHot 후 길이", func(t *testing.T) {
+		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			switch {
+			case strings.Contains(sql, "FROM knowledge"):
+				return briefRows(2, strings.Repeat("긴", 60)), nil
+			case strings.Contains(sql, "FROM meta"):
+				return [][]any{{"60"}}, nil // brief_budget=60 — 절단 강제
+			}
+			return nil, nil
+		}}}
+		var out strings.Builder
+		if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("RunBrief exit=%d: %s", code, out.String())
+		}
+		if len(st.recorded) != 1 || st.recorded[0].kind != "brief" {
+			t.Fatalf("RecordBytes 기록 = %v, want 1건(kind=brief)", st.recorded)
+		}
+		if got := st.recorded[0].n; got != len(out.String()) {
+			t.Errorf("brief bytes = %d, want %d(ClampHot '후' 최종 출력 길이)", got, len(out.String()))
+		}
+	})
+	t.Run("0건 안내 — 쓴 총량", func(t *testing.T) {
+		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			return nil, nil // 일치 지식 없음
+		}}}
+		var out strings.Builder
+		if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("RunBrief exit=%d: %s", code, out.String())
+		}
+		if len(st.recorded) != 1 || st.recorded[0].kind != "brief" {
+			t.Fatalf("RecordBytes 기록 = %v, want 1건(kind=brief)", st.recorded)
+		}
+		if got := st.recorded[0].n; got != len(out.String()) {
+			t.Errorf("brief bytes = %d, want %d(0건 안내 1줄+개행 — 쓴 총량)", got, len(out.String()))
+		}
+	})
+}
+
 // TestBriefHeaderSurvivesTinyBudget — meta brief_budget이 헤더 길이보다
 // 작아도 [flint] 경계 마커 줄은 절단하지 않는다(본문이 전부 절단되므로
 // 데이터는 늘지 않는다 — 마커가 잘리면 수신 AI가 블록을 지시로 취급할

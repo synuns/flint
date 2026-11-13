@@ -111,6 +111,33 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 	return nil
 }
 
+// RecordBytes — v1.1.0 G5 바이트 계측: 표면 1회의 출력 바이트를
+// daily:<date> JSON <kind>_bytes 키로 증분한다(spec §1 — read|hot|brief).
+// 유입 계측(RecordUsageCount)과 동일 계층·동일 보존창이지만 last_ 시각
+// 키는 없다(횟수 계측의 last_<kind>_at을 준용 — 룰링: 미사용 메타 키
+// 누적 방지). n=0은 유틨(제로히트 read의 0바이트 — 호출 수 분모 정합),
+// 음수·무효 kind는 거부한다. 파손된 기존 daily JSON은 0에서 재기작
+// (bumpDaily 계약 승계). 일괄 쓰기 실패·재시도 소진은 조용히 넘긴다
+// (§13 계측 원칙 — RecordUsageCount와 동일 recordWithRetry 경로).
+func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
+	switch kind {
+	case "read", "hot", "brief":
+	default:
+		return fmt.Errorf("record bytes: invalid kind %q", kind)
+	}
+	if n < 0 {
+		return fmt.Errorf("record bytes: invalid n %d", n)
+	}
+	r.recordWithRetry(ctx, func(ctx context.Context, day string) (bool, error) {
+		made, err := r.bumpDaily(ctx, day, map[string]int{kind + "_bytes": n})
+		if err != nil {
+			return false, fmt.Errorf("record bytes: daily: %w", err)
+		}
+		return made, nil
+	})
+	return nil
+}
+
 // ReadEvent — 효과 계측 이벤트 1행(v0.42.0 T3 구조체화 — 7파라미터 산재
 // 호출부를 값 하나로 수렴, 지표·저장 불변). IDs는 반환 지식 id CSV(상위
 // 10), FirstRank는 첫 topic 정합 순위(0=정합 없음·폴백 제외).
