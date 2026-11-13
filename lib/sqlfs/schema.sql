@@ -17,6 +17,9 @@
 -- (status WHERE status='pending' AND invalid_at IS NULL). 기존 v8 DB는
 -- EnsureSchemaV9 게이트가 적용(인덱스 전용, additive — 신규 생성 경로는
 -- 게이트 체인이 만든다).
+-- v10(v1.2.0): 관측 확장 — read_events에 bytes·zero_reason·source 3열,
+-- 항목별 회상 이력 knowledge_reads 테이블(초기 보존 14일). 기존 v9 DB는
+-- EnsureSchemaV10 게이트가 적용(additive — ts 인덱스는 게이트가 건다).
 -- views는 무변경 — 컬럼이 기존 뷰 정의에 영향 없다.
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
@@ -81,7 +84,21 @@ CREATE TABLE IF NOT EXISTS read_events (
     fallback  boolean NOT NULL,             -- 폴백 재쿼리 경유
     session   text NOT NULL DEFAULT '',     -- 호출자 세션 라벨(선택)
     ids       text NOT NULL DEFAULT '',     -- 반환 지식 id CSV(v0.20.0, 상위 10)
-    first_rank integer NOT NULL DEFAULT 0   -- 첫 topic 정합 순위(v0.30.0, 0=정합 없음/폴백)
+    first_rank integer NOT NULL DEFAULT 0,  -- 첫 topic 정합 순위(v0.30.0, 0=정합 없음/폴백)
+    bytes     integer NOT NULL DEFAULT 0,   -- 출력 바이트(v1.2.0 G5 — 표면별 cost 산출)
+    zero_reason text NOT NULL DEFAULT '',   -- 'unowned'|'owned_miss'|''(v1.2.0 — zero=1 행만)
+    source    text NOT NULL DEFAULT ''      -- 'hook'|'cli'|'mcp'(v1.2.0 — 채널 믹스)
+);
+
+-- v10: 항목별 회상 이력 1행(hot 헤드라인 포함 — G4 계상 원천).
+-- 지식 id·시각·세션 라벨·표면만 남긴다(개인 문구 부재 원칙).
+-- 보존 초기 14일(read_events와 동일 창 — PruneReadEvents 정리).
+CREATE TABLE IF NOT EXISTS knowledge_reads (
+    id           serial PRIMARY KEY,
+    knowledge_id integer NOT NULL,
+    ts           timestamptz NOT NULL DEFAULT now(),
+    session      text NOT NULL DEFAULT '',  -- 호출자 세션 라벨(선택)
+    kind         text NOT NULL DEFAULT 'read' -- 'hot'|'read'(주입 표면)
 );
 
 -- v7: 세션 시작 경로 1행(SessionStart 훅 — session-start 커맨드가 기록).

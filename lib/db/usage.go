@@ -62,21 +62,25 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 }
 
 // RecordUsageCount — 유입 계측 count회를 daily 카운터에 일괄 증분한다
-// (dup N 회계의 O(N) 읽기-쓰기 회피 — bumpDaily가 delta map을 수용).
-// kind = write|hot|read|dup + dup_hook|dup_manual|dup_mcp(v0.10.2 R2 소스별
-// dup, additive) + brief(v0.34.1 brief 유입 계측, additive). last_<kind>_at을
-// RFC3339로 upsert하고(dup는
-// 시각 키 없음 — write 시각 준용) `daily:YYYY-MM-DD` JSON 카운터를 증분한다.
-// write는 source 카운터(hook|manual|mcp)를 병행한다. 14일 초과 daily 키는
-// PruneDaily로 정리하되 오늘 daily 키가 신규 생성된 경우(날짜 롤오버 첫
-// 이벤트)에만 실행한다 — 매 기록마다 DELETE하면 핫패스 낭비고 duplicate
-// write는 2회 실행된다. 정리 실패는 기록에 영향 주지 않는다(무시).
-// daily 증분은 읽고-쓰기다: 경합은 last-write-wins로 수용(플랜 계약 —
-// bumpMeta 단일 문장 확장은 doltgres에 jsonb_object_agg가 없어 불가,
-// 2026-10-22 확인). 파손된 기존 daily JSON은 0에서 재기작한다.
-// 기록 upsert는 병렬 세션과 40001 충돌이 가능해 재시도로 회복하며, 소진
-// 시 조용히 넘긴다 — 호출부(write·read·hot)가 이미 오류를 폐기하는 계측
-// 원칙(사용 로그 유실이 호출 실패보다 낫다)을 RecordUsage도 따른다.
+// (dup N 회계의 O(N) 읽기-쓰기 회피). kind = write|hot|read|dup +
+// dup_hook|dup_manual|dup_mcp(v0.10.2 R2 소스별 dup, additive) +
+// brief(v0.34.1 brief 유입 계측, additive). last_<kind>_at을 RFC3339로
+// upsert하고(dup는 시각 키 없음 — write 시각 준용) v1.2.0 T1부터
+// `daily:<kind>:YYYY-MM-DD` 정수 플랫 키를 증분한다(구 `daily:YYYY-MM-DD`
+// JSON 카운터 폐지 — 읽기 폴백은 readDailyFlat이 승계). write는 source
+// 카운터(hook|manual|mcp)를 병행한다. 14일 초과 daily 키는 PruneDaily로
+// 정리하되 오늘 daily 키가 신규 생성된 경우(날짜 롤오버 첫 이벤트)에만
+// 실행한다 — 매 기록마다 DELETE하면 핫패스 낭비고 duplicate write는 2회
+// 실행된다. 정리 실패는 기록에 영향 주지 않는다(무시).
+// 플랫 증분은 bumpMeta 패턴의 단일 UPSERT 문장이다(스펙 §1.1 — doltgres에
+// jsonb_object_agg가 없어 JSON 값으론 불가능했던 증분, 2026-10-22 확인
+// 한계 회피). 읽기-수정-쓰기 왕복과 40001 재시기 창이 사라진다. 단 Doltgres는
+// 같은 행의 동시 UPSERT를 에러 없이 last-write-wins 수용한다(2026-11-13
+// 실증) — 병렬 동시 증분의 총계 정합은 구 JSON 계약과 동일하게 보장하지
+// 않는다(계측 원칙: 유실 < 호출 실패). 파손된 기존 플랫 값은 0에서 재기작한다.
+// 재시도 경로(recordWithRetry)는 PruneDaily 롤오버 훅 보존을 위해 승계하며,
+// 소진 시 조용히 넘긴다 — 호출부(write·read·hot)가 이미 오류를 폐기하는
+// 계측 원칙을 RecordUsage도 따른다.
 func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	switch kind {
 	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "brief":
@@ -102,17 +106,23 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 				return false, fmt.Errorf("record usage: last_%s_at: %w", kind, err)
 			}
 		}
-		made, err := r.bumpDaily(ctx, day, delta)
-		if err != nil {
-			return false, fmt.Errorf("record usage: daily: %w", err)
+		created := false
+		for k, n := range delta {
+			made, err := r.bumpDailyFlat(ctx, day, k, n)
+			if err != nil {
+				return false, fmt.Errorf("record usage: daily: %w", err)
+			}
+			created = created || made
 		}
-		return made, nil
+		return created, nil
 	})
 	return nil
 }
 
 // RecordBytes — v1.1.0 G5 바이트 계측: 표면 1회의 출력 바이트를
-// daily:<date> JSON <kind>_bytes 키로 증분한다(spec §1 — read|hot|brief).
+// daily:<kind>_bytes:<date> 정수 플랫 키로 증분한다(spec §1 — read|hot|brief,
+// v1.2.0 T1 플랫 전환). 파손된 기존 플랫 값은 0에서 재기작(bumpDailyFlat
+// 계약 승계).
 // 유입 계측(RecordUsageCount)과 동일 계층·동일 보존창이지만 last_ 시각
 // 키는 없다(횟수 계측의 last_<kind>_at을 준용 — 룰링: 미사용 메타 키
 // 누적 방지). n=0은 유틨(제로히트 read의 0바이트 — 호출 수 분모 정합),
@@ -129,7 +139,7 @@ func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
 		return fmt.Errorf("record bytes: invalid n %d", n)
 	}
 	r.recordWithRetry(ctx, func(ctx context.Context, day string) (bool, error) {
-		made, err := r.bumpDaily(ctx, day, map[string]int{kind + "_bytes": n})
+		made, err := r.bumpDailyFlat(ctx, day, kind+"_bytes", n)
 		if err != nil {
 			return false, fmt.Errorf("record bytes: daily: %w", err)
 		}
@@ -309,22 +319,40 @@ func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Th
 	return th, nil
 }
 
+// knowledgeReadsRetentionD — v1.2.0 T1 knowledge_reads 보존 기본값(초기
+// 14일, spec §1.2 — read_events와 동일 창). meta 오버라이드
+// (knowledge_reads_retention_days)는 등록표(store.ParseThresholds) 키
+// 등록 전까지 per-key 직접 읽기로 수용한다(구 v0.42 이전 규약 — n>0만
+// 수용). 등록표 등록은 thresholds 키 확장 태스크(T5/T6)에서 수렴한다.
+const knowledgeReadsRetentionD = 14
+
 // PruneReadEvents — 보존 한도를 넘은 효과 계측 이벤트 삭제. v0.20.0:
 // read_events·session_starts는 14일(daily 카운터와 동일 정책), hot_events는
 // 30일(dead_pct 노출 정합 가드 창과 정렬 — 14일이면 가드가 문서 계약의
 // 절반만 커버한다, 리뷰 #3). v0.20.4: 보존일은 meta 오버라이드
 // (events_retention_days·hot_events_retention_days, TUNING §2) — 키
-// 부재·파손은 기본값. 트리거는 2개(PruneDaily와 동시 발화): ① recordWithRetry의
+// 부재·파손은 기본값. v1.2.0 T1: knowledge_reads 항목별 회상 이력도 같은
+// 트리거로 정리한다(초기 14일·knowledge_reads_retention_days 분리 오버라이드).
+// 트리거는 2개(PruneDaily와 동시 발화): ① recordWithRetry의
 // 롤오버 훅(오늘 daily 키 신규 생성 — 하루 첫 write 계측), ② v1.0.1 F2
 // maybePruneAfterRead(RecordReadEvent 성공 + last_events_prune_at 24h 게이트
 // — read만 하는 세션에서도 정리가 일어난다). 하루 1회 수준이라 메타
 // 읽기 왕복 부담이 없다. 실패는 호출부가 조용히 넘긴다(계측 원칙).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "events_retention_days", "hot_events_retention_days")
+	kreadsDays := knowledgeReadsRetentionD
+	var v string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'knowledge_reads_retention_days'`).Scan(&v); err == nil {
+		if n, perr := strconv.Atoi(v); perr == nil && n > 0 {
+			kreadsDays = n
+		}
+	}
 	retention := map[string]int{
-		"read_events":    th.EventsRetentionD,
-		"session_starts": th.EventsRetentionD,
-		"hot_events":     th.HotRetentionD,
+		"read_events":     th.EventsRetentionD,
+		"session_starts":  th.EventsRetentionD,
+		"hot_events":      th.HotRetentionD,
+		"knowledge_reads": kreadsDays,
 	}
 	now := time.Now().UTC()
 	for table, days := range retention {
@@ -360,66 +388,73 @@ func (r *Repo) recordWithRetry(ctx context.Context, fn func(ctx context.Context,
 	}
 }
 
-// bumpDaily — daily:<date> JSON 카운터 증분. 파손된 값은 0에서 재기작.
-// 신규 키 생성(기존 행 부재) 시 created=true를 돌려준다(PruneDaily 트리거).
-func (r *Repo) bumpDaily(ctx context.Context, day string, delta map[string]int) (created bool, err error) {
-	key := "daily:" + day
-	cur, created, err := r.readDaily(ctx, day)
-	if err != nil {
-		return false, err
+// bumpDailyFlat — v1.2.0 T1: `daily:<kind>:<date>` 정수 값 카운터 증분.
+// bumpMeta 패턴의 단일 UPSERT 원자 문장이다(스펙 §1.1) — 구 daily:<date>
+// JSON 읽기-수정-쓰기의 last-write-wins 경합 손실·40001 재시기 창을 제거한다.
+// 파손된 기존 값(정수 아님)은 0에서 재기작한다. 신규 키 생성(기존 행 부재)
+// 시 created=true를 돌려준다(recordWithRetry의 PruneDaily 롤오버 트리거).
+func (r *Repo) bumpDailyFlat(ctx context.Context, day, kind string, n int) (created bool, err error) {
+	key := "daily:" + kind + ":" + day
+	if err := r.pool.QueryRow(ctx,
+		`SELECT EXISTS (SELECT 1 FROM meta WHERE key = $1)`, key).Scan(&created); err != nil {
+		return false, fmt.Errorf("bump daily flat: exists: %w", err)
 	}
-	out, err := mergeDaily(cur, delta)
-	if err != nil {
-		return false, err
-	}
-	_, err = r.pool.Exec(ctx,
+	created = !created
+	// EXCLUDED.value로 증분값을 받는다 — 같은 플레이스홀더($2) 재사용은
+	// Doltgres 확장 프로토콜이 인덱스 추론에 실패한다(2026-11-13 확인).
+	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
-		 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, key, string(out))
-	if err != nil {
-		return false, fmt.Errorf("bump daily: upsert: %w", err)
+		 ON CONFLICT (key) DO UPDATE SET value =
+		   CASE WHEN meta.value ~ '^[0-9]+$' THEN (meta.value::bigint + EXCLUDED.value::bigint)::text
+		        ELSE EXCLUDED.value END`, key, strconv.Itoa(n)); err != nil {
+		return false, fmt.Errorf("bump daily flat: upsert: %w", err)
 	}
 	return created, nil
 }
 
-// readDaily — daily:<date> 현재 값을 읽는다(bumpDaily 읽기 절반).
-// 파손된 값은 0에서 재기작 대상
-// 공란, 신규 키 생성(기존 행 부재) 시 created=true를 돌려준다.
-func (r *Repo) readDaily(ctx context.Context, day string) (cur map[string]int, created bool, err error) {
-	cur = map[string]int{}
+// readDailyFlat — daily:<kind>:<date> 카운터 현재 값(플랫 키 우선). 플랫
+// 키 행이 없으면 구 daily:<date> JSON 카운터에서 kind를 읽어 승계한다
+// (마이그레이션 읽기 폴백 — 기존 창 통계 손실 방지, 읽기 전용: JSON을
+// 플랫 키로 옮겨 쓰지 않는다). 파손·부재·JSON null은 0(bumpDailyFlat의
+// 0 재기작 계약과 정합).
+func (r *Repo) readDailyFlat(ctx context.Context, kind, day string) (int, error) {
 	var val string
-	err = r.pool.QueryRow(ctx, `SELECT value FROM meta WHERE key = $1`, "daily:"+day).Scan(&val)
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = $1`, "daily:"+kind+":"+day).Scan(&val)
 	switch {
 	case err == nil:
-		// 파손(부분 디코드 포함)이거나 JSON null이면 cur를 공란으로 되돌려
-		// 0에서 재기작한다(null은 cur=nil map이 되어 증분에서 panic).
-		if json.Unmarshal([]byte(val), &cur) != nil || cur == nil {
-			cur = map[string]int{}
+		n, perr := strconv.Atoi(val)
+		if perr != nil {
+			return 0, nil // 파손된 플랫 값 — 재기작 전 관측치는 0
 		}
+		return n, nil
 	case errors.Is(err, pgx.ErrNoRows):
-		created = true // 첫 기록 — cur 공란, 이 호출로 키가 생성된다.
+		var legacy string
+		lerr := r.pool.QueryRow(ctx,
+			`SELECT value FROM meta WHERE key = $1`, "daily:"+day).Scan(&legacy)
+		if lerr != nil {
+			if errors.Is(lerr, pgx.ErrNoRows) {
+				return 0, nil
+			}
+			return 0, fmt.Errorf("read daily flat: legacy: %w", lerr)
+		}
+		m := map[string]int{}
+		if json.Unmarshal([]byte(legacy), &m) != nil || m == nil {
+			return 0, nil
+		}
+		return m[kind], nil
 	default:
-		return nil, false, fmt.Errorf("bump daily: read: %w", err)
+		return 0, fmt.Errorf("read daily flat: %w", err)
 	}
-	return cur, created, nil
 }
 
-// mergeDaily — delta를 cur에 더해 JSON으로 내보낸다(증분 순수 계산 분리).
-func mergeDaily(cur map[string]int, delta map[string]int) (string, error) {
-	for k, n := range delta {
-		cur[k] += n
-	}
-	out, err := json.Marshal(cur)
-	if err != nil {
-		return "", fmt.Errorf("bump daily: marshal: %w", err)
-	}
-	return string(out), nil
-}
-
-// PruneDaily — 14일 보존(오늘+직전 13일)을 넘는 daily 키 삭제. 키 날짜는
-// UTC(RecordUsage 기록 기준)이므로 기준일도 UTC로 잡는다(서버 TZ 영향 배제).
-// 날짜 형식이 아닌 키(daily:*)는 건드리지 않는다(형식 검사 후 cast).
-// 보존일은 meta 오버라이드(daily_retention_days) — v0.42.0 T1: 파생
-// 경로(thresholdsForPrune)로 재파싱(키 부재·파손·0은 기본값).
+// PruneDaily — 14일 보존(오늘+직전 13일)을 넘는 daily 키 삭제. v1.2.0 T1:
+// 구 `daily:<date>` JSON 키와 신규 `daily:<kind>:<date>` 플랫 키 양쪽을
+// 정리한다(마이그레이션 기간 두 형식이 공존). 키 날짜는 UTC(RecordUsage
+// 기록 기준)이므로 기준일도 UTC로 잡는다(서버 TZ 영향 배제). 날짜 형식이
+// 아닌 키(daily:*)는 건드리지 않는다(형식 검사 후 cast). 보존일은 meta
+// 오버라이드(daily_retention_days) — v0.42.0 T1: 파생 경로(thresholdsForPrune)
+// 로 재파싱(키 부재·파손·0은 기본값).
 func (r *Repo) PruneDaily(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "daily_retention_days")
 	days := th.DailyRetentionD
@@ -427,8 +462,8 @@ func (r *Repo) PruneDaily(ctx context.Context) error {
 	// Doltgres가 $1을 interval로 추론해 실패한다, v0.24.0 회귀 방어).
 	cutoff := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
 	_, err := r.pool.Exec(ctx,
-		`DELETE FROM meta WHERE key ~ '^daily:[0-9]{4}-[0-9]{2}-[0-9]{2}$'
-		   AND substring(key from 7)::date <= $1::date`, cutoff)
+		`DELETE FROM meta WHERE key ~ '^daily:([a-z_]+:)?[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+		   AND substring(key from '[0-9]{4}-[0-9]{2}-[0-9]{2}$')::date <= $1::date`, cutoff)
 	return err
 }
 
