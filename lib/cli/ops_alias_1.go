@@ -13,7 +13,6 @@ import (
 // 리플렉션 테스트의 statusOutput·rules_sync.go의 doctorCheck 반환형 등).
 type (
 	doctorCheck  = ops.DoctorCheck
-	harnessSpec  = ops.HarnessSpec
 	statusOutput = ops.StatusOutput
 )
 
@@ -23,9 +22,7 @@ type (
 // 기존 공개명.
 var (
 	runDoctor          = ops.RunDoctor
-	runStatus          = ops.RunStatus
 	runTuning          = ops.RunTuning
-	claudeHome         = ops.ClaudeHome
 	applyHookFix       = ops.ApplyHookFix
 	doctorFixReport    = ops.DoctorFixReport
 	checkBackupAge     = ops.CheckBackupAge
@@ -37,8 +34,6 @@ var (
 	statusWindowedRead = ops.StatusWindowedRead
 	tuningKeyMap       = ops.TuningKeyMap
 	tuningKeyAll       = ops.TuningKeyAll
-	tuningCurrent      = ops.TuningCurrent
-	tuningList         = ops.TuningList
 	tuningMetaKeys     = ops.TuningMetaKeys
 	harnessRegistry    = ops.HarnessRegistry
 	DoctorChecks       = ops.DoctorChecks

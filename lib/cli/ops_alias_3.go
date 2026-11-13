@@ -34,7 +34,6 @@ type (
 var (
 	// report·report_html
 	runReport       = ops.RunReport
-	collectCounts   = ops.CollectCounts
 	collectEffect   = ops.CollectEffect
 	profileHint     = ops.ProfileHint
 	readCounters    = ops.ReadCounters
