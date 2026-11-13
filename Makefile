@@ -35,6 +35,15 @@ ci:
 	@test -z "$$(gofmt -l lib cmd)" || { echo 'gofmt 미적용 파일:'; gofmt -l lib cmd; exit 1; }
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test $(GO_TEST_FLAGS) -count=1 ./...
 
+# v1.2.0(사용자 지시): 배포 전 문서 정합 게이트 — 문서 계약 테스트는
+# go test ./docs(계약 테스트 15종: versions·badge·runbook·tuning 등)로
+# 이미 포함되나 배포 타깃에서 명시적 선행 단계로 격상·문서=코드와 동일
+# 게이트. docs-sync는 README·SKILL·contracts 6종의 코드-문서 동기
+# 단얫(커맨드 표==Registered 등)을 별도 타깃으로 노출해 릴리스 체크리스트
+# 에서 보이게 한다.
+docs-sync:
+	go test ./docs -count=1 -run 'TestVersion|TestReadme|TestCommand|TestSkill|TestContracts|TestPlan|TestRunbook|TestTuning|TestPlugin|TestServer|TestMcpPublisher' -v 2>&1 | grep -E "^(=== RUN|--- FAIL|--- PASS)" | tail -50
+
 tidy:
 	go mod tidy
 
