@@ -53,7 +53,7 @@ type ReportDay struct {
 	ReadNear int `json:"read_zero_near"`
 	// v1.1.0 G5 바이트 계측 — brief 호출 수(v0.34.1 카운터 디코딩)와
 	// 세 표면 출력 바이트(미기록 일은 0으로 디코딩, 구 daily JSON 호환).
-	Brief     int `json:"brief"`
+	Brief      int `json:"brief"`
 	ReadBytes  int `json:"read_bytes"`
 	HotBytes   int `json:"hot_bytes"`
 	BriefBytes int `json:"brief_bytes"`

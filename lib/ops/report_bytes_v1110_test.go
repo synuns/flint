@@ -53,7 +53,7 @@ func TestReportBytes(t *testing.T) {
 	var rep struct {
 		Effect struct {
 			Bytes struct {
-				Read  struct {
+				Read struct {
 					Bytes14d int `json:"bytes_14d"`
 					AvgBytes int `json:"avg_bytes"`
 				} `json:"read"`
