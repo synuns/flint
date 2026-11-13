@@ -3,6 +3,7 @@ package store
 import (
 	"fmt"
 	"log"
+	"math"
 	"strconv"
 )
 
@@ -294,7 +295,9 @@ func parseIntInRangeOrDefault(val any, def, min int, key string) int {
 func parseFloatPositive(val any, def float64, key string) float64 {
 	s := fmt.Sprint(val)
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || f <= 0 {
+	// v1.2.2(R16-B1): NaN·Inf 거부 — Go에서 NaN<=0은 false라 통과해
+	// rrf_k=NaN이 폴백 점수 전체를 조용히 무의미화했다(프로브 실증).
+	if err != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
 		log.Printf("[flint] thresholds: %s=%q 파싱 불가(양수 필요) — 기본값 %v", key, s, def)
 		return def
 	}
@@ -308,7 +311,8 @@ func parseFloatOrDefault(val any, def float64, key string) float64 {
 		return def
 	}
 	f, err := strconv.ParseFloat(s, 64)
-	if err != nil || f < 0 || f > 1 {
+	// v1.2.2(R16-B1): NaN 거부(NaN<0·NaN>1 모두 false라 통과).
+	if err != nil || f < 0 || f > 1 || math.IsNaN(f) {
 		log.Printf("[flint] thresholds: %s=%q 파싱 불가 — 기본값 %v", key, s, def)
 		return def
 	}
