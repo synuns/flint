@@ -17,10 +17,10 @@ func TestMaintainMetaAuditClassification(t *testing.T) {
 			return [][]any{
 				{"schema_version", "8"},
 				{"daily:2026-11-09", "{}"},
-				{"read_stats", "{}"},       // known(레거시 관측)
-				{"last_brief_at", "x"},     // known(v1.2.0 T1 즉치 — unknown 오탐 해소, spec §1.3)
+				{"read_stats", "{}"},            // known(레거시 관측)
+				{"last_brief_at", "x"},          // known(v1.2.0 T1 즉치 — unknown 오탐 해소, spec §1.3)
 				{"daily:write:2026-11-09", "1"}, // daily(플랫 키 — daily: 접두 승계)
-				{"mystery_key", "x"},       // unknown
+				{"mystery_key", "x"},            // unknown
 			}, nil
 		}
 		return nil, nil
