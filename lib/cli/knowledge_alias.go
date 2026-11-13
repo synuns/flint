@@ -27,7 +27,6 @@ type (
 var (
 	runWrite         = knowledge.RunWrite
 	runImport        = knowledge.RunImport
-	recordUsage      = knowledge.RecordUsage
 	recordDups       = knowledge.RecordDups
 	writeThresholds  = knowledge.WriteThresholds
 	ParseSourceFlag  = knowledge.ParseSourceFlag

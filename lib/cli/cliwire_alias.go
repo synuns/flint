@@ -24,7 +24,6 @@ var (
 	runHelp    = wire.RunHelp
 	getMetaKV  = wire.GetMetaKV
 	setMetaKV  = wire.SetMetaKV
-	bumpMetaKV = wire.BumpMetaKV
 
 	// DSN 해결(config.go 이동분) — ResolveDSN·ConfigPath·LoadConfigDSN는
 	// 기존 공개명 그대로 별칭.
@@ -39,7 +38,6 @@ var (
 	// marker) 호환용이다(v0.40.0 T4 사용 0 별칭 정리 완료).
 	// v0.42.0 T2: LoadReadStats·BumpReadStats 별칭 폐지(read_stats blob
 	// 폐지 — 파생 경로는 ops.LoadReadStatsFromMeta가 담당).
-	loadThresholds   = wire.LoadThresholds
 	thresholdsKeys   = wire.ThresholdsKeys
 	ReadSessionLabel = wire.ReadSessionLabel
 )

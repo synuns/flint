@@ -531,6 +531,12 @@ func TestDoneWarnsConsecutiveUnrecordedSessions(t *testing.T) {
 	})
 	setMeta(t, pool, "stale_sessions", "3")
 	t.Cleanup(func() { delMeta(t, pool, "stale_sessions") })
+	// v1.0.13(CI 수리): recall 경고는 '금일 전역 write 수'를 본다 — 형제
+	// e2e가 쌓은 금일 write(100+)가 이 테스트의 ok 케이스를 오염시켰다.
+	// 임계값을 비활성 수준으로 올려 이 테스트의 관심사(stale 세션 수)만
+	// 검증한다.
+	setMeta(t, pool, "recall_warn_writes", "1000000")
+	t.Cleanup(func() { delMeta(t, pool, "recall_warn_writes") })
 	// done이 자동 백업·(회상 부재 시)recall 마커를 동반하므로 홈 대신
 	// 임시 디렉터리로 격리(v0.18.1 — 마커가 실사용자 config에 남던 오염).
 	t.Setenv("FLINT_BACKUP_DIR", t.TempDir())
@@ -797,8 +803,12 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회 실패: %v", err)
 	}
-	if version != "8" {
-		t.Fatalf("done 후 schema_version=%q, want 8(v2→…→v8 연쇄 승격)", version)
+	// v1.0.13(CI 수리): 최신 버전은 db.LatestSchemaVersion 파생 — v9 추가
+	// 시 하드코딩이 낡아 적색이 됐던 것(v0.42 이후 e2e가 lint 적색으로
+	// 스킵돼 방치).
+	want := strconv.Itoa(db.LatestSchemaVersion)
+	if version != want {
+		t.Fatalf("done 후 schema_version=%q, want %s(연쇄 승격)", version, want)
 	}
 
 	// 승격 후 read 정상 — 씨딩 토픽이 그대로 보인다.
@@ -807,13 +817,13 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		t.Fatalf("승격 후 read 결과 이상: %v", lines)
 	}
 
-	// 회귀: v7에서도 status는 exit 0(호환 허용 집합 {"1",...,"7"}).
+	// 회귀: 승격 후 status는 exit 0(허용 집합은 최신 파생 — v1.0.13).
 	out, code = runCLI(t, []string{"status"}, "")
 	if code != 0 {
-		t.Fatalf("v7 status exit=%d, want 0; out=%s", code, out)
+		t.Fatalf("status exit=%d, want 0; out=%s", code, out)
 	}
-	if m := decode(t, out); m["schema_version"] != "8" {
-		t.Fatalf("status schema_version=%v, want 7; out=%s", m["schema_version"], out)
+	if m := decode(t, out); m["schema_version"] != strconv.Itoa(db.LatestSchemaVersion) {
+		t.Fatalf("status schema_version=%v, want %d; out=%s", m["schema_version"], db.LatestSchemaVersion, out)
 	}
 }
 
