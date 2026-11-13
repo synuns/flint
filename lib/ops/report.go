@@ -89,6 +89,10 @@ type ReportOutput struct {
 	// v1.2.0 T3 — 검수 결과 카운터 기간 합계(spec §2.4 curation 객체).
 	// T4가 daily:<kind>:<date> 플랫 키로 기록하고 report가 창 합산 노출.
 	Curation CurationCounters `json:"curation"`
+	// v1.2.0 T5 — 규칙 진단 D(spec §3). 단일 데이터 모델: text(Sentence)·
+	// --json(이 배열)·--html(카드) 세 뷰가 전부 이 필드에서 렌더된다
+	// (뷰 간 데이터 분열 금지 — 사용자 원칙). 정상 침묵: 빈 배열.
+	Diagnosis []DiagnosisItem `json:"diagnosis"`
 }
 
 // CurationCounters — 검수(approve)·유지보수(maintain)·적립(import) 결과
@@ -348,6 +352,10 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		out.DupHook += d.DupHook
 		out.DupManual += d.DupManual
 	}
+	// v1.2.0 T5 — 규칙 진단 D(spec §3): 수집 완료된 원천(effect·counts·
+	// daily)으로 순수 함수 판정. hot_budget(A계층 자기참조 기준)은 meta
+	// 로드값(미설정 기본 2000 — HotBudget 폴백).
+	out.Diagnosis = Diagnose(out, th, knowledge.HotBudget(knowledge.MetaGetKV(ctx, st)))
 	b, err := json.Marshal(out)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))

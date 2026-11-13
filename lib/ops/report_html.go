@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -159,6 +160,11 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 		}
 	}
 	rep.DupPct = DupPct(rep.Days)
+	// v1.2.0 T5 — 규칙 진단 카드 원천: JSON 경로(RunReport)와 같은
+	// Diagnose·같은 ReportOutput.Diagnosis에서 렌더한다(세 뷰 동일 원천 —
+	// HTML이 별도 지표를 만들지 않는다, 단일 소스 원칙 승계).
+	rep.Diagnosis = Diagnose(rep, knowledge.WriteThresholds(ctx, st),
+		knowledge.HotBudget(knowledge.MetaGetKV(ctx, st)))
 	d := HtmlDashboard{
 		GeneratedAt: timeNowUTC(),
 		Days:        days,

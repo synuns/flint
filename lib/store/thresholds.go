@@ -42,6 +42,17 @@ type Thresholds struct {
 	RrfK                 float64 // 검색 RRF 순위 완화 계수(기본 60, v0.25.0)
 	SecretsScanRows      int     // doctor secrets 1회 스캔 행 상한(기본 10000, v0.26.1)
 	SessionKnowledgeDays int     // 세션 지식화 최소 간격(일, 기본 1 — v0.27.0. -1=끔)
+	// v1.2.0 T5 — 규칙 진단 D 임계값(spec §3 diag_*·TUNING §2). B계층은
+	// doctor 기존 키(zero_near_warn_pct·pending_age_days)를 승계 읽기한다
+	// (중복 키 방지 — 신규 키는 A/C계층 자기참조·가치 기본값만).
+	DiagHotBudgetHigh float64 // hot 주입 평균/예산 '만성 절단' 판정 상한(기본 0.8)
+	DiagHotBudgetLow  float64 // hot 주입 평균/예산 정보성(여유) 판정 하한(기본 0.2)
+	DiagTrendPct      int     // hot bytes 추세 급변 판정 %(기본 50)
+	DiagRecallLedGoal int     // 회상 선도 세션 '기본 목표' %(C계층 가치 기본값, 기본 50)
+	DiagDeadWarn      int     // dead_pct 진단 경고 %(기본 10)
+	// v1.2.0 T5 — knowledge_reads 보존일 등록(T1 stopgap 인계 해소: 기존
+	// per-key 직접 읽기와 동일 키·기본값 14, spec §1.2).
+	KreadsRetentionD int // knowledge_reads 보존(일, 기본 14)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -77,6 +88,13 @@ const (
 	defaultRrfK                 = 60.0
 	defaultSecretsScanRows      = 10000
 	defaultSessionKnowledgeDays = 1
+	// v1.2.0 T5 — 진단 diag_*·knowledge_reads 보존 기본값(spec §3·§1.2).
+	defaultDiagHotBudgetHigh = 0.8
+	defaultDiagHotBudgetLow  = 0.2
+	defaultDiagTrendPct      = 50
+	defaultDiagRecallLedGoal = 50
+	defaultDiagDeadWarn      = 10
+	defaultKreadsRetentionD  = 14
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -113,6 +131,13 @@ func DefaultThresholds() Thresholds {
 		RrfK:                   defaultRrfK,
 		SecretsScanRows:        defaultSecretsScanRows,
 		SessionKnowledgeDays:   defaultSessionKnowledgeDays,
+		// v1.2.0 T5 진단 키 — 소비자(ops.Diagnose) 폴백 기준값.
+		DiagHotBudgetHigh: defaultDiagHotBudgetHigh,
+		DiagHotBudgetLow:  defaultDiagHotBudgetLow,
+		DiagTrendPct:      defaultDiagTrendPct,
+		DiagRecallLedGoal: defaultDiagRecallLedGoal,
+		DiagDeadWarn:      defaultDiagDeadWarn,
+		KreadsRetentionD:  defaultKreadsRetentionD,
 	}
 }
 
@@ -202,7 +227,20 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "session_knowledge_days":
 			// -1=끔 센티넬(recall_warn_writes 관례 승계).
 			th.SessionKnowledgeDays = parseIntInRangeOrDefault(val, defaultSessionKnowledgeDays, -1, ks)
-
+		case "diag_hot_budget_high":
+			th.DiagHotBudgetHigh = parseFloatOrDefault(val, defaultDiagHotBudgetHigh, ks)
+		case "diag_hot_budget_low":
+			th.DiagHotBudgetLow = parseFloatOrDefault(val, defaultDiagHotBudgetLow, ks)
+		case "diag_trend_pct":
+			th.DiagTrendPct = parseIntOrDefault(val, defaultDiagTrendPct, ks)
+		case "diag_recall_led_goal":
+			th.DiagRecallLedGoal = parseIntOrDefault(val, defaultDiagRecallLedGoal, ks)
+		case "diag_dead_warn":
+			th.DiagDeadWarn = parseIntOrDefault(val, defaultDiagDeadWarn, ks)
+		case "knowledge_reads_retention_days":
+			// v1.2.0 T5 등록(T1 stopgap 인계 — usage.go per-key 직접 읽기와
+			// 동일 키·기본값. tuning/문서 노출은 등록표 후속 수렴).
+			th.KreadsRetentionD = parseIntOrDefault(val, defaultKreadsRetentionD, ks)
 		}
 	}
 	return th, nil

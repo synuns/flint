@@ -136,6 +136,17 @@
 
 {{if .Effect.ProfileHint}}<div class="hintline">{{.Effect.ProfileHint}}</div>{{end}}
 
+{{if .Rep.Diagnosis}}
+<h2>진단</h2>
+<div class="h2sub">규칙 기반 진단 — 문제가 있을 때만 나타납니다(정상이면 이 섹션이 없어요)</div>
+<div class="inv">
+{{range .Rep.Diagnosis}}
+  <div><span class="k" title="{{.Sentence}}">{{.Signal}}</span><span class="v" style="font-size:14px">{{.Value}}</span></div>
+  <div class="h2sub">{{.Action}} · 기준: {{.Basis}}{{if .TuningKey}} · 조정 키: {{.TuningKey}}{{end}}</div>
+{{end}}
+</div>
+{{end}}
+
 <footer>
   <span>세션 시작 시 주입되는 요약 크기: 평균보다 큰 경우 {{.Rep.HotP95}}글자 ≈ {{EstTok .Rep.HotP95}}토큰</span>
   <span>수치는 참고용 추세 지표입니다 · 자세한 정의는 터미널에서 flint report</span>
