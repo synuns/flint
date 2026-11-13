@@ -46,6 +46,22 @@ type ReadEventStore interface {
 	RecordReadEvent(ctx context.Context, ev db.ReadEvent) error
 }
 
+// BytesRecorder — G5 바이트 계측 접합면(v1.1.0, spec §1). realStore는
+// db.Repo.RecordBytes로 구현(cli/realstore_read.go), 미구현 Store(fake)는
+// 이 계측을 건너뛴다(ReadEventStore 소비 패턴 승계).
+type BytesRecorder interface {
+	RecordBytes(ctx context.Context, kind string, n int) error
+}
+
+// recordBytes — 표면 출력 직후 len(최종 출력)을 kind 바이트로 기록한다
+// (UTF-8 바이트 — io.Writer에 쓴 총량). 미구현 no-op, 실패는 조용히
+// (§13 계측 원칙 — 바이트 로그 유실이 호출 실패보다 낫다).
+func recordBytes(ctx context.Context, st wire.Store, kind string, n int) {
+	if br, ok := st.(BytesRecorder); ok {
+		_ = br.RecordBytes(ctx, kind, n)
+	}
+}
+
 // idsCSV — 정수 id 슬라이스를 CSV로(저장 예산 상한 10 — hit 전수는
 // hits 컬럼이 유지한다). v0.20.0 chain 산출 원천의 직렬화.
 func idsCSV(ids []int) string {
@@ -365,13 +381,19 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// v0.14.0 R1 침묵 계약: eligible(현재 시점·무상태필터) 제로히트는
 	// 완전 무출력 — FormatRows도 빈 rows에 ""를 반환하므로 별도 분기가
 	// 필요 없다. 제안 라인은 폐지(제로히트 결과 행 0 + 스캔 무출력).
-	fmt.Fprint(stdout, query.FormatRows(rows, fields, jsonMode))
+	out := query.FormatRows(rows, fields, jsonMode)
+	fmt.Fprint(stdout, out)
 	// --as-of 지정 시 결과 뒤에 as_of{hash,commit_date} 한 줄(JSON) 추가.
 	// 미지정이면 기존 필드만 그대로.
+	byteLen := len(out) // G5(v1.1.0 T1): io.Writer에 쓴 총량(UTF-8 바이트)
 	if asOfHash != "" {
 		b, _ := json.Marshal(AsOfLine{AsOf: AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 		fmt.Fprintln(stdout, string(b))
+		byteLen += len(b) + 1 // as_of 한 줄(+개행)도 쓴 총량에 포함
 	}
+	// G5 바이트 계측(v1.1.0 T1): read 1회 분 — 제로히트는 out="" 0바이트로
+	// 기록된다(호출 수 분모 정합, spec §1). 조용히(§13).
+	recordBytes(ctx, st, "read", byteLen)
 	// 계측(T62): 결과 항목 id 전수 참조 증분. v0.42.0 T2 — read 유입의
 	// read_stats blob·daily 카운터 쓰기는 폐지(쓰기 4→2: BumpReads·
 	// RecordReadEvent만 남는다). 조용히(§13).

@@ -99,8 +99,12 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	}
 	body := query.FormatRows(rows, "topic,summary,tags", false)
 	if body == "" {
-		fmt.Fprintln(stdout, "[flint] 브리프 0건 — 일치 지식 없음")
+		msg := "[flint] 브리프 0건 — 일치 지식 없음"
+		fmt.Fprintln(stdout, msg)
 		RecordUsage(ctx, st, "brief", "")
+		// G5 바이트 계측(v1.1.0 T1): 0건 안내 1줄도 기기 밖으로 나온
+		// 총량이다(분모 정합). 조용히(§13).
+		recordBytes(ctx, st, "brief", len(msg)+1)
 		return 0
 	}
 	budget := BriefBudget(MetaGetKV(ctx, st))
@@ -112,7 +116,11 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	if hl := utf8.RuneCountInString(header); budget < hl {
 		budget = hl
 	}
-	fmt.Fprint(stdout, query.ClampHot(header+body, budget))
+	out := query.ClampHot(header+body, budget)
+	fmt.Fprint(stdout, out)
 	RecordUsage(ctx, st, "brief", "")
+	// G5 바이트 계측(v1.1.0 T1): ClampHot 절단 '후' 최종 출력 길이(기기 밖
+	// 유출량 실측 — 절단 전 아님, spec §1). 조용히(§13).
+	recordBytes(ctx, st, "brief", len(out))
 	return 0
 }

@@ -34,6 +34,7 @@ var (
 	_ DupIDStore          = (*fakeApprove)(nil)
 	_ DupMetaStore        = (*fakeApprove)(nil)
 	_ UsageCountStore     = (*fakeApprove)(nil)
+	_ BytesRecorder       = (*fakeApprove)(nil)
 	_ staleSessionStore   = (*fakeApprove)(nil)
 	_ usageStore          = (*fakeApprove)(nil)
 	_ sessionSummaryStore = (*fakeApprove)(nil)
@@ -51,6 +52,7 @@ var (
 	_ HotEventRecorder    = (*hotBumpRecorder)(nil)
 	_ UsageStore          = (*countRecorder)(nil)
 	_ UsageCountStore     = (*countRecorder)(nil)
+	_ BytesRecorder       = (*bytesRecorder)(nil)
 )
 
 // TestFakeParityKnowledge — Review Focus: 인터페이스 발견 목록(패키지
@@ -132,6 +134,7 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 		func() error { _, _, err := f.DupIDByHash(ctx, "해시"); return err },
 		func() error { _, _, err := f.DupRowByHash(ctx, "해시"); return err },
 		func() error { return f.RecordUsageCount(ctx, "dup", "", 3) },
+		func() error { return f.RecordBytes(ctx, "hot", 1180) },
 		func() error { _, err := f.StaleSessionRuns(ctx, "claude"); return err },
 		func() error { return f.LogPlaybookUse(ctx, 9, true) },
 		func() error { _, err := f.UpdateSessionSummary(ctx, 7, "요약", "[]"); return err },
@@ -169,6 +172,9 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 	}
 	if len(f.countedUses) != 1 || f.countedUses[0] != (countCall{"dup", "", 3}) {
 		t.Errorf("RecordUsageCount 기록=%v, want [dup \"\" 3]", f.countedUses)
+	}
+	if len(f.recordedBytes) != 1 || f.recordedBytes[0] != (bytesCall{"hot", 1180}) {
+		t.Errorf("RecordBytes 기록=%v, want [hot 1180]", f.recordedBytes)
 	}
 	if len(f.staleAgents) != 1 || f.staleAgents[0] != "claude" {
 		t.Errorf("StaleSessionRuns 기록=%v, want [claude]", f.staleAgents)

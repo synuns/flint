@@ -51,6 +51,12 @@ type ReportDay struct {
 	// zero 값으로 디코딩, 구버전 daily JSON 호환).
 	ReadZero int `json:"read_zero"`
 	ReadNear int `json:"read_zero_near"`
+	// v1.1.0 G5 바이트 계측 — brief 호출 수(v0.34.1 카운터 디코딩)와
+	// 세 표면 출력 바이트(미기록 일은 0으로 디코딩, 구 daily JSON 호환).
+	Brief      int `json:"brief"`
+	ReadBytes  int `json:"read_bytes"`
+	HotBytes   int `json:"hot_bytes"`
+	BriefBytes int `json:"brief_bytes"`
 }
 
 // ReportOutput — 한 줄 JSON 출력. 창 밖 날짜·부재 키·파손 키는 0행으로 채운다.
@@ -109,6 +115,33 @@ type EffectOutput struct {
 	MRR      float64 `json:"mrr"`       // 평균 역순위(정합 있는 read 중, 0~1)
 	// v0.30.0 R1 — 7일 창 전후 추세(단면→추세, read_events 단일 표).
 	Trend *TrendOutput `json:"trend,omitempty"`
+	// v1.1.0 G5 최소 주입 — 세 표면 출력 바이트(daily 카운터 합산).
+	Bytes EffectBytes `json:"bytes"`
+}
+
+// EffectBytes — G5 최소 주입: read·hot(주입)·brief 세 표면의 실측 출력
+// 바이트. bytes_14d 명칭은 *_14d 관례 승계(실제 창은 report --days —
+// status §4.7과 동일 거짓 이름 방어 원칙, 보존창 상한 준수). avg_bytes
+// 분모는 같은 daily 행의 호출 수 카운터(read·hot·brief), 버림 정수,
+// 제로 분모는 0. 토큰 환산 계수 추정 금지(METRICS §5 — 바이트 그대로).
+type EffectBytes struct {
+	Read  SurfaceBytes `json:"read"`
+	Hot   SurfaceBytes `json:"hot"`
+	Brief SurfaceBytes `json:"brief"`
+}
+
+// SurfaceBytes — 표면 1종의 기간 바이트 합과 호출당 평균.
+type SurfaceBytes struct {
+	Bytes14d int `json:"bytes_14d"`
+	AvgBytes int `json:"avg_bytes"`
+}
+
+// avgBytes — 호출당 평균 바이트(버림). calls ≤ 0은 0(제로 분모 관례).
+func avgBytes(bytes, calls int) int {
+	if calls <= 0 {
+		return 0
+	}
+	return bytes / calls
 }
 
 // TrendOutput — 직전 7일(cur) vs 그 이전 7일(prev) 대비. delta=cur-prev.
@@ -276,11 +309,18 @@ func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutpu
 	// 일별 합산으로 산출(누적 read_stats 의존 제거). days 배열은 창 마킹
 	// 이후라 창 밖 행은 합산에서도 배제된다(버림 정수%, 제로 분모 0).
 	var sumRead, sumZero, sumNear, sumDup int
+	// v1.1.0 G5 — 세 표면 바이트 합·avg 분모(각 kind 호출 수 카운터).
+	var sumHot, sumBrief, sumReadB, sumHotB, sumBriefB int
 	for _, d := range out.Days {
 		sumRead += d.Read
 		sumZero += d.ReadZero
 		sumNear += d.ReadNear
 		sumDup += d.Dup
+		sumHot += d.Hot
+		sumBrief += d.Brief
+		sumReadB += d.ReadBytes
+		sumHotB += d.HotBytes
+		sumBriefB += d.BriefBytes
 	}
 	out.ZeroPct = ReadZeroPct(sumRead, sumZero)
 	out.ZeroNearPct = ReadZeroPct(sumRead, sumNear)
@@ -289,6 +329,13 @@ func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutpu
 	out.Effect.HitPct = PctOf(sumRead-sumZero, sumRead)
 	out.Effect.NearPct = PctOf(sumNear, sumRead)
 	out.Effect.DupPrevented = sumDup
+	// v1.1.0 G5 최소 주입 — 동일 합산에서 유도(횟수 지표와 동일
+	// 보존창·창 밖 행 배제, 분모 0 → avg 0).
+	out.Effect.Bytes = EffectBytes{
+		Read:  SurfaceBytes{Bytes14d: sumReadB, AvgBytes: avgBytes(sumReadB, sumRead)},
+		Hot:   SurfaceBytes{Bytes14d: sumHotB, AvgBytes: avgBytes(sumHotB, sumHot)},
+		Brief: SurfaceBytes{Bytes14d: sumBriefB, AvgBytes: avgBytes(sumBriefB, sumBrief)},
+	}
 	return nil
 }
 

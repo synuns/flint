@@ -324,6 +324,9 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		clamped := query.ClampHot(hotFullOutput(lines), budget)
 		fmt.Fprint(stdout, clamped)
 		RecordHotLenFn(len([]rune(clamped)))
+		// G5 바이트 계측(v1.1.0 T1): ClampHot 절단 '후' 최종 출력 길이
+		// (예산 준수 실측 — 절단 전 아님, spec §1). 조용히(§13).
+		recordBytes(ctx, st, "hot", len(clamped))
 	} else {
 		kv := MetaGetKV(ctx, st)
 		profile := ExposureProfileFn(func(key string) (string, error) { return kv(key, "") })
@@ -331,6 +334,8 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		line := HotHeadline(profile, active, pending, recent, HotTopics(rows, hotHeadlineTopicCount))
 		fmt.Fprintln(stdout, line)
 		RecordHotLenFn(len([]rune(line)))
+		// G5 바이트 계측: 헤드라인 1줄+개행 — 쓴 총량(분모 정합). 조용히(§13).
+		recordBytes(ctx, st, "hot", len(line)+1)
 	}
 	PersistHotStatsToMetaFn(ctx, st)
 	// 계측(T62): 실제 주입된(예산 절단 후 출력에 남은) 지식 id만 참조 증분

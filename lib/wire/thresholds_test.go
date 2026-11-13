@@ -6,8 +6,6 @@ package wire
 
 import (
 	"context"
-	"os"
-	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -113,27 +111,5 @@ func TestLoadThresholdsFallback(t *testing.T) {
 // LoadReadStats·BumpReadStatsToMeta가 사라졌다. 파생 경로 동등성은
 // lib/ops/report_parity_test.go(TestEffectParity)가 담당한다.)
 
-// TestReadSessionLabel — 부재·빈 파일 ok=false, 1줄 라벨 ok=true
-// (marker.go 이동분 계약 동일). ConfigDir seam 주입으로 격리.
-func TestReadSessionLabel(t *testing.T) {
-	saved := ConfigDir
-	dir := t.TempDir()
-	ConfigDir = func() string { return dir }
-	t.Cleanup(func() { ConfigDir = saved })
-
-	if _, ok := ReadSessionLabel(); ok {
-		t.Fatal("라벨 파일 부재 시 ok=false 여야")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "session-current"), []byte("  \n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if _, ok := ReadSessionLabel(); ok {
-		t.Fatal("공백 라벨 ok=false 여야")
-	}
-	if err := os.WriteFile(filepath.Join(dir, "session-current"), []byte("label-1\n"), 0o600); err != nil {
-		t.Fatal(err)
-	}
-	if got, ok := ReadSessionLabel(); !ok || got != "label-1" {
-		t.Fatalf("라벨 읽기: got=%q ok=%v", got, ok)
-	}
-}
+// (v1.1.0 T2 — TestReadSessionLabel·legacy 폴백 회귀는 lib/wire/
+// session_test.go로 이동·갱신: 구 session-current 폴백 제거.)

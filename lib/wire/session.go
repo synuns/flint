@@ -5,8 +5,9 @@
 // 커맨드 패키지 소유를 유지한다.
 // v1.0.2 R2-A2: 라벨 파일을 세션별(session-<id>.label)로 분리 — 구 단일
 // 공유 파일(session-current)은 병렬 세션이 서로의 라벨을 덮어쓰거나
-// 제거하던 경합(read_events 라벨 오염)의 원천이었다. session-current는
-// 읽기 폴백(업그레이드 경계)·청산 대상으로만 남는다.
+// 제거하던 경합(read_events 라벨 오염)의 원천이었다.
+// v1.1.0 T2: 구 session-current 폴백 읽기·청산 제거 — 잔존 파일은
+// 무시한다(사용자 디스크 — 미삭제).
 package wire
 
 import (
@@ -16,11 +17,10 @@ import (
 	"time"
 )
 
-// 세션 라벨 파일명 조각 — session-<id>.label(구 session-current 승계).
+// 세션 라벨 파일명 조각 — session-<id>.label.
 const (
 	sessionLabelPrefix = "session-"
 	sessionLabelSuffix = ".label"
-	sessionLabelLegacy = "session-current"
 )
 
 // SessionLabelFile — 세션별 라벨 파일 경로(v1.0.2 R2-A2). session-start
@@ -37,49 +37,33 @@ func SessionLabelFile(session string) string {
 	return filepath.Join(d, sessionLabelPrefix+session+sessionLabelSuffix)
 }
 
-// SessionLabelLegacyFile — 구 단일 공유 파일(v0.20.5 B②) 경로. 신규 쓰기는
-// 없다 — ReadSessionLabel 폴백(업그레이드 경계)과 ClearSessionLabel 청산
-// 대상.
-func SessionLabelLegacyFile() string {
-	d := configDirOrEmpty()
-	if d == "" {
-		return ""
-	}
-	return filepath.Join(d, sessionLabelLegacy)
-}
-
 // ReadSessionLabel — 현재 세션 라벨: session-*.label 중 mtime 최신 파일의
-// 내용. 세션별 파일이 하나도 없을 때만 구 session-current 폴백(세션 도중
-// 바이너리 교체 경계의 라벨 연속성 — 이후 첫 session-start가 세션별
-// 파일을 남기고 session-end가 구 파일을 청산한다). 부재·빈 내용은
-// ok=false. 동시 병렬 세션의 판정 불가 채택은 기존 last-writer-wins
-// 룰링 승계(라벨은 보조 계정 — METRICS.md).
+// 내용. 부재·빈 내용은 ok=false(구 session-current 폴백은 v1.1.0 T2
+// 제거 — 잔존 파일 무시). 동시 병렬 세션의 판정 불가 채택은 기존
+// last-writer-wins 룰링 승계(라벨은 보조 계정 — METRICS.md).
 func ReadSessionLabel() (string, bool) {
 	d := configDirOrEmpty()
 	if d == "" {
 		return "", false
 	}
-	if ms, err := filepath.Glob(filepath.Join(d, sessionLabelPrefix+"*"+sessionLabelSuffix)); err == nil && len(ms) > 0 {
-		newest, newestT := "", time.Time{}
-		for _, m := range ms {
-			fi, err := os.Stat(m)
-			if err != nil {
-				continue
-			}
-			if newest == "" || fi.ModTime().After(newestT) {
-				newest, newestT = m, fi.ModTime()
-			}
+	ms, err := filepath.Glob(filepath.Join(d, sessionLabelPrefix+"*"+sessionLabelSuffix))
+	if err != nil || len(ms) == 0 {
+		return "", false
+	}
+	newest, newestT := "", time.Time{}
+	for _, m := range ms {
+		fi, err := os.Stat(m)
+		if err != nil {
+			continue
 		}
-		if newest != "" {
-			b, err := os.ReadFile(newest)
-			if err != nil {
-				return "", false
-			}
-			s := strings.TrimSpace(string(b))
-			return s, s != ""
+		if newest == "" || fi.ModTime().After(newestT) {
+			newest, newestT = m, fi.ModTime()
 		}
 	}
-	b, err := os.ReadFile(SessionLabelLegacyFile())
+	if newest == "" {
+		return "", false
+	}
+	b, err := os.ReadFile(newest)
 	if err != nil {
 		return "", false
 	}

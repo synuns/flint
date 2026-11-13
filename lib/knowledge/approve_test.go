@@ -54,6 +54,7 @@ type fakeApprove struct {
 	staleAgents    []string       // StaleSessionRuns
 	playbookUses   []playbookUse  // LogPlaybookUse
 	sessionUpdates []sessionUpdate
+	recordedBytes  []bytesCall // RecordBytes(G5 바이트 계측, v1.1.0 T1)
 }
 
 // supersedeCall — Supersede canned 호출 기록.
@@ -116,6 +117,11 @@ func (f *fakeApprove) DupRowByHash(ctx context.Context, hash string) (DupMeta, b
 
 func (f *fakeApprove) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	f.countedUses = append(f.countedUses, countCall{kind, source, count})
+	return f.capErr
+}
+
+func (f *fakeApprove) RecordBytes(ctx context.Context, kind string, n int) error {
+	f.recordedBytes = append(f.recordedBytes, bytesCall{kind, n})
 	return f.capErr
 }
 

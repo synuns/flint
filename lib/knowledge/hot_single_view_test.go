@@ -131,6 +131,60 @@ func TestHotFullSingleQueryInjectionEqualsIncrement(t *testing.T) {
 	}
 }
 
+// TestHotRecordsBytes — Review Focus(v1.1.0 T1): hot 출력 직후 len(최종
+// 출력)을 kind="hot"으로 기록 — --full은 ClampHot 절단 '후' 길이(예산
+// 준수 실측 — 절단 전 아님), 헤드라인은 기록된 1줄(개행 포함 쓴 총량).
+func TestHotRecordsBytes(t *testing.T) {
+	injectHotSeams(t)
+	ctx := context.Background()
+	rows := [][]any{
+		{"pending", "토픽", "요약 본문", time.Now().UTC(), int32(3), time.Now().UTC(), time.Now().UTC()},
+		{"decision", "토픽2", strings.Repeat("긴", 40), time.Now().UTC(), int32(7), time.Now().UTC(), time.Now().UTC()},
+	}
+	t.Run("--full — ClampHot 후 길이", func(t *testing.T) {
+		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			switch {
+			case strings.Contains(sql, "FROM hot_view"):
+				return rows, nil
+			case strings.Contains(sql, "FROM meta"):
+				return [][]any{{"30"}}, nil // hot_budget=30 — 절단 강제
+			}
+			return nil, nil
+		}}}
+		var out bytes.Buffer
+		if code := RunHot(ctx, st, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("RunHot --full exit = %d: %s", code, out.String())
+		}
+		if len(st.recorded) != 1 || st.recorded[0].kind != "hot" {
+			t.Fatalf("RecordBytes 기록 = %v, want 1건(kind=hot)", st.recorded)
+		}
+		if got := st.recorded[0].n; got != len(out.String()) {
+			t.Errorf("hot bytes = %d, want %d(ClampHot '후' 최종 출력 길이)", got, len(out.String()))
+		}
+		if unclamped := hotFullOutput(hotSuffixedLines(rows, time.Now().UTC())); len(out.String()) >= len(unclamped) {
+			t.Errorf("절단 미발생 — '후' 길이 단언이 무의미: %d >= %d", len(out.String()), len(unclamped))
+		}
+	})
+	t.Run("헤드라인 — 1줄 쓴 총량", func(t *testing.T) {
+		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "FROM hot_view") {
+				return rows, nil
+			}
+			return nil, nil
+		}}}
+		var out bytes.Buffer
+		if code := RunHot(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("RunHot exit = %d: %s", code, out.String())
+		}
+		if len(st.recorded) != 1 || st.recorded[0].kind != "hot" {
+			t.Fatalf("RecordBytes 기록 = %v, want 1건(kind=hot)", st.recorded)
+		}
+		if got := st.recorded[0].n; got != len(out.String()) {
+			t.Errorf("hot bytes = %d, want %d(헤드라인 1줄+개행 — 쓴 총량)", got, len(out.String()))
+		}
+	})
+}
+
 // TestHotFullSuffixOmittedWithoutValidAtCell — 본질의 valid_at 셀 부재
 // (구형 뷰 모양 4열 행)·time.Time 아닌 값은 접미 생략 — 기존 출력·
 // exit 불변 승계(동반 질의 0행·오류 승계 계약의 단일 정의 판본).

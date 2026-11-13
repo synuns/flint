@@ -46,6 +46,64 @@ func (r *readEventRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent
 	return nil
 }
 
+// bytesRecorder — fakeStore에 BytesRecorder seam을 얹은 fake(G5 바이트
+// 계측, v1.1.0 T1). RecordBytes 호출 인자를 녹음한다(패키지 공유 — hot·
+// brief 회귀가 같은 fake를 쓴다).
+type bytesRecorder struct {
+	*fakeStore
+	recorded []bytesCall
+}
+
+// bytesCall — RecordBytes 호출 인자 녹음.
+type bytesCall struct {
+	kind string
+	n    int
+}
+
+func (b *bytesRecorder) RecordBytes(ctx context.Context, kind string, n int) error {
+	b.recorded = append(b.recorded, bytesCall{kind, n})
+	return nil
+}
+
+// TestRunReadRecordsBytes — Review Focus(v1.1.0 T1): read 출력 직후
+// len(최종 출력)을 kind="read"로 기록 — 제로히트 0바이트도 기록한다
+// (호출 수 분모 정합, spec §1).
+func TestRunReadRecordsBytes(t *testing.T) {
+	t.Run("히트 — 최종 출력 바이트", func(t *testing.T) {
+		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			switch {
+			case strings.Contains(sql, "FROM active_knowledge"):
+				return hitRowsFixture, nil
+			}
+			return nil, nil
+		}}}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st,
+			[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		if len(st.recorded) != 1 || st.recorded[0].kind != "read" {
+			t.Fatalf("RecordBytes 기록 = %v, want 1건(kind=read)", st.recorded)
+		}
+		if got := st.recorded[0].n; got != len(out.String()) {
+			t.Errorf("read bytes = %d, want %d(len 최종 출력 — io.Writer 쓴 총량)", got, len(out.String()))
+		}
+	})
+	t.Run("제로히트 — 0바이트도 기록", func(t *testing.T) {
+		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			return nil, nil // 제로히트 — 폴백·제안 스캔도 전부 0행
+		}}}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st,
+			[]string{"없는토픽"}, strings.NewReader(""), &out); code != 1 {
+			t.Fatalf("exit = %d, want 1(제로히트 침묵)", code)
+		}
+		if len(st.recorded) != 1 || st.recorded[0] != (bytesCall{"read", 0}) {
+			t.Errorf("제로히트 RecordBytes = %v, want [{read 0}](0바이트 기록 — 분모 정합)", st.recorded)
+		}
+	})
+}
+
 // injectAsOfSeams — ParseAsOfSpecFn·ErrInvalidAsOf 주입 점에 고정 해시
 // 대역을 주입(스펙 "7d" → 해시 1건 확정). 원복은 t.Cleanup.
 func injectAsOfSeams(t *testing.T, hash string) {
@@ -87,7 +145,10 @@ func TestRunReadZeroHitSilentExit1(t *testing.T) {
 // 기록. 라벨 파일은 wire.ConfigDir seam 임시 디렉터리로 세운다.
 func TestRunReadSessionAutoLabel(t *testing.T) {
 	dir := t.TempDir()
-	if err := os.WriteFile(dir+"/session-current", []byte("auto-label-7\n"), 0o644); err != nil {
+	// v1.1.0 T2(legacy 폴백 제거) 이후 라벨 원천은 세션별 파일
+	// session-<id>.label 단일 경로다 — 구 session-current는 더 이상
+	// 읽히지 않는다.
+	if err := os.WriteFile(dir+"/session-demo1.label", []byte("auto-label-7\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	savedDir := wire.ConfigDir
