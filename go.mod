@@ -7,9 +7,10 @@ require (
 	golang.org/x/text v0.43.0 // NFKC 정규화(v0.10.0 R2 — 기존 indirect 승격)
 )
 
-require filippo.io/age v1.2.1
+require filippo.io/age v1.3.2
 
 require (
+	filippo.io/hpke v0.4.0 // indirect
 	github.com/jackc/pgpassfile v1.0.0 // indirect
 	github.com/jackc/pgservicefile v0.0.0-20240606120523-5a60cdf6a761 // indirect
 	github.com/jackc/puddle/v2 v2.2.3 // indirect
