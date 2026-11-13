@@ -16,7 +16,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
+	"slices"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -1124,72 +1125,105 @@ func TestAuditSessionFilter(t *testing.T) {
 	}
 }
 
-// ③ 백업 로테이션 — backup 3회(keep 2)면 가장 오래된 덤프+사이드카 쌍이
-// 삭제되고 최신 2쌍만 남는다(T54 배선 실측: removed 필드로 삭제 수 보고).
+// ③ 백업 로테이션 — 자동 백업(done 트리거) 3회(keep 2)면 가장 오래된
+// flint 덤프+사이드카 쌍이 삭제되고 최신 2쌍만 남는다. R17-B1: 로테이션은
+// flint 생성 패턴 파일만 대상 — 사용자 지정 파일명 --out 백업(mine.sql)은
+// 같은 디렉터리에 있어도 잔존한다(B1 회귀 e2e 가드).
 func TestRotateE2E(t *testing.T) {
 	pool := mustDB(t)
 	setMeta(t, pool, "backup_keep", "2")
 	t.Cleanup(func() { delMeta(t, pool, "backup_keep") })
 	dir := t.TempDir()
+	t.Setenv("FLINT_BACKUP_DIR", dir)
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // recall 마커 격리
 
-	// mtime 강제 — 연속 실행은 같은 초에 몰려 정렬이 흔들리므로 결정적으로.
+	// flintDumps — dir 안 flint-*.sql basename 목록(정렬).
+	flintDumps := func() []string {
+		t.Helper()
+		matches, err := filepath.Glob(filepath.Join(dir, "flint-*.sql"))
+		if err != nil {
+			t.Fatalf("glob: %v", err)
+		}
+		sort.Strings(matches)
+		return matches
+	}
+	// autoBackup — last_backup을 만료시켜 done의 자동 백업을 강제 실행,
+	// 새로 생긴 flint-*.sql 경로를 반환(파일명은 초 단위 타임스탬프+PID라
+	// in-process 연속 실행이 같은 초에 몰리면同名 덮어쓰기가 된다 — 각
+	// 실행을 서로 다른 초에 띄워 생성 후 경로로 식별한다).
+	stale := time.Now().UTC().Add(-25 * time.Hour).Format(time.RFC3339)
+	autoBackup := func(i int) string {
+		t.Helper()
+		setMeta(t, pool, "last_backup", stale)
+		before := flintDumps()
+		out, code := runCLI(t, []string{"done", "--session", "e2e-rotate-" + strconv.Itoa(i)}, "")
+		if code != 0 {
+			t.Fatalf("done %d exit=%d, want 0; out=%s", i, code, out)
+		}
+		var created []string
+		for _, p := range flintDumps() {
+			if !slices.Contains(before, p) {
+				created = append(created, p)
+			}
+		}
+		if len(created) != 1 {
+			t.Fatalf("자동 백업 파일 %d개 생성, want 1; dir=%s; out=%s", len(created), dir, out)
+		}
+		return created[0]
+	}
+	// nextSecond — 다음 초 경계까지 대기(파일명 초 타임스탬프 분리).
+	nextSecond := func() {
+		now := time.Now()
+		time.Sleep(time.Until(now.Truncate(time.Second).Add(time.Second)))
+	}
+	// mtime 강제 — PID·파일명을 미리 알 수 없고 연속 실행은 같은 초에
+	// 몰리므로, 각 백업 직후(다음 백업 전) 생성된 파일에 결정적 시각을 찍는다.
 	base := time.Now().Add(-time.Hour)
-	stamp := func(i int) {
+	stamp := func(path string, i int) {
 		t.Helper()
 		when := base.Add(time.Duration(i) * 10 * time.Minute)
 		for _, suffix := range []string{"", ".sha256"} {
-			_ = os.Chtimes(filepath.Join(dir, "d"+strconv.Itoa(i)+".sql"+suffix), when, when)
+			_ = os.Chtimes(path+suffix, when, when)
 		}
-	}
-	backup := func(i int) string {
-		t.Helper()
-		out, code := runCLI(t, []string{"backup", "--out", filepath.Join(dir, "d"+strconv.Itoa(i)+".sql")}, "")
-		if code != 0 {
-			t.Fatalf("backup %d exit=%d, want 0; out=%s", i, code, out)
-		}
-		return out
-	}
-	// removed 추출 — backup --out 출력의 JSON 조립 부채(quoteJSON 뒤 stray
-	// quote, 인시던트 기록)와 무관하게 로테이션 계약만 검증한다.
-	removedOf := func(out string) int {
-		t.Helper()
-		m := regexp.MustCompile(`"removed":(\d+)`).FindStringSubmatch(out)
-		if m == nil {
-			t.Fatalf("출력에 removed 없음: %s", out)
-		}
-		n, _ := strconv.Atoi(m[1])
-		return n
 	}
 
-	backup(1)
-	stamp(1)
-	backup(2)
-	stamp(2)
-	out3 := backup(3) // 이때 rotate: d1 쌍 삭제
-	if !strings.Contains(out3, `"status":"ok"`) {
-		t.Fatalf("3회째 status 미보고; out=%s", out3)
-	}
-	if removed := removedOf(out3); removed != 2 { // d1.sql + d1.sql.sha256
-		t.Fatalf("removed=%d, want 2(원본+사이드카); out=%s", removed, out3)
+	nextSecond()
+	oldest := autoBackup(1)
+	stamp(oldest, 1)
+	nextSecond()
+	mid := autoBackup(2)
+	stamp(mid, 2)
+
+	// 사용자 지정 파일명 --out 백업 — R17-B1 룰링: 사용자 소유 파일은
+	// 로테이션 제외. 이 시점 flint 파일 2개(=keep)라 rotate는 no-op.
+	mine := filepath.Join(dir, "mine.sql")
+	out, code := runCLI(t, []string{"backup", "--out", mine}, "")
+	if code != 0 || !strings.Contains(out, `"status":"ok"`) {
+		t.Fatalf("backup --out exit=%d; out=%s", code, out)
 	}
 
-	var sqls []string
-	entries, err := os.ReadDir(dir)
-	if err != nil {
-		t.Fatalf("백업 디렉터리 읽기: %v", err)
+	nextSecond()
+	autoBackup(3) // 이때 rotate: 가장 오래된 flint 쌍 삭제(mine은 제외)
+
+	remain := flintDumps()
+	if len(remain) != 2 {
+		t.Fatalf("잔존 flint 덤프=%v, want 2쌍(mid·newest)", remain)
 	}
-	for _, e := range entries {
-		if strings.HasSuffix(e.Name(), ".sql") {
-			sqls = append(sqls, e.Name())
+	if remain[0] != mid || remain[1] == oldest {
+		t.Fatalf("잔존=%v, want mid+newest(oldest=%s 삭제)", remain, oldest)
+	}
+	for _, p := range append(remain, mine) {
+		for _, suffix := range []string{"", ".sha256"} {
+			if _, err := os.Stat(p + suffix); err != nil {
+				t.Fatalf("잔존 파일+사이드카 확인 실패 %s: %v", p+suffix, err)
+			}
 		}
 	}
-	if len(sqls) != 2 || sqls[0] != "d2.sql" || sqls[1] != "d3.sql" {
-		t.Fatalf("잔존 덤프=%v, want [d2.sql d3.sql]", sqls)
+	if _, err := os.Stat(oldest); !os.IsNotExist(err) {
+		t.Fatalf("가장 오래된 덤프 미삭제: %s (err=%v)", oldest, err)
 	}
-	for _, name := range sqls {
-		if _, err := os.Stat(filepath.Join(dir, name+".sha256")); err != nil {
-			t.Fatalf("사이드카 누락: %s.sha256", name)
-		}
+	if _, err := os.Stat(oldest + ".sha256"); !os.IsNotExist(err) {
+		t.Fatalf("가장 오래된 사이드카 미삭제: %s.sha256 (err=%v)", oldest, err)
 	}
 }
 
