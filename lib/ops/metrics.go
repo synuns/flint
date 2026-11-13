@@ -11,6 +11,8 @@ import (
 	"sort"
 	"sync"
 
+	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -249,4 +251,123 @@ func PersistHotStatsToMeta(ctx context.Context, st wire.Store) {
 	if err := PersistHotStats(setKV); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] hot stats persist: %v\n", err)
 	}
+}
+
+// KnowledgeSummaryLens — knowledge 전체의 id→요약 길이(바이트) 맵.
+// 토큰 회계의 평균 기록/요약 바이트(cost savings 하한·hit 주입 원가)와
+// hot 주입 바이트 파생(DerivedHotStats)의 공용 원천. 조회 실패·매핑 불가
+// 칸은 조용히 스킵(§13 — 계측 강등).
+func KnowledgeSummaryLens(ctx context.Context, st wire.Store) map[int]int {
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT id, length(summary) FROM knowledge`, nil)
+	if err != nil {
+		return nil
+	}
+	out := map[int]int{}
+	for _, r := range rows {
+		if len(r) < 2 {
+			continue
+		}
+		id, ok := render.CellToInt(r[0])
+		if !ok {
+			continue
+		}
+		if n, ok := render.CellToInt(r[1]); ok {
+			out[id] = n
+		}
+	}
+	return out
+}
+
+// DerivedHotStats — v1.2.0 T3: hot 계측 파생 산출(spec §1.3 hot_stats blob
+// 폐지의 소비 전환). 호출 수는 knowledge_reads kind='hot'의 호출 그룹 수
+// (한 호출의 id 전수가 같은 ts·session으로 남는다 — DISTINCT ts, session),
+// p95는 hot_events 주입 ids × knowledge 요약 길이의 사건별 합 분포
+// (nearest-rank — HotP95와 동일 공식, 보존창은 PruneReadEvents가 관리).
+// kreads·hot_events 어느 쪽도 데이터가 없는(업그레이드 직후) 동안은 구
+// hot_stats blob을 승계 읽기 폴백으로 보고한다(전환 전 값 연속성 —
+// 플랫 키 폴백과 같은 마이그레이션 관례). 조회 실패·파손은 0(§13).
+func DerivedHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
+	invocations := 0
+	if rows, err := wire.QueryOnce(ctx, st,
+		`SELECT count(*) FROM (SELECT DISTINCT ts, session FROM knowledge_reads WHERE kind = 'hot') g`, nil); err == nil &&
+		len(rows) > 0 && len(rows[0]) > 0 {
+		if n, ok := render.CellToInt(rows[0][0]); ok {
+			invocations = n
+		}
+	}
+	var samples []int
+	if evs, err := wire.QueryOnce(ctx, st, `SELECT ids FROM hot_events`, nil); err == nil {
+		lens := KnowledgeSummaryLens(ctx, st)
+		for _, r := range evs {
+			if len(r) == 0 {
+				continue
+			}
+			s, ok := r[0].(string)
+			if !ok {
+				continue
+			}
+			ids := knowledge.ParseIDsCSV(s)
+			if len(ids) == 0 {
+				continue
+			}
+			sum := 0
+			for _, id := range ids {
+				sum += lens[id]
+			}
+			samples = append(samples, sum)
+		}
+	}
+	if invocations == 0 && len(samples) == 0 {
+		return legacyHotStats(ctx, st)
+	}
+	sort.Ints(samples)
+	return invocations, HotP95(samples)
+}
+
+// legacyHotStats — 구 hot_stats blob 승계 읽기(DerivedHotStats 폴백).
+// collectStats(v1.2.0 이전)와 동일 질의·동일 산출 — 부재·파손은 0.
+func legacyHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT key, value FROM meta WHERE key IN ('hot_stats')`, nil)
+	if err != nil {
+		return 0, 0
+	}
+	for _, r := range rows {
+		if len(r) < 2 || fmt.Sprint(r[0]) != "hot_stats" {
+			continue // 동일 질의에 섞여 온 다른 관측 키 무시(구 collectStats 계약)
+		}
+		var hs struct {
+			Calls int   `json:"calls"`
+			Lens  []int `json:"lens"`
+		}
+		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &hs) != nil {
+			continue // 파손 → 0 유지(구 경로 계약 승계)
+		}
+		lens := append([]int(nil), hs.Lens...)
+		sort.Ints(lens)
+		return hs.Calls, HotP95(lens)
+	}
+	return 0, 0
+}
+
+// ReadBytesP95Of — read 표면 출력 바이트 p95(nearest-rank·표본<5는 0 —
+// spec §2.3). 표본은 read_events bytes 컬럼의 기록 행(bytes>0 — 미확장
+// legacy 행 0 제외), 보존창 전체(PruneReadEvents가 관리). 조회 실패는 0.
+func ReadBytesP95Of(ctx context.Context, st wire.Store) int {
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT bytes FROM read_events WHERE bytes > 0`, nil)
+	if err != nil {
+		return 0
+	}
+	var samples []int
+	for _, r := range rows {
+		if len(r) == 0 {
+			continue
+		}
+		if n, ok := render.CellToInt(r[0]); ok && n > 0 {
+			samples = append(samples, n)
+		}
+	}
+	return p95NearestRank(samples)
 }
