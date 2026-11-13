@@ -999,6 +999,7 @@ var metaKnownKeys = map[string]bool{
 	"last_hot_at": true, "last_read_at": true, "last_write_at": true,
 	"read_stats": true, "read_fallback_calls": true, "hot_stats": true,
 	"session_knowledge_last": true, "recall_starved_count": true,
+	"last_brief_at": true, // v1.2.0 T1 즉치(spec §1.3 — brief 시각 키 unknown 오탐 해소)
 }
 
 // metaKnownPrefixes — 알려진 접두(daily: 날짜 카운터·pb_: 플레이북
