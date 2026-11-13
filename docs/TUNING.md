@@ -41,6 +41,9 @@ doctor·maintain이며 세션 시작 안내는 pending·갱신만(비간섭 §13
    ```
 3. **반영 확인** — `flint hot --session <id>` 출력이 새 상한에서 절단되는지,
    `flint status`의 `hot_p95`가 상한 아래로 유지되는지 확인한다.
+4. **실측 감시(v1.1.0)** — `flint report`의 `effect.bytes`(hot·brief의
+   `avg_bytes`·`bytes_14d`)가 `hot_budget`·`brief_budget` 상한 대비 실제
+   주입·유출 바이트를 매일 측정한다 — 예산 근거는 이 실측 값으로.
 
 ## 2. 임계값 오버라이드 (§15 이연결정 "임계값 수치 운영 중 조정" 회수)
 

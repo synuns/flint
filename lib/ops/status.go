@@ -79,6 +79,10 @@ type statusV0180Output struct {
 	// v0.24.0 리뷰 ④: *_14d 명칭은 역호환 유지, 실제 창은 이 필드로
 	// 표시(daily_retention_days 오버라이드 반영 — 거짓 이름 방어).
 	ReadWindowDays int `json:"read_window_days"`
+	// v1.1.0 G5 최소 주입 — hot(주입)·read 출력 바이트의 창 합산
+	// (hot_budget 준수 실측 감시, METRICS §4 G5). additive 말미 추가.
+	HotBytes14d  int `json:"hot_bytes_14d"`
+	ReadBytes14d int `json:"read_bytes_14d"`
 }
 
 // (v0.24.0 R1b: statusWindowedDays 상수 폐지 — 보존 창과 단일화.)
@@ -98,6 +102,23 @@ func StatusWindowedRead(ctx context.Context, st wire.Store, days int) (read, zer
 		near += d.ReadNear
 	}
 	return read, ReadZeroPctFn(read, zero), ReadZeroPctFn(read, near)
+}
+
+// StatusWindowedBytes — v1.1.0 G5: N일 창 hot(주입)·read 출력 바이트
+// 합산. WindowedDaily 실구현 직속 호출(파서 단일 소스 — seam DailyRow는
+// read 계측만 전달하므로 bytes는 여기서 직접 합산). 조회 실패·파손은
+// 전부 0(계측 표시 — status를 깨지 않는다, StatusWindowedRead와 동일
+// 원칙).
+func StatusWindowedBytes(ctx context.Context, st wire.Store, days int) (hotBytes, readBytes int) {
+	rows, err := WindowedDaily(ctx, st, days)
+	if err != nil {
+		return 0, 0
+	}
+	for _, d := range rows {
+		hotBytes += d.HotBytes
+		readBytes += d.ReadBytes
+	}
+	return hotBytes, readBytes
 }
 
 // statusAsOfOutput — T85: --as-of 지정 시 출력. 기존 StatusOutput 필드를
@@ -223,6 +244,8 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	// 누적값과 복기. *_14d 필드명은 역호환 유지(실제 창은 read_window_days).
 	winDays := knowledge.WriteThresholds(ctx, st).DailyRetentionD
 	winRead, winZeroPct, winNearPct := StatusWindowedRead(ctx, st, winDays)
+	// v1.1.0 G5 — hot·read 출력 바이트 창 합산(조회 실패는 0 폴백).
+	winHotBytes, winReadBytes := StatusWindowedBytes(ctx, st, winDays)
 	// T85: as-of 지정 시 카운트 질의에만 AS OF 접합. meta·계측 조회는
 	// 현재 상태 그대로. 현재 시점 카운트는 countPending 단일
 	// 구현(v0.34.3 3중 쿼리 복제 수렴).
@@ -269,11 +292,13 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	var b []byte
 	if asOfHash != "" {
 		b, _ = json.Marshal(statusAsOfOutput{statusV0180Output: statusV0180Output{statusV096Output: base,
-			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays},
+			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays,
+			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes},
 			AsOf: knowledge.AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 	} else {
 		b, _ = json.Marshal(statusV0180Output{statusV096Output: base,
-			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays})
+			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays,
+			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes})
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 0
