@@ -26,9 +26,17 @@ func read(t *testing.T, path string) string {
 func TestTuningMetaKeysMatch(t *testing.T) {
 	doc := read(t, "TUNING.md")
 
-	for _, key := range []string{"pending_max", "dup_susp_max", "conf_floor", "stale_sessions", "pending_promote_days", "pending_promote_min_runes"} {
-		if !strings.Contains(read(t, "../lib/store/thresholds.go"), `"`+key+`"`) {
-			t.Errorf("코드에 임계값 키 %s 없음 (thresholds.go)", key)
+	for _, key := range []string{"pending_max", "dup_susp_max", "conf_floor", "stale_sessions", "pending_promote_days", "pending_promote_min_runes",
+		// v1.2.1(R15-B4): diag_*·kreads·zero_owned_floor 문서 가드 확장
+		"diag_hot_budget_high", "diag_hot_budget_low", "diag_trend_pct", "diag_recall_led_goal", "diag_dead_warn", "knowledge_reads_retention_days", "zero_owned_floor"} {
+		src := read(t, "../lib/store/thresholds.go")
+		// v1.2.1(R15-B4): per-key 직접 오버라이드 키는 knowledge/read.go에
+		// 상주하므로 양쪽에서 찾는다(thresholds 등록표 밖 관례).
+		if !strings.Contains(src, `"`+key+`"`) {
+			src2 := read(t, "../lib/knowledge/read.go")
+			if !strings.Contains(src2, `"`+key+`"`) {
+				t.Errorf("코드에 임계값 키 %s 없음 (thresholds.go·read.go)", key)
+			}
 		}
 		if !strings.Contains(doc, key) {
 			t.Errorf("TUNING.md에 %s 절차 없음", key)

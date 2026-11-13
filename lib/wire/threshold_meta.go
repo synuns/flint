@@ -61,7 +61,7 @@ var thresholdMetas = []ThresholdMeta{
 	{"KreadsRetentionD", "knowledge_reads_retention_days", 14, "db 정리"},
 }
 
-// ThresholdMetas — 등록표 결정적 복사본(29항목 — 키 집합은 기존
+// ThresholdMetas — 등록표 결정적 복사본(35항목 — 키 집합은 기존
 // ThresholdsKeys와 동일, 가드 테스트가 단언).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

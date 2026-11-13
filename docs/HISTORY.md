@@ -1,10 +1,40 @@
 # flint 버전 이력 (아카이브)
 
-flint의 전체 버전 이력(v0.1~v1.0.0) — v0.21.2(마일스톤 C③)부터
+flint의 전체 버전 이력(v0.1~v1.2.0) — v0.21.2(마일스톤 C③)부터
 PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0(PLAN
 재무장)부터 §14 전체 엔트리가 이관돼 PLAN.md는 현행 계약 2페이지만
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
+
+### v1.2.1 패치 (2026-11-13) — 감사 R15: 9건 수정
+
+- [x] [실증] rrf_k 오버라이드 전면 불가 수선 — 0~1 클램프 파서 공유가
+  기본값 60을 전부 기각. 전용 parseFloatPositive로 양수 전범위 허용
+- [x] bumpDailyFlat 주석 정직화(LWW 유실 감수·RecordUsageCount 계약
+  정렬)·readDailyFlat 허구 참조 정정·kreads per-key 낡은 주석 정정
+- [x] HISTORY v1.1.0·v1.2.0 엔트리 보강·헤더 v1.2.0 갱신·대시보드
+  ±30% 추정 라벨·TUNING diag_* 문서 가드 확장(dual 파일 검색)
+
+### v1.2.0 마이너 (2026-11-13) — 관측 고도화: 저장 수선·계측 확장·규칙 진단
+
+- [x] 저장 수선 — daily 플랫 키 원자화(daily:<kind>:<date>·40001 재시기
+  제거)·스키마 v10(read_events bytes·zero_reason·source·knowledge_reads
+  테이블)·hot_stats blob 파생화·last_brief_at 버그 즉치
+- [x] G4 정합·CRAG 제로히트 분해·토큰 회계(effect.cost p95·절약 하한·
+  주입 원가·always-on/on-invoke)·검수 카운터 8종·발화 fired_* 5계열·
+  G6 회상 운명(survived_pct·bad_recall_pct)
+- [x] 규칙 진단 D — DiagnosisItem{signal·value·basis·action·
+  tuning_key}·8규칙·3뷰 동일 원천(뷰 분열 금지)·정상 침묵
+- [x] make docs-sync — 배포 전 문서 정합 게이트(계약 테스트 20종)
+
+### v1.1.0 마이너 (2026-11-13) — 토큰 관측(G5)·마일스톤 잔여
+
+- [x] G5 "최소 주입" 계측 — read·hot(ClampHot 후)·brief 출력 바이트
+  daily 카운터(read_bytes·hot_bytes·brief_bytes) — 스키마 무변경·
+  본문 미기록(개인정보 무수집). report effect.bytes·status
+  hot/read_bytes_14d. METRICS G5 행·정의·금지조항(토큰 환산 배제)
+- [x] legacy 세션 라벨(session-current) 폴백 제거 — 세션별 파일 단일
+  경로(감사 B3·PLAN §6 마일스톤 이행)
 
 ### v1.0.13 패치 (2026-11-13) — CI 전면 수리·릴리스 파이프라인 복구
 

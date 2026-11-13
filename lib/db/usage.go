@@ -67,7 +67,7 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 // brief(v0.34.1 brief 유입 계측, additive). last_<kind>_at을 RFC3339로
 // upsert하고(dup는 시각 키 없음 — write 시각 준용) v1.2.0 T1부터
 // `daily:<kind>:YYYY-MM-DD` 정수 플랫 키를 증분한다(구 `daily:YYYY-MM-DD`
-// JSON 카운터 폐지 — 읽기 폴백은 readDailyFlat이 승계). write는 source
+// JSON 카운터 폐지 — 읽기는 report 내 WindowedDaily가 직접 파싱). write는 source
 // 카운터(hook|manual|mcp)를 병행한다. 14일 초과 daily 키는 PruneDaily로
 // 정리하되 오늘 daily 키가 신규 생성된 경우(날짜 롤오버 첫 이벤트)에만
 // 실행한다 — 매 기록마다 DELETE하면 핫패스 낭비고 duplicate write는 2회
@@ -429,7 +429,10 @@ func (r *Repo) recordWithRetry(ctx context.Context, fn func(ctx context.Context,
 
 // bumpDailyFlat — v1.2.0 T1: `daily:<kind>:<date>` 정수 값 카운터 증분.
 // bumpMeta 패턴의 단일 UPSERT 원자 문장이다(스펙 §1.1) — 구 daily:<date>
-// JSON 읽기-수정-쓰기의 last-write-wins 경합 손실·40001 재시기 창을 제거한다.
+// JSON 읽기-수정-쓰기의 40001 재시기 창을 제거한다. 병렬 유실(총계
+// 정합)은 RecordUsageCount와 동일하게 last-write-wins로 감수한다
+// (R15-A1 실증: 동시 UPSERT 시 Doltgres가 에러 없이 LWW — 유실은
+// 남으며 이는 플랜 계약상 허용).
 // 파손된 기존 값(정수 아님)은 0에서 재기작한다. 신규 키 생성(기존 행 부재)
 // 시 created=true를 돌려준다(recordWithRetry의 PruneDaily 롤오버 트리거).
 func (r *Repo) bumpDailyFlat(ctx context.Context, day, kind string, n int) (created bool, err error) {

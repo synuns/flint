@@ -221,7 +221,10 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "daily_retention_days":
 			th.DailyRetentionD = parseIntOrDefault(val, defaultDailyRetentionD, ks)
 		case "rrf_k":
-			th.RrfK = parseFloatOrDefault(val, defaultRrfK, ks)
+			// v1.2.1(R15-B1): rrf_k는 0~1 클램프 파서를 쓰면 기본값 60이
+			// 전부 기각되어 오버라이드가 원천 불가했다(실증). 전용 파서로
+			// 양수 전범위 허용 — RRF k는 통상 수십~수백(v0.25.0 스펙 참조).
+			th.RrfK = parseFloatPositive(val, defaultRrfK, ks)
 		case "secrets_scan_row_limit":
 			th.SecretsScanRows = parseIntOrDefault(val, defaultSecretsScanRows, ks)
 		case "session_knowledge_days":
@@ -286,6 +289,18 @@ func parseIntInRangeOrDefault(val any, def, min int, key string) int {
 }
 
 // parseFloatOrDefault는 실수 파싱 실패 시 기본값+경고.
+// parseFloatPositive — 양수(>0) 허용 전용 float 파서. rrf_k(기본 60)처럼
+// 0~1 범위 밖 값이 정상인 키용(v1.2.1 R15-B1).
+func parseFloatPositive(val any, def float64, key string) float64 {
+	s := fmt.Sprint(val)
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f <= 0 {
+		log.Printf("[flint] thresholds: %s=%q 파싱 불가(양수 필요) — 기본값 %v", key, s, def)
+		return def
+	}
+	return f
+}
+
 func parseFloatOrDefault(val any, def float64, key string) float64 {
 	s, ok := toString(val)
 	if !ok {

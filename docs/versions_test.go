@@ -702,7 +702,7 @@ func TestPinnedExamplesCoverInlineBackticks(t *testing.T) {
 // TestHistoryCoversAllErasChronological — v0.44.0 T1(HISTORY 이관): §14
 // 전체 엔트리(v0.19.0+)가 HISTORY.md로 이관됐고 시간순(오름차순) 배열.
 // v1.0.1 감사 F7: v0.44.0·v1.0.0 엔트리도 이관 계약상 여기 있어야
-// 한다(헤더 "v0.1~v1.0.0" 범위와 일치).
+// 한다(헤더 "v0.1~" 범위가 최신 릴리스를 포함).
 func TestHistoryCoversAllErasChronological(t *testing.T) {
 	s := docStr(t, "HISTORY.md")
 	anchors := []string{
@@ -714,7 +714,7 @@ func TestHistoryCoversAllErasChronological(t *testing.T) {
 		"### v0.39.0", "### v0.40.0", "### v0.41.0", "### v0.42.0",
 		"### v0.43.0", "### v0.44.0", "### v1.0.0",
 	}
-	if !strings.Contains(s, "v0.1~v1.0.0") {
+	if !strings.Contains(s, "v0.1~v1.2.0") {
 		t.Error("HISTORY.md 헤더 범위 'v0.1~v1.0.0' 없음")
 	}
 	prev := -1
