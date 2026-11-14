@@ -9,7 +9,7 @@ import (
 )
 
 // export_csv_test.go — v1.3.0 T6: FormatCSV 계약 테스트.
-// 열 10개(content 제외 — 목록 인덱스 용도)·헤더행 포함·LF 개행·
+// 열 11개(content 제외 — 목록 인덱스 용도)·헤더행 포함·LF 개행·
 // tags는 `|` 결합. 원천 행은 합성 데모 데이터(개인 데이터 금지).
 
 func csvTestTime() time.Time {
@@ -34,6 +34,7 @@ func csvTestRows() []ExportRow {
 			ContentHash:  "aa11",
 			CreatedAt:    t0,
 			UpdatedAt:    t0,
+			ValidAt:      t0,
 			SupersededBy: nil,
 		},
 		{
@@ -50,6 +51,7 @@ func csvTestRows() []ExportRow {
 			ContentHash:  "bb22",
 			CreatedAt:    t0,
 			UpdatedAt:    t0,
+			ValidAt:      t0,
 			SupersededBy: &sup,
 		},
 	}
@@ -75,7 +77,7 @@ func TestFormatCSVHeaderAndRows(t *testing.T) {
 		t.Fatalf("레코드 수 = %d, want 3(헤더+2행)", len(recs))
 	}
 	wantHeader := []string{"id", "topic", "kind", "status", "confidence",
-		"tags", "source", "created_at", "updated_at", "superseded_by"}
+		"tags", "source", "created_at", "updated_at", "superseded_by", "valid_at"}
 	for i, h := range wantHeader {
 		if recs[0][i] != h {
 			t.Errorf("헤더[%d] = %q, want %q", i, recs[0][i], h)
@@ -94,7 +96,8 @@ func TestFormatCSVHeaderAndRows(t *testing.T) {
 	if r1[6] != "manual" {
 		t.Errorf("행1 source = %q, want manual", r1[6])
 	}
-	if want := csvTestTime().Format(time.RFC3339); r1[7] != want || r1[8] != want {
+	want := csvTestTime().Format(time.RFC3339)
+	if r1[7] != want || r1[8] != want {
 		t.Errorf("행1 timestamps = %q,%q want %q", r1[7], r1[8], want)
 	}
 	if r1[9] != "" {
@@ -102,6 +105,13 @@ func TestFormatCSVHeaderAndRows(t *testing.T) {
 	}
 	if recs[2][9] != "88" {
 		t.Errorf("행2 superseded_by = %q, want 88", recs[2][9])
+	}
+	// valid_at — v1.4.0 T3: 검증 시각 원값(마지막 열, RFC3339).
+	if r1[10] != want {
+		t.Errorf("행1 valid_at = %q, want %q", r1[10], want)
+	}
+	if recs[2][10] != want {
+		t.Errorf("행2 valid_at = %q, want %q", recs[2][10], want)
 	}
 }
 
@@ -130,8 +140,8 @@ func TestFormatCSVColumnCountFixed(t *testing.T) {
 		t.Fatalf("FormatCSV err = %v", err)
 	}
 	for i, rec := range csvRecords(t, out) {
-		if len(rec) != 10 {
-			t.Errorf("레코드[%d] 열 수 = %d, want 10", i, len(rec))
+		if len(rec) != 11 {
+			t.Errorf("레코드[%d] 열 수 = %d, want 11", i, len(rec))
 		}
 	}
 }

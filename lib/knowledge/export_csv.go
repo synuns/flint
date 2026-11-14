@@ -1,5 +1,5 @@
 // export_csv.go — v1.3.0 T6: flint export --format csv 포맷터.
-// encoding/csv 표준, 헤더행 포함, LF 개행. 열 10개 — content 제외
+// encoding/csv 표준, 헤더행 포함, LF 개행. 열 11개 — content 제외
 // (장문 개행 셀 회피 — 목록 분석용 인덱스). tags는 `|` 결합.
 package knowledge
 
@@ -13,10 +13,11 @@ import (
 
 // FormatCSV는 원천 ExportRow(T2 export.go)를 소비한다.
 
-// formatCSVHeader — 열 순서 계약(10열, content 제외).
+// formatCSVHeader — 열 순서 계약(11열, content 제외).
 var formatCSVHeader = []string{
 	"id", "topic", "kind", "status", "confidence",
 	"tags", "source", "created_at", "updated_at", "superseded_by",
+	"valid_at",
 }
 
 // FormatCSV — rows를 CSV(헤더행 + 행별 레코드, LF)로 직렬화한다.
@@ -43,6 +44,7 @@ func FormatCSV(rows []ExportRow) ([]byte, error) {
 			csvSafeCell(r.CreatedAt.Format(time.RFC3339)),
 			csvSafeCell(r.UpdatedAt.Format(time.RFC3339)),
 			csvSafeCell(superseded),
+			csvSafeCell(r.ValidAt.Format(time.RFC3339)), // v1.4.0 T3: 검증 시각 원값
 		}
 		if err := w.Write(rec); err != nil {
 			return nil, err

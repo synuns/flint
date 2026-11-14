@@ -144,14 +144,21 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	if len(r.Entities) > 0 {
 		rec["entity"] = strings.Join(r.Entities, ":")
 	}
-	// 시각 보존(R19 A4): ingested_at·valid_at은 CreatedAt(원천 ingested_at),
-	// invalidated 행의 invalid_at은 UpdatedAt(export 파생 COALESCE(invalid_at,
-	// ingested_at)의 역매핑). 종전 valid_at←UpdatedAt 치환은 무효화 시각을
-	// 검증 시각으로 덮어썼다(불변식 파괴·재export 시각 비대칭).
+	// 시각 보존(R19 A4 → v1.4.0 T3 확장): ingested_at은 CreatedAt(원천
+	// ingested_at), invalidated 행의 invalid_at은 UpdatedAt(export 파생
+	// COALESCE(invalid_at, ingested_at)의 역매핑). valid_at은 원값 우선 —
+	// jsonl 미실어 행(손작성 등)만 기존 폴백(CreatedAt → UpdatedAt) 승계.
+	// 종전 valid_at←UpdatedAt/CreatedAt 치환은 검증 시각 원값을 덮어썼다
+	// (재export 시각 비대칭).
 	if !r.CreatedAt.IsZero() {
 		rec["ingested_at"] = r.CreatedAt.UTC()
+	}
+	switch {
+	case !r.ValidAt.IsZero():
+		rec["valid_at"] = r.ValidAt.UTC()
+	case !r.CreatedAt.IsZero():
 		rec["valid_at"] = r.CreatedAt.UTC()
-	} else if !r.UpdatedAt.IsZero() {
+	case !r.UpdatedAt.IsZero():
 		rec["valid_at"] = r.UpdatedAt.UTC()
 	}
 	if r.Status == "invalidated" && !r.UpdatedAt.IsZero() {
@@ -447,20 +454,26 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 	var rows []ExportRow
 	skipped := len(res.Skipped)
 	for _, c := range res.Candidates {
-		if c.Kind != "knowledge" {
+		if c.Kind != "knowledge" && c.Kind != "project" {
 			skipped++
-			fmt.Fprintf(os.Stderr, "[flint] import pam: 비 knowledge 후보 스킵(id=%s kind=%s)\n", c.ID, c.Kind)
+			fmt.Fprintf(os.Stderr, "[flint] import pam: 비 knowledge/project 후보 스킵(id=%s kind=%s)\n", c.ID, c.Kind)
 			continue
 		}
-		rows = append(rows, ExportRow{
+		row := ExportRow{
 			Topic:      render.Text(render.TruncateRunes("pam["+c.ID+"]", 80)),
 			Content:    c.Content,
-			Kind:       "knowledge",
+			Kind:       "knowledge", // 저장 라우터 상수 — projects 테이블 아님(루팅 룰링 2026-11-14)
 			Status:     "pending",
 			Confidence: c.Confidence,
 			Tags:       c.Tags,
 			Source:     c.Source,
-		})
+		}
+		if c.Kind == "project" {
+			// 원천 kind 보존: knowledge 테이블 pending 적립(승격 모델)에서
+			// 원형 구분은 태그로만 가능 — "pam:project" 추가(왕복·검색 경로).
+			row.Tags = append(append([]string{}, c.Tags...), "pam:project")
+		}
+		rows = append(rows, row)
 	}
 	for _, s := range res.Skipped {
 		fmt.Fprintf(os.Stderr, "[flint] import pam: 스킵(id=%s status=%s)\n", s.ID, s.Status)
@@ -474,7 +487,7 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 	pamID := map[string]int{}
 	idx := 0
 	for _, c := range res.Candidates {
-		if c.Kind != "knowledge" {
+		if c.Kind != "knowledge" && c.Kind != "project" {
 			continue
 		}
 		if idx < len(oc.byIndex) {
@@ -517,6 +530,38 @@ func RunImportRouted(ctx context.Context, st wire.Store, args []string, stdin io
 	return RunImport(ctx, st, args, stdin, stdout)
 }
 
+// importMaxRowsLimit — import 1회 행 수 상한 로드(등록표 키
+// export_import_max_rows). 조회 실패·미설정(0)은 DefaultThresholds 폴백
+// (v0.16.3 키 규약 — ApplyThresholdsFallback 미등록 키의 소비자 완결).
+func importMaxRowsLimit(ctx context.Context, st wire.Store) int {
+	def := store.DefaultThresholds().ExportImportMaxRows
+	th, err := wire.LoadThresholdsFn(ctx, st)
+	if err != nil || th.ExportImportMaxRows <= 0 {
+		return def
+	}
+	return th.ExportImportMaxRows
+}
+
+// enforceImportMaxRows — 행 수 상한 초과 시 오류 JSON(max·count 포함)을
+// stdout에 내고 3을 반환(호출부는 그대로 반환). 파싱 직후·적립 전 단계라
+// 부작용 없음(대량 문서 전량 적립의 메모리 방어 — v1.4.0 T3).
+func enforceImportMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, count int) int {
+	max := importMaxRowsLimit(ctx, st)
+	if count <= max {
+		return 0
+	}
+	b, err := json.Marshal(map[string]any{
+		"error": fmt.Sprintf("import 행 수 상한 초과(export_import_max_rows=%d)", max),
+		"max":   max,
+		"count": count,
+	})
+	if err != nil {
+		b = []byte(fmt.Sprintf(`{"error":"import 행 수 상한 초과","max":%d,"count":%d}`, max, count))
+	}
+	fmt.Fprintln(stdout, string(b))
+	return 3
+}
+
 // RunImportMigrate — `flint import --format jsonl|pam [FILE]`(FILE 미지정
 // stdin). 무효 format·파손 jsonl exit 3, 서버다운 exit 2(MapExit 재사용).
 func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
@@ -555,6 +600,9 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 			fmt.Fprintln(stdout, wire.ErrLine(perr))
 			return 3
 		}
+		if code := enforceImportMaxRows(ctx, st, stdout, len(rows)); code != 0 {
+			return code
+		}
 		oc, err = importJSONL(ctx, st, rows)
 	case "pam":
 		if ParsePAMFn == nil { // T10 seam 미준비
@@ -566,6 +614,10 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 		if err != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 3
+		}
+		// 상한은 후보+스킵 합산(문서 전체 memory 행 수 기준).
+		if code := enforceImportMaxRows(ctx, st, stdout, len(res.Candidates)+len(res.Skipped)); code != 0 {
+			return code
 		}
 		oc, err = importPAM(ctx, st, res)
 	}

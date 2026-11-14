@@ -54,6 +54,9 @@ type Thresholds struct {
 	// v1.2.0 T5 — knowledge_reads 보존일 등록(T1 stopgap 인계 해소: 기존
 	// per-key 직접 읽기와 동일 키·기본값 14, spec §1.2).
 	KreadsRetentionD int // knowledge_reads 보존(일, 기본 14)
+	// v1.4.0 T3 — import(--format jsonl|pam) 1회 행 수 상한. 대량 문서의
+	// 전량 파싱·적립 메모리 방어(비목표 스트리밍의 완화).
+	ExportImportMaxRows int // import 행 수 상한(기본 100000)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -90,12 +93,13 @@ const (
 	defaultSecretsScanRows      = 10000
 	defaultSessionKnowledgeDays = 1
 	// v1.2.0 T5 — 진단 diag_*·knowledge_reads 보존 기본값(spec §3·§1.2).
-	defaultDiagHotBudgetHigh = 0.8
-	defaultDiagHotBudgetLow  = 0.2
-	defaultDiagTrendPct      = 50
-	defaultDiagRecallLedGoal = 50
-	defaultDiagDeadWarn      = 10
-	defaultKreadsRetentionD  = 14
+	defaultDiagHotBudgetHigh   = 0.8
+	defaultDiagHotBudgetLow    = 0.2
+	defaultDiagTrendPct        = 50
+	defaultDiagRecallLedGoal   = 50
+	defaultDiagDeadWarn        = 10
+	defaultKreadsRetentionD    = 14
+	defaultExportImportMaxRows = 100000
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -139,6 +143,9 @@ func DefaultThresholds() Thresholds {
 		DiagRecallLedGoal: defaultDiagRecallLedGoal,
 		DiagDeadWarn:      defaultDiagDeadWarn,
 		KreadsRetentionD:  defaultKreadsRetentionD,
+		// v1.4.0 T3 — DefaultThresholds는 항상 기본값(Parse 미설정-0 규약과
+		// 별개 — 소비자 폴백 기준).
+		ExportImportMaxRows: defaultExportImportMaxRows,
 	}
 }
 
@@ -245,6 +252,10 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// v1.2.0 T5 등록(T1 stopgap 인계 — usage.go per-key 직접 읽기와
 			// 동일 키·기본값. tuning/문서 노출은 등록표 후속 수렴).
 			th.KreadsRetentionD = parseIntOrDefault(val, defaultKreadsRetentionD, ks)
+		case "export_import_max_rows":
+			// v1.4.0 T3 등록 — 미설정은 0 유지(v0.16.3 규약: 전체 구조체
+			// 비교 테스트 회귀 없이 확장. 소비자가 DefaultThresholds 폴백).
+			th.ExportImportMaxRows = parseIntOrDefault(val, defaultExportImportMaxRows, ks)
 		}
 	}
 	return th, nil

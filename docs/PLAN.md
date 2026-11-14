@@ -127,14 +127,16 @@
   txt·csv — `flint export`)·import 마이그레이션(jsonl 왕복·PAM v1.0
   수입 — `flint import --format`). i18n·마케팅 계열은 v1.4로 이월.
   설계 조사 상세: docs/plans/2026-11-13-flint-marketing-prep.md
-- [ ] v1.4.0(예정 — 2026-11-13 사용자 지시·미착수) — 마케팅 기능
-  계열: 데모 체험(asciinema·Codespaces)·대시보드 고도화(React는
-  vendor 임베드 양안)·TUI 설계(사람 전용 표면)·설치 확장(brew)·신뢰
-  아티팩트(SBOM·Scorecard·SECURITY.md)·정적 웹(필수 아님)·UX 이중
-  트랙(에이전트 비간섭·사람 표면 분리) — 상세 동일 문서.
-  v1.3 이월: 국제화(i18n)·영어 디폴트·README 고도화·재현 합성 벤치마크.
-  후보: PAM export 출력(`export --format pam`)·export 사이드카
-  무결성(sha256 첨부)
+- [x] v1.4.0(2026-11-14) — PAM 생태계 완결·데이터 이동성: `export --format
+  pam`(PAM v1.0 memory-store·체크섬 JCS 결정성)·`--out` sha256 사이드카·
+  valid_at 왕복·PAM project형 적립·import 상한(export_import_max_rows)·
+  실DB 왕복 e2e — i18n·마케팅 계열은 v1.5로 이월
+- [ ] v1.5.0(예정) — 마케팅 기능 계열(2026-11-13 사용자 지시): 데모
+  체험(asciinema·Codespaces)·대시보드 고도화·TUI 설계·설치 확장(brew)·
+  신뢰 아티팩트(SBOM·Scorecard·SECURITY.md) — 상세
+  docs/plans/2026-11-13-flint-marketing-prep.md. 이월: 국제화(i18n)·영어
+  디폴트·README 고도화·재현 합성 벤치마크. 후보: PAM 서명(스펙 §18)·
+  embeddings 검색(ADR-0011 재판정)
 
 ## 7. 비목표
 
@@ -143,4 +145,4 @@
 - 임베딩 검색(pgvector 채택 보류 — ADR-0011)·다중 에이전트 domain
   스코프(트리거 대기)·METRICS.md 개편·ADR 재편
 - 대시보드 동적 서버(정적 export만 유지)·linux 배포 — brew·TUI는
-  v1.4.0 반전(2026-11-13 사용자 지시)
+  v1.5.0 반전(2026-11-13 사용자 지시)

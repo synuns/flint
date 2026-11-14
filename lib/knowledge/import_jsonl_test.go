@@ -673,6 +673,168 @@ func TestRunImportMigrateHashSymmetricWithWrite(t *testing.T) {
 	}
 }
 
+// ── v1.4.0 T3: import 행 수 상한(export_import_max_rows 등록표 키). ──
+
+// maxRowsFake — meta에서 export_import_max_rows 오버라이드만 읽는 fake
+// (LoadThresholds IN 조회 응답 — 나머지 조회는 0행).
+func maxRowsFake(max string) *fakeStore {
+	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM meta WHERE key IN") {
+			return [][]any{{"export_import_max_rows", max}}, nil
+		}
+		return nil, nil
+	}}
+}
+
+// maxRowsFixtureRows — 상한 검증용 합성 행 N건(해시 충돌 없는 단순 행).
+func maxRowsFixtureRows(n int) []ExportRow {
+	t0 := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
+	rows := make([]ExportRow, 0, n)
+	for i := 1; i <= n; i++ {
+		rows = append(rows, ExportRow{
+			Topic:   fmt.Sprintf("demo maxrows %02d", i),
+			Content: fmt.Sprintf("합성 데모 — import 상한 검증 행 %02d.", i),
+			Kind:    "knowledge", Status: "active", Confidence: 0.9,
+			Tags: []string{"demo", "maxrows"}, Domain: "main", Source: "agent",
+			CreatedAt: t0, UpdatedAt: t0,
+		})
+	}
+	return rows
+}
+
+// TestRunImportMigrateMaxRowsExceeded — Review Focus: 행 수가 상한을
+// 초과하면 exit 3·오류 JSON에 max·count가 포함되고 적립은 발생하지
+// 않는다(대량 문서 메모리 방어 — 적립 전 파이프라인 차단).
+func TestRunImportMigrateMaxRowsExceeded(t *testing.T) {
+	data, err := FormatJSONL(maxRowsFixtureRows(3))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := maxRowsFake("2")
+	out, code := runMigrate(t, f, []string{"--format", "jsonl"}, string(data))
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(상한 초과); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"max":2`) || !strings.Contains(out, `"count":3`) {
+		t.Fatalf("오류 JSON max·count 미포함: %s", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("상한 초과 적립 발생: %d건", len(f.inserted))
+	}
+}
+
+// TestRunImportMigrateMaxRowsBoundary — 상한과 같은 행 수는 통과
+// (count == max 허용 — 초과만 차단).
+func TestRunImportMigrateMaxRowsBoundary(t *testing.T) {
+	data, err := FormatJSONL(maxRowsFixtureRows(2))
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := maxRowsFake("2")
+	out, code := runMigrate(t, f, []string{"--format", "jsonl"}, string(data))
+	if code != 0 || !strings.Contains(out, `"imported":2`) {
+		t.Fatalf("경계(==max) exit=%d out=%s", code, out)
+	}
+}
+
+// TestRunImportMigrateMaxRowsPAMExceeded — pam 경로 동일 상한: 후보+스킵
+// 합산 행 수 초과 시 exit 3·적립 없음.
+func TestRunImportMigrateMaxRowsPAMExceeded(t *testing.T) {
+	doc := `{
+ "schema": "portable-ai-memory",
+ "memories": [
+  {"id":"m1","type":"fact","content":"demo maxrows one","status":"active","confidence":{"current":0.5},"provenance":{"platform":"demo"}},
+  {"id":"m2","type":"fact","content":"demo maxrows two","status":"active","confidence":{"current":0.5},"provenance":{"platform":"demo"}},
+  {"id":"m3","type":"fact","content":"demo maxrows three","status":"active","confidence":{"current":0.5},"provenance":{"platform":"demo"}}
+ ],
+ "relations": []}`
+	f := maxRowsFake("2")
+	out, code := runMigrate(t, f, []string{"--format", "pam"}, doc)
+	if code != 3 {
+		t.Fatalf("pam exit=%d, want 3(상한 초과); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"max":2`) || !strings.Contains(out, `"count":3`) {
+		t.Fatalf("pam 오류 JSON max·count 미포함: %s", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("pam 상한 초과 적립 발생: %d건", len(f.inserted))
+	}
+}
+
+// TestRunImportMigrateValidAtPreserved — v1.4.0 T3 Review Focus: valid_at은
+// 원값으로 보존 적립된다(v1.3.1 A4 경로 확장 — 종전 CreatedAt 치환 폐지.
+// 검증 시각 ≠ 수집 시각 행에서 원천 valid_at이 그대로 적립).
+func TestRunImportMigrateValidAtPreserved(t *testing.T) {
+	created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	valid := time.Date(2026, 11, 12, 23, 15, 0, 0, time.UTC)
+	rows := []ExportRow{{
+		ID: 61, Topic: "demo validat preserve", Content: "합성 데모 — valid_at 보존 적립.",
+		Kind: "knowledge", Status: "active", Confidence: 0.9, Tags: []string{"demo"},
+		Domain: "main", Source: "agent", CreatedAt: created, UpdatedAt: created,
+		ValidAt: valid,
+	}}
+	data, err := FormatJSONL(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeStore{}
+	out, code := runMigrate(t, f, []string{"--format", "jsonl"}, string(data))
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("적립=%d, want 1", len(f.inserted))
+	}
+	rec := f.inserted[0]
+	if va, ok := rec["valid_at"].(time.Time); !ok || !va.Equal(valid) {
+		t.Fatalf("valid_at=%v, want 원값 %v(CreatedAt 치환 폐지)", rec["valid_at"], valid)
+	}
+	if ga, ok := rec["ingested_at"].(time.Time); !ok || !ga.Equal(created) {
+		t.Fatalf("ingested_at=%v, want CreatedAt %v", rec["ingested_at"], created)
+	}
+}
+
+// TestRunImportMigratePAMProjectKind — v1.4.0 T3 Review Focus: PAM project형
+// 후보는 스킵되지 않고 pending 적립된다(승격 모델 준수). 원천 kind 보존은
+// 태그 "pam:project" 추가로(ExportRow.Kind는 저장 라우터 상수라 태그로만
+// 구분 — 코디네이터 룰링 2026-11-14).
+func TestRunImportMigratePAMProjectKind(t *testing.T) {
+	doc := `{
+ "schema": "portable-ai-memory",
+ "memories": [
+  {"id":"pj1","type":"project","content":"demo project memory content","status":"active","confidence":{"current":0.6},"tags":["roadmap"],"provenance":{"platform":"demo"}}
+ ],
+ "relations": []}`
+	f := &fakeStore{}
+	out, code := runMigrate(t, f, []string{"--format", "pam"}, doc)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"imported":1`) {
+		t.Fatalf("project형 적립 요약: %s", out)
+	}
+	if strings.Contains(out, `"skipped"`) {
+		t.Fatalf("project형이 스킵 계상됨: %s", out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("적립=%d, want 1(스킵 해제)", len(f.inserted))
+	}
+	rec := f.inserted[0]
+	if rec["status"] != "pending" {
+		t.Fatalf("status = %v, want pending(승격 모델)", rec["status"])
+	}
+	if rec["kind"] != "knowledge" {
+		t.Fatalf("kind = %v, want knowledge(저장 라우터 상수)", rec["kind"])
+	}
+	tags, _ := rec["tags"].(string)
+	if !strings.Contains(tags, ":pam:project:") {
+		t.Fatalf("tags = %q, want pam:project 보존(원천 kind 구분)", tags)
+	}
+	if !strings.Contains(tags, ":roadmap:") {
+		t.Fatalf("tags = %q, want 원 태그 보존", tags)
+	}
+}
+
 // ── slow 실DB seam(SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만). ──
 
 // importRealDSN — SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만 실DB 접속
@@ -717,6 +879,69 @@ func (s *importRealStore) Query(ctx context.Context, sql string, args ...any) ([
 func (s *importRealStore) Close() {
 	s.Repo.Close()
 	s.pool.Close()
+}
+
+// TestImportMaxRowsRealSlow — 실DB 회귀(slow): meta 오버라이드
+// export_import_max_rows가 실 LoadThresholds 경로(IN 조회)로 반영되어
+// 초과 문서는 exit 3·오류 JSON max·count, 경계 문서는 정상 적립.
+// 합성 데모 데이터만 사용하고 태그로 행을 정리한다.
+func TestImportMaxRowsRealSlow(t *testing.T) {
+	dsn, ok := importRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	repo, err := db.NewRepo(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		repo.Close()
+		t.Skipf("real pool unavailable: %v", err)
+	}
+	st := &importRealStore{Repo: repo, pool: pool}
+	t.Cleanup(st.Close)
+	const tag = "maxrows" // maxRowsFixtureRows가 붙이는 정리 태그와 동일
+	const key = "export_import_max_rows"
+	// 행·meta 정리(선행+후행 — 이전 런 잔재·본 런 오버라이드 흡수).
+	cleanup := func() {
+		_, _ = st.Query(ctx, `DELETE FROM knowledge WHERE strpos(tags, ':' || $1 || ':') > 0`, tag)
+		_, _ = st.Query(ctx, `DELETE FROM meta WHERE key = $1`, key)
+	}
+	t.Cleanup(cleanup)
+	cleanup()
+	if _, err := st.Query(ctx,
+		`INSERT INTO meta (key, value) VALUES ($1, '2')`, key); err != nil {
+		t.Fatalf("meta 오버라이드 설정 실패: %v", err)
+	}
+
+	t.Run("exceeded exits 3 with max count", func(t *testing.T) {
+		data, err := FormatJSONL(maxRowsFixtureRows(3))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out strings.Builder
+		code := RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
+		if code != 3 {
+			t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
+		}
+		if !strings.Contains(out.String(), `"max":2`) || !strings.Contains(out.String(), `"count":3`) {
+			t.Fatalf("오류 JSON max·count 미포함: %s", out.String())
+		}
+	})
+	t.Run("boundary imports", func(t *testing.T) {
+		data, err := FormatJSONL(maxRowsFixtureRows(2))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out strings.Builder
+		code := RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
+		if code != 0 || !strings.Contains(out.String(), `"imported":2`) {
+			t.Fatalf("경계 exit=%d out=%s", code, out.String())
+		}
+		cleanup()
+	})
 }
 
 // TestImportMigrateR19RealSlow — 실DB 회귀(slow): A9 부가 키 행 dedup·
@@ -813,18 +1038,20 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 		cleanup()
 	})
 
-	t.Run("invalidated timestamps roundtrip", func(t *testing.T) { // A4
+	t.Run("invalidated timestamps roundtrip", func(t *testing.T) { // A4 + v1.4.0 T3 valid_at
 		created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 		updated := time.Date(2026, 11, 13, 11, 30, 0, 0, time.UTC)
+		valid := time.Date(2026, 11, 13, 8, 0, 0, 0, time.UTC) // 검증 시각 ≠ 수집 시각
 		sup := 919106
 		rows := []ExportRow{
 			{ID: 919106, Topic: "demo r19 slow ts active", Content: "합성 데모 slow — 시각 active.",
 				Kind: "knowledge", Status: "active", Confidence: 0.9, Tags: []string{tag},
-				Domain: "main", Source: "agent", CreatedAt: created, UpdatedAt: created},
+				Domain: "main", Source: "agent", CreatedAt: created, UpdatedAt: created,
+				ValidAt: valid},
 			{ID: 919107, Topic: "demo r19 slow ts invalidated", Content: "합성 데모 slow — 시각 invalidated.",
 				Kind: "knowledge", Status: "invalidated", Confidence: 0.8, Tags: []string{tag},
 				Domain: "main", Source: "agent", CreatedAt: created, UpdatedAt: updated,
-				SupersededBy: &sup},
+				ValidAt: valid, SupersededBy: &sup},
 		}
 		data, err := FormatJSONL(rows)
 		if err != nil {
@@ -851,6 +1078,9 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 		if !inv.CreatedAt.Equal(created) || !inv.UpdatedAt.Equal(updated) {
 			t.Fatalf("재export 시각 비대칭: created=%v want %v / updated=%v want %v",
 				inv.CreatedAt, created, inv.UpdatedAt, updated)
+		}
+		if !inv.ValidAt.Equal(valid) {
+			t.Fatalf("valid_at 왕복 비대칭: %v, want %v(원값 보존)", inv.ValidAt, valid)
 		}
 		cleanup()
 	})

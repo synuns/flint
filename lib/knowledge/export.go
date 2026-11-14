@@ -46,6 +46,7 @@ type ExportRow struct {
 	ContentHash  string
 	CreatedAt    time.Time
 	UpdatedAt    time.Time
+	ValidAt      time.Time // v1.4.0 T3: 검증 시각 원값(왕복 보존 — CreatedAt 치환 폐지)
 	SupersededBy *int
 }
 
@@ -77,8 +78,10 @@ func buildExportQuery(f ExportFilter) (string, []any) {
 		args = append(args, f.Since.UTC().Format(time.RFC3339Nano))
 		where = append(where, fmt.Sprintf("COALESCE(invalid_at, ingested_at) >= $%d", len(args)))
 	}
+	// valid_at 열은 v1.4.0 T3 추가(superseded_by 다음·ingested_at 이전 —
+	// jsonl 왕복 동일성의 원천).
 	sql := "SELECT id, topic, summary, tags, entity, domain, confidence, origin, status, " +
-		"content_hash, superseded_by, ingested_at, COALESCE(invalid_at, ingested_at) FROM knowledge"
+		"content_hash, superseded_by, valid_at, ingested_at, COALESCE(invalid_at, ingested_at) FROM knowledge"
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -134,8 +137,9 @@ func mapExportRow(r []any) ExportRow {
 			row.SupersededBy = &id
 		}
 	}
-	row.CreatedAt = cellTime(cell(11))
-	row.UpdatedAt = cellTime(cell(12))
+	row.CreatedAt = cellTime(cell(12))
+	row.UpdatedAt = cellTime(cell(13))
+	row.ValidAt = cellTime(cell(11))
 	return row
 }
 

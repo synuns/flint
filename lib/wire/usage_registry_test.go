@@ -80,6 +80,19 @@ func TestUsageOrderMatchesRegistry(t *testing.T) {
 	}
 }
 
+// TestHelpSummaryDocumentsPAMExport — v1.4.0 T4: HelpSummary의 export
+// 항목은 PAM 표준 내보내기(--format pam)와 --out 사이드카 체크섬을
+// 언급해야 한다(export 행 확장 — 신규 커맨드가 아니므로 usageOrder·
+// seedCommands 집합은 불변).
+func TestHelpSummaryDocumentsPAMExport(t *testing.T) {
+	s := HelpSummary()
+	for _, want := range []string{"export", "pam", "sha256"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("helpSummary에 %q 누락: %s", want, s)
+		}
+	}
+}
+
 // TestUsageLineAssembledFromOrder — usageLine은 usageOrder 순서 그대로
 // 조립(리터럴 금지, v0.34.2 Produces 계약).
 func TestUsageLineAssembledFromOrder(t *testing.T) {

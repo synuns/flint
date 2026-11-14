@@ -66,6 +66,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0131Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.3.1", "R19",
 	}},
+	// v1.4.0 T4: PAM v1.0 내보내기·사이드카·부채 3종 이행 기록 존재 계약.
+	{name: "TestVersion0140Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.4.0", "PAM",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{
