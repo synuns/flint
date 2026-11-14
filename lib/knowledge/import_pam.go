@@ -31,11 +31,14 @@ type PAMSkipped struct {
 	Status string `json:"status"` // superseded/deprecated/retracted/archived
 }
 
-// SupersedePair — relations 중 type=="supersedes"의 (from,to). from이
-// to를 대체한다는 계보 — 후처리 갱신은 T9 소유.
+// SupersedePair — relations 중 type=="supersedes"의 쌍. PAM §13.2
+// "supersedes: Source replaces target"에 따라 방향을 확정한다:
+// From=신규(대체하는 원천 source), To=구(대체되는 대상 target).
+// 즉 "From이 To를 대체" — 소비측(importPAM 계보 복원)은 이 의미만
+// 정합 소구해야 한다: Supersede(oldID=To의 적립 id, newID=From의 적립 id).
 type SupersedePair struct {
-	From string `json:"from"`
-	To   string `json:"to"`
+	From string `json:"from"` // 신규 — 대체하는 memory(source)
+	To   string `json:"to"`   // 구 — 대체되는 memory(target)
 }
 
 // PAMResult — ParsePAM 반환 묶음.
@@ -154,6 +157,8 @@ func ParsePAM(data []byte) (*PAMResult, error) {
 	}
 	for _, r := range doc.Relations {
 		if r.Type == "supersedes" {
+			// §13.2 "Source replaces target": from=신규, to=구 — 원시
+			// relation 방향을 그대로 확정(SupersedePair 주석 참조).
 			res.SupersedePairs = append(res.SupersedePairs, SupersedePair{From: r.From, To: r.To})
 		}
 	}

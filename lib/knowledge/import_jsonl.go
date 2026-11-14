@@ -117,11 +117,18 @@ type importMigrateOutcome struct {
 	validAt                                             map[int]time.Time
 }
 
+// importHashSkip — 재이식 해시 입력 제외 키(write payload에 없는 이식
+// 기계 키 — id·kind·status는 적립 시 부과되고 ingested_at·invalid_at은
+// A4 보존 열. valid_at·ts는 HashCanonical 휘발성 제외 승계).
+var importHashSkip = map[string]bool{
+	"id": true, "kind": true, "status": true, "ingested_at": true, "invalid_at": true,
+}
+
 // rowHashRec — ExportRow 1건을 (해시 입력, 적립 rec) 쌍으로 변환.
-// 해시 입력은 write 경로와 동일 키만(topic·summary·tags·entity·domain·
-// confidence·origin — valid_at 제외, kind·status·id 미포함) 넣어 재전송
-// 멱등을 맞춘다. entities는 entity 텍스트 열로 ":" 결합(T2 원천 매핑
-// 승계 — 왕복 대칭).
+// 해시 입력은 write 경로 산출식(ContentHash(HashCanonical(n)) — 전체 키)과
+// 대칭이다(R19 A9: 7키 고정 부분집합은 write payload 부가 키 행과
+// 비대칭). entities는 entity 텍스트 열로 ":" 결합(T2 원천 매핑 승계 —
+// 왕복 대칭).
 func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaError) {
 	rec = map[string]any{
 		"kind":       "knowledge",
@@ -137,8 +144,18 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	if len(r.Entities) > 0 {
 		rec["entity"] = strings.Join(r.Entities, ":")
 	}
-	if !r.UpdatedAt.IsZero() {
-		rec["valid_at"] = r.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	// 시각 보존(R19 A4): ingested_at·valid_at은 CreatedAt(원천 ingested_at),
+	// invalidated 행의 invalid_at은 UpdatedAt(export 파생 COALESCE(invalid_at,
+	// ingested_at)의 역매핑). 종전 valid_at←UpdatedAt 치환은 무효화 시각을
+	// 검증 시각으로 덮어썼다(불변식 파괴·재export 시각 비대칭).
+	if !r.CreatedAt.IsZero() {
+		rec["ingested_at"] = r.CreatedAt.UTC()
+		rec["valid_at"] = r.CreatedAt.UTC()
+	} else if !r.UpdatedAt.IsZero() {
+		rec["valid_at"] = r.UpdatedAt.UTC()
+	}
+	if r.Status == "invalidated" && !r.UpdatedAt.IsZero() {
+		rec["invalid_at"] = r.UpdatedAt.UTC()
 	}
 	if r.Status != "" {
 		rec["status"] = r.Status
@@ -159,12 +176,28 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	}
 	n := store.Normalize("knowledge", rec)
 	hashInput = map[string]any{}
-	for _, k := range []string{"topic", "summary", "tags", "entity", "domain", "confidence", "origin"} {
-		if v, ok := n[k]; ok {
-			hashInput[k] = v
+	for k, v := range n {
+		if importHashSkip[k] {
+			continue
 		}
+		hashInput[k] = v
 	}
 	return hashInput, rec, nil
+}
+
+// isHex64 — 저장 content_hash 형식(64자 hex) 판정.
+func isHex64(s string) bool {
+	if len(s) != 64 {
+		return false
+	}
+	for _, c := range s {
+		switch {
+		case c >= '0' && c <= '9', c >= 'a' && c <= 'f', c >= 'A' && c <= 'F':
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // importRowsBatch — dedup 통과 행 일괄 적립(InsertBatch 1회) + id 매핑.
@@ -189,7 +222,14 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		if se != nil {
 			return nil, se
 		}
+		// 해시(R19 A9): export가 실어온 저장 content_hash(64 hex)는 write가
+		// 부가 키(session_id 등 payload 부가 키)까지 포함해 산출한 값이라
+		// 재계산으로 재현 불가다 — 유효하면 승계해 dedup·적립의 왕복 대칭을
+		// 맞춘다. 없는 행(손작성 jsonl)은 write 산출식으로 재계산한다.
 		h := store.ContentHash(store.HashCanonical(hashInput))
+		if isHex64(r.ContentHash) {
+			h = r.ContentHash
+		}
 		if seen[h] {
 			oc.duplicated++
 			continue
@@ -209,10 +249,13 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		}
 		rec = store.Normalize("knowledge", rec)
 		rec["content_hash"] = h // NOT NULL UNIQUE — write 경로와 동일 적립
-		if vat, ok := rec["valid_at"].(string); ok {
-			if t, err := time.Parse(time.RFC3339Nano, vat); err == nil {
+		switch v := rec["valid_at"].(type) {
+		case string:
+			if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
 				oc.validAt[r.ID] = t
 			}
+		case time.Time:
+			oc.validAt[r.ID] = v
 		}
 		batch = append(batch, pending{idx: i, row: r, rec: rec})
 	}
@@ -223,13 +266,27 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		}
 		ids, err := st.InsertBatch(ctx, recs)
 		if err != nil {
-			return nil, err
+			// R19 A1: 배치 적립 실패은 유령 성공이 될 수 없다 — 실구현
+			// mapInsertErr는 unique 위반(23505: 기존 DB 동일 id·다른 content
+			// 행의 PK 충돌 포함)을 ErrDuplicate로 감싸고 MapExit(ErrDuplicate)
+			// =0이라 그대로 두면 "오류 JSON + exit 0 + 0건 커밋"이 된다
+			// (write.go의 '전체 폐기 후 exit 0 duplicate' 금지 원칙).
+			// 서버다운(exit 2)만 체인을 보존하고 나머지는 원인 문자열을
+			// 보존한 채 exit 1로 매핑한다.
+			if errors.Is(err, store.ErrServerDown) {
+				return nil, err
+			}
+			return nil, fmt.Errorf("import: 배치 적립 실패: %v", err)
 		}
+		explicit := false
 		for i, p := range batch {
 			id := ids[i]
 			oc.imported++
-			if p.row.ID > 0 && id != p.row.ID {
-				oc.remapped++ // id 보존 불가 — 자동 할당 후 매핑 보고
+			if p.row.ID > 0 {
+				explicit = true
+				if id != p.row.ID {
+					oc.remapped++ // id 보존 불가 — 자동 할당 후 매핑 보고
+				}
 			}
 			oc.idmap[p.row.ID] = id
 			oc.byIndex[p.idx] = id
@@ -237,8 +294,35 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 				oc.validAt[id] = t // 재할당 id로도 참조 가능하게
 			}
 		}
+		if explicit {
+			// R19 A2: 명시 id INSERT는 id serial의 nextval을 소비하지 않는다.
+			syncKnowledgeIDSequence(ctx, st)
+		}
 	}
 	return oc, nil
+}
+
+// syncKnowledgeIDSequence — R19 A2: 명시 id 이식 직후 id serial nextval이
+// 기존 행과 충돌해 flint write가 연속 실패하지 않게 시퀀스를 max(id)+1로
+// 맞춘다(setval …, false — 다음 nextval = max+1). 시퀀스명은
+// pg_get_serial_sequence로 확인하고, 미지원 저장소는 표준 명칭
+// knowledge_id_seq로 폴백한다. 실패는 stderr 경고만(exit 불변).
+func syncKnowledgeIDSequence(ctx context.Context, st wire.Store) {
+	if rows, err := wire.QueryOnce(ctx, st,
+		`SELECT pg_get_serial_sequence('knowledge', 'id')`, nil); err == nil &&
+		len(rows) == 1 && len(rows[0]) == 1 {
+		if name, ok := rows[0][0].(string); ok && name != "" {
+			if _, err := wire.QueryOnce(ctx, st, fmt.Sprintf(
+				`SELECT setval('%s', (SELECT COALESCE(MAX(id), 0) + 1 FROM knowledge), false)`,
+				strings.ReplaceAll(name, "'", "''")), nil); err == nil {
+				return
+			}
+		}
+	}
+	if _, err := wire.QueryOnce(ctx, st,
+		`SELECT setval('knowledge_id_seq', (SELECT COALESCE(MAX(id), 0) + 1 FROM knowledge), false)`, nil); err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] import: id 시퀀스 동기 실패(경고 후 계속): %v\n", err)
+	}
 }
 
 // supersedeRefStore — 계보 참조 복원 capability(v1.3.0 T9). realStore는
@@ -275,10 +359,13 @@ func restoreSupersede(ctx context.Context, st wire.Store, oc *importMigrateOutco
 		}
 		if !done {
 			if rs, ok := st.(supersedeRefStore); ok {
-				if _, err := rs.SetSupersededRef(ctx, oldID, newID); err != nil {
+				rows, err := rs.SetSupersededRef(ctx, oldID, newID)
+				if err != nil {
 					return n, err
 				}
-				n++ // 0행(이미 참조 존재)도 멱등 복원으로 계상
+				if rows > 0 {
+					n++ // R19 A8: 실제 복원된 행만 계상(0행=이미 참조 존재 제외)
+				}
 				continue
 			}
 			fmt.Fprintf(os.Stderr, "[flint] import: id=%d 계보 복원 미지원 store — 스킵(→ %d)\n", oldID, newID)
@@ -397,8 +484,11 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 	}
 	var refs [][2]int
 	for _, p := range res.SupersedePairs {
-		oldID, okFrom := pamID[p.From]
-		newID, okTo := pamID[p.To]
+		// PAM §13.2 "supersedes: Source replaces target"(import_pam.go
+		// SupersedePair 계약): From=신규(대체하는 원천), To=구(피대체) —
+		// Supersede(oldID=구 To의 적립 id, newID=신규 From의 적립 id).
+		newID, okFrom := pamID[p.From]
+		oldID, okTo := pamID[p.To]
 		if !okFrom || oldID <= 0 || !okTo || newID <= 0 {
 			fmt.Fprintf(os.Stderr, "[flint] import pam: supersedes(%s→%s) 대상 부재 — 계보 스킵\n", p.From, p.To)
 			continue
@@ -443,13 +533,17 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 	if file != "" {
 		data, err = os.ReadFile(file)
 		if err != nil {
-			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "file", Expect: "읽기 가능한 jsonl 파일"}))
+			// R19 A7: 원인(ENOENT/EACCES·경로)을 폐기하지 않고 expect에
+			// 포함한다(SchemaError 랩 유지 — exit 3 불변).
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "file",
+				Expect: "읽기 가능한 jsonl 파일: " + err.Error()}))
 			return 3
 		}
 	} else {
 		data, err = io.ReadAll(stdin)
 		if err != nil {
-			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "stdin", Expect: "readable"}))
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "stdin",
+				Expect: "readable: " + err.Error()}))
 			return 3
 		}
 	}

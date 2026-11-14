@@ -162,6 +162,65 @@ func TestParsePAMSupersedes(t *testing.T) {
 	}
 }
 
+// TestParsePAMSupersedesDirection — PAM §13.2 "supersedes: Source replaces
+// target": relation from=신규(대체하는 쪽), to=구(피대체). SupersedePair는
+// 이 방향을 그대로 확정한다(From=신규, To=구 — 소비측 importPAM은 이
+// 의미만 정합 소비).
+func TestParsePAMSupersedesDirection(t *testing.T) {
+	doc := `{
+ "schema": "portable-ai-memory",
+ "memories": [
+  {"id":"po1","type":"fact","content":"v1(구)","status":"active","provenance":{"platform":"demo"},"confidence":{"current":0.5}},
+  {"id":"pn2","type":"fact","content":"v2(신규)","status":"active","provenance":{"platform":"demo"},"confidence":{"current":0.5}}
+ ],
+ "relations": [
+  {"type": "supersedes", "from": "pn2", "to": "po1"}
+ ]}`
+	res, err := ParsePAM([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParsePAM err: %v", err)
+	}
+	if len(res.SupersedePairs) != 1 {
+		t.Fatalf("pairs = %v, want 1", res.SupersedePairs)
+	}
+	p := res.SupersedePairs[0]
+	if p.From != "pn2" || p.To != "po1" {
+		t.Errorf("pair = (From=%q, To=%q), want (From=pn2 신규, To=po1 구)", p.From, p.To)
+	}
+}
+
+// TestRunImportMigratePAMSupersedesLineage — 방향 회귀(엔드투엔드):
+// relation from=pn2(신규) to=po1(구)일 때 계보 갱신은 "신규가 구를
+// 대체" — Supersede(oldID=po1의 적립 id, newID=pn2의 적립 id) 호출.
+// 반전 시 oldID/newID가 뒤바뀐 호출로 잡힌다.
+func TestRunImportMigratePAMSupersedesLineage(t *testing.T) {
+	doc := `{
+ "schema": "portable-ai-memory",
+ "memories": [
+  {"id":"po1","type":"fact","content":"v1(구)","status":"active","provenance":{"platform":"demo"},"confidence":{"current":0.5}},
+  {"id":"pn2","type":"fact","content":"v2(신규)","status":"active","provenance":{"platform":"demo"},"confidence":{"current":0.5}}
+ ],
+ "relations": [
+  {"type": "supersedes", "from": "pn2", "to": "po1"}
+ ]}`
+	m := &migrateFake{fakeStore: &fakeStore{}}
+	out, code := runMigrate(t, m, []string{"--format", "pam"}, doc)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"superseded":1`) {
+		t.Fatalf("계보 복원 요약 부재: %s", out)
+	}
+	if len(m.superseded) != 1 {
+		t.Fatalf("Supersede 호출 = %d회, want 1", len(m.superseded))
+	}
+	// 후보 순서대로 적립: po1=1행째(id 1), pn2=2행째(id 2).
+	if m.superseded[0].oldID != 1 || m.superseded[0].newID != 2 {
+		t.Fatalf("Supersede(oldID=%d, newID=%d), want (oldID=1 po1구, newID=2 pn2신규) — 방향 반전",
+			m.superseded[0].oldID, m.superseded[0].newID)
+	}
+}
+
 // TestParsePAMConfidenceClamp — confidence.current 클램프 0-1. 생략 시
 // import 경로 기본 0.5.
 func TestParsePAMConfidenceClamp(t *testing.T) {

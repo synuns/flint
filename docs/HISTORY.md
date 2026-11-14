@@ -6,6 +6,22 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.3.1 패치 (2026-11-14) — 감사 R19: 발견 12건 수정
+
+- [x] import 재이식 결함 수선 — 배치 InsertBatch 실패의 유령 성공 차단
+  (exit 1·부분 성공 수 보존)·명시 id 적립 후 setval 시퀀스 동기·
+  invalidated행 타임스탬프 보존(invalid_at·ingested_at·valid_at)·
+  SetSupersededRef 0행 계상 제외·왕복 dedup 해시를 write 전체 키
+  기준으로·파일 읽기 오류 원인(ENOENT/EACCES) 보존
+- [x] PAM·export 3건 — PAM supersedes 계보 방향 정정(from=신규·
+  to=구)·export --since 바인드 문자열화(Doltgres 이종 방지)·
+  FormatCSV 수식 인젝션 중립화(=,+,-,@ 접두 셀 `'` 처리)
+- [x] 배포물 LICENSE 동봉 — goreleaser 플러그인 zip·.mcpb 번들에
+  LICENSE 포함(files 글로브 덮어쓰기 해소)·plugin.json license 필드
+- [x] 문서 정합 — v1300 플랜 PAM project형 서술 정정(파싱만·적립
+  스킵 — v1.4 후보)·versions_test rebase 주석 잔존 정리·export/import
+  실DB 왕복 e2e 신설(재export 동일성·PAM pending 적립)
+
 ### v1.3.0 마이너 (2026-11-14) — LICENSE(MIT)·지식 export·import 마이그레이션
 
 - [x] LICENSE 추가(표준 MIT 전문) — 라이선스 부재 최우선 해소·README
