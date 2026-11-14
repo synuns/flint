@@ -52,7 +52,14 @@ cat > "$work/manifest.json" <<EOF
 EOF
 
 cp "$binary" "$work/flint"
-# -j: zip 루트에 평면 배치(하위 디렉터리 제거) — 매니페스트·바이너리만.
-(cd "$work" && zip -q -j "$out" manifest.json flint)
+# v1.3.1 B2: 번들에 LICENSE 포함 — .mcpb zip도 라이선스 동봉 계약.
+if [[ -f "$root/LICENSE" ]]; then
+  cp "$root/LICENSE" "$work/LICENSE"
+else
+  echo "make_mcpb: LICENSE 없음: $root/LICENSE" >&2
+  exit 1
+fi
+# -j: zip 루트에 평면 배치(하위 디렉터리 제거) — 매니페스트·바이너리·라이선스만.
+(cd "$work" && zip -q -j "$out" manifest.json flint LICENSE)
 
 echo "$out"

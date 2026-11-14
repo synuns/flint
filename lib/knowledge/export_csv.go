@@ -33,16 +33,16 @@ func FormatCSV(rows []ExportRow) ([]byte, error) {
 			superseded = strconv.Itoa(*r.SupersededBy)
 		}
 		rec := []string{
-			strconv.Itoa(r.ID),
-			r.Topic,
-			r.Kind,
-			r.Status,
-			strconv.FormatFloat(r.Confidence, 'g', -1, 64),
-			strings.Join(r.Tags, "|"),
-			r.Source,
-			r.CreatedAt.Format(time.RFC3339),
-			r.UpdatedAt.Format(time.RFC3339),
-			superseded,
+			csvSafeCell(strconv.Itoa(r.ID)),
+			csvSafeCell(r.Topic),
+			csvSafeCell(r.Kind),
+			csvSafeCell(r.Status),
+			csvSafeCell(strconv.FormatFloat(r.Confidence, 'g', -1, 64)),
+			csvSafeCell(strings.Join(r.Tags, "|")),
+			csvSafeCell(r.Source),
+			csvSafeCell(r.CreatedAt.Format(time.RFC3339)),
+			csvSafeCell(r.UpdatedAt.Format(time.RFC3339)),
+			csvSafeCell(superseded),
 		}
 		if err := w.Write(rec); err != nil {
 			return nil, err
@@ -53,4 +53,18 @@ func FormatCSV(rows []ExportRow) ([]byte, error) {
 		return nil, err
 	}
 	return buf.Bytes(), nil
+}
+
+// csvSafeCell — CSV 수식 인젝션 중립화(전 셀 적용): 값이 =,+,-,@로
+// 시작하면 접두 '를 붙인다(표 애플리케이션이 셀을 수식으로 해석하는
+// 것을 회피하는 일반 관례). 원본에 없던 '는 중립 대상에만 생긴다.
+func csvSafeCell(s string) string {
+	if s == "" {
+		return s
+	}
+	switch s[0] {
+	case '=', '+', '-', '@':
+		return "'" + s
+	}
+	return s
 }

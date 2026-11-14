@@ -156,3 +156,54 @@ func TestFormatCSVLFDelimiters(t *testing.T) {
 		t.Error("CRLF 포함 — LF만 계약 위반")
 	}
 }
+
+// TestFormatCSVFormulaNeutralization — CSV 수식 인젝션 중립화: =,+,-,@로
+// 시작하는 셀 값은 접두 '를 붙인다(표 애플리케이션 수식 해석 회피 — 전
+// 셀 적용). 중립 대상이 아닌 원본 값에는 '가 생기지 않는다.
+func TestFormatCSVFormulaNeutralization(t *testing.T) {
+	rows := []ExportRow{{
+		ID: 21, Topic: "=SUM(A1:A9)", Kind: "+cmd", Status: "-2+3+cmd|'/x",
+		Confidence: 0.7, Tags: []string{"@risk", "plain"}, Source: "agent",
+		CreatedAt: csvTestTime(), UpdatedAt: csvTestTime(),
+	}}
+	recs := csvRecords(t, mustFormatCSV(t, rows))
+	r := recs[1]
+	// 위험 접두 셀 — 원본에 없던 '가 접두된다.
+	for i, want := range map[int]string{
+		1: "'=SUM(A1:A9)",  // topic
+		2: "'+cmd",         // kind
+		3: "'-2+3+cmd|'/x", // status
+		5: "'@risk|plain",  // tags(@risk 원소 접두)
+	} {
+		if r[i] != want {
+			t.Errorf("열%d 중립화 = %q, want %q", i, r[i], want)
+		}
+	}
+	// 중립 대상 밖 — 원본 그대로(불필요한 ' 부착 금지).
+	if r[0] != "21" || r[4] != "0.7" || r[6] != "agent" {
+		t.Errorf("비대상 셀 변형: id=%q confidence=%q source=%q", r[0], r[4], r[6])
+	}
+}
+
+// TestFormatCSVFormulaNeutralizationPlainRows — 일반 행(위험 접두 없음)은
+// 기존 계약 그대로 — 원본에 없던 '가 생기지 않는다.
+func TestFormatCSVFormulaNeutralizationPlainRows(t *testing.T) {
+	recs := csvRecords(t, mustFormatCSV(t, csvTestRows()))
+	for _, rec := range recs {
+		for _, cell := range rec {
+			if strings.HasPrefix(cell, "'") {
+				t.Errorf("중립화 대상 아닌 셀에 ' 접두: %q", cell)
+			}
+		}
+	}
+}
+
+// mustFormatCSV — FormatCSV 오류 편의 래퍼.
+func mustFormatCSV(t *testing.T, rows []ExportRow) []byte {
+	t.Helper()
+	out, err := FormatCSV(rows)
+	if err != nil {
+		t.Fatalf("FormatCSV err = %v", err)
+	}
+	return out
+}

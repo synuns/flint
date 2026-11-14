@@ -30,6 +30,9 @@ archives:
     # v0.16.1: 테스트 파일(*_test.go) 제외 — goreleaser files는 부정 glob("!...") 미지원
     # (무시됨, 실증)이라 include 나열로 대체. 루트에 비테스트 파일 추가 시 여기 반영 필요.
     files:
+      # v1.3.1 B2: files 명시는 goreleaser 기본 글로브(LICENSE 등)를 덮어쓴다
+      # — 루트 LICENSE를 명시 포함해 플러그인 zip에 라이선스가 누락되지 않게.
+      - LICENSE
       - flint-plugin/.claude-plugin/**
       - flint-plugin/.mcp.json
       - flint-plugin/commands/**

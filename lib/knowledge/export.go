@@ -71,7 +71,10 @@ func buildExportQuery(f ExportFilter) (string, []any) {
 		where = append(where, fmt.Sprintf("strpos(tags, ':' || $%d || ':') > 0", len(args)))
 	}
 	if !f.Since.IsZero() {
-		args = append(args, f.Since)
+		// time.Time 직접 바인드 폐지 — RFC3339Nano 문자열(import_jsonl
+		// valid_at 관례와 동일 형식. Doltgres/PG 파라미터 이종 회피 —
+		// 컷오프 결과는 문자열화 전후 불변).
+		args = append(args, f.Since.UTC().Format(time.RFC3339Nano))
 		where = append(where, fmt.Sprintf("COALESCE(invalid_at, ingested_at) >= $%d", len(args)))
 	}
 	sql := "SELECT id, topic, summary, tags, entity, domain, confidence, origin, status, " +

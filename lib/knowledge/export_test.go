@@ -103,7 +103,17 @@ func exportEngine(sql string, args []any) ([][]any, error) {
 		rows = out
 	}
 	if strings.Contains(sql, "COALESCE(invalid_at, ingested_at) >=") {
-		since, _ := args[len(args)-1].(time.Time) // 말미 인자=Since
+		// 말미 인자=Since — 시각 비교 전 관용 변환(time.Time 직접 바인드
+		// 폐지 후 RFC3339 문자열 인자 — 결과 불변 검증 동일 경로).
+		var since time.Time
+		switch v := args[len(args)-1].(type) {
+		case time.Time:
+			since = v
+		case string:
+			if pt, perr := time.Parse(time.RFC3339, v); perr == nil {
+				since = pt
+			}
+		}
 		out := rows[:0]
 		for _, r := range rows {
 			if t, ok := r[12].(time.Time); ok && !t.Before(since) {
@@ -303,6 +313,35 @@ func TestExportRowsSinceCutoff(t *testing.T) {
 	if got := exportScopedRows(rows2, scope2); len(got) != 0 {
 		t.Errorf("active+Since 컷오프 = %d행, want 0행(tOld 행 제외)", len(got))
 	}
+}
+
+// TestExportSinceBindsRFC3339String — Since는 time.Time을 직접 바인드하지
+// 않고 RFC3339 문자열로 바인드한다(코드베이스 유일의 time.Time 파라미터
+// 폐지 — Doltgres/PG 파라미터 이종 위험. import_jsonl valid_at 관례와
+// 동일 형식). 문자열화 전후 쿼리 결과 불변도 같이 단언(컷오프 동일).
+func TestExportSinceBindsRFC3339String(t *testing.T) {
+	_, args := buildExportQuery(ExportFilter{Status: "all", Since: exportTMid})
+	if len(args) != 1 {
+		t.Fatalf("args = %v, want Since 1개", args)
+	}
+	s, ok := args[0].(string)
+	if !ok {
+		t.Fatalf("Since 바인드형 = %T, want string(RFC3339 — time.Time 직접 바인드 금지)", args[0])
+	}
+	pt, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("Since 문자열 %q 파싱 실패: %v", s, err)
+	}
+	if !pt.Equal(exportTMid) {
+		t.Errorf("Since 문자열 = %q(%v), want %v 원시각 보존", s, pt, exportTMid)
+	}
+	// 결과 불변 — 문자열 Since로도 동일 컷오프(TestExportRowsSinceCutoff 기준선).
+	st, scope := exportTestStore(t)
+	rows, err := ExportRows(context.Background(), st, ExportFilter{Status: "all", Since: exportTMid})
+	if err != nil {
+		t.Fatalf("ExportRows err = %v", err)
+	}
+	assertExportTopics(t, exportScopedRows(rows, scope), []string{"구 배포 정책"})
 }
 
 // TestExportRowFieldMapping — 전 필드 매핑 단억(fake — 결정적 id).
