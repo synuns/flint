@@ -15,6 +15,19 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
   KindExpect로 승격, MCP 계층 값 복제 제거(값 불변).
 - [x] Merge 재병합 거부 메시지 상태 구분 — invalidated vs active 외
   vs active+invalid_at 손상(코너 분기, 리뷰 발견).
+### v1.3.0 마이너 (2026-11-14) — LICENSE(MIT)·지식 export·import 마이그레이션
+
+- [x] LICENSE 추가(표준 MIT 전문) — 라이선스 부재 최우선 해소·README
+  EN/KO License 섹션 동반
+- [x] `flint export` 4형식 — jsonl(전 필드 스냅샷·재이식 왕복)·md(노트
+  앱 이식)·txt(grep·주입)·csv(목록 인덱스). 필터 --status
+  active|all·--tag·--since(updated_at 컷오프)·--out 파일 기록(덮어씀
+  경고). exit 계약 기존 준수(0 성공·2 서버다운·3 무효 값)
+- [x] import 마이그레이션 — `flint import --format jsonl`(export 왕복
+  재이식·content_hash 중복 스킵 멱등)·`--format pam`(PAM v1.0
+  memory-store.json 수입 — pending 적립·source는 import:pam:<platform>
+  기록). 기존 규칙 변환 import는 --format 유무로 경로 분기·불변
+- [x] i18n·마케팅 계열은 v1.4로 이월 — docs/PLAN.md §6
 
 ### v1.2.3 패치 (2026-11-13) — 감사 R17: 12건 수정
 

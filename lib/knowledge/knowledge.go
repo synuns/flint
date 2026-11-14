@@ -11,7 +11,7 @@ import "github.com/synuns/flint/lib/wire"
 
 func init() {
 	wire.Register("write", RunWrite)
-	wire.Register("import", RunImport)
+	wire.Register("import", RunImportRouted) // v1.3.0 T9: --format 유무 분기(기본 RunImport 불변)
 	wire.Register("read", RunRead)
 	wire.Register("hot", RunHot)
 }

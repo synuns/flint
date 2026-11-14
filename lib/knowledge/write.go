@@ -439,6 +439,17 @@ func SanitizePayload(p map[string]any) []string {
 			warns = append(warns, "possible secret: "+name)
 		}
 	}
+	sanitizeTagElems := func(raw []string) {
+		for i, s := range raw {
+			clean := store.SanitizeText(s)
+			if clean != s {
+				raw[i] = clean
+			}
+			for _, name := range store.ScanSecrets(clean) {
+				warns = append(warns, "possible secret: "+name)
+			}
+		}
+	}
 	if raw, ok := p["tags"].([]any); ok {
 		for i, t := range raw {
 			s, ok := t.(string)
@@ -453,6 +464,10 @@ func SanitizePayload(p map[string]any) []string {
 				warns = append(warns, "possible secret: "+name)
 			}
 		}
+	}
+	// []string 태그(import 재이식 rec — jsonl 왕복 경로)도 동일 살균.
+	if raw, ok := p["tags"].([]string); ok {
+		sanitizeTagElems(raw)
 	}
 	return warns
 }

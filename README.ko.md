@@ -159,7 +159,8 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 | `flint update` | 최신 릴리스 자가 업데이트(체크섬 검증·`--check` 드라이런) |
 | `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`) |
 | `flint write <kind>` | 표준 입력에서 지식 기록 (멱등) |
-| `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`) |
+| `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
+| `flint export [--format f]` | 지식 export jsonl·md·txt·csv(`--status`·`--tag`·`--since` 필터, `--out` 파일) |
 | `flint read <query>` | 활성 지식 검색 |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |
 | `flint brief [query]` | 외부 AI에 붙여넣는 마스킹 브리프(읽기 전용) |
@@ -227,6 +228,12 @@ flint/
 ├── docs/               # PLAN · RUNBOOK · TUNING · ADR · 어댑터
 └── docker-compose.yml  # Doltgres 5434
 ```
+
+---
+
+## 라이선스
+
+flint는 오픈소스로, [MIT 라이선스](LICENSE)로 배포됩니다.
 
 ---
 

@@ -39,6 +39,7 @@ var (
 	_ staleSessionStore      = (*fakeApprove)(nil)
 	_ usageStore             = (*fakeApprove)(nil)
 	_ sessionSummaryStore    = (*fakeApprove)(nil)
+	_ supersedeRefStore      = (*fakeApprove)(nil) // v1.3.0 T9 — 계보 참조 복원 capability
 
 	// 기존 capability fake의 자연 단언(이미 구현 — 문서화 + 시그니처
 	// 드리프트 회귀 가드).
