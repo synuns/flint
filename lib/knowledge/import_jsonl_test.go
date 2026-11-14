@@ -1005,7 +1005,10 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 	})
 
 	t.Run("sequence synced for explicit ids", func(t *testing.T) { // A2
-		maxRows, err := wire.QueryOnce(ctx, st, `SELECT COALESCE(MAX(id), 0) FROM knowledge`, nil)
+		// 최상위 집계 COALESCE(MAX(id),0)는 Doltgres 확장 프로토콜에서
+		// 빈 테이블 때 0행을 반환한다(단순 프로토콜 psql은 1행 — 엔진
+		// 비대칭). 스칼라 서브쿼리는 항상 1행(리뷰 v1.4.0 수정).
+		maxRows, err := wire.QueryOnce(ctx, st, `SELECT COALESCE((SELECT MAX(id) FROM knowledge), 0)`, nil)
 		if err != nil || len(maxRows) == 0 {
 			t.Fatalf("max(id) 조회 실패: %v", err)
 		}

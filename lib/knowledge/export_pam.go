@@ -15,6 +15,9 @@
 //   - relations §13.2 "Source replaces target": from=신규(row.SupersededBy),
 //     to=구(행 자신) — SupersedePair 방향 계약(import_pam.go)과 동일.
 //   - integrity §15: memories를 id 오름차순 정렬 → JCS 직렬화 → SHA-256.
+//     정렬은 id **문자열** 오름차순(코드포인트) — PAM id는 임의 문자열이므로
+//     "flint:10" < "flint:9"(수치 아님). flint:N 규칙을 모르는 외부 검증자도
+//     동일 규칙으로 체크섬을 재현할 수 있다(자릿수 경계 상호운용).
 //     동일 rows면 export_id·export_date 제외 본문·체크섬 항상 동일
 //     (입력 행 순서와 무관 — 정렬 후 산출).
 package knowledge
@@ -157,8 +160,9 @@ func toPAMExportMemory(r ExportRow) pamExportMemory {
 	return m
 }
 
-// pamChecksum — §15: memories(id 오름차순) → JCS 직렬화 → SHA-256.
-// memories는 이미 id순으로 구성되어 있어 호출부 정렬 상태와 무결.
+// pamChecksum — §15: memories(id 문자열 오름차순) → JCS 직렬화 →
+// SHA-256. memories는 이미 id 문자열순으로 구성되어 있어 호출부 정렬
+// 상태와 무결.
 func pamChecksum(memories []pamExportMemory) (string, error) {
 	memBytes, err := json.Marshal(memories)
 	if err != nil {
@@ -178,7 +182,13 @@ func pamChecksum(memories []pamExportMemory) (string, error) {
 func FormatPAM(rows []ExportRow, exportedBy string) ([]byte, error) {
 	sorted := make([]ExportRow, len(rows))
 	copy(sorted, rows)
-	sort.SliceStable(sorted, func(i, j int) bool { return sorted[i].ID < sorted[j].ID })
+	// §15 id 오름차순 = id 문자열(코드포인트) 오름차순. 수치 정렬이면
+	// "flint:9" < "flint:10"이 되지만, 외부 PAM 검증자는 id를 문자열로만
+	// 알므로 "flint:10" < "flint:9"로 정렬해 재현한다 — 자릿수 경계에서
+	// 체크섬 상호검증이 깨진다(리뷰 v1.4.0 수정).
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return fmt.Sprintf("flint:%d", sorted[i].ID) < fmt.Sprintf("flint:%d", sorted[j].ID)
+	})
 
 	memories := make([]pamExportMemory, 0, len(sorted))
 	relations := make([]pamExportRelation, 0)

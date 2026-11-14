@@ -48,18 +48,6 @@ func cleanupPAMRoundtrip(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// pamFlintID — memory id "flint:<N>"의 N 반환(규칙 위반은 -1).
-func pamFlintID(id string) int {
-	if !strings.HasPrefix(id, "flint:") {
-		return -1
-	}
-	n, err := strconv.Atoi(strings.TrimPrefix(id, "flint:"))
-	if err != nil {
-		return -1
-	}
-	return n
-}
-
 // TestPAMRoundtrip — T5 계약: export → 문서 단언(체크섬·id·relations) →
 // 사이드카 → import → 적립 정합. 전 과정 실DB·실CLI 회선.
 func TestPAMRoundtrip(t *testing.T) {
@@ -100,8 +88,8 @@ func TestPAMRoundtrip(t *testing.T) {
 
 	// 문서 파싱 — memories는 원시 보존(체크섬 재계산 원천).
 	var doc struct {
-		Schema        string `json:"schema"`
-		SchemaVersion string `json:"schema_version"`
+		Schema        string            `json:"schema"`
+		SchemaVersion string            `json:"schema_version"`
 		Memories      []json.RawMessage `json:"memories"`
 		Relations     []struct {
 			Type string `json:"type"`
@@ -142,11 +130,12 @@ func TestPAMRoundtrip(t *testing.T) {
 		t.Fatalf("total_memories=%d, want %d", doc.Integrity.TotalMemories, len(doc.Memories))
 	}
 
-	// 체크섬 재계산 — memories id 오름차순 → JCS → SHA-256. 테스트가
-	// JCS 라이브러리로 직접 재산출해 문서 값과 일치 단언(T1 계약).
+	// 체크섬 재계산 — memories id 문자열 오름차순 → JCS → SHA-256. 테스트가
+	// JCS 라이브러리로 직접 재산출해 문서 값과 일치 단언(T1 계약 — 정렬은
+	// id 문자열 기준: 외부 검증자 재현 규칙과 동일, 수치 아님).
 	sorted := append([]json.RawMessage(nil), doc.Memories...)
 	sort.SliceStable(sorted, func(i, j int) bool {
-		return pamFlintID(parseMem(sorted[i]).ID) < pamFlintID(parseMem(sorted[j]).ID)
+		return parseMem(sorted[i]).ID < parseMem(sorted[j]).ID
 	})
 	arr, err := json.Marshal(sorted)
 	if err != nil {
