@@ -1,9 +1,10 @@
 // Package store는 kind별 검증·정규화·해시를 제공한다.
 package store
 
-// kind 허용값과 각 kind의 필수 필드(검증 순서).
+// kind 허용값과 각 kind의 필수 필드(검증 순서). KindExpect는 kind 값
+// 계약의 단일 원천(v1.2.4 T2) — MCP 계층(lib/mcp)이 이 상수를 참조한다.
 const (
-	kindExpect   = "knowledge|session|project"
+	KindExpect   = "knowledge|session|project"
 	statusExpect = "active|paused|done"
 )
 
@@ -47,7 +48,7 @@ func Validate(kind string, p map[string]any) *SchemaError {
 			return &SchemaError{Field: "status", Expect: statusExpect}
 		}
 	default:
-		return &SchemaError{Field: "kind", Expect: kindExpect}
+		return &SchemaError{Field: "kind", Expect: KindExpect}
 	}
 	return nil
 }

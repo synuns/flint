@@ -538,11 +538,31 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 		return fmt.Errorf("merge: invalidate from: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		if err := r.ensureExists(ctx, fromID, "merge from"); err != nil {
-			return err
+		// 후견사 1회 조회로 존재 확인과 상태 구분을 함께 한다(approve의
+		// 0행 멱대상 조회와 동일 패턴 — 쿼리 수 기존과 동일). invalidated는
+		// 이미 처리된 재병합, 그 외 active 외 상태는 병합 불가로 안내한다.
+		var status string
+		err := r.pool.QueryRow(ctx,
+			`SELECT status FROM knowledge WHERE id = $1`, fromID).Scan(&status)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
 		}
-		return fmt.Errorf("%w: merge: id=%d 갱신 미반영(이미 처리된 from — 재병합 거부)",
-			ErrNotFound, fromID)
+		if err != nil {
+			return fmt.Errorf("merge from: lookup: %w", err)
+		}
+		if status == "invalidated" {
+			return fmt.Errorf("%w: merge: id=%d 갱신 미반영(이미 처리된 from — 재병합 거부)",
+				ErrNotFound, fromID)
+		}
+		if status == "active" {
+			// WHERE는 status='active' AND invalid_at IS NULL — status가
+			// active여도 0행이면 invalid_at가 이미 설정된 것(손상 상태).
+			// "active 아님 — status: active" 자기모순 문구 대신 원인 명시.
+			return fmt.Errorf("%w: merge: id=%d 갱신 미반영(active이나 invalid_at 이미 설정 — 병합 불가)",
+				ErrNotFound, fromID)
+		}
+		return fmt.Errorf("%w: merge: id=%d 갱신 미반영(active 아님(병합 불가) — status: %s)",
+			ErrNotFound, fromID, status)
 	}
 	marker := fmt.Sprintf(" [merged:from=%d]", fromID)
 	ct, err = tx.Exec(ctx,

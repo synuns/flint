@@ -10,9 +10,12 @@ import (
 	"math"
 	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/synuns/flint/lib/cli"
 	"github.com/synuns/flint/lib/query"
+	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // ToolDef — MCP tools/list 항목. InputSchema는 JSON Schema 객체.
@@ -22,8 +25,45 @@ type ToolDef struct {
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
-// runFn — seam. 기본 실 cli.Run, 테스트는 fake 주입(SUPERLITE_REAL=1은 실구현).
-var runFn = cli.Run
+// runFn — seam. 기본은 서버 수명 store 재사용 실행기(v1.2.4 B4):
+// 캐시 store(또는 supply 실패 시 nil)를 cli.RunWithStore로 주입한다.
+// nil 폴백은 RunWithStore 내부가 기존 cli.Run 동치 경로로 조용히 처리
+// 한다. 테스트는 fake 주입(SUPERLITE_REAL=1은 실구현 위임).
+var runFn = func(cliArgs []string, stdin io.Reader, stdout io.Writer) int {
+	return runWithStoreFn(cliArgs, stdin, stdout, serverStore())
+}
+
+// runWithStoreFn — 주입 실행 seam(B4). 기본 실 cli.RunWithStore.
+var runWithStoreFn = cli.RunWithStore
+
+// storeSupply — 서버 수명 store 공급 seam(B4). 기본 cli.OpenServerStore
+// (DSN 해결 포함 1회 open). 테스트는 counting fake 주입.
+var storeSupply = cli.OpenServerStore
+
+// 서버 수명 store 캐시(B4). MCP 서버는 장기 프로세스 — 도구 호출마다
+// store를 다시 열지 않고 1회 open해 재사용한다. storeMu는 동시 도구
+// 호출 시 초기화 경합을 가드한다.
+var (
+	storeMu     sync.Mutex
+	cachedStore wire.Store
+)
+
+// serverStore — 캐시된 서버 수명 store 반환(1회 open). supply 실패·nil은
+// nil 반환 — runFn 기본 경로가 RunWithStore(nil) 폴백으로 기존 계약
+// (각 호출 store open 후 실패 전파, 조용히)을 따른다. 연결 끊김 복구는
+// store 내부 pgx pool의 재연결에 위임(캐시는 항목을 버리지 않는다).
+func serverStore() wire.Store {
+	storeMu.Lock()
+	defer storeMu.Unlock()
+	if cachedStore == nil {
+		st, err := storeSupply()
+		if err != nil || st == nil {
+			return nil
+		}
+		cachedStore = st
+	}
+	return cachedStore
+}
 
 // ToolsManifest — 도구 5종 정의(read·write·hot·pending·approve — v0.32.0).
 func ToolsManifest() []ToolDef {
@@ -169,11 +209,10 @@ func intArgStrict(args map[string]any, key string) (int, bool) {
 	return 0, false
 }
 
-// writeKindExpect — flint write가 수용하는 kind 집합. 원천은
-// lib/store/validate.go의 kindExpect(비수출 상수 — MCP 계층에서 재사용
-// 불가라 값 계약으로 복제). 변경 시 양쪽을 같이 고친다.
+// writeKindExpect — flint write가 수용하는 kind 집합. 원천은 lib/store의
+// 수출 상수 KindExpect(v1.2.4 T2 승격 — 값 복제 제거, 단일 원천 참조).
 // v1.2.3 R17-B5: 무효 kind의 runFn 도달 전 서버측 차단.
-const writeKindExpect = "knowledge|session|project"
+const writeKindExpect = store.KindExpect
 
 // dispatchWrite — flint write <kind> + stdin payload JSON. dedup는 CLI 파이프라인
 // 위임으로 도구 호출로도 멱등이다. kind는 화이트리스트 서버측 검증(B5).
