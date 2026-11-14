@@ -148,7 +148,8 @@ flint brief [query]        # masked, read-only context block — paste it into a
 | `flint update` | Self-update to the latest release (checksum-verified, `--check` dry-run) |
 | `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`) |
 | `flint write <kind>` | Record knowledge from stdin (idempotent) |
-| `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`) |
+| `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`); `--format jsonl\|pam` migrates knowledge back in (round-trip re-import · PAM v1.0 intake) |
+| `flint export [--format f]` | Export knowledge as jsonl·md·txt·csv (`--status`·`--tag`·`--since` filters, `--out` file) |
 | `flint read <query>` | Search active knowledge |
 | `flint hot --session <id>` | Inject context at session start |
 | `flint brief [query]` | Masked, read-only brief to paste into any external AI (the bridge) |
@@ -215,6 +216,12 @@ flint/
 ├── docs/               # PLAN · RUNBOOK · TUNING · ADR · adapters
 └── docker-compose.yml  # Doltgres on 5434
 ```
+
+---
+
+## License
+
+flint is open-source software released under the [MIT License](LICENSE).
 
 ---
 

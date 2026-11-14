@@ -42,6 +42,7 @@ var exitContractProbes = []exitProbe{
 	{"doctor", []string{"--bogus"}, 3, "전역 계약(기존)"},
 	{"tuning", []string{"--bogus"}, 3, "서브커맨드 아님 → usage 3"},
 	{"diff", []string{"--bogus"}, 3, "위치 인자 흡수 → 인자 수 usage 3"},
+	{"export", []string{"--bogus"}, 3, "v1.3.0 T7 unknown flag"},
 	// 플래그 값 누락 — 무효 인자 exit 3
 	{"approve", []string{"--id"}, 3, "F3 값 누락"},
 	{"audit", []string{"--limit"}, 3, "F3 값 누락"},
@@ -59,6 +60,9 @@ var exitContractProbes = []exitProbe{
 	{"report", []string{"--days", "abc"}, 3, "F3 무효 숫자"},
 	{"maintain", []string{"--limit", "abc"}, 3, "F3 무효 숫자"},
 	{"profile", []string{"--apply", "bogus"}, 3, "F3 무효 값(setup --exposure 정합)"},
+	{"export", []string{"--format", "xml"}, 3, "v1.3.0 T7 무효 format"},
+	{"export", []string{"--since", "not-a-date"}, 3, "v1.3.0 T7 무효 since"},
+	{"export", []string{"--out"}, 3, "v1.3.0 T7 값 누락"},
 	{"read", []string{"--limit", "abc"}, 3, "기존 3 계약"},
 	{"brief", []string{"--limit", "abc"}, 3, "기존 3 계약"},
 	// --session 라벨 가드 — read 계약의 hot·done 승격(v1.0.1 F3·4번)

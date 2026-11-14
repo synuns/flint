@@ -94,6 +94,13 @@ func (f *fakeApprove) Supersede(ctx context.Context, oldID, newID int, at time.T
 	return 0, f.capErr
 }
 
+// SetSupersededRef — 계보 참조 복원 canned 구현(v1.3.0 T9 패리티 —
+// superseded 슬라이스 재사용, 호출 기록).
+func (f *fakeApprove) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error) {
+	f.superseded = append(f.superseded, supersedeCall{oldID, newID})
+	return 1, f.capErr
+}
+
 func (f *fakeApprove) BumpReads(ctx context.Context, ids []int) error {
 	f.bumped = append(f.bumped, ids)
 	return f.capErr

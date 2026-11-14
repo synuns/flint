@@ -40,7 +40,7 @@ func Unregister(name string) {
 // "approve|pending"·"hot|brief" 순서 역시 기존 배선 테스트가 지킨다.
 var usageOrder = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
-	"approve", "pending", "maintain", "doctor", "report",
+	"approve", "pending", "maintain", "doctor", "report", "export",
 	"done", "compact", "nudge", "setup", "teardown", "version", "mcp",
 	"audit", "diff", "update", "tuning", "import",
 }

@@ -56,6 +56,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0123Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.2.3", "감사 R17",
 	}},
+	// v1.3.0 T8: LICENSE(MIT)·export 4형식·import 마이그레이션 이행 기록.
+	// (v1.2.4 계약행은 fcd5bfb 분기 베이스에 없음 — main rebase 시 이
+	// 위치 뒤에 병합되며, 인접 삽입 충돌은 두 행 모두 유지로 해소.)
+	{name: "TestVersion0130Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.3.0", "export",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{

@@ -386,6 +386,23 @@ func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (i
 	return n, nil
 }
 
+// SetSupersededRef는 이미 무효화된 스냅샷 행의 계보 참조 복원 단일
+// 경로다(v1.3.0 T9 import --format jsonl 재이식): 상태 전이가 아니라
+// superseded_by 참조만 채운다(전이는 Supersede 전용). 미참조 행(NULL)만
+// 갱신해 재실행 멱등을 유지하며, 0행(이미 참조 존재·행 부재)은 오류가
+// 아니다.
+func (r *Repo) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error) {
+	n, err := transitionExecFn(ctx, r, `
+		UPDATE knowledge
+		SET superseded_by = $2
+		WHERE id = $1 AND superseded_by IS NULL`,
+		oldID, newID)
+	if err != nil {
+		return 0, fmt.Errorf("superseded_ref: %w", err)
+	}
+	return n, nil
+}
+
 // PruneInvalidated는 N일 경과 invalidated 지식 DELETE의 단일 경로다
 // (v0.41.0 T3): maintain --prune-invalidated --commit이 위임한다.
 // 삭제 0행은 정상 결과다(dry-run과 확정 사이 경합도 "삭제 0건"으로

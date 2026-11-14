@@ -18,7 +18,7 @@ import (
 // 이어야 함 + 훅 전용 session-start/end). 핸들러는 검증 대상 아님.
 var seedCommands = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
-	"approve", "pending", "maintain", "doctor", "report",
+	"approve", "pending", "maintain", "doctor", "report", "export",
 	"done", "compact", "nudge", "setup", "teardown", "version", "mcp",
 	"audit", "diff", "update", "tuning", "import",
 	"session-start", "session-end",

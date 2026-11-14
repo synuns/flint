@@ -123,16 +123,18 @@
 - CI 신뢰성(v1.0.10): `make ci` 타깃 자체에 `-count=1` 고정(캐시 무효) —
   v0.41.1 CI 통과/로컬 적색 불일치의 재발 방지.
 - 신규 기능은 트리거 대기 원칙 유지 — 변경은 계약 문서·가드 동반
-- [ ] v1.3.0(예정 — 2026-11-13 사용자 지시·미착수, 마케팅 착수 선언
-  시) — 국제화(i18n)·영어 디폴트·지식 export(형식 옵션: 이관 JSONL·
-  Markdown·살균 덤프·DB 덤프)·마케팅 문서 계열(README 고도화·재현
-  합성 벤치마크·그래픽 점검·LICENSE 추가 — 파일 부재 확인, 최우선).
+- [x] v1.3.0(2026-11-14) — LICENSE(MIT)·지식 export 4형식(jsonl·md·
+  txt·csv — `flint export`)·import 마이그레이션(jsonl 왕복·PAM v1.0
+  수입 — `flint import --format`). i18n·마케팅 계열은 v1.4로 이월.
   설계 조사 상세: docs/plans/2026-11-13-flint-marketing-prep.md
 - [ ] v1.4.0(예정 — 2026-11-13 사용자 지시·미착수) — 마케팅 기능
   계열: 데모 체험(asciinema·Codespaces)·대시보드 고도화(React는
   vendor 임베드 양안)·TUI 설계(사람 전용 표면)·설치 확장(brew)·신뢰
   아티팩트(SBOM·Scorecard·SECURITY.md)·정적 웹(필수 아님)·UX 이중
-  트랙(에이전트 비간섭·사람 표면 분리) — 상세 동일 문서
+  트랙(에이전트 비간섭·사람 표면 분리) — 상세 동일 문서.
+  v1.3 이월: 국제화(i18n)·영어 디폴트·README 고도화·재현 합성 벤치마크.
+  후보: PAM export 출력(`export --format pam`)·export 사이드카
+  무결성(sha256 첨부)
 
 ## 7. 비목표
 
