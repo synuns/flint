@@ -6,15 +6,6 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v1.2.4 패치 (2026-11-14) — 마이너 3건: MCP 효율·원천 단일화
-
-- [x] MCP store 재사용(B4, R17 보류 해소) — 도구 호출마다 store를
-  열지 않고 서버 수명 1회 open·재사용. RunWithStore 주입 변형(nil
-  폴백·기존 Run 완전 동치)·mutex 가드 캐시·pgxpool 재연결 위임.
-- [x] kind 원천 단일화 — validate.go kindExpect를 수출 상수
-  KindExpect로 승격, MCP 계층 값 복제 제거(값 불변).
-- [x] Merge 재병합 거부 메시지 상태 구분 — invalidated vs active 외
-  vs active+invalid_at 손상(코너 분기, 리뷰 발견).
 ### v1.3.0 마이너 (2026-11-14) — LICENSE(MIT)·지식 export·import 마이그레이션
 
 - [x] LICENSE 추가(표준 MIT 전문) — 라이선스 부재 최우선 해소·README
@@ -29,6 +20,15 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
   기록). 기존 규칙 변환 import는 --format 유무로 경로 분기·불변
 - [x] i18n·마케팅 계열은 v1.4로 이월 — docs/PLAN.md §6
 
+### v1.2.4 패치 (2026-11-14) — 마이너 3건: MCP 효율·원천 단일화
+
+- [x] MCP store 재사용(B4, R17 보류 해소) — 도구 호출마다 store를
+  열지 않고 서버 수명 1회 open·재사용. RunWithStore 주입 변형(nil
+  폴백·기존 Run 완전 동치)·mutex 가드 캐시·pgxpool 재연결 위임.
+- [x] kind 원천 단일화 — validate.go kindExpect를 수출 상수
+  KindExpect로 승격, MCP 계층 값 복제 제거(값 불변).
+- [x] Merge 재병합 거부 메시지 상태 구분 — invalidated vs active 외
+  vs active+invalid_at 손상(코너 분기, 리뷰 발견).
 ### v1.2.3 패치 (2026-11-13) — 감사 R17: 12건 수정
 
 - [x] 문서 정합 4건 — PLAN 진단 플래그 서술 정정(진단은 항상
