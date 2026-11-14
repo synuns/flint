@@ -50,6 +50,9 @@ var versionDocContracts = []struct {
 		"v0.44.0", "병인 ⑤ 해소",
 	}},
 	// v1.2.3 T10: R17 감사 수정의 버전 기록 존재 계약(HISTORY 이관분).
+	{name: "TestVersion0124Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.2.4", "MCP store 재사용",
+	}},
 	{name: "TestVersion0123Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.2.3", "감사 R17",
 	}},
