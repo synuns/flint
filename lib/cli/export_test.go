@@ -7,6 +7,9 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -37,13 +40,13 @@ func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.S
 		}
 	}
 	var stderr bytes.Buffer
-	oldRows, oldJ, oldM, oldT, oldC, oldErr :=
-		exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, exportStderr
-	exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, exportStderr =
-		rowsFn, mk("jsonl"), mk("md"), mk("txt"), mk("csv"), &stderr
+	oldRows, oldJ, oldM, oldT, oldC, oldP, oldErr :=
+		exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, formatPAMFn, exportStderr
+	exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, formatPAMFn, exportStderr =
+		rowsFn, mk("jsonl"), mk("md"), mk("txt"), mk("csv"), mk("pam"), &stderr
 	t.Cleanup(func() {
-		exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, exportStderr =
-			oldRows, oldJ, oldM, oldT, oldC, oldErr
+		exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, formatPAMFn, exportStderr =
+			oldRows, oldJ, oldM, oldT, oldC, oldP, oldErr
 	})
 	return &stderr
 }
@@ -219,5 +222,187 @@ func TestRunExportStatusAndTagFilter(t *testing.T) {
 	code = runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &bytes.Buffer{})
 	if code != 0 || got == nil || got.Status != "active" {
 		t.Fatalf("default status active expected: %+v (exit %d)", got, code)
+	}
+}
+
+// exportSidecarHex — data의 sha256 hex(테스트 기대값 산출용).
+func exportSidecarHex(t *testing.T, data []byte) string {
+	t.Helper()
+	d := sha256.Sum256(data)
+	return hex.EncodeToString(d[:])
+}
+
+// RF9 — --out 성공 시 <FILE>.sha256 사이드카: sha256sum -c 호환 형식
+// "<hex>  <basename>\n"(backup --out 관례와 동일 — ADR-0006).
+func TestRunExportOutSidecarChecksum(t *testing.T) {
+	stderr := installExportFakes(t, nil)
+	path := filepath.Join(t.TempDir(), "export.jsonl")
+	var stdout bytes.Buffer
+	if code := runExport(context.Background(), &fakeStore{}, []string{"--out", path}, strings.NewReader(""), &stdout); code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, stderr.String())
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	side, err := os.ReadFile(path + ".sha256")
+	if err != nil {
+		t.Fatalf("sidecar missing: %v", err)
+	}
+	want := exportSidecarHex(t, body) + "  export.jsonl\n"
+	if string(side) != want {
+		t.Fatalf("sidecar = %q, want %q", side, want)
+	}
+}
+
+// RF10 — 재실행(내용 변화) 시 사이드카 갱신: 낡은 해시 잔존 없음.
+func TestRunExportOutSidecarRefreshedOnRerun(t *testing.T) {
+	installExportFakes(t, nil)
+	path := filepath.Join(t.TempDir(), "export.jsonl")
+	if code := runExport(context.Background(), &fakeStore{}, []string{"--out", path}, strings.NewReader(""), &bytes.Buffer{}); code != 0 {
+		t.Fatalf("first run exit = %d, want 0", code)
+	}
+	first, err := os.ReadFile(path + ".sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// 두 번째 런: rows가 늘어 출력 바이트가 달라진다.
+	old := exportRowsFn
+	exportRowsFn = func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
+		return []knowledge.ExportRow{{ID: 1, Topic: "demo-a"}, {ID: 2, Topic: "demo-b"}, {ID: 3, Topic: "demo-c"}}, nil
+	}
+	defer func() { exportRowsFn = old }()
+	if code := runExport(context.Background(), &fakeStore{}, []string{"--out", path}, strings.NewReader(""), &bytes.Buffer{}); code != 0 {
+		t.Fatalf("rerun exit = %d, want 0", code)
+	}
+	body, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := os.ReadFile(path + ".sha256")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(first) == string(second) {
+		t.Fatalf("sidecar not refreshed on rerun: %q", second)
+	}
+	if want := exportSidecarHex(t, body) + "  export.jsonl\n"; string(second) != want {
+		t.Fatalf("sidecar = %q, want %q", second, want)
+	}
+}
+
+// RF11 — stdout 모드·--out 기록 실패 시 사이드카 미생성.
+func TestRunExportNoSidecarOnStdoutOrOutFailure(t *testing.T) {
+	// stdout 모드: cwd에 어떤 .sha256도 남기지 않는다.
+	dir := t.TempDir()
+	oldWD, _ := os.Getwd()
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWD)
+	installExportFakes(t, nil)
+	var stdout bytes.Buffer
+	if code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout); code != 0 {
+		t.Fatalf("stdout mode exit = %d, want 0", code)
+	}
+	if _, err := os.Stat("out.jsonl.sha256"); err == nil {
+		t.Fatal("stdout mode must not create a sidecar")
+	}
+	// --out 실패(경로가 디렉터리 → WriteFile 실패, exit 1): 사이드카 없음.
+	installExportFakes(t, nil)
+	d := t.TempDir()
+	if code := runExport(context.Background(), &fakeStore{}, []string{"--out", d}, strings.NewReader(""), &bytes.Buffer{}); code != 1 {
+		t.Fatalf("out failure exit = %d, want 1", code)
+	}
+	if _, err := os.Stat(d + ".sha256"); err == nil {
+		t.Fatal("failed --out must not create a sidecar")
+	}
+}
+
+// RF12 — 사이드카 기록 실패(사이드카 경로가 디렉터리): stderr 경고 +
+// exit 0 유지(backup 관례 — 본문 기록 성공을 사이드카 실패가 해치지
+// 않는다).
+func TestRunExportSidecarFailureWarnsButExits0(t *testing.T) {
+	stderr := installExportFakes(t, nil)
+	dir := t.TempDir()
+	path := filepath.Join(dir, "export.jsonl")
+	if err := os.Mkdir(path+".sha256", 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var stdout bytes.Buffer
+	if code := runExport(context.Background(), &fakeStore{}, []string{"--out", path}, strings.NewReader(""), &stdout); code != 0 {
+		t.Fatalf("exit = %d, want 0 (sidecar failure must not fail export)", code)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "<jsonl of 2 rows>\n" {
+		t.Fatalf("body must be written despite sidecar failure: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "sidecar") {
+		t.Fatalf("sidecar failure warning missing on stderr: %q", stderr.String())
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (jsonl, ") {
+		t.Fatalf("summary must survive sidecar failure: %q", stderr.String())
+	}
+}
+
+// RF13 — --format pam: 파싱 통과(exit 0), pam 포맷터 결과가 stdout로,
+// 요약에 포맷명. v1.4.0: PAM(Portable AI Memory) v1.0 교환 문서.
+func TestRunExportFormatPAM(t *testing.T) {
+	stderr := installExportFakes(t, nil)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--format", "pam"}, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stdout %q)", code, stdout.String())
+	}
+	if got, want := stdout.String(), "<pam of 2 rows>\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (pam, ") {
+		t.Fatalf("summary missing format name: %q", stderr.String())
+	}
+}
+
+// RF13b — formatPAMFn seam 기본값은 실 FormatPAM에 "flint/"+버전으로
+// 연결: 단일 JSON 문서·schema 필드·exported_by 계약.
+func TestRunExportPAMSeamDefaultRealDoc(t *testing.T) {
+	realPAM := formatPAMFn // installExportFakes가 fake를 깔기 전 기본 실구현
+	if realPAM == nil {
+		t.Fatal("formatPAMFn default must be the real FormatPAM wiring")
+	}
+	rows := []knowledge.ExportRow{{ID: 1, Topic: "demo-a", Status: "active"}, {ID: 2, Topic: "demo-b", Status: "active"}}
+	doc, err := realPAM(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var m struct {
+		Schema        string `json:"schema"`
+		SchemaVersion string `json:"schema_version"`
+		ExportedBy    string `json:"exported_by"`
+		Integrity     struct {
+			TotalMemories int `json:"total_memories"`
+		} `json:"integrity"`
+	}
+	if err := json.Unmarshal(doc, &m); err != nil {
+		t.Fatalf("pam output is not a JSON document: %v", err)
+	}
+	if m.Schema != "portable-ai-memory" || m.SchemaVersion != "1.0" {
+		t.Fatalf("schema fields = %q/%q, want portable-ai-memory/1.0", m.Schema, m.SchemaVersion)
+	}
+	if want := "flint/" + CurrentVersion(); m.ExportedBy != want {
+		t.Fatalf("exported_by = %q, want %q", m.ExportedBy, want)
+	}
+	if m.Integrity.TotalMemories != 2 {
+		t.Fatalf("total_memories = %d, want 2", m.Integrity.TotalMemories)
+	}
+}
+
+// RF13c — pam도 --out 사이드카 공통 적용(T2 구현이 전 형식 공통).
+func TestRunExportPAMOutSidecar(t *testing.T) {
+	stderr := installExportFakes(t, nil)
+	path := filepath.Join(t.TempDir(), "export.pam.json")
+	if code := runExport(context.Background(), &fakeStore{}, []string{"--format", "pam", "--out", path}, strings.NewReader(""), &bytes.Buffer{}); code != 0 {
+		t.Fatalf("exit = %d, want 0 (stderr %q)", code, stderr.String())
+	}
+	if _, err := os.Stat(path + ".sha256"); err != nil {
+		t.Fatalf("pam sidecar missing: %v", err)
 	}
 }

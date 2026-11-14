@@ -59,9 +59,13 @@ var thresholdMetas = []ThresholdMeta{
 	{"DiagRecallLedGoal", "diag_recall_led_goal", 50, "report 진단"},
 	{"DiagDeadWarn", "diag_dead_warn", 10, "report 진단"},
 	{"KreadsRetentionD", "knowledge_reads_retention_days", 14, "db 정리"},
+
+	// v1.4.0 T3: import 행 수 상한(대량 문서 메모리 방어 — 소비 경로
+	// knowledge/import_jsonl.go).
+	{"ExportImportMaxRows", "export_import_max_rows", 100000, "import 행 상한"},
 }
 
-// ThresholdMetas — 등록표 결정적 복사본(35항목 — 키 집합은 기존
+// ThresholdMetas — 등록표 결정적 복사본(36항목 — 키 집합은 기존
 // ThresholdsKeys와 동일, 가드 테스트가 단언).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

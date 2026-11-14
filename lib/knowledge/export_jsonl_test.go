@@ -15,6 +15,7 @@ func jsonlFixtureRows() []ExportRow {
 	sup := 42
 	t0 := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
 	t1 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
+	tv := time.Date(2026, 10, 31, 22, 0, 0, 0, time.UTC) // valid_at(ingested와 상이)
 	return []ExportRow{
 		{
 			ID: 7, Topic: "demo-topic", Content: "첫 번째 데모 지식 행",
@@ -23,7 +24,7 @@ func jsonlFixtureRows() []ExportRow {
 			Entities: []string{"flint", "jsonl"},
 			Domain:   "demo", Source: "demo-seed",
 			ContentHash: "abc123", CreatedAt: t0, UpdatedAt: t1,
-			SupersededBy: &sup,
+			ValidAt: tv, SupersededBy: &sup,
 		},
 		{
 			ID: 8, Topic: "demo-topic-2", Content: "줄바꿈 없는 두 번째 행",
@@ -31,6 +32,7 @@ func jsonlFixtureRows() []ExportRow {
 			Tags: nil, Entities: []string{},
 			Domain: "", Source: "",
 			ContentHash: "def456", CreatedAt: t1, UpdatedAt: t1,
+			ValidAt: tv,
 		},
 	}
 }
@@ -111,12 +113,47 @@ func TestFormatJSONLRoundTripPreservesAllFields(t *testing.T) {
 		if !got.CreatedAt.Equal(want.CreatedAt) || !got.UpdatedAt.Equal(want.UpdatedAt) {
 			t.Errorf("행 %d 타임스탬프 불일치", i)
 		}
+		if !got.ValidAt.Equal(want.ValidAt) {
+			t.Errorf("행 %d valid_at 불일치: %v, want %v", i, got.ValidAt, want.ValidAt)
+		}
 		if (got.SupersededBy == nil) != (want.SupersededBy == nil) {
 			t.Fatalf("행 %d superseded_by nil 불일치", i)
 		}
 		if got.SupersededBy != nil && *got.SupersededBy != *want.SupersededBy {
 			t.Errorf("행 %d superseded_by = %d, want %d", i, *got.SupersededBy, *want.SupersededBy)
 		}
+	}
+}
+
+// TestFormatJSONLValidAtRoundtrip — v1.4.0 T3 Review Focus: valid_at 필드는
+// FormatJSONL → ParseJSONLRows 왕복에서 원값이 보존된다(CreatedAt 치환
+// 폐지 — 재이식·재export 동일성의 원천).
+func TestFormatJSONLValidAtRoundtrip(t *testing.T) {
+	created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	valid := time.Date(2026, 11, 12, 23, 15, 0, 0, time.UTC) // 의도적 상이
+	rows := []ExportRow{{
+		ID: 55, Topic: "demo validat roundtrip",
+		Content: "합성 데모 — valid_at 왕복 보존 검증.", Kind: "knowledge",
+		Status: "active", Confidence: 0.9, Tags: []string{"demo"},
+		Domain: "main", Source: "agent", CreatedAt: created, UpdatedAt: created,
+		ValidAt: valid,
+	}}
+	data, err := FormatJSONL(rows)
+	if err != nil {
+		t.Fatalf("FormatJSONL: %v", err)
+	}
+	got, err := ParseJSONLRows(data)
+	if err != nil {
+		t.Fatalf("ParseJSONLRows: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("rows = %d, want 1", len(got))
+	}
+	if !got[0].ValidAt.Equal(valid) {
+		t.Fatalf("ValidAt 왕복 = %v, want %v", got[0].ValidAt, valid)
+	}
+	if got[0].ValidAt.Equal(got[0].CreatedAt) {
+		t.Fatal("ValidAt == CreatedAt — 치환 폴백 의심(fixture는 의도적 상이)")
 	}
 }
 
@@ -134,7 +171,7 @@ func TestFormatJSONLSnakeCaseKeys(t *testing.T) {
 	want := []string{
 		"id", "topic", "content", "kind", "status", "confidence",
 		"tags", "entities", "domain", "source",
-		"content_hash", "created_at", "updated_at", "superseded_by",
+		"content_hash", "created_at", "updated_at", "valid_at", "superseded_by",
 	}
 	if len(m) != len(want) {
 		t.Fatalf("키 수 = %d, want %d: %v", len(m), len(want), m)

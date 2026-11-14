@@ -6,6 +6,21 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.4.0 마이너 (2026-11-14) — PAM v1.0 내보내기·데이터 이동성 완결
+
+- [x] `flint export --format pam` — PAM v1.0 표준 memory-store 문서
+  내보내기(루트·매핑·status/supersedes relations·integrity 체크섬).
+  체크섬은 JCS 정규화 직렬화 기반 — export_id·export_date 제외 본문은
+  동일 rows에 대해 항상 동일 바이트(재현성)
+- [x] 사이드카 체크섬 — export `--out` 기록 시 `<FILE>.sha256` 자동
+  생성(backup 관례 준수 sha256sum 형식·stdout 모드 미생성)
+- [x] 기술부채 3종 — valid_at jsonl 왕복 보존(재export 동일성)·PAM
+  project형 pending 적립(v1.3 파싱만 하던 스킵 해제)·import 행 수 상한
+  (export_import_max_rows 등록 기본 100000·초과 exit 3)
+- [x] 실DB PAM 왕복 e2e — export→(테이블 정리 후 fresh 목표 상태에서)
+  import→행 수·content·계보(supersedes 방향) 정합·체크섬·사이드카 일치
+- [x] i18n·마케팅 계열은 v1.5로 이월 — docs/PLAN.md §6
+
 ### v1.3.1 패치 (2026-11-14) — 감사 R19: 발견 12건 수정
 
 - [x] import 재이식 결함 수선 — 배치 InsertBatch 실패의 유령 성공 차단

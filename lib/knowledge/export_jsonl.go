@@ -25,6 +25,7 @@ type exportJSONLRow struct {
 	ContentHash  string    `json:"content_hash"`
 	CreatedAt    time.Time `json:"created_at"`
 	UpdatedAt    time.Time `json:"updated_at"`
+	ValidAt      time.Time `json:"valid_at"`
 	SupersededBy *int      `json:"superseded_by"`
 }
 

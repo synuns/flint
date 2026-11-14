@@ -11,12 +11,20 @@ package e2e
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
+
+// rtRunID — 실행마다 고유한 e2e 식별 suffix(공유 실DB 멱등화 — 이전 실행
+// 잔여 행·PAM 수입 파생 행이 export/--tag 필터에 섞이는 것을 차단).
+func rtRunID(prefix string) string {
+	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
+}
 
 // rtRow — jsonl export 행 파싱(snake_case 키 — FormatJSONL 계약).
 type rtRow struct {
@@ -30,12 +38,13 @@ type rtRow struct {
 	Tags         []string `json:"tags"`
 }
 
-// rtExport — `flint export --format jsonl --status all --tag e2e-rt --out`
-// 실행 후 파일을 행으로 파싱(요약은 stderr — exit로 판정).
-func rtExport(t *testing.T, path string) []rtRow {
+// rtExport — `flint export --format jsonl --status all --tag <tag> --out`
+// 실행 후 파일을 행으로 파싱(요약은 stderr — exit로 판정). tag는 실행마다
+// 고유(rtRunID) — 잔여 행 혼입 차단.
+func rtExport(t *testing.T, path, tag string) []rtRow {
 	t.Helper()
 	out, code := runCLI(t, []string{
-		"export", "--format", "jsonl", "--status", "all", "--tag", "e2e-rt", "--out", path,
+		"export", "--format", "jsonl", "--status", "all", "--tag", tag, "--out", path,
 	}, "")
 	if code != 0 {
 		t.Fatalf("export exit=%d, want 0; out=%s", code, out)
@@ -113,17 +122,19 @@ func assertLineage(t *testing.T, rows []rtRow, invalidated, replacing string) {
 // 동일성). seed는 합성 데모데이터(개인 데이터 금지 — 저장소 원칙).
 func TestExportImportRoundtripRealDB(t *testing.T) {
 	pool := mustDB(t)
-	cleanupTopics(t, pool, "e2e-rt-")
-	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-rt-") })
+	run := rtRunID("e2e-rt")
+	ta, tb, tc := run+"-a", run+"-b", run+"-c"
+	cleanupTopics(t, pool, run+"-")
+	t.Cleanup(func() { cleanupTopics(t, pool, run+"-") })
 
 	// seed: active 2(kA·kB) + pending 1(kC) → approve --supersede로 kA를
 	// kC가 대체(invalidated 1·계보 포함). 결과 3행: active 2·invalidated 1.
 	kA := writeKnowledge(t,
-		`{"topic":"e2e-rt-a","summary":"왕복 프로브 본문 A — 합성 데모.","confidence":0.9,"tags":["e2e-rt"]}`)
+		`{"topic":"`+ta+`","summary":"왕복 프로브 본문 A — 합성 데모.","confidence":0.9,"tags":["`+run+`"]}`)
 	kB := writeKnowledge(t,
-		`{"topic":"e2e-rt-b","summary":"왕복 프로브 본문 B — 합성 데모.","confidence":0.9,"tags":["e2e-rt"]}`)
+		`{"topic":"`+tb+`","summary":"왕복 프로브 본문 B — 합성 데모.","confidence":0.9,"tags":["`+run+`"]}`)
 	kC := writeKnowledge(t,
-		`{"topic":"e2e-rt-c","summary":"왕복 프로브 본문 C — 합성 데모(대체 승격).","confidence":0.7,"tags":["e2e-rt"]}`)
+		`{"topic":"`+tc+`","summary":"왕복 프로브 본문 C — 합성 데모(대체 승격).","confidence":0.7,"tags":["`+run+`"]}`)
 	if kB["state"] != "active" || kC["state"] != "pending" {
 		t.Fatalf("seed state kB=%v kC=%v, want active/pending", kB["state"], kC["state"])
 	}
@@ -138,18 +149,18 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 
 	dir := t.TempDir()
 	file1 := filepath.Join(dir, "rt1.jsonl")
-	rows1 := rtExport(t, file1)
+	rows1 := rtExport(t, file1, run)
 	if len(rows1) != 3 {
 		t.Fatalf("1차 export 행 %d건, want 3(active 2·invalidated 1); rows=%+v", len(rows1), rows1)
 	}
-	assertLineage(t, rows1, "e2e-rt-a", "e2e-rt-c")
+	assertLineage(t, rows1, ta, tc)
 	byTopic1 := rtByTopic(t, rows1)
-	if s := byTopic1["e2e-rt-a"].Status; s != "invalidated" {
-		t.Fatalf("e2e-rt-a status=%q, want invalidated", s)
+	if s := byTopic1[ta].Status; s != "invalidated" {
+		t.Fatalf("%s status=%q, want invalidated", ta, s)
 	}
 
 	// fresh 상태 — 시드 행 정리 후 재이식(왕복 재현).
-	if _, err := pool.Exec(ctx(), `DELETE FROM knowledge WHERE topic LIKE 'e2e-rt-%'`); err != nil {
+	if _, err := pool.Exec(ctx(), `DELETE FROM knowledge WHERE topic LIKE $1`, run+"-%"); err != nil {
 		t.Fatalf("시드 정리 실패: %v", err)
 	}
 	out, code = runCLI(t, []string{"import", "--format", "jsonl", file1}, "")
@@ -166,7 +177,7 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 
 	// 재export 동일성 — 행 수·토픽·본문·상태·계보.
 	file2 := filepath.Join(dir, "rt2.jsonl")
-	rows2 := rtExport(t, file2)
+	rows2 := rtExport(t, file2, run)
 	if len(rows2) != len(rows1) {
 		t.Fatalf("재export 행 %d건, want %d건", len(rows2), len(rows1))
 	}
@@ -181,7 +192,7 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 				topic, r1.Content, r2.Content, r1.Status, r2.Status, r1.Source, r2.Source)
 		}
 	}
-	assertLineage(t, rows2, "e2e-rt-a", "e2e-rt-c")
+	assertLineage(t, rows2, ta, tc)
 
 	// 멱등 — 같은 파일 재수입은 전부 duplicate(content_hash 스킵).
 	out, code = runCLI(t, []string{"import", "--format", "jsonl", file1}, "")
@@ -195,15 +206,25 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 
 // TestImportPAMMinimalRealDB — B1 후속: PAM v1.0 최소 문서 1건 수입 —
 // pending 적립(승격 모델)·source "import:pam:<platform>" 원천 기록.
+// memory id·본문에 실행 고유 suffix(rtRunID) — 재실행 dedup(duplicated)
+// 회피로 -count=N 멱등.
 func TestImportPAMMinimalRealDB(t *testing.T) {
 	pool := mustDB(t)
-	cleanupTopics(t, pool, "e2e-rt-") // PAM topic 파생("pam[e2e-rt-…]")도 커버
-	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-rt-") })
+	run := rtRunID("e2e-rt")
+	memID := run + "-p1"
+	topic := "pam[" + memID + "]"
+	if _, err := pool.Exec(ctx(),
+		`DELETE FROM knowledge WHERE topic = $1`, topic); err != nil {
+		t.Fatalf("PAM 프로브 정리 실패: %v", err)
+	}
+	t.Cleanup(func() {
+		_, _ = pool.Exec(context.Background(), `DELETE FROM knowledge WHERE topic = $1`, topic)
+	})
 
 	pam := `{"schema":"portable-ai-memory","memories":[{` +
-		`"id":"e2e-rt-p1","type":"fact","content":"PAM 수입 프로브 — 합성 데모 팩트.",` +
+		`"id":"` + memID + `","type":"fact","content":"PAM 수입 프로브 — 합성 데모 팩트. (` + run + `)",` +
 		`"temporal":{"created_at":"2026-11-14T00:00:00Z"},"status":"active",` +
-		`"confidence":{"current":0.8},"tags":["e2e-rt"],"provenance":{"platform":"chatgpt"}}],` +
+		`"confidence":{"current":0.8},"tags":["` + run + `"],"provenance":{"platform":"chatgpt"}}],` +
 		`"relations":[]}`
 	pamFile := filepath.Join(t.TempDir(), "memory-store.json")
 	if err := os.WriteFile(pamFile, []byte(pam), 0o644); err != nil {
@@ -221,7 +242,7 @@ func TestImportPAMMinimalRealDB(t *testing.T) {
 	// pending 적립 + 원천 기록 실측(열은 origin — ExportRow.Source 대응).
 	var status, origin string
 	if err := pool.QueryRow(ctx(),
-		`SELECT status, origin FROM knowledge WHERE topic = 'pam[e2e-rt-p1]'`).
+		`SELECT status, origin FROM knowledge WHERE topic = $1`, topic).
 		Scan(&status, &origin); err != nil {
 		t.Fatalf("PAM 적립 행 조회 실패: %v", err)
 	}

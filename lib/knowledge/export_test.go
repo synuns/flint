@@ -26,6 +26,9 @@ var (
 	exportTOld = time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
 	exportTMid = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
 	exportTNew = time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
+	// exportTValid — valid_at fixture 값(ingested_at과 의도적 상이 —
+	// v1.4.0 T3 왕복 보존 검증: 검증 시각 ≠ 수집 시각 행).
+	exportTValid = time.Date(2026, 11, 10, 7, 30, 0, 0, time.UTC)
 )
 
 // exportHashPrefix — 실DB 시딩 행의 content_hash 접두사(스코프·정리 키).
@@ -44,6 +47,7 @@ type exportFixtureRow struct {
 	status   string
 	hash     string
 	sup      any // nil|int
+	valid    time.Time
 	ingested time.Time
 	invalid  any // nil|time.Time
 }
@@ -56,11 +60,12 @@ func (f exportFixtureRow) updated() time.Time {
 	return f.ingested
 }
 
-// cells — SELECT 열 순서(id..COALESCE) 셀 튜플.
+// cells — SELECT 열 순서(id..COALESCE) 셀 튜플. valid_at은 v1.4.0 T3
+// 추가 열(superseded_by 다음·ingested_at 이전).
 func (f exportFixtureRow) cells() []any {
 	return []any{
 		int32(f.id), f.topic, f.summary, f.tags, f.entity, f.domain,
-		f.conf, f.origin, f.status, f.hash, f.sup, f.ingested, f.updated(),
+		f.conf, f.origin, f.status, f.hash, f.sup, f.valid, f.ingested, f.updated(),
 	}
 }
 
@@ -68,11 +73,14 @@ func (f exportFixtureRow) cells() []any {
 // (구 배포 정책 — invalid_at=tNew·superseded_by=88).
 var exportFixture = []exportFixtureRow{
 	{1, "배포 관례", "main 브랜치는 항상 green이어야 한다", ":deploy:ops:",
-		"main-branch", "demo", 0.9, "agent", "active", "expfix-a1", nil, exportTOld, nil},
+		"main-branch", "demo", 0.9, "agent", "active", "expfix-a1", nil,
+		exportTValid, exportTOld, nil},
 	{7, "회고 형식", "회고는 성공/실패/시도 순서로 기록한다", ":meeting:",
-		nil, "demo", 0.5, "human", "active", "expfix-b2", nil, exportTOld, nil},
+		nil, "demo", 0.5, "human", "active", "expfix-b2", nil,
+		exportTValid, exportTOld, nil},
 	{12, "구 배포 정책", "폐기된 이전 정책 — 신규 항목으로 대체됨", ":deploy:",
-		nil, "demo", 0.4, "agent", "invalidated", "expfix-c3", 88, exportTOld, exportTNew},
+		nil, "demo", 0.4, "agent", "invalidated", "expfix-c3", 88,
+		exportTValid, exportTOld, exportTNew},
 }
 
 // exportEngine — fakeStore queryFn용 조회 원천 seam: 발행된 SQL의 조건
@@ -116,7 +124,7 @@ func exportEngine(sql string, args []any) ([][]any, error) {
 		}
 		out := rows[:0]
 		for _, r := range rows {
-			if t, ok := r[12].(time.Time); ok && !t.Before(since) {
+			if t, ok := r[13].(time.Time); ok && !t.Before(since) {
 				out = append(out, r)
 			}
 		}
@@ -239,7 +247,7 @@ func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 			 content_hash, superseded_by, valid_at, ingested_at, invalid_at)
 			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 			f.topic, f.summary, f.tags, f.entity, f.domain, f.conf, f.origin,
-			f.status, f.hash, f.sup, f.ingested, f.ingested, f.invalid); err != nil {
+			f.status, f.hash, f.sup, f.valid, f.ingested, f.invalid); err != nil {
 			t.Skipf("fixture 시딩 실패(스키마 미구비 의심): %v", err)
 		}
 	}
@@ -402,6 +410,28 @@ func TestExportRowFieldMapping(t *testing.T) {
 	}
 	if c.Entities != nil {
 		t.Errorf("entity NULL 행 entities = %v, want nil", c.Entities)
+	}
+}
+
+// TestExportRowValidAtMapping — v1.4.0 T3 Review Focus: SELECT가 valid_at
+// 열을 포함하고 ValidAt 필드로 매핑한다(왕복 보존의 원천 — 검증 시각이
+// 수집 시각과 다른 행에서 CreatedAt 치환 없이 원값 노출).
+func TestExportRowValidAtMapping(t *testing.T) {
+	rows, err := ExportRows(context.Background(),
+		&fakeStore{queryFn: exportEngine}, ExportFilter{Status: "all"})
+	if err != nil {
+		t.Fatalf("ExportRows err = %v", err)
+	}
+	if len(rows) != 3 {
+		t.Fatalf("행 수 = %d, want 3", len(rows))
+	}
+	for _, r := range rows {
+		if !r.ValidAt.Equal(exportTValid) {
+			t.Errorf("%s ValidAt = %v, want %v(valid_at 열 원값)", r.Topic, r.ValidAt, exportTValid)
+		}
+		if r.ValidAt.Equal(r.CreatedAt) {
+			t.Errorf("%s ValidAt == CreatedAt — fixture는 의도적 상이(치환 폴백 의심)", r.Topic)
+		}
 	}
 }
 

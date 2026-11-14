@@ -6,11 +6,14 @@ package cli
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"os"
 	"time"
 
+	"github.com/synuns/flint/lib/backup"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -26,6 +29,11 @@ var (
 	formatMDFn    = func(rows []knowledge.ExportRow) ([]byte, error) { return knowledge.FormatMD(rows), nil }
 	formatTXTFn   = func(rows []knowledge.ExportRow) ([]byte, error) { return knowledge.FormatTXT(rows), nil }
 	formatCSVFn   = func(rows []knowledge.ExportRow) ([]byte, error) { return knowledge.FormatCSV(rows) }
+	// v1.4.0 T2 후속: PAM v1.0 교환 문서 — exported_by는 "flint/"+버전
+	// (CurrentVersion 관례: ldflags→buildinfo→dev 폴백).
+	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, error) {
+		return knowledge.FormatPAM(rows, "flint/"+CurrentVersion())
+	}
 )
 
 // exportStderr — 요약·경고 챈널 seam(stderr 계약 — stdout 본문과 분리).
@@ -38,12 +46,13 @@ func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, error) {
 		"md":    formatMDFn,
 		"txt":   formatTXTFn,
 		"csv":   formatCSVFn,
+		"pam":   formatPAMFn,
 	}
 }
 
 func init() { Register("export", runExport) }
 
-// runExport — `flint export [--format jsonl|md|txt|csv] [--out FILE]
+// runExport — `flint export [--format jsonl|md|txt|csv|pam] [--out FILE]
 // [--status active|all] [--tag X] [--since RFC3339]`. 기본 jsonl·stdout.
 // 무효 format·status·since·unknown flag는 exit 3, 스토어 nil·서버다운은
 // exit 2(MapExit 재사용). 성공 시 요약 1행 stderr:
@@ -60,7 +69,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		switch a {
 		case "--format":
 			if v == "" || !validExportFormat(v) {
-				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "format", Expect: "jsonl|md|txt|csv"}))
+				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "format", Expect: "jsonl|md|txt|csv|pam"}))
 				return 3
 			}
 			format, i = v, i+1
@@ -91,7 +100,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			}
 			since, i = t, i+1
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint export [--format jsonl|md|txt|csv] [--out FILE] [--status active|all] [--tag X] [--since RFC3339]", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339]", a)))
 			return 3
 		}
 	}
@@ -133,6 +142,13 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			fmt.Fprintln(stdout, wire.ErrLine(werr))
 			return 1
 		}
+		// v1.4.0 T2: 기록 성공 시 .sha256 사이드카(backup --out 관례
+		// 승계 — backup.WriteSidecar로 형식 통일, sha256sum -c 호환).
+		// 실패는 stderr 경고만: 본문 기록 성공을 해치지 않는다(ADR-0006).
+		digest := sha256.Sum256(data)
+		if serr := backup.WriteSidecar(outPath, hex.EncodeToString(digest[:])); serr != nil {
+			fmt.Fprintf(exportStderr, "export: checksum sidecar write failed: %v\n", serr)
+		}
 	} else if _, werr := stdout.Write(data); werr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(werr))
 		return 1
@@ -144,7 +160,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 // validExportFormat — 플래그 검증 시점용(포맷터 미연결 판별은 조회 시).
 func validExportFormat(v string) bool {
 	switch v {
-	case "jsonl", "md", "txt", "csv":
+	case "jsonl", "md", "txt", "csv", "pam":
 		return true
 	}
 	return false
