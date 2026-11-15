@@ -8,6 +8,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -123,6 +124,13 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	// v1.4.1 B2: 조회 결과 행 수 상한(등록표 키 export_import_max_rows —
+	// import와 동일 키, 대량 export의 메모리·출력 방어). 조회 직후·포맷팅
+	// 전 판정이므로 전량 버퍼링 이전은 아니지만 포맷터·기록 부작용은 차단
+	// 한다. v1.5 스트리밍 export로 이관 시 이 판정은 커서 기준으로 재정의.
+	if code := enforceExportMaxRows(ctx, st, stdout, len(rows)); code != 0 {
+		return code
+	}
 	fn := exportFormatters()[format]
 	if fn == nil {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("export: formatter %s not linked", format)))
@@ -155,6 +163,38 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	}
 	fmt.Fprintf(exportStderr, "exported %d rows (%s, %d bytes)\n", len(rows), format, len(data))
 	return 0
+}
+
+// exportMaxRowsLimit — export 1회 행 수 상한 로드(등록표 키
+// export_import_max_rows — import와 동일 키 공유). 조회 실패·미설정(0)은
+// DefaultThresholds 폴백(importMaxRowsLimit과 동일 규약).
+func exportMaxRowsLimit(ctx context.Context, st Store) int {
+	def := store.DefaultThresholds().ExportImportMaxRows
+	th, err := wire.LoadThresholdsFn(ctx, st)
+	if err != nil || th.ExportImportMaxRows <= 0 {
+		return def
+	}
+	return th.ExportImportMaxRows
+}
+
+// enforceExportMaxRows — 행 수 상한 초과 시 오류 JSON(max·count 포함)을
+// stdout에 내고 3을 반환(호출부는 그대로 반환). 형식은 import
+// enforceImportMaxRows를 준용한다. 포맷터·파일 기록 전 단계라 부작용 없음.
+func enforceExportMaxRows(ctx context.Context, st Store, stdout io.Writer, count int) int {
+	max := exportMaxRowsLimit(ctx, st)
+	if count <= max {
+		return 0
+	}
+	b, err := json.Marshal(map[string]any{
+		"error": fmt.Sprintf("export 행 수 상한 초과(export_import_max_rows=%d)", max),
+		"max":   max,
+		"count": count,
+	})
+	if err != nil {
+		b = []byte(fmt.Sprintf(`{"error":"export 행 수 상한 초과","max":%d,"count":%d}`, max, count))
+	}
+	fmt.Fprintln(stdout, string(b))
+	return 3
 }
 
 // validExportFormat — 플래그 검증 시점용(포맷터 미연결 판별은 조회 시).

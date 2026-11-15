@@ -31,6 +31,12 @@
   실패 시에만 store 없이 진행한다.
 - 훅 전용 진입점 `session-start`·`session-end`는 등록되지만
   usage에 노출하지 않는다(`hiddenFromUsage`).
+- 데이터 이동성(v1.3~v1.4): `export [--format jsonl|md|txt|csv|pam]
+  [--out FILE] [--status active|all] [--tag X] [--since RFC3339]` —
+  형식 5종, `--out` 기록 시 옆에 `.sha256` 사이드카(sha256sum -c 호환),
+  무효 플래그·format는 exit 3. `import [--format jsonl|pam] [FILE]` —
+  export·import 공통 1회 행 수 상한(`export_import_max_rows`,
+  기본 100000) 초과 시 오류 JSON(`max`·`count` 포함)과 exit 3.
 
 ## 경계
 

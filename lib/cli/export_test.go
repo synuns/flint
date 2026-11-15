@@ -406,3 +406,54 @@ func TestRunExportPAMOutSidecar(t *testing.T) {
 		t.Fatalf("pam sidecar missing: %v", err)
 	}
 }
+
+// maxRowsExportFake — thresholds IN 조회에 export_import_max_rows 오버라이드만
+// 읽는 fake(나머지 조회는 0행). import maxRowsFake와 동일 응답 계약.
+func maxRowsExportFake(max string) *fakeStore {
+	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM meta WHERE key IN") {
+			return [][]any{{"export_import_max_rows", max}}, nil
+		}
+		return nil, nil
+	}}
+}
+
+// RF14 — v1.4.1 B2: 조회 결과 행 수 == max(경계)는 통과. 상한 키는
+// export_import_max_rows(import와 동일 키 — meta 오버라이드로 max=2).
+func TestRunExportMaxRowsBoundary(t *testing.T) {
+	stderr := installExportFakes(t, nil) // 기본 rows fake: 2행
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), maxRowsExportFake("2"), nil, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0(경계 ==max 통과; stdout %q)", code, stdout.String())
+	}
+	if got, want := stdout.String(), "<jsonl of 2 rows>\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (jsonl, ") {
+		t.Fatalf("summary missing: %q", stderr.String())
+	}
+}
+
+// RF15 — v1.4.1 B2: 조회 결과 행 수 > max면 exit 3·오류 JSON {max,count}
+// (import enforceImportMaxRows 형식 준용). 포맷터·출력은 실행되지 않는다.
+func TestRunExportMaxRowsExceeded(t *testing.T) {
+	installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
+		return []knowledge.ExportRow{
+			{ID: 1, Topic: "demo-a", Status: "active"},
+			{ID: 2, Topic: "demo-b", Status: "active"},
+			{ID: 3, Topic: "demo-c", Status: "active"},
+		}, nil
+	})
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), maxRowsExportFake("2"), nil, strings.NewReader(""), &stdout)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3(상한 초과; stdout %q)", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"max":2`) || !strings.Contains(stdout.String(), `"count":3`) {
+		t.Fatalf("오류 JSON max·count 미포함: %q", stdout.String())
+	}
+	if strings.Contains(stdout.String(), "<jsonl") {
+		t.Fatalf("상한 초과 시 포맷터 출력이 발생함: %q", stdout.String())
+	}
+}

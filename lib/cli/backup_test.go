@@ -431,6 +431,19 @@ func TestRestoreDecryptsEncrypted(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", cfg)
 	fb := &fakeBackup{}
 	withBackupFake(t, fb)
+	// R22-A: 이 테스트의 목적은 복호 경로(restoreFn이 평문을 수신) 검증이지
+	// 실 restore SQL 실행이 아니다 — real 모드에서도 stub이 실 backup.Restore를
+	// 호출하지 않게 재정의한다(2열 합성 dump는 실 14+열 knowledge 스키마와
+	// 불일치해 SQLSTATE 42601으로 실패한다). 정리는 withBackupFake의 cleanup이
+	// 원본 restoreFn을 복원한다.
+	restoreFn = func(ctx context.Context, dsn string, r io.Reader) error {
+		data, err := io.ReadAll(r)
+		if err != nil {
+			return err
+		}
+		fb.gotRestore = string(data)
+		return nil
+	}
 	got, code := mustRestore(t, []string{"--file", f})
 	if code != 0 || !strings.Contains(got, `"status":"restored"`) {
 		t.Fatalf("복호 restore = exit %d %s", code, got)

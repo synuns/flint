@@ -19,7 +19,10 @@ import (
 func recallFake(t *testing.T, read, write int) *doneFake {
 	t.Helper()
 	today := time.Now().UTC().Format("2006-01-02")
-	d := &doneFake{fakeStore: &fakeStore{}}
+	// R22-A(배선 버전): stubbed=true — stale 집계도 fake 영(零)으로 고정.
+	// 미지정이면 실DB 모드에서 StaleSessionRuns가 공유 DB 잔재 위임으로
+	// stale 경고가 회상 경고를 덮어 멱등성이 깨진다(판정 원천은 queryFn).
+	d := &doneFake{fakeStore: &fakeStore{}, stubbed: true}
 	d.queryFn = func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM meta"):

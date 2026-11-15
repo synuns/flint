@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
+	"time"
 )
 
 // compactRun — fake store로 `flint compact` 실행 + 기본 단언(항상 exit 0·stdout 빈).
@@ -161,8 +163,15 @@ func TestCompact(t *testing.T) {
 func test_compact_accrues_session_knowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{}
+	// R22-A: knowledge 적립은 content_hash dedup·일 빈도 상한(meta
+	// session_knowledge_last)을 통과한다 — 공유 실DB 잔재를 시작 경계에서
+	// 정리하고, 실행마다 고유 summary(테스트명+시각)로 잔재 해시와의 충돌을
+	// 회피해야 적립=1이 멱등하게 성립한다.
+	cleanupRealResidue(`DELETE FROM meta WHERE key = 'session_knowledge_last'`)
+	summary := fmt.Sprintf("API 설계와 구현을 마쳤고 리뷰 피드백을 반영했다 (%s %d)",
+		t.Name(), time.Now().UnixNano())
 	out, code := compactRun(t, f,
-		`{"hook_event_name":"PostCompact","session_id":"s1","compact_summary":"API 설계와 구현을 마쳤고 리뷰 피드백을 반영했다"}`)
+		`{"hook_event_name":"PostCompact","session_id":"s1","compact_summary":"`+summary+`"}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}

@@ -5,6 +5,7 @@ package cli
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -28,8 +29,14 @@ func TestImportMigrateCLISignature(t *testing.T) {
 func TestImportFormatRoutingDispatch(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
+	// R22-A: 적립은 content_hash dedup·PK(공유 실DB 잔재 ID 31)를 통과한다 —
+	// 시작 경계에서 topic 잔재를 정리하고, 실행마다 고유 Content(테스트명+
+	// 시각)로 잔재 해시 충돌을 회피해야 imported:1이 멱등하다.
+	cleanupRealResidue(`DELETE FROM knowledge WHERE topic = 'demo dispatch alpha'`)
 	rows := []knowledge.ExportRow{{
-		ID: 31, Topic: "demo dispatch alpha", Content: "합성 데모 dispatch 본문 — 배선 검증용.",
+		ID: 31, Topic: "demo dispatch alpha",
+		Content: fmt.Sprintf("합성 데모 dispatch 본문 — 배선 검증용. (%s %d)",
+			t.Name(), time.Now().UnixNano()),
 		Kind: "knowledge", Status: "active", Confidence: 0.9, Tags: []string{"demo"},
 		Domain: "main", Source: "agent",
 		CreatedAt: time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC),
