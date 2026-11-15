@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"regexp"
+	"sort"
 	"strings"
 	"testing"
 	"time"
@@ -241,14 +242,30 @@ func TestFormatPAMStatusMapping(t *testing.T) {
 
 // TestFormatPAMRelationsDirection — §13.2 "Source replaces target":
 // from=신규(대체하는 행 SupersededBy), to=구(대체되는 행 자신).
+// 양쪽 엔드포인트(8·12)가 모두 memories에 실리는 합성 2행으로 검증
+// (v1.4.1 A1 — 한쪽이라도 미포함이면 relation 자체를 발행하지 않는다).
 func TestFormatPAMRelationsDirection(t *testing.T) {
-	out, err := FormatPAM(pamFixtureRows(), "flint-test")
+	sup := 12
+	t0 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
+	rows := []ExportRow{
+		{
+			ID: 8, Topic: "demo-old", Content: "대체되는 데모 행", Kind: "note",
+			Status: "invalidated", Confidence: 0.5, Tags: []string{"demo"},
+			CreatedAt: t0, UpdatedAt: t0, SupersededBy: &sup,
+		},
+		{
+			ID: 12, Topic: "demo-new", Content: "대체하는 데모 행", Kind: "note",
+			Status: "active", Confidence: 0.8, Tags: []string{"demo"},
+			CreatedAt: t0.Add(time.Hour), UpdatedAt: t0.Add(time.Hour),
+		},
+	}
+	out, err := FormatPAM(rows, "flint-test")
 	if err != nil {
 		t.Fatalf("FormatPAM error: %v", err)
 	}
 	rels, _ := pamParseDoc(t, out)["relations"].([]any)
 	if len(rels) != 1 {
-		t.Fatalf("relations 수 = %d, want 1(SupersededBy 1건)", len(rels))
+		t.Fatalf("relations 수 = %d, want 1(SupersededBy 1건, 양쪽 포함)", len(rels))
 	}
 	r, _ := rels[0].(map[string]any)
 	if r["type"] != "supersedes" {
@@ -259,6 +276,60 @@ func TestFormatPAMRelationsDirection(t *testing.T) {
 	}
 	if r["to"] != "flint:8" {
 		t.Errorf("to = %v, want flint:8(구)", r["to"])
+	}
+}
+
+// TestFormatPAMRelationsDroppedWhenEndpointMissing — v1.4.1 A1 회귀:
+// relations는 From·To 양쪽 모두 memories에 실린 "flint:N"인 경우만
+// 발행한다. pending superseder(미승인 대체 원천 — 문서에서 제외)·조회
+// 범위 밖 superseder를 가리키는 relation은 허참조가 되므로 발행하지
+// 않는다(손작성 jsonl 수입 계보 파괴 방어).
+func TestFormatPAMRelationsDroppedWhenEndpointMissing(t *testing.T) {
+	pendSup, absentSup := 12, 999
+	t0 := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
+	base := func(sup int) []ExportRow {
+		return []ExportRow{
+			{
+				ID: 7, Topic: "demo-active", Content: "활성 데모 행", Kind: "lesson",
+				Status: "active", Confidence: 0.75, Tags: []string{"demo"},
+				CreatedAt: t0, UpdatedAt: t0,
+			},
+			{
+				ID: 8, Topic: "demo-old", Content: "대체된 데모 행", Kind: "note",
+				Status: "invalidated", Confidence: 0.5, Tags: []string{"demo"},
+				CreatedAt: t0, UpdatedAt: t0, SupersededBy: &sup,
+			},
+		}
+	}
+	cases := []struct {
+		name string
+		rows []ExportRow
+	}{
+		// superseder(12)가 pending — memories에서 제외되므로 From 허참조.
+		{"pending superseder", append(base(pendSup), ExportRow{
+			ID: pendSup, Topic: "demo-pending-superseder", Content: "미승인 대체 원천 행",
+			Kind: "note", Status: "pending", Confidence: 0.5,
+			CreatedAt: t0.Add(time.Hour), UpdatedAt: t0.Add(time.Hour),
+		})},
+		// superseder(999)가 조회 결과에 없음 — From 허참조.
+		{"absent superseder", base(absentSup)},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, err := FormatPAM(c.rows, "flint-test")
+			if err != nil {
+				t.Fatalf("FormatPAM error: %v", err)
+			}
+			doc := pamParseDoc(t, out)
+			mems, _ := doc["memories"].([]any)
+			if len(mems) != 2 {
+				t.Fatalf("memories 수 = %d, want 2(pending 제외)", len(mems))
+			}
+			rels, _ := doc["relations"].([]any)
+			if len(rels) != 0 {
+				t.Fatalf("relations 수 = %d, want 0(허참조 relation 미발행): %v", len(rels), rels)
+			}
+		})
 	}
 }
 
@@ -342,6 +413,56 @@ func TestFormatPAMChecksumRecomputable(t *testing.T) {
 	if mems[0].(map[string]any)["id"] != "flint:7" || mems[1].(map[string]any)["id"] != "flint:8" {
 		t.Errorf("memories 정렬 불일치: %v, %v",
 			mems[0].(map[string]any)["id"], mems[1].(map[string]any)["id"])
+	}
+}
+
+// TestFormatPAMChecksumIDStringOrder — §15 id 정렬은 id **문자열**
+// 오름차순: 자릿수 경계(9/10/100)에서 "flint:10" < "flint:100" < "flint:9".
+// 수치 정렬이면 외부 검증자(문자열 정렬 재현)와 체크섬이 어긋난다
+// (v1.4.0 리뷰 회귀 — 수치 정렬 시 이 테스트는 실패).
+func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
+	t0 := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
+	rows := []ExportRow{
+		{ID: 9, Topic: "demo-nine", Content: "합성 데모 9", Kind: "note", Status: "active", CreatedAt: t0},
+		{ID: 100, Topic: "demo-hundred", Content: "합성 데모 100", Kind: "note", Status: "active", CreatedAt: t0},
+		{ID: 10, Topic: "demo-ten", Content: "합성 데모 10", Kind: "note", Status: "active", CreatedAt: t0},
+	}
+	out, err := FormatPAM(rows, "flint-test")
+	if err != nil {
+		t.Fatalf("FormatPAM error: %v", err)
+	}
+	doc := pamParseDoc(t, out)
+
+	// 문서 배열 순서 — 문자열 오름차순.
+	mems, _ := doc["memories"].([]any)
+	wantOrder := []string{"flint:10", "flint:100", "flint:9"}
+	if len(mems) != len(wantOrder) {
+		t.Fatalf("memories 수 = %d, want %d", len(mems), len(wantOrder))
+	}
+	for i, want := range wantOrder {
+		if got := mems[i].(map[string]any)["id"]; got != want {
+			t.Errorf("memories[%d].id = %v, want %v(문자열 오름차순)", i, got, want)
+		}
+	}
+
+	// 체크섬 — 검증자 재현 경로: id 문자열 정렬 → JCS → SHA-256.
+	sorted := append([]any(nil), mems...)
+	sort.SliceStable(sorted, func(i, j int) bool {
+		return sorted[i].(map[string]any)["id"].(string) < sorted[j].(map[string]any)["id"].(string)
+	})
+	b, err := json.Marshal(sorted)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := jsoncanonicalizer.Transform(b)
+	if err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256(canonical)
+	want := "sha256:" + hex.EncodeToString(sum[:])
+	got, _ := doc["integrity"].(map[string]any)["checksum"].(string)
+	if got != want {
+		t.Errorf("checksum = %q, want 문자열 정렬 재현 %q", got, want)
 	}
 }
 

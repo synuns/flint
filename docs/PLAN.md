@@ -22,7 +22,7 @@
 
 - 엔진: Go 단일 정적 바이너리(bin/flint, mcp 모드 내장·pgx 내장) +
   Doltgres(localhost:5434, docker compose restart 정책, ADR-0010).
-- 접점 3개: ① CLI — 등록 커맨드 27종(usage 노출 25 + 훅 전용 2:
+- 접점 3개: ① CLI — 등록 커맨드 28종(usage 노출 26 + 훅 전용 2:
   session-start·session-end) ② MCP(stdio 전용) — 도구 5종
   (flint_read·flint_write·flint_hot·flint_pending·flint_approve)
   ③ Claude Code 플러그인(훅·스킬·커맨드·.mcp.json).

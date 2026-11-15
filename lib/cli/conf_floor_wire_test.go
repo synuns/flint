@@ -6,8 +6,18 @@ package cli
 
 import (
 	"errors"
+	"fmt"
 	"testing"
+	"time"
 )
+
+// uniqTopic — 공유 실DB content_hash 잔재 충돌 회피(R22-A 패턴): 실행마다
+// 고유 topic으로 해시를 분리해 -count=2·잔재 DB에서도 판정이 duplicate로
+// 빠지지 않게 한다.
+func uniqTopic(t *testing.T) string {
+	t.Helper()
+	return fmt.Sprintf("cw-%s-%d", t.Name(), time.Now().UnixNano())
+}
 
 // TestWriteConsumesConfFloor — meta conf_floor=0.6 로드 시 confidence 0.7이
 // active로 판정·저장(회귀: 0.8 고정이면 pending).
@@ -15,7 +25,7 @@ func TestWriteConsumesConfFloor(t *testing.T) {
 	f := &fakeStore{rows: [][]any{{"conf_floor", "0.6"}}}
 	withFake(t, f)
 	out, code := mustRun(t, []string{"write", "knowledge"},
-		`{"topic":"cw-a","summary":"s","confidence":0.7}`)
+		`{"topic":"`+uniqTopic(t)+`","summary":"s","confidence":0.7}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
@@ -30,7 +40,7 @@ func TestWriteConfFloorLoadFailureKeepsDefault(t *testing.T) {
 	f := &fakeStore{queryErr: errors.New("meta down")}
 	withFake(t, f)
 	out, code := mustRun(t, []string{"write", "knowledge"},
-		`{"topic":"cw-b","summary":"s","confidence":0.7}`)
+		`{"topic":"`+uniqTopic(t)+`","summary":"s","confidence":0.7}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
@@ -45,7 +55,7 @@ func TestWriteConfFloorZeroAccepted(t *testing.T) {
 	f := &fakeStore{rows: [][]any{{"conf_floor", "0"}}}
 	withFake(t, f)
 	out, code := mustRun(t, []string{"write", "knowledge"},
-		`{"topic":"cw-c","summary":"s","confidence":0.5}`)
+		`{"topic":"`+uniqTopic(t)+`","summary":"s","confidence":0.5}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}

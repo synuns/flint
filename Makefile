@@ -36,14 +36,16 @@ ci:
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test $(GO_TEST_FLAGS) -count=1 ./...
 
 # v1.2.0(사용자 지시): 배포 전 문서 정합 게이트 — 문서 계약 테스트는
-# go test ./docs(계약 테스트 41종: versions·badge·runbook·tuning 등)로
-# 이미 포함되나 배포 타깃에서 명시적 선행 단계로 격상·문서=코드와 동일
+# go test ./docs(계약 테스트: versions·badge·runbook·tuning 등)로 이미
+# 포함되나 배포 타깃에서 명시적 선행 단계로 격상·문서=코드와 동일
 # 게이트. docs-sync는 README·SKILL·contracts 6종의 코드-문서 동기
 # 단얫(커맨드 표==Registered 등)을 별도 타깃으로 노출해 릴리스 체크리스트
 # 에서 보이게 한다(v1.2.3 T7: release 타깃이 docs-sync를 선행 의존).
-# v1.2.3 T7 실측: -run 정규식에 매칭되는 문서 계약 테스트 41종.
+# v1.4.1 R22-C5: -run 정규식 제거 — docs 패키지 전체를 실행한다
+# (정규식에 좌우되지 않는 전면 게이트, 종수 고정 표기 폐지 — 패키지
+# 전체가 게이트에 편입되므로 신규 테스트도 자동 포함).
 docs-sync:
-	go test ./docs -count=1 -run 'TestVersion|TestReadme|TestCommand|TestSkill|TestContracts|TestPlan|TestRunbook|TestTuning|TestPlugin|TestServer|TestMcpPublisher' -v 2>&1 | grep -E "^(=== RUN|--- FAIL|--- PASS)" | tail -50
+	go test ./docs -count=1 -v 2>&1 | grep -E "^(=== RUN|--- FAIL|--- PASS)" | tail -50
 
 tidy:
 	go mod tidy

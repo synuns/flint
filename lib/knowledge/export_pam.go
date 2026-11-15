@@ -191,7 +191,13 @@ func FormatPAM(rows []ExportRow, exportedBy string) ([]byte, error) {
 	})
 
 	memories := make([]pamExportMemory, 0, len(sorted))
-	relations := make([]pamExportRelation, 0)
+	// emitted — memories에 실린 id 집합(v1.4.1 A1). relation은 양쪽
+	// 엔드포인트(From·To)가 모두 이 집합 내인 경우만 발행한다. pending
+	// superseder(미승인 대체 원천)·조회 범위 밖 superseder를 가리키는
+	// relation은 허참조가 되어 수입 측 계보 복원(import_pam.go
+	// SupersedePair)이 대상 행 부재로 스킵되는 계보 파괴를 일으키므로
+	// 원천에서 발행하지 않는다.
+	emitted := make(map[string]bool, len(sorted))
 	for _, r := range sorted {
 		if r.Status == "pending" {
 			// pending(미승인 내부 후보)은 PAM 문서에서 제외 — 폐쇄 분류에
@@ -201,13 +207,23 @@ func FormatPAM(rows []ExportRow, exportedBy string) ([]byte, error) {
 			continue
 		}
 		memories = append(memories, toPAMExportMemory(r))
-		if r.SupersededBy != nil {
-			relations = append(relations, pamExportRelation{
-				Type: "supersedes",
-				From: fmt.Sprintf("flint:%d", *r.SupersededBy), // 신규(대체 원천)
-				To:   fmt.Sprintf("flint:%d", r.ID),            // 구(대체 대상)
-			})
+		emitted[fmt.Sprintf("flint:%d", r.ID)] = true
+	}
+	relations := make([]pamExportRelation, 0)
+	for _, r := range sorted {
+		if r.Status == "pending" || r.SupersededBy == nil {
+			continue
 		}
+		from := fmt.Sprintf("flint:%d", *r.SupersededBy)
+		to := fmt.Sprintf("flint:%d", r.ID)
+		if !emitted[from] || !emitted[to] {
+			continue // 한쪽이라도 문서에 없는 id — 허참조 relation 미발행
+		}
+		relations = append(relations, pamExportRelation{
+			Type: "supersedes",
+			From: from, // 신규(대체 원천)
+			To:   to,   // 구(대체 대상)
+		})
 	}
 
 	checksum, err := pamChecksum(memories)
