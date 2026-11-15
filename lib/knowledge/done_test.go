@@ -110,8 +110,8 @@ func TestDoneStaleBoundary(t *testing.T) {
 				t.Fatalf("runs=%v, want %d", m["runs"], c.runs)
 			}
 			w, _ := m["warning"].(string)
-			if !strings.Contains(w, "연속 3세션 미기록") {
-				t.Fatalf("warning=%q, want 연속 3세션 미기록", w)
+			if !strings.Contains(w, "3 consecutive sessions unrecorded") {
+				t.Fatalf("warning=%q, want 3 consecutive sessions unrecorded", w)
 			}
 		}
 		if d.gotAgent != "claude" {
@@ -201,8 +201,8 @@ func TestDoneSessionRecord(t *testing.T) {
 	if rec["kind"] != "session" || rec["agent"] != "claude" {
 		t.Fatalf("kind/agent=%v/%v, want session/claude", rec["kind"], rec["agent"])
 	}
-	if rec["summary"] != "세션 종료(미기록 2)" {
-		t.Fatalf("summary=%v, want 세션 종료(미기록 2)", rec["summary"])
+	if rec["summary"] != "session end (unrecorded 2)" {
+		t.Fatalf("summary=%v, want session end (unrecorded 2)", rec["summary"])
 	}
 	if rec["tasks"] != "[]" {
 		t.Fatalf("tasks=%v, want []", rec["tasks"])
@@ -236,8 +236,8 @@ func TestDoneWritesSession(t *testing.T) {
 	if knowledge > 1 {
 		t.Fatalf("지식 적립 %d건, want ≤1(빈도 상한)", knowledge)
 	}
-	if got := f.inserted[0]["summary"]; got != "세션 종료(미기록 1)" {
-		t.Fatalf("삽입 summary=%v, want 세션 종료(미기록 1)", got)
+	if got := f.inserted[0]["summary"]; got != "session end (unrecorded 1)" {
+		t.Fatalf("삽입 summary=%v, want session end (unrecorded 1)", got)
 	}
 	if got := f.inserted[0]["agent"]; got != "claude" {
 		t.Fatalf("삽입 agent=%v, want claude", got)

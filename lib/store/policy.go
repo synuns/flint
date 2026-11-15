@@ -44,7 +44,7 @@ func CheckVocabulary(tags []string, domain string) []string {
 		if !knownTag(n) {
 			w := fmt.Sprintf("unknown tag: %s", n)
 			if s := SuggestTag(n); len(s) > 0 {
-				w += " (유사: " + strings.Join(s, ", ") + ")"
+				w += " (similar: " + strings.Join(s, ", ") + ")"
 			}
 			warnings = append(warnings, w)
 		}
@@ -52,7 +52,7 @@ func CheckVocabulary(tags []string, domain string) []string {
 	if d := normalizeVocab(domain); d != "" && !knownDomain(d) {
 		w := fmt.Sprintf("unknown domain: %s", d)
 		if s := SuggestDomain(d); len(s) > 0 {
-			w += " (유사: " + strings.Join(s, ", ") + ")"
+			w += " (similar: " + strings.Join(s, ", ") + ")"
 		}
 		warnings = append(warnings, w)
 	}

@@ -106,6 +106,17 @@ func TestHelpSummaryCoversUsageOrder(t *testing.T) {
 	}
 }
 
+// TestHelpSummaryEnglish — v1.5.0 T3: HelpSummary는 영어 단일 출력
+// (한국어 잔입 금지 — 파이프·grep 관례). 완전성은
+// TestHelpSummaryCoversUsageOrder가 담당한다.
+func TestHelpSummaryEnglish(t *testing.T) {
+	for _, r := range HelpSummary() {
+		if r >= '가' && r <= '힣' {
+			t.Fatalf("HelpSummary에 한국어 잔존: %s", HelpSummary())
+		}
+	}
+}
+
 // TestUsageLineAssembledFromOrder — usageLine은 usageOrder 순서 그대로
 // 조립(리터럴 금지, v0.34.2 Produces 계약).
 func TestUsageLineAssembledFromOrder(t *testing.T) {

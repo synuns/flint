@@ -37,8 +37,8 @@ func synthDash5() htmlDashboard {
 	d.Rep.Stale.Days90, d.Rep.Stale.NeverRead = 3, 1
 	d.Rep.DupPct = 84
 	d.Rep.HotP95 = 1163
-	d.ChipHit = chipFor("회상 명중", d.Effect.Trend.HitPct, false)
-	d.ChipTop1 = chipFor("정합 1위", d.Effect.Trend.Top1Pct, false)
+	d.ChipHit = chipFor("recall hit", d.Effect.Trend.HitPct, false)
+	d.ChipTop1 = chipFor("exact top-1", d.Effect.Trend.Top1Pct, false)
 	mk := func(name string, p trendPoint, invert bool) trendRow {
 		up := p.Delta >= 0
 		if invert {
@@ -50,7 +50,7 @@ func synthDash5() htmlDashboard {
 		}
 		return trendRow{Name: name, Cur: p.Cur, Up: up, DeltaText: "▲ " + sign + fmt.Sprint(p.Delta) + "pp"}
 	}
-	d.TrendRows = []trendRow{mk("회상 명중", d.Effect.Trend.HitPct, false), mk("폴백 경유", d.Effect.Trend.FallbackPct, true)}
+	d.TrendRows = []trendRow{mk("recall hit", d.Effect.Trend.HitPct, false), mk("via fallback", d.Effect.Trend.FallbackPct, true)}
 	max := 5
 	seg2 := []barSeg{{H: "100%", Title: "2026-01-01 · 5"}, {H: "60%", Title: "2026-01-02 · 3"}}
 	d.BarsRead, d.BarsWrite, d.BarsDup = seg2, seg2, seg2
@@ -66,11 +66,11 @@ func TestRenderDashboardV5(t *testing.T) {
 	}
 	s := b.String()
 	for _, want := range []string{
-		"회상 명중", `class="panel"`, `class="kpis"`, // 서사 흐름
-		"7일 추세", `class="trow"`, // 추세(간결 지표명+툴팁)
-		"기억 보관함", `class="inv"`,
-		"중복 저지", "첫 결과 정답", "7일 추세", // 간결 지표명
-		"%포인트", "토큰", // 델타·A3
+		"recall hit", `class="panel"`, `class="kpis"`, // narrative flow
+		"7-day trend", `class="trow"`, // trend (concise names + tooltips)
+		"memory inventory", `class="inv"`,
+		"dup blocked", "first result exact", "7-day trend", // concise names
+		"points", "tokens", // delta · A3
 		"flint report",
 	} {
 		if !strings.Contains(s, want) {
@@ -109,7 +109,7 @@ func TestEstTok(t *testing.T) {
 
 // TestChipDiscipline — 감소는 회색 ▼(Good=false) — 빨강 없음.
 func TestChipDiscipline(t *testing.T) {
-	down := chipFor("명중", trendPoint{Prev: 90, Cur: 80, Delta: -10}, false)
+	down := chipFor("hit", trendPoint{Prev: 90, Cur: 80, Delta: -10}, false)
 	if down.Show && down.Good {
 		t.Error("감소 칩이 Good — 녹=개선만 규율 위반")
 	}
@@ -124,7 +124,7 @@ func TestReportHTMLFlagWiring(t *testing.T) {
 	if code := runReport(context.Background(), st, []string{"--html", "--out", out, "--days", "7"}, nil, &res); code != 0 {
 		t.Fatalf("exit=%d: %s", code, res.String())
 	}
-	if b, err := os.ReadFile(out); err != nil || !strings.Contains(string(b), "flint 사용 리포트") {
+	if b, err := os.ReadFile(out); err != nil || !strings.Contains(string(b), "flint usage report") {
 		t.Errorf("파일: %v", err)
 	}
 	out2 := t.TempDir() + "/plain"

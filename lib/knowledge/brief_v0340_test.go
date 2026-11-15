@@ -84,7 +84,7 @@ func TestBriefOutputContract(t *testing.T) {
 		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
 	got := out.String()
-	if !strings.Contains(got, "[flint] 브리프 2건") {
+	if !strings.Contains(got, "[flint] brief 2") {
 		t.Errorf("헤더 라인 미출력: %q", got)
 	}
 	if !strings.Contains(got, "토픽|요약 본문|demo:tag") {
@@ -156,7 +156,7 @@ func TestBriefZeroRowsNotice(t *testing.T) {
 	if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("RunBrief exit=%d: %s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "브리프 0건") {
+	if !strings.Contains(out.String(), "brief 0") {
 		t.Errorf("0건 안내 미출력: %q", out.String())
 	}
 }

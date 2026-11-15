@@ -42,8 +42,8 @@ func TestTextReportPrintsDiagnosis(t *testing.T) {
 	}
 	got := out.String()
 	for _, want := range []string{
-		"pending_backlog: 승인 대기 pending 3건 (기준: doctor pending-age 승계 pending_age_days=7일(경과 기준일)) → approve 검수·maintain --expire-pending 정리",
-		"dead_knowledge: dead_pct 100%(활성 중 회상 0·장기 경과) (기준: diag_dead_warn=10%(dead_days=30일 기준 dead_pct)) → maintain --stale·--prune-invalidated 정리 검토",
+		"pending_backlog: 3 pending items awaiting approval (basis: inherits doctor pending-age pending_age_days=7d (age threshold)) → review via approve or clean up with maintain --expire-pending",
+		"dead_knowledge: dead_pct 100% (active but never recalled, long elapsed) (basis: diag_dead_warn=10% (dead_pct at dead_days=30d)) → consider cleanup with maintain --stale and --prune-invalidated",
 	} {
 		if !strings.Contains(got, want) {
 			t.Errorf("--text 출력에 Sentence 문장 부재:\nwant %q\ngot  %s", want, got)

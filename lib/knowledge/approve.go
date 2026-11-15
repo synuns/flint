@@ -31,7 +31,7 @@ type approveStore interface {
 // 테스트 harness) 경우에만 쓰인다 — 기본은 에러(실경로 st 위임 전제).
 // 테스트는 fake 교체(approve_test.go).
 var ApproveFn = func(ctx context.Context, id int) error {
-	return errors.New("approve: 주입 store가 Approve를 구현하지 않음")
+	return errors.New("approve: injected store does not implement Approve")
 }
 
 // quoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
@@ -158,8 +158,8 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			ids += strconv.Itoa(s)
 		}
 		fmt.Fprintln(stdout, `{"status":"approved","id":`+strconv.Itoa(id)+
-			`,"similar_active":[`+ids+`],"hint":"병합 후보 — flint approve --id `+
-			strconv.Itoa(id)+` --supersede OLD 또는 flint maintain --supersede OLD --by NEW"}`)
+			`,"similar_active":[`+ids+`],"hint":"merge candidate — flint approve --id `+
+			strconv.Itoa(id)+` --supersede OLD or flint maintain --supersede OLD --by NEW"}`)
 		return 0
 	}
 	fmt.Fprintln(stdout, `{"status":"approved","id":`+strconv.Itoa(id)+`}`)
@@ -182,7 +182,7 @@ type supersedeStore interface {
 func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int) error {
 	ss, ok := st.(supersedeStore)
 	if !ok {
-		return fmt.Errorf("supersede: 주입 store가 Supersede를 구현하지 않음")
+		return fmt.Errorf("supersede: injected store does not implement Supersede")
 	}
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT status FROM knowledge WHERE id = $1`, []any{oldID})
@@ -190,7 +190,7 @@ func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int)
 		return err
 	}
 	if len(rows) == 0 || rows[0][0] == nil || fmt.Sprint(rows[0][0]) != "active" {
-		return fmt.Errorf("supersede: id=%d가 active 아님", oldID)
+		return fmt.Errorf("supersede: id=%d is not active", oldID)
 	}
 	// invalid_at=NEW의 valid_at 병기 값(Zep t_invalid=t_valid 준거).
 	vrows, verr := wire.QueryOnce(ctx, st,
@@ -199,17 +199,17 @@ func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int)
 		return verr
 	}
 	if len(vrows) == 0 || vrows[0][0] == nil {
-		return fmt.Errorf("supersede: NEW 부재 id=%d", newID)
+		return fmt.Errorf("supersede: NEW missing id=%d", newID)
 	}
 	at, atOK := cellToTime(vrows[0][0])
 	if !atOK {
-		return fmt.Errorf("supersede: id=%d valid_at 판독 불가", newID)
+		return fmt.Errorf("supersede: id=%d valid_at unreadable", newID)
 	}
 	if _, err := ss.Supersede(ctx, oldID, newID, at); err != nil {
 		return err
 	}
 	_, err = st.Commit(ctx, fmt.Sprintf(
-		"approve+supersede: id=%d superseded=%d (승격 병합 경로) [session:0]", newID, oldID))
+		"approve+supersede: id=%d superseded=%d (promotion merge path) [session:0]", newID, oldID))
 	return err
 }
 

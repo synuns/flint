@@ -436,7 +436,7 @@ func TestReportProfileHintWithoutIDs(t *testing.T) {
 	if code := runReport(context.Background(), st, []string{"--days", "3"}, nil, &out); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
-	if !strings.Contains(out.String(), `"profile_hint":"보류`) {
+	if !strings.Contains(out.String(), `"profile_hint":"insufficient sample`) {
 		t.Fatalf("ids 없는 표본에 힌트 공백: %s", out.String())
 	}
 }

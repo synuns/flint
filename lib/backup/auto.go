@@ -65,7 +65,7 @@ func (a *Auto) RunIfNeeded(ctx context.Context,
 
 	last, err := metaKV(LastBackupKey)
 	if err != nil {
-		return fmt.Errorf("backup auto: meta 읽기: %w", err)
+		return fmt.Errorf("backup auto: read meta: %w", err)
 	}
 	intervalH := 0
 	if v, err := metaKV(BackupIntervalKey); err == nil {
@@ -84,13 +84,13 @@ func (a *Auto) RunIfNeeded(ctx context.Context,
 	// 나노초도 그대로 읽는다(time.Parse 호환).
 	won, err := claim(last, now.Format(time.RFC3339Nano))
 	if err != nil {
-		return fmt.Errorf("backup auto: 선점(CAS): %w", err)
+		return fmt.Errorf("backup auto: claim (CAS): %w", err)
 	}
 	if !won {
 		return nil // 병렬 세션이 선점 — 이 세션은 no-op
 	}
 	if err := dumpFn(ctx, a.DSN, dump); err != nil {
-		return fmt.Errorf("backup auto: 덤프: %w", err)
+		return fmt.Errorf("backup auto: dump: %w", err)
 	}
 	return nil
 }

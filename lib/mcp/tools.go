@@ -70,7 +70,7 @@ func ToolsManifest() []ToolDef {
 	return []ToolDef{
 		{
 			Name:        "flint_read",
-			Description: "활성 knowledge 검색(풀 방식). query/tag로 필터, limit 상한 50.",
+			Description: "Search active knowledge (pool mode). Filter by query/tag, limit up to 50.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
@@ -82,7 +82,7 @@ func ToolsManifest() []ToolDef {
 		},
 		{
 			Name:        "flint_write",
-			Description: "결정·지식 기록(kind+payload, 멱등: 동일 payload는 duplicate).",
+			Description: "Record a decision or knowledge item (kind+payload, idempotent: identical payload returns duplicate).",
 			InputSchema: map[string]any{
 				"type":     "object",
 				"required": []string{"kind", "payload"},
@@ -97,7 +97,7 @@ func ToolsManifest() []ToolDef {
 			// --session은 조회에 영향 없는 no-op이었으므로 광고-폐기
 			// 불일치. 실 세션 필터링은 신규 기능으로 제외.
 			Name:        "flint_hot",
-			Description: "주입용 핫 요약(2,000자 상한). 최근 항목 전체(세션 필터 없음).",
+			Description: "Hot summary for injection (2,000-char cap). All recent items (no session filter).",
 			InputSchema: map[string]any{
 				"type":       "object",
 				"properties": map[string]any{},
@@ -106,17 +106,17 @@ func ToolsManifest() []ToolDef {
 		{
 			// v0.32.0: 검수 회로 — 세션 안에서 대기 지식 심사·승격.
 			Name:        "flint_pending",
-			Description: "대기 지식 목록 + 규칙 기반 추천. verdict는 promote|merge|expire|hold. JSON 반환.",
+			Description: "Pending knowledge list + rule-based suggestions. verdict is promote|merge|expire|hold. Returns JSON.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
 		},
 		{
 			Name:        "flint_approve",
-			Description: "대기 지식 승격. supersede 지정 시 구 활성 지식을 새 것으로 대체 병합.",
+			Description: "Promote pending knowledge. With supersede, the old active item is replaced by the new one.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
-					"id":        map[string]any{"type": "integer", "description": "승격할 pending id"},
-					"supersede": map[string]any{"type": "integer", "description": "대체할 구 active id(선택)"},
+					"id":        map[string]any{"type": "integer", "description": "pending id to promote"},
+					"supersede": map[string]any{"type": "integer", "description": "old active id to replace (optional)"},
 				},
 				"required": []string{"id"},
 			},
@@ -171,7 +171,7 @@ func dispatchRead(args map[string]any) (string, int) {
 func dispatchApprove(args map[string]any) (string, int) {
 	id, ok := intArgStrict(args, "id")
 	if !ok || id < 1 {
-		return `{"error":"schema","field":"id","expect":"양의 정수"}`, 3
+		return `{"error":"schema","field":"id","expect":"positive integer"}`, 3
 	}
 	cliArgs := []string{"approve", "--id", strconv.Itoa(id)}
 	// v0.32.0 리뷰 1: supersede 키가 존재하면 타입·값 오류가 무음 스킵이
@@ -180,13 +180,13 @@ func dispatchApprove(args map[string]any) (string, int) {
 	if _, has := args["supersede"]; has {
 		sup, ok := intArgStrict(args, "supersede")
 		if !ok {
-			return `{"error":"schema","field":"supersede","expect":"정수(소수 절삭 없음)"}`, 3
+			return `{"error":"schema","field":"supersede","expect":"integer (no decimal truncation)"}`, 3
 		}
 		if sup < 1 {
-			return `{"error":"schema","field":"supersede","expect":"양의 정수"}`, 3
+			return `{"error":"schema","field":"supersede","expect":"positive integer"}`, 3
 		}
 		if sup == id {
-			return `{"error":"schema","field":"supersede","expect":"id와 상이"}`, 3
+			return `{"error":"schema","field":"supersede","expect":"different from id"}`, 3
 		}
 		cliArgs = append(cliArgs, "--supersede", strconv.Itoa(sup))
 	}

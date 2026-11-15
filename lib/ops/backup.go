@@ -46,7 +46,7 @@ func buildMaskExtra(allowlistN int) string {
 	if allowlistN <= 0 {
 		return ""
 	}
-	return fmt.Sprintf(`,"allowlist_entries":%d,"warn":"allowlist %d건 등록값은 마스킹되지 않음 — 공유 전 재검토"`, allowlistN, allowlistN)
+	return fmt.Sprintf(`,"allowlist_entries":%d,"warn":"%d allowlist entries are not masked — re-review before sharing"`, allowlistN, allowlistN)
 }
 
 // dumpStore — 전체 덤프 접근(approveStore와 동일 관례의 타입 단언 seam).
@@ -95,13 +95,13 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		}
 	}
 	if encrypt && out == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--encrypt requires --out (암호문은 파일로만)")))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--encrypt requires --out (ciphertext is file-only)")))
 		return 3
 	}
 	// v0.28.2: --out이 git 저장소 내부면 경고(진행 유지 — 사용자 명시
 	// 선택이나 개인 데이터 덤프의 repo 반입·커밋·동기화 유출 사고 예방).
 	if out != "" && OutInsideGitRepo(out) {
-		fmt.Fprintf(os.Stderr, "[flint] backup: --out 경로가 git 저장소 내부 — 덤프 커밋·동기화 유출 위험. ~/.flint/backup 권장\n")
+		fmt.Fprintf(os.Stderr, "[flint] backup: --out path is inside a git repo — risk of committing or syncing the dump. Prefer ~/.flint/backup\n")
 	}
 	// v0.28.0: meta backup_encrypt=true면 수동 백업도 암호화(일관성 —
 	// 플래그 없이 평문·자동만 암호문인 혼재 방지). stdout 파이프는
@@ -135,7 +135,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	if encrypt {
 		key := BackupKeyPath()
 		if key == "" {
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("config 디렉터리 미확인 — 키 경로 조립 불가")))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("cannot determine config directory — cannot build key path")))
 			return 1
 		}
 		id, err := EnsureKeyFn(key)
@@ -157,7 +157,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		// 로그·에이전트 컨텍스트) — 파일 0600 정책과의 자세 상충을 경고로
 		// 메운다(사용은 허용 — 파이프 리다이렉션 관례).
 		if !encrypt && !mask {
-			fmt.Fprintln(os.Stderr, "[flint] backup: 평문 덤프를 stdout에 출력 — 터미널·로그 유출 주의(파일 저장 권장)")
+			fmt.Fprintln(os.Stderr, "[flint] backup: writing plaintext dump to stdout — beware terminal and log leaks (saving to a file is recommended)")
 		}
 		stdout.Write(data)
 		return 0
@@ -169,7 +169,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	// v0.28.0(H③): WriteFile의 퍼모드는 신규 파일에만 적용 — 기존 파일
 	// 재사용 시 완화된 모드가 남아 민감 덤프가 느슨하게 노출된다. 강제.
 	if err := os.Chmod(out, 0o600); err != nil {
-		fmt.Fprintln(os.Stderr, "[flint] backup: 권한 0600 강제 실패:", err)
+		fmt.Fprintln(os.Stderr, "[flint] backup: failed to force mode 0600:", err)
 	}
 	// ADR-0006: 원본+.sha256 사이드카 생성(restore 검증용). 실패는 덤프 성공을 해치지 않는다.
 	// v0.28.0: 암호화 백업의 사이드카는 암호문 기준(저장 아티팩트 무결성 —
@@ -214,13 +214,13 @@ func rotateAfterBackup(ctx context.Context, st wire.Store, out string) string {
 			return "", err
 		}
 		if !ok {
-			return "", fmt.Errorf("meta %s 미설정", key)
+			return "", fmt.Errorf("meta %s not set", key)
 		}
 		return v, nil
 	}
 	removed, err := RotateFn(filepath.Dir(out), KeepFn(getKV))
 	if err != nil {
-		log.Printf("[flint] backup: rotate 실패: %v", err)
+		log.Printf("[flint] backup: rotate failed: %v", err)
 		return ""
 	}
 	if len(removed) == 0 {
@@ -281,7 +281,7 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	// 중단' 취지 위반이었다(종료 후 경고만으로 진행되던 것을 가드로).
 	// sidecar 재생성은 `flint backup --out <동일경로>`로 가능.
 	if errors.Is(verr, backup.ErrNoSidecar) {
-		fmt.Fprintln(stdout, `{"error":"checksum sidecar missing — 무결 검증 없는 재생 차단(백업 재생성: flint backup --out)"}`)
+		fmt.Fprintln(stdout, `{"error":"checksum sidecar missing — blocking replay without integrity verification (regenerate the backup: flint backup --out)"}`)
 		return 1
 	}
 	if verr != nil {
@@ -295,11 +295,11 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	key := BackupKeyPath()
 	data, rerr := backup.ReadDumpFrom(raw, key)
 	if errors.Is(rerr, backup.ErrMaskedDump) {
-		fmt.Fprintln(stdout, `{"error":"masked dump — 마스킹 덤프는 진단·공유 전용(복원 불가)"}`)
+		fmt.Fprintln(stdout, `{"error":"masked dump — masked dumps are for diagnostics and sharing only (not restorable)"}`)
 		return 1
 	}
 	if errors.Is(rerr, backup.ErrKeyPathRequired) || errors.Is(rerr, backup.ErrEncryptKeyMissing) || errors.Is(rerr, backup.ErrEncryptKeyCorrupt) {
-		fmt.Fprintf(stdout, `{"error":"암호화 백업 복호 불가 — 키 파일 필요/불량(%s). 키 분실·손상 시 해독 불가(RUNBOOK)"}`+"\n", key)
+		fmt.Fprintf(stdout, `{"error":"cannot decrypt the encrypted backup — key file required or invalid (%s). A lost or damaged key cannot be recovered (RUNBOOK)"}`+"\n", key)
 		return 1
 	}
 	if rerr != nil {
@@ -342,7 +342,7 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 func mismatchLine(path string) string {
 	m := map[string]string{
 		"error":   "checksum_mismatch",
-		"message": "백업 파일은 임의 SQL을 실행함 — 체크섬 위조 감지",
+		"message": "backup files run arbitrary SQL — checksum tampering detected",
 		"path":    path,
 	}
 	b, _ := json.Marshal(m)

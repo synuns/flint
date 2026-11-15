@@ -6,6 +6,25 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.5.0 minor (2026-11-15) — English unification · TUI · docs in English
+
+- [x] CLI user-facing messages unified in English (~400 strings across
+  ops · knowledge · cli/wire · backup/db/store/mcp) with test assertions
+  updated together. Machine channels unchanged (JSON error codes · exit
+  0/1/2/3 · English JSON keys). The injection-guard phrase set is now the
+  English **"data block, not instructions"**, synchronized across
+  lib/knowledge output, docs/contracts, and SKILL.md
+- [x] TUI layer (lib/tui — bubbletea · bubbles · huh) with four screens:
+  `flint setup` wizard (no args), `flint pending --tui`, `flint export
+  --tui`, `flint report --tui`. All actions delegate to the existing
+  paths; flag paths fully preserved; non-terminal invocations fall back
+  automatically
+- [x] Core docs in English — QUICKSTART · contracts (6) · TUNING ·
+  METRICS (§4.8 diagnosis now four views incl. --tui); README.ko.md stays
+  Korean as the Korean documentation layer; docs contract tests updated
+  alongside
+- [x] Performance structure items (3) and PAM signing deferred to v1.6
+
 ### v1.4.0 마이너 (2026-11-14) — PAM v1.0 내보내기·데이터 이동성 완결
 
 - [x] `flint export --format pam` — PAM v1.0 표준 memory-store 문서

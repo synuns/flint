@@ -37,7 +37,7 @@ func ParseJSONLRows(data []byte) ([]ExportRow, error) {
 		}
 		var v exportJSONLRow
 		if err := json.Unmarshal([]byte(line), &v); err != nil {
-			return nil, fmt.Errorf("jsonl %d번째 행 파손: %w", i+1, err)
+			return nil, fmt.Errorf("jsonl row %d corrupt: %w", i+1, err)
 		}
 		rows = append(rows, ExportRow(v)) // S1016 — 필드 구성 동일 타입 변환
 	}
@@ -82,7 +82,7 @@ func parseImportMigrateArgs(args []string) (format, file string, err error) {
 				format = strings.TrimPrefix(a, "--format=")
 			} else {
 				if i+1 >= len(args) {
-					return "", "", &store.SchemaError{Field: "format", Expect: "jsonl|pam 값 필요"}
+					return "", "", &store.SchemaError{Field: "format", Expect: "jsonl|pam value required"}
 				}
 				format = args[i+1]
 				i++
@@ -99,12 +99,12 @@ func parseImportMigrateArgs(args []string) (format, file string, err error) {
 			return "", "", fmt.Errorf("unknown flag: %s", a)
 		}
 		if file != "" {
-			return "", "", &store.SchemaError{Field: "file", Expect: "위치 인자 1개(FILE)"}
+			return "", "", &store.SchemaError{Field: "file", Expect: "one positional argument (FILE) required"}
 		}
 		file = a
 	}
 	if format == "" {
-		return "", "", &store.SchemaError{Field: "format", Expect: "jsonl|pam 값 필요"}
+		return "", "", &store.SchemaError{Field: "format", Expect: "jsonl|pam value required"}
 	}
 	return format, file, nil
 }
@@ -223,7 +223,7 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 	seen := map[string]bool{}
 	for i, r := range rows {
 		if r.Kind != "" && r.Kind != "knowledge" {
-			return nil, &store.SchemaError{Field: "kind", Expect: "knowledge 행만 재이식 가능"}
+			return nil, &store.SchemaError{Field: "kind", Expect: "only knowledge rows can be re-imported"}
 		}
 		hashInput, rec, se := rowHashRec(r)
 		if se != nil {
@@ -283,7 +283,7 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 			if errors.Is(err, store.ErrServerDown) {
 				return nil, err
 			}
-			return nil, fmt.Errorf("import: 배치 적립 실패: %v", err)
+			return nil, fmt.Errorf("import: batch apply failed: %v", err)
 		}
 		explicit := false
 		for i, p := range batch {
@@ -328,7 +328,7 @@ func syncKnowledgeIDSequence(ctx context.Context, st wire.Store) {
 	}
 	if _, err := wire.QueryOnce(ctx, st,
 		`SELECT setval('knowledge_id_seq', (SELECT COALESCE(MAX(id), 0) + 1 FROM knowledge), false)`, nil); err != nil {
-		fmt.Fprintf(os.Stderr, "[flint] import: id 시퀀스 동기 실패(경고 후 계속): %v\n", err)
+		fmt.Fprintf(os.Stderr, "[flint] import: id sequence sync failed (continuing after warning): %v\n", err)
 	}
 }
 
@@ -375,7 +375,7 @@ func restoreSupersede(ctx context.Context, st wire.Store, oc *importMigrateOutco
 				}
 				continue
 			}
-			fmt.Fprintf(os.Stderr, "[flint] import: id=%d 계보 복원 미지원 store — 스킵(→ %d)\n", oldID, newID)
+			fmt.Fprintf(os.Stderr, "[flint] import: id=%d lineage restore unsupported by store — skipped (→ %d)\n", oldID, newID)
 		}
 	}
 	return n, nil
@@ -428,7 +428,7 @@ func importJSONL(ctx context.Context, st wire.Store, rows []ExportRow) (*importM
 		}
 		newID, ok := resolveRef(ctx, st, oc, *r.SupersededBy)
 		if !ok {
-			fmt.Fprintf(os.Stderr, "[flint] import jsonl: id=%d의 superseded_by=%d 대상 부재 — 계보 스킵\n", r.ID, *r.SupersededBy)
+			fmt.Fprintf(os.Stderr, "[flint] import jsonl: id=%d superseded_by=%d target missing — lineage skipped\n", r.ID, *r.SupersededBy)
 			continue
 		}
 		oldID, ok := resolveRef(ctx, st, oc, r.ID)
@@ -456,7 +456,7 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 	for _, c := range res.Candidates {
 		if c.Kind != "knowledge" && c.Kind != "project" {
 			skipped++
-			fmt.Fprintf(os.Stderr, "[flint] import pam: 비 knowledge/project 후보 스킵(id=%s kind=%s)\n", c.ID, c.Kind)
+			fmt.Fprintf(os.Stderr, "[flint] import pam: non-knowledge/project candidate skipped (id=%s kind=%s)\n", c.ID, c.Kind)
 			continue
 		}
 		row := ExportRow{
@@ -476,7 +476,7 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 		rows = append(rows, row)
 	}
 	for _, s := range res.Skipped {
-		fmt.Fprintf(os.Stderr, "[flint] import pam: 스킵(id=%s status=%s)\n", s.ID, s.Status)
+		fmt.Fprintf(os.Stderr, "[flint] import pam: skipped (id=%s status=%s)\n", s.ID, s.Status)
 	}
 	oc, err := importRowsBatch(ctx, st, rows)
 	if err != nil {
@@ -503,7 +503,7 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 		newID, okFrom := pamID[p.From]
 		oldID, okTo := pamID[p.To]
 		if !okFrom || oldID <= 0 || !okTo || newID <= 0 {
-			fmt.Fprintf(os.Stderr, "[flint] import pam: supersedes(%s→%s) 대상 부재 — 계보 스킵\n", p.From, p.To)
+			fmt.Fprintf(os.Stderr, "[flint] import pam: supersedes(%s→%s) target missing — lineage skipped\n", p.From, p.To)
 			continue
 		}
 		refs = append(refs, [2]int{oldID, newID})
@@ -551,12 +551,12 @@ func enforceImportMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, 
 		return 0
 	}
 	b, err := json.Marshal(map[string]any{
-		"error": fmt.Sprintf("import 행 수 상한 초과(export_import_max_rows=%d)", max),
+		"error": fmt.Sprintf("import row limit exceeded (export_import_max_rows=%d)", max),
 		"max":   max,
 		"count": count,
 	})
 	if err != nil {
-		b = []byte(fmt.Sprintf(`{"error":"import 행 수 상한 초과","max":%d,"count":%d}`, max, count))
+		b = []byte(fmt.Sprintf(`{"error":"import row limit exceeded","max":%d,"count":%d}`, max, count))
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 3
@@ -581,7 +581,7 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 			// R19 A7: 원인(ENOENT/EACCES·경로)을 폐기하지 않고 expect에
 			// 포함한다(SchemaError 랩 유지 — exit 3 불변).
 			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "file",
-				Expect: "읽기 가능한 jsonl 파일: " + err.Error()}))
+				Expect: "readable jsonl file: " + err.Error()}))
 			return 3
 		}
 	} else {
@@ -606,7 +606,7 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 		oc, err = importJSONL(ctx, st, rows)
 	case "pam":
 		if ParsePAMFn == nil { // T10 seam 미준비
-			fmt.Fprintln(stdout, `{"error":"pam import 미지원"}`)
+			fmt.Fprintln(stdout, `{"error":"pam import unsupported"}`)
 			return 3
 		}
 		var res *PAMResult

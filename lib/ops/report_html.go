@@ -86,12 +86,12 @@ func ChipFor(label string, p TrendPoint, invert bool) deltaChip {
 	// '녹색 표기' 의미로만(회색은 .delta 기본색).
 	// v5.1 사람말 사본: "10%포인트 좋아짐" — pp·기호 조합 폐기(컨텍스트
 	// 없는 독자 기준 — 방향 화살표는 템플릿 CSS/색이 담당).
-	word := "좋아짐"
+	word := "improving"
 	if !good {
-		word = "나빠짐"
+		word = "worsening"
 	}
-	return deltaChip{Show: true, Text: sign + fmt.Sprint(d) + "%포인트 " + word,
-		Good: good, Label: label + " · 지난주 대비"}
+	return deltaChip{Show: true, Text: sign + fmt.Sprint(d) + " points " + word,
+		Good: good, Label: label + " · vs last week"}
 }
 
 // TrendRow — 추세 표 1행(Go 사전계산 — 템플릿 산술 금지).
@@ -111,7 +111,7 @@ func EstTok(runes int) int {
 func RenderDashboard(w io.Writer, d HtmlDashboard) error {
 	t, err := template.New("dashboard").Funcs(template.FuncMap{"EstTok": EstTok}).Parse(dashboardTmpl)
 	if err != nil {
-		return fmt.Errorf("report html: 템플릿: %w", err)
+		return fmt.Errorf("report html: template: %w", err)
 	}
 	return t.Execute(w, d)
 }
@@ -176,9 +176,9 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 		Rep:         rep,
 	}
 	if t := rep.Effect.Trend; t != nil {
-		d.ChipHit = ChipFor("회상 명중", t.HitPct, false)
-		d.ChipFallback = ChipFor("폴백", t.FallbackPct, true)
-		d.ChipTop1 = ChipFor("정합 1위", t.Top1Pct, false)
+		d.ChipHit = ChipFor("recall hit", t.HitPct, false)
+		d.ChipFallback = ChipFor("fallback", t.FallbackPct, true)
+		d.ChipTop1 = ChipFor("exact top-1", t.Top1Pct, false)
 		mk := func(name string, p TrendPoint, invert bool) TrendRow {
 			up := p.Delta >= 0
 			if invert {
@@ -188,17 +188,17 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 			if p.Delta < 0 {
 				sign = ""
 			}
-			word := "좋아짐"
+			word := "improving"
 			if !up {
-				word = "나빠짐"
+				word = "worsening"
 			}
 			return TrendRow{Name: name, Cur: p.Cur, Up: up,
-				DeltaText: fmt.Sprintf("지난주보다 %s%d%%포인트 %s", sign, p.Delta, word)}
+				DeltaText: fmt.Sprintf("vs last week %s%d points %s", sign, p.Delta, word)}
 		}
 		d.TrendRows = []TrendRow{
-			mk("회상 명중", t.HitPct, false),
-			mk("폴백 경유", t.FallbackPct, true),
-			mk("첫 결과 정답", t.Top1Pct, false),
+			mk("recall hit", t.HitPct, false),
+			mk("fallback used", t.FallbackPct, true),
+			mk("first result exact", t.Top1Pct, false),
 		}
 	}
 	// v8.1(사용자 지시 — 동적 스케일): 이상치 하루가 절대 최댓값 기준이
@@ -230,7 +230,7 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 			h := v * 100 / ref
 			if h > 100 {
 				h = 100
-				title += " · 기준(p90) 초과"
+				title += " · above p90 reference"
 			}
 			out[i] = BarSeg{H: fmt.Sprintf("%d%%", h), Title: title}
 		}
@@ -260,4 +260,4 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 }
 
 // timeNowUTC — 테스트 주입 접합면(고정 시각 주입).
-var timeNowUTC = func() string { return time.Now().Format("1월 2일") }
+var timeNowUTC = func() string { return time.Now().Format("Jan 2") }

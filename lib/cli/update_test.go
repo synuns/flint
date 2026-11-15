@@ -60,8 +60,8 @@ func TestChecksumFor(t *testing.T) {
 	if got, _ := checksumFor(sums, "flint_0.22.0_darwin_arm64.tar.gz"); got != "def0" {
 		t.Errorf("별표 항목 추출 실패: %q", got)
 	}
-	if _, err := checksumFor(sums, "없음.tar.gz"); err == nil {
-		t.Error("부재 항목 에러 아님")
+	if _, err := checksumFor(sums, "missing.tar.gz"); err == nil {
+		t.Error("missing entry should error")
 	}
 }
 
@@ -112,8 +112,8 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	updateTestSigAsset = "bm90LWEtc2ln" // base64 디코딩은 되지만 서명 불일치
 	t.Cleanup(func() { updateTestSigAsset = "" })
 	withUpdateServer(t, "9.9.9", newBin)
-	if _, err := applyUpdate("9.9.9"); err == nil || !strings.Contains(err.Error(), "거부") {
-		t.Fatalf("쓰레기 서명 = %v, want 거부", err)
+	if _, err := applyUpdate("9.9.9"); err == nil || !strings.Contains(err.Error(), "refus") {
+		t.Fatalf("garbage signature = %v, want refused", err)
 	}
 	// (a-2) 같은 상태에서 --insecure-skip-signature → 통과.
 	updateSkipSignature = true
@@ -128,8 +128,8 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	// (b) .sig 부재 + Configured → 거부.
 	releasePubPEM = pub
 	withUpdateServer(t, "9.8.0", newBin)
-	if _, err := applyUpdate("9.8.0"); err == nil || !strings.Contains(err.Error(), "부재") {
-		t.Fatalf(".sig 부재 = %v, want 거부", err)
+	if _, err := applyUpdate("9.8.0"); err == nil || !strings.Contains(err.Error(), "missing") {
+		t.Fatalf(".sig missing = %v, want refused", err)
 	}
 
 	// (c) 전환 모드(빈 공개키) + .sig 없음 → 통과(기존 호환).

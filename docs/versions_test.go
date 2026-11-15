@@ -40,9 +40,10 @@ var versionDocContracts = []struct {
 		"AGENTS.md",
 		"flint mcp",
 	}},
+	// v1.5.0 T10: 문서 영문화 — 단언도 영어 문구로 동반 갱신.
 	{name: "TestTuningGuideV0240", doc: "TUNING.md", wants: []string{
-		"조정 가이드", "재조정 트리거", "daily_retention_days", "backup_interval_h",
-		"vocab_tags", "방어 상한",
+		"Tuning guide", "Retuning triggers", "daily_retention_days", "backup_interval_h",
+		"vocab_tags", "defensive cap",
 	}},
 	// v0.44.0 T4: 릴리스 엔트리는 재무장본 PLAN의 에라 표·헤더로 기록
 	// (§14 부재 — 병인 ⑤ 해소 완결 선언).
@@ -69,6 +70,10 @@ var versionDocContracts = []struct {
 	// v1.4.0 T4: PAM v1.0 내보내기·사이드카·부채 3종 이행 기록 존재 계약.
 	{name: "TestVersion0140Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.4.0", "PAM",
+	}},
+	// v1.5.0 T10: 영어 통일·TUI 4화면·docs 영문화 이행 기록 존재 계약.
+	{name: "TestVersion0150Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.5.0", "TUI",
 	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
@@ -132,7 +137,7 @@ var versionDocContracts = []struct {
 	// backupAgeWarn 근거 문장이 doctor의 warn 조건(age >= backupAgeWarn)과
 	// 모순되지 않는지: 2회 연속 실패는 경고 유예, 3회째부터 경고임을 명시.
 	{name: "TestTuningBackupAgeWarnRationaleMatchesCode", doc: "TUNING.md", wants: []string{
-		"2회 연속 실패까지는 경고하지 않고",
+		"does not warn through two consecutive failures",
 	}},
 
 	// v0102_docs_test.go
@@ -219,15 +224,15 @@ var versionDocContracts = []struct {
 	// v0190_docs_test.go — METRICS.md는 GSM 목표 4종·지표명·증거 등급·금지조항의 단일 소스.
 	{name: "TestVersion0190Milestone", doc: "HISTORY.md", wants: []string{"v0.19.0", "효과 계측"}},
 	{name: "TestMetricsDocContract", doc: "METRICS.md", wants: []string{
-		"목표→신호→지표", // GSM 원칙
-		"G1 회상 명중", // 목표 4종
-		"G2 재발견 저지",
-		"G3 자산 건전성",
-		"G4 회상 우선 정착",
+		"Goal→Signal→Metric", // GSM 원칙
+		"G1 recall hit", // 목표 4종
+		"G2 rediscovery block",
+		"G3 asset health",
+		"G4 recall-first habit",
 		"hit_pct", "near_pct", "fallback_pct", "dup_prevented",
 		"reuse_pct", "dead_pct", "read_write_pairs", "pair_pct",
 		"Tier 1", "Tier 2", // 증거 등급
-		"금지조항", // 반론 방어
+		"Prohibitions", // 반론 방어
 	}},
 
 	// v0200_docs_test.go — 신지표·계측 원천 3테이블·폴백 규칙(문서-코드 정합).
@@ -237,9 +242,9 @@ var versionDocContracts = []struct {
 	{name: "TestMetricsDocV0200", doc: "METRICS.md", wants: []string{
 		"recall_led_pct", "chain_pct",
 		"session_starts", "hot_events",
-		"구배포·계측 첫일", // 시간창 폴백 조건 문서화
-		"최근 30일 hot 노출 기록 제외",
-		"기저율 셔플 이연",
+		"older deployments and first instrumentation days", // 시간창 폴백 조건 문서화
+		"excluding hot exposure within the last 30 days",
+		"baseline shuffle deferred",
 	}},
 }
 
@@ -518,7 +523,7 @@ func TestExit1DisambiguationDocs(t *testing.T) {
 	if !strings.Contains(docStr(t, "../README.ko.md"), "무결과 침묵") && !strings.Contains(docStr(t, "../README.ko.md"), "출력 없는 exit 1") {
 		t.Error("README.ko.md exit 1 구분 문구 누락")
 	}
-	if !strings.Contains(docStr(t, "TUNING.md"), "무출력") {
+	if !strings.Contains(docStr(t, "TUNING.md"), "no output") {
 		t.Error("TUNING.md exit 1 구분 문구 누락")
 	}
 }
@@ -792,10 +797,10 @@ func TestHistoryEntryDatesMatchMerges(t *testing.T) {
 func TestCliContractExitSemantics(t *testing.T) {
 	s := docStr(t, "contracts/cli.md")
 	for _, want := range []string{
-		"무효 인자·검증 실패",
-		"제로히트 침묵",
+		"invalid arguments and validation failures",
+		"zero-hit silence",
 		"isError",
-		"행별 JSONL",
+		"per-row JSONL",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("contracts/cli.md에 %q 누락", want)

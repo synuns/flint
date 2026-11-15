@@ -38,7 +38,7 @@ func TestMaybeSessionKnowledge(t *testing.T) {
 	if got["status"] != "pending" || got["confidence"] != 0.5 {
 		t.Errorf("적립 상태 = %v/%v, want pending/0.5", got["status"], got["confidence"])
 	}
-	if !strings.Contains(got["topic"].(string), "세션[") {
+	if !strings.Contains(got["topic"].(string), "session[") {
 		t.Errorf("topic = %v", got["topic"])
 	}
 	// v0.27.2: tags는 []string{"process"}로 전달돼야 normalizeTags를

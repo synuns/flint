@@ -18,10 +18,10 @@ import (
 
 // NudgePendingLine — v0.11.0 R3 Stop 넛지 additionalContext 짧은 지시문이자
 // SessionStart plain 안내 1줄(동일 문구 — v0.34.3 상수 2종 병합).
-const NudgePendingLine = "flint: 증류 대기 — flint nudge"
+const NudgePendingLine = "flint: distillation pending — flint nudge"
 
 // NudgeReadHint — SessionStart 안내에 병합되는 read 촉진 힌트(v0.9.5).
-const NudgeReadHint = "작업 전 flint read <쿼리> — 기존 지식 확인"
+const NudgeReadHint = "run flint read <query> before working — check existing knowledge"
 
 // NudgeRecallStartLine — v0.18.1: 회상 부재 마커(recall-hint.json)의
 // SessionStart 안내 1줄. done이 오늘 회상 0회·기록 임계 상태를 마커로
@@ -29,7 +29,7 @@ const NudgeReadHint = "작업 전 flint read <쿼리> — 기존 지식 확인"
 // Stop stdout으로만 나가 안 보이던 갭 폐쇄 — R3 후속).
 // v0.18.2: 파일 분리(recall-hint.json) — 증류 대기 마커(pending-distill,
 // 내구)와 수명 주기가 달라 같은 파일을 쓰면 서로를 덮어썼다.
-const NudgeRecallStartLine = "flint: 지난 세션 회상 없이 기록만 — 작업 전 flint read <쿼리>부터"
+const NudgeRecallStartLine = "flint: last session only wrote, never recalled — start with flint read <query>"
 
 // NudgeReasonRecall — done 회상 부재 마커의 Reason 값(진단 표시).
 const NudgeReasonRecall = "recall"
@@ -152,7 +152,7 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			line := NudgePendingLine + " · " + NudgeReadHint
 			if n, ok := pendingCount(ctx, st); ok {
 				if max := knowledge.WriteThresholds(ctx, st).PendingMax; n > max { // 리뷰 ④: 초과 계약(maintain·sessionhook와 정렬)
-					line = fmt.Sprintf("flint: 증류 대기 %d건(상한 %d) — flint maintain --dup-suspects · %s", n, max, NudgeReadHint)
+					line = fmt.Sprintf("flint: %d items pending distillation (limit %d) — flint maintain --dup-suspects · %s", n, max, NudgeReadHint)
 				}
 			}
 			fmt.Fprintln(stdout, line)

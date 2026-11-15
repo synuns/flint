@@ -47,7 +47,7 @@ func TestDoneRecallWarn(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0(경고도 종료 불가 — §13)", code)
 	}
-	if !strings.Contains(out, `"status":"recall"`) || !strings.Contains(out, "회상") {
+	if !strings.Contains(out, `"status":"recall"`) || !strings.Contains(out, "recalls") {
 		t.Fatalf("out=%s, want recall 경고", out)
 	}
 }

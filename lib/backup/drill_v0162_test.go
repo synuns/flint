@@ -75,8 +75,8 @@ func TestDropDBVerifiesResidue(t *testing.T) {
 	if err == nil {
 		t.Fatalf("잔존인데 성공 반환")
 	}
-	if !strings.Contains(err.Error(), "잔존") ||
-		!strings.Contains(err.Error(), "수동 DROP 필요") {
+	if !strings.Contains(err.Error(), "still present") ||
+		!strings.Contains(err.Error(), "manual DROP required") {
 		t.Fatalf("잔존 에러 아님: %v", err)
 	}
 	var after int

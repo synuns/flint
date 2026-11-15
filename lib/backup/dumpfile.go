@@ -11,10 +11,10 @@ import (
 )
 
 // ErrMaskedDump — 마스킹 덤프는 진단·공유용 비복원 아티팩트다.
-var ErrMaskedDump = errors.New("backup: 마스킹 덤프는 복원 대상이 아님(진단·공유 전용)")
+var ErrMaskedDump = errors.New("backup: masked dump is not restorable (diagnostics/sharing only)")
 
 // ErrKeyPathRequired — 암호화 덤프인데 키 경로가 제공되지 않음.
-var ErrKeyPathRequired = errors.New("backup: 암호화 덤프 — 복호 키 경로 필요")
+var ErrKeyPathRequired = errors.New("backup: encrypted dump — decryption key path required")
 
 // MaskDumpHeader — 마스킹 덤프 파일 선두 마커(restore·drill 거부 근거).
 const MaskDumpHeader = "-- flint-masked-dump: never restore (masked diagnostic artifact)"

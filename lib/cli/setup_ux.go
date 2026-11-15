@@ -74,9 +74,9 @@ func (u *setupUX) Summary(next []string) {
 		return
 	}
 	if u.isTTY {
-		fmt.Fprintf(u.w, "\n"+ansiBold+"\n", "다음 단계")
+		fmt.Fprintf(u.w, "\n"+ansiBold+"\n", "Next steps")
 	} else {
-		fmt.Fprintln(u.w, "다음 단계:")
+		fmt.Fprintln(u.w, "Next steps:")
 	}
 	for i, n := range next {
 		fmt.Fprintf(u.w, "  %d. %s\n", i+1, n)

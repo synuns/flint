@@ -346,7 +346,7 @@ func TestRunImportMigratePAMUnsupported(t *testing.T) {
 	if code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out)
 	}
-	if !strings.Contains(out, "pam import 미지원") {
+	if !strings.Contains(out, "pam import unsupported") {
 		t.Fatalf("미지원 문구 부재: %s", out)
 	}
 }

@@ -115,7 +115,7 @@ func PAMContentHash(content string) string {
 func pamUUIDv4() (string, error) {
 	var b [16]byte
 	if _, err := rand.Read(b[:]); err != nil {
-		return "", fmt.Errorf("pam export_id 발급 실패: %w", err)
+		return "", fmt.Errorf("pam export_id issue failed: %w", err)
 	}
 	b[6] = (b[6] & 0x0f) | 0x40 // version 4
 	b[8] = (b[8] & 0x3f) | 0x80 // variant 10xx
@@ -166,11 +166,11 @@ func toPAMExportMemory(r ExportRow) pamExportMemory {
 func pamChecksum(memories []pamExportMemory) (string, error) {
 	memBytes, err := json.Marshal(memories)
 	if err != nil {
-		return "", fmt.Errorf("pam memories 직렬화 실패: %w", err)
+		return "", fmt.Errorf("pam memories marshal failed: %w", err)
 	}
 	canonical, err := jsoncanonicalizer.Transform(memBytes)
 	if err != nil {
-		return "", fmt.Errorf("pam JCS 정규화 실패: %w", err)
+		return "", fmt.Errorf("pam JCS normalization failed: %w", err)
 	}
 	sum := sha256.Sum256(canonical)
 	return "sha256:" + hex.EncodeToString(sum[:]), nil
@@ -253,7 +253,7 @@ func FormatPAM(rows []ExportRow, exportedBy string) ([]byte, error) {
 	enc.SetEscapeHTML(false) // 문서 가독성 — <>& 이스케이프 불필요(PAM 소비자는 json 표준)
 	enc.SetIndent("", "  ")
 	if err := enc.Encode(doc); err != nil {
-		return nil, fmt.Errorf("pam 문서 직렬화 실패: %w", err)
+		return nil, fmt.Errorf("pam document marshal failed: %w", err)
 	}
 	return buf.Bytes(), nil
 }

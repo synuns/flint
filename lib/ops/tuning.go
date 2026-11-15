@@ -92,7 +92,7 @@ func TuningMetaKeys() []TuningMetaKey {
 	intPositive := func(key string) func(string) error {
 		return func(v string) error {
 			if n, err := strconv.Atoi(v); err != nil || n <= 0 {
-				return fmt.Errorf("%s: 양의 정수 필요", key)
+				return fmt.Errorf("%s: must be a positive integer", key)
 			}
 			return nil
 		}
@@ -103,7 +103,7 @@ func TuningMetaKeys() []TuningMetaKey {
 		{Key: "backup_interval_h", Default: strconv.Itoa(backup.DefaultBackupIntervalH), Validate: intPositive("backup_interval_h")},
 		{Key: "exposure_profile", Default: "normal", Validate: func(v string) error {
 			if v != "normal" && v != "minimal" {
-				return fmt.Errorf("exposure_profile: normal|minimal 필요")
+				return fmt.Errorf("exposure_profile: must be normal|minimal")
 			}
 			return nil
 		}},
@@ -114,7 +114,7 @@ func TuningMetaKeys() []TuningMetaKey {
 		// 백업·restore 불변). true면 자동·수동 백업이 age 암호화된다.
 		{Key: "backup_encrypt", Default: "false", Validate: func(v string) error {
 			if v != "true" && v != "false" {
-				return fmt.Errorf("backup_encrypt: true|false 필요")
+				return fmt.Errorf("backup_encrypt: must be true|false")
 			}
 			return nil
 		}},
@@ -129,7 +129,7 @@ func vocabListValidator(key string) func(string) error {
 		}
 		for _, part := range strings.Split(v, ",") {
 			if strings.TrimSpace(part) == "" {
-				return fmt.Errorf("%s: 빈 원소 금지(콤마 목록)", key)
+				return fmt.Errorf("%s: empty items are not allowed (comma list)", key)
 			}
 		}
 		return nil
@@ -353,12 +353,12 @@ func tuningSet(ctx context.Context, st wire.Store, key, val string, stdout io.Wr
 		}
 	}
 	if err == nil && !reflected {
-		err = fmt.Errorf("파싱 폴백 — 무효 값")
+		err = fmt.Errorf("parse fallback — invalid value")
 	}
 	if err != nil || !reflected {
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
 			Field:  key,
-			Expect: "유효 값(기본 " + info.Default + ", TUNING §2 참조)",
+			Expect: "a valid value (default " + info.Default + ", see TUNING §2)",
 		}))
 		return 3
 	}
@@ -367,7 +367,7 @@ func tuningSet(ctx context.Context, st wire.Store, key, val string, stdout io.Wr
 	if val == "0" && zeroMeansUnset(key) {
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
 			Field:  key,
-			Expect: "0 불가(미설정 의미) — 기본 복귀는 reset",
+			Expect: "0 is not allowed (means unset) — use reset to restore defaults",
 		}))
 		return 3
 	}
@@ -413,7 +413,7 @@ func tuningReset(ctx context.Context, st wire.Store, key string, stdout io.Write
 }
 
 func tuningUnknownKey(stdout io.Writer, key string) int {
-	fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "tuning", Expect: "알려진 키: " + strings.Join(tuningKeyList()[:5], ", ") + ", …"}))
+	fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "tuning", Expect: "known keys: " + strings.Join(tuningKeyList()[:5], ", ") + ", …"}))
 	return 3
 }
 

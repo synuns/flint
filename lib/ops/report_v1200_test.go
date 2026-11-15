@@ -174,10 +174,10 @@ func TestReportCost(t *testing.T) {
 	}
 	// 절약 하한 — dedup 논리-물리 공식(Σdup 2 × 평균 기록 바이트 100).
 	numEq(t, "cost.savings_lower_bound_bytes", cost["savings_lower_bound_bytes"], 200)
-	strEq(t, "cost.savings_label", cost["savings_label"], "절약 하한 추정")
+	strEq(t, "cost.savings_label", cost["savings_label"], "savings lower-bound estimate")
 	// 주입 원가 — Σhit(6×2=12) × 평균 요약 바이트 100. 절약 주장 아님 라벨.
 	numEq(t, "cost.hit_injection_cost_bytes", cost["hit_injection_cost_bytes"], 1200)
-	strEq(t, "cost.hit_cost_label", cost["hit_cost_label"], "주입 원가")
+	strEq(t, "cost.hit_cost_label", cost["hit_cost_label"], "injection cost")
 
 	read, ok := cost["read"].(map[string]any)
 	if !ok {

@@ -30,12 +30,12 @@ func BackupKeep(getKV func(string) (string, error)) int {
 	}
 	v, err := getKV(BackupKeepKey)
 	if err != nil {
-		log.Printf("[flint] backup: %s 읽기 실패(%v) — 기본값 %d", BackupKeepKey, err, DefaultBackupKeep)
+		log.Printf("[flint] backup: failed to read %s (%v) — default %d", BackupKeepKey, err, DefaultBackupKeep)
 		return DefaultBackupKeep
 	}
 	n, perr := strconv.Atoi(strings.TrimSpace(v))
 	if perr != nil || n < 1 {
-		log.Printf("[flint] backup: %s=%q 무효 — 기본값 %d", BackupKeepKey, v, DefaultBackupKeep)
+		log.Printf("[flint] backup: %s=%q invalid — default %d", BackupKeepKey, v, DefaultBackupKeep)
 		return DefaultBackupKeep
 	}
 	return n

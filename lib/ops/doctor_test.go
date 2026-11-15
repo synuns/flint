@@ -776,7 +776,7 @@ func TestDoctorSecretsScanRowLimitReached(t *testing.T) {
 		return nil, nil
 	}}
 	c := checkSecrets(context.Background(), f)
-	if c.Status != "warn" || !strings.Contains(c.Detail, "행 상한") {
+	if c.Status != "warn" || !strings.Contains(c.Detail, "row limit") {
 		t.Errorf("행 상한 케이스 = %+v", c)
 	}
 }
@@ -797,7 +797,7 @@ func TestDoctorSecretsScanSessionsError(t *testing.T) {
 		return nil, nil
 	}}
 	c := checkSecrets(context.Background(), f)
-	if c.Status != "warn" || !strings.Contains(c.Detail, "세션 조회 실패") {
+	if c.Status != "warn" || !strings.Contains(c.Detail, "session query failed") {
 		t.Errorf("세션 조회 실패 케이스 = %+v", c)
 	}
 }
@@ -821,7 +821,7 @@ func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 	if c.Status != "warn" || !strings.Contains(c.Detail, "github-token#7") {
 		t.Errorf("지식 발견 유실 = %+v", c)
 	}
-	if !strings.Contains(c.Detail, "세션 조회 실패") {
+	if !strings.Contains(c.Detail, "session query failed") {
 		t.Errorf("격차 미주석 = %+v", c)
 	}
 }
@@ -861,7 +861,7 @@ func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
 		return nil, nil
 	}}
 	c := checkMetaHygiene(context.Background(), f)
-	if c.Status != "warn" || !strings.Contains(c.Detail, "미지 키 1건") {
+	if c.Status != "warn" || !strings.Contains(c.Detail, "1 unknown keys") {
 		t.Fatalf("미지 키 경고 = %+v", c)
 	}
 	if strings.Contains(c.Detail, "[flint]") {

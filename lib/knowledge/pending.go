@@ -62,7 +62,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			jsonMode = true // v0.32.0: MCP·스크립트용 기계 판독 출력
 			continue
 		}
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint pending [--json]", a)))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — usage: flint pending [--json]", a)))
 		return 3
 	}
 	if err := st.Ping(ctx); err != nil {
@@ -114,7 +114,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		// 어긋나게 하던 모순 수선, 텍스트 모드에도 동일 적용.
 		v := verdictFor(it, th, now, actives)
 		if it.ValidAt.IsZero() {
-			v = pendingVerdict{"hold", "valid_at 파싱 불가 — 데이터 확인 필요"}
+			v = pendingVerdict{"hold", "valid_at unparsable — data check required"}
 		}
 		counts[v.Kind]++
 		// v0.33.0(패치 감사 1): zero valid_at의 age 표기 0 보정 복원 —
@@ -130,7 +130,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 				Topic: OneLine(it.Topic, 80), Why: OneLine(v.Why, 120),
 			})
 		} else {
-			fmt.Fprintf(stdout, "%d|%s|%d일|%d자|%s|%s\n",
+			fmt.Fprintf(stdout, "%d|%s|%dd|%dr|%s|%s\n",
 				it.ID, verdictLabel(v.Kind), age, summaryLen(it.Summary), originLabel(it.Origin), OneLine(it.Topic, 48))
 			if v.Why != "" {
 				fmt.Fprintf(stdout, "  ↳ %s\n", OneLine(v.Why, 70))
@@ -156,7 +156,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	}
 	total := counts["promote"] + counts["merge"] + counts["expire"] + counts["hold"]
 	if total == 0 {
-		fmt.Fprintln(stdout, `{"status":"ok","pending":0,"next":"세션 지식화·import가 다시 쌓는다"}`)
+		fmt.Fprintln(stdout, `{"status":"ok","pending":0,"next":"repopulated by session-end knowledge capture and import"}`)
 		return 0
 	}
 	fmt.Fprintf(stdout, "{\"status\":\"ok\",\"pending\":%d,\"promote\":%d,\"merge\":%d,\"expire\":%d,\"hold\":%d}\n",
@@ -172,17 +172,17 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 func verdictFor(it pendingItem, th store.Thresholds, now time.Time, actives [][]any) pendingVerdict {
 	age := now.Sub(it.ValidAt)
 	if d := th.PendingAgeDays; d > 0 && age > time.Duration(d)*24*time.Hour {
-		return pendingVerdict{"expire", fmt.Sprintf("%d일 경과(기준 %d일) — 만료 검토: maintain --invalidate --id %d --reason review", int(age.Hours()/24), d, it.ID)}
+		return pendingVerdict{"expire", fmt.Sprintf("%dd elapsed (threshold %dd) — expire review: maintain --invalidate --id %d --reason review", int(age.Hours()/24), d, it.ID)}
 	}
 	// 병합 후보 — 유사 active 탐색(사전 조회 세트에서 접두 일치).
 	if sims := matchTopicPrefix(topicSimilarityKey(it.Topic), actives); len(sims) > 0 {
-		return pendingVerdict{"merge", fmt.Sprintf("유사 active %d건(id %s) — approve --id %d --supersede OLD 검토",
+		return pendingVerdict{"merge", fmt.Sprintf("similar active %d (id %s) — review approve --id %d --supersede OLD",
 			len(sims), joinInts(sims), it.ID)}
 	}
 	if age <= time.Duration(th.PendingPromoteDays)*24*time.Hour && len([]rune(it.Summary)) >= th.PendingPromoteMinRunes {
-		return pendingVerdict{"promote", "최근 적립·본문 충분 — approve --id " + fmt.Sprint(it.ID)}
+		return pendingVerdict{"promote", "recent write with sufficient body — approve --id " + fmt.Sprint(it.ID)}
 	}
-	return pendingVerdict{"hold", "본문 짧음 또는 관측 중 — 다음 검수까지 보류"}
+	return pendingVerdict{"hold", "short body or under observation — hold until next review"}
 }
 
 // fetchActiveTopicRows — 유사 판정용 active (id, topic) 전체 1회 조회
@@ -201,7 +201,8 @@ func fetchActiveTopicRows(ctx context.Context, st wire.Store) [][]any {
 // "세션[agent] " 공통 접두를 공유해 12룬 접두 비교가 agent 라벨+첫 1룬으로
 // 퇴화 — 세션 접두는 제거한 본문 키로 비교한다.
 func topicSimilarityKey(topic string) string {
-	if i := strings.Index(topic, "] "); strings.HasPrefix(topic, "세션[") && i > 0 {
+	if i := strings.Index(topic, "] "); i > 0 &&
+		(strings.HasPrefix(topic, "session[") || strings.HasPrefix(topic, "세션[")) {
 		return topic[i+2:]
 	}
 	return topic
@@ -240,13 +241,13 @@ func originLabel(origin string) string {
 func verdictLabel(kind string) string {
 	switch kind {
 	case "promote":
-		return "승격"
+		return "promote"
 	case "merge":
-		return "병합"
+		return "merge"
 	case "expire":
-		return "만료"
+		return "expire"
 	default:
-		return "보류"
+		return "hold"
 	}
 }
 

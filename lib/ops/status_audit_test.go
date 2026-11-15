@@ -116,7 +116,7 @@ func TestStatusAsOfPollutedHashRejected(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("오염 해시 exit=%d, want 1 — %s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "문자셋 위반") {
+	if !strings.Contains(out.String(), "invalid characters") {
 		t.Errorf("문자셋 위반 문구 미포함 — %s", out.String())
 	}
 	for _, q := range st.queries {

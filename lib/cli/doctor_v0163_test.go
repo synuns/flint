@@ -67,7 +67,7 @@ func TestDoctorZeroNearMinReadOverride(t *testing.T) {
 			return nil, nil
 		})}
 	c := checkZeroNear(context.Background(), f)
-	if c.Status != "ok" || !strings.Contains(c.Detail, "표본 부족") {
+	if c.Status != "ok" || !strings.Contains(c.Detail, "insufficient samples") {
 		t.Errorf("오버라이드 표본 하한 100 = %s(%q), want ok+표본 부족", c.Status, c.Detail)
 	}
 }

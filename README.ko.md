@@ -186,6 +186,10 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 
 `flint read`는 구문 검색이 무결과면 단어 단위 fallback으로 재시도합니다.
 
+### 대화형 TUI (v1.5.0)
+
+`flint setup`(무인자) 위저드와 `pending`·`export`·`report`의 `--tui` 4화면 — 플래그 경로·출력은 불변이고 비터미널은 자동 폴백.
+
 운영: [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝: [docs/TUNING.md](docs/TUNING.md) · 메트릭: [docs/METRICS.md](docs/METRICS.md)
 
 ---

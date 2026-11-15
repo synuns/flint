@@ -12,6 +12,8 @@ import (
 	"io"
 	"os/exec"
 	"strings"
+
+	"github.com/synuns/flint/lib/tui"
 )
 
 // composeRunFn — docker compose 실행 seam(var). 실패 시 stderr를 에러에
@@ -51,8 +53,8 @@ func SetupSteps() []string {
 
 // setupNext — ③④ 안내. 실행이 아니라 다음 수동 단계 안내다(비간섭 원칙).
 var setupNext = []string{
-	"make seed — 예시 데이터 시딩",
-	"flint-plugin/ 디렉터리를 플러그인 경로에 설치",
+	"make seed — seed demo data",
+	"install the flint-plugin/ directory into your plugin path",
 }
 
 // setupSummary — 진행 요약 한 줄 JSON 모양.
@@ -77,43 +79,43 @@ func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX)
 	status := "ok"
 
 	if ux != nil {
-		ux.Step("Doltgres 기동 (docker compose up)")
+		ux.Step("Start Doltgres (docker compose up)")
 	}
 	if err := composeUpFn(ctx); err != nil {
 		// docker 미설치(exec not found)는 전용 안내로 구분한다.
 		if errors.Is(err, exec.ErrNotFound) {
-			warns = append(warns, "docker 미설치 — https://docs.docker.com/get-docker/ 설치 후 재실행")
+			warns = append(warns, "docker not installed — install from https://docs.docker.com/get-docker/ and re-run")
 		} else {
-			warns = append(warns, "docker compose up 실패 — docker 기동 후 재실행: "+err.Error())
+			warns = append(warns, "docker compose up failed — start docker and re-run: "+err.Error())
 		}
 		if ux != nil {
 			ux.Fail(err)
 		}
 	} else if ux != nil {
-		ux.Success("up --wait 완료")
+		ux.Success("up --wait complete")
 	}
 	if ux != nil {
-		ux.Step("DB 연결 확인 (ping)")
+		ux.Step("Check DB connection (ping)")
 	}
 	if err := ping(); err != nil {
 		status = "degraded"
-		warns = append(warns, "DB ping 실패 — make up 후 flint setup 재실행")
+		warns = append(warns, "DB ping failed — run make up then flint setup again")
 		if ux != nil {
 			ux.Fail(err)
 		}
 	} else {
 		if ux != nil {
-			ux.Success("연결됨")
-			ux.Step("마이그레이션")
+			ux.Success("connected")
+			ux.Step("Migration")
 		}
 		if err := migrate(); err != nil {
 			status = "degraded"
-			warns = append(warns, "migrate 실패: "+err.Error())
+			warns = append(warns, "migrate failed: "+err.Error())
 			if ux != nil {
 				ux.Fail(err)
 			}
 		} else if ux != nil {
-			ux.Success("스키마 동기")
+			ux.Success("schema synced")
 		}
 	}
 
@@ -167,6 +169,24 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 	return 0
 }
 
+// setupWizardTTYFn — v1.5.0 T6 위저드 진입 터미널 판정 seam. 기존
+// setupUX TTY 감지와 동일 기준(커맨드 stdout writer) — 파이프·리다이렉
+// 션·CI는 위저드 미진입(기존 안내 경로 유지 계약).
+var setupWizardTTYFn = func(stdout io.Writer) bool {
+	return newSetupUX(stdout, false).isTTY
+}
+
+// setupWizardFn — v1.5.0 T6 위저드 실행 seam(테스트 교체). (chosen, true)면
+// 위저드 완료 — chosen은 플래그 등가물(--exposure 값), ("", false)면 취소·
+// 실패로 기존 no-arg 경로 폴백(부작용 없음).
+var setupWizardFn = func() (string, bool) {
+	answers, err := tui.RunSetupWizard()
+	if err != nil {
+		return "", false
+	}
+	return answers.Exposure, true
+}
+
 // runSetup — 커맨드 진입점. --dry는 단계만 출력(exec·쿼리 없음).
 // --json(v0.17.0 R2)은 기존 한 줄 JSON 요약 완전 불변, 미지정 시 TTY면
 // setupUX 시각 진행으로 출력한다(동작 계약은 동일 — ping·migrate 동일
@@ -174,6 +194,8 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 // --update-rules(v0.9.7 R1)는 스킬 싱크만 수행하고 즉시 반환 — compose·
 // migrate 체인에 끼지 않는다. --exposure(v0.11.0 R1)도 프로파일 기록만,
 // --mcp(v0.16.5 R1)도 하네스 MCP 등록만 수행하고 즉시 반환한다.
+// v1.5.0 T6: 인자 없는 TTY 실행은 huh 위저드로 진입(플래그 등가물을
+// 조립해 기존 함수 재호출 — 플래그 경로·비터미널 경로는 불변).
 // store-free 디스패치로 st== nil일 수 있다
 // (첫 실행) — ping/migrate는 degraded 경고로 연기하고 1단계 compose는
 // 수행한다.
@@ -219,18 +241,42 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	if updateRules {
 		return runUpdateRules(stdout, srcOverride)
 	}
+	// v1.5.0 T6: 인자 없음 + 터미널이면 huh 위저드로 — exposure 선택 →
+	// 백업 키 안내 후 기존 체인·플래그 등가물 기록을 기존 함수로 수행
+	// (위저드는 값 조립만). 취소·비터미널은 기존 no-arg 경로 불변.
+	if len(args) == 0 && setupWizardTTYFn(stdout) {
+		if chosen, ok := setupWizardFn(); ok {
+			if code := runSetupChain(ctx, st, stdout, false); code != 0 {
+				return code
+			}
+			return runSetupExposure(ctx, st, chosen, stdout)
+		}
+	}
+	return runSetupChain(ctx, st, stdout, jsonMode)
+}
+
+// setupPingMigrate — st nil 가드 ping/migrate 클로저(기존 runSetup 본체
+// 추출 — 위저드 경로가 동일 클로저를 재사용한다).
+func setupPingMigrate(ctx context.Context, st Store) (func() error, func() error) {
 	ping := func() error {
 		if st == nil {
-			return errors.New("store unavailable (첫 실행 — compose 후 재시도)")
+			return errors.New("store unavailable (first run — retry after compose)")
 		}
 		return st.Ping(ctx)
 	}
 	migrate := func() error {
 		if st == nil {
-			return errors.New("store unavailable (첫 실행 — compose 후 재시도)")
+			return errors.New("store unavailable (first run — retry after compose)")
 		}
 		return st.Migrate(ctx)
 	}
+	return ping, migrate
+}
+
+// runSetupChain — setup 주 체인 실행(기존 runSetup 꼬리 추출, 계약
+// 불변). --json·non-TTY는 기존 한 줄 JSON 요약, TTY는 setupUX 시각 진행.
+func runSetupChain(ctx context.Context, st Store, stdout io.Writer, jsonMode bool) int {
+	ping, migrate := setupPingMigrate(ctx, st)
 	if jsonMode {
 		line, code := RunSetup(ctx, ping, migrate)
 		fmt.Fprintln(stdout, line)
@@ -334,14 +380,14 @@ func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, 
 	var warns []string
 	if err := composeDownFn(ctx, purge); err != nil {
 		status = "degraded"
-		warns = append(warns, "정지 실패 — 수동 실행: "+manual+": "+err.Error())
+		warns = append(warns, "stop failed — run manually: "+manual+": "+err.Error())
 	}
 
 	b, err := json.Marshal(teardownSummary{
 		Status:   status,
 		Purge:    purge,
 		Warnings: warns,
-		Next:     "컨테이너 정지 안내: " + manual,
+		Next:     "to stop the containers: " + manual,
 	})
 	if err != nil {
 		fmt.Fprintln(stdout, errLine(err))

@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -112,6 +113,30 @@ func TestHotManifestHasNoSessionID(t *testing.T) {
 		return
 	}
 	t.Fatal("flint_hot 도구 정의 없음")
+}
+
+// TestToolManifestEnglish — v1.5.0 T4: 도구 description·파라미터
+// description은 LLM 소비자 대상이라 영어다(한글 글자 부재 단언).
+func TestToolManifestEnglish(t *testing.T) {
+	hangul := regexp.MustCompile(`[가-힣]`)
+	for _, td := range ToolsManifest() {
+		if hangul.MatchString(td.Description) {
+			t.Errorf("%s Description에 한글 잔존: %q", td.Name, td.Description)
+		}
+		props, ok := td.InputSchema["properties"].(map[string]any)
+		if !ok {
+			continue
+		}
+		for key, p := range props {
+			m, ok := p.(map[string]any)
+			if !ok {
+				continue
+			}
+			if d, ok := m["description"].(string); ok && hangul.MatchString(d) {
+				t.Errorf("%s 파라미터 %q description에 한글 잔존: %q", td.Name, key, d)
+			}
+		}
+	}
 }
 
 // TestDispatchReadRoundtrip — flint_read{query,tag,limit} → cli read 조립·출력/코드 전달.

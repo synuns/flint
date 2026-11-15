@@ -121,7 +121,7 @@ func (r *Repo) Migrate(ctx context.Context) error {
 			`INSERT INTO meta (key, value) VALUES ('views_hash', $1), ('views_sig', $2)
 			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
 			hashSQL(viewsSQL), sig); err != nil {
-			return fmt.Errorf("views: hash/sig 기록: %w", err)
+			return fmt.Errorf("views: record hash/sig: %w", err)
 		}
 		return nil
 	}, []time.Duration{0, time.Second, 3 * time.Second, 5 * time.Second, 9 * time.Second})
@@ -156,13 +156,13 @@ func (r *Repo) viewsCurrent(ctx context.Context, viewsSQL string) bool {
 func (r *Repo) viewsSig(ctx context.Context, viewsSQL string) (string, error) {
 	names := viewNames(viewsSQL)
 	if len(names) == 0 {
-		return "", fmt.Errorf("views: SQL에서 뷰 이름 미발견")
+		return "", fmt.Errorf("views: view name not found in SQL")
 	}
 	var b strings.Builder
 	for _, name := range names {
 		rows, err := r.pool.Query(ctx, "SELECT * FROM "+name+" LIMIT 0")
 		if err != nil {
-			return "", fmt.Errorf("views: %s 조회: %w", name, err)
+			return "", fmt.Errorf("views: query %s: %w", name, err)
 		}
 		var cols []string
 		for _, fd := range rows.FieldDescriptions() {
@@ -359,7 +359,7 @@ func (r *Repo) Invalidate(ctx context.Context, ids []int, reason string) (int64,
 		return 0, fmt.Errorf("invalidate(%s): %w", reason, err)
 	}
 	if n == 0 {
-		return 0, fmt.Errorf("%w: invalidate(%s): 갱신 0행 (경합)", ErrNotFound, reason)
+		return 0, fmt.Errorf("%w: invalidate(%s): 0 rows updated (race)", ErrNotFound, reason)
 	}
 	return n, nil
 }
@@ -381,7 +381,7 @@ func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (i
 		return 0, fmt.Errorf("supersede: %w", err)
 	}
 	if n == 0 {
-		return 0, fmt.Errorf("%w: supersede: id=%d 갱신 미반영(경합 — 재시도)", ErrNotFound, oldID)
+		return 0, fmt.Errorf("%w: supersede: id=%d update not applied (race — retry)", ErrNotFound, oldID)
 	}
 	return n, nil
 }

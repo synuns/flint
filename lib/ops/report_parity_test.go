@@ -112,7 +112,7 @@ func TestZeroNearParity(t *testing.T) {
 	// 구 blob 경로 산식 기준선 — 표본 10 ≥ min 10, 10% < warn 30 → ok.
 	legacyPct := nears * 100 / reads
 	legacyStatus := "ok"
-	legacyDetail := "zero_near_pct 10% (7일 read 10)" // 구 포맷 그대로
+	legacyDetail := "zero_near_pct 10% (7d read 10)" // 구 포맷 그대로
 	if reads < 10 || legacyPct >= 30 {
 		t.Fatalf("픽스처가 기준선과 불일치(pct=%d)", legacyPct)
 	}

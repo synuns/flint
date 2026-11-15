@@ -47,7 +47,7 @@ func TestNudgeStopContextJson(t *testing.T) {
 		t.Errorf("hookEventName = %q, want Stop", got.HookSpecificOutput.HookEventName)
 	}
 	if !strings.Contains(got.HookSpecificOutput.AdditionalContext, "flint:") ||
-		!strings.Contains(got.HookSpecificOutput.AdditionalContext, "증류 대기") ||
+		!strings.Contains(got.HookSpecificOutput.AdditionalContext, "distillation pending") ||
 		!strings.Contains(got.HookSpecificOutput.AdditionalContext, "flint nudge") {
 		t.Errorf("additionalContext = %q, 지시문 누락", got.HookSpecificOutput.AdditionalContext)
 	}
@@ -84,7 +84,7 @@ func TestNudgeStartPlain(t *testing.T) {
 	if strings.HasPrefix(lines[0], "{") {
 		t.Errorf("SessionStart 출력이 JSON: %q, want plain", lines[0])
 	}
-	if !strings.Contains(lines[0], "증류 대기") || !strings.Contains(lines[0], "flint nudge") {
+	if !strings.Contains(lines[0], "distillation pending") || !strings.Contains(lines[0], "flint nudge") {
 		t.Errorf("plain 안내 누락: %q", lines[0])
 	}
 }

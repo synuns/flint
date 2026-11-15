@@ -17,6 +17,7 @@ import (
 	"github.com/synuns/flint/lib/backup"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/tui"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -40,6 +41,11 @@ var (
 // exportStderr — 요약·경고 챈널 seam(stderr 계약 — stdout 본문과 분리).
 var exportStderr io.Writer = os.Stderr
 
+// exportTUIFn — `--tui` 진입 분기 위임 seam(v1.5.0 T8). 기본값은
+// tui.RunExport(폼→미리보기→인자 조립→runExport 재실행) — 테스트 fake
+// 주입으로 진입 분기만 검증한다(폼 흐름 자체는 lib/tui/export_test.go).
+var exportTUIFn = tui.RunExport
+
 // exportFormatters — 포맷명 → 포맷터 seam 조회(무효 포맷 판별 겸용).
 func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, error) {
 	return map[string]func([]knowledge.ExportRow) ([]byte, error){
@@ -59,6 +65,14 @@ func init() { Register("export", runExport) }
 // exit 2(MapExit 재사용). 성공 시 요약 1행 stderr:
 // `exported N rows (format, M bytes)`.
 func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+	// v1.5.0 T8 진입 분기: --tui는 폼 흐름으로 위임하고 플래그 파싱은
+	// 하지 않는다(폼에서 조립된 인자가 runExport를 재진입한다). 기본
+	// 플래그 경로는 불변.
+	for _, a := range args {
+		if a == "--tui" {
+			return runExportTUI(ctx, st, stdin, stdout)
+		}
+	}
 	format, outPath, status, tag := "jsonl", "", "active", ""
 	var since time.Time
 	for i := 0; i < len(args); i++ {
@@ -101,7 +115,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			}
 			since, i = t, i+1
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339]", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — usage: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339]", a)))
 			return 3
 		}
 	}
@@ -165,6 +179,41 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	return 0
 }
 
+// runExportTUI — `flint export --tui` 배선(v1.5.0 T8). 폼·확인은
+// tui.RunExport에, 조회·포맷터·상한·실행은 기존 seam(exportRowsFn·
+// exportFormatters·exportMaxRowsLimit·runExport)을 래핑해 주입한다 —
+// TUI가 원천 로직을 재구현하지 않는다(사이드카·상한·요약은 runExport
+// 재실행으로 자동 적용). 오류(비터미널 포함)는 ErrLine 한 줄 + exit 3.
+func runExportTUI(ctx context.Context, st Store, stdin io.Reader, stdout io.Writer) int {
+	code, err := exportTUIFn(ctx, tui.ExportDeps{
+		Preview: func(ctx context.Context, sel tui.ExportSelection) (tui.ExportPreview, error) {
+			if exportRowsFn == nil {
+				return tui.ExportPreview{}, fmt.Errorf("export: source not linked")
+			}
+			rows, err := exportRowsFn(ctx, st, knowledge.ExportFilter{Status: sel.Status})
+			if err != nil {
+				return tui.ExportPreview{}, err
+			}
+			fn := exportFormatters()[sel.Format]
+			if fn == nil {
+				return tui.ExportPreview{}, fmt.Errorf("export: formatter %s not linked", sel.Format)
+			}
+			data, err := fn(rows)
+			if err != nil {
+				return tui.ExportPreview{}, err
+			}
+			return tui.ExportPreview{Rows: len(rows), Bytes: len(data)}, nil
+		},
+		MaxRows: func(ctx context.Context) int { return exportMaxRowsLimit(ctx, st) },
+		Run:     func(assembled []string) int { return runExport(ctx, st, assembled, stdin, stdout) },
+	})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 3
+	}
+	return code
+}
+
 // exportMaxRowsLimit — export 1회 행 수 상한 로드(등록표 키
 // export_import_max_rows — import와 동일 키 공유). 조회 실패·미설정(0)은
 // DefaultThresholds 폴백(importMaxRowsLimit과 동일 규약).
@@ -186,12 +235,12 @@ func enforceExportMaxRows(ctx context.Context, st Store, stdout io.Writer, count
 		return 0
 	}
 	b, err := json.Marshal(map[string]any{
-		"error": fmt.Sprintf("export 행 수 상한 초과(export_import_max_rows=%d)", max),
+		"error": fmt.Sprintf("export row limit exceeded (export_import_max_rows=%d)", max),
 		"max":   max,
 		"count": count,
 	})
 	if err != nil {
-		b = []byte(fmt.Sprintf(`{"error":"export 행 수 상한 초과","max":%d,"count":%d}`, max, count))
+		b = []byte(fmt.Sprintf(`{"error":"export row limit exceeded","max":%d,"count":%d}`, max, count))
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 3

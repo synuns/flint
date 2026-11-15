@@ -16,16 +16,16 @@ import (
 func TestHotHeadlineTopics(t *testing.T) {
 	withT := []string{"doltgres 포트 충돌", "CI 멱등 가드", "seed DSN 가드"}
 	got := hotHeadline("normal", 5, 2, 3, withT)
-	want := "[flint] 활성 5 · 대기 2 · 최근 결정: doltgres 포트 충돌 · CI 멱등 가드 · seed DSN 가드 — 회상: flint read <쿼리>"
+	want := "[flint] active 5 · pending 2 · recent decisions: doltgres 포트 충돌 · CI 멱등 가드 · seed DSN 가드 — recall: flint read <query>"
 	if got != want {
 		t.Fatalf("헤드라인=%q\nwant=%q", got, want)
 	}
 	// 주제 없음 → 기존 문구(펼치기 안내) 폴백.
-	if got := hotHeadline("normal", 5, 2, 0, nil); got != "[flint] 활성 5 · 대기 2 · 최근 결정 0 — 펼치기: flint hot --full" {
+	if got := hotHeadline("normal", 5, 2, 0, nil); got != "[flint] active 5 · pending 2 · recent decisions 0 — expand: flint hot --full" {
 		t.Fatalf("빈 주제 폴백=%q", got)
 	}
 	// minimal 불변.
-	if got := hotHeadline("minimal", 5, 2, 3, withT); got != "[flint] 활성 5 · 대기 2" {
+	if got := hotHeadline("minimal", 5, 2, 3, withT); got != "[flint] active 5 · pending 2" {
 		t.Fatalf("minimal=%q", got)
 	}
 }
@@ -69,7 +69,7 @@ func TestHotHeadlineRunPath(t *testing.T) {
 	if code := runHot(context.Background(), f, nil, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runHot exit=%d", code)
 	}
-	want := "[flint] 활성 1 · 대기 0 · 최근 결정: 검색 품질 트리거 — 회상: flint read <쿼리>"
+	want := "[flint] active 1 · pending 0 · recent decisions: 검색 품질 트리거 — recall: flint read <query>"
 	if got := strings.TrimSpace(out.String()); got != want {
 		t.Fatalf("헤드라인=%q\nwant=%q", got, want)
 	}

@@ -124,6 +124,10 @@ func TestInvalidateSupersedeSingleSource(t *testing.T) {
 	if _, err := r.Supersede(ctx, 3, 7, at); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Supersede 0행 오류 = %v, want ErrNotFound 랩", err)
 	}
+	// v1.5.0 T4: 경합 에러 메시지는 영어 — 메시지는 MCP rpcError로 직통된다.
+	if _, err := r.Invalidate(ctx, []int{9}, "race"); !strings.Contains(err.Error(), "0 rows updated (race)") {
+		t.Errorf("Invalidate 0행 메시지 = %v, want English race message", err)
+	}
 }
 
 // TestSupersedeRecordsLineage — Review Focus: 계보는 superseded_by 병기
