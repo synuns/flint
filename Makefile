@@ -44,8 +44,12 @@ ci:
 # v1.4.1 R22-C5: -run 정규식 제거 — docs 패키지 전체를 실행한다
 # (정규식에 좌우되지 않는 전면 게이트, 종수 고정 표기 폐지 — 패키지
 # 전체가 게이트에 편입되므로 신규 테스트도 자동 포함).
+# v1.4.1 R23: 파이프(grep|tail)이 go test 실패 exit을 삼키지 않게
+# 출력을 먼저 캡처해 exit을 보존하고 필터 출력 후 그 exit으로 빠진다.
 docs-sync:
-	go test ./docs -count=1 -v 2>&1 | grep -E "^(=== RUN|--- FAIL|--- PASS)" | tail -50
+	@out=$$(go test ./docs -count=1 -v 2>&1); st=$$?; \
+	printf '%s\n' "$$out" | grep -E "^(=== RUN|--- FAIL|--- PASS)" | tail -50; \
+	exit $$st
 
 tidy:
 	go mod tidy
