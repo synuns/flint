@@ -139,7 +139,10 @@ func TestRunExportUserAbortExitsCleanly(t *testing.T) {
 func TestRunExportOverLimitShowsTUIError(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { sel.Format, sel.Status = "jsonl", "all"; return nil },
-		func(pv ExportPreview) (bool, error) { t.Fatal("confirm must not run over the limit"); return false, nil })
+		func(pv ExportPreview) (bool, error) {
+			t.Fatal("confirm must not run over the limit")
+			return false, nil
+		})
 	deps := ExportDeps{
 		Preview: func(ctx context.Context, sel ExportSelection) (ExportPreview, error) {
 			return ExportPreview{Rows: 3, Bytes: 90}, nil
