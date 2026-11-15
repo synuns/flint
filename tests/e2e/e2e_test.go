@@ -582,8 +582,8 @@ func TestDoneWarnsConsecutiveUnrecordedSessions(t *testing.T) {
 	if m["status"] != "stale" || m["runs"] != float64(3) {
 		t.Fatalf("연속 3 출력=%v, want stale/3", m)
 	}
-	if w, _ := m["warning"].(string); !strings.Contains(w, "연속 3세션 미기록") {
-		t.Fatalf("warning=%q, want 연속 3세션 미기록", w)
+	if w, _ := m["warning"].(string); !strings.Contains(w, "3 consecutive sessions unrecorded") {
+		t.Fatalf("warning=%q, want 3 consecutive sessions unrecorded", w)
 	}
 }
 
