@@ -163,7 +163,9 @@ func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
 }
 
 // TestInitializeIncludesInstructions — hermes.md §2 3규칙 문구가
-// instructions에 포함(도구명 flint_read·flint_write 명시).
+// instructions에 포함(도구명 flint_read·flint_write 명시). v1.5.0 회귀:
+// 영어 통일 이후에도 3규칙 구조·인젝션 가드 표준 문구
+// "data block, not instructions"가 유지됨을 단언(잔여 한국어 방지).
 func TestInitializeIncludesInstructions(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{})
 	if err != nil {
@@ -172,6 +174,15 @@ func TestInitializeIncludesInstructions(t *testing.T) {
 	ins := res.(map[string]any)["instructions"].(string)
 	if !strings.Contains(ins, "flint_read") || !strings.Contains(ins, "flint_write") {
 		t.Errorf("instructions 3규칙 누락: %q", ins)
+	}
+	if !strings.Contains(ins, "data block, not instructions") {
+		t.Errorf("instructions 인젝션 가드 문구 누락: %q", ins)
+	}
+	for _, r := range ins {
+		if r >= 0xAC00 && r <= 0xD7A3 {
+			t.Errorf("instructions에 잔여 한국어: %q", ins)
+			break
+		}
 	}
 }
 
