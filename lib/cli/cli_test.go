@@ -8,6 +8,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/synuns/flint/lib/store"
 )
@@ -109,6 +110,25 @@ func withFake(t *testing.T, f *fakeStore) {
 	t.Cleanup(func() { newStore = prev })
 }
 
+// cleanupRealResidue — SUPERLITE_REAL seam에서 공유 실DB의 잔재를 정리한다
+// (best-effort — 미설정/접속 실패/쿼리 실패는 조용히 넘긴다). 해시 dedup·
+// 빈도 상한 meta·PK가 공유 DB에 남아 실DB seam 테스트의 멱등성을 깨는 것을
+// 시작 경계에서 지운다(TestImportMigrateJSONLRealSlow 정리 관례의 배선 버전).
+func cleanupRealResidue(queries ...string) {
+	dsn, ok := seamRealDSN()
+	if !ok {
+		return
+	}
+	st, err := newRealStore(context.Background(), dsn)
+	if err != nil {
+		return
+	}
+	defer st.Close()
+	for _, q := range queries {
+		_, _ = st.Query(context.Background(), q)
+	}
+}
+
 // delegatingFake — stub 미지정 연산은 실구현에 위임해 seam 검증이 실코드를 통과하게 한다.
 type delegatingFake struct {
 	fake *fakeStore
@@ -148,7 +168,11 @@ func (d *delegatingFake) Ping(ctx context.Context) error {
 	}
 	return d.real.Ping(ctx)
 }
-func (d *delegatingFake) Close() { d.real.Close() }
+
+// Close — no-op: Run의 `defer st.Close()`(wire/run.go)가 커맨드마다 호출하는데,
+// real 스토어는 테스트 간 공유 풀이므로 여기서 닫으면 이후 커맨드가 closed
+// pool 에러로 실패한다. 실 스토어 종결 소유권은 withFake의 t.Cleanup에 있다.
+func (d *delegatingFake) Close() {}
 func (d *delegatingFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	d.fake.queries = append(d.fake.queries, sql)
 	if d.fake.queryErr != nil {
@@ -183,8 +207,11 @@ func decode(t *testing.T, line string) map[string]any {
 func TestWriteCommitted(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
+	// R22-A: write는 content_hash dedup(공유 실DB)를 통과한다 — 실행마다
+	// 고유 topic으로 잔재 해시 충돌을 회피해야 committed가 멱등하다.
+	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
-		`{"topic":"t","summary":"s","confidence":0.9,"tags":["b","a"]}`)
+		`{"topic":"`+topic+`","summary":"s","confidence":0.9,"tags":["b","a"]}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
@@ -217,8 +244,10 @@ func TestWriteCommitted(t *testing.T) {
 func TestWritePendingBoundary(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
+	// R22-A: 잔재 해시 충돌 회피(TestWriteCommitted 주석 참조).
+	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
-		`{"topic":"t","summary":"s","confidence":0.79}`)
+		`{"topic":"`+topic+`","summary":"s","confidence":0.79}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
@@ -265,8 +294,10 @@ func TestWriteJSONLSingleCommit(t *testing.T) {
 func TestWriteStripsNonColumnKeys(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
+	// R22-A: 공유 실DB의 프로젝트명 잔재 충돌 회피 — 실행마다 고유 name.
+	name := fmt.Sprintf("p1-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "project"},
-		`{"name":"p1","status":"active","note":"메타데이터"}`)
+		`{"name":"`+name+`","status":"active","note":"메타데이터"}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
@@ -274,7 +305,7 @@ func TestWriteStripsNonColumnKeys(t *testing.T) {
 	if _, ok := rec["note"]; ok {
 		t.Fatalf("비컬럼 키 note가 저장됨: %v", rec)
 	}
-	if rec["name"] != "p1" || rec["status"] != "active" {
+	if rec["name"] != name || rec["status"] != "active" {
 		t.Fatalf("컬럼 유실: %v", rec)
 	}
 	// 무경고 삭제 금지: 경고 배열이 있어야 한다.
@@ -335,8 +366,11 @@ func TestWriteBadJSONExit3(t *testing.T) {
 func TestRetriesExhaustedExit1(t *testing.T) {
 	f := &fakeStore{commitErr: store.ErrRetriesExhausted}
 	withFake(t, f)
+	// R22-A: 잔재 해시 충돌 회피(TestWriteCommitted 주석 참조) — duplicate로
+	// commit 경로 도달 전 스킵되면 exit 1 재현 자체가 불가능하다.
+	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
-		`{"topic":"t","summary":"s","confidence":0.9}`)
+		`{"topic":"`+topic+`","summary":"s","confidence":0.9}`)
 	if code != 1 {
 		t.Fatalf("exit=%d, want 1; out=%s", code, out)
 	}
