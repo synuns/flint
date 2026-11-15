@@ -134,7 +134,7 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 ## 로컬 밖의 AI — 브리지
 
 flint의 표면(훅·stdio MCP·localhost Doltgres)은 에이전트가 내 기기에서
-실행된다고 가정한다 — 의도된 설계다([ADR-0013](docs/adr/0013-threat-model.md)).
+실행된다고 가정한다 — 의도된 설계다([ADR-0013](docs/adr/ADR-0013-threat-model.md)).
 그렇지 않은 AI — 클라우드 비서, 폰 앱 — 에는 커넥터 대신 브리지를 쓴다:
 
 ```bash

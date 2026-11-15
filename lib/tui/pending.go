@@ -16,6 +16,7 @@ import (
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/render"
@@ -179,6 +180,7 @@ type PendingModel struct {
 	list       list.Model
 	targetList list.Model
 	status     string
+	width      int // 마지막 WindowSizeMsg 폭(상세 본문 wordwrap 기준)
 }
 
 // pendingRow / targetRow — bubbles list 행.
@@ -196,7 +198,8 @@ func (r targetRow) Title() string       { return fmt.Sprintf("#%d  %s", r.t.ID, 
 func (r targetRow) Description() string { return "" }
 func (r targetRow) FilterValue() string { return r.t.Title }
 
-// NewPendingModel — 모델 조립(목록 80x20 — 터미널 리사이즈 전 기본).
+// NewPendingModel — 모델 조립(목록 크기 0x0 — 실제 크기는 시작 시
+// bubbletea가 전달하는 WindowSizeMsg로 설정된다: Update 참조).
 func NewPendingModel(ctx context.Context, items []PendingItem, candidates []SupersedeTarget, acts PendingActions) PendingModel {
 	rows := make([]list.Item, len(items))
 	for i, it := range items {
@@ -208,8 +211,8 @@ func NewPendingModel(ctx context.Context, items []PendingItem, candidates []Supe
 	}
 	m := PendingModel{
 		ctx: ctx, items: items, candidates: candidates, acts: acts, mode: modeList,
-		list:       list.New(rows, list.NewDefaultDelegate(), 80, 20),
-		targetList: list.New(trows, list.NewDefaultDelegate(), 80, 20),
+		list:       list.New(rows, list.NewDefaultDelegate(), 0, 0),
+		targetList: list.New(trows, list.NewDefaultDelegate(), 0, 0),
 	}
 	m.list.Title = "Pending review"
 	m.targetList.Title = "Supersede target (pick the active item to replace)"
@@ -219,19 +222,30 @@ func NewPendingModel(ctx context.Context, items []PendingItem, candidates []Supe
 // Init — 시작 커맨드 없음.
 func (m PendingModel) Init() tea.Cmd { return nil }
 
-// Update — 키 입력 상태 전이. a/s/d/q는 세 화면 공통 관례.
+// Update — 창 크기 전이(리사이즈)와 키 입력 상태 전이. a/s/d/q는 세
+// 화면 공통 관례.
 func (m PendingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
-	key, ok := msg.(tea.KeyMsg)
-	if !ok {
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		h := msg.Height - 4 // 제목·키 안내·상태 라인 여백
+		if h < 1 {
+			h = 1
+		}
+		m.list.SetSize(msg.Width, h)
+		m.targetList.SetSize(msg.Width, h)
 		return m, nil
-	}
-	switch m.mode {
-	case modeDetail:
-		return m.updateDetail(key)
-	case modeSupersede:
-		return m.updateSupersede(key)
+	case tea.KeyMsg:
+		switch m.mode {
+		case modeDetail:
+			return m.updateDetail(msg)
+		case modeSupersede:
+			return m.updateSupersede(msg)
+		default:
+			return m.updateList(msg)
+		}
 	default:
-		return m.updateList(key)
+		return m, nil
 	}
 }
 
@@ -355,6 +369,19 @@ func (m PendingModel) removeItem(idx int) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
+// wrapDetailBody — 상세 본문 wordwrap. 폭은 저장된 창 폭-2(저장 폭이
+// 없으면 78) — 창보다 넓은 단일 라인이 가로로 넘치지 않게 한다.
+func wrapDetailBody(width int, body string) string {
+	w := 78
+	if width > 0 {
+		w = width - 2
+	}
+	if w < 1 {
+		w = 1
+	}
+	return lipgloss.NewStyle().Width(w).Render(body)
+}
+
 // View — 화면 렌더. 키 안내는 영어 고정(플러그인 룰).
 func (m PendingModel) View() string {
 	var b strings.Builder
@@ -367,7 +394,7 @@ func (m PendingModel) View() string {
 		it := m.items[idx]
 		b.WriteString(Theme.Accent.Render(fmt.Sprintf("#%d  %s", it.ID, it.Title)))
 		b.WriteString("\n\n")
-		fmt.Fprintf(&b, "%s\n\n", it.Body)
+		fmt.Fprintf(&b, "%s\n\n", wrapDetailBody(m.width, it.Body))
 		fmt.Fprintf(&b, "%s\n", Theme.Neutral.Render(fmt.Sprintf("origin: %s · confidence %s · date %s", it.Origin, it.Confidence, it.Date)))
 		fmt.Fprintf(&b, "%s\n", Theme.Secondary.Render("a approve · s supersede · d skip · esc back · q quit"))
 	case modeSupersede:

@@ -131,11 +131,12 @@
   pam`(PAM v1.0 memory-store·체크섬 JCS 결정성)·`--out` sha256 사이드카·
   valid_at 왕복·PAM project형 적립·import 상한(export_import_max_rows)·
   실DB 왕복 e2e — i18n·마케팅 계열은 v1.5로 이월
-- [ ] v1.5.0(예정) — 마케팅 기능 계열(2026-11-13 사용자 지시): 데모
-  체험(asciinema·Codespaces)·대시보드 고도화·TUI 설계·설치 확장(brew)·
-  신뢰 아티팩트(SBOM·Scorecard·SECURITY.md) — 상세
-  docs/plans/2026-11-13-flint-marketing-prep.md. 이월: 국제화(i18n)·영어
-  디폴트·README 고도화·재현 합성 벤치마크. 후보: PAM 서명(스펙 §18)·
+- [x] v1.5.0(2026-11-15) — 영어 통일(사용자 표면 ~400 문자열, 기계 채널
+  불변)·TUI 4화면(lib/tui — setup 위저드·pending/export/report --tui,
+  플래그 경로 불변)·핵심 문서 영문화(QUICKSTART·contracts·TUNING·METRICS)
+- [ ] v1.6.0(예정) — 해외 마케팅·i18n 문서 이월: 데모 체험·대시보드
+  고도화·설치 확장(brew)·신뢰 아티팩트(SBOM·Scorecard·SECURITY.md)·
+  README 고도화·합성 벤치마크·다국어 문서. 후보: PAM 서명(스펙 §18)·
   embeddings 검색(ADR-0011 재판정)
 
 ## 7. 비목표
@@ -144,5 +145,5 @@
   멀티머신 동기화(터널 옵션만 유지)
 - 임베딩 검색(pgvector 채택 보류 — ADR-0011)·다중 에이전트 domain
   스코프(트리거 대기)·METRICS.md 개편·ADR 재편
-- 대시보드 동적 서버(정적 export만 유지)·linux 배포 — brew·TUI는
-  v1.5.0 반전(2026-11-13 사용자 지시)
+- 대시보드 동적 서버(정적 export만 유지)·linux 배포 — TUI는 v1.5.0
+  실현, brew는 v1.6.0 이월(2026-11-13 사용자 지시)

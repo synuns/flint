@@ -15,7 +15,7 @@ import (
 var (
 	// ErrWizardUnavailable — 터미널이 아니어서 위저드를 시작할 수 없음.
 	ErrWizardUnavailable = errors.New("TUI requires a terminal — use flag-mode instead")
-	// ErrWizardCancelled — 사용자가 ESC/q로 위저드를 취소함.
+	// ErrWizardCancelled — 사용자가 ctrl+c로 위저드를 취소함.
 	ErrWizardCancelled = errors.New("setup wizard cancelled")
 )
 

@@ -10,6 +10,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"os"
 
 	"github.com/charmbracelet/huh"
 )
@@ -40,10 +42,13 @@ type ExportDeps struct {
 	MaxRows func(ctx context.Context) int
 	// Run — 조립된 인자로 기존 runExport 실행. 반환은 exit 코드.
 	Run func(args []string) int
+	// CancelNote — 사용자 취소(폼 중단·확인 거절) 시 "export cancelled"
+	// 1행 안내를 쓸 출력 대상. nil이면 os.Stdout.
+	CancelNote io.Writer
 }
 
 // exportFormFn — huh 폼 seam(테스트 fake 주입). 기본 폼: 형식 5종·
-// status 2종·출력 경로(선택 — 빈 값 stdout). ESC/q는 huh.ErrUserAborted.
+// status 2종·출력 경로(선택 — 빈 값 stdout). ctrl+c는 huh.ErrUserAborted.
 var exportFormFn = func(sel *ExportSelection) error {
 	return huh.NewForm(
 		huh.NewGroup(
@@ -90,11 +95,20 @@ func ExportArgs(sel ExportSelection) []string {
 	return args
 }
 
+// exportCancelNotice — 사용자 취소 안내 1행(조용한 0바이트 폐지 —
+// A3). exit 0은 유지된다.
+func exportCancelNotice(w io.Writer) {
+	if w == nil {
+		w = os.Stdout
+	}
+	fmt.Fprintln(w, "export cancelled")
+}
+
 // RunExport — export TUI 흐름: 폼 → 미리보기(상한 검사) → 확인 → 기존
 // 플래그 경로 실행. 반환 (exitCode, err): err != nil이면 호출부가 오류
 // JSON 한 줄 + exit 3으로 폴백한다. 비터미널은 폼 시작 전 즉시 (3, 오류)
-// — T5 관례 "TUI requires a terminal". 사용자 중단(ESC/q)은 실행 없이
-// (0, nil) — 깨끗한 취소는 오류가 아니다.
+// — T5 관례 "TUI requires a terminal". 사용자 중단(ctrl+c)은 "export
+// cancelled" 안내 후 실행 없이 (0, nil) — 깨끗한 취소는 오류가 아니다.
 func RunExport(ctx context.Context, deps ExportDeps) (int, error) {
 	if !isTerminal() {
 		return 3, fmt.Errorf("TUI requires a terminal — use flag-mode instead")
@@ -102,6 +116,7 @@ func RunExport(ctx context.Context, deps ExportDeps) (int, error) {
 	sel := ExportSelection{Format: "jsonl", Status: "active"}
 	if err := exportFormFn(&sel); err != nil {
 		if errors.Is(err, huh.ErrUserAborted) {
+			exportCancelNotice(deps.CancelNote)
 			return 0, nil
 		}
 		return 3, fmt.Errorf("export tui form failed: %w", err)
@@ -121,6 +136,7 @@ func RunExport(ctx context.Context, deps ExportDeps) (int, error) {
 			return 3, fmt.Errorf("export tui confirm failed: %w", err)
 		}
 		if !proceed {
+			exportCancelNotice(deps.CancelNote)
 			return 0, nil
 		}
 	}

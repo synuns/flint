@@ -130,7 +130,7 @@ Each session cycles through four phases:
 
 ## Beyond local agents — the bridge
 
-flint's surfaces (hooks, stdio MCP, localhost Doltgres) assume the agent runs on your machine — that's deliberate ([ADR-0013](docs/adr/0013-threat-model.md)). For AIs that don't — a cloud assistant, a phone app — use the bridge instead of a connector:
+flint's surfaces (hooks, stdio MCP, localhost Doltgres) assume the agent runs on your machine — that's deliberate ([ADR-0013](docs/adr/ADR-0013-threat-model.md)). For AIs that don't — a cloud assistant, a phone app — use the bridge instead of a connector:
 
 ```bash
 flint brief [query]        # masked, read-only context block — paste it into any chat

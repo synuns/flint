@@ -27,6 +27,10 @@ func keyMsg(s string) tea.KeyMsg {
 func enterMsg() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEnter} }
 func escMsg() tea.KeyMsg   { return tea.KeyMsg{Type: tea.KeyEsc} }
 
+// sizeMsg — 터미널 리사이즈 시뮬레이션(실제 실행 환경은 시작 시
+// bubbletea가 항상 WindowSizeMsg 1건을 전달한다).
+func sizeMsg(w, h int) tea.WindowSizeMsg { return tea.WindowSizeMsg{Width: w, Height: h} }
+
 // demoItems — 합성 데모 대기 항목 3건(개인 데이터 금지 — 항상 합성).
 func demoItems() []PendingItem {
 	return []PendingItem{
@@ -72,6 +76,7 @@ func update(m PendingModel, msg tea.Msg) PendingModel {
 // RF1 — 목록: 제목·confidence·날짜 노출, enter→상세(본문·출처), esc→복귀.
 func TestPendingListShowsFieldsAndDetailTransition(t *testing.T) {
 	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), PendingActions{})
+	m = update(m, sizeMsg(80, 24))
 	v := m.View()
 	for _, want := range []string{"demo topic alpha", "0.80", "2026-11-14"} {
 		if !strings.Contains(v, want) {
@@ -150,6 +155,7 @@ func TestPendingApproveFailureKeepsItem(t *testing.T) {
 func TestPendingSupersedeFlowDelegates(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), rec.actions())
+	m = update(m, sizeMsg(80, 24))
 	m = update(m, keyMsg("s"))
 	if m.mode != modeSupersede {
 		t.Fatalf("after s mode = %v, want modeSupersede", m.mode)
@@ -209,6 +215,67 @@ func TestPendingQuitReturnsTeaQuit(t *testing.T) {
 	}
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Errorf("q cmd() = %T, want tea.QuitMsg", cmd())
+	}
+}
+
+// RF-resize — A1: WindowSizeMsg 수신 시 목록 크기가 터미널(높이-4)에
+// 맞고, 12행 이하 단말·연속 리사이즈에서도 선택 항목 렌더가 유지된다
+// (고정 80x20 폐지 — 시작 시 bubbletea가 전달하는 창 크기로 조정).
+func TestPendingResizeKeepsItemsRendered(t *testing.T) {
+	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), PendingActions{})
+	for _, sz := range []tea.WindowSizeMsg{
+		{Width: 60, Height: 24},
+		{Width: 60, Height: 12}, // 12행 단말
+		{Width: 40, Height: 8},  // 그 이하
+		{Width: 100, Height: 30},
+	} {
+		m = update(m, sz)
+		if m.list.Height() != sz.Height-4 {
+			t.Errorf("after %dx%d list height = %d, want %d", sz.Width, sz.Height, m.list.Height(), sz.Height-4)
+		}
+		if !strings.Contains(m.View(), "demo topic alpha") {
+			t.Errorf("after %dx%d view lost item text\nview:\n%s", sz.Width, sz.Height, m.View())
+		}
+	}
+}
+
+// RF-wrap — A2: 상세 본문 wordwrap — 저장된 창 폭 기준 폭-2(저장 폭
+// 없으면 78)로 긴 단일 라인 본문이 여러 라인으로 나뉜다.
+func TestPendingDetailBodyWordWrap(t *testing.T) {
+	items := []PendingItem{{
+		ID: 7, Title: "demo topic alpha", Confidence: "0.80", Date: "2026-11-14",
+		Body: strings.Repeat("word ", 40), Origin: "hook",
+	}}
+	cases := []struct {
+		name   string
+		resize bool
+		width  int // 기대 wrap 폭
+	}{
+		{name: "stored window width", resize: true, width: 40 - 2},
+		{name: "default 78 without resize", resize: false, width: 78},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			m := NewPendingModel(context.Background(), items, nil, PendingActions{})
+			if tc.resize {
+				m = update(m, sizeMsg(40, 24))
+			}
+			m = update(m, enterMsg())
+			v := m.View()
+			var bodyLines int
+			for _, ln := range strings.Split(v, "\n") {
+				if !strings.Contains(ln, "word") {
+					continue
+				}
+				bodyLines++
+				if len(ln) > tc.width {
+					t.Errorf("body line %d chars > wrap width %d: %q", len(ln), tc.width, ln)
+				}
+			}
+			if bodyLines < 2 {
+				t.Fatalf("body not wrapped (%d body lines, want multiple)\nview:\n%s", bodyLines, v)
+			}
+		})
 	}
 }
 
