@@ -54,9 +54,9 @@ type Thresholds struct {
 	// v1.2.0 T5 — knowledge_reads 보존일 등록(T1 stopgap 인계 해소: 기존
 	// per-key 직접 읽기와 동일 키·기본값 14, spec §1.2).
 	KreadsRetentionD int // knowledge_reads 보존(일, 기본 14)
-	// v1.4.0 T3 — import(--format jsonl|pam) 1회 행 수 상한. 대량 문서의
+	// v1.4.0 T3 — export·import 공통 1회 행 수 상한. 대량 문서의
 	// 전량 파싱·적립 메모리 방어(비목표 스트리밍의 완화).
-	ExportImportMaxRows int // import 행 수 상한(기본 100000)
+	ExportImportMaxRows int // export·import 공통 행 수 상한(기본 100000)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
