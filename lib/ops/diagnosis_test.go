@@ -183,11 +183,11 @@ func TestDiagnosisSentenceContract(t *testing.T) {
 		}
 	}
 	// C계층 라벨 — 가치 기본값(습관 목표) 표기.
-	if it := bySignal["recall_led_below_goal"]; !strings.Contains(it.Basis, "기본 목표") {
+	if it := bySignal["recall_led_below_goal"]; !strings.Contains(it.Basis, "default goal") {
 		t.Errorf("C계층 basis=%q, '기본 목표' 라벨 미포함", it.Basis)
 	}
 	// A1 만성 절단 라벨.
-	if it := bySignal["hot_budget_saturation"]; !strings.Contains(it.Action, "만성 절단") {
+	if it := bySignal["hot_budget_saturation"]; !strings.Contains(it.Action, "chronic truncation") {
 		t.Errorf("A1 action=%q, '만성 절단' 라벨 미포함", it.Action)
 	}
 	// JSON 배열 노출 — 항목은 5필드 구조로 직렬화된다(단일 데이터 모델).

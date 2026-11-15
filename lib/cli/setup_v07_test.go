@@ -52,10 +52,10 @@ func TestSetupDockerMissingHint(t *testing.T) {
 		t.Fatalf("warnings=%v, want 1건", m["warnings"])
 	}
 	msg := fmt.Sprint(w[0])
-	if !strings.Contains(msg, "docker 미설치") ||
+	if !strings.Contains(msg, "docker not installed") ||
 		!strings.Contains(msg, "https://docs.docker.com/get-docker/") ||
-		!strings.Contains(msg, "설치 후 재실행") {
-		t.Fatalf("미설치 안내 문구 불일치: %q", msg)
+		!strings.Contains(msg, "re-run") {
+		t.Fatalf("docker-missing hint mismatch: %q", msg)
 	}
 	if rec.upErr == nil {
 		t.Fatal("테스트 설정 오류 — upErr 미주입")

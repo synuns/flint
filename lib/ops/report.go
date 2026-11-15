@@ -152,8 +152,8 @@ type EffectOutput struct {
 // counterfactual의 '하한' 추정임을 문구로 못박고, hit 비용은 절약 주장이
 // 아님을 '주입 원가'로 표기한다. 토큰·달러 환산 금지(METRICS §5).
 const (
-	CostSavingsLabel = "절약 하한 추정"
-	CostHitLabel     = "주입 원가"
+	CostSavingsLabel = "savings lower-bound estimate"
+	CostHitLabel     = "injection cost"
 
 	costModeAlwaysOn = "always-on" // hot — 세션 시작마다 무조건 주입
 	costModeOnInvoke = "on-invoke" // read·brief — 호출 시에만 출력
@@ -385,15 +385,15 @@ func printReportText(w io.Writer, out ReportOutput, days int) {
 		read += d.Read
 		dup += d.Dup
 	}
-	fmt.Fprintf(w, "flint report · %d일 창(%s)\n", days, timeNowUTC())
-	fmt.Fprintf(w, "적립 %d · 회상 %d · 중복 방지 %d(dup %d%%) · 제로히트 %d%% · 폴백 %d%%\n",
+	fmt.Fprintf(w, "flint report · %dd window (%s)\n", days, timeNowUTC())
+	fmt.Fprintf(w, "writes %d · reads %d · dup prevented %d (dup %d%%) · zero hits %d%% · fallback %d%%\n",
 		write, read, dup, out.DupPct, out.ZeroPct, out.FallbackPct)
-	fmt.Fprintf(w, "지식: 활성 %d · 승인 대기 %d · 폐기 %d · 안 읽힘 %d · hot p95 %d\n",
+	fmt.Fprintf(w, "knowledge: active %d · pending %d · invalidated %d · never-read %d · hot p95 %d\n",
 		out.Counts.Active, out.Counts.Pending, out.Counts.Invalidated, out.Stale.Days90, out.HotP95)
 	if len(out.Diagnosis) == 0 {
 		return // 정상 침묵 — 진단 섹션 없음
 	}
-	fmt.Fprintln(w, "진단")
+	fmt.Fprintln(w, "diagnosis")
 	for _, d := range out.Diagnosis {
 		fmt.Fprintf(w, "- %s\n", d.Sentence())
 	}
@@ -993,12 +993,12 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 func ProfileHint(th store.Thresholds, e EffectOutput) string {
 	// 표본 하한은 zero-near 표본 관례(zero_near_min_read) 승계 — 튜닝 가능.
 	if e.ReadEventsN < th.ZeroNearMinRead {
-		return "보류(표본 부족 — 관측 선행)"
+		return "insufficient sample — verdict deferred"
 	}
 	if e.RecallLedPct >= 50 {
-		return "normal 유지 근거 충분(회상 선도 다수)"
+		return "keep normal — recall-led majority"
 	}
-	return "회상 선도 낮음 — minimal 전환 고려 가능(안내만, 자동 전환 없음)"
+	return "low recall lead — consider the minimal profile (advisory only, no automatic switch)"
 }
 
 // ReadEventRow — read_events 1행의 계산 뷰(G4).

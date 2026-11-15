@@ -111,17 +111,17 @@ func ParsePAM(data []byte) (*PAMResult, error) {
 	if err := json.Unmarshal(data, &doc); err != nil {
 		var syn *json.SyntaxError
 		if errors.As(err, &syn) {
-			return nil, fmt.Errorf("pam json 파손(offset %d): %w", syn.Offset, err)
+			return nil, fmt.Errorf("pam json corrupt (offset %d): %w", syn.Offset, err)
 		}
 		var typ *json.UnmarshalTypeError
 		if errors.As(err, &typ) {
-			return nil, fmt.Errorf("pam json 필드 타입 오류(%s.%s offset %d): %w",
+			return nil, fmt.Errorf("pam json field type error (%s.%s offset %d): %w",
 				typ.Struct, typ.Field, typ.Offset, err)
 		}
-		return nil, fmt.Errorf("pam json 해석 실패: %w", err)
+		return nil, fmt.Errorf("pam json parse failed: %w", err)
 	}
 	if doc.Schema != "portable-ai-memory" {
-		return nil, fmt.Errorf("pam schema 불일치: %q (want %q)", doc.Schema, "portable-ai-memory")
+		return nil, fmt.Errorf("pam schema mismatch: %q (want %q)", doc.Schema, "portable-ai-memory")
 	}
 	res := &PAMResult{}
 	for _, m := range doc.Memories {

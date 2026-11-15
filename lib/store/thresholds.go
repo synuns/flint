@@ -169,7 +169,7 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		key, val := row[0], row[1]
 		ks, ok := key.(string)
 		if !ok {
-			return th, fmt.Errorf("thresholds: 키가 문자열 아님: %v", key)
+			return th, fmt.Errorf("thresholds: key is not a string: %v", key)
 		}
 		switch ks {
 		case "pending_max":
@@ -289,12 +289,12 @@ func parseIntOrDefault(val any, def int, key string) int {
 func parseIntInRangeOrDefault(val any, def, min int, key string) int {
 	s, ok := toString(val)
 	if !ok {
-		log.Printf("[flint] thresholds: %s 값 타입 이상(%v) — 기본값 %d", key, val, def)
+		log.Printf("[flint] thresholds: %s value type mismatch (%v) — default %d", key, val, def)
 		return def
 	}
 	n, err := strconv.Atoi(s)
 	if err != nil || n < min {
-		log.Printf("[flint] thresholds: %s=%q 파싱 불가(하한 %d) — 기본값 %d", key, s, min, def)
+		log.Printf("[flint] thresholds: cannot parse %s=%q (minimum %d) — default %d", key, s, min, def)
 		return def
 	}
 	return n
@@ -309,7 +309,7 @@ func parseFloatPositive(val any, def float64, key string) float64 {
 	// v1.2.2(R16-B1): NaN·Inf 거부 — Go에서 NaN<=0은 false라 통과해
 	// rrf_k=NaN이 폴백 점수 전체를 조용히 무의미화했다(프로브 실증).
 	if err != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
-		log.Printf("[flint] thresholds: %s=%q 파싱 불가(양수 필요) — 기본값 %v", key, s, def)
+		log.Printf("[flint] thresholds: cannot parse %s=%q (positive required) — default %v", key, s, def)
 		return def
 	}
 	return f
@@ -318,13 +318,13 @@ func parseFloatPositive(val any, def float64, key string) float64 {
 func parseFloatOrDefault(val any, def float64, key string) float64 {
 	s, ok := toString(val)
 	if !ok {
-		log.Printf("[flint] thresholds: %s 값 타입 이상(%v) — 기본값 %v", key, val, def)
+		log.Printf("[flint] thresholds: %s value type mismatch (%v) — default %v", key, val, def)
 		return def
 	}
 	f, err := strconv.ParseFloat(s, 64)
 	// v1.2.2(R16-B1): NaN 거부(NaN<0·NaN>1 모두 false라 통과).
 	if err != nil || f < 0 || f > 1 || math.IsNaN(f) {
-		log.Printf("[flint] thresholds: %s=%q 파싱 불가 — 기본값 %v", key, s, def)
+		log.Printf("[flint] thresholds: cannot parse %s=%q — default %v", key, s, def)
 		return def
 	}
 	return f

@@ -301,14 +301,14 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			return adminErrLine(stdout, err)
 		}
 		if len(chk) == 0 {
-			return adminErrLine(stdout, fmt.Errorf("%w: invalidate: id=%d 없음", db.ErrNotFound, id))
+			return adminErrLine(stdout, fmt.Errorf("%w: invalidate: id=%d not found", db.ErrNotFound, id))
 		}
 		if chk[0][0] == nil {
 			if _, err := ms.Invalidate(ctx, []int{id}, reason); err != nil {
 				return adminErrLine(stdout, err)
 			}
 			if _, err := ms.Commit(ctx, fmt.Sprintf(
-				"invalidate: id=%d 사유: %s (무효화 갱신 경로) [session:0]", id, reason)); err != nil {
+				"invalidate: id=%d reason: %s (invalidation path) [session:0]", id, reason)); err != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return store.MapExit(err)
 			}
@@ -666,7 +666,7 @@ func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []i
 	}
 	if len(missing) > 0 {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
-			"maintain: %s: 존재하지 않는 id %v", op, missing)))
+			"maintain: %s: nonexistent ids %v", op, missing)))
 		return 1
 	}
 	if err := retryWrite(ctx, func() error {
@@ -674,7 +674,7 @@ func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []i
 			return err
 		}
 		_, err := ms.Commit(ctx, fmt.Sprintf(
-			"%s: %d건 무효화 (배치 무효화 갱신 경로) [session:0]", op, len(ids)))
+			"%s: invalidated %d rows (batch invalidation path) [session:0]", op, len(ids)))
 		return err
 	}); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -786,7 +786,7 @@ func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer,
 			return err
 		}
 		_, err := ms.Commit(ctx, fmt.Sprintf(
-			"expire-pending: %d건 무효화 (pending 만료 갱신 경로) [session:0]", len(items)))
+			"expire-pending: invalidated %d rows (pending expiry path) [session:0]", len(items)))
 		return err
 	}); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -815,7 +815,7 @@ func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer,
 func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, oldID, newID int) int {
 	if oldID == newID {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
-			"maintain: --supersede OLD와 --by NEW가 같음(id=%d)", oldID)))
+			"maintain: --supersede OLD and --by NEW are the same (id=%d)", oldID)))
 		return 3
 	}
 	rows, err := wire.QueryOnce(ctx, ms, `
@@ -834,18 +834,18 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 	}
 	if newValidAt == nil {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
-			"maintain: --supersede: NEW 부재 id=%d", newID)))
+			"maintain: --supersede: NEW id=%d not found", newID)))
 		return 1
 	}
 	if oldStatus != "active" { // 부재(빈 상태) 포함 — active일 때만 승격
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
-			"maintain: --supersede: id=%d가 active 아님(상태 %q)", oldID, oldStatus)))
+			"maintain: --supersede: id=%d is not active (status %q)", oldID, oldStatus)))
 		return 1
 	}
 	at, ok := AnyToTime(newValidAt)
 	if !ok {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
-			"maintain: --supersede: NEW valid_at 판독 불가 id=%d", newID)))
+			"maintain: --supersede: cannot read NEW valid_at id=%d", newID)))
 		return 1
 	}
 	// v0.41.0 T2: 갱신 UPDATE·0행 경합 후견사는 db.Repo.Supersede 단일
@@ -855,7 +855,7 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 			return err
 		}
 		_, err := ms.Commit(ctx, fmt.Sprintf(
-			"supersede: old=%d by=%d (대체 갱신 경로) [session:0]", oldID, newID))
+			"supersede: old=%d by=%d (supersession path) [session:0]", oldID, newID))
 		return err
 	}); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -1113,7 +1113,7 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 	}
 	fmt.Fprintln(stdout, `]}`)
 	if unknown > 0 {
-		fmt.Fprintln(stdout, `{"hint":"unknown 키는 사용 중단 후보 — 확인 후 수동 정리: DELETE FROM meta WHERE key = '...'"}`)
+		fmt.Fprintln(stdout, `{"hint":"unknown keys are deprecation candidates — verify then clean up manually: DELETE FROM meta WHERE key = '...'"}`)
 	}
 	return 0
 }
@@ -1148,7 +1148,7 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 		}
 	}
 	if len(ids) == 0 {
-		fmt.Fprintln(stdout, `{"status":"prune-invalidated","deleted":0,"detail":"대상 없음"}`)
+		fmt.Fprintln(stdout, `{"status":"prune-invalidated","deleted":0,"detail":"no targets"}`)
 		return 0
 	}
 	if !commit {
@@ -1160,7 +1160,7 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 		if len(list) > 200 {
 			list = list[:200] + "…"
 		}
-		fmt.Fprintf(stdout, `{"status":"dry-run","would_delete":%d,"older_than_days":%d,"ids":"%s","next":"--commit 확정"}`+"\n",
+		fmt.Fprintf(stdout, `{"status":"dry-run","would_delete":%d,"older_than_days":%d,"ids":"%s","next":"run with --commit to apply"}`+"\n",
 			len(ids), days, list)
 		return 0
 	}
@@ -1174,7 +1174,7 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 		}
 		deleted = int(n)
 		_, err = ms.Commit(ctx, fmt.Sprintf(
-			"prune-invalidated: %d건(경과 %d일+) 삭제 (지식 위생 경로) [session:0]", deleted, days))
+			"prune-invalidated: removed %d rows (%dd+ elapsed) (knowledge hygiene path) [session:0]", deleted, days))
 		return err
 	}); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))

@@ -123,16 +123,16 @@ var writeLiteralAllow = map[string]bool{
 	// doctor 검사명·처방 문구(사람 대향 안내, 비SQL).
 	"update":            true,
 	"fix: flint update": true,
-	"fix: flint setup --update-rules — 스킬 싱크": true,
+	"fix: flint setup --update-rules — skill sync": true,
 	// rules_sync 오류 안내문.
-	"update-rules: 소스 flint-plugin/skills/flint 미탐지 — --src 플래그로 지정": true,
-	"update-rules: FLINT_CLAUDE_HOME 또는 HOME을 설정해 싱크 대상 경로를 지정":      true,
-	"update-rules 싱크 실패: %w": true,
+	"update-rules: source flint-plugin/skills/flint not found — specify it with --src": true,
+	"update-rules: set FLINT_CLAUDE_HOME or HOME to locate the sync destination":       true,
+	"update-rules sync failed: %w": true,
 	// 위 Errorf 안내문의 정적 결합 근사 형태(R6: %w 동사 공란 대입 결과) —
 	// fmt.Errorf("update-rules 싱크 실패: %w", err)의 fmtCombined 본문.
-	"update-rules 싱크 실패: ": true,
+	"update-rules sync failed: ": true,
 	// maintain unknown-키 힌트: 사람이 수동 실행할 문구 안내(실행 아님).
-	`{"hint":"unknown 키는 사용 중단 후보 — 확인 후 수동 정리: DELETE FROM meta WHERE key = '...'"}`: true,
+	`{"hint":"unknown keys are deprecation candidates — verify then clean up manually: DELETE FROM meta WHERE key = '...'"}`: true,
 }
 
 // writeGuardDirs — 가드 대상 패키지 루트(lib/ops·lib/knowledge). 하위
@@ -1528,7 +1528,7 @@ func f() string {
 		},
 		{
 			name: "오탐 방어: 비SQL 안내문(화이트리스트)",
-			src:  "package ops\n" + `const hint = "update-rules: 소스 flint-plugin/skills/flint 미탐지 — --src 플래그로 지정"`,
+			src:  "package ops\n" + `const hint = "update-rules: source flint-plugin/skills/flint not found — specify it with --src"`,
 		},
 		{
 			name: "오탐 방어: 결합 결과가 화이트리스트 본문(정확 일치)",

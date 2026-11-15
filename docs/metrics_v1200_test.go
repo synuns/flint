@@ -4,6 +4,7 @@
 package docs
 
 import (
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -25,19 +26,29 @@ func TestMetricsV1200Definitions(t *testing.T) {
 		}
 	}
 
-	if !strings.Contains(doc, "G6 회상 운명") {
-		t.Error("METRICS.md에 G6 회상 운명 절 없음")
+	if !strings.Contains(doc, "G6 recall fate") {
+		t.Error("METRICS.md에 G6 recall fate 절 없음")
 	}
-	if !strings.Contains(doc, "Tier 2 상관") {
-		t.Error("METRICS.md G6/Tier 등급 표기(Tier 2 상관) 없음")
+	if !strings.Contains(doc, "Tier 2 correlation") {
+		t.Error("METRICS.md G6/Tier 등급 표기(Tier 2 correlation) 없음")
 	}
-	if !strings.Contains(doc, "토큰으로 환산") {
+	if !strings.Contains(doc, "converted into tokens") {
 		t.Error("METRICS.md §5 토큰 환산 금지 조항 유실")
 	}
 
-	// cost 라벨·주입 모드 문구는 보고 구현 상수와 정합(단일 소스).
+	// cost 라벨 문구는 보고 구현 상수에서 파싱해 문서와 교차 검증한다
+	// (단일 소스 — v1.5.0 영어화로 라벨 상수를 직접 원천으로 삼음).
 	rep := read(t, "../lib/ops/report.go")
-	for _, kw := range []string{"절약 하한 추정", "주입 원가", "always-on", "on-invoke"} {
+	for _, name := range []string{"CostSavingsLabel", "CostHitLabel"} {
+		m := regexp.MustCompile(name + `\s*=\s*"([^"]+)"`).FindStringSubmatch(rep)
+		if m == nil {
+			t.Fatalf("lib/ops/report.go에 %s 상수 없음", name)
+		}
+		if !strings.Contains(doc, m[1]) {
+			t.Errorf("METRICS.md에 cost 라벨 %q 없음 — report.go와 불일치", m[1])
+		}
+	}
+	for _, kw := range []string{"always-on", "on-invoke"} {
 		if !strings.Contains(doc, kw) {
 			t.Errorf("METRICS.md에 cost 문구 %s 없음", kw)
 		}

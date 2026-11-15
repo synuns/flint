@@ -47,8 +47,8 @@ func TestProfileRecommendsBySample(t *testing.T) {
 	if code := runProfile(context.Background(), profFake(0, 0), nil, nil, &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
-	if !strings.Contains(out.String(), `"recommend":"유지"`) || strings.Contains(out.String(), `"next"`) {
-		t.Errorf("표본 부족 판정: %s", out.String())
+	if !strings.Contains(out.String(), `"recommend":"keep"`) || strings.Contains(out.String(), `"next"`) {
+		t.Errorf("insufficient-sample verdict: %s", out.String())
 	}
 	// 표본 충족·회상 선도 0 → minimal 추천 + next(전환 필요).
 	out.Reset()

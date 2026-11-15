@@ -44,10 +44,10 @@ func TestQuickstartCopilotAuto(t *testing.T) {
 // skill-file 제외 구조 수치).
 func TestQuickstartDoctorCheckCount(t *testing.T) {
 	d := docStr(t, "QUICKSTART.md")
-	if !strings.Contains(d, "검사 16종") {
-		t.Error("QUICKSTART.md: '검사 16종' 누락")
+	if !strings.Contains(d, "16 checks") {
+		t.Error("QUICKSTART.md: '16 checks' 누락")
 	}
-	if strings.Contains(d, "검사 10종") {
-		t.Error("QUICKSTART.md: '검사 10종' 잔존 — 16종(코어 6 + tail 10)이 실제")
+	if strings.Contains(d, "10 checks") {
+		t.Error("QUICKSTART.md: '10 checks' 잔존 — 16종(코어 6 + tail 10)이 실제")
 	}
 }

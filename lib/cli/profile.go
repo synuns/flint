@@ -47,7 +47,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		case "normal", "minimal":
 			apply = args[i] // 위치 허용(--apply 없이 값만)
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — 사용법: flint profile [--apply normal|minimal]", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — usage: flint profile [--apply normal|minimal]", args[i])))
 			return 3
 		}
 	}
@@ -68,12 +68,15 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	hint := profileHint(th, out.Effect)
 	recommend, reason := "", ""
 	switch {
-	case strings.Contains(hint, "보류"):
-		recommend, reason = "유지", "표본 부족(관측 선행 — read_events_n < zero_near_min_read)"
-	case strings.Contains(hint, "normal 유지"):
-		recommend, reason = "normal", "회상 선도 다수(recall_led_pct >= 50)"
+	// v1.5.0 T3: ops.ProfileHint 산출(영어) 마커로 판정 — 표준 문구
+	// "insufficient sample"·"keep normal"·"low recall lead"(lib/ops
+	// report.go 단일 소스). low recall lead는 minimal 기본 분기.
+	case strings.Contains(hint, "insufficient sample"):
+		recommend, reason = "keep", "insufficient sample (observe first — read_events_n < zero_near_min_read)"
+	case strings.Contains(hint, "keep normal"):
+		recommend, reason = "normal", "recall-led majority (recall_led_pct >= 50)"
 	default:
-		recommend, reason = "minimal", "회상 선도 낮음(recall_led_pct < 50) — hot 헤드라인 축소·nudge 억제가 어울리는 사용 패턴"
+		recommend, reason = "minimal", "recall-led minority (recall_led_pct < 50) — a usage pattern suited to slimmer hot headlines and nudge suppression"
 	}
 	res := map[string]any{
 		"status":    "ok",

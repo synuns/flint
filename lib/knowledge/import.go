@@ -162,7 +162,7 @@ func parseMarkdownSections(body string) []importSection {
 // 함께 쓰는 공용 진입(knowledge는 ops의 하위 계층이라 여기 둔다).
 func ValidateFlagValue(field, val string) error {
 	if strings.HasPrefix(val, "-") {
-		return &store.SchemaError{Field: field, Expect: "flag 아닌 값"}
+		return &store.SchemaError{Field: field, Expect: "value, not a flag"}
 	}
 	return nil
 }
@@ -203,7 +203,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		}
 	}
 	if len(files) == 0 {
-		fmt.Fprintln(stdout, `{"status":"none","detail":"임포트 후보 파일 없음(CLAUDE.md·AGENTS.md 등)"}`)
+		fmt.Fprintln(stdout, `{"status":"none","detail":"no import candidate files (CLAUDE.md, AGENTS.md, ...)"}`)
 		return 0
 	}
 	type item struct{ File, Heading, Summary string }
@@ -233,14 +233,14 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 	if len(items) == 0 {
 		if len(unreadable) > 0 {
-			fmt.Fprintln(stdout, `{"status":"error","detail":"읽기 불가","files":`+unreadableJSON+`}`)
+			fmt.Fprintln(stdout, `{"status":"error","detail":"unreadable","files":`+unreadableJSON+`}`)
 			return 1
 		}
-		fmt.Fprintln(stdout, `{"status":"empty","detail":"변환 가능 섹션 없음(## 헤딩 필요)"}`)
+		fmt.Fprintln(stdout, `{"status":"empty","detail":"no convertible sections (## heading required)"}`)
 		return 0
 	}
 	if !commit {
-		fmt.Fprintf(stdout, `{"status":"dry-run","files":%d,"sections":%d,"unreadable":%s,"next":"--commit 적립 후 flint approve로 승격"}`+"\n",
+		fmt.Fprintf(stdout, `{"status":"dry-run","files":%d,"sections":%d,"unreadable":%s,"next":"store with --commit, then promote via flint approve"}`+"\n",
 			len(files), len(items), unreadableJSON)
 		return 0
 	}
@@ -253,7 +253,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	seen := map[string]bool{} // 배치 내 중복(같은 파일 2회 지정 등) 차단
 	dedupErrs := 0
 	for _, it := range items {
-		topic := store.SanitizeText(render.TruncateRunes("규칙["+it.Heading+"]", 80))
+		topic := store.SanitizeText(render.TruncateRunes("rule["+it.Heading+"]", 80))
 		origin := store.SanitizeText("import:" + filepath.Clean(it.File))
 		rec := map[string]any{
 			"kind":       "knowledge",
@@ -276,7 +276,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			if err != nil {
 				// v0.27.3: 조회 오류는 존재 아님 처리 금지(write 계약) —
 				// 항목 skip+경고로 부분 적립. 전량 실패는 아래에서 실패 보고.
-				fmt.Fprintf(os.Stderr, "[flint] import %s: dedup 조회 실패 — skip: %v\n", it.File, err)
+				fmt.Fprintf(os.Stderr, "[flint] import %s: dedup lookup failed — skip: %v\n", it.File, err)
 				dedupErrs++
 				continue
 			}
@@ -293,7 +293,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	if len(batch) == 0 && dedupErrs > 0 {
 		// 리뷰 3: 전량 조회 실패는 '전부 중복'이 아니라 장애 — 거짓 성공
 		// 금지(write 계약 정렬).
-		fmt.Fprintf(stdout, `{"status":"error","detail":"dedup 조회 실패 %d건","unreadable":%s}`+"\n", dedupErrs, unreadableJSON)
+		fmt.Fprintf(stdout, `{"status":"error","detail":"dedup lookup failed for %d items","unreadable":%s}`+"\n", dedupErrs, unreadableJSON)
 		return 1
 	}
 	if len(batch) == 0 {

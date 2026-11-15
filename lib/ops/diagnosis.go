@@ -32,7 +32,7 @@ type DiagnosisItem struct {
 
 // Sentence — text 뷰 문장 렌더(신호+수치+기준 출처+행동 1줄).
 func (d DiagnosisItem) Sentence() string {
-	return fmt.Sprintf("%s: %s (기준: %s) → %s", d.Signal, d.Value, d.Basis, d.Action)
+	return fmt.Sprintf("%s: %s (basis: %s) → %s", d.Signal, d.Value, d.Basis, d.Action)
 }
 
 // Diagnose — 순수 함수 규칙 엔진. 입력은 report 수집 산물(ReportOutput)과
@@ -55,17 +55,17 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 		if ratio >= th.DiagHotBudgetHigh {
 			items = append(items, DiagnosisItem{
 				Signal:    "hot_budget_saturation",
-				Value:     fmt.Sprintf("hot 주입 평균 %d바이트 = 예산 %d바이트의 %d%%", avg, hotBudget, pct),
-				Basis:     fmt.Sprintf("diag_hot_budget_high=%g(hot_budget 대비 주입 평균 비율)", th.DiagHotBudgetHigh),
-				Action:    "만성 절단 의심 — hot_budget 상향 검토(요약이 상한에 계속 걸리는 상태)",
+				Value:     fmt.Sprintf("hot injection avg %d bytes = %d%% of budget %d bytes", avg, pct, hotBudget),
+				Basis:     fmt.Sprintf("diag_hot_budget_high=%g (injection avg ratio vs hot_budget)", th.DiagHotBudgetHigh),
+				Action:    "possible chronic truncation — consider raising hot_budget (summations keep hitting the cap)",
 				TuningKey: "hot_budget",
 			})
 		} else if ratio <= th.DiagHotBudgetLow {
 			items = append(items, DiagnosisItem{
 				Signal:    "hot_budget_slack",
-				Value:     fmt.Sprintf("hot 주입 평균 %d바이트 = 예산 %d바이트의 %d%%", avg, hotBudget, pct),
-				Basis:     fmt.Sprintf("diag_hot_budget_low=%g(hot_budget 대비 주입 평균 비율)", th.DiagHotBudgetLow),
-				Action:    "정보성 — 예산 여유 큼(하향 검토로 주입 절약 여지)",
+				Value:     fmt.Sprintf("hot injection avg %d bytes = %d%% of budget %d bytes", avg, pct, hotBudget),
+				Basis:     fmt.Sprintf("diag_hot_budget_low=%g (injection avg ratio vs hot_budget)", th.DiagHotBudgetLow),
+				Action:    "informational — ample budget headroom (lowering hot_budget could save injection bytes)",
 				TuningKey: "hot_budget",
 			})
 		}
@@ -82,9 +82,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 			}
 			items = append(items, DiagnosisItem{
 				Signal:    "hot_bytes_trend",
-				Value:     fmt.Sprintf("hot 주입 바이트 후반 %d vs 전반 %d(%s%d%%)", cur, prev, sign, delta),
-				Basis:     fmt.Sprintf("diag_trend_pct=%d%%(창 전후반 일별 hot_bytes 합 비교)", th.DiagTrendPct),
-				Action:    "주입 규모 급변 — hot 구성·프로비저닝 변화 원인 확인",
+				Value:     fmt.Sprintf("hot bytes second half %d vs first half %d (%s%d%%)", cur, prev, sign, delta),
+				Basis:     fmt.Sprintf("diag_trend_pct=%d%% (first vs second half daily hot_bytes sums)", th.DiagTrendPct),
+				Action:    "sudden injection size change — check hot composition and provisioning changes",
 				TuningKey: "diag_trend_pct",
 			})
 		}
@@ -97,9 +97,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 	if s, c := e.Cost.SavingsLowerBoundBytes, e.Cost.HitInjectionCostBytes; s > 0 && c > s {
 		items = append(items, DiagnosisItem{
 			Signal: "hit_cost_exceeds_savings",
-			Value:  fmt.Sprintf("주입 원가 %d바이트 > 절약 하한 %d바이트", c, s),
-			Basis:  "cost.hit_injection_cost_bytes vs cost.savings_lower_bound_bytes(절약은 하한 추정 — 상회가 순손실 증명은 아님)",
-			Action: "회상 반환 크기·노출 수 점검(주입 원가 절감 여지)",
+			Value:  fmt.Sprintf("injection cost %d bytes > savings lower bound %d bytes", c, s),
+			Basis:  "cost.hit_injection_cost_bytes vs cost.savings_lower_bound_bytes (savings is a lower-bound estimate — exceeding it does not prove net loss)",
+			Action: "review recall payload size and exposure count (room to cut injection cost)",
 		})
 	}
 
@@ -109,9 +109,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 	if e.ReadEventsN >= th.ZeroNearMinRead && out.ZeroNearPct >= th.ZeroNearWarnPct {
 		items = append(items, DiagnosisItem{
 			Signal:    "zero_near_high",
-			Value:     fmt.Sprintf("zero_near_pct %d%%(read %d건 중 근접)", out.ZeroNearPct, e.ReadEventsN),
-			Basis:     fmt.Sprintf("doctor zero-near 승계 zero_near_warn_pct=%d%%·표본 하한 zero_near_min_read=%d", th.ZeroNearWarnPct, th.ZeroNearMinRead),
-			Action:    "어휘 불일치 의심 — 검색 품질 개선 여지(제안 스캔·태그 어휘 점검)",
+			Value:     fmt.Sprintf("zero_near_pct %d%% (near hits among %d reads)", out.ZeroNearPct, e.ReadEventsN),
+			Basis:     fmt.Sprintf("inherits doctor zero-near zero_near_warn_pct=%d%%, sample floor zero_near_min_read=%d", th.ZeroNearWarnPct, th.ZeroNearMinRead),
+			Action:    "possible vocabulary mismatch — room to improve search quality (review suggestion scans and tag vocabulary)",
 			TuningKey: "zero_near_warn_pct",
 		})
 	}
@@ -120,9 +120,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 	if e.DeadPct >= th.DiagDeadWarn {
 		items = append(items, DiagnosisItem{
 			Signal:    "dead_knowledge",
-			Value:     fmt.Sprintf("dead_pct %d%%(활성 중 회상 0·장기 경과)", e.DeadPct),
-			Basis:     fmt.Sprintf("diag_dead_warn=%d%%(dead_days=%d일 기준 dead_pct)", th.DiagDeadWarn, th.DeadDays),
-			Action:    "maintain --stale·--prune-invalidated 정리 검토",
+			Value:     fmt.Sprintf("dead_pct %d%% (active but never recalled, long elapsed)", e.DeadPct),
+			Basis:     fmt.Sprintf("diag_dead_warn=%d%% (dead_pct at dead_days=%dd)", th.DiagDeadWarn, th.DeadDays),
+			Action:    "consider cleanup with maintain --stale and --prune-invalidated",
 			TuningKey: "diag_dead_warn",
 		})
 	}
@@ -132,9 +132,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 	if out.Counts.Pending > 0 {
 		items = append(items, DiagnosisItem{
 			Signal:    "pending_backlog",
-			Value:     fmt.Sprintf("승인 대기 pending %d건", out.Counts.Pending),
-			Basis:     fmt.Sprintf("doctor pending-age 승계 pending_age_days=%d일(경과 기준일)", th.PendingAgeDays),
-			Action:    "approve 검수·maintain --expire-pending 정리",
+			Value:     fmt.Sprintf("%d pending items awaiting approval", out.Counts.Pending),
+			Basis:     fmt.Sprintf("inherits doctor pending-age pending_age_days=%dd (age threshold)", th.PendingAgeDays),
+			Action:    "review via approve or clean up with maintain --expire-pending",
 			TuningKey: "pending_age_days",
 		})
 	}
@@ -145,9 +145,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 	if e.ReadEventsN >= th.ZeroNearMinRead && e.RecallLedPct < th.DiagRecallLedGoal {
 		items = append(items, DiagnosisItem{
 			Signal:    "recall_led_below_goal",
-			Value:     fmt.Sprintf("회상 선도 세션 %d%%", e.RecallLedPct),
-			Basis:     fmt.Sprintf("기본 목표 diag_recall_led_goal=%d%%(가치 기본값 — 습관 목표, 개인 목표 아님)", th.DiagRecallLedGoal),
-			Action:    "회상 우선 세션 습관 유도(nudge recall 안내 점검)",
+			Value:     fmt.Sprintf("recall-led sessions %d%%", e.RecallLedPct),
+			Basis:     fmt.Sprintf("default goal diag_recall_led_goal=%d%% (value default — a habit goal, not a personal target)", th.DiagRecallLedGoal),
+			Action:    "encourage recall-first session habits (review the nudge recall guidance)",
 			TuningKey: "diag_recall_led_goal",
 		})
 	}

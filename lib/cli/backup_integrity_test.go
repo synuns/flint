@@ -31,7 +31,7 @@ func TestRestoreChecksumMismatchExit1(t *testing.T) {
 	if m["error"] != "checksum_mismatch" {
 		t.Fatalf("error=%v, want checksum_mismatch", m["error"])
 	}
-	if msg, _ := m["message"].(string); !strings.Contains(msg, "체크섬 위조") {
+	if msg, _ := m["message"].(string); !strings.Contains(msg, "checksum tampering detected") {
 		t.Fatalf("message=%v, 위조 감지 안내 누락", m["message"])
 	}
 	if f.gotRestore != "" {

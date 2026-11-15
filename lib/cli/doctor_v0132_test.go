@@ -50,7 +50,7 @@ func TestConflictsLimitReachedNotesOverflow(t *testing.T) {
 	if c.Status != "warn" {
 		t.Fatalf("status = %s, want warn", c.Status)
 	}
-	if !strings.Contains(c.Detail, "상한 초과 가능") {
+	if !strings.Contains(c.Detail, "group query limit") {
 		t.Errorf("상한 도달 문구 없음: %q", c.Detail)
 	}
 	if len(s.calls) != 1 || s.calls[0] != doctorConflictLimit {

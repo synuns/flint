@@ -47,7 +47,7 @@ func TestMaybeSessionKnowledgeTopicQuality(t *testing.T) {
 		t.Fatalf("적립 = %d, want 1", len(st.inserted))
 	}
 	topic := st.inserted[0]["topic"].(string)
-	if !strings.Contains(topic, "세션[claude]") || !strings.Contains(topic, "검색 품질") {
+	if !strings.Contains(topic, "session[claude]") || !strings.Contains(topic, "검색 품질") {
 		t.Errorf("topic 품질 미반영: %q", topic)
 	}
 }
@@ -103,7 +103,7 @@ func TestRunPendingVerdicts(t *testing.T) {
 	}
 	s := out.String()
 	for _, want := range []string{
-		"1|만료|", "2|승격|", "3|보류|",
+		"1|expire|", "2|promote|", "3|hold|",
 		`"expire":1`, `"promote":1`, `"hold":1`,
 	} {
 		if !strings.Contains(s, want) {
@@ -130,7 +130,7 @@ func TestRunPendingMergeHint(t *testing.T) {
 	if code := RunPending(context.Background(), st, nil, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
-	if !strings.Contains(out.String(), "9|병합|") || !strings.Contains(out.String(), `"merge":1`) {
+	if !strings.Contains(out.String(), "9|merge|") || !strings.Contains(out.String(), `"merge":1`) {
 		t.Errorf("병합 추천 미출력:\n%s", out.String())
 	}
 }

@@ -82,13 +82,13 @@ func TestHotFullStillBumpsInjected(t *testing.T) {
 // 경계) 실출력에 남은 행과 증분 id 집합이 일치해야 한다.
 func TestHotFullSuffixSurvivorMatchesOutput(t *testing.T) {
 	ctx := context.Background()
-	validAt := time.Now().UTC().Add(-72 * time.Hour) // 내림 3일 → ·+3일
+	validAt := time.Now().UTC().Add(-72 * time.Hour) // 내림 3일 → ·+3d
 	hotRows := [][]any{
 		{"pending", "펜딩토픽", "요약", validAt, int32(10), validAt, validAt},
 		{"decision", "잘린토픽", "요약2", "2026-10-21", int32(11), nil, nil},
 		{"decision", "더잘린토픽", "요약3", "2026-10-20", int32(12), nil, nil},
 	}
-	suffix := "·+3일"
+	suffix := "·+3d"
 	baseLines := strings.Split(strings.TrimSuffix(
 		query.FormatRows(hotRows, hotFields, false), "\n"), "\n")
 	// 접미 포함 첫 행 끝(+)줄바꿈까지가 예산 — 둘째 행 시작 오프셋==예산.

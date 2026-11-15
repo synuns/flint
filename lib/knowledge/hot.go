@@ -127,7 +127,7 @@ func injectedIDsForSurvivors(rows [][]any, survivors int) []int {
 // 24시간 미만은 빈 문자열, 이상은 내림 일수 "·+N일".
 func PendingAgeSuffix(validAt time.Time, now time.Time) string {
 	if days := int64(now.Sub(validAt) / (24 * time.Hour)); days > 0 {
-		return fmt.Sprintf("·+%d일", days)
+		return fmt.Sprintf("·+%dd", days)
 	}
 	return ""
 }
@@ -193,13 +193,13 @@ func hotFullOutput(lines []string) string {
 // 펼치기 안내와 같은 클래스, §13 경계 준수).
 func HotHeadline(profile string, active int, pending int, recent int, topics []string) string {
 	if profile == "minimal" {
-		return fmt.Sprintf("[flint] 활성 %d · 대기 %d", active, pending)
+		return fmt.Sprintf("[flint] active %d · pending %d", active, pending)
 	}
 	if len(topics) > 0 {
-		return fmt.Sprintf("[flint] 활성 %d · 대기 %d · 최근 결정: %s — 회상: flint read <쿼리>",
+		return fmt.Sprintf("[flint] active %d · pending %d · recent decisions: %s — recall: flint read <query>",
 			active, pending, strings.Join(topics, " · "))
 	}
-	return fmt.Sprintf("[flint] 활성 %d · 대기 %d · 최근 결정 %d — 펼치기: flint hot --full",
+	return fmt.Sprintf("[flint] active %d · pending %d · recent decisions %d — expand: flint hot --full",
 		active, pending, recent)
 }
 

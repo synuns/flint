@@ -154,7 +154,7 @@ func maybeMaintenanceNotice(ctx context.Context, st wire.Store) string {
 	}
 	_ = os.WriteFile(path, []byte(`{"checked_at":"`+time.Now().UTC().Format(time.RFC3339)+`"}`), 0o600)
 	if n > th.PendingMax {
-		return "[flint] pending " + strconv.Itoa(n) + "건(상한 " + strconv.Itoa(th.PendingMax) + ") — flint doctor·maintain 확인"
+		return "[flint] pending " + strconv.Itoa(n) + " items (limit " + strconv.Itoa(th.PendingMax) + ") — check flint doctor and maintain"
 	}
 	return ""
 }

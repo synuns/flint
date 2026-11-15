@@ -18,10 +18,10 @@ import (
 )
 
 // ErrSignatureInvalid — 서명 불일치(위조·손상 의심 — 업데이트 즉시 거부).
-var ErrSignatureInvalid = errors.New("release signature: 서명 불일치")
+var ErrSignatureInvalid = errors.New("release signature: signature mismatch")
 
 // ErrSignatureScheme — 미지원 키/형식(공개키 스킴·서명 인코딩).
-var ErrSignatureScheme = errors.New("release signature: 미지원 스킴")
+var ErrSignatureScheme = errors.New("release signature: unsupported scheme")
 
 // ReleaseVerifier — 임베드 공개키 기반 검증기(빈 공개키 = 미구성 전환 모드).
 type ReleaseVerifier struct {
@@ -38,19 +38,19 @@ func (v ReleaseVerifier) Configured() bool {
 // cosign sign-blob --key의 두 표준 스킴.
 func (v ReleaseVerifier) Verify(data []byte, sigB64 string) error {
 	if !v.Configured() {
-		return fmt.Errorf("release signature: 공개키 미구성(전환 모드)")
+		return fmt.Errorf("release signature: public key not configured (transition mode)")
 	}
 	block, _ := pem.Decode(v.PublicPEM)
 	if block == nil {
-		return fmt.Errorf("release signature: 공개키 PEM 파싱 실패")
+		return fmt.Errorf("release signature: cannot parse public key PEM")
 	}
 	pubAny, err := x509.ParsePKIXPublicKey(block.Bytes)
 	if err != nil {
-		return fmt.Errorf("release signature: 공개키 파싱: %w", err)
+		return fmt.Errorf("release signature: parse public key: %w", err)
 	}
 	sig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(sigB64))
 	if err != nil {
-		return fmt.Errorf("%w: 서명 base64", ErrSignatureScheme)
+		return fmt.Errorf("%w: signature base64", ErrSignatureScheme)
 	}
 	switch pub := pubAny.(type) {
 	case *ecdsa.PublicKey:
@@ -65,6 +65,6 @@ func (v ReleaseVerifier) Verify(data []byte, sigB64 string) error {
 		}
 		return ErrSignatureInvalid
 	default:
-		return fmt.Errorf("%w: 공개키 타입 %T", ErrSignatureScheme, pubAny)
+		return fmt.Errorf("%w: public key type %T", ErrSignatureScheme, pubAny)
 	}
 }

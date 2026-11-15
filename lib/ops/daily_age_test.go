@@ -96,10 +96,10 @@ func TestStaleDailyDetectsFlatKeys(t *testing.T) {
 	if c.Status != "warn" {
 		t.Fatalf("stale 플랫 키 미감지 = %+v", c)
 	}
-	if !strings.Contains(c.Detail, "daily 카운터 1건") {
+	if !strings.Contains(c.Detail, "1 daily counters past retention window") {
 		t.Errorf("stale 카운트 = 1 아님(플랫 키 미탐 또는 무효 날짜 포함): %+v", c)
 	}
-	if strings.Contains(c.Detail, "미지 키") {
+	if strings.Contains(c.Detail, "unknown keys") {
 		t.Errorf("last_write_at이 미지 키로 오탐: %+v", c)
 	}
 }

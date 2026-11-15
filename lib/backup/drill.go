@@ -106,7 +106,7 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 		return db.Retry(ctx, func() error { return dropDrillDBFn(ctx, pool) }, drillDropBackoff)
 	}
 	if derr := drop(ctx); derr != nil { // 선행 잔존 정리(이전 비정상 종료 대비)
-		return DrillResult{}, fmt.Errorf("drill: 선행 %s 정리 실패: %w", DrillDB, derr)
+		return DrillResult{}, fmt.Errorf("drill: pre-clean %s failed: %w", DrillDB, derr)
 	}
 	defer func() {
 		// 종료 정리 DROP은 재생 ctx와 독립된 별도 타임아웃(v0.16.2) —
@@ -114,7 +114,7 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 		cctx, ccancel := context.WithTimeout(context.Background(), drillCleanupTimeout)
 		defer ccancel()
 		if derr := drop(cctx); derr != nil && err == nil {
-			err = fmt.Errorf("drill: %s 제거 재시도 소진(잔존): %w", DrillDB, derr)
+			err = fmt.Errorf("drill: %s drop retries exhausted (still present): %w", DrillDB, derr)
 		}
 	}()
 
@@ -126,12 +126,12 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 	// 바꾼다. 재생은 이 별도 풀에서만 일어난다.
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
-		return DrillResult{}, fmt.Errorf("drill: 드릴 DSN 조립: %w", err)
+		return DrillResult{}, fmt.Errorf("drill: build drill DSN: %w", err)
 	}
 	cfg.ConnConfig.Database = DrillDB
 	drillPool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
-		return DrillResult{}, fmt.Errorf("drill: 드릴 DB 접속: %w", err)
+		return DrillResult{}, fmt.Errorf("drill: connect drill DB: %w", err)
 	}
 
 	// 재생 — 덤프는 BEGIN/COMMIT을 포함하므로 트랜잭션 상태가 커넥션에
@@ -142,7 +142,7 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 		defer drillPool.Close()
 		conn, err := drillPool.Acquire(ctx)
 		if err != nil {
-			return fmt.Errorf("drill: 재생 커넥션: %w", err)
+			return fmt.Errorf("drill: replay connection: %w", err)
 		}
 		defer conn.Release()
 		stmts := splitStatements(string(data))
@@ -156,7 +156,7 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 			}
 		}
 		if err := conn.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&restored); err != nil {
-			return fmt.Errorf("drill: knowledge 행수: %w", err)
+			return fmt.Errorf("drill: knowledge row count: %w", err)
 		}
 		return nil
 	}()
@@ -174,7 +174,7 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.maintenance_runs (
 		id serial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
 		kind text NOT NULL, details text)`); err != nil {
-		return res, fmt.Errorf("drill: maintenance_runs 보장: %w", err)
+		return res, fmt.Errorf("drill: ensure maintenance_runs: %w", err)
 	}
 	now := time.Now().UTC()
 	if _, err := pool.Exec(ctx,
@@ -222,7 +222,7 @@ func dropDrillDB(ctx context.Context, pool *pgxpool.Pool) error {
 		return err
 	}
 	if n != 0 {
-		return fmt.Errorf("drill: %s 잔존 — 수동 DROP 필요", DrillDB)
+		return fmt.Errorf("drill: %s still present — manual DROP required", DrillDB)
 	}
 	return nil
 }

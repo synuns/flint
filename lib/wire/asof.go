@@ -24,7 +24,7 @@ const AsofMinPrefix = 3
 // ParseRelative — 상대 스펙 "Nh"·"Nd"를 현재 기준 과거 시각(Go 계산)으로
 // 확장한다. d는 h*24 확장이며 정수가 아니면(2.5h·"2 days ago") ErrInvalidAsOf.
 func ParseRelative(spec string) (time.Time, error) {
-	fail := fmt.Errorf("무효 상대 as-of 스펙 %q (Nh·Nd 정수 형식만 허용): %w", spec, ErrInvalidAsOf)
+	fail := fmt.Errorf("invalid relative as-of spec %q (only integer Nh·Nd form allowed): %w", spec, ErrInvalidAsOf)
 	if len(spec) < 2 {
 		return time.Time{}, fail
 	}
@@ -50,7 +50,7 @@ func ParseRelative(spec string) (time.Time, error) {
 func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
-		return "", fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf)
+		return "", fmt.Errorf("empty as-of spec: %w", ErrInvalidAsOf)
 	}
 	// ① 상대 스펙 — 형식이 아니면 다음 후보로 넘어간다.
 	if t, err := ParseRelative(spec); err == nil {
@@ -73,16 +73,16 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 		switch len(rows) {
 		case 1:
 			if len(rows[0]) == 0 {
-				return "", fmt.Errorf("dolt_log 응답 컬럼 부재: %w", ErrInvalidAsOf)
+				return "", fmt.Errorf("dolt_log response missing column: %w", ErrInvalidAsOf)
 			}
 			return fmt.Sprint(rows[0][0]), nil
 		case 0:
-			return "", fmt.Errorf("접두어 %q와 일치하는 커밋 없음: %w", spec, ErrInvalidAsOf)
+			return "", fmt.Errorf("no commit matches prefix %q: %w", spec, ErrInvalidAsOf)
 		default:
-			return "", fmt.Errorf("접두어 %q가 %d건 커밋과 일치(모호 — 더 길게): %w", spec, len(rows), ErrInvalidAsOf)
+			return "", fmt.Errorf("prefix %q matches %d commits (ambiguous — use more characters): %w", spec, len(rows), ErrInvalidAsOf)
 		}
 	}
-	return "", fmt.Errorf("무효 as-of 스펙 %q (ISO·Nh/Nd·해시 접두어 3자+): %w", spec, ErrInvalidAsOf)
+	return "", fmt.Errorf("invalid as-of spec %q (ISO datetime, Nh/Nd, or hash prefix 3+ chars): %w", spec, ErrInvalidAsOf)
 }
 
 // commitAtOrBefore — 시각 직전 최신 커밋 채택. date 비교는 Go 계산
@@ -104,10 +104,10 @@ func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (
 		return "", err
 	}
 	if len(first) == 1 && len(first[0]) > 0 {
-		return "", fmt.Errorf("그 시점(%s)엔 아직 커밋이 없습니다 (첫 커밋: %v): %w",
+		return "", fmt.Errorf("no commits exist yet at %s (first commit: %v): %w",
 			spec, first[0][0], ErrInvalidAsOf)
 	}
-	return "", fmt.Errorf("커밋이 없는 저장소에는 as-of를 사용할 수 없습니다: %w", ErrInvalidAsOf)
+	return "", fmt.Errorf("as-of cannot be used on a repository with no commits: %w", ErrInvalidAsOf)
 }
 
 // isLowerAlnumPrefix — 소문자 영숫자 [0-9a-z] 접두어 여부(빈 문자열 false).

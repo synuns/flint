@@ -90,14 +90,14 @@ func CheckSkillFile(srcDir, destDir string) (DoctorCheck, bool) {
 	dest, rerr := os.ReadFile(destPath)
 	if rerr != nil {
 		c.Status = "warn" // 스킬 없어도 훅은 동작 — fail 아님(룰링)
-		c.Detail = destPath + " 없음"
-		c.Fix = "fix: flint setup --update-rules — 스킬 싱크"
+		c.Detail = destPath + " not found"
+		c.Fix = "fix: flint setup --update-rules — skill sync"
 		return c, true
 	}
 	if string(src) != string(dest) {
 		c.Status = "warn"
-		c.Detail = destPath + "이(가) 소스와 불일치"
-		c.Fix = "fix: flint setup --update-rules — 스킬 싱크"
+		c.Detail = destPath + " differs from source"
+		c.Fix = "fix: flint setup --update-rules — skill sync"
 		return c, true
 	}
 	c.Status = "ok"
@@ -114,18 +114,18 @@ func RunUpdateRules(stdout io.Writer, srcOverride string) int {
 		src = SkillSrcDir(FlintBinPathFn())
 	}
 	if src == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(errors.New("update-rules: 소스 flint-plugin/skills/flint 미탐지 — --src 플래그로 지정")))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("update-rules: source flint-plugin/skills/flint not found — specify it with --src")))
 		return 1
 	}
 	home := ClaudeHome()
 	if home == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(errors.New("update-rules: FLINT_CLAUDE_HOME 또는 HOME을 설정해 싱크 대상 경로를 지정")))
+		fmt.Fprintln(stdout, wire.ErrLine(errors.New("update-rules: set FLINT_CLAUDE_HOME or HOME to locate the sync destination")))
 		return 1
 	}
 	dest := filepath.Join(home, "skills", "flint")
 	n, err := SyncRules(src, dest)
 	if err != nil {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("update-rules 싱크 실패: %w", err)))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("update-rules sync failed: %w", err)))
 		return 1
 	}
 	b, err := json.Marshal(map[string]any{"status": "synced", "copied": n, "dest": dest})

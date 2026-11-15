@@ -456,7 +456,7 @@ func TestRestoreDecryptsEncrypted(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	withBackupFake(t, &fakeBackup{})
 	got2, code2 := mustRestore(t, []string{"--file", f})
-	if code2 != 1 || !strings.Contains(got2, "키 파일 필요") {
+	if code2 != 1 || !strings.Contains(got2, "key file required") {
 		t.Fatalf("키 없음 = exit %d %s", code2, got2)
 	}
 }

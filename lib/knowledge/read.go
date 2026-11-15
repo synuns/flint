@@ -336,7 +336,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			if name = strings.TrimSpace(name); name == "" || !query.ReadFieldKnown(name) {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
 					Field:  "fields",
-					Expect: "알려진 컬럼: " + query.ReadColumnsHint(),
+					Expect: "known columns: " + query.ReadColumnsHint(),
 				}))
 				return 3
 			}
@@ -347,7 +347,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// 데이터를 돌려주면 잘못된 결과가 되므로(status와 동일 규칙).
 	if asOfGiven && asOfSpec == "" {
 		fmt.Fprintln(stdout, asOfErrLine("invalid_as_of",
-			fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf).Error()))
+			fmt.Errorf("empty as-of spec: %w", ErrInvalidAsOf).Error()))
 		return 3
 	}
 	// 값 없는 --status(마지막 인자)도 무효 스펙 exit 3 — 값 없는 --as-of
@@ -391,7 +391,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		// v0.28.0(H③): 해시 값은 dolt_log 행 출처라 엔진 구현에 의존하지
 		// 않게 엄격 문자셋 재검증 — 벗어나면 인라인 대신 오류(종료 계약).
 		if !asOfHashRe.MatchString(hash) {
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash 문자셋 위반: %q", hash)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash charset violation: %q", hash)))
 			return 1
 		}
 		sql = strings.Replace(sql, " FROM active_knowledge",
@@ -549,10 +549,10 @@ func validateSessionLabel(given bool, val string) error {
 		return &store.SchemaError{Field: "session", Expect: "non-empty"}
 	}
 	if strings.HasPrefix(val, "-") {
-		return &store.SchemaError{Field: "session", Expect: "flag 아닌 라벨"}
+		return &store.SchemaError{Field: "session", Expect: "label, not a flag"}
 	}
 	if strings.ContainsAny(val, "\n\r") {
-		return &store.SchemaError{Field: "session", Expect: "개행 없는 1줄 라벨"}
+		return &store.SchemaError{Field: "session", Expect: "single-line label without newlines"}
 	}
 	return nil
 }
@@ -622,7 +622,7 @@ func ValidAsOfHash(hash string) bool {
 func wrapViewColumnMismatch(err error) error {
 	msg := err.Error()
 	if strings.Contains(msg, "column") && strings.Contains(msg, "does not exist") {
-		return fmt.Errorf("%w — active_knowledge 뷰 정의가 해당 시점 행과 호환되지 않습니다. 기본 테이블(knowledge) AS OF 조회를 시도하세요", err)
+		return fmt.Errorf("%w — the active_knowledge view definition is incompatible with rows at that point in time; try an AS OF query on the base table (knowledge)", err)
 	}
 	return err
 }

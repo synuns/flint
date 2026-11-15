@@ -1,297 +1,355 @@
-# flint 효과 계측 기준 (v1.2.3)
+# flint Effect Measurement Standard (v1.2.3)
 
-flint가 에이전트에게 "도움이 되는가"를 재는 기준. 사용량(read·write
-호출 수)은 필요조건이지 효과가 아니다 — 이 문서는 무엇을 도움으로
-정의하고, 어떤 신호에서 어떤 지표를 도출하며, 각 지표가 어디까지
-증명하는지(증거 등급)를 먼저 정한다. 지표 정의가 코드보다 앞선다
-(Google HEART/GSM 관례 — 목표→신호→지표 순서로만 설계하고, 지표부터
-만들면 vanity metric이 된다).
+> English documentation. For a Korean overview, see [README.ko.md](../README.ko.md).
 
-## 1. 설계 원칙
+The standard for measuring whether flint "helps" agents. Usage (read · write
+call counts) is a necessary condition, not an effect — this document first
+defines what counts as help, which signals yield which metrics, and what each
+metric can prove (evidence tier). Metric definitions come before code
+(Google HEART/GSM convention — design only in Goal→Signal→Metric order;
+starting from metrics produces vanity metrics).
 
-1. **목표→신호→지표(GSM)** — "도움"을 먼저 정의하고, 그 성공이
-   관찰 가능한 행동(신호)으로 나타나는 방식을 매핑한 뒤 지표를 고른다.
-   재기 쉬운 것부터 재지 않는다.
-2. **사용량 ≠ 효과** — 호출 빈도(Engagement)는 정착의 필요조건.
-   효과는 과제 관점 지표(Task success)가 담당한다.
-3. **컴포넌트 분리(RAGAS 관례)** — flint는 검색면만 소유한다.
-   "에이전트가 회상을 잘 썼는가"(생성면)는 상관 프록시로만 측정하고
-   인과로 서술하지 않는다.
-4. **관찰과 평가의 분리** — 계측(이벤트 기록)과 판정(기준 대비
-   산출)을 구분한다. 합성 e2e 재현률은 "floor, not ceiling"이다.
-5. **지표 세트 해석** — 어느 단일 지표도 도움의 증명이 아니다.
-   게이밍 여지(예: 회상을 안 하면 hit_pct도 올라간다)는 세트 대응으로
-   봉쇄하고, 비교는 동일 기간 창(14일)에서만 한다.
+## 1. Design principles
 
-## 2. "도움"의 정의와 GSM 매핑
+1. **Goal→Signal→Metric (GSM)** — define "help" first, map how its success
+   shows up as observable behavior (signals), then pick metrics. Never
+   measure what is easy to re-measure.
+2. **Usage ≠ effect** — call frequency (Engagement) is a necessary condition
+   for adoption. Effect is the job of task-success metrics.
+3. **Component separation (RAGAS convention)** — flint owns the retrieval
+   side only. "Did the agent put its recalls to good use" (generation side)
+   is measured as a correlational proxy, never narrated as causation.
+4. **Separating observation from evaluation** — instrumentation (event
+   recording) and verdicts (computed against a standard) are distinct.
+   Synthetic e2e reproduction rate is a "floor, not ceiling".
+5. **Set-based interpretation** — no single metric proves helpfulness.
+   Gaming vectors (e.g. skipping recalls also raises hit_pct) are blocked by
+   interpreting the set together; comparisons happen only within the same
+   time window (14 days).
 
-| 목표 | 정의 | 신호(관찰 가능한 행동) | 지표 | 근거 데이터 |
+## 2. Definition of "help" and the GSM mapping
+
+| goal | definition | signal (observable behavior) | metrics | source data |
 |---|---|---|---|---|
-| G1 회상 명중 | 필요한 시점에 기억에서 꺼내진다 | read가 빈손·폴백 없이 해결된다 | `hit_pct`·`near_pct`·폴백률 | daily 카운터·read_events |
-| G2 재발견 저지 | 아는 것을 다시 발견하는 낭비를 막는다 | 같은 내용 재기록 시도가 duplicate로 종결된다 | `dup_prevented`(절대량) | daily 카운터 |
-| G3 자산 건전성 | 쌓은 지식이 썩지 않고 재사용된다 | active 지식이 회상된다 | `reuse_pct`·`dead_pct` | knowledge 계측 컬럼 |
-| G4 회상 우선 정착 | 세션이 기록만 하지 않고 회상으로 시작한다 | read 뒤 짧은 창 내 write가 뒤따른다 | `read_write_pairs`·`pair_pct` | read_events × knowledge |
-| G5 최소 주입 | 컨텍스트에 들어간 바이트가 예산 안에서 최소인가 | 세 표면(read·hot·brief)의 실측 출력 바이트 | `bytes.<표면>.bytes_14d`·`avg_bytes`·`cost`(p95·절약 하한·주입 원가) | daily 카운터(바이트, v1.1.0)·read_events.bytes·hot_events(v1.2.0) |
-| G6 회상 운명 | 회상된 지식이 시간이 지나도 살아남는다 | 회상 7일 후에도 active 상태다 | `survived_pct`·`bad_recall_pct` | knowledge_reads × knowledge(schema v10, v1.2.0) |
+| G1 recall hit | retrieved from memory at the moment of need | reads resolve without empty hands or fallback | `hit_pct` · `near_pct` · fallback rate | daily counters · read_events |
+| G2 rediscovery block | prevents the waste of rediscovering what is known | re-recording attempts of the same content end as duplicates | `dup_prevented` (absolute volume) | daily counters |
+| G3 asset health | accumulated knowledge stays fresh and reused | active knowledge gets recalled | `reuse_pct` · `dead_pct` | knowledge instrumentation columns |
+| G4 recall-first habit | sessions start with recall, not just recording | writes follow reads within a short window | `read_write_pairs` · `pair_pct` | read_events × knowledge |
+| G5 minimal injection | bytes entering context stay minimal within budget | measured output bytes across the three surfaces (read · hot · brief) | `bytes.<surface>.bytes_14d` · `avg_bytes` · `cost` (p95 · savings lower bound · injection cost) | daily counters (bytes, v1.1.0) · read_events.bytes · hot_events (v1.2.0) |
+| G6 recall fate | recalled knowledge survives over time | still active 7 days after recall | `survived_pct` · `bad_recall_pct` | knowledge_reads × knowledge (schema v10, v1.2.0) |
 
-dup 카운터는 v0.18까지 "결함" 프레임(dup_pct)으로만 소비됐다. 이
-문서부터 동일 카운터를 G2의 긍정 지표(`dup_prevented`)로도 읽는다 —
-재기록이 차단됐다는 것은 재발견 낭비가 절약됐다는 뜻이다. 두 해석은
-키가 다르고 같은 데이터에서 유도된다(dup_pct는 행동 개선 신호,
-dup_prevented는 누적 절약 신호 — 방향이 다른 두 질문).
+The dup counter was consumed only through the "defect" frame (dup_pct) until
+v0.18. From this document on, the same counter is also read as G2's positive
+metric (`dup_prevented`) — a blocked re-recording means rediscovery waste was
+saved. The two readings use different keys and derive from the same data
+(dup_pct is a behavior-improvement signal, dup_prevented a cumulative-savings
+signal — two questions with different directions).
 
-## 3. 증거 등급
+## 3. Evidence tiers
 
-| 등급 | 의미 | 지표 | 한계 |
+| tier | meaning | metrics | limits |
 |---|---|---|---|
-| Tier 1 | 기존 패시브 데이터의 파생 프록시 | hit_pct·dup_prevented·reuse_pct·dead_pct | 상관까지만 — 회상이 "도움됐는가"는 말하지 않는다 |
-| Tier 2 | 세션·시간 연결 계측에서 유도한 상관 | read_write_pairs·pair_pct·survived_pct·bad_recall_pct | 우연 동반(같은 시기에 쓴 것)이 섞인다 |
-| Tier 3 | 인과 — 합성 시나리오에서만 | e2e 재현·회상 품질 스위트 | 실운영 분포와 어긋난다(floor, not ceiling) |
+| Tier 1 | derived proxy of existing passive data | hit_pct · dup_prevented · reuse_pct · dead_pct | correlation only — says nothing about whether recall "helped" |
+| Tier 2 | correlation derived from session/time-linked instrumentation | read_write_pairs · pair_pct · survived_pct · bad_recall_pct | coincidental co-occurrence (written in the same period) mixes in |
+| Tier 3 | causation — synthetic scenarios only | e2e reproduction · recall-quality suites | diverges from production distribution (floor, not ceiling) |
 
-Tier 3의 운영 인과 측정(에이전트 피드백 질의·A/B)은 비간섭 원칙
-(spec §13 — 임계값 기반 경고만, [flint] 경계 밖 지시 불가)과 충돌해
-제공하지 않는다. 이는 측정 우위가 아니라 설계 선택이다.
+Measuring operational causation for Tier 3 (agent feedback surveys · A/B) is
+not offered because it conflicts with the non-interference principle (spec
+§13 — threshold-based warnings only, no instructions beyond the `[flint]`
+boundary). That is a design choice, not a measurement handicap.
 
-## 4. 지표 정의
+## 4. Metric definitions
 
-모든 기간 지표는 report `--days` 창(기본 7·상한 14) 기준, 버림 정수%,
-제로 분모는 0. 산출 코드는 report 효과 섹션(`effect` 객체)이 단일
-소스다.
+All windowed metrics use the report `--days` window (default 7 · cap 14),
+floor-truncated integer %, zero denominator → 0. The computation code in the
+report effect section (the `effect` object) is the single source.
 
-### G1 회상 명중
+### G1 recall hit
 
-- **hit_pct** = `100 × (1 − Σread_zero / Σread)` — 창 내 read 중
-  결과가 있었던 비율. daily 카운터 합산.
-- **near_pct** = `100 × Σread_zero_near / Σread` — 제로히트 중에서도
-  근접 후보가 있었던 비율(검색면 개선 여지 신호). `zero_near_pct`와
-  같은 합산의 G1 관점 병기.
-- **fallback_pct** = 폴백 경유 이벤트 / read_events_n — 창 내 폴백
-  의존도(read_events `fallback` 플래그 기반). 누적 키
-  `read_fallback_calls` 기반의 기존 `fallback_pct`(누적)와 달리
-  기간화된 값이다.
-- **zero_unowned_pct** = `100 × Σzero_reason='unowned' / Σread` —
-  제로히트 분해(v1.2.0, CRAG 3분류의 적용판): 제로히트 중 판정
-  시점 활성 지식 수가 `zero_owned_floor`(기본 1) 미달이라 사실상
-  미보유였던 비율. 사유 기록 후 `zero_unowned_pct` +
-  `zero_owned_miss_pct`의 합이 zero_pct와 정합한다(같은 분모).
-- **zero_owned_miss_pct** = 동일 분모에서 `owned_miss`(보유 탐색
-  실패) 비율 — 지식은 있는데 검색이 놓친 경우로, zero_near_pct와
-  같은 검색면 개선 여지 신호의 소유 여부 분해판.
+- **hit_pct** = `100 × (1 − Σread_zero / Σread)` — share of windowed reads
+  that had results. Sum of daily counters.
+- **near_pct** = `100 × Σread_zero_near / Σread` — among zero-hits, the
+  share that had near candidates (a signal of retrieval-side headroom). A
+  G1-perspective companion of the same summation as `zero_near_pct`.
+- **fallback_pct** = fallback-routed events / read_events_n — windowed
+  fallback dependence (based on the read_events `fallback` flag). Unlike the
+  existing cumulative `fallback_pct` (cumulative key `read_fallback_calls`),
+  this is a windowed value.
+- **zero_unowned_pct** = `100 × Σzero_reason='unowned' / Σread` — zero-hit
+  decomposition (v1.2.0, an applied version of the CRAG 3-way split): among
+  zero-hits, the share where active-knowledge count at verdict time was below
+  `zero_owned_floor` (default 1), i.e. effectively not held. After reason
+  recording, `zero_unowned_pct` + `zero_owned_miss_pct` sums consistently
+  with zero_pct (same denominator).
+- **zero_owned_miss_pct** = share of `owned_miss` (held but search missed)
+  over the same denominator — the ownership split of the same
+  retrieval-improvement signal as zero_near_pct.
 
-### G2 재발견 저지
+### G2 rediscovery block
 
-- **dup_prevented** = `Σdup`(창 합계, 절대량) — 재기록 시도가
-  duplicate로 종결된 줄 수. 절약된 재발견 노력의 하한 프록시.
+- **dup_prevented** = `Σdup` (window sum, absolute volume) — lines of
+  re-recording attempts that ended as duplicates. A lower-bound proxy of
+  rediscovery effort saved.
 
-### G3 자산 건전성
+### G3 asset health
 
-- **reuse_pct** = `100 × count(read_count > 0) / count(active)` —
-  한 번이라도 참조된 active 지식 비율. 참조 계측(T62)은 검색 회상과
-  hot --full 주입을 함께 계상한다 — "검색 재사용"만 세는 지표가
-  아니다. 시점 지표(기간 아님).
-- **dead_pct** = `100 × dead / active`, dead = read_count 0·30일 경과
-  후보 중 최근 30일 hot 노출 기록 제외. 정상 경로에선 주입이
-  read_count를 올려 후보 집합 밖이므로 이 제외는 **계측 유실 정합
-  가드**(참조 증분만 실패한 불일치를 메움)다. 30일은 증류·중복
-  사이클이 주 단위로 돈다는 일반 근거의 기본 상수.
+- **reuse_pct** = `100 × count(read_count > 0) / count(active)` — share of
+  active knowledge referenced at least once. Reference instrumentation (T62)
+  counts both search recalls and hot --full injections — it is not a metric
+  that counts search reuse only. Point-in-time metric (not a period).
+- **dead_pct** = `100 × dead / active`, dead = candidates with read_count 0
+  and 30+ days elapsed, excluding hot exposure within the last 30 days. On
+  the normal path, injection raises read_count and moves items out of the
+  candidate set, so this exclusion is a **measurement-loss consistency
+  guard** (filling gaps where only the reference increment failed). 30 days
+  is the default constant from the general rationale that distillation and
+  dedup cycles run weekly.
 
-### G4 회상 우선 정착
+### G4 recall-first habit
 
-- **read_write_pairs** — 같은 세션으로 배정된 read의 직후 30분
-  (0 < Δ ≤ 30분) 안에 knowledge 커밋이 있으면 1쌍(v0.20.0: 세션
-  경계가 1차 판정 — 시간만 겹치는 타 세션 write는 우연 동반으로
-  제외된다). 세션 경계가 없는 환경(구배포·계측 첫일)은 시간창
-  폴백(v0.19.0 규칙). 세션 구간은 `[start_i, start_{i+1})`이고
-  시작 경계는 SessionStart 훅이 기록한다. compact·resume 재발발은
-  같은 세션의 보수적 분할로 수용한다.
-- **pair_pct** = `100 × pairs / read_events_n` — 분모·분자가 같은
-  소스(read_events)에서 나온 자기일관 값.
-- **recall_led_pct** = 기록(write ≥1)이 있는 세션 중 첫 read가 첫
-  write보다 앞선 세션 비율(v0.20.0) — "세션이 회상으로 시작했다"의
-  세션 단위 관측. done의 회상 경고(v0.18.0 R3)와 같은 관점의 측정
-  버전이다.
-- 라벨 자동 주입(v0.20.5·B②): session-start 훅이 현재 세션 라벨을
-  남기고 read가 `--session` 미지정 시 조용히 채택한다 — 라벨 지정이
-  에이전트 협조 없이 자동화. 병렬 세션은 last-writer-wins(보조 계정).
-- **recall_led_pct 원천 전환(v1.2.0)** — 산출 원천이 read_events에서
-  knowledge_reads(kind 불문 — hot 주입·헤드라인 노출 포함)의 세션
-  배정으로 바뀌었다. hot-led 세션(주입만으로 시작)도 회상 선도로
-  계상된다(설계 결함 수선). knowledge_reads가 비어 있으면(업그레이드
-  직후) 구 read_events 배정 산출을 승계한다(동등 폴백).
-- **hot_read_chain_pct** = 창 내 hot 노출(knowledge_reads kind='hot',
-  항목 단위) 후 페어 판정 창(`pair_window_minutes` 기본 30분) 내
-  같은 지식 read로 이어난 비율(v1.2.0) — "주입이 회상으로 이어졌다"의
-  직접 연쇄 신호. hot --full 주입과 헤드라인 노출을 함께 계상한다.
-- **chain_pct** = 반환 id가 있는 read 중 24시간 내 (a) 이후 read에서
-  같은 id 재반환 또는 (b) 같은 topic write로 이어진 비율(v0.20.0
-  사용 연쇄) — hit_pct가 못 주는 "쓸 만한 게 나왔다"의 가장 가까운
-  프록시. 반환 id는 상위 10개만 기록한다(저장 예산).
+- **read_write_pairs** — one pair when a knowledge commit lands within 30
+  minutes after a session-assigned read (0 < Δ ≤ 30 min) (v0.20.0: session
+  boundaries are the primary verdict — writes of other sessions that merely
+  overlap in time are excluded as coincidental co-occurrence). Environments
+  without session boundaries — older deployments and first instrumentation days —
+  use the time-window fallback (v0.19.0 rule). Session intervals are
+  `[start_i, start_{i+1})` and the start boundary is recorded by the
+  SessionStart hook. Compact · resume re-fires are accepted as conservative
+  splits of the same session.
+- **pair_pct** = `100 × pairs / read_events_n` — a self-consistent value
+  with denominator and numerator from the same source (read_events).
+- **recall_led_pct** = among sessions with at least one write, the share
+  whose first read precedes the first write (v0.20.0) — the per-session
+  observation of "the session started with recall". The measurement version
+  of the same perspective as done's recall warning (v0.18.0 R3).
+- Automatic label injection (v0.20.5 · B②): the session-start hook leaves
+  the current session label and read quietly adopts it when `--session` is
+  unspecified — labeling is automated without agent cooperation. Parallel
+  sessions are last-writer-wins (auxiliary account).
+- **recall_led_pct source switch (v1.2.0)** — the computation source moved
+  from read_events to session assignment over knowledge_reads (any kind —
+  including hot injections and headline exposure). Hot-led sessions (started
+  by injection alone) now also count as recall-led (a design-flaw repair).
+  When knowledge_reads is empty (right after an upgrade), the legacy
+  read_events assignment computation is inherited (equivalent fallback).
+- **hot_read_chain_pct** = within the window, the share of hot exposures
+  (knowledge_reads kind='hot', per item) followed by a read of the same
+  knowledge within the pairing window (`pair_window_minutes`, default 30
+  minutes) (v1.2.0) — the direct chain signal of "injection led to recall".
+  Counts both hot --full injections and headline exposure.
+- **chain_pct** = among reads that returned ids, the share followed within
+  24 hours by (a) the same id returned again in a later read, or (b) a
+  same-topic write (v0.20.0 usage chain) — the closest proxy for "something
+  usable came back", which hit_pct cannot provide. Returned ids are recorded
+  for the top 10 only (storage budget).
 
-### G5 최소 주입 (v1.1.0)
+### G5 minimal injection (v1.1.0)
 
-- **bytes.<표면>.bytes_14d** = 창 내 일별 `<kind>_bytes` 합산(read·hot·
-  brief 각) — 세 표면이 컨텍스트에 실제로 내보낸 UTF-8 바이트
-  (read는 최종 출력, hot·brief는 ClampHot 절단 '후' 길이 — 예산 준수
-  실측). 원시 이벤트 확장 없이 daily 카운터 신규 키로 계측(스키마
-  무변경), 횟수 지표와 동일 보존창.
-- **bytes.<표면>.avg_bytes** = bytes_14d / 같은 창의 호출 수 카운터
-  (read·hot·brief 각, 버림 정수 — 제로 분모 0). 호출당 평균 주입량.
-- **status `hot_bytes_14d`·`read_bytes_14d`** — 동일 산식의 창 합산
-  병기(hot_budget 준수 감시 — TUNING §1).
+- **bytes.<surface>.bytes_14d** = window sum of daily `<kind>_bytes` (read ·
+  hot · brief each) — the UTF-8 bytes the three surfaces actually emitted to
+  context (read: final output; hot · brief: length 'after' ClampHot
+  truncation — measured budget compliance). Instrumented as new daily-counter
+  keys without raw-event schema changes, with the same retention window as
+  the count metrics.
+- **bytes.<surface>.avg_bytes** = bytes_14d / the call-count counter of the
+  same window (read · hot · brief each, floor-truncated integer — zero
+  denominator 0). Average injection volume per call.
+- **status `hot_bytes_14d` · `read_bytes_14d`** — windowed companions of the
+  same formulas (hot_budget compliance monitoring — TUNING §1).
 
-### G5 토큰 회계 — cost 객체 (v1.2.0)
+### G5 token accounting — the cost object (v1.2.0)
 
-- **cost.<표면>.p95_bytes** — 표면별 출력 바이트 nearest-rank p95.
-  read는 read_events.bytes 사건 분포(bytes>0 기록 행), hot은
-  hot_events 주입 ids × 지식 요약 길이의 사건별 합 분포 파생,
-  brief는 사건별 원천이 없어 0. 표본 5 미만은 0(제로 가드 관례).
-- **cost.<표면>.mode** — 주입 성격 구분 표기: hot은 `always-on`
-  (세션 시작마다 무조건 주입), read·brief는 `on-invoke`(호출 시에만
-  출력). 해석(예산 배분 판단)은 이 구분과 함께 한다.
-- **cost.savings_lower_bound_bytes** = `Σdup_prevented × 평균 기록
-  요약 바이트`(knowledge 전체 요약 길이 평균, 버림) — dedup 논리-
-  물리 공식의 결정적 하한(중복 방지로 저장되지 않은 바이트). 라벨
-  **"절약 하한 추정"** — 반사실 상한이 아니라 하한임을 문구로 못박는다.
-- **cost.hit_injection_cost_bytes** = `Σhit × 평균 요약 바이트` —
-  회상 반환의 **"주입 원가"** 라벨(절약 주장 아님 — 회상도 컨텍스트를
-  쓴다는 비용 관점, 조사 결론 준수).
-- 토큰·달러 환산 금지(§5)는 그대로 적용 — 바이트 수 그대로 보고.
+- **cost.<surface>.p95_bytes** — nearest-rank p95 of per-surface output
+  bytes. read from the read_events.bytes event distribution (rows recorded
+  with bytes>0), hot derived from the per-event sum distribution of hot_events
+  injected ids × knowledge summary length, brief has no per-event source and
+  reports 0. Under 5 samples → 0 (zero-guard convention).
+- **cost.<surface>.mode** — injection-character label: hot is `always-on`
+  (injected unconditionally at every session start), read · brief are
+  `on-invoke` (output only when called). Interpretation (e.g. budget
+  allocation decisions) goes together with this label.
+- **cost.savings_lower_bound_bytes** = `Σdup_prevented × average recorded
+  summary bytes` (average over all knowledge summary lengths,
+  floor-truncated) — a deterministic lower bound of the dedup logic-to-physics
+  formula (bytes not stored thanks to duplicate prevention). Label:
+  **"savings lower-bound estimate"** — the wording pins it as a lower bound,
+  not a counterfactual upper bound.
+- **cost.hit_injection_cost_bytes** = `Σhit × average summary bytes` — the
+  **"injection cost"** label of recall returns (not a savings claim — the
+  cost perspective that recall also spends context, per the investigation
+  conclusion).
+- The token/dollar conversion prohibition (§5) still applies — bytes are
+  reported as-is.
 
-### G6 회상 운명 (v1.2.0)
+### G6 recall fate (v1.2.0)
 
-- **survived_pct** = 창 내 첫 회상 후 7일(`recallFateDays`)이 경과한
-  지식 중 현재 invalid_at·superseded_by 없이 살아남은 비율.
-- **bad_recall_pct** = 동일 판정 대상 중 superseded/invalidated 비율.
-  "회상이 나빴다"가 아니라 "회상된 것이 뒤져졌다"의 관측 — 무효화·
-  대체 정책의 결과까지 함께 반영한다.
-- 분모는 판정 대상 id 수(첫 회상 7일 미경과 제외, 행 부재 포함).
-  원천은 knowledge_reads × knowledge 조인(schema v10) — 항목별
-  회상 이력이 쌓여야 판정되는 지연 지표다. 증거 등급 **Tier 2 상관**
-  (§3) — 인과로 서술하지 않는다(§5).
+- **survived_pct** = among knowledge whose first recall in the window is
+  followed by 7 elapsed days (`recallFateDays`), the share still alive
+  without invalid_at · superseded_by.
+- **bad_recall_pct** = share of superseded/invalidated among the same
+  verdict targets. An observation of "what was recalled got dredged out
+  later", not "recall was bad" — it also reflects the outcomes of
+  invalidation and supersession policy.
+- The denominator is the number of verdict-target ids (excluding first
+  recalls under 7 days, including absent rows). The source is the
+  knowledge_reads × knowledge join (schema v10) — a delayed metric that
+  becomes judgeable only as per-item recall history accumulates. Evidence
+  tier: **Tier 2 correlation** (§3) — never narrated as causation (§5).
 
-### 계측 원천(스키마 v6·v7·v10)
+### Instrumentation sources (schema v6 · v7 · v10)
 
-- **read_events**(v6, v0.20.0에 ids 추가): read 1회당 1행
+- **read_events** (v6, ids added in v0.20.0): one row per read
   `ts·hits·zero·near·fallback·session·ids`.
-- **read_events 신규 열(v10, v1.2.0)** — `bytes`(출력 바이트 — p95·
-  cost 원천)·`zero_reason`('unowned'|'owned_miss'|'' — 제로히트 분해,
-  zero=1 행만)·`source`('hook'|'cli'|'mcp' — 채널 믹스 관측). additive.
-- **knowledge_reads(v10 신규 테이블, v1.2.0)**: 항목별 회상 이력
-  `knowledge_id·ts·session·kind('hot'|'read')` 1행 — hot 헤드라인
-  (비 --full) 주입도 kind='hot'으로 전수 기록된다(G4 계상·회상 운명·
-  hot→read 연쇄의 공용 원천). 보존은 read_events와 동일 창(초기 14일)
-  에서 분리 오버라이드 `knowledge_reads_retention_days`(TUNING §2).
-  write 경로의 read_count·last_read_at은 파생 캐시로 격하 유지(호환·
-  성능).
-- **session_starts**(v7): SessionStart 훅 1회당 1행 `ts·session` —
-  세션 구간 배정의 원천. 출력 없는 내부 계정(§13).
-- **hot_events**(v7): hot --full 주입 1회당 1행 `ts·ids`(실출력에
-  남은 지식만) — dead_pct 정합 가드의 원천. **--full은 수동 경로**:
-  세션 시작 훅 배선은 헤드라인(카운트만·주입 없음)이라 일반 운영에서는
-  이 테이블이 비어 있는 것이 정상이다(v0.24.0 명시).
-- 보존: read_events·session_starts는 14일(daily 카운터와 동일
-  정책), hot_events는 30일(guard 창과 정렬). 롤오버 시 정리. 계측
-  실패는 조용히 넘기고(§13 — 사용 로그 유실이 조회 실패보다 낫다),
-  이벤트 로그 조회 장애 시 해당 지표는 0/폴백으로 강등되고 보고
-  전체는 깨지 않는다(다른 지표 공백의 0 폴백 관례).
-- 개인 문구·쿼리 본문은 저장하지 않는다(수치·플래그·id·라벨만).
-- **룰링(기저율 셔플 이연·v0.30.0 재판정 재이연)**: pair의 우연 동반
-  보정용 시간 셔플 귀무 모델은 세션 경계 배정이 구조적으로 그 역할을
-  대신하므로 계속 이연한다. 잔여 우연(세션 내 독립 발생) 재평가
-  트리거: read_events_n ≥ 200 관측 시(현재 표본 미달 — 보고의
-  read_events_n으로 확인).
-- **v0.30.0 hit 품질 근사(G1 보강)**: read_events.first_rank(첫 topic
-  정합 순위, 폴백 경유 제외·스키마 v8)에서 exact_pct(정합 반환율)·
-  top1_pct(정합 1위율)·mrr(평균 역순위) 산출. 순위는 RankOrder 정의
-  (lower 일치) 승계 — 순위 자체가 품질의 전부는 아니니 상관 프록시로
-  세트 해석(§5 준수). 품질 원천은 통상 회상 경로만 — 폴백·--as-of
-  과거 시점 검사·--status 상태 조회는 rank를 기록하지 않는다(v0.31.3).
-- **v0.30.0 추세(G1·G4 보강)**: report effect.trend — 최근 7일 vs
-  직전 7일(hit·fallback·top1). 한쪽 창 표본 0이면 미표시(빈 창
-  비교 금지). pair_pct 추세는 표본 확대 후 확장.
+- **read_events new columns (v10, v1.2.0)** — `bytes` (output bytes — source
+  of p95 · cost) · `zero_reason` ('unowned'|'owned_miss'|'' — zero-hit
+  decomposition, zero=1 rows only) · `source` ('hook'|'cli'|'mcp' — channel
+  mix observation). Additive.
+- **knowledge_reads (new table v10, v1.2.0)**: per-item recall history,
+  one row `knowledge_id·ts·session·kind('hot'|'read')` — hot headline
+  (non---full) injections are also fully recorded with kind='hot' (the
+  shared source for G4 accounting, recall fate, and the hot→read chain).
+  Retention follows the same window as read_events (initially 14 days) with
+  a separate override `knowledge_reads_retention_days` (TUNING §2). The
+  write path's read_count · last_read_at remain demoted derived caches
+  (compatibility · performance).
+- **session_starts** (v7): one row per SessionStart hook fire `ts·session` —
+  the source of session-interval assignment. An internal account with no
+  output (§13).
+- **hot_events** (v7): one row per hot --full injection `ts·ids` (knowledge
+  that survived into the actual output) — the source of the dead_pct
+  consistency guard. **--full is a manual path**: the session-start hook
+  wiring is headline-only (counts only, no injection), so this table being
+  empty is normal in ordinary operation (stated v0.24.0).
+- Retention: read_events · session_starts 14 days (same policy as daily
+  counters), hot_events 30 days (aligned with the guard window). Pruned on
+  rollover. Instrumentation failures pass silently (§13 — losing usage
+  logs is better than failing the query); if event-log lookup fails, the
+  affected metric degrades to 0/fallback and the report as a whole never
+  breaks (the 0-fallback convention of other metrics).
+- Personal phrasing and query bodies are never stored (numbers · flags ·
+  ids · labels only).
+- **Ruling (baseline shuffle deferred · re-deferred at the v0.30.0
+  re-ruling)**: the time-shuffled null model for correcting coincidental
+  co-occurrence in pairs remains deferred because session-boundary
+  assignment structurally serves that role. Re-evaluation trigger for
+  residual coincidence (independent occurrences within a session): when
+  read_events_n ≥ 200 is observed (currently under the sample — confirm
+  with the report's read_events_n).
+- **v0.30.0 hit-quality approximation (G1 reinforcement)**:
+  read_events.first_rank (first topic-match rank, excluding fallback-routed
+  reads · schema v8) yields exact_pct (exact return rate) · top1_pct
+  (exact top-1 rate) · mrr (mean reciprocal rank). Ranks inherit the
+  RankOrder definition (lower matches) — a rank alone is not all of
+  quality, so interpret as a correlational set (per §5). The quality source
+  is the normal recall path only — fallback, `--as-of` historical checks,
+  and `--status` lookups do not record rank (v0.31.3).
+- **v0.30.0 trends (G1 · G4 reinforcement)**: report effect.trend — last
+  7 days vs previous 7 days (hit · fallback · top1). If either window has
+  zero samples, nothing is shown (no empty-window comparisons). pair_pct
+  trends extend after the sample grows.
 
-## 4.5 프로파일 판정 규칙 (v0.35.0 — flint profile)
+## 4.5 Profile verdict rules (v0.35.0 — flint profile)
 
-판정은 report의 profile_hint와 **단일 소스**다(규칙 분열 금지):
+Verdicts share a **single source** with report's profile_hint (no rule
+splitting):
 
-- 표본 하한: read_events_n < zero_near_min_read → "유지(관측 선행)"
-- recall_led_pct >= 50 → normal 유지(회상 선도 다수)
-- recall_led_pct < 50 → minimal 추천(hot 헤드라인 축소·nudge 억제)
+- sample floor: read_events_n < zero_near_min_read → "keep (observe first)"
+- recall_led_pct >= 50 → keep normal (recall-led majority)
+- recall_led_pct < 50 → recommend minimal (shrink hot headline · suppress
+  nudge)
 
-근거 지표(read_events_n·recall_led_pct·fallback_pct·pair_pct)를 판정
-출력에 동반해 사용자가 검증할 수 있게 한다(관측 투명성). 전환은
-`--apply normal|minimal`만 — 자동 전환 없음(안내와 실행 분리).
-## 4.6 수집 후보(토큰 경제·조사 완료 — 미구현 로드맵)
+The underlying metrics (read_events_n · recall_led_pct · fallback_pct ·
+pair_pct) accompany the verdict output so users can verify it (observation
+transparency). Switching is `--apply normal|minimal` only — no automatic
+switching (guidance and execution stay separate).
 
-2026-11-11 다각 조사(토큰 경제 중심) 기반 후보. 구현 시점·버전은 별도
-조율(구조 수렴 시리즈와 스케줄 공존). **v1.2.0이 A1·A2·B3을 회수** —
-A1 경로 분리는 knowledge_reads kind 태깅('hot'|'read' 전수 기록)·A2는
-read_events.bytes 열(스키마 v10 — 파생 read_out_avg·out_per_hit 원천
-확보)·B3 상당은 hot_read_chain_pct. 잔여 후보는 아래(A1은 파생
-지표만 잔여):
+## 4.6 Collection candidates (token economy · investigation complete — unimplemented roadmap)
 
-- **A1 잔여 — 파생 budget_fill_pct** — 경로 분리(kind 태깅)는 v1.2.0
-  회수 완료. hot_budget 대비 주입 채움 비율 파생만 미구현
-- **A3 토큰 환산 표시** — rune→토큰 근사(한글×1.1+기타÷4·±30% 명시)는
-  report 표시 전용. **v0.36.0 대시보드에 이미 반영**(footer 추정 라벨)
-- **B1 회상 지식 나이** — read_events.ids ⋈ knowledge.ingested_at 집계만
-  (신규 계측 0. 증류 주기 판단)
-- **B2~B6** — write→첫 read 지연(first_read_at)·주입→회상 전환·세션
-  길이 분포·무효화 증가율·zero 후 재시도 성공률(전부 기존 테이블
-  집계 위주)
-- **금지(C)** — 절약 토큰 절대량의 효과 보고(반사실 추정)·토큰 지표의
-  자동 행동 트리거(§13)·하네스 실측 총 토큰 수집(범위 초과)
+Candidates based on the 2026-11-11 multi-angle investigation (token-economy
+focus). Timing and versions are coordinated separately (coexistence with the
+structure-convergence series schedule). **v1.2.0 recovered A1 · A2 · B3** —
+A1 path separation is knowledge_reads kind tagging ('hot'|'read' full
+recording) · A2 is the read_events.bytes column (schema v10 — securing the
+derived read_out_avg · out_per_hit sources) · the B3 equivalent is
+hot_read_chain_pct. Remaining candidates below (A1 leaves only derived
+metrics):
 
-## 4.7 status 창 의미 (v1.0.10 정합)
+- **A1 remainder — derived budget_fill_pct** — path separation (kind
+  tagging) was fully recovered in v1.2.0. Only the derived hot_budget fill
+  ratio remains unimplemented
+- **A3 token conversion display** — rune→token approximation (Korean ×1.1 +
+  others ÷4 · ±30% stated) is report display only. **Already reflected in
+  the v0.36.0 dashboard** (footer estimate label)
+- **B1 recalled-knowledge age** — just an aggregate of read_events.ids ⋈
+  knowledge.ingested_at (zero new instrumentation. For distillation-cycle
+  judgment)
+- **B2~B6** — write→first-read delay (first_read_at) · injection→recall
+  conversion · session length distribution · invalidation growth rate ·
+  post-zero retry success rate (all mostly aggregates over existing tables)
+- **Prohibited (C)** — reporting absolute saved-token volumes as effect
+  (counterfactual estimation) · automatic behavioral triggers off token
+  metrics (§13) · collecting total measured harness tokens (out of scope)
 
-`flint status`의 `read_calls`(누적 키)는 v0.42.0부터 산출 원천이
-보존창 일별 합산으로 바뀌었다 — 의미는 누적 전역이 아니라
-`daily_retention_days` 창 내 합(기본 14일). `*_14d` 명칭 필드가
-실제 창을 표시한다(오버라이드 반영 — 거짓 이름 방어, v0.24.0).
-report의 기간 지표와 동일 산식이므로 해석 차이 없다.
+## 4.7 Status window semantics (v1.0.10 consistency)
 
-## 4.8 구조화 진단 (v1.2.0)
+`read_calls` in `flint status` (a cumulative key) switched its computation
+source to daily sums over the retention window in v0.42.0 — its meaning is a
+sum within the `daily_retention_days` window (default 14 days), not a global
+cumulative. The `*_14d`-named fields display the actual window (override
+reflected — a defense against false names, v0.24.0). Identical formulas to
+the report's windowed metrics, so there is no interpretive difference.
 
-진단은 별도 플래그 없이 report에 **항상 포함**된다(정상 침묵 — 문제
-없으면 빈 배열). 각 항목은 신호+수치+기준 출처+행동의 1줄 구조
-(DiagnosisItem)이며 세 뷰 — 기본(한 줄 JSON)·--text(사람 읽기·진단
-Sentence)·--html(대시보드 카드) — 가 같은 원천(ReportOutput.Diagnosis,
-단일 Diagnose() 산출)에서 렌더된다(뷰 간 데이터 분열 금지). --text는
-v1.2.3 신설(그 전엔 JSON·HTML 2뷰).
-원천 코드: lib/ops/diagnosis.go·설계: docs/plans/2026-11-13-flint-v1200.spec.md.
+## 4.8 Structured diagnosis (v1.2.0)
 
-기준 3계층·규칙 8항목(표의 지표 열은 §4 신호→지표 교차참조):
+Diagnosis is **always included** in report with no separate flag (healthy
+silence — an empty array when nothing is wrong). Each item is a one-line
+structure of signal + number + criterion source + action (DiagnosisItem),
+and four views — default (single-line JSON) · --text (human-readable ·
+diagnosis Sentence) · --html (dashboard cards) · --tui (v1.5.0 interactive
+browsing) — render from the same source (ReportOutput.Diagnosis, a single
+Diagnose() computation; no data splitting between views). --text was added
+in v1.2.3 (before that, JSON · HTML 2 views).
+Source code: lib/ops/diagnosis.go · design:
+docs/plans/2026-11-13-flint-v1200.spec.md.
 
-| 계층 | 신호(규칙) | 관련 지표 | 조정 키 |
+Three criterion layers · eight rules (the metrics column cross-references
+the §4 signal→metric mapping):
+
+| layer | signal (rule) | related metrics | tuning keys |
 |---|---|---|---|
-| A 자기참조 | hot_budget_saturation / hot_budget_slack(hot 주입 평균 vs hot_budget 밴드 양방) | G5 `bytes.hot.avg_bytes` | `hot_budget`·`diag_hot_budget_high`·`diag_hot_budget_low` |
-| A 자기참조 | hot_bytes_trend(창 전반/후반 hot_bytes 합 급변) | G5 `hot_bytes` | `diag_trend_pct` |
-| A 자기참조 | hit_cost_exceeds_savings(주입 원가 > 절약 하한 — 상회가 순손실 증명은 아님) | G5 `cost` 객체 | 없음(라벨 계약) |
-| B 레지스트리 승계 | zero_near_high | G1 `zero_near_pct` | `zero_near_warn_pct`·`zero_near_min_read` |
-| B 레지스트리 승계 | dead_knowledge | G3 `dead_pct` | `diag_dead_warn`·`dead_days` |
-| B 레지스트리 승계 | pending_backlog(승인 대기 적체) | 검수 대기(운영 상태) | `pending_age_days` |
-| C 가치 기본값 | recall_led_below_goal('기본 목표' 라벨 — 습관 목표, 개인 목표 아님) | G4 `recall_led_pct` | `diag_recall_led_goal` |
+| A self-reference | hot_budget_saturation / hot_budget_slack (both directions of average hot injection vs hot_budget band) | G5 `bytes.hot.avg_bytes` | `hot_budget` · `diag_hot_budget_high` · `diag_hot_budget_low` |
+| A self-reference | hot_bytes_trend (abrupt change between window-half hot_bytes sums) | G5 `hot_bytes` | `diag_trend_pct` |
+| A self-reference | hit_cost_exceeds_savings (injection cost > savings lower bound — exceeding does not prove net loss) | G5 `cost` object | none (label contract) |
+| B registry inheritance | zero_near_high | G1 `zero_near_pct` | `zero_near_warn_pct` · `zero_near_min_read` |
+| B registry inheritance | dead_knowledge | G3 `dead_pct` | `diag_dead_warn` · `dead_days` |
+| B registry inheritance | pending_backlog (review backlog) | review queue (operational state) | `pending_age_days` |
+| C value default | recall_led_below_goal ('default goal' label — a habit goal, not a personal one) | G4 `recall_led_pct` | `diag_recall_led_goal` |
 
-B계층은 doctor 기존 키를 승계 읽기한다(신규 diag 키 중복 방지).
-`diag_*` 튜닝 키 전체 목록·기본값은 docs/TUNING.md §2.
+Layer B inherits reads of existing doctor keys (avoiding duplicate new diag
+keys). The full list and defaults of `diag_*` tuning keys: docs/TUNING.md §2.
 
-## 5. 금지조항
+## 5. Prohibitions
 
-1. read/write 총량을 효과처럼 보고하지 않는다(원칙 2).
-2. hit_pct 단독 개선을 자축하지 않는다 — 회상을 회피하면 분모가
-   줄어 지표만 좋아진다. read 총량·pair_pct와 세트로 해석한다(원칙 5).
-3. Tier 2 상관 지표를 인과로 서술하지 않는다(원칙 3).
-4. 운영 실측 수치를 이 문서·스펙·커밋 메시지의 "근거"로 인용하지
-   않는다 — 근거는 일반 서술로(저장소 최상위 원칙).
-5. 효과 지표를 자동 행동 변경(차단·주입 강화)의 트리거로 쓰지
-   않는다 — 관측·보고 전용이다(§13 비간섭 유지).
-6. 바이트 지표를 토큰으로 환산해 보고하지 않는다 — 환산 계수 추정은
-   오차와 과신을 낳는다. 바이트 수 그대로(v1.1.0 G5).
+1. Never report read/write volumes as effect (principle 2).
+2. Never celebrate hit_pct improving alone — skipping recall shrinks the
+   denominator and improves only the number. Interpret together with read
+   volume · pair_pct as a set (principle 5).
+3. Never narrate Tier 2 correlational metrics as causation (principle 3).
+4. Never cite operational measured numbers as "evidence" in this document ·
+   specs · commit messages — evidence stays general prose (top-level
+   repository principle).
+5. Never use effect metrics as triggers for automatic behavior changes
+   (blocking · injection boosts) — observation and reporting only (keeping
+   §13 non-interference).
+6. Never report byte metrics converted into tokens — conversion-coefficient
+   estimates breed error and overconfidence. Bytes as-is (v1.1.0 G5).
 
-## 6. 연계
+## 6. Related
 
-- 산출: `flint report`의 `effect` 객체(§4 정의의 단일 소스).
-- 이력: docs/PLAN.md v0.19.0·v0.20.0 엔트리.
-- 기준 출처: Google HEART/GSM(Rodden et al., 2010) · RAGAS 지표
-  분리 · Mem0 평가 관례(동일 조건 비교) · 오프라인-온라인 갭
-  관례(floor, not ceiling) · IR 암시적 피드백(반환→사용 연쇄).
+- Computation: the `effect` object of `flint report` (single source of the
+  §4 definitions).
+- History: docs/PLAN.md v0.19.0 · v0.20.0 entries.
+- Standard sources: Google HEART/GSM (Rodden et al., 2010) · RAGAS metric
+  separation · Mem0 evaluation conventions (same-condition comparison) ·
+  the offline-online gap convention (floor, not ceiling) · IR implicit
+  feedback (return→usage chain).

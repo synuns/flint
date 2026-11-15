@@ -90,7 +90,7 @@ func TestSupplyReportEffectUnchanged(t *testing.T) {
 	if m.Effect.FallbackPct != 0 {
 		t.Errorf("fallback_pct=%d, want 0(이벤트 없음)", m.Effect.FallbackPct)
 	}
-	if !strings.Contains(m.Effect.ProfileHint, "보류") {
+	if !strings.Contains(m.Effect.ProfileHint, "insufficient sample") {
 		t.Errorf("profile_hint=%q, want 표본 부족 보류", m.Effect.ProfileHint)
 	}
 }
@@ -177,7 +177,7 @@ func TestSupplyRestoreGuards(t *testing.T) {
 	}{
 		{"mismatch", p1, "checksum_mismatch"},
 		{"nosidecar", p2, "sidecar"},
-		{"masked", p3, "진단·공유 전용"},
+		{"masked", p3, "diagnostics and sharing"},
 	} {
 		restored := ""
 		withBackupSeams(t, "", nil, &restored)

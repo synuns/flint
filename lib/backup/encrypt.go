@@ -23,11 +23,11 @@ import (
 const ageHeader = "age-encryption.org/"
 
 // ErrEncryptKeyMissing — identity 파일 부재(첫 사용 등).
-var ErrEncryptKeyMissing = errors.New("backup encrypt: identity 키 파일 부재 — RUNBOOK '백업 암호화' 참조")
+var ErrEncryptKeyMissing = errors.New("backup encrypt: identity key file missing — see RUNBOOK 'backup encryption'")
 
 // ErrEncryptKeyCorrupt — identity 파일 존재하나 해석 불가(덮어쓰기 금지 —
 // 기존 키 암호문의 영구 복호 불가 확정 방지).
-var ErrEncryptKeyCorrupt = errors.New("backup encrypt: identity 키 파일 불량 — 새 키 생성은 기존 암호문을 해독 불능으로 만든다(수동 확인: RUNBOOK)")
+var ErrEncryptKeyCorrupt = errors.New("backup encrypt: identity key file corrupt — generating a new key would make existing ciphertext undecryptable (manual check: RUNBOOK)")
 
 // LoadIdentity — path에서 age X25519 identity 로드(부재 → ErrEncryptKeyMissing,
 // 불량 → ErrEncryptKeyCorrupt — v0.28.0: 구분해 EnsureIdentity가 불량 키를
@@ -58,10 +58,10 @@ func EnsureIdentity(path string) (*age.X25519Identity, error) {
 	}
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
-		return nil, fmt.Errorf("backup encrypt: 키 생성: %w", err)
+		return nil, fmt.Errorf("backup encrypt: generate key: %w", err)
 	}
 	if err := os.MkdirAll(dirOf(path), 0o700); err != nil {
-		return nil, fmt.Errorf("backup encrypt: 키 디렉터리: %w", err)
+		return nil, fmt.Errorf("backup encrypt: key directory: %w", err)
 	}
 	// O_EXCL 선행 클레임 — 이미 있으면(병렬 승자) 그 키를 재로드해 쓴다.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
@@ -69,16 +69,16 @@ func EnsureIdentity(path string) (*age.X25519Identity, error) {
 		if os.IsExist(err) {
 			return reloadIdentityRetry(path)
 		}
-		return nil, fmt.Errorf("backup encrypt: 키 생성 클레임: %w", err)
+		return nil, fmt.Errorf("backup encrypt: claim key creation: %w", err)
 	}
 	if _, err := f.WriteString(id.String() + "\n"); err != nil { // 단일 small write
 		f.Close()
 		os.Remove(path) // 클레임 실패 — 다음 시도 재생성 허용
-		return nil, fmt.Errorf("backup encrypt: 키 기록: %w", err)
+		return nil, fmt.Errorf("backup encrypt: write key: %w", err)
 	}
 	if err := f.Close(); err != nil {
 		os.Remove(path)
-		return nil, fmt.Errorf("backup encrypt: 키 기록: %w", err)
+		return nil, fmt.Errorf("backup encrypt: write key: %w", err)
 	}
 	return id, nil
 }
@@ -110,7 +110,7 @@ func EncryptTo(dst io.Writer, plaintext []byte, recipient *age.X25519Recipient) 
 		return fmt.Errorf("backup encrypt: %w", err)
 	}
 	if _, err := w.Write(plaintext); err != nil {
-		return fmt.Errorf("backup encrypt: 기록: %w", err)
+		return fmt.Errorf("backup encrypt: write: %w", err)
 	}
 	return w.Close()
 }

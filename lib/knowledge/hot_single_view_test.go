@@ -110,7 +110,7 @@ func TestHotFullSingleQueryInjectionEqualsIncrement(t *testing.T) {
 		t.Errorf("RecordHotEvent = %v, want [3,7]", f.events)
 	}
 	// pending 접미는 본질의 valid_at 컬럼에서(동반 질의 폐지).
-	if !strings.Contains(out.String(), "·+2일") {
+	if !strings.Contains(out.String(), "·+2d") {
 		t.Errorf("pending 대기일수 접미 누락: %q", out.String())
 	}
 	// 동반 질의 폐지: hot_view 질의는 정확히 1회, 지식 재조합 질의 0회.

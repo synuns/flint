@@ -70,14 +70,14 @@ type DoneResult struct {
 }
 
 // sessionEndPrefix — 종료 요약 마커 접두(세션 갱신 대상 식별용).
-const sessionEndPrefix = "세션 종료"
+const sessionEndPrefix = "session end"
 
 // SessionRecord — sessions upsert용 레코드(kind·agent·종료 요약·빈 tasks).
 func (d *DoneResult) SessionRecord() map[string]any {
 	return map[string]any{
 		"kind":    "session",
 		"agent":   d.Agent,
-		"summary": fmt.Sprintf("%s(미기록 %d)", sessionEndPrefix, d.Unrecorded),
+		"summary": fmt.Sprintf("%s (unrecorded %d)", sessionEndPrefix, d.Unrecorded),
 		"tasks":   "[]",
 	}
 }
@@ -232,7 +232,7 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// 이중 유지로 인한 드리프트 방지 — stale 조기 return이 지식화를
 	// 누락시키던 사각의 재발 차단).
 	if runs >= th.StaleSessions {
-		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"연속 %d세션 미기록"}`+"\n", runs, runs)
+		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"%d consecutive sessions unrecorded"}`+"\n", runs, runs)
 		// v1.2.0 T4 발화 카운터 — stale 경고 발화 1회(진단 D 원천, spec §2.5).
 		BumpMetaCounter(ctx, st, "fired_done_stale")
 	} else if w, starved := recallStarvedToday(ctx, st, th); starved {
@@ -242,7 +242,7 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		// 남긴다 — 다음 SessionStart(nudge)가 1회 표시 후 소진한다.
 		// v0.18.2: 별도 파일(recall-hint.json) — 증류 대기 마커와 덮어쓰기
 		// 충돌 방지(수명 주기 상이: 1회성 vs 내구).
-		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"오늘 회상 0회에 기록 %d회 — 다음 세션은 작업 전 flint read부터"}`+"\n", w, w)
+		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"0 recalls vs %d writes today — run flint read before work next session"}`+"\n", w, w)
 		// v0.24.0 R2a: 마커와 병행 meta 카운터 적립 — minimal 프로파일이
 		// 마커를 조용히 종결해도 doctor가 프로파일 무관 관측한다.
 		BumpMetaCounter(ctx, st, "recall_starved_count")
@@ -261,7 +261,7 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// 커밋 없이 종료되던 것을 무관한 다음 write의 전역 스테이징이 흡수해
 	// 감사 귀속이 어긋났다 — 종료 경계에서 커밋(실패는 stderr·비간섭 §13).
 	if _, cerr := st.Commit(ctx, fmt.Sprintf(
-		"session-end: agent=%s runs=%d (세션 종료 감사 귀속) [session:0]",
+		"session-end: agent=%s runs=%d (session-end audit attribution) [session:0]",
 		agentLabel(agent, 24), runs)); cerr != nil {
 		fmt.Fprintf(os.Stderr, "[flint] session-end commit: %v\n", cerr)
 	}
@@ -307,7 +307,7 @@ func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, s
 	// 신호로 무의미했다. 첫 문장의 앞부분(첫 구분자 또는 20룬)을 반영해
 	// 브라우징·검색 품질을 높인다(규칙 기반 — LLM 판정 배제 §13).
 	topic := store.SanitizeText(render.TruncateRunes(
-		fmt.Sprintf("세션[%s] %s", agentLabel(agent, 24), summaryKeyword(summary)), 80))
+		fmt.Sprintf("session[%s] %s", agentLabel(agent, 24), summaryKeyword(summary)), 80))
 	rec := map[string]any{
 		"kind":       "knowledge",
 		"topic":      topic,
@@ -655,7 +655,7 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 		}
 	})
 	if l.failed {
-		return 0, errors.New("backup auto: dump 파일 생성 불가")
+		return 0, errors.New("backup auto: cannot create dump file")
 	}
 	// v0.25.4(미커버 스윕 U2): 본문 기록 실패 시 failed 마킹 — 부분 파일이
 	// '내용과 일치하는' 정상 사이드카를 받아 온전한 구 백업을 rotate에서
@@ -691,7 +691,7 @@ func (l *lazyDumpFile) close() error {
 			_ = l.f.Close()
 			l.f = nil
 			_ = os.Remove(name)
-			return errors.New("backup auto: age 종결 실패 — 부분 덤프 폐기")
+			return errors.New("backup auto: age close failed — partial dump discarded")
 		}
 		l.aw = nil
 	}
@@ -702,7 +702,7 @@ func (l *lazyDumpFile) close() error {
 	// 에러(실패 유도로 이미 닫힌 경우)보다 폐기가 우선.
 	if l.failed {
 		_ = os.Remove(name)
-		return errors.New("backup auto: 부분 덤프 폐기")
+		return errors.New("backup auto: partial dump discarded")
 	}
 	if closeErr != nil {
 		return closeErr

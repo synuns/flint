@@ -61,7 +61,7 @@ func updateClient(timeout time.Duration) *http.Client {
 		Transport: tr,
 		CheckRedirect: func(req *http.Request, via []*http.Request) error {
 			if req.URL.Scheme != "https" {
-				return fmt.Errorf("비-https 리다이렉트 거부: %s", req.URL)
+				return fmt.Errorf("non-https redirect rejected: %s", req.URL)
 			}
 			return nil
 		},
@@ -100,7 +100,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 			dry = true
 		case "--insecure-skip-signature":
 			updateSkipSignature = true
-			fmt.Fprintln(os.Stderr, "[flint] update: 서명 검증 우회(신뢰 이전 1회용 — ADR-0014 키 롤링 절차)")
+			fmt.Fprintln(os.Stderr, "[flint] update: signature verification bypass (one-time trust transfer — ADR-0014 key rollover procedure)")
 		default:
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", a)))
 			return 3
@@ -110,12 +110,12 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 	if err != nil {
 		// 네트워크 실패 — 조용한 계약은 안내 경로(훅)에만 적용, 명시적
 		// 실행이므로 사유를 알린다(exit 1).
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("update: 최신 버전 확인 실패: %w", err)))
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("update: failed to check the latest version: %w", err)))
 		return 1
 	}
 	cur := CurrentVersion()
 	if !validVersion(cur) {
-		fmt.Fprintln(stdout, `{"status":"unknown","detail":"현재 빌드 버전 미확정(dev) — 업데이트 대상 아님"}`)
+		fmt.Fprintln(stdout, `{"status":"unknown","detail":"current build version unknown (dev) — not an update target"}`)
 		return 0
 	}
 	if compareVersions(latest, cur) <= 0 {
@@ -179,7 +179,7 @@ func fetchReleaseMeta() (*releaseMeta, error) {
 		return nil, err
 	}
 	if meta.TagName == "" {
-		return nil, errors.New("tag_name 부재")
+		return nil, errors.New("missing tag_name")
 	}
 	return &meta, nil
 }
@@ -204,15 +204,15 @@ func applyUpdate(latest string) (string, error) {
 		}
 	}
 	if assetURL == "" || sumsURL == "" {
-		return "", fmt.Errorf("자산 부재(%s·checksums.txt)", asset)
+		return "", fmt.Errorf("missing assets (%s·checksums.txt)", asset)
 	}
 	body, err := download(assetURL)
 	if err != nil {
-		return "", fmt.Errorf("다운로드: %w", err)
+		return "", fmt.Errorf("download: %w", err)
 	}
 	sums, err := download(sumsURL)
 	if err != nil {
-		return "", fmt.Errorf("checksums 다운로드: %w", err)
+		return "", fmt.Errorf("checksums download: %w", err)
 	}
 	// v0.31.0(ADR-0014): checksums.txt 서명 검증 — GitHub 오리진과 분리된
 	// 신뢰 뿌리(임베드 공개키). 자산 목록으로 .sig 존재를 판정하고:
@@ -222,23 +222,23 @@ func applyUpdate(latest string) (string, error) {
 	// 키 롤링 등 신뢰 이전은 --insecure-skip-signature(사용자 명시).
 	verifier := ReleaseVerifier{PublicPEM: releasePubPEM}
 	if updateSkipSignature {
-		fmt.Fprintln(os.Stderr, "[flint] update: 서명 검증 우회(--insecure-skip-signature)")
+		fmt.Fprintln(os.Stderr, "[flint] update: signature verification bypass (--insecure-skip-signature)")
 		verifier = ReleaseVerifier{} // 미구성 취급 — 경로는 통과
 	}
 	if sigURL != "" {
 		sig, serr := download(sigURL)
 		if serr != nil || len(sig) == 0 {
 			if verifier.Configured() {
-				return "", fmt.Errorf("서명 자산 다운로드 실패 — 업데이트 거부(fail-closed)")
+				return "", fmt.Errorf("signature asset download failed — update refused (fail-closed)")
 			}
 		} else if verr := verifier.Verify(sums, string(sig)); verr != nil {
 			if verifier.Configured() || errors.Is(verr, ErrSignatureInvalid) {
-				return "", fmt.Errorf("릴리스 서명 오류 — 업데이트 거부: %v", verr)
+				return "", fmt.Errorf("release signature error — update refused: %v", verr)
 			}
-			fmt.Fprintf(os.Stderr, "[flint] update: 서명 검증 경고(전환 모드): %v\n", verr)
+			fmt.Fprintf(os.Stderr, "[flint] update: signature verification warning (transition mode): %v\n", verr)
 		}
 	} else if verifier.Configured() {
-		return "", fmt.Errorf("서명 자산(checksums.txt.sig) 부재 — 업데이트 거부(하드 검증·롤링이면 --insecure-skip-signature)")
+		return "", fmt.Errorf("missing signature asset (checksums.txt.sig) — update refused (hard verification; for key rollover use --insecure-skip-signature)")
 	}
 	want, err := checksumFor(string(sums), asset)
 	if err != nil {
@@ -246,7 +246,7 @@ func applyUpdate(latest string) (string, error) {
 	}
 	digest := sha256.Sum256(body)
 	if got := hex.EncodeToString(digest[:]); got != want {
-		return "", fmt.Errorf("체크섬 불일치 — 중단(want %s got %s)", want, got)
+		return "", fmt.Errorf("checksum mismatch — aborting (want %s got %s)", want, got)
 	}
 	bin, err := extractBinary(body)
 	if err != nil {
@@ -264,7 +264,7 @@ const updateMaxBytes = 128 << 20 // 128MiB
 // 평문 스킴을 가리키면 거부한다(응답 변조·다운그레이드 방지).
 func download(url string) ([]byte, error) {
 	if !strings.HasPrefix(url, "https://") {
-		return nil, fmt.Errorf("비-https 다운로드 URL 거부: %s", url)
+		return nil, fmt.Errorf("non-https download URL rejected: %s", url)
 	}
 	client := updateClientFn(updateHTTPTimeout)
 	resp, err := client.Get(url)
@@ -280,7 +280,7 @@ func download(url string) ([]byte, error) {
 		return nil, err
 	}
 	if int64(len(body)) > updateMaxBytes {
-		return nil, fmt.Errorf("다운로드 상한 %d바이트 초과 — 중단", updateMaxBytes)
+		return nil, fmt.Errorf("download exceeds %d-byte limit — aborting", updateMaxBytes)
 	}
 	return body, nil
 }
@@ -293,7 +293,7 @@ func checksumFor(sums, name string) (string, error) {
 			return fields[0], nil
 		}
 	}
-	return "", fmt.Errorf("checksums.txt에 %s 없음", name)
+	return "", fmt.Errorf("%s not found in checksums.txt", name)
 }
 
 // extractBinary — tar.gz에서 루트 flint 바이너리 추출.
@@ -307,7 +307,7 @@ func extractBinary(archive []byte) ([]byte, error) {
 	for {
 		hdr, err := tr.Next()
 		if errors.Is(err, io.EOF) {
-			return nil, errors.New("아카이브에 flint 바이너리 없음")
+			return nil, errors.New("flint binary not found in archive")
 		}
 		if err != nil {
 			return nil, fmt.Errorf("tar: %w", err)
@@ -318,10 +318,10 @@ func extractBinary(archive []byte) ([]byte, error) {
 			// 읽기로 초과를 명시적 에러 처리(무음 절단 금지 — 리뷰 4).
 			b, rerr := io.ReadAll(io.LimitReader(tr, updateMaxBytes+1))
 			if rerr != nil {
-				return nil, fmt.Errorf("아카이브 읽기: %w", rerr)
+				return nil, fmt.Errorf("archive read: %w", rerr)
 			}
 			if int64(len(b)) > updateMaxBytes {
-				return nil, fmt.Errorf("아카이브 항목이 %dMiB 상한 초과", updateMaxBytes>>20)
+				return nil, fmt.Errorf("archive entry exceeds %dMiB limit", updateMaxBytes>>20)
 			}
 			return b, nil
 		}
@@ -358,10 +358,10 @@ func swapBinary(bin []byte) (string, error) {
 	// 검증 후 교체 — 새 바이너리가 version을 출력해야 rename한다.
 	out, err := exec.Command(tmpPath, "version").Output()
 	if err != nil || !strings.Contains(string(out), `"version"`) {
-		return "", fmt.Errorf("새 바이너리 검증 실패(version 미출력): %v", err)
+		return "", fmt.Errorf("new binary verification failed (no version output): %v", err)
 	}
 	if err := os.Rename(tmpPath, self); err != nil {
-		return "", fmt.Errorf("교체(rename): %w", err)
+		return "", fmt.Errorf("replace (rename): %w", err)
 	}
 	return self, nil
 }
@@ -441,7 +441,7 @@ func maybeUpdateNotice() string {
 // noticeLine — 최신이 앞서면 안내 1줄, 아니면 빈 문자열.
 func noticeLine(latest, cur string) string {
 	if latest != "" && validVersion(latest) && compareVersions(latest, cur) > 0 {
-		return "[flint] 새 버전 v" + latest + " — flint update"
+		return "[flint] new version v" + latest + " — flint update"
 	}
 	return ""
 }

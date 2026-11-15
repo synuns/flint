@@ -70,8 +70,8 @@ func TestMergeTwiceRejected(t *testing.T) {
 	}
 	if err := r.Merge(ctx, from, to); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound on re-merge of invalidated from, got %v", err)
-	} else if !strings.Contains(err.Error(), "이미 처리된") {
-		t.Fatalf("re-merge of invalidated from: message %q, want \"이미 처리된\" 안내 유지",
+	} else if !strings.Contains(err.Error(), "from already processed — re-merge refused") {
+		t.Fatalf("re-merge of invalidated from: message %q, want \"from already processed — re-merge refused\" 안내 유지",
 			err.Error())
 	}
 	var summary string
@@ -162,7 +162,7 @@ func TestMergeActiveInvalidAtRejected(t *testing.T) {
 	if !strings.Contains(err.Error(), "invalid_at") {
 		t.Fatalf("active+invalid_at: message %q, want invalid_at 원인 명시", err.Error())
 	}
-	if strings.Contains(err.Error(), "active 아님") {
+	if strings.Contains(err.Error(), "not active") {
 		t.Fatalf("active+invalid_at: message %q — status active에 자기모순 문구", err.Error())
 	}
 }

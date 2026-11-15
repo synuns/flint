@@ -18,7 +18,7 @@ func TestMaskedDumpWarnsAllowlistEntries(t *testing.T) {
 	if !strings.Contains(out, `"allowlist_entries":1`) {
 		t.Fatalf("allowlist 경고 부재: %q", out)
 	}
-	if !strings.Contains(out, "마스킹되지 않음") {
+	if !strings.Contains(out, "are not masked") {
 		t.Fatalf("경고 문구 부재: %q", out)
 	}
 	store.ResetSecretsAllowlistForTest(nil)

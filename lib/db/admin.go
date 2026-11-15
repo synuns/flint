@@ -494,7 +494,7 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 	}
 	if ct.RowsAffected() == 1 {
 		_, err := r.Commit(ctx, fmt.Sprintf(
-			"approve: id=%d pending→active (승인 갱신 경로) [session:0]", id))
+			"approve: id=%d pending→active (approval update path) [session:0]", id))
 		if err != nil {
 			return fmt.Errorf("approve: commit: %w", err)
 		}
@@ -512,7 +512,7 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 	if status == "active" {
 		return nil
 	}
-	return fmt.Errorf("approve: id=%d 예상 밖 상태 %q", id, status)
+	return fmt.Errorf("approve: id=%d unexpected status %q", id, status)
 }
 
 // Merge는 from을 무효화하고(status·superseded_by·invalid_at 병기 —
@@ -551,17 +551,17 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 			return fmt.Errorf("merge from: lookup: %w", err)
 		}
 		if status == "invalidated" {
-			return fmt.Errorf("%w: merge: id=%d 갱신 미반영(이미 처리된 from — 재병합 거부)",
+			return fmt.Errorf("%w: merge: id=%d update not applied (from already processed — re-merge refused)",
 				ErrNotFound, fromID)
 		}
 		if status == "active" {
 			// WHERE는 status='active' AND invalid_at IS NULL — status가
 			// active여도 0행이면 invalid_at가 이미 설정된 것(손상 상태).
 			// "active 아님 — status: active" 자기모순 문구 대신 원인 명시.
-			return fmt.Errorf("%w: merge: id=%d 갱신 미반영(active이나 invalid_at 이미 설정 — 병합 불가)",
+			return fmt.Errorf("%w: merge: id=%d update not applied (active but invalid_at already set — cannot merge)",
 				ErrNotFound, fromID)
 		}
-		return fmt.Errorf("%w: merge: id=%d 갱신 미반영(active 아님(병합 불가) — status: %s)",
+		return fmt.Errorf("%w: merge: id=%d update not applied (not active (cannot merge) — status: %s)",
 			ErrNotFound, fromID, status)
 	}
 	marker := fmt.Sprintf(" [merged:from=%d]", fromID)
@@ -581,7 +581,7 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 		return fmt.Errorf("merge: tx commit: %w", err)
 	}
 	_, err = r.Commit(ctx, fmt.Sprintf(
-		"merge: from=%d into=%d (중복 정리 병합 갱신 경로) [session:0]", fromID, toID))
+		"merge: from=%d into=%d (dedup merge update path) [session:0]", fromID, toID))
 	if err != nil {
 		return fmt.Errorf("merge: commit: %w", err)
 	}

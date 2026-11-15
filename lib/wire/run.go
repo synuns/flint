@@ -92,7 +92,7 @@ func RunHelp(w io.Writer) int {
 // HelpSummary — 명령별 1줄 요약(v0.10.2 R1. v1.4.1 R22-C2: usageOrder
 // 전 항목 키워드 포함 — TestHelpSummaryCoversUsageOrder 완전성 가드).
 func HelpSummary() string {
-	return "write 기록 · read 검색 · hot 주입 · brief 외부 AI 브리프 · status 상태 · profile 프로필 · pending 대기 · doctor 진단 · report 관측 · export 추출(4형식·pam 표준·--out sha256 사이드카) · import 이식(jsonl·pam) · backup/restore 백업 · maintain 정비(--supersede 승계) · approve 승격 · tuning 임계치 · update 자가 갱신 · done/compact/nudge 훅 · setup/teardown 설치 · audit/diff 시간여행 · mcp 서버 · version"
+	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · import migration (jsonl·pam) · backup/restore backups · maintain upkeep (--supersede handover) · approve promotion · tuning thresholds · update self-update · done/compact/nudge hooks · setup/teardown install · audit/diff time travel · mcp server · version"
 }
 
 // ErrLine — 에러를 한 줄 JSON으로. 서버 다운은 조용히(server_down) 한 줄만.

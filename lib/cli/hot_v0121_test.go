@@ -14,14 +14,14 @@ import (
 
 func TestPendingAgeSuffix(t *testing.T) {
 	now := time.Date(2026, 10, 31, 12, 0, 0, 0, time.UTC)
-	if got := pendingAgeSuffix(now.Add(-30*time.Hour), now); got != "·+1일" {
-		t.Errorf("30시간 = %q, want ·+1일", got)
+	if got := pendingAgeSuffix(now.Add(-30*time.Hour), now); got != "·+1d" {
+		t.Errorf("30시간 = %q, want ·+1d", got)
 	}
 	if got := pendingAgeSuffix(now.Add(-2*time.Hour), now); got != "" {
 		t.Errorf("2시간 = %q, want 빈 문자열", got)
 	}
-	if got := pendingAgeSuffix(now.Add(-49*time.Hour), now); got != "·+2일" {
-		t.Errorf("49시간 = %q, want ·+2일", got)
+	if got := pendingAgeSuffix(now.Add(-49*time.Hour), now); got != "·+2d" {
+		t.Errorf("49시간 = %q, want ·+2d", got)
 	}
 }
 
@@ -58,8 +58,8 @@ func TestHotFullPendingAgeAppended(t *testing.T) {
 		t.Fatalf("행 수 = %d, want %d: %q", len(gotLines), len(wantLines), out.String())
 	}
 	// pending 행은 기존 포맷 + 대기일수 접미(49h → 내림 2일).
-	if gotLines[0] != wantLines[0]+"·+2일" {
-		t.Errorf("pending 행 = %q, want %q+·+2일", gotLines[0], wantLines[0])
+	if gotLines[0] != wantLines[0]+"·+2d" {
+		t.Errorf("pending 행 = %q, want %q+·+2d", gotLines[0], wantLines[0])
 	}
 	if gotLines[1] != wantLines[1] {
 		t.Errorf("decision 행 변형 = %q, want %q", gotLines[1], wantLines[1])

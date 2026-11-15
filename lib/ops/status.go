@@ -201,7 +201,7 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		if args[i] == "--as-of" {
 			if i+1 >= len(args) {
 				// 값 없는 --as-of도 무효 스펙(빈 스펙)으로 exit 3.
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("빈 as-of 스펙: %w", ErrInvalidAsOf)))
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("empty as-of spec: %w", ErrInvalidAsOf)))
 				return 3
 			}
 			asOfSpec, i = args[i+1], i+1
@@ -270,7 +270,7 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		// 재검증한다 — dolt_log 엔진 반환값을 신뢰해 SQL에 인라인하지
 		// 않는다. 위반은 오류 종료(오염 해시 접합 주입 차단).
 		if !knowledge.ValidAsOfHash(asOfHash) {
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash 문자셋 위반: %q", asOfHash)))
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash has invalid characters: %q", asOfHash)))
 			return 1
 		}
 		rows, err = wire.QueryOnce(ctx, st, `SELECT count(*) FROM knowledge AS OF '`+asOfHash+

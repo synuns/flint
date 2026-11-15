@@ -1,9 +1,9 @@
 <!DOCTYPE html>
-<html lang="ko">
+<html lang="en">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>flint 사용 리포트</title>
+<title>flint usage report</title>
 <style>
   :root { color-scheme: light dark;
     --ink:#111; --ink2:#6b7280; --hair:#e5e7eb; --page:#fafafa; --surface:#fff;
@@ -76,46 +76,46 @@
 
 <header>
   <div>
-    <div class="t">flint 사용 리포트</div>
-    <div class="lead">flint에 저장한 기억이 실제로 도움되고 있는지 14일치 사용으로 봅니다</div>
+    <div class="t">flint usage report</div>
+    <div class="lead">See whether the memories stored in flint actually help, based on 14 days of usage</div>
   </div>
-  <div class="m">최근 14일 · {{.GeneratedAt}} 생성</div>
+  <div class="m">last 14 days · generated {{.GeneratedAt}}</div>
 </header>
 
 <div class="panel">
   <div class="hero">
     <div>
-      <div class="q" title="{{.Effect.ReadEventsN}}번 검색 중 결과를 찾은 비율{{if .ChipFallback.Show}} · 못 찾아 비슷한 말로 다시 찾은 경우 {{.Effect.FallbackPct}}% 포함{{end}}">회상 명중</div>
-      <div><span class="num">{{.Effect.HitPct}}%</span>{{if .ChipHit.Show}}<span class="delta {{if .ChipHit.Good}}up{{end}}">지난주보다 {{.ChipHit.Text}}</span>{{end}}</div>
-      <div class="exp">최근 {{.Days}}일 · {{.Effect.ReadEventsN}}번 검색</div>
+      <div class="q" title="share of {{.Effect.ReadEventsN}} searches that found a result{{if .ChipFallback.Show}} · includes {{.Effect.FallbackPct}}% retried with similar wording{{end}}">recall hit</div>
+      <div><span class="num">{{.Effect.HitPct}}%</span>{{if .ChipHit.Show}}<span class="delta {{if .ChipHit.Good}}up{{end}}">vs last week: {{.ChipHit.Text}}</span>{{end}}</div>
+      <div class="exp">last {{.Days}} days · {{.Effect.ReadEventsN}} searches</div>
     </div>
     <div class="legend">
-      <span><i style="background:var(--accent)"></i>검색</span>
-      <span><i style="background:var(--accent);opacity:.45"></i>기록</span>
-      <span><i style="background:var(--ink2)"></i>중복 차단</span>
+      <span><i style="background:var(--accent)"></i>reads</span>
+      <span><i style="background:var(--accent);opacity:.45"></i>writes</span>
+      <span><i style="background:var(--ink2)"></i>dup blocked</span>
     </div>
   </div>
   {{if .Rep.Days}}
   <div class="chart">
     {{$r := .BarsRead}}{{$w := .BarsWrite}}{{$d := .BarsDup}}
-    {{range $i, $b := .Rep.Days}}<span class="day" title="{{$b.Date}} — 검색 {{(index $r $i).Title}} · 기록 {{(index $w $i).Title}} · 차단 {{(index $d $i).Title}}"><b style="height:{{(index $r $i).H}}; background:var(--accent)"></b><b style="height:{{(index $w $i).H}}; background:var(--accent);opacity:.45"></b><b style="height:{{(index $d $i).H}}; background:var(--ink2)"></b></span>{{end}}
+    {{range $i, $b := .Rep.Days}}<span class="day" title="{{$b.Date}} — reads {{(index $r $i).Title}} · writes {{(index $w $i).Title}} · blocked {{(index $d $i).Title}}"><b style="height:{{(index $r $i).H}}; background:var(--accent)"></b><b style="height:{{(index $w $i).H}}; background:var(--accent);opacity:.45"></b><b style="height:{{(index $d $i).H}}; background:var(--ink2)"></b></span>{{end}}
   </div>
-  <div class="axis"><span>{{(index .Rep.Days 0).Date}}</span><span>검색 · 기록 · 중복 차단</span><span>오늘</span></div>
+  <div class="axis"><span>{{(index .Rep.Days 0).Date}}</span><span>reads · writes · dup blocked</span><span>today</span></div>
   {{end}}
 </div>
 
 <div class="kpis">
-  <div class="kpi"><div class="num" title="같은 내용을 다시 저장하려던 것을 알리고 막은 횟수 (재발견 저지)">{{.Effect.DupPrevented}}건</div><div class="exp">중복 저지</div></div>
-  <div class="kpi"><div class="num" title="저장한 지식 중 나중에 다시 검색된 비율 (활성 {{.Rep.Counts.Active}}건 기준)">{{.Effect.ReusePct}}%</div><div class="exp">재사용률</div></div>
-  <div class="kpi"><div class="num" title="검색 후 30분 안에 작업을 기록으로 남긴 비율 ({{.Effect.ReadWritePairs}}쌍 / {{.Effect.ReadEventsN}}번)">{{.Effect.PairPct}}%</div><div class="exp">회상→기록</div></div>
-  <div class="kpi"><div class="num" title="정확히 찾은 검색 중 첫 번째 결과가 바로 정답인 비율 (정합 {{.Effect.ExactPct}}%)">{{.Effect.Top1Pct}}%</div><div class="exp">첫 결과 정답</div></div>
-  <div class="kpi"><div class="num" title="찾은 지식이 하루 안에 다시 사용된 비율 (사용 연쇄)">{{.Effect.ChainPct}}%</div><div class="exp">재사용 연쇄</div></div>
+  <div class="kpi"><div class="num" title="times a re-save of the same content was flagged and blocked (rediscovery prevented)">{{.Effect.DupPrevented}}</div><div class="exp">dup prevented</div></div>
+  <div class="kpi"><div class="num" title="share of stored knowledge later searched again (of {{.Rep.Counts.Active}} active)">{{.Effect.ReusePct}}%</div><div class="exp">reuse rate</div></div>
+  <div class="kpi"><div class="num" title="share of searches followed by a write within 30 minutes ({{.Effect.ReadWritePairs}} pairs / {{.Effect.ReadEventsN}})">{{.Effect.PairPct}}%</div><div class="exp">recall→write</div></div>
+  <div class="kpi"><div class="num" title="of exact-match searches, share where the first result was the answer (exact {{.Effect.ExactPct}}%)">{{.Effect.Top1Pct}}%</div><div class="exp">first result exact</div></div>
+  <div class="kpi"><div class="num" title="share of recalled knowledge used again within a day (usage chain)">{{.Effect.ChainPct}}%</div><div class="exp">reuse chain</div></div>
 </div>
 
-{{if not .Effect.Trend}}<div class="h2sub" style="margin-top:22px">지난주와 비교: 직전 7일 데이터가 아직 부족해 비교를 표시하지 않아요</div>{{end}}
+{{if not .Effect.Trend}}<div class="h2sub" style="margin-top:22px">vs last week: not enough data in the previous 7 days to compare yet</div>{{end}}
 {{if .Effect.Trend}}
-<h2>7일 추세 — 지난주 대비</h2>
-<div class="h2sub">막대 길이는 이번 주 수치입니다</div>
+<h2>7-day trend — vs last week</h2>
+<div class="h2sub">bar length is this week's value</div>
 {{range .TrendRows}}
 <div class="trow">
   <div class="bar" style="width:{{.Cur}}%"></div>
@@ -126,30 +126,30 @@
 {{end}}
 {{end}}
 
-<h2>기억 보관함</h2>
+<h2>memory inventory</h2>
 <div class="inv">
-  <div><span class="k" title="검색되고 있는 활성 지식">활성 지식</span><span class="v">{{.Rep.Counts.Active}}</span></div>
-  <div><span class="k" title="자동 적립된 후보 — flint pending으로 검토·승격">승인 대기</span><span class="v">{{.Rep.Counts.Pending}}</span></div>
-  <div><span class="k" title="오래되거나 대체되어 정리된 지식">폐기</span><span class="v">{{.Rep.Counts.Invalidated}}</span></div>
-  <div><span class="k" title="한 번도 안 읽혔거나 오래된 지식 — 정리 대상 후보">안 읽힘</span><span class="v">{{.Rep.Stale.Days90}}</span></div>
+  <div><span class="k" title="active knowledge being searched">active knowledge</span><span class="v">{{.Rep.Counts.Active}}</span></div>
+  <div><span class="k" title="auto-ingested candidates — review and promote via flint pending">pending approval</span><span class="v">{{.Rep.Counts.Pending}}</span></div>
+  <div><span class="k" title="knowledge retired as stale or superseded">invalidated</span><span class="v">{{.Rep.Counts.Invalidated}}</span></div>
+  <div><span class="k" title="never read or long untouched — cleanup candidates">never read</span><span class="v">{{.Rep.Stale.Days90}}</span></div>
 </div>
 
 {{if .Effect.ProfileHint}}<div class="hintline">{{.Effect.ProfileHint}}</div>{{end}}
 
 {{if .Rep.Diagnosis}}
-<h2>진단</h2>
-<div class="h2sub">규칙 기반 진단 — 문제가 있을 때만 나타납니다(정상이면 이 섹션이 없어요)</div>
+<h2>diagnosis</h2>
+<div class="h2sub">rule-based diagnosis — appears only when something is off (this section is absent when healthy)</div>
 <div class="inv">
 {{range .Rep.Diagnosis}}
   <div><span class="k" title="{{.Sentence}}">{{.Signal}}</span><span class="v" style="font-size:14px">{{.Value}}</span></div>
-  <div class="h2sub">{{.Action}} · 기준: {{.Basis}}{{if .TuningKey}} · 조정 키: {{.TuningKey}}{{end}}</div>
+  <div class="h2sub">{{.Action}} · basis: {{.Basis}}{{if .TuningKey}} · tuning key: {{.TuningKey}}{{end}}</div>
 {{end}}
 </div>
 {{end}}
 
 <footer>
-  <span>세션 시작 시 주입되는 요약 크기: 평균보다 큰 경우 {{.Rep.HotP95}}글자 ≈ {{EstTok .Rep.HotP95}}토큰(±30% 추정)</span>
-  <span>수치는 참고용 추세 지표입니다 · 자세한 정의는 터미널에서 flint report</span>
+  <span>session-start injection size: on heavier-than-average sessions {{.Rep.HotP95}} chars ≈ {{EstTok .Rep.HotP95}} tokens (±30% estimate)</span>
+  <span>numbers are indicative trend metrics · full definitions: run flint report in a terminal</span>
 </footer>
 
 </div>

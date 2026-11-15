@@ -12,7 +12,7 @@ import (
 )
 
 func TestNudgeShortDirectiveNormal(t *testing.T) {
-	if nudgePendingLine != "flint: 증류 대기 — flint nudge" {
+	if nudgePendingLine != "flint: distillation pending — flint nudge" {
 		t.Errorf("짧은 문구 = %q", nudgePendingLine)
 	}
 	if strings.Contains(nudgePendingLine, "flint write knowledge") {

@@ -15,7 +15,7 @@ func TestNudgeReadHintConstant(t *testing.T) {
 }
 
 func TestNudgeStopDirectivePreserved(t *testing.T) {
-	if !strings.Contains(nudgePendingLine, "증류 대기") {
+	if !strings.Contains(nudgePendingLine, "distillation pending") {
 		t.Error("Stop 짧은 directive 훼손")
 	}
 	if !strings.Contains(nudgePendingLine, "flint nudge") {
