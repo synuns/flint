@@ -71,6 +71,16 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0140Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.4.0", "PAM",
 	}},
+	// v1.4.1: R22 감사 발견 9건 수정(PAM 허참조 차단·export 행 상한·
+	// 실DB 테스트 멱등화·문서/wire 가드)의 버전 기록 존재 계약.
+	{name: "TestVersion0141Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.4.1", "R22",
+	}},
+	// v1.4.2: R23 발견 수정(docs-sync 게이트 exit 전파·상한 표기 정합)
+	// 의 버전 기록 존재 계약.
+	{name: "TestVersion0142Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.4.2", "R23",
+	}},
 	// v1.5.0 T10: 영어 통일·TUI 4화면·docs 영문화 이행 기록 존재 계약.
 	{name: "TestVersion0150Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.0", "TUI",

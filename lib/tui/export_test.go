@@ -6,6 +6,7 @@
 package tui
 
 import (
+	"bytes"
 	"context"
 	"strings"
 	"testing"
@@ -115,8 +116,8 @@ func TestRunExportRequiresTerminal(t *testing.T) {
 	}
 }
 
-// RF4 — 사용자 중단(ESC/q, huh.ErrUserAborted): 실행 없이 (0, nil) —
-// 깨끗한 취소는 오류가 아니다.
+// RF4 — 사용자 중단(ctrl+c, huh.ErrUserAborted): "export cancelled" 안내
+// 후 실행 없이 (0, nil) — 깨끗한 취소는 오류가 아니다(안내는 RF4a).
 func TestRunExportUserAbortExitsCleanly(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { return huh.ErrUserAborted },
@@ -132,6 +133,49 @@ func TestRunExportUserAbortExitsCleanly(t *testing.T) {
 	if code != 0 || err != nil {
 		t.Fatalf("RunExport = (%d, %v), want (0, nil)", code, err)
 	}
+}
+
+// RF4a — A3: 폼 중단·확인 거절 모두 조용한 0바이트가 아니라
+// "export cancelled" 1행 안내(CancelNote — 기본 os.Stdout) 후 exit 0.
+func TestRunExportCancelPrintsNotice(t *testing.T) {
+	t.Run("form abort", func(t *testing.T) {
+		var out bytes.Buffer
+		overrideExportTUISeams(t, true,
+			func(sel *ExportSelection) error { return huh.ErrUserAborted },
+			nil)
+		deps := ExportDeps{
+			CancelNote: &out,
+			Run:        func(args []string) int { t.Fatal("Run must not execute"); return 1 },
+		}
+		code, err := RunExport(context.Background(), deps)
+		if code != 0 || err != nil {
+			t.Fatalf("RunExport = (%d, %v), want (0, nil)", code, err)
+		}
+		if !strings.Contains(out.String(), "export cancelled") {
+			t.Fatalf("stdout = %q, want 'export cancelled' notice", out.String())
+		}
+	})
+	t.Run("confirm declined", func(t *testing.T) {
+		var out bytes.Buffer
+		overrideExportTUISeams(t, true,
+			func(sel *ExportSelection) error { sel.Format, sel.Status = "md", "active"; return nil },
+			func(pv ExportPreview) (bool, error) { return false, nil })
+		deps := ExportDeps{
+			CancelNote: &out,
+			Preview: func(ctx context.Context, sel ExportSelection) (ExportPreview, error) {
+				return ExportPreview{Rows: 1, Bytes: 10}, nil
+			},
+			MaxRows: func(ctx context.Context) int { return 100 },
+			Run:     func(args []string) int { t.Fatal("Run must not execute when declined"); return 1 },
+		}
+		code, err := RunExport(context.Background(), deps)
+		if code != 0 || err != nil {
+			t.Fatalf("RunExport = (%d, %v), want (0, nil)", code, err)
+		}
+		if !strings.Contains(out.String(), "export cancelled") {
+			t.Fatalf("stdout = %q, want 'export cancelled' notice", out.String())
+		}
+	})
 }
 
 // RF5 — 상한 초과 시 TUI 오류: 미리보기 행 수 > export_import_max_rows면

@@ -6,6 +6,27 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.4.2 patch (2026-11-15) — docs-sync gate exit propagation
+
+- [x] R23 finding: the `go test|grep|tail` pipe swallowed the failure
+  exit, leaving the `release: docs-sync` gate idle (verified by injecting
+  a red exit 2) — replaced with exit capture·re-throw plus a Makefile
+  recipe regression test
+- [x] TUNING·thresholds comments aligned to the shared export·import row
+  cap (cli.md as the source)
+
+### v1.4.1 patch (2026-11-15) — audit R22 fixes (9 findings)
+
+- [x] A1 PAM dangling-relation block (both sides filtered by emitted
+  ids — hand-written import defense) · B2 export row cap
+  (`export_import_max_rows` shared with import; exceeding = exit 3)
+- [x] A2 real-DB test idempotency across 6 files (Close no-op · unique
+  payloads · boundary DELETE · restoreFn/recallFake stubs —
+  `SUPERLITE_REAL -count=2` green)
+- [x] C1~C6 docs·wire (HelpSummary completeness guard · PLAN 28 items ·
+  docs-sync switched to the full 58 · cli.md contract · shared cap
+  wording)
+
 ### v1.5.0 minor (2026-11-15) — English unification · TUI · docs in English
 
 - [x] CLI user-facing messages unified in English (~400 strings across
