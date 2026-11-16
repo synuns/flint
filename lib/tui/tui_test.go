@@ -2,6 +2,7 @@
 package tui
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
@@ -62,7 +63,7 @@ func TestIsTerminalStdoutDelegates(t *testing.T) {
 // TestNonInteractiveHintInViews — v1.5.2 T1: pending·report 화면 하단에
 // 비대화 탈출 안내 1줄이 렌더된다(export는 huh 폼 설명으로 제공).
 func TestNonInteractiveHintInViews(t *testing.T) {
-	pm := NewPendingModel(nil, nil, nil, PendingActions{})
+	pm := NewPendingModel(context.TODO(), nil, nil, PendingActions{})
 	if v := pm.View(); !strings.Contains(v, nonInteractiveHint) {
 		t.Errorf("pending view missing non-interactive hint:\n%s", v)
 	}
