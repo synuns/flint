@@ -218,35 +218,27 @@ func (r *Repo) reapplyViews(ctx context.Context) error {
 	return nil
 }
 
-// InsertBatch는 레코드들을 단일 트랜잭션에 삽입한다(all-or-nothing).
-// 각 레코드는 "kind" 키로 대상 테이블을 고르고, 나머지 키-값은 컬럼-값이 된다.
-// unique 위반(content_hash·project name)은 store.ErrDuplicate로 변환한다.
-func (r *Repo) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
-		return nil, mapInsertErr(err)
-	}
-	defer tx.Rollback(ctx)
-	ids := make([]int, 0, len(recs))
-	for _, rec := range recs {
-		id, err := insertOne(ctx, tx, rec)
-		if err != nil {
-			return nil, err
-		}
-		ids = append(ids, id)
-	}
-	if err := tx.Commit(ctx); err != nil {
-		return nil, mapInsertErr(err)
-	}
-	return ids, nil
+// batchStmtChunk — v1.6.0 T2(P2): InsertBatch의 pgx Batch 1왕복 문 수.
+// insertOne 문별 왕복 루프를 청크 단위 파이프라이닝으로 바꾼다(대량
+// 적립 왕복 수 절감). 테스트가 경계를 축소해 청크 넘는 배치·오류 원자성을
+// 검증한다(repo_test.go overrideBatchStmtChunk).
+var batchStmtChunk = 1000
+
+// insertStmt — 한 레코드의 INSERT ... RETURNING id 조립물.
+type insertStmt struct {
+	sql  string
+	args []any
 }
 
-// insertOne은 한 레코드를 삽입하고 새 id를 돌려준다.
-func insertOne(ctx context.Context, tx pgx.Tx, rec map[string]any) (int, error) {
+// buildInsertStmt — rec에서 kind별 테이블 INSERT 문을 만든다. 컬럼은
+// 정렬(SQL 문자열 안정 — 쿼리 캐시·로그 비교용), 식별자는 DB 계층에서도
+// 인용한다(v0.28.0 H③ — 방어가 CLI 컬럼 화이트리스트에만 존재하던 구조적
+// 위험의 깊이 방어).
+func buildInsertStmt(rec map[string]any) (insertStmt, error) {
 	kind, _ := rec["kind"].(string)
 	table, ok := kindTables[kind]
 	if !ok {
-		return 0, fmt.Errorf("insert: unknown kind %q", kind)
+		return insertStmt{}, fmt.Errorf("insert: unknown kind %q", kind)
 	}
 	cols := make([]string, 0, len(rec))
 	for k := range rec {
@@ -255,7 +247,7 @@ func insertOne(ctx context.Context, tx pgx.Tx, rec map[string]any) (int, error) 
 		}
 		cols = append(cols, k)
 	}
-	sort.Strings(cols) // SQL 문자열 안정(쿼리 캐시·로그 비교용)
+	sort.Strings(cols)
 	args := make([]any, len(cols))
 	ph := make([]string, len(cols))
 	qc := make([]string, len(cols))
@@ -264,16 +256,57 @@ func insertOne(ctx context.Context, tx pgx.Tx, rec map[string]any) (int, error) 
 		ph[i] = fmt.Sprintf("$%d", i+1)
 		qc[i] = quoteIdent(c)
 	}
-	// v0.28.0(H③): 식별자 위치는 DB 계층에서도 인용 — 방어가 CLI 컬럼
-	// 화이트리스트에만 존재하던 구조적 위험(신규 호출처 하나로 즉시
-	// 식별자 인젝션으로 전이)을 깊이 방어로 닫는다.
-	stmt := fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING id",
-		quoteIdent(table), strings.Join(qc, ", "), strings.Join(ph, ", "))
-	var id int
-	if err := tx.QueryRow(ctx, stmt, args...).Scan(&id); err != nil {
-		return 0, mapInsertErr(err)
+	return insertStmt{
+		sql: fmt.Sprintf("INSERT INTO %s (%s) VALUES (%s) RETURNING id",
+			quoteIdent(table), strings.Join(qc, ", "), strings.Join(ph, ", ")),
+		args: args,
+	}, nil
+}
+
+// InsertBatch는 레코드들을 단일 트랜잭션에 삽입한다(all-or-nothing).
+// 각 레코드는 "kind" 키로 대상 테이블을 고르고, 나머지 키-값은 컬럼-값이 된다.
+// unique 위반(content_hash·project name)은 store.ErrDuplicate로 변환한다.
+// v1.6.0 T2(P2): insertOne 문별 왕복 루프를 pgx Batch 청크(batchStmtChunk문)
+// 파이프라이닝으로 바꿨다 — RETURNING id 순서 보존, 오류 계약(23505 →
+// ErrDuplicate 랩·실패 시 전체 롤백 0행) 불변.
+func (r *Repo) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
+	stmts := make([]insertStmt, 0, len(recs))
+	for _, rec := range recs {
+		s, err := buildInsertStmt(rec)
+		if err != nil {
+			return nil, err
+		}
+		stmts = append(stmts, s)
 	}
-	return id, nil
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return nil, mapInsertErr(err)
+	}
+	defer tx.Rollback(ctx)
+	ids := make([]int, 0, len(stmts))
+	for start := 0; start < len(stmts); start += batchStmtChunk {
+		end := min(start+batchStmtChunk, len(stmts))
+		b := &pgx.Batch{}
+		for _, s := range stmts[start:end] {
+			b.Queue(s.sql, s.args...)
+		}
+		res := tx.SendBatch(ctx, b)
+		for i := start; i < end; i++ {
+			var id int
+			if err := res.QueryRow().Scan(&id); err != nil {
+				res.Close()
+				return nil, mapInsertErr(err)
+			}
+			ids = append(ids, id)
+		}
+		if err := res.Close(); err != nil {
+			return nil, mapInsertErr(err)
+		}
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return nil, mapInsertErr(err)
+	}
+	return ids, nil
 }
 
 // quoteIdent — SQL 식별자 인용(" doubling — dump.go와 동일 규칙).

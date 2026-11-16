@@ -4,9 +4,14 @@
 package knowledge
 
 import (
+	"bytes"
+	"crypto/ed25519"
 	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"os"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -556,5 +561,490 @@ func TestFormatPAMFlintHashIndependent(t *testing.T) {
 	}
 	if got != pamWantHash(t, "demo") {
 		t.Errorf("content_hash = %q, want %q", got, pamWantHash(t, "demo"))
+	}
+}
+
+// --- v1.6.0 T4: §13.1 relations 필수필드·§18 서명·키 관리 ---
+
+// pamUUIDRe — relation id(UUID) 형식.
+var pamUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
+
+// TestFormatPAMRelationRequiredFields — §13.1: relations 각 항목은
+// {id, from, to, type, created_at} 전부 발행. id는 ULID/UUID(여기선
+// 결정적 UUIDv5), created_at은 대체 원천(신규 행)의 생성 시각.
+func TestFormatPAMRelationRequiredFields(t *testing.T) {
+	sup := 12
+	t0 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
+	newAt := t0.Add(2 * time.Hour)
+	rows := []ExportRow{
+		{
+			ID: 8, Topic: "demo-old", Content: "대체되는 데모 행", Kind: "note",
+			Status: "invalidated", Confidence: 0.5, Tags: []string{"demo"},
+			CreatedAt: t0, UpdatedAt: t0, SupersededBy: &sup,
+		},
+		{
+			ID: 12, Topic: "demo-new", Content: "대체하는 데모 행", Kind: "note",
+			Status: "active", Confidence: 0.8, Tags: []string{"demo"},
+			CreatedAt: newAt, UpdatedAt: newAt,
+		},
+	}
+	out, err := FormatPAM(rows, "flint-test")
+	if err != nil {
+		t.Fatalf("FormatPAM error: %v", err)
+	}
+	rels, _ := pamParseDoc(t, out)["relations"].([]any)
+	if len(rels) != 1 {
+		t.Fatalf("relations 수 = %d, want 1", len(rels))
+	}
+	r, _ := rels[0].(map[string]any)
+	if id, _ := r["id"].(string); !pamUUIDRe.MatchString(id) {
+		t.Errorf("relation.id = %v, want UUID 형식", r["id"])
+	}
+	if r["from"] != "flint:12" || r["to"] != "flint:8" || r["type"] != "supersedes" {
+		t.Errorf("relation from/to/type = %v/%v/%v, want flint:12/flint:8/supersedes",
+			r["from"], r["to"], r["type"])
+	}
+	if r["created_at"] != newAt.UTC().Format(time.RFC3339) {
+		t.Errorf("relation.created_at = %v, want 신규 행 생성 시각 %v",
+			r["created_at"], newAt.UTC().Format(time.RFC3339))
+	}
+	// relation id는 결정적 — 동일 rows 재발행 시 동일 id(외부 검증 재현성).
+	out2, err := FormatPAM(rows, "flint-test")
+	if err != nil {
+		t.Fatalf("2차 FormatPAM error: %v", err)
+	}
+	rels2, _ := pamParseDoc(t, out2)["relations"].([]any)
+	if len(rels2) != 1 || rels2[0].(map[string]any)["id"] != r["id"] {
+		t.Errorf("relation.id 비결정적: %v vs %v", rels2[0].(map[string]any)["id"], r["id"])
+	}
+}
+
+// TestFormatPAMUnsignedNoOwnerOrSignature — 무서명 기본 경로는 owner·
+// signature 블록을 발행하지 않는다(서명 없는 기본 경로 불변 — T5 바이트
+// 동일성 기준선).
+func TestFormatPAMUnsignedNoOwnerOrSignature(t *testing.T) {
+	out, err := FormatPAM(pamFixtureRows(), "flint-test")
+	if err != nil {
+		t.Fatalf("FormatPAM error: %v", err)
+	}
+	doc := pamParseDoc(t, out)
+	if _, ok := doc["owner"]; ok {
+		t.Errorf("무서명 경로에 owner 블록 존재")
+	}
+	if _, ok := doc["signature"]; ok {
+		t.Errorf("무서명 경로에 signature 블록 존재")
+	}
+}
+
+// TestFormatPAMUnsignedBodyGolden — 무서명 기본 경로 본문 골든(마스킹:
+// export_id·export_date 제외). T5 메모리 최적화의 출력 바이트 동일성
+// 회귀 기준 — 이 골든이 바뀌면 체크섬 상호운용이 깨진 것이다.
+func TestFormatPAMUnsignedBodyGolden(t *testing.T) {
+	out, err := FormatPAM(pamFixtureRows(), "flint-test")
+	if err != nil {
+		t.Fatalf("FormatPAM error: %v", err)
+	}
+	got := pamMaskedBody(t, out)
+	want := `{"exported_by":"flint-test","integrity":{"checksum":"sha256:e59912fd647a1557b1b50d5bc9ed337441ce3c6c1e68e934a7fc2b5eaf88b03c","total_memories":2},"memories":[{"confidence":{"current":0.75},"content":"첫 번째 데모 지식 행","content_hash":"sha256:6f12c4490a2f72c4cba67c47013a15f06dc0934bdb39bef78b2eb7653fd4d1a4","custom_type":"lesson","id":"flint:7","provenance":{"platform":"flint"},"status":"active","tags":["go","export"],"temporal":{"created_at":"2026-11-01T09:00:00Z"},"type":"custom"},{"confidence":{"current":0.5},"content":"두 번째 데모 지식 행(대체됨)","content_hash":"sha256:ebb989d09e910a60371820b0cfcd917c5a8bedc84533292ffacff04361bba07d","custom_type":"note","id":"flint:8","provenance":{"platform":"flint"},"status":"superseded","tags":[],"temporal":{"created_at":"2026-11-02T10:30:00Z","superseded_by":"flint:12"},"type":"custom"}],"relations":[],"schema":"portable-ai-memory","schema_version":"1.0","spec_uri":"https://portable-ai-memory.org/spec/v1.0"}`
+	if got != want {
+		t.Errorf("무서명 본문 골든 불일치(T5 바이트 동일성 회귀):\ngot:  %s\nwant: %s", got, want)
+	}
+}
+
+// pamTestKey — 테스트 고정 Ed25519 키(합성 — 32바이트 시드에서 유도).
+func pamTestKey(t *testing.T) ed25519.PrivateKey {
+	t.Helper()
+	seed := sha256.Sum256([]byte("flint-pam-demo-seed"))
+	key := ed25519.NewKeyFromSeed(seed[:])
+	return key
+}
+
+// TestFormatPAMSignedOwnerAndSignature — §18: --sign 경로는 루트 owner
+// {id: did:key:ed25519 공개키}·signature{algorithm, signed_by, value}를
+// 발행. 서명은 payload{checksum, export_id, export_date, owner_id} JCS
+// → Ed25519 — 문서 외부에서 did:key 공개키로 재검증된다.
+func TestFormatPAMSignedOwnerAndSignature(t *testing.T) {
+	key := pamTestKey(t)
+	out, err := FormatPAMSigned(pamFixtureRows(), "flint-test", key)
+	if err != nil {
+		t.Fatalf("FormatPAMSigned error: %v", err)
+	}
+	doc := pamParseDoc(t, out)
+
+	owner, _ := doc["owner"].(map[string]any)
+	if owner == nil {
+		t.Fatalf("owner 블록 누락")
+	}
+	did, _ := owner["id"].(string)
+	wantDID := PAMOwnerDID(key.Public().(ed25519.PublicKey))
+	if did != wantDID {
+		t.Errorf("owner.id = %q, want did:key 공개키 %q", did, wantDID)
+	}
+	if !strings.HasPrefix(did, "did:key:z6Mk") {
+		t.Errorf("owner.id = %q, want ed25519 did:key(z6Mk 접두)", did)
+	}
+
+	sig, _ := doc["signature"].(map[string]any)
+	if sig == nil {
+		t.Fatalf("signature 블록 누락")
+	}
+	if sig["algorithm"] != "ed25519" {
+		t.Errorf("signature.algorithm = %v, want ed25519", sig["algorithm"])
+	}
+	if sig["signed_by"] != did {
+		t.Errorf("signature.signed_by = %v, want owner.id %v", sig["signed_by"], did)
+	}
+	value, _ := sig["value"].(string)
+	raw, err := base64.StdEncoding.DecodeString(value)
+	if err != nil || len(raw) != ed25519.SignatureSize {
+		t.Fatalf("signature.value = %q, want base64 64바이트 서명", value)
+	}
+
+	// 문서 외부 독립 재검증: did:key → 공개키 → payload JCS → Verify.
+	pub, err := PAMDIDKeyPubkey(did)
+	if err != nil {
+		t.Fatalf("did:key 공개키 복호 실패: %v", err)
+	}
+	ig, _ := doc["integrity"].(map[string]any)
+	payload := pamSignPayload{
+		Checksum:   ig["checksum"].(string),
+		ExportID:   doc["export_id"].(string),
+		ExportDate: doc["export_date"].(string),
+		OwnerID:    did,
+	}
+	if !PAMVerifySignature(pub, value, payload) {
+		t.Errorf("§18 서명 독립 재검증 실패 — payload JCS+Ed25519 불일치")
+	}
+}
+
+// TestFormatPAMSignedInvalidKey — 잘못된 길이 키는 오류(문서 발행 금지).
+func TestFormatPAMSignedInvalidKey(t *testing.T) {
+	if _, err := FormatPAMSigned(pamFixtureRows(), "flint-test", ed25519.PrivateKey(make([]byte, 10))); err == nil {
+		t.Errorf("잘못된 키 길이(10) 오류 없음 — 오류 필요")
+	}
+}
+
+// TestFormatPAMSignedUnsignedBodySame — 서명 경로의 memories·relations·
+// integrity는 무서명 경로와 동일(서명 블록만 추가 — 재직렬화 회피 조립).
+func TestFormatPAMSignedUnsignedBodySame(t *testing.T) {
+	plain, err := FormatPAM(pamFixtureRows(), "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	signed, err := FormatPAMSigned(pamFixtureRows(), "flint-test", pamTestKey(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mp, ms := pamParseDoc(t, plain), pamParseDoc(t, signed)
+	for _, k := range []string{"memories", "relations", "integrity", "exported_by"} {
+		a, _ := json.Marshal(mp[k])
+		b, _ := json.Marshal(ms[k])
+		if string(a) != string(b) {
+			t.Errorf("서명 경로 %s 블록이 무서명과 다름(본문 불변 위반):\n%s\n%s", k, a, b)
+		}
+	}
+}
+
+// TestPAMSigningKeyLifecycle — sign.go 키 관리: 경로 seam 주입 시 신규
+// 생성(0600·부모 디렉터리 0700)·재로드 동일 키·파손 키 오류.
+func TestPAMSigningKeyLifecycle(t *testing.T) {
+	// 미존재 하위 디렉터리 — MkdirAll 0700 생성 경로 검증(t.TempDir
+	// 자체 디렉터리는 이미 존재해 권한 단언 대상이 아니다).
+	sub := filepath.Join(t.TempDir(), "flint-config")
+	path := filepath.Join(sub, "pam-signing-key")
+	pamSwapKeyPath(t, path)
+
+	k1, err := LoadOrCreatePAMSigningKey()
+	if err != nil {
+		t.Fatalf("신규 생성 실패: %v", err)
+	}
+	fi, err := os.Stat(path)
+	if err != nil {
+		t.Fatalf("키 파일 미생성: %v", err)
+	}
+	if fi.Mode().Perm() != 0o600 {
+		t.Errorf("키 파일 권한 = %v, want 0600", fi.Mode().Perm())
+	}
+	di, err := os.Stat(sub)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if di.Mode().Perm() != 0o700 {
+		t.Errorf("키 디렉터리 권한 = %v, want 0700", di.Mode().Perm())
+	}
+	k2, err := LoadOrCreatePAMSigningKey()
+	if err != nil {
+		t.Fatalf("재로드 실패: %v", err)
+	}
+	if !bytes.Equal(k1, k2) {
+		t.Errorf("재로드 키 불일치 — 생성 시 키가 안정적으로 저장되지 않음")
+	}
+	// 파손 키 — 조용 재생성이 아니라 오류(신뢰 사슬 보존).
+	if werr := os.WriteFile(path, []byte("zz-not-hex"), 0o600); werr != nil {
+		t.Fatal(werr)
+	}
+	if _, err := LoadOrCreatePAMSigningKey(); err == nil {
+		t.Errorf("파손 키 오류 없음 — 오류 필요(조용 재생성 금지)")
+	}
+}
+
+// pamSwapKeyPath — PAMSigningKeyPathFn seam 임시 교체(테스트 격리).
+func pamSwapKeyPath(t *testing.T, path string) func() {
+	t.Helper()
+	old := PAMSigningKeyPathFn
+	PAMSigningKeyPathFn = func() string { return path }
+	t.Cleanup(func() { PAMSigningKeyPathFn = old })
+	return func() {}
+}
+
+// TestDefaultPAMSigningKeyPathConfigDir — 기본 경로는 FLINT_CONFIG_DIR
+// 승계(configDir()/pam-signing-key).
+func TestDefaultPAMSigningKeyPathConfigDir(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("FLINT_CONFIG_DIR", dir)
+	if got := DefaultPAMSigningKeyPath(); got != filepath.Join(dir, "pam-signing-key") {
+		t.Errorf("기본 키 경로 = %q, want %q", got, filepath.Join(dir, "pam-signing-key"))
+	}
+}
+
+// --- v1.6.0 T5: PAM 메모리 최적화(등가성·발행 수 반환·골든·벤치) ---
+
+// TestPAMChecksumStreamEquivalence — R30-A P3: JCS 체크섬 스트리밍
+// 산출(재파싱 회피)이 라이브러리 경로(json.Marshal →
+// jsoncanonicalizer.Transform)와 **모든 입력에서 동일한 체크섬**을 내는지
+// 검증한다. 이스케이프 경계값 전부(HTML·제어문자·U+2028/9·invalid
+// UTF-8·비-BMP)·부동소수점 경계값(지수형·최단표현)·빈 값·relations 포함.
+func TestPAMChecksumStreamEquivalence(t *testing.T) {
+	contents := []string{
+		"plain ascii demo",
+		`<html> & "quotes" \ backslash /slash`,
+		"ctl\u0001\u0008\b\f\n\r\t end",
+		"line\u2028sep\u2029mark",
+		"한글 혼합 😀 emoji 記憶",
+		"invalid\xff utf8 \xfe\xfd byte",
+		"",
+	}
+	confidences := []float64{0, 0.5, 0.75, 0.1, 0.005, 0.0000015, 1, 1e-7, 0.123456789012345}
+	t0 := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
+	sup := 900001
+	rows := make([]ExportRow, 0, len(contents)*len(confidences)+2)
+	i := 0
+	for _, c := range contents {
+		for _, cf := range confidences {
+			i++
+			var tags []string
+			if i%3 == 0 {
+				tags = []string{"demo", "go"}
+			} else if i%3 == 1 {
+				tags = []string{}
+			} // i%3==2 → nil(빈 배열 발행 경로)
+			rows = append(rows, ExportRow{
+				ID: i, Topic: "demo-topic", Content: c, Kind: "lesson",
+				Status: "active", Confidence: cf, Tags: tags,
+				CreatedAt: t0.Add(time.Duration(i) * time.Minute),
+			})
+		}
+	}
+	// invalidated + relation(양쪽 발행 — from=900001 신규 행도 추가).
+	rows = append(rows,
+		ExportRow{ID: 900000, Content: "대체된 데모 행", Kind: "note", Status: "invalidated",
+			Confidence: 0.5, Tags: []string{"demo"}, CreatedAt: t0, SupersededBy: &sup},
+		ExportRow{ID: 900001, Content: "대체하는 데모 행", Kind: "note", Status: "active",
+			Confidence: 0.8, Tags: nil, CreatedAt: t0.Add(time.Hour)},
+	)
+
+	out, err := FormatPAM(rows, "flint-test")
+	if err != nil {
+		t.Fatalf("FormatPAM error: %v", err)
+	}
+	doc := pamParseDoc(t, out)
+
+	// 라이브러리 독립 재현(구현 방식과 무관한 체크섬 계약).
+	memBytes, err := json.Marshal(doc["memories"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonical, err := jsoncanonicalizer.Transform(memBytes)
+	if err != nil {
+		t.Fatalf("JCS 변환 실패: %v", err)
+	}
+	sum := sha256.Sum256(canonical)
+	want := "sha256:" + hex.EncodeToString(sum[:])
+	got, _ := doc["integrity"].(map[string]any)["checksum"].(string)
+	if got != want {
+		t.Fatalf("스트리밍 체크섬 = %q, want 라이브러리 재현 %q", got, want)
+	}
+	rels, _ := doc["relations"].([]any)
+	if len(rels) != 1 {
+		t.Fatalf("relations 수 = %d, want 1", len(rels))
+	}
+}
+
+// TestFormatPAMWithCount — v1.6.0 T5 P6: 발행 수(total_memories)를
+// 문서 재파싱 없이 함께 반환한다(cli 44MB 재 Unmarshal 제거 seam).
+// pending은 발행 수에서 제외(기존 계약 승계).
+func TestFormatPAMWithCount(t *testing.T) {
+	rows := append(pamFixtureRows(), ExportRow{
+		ID: 9, Content: "미승인 내부 후보 행", Kind: "note", Status: "pending",
+		Confidence: 0.5, CreatedAt: time.Date(2026, 11, 4, 0, 0, 0, 0, time.UTC),
+	})
+	out, issued, err := FormatPAMWithCount(rows, "flint-test")
+	if err != nil {
+		t.Fatalf("FormatPAMWithCount error: %v", err)
+	}
+	if issued != 2 {
+		t.Errorf("issued = %d, want 2(pending 제외 발행 수)", issued)
+	}
+	ig, _ := pamParseDoc(t, out)["integrity"].(map[string]any)
+	if ig["total_memories"] != float64(issued) {
+		t.Errorf("total_memories = %v, want 발행 수 %d와 일치", ig["total_memories"], issued)
+	}
+
+	signed, signedIssued, err := FormatPAMSignedWithCount(pamFixtureRows(), "flint-test", pamTestKey(t))
+	if err != nil {
+		t.Fatalf("FormatPAMSignedWithCount error: %v", err)
+	}
+	if signedIssued != 2 {
+		t.Errorf("signed issued = %d, want 2", signedIssued)
+	}
+	sig, _ := pamParseDoc(t, signed)["signature"].(map[string]any)
+	if sig == nil {
+		t.Errorf("서명 경로인데 signature 블록 부재")
+	}
+}
+
+// TestFormatPAMRawBytesMatchEncoder — 문서 인코딩을 스트리밍 기록기로
+// 바꿔도 출력 바이트는 json.Encoder(SetEscapeHTML(false)+SetIndent)와
+// 전체 문서 수준에서 동일해야 한다(무서명 본문 바이트 불변 — 인덴트·
+// 개행·이스케이프 전부). 휘발 필드(export_id·export_date)는 파싱 후
+// 재조립해 동일값 기준으로 비교한다.
+func TestFormatPAMRawBytesMatchEncoder(t *testing.T) {
+	run := func(t *testing.T, out []byte) {
+		t.Helper()
+		var doc pamExportDoc
+		if err := json.Unmarshal(out, &doc); err != nil {
+			t.Fatalf("Unmarshal 실패: %v", err)
+		}
+		var want bytes.Buffer
+		enc := json.NewEncoder(&want)
+		enc.SetEscapeHTML(false)
+		enc.SetIndent("", "  ")
+		if err := enc.Encode(doc); err != nil {
+			t.Fatalf("기준 Encoder 실패: %v", err)
+		}
+		if !bytes.Equal(out, want.Bytes()) {
+			t.Fatalf("출력 바이트가 Encoder 기준과 불일치(스트리밍 인코더 회귀):\ngot:  %q\nwant: %q", out, want.Bytes())
+		}
+	}
+	plain, err := FormatPAM(pamFixtureRows(), "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(t, plain)
+	signed, err := FormatPAMSigned(pamFixtureRows(), "flint-test", pamTestKey(t))
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(t, signed)
+	// relations 1건 발행 케이스(비어 있지 않은 배열의 인덴트 경로)·
+	// 빈 rows 케이스(memories·relations 모두 빈 배열).
+	relRows := []ExportRow{
+		{ID: 8, Content: "대체되는 데모 행", Kind: "note", Status: "invalidated",
+			Confidence: 0.5, Tags: []string{"demo"}, CreatedAt: time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)},
+		{ID: 12, Content: "대체하는 데모 행", Kind: "note", Status: "active",
+			Confidence: 0.8, Tags: nil, CreatedAt: time.Date(2026, 11, 2, 12, 30, 0, 0, time.UTC)},
+	}
+	relRows[0].SupersededBy = &[]int{12}[0]
+	withRels, err := FormatPAM(relRows, "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(t, withRels)
+	empty, err := FormatPAM(nil, "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	run(t, empty)
+}
+
+// pamBenchRows — 합성 벤치 입력(결정적 — 고정 시드). 내용 길이·상태·
+// 태그를 섞고 일부 행에 supersedes relation을 만든다.
+func pamBenchRows(n int) []ExportRow {
+	t0 := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
+	rows := make([]ExportRow, n)
+	for i := 0; i < n; i++ {
+		r := &rows[i]
+		r.ID = i + 1
+		r.Topic = "demo-topic"
+		r.Kind = "lesson"
+		r.Status = "active"
+		r.Confidence = 0.5 + float64(i%50)/100
+		r.CreatedAt = t0.Add(time.Duration(i) * time.Second)
+		r.UpdatedAt = r.CreatedAt
+		// 내용 — 가변 길이(40~240바이트), 일부 유니코드.
+		base := "합성 데모 지식 행 synthetic demo knowledge row with some length "
+		for len(base) < 40+(i%200) {
+			base += "x"
+		}
+		r.Content = base
+		switch i % 3 {
+		case 0:
+			r.Tags = []string{"demo", "go"}
+		case 1:
+			r.Tags = []string{}
+		}
+		if i%10 == 0 && i+1 < n {
+			sup := i + 2
+			r.Status = "invalidated"
+			r.SupersededBy = &sup
+		}
+	}
+	return rows
+}
+
+// BenchmarkFormatPAM — R30-A 실측 재현: 50k행 churn 876MB(출력 8.6배)의
+// 20k 합성 환산. 최적화 전후 totalAlloc(B/op) 비교 보고가 목적.
+func BenchmarkFormatPAM(b *testing.B) {
+	rows := pamBenchRows(20000)
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := FormatPAM(rows, "flint-bench"); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// BenchmarkFormatPAMSigned — 서명 경로 포함 전후 측정(§18).
+func BenchmarkFormatPAMSigned(b *testing.B) {
+	rows := pamBenchRows(20000)
+	seed := sha256.Sum256([]byte("flint-pam-demo-seed"))
+	key := ed25519.NewKeyFromSeed(seed[:])
+	b.ReportAllocs()
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		if _, err := FormatPAMSigned(rows, "flint-bench", key); err != nil {
+			b.Fatal(err)
+		}
+	}
+}
+
+// TestPAMOwnerDIDRoundtrip — did:key 인코딩 왕복: 공개키 → z6Mk 접두
+// did → 복호 시 원 공개키.
+func TestPAMOwnerDIDRoundtrip(t *testing.T) {
+	key := pamTestKey(t)
+	did := PAMOwnerDID(key.Public().(ed25519.PublicKey))
+	if !strings.HasPrefix(did, "did:key:z6Mk") {
+		t.Errorf("did = %q, want z6Mk 접두(ed25519 multicodec)", did)
+	}
+	pub, err := PAMDIDKeyPubkey(did)
+	if err != nil {
+		t.Fatalf("복호 실패: %v", err)
+	}
+	if !bytes.Equal(pub, key.Public().(ed25519.PublicKey)) {
+		t.Errorf("왕복 공개키 불일치")
+	}
+	if _, err := PAMDIDKeyPubkey("did:key:notz6mk"); err == nil {
+		t.Errorf("비-ed25519 did에서 오류 없음")
 	}
 }

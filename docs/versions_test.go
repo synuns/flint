@@ -111,6 +111,17 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0155Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.5", "terminal",
 	}},
+	// v1.6.0 T9: 성능 3종·PAM 완결(§18 서명·체크섬 검증)·maintain TUI·
+	// 파서 통합 이행 기록 존재 계약. 벤치 수치는 합성 표기이며 상세는
+	// PERF.md 단일 소스.
+	{name: "TestVersion0160Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.6.0", "performance",
+	}},
+	// v1.6.0 T9: PERF.md 신설 계약 — 측정 관례(합성 시드·3회 중앙값)·
+	// pg_trgm 미지원 한계 명시·재현 안내.
+	{name: "TestPerfDocContractV1600", doc: "PERF.md", wants: []string{
+		"synthetic", "median of 3", "pg_trgm", "Reproducing",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{
@@ -261,7 +272,7 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0190Milestone", doc: "HISTORY.md", wants: []string{"v0.19.0", "효과 계측"}},
 	{name: "TestMetricsDocContract", doc: "METRICS.md", wants: []string{
 		"Goal→Signal→Metric", // GSM 원칙
-		"G1 recall hit", // 목표 4종
+		"G1 recall hit",      // 목표 4종
 		"G2 rediscovery block",
 		"G3 asset health",
 		"G4 recall-first habit",

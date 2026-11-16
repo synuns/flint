@@ -134,10 +134,8 @@
 - [x] v1.5.3(2026-11-16) — 에이전트 CLI 신뢰: teardown dry-run+--yes·read 인자 검증·usage계 exit 3 통일·제로히트 exit 0·error:"usage"·approve 안내 + TUI 소형(협폭·필터 ID·지연 로드·실패 원인)
 - [x] v1.5.4(2026-11-16) — usage 타입 전 커맨드 확장(7종)+P3: --version/-v 별칭·help error 키 폐지·read limit clamp 표시(limit_requested/applied)·fresh DB backup_keep 조용화
 - [x] v1.5.5(2026-11-16) — 터미널 검출 수정(/dev/null 리다이렉트 TTY 오탐 제거)·usage 잔여 사이트 완결(hot·brief·compact·nudge, 잔여 0)·-h/--help 별칭·write --help 안내·pam export 행수=발행 수·import 확장자 감지·setup 포트 사용중 경고
-- [ ] v1.6.0(예정) — 해외 마케팅·i18n 문서 이월: 데모 체험·대시보드
-  고도화·설치 확장(brew)·신뢰 아티팩트(SBOM·Scorecard·SECURITY.md)·
-  README 고도화·합성 벤치마크·다국어 문서. 후보: PAM 서명(스펙 §18)·
-  embeddings 검색(ADR-0011 재판정)
+- [x] v1.6.0(2026-11-16) — 성능 3종(pending 접두 map O(N+M)·import ANY($1) 배치 dedup+청크 트랜잭션·write 배치 dedup)·PAM 완결(스펙 준수 owner/relations·체크섬 수입 검증 exit 3·§18 Ed25519 서명 --sign·FormatPAM 메모리 절감)·maintain --tui(옵트인)·인자 파서 통합(12커맨드, N9 불변)·소형 청산(diff usage·doctor --json·maintain next 키·pending TUI expire)·docs/PERF.md 신설(합성 벤치 단일 소스)
+- [ ] v1.7(예정) — 이월 확정: read LIKE 개량(Doltgres pg_trgm 미지원 — 엔진 지원 시 재판정)·report/profile 병렬화·테스트 폭발 정리·주석 영어화·read/tuning TUI·마케팅·i18n(brew 설치·신뢰 아티팩트 포함)
 
 ## 7. 비목표
 
@@ -146,4 +144,4 @@
 - 임베딩 검색(pgvector 채택 보류 — ADR-0011)·다중 에이전트 domain
   스코프(트리거 대기)·METRICS.md 개편·ADR 재편
 - 대시보드 동적 서버(정적 export만 유지)·linux 배포 — TUI는 v1.5.0
-  실현, brew는 v1.6.0 이월(2026-11-13 사용자 지시)
+  실현, brew는 v1.7 이월(2026-11-13 사용자 지시)

@@ -160,13 +160,13 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 | `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`) |
 | `flint write <kind>` | 표준 입력에서 지식 기록 (멱등) |
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
-| `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카) |
+| `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카, PAM `--sign` Ed25519 서명 — 스펙 §18) |
 | `flint read <query>` | 활성 지식 검색 |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |
 | `flint brief [query]` | 외부 AI에 붙여넣는 마스킹 브리프(읽기 전용) |
 | `flint done --session <id>` | 세션 마무리 기록 |
 | `flint approve --id n` | 대기 중 지식을 활성으로 승격 |
-| `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 |
+| `flint maintain` | 관리: 임계값 확인 · 무효화 · 병합 (`--tui` 대화형 검수, 옵트인) |
 | `flint audit --limit n` | 최근 n개 커밋 조회 |
 | `flint backup` | SQL 덤프 + sha256 체크섬 (`--encrypt` age 저장 암호화·`--mask` 치환 진단 덤프) |
 | `flint restore --file f` | 백업 복구 (`--drill`로 훈련) |
@@ -188,9 +188,9 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 
 ### 대화형 TUI (v1.5.0)
 
-`flint setup`(무인자) 위저드와 `pending`·`export`·`report`의 4화면. 터미널에서는 기본 대화형 — 무인자 실행 시 TUI가 열린다(v1.5.2부터). 파이프·비터미널 실행과 플래그 지정 시 기존 출력이 그대로 유지된다.
+`flint setup`(무인자) 위저드와 `pending`·`export`·`report`의 4화면. 터미널에서는 기본 대화형 — 무인자 실행 시 TUI가 열린다(v1.5.2부터). 파이프·비터미널 실행과 플래그 지정 시 기존 출력이 그대로 유지된다. `flint maintain --tui`(v1.6.0)는 옵트인 관리 화면 — 의심 목록 → 병합 시 무엇이 남는지 미리보기 → 병합/유지/무효화, 실행은 기존 서브커맨드에 위임.
 
-운영: [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝: [docs/TUNING.md](docs/TUNING.md) · 메트릭: [docs/METRICS.md](docs/METRICS.md)
+운영: [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝: [docs/TUNING.md](docs/TUNING.md) · 메트릭: [docs/METRICS.md](docs/METRICS.md) · 성능: [docs/PERF.md](docs/PERF.md)
 
 ---
 

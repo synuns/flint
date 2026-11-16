@@ -2,12 +2,22 @@
 // 외부 PAM 내보내기 문서를 flint 임포트 후보로 변환하는 순수 파서 —
 // 스토어 무접촉(계약 5): pending 적립 정책·실제 write는 T9
 // (import_migrate.go) 소유. T9는 seam 변수 ParsePAMFn으로 연결한다.
+// v1.6.0 T4: ① integrity.checksum(§15) 재계산 검증 — 불일치는 오류
+// (호출부 exit 3·조용 통과 금지) ② signature(§18) 있으면 Ed25519
+// 검증 — 실패는 stderr 경고 1행 후 계속(§21.4 SHOULD).
 package knowledge
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"os"
+	"sort"
+
+	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 )
 
 // ImportCandidate — PAM memory 1건의 flint 변환 결과. ExportRow 호환
@@ -53,9 +63,130 @@ var ParsePAMFn = ParsePAM
 
 // PAM v1.0 문서 구조(필요 최소 필드만 — summary는 무시: content 우선).
 type pamDoc struct {
-	Schema    string        `json:"schema"`
-	Memories  []pamMemory   `json:"memories"`
-	Relations []pamRelation `json:"relations"`
+	Schema     string           `json:"schema"`
+	ExportID   string           `json:"export_id"`
+	ExportDate string           `json:"export_date"`
+	Owner      *pamOwnerRef     `json:"owner"`
+	Memories   []pamMemory      `json:"memories"`
+	Relations  []pamRelation    `json:"relations"`
+	Integrity  *pamIntegrityRef `json:"integrity"`
+	Signature  *pamSignatureRef `json:"signature"`
+}
+
+// pamOwnerRef — 루트 owner(§4·§18 서명 검증용 최소).
+type pamOwnerRef struct {
+	ID string `json:"id"`
+}
+
+// pamIntegrityRef — §15 체크섬(검증 대상).
+type pamIntegrityRef struct {
+	Checksum      string `json:"checksum"`
+	TotalMemories int    `json:"total_memories"`
+}
+
+// pamSignatureRef — §18 문서 서명.
+type pamSignatureRef struct {
+	Algorithm string `json:"algorithm"`
+	SignedBy  string `json:"signed_by"`
+	Value     string `json:"value"`
+}
+
+// pamImportStderr — §21.4 경고 챈널 seam(기본 os.Stderr — 테스트 캡처).
+var pamImportStderr io.Writer = os.Stderr
+
+// verifyPAMChecksum — §15 재계산: 원문 memories(원바이트 보존 — 구조체
+// 왕복이 미정의 필드를 버리면 체크섬이 재현되지 않는다)를 id 문자열
+// 오름차순 정렬 → JCS → SHA-256. checksum 미기재 문서(§15 이전 관례)는
+// 검증 없이 통과(nil 반환).
+func verifyPAMChecksum(data []byte, want string) error {
+	if want == "" {
+		return nil
+	}
+	var raw struct {
+		Memories []json.RawMessage `json:"memories"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return fmt.Errorf("pam memories raw parse failed: %w", err)
+	}
+	type idOnly struct {
+		ID string `json:"id"`
+	}
+	type memEntry struct {
+		id  string
+		raw json.RawMessage
+	}
+	entries := make([]memEntry, 0, len(raw.Memories))
+	for i, m := range raw.Memories {
+		var v idOnly
+		if err := json.Unmarshal(m, &v); err != nil || v.ID == "" {
+			return fmt.Errorf("pam memories[%d] id unreadable", i)
+		}
+		entries = append(entries, memEntry{id: v.ID, raw: m})
+	}
+	// §15 — id 문자열(코드포인트) 오름차순(export_pam.go 정렬 계약과
+	// 동일). 안정 정렬: 동일 id 중 원문 순서 유지.
+	sort.SliceStable(entries, func(i, j int) bool { return entries[i].id < entries[j].id })
+	sorted := make([]json.RawMessage, len(entries))
+	for i, e := range entries {
+		sorted[i] = e.raw
+	}
+	memBytes, err := json.Marshal(sorted)
+	if err != nil {
+		return fmt.Errorf("pam memories marshal failed: %w", err)
+	}
+	canonical, err := jsoncanonicalizer.Transform(memBytes)
+	if err != nil {
+		return fmt.Errorf("pam JCS normalization failed: %w", err)
+	}
+	sum := sha256.Sum256(canonical)
+	got := "sha256:" + hex.EncodeToString(sum[:])
+	if got != want {
+		return fmt.Errorf("pam integrity checksum mismatch: document=%s recomputed=%s — refusing import", want, got)
+	}
+	return nil
+}
+
+// verifyPAMSignature — §18: signature 있으면 payload{checksum, export_id,
+// export_date, owner_id} JCS → Ed25519 검증. 실패·키 불해석은 경고 1행
+// (§21.4 SHOULD — 경고 후 계속, 거부 아님). 무서명 문서는 무경고 통과.
+func verifyPAMSignature(doc *pamDoc) {
+	if doc.Signature == nil || doc.Signature.Value == "" {
+		return
+	}
+	did := doc.Signature.SignedBy
+	if did == "" && doc.Owner != nil {
+		did = doc.Owner.ID
+	}
+	checksum := ""
+	if doc.Integrity != nil {
+		checksum = doc.Integrity.Checksum
+	}
+	ownerID := ""
+	if doc.Owner != nil {
+		ownerID = doc.Owner.ID
+	}
+	fail := func(reason string) {
+		fmt.Fprintf(pamImportStderr,
+			"[flint] import pam: signature verification failed (%s, signed_by=%q) — continuing (spec §21.4)\n",
+			reason, did)
+	}
+	if did == "" {
+		fail("signing key absent")
+		return
+	}
+	pub, err := PAMDIDKeyPubkey(did)
+	if err != nil {
+		fail("signing key unreadable: " + err.Error())
+		return
+	}
+	if !PAMVerifySignature(pub, doc.Signature.Value, pamSignPayload{
+		Checksum:   checksum,
+		ExportID:   doc.ExportID,
+		ExportDate: doc.ExportDate,
+		OwnerID:    ownerID,
+	}) {
+		fail("payload signature invalid — document may be tampered")
+	}
 }
 
 type pamMemory struct {
@@ -123,6 +254,15 @@ func ParsePAM(data []byte) (*PAMResult, error) {
 	if doc.Schema != "portable-ai-memory" {
 		return nil, fmt.Errorf("pam schema mismatch: %q (want %q)", doc.Schema, "portable-ai-memory")
 	}
+	// §15 — integrity.checksum 재계산 검증(불일치 = 문서 변조 → 오류,
+	// 호출부 exit 3). 조용한 통과 금지(v1.6.0 T4).
+	if doc.Integrity != nil {
+		if err := verifyPAMChecksum(data, doc.Integrity.Checksum); err != nil {
+			return nil, err
+		}
+	}
+	// §21.4 — 서명은 SHOULD 검증: 실패해도 경고 후 계속(위 함수).
+	verifyPAMSignature(&doc)
 	res := &PAMResult{}
 	for _, m := range doc.Memories {
 		if m.Status != "active" {

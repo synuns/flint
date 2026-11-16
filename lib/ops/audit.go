@@ -86,38 +86,44 @@ func parseAuditDate(v any) (time.Time, bool) {
 // (read ClampLimit 관례).
 func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 	ctx := context.Background()
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 불허). 값 검증은 발생 순(AllOccs) 재현 — 기존 오류 우선 순서 그대로.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--limit", Value: true},
+			{Name: "--stat"},
+			{Name: "--session", Value: true},
+		},
+		Usage: "usage: flint audit [--limit N] [--session ID] [--stat]",
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
 	limit := auditDefaultLimit
-	session := ""
-	stat := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
+	session := res.Value("--session")
+	stat := res.Given("--stat")
+	for _, o := range res.AllOccs() {
+		switch o.Name {
 		case "--limit":
-			i++
-			if i >= len(args) {
+			if !o.HasValue {
 				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--limit requires a number — usage: flint audit [--limit N] [--session ID] [--stat]")))
 				return 3
 			}
-			n, err := strconv.Atoi(args[i])
+			n, err := strconv.Atoi(o.Value)
 			if err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("invalid limit %q — usage: flint audit [--limit N] [--session ID] [--stat]", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("invalid limit %q — usage: flint audit [--limit N] [--session ID] [--stat]", o.Value)))
 				return 3
 			}
 			if n < 1 {
 				n = auditDefaultLimit // 수치형 0·음수 폴백(에러 아님)
 			}
 			limit = n
-		case "--stat":
-			stat = true
 		case "--session":
-			i++
-			if i >= len(args) || args[i] == "" {
+			if !o.HasValue || o.Value == "" {
 				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--session requires an id — usage: flint audit [--limit N] [--session ID] [--stat]")))
 				return 3
 			}
-			session = args[i]
-		default:
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint audit [--limit N] [--session ID] [--stat]", args[i])))
-			return 3
 		}
 	}
 	if limit > auditMaxLimit {

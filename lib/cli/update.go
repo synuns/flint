@@ -92,19 +92,24 @@ type updateCache struct {
 var updateSkipSignature = false
 
 func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	dry := false
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 불허 — 네트워크 접근 전 검증 계약 유지).
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--check"},
+			{Name: "--insecure-skip-signature"},
+		},
+		Usage: "usage: flint update [--check] [--insecure-skip-signature]",
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
+	dry := res.Given("--check")
 	updateSkipSignature = false // 진입 리셋(v0.31.3 감사 4)
-	for _, a := range args {
-		switch a {
-		case "--check":
-			dry = true
-		case "--insecure-skip-signature":
-			updateSkipSignature = true
-			fmt.Fprintln(os.Stderr, "[flint] update: signature verification bypass (one-time trust transfer — ADR-0014 key rollover procedure)")
-		default:
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint update [--check] [--insecure-skip-signature]", a)))
-			return 3
-		}
+	if res.Given("--insecure-skip-signature") {
+		updateSkipSignature = true
+		fmt.Fprintln(os.Stderr, "[flint] update: signature verification bypass (one-time trust transfer — ADR-0014 key rollover procedure)")
 	}
 	latest, err := fetchLatestVersion()
 	if err != nil {

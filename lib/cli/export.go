@@ -6,6 +6,7 @@ package cli
 
 import (
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -45,25 +46,23 @@ var (
 		return b, len(rows), err
 	}
 	// v1.4.0 T2 후속: PAM v1.0 교환 문서 — exported_by는 "flint/"+버전
-	// (CurrentVersion 관례: ldflags→buildinfo→dev 폴백). v1.5.5 B1: 발행
-	// 수는 직렬화한 문서의 integrity.total_memories에서 읽는다(산출 규칙
-	// 재구현이 아니라 문서가 단일 원천).
+	// (CurrentVersion 관례: ldflags→buildinfo→dev 폴백). v1.6.0 T5 P6:
+	// 발행 수(total_memories)를 포맷터에서 직접 받는다 — 종전엔 직렬화한
+	// 문서 전체(대량 export에서 수십 MB)를 발행 수만 읽으려고 재
+	// Unmarshal했다(산출 규칙 재구현도 아니고 2차 파싱 낭비).
 	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
-		data, err := knowledge.FormatPAM(rows, "flint/"+CurrentVersion())
-		if err != nil {
-			return nil, 0, err
-		}
-		var doc struct {
-			Integrity struct {
-				TotalMemories int `json:"total_memories"`
-			} `json:"integrity"`
-		}
-		if jerr := json.Unmarshal(data, &doc); jerr != nil {
-			return nil, 0, fmt.Errorf("pam issued-count read failed: %w", jerr)
-		}
-		return data, doc.Integrity.TotalMemories, nil
+		return knowledge.FormatPAMWithCount(rows, "flint/"+CurrentVersion())
+	}
+	// v1.6.0 T4 §18: `--format pam --sign` 서명 경로 — 키는
+	// knowledge.LoadOrCreatePAMSigningKey(configDir()/pam-signing-key).
+	// T5 P6: 발행 수 반환은 formatPAMFn과 동일 경유.
+	formatPAMSignedFn = func(rows []knowledge.ExportRow, key ed25519.PrivateKey) ([]byte, int, error) {
+		return knowledge.FormatPAMSignedWithCount(rows, "flint/"+CurrentVersion(), key)
 	}
 )
+
+// exportSignKeyFn — §18 서명 키 로드 seam(테스트 fake 주입).
+var exportSignKeyFn = knowledge.LoadOrCreatePAMSigningKey
 
 // exportStderr — 요약·경고 챈널 seam(stderr 계약 — stdout 본문과 분리).
 var exportStderr io.Writer = os.Stderr
@@ -92,7 +91,8 @@ func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, int, err
 func init() { Register("export", runExport) }
 
 // runExport — `flint export [--format jsonl|md|txt|csv|pam] [--out FILE]
-// [--status active|all] [--tag X] [--since RFC3339]`. 기본 jsonl·stdout.
+// [--status active|all] [--tag X] [--since RFC3339] [--sign (pam 전용 —
+// §18 서명)]`. 기본 jsonl·stdout.
 // 무효 format·status·since·unknown flag는 exit 3, 스토어 nil·서버다운은
 // exit 2(MapExit 재사용). 성공 시 요약 1행 stderr:
 // `exported N rows (format, M bytes)`.
@@ -115,51 +115,68 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if tuiEntry {
 		return runExportTUI(ctx, st, stdin, stdout)
 	}
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 불허 — read 계열 소비 관례 승계: 값 무조건 소비·trailing 값 부재는
+	// 호출부 빈 값 검증이 exit 3). 값 검증은 발생 순(AllOccs) 재현.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--format", Value: true},
+			{Name: "--out", Value: true},
+			{Name: "--status", Value: true},
+			{Name: "--tag", Value: true},
+			{Name: "--since", Value: true},
+			// v1.6.0 T4 §18 — pam 전용 서명 플래그(값 소비 없음).
+			{Name: "--sign"},
+		},
+		Usage: "usage: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339] [--sign (pam only)]",
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
 	format, outPath, status, tag := "jsonl", "", "active", ""
+	sign := res.Given("--sign")
 	var since time.Time
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		var v string
-		if i+1 < len(args) {
-			v = args[i+1]
-		}
-		switch a {
+	for _, o := range res.AllOccs() {
+		switch o.Name {
 		case "--format":
-			if v == "" || !validExportFormat(v) {
+			if o.Value == "" || !validExportFormat(o.Value) {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "format", Expect: "jsonl|md|txt|csv|pam"}))
 				return 3
 			}
-			format, i = v, i+1
+			format = o.Value
 		case "--out":
-			if v == "" {
+			if o.Value == "" {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "out", Expect: "non-empty"}))
 				return 3
 			}
-			outPath, i = v, i+1
+			outPath = o.Value
 		case "--status":
-			if v != "active" && v != "all" {
+			if o.Value != "active" && o.Value != "all" {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "status", Expect: "active|all"}))
 				return 3
 			}
-			status, i = v, i+1
+			status = o.Value
 		case "--tag":
 			// read 관례 승계: 반복 지정 시 마지막 값 우선.
-			if v == "" {
+			if o.Value == "" {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "tag", Expect: "non-empty"}))
 				return 3
 			}
-			tag, i = v, i+1
+			tag = o.Value
 		case "--since":
-			t, err := time.Parse(time.RFC3339, v)
+			t, err := time.Parse(time.RFC3339, o.Value)
 			if err != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "since", Expect: "RFC3339"}))
 				return 3
 			}
-			since, i = t, i+1
-		default:
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339]", a)))
-			return 3
+			since = t
 		}
+	}
+	// --sign는 PAM §18 서명 경로 전용 — 다른 포맷 조합은 사용법 오류.
+	if sign && format != "pam" {
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "sign", Expect: "requires --format pam"}))
+		return 3
 	}
 	// 계약: 스토어 nil·서버다운 exit 2. export는 store-free가 아니므로
 	// nil은 서버다운과 동일 취급(ErrLine 한 줄 + MapExit).
@@ -191,6 +208,16 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if fn == nil {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("export: formatter %s not linked", format)))
 		return 1
+	}
+	if sign {
+		// §18: 서명 키 로드(없으면 생성 — 0600) 후 서명 포맷터로 교체.
+		key, kerr := exportSignKeyFn()
+		if kerr != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("export: pam signing key unavailable: %v", kerr)))
+			return 1
+		}
+		sfn := formatPAMSignedFn
+		fn = func(rows []knowledge.ExportRow) ([]byte, int, error) { return sfn(rows, key) }
 	}
 	data, summaryRows, err := fn(rows)
 	if err != nil {

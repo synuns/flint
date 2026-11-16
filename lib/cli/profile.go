@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 
 	"github.com/synuns/flint/lib/store"
@@ -34,22 +35,52 @@ func init() { Register("profile", runProfile) }
 // v1.0.1(F3): 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
 // --exposure 무효 값 exit 3과 정합).
 func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관. 위치 값
+	// normal|minimal 허용은 그대로(그 외 위치 토큰은 기존대로 unknown
+	// flag). --apply·위치 값 병렬 지정 시 args 순서가 우선(기존 인카운터
+	// 덮어쓰기 승계 — 병합 워크로 재현).
+	pres, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--apply", Value: true},
+		},
+		Usage:           "usage: flint profile [--apply normal|minimal]",
+		AllowPositional: true,
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
 	apply := ""
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--apply":
-			i++
-			if i >= len(args) || (args[i] != "normal" && args[i] != "minimal") {
+	// 위치 토큰·플래그 발생을 args 인덱스로 병합(오류·덮어쓰기 순서 보존).
+	type step struct {
+		idx      int
+		flag     string // "" = 위치 토큰
+		val      string
+		hasValue bool
+	}
+	steps := make([]step, 0, len(pres.AllOccs())+len(pres.PosToks()))
+	for _, o := range pres.AllOccs() {
+		steps = append(steps, step{idx: o.Index, flag: o.Name, val: o.Value, hasValue: o.HasValue})
+	}
+	for _, p := range pres.PosToks() {
+		steps = append(steps, step{idx: p.Index, val: p.Value, hasValue: true})
+	}
+	sort.Slice(steps, func(a, b int) bool { return steps[a].idx < steps[b].idx })
+	for _, s := range steps {
+		if s.flag == "--apply" {
+			if !s.hasValue || (s.val != "normal" && s.val != "minimal") {
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("profile: --apply requires normal|minimal")))
 				return 3
 			}
-			apply = args[i]
-		case "normal", "minimal":
-			apply = args[i] // 위치 허용(--apply 없이 값만)
-		default:
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint profile [--apply normal|minimal]", args[i])))
+			apply = s.val
+			continue
+		}
+		// 위치 허용(--apply 없이 값만) — 그 외 위치 토큰은 unknown flag.
+		if s.val != "normal" && s.val != "minimal" {
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint profile [--apply normal|minimal]", s.val)))
 			return 3
 		}
+		apply = s.val
 	}
 	if err := st.Ping(ctx); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))

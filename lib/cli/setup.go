@@ -227,40 +227,51 @@ var setupWizardFn = func() (string, bool) {
 // (첫 실행) — ping/migrate는 degraded 경고로 연기하고 1단계 compose는
 // 수행한다.
 func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	updateRules := false
-	srcOverride := ""
-	exposure := ""
-	jsonMode := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 불허). --dry·--mcp 조기 반환은 병렬 지정 시 args 순서가 우선(기존
+	// 인카운터 순서 승계 — 인덱스 비교로 재현).
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--dry"},
+			{Name: "--json"},
+			{Name: "--update-rules"},
+			{Name: "--mcp"},
+			{Name: "--src", Value: true},
+			{Name: "--exposure", Value: true},
+		},
+		Usage: "usage: flint setup [--dry] [--json] [--update-rules] [--src PATH] [--exposure normal|minimal] [--mcp]",
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, errLine(perr))
+		return 3
+	}
+	updateRules := res.Given("--update-rules")
+	jsonMode := res.Given("--json")
+	srcOverride, exposure := res.Value("--src"), res.Value("--exposure")
+	if res.Given("--src") && !res.HasValue("--src") {
+		fmt.Fprintln(stdout, errLine(errors.New("setup: --src requires a path")))
+		return 3
+	}
+	if res.Given("--exposure") && !res.HasValue("--exposure") {
+		fmt.Fprintln(stdout, errLine(errors.New("setup: --exposure requires normal|minimal")))
+		return 3
+	}
+	dryIdx, mcpIdx := -1, -1
+	for _, o := range res.AllOccs() {
+		switch o.Name {
 		case "--dry":
-			b, _ := json.Marshal(map[string]any{"status": "dry", "steps": SetupSteps()})
-			fmt.Fprintln(stdout, string(b))
-			return 0
-		case "--json":
-			jsonMode = true
-		case "--update-rules":
-			updateRules = true
+			dryIdx = o.Index
 		case "--mcp":
-			return runSetupMCP(stdout)
-		case "--src":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, errLine(errors.New("setup: --src requires a path")))
-				return 3
-			}
-			srcOverride = args[i]
-		case "--exposure":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, errLine(errors.New("setup: --exposure requires normal|minimal")))
-				return 3
-			}
-			exposure = args[i]
-		default:
-			fmt.Fprintln(stdout, errLine(wire.UsageErrorf("unknown flag: %s — usage: flint setup [--dry] [--json] [--update-rules] [--src PATH] [--exposure normal|minimal] [--mcp]", args[i])))
-			return 3
+			mcpIdx = o.Index
 		}
+	}
+	if dryIdx >= 0 && (mcpIdx < 0 || dryIdx < mcpIdx) {
+		b, _ := json.Marshal(map[string]any{"status": "dry", "steps": SetupSteps()})
+		fmt.Fprintln(stdout, string(b))
+		return 0
+	}
+	if mcpIdx >= 0 {
+		return runSetupMCP(stdout)
 	}
 	if exposure != "" {
 		return runSetupExposure(ctx, st, exposure, stdout)

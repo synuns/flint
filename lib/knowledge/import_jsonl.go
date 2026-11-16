@@ -207,7 +207,76 @@ func isHex64(s string) bool {
 	return true
 }
 
-// importRowsBatch — dedup 통과 행 일괄 적립(InsertBatch 1회) + id 매핑.
+// importDedupChunk·importInsertChunk — v1.6.0 T2 청크 크기(R30-A P1·P2).
+// dedup은 content_hash = ANY($1) 사전 조회 해시 수(1k), 적립은 청크
+// 커밋 행 수(5k — 단일 대형 트랜잭션의 EOF 위험 분산). 테스트가 경계를
+// 축소해 청크 동작을 검증한다(import_jsonl_test.go overrideImportChunks).
+var (
+	importDedupChunk  = 1000
+	importInsertChunk = 5000
+)
+
+// lookupHashBatch — dedup 사전 조회(R30-A P1): 해시 배열을 content_hash =
+// ANY($1) 청크로 1왕복씩 조회해 해시→기존 행 메타 맵을 돌려준다(행별
+// SELECT N회 폐지). 맵 부재 해시 = 신규. 오류는 전파(조용한 신규 판정
+// 금지 — 체인 보존으로 서버다운 exit 2 유지).
+func lookupHashBatch(ctx context.Context, st wire.Store, hashes []string) (map[string]DupMeta, error) {
+	existing := make(map[string]DupMeta, len(hashes))
+	for start := 0; start < len(hashes); start += importDedupChunk {
+		end := min(start+importDedupChunk, len(hashes))
+		rows, err := wire.QueryOnce(ctx, st,
+			`SELECT content_hash, id, topic, status FROM knowledge WHERE content_hash = ANY($1)`,
+			[]any{hashes[start:end]})
+		if err != nil {
+			return nil, fmt.Errorf("import: dedup lookup failed: %w", err)
+		}
+		for _, row := range rows {
+			if len(row) < 4 {
+				continue
+			}
+			h, _ := row[0].(string)
+			id, ok := render.CellToInt(row[1])
+			if h == "" || !ok {
+				continue
+			}
+			topic, _ := row[2].(string)
+			state, _ := row[3].(string)
+			existing[h] = DupMeta{ID: id, Topic: topic, State: state}
+		}
+	}
+	return existing, nil
+}
+
+// countJSONLRows — 비어 있지 않은 줄 수(R30-A P5): ParseJSONLRows의 행 수
+// 기준(공백 줄 제외)과 동일하게 바이트 라인 스캔 1회로 센다 — 전량
+// 파싱 전 상한 조기 판정용(대량 문서의 파싱 메모리 방어). 유니코드
+// 공백만으로 이루어진 줄은 JSON 줄이 아니므로 고려하지 않는다.
+func countJSONLRows(data []byte) int {
+	n := 0
+	blank := true
+	for _, c := range data {
+		switch {
+		case c == '\n':
+			if !blank {
+				n++
+			}
+			blank = true
+		case c == ' ' || c == '\t' || c == '\r':
+			// 공백류 — 줄 공백 판정 유지
+		default:
+			blank = false
+		}
+	}
+	if !blank {
+		n++
+	}
+	return n
+}
+
+// importRowsBatch — dedup 통과 행 청크 적립 + id 매핑. v1.6.0 T2: ①행별
+// lookupHash 대신 해시 배열 ANY($1) 청크 사전 조회 ②InsertBatch 1회 대신
+// importInsertChunk행 청크 커밋(부분 성공 보존 — 실패 청크 이전 커밋은
+// 유지되고 재실행은 dedup가 회복해 멱등 재개).
 func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*importMigrateOutcome, error) {
 	oc := &importMigrateOutcome{
 		idmap:   map[int]int{},
@@ -215,12 +284,15 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		validAt: map[int]time.Time{},
 	}
 	type pending struct {
-		idx int
-		row ExportRow
-		rec map[string]any
+		idx  int
+		row  ExportRow
+		rec  map[string]any // rowHashRec 산출(검증·살균 완료 — 미정규화)
+		hash string
 	}
-	var batch []pending
+	// 1단계 — 검증·살균·해시 산출 + 파일 내 중복 스킵(행 순서 우선).
+	var fresh []pending
 	seen := map[string]bool{}
+	hashes := make([]string, 0, len(rows))
 	for i, r := range rows {
 		if r.Kind != "" && r.Kind != "knowledge" {
 			return nil, &store.SchemaError{Field: "kind", Expect: "only knowledge rows can be re-imported"}
@@ -242,33 +314,46 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 			continue
 		}
 		seen[h] = true
-		existsMeta, exists, err := lookupHash(ctx, st, h)
-		if err != nil {
-			return nil, err
-		}
-		if exists {
+		hashes = append(hashes, h)
+		fresh = append(fresh, pending{idx: i, row: r, rec: rec, hash: h})
+	}
+	// 2단계 — dedup 사전 조회(ANY($1) 청크 — 행별 조회 폐지).
+	existing, err := lookupHashBatch(ctx, st, hashes)
+	if err != nil {
+		return nil, err
+	}
+	// 3단계 — 기존 행은 duplicate 스킵(계보 참조 해석용 id 승계), 신규만
+	// 적립 rec 완성(정규화·content_hash·valid_at).
+	var batch []pending
+	for _, p := range fresh {
+		if meta, ok := existing[p.hash]; ok {
 			oc.duplicated++
-			if existsMeta.ID > 0 {
-				oc.idmap[r.ID] = existsMeta.ID // 계보 참조 해석용
-				oc.byIndex[i] = existsMeta.ID
+			if meta.ID > 0 {
+				oc.idmap[p.row.ID] = meta.ID // 계보 참조 해석용
+				oc.byIndex[p.idx] = meta.ID
 			}
 			continue
 		}
-		rec = store.Normalize("knowledge", rec)
-		rec["content_hash"] = h // NOT NULL UNIQUE — write 경로와 동일 적립
+		rec := store.Normalize("knowledge", p.rec)
+		rec["content_hash"] = p.hash // NOT NULL UNIQUE — write 경로와 동일 적립
 		switch v := rec["valid_at"].(type) {
 		case string:
 			if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
-				oc.validAt[r.ID] = t
+				oc.validAt[p.row.ID] = t
 			}
 		case time.Time:
-			oc.validAt[r.ID] = v
+			oc.validAt[p.row.ID] = v
 		}
-		batch = append(batch, pending{idx: i, row: r, rec: rec})
+		batch = append(batch, pending{idx: p.idx, row: p.row, rec: rec, hash: p.hash})
 	}
-	if len(batch) > 0 {
-		recs := make([]map[string]any, 0, len(batch))
-		for _, p := range batch {
+	// 4단계 — 청크 적립+커밋: 청크 단위 부분 성공(실패 청크 이전 커밋
+	// 유지), id 매핑·집계는 행 순서 불변.
+	explicit := false
+	for start := 0; start < len(batch); start += importInsertChunk {
+		end := min(start+importInsertChunk, len(batch))
+		chunk := batch[start:end]
+		recs := make([]map[string]any, 0, len(chunk))
+		for _, p := range chunk {
 			recs = append(recs, p.rec)
 		}
 		ids, err := st.InsertBatch(ctx, recs)
@@ -285,8 +370,7 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 			}
 			return nil, fmt.Errorf("import: batch apply failed: %v", err)
 		}
-		explicit := false
-		for i, p := range batch {
+		for i, p := range chunk {
 			id := ids[i]
 			oc.imported++
 			if p.row.ID > 0 {
@@ -301,10 +385,10 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 				oc.validAt[id] = t // 재할당 id로도 참조 가능하게
 			}
 		}
-		if explicit {
-			// R19 A2: 명시 id INSERT는 id serial의 nextval을 소비하지 않는다.
-			syncKnowledgeIDSequence(ctx, st)
-		}
+	}
+	if explicit {
+		// R19 A2: 명시 id INSERT는 id serial의 nextval을 소비하지 않는다.
+		syncKnowledgeIDSequence(ctx, st)
 	}
 	return oc, nil
 }
@@ -595,13 +679,16 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 	var oc *importMigrateOutcome
 	switch format {
 	case "jsonl":
+		// v1.6.0 T2(P5): 상한 판정을 전량 파싱 앞당긴다 — 라인 스캔 1회
+		// 카운트로 조기 exit 3(대량 문서의 파싱 메모리 방어가 파손 행
+		// 오류보다 우선).
+		if code := enforceImportMaxRows(ctx, st, stdout, countJSONLRows(data)); code != 0 {
+			return code
+		}
 		rows, perr := ParseJSONLRows(data)
 		if perr != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(perr))
 			return 3
-		}
-		if code := enforceImportMaxRows(ctx, st, stdout, len(rows)); code != 0 {
-			return code
 		}
 		oc, err = importJSONL(ctx, st, rows)
 	case "pam":

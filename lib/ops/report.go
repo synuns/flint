@@ -266,46 +266,55 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 불허). 값 검증은 발생 순(AllOccs)으로 재현 — 기존 인카운터 순서
+	// 오류 우선 그대로.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--html"}, // v0.36.0(E): 정적 단일 파일 대시보드
+			{Name: "--text"}, // v1.2.3 R17 C3: 사람 읽기 text 뷰(기본 한 줄 JSON 불변)
+			{Name: "--out", Value: true},
+			{Name: "--days", Value: true},
+		},
+		Usage: "usage: flint report [--days N] [--html] [--out FILE] [--text]",
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
 	days := reportDaysDefault
 	htmlOut := ""
-	textOut := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--html": // v0.36.0(E): 정적 단일 파일 대시보드
+	textOut := res.Given("--text")
+	for _, o := range res.AllOccs() {
+		switch o.Name {
+		case "--html":
 			htmlOut = "report.html"
-		case "--text": // v1.2.3 R17 C3: 사람 읽기 text 뷰(기본 한 줄 JSON 불변)
-			textOut = true
 		case "--out":
-			i++
-			if i >= len(args) {
+			if !o.HasValue {
 				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --out requires a path — usage: flint report [--days N] [--html] [--out FILE] [--text]")))
 				return 3
 			}
 			// v1.0.2(R2): 값이 플래그를 흡수하는 오타 가드(backup --out과
 			// 동일 계약). --days 값은 Atoi 실패가 이미 exit 3을 낸다.
-			if err := knowledge.ValidateFlagValue("out", args[i]); err != nil {
+			if err := knowledge.ValidateFlagValue("out", o.Value); err != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return 3
 			}
-			htmlOut = args[i]
+			htmlOut = o.Value
 			if !strings.HasSuffix(htmlOut, ".html") {
 				htmlOut += ".html"
 			}
 		case "--days":
-			i++
-			if i >= len(args) {
+			if !o.HasValue {
 				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --days requires a number — usage: flint report [--days N] [--html] [--out FILE] [--text]")))
 				return 3
 			}
-			n, err := strconv.Atoi(args[i])
+			n, err := strconv.Atoi(o.Value)
 			if err != nil || n < 1 {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: invalid days %q — usage: flint report [--days N] [--html] [--out FILE] [--text]", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: invalid days %q — usage: flint report [--days N] [--html] [--out FILE] [--text]", o.Value)))
 				return 3
 			}
 			days = n
-		default:
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint report [--days N] [--html] [--out FILE] [--text]", args[i])))
-			return 3
 		}
 	}
 	// F6(성능): thresholds는 커맨드 스코프 1회 로드 — --days 상한·stale

@@ -4,8 +4,11 @@
 package knowledge
 
 import (
+	"bytes"
+	"regexp"
 	"strings"
 	"testing"
+	"time"
 )
 
 // pamSample — 스펙 예시 형식의 최소 문서(합성).
@@ -302,5 +305,154 @@ func TestParsePAMFnSeam(t *testing.T) {
 	}
 	if len(res.Candidates) != 1 {
 		t.Fatalf("seam candidates = %d, want 1", len(res.Candidates))
+	}
+}
+
+// --- v1.6.0 T4: integrity.checksum 수입 검증·§18 서명 검증 ---
+
+// pamSwapImportStderr — pamImportStderr seam 교체(경고 캡처).
+func pamSwapImportStderr(t *testing.T) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	old := pamImportStderr
+	pamImportStderr = &buf
+	t.Cleanup(func() { pamImportStderr = old })
+	return &buf
+}
+
+// pamSignedDoc — 고정 키로 서명한 합성 문서(왕복·변조 검증 공통 원천).
+func pamSignedDoc(t *testing.T) []byte {
+	t.Helper()
+	sup := 12
+	t0 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
+	rows := []ExportRow{
+		{
+			ID: 8, Topic: "demo-old", Content: "대체되는 데모 행", Kind: "note",
+			Status: "invalidated", Confidence: 0.5, Tags: []string{"demo"},
+			CreatedAt: t0, UpdatedAt: t0, SupersededBy: &sup,
+		},
+		{
+			ID: 12, Topic: "demo-new", Content: "대체하는 데모 행", Kind: "note",
+			Status: "active", Confidence: 0.8, Tags: []string{"demo"},
+			CreatedAt: t0.Add(time.Hour), UpdatedAt: t0.Add(time.Hour),
+		},
+	}
+	out, err := FormatPAMSigned(rows, "flint-test", pamTestKey(t))
+	if err != nil {
+		t.Fatalf("FormatPAMSigned: %v", err)
+	}
+	return out
+}
+
+// TestParsePAMVerifiesChecksumOwnExport — flint가 발행한 문서(무서명·
+// 서명 양쪽)의 integrity.checksum은 수입측 재계산과 일치 — 조용 통과가
+// 아니라 검증 후 통과다.
+func TestParsePAMVerifiesChecksumOwnExport(t *testing.T) {
+	stderr := pamSwapImportStderr(t)
+	unsigned, err := FormatPAM(pamFixtureRows(), "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParsePAM(unsigned); err != nil {
+		t.Fatalf("무서명 자체 발행 문서 검증 실패: %v", err)
+	}
+	if _, err := ParsePAM(pamSignedDoc(t)); err != nil {
+		t.Fatalf("서명 문서 검증 실패: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("정상 문서에 경고 발생: %q", stderr.String())
+	}
+}
+
+// TestParsePAMChecksumMismatch — 내용 변조(체크섬 불일치)는 오류 —
+// 조용한 통과 금지.
+func TestParsePAMChecksumMismatch(t *testing.T) {
+	out, err := FormatPAM(pamFixtureRows(), "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := bytes.Replace(out, []byte("첫 번째 데모 지식 행"), []byte("변조된 본문"), 1)
+	if string(tampered) == string(out) {
+		t.Fatal("변조 치환 실패 — 픽스처 확인")
+	}
+	_, err = ParsePAM(tampered)
+	if err == nil {
+		t.Fatal("체크섬 불일치 오류 없음 — 오류 필요(조용 통과 금지)")
+	}
+	if !strings.Contains(err.Error(), "checksum") {
+		t.Errorf("오류 메시지에 checksum 원인 없음: %v", err)
+	}
+}
+
+// TestRunImportMigratePAMChecksumMismatchExit3 — 체크섬 불일치 문서
+// 수입은 exit 3(엔드투엔드).
+func TestRunImportMigratePAMChecksumMismatchExit3(t *testing.T) {
+	out, err := FormatPAM(pamFixtureRows(), "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	tampered := bytes.Replace(out, []byte("두 번째 데모 지식 행"), []byte("tampered body"), 1)
+	m := &migrateFake{fakeStore: &fakeStore{}}
+	got, code := runMigrate(t, m, []string{"--format", "pam"}, string(tampered))
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3(체크섬 불일치); out=%s", code, got)
+	}
+	if !strings.Contains(got, "checksum") {
+		t.Errorf("오류 출력에 checksum 원인 없음: %s", got)
+	}
+}
+
+// TestParsePAMSignatureRoundtripNoWarning — §18 서명 왕복: --sign 발행
+// 문서는 수입 검증에서 오류·경고 없이 통과.
+func TestParsePAMSignatureRoundtripNoWarning(t *testing.T) {
+	stderr := pamSwapImportStderr(t)
+	res, err := ParsePAM(pamSignedDoc(t))
+	if err != nil {
+		t.Fatalf("서명 왕복 검증 실패: %v", err)
+	}
+	if len(res.Candidates) != 1 || len(res.SupersedePairs) != 1 {
+		t.Errorf("왕복 후보/계보 손실: candidates=%d pairs=%d", len(res.Candidates), len(res.SupersedePairs))
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("유효 서명인데 경고 발생: %q", stderr.String())
+	}
+}
+
+// TestParsePAMSignatureTamperWarnsContinues — §21.4 SHOULD: 서명 검증
+// 실패(payload 변조 — 체크섬은 memories만 덮으므로 통과)는 stderr 경고
+// 1행 후 계속한다(거부 아님).
+func TestParsePAMSignatureTamperWarnsContinues(t *testing.T) {
+	stderr := pamSwapImportStderr(t)
+	doc := pamSignedDoc(t)
+	re := regexp.MustCompile(`"export_date":\s*"[^"]*"`)
+	tampered := re.ReplaceAll(doc, []byte(`"export_date":"1999-01-01T00:00:00Z"`))
+	if string(tampered) == string(doc) {
+		t.Fatal("export_date 치환 실패")
+	}
+	res, err := ParsePAM(tampered)
+	if err != nil {
+		t.Fatalf("서명 검증 실패가 오류(거부)로 취급됨 — 경고 후 계속이 계약: %v", err)
+	}
+	if len(res.Candidates) != 1 {
+		t.Errorf("경고 후 계속이지만 후보 손실: %+v", res.Candidates)
+	}
+	warn := strings.TrimRight(stderr.String(), "\n")
+	if !strings.Contains(warn, "signature") {
+		t.Errorf("경고에 signature 원인 없음: %q", warn)
+	}
+	if n := len(strings.Split(warn, "\n")); n != 1 {
+		t.Errorf("경고가 1행 아님(%d행): %q", n, warn)
+	}
+}
+
+// TestParsePAMUnsignedNoWarning — 무서명 문서(§18 미사용)는 서명 검증
+// 경고 없이 통과.
+func TestParsePAMUnsignedNoWarning(t *testing.T) {
+	stderr := pamSwapImportStderr(t)
+	if _, err := ParsePAM([]byte(pamSample)); err != nil {
+		t.Fatalf("무서명 문서 파싱 오류: %v", err)
+	}
+	if stderr.Len() != 0 {
+		t.Errorf("무서명 문서에 경고 발생: %q", stderr.String())
 	}
 }

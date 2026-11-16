@@ -1,8 +1,9 @@
 // pending.go — v1.5.0 T7: pending 검토 TUI. 대기 지식 목록(bubbles list)
 // → 상세(본문·출처) → 키 액션(a approve·s supersede 대상 선택·d skip·
-// q quit). 액션은 기존 경로 재사용 — approve/supersede 모두
+// e expire·q quit). 액션은 기존 경로 재사용 — approve/supersede 모두
 // knowledge.RunApprove(approve --id N [--supersede OLD] — maintain
-// --supersede와 동일 UPDATE)에 위임하고 TUI 자체는 쓰지 않는다.
+// --supersede와 동일 UPDATE)에, expire는 ops.RunMaintain(maintain
+// --expire-pending N --commit)에 위임하고 TUI 자체는 쓰지 않는다.
 // 데이터는 pending 테이블 읽기 조회(판정 Why 등은 CLI 경로 소유).
 package tui
 
@@ -12,14 +13,17 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 
 	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/ops"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -30,6 +34,8 @@ type PendingItem struct {
 	ID                      int
 	Title, Confidence, Date string
 	Body, Origin            string
+	// ValidAt — v1.6.0 T8④: e 액션의 expire 위임 일수 산출 원천(valid_at 원값).
+	ValidAt time.Time
 }
 
 // SupersedeTarget — supersede 대상 후보(active 지식).
@@ -44,19 +50,34 @@ type SupersedeTarget struct {
 type PendingActions struct {
 	Approve   func(ctx context.Context, id int) (int, string)
 	Supersede func(ctx context.Context, id, oldID int) (int, string)
+	// Expire — v1.6.0 T8④: 선택 항목 만료 위임(id·위임 일수). maintain
+	// --expire-pending N --commit 경로(해당 항목이 컷오프에 포함되는 일수).
+	Expire func(ctx context.Context, id, days int) (int, string)
 }
 
 // pendingApproveRunner — RunApprove 주입 seam. 기본 실구현(중복 구현
 // 금지 — 인자 조립만 이 패키지 소유), 테스트는 fake으로 교체.
 var pendingApproveRunner = knowledge.RunApprove
 
-// defaultPendingActions — 실구현 액션. RunApprove의 JSON 출력은 버퍼로
-// 흡수(TUI 화면 오염 방지 — 결과는 status 라인으로 요약). 실패 시 흡수된
-// 출력에서 원인을 파싱해 함께 돌려준다.
+// pendingMaintainRunner — RunMaintain 주입 seam(v1.6.0 T8④ expire 위임 —
+// pendingApproveRunner와 같은 관례). 테스트는 fake으로 교체.
+var pendingMaintainRunner = ops.RunMaintain
+
+// defaultPendingActions — 실구현 액션. RunApprove·RunMaintain의 JSON 출력은
+// 버퍼로 흡수(TUI 화면 오염 방지 — 결과는 status 라인으로 요약). 실패 시
+// 흡수된 출력에서 원인을 파싱해 함께 돌려준다.
 func defaultPendingActions(st wire.Store) PendingActions {
 	run := func(ctx context.Context, args []string) (int, string) {
 		var sink bytes.Buffer
 		code := pendingApproveRunner(ctx, st, args, strings.NewReader(""), &sink)
+		if code != 0 {
+			return code, actionFailureCause(sink.String())
+		}
+		return code, ""
+	}
+	runMaintain := func(ctx context.Context, args []string) (int, string) {
+		var sink bytes.Buffer
+		code := pendingMaintainRunner(ctx, st, args, strings.NewReader(""), &sink)
 		if code != 0 {
 			return code, actionFailureCause(sink.String())
 		}
@@ -68,6 +89,9 @@ func defaultPendingActions(st wire.Store) PendingActions {
 		},
 		Supersede: func(ctx context.Context, id, oldID int) (int, string) {
 			return run(ctx, []string{"--id", strconv.Itoa(id), "--supersede", strconv.Itoa(oldID)})
+		},
+		Expire: func(ctx context.Context, id, days int) (int, string) {
+			return runMaintain(ctx, []string{"--expire-pending", strconv.Itoa(days), "--commit"})
 		},
 	}
 }
@@ -135,6 +159,7 @@ func loadPendingItems(ctx context.Context, st wire.Store) ([]PendingItem, error)
 		fmt.Sscan(fmt.Sprint(r[0]), &it.ID)
 		if ts, ok := wire.CellToTime(r[4]); ok {
 			it.Date = ts.UTC().Format("2006-01-02")
+			it.ValidAt = ts // v1.6.0 T8④: e 액션 expire 일수 산출 원천
 		}
 		it.Confidence = confidenceLabel(r[5])
 		items = append(items, it)
@@ -338,6 +363,8 @@ func (m PendingModel) updateList(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.approveSelected()
 	case "s":
 		return m.enterSupersede()
+	case "e":
+		return m.expireSelected()
 	case "d":
 		m.list.CursorDown()
 		m.status = "skipped"
@@ -364,6 +391,8 @@ func (m PendingModel) updateDetail(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.approveSelected()
 	case "s":
 		return m.enterSupersede()
+	case "e":
+		return m.expireSelected()
 	case "d":
 		m.mode = modeList
 		m.list.CursorDown()
@@ -436,6 +465,45 @@ func (m PendingModel) approveSelected() (tea.Model, tea.Cmd) {
 	}
 	m.status = fmt.Sprintf("approved #%d", it.ID)
 	return m.removeItem(idx)
+}
+
+// expireSelected — v1.6.0 T8④: 선택 항목 만료 위임. 위임 일수는 항목
+// valid_at 경과에서 산출(컷오프가 해당 항목을 포함하는 최대 정수일 —
+// expireDaysFor). 성공(0)만 목록에서 제거. idx는 GlobalIndex(필터 회귀
+// 승계 — approveSelected와 동일 계약). days < 1(1일 미만 항목)은 위임
+// 경로의 무효 인자 오류로 실패 표시된다(원인 파싱 계약 5 승계).
+func (m PendingModel) expireSelected() (tea.Model, tea.Cmd) {
+	idx := m.list.GlobalIndex()
+	if idx >= len(m.items) {
+		return m, nil
+	}
+	if m.acts.Expire == nil {
+		return m, nil
+	}
+	it := m.items[idx]
+	days := expireDaysFor(it.ValidAt, time.Now())
+	code, cause := m.acts.Expire(m.ctx, it.ID, days)
+	if code != 0 {
+		m.status = actionFailedStatus("expire", fmt.Sprintf("#%d", it.ID), code, cause)
+		return m, nil
+	}
+	m.status = fmt.Sprintf("expired #%d (maintain --expire-pending %d --commit — cutoff expires all pending items ≤ %d days old)", it.ID, days, days)
+	return m.removeItem(idx)
+}
+
+// expireDaysFor — maintain --expire-pending 위임 일수: 컷오프(now - days
+// ·24h)가 해당 항목 valid_at보다 미래여야 조회(valid_at < 컷오프)가 항목을
+// 포함하므로, days*24h < 경과를 만족하는 최대 정수일(경계: 경과 10일 정확히
+// → 9). 1일 미만은 0(위임 경로가 무효 인자로 거부 — 오삭제 방지).
+func expireDaysFor(validAt, now time.Time) int {
+	if validAt.IsZero() || !now.After(validAt) {
+		return 0
+	}
+	d := int(math.Ceil(now.Sub(validAt).Hours()/24) - 1)
+	if d < 0 {
+		return 0
+	}
+	return d
 }
 
 // enterSupersede — 대상 선택 진입(계약 3: s 시점 지연 로드). 이미 로드된
@@ -540,8 +608,8 @@ func (m PendingModel) View() string {
 		fmt.Fprintf(&b, "%s\n", Theme.Neutral.Render(wrapDetailBody(m.width,
 			fmt.Sprintf("origin: %s · confidence %s · date %s", it.Origin, it.Confidence, it.Date))))
 		fmt.Fprintf(&b, "%s\n", Theme.Secondary.Render(keyHint(m.width,
-			"a approve · s supersede · d skip · esc back · q quit",
-			"a/s/d/esc · q quit")))
+			"a approve · s supersede · d skip · e expire · esc back · q quit",
+			"a/s/d/e/esc · q quit")))
 	case modeSupersede:
 		b.WriteString(m.targetList.View())
 		fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(keyHint(m.width,
@@ -550,8 +618,8 @@ func (m PendingModel) View() string {
 	default:
 		b.WriteString(m.list.View())
 		fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(keyHint(m.width,
-			"enter detail · a approve · s supersede · d skip · q quit",
-			"a/s/d/enter · q quit")))
+			"enter detail · a approve · s supersede · d skip · e expire · q quit",
+			"a/s/d/e/enter · q quit")))
 	}
 	if m.status != "" {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))

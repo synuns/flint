@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -337,5 +338,75 @@ func TestCommitReturnsHash(t *testing.T) {
 	}
 	if !regexp.MustCompile(`^[0-9a-v]{20,}$`).MatchString(hash) {
 		t.Fatalf("commit hash not hex-ish: %q", hash)
+	}
+}
+
+// ── v1.6.0 T2(P2): InsertBatch insertOne 루프 → pgx Batch 청크 전환 회귀. ──
+
+// overrideBatchStmtChunk — 청크 문 수 축소(테스트 종료 시 원복).
+func overrideBatchStmtChunk(t *testing.T, n int) {
+	t.Helper()
+	saved := batchStmtChunk
+	batchStmtChunk = n
+	t.Cleanup(func() { batchStmtChunk = saved })
+}
+
+// TestInsertBatchBatchedChunkedReturnsIDs — 청크를 넘는 배치도 RETURNING id
+// 순서·행 수가 불변이다(청크 경계 2로 축소 — 5문 배치는 3왕복).
+func TestInsertBatchBatchedChunkedReturnsIDs(t *testing.T) {
+	r := newTestRepo(t)
+	overrideBatchStmtChunk(t, 2)
+	ctx := context.Background()
+	recs := make([]map[string]any, 0, 5)
+	for i := 0; i < 5; i++ {
+		recs = append(recs, knowledgeRec(fmt.Sprintf("batched-%d", i)))
+	}
+	ids, err := r.InsertBatch(ctx, recs)
+	if err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	if len(ids) != 5 {
+		t.Fatalf("want 5 ids, got %d (%v)", len(ids), ids)
+	}
+	seen := map[int]bool{}
+	for i, id := range ids {
+		if id <= 0 {
+			t.Fatalf("ids[%d] not positive: %v", i, ids)
+		}
+		if seen[id] {
+			t.Fatalf("중복 id: %v", ids)
+		}
+		seen[id] = true
+	}
+	var n int
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 5 {
+		t.Fatalf("want 5 rows, got %d", n)
+	}
+}
+
+// TestInsertBatchBatchedAtomicAcrossChunks — 청크 경계를 넘어 오류(23505)
+// 가 나도 배치 전체는 롤백된다(ErrDuplicate 랩·0행 — 기존 원자성 계약 승계).
+func TestInsertBatchBatchedAtomicAcrossChunks(t *testing.T) {
+	r := newTestRepo(t)
+	overrideBatchStmtChunk(t, 2)
+	ctx := context.Background()
+	recs := []map[string]any{
+		knowledgeRec("across-1"),
+		knowledgeRec("across-2"),
+		knowledgeRec("across-1"), // 3문째(청크 2 시작) — 첫 청크 커밋 없이 전체 폐기
+	}
+	_, err := r.InsertBatch(ctx, recs)
+	if !errors.Is(err, store.ErrDuplicate) {
+		t.Fatalf("want ErrDuplicate, got %v", err)
+	}
+	var n int
+	if err := r.pool.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&n); err != nil {
+		t.Fatalf("count: %v", err)
+	}
+	if n != 0 {
+		t.Fatalf("want 0 rows after rollback across chunks, got %d", n)
 	}
 }
