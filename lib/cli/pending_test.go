@@ -230,3 +230,20 @@ func TestPendingEntryNoTUIEnvForcesFlagPath(t *testing.T) {
 		t.Fatalf("FLINT_NO_TUI must block TUI entry, calls = %d", len(*calls))
 	}
 }
+
+// RF-noenv-explicit — FLINT_NO_TUI는 적응형 진입만 차단한다: 명시적
+// --tui는 환경변수보다 우선한다(cli.md 계약 — 사용자 명시 의사 승계).
+func TestPendingEntryExplicitTUIOverridesNoTUIEnv(t *testing.T) {
+	t.Setenv("FLINT_NO_TUI", "1")
+	calls := installPendingTuiFake(t)
+	installPendingTTY(t, true)
+	var out bytes.Buffer
+	code := runPendingEntry(context.Background(), pendingDemoStore(), []string{"--tui"},
+		strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (out: %s)", code, out.String())
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("explicit --tui must reach TUI seam under FLINT_NO_TUI, calls = %d", len(*calls))
+	}
+}

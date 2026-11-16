@@ -52,7 +52,10 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   and `report --tui` cannot combine with the view flags (`--html` ·
   `--text` · `--out`) — exit 3. `setup` behaves the same (unchanged):
   no args in a terminal starts the wizard, non-terminal runs the
-  existing no-arg path.
+  existing no-arg path. Escape hatch: setting `FLINT_NO_TUI` to a
+  non-empty value blocks the adaptive TUI entry even in a terminal
+  (agents · CI force the non-interactive path; an explicit `--tui`
+  still wins).
 
 ## Boundaries
 
