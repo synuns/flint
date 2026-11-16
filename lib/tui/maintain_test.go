@@ -261,7 +261,8 @@ func TestMaintainMergePickSecondSurvivor(t *testing.T) {
 	m, cmd := mDrive(m, keyMsg("m"))
 	m, _ = mDrive(m, cmd())
 	m = mUpdate(m, keyMsg("down"))
-	m = mUpdate(m, enterMsg())
+	// enter 확정은 부수효과(위임 기록)만 검사 대상 — 반환 모델 미사용(SA4006).
+	mUpdate(m, enterMsg())
 	if len(rec.merges) != 1 || rec.merges[0] != [2]int{3, 5} {
 		t.Fatalf("merges = %v, want [{3 5}] (survivor=5)", rec.merges)
 	}
