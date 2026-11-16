@@ -270,9 +270,11 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			// 인자 exit 3 — '--jsonn' 같은 오타가 조용히 제로히트로 흘러
 			// 의도와 다른 '검색 결과 없음'으로 보이던 사각 폐지. positional
 			// 쿼리('-' 비접두)와 "--" 이후 흡수(N9)는 불변. v1.5.3(P2):
-			// 오류 타입은 usage(unknown flag류 — approve 관례와 동일).
+			// 오류 타입은 usage(unknown flag류 — approve 관례와 동일) +
+			// message에 허용 플래그 예시(cli.md 기재 — 오타 자가수정).
 			if strings.HasPrefix(a, "-") {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s", a)))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
+					"unknown flag: %s — usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D]", a)))
 				return 3
 			}
 			pos = append(pos, a)

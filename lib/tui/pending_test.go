@@ -15,6 +15,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/synuns/flint/lib/knowledge"
@@ -631,5 +632,91 @@ func TestRunPendingTUINonTerminalFallback(t *testing.T) {
 	}
 	if !strings.Contains(stdout.String(), "TUI requires a terminal") {
 		t.Errorf("stdout = %q, want terminal fallback notice", stdout.String())
+	}
+}
+
+// pump — list가 반환한 cmd(필터 적용 등)를 모델로 재주입(bubbles는 필터
+// 결과를 cmd→msg로 비동기 반영한다 — 테스트는 직접 펌프).
+func pump(m PendingModel, cmd tea.Cmd) PendingModel {
+	for cmd != nil {
+		msg := cmd()
+		if msg == nil {
+			return m
+		}
+		if b, ok := msg.(tea.BatchMsg); ok {
+			for _, c := range b {
+				m = pump(m, c)
+			}
+			return m
+		}
+		var next tea.Cmd
+		m2, next := m.Update(msg)
+		m = m2.(PendingModel)
+		cmd = next
+	}
+	return m
+}
+
+// applyFilter — '/' 진입 → 텍스트 타이핑 → enter 확정까지 구동.
+func applyFilter(m PendingModel, text string) PendingModel {
+	m, c := drive(m, keyMsg("/"))
+	m = pump(m, c)
+	for _, r := range text {
+		var c tea.Cmd
+		m, c = drive(m, keyMsg(string(r)))
+		m = pump(m, c)
+	}
+	m, c = drive(m, enterMsg())
+	return pump(m, c)
+}
+
+// RF-filter-state — Review Focus(state·v1.5.3 리뷰): 필터 입력 중('/' 후)
+// 키는 전부 list에 위임 — 'a'를 타이핑해도 approve가 실행되지 않는다
+// (필터 텍스트로 소비). 필터 적용 후 'a'는 visible 항목을 정확히 승인.
+func TestPendingFilterTypingDoesNotApprove(t *testing.T) {
+	rec := &recorderActions{}
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
+	m = update(m, sizeMsg(80, 24))
+	// ① 필터 입력 중 'a' 타이핑 — approve 미실행(필터 텍스트로 소비).
+	m, c := drive(m, keyMsg("/")) // 필터 입력 진입
+	m = pump(m, c)
+	m, c = drive(m, keyMsg("a"))
+	m = pump(m, c)
+	if len(rec.approves) != 0 {
+		t.Fatalf("필터 타이핑 중 approve 실행: %v", rec.approves)
+	}
+	m, c = drive(m, escMsg()) // 필터 취소(입력 비움)
+	m = pump(m, c)
+	// ② "#9" 필터 적용 — visible 1건(demo topic beta).
+	m = applyFilter(m, "#9")
+	if m.list.FilterState() != list.FilterApplied {
+		t.Fatalf("필터 미적용: state=%v", m.list.FilterState())
+	}
+	// 필터 "#9"(=demo topic beta) 적용 상태에서 a — visible 항목 id 9 승인.
+	m = update(m, keyMsg("a"))
+	if len(rec.approves) != 1 || rec.approves[0] != 9 {
+		t.Fatalf("필터 후 approve = %v, want [9]", rec.approves)
+	}
+	if len(m.items) != 2 {
+		t.Fatalf("items after filtered approve = %d, want 2", len(m.items))
+	}
+}
+
+// RF-filter-state — Review Focus(state): 필터 적용 상태의 supersede 확정은
+// targetList visible 인덱스를 전체 인덱스로 환산(GlobalIndex) — 필터로
+// 가려진 앞 후보(#3)가 아닌 선택한 후보(#5)가 old로 위임된다.
+func TestPendingSupersedeFilteredTargetUsesGlobalIndex(t *testing.T) {
+	rec := &recorderActions{}
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
+	m = update(m, sizeMsg(80, 24))
+	m, cmd := drive(m, keyMsg("s"))
+	m, _ = drive(m, cmd()) // 후보 로드 → modeSupersede
+	m = applyFilter(m, "two")
+	m = update(m, enterMsg()) // supersede 확정
+	if len(rec.supersedes) != 1 || rec.supersedes[0] != [2]int{7, 5} {
+		t.Fatalf("supersedes = %v, want [7 5](new=7·old=선택한 5)", rec.supersedes)
+	}
+	if len(m.candidates) != 1 || m.candidates[0].ID != 3 {
+		t.Fatalf("candidates after supersede = %+v, want [3](stale 5 제거)", m.candidates)
 	}
 }

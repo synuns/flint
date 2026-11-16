@@ -33,11 +33,12 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	run, ok := Lookup(cmd)
 	if !ok {
 		// v0.28.0(H③): 이름 이스케이프 — 원시 결합은 호출자 제어 문자열로
-		// JSON 구조 자체를 파손할 수 있다.
+		// JSON 구조 자체를 파손할 수 있다(ErrLine도 마샬링 경유).
 		// v1.5.3 T1: unknown command도 무효 인자 계약 exit 3 통일(기존 1) —
-		// 커맨드 오타를 에이전트가 자가수신하게 한다.
-		b, _ := json.Marshal(map[string]string{"error": "unknown command: " + cmd})
-		fmt.Fprintln(stdout, string(b))
+		// 커맨드 오타를 에이전트가 자가수신하게 한다. v1.5.3 P2 오류 타입도
+		// usage 계열로 분류({"error":"usage","message":...} — cli.md 기재와
+		// 동일 모양).
+		fmt.Fprintln(stdout, ErrLine(UsageErrorf("unknown command: %s", cmd)))
 		return 3
 	}
 	ctx := context.Background()

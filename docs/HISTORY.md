@@ -16,7 +16,7 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
   command · `done` usage error · bare `maintain` usage now exit 3
   (were 1 · 0 · 1).
 - [x] Agent CLI trust (P2): `read` eligible zero-hits exit 0 — `--json`
-  emits `{"hits":0,...}`, text mode stays silent (the exit 1 silence
+  emits `{"hits":0}`, text mode stays silent (the exit 1 silence
   exception is gone) · usage/flag errors now report `"error":"usage"`
   (with an allowed-flags hint in the message; ErrLine shape unchanged) ·
   `approve` failure messages embed the usage (`--id N

@@ -17,7 +17,7 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
 
 | code | meaning |
 |---|---|
-| 0 | success (including duplicate) — and `read` eligible zero-hits since v1.5.3 (`--json` emits `{"hits":0,...}`; text mode prints nothing — zero-hit silence, a normal result of read) |
+| 0 | success (including duplicate) — and `read` eligible zero-hits since v1.5.3 (`--json` emits `{"hits":0}`; text mode prints nothing — zero-hit silence, a normal result of read) |
 | 1 | general error — retries_exhausted · `doctor` fail (one or more checks fail) |
 | 2 | server_down |
 | 3 | invalid arguments and validation failures (`SchemaError` — field-level validation: invalid `--status` · `--limit`, valueless value-bearing flags, etc.) — and, since v1.5.3, unrecognized `-`-prefixed `read` args · unknown command · usage errors (`done` usage error · bare `maintain`) |
@@ -27,7 +27,7 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   errors report `"error":"usage"` (ErrLine shape unchanged — value
   extension only; the message embeds an allowed-flags hint).
 - `read` zero-hit silence no longer exits 1: eligible zero-hits are
-  exit 0 — `--json` emits `{"hits":0,...}`, text mode stays silent.
+  exit 0 — `--json` emits `{"hits":0}`, text mode stays silent.
   Exit 1 always carries one errLine (JSON) — the MCP tool path
   (`flint mcp`) decides `isError` by exit code (0 = normal, including
   zero-hit).

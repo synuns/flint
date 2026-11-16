@@ -302,13 +302,35 @@ func (m PendingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	case targetsLoadedMsg:
 		return m.applyTargets(msg)
+	case list.FilterMatchesMsg:
+		// bubbles 필터 결과 회신 — 모델이 list에 재주입해야
+		// filteredItems가 갱신된다(전달하지 않으면 필터가 화면에만
+		// 걸리고 목록은 좁혀지지 않는다). 라우팅: supersede 화면은
+		// targetList, 그 외에는 m.list(필터 입력은 표시 중 list에서만
+		// 발생한다).
+		var cmd tea.Cmd
+		if m.mode == modeSupersede {
+			m.targetList, cmd = m.targetList.Update(msg)
+		} else {
+			m.list, cmd = m.list.Update(msg)
+		}
+		return m, cmd
 	default:
 		return m, nil
 	}
 }
 
 // updateList — 목록 화면: enter 상세·a 승격·s 대체·d 건너뛰기.
+// 필터 입력 중(list.Filtering — '/'로 진입)에는 모든 키를 list에 위임
+// 한다: a/s/d/enter/q도 필터 텍스트·필터 확정으로 소비돼야 하며, 액션
+// 키가 새어 들어가 필터와 다른 항목에 approve/supersede하는 사고를
+// 막는다(v1.5.3 #id 필터 회귀 — Review Focus state).
 func (m PendingModel) updateList(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.list.FilterState() == list.Filtering {
+		var cmd tea.Cmd
+		m.list, cmd = m.list.Update(key)
+		return m, cmd
+	}
 	switch key.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -356,8 +378,17 @@ func (m PendingModel) updateDetail(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // updateSupersede — 대상 선택 화면: enter 확정·esc 취소. 성공 시 대체된
-// old도 후보에서 제거한다(계약 4 — stale 후보 잔류 폐지).
+// old도 후보에서 제거한다(계약 4 — stale 후보 잔류 폐지). 선택 인덱스는
+// GlobalIndex(필터 적용 시 visible 인덱스 → 전체 인덱스 변환 —
+// list.Index는 필터 기준이라 candidates와 어긋난다)로 잡는다. 필터 입력
+// 중(targetList.Filtering) 키는 list에 위임(enter 필터 확정·esc 취소는
+// bubbles 소관).
 func (m PendingModel) updateSupersede(key tea.KeyMsg) (tea.Model, tea.Cmd) {
+	if m.targetList.FilterState() == list.Filtering {
+		var cmd tea.Cmd
+		m.targetList, cmd = m.targetList.Update(key)
+		return m, cmd
+	}
 	switch key.String() {
 	case "q", "ctrl+c":
 		return m, tea.Quit
@@ -366,8 +397,8 @@ func (m PendingModel) updateSupersede(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 		m.status = ""
 		return m, nil
 	case "enter":
-		idx := m.list.Index()
-		tidx := m.targetList.Index()
+		idx := m.list.GlobalIndex()
+		tidx := m.targetList.GlobalIndex()
 		if idx >= len(m.items) || tidx >= len(m.candidates) {
 			return m, nil
 		}
@@ -390,8 +421,10 @@ func (m PendingModel) updateSupersede(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 }
 
 // approveSelected — 선택 항목 approve 위임. 성공(0)만 목록에서 제거.
+// idx는 GlobalIndex — 필터 적용 시 list.Index는 visible(필터) 인덱스라
+// m.items와 어긋나 잘못된 항목을 승인할 수 있다(#id 필터 회귀).
 func (m PendingModel) approveSelected() (tea.Model, tea.Cmd) {
-	idx := m.list.Index()
+	idx := m.list.GlobalIndex()
 	if idx >= len(m.items) {
 		return m, nil
 	}
