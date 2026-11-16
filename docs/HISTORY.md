@@ -17,7 +17,7 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 - [x] Usage type completed — all remaining sites: `hot` · `brief` ·
   `compact` · `nudge` unknown-flag/argument errors now report
   `"error":"usage"` with an allowed-flags hint and exit 3 (previously
-  they surfaced as internal errors or non-3 exits). Remaining sites
+  they were silently ignored as non-3 exits). Remaining sites
   without the usage type: 0 — every command is covered.
 - [x] `-h` / `--help` global aliases: same output as `flint help`
   (usage line + command summary), exit 0 — dispatch-level handling
@@ -31,9 +31,9 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
   inferred from the file extension when omitted, and a format mismatch
   suggests the matching migration command.
 - [x] `setup` port-in-use warning: when the Doltgres port (5434) is
-  already occupied by a non-Doltgres process, setup warns with the
-  offending process hint instead of failing with an opaque connect
-  error.
+  already occupied by another listener, setup prints a one-line stderr
+  warning before `compose up` and continues (ping · migrate still
+  decide the real outcome).
 
 ### v1.5.4 minor (2026-11-16) — usage type everywhere + agent ergonomics P3
 

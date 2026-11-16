@@ -574,6 +574,10 @@ func TestRunExportExplicitTUINonTerminalFallback(t *testing.T) {
 	if !strings.Contains(stdout.String(), "TUI requires a terminal") {
 		t.Fatalf("fallback message missing: %q", stdout.String())
 	}
+	// v1.5.5 T2(리뷰): 무효 인자 분류 — error:"internal" 폐지.
+	if !strings.Contains(stdout.String(), `"error":"usage"`) {
+		t.Fatalf("--tui 비터미널은 error:usage 여야 한다: %q", stdout.String())
+	}
 }
 
 // RF-adaptive-④ — 플래그 존재 + 터미널: 현행 플래그 경로 유지(TUI 미진입).

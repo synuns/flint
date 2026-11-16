@@ -99,7 +99,9 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   keeps the existing output (isTerminal fallback). Explicit `--tui`
   forces the TUI; non-terminal
   `--tui` invocations print one error line and exit 3 ("TUI requires a
-  terminal — use flag-mode instead"). `pending --tui` must stand alone
+  terminal — use flag-mode instead") — reported as `"error":"usage"`
+  (v1.5.5 review: an invalid-argument class, closing the last gap in
+  the usage-type sweep). `pending --tui` must stand alone
   and `report --tui` cannot combine with the view flags (`--html` ·
   `--text` · `--out`) — exit 3. `setup` behaves the same (unchanged):
   no args in a terminal starts the wizard, non-terminal runs the

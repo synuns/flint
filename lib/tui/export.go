@@ -14,6 +14,8 @@ import (
 	"os"
 
 	"github.com/charmbracelet/huh"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // ExportSelection — huh 폼 결과(형식·status·출력 경로). Out이 빈 문자열이면
@@ -113,7 +115,9 @@ func exportCancelNotice(w io.Writer) {
 // cancelled" 안내 후 실행 없이 (0, nil) — 깨끗한 취소는 오류가 아니다.
 func RunExport(ctx context.Context, deps ExportDeps) (int, error) {
 	if !isTerminal() {
-		return 3, fmt.Errorf("TUI requires a terminal — use flag-mode instead")
+		// v1.5.5 T2(리뷰): 무효 인자 분류(error:"usage") — Run 래퍼와 동일
+		// 계약, exit 3 불변.
+		return 3, wire.UsageErrorf("%w", ErrTerminalRequired)
 	}
 	sel := ExportSelection{Format: "jsonl", Status: "active"}
 	if err := exportFormFn(&sel); err != nil {
