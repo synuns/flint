@@ -18,8 +18,9 @@ convention.
   outliers are not reported.
 - **Benchmarks live next to the code** — Go bench tests in the owning
   package (`lib/knowledge`), so a regression fails in `go test`, not in a
-  document. CI runs small-scale variants; the figures below use the full
-  synthetic scales.
+  document. CI runs small-scale variants; each figure below names its own
+  scale (bench scales can differ from the R30 survey scales — a number is
+  never quoted without its scale).
 - **Honest labeling** — "before" figures are the R30 survey baseline
   (2026-11-16, pre-v1.6.0); "after" figures are measured after the v1.6.0
   fixes. Target values are marked as targets, never as results.
@@ -28,15 +29,21 @@ convention.
 
 | Operation | Scale (synthetic rows) | Before (R30 baseline) | v1.6 target | After (v1.6.0, median of 3) |
 |---|---|---|---|---|
-| `pending` topic-prefix match (prefix-key map, O(N+M)) | 50k | 255s | < 1s | — measured at task close, see note |
-| `import --format jsonl` (ANY($1) batch dedup + chunked batch INSERT + chunk commits) | 5.6k | 25.6s | seconds | — measured at task close, see note |
-| `write` batch dedup (ANY($1) batch precheck) | 50k | 137s | seconds | — measured at task close, see note |
-| `export --format pam` peak memory churn | 50k | 876MB | ≤ 1/4 | — measured at task close, see note |
+| `pending` topic-prefix match (prefix-key map, O(N+M)) | 50k | 255s | < 1s | 0.06s — live CLI, 10k active + 400 pending (index lookup ≈0.5µs/row vs 2.2ms/row scan at 5k bench scale) |
+| `import --format jsonl` (ANY($1) batch dedup + chunked batch INSERT + chunk commits) | 5.6k | 25.6s | seconds | 6.1s — real-DB bench, 5.6k rows (`TestImportBatchBenchRealSlow`) |
+| `write` batch dedup (ANY($1) batch precheck) | 50k | 137s | seconds | 5.2s — real-DB bench, 5k-line batch (`TestWriteBatchDedupRealSlow`) |
+| `export --format pam` peak memory churn | 50k | 876MB | ≤ 1/4 | 47.3MB — in-memory bench, 20k rows (`BenchmarkFormatPAM`, B/op) |
 
-Note: the "After" column is filled only with measured medians from the
-bench tests below. A dash means "not yet closed out" — a target is never
-written into the result column. (v1.6.0 ships the fixes; the close-out
-numbers land with the task completion reports.)
+Note: every After figure is a measured median at its **own** scale, named
+in the cell (the shipped bench scales are smaller than the R30 survey
+scales; a number is never quoted without its scale). Per-row comparison
+for the churn row: 17.5KB/row (876MB @50k) → 2.4KB/row (47.3MB @20k),
+a ~7.4× cut — the 50k linear extrapolation ≈118MB sits under the
+≤219MB (1/4) target, but the extrapolation is marked as such, not
+measured. Verdict/output equivalence: the pending verdict output was
+additionally verified byte-identical old-vs-new on the 10k+400 dataset,
+and the PAM checksum reproduces the pre-optimization value on identical
+rows (regression tests in the owning packages).
 
 Equivalence is part of every performance claim: each fix ships with
 verdict/output equivalence regressions (identical results, byte-identical
