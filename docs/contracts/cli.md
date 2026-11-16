@@ -30,8 +30,10 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   `maintain` · `doctor` · `report` · `audit` · `backup` · `import` ·
   `update` (v1.5.3 shipped it for `read` · `done` · bare `maintain`
   only): unknown-flag/argument errors report `"error":"usage"` with an
-  allowed-flags hint, exit 3. Genuine internal failures keep their
-  existing error types.
+  allowed-flags hint. Exit codes are unchanged per command — unknown-flag
+  paths stay exit 3, while `maintain` mode-combination errors (e.g.
+  `--merge` without `--from`) keep their existing exit 1. Genuine
+  internal failures keep their existing error types.
 - `flint --version` and `flint -v` (v1.5.4) are aliases of `flint
   version` — same output, exit 0, store-free fast path.
 - unknown command · bare `flint` · `flint help` (v1.5.4) print usage

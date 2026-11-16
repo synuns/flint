@@ -11,8 +11,9 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 - [x] Usage error type extended to all commands (v1.5.3 shipped it for
   `read` only): `maintain` · `doctor` · `report` · `audit` · `backup` ·
   `import` · `update` unknown-flag/argument errors now report
-  `"error":"usage"` with an allowed-flags hint in the message (exit 3
-  unchanged; genuine internal failures keep their existing error types).
+  `"error":"usage"` with an allowed-flags hint in the message (exit
+  codes unchanged — unknown-flag paths stay exit 3; genuine internal
+  failures keep their existing error types).
 - [x] Agent ergonomics P3: `flint --version` / `flint -v` alias prints
   the same output as `flint version` (exit 0) · unknown command · bare
   `flint` / `flint help` print usage guidance (one JSON line with
