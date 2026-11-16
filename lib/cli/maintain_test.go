@@ -240,25 +240,29 @@ func TestMaintainMergeNotFound(t *testing.T) {
 	}
 }
 
-// 모드·인자 누락은 사용법 에러 exit 1.
+// 모드 미지정(bare usage)은 무효 인자 exit 3(v1.5.3 T1)·모드 내 인자
+// 누락은 여전히 사용법 에러 exit 1.
 func TestMaintainUsageErrors(t *testing.T) {
-	cases := [][]string{
-		{},
-		{"--id", "5"},
-		{"--invalidate"},           // --id 없음
-		{"--merge", "--from", "3"}, // --to 없음
-		{"--check", "--id", "abc"}, // 숫자 아님 — id는 check에서 무시되지만 파싱은 실패해야
+	cases := []struct {
+		args []string
+		want int
+	}{
+		{[]string{}, 3},                         // v1.5.3 T1: bare usage 3(기존 1)
+		{[]string{"--id", "5"}, 3},              // v1.5.3 T1: 모드 없음 → bare usage 3
+		{[]string{"--invalidate"}, 1},           // --id 없음
+		{[]string{"--merge", "--from", "3"}, 1}, // --to 없음
+		{[]string{"--check", "--id", "abc"}, 1}, // 숫자 아님 — id는 check에서 무시되지만 파싱은 실패해야
 	}
 	// 무효 플래그(--bogus)는 v0.34.3부터 exit 3(무효 인자 계약) —
 	// TestUnknownFlagExitContract(textutil_test.go)이 담당.
-	for _, args := range cases {
+	for _, c := range cases {
 		f := &fakeMaint{fakeStore: &fakeStore{}}
-		out, code := runMaintainArgs(t, f, args...)
-		if code != 1 {
-			t.Errorf("%v: exit=%d, want 1 (출력 %q)", args, code, out)
+		out, code := runMaintainArgs(t, f, c.args...)
+		if code != c.want {
+			t.Errorf("%v: exit=%d, want %d (출력 %q)", c.args, code, c.want, out)
 		}
 		if !strings.Contains(out, `"error"`) {
-			t.Errorf("%v: 에러 JSON 아님: %q", args, out)
+			t.Errorf("%v: 에러 JSON 아님: %q", c.args, out)
 		}
 	}
 }

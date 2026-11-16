@@ -258,10 +258,29 @@ func TestApproveUsage(t *testing.T) {
 			if code != 3 {
 				t.Fatalf("exit = %d, want 3 (out: %s)", code, out)
 			}
-			if !strings.Contains(out, `"error"`) {
-				t.Errorf("out = %q, want 에러 JSON", out)
+			// v1.5.3 P2: 인자 검증(usage) 오류는 error:"usage"(기존 internal
+			// 에서 값만 교체 — 구조 불변).
+			if !strings.Contains(out, `"error":"usage"`) {
+				t.Errorf("out = %q, want error:usage", out)
 			}
 		})
+	}
+}
+
+// TestApproveUsageHint — Review Focus(v1.5.3 P2): 인자 검증 오류 message에
+// 사용법 안내 `--id N [--supersede OLD]` 포함 — 오타 플래그를 안내로
+// 바로잡을 수 있다.
+func TestApproveUsageHint(t *testing.T) {
+	withApproveFake(t, &fakeApprove{})
+	out, code := mustApprove(t, []string{"--wat", "1"})
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3 (out: %s)", code, out)
+	}
+	if !strings.Contains(out, `"error":"usage"`) {
+		t.Errorf("out = %q, want error:usage", out)
+	}
+	if !strings.Contains(out, "--id N [--supersede OLD]") {
+		t.Errorf("out = %q, want 사용법 안내(--id N [--supersede OLD]) 포함", out)
 	}
 }
 

@@ -49,10 +49,11 @@ func TestMaintainDupSuspectsFlag(t *testing.T) {
 		t.Errorf("기본 limit 호출 = %v, want [10]", f2.dupGroupsCalls)
 	}
 
-	// usage 라인 갱신 — 모드 누락 에러 안내에 --dup-suspects 포함.
+	// usage 라인 갱신 — 모드 누락 에러 안내에 --dup-suspects 포함
+	// (bare usage는 v1.5.3 T1부터 exit 3).
 	u := &fakeMaint{fakeStore: &fakeStore{}}
 	uout, ucode := runMaintainArgs(t, u)
-	if ucode != 1 || !strings.Contains(uout, "--dup-suspects") {
+	if ucode != 3 || !strings.Contains(uout, "--dup-suspects") {
 		t.Errorf("usage 갱신 누락: exit=%d %q", ucode, uout)
 	}
 

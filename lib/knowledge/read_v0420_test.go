@@ -83,8 +83,8 @@ func TestReadWritesReduced(t *testing.T) {
 	// ② 제로히트+근접 read — read_events 1행(zero·near=true).
 	zn := newReadBudgetRecorder(false)
 	var out2 strings.Builder
-	if code := RunRead(context.Background(), zn, []string{"백업 복구 절차"}, nil, &out2); code != 1 {
-		t.Fatalf("zero-near read exit=%d, want 1(침묵): %s", code, out2.String())
+	if code := RunRead(context.Background(), zn, []string{"백업 복구 절차"}, nil, &out2); code != 0 {
+		t.Fatalf("zero-near read exit=%d, want 0(제로히트 exit 0 — v1.5.3): %s", code, out2.String())
 	}
 
 	for name, r := range map[string]*readBudgetRecorder{"hit": hit, "zero-near": zn} {

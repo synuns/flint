@@ -142,16 +142,24 @@ func TestWireRunDispatch(t *testing.T) {
 			t.Fatalf("조용히 한 줄 JSON만: %q", out.String())
 		}
 	})
-	t.Run("unknown_command_single_line_json_exit1", func(t *testing.T) {
+	t.Run("unknown_command_single_line_json_exit3", func(t *testing.T) {
+		// v1.5.3 T1: unknown command도 무효 인자 계약 exit 3 통일(기존 1).
+		// v1.5.3 P2(리뷰 정정): 오류 타입은 usage —
+		// {"error":"usage","message":"unknown command: …"} 한 줄(cli.md 기재
+		// 와 동일 모양, 기존 {"error":"unknown command: …"} 폐지).
 		var out bytes.Buffer
 		if code := Run([]string{"no-such-cmd"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
 			return &fakeStore{}, nil
-		}); code != 1 {
-			t.Fatalf("exit=%d, want 1", code)
+		}); code != 3 {
+			t.Fatalf("exit=%d, want 3", code)
 		}
 		line := strings.TrimSpace(out.String())
-		if !strings.HasPrefix(line, `{"error":"unknown command:`) || strings.Count(line, "\n") != 0 {
+		if strings.Count(line, "\n") != 0 {
 			t.Fatalf("unknown command 출력=%q, want 한 줄 JSON", line)
+		}
+		m := decodeErrLine(t, line)
+		if m["error"] != "usage" || !strings.Contains(m["message"], "unknown command: no-such-cmd") {
+			t.Fatalf("unknown command 출력=%q, want error:usage + message", line)
 		}
 	})
 	t.Run("no_args_prints_usage_exit1", func(t *testing.T) {

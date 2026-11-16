@@ -94,6 +94,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0152Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.2", "TUI default",
 	}},
+	// v1.5.3: agent CLI trust(teardown --yes·read 인자 검증·exit 통일·
+	// 제로히트 exit 0·usage 오류 타입·approve 안내)+TUI 소형 4건 기록.
+	{name: "TestVersion0153Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.5.3", "agent",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{
@@ -533,17 +538,18 @@ func TestTuningSuggestAdjustmentObservable(t *testing.T) {
 	}
 }
 
-// TestExit1DisambiguationDocs — exit 1 구분(무출력=침묵 정상 · 오류 JSON 한
-// 줄 동반=실패)이 README EN/KO·TUNING에 문서화됐다.
+// TestExit1DisambiguationDocs — 제로히트 exit 계약(v1.5.3 P2: exit 0 —
+// 텍스트 침묵·--json `{"hits":0}` 한 줄, 오류 JSON 동반 exit 1=실패)이
+// README EN/KO·TUNING에 문서화됐다.
 func TestExit1DisambiguationDocs(t *testing.T) {
-	if !strings.Contains(docStr(t, "../README.md"), "silent no-results") && !strings.Contains(docStr(t, "../README.md"), "exit 1 with no output") {
-		t.Error("README.md exit 1 구분 문구 누락")
+	if !strings.Contains(docStr(t, "../README.md"), "zero-hit") || !strings.Contains(docStr(t, "../README.md"), `{"hits":0}`) {
+		t.Error("README.md 제로히트 exit 0 문구 누락")
 	}
-	if !strings.Contains(docStr(t, "../README.ko.md"), "무결과 침묵") && !strings.Contains(docStr(t, "../README.ko.md"), "출력 없는 exit 1") {
-		t.Error("README.ko.md exit 1 구분 문구 누락")
+	if !strings.Contains(docStr(t, "../README.ko.md"), "제로히트") || !strings.Contains(docStr(t, "../README.ko.md"), `{"hits":0}`) {
+		t.Error("README.ko.md 제로히트 exit 0 문구 누락")
 	}
-	if !strings.Contains(docStr(t, "TUNING.md"), "no output") {
-		t.Error("TUNING.md exit 1 구분 문구 누락")
+	if !strings.Contains(docStr(t, "TUNING.md"), `{"hits":0}`) {
+		t.Error("TUNING.md 제로히트 hits:0 문구 누락")
 	}
 }
 

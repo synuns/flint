@@ -168,11 +168,48 @@ func TestSetupRegistered(t *testing.T) {
 	}
 }
 
-// TestTeardownDown — 정지 안내 + exec 위임, 성공 시 exit 0.
+// TestTeardownDown — v1.5.3 T1: 무인자는 dry-run(계획 안내만, exec 없음,
+// exit 0). --yes 있을 때만 정지 exec(아래 TestTeardownYes).
 func TestTeardownDown(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
 	out, code := mustRun(t, []string{"teardown"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if rec.downCalls != 0 {
+		t.Fatalf("무인자 down=%d회, want 0(dry-run)", rec.downCalls)
+	}
+	m := decode(t, out)
+	if m["status"] != "dry_run" {
+		t.Fatalf("status=%v, want dry_run; out=%s", m["status"], out)
+	}
+	if !strings.Contains(fmt.Sprint(m["next"]), "docker compose down") {
+		t.Fatalf("down 계획 안내 없음: %v", m["next"])
+	}
+}
+
+// TestTeardownDryRunPurgePlan — --purge 단독도 dry-run: 실행 없이 -v 계획만.
+func TestTeardownDryRunPurgePlan(t *testing.T) {
+	withFake(t, &fakeStore{})
+	rec := withFakeCompose(t)
+	out, code := mustRun(t, []string{"teardown", "--purge"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if rec.downCalls != 0 {
+		t.Fatalf("--purge 단독 down=%d회, want 0(dry-run)", rec.downCalls)
+	}
+	if m := decode(t, out); !strings.Contains(fmt.Sprint(m["next"]), "docker compose down -v") {
+		t.Fatalf("-v 계획 안내 없음: %v", m["next"])
+	}
+}
+
+// TestTeardownYes — --yes 있을 때만 정지 안내 + exec 위임, 성공 시 exit 0.
+func TestTeardownYes(t *testing.T) {
+	withFake(t, &fakeStore{})
+	rec := withFakeCompose(t)
+	out, code := mustRun(t, []string{"teardown", "--yes"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
@@ -185,11 +222,11 @@ func TestTeardownDown(t *testing.T) {
 	}
 }
 
-// TestTeardownPurge — --purge 시 volume 삭제(down -v) exec.
+// TestTeardownPurge — --yes --purge 시 volume 삭제(down -v) exec.
 func TestTeardownPurge(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
-	out, code := mustRun(t, []string{"teardown", "--purge"}, "")
+	out, code := mustRun(t, []string{"teardown", "--yes", "--purge"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
@@ -203,7 +240,7 @@ func TestTeardownFailGuidance(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
 	rec.downErr = context.DeadlineExceeded
-	out, code := mustRun(t, []string{"teardown", "--purge"}, "")
+	out, code := mustRun(t, []string{"teardown", "--yes", "--purge"}, "")
 	if code != 1 {
 		t.Fatalf("exit=%d, want 1; out=%s", code, out)
 	}
@@ -261,11 +298,11 @@ func TestSetupNilStoreDegraded(t *testing.T) {
 	}
 }
 
-// TestTeardownStoreFree — DB 다운 상태에서도 teardown은 안내·exec 수행.
+// TestTeardownStoreFree — DB 다운 상태에서도 teardown은 안내·(--yes) exec 수행.
 func TestTeardownStoreFree(t *testing.T) {
 	storeDown(t)
 	rec := withFakeCompose(t)
-	out, code := mustRun(t, []string{"teardown"}, "")
+	out, code := mustRun(t, []string{"teardown", "--yes"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}

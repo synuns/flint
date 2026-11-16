@@ -101,10 +101,10 @@ func TestConflictSuspectsFlag(t *testing.T) {
 		t.Errorf("무관 플래그 거부 없음: exit=%d %q", mcode, mout)
 	}
 
-	// usage 안내에 --conflict-suspects 포함.
+	// usage 안내에 --conflict-suspects 포함(bare usage는 v1.5.3 T1부터 3).
 	u := &fakeConflict{fakeMaint: &fakeMaint{fakeStore: &fakeStore{}}}
 	uout, ucode := runConflictArgs(t, u)
-	if ucode != 1 || !strings.Contains(uout, "--conflict-suspects") {
+	if ucode != 3 || !strings.Contains(uout, "--conflict-suspects") {
 		t.Errorf("usage 갱신 누락: exit=%d %q", ucode, uout)
 	}
 }

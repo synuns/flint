@@ -39,6 +39,7 @@ type ReportModel struct {
 	cursor int
 	mode   int // 0 diagnosis · 1 metrics
 	detail bool
+	width  int // 마지막 WindowSizeMsg 폭(키 안내 축약·탈출 안내 wrap 기준)
 }
 
 // NewReportModel — 수집 산물(ReportOutput)과 창 일수로 화면 모델 구성.
@@ -49,8 +50,12 @@ func NewReportModel(rep ops.ReportOutput, days int) ReportModel {
 // Init — 시작 커맨드 없음.
 func (m ReportModel) Init() tea.Cmd { return nil }
 
-// Update — 키 입력만 처리(뷰 전용 — 외부 메시지 없음).
+// Update — 창 폭 저장(리사이즈)과 키 입력 처리(뷰 전용 — 그 외 메시지 없음).
 func (m ReportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	if sz, ok := msg.(tea.WindowSizeMsg); ok {
+		m.width = sz.Width
+		return m, nil
+	}
 	key, ok := msg.(tea.KeyMsg)
 	if !ok {
 		return m, nil
@@ -97,13 +102,15 @@ func (m ReportModel) View() string {
 	b.WriteString(Theme.Accent.Render(title) + "\n\n")
 	if m.mode == 1 {
 		b.WriteString(m.metricsView())
-		b.WriteString("\n" + Theme.Secondary.Render("tab: diagnosis · q: quit"))
-		b.WriteString("\n" + Theme.Secondary.Render(nonInteractiveHint)) // v1.5.2 T1 비대화 탈출 안내
+		b.WriteString("\n" + Theme.Secondary.Render(keyHint(m.width, "tab: diagnosis · q: quit", "tab · q quit")))
+		b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // v1.5.2 T1 비대화 탈출 안내(계약 1 wrap)
 		return b.String()
 	}
 	b.WriteString(m.diagnosisView())
-	b.WriteString("\n" + Theme.Secondary.Render("↑/k ↓/j: move · enter: detail · tab: metrics · q: quit"))
-	b.WriteString("\n" + Theme.Secondary.Render(nonInteractiveHint)) // v1.5.2 T1 비대화 탈출 안내
+	b.WriteString("\n" + Theme.Secondary.Render(keyHint(m.width,
+		"↑/k ↓/j: move · enter: detail · tab: metrics · q: quit",
+		"j/k·enter·tab · q quit")))
+	b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // v1.5.2 T1 비대화 탈출 안내(계약 1 wrap)
 	return b.String()
 }
 

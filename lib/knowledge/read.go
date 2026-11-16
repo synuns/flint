@@ -266,6 +266,17 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			// 최소 배선한다(write --source 관례 승계). 조회 동작 불변.
 			sourceSpec, i, sourceGiven = v, i+1, true
 		default:
+			// v1.5.3 T1: 미인식 '-' 접두 인자는 쿼리로 흡수하지 않고 무효
+			// 인자 exit 3 — '--jsonn' 같은 오타가 조용히 제로히트로 흘러
+			// 의도와 다른 '검색 결과 없음'으로 보이던 사각 폐지. positional
+			// 쿼리('-' 비접두)와 "--" 이후 흡수(N9)는 불변. v1.5.3(P2):
+			// 오류 타입은 usage(unknown flag류 — approve 관례와 동일) +
+			// message에 허용 플래그 예시(cli.md 기재 — 오타 자가수정).
+			if strings.HasPrefix(a, "-") {
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
+					"unknown flag: %s — usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D]", a)))
+				return 3
+			}
 			pos = append(pos, a)
 		}
 	}
@@ -477,6 +488,14 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// --as-of 지정 시 결과 뒤에 as_of{hash,commit_date} 한 줄(JSON) 추가.
 	// 미지정이면 기존 필드만 그대로.
 	byteLen := len(out) // G5(v1.1.0 T1): io.Writer에 쓴 총량(UTF-8 바이트)
+	// v1.5.3(P2): --json 제로히트는 {"hits":0} 한 줄 — 호출자가 히트 수를
+	// 기계 판별한다(텍스트 모드는 기존 완전 침묵 유지). 바이트 계측은
+	// as_of 라인 관례 승계(쓴 총량에 포함).
+	if len(rows) == 0 && jsonMode {
+		b, _ := json.Marshal(ZeroHitLine{Hits: 0})
+		fmt.Fprintln(stdout, string(b))
+		byteLen += len(b) + 1 // hits 한 줄(+개행)도 쓴 총량에 포함
+	}
 	if asOfHash != "" {
 		b, _ := json.Marshal(AsOfLine{AsOf: AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 		fmt.Fprintln(stdout, string(b))
@@ -526,11 +545,9 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			Source:     source,
 		})
 	}
-	// R1: eligible 제로히트는 exit 1(침묵 계약 — flint가 에이전트에게
-	// 말을 걸지 않는다). --status·--as-of 경로는 기존 계약(exit 0) 불변.
-	if ReadSuggestEligible(len(rows), asOfSpec, f.Status) {
-		return 1
-	}
+	// R1(→v1.5.3 P2 변경): 제로히트는 exit 0 — 텍스트 침묵·--json
+	// {"hits":0}은 정상 응답이지 오류가 아니므로 에이전트의 오류-중단
+	// 루프가 끊기지 않는다(전 경로 eligible 여부와 무관하게 exit 0).
 	return 0
 }
 
@@ -564,9 +581,9 @@ func ValidateSessionLabel(given bool, val string) error {
 	return validateSessionLabel(given, val)
 }
 
-// ReadSuggestEligible — 폴백 게이트·제안 스캔 게이트·침묵 exit 판정이
-// 공유하는 eligible 조건(3지점 복붙 통일): 현재 시점(--as-of 미지정)·
-// 무상태필터(--status 미지정) 제로히트일 때만 참. 동작 불변.
+// ReadSuggestEligible — 폴백 게이트·제안 스캔 게이트가 공유하는 eligible
+// 조건: 현재 시점(--as-of 미지정)·무상태필터(--status 미지정) 제로히트일
+// 때만 참. v1.5.3 P2로 exit 판정 소비는 폐지(exit 0 통일).
 func ReadSuggestEligible(rows int, asOfSpec, status string) bool {
 	return rows == 0 && asOfSpec == "" && status == ""
 }
@@ -587,6 +604,12 @@ type AsOfInfo struct {
 
 type AsOfLine struct {
 	AsOf AsOfInfo `json:"as_of"`
+}
+
+// ZeroHitLine — --json 제로히트 한 줄 JSON {"hits":0}(v1.5.3 P2 —
+// AsOfLine 첨부 관례 승계. 히트 행이 있으면 출력되지 않는다).
+type ZeroHitLine struct {
+	Hits int `json:"hits"`
 }
 
 // asOfErrLine — {error,message} 한 줄 JSON 조립(ErrLine의 국소 변형 —

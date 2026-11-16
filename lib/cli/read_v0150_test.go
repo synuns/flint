@@ -72,8 +72,8 @@ func TestReadClassifiesZeroNear(t *testing.T) {
 			return nil, nil // 구문·폴백 제로히트
 		}}}
 		var out strings.Builder
-		if code := runRead(context.Background(), st, []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 1 {
-			t.Fatalf("exit = %d, want 1", code)
+		if code := runRead(context.Background(), st, []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)
 		}
 		if len(st.events) != 1 || !st.events[0].Zero || !st.events[0].Near {
 			t.Errorf("read_events = %+v, want 1행 {Zero:true Near:true}", st.events)

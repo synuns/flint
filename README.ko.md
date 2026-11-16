@@ -182,7 +182,7 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 | `flint teardown` | 설정 해제 (훅·설정, `--purge` 시 데이터도 제거) |
 | `flint version` | 버전 출력 |
 
-**종료 코드:** 0 성공 · 1 오류 (또는 `read` 무결과 침묵) · 2 저장소 장애 · exit 3 — 잘못된 입력 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값, `write` 스키마 위반).
+**종료 코드:** 0 성공 (`read` 제로히트도 exit 0 — 텍스트는 침묵, `--json`은 `{"hits":0}` 한 줄) · 1 오류 · 2 저장소 장애 · exit 3 — 잘못된 입력 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값, `write` 스키마 위반).
 
 `flint read`는 구문 검색이 무결과면 단어 단위 fallback으로 재시도합니다.
 

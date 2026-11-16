@@ -128,8 +128,8 @@ func TestReadEventColumns(t *testing.T) {
 			return nil, nil // active_knowledge 제로히트·폴백·제안 전부 0행
 		}}}
 		var out bytes.Buffer
-		if code := RunRead(ctx, st, []string{"없는토픽"}, strings.NewReader(""), &out); code != 1 {
-			t.Fatalf("exit = %d, want 1(제로히트 침묵)", code)
+		if code := RunRead(ctx, st, []string{"없는토픽"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)
 		}
 		if ev := st.events[0]; ev.ZeroReason != "unowned" {
 			t.Errorf("zero_reason = %q, want unowned(active 0 < floor 1)", ev.ZeroReason)
@@ -144,8 +144,8 @@ func TestReadEventColumns(t *testing.T) {
 			return nil, nil
 		}}}
 		var out bytes.Buffer
-		if code := RunRead(ctx, st, []string{"없는토픽"}, strings.NewReader(""), &out); code != 1 {
-			t.Fatalf("exit = %d, want 1", code)
+		if code := RunRead(ctx, st, []string{"없는토픽"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)
 		}
 		if ev := st.events[0]; ev.ZeroReason != "owned_miss" {
 			t.Errorf("zero_reason = %q, want owned_miss(active 2 ≥ floor 1)", ev.ZeroReason)
@@ -162,8 +162,8 @@ func TestReadEventColumns(t *testing.T) {
 			return nil, nil
 		}}}
 		var out bytes.Buffer
-		if code := RunRead(ctx, st, []string{"없는토픽"}, strings.NewReader(""), &out); code != 1 {
-			t.Fatalf("exit = %d, want 1", code)
+		if code := RunRead(ctx, st, []string{"없는토픽"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)
 		}
 		if ev := st.events[0]; ev.ZeroReason != "unowned" {
 			t.Errorf("zero_reason = %q, want unowned(active 2 < floor 3)", ev.ZeroReason)

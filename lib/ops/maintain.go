@@ -330,8 +330,9 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		fmt.Fprintf(stdout, `{"status":"merged","from":%d,"to":%d}`+"\n", from, to)
 		return 0
 	default:
+		// v1.5.3 T1: bare usage(모드 미지정)도 무효 인자 exit 3 통일(기존 1).
 		fmt.Fprintln(stdout, wire.ErrLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit]")))
-		return 1
+		return 3
 	}
 }
 

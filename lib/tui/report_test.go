@@ -161,6 +161,38 @@ func TestReportModelQuitKeys(t *testing.T) {
 	}
 }
 
+// updateSize — 리사이즈 시뮬레이션 헬퍼(report 모델 — 폭 저장).
+func updateSize(m ReportModel, w int) ReportModel {
+	next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 24})
+	mm, ok := next.(ReportModel)
+	if !ok {
+		panic("Update returned non-ReportModel")
+	}
+	return mm
+}
+
+// RF-narrow — 계약 1: 40컬 — 두 모드 모두 키 안내 라인이 폭 안에 들어오되
+// "q quit" 단서는 유지되고, 탈출 안내(nonInteractiveHint)는 wrap된다.
+func TestReportNarrowWidthClipping(t *testing.T) {
+	views := map[string]string{
+		"diagnosis": updateSize(NewReportModel(diagFixture(), 7), 40).View(),
+		"metrics":   updateKey(t, updateSize(NewReportModel(diagFixture(), 7), 40), tea.KeyTab).View(),
+	}
+	for name, v := range views {
+		if !strings.Contains(v, "q quit") {
+			t.Errorf("%s: 40-col view lost 'q quit'\nview:\n%s", name, v)
+			continue
+		}
+		for _, ln := range strings.Split(stripANSI(v), "\n") {
+			if strings.Contains(ln, "q quit") || strings.Contains(ln, "pipe output") {
+				if n := len([]rune(ln)); n > 40 {
+					t.Errorf("%s: hint line %d chars > 40: %q", name, n, ln)
+				}
+			}
+		}
+	}
+}
+
 // TestSeverityOf — 심각도 파생 매핑: 유일한 '정보성' 항목(hot_budget_slack
 // — 진단 문구 계약상 informational)은 info, 나머지는 warn. DiagnosisItem에
 // 심각도 필드가 없어 TUI가 신호 id로 파생한다(가정 로그 참조).

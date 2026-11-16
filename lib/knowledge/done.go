@@ -1,6 +1,7 @@
 // done.go — flint done: Stop 훅 종료 경로. 미기록 연속 경고만 내고
 // 종료를 절대 막지 않는다(PLAN §13 비간섭 5원칙 — 어떤 경로든 exit 0.
-// v1.0.1(F3) 예외: --session 무효 값(빈 값·'-' 접두)만 무효 인자 exit 3).
+// 무효 인자 예외: --session 무효 값(v1.0.1 F3)·세션 미지정 사용법 오류
+// (v1.5.3 T1)만 무효 인자 exit 3 — 훅 실배선은 항상 세션을 넘긴다).
 // v0.39.0 T4: lib/cli에서 이동(cli/done.go 원본. realStore 위임 메서드
 // StaleSessionRuns·LogPlaybookUse는 cli/realstore_curation.go로 추출.
 // 마커 기록은 cli marker.go 소유 — WriteTypedMarkerFn seam 주입).
@@ -210,9 +211,13 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		return 3
 	}
 	if session == "" {
-		// 사용법 오류도 종료를 막지 않는다 — 한 줄 JSON, exit 0(§13).
-		fmt.Fprintln(stdout, `{"error":"usage: flint done --session <id>"}`)
-		return 0
+		// v1.5.3 T1: 사용법 오류(세션 미지정)는 무효 인자 exit 3 통일(기존 0).
+		// 훅 실배선은 항상 실제 세션 id를 넘기므로 정상 종료 경로는 불변
+		// (비간섭 §13 — 경고·부작용 경로의 exit 0은 유지).
+		// v1.5.3 P2(리뷰 정정): 오류 타입도 usage 공통형 — 기존 리터럴
+		// {"error":"usage: flint done …"} 값 내장형을 ErrLine 표준형으로.
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("usage: flint done --session <id>")))
+		return 3
 	}
 	// v0.34.3 R14: thresholds 로더 단일화 — write.go의 WriteThresholds
 	// 공용(바이트 동일한 로컬 복제 폐지).
