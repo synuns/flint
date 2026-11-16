@@ -281,13 +281,14 @@ Adjustment guidance:
 ## 9. zero_near — measuring the zero-hit silence contract (v0.14.0)
 
 When `flint read` gets zero hits even after fallback re-search, it stays
-silent with no output and exit 1 (suggestion output removed — near candidates
-are not exposed to the agent). Instead, the presence of near candidates is
+silent with no output and exit 0 (v1.5.3; `--json` emits a single
+`{"hits":0}` line — suggestion output removed: near candidates are not
+exposed to the agent). Instead, the presence of near candidates is
 measured internally as the `zero_near` metric and surfaced by report.
 
-- exit 1 disambiguation — exit 1 coexists with store errors (MapExit
-  default): exit 1 with no output is the silence contract (normal); exit 1
-  accompanied by a one-line error JSON is a failure.
+- exit 0 zero-hit — zero hits are a normal response, not an error: text
+  mode is silent, `--json` returns `{"hits":0}`. exit 1 accompanied by a
+  one-line error JSON is a failure.
 - classification threshold — reuses the suggestion-scan `suggestMinScore`
   `0.15` as-is (no separate constant). Zero-hits whose best near score is
   0.15 or above are classified zero_near.

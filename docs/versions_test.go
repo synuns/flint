@@ -538,17 +538,18 @@ func TestTuningSuggestAdjustmentObservable(t *testing.T) {
 	}
 }
 
-// TestExit1DisambiguationDocs — exit 1 구분(무출력=침묵 정상 · 오류 JSON 한
-// 줄 동반=실패)이 README EN/KO·TUNING에 문서화됐다.
+// TestExit1DisambiguationDocs — 제로히트 exit 계약(v1.5.3 P2: exit 0 —
+// 텍스트 침묵·--json `{"hits":0}` 한 줄, 오류 JSON 동반 exit 1=실패)이
+// README EN/KO·TUNING에 문서화됐다.
 func TestExit1DisambiguationDocs(t *testing.T) {
-	if !strings.Contains(docStr(t, "../README.md"), "silent no-results") && !strings.Contains(docStr(t, "../README.md"), "exit 1 with no output") {
-		t.Error("README.md exit 1 구분 문구 누락")
+	if !strings.Contains(docStr(t, "../README.md"), "zero-hit") || !strings.Contains(docStr(t, "../README.md"), `{"hits":0}`) {
+		t.Error("README.md 제로히트 exit 0 문구 누락")
 	}
-	if !strings.Contains(docStr(t, "../README.ko.md"), "무결과 침묵") && !strings.Contains(docStr(t, "../README.ko.md"), "출력 없는 exit 1") {
-		t.Error("README.ko.md exit 1 구분 문구 누락")
+	if !strings.Contains(docStr(t, "../README.ko.md"), "제로히트") || !strings.Contains(docStr(t, "../README.ko.md"), `{"hits":0}`) {
+		t.Error("README.ko.md 제로히트 exit 0 문구 누락")
 	}
-	if !strings.Contains(docStr(t, "TUNING.md"), "no output") {
-		t.Error("TUNING.md exit 1 구분 문구 누락")
+	if !strings.Contains(docStr(t, "TUNING.md"), `{"hits":0}`) {
+		t.Error("TUNING.md 제로히트 hits:0 문구 누락")
 	}
 }
 

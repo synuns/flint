@@ -171,7 +171,7 @@ flint brief [query]        # masked, read-only context block — paste it into a
 | `flint teardown` | Undo setup (hooks/config; `--purge` also removes data) |
 | `flint version` | Print version |
 
-**Exit codes:** 0 success · 1 error (or silent no-results on `read`) · 2 storage failure · exit 3 — invalid input (valueless trailing flags, bad `--status` / `--as-of` values, schema violations on `write`).
+**Exit codes:** 0 success (zero-hit `read` also exits 0 — silent in text mode, `{"hits":0}` with `--json`) · 1 error · 2 storage failure · exit 3 — invalid input (valueless trailing flags, bad `--status` / `--as-of` values, schema violations on `write`).
 
 `flint read` uses word-by-word fallback search when the phrase query returns nothing.
 
