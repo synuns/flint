@@ -30,10 +30,12 @@ func installPendingTuiFake(t *testing.T) *[]wire.Store {
 }
 
 // pendingDemoStore — 대기 1건을 내주는 fake(pending 조회 + active 조회).
+// pending 행은 TUI 실구현 조회 6열(id·topic·summary·origin·valid_at·
+// confidence)에 맞춘다 — 실 RunPendingTUI 폴백 경로 검증용.
 func pendingDemoStore() *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "status = 'pending'") {
-			return [][]any{{7, "demo topic alpha", "demo summary alpha", "hook", "2026-11-14T10:00:00Z"}}, nil
+			return [][]any{{7, "demo topic alpha", "demo summary alpha", "hook", "2026-11-14T10:00:00Z", "0.85"}}, nil
 		}
 		return nil, nil
 	}}
@@ -112,6 +114,83 @@ func TestPendingEntryTUIRejectsExtraFlags(t *testing.T) {
 	}
 }
 
+// installPendingTTY — v1.5.2 T1 적응형 진입 TTY 판정 seam 교체
+// (setupWizardTTYFn 관례 — 기본 실구현 tui.IsTerminalStdout).
+func installPendingTTY(t *testing.T, tty bool) {
+	t.Helper()
+	orig := pendingTTYFn
+	pendingTTYFn = func() bool { return tty }
+	t.Cleanup(func() { pendingTTYFn = orig })
+}
+
+// RF-adaptive-② — 무인자·무플래그 + 터미널: TUI 위임 호출.
+func TestPendingEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
+	calls := installPendingTuiFake(t)
+	installPendingTTY(t, true)
+	var out bytes.Buffer
+	code := runPendingEntry(context.Background(), pendingDemoStore(), nil,
+		strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (out: %s)", code, out.String())
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("TUI seam calls = %d, want 1", len(*calls))
+	}
+}
+
+// RF-adaptive-③ — 무인자 + 비터미널(파이프): RunPending 바이트 동일 위임.
+func TestPendingEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
+	calls := installPendingTuiFake(t)
+	installPendingTTY(t, false)
+	var mine, ref bytes.Buffer
+	code := runPendingEntry(context.Background(), pendingDemoStore(), nil,
+		strings.NewReader(""), &mine)
+	wantCode := knowledge.RunPending(context.Background(), pendingDemoStore(), nil,
+		strings.NewReader(""), &ref)
+	if code != wantCode {
+		t.Fatalf("exit = %d, want %d", code, wantCode)
+	}
+	if mine.String() != ref.String() {
+		t.Fatalf("piped path drifted:\ngot:  %q\nwant: %q", mine.String(), ref.String())
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("piped run must not reach TUI seam, calls = %d", len(*calls))
+	}
+}
+
+// RF-adaptive-① — --tui 명시 + 비터미널: 기존 폴백 exit 3 불변
+// (pendingTuiFn 기본 실구현 = tui.RunPendingTUI — Run 래퍼 폴백).
+func TestPendingEntryExplicitTUINonTerminalFallback(t *testing.T) {
+	installPendingTTY(t, false)
+	var out bytes.Buffer
+	code := runPendingEntry(context.Background(), pendingDemoStore(), []string{"--tui"},
+		strings.NewReader(""), &out)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3 (out: %s)", code, out.String())
+	}
+	if !strings.Contains(out.String(), "TUI requires a terminal") {
+		t.Fatalf("fallback message missing: %q", out.String())
+	}
+}
+
+// RF-adaptive-④ — 플래그 존재 + 터미널: 현행 플래그 경로 유지(TUI 미진입).
+func TestPendingEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
+	calls := installPendingTuiFake(t)
+	installPendingTTY(t, true)
+	var out bytes.Buffer
+	code := runPendingEntry(context.Background(), pendingDemoStore(), []string{"--json"},
+		strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (out: %s)", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"status":"ok"`) {
+		t.Fatalf("flag path output = %q, want machine JSON", out.String())
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("flag + TTY must not reach TUI seam, calls = %d", len(*calls))
+	}
+}
+
 // RF-protocol — 등록표: "pending"은 이 진입 분기 핸들러로 최종 등록
 // (knowledge.init 등록을 덮어쓴다 — wire.Register 최신값 승계).
 func TestPendingEntryRegistered(t *testing.T) {
@@ -127,5 +206,44 @@ func TestPendingEntryRegistered(t *testing.T) {
 	}
 	if len(*calls) != 1 {
 		t.Fatalf("registry dispatch must reach TUI seam, calls = %d", len(*calls))
+	}
+}
+
+// RF-noenv — FLINT_NO_TUI=1 + 터미널이어도 현행 경로 강제(탈출구 —
+// 환경 체크가 TTY seam보다 우선하는 3층 방어 1층).
+func TestPendingEntryNoTUIEnvForcesFlagPath(t *testing.T) {
+	t.Setenv("FLINT_NO_TUI", "1")
+	calls := installPendingTuiFake(t)
+	installPendingTTY(t, true)
+	var mine, ref bytes.Buffer
+	code := runPendingEntry(context.Background(), pendingDemoStore(), nil,
+		strings.NewReader(""), &mine)
+	wantCode := knowledge.RunPending(context.Background(), pendingDemoStore(), nil,
+		strings.NewReader(""), &ref)
+	if code != wantCode {
+		t.Fatalf("exit = %d, want %d", code, wantCode)
+	}
+	if mine.String() != ref.String() {
+		t.Fatalf("env path drifted:\ngot:  %q\nwant: %q", mine.String(), ref.String())
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("FLINT_NO_TUI must block TUI entry, calls = %d", len(*calls))
+	}
+}
+
+// RF-noenv-explicit — FLINT_NO_TUI는 적응형 진입만 차단한다: 명시적
+// --tui는 환경변수보다 우선한다(cli.md 계약 — 사용자 명시 의사 승계).
+func TestPendingEntryExplicitTUIOverridesNoTUIEnv(t *testing.T) {
+	t.Setenv("FLINT_NO_TUI", "1")
+	calls := installPendingTuiFake(t)
+	installPendingTTY(t, true)
+	var out bytes.Buffer
+	code := runPendingEntry(context.Background(), pendingDemoStore(), []string{"--tui"},
+		strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (out: %s)", code, out.String())
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("explicit --tui must reach TUI seam under FLINT_NO_TUI, calls = %d", len(*calls))
 	}
 }

@@ -85,6 +85,15 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0150Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.0", "TUI",
 	}},
+	// v1.5.1: R25 감사(TUI 실측·pty 검증) 수정 기록 존재 계약.
+	{name: "TestVersion0151Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.5.1", "R25",
+	}},
+	// v1.5.2: pending·export·report TUI 적응형 기본 전환 기록 존재 계약
+	// (파이프·플래그 경로 불변 — isTerminal 폴백).
+	{name: "TestVersion0152Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.5.2", "TUI default",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{

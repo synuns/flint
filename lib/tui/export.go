@@ -63,7 +63,9 @@ var exportFormFn = func(sel *ExportSelection) error {
 			huh.NewInput().
 				Title("Output file (optional — empty writes to stdout)").
 				Value(&sel.Out),
-		),
+		).
+			// v1.5.2 T1: 비대화 탈출 안내(적응형 기본 진입 안내) — 폼 하단.
+			Description(nonInteractiveHint),
 	).Run()
 }
 

@@ -30,14 +30,20 @@ var (
 	}
 	// reportTUIFn — 화면 기동(비터미널 오류 반환 — 호출부 exit 3).
 	reportTUIFn = tui.RunReportTUI
+	// reportTTYFn — v1.5.2 T1 적응형 진입 TTY 판정 seam(기본 실구현
+	// tui.IsTerminalStdout, 테스트 fake 교체).
+	reportTTYFn = tui.IsTerminalStdout
 )
 
 func init() { Register("report", runReportEntry) }
 
-// runReportEntry — `flint report [--tui] [기존 플래그...]`. --tui는
-// 뷰 플래그(--html·--text·--out)와 조합 불가(exit 3 — 화면·파일 이원
-// 방지). --tui 경로: 수집(JSON 원천) → ReportOutput 파싱 → TUI. 창
-// 일수는 수집 산물 행 수에서 유도(상한 clamp가 반영된 실제 창).
+// runReportEntry — `flint report [--tui] [기존 플래그...]`. 진입 규칙
+// (v1.5.2 T1 통일): ① --tui 명시 → TUI(비터미널 폴백 exit 3 불변)
+// ② 무인자·무플래그 + 터미널 → TUI ③ 무인자 + 비터미널 → 기본 JSON 뷰
+// ④ 플래그 존재 → 기존 경로. --tui는 뷰 플래그(--html·--text·--out)와
+// 조합 불가(exit 3 — 화면·파일 이원 방지). TUI 경로: 수집(JSON 원천) →
+// ReportOutput 파싱 → TUI. 창 일수는 수집 산물 행 수에서 유도(상한
+// clamp가 반영된 실제 창).
 func runReportEntry(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	tuiIdx := -1
 	for i, a := range args {
@@ -46,10 +52,16 @@ func runReportEntry(ctx context.Context, st Store, args []string, stdin io.Reade
 			break
 		}
 	}
-	if tuiIdx < 0 {
+	// v1.5.2 T1 적응형 전환: 인자·플래그 전혀 없음 + 터미널이면 TUI
+	// (--tui 등가 — rest가 빈 상태여 뷰 플래그 검증도 자동 통과).
+	// 3층 방어 1층 — FLINT_NO_TUI 설정 시 TTY 여부와 무관하게 차단.
+	if tuiIdx < 0 && !(len(args) == 0 && !tui.NoTUIForced() && reportTTYFn()) {
 		return runReport(ctx, st, args, stdin, stdout) // 기본 경로 불변 위임
 	}
-	rest := append(append([]string{}, args[:tuiIdx]...), args[tuiIdx+1:]...)
+	rest := args
+	if tuiIdx >= 0 {
+		rest = append(append([]string{}, args[:tuiIdx]...), args[tuiIdx+1:]...)
+	}
 	for _, a := range rest {
 		switch a {
 		case "--html", "--text", "--out":

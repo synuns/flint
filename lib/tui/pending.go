@@ -407,5 +407,7 @@ func (m PendingModel) View() string {
 	if m.status != "" {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))
 	}
+	// v1.5.2 T1: 비대화 탈출 안내(적응형 기본 진입 안내) — 화면 최하단.
+	fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(nonInteractiveHint))
 	return b.String()
 }

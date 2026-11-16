@@ -177,7 +177,7 @@ flint brief [query]        # masked, read-only context block — paste it into a
 
 ### Interactive TUI (v1.5.0)
 
-Four screens built on bubbletea: `flint setup` (no arguments) opens the setup wizard, and `--tui` turns `pending`, `export`, and `report` into interactive review, preview, and diagnostics views. Flag paths are untouched — same JSON on stdout — and non-terminal runs fall back automatically.
+Four screens built on bubbletea: `flint setup` (no arguments) opens the setup wizard, and `pending`, `export`, and `report` become interactive review, preview, and diagnostics views. Interactive by default in a terminal — a bare invocation opens the TUI (since v1.5.2). Piped/non-terminal runs and any flag keep the existing output untouched — same JSON on stdout.
 
 Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/TUNING.md) · Metrics: [docs/METRICS.md](docs/METRICS.md)
 

@@ -9,6 +9,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/lib/ops"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -304,5 +305,105 @@ func assertCutoffArg(t *testing.T, name string, args []any, backoff time.Duratio
 	want := time.Now().Add(-backoff)
 	if d := cut.Sub(want); d < -5*time.Minute || d > 5*time.Minute {
 		t.Errorf("%s 컷오프=%v, want %v(±5분)", name, cut, want)
+	}
+}
+
+// installReportTTY — v1.5.2 T1 적응형 진입 TTY 판정 seam 교체(기본
+// 실구현 tui.IsTerminalStdout).
+func installReportTTY(t *testing.T, tty bool) {
+	t.Helper()
+	orig := reportTTYFn
+	reportTTYFn = func() bool { return tty }
+	t.Cleanup(func() { reportTTYFn = orig })
+}
+
+// installReportTUIFake — reportTUIFn seam 교체(호출 기록 — 호출부 exit 0).
+func installReportTUIFake(t *testing.T) *int {
+	t.Helper()
+	called := 0
+	orig := reportTUIFn
+	reportTUIFn = func(rep ops.ReportOutput, days int) error {
+		called++
+		return nil
+	}
+	t.Cleanup(func() { reportTUIFn = orig })
+	return &called
+}
+
+// RF-adaptive-② — 무인자·무플래그 + 터미널: 수집 후 TUI 위임(stdout 무 JSON).
+func TestReportEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
+	called := installReportTUIFake(t)
+	installReportTTY(t, true)
+	out, code := runEntryArgs(t, newReportFake(nil))
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if *called != 1 {
+		t.Fatalf("TUI seam calls = %d, want 1", *called)
+	}
+	if strings.Contains(out, `"days"`) {
+		t.Fatalf("TUI path must not print JSON to stdout: %q", out)
+	}
+}
+
+// RF-adaptive-③ — 무인자 + 비터미널(파이프): 기본 JSON 뷰 불변.
+func TestReportEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
+	called := installReportTUIFake(t)
+	installReportTTY(t, false)
+	out, code := runEntryArgs(t, newReportFake(nil))
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"days"`) {
+		t.Fatalf("piped default JSON view changed: %q", out)
+	}
+	if *called != 0 {
+		t.Fatalf("piped run must not reach TUI seam, calls = %d", *called)
+	}
+}
+
+// RF-adaptive-① — --tui 명시 + 비터미널: 기존 폴백 exit 3 불변
+// (reportTUIFn 기본 실구현 = tui.RunReportTUI — Run 래퍼 폴백).
+func TestReportEntryExplicitTUINonTerminalFallback(t *testing.T) {
+	installReportTTY(t, false)
+	out, code := runEntryArgs(t, newReportFake(nil), "--tui")
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out)
+	}
+	if !strings.Contains(out, "TUI requires a terminal") {
+		t.Fatalf("fallback message missing: %q", out)
+	}
+}
+
+// RF-adaptive-④ — 플래그 존재 + 터미널: 현행 플래그 경로 유지(TUI 미진입).
+func TestReportEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
+	called := installReportTUIFake(t)
+	installReportTTY(t, true)
+	out, code := runEntryArgs(t, newReportFake(nil), "--days", "3")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"days"`) {
+		t.Fatalf("flag path JSON view changed: %q", out)
+	}
+	if *called != 0 {
+		t.Fatalf("flag + TTY must not reach TUI seam, calls = %d", *called)
+	}
+}
+
+// RF-noenv — FLINT_NO_TUI=1 + 터미널이어도 기본 JSON 뷰 강제(탈출구).
+func TestReportEntryNoTUIEnvForcesFlagPath(t *testing.T) {
+	t.Setenv("FLINT_NO_TUI", "1")
+	called := installReportTUIFake(t)
+	installReportTTY(t, true)
+	out, code := runEntryArgs(t, newReportFake(nil))
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"days"`) {
+		t.Fatalf("env path must keep default JSON view: %q", out)
+	}
+	if *called != 0 {
+		t.Fatalf("FLINT_NO_TUI must block TUI entry, calls = %d", *called)
 	}
 }
