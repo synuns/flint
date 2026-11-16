@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strings"
 
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/wire"
@@ -67,10 +68,17 @@ type nudgeStdin struct {
 // 안내(회상은 표시 후 자동 소진).
 func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	// --clear: 마커 소비 후 무출력 종료(에러도 조용히). 수동 경로 불변(R3).
+	// v1.5.5 T2 A5: unknown `-` 접두 인자는 무효 인자 exit 3 — 기존 조용한
+	// 무시(exit 0) 폐지(조용한 성공 금지). 훅은 무인자로 호출하므로 정상
+	// 훅 경로(§13 비간섭)는 불변.
 	for _, a := range args {
 		if a == "--clear" {
 			_ = ClearMarker()
 			return 0
+		}
+		if strings.HasPrefix(a, "-") {
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint nudge [--clear]", a)))
+			return 3
 		}
 	}
 

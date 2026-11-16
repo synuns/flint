@@ -34,7 +34,9 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	}
 	// help도 store-free fast path(코디네이터 룰링): registry 핸들러가
 	// 아니라 접속 전에 직접 출력한다. 인자(`help foo`)는 무시(R1).
-	if cmd == "help" {
+	// v1.5.5 T2 A4: -h/--help 전역 별칭 — --version/-v 관례 승계,
+	// 동일 출력·exit 0. 오타(--hel)는 별칭이 아니라 unknown command 3.
+	if cmd == "help" || cmd == "-h" || cmd == "--help" {
 		return RunHelp(stdout)
 	}
 	run, ok := Lookup(cmd)

@@ -35,9 +35,11 @@ func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.S
 			return []knowledge.ExportRow{{ID: 1, Topic: "demo-a", Status: "active"}, {ID: 2, Topic: "demo-b", Status: "active"}}, nil
 		}
 	}
-	mk := func(name string) func([]knowledge.ExportRow) ([]byte, error) {
-		return func(rows []knowledge.ExportRow) ([]byte, error) {
-			return []byte(fmt.Sprintf("<%s of %d rows>\n", name, len(rows))), nil
+	// v1.5.5 B1: 포맷터 seam은 (본문, 요약 보고 행수, 오류) 3값 — fake는
+	// 전행 수(len(rows))를 보고한다(pam 실구현만 발행 수 반환).
+	mk := func(name string) func([]knowledge.ExportRow) ([]byte, int, error) {
+		return func(rows []knowledge.ExportRow) ([]byte, int, error) {
+			return []byte(fmt.Sprintf("<%s of %d rows>\n", name, len(rows))), len(rows), nil
 		}
 	}
 	var stderr bytes.Buffer
@@ -370,9 +372,12 @@ func TestRunExportPAMSeamDefaultRealDoc(t *testing.T) {
 		t.Fatal("formatPAMFn default must be the real FormatPAM wiring")
 	}
 	rows := []knowledge.ExportRow{{ID: 1, Topic: "demo-a", Status: "active"}, {ID: 2, Topic: "demo-b", Status: "active"}}
-	doc, err := realPAM(rows)
+	doc, issued, err := realPAM(rows)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if issued != 2 {
+		t.Fatalf("issued count = %d, want 2(전행 발행)", issued)
 	}
 	var m struct {
 		Schema        string `json:"schema"`
@@ -405,6 +410,48 @@ func TestRunExportPAMOutSidecar(t *testing.T) {
 	}
 	if _, err := os.Stat(path + ".sha256"); err != nil {
 		t.Fatalf("pam sidecar missing: %v", err)
+	}
+}
+
+// RF16 — v1.5.5 B1: --format pam 요약 행수는 pam 문서 발행 수
+// (total_memories — pending은 pam 설계 제외)로 보고한다. 조회 전행이
+// 3(1건 pending)이어도 요약은 "exported 2 rows".
+func TestRunExportPAMSummaryCountsIssuedRows(t *testing.T) {
+	realPAM := formatPAMFn // installExportFakes가 fake를 깔기 전 기본 실구현
+	stderr := installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
+		return []knowledge.ExportRow{
+			{ID: 1, Topic: "demo-a", Status: "active"},
+			{ID: 2, Topic: "demo-b", Status: "active"},
+			{ID: 3, Topic: "demo-pending", Status: "pending"},
+		}, nil
+	})
+	formatPAMFn = realPAM
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--format", "pam"}, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stdout %q)", code, stdout.String())
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (pam, ") {
+		t.Fatalf("pam summary must count issued memories (pending excluded): %q", stderr.String())
+	}
+}
+
+// RF16b — 포맷터가 보고한 발행 수가 요약에 그대로 쓰인다(전행 2·발행 1
+// fake — 요약이 len(rows)가 아님을 증명).
+func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
+	stderr := installExportFakes(t, nil)
+	old := formatPAMFn
+	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+		return []byte("<pam issued 1>\n"), 1, nil
+	}
+	defer func() { formatPAMFn = old }()
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--format", "pam"}, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	if !strings.Contains(stderr.String(), "exported 1 rows (pam, ") {
+		t.Fatalf("summary must use formatter-issued count, not len(rows): %q", stderr.String())
 	}
 }
 

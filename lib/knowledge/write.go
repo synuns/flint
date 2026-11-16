@@ -127,7 +127,17 @@ func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 
 // RunWrite — stdin JSON/JSONL 다중을 처리한다. 커밋은 배치 1회, dedup은
 // 줄별(duplicate 줄 skip·신규 줄 부분 커밋; 전부 duplicate면 0건 커밋).
+// v1.5.5 T2 A5: --help/-h는 stdin 대기 전 usage 안내 exit 0.
 func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+	// v1.5.5 T2 A5: --help/-h 감지 시 usage 안내 exit 0 — stdin 대기 전
+	// 안내한다(write는 kind를 위치 인자로 받아 `--help`가 kind로 오인돼
+	// stdin 파이프를 물고 있던 문제 폐지).
+	for _, a := range args {
+		if a == "--help" || a == "-h" {
+			fmt.Fprintln(stdout, "usage: flint write <kind> [--source hook|manual|mcp] [--session ID] — kind: knowledge|session|project, payload: JSON/JSONL on stdin")
+			return 0
+		}
+	}
 	kind, session := "", ""
 	var pos []string
 	for i := 0; i < len(args); i++ {

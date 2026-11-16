@@ -279,6 +279,105 @@ func TestParseMarkdownDanglingTilde(t *testing.T) {
 	}
 }
 
+// withStderrCapture — os.Stderr를 임시 파일로 교체하고 읽기 클로저 반환
+// (import 경고는 os.Stderr 직접 기록 관례 — *os.File 타입이라 버퍼가 아닌
+// 파일로 캡처).
+func withStderrCapture(t *testing.T) func() string {
+	t.Helper()
+	tmp, err := os.CreateTemp(t.TempDir(), "stderr")
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stderr
+	os.Stderr = tmp
+	return func() string {
+		os.Stderr = old
+		tmp.Close()
+		b, rerr := os.ReadFile(tmp.Name())
+		if rerr != nil {
+			t.Fatal(rerr)
+		}
+		return string(b)
+	}
+}
+
+// TestImportMigrationExtRouting — v1.5.5 B3: --format 미지정 + 위치 인자
+// 1개가 .jsonl/.pam 확장자면 마이그레이션 라우팅 판정. 명시 --format·
+// 기타 확장자·위치 인자 0/2개는 라우팅 없음(기존 규칙 변환 경로).
+func TestImportMigrationExtRouting(t *testing.T) {
+	cases := []struct {
+		args   []string
+		format string
+		file   string
+		ok     bool
+	}{
+		{[]string{"dump.jsonl"}, "jsonl", "dump.jsonl", true},
+		{[]string{"dump.pam"}, "pam", "dump.pam", true},
+		{[]string{"dir/sub/demo.JSONL"}, "jsonl", "dir/sub/demo.JSONL", true},
+		{[]string{"dump.json"}, "", "", false},
+		{[]string{"rules.md"}, "", "", false},
+		{[]string{"--format", "jsonl", "dump.jsonl"}, "", "", false},
+		{[]string{"--format=jsonl", "dump.jsonl"}, "", "", false},
+		{[]string{"dump.jsonl", "other.jsonl"}, "", "", false},
+		{[]string{"--commit"}, "", "", false},
+		{nil, "", "", false},
+	}
+	for _, c := range cases {
+		format, file, ok := importMigrationExt(c.args)
+		if ok != c.ok || format != c.format || file != c.file {
+			t.Fatalf("args %v = (%q,%q,%v), want (%q,%q,%v)", c.args, format, file, ok, c.format, c.file, c.ok)
+		}
+	}
+}
+
+// TestRunImportJsonlExtRoutesToMigration — v1.5.5 B3: --format 미지정 +
+// .jsonl 경로는 마이그레이션 진입(안내 1행 stderr) — 규칙 변환 아님.
+func TestRunImportJsonlExtRoutesToMigration(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "demo.jsonl")
+	line := `{"id":1,"topic":"demo-routing","content":"routing check demo content long enough","kind":"knowledge","status":"active","confidence":0.8,"tags":[],"entities":[],"domain":"main","source":"demo","created_at":"2026-11-16T00:00:00Z","updated_at":"2026-11-16T00:00:00Z","valid_at":"2026-11-16T00:00:00Z"}` + "\n"
+	if err := os.WriteFile(p, []byte(line), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	readStderr := withStderrCapture(t)
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
+	var out strings.Builder
+	code := RunImport(context.Background(), f, []string{p}, strings.NewReader(""), &out)
+	errs := readStderr()
+	if code != 0 {
+		t.Fatalf("exit=%d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"status":"ok"`) || !strings.Contains(out.String(), `"imported":1`) {
+		t.Fatalf("migration summary expected: %s", out.String())
+	}
+	if !strings.Contains(errs, "migration") {
+		t.Fatalf("routing notice missing on stderr: %q", errs)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("migration insert = %d건, want 1", len(f.inserted))
+	}
+}
+
+// TestRunImportEmptyHint — v1.5.5 B3: 규칙 변환 결과 empty면 additive
+// 힌트 키(마이그레이션 --format 안내).
+func TestRunImportEmptyHint(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "rules.md")
+	if err := os.WriteFile(p, []byte("# 헤딩 없는 문서\n본문만 있는 문서입니다.\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
+	var out strings.Builder
+	code := RunImport(context.Background(), f, []string{p}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit=%d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"status":"empty"`) ||
+		!strings.Contains(out.String(), `"hint":"--format jsonl|pam for migration"`) {
+		t.Fatalf("empty hint missing: %s", out.String())
+	}
+}
+
 // TestStripImportNoiseDoubleInline — 리뷰 4(v0.27.3): 같은 줄 주석 2쌍은
 // 전부 제거(두 번째 개시 마커 잔존 방지).
 func TestStripImportNoiseDoubleInline(t *testing.T) {

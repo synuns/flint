@@ -73,6 +73,27 @@ func TestNonInteractiveHintInViews(t *testing.T) {
 	}
 }
 
+// TestIsTerminalDevNullNotTerminal — v1.5.5 T1(R29-A): /dev/null은
+// char device이므로 구 ModeCharDevice 판정이 이를 터미널로 오탐했다
+// (리다이렉션 stdout > /dev/null에서 TUI 폴백 exit 3). isatty 계열
+// 판정(charmbracelet/x/term)은 /dev/null을 거짓으로 판별해야 한다.
+func TestIsTerminalDevNullNotTerminal(t *testing.T) {
+	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
+	if err != nil {
+		t.Skipf("/dev/null 열기 실패: %v", err)
+	}
+	orig := os.Stdout
+	os.Stdout = devNull
+	defer func() {
+		os.Stdout = orig
+		devNull.Close()
+	}()
+
+	if isTerminal() {
+		t.Errorf("isTerminal() = true for %s (char device), want false — /dev/null 리다이렉션 오탐", os.DevNull)
+	}
+}
+
 // TestIsTerminalStdoutEnvEscapeHatch — v1.5.2 T1: FLINT_NO_TUI 설정 시
 // (값 무관) 환경 체크가 우선한다 — 터미널이어도 판정 거짓(적응형 TUI
 // 진입 전면 차단, 현행 경로 강제). GH_PROMPT_DISABLED류 표준 패턴.

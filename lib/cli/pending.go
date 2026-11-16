@@ -40,7 +40,7 @@ func runPendingEntry(ctx context.Context, st Store, args []string, stdin io.Read
 		}
 		for j, b := range args {
 			if j != i && b != "--tui" {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
 					"unknown flag: %s — usage: flint pending [--tui]", b)))
 				return 3
 			}

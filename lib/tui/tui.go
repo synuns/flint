@@ -7,16 +7,16 @@ import (
 	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/x/term"
 )
 
 // isTerminal — 표준 출력이 대화형 터미널인지 판정(테스트 주입 가능).
-// 파이프·리다이렉션·CI 환경에서 거짓.
+// 파이프·리다이렉션·CI 환경에서 거짓. v1.5.5 T1(R29-A): 구 ModeCharDevice
+// 휴리스틱은 /dev/null도 char device라 터미널로 오탐했다(stdout >
+// /dev/null 리다이렉션에서 TUI 폴백 exit 3). isatty ioctl 계열인
+// term.IsTerminal(fd)로 교체해 char device 중 터미널만 판정한다.
 var isTerminal = func() bool {
-	fi, err := os.Stdout.Stat()
-	if err != nil {
-		return false
-	}
-	return fi.Mode()&os.ModeCharDevice != 0
+	return term.IsTerminal(os.Stdout.Fd())
 }
 
 // noTUIEnvVar — v1.5.2 T1: TUI 진입 차단 환경 변수(GH_PROMPT_DISABLED류

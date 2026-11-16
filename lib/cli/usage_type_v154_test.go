@@ -51,6 +51,26 @@ var usageTypeProbes = []usageTypeProbe{
 	{"import", []string{"--format", "jsonl", "--wat"}, 3, "usage: flint import"},
 	// update — unknown flag(네트워크 접근 전 검증)
 	{"update", []string{"--bogus"}, 3, "usage: flint update"},
+	// v1.5.5 T2 A2 — 잔여 5사이트 unknown flag도 동일 계약:
+	// pending(기본 경로 + --tui 조합)·export·profile·setup/teardown·
+	// report --tui×뷰 플래그 조합.
+	{"pending", []string{"--bogus"}, 3, "usage: flint pending"},
+	{"pending", []string{"--tui", "--json"}, 3, "usage: flint pending"},
+	{"export", []string{"--bogus"}, 3, "usage: flint export"},
+	{"profile", []string{"--bogus"}, 3, "usage: flint profile"},
+	{"setup", []string{"--bogus"}, 3, "usage: flint setup"},
+	{"teardown", []string{"--bogus"}, 3, "usage: flint teardown"},
+	{"report", []string{"--tui", "--html"}, 3, "usage: flint report"},
+	// v1.5.5 T2 A5 — hot·brief·compact·nudge: unknown `-` 접두 인자 exit 3
+	// (현행 조용한 무시·exit 0 폐지 — 조용한 성공 금지).
+	{"hot", []string{"--bogus"}, 3, "usage: flint hot"},
+	{"brief", []string{"--bogus"}, 3, "usage: flint brief"},
+	{"compact", []string{"--bogus"}, 3, "usage: flint compact"},
+	{"nudge", []string{"--bogus"}, 3, "usage: flint nudge"},
+	// v1.5.5 T2 A5 — write --help/-h: stdin 대기 전 usage 안내 exit 0
+	// (에러가 아니므로 error:"usage" 단언은 want!=0 행에만 적용).
+	{"write", []string{"--help"}, 0, "usage: flint write"},
+	{"write", []string{"-h"}, 0, "usage: flint write"},
 }
 
 // TestUsageTypeProbes — 각 행: exit 3 불변 + error:"usage" + 허용 플래그
@@ -71,7 +91,8 @@ func TestUsageTypeProbes(t *testing.T) {
 		if code != p.want {
 			t.Errorf("%s %v: exit=%d, want %d — 출력 %q", p.cmd, p.args, code, p.want, b.String())
 		}
-		if !strings.Contains(b.String(), `"error":"usage"`) {
+		// write --help(exit 0) 등 안내 행은 에러 JSON이 아니므로 제외.
+		if p.want != 0 && !strings.Contains(b.String(), `"error":"usage"`) {
 			t.Errorf("%s %v: error:usage 아님 — %q", p.cmd, p.args, b.String())
 		}
 		if !strings.Contains(b.String(), p.usageSub) {

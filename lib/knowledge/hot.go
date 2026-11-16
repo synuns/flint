@@ -289,6 +289,13 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		}
 		if args[i] == "--full" {
 			full = true
+			continue
+		}
+		// v1.5.5 T2 A5: unknown `-` 접두 인자는 무효 인자 exit 3 — 기존
+		// 조용한 무시(exit 0) 폐지. 조용한 성공은 오타 플래그를 감춘다.
+		if strings.HasPrefix(args[i], "-") {
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint hot [--session ID] [--full]", args[i])))
+			return 3
 		}
 	}
 	if err := validateSessionLabel(sessionGiven, session); err != nil {
