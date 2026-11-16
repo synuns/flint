@@ -194,27 +194,27 @@ func TestRunImportMigrateJSONLFileArg(t *testing.T) {
 }
 
 // TestRunImportMigrateJSONLIdempotent — 2회 실행: 재실행은 전 행
-// duplicate 스킵·exit 0(멱등).
+// duplicate 스킵·exit 0(멱등). v1.6.0 T2: dedup은 ANY($1) 일괄 조회
+// 경로다 — memMigrateFake가 적립→중복 판정 왕복을 시뮬레이션한다.
 func TestRunImportMigrateJSONLIdempotent(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows())
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &fakeStore{}
-	out, code := runMigrate(t, f, []string{"--format", "jsonl"}, string(data))
+	m := newMemMigrateFake()
+	out, code := runMigrate(t, m, []string{"--format", "jsonl"}, string(data))
 	if code != 0 || !strings.Contains(out, `"imported":2`) {
 		t.Fatalf("1회차 exit=%d out=%s", code, out)
 	}
-	f.exists = true // 모든 해시 존재 → 전 행 duplicate
-	out, code = runMigrate(t, f, []string{"--format", "jsonl"}, string(data))
+	out, code = runMigrate(t, m, []string{"--format", "jsonl"}, string(data))
 	if code != 0 {
 		t.Fatalf("2회차 exit=%d, want 0; out=%s", code, out)
 	}
 	if !strings.Contains(out, `"imported":0`) || !strings.Contains(out, `"duplicated":2`) {
 		t.Fatalf("멱등 위반: %s", out)
 	}
-	if len(f.inserted) != 2 { // 1회차 2건만 — 2회차 적립 없음
-		t.Fatalf("2회차 재적립: %d", len(f.inserted))
+	if len(m.inserted) != 2 { // 1회차 2건만 — 2회차 적립 없음
+		t.Fatalf("2회차 재적립: %d", len(m.inserted))
 	}
 }
 
@@ -375,8 +375,13 @@ func TestRunImportMigratePAMImport(t *testing.T) {
 	if topic, _ := rec["topic"].(string); !strings.Contains(topic, "mem-demo-1") {
 		t.Fatalf("pam topic 파생: %q", topic)
 	}
-	f.exists = true
-	out, code = runMigrate(t, f, []string{"--format", "pam"}, pamSample)
+	// v1.6.0 T2: 2회차 dedup은 ANY($1) 일괄 조회 — memMigrateFake로
+	// 적립 해시가 조회에 보이는지 검증(ExistsHash 스텁 폐지).
+	m := newMemMigrateFake()
+	if out2, code2 := runMigrate(t, m, []string{"--format", "pam"}, pamSample); code2 != 0 || !strings.Contains(out2, `"imported":1`) {
+		t.Fatalf("mem 1회차 exit=%d out=%s", code2, out2)
+	}
+	out, code = runMigrate(t, m, []string{"--format", "pam"}, pamSample)
 	if code != 0 || !strings.Contains(out, `"duplicated":1`) {
 		t.Fatalf("pam 멱등 위반: exit=%d out=%s", code, out)
 	}
@@ -597,22 +602,11 @@ func TestRunImportMigrateSupersededRefZeroRowsNotCounted(t *testing.T) {
 	}
 }
 
-// dupHashFake — DupRowByHash(해시 키 판정)를 구현한 fake(realStore 계약 —
-// lookupHash가 DupMetaStore 경로를 탄다).
-type dupHashFake struct {
-	*fakeStore
-	dup map[string]DupMeta
-}
-
-func (d *dupHashFake) DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error) {
-	m, ok := d.dup[hash]
-	return m, ok, nil
-}
-
 // TestRunImportMigrateStoredHashDedup — A9[경미]: write가 부가 키(여기선
 // jsonl에 실리지 않는 memo)까지 포함해 산출한 content_hash로 저장된 행은
 // 재계산으로 재현 불가다 — export가 실어온 저장 해시(content_hash 64 hex)를
-// 승계해 dedup해야 중복 적립이 없다.
+// 승계해 dedup해야 중복 적립이 없다. v1.6.0 T2: 기존 행 판정은 ANY($1)
+// 일괄 조회 — memMigrateFake의 사전 적립 맵으로 검증.
 func TestRunImportMigrateStoredHashDedup(t *testing.T) {
 	h := store.ContentHash(store.HashCanonical(map[string]any{
 		"topic": "demo r19 extra key", "summary": "합성 데모 — 부가 키 write 행 dedup.",
@@ -627,8 +621,8 @@ func TestRunImportMigrateStoredHashDedup(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	f := &dupHashFake{fakeStore: &fakeStore{},
-		dup: map[string]DupMeta{h: {ID: 91, Topic: row.Topic, State: "active"}}}
+	f := newMemMigrateFake()
+	f.dup[h] = DupMeta{ID: 91, Topic: row.Topic, State: "active"}
 	out, code := runMigrate(t, f, []string{"--format", "jsonl"}, string(data))
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
@@ -1107,4 +1101,452 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 			t.Fatalf("exit=%d, want 1(PK 충돌 유령 성공 금지); out=%s", code, out.String())
 		}
 	})
+}
+
+// ── v1.6.0 T2: import 배치+청크 트랜잭션(R30-A P1·P2·P5). ──
+// 전부 합성 데모 데이터. dedup ANY($1) 일괄 조회·INSERT 청크 커밋·
+// 상한 조기 라인 스캔 계약.
+
+// memMigrateFake — dedup ANY($1) 조회와 InsertBatch이 하나의 메모리 해시
+// 맵으로 동작하는 fake(실DB "적립→재실행 중복 판정" 왕복 시뮬레이션 —
+// v1.6.0 T2의 dedup은 Query 일괄 조회 경로다). insertErrs는 InsertBatch
+// 호출 순번(0-기반)별 오류 — 해당 순번 청크만 실패(이전 청크는 커밋된
+// 것으로 시뮬레이션).
+type memMigrateFake struct {
+	*migrateFake
+	dup        map[string]DupMeta
+	nextID     int
+	insertErrs map[int]error
+	batchSizes []int
+	calls      int
+}
+
+// newMemMigrateFake — 기본 초기화(dup 맵·오류표 준비).
+func newMemMigrateFake() *memMigrateFake {
+	return &memMigrateFake{
+		migrateFake: &migrateFake{fakeStore: &fakeStore{}},
+		dup:         map[string]DupMeta{},
+		insertErrs:  map[int]error{},
+	}
+}
+
+// Query — content_hash = ANY($1) 일괄 조회를 dup 맵으로 응답한다(나머지는
+// fakeStore 위임).
+func (m *memMigrateFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	if strings.Contains(sql, "content_hash = ANY($1)") {
+		m.fakeStore.queries = append(m.fakeStore.queries, sql)
+		want, _ := args[0].([]string)
+		set := map[string]bool{}
+		for _, h := range want {
+			set[h] = true
+		}
+		var out [][]any
+		for h, meta := range m.dup {
+			if set[h] {
+				out = append(out, []any{h, int32(meta.ID), meta.Topic, meta.State})
+			}
+		}
+		return out, nil
+	}
+	return m.fakeStore.Query(ctx, sql, args...)
+}
+
+// InsertBatch — 성공 시 content_hash를 dup 맵에 등록(재실행 dedup 원천).
+// 오류 청크는 롤백 정합으로 미기록·미등록(이전 청크 커밋은 유지).
+func (m *memMigrateFake) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
+	m.batchSizes = append(m.batchSizes, len(recs))
+	call := m.calls
+	m.calls++
+	if err := m.insertErrs[call]; err != nil {
+		return nil, err
+	}
+	m.fakeStore.inserted = append(m.fakeStore.inserted, recs...)
+	ids := make([]int, len(recs))
+	for i, r := range recs {
+		m.nextID++
+		id := m.nextID
+		if v, ok := r["id"].(int); ok && v > 0 {
+			id = v // 실구현 RETURNING id 정합(명시 id 보존)
+			if v >= m.nextID {
+				m.nextID = v
+			}
+		}
+		ids[i] = id
+		if h, ok := r["content_hash"].(string); ok && h != "" {
+			m.dup[h] = DupMeta{ID: id}
+		}
+	}
+	return ids, nil
+}
+
+// overrideImportChunks — 청크 크기 축소(테스트 종료 시 원복).
+func overrideImportChunks(t *testing.T, dedup, insert int) {
+	t.Helper()
+	savedD, savedI := importDedupChunk, importInsertChunk
+	importDedupChunk, importInsertChunk = dedup, insert
+	t.Cleanup(func() { importDedupChunk, importInsertChunk = savedD, savedI })
+}
+
+// TestCountJSONLRows — 라인 스캔 카운트(P5): 공백 줄 제외 줄 수가
+// ParseJSONLRows 행 수 기준과 동일(빈 입력 0·후행 개행·공백만 줄).
+func TestCountJSONLRows(t *testing.T) {
+	cases := []struct {
+		name string
+		in   string
+		want int
+	}{
+		{"빈 입력", "", 0},
+		{"공백만", "\n\n  \t\r\n", 0},
+		{"2행", "{\"a\":1}\n{\"b\":2}\n", 2},
+		{"공백 줄 끼움", "{\"a\":1}\n\n   \n{\"b\":2}", 2},
+		{"후행 개행 없음", "{\"a\":1}\n{\"b\":2}", 2},
+	}
+	for _, tc := range cases {
+		if got := countJSONLRows([]byte(tc.in)); got != tc.want {
+			t.Errorf("%s: countJSONLRows=%d, want %d", tc.name, got, tc.want)
+		}
+	}
+}
+
+// TestRunImportMigrateMaxRowsEarlyScan — P5 Review Focus: 상한 초과 판정은
+// 전량 파싱 전 라인 스캔으로 조기 발생한다 — 파손 행이 섞여 있어도 상한
+// 오류가 우선(파싱 메모리 방어가 parse 오류보다 앞선다). 적립 없음.
+func TestRunImportMigrateMaxRowsEarlyScan(t *testing.T) {
+	f := maxRowsFake("2")
+	doc := "{\"id\":1,\"topic\":\"demo early a\"}\n" +
+		"{\"id\":2,\"topic\":\"demo early b\"}\n" +
+		"{\"id\":not-json}\n"
+	out, code := runMigrate(t, f, []string{"--format", "jsonl"}, doc)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(상한 초과 조기); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"max":2`) || !strings.Contains(out, `"count":3`) {
+		t.Fatalf("오류 JSON max·count 미포함: %s", out)
+	}
+	if strings.Contains(out, "corrupt") {
+		t.Fatalf("전량 파싱이 선행(조기 스캔 아님): %s", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("상한 초과 적립 발생: %d건", len(f.inserted))
+	}
+}
+
+// TestImportRowsBatchDedupBatchLookup — P1 Review Focus: dedup은 행별
+// lookupHash가 아니라 content_hash = ANY($1) 청크 사전 조회 1회(청크
+// 크기 초과분만 다음 왕복)로 판정한다. 파일 내 중복은 여전히 첫 행 우선
+// 스킵, 기존 행 id는 계보 참조 해석용 idmap으로 승계된다.
+func TestImportRowsBatchDedupBatchLookup(t *testing.T) {
+	overrideImportChunks(t, 2, 100)
+	m := newMemMigrateFake()
+	// 행 1·2는 기존 DB 행(해시 사전 등록), 행 3·4는 신규.
+	rows := maxRowsFixtureRows(4)
+	var data []byte
+	data, err := FormatJSONL(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	parsed, err := ParseJSONLRows(data)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var hashes []string
+	for _, r := range parsed {
+		hashInput, _, se := rowHashRec(r)
+		if se != nil {
+			t.Fatalf("rowHashRec: %v", se)
+		}
+		hashes = append(hashes, store.ContentHash(store.HashCanonical(hashInput)))
+	}
+	m.dup[hashes[0]] = DupMeta{ID: 501, Topic: "demo pre-existing 1", State: "active"}
+	m.dup[hashes[1]] = DupMeta{ID: 502, Topic: "demo pre-existing 2", State: "active"}
+	oc, err := importRowsBatch(context.Background(), m, parsed)
+	if err != nil {
+		t.Fatalf("importRowsBatch: %v", err)
+	}
+	if oc.imported != 2 || oc.duplicated != 2 {
+		t.Fatalf("imported=%d duplicated=%d, want 2/2", oc.imported, oc.duplicated)
+	}
+	anyQueries := 0
+	for _, q := range m.fakeStore.queries {
+		if strings.Contains(q, "content_hash = ANY($1)") {
+			anyQueries++
+		}
+	}
+	// 해시 4개를 청크 2로 → 2회 왕복(행별 조회였다면 4회).
+	if anyQueries != 2 {
+		t.Fatalf("ANY($1) 왕복=%d회, want 2(청크 2)", anyQueries)
+	}
+	if oc.byIndex[0] != 501 || oc.byIndex[1] != 502 {
+		t.Fatalf("기존 행 id 승계: byIndex=%v, want [501 502 ...]", oc.byIndex)
+	}
+	if len(m.inserted) != 2 {
+		t.Fatalf("신규 적립=%d, want 2", len(m.inserted))
+	}
+}
+
+// TestImportRowsBatchChunkBoundary — P2 Review Focus: 적립은 청크
+// INSERT로 나뉜다(마지막 청크는 잔여 크기). id 매핑·imported 집계는
+// 행 순서와 동일하게 유지된다.
+func TestImportRowsBatchChunkBoundary(t *testing.T) {
+	overrideImportChunks(t, 100, 2)
+	m := newMemMigrateFake()
+	rows := maxRowsFixtureRows(5)
+	oc, err := importRowsBatch(context.Background(), m, rows)
+	if err != nil {
+		t.Fatalf("importRowsBatch: %v", err)
+	}
+	if oc.imported != 5 {
+		t.Fatalf("imported=%d, want 5", oc.imported)
+	}
+	if len(m.batchSizes) != 3 || m.batchSizes[0] != 2 || m.batchSizes[1] != 2 || m.batchSizes[2] != 1 {
+		t.Fatalf("청크 크기=%v, want [2 2 1]", m.batchSizes)
+	}
+	for i, id := range oc.byIndex {
+		if id != i+1 {
+			t.Fatalf("byIndex[%d]=%d, want 순차 id %d", i, id, i+1)
+		}
+	}
+}
+
+// TestRunImportMigratePartialFailureResume — 청크 커밋 회귀 Review Focus:
+// 청크 2 INSERT 실패(23505 원인 보존·exit 1) 시 청크 1 커밋은 유지되고,
+// 재실행은 dedup가 이미 적립된 청크를 회복해 잔여만 적립(부분 성공
+// imported 수 보존·멱등 재개).
+func TestRunImportMigratePartialFailureResume(t *testing.T) {
+	overrideImportChunks(t, 100, 2)
+	rows := maxRowsFixtureRows(6)
+	data, err := FormatJSONL(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := newMemMigrateFake()
+	m.insertErrs[1] = fmt.Errorf("%w: ERROR 23505 duplicate key knowledge_pkey", store.ErrDuplicate)
+	out, code := runMigrate(t, m, []string{"--format", "jsonl"}, string(data))
+	if code != 1 {
+		t.Fatalf("1회차 exit=%d, want 1(배치 실패 유령 성공 금지); out=%s", code, out)
+	}
+	if !strings.Contains(out, "23505") {
+		t.Fatalf("오류 원인 미보존: %s", out)
+	}
+	if len(m.batchSizes) != 2 || m.batchSizes[0] != 2 || m.batchSizes[1] != 2 {
+		t.Fatalf("1회차 청크=%v, want [2 2](첫 청크 커밋 후 실패)", m.batchSizes)
+	}
+	if len(m.inserted) != 2 { // 청크 1만 적립 — 부분 성공 보존
+		t.Fatalf("부분 성공 적립=%d, want 2(첫 청크)", len(m.inserted))
+	}
+	delete(m.insertErrs, 1)
+	out, code = runMigrate(t, m, []string{"--format", "jsonl"}, string(data))
+	if code != 0 {
+		t.Fatalf("재개 exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"imported":4`) || !strings.Contains(out, `"duplicated":2`) {
+		t.Fatalf("재개 요약(부분 성공 회복): %s", out)
+	}
+	if len(m.inserted) != 6 {
+		t.Fatalf("총 적립=%d, want 6", len(m.inserted))
+	}
+}
+
+// TestImportChunkedRealSlow — 실DB 회귀(slow): 청크 축소 상태에서
+// 왕복·멱등·계보·부분 실패 재개. 합성 데모 데이터만 사용하고 태그로
+// 정리한다. SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만.
+func TestImportChunkedRealSlow(t *testing.T) {
+	dsn, ok := importRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	overrideImportChunks(t, 5, 7) // dedup 5해시·INSERT 7행 청크로 경계 강제
+	ctx := context.Background()
+	repo, err := db.NewRepo(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		repo.Close()
+		t.Skipf("real pool unavailable: %v", err)
+	}
+	st := &importRealStore{Repo: repo, pool: pool}
+	t.Cleanup(st.Close)
+	const tag = "importt2"
+	cleanup := func() {
+		_, _ = st.Query(ctx, `DELETE FROM knowledge WHERE strpos(tags, ':' || $1 || ':') > 0`, tag)
+	}
+	t.Cleanup(cleanup)
+	cleanup()
+
+	t.Run("roundtrip idempotent lineage across chunks", func(t *testing.T) {
+		defer cleanup()
+		maxRows, err := wire.QueryOnce(ctx, st, `SELECT COALESCE((SELECT MAX(id) FROM knowledge), 0)`, nil)
+		if err != nil || len(maxRows) == 0 {
+			t.Fatalf("max(id) 조회 실패: %v", err)
+		}
+		base, _ := render.CellToInt(maxRows[0][0])
+		t0 := time.Date(2026, 11, 15, 9, 0, 0, 0, time.UTC)
+		var rows []ExportRow
+		for i := 1; i <= 17; i++ {
+			r := ExportRow{
+				ID:    base + i, // 계보 참조 해석용 명시 id(idmap 승계)
+				Topic: fmt.Sprintf("demo t2 chunk %02d", i),
+				Content: fmt.Sprintf("합성 데모 slow — 청크 왕복 행 %02d.", i),
+				Kind: "knowledge", Status: "active", Confidence: 0.9,
+				Tags: []string{tag}, Domain: "main", Source: "agent",
+				CreatedAt: t0, UpdatedAt: t0,
+			}
+			if i == 16 { // 계보: 마지막 청크 행이 이전 청크 행을 대체
+				r.Status = "invalidated"
+				sup := base + i - 1
+				r.SupersededBy = &sup
+			}
+			rows = append(rows, r)
+		}
+		data, err := FormatJSONL(rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var out strings.Builder
+		code := RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
+		if code != 0 {
+			t.Fatalf("1회차 exit=%d out=%s", code, out.String())
+		}
+		if !strings.Contains(out.String(), `"imported":17`) || !strings.Contains(out.String(), `"superseded":1`) {
+			t.Fatalf("1회차 요약: %s", out.String())
+		}
+		out.Reset()
+		code = RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
+		if code != 0 {
+			t.Fatalf("2회차 exit=%d out=%s", code, out.String())
+		}
+		if !strings.Contains(out.String(), `"imported":0`) || !strings.Contains(out.String(), `"duplicated":17`) {
+			t.Fatalf("멱등 위반(ANY($1) 일괄 dedup): %s", out.String())
+		}
+		cleanup()
+	})
+
+	t.Run("partial failure resume keeps first chunk", func(t *testing.T) {
+		maxRows, err := wire.QueryOnce(ctx, st, `SELECT COALESCE((SELECT MAX(id) FROM knowledge), 0)`, nil)
+		if err != nil || len(maxRows) == 0 {
+			t.Fatalf("max(id) 조회 실패: %v", err)
+		}
+		base, _ := render.CellToInt(maxRows[0][0])
+		t0 := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
+		var rows []ExportRow
+		for i := 1; i <= 12; i++ { // 청크 7: [1..7][8..12] — 2청크
+			rows = append(rows, ExportRow{
+				ID:    base + i,
+				Topic: fmt.Sprintf("demo t2 resume %02d", i),
+				Content: fmt.Sprintf("합성 데모 slow — 부분 실패 재개 행 %02d.", i),
+				Kind: "knowledge", Status: "active", Confidence: 0.9,
+				Tags: []string{tag}, Domain: "main", Source: "agent",
+				CreatedAt: t0, UpdatedAt: t0,
+			})
+		}
+		data, err := FormatJSONL(rows)
+		if err != nil {
+			t.Fatal(err)
+		}
+		// 청크 2 위치(id base+9)를 상이 본문으로 선점 → 청크 2 PK 충돌.
+		if _, err := wire.QueryOnce(ctx, st, fmt.Sprintf(
+			`INSERT INTO knowledge (id, topic, summary, tags, confidence, origin, status, content_hash)
+			 VALUES (%d, 'demo t2 squatter', '합성 데모 slow — 선점 행.', ':%s:', 0.9, 'agent', 'active', 't2-squatter-%d')`,
+			base+9, tag, base), nil); err != nil {
+			t.Fatalf("선점 행 적립 실패: %v", err)
+		}
+		var out strings.Builder
+		code := RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
+		if code != 1 {
+			t.Fatalf("exit=%d, want 1(청크 2 충돌); out=%s", code, out.String())
+		}
+		// 청크 1(id base+1..7)은 커밋되어 있다.
+		var n int
+		if err := st.pool.QueryRow(ctx, `SELECT count(*) FROM knowledge WHERE id = ANY($1)`,
+			[]int{base + 1, base + 7}).Scan(&n); err != nil {
+			t.Fatalf("청크 1 조회: %v", err)
+		}
+		if n != 2 {
+			t.Fatalf("청크 1 커밋 행=%d, want 2(부분 성공 보존)", n)
+		}
+		// 선점 해제 후 재실행 — dedup가 청크 1을 회복, 잔여 5행 적립.
+		if _, err := st.Query(ctx, `DELETE FROM knowledge WHERE id = $1`, base+9); err != nil {
+			t.Fatalf("선점 해제 실패: %v", err)
+		}
+		out.Reset()
+		code = RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
+		if code != 0 {
+			t.Fatalf("재개 exit=%d out=%s", code, out.String())
+		}
+		if !strings.Contains(out.String(), `"imported":5`) || !strings.Contains(out.String(), `"duplicated":7`) {
+			t.Fatalf("재개 요약(멱등 재개): %s", out.String())
+		}
+		// 이식 후 write 성공 — setval 동기(명시 id 경로).
+		payload := `{"topic":"demo t2 after resume","summary":"합성 데모 slow — 재개 직후 write.","tags":["` + tag + `"],"domain":"main","confidence":0.9,"origin":"agent"}` + "\n"
+		wout, code := run(t, st, []string{"knowledge"}, payload)
+		if code != 0 {
+			t.Fatalf("재개 후 write 실패(exit=%d) — setval 미동기 의심: %s", code, wout)
+		}
+		cleanup()
+	})
+}
+
+// TestImportBatchBenchRealSlow — bench(slow): 합성 5.6k행 재이식이 목표
+// 수 초 구간에 들어온다(R30 실측 25.6s → v1.6.0 T2 후). 경과 시간은
+// 로그로 남기고 상한은 여유 있게 20s(환경 편차 흡수 — 실측은 t.Log).
+func TestImportBatchBenchRealSlow(t *testing.T) {
+	dsn, ok := importRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	repo, err := db.NewRepo(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		repo.Close()
+		t.Skipf("real pool unavailable: %v", err)
+	}
+	st := &importRealStore{Repo: repo, pool: pool}
+	t.Cleanup(st.Close)
+	const tag = "importt2bench"
+	cleanup := func() {
+		_, _ = st.Query(ctx, `DELETE FROM knowledge WHERE strpos(tags, ':' || $1 || ':') > 0`, tag)
+	}
+	t.Cleanup(cleanup)
+	cleanup()
+
+	rows := maxRowsFixtureRows(5600)
+	for i := range rows { // bench 태그 부착(정리 식별용)
+		rows[i].Tags = []string{tag, "bench"}
+	}
+	data, err := FormatJSONL(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	start := time.Now()
+	var out strings.Builder
+	code := RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
+	elapsed := time.Since(start)
+	if code != 0 {
+		t.Fatalf("bench import exit=%d out=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"imported":5600`) {
+		t.Fatalf("bench 요약: %s", out.String())
+	}
+	t.Logf("bench import 5.6k rows: %s (목표 수 초, 상한 20s)", elapsed)
+	if elapsed > 20*time.Second {
+		t.Fatalf("bench 5.6k import %s — 목표(수 초) 미달, 상한 20s 초과", elapsed)
+	}
+	// 재실행 — 일괄 dedup(ANY($1)) 경로 벤치: 5.6k 중복 판정.
+	start = time.Now()
+	out.Reset()
+	code = RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
+	dedupElapsed := time.Since(start)
+	if code != 0 || !strings.Contains(out.String(), `"duplicated":5600`) {
+		t.Fatalf("bench 재실행(멱등) exit=%d out=%s", code, out.String())
+	}
+	t.Logf("bench reimport(dedup 5.6k): %s", dedupElapsed)
+	if dedupElapsed > 20*time.Second {
+		t.Fatalf("bench 재실행 dedup %s — 상한 20s 초과", dedupElapsed)
+	}
 }

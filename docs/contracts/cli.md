@@ -81,7 +81,8 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
 - `approve` failure messages embed the usage — `--id N [--supersede OLD]`
   — so agents can self-correct without re-reading docs (v1.5.3).
 - Data mobility (v1.3~v1.4): `export [--format jsonl|md|txt|csv|pam]
-  [--out FILE] [--status active|all] [--tag X] [--since RFC3339]` — five
+  [--out FILE] [--status active|all] [--tag X] [--since RFC3339]
+  [--sign (pam only)]` — five
   formats; the `pam` row count equals the published rows actually
   written (v1.5.5) — pending rows are excluded by default and never
   counted; writing `--out` also creates a `.sha256` sidecar (sha256sum -c
@@ -90,7 +91,23 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   when `--format` is omitted (v1.5.5; a mismatch suggests the matching
   migration command); a shared one-shot row cap for export · import
   (`export_import_max_rows`, default 100000); exceeding it returns an error
-  JSON (with `max` · `count`) and exit 3.
+  JSON (with `max` · `count`) and exit 3 — the cap is decided by a single
+  line-count scan before parsing (v1.6.0, no full-parse memory spike).
+- PAM signing and intake verification (v1.6.0): `export --format pam
+  --sign` attaches the PAM spec §18 signature block (payload
+  {checksum, export_id, export_date, owner_id}, JCS-canonicalized →
+  Ed25519; the signing key is auto-generated 0600 at
+  `pam-signing-key` under the config dir — `FLINT_CONFIG_DIR` → wire
+  `ConfigDir` → `os.UserConfigDir()/flint`, age conventions; `--sign`
+  with any other format is a usage error, exit 3). `import --format pam`
+  recomputes `integrity.checksum`
+  — a mismatch is exit 3, never a silent pass — and verifies the
+  signature when present; a failed signature prints one stderr warning
+  and continues (spec SHOULD).
+- `maintain --check` responses include a `next` key (v1.6.0) — the
+  recommended action, the pending-import convention.
+- `doctor --json` (v1.6.0) emits machine-readable output; the text
+  output is unchanged and fail → exit 1 in both modes.
 - TUI screens (v1.5.0, `lib/tui`; adaptive default since v1.5.2; flag
   paths fully preserved): `pending` · `export` · `report` are
   adaptive — a bare invocation in a terminal opens the TUI, while a
@@ -108,7 +125,12 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   existing no-arg path. Escape hatch: setting `FLINT_NO_TUI` to a
   non-empty value blocks the adaptive TUI entry even in a terminal
   (agents · CI force the non-interactive path; an explicit `--tui`
-  still wins).
+  still wins). `maintain --tui` (v1.6.0) is **opt-in only** — no adaptive
+  entry (the subcommand arguments stay authoritative): dup-suspects ·
+  conflict-suspects · stale lists → a detail view with a what-survives
+  merge preview → m merge · k keep · i invalidate · q quit, every action
+  delegating to the existing maintain subcommands; non-terminal `--tui`
+  keeps the one-error-line + exit 3 convention above.
 
 ## Boundaries
 

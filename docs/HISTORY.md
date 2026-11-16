@@ -6,7 +6,58 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.6.0 minor (2026-11-16) — performance fixes · PAM completion · maintain TUI · parser unification
+
+- [x] Performance (R30 findings; all numbers are synthetic benchmarks —
+  50k/5.6k-row generated datasets, never production data. "Before" is
+  the R30 survey baseline, "after target" is the v1.6 goal; the measured
+  close-out lives in docs/PERF.md):
+  `pending` topic-prefix matching rebuilt the full active scan per row
+  (O(pending×active)) into a one-shot prefix-key map (O(N+M); 50k rows
+  255s → under 1s target) · `import --format jsonl` dedup and INSERT
+  moved from per-row lookups to a hash-array `ANY($1)` precheck plus
+  chunked pgx Batch inserts with chunk-commit transactions (partial
+  failure preserves the imported count; retry is idempotent via dedup;
+  5.6k rows 25.6s → seconds target) and the row cap is decided by one
+  line-count scan before parsing instead of a full parse (312MB peak →
+  lightweight) · `write` batch dedup uses the same `ANY($1)` batching
+  (50k rows 137s → seconds target). Verdict and output equivalence
+  regressions ship with every fix — behavior is byte-for-byte identical.
+- [x] PAM completion: export emits the spec-required owner block
+  (did:key:ed25519 id) and relation fields — external `pam validate`
+  perspective clean · `integrity.checksum` is verified on import
+  (mismatch → exit 3, never a silent pass) · PAM spec §18 Ed25519
+  signing: `export --format pam --sign` attaches a signature block
+  (payload {checksum, export_id, export_date, owner_id} JCS → Ed25519;
+  key auto-generated 0600 under the config dir, age conventions);
+  import verifies the signature when present — failure prints one stderr
+  warning and continues (spec SHOULD) · FormatPAM memory churn cut from
+  876MB (50k rows) toward ≤1/4 with byte-identical output — checksum
+  reproduction is the first-priority regression.
+- [x] `maintain --tui` (opt-in only — no adaptive entry, the subcommand
+  arguments stay authoritative): dup-suspects · conflict-suspects ·
+  stale lists → detail view with a what-survives merge preview →
+  m merge · k keep · i invalidate · q quit; every action delegates to
+  the existing maintain subcommands (the pending TUI pattern —
+  GlobalIndex · sink causes · FLINT_NO_TUI inherited).
+- [x] Argument-parser unification: 12 commands move to the spec-table
+  mini-parser (lib/wire/args.go — about 800 lines of hand-rolled
+  parsing removed). The N9 `--` rules, value consumption, and
+  repeat-flag semantics are 100% preserved — before/after equivalence
+  is held by the existing command tests (no behavior change).
+- [x] Small closures: `diff` usage legacy site → wire.UsageErrorf (the
+  v1.5.4 omission) · `doctor --json` machine-readable output (text
+  unchanged, fail → exit 1 in both) · `maintain --check` responses gain
+  a `next` key — the recommended action (the pending-import convention)
+  · pending TUI `e` action delegates to `maintain --expire-pending`.
+- [x] docs/PERF.md (new): measurement conventions (isolated DB ·
+  synthetic seed · median of 3) · the R30 baseline table · v1.6 targets
+  and measured results · a reproduction guide · the known limitation
+  that Doltgres has no pg_trgm, so `read` LIKE matching stays a full
+  scan (deferred, not silently dropped).
+
 ### v1.5.5 minor (2026-11-16) — terminal detection fix + CLI edge completion
+
 
 - [x] Terminal detection fixed: `os.Stdout.Stat()` + `ModeCharDevice`
   classifies `/dev/null` as a character device, so a redirect

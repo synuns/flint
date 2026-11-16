@@ -7,9 +7,11 @@ package cli
 import (
 	"bytes"
 	"context"
+	"crypto/ed25519"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -452,6 +454,127 @@ func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
 	}
 	if !strings.Contains(stderr.String(), "exported 1 rows (pam, ") {
 		t.Fatalf("summary must use formatter-issued count, not len(rows): %q", stderr.String())
+	}
+}
+
+// --- v1.6.0 T4: §18 `--sign` 진입(--format pam 전용) ---
+
+// installPAMSignFakes — exportSignKeyFn·formatPAMSignedFn 교체(호출
+// 기록 래퍼). 기본은 고정 합성 키·최소 fake 본문, SUPERLITE_REAL=1이면
+// 실구현(임시 경로 키 실생성·실 FormatPAMSigned 배선)으로 같은 테스트를
+// 재검증한다(seam check). 반환: (호출 수, 전달된 키).
+func installPAMSignFakes(t *testing.T) (*int, *ed25519.PrivateKey) {
+	t.Helper()
+	var keyFn func() (ed25519.PrivateKey, error)
+	var inner func([]knowledge.ExportRow, ed25519.PrivateKey) ([]byte, int, error)
+	if os.Getenv("SUPERLITE_REAL") == "1" {
+		path := filepath.Join(t.TempDir(), "pam-signing-key")
+		knowledge.PAMSigningKeyPathFn = func() string { return path }
+		keyFn = knowledge.LoadOrCreatePAMSigningKey
+		inner = func(rows []knowledge.ExportRow, k ed25519.PrivateKey) ([]byte, int, error) {
+			data, err := knowledge.FormatPAMSigned(rows, "flint/"+CurrentVersion(), k)
+			if err != nil {
+				return nil, 0, err
+			}
+			var doc struct {
+				Integrity struct {
+					TotalMemories int `json:"total_memories"`
+				} `json:"integrity"`
+			}
+			if jerr := json.Unmarshal(data, &doc); jerr != nil {
+				return nil, 0, jerr
+			}
+			return data, doc.Integrity.TotalMemories, nil
+		}
+	} else {
+		seed := sha256.Sum256([]byte("flint-cli-pam-sign-demo-seed"))
+		key := ed25519.NewKeyFromSeed(seed[:])
+		keyFn = func() (ed25519.PrivateKey, error) { return key, nil }
+		inner = func(rows []knowledge.ExportRow, k ed25519.PrivateKey) ([]byte, int, error) {
+			return []byte("<pam signed>\n"), 2, nil
+		}
+	}
+	calls := 0
+	var gotKey ed25519.PrivateKey
+	oldKey, oldFn, oldPath := exportSignKeyFn, formatPAMSignedFn, knowledge.PAMSigningKeyPathFn
+	exportSignKeyFn = keyFn
+	formatPAMSignedFn = func(rows []knowledge.ExportRow, k ed25519.PrivateKey) ([]byte, int, error) {
+		calls++
+		gotKey = k
+		return inner(rows, k)
+	}
+	t.Cleanup(func() {
+		exportSignKeyFn, formatPAMSignedFn, knowledge.PAMSigningKeyPathFn = oldKey, oldFn, oldPath
+	})
+	return &calls, &gotKey
+}
+
+// RF17 — `--format pam --sign`: 키 로더 → 서명 포맷터 진입·exit 0.
+// SUPERLITE_REAL=1에서는 실 FormatPAMSigned 문서가 stdout으로 나간다.
+func TestRunExportPAMSignEntry(t *testing.T) {
+	stderr := installExportFakes(t, nil)
+	calls, gotKey := installPAMSignFakes(t)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--format", "pam", "--sign"}, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stdout %q)", code, stdout.String())
+	}
+	if *calls != 1 {
+		t.Fatalf("formatPAMSignedFn 호출 = %d회, want 1", *calls)
+	}
+	if *gotKey == nil {
+		t.Fatalf("서명 포맷터에 키가 전달되지 않음")
+	}
+	if os.Getenv("SUPERLITE_REAL") == "1" {
+		var doc map[string]any
+		if err := json.Unmarshal(stdout.Bytes(), &doc); err != nil {
+			t.Fatalf("실구현 stdout이 PAM 문서 아님: %v\n%s", err, stdout.String())
+		}
+		if _, ok := doc["signature"]; !ok {
+			t.Fatalf("실구현 서명 문서에 signature 블록 없음: %s", stdout.String())
+		}
+	} else if got, want := stdout.String(), "<pam signed>\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (pam, ") {
+		t.Fatalf("summary missing: %q", stderr.String())
+	}
+}
+
+// RF17b — --sign는 pam 전용: 다른 포맷 조합은 사용법 오류 exit 3.
+func TestRunExportSignRequiresPAM(t *testing.T) {
+	installExportFakes(t, nil)
+	calls, _ := installPAMSignFakes(t)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--format", "jsonl", "--sign"}, strings.NewReader(""), &stdout)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3 (--sign는 --format pam 전용)", code)
+	}
+	if *calls != 0 {
+		t.Fatalf("무효 조합인데 서명 포맷터 호출됨")
+	}
+	if !strings.Contains(stdout.String(), "sign") {
+		t.Fatalf("오류에 sign 필드 없음: %q", stdout.String())
+	}
+}
+
+// RF17c — 키 로드 실패는 오류 exit 1(문서 발행 없음).
+func TestRunExportSignKeyFailureExit1(t *testing.T) {
+	installExportFakes(t, nil)
+	calls, _ := installPAMSignFakes(t)
+	old := exportSignKeyFn
+	exportSignKeyFn = func() (ed25519.PrivateKey, error) { return nil, errors.New("demo key failure") }
+	defer func() { exportSignKeyFn = old }()
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--format", "pam", "--sign"}, strings.NewReader(""), &stdout)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1 (키 로드 실패)", code)
+	}
+	if *calls != 0 {
+		t.Fatalf("키 실패인데 서명 포맷터 호출됨")
+	}
+	if !strings.Contains(stdout.String(), "demo key failure") {
+		t.Fatalf("오류 원인 누락: %q", stdout.String())
 	}
 }
 

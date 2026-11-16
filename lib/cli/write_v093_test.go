@@ -33,6 +33,23 @@ func (d *dupIDStore) DupIDByHash(ctx context.Context, hash string) (int, bool, e
 	return d.id, true, nil
 }
 
+// Query — v1.6.0 T3: 다중 줄 사전 dedup가 줄별 capability가 아닌 배치
+// 조회(content_hash = ANY($1), knowledge.lookupHashBatch)로 이동했다.
+// 이 fake도 동일 존재 판정(기존 행 id)을 Query seam으로 응답해 다중 줄
+// duplicate 시나리오를 유지한다(단발 경로는 여전히 DupIDByHash).
+func (d *dupIDStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	if strings.Contains(sql, "content_hash = ANY($1)") {
+		if hashes, ok := args[0].([]string); ok {
+			rows := make([][]any, 0, len(hashes))
+			for _, h := range hashes {
+				rows = append(rows, []any{h, d.id, "", ""})
+			}
+			return rows, nil
+		}
+	}
+	return d.fakeStore.Query(ctx, sql, args...)
+}
+
 // withDupID — newStore seam을 dupIDStore로 교체.
 func withDupID(t *testing.T, d *dupIDStore) {
 	t.Helper()

@@ -68,31 +68,31 @@ var BackupEncryptOn = wire.BackupEncryptOn
 // v1.0.1(F3): 인자 검증 경로(unknown flag·값 누락·--encrypt 단독)는 무효
 // 인자 exit 3으로 통일.
 func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	out := ""
-	encrypt, mask := false, false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--out":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--out requires a path — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
-				return 3
-			}
-			// v1.0.2(R2): 값이 플래그를 흡수하는 오타('--out --encrypt' →
-			// 경로 "--encrypt")는 read --session 계약과 동일하게 exit 3.
-			if err := knowledge.ValidateFlagValue("out", args[i]); err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err))
-				return 3
-			}
-			out = args[i]
-		case "--encrypt":
-			encrypt = true
-		case "--mask":
-			mask = true
-		default:
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint backup [--out FILE] [--encrypt] [--mask]", args[i])))
-			return 3
-		}
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 불허). 값 검증(오타 가드 포함)은 호출부 계약 그대로.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--out", Value: true},
+			{Name: "--encrypt"},
+			{Name: "--mask"},
+		},
+		Usage: "usage: flint backup [--out FILE] [--encrypt] [--mask]",
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
+	out := res.Value("--out")
+	encrypt, mask := res.Given("--encrypt"), res.Given("--mask")
+	if res.Given("--out") && !res.HasValue("--out") {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--out requires a path — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
+		return 3
+	}
+	// v1.0.2(R2): 값이 플래그를 흡수하는 오타('--out --encrypt' →
+	// 경로 "--encrypt")는 read --session 계약과 동일하게 exit 3.
+	if err := knowledge.ValidateFlagValue("out", out); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 3
 	}
 	if encrypt && out == "" {
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--encrypt requires --out (ciphertext is file-only) — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
@@ -234,28 +234,29 @@ func rotateAfterBackup(ctx context.Context, st wire.Store, out string) string {
 // v1.0.1(F3): 인자 검증 경로(unknown flag·값 누락·--file 부재)는 무효
 // 인자 exit 3으로 통일.
 func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	file := ""
-	drill := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--drill":
-			drill = true
-		case "--file":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--file requires a path — usage: flint restore --file FILE [--drill]")))
-				return 3
-			}
-			// v1.0.2(R2): 플래그 흡수 값 가드(--out과 동일 계약).
-			if err := knowledge.ValidateFlagValue("file", args[i]); err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(err))
-				return 3
-			}
-			file = args[i]
-		default:
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint restore --file FILE [--drill]", args[i])))
-			return 3
-		}
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 불허). 값 검증(오타 가드 포함)은 호출부 계약 그대로.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--drill"},
+			{Name: "--file", Value: true},
+		},
+		Usage: "usage: flint restore --file FILE [--drill]",
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
+	file := res.Value("--file")
+	drill := res.Given("--drill")
+	if res.Given("--file") && !res.HasValue("--file") {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--file requires a path — usage: flint restore --file FILE [--drill]")))
+		return 3
+	}
+	// v1.0.2(R2): 플래그 흡수 값 가드(--out과 동일 계약).
+	if err := knowledge.ValidateFlagValue("file", file); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 3
 	}
 	if file == "" {
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("restore requires --file — usage: flint restore --file FILE [--drill]")))

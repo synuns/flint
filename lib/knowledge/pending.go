@@ -80,7 +80,10 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	}
 	now := time.Now().UTC()
 	// v0.31.3(감사 3): active 전체 1회 조회 — 행마다 재조회(O(P×A)) 제거.
+	// v1.6.0 T1(R30-C C1): 조회 결과를 접두 키 인덱스로 1회 빌드 —
+	// 행마다 active 전체 재스캔(합성 5만에서 수백 초)을 O(N+M)로 수렴.
 	actives := fetchActiveTopicRows(ctx, st)
+	idx := buildTopicPrefixIndex(actives)
 	counts := map[string]int{}
 	// v0.32.0: JSON 모드용 행 구조 — 판정 데이터를 그대로 직렬화한다.
 	type jsonItem struct {
@@ -112,7 +115,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		// v0.32.1(감사 1·2): valid_at 파싱 불가 가드를 판정·counts 앞으로 —
 		// jsonMode 한정 오버라이드가 counts(원 kind)와 items(보정 kind)를
 		// 어긋나게 하던 모순 수선, 텍스트 모드에도 동일 적용.
-		v := verdictFor(it, th, now, actives)
+		v := verdictFor(it, th, now, idx)
 		if it.ValidAt.IsZero() {
 			v = pendingVerdict{"hold", "valid_at unparsable — data check required"}
 		}
@@ -169,13 +172,13 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 //   - 병합: 유사 active 존재(topic 접두 일치 — approve R2와 동일 근사)
 //   - 승격: 최근 3일 이내 + 본문 40룬 이상(유의미성 근사)
 //   - 보류: 그 외(짧은 최근 행 등 — 더 쌓여서 판단)
-func verdictFor(it pendingItem, th store.Thresholds, now time.Time, actives [][]any) pendingVerdict {
+func verdictFor(it pendingItem, th store.Thresholds, now time.Time, idx topicPrefixIndex) pendingVerdict {
 	age := now.Sub(it.ValidAt)
 	if d := th.PendingAgeDays; d > 0 && age > time.Duration(d)*24*time.Hour {
 		return pendingVerdict{"expire", fmt.Sprintf("%dd elapsed (threshold %dd) — expire review: maintain --invalidate --id %d --reason review", int(age.Hours()/24), d, it.ID)}
 	}
-	// 병합 후보 — 유사 active 탐색(사전 조회 세트에서 접두 일치).
-	if sims := matchTopicPrefix(topicSimilarityKey(it.Topic), actives); len(sims) > 0 {
+	// 병합 후보 — 유사 active 탐색(사전 빌드 인덱스 조회 — v1.6.0 T1).
+	if sims := idx.match(topicSimilarityKey(it.Topic)); len(sims) > 0 {
 		return pendingVerdict{"merge", fmt.Sprintf("similar active %d (id %s) — review approve --id %d --supersede OLD",
 			len(sims), joinInts(sims), it.ID)}
 	}
@@ -208,25 +211,45 @@ func topicSimilarityKey(topic string) string {
 	return topic
 }
 
-// matchTopicPrefix — key 12룬 접두가 일치하는 active (id,topic) 행의 id.
-// approve·pending 양쪽이 공유하는 단일 근사 구현(리뷰 5).
-func matchTopicPrefix(key string, actives [][]any) []int {
-	prefix := render.TruncateRunes(key, 12)
-	if prefix == "" {
-		return nil
-	}
-	var out []int
+// topicPrefixIndex — active (id, topic) 행의 유사 접두 키 → id 목록
+// (active 조회 순서 보존·동일 접두 중복 포함). v1.6.0 T1(R30-C C1):
+// matchTopicPrefix가 행마다 active 전체를 재스캔하던 O(pending×active)를
+// 인덱스 사전 빌드 1회 + 조회 O(1)로 수렴. 접두 정책(세션 공통 접두
+// 제거 후 12룬)·행 필터(id 파싱 가능·열 충족)는 구 스캔 구현과 동일하다.
+type topicPrefixIndex map[string][]int
+
+// buildTopicPrefixIndex — active (id, topic) 행으로 인덱스 1회 빌드.
+// 빈 접두 키 행은 어느 키와도 일치하지 않으므로(구현 원본 동일) 제외.
+func buildTopicPrefixIndex(actives [][]any) topicPrefixIndex {
+	idx := topicPrefixIndex{}
 	for _, r := range actives {
 		if len(r) < 2 || r[0] == nil {
 			continue
 		}
 		var id int
-		if n, _ := fmt.Sscan(fmt.Sprint(r[0]), &id); n == 1 &&
-			render.TruncateRunes(topicSimilarityKey(fmt.Sprint(r[1])), 12) == prefix {
-			out = append(out, id)
+		if n, _ := fmt.Sscan(fmt.Sprint(r[0]), &id); n == 1 {
+			if p := render.TruncateRunes(topicSimilarityKey(fmt.Sprint(r[1])), 12); p != "" {
+				idx[p] = append(idx[p], id)
+			}
 		}
 	}
-	return out
+	return idx
+}
+
+// match — key의 12룬 접두가 일치하는 active id 목록(조회 순·중복 포함).
+func (idx topicPrefixIndex) match(key string) []int {
+	prefix := render.TruncateRunes(key, 12)
+	if prefix == "" || idx == nil {
+		return nil
+	}
+	return idx[prefix]
+}
+
+// matchTopicPrefix — key 12룬 접두가 일치하는 active (id,topic) 행의 id.
+// approve·pending 양쪽이 공유하는 단일 근사 구현(리뷰 5) — v1.6.0 T1:
+// 내부는 접두 인덱스 경유(스캔 루프 폐지, 판정 결과는 구현과 동일).
+func matchTopicPrefix(key string, actives [][]any) []int {
+	return buildTopicPrefixIndex(actives).match(key)
 }
 
 // originLabel — 출처 축약 표기(hook/agent/import:파일 — 리뷰 10 활용).

@@ -192,33 +192,39 @@ type doctorOutput struct {
 // 누락·무효 --check명)는 exit 3(전역 계약: 무효 인자 3). fail 있으면 1,
 // warn은 0. 무 --fix 경로의 출력·exit은 완전 불변.
 func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	subset := ""
-	fix := false
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--list-checks":
-			// v0.34.3 R11: 등록표 전량(코어6+tail10) — 구 6종만 내던
-			// 회귀 방지(실제 실행 16종 중 10종이 발견 불가했음).
-			names := make([]string, 0, len(doctorChecks()))
-			for _, s := range doctorChecks() {
-				names = append(names, s.Name)
-			}
-			b, _ := json.Marshal(map[string][]string{"checks": names})
-			fmt.Fprintln(stdout, string(b))
-			return 0
-		case "--fix":
-			fix = true
-		case "--check":
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: --check requires a name — usage: flint doctor [--list-checks] [--check NAME] [--fix]")))
-				return 3
-			}
-			subset = args[i]
-		default:
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint doctor [--list-checks] [--check NAME] [--fix]", args[i])))
-			return 3
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 불허 — 무접두 토큰도 unknown flag exit 3, 기존 계약). 값 검증은
+	// 호출부에 그대로. v1.6.0 T8② --json 플래그 동반.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--list-checks"},
+			{Name: "--fix"},
+			// v1.6.0 T8②: 기계 판독 명시 채널 — DoctorCheck 필드 구조의
+			// 한 줄 JSON을 고정한다(기본 텍스트 출력은 불변).
+			{Name: "--json"},
+			{Name: "--check", Value: true},
+		},
+		Usage: "usage: flint doctor [--list-checks] [--check NAME] [--fix] [--json]",
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
+	if res.Given("--list-checks") {
+		// v0.34.3 R11: 등록표 전량(코어6+tail10) — 구 6종만 내던
+		// 회귀 방지(실제 실행 16종 중 10종이 발견 불가했음).
+		names := make([]string, 0, len(doctorChecks()))
+		for _, s := range doctorChecks() {
+			names = append(names, s.Name)
 		}
+		b, _ := json.Marshal(map[string][]string{"checks": names})
+		fmt.Fprintln(stdout, string(b))
+		return 0
+	}
+	subset, fix, jsonOut := res.Value("--check"), res.Given("--fix"), res.Given("--json")
+	if res.Given("--check") && !res.HasValue("--check") {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: --check requires a name — usage: flint doctor [--list-checks] [--check NAME] [--fix] [--json]")))
+		return 3
 	}
 	if subset != "" {
 		// --check 허용 목록은 등록표 전량에서 파생(v0.34.3 R11) — 코어
@@ -231,12 +237,12 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			ok = true
 		}
 		if !ok {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: unknown check %q — usage: flint doctor [--list-checks] [--check NAME] [--fix] (names via --list-checks)", subset)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: unknown check %q — usage: flint doctor [--list-checks] [--check NAME] [--fix] [--json] (names via --list-checks)", subset)))
 			return 3
 		}
 		checks := []DoctorCheck{runDoctorCheck(ctx, st, subset)}
 		bumpDoctorWarnCounters(ctx, st, checks) // v1.2.0 T4 발화 카운터
-		return doctorReport(checks, fix, stdout)
+		return doctorReport(checks, fix, jsonOut, stdout)
 	}
 
 	// 전체 실행 체인 — 등록표 파생(코어 6종, 하니스·스킬 별도 체인,
@@ -269,7 +275,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		}
 	}
 	bumpDoctorWarnCounters(ctx, st, checks) // v1.2.0 T4 발화 카운터
-	return doctorReport(checks, fix, stdout)
+	return doctorReport(checks, fix, jsonOut, stdout)
 }
 
 // bumpDoctorWarnCounters — v1.2.0 T4 발화 카운터: warn 판정 검사별
@@ -290,8 +296,10 @@ func bumpDoctorWarnCounters(ctx context.Context, st wire.Store, checks []DoctorC
 }
 
 // doctorReport — 검사 결과 취합·--fix 자가수복·출력·exit. 등록표 파생
-// 재구성(v0.34.3 R11)에서 서브셋·전체 경로가 공유하는 후반부.
-func doctorReport(checks []DoctorCheck, fix bool, stdout io.Writer) int {
+// 재구성(v0.34.3 R11)에서 서브셋·전체 경로가 공유하는 후반부. jsonOut은
+// v1.6.0 T8② --json — DoctorCheck 필드 구조의 한 줄 JSON을 고정한다
+// (--fix 적용 보고도 doctorOutput 구조로; 기본 --fix 보고는 불변).
+func doctorReport(checks []DoctorCheck, fix bool, jsonOut bool, stdout io.Writer) int {
 	// v0.9.4 --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
 	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
 	// 해당 검사만 재평가하고 doctorFixReport 한 줄로 보고한다.
@@ -325,7 +333,7 @@ func doctorReport(checks []DoctorCheck, fix bool, stdout io.Writer) int {
 			}
 		}
 	}
-	if fixed {
+	if fixed && !jsonOut {
 		fmt.Fprintln(stdout, DoctorFixReport(checks))
 		if overall == "fail" {
 			return 1

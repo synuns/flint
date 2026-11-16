@@ -215,72 +215,58 @@ func InstrumentReads(ctx context.Context, st wire.Store, kind string, ids []int,
 // base 테이블 knowledge + status WHERE 조회(뷰는 invalidated 행을
 // 노출하지 않는다).
 func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	f := query.Filters{}
-	jsonMode, fields, asOfSpec, statusSpec, session, sourceSpec := false, "", "", "", "", ""
-	asOfGiven, statusGiven, sessionGiven, sourceGiven := false, false, false, false
-	tagGiven, entityGiven, domainGiven, fieldsGiven := false, false, false, false
-	var pos []string
-	for i := 0; i < len(args); i++ {
-		a := args[i]
-		// 표준 관례(N9): "--" 이후 전부 위치 인자 — MCP 등 외부 입력의
-		// query가 "--json"처럼 플래그처럼 보여도 플래그로 파싱하지 않는다.
-		if a == "--" {
-			pos = append(pos, args[i+1:]...)
-			break
-		}
-		var v string
-		if i+1 < len(args) {
-			v = args[i+1]
-		}
-		switch a {
-		case "--tag":
-			f.Tag, i, tagGiven = v, i+1, true
-		case "--entity":
-			f.Entity, i, entityGiven = v, i+1, true
-		case "--domain":
-			f.Domain, i, domainGiven = v, i+1, true
-		case "--limit":
-			n, err := strconv.Atoi(v)
-			if err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "limit", Expect: "integer"}))
-				return 3
-			}
-			f.Limit, i = n, i+1
-		case "--status":
-			statusSpec, i = v, i+1
-			statusGiven = true
-		case "--as-of":
-			asOfSpec, i = v, i+1
-			asOfGiven = true
-		case "--json":
-			jsonMode = true
-		case "--fields":
-			fields, i, fieldsGiven = v, i+1, true
-		case "--session":
-			// v0.19.0: 효과 계측용 세션 라벨(선택 — docs/METRICS.md §4).
-			// 조회 동작에는 영향 없고 read_events 기록에만 쓰인다.
-			session, i, sessionGiven = v, i+1, true
-		case "--source":
-			// v1.2.0 T2: 채널 라벨(선택 — read_events.source 계측). lib/mcp
-			// 도구가 cli.Run을 재사용하므로 MCP 경로 구분은 호출부 전달로
-			// 최소 배선한다(write --source 관례 승계). 조회 동작 불변.
-			sourceSpec, i, sourceGiven = v, i+1, true
-		default:
-			// v1.5.3 T1: 미인식 '-' 접두 인자는 쿼리로 흡수하지 않고 무효
-			// 인자 exit 3 — '--jsonn' 같은 오타가 조용히 제로히트로 흘러
-			// 의도와 다른 '검색 결과 없음'으로 보이던 사각 폐지. positional
-			// 쿼리('-' 비접두)와 "--" 이후 흡수(N9)는 불변. v1.5.3(P2):
-			// 오류 타입은 usage(unknown flag류 — approve 관례와 동일) +
-			// message에 허용 플래그 예시(cli.md 기재 — 오타 자가수정).
-			if strings.HasPrefix(a, "-") {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
-					"unknown flag: %s — usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D]", a)))
-				return 3
-			}
-			pos = append(pos, a)
-		}
+	// v1.6.0 T7: 수동 for-switch 루프를 wire.ParseArgs 사양 테이블로 이관
+	// (시맨틱 100% 보존 — N9 "--"·무조건 값 소비·마지막 값 우선·미인식
+	// '-' 접두 unknown flag exit 3). 값 검증(숫자·빈 값·허용값)은 아래
+	// 호출부 계약 그대로.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--json"},
+			{Name: "--tag", Value: true},
+			{Name: "--entity", Value: true},
+			{Name: "--domain", Value: true},
+			{Name: "--limit", Value: true},
+			{Name: "--status", Value: true},
+			{Name: "--as-of", Value: true},
+			{Name: "--fields", Value: true},
+			// v0.19.0: --session 효과 계측용 세션 라벨(선택 — METRICS §4).
+			// v1.2.0 T2: --source 채널 라벨(read_events.source 계측 —
+			// MCP 경로 구분은 호출부 전달, write --source 관례 승계).
+			{Name: "--session", Value: true},
+			{Name: "--source", Value: true},
+		},
+		Usage: "usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D]",
+		// N9: "--" 이후 전부 위치 인자 — MCP 등 외부 입력의 query가
+		// "--json"처럼 보여도 플래그로 파싱하지 않는다.
+		DashDash:        true,
+		AllowPositional: true,
+	})
+	if perr != nil {
+		// v1.5.3 T1/P2 승계: 미인식 '-' 접두 인자는 무효 인자 exit 3,
+		// 오류 타입 usage + message에 허용 플래그 예시(오타 자가수정).
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
 	}
-	q := strings.Join(pos, " ")
+	f := query.Filters{
+		Tag:    res.Value("--tag"),
+		Entity: res.Value("--entity"),
+		Domain: res.Value("--domain"),
+	}
+	jsonMode := res.Given("--json")
+	fields, asOfSpec, statusSpec := res.Value("--fields"), res.Value("--as-of"), res.Value("--status")
+	session, sourceSpec := res.Value("--session"), res.Value("--source")
+	asOfGiven, statusGiven := res.Given("--as-of"), res.Given("--status")
+	sessionGiven, sourceGiven := res.Given("--session"), res.Given("--source")
+	fieldsGiven := res.Given("--fields")
+	if res.Given("--limit") {
+		n, err := strconv.Atoi(res.Value("--limit"))
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "limit", Expect: "integer"}))
+			return 3
+		}
+		f.Limit = n
+	}
+	q := strings.Join(res.Positional(), " ")
 	// 값 없는 trailing --tag/--entity/--domain/--fields(N10)도 값 없는
 	// --status/--as-of(F1)와 동일 규칙 exit 3 — 빈 값이 조용히 무시되면
 	// 의도와 다른 필터로 결과를 돌려준다. --limit은 이미 Atoi 실패로 exit 3.
@@ -291,9 +277,9 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		val   string
 		field string
 	}{
-		{tagGiven, f.Tag, "tag"},
-		{entityGiven, f.Entity, "entity"},
-		{domainGiven, f.Domain, "domain"},
+		{res.Given("--tag"), f.Tag, "tag"},
+		{res.Given("--entity"), f.Entity, "entity"},
+		{res.Given("--domain"), f.Domain, "domain"},
 		{fieldsGiven, fields, "fields"},
 	} {
 		if g.given && g.val == "" {

@@ -108,6 +108,31 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return 1
 	}
 
+	// v1.6.0 T7: 수동 for-switch 루프를 wire.ParseArgs 사양 테이블로 이관
+	// (시맨틱 100% 보존 — 값 무조건 소비·마지막 모드 우선·unknown exit 3).
+	// 값 검증(숫자·사유 가드·ids 파싱)은 발생 순(AllOccs)으로 아래에서
+	// 재현 — 기존 인카운터 순서 오류 우선 그대로.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--check"}, {Name: "--dup-suspects"}, {Name: "--conflict-suspects"},
+			{Name: "--merge"}, {Name: "--stale"}, {Name: "--invalidate"},
+			{Name: "--invalidate-stale"}, {Name: "--meta-audit"},
+			// v0.33.0: --expire-pending·--prune-invalidated는 모드+값(N 일수).
+			{Name: "--expire-pending", Value: true}, {Name: "--prune-invalidated", Value: true},
+			{Name: "--days", Value: true}, {Name: "--limit", Value: true},
+			{Name: "--id", Value: true}, {Name: "--from", Value: true}, {Name: "--to", Value: true},
+			{Name: "--reason", Value: true}, {Name: "--supersede", Value: true}, {Name: "--by", Value: true},
+			{Name: "--ids", Value: true},
+			{Name: "--commit"}, {Name: "--yes"},
+		},
+		Usage: maintainUsageLine,
+	})
+	if perr != nil {
+		// v0.34.3 승계: 무효 플래그는 무효 인자 계약 exit 3(doctor·tuning·
+		// diff·import 정합).
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
+	}
 	mode := ""
 	id, from, to := 0, 0, 0
 	old, by := 0, 0                  // --supersede OLD --by NEW
@@ -115,61 +140,59 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 	dupLimit := SuspectsDefaultLimit // --dup-suspects 기본(스펙 R4: --limit M 기본 10)
 	expireDays := 0                  // --expire-pending N — 기본값 없음(오삭제 방지)
 	reason := ""
-	yes, commit := false, false
+	yes, commit := res.Given("--yes"), res.Given("--commit")
 	var idList []int // --ids 파싱 결과(스냅샷 — 재평가 없음)
-	seen := map[string]bool{}
-	for i := 0; i < len(args); i++ {
-		switch args[i] {
-		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale", "--invalidate", "--invalidate-stale",
-			"--meta-audit":
-			mode = args[i]
+	// 모드 선출: 모드 플래그 중 마지막 발생이 우선(기존 루프 덮어쓰기 승계).
+	for _, name := range res.FlagOrder() {
+		switch name {
+		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
+			"--invalidate", "--invalidate-stale", "--meta-audit", "--expire-pending",
+			"--prune-invalidated", "--supersede":
+			mode = name
+		}
+	}
+	// 값 플래그 검증·확정 — 발생 순(기존 인카운터 순서 재현).
+	for _, o := range res.AllOccs() {
+		switch o.Name {
 		case "--days", "--limit":
-			seen[args[i]] = true
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", args[i-1])))
+			if !o.HasValue {
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", o.Name)))
 				return 3
 			}
-			n, err := strconv.Atoi(args[i])
+			n, err := strconv.Atoi(o.Value)
 			if err != nil || n <= 0 {
 				// v1.0.1(F3): --limit 무효 값은 read·brief·audit 계열과 동일
 				// 무효 인자 exit 3(값 누락 포함).
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
 				return 3
 			}
-			if args[i-1] == "--days" {
+			if o.Name == "--days" {
 				days = n
 			} else {
 				limit, dupLimit = n, n
 			}
-		case "--expire-pending", "--prune-invalidated": // v0.33.0: 위치 인자 N 공통 파싱
-			mode = args[i]
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number of days", args[i-1])))
+		case "--expire-pending", "--prune-invalidated": // v0.33.0: 값 N 공통 파싱
+			if !o.HasValue {
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number of days", o.Name)))
 				return 1
 			}
-			n, err := strconv.Atoi(args[i])
+			n, err := strconv.Atoi(o.Value)
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
 				return 1
 			}
 			expireDays = n
-		case "--commit":
-			commit = true
 		case "--id", "--from", "--to":
-			seen[args[i]] = true
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", args[i-1])))
+			if !o.HasValue {
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", o.Name)))
 				return 1
 			}
-			n, err := strconv.Atoi(args[i])
+			n, err := strconv.Atoi(o.Value)
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
 				return 1
 			}
-			switch args[i-1] {
+			switch o.Name {
 			case "--id":
 				id = n
 			case "--from":
@@ -178,68 +201,56 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 				to = n
 			}
 		case "--reason":
-			seen[args[i]] = true
-			i++
-			if i >= len(args) || args[i] == "" {
+			if !o.HasValue || o.Value == "" {
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --reason requires a value")))
 				return 1
 			}
 			// v1.0.3(R3): 값이 뒤 플래그를 흡수하는 오타('--reason
 			// --commit' → 사유 "--commit")는 공용 가드로 무효 인자
 			// exit 3(backup --out·restore --file와 동일 계약).
-			if err := knowledge.ValidateFlagValue("reason", args[i]); err != nil {
+			if err := knowledge.ValidateFlagValue("reason", o.Value); err != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return 3
 			}
-			reason = args[i]
+			reason = o.Value
 		case "--supersede":
-			mode = args[i]
-			seen[args[i]] = true
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", args[i-1])))
+			if !o.HasValue {
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", o.Name)))
 				return 1
 			}
-			n, err := strconv.Atoi(args[i])
+			n, err := strconv.Atoi(o.Value)
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
 				return 1
 			}
 			old = n
 		case "--by":
-			seen[args[i]] = true
-			i++
-			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", args[i-1])))
+			if !o.HasValue {
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", o.Name)))
 				return 1
 			}
-			n, err := strconv.Atoi(args[i])
+			n, err := strconv.Atoi(o.Value)
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
 				return 1
 			}
 			by = n
 		case "--ids":
-			seen[args[i]] = true
-			i++
-			if i >= len(args) || args[i] == "" {
+			if !o.HasValue || o.Value == "" {
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --ids requires a value")))
 				return 1
 			}
-			ids, perr := parseIDList(args[i])
+			ids, perr := parseIDList(o.Value)
 			if perr != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%w", perr)))
 				return 1
 			}
 			idList = ids
-		case "--yes":
-			yes = true
-		default:
-			// v0.34.3: 무효 플래그는 무효 인자 계약 exit 3(doctor·tuning·
-			// diff·import 정합).
-			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("unknown flag: %s", args[i])))
-			return 3
 		}
+	}
+	seen := map[string]bool{}
+	for _, f := range maintainValueFlags {
+		seen[f] = res.Given(f)
 	}
 
 	// 모드 귀속 검증: 해당 모드가 받지 않는 값 플래그는 에러(조용한 무시 금지).
@@ -923,8 +934,28 @@ func maintainCheck(ctx context.Context, ms MaintStore, stdout io.Writer) int {
 	if extra := drillReport(ctx, ms); extra != "" {
 		line = line[:len(line)-1] + extra + "}"
 	}
+	// v1.6.0 T8③: next 키 — 상태별 권장 조치 명령(pending import dry-run
+	// 관례). additive 필드라 기존 status·수치 필드는 불변.
+	line = line[:len(line)-1] + `,"next":` + strconv.Quote(maintainCheckNext(counts, th)) + `}`
 	fmt.Fprintln(stdout, line)
 	return 0
+}
+
+// maintainCheckNext — --check next 키 값: 초과 항목별 권장 명령을
+// 이어붙인다(임계 이내는 none). 명령은 실제 존재 경로만(pending 검토·
+// expire-pending 만료·dup-suspects 목록).
+func maintainCheckNext(counts db.Counts, th store.Thresholds) string {
+	var cmds []string
+	if counts.Pending > th.PendingMax {
+		cmds = append(cmds, "flint pending", "flint maintain --expire-pending N")
+	}
+	if counts.DupSuspect > th.DupSuspMax {
+		cmds = append(cmds, "flint maintain --dup-suspects")
+	}
+	if len(cmds) == 0 {
+		return "none — counts within thresholds"
+	}
+	return strings.Join(cmds, " · ")
 }
 
 // stallWarnings — last-seen heartbeat 경과 진단(spec §1: nodata 패턴).

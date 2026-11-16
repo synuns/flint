@@ -126,7 +126,10 @@ func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 }
 
 // RunWrite — stdin JSON/JSONL 다중을 처리한다. 커밋은 배치 1회, dedup은
-// 줄별(duplicate 줄 skip·신규 줄 부분 커밋; 전부 duplicate면 0건 커밋).
+// duplicate 줄 skip·신규 줄 부분 커밋(전부 duplicate면 0건 커밋). 다중 줄
+// knowledge의 사전 중복 확인은 v1.6.0 T3부터 해시 배열 배치 조회 1회
+// (lookupHashBatch — 줄별 N왕복 폐지), 단발(1행 hook 패턴)은 줄별 조회
+// 계약 불변.
 // v1.5.5 T2 A5: --help/-h는 stdin 대기 전 usage 안내 exit 0.
 func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	// v1.5.5 T2 A5: --help/-h 감지 시 usage 안내 exit 0 — stdin 대기 전
@@ -138,21 +141,25 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return 0
 		}
 	}
-	kind, session := "", ""
-	var pos []string
-	for i := 0; i < len(args); i++ {
-		if args[i] == "--session" && i+1 < len(args) {
-			session = args[i+1]
-			i++
-			continue
-		}
-		if args[i] == "--source" && i+1 < len(args) {
-			i++ // 값은 ParseSourceFlag에서 검증(아래)
-			continue
-		}
-		pos = append(pos, args[i])
+	// v1.6.0 T7: 수동 루프를 wire.ParseArgs로 이관. write는 unknown 플래그
+	// 를 위치 인자로 흡수하는 관례(kind·positional 계열 — DashPositional)
+	// 라 사양이 그대로 반영한다. --source 값 검증은 ParseSourceFlag
+	// 단일 소스 승계(첫 발생 검증 계약), --help/-h 사전 스캔도 위 루프
+	// 그대로.
+	res, perr := wire.ParseArgs(args, wire.ArgSpec{
+		Flags: []wire.FlagSpec{
+			{Name: "--session", Value: true},
+			{Name: "--source", Value: true},
+		},
+		AllowPositional: true,
+		DashPositional:  true,
+	})
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return 3
 	}
-	if len(pos) > 0 {
+	kind, session := "", res.Value("--session")
+	if pos := res.Positional(); len(pos) > 0 {
 		kind = pos[0]
 	}
 	source, err := ParseSourceFlag(args)
@@ -204,6 +211,25 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	dupState := ""
 	// 배치 내 동일 키 줄(knowledge content_hash·project name): InsertBatch 전체 실패 방지
 	seen := map[string]bool{}
+	// v1.6.0 T3(R30-C C3): knowledge 다중 줄의 사전 dedup 배치화 — 줄별
+	// lookupHash(N왕복 — 대형 배치에서 RTT N회가 지배) 대신 해시를 모아
+	// 루프 후 lookupHashBatch(content_hash = ANY($1) 청크, import R30-A P1
+	// 재사용) 1회 조회로 감지 동일성을 유지한다. 단발(len==1, hook 패턴)은
+	// 기존 줄별 조회 계약(DupMetaStore→DupIDStore→ExistsHash 폴백) 불변.
+	batched := len(payloads) > 1
+	var stagedN []map[string]any // 배치 조회 대기 knowledge 줄(순서 보존)
+	var stagedH []string         // stagedN 같은 인덱스의 content_hash
+	// finalizeRec — 판정 통과 줄 확정: kind 태깅·비컬럼 키 정리·recs 적립.
+	finalizeRec := func(n map[string]any) {
+		n["kind"] = kind
+		for k := range n {
+			if !kindColumns[kind][k] && k != "kind" {
+				delete(n, k)
+				dropped[k] = true
+			}
+		}
+		recs = append(recs, n)
+	}
 	for _, p := range payloads {
 		if se := store.Validate(kind, p); se != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(se))
@@ -234,6 +260,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				continue
 			}
 			seen[h] = true
+			if batched {
+				// 다중 줄: 사전 조회를 루프 후 1회 배치로 지연 — 해시만 모은다.
+				n["content_hash"] = h
+				stagedN = append(stagedN, n)
+				stagedH = append(stagedH, h)
+				continue
+			}
 			existsMeta, exists, err := lookupHash(ctx, st, h)
 			if err != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -273,13 +306,30 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 		}
 		n["kind"] = kind
-		for k := range n {
-			if !kindColumns[kind][k] && k != "kind" {
-				delete(n, k)
-				dropped[k] = true
-			}
+		finalizeRec(n)
+	}
+
+	// 다중 줄 knowledge 확정 — 모은 해시를 1회 배치 조회(ANY($1) 청크)해
+	// 기존 줄은 skip, 신규 줄만 판정·적립한다(줄 순서 보존 — 부분 커밋·
+	// 계측·경고 계약은 단발 경로와 동일). 조회 오류는 조용한 신규 판정
+	// 없이 전파(오류 계약 — MapExit 체인 보존).
+	if len(stagedH) > 0 {
+		existing, err := lookupHashBatch(ctx, st, stagedH)
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
 		}
-		recs = append(recs, n)
+		for i, n := range stagedN {
+			if _, dup := existing[stagedH[i]]; dup {
+				dups++ // 배치 dedup 감지 동일성: 이 줄만 skip, 나머지는 커밋
+				continue
+			}
+			conf, _ := n["confidence"].(float64)
+			state = store.Classify(kind, conf, floor)
+			n["status"] = state
+			hash = stagedH[i]
+			finalizeRec(n)
+		}
 	}
 
 	// emitDuplicate — 전부 duplicate(사전 확인·레이스 재확인 공통): 0건 커밋·

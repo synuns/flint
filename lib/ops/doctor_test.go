@@ -478,6 +478,53 @@ func TestDoctorCheckRequiresNameExit3(t *testing.T) {
 	}
 }
 
+// protocol — v1.6.0 T8②: doctor --json — 기계 판독 명시 채널. 출력은
+// DoctorCheck 필드 구조(status·checks[].name/status)의 한 줄 JSON이고
+// exit 계약은 기본 경로와 동일. 기존 텍스트(기본 한 줄 JSON)는 불변 —
+// 기본 경로 회귀는 기존 전체 실행 테스트가 담당한다.
+func TestDoctorJSONFlag(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("FLINT_CLAUDE_HOME", home) // hook-file fail 고정(임시 홈)
+
+	f := &fakeStore{queryFn: freshDoctorFn()}
+	out, code := runDoctorArgs(t, f, "--json")
+	if code != 1 { // fail 있음 — 기본 전체 실행과 동일 exit
+		t.Fatalf("exit=%d, want 1 (출력 %q)", code, out)
+	}
+	var m struct {
+		Status string `json:"status"`
+		Checks []struct {
+			Name   string `json:"name"`
+			Status string `json:"status"`
+		} `json:"checks"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
+		t.Fatalf("JSON 아님: %q", out)
+	}
+	if m.Status != "fail" {
+		t.Errorf("status=%q, want fail", m.Status)
+	}
+	if len(m.Checks) == 0 {
+		t.Fatalf("checks 비어 있음: %q", out)
+	}
+	if m.Checks[0].Name != "hook-file" || m.Checks[0].Status != "fail" {
+		t.Errorf("checks[0]=%+v, want hook-file fail", m.Checks[0])
+	}
+
+	// --json --check NAME — 서브셋도 동일 구조.
+	f2 := &fakeStore{queryFn: freshDoctorFn()}
+	out2, code2 := runDoctorArgs(t, f2, "--json", "--check", "db")
+	if code2 != 0 {
+		t.Fatalf("subset exit=%d, want 0 (출력 %q)", code2, out2)
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out2)), &m); err != nil {
+		t.Fatalf("subset JSON 아님: %q", out2)
+	}
+	if len(m.Checks) != 1 || m.Checks[0].Name != "db" {
+		t.Errorf("subset checks=%+v, want db 1건", m.Checks)
+	}
+}
+
 // schema — 상위 버전(예: 향후 v5)은 정상. 문자열 동등 "4" 검사였을 때
 // v5 DB가 fail로 오탐됐다(수치 비교 n>=4 계약).
 func TestDoctorSchemaFutureVersionOk(t *testing.T) {

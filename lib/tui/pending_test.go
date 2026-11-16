@@ -14,11 +14,13 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/charmbracelet/bubbles/list"
 	tea "github.com/charmbracelet/bubbletea"
 
 	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/ops"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -55,6 +57,7 @@ func demoTargets() []SupersedeTarget {
 type recorderActions struct {
 	approves   []int
 	supersedes [][2]int // {pendingID, oldID}
+	expires    [][2]int // v1.6.0 T8④: {pendingID, days} — e 액션 위임 기록
 }
 
 func (r *recorderActions) actions() PendingActions {
@@ -65,6 +68,10 @@ func (r *recorderActions) actions() PendingActions {
 		},
 		Supersede: func(ctx context.Context, id, oldID int) (int, string) {
 			r.supersedes = append(r.supersedes, [2]int{id, oldID})
+			return 0, ""
+		},
+		Expire: func(ctx context.Context, id, days int) (int, string) {
+			r.expires = append(r.expires, [2]int{id, days})
 			return 0, ""
 		},
 	}
@@ -699,6 +706,97 @@ func TestPendingFilterTypingDoesNotApprove(t *testing.T) {
 	}
 	if len(m.items) != 2 {
 		t.Fatalf("items after filtered approve = %d, want 2", len(m.items))
+	}
+}
+
+// RF-state — v1.6.0 T8④: e — 선택 항목 expire 위임(maintain --expire-pending
+// 경유). 성공(0)만 목록에서 제거 + 상태 메시지. days는 항목 valid_at 경과에서
+// 산출(10일 경과 항목 → 10 — maintain 컷오프가 해당 항목을 포함).
+func TestPendingExpireDelegatesAndRemoves(t *testing.T) {
+	rec := &recorderActions{}
+	items := demoItems()
+	items[0].ValidAt = time.Now().Add(-10*24*time.Hour - time.Hour)
+	m := NewPendingModel(context.Background(), items, staticTargets(demoTargets()), rec.actions())
+	m = update(m, keyMsg("e"))
+	if len(rec.expires) != 1 || rec.expires[0] != [2]int{7, 10} {
+		t.Fatalf("expires = %v, want [{7 10}]", rec.expires)
+	}
+	if len(m.items) != 2 {
+		t.Fatalf("items after expire = %d, want 2", len(m.items))
+	}
+	if !strings.Contains(m.View(), "expired") {
+		t.Errorf("status after expire missing 'expired'\nview:\n%s", m.View())
+	}
+	// 도움말 갱신 — 목록·상태 화면 키 안내에 e expire 노출.
+	if !strings.Contains(m.View(), "e expire") {
+		t.Errorf("list hint missing 'e expire'\nview:\n%s", m.View())
+	}
+	d := update(m, enterMsg())
+	if !strings.Contains(d.View(), "e expire") {
+		t.Errorf("detail hint missing 'e expire'\nview:\n%s", d.View())
+	}
+}
+
+// RF-state — v1.6.0 T8④: e 실패(exit != 0): 항목 유지 + 실패 상태(원인 표시).
+func TestPendingExpireFailureKeepsItem(t *testing.T) {
+	acts := PendingActions{
+		Expire: func(ctx context.Context, id, days int) (int, string) {
+			return 1, "usage: invalid number"
+		},
+	}
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), acts)
+	m = update(m, keyMsg("e"))
+	if len(m.items) != 3 {
+		t.Fatalf("items after failed expire = %d, want 3 (kept)", len(m.items))
+	}
+	if !strings.Contains(m.View(), "failed") || !strings.Contains(m.View(), "invalid number") {
+		t.Errorf("status after failed expire missing cause\nview:\n%s", m.View())
+	}
+}
+
+// expireDaysFor — maintain --expire-pending 위임 일수 산출: 컷오프가 해당
+// 항목을 포함하도록 days*24h < 경과를 만족하는 최대 정수(경계: 10일 정확히
+// 경과 → 9, 10.5일 → 10, 12시간 → 0).
+func TestExpireDaysFor(t *testing.T) {
+	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		age  time.Duration
+		want int
+	}{
+		{10 * 24 * time.Hour, 9},
+		{10*24*time.Hour + time.Hour, 10},
+		{12 * time.Hour, 0},
+		{36 * time.Hour, 1},
+		{30 * 24 * time.Hour, 29},
+	}
+	for _, c := range cases {
+		if got := expireDaysFor(now.Add(-c.age), now); got != c.want {
+			t.Errorf("expireDaysFor(age %v) = %d, want %d", c.age, got, c.want)
+		}
+	}
+}
+
+// RF-protocol — v1.6.0 T8④: 액션 기본 실구현은 ops.RunMaintain에
+// --expire-pending N --commit 인자 조립을 위임한다(기존 경로 재사용 —
+// TUI 자체 쓰기 없음).
+func TestDefaultActionsAssembleExpireArgs(t *testing.T) {
+	if reflect.ValueOf(pendingMaintainRunner).Pointer() != reflect.ValueOf(ops.RunMaintain).Pointer() {
+		t.Fatalf("pendingMaintainRunner seam must default to ops.RunMaintain")
+	}
+	orig := pendingMaintainRunner
+	var got [][]string
+	pendingMaintainRunner = func(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		got = append(got, args)
+		return 0
+	}
+	defer func() { pendingMaintainRunner = orig }()
+
+	if code, _ := defaultPendingActions(nil).Expire(context.Background(), 7, 10); code != 0 {
+		t.Fatalf("Expire exit = %d, want 0", code)
+	}
+	want := []string{"--expire-pending", "10", "--commit"}
+	if len(got) != 1 || fmt.Sprint(got[0]) != fmt.Sprint(want) {
+		t.Fatalf("RunMaintain args = %v, want %v", got, want)
 	}
 }
 

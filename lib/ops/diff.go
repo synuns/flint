@@ -103,7 +103,10 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		}
 	}
 	if len(pos) != 2 {
-		fmt.Fprintln(stdout, `{"error":"usage: flint diff <from> <to> [--summary] [--data|--schema]"}`)
+		// v1.6.0 T8①: v1.5.4 usage 타입 전환 누락분 회수 — 원시 문자열
+		// JSON이 아니라 wire.UsageErrorf → ErrLine 경로(error:"usage").
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
+			"usage: flint diff <from> <to> [--summary] [--data|--schema]")))
 		return 3
 	}
 	from, err := ParseAsOfSpecFn(ctx, st, pos[0])
