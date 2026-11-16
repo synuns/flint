@@ -66,10 +66,18 @@ func BumpCurationCounter(ctx context.Context, st wire.Store, kind string, n int)
 	_ = db.BumpDailyFlatKey(ctx, st, kind, time.Now().UTC().Format("2006-01-02"), n)
 }
 
+// approveUsageErr — approve 인자 검증 오류 조립(v1.5.3 P2): wire.UsageError
+// 분류(error:"usage") + message에 사용법 안내 `--id N [--supersede OLD]`
+// 포함 — 오타 플래그를 안내로 바로잡는다.
+func approveUsageErr(format string, a ...any) error {
+	return wire.UsageErrorf(format+" — usage: flint approve --id N [--supersede OLD]", a...)
+}
+
 // RunApprove — 승인 실행. 승격은 주어진 st 경유(R14 재배선 — 이전엔 st를
 // 무시하고 자체 Repo를 열었다). v1.0.1(F3): 인자 검증 경로(unknown flag·
 // 값 누락·무효 id·--id 부재·supersede==id)는 무효 인자 exit 3으로 통일 —
-// mcp dispatchApprove 검증 실패 계약과 정합.
+// mcp dispatchApprove 검증 실패 계약과 정합. v1.5.3(P2): 이 경로의
+// ErrLine error 값은 "usage"(기존 internal).
 func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	id := -1
 	supersede := -1
@@ -79,12 +87,12 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			flag := args[i]
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s requires a number", flag)))
+				fmt.Fprintln(stdout, wire.ErrLine(approveUsageErr("%s requires a number", flag)))
 				return 3
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n < 1 {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s: invalid id %q", flag, args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(approveUsageErr("%s: invalid id %q", flag, args[i])))
 				return 3
 			}
 			if flag == "--id" {
@@ -93,16 +101,16 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 				supersede = n
 			}
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(approveUsageErr("unknown flag: %s", args[i])))
 			return 3
 		}
 	}
 	if id < 1 {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("approve requires --id")))
+		fmt.Fprintln(stdout, wire.ErrLine(approveUsageErr("approve requires --id")))
 		return 3
 	}
 	if supersede == id {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--supersede must differ from --id")))
+		fmt.Fprintln(stdout, wire.ErrLine(approveUsageErr("--supersede must differ from --id")))
 		return 3
 	}
 

@@ -240,8 +240,8 @@ func TestReadWritesNoReadStats(t *testing.T) {
 		return nil, nil // active_knowledge 조회 → 0행
 	}
 	withFake(t, f)
-	if out, code := mustRun(t, []string{"read", "flint"}, ""); code != 1 {
-		t.Fatalf("read exit=%d, want 1; out=%s", code, out)
+	if out, code := mustRun(t, []string{"read", "flint"}, ""); code != 0 {
+		t.Fatalf("read exit=%d, want 0(제로히트 exit 0 — v1.5.3); out=%s", code, out)
 	}
 	if _, ok := meta["read_stats"]; ok {
 		t.Fatalf("read_stats=%q 기록 — blob 쓰기는 폐지돼야 한다", meta["read_stats"])

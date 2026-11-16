@@ -17,15 +17,20 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
 
 | code | meaning |
 |---|---|
-| 0 | success (including duplicate) |
-| 1 | general error — overloaded code: retries_exhausted · unknown command · usage · `doctor` fail (one or more fails) · zero-hit silence (eligible zero-hits exit 1 with no output — a normal result of read) |
+| 0 | success (including duplicate) — and `read` eligible zero-hits since v1.5.3 (`--json` emits `{"hits":0,...}`; text mode prints nothing — zero-hit silence, a normal result of read) |
+| 1 | general error — retries_exhausted · `doctor` fail (one or more checks fail) |
 | 2 | server_down |
-| 3 | invalid arguments and validation failures (`SchemaError` — field-level validation: invalid `--status` · `--limit`, valueless value-bearing flags, etc.) |
+| 3 | invalid arguments and validation failures (`SchemaError` — field-level validation: invalid `--status` · `--limit`, valueless value-bearing flags, etc.) — and, since v1.5.3, unrecognized `-`-prefixed `read` args · unknown command · usage errors (`done` usage error · bare `maintain`) |
 
-- exit 1 overload disambiguation: `read` zero-hit silence produces no
-  output; every other exit 1 carries one errLine (JSON) — the MCP tool path
-  (`flint mcp`) decides `isError` by this output presence (empty-output
-  exit 1 = normal, exit 1 with output = error).
+- exit unification (v1.5.3): unknown command · `done` usage error · bare
+  `maintain` usage moved from 1 · 0 · 1 to a uniform exit 3. Usage/flag
+  errors report `"error":"usage"` (ErrLine shape unchanged — value
+  extension only; the message embeds an allowed-flags hint).
+- `read` zero-hit silence no longer exits 1: eligible zero-hits are
+  exit 0 — `--json` emits `{"hits":0,...}`, text mode stays silent.
+  Exit 1 always carries one errLine (JSON) — the MCP tool path
+  (`flint mcp`) decides `isError` by exit code (0 = normal, including
+  zero-hit).
 - A schema-version mismatch (meta schema_version ↔ `db.LatestSchemaVersion`)
   is not exit 3 — it surfaces through the `doctor` schema check failing
   (exit 1) and `setup` migration (the promotion-gate registry).
@@ -33,8 +38,14 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
 - store-free fast path: `version` · `teardown` · `mcp` · `update` · `help`
   respond immediately without starting the DB. `setup` treats a down DB as
   its main scenario and only proceeds storeless when the connection fails.
+- `teardown` is a dry-run by default (v1.5.3): it prints what would be
+  removed and exits 0; actual removal requires `--yes` (the
+  `maintain --invalidate` convention). The plan notice names what goes
+  down. `--purge` also removes data volumes (unchanged).
 - Hook-only entry points `session-start` · `session-end` are registered but
   hidden from usage (`hiddenFromUsage`).
+- `approve` failure messages embed the usage — `--id N [--supersede OLD]`
+  — so agents can self-correct without re-reading docs (v1.5.3).
 - Data mobility (v1.3~v1.4): `export [--format jsonl|md|txt|csv|pam]
   [--out FILE] [--status active|all] [--tag X] [--since RFC3339]` — five
   formats; writing `--out` also creates a `.sha256` sidecar (sha256sum -c
@@ -77,6 +88,8 @@ flint read "migration decisions"
 # → per-row "id|topic|summary" text (default fields, one row per knowledge), exit 0
 flint read "migration decisions" --json
 # → per-row JSONL ({"id":...,"summary":...,"topic":...}), exit 0
+flint read "migration decisions" --json --nosuchflag
+# → {"error":"usage","message":"...allowed flags..."}, exit 3
 flint nosuchcmd
-# → {"error":"unknown command: nosuchcmd"}, exit 1
+# → {"error":"usage","message":"unknown command: nosuchcmd"}, exit 3
 ```

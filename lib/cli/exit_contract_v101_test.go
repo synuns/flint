@@ -71,16 +71,19 @@ var exitContractProbes = []exitProbe{
 	{"hot", []string{"--session"}, 3, "F3 세션 가드(빈 값)"},
 	{"done", []string{"--session", "--json"}, 3, "F3 세션 가드 승격"},
 	{"done", []string{"--session"}, 3, "F3 세션 가드(빈 값)"},
+	// v1.5.3 T1 — 무인자 미인식 플래그·bare usage exit 3 통일
+	{"read", []string{"--jsonn"}, 3, "T1 unknown flag('-' 접두 흡수 폐지)"},
+	{"done", []string{}, 3, "T1 bare usage(기존 0)"},
+	{"maintain", []string{}, 3, "T1 bare usage(기존 1)"},
 }
 
 // quietAbsorb — unknown flag를 쿼리 텍스트·무시 경로로 조용히 흡수하는
 // 문서화된 예외 명단(F7 docs/contracts/cli.md 문서화 분담). 값은 근거.
 var quietAbsorb = map[string]string{
-	"read":    "쿼리 텍스트 흡수(N9 '--' 관례) — 제로히트 침묵 exit 1",
+	"read":    "positional 쿼리 흡수(N9 '--' 관례) — '-' 접두 미인식 플래그는 v1.5.3 T1 exit 3, 제로히트 침묵 exit 1",
 	"brief":   "쿼리 텍스트 흡수(N9 승계)",
 	"hot":     "미인식 인자 무시 — --session 가드는 표 구동 행",
 	"status":  "미인식 인자 무시(F1 소유 — 문서화 분담)",
-	"done":    "미인식 인자 무시 — --session 미지정 사용법 안내 exit 0",
 	"write":   "위치 인자(kind) 흡수 — 무효 kind는 검증 3",
 	"version": "인자 무시",
 	"mcp":     "플래그 없음(STDIO 서버)",

@@ -1,6 +1,7 @@
 // read_test.go — v0.39.0 T3: lib/cli/read_test.go 이동 + read 계약
-// Review Focus(제로히트 침묵 exit 1·--session 자동 라벨·as-of). 계약
-// 불변: eligible(현재 시점·무상태필터) 제로히트는 완전 무출력 exit 1,
+// Review Focus(제로히트 exit 0·--session 자동 라벨·as-of). 계약
+// 불변: eligible(현재 시점·무상태필터) 제로히트는 텍스트 완전 무출력·
+// --json은 {"hits":0} 한 줄, exit 0(v1.5.3 P2 — 기존 exit 1),
 // --session 미지정은 wire.ReadSessionLabel 라벨 조용히 채택, --as-of는
 // 결과 뒤 as_of 한 줄 JSON. asof 스펙 파서는 cli asof.go 소유라
 // ParseAsOfSpecFn 주입 seam으로 대역 주입(실구현 경로는 cli 잔류
@@ -95,8 +96,8 @@ func TestRunReadRecordsBytes(t *testing.T) {
 		}}}
 		var out strings.Builder
 		if code := RunRead(context.Background(), st,
-			[]string{"없는토픽"}, strings.NewReader(""), &out); code != 1 {
-			t.Fatalf("exit = %d, want 1(제로히트 침묵)", code)
+			[]string{"없는토픽"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)
 		}
 		if len(st.recorded) != 1 || st.recorded[0] != (bytesCall{"read", 0}) {
 			t.Errorf("제로히트 RecordBytes = %v, want [{read 0}](0바이트 기록 — 분모 정합)", st.recorded)
@@ -122,21 +123,40 @@ var hitRowsFixture = [][]any{
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
-// TestRunReadZeroHitSilentExit1 — Review Focus: eligible(현재 시점·무상태
-// 필터) 제로히트는 완전 무출력(침묵 계약) exit 1 — flint가 에이전트에게
-// 말을 걸지 않는다.
-func TestRunReadZeroHitSilentExit1(t *testing.T) {
+// TestRunReadZeroHitExit0Silent — Review Focus(v1.5.3 P2): eligible
+// (현재 시점·무상태 필터) 제로히트는 텍스트 완전 무출력(침묵 유지)에
+// exit 0(기존 1) — 제로히트는 오류가 아니므로 에이전트 루프가 끊기지
+// 않는다.
+func TestRunReadZeroHitExit0Silent(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil // 제로히트 — 폴백·제안 스캔도 전부 0행
 	}}
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
 		[]string{"없는토픽"}, strings.NewReader(""), &out)
-	if code != 1 {
-		t.Fatalf("exit = %d, want 1(제로히트 침묵)", code)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0(제로히트 exit 0)", code)
 	}
 	if out.String() != "" {
-		t.Errorf("제로히트 침묵 위반: %q", out.String())
+		t.Errorf("제로히트 텍스트 침묵 위반: %q", out.String())
+	}
+}
+
+// TestRunReadZeroHitJSONHits — Review Focus(v1.5.3 P2): --json 제로히트는
+// hits:0 한 줄 JSON({"hits":0}) + exit 0 — 호출자가 히트 수를 기계적으로
+// 판별한다. 텍스트 모드와 달리 침묵하지 않는다.
+func TestRunReadZeroHitJSONHits(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		return nil, nil // 제로히트 — 폴백·제안 스캔도 전부 0행
+	}}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--json", "없는토픽"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0(제로히트 exit 0)", code)
+	}
+	if got := strings.TrimSpace(out.String()); got != `{"hits":0}` {
+		t.Errorf("--json 제로히트 출력 = %q, want {\"hits\":0}", got)
 	}
 }
 
@@ -293,5 +313,30 @@ func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 	}
 	if len(order) == 0 {
 		t.Fatal("폴백 경로에서 loadThresholds 미호출 — rrf_k 주입 누락")
+	}
+}
+
+// TestReadUnknownFlagExit3 — v1.5.3 T1: 미인식 '-' 접두 인자는 쿼리로
+// 흡수하지 않고 무효 인자 exit 3(read --jsonn이 조용히 제로히트로
+// 흘러 에이전트가 오타를 못 알아채던 사각 폐지). positional 쿼리·"--"
+// end-of-options 흡수는 불변.
+func TestReadUnknownFlagExit3(t *testing.T) {
+	var out strings.Builder
+	if code := RunRead(context.Background(), &fakeStore{}, []string{"--jsonn"}, strings.NewReader(""), &out); code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
+	}
+	// v1.5.3 P2: unknown flag류는 error:"usage"(기존 internal에서 값만).
+	if !strings.Contains(out.String(), `"error":"usage"`) {
+		t.Fatalf("에러 JSON error:usage 아님: %q", out.String())
+	}
+	// positional 쿼리 불변 — '-' 비접두는 여전히 쿼리 텍스트로 흡수.
+	out.Reset()
+	if code := RunRead(context.Background(), &fakeStore{}, []string{"docker"}, strings.NewReader(""), &out); code == 3 {
+		t.Fatalf("positional 쿼리가 exit 3: %s", out.String())
+	}
+	// "--" 이후는 전부 positional — '--jsonn'도 쿼리로 흡수(N9 불변).
+	out.Reset()
+	if code := RunRead(context.Background(), &fakeStore{}, []string{"--", "--jsonn"}, strings.NewReader(""), &out); code == 3 {
+		t.Fatalf("'--' 이후 쿼리가 exit 3: %s", out.String())
 	}
 }

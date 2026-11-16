@@ -6,6 +6,28 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.5.3 minor (2026-11-16) — agent CLI trust + TUI polish
+
+- [x] Agent CLI trust (P1): `teardown` is a dry-run by default — it
+  prints what would be removed and exits 0; execution requires `--yes`
+  (the `maintain --invalidate` convention) · `read` rejects
+  unrecognized `-`-prefixed args with exit 3 (the `--` end-of-options
+  rule and positional queries unchanged) · exit unification: unknown
+  command · `done` usage error · bare `maintain` usage now exit 3
+  (were 1 · 0 · 1).
+- [x] Agent CLI trust (P2): `read` eligible zero-hits exit 0 — `--json`
+  emits `{"hits":0,...}`, text mode stays silent (the exit 1 silence
+  exception is gone) · usage/flag errors now report `"error":"usage"`
+  (with an allowed-flags hint in the message; ErrLine shape unchanged) ·
+  `approve` failure messages embed the usage (`--id N
+  [--supersede OLD]`).
+- [x] TUI polish (backlog #133): narrow-width key hints (40-col
+  abbreviated, q kept) · nonInteractiveHint wrap · `pending` filter
+  matches row IDs (`#9001`) · supersede target list loads on `s` (lazy,
+  loading line) instead of on entry · successful supersede removes the
+  stale candidate from the target list · action failures surface the
+  sink error/message on the status line (no more bare "exit 3").
+
 ### v1.5.2 minor (2026-11-16) — TUI adaptive default
 
 - [x] TUI default for `pending` · `export` · `report`: a bare

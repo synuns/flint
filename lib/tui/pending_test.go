@@ -7,9 +7,11 @@ package tui
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"reflect"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -56,15 +58,20 @@ type recorderActions struct {
 
 func (r *recorderActions) actions() PendingActions {
 	return PendingActions{
-		Approve: func(ctx context.Context, id int) int {
+		Approve: func(ctx context.Context, id int) (int, string) {
 			r.approves = append(r.approves, id)
-			return 0
+			return 0, ""
 		},
-		Supersede: func(ctx context.Context, id, oldID int) int {
+		Supersede: func(ctx context.Context, id, oldID int) (int, string) {
 			r.supersedes = append(r.supersedes, [2]int{id, oldID})
-			return 0
+			return 0, ""
 		},
 	}
+}
+
+// staticTargets — 고정 후보를 반환하는 로더 fake(계약 3 지연 로드 seam).
+func staticTargets(ts []SupersedeTarget) func(context.Context) ([]SupersedeTarget, error) {
+	return func(context.Context) ([]SupersedeTarget, error) { return ts, nil }
 }
 
 // update — 모델 타입 보존 헬퍼(테스트 가독용).
@@ -73,9 +80,15 @@ func update(m PendingModel, msg tea.Msg) PendingModel {
 	return m2.(PendingModel)
 }
 
+// drive — Update 결과 모델과 cmd를 함께 반환(지연 로드 cmd 실행용).
+func drive(m PendingModel, msg tea.Msg) (PendingModel, tea.Cmd) {
+	m2, cmd := m.Update(msg)
+	return m2.(PendingModel), cmd
+}
+
 // RF1 — 목록: 제목·confidence·날짜 노출, enter→상세(본문·출처), esc→복귀.
 func TestPendingListShowsFieldsAndDetailTransition(t *testing.T) {
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), PendingActions{})
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	m = update(m, sizeMsg(80, 24))
 	v := m.View()
 	for _, want := range []string{"demo topic alpha", "0.80", "2026-11-14"} {
@@ -106,7 +119,7 @@ func TestPendingListShowsFieldsAndDetailTransition(t *testing.T) {
 // RF1 — 상세 뷰에서도 a 키 approve 위임이 동작(선택→액션 전이).
 func TestPendingDetailApproveKey(t *testing.T) {
 	rec := &recorderActions{}
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), rec.actions())
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
 	m = update(m, enterMsg())
 	m = update(m, keyMsg("a"))
 	if len(rec.approves) != 1 || rec.approves[0] != 7 {
@@ -120,7 +133,7 @@ func TestPendingDetailApproveKey(t *testing.T) {
 // RF-state — a: 선택 항목 approve 위임 + 목록에서 제거 + 상태 메시지.
 func TestPendingApproveDelegatesAndRemoves(t *testing.T) {
 	rec := &recorderActions{}
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), rec.actions())
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
 	m = update(m, keyMsg("a"))
 	if len(rec.approves) != 1 || rec.approves[0] != 7 {
 		t.Fatalf("approves = %v, want [7] (first selected)", rec.approves)
@@ -136,12 +149,12 @@ func TestPendingApproveDelegatesAndRemoves(t *testing.T) {
 	}
 }
 
-// RF-state — a 실패(exit != 0): 항목 유지 + 실패 상태 메시지.
+// RF-state — a 실패(exit != 0): 항목 유지 + 실패 상태 메시지(원인 표시 — 계약 5).
 func TestPendingApproveFailureKeepsItem(t *testing.T) {
 	acts := PendingActions{
-		Approve: func(ctx context.Context, id int) int { return 1 },
+		Approve: func(ctx context.Context, id int) (int, string) { return 1, "not_found" },
 	}
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), acts)
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), acts)
 	m = update(m, keyMsg("a"))
 	if len(m.items) != 3 {
 		t.Fatalf("items after failed approve = %d, want 3 (kept)", len(m.items))
@@ -149,16 +162,42 @@ func TestPendingApproveFailureKeepsItem(t *testing.T) {
 	if !strings.Contains(m.View(), "failed") {
 		t.Errorf("status after failed approve missing 'failed'\nview:\n%s", m.View())
 	}
+	if !strings.Contains(m.View(), "not_found") {
+		t.Errorf("status after failed approve missing cause 'not_found'\nview:\n%s", m.View())
+	}
 }
 
-// RF-state — s: 대체 대상 후보 목록 진입 → enter로 확정 → (id, old) 위임.
+// RF-cause — 계약 5: seam이 원인을 돌려주지 않으면 exit code 폴백 표기.
+func TestPendingApproveFailureFallsBackToExitCode(t *testing.T) {
+	acts := PendingActions{
+		Approve: func(ctx context.Context, id int) (int, string) { return 3, "" },
+	}
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), acts)
+	m = update(m, keyMsg("a"))
+	if !strings.Contains(m.View(), "exit 3") {
+		t.Errorf("status without cause should fall back to exit code\nview:\n%s", m.View())
+	}
+}
+
+// RF-lazy — 계약 3: s는 로드를 예약만(loading targets...) → 로드 완료 메시지로
+// 후보 목록 전환 → enter로 확정 → (id, old) 위임.
 func TestPendingSupersedeFlowDelegates(t *testing.T) {
 	rec := &recorderActions{}
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), rec.actions())
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
 	m = update(m, sizeMsg(80, 24))
-	m = update(m, keyMsg("s"))
+	m, cmd := drive(m, keyMsg("s"))
+	if m.mode != modeList {
+		t.Fatalf("after s mode = %v, want modeList until targets load", m.mode)
+	}
+	if !strings.Contains(m.View(), "loading targets...") {
+		t.Errorf("status while loading missing 'loading targets...'\nview:\n%s", m.View())
+	}
+	if cmd == nil {
+		t.Fatal("s must return a load cmd before targets are loaded")
+	}
+	m, _ = drive(m, cmd())
 	if m.mode != modeSupersede {
-		t.Fatalf("after s mode = %v, want modeSupersede", m.mode)
+		t.Fatalf("after load mode = %v, want modeSupersede", m.mode)
 	}
 	sv := m.View()
 	if !strings.Contains(sv, "demo active one") {
@@ -174,13 +213,76 @@ func TestPendingSupersedeFlowDelegates(t *testing.T) {
 	if len(m.items) != 2 {
 		t.Fatalf("items after supersede = %d, want 2", len(m.items))
 	}
+	// 계약 4: 대체된 old(active 3)는 후보·targetList에서 제거(stale 폐지).
+	if len(m.candidates) != 1 || m.candidates[0].ID != 5 {
+		t.Fatalf("candidates after supersede = %+v, want only id 5", m.candidates)
+	}
+	if strings.Contains(m.targetList.View(), "demo active one") {
+		t.Errorf("targetList still shows superseded candidate\nview:\n%s", m.targetList.View())
+	}
+}
+
+// RF-lazy — 계약 3: 후보 없음 — 로드 후 안내만, 목록 유지.
+func TestPendingSupersedeLazyLoadNoActive(t *testing.T) {
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(nil), PendingActions{})
+	m, cmd := drive(m, keyMsg("s"))
+	if cmd == nil {
+		t.Fatal("s must return a load cmd")
+	}
+	m, _ = drive(m, cmd())
+	if m.mode != modeList {
+		t.Fatalf("mode after empty load = %v, want modeList", m.mode)
+	}
+	if !strings.Contains(m.View(), "no active items to supersede") {
+		t.Errorf("status after empty load = %q\nview:\n%s", m.status, m.View())
+	}
+}
+
+// RF-lazy — 계약 3: 로드 실패 — status에 원인, 목록 유지(재시도 가능).
+func TestPendingSupersedeLazyLoadError(t *testing.T) {
+	loader := func(context.Context) ([]SupersedeTarget, error) {
+		return nil, errors.New("demo store down")
+	}
+	m := NewPendingModel(context.Background(), demoItems(), loader, PendingActions{})
+	m, cmd := drive(m, keyMsg("s"))
+	m, _ = drive(m, cmd())
+	if m.mode != modeList {
+		t.Fatalf("mode after load error = %v, want modeList", m.mode)
+	}
+	if !strings.Contains(m.View(), "demo store down") {
+		t.Errorf("status after load error missing cause\nview:\n%s", m.View())
+	}
+}
+
+// RF-lazy — 계약 3: 재진입 — 이미 로드된 후보는 재로드 없이 즉시 진입.
+func TestPendingSupersedeReenterSkipsReload(t *testing.T) {
+	calls := 0
+	loader := func(context.Context) ([]SupersedeTarget, error) {
+		calls++
+		return demoTargets(), nil
+	}
+	m := NewPendingModel(context.Background(), demoItems(), loader, PendingActions{})
+	m, cmd := drive(m, keyMsg("s"))
+	m, _ = drive(m, cmd())
+	m = update(m, escMsg())
+	m, cmd = drive(m, keyMsg("s"))
+	if cmd != nil {
+		t.Fatal("second s should not re-issue load cmd (cached)")
+	}
+	if m.mode != modeSupersede {
+		t.Fatalf("mode after re-s = %v, want modeSupersede (cached)", m.mode)
+	}
+	if calls != 1 {
+		t.Fatalf("loader calls = %d, want 1 (cached after first load)", calls)
+	}
 }
 
 // RF-state — s 후 esc: 위임 없이 목록 복귀(취소).
 func TestPendingSupersedeEscapeCancels(t *testing.T) {
 	rec := &recorderActions{}
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), rec.actions())
-	m = update(m, keyMsg("s"))
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
+	m, cmd := drive(m, keyMsg("s"))
+	m, _ = drive(m, cmd())
 	m = update(m, escMsg())
 	if m.mode != modeList {
 		t.Fatalf("after esc mode = %v, want modeList", m.mode)
@@ -193,7 +295,7 @@ func TestPendingSupersedeEscapeCancels(t *testing.T) {
 // RF-state — d: 쓰기 없이 다음 항목으로 건너뛴다(선택 이동·항목 유지).
 func TestPendingSkipAdvancesWithoutAction(t *testing.T) {
 	rec := &recorderActions{}
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), rec.actions())
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
 	m = update(m, keyMsg("d"))
 	if len(rec.approves) != 0 || len(rec.supersedes) != 0 {
 		t.Fatalf("actions after skip: approves=%v supersedes=%v, want none", rec.approves, rec.supersedes)
@@ -208,7 +310,7 @@ func TestPendingSkipAdvancesWithoutAction(t *testing.T) {
 
 // RF-state — q: 종료 커맨드 반환.
 func TestPendingQuitReturnsTeaQuit(t *testing.T) {
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), PendingActions{})
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	_, cmd := m.Update(keyMsg("q"))
 	if cmd == nil {
 		t.Fatal("q returned nil cmd, want tea.Quit")
@@ -222,7 +324,7 @@ func TestPendingQuitReturnsTeaQuit(t *testing.T) {
 // 맞고, 12행 이하 단말·연속 리사이즈에서도 선택 항목 렌더가 유지된다
 // (고정 80x20 폐지 — 시작 시 bubbletea가 전달하는 창 크기로 조정).
 func TestPendingResizeKeepsItemsRendered(t *testing.T) {
-	m := NewPendingModel(context.Background(), demoItems(), demoTargets(), PendingActions{})
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	for _, sz := range []tea.WindowSizeMsg{
 		{Width: 60, Height: 24},
 		{Width: 60, Height: 12}, // 12행 단말
@@ -276,6 +378,87 @@ func TestPendingDetailBodyWordWrap(t *testing.T) {
 				t.Fatalf("body not wrapped (%d body lines, want multiple)\nview:\n%s", bodyLines, v)
 			}
 		})
+	}
+}
+
+// RF-filter — 계약 2: FilterValue에 ID 포함(fmt "#%d %s") — "#9001" 필터
+// 매칭 회귀. 목록 제목 표기("#%d  %s")와 달리 필터값은 단일 공백.
+func TestPendingRowFilterValueIncludesID(t *testing.T) {
+	row := pendingRow{it: PendingItem{ID: 9001, Title: "demo topic omega"}}
+	if got, want := row.FilterValue(), "#9001 demo topic omega"; got != want {
+		t.Fatalf("FilterValue = %q, want %q", got, want)
+	}
+	if !strings.Contains(row.FilterValue(), "#9001") {
+		t.Errorf("FilterValue %q must match filter token %q", row.FilterValue(), "#9001")
+	}
+}
+
+// ansiRe — ANSI 이스케이프(SGR) 제거용(폭 단얩은 표시 폭 기준).
+var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
+
+// stripANSI — 색상 코드 제거 후 표시 문자열 반환.
+func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
+
+// narrowViews — 40컬 리사이즈 후 세 화면(list·detail·supersede)의 View.
+func narrowViews(t *testing.T) map[string]string {
+	t.Helper()
+	base := func() PendingModel {
+		return NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
+	}
+	out := map[string]string{}
+	m := update(base(), sizeMsg(40, 24))
+	out["list"] = m.View()
+	out["detail"] = update(m, enterMsg()).View()
+	m2, cmd := drive(update(base(), sizeMsg(40, 24)), keyMsg("s"))
+	if cmd == nil {
+		t.Fatal("s must issue load cmd in narrow view test")
+	}
+	m2, _ = drive(m2, cmd())
+	out["supersede"] = m2.View()
+	return out
+}
+
+// RF-narrow — 계약 1: 40컬 — 세 화면 모두 키 안내 라인이 폭 안에 들어오되
+// "q quit" 단서는 유지되고, 탈출 안내(nonInteractiveHint)는 wrap된다.
+func TestPendingNarrowWidthClipping(t *testing.T) {
+	for name, v := range narrowViews(t) {
+		if !strings.Contains(v, "q quit") {
+			t.Errorf("%s: 40-col view lost 'q quit'\nview:\n%s", name, v)
+			continue
+		}
+		for _, ln := range strings.Split(stripANSI(v), "\n") {
+			if strings.Contains(ln, "q quit") || strings.Contains(ln, "pipe output") {
+				if n := len([]rune(ln)); n > 40 {
+					t.Errorf("%s: hint line %d chars > 40: %q", name, n, ln)
+				}
+			}
+		}
+	}
+}
+
+// RF-narrow — 계약 1: 상세 origin 라인은 wrapDetailBody 재사용 wordwrap —
+// 긴 origin이 창 폭(폭-2) 안에서 여러 라인으로 나뉜다.
+func TestPendingDetailOriginWrapped(t *testing.T) {
+	items := []PendingItem{{
+		ID: 7, Title: "demo topic alpha", Confidence: "0.80", Date: "2026-11-14",
+		Body:   "demo summary alpha",
+		Origin: "import: " + strings.Repeat("demo batch ", 10),
+	}}
+	m := NewPendingModel(context.Background(), items, nil, PendingActions{})
+	m = update(m, sizeMsg(40, 24))
+	m = update(m, enterMsg())
+	originLines := 0
+	for _, ln := range strings.Split(stripANSI(m.View()), "\n") {
+		if !strings.Contains(ln, "batch") {
+			continue
+		}
+		originLines++
+		if n := len([]rune(ln)); n > 38 {
+			t.Errorf("origin line %d chars > wrap width 38: %q", n, ln)
+		}
+	}
+	if originLines < 2 {
+		t.Fatalf("origin not wrapped (%d lines, want multiple)\nview:\n%s", originLines, m.View())
 	}
 }
 
@@ -373,15 +556,56 @@ func TestDefaultActionsAssembleRunApproveArgs(t *testing.T) {
 	defer func() { pendingApproveRunner = orig }()
 
 	acts := defaultPendingActions(nil)
-	if code := acts.Approve(context.Background(), 7); code != 0 {
+	if code, _ := acts.Approve(context.Background(), 7); code != 0 {
 		t.Fatalf("Approve exit = %d, want 0", code)
 	}
-	if code := acts.Supersede(context.Background(), 7, 3); code != 0 {
+	if code, _ := acts.Supersede(context.Background(), 7, 3); code != 0 {
 		t.Fatalf("Supersede exit = %d, want 0", code)
 	}
 	want := [][]string{{"--id", "7"}, {"--id", "7", "--supersede", "3"}}
 	if len(got) != 2 || fmt.Sprint(got[0]) != fmt.Sprint(want[0]) || fmt.Sprint(got[1]) != fmt.Sprint(want[1]) {
 		t.Fatalf("RunApprove args = %v, want %v", got, want)
+	}
+}
+
+// RF-cause — 계약 5: 기본 실구현 — 실패 시 sink JSON(error/message)에서
+// 원인 파싱. 성공은 원인 없음.
+func TestDefaultActionsParseFailureCause(t *testing.T) {
+	orig := pendingApproveRunner
+	defer func() { pendingApproveRunner = orig }()
+
+	pendingApproveRunner = func(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		fmt.Fprintln(stdout, `{"error":"not_found","id":9001}`)
+		return 1
+	}
+	code, cause := defaultPendingActions(nil).Approve(context.Background(), 9001)
+	if code != 1 || cause != "not_found" {
+		t.Fatalf("Approve = (%d, %q), want (1, \"not_found\")", code, cause)
+	}
+
+	pendingApproveRunner = func(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		fmt.Fprintln(stdout, `{"error":"internal","message":"dial fail"}`)
+		return 2
+	}
+	_, cause = defaultPendingActions(nil).Supersede(context.Background(), 9001, 3)
+	if want := "internal: dial fail"; cause != want {
+		t.Fatalf("Supersede cause = %q, want %q", cause, want)
+	}
+
+	pendingApproveRunner = func(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		fmt.Fprintln(stdout, `{"status":"approved","id":9001,"supersede_error":"supersede: id=3 is not active"}`)
+		return 1
+	}
+	_, cause = defaultPendingActions(nil).Supersede(context.Background(), 9001, 3)
+	if want := "supersede: id=3 is not active"; cause != want {
+		t.Fatalf("Supersede supersede_error cause = %q, want %q", cause, want)
+	}
+
+	pendingApproveRunner = func(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		return 0
+	}
+	if code, cause := defaultPendingActions(nil).Approve(context.Background(), 9001); code != 0 || cause != "" {
+		t.Fatalf("success Approve = (%d, %q), want (0, \"\")", code, cause)
 	}
 }
 

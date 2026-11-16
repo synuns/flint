@@ -94,6 +94,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0152Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.2", "TUI default",
 	}},
+	// v1.5.3: agent CLI trust(teardown --yes·read 인자 검증·exit 통일·
+	// 제로히트 exit 0·usage 오류 타입·approve 안내)+TUI 소형 4건 기록.
+	{name: "TestVersion0153Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.5.3", "agent",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{

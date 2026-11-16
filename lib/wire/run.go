@@ -34,9 +34,11 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	if !ok {
 		// v0.28.0(H③): 이름 이스케이프 — 원시 결합은 호출자 제어 문자열로
 		// JSON 구조 자체를 파손할 수 있다.
+		// v1.5.3 T1: unknown command도 무효 인자 계약 exit 3 통일(기존 1) —
+		// 커맨드 오타를 에이전트가 자가수신하게 한다.
 		b, _ := json.Marshal(map[string]string{"error": "unknown command: " + cmd})
 		fmt.Fprintln(stdout, string(b))
-		return 1
+		return 3
 	}
 	ctx := context.Background()
 	// version·teardown·mcp는 store-free — DB 미기동에도 즉시 응답
@@ -95,13 +97,29 @@ func HelpSummary() string {
 	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · import migration (jsonl·pam) · backup/restore backups · maintain upkeep (--supersede handover) · approve promotion · tuning thresholds · update self-update · done/compact/nudge hooks · setup/teardown install · audit/diff time travel · mcp server · version"
 }
 
+// UsageError — 무효 인자(unknown flag·값 누락 등 사용법 오류) 분류
+// 마커(v1.5.3 P2: ErrLine error 값을 internal에서 "usage"로 확장 —
+// 구조 불변, 하류 파서 호환). 원본을 래핑하며 Error·Unwrap은 위임.
+type UsageError struct{ err error }
+
+func (u *UsageError) Error() string { return u.err.Error() }
+func (u *UsageError) Unwrap() error { return u.err }
+
+// UsageErrorf — UsageError 조립(fmt.Errorf 관례 — %w 래핑 지원).
+func UsageErrorf(format string, a ...any) *UsageError {
+	return &UsageError{err: fmt.Errorf(format, a...)}
+}
+
 // ErrLine — 에러를 한 줄 JSON으로. 서버 다운은 조용히(server_down) 한 줄만.
 func ErrLine(err error) string {
 	m := map[string]string{"error": "internal", "message": err.Error()}
 	var se *store.SchemaError
+	var ue *UsageError
 	switch {
 	case errors.As(err, &se):
 		m = map[string]string{"error": "schema", "field": se.Field, "expect": se.Expect}
+	case errors.As(err, &ue):
+		m = map[string]string{"error": "usage", "message": ue.Error()}
 	case errors.Is(err, store.ErrServerDown):
 		m = map[string]string{"error": "server_down"}
 	case errors.Is(err, store.ErrRetriesExhausted):

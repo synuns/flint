@@ -19,8 +19,8 @@ func TestReadZeroHitThresholdsLoadedOnce(t *testing.T) {
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
 		[]string{"없는토픽"}, strings.NewReader(""), &out)
-	if code != 1 {
-		t.Fatalf("exit = %d, want 1(제로히트 침묵)", code)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)
 	}
 	n := 0
 	for _, q := range st.queries {

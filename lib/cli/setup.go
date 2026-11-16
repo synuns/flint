@@ -1,7 +1,9 @@
 // setup/teardown 커맨드 — v0.4 원커맨드 설정(QUICKSTART 1커맨드).
 // setup: ①docker compose up -d --wait(exec, 실패는 안내로 계속) ②Migrate ③seed 안내
-// ④플러그인 설치 안내 — 진행 요약 한 줄 JSON. teardown: 컨테이너 정지,
-// --purge 시 volume까지 삭제 exec. 실패해도 다음 단계 안내는 유지한다.
+// ④플러그인 설치 안내 — 진행 요약 한 줄 JSON. teardown: 기본 dry-run
+// (compose down 계획 안내만, v1.5.3 T1 파괴 가드) — --yes 실행 확정 시
+// 컨테이너 정지, --purge면 volume까지 삭제 exec. 실패해도 다음 단계
+// 안내는 유지한다.
 package cli
 
 import (
@@ -358,23 +360,42 @@ type teardownSummary struct {
 	Next     string   `json:"next"`
 }
 
-// runTeardown — 컨테이너 정지 안내 + exec. --purge 시 volume 삭제(down -v).
-// 실패는 경고 + 수동 명령 안내로 exit 1. v1.0.1(F3): unknown flag는 무효
-// 인자 exit 3.
+// runTeardown — 컨테이너 정지 안내 + exec. v1.5.3 T1: 파괴 가드 — 기본은
+// dry-run(내려갈 대상·compose down 계획 안내 JSON, exit 0)이고 --yes가
+// 있을 때만 실행한다(maintain --invalidate --ids의 실행 확정 관례 승계 —
+// 무인자 호출이 즉시 compose down하며 운영 DB를 정지시키던 사고 방지).
+// --purge 시 volume 삭제(down -v). 실패는 경고 + 수동 명령 안내로 exit 1.
+// v1.0.1(F3): unknown flag는 무효 인자 exit 3.
 func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	purge := false
+	purge, confirm := false, false
 	for _, a := range args {
-		if a == "--purge" {
+		switch a {
+		case "--purge":
 			purge = true
-			continue
+		case "--yes":
+			confirm = true
+		default:
+			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
+			return 3
 		}
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
-		return 3
 	}
 
 	manual := "docker compose down"
 	if purge {
 		manual += " -v"
+	}
+	if !confirm {
+		b, err := json.Marshal(teardownSummary{
+			Status: "dry_run",
+			Purge:  purge,
+			Next:   "would run: " + manual + " — re-run with --yes to execute",
+		})
+		if err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			return 1
+		}
+		fmt.Fprintln(stdout, string(b))
+		return 0
 	}
 	status := "ok"
 	var warns []string

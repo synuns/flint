@@ -106,8 +106,10 @@ func TestSessionEndInvalidLabelSilent(t *testing.T) {
 	st := quietLabelStore()
 	var out strings.Builder
 	code := RunSessionEnd(context.Background(), st, []string{"--session", "-x"}, strings.NewReader(""), &out)
-	if code != 0 {
-		t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
+	// v1.5.3 T1: done 사용법 오류(부재 경로) exit 0→3 갱신 — 무효 라벨이
+	// 여전히 '검증 에러'가 아닌 부재 경로를 탄다는 게 이 테스트의 단언.
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
 	}
 	if !strings.Contains(out.String(), "usage:") {
 		t.Errorf("무효 라벨이 검증 에러가 아닌 부재 경로를 타야 함: %s", out.String())

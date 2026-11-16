@@ -55,8 +55,8 @@ func TestReadZeroHitSilent(t *testing.T) {
 			ctx := context.Background()
 			var out bytes.Buffer
 			f := mustSuggestStore(tc.scan)
-			if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 1 {
-				t.Fatalf("exit = %d, want 1", code)
+			if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 0 {
+				t.Fatalf("exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)
 			}
 			if got := out.String(); got != "" {
 				t.Errorf("제로히트 출력 = %q, want \"\"", got)
@@ -74,8 +74,8 @@ func TestReadZeroHitNearCounted(t *testing.T) {
 	var inserts []string
 	f := nearCountingStore(&inserts)
 	st := &readClassRecorder{fakeStore: f}
-	if code := runRead(ctx, st, []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 1 {
-		t.Fatalf("exit = %d, want 1", code)
+	if code := runRead(ctx, st, []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)
 	}
 	if len(st.events) != 1 || !st.events[0].Zero || !st.events[0].Near {
 		t.Fatalf("read_events = %+v, want 1행 {Zero:true Near:true}", st.events)
