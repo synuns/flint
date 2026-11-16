@@ -23,15 +23,17 @@ const DefaultBackupKeep = 14
 // BackupKeep 은 meta backup_keep 값을 읽어 유지 수를 반환한다.
 // getKV는 키→값 조회 함수(auto.RunIfNeeded의 metaKV와 동일 형태).
 // 에러·미설정·무효 값(비정수·1 미만)은 기본값 14로 폴백한다(에러 아님).
+// v1.5.4 T2 P3: 미설정(빈 값·조회 에러 — fresh DB의 "meta backup_keep
+// not set")은 정상 기본값 상태라 조용히 폴백한다(경고 폐지). 설정됐으나
+// 무효한 값의 경고만 유지된다.
 // e.g. BackupKeep(getKV) with backup_keep="3" -> 3, "0"/"x"/에러 -> 14
 func BackupKeep(getKV func(string) (string, error)) int {
 	if getKV == nil {
 		return DefaultBackupKeep
 	}
 	v, err := getKV(BackupKeepKey)
-	if err != nil {
-		log.Printf("[flint] backup: failed to read %s (%v) — default %d", BackupKeepKey, err, DefaultBackupKeep)
-		return DefaultBackupKeep
+	if err != nil || strings.TrimSpace(v) == "" {
+		return DefaultBackupKeep // 미설정=정상 기본 — 조용히(§13 비간섭)
 	}
 	n, perr := strconv.Atoi(strings.TrimSpace(v))
 	if perr != nil || n < 1 {

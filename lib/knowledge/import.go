@@ -185,7 +185,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			// v0.27.3: 미확인 플래그는 사용법 오류 — 오타 플래그가 읽기 불가
 			// 파일로 조용히 버려지던 사각 제거. v0.34.3: 무효 인자 계약
 			// exit 3(doctor·tuning·diff 정합 — 주석·코드 불일치 해소).
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint import [path] [--commit] | flint import --format jsonl|pam [FILE]", a)))
 			return 3
 		} else {
 			pos = append(pos, a)

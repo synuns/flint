@@ -211,12 +211,12 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		case "--check":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(errors.New("doctor: --check requires a name")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: --check requires a name — usage: flint doctor [--list-checks] [--check NAME] [--fix]")))
 				return 3
 			}
 			subset = args[i]
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint doctor [--list-checks] [--check NAME] [--fix]", args[i])))
 			return 3
 		}
 	}
@@ -231,7 +231,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			ok = true
 		}
 		if !ok {
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("doctor: unknown check %q", subset)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: unknown check %q — usage: flint doctor [--list-checks] [--check NAME] [--fix] (names via --list-checks)", subset)))
 			return 3
 		}
 		checks := []DoctorCheck{runDoctorCheck(ctx, st, subset)}

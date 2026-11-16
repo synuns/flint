@@ -496,6 +496,18 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		fmt.Fprintln(stdout, string(b))
 		byteLen += len(b) + 1 // hits 한 줄(+개행)도 쓴 총량에 포함
 	}
+	// v1.5.4 T2 P3: --limit 상한 clamp 표시 — 요청이 ClampLimit(50)을
+	// 초과하면 --json 결과에 additive 필드(limit_requested·limit_applied)
+	// 한 줄로 밝혀 호출자가 절단 사실을 기계 판별하게 한다(zero-hit hits
+	// 라인·as_of 라인 첨부 관례 승계). 텍스트 모드는 기존 형식 유지.
+	if jsonMode && query.ClampLimit(f.Limit) < f.Limit {
+		b, _ := json.Marshal(LimitClampLine{
+			LimitRequested: f.Limit,
+			LimitApplied:   query.ClampLimit(f.Limit),
+		})
+		fmt.Fprintln(stdout, string(b))
+		byteLen += len(b) + 1 // clamp 한 줄(+개행)도 쓴 총량에 포함
+	}
 	if asOfHash != "" {
 		b, _ := json.Marshal(AsOfLine{AsOf: AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 		fmt.Fprintln(stdout, string(b))
@@ -610,6 +622,13 @@ type AsOfLine struct {
 // AsOfLine 첨부 관례 승계. 히트 행이 있으면 출력되지 않는다).
 type ZeroHitLine struct {
 	Hits int `json:"hits"`
+}
+
+// LimitClampLine — --limit 상한 clamp 안내 한 줄 JSON(v1.5.4 T2 P3 —
+// additive 스키마: 기존 출력 키 불변, 요청>상한(50)일 때만 출력).
+type LimitClampLine struct {
+	LimitRequested int `json:"limit_requested"`
+	LimitApplied   int `json:"limit_applied"`
 }
 
 // asOfErrLine — {error,message} 한 줄 JSON 조립(ErrLine의 국소 변형 —

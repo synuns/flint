@@ -399,7 +399,11 @@ func TestReadLimitClampAndJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
-	if strings.TrimSpace(out) != `{"id":"1","topic":"t"}` {
+	// v1.5.4 T2 P3: --json에서 요청 limit이 상한(50) 초과면 additive clamp
+	// 라인(limit_requested·limit_applied)이 행 뒤에 따른다(기존 키 불변).
+	want := "{\"id\":\"1\",\"topic\":\"t\"}\n" +
+		`{"limit_requested":999,"limit_applied":50}`
+	if strings.TrimSpace(out) != want {
 		t.Fatalf("json 출력=%q", out)
 	}
 }

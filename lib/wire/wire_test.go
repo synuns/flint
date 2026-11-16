@@ -144,9 +144,8 @@ func TestWireRunDispatch(t *testing.T) {
 	})
 	t.Run("unknown_command_single_line_json_exit3", func(t *testing.T) {
 		// v1.5.3 T1: unknown command도 무효 인자 계약 exit 3 통일(기존 1).
-		// v1.5.3 P2(리뷰 정정): 오류 타입은 usage —
-		// {"error":"usage","message":"unknown command: …"} 한 줄(cli.md 기재
-		// 와 동일 모양, 기존 {"error":"unknown command: …"} 폐지).
+		// v1.5.4 T2 P3: 출력은 error 키 없는 안내 형태 — message(unknown
+		// command 사실)+usage(커맨드 목록) 한 줄, 정보 내용 유지.
 		var out bytes.Buffer
 		if code := Run([]string{"no-such-cmd"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
 			return &fakeStore{}, nil
@@ -158,8 +157,14 @@ func TestWireRunDispatch(t *testing.T) {
 			t.Fatalf("unknown command 출력=%q, want 한 줄 JSON", line)
 		}
 		m := decodeErrLine(t, line)
-		if m["error"] != "usage" || !strings.Contains(m["message"], "unknown command: no-such-cmd") {
-			t.Fatalf("unknown command 출력=%q, want error:usage + message", line)
+		if _, hasErr := m["error"]; hasErr {
+			t.Fatalf("unknown command 안내에 error 키 잔존: %q", line)
+		}
+		if !strings.Contains(m["message"], "unknown command: no-such-cmd") {
+			t.Fatalf("unknown command 사실 유지 실패: %q", m["message"])
+		}
+		if !strings.Contains(m["usage"], "flint <") {
+			t.Fatalf("usage 정보 부재: %q", m["usage"])
 		}
 	})
 	t.Run("no_args_prints_usage_exit1", func(t *testing.T) {
@@ -167,7 +172,8 @@ func TestWireRunDispatch(t *testing.T) {
 		if code := Run(nil, strings.NewReader(""), &out, failFactory(t)); code != 1 {
 			t.Fatalf("exit=%d, want 1", code)
 		}
-		if !strings.Contains(out.String(), "usage: flint <") {
+		// v1.5.4 T2 P3: UsageLine은 error 키 없는 안내형 — exit 1은 유지.
+		if !strings.Contains(out.String(), `"usage":"flint <`) {
 			t.Fatalf("usage 미출력: %q", out.String())
 		}
 	})

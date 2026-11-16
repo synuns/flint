@@ -99,6 +99,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0153Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.3", "agent",
 	}},
+	// v1.5.4: usage 오류 타입 전 커맨드 확장(7종)+에이전트 P3
+	// (--version/-v·help error 키 폐지·limit clamp 표시·fresh DB 조용화).
+	{name: "TestVersion0154Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.5.4", "usage",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{

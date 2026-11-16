@@ -89,6 +89,16 @@ func retryWrite(ctx context.Context, fn func() error) error {
 	return db.Retry(ctx, fn, MaintainRetryDelaysFn())
 }
 
+// maintainUsageLine — 허용 플래그 안내(v1.5.4 T1: 무효 인자 오류 메시지의
+// 공통 접미 — error:"usage" 전환과 함께 에이전트 자가수신용).
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit]"
+
+// maintainUsageErrf — 무효 인자 오류 조립(v1.5.4 T1: approve.approveUsageErr
+// 관례 — UsageError 타입 + 허용 플래그 접미. exit 코드는 호출부 불변).
+func maintainUsageErrf(format string, a ...any) *wire.UsageError {
+	return wire.UsageErrorf(format+" — "+maintainUsageLine, a...)
+}
+
 // RunMaintain — 서브옵션 파싱 후 모드별 실행. --check는 보고만(exit 0),
 // 갱신 계열은 성공 0 · 대상 부재(ErrNotFound) 1 · 그 외 MapExit.
 func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
@@ -117,14 +127,14 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			seen[args[i]] = true
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", args[i-1])))
 				return 3
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n <= 0 {
 				// v1.0.1(F3): --limit 무효 값은 read·brief·audit 계열과 동일
 				// 무효 인자 exit 3(값 누락 포함).
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
 				return 3
 			}
 			if args[i-1] == "--days" {
@@ -136,12 +146,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			mode = args[i]
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: %s requires a number of days", args[i-1])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number of days", args[i-1])))
 				return 1
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
 				return 1
 			}
 			expireDays = n
@@ -151,12 +161,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			seen[args[i]] = true
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", args[i-1])))
 				return 1
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
 				return 1
 			}
 			switch args[i-1] {
@@ -171,7 +181,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			seen[args[i]] = true
 			i++
 			if i >= len(args) || args[i] == "" {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --reason requires a value")))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --reason requires a value")))
 				return 1
 			}
 			// v1.0.3(R3): 값이 뒤 플래그를 흡수하는 오타('--reason
@@ -187,12 +197,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			seen[args[i]] = true
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", args[i-1])))
 				return 1
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
 				return 1
 			}
 			old = n
@@ -200,12 +210,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			seen[args[i]] = true
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: %s requires a number", args[i-1])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", args[i-1])))
 				return 1
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n <= 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: invalid number %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", args[i])))
 				return 1
 			}
 			by = n
@@ -213,12 +223,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			seen[args[i]] = true
 			i++
 			if i >= len(args) || args[i] == "" {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --ids requires a value")))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --ids requires a value")))
 				return 1
 			}
 			ids, perr := parseIDList(args[i])
 			if perr != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(perr))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%w", perr)))
 				return 1
 			}
 			idList = ids
@@ -227,7 +237,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		default:
 			// v0.34.3: 무효 플래그는 무효 인자 계약 exit 3(doctor·tuning·
 			// diff·import 정합).
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("unknown flag: %s", args[i])))
 			return 3
 		}
 	}
@@ -236,19 +246,19 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 	if allowed, ok := maintainModeFlags[mode]; ok {
 		for _, f := range maintainValueFlags {
 			if seen[f] && !allowed[f] {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: %s is not valid with %s", f, mode)))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s is not valid with %s", f, mode)))
 				return 1
 			}
 		}
 	}
 	// --yes는 실행 확정 마커 — 해당 없는 모드에서 흐르면 에러(동일 원칙).
 	if yes && !maintainYesModes[mode] {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --yes is not valid with %s", mode)))
+		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --yes is not valid with %s", mode)))
 		return 1
 	}
 	// --commit도 같은 원칙(v0.16.2 R4 — dry-run 기본 모드의 전환 마커).
 	if commit && !maintainCommitModes[mode] {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("maintain: --commit is not valid with %s", mode)))
+		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --commit is not valid with %s", mode)))
 		return 1
 	}
 
@@ -274,20 +284,20 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainInvalidateStale(ctx, ms, stdout, days, limit, yes)
 	case "--supersede":
 		if old == 0 || by == 0 {
-			fmt.Fprintln(stdout, wire.ErrLine(errors.New("maintain: --supersede requires OLD and --by NEW")))
+			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --supersede requires OLD and --by NEW"))))
 			return 1
 		}
 		return maintainSupersede(ctx, ms, stdout, old, by)
 	case "--invalidate":
 		if len(idList) > 0 {
 			if !yes { // 스펙 §2: --ids는 --yes 병행 필요(실행 확정)
-				fmt.Fprintln(stdout, wire.ErrLine(errors.New("maintain: --invalidate --ids requires --yes")))
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --invalidate --ids requires --yes"))))
 				return 1
 			}
 			return maintainInvalidateIDs(ctx, ms, stdout, idList)
 		}
 		if id == 0 || reason == "" {
-			fmt.Fprintln(stdout, wire.ErrLine(errors.New("maintain: --invalidate requires --id and --reason")))
+			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --invalidate requires --id and --reason"))))
 			return 1
 		}
 		// v0.41.0 리뷰: 원본 단일 경로(admin.go Invalidate — v0.20.1)의
@@ -321,7 +331,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainExpirePending(ctx, ms, stdout, expireDays, commit)
 	case "--merge":
 		if from == 0 || to == 0 {
-			fmt.Fprintln(stdout, wire.ErrLine(errors.New("maintain: --merge requires --from and --to")))
+			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --merge requires --from and --to"))))
 			return 1
 		}
 		if err := ms.Merge(ctx, from, to); err != nil {
@@ -331,7 +341,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return 0
 	default:
 		// v1.5.3 T1: bare usage(모드 미지정)도 무효 인자 exit 3 통일(기존 1).
-		fmt.Fprintln(stdout, wire.ErrLine(errors.New("usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit]")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", maintainUsageLine)))
 		return 3
 	}
 }

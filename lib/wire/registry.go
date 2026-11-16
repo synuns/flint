@@ -4,6 +4,7 @@ package wire
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"sort"
 	"strings"
@@ -52,8 +53,23 @@ func hiddenFromUsage(name string) bool {
 }
 
 // UsageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
+// v1.5.4 T2 P3: error 키 폐지 — usage는 안내 정보지 오류가 아니므로
+// `{"usage":...}` 형태로만 전달한다(정보 내용·usageOrder 조립 불변).
 func UsageLine() string {
-	return `{"error":"usage: flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
+	return `{"usage":"flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
+}
+
+// UnknownCommandLine — unknown command 안내 한 줄 JSON(v1.5.4 T2 P3):
+// error 키 없는 안내 형태로 unknown command 사실(message)과 usage
+// 정보(커맨드 목록)를 유지한다. cmd는 호출자 제어 문자열이라 원시 결합이
+// 아니라 json.Marshal 경유 이스케이프로 조립한다(v0.28.0 H③ 승계 —
+// ErrLine 마샬링 경유 관례와 동일 이유).
+func UnknownCommandLine(cmd string) string {
+	b, _ := json.Marshal(map[string]string{
+		"message": "unknown command: " + cmd,
+		"usage":   "flint <" + strings.Join(usageOrder, "|") + "> [args]",
+	})
+	return string(b)
 }
 
 // Registered — 등록된 커맨드명 열거(정렬 — bridge 가드 비교 안정성).

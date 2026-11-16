@@ -132,6 +132,7 @@
 - [x] v1.5.1(2026-11-15) — TUI fixes R25: pty 실측 결함 4건(창 크기·wordwrap·취소 안내·ctrl+c)·문서 정합 6건
 - [x] v1.5.2(2026-11-16) — TUI adaptive default: 터미널 무인자 실행 시 pending·export·report가 TUI로 열림(파이프·플래그 경로 불변, isTerminal 폴백)
 - [x] v1.5.3(2026-11-16) — 에이전트 CLI 신뢰: teardown dry-run+--yes·read 인자 검증·usage계 exit 3 통일·제로히트 exit 0·error:"usage"·approve 안내 + TUI 소형(협폭·필터 ID·지연 로드·실패 원인)
+- [x] v1.5.4(2026-11-16) — usage 타입 전 커맨드 확장(7종)+P3: --version/-v 별칭·help error 키 폐지·read limit clamp 표시(limit_requested/applied)·fresh DB backup_keep 조용화
 - [ ] v1.6.0(예정) — 해외 마케팅·i18n 문서 이월: 데모 체험·대시보드
   고도화·설치 확장(brew)·신뢰 아티팩트(SBOM·Scorecard·SECURITY.md)·
   README 고도화·합성 벤치마크·다국어 문서. 후보: PAM 서명(스펙 §18)·

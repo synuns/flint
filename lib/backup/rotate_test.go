@@ -1,9 +1,12 @@
 package backup
 
 import (
+	"bytes"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -183,4 +186,46 @@ func TestBackupKeep(t *testing.T) {
 			t.Fatalf("%s: BackupKeep=%d, want %d", tc.name, got, tc.want)
 		}
 	}
+}
+
+// TestBackupKeepQuietUnset — Review Focus(v1.5.4 T2 P3): backup_keep
+// 미설정(빈 값·조회 에러)은 정상 기본값 폴백 — fresh DB에서 매번 경고가
+// 뜨는 것을 폐지하고 조용히 간다. 설정됐으나 무효한 값의 경고는 유지.
+func TestBackupKeepQuietUnset(t *testing.T) {
+	capture := func(t *testing.T, getKV func(string) (string, error)) (int, string) {
+		t.Helper()
+		var buf bytes.Buffer
+		saved := log.Writer()
+		log.SetOutput(&buf)
+		t.Cleanup(func() { log.SetOutput(saved) })
+		keep := BackupKeep(getKV)
+		return keep, buf.String()
+	}
+	t.Run("미설정(빈 값) — 조용히 기본값", func(t *testing.T) {
+		keep, logged := capture(t, func(string) (string, error) { return "", nil })
+		if keep != DefaultBackupKeep {
+			t.Fatalf("BackupKeep=%d, want %d", keep, DefaultBackupKeep)
+		}
+		if strings.TrimSpace(logged) != "" {
+			t.Errorf("미설정 경고 출력(fresh DB 노이즈): %q", logged)
+		}
+	})
+	t.Run("조회 에러 — 조용히 기본값", func(t *testing.T) {
+		keep, logged := capture(t, func(string) (string, error) { return "", errors.New("meta backup_keep not set") })
+		if keep != DefaultBackupKeep {
+			t.Fatalf("BackupKeep=%d, want %d", keep, DefaultBackupKeep)
+		}
+		if strings.TrimSpace(logged) != "" {
+			t.Errorf("미설정 경고 출력: %q", logged)
+		}
+	})
+	t.Run("무효값 — 경고 유지", func(t *testing.T) {
+		keep, logged := capture(t, func(string) (string, error) { return "many", nil })
+		if keep != DefaultBackupKeep {
+			t.Fatalf("BackupKeep=%d, want %d", keep, DefaultBackupKeep)
+		}
+		if !strings.Contains(logged, "invalid") {
+			t.Errorf("무효값 경고 미출력: %q", logged)
+		}
+	})
 }
