@@ -1386,10 +1386,10 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		var rows []ExportRow
 		for i := 1; i <= 17; i++ {
 			r := ExportRow{
-				ID:    base + i, // 계보 참조 해석용 명시 id(idmap 승계)
-				Topic: fmt.Sprintf("demo t2 chunk %02d", i),
+				ID:      base + i, // 계보 참조 해석용 명시 id(idmap 승계)
+				Topic:   fmt.Sprintf("demo t2 chunk %02d", i),
 				Content: fmt.Sprintf("합성 데모 slow — 청크 왕복 행 %02d.", i),
-				Kind: "knowledge", Status: "active", Confidence: 0.9,
+				Kind:    "knowledge", Status: "active", Confidence: 0.9,
 				Tags: []string{tag}, Domain: "main", Source: "agent",
 				CreatedAt: t0, UpdatedAt: t0,
 			}
@@ -1433,10 +1433,10 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		var rows []ExportRow
 		for i := 1; i <= 12; i++ { // 청크 7: [1..7][8..12] — 2청크
 			rows = append(rows, ExportRow{
-				ID:    base + i,
-				Topic: fmt.Sprintf("demo t2 resume %02d", i),
+				ID:      base + i,
+				Topic:   fmt.Sprintf("demo t2 resume %02d", i),
 				Content: fmt.Sprintf("합성 데모 slow — 부분 실패 재개 행 %02d.", i),
-				Kind: "knowledge", Status: "active", Confidence: 0.9,
+				Kind:    "knowledge", Status: "active", Confidence: 0.9,
 				Tags: []string{tag}, Domain: "main", Source: "agent",
 				CreatedAt: t0, UpdatedAt: t0,
 			})

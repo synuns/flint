@@ -51,17 +51,17 @@ const pamSpecURI = "https://portable-ai-memory.org/spec/v1.0"
 // pamExportDoc — PAM v1.0 문서 루트(§4). 필드 순서 = 직렬화 순서.
 // v1.6.0 T4: owner(§4 — 서명 경로만 발행)·signature(§18) 추가.
 type pamExportDoc struct {
-	Schema        string               `json:"schema"`
-	SchemaVersion string               `json:"schema_version"`
-	SpecURI       string               `json:"spec_uri"`
-	ExportID      string               `json:"export_id"`
-	ExportedBy    string               `json:"exported_by"`
-	ExportDate    string               `json:"export_date"`
-	Owner         *pamExportOwner      `json:"owner,omitempty"`
-	Memories      []pamExportMemory    `json:"memories"`
-	Relations     []pamExportRelation  `json:"relations"`
-	Integrity     pamExportIntegrity   `json:"integrity"`
-	Signature     *pamExportSignature  `json:"signature,omitempty"`
+	Schema        string              `json:"schema"`
+	SchemaVersion string              `json:"schema_version"`
+	SpecURI       string              `json:"spec_uri"`
+	ExportID      string              `json:"export_id"`
+	ExportedBy    string              `json:"exported_by"`
+	ExportDate    string              `json:"export_date"`
+	Owner         *pamExportOwner     `json:"owner,omitempty"`
+	Memories      []pamExportMemory   `json:"memories"`
+	Relations     []pamExportRelation `json:"relations"`
+	Integrity     pamExportIntegrity  `json:"integrity"`
+	Signature     *pamExportSignature `json:"signature,omitempty"`
 }
 
 // pamExportOwner — §4 루트 owner 블록(최소). id는 서명 키 공개키의

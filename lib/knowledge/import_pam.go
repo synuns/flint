@@ -63,14 +63,14 @@ var ParsePAMFn = ParsePAM
 
 // PAM v1.0 문서 구조(필요 최소 필드만 — summary는 무시: content 우선).
 type pamDoc struct {
-	Schema      string           `json:"schema"`
-	ExportID    string           `json:"export_id"`
-	ExportDate  string           `json:"export_date"`
-	Owner       *pamOwnerRef     `json:"owner"`
-	Memories    []pamMemory      `json:"memories"`
-	Relations   []pamRelation    `json:"relations"`
-	Integrity   *pamIntegrityRef `json:"integrity"`
-	Signature   *pamSignatureRef `json:"signature"`
+	Schema     string           `json:"schema"`
+	ExportID   string           `json:"export_id"`
+	ExportDate string           `json:"export_date"`
+	Owner      *pamOwnerRef     `json:"owner"`
+	Memories   []pamMemory      `json:"memories"`
+	Relations  []pamRelation    `json:"relations"`
+	Integrity  *pamIntegrityRef `json:"integrity"`
+	Signature  *pamSignatureRef `json:"signature"`
 }
 
 // pamOwnerRef — 루트 owner(§4·§18 서명 검증용 최소).

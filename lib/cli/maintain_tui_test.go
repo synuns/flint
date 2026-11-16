@@ -104,7 +104,7 @@ func TestMaintainEntryNoAdaptiveBareRun(t *testing.T) {
 	if code != 7 {
 		t.Fatalf("bare exit = %d, want ops-returned 7", code)
 	}
-	if len(*opsCalls) != 1 || (*opsCalls)[0] != nil && len((*opsCalls)[0]) != 0 {
+	if len(*opsCalls) != 1 || len((*opsCalls)[0]) != 0 {
 		t.Fatalf("ops calls = %v, want 1 with no args", *opsCalls)
 	}
 	if len(*calls) != 0 {

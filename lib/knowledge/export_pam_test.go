@@ -913,7 +913,6 @@ func TestFormatPAMWithCount(t *testing.T) {
 	}
 }
 
-
 // TestFormatPAMRawBytesMatchEncoder — 문서 인코딩을 스트리밍 기록기로
 // 바꿔도 출력 바이트는 json.Encoder(SetEscapeHTML(false)+SetIndent)와
 // 전체 문서 수준에서 동일해야 한다(무서명 본문 바이트 불변 — 인덴트·

@@ -158,7 +158,7 @@ func TestMaintainTabsAndDetailTransition(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("enter must issue a bodies load cmd")
 	}
-	m, _ = mDrive(m, cmd())
+	_, _ = mDrive(m, cmd())
 	if m.mode != maintainDetail {
 		t.Fatalf("after load mode = %v, want maintainDetail", m.mode)
 	}
@@ -185,7 +185,7 @@ func TestMaintainStaleDetailPreview(t *testing.T) {
 	m = mUpdate(m, keyMsg("tab")) // conflict
 	m = mUpdate(m, keyMsg("tab")) // stale
 	m, cmd := mDrive(m, enterMsg())
-	m, _ = mDrive(m, cmd())
+	_, _ = mDrive(m, cmd())
 	if m.mode != maintainDetail {
 		t.Fatalf("mode = %v, want maintainDetail", m.mode)
 	}
@@ -205,7 +205,7 @@ func TestMaintainDetailBodyLoadError(t *testing.T) {
 	m := NewMaintainModel(context.Background(), demoMaintainData(), ld, MaintainActions{})
 	m = mUpdate(m, sizeMsg(80, 24))
 	m, cmd := mDrive(m, enterMsg())
-	m, _ = mDrive(m, cmd())
+	_, _ = mDrive(m, cmd())
 	if m.mode != maintainList {
 		t.Fatalf("mode after load error = %v, want maintainList", m.mode)
 	}
@@ -226,7 +226,7 @@ func TestMaintainMergePickFlowDelegates(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("m must issue bodies load cmd before pick")
 	}
-	m, _ = mDrive(m, cmd())
+	_, _ = mDrive(m, cmd())
 	if m.mode != maintainPick || m.pickWhat != "merge" {
 		t.Fatalf("after load mode=%v pickWhat=%q, want maintainPick/merge", m.mode, m.pickWhat)
 	}
@@ -259,7 +259,7 @@ func TestMaintainMergePickSecondSurvivor(t *testing.T) {
 	m := newDemoMaintainModel(rec.actions())
 	m = mUpdate(m, sizeMsg(80, 24))
 	m, cmd := mDrive(m, keyMsg("m"))
-	m, _ = mDrive(m, cmd())
+	_, _ = mDrive(m, cmd())
 	m = mUpdate(m, keyMsg("down"))
 	m = mUpdate(m, enterMsg())
 	if len(rec.merges) != 1 || rec.merges[0] != [2]int{3, 5} {
@@ -275,7 +275,7 @@ func TestMaintainMergeFailureKeepsGroup(t *testing.T) {
 	m := newDemoMaintainModel(acts)
 	m = mUpdate(m, sizeMsg(80, 24))
 	m, cmd := mDrive(m, keyMsg("m"))
-	m, _ = mDrive(m, cmd())
+	_, _ = mDrive(m, cmd())
 	m = mUpdate(m, enterMsg())
 	if len(m.tabs[MaintainDup]) != 1 {
 		t.Fatalf("dup tab after failed merge = %+v, want 1 (kept)", m.tabs[MaintainDup])
@@ -294,7 +294,7 @@ func TestMaintainMergeFailureFallsBackToExitCode(t *testing.T) {
 	m := newDemoMaintainModel(acts)
 	m = mUpdate(m, sizeMsg(80, 24))
 	m, cmd := mDrive(m, keyMsg("m"))
-	m, _ = mDrive(m, cmd())
+	_, _ = mDrive(m, cmd())
 	m = mUpdate(m, enterMsg())
 	if !strings.Contains(m.View(), "exit 3") {
 		t.Errorf("status without cause should fall back to exit code\nview:\n%s", m.View())
@@ -354,7 +354,7 @@ func TestMaintainInvalidateGroupPickDelegates(t *testing.T) {
 	if cmd == nil {
 		t.Fatal("i on group must issue bodies load cmd before pick")
 	}
-	m, _ = mDrive(m, cmd())
+	_, _ = mDrive(m, cmd())
 	if m.mode != maintainPick || m.pickWhat != "invalidate" {
 		t.Fatalf("after load mode=%v pickWhat=%q, want maintainPick/invalidate", m.mode, m.pickWhat)
 	}
