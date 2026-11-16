@@ -98,10 +98,12 @@ func (m ReportModel) View() string {
 	if m.mode == 1 {
 		b.WriteString(m.metricsView())
 		b.WriteString("\n" + Theme.Secondary.Render("tab: diagnosis · q: quit"))
+		b.WriteString("\n" + Theme.Secondary.Render(nonInteractiveHint)) // v1.5.2 T1 비대화 탈출 안내
 		return b.String()
 	}
 	b.WriteString(m.diagnosisView())
 	b.WriteString("\n" + Theme.Secondary.Render("↑/k ↓/j: move · enter: detail · tab: metrics · q: quit"))
+	b.WriteString("\n" + Theme.Secondary.Render(nonInteractiveHint)) // v1.5.2 T1 비대화 탈출 안내
 	return b.String()
 }
 

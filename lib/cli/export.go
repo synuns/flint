@@ -46,6 +46,10 @@ var exportStderr io.Writer = os.Stderr
 // 주입으로 진입 분기만 검증한다(폼 흐름 자체는 lib/tui/export_test.go).
 var exportTUIFn = tui.RunExport
 
+// exportTTYFn — v1.5.2 T1 적응형 진입 TTY 판정 seam(기본 실구현
+// tui.IsTerminalStdout, 테스트 fake 교체).
+var exportTTYFn = tui.IsTerminalStdout
+
 // exportFormatters — 포맷명 → 포맷터 seam 조회(무효 포맷 판별 겸용).
 func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, error) {
 	return map[string]func([]knowledge.ExportRow) ([]byte, error){
@@ -65,13 +69,23 @@ func init() { Register("export", runExport) }
 // exit 2(MapExit 재사용). 성공 시 요약 1행 stderr:
 // `exported N rows (format, M bytes)`.
 func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// v1.5.0 T8 진입 분기: --tui는 폼 흐름으로 위임하고 플래그 파싱은
-	// 하지 않는다(폼에서 조립된 인자가 runExport를 재진입한다). 기본
-	// 플래그 경로는 불변.
+	// v1.5.0 T8 진입 분기 + v1.5.2 T1 적응형 전환: --tui 명시 또는
+	// 무인자·무플래그 + 터미널이면 폼 흐름으로 위임하고 플래그 파싱은
+	// 하지 않는다(폼에서 조립된 인자가 runExport를 재진입한다 — 재진입
+	// 시 인자가 있으므로 적응형 재발산 없음). 플래그 경로는 불변.
+	tuiEntry := false
 	for _, a := range args {
 		if a == "--tui" {
-			return runExportTUI(ctx, st, stdin, stdout)
+			tuiEntry = true
+			break
 		}
+	}
+	// 3층 방어 1층 — FLINT_NO_TUI 설정 시 TTY 여부와 무관하게 차단.
+	if !tuiEntry && len(args) == 0 && !tui.NoTUIForced() && exportTTYFn() {
+		tuiEntry = true
+	}
+	if tuiEntry {
+		return runExportTUI(ctx, st, stdin, stdout)
 	}
 	format, outPath, status, tag := "jsonl", "", "active", ""
 	var since time.Time

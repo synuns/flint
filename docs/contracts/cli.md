@@ -42,14 +42,17 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   jsonl|pam] [FILE]` — a shared one-shot row cap for export · import
   (`export_import_max_rows`, default 100000); exceeding it returns an error
   JSON (with `max` · `count`) and exit 3.
-- TUI screens (v1.5.0, `lib/tui` — opt-in only; flag paths fully
-  preserved): `flint setup` with no args starts the wizard when stdout
-  is a terminal (non-terminal invocations run the existing no-arg path
-  unchanged); `pending --tui` · `export --tui` · `report --tui` open
-  interactive screens. `pending --tui` must stand alone and `report
-  --tui` cannot combine with the view flags (`--html` · `--text` ·
-  `--out`) — exit 3. Non-terminal `--tui` invocations print one error
-  line and exit 3 ("TUI requires a terminal — use flag-mode instead").
+- TUI screens (v1.5.0, `lib/tui`; adaptive default since v1.5.2; flag
+  paths fully preserved): `pending` · `export` · `report` are
+  adaptive — a bare invocation in a terminal opens the TUI, while a
+  piped/non-terminal run or any flag keeps the existing output
+  (isTerminal fallback). Explicit `--tui` forces the TUI; non-terminal
+  `--tui` invocations print one error line and exit 3 ("TUI requires a
+  terminal — use flag-mode instead"). `pending --tui` must stand alone
+  and `report --tui` cannot combine with the view flags (`--html` ·
+  `--text` · `--out`) — exit 3. `setup` behaves the same (unchanged):
+  no args in a terminal starts the wizard, non-terminal runs the
+  existing no-arg path.
 
 ## Boundaries
 

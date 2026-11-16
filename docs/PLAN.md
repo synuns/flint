@@ -131,9 +131,9 @@
   pam`(PAM v1.0 memory-store·체크섬 JCS 결정성)·`--out` sha256 사이드카·
   valid_at 왕복·PAM project형 적립·import 상한(export_import_max_rows)·
   실DB 왕복 e2e — i18n·마케팅 계열은 v1.5로 이월
-- [x] v1.5.0(2026-11-15) — 영어 통일(사용자 표면 ~400 문자열, 기계 채널
-  불변)·TUI 4화면(lib/tui — setup 위저드·pending/export/report --tui,
-  플래그 경로 불변)·핵심 문서 영문화(QUICKSTART·contracts·TUNING·METRICS)
+- [x] v1.5.0(2026-11-15) — 영어 통일(사용자 표면 ~400 문자열, 기계 채널 불변)·TUI 4화면(lib/tui — setup 위저드·pending/export/report --tui, 플래그 경로 불변)·핵심 문서 영문화(QUICKSTART·contracts·TUNING·METRICS)
+- [x] v1.5.1(2026-11-15) — TUI fixes R25: pty 실측 결함 4건(창 크기·wordwrap·취소 안내·ctrl+c)·문서 정합 6건
+- [x] v1.5.2(2026-11-16) — TUI adaptive default: 터미널 무인자 실행 시 pending·export·report가 TUI로 열림(파이프·플래그 경로 불변, isTerminal 폴백)
 - [ ] v1.6.0(예정) — 해외 마케팅·i18n 문서 이월: 데모 체험·대시보드
   고도화·설치 확장(brew)·신뢰 아티팩트(SBOM·Scorecard·SECURITY.md)·
   README 고도화·합성 벤치마크·다국어 문서. 후보: PAM 서명(스펙 §18)·

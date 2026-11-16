@@ -19,6 +19,7 @@ import (
 
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/tui"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -455,5 +456,115 @@ func TestRunExportMaxRowsExceeded(t *testing.T) {
 	}
 	if strings.Contains(stdout.String(), "<jsonl") {
 		t.Fatalf("상한 초과 시 포맷터 출력이 발생함: %q", stdout.String())
+	}
+}
+
+// installExportTTY — v1.5.2 T1 적응형 진입 TTY 판정 seam 교체(기본
+// 실구현 tui.IsTerminalStdout).
+func installExportTTY(t *testing.T, tty bool) {
+	t.Helper()
+	orig := exportTTYFn
+	exportTTYFn = func() bool { return tty }
+	t.Cleanup(func() { exportTTYFn = orig })
+}
+
+// installExportTUIFake — exportTUIFn seam 교체(호출 기록 + 지정 코드 반환).
+func installExportTUIFake(t *testing.T, code int) *int {
+	t.Helper()
+	called := 0
+	orig := exportTUIFn
+	exportTUIFn = func(ctx context.Context, deps tui.ExportDeps) (int, error) {
+		called++
+		return code, nil
+	}
+	t.Cleanup(func() { exportTUIFn = orig })
+	return &called
+}
+
+// RF-adaptive-② — 무인자·무플래그 + 터미널: TUI 흐름 위임·exit 통과.
+func TestRunExportAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
+	installExportFakes(t, nil)
+	called := installExportTUIFake(t, 7)
+	installExportTTY(t, true)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout)
+	if code != 7 {
+		t.Fatalf("exit = %d, want 7 (TUI 위임 코드 통과)", code)
+	}
+	if *called != 1 {
+		t.Fatalf("exportTUIFn called %d times, want 1", *called)
+	}
+}
+
+// RF-adaptive-③ — 무인자 + 비터미널(파이프): 기본 jsonl stdout 계약 불변.
+func TestRunExportAdaptiveNoArgsPipedUnchanged(t *testing.T) {
+	stderr := installExportFakes(t, nil)
+	installExportTUIFake(t, 9) // 호출되면 9 — 파이프 경로가 우회하는지 검출
+	installExportTTY(t, false)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stdout %q)", code, stdout.String())
+	}
+	if got, want := stdout.String(), "<jsonl of 2 rows>\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (jsonl, ") {
+		t.Fatalf("stderr summary missing: %q", stderr.String())
+	}
+}
+
+// RF-adaptive-① — --tui 명시 + 비터미널: 기존 폴백 exit 3 불변
+// (exportTUIFn 기본 실구현 = tui.RunExport — 폼 시작 전 즉시 오류).
+func TestRunExportExplicitTUINonTerminalFallback(t *testing.T) {
+	installExportFakes(t, nil)
+	installExportTTY(t, false)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--tui"}, strings.NewReader(""), &stdout)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3 (stdout %q)", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "TUI requires a terminal") {
+		t.Fatalf("fallback message missing: %q", stdout.String())
+	}
+}
+
+// RF-adaptive-④ — 플래그 존재 + 터미널: 현행 플래그 경로 유지(TUI 미진입).
+func TestRunExportAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
+	stderr := installExportFakes(t, nil)
+	installExportTUIFake(t, 9)
+	installExportTTY(t, true)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--format", "md"}, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stdout %q)", code, stdout.String())
+	}
+	if got, want := stdout.String(), "<md of 2 rows>\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (md, ") {
+		t.Fatalf("stderr summary missing: %q", stderr.String())
+	}
+}
+
+// RF-noenv — FLINT_NO_TUI=1 + 터미널이어도 현행 jsonl 경로 강제(탈출구).
+func TestRunExportNoTUIEnvForcesFlagPath(t *testing.T) {
+	t.Setenv("FLINT_NO_TUI", "1")
+	stderr := installExportFakes(t, nil)
+	called := installExportTUIFake(t, 9) // 호출되면 9로 즉시 검출
+	installExportTTY(t, true)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stdout %q)", code, stdout.String())
+	}
+	if got, want := stdout.String(), "<jsonl of 2 rows>\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (jsonl, ") {
+		t.Fatalf("stderr summary missing: %q", stderr.String())
+	}
+	if *called != 0 {
+		t.Fatalf("FLINT_NO_TUI must block TUI entry, called = %d", *called)
 	}
 }

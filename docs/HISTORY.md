@@ -6,6 +6,28 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.5.2 minor (2026-11-16) — TUI adaptive default
+
+- [x] TUI default for `pending` · `export` · `report`: a bare
+  invocation in a terminal now opens the TUI; piped/non-terminal or
+  any flag keeps the existing output (isTerminal fallback). Explicit
+  `--tui` forces the TUI — non-terminal falls back to one error line
+  and exit 3. `setup` behaves the same (unchanged). Flag paths fully
+  preserved.
+
+### v1.5.1 patch (2026-11-15) — audit R25 fixes (8 findings)
+
+- [x] TUI defects (4, measured on a real pty): A1 `pending --tui`
+  window-resize handling (WindowSizeMsg → SetSize, fixed 80x20
+  removed) · A2 detail body wordwrap (width − 2) replacing hard
+  truncation · A3 export confirm-cancel now prints "export cancelled"
+  (no silent 0-byte file) · A4 ESC/q hints corrected to ctrl+c (huh's
+  actual binding)
+- [x] Docs/wire (6): B1 PLAN v1.5.0 actual scope + v1.6 marketing
+  deferral · B2 HISTORY v1.4.1/1.4.2 entries + contract rows · B3 ADR
+  links (4) · B4 cli.md `--tui` contract · B5 plugin.json English ·
+  B6 commands wording set
+
 ### v1.4.2 patch (2026-11-15) — docs-sync gate exit propagation
 
 - [x] R23 finding: the `go test|grep|tail` pipe swallowed the failure
