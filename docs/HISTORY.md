@@ -6,6 +6,35 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.5.5 minor (2026-11-16) — terminal detection fix + CLI edge completion
+
+- [x] Terminal detection fixed: `os.Stdout.Stat()` + `ModeCharDevice`
+  classifies `/dev/null` as a character device, so a redirect
+  (`flint report > /dev/null`) was mistaken for a TTY and could open the
+  TUI. Redirects are no longer treated as a terminal — they take the
+  same non-interactive path as pipes and flags (v1.5.2 adaptive entry;
+  `FLINT_NO_TUI` and explicit flags unchanged).
+- [x] Usage type completed — all remaining sites: `hot` · `brief` ·
+  `compact` · `nudge` unknown-flag/argument errors now report
+  `"error":"usage"` with an allowed-flags hint and exit 3 (previously
+  they were silently ignored as non-3 exits). Remaining sites
+  without the usage type: 0 — every command is covered.
+- [x] `-h` / `--help` global aliases: same output as `flint help`
+  (usage line + command summary), exit 0 — dispatch-level handling
+  before the command table, like `--version`/`-v`.
+- [x] `write --help` guidance: `write` accepts `--help` and prints its
+  usage guidance instead of treating the flag as content input.
+- [x] `export --format pam` row count = published rows: the count
+  reflects what was actually written (published knowledge; pending
+  rows are excluded by default and never counted).
+- [x] `import` extension sniffing + migration hint: `--format` is
+  inferred from the file extension when omitted, and a format mismatch
+  suggests the matching migration command.
+- [x] `setup` port-in-use warning: when the Doltgres port (5434) is
+  already occupied by another listener, setup prints a one-line stderr
+  warning before `compose up` and continues (ping · migrate still
+  decide the real outcome).
+
 ### v1.5.4 minor (2026-11-16) — usage type everywhere + agent ergonomics P3
 
 - [x] Usage error type extended to all commands (v1.5.3 shipped it for

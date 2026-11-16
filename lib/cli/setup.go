@@ -12,10 +12,14 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
+	"os"
 	"os/exec"
 	"strings"
+	"time"
 
 	"github.com/synuns/flint/lib/tui"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // composeRunFn — docker compose 실행 seam(var). 실패 시 stderr를 에러에
@@ -42,6 +46,20 @@ var (
 		return composeRunFn(ctx, "down")
 	}
 )
+
+// setupPortDialFn — v1.5.5 B4: compose 시작 전 5434 점유 감지 seam. true =
+// 이미 무언가 수신 중(점유). 기본은 짧은 타임아웃 net.Dial.
+var setupPortDialFn = func(addr string) bool {
+	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
+	if err != nil {
+		return false
+	}
+	conn.Close()
+	return true
+}
+
+// setupStderr — setup 경고 stderr 챈널 seam(테스트 캡처).
+var setupStderr io.Writer = os.Stderr
 
 // SetupSteps — setup 단계 고정 순서(①compose ②migrate ③seed ④플러그인).
 func SetupSteps() []string {
@@ -82,6 +100,13 @@ func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX)
 
 	if ux != nil {
 		ux.Step("Start Doltgres (docker compose up)")
+	}
+	// v1.5.5 B4: compose 시작 전 5434(ADR-0010 기본 포트) 점유 감지 —
+	// 기존 서버(다른 컨테이너·로컬 postgres)가 이미 점유하면 compose up이
+	// 실패하거나 ping이 잘못된 서버에 연결된다. 경고 1행 stderr만, 진행은
+	// 유지(ping·migrate가 실제 상태를 판정).
+	if setupPortDialFn("localhost:5434") {
+		fmt.Fprintf(setupStderr, "flint setup: port 5434 already in use — compose may fail or connect to an existing server; continuing\n")
 	}
 	if err := composeUpFn(ctx); err != nil {
 		// docker 미설치(exec not found)는 전용 안내로 구분한다.
@@ -233,7 +258,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			}
 			exposure = args[i]
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, errLine(wire.UsageErrorf("unknown flag: %s — usage: flint setup [--dry] [--json] [--update-rules] [--src PATH] [--exposure normal|minimal] [--mcp]", args[i])))
 			return 3
 		}
 	}
@@ -375,7 +400,7 @@ func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		case "--yes":
 			confirm = true
 		default:
-			fmt.Fprintln(stdout, errLine(fmt.Errorf("unknown flag: %s", a)))
+			fmt.Fprintln(stdout, errLine(wire.UsageErrorf("unknown flag: %s — usage: flint teardown [--purge] [--yes]", a)))
 			return 3
 		}
 	}

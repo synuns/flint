@@ -26,15 +26,42 @@ import (
 // 래퍼 — FormatMD·FormatTXT는 단일 반환). SUPERLITE_REAL=1은 이 기본
 // 실구현 경로가 곧 실연결 검증이다.
 var (
-	exportRowsFn  = knowledge.ExportRows
-	formatJSONLFn = func(rows []knowledge.ExportRow) ([]byte, error) { return knowledge.FormatJSONL(rows) }
-	formatMDFn    = func(rows []knowledge.ExportRow) ([]byte, error) { return knowledge.FormatMD(rows), nil }
-	formatTXTFn   = func(rows []knowledge.ExportRow) ([]byte, error) { return knowledge.FormatTXT(rows), nil }
-	formatCSVFn   = func(rows []knowledge.ExportRow) ([]byte, error) { return knowledge.FormatCSV(rows) }
+	exportRowsFn = knowledge.ExportRows
+	// v1.5.5 B1: 포맷터 seam은 (본문, 요약 보고 행수, 오류)를 반환한다.
+	// jsonl·md·txt·csv는 전행 수(len(rows)), pam은 문서 발행 수
+	// (total_memories — pending은 pam 설계 제외)를 보고한다.
+	formatJSONLFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+		b, err := knowledge.FormatJSONL(rows)
+		return b, len(rows), err
+	}
+	formatMDFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+		return knowledge.FormatMD(rows), len(rows), nil
+	}
+	formatTXTFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+		return knowledge.FormatTXT(rows), len(rows), nil
+	}
+	formatCSVFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+		b, err := knowledge.FormatCSV(rows)
+		return b, len(rows), err
+	}
 	// v1.4.0 T2 후속: PAM v1.0 교환 문서 — exported_by는 "flint/"+버전
-	// (CurrentVersion 관례: ldflags→buildinfo→dev 폴백).
-	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, error) {
-		return knowledge.FormatPAM(rows, "flint/"+CurrentVersion())
+	// (CurrentVersion 관례: ldflags→buildinfo→dev 폴백). v1.5.5 B1: 발행
+	// 수는 직렬화한 문서의 integrity.total_memories에서 읽는다(산출 규칙
+	// 재구현이 아니라 문서가 단일 원천).
+	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+		data, err := knowledge.FormatPAM(rows, "flint/"+CurrentVersion())
+		if err != nil {
+			return nil, 0, err
+		}
+		var doc struct {
+			Integrity struct {
+				TotalMemories int `json:"total_memories"`
+			} `json:"integrity"`
+		}
+		if jerr := json.Unmarshal(data, &doc); jerr != nil {
+			return nil, 0, fmt.Errorf("pam issued-count read failed: %w", jerr)
+		}
+		return data, doc.Integrity.TotalMemories, nil
 	}
 )
 
@@ -51,8 +78,9 @@ var exportTUIFn = tui.RunExport
 var exportTTYFn = tui.IsTerminalStdout
 
 // exportFormatters — 포맷명 → 포맷터 seam 조회(무효 포맷 판별 겸용).
-func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, error) {
-	return map[string]func([]knowledge.ExportRow) ([]byte, error){
+// 반환 행수는 요약 보고 기준(v1.5.5 B1 — pam은 발행 수).
+func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, int, error) {
+	return map[string]func([]knowledge.ExportRow) ([]byte, int, error){
 		"jsonl": formatJSONLFn,
 		"md":    formatMDFn,
 		"txt":   formatTXTFn,
@@ -129,7 +157,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			}
 			since, i = t, i+1
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — usage: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339]", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339]", a)))
 			return 3
 		}
 	}
@@ -164,7 +192,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("export: formatter %s not linked", format)))
 		return 1
 	}
-	data, err := fn(rows)
+	data, summaryRows, err := fn(rows)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
@@ -189,7 +217,9 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, wire.ErrLine(werr))
 		return 1
 	}
-	fmt.Fprintf(exportStderr, "exported %d rows (%s, %d bytes)\n", len(rows), format, len(data))
+	// v1.5.5 B1: 요약 행수는 포맷터 보고값 — pam은 문서 발행 수(pending
+	// 제외), 나머지 형식은 전행.
+	fmt.Fprintf(exportStderr, "exported %d rows (%s, %d bytes)\n", summaryRows, format, len(data))
 	return 0
 }
 
@@ -212,7 +242,7 @@ func runExportTUI(ctx context.Context, st Store, stdin io.Reader, stdout io.Writ
 			if fn == nil {
 				return tui.ExportPreview{}, fmt.Errorf("export: formatter %s not linked", sel.Format)
 			}
-			data, err := fn(rows)
+			data, _, err := fn(rows)
 			if err != nil {
 				return tui.ExportPreview{}, err
 			}

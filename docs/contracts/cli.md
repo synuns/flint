@@ -34,12 +34,23 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   paths stay exit 3, while `maintain` mode-combination errors (e.g.
   `--merge` without `--from`) keep their existing exit 1. Genuine
   internal failures keep their existing error types.
+  v1.5.5 completes the sweep — `hot` · `brief` · `compact` · `nudge`
+  unknown-flag/argument errors report `"error":"usage"` with an
+  allowed-flags hint and exit 3 as well; commands left without the
+  usage type: 0.
 - `flint --version` and `flint -v` (v1.5.4) are aliases of `flint
   version` — same output, exit 0, store-free fast path.
-- unknown command · bare `flint` · `flint help` (v1.5.4) print usage
-  **guidance** — one JSON line with `message` · `usage` keys, no `error`
-  key (usage guidance is not an error; information unchanged). Unknown
-  command keeps exit 3.
+- `-h` / `--help` (v1.5.5) are global aliases of `flint help` — same
+  output (usage line + command summary), exit 0, dispatch-level
+  handling before the command table (the `--version`/`-v` convention).
+- `write --help` (v1.5.5) prints usage guidance instead of treating
+  the flag as content input.
+- usage guidance, three distinct shapes (bare `flint` wording corrected
+  by v1.5.5 measurement): unknown command emits one JSON line with
+  `message` · `usage` keys — no `error` key — and keeps exit 3
+  (v1.5.4); `flint help` prints the usage line plus the command summary
+  and exits 0; bare `flint` emits `{"usage":...}` alone — no `message`
+  key — and exits 1.
 - `read --limit` above the cap (50, default 10) is clamped; the clamp is
   surfaced (v1.5.4) in `--json` mode only — one additive line with
   `limit_requested` (the value the caller passed) and `limit_applied`
@@ -57,6 +68,10 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
 - store-free fast path: `version` · `teardown` · `mcp` · `update` · `help`
   respond immediately without starting the DB. `setup` treats a down DB as
   its main scenario and only proceeds storeless when the connection fails.
+- DB-down precedes argument validation (v1.5.5, one-line priority): for
+  every store-connected command the store connection is attempted before
+  the handler parses arguments, so a down DB surfaces first
+  (server_down · exit 2) even when the arguments are also invalid.
 - `teardown` is a dry-run by default (v1.5.3): it prints what would be
   removed and exits 0; actual removal requires `--yes` (the
   `maintain --invalidate` convention). The plan notice names what goes
@@ -67,18 +82,26 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   — so agents can self-correct without re-reading docs (v1.5.3).
 - Data mobility (v1.3~v1.4): `export [--format jsonl|md|txt|csv|pam]
   [--out FILE] [--status active|all] [--tag X] [--since RFC3339]` — five
-  formats; writing `--out` also creates a `.sha256` sidecar (sha256sum -c
+  formats; the `pam` row count equals the published rows actually
+  written (v1.5.5) — pending rows are excluded by default and never
+  counted; writing `--out` also creates a `.sha256` sidecar (sha256sum -c
   compatible); invalid flags · formats are exit 3. `import [--format
-  jsonl|pam] [FILE]` — a shared one-shot row cap for export · import
+  jsonl|pam] [FILE]` — the format is sniffed from the file extension
+  when `--format` is omitted (v1.5.5; a mismatch suggests the matching
+  migration command); a shared one-shot row cap for export · import
   (`export_import_max_rows`, default 100000); exceeding it returns an error
   JSON (with `max` · `count`) and exit 3.
 - TUI screens (v1.5.0, `lib/tui`; adaptive default since v1.5.2; flag
   paths fully preserved): `pending` · `export` · `report` are
   adaptive — a bare invocation in a terminal opens the TUI, while a
-  piped/non-terminal run or any flag keeps the existing output
-  (isTerminal fallback). Explicit `--tui` forces the TUI; non-terminal
+  piped/redirected run (a redirect such as to `/dev/null` is no longer
+  mistaken for a TTY — v1.5.5 terminal detection fix) or any flag
+  keeps the existing output (isTerminal fallback). Explicit `--tui`
+  forces the TUI; non-terminal
   `--tui` invocations print one error line and exit 3 ("TUI requires a
-  terminal — use flag-mode instead"). `pending --tui` must stand alone
+  terminal — use flag-mode instead") — reported as `"error":"usage"`
+  (v1.5.5 review: an invalid-argument class, closing the last gap in
+  the usage-type sweep). `pending --tui` must stand alone
   and `report --tui` cannot combine with the view flags (`--html` ·
   `--text` · `--out`) — exit 3. `setup` behaves the same (unchanged):
   no args in a terminal starts the wizard, non-terminal runs the

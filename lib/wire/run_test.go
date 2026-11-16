@@ -95,6 +95,31 @@ func TestVersionFlagAlias(t *testing.T) {
 	}
 }
 
+// TestHelpFlagAlias — Review Focus(v1.5.5 T2 A4): `flint -h`·`flint --help`는
+// 전역 별칭 — `flint help`와 동일 출력·exit 0(--version/-v 관례 승계,
+// 디스패치 앞 선행 치환). 근접 오타(--hel)는 별칭이 아니다(unknown 3).
+func TestHelpFlagAlias(t *testing.T) {
+	var want bytes.Buffer
+	if code := RunHelp(&want); code != 0 {
+		t.Fatalf("RunHelp exit=%d, want 0", code)
+	}
+	for _, argv := range [][]string{{"help"}, {"-h"}, {"--help"}} {
+		var out bytes.Buffer
+		if code := Run(argv, strings.NewReader(""), &out, failFactory(t)); code != 0 {
+			t.Fatalf("Run(%v) exit=%d, want 0(help와 동일)", argv, code)
+		}
+		if out.String() != want.String() {
+			t.Fatalf("Run(%v) 출력이 flint help와 불일치 — got %q, want %q", argv, out.String(), want.String())
+		}
+	}
+	var out bytes.Buffer
+	if code := Run([]string{"--hel"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
+		return nil, errors.New("unused")
+	}); code != 3 {
+		t.Fatalf("Run(--hel) exit=%d, want 3(오타는 별칭 아님 — unknown command 유지)", code)
+	}
+}
+
 // TestHelpInformationalFirstLine — Review Focus(v1.5.4 T2 P3): help
 // 출력 첫 줄은 error 키 없는 안내 형태 — 정보 내용(커맨드 목록)은
 // 유지하고 exit 0 계약도 그대로다.

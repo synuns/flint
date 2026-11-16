@@ -74,6 +74,13 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 			f.Limit, i = n, i+1
 		default:
+			// v1.5.5 T2 A5: unknown `-` 접두 인자는 무효 인자 exit 3 —
+			// 쿼리 문자열에 섞여 들어가 조용히 성공하던 것을 폐지.
+			// `-` 시작 쿼리는 `--` 이후 위치 인자로 전달한다(read N9).
+			if strings.HasPrefix(a, "-") {
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint brief [query] [--limit N]", a)))
+				return 3
+			}
 			pos = append(pos, a)
 		}
 	}

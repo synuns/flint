@@ -30,8 +30,19 @@ type compactHook struct {
 
 // RunCompact — stdin 훅 JSON 파싱 → 요약 비빈이면 RunWrite(session,
 // --source hook)로 적립 → 성공+session_id 비빈이면 WriteMarker. 파싱 실패·
-// 빈 요약·st nil은 무동작이며 반환은 언제나 0, stdout에는 절대 쓰지 않는다.
+// 빈 요약·st nil은 무동작이며 반환은 언제나 0, stdout에는 쓰지 않는다
+// (v1.5.5 T2 A5 예외: unknown `-` 접두 인자만 무효 인자 exit 3 — 훅은
+// 무인자 호출이라 정상 훅 경로는 불변).
 func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+	// v1.5.5 T2 A5: unknown `-` 접두 인자는 무효 인자 exit 3 — 기존 완전
+	// 무시(exit 0) 폐지(조용한 성공 금지). 훅은 무인자로 호출하므로 정상
+	// 훅 경로(§13 비간섭)는 불변.
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint compact (hook entry — no flags)", a)))
+			return 3
+		}
+	}
 	if st == nil {
 		return 0
 	}

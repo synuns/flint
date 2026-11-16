@@ -1,6 +1,7 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
 	"os"
@@ -308,6 +309,59 @@ func TestTeardownStoreFree(t *testing.T) {
 	}
 	if rec.downCalls != 1 {
 		t.Fatalf("down=%d회, want 1", rec.downCalls)
+	}
+}
+
+// withSetupPortProbe — v1.5.5 B4: 5434 점유 감지 seam 교체 + stderr
+// 캡처. inUse=true면 점유로 판정.
+func withSetupPortProbe(t *testing.T, inUse bool) *bytes.Buffer {
+	t.Helper()
+	var buf bytes.Buffer
+	prevDial, prevErr := setupPortDialFn, setupStderr
+	setupPortDialFn = func(addr string) bool { return inUse }
+	setupStderr = &buf
+	t.Cleanup(func() { setupPortDialFn, setupStderr = prevDial, prevErr })
+	return &buf
+}
+
+// TestSetupPortInUseWarnsAndContinues — v1.5.5 B4: compose 시작 전 5434
+// 점유 감지 → 경고 1행 stderr, 진행 유지(compose·migrate 계속, exit 0).
+func TestSetupPortInUseWarnsAndContinues(t *testing.T) {
+	rec := withFakeCompose(t)
+	errs := withSetupPortProbe(t, true)
+	migrateCalled := false
+	line, code := RunSetup(context.Background(),
+		func() error { return nil },
+		func() error { migrateCalled = true; return nil })
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(점유는 경고만); out=%s", code, line)
+	}
+	if rec.upCalls != 1 || !migrateCalled {
+		t.Fatalf("진행 유지 위반: compose=%d회 migrate=%v", rec.upCalls, migrateCalled)
+	}
+	if !strings.Contains(errs.String(), "5434") {
+		t.Fatalf("점유 경고에 5434 없음: %q", errs.String())
+	}
+	if lines := strings.Split(strings.TrimRight(errs.String(), "\n"), "\n"); len(lines) != 1 {
+		t.Fatalf("경고는 1행이어야 한다: %q", errs.String())
+	}
+}
+
+// TestSetupPortFreeNoWarning — 미점유면 stderr 경고 없음(진행 동일).
+func TestSetupPortFreeNoWarning(t *testing.T) {
+	rec := withFakeCompose(t)
+	errs := withSetupPortProbe(t, false)
+	line, code := RunSetup(context.Background(),
+		func() error { return nil },
+		func() error { return nil })
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, line)
+	}
+	if rec.upCalls != 1 {
+		t.Fatalf("compose=%d회, want 1", rec.upCalls)
+	}
+	if errs.Len() != 0 {
+		t.Fatalf("미점유인데 경고 발생: %q", errs.String())
 	}
 }
 

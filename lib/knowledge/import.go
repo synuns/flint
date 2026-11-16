@@ -167,6 +167,35 @@ func ValidateFlagValue(field, val string) error {
 	return nil
 }
 
+// importMigrationExt — v1.5.5 B3: --format 미지정 인자의 확장자 기반
+// 마이그레이션 라우팅 판정. 위치 인자가 정확히 1개이고 .jsonl/.pam로
+// 끝나면 (마이그레이션 포맷, 경로, true). 명시 --format가 있으면 라우팅에
+// 개입하지 않는다(RunImportRouted가 이미 분기 — 직접 호출 이중 라우팅
+// 방어), 위치 인자 0·2개 이상·기타 확장자는 기존 규칙 변환 경로.
+func importMigrationExt(args []string) (format, file string, ok bool) {
+	positional, path := 0, ""
+	for _, a := range args {
+		if strings.HasPrefix(a, "-") {
+			if a == "--format" || strings.HasPrefix(a, "--format=") {
+				return "", "", false
+			}
+			continue
+		}
+		positional++
+		path = a
+	}
+	if positional != 1 {
+		return "", "", false
+	}
+	switch strings.ToLower(filepath.Ext(path)) {
+	case ".jsonl":
+		return "jsonl", path, true
+	case ".pam":
+		return "pam", path, true
+	}
+	return "", "", false
+}
+
 // RunImport — `flint import [path] [--commit]`. 인자 없음 = 현재
 // 디렉터리 후보 탐색. dry-run 요약 기본·--commit 적립 확정.
 // v0.27.3: 미확인 플래그는 경로가 아니라 사용법 오류(exit 3) — 오타
@@ -175,6 +204,13 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	if err := st.Ping(ctx); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
+	}
+	// v1.5.5 B3: --format 미지정 + 경로가 .jsonl/.pam면 마이그레이션으로
+	// 진입한다(안내 1행 stderr — export 결과 재이식이 규칙 변환으로 조용히
+	// 빈 결과가 되던 사각 제거). 명시 --format·기타 확장자는 기존 경로.
+	if format, file, ok := importMigrationExt(args); ok {
+		fmt.Fprintf(os.Stderr, "[flint] import: %s ends with .%s — routing to migration (flint import --format %s)\n", file, format, format)
+		return RunImportMigrate(ctx, st, []string{"--format", format, file}, stdin, stdout)
 	}
 	commit := false
 	var pos []string
@@ -236,7 +272,9 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			fmt.Fprintln(stdout, `{"status":"error","detail":"unreadable","files":`+unreadableJSON+`}`)
 			return 1
 		}
-		fmt.Fprintln(stdout, `{"status":"empty","detail":"no convertible sections (## heading required)"}`)
+		// v1.5.5 B3: empty에는 additive 힌트 키 — .jsonl/.pam 마이그레이션
+		// 파일을 규칙 변환으로 지정했을 때의 안내.
+		fmt.Fprintln(stdout, `{"status":"empty","detail":"no convertible sections (## heading required)","hint":"--format jsonl|pam for migration"}`)
 		return 0
 	}
 	if !commit {

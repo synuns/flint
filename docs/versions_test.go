@@ -104,6 +104,13 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0154Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.4", "usage",
 	}},
+	// v1.5.5: terminal detection fix(/dev/null 리다이렉트 TTY 오판 제거)+
+	// usage 잔여 사이트 완결(hot·brief·compact·nudge)·-h/--help 별칭·
+	// write --help 안내·pam export 행수 정합·import 확장자 감지·
+	// setup 포트 경고 — R29 B2·A3.
+	{name: "TestVersion0155Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.5.5", "terminal",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{

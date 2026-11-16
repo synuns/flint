@@ -47,7 +47,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		case "normal", "minimal":
 			apply = args[i] // 위치 허용(--apply 없이 값만)
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — usage: flint profile [--apply normal|minimal]", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint profile [--apply normal|minimal]", args[i])))
 			return 3
 		}
 	}

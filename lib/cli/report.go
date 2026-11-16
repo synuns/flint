@@ -65,7 +65,7 @@ func runReportEntry(ctx context.Context, st Store, args []string, stdin io.Reade
 	for _, a := range rest {
 		switch a {
 		case "--html", "--text", "--out":
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: --tui cannot combine with %s — pick one view", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --tui cannot combine with %s — usage: flint report [--tui] | [--days N] [--html] [--out FILE] [--text]", a)))
 			return 3
 		}
 	}

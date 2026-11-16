@@ -62,7 +62,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			jsonMode = true // v0.32.0: MCP·스크립트용 기계 판독 출력
 			continue
 		}
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s — usage: flint pending [--json]", a)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint pending [--json]", a)))
 		return 3
 	}
 	if err := st.Ping(ctx); err != nil {
