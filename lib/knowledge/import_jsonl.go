@@ -96,7 +96,7 @@ func parseImportMigrateArgs(args []string) (format, file string, err error) {
 			continue
 		}
 		if strings.HasPrefix(a, "-") {
-			return "", "", fmt.Errorf("unknown flag: %s", a)
+			return "", "", wire.UsageErrorf("unknown flag: %s — usage: flint import --format jsonl|pam [FILE]", a)
 		}
 		if file != "" {
 			return "", "", &store.SchemaError{Field: "file", Expect: "one positional argument (FILE) required"}

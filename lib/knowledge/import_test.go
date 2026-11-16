@@ -208,13 +208,15 @@ func TestRunImportOriginNormalized(t *testing.T) {
 
 // TestRunImportUnknownFlag — v0.27.3(발견12): 미확인 플래그는 사용법
 // 오류(오타 플래그의 무음 경로화 방지) — errLine 관례·v0.34.3부터 무효
-// 인자 계약 exit 3(doctor·tuning·diff·maintain 정합).
+// 인자 계약 exit 3(doctor·tuning·diff·maintain 정합). v1.5.4(T1): 메시지에
+// 허용 플래그 usage 힌트 부가 — 단언은 플래그 사실+힌트로 갱신.
 func TestRunImportUnknownFlag(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
 	code := RunImport(context.Background(), f, []string{"--verbose"}, strings.NewReader(""), &out)
-	if code != 3 || !strings.Contains(out.String(), `"unknown flag: --verbose"`) {
-		t.Fatalf("미확인 플래그 = exit %d %s, want 3 unknown flag", code, out.String())
+	if code != 3 || !strings.Contains(out.String(), "unknown flag: --verbose") ||
+		!strings.Contains(out.String(), "usage: flint import") {
+		t.Fatalf("미확인 플래그 = exit %d %s, want 3 unknown flag + usage 힌트", code, out.String())
 	}
 	// 따옴표 포함 플래그도 JSON 파싱 가능(errLine 이스케이프).
 	out.Reset()

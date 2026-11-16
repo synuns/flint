@@ -102,7 +102,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 			updateSkipSignature = true
 			fmt.Fprintln(os.Stderr, "[flint] update: signature verification bypass (one-time trust transfer — ADR-0014 key rollover procedure)")
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint update [--check] [--insecure-skip-signature]", a)))
 			return 3
 		}
 	}

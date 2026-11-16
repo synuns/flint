@@ -278,7 +278,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		case "--out":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: --out requires a path")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --out requires a path — usage: flint report [--days N] [--html] [--out FILE] [--text]")))
 				return 3
 			}
 			// v1.0.2(R2): 값이 플래그를 흡수하는 오타 가드(backup --out과
@@ -294,17 +294,17 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		case "--days":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: --days requires a number")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --days requires a number — usage: flint report [--days N] [--html] [--out FILE] [--text]")))
 				return 3
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil || n < 1 {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("report: invalid days %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: invalid days %q — usage: flint report [--days N] [--html] [--out FILE] [--text]", args[i])))
 				return 3
 			}
 			days = n
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint report [--days N] [--html] [--out FILE] [--text]", args[i])))
 			return 3
 		}
 	}

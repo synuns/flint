@@ -26,6 +26,23 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   `maintain` usage moved from 1 · 0 · 1 to a uniform exit 3. Usage/flag
   errors report `"error":"usage"` (ErrLine shape unchanged — value
   extension only; the message embeds an allowed-flags hint).
+- the `"error":"usage"` type applies to **every** command since v1.5.4 —
+  `maintain` · `doctor` · `report` · `audit` · `backup` · `import` ·
+  `update` (v1.5.3 shipped it for `read` · `done` · bare `maintain`
+  only): unknown-flag/argument errors report `"error":"usage"` with an
+  allowed-flags hint, exit 3. Genuine internal failures keep their
+  existing error types.
+- `flint --version` and `flint -v` (v1.5.4) are aliases of `flint
+  version` — same output, exit 0, store-free fast path.
+- unknown command · bare `flint` · `flint help` (v1.5.4) print usage
+  **guidance** — one JSON line with `message` · `usage` keys, no `error`
+  key (usage guidance is not an error; information unchanged). Unknown
+  command keeps exit 3.
+- `read --limit` above the cap (50, default 10) is clamped; the clamp is
+  surfaced (v1.5.4) in `--json` mode only — one additive line with
+  `limit_requested` (the value the caller passed) and `limit_applied`
+  (the clamped value), the same appended-line convention as `hits:0` and
+  `as_of`. Text mode output is unchanged.
 - `read` zero-hit silence no longer exits 1: eligible zero-hits are
   exit 0 — `--json` emits `{"hits":0}`, text mode stays silent.
   Exit 1 always carries one errLine (JSON) — the MCP tool path
@@ -91,5 +108,5 @@ flint read "migration decisions" --json
 flint read "migration decisions" --json --nosuchflag
 # → {"error":"usage","message":"...allowed flags..."}, exit 3
 flint nosuchcmd
-# → {"error":"usage","message":"unknown command: nosuchcmd"}, exit 3
+# → {"message":"unknown command: nosuchcmd","usage":"flint <...|...> [args]"}, exit 3
 ```

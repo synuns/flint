@@ -1,12 +1,16 @@
 // run_test.go — v1.5.3 T2 P2: ErrLine usage 분류 계약. 무효 인자
 // (unknown flag·값 누락 등 사용법 오류)는 error:"usage"(값 확장 — 구조
 // 불변, 하류 파서 호환), 내부 결함은 internal 유지, SchemaError는 schema
-// 유지(회귀).
+// 유지(회귀). v1.5.4 T2 P3: --version/-v 전역 별칭·help/unknown 안내
+// 형태(error 키 폐지) 계약 추가.
 package wire
 
 import (
+	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"strings"
 	"testing"
 
@@ -59,5 +63,95 @@ func TestUsageErrorfWrap(t *testing.T) {
 	}
 	if ue.Error() != "wrap: bad arg" {
 		t.Errorf("Error() = %q, want wrap: bad arg", ue.Error())
+	}
+}
+
+// TestVersionFlagAlias — Review Focus(v1.5.4 T2 P3): `flint --version`·
+// `flint -v`는 전역 플래그 별칭 — `flint version`과 동일 출력·exit 0.
+// store-free 선행 처리라 unknown command exit 3과 충돌하지 않는다.
+func TestVersionFlagAlias(t *testing.T) {
+	probeHandler(t, "version", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		if st != nil {
+			t.Error("version: store-free 경로인데 store 주입됨")
+		}
+		io.WriteString(stdout, "flint v9.9.9-test\n")
+		return 0
+	})
+	for _, argv := range [][]string{{"version"}, {"--version"}, {"-v"}} {
+		var out bytes.Buffer
+		if code := Run(argv, strings.NewReader(""), &out, failFactory(t)); code != 0 {
+			t.Fatalf("Run(%v) exit=%d, want 0(version과 동일)", argv, code)
+		}
+		if got := strings.TrimSpace(out.String()); got != "flint v9.9.9-test" {
+			t.Fatalf("Run(%v) 출력=%q, want version과 동일 출력", argv, got)
+		}
+	}
+	// 근접 오타(--versio)는 별칭이 아니다 — unknown command exit 3 유지.
+	var out bytes.Buffer
+	if code := Run([]string{"--versio"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
+		return nil, errors.New("unused")
+	}); code != 3 {
+		t.Fatalf("Run(--versio) exit=%d, want 3(unknown command 계약 유지)", code)
+	}
+}
+
+// TestHelpInformationalFirstLine — Review Focus(v1.5.4 T2 P3): help
+// 출력 첫 줄은 error 키 없는 안내 형태 — 정보 내용(커맨드 목록)은
+// 유지하고 exit 0 계약도 그대로다.
+func TestHelpInformationalFirstLine(t *testing.T) {
+	var out bytes.Buffer
+	if code := RunHelp(&out); code != 0 {
+		t.Fatalf("RunHelp exit=%d, want 0", code)
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) < 2 {
+		t.Fatalf("help 출력 라인 수 부족: %q", out.String())
+	}
+	first := decodeErrLine(t, lines[0])
+	if _, hasErr := first["error"]; hasErr {
+		t.Errorf("help 첫 줄에 error 키 잔존: %q", lines[0])
+	}
+	if !strings.Contains(lines[0], "flint <") || !strings.Contains(lines[0], "write") {
+		t.Errorf("help 첫 줄 usage 정보 내용 유지 실패: %q", lines[0])
+	}
+}
+
+// TestUnknownCommandGuidanceNoErrorKey — Review Focus(v1.5.4 T2 P3):
+// unknown command 안내도 error 키 없는 안내 형태 — unknown command
+// 사실(message)과 usage 정보를 유지하고 exit은 기존 계약 3.
+func TestUnknownCommandGuidanceNoErrorKey(t *testing.T) {
+	var out bytes.Buffer
+	if code := Run([]string{"no-such-cmd"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
+		return nil, errors.New("unused")
+	}); code != 3 {
+		t.Fatalf("exit=%d, want 3(기존 계약 유지)", code)
+	}
+	line := strings.TrimSpace(out.String())
+	if strings.Count(line, "\n") != 0 {
+		t.Fatalf("unknown command 안내=%q, want 한 줄 JSON", line)
+	}
+	m := decodeErrLine(t, line)
+	if _, hasErr := m["error"]; hasErr {
+		t.Errorf("unknown command 안내에 error 키 잔존: %q", line)
+	}
+	if !strings.Contains(m["message"], "unknown command: no-such-cmd") {
+		t.Errorf("unknown command 사실 유지 실패: message=%q", m["message"])
+	}
+	if !strings.Contains(m["usage"], "flint <") || !strings.Contains(m["usage"], "read") {
+		t.Errorf("usage 정보 내용 유지 실패: usage=%q", m["usage"])
+	}
+}
+
+// TestUnknownCommandLineEscapesCommand — v1.5.4 T2 P3(이스케이프 회귀,
+// v0.28.0 H③ 승계): 안내 라인 조립은 호출자 제어 문자열(cmd)을
+// json.Marshal 경유 — 원시 결합이 JSON 구조를 파손하지 않는다.
+func TestUnknownCommandLineEscapesCommand(t *testing.T) {
+	line := UnknownCommandLine(`x"}{"injected":1`)
+	m := decodeErrLine(t, line)
+	if !strings.Contains(m["message"], `unknown command: x"}{"injected":1`) {
+		t.Errorf("원 메시지 보존 실패: %q", m["message"])
+	}
+	if _, injected := m["injected"]; injected {
+		t.Errorf("JSON 주입 성공 — 이스케이프 위반: %q", line)
 	}
 }

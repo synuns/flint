@@ -94,12 +94,12 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		case "--limit":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--limit requires a number")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--limit requires a number — usage: flint audit [--limit N] [--session ID] [--stat]")))
 				return 3
 			}
 			n, err := strconv.Atoi(args[i])
 			if err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("invalid limit %q", args[i])))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("invalid limit %q — usage: flint audit [--limit N] [--session ID] [--stat]", args[i])))
 				return 3
 			}
 			if n < 1 {
@@ -111,12 +111,12 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		case "--session":
 			i++
 			if i >= len(args) || args[i] == "" {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--session requires an id")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--session requires an id — usage: flint audit [--limit N] [--session ID] [--stat]")))
 				return 3
 			}
 			session = args[i]
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint audit [--limit N] [--session ID] [--stat]", args[i])))
 			return 3
 		}
 	}

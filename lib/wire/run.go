@@ -25,6 +25,13 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 		return 1
 	}
 	cmd, rest := args[0], args[1:]
+	// v1.5.4 T2 P3: --version/-v 전역 플래그 별칭 — `flint --version`·
+	// `flint -v`를 `flint version`과 동일 출력·exit 0으로 선행 치환한다.
+	// 커맨드 테이블 등록이 아니라 디스패치 앞 단계 처리라 unknown command
+	// exit 3 계약과 충돌하지 않는다(오타 `--versio` 등은 여전히 unknown 3).
+	if cmd == "--version" || cmd == "-v" {
+		cmd = "version"
+	}
 	// help도 store-free fast path(코디네이터 룰링): registry 핸들러가
 	// 아니라 접속 전에 직접 출력한다. 인자(`help foo`)는 무시(R1).
 	if cmd == "help" {
@@ -33,12 +40,14 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	run, ok := Lookup(cmd)
 	if !ok {
 		// v0.28.0(H③): 이름 이스케이프 — 원시 결합은 호출자 제어 문자열로
-		// JSON 구조 자체를 파손할 수 있다(ErrLine도 마샬링 경유).
+		// JSON 구조 자체를 파손할 수 있다(ErrLine도 마샬링 경유 —
+		// UnknownCommandLine이 json.Marshal 경유로 승계).
 		// v1.5.3 T1: unknown command도 무효 인자 계약 exit 3 통일(기존 1) —
-		// 커맨드 오타를 에이전트가 자가수신하게 한다. v1.5.3 P2 오류 타입도
-		// usage 계열로 분류({"error":"usage","message":...} — cli.md 기재와
-		// 동일 모양).
-		fmt.Fprintln(stdout, ErrLine(UsageErrorf("unknown command: %s", cmd)))
+		// 커맨드 오타를 에이전트가 자가수신하게 한다. v1.5.4 T2 P3: 출력은
+		// error 키 없는 안내 형태(message+usage, 정보 내용 유지) — usage
+		// 안내는 오류가 아니라는 계약(UsageLine 전환과 동일 맥락). exit 3과
+		// ErrLine의 error:"usage" 분류(커맨드 인자 오류 경로)는 불변.
+		fmt.Fprintln(stdout, UnknownCommandLine(cmd))
 		return 3
 	}
 	ctx := context.Background()

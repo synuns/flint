@@ -75,7 +75,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		case "--out":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--out requires a path")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--out requires a path — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
 				return 3
 			}
 			// v1.0.2(R2): 값이 플래그를 흡수하는 오타('--out --encrypt' →
@@ -90,12 +90,12 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		case "--mask":
 			mask = true
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint backup [--out FILE] [--encrypt] [--mask]", args[i])))
 			return 3
 		}
 	}
 	if encrypt && out == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--encrypt requires --out (ciphertext is file-only)")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--encrypt requires --out (ciphertext is file-only) — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
 		return 3
 	}
 	// v0.28.2: --out이 git 저장소 내부면 경고(진행 유지 — 사용자 명시
@@ -243,7 +243,7 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		case "--file":
 			i++
 			if i >= len(args) {
-				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--file requires a path")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--file requires a path — usage: flint restore --file FILE [--drill]")))
 				return 3
 			}
 			// v1.0.2(R2): 플래그 흡수 값 가드(--out과 동일 계약).
@@ -253,12 +253,12 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			}
 			file = args[i]
 		default:
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("unknown flag: %s", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint restore --file FILE [--drill]", args[i])))
 			return 3
 		}
 	}
 	if file == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("restore requires --file")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("restore requires --file — usage: flint restore --file FILE [--drill]")))
 		return 3
 	}
 

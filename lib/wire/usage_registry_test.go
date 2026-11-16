@@ -118,9 +118,10 @@ func TestHelpSummaryEnglish(t *testing.T) {
 }
 
 // TestUsageLineAssembledFromOrder — usageLine은 usageOrder 순서 그대로
-// 조립(리터럴 금지, v0.34.2 Produces 계약).
+// 조립(리터럴 금지, v0.34.2 Produces 계약). v1.5.4 T2 P3: error 키 폐지 —
+// `{"usage":...}` 안내형(정보 내용 불변).
 func TestUsageLineAssembledFromOrder(t *testing.T) {
-	want := `{"error":"usage: flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
+	want := `{"usage":"flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
 	if UsageLine() != want {
 		t.Fatalf("usageLine이 usageOrder 조립과 불일치:\n got=%s\nwant=%s", UsageLine(), want)
 	}

@@ -10,6 +10,7 @@ package knowledge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"os"
@@ -339,4 +340,65 @@ func TestReadUnknownFlagExit3(t *testing.T) {
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"--", "--jsonn"}, strings.NewReader(""), &out); code == 3 {
 		t.Fatalf("'--' 이후 쿼리가 exit 3: %s", out.String())
 	}
+}
+
+// TestReadLimitClampJSONLine — Review Focus(v1.5.4 T2 P3): --json에서
+// 요청 limit이 상한(50)을 초과하면 additive 필드 limit_requested·
+// limit_applied를 한 줄 추가해 clamp 사실을 밝힌다(기존 키 불변).
+// 상한 이하·텍스트 모드는 기존 형식 그대로 — clamp 라인 없음.
+func TestReadLimitClampJSONLine(t *testing.T) {
+	newStore := func() *fakeStore {
+		return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "FROM active_knowledge") {
+				return hitRowsFixture, nil
+			}
+			return nil, nil
+		}}
+	}
+	t.Run("--json --limit 99 — clamp 라인 추가", func(t *testing.T) {
+		var out strings.Builder
+		if code := RunRead(context.Background(), newStore(),
+			[]string{"--json", "--limit", "99", "백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit=%d, want 0: %s", code, out.String())
+		}
+		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+		if len(lines) != 3 { // 히트 2행 + clamp 라인 1
+			t.Fatalf("출력 라인 수 = %d, want 3(히트 2 + clamp 1): %q", len(lines), out.String())
+		}
+		var clamp map[string]int
+		if err := json.Unmarshal([]byte(lines[2]), &clamp); err != nil {
+			t.Fatalf("clamp 라인 JSON 아님: %q", lines[2])
+		}
+		if clamp["limit_requested"] != 99 || clamp["limit_applied"] != 50 {
+			t.Fatalf("clamp 필드 = %v, want limit_requested:99·limit_applied:50", clamp)
+		}
+		// 기존 키 불변 — 히트 행은 id·topic·summary 그대로.
+		var row map[string]string
+		if err := json.Unmarshal([]byte(lines[0]), &row); err != nil {
+			t.Fatalf("히트 행 JSON 아님: %q", lines[0])
+		}
+		if row["topic"] != "백업 정책" {
+			t.Errorf("기존 키 변형 — topic=%q", row["topic"])
+		}
+	})
+	t.Run("--json --limit 30 — 상한 이하 clamp 라인 없음", func(t *testing.T) {
+		var out strings.Builder
+		if code := RunRead(context.Background(), newStore(),
+			[]string{"--json", "--limit", "30", "백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit=%d, want 0", code)
+		}
+		if strings.Contains(out.String(), "limit_requested") {
+			t.Errorf("상한 이하인데 clamp 라인 출력: %q", out.String())
+		}
+	})
+	t.Run("텍스트 --limit 99 — 기존 형식 유지", func(t *testing.T) {
+		var out strings.Builder
+		if code := RunRead(context.Background(), newStore(),
+			[]string{"--limit", "99", "백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit=%d, want 0", code)
+		}
+		if strings.Contains(out.String(), "limit_requested") {
+			t.Errorf("텍스트 모드에 clamp 라인 출력: %q", out.String())
+		}
+	})
 }

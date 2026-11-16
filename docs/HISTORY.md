@@ -6,6 +6,23 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.5.4 minor (2026-11-16) — usage type everywhere + agent ergonomics P3
+
+- [x] Usage error type extended to all commands (v1.5.3 shipped it for
+  `read` only): `maintain` · `doctor` · `report` · `audit` · `backup` ·
+  `import` · `update` unknown-flag/argument errors now report
+  `"error":"usage"` with an allowed-flags hint in the message (exit 3
+  unchanged; genuine internal failures keep their existing error types).
+- [x] Agent ergonomics P3: `flint --version` / `flint -v` alias prints
+  the same output as `flint version` (exit 0) · unknown command · bare
+  `flint` / `flint help` print usage guidance (one JSON line with
+  `message` · `usage` keys — no `error` key, information unchanged;
+  unknown command keeps exit 3) · `read --limit` above the cap surfaces
+  the clamp: `--json` emits one additive line with `limit_requested` /
+  `limit_applied` (text mode unchanged) · fresh-DB `backup_keep`
+  "not set — default" notice silenced (an invalid configured value
+  still warns).
+
 ### v1.5.3 minor (2026-11-16) — agent CLI trust + TUI polish
 
 - [x] Agent CLI trust (P1): `teardown` is a dry-run by default — it
