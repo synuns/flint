@@ -247,9 +247,9 @@ func TestMaintainUsageErrors(t *testing.T) {
 		args []string
 		want int
 	}{
-		{[]string{}, 3},                       // v1.5.3 T1: bare usage 3(기존 1)
-		{[]string{"--id", "5"}, 3},            // v1.5.3 T1: 모드 없음 → bare usage 3
-		{[]string{"--invalidate"}, 1},         // --id 없음
+		{[]string{}, 3},                         // v1.5.3 T1: bare usage 3(기존 1)
+		{[]string{"--id", "5"}, 3},              // v1.5.3 T1: 모드 없음 → bare usage 3
+		{[]string{"--invalidate"}, 1},           // --id 없음
 		{[]string{"--merge", "--from", "3"}, 1}, // --to 없음
 		{[]string{"--check", "--id", "abc"}, 1}, // 숫자 아님 — id는 check에서 무시되지만 파싱은 실패해야
 	}
