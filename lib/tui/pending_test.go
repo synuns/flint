@@ -727,6 +727,11 @@ func TestPendingExpireDelegatesAndRemoves(t *testing.T) {
 	if !strings.Contains(m.View(), "expired") {
 		t.Errorf("status after expire missing 'expired'\nview:\n%s", m.View())
 	}
+	// 컷오프 효과 안내 — 위임 명령이 이 항목만이 아니라 컷오프(≤ N일)
+	// 이하 전체 pending을 만료함을 상태 라인이 명시해야 한다.
+	if !strings.Contains(m.View(), "cutoff expires all pending items") {
+		t.Errorf("status after expire missing cutoff effect note\nview:\n%s", m.View())
+	}
 	// 도움말 갱신 — 목록·상태 화면 키 안내에 e expire 노출.
 	if !strings.Contains(m.View(), "e expire") {
 		t.Errorf("list hint missing 'e expire'\nview:\n%s", m.View())

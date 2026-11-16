@@ -487,7 +487,7 @@ func (m PendingModel) expireSelected() (tea.Model, tea.Cmd) {
 		m.status = actionFailedStatus("expire", fmt.Sprintf("#%d", it.ID), code, cause)
 		return m, nil
 	}
-	m.status = fmt.Sprintf("expired #%d (maintain --expire-pending %d --commit)", it.ID, days)
+	m.status = fmt.Sprintf("expired #%d (maintain --expire-pending %d --commit — cutoff expires all pending items ≤ %d days old)", it.ID, days, days)
 	return m.removeItem(idx)
 }
 

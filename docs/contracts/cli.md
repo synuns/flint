@@ -107,7 +107,10 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
 - `maintain --check` responses include a `next` key (v1.6.0) — the
   recommended action, the pending-import convention.
 - `doctor --json` (v1.6.0) emits machine-readable output; the text
-  output is unchanged and fail → exit 1 in both modes.
+  output is unchanged and fail → exit 1 in both modes. `--json` is
+  byte-identical to the default output — an explicit machine channel,
+  not a second format; it diverges only under `--fix`, where it emits
+  the `doctorOutput` JSON structure in place of the text fix report.
 - TUI screens (v1.5.0, `lib/tui`; adaptive default since v1.5.2; flag
   paths fully preserved): `pending` · `export` · `report` are
   adaptive — a bare invocation in a terminal opens the TUI, while a

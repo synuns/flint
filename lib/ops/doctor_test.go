@@ -525,6 +525,22 @@ func TestDoctorJSONFlag(t *testing.T) {
 	}
 }
 
+// protocol — v1.6.0: doctor --json 출력은 기본 출력과 동일 바이트(명시적
+// 기계 채널 고정 — 두 번째 포맷이 아님). --fix 없는 경로에서 회귀 확인
+// (결정적 db 서브셋으로 바이트 비교).
+func TestDoctorJSONBytesMatchDefault(t *testing.T) {
+	f := &fakeStore{queryFn: freshDoctorFn()}
+	def, defCode := runDoctorArgs(t, f, "--check", "db")
+	f2 := &fakeStore{queryFn: freshDoctorFn()}
+	js, jsCode := runDoctorArgs(t, f2, "--check", "db", "--json")
+	if defCode != jsCode {
+		t.Fatalf("exit default=%d json=%d, want equal", defCode, jsCode)
+	}
+	if def != js {
+		t.Errorf("--json not byte-identical to default:\ndefault: %q\njson:    %q", def, js)
+	}
+}
+
 // schema — 상위 버전(예: 향후 v5)은 정상. 문자열 동등 "4" 검사였을 때
 // v5 DB가 fail로 오탐됐다(수치 비교 n>=4 계약).
 func TestDoctorSchemaFutureVersionOk(t *testing.T) {
