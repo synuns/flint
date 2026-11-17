@@ -75,7 +75,7 @@ type RecallBumper interface {
 // kind=read(회상 반환 히트)는 이 경로에 결합해 강화
 // (recall_score+1·last_recalled_at=now)까지 함께 수행한다. kind=hot(주입
 // 노출)은 강화에서 제외 — hot 랭킹이 recall_score를 소기 때문에 노출→
-// 강화→재노출 순환이 생긴다(룰링). 이력 기록 자체는 양쪽 불변.
+// 강화→재노출 순환이 생긴다. 이력 기록 자체는 양쪽 불변.
 func recordKnowledgeReads(ctx context.Context, st wire.Store, ids []int, session, kind string) {
 	if kr, ok := st.(KnowledgeReadsRecorder); ok {
 		_ = kr.RecordKnowledgeReads(ctx, ids, session, kind)
@@ -328,7 +328,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	}
 	// --session 값은 read_events에 14일간 저장되는 라벨이다 — 다른 값형
 	// 플래그와 달리 오타(`--session --json`처럼 플래그를 흡수)가 DB 오염으로
-	// 남는다. 플래그형 값은 즉시 exit 3(리뷰 #3 — 조회 결과 오염 방지).
+	// 남는다. 플래그형 값은 즉시 exit 3(조회 결과 오염 방지).
 	// 가드는 validateSessionLabel 공용 구현으로 승격 — hot·done이
 	// 같은 검증(exit 3)을 쓴다.
 	if err := validateSessionLabel(sessionGiven, session); err != nil {
@@ -382,7 +382,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// 값 없는 --status(마지막 인자)도 무효 스펙 exit 3 — 값 없는 --as-of
 	// 가드와 동일 규칙: 조용히 무시하면 의도와 다른 결과를 돌려준다. 무효
 	// status 값 검증은 --as-of 지정 여부와 무관하게 항상 수행한다. --as-of
-	// 병용 시 as-of 우선·status 무시(룰링 — 경고 없이)는 유효한 값에만
+	// 병용 시 as-of 우선·status 무시(경고 없이)는 유효한 값에만
 	// 적용되며, Filters.Status 반영은 단독 지정 시에만 한다.
 	if statusGiven || statusSpec != "" {
 		switch statusSpec {
@@ -443,13 +443,13 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		return store.MapExit(err)
 	}
 	// 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
-	// RRF 융합 재랭킹(룰링 — 구문 히트 경로는 완전 불변).
+	// RRF 융합 재랭킹(구문 히트 경로는 완전 불변).
 	// ReorderByFallbackCount는 정합수·read_count·자모·topic 4신호 RRF.
 	// rrf_k 오버라이드 주입을 재랭킹 **앞**으로.
 	// 1-토큰 질의는
 	// 구문과 동질이라 생략. --as-of(과거 시점)는 현재 시점 폴백이 시점
 	// 정합성을 깨므로 생략. --status는 상태 필터 자체가 재시도 대상이
-	// 아니라 폴백·제안 미발동(룰링). 폴백 시도는 meta read_fallback_calls에
+	// 아니라 폴백·제안 미발동. 폴백 시도는 meta read_fallback_calls에
 	// 1회 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
 	// 폴백 시도 여부를 read_events 기록에 전달(METRICS §4 G1).
 	fallbackTried := false

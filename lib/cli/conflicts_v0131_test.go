@@ -1,7 +1,7 @@
-// conflicts_v0131_test.go — 심층 리뷰 회귀(F6·F7·F9):
-// F6 conflictDice가 lib/query.BigramDiceMultiset로 위임(로컬 재구현 폐지),
-// F7/F9 checkConflicts가 ConflictStore.ConflictGroups seam 경유(인라인
-// GROUP BY SQL 폐지·상한 있는 조회). 기존 테스트 함수는 불변.
+// conflicts_v0131_test.go
+// conflictDice가 lib/query.BigramDiceMultiset로 위임(로컬 재구현 폐지),
+// checkConflicts가 ConflictStore.ConflictGroups seam 경유(인라인
+// GROUP BY SQL 폐지·상한 있는 조회).
 package cli
 
 import (

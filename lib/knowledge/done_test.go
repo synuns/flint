@@ -57,7 +57,7 @@ func mustDone(t *testing.T, st wire.Store, args []string) (string, int) {
 func stubAutoBackup(t *testing.T) {
 	t.Helper()
 	prev := AutoBackupFn
-	// st 파라미터 확장(코디네이터 룰링 A안) — 스텁은 무시.
+	// st 파라미터 확장 — 스텁은 무시.
 	AutoBackupFn = func(ctx context.Context, st wire.Store) {}
 	t.Cleanup(func() { AutoBackupFn = prev })
 }
@@ -242,7 +242,7 @@ func TestDoneWritesSession(t *testing.T) {
 	}
 }
 
-// TestDoneStaleWarningReachable — 실배선 도달성 회귀(코드리뷰 #3): 훅은
+// TestDoneStaleWarningReachable — 실배선 도달성 회귀: 훅은
 // Claude session_id(UUID)를 --session으로 넘긴다. UUID가 그대로 agent가
 // 되면 세션마다 agent가 갈라져 StaleSessionRuns가 1을 못 넘어 stale 경고가
 // 영구히 발화되지 않는다. 서로 다른 UUID 세션이 끝나도
@@ -297,7 +297,7 @@ func TestDoneStaleWarningReachable(t *testing.T) {
 	}
 }
 
-// 2차 리뷰 #1 — UUID 형식(훅 실배선 형식)만 claude로 집계된다.
+// UUID 형식(훅 실배선 형식)만 claude로 집계된다.
 func TestAgentForSessionUUIDMapsClaude(t *testing.T) {
 	f := &fakeStore{}
 	d := &doneFake{fakeStore: f, stubbed: true}
@@ -311,7 +311,7 @@ func TestAgentForSessionUUIDMapsClaude(t *testing.T) {
 	}
 }
 
-// 2차 리뷰 #1 — UUID가 아닌 미해석 문자열(e2e·타 하니스)은 그 값 자체를
+// UUID가 아닌 미해석 문자열(e2e·타 하니스)은 그 값 자체를
 // agent로 쓴다. claude로 흡수되면 실제 claude 세션 summary를 덮어쓰고
 // stale 경고가 오발화된다.
 func TestAgentForSessionNonUUIDStaysOwn(t *testing.T) {

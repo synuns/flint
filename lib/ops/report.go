@@ -352,8 +352,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return store.MapExit(err)
 	}
 	// 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 CollectEffect의
-	// read_events 창 집산에서(구 read_fallback_calls/read_stats
-	// calls 누적 분모 폐지, effect.fallback_pct와 동일 산출).
+	// read_events 창 집산에서(effect.fallback_pct와 동일 산출).
 	out.DupPct = DupPct(out.Days)
 	// 소스별 dup 기간 합계 — 일별 행 합산(미기록 일은 0으로 합산됨).
 	for _, d := range out.Days {
@@ -756,7 +755,7 @@ func PctOf(n, total int) int {
 // 전부 Go-사이드 조인으로 산출해 SQL interval 곱의 Doltgres 파라미터
 // 추론 리스크를 받지 않는다.
 //
-// 룰링(리뷰 #6): G3을 CollectCounts의 stale 쿼리에 병합하지 않는다 —
+// G3을 CollectCounts의 stale 쿼리에 병합하지 않는다 —
 // stale은 "인자 1개(timestamptz)" 계약을 회귀 테스트가 검증하며
 // dead 컷오프(30일)는 인자가 달라 계약을 깬다. 유지보수 경로의 소형
 // 쿼리 추가를 대가로 두 관심을 분리 유지.
@@ -786,7 +785,7 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 	// 최근 hot 노출 집합 — hot --full은 BumpReads로 주입 id의 read_count를
 	// 올리므로 정상 경로에서 노출 지식은 애초에 read_count=0
 	// 후보 밖이다. 이 가드는 참조 증분과 노출 기록이 별도 경로라 계측
-	// 유실(증분만 실패) 시 생기는 불일치를 메운다(리뷰 #2 재정의).
+	// 유실(증분만 실패) 시 생기는 불일치를 메운다.
 	// 조회 실패는 공집합(가드 생략 강등).
 	exposed := map[int]bool{}
 	if rows, err := wire.QueryOnce(ctx, st,
@@ -961,9 +960,9 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 
 	// 사용 연쇄(B) — 반환 id가 24h 내 재반환 또는 같은 topic write로
 	// 이어진 read 비율. ids를 가진 이벤트가 없으면 topics 조회를 건너뛴다
-	// (분모 0 확정 — 불필요한 스캔 제거, 리뷰 #6). topic 맵은 전체 knowledge
+	// (분모 0 확정 — 불필요한 스캔 제거). topic 맵은 전체 knowledge
 	// 조회(무효화·대체 지식도 연쇄 매칭에 필요 — read 시점엔 active였을
-	// 수 있다, 리뷰 #4). 조회 실패는 (b) 경로만 강등.
+	// 수 있다). 조회 실패는 (b) 경로만 강등.
 	// (회상 선도·ProfileHint는 위쪽 세션 배정 블록 —
 	// 힌트 가드 위치 계약은 동일 유지.)
 	hasIDs := false
@@ -1473,7 +1472,7 @@ func ChainPct(evs []ReadEventRow, writes []WriteRow, topics map[int]string, wind
 		}
 		hit := false
 		// (a) 이후 24h 내 재반환 — Δ>0 필요(페어링의 0 < Δ 규칙과 일관,
-		// 동시 기록(Δ=0)은 연쇄 아님, 리뷰 #5).
+		// 동시 기록(Δ=0)은 연쇄 아님).
 		for j := i + 1; j < len(evs) && !hit; j++ {
 			if evs[j].Ts.After(e.Ts.Add(window)) {
 				break

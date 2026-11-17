@@ -171,7 +171,7 @@ func (f *fakeApprove) CommitTelemetry(ctx context.Context, cmd string) error {
 
 // withApproveFake — ApproveFn seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +
 // SUPERLITE_REAL=1이면 stub 미설정 시 실구현 위임(위임 DSN도 FLINT_TEST_DSN).
-// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
+// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(seamRealDSN).
 func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Helper()
 	prev := ApproveFn

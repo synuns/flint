@@ -147,7 +147,7 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 
 // dispatchRead — flint read [query] --tag --limit 조립. limit은 토큰 예산
 // (ClampLimit 상한 50)을 도구 경로에도 박제한다. query는 외부 입력이라
-// 플래그로 파싱되지 않게 "--" 뒤에 둔다(N9 — runRead의 end-of-options 규칙).
+// 플래그로 파싱되지 않게 "--" 뒤에 둔다(runRead의 end-of-options 규칙).
 func dispatchRead(args map[string]any) (string, int) {
 	// MCP 경로 라벨 — read_events.source='mcp' 계량.
 	cliArgs := []string{"--source", "mcp"}

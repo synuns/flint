@@ -160,7 +160,7 @@ func TestDiffPrefixParameterized(t *testing.T) {
 // TestDiffSeamReal — SUPERLITE_REAL=1 실구현 seam: write 2커밋(A·B) 후
 // diff A B로 added ≥ 1·from/to 해시 일치. 해시는 커밋 메시지 세션 태그로
 // 특정해 병행 커밋과 무관하게 결정적. 실DB 미기동 시 스킵. 실DB는
-// FLINT_TEST_DSN 설정 시만(N1 — 운영 기본 DSN 접속 금지).
+// FLINT_TEST_DSN 설정 시만(운영 기본 DSN 접속 금지).
 func TestDiffSeamReal(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {

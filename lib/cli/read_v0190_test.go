@@ -113,9 +113,9 @@ func TestReadEventRecordsFallback(t *testing.T) {
 }
 
 // TestReadSessionFlagValidation — 값 없는 trailing --session은
-// 다른 값형 플래그와 동일 규칙 exit 3(N10/F1 관례). 플래그형 값
+// 다른 값형 플래그와 동일 규칙 exit 3. 플래그형 값
 // (`--session --json` 흡수 오타)도 exit 3 — 라벨이 read_events에 14일
-// 남는 만큼 DB 오염 방지가 조회 편의보다 우선(리뷰 #3).
+// 남는 만큼 DB 오염 방지가 조회 편의보다 우선.
 func TestReadSessionFlagValidation(t *testing.T) {
 	for _, args := range [][]string{
 		{"--session"},           // 값 없음

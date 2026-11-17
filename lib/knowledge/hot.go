@@ -474,7 +474,7 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	// 증분(read_count·last_read_at 왜곡으로 stale 판정 동결) 없이 유입 1회만
 	// 기록한다. 생존 판정은 접미 포함 텍스트 기준(N4): 접미가 밀어낸 행이
 	// 실출력에서 잘렸으면 증분하지 않는다. 증분 id는 본질의 hot_view 조회의
-	// id 컬럼에서 직접 뽑는다(단일 정의) — 동반 질의·그 실패 경로는 폐지.
+	// id 컬럼에서 직접 뽑는다(단일 정의).
 	if !full {
 		RecordUsage(ctx, st, "hot", "")
 		// 헤드라인(비 --full) 노출 id 전수도 회상 이력에

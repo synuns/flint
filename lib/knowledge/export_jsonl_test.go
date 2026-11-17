@@ -126,8 +126,8 @@ func TestFormatJSONLRoundTripPreservesAllFields(t *testing.T) {
 }
 
 // TestFormatJSONLValidAtRoundtrip — valid_at 필드는
-// FormatJSONL → ParseJSONLRows 왕복에서 원값이 보존된다(CreatedAt 치환
-// 폐지 — 재이식·재export 동일성의 원천).
+// FormatJSONL → ParseJSONLRows 왕복에서 원값이 보존된다(재이식·
+// 재export 동일성의 원천).
 func TestFormatJSONLValidAtRoundtrip(t *testing.T) {
 	created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	valid := time.Date(2026, 11, 12, 23, 15, 0, 0, time.UTC) // 의도적 상이

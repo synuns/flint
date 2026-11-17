@@ -756,8 +756,8 @@ func TestRunImportMigrateMaxRowsPAMExceeded(t *testing.T) {
 }
 
 // TestRunImportMigrateValidAtPreserved — valid_at은
-// 원값으로 보존 적립된다(경로 확장 — 종전 CreatedAt 치환 폐지.
-// 검증 시각 ≠ 수집 시각 행에서 원천 valid_at이 그대로 적립).
+// 원값으로 보존 적립된다.
+// 검증 시각 ≠ 수집 시각 행에서 원천 valid_at이 그대로 적립.
 func TestRunImportMigrateValidAtPreserved(t *testing.T) {
 	created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	valid := time.Date(2026, 11, 12, 23, 15, 0, 0, time.UTC)
@@ -791,7 +791,7 @@ func TestRunImportMigrateValidAtPreserved(t *testing.T) {
 // TestRunImportMigratePAMProjectKind — PAM project형
 // 후보는 스킵되지 않고 pending 적립된다(승격 모델 준수). 원천 kind 보존은
 // 태그 "pam:project" 추가로(ExportRow.Kind는 저장 라우터 상수라 태그로만
-// 구분 — 코디네이터 룰링 2026-11-14).
+// 구분).
 func TestRunImportMigratePAMProjectKind(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",

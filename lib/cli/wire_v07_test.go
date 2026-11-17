@@ -1,4 +1,3 @@
-// test_lookup_compact_nudge · test_nudge_store_free · dsnFromEnv→ResolveDSN 배선.
 package cli
 
 import (

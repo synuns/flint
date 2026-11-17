@@ -32,9 +32,9 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	if cmd == "--version" || cmd == "-v" {
 		cmd = "version"
 	}
-	// help도 store-free fast path(코디네이터 룰링): registry 핸들러가
+	// help도 store-free fast path: registry 핸들러가
 	// 아니라 접속 전에 직접 출력한다. 인자(`help foo`)는 무시.
-	// -h/--help 전역 별칭 — --version/-v 관례 승계,
+	// -h/--help 전역 별칭 — --version/-v와
 	// 동일 출력·exit 0. 오타(--hel)는 별칭이 아니라 unknown command 3.
 	if cmd == "help" || cmd == "-h" || cmd == "--help" {
 		return RunHelp(stdout)
@@ -63,8 +63,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	}
 	// setup도 DB 다운이 주 시나리오라 store 없이도 응답한다 — 다만
 	// 정상 기동 DB에선 ping·migrate 단계가 실제로 돌아야 한다.
-	// 이전 배선(st 고정 nil)은 ping 클로저가 항상 실패해 건전한 DB에서도
-	// 매번 degraded로 끝났다. 연결 시도 후 실패 시에만
+	// 연결 시도 후 실패 시에만
 	// nil로 진행 — setup의 nil 가드는 DB 다운 안내 경로로 유효 유지.
 	if cmd == "setup" {
 		var st Store

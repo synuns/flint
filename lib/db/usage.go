@@ -366,7 +366,7 @@ func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Th
 // PruneReadEvents — 보존 한도를 넘은 효과 계측 이벤트 삭제.
 // read_events·session_starts는 14일(daily 카운터와 동일 정책), hot_events는
 // 30일(dead_pct 노출 정합 가드 창과 정렬 — 14일이면 가드가 문서 계약의
-// 절반만 커버한다, 리뷰 #3). 보존일은 meta 오버라이드
+// 절반만 커버한다). 보존일은 meta 오버라이드
 // (events_retention_days·hot_events_retention_days, TUNING §2) — 키
 // 부재·파손은 기본값. knowledge_reads 항목별 회상 이력도 같은
 // 트리거로 정리한다(초기 14일·knowledge_reads_retention_days 분리 오버라이드).

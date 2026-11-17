@@ -159,7 +159,7 @@ func maybeMaintenanceNotice(ctx context.Context, st wire.Store) string {
 }
 
 // SessionLabel — 인자에서 --session 값을 추출(hot·session-start 공유
-// 단일 파서 — 미러 복제로 두 경로가 어긋나는 일을 방지한다, 리뷰 #7).
+// 단일 파서 — 미러 복제로 두 경로가 어긋나는 일을 방지한다).
 // knowledge.SessionLabelFn seam이 이 내보내기(별칭 경유)를 주입받는다.
 func SessionLabel(args []string) string {
 	s := ""

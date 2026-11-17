@@ -77,7 +77,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return store.MapExit(err)
 	}
 	now := time.Now().UTC()
-	// active 전체 1회 조회 — 행마다 재조회(O(P×A)) 제거.
+	// active 전체 1회 조회.
 	// 조회 결과를 접두 키 인덱스로 1회 빌드 —
 	// 행마다 active 전체 재스캔(합성 5만에서 수백 초)을 O(N+M)로 수렴.
 	actives := fetchActiveTopicRows(ctx, st)
@@ -196,7 +196,7 @@ func fetchActiveTopicRows(ctx context.Context, st wire.Store) [][]any {
 	return rows
 }
 
-// topicSimilarityKey — 유사 판정 기준 키. 리뷰 3: 세션 지식 topic은 전부
+// topicSimilarityKey — 유사 판정 기준 키. 세션 지식 topic은 전부
 // "세션[agent] " 공통 접두를 공유해 12룬 접두 비교가 agent 라벨+첫 1룬으로
 // 퇴화 — 세션 접두는 제거한 본문 키로 비교한다.
 func topicSimilarityKey(topic string) string {
@@ -242,13 +242,13 @@ func (idx topicPrefixIndex) match(key string) []int {
 }
 
 // matchTopicPrefix — key 12룬 접두가 일치하는 active (id,topic) 행의 id.
-// approve·pending 양쪽이 공유하는 단일 근사 구현(리뷰 5).
+// approve·pending 양쪽이 공유하는 단일 근사 구현.
 // 내부는 접두 인덱스 경유(스캔 루프 폐지, 판정 결과는 구현과 동일).
 func matchTopicPrefix(key string, actives [][]any) []int {
 	return buildTopicPrefixIndex(actives).match(key)
 }
 
-// originLabel — 출처 축약 표기(hook/agent/import:파일 — 리뷰 10 활용).
+// originLabel — 출처 축약 표기(hook/agent/import:파일).
 func originLabel(origin string) string {
 	if strings.HasPrefix(origin, "import:") {
 		return "import"

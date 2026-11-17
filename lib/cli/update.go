@@ -152,7 +152,7 @@ type releaseMeta struct {
 // releasePubPEM — 릴리스 서명 검증 공개키(신뢰 뿌리 — ADR-0014).
 // lib/cli/cosign.pub을 빌드 시점에 임베드. 빈 파일 = 미구성 전환 모드
 // (.sig가 있어도 경고만 하고 통과). 공개키 임베드 후 하드 검증: .sig
-// 부재·불일치·스킴 오류 전부 거부(fail-closed — 리뷰 1).
+// 부재·불일치·스킴 오류 전부 거부(fail-closed).
 //
 //go:embed cosign.pub
 var releasePubPEM []byte
@@ -222,7 +222,7 @@ func applyUpdate(latest string) (string, error) {
 	// (ADR-0014): checksums.txt 서명 검증 — GitHub 오리진과 분리된
 	// 신뢰 뿌리(임베드 공개키). 자산 목록으로 .sig 존재를 판정하고:
 	//   - 공개키 임베드(하드 검증): .sig 부재·불일치·스킴 오류 전부 거부
-	//     (fail-closed — .sig 삭제·쓰레기 서명 회피 차단, 리뷰 1)
+	//     (fail-closed — .sig 삭제·쓰레기 서명 회피 차단)
 	//   - 미구성(전환 모드): .sig 있으면 경고 후 진행, 없으면 진행
 	// 키 롤링 등 신뢰 이전은 --insecure-skip-signature(사용자 명시).
 	verifier := ReleaseVerifier{PublicPEM: releasePubPEM}
@@ -320,7 +320,7 @@ func extractBinary(archive []byte) ([]byte, error) {
 		if hdr.Typeflag == tar.TypeReg && filepath.Base(hdr.Name) == "flint" {
 			// 해제 스트림에도 동일 상한 — 압축 바이트 상한만으론
 			// gzip 폭발(작은 압축분의 수십 GiB 팽창)을 막지 못한다. 상한+1
-			// 읽기로 초과를 명시적 에러 처리(무음 절단 금지 — 리뷰 4).
+			// 읽기로 초과를 명시적 에러 처리(무음 절단 금지).
 			b, rerr := io.ReadAll(io.LimitReader(tr, updateMaxBytes+1))
 			if rerr != nil {
 				return nil, fmt.Errorf("archive read: %w", rerr)

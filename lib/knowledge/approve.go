@@ -20,7 +20,7 @@ import (
 // approveStore — Approve 승격 접근. wire.Store 인터페이스는 v0.1 소유라
 // 확장 대신 타입 단언으로 소비한다(root.go 수정 금지 — done.go
 // staleSessionStore 관례). 실경로(root·mcp)가 넘기는
-// realStore는 항상 구현하며 자체 db.NewRepo 연결은 폐지됐다.
+// realStore는 항상 구현한다.
 type approveStore interface {
 	Approve(ctx context.Context, id int) error
 }
@@ -39,7 +39,7 @@ var quoteJSON = wire.QuoteJSON
 // 화이트리스트(spec §2.4 갭1). 키 종류는 이 8종으로 상한(오타 kind의
 // 무한 키 증식 방지 — 진단·report curation 객체가 같은 이름 공간을
 // 소비한다). 기존 유입 계측(RecordUsageCount kind)과 구분된 전용 키다
-// (룰링: 승격·무효화 결과는 유입이 아니라 검수 결과).
+// (승격·무효화 결과는 유입이 아니라 검수 결과).
 var curationCounterKinds = map[string]bool{
 	"approve_done": true, "approve_not_found": true, "approve_supersede_err": true,
 	"maintain_supersede": true, "maintain_expire": true, "maintain_prune_rows": true,
@@ -181,8 +181,8 @@ type supersedeStore interface {
 }
 
 // supersedeAfterApprove — 승격 직후 OLD를 NEW로 대체 무효화.
-// 리뷰 1: 커밋은 Store.Commit(dolt_add -A +
-// dolt_commit — dolt_commit은 테이블이 아닌 내장 함수). 리뷰 2: OLD active
+// 커밋은 Store.Commit(dolt_add -A +
+// dolt_commit — dolt_commit은 테이블이 아닌 내장 함수). OLD active
 // 사전 확인·0행 경합 후견사는 Repo.Supersede rows-affected로 승계.
 func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int) error {
 	ss, ok := st.(supersedeStore)
@@ -219,7 +219,7 @@ func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int)
 }
 
 // similarActiveIDs — 승격된 지식과 유사한 active id들.
-// 리뷰 3·5: 유사 근사는 topicSimilarityKey(세션 공통 접두 제거 후 12룬
+// 유사 근사는 topicSimilarityKey(세션 공통 접두 제거 후 12룬
 // 접두)의 단일 Go 구현으로 pending 판정과 공유 — SQL 이중 구현 드리프트
 // 방지.
 func similarActiveIDs(ctx context.Context, st wire.Store, id int) []int {

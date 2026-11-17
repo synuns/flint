@@ -88,7 +88,7 @@ type sessionSummaryStore interface {
 	UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error)
 }
 
-// writeSessionRecord — 세션 자동 요약 upsert(코디네이터 룰링 a):
+// writeSessionRecord — 세션 자동 요약 upsert:
 // 같은 agent의 최근 세션 행을 종료 요약으로 갱신해 세션 수를 불변으로
 // 유지한다(신규 행이 StaleSessionRuns 미기록 카운트를 오염시키는 결함
 // 해소). agent의 세션이 없을 때만 INSERT. sessions 갱신은
@@ -138,7 +138,7 @@ func writeSessionRecord(ctx context.Context, st wire.Store, rec map[string]any) 
 const hookDefaultAgent = "claude"
 
 // hookSessionUUIDRe — 훅 실배선이 넘기는 Claude session_id 형식
-// (8-4-4-4-12 hex). claude 흡수는 이 형식에만 해당한다(2차 리뷰 #1).
+// (8-4-4-4-12 hex). claude 흡수는 이 형식에만 해당한다.
 var hookSessionUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
 // agentForSession — session 값으로 집계 대상 agent를 찾는다. 숫자면
@@ -208,11 +208,10 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		return 3
 	}
 	if session == "" {
-		// 사용법 오류(세션 미지정)는 무효 인자 exit 3 통일(기존 0).
+		// 사용법 오류(세션 미지정)는 무효 인자 exit 3 통일.
 		// 훅 실배선은 항상 실제 세션 id를 넘기므로 정상 종료 경로는 불변
 		// (비간섭 §13 — 경고·부작용 경로의 exit 0은 유지).
-		// 오류 타입도 usage 공통형 — 기존 리터럴
-		// {"error":"usage: flint done …"} 값 내장형을 ErrLine 표준형으로.
+		// 오류 타입도 usage 공통형.
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("usage: flint done --session <id>")))
 		return 3
 	}
@@ -366,7 +365,7 @@ func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, s
 func summaryKeyword(summary string) string {
 	first := strings.SplitN(summary, "\n", 2)[0]
 	// 콜론은 제외 — "X 패치: 핵심 주제" 형태에서 핵심이 콜론 뒤에 온다.
-	// 리뷰 7: 목록 순서가 아니라 가장 이른 경계에서 자른다.
+	// 목록 순서가 아니라 가장 이른 경계에서 자른다.
 	cut := -1
 	for _, sep := range []string{"。", "다.", ". ", "— "} {
 		if i := strings.Index(first, sep); i > 4 && (cut < 0 || i < cut) {
@@ -406,7 +405,7 @@ func warnSecrets(prefix, s string) {
 	}
 }
 
-// agentLabel — 세션 라벨(빈 값 폴백 + TruncateRunes 재사용 — 리뷰 9:
+// agentLabel — 세션 라벨(빈 값 폴백 + TruncateRunes 재사용 —
 // 절단 헬퍼 단일화).
 func agentLabel(agent string, max int) string {
 	if agent == "" {
@@ -468,8 +467,7 @@ var AutoBackupFn = maybeAutoBackup
 // maybeAutoBackup — 하루 1회 자동 백업(spec §8 "하루 첫 세션 지연 트리거").
 // done 판정 뒤에만 실행하며 출력·exit code는 완전 불변, 실패는 stderr 1행
 // 이하로 조용히 무시한다(비간섭 §13).
-// meta 접근은 주입 st 경유 — 자체 db.Connect 풀을 여는 것을
-// 폐지했다(mcp 장기 프로세스 연결 적립 차단).
+// meta 접근은 주입 st 경유.
 func maybeAutoBackup(ctx context.Context, st wire.Store) {
 	if st == nil {
 		return

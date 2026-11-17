@@ -33,9 +33,8 @@ type compactHook struct {
 // (예외: unknown `-` 접두 인자만 무효 인자 exit 3 — 훅은
 // 무인자 호출이라 정상 훅 경로는 불변).
 func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// unknown `-` 접두 인자는 무효 인자 exit 3 — 기존 완전
-	// 무시(exit 0) 폐지(조용한 성공 금지). 훅은 무인자로 호출하므로 정상
-	// 훅 경로(§13 비간섭)는 불변.
+	// unknown `-` 접두 인자는 무효 인자 exit 3(조용한 성공 금지). 훅은
+	// 무인자로 호출하므로 정상 훅 경로(§13 비간섭)는 불변.
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint compact (hook entry — no flags)", a)))

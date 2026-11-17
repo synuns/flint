@@ -400,7 +400,7 @@ func (r *Repo) Invalidate(ctx context.Context, ids []int, reason string) (int64,
 // Supersede는 knowledge 대체 전이의 단일 갱신 경로다:
 // status='invalidated'·superseded_by=newID·invalid_at=at(NEW의 valid_at —
 // Zep t_invalid=t_valid 준거) 병기. 계보는 superseded_by 단일 모델 —
-// summary 텍스트 마커 이중 모델은 폐지했다. rows-affected 후견사 내장:
+// rows-affected 후견사 내장:
 // 0행(사전 확인 후 경합 — OLD가 이미 active 아님)은 ErrNotFound 랩 오류.
 func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
 	n, err := transitionExecFn(ctx, r, `

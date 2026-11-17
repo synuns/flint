@@ -69,10 +69,6 @@ func TestSkipForDrill(t *testing.T) {
 // 드릴 재생에서 원본 public 시퀀스를 건드리지 않는다. 오래된 keep-N 덤프로
 // 훈련해도 public 시퀀스가 과거 값으로 되감기지 않아야 한다(PK 충돌 방지).
 
-// requireDropVisibility 가드(전용 DB 프로브)는 불필요해 삭제했다:
-// RunDrill이 전용 데이터베이스(flint_drill_db)에서 자가 정리형이라 실패는
-// 드릴 DB 내부에 갇히고 공유 flint_test는 무오염이다.
-
 func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()

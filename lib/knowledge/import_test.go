@@ -16,7 +16,7 @@ import (
 func TestParseMarkdownSections(t *testing.T) {
 	body := "# 제목\n\n## 규칙 A\n내용 12자 이상 있습니다.\n\n## 규칙 B\n\n짧\n\n## 규칙 C\n<!-- 주석 -->\n충분한 내용이 여기 있습니다.\n"
 	got := parseMarkdownSections(stripImportNoise(body))
-	// 리뷰 10: 수 계약 단언 — A·B·C 3섹션(짧은 B 포함 — 호출부 필터).
+	// 수 계약 단언 — A·B·C 3섹션(짧은 B 포함 — 호출부 필터).
 	if len(got) != 3 {
 		t.Fatalf("섹션 수=%d, want 3(A·B·C)", len(got))
 	}
@@ -229,7 +229,7 @@ func TestRunImportUnknownFlag(t *testing.T) {
 	}
 }
 
-// TestRunImportOriginCleanNotBase — 리뷰 1: origin은 Clean
+// TestRunImportOriginCleanNotBase — origin은 Clean
 // 정규화 — 디렉터리가 다른 동일 파일명(a/rules.md·b/rules.md)은 서로
 // 다른 규칙으로 둘 다 적립(basename 충돌 무음 skip 방지).
 func TestRunImportOriginCleanNotBase(t *testing.T) {
@@ -250,7 +250,7 @@ func TestRunImportOriginCleanNotBase(t *testing.T) {
 	}
 }
 
-// TestRunImportDedupErrorAllFail — 리뷰 3: dedup 조회 전량
+// TestRunImportDedupErrorAllFail — dedup 조회 전량
 // 실패는 '전부 중복'이 아닌 장애 — exit 1(거짓 성공 금지).
 func TestRunImportDedupErrorAllFail(t *testing.T) {
 	dir := t.TempDir()
@@ -265,7 +265,7 @@ func TestRunImportDedupErrorAllFail(t *testing.T) {
 	}
 }
 
-// TestParseMarkdownDanglingTilde — 리뷰 2: 미종결 ~~~ 한 줄이
+// TestParseMarkdownDanglingTilde — 미종결 ~~~ 한 줄이
 // 나머지 문서 헤딩을 삼키지 않는다(개시 라인 본문 중립화).
 func TestParseMarkdownDanglingTilde(t *testing.T) {
 	body := "## A\n본문 A 충분합니다.\n\n~~~\n미종결 물결 표시\n\n## B\n본문 B 충분합니다.\n\n## C\n본문 C 충분합니다.\n"
@@ -378,7 +378,7 @@ func TestRunImportEmptyHint(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseDoubleInline — 리뷰 4: 같은 줄 주석 2쌍은
+// TestStripImportNoiseDoubleInline — 같은 줄 주석 2쌍은
 // 전부 제거(두 번째 개시 마커 잔존 방지).
 func TestStripImportNoiseDoubleInline(t *testing.T) {
 	got := stripImportNoise("설명 <!-- 비고1 --> 예시 <!-- 비고2")

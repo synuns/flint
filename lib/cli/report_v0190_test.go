@@ -284,7 +284,7 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	if pairs, _ := run(t); pairs != 1 {
 		t.Errorf("폴백: pairs=%d, want 1(시간창 규칙)", pairs)
 	}
-	// ids 없는 read 단독 — topics 조회 미실행(분모 0 skip, 리뷰 #6).
+	// ids 없는 read 단독 — topics 조회 미실행(분모 0 skip).
 	for _, q := range st.queries {
 		if strings.Contains(q, "id, topic FROM knowledge") {
 			t.Errorf("ids 없는 이벤트만 있는데 topics 조회 실행: %s", q)

@@ -208,8 +208,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	if res.Given("--list-checks") {
-		// 등록표 전량(코어6+tail10) — 구 6종만 내던
-		// 회귀 방지(실제 실행 16종 중 10종이 발견 불가했음).
+		// 등록표 전량(코어6+tail10).
 		names := make([]string, 0, len(doctorChecks()))
 		for _, s := range doctorChecks() {
 			names = append(names, s.Name)
@@ -911,8 +910,7 @@ func checkLastSeenTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 		}
 		seen[fmt.Sprint(r[0])] = ts
 	}
-	// read 경로가 meta last_read_at을 더 쓰지 않는다(쓰기
-	// 4→2) — 회상 최근성은 read_events 최대 시각에서 파생해 병합한다
+	// read 경로가 meta last_read_at을 더 쓰지 않는다 — 회상 최근성은 read_events 최대 시각에서 파생해 병합한다
 	// (잔존 meta 값과 더 최근 쪽. 조회 실패는 기존 값 유지 — 조용히).
 	if rows, rerr := wire.QueryOnce(ctx, st,
 		`SELECT max(ts) FROM read_events`, nil); rerr == nil &&
@@ -987,7 +985,7 @@ func checkMetaHygieneTh(ctx context.Context, st wire.Store, th store.Thresholds)
 			if d, ok := dailyKeyDate(k); ok && d < cutoff {
 				staleDaily++
 			}
-		case KnownMetaKeyFn(k) || thKeys[k]: // pb_ 등 접두 포함(리뷰 1)
+		case KnownMetaKeyFn(k) || thKeys[k]: // pb_ 등 접두 포함
 		default:
 			// tuning meta 키도 허용.
 			known := false
@@ -1595,7 +1593,7 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 	// sessions 테이블 사후 스캔 — summary가 PII
 	// 최다 필드라 주석 의도가 코드에 없던 것을 회수.
 	// 조회 실패·상한 도달은 이미 잡은 지식 발견을 버리지 않고
-	// 격차만 명시(리뷰 2·3) — '세션까지 스캔했고 미발견'이라는 거짓 ok도
+	// 격차만 명시 — '세션까지 스캔했고 미발견'이라는 거짓 ok도
 	// 내지 않는다. LIMIT는 지식 경로와 동일 상한(메모리 무한 증식 방지).
 	srows, serr := wire.QueryOnce(ctx, st, `
 		SELECT id, agent, summary FROM sessions

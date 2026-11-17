@@ -1,7 +1,7 @@
-// seam_dsn_v0132_test.go — 심층 리뷰 N1 회귀: SUPERLITE_REAL=1 실구현 seam의
+// seam_dsn_v0132_test.go — SUPERLITE_REAL=1 실구현 seam의
 // DSN 해결은 FLINT_TEST_DSN 설정 시만 실DB를 허용한다. 미설정이면 운영 기본
 // DSN(5434/flint)으로 폴백하지 않고 fake 경로 — 프로브 실행의 운영 지표
-// 오염(접속·쓰기)을 원천 차단한다. 기존 테스트 수정 금지 룰에 따라 신규 파일.
+// 오염(접속·쓰기)을 원천 차단한다.
 package cli
 
 import (

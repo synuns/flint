@@ -76,7 +76,7 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 			wantDays = 90 // stale 집계 기준일(reportStaleDays)
 		}
 		if isDead {
-			wantDays = 30 // dead_pct 기준일(reportDeadDays, 리뷰 #4)
+			wantDays = 30 // dead_pct 기준일(reportDeadDays)
 		}
 		if el := time.Since(cut); el < time.Duration(wantDays-1)*24*time.Hour || el > time.Duration(wantDays+1)*24*time.Hour {
 			t.Errorf("컷오프 경과=%v, want 약 %d일", el, wantDays)

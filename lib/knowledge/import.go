@@ -21,7 +21,7 @@ import (
 // importCandidates — 발견 순위(조사 확정: Claude Code /import 준용).
 var importCandidates = []string{
 	"CLAUDE.md", "AGENTS.md", "GEMINI.md", ".github/copilot-instructions.md",
-	// .cursorrules 제거(리뷰 5): 평문 불릿 규칙이라 ## 헤딩 분할이 비는
+	// .cursorrules 제거: 평문 불릿 규칙이라 ## 헤딩 분할이 비는
 	// 약속 불일치 — 지원 시 불릿 단위 분할 확장과 함께 추가.
 }
 
@@ -81,7 +81,7 @@ func (f *fenceTracker) update(line string) bool {
 }
 
 // danglingFenceIdx — EOF까지 닫히지 않고 열려 있는 펜스의 개시 라인
-// 인덱스(리뷰 2). 미종결 펜스(장식용 ~~~·닫힘 누락)가 나머지
+// 인덱스. 미종결 펜스(장식용 ~~~·닫힘 누락)가 나머지
 // 문서의 헤딩을 전부 삼키는 무음 지식 유실 방지: 개시 라인을 본문으로
 // 되돌리는 중립화 세트를 계산한다. skip은 이미 중립화된 라인.
 func danglingFenceIdx(lines []string, skip map[int]bool) int {
@@ -242,7 +242,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	for _, f := range files {
 		b, err := os.ReadFile(f)
 		if err != nil {
-			unreadable = append(unreadable, f) // 리뷰 5: 원인 숨김 방지
+			unreadable = append(unreadable, f) // 원인 숨김 방지
 			continue
 		}
 		for _, sec := range parseMarkdownSections(stripImportNoise(string(b))) {
@@ -277,11 +277,11 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			len(files), len(items), unreadableJSON)
 		return 0
 	}
-	// 리뷰 8: dedup 예측 후 단일 배치 커밋(write 경로 패턴 — N트랜잭션 회피).
+	// dedup 예측 후 단일 배치 커밋(write 경로 패턴 — N트랜잭션 회피).
 	// origin은 filepath.Clean 정규화 — ./CLAUDE.md·a//b.md 등 경로
 	// 표기 차이가 다른 해시를 가져 이중 적립되던 멱등 깨짐 수선. 디렉터리가
 	// 다른 동일 파일명은 서로 다른 규칙이므로 충돌하지 않는다(basename
-	// 정규화의 교차 충돌 — 리뷰 1).
+	// 정규화의 교차 충돌).
 	var batch []map[string]any
 	seen := map[string]bool{} // 배치 내 중복(같은 파일 2회 지정 등) 차단
 	dedupErrs := 0
@@ -318,13 +318,13 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			}
 		}
 		// 저장 시점 비밀 스캔 — write 경로 계약 정렬(경고만, doctor
-		// 사후 스캔과 이중 방어). dedup 통과분만 경고(리뷰 3 — 영구 skip
+		// 사후 스캔과 이중 방어). dedup 통과분만 경고(영구 skip
 		// 항목의 재경고 소음 방지).
 		warnSecrets("import "+it.File, it.Summary)
 		batch = append(batch, rec)
 	}
 	if len(batch) == 0 && dedupErrs > 0 {
-		// 리뷰 3: 전량 조회 실패는 '전부 중복'이 아니라 장애 — 거짓 성공
+		// 전량 조회 실패는 '전부 중복'이 아니라 장애 — 거짓 성공
 		// 금지(write 계약 정렬).
 		fmt.Fprintf(stdout, `{"status":"error","detail":"dedup lookup failed for %d items","unreadable":%s}`+"\n", dedupErrs, unreadableJSON)
 		return 1
@@ -356,7 +356,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	return 0
 }
 
-// stripImportNoise — HTML 주석 제거. 코드 펜스 내부는 보존(리뷰 6).
+// stripImportNoise — HTML 주석 제거. 코드 펜스 내부는 보존.
 //
 //	① 주석 블록 내부의 ``` 라인이 펜스를 열어 문서 나머지를 통째로
 //	   삼키던 결함 — 주석 처리가 펜스보다 먼저, 펜스는 주석 제거 후
@@ -390,7 +390,7 @@ func stripImportNoise(s string) string {
 				continue // 주석 지속 — 라인 제거
 			}
 		}
-		// 주석 쌍 제거 — 같은 줄에 여러 쌍이면 전부(리뷰 4). 종결 없는
+		// 주석 쌍 제거 — 같은 줄에 여러 쌍이면 전부. 종결 없는
 		// 개시는 이후 라인 지속.
 		for {
 			i2 := strings.Index(line, "<!--")
@@ -407,7 +407,7 @@ func stripImportNoise(s string) string {
 			}
 		}
 		// 펜스 개시 판정은 주석 제거 후의 라인으로(①). 미종결 펜스 개시
-		// 라인(skip)은 펜스가 아니라 본문(리뷰 2).
+		// 라인(skip)은 펜스가 아니라 본문.
 		if !skip[i] {
 			fence.update(line)
 		}

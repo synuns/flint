@@ -1174,7 +1174,7 @@ var metaKnownKeys = map[string]bool{
 // thresholdsKeys가 담당 — 동적 조회).
 var metaKnownPrefixes = []string{"daily:", "pb_", "fired_"}
 
-// KnownMetaKey — 분류 단일 소스(접두 포함 — 리뷰 7: 하드코딩 분열 방지).
+// KnownMetaKey — 분류 단일 소스(접두 포함 — 하드코딩 분열 방지).
 func KnownMetaKey(k string) bool {
 	if metaKnownKeys[k] {
 		return true
@@ -1251,7 +1251,7 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 		}
 	}
 	// daily 나이 — 보존 창(daily_retention_days) 대비. 이미 받은 전체
-	// rows에서 직접 파싱(리뷰 10 — meta 이중 스캔 제거).
+	// rows에서 직접 파싱(meta 이중 스캔 제거).
 	retention := 0
 	for _, r := range rows {
 		if len(r) >= 2 && fmt.Sprint(r[0]) == "daily_retention_days" {

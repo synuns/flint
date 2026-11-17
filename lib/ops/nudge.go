@@ -35,7 +35,7 @@ const NudgeReasonRecall = "recall"
 
 // ExposureProfileFn — 노출 프로파일 판정 seam. 실구현(cli profile.go —
 // 실구현(cli profile.go)은 cli init이 주입하고, cli 테스트의 var 교체는
-// ops_alias_2 래퍼가 호출 시점에 읽어 전파한다(composePsFn 관례 승계).
+// ops_alias_2 래퍼가 호출 시점에 읽어 전파한다(composePsFn).
 var ExposureProfileFn func(getKV func(string) (string, error)) string
 
 // NudgeProfile — st의 노출 프로파일. st nil·조회 실패·미설정은 normal

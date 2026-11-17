@@ -336,7 +336,7 @@ func TestReadUnknownFlagExit3(t *testing.T) {
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"docker"}, strings.NewReader(""), &out); code == 3 {
 		t.Fatalf("positional 쿼리가 exit 3: %s", out.String())
 	}
-	// "--" 이후는 전부 positional — '--jsonn'도 쿼리로 흡수(N9 불변).
+	// "--" 이후는 전부 positional — '--jsonn'도 쿼리로 흡수.
 	out.Reset()
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"--", "--jsonn"}, strings.NewReader(""), &out); code == 3 {
 		t.Fatalf("'--' 이후 쿼리가 exit 3: %s", out.String())

@@ -151,8 +151,6 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	// ingested_at), invalidated 행의 invalid_at은 UpdatedAt(export 파생
 	// COALESCE(invalid_at, ingested_at)의 역매핑). valid_at은 원값 우선 —
 	// jsonl 미실어 행(손작성 등)만 기존 폴백(CreatedAt → UpdatedAt) 승계.
-	// 종전 valid_at←UpdatedAt/CreatedAt 치환은 검증 시각 원값을 덮어썼다
-	// (재export 시각 비대칭).
 	if !r.CreatedAt.IsZero() {
 		rec["ingested_at"] = r.CreatedAt.UTC()
 	}

@@ -14,7 +14,7 @@ import (
 
 // asofFakeOrReal — 기본 fakeStore, FLINT_TEST_DSN 설정 + SUPERLITE_REAL=1이면
 // delegatingFake로 실구현을 랩해 반환(생산자 ParseAsOfSpec의 실코드 경로 seam).
-// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
+// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(seamRealDSN).
 func asofFakeOrReal(t *testing.T, f *fakeStore) Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {

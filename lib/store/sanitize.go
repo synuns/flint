@@ -84,7 +84,7 @@ var secretPatterns = []struct {
 	// AI 도구생태계 상위 토큰 갱신(gitleaks 추적).
 	// openrouter는 sk-or-가 sk-(openai)에 포함 — specific 마스킹 우선.
 	// github-app은 gh[osr](OAuth·server·refresh) — p(ghp_)는 기존
-	// github-token이 이미 커버해 제외(리뷰 2: 이중 보고 방지).
+	// github-token이 이미 커버해 제외(이중 보고 방지).
 	{"openrouter-key", regexp.MustCompile(`sk-or-[0-9A-Za-z-]{20,}`), true},
 	{"github-app-token", regexp.MustCompile(`gh[osr]_[0-9A-Za-z]{36,}`), false},
 	{"groq-key", regexp.MustCompile(`gsk_[0-9A-Za-z]{30,}`), false},

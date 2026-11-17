@@ -224,7 +224,7 @@ func resetVersionToV1(t *testing.T, r *Repo) {
 	})
 }
 
-// TestMigrateAcceptsV2 — 회귀(코디네이터 룰링): meta='2' 상태에서 Migrate는
+// TestMigrateAcceptsV2 — 회귀: meta='2' 상태에서 Migrate는
 // err=nil로 통과하고 버전을 '1'로 되돌리지 않는다. 게이트가 '1'만
 // 상정해 nil wrap 실패("%!w(<nil>)")를 냈다.
 func TestMigrateAcceptsV2(t *testing.T) {

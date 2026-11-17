@@ -46,7 +46,7 @@ type ExportRow struct {
 	ContentHash    string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
-	ValidAt        time.Time // 검증 시각 원값(왕복 보존 — CreatedAt 치환 폐지)
+	ValidAt        time.Time // 검증 시각 원값(왕복 보존)
 	SupersededBy   *int
 	RecallScore    int        // recall_score 실열(원천 파생 아님)
 	LastRecalledAt *time.Time // last_recalled_at 실열(nil=NULL)

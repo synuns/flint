@@ -1,8 +1,8 @@
-// read_flag_v0132_test.go — 심층 리뷰 N9·N10 회귀: read 인자 파싱.
-// N9: "--" 이후 전부 위치 인자(표준 end-of-options) — MCP 등 외부 입력의
-// query가 "--json"처럼 보여도 플래그로 해석되지 않는다. N10: 값 없는
-// trailing --tag/--entity/--domain/--fields는 F1의 --status/--as-of와 동일
-// 규칙 exit 3. 기존 테스트 수정 금지 룰에 따라 신규 파일.
+// read_flag_v0132_test.go — read 인자 파싱.
+// "--" 이후 전부 위치 인자(표준 end-of-options) — MCP 등 외부 입력의
+// query가 "--json"처럼 보여도 플래그로 해석되지 않는다. 값 없는
+// trailing --tag/--entity/--domain/--fields는 --status/--as-of와 동일
+// 규칙 exit 3.
 package cli
 
 import (

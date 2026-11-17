@@ -281,7 +281,7 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		fmt.Fprintln(stdout, mismatchLine(file))
 		return 1
 	}
-	// v0.20.6(패치 루프 6차 S4): 사이드카 부재도 재생 전 차단 — 백업은
+	// 사이드카 부재도 재생 전 차단 — 백업은
 	// 임의 SQL 매체라 무결 검증 없는 재생은 ADR-0006 '위조 감지 시 즉시
 	// 중단' 취지 위반이었다(종료 후 경고만으로 진행되던 것을 가드로).
 	// sidecar 재생성은 `flint backup --out <동일경로>`로 가능.

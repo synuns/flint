@@ -183,7 +183,7 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 
 // supersedeFixture — OLD 상태·NEW valid_at 조회 응답. 갱신은
 // Repo.Supersede 위임(fakeMaint 캡처) — 0행 경합 후견사는 rows-affected로
-// db 계층에 내장돼 SELECT superseded_by 후검사 질의는 폐지됐다.
+// db 계층에 내장.
 func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 	t.Helper()
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
