@@ -27,6 +27,9 @@
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <img src="https://img.shields.io/badge/release-v1.6.1-blue" alt="v1.6.1">
 </p>
+<p align="center">
+  <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
+</p>
 
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·

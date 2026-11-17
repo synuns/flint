@@ -66,8 +66,9 @@ PostCompact 훅은 `flint compact`로 compact 요약을, Stop 훅은
 ## 세션 지식화 (v0.27)
 
 Compact 시 PostCompact 훅이 전달한 요약(compact_summary)이 pending
-지식 후보로 자동 적립된다(topic `세션[...]`·confidence 0.5·태그
-process). Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
+지식 후보로 자동 적립된다(topic `session[<agent>] <요약 키워드>`·
+confidence 0.5·태그 process — `세션[` 접두도 조회 호환된다).
+Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
 요약을 실어주는 하네스도 지원된다. 빈도 상한(`session_knowledge_days`,
 기본 1일·-1 끔)·content_hash 중복 방지가 적용되고, 승격은 다른 pending과
 같이 `flint approve`다. pending은 `maintain --expire-pending` 만료의
@@ -100,3 +101,5 @@ process). Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
 - exit code: 0 성공·중복·read 제로히트 / 1 재시도 소진 / 2 서버 다운(조용히
   진행) / 3 검증 실패·usage 오류(자가수정 후 재시도)
 - exit 1은 재시도 소진 외에 doctor fail에서도 쓰인다
+- jsonl 파손은 exit 3: write stdin의 파손 줄은 `{"error":"schema","field":"payload"}`,
+  import 파일의 파손 줄은 행 번호와 함께 안내된다(v1.6.2 라벨 정합)

@@ -19,14 +19,16 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// kindColumns — kind별 저장 가능 컬럼(spec §6). payload의 비컬럼 키(예: session의
-// tasks, project의 note)는 메타데이터라 버린다.
+// kindColumns — kind별 저장 가능 컬럼(spec §6). payload의 비컬럼 키(예:
+// session의 tasks)는 메타데이터라 버린다. project의 note는 컬럼이다(F5).
 var kindColumns = map[string]map[string]bool{
 	"knowledge": {"topic": true, "summary": true, "tags": true, "entity": true,
 		"domain": true, "confidence": true, "origin": true, "status": true,
 		"content_hash": true, "session_id": true, "valid_at": true},
 	"session": {"ts": true, "agent": true, "summary": true},
-	"project": {"name": true, "status": true, "updated": true},
+	// v1.6.2 T3(F5): note는 SchemaV2 컬럼(projects.note)이라 메타데이터
+	// 취급 버림 폐지 — 저장 컬럼으로 등록.
+	"project": {"name": true, "status": true, "updated": true, "note": true},
 }
 
 // ErrInvalidSource — --source 무효값(exit 3). 유입 계측 소스는 3종뿐이다.
@@ -176,6 +178,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	if len(payloads) == 0 {
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "payload", Expect: "non-empty JSON/JSONL on stdin"}))
 		return 3
+	}
+	// v1.6.2 T2 G1: stdin 행 수 상한(등록표 키 export_import_max_rows
+	// 재사용 — import 대칭). 파싱 직후·부작용 전에 차단해 대량 stdin 전량
+	// 적립의 메모리 방어를 이룬다(오류 JSON {max,count}·exit 3).
+	if code := enforceWriteMaxRows(ctx, st, stdout, len(payloads)); code != 0 {
+		return code
 	}
 
 	// 검증 → 살균 → 정규화 → 해시 dedup(줄별 skip) → 판정. 검증 실패에서만 즉시
@@ -414,7 +422,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		recs = survive
 	}
-	msg := fmt.Sprintf("%s: %v", kind, recs[0]["summary"])
+	// D4(R33): 커밋 제목 — project는 name 우선(knowledge는 name 부재라
+	// summary). 양쪽 다 부재면 "%v"의 <nil> 폴백(기존 계약 유지).
+	subject := recs[0]["name"]
+	if subject == nil {
+		subject = recs[0]["summary"]
+	}
+	msg := fmt.Sprintf("%s: %v", kind, subject)
 	if session != "" {
 		msg += fmt.Sprintf(" [session:%s]", session)
 	}

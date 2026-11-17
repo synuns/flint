@@ -24,8 +24,13 @@ make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
 ```
 
 `setup` starts Doltgres (host port 5434, ADR-0010), migrates the schema, then
-prints step-by-step progress (a visual progress bar on a terminal, a single
-JSON line with `--json` or on a non-TTY — v0.17.0). Since v0.7 the compose wait
+prints step-by-step progress (a single JSON line with `--json` or on a
+non-TTY — v0.17.0). Run with **no arguments on a terminal** it opens a huh
+wizard first (v1.5.0): pick the exposure profile (normal | minimal) and read
+the backup-key note, then the normal chain runs and records your choice.
+Cancelling the wizard (ctrl+c) or running on a non-TTY falls back to the
+plain chain with no side effects, and any flag (e.g. `--exposure`,
+`--json`) skips the wizard entirely. Since v0.7 the compose wait
 uses `up -d --wait --wait-timeout 60` — it waits up to 60 seconds for the
 container health check to pass before moving on. A missing docker or a compose
 failure is not a hard error: it stays a warning, prints one line with install

@@ -107,7 +107,7 @@ live only in the operational DB via this route.
 | `diag_dead_warn` | 10 | diagnostics layer B — dead_pct warning % (triggers at or above · see `dead_days`) | report diagnosis |
 | `diag_recall_led_goal` | 50 | diagnostics layer C value default — 'default goal' % for recall-led sessions (triggers below, habit-goal label) | report diagnosis |
 | `knowledge_reads_retention_days` | 14 | retention days for knowledge_reads (per-item recall history — separately overridable from read_events retention, registered v1.2.0 T5) | instrumentation pruning |
-| `zero_owned_floor` | 1 | zero-hit decomposition threshold (v1.2.0 §2.2) — if active-knowledge count at the zero verdict is below this, 'unowned' (effectively not held); at or above, 'owned_miss' (held but search missed). Direct per-key read; only n>0 accepted | read zero_reason |
+| `zero_owned_floor` | 1 | zero-hit decomposition threshold (v1.2.0 §2.2) — if active-knowledge count at the zero verdict is below this, 'unowned' (effectively not held); at or above, 'owned_miss' (held but search missed). Direct per-key read; only n>0 accepted. **Not managed by `flint tuning`** — override via the meta table directly (not in the tuning registry) | read zero_reason |
 | `export_import_max_rows` | 100000 | shared row cap for export · import (excess → exit 3 — memory defense against bulk document intake, v1.4.0 T3) | export · import |
 
 Diagnostics layer-B rules inherit reads from existing doctor keys (avoiding
@@ -125,6 +125,21 @@ psql "$FLINT_DSN" -c "INSERT INTO meta (key, value) VALUES ('pending_max','40')
 Verify: the Counts vs Thresholds comparison in the `flint maintain` report
 follows the new value, and the warning criteria of `flint done --session <id>`
 change accordingly.
+
+### v1.6.2 hard intake limits (R33 G1–G5 — code constants, not meta keys)
+
+Alongside the row cap above, v1.6.2 adds hard limits that are code
+constants (not overridable via meta — they defend memory, so raising
+them is a code change):
+
+| limit | value | scope |
+|---|---|---|
+| per-payload byte cap | 1MB | a single write payload field over this is rejected (exit 3) |
+| import file size cap | 512MB | `import --format jsonl` files over this are rejected before read (exit 3, with max/size) |
+| read suggest query truncate | 4096 runes | oversized read queries are truncated for the suggestion scan (body search unaffected) |
+
+The stdin line cap for `write` reuses `export_import_max_rows` (import
+symmetry — excess is exit 3 with max/count).
 
 ### DSN config file (config.json) — v0.7
 
@@ -213,6 +228,8 @@ flint tuning set backup_encrypt true
 - `brief_budget` — total output rune cap for `flint brief` (external-AI
   brief, v0.34). Unset or invalid falls back to 3,000 (same contract as
   hot_budget — lookup failure or invalid is not an error).
+  **Not managed by `flint tuning`** — set it in the meta table directly
+  (not in the tuning registry).
 
 ## 6. Deferred-decision recovery summary
 

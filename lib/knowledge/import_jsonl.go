@@ -216,6 +216,12 @@ var (
 	importInsertChunk = 5000
 )
 
+// importMaxFileBytes — import 입력 FILE 크기 상한(R33 G3, v1.6.2 T3):
+// 512MB. os.ReadFile 전 stat으로 판정해 초과 문서를 슬랩에 적재하기 전에
+// exit 3으로 차단한다(대량 문서 OOM 방어 — 행 수 상한과 한 쌍). var인 것은
+// 테스트 경계 축소뿐(기본값 512MB가 계약).
+var importMaxFileBytes int64 = 512 << 20
+
 // lookupHashBatch — dedup 사전 조회(R30-A P1): 해시 배열을 content_hash =
 // ANY($1) 청크로 1왕복씩 조회해 해시→기존 행 메타 맵을 돌려준다(행별
 // SELECT N회 폐지). 맵 부재 해시 = 신규. 오류는 전파(조용한 신규 판정
@@ -242,6 +248,33 @@ func lookupHashBatch(ctx context.Context, st wire.Store, hashes []string) (map[s
 			topic, _ := row[2].(string)
 			state, _ := row[3].(string)
 			existing[h] = DupMeta{ID: id, Topic: topic, State: state}
+		}
+	}
+	return existing, nil
+}
+
+// lookupExistingIDs — 명시 id 충돌 사전 조회(R33 G5, v1.6.2 T3): id 배열을
+// id = ANY($1) 청크로 1왕복씩 조회해 존재 id 집합을 돌려준다(해시 dedup를
+// 통과한 행의 명시 id가 DB에 이미 있다는 것은 내용이 다르다는 뜻 — PK
+// 충돌). 오류는 전파(dedup 조회와 동일 — 조용한 재할당 판정 금지, 서버다운
+// exit 2 체인 보존).
+func lookupExistingIDs(ctx context.Context, st wire.Store, ids []int) (map[int]bool, error) {
+	existing := make(map[int]bool, len(ids))
+	for start := 0; start < len(ids); start += importDedupChunk {
+		end := min(start+importDedupChunk, len(ids))
+		rows, err := wire.QueryOnce(ctx, st,
+			`SELECT id FROM knowledge WHERE id = ANY($1)`,
+			[]any{ids[start:end]})
+		if err != nil {
+			return nil, fmt.Errorf("import: id conflict lookup failed: %w", err)
+		}
+		for _, row := range rows {
+			if len(row) == 0 {
+				continue
+			}
+			if id, ok := render.CellToInt(row[0]); ok && id > 0 {
+				existing[id] = true
+			}
 		}
 	}
 	return existing, nil
@@ -345,6 +378,35 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 			oc.validAt[p.row.ID] = v
 		}
 		batch = append(batch, pending{idx: p.idx, row: p.row, rec: rec, hash: p.hash})
+	}
+	// 3.5단계 — R33 G5(v1.6.2 T3): 명시 id 충돌 자동 재할당. 기존 DB 동일
+	// id(다른 내용 — 동일 내용이면 2~3단계 dedup가 이미 스킵)와 파일 내
+	// 중복 id는 명시 id를 제거해 serial 재할당 경로로 보낸다(재할당 행은
+	// 4단계에서 id≠원본 id로 remapped 계상·요약 보고 — 배치 PK 충돌로
+	// 전체 exit 1되던 왕복 주 시나리오 회복).
+	explicitIDs := make([]int, 0, len(batch))
+	for _, p := range batch {
+		if id, ok := p.rec["id"].(int); ok && id > 0 {
+			explicitIDs = append(explicitIDs, id)
+		}
+	}
+	if len(explicitIDs) > 0 {
+		existingIDs, lerr := lookupExistingIDs(ctx, st, explicitIDs)
+		if lerr != nil {
+			return nil, lerr
+		}
+		taken := map[int]bool{} // 파일 선행 행이 점유한 명시 id
+		for i := range batch {
+			id, ok := batch[i].rec["id"].(int)
+			if !ok || id <= 0 {
+				continue
+			}
+			if existingIDs[id] || taken[id] {
+				delete(batch[i].rec, "id") // 자동 재할당 — serial 할당
+				continue
+			}
+			taken[id] = true
+		}
 	}
 	// 4단계 — 청크 적립+커밋: 청크 단위 부분 성공(실패 청크 이전 커밋
 	// 유지), id 매핑·집계는 행 순서 불변.
@@ -666,6 +728,22 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 	}
 	var data []byte
 	if file != "" {
+		// G3(v1.6.2 T3): 크기 상한은 os.ReadFile 앞 stat으로 판정한다 —
+		// 초과 파일을 읽지 않고 exit 3(max·size 포함). stat 실패는 ReadFile
+		// 오류 경로(A7 원인 보존)에 맡긴다.
+		if fi, serr := os.Stat(file); serr == nil && fi.Size() > importMaxFileBytes {
+			b, merr := json.Marshal(map[string]any{
+				"error": fmt.Sprintf("import file size limit exceeded (%d bytes max)", importMaxFileBytes),
+				"max":   importMaxFileBytes,
+				"size":  fi.Size(),
+			})
+			if merr != nil {
+				b = []byte(fmt.Sprintf(`{"error":"import file size limit exceeded","max":%d,"size":%d}`,
+					importMaxFileBytes, fi.Size()))
+			}
+			fmt.Fprintln(stdout, string(b))
+			return 3
+		}
 		data, err = os.ReadFile(file)
 		if err != nil {
 			// R19 A7: 원인(ENOENT/EACCES·경로)을 폐기하지 않고 expect에

@@ -47,8 +47,10 @@ fi
 work="$(mktemp -d)"
 trap 'rm -rf "$work"' EXIT
 
+# v1.6.2 R33-3 F3: tools는 도구 5종 전부를 광고(read·write·hot·pending·
+# approve — ToolsManifest와 정합. pending·approve 누락은 광고-실제 불일치).
 cat > "$work/manifest.json" <<EOF
-{"name":"flint","version":"${version}","description":"Agent long-term memory — search, record, inject","tools":["flint_read","flint_write","flint_hot"],"transport":"stdio","command":"flint","args":["mcp"]}
+{"name":"flint","version":"${version}","description":"Agent long-term memory — search, record, inject","tools":["flint_read","flint_write","flint_hot","flint_pending","flint_approve"],"transport":"stdio","command":"flint","args":["mcp"]}
 EOF
 
 cp "$binary" "$work/flint"

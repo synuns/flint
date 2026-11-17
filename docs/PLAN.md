@@ -136,6 +136,7 @@
 - [x] v1.5.5(2026-11-16) — 터미널 검출 수정(/dev/null 리다이렉트 TTY 오탐 제거)·usage 잔여 사이트 완결(hot·brief·compact·nudge, 잔여 0)·-h/--help 별칭·write --help 안내·pam export 행수=발행 수·import 확장자 감지·setup 포트 사용중 경고
 - [x] v1.6.0(2026-11-16) — 성능 3종(pending 접두 map O(N+M)·import ANY($1) 배치 dedup+청크 트랜잭션·write 배치 dedup)·PAM 완결(스펙 준수 owner/relations·체크섬 수입 검증 exit 3·§18 Ed25519 서명 --sign·FormatPAM 메모리 절감)·maintain --tui(옵트인)·인자 파서 통합(12커맨드, N9 불변)·소형 청산(diff usage·doctor --json·maintain next 키·pending TUI expire)·docs/PERF.md 신설(합성 벤치 단일 소스)
 - [x] v1.6.1(2026-11-17) — R31 감사 수정: maintain TUI(필터 상태 행 제거 SetItems 재조립·목록 높이 재계산)·PAM 서명키 원자 생성(O_EXCL)·PAM 왕복 멱등(content_hash 발행·수입 승계)·소형(TUI 보고 3종 --limit 500 명시·usage --tui·--out '-' 리터럴 문서화)
+- [x] v1.6.2(2026-11-17) — R33 4각도 감사 수정: MCP injectedStore 선택 인터페이스 위임(approve 실경로·계량 부활·manifest 5종·ConnectTimeout 5s)·동시 write unique 분류 survive·write stdin/payload 상한·import 파일 상한·read 초대형 쿼리 제안 truncate·import id 충돌 재할당·project note 왕복·문서 정합 12건(빈 커밋·LWW 수용 문서화 포함)
 - [ ] v1.7(예정) — 이월 확정: read LIKE 개량(Doltgres pg_trgm 미지원 — 엔진 지원 시 재판정)·report/profile 병렬화·테스트 폭발 정리·주석 영어화·read/tuning TUI·마케팅·i18n(brew 설치·신뢰 아티팩트 포함)
 
 ## 7. 비목표

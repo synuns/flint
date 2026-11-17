@@ -127,6 +127,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0161Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.6.1", "filter",
 	}},
+	// v1.6.2: R33 4각도 감사 수정(MCP 선택 인터페이스 위임·레이스
+	// survive·write/import/read 상한·문서 정합) 기록 존재 계약.
+	{name: "TestVersion0162Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.6.2", "mcp",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{

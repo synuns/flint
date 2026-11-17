@@ -13,6 +13,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -712,5 +713,209 @@ func TestSanitizePayloadTagsSecrets(t *testing.T) {
 		if cell, _ := raw[0].(string); strings.Contains(cell, "[flint]") {
 			t.Errorf("tags 마커 미중립: %v", p2["tags"])
 		}
+	}
+}
+
+// ── v1.6.2 T2(G1): write stdin 행 수 상한(export_import_max_rows 재사용). ──
+
+// writeMaxRowsFixture — 상한 검증용 합성 knowledge N줄 stdin(해시 충돌 없음).
+func writeMaxRowsFixture(n int) string {
+	var b strings.Builder
+	for i := 1; i <= n; i++ {
+		fmt.Fprintf(&b, "{\"topic\":\"demo write maxrows %02d\",\"summary\":\"합성 데모 — write 상한 검증 줄 %02d\",\"confidence\":0.9}\n", i, i)
+	}
+	return b.String()
+}
+
+// TestRunWriteMaxRowsExceeded — Review Focus(G1): stdin 줄 수가 상한을
+// 초과하면 exit 3·오류 JSON에 max·count가 포함되고 적립은 발생하지
+// 않는다(import enforce와 동형 — 대량 stdin 전량 적립의 메모리 방어).
+func TestRunWriteMaxRowsExceeded(t *testing.T) {
+	f := maxRowsFake("2")
+	out, code := run(t, f, []string{"knowledge"}, writeMaxRowsFixture(3))
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(상한 초과); out=%s", code, out)
+	}
+	if !strings.Contains(out, "write row limit exceeded") ||
+		!strings.Contains(out, `"max":2`) || !strings.Contains(out, `"count":3`) {
+		t.Fatalf("오류 JSON max·count 미포함: %s", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("상한 초과 적립 발생: %d건", len(f.inserted))
+	}
+}
+
+// TestRunWriteMaxRowsBoundary — 상한과 같은 줄 수는 통과(count == max
+// 허용 — 초과만 차단. import 경계 계약과 동일).
+func TestRunWriteMaxRowsBoundary(t *testing.T) {
+	f := maxRowsFake("2")
+	out, code := run(t, f, []string{"knowledge"}, writeMaxRowsFixture(2))
+	if code != 0 || !strings.Contains(out, `"inserted":2`) {
+		t.Fatalf("경계(==max) exit=%d out=%s", code, out)
+	}
+}
+
+// ── v1.6.2 T2(G2): 단일 payload 필드 바이트 상한(상수 1MB). ──
+
+// TestRunWriteFieldBytesExceeded — Review Focus(G2): 단일 필드 값이
+// maxPayloadFieldBytes(1MiB)를 초과하면 Validate 단계에서 거부(exit 3)되고
+// 적립은 발생하지 않는다(대형 필드가 살균·해시·적립으로 흐르는 OOM 방어).
+func TestRunWriteFieldBytesExceeded(t *testing.T) {
+	f := &fakeStore{}
+	big := strings.Repeat("a", 1<<20+1)
+	stdin := fmt.Sprintf("{\"topic\":\"demo field limit\",\"summary\":\"%s\",\"confidence\":0.9}\n", big)
+	out, code := run(t, f, []string{"knowledge"}, stdin)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(필드 상한); out=%.200s", code, out)
+	}
+	if !strings.Contains(out, `"field":"summary"`) || !strings.Contains(out, "1048576") {
+		t.Fatalf("필드 상한 오류(필드명·상한 바이트) 미포함: %.200s", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("필드 상한 초과 적립 발생: %d건", len(f.inserted))
+	}
+}
+
+// TestRunWriteFieldBytesBoundary — 정확히 1MiB는 통과(초과만 차단), 여러
+// 필드가 각각 상한 이내면 총량이 넘어도 통과(상한은 단일 필드 기준).
+func TestRunWriteFieldBytesBoundary(t *testing.T) {
+	f := &fakeStore{}
+	ok := strings.Repeat("b", 1<<20)
+	stdin := fmt.Sprintf("{\"topic\":\"%s\",\"summary\":\"%s\",\"confidence\":0.9}\n",
+		"demo ok"+strings.Repeat("c", 1<<20-7), ok)
+	out, code := run(t, f, []string{"knowledge"}, stdin)
+	if code != 0 {
+		t.Fatalf("경계(==1MiB) exit=%d, want 0; out=%.200s", code, out)
+	}
+	if !strings.Contains(out, `"status":"committed"`) {
+		t.Fatalf("경계 적립 출력 아님: %.200s", out)
+	}
+}
+
+// ── v1.6.2 T2(E1): 동시 write 레이스 survive — slow 실DB 병렬 회귀. ──
+
+// openWriteRealStore — SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만 실DB
+// 저장소를 만든다(writeRealDSN 계약 승계 — 운영 폴백 차단). DSN도 함께
+// 반환(레이스 상대 라이터용 추가 접속).
+func openWriteRealStore(t *testing.T) (*writeRealStore, string) {
+	t.Helper()
+	dsn, ok := writeRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	repo, err := db.NewRepo(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		repo.Close()
+		t.Skipf("real pool unavailable: %v", err)
+	}
+	st := &writeRealStore{Repo: repo, pool: pool}
+	t.Cleanup(st.Close)
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate 실패: %v", err)
+	}
+	return st, dsn
+}
+
+// raceStdin — 병렬 레이스 검증 합성 stdin: shared줄은 두 라이터가 동일
+// content(동일 content_hash), uniq줄은 writerTag별 고유 content.
+func raceStdin(roundTag, writerTag string, shared, uniq int) string {
+	var b strings.Builder
+	for i := 0; i < shared; i++ {
+		fmt.Fprintf(&b, "{\"topic\":\"%sshared-%03d\",\"summary\":\"합성 데모 — 레이스 공유 줄 %03d\",\"confidence\":0.9}\n", roundTag, i, i)
+	}
+	for i := 0; i < uniq; i++ {
+		fmt.Fprintf(&b, "{\"topic\":\"%s%s-uniq-%03d\",\"summary\":\"합성 데모 — 레이스 고유 줄 %03d\",\"confidence\":0.9}\n", roundTag, writerTag, i, i)
+	}
+	return b.String()
+}
+
+// raceRowCount — roundTag 접두사 행 수 카운트(잔존 검증).
+func raceRowCount(ctx context.Context, st *writeRealStore, roundTag string) int {
+	rows, err := st.Query(ctx, `SELECT count(*) FROM knowledge WHERE topic LIKE $1 || '%'`, roundTag)
+	if err != nil {
+		return -1
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		return -1
+	}
+	n := 0
+	if _, err := fmt.Sscan(fmt.Sprint(rows[0][0]), &n); err != nil {
+		return -1
+	}
+	return n
+}
+
+// TestWriteParallelRaceRealSlow — Review Focus(E1): 동일 content 50줄 +
+// 각자 고유 50줄을 2 라이터(독립 세션)가 동시에 write하면 레이스 패자도
+// survive 경로(content_hash 재확인 skip + 잔여 1회 재시도)로 고유줄을
+// 전부 남긴다 — 양쪽 exit 0·총 150행 잔존. 수정 전에는 패자의 InsertBatch
+// 커밋 시점 위반이 미분류(XX000 "constraint violations, transaction
+// rolled back")로 전파돼 고유줄 50줄이 유실됐다. 여러 라운드로 레이스
+// 교차(양쪽 사전 확인 모두 통과)를 확률적으로 담는다 — 결정론적 교차
+// 검증은 lib/db TestInsertBatchCommitRaceClassifiedRealSlow가 담당.
+func TestWriteParallelRaceRealSlow(t *testing.T) {
+	stA, dsn := openWriteRealStore(t)
+	ctx := context.Background()
+	repoB, err := db.NewRepo(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store B unavailable: %v", err)
+	}
+	t.Cleanup(repoB.Close)
+	poolB, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real pool B unavailable: %v", err)
+	}
+	t.Cleanup(poolB.Close)
+	stB := &writeRealStore{Repo: repoB, pool: poolB}
+
+	const tag = "r33e1-합성-레이스-"
+	cleanup := func() {
+		_, _ = stA.Query(ctx, `DELETE FROM knowledge WHERE topic LIKE $1 || '%'`, tag)
+	}
+	t.Cleanup(cleanup)
+	cleanup()
+
+	const rounds = 5
+	for round := 1; round <= rounds; round++ {
+		roundTag := fmt.Sprintf("%s%02d-", tag, round)
+		stdinA := raceStdin(roundTag, "a", 50, 50)
+		stdinB := raceStdin(roundTag, "b", 50, 50)
+		start := make(chan struct{})
+		var wg sync.WaitGroup
+		var outA, outB strings.Builder
+		var codeA, codeB int
+		begin := time.Now()
+		wg.Add(2)
+		go func() {
+			defer wg.Done()
+			<-start
+			codeA = RunWrite(ctx, stA, []string{"knowledge"}, strings.NewReader(stdinA), &outA)
+		}()
+		go func() {
+			defer wg.Done()
+			<-start
+			codeB = RunWrite(ctx, stB, []string{"knowledge"}, strings.NewReader(stdinB), &outB)
+		}()
+		close(start)
+		wg.Wait()
+		elapsed := time.Since(begin)
+		if codeA != 0 || codeB != 0 {
+			t.Fatalf("라운드 %d exit a=%d b=%d — 패자 고유줄 유실(outA=%.300s outB=%.300s)",
+				round, codeA, codeB, outA.String(), outB.String())
+		}
+		if n := raceRowCount(ctx, stA, roundTag); n != 150 {
+			t.Fatalf("라운드 %d 잔존 %d행, want 150(공유 50 + 고유 50×2)", round, n)
+		}
+		inserted := 0
+		for _, o := range []string{outA.String(), outB.String()} {
+			m := decode(t, o)
+			inserted += int(m["inserted"].(float64))
+		}
+		t.Logf("라운드 %d: 경과=%v inserted 합=%d", round, elapsed.Round(time.Millisecond), inserted)
 	}
 }

@@ -66,11 +66,17 @@ isolated DB with a synthetic seed — never a working deployment:
 docker compose up -d
 export FLINT_TEST_DSN='postgres://flint:flint@localhost:5434/flint?sslmode=disable'
 
-# full-scale benches (median of 3 runs; small-scale variants run in CI)
-go test ./lib/knowledge -run '^$' -bench 'Pending|ImportJsonl|Write|FormatPAM' -benchtime 1x -count 3
+# in-memory/quick benches (median of 3 runs; small-scale variants run in CI)
+go test ./lib/knowledge -run '^$' -bench 'Pending|Write|FormatPAM' -benchtime 1x -count 3
+
+# real-DB regression benches (the RealSlow suite — one pass each, -count=1;
+# the import and write dedup figures in §2 are RealSlow tests, not go benches)
+go test ./lib/knowledge -run 'RealSlow' -count=1 -v
 ```
 
 The bench functions live in `lib/knowledge/pending_test.go` ·
-`import_jsonl_test.go` · `write_test.go` · `export_pam_test.go` (added in
-v1.6.0 alongside the fixes they guard). Run them with `-count 3` and take
-the median; a single run is not a reportable figure.
+`write_test.go` · `export_pam_test.go`; the real-DB figures in §2 come
+from the `RealSlow` tests in `import_jsonl_test.go` (import dedup) and
+`write_test.go` (write batch dedup), all added in v1.6.0 alongside the
+fixes they guard. Run quick benches with `-count 3` and take the median;
+a single run is not a reportable figure.

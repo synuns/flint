@@ -24,7 +24,7 @@
 
 ## 3. 복구 훈련 — `flint restore --drill` (30일 주기)
 
-- `flint restore --drill <file>` — 덤프 파일을 임시 데이터베이스
+- `flint restore --file <file> --drill` — 덤프 파일을 임시 데이터베이스
   `flint_drill_db`에 재생하고 행수를 대조한다(v0.15.2 — DB 수준 격리,
   종료 시 항상 삭제). 결과는 `maintenance_runs`에 기록되고
   `meta.last_drill`이 갱신된다.
@@ -166,14 +166,14 @@ v0.8 무효화 경로(항상 dry-run 먼저):
 4. `flint maintain --expire-pending 30` — 만료 pending dry-run 확인 후
    판단 시 `--commit`(doctor pending-age 경과 시).
 
-cron 예(매월 1일 04:00, dry-run만):
+cron 예(매월 1일 04:00, dry-run만 — `make install`은 `$(go env GOPATH)/bin/flint`에 설치하므로 그 경로를 쓴다):
 
 ```
 0 4 1 * * FLINT_DSN=postgresql://flint:flint-dev@localhost:5434/flint \
-  /usr/local/bin/flint maintain --check >> "$HOME/.flint/maintain.log" 2>&1
+  $(go env GOPATH)/bin/flint maintain --check >> "$HOME/.flint/maintain.log" 2>&1
 ```
 
-launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist`):
+launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist` — plist는 변수 전개를 하지 않으므로 절대경로를 적는다. 기본 GOPATH라면 `/Users/<user>/go/bin/flint`):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -183,7 +183,7 @@ launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist`):
   <key>Label</key><string>dev.flint.maintain</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/flint</string>
+    <string>/Users/USERNAME/go/bin/flint</string>
     <string>maintain</string>
     <string>--check</string>
   </array>
@@ -239,6 +239,21 @@ v0.9.3 빌드 중 실DB wipe 사고에서 실증한 복구 절차다. §2의 rev
 - **세션 테이블 유실은 수용**한다(PLAN §8 — 세션은 재수집 대상).
 - **정크는 미복원 원칙**: 복구 범위는 유효 지식(active) 행만으로
   한정하고, 빌드 정크는 되살리지 않는다.
+
+## 동시 쓰기 수용 계약 (v1.6.2 — R33 E3·E4 문서화)
+
+두 항목은 결함이 아니라 수용된 계약이다(원 보고 기준 문서화 수용분):
+
+- **병렬 write의 빈 커밋·보고 hash(E3)** — 동일 내용을 두 라이터가
+  동시에 write하면, unique 충돌 분류 후 살아남은 패자의 줄은 이기는
+  쪽 커밋에 이미 반영된다. 이때 패자의 커밋이 빈(행 변화 없는)
+  커밋로 남을 수 있고, 출력되는 `hash`는 마지막 커밋을 참조한다 —
+  **데이터 유실은 없다**(패자의 고유줄은 survive 경로로 잔존).
+- **플랫 키 동시 증분의 LWW 유실(E4)** — daily 카운터
+  (`meta`의 `daily:<kind>:<date>` 플랫 키) 증분은 last-write-wins
+  upsert라 동시 증분 하나가 유실될 수 있다. 관측 통계(report·status)
+  용도로만 쓰이고 정산 자료가 아니므로 감수한다(구조 개선은
+  per-table 분리 — v1.7 과제, PLAN 비목표 E2 참조).
 
 ## 스키마 v10 마이그레이션 (v1.2.0)
 

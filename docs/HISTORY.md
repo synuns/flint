@@ -6,6 +6,34 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.6.2 patch (2026-11-17) — R33 four-angle audit fixes: mcp wrapper delegation · write race survival · intake limits · doc truth
+
+- [x] MCP wrapper delegation (R33 F1–F4): the injectedStore wrapper now
+  forwards optional store interfaces (Approve · DupIDByHash · usage ·
+  read-event recording) so `flint_approve` works end-to-end through MCP,
+  duplicate responses carry id/topic/state, and read_events source=mcp
+  instrumentation is back; the manifest advertises all 5 tools; pool
+  ConnectTimeout 5s fails fast on unreachable remotes (exit 2 within
+  hook budgets).
+- [x] Write race survival + limits (R33 E1·G1·G2): unique-constraint
+  violations are classified so the losing writer of concurrent identical
+  content survives with its distinct rows (parallel-write regression);
+  stdin line count reuses `export_import_max_rows` and a per-payload
+  byte cap (1MB) rejects oversized payloads — both exit 3.
+- [x] Import/read boundaries (R33 G3–G5·F5): import file size cap
+  (512MB, exit 3 with max/size), oversized read queries drop the
+  suggestion scan instead of running it, import id collisions
+  auto-reassign ids (round-trip idempotency), and the project `note`
+  column round-trips through write/import.
+- [x] Documentation truth (R33 D1–D8·F6·E3·E4·G9): restore/drill flag
+  order, cron paths via `$(go env GOPATH)/bin/flint`, PERF RealSlow
+  reproduction command, QUICKSTART setup wizard wording, TUNING
+  non-registry key labels and the new hard limits, README badge
+  footnote, SKILL topic `session[...]`, corrupt-jsonl exit 3 labeling,
+  and accepted-contract notes for parallel-write empty commits (the
+  reported hash references the last commit — no data loss) and
+  flat-key concurrent-increment LWW loss.
+
 ### v1.6.1 patch (2026-11-17) — R31 audit fixes: maintain TUI list correctness · key atomicity · PAM roundtrip idempotency
 
 - [x] `maintain --tui` list correctness (R31-B B1·B2): removing a row
