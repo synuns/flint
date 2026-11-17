@@ -39,8 +39,11 @@ func Unregister(name string) {
 // 제약: "audit|diff|update|tuning|import"는 항목 연속·후미 고정
 // (wire_v08 TestUsageRestInvariant 계약), "done|compact|nudge"·
 // "approve|pending"·"hot|brief" 순서 역시 기존 배선 테스트가 지킨다.
+// v1.7.0 T7: sync 추가(사람 운영자 명령 — 데이터 이동성 그룹
+// backup/restore 직후. 원격 url은 출력·로그 미기록 계약).
 var usageOrder = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
+	"sync",
 	"approve", "pending", "maintain", "doctor", "report", "export",
 	"done", "compact", "nudge", "setup", "teardown", "version", "mcp",
 	"audit", "diff", "update", "tuning", "import",

@@ -442,6 +442,10 @@ func TestAllGatesArtifacts(t *testing.T) {
 				assertObject(t, r, ctx, idx)
 			}
 		}},
+		{"v11", r.EnsureSchemaV11, func(t *testing.T) {
+			assertColumn(t, r, ctx, "knowledge", "recall_score")
+			assertColumn(t, r, ctx, "knowledge", "last_recalled_at")
+		}},
 	}
 	for _, g := range gates {
 		if err := g.gate(ctx); err != nil {
@@ -475,5 +479,111 @@ func assertObject(t *testing.T, r *Repo, ctx context.Context, name string) {
 	}
 	if !exists {
 		t.Errorf("게이트 산출물 %s 부재(테이블/인덱스)", name)
+	}
+}
+
+// dropV11ScoreColumns — v11 게이트 테스트가 v10 DB를 재현할 때 knowledge의
+// 스코어 열 2종을 되돌린다(Doltgres는 DROP COLUMN IF EXISTS 미지원 —
+// columnExists 확인 후 DROP. admin_v10_test.go 관례 승계).
+func dropV11ScoreColumns(t *testing.T, r *Repo) {
+	t.Helper()
+	for _, col := range []string{"recall_score", "last_recalled_at"} {
+		if columnExists(t, r, "knowledge", col) {
+			if _, err := r.pool.Exec(context.Background(),
+				`ALTER TABLE knowledge DROP COLUMN `+col); err != nil {
+				t.Fatalf("v10 재현 knowledge.%s 삭제: %v", col, err)
+			}
+		}
+	}
+}
+
+// TestV11GateAdditive — v1.7.0 T1 Review Focus(state): v10 DB 재현 →
+// EnsureSchemaV11 승격이 recall_score(int 기본 0)·last_recalled_at
+// (timestamptz NULL) 2열을 additive 추가하고 기존 행은 무손상·기본값
+// (0·NULL)·재호출 멱등. 역방향(이전 바이너리가 v11 DB를 읽는 호환)은
+// 열 additive default 전제로 현 바이너리의 v11 값 삽입·판독 스팟으로
+// 갈음한다(플랜 T1 룰링 — 스코어 값 경로의 동작 증명).
+func TestV11GateAdditive(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	dropV11ScoreColumns(t, r)
+	setVersion(t, r, "10")
+
+	// 승격 전 기존 데이터 — 무손상 증명의 기준선.
+	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v11-old")})
+	if err != nil {
+		t.Fatalf("InsertBatch pre-v11: %v", err)
+	}
+
+	if err := r.EnsureSchemaV11(ctx); err != nil {
+		t.Fatalf("first EnsureSchemaV11: %v", err)
+	}
+	if v := readVersion(t, r); v != "11" {
+		t.Fatalf("schema_version = %q, want 11", v)
+	}
+	for _, col := range []string{"recall_score", "last_recalled_at"} {
+		if !columnExists(t, r, "knowledge", col) {
+			t.Fatalf("knowledge.%s 부재 — v11 additive 계약 위반", col)
+		}
+	}
+
+	// 기존 행은 기본값(0·NULL)·본문 무손상.
+	var score int
+	var last *time.Time
+	var topic string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT recall_score, last_recalled_at, topic FROM knowledge WHERE id = $1`, ids[0]).
+		Scan(&score, &last, &topic); err != nil {
+		t.Fatalf("기존 knowledge 행 조회: %v", err)
+	}
+	if score != 0 || last != nil {
+		t.Fatalf("기존 행 스코어 열 = (%d,%v), want (0,NULL — 컬럼 기본값)", score, last)
+	}
+	if topic == "" {
+		t.Fatalf("기존 knowledge 행 유실 — 무손상 계약 위반")
+	}
+
+	// v11 값 삽입·판독 스팟(역방향 갈음 — 현 바이너리가 스코어 생성·판독).
+	wantLast := time.Date(2026, 11, 15, 3, 0, 0, 0, time.UTC)
+	rec := knowledgeRec("v11-score")
+	rec["recall_score"] = 7
+	rec["last_recalled_at"] = wantLast
+	newIDs, err := r.InsertBatch(ctx, []map[string]any{rec})
+	if err != nil {
+		t.Fatalf("InsertBatch with v11 columns: %v", err)
+	}
+	var gotScore int
+	var gotLast *time.Time
+	if err := r.pool.QueryRow(ctx,
+		`SELECT recall_score, last_recalled_at FROM knowledge WHERE id = $1`, newIDs[0]).
+		Scan(&gotScore, &gotLast); err != nil {
+		t.Fatalf("v11 행 조회: %v", err)
+	}
+	if gotScore != 7 {
+		t.Fatalf("recall_score = %d, want 7", gotScore)
+	}
+	if gotLast == nil || !gotLast.Equal(wantLast) {
+		t.Fatalf("last_recalled_at = %v, want %v", gotLast, wantLast)
+	}
+
+	// 멱등 — 재호출은 no-op(버전 11 유지·에러 없음).
+	if err := r.EnsureSchemaV11(ctx); err != nil {
+		t.Fatalf("second EnsureSchemaV11 (want idempotent): %v", err)
+	}
+	if v := readVersion(t, r); v != "11" {
+		t.Fatalf("재호출 후 schema_version = %q, want 11", v)
+	}
+}
+
+// TestV11GateNumeric — 상위 버전 DB는 수치 비교로 no-op(다운그레이드 방지
+// 회귀 — TestV10GateNumeric 관례 승계).
+func TestV11GateNumeric(t *testing.T) {
+	r := newTestRepo(t)
+	setVersion(t, r, "99")
+	if err := r.EnsureSchemaV11(context.Background()); err != nil {
+		t.Fatalf("EnsureSchemaV11(상위 버전 DB): %v", err)
+	}
+	if v := readVersion(t, r); v != "99" {
+		t.Fatalf("게이트 하강 기록: schema_version=%q, want 99(수치 비교 no-op)", v)
 	}
 }

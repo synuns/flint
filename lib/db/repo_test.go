@@ -448,6 +448,155 @@ func TestMapInsertErrConstraintRollback(t *testing.T) {
 	}
 }
 
+// ── v1.7.0 T6: 계측 분리 커밋 — 감사 커밋 순수성·telemetry 별도 커밋. ──
+
+// t6CommitHashRe — dolt_log 해시 문자셋(dolt_diff 인라인 전 재검증 —
+// read.go asOfHashRe와 동일 규격, 소문자 base32계).
+var t6CommitHashRe = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
+
+// t6LastCommitHash — dolt_log 최신 커밋 해시(기본 정렬 = 최신 우선).
+func t6LastCommitHash(t *testing.T, r *Repo) string {
+	t.Helper()
+	var h string
+	if err := r.pool.QueryRow(context.Background(),
+		`SELECT commit_hash FROM dolt_log LIMIT 1`).Scan(&h); err != nil {
+		t.Fatalf("dolt_log 최신 해시: %v", err)
+	}
+	return h
+}
+
+// t6DiffRowCount — dolt_diff(from,to,table) 변경 행 수. dolt_diff는
+// 파라미터화된 인자를 받지 않는다(실측: "Invalid argument to dolt_diff") —
+// 해시·테이블명 문자셋 재검증 후 리터럴 인라인.
+func t6DiffRowCount(t *testing.T, r *Repo, from, to, table string) int {
+	t.Helper()
+	if !t6CommitHashRe.MatchString(from) || !t6CommitHashRe.MatchString(to) {
+		t.Fatalf("dolt_diff 인라인 해시 문자셋 위반: %q→%q", from, to)
+	}
+	if !regexp.MustCompile(`^[a-z_][a-z0-9_]*$`).MatchString(table) {
+		t.Fatalf("dolt_diff 인라인 테이블명 위반: %q", table)
+	}
+	var n int
+	if err := r.pool.QueryRow(context.Background(),
+		fmt.Sprintf("SELECT count(*) FROM dolt_diff('%s','%s','%s')", from, to, table)).Scan(&n); err != nil {
+		t.Fatalf("dolt_diff(%s,%s,%s): %v", from, to, table, err)
+	}
+	return n
+}
+
+// t6ClearTelemetry — 계측 테이블 적립 잔여 삭제(newTestRepo는 knowledge·
+// sessions·projects만 비운다 — 계측 테이블은 T6 테스트가 직접 정리).
+func t6ClearTelemetry(t *testing.T, r *Repo) {
+	t.Helper()
+	for _, tbl := range []string{"read_events", "hot_events", "knowledge_reads", "session_starts"} {
+		if _, err := r.pool.Exec(context.Background(), "DELETE FROM "+tbl); err != nil {
+			t.Fatalf("delete %s: %v", tbl, err)
+		}
+	}
+}
+
+// TestCommitExcludesTelemetryRealSlow — Review Focus(v1.7.0 T6·slow 실측):
+// 감사 커밋(Commit)은 계측 테이블을 스테이징하지 않는다. read 1회 상당의
+// read_events 적립 + write/done 상당의 knowledge·sessions 적립 후 Commit
+// 하면 — 커밋 diff에 knowledge ≥1·sessions ≥1·read_events 0행(감사 커밋
+// 순수성·세션 귀속 5테이블 룰링).
+func TestCommitExcludesTelemetryRealSlow(t *testing.T) {
+	r := newTestRepo(t)
+	t6ClearTelemetry(t, r)
+	ctx := context.Background()
+	// 베이스라인 — fresh DB(커밋 이력에 계측 테이블이 아직 없는 환경:
+	// Migrate DDL은 working set에만 있다)에서 dolt_diff(prev, head,
+	// 'read_events')가 "table not found"로 실패하지 않게, 계측 테이블을
+	// 먼저 커밋 이력에 올린 뒤 prev를 잡는(게이트 맹점 — fresh DB 검증).
+	// 이미 초기화된 DB에서는 no-op 커밋이라 prev는 마지막 커밋 그대로.
+	if err := r.CommitTelemetry(ctx, "t6 baseline"); err != nil {
+		t.Fatalf("베이스라인 CommitTelemetry: %v", err)
+	}
+	// 감사 데이터(knowledge 1행 + sessions 1행) + 계측 데이터(read_events 1행).
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (1,false,false,false)`); err != nil {
+		t.Fatalf("read_events 적립: %v", err)
+	}
+	if _, err := r.InsertBatch(ctx, []map[string]any{
+		knowledgeRec("t6-audit-1"),
+		{"kind": "session", "agent": "claude", "summary": "세션"},
+	}); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	prev := t6LastCommitHash(t, r)
+	if _, err := r.Commit(ctx, "test: t6 감사 커밋 [session:0]"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	head := t6LastCommitHash(t, r)
+	if head == prev {
+		t.Fatal("감사 커밋이 생성되지 않음(스테이징 0행 의심)")
+	}
+	if n := t6DiffRowCount(t, r, prev, head, "read_events"); n != 0 {
+		t.Fatalf("감사 커밋 diff read_events = %d행, want 0(계측 미스테이징)", n)
+	}
+	if n := t6DiffRowCount(t, r, prev, head, "knowledge"); n < 1 {
+		t.Fatalf("감사 커밋 diff knowledge = %d행, want ≥1", n)
+	}
+	if n := t6DiffRowCount(t, r, prev, head, "sessions"); n < 1 {
+		t.Fatalf("감사 커밋 diff sessions = %d행, want ≥1(done session-end 귀속)", n)
+	}
+}
+
+// TestCommitTelemetrySeparateRealSlow — Review Focus(v1.7.0 T6·slow 실측):
+// CommitTelemetry는 계측 테이블을 스테이징해 'telemetry: <cmd>' 커밋을
+// 만든다 — 감사 커밋 다음 호출에서 read_events diff ≥1행. 전역 스윕
+// (dolt_add('-A'))이 감사 커밋이 남긴 *_id_seq 잔여도 회수한다.
+func TestCommitTelemetrySeparateRealSlow(t *testing.T) {
+	r := newTestRepo(t)
+	t6ClearTelemetry(t, r)
+	ctx := context.Background()
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (1,false,false,false)`); err != nil {
+		t.Fatalf("read_events 적립: %v", err)
+	}
+	// 감사 커밋 1회 — knowledge_id_seq 잔여가 남는다(테이블 지정 스테이징).
+	if _, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("t6-tel-1")}); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	if _, err := r.Commit(ctx, "test: t6 감사 커밋(seq 잔여) [session:0]"); err != nil {
+		t.Fatalf("Commit: %v", err)
+	}
+	head := t6LastCommitHash(t, r)
+	if err := r.CommitTelemetry(ctx, "read"); err != nil {
+		t.Fatalf("CommitTelemetry: %v", err)
+	}
+	head2 := t6LastCommitHash(t, r)
+	if head2 == head {
+		t.Fatal("telemetry 커밋이 생성되지 않음(스테이징 0행 의심)")
+	}
+	if n := t6DiffRowCount(t, r, head, head2, "read_events"); n < 1 {
+		t.Fatalf("telemetry 커밋 diff read_events = %d행, want ≥1", n)
+	}
+	// -A 스윕 실측 — 감사 커밋이 남긴 시퀀스 잔여가 working set에 없다.
+	var seqLeft int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM dolt_status WHERE table_name LIKE '%knowledge_id_seq'`).Scan(&seqLeft); err != nil {
+		t.Fatalf("dolt_status seq 잔여 조회: %v", err)
+	}
+	if seqLeft != 0 {
+		t.Fatalf("knowledge_id_seq 잔여 %d건, want 0(telemetry -A 스윕 회수)", seqLeft)
+	}
+}
+
+// TestCommitTelemetryNothingStagedQuiet — 계측 원칙(§13): 스테이징할 게
+// 없으면(정상 working set) 오류가 아니다 — nothing-to-commit 관용.
+func TestCommitTelemetryNothingStagedQuiet(t *testing.T) {
+	r := newTestRepo(t)
+	t6ClearTelemetry(t, r)
+	// 커밋 후 working set에서 계측 잔여를 소진시킨 상태를 만든다.
+	if err := r.CommitTelemetry(context.Background(), "read"); err != nil {
+		t.Fatalf("1회차 CommitTelemetry: %v", err)
+	}
+	if err := r.CommitTelemetry(context.Background(), "read"); err != nil {
+		t.Fatalf("스테이징 0행 재호출이 오류로 전파: %v(계측 — 조용해야 함)", err)
+	}
+}
+
 // TestInsertBatchCommitRaceClassifiedRealSlow — 결정론적 교차로 실 Doltgres
 // 커밋 시점 위반을 일으켜, 실제 오류 메시지가 mapInsertErr 분류에 잡히는지
 // 검증한다(Dolt 메시지 드리프트 방어 — 실측 2026-11-17: XX000 +

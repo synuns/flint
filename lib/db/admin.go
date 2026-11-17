@@ -480,6 +480,55 @@ func (r *Repo) ensureSchemaV10(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV11는 meta.schema_version<11인 DB를 v11로 무손실 승격한다
+// (v1.7.0 T1 — decay/강화 스코어 원천, additive): knowledge에
+// recall_score(integer 기본 0)·last_recalled_at(timestamptz NULL) 2열을
+// ADD COLUMN IF NOT EXISTS로 추가한다. 승격 전 기존 행은 기본값 0·NULL을
+// 받는다. 열이 모두 default를 가지므로 이전 바이너리(v10)도 v11 DB를
+// 그대로 읽는다(역방향 호환). 기존 테이블·views·데이터 무변경. 이미
+// v11 이상이면 no-op(수치 비교 단락)이며 v1~v10 게이트를 경유한 어느
+// DB에서도 멱등하다.
+func (r *Repo) EnsureSchemaV11(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV11(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV11(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v11: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 11 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v11: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS recall_score integer NOT NULL DEFAULT 0`,
+		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS last_recalled_at timestamptz`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v11: alter: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '11')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v11: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v11: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
 // v0.20.1: 승인은 유효 확정이므로 잔존 invalid_at을 함께 청소한다 —
 // 무효화된 pending을 승인하면 active+invalid_at 좀비(뷰·--status 어디에도

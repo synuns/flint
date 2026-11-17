@@ -8,8 +8,10 @@ package ops
 
 import (
 	"context"
+	"encoding/json"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/synuns/flint/lib/db"
 )
@@ -88,5 +90,177 @@ func TestMaintainUsageLineMentionsTUI(t *testing.T) {
 	}
 	if !strings.Contains(out, "--tui") {
 		t.Fatalf("usage에 --tui 부재: %s", out)
+	}
+}
+
+// ── v1.7.0 T2: decay 감쇠 산식·--decay-audit(회상 강화 회귀는 knowledge 패키지) ──
+
+// TestEffectiveRecallScoreBoundaries — Review Focus(v1.7.0 T2): 감쇠 산식
+// 경계 — 1일(선형 -1)·100일(하한 0)·미회상(score 유지)·rate 오버라이드.
+func TestEffectiveRecallScoreBoundaries(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name  string
+		score int
+		last  time.Time
+		rate  float64
+		want  int
+	}{
+		{"1일 경과 — score-1", 5, now.Add(-25 * time.Hour), 1, 4},
+		{"100일 경과 — 하한 0", 5, now.Add(-100 * 24 * time.Hour), 1, 0},
+		{"23시간 — 0일(절사) 감쇠 없음", 5, now.Add(-23 * time.Hour), 1, 5},
+		{"미회상(last 없음) — score 그대로", 7, time.Time{}, 1, 7},
+		{"rate 0.5 — 2일 -1", 5, now.Add(-2 * 24 * time.Hour), 0.5, 4},
+		{"rate 2 — 가속 하한 0", 3, now.Add(-2 * 24 * time.Hour), 2, 0},
+	}
+	for _, c := range cases {
+		if got := EffectiveRecallScore(c.score, c.last, now, c.rate); got != c.want {
+			t.Errorf("%s: EffectiveRecallScore(%d, %v, rate %v) = %d, want %d",
+				c.name, c.score, c.last, c.rate, got, c.want)
+		}
+	}
+}
+
+// decayAuditRowsFixture — --decay-audit 조회 원천 행(합성 데모 — id,
+// recall_score, last_recalled_at 3열). 미회상(NULL)·0일 경과 행이 후보
+// 필터에서 제외되는지까지 함께 검증한다.
+func decayAuditRowsFixture(now time.Time) [][]any {
+	return [][]any{
+		{int32(3), int32(5), now.Add(-100 * 24 * time.Hour)}, // 완전 감쇠(하한 0)
+		{int32(1), int32(5), now.Add(-25 * time.Hour)},       // 1일 감쇠
+		{int32(2), int32(7), nil},                            // 미회상 — 제외
+		{int32(4), int32(9), now.Add(-1 * time.Hour)},        // 0일 — 제외
+	}
+}
+
+// decayAuditJSON — --decay-audit 출력 파싱용.
+type decayAuditJSON struct {
+	Status       string  `json:"status"`
+	DecayRate    float64 `json:"decay_rate"`
+	ArchiveBelow float64 `json:"archive_below"`
+	Count        int     `json:"count"`
+	Items        []struct {
+		ID           int    `json:"id"`
+		Score        int    `json:"score"`
+		LastRecalled string `json:"last_recalled"`
+		Effective    int    `json:"effective"`
+		Recommend    string `json:"recommend"`
+	} `json:"items"`
+}
+
+// TestMaintainDecayAuditList — Review Focus(v1.7.0 T2): 감쇠 후보 목록 —
+// 감쇠 진행 행만 나열(미회상·0일 제외)·기본 decay_rate=1·archive_below=0
+// (비활성 — recommend 전원 공란).
+func TestMaintainDecayAuditList(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return decayAuditRowsFixture(now), nil
+		}
+		return nil, nil // meta(thresholds) 비어 있음 — 기본값
+	}}}
+	out, code := runMaintainArgs(t, f, "--decay-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got decayAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Status != "decay-audit" || got.Count != 2 || len(got.Items) != 2 {
+		t.Fatalf("status/count/items = %q/%d/%d, want decay-audit/2/2 — %s", got.Status, got.Count, len(got.Items), out)
+	}
+	if got.DecayRate != 1 || got.ArchiveBelow != 0 {
+		t.Errorf("기본 임계값 decay_rate=%v archive_below=%v, want 1/0", got.DecayRate, got.ArchiveBelow)
+	}
+	first, second := got.Items[0], got.Items[1]
+	if first.ID != 3 || first.Score != 5 || first.Effective != 0 || first.Recommend != "" {
+		t.Errorf("items[0] = %+v, want id3 score5 eff0(100일 하한) recommend 없음", first)
+	}
+	if second.ID != 1 || second.Score != 5 || second.Effective != 4 {
+		t.Errorf("items[1] = %+v, want id1 score5 eff4(1일)", second)
+	}
+	if want := now.Add(-25 * time.Hour).Format(time.RFC3339); second.LastRecalled != want {
+		t.Errorf("items[1].last_recalled = %q, want %q", second.LastRecalled, want)
+	}
+}
+
+// TestMaintainDecayAuditLimit — --limit 상한이 목록에 반영된다(stale 관례).
+func TestMaintainDecayAuditLimit(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return decayAuditRowsFixture(now), nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--decay-audit", "--limit", "1")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got decayAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Count != 1 || len(got.Items) != 1 {
+		t.Fatalf("limit 1: count/items = %d/%d, want 1/1 — %s", got.Count, len(got.Items), out)
+	}
+}
+
+// TestMaintainDecayAuditThresholdOverride — Review Focus: meta 오버라이드
+// decay_rate·archive_below가 산식·권장에 반영된다(effective < archive_below
+// → recommend "archive").
+func TestMaintainDecayAuditThresholdOverride(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM knowledge"):
+			return [][]any{
+				{int32(1), int32(5), now.Add(-6 * 24 * time.Hour)},  // 5-0.5*6=2 → archive
+				{int32(2), int32(10), now.Add(-4 * 24 * time.Hour)}, // 10-0.5*4=8 → 유지
+			}, nil
+		case strings.Contains(sql, "FROM meta"):
+			return [][]any{{"decay_rate", "0.5"}, {"archive_below", "3"}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--decay-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got decayAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.DecayRate != 0.5 || got.ArchiveBelow != 3 {
+		t.Fatalf("오버라이드 decay_rate=%v archive_below=%v, want 0.5/3 — %s", got.DecayRate, got.ArchiveBelow, out)
+	}
+	if got.Items[0].ID != 1 || got.Items[0].Effective != 2 || got.Items[0].Recommend != "archive" {
+		t.Errorf("items[0] = %+v, want id1 eff2 recommend archive", got.Items[0])
+	}
+	if got.Items[1].ID != 2 || got.Items[1].Effective != 8 || got.Items[1].Recommend != "" {
+		t.Errorf("items[1] = %+v, want id2 eff8 recommend 없음", got.Items[1])
+	}
+}
+
+// TestMaintainDecayAuditRejectsForeignFlags — 모드 귀속 검증: --decay-audit는
+// 읽기 전용 보고 — --days 등 무관 값 플래그는 에러 거부(exit 1).
+func TestMaintainDecayAuditRejectsForeignFlags(t *testing.T) {
+	f := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out, code := runMaintainArgs(t, f, "--decay-audit", "--days", "5")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1(무관 플래그 거부): %s", code, out)
 	}
 }

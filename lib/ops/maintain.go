@@ -65,6 +65,8 @@ var maintainModeFlags = map[string]map[string]bool{
 	"--supersede":         {"--supersede": true, "--by": true},
 	// --expire-pending N — 일수는 모드 값으로 받는다(--days 아님).
 	"--expire-pending": {},
+	// v1.7.0 T2: decay 감쇠 후보 보고(읽기 전용 — 실행은 --invalidate 위임).
+	"--decay-audit": {"--limit": true},
 }
 
 // maintainYesModes — --yes(실행 확정)가 뜻 있는 모드. 나머지 모드에서의
@@ -91,7 +93,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 
 // maintainUsageLine — 허용 플래그 안내(v1.5.4 T1: 무효 인자 오류 메시지의
 // 공통 접미 — error:"usage" 전환과 함께 에이전트 자가수신용).
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --tui (opt-in, run alone)"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --tui (opt-in, run alone)"
 
 // maintainUsageErrf — 무효 인자 오류 조립(v1.5.4 T1: approve.approveUsageErr
 // 관례 — UsageError 타입 + 허용 플래그 접미. exit 코드는 호출부 불변).
@@ -116,7 +118,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		Flags: []wire.FlagSpec{
 			{Name: "--check"}, {Name: "--dup-suspects"}, {Name: "--conflict-suspects"},
 			{Name: "--merge"}, {Name: "--stale"}, {Name: "--invalidate"},
-			{Name: "--invalidate-stale"}, {Name: "--meta-audit"},
+			{Name: "--invalidate-stale"}, {Name: "--meta-audit"}, {Name: "--decay-audit"},
 			// v0.33.0: --expire-pending·--prune-invalidated는 모드+값(N 일수).
 			{Name: "--expire-pending", Value: true}, {Name: "--prune-invalidated", Value: true},
 			{Name: "--days", Value: true}, {Name: "--limit", Value: true},
@@ -147,7 +149,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		switch name {
 		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
 			"--invalidate", "--invalidate-stale", "--meta-audit", "--expire-pending",
-			"--prune-invalidated", "--supersede":
+			"--prune-invalidated", "--supersede", "--decay-audit":
 			mode = name
 		}
 	}
@@ -278,6 +280,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainCheck(ctx, ms, stdout)
 	case "--meta-audit": // v0.33.0 R1
 		return maintainMetaAudit(ctx, ms, stdout)
+	case "--decay-audit": // v1.7.0 T2
+		return maintainDecayAudit(ctx, ms, stdout, limit)
 	case "--prune-invalidated": // v0.33.0 R2
 		return maintainPruneInvalidated(ctx, ms, stdout, expireDays, commit)
 	case "--dup-suspects":
@@ -894,6 +898,114 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 	knowledge.BumpCurationCounter(ctx, ms, "maintain_supersede", 1) // v1.2.0 T4 검수 카운터 — 성공 1회
 	fmt.Fprintf(stdout, `{"status":"superseded","old":%d,"superseded_by":%d}`+"\n",
 		oldID, newID)
+	return 0
+}
+
+// ── v1.7.0 T2: decay 감쇠 산식·--decay-audit 보고 ──
+
+// decayNow — 감쇠 기준 시각 seam(테스트 주입용 var).
+var decayNow = time.Now
+
+// EffectiveRecallScore — 감쇠 산식(v1.7.0 T2, 순수 함수). 본체는 v1.7.0
+// T3에 knowledge로 이동(hot·brief 순위가 같은 산식을 소비 — 단일 정의.
+// knowledge→ops 임포트 사이클 방지를 위해 이동 방향만 성립)하고 여기선
+// 위임한다. 산식: recall_score - decay_rate*days_since(last_recalled_at),
+// 하한 0. last가 zero(미회상)는 score 그대로 — 회상 이력이 없는 신규
+// 항목의 불이익 금지(룰링). days는 24h 단위 정수 경과(23h59m = 0일 감쇠
+// 없음).
+func EffectiveRecallScore(score int, last, now time.Time, rate float64) int {
+	return knowledge.EffectiveRecallScore(score, last, now, rate)
+}
+
+// decayAuditItem — --decay-audit 나열 항목(v1.7.0 T2). 보고 전용 —
+// archive 실행은 기존 --invalidate가 승인제(--yes/--reason)로 수행한다
+// (자동 아님 — SQL 자동 판정 금지 원칙 승계).
+type decayAuditItem struct {
+	ID           int    `json:"id"`
+	Score        int    `json:"score"`
+	LastRecalled string `json:"last_recalled"` // RFC3339(후보는 전부 회상 이력 있음)
+	Effective    int    `json:"effective"`
+	Recommend    string `json:"recommend"` // "archive" | ""(제안 없음)
+}
+
+// maintainDecayAudit — 감쇠 후보 보고(읽기 전용·exit 0). 대상: active 중
+// 회상 이력이 있고 감쇠가 진행된(effective < recall_score) 행 — 미회상
+// 행은 score가 유지되므로 후보가 아니다. decay_rate·archive_below는 meta
+// 오버라이드 우선(미설정 decay_rate=0은 ApplyThresholdsFallback 미탄 키라
+// 여기서 기본 1 폴백 — 소비자측 완결). 항목 상한은 --limit(기본 20, stale
+// 관례 승계).
+func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, limit int) int {
+	th := store.DefaultThresholds()
+	if loaded, lErr := wire.LoadThresholds(ctx, ms); lErr == nil {
+		th = loaded
+	}
+	if th.DecayRate <= 0 {
+		th.DecayRate = store.DefaultThresholds().DecayRate
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	// 컷오프 Go 계산·파라미터 전달 관례 승계(T70). 정렬은 last_recalled_at
+	// ASC — 가장 오래 미회상(=최대 감쇠) 행이 앞에 온다.
+	rows, err := wire.QueryOnce(ctx, ms, `
+		SELECT id, recall_score, last_recalled_at
+		FROM knowledge
+		WHERE status = 'active' AND invalid_at IS NULL AND last_recalled_at IS NOT NULL
+		ORDER BY last_recalled_at ASC
+		LIMIT $1`, []any{limit})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	now := decayNow()
+	items := []decayAuditItem{}
+	for _, r := range rows {
+		if len(r) < 3 {
+			continue
+		}
+		id, ok := render.CellToInt(r[0])
+		if !ok {
+			continue
+		}
+		score, _ := render.CellToInt(r[1])
+		last, ok := AnyToTime(r[2])
+		if !ok || last.IsZero() {
+			continue
+		}
+		eff := EffectiveRecallScore(score, last, now, th.DecayRate)
+		if eff >= score {
+			continue // 감쇠 없음(24h 미만 경과 등) — 후보 아님
+		}
+		rec := ""
+		if th.ArchiveBelow > 0 && float64(eff) < th.ArchiveBelow {
+			rec = "archive"
+		}
+		items = append(items, decayAuditItem{
+			ID:           id,
+			Score:        score,
+			LastRecalled: last.Format(time.RFC3339),
+			Effective:    eff,
+			Recommend:    rec,
+		})
+		if len(items) >= limit {
+			break
+		}
+	}
+	out, mErr := json.Marshal(struct {
+		Status       string           `json:"status"`
+		DecayRate    float64          `json:"decay_rate"`
+		ArchiveBelow float64          `json:"archive_below"`
+		Count        int              `json:"count"`
+		Items        []decayAuditItem `json:"items"`
+		Summary      string           `json:"summary"`
+	}{Status: "decay-audit", DecayRate: th.DecayRate, ArchiveBelow: th.ArchiveBelow,
+		Count: len(items), Items: items,
+		Summary: fmt.Sprintf("%d decayed — apply via maintain --invalidate (approval required)", len(items))})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
 	return 0
 }
 

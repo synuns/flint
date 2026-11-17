@@ -109,6 +109,8 @@ live only in the operational DB via this route.
 | `knowledge_reads_retention_days` | 14 | retention days for knowledge_reads (per-item recall history — separately overridable from read_events retention, registered v1.2.0 T5) | instrumentation pruning |
 | `zero_owned_floor` | 1 | zero-hit decomposition threshold (v1.2.0 §2.2) — if active-knowledge count at the zero verdict is below this, 'unowned' (effectively not held); at or above, 'owned_miss' (held but search missed). Direct per-key read; only n>0 accepted. **Not managed by `flint tuning`** — override via the meta table directly (not in the tuning registry) | read zero_reason |
 | `export_import_max_rows` | 100000 | shared row cap for export · import (excess → exit 3 — memory defense against bulk document intake, v1.4.0 T3) | export · import |
+| `decay_rate` | 1 | recall decay per day (v1.7.0) — effective score = `recall_score − decay_rate × days since last_recall`, floored at 0 (whole 24h days; never-recalled rows keep their score). Ranking only, never deletes. 0/invalid falls back to 1 — decay-off tuning is not provided | hot · brief ranking · maintain --decay-audit |
+| `archive_below` | 0 | archive-recommendation floor on the effective score (v1.7.0) — `maintain --decay-audit` lists decayed rows regardless; `recommend:"archive"` appears only when this is > 0 and the effective score is below it. **0 disables** recommendations (listing still works) | maintain --decay-audit |
 
 Diagnostics layer-B rules inherit reads from existing doctor keys (avoiding
 duplicate keys — see the `zero_near_warn_pct` · `pending_age_days` rows).

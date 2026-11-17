@@ -9,6 +9,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -81,6 +82,104 @@ const (
 	hotViewValidAtIdx    = 5
 	hotViewIngestedAtIdx = 6 // 팔별 확인용(현재 미소비 — 뷰 노출과 쌍)
 )
+
+// ── v1.7.0 T3: hot·brief 선정 순위에 감쇠 후 유효 회상 점수 반영 ──
+
+// hotViewRecallScoreIdx·hotViewLastRecalledIdx — hotRankedSQL이 hot_view
+// 본질의 SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의 — T5 관례 승계).
+const (
+	hotViewRecallScoreIdx  = 7
+	hotViewLastRecalledIdx = 8
+)
+
+// hotHeadlineRecallScoreIdx·hotHeadlineRecallLastIdx — 헤드라인 질의
+// (HotHeadlineSQL: id까지만 노출, 5열)에 hotRankedSQL이 병합한 랭킹 열
+// 인덱스(5·6 — v1.7.0 리뷰 수정: --full 인덱스 7·8을 그대로 쓰면 7열
+// 행 전체가 0점 취급돼 헤드라인 랭킹이 조용히 무효가 된다).
+const (
+	hotHeadlineRecallScoreIdx = 5
+	hotHeadlineRecallLastIdx  = 6
+)
+
+// EffectiveRecallScore — 감쇠 산식(v1.7.0 T2 순수 함수 — T3에 본체를
+// knowledge로 이동, ops는 위임해 단일 정의 유지: knowledge→ops 임포트
+// 사이클 방지 위해 아래 방향(ops→knowledge)만 성립):
+// recall_score - decay_rate*days_since(last_recalled_at), 하한 0.
+// last가 zero(미회상)는 score 그대로 — 회상 이력이 없는 신규 항목의
+// 불이익 금지(룰링). days는 24h 단위 정수 경과(23h59m = 0일 감쇠 없음).
+func EffectiveRecallScore(score int, last, now time.Time, rate float64) int {
+	if last.IsZero() || rate <= 0 {
+		return score
+	}
+	days := int(now.Sub(last).Hours() / 24)
+	if days <= 0 {
+		return score
+	}
+	eff := float64(score) - rate*float64(days)
+	if eff < 0 {
+		eff = 0
+	}
+	return int(eff)
+}
+
+// loadDecayRate — 감쇠 계수는 meta 오버라이드 우선(T2 소비자 폴백 승계:
+// 로드 실패·미설정·0 이하는 기본값). 계측값이 아니라 순위 재료라 실패는
+// 폴백으로 흡수(출력·exit에 영향 금지 — §13과 같은 방향).
+func loadDecayRate(ctx context.Context, st wire.Store) float64 {
+	rate := store.DefaultThresholds().DecayRate
+	if th, err := wire.LoadThresholds(ctx, st); err == nil && th.DecayRate > 0 {
+		rate = th.DecayRate
+	}
+	return rate
+}
+
+// rankRowsByEffectiveScore — 조회 행을 감쇠 후 유효 점수 내림 안정 정렬
+// (v1.7.0 T3). scoreIdx·lastIdx 열이 없는 행(구형 뷰 모양·fake)·score 셀
+// 변환 불가(NULL — 프로젝트 팔 등)는 0점 취급이고, 미회상(last NULL)은
+// score를 그대로 유지한다. 안정 정렬이 기존 SQL 순서(hot: ts DESC,
+// id DESC / brief: RankOrder)를 동점 순서로 승계 — 0점 전원·랭킹 열 부재
+// 환경은 기존 출력과 바이트 동일이다.
+func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64, now time.Time) [][]any {
+	eff := make([]int, len(rows))
+	for i, r := range rows {
+		if len(r) <= lastIdx {
+			continue
+		}
+		score, ok := render.CellToInt(r[scoreIdx])
+		if !ok {
+			continue // score 셀 부재·NULL → 0점
+		}
+		last, _ := wire.CellToTime(r[lastIdx]) // 미회상(NULL)은 zero → score 유지
+		eff[i] = EffectiveRecallScore(score, last, now, rate)
+	}
+	sort.SliceStable(rows, func(i, j int) bool { return eff[i] > eff[j] })
+	return rows
+}
+
+// hotRankJoinPivot — query.HotSQL·HotHeadlineSQL의 고정형 FROM/ORDER BY
+// 절(T3 랭킹 조인 치환의 기준점 — 단일 정의 파생).
+const hotRankJoinPivot = " FROM hot_view ORDER BY ts DESC, id DESC"
+
+// hotRankedSQL — v1.7.0 T3: hot_view 단일 질의(단일 정의 = query.HotSQL·
+// HotHeadlineSQL)에 knowledge 조인으로 recall_score·last_recalled_at를
+// SELECT 말미에 병합한다. 열은 h. 한정(조인 후 모호성 제거), ORDER BY·
+// LIMIT은 원본 정의를 그대로 승계한다 — 치환점 미발견 형태(미래 SQL
+// 변경)는 원본을 반환해 랭킹을 조용히 생략, 기존 동작을 승계한다.
+func hotRankedSQL(base string) string {
+	i := strings.Index(base, hotRankJoinPivot)
+	if i <= 0 || !strings.HasPrefix(base, "SELECT ") {
+		return base
+	}
+	cols := strings.Split(strings.TrimPrefix(base[:i], "SELECT "), ", ")
+	q := make([]string, 0, len(cols)+2)
+	for _, c := range cols {
+		q = append(q, "h."+c)
+	}
+	q = append(q, "k.recall_score", "k.last_recalled_at")
+	return "SELECT " + strings.Join(q, ", ") +
+		" FROM hot_view h LEFT JOIN knowledge k ON h.id = k.id ORDER BY h.ts DESC, h.id DESC" +
+		base[i+len(hotRankJoinPivot):]
+}
 
 // hotLineSurvivorCount — 행별 '표시 문자열' 기준 생존 수(N4). --full 접미
 // (·+N일)가 붙은 최종 텍스트로 잰다: k행 시작 오프셋은 lines[:k]의 rune
@@ -308,6 +407,9 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		// 주입(--full)은 예산 상한 계약 불변.
 		sql = query.HotHeadlineSQL(session)
 	}
+	// v1.7.0 T3: 단일 질의에 랭킹 열(recall_score·last_recalled_at)을
+	// 병합한다 — 동반 질의 없이(주문=증분 구조 승계).
+	sql = hotRankedSQL(sql)
 	rows, err := wire.QueryOnce(ctx, st, sql, nil)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -319,6 +421,17 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	// 훅으로 프롬프트에 직접 주입되는 최우선 출력 경로다. v0.37.0: 살균은
 	// read와 같은 render 조크포인트(render.Cells)로 수렴.
 	rows = render.Cells(rows)
+	// v1.7.0 T3: 선정 순위에 감쇠 후 유효 회상 점수 반영 — effective DESC
+	// 안정 정렬(동점·0점은 기존 SQL 순서 ts DESC, id DESC 승계). 랭킹 열이
+	// 없는 행(구형 뷰·fake)은 0점 취급돼 기존 순서·출력이 그대로 살아남는다.
+	// 포맷·예산·증분은 하류가 이 rows를 소비해 주문=증분 계약이 불변이다.
+	// 랭킹 열 인덱스는 경로별 질의 형태(--full 9열·헤드라인 7열)를 따른다.
+	scoreIdx, lastIdx := hotViewRecallScoreIdx, hotViewLastRecalledIdx
+	if !full {
+		scoreIdx, lastIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx
+	}
+	rows = rankRowsByEffectiveScore(rows, scoreIdx, lastIdx,
+		loadDecayRate(ctx, st), time.Now().UTC())
 	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
 	LoadHotStatsFromMetaFn(ctx, st)
 	// 예산은 양 경로 공통 산출: --full 절단 규칙과 증분 생존 판정이 같은
@@ -373,6 +486,9 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 			_ = rec.RecordHotEvent(ctx, idsCSV(injected))
 		}
 	}
+	// v1.7.0 T6: 계측 테이블 별도 커밋(hot 완료 경로 1회 — 헤드라인·--full
+	// 공통). 실패는 조용히(§13 — 스테이징은 유지돼 다음 호출이 회수).
+	commitTelemetry(ctx, st, "hot")
 	return 0
 }
 

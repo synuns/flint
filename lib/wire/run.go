@@ -106,7 +106,7 @@ func RunHelp(w io.Writer) int {
 // HelpSummary — 명령별 1줄 요약(v0.10.2 R1. v1.4.1 R22-C2: usageOrder
 // 전 항목 키워드 포함 — TestHelpSummaryCoversUsageOrder 완전성 가드).
 func HelpSummary() string {
-	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · import migration (jsonl·pam) · backup/restore backups · maintain upkeep (--supersede handover) · approve promotion · tuning thresholds · update self-update · done/compact/nudge hooks · setup/teardown install · audit/diff time travel · mcp server · version"
+	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · import migration (jsonl·pam) · backup/restore backups · sync remote knowledge sync (push/pull · operator command) · maintain upkeep (--supersede handover · --decay-audit archive candidates) · approve promotion · tuning thresholds · update self-update · done/compact/nudge hooks · setup/teardown install · audit/diff time travel · mcp server · version"
 }
 
 // UsageError — 무효 인자(unknown flag·값 누락 등 사용법 오류) 분류

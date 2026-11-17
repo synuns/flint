@@ -270,6 +270,9 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		agentLabel(agent, 24), runs)); cerr != nil {
 		fmt.Fprintf(os.Stderr, "[flint] session-end commit: %v\n", cerr)
 	}
+	// v1.7.0 T6: 계측 테이블 별도 커밋(done 완료 경로 1회 — 기존 감사
+	// 커밋 후·실패 조용, §13).
+	commitTelemetry(ctx, st, "done")
 	AutoBackupFn(ctx, st)
 	return 0
 }

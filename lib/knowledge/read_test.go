@@ -424,6 +424,141 @@ func TestSuggestQueryTruncate(t *testing.T) {
 	}
 }
 
+// ── v1.7.0 T6: 계측 분리 커밋 — read/hot 완료 경로의 telemetry 커밋. ──
+
+// telemetryCommitter — fakeStore에 TelemetryCommitter seam을 얹은 fake
+// (v1.7.0 T6). CommitTelemetry 호출 인자(cmd)를 녹음한다.
+type telemetryCommitter struct {
+	*fakeStore
+	commands []string
+	err      error
+}
+
+func (tc *telemetryCommitter) CommitTelemetry(ctx context.Context, cmd string) error {
+	tc.commands = append(tc.commands, cmd)
+	return tc.err
+}
+
+// TestRunReadCommitsTelemetryOnce — Review Focus(v1.7.0 T6): read 완료
+// 경로는 계측 커밋을 정확히 1회(cmd="read") 호출한다. 실패는 조용
+// (§13 — exit 0·출력 불변). 미구현 Store(fakeStore 단독)은 스킵.
+func TestRunReadCommitsTelemetryOnce(t *testing.T) {
+	newStore := func() *telemetryCommitter {
+		return &telemetryCommitter{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "FROM active_knowledge") {
+				return hitRowsFixture, nil
+			}
+			return nil, nil
+		}}}
+	}
+	t.Run("히트 — telemetry 커밋 1회(cmd=read)", func(t *testing.T) {
+		st := newStore()
+		var out strings.Builder
+		if code := RunRead(context.Background(), st,
+			[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		if len(st.commands) != 1 || st.commands[0] != "read" {
+			t.Fatalf("CommitTelemetry 호출 = %v, want [read] 1회", st.commands)
+		}
+	})
+	t.Run("계측 커밋 실패 — 조용(exit 0·출력 불변)", func(t *testing.T) {
+		st := newStore()
+		st.err = errors.New("telemetry commit boom")
+		var out strings.Builder
+		if code := RunRead(context.Background(), st,
+			[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d, want 0(계측 실패는 조용): %s", code, out.String())
+		}
+		if len(st.commands) != 1 {
+			t.Fatalf("실패에도 호출은 1회: %v", st.commands)
+		}
+	})
+	t.Run("미구현 Store — 스킵(패닉 없음)", func(t *testing.T) {
+		var out strings.Builder
+		if code := RunRead(context.Background(), &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			return hitRowsFixture, nil
+		}}, []string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+	})
+}
+
+// TestRunHotCommitsTelemetryOnce — Review Focus(v1.7.0 T6): hot 완료 경로도
+// 계측 커밋을 1회(cmd="hot") 호출한다(헤드라인·--full 양 경로 공통).
+func TestRunHotCommitsTelemetryOnce(t *testing.T) {
+	injectHotSeams(t)
+	for _, tc := range []struct {
+		name string
+		args []string
+	}{
+		{"헤드라인", nil},
+		{"--full 주입", []string{"--full"}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			st := &telemetryCommitter{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+				if strings.Contains(sql, "FROM hot_view") {
+					return v1200HotRows(time.Now().UTC()), nil
+				}
+				return nil, nil
+			}}}
+			var out strings.Builder
+			if code := RunHot(context.Background(), st, tc.args, strings.NewReader(""), &out); code != 0 {
+				t.Fatalf("RunHot exit = %d: %s", code, out.String())
+			}
+			if len(st.commands) != 1 || st.commands[0] != "hot" {
+				t.Fatalf("CommitTelemetry 호출 = %v, want [hot] 1회", st.commands)
+			}
+		})
+	}
+}
+
+// TestRunDoneCommitsTelemetryOnce — Review Focus(v1.7.0 T6): done 완료
+// 경로는 기존 감사 Commit(session-end) 후 계측 커밋을 1회(cmd="done")
+// 호출한다. 실패는 조용(exit 0·출력 불변).
+func TestRunDoneCommitsTelemetryOnce(t *testing.T) {
+	stubAutoBackup(t)
+	newDone := func() *telemetryDoneFake {
+		return &telemetryDoneFake{doneFake: &doneFake{
+			fakeStore: &fakeStore{}, stubbed: true, runs: 0}}
+	}
+	t.Run("ok 경로 — 감사 Commit 후 telemetry 커밋 1회(cmd=done)", func(t *testing.T) {
+		d := newDone()
+		var out strings.Builder
+		if code := RunDone(context.Background(), d,
+			[]string{"--session", "claude"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		if len(d.telemetryCmds) != 1 || d.telemetryCmds[0] != "done" {
+			t.Fatalf("CommitTelemetry 호출 = %v, want [done] 1회", d.telemetryCmds)
+		}
+		if len(d.commits) != 1 || !strings.Contains(d.commits[0], "session-end") {
+			t.Fatalf("감사 Commit = %v, want session-end 1회(기존 계약 불변)", d.commits)
+		}
+	})
+	t.Run("계측 커밋 실패 — 조용(exit 0)", func(t *testing.T) {
+		d := newDone()
+		d.telErr = errors.New("telemetry commit boom")
+		var out strings.Builder
+		if code := RunDone(context.Background(), d,
+			[]string{"--session", "claude"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d, want 0(계측 실패는 조용): %s", code, out.String())
+		}
+	})
+}
+
+// telemetryDoneFake — doneFake에 TelemetryCommitter seam을 얹은 fake.
+type telemetryDoneFake struct {
+	*doneFake
+	telemetryCmds []string
+	telErr        error
+}
+
+func (d *telemetryDoneFake) CommitTelemetry(ctx context.Context, cmd string) error {
+	d.telemetryCmds = append(d.telemetryCmds, cmd)
+	return d.telErr
+}
+
 // TestRunReadSuggestHugeQueryPerf — G4 가용성 회귀: 100KB 쿼리 제안이
 // 제안 스캔 행(2k)이 있어도 상한 truncate로 수 초 이내에 끝난다(수정 전
 // 17s급 — bigramDice가 행마다 쿼리 bigram 집합을 재구축했다). 단위 테스트
@@ -452,5 +587,65 @@ func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
 	t.Logf("100KB 쿼리 제안 경과: %s(상한 5s)", elapsed)
 	if elapsed > 5*time.Second {
 		t.Fatalf("100KB 쿼리 제안 %s — 상한 5s 초과(truncate 미적용 의심)", elapsed)
+	}
+}
+
+// ── v1.7.0 T2: 회상 강화 배선(recall_score+1·last_recalled_at=now) ──
+
+// recallBumperRecorder — RecordKnowledgeReads·BumpRecallScores 호출을 녹음하는
+// fake(KnowledgeReadsRecorder·RecallBumper seam 동시 구현). 실구현 경로
+// (db.Repo.BumpRecallScores의 실DB 증분)는 lib/db reads_v1700_test가 든다.
+type recallBumperRecorder struct {
+	*fakeStore
+	kreads []kreadsCall
+	bumps  [][]int
+}
+
+func (r *recallBumperRecorder) RecordKnowledgeReads(ctx context.Context, ids []int, session, kind string) error {
+	r.kreads = append(r.kreads, kreadsCall{ids, session, kind})
+	return nil
+}
+
+func (r *recallBumperRecorder) BumpRecallScores(ctx context.Context, ids []int) error {
+	r.bumps = append(r.bumps, ids)
+	return nil
+}
+
+// TestRunReadBumpsRecallScores — Review Focus(v1.7.0 T2 강화 회귀): read 히트
+// 행 전수가 회상 강화(RecallBumper seam)를 1회 통과한다 — RecordKnowledgeReads
+// 경로에 결합(kind=read).
+func TestRunReadBumpsRecallScores(t *testing.T) {
+	st := &recallBumperRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM active_knowledge") {
+			return hitRowsFixture, nil
+		}
+		return nil, nil
+	}}}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	if len(st.bumps) != 1 || len(st.bumps[0]) != 2 || st.bumps[0][0] != 1 || st.bumps[0][1] != 2 {
+		t.Fatalf("BumpRecallScores 호출 = %v, want 1회 ids [1 2](read 히트 행 전수)", st.bumps)
+	}
+	if len(st.kreads) != 1 || st.kreads[0].kind != "read" {
+		t.Errorf("RecordKnowledgeReads = %v, want 1건 kind=read(강화와 동일 ids)", st.kreads)
+	}
+}
+
+// TestRecordKnowledgeReadsHotNoBump — hot 주입(kind=hot)은 회상 강화에서
+// 제외 — 노출→강화→재노출 순환(hot 랭킹 T3이 recall_score를 소비하므로)을
+// 끊는 룰링. 이력 기록(knowledge_reads)은 불변.
+func TestRecordKnowledgeReadsHotNoBump(t *testing.T) {
+	st := &recallBumperRecorder{fakeStore: &fakeStore{}}
+	ctx := context.Background()
+	recordKnowledgeReads(ctx, st, []int{3, 7}, "t2-v1700", "hot")
+	if len(st.kreads) != 1 || len(st.bumps) != 0 {
+		t.Fatalf("hot: kreads=%v bumps=%v, want 이력 1건·강화 0회", st.kreads, st.bumps)
+	}
+	recordKnowledgeReads(ctx, st, []int{3}, "t2-v1700", "read")
+	if len(st.bumps) != 1 || st.bumps[0][0] != 3 {
+		t.Fatalf("read: bumps=%v, want 1회 ids [3]", st.bumps)
 	}
 }

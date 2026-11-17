@@ -46,3 +46,21 @@ func (r *Repo) RecordKnowledgeReads(ctx context.Context, ids []int, session, kin
 	}
 	return nil
 }
+
+// BumpRecallScores는 회상 강화(v1.7.0 T2, schema v11): ids 행의
+// recall_score를 1 증분하고 last_recalled_at=now()를 새긴다. read 히트
+// 경로가 RecordKnowledgeReads와 함께 호출한다(계측 관례 — 실패는 호출부가
+// 조용히 무시). 감쇠(maintain --decay-audit·hot 랭킹)의 원천 열이고
+// read_count 캐시(BumpReads)와는 별개 계층이다. 빈 슬라이스 no-op·중복 id는
+// 행 기준 1회(BumpReads 계약 승계).
+func (r *Repo) BumpRecallScores(ctx context.Context, ids []int) error {
+	if len(ids) == 0 {
+		return nil
+	}
+	if _, err := r.pool.Exec(ctx,
+		`UPDATE knowledge SET recall_score = recall_score + 1, last_recalled_at = now()
+		 WHERE id = ANY($1)`, ids); err != nil {
+		return fmt.Errorf("bump recall scores: %w", err)
+	}
+	return nil
+}

@@ -162,6 +162,7 @@ flint brief [query]        # masked, read-only context block — paste it into a
 | `flint audit --limit n` | Show last n commits |
 | `flint backup` | Dump to SQL with sha256 checksum (`--encrypt` age at-rest, `--mask` redacted diagnostics) |
 | `flint restore --file f` | Restore from backup (`--drill` to rehearse) |
+| `flint sync` | Sync knowledge with a Doltgres remote — `remote add/list/remove` (url masked), `push`/`pull [--dry]`; a merge conflict exits 1 with manual-resolution guidance; remote urls are never logged (human operator command) |
 | `flint profile` | Profile verdict: evidence + recommendation, `--apply normal\|minimal` |
 | `flint status` | Schema version, pending count, hot p95 |
 | `flint mcp` | MCP server (read·write·hot·pending·approve tools) |
@@ -177,6 +178,8 @@ flint brief [query]        # masked, read-only context block — paste it into a
 **Exit codes:** 0 success (zero-hit `read` also exits 0 — silent in text mode, `{"hits":0}` with `--json`) · 1 error · 2 storage failure · exit 3 — invalid input (valueless trailing flags, bad `--status` / `--as-of` values, schema violations on `write`).
 
 `flint read` uses word-by-word fallback search when the phrase query returns nothing.
+
+Memory that decays like memory: every `read` hit reinforces the entry (`recall_score`), unused entries decay daily (floor 0), and `hot`/`brief` rank well-recalled knowledge first — `flint maintain --decay-audit` lists archive candidates, and archiving always requires your approval.
 
 ### Interactive TUI (v1.5.0)
 

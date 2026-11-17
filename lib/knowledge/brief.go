@@ -10,6 +10,7 @@ import (
 	"io"
 	"strconv"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/synuns/flint/lib/query"
@@ -20,6 +21,25 @@ import (
 
 // defaultBriefBudget — meta brief_budget 미설정 시 기본 상한(TUNING.md §5).
 const defaultBriefBudget = 3000
+
+// briefRecallScoreIdx·briefRecallLastIdx — briefRankedSQL이 BuildReadStatus
+// SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의 — hot T3 관례 승계).
+const (
+	briefRecallScoreIdx = 9 // readColumns 9열(id..read_count) 직후
+	briefRecallLastIdx  = 10
+)
+
+// briefRankedSQL — v1.7.0 T3: query.BuildReadStatus 조립 SQL의 SELECT 말미에
+// recall_score·last_recalled_at를 병합한다. WHERE·ORDER BY(RankOrder)·
+// LIMIT·placeholder 번호는 원본을 그대로 승계 — 치환점 미발견 형태는
+// 원본 반환(랭킹 조용히 생략, 기존 동작 승계).
+func briefRankedSQL(sql string) string {
+	const pivot = " FROM knowledge "
+	if !strings.Contains(sql, pivot) {
+		return sql
+	}
+	return strings.Replace(sql, pivot, ", recall_score, last_recalled_at"+pivot, 1)
+}
 
 func init() { wire.Register("brief", RunBrief) }
 
@@ -92,11 +112,18 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// 이중 조건을 단일 조립한다(read --status active와 동일 계층).
 	f.Status = "active"
 	sql, sqlArgs := query.BuildReadStatus(q, f)
+	// v1.7.0 T3: 선정 순위에 감쇠 후 유효 회상 점수 반영 — 랭킹 열을
+	// SELECT 말미에 병합한 뒤 hot과 같은 안정 정렬(동점·0점은 RankOrder
+	// 순서 승계). 랭킹 열 부재 행은 0점 취급돼 기존 순서·출력이 그대로
+	// 살아남고, 마스킹·중립화·예산은 하류 불변이다.
+	sql = briefRankedSQL(sql)
 	rows, err := wire.QueryOnce(ctx, st, sql, sqlArgs)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	rankRowsByEffectiveScore(rows, briefRecallScoreIdx, briefRecallLastIdx,
+		loadDecayRate(ctx, st), time.Now().UTC())
 	for _, row := range rows {
 		for i, cell := range row {
 			if cs, ok := cell.(string); ok {

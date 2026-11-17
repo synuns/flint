@@ -103,8 +103,8 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회: %v", err)
 	}
-	if version != "10" {
-		t.Fatalf("schema_version=%q, want 10", version)
+	if version != "11" {
+		t.Fatalf("schema_version=%q, want 11", version)
 	}
 
 	// 뷰 단언 — active_knowledge가 v4 컬럼 2종을 노출.

@@ -63,9 +63,14 @@ var thresholdMetas = []ThresholdMeta{
 	// v1.4.0 T3: import 행 수 상한(대량 문서 메모리 방어 — 소비 경로
 	// knowledge/import_jsonl.go).
 	{"ExportImportMaxRows", "export_import_max_rows", 100000, "import row limit"},
+
+	// v1.7.0 T2: decay 감쇠 계수·archive 제안 임계값(소비 경로 ops
+	// maintain --decay-audit — schema v11 recall_score·last_recalled_at).
+	{"DecayRate", "decay_rate", 1.0, "maintain --decay-audit"},
+	{"ArchiveBelow", "archive_below", 0.0, "maintain --decay-audit"},
 }
 
-// ThresholdMetas — 등록표 결정적 복사본(36항목 — 키 집합은 기존
+// ThresholdMetas — 등록표 결정적 복사본(38항목 — 키 집합은 기존
 // ThresholdsKeys와 동일, 가드 테스트가 단언).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

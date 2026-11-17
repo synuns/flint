@@ -30,6 +30,8 @@ var frozenThresholdKeys = []string{
 	"diag_hot_budget_high", "diag_hot_budget_low", "diag_trend_pct", "diag_recall_led_goal", "diag_dead_warn", "knowledge_reads_retention_days",
 	// v1.4.0 T3: import 행 수 상한(knowledge/import_jsonl.go)
 	"export_import_max_rows",
+	// v1.7.0 T2: decay 감쇠 계수·archive 제안 임계값(ops --decay-audit)
+	"decay_rate", "archive_below",
 }
 
 // TestThresholdRegistrySingleSource — Review Focus. 등록표가 4곳(기존 키

@@ -20,6 +20,9 @@
 -- v10(v1.2.0): 관측 확장 — read_events에 bytes·zero_reason·source 3열,
 -- 항목별 회상 이력 knowledge_reads 테이블(초기 보존 14일). 기존 v9 DB는
 -- EnsureSchemaV10 게이트가 적용(additive — ts 인덱스는 게이트가 건다).
+-- v11(v1.7.0): decay/강화 스코어 원천 — knowledge에 recall_score(int 기본 0)·
+-- last_recalled_at(timestamptz NULL) 2열. 기존 v10 DB는 EnsureSchemaV11
+-- 게이트가 적용(additive — 열이 default라 이전 바이너리 읽기 호환).
 -- views는 무변경 — 컬럼이 기존 뷰 정의에 영향 없다.
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
@@ -56,7 +59,9 @@ CREATE TABLE IF NOT EXISTS knowledge (
     ingested_at  timestamptz NOT NULL DEFAULT now(),
     read_count   integer NOT NULL DEFAULT 0,  -- v4: 참조 횟수(신규 인덱스 없음)
     last_read_at timestamptz,                 -- v4: 최근 참조 시각
-    superseded_by int                         -- v5: 대체 지식 id(기본 NULL)
+    superseded_by int,                        -- v5: 대체 지식 id(기본 NULL)
+    recall_score    integer NOT NULL DEFAULT 0, -- v11: decay/강화 스코어 원천
+    last_recalled_at timestamptz                -- v11: 최근 회상 시각(기본 NULL)
 );
 
 CREATE TABLE IF NOT EXISTS maintenance_runs (

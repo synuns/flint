@@ -33,21 +33,23 @@ import (
 
 // ExportRow — export 1행(원천 매핑은 상단 패키지 주석 참조).
 type ExportRow struct {
-	ID           int
-	Topic        string
-	Content      string
-	Kind         string
-	Status       string
-	Confidence   float64
-	Tags         []string
-	Entities     []string
-	Domain       string
-	Source       string
-	ContentHash  string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	ValidAt      time.Time // v1.4.0 T3: 검증 시각 원값(왕복 보존 — CreatedAt 치환 폐지)
-	SupersededBy *int
+	ID             int
+	Topic          string
+	Content        string
+	Kind           string
+	Status         string
+	Confidence     float64
+	Tags           []string
+	Entities       []string
+	Domain         string
+	Source         string
+	ContentHash    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	ValidAt        time.Time // v1.4.0 T3: 검증 시각 원값(왕복 보존 — CreatedAt 치환 폐지)
+	SupersededBy   *int
+	RecallScore    int        // v1.7.0 T1: recall_score 실열(원천 파생 아님)
+	LastRecalledAt *time.Time // v1.7.0 T1: last_recalled_at 실열(nil=NULL)
 }
 
 // ExportFilter — ExportRows 필터. Status "active"(기본·0값)|"all"
@@ -79,9 +81,11 @@ func buildExportQuery(f ExportFilter) (string, []any) {
 		where = append(where, fmt.Sprintf("COALESCE(invalid_at, ingested_at) >= $%d", len(args)))
 	}
 	// valid_at 열은 v1.4.0 T3 추가(superseded_by 다음·ingested_at 이전 —
-	// jsonl 왕복 동일성의 원천).
+	// jsonl 왕복 동일성의 원천). v1.7.0 T1 스코어 2열은 말미 추가
+	// (기존 셀 인덱스 계약 불변 — 테스트 seam 열 참조 승계).
 	sql := "SELECT id, topic, summary, tags, entity, domain, confidence, origin, status, " +
-		"content_hash, superseded_by, valid_at, ingested_at, COALESCE(invalid_at, ingested_at) FROM knowledge"
+		"content_hash, superseded_by, valid_at, ingested_at, COALESCE(invalid_at, ingested_at), " +
+		"recall_score, last_recalled_at FROM knowledge"
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -140,6 +144,15 @@ func mapExportRow(r []any) ExportRow {
 	row.CreatedAt = cellTime(cell(12))
 	row.UpdatedAt = cellTime(cell(13))
 	row.ValidAt = cellTime(cell(11))
+	// v1.7.0 T1 스코어 실열 — 0/NULL은 폴백(미지정 행·레거시 jsonl).
+	if s, ok := render.CellToInt(cell(14)); ok {
+		row.RecallScore = s
+	}
+	if c := cell(15); c != nil {
+		if t := cellTime(c); !t.IsZero() {
+			row.LastRecalledAt = &t
+		}
+	}
 	return row
 }
 

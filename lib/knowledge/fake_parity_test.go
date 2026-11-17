@@ -36,10 +36,12 @@ var (
 	_ UsageCountStore        = (*fakeApprove)(nil)
 	_ BytesRecorder          = (*fakeApprove)(nil)
 	_ KnowledgeReadsRecorder = (*fakeApprove)(nil)
+	_ RecallBumper           = (*fakeApprove)(nil)
 	_ staleSessionStore      = (*fakeApprove)(nil)
 	_ usageStore             = (*fakeApprove)(nil)
 	_ sessionSummaryStore    = (*fakeApprove)(nil)
 	_ supersedeRefStore      = (*fakeApprove)(nil) // v1.3.0 T9 — 계보 참조 복원 capability
+	_ TelemetryCommitter     = (*fakeApprove)(nil) // v1.7.0 T6 — 계측 분리 커밋 capability
 
 	// 기존 capability fake의 자연 단언(이미 구현 — 문서화 + 시그니처
 	// 드리프트 회귀 가드).
@@ -142,6 +144,7 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 		func() error { return f.LogPlaybookUse(ctx, 9, true) },
 		func() error { _, err := f.UpdateSessionSummary(ctx, 7, "요약", "[]"); return err },
 		func() error { return f.Approve(ctx, 5) },
+		func() error { return f.CommitTelemetry(ctx, "read") },
 	}
 	for i, call := range calls {
 		if err := call(); err != nil {
@@ -190,6 +193,9 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 	}
 	if len(f.sessionUpdates) != 1 || f.sessionUpdates[0].id != 7 {
 		t.Errorf("UpdateSessionSummary 기록=%v, want 1건(id 7)", f.sessionUpdates)
+	}
+	if len(f.telemetryCmds) != 1 || f.telemetryCmds[0] != "read" {
+		t.Errorf("CommitTelemetry 기록=%v, want [read]", f.telemetryCmds)
 	}
 
 	// 오류 주입 — capErr 지정 시 전 capability가 이를 반환.

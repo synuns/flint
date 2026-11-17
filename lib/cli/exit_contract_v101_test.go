@@ -75,6 +75,11 @@ var exitContractProbes = []exitProbe{
 	{"read", []string{"--jsonn"}, 3, "T1 unknown flag('-' 접두 흡수 폐지)"},
 	{"done", []string{}, 3, "T1 bare usage(기존 0)"},
 	{"maintain", []string{}, 3, "T1 bare usage(기존 1)"},
+	// v1.7.0 T4 — sync 원격 관리(unknown sub·무효 인자 exit 3)
+	{"sync", []string{}, 3, "v1.7.0 T4 bare usage"},
+	{"sync", []string{"push"}, 3, "v1.7.0 T4 unknown sub(T5 전 미지원)"},
+	{"sync", []string{"remote", "add"}, 3, "v1.7.0 T4 인자 수 부족"},
+	{"sync", []string{"remote", "add", "demo", "noscheme.example/x"}, 3, "v1.7.0 T4 스킴 없는 url"},
 }
 
 // quietAbsorb — unknown flag를 쿼리 텍스트·무시 경로로 조용히 흡수하는
