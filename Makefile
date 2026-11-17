@@ -19,7 +19,7 @@ NEXT_TAG ?= $(shell cur=$$(git describe --tags --abbrev=0 2>/dev/null); if [ -n 
 # `flint version`·goreleaser 빌드가 같은 형식(0.13.0)을 출력한다.
 LDFLAGS := -X github.com/synuns/flint/lib/cli.version=$(VERSION_NU) -X github.com/synuns/flint/lib/cli.commit=$(GIT_COMMIT)
 
-.PHONY: test tidy up down build install seed e2e release ci lint docs-sync
+.PHONY: test tidy up down build install seed e2e release release-gate ci lint docs-sync
 
 test:
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test ./...
@@ -46,6 +46,9 @@ ci:
 # 전체가 게이트에 편입되므로 신규 테스트도 자동 포함).
 # v1.4.1 R23: 파이프(grep|tail)이 go test 실패 exit을 삼키지 않게
 # 출력을 먼저 캡처해 exit을 보존하고 필터 출력 후 그 exit으로 빠진다.
+release-gate:
+	bash scripts/release_gate.sh
+
 docs-sync:
 	@out=$$(go test ./docs -count=1 -v 2>&1); st=$$?; \
 	printf '%s\n' "$$out" | grep -E "^(=== RUN|--- FAIL|--- PASS)" | tail -50; \
@@ -95,6 +98,6 @@ e2e:
 # 릴리스(T33): 빌드 후 태그 push 안내만 — 실제 태그·push는 사용자 확인 후 수행.
 # 안내 태그는 NEXT_TAG(최신 태그 +패치) — 이미 존재하는 태그를 지시하지
 # 않는다(v0.13.2 N12).
-release: docs-sync build
+release: docs-sync release-gate build
 	@echo "릴리스 절차(사용자 확인 후): git tag $(NEXT_TAG) && git push origin $(NEXT_TAG) -> Actions 빌드 -> Release 첨부"
 	@echo "현재 빌드: $$(./bin/flint version)"
