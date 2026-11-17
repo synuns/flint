@@ -458,6 +458,70 @@ func TestMaintainFilteredInvalidateUsesGlobalIndex(t *testing.T) {
 	}
 }
 
+// ── RF-B1: 필터 중 제거 — SetItems 전량 재조립 ──
+
+// RF-B1(v1.6.1 T1) — 필터 적용 상태의 제거(stale invalidate) 후에도
+// GlobalIndex가 전체 목록과 일치해야 한다: RemoveItem 비대칭(items는 전역
+// 인덱스·filteredItems는 필터 위치 → filteredItem.index 잔류) 대신 SetItems
+// 전량 재조립으로 통일. "#12" 필터 → i(12 무효화·제거) → 빈 재필터 해제 →
+// 두 번째 i는 남은 #7을 지목.
+func TestMaintainFilteredInvalidateThenSecondActionTargetsRemaining(t *testing.T) {
+	data := demoMaintainData()
+	data.Stale = append(data.Stale, MaintainSuspect{Source: MaintainStale, Topic: "demo topic stale two", IDs: []int{12}, Reason: "never_read", StaleDays: 200})
+	rec := &recorderMaintainActions{}
+	m := NewMaintainModel(context.Background(), data,
+		MaintainLoaders{Bodies: staticMaintainBodies(demoMaintainBodies())}, rec.actions())
+	m = mUpdate(m, sizeMsg(80, 24))
+	m = mUpdate(m, keyMsg("tab")) // conflict
+	m = mUpdate(m, keyMsg("tab")) // stale
+	m = mApplyFilter(m, "#12")
+	m, cmd := mDrive(m, keyMsg("i"))
+	m = mPump(m, cmd)
+	if len(rec.invalidates) != 1 || rec.invalidates[0] != 12 {
+		t.Fatalf("first invalidate = %v, want [12]", rec.invalidates)
+	}
+	if m.lists[m.tab].FilterState() != list.Unfiltered {
+		t.Errorf("empty re-filter must reset filter, state = %v", m.lists[m.tab].FilterState())
+	}
+	if !strings.Contains(m.View(), "120d") { // 남은 #7(stale · 120d) 가시
+		t.Errorf("after removal view lost remaining item #7\nview:\n%s", m.View())
+	}
+	m, cmd = mDrive(m, keyMsg("i"))
+	m = mPump(m, cmd)
+	if len(rec.invalidates) != 2 || rec.invalidates[1] != 7 {
+		t.Fatalf("second invalidate = %v, want [12 7] (remaining first item)", rec.invalidates)
+	}
+}
+
+// ── RF-B2: 목록 높이 산정 ──
+
+// RF-B2(v1.6.1 T1) — 목록 높이 h=height-4는 실제 비목록 라인(소스 탭
+// 헤더 + 키 안내·status·비대화 안내 + 구분 공백 — 최대 7행)보다 적어
+// 화면이 단말 높이를 넘겼다. 목록(status 포함 최악)·pick 화면 모두 View
+// 렌더 라인 수가 단말 높이 이내. 단말 높이 ≥ 17: bubbles 내부 크롬(제목·
+// 상태바·페이지네이션·help — 2행씩)과 최소 항목 1건 포함에 h ≥ 10 필요.
+func TestMaintainViewFitsTerminalHeight(t *testing.T) {
+	for _, sz := range []tea.WindowSizeMsg{{80, 24}, {60, 18}} {
+		m := newDemoMaintainModel(MaintainActions{})
+		m = mUpdate(m, sz)
+		if got, want := m.lists[m.tab].Height(), sz.Height-7; got != want {
+			t.Errorf("%dx%d: list height = %d, want %d", sz.Width, sz.Height, got, want)
+		}
+		p, cmd := mDrive(m, keyMsg("m")) // pick 화면(선택 list 포함)
+		p, _ = mDrive(p, cmd())
+		if p.mode != maintainPick {
+			t.Fatalf("%dx%d: after load mode = %v, want maintainPick", sz.Width, sz.Height, p.mode)
+		}
+		if n := viewLines(p.View()); n > sz.Height {
+			t.Errorf("%dx%d: pick view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, p.View())
+		}
+		m = mUpdate(m, keyMsg("k")) // 제거 + status — 최악 라인 구성
+		if n := viewLines(m.View()); n > sz.Height {
+			t.Errorf("%dx%d: list view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, m.View())
+		}
+	}
+}
+
 // ── RF-protocol: 기본 실구현 위임 인자 ──
 
 // RF5 — maintainRunner seam 기본값은 ops.RunMaintain(중복 구현 금지).

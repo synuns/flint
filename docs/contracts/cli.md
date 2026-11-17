@@ -86,7 +86,9 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   formats; the `pam` row count equals the published rows actually
   written (v1.5.5) — pending rows are excluded by default and never
   counted; writing `--out` also creates a `.sha256` sidecar (sha256sum -c
-  compatible); invalid flags · formats are exit 3. `import [--format
+  compatible); `--out -` writes a literal file named `-` (v1.6.1) — there
+  is no stdout convention here, `-` is not special; invalid flags ·
+  formats are exit 3. `import [--format
   jsonl|pam] [FILE]` — the format is sniffed from the file extension
   when `--format` is omitted (v1.5.5; a mismatch suggests the matching
   migration command); a shared one-shot row cap for export · import

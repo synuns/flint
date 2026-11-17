@@ -162,7 +162,11 @@ func maintainReportJSON(ctx context.Context, st wire.Store, args []string) ([]by
 func loadMaintainSuspects(ctx context.Context, st wire.Store) (MaintainData, error) {
 	var data MaintainData
 
-	dupRaw, err := maintainReportJSON(ctx, st, []string{"--dup-suspects"})
+	// v1.6.1 T3(B3): 보고 3종은 상한을 명시한다(ops.MaintainTUILoadLimit
+	// 단일 소스) — 기본 10/20으로 잘려도 TUI 화면에는 잘림이 표시되지
+	// 않는다(잘림 무표시 폐지). 인자 순서는 파서 표 기반이라 무관하다.
+	dupRaw, err := maintainReportJSON(ctx, st,
+		[]string{"--limit", strconv.Itoa(ops.MaintainTUILoadLimit), "--dup-suspects"})
 	if err != nil {
 		return data, err
 	}
@@ -181,7 +185,8 @@ func loadMaintainSuspects(ctx context.Context, st wire.Store) (MaintainData, err
 		})
 	}
 
-	conflRaw, err := maintainReportJSON(ctx, st, []string{"--conflict-suspects"})
+	conflRaw, err := maintainReportJSON(ctx, st,
+		[]string{"--limit", strconv.Itoa(ops.MaintainTUILoadLimit), "--conflict-suspects"})
 	if err != nil {
 		return data, err
 	}
@@ -205,7 +210,8 @@ func loadMaintainSuspects(ctx context.Context, st wire.Store) (MaintainData, err
 		})
 	}
 
-	staleRaw, err := maintainReportJSON(ctx, st, []string{"--stale"})
+	staleRaw, err := maintainReportJSON(ctx, st,
+		[]string{"--limit", strconv.Itoa(ops.MaintainTUILoadLimit), "--stale"})
 	if err != nil {
 		return data, err
 	}
@@ -348,6 +354,31 @@ func (r pickRow) Title() string       { return fmt.Sprintf("#%d  %s", r.b.ID, r.
 func (r pickRow) Description() string { return r.b.Origin }
 func (r pickRow) FilterValue() string { return fmt.Sprintf("#%d %s", r.b.ID, r.b.Summary) }
 
+// suspectRows — 검토 목록 전량 재조립(B1 — v1.6.1 T1). 필터 중 제거는
+// bubbles RemoveItem을 쓰지 않는다: RemoveItem은 items는 전역 인덱스로,
+// filteredItems는 필터 위치 기준으로 지워 filteredItem.index가 어긋난다
+// (두 번째 액션이 다른 그룹을 지목). 모델 원본 슬라이스에서 행을 다시
+// 만들어 SetItems로 반영한다(활성 필터는 SetItems가 재적용 — 반환 cmd를
+// 상위로 돌려야 FilterMatchesMsg가 반영된다).
+func suspectRows(suspects []MaintainSuspect) []list.Item {
+	rows := make([]list.Item, len(suspects))
+	for i, s := range suspects {
+		rows[i] = suspectRow{s: s}
+	}
+	return rows
+}
+
+// maintainListHeight — 목록에 배분할 높이(B2 — v1.6.1 T1): View의 비목록
+// 라인(소스 탭 헤더 + 키 안내·status·비대화 안내와 구분 공백 — 최대
+// 7행)을 제외한 나머지. 최소 1.
+func maintainListHeight(height int) int {
+	h := height - 7
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
 // NewMaintainModel — 모델 조립(목록 크기 0x0 — WindowSizeMsg로 설정).
 // 초기 탭은 첫 비어 있지 않은 소스. 본문 요약이 없는 dup/stale도 선택
 // 화면 행 표기용 최소 본문(ID·topic)으로 채운다(로드 전 픽스처 대비).
@@ -361,11 +392,7 @@ func NewMaintainModel(ctx context.Context, data MaintainData, ld MaintainLoaders
 		mode:       maintainList,
 	}
 	for i := range m.lists {
-		rows := make([]list.Item, len(m.tabs[i]))
-		for j, s := range m.tabs[i] {
-			rows[j] = suspectRow{s: s}
-		}
-		m.lists[i] = list.New(rows, list.NewDefaultDelegate(), 0, 0)
+		m.lists[i] = list.New(suspectRows(m.tabs[i]), list.NewDefaultDelegate(), 0, 0)
 		m.lists[i].Title = "Maintain review"
 	}
 	m.pick = list.New(nil, list.NewDefaultDelegate(), 0, 0)
@@ -384,10 +411,7 @@ func (m MaintainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		h := msg.Height - 4 // 제목·키 안내·상태 라인 여백
-		if h < 1 {
-			h = 1
-		}
+		h := maintainListHeight(msg.Height) // B2: 비목록 라인 7행 제외
 		for i := range m.lists {
 			m.lists[i].SetSize(msg.Width, h)
 			m.lists[i].SetShowHelp(msg.Width > 40)
@@ -413,6 +437,7 @@ func (m MaintainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.pick, cmd = m.pick.Update(msg)
 		} else {
 			m.lists[m.tab], cmd = m.lists[m.tab].Update(msg)
+			resetEmptyFilter(&m.lists[m.tab]) // B1: 빈 재필터 해제
 		}
 		return m, cmd
 	default:
@@ -619,10 +644,7 @@ func (m MaintainModel) buildPick(what string) MaintainModel {
 	m.pick = list.New(rows, list.NewDefaultDelegate(), 0, 0)
 	if m.width > 0 {
 		// 창 크기 재적용(새 list는 0x0에서 조립된다).
-		h := m.height - 4
-		if h < 1 {
-			h = 1
-		}
+		h := maintainListHeight(m.height)
 		m.pick.SetSize(m.width, h)
 		m.pick.SetShowHelp(m.width > 40)
 	}
@@ -719,29 +741,26 @@ func (m MaintainModel) shrinkOrRemove(id int) (tea.Model, tea.Cmd) {
 	if len(remaining) > 1 {
 		cur.IDs = remaining
 		m.tabs[m.tab][idx] = cur
-		rows := make([]list.Item, len(m.tabs[m.tab]))
-		for j, s := range m.tabs[m.tab] {
-			rows[j] = suspectRow{s: s}
-		}
-		m.lists[m.tab].SetItems(rows)
-		return m, nil
+		return m, m.lists[m.tab].SetItems(suspectRows(m.tabs[m.tab])) // B1: 전량 재조립
 	}
 	return m.removeSuspect(m.tab, idx)
 }
 
-// removeSuspect — 검토 목록에서 항목 제거. 전소스 비면 종료.
+// removeSuspect — 검토 목록에서 항목 제거. 전소스 비면 종료. 제거는
+// SetItems 전량 재조립(B1): 반환 cmd(재필터 FilterMatchesMsg)을 호출부가
+// 상위로 돌려야 활성 필터가 다시 적용된다.
 func (m MaintainModel) removeSuspect(tab, idx int) (tea.Model, tea.Cmd) {
 	if idx < 0 || idx >= len(m.tabs[tab]) {
 		return m, nil
 	}
 	m.tabs[tab] = append(m.tabs[tab][:idx], m.tabs[tab][idx+1:]...)
-	m.lists[tab].RemoveItem(idx)
+	cmd := m.lists[tab].SetItems(suspectRows(m.tabs[tab]))
 	for i := 0; i < 3; i++ {
 		if len(m.tabs[i]) > 0 {
-			return m, nil
+			return m, cmd
 		}
 	}
-	return m, tea.Quit
+	return m, tea.Batch(cmd, tea.Quit)
 }
 
 // maintainGroupPreview — 그룹(dup/conflict) 상세의 보존 미리보기(merge
@@ -817,6 +836,8 @@ func (m MaintainModel) View() string {
 	if m.status != "" {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))
 	}
-	fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
+	// B2(v1.6.1 T1): trailing newline 제거 — 마지막 개행이 렌더 라인 수를
+	// 1줄 늘린다.
+	fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
 	return b.String()
 }

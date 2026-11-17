@@ -91,7 +91,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 
 // maintainUsageLine — 허용 플래그 안내(v1.5.4 T1: 무효 인자 오류 메시지의
 // 공통 접미 — error:"usage" 전환과 함께 에이전트 자가수신용).
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit]"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --tui (opt-in, run alone)"
 
 // maintainUsageErrf — 무효 인자 오류 조립(v1.5.4 T1: approve.approveUsageErr
 // 관례 — UsageError 타입 + 허용 플래그 접미. exit 코드는 호출부 불변).
@@ -432,6 +432,14 @@ var ConflictDupThreshold = store.DefaultThresholds().ConflictDupThreshold
 // 상한(스펙 R4: --limit M 기본 10). doctor conflicts 검사(v0.13.1 F7/F9)도
 // 그룹 조회를 이 상한으로 묶는다 — 무제한 스캔 방지.
 const SuspectsDefaultLimit = 10
+
+// MaintainTUILoadLimit — v1.6.1 T3(B3): maintain TUI 로더가 보고 3종
+// (--dup-suspects·--conflict-suspects·--stale)을 조회할 때 명시하는
+// 상한. 기본(dup/conflict SuspectsDefaultLimit 10·stale 20)은 사람
+// 대화형용인데 TUI는 잘림이 화면에 표시되지 않는다 — 명시 상한으로
+// 대체한다(잘림 무표시 폐지). lib/tui loadMaintainSuspects가 단일
+// 소스로 참조한다.
+const MaintainTUILoadLimit = 500
 
 // ConflictDice — rune bigram 다중집합 Dice 계수. 구현은 lib/query
 // BigramDiceMultiset 위임(집합판 BigramDice와는 반복 bigram 출현 수에서

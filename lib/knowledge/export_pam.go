@@ -79,12 +79,16 @@ type pamExportSignature struct {
 }
 
 // pamExportMemory — PAM memory 1건(flint 행 매핑은 상단 주석).
+// v1.6.1 T2 A2: Metadata — flint 저장 content_hash(64 hex) 왕복 멱등
+// 확장(§10 additive). hex64 보유 행만 발행(무서명 골든 바이트 불변 —
+// 미보유·비hex 행은 미발행).
 type pamExportMemory struct {
 	ID          string              `json:"id"`
 	Type        string              `json:"type"`
 	CustomType  string              `json:"custom_type"`
 	Content     string              `json:"content"`
 	ContentHash string              `json:"content_hash"`
+	Metadata    map[string]string   `json:"metadata,omitempty"`
 	Temporal    pamExportTemporal   `json:"temporal"`
 	Status      string              `json:"status"`
 	Tags        []string            `json:"tags"`
@@ -182,6 +186,12 @@ func toPAMExportMemory(r ExportRow) pamExportMemory {
 	}
 	if r.Tags == nil {
 		m.Tags = []string{} // PAM 배열 필드 — null 대신 빈 배열
+	}
+	// A2(왕복 멱등): flint 저장 content_hash(64 hex)는 §10 metadata로
+	// additive 발행해 수입 dedup가 원천 해시와 대칭하게 승계한다(jsonl
+	// A9 isHex64 대칭). 비hex·미보유 행은 미발행 — 골든 바이트 불변.
+	if isHex64(r.ContentHash) {
+		m.Metadata = map[string]string{"content_hash": r.ContentHash}
 	}
 	if r.SupersededBy != nil {
 		m.Temporal.SupersededBy = fmt.Sprintf("flint:%d", *r.SupersededBy)
@@ -289,8 +299,9 @@ func (w *jcsBuf) num(f float64) error {
 
 // memory — memory 1건의 JCS 객체. 키는 UTF-16 코드유닛 정렬순(전부
 // ASCII라 바이트순과 동일): confidence, content, content_hash,
-// custom_type, id, provenance, status, tags, temporal, type.
-// superseded_by는 omitempty(공백이면 미발행 — 종전과 동일).
+// custom_type, id, [metadata], provenance, status, tags, temporal, type.
+// superseded_by는 omitempty(공백이면 미발행 — 종전과 동일). metadata도
+// omitempty(A2 — hex64 저장 해시 보유 행만 발행).
 func (w *jcsBuf) memory(m pamExportMemory) error {
 	w.put(`{"confidence":{"current":`)
 	if err := w.num(m.Confidence.Current); err != nil {
@@ -304,6 +315,15 @@ func (w *jcsBuf) memory(m pamExportMemory) error {
 	w.jcsString(m.CustomType)
 	w.put(`,"id":`)
 	w.jcsString(m.ID)
+	// v1.6.1 T2 A2 — metadata(§10 확장, hex64 보유 행만): 키 정렬순상
+	// id와 provenance 사이("metadata" < "provenance"). 키 집합은 폐쇄적
+	// (content_hash 1키)이므로 고정 발행 — 맵 반복 비결정을 유발하지
+	// 않는다.
+	if m.Metadata != nil {
+		w.put(`,"metadata":{"content_hash":`)
+		w.jcsString(m.Metadata["content_hash"])
+		w.putByte('}')
+	}
 	w.put(`,"provenance":{"platform":`)
 	w.jcsString(m.Provenance.Platform)
 	w.put(`},"status":`)

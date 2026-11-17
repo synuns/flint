@@ -278,17 +278,55 @@ func (r targetRow) Title() string       { return fmt.Sprintf("#%d  %s", r.t.ID, 
 func (r targetRow) Description() string { return "" }
 func (r targetRow) FilterValue() string { return r.t.Title }
 
-// NewPendingModel — 모델 조립(목록 크기 0x0 — 실제 크기는 시작 시
-// bubbletea가 전달하는 WindowSizeMsg로 설정된다: Update 참조). 후보는
-// loadTargets seam으로 s 키 시점에 로드한다.
-func NewPendingModel(ctx context.Context, items []PendingItem, loadTargets func(context.Context) ([]SupersedeTarget, error), acts PendingActions) PendingModel {
+// pendingRows / targetRows — 목록 전량 재조립(B1 — v1.6.1 T1). 필터 중
+// 제거는 bubbles RemoveItem을 쓰지 않는다: RemoveItem은 items는 전역
+// 인덱스로, filteredItems는 필터 위치 기준으로 지워 filteredItem.index가
+// 어긋난다(두 번째 액션이 다른 항목을 지목). 모델 원본 슬라이스에서 행을
+// 다시 만들어 SetItems로 반영한다(활성 필터는 SetItems가 재적용 — 반환
+// cmd를 상위로 돌려야 FilterMatchesMsg가 반영된다).
+func pendingRows(items []PendingItem) []list.Item {
 	rows := make([]list.Item, len(items))
 	for i, it := range items {
 		rows[i] = pendingRow{it: it}
 	}
+	return rows
+}
+
+func targetRows(ts []SupersedeTarget) []list.Item {
+	rows := make([]list.Item, len(ts))
+	for i, t := range ts {
+		rows[i] = targetRow{t: t}
+	}
+	return rows
+}
+
+// resetEmptyFilter — B1(v1.6.1 T1): 재조립 후 필터 결과가 빈 목록이면
+// 필터를 해제한다(bubbles RemoveItem의 resetFiltering 준거 — 빈 필터
+// 화면에서 보이지 않는 항목 인덱스로 액션이 새어 들어가는 사고 방지).
+func resetEmptyFilter(l *list.Model) {
+	if l.FilterState() == list.FilterApplied && len(l.VisibleItems()) == 0 {
+		l.ResetFilter()
+	}
+}
+
+// pendingListHeight — 목록에 배분할 높이(B2 — v1.6.1 T1): View의 비목록
+// 라인(키 안내·status·비대화 안내와 구분 공백 — 최대 6행)을 제외한
+// 나머지. 최소 1.
+func pendingListHeight(height int) int {
+	h := height - 6
+	if h < 1 {
+		h = 1
+	}
+	return h
+}
+
+// NewPendingModel — 모델 조립(목록 크기 0x0 — 실제 크기는 시작 시
+// bubbletea가 전달하는 WindowSizeMsg로 설정된다: Update 참조). 후보는
+// loadTargets seam으로 s 키 시점에 로드한다.
+func NewPendingModel(ctx context.Context, items []PendingItem, loadTargets func(context.Context) ([]SupersedeTarget, error), acts PendingActions) PendingModel {
 	m := PendingModel{
 		ctx: ctx, items: items, loadTargets: loadTargets, acts: acts, mode: modeList,
-		list:       list.New(rows, list.NewDefaultDelegate(), 0, 0),
+		list:       list.New(pendingRows(items), list.NewDefaultDelegate(), 0, 0),
 		targetList: list.New(nil, list.NewDefaultDelegate(), 0, 0),
 	}
 	m.list.Title = "Pending review"
@@ -305,10 +343,7 @@ func (m PendingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		h := msg.Height - 4 // 제목·키 안내·상태 라인 여백
-		if h < 1 {
-			h = 1
-		}
+		h := pendingListHeight(msg.Height) // B2: 비목록 라인 6행 제외
 		m.list.SetSize(msg.Width, h)
 		m.targetList.SetSize(msg.Width, h)
 		// 계약 1: 40컬 이하에서는 bubbles 내장 help(53자 고정)를 끄고
@@ -336,8 +371,10 @@ func (m PendingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		var cmd tea.Cmd
 		if m.mode == modeSupersede {
 			m.targetList, cmd = m.targetList.Update(msg)
+			resetEmptyFilter(&m.targetList)
 		} else {
 			m.list, cmd = m.list.Update(msg)
+			resetEmptyFilter(&m.list)
 		}
 		return m, cmd
 	default:
@@ -439,9 +476,12 @@ func (m PendingModel) updateSupersede(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.status = fmt.Sprintf("superseded #%d with #%d", old.ID, it.ID)
+		// B1: 대상 후보 제거도 SetItems 전량 재조립(필터 중 확정 시
+		// RemoveItem 비대칭으로 targetList의 filteredItem.index가 어긋난다).
 		m.candidates = append(m.candidates[:tidx], m.candidates[tidx+1:]...)
-		m.targetList.RemoveItem(tidx)
-		return m.removeItem(idx)
+		tcmd := m.targetList.SetItems(targetRows(m.candidates))
+		n, rcmd := m.removeItem(idx)
+		return n, tea.Batch(tcmd, rcmd)
 	default:
 		var cmd tea.Cmd
 		m.targetList, cmd = m.targetList.Update(key)
@@ -533,32 +573,30 @@ func (m PendingModel) applyTargets(msg targetsLoadedMsg) (tea.Model, tea.Cmd) {
 	}
 	m.targetsLoaded = true
 	m.candidates = msg.targets
-	rows := make([]list.Item, len(m.candidates))
-	for i, t := range m.candidates {
-		rows[i] = targetRow{t: t}
-	}
-	m.targetList.SetItems(rows)
+	cmd := m.targetList.SetItems(targetRows(m.candidates)) // B1: 재조립 cmd도 상위 반환
 	if len(m.candidates) == 0 {
 		m.status = "no active items to supersede"
-		return m, nil
+		return m, cmd
 	}
 	m.mode = modeSupersede
 	m.targetList.Select(0)
 	m.status = ""
-	return m, nil
+	return m, cmd
 }
 
-// removeItem — 목록에서 항목 제거 후 빈 목록이면 종료.
+// removeItem — 목록에서 항목 제거 후 빈 목록이면 종료. 제거는 SetItems
+// 전량 재조립(B1): 반환 cmd(재필터 FilterMatchesMsg)을 호출부가 상위로
+// 돌려야 활성 필터가 다시 적용된다.
 func (m PendingModel) removeItem(idx int) (tea.Model, tea.Cmd) {
 	if idx < 0 || idx >= len(m.items) {
 		return m, nil
 	}
 	m.items = append(m.items[:idx], m.items[idx+1:]...)
-	m.list.RemoveItem(idx)
+	cmd := m.list.SetItems(pendingRows(m.items))
 	if len(m.items) == 0 {
-		return m, tea.Quit
+		return m, tea.Batch(cmd, tea.Quit)
 	}
-	return m, nil
+	return m, cmd
 }
 
 // wrapDetailBody — 상세 본문 wordwrap. 폭은 저장된 창 폭-2(저장 폭이
@@ -597,8 +635,9 @@ func (m PendingModel) View() string {
 	var b strings.Builder
 	switch m.mode {
 	case modeDetail:
-		idx := m.list.Index()
-		if idx >= len(m.items) {
+		// R31-B B1 부류: 필터 중 상세 표시도 GlobalIndex로(선택 항목 일치).
+		idx := m.list.GlobalIndex()
+		if idx < 0 || idx >= len(m.items) {
 			return "no item selected"
 		}
 		it := m.items[idx]
@@ -625,7 +664,8 @@ func (m PendingModel) View() string {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))
 	}
 	// v1.5.2 T1: 비대화 탈출 안내(적응형 기본 진입 안내) — 화면 최하단.
-	// 계약 1: 폭 저장 시 wordwrap(협폭 단말 가로 넘침 방지).
-	fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
+	// 계약 1: 폭 저장 시 wordwrap(협폭 단말 가로 넘침 방지). B2(v1.6.1 T1):
+	// trailing newline 제거 — 마지막 개행이 렌더 라인 수를 1줄 늘린다.
+	fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
 	return b.String()
 }
