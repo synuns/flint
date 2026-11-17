@@ -240,6 +240,24 @@ v0.9.3 빌드 중 실DB wipe 사고에서 실증한 복구 절차다. §2의 rev
 - **정크는 미복원 원칙**: 복구 범위는 유효 지식(active) 행만으로
   한정하고, 빌드 정크는 되살리지 않는다.
 
+## 8a. sync 패닉 회복 — reset --to-remote (v1.7.2)
+
+다중 기기를 동시에 연결해 `flint sync pull`이
+`DoltgresHandler caught panic` 오류로 실패할 때의 회복 절차다
+(엔진 제약 — 단일 활성 기기 권고, 동시 사용은 미지원).
+
+1. 다른 기기의 flint 사용을 중단한다(단일 활성 기기 원칙).
+2. 손실 경고를 확인한다 — reset은 로컬 브랜치를 원격 `main`으로
+   되돌리므로 **푸시하지 않은 로커커밋이 폐기**된다. 필요하면
+   먼저 `flint sync push <remote>`로 보존한다.
+
+   ```
+   flint sync reset --to-remote <remote> --yes
+   ```
+
+3. 검증 — `flint audit`로 커밋 이력을 확인하고 `flint doctor`로
+   건전성을 점검한다.
+
 ## 동시 쓰기 수용 계약 (v1.6.2 — R33 E3·E4 문서화)
 
 두 항목은 결함이 아니라 수용된 계약이다(원 보고 기준 문서화 수용분):

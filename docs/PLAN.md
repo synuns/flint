@@ -128,8 +128,7 @@
   설계 조사 상세: docs/plans/2026-11-13-flint-marketing-prep.md
 - [x] v1.4.0(2026-11-14) — PAM 생태계 완결·데이터 이동성: `export --format pam`(PAM v1.0 memory-store·체크섬 JCS 결정성)·`--out` sha256 사이드카·valid_at 왕복·PAM project형 적립·import 상한(export_import_max_rows)·실DB 왕복 e2e
 - [x] v1.5.0(2026-11-15) — 영어 통일(사용자 표면 ~400 문자열, 기계 채널 불변)·TUI 4화면(lib/tui — setup 위저드·pending/export/report --tui, 플래그 경로 불변)·핵심 문서 영문화(QUICKSTART·contracts·TUNING·METRICS)
-- [x] v1.5.1(2026-11-15) — TUI fixes R25: pty 실측 결함 4건(창 크기·wordwrap·취소 안내·ctrl+c)·문서 정합 6건
-- [x] v1.5.2(2026-11-16) — TUI adaptive default: 터미널 무인자 실행 시 pending·export·report가 TUI로 열림(파이프·플래그 경로 불변, isTerminal 폴백)
+- [x] v1.5.1~v1.5.2(2026-11-15/16) — TUI fixes R25(pty 실측 결함 4건)·TUI adaptive default(무인자 실행 시 pending·export·report TUI 오픈, 파이프·플래그 경로 불변)
 - [x] v1.5.3(2026-11-16) — 에이전트 CLI 신뢰: teardown dry-run+--yes·read 인자 검증·usage계 exit 3 통일·제로히트 exit 0·error:"usage"·approve 안내 + TUI 소형(협폭·필터 ID·지연 로드·실패 원인)
 - [x] v1.5.4(2026-11-16) — usage 타입 전 커맨드 확장(7종)+P3: --version/-v 별칭·help error 키 폐지·read limit clamp 표시(limit_requested/applied)·fresh DB backup_keep 조용화
 - [x] v1.5.5(2026-11-16) — 터미널 검출 수정(/dev/null 리다이렉트 TTY 오탐 제거)·usage 잔여 사이트 완결(hot·brief·compact·nudge, 잔여 0)·-h/--help 별칭·write --help 안내·pam export 행수=발행 수·import 확장자 감지·setup 포트 사용중 경고
@@ -137,6 +136,7 @@
 - [x] v1.6.1(2026-11-17) — R31 감사 수정: maintain TUI(필터 상태 행 제거 SetItems 재조립·목록 높이 재계산)·PAM 서명키 원자 생성(O_EXCL)·PAM 왕복 멱등(content_hash 발행·수입 승계)·소형(TUI 보고 3종 --limit 500 명시·usage --tui·--out '-' 리터럴 문서화)
 - [x] v1.6.2(2026-11-17) — R33 4각도 감사 수정: MCP injectedStore 선택 인터페이스 위임(approve 실경로·계량 부활·manifest 5종·ConnectTimeout 5s)·동시 write unique 분류 survive·write stdin/payload 상한·import 파일 상한·read 초대형 쿼리 제안 truncate·import id 충돌 재할당·project note 왕복·문서 정합 12건(빈 커밋·LWW 수용 문서화 포함)
 - [x] v1.7.0(2026-11-17) — 지식 동기화·decay 스코어·계측 분리: `flint sync`(Doltgres 원격 push/pull — url 마스킹·미기록 계약, 충돌 시 수동 안내 exit 1, `--dry`. 사람 운영자 명령이라 SKILL.md 플러그인 스킬에는 미기재 — 계약은 docs/contracts/cli.md)·스키마 v11(`recall_score`·`last_recalled_at`, read 강화·감쇠 산식 하한 0, hot/brief 순위 반영, `maintain --decay-audit` 승인제 archive 제안)·계측 테이블 별도 커밋(dolt log 감사 순수성)·TUNING 2키(`decay_rate`·`archive_below`). 설계: docs/plans/2026-11-17-flint-v1700.md
+- [x] v1.7.1~v1.7.2(2026-11-17) — 감쇠 랭킹 부분 정렬 수리(인덱스 정렬+재조립)·R38 감사 수정: telemetry 커밋 `-A` 스윕 폐지(계측 시퀀스 명시 스테이징 — 감사 순수성 회귀 수리)·`audit --telemetry` 필터·sync 완화(panic 전용 안내·`reset --to-remote --yes`·30s 타임아웃·스킴 화이트리스트·단일 활성 기기 권고)·probe heal·MCP 즉시 flush·release-gate 자동화. 설계: docs/plans/2026-11-17-flint-v1720.md
 - [ ] 이월 확정(차기 마이너) — read LIKE 개량(Doltgres pg_trgm 미지원 — 엔진 지원 시 재판정)·report/profile 병렬화·테스트 폭발 정리·주석 영어화·read/tuning TUI·마케팅·i18n(brew 설치·신뢰 아티팩트 포함)
 
 ## 7. 비목표

@@ -80,6 +80,9 @@ var exitContractProbes = []exitProbe{
 	{"sync", []string{"push"}, 3, "v1.7.0 T4 unknown sub(T5 전 미지원)"},
 	{"sync", []string{"remote", "add"}, 3, "v1.7.0 T4 인자 수 부족"},
 	{"sync", []string{"remote", "add", "demo", "noscheme.example/x"}, 3, "v1.7.0 T4 스킴 없는 url"},
+	// v1.7.2 T3 — sync 스킴 화이트리스트·reset 사용법
+	{"sync", []string{"remote", "add", "demo", "postgres://u:p@db.example.invalid/db"}, 3, "v1.7.2 T3 postgres 스킴 거부(S5)"},
+	{"sync", []string{"reset"}, 3, "v1.7.2 T3 reset 대상 부재(S2)"},
 }
 
 // quietAbsorb — unknown flag를 쿼리 텍스트·무시 경로로 조용히 흡수하는

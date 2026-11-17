@@ -485,12 +485,26 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 // — CommitTelemetry가 별도 커밋해 감사 커밋의 diff 순수성을 지킨다.
 // sessions 포함 룰링: done의 session-end 커밋이 세션 행 귀속을 잃지
 // 않는다. dolt_add는 테이블 지정 시 해당 테이블만 스테이징한다(실측:
-// '*_id_seq는 별도 항목으로 묻히지 않는다 — 잔여 시퀀스는 CommitTelemetry
-// 의 전역 스윕이 회수).
+// '*_id_seq는 별도 항목이라 테이블 스테이징에 묻히지 않는다 — 감사
+// 시퀀스 잔여는 working set에 남는다. v1.7.2 T1: 전역 스윕 폐지로
+// 회수 주체가 사라졌다·무해(dolt_status 잔여 표시뿐, 계측·조회 불변)).
 var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs"}
 
 // telemetryStageTables — 계측 전용 커밋(CommitTelemetry)의 스테이징 대상.
 var telemetryStageTables = []string{"read_events", "hot_events", "knowledge_reads", "session_starts"}
+
+// telemetryStageSeqs — CommitTelemetry가 함께 스테이징하는 계측 시퀀스
+// (v1.7.2 T1, R38-C1). 각 계측 테이블의 serial id 원천으로 INSERT마다
+// 증가하며, dolt는 시퀀스를 테이블과 별개 항목으로 추적한다(실측 —
+// dolt_add('read_events')는 read_events_id_seq를 스테이징하지 않고,
+// dolt_add('read_events_id_seq')는 단독 스테이징된다). 전역 dolt_add('-A')
+// 스윕은 감사 테이블의 unstaged 변경(recall bump 등)까지 계측 커밋에
+// 흡수해 감사 귀속을 깨므로 폐지하고 이 4종만 명시 스테이징한다.
+var telemetryStageSeqs = []string{"read_events_id_seq", "hot_events_id_seq", "knowledge_reads_id_seq", "session_starts_id_seq"}
+
+// telemetryStageItems — CommitTelemetry의 dolt_add 인자(테이블+시퀀스
+// 결합, 패키지 초기화 시 1회 조립).
+var telemetryStageItems = append(append([]string{}, telemetryStageTables...), telemetryStageSeqs...)
 
 // doltAddSQL — dolt_add 리터럴 조립. dolt 계열 테이블 함수는 파라미터화된
 // 인자를 받지 않는다(실측) — 대상명은 패키지 상수(외부 입력 유입 없음)를
@@ -540,21 +554,20 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 }
 
 // CommitTelemetry는 계측 테이블(read_events·hot_events·knowledge_reads·
-// session_starts)을 스테이징한 뒤 dolt_add('-A')로 잔여(감사 커밋의
-// 테이블 지정 스테이징이 남긴 *_id_seq 등)까지 스윕해 'telemetry: <cmd>'
-// 커밋을 만든다(v1.7.0 T6). 감사 커밋(Commit)과 독립 — read/hot/done
-// 완료 경로가 1회 호출한다. 감사 커밋은 이미 명시 스테이징으로 커밋됐으므
-// 로 순수성은 유지되고, 스윕이 흡수하는 것은 시퀀스 잔여뿐이다(룰링).
+// session_starts)과 계측 시퀀스 4종(telemetryStageSeqs)만 스테이징해
+// 'telemetry: <cmd>' 커밋을 만든다(v1.7.0 T6, v1.7.2 T1). 감사 커밋
+// (Commit)과 독립 — read/hot/done 완료 경로가 1회 호출한다. v1.7.2 T1
+// (R38-C1): 마지막 dolt_add('-A') 전역 스윕을 폐지했다 — 스윕은 시퀀스
+// 잔여만 남긴다는 종전 주석과 달리 감사 테이블의 unstaged 변경까지 계측
+// 커밋에 흡수해 감사 귀속을 깨뜨렸다(실측). 계측 시퀀스는 명시 목록으로
+// 스테이징하고, 감사 테이블 시퀀스(knowledge_id_seq 등)의 잔여는 회수
+// 주체 없이 working set에 남는다(무해 — dolt_status 표시뿐).
 // 계측 원칙(§13): 실패는 호출자가 조용히 흡수한다. dolt_add는 이미
 // 스테이징만 해 뒀으므로 커밋 실패 분은 다음 호출이 회수한다(유실 없음).
 // 스테이징 0행(nothing to commit)은 오류가 아니다.
 func (r *Repo) CommitTelemetry(ctx context.Context, cmd string) error {
-	if _, err := r.pool.Exec(ctx, doltAddSQL(telemetryStageTables)); err != nil {
+	if _, err := r.pool.Exec(ctx, doltAddSQL(telemetryStageItems)); err != nil {
 		return fmt.Errorf("dolt_add(telemetry): %w", err)
-	}
-	// 전역 스윕 — 테이블 지정 스테이징이 회수하지 않는 *_id_seq 잔여 등.
-	if _, err := r.pool.Exec(ctx, `SELECT dolt_add('-A')`); err != nil {
-		return fmt.Errorf("dolt_add(-A sweep): %w", err)
 	}
 	var h *string // 커밋할 게 없으면 NULL일 수 있다
 	if err := r.pool.QueryRow(ctx, `SELECT dolt_commit('-m', $1)`,

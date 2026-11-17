@@ -308,6 +308,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0171Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.1", "partial-sort",
 	}},
+	// v1.7.2 T6: R38 감사 수정(telemetry -A 스윕 폐지·audit --telemetry
+	// 필터·sync 완화·probe heal·MCP flush)의 버전 기록 존재 계약.
+	{name: "TestVersion0172Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.7.2", "telemetry",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

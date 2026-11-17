@@ -229,7 +229,14 @@ func TestSyncAddQueryFailure(t *testing.T) {
 
 // syncOpsQueryFn — T5 push/pull용 fakeStore.queryFn: 원격명→url 사전
 // 조회·head 해시 큐(호출순 pop)·push/fetch/merge stub·오류 주입.
+// v1.7.2 T3: dolt_reset stub 추가(S2)·push 결과 행 커스터마이즈는
+// syncOpsRowsQueryFn으로 위임(S6 no-op).
 func syncOpsQueryFn(remotes map[string]string, heads []string, pushErr, fetchErr, mergeErr error) func(string, []any) ([][]any, error) {
+	return syncOpsRowsQueryFn(remotes, heads, [][]any{{"(0,\"pushed\")"}}, pushErr, fetchErr, mergeErr)
+}
+
+// syncOpsRowsQueryFn — push 결과 행을 지정하는 syncOpsQueryFn 변형.
+func syncOpsRowsQueryFn(remotes map[string]string, heads []string, pushRows [][]any, pushErr, fetchErr, mergeErr error) func(string, []any) ([][]any, error) {
 	headIdx := 0
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -249,7 +256,7 @@ func syncOpsQueryFn(remotes map[string]string, heads []string, pushErr, fetchErr
 			if pushErr != nil {
 				return nil, pushErr
 			}
-			return [][]any{{"(0,\"pushed\")"}}, nil
+			return pushRows, nil
 		case strings.Contains(sql, "dolt_fetch("):
 			if fetchErr != nil {
 				return nil, fetchErr
@@ -260,6 +267,8 @@ func syncOpsQueryFn(remotes map[string]string, heads []string, pushErr, fetchErr
 				return nil, mergeErr
 			}
 			return [][]any{{"(\"h\",0,1,\"merge successful\")"}}, nil
+		case strings.Contains(sql, "dolt_reset("):
+			return [][]any{{0}}, nil
 		}
 		return nil, nil
 	}
@@ -399,6 +408,149 @@ func TestSyncPushPullUsageErrors(t *testing.T) {
 		{"pull", "demo", "extra"},
 		{"pull", "demo", "--bad"},
 		{"pull", "demo", "--dry", "extra"},
+	}
+	for _, args := range cases {
+		var stdout bytes.Buffer
+		f := &fakeStore{queryFn: syncOpsQueryFn(map[string]string{}, nil, nil, nil, nil)}
+		code := runSync(context.Background(), f, args, strings.NewReader(""), &stdout)
+		if code != 3 {
+			t.Fatalf("args %v: exit = %d, want 3, stdout = %s", args, code, stdout.String())
+		}
+		if !strings.Contains(stdout.String(), `"error"`) {
+			t.Fatalf("args %v: 오류 JSON 아님: %s", args, stdout.String())
+		}
+	}
+}
+
+// TestSyncRemoteAddSchemeWhitelist — v1.7.2 T3 S5: url 스킴 화이트리스트
+// https·http·file만 승인. postgres:// 등은 add 시점 exit 3(스킴 없는 url과
+// 동일한 사용법 오류 — dolt_push가 원격 url을 Doltgres 서버에서 해석하므로
+// 호스트 로컬 스킴은 등록 자체가 오설정).
+func TestSyncRemoteAddSchemeWhitelist(t *testing.T) {
+	ok := []struct{ name, url string }{
+		{"demo-h", "https://h.example.invalid/org/repo"},
+		{"demo-p", "http://h.example.invalid/org/repo"},
+		{"demo-f", "file:///tmp/flint-demo-remote"},
+	}
+	for _, tc := range ok {
+		var stdout bytes.Buffer
+		f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
+		code := runSync(context.Background(), f,
+			runSyncArgs("remote", "add", tc.name, tc.url), strings.NewReader(""), &stdout)
+		if code != 0 {
+			t.Fatalf("%s: exit = %d, want 0, stdout = %s", tc.url, code, stdout.String())
+		}
+	}
+	bad := []string{
+		"postgres://flint:pw@db.example.invalid:5433/flint",
+		"postgresql://db.example.invalid/flint",
+		"ftp://h.example.invalid/repo",
+		"file:///tmp/x y", // 공백
+	}
+	for _, u := range bad {
+		var stdout bytes.Buffer
+		f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
+		code := runSync(context.Background(), f,
+			runSyncArgs("remote", "add", "demo", u), strings.NewReader(""), &stdout)
+		if code != 3 {
+			t.Fatalf("%s: exit = %d, want 3, stdout = %s", u, code, stdout.String())
+		}
+		if !strings.Contains(stdout.String(), `"error"`) {
+			t.Fatalf("%s: 오류 JSON 아님: %s", u, stdout.String())
+		}
+	}
+}
+
+// TestSyncRemoteAddFileNote — v1.7.2 T3 S4: add 성공 출력에 file:// 경로
+// 해석 주체 안내 1행(file:// 경로는 Doltgres 서버 기준으로 해석된다).
+func TestSyncRemoteAddFileNote(t *testing.T) {
+	var stdout bytes.Buffer
+	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
+	code := runSync(context.Background(), f,
+		runSyncArgs("remote", "add", "demo", "https://h.example.invalid/org/repo"), strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, stdout = %s", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), "file:// paths resolve on the Doltgres server") {
+		t.Fatalf("file:// 안내 행 부재: %s", stdout.String())
+	}
+}
+
+// TestSyncPushNoOpReported — v1.7.2 T3 S6: no-op push(원격에 이미 최신)는
+// "up_to_date"로 보고 — 성공이지만 push되지 않았음을 사용자가 구분한다.
+func TestSyncPushNoOpReported(t *testing.T) {
+	var stdout bytes.Buffer
+	f := &fakeStore{queryFn: syncOpsRowsQueryFn(
+		map[string]string{"demo": "file:///tmp/demo-remote"},
+		[]string{"hash-1"}, [][]any{{0, "Everything up-to-date"}}, nil, nil, nil)}
+	code := runSync(context.Background(), f,
+		runSyncArgs("push", "demo"), strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, stdout = %s", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"status":"up_to_date"`) {
+		t.Fatalf("no-op push 보고 계약 위반: %s", stdout.String())
+	}
+}
+
+// TestSyncResetYesGate — v1.7.2 T3 S2: `sync reset --to-remote <name>`는
+// 기본 dry-run(손실 경고·exit 0·쿼리 0회)이고 --yes만 실행(teardown 관례).
+// --yes + 미등록 원격은 exit 3.
+func TestSyncResetYesGate(t *testing.T) {
+	// 1) --yes 없음 — dry-run·경고·실행 없음.
+	var stdout bytes.Buffer
+	f := &fakeStore{queryFn: syncOpsQueryFn(
+		map[string]string{"demo": "file:///tmp/demo-remote"}, []string{"h-remote"}, nil, nil, nil)}
+	code := runSync(context.Background(), f,
+		runSyncArgs("reset", "--to-remote", "demo"), strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("dry-run exit = %d, want 0, stdout = %s", code, stdout.String())
+	}
+	out := stdout.String()
+	for _, want := range []string{`"status":"dry_run"`, "discards", "--yes"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("dry-run 출력에 %q 부재: %s", want, out)
+		}
+	}
+	for _, q := range f.queries {
+		if strings.Contains(q, "dolt_fetch(") || strings.Contains(q, "dolt_reset(") {
+			t.Fatalf("dry-run에서 fetch/reset 실행됨: %s", q)
+		}
+	}
+
+	// 2) --yes — 실행·status reset.
+	stdout.Reset()
+	f = &fakeStore{queryFn: syncOpsQueryFn(
+		map[string]string{"demo": "file:///tmp/demo-remote"}, []string{"h-remote"}, nil, nil, nil)}
+	code = runSync(context.Background(), f,
+		runSyncArgs("reset", "--to-remote", "demo", "--yes"), strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("--yes exit = %d, stdout = %s", code, stdout.String())
+	}
+	if !strings.Contains(stdout.String(), `"status":"reset"`) || !strings.Contains(stdout.String(), `"hash":"h-remote"`) {
+		t.Fatalf("reset 실행 출력 계약 위반: %s", stdout.String())
+	}
+
+	// 3) --yes + 미등록 — exit 3.
+	stdout.Reset()
+	f = &fakeStore{queryFn: syncOpsQueryFn(map[string]string{}, []string{"h0"}, nil, nil, nil)}
+	code = runSync(context.Background(), f,
+		runSyncArgs("reset", "--to-remote", "ghost", "--yes"), strings.NewReader(""), &stdout)
+	if code != 3 {
+		t.Fatalf("미등록 reset exit = %d, want 3, stdout = %s", code, stdout.String())
+	}
+}
+
+// TestSyncResetUsageErrors — v1.7.2 T3 S2: reset 사용법 오류 exit 3
+// (대상 부재·--to-remote 값 누락·unknown 인자·위치 인자 불허).
+func TestSyncResetUsageErrors(t *testing.T) {
+	cases := [][]string{
+		{"reset"},
+		{"reset", "--yes"},
+		{"reset", "--to-remote"},
+		{"reset", "--to-remote", "demo", "--bad"},
+		{"reset", "demo"},
+		{"reset", "--to-remote", ""},
 	}
 	for _, args := range cases {
 		var stdout bytes.Buffer

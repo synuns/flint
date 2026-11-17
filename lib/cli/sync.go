@@ -24,8 +24,9 @@ import (
 )
 
 // syncUsage — 사용법 안내(exit 3 공용 문구 — url 예는 스킴+호스트
-// 형태만, 실제 형식 안내에 자격증명 예시를 실지 않는다).
-const syncUsage = "usage: flint sync remote add <name> <url> | flint sync remote list | flint sync remote remove <name> | flint sync push <remote> | flint sync pull <remote> [--dry]"
+// 형태만, 실제 형식 안내에 자격증명 예시를 실지 않는다). v1.7.2 T3:
+// reset 서브커맨드 추가(S2 완화).
+const syncUsage = "usage: flint sync remote add <name> <url> | flint sync remote list | flint sync remote remove <name> | flint sync push <remote> | flint sync pull <remote> [--dry] | flint sync reset --to-remote <name> [--yes]"
 
 func init() { Register("sync", runSync) }
 
@@ -46,6 +47,8 @@ func runSync(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		return runSyncPush(ctx, st, args[1:], stdout)
 	case "pull":
 		return runSyncPull(ctx, st, args[1:], stdout)
+	case "reset":
+		return runSyncReset(ctx, st, args[1:], stdout)
 	default:
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
 		return 3
@@ -121,6 +124,54 @@ func runSyncPull(ctx context.Context, st Store, args []string, stdout io.Writer)
 	return 0
 }
 
+// runSyncReset — `flint sync reset --to-remote <name> [--yes]`: v1.7.2
+// S2 완화. fetch 후 main을 원격 head로 dolt_reset --hard 되돌린다(로컬
+// 미커밋 변경·로컬 전용 커밋 폐기 — 파괴 연산). teardown 관례 승계:
+// 기본 dry-run(손실 경고·실행 없음·exit 0), --yes만 실행. 미등록 원격은
+// exit 3(db ErrRemoteNotFound 계약).
+func runSyncReset(ctx context.Context, st Store, args []string, stdout io.Writer) int {
+	name := ""
+	confirm := false
+	for i := 0; i < len(args); i++ {
+		switch args[i] {
+		case "--to-remote":
+			if i+1 >= len(args) || args[i+1] == "" {
+				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+				return 3
+			}
+			name = args[i+1]
+			i++
+		case "--yes":
+			confirm = true
+		default:
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+			return 3
+		}
+	}
+	if name == "" {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
+		return 3
+	}
+	if !confirm {
+		syncLineJSON(stdout, map[string]any{
+			"remote":  name,
+			"status":  "dry_run",
+			"warning": "reset --hard discards ALL local uncommitted changes and local-only commits on 'main'",
+			"next":    "re-run with --yes to execute",
+		})
+		return 0
+	}
+	if !syncStoreReady(ctx, st, stdout) {
+		return store.MapExit(store.ErrServerDown)
+	}
+	res, err := db.SyncReset(ctx, st, name)
+	if err != nil {
+		return syncOpExit(stdout, err)
+	}
+	syncLineJSON(stdout, map[string]string{"remote": name, "status": res.Status, "hash": res.Hash})
+	return 0
+}
+
 // syncStoreReady — 스토어 nil·서버다운 검사(export 관례 승계 — ErrLine
 // 한 줄 + MapExit, exit 2).
 func syncStoreReady(ctx context.Context, st Store, stdout io.Writer) bool {
@@ -135,9 +186,11 @@ func syncStoreReady(ctx context.Context, st Store, stdout io.Writer) bool {
 	return true
 }
 
-// runSyncRemoteAdd — `flint sync remote add <name> <url>`. url은 스킴
-// 필수(https:// · file:// · postgres:// — url.Parse 기준). 성공 행에
-// url을 실지 않는다(이름·상태만).
+// runSyncRemoteAdd — `flint sync remote add <name> <url>`. v1.7.2 T3 S5:
+// url 스킴은 화이트리스트 https·http·file만 승인한다 — dolt_push/fetch는
+// 원격 url을 Doltgres 서버에서 해석하므로 postgres:// 등 호스트 로컬
+// 스킴은 등록 자체가 오설정(add 시점 exit 3). 성공 행에 url을 실지
+// 않는다(이름·상태만). S4: 성공 직후 file:// 경로 해석 주체 안내 1행.
 func runSyncRemoteAdd(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) != 2 {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
@@ -148,10 +201,10 @@ func runSyncRemoteAdd(ctx context.Context, st Store, args []string, stdout io.Wr
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "name", Expect: "non-empty"}))
 		return 3
 	}
-	// url 검증 — 스킴 부재·공백·파손은 사용법 오류(원문은 안내에 재기록
-	// 하지 않는다 — 스킴 형식 안내만).
+	// url 검증 — 스킴 부재·공백·파손·비허용 스킴은 사용법 오류(원문은
+	// 안내에 재기록하지 않는다 — 스킴 형식 안내만).
 	if !validRemoteURL(remoteURL) {
-		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "url", Expect: "remote URL with scheme (https://, file://, postgres://)"}))
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "url", Expect: "remote URL with allowed scheme (https://, http://, file://)"}))
 		return 3
 	}
 	if !syncStoreReady(ctx, st, stdout) {
@@ -161,6 +214,7 @@ func runSyncRemoteAdd(ctx context.Context, st Store, args []string, stdout io.Wr
 		return syncOpExit(stdout, err)
 	}
 	syncLineJSON(stdout, map[string]string{"remote": name, "status": "added"})
+	fmt.Fprintln(stdout, "note: file:// paths resolve on the Doltgres server")
 	return 0
 }
 
@@ -222,12 +276,20 @@ func syncLineJSON(w io.Writer, v any) {
 	fmt.Fprintln(w, string(b))
 }
 
-// validRemoteURL — add url 검증: 파싱 가능·스킴 존재·공백 부재.
-// 마스킹과 동일 기준(net/url 파싱 + 제어문자 가드).
+// validRemoteURL — v1.7.2 T3 S5: add url 검증. 파싱 가능·공백 부재에
+// 더해 스킴 화이트리스트(https·http·file) — 원격 url은 Doltgres 서버가
+// 해석하므로 그 외 스킴(postgres:// 등)은 add 시점에 거부한다.
 func validRemoteURL(raw string) bool {
 	if raw == "" || strings.ContainsAny(raw, " \t\r\n") {
 		return false
 	}
 	u, err := url.Parse(raw)
-	return err == nil && u.Scheme != ""
+	if err != nil || u.Scheme == "" {
+		return false
+	}
+	switch u.Scheme {
+	case "https", "http", "file":
+		return true
+	}
+	return false
 }

@@ -8,11 +8,13 @@ package cli
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"strconv"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/synuns/flint/lib/db"
@@ -169,13 +171,36 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 	return s, nil
 }
 
+// isPgUndefinedTable — 42P01(undefined table) 판정. db.isPgCode가 미내보출이라
+// cli 측 최소 구현으로 둔다(판정 로직 동일 — errors.As PgError.Code 비교).
+func isPgUndefinedTable(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
+}
+
 // schemaVersionFn — ensureSchemas 최신 단축의 schema_version 1회 조회
 // seam(F6 성능). ok=false는 조회 실패·meta 부재·미기록·비정수 — 기존
 // 순차 승격 경로(게이트 각자의 오류 처리)가 담당한다. 테스트는 호출
 // 카운트로 순회 스킵을 단언한다.
+// v1.7.2 T4(L1): probe가 42P01으로 실패하면 세션 카탈로그 부실 동기
+// 가능성이 있다(R38-B probeheal — 테이블이 실재해도 첫 조회가
+// undefined table로 나오는 Doltgres 실측) — st 풀에 SELECT 1을 1회
+// 실행해 카탈로그를 재동기한 뒤 probe를 1회 재시도한다. 재시도에서도
+// 42P01이면 진짜 신규 DB이므로 기존 순차 승격 경로로 폴백(왕복은
+// 신규 DB 접속당 최대 +2회).
 var schemaVersionFn = func(ctx context.Context, st Store) (version int, ok bool) {
 	rows, err := st.Query(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`)
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+	if err != nil {
+		if isPgUndefinedTable(err) {
+			if _, herr := st.Query(ctx, `SELECT 1`); herr == nil {
+				rows, err = st.Query(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`)
+			}
+		}
+		if err != nil {
+			return 0, false
+		}
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
 		return 0, false
 	}
 	n, perr := strconv.Atoi(fmt.Sprint(rows[0][0]))
