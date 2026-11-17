@@ -30,11 +30,16 @@ L3 milestone 루프   v0.1 → v0.2 → v0.3 (각 DoD 체크리스트로 완료 
   wave 끝에 G2 게이트 1회.
 - L3 milestone: DoD 전량 충족 + 신선한 최종 리뷰(superlite:final-reviewer) 통과 시에만 다음 milestone.
 
-**스킬 분업 (확정)**
+**스킬 분업 (확정 — 2026-11-17 운영화)**
 - **루프 = superlite**: 계획(writing-plans)·디스패치(subagent-driven-development)·
   검증(verification-before-completion·final-reviewer)·마무리(finishing-a-development-branch)
-- **개발 = pstack**: 코드 작성 태스크는 `/poteto-mode`가 poteto-agent에 위임해 실행.
-  리뷰 시 comment-sicko가 주석 정리·워크어라운드 단속
+- **개발 = pstack**: 코드 작성 태스크는 디스패처가 `subagent_type: "pstack:poteto-agent"`로
+  직접 파견(poteto-agent가 poteto-mode 전문·원칙 인덱스를 스스로 로드).
+  태스크 프롬프트에 §3 순서(red→green→refactor→commit)와 G1 게이트를 명시해 준다.
+- **리뷰 = superlite + comment-sicko**: `superlite:package-reviewer` 수정 리뷰 후
+  `subagent_type: "pstack:comment-sicko"`로 diff 주석 감사 1회.
+  발견(삭제 대상 주석·MUST KILL)은 fixer가 회귀 테스트와 함께 처리한다.
+- **파견 금지**: `general-purpose`는 빌드·리뷰 파견 금지 — 조사(읽기 전용) 전용.
 - 충돌 시: 프로세스(게이트·중단 조건·TDD 순서)는 이 문서 우선, 코딩 관례는 pstack 우선
 
 ## 3. 태스크 파이프라인 (L1)
