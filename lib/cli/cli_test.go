@@ -296,22 +296,28 @@ func TestWriteStripsNonColumnKeys(t *testing.T) {
 	withFake(t, f)
 	// R22-A: 공유 실DB의 프로젝트명 잔재 충돌 회피 — 실행마다 고유 name.
 	name := fmt.Sprintf("p1-%s-%d", t.Name(), time.Now().UnixNano())
-	out, code := mustRun(t, []string{"write", "project"},
+	_, code := mustRun(t, []string{"write", "project"},
 		`{"name":"`+name+`","status":"active","note":"메타데이터"}`)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
 	rec := f.inserted[0]
-	if _, ok := rec["note"]; ok {
-		t.Fatalf("비컬럼 키 note가 저장됨: %v", rec)
+	// v1.6.2 F5: note는 project 컬럼으로 등록돼 저장된다(kindColumns).
+	if rec["note"] != "메타데이터" {
+		t.Fatalf("note 컬럼 미저장: %v", rec)
 	}
 	if rec["name"] != name || rec["status"] != "active" {
 		t.Fatalf("컬럼 유실: %v", rec)
 	}
-	// 무경고 삭제 금지: 경고 배열이 있어야 한다.
-	m := decode(t, out)
+	// 미등록 키는 여전히 무경고 삭제 금지: warnings에 있어야 한다(다른 키로 검증).
+	out2, code2 := mustRun(t, []string{"write", "project"},
+		`{"name":"`+name+`x","status":"active","bogus_key":"v"}`)
+	if code2 != 0 {
+		t.Fatalf("exit=%d, want 0", code2)
+	}
+	m := decode(t, out2)
 	w, ok := m["warnings"].([]any)
-	if !ok || len(w) == 0 || !strings.Contains(fmt.Sprint(w[0]), "note") {
+	if !ok || len(w) == 0 || !strings.Contains(fmt.Sprint(w[0]), "bogus_key") {
 		t.Fatalf("dropped keys 경고 없음: %v", m["warnings"])
 	}
 }
