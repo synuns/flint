@@ -13,12 +13,37 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 	"time"
 
 	"github.com/synuns/flint/lib/cli"
 )
+
+// realDBLock — 공유 Doltgres 테스트 DB를 쓰는 slow 테스트의 상호 배제
+// (파일 잠금, v1.6.3 R34-1). go test는 패키지 바이너리를 병렬로 띄우므로
+// 잠금 없는 이 테스트의 라운드트립 행이 lib/db newTestRepo의
+// `DELETE FROM knowledge` 전체 삭제(repo_test.go)와 겹치면 approve
+// not_found 간헐 실패한다. 잠금 파일 경로는 lib/db sharedDBLock·
+// lib/backup drillLock과 동일해야 상호 배제가 성립한다.
+func realDBLock(t *testing.T) {
+	t.Helper()
+	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
+		os.O_CREATE|os.O_RDWR, 0o644)
+	if err != nil {
+		t.Fatalf("잠금 파일: %v", err)
+	}
+	if err := syscall.Flock(int(f.Fd()), syscall.LOCK_EX); err != nil {
+		f.Close()
+		t.Fatalf("flock: %v", err)
+	}
+	t.Cleanup(func() {
+		syscall.Flock(int(f.Fd()), syscall.LOCK_UN)
+		f.Close()
+	})
+}
 
 // realTestDSN — 격리 테스트 DB DSN(FLINT_TEST_DSN만 수용 — 운영
 // FLINT_DSN 폴백 없음, lib/db testutil 관례).
@@ -35,6 +60,7 @@ func realTestDSN(t *testing.T) string {
 // 합성 데모 데이터만 사용(개인 데이터 금지 — 저장소 최상위 원칙).
 func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 	dsn := realTestDSN(t)
+	realDBLock(t) // 공유 테스트 DB 전체 사용 구간 직렬화(전체 삭제 경합 차단)
 	t.Setenv("FLINT_DSN", dsn)
 	resetStoreCache(t) // 기본 seam(storeSupply=cli.OpenServerStore) 경로
 
