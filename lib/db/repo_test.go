@@ -504,6 +504,14 @@ func TestCommitExcludesTelemetryRealSlow(t *testing.T) {
 	r := newTestRepo(t)
 	t6ClearTelemetry(t, r)
 	ctx := context.Background()
+	// 베이스라인 — fresh DB(커밋 이력에 계측 테이블이 아직 없는 환경:
+	// Migrate DDL은 working set에만 있다)에서 dolt_diff(prev, head,
+	// 'read_events')가 "table not found"로 실패하지 않게, 계측 테이블을
+	// 먼저 커밋 이력에 올린 뒤 prev를 잡는(게이트 맹점 — fresh DB 검증).
+	// 이미 초기화된 DB에서는 no-op 커밋이라 prev는 마지막 커밋 그대로.
+	if err := r.CommitTelemetry(ctx, "t6 baseline"); err != nil {
+		t.Fatalf("베이스라인 CommitTelemetry: %v", err)
+	}
 	// 감사 데이터(knowledge 1행 + sessions 1행) + 계측 데이터(read_events 1행).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (1,false,false,false)`); err != nil {

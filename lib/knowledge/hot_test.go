@@ -71,12 +71,29 @@ func TestHotFullRanksByEffectiveScore(t *testing.T) {
 	}
 }
 
+// hotHeadlineFixture — 헤드라인 질의(HotHeadlineSQL: id까지만 노출)에
+// hotRankedSQL이 병합한 실제 7열 형태 픽스처(kind,topic,summary,ts,id,
+// recall_score,last_recalled_at — v1.7.0 리뷰 수정: --full 9열 픽스처를
+// 그대로 쓰면 헤드라인 랭킹 인덱스 부정합이 가려진다).
+func hotHeadlineFixture(now time.Time) [][]any {
+	ts := now.Truncate(time.Second)
+	return [][]any{
+		// id=9: score 10이지만 10일 미회상 → 감쇠 후 0
+		{"decision", "감쇠후보", "요약9", ts, int32(9), int32(10), now.Add(-10 * 24 * time.Hour)},
+		// id=7: 미회상 score 5 → 5 유지
+		{"decision", "중간점수", "요약7", ts, int32(7), int32(5), nil},
+		// id=3: 1시간 전 회상 score 9 → 9 유내(24h 미만 감쇠 없음)
+		{"decision", "최고점수", "요약3", ts, int32(3), int32(9), now.Add(-time.Hour)},
+	}
+}
+
 // TestHotHeadlineRanksTopics — 헤드라인 경로도 동일 랭킹: recent decisions
-// 주제 나열 순서가 유효 점수 내림.
+// 주제 나열 순서가 유효 점수 내림. 픽스처는 실제 헤드라인 질의 형태
+// (7열 — 랭킹 열 idx 5·6)로만 랭킹이 작동함을 가드한다.
 func TestHotHeadlineRanksTopics(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()
-	f := hotRankedStore(t, hotRankedFixture(time.Now().UTC()))
+	f := hotRankedStore(t, hotHeadlineFixture(time.Now().UTC()))
 	var out bytes.Buffer
 	if code := RunHot(ctx, f, nil, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("RunHot exit = %d: %s", code, out.String())

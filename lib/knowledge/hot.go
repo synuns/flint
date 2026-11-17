@@ -92,6 +92,15 @@ const (
 	hotViewLastRecalledIdx = 8
 )
 
+// hotHeadlineRecallScoreIdx·hotHeadlineRecallLastIdx — 헤드라인 질의
+// (HotHeadlineSQL: id까지만 노출, 5열)에 hotRankedSQL이 병합한 랭킹 열
+// 인덱스(5·6 — v1.7.0 리뷰 수정: --full 인덱스 7·8을 그대로 쓰면 7열
+// 행 전체가 0점 취급돼 헤드라인 랭킹이 조용히 무효가 된다).
+const (
+	hotHeadlineRecallScoreIdx = 5
+	hotHeadlineRecallLastIdx  = 6
+)
+
 // EffectiveRecallScore — 감쇠 산식(v1.7.0 T2 순수 함수 — T3에 본체를
 // knowledge로 이동, ops는 위임해 단일 정의 유지: knowledge→ops 임포트
 // 사이클 방지 위해 아래 방향(ops→knowledge)만 성립):
@@ -416,7 +425,12 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	// 안정 정렬(동점·0점은 기존 SQL 순서 ts DESC, id DESC 승계). 랭킹 열이
 	// 없는 행(구형 뷰·fake)은 0점 취급돼 기존 순서·출력이 그대로 살아남는다.
 	// 포맷·예산·증분은 하류가 이 rows를 소비해 주문=증분 계약이 불변이다.
-	rows = rankRowsByEffectiveScore(rows, hotViewRecallScoreIdx, hotViewLastRecalledIdx,
+	// 랭킹 열 인덱스는 경로별 질의 형태(--full 9열·헤드라인 7열)를 따른다.
+	scoreIdx, lastIdx := hotViewRecallScoreIdx, hotViewLastRecalledIdx
+	if !full {
+		scoreIdx, lastIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx
+	}
+	rows = rankRowsByEffectiveScore(rows, scoreIdx, lastIdx,
 		loadDecayRate(ctx, st), time.Now().UTC())
 	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
 	LoadHotStatsFromMetaFn(ctx, st)
