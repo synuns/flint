@@ -213,7 +213,7 @@ func TestHotRankDecayRateMetaOverride(t *testing.T) {
 		t.Fatalf("RunHot --full exit = %d: %s", code, out.String())
 	}
 	idxSlow := strings.Index(out.String(), "완만감쇠") // 유효 8
-	idxLow := strings.Index(out.String(), "저점")      // 유효 7
+	idxLow := strings.Index(out.String(), "저점")    // 유효 7
 	if idxSlow < 0 || idxLow < 0 || idxSlow > idxLow {
 		t.Errorf("순서 = 완만감쇠@%d 저점@%d, want 완만감쇠 선행(0.5 계수: 8 > 7): %q", idxSlow, idxLow, out.String())
 	}

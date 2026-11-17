@@ -15,21 +15,21 @@ import (
 // 출력·키 구성을 그대로 두고, 값 있는 행만 키를 발행한다(레거시 jsonl
 // 파싱은 미지정 → 0/NULL 폴백).
 type exportJSONLRow struct {
-	ID           int       `json:"id"`
-	Topic        string    `json:"topic"`
-	Content      string    `json:"content"`
-	Kind         string    `json:"kind"`
-	Status       string    `json:"status"`
-	Confidence   float64   `json:"confidence"`
-	Tags         []string  `json:"tags"`
-	Entities     []string  `json:"entities"`
-	Domain       string    `json:"domain"`
-	Source       string    `json:"source"`
-	ContentHash  string    `json:"content_hash"`
-	CreatedAt    time.Time `json:"created_at"`
-	UpdatedAt    time.Time `json:"updated_at"`
-	ValidAt      time.Time `json:"valid_at"`
-	SupersededBy *int      `json:"superseded_by"`
+	ID             int        `json:"id"`
+	Topic          string     `json:"topic"`
+	Content        string     `json:"content"`
+	Kind           string     `json:"kind"`
+	Status         string     `json:"status"`
+	Confidence     float64    `json:"confidence"`
+	Tags           []string   `json:"tags"`
+	Entities       []string   `json:"entities"`
+	Domain         string     `json:"domain"`
+	Source         string     `json:"source"`
+	ContentHash    string     `json:"content_hash"`
+	CreatedAt      time.Time  `json:"created_at"`
+	UpdatedAt      time.Time  `json:"updated_at"`
+	ValidAt        time.Time  `json:"valid_at"`
+	SupersededBy   *int       `json:"superseded_by"`
 	RecallScore    int        `json:"recall_score,omitempty"`
 	LastRecalledAt *time.Time `json:"last_recalled_at,omitempty"`
 }

@@ -50,7 +50,7 @@ func TestSyncRemoteAddOK(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
 	code := runSync(context.Background(), f,
-		runSyncArgs("remote", "add", "demo", "https://user:secret@doltremoteapi.dolthub.com/org/repo"),
+		runSyncArgs("remote", "add", "demo", "https://user:s3cret@rem-example.invalid/org/repo"),
 		strings.NewReader(""), &stdout)
 	if code != 0 {
 		t.Fatalf("exit = %d, stdout = %s", code, stdout.String())
@@ -71,7 +71,7 @@ func TestSyncRemoteAddDuplicate(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{"demo": true}, nil)}
 	code := runSync(context.Background(), f,
-		runSyncArgs("remote", "add", "demo", "https://user:secret@doltremoteapi.dolthub.com/org/repo"),
+		runSyncArgs("remote", "add", "demo", "https://user:s3cret@rem-example.invalid/org/repo"),
 		strings.NewReader(""), &stdout)
 	if code != 3 {
 		t.Fatalf("exit = %d, want 3, stdout = %s", code, stdout.String())
@@ -141,9 +141,9 @@ func TestSyncServerDown(t *testing.T) {
 func TestSyncRemoteListMasked(t *testing.T) {
 	var stdout bytes.Buffer
 	listRows := [][]any{
-		{"demo", "https://user:secret@doltremoteapi.dolthub.com/org/repo"},
-		{"local", "file:///Users/someone/.flint/remote"},
-		{"pg", "postgres://flint:pw@db.example.com:5433/flint"},
+		{"demo", "https://user:s3cret@rem-example.invalid/org/repo"},
+		{"local", "file:///tmp/flint-remote-demo2"},
+		{"pg", "postgres://flint:pw@db.example.invalid:5433/flint"},
 	}
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, listRows)}
 	code := runSync(context.Background(), f,
@@ -152,7 +152,7 @@ func TestSyncRemoteListMasked(t *testing.T) {
 		t.Fatalf("exit = %d, stdout = %s", code, stdout.String())
 	}
 	out := stdout.String()
-	for _, want := range []string{`"name":"demo"`, `"url":"https://doltremoteapi.dolthub.com"`, `"url":"file://"`, `"url":"postgres://db.example.com"`} {
+	for _, want := range []string{`"name":"demo"`, `"url":"https://rem-example.invalid"`, `"url":"file://"`, `"url":"postgres://db.example.invalid"`} {
 		if !strings.Contains(out, want) {
 			t.Fatalf("마스킹 목록에 %q 부재: %s", want, out)
 		}
@@ -217,7 +217,7 @@ func TestSyncAddQueryFailure(t *testing.T) {
 		return nil, nil
 	}}
 	code := runSync(context.Background(), f,
-		runSyncArgs("remote", "add", "demo", "https://user:secret@doltremoteapi.dolthub.com/org/repo"),
+		runSyncArgs("remote", "add", "demo", "https://user:s3cret@rem-example.invalid/org/repo"),
 		strings.NewReader(""), &stdout)
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1, stdout = %s", code, stdout.String())
@@ -270,7 +270,7 @@ func syncOpsQueryFn(remotes map[string]string, heads []string, pushErr, fetchErr
 func TestSyncPushOK(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsQueryFn(
-		map[string]string{"demo": "https://user:secret@doltremoteapi.dolthub.com/org/repo"},
+		map[string]string{"demo": "https://user:s3cret@rem-example.invalid/org/repo"},
 		[]string{"hash-1"}, nil, nil, nil)}
 	code := runSync(context.Background(), f,
 		runSyncArgs("push", "demo"), strings.NewReader(""), &stdout)

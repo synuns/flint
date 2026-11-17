@@ -48,9 +48,9 @@ func (f *fakeSyncQuerier) Query(ctx context.Context, sql string, args ...any) ([
 // 부재 원문은 전체 미노출(고정 토큰).
 func TestMaskRemoteURL(t *testing.T) {
 	cases := []struct{ name, in, want string }{
-		{"https 자격증명+경로", "https://user:secret@doltremoteapi.dolthub.com/org/repo", "https://doltremoteapi.dolthub.com"},
-		{"postgres 포트+경로", "postgres://flint:pw@db.example.com:5433/flint", "postgres://db.example.com"},
-		{"file 원격(호스트 없음)", "file:///Users/x/.flint/remote", "file://"},
+		{"https 자격증명+경로", "https://user:s3cret@rem-example.invalid/org/repo", "https://rem-example.invalid"},
+		{"postgres 포트+경로", "postgres://flint:pw@db.example.invalid:5433/flint", "postgres://db.example.invalid"},
+		{"file 원격(호스트 없음)", "file:///tmp/flint-remote-demo", "file://"},
 		{"http+쿼리", "http://host.example/path?token=abc", "http://host.example"},
 		{"스킴 부재 원문 미노출", "doltremoteapi.dolthub.com/org/repo", "(unparsable)"},
 		{"빈 값", "", "(unparsable)"},
