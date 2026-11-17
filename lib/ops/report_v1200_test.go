@@ -1,4 +1,4 @@
-// report_v1200_test.go — v1.2.0 T3 집계 소비 회귀(픽스처 기반 — Review Focus):
+// report_v1200_test.go — 집계 소비 회귀(픽스처 기반):
 // 토큰 회계 cost(Σdup×평균 기록 바이트 절약 하한·Σhit×평균 요약 바이트 주입
 // 원가·표면별 p95 nearest-rank 분모<5 가드)·제로히트 분해(unowned/owned_miss)·
 // 회상 운명(7일 후 survived/bad_recall)·hot→read 연쇄·G4 정합(kreads kind 불문
@@ -18,7 +18,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// v1200Store — T3 픽스처 fake(관측 원천별 canned 행 — 나머지 질의는
+// v1200Store — 픽스처 fake(관측 원천별 canned 행 — 나머지 질의는
 // parityFake 관례: 집계 0·계측 공란).
 type v1200Store struct {
 	daily     map[string]string // meta daily:* 키(플랫·구 JSON 혼합)
@@ -135,12 +135,12 @@ func v1200Today() (time.Time, string) {
 	return now, now.Format("2006-01-02")
 }
 
-// readEvt — read_events 1행 픽스처(8열 — v1.2.0 T2 확장 열 포함).
+// readEvt — read_events 1행 픽스처(8열).
 func readEvt(ts time.Time, zero bool, reason string, bytes, hits int) []any {
 	return []any{ts, zero, false, "", 0, bytes, reason, hits}
 }
 
-// TestReportCost — Review Focus: 토큰 회계 cost 객체. 절약 하한 = Σdup×평균
+// TestReportCost — 토큰 회계 cost 객체. 절약 하한 = Σdup×평균
 // 기록 바이트(dup 2 × 평균 요약 100 = 200), 주입 원가 = Σhit×평균 요약 바이트
 // (hit 12 × 100 = 1200), 라벨 문구 계약, 표면별 bytes/avg/p95·모드 표기.
 // daily 값은 플랫 키(daily:<kind>:<date>)에서 읽는다(플랫 전환 읽기 정합).
@@ -322,8 +322,8 @@ func TestRecallLedLegacyFallback(t *testing.T) {
 	numEq(t, "recall_led_pct", effectOf(t, m)["recall_led_pct"], 100)
 }
 
-// TestReportCurationCounters — 검수 결과 카운터 소비(spec §2.4 — T4 기록·
-// T3 노출). 플랫 daily 키 창 합산이 report curation 객체로 노출된다
+// TestReportCurationCounters — 검수 결과 카운터 소비(spec §2.4).
+// 플랫 daily 키 창 합산이 report curation 객체로 노출된다
 // (미기록 종류는 0).
 func TestReportCurationCounters(t *testing.T) {
 	_, today := v1200Today()

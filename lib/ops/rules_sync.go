@@ -1,5 +1,4 @@
-// rules_sync.go — v0.9.7 R1 스킬 싱크. flint-plugin/skills/flint/ 전체를
-// v0.40.0 T3: lib/cli에서 이동(식별자 대문자화 — 동작 불변).
+// rules_sync.go — 스킬 싱크. flint-plugin/skills/flint/ 전체를
 // $CLAUDE_HOME/skills/flint/로 복사한다. 규칙이 세션에 도달할 마지막 마일
 // (스펙 §1). 싱크는 복사만 — 대상 전용 파일(사용자 수동 파일)은 절대
 // 삭제하지 않고, 내용이 같은 파일은 건너뛴다(멱등).

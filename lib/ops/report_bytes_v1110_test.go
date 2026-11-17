@@ -1,4 +1,4 @@
-// report_bytes_v1110_test.go — v1.1.0 T3 G5 회귀: daily bytes 픽스처가
+// report_bytes_v1110_test.go — 회귀: daily bytes 픽스처가
 // report effect.bytes(read/hot/brief 각 bytes_14d·avg_bytes — 분모는 같은
 // 행의 호출 수 카운터)와 status hot_bytes_14d·read_bytes_14d로 정합.
 // 분모 0 가드(호출 0 → avg 0) 포함.

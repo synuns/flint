@@ -1,18 +1,18 @@
-// writes_through_repo_test.go — v0.41.0 T3: 쓰기 가드. lib/{ops,knowledge}
+// writes_through_repo_test.go — 쓰기 가드. lib/{ops,knowledge}
 // 비테스트 소스의 Query/queryOnce 호출부에 UPDATE|DELETE|INSERT 토큰이
 // 있으면 FAIL — 이 가드의 스코프(lib/{ops,knowledge})에서 쓰기 SQL 리터럴은
 // db.Repo 경로(Invalidate·Supersede·PruneInvalidated·MetaDelete·
-// UpdateSessionSummary)만 소유한다. v1.0.2 R2 정정: "db.Repo 단일 경로"는
+// UpdateSessionSummary)만 소유한다. "db.Repo 단일 경로"는
 // 이 스코프 한정 주장이다 — 스코프 밖(lib/wire/meta.go의 meta INSERT 등)은
 // 이 가드가 보지 않는 별도 소유다.
 //
-// v0.41.0 리뷰 보강(우회 차단 2종 — 실증 후 폐쇄):
+// 우회 차단 2종(실증 후 폐쇄):
 //   - 별칭 경유(q := wire.QueryOnce; q(..., "UPDATE ...")) — Query/QueryOnce를
 //     변수에 담은 별칭까지 추적해 동일하게 판정한다.
 //   - 변수 조립(sql := "DELETE ..."; wire.QueryOnce(..., sql)) — 쓰기 동사로
 //     시작하는 SQL 문자열 리터럴은 파일 내 위치 불문 금지한다.
 //
-// v1.0.1 R1-D 보강(실증 우회 2종 추가 폐쇄):
+// 실증 우회 2종 폐쇄:
 //   - 조각 조립·Sprintf 인자("SELECT 1; "+"DELETE"·fmt.Sprintf 포함) —
 //     쓰기 동사 토큰은 호출부·리터럴 선두 같은 위치 조건 없이 문자열
 //     리터럴 본문 어디에나 있으면 위반이다(위치·경로 보고).
@@ -21,7 +21,7 @@
 //   - 순회 사각 — 비재귀 os.ReadDir 대신 WalkDir 재귀(하위 디렉터리 전부,
 //     Go 관례 testdata 제외).
 //
-// v1.0.2 R2 보강(실증 우회 2종 추가 폐쇄):
+// 실증 우회 2종 폐쇄:
 //   - 면제×조립 교차("update"+" knowledge …") — 화이트리스트 면제는
 //     단독 리터럴 판정에만 적용하고, 조립(+)·Sprintf 결합 판정에는 면제
 //     피연산자 본문도 참여한다. 조립·결합 결과 전체가 화이트리스트 본문과
@@ -30,7 +30,7 @@
 //     동사에 문자열 리터럴 인자를 대입한 결합 결과에서만 성립하는 쓰기
 //     동사도 잡는다(sprintfCombined).
 //
-// v1.0.3 R3 보강(실증 우회 3종 추가 폐쇄 — 재프로브로 우회 확인 후):
+// 실증 우회 3종 폐쇄(재프로브로 우회 확인 후):
 //   - 중첩 Sprintf(Sprintf("DEL%s…", Sprintf("%s","ETE"))) — 비리터럴
 //     인자가 Sprintf 결과면 1단계 재귀 결합해 판정한다(stringOperand).
 //   - 상수 접기(const p = "DEL"; … p+q) — 파일 패키지 블록 const 문자열
@@ -39,7 +39,7 @@
 //   - strings.Join 결합(strings.Join([]string{"DEL","ETE…"}, "")) — 슬라이스
 //     리터럴 요소를 구분자와 합친 결과에서만 성립하는 쓰기 동사도 잡는다(④).
 //
-// v1.0.4 R5 보강(실증 우회 3종 추가 폐쇄 — 재프로브로 우회 확인 후):
+// 실증 우회 3종 폐쇄(재프로브로 우회 확인 후):
 //   - fmt.Sprint/Sprintln 결합(fmt.Sprint("DEL","ETE …")) — ③을 Sprintf
 //     형식 대입에 한정하지 않고 Sprint(무구분자)·Sprintln(공백 구분자)
 //     피연산자 결합까지 공통 판정으로 확장한다(fmtCombined).
@@ -50,7 +50,7 @@
 //     동일 Ident 수신자에 연속한 WriteString 인자를 이어붙인 결과에서만
 //     성립하는 쓰기 동사도 잡는다(⑤).
 //
-// v1.0.5 R6 보강(실증 우회 4종 추가 폐쇄 — 재프로브로 우회 확인 후):
+// 실증 우회 4종 폐쇄(재프로브로 우회 확인 후):
 //   - 이스케이프 디코딩 — unquoteLiteral을 strconv.Unquote로 교체해
 //     \xNN·8진 \NNN 표기의 동사("\x44\x45\x4C…" = "DEL")도 ①~⑥·const/var
 //     접기 전 공통 경로에서 디코딩해 판정한다.
@@ -61,21 +61,21 @@
 //   - slices.Concat 결합 — 슬라이스 인자 전체 요소를 무구분자로 잇는
 //     결과로 판정한다(④).
 //
-// v1.0.6 R7 보강(실증 우회 3종 추가 폐쇄 — 재프로브로 우회 확인 후):
+// 실증 우회 3종 폐쇄(재프로브로 우회 확인 후):
 //   - 형식 조립 — fmt 결합 호출의 형식 피연산자가 이어붙이기(+ ) 식이면
 //     ②와 동일한 조립 접기를 적용한다(formatOperand·foldAddString —
 //     Errorf("DEL"+"%s…")·Fprintf(w,"%s"+"ETE…") 폐쇄).
 //   - 자기 참조 재할당 누적 — `s = s + 피연산자` 재할당을 += 와 동등한
 //     누적으로 체인에 잇는다(⑥ splitSelfAdd).
 //
-// v1.0.7 R8 보강(실증 우회 2종 추가 폐쇄 — 재프로브로 우회 확인 후):
+// 실증 우회 2종 폐쇄(재프로브로 우회 확인 후):
 //   - const 형식 — fmt 결합 호출의 형식 피연산자가 패키지 블록 const
 //     Ident여도 접힌 값으로 판정한다(formatOperand Ident case).
 //   - 중첩 Join/Concat — ④의 결합 본체를 sliceCombined로 추출해
 //     stringOperand가 depth 한계 내 재귀 접기한다(내부 결합이 무해할 때
 //     외부 판정에서 공란 대입되던 우회 폐쇄).
 //
-// v1.0.8 R9 보강(실증 우회 3변형 추가 폐쇄 — 재프로브로 우회 확인 후):
+// 실증 우회 3변형 폐쇄(재프로브로 우회 확인 후):
 //   - 블록 지역 값 테이블 — ⑥에 같은-블록 지역 문자열 값(locals)을
 //     둔다. 종자 `x := 접힘식`을 기록하고 `y := x`·`y := x+lit`·`y += x`
 //     치환을 전파한다(head+lit·복사 종자 += 폐쇄). 접힘 값 자체가 동사를
@@ -84,7 +84,7 @@
 //     리터럴(`parts := []string{…}`)을 병합한다(localSliceTable — 이름
 //     재정의는 등록 제외로 오탐 원천 차단).
 //
-// v1.0.9 R10 보강(실증 우회 6변형 추가 폐쇄 — 재프로브로 우회 확인 후):
+// 실증 우회 6변형 폐쇄(재프로브로 우회 확인 후):
 //   - 지역값 전파 — 함수 지역 문자열 값 대입을 접은 localStringTable을
 //     consts 에 병합해 ②~⑤의 Ident 해석(stringOperand·combineParts·
 //     formatOperand·② BinaryExpr)에 전파한다. 지역값×Sprintf/Errorf
@@ -116,9 +116,9 @@ import (
 var writeTokenRe = regexp.MustCompile(`(?i)\b(UPDATE|DELETE|INSERT)\b`)
 
 // writeLiteralAllow — 오탐 화이트리스트: 쓰기 동사 단어를 담았으나 SQL이
-// 아닌 안내문·검사명 리터럴의 본문 정확 일치. v1.0.1 전면화(토큰이면
-// 위치 불문 위반) 이후 정상 소스가 통과하려면 이 표 선언이 유일한 면제
-// 경로다 — 본문 수정 시 이 표도 함께 갱신한다(자동 면제 없음).
+// 아닌 안내문·검사명 리터럴의 본문 정확 일치(토큰이면 위치 불문 위반).
+// 정상 소스가 통과하려면 이 표 선언이 유일한 면제 경로다 — 본문 수정 시
+// 이 표도 함께 갱신한다(자동 면제 없음).
 var writeLiteralAllow = map[string]bool{
 	// doctor 검사명·처방 문구(사람 대향 안내, 비SQL).
 	"update":            true,
@@ -128,7 +128,7 @@ var writeLiteralAllow = map[string]bool{
 	"update-rules: source flint-plugin/skills/flint not found — specify it with --src": true,
 	"update-rules: set FLINT_CLAUDE_HOME or HOME to locate the sync destination":       true,
 	"update-rules sync failed: %w": true,
-	// 위 Errorf 안내문의 정적 결합 근사 형태(R6: %w 동사 공란 대입 결과) —
+	// 위 Errorf 안내문의 정적 결합 근사 형태(%w 동사 공란 대입 결과) —
 	// fmt.Errorf("update-rules 싱크 실패: %w", err)의 fmtCombined 본문.
 	"update-rules sync failed: ": true,
 	// maintain unknown-키 힌트: 사람이 수동 실행할 문구 안내(실행 아님).
@@ -136,12 +136,12 @@ var writeLiteralAllow = map[string]bool{
 }
 
 // writeGuardDirs — 가드 대상 패키지 루트(lib/ops·lib/knowledge). 하위
-// 디렉터리까지 재귀 순회한다(R1-D: 비재귀 ReadDir의 하위 디렉터리 사각
+// 디렉터리까지 재귀 순회한다(비재귀 ReadDir의 하위 디렉터리 사각
 // 폐쇄).
 var writeGuardDirs = []string{".", "../knowledge"}
 
 // unquoteLiteral — BasicLit.Value에서 quote를 제거하고 이스케이프(\xNN·
-// 8진 \NNN·\uNNNN 등)까지 디코딩한 본문(R6: strconv.Unquote 교체 —
+// 8진 \NNN·\uNNNN 등)까지 디코딩한 본문(strconv.Unquote 교체 —
 // "\x44\x45\x4C…" 표기 디코딩 우회 폐쇄). ①~⑤·const/var 접기 전 공통
 // 경로다. 디코딩 실패 시(파서가 만들지 않는 비정형) 양끝 quote 제거로
 // 근사한다.
@@ -227,8 +227,8 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		return true
 	})
 	// ① 반 뒤 결합 판정(②~⑥) 공통 자산 — 패키지 블록 const 문자열
-	//    테이블(R3 상수 접기)과 var []string 리터럴 테이블(R5 슬라이스
-	//    접기)에 함수 지역 슬라이스 리터럴(R9)을 병합한다. 접힌 값은
+	//    테이블(상수 접기)과 var []string 리터럴 테이블(슬라이스
+	//    접기)에 함수 지역 슬라이스 리터럴을 병합한다. 접힌 값은
 	//    결합 판정에서 Ident 해석 근거로 쓰고, 원천 리터럴 위치로 중복
 	//    보고를 뺀다.
 	consts := constStringTable(f)
@@ -238,7 +238,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 			slices[name] = si
 		}
 	}
-	// R10: 함수 지역 문자열 값을 consts 에 병합해 ②~⑤의 Ident 해석에
+	// 함수 지역 문자열 값을 consts 에 병합해 ②~⑤의 Ident 해석에
 	// 전파한다(지역값×fmt 인자·형식·Builder·Join 요소·return 조립 폐쇄).
 	for name, ci := range localStringTable(f, consts, flagged) {
 		if _, taken := consts[name]; !taken {
@@ -246,10 +246,10 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 	}
 	// ② 이어붙이기 조각 조립 — 개별 리터럴에는 동사가 없어도 + 로 합쳐
-	//    성립하는 쓰기 동사("UP"+"DATE …" 분할 우회)도 잡는다. R2-B 폐쇄:
+	//    성립하는 쓰기 동사("UP"+"DATE …" 분할 우회)도 잡는다. 폐쇄:
 	//    화이트리스트 면제는 단독 리터럴 판정(①)에만 적용 — 조립 결과
 	//    판정에는 면제 피연산자 본문도 parts에 포함한다("update"+
-	//    " knowledge …" 교차 우회 차단). R3 상수 접기: 피연산자 Ident가
+	//    " knowledge …" 교차 우회 차단). 상수 접기: 피연산자 Ident가
 	//    패키지 블록 const면 접힌 값이 조립에 참여한다(p+"ETE …" 형태
 	//    우회 차단). 이미 ①에서 보고된 피연산자(직접·const 원천 모두)가
 	//    섞인 조립은 건너뛴다(중복 보고 방지). 조립 결과 전체가 화이트
@@ -302,9 +302,9 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	})
 	// ③ fmt 결합 호출 — Sprintf는 형식 리터럴의 %s·%v 동사 위치에 인자를
 	//    대입한 결과에서만 성립하는 쓰기 동사(Sprintf("DEL%s…","ETE") 분할
-	//    우회)를 잡는다. R5 폐쇄: Sprint(피연산자 전부 문자열이면 무구분자
+	//    우회)를 잡는다. 폐쇄: Sprint(피연산자 전부 문자열이면 무구분자
 	//    결합 — 공란 근사)·Sprintln(공백 구분자)도 같은 결합 판정으로
-	//    확장한다(fmtCombined). R6 폐쇄: Errorf(Sprintf 동일 형식 대입)·
+	//    확장한다(fmtCombined). Errorf(Sprintf 동일 형식 대입)·
 	//    Fprintf(작성자 인자 제외 형식 대입)도 포함한다. 중첩 fmt 결합
 	//    인자는 depth 8까지 재귀 결합하고 그 외 비리터럴 인자·그 외 동사는
 	//    공란 대입(동사 경계를 결합 가능성으로 보수 판정). 면제 원칙은 ②와
@@ -325,7 +325,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	// ④ 슬라이스 결합(strings.Join·slices.Concat) — 슬라이스 요소를 합친
 	//    결과에서만 성립하는 쓰기 동사(strings.Join([]string{"DEL","ETE…"},
 	//    "") 분할 우회, R3)도 잡는다. 결합 본체는 sliceCombined(요소·구분
-	//    자 접기, R8 추출)이고 ④는 요소 수 ≥2의 보고 관문이다 — 1요소
+	//    자 접기)이고 ④는 요소 수 ≥2의 보고 관문이다 — 1요소
 	//    Join은 단독 결합이 없으므로 보고하지 않되, stringOperand 재귀에서
 	//    값으로는 접힌다(중첩 Join의 내부 무해 결합 폐쇄). 면제·중복 보고
 	//    원칙은 ②와 동일.
@@ -401,7 +401,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	// ⑥ 문자열 누적·블록 지역 값 결합 — 블록 문장 목록에서 같은 Ident에
 	//    이어지는 대입(=·:=) 종자와 += ·자기 참조 재할당(R7) 피연산자를
 	//    순서로 합친 결과에서만 성립하는 쓰기 동사(s := "DEL"; s +=
-	//    "ETE …" 분할 우회, R6)를 잡는다. R9 보강: 블록 지역 문자열 값
+	//    "ETE …" 분할 우회)를 잡는다. 블록 지역 문자열 값
 	//    테이블(locals)로 종자 `x := 접힘식`을 기록하고 `y := x`·
 	//    `y := x+lit`·`y += x` 치환을 전파한다(head+lit·복사 종자 += 폐쇄)
 	//    — 접힘 값 자체가 동사를 이루면 값 수준으로 보고한다. 스코프는
@@ -456,9 +456,9 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 			}
 			switch as.Tok {
 			case token.ASSIGN, token.DEFINE:
-				// R7: `s = s + 피연산자` 자기 참조 재할당은 += 와 동등한
+				// `s = s + 피연산자` 자기 참조 재할당은 += 와 동등한
 				// 누적으로 체인을 잇는다(자기 참조 원천은 결합에 기여하지
-				// 않는다 — 체인 종자가 이미 그 값을 담는다). R9: 피연산자는
+				// 않는다 — 체인 종자가 이미 그 값을 담는다). 피연산자는
 				// locals 치환으로 접고, 접힌 값은 locals 에 반영한다.
 				if rest, self := splitSelfAdd(as.Rhs[0], id.Name); self {
 					var vals []string
@@ -507,7 +507,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 				}
 				flush(chain[id.Name])
 				delete(chain, id.Name)
-				// R9: 종자 접기 — 값을 테이블에 기록하고 값 수준 결합을
+				// 종자 접기 — 값을 테이블에 기록하고 값 수준 결합을
 				// 판정한다. 접히지 않으면 값 추적을 끊는다(보수).
 				if val, lits, ok := foldLocalExpr(as.Rhs[0], locals, consts, flagged); ok {
 					reportValue(as.Pos(), val, lits)
@@ -532,7 +532,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 					chain[id.Name] = c
 					order = append(order, c)
 				}
-				// R9: 누적 피연산자가 locals 로 접히면 값·체인 모두에
+				// 누적 피연산자가 locals 로 접히면 값·체인 모두에
 				// 반영한다(복사 종자 += 전파).
 				if val, lits, ok := foldLocalExpr(as.Rhs[0], locals, consts, flagged); ok {
 					c.parts = append(c.parts, val)
@@ -561,8 +561,8 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	return violations
 }
 
-// sprintfCombined — Sprintf(형식, 인자…)의 정적 결합 문자열(R2-B 동사
-// 분할·R3 중첩 Sprintf 판정). %s·%v에는 stringOperand로 접은 인자 값을
+// sprintfCombined — Sprintf(형식, 인자…)의 정적 결합 문자열(동사
+// 분할·중첩 Sprintf 판정). %s·%v에는 stringOperand로 접은 인자 값을
 // 순서대로 대입하고, 그 외 동사·비접힘 인자는 공란을 대입한다(플래그·
 // 폭·정밀도는 건너뛴다). 공란 대입은 인접 글자가 런타임에 결합되는
 // 가능성까지 보수적으로 잡는다 — 판정 전용 근사이며 실제 포맷 출력과의
@@ -633,11 +633,11 @@ func stringOperand(e ast.Expr, consts map[string]constInfo, slices map[string]sl
 			return ci.val
 		}
 	case *ast.CallExpr:
-		if depth < 8 { // v1.0.3(R4): 2단계 이상 중첩 Sprintf 우회 폐쇄
+		if depth < 8 { // 2단계 이상 중첩 Sprintf 우회 폐쇄
 			if combined, ok := fmtCombined(v, consts, slices, flagged, depth+1); ok {
 				return combined
 			}
-			// R8: 중첩 Join/Concat — 내부 결합이 무해해도 외부 판정의
+			// 중첩 Join/Concat — 내부 결합이 무해해도 외부 판정의
 			// 피연산자 값으로 접힌다(공란 대입 우회 폐쇄).
 			if joined, _, _, ok := sliceCombined(v, consts, slices, flagged, depth+1); ok {
 				return joined
@@ -650,7 +650,7 @@ func stringOperand(e ast.Expr, consts map[string]constInfo, slices map[string]sl
 // fmtCombined — fmt 결합 호출의 정적 결합 근사. Sprintf·Errorf는 형식
 // 리터럴의 %s·%v에 인자를 대입하고(Fprintf는 작성자(writer) 인자를 제외,
 // R6), Sprint는 피연산자를 무구분자로, Sprintln은 공백 구분자로 이어붙인다
-// (R5: Sprint·Sprintln 확장). 결합 가능한 호출이면 (결합 문자열, true),
+// (Sprint·Sprintln 확장). 결합 가능한 호출이면 (결합 문자열, true),
 // 아니면 ("", false) — 비문자열 형식·Sprint/Sprintln 피연산자 1개(새 결합
 // 불가)·원천 이미 보고는 false다.
 func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) (string, bool) {
@@ -659,7 +659,7 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 		return "", false
 	}
 	switch sel.Sel.Name {
-	case "Sprintf", "Errorf": // R6: Errorf는 Sprintf와 동일 형식 대입 결합
+	case "Sprintf", "Errorf": // Errorf는 Sprintf와 동일 형식 대입 결합
 		if len(call.Args) == 0 {
 			return "", false
 		}
@@ -668,7 +668,7 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 			return "", false
 		}
 		return sprintfCombined(format, call.Args[1:], consts, slices, flagged, depth), true
-	case "Fprintf": // R6: args[0]은 작성자(writer) — 결합에서 제외
+	case "Fprintf": // args[0]은 작성자(writer) — 결합에서 제외
 		if len(call.Args) < 2 {
 			return "", false
 		}
@@ -695,7 +695,7 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 }
 
 // sliceCombined — Join/Concat 호출의 정적 결합 근사(④ 판정 본체·
-// stringOperand 재귀 공유, R8 추출). Join은 구분자(리터럴 본문, 비리터럴
+// stringOperand 재귀 공유). Join은 구분자(리터럴 본문, 비리터럴
 // 공란 근사)로 첫 인자 요소를, Concat은 무구분자로 전 인자 요소를 잇는다.
 // 슬라이스 인자는 슬라이스 리터럴([]string{…}) 또는 패키지 블록 var
 // 슬라이스 테이블의 Ident여야 하고, 요소는 combineParts로 접는다(리터럴·
@@ -752,9 +752,9 @@ func sliceCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[s
 }
 
 // formatOperand — fmt 결합 호출의 형식 피연산자 접기: 문자열 리터럴은
-// 본문, 이어붙이기(+ ) 식은 ②와 동일한 조립 접기(foldAddString — R7:
+// 본문, 이어붙이기(+ ) 식은 ②와 동일한 조립 접기(foldAddString —
 // Errorf("DEL"+"%s…")·Fprintf(w,"%s"+"ETE…") 형태 폐쇄), 패키지 블록
-// const Ident는 접힌 값(R8: Errorf(constFmt, …) 형태 폐쇄 — foldAddString
+// const Ident는 접힌 값(Errorf(constFmt, …) 형태 폐쇄 — foldAddString
 // 과 동일 패턴), 그 외는 실패. marked는 형식 원천 리터럴 위치(원천이 이미
 // 보고됐으면 실패).
 func formatOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool) (string, []token.Pos, bool) {
@@ -850,7 +850,7 @@ type constInfo struct {
 }
 
 // constStringTable — 파일 패키지 블록의 const 선언을 스캔해 문자열로
-// 접히는 이름의 테이블(R3 상수 접기). 값은 문자열 리터럴·이어붙이기
+// 접히는 이름의 테이블(상수 접기). 값은 문자열 리터럴·이어붙이기
 // (+ )·이미 접힌 다른 const Ident 참조까지 정의 순서와 무관하게 반복
 // 접기한다(사이클·비문자열·다중 이름 사양은 등록하지 않는다).
 func constStringTable(f *ast.File) map[string]constInfo {
@@ -929,7 +929,7 @@ type sliceInfo struct {
 	lits []token.Pos
 }
 
-// localInfo — 블록 지역 문자열 값 하나와 그 원천 리터럴 위치들(R9 값
+// localInfo — 블록 지역 문자열 값 하나와 그 원천 리터럴 위치들(값
 // 테이블 — 종자 기록·치환 전파·중복 보고 방지에 사용).
 type localInfo struct {
 	val  string
@@ -975,7 +975,7 @@ func foldLocalExpr(e ast.Expr, locals map[string]localInfo, consts map[string]co
 }
 
 // varStringSliceTable — 파일 패키지 블록의 var 선언 중 []string 리터럴
-// 슬라이스를 접은 테이블(R5 슬라이스 접기). 요소 전부가 문자열로 접히는
+// 슬라이스를 접은 테이블(슬라이스 접기). 요소 전부가 문자열로 접히는
 // 경우(리터럴·constStringTable의 const Ident)만 등록한다 — 하나라도
 // 비접힘이면 그 이름 자체를 등록하지 않는다(공란 오인 방지).
 func varStringSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceInfo {
@@ -1027,7 +1027,7 @@ func foldSliceElements(elts []ast.Expr, consts map[string]constInfo) ([]string, 
 }
 
 // localSliceTable — 함수 지역 슬라이스 리터럴(`parts := []string{…}`·함수
-// 내 var)을 접은 테이블(R9 — 지역 슬라이스 Join 폐쇄). 같은 이름이 파일
+// 내 var)을 접은 테이블(지역 슬라이스 Join 폐쇄). 같은 이름이 파일
 // 내 여러 번 대입되면(스코프별 재사용·재할당) 그 이름은 등록하지 않는다 —
 // 이름 충돌로 타 블록 Join 이 잘못 결합되는 오탐을 원천 차단한다(보수
 // 누락 허용).
@@ -1082,7 +1082,7 @@ func localSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceI
 }
 
 // localStringTable — 함수 지역 문자열 값 대입(`x := "lit"`·`x := "a"+
-// "b"`·`x := constIdent`)을 접은 파일 단위 테이블(R10 — ②~⑤ Ident 해석
+// "b"·`x := constIdent`)을 접은 파일 단위 테이블(②~⑤ Ident 해석
 // 전파). localSliceTable 과 동일 패턴: 같은 이름이 여러 번 대입되면(스코프
 // 재사용·재할당·누적) 등록에서 제외해 타 스코프 값의 잘못된 결합 오탐을
 // 원천 차단한다(보수 누락 허용). 접기에 실패하는 대입(함수 호출 결과 등)도
@@ -1119,7 +1119,7 @@ func localStringTable(f *ast.File, consts map[string]constInfo, flagged map[toke
 }
 
 // splitSelfAdd — 이어붙이기(+ ) 재할당 식에서 피할당 Ident(name)의 자기
-// 참조 등장을 걷어낸 나머지 피연산자 목록(R7: `s = s + 피연산자`의 누적
+// 참조 등장을 걷어낸 나머지 피연산자 목록(`s = s + 피연산자`의 누적
 // 분해). 식에 name이 없으면 (nil, false) — 일반 대입 종자로 판정한다.
 func splitSelfAdd(e ast.Expr, name string) ([]ast.Expr, bool) {
 	found := false
@@ -1174,11 +1174,10 @@ func writeStringStmt(s ast.Stmt) (string, *ast.CallExpr, bool) {
 	return recv.Name, call, true
 }
 
-// TestWriteGuardBlocksBypasses — v0.41.0 리뷰·v1.0.1 R1-D·v1.0.2 R2·
-// v1.0.3 R3 회귀: 실증된 우회 기법 전수(별칭·변수 조립·다중문 리터럴·
-// Sprintf 인자·동사 분할 조립·면제 리터럴 조립·Sprintf 동사 분할·중첩
-// Sprintf·const 테이블 조립·strings.Join 결합)이 가드에 잡히는지 합성
-// 소스로 단언(구멍 폐쇄의 영구화).
+// TestWriteGuardBlocksBypasses — 실증된 우회 기법 전수 회귀(별칭·변수
+// 조립·다중문 리터럴·Sprintf 인자·동사 분할 조립·면제 리터럴 조립·
+// Sprintf 동사 분할·중첩 Sprintf·const 테이블 조립·strings.Join 결합)이
+// 가드에 잡히는지 합성 소스로 단언(구멍 폐쇄의 영구화).
 func TestWriteGuardBlocksBypasses(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -1558,7 +1557,7 @@ func f() string { return "fix: flint up" + "date" }`,
 	}
 }
 
-// TestWriteGuardScansSubdirectories — R1-D 회귀: 가드 루트 하위 디렉터리의
+// TestWriteGuardScansSubdirectories — 가드 루트 하위 디렉터리의
 // 비테스트 .go 파일도 순회 대상이다(비재규 ReadDir은 하위 디렉터리를
 // 통째로 못 보았다).
 func TestWriteGuardScansSubdirectories(t *testing.T) {

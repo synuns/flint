@@ -1,8 +1,7 @@
-// sessionlabel_v102_test.go — v1.0.2 R2 수정 라운드(훅·세션 라벨 클러스터)
-// 회귀: R2-A2 세션별 라벨 파일 분리(병렬 경합·만료 정리·레거시 무시
-// — v1.1.0 T2 폴백 제거),
-// R2-B1 무효 라벨 검증의 기록 앞 이동, R2-B2 훅 진입점 무효 인자 조용함,
-// R2-C3 hooks.json·doctor jq 폴백 정합(empty — 무효=부재 취급과 동일 방향).
+// sessionlabel_v102_test.go — 훅·세션 라벨 클러스터
+// 회귀: 세션별 라벨 파일 분리(병렬 경합·만료 정리·레거시 무시),
+// 무효 라벨 검증의 기록 앞 이동, 훅 진입점 무효 인자 조용함,
+// hooks.json·doctor jq 폴백 정합(empty — 무효=부재 취급과 동일 방향).
 package ops
 
 import (
@@ -59,7 +58,7 @@ func quietLabelStore() *labelRecorder {
 	}}}
 }
 
-// TestSessionStartInvalidLabelSilent — R2-B1·B2: 무효 라벨(`--session
+// TestSessionStartInvalidLabelSilent — 무효 라벨(`--session
 // --json` 플래그 흡수·trailing --session) 훅 진입은 (1) exit 3·stdout
 // 오류 없음(비간섭 §3 — SessionStart stdout은 주입 경로), (2) 무효 값이
 // 세션 경계·라벨 파일에 기록되지 않음(부재 취급), (3) read 자동 채택
@@ -95,7 +94,7 @@ func TestSessionStartInvalidLabelSilent(t *testing.T) {
 	}
 }
 
-// TestSessionEndInvalidLabelSilent — R2-B2·A2: session-end의 무효 라벨도
+// TestSessionEndInvalidLabelSilent — session-end의 무효 라벨도
 // 부재 취급(exit 3·검증 오류 없이 done의 기존 부재 경로) + 이 세션이
 // 아닌 병렬 세션의 라벨 파일은 보존(제거 경합 폐쇄).
 func TestSessionEndInvalidLabelSilent(t *testing.T) {
@@ -106,7 +105,7 @@ func TestSessionEndInvalidLabelSilent(t *testing.T) {
 	st := quietLabelStore()
 	var out strings.Builder
 	code := RunSessionEnd(context.Background(), st, []string{"--session", "-x"}, strings.NewReader(""), &out)
-	// v1.5.3 T1: done 사용법 오류(부재 경로) exit 0→3 갱신 — 무효 라벨이
+	// done 사용법 오류(부재 경로) exit 0→3 갱신 — 무효 라벨이
 	// 여전히 '검증 에러'가 아닌 부재 경로를 탄다는 게 이 테스트의 단언.
 	if code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
@@ -119,7 +118,7 @@ func TestSessionEndInvalidLabelSilent(t *testing.T) {
 	}
 }
 
-// TestSessionLabelParallelSeparation — R2-A2: 병렬 2세션의 라벨이 독립
+// TestSessionLabelParallelSeparation — 병렬 2세션의 라벨이 독립
 // 파일로 분리(덮어쓰기 경합 폐쇄) + 한 세션 종료가 다른 세션 라벨을
 // 보존(제거 경합 폐쇄). 구 단일 공유 파일이라면 sess-b 기록이 sess-a를
 // 파괴하고 session-end가 전부를 지웠다.
@@ -143,7 +142,7 @@ func TestSessionLabelParallelSeparation(t *testing.T) {
 	}
 }
 
-// TestSessionLabelLegacyIgnored — v1.1.0 T2: 구 session-current 잔존
+// TestSessionLabelLegacyIgnored — 구 session-current 잔존
 // 파일은 읽지도·청산하지도 않는다(사용자 디스크 — 미삭제 원칙). 세션별
 // 파일 없이 부재 취급, ClearSessionLabel은 자기 세션 파일만 제거.
 func TestSessionLabelLegacyIgnored(t *testing.T) {
@@ -168,7 +167,7 @@ func TestSessionLabelLegacyIgnored(t *testing.T) {
 	}
 }
 
-// TestSessionStartPrunesExpiredLabels — R2-A2 만료 정리: session-end를 못
+// TestSessionStartPrunesExpiredLabels — 만료 정리: session-end를 못
 // 만난 잔존 라벨 파일이 새 세션 시작 시 정리된다(창 = events_retention_days
 // 기본 14일 — 라벨이 가리키는 read_events 행의 보존 창과 정렬).
 func TestSessionStartPrunesExpiredLabels(t *testing.T) {
@@ -196,7 +195,7 @@ func TestSessionStartPrunesExpiredLabels(t *testing.T) {
 	}
 }
 
-// TestHooksJsonSessionFallbackEmpty — R2-C3: 플러그인 폴백 hooks.json과
+// TestHooksJsonSessionFallbackEmpty — 플러그인 폴백 hooks.json과
 // doctor가 설치하는 훅(flintHookDefs)의 session-start·session-end jq 폴백은
 // empty — session_id 부재 시 빈 라벨을 흘려보내지 않는다(진입점의
 // 무효=부재 취급과 동일 방향, 양측 동일 패턴).

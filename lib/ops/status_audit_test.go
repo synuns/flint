@@ -1,12 +1,12 @@
-// status_audit_test.go — 감사 F1(v1.0.1 round1) 회귀 2건.
+// status_audit_test.go — 회귀 2건.
 // ① schema_version 허용 범위는 db.LatestSchemaVersion 파생 — 하드코딩
 //
 //	목록("1"~"8")은 v9 DB를 exit 3으로 오판했다. 가드 승격: 파생 비교
 //	동작 + 소스 스캔(문자열 리터럴 버전 비교 재발 시 FAIL).
 //
-// ② --as-of 카운트 질의 접합 전 asOfHashRe 문자셋 재검증(v0.28.0 H③
+// ② --as-of 카운트 질의 접합 전 asOfHashRe 문자셋 재검증(read --as-of와
 //
-//	승계 — read --as-of와 동일 규칙): 오염 해시(작은따옴표 포함)는
+//	동일 규칙): 오염 해시(작은따옴표 포함)는
 //	거부되고 질의에 접합되지 않는다.
 package ops
 

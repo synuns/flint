@@ -1,4 +1,4 @@
-// supply_test.go — v0.40.0 T3 Review Focus: ops 3탄 이동(report·report_html·
+// supply_test.go — ops 이동분(report·report_html·
 // backup·sigverify·rules_sync)의 행위 불변. report 효과 지표 산출 불변·
 // backup 3층 방어(0600 강제·사이드카·로테이션)·restore 가드(체크섬·사이드카·
 // 마스킹)·sigverify 임베드 키 계약·dumpStore 위임(realstore_supply 경로)을
@@ -258,7 +258,7 @@ func (d *dumpDelegFake) Dump(ctx context.Context, w io.Writer) error {
 	return err
 }
 
-// TestSupplyDumpDelegation — v0.34.3 R14: 주입 st가 Dump를 구현하면
+// TestSupplyDumpDelegation — 주입 st가 Dump를 구현하면
 // dumpFn seam 폴백이 아니라 위임 경로가 우선한다(realstore_supply 소유).
 func TestSupplyDumpDelegation(t *testing.T) {
 	withBackupSeams(t, "SEAM-FALLBACK-NEVER", nil, nil)

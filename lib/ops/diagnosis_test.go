@@ -1,4 +1,4 @@
-// diagnosis_test.go — v1.2.0 T5 규칙 진단 D 회귀(Review Focus):
+// diagnosis_test.go — 규칙 진단 D 회귀:
 // TestDiagnoseRules(규칙 8항목 트리거/비트리거·정상 침묵·미설정 키 폴백)·
 // TestDiagnosisSentenceContract(문장 계약 — 신호+수치+기준 출처+행동)·
 // TestDiagnosisReportExposure(세 뷰 동일 원천 — report JSON 배열·HTML 카드

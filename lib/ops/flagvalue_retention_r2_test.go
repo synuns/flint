@@ -1,7 +1,7 @@
-// flagvalue_retention_r2_test.go — v1.0.2 R2 인자 검증 회귀 2종.
+// flagvalue_retention_r2_test.go — 인자 검증 회귀 2종.
 // (1) 값형 플래그가 뒤 플래그를 흡수하는 오타('--out --encrypt' → 경로
 // "--encrypt")는 knowledge.ValidateFlagValue 공용 가드로 exit 3 — read
-// --session 계약(v1.0.1 F3)과 대칭. (2) report 기본 --days 7도 보존창
+// --session 계약과 대칭. (2) report 기본 --days 7도 보존창
 // 상한(daily_retention_days) clamp — 오버라이드 <7일 환경의 빈 일자 행 방지.
 package ops
 
@@ -153,7 +153,7 @@ func TestReportDefaultDaysClampedToRetention(t *testing.T) {
 	}
 }
 
-// TestReportHTMLDefaultDaysClampedToRetention — R2 리뷰: 기본 days clamp는
+// TestReportHTMLDefaultDaysClampedToRetention — 기본 days clamp는
 // HTML 단독 경로(report --html 무인자)에도 동일 적용 — 수정 전에는 th
 // 미로드 스킵으로 retention 3 환경의 HTML 대시보드에만 빈 일자 타일 4개가
 // 남았다(JSON 경로와의 비대칭).

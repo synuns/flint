@@ -1,4 +1,4 @@
-// report_html_exit_test.go — v1.2.3 R17 C2: report --html exit 코드 정합.
+// report_html_exit_test.go — report --html exit 코드 정합.
 // 병인: runReportHTML 수집 경로가 Ping 실패·전 수집 스텝 오류를
 // 하드코딩 1로 반환 — JSON 경로(RunReport)는 store.MapExit(
 // server_down→2·SchemaError→3)로 같은 커맨드의 두 뷰가 같은 실패에

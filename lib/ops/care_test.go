@@ -1,4 +1,4 @@
-// care_test.go — v0.40.0 T2(ops 2탄) 이동분 행위 검증: maintain·nudge·
+// care_test.go — 행위 검증: maintain·nudge·
 // session-start·session-end 등록(ops.go init)·WriteTypedMarker 종류 분리
 // (knowledge seam 호환)·expire-pending dry-run·supersede 후견사(경합
 // 미반영 감지). fakeStore는 doctor_test.go 관례(동반 이동분)를 재사용한다.
@@ -18,14 +18,14 @@ import (
 )
 
 // fakeMaintStore — fakeStore + MaintStore 갱신 메서드(조회는 queryFn 경유).
-// v0.41.0 T2: 전이 갱신은 Repo 위임 메서드(Invalidate 배치·Supersede).
+// 전이 갱신은 Repo 위임 메서드(Invalidate 배치·Supersede).
 type fakeMaintStore struct {
 	*fakeStore
 	invalidatedIDs [][]int
 	merged         [][2]int
 	supersedeErr   error
 	superseded     [][2]int
-	prunedAt       []time.Time // v0.41.0 T3: PruneInvalidated 위임 캡처
+	prunedAt       []time.Time // PruneInvalidated 위임 캡처
 }
 
 func (f *fakeMaintStore) Counts(ctx context.Context) (db.Counts, error) {
@@ -50,7 +50,7 @@ func (f *fakeMaintStore) Merge(ctx context.Context, fromID, toID int) error {
 	return nil
 }
 
-// PruneInvalidated — v0.41.0 T3: Repo 위임 메서드 캡처(반환 = 대상 2행
+// PruneInvalidated — Repo 위임 메서드 캡처(반환 = 대상 2행
 // 관례 — maintain_v0330 prune 계약과 동일).
 func (f *fakeMaintStore) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
 	f.prunedAt = append(f.prunedAt, before)
@@ -138,7 +138,7 @@ func TestMaintainExpirePendingDryRun(t *testing.T) {
 
 // TestMaintainSupersedeGuardian — 후견사: 갱신 미반영(경합 — Supersede 0행)은
 // 무음 성공이 아니라 에러로 종결(재시도 후에도 미반영이면 실패 exit).
-// v0.41.0 T2: 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 여기선
+// 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 여기선
 // 위임이 ErrNotFound 랩 오류를 돌려주는 것으로 시뮬레이션한다.
 func TestMaintainSupersedeGuardian(t *testing.T) {
 	shortRetry(t)

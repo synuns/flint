@@ -1,4 +1,4 @@
-// maintain_test.go — v1.6.1 T3(B3·B4): maintain 소형 계약. ① TUI 로더가
+// maintain_test.go — maintain 소형 계약. ① TUI 로더가
 // 보고 3종에 명시하는 --limit 500 호출 패턴이 모드 귀속 검증을 통과하고
 // 저장소 조회에 상한이 그대로 반영된다(잘림 무표시 폐지의 ops측 절반 —
 // TUI측 인자 조립은 ops.MaintainTUILoadLimit 단일 소스). ② usage 라인이
@@ -93,9 +93,9 @@ func TestMaintainUsageLineMentionsTUI(t *testing.T) {
 	}
 }
 
-// ── v1.7.0 T2: decay 감쇠 산식·--decay-audit(회상 강화 회귀는 knowledge 패키지) ──
+// ── decay 감쇠 산식·--decay-audit(회상 강화 회귀는 knowledge 패키지) ──
 
-// TestEffectiveRecallScoreBoundaries — Review Focus(v1.7.0 T2): 감쇠 산식
+// TestEffectiveRecallScoreBoundaries — 감쇠 산식
 // 경계 — 1일(선형 -1)·100일(하한 0)·미회상(score 유지)·rate 오버라이드.
 func TestEffectiveRecallScoreBoundaries(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
@@ -148,7 +148,7 @@ type decayAuditJSON struct {
 	} `json:"items"`
 }
 
-// TestMaintainDecayAuditList — Review Focus(v1.7.0 T2): 감쇠 후보 목록 —
+// TestMaintainDecayAuditList — 감쇠 후보 목록 —
 // 감쇠 진행 행만 나열(미회상·0일 제외)·기본 decay_rate=1·archive_below=0
 // (비활성 — recommend 전원 공란).
 func TestMaintainDecayAuditList(t *testing.T) {

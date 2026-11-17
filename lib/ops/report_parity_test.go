@@ -1,4 +1,4 @@
-// report_parity_test.go — v0.42.0 T2 Review Focus: read_stats blob 폐지
+// report_parity_test.go — read_stats blob 폐지
 // 전환의 지표 동등성. 같은 픽스처(read 10회 중 zero 3·near 1·폴백 경유 2)에서
 // 기존 blob 경로 산식(누적 read_stats calls·daily 카운터 합산·구 fallback_pct
 // 정의)으로 계산한 기준선과 파생 경로(read_events·daily 병합 산출)의 report·
@@ -44,12 +44,12 @@ func parityFake(n int, zeroN, nearN, fbN int) *fakeStore {
 	}}
 }
 
-// TestEffectParity — Review Focus: 픽스처 read 10회 중 zero 3·near 1에서
+// TestEffectParity — 픽스처 read 10회 중 zero 3·near 1에서
 // blob 경로 기준선(구 산식) == 파생 경로 report 출력.
 func TestEffectParity(t *testing.T) {
 	const reads, zeros, nears, fallbacks = 10, 3, 1, 2
 	// ── 전환 전 기준선 스냅숏(구 blob 경로 산식) ──
-	// zero_pct·zero_near_pct: daily 합산 버림 정수%(v0.15.0 R2).
+	// zero_pct·zero_near_pct: daily 합산 버림 정수%.
 	legacyZeroPct := ReadZeroPct(reads, zeros)
 	legacyNearPct := ReadZeroPct(reads, nears)
 	// effect hit·near: 동일 합산에서 유도.

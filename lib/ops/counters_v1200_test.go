@@ -1,4 +1,4 @@
-// counters_v1200_test.go — v1.2.0 T4 Review Focus: 검수(curation) 카운터
+// counters_v1200_test.go — 검수(curation) 카운터
 // (maintain supersede 성공·expire-pending 확정 행수·prune 삭제 행수 daily
 // 플랫 키 증분 — dry-run 미계상)·발화(fired) 카운터(nudge distill·recall·
 // sessionhook 갱신 안내 update 3종·doctor warn 종류별 fired_doctor_<check>

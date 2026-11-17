@@ -1,9 +1,8 @@
-// report.go — T65 `flint report`: N일(기본 7·상한 14) 적립·유지보수 리포트를
+// report.go — `flint report`: N일(기본 7·상한 14) 적립·유지보수 리포트를
 // 한 줄 JSON으로 보고한다. 유지보수 경로(오프라인 CLI)라 핫패스 비간섭(§2).
 // 데이터는 전부 wire.Store.Query로 읽는다 — meta daily:*·hot_stats와
 // knowledge 집계(counts·stale·기간 무효화). 키 부재는 0, 파손 JSON은 스킵.
-// v0.40.0 T3: lib/cli에서 이동(식별자 대문자화 — 동작·출력·exit 불변).
-// v0.42.0 T2: read_stats blob 폐지 — 일별 read·zero·near는 daily:* 잔존값에
+// read_stats blob 폐지 — 일별 read·zero·near는 daily:* 잔존값에
 // read_events 파생값을 병합(mergeDerivedReadDaily), fallback_pct는 read_events
 // 창 집계로 산출(CollectEffect). 지표 산출 값은 전환 전과 동등(동등성 테스트).
 package ops
@@ -26,14 +25,11 @@ import (
 )
 
 // reportDaysDefault — --days 기본 7. 상한은 보존 창(thresholds
-// daily_retention_days, v0.24.0 R1b — 상수 reportDaysMax 폐지).
+// daily_retention_days).
 const reportDaysDefault = 7
 
-// (v0.24.0 R1a: reportStaleDays 상수 폐지 — thresholds stale_days
-// 키와 단일화, 오버라이드가 report 집계에도 반영된다.)
-
 // ReportDay — 일별 유입 1행. 소스(hook/manual/mcp)와 dup는 write와 별도 증분.
-// dup_* 3필드는 v0.10.2 R2 소스별 계측(미기록 일 0 — daily JSON 키 부재는
+// dup_* 3필드는 소스별 계측(미기록 일 0 — daily JSON 키 부재는
 // zero 값으로 디코딩).
 type ReportDay struct {
 	Date      string `json:"date"`
@@ -47,11 +43,11 @@ type ReportDay struct {
 	DupMcp    int    `json:"dup_mcp"`
 	Hot       int    `json:"hot"`
 	Read      int    `json:"read"`
-	// v0.15.0 R2 zero 지표 기간화 — 일별 zero·근접 카운트(미기록 일은
+	// 일별 zero·근접 카운트(미기록 일은
 	// zero 값으로 디코딩, 구버전 daily JSON 호환).
 	ReadZero int `json:"read_zero"`
 	ReadNear int `json:"read_zero_near"`
-	// v1.1.0 G5 바이트 계측 — brief 호출 수(v0.34.1 카운터 디코딩)와
+	// G5 바이트 계측 — brief 호출 수(카운터 디코딩)와
 	// 세 표면 출력 바이트(미기록 일은 0으로 디코딩, 구 daily JSON 호환).
 	Brief      int `json:"brief"`
 	ReadBytes  int `json:"read_bytes"`
@@ -74,22 +70,22 @@ type ReportOutput struct {
 		NeverRead int `json:"never_read"`
 	} `json:"stale"`
 	InvalidatedPeriod int `json:"invalidated_period"`
-	// v0.9.7 R4 관측 지표 — 기존 필드·순서 계약(status 리플렉션 테스트 관례)을
+	// 관측 지표 — 기존 필드·순서 계약(status 리플렉션 테스트 관례)을
 	// 지키기 위해 말미에만 추가한다.
 	DupPct      int `json:"dup_pct"`
 	FallbackPct int `json:"fallback_pct"`
-	// v0.10.2 R2 소스별 dup 기간 합계 — 기존 필드·순서 불변, 말미 추가.
+	// 소스별 dup 기간 합계 — 기존 필드·순서 불변, 말미 추가.
 	DupHook   int `json:"dup_hook"`
 	DupManual int `json:"dup_manual"`
-	// v0.14.0 R3 zero_near 비율 — 기존 필드·순서 불변, 말미 추가.
+	// zero_near 비율 — 기존 필드·순서 불변, 말미 추가.
 	ZeroNearPct int `json:"zero_near_pct"`
-	// v0.19.0 효과 계측 섹션(docs/METRICS.md §4 정의의 단일 산출 소스).
+	// 효과 계측 섹션(docs/METRICS.md §4 정의의 단일 산출 소스).
 	// 기존 필드·순서 불변, 말미 추가.
 	Effect EffectOutput `json:"effect"`
-	// v1.2.0 T3 — 검수 결과 카운터 기간 합계(spec §2.4 curation 객체).
-	// T4가 daily:<kind>:<date> 플랫 키로 기록하고 report가 창 합산 노출.
+	// 검수 결과 카운터 기간 합계(spec §2.4 curation 객체).
+	// daily:<kind>:<date> 플랫 키로 기록하고 report가 창 합산 노출.
 	Curation CurationCounters `json:"curation"`
-	// v1.2.0 T5 — 규칙 진단 D(spec §3). 단일 데이터 모델: text(Sentence)·
+	// 규칙 진단 D(spec §3). 단일 데이터 모델: text(Sentence)·
 	// --json(이 배열)·--html(카드) 세 뷰가 전부 이 필드에서 렌더된다
 	// (뷰 간 데이터 분열 금지 — 사용자 원칙). 정상 침묵: 빈 배열.
 	Diagnosis []DiagnosisItem `json:"diagnosis"`
@@ -124,21 +120,21 @@ type EffectOutput struct {
 	ReadEventsN    int `json:"read_events_n"`    // G4 분모: 창 내 read 이벤트
 	ReadWritePairs int `json:"read_write_pairs"` // G4: 같은 세션 read 뒤 30분 내 write
 	PairPct        int `json:"pair_pct"`         // G4: pairs/read_events_n
-	// v0.20.0 — 세션 경계(D)·사용 연쇄(B).
+	// 세션 경계(D)·사용 연쇄(B).
 	RecallLedPct int `json:"recall_led_pct"` // G4: 기록한 세션 중 회상이 앞선 비율
 	ChainPct     int `json:"chain_pct"`      // G4: 반환→사용 연쇄율(24h)
-	// v0.24.0 R4b: 프로파일 관측 힌트(D① 축소형) — 표본 하한 미달이면
+	// 프로파일 관측 힌트(D① 축소형) — 표본 하한 미달이면
 	// "보류"(관측 선행 원칙 — 추측 금지, METRICS §5 준수: 보고 전용).
 	ProfileHint string `json:"profile_hint"`
-	// v0.30.0 R2 — hit 품질 근사(first_rank 기반, 폴백 제외).
+	// hit 품질 근사(first_rank 기반, 폴백 제외).
 	ExactPct int     `json:"exact_pct"` // 첫 topic 정합 반환율(정확일치 회수)
 	Top1Pct  int     `json:"top1_pct"`  // 정합 1위율(정합 있는 read 중)
 	MRR      float64 `json:"mrr"`       // 평균 역순위(정합 있는 read 중, 0~1)
-	// v0.30.0 R1 — 7일 창 전후 추세(단면→추세, read_events 단일 표).
+	// 7일 창 전후 추세(단면→추세, read_events 단일 표).
 	Trend *TrendOutput `json:"trend,omitempty"`
-	// v1.1.0 G5 최소 주입 — 세 표면 출력 바이트(daily 카운터 합산).
+	// G5 최소 주입 — 세 표면 출력 바이트(daily 카운터 합산).
 	Bytes EffectBytes `json:"bytes"`
-	// v1.2.0 T3 — 제로히트 분해(spec §2.2)·회상 운명(§2.6)·hot→read 연쇄
+	// 제로히트 분해(spec §2.2)·회상 운명(§2.6)·hot→read 연쇄
 	// (§2.1)·토큰 회계 cost(§2.3). additive 말미 추가.
 	ZeroUnownedPct   int        `json:"zero_unowned_pct"`    // zero 중 unowned 비율(분모=창 내 read)
 	ZeroOwnedMissPct int        `json:"zero_owned_miss_pct"` // zero 중 owned_miss 비율(동일 분모)
@@ -222,7 +218,7 @@ type TrendPoint struct {
 	Delta int `json:"delta"`
 }
 
-// v0.20.4(패치 루프 4차·마일스톤 B③): 효과 계측 판정 창은 thresholds
+// 효과 계측 판정 창은 thresholds
 // 레지스트리(meta 오버라이드)로 이양 — 기본값 단일 소스는
 // store.DefaultThresholds(dead_days 30·pair_window_minutes 30·
 // chain_window_hours 24, TUNING §2).
@@ -232,7 +228,7 @@ type TrendPoint struct {
 // 세션에 속한 이벤트는 미배정 — 폴백 페어링(보수적).
 const reportSessionLookback = 24 * time.Hour
 
-// (v0.40.0 T3: cli별칭 DailyRow=ReportDay는 이동 폐기 — ops에는 status.go
+// (cli별칭 DailyRow=ReportDay는 폐기 — ops에는 status.go
 // DailyRow(WindowedDailyFn seam 전달형)가 선행 존재한다. cli 잔여 소비자는
 // cli/ops_alias_3.go가 ReportDay 별칭으로 잇는다.)
 
@@ -266,13 +262,13 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
-	// 불허). 값 검증은 발생 순(AllOccs)으로 재현 — 기존 인카운터 순서
+	// 위치 인자 불허(wire.ParseArgs 사양 테이블).
+	// 값 검증은 발생 순(AllOccs)으로 재현 — 기존 인카운터 순서
 	// 오류 우선 그대로.
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
-			{Name: "--html"}, // v0.36.0(E): 정적 단일 파일 대시보드
-			{Name: "--text"}, // v1.2.3 R17 C3: 사람 읽기 text 뷰(기본 한 줄 JSON 불변)
+			{Name: "--html"}, // 정적 단일 파일 대시보드
+			{Name: "--text"}, // 사람 읽기 text 뷰(기본 한 줄 JSON 불변)
 			{Name: "--out", Value: true},
 			{Name: "--days", Value: true},
 		},
@@ -294,7 +290,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --out requires a path — usage: flint report [--days N] [--html] [--out FILE] [--text]")))
 				return 3
 			}
-			// v1.0.2(R2): 값이 플래그를 흡수하는 오타 가드(backup --out과
+			// 값이 플래그를 흡수하는 오타 가드(backup --out과
 			// 동일 계약). --days 값은 Atoi 실패가 이미 exit 3을 낸다.
 			if err := knowledge.ValidateFlagValue("out", o.Value); err != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -320,19 +316,19 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	// F6(성능): thresholds는 커맨드 스코프 1회 로드 — --days 상한·stale
 	// 컷오프(collectCounts)·효과 판정 창(collectEffect)이 각자 meta IN
 	// 쿼리를 날리던 것(실행당 최대 3회)을 공유 1회로. 폴백은 WriteThresholds
-	// 관례(조회 실패 → DefaultThresholds) 불변. v1.0.2 R2 리뷰: HTML 단독
+	// 관례(조회 실패 → DefaultThresholds) 불변. HTML 단독
 	// 경로도 로드 — 아래 clamp가 기본 --days에도 적용되는 이상 HTML이
 	// 스킵되면 빈 일자 타일 비대칭이 HTML에만 남는다(수집 체인 자체 로드와
 	// 별개의 상한 판정용 1회).
 	th := knowledge.WriteThresholds(ctx, st)
-	// v1.0.2(R2): 상한 clamp는 기본값(7)에도 적용 — 오버라이드
+	// 상한 clamp는 기본값(7)에도 적용 — 오버라이드
 	// daily_retention_days<7 환경에서 기본 7이 보존 창 밖 빈 일자 행만
 	// 만들던 비대칭 해소(--days 명시와 동일 규칙). JSON·HTML 공통 적용.
 	if max := th.DailyRetentionD; max > 0 && days > max {
 		days = max // 상한 = 보존 창(그 너머 데이터는 존재하지 않는다)
 	}
 
-	if htmlOut != "" { // v0.36.0: HTML 경로 — 동일 수집 체인 재사용
+	if htmlOut != "" { // HTML 경로 — 동일 수집 체인 재사용
 		return runReportHTML(ctx, st, days, htmlOut, stdout)
 	}
 	out := ReportOutput{Days: make([]ReportDay, 0, days)}
@@ -340,7 +336,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// v1.2.0 T3 — 검수 결과 카운터 창 합산(계측 — 실패 조용히 0).
+	// 검수 결과 카운터 창 합산(계측 — 실패 조용히 0).
 	collectCuration(ctx, st, days, &out)
 	if err := collectStats(ctx, st, &out); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -350,25 +346,25 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// v0.19.0 효과 계측 — METRICS §4 정의 산출(days 창·knowledge 시점).
+	// 효과 계측 — METRICS §4 정의 산출(days 창·knowledge 시점).
 	if err := collectEffect(ctx, st, days, th, &out); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// R4 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 CollectEffect의
-	// read_events 창 집산에서(v0.42.0 T2 — 구 read_fallback_calls/read_stats
+	// 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 CollectEffect의
+	// read_events 창 집산에서(구 read_fallback_calls/read_stats
 	// calls 누적 분모 폐지, effect.fallback_pct와 동일 산출).
 	out.DupPct = DupPct(out.Days)
-	// R2 소스별 dup 기간 합계 — 일별 행 합산(미기록 일은 0으로 합산됨).
+	// 소스별 dup 기간 합계 — 일별 행 합산(미기록 일은 0으로 합산됨).
 	for _, d := range out.Days {
 		out.DupHook += d.DupHook
 		out.DupManual += d.DupManual
 	}
-	// v1.2.0 T5 — 규칙 진단 D(spec §3): 수집 완료된 원천(effect·counts·
+	// 규칙 진단 D(spec §3): 수집 완료된 원천(effect·counts·
 	// daily)으로 순수 함수 판정. hot_budget(A계층 자기참조 기준)은 meta
 	// 로드값(미설정 기본 2000 — HotBudget 폴백).
 	out.Diagnosis = Diagnose(out, th, knowledge.HotBudget(knowledge.MetaGetKV(ctx, st)))
-	if textOut { // v1.2.3 R17 C3: text 렌더 — JSON 수집 산물을 그대로 소비(--html은 위에서 이미 반환 — 우선)
+	if textOut { // text 렌더 — JSON 수집 산물을 그대로 소비(--html은 위에서 이미 반환 — 우선)
 		printReportText(stdout, out, days)
 		return 0
 	}
@@ -381,7 +377,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	return 0
 }
 
-// printReportText — v1.2.3 R17 C3: `flint report --text` — 사람 읽기
+// printReportText — `flint report --text` — 사람 읽기
 // text 뷰. 기본 한 줄 JSON·--html 카드와 같은 수집 산물(ReportOutput)을
 // 렌더한다(세 뷰 동일 원천 — Diagnosis 필드 주석 계약의 text 담당 배선.
 // text가 별도 지표를 만들지 않는다). 진단은 Diagnose 산물의 Sentence()
@@ -410,7 +406,7 @@ func printReportText(w io.Writer, out ReportOutput, days int) {
 
 // collectDaily — meta daily:* 키를 N일 창(오늘 포함, UTC)에 맞춰 병합.
 // 창 밖 키는 배제하고(8일치가 심여도 7행), 파손 JSON은 0행 폴백(스킵).
-// v0.18.1: 창 병합 본체는 WindowedDaily 공유 리더로 추출 — status 기간화
+// 창 병합 본체는 WindowedDaily 공유 리더로 추출 — status 기간화
 // 지표(R4)와 파서를 단일화한다(포맷 변경 시 분기 위험 제거).
 func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutput) error {
 	dayRows, err := WindowedDaily(ctx, st, days)
@@ -418,11 +414,11 @@ func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutpu
 		return err
 	}
 	out.Days = dayRows
-	// v0.15.0 R2 zero 지표 기간화 — zero_pct·zero_near_pct는 --days 창 내
+	// zero_pct·zero_near_pct는 --days 창 내
 	// 일별 합산으로 산출(누적 read_stats 의존 제거). days 배열은 창 마킹
 	// 이후라 창 밖 행은 합산에서도 배제된다(버림 정수%, 제로 분모 0).
 	var sumRead, sumZero, sumNear, sumDup int
-	// v1.1.0 G5 — 세 표면 바이트 합·avg 분모(각 kind 호출 수 카운터).
+	// G5 — 세 표면 바이트 합·avg 분모(각 kind 호출 수 카운터).
 	var sumHot, sumBrief, sumReadB, sumHotB, sumBriefB int
 	for _, d := range out.Days {
 		sumRead += d.Read
@@ -437,12 +433,12 @@ func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutpu
 	}
 	out.ZeroPct = ReadZeroPct(sumRead, sumZero)
 	out.ZeroNearPct = ReadZeroPct(sumRead, sumNear)
-	// v0.19.0 효과 뷰 G1·G2 — 같은 합산에서 유도(단일 유도 사슬 —
+	// 효과 뷰 G1·G2 — 같은 합산에서 유도(단일 유도 사슬 —
 	// CollectEffect에서 재합산하지 않는다).
 	out.Effect.HitPct = PctOf(sumRead-sumZero, sumRead)
 	out.Effect.NearPct = PctOf(sumNear, sumRead)
 	out.Effect.DupPrevented = sumDup
-	// v1.1.0 G5 최소 주입 — 동일 합산에서 유도(횟수 지표와 동일
+	// G5 최소 주입 — 동일 합산에서 유도(횟수 지표와 동일
 	// 보존창·창 밖 행 배제, 분모 0 → avg 0).
 	out.Effect.Bytes = EffectBytes{
 		Read:  SurfaceBytes{Bytes14d: sumReadB, AvgBytes: avgBytes(sumReadB, sumRead)},
@@ -455,7 +451,7 @@ func collectDaily(ctx context.Context, st wire.Store, days int, out *ReportOutpu
 // WindowedDaily — meta daily:* 키를 N일 창(오늘 포함, UTC) 행으로 병합해
 // 반환(오래된 날부터 — 오늘이 마지막 행). 창 밖 키 배제·파손 JSON 0행
 // 폴백. report(collectDaily)·status(statusWindowedRead) 양쪽의 단일
-// 소스(v0.18.1 — daily 파서 3중 복제 해소).
+// 소스(daily 파서 3중 복제 해소).
 func WindowedDaily(ctx context.Context, st wire.Store, days int) ([]ReportDay, error) {
 	rows, err := wire.QueryOnce(ctx, st, `SELECT key, value FROM meta WHERE key LIKE 'daily:%'`, nil)
 	if err != nil {
@@ -488,8 +484,8 @@ func WindowedDaily(ctx context.Context, st wire.Store, days int) ([]ReportDay, e
 		d.Date = daysOut[idx].Date
 		daysOut[idx] = d
 	}
-	// v1.2.0 T3 — 플랫 키 읽기(daily:<kind>:<date> 정수 값, T1 기록 전환의
-	// 소비 전환). 필드별 플랫 우선: 플랫 키가 있으면 구 JSON 값을 덮는다
+	// 플랫 키 읽기(daily:<kind>:<date> 정수 값). 필드별 플랫 우선:
+	// 플랫 키가 있으면 구 JSON 값을 덮는다
 	// (readDailyFlat 계약과 정합 — 마이그레이션 기간 두 형식 공존).
 	for _, r := range rows {
 		if len(r) < 2 {
@@ -544,7 +540,7 @@ var dailyFlatFields = map[string]func(*ReportDay, int){
 	"brief_bytes":    func(d *ReportDay, n int) { d.BriefBytes = n },
 }
 
-// mergeDerivedReadDaily — v0.42.0 T2: read 경로가 daily read 카운터를 더
+// mergeDerivedReadDaily — read 경로가 daily read 카운터를 더
 // 쓰지 않는다(쓰기 4→2). 일별 read·read_zero·read_zero_near는 read_events를
 // UTC 일자별로 모아 파생 산출해 daily:* 잔존값과 필드별 max 병합한다 —
 // 전환 전 하루(양쪽 원천이 같은 이벤트를 가리키는 날)에는 값이 같아
@@ -555,7 +551,7 @@ func mergeDerivedReadDaily(ctx context.Context, st wire.Store, days []ReportDay)
 		return
 	}
 	// 창 첫 날의 UTC 자정 — WindowedDaily 하루 행 전체를 포함하는 컷오프
-	// (Go 계산 timestamptz 파라미터 — T70 관례, SQL interval 산산 금지).
+	// (Go 계산 timestamptz 파라미터 — 관례, SQL interval 산산 금지).
 	cutoff, err := time.Parse("2006-01-02", days[0].Date)
 	if err != nil {
 		return
@@ -600,11 +596,11 @@ func mergeDerivedReadDaily(ctx context.Context, st wire.Store, days []ReportDay)
 	}
 }
 
-// collectStats — hot p95. v1.2.0 T3 — hot_stats blob 소비 전환(spec §1.3):
+// collectStats — hot p95. hot_stats blob 소비(spec §1.3):
 // p95은 hot_events 주입 ids × knowledge 요약 길이의 사건별 합 분포에서
 // 파생한다(DerivedHotStats — metrics.go). kreads·hot_events 어느 쪽도 데이터가
 // 없는(업그레이드 직후) 동안은 구 blob을 승계 읽기 폴백으로 보고한다(전환
-// 전과 동일 값). v0.42.0 T2 — read_stats(fallback_pct 분모 calls)는 폐지:
+// 전과 동일 값). read_stats(fallback_pct 분모 calls)는 폐지:
 // fallback_pct는 CollectEffect의 read_events 창 집산에서 나온다. 부재·파손은 0.
 func collectStats(ctx context.Context, st wire.Store, out *ReportOutput) error {
 	_, p95 := DerivedHotStats(ctx, st)
@@ -612,7 +608,7 @@ func collectStats(ctx context.Context, st wire.Store, out *ReportOutput) error {
 	return nil
 }
 
-// curationKinds — 검수 결과 카운터 kind(spec §2.4 — T4 기록·T3 소비).
+// curationKinds — 검수 결과 카운터 kind(spec §2.4).
 // 플랫 daily:<kind>:<date> 키로 기록된다.
 var curationKinds = []string{
 	"approve_done", "approve_not_found", "approve_supersede_err",
@@ -677,7 +673,7 @@ func collectCuration(ctx context.Context, st wire.Store, days int, out *ReportOu
 // CollectCounts — knowledge 집계 3종. pending·active(invalid_at 없음)·
 // invalidated(총) · stale(days90·never_read 분리, §2 ruling) · 기간(N일) 내
 // 무효화 수. 무효화 상태는 status가 아니라 invalid_at 유무로 판정한다(가역 무효화).
-// Doltgres 호환: FILTER 대신 CASE 집계(pattern.go 관례). T70: 컷오프를 Go에서
+// Doltgres 호환: FILTER 대신 CASE 집계(pattern.go 관례). 컷오프를 Go에서
 // 계산해 timestamptz 파라미터로 전달한다 — SQL의 ($1 * interval) 곱은 Doltgres가
 // $1을 interval로 추론해 pgx 인코딩에 실패하고, ::int 캐스트로 넘겨도 평가가
 // 깨진다(operator does not exist: timestamptz < interval, e2e 실측). maintain
@@ -753,15 +749,15 @@ func PctOf(n, total int) int {
 	return n * 100 / total
 }
 
-// CollectEffect — 효과 계측 섹션 산출(v0.19.0 docs/METRICS.md §4·
-// v0.20.0 정밀화). G1(hit·near)·G2(dup_prevented)는 collectDaily 합산에서
+// CollectEffect — 효과 계측 섹션 산출(docs/METRICS.md §4 정의).
+// G1(hit·near)·G2(dup_prevented)는 collectDaily 합산에서
 // 유도되고(여기서 재합산하지 않는다), G3(reuse·dead)은 knowledge 시점
 // 집계 + hot 노출 보정(E), G4는 세션 경계 배정 페어링(D)·사용 연쇄(B) —
 // 전부 Go-사이드 조인으로 산출해 SQL interval 곱의 Doltgres 파라미터
 // 추론 리스크를 받지 않는다.
 //
 // 룰링(리뷰 #6): G3을 CollectCounts의 stale 쿼리에 병합하지 않는다 —
-// stale은 "인자 1개(timestamptz)" 계약을 T70 회귀 테스트가 검증하며
+// stale은 "인자 1개(timestamptz)" 계약을 회귀 테스트가 검증하며
 // dead 컷오프(30일)는 인자가 달라 계약을 깬다. 유지보수 경로의 소형
 // 쿼리 추가를 대가로 두 관심을 분리 유지.
 //
@@ -780,7 +776,7 @@ func CollectEffect(ctx context.Context, st wire.Store, days int, out *ReportOutp
 func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresholds, out *ReportOutput) error {
 	now := time.Now()
 	windowStart := now.Add(-time.Duration(days) * 24 * time.Hour)
-	// 판정 창 임계값(v0.20.4 이양) — 호출자 주입(th, F6: 커맨드 스코프
+	// 판정 창 임계값 — 호출자 주입(th, 커맨드 스코프
 	// 1회 로드 공유 — 로드 실패 폴백은 WriteThresholds가 이미 적용).
 	pairWindow := time.Duration(th.PairWindowMin) * time.Minute
 	chainWindow := time.Duration(th.ChainWindowH) * time.Hour
@@ -788,7 +784,7 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 	// ── G3(+노출 정합 가드) ──
 	deadCutoff := now.Add(-time.Duration(th.DeadDays) * 24 * time.Hour)
 	// 최근 hot 노출 집합 — hot --full은 BumpReads로 주입 id의 read_count를
-	// 올리므로(T62 참조 계측) 정상 경로에서 노출 지식은 애초에 read_count=0
+	// 올리므로 정상 경로에서 노출 지식은 애초에 read_count=0
 	// 후보 밖이다. 이 가드는 참조 증분과 노출 기록이 별도 경로라 계측
 	// 유실(증분만 실패) 시 생기는 불일치를 메운다(리뷰 #2 재정의).
 	// 조회 실패는 공집합(가드 생략 강등).
@@ -837,7 +833,7 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 	out.Effect.DeadPct = PctOf(dead, active)
 
 	// ── G4 ── 이벤트 로그 — 실패 시 G4 전량 0 강등.
-	// v0.30.0 리뷰 3: 페치 창은 max(days, 14일) — 추세 prev 창(직전
+	// 페치 창은 max(days, 14일) — 추세 prev 창(직전
 	// 7일)이 보고창 컷오프에 잘려 trend가 기본 --days 7에서 영원히
 	// 공란이던 결함. 집계는 각 지표 창(Σ는 windowStart 이후) 그대로.
 	fetchStart := windowStart
@@ -862,23 +858,23 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 			fallbacks++
 		}
 	}
-	out.Effect.FallbackPct = PctOf(fallbacks, len(inWin)) // v0.31.3(감사 1): 분모도 보고창
-	// v0.42.0 T2 — 최상위 fallback_pct도 동일 산출로 이관(구 누적
+	out.Effect.FallbackPct = PctOf(fallbacks, len(inWin)) // 분모도 보고창
+	// 최상위 fallback_pct도 동일 산출로 이관(구 누적
 	// read_fallback_calls/read_stats calls 분모 폐지 — HTML 경로 포함
 	// 단일 소스. 동등성: 같은 창·같은 이벤트 원천이라 값 불변).
 	out.FallbackPct = out.Effect.FallbackPct
-	// v0.30.0 R2 — hit 품질 근사(first_rank, 폴백 제외 계약). 리뷰 8:
-	// 정합/top1 정의는 trendOf와 단일 구현을 공유한다.
+	// hit 품질 근사(first_rank, 폴백 제외 계약). 정합/top1 정의는
+	// trendOf와 단일 구현을 공유한다.
 	q := qualityOf(inWin)
 	out.Effect.ExactPct = PctOf(q.exact, len(inWin))
 	out.Effect.Top1Pct = PctOf(q.top1, q.exact)
 	out.Effect.MRR = math.Round(q.rrSum/math.Max(float64(q.exact), 1)*1000) / 1000
-	// v0.30.0 R1 — 7일 창 추세(cur=최근 7일, prev=직전 7일). 표본 부족
+	// 7일 창 추세(cur=최근 7일, prev=직전 7일). 표본 부족
 	// 창(0 이벤트)은 0으로 강등(§13 — 빈 창에 해석 없음).
 	cur, prev := TrendWindow(now, evs)
 	out.Effect.Trend = cur.Diff(prev)
 
-	// ── v1.2.0 T3 관측 확장 ── 제로히트 분해(§2.2)·토큰 회계 cost(§2.3)·
+	// ── 관측 확장 ── 제로히트 분해(§2.2)·토큰 회계 cost(§2.3)·
 	// 회상 운명(§2.6)·hot→read 연쇄(§2.1)·G4 정합 원천(kreads). 각 조회
 	// 실패는 해당 지표만 0으로 강등한다(§13 계측 원칙 — 보고 불변).
 	collectZeroDecompose(out, inWin)
@@ -887,7 +883,7 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 	collectRecallFate(ctx, st, out, recalls, now)
 	collectHotReadChain(out, recalls, windowStart, pairWindow)
 
-	// v1.2.0 T3: 회상 선도(kreads)는 read 이벤트가 없어도 writes가 필요하다
+	// 회상 선도(kreads)는 read 이벤트가 없어도 writes가 필요하다
 	// — 이벤트 공란·조회 실패 시 페어링 writes 조회를 건너뛰는 기존 계약
 	// (제로 가드)은 kreads 원천이 있을 때만 예외로 연다.
 	var writes []WriteRow
@@ -909,7 +905,7 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 		hasSessions = serr == nil && len(starts) > 0
 	}
 
-	// 회상 선도 세션 비율(D·spec §2.1 G4 정합) — v1.2.0 T3: 원천을
+	// 회상 선도 세션 비율(D·spec §2.1 G4 정합) — 원천을
 	// knowledge_reads(kind 불문 — hot 주입·헤드라인 노출 포함)로 재산출해
 	// hot-led 세션이 회상 선도로 계상된다. kreads가 비어 있으면(업그레이드
 	// 직후) 구 read_events 배정 산출을 승계한다(동등 폴백).
@@ -924,12 +920,12 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 			out.Effect.RecallLedPct = recallLedPct(starts, inWin, writes, windowStart)
 		}
 	}
-	// v0.33.0(패치 감사 3): 빈 창에도 힌트는 "보류(표본 부족)"로 완결 —
-	// 공백 영구화 패턴(v0.24.1과 동일 부류) 수선.
+	// 빈 창에도 힌트는 "보류(표본 부족)"로 완결 —
+	// 공백 영구화 방지.
 	out.Effect.ProfileHint = ProfileHint(th, out.Effect)
 	if len(inWin) == 0 {
 		return nil // 분모 0 — 페어링·연쇄 불필요(제로 가드 관례)
-		// v0.31.3(감사 1~3): G4 집계(pair·chain)는 전부 보고창(inWin)
+		// G4 집계(pair·chain)는 전부 보고창(inWin)
 		// 소스 — 페치(14일, 추세용) 누유 금지.
 	}
 	if werr != nil {
@@ -937,7 +933,7 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 	}
 
 	// 페어링 — 같은 세션(배정된 양쪽)에서 read 직후 30분 내 write.
-	// 미배정 이벤트·세션 부재 환경은 시간창 폴백(v0.19.0 규칙 승계).
+	// 미배정 이벤트·세션 부재 환경은 시간창 폴백.
 	writeTimes := make([]time.Time, 0, len(writes))
 	sessWriteTimes := map[int][]time.Time{}
 	for _, w := range writes {
@@ -949,7 +945,7 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 		}
 	}
 	pairs := 0
-	for _, e := range inWin { // v0.31.3(감사 2): 보고창 이벤트만 페어링
+	for _, e := range inWin { // 보고창 이벤트만 페어링
 		cands := writeTimes
 		if hasSessions {
 			if si := sessionIndexOf(starts, e.Ts); si >= 0 {
@@ -968,8 +964,8 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 	// (분모 0 확정 — 불필요한 스캔 제거, 리뷰 #6). topic 맵은 전체 knowledge
 	// 조회(무효화·대체 지식도 연쇄 매칭에 필요 — read 시점엔 active였을
 	// 수 있다, 리뷰 #4). 조회 실패는 (b) 경로만 강등.
-	// (v1.2.0 T3: 회상 선도·ProfileHint는 위쪽 세션 배정 블록으로 이동 —
-	// v0.24.1 힌트 가드 위치 계약은 동일 유지.)
+	// (회상 선도·ProfileHint는 위쪽 세션 배정 블록 —
+	// 힌트 가드 위치 계약은 동일 유지.)
 	hasIDs := false
 	for _, e := range inWin {
 		if len(e.Ids) > 0 {
@@ -992,7 +988,7 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 			}
 		}
 	}
-	out.Effect.ChainPct = ChainPct(inWin, writes, topics, chainWindow) // v0.31.3(감사 3): 보고창 소스
+	out.Effect.ChainPct = ChainPct(inWin, writes, topics, chainWindow) // 보고창 소스
 	return nil
 }
 
@@ -1011,7 +1007,7 @@ func ProfileHint(th store.Thresholds, e EffectOutput) string {
 }
 
 // ReadEventRow — read_events 1행의 계산 뷰(G4).
-// v1.2.0 T3: Bytes(출력 바이트)·ZeroReason('unowned'|'owned_miss'|”)·
+// Bytes(출력 바이트)·ZeroReason('unowned'|'owned_miss'|”)·
 // Hits(반환 행 수 원열) 추가 — 토큰 회계 cost·제로히트 분해의 원천.
 type ReadEventRow struct {
 	Ts         time.Time
@@ -1055,7 +1051,7 @@ func TrendWindow(now time.Time, evs []ReadEventRow) (cur, prev TrendStat) {
 }
 
 // qualityCounts — first_rank 기반 품질 집계(정합·1위·역순위 합).
-// 정의 단일 소스: effect 지표·trendOf 양쪽이 공유(v0.30.0 리뷰 8).
+// 정의 단일 소스: effect 지표·trendOf 양쪽이 공유.
 type qualityCounts struct {
 	exact, top1 int
 	rrSum       float64
@@ -1135,10 +1131,10 @@ func queryReadEvents(ctx context.Context, st wire.Store, cutoff time.Time) ([]Re
 		if !ok {
 			continue
 		}
-		// v0.30.0 리뷰 1·2: 열 순서 (ts, zero, fallback, ids, first_rank) —
+		// 열 순서 (ts, zero, fallback, ids, first_rank) —
 		// 구 SELECT(ts,fallback,ids) 잔여 파싱 2블록이 fallback=zero 오염·
 		// ids 미파싱(연쇄 붕괴)을 냈다. 단일 경로로 정리.
-		// v1.2.0 T3: bytes·zero_reason·hits를 말미에 추가(구 5열 행은
+		// bytes·zero_reason·hits를 말미에 추가(구 5열 행은
 		// 기본값 0·빈값 — 미확장 DB·fake 호환).
 		e := ReadEventRow{Ts: t, Zero: cellToBool(r[1]), Fallback: cellToBool(r[2])}
 		if len(r) > 3 {
@@ -1212,7 +1208,7 @@ func queryTimes(ctx context.Context, st wire.Store, sql string, cutoff time.Time
 	return out, nil
 }
 
-// CellToTime — 셀(any)→time 변환. v0.41.0 T4: wire.CellToTime 단일
+// CellToTime — 셀(any)→time 변환. wire.CellToTime 단일
 // 구현 별칭(cli 소비자 호환 export 유지 — 동일 계약).
 var CellToTime = wire.CellToTime
 
@@ -1232,7 +1228,7 @@ func TimeWindowHit(times []time.Time, base time.Time, window time.Duration) bool
 // recallLedPct — 창 내 시작 세션의 회상 선도율: 기록(write ≥1) 세션 중
 // 첫 read가 첫 write보다 앞선(회상이 생산을 이끈) 세션 비율. 창 밖 시작
 // 세션(마진분)은 제외, 미배정 이벤트는 그 세션에 귀속되지 않는다.
-// v1.2.0 T3: 원천을 kreads로 바꾼 재산출 경로(recallLedPctTimes)의
+// 원천을 kreads로 바꾼 재산출 경로(recallLedPctTimes)의
 // 동등 폴백(kreads 부재 환경 — 구 read_events 배정 승계).
 func recallLedPct(starts []time.Time, evs []ReadEventRow, writes []WriteRow, windowStart time.Time) int {
 	times := make([]time.Time, 0, len(evs))
@@ -1297,7 +1293,7 @@ func p95NearestRank(samples []int) int {
 	return HotP95(s)
 }
 
-// RecallRow — knowledge_reads 1행의 계산 뷰(v1.2.0 T3 — schema v10).
+// RecallRow — knowledge_reads 1행의 계산 뷰(schema v10).
 type RecallRow struct {
 	KnowledgeID int
 	Ts          time.Time
@@ -1461,7 +1457,7 @@ func collectHotReadChain(out *ReportOutput, recalls []RecallRow, windowStart tim
 	out.Effect.HotReadChainPct = PctOf(chained, hotRows)
 }
 
-// ChainPct — 사용 연쇄율(v0.20.0 B): 반환 id가 있는 read 중 24h 내
+// ChainPct — 사용 연쇄율: 반환 id가 있는 read 중 24h 내
 // (a) 이후 read에서 같은 id 재반환 또는 (b) 같은 topic write로 이어진
 // 비율. evs·writes는 ts 오름차순 가정.
 func ChainPct(evs []ReadEventRow, writes []WriteRow, topics map[int]string, window time.Duration) int {

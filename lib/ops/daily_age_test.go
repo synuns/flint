@@ -1,4 +1,4 @@
-// daily_age_test.go — v1.2.3 T3(R17 A3): daily 카운터 나이 판정의 플랫
+// daily_age_test.go — daily 카운터 나이 판정의 플랫
 // 키(daily:<kind>:<date>) 지원. 기존 TrimPrefix 문자열 비교는 'w'>'2'라
 // 플랫 키 전체를 미탐 — maintain oldest-daily·doctor staleDaily 모두
 // 마지막 세그먼트 날짜로 판정하는지 검증. 예시는 합성 데모 날짜.

@@ -1,5 +1,4 @@
-// report_html.go — v0.36.0(E): report --html — 단일 파일 정적 대시보드.
-// v0.40.0 T3: lib/cli에서 이동(식별자 대문자화 — 동작·출력 불변).
+// report_html.go — report --html — 단일 파일 정적 대시보드.
 // 원칙: 임베드 템플릿·프레임워크 무의존·외부 요청 없음(로컬 렌더만 —
 // METRICS §4 프라이버시)·수치만(쿼리 본문 없음). Go 템플릿 렌더라
 // JS 의존도 0 — 파일 하나를 브라우저로 열면 끝.
@@ -82,9 +81,9 @@ func ChipFor(label string, p TrendPoint, invert bool) deltaChip {
 	if d < 0 {
 		sign = ""
 	}
-	// v5 규율(Stripe): 녹=개선만. 악화는 빨강이 아니라 회색 ▼ — 칩 Good는
+	// 규율(Stripe): 녹=개선만. 악화는 빨강이 아니라 회색 ▼ — 칩 Good는
 	// '녹색 표기' 의미로만(회색은 .delta 기본색).
-	// v5.1 사람말 사본: "10%포인트 좋아짐" — pp·기호 조합 폐기(컨텍스트
+	// 사람말 사본: "10%포인트 좋아짐" — pp·기호 조합 폐기(컨텍스트
 	// 없는 독자 기준 — 방향 화살표는 템플릿 CSS/색이 담당).
 	word := "improving"
 	if !good {
@@ -117,14 +116,14 @@ func RenderDashboard(w io.Writer, d HtmlDashboard) error {
 }
 
 // HtmlDashboard — 템플릿 데이터(report 원천을 그대로 소비 — 이중 산출 금지).
-// v0.36.0 재설계: 전체 report를 담는다 — 카드·스파크라인·소스 분해·
+// 전체 report를 담는다 — 카드·스파크라인·소스 분해·
 // 위생(관측 갭 메타까지)을 원천 그대로 렌더.
 type HtmlDashboard struct {
 	GeneratedAt string
 	Days        int
 	Effect      EffectOutput
 	Rep         ReportOutput // days·hot_p95·counts·stale·dup_pct·fallback_pct·소스별
-	// v0.36.0 재설계 — Go 계산 산물(템플릿 산술 금지).
+	// Go 계산 산물(템플릿 산술 금지).
 	ChipHit, ChipFallback, ChipTop1 deltaChip
 	SparkRead, SparkWrite           struct{ Line, Area string }
 	BarsRead, BarsWrite, BarsDup    []BarSeg   // 일별 바(스몰 멀티플 — 계열별 스케일·Go 사전계산)
@@ -140,7 +139,7 @@ type BarSeg struct {
 // runReportHTML — `flint report --html [--days N] [--out file]`.
 // 미지정 --out은 report.html(FLINT_HOME 아님 — 사용자가 지정한 곳).
 func runReportHTML(ctx context.Context, st wire.Store, days int, out string, stdout io.Writer) int {
-	// v1.2.3 R17 C2: 수집 오류 exit 코드는 JSON 경로(RunReport)와 동일한
+	// 수집 오류 exit 코드는 JSON 경로(RunReport)와 동일한
 	// store.MapExit — server_down→2·SchemaError→3. 수정 전에는 전 스텝
 	// 오류를 하드코딩 1로 돌려 같은 커맨드의 두 뷰가 코드가 갈렸다.
 	if err := st.Ping(ctx); err != nil {
@@ -148,7 +147,7 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 		return store.MapExit(err)
 	}
 	// 보고 원천 재사용 — HTML이 별도 지표를 만들지 않는다(단일 소스:
-	// runReport와 동일 수집 체인). v0.36.0 재설계: DupPct(G2 병기 —
+	// runReport와 동일 수집 체인). DupPct(G2 병기 —
 	// METRICS §2)·스파크라인 패스(Go 계산 — 템플릿 산술 금지)까지
 	// 원천 층에서 마친다.
 	rep := ReportOutput{Days: make([]ReportDay, 0, days)}
@@ -164,7 +163,7 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 		}
 	}
 	rep.DupPct = DupPct(rep.Days)
-	// v1.2.0 T5 — 규칙 진단 카드 원천: JSON 경로(RunReport)와 같은
+	// 규칙 진단 카드 원천: JSON 경로(RunReport)와 같은
 	// Diagnose·같은 ReportOutput.Diagnosis에서 렌더한다(세 뷰 동일 원천 —
 	// HTML이 별도 지표를 만들지 않는다, 단일 소스 원칙 승계).
 	rep.Diagnosis = Diagnose(rep, knowledge.WriteThresholds(ctx, st),
@@ -201,7 +200,7 @@ func runReportHTML(ctx context.Context, st wire.Store, days int, out string, std
 			mk("first result exact", t.Top1Pct, false),
 		}
 	}
-	// v8.1(사용자 지시 — 동적 스케일): 이상치 하루가 절대 최댓값 기준이
+	// 동적 스케일: 이상치 하루가 절대 최댓값 기준이
 	// 되면 나머지가 전부 납작해진다. p90 기준 스케일 + 초과분 클리핑:
 	// 초과 막대는 100%에서 자르고 툴팁에 '기준 초과' 표시(Grafana
 	// percentile 스케일 관례).
