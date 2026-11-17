@@ -1,5 +1,5 @@
-// write_test.go — v0.39.0 T2: lib/cli/write_test.go 이동(write 5단계
-// 파이프라인 계약 — dedup·레이스 재확인·경고 병합). 계약 불변: duplicate
+// write_test.go — write 5단계
+// 파이프라인 계약 — dedup·레이스 재확인·경고 병합. 계약 불변: duplicate
 // 줄은 skip(신규 줄 부분 커밋), 전부 duplicate 재실행은 0건 커밋·exit 0
 // "duplicate"(시딩 멱등), 2줄 이상 출력은 집계형(inserted·duplicates·
 // 커밋 hash), 단일 줄 출력은 기존 불변. 레이스(InsertBatch ErrDuplicate)는
@@ -38,7 +38,7 @@ type fakeStore struct {
 	queryErr      error
 	rows          [][]any
 	queryFn       func(sql string, args []any) ([][]any, error)
-	// hashExistsFn — v1.6.0 T3: content_hash = ANY($1) 배치 dedup 조회의
+	// hashExistsFn — content_hash = ANY($1) 배치 dedup 조회의
 	// 해시별 응답(미지정 시 exists 플래그로 전 해시 균일 응답).
 	hashExistsFn func(hash string) (DupMeta, bool)
 
@@ -83,7 +83,7 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	if f.queryFn != nil {
 		return f.queryFn(sql, args)
 	}
-	// v1.6.0 T3: 배치 dedup 조회(content_hash = ANY($1)) 응답 — 해시별
+	// 배치 dedup 조회(content_hash = ANY($1)) 응답 — 해시별
 	// hashExistsFn(미지정 시 exists 플래그)로 기존 행 메타 행을 만든다.
 	if strings.Contains(sql, "content_hash = ANY($1)") {
 		if hashes, ok := args[0].([]string); ok {
@@ -386,7 +386,7 @@ func (c *countRecorder) RecordUsageCount(ctx context.Context, kind, source strin
 // TestWriteDupBatchSingleCountCall — dup 계측은 줄 수와 무관하게 각 키
 // RecordUsageCount 1회 호출(회귀: recordDups가 RecordUsage를 N회 루프 — O(N)
 // 읽기-쓰기). write 1회(RecordUsage)·총계 dup N + 소스 dup_<source> N
-// (RecordUsageCount 각 1회 — v0.10.2 R2 additive, 룰링 갱신).
+// (RecordUsageCount 각 1회).
 func TestWriteDupBatchSingleCountCall(t *testing.T) {
 	t.Run("all-dup", func(t *testing.T) {
 		c := &countRecorder{fakeStore: &fakeStore{exists: true}}
@@ -452,7 +452,7 @@ func TestWriteAllDuplicateKeepsWarnings(t *testing.T) {
 	}
 }
 
-// ── v1.6.0 T3(R30-C C3): write 배치 dedup — 줄별 lookupHash(N왕복) 대신
+// ── write 배치 dedup — 줄별 lookupHash(N왕복) 대신
 // lookupHashBatch(content_hash = ANY($1) 청크) 1회 조회. 단발(1행 hook
 // 패턴)은 기존 줄별 조회 계약 불변. ──
 
@@ -692,7 +692,7 @@ func TestWriteBatchDedupRealSlow(t *testing.T) {
 		(fresh * 10).Round(time.Millisecond), (rerun * 10).Round(time.Millisecond))
 }
 
-// TestSanitizePayloadTagsSecrets — v0.20.6(패치 루프 6차 S2): tags 배열
+// TestSanitizePayloadTagsSecrets — tags 배열
 // 원소·domain에도 살균·비밀 스캔이 적용된다(이전 사각지대).
 func TestSanitizePayloadTagsSecrets(t *testing.T) {
 	p := map[string]any{
@@ -716,7 +716,7 @@ func TestSanitizePayloadTagsSecrets(t *testing.T) {
 	}
 }
 
-// ── v1.6.2 T2(G1): write stdin 행 수 상한(export_import_max_rows 재사용). ──
+// ── write stdin 행 수 상한(export_import_max_rows 재사용). ──
 
 // writeMaxRowsFixture — 상한 검증용 합성 knowledge N줄 stdin(해시 충돌 없음).
 func writeMaxRowsFixture(n int) string {
@@ -755,7 +755,7 @@ func TestRunWriteMaxRowsBoundary(t *testing.T) {
 	}
 }
 
-// ── v1.6.2 T2(G2): 단일 payload 필드 바이트 상한(상수 — compact 8MiB 정합). ──
+// ── 단일 payload 필드 바이트 상한(상수 — compact 8MiB 정합). ──
 
 // TestRunWriteFieldBytesExceeded — Review Focus(G2): 단일 필드 값이
 // maxPayloadFieldBytes(compactMaxBytes 8MiB 정합)를 초과하면 Validate 단계에서
@@ -794,7 +794,7 @@ func TestRunWriteFieldBytesBoundary(t *testing.T) {
 	}
 }
 
-// ── v1.6.2 T2(E1): 동시 write 레이스 survive — slow 실DB 병렬 회귀. ──
+// ── 동시 write 레이스 survive — slow 실DB 병렬 회귀. ──
 
 // openWriteRealStore — SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만 실DB
 // 저장소를 만든다(writeRealDSN 계약 승계 — 운영 폴백 차단). DSN도 함께

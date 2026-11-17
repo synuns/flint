@@ -1,5 +1,5 @@
 // read.go — flint read [query]: active_knowledge 뷰 강제 조회 + 토큰 예산.
-// v0.39.0 T3: lib/cli/read.go 이동(동작·출력·exit 불변). as-of 스펙 파서는
+// as-of 스펙 파서는
 // cli asof.go 소유라 주입 seam(ParseAsOfSpecFn·ErrInvalidAsOf) 경유 —
 // cli init이 실구현을 주입한다(사이클 방지: knowledge는 cli 임포트 불가).
 package knowledge
@@ -30,7 +30,7 @@ var ParseAsOfSpecFn func(ctx context.Context, st wire.Store, spec string) (strin
 // ErrInvalidAsOf와 동일 인스턴스를 cli init이 주입한다).
 var ErrInvalidAsOf error
 
-// readBumper — v0.6 항목 참조 계측 seam(T62 BumpReads).
+// readBumper — 항목 참조 계측 seam(BumpReads).
 type readBumper interface {
 	BumpReads(ctx context.Context, ids []int) error
 }
@@ -72,7 +72,7 @@ type RecallBumper interface {
 }
 
 // recordKnowledgeReads — 회상 이력 기록(계측 — 실패는 조용히, §13).
-// v1.7.0 T2: kind=read(회상 반환 히트)는 이 경로에 결합해 강화
+// kind=read(회상 반환 히트)는 이 경로에 결합해 강화
 // (recall_score+1·last_recalled_at=now)까지 함께 수행한다. kind=hot(주입
 // 노출)은 강화에서 제외 — hot 랭킹이 recall_score를 소기 때문에 노출→
 // 강화→재노출 순환이 생긴다(룰링). 이력 기록 자체는 양쪽 불변.
@@ -105,7 +105,7 @@ func commitTelemetry(ctx context.Context, st wire.Store, cmd string) {
 
 // defaultZeroOwnedFloor — 제로히트 분해 임계 기본값(spec §2.2: active≥1이면
 // owned_miss). meta 오버라이드(zero_owned_floor)는 per-key 직접 읽기
-// stopgap(등록표 키 등록 전 — n>0만 수용. v1.2.3 T9로 동일 관례의
+// stopgap(등록표 키 등록 전 — n>0만 수용. 동일 관례의
 // knowledge_reads_retention_days는 등록표 경유로 수렴됨)로 읽는다.
 const defaultZeroOwnedFloor = 1
 
@@ -161,7 +161,7 @@ func recordBytes(ctx context.Context, st wire.Store, kind string, n int) {
 }
 
 // idsCSV — 정수 id 슬라이스를 CSV로(저장 예산 상한 10 — hit 전수는
-// hits 컬럼이 유지한다). v0.20.0 chain 산출 원천의 직렬화.
+// hits 컬럼이 유지한다). chain 산출 원천의 직렬화.
 func idsCSV(ids []int) string {
 	if len(ids) > 10 {
 		ids = ids[:10]
@@ -176,7 +176,7 @@ func idsCSV(ids []int) string {
 // FirstExactRank — 반환 행에서 첫 topic 정합(lower 일치, RankOrder
 // 정의 승계)의 1-기반 순위. 정합 없음 0(v0.30.0 R2 — 품질 근사 원천).
 func FirstExactRank(rows [][]any, q string) int {
-	// v0.31.3(감사 4): RankOrder 원천은 SQL lower(원 q) — trim 없음.
+	// RankOrder 원천은 SQL lower(원 q) — trim 없음.
 	// 품질 기록도 동일 정의를 쓴다(공백 포함 q에서 순위 왜곡 방지).
 	lq := strings.ToLower(q)
 	if lq == "" {
@@ -237,7 +237,7 @@ func InstrumentReads(ctx context.Context, st wire.Store, kind string, ids []int,
 		_ = rb.BumpReads(ctx, ids)
 	}
 	if kind == "read" {
-		return // 유입 계측은 read_events 단일 원천(v0.42.0 T2)
+		return // 유입 계측은 read_events 단일 원천
 	}
 	RecordUsage(ctx, st, kind, "")
 }
@@ -248,7 +248,6 @@ func InstrumentReads(ctx context.Context, st wire.Store, kind string, ids []int,
 // base 테이블 knowledge + status WHERE 조회(뷰는 invalidated 행을
 // 노출하지 않는다).
 func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// v1.6.0 T7: 수동 for-switch 루프를 wire.ParseArgs 사양 테이블로 이관
 	// (시맨틱 100% 보존 — N9 "--"·무조건 값 소비·마지막 값 우선·미인식
 	// '-' 접두 unknown flag exit 3). 값 검증(숫자·빈 값·허용값)은 아래
 	// 호출부 계약 그대로.
@@ -262,8 +261,8 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			{Name: "--status", Value: true},
 			{Name: "--as-of", Value: true},
 			{Name: "--fields", Value: true},
-			// v0.19.0: --session 효과 계측용 세션 라벨(선택 — METRICS §4).
-			// v1.2.0 T2: --source 채널 라벨(read_events.source 계측 —
+			// --session 효과 계측용 세션 라벨(선택 — METRICS §4).
+			// --source 채널 라벨(read_events.source 계측 —
 			// MCP 경로 구분은 호출부 전달, write --source 관례 승계).
 			{Name: "--session", Value: true},
 			{Name: "--source", Value: true},
@@ -275,7 +274,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		AllowPositional: true,
 	})
 	if perr != nil {
-		// v1.5.3 T1/P2 승계: 미인식 '-' 접두 인자는 무효 인자 exit 3,
+		// 미인식 '-' 접두 인자는 무효 인자 exit 3,
 		// 오류 타입 usage + message에 허용 플래그 예시(오타 자가수정).
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
 		return 3
@@ -303,8 +302,8 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// 값 없는 trailing --tag/--entity/--domain/--fields(N10)도 값 없는
 	// --status/--as-of(F1)와 동일 규칙 exit 3 — 빈 값이 조용히 무시되면
 	// 의도와 다른 필터로 결과를 돌려준다. --limit은 이미 Atoi 실패로 exit 3.
-	// (--session의 빈 값·'-' 접두는 validateSessionLabel 공용 가드로 — v1.0.1
-	// F3 승격, 아래.)
+	// (--session의 빈 값·'-' 접두는 validateSessionLabel 공용 가드로,
+	// 아래.)
 	for _, g := range []struct {
 		given bool
 		val   string
@@ -320,7 +319,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			return 3
 		}
 	}
-	// v0.20.5(B②): --session 미지정 시 현재 세션 라벨 자동 채택
+	// --session 미지정 시 현재 세션 라벨 자동 채택
 	// (session-start 훅이 기록 — G4 라벨 자동화, 조용히).
 	if !sessionGiven {
 		if label, ok := wire.ReadSessionLabel(); ok {
@@ -330,13 +329,13 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// --session 값은 read_events에 14일간 저장되는 라벨이다 — 다른 값형
 	// 플래그와 달리 오타(`--session --json`처럼 플래그를 흡수)가 DB 오염으로
 	// 남는다. 플래그형 값은 즉시 exit 3(리뷰 #3 — 조회 결과 오염 방지).
-	// v1.0.1(F3): 가드는 validateSessionLabel 공용 구현으로 승격 — hot·done이
+	// 가드는 validateSessionLabel 공용 구현으로 승격 — hot·done이
 	// 같은 검증(exit 3)을 쓴다.
 	if err := validateSessionLabel(sessionGiven, session); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 3
 	}
-	// v1.2.0 T2: source 라벨 확정(read_events.source — spec §2.3 채널 믹스).
+	// source 라벨 확정(read_events.source — spec §2.3 채널 믹스).
 	// 명시 --source(hook|cli|mcp)가 우선하고, 미지정 시 진입 시점 규칙 —
 	// 세션 라벨이 있으면 'hook'(세션 훅 주입 경로), 없으면 'cli'. 무효값·
 	// 값 없음은 무효 인자 exit 3(write --source 관례 승계 — 저장되는 라벨의
@@ -357,7 +356,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	} else {
 		source = "cli"
 	}
-	// v0.20.2(패치 루프 1차 F5): --fields 이름은 알려진 컬럼만 허용 —
+	// --fields 이름은 알려진 컬럼만 허용 —
 	// 오타("sumary")가 FormatRows의 위치 fallback으로 조용히 다른 컬럼
 	// 값을 채우던 왜곡을 검증 에러로 바꾼다. hot의 kind·ts 등 read 밖
 	// 필드는 hot이 --fields를 받지 않아 영향 없다.
@@ -418,7 +417,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		// 접두어 검증·유일 해시를 보장하므로 반환값을 그대로 신뢰해 인라인.
 		// AS OF 절은 테이블 참조 바로 뒤(뷰+AS OF "현재 정의+과거 행"). 기존
 		// RankOrder·LIMIT 절은 그대로 둔다.
-		// v0.28.0(H③): 해시 값은 dolt_log 행 출처라 엔진 구현에 의존하지
+		// 해시 값은 dolt_log 행 출처라 엔진 구현에 의존하지
 		// 않게 엄격 문자셋 재검증 — 벗어나면 인라인 대신 오류(종료 계약).
 		if !asOfHashRe.MatchString(hash) {
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash charset violation: %q", hash)))
@@ -443,17 +442,16 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// v0.9.6 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
-	// RRF 융합 재랭킹(룰링 — 구문 히트 경로는 완전 불변). v0.25.0:
+	// 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
+	// RRF 융합 재랭킹(룰링 — 구문 히트 경로는 완전 불변).
 	// ReorderByFallbackCount는 정합수·read_count·자모·topic 4신호 RRF.
-	// rrf_k 오버라이드 주입을 재랭킹 **앞**으로(v0.25.1 패치 루프 — 이전엔
-	// 뒤의 제안 블록에 있어 단발 CLI에서 같은 실행에 반영되지 않았다).
+	// rrf_k 오버라이드 주입을 재랭킹 **앞**으로.
 	// 1-토큰 질의는
 	// 구문과 동질이라 생략. --as-of(과거 시점)는 현재 시점 폴백이 시점
 	// 정합성을 깨므로 생략. --status는 상태 필터 자체가 재시도 대상이
 	// 아니라 폴백·제안 미발동(룰링). 폴백 시도는 meta read_fallback_calls에
 	// 1회 증분(조용히). 폴백도 제로히트면 rows 그대로(기존 제로히트 출력).
-	// v0.19.0: 폴백 시도 여부를 read_events 기록에 전달(METRICS §4 G1).
+	// 폴백 시도 여부를 read_events 기록에 전달(METRICS §4 G1).
 	fallbackTried := false
 	// F6(성능): 제로히트 경로의 thresholds 로드는 1회 — 아래 rrf_k 주입과
 	// 제안 임계값 주입이 같은 실행에서 meta IN 쿼리를 2회 날리던 것을
@@ -476,14 +474,14 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			}
 		}
 	}
-	// v0.14.0 R2 zero_near 판별: 구문·폴백 모두 제로히트 && 현재 시점일 때만
-	// active_knowledge 전체 스캔(필터 무관)으로 근접 후보를 계산한다. v0.10.0
+	// zero_near 판별: 구문·폴백 모두 제로히트 && 현재 시점일 때만
+	// active_knowledge 전체 스캔(필터 무관)으로 근접 후보를 계산한다.
 	// 제안 스캔을 출력 없이 승계 — 결과는 에이전트에게 보이지 않는 내부 분류
 	// (zero_near 계측)에만 쓰인다. 스캔 실패·후보 0건은 조용히(§13).
 	var suggestions []query.Suggestion
 	if ReadSuggestEligible(len(rows), asOfSpec, f.Status) {
 		// 제안 임계값(min_score·scan_cap)은 thresholds 레지스트리 우선
-		// (meta 오버라이드 → SetSuggestThresholds 주입, v0.16.3). 조회 실패는
+		// (meta 오버라이드 → SetSuggestThresholds 주입). 조회 실패는
 		// query 패키지 기본값(=DefaultThresholds) 유지 — 조용히(§13).
 		// F6(성능): 값은 위 폴백 블록의 1회 로드를 재사용(재조회 없음).
 		if thOK {
@@ -497,17 +495,17 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	}
 	// 출력 중립화(ADR-0006): 저장 단계 살균을 읽기에도 재적용 — 저장 이후
 	// 혹은 경로상 유입된 제어 문자·[flint] 마커가 출력 경계를 위조하지 않게
-	// 한다. v0.37.0: 살균은 render 조크포인트(render.Cells)로 수렴.
+	// 한다. 살균은 render 조크포인트(render.Cells)로 수렴.
 	rows = render.Cells(rows)
-	// v0.14.0 R1 침묵 계약: eligible(현재 시점·무상태필터) 제로히트는
+	// 침묵 계약: eligible(현재 시점·무상태필터) 제로히트는
 	// 완전 무출력 — FormatRows도 빈 rows에 ""를 반환하므로 별도 분기가
 	// 필요 없다. 제안 라인은 폐지(제로히트 결과 행 0 + 스캔 무출력).
 	out := query.FormatRows(rows, fields, jsonMode)
 	fmt.Fprint(stdout, out)
 	// --as-of 지정 시 결과 뒤에 as_of{hash,commit_date} 한 줄(JSON) 추가.
 	// 미지정이면 기존 필드만 그대로.
-	byteLen := len(out) // G5(v1.1.0 T1): io.Writer에 쓴 총량(UTF-8 바이트)
-	// v1.5.3(P2): --json 제로히트는 {"hits":0} 한 줄 — 호출자가 히트 수를
+	byteLen := len(out) // G5: io.Writer에 쓴 총량(UTF-8 바이트)
+	// --json 제로히트는 {"hits":0} 한 줄 — 호출자가 히트 수를
 	// 기계 판별한다(텍스트 모드는 기존 완전 침묵 유지). 바이트 계측은
 	// as_of 라인 관례 승계(쓴 총량에 포함).
 	if len(rows) == 0 && jsonMode {
@@ -515,7 +513,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		fmt.Fprintln(stdout, string(b))
 		byteLen += len(b) + 1 // hits 한 줄(+개행)도 쓴 총량에 포함
 	}
-	// v1.5.4 T2 P3: --limit 상한 clamp 표시 — 요청이 ClampLimit(50)을
+	// --limit 상한 clamp 표시 — 요청이 ClampLimit(50)을
 	// 초과하면 --json 결과에 additive 필드(limit_requested·limit_applied)
 	// 한 줄로 밝혀 호출자가 절단 사실을 기계 판별하게 한다(zero-hit hits
 	// 라인·as_of 라인 첨부 관례 승계). 텍스트 모드는 기존 형식 유지.
@@ -532,32 +530,32 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		fmt.Fprintln(stdout, string(b))
 		byteLen += len(b) + 1 // as_of 한 줄(+개행)도 쓴 총량에 포함
 	}
-	// G5 바이트 계측(v1.1.0 T1): read 1회 분 — 제로히트는 out="" 0바이트로
+	// G5 바이트 계측: read 1회 분 — 제로히트는 out="" 0바이트로
 	// 기록된다(호출 수 분모 정합, spec §1). 조용히(§13).
 	recordBytes(ctx, st, "read", byteLen)
-	// 계측(T62): 결과 항목 id 전수 참조 증분. v0.42.0 T2 — read 유입의
+	// 계측: 결과 항목 id 전수 참조 증분. read 유입의
 	// read_stats blob·daily 카운터 쓰기는 폐지(쓰기 4→2: BumpReads·
-	// RecordReadEvent만 남는다). v1.2.0 T2: id 전수는 knowledge_reads
+	// RecordReadEvent만 남는다). id 전수는 knowledge_reads
 	// 기록에도 재사용한다. 조용히(§13).
 	rowIDs := RowIDs(rows)
 	InstrumentReads(ctx, st, "read", rowIDs, len(rows) == 0, len(suggestions) > 0)
-	// v1.2.0 T2: 반환 id 전수를 항목별 회상 이력(kind=read)으로 남긴다
+	// 반환 id 전수를 항목별 회상 이력(kind=read)으로 남긴다
 	// (G4 정합·회상 운명 원천 — ids CSV의 상위 10 절사와 무관한 전수).
 	// 조용히(§13).
 	recordKnowledgeReads(ctx, st, rowIDs, session, "read")
-	// 효과 계측(v0.19.0, docs/METRICS.md §4): read 1회를 read_events에
+	// 효과 계측(docs/METRICS.md §4): read 1회를 read_events에
 	// 기록. 미구현 Store(fake)는 건너뛰고 실패는 조용히(§13 계측 원칙).
-	// v0.20.0: 반환 id CSV 동반(사용 연쇄 원천).
+	// 반환 id CSV 동반(사용 연쇄 원천).
 	if res, ok := st.(ReadEventStore); ok {
-		// v0.30.0 R2: 첫 정합 순위 — 폴백 경유는 품질 지표에서 제외(0).
-		// v0.31.3(감사 5): --as-of(과거 시점 검사)·--status(상태 필터
+		// 첫 정합 순위 — 폴백 경유는 품질 지표에서 제외(0).
+		// --as-of(과거 시점 검사)·--status(상태 필터
 		// 조회)도 현재 검색 품질 지표에서 배제 — 품질 원천은 통상
 		// 회상 경로만(METRICS §2 계약 문서화와 함께).
 		rank := 0
 		if !fallbackTried && asOfSpec == "" && f.Status == "" {
 			rank = FirstExactRank(rows, q)
 		}
-		// v1.2.0 T2: 제로히트 행은 활성 지식 보유 여부로 unowned/owned_miss
+		// 제로히트 행은 활성 지식 보유 여부로 unowned/owned_miss
 		// 를 갈라 기록한다(spec §2.2 — zero=0 행은 ''). 조용히(§13).
 		zeroReason := ""
 		if len(rows) == 0 {
@@ -576,20 +574,20 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			Source:     source,
 		})
 	}
-	// v1.7.0 T6: 계측 테이블 별도 커밋(read 완료 경로 1회 — 감사 커밋과
+	// 계측 테이블 별도 커밋(read 완료 경로 1회 — 감사 커밋과
 	// 독립). 실패는 조용히(§13 — 스테이징은 유지돼 다음 호출이 회수).
 	commitTelemetry(ctx, st, "read")
-	// R1(→v1.5.3 P2 변경): 제로히트는 exit 0 — 텍스트 침묵·--json
+	// 제로히트는 exit 0 — 텍스트 침묵·--json
 	// {"hits":0}은 정상 응답이지 오류가 아니므로 에이전트의 오류-중단
 	// 루프가 끊기지 않는다(전 경로 eligible 여부와 무관하게 exit 0).
 	return 0
 }
 
-// validateSessionLabel — --session 라벨 공용 가드(v1.0.1 F3: read 계약
+// validateSessionLabel — --session 라벨 공용 가드(read 계약
 // 승격 — hot·done 동일 적용). given=false(플래그 미지정)은 통과. 빈 값
 // (trailing --session)·'-' 접두(`--session --json`처럼 플래그를 흡수하는
 // 오타 — 세션 라벨은 read_events·hot_view에 저장되는 값이라 오타가 DB
-// 오염으로 남는다)·개행 포함(v1.0.3 R3: 세션 라벨 파일은 값 1줄 —
+// 오염으로 남는다)·개행 포함(세션 라벨 파일은 값 1줄 —
 // \n·\r이 파일 계약과 저장값 양쪽을 깨뜨린다)은 무효 값 SchemaError —
 // 호출부는 출력 후 exit 3.
 func validateSessionLabel(given bool, val string) error {
@@ -622,8 +620,8 @@ func ReadSuggestEligible(rows int, asOfSpec, status string) bool {
 	return rows == 0 && asOfSpec == "" && status == ""
 }
 
-// suggestQueryMaxRunes — 제안(SuggestSimilar) 입력 상한(R33 G4, v1.6.2
-// T3): 4096 rune. bigramDice가 스캔 행마다 쿼리 bigram 집합을 재구축하는
+// suggestQueryMaxRunes — 제안(SuggestSimilar) 입력 상한:
+// 4096 rune. bigramDice가 스캔 행마다 쿼리 bigram 집합을 재구축하는
 // 구조라 초대형 쿼리(100KB급)가 제안만으로 read를 17s급으로 지연시켰다 —
 // 제안 입력만 truncate하고 본문 검색 쿼리는 원문 그대로 유지한다(유사도
 // 신호는 선두 4KB로 충분 — did-you-mean 후보군 랭킹).
@@ -683,7 +681,7 @@ func FmtAsOfDate(v any) string {
 }
 
 // wrapViewColumnMismatch — 뷰-컬럼 미호환(column ... does not exist) 오류에
-// asOfHashRe — v0.28.0(H③): AS OF 인라인 해시의 엄격 문자셋(소문자
+// asOfHashRe — AS OF 인라인 해시의 엄격 문자셋(소문자
 // base32계 — dolt_log commit_hash 규격). 엔진 반환값 신뢰의 이중 확인.
 var asOfHashRe = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
 

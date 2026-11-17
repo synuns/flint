@@ -1,9 +1,7 @@
-// import.go — v0.27.0 R3(온보딩 임포트): 기존 규칙 파일(CLAUDE.md·
+// import.go — 온보딩 임포트: 기존 규칙 파일(CLAUDE.md·
 // AGENTS.md 등)을 pending 지식으로 변환 — 조사 설계 승계(헤딩 단위 분할·
 // confidence 0.5 → approve 경로·content_hash dedup). dry-run 기본·
 // --commit 확정(maintain --expire-pending 관례 승계).
-// v0.39.0 T2: lib/cli/import.go 이동(계약 불변). 커맨드 등록 init은
-// knowledge.go로 통합.
 package knowledge
 
 import (
@@ -32,9 +30,9 @@ type importSection struct {
 	Heading, Text string
 }
 
-// fenceTracker — 코드 펜스 상태기(v0.27.3: ```와 ~~~ 양쪽, CommonMark
+// fenceTracker — 코드 펜스 상태기(```와 ~~~ 양쪽, CommonMark
 // fenced code blocks). 여는 마커와 닫는 마커가 같은 문자여야 닫는다.
-// v1.0.2(R2): 닫는 펜스는 여는 펜스 이상 길이여야 닫는다(CommonMark —
+// 닫는 펜스는 여는 펜스 이상 길이여야 닫는다(CommonMark —
 // ```` 블록의 ``` 라인은 닫는 펜스가 아니라 코드 본문).
 type fenceTracker struct {
 	open   bool
@@ -83,7 +81,7 @@ func (f *fenceTracker) update(line string) bool {
 }
 
 // danglingFenceIdx — EOF까지 닫히지 않고 열려 있는 펜스의 개시 라인
-// 인덱스(리뷰 2 — v0.27.3). 미종결 펜스(장식용 ~~~·닫힘 누락)가 나머지
+// 인덱스(리뷰 2). 미종결 펜스(장식용 ~~~·닫힘 누락)가 나머지
 // 문서의 헤딩을 전부 삼키는 무음 지식 유실 방지: 개시 라인을 본문으로
 // 되돌리는 중립화 세트를 계산한다. skip은 이미 중립화된 라인.
 func danglingFenceIdx(lines []string, skip map[int]bool) int {
@@ -118,8 +116,8 @@ func neutralizeDanglingFences(lines []string) map[int]bool {
 }
 
 // parseMarkdownSections — 헤딩 단위 분할(## 기준 — 표준 라이브러리만).
-// v0.27.0 리뷰 6: 코드 펜스 내부의 "## "는 헤딩이 아니다.
-// v0.27.3: ~~~ 펜스도 인식(CommonMark) — 물결 펜스 내부 헤딩 오판
+// 코드 펜스 내부의 "## "는 헤딩이 아니다.
+// ~~~ 펜스도 인식(CommonMark) — 물결 펜스 내부 헤딩 오판
 // 유사 지식 적립 방지. 미종결 펜스는 개시 라인을 본문으로 중립화(나머지
 // 문서 헤딩 보존).
 func parseMarkdownSections(body string) []importSection {
@@ -152,9 +150,6 @@ func parseMarkdownSections(body string) []importSection {
 	return out
 }
 
-// warnSecrets — v0.39.0 T4 수렴 완료: 구현은 done.go 이동분이 단일 소스
-// (세션 레코드·세션 지식화·import 3중 복제 수렴 — v0.27.2 리뷰 7).
-
 // ValidateFlagValue — 값형 플래그 공용 가드(v1.0.2 R2: 값이 뒤 플래그를
 // 흡수하는 오타 — `--out --encrypt` → 경로 "--encrypt" — 를 무효 인자로).
 // validateSessionLabel과 동일 패턴: '-' 접두 값은 SchemaError, 호출부는
@@ -167,7 +162,7 @@ func ValidateFlagValue(field, val string) error {
 	return nil
 }
 
-// importMigrationExt — v1.5.5 B3: --format 미지정 인자의 확장자 기반
+// importMigrationExt — --format 미지정 인자의 확장자 기반
 // 마이그레이션 라우팅 판정. 위치 인자가 정확히 1개이고 .jsonl/.pam로
 // 끝나면 (마이그레이션 포맷, 경로, true). 명시 --format가 있으면 라우팅에
 // 개입하지 않는다(RunImportRouted가 이미 분기 — 직접 호출 이중 라우팅
@@ -205,7 +200,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// v1.5.5 B3: --format 미지정 + 경로가 .jsonl/.pam면 마이그레이션으로
+	// --format 미지정 + 경로가 .jsonl/.pam면 마이그레이션으로
 	// 진입한다(안내 1행 stderr — export 결과 재이식이 규칙 변환으로 조용히
 	// 빈 결과가 되던 사각 제거). 명시 --format·기타 확장자는 기존 경로.
 	if format, file, ok := importMigrationExt(args); ok {
@@ -218,8 +213,8 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		if a == "--commit" {
 			commit = true
 		} else if strings.HasPrefix(a, "-") {
-			// v0.27.3: 미확인 플래그는 사용법 오류 — 오타 플래그가 읽기 불가
-			// 파일로 조용히 버려지던 사각 제거. v0.34.3: 무효 인자 계약
+			// 미확인 플래그는 사용법 오류 — 오타 플래그가 읽기 불가
+			// 파일로 조용히 버려지던 사각 제거. 무효 인자 계약
 			// exit 3(doctor·tuning·diff 정합 — 주석·코드 불일치 해소).
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint import [path] [--commit] | flint import --format jsonl|pam [FILE]", a)))
 			return 3
@@ -258,7 +253,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			items = append(items, item{f, sec.Heading, render.TruncateRunes(summary, 500)})
 		}
 	}
-	// v0.27.3: 혼재(읽기 가능+불가)일 때도 읽기 불가 파일을 보고 — 부분
+	// 혼재(읽기 가능+불가)일 때도 읽기 불가 파일을 보고 — 부분
 	// 유실이 '전부 완료'로 보이던 오탐 제거. 파일명은 JSON 인코딩(경로
 	// 내 따옴표·백슬래시 파손 방지).
 	unreadableJSON := "[]"
@@ -272,7 +267,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			fmt.Fprintln(stdout, `{"status":"error","detail":"unreadable","files":`+unreadableJSON+`}`)
 			return 1
 		}
-		// v1.5.5 B3: empty에는 additive 힌트 키 — .jsonl/.pam 마이그레이션
+		// empty에는 additive 힌트 키 — .jsonl/.pam 마이그레이션
 		// 파일을 규칙 변환으로 지정했을 때의 안내.
 		fmt.Fprintln(stdout, `{"status":"empty","detail":"no convertible sections (## heading required)","hint":"--format jsonl|pam for migration"}`)
 		return 0
@@ -283,7 +278,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 0
 	}
 	// 리뷰 8: dedup 예측 후 단일 배치 커밋(write 경로 패턴 — N트랜잭션 회피).
-	// v0.27.3: origin은 filepath.Clean 정규화 — ./CLAUDE.md·a//b.md 등 경로
+	// origin은 filepath.Clean 정규화 — ./CLAUDE.md·a//b.md 등 경로
 	// 표기 차이가 다른 해시를 가져 이중 적립되던 멱등 깨짐 수선. 디렉터리가
 	// 다른 동일 파일명은 서로 다른 규칙이므로 충돌하지 않는다(basename
 	// 정규화의 교차 충돌 — 리뷰 1).
@@ -297,7 +292,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			"kind":       "knowledge",
 			"topic":      topic,
 			"summary":    store.SanitizeText(it.Summary),
-			"tags":       []string{"process"}, // v0.27.2: 문자열은 normalizeTags에서 소거
+			"tags":       []string{"process"}, // 문자열은 normalizeTags에서 소거
 			"domain":     "main",
 			"confidence": 0.5,
 			"status":     "pending",
@@ -307,12 +302,12 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		rec["content_hash"] = store.ContentHash(store.HashCanonical(rec))
 		if h, _ := rec["content_hash"].(string); h != "" {
 			if seen[h] {
-				continue // v0.27.3: 배치 내 동일 해시(동일 파일 2회 지정 등)
+				continue // 배치 내 동일 해시(동일 파일 2회 지정 등)
 			}
 			seen[h] = true
 			exists, err := st.ExistsHash(ctx, h)
 			if err != nil {
-				// v0.27.3: 조회 오류는 존재 아님 처리 금지(write 계약) —
+				// 조회 오류는 존재 아님 처리 금지(write 계약) —
 				// 항목 skip+경고로 부분 적립. 전량 실패는 아래에서 실패 보고.
 				fmt.Fprintf(os.Stderr, "[flint] import %s: dedup lookup failed — skip: %v\n", it.File, err)
 				dedupErrs++
@@ -322,7 +317,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 				continue // dedup — 재임포트 멱등
 			}
 		}
-		// v0.27.2: 저장 시점 비밀 스캔 — write 경로 계약 정렬(경고만, doctor
+		// 저장 시점 비밀 스캔 — write 경로 계약 정렬(경고만, doctor
 		// 사후 스캔과 이중 방어). dedup 통과분만 경고(리뷰 3 — 영구 skip
 		// 항목의 재경고 소음 방지).
 		warnSecrets("import "+it.File, it.Summary)
@@ -335,7 +330,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 1
 	}
 	if len(batch) == 0 {
-		BumpCurationCounter(ctx, st, "import_skipped", len(items)) // v1.2.0 T4 — 전량 스킵
+		BumpCurationCounter(ctx, st, "import_skipped", len(items)) // 전량 스킵
 		fmt.Fprintln(stdout, `{"status":"imported","inserted":0,"skipped":`+fmt.Sprint(len(items))+`,"unreadable":`+unreadableJSON+`}`)
 		return 0
 	}
@@ -343,7 +338,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// v1.2.0 T4 검수 카운터 — 적립·스킵 행수(출력의 inserted/skipped와
+	// 검수 카운터 — 적립·스킵 행수(출력의 inserted/skipped와
 	// 같은 산식. dedup 조회 오류건은 스킵이 아니라 실패라 제외).
 	BumpCurationCounter(ctx, st, "import_added", len(batch))
 	skipped := len(items) - len(batch)
@@ -362,7 +357,6 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 }
 
 // stripImportNoise — HTML 주석 제거. 코드 펜스 내부는 보존(리뷰 6).
-// v0.27.3 재작성 — 재감사 발견(주석-펜스 상태기 오염) 3건 수선:
 //
 //	① 주석 블록 내부의 ``` 라인이 펜스를 열어 문서 나머지를 통째로
 //	   삼키던 결함 — 주석 처리가 펜스보다 먼저, 펜스는 주석 제거 후

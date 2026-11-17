@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// export_csv_test.go — v1.3.0 T6: FormatCSV 계약 테스트.
+// export_csv_test.go — FormatCSV 계약 테스트.
 // 열 11개(content 제외 — 목록 인덱스 용도)·헤더행 포함·LF 개행·
 // tags는 `|` 결합. 원천 행은 합성 데모 데이터(개인 데이터 금지).
 
@@ -106,7 +106,7 @@ func TestFormatCSVHeaderAndRows(t *testing.T) {
 	if recs[2][9] != "88" {
 		t.Errorf("행2 superseded_by = %q, want 88", recs[2][9])
 	}
-	// valid_at — v1.4.0 T3: 검증 시각 원값(마지막 열, RFC3339).
+	// valid_at — 검증 시각 원값(마지막 열, RFC3339).
 	if r1[10] != want {
 		t.Errorf("행1 valid_at = %q, want %q", r1[10], want)
 	}

@@ -1,7 +1,6 @@
-// brief_v0341_test.go — v0.34.1 사후 감사 회귀: read와의 계약 정합
+// brief_v0341_test.go — 사후 감사 회귀: read와의 계약 정합
 // (N9 `--` 가드·N10 값 없는 trailing 플래그 exit 3)과 예산 절단이
 // [flint] 경계 헤더를 잘라내지 않는 방어(ADR-0006).
-// v0.39.0 T4: lib/cli에서 이동(cli/brief_v0341_test.go 원본).
 package knowledge
 
 import (
@@ -124,7 +123,7 @@ func TestBriefExcludesPending(t *testing.T) {
 	})
 }
 
-// TestBriefRecordsBytes — Review Focus(v1.1.0 T1): brief 출력 직후
+// TestBriefRecordsBytes — Review Focus: brief 출력 직후
 // len(최종 출력)을 kind="brief"로 기록 — ClampHot 절단 '후' 길이(기기 밖
 // 유출량 실측), 0건 안내 경로도 쓴 총량을 기록한다(분모 정합).
 func TestBriefRecordsBytes(t *testing.T) {

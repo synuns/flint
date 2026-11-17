@@ -1,4 +1,4 @@
-// read_v0420_test.go — v0.42.0 T2 Review Focus: read_stats blob 폐지 후
+// read_v0420_test.go — Review Focus: read_stats blob 폐지 후
 // read 1회 쓰기 4→2(BumpReads·RecordReadEvent만). read 경로가 meta
 // read_stats 키를 읽거나 쓰지 않는다(운영 DB 잔존 blob은 무해 잔류 —
 // 접근 부재가 계약). 유입 계측(RecordReadUsage daily 경로)도 read kind

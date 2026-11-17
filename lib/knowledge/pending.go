@@ -1,9 +1,7 @@
-// pending.go — v0.29.0 R1: pending 지식 심사 뷰. 사람 게이트(승격)의
+// pending.go — pending 지식 심사 뷰. 사람 게이트(승격)의
 // 병목 해소 — 규칙 기반 삼단 추천(승격/병합/만료/보류)으로 검수 안내.
 // 판정은 안내일 뿐 실행은 approve·maintain이 담당(신뢰 게이트 불변 —
 // LLM 판정 배제 §13). 출력은 사람 읽는 테이블(read 형식 승계).
-// v0.39.0 T4: lib/cli에서 이동(cli/pending.go 원본 + lib/render/text.go
-// 소유 CountPending — 룰링: render에는 임시 소속이었다).
 package knowledge
 
 import (
@@ -59,7 +57,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	jsonMode := false
 	for _, a := range args {
 		if a == "--json" {
-			jsonMode = true // v0.32.0: MCP·스크립트용 기계 판독 출력
+			jsonMode = true // MCP·스크립트용 기계 판독 출력
 			continue
 		}
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint pending [--json]", a)))
@@ -79,13 +77,13 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return store.MapExit(err)
 	}
 	now := time.Now().UTC()
-	// v0.31.3(감사 3): active 전체 1회 조회 — 행마다 재조회(O(P×A)) 제거.
-	// v1.6.0 T1(R30-C C1): 조회 결과를 접두 키 인덱스로 1회 빌드 —
+	// active 전체 1회 조회 — 행마다 재조회(O(P×A)) 제거.
+	// 조회 결과를 접두 키 인덱스로 1회 빌드 —
 	// 행마다 active 전체 재스캔(합성 5만에서 수백 초)을 O(N+M)로 수렴.
 	actives := fetchActiveTopicRows(ctx, st)
 	idx := buildTopicPrefixIndex(actives)
 	counts := map[string]int{}
-	// v0.32.0: JSON 모드용 행 구조 — 판정 데이터를 그대로 직렬화한다.
+	// JSON 모드용 행 구조 — 판정 데이터를 그대로 직렬화한다.
 	type jsonItem struct {
 		ID           int    `json:"id"`
 		Verdict      string `json:"verdict"`
@@ -95,24 +93,23 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		Topic        string `json:"topic"`
 		Why          string `json:"why,omitempty"`
 	}
-	jsonItems := make([]jsonItem, 0) // v0.32.0 리뷰 3: 빈 경우 null 아닌 []
+	jsonItems := make([]jsonItem, 0) // 빈 경우 null 아닌 []
 	for _, r := range rows {
 		if len(r) < 5 {
 			continue
 		}
-		// v0.31.3(감사 1): 저장값 출력 재살균 — v0.28 H③ 패턴(read·hot·
-		// maintain 계열) 회귀 수선. 제어 문자·Cf·[flint] 마커 중립화.
-		// v0.37.0: render 조크포인트 경유(render.Text).
+		// 저장값 출력 재살균 — 제어 문자·Cf·[flint] 마커 중립화.
+		// render 조크포인트 경유(render.Text).
 		it := pendingItem{
 			Topic:   render.Text(fmt.Sprint(r[1])),
 			Summary: render.Text(fmt.Sprint(r[2])),
 			Origin:  render.Text(fmt.Sprint(r[3])),
 		}
 		fmt.Sscan(fmt.Sprint(r[0]), &it.ID)
-		if ts, ok := cellToTime(r[4]); ok { // v0.31.3(감사 4): 타입 단언 폴백 정경로
+		if ts, ok := cellToTime(r[4]); ok { // 타입 단언 폴백 정경로
 			it.ValidAt = ts.UTC()
 		}
-		// v0.32.1(감사 1·2): valid_at 파싱 불가 가드를 판정·counts 앞으로 —
+		// valid_at 파싱 불가 가드를 판정·counts 앞으로 —
 		// jsonMode 한정 오버라이드가 counts(원 kind)와 items(보정 kind)를
 		// 어긋나게 하던 모순 수선, 텍스트 모드에도 동일 적용.
 		v := verdictFor(it, th, now, idx)
@@ -120,8 +117,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			v = pendingVerdict{"hold", "valid_at unparsable — data check required"}
 		}
 		counts[v.Kind]++
-		// v0.33.0(패치 감사 1): zero valid_at의 age 표기 0 보정 복원 —
-		// v0.32.1 가드 이동 시 유실돼 292년치 나이가 출력되던 회귀 수선.
+		// zero valid_at의 age 표기 0 보정 복원.
 		age := 0
 		if !it.ValidAt.IsZero() {
 			age = ageDays(now, it.ValidAt)
@@ -177,7 +173,7 @@ func verdictFor(it pendingItem, th store.Thresholds, now time.Time, idx topicPre
 	if d := th.PendingAgeDays; d > 0 && age > time.Duration(d)*24*time.Hour {
 		return pendingVerdict{"expire", fmt.Sprintf("%dd elapsed (threshold %dd) — expire review: maintain --invalidate --id %d --reason review", int(age.Hours()/24), d, it.ID)}
 	}
-	// 병합 후보 — 유사 active 탐색(사전 빌드 인덱스 조회 — v1.6.0 T1).
+	// 병합 후보 — 유사 active 탐색(사전 빌드 인덱스 조회).
 	if sims := idx.match(topicSimilarityKey(it.Topic)); len(sims) > 0 {
 		return pendingVerdict{"merge", fmt.Sprintf("similar active %d (id %s) — review approve --id %d --supersede OLD",
 			len(sims), joinInts(sims), it.ID)}
@@ -189,7 +185,7 @@ func verdictFor(it pendingItem, th store.Thresholds, now time.Time, idx topicPre
 }
 
 // fetchActiveTopicRows — 유사 판정용 active (id, topic) 전체 1회 조회
-// (v0.31.3 감사 3 — 행당 재조회 제거. 실패는 빈 세트: 병합 판정만
+// (행당 재조회 제거. 실패는 빈 세트: 병합 판정만
 // 생략되고 나머지 판정·출력 계약 불변).
 func fetchActiveTopicRows(ctx context.Context, st wire.Store) [][]any {
 	rows, err := wire.QueryOnce(ctx, st,
@@ -212,7 +208,7 @@ func topicSimilarityKey(topic string) string {
 }
 
 // topicPrefixIndex — active (id, topic) 행의 유사 접두 키 → id 목록
-// (active 조회 순서 보존·동일 접두 중복 포함). v1.6.0 T1(R30-C C1):
+// (active 조회 순서 보존·동일 접두 중복 포함).
 // matchTopicPrefix가 행마다 active 전체를 재스캔하던 O(pending×active)를
 // 인덱스 사전 빌드 1회 + 조회 O(1)로 수렴. 접두 정책(세션 공통 접두
 // 제거 후 12룬)·행 필터(id 파싱 가능·열 충족)는 구 스캔 구현과 동일하다.
@@ -246,7 +242,7 @@ func (idx topicPrefixIndex) match(key string) []int {
 }
 
 // matchTopicPrefix — key 12룬 접두가 일치하는 active (id,topic) 행의 id.
-// approve·pending 양쪽이 공유하는 단일 근사 구현(리뷰 5) — v1.6.0 T1:
+// approve·pending 양쪽이 공유하는 단일 근사 구현(리뷰 5).
 // 내부는 접두 인덱스 경유(스캔 루프 폐지, 판정 결과는 구현과 동일).
 func matchTopicPrefix(key string, actives [][]any) []int {
 	return buildTopicPrefixIndex(actives).match(key)
@@ -294,7 +290,7 @@ func OneLine(s string, max int) string {
 	return render.TruncateRunes(strings.TrimSpace(s), max)
 }
 
-// cellToTime — 셀(any)→time 변환. v0.41.0 T4: 순수 함수 복제 폐지 —
+// cellToTime — 셀(any)→time 변환.
 // wire.CellToTime 단일 구현 별칭(사이클 금지 해소, 동일 계약).
 var cellToTime = wire.CellToTime
 

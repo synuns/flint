@@ -1,4 +1,4 @@
-// sign_test.go — v1.6.1 T2 A1: PAM 서명 키 생성 경로 원자성 회귀.
+// sign_test.go — PAM 서명 키 생성 경로 원자성 회귀.
 // LoadOrCreatePAMSigningKey 생성은 O_CREATE|O_EXCL 원자 오픈 — 동시
 // 호출이 같은 키 파일을 두벌 생성·상호 덮어쓰지 않는다(EEXIST 강제
 // 경로·동시 호출 전수 단일 키). 전부 합성 키(개인 데이터 금지).

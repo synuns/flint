@@ -8,7 +8,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// TestBriefMasksAllowlistedEntries — v1.0.10(감사 B2): brief는 기기 밖 —
+// TestBriefMasksAllowlistedEntries — brief는 기기 밖 —
 // allowlist 등록값도 마스킹된다(진단용 dump --mask의 원문 보존과 구분).
 func TestBriefMasksAllowlistedEntries(t *testing.T) {
 	store.ResetSecretsAllowlistForTest([]string{"doc-token-abc123"})

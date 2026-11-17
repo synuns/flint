@@ -1,5 +1,5 @@
-// import_jsonl.go — v1.3.0 T9: flint import --format jsonl|pam 마이그레이션
-// 경로. export jsonl(T3 포맷) 재이식 — 행마다 기존 write 회로(Normalize →
+// import_jsonl.go — flint import --format jsonl|pam 마이그레이션
+// 경로. export jsonl(포맷) 재이식 — 행마다 기존 write 회로(Normalize →
 // content_hash dedup → InsertBatch)를 재사용하고, superseded_by 참조 행은
 // 후처리로 기존 Supersede 전이를 재사용해 계보를 복원한다. 기존 `flint
 // import [path]` 규칙 변환 경로는 불변(RunImportRouted가 --format 유무로
@@ -120,7 +120,7 @@ type importMigrateOutcome struct {
 // importHashSkip — 재이식 해시 입력 제외 키(write payload에 없는 이식
 // 기계 키 — id·kind·status는 적립 시 부과되고 ingested_at·invalid_at은
 // A4 보존 열. valid_at·ts는 HashCanonical 휘발성 제외 승계).
-// v1.7.0 T1: recall_score·last_recalled_at도 제외 — 회상 이력은 내용
+// recall_score·last_recalled_at도 제외 — 회상 이력은 내용
 // 정체성이 아니라 스코어 변동이 해시 dedup를 깨뜨리면 안 된다.
 var importHashSkip = map[string]bool{
 	"id": true, "kind": true, "status": true, "ingested_at": true, "invalid_at": true,
@@ -129,8 +129,8 @@ var importHashSkip = map[string]bool{
 
 // rowHashRec — ExportRow 1건을 (해시 입력, 적립 rec) 쌍으로 변환.
 // 해시 입력은 write 경로 산출식(ContentHash(HashCanonical(n)) — 전체 키)과
-// 대칭이다(R19 A9: 7키 고정 부분집합은 write payload 부가 키 행과
-// 비대칭). entities는 entity 텍스트 열로 ":" 결합(T2 원천 매핑 승계 —
+// 대칭이다(7키 고정 부분집합은 write payload 부가 키 행과
+// 비대칭). entities는 entity 텍스트 열로 ":" 결합(원천 매핑 승계 —
 // 왕복 대칭).
 func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaError) {
 	rec = map[string]any{
@@ -147,7 +147,7 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	if len(r.Entities) > 0 {
 		rec["entity"] = strings.Join(r.Entities, ":")
 	}
-	// 시각 보존(R19 A4 → v1.4.0 T3 확장): ingested_at은 CreatedAt(원천
+	// 시각 보존: ingested_at은 CreatedAt(원천
 	// ingested_at), invalidated 행의 invalid_at은 UpdatedAt(export 파생
 	// COALESCE(invalid_at, ingested_at)의 역매핑). valid_at은 원값 우선 —
 	// jsonl 미실어 행(손작성 등)만 기존 폴백(CreatedAt → UpdatedAt) 승계.
@@ -172,7 +172,7 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	} else {
 		rec["status"] = "active"
 	}
-	// v1.7.0 T1 스코어 왕복 승계: 값 있을 때만 rec에 실는다(InsertBatch
+	// 스코어 왕복 승계: 값 있을 때만 rec에 실는다(InsertBatch
 	// 컬럼 승격 — 미지정·0/NULL은 컬럼 기본값 폴백). 해시 입력 제외는
 	// importHashSkip(상단 주석). PAM은 metadata 미확장 — jsonl 경로 담당.
 	if r.RecallScore != 0 {
@@ -219,7 +219,7 @@ func isHex64(s string) bool {
 	return true
 }
 
-// importDedupChunk·importInsertChunk — v1.6.0 T2 청크 크기(R30-A P1·P2).
+// importDedupChunk·importInsertChunk — 청크 크기.
 // dedup은 content_hash = ANY($1) 사전 조회 해시 수(1k), 적립은 청크
 // 커밋 행 수(5k — 단일 대형 트랜잭션의 EOF 위험 분산). 테스트가 경계를
 // 축소해 청크 동작을 검증한다(import_jsonl_test.go overrideImportChunks).
@@ -228,13 +228,13 @@ var (
 	importInsertChunk = 5000
 )
 
-// importMaxFileBytes — import 입력 FILE 크기 상한(R33 G3, v1.6.2 T3):
+// importMaxFileBytes — import 입력 FILE 크기 상한:
 // 512MB. os.ReadFile 전 stat으로 판정해 초과 문서를 슬랩에 적재하기 전에
 // exit 3으로 차단한다(대량 문서 OOM 방어 — 행 수 상한과 한 쌍). var인 것은
 // 테스트 경계 축소뿐(기본값 512MB가 계약).
 var importMaxFileBytes int64 = 512 << 20
 
-// lookupHashBatch — dedup 사전 조회(R30-A P1): 해시 배열을 content_hash =
+// lookupHashBatch — dedup 사전 조회: 해시 배열을 content_hash =
 // ANY($1) 청크로 1왕복씩 조회해 해시→기존 행 메타 맵을 돌려준다(행별
 // SELECT N회 폐지). 맵 부재 해시 = 신규. 오류는 전파(조용한 신규 판정
 // 금지 — 체인 보존으로 서버다운 exit 2 유지).
@@ -265,7 +265,7 @@ func lookupHashBatch(ctx context.Context, st wire.Store, hashes []string) (map[s
 	return existing, nil
 }
 
-// lookupExistingIDs — 명시 id 충돌 사전 조회(R33 G5, v1.6.2 T3): id 배열을
+// lookupExistingIDs — 명시 id 충돌 사전 조회: id 배열을
 // id = ANY($1) 청크로 1왕복씩 조회해 존재 id 집합을 돌려준다(해시 dedup를
 // 통과한 행의 명시 id가 DB에 이미 있다는 것은 내용이 다르다는 뜻 — PK
 // 충돌). 오류는 전파(dedup 조회와 동일 — 조용한 재할당 판정 금지, 서버다운
@@ -292,7 +292,7 @@ func lookupExistingIDs(ctx context.Context, st wire.Store, ids []int) (map[int]b
 	return existing, nil
 }
 
-// countJSONLRows — 비어 있지 않은 줄 수(R30-A P5): ParseJSONLRows의 행 수
+// countJSONLRows — 비어 있지 않은 줄 수: ParseJSONLRows의 행 수
 // 기준(공백 줄 제외)과 동일하게 바이트 라인 스캔 1회로 센다 — 전량
 // 파싱 전 상한 조기 판정용(대량 문서의 파싱 메모리 방어). 유니코드
 // 공백만으로 이루어진 줄은 JSON 줄이 아니므로 고려하지 않는다.
@@ -318,7 +318,7 @@ func countJSONLRows(data []byte) int {
 	return n
 }
 
-// importRowsBatch — dedup 통과 행 청크 적립 + id 매핑. v1.6.0 T2: ①행별
+// importRowsBatch — dedup 통과 행 청크 적립 + id 매핑. ①행별
 // lookupHash 대신 해시 배열 ANY($1) 청크 사전 조회 ②InsertBatch 1회 대신
 // importInsertChunk행 청크 커밋(부분 성공 보존 — 실패 청크 이전 커밋은
 // 유지되고 재실행은 dedup가 회복해 멱등 재개).
@@ -346,7 +346,7 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		if se != nil {
 			return nil, se
 		}
-		// 해시(R19 A9): export가 실어온 저장 content_hash(64 hex)는 write가
+		// 해시: export가 실어온 저장 content_hash(64 hex)는 write가
 		// 부가 키(session_id 등 payload 부가 키)까지 포함해 산출한 값이라
 		// 재계산으로 재현 불가다 — 유효하면 승계해 dedup·적립의 왕복 대칭을
 		// 맞춘다. 없는 행(손작성 jsonl)은 write 산출식으로 재계산한다.
@@ -391,7 +391,7 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		}
 		batch = append(batch, pending{idx: p.idx, row: p.row, rec: rec, hash: p.hash})
 	}
-	// 3.5단계 — R33 G5(v1.6.2 T3): 명시 id 충돌 자동 재할당. 기존 DB 동일
+	// 3.5단계 — 명시 id 충돌 자동 재할당. 기존 DB 동일
 	// id(다른 내용 — 동일 내용이면 2~3단계 dedup가 이미 스킵)와 파일 내
 	// 중복 id는 명시 id를 제거해 serial 재할당 경로로 보낸다(재할당 행은
 	// 4단계에서 id≠원본 id로 remapped 계상·요약 보고 — 배치 PK 충돌로
@@ -432,7 +432,7 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		}
 		ids, err := st.InsertBatch(ctx, recs)
 		if err != nil {
-			// R19 A1: 배치 적립 실패은 유령 성공이 될 수 없다 — 실구현
+			// 배치 적립 실패은 유령 성공이 될 수 없다 — 실구현
 			// mapInsertErr는 unique 위반(23505: 기존 DB 동일 id·다른 content
 			// 행의 PK 충돌 포함)을 ErrDuplicate로 감싸고 MapExit(ErrDuplicate)
 			// =0이라 그대로 두면 "오류 JSON + exit 0 + 0건 커밋"이 된다
@@ -461,13 +461,13 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		}
 	}
 	if explicit {
-		// R19 A2: 명시 id INSERT는 id serial의 nextval을 소비하지 않는다.
+		// 명시 id INSERT는 id serial의 nextval을 소비하지 않는다.
 		syncKnowledgeIDSequence(ctx, st)
 	}
 	return oc, nil
 }
 
-// syncKnowledgeIDSequence — R19 A2: 명시 id 이식 직후 id serial nextval이
+// syncKnowledgeIDSequence — 명시 id 이식 직후 id serial nextval이
 // 기존 행과 충돌해 flint write가 연속 실패하지 않게 시퀀스를 max(id)+1로
 // 맞춘다(setval …, false — 다음 nextval = max+1). 시퀀스명은
 // pg_get_serial_sequence로 확인하고, 미지원 저장소는 표준 명칭
@@ -490,7 +490,7 @@ func syncKnowledgeIDSequence(ctx context.Context, st wire.Store) {
 	}
 }
 
-// supersedeRefStore — 계보 참조 복원 capability(v1.3.0 T9). realStore는
+// supersedeRefStore — 계보 참조 복원 capability. realStore는
 // db.Repo.SetSupersededRef로 구현(cli/import_migrate.go 위임). 쓰기 SQL은
 // db.Repo 단일 경로(writes_through_repo 가드) — knowledge는 capability
 // 단언으로만 소비한다.
@@ -529,7 +529,7 @@ func restoreSupersede(ctx context.Context, st wire.Store, oc *importMigrateOutco
 					return n, err
 				}
 				if rows > 0 {
-					n++ // R19 A8: 실제 복원된 행만 계상(0행=이미 참조 존재 제외)
+					n++ // 실제 복원된 행만 계상(0행=이미 참조 존재 제외)
 				}
 				continue
 			}
@@ -626,7 +626,7 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 			Tags:       c.Tags,
 			Source:     c.Source,
 		}
-		// v1.6.1 T2 A2(왕복 멱등): flint 발행 문서가 실어온 저장
+		// 왕복 멱등: flint 발행 문서가 실어온 저장
 		// content_hash(ParsePAM 승계 — 64 hex만)는 적립 해시로 승계해
 		// dedup가 원천 해시와 대칭한다(jsonl A9 isHex64 경로와 동일).
 		if h, ok := c.Metadata["content_hash"].(string); ok && isHex64(h) {
@@ -696,7 +696,7 @@ func RunImportRouted(ctx context.Context, st wire.Store, args []string, stdin io
 
 // importMaxRowsLimit — import 1회 행 수 상한 로드(등록표 키
 // export_import_max_rows). 조회 실패·미설정(0)은 DefaultThresholds 폴백
-// (v0.16.3 키 규약 — ApplyThresholdsFallback 미등록 키의 소비자 완결).
+// (키 규약 — ApplyThresholdsFallback 미등록 키의 소비자 완결).
 func importMaxRowsLimit(ctx context.Context, st wire.Store) int {
 	def := store.DefaultThresholds().ExportImportMaxRows
 	th, err := wire.LoadThresholdsFn(ctx, st)
@@ -708,7 +708,7 @@ func importMaxRowsLimit(ctx context.Context, st wire.Store) int {
 
 // enforceImportMaxRows — 행 수 상한 초과 시 오류 JSON(max·count 포함)을
 // stdout에 내고 3을 반환(호출부는 그대로 반환). 파싱 직후·적립 전 단계라
-// 부작용 없음(대량 문서 전량 적립의 메모리 방어 — v1.4.0 T3).
+// 부작용 없음(대량 문서 전량 적립의 메모리 방어).
 func enforceImportMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, count int) int {
 	max := importMaxRowsLimit(ctx, st)
 	if count <= max {
@@ -740,7 +740,7 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 	}
 	var data []byte
 	if file != "" {
-		// G3(v1.6.2 T3): 크기 상한은 os.ReadFile 앞 stat으로 판정한다 —
+		// 크기 상한은 os.ReadFile 앞 stat으로 판정한다 —
 		// 초과 파일을 읽지 않고 exit 3(max·size 포함). stat 실패는 ReadFile
 		// 오류 경로(A7 원인 보존)에 맡긴다.
 		if fi, serr := os.Stat(file); serr == nil && fi.Size() > importMaxFileBytes {
@@ -758,7 +758,7 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 		}
 		data, err = os.ReadFile(file)
 		if err != nil {
-			// R19 A7: 원인(ENOENT/EACCES·경로)을 폐기하지 않고 expect에
+			// 원인(ENOENT/EACCES·경로)을 폐기하지 않고 expect에
 			// 포함한다(SchemaError 랩 유지 — exit 3 불변).
 			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "file",
 				Expect: "readable jsonl file: " + err.Error()}))
@@ -775,7 +775,7 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 	var oc *importMigrateOutcome
 	switch format {
 	case "jsonl":
-		// v1.6.0 T2(P5): 상한 판정을 전량 파싱 앞당긴다 — 라인 스캔 1회
+		// 상한 판정을 전량 파싱 앞당긴다 — 라인 스캔 1회
 		// 카운트로 조기 exit 3(대량 문서의 파싱 메모리 방어가 파손 행
 		// 오류보다 우선).
 		if code := enforceImportMaxRows(ctx, st, stdout, countJSONLRows(data)); code != 0 {
@@ -788,7 +788,7 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 		}
 		oc, err = importJSONL(ctx, st, rows)
 	case "pam":
-		if ParsePAMFn == nil { // T10 seam 미준비
+		if ParsePAMFn == nil { // seam 미준비
 			fmt.Fprintln(stdout, `{"error":"pam import unsupported"}`)
 			return 3
 		}

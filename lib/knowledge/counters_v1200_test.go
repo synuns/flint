@@ -1,4 +1,4 @@
-// counters_v1200_test.go — v1.2.0 T4 Review Focus: 검수(curation) 카운터
+// counters_v1200_test.go — Review Focus: 검수(curation) 카운터
 // (approve 승격·not_found·supersede 오류 / import 적립·skip daily 플랫 키
 // 증분)·발화(fired) 카운터(done stale 경고 fired_done_stale 메타 누적 —
 // 발화 시 증분·미발화 0). 카운터 UPSERT는 전부 st.Query 경유라 인자

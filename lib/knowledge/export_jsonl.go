@@ -1,6 +1,6 @@
-// export_jsonl.go — v1.3.0 T3: flint export --format jsonl 포맷터.
-// 행당 1 JSON 객체, LF 개행 구분. 전 필드 완전 스냅샷 — T9 재이식이
-// 소비. snake_case 키는 T6(csv)·T5(md)와 동일 계약.
+// export_jsonl.go — flint export --format jsonl 포맷터.
+// 행당 1 JSON 객체, LF 개행 구분. 전 필드 완전 스냅샷 — 재이식이
+// 소비. snake_case 키는 csv·md와 동일 계약.
 package knowledge
 
 import (
@@ -10,8 +10,8 @@ import (
 )
 
 // exportJSONLRow — ExportRow의 jsonl 직렬화 뷰(snake_case 태그).
-// ExportRow 원본(현재 T2 적립 전 T6 프록시)에는 태그를 두지 않는다.
-// v1.7.0 T1 스코어 2필드는 omitempty(additive) — 0/NULL 행은 기존 골든
+// ExportRow 원본(현재 적립 전 프록시)에는 태그를 두지 않는다.
+// 스코어 2필드는 omitempty(additive) — 0/NULL 행은 기존 골든
 // 출력·키 구성을 그대로 두고, 값 있는 행만 키를 발행한다(레거시 jsonl
 // 파싱은 미지정 → 0/NULL 폴백).
 type exportJSONLRow struct {
@@ -41,7 +41,7 @@ func toExportJSONLRow(r ExportRow) exportJSONLRow {
 }
 
 // FormatJSONL — rows를 jsonl(행당 1 JSON 객체 + LF)로 직렬화한다.
-// 순수 함수: 원천 조회(T2)·파일 기록(T7)과 무관. 빈 입력은 빈 바이트.
+// 순수 함수: 원천 조회·파일 기록과 무관. 빈 입력은 빈 바이트.
 func FormatJSONL(rows []ExportRow) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

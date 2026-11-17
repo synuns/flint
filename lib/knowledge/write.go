@@ -1,7 +1,7 @@
 // write.go — flint write <kind>: 5단계 파이프라인(검증→dedup→판정→커밋→출력).
-// v0.39.0 T2: lib/cli/write.go 이동(계약 불변). 유입 계측(RecordUsage)·
+// 유입 계측(RecordUsage)·
 // 판정 임계값 로더(WriteThresholds)·살균(SanitizePayload)은 knowledge
-// 공용 표면 — read·hot·done(T3·T4 이동분)과 cli 잔류 소비자는
+// 공용 표면 — read·hot·done과 cli 잔류 소비자는
 // cli/knowledge_alias.go 별칭으로 승계한다.
 package knowledge
 
@@ -26,7 +26,7 @@ var kindColumns = map[string]map[string]bool{
 		"domain": true, "confidence": true, "origin": true, "status": true,
 		"content_hash": true, "session_id": true, "valid_at": true},
 	"session": {"ts": true, "agent": true, "summary": true},
-	// v1.6.2 T3(F5): note는 SchemaV2 컬럼(projects.note)이라 메타데이터
+	// note는 SchemaV2 컬럼(projects.note)이라 메타데이터
 	// 취급 버림 폐지 — 저장 컬럼으로 등록.
 	"project": {"name": true, "status": true, "updated": true, "note": true},
 }
@@ -134,7 +134,7 @@ func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 // 계약 불변.
 // v1.5.5 T2 A5: --help/-h는 stdin 대기 전 usage 안내 exit 0.
 func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// v1.5.5 T2 A5: --help/-h 감지 시 usage 안내 exit 0 — stdin 대기 전
+	// --help/-h 감지 시 usage 안내 exit 0 — stdin 대기 전
 	// 안내한다(write는 kind를 위치 인자로 받아 `--help`가 kind로 오인돼
 	// stdin 파이프를 물고 있던 문제 폐지).
 	for _, a := range args {
@@ -143,7 +143,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return 0
 		}
 	}
-	// v1.6.0 T7: 수동 루프를 wire.ParseArgs로 이관. write는 unknown 플래그
+	// write는 unknown 플래그
 	// 를 위치 인자로 흡수하는 관례(kind·positional 계열 — DashPositional)
 	// 라 사양이 그대로 반영한다. --source 값 검증은 ParseSourceFlag
 	// 단일 소스 승계(첫 발생 검증 계약), --help/-h 사전 스캔도 위 루프
@@ -179,7 +179,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "payload", Expect: "non-empty JSON/JSONL on stdin"}))
 		return 3
 	}
-	// v1.6.2 T2 G1: stdin 행 수 상한(등록표 키 export_import_max_rows
+	// stdin 행 수 상한(등록표 키 export_import_max_rows
 	// 재사용 — import 대칭). 파싱 직후·부작용 전에 차단해 대량 stdin 전량
 	// 적립의 메모리 방어를 이룬다(오류 JSON {max,count}·exit 3).
 	if code := enforceWriteMaxRows(ctx, st, stdout, len(payloads)); code != 0 {
@@ -191,7 +191,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// 판정 floor는 이번 쓰기가 읽은 meta conf_floor(값 전달 — 전역 주입 없음).
 	th := WriteThresholds(ctx, st)
 	floor := th.ConfFloor
-	// v0.24.0 R4a: 개인 어휘(vocab_tags·vocab_domains 콤마 목록) 합집합
+	// 개인 어휘(vocab_tags·vocab_domains 콤마 목록) 합집합
 	// 주입 — repo가 아닌 운영 DB에 개인 어휘.
 	if rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains')`, nil); err == nil {
@@ -215,13 +215,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	hash, state := "", "active"
 	dups := 0
 	dupID := 0     // 단일 줄 duplicate의 기존 행 id(R3) — 미지원 Store·다중 줄은 0 유지
-	dupTopic := "" // v0.18.0 R1: 기존 행 topic·state — 재전송 라이터 피드백
+	dupTopic := "" // 기존 행 topic·state — 재전송 라이터 피드백
 	dupState := ""
 	// 배치 내 동일 키 줄(knowledge content_hash·project name): InsertBatch 전체 실패 방지
 	seen := map[string]bool{}
-	// v1.6.0 T3(R30-C C3): knowledge 다중 줄의 사전 dedup 배치화 — 줄별
+	// knowledge 다중 줄의 사전 dedup 배치화 — 줄별
 	// lookupHash(N왕복 — 대형 배치에서 RTT N회가 지배) 대신 해시를 모아
-	// 루프 후 lookupHashBatch(content_hash = ANY($1) 청크, import R30-A P1
+	// 루프 후 lookupHashBatch(content_hash = ANY($1) 청크, import
 	// 재사용) 1회 조회로 감지 동일성을 유지한다. 단발(len==1, hook 패턴)은
 	// 기존 줄별 조회 계약(DupMetaStore→DupIDStore→ExistsHash 폴백) 불변.
 	batched := len(payloads) > 1
@@ -239,7 +239,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		recs = append(recs, n)
 	}
 	for _, p := range payloads {
-		// v1.6.2 T2 G2: 단일 payload 필드 바이트 상한 — Validate 단계
+		// 단일 payload 필드 바이트 상한 — Validate 단계
 		// 거부(exit 3). 대형 단일 필드가 살균·해시·적립 파이프라인과 저장
 		// 본문을 통째로 타고 들어오는 OOM 경로를 차단한다.
 		if se := validateFieldBytes(p); se != nil {
@@ -255,7 +255,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		warnings = append(warnings, SanitizePayload(p)...)
 		n := store.Normalize(kind, p)
 		if kind == "knowledge" {
-			// 어휘 검증(T35): Normalize된 domain과 tags 기준 경고 병합 —
+			// 어휘 검증: Normalize된 domain과 tags 기준 경고 병합 —
 			// 경고만(저장 차단 아님·exit 불변). 살균 경고 뒤 순서 유지.
 			if raw, ok := p["tags"].([]any); ok {
 				tags := make([]string, 0, len(raw))
@@ -348,7 +348,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	}
 
 	// emitDuplicate — 전부 duplicate(사전 확인·레이스 재확인 공통): 0건 커밋·
-	// exit 0 "duplicate"(시딩 멱등). 유입 계측(T61)은 write 1회 + 실제 skip 줄
+	// exit 0 "duplicate"(시딩 멱등). 유입 계측은 write 1회 + 실제 skip 줄
 	// 수(이중 계수 금지), 경고는 폐기하지 않는다(dup 줄의 살균·비밀 경고 유지).
 	emitDuplicate := func() {
 		RecordUsage(ctx, st, "write", source)
@@ -459,7 +459,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	if len(dropped) > 0 || len(warnings) > 0 {
 		out = withWarnings(out, dropped, warnings)
 	}
-	RecordUsage(ctx, st, "write", source) // 신규 커밋 성공 후 유입 1회(T61)
+	RecordUsage(ctx, st, "write", source) // 신규 커밋 성공 후 유입 1회
 	RecordDups(ctx, st, source, dups)     // 혼합 배치의 skip 줄도 dup 계측(총계+소스)
 	fmt.Fprintln(stdout, out)
 	return 0
@@ -485,13 +485,13 @@ func RecordDups(ctx context.Context, st wire.Store, source string, n int) {
 }
 
 // sanitizeFields — 살균 대상 텍스트 컬럼(kind 공통 최소집합).
-var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id"} // v0.26.2 재검수 발견4: session_id 추가(임의 문자열 무살균 방어)
+var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id"} // session_id 추가(임의 문자열 무살균 방어)
 
 // SanitizePayload — 텍스트 필드를 살균해 원본 맵을 갱신하고, 비밀 후보 경고
 // ("possible secret: 패턴명")를 반환한다. 저장 거부 아님(경고+살균).
 func SanitizePayload(p map[string]any) []string {
 	var warns []string
-	// v0.20.6(패치 루프 6차 S2): 살균·비밀 스캔 대상을 문자열 필드
+	// 살균·비밀 스캔 대상을 문자열 필드
 	// 5종에서 tags 배열 원소·domain·origin까지 확장 — 이 필드들은
 	// 정규화·저장·백업 덤프에 그대로 남아 경고 계약의 사각지대였다.
 	for _, f := range sanitizeFields {
@@ -579,7 +579,7 @@ func withWarnings(line string, dropped map[string]bool, secretWarns []string) st
 
 // maxPayloadFieldBytes — 단일 payload 필드(문자열 값)의 바이트 상한.
 // 등록표(thresholds meta 오버라이드) 대상이 아닌 코드 상수+TUNING 표기
-// 관례(G2 — 문서 표는 T4 정합). 크기는 compact 훅 경계(compactMaxBytes
+// 관례. 크기는 compact 훅 경계(compactMaxBytes
 // 8MiB, §13 비간섭)와 정합한다 — compact는 8MiB compact_summary를
 // session 1행으로 RunWrite에 그대로 흘려보내므로 그보다 작은 상한은
 // 정상 compaction을 조용히 무동작화한다(경계 초과분만 차단).

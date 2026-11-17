@@ -1,6 +1,4 @@
 // done_v0100_test.go — lazyDumpFile(자동 백업 지연 writer) 계약.
-// v0.39.0 T4: lib/cli에서 이동(cli/done_v0100_test.go 원본 + cli/
-// backup_integrity_test.go의 TestLazyDumpPartialWriteDiscards).
 package knowledge
 
 import (
@@ -66,7 +64,7 @@ func TestLazyDumpCloseFailNoSidecar(t *testing.T) {
 	}
 }
 
-// TestLazyDumpPartialWriteDiscards — v0.25.4(U2): 본문 기록 실패 시
+// TestLazyDumpPartialWriteDiscards — 본문 기록 실패 시
 // 부분 파일이 정상 사이드카를 받지 않고 폐기된다(체크섬 통과 오탐
 // 백업 슬롯 방어).
 func TestLazyDumpPartialWriteDiscards(t *testing.T) {

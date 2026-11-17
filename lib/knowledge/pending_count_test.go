@@ -1,7 +1,5 @@
 // pending_count_test.go — CountPending 단일 조회 계약(빈 응답·해석 불가
 // 값은 조용한 0, 조회 실패는 오류 전파 — 기존 cli.countPending 관례 불변).
-// v0.39.0 T4: lib/render/text_test.go에서 이동(정의의 knowledge 이관에
-// 동반 — 룰링: render에는 임시 소속이었다).
 package knowledge
 
 import (

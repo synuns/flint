@@ -1,4 +1,4 @@
-// brief_test.go — v1.7.0 T3: brief 선정 순위에 감쇠 후 유효 회상 점수
+// brief_test.go — brief 선정 순위에 감쇠 후 유효 회상 점수
 // 반영. hot과 동일 계약 — effective DESC 안정 정렬(동점·0점은 기존
 // RankOrder 순서 승계), 마스킹·중립화·바이트 상한 불변.
 package knowledge

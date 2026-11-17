@@ -1,4 +1,4 @@
-// session_label_newline_v103_test.go — v1.0.3 R3 회귀: --session 라벨
+// session_label_newline_v103_test.go — 회귀: --session 라벨
 // 개행 거부. 라벨은 세션 라벨 파일(값 1줄 계약)과 read_events·hot_view
 // 저장값 양쪽으로 쓰인다 — \n·\r 포함 값은 CLI 경로(read 계약 승격)
 // 무효 인자 exit 3. given=false(미지정) 통과는 기존 불변.

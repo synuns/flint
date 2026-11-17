@@ -1,7 +1,4 @@
 // approve_test.go — approve 커맨드 계약(exit 매핑·주입 st 재배선).
-// v0.39.0 T4: lib/cli에서 이동(cli/approve_test.go 원본 + cli/
-// wire_approve_store_test.go의 TestApproveUsesInjectedStore — approveFn
-// seam 교체는 구현 소유 패키지에서만 전파되므로 함께 이동).
 package knowledge
 
 import (
@@ -30,9 +27,9 @@ func seamRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// fakeApprove — T17 admin Approve fake. errErr 미지정 시 성공,
+// fakeApprove — admin Approve fake. errErr 미지정 시 성공,
 // SUPERLITE_REAL=1이면 실 Repo에 위임(실DB 미기동 시 스킵).
-// v0.43.0 T1(fake 동질 가드): knowledge capability 인터페이스 전부의
+// (fake 동질 가드): knowledge capability 인터페이스 전부의
 // 패리티 fake를 겸한다 — 미구현 메서드는 아래 canned 구현(호출 기록
 // 슬라이스·선택적 capErr 주입), 단언은 fake_parity_test.go가 든다.
 type fakeApprove struct {
@@ -54,9 +51,9 @@ type fakeApprove struct {
 	staleAgents    []string       // StaleSessionRuns
 	playbookUses   []playbookUse  // LogPlaybookUse
 	sessionUpdates []sessionUpdate
-	recordedBytes  []bytesCall   // RecordBytes(G5 바이트 계측, v1.1.0 T1)
-	kreads         []kreadsCallV // RecordKnowledgeReads(회상 이력, v1.2.0 T2)
-	telemetryCmds  []string      // CommitTelemetry(계측 분리 커밋, v1.7.0 T6)
+	recordedBytes  []bytesCall   // RecordBytes(G5 바이트 계측)
+	kreads         []kreadsCallV // RecordKnowledgeReads(회상 이력)
+	telemetryCmds  []string      // CommitTelemetry(계측 분리 커밋)
 }
 
 // kreadsCallV — RecordKnowledgeReads canned 호출 기록(kreadsCall과 동일
@@ -95,7 +92,7 @@ func (f *fakeApprove) Supersede(ctx context.Context, oldID, newID int, at time.T
 	return 0, f.capErr
 }
 
-// SetSupersededRef — 계보 참조 복원 canned 구현(v1.3.0 T9 패리티 —
+// SetSupersededRef — 계보 참조 복원 canned 구현(패리티 —
 // superseded 슬라이스 재사용, 호출 기록).
 func (f *fakeApprove) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error) {
 	f.superseded = append(f.superseded, supersedeCall{oldID, newID})
@@ -107,7 +104,7 @@ func (f *fakeApprove) BumpReads(ctx context.Context, ids []int) error {
 	return f.capErr
 }
 
-// BumpRecallScores — v1.7.0 T2 패리티 canned(RecallBumper 단언 대응).
+// BumpRecallScores — 패리티 canned(RecallBumper 단언 대응).
 func (f *fakeApprove) BumpRecallScores(ctx context.Context, ids []int) error {
 	return f.capErr
 }
@@ -250,7 +247,7 @@ func TestApproveMissing(t *testing.T) {
 }
 
 // TestApproveUsage — --id 누락·비정수·알 수 없는 플래그 → exit 1.
-// v1.0.1(F3): 인자 검증 경로는 무효 인자 exit 3(unknown flag·값 누락·
+// 인자 검증 경로는 무효 인자 exit 3(unknown flag·값 누락·
 // 무효 id·--id 부재 — mcp dispatchApprove와 정합).
 func TestApproveUsage(t *testing.T) {
 	cases := []struct {
@@ -269,7 +266,7 @@ func TestApproveUsage(t *testing.T) {
 			if code != 3 {
 				t.Fatalf("exit = %d, want 3 (out: %s)", code, out)
 			}
-			// v1.5.3 P2: 인자 검증(usage) 오류는 error:"usage"(기존 internal
+			// 인자 검증(usage) 오류는 error:"usage"(기존 internal
 			// 에서 값만 교체 — 구조 불변).
 			if !strings.Contains(out, `"error":"usage"`) {
 				t.Errorf("out = %q, want error:usage", out)
@@ -278,7 +275,7 @@ func TestApproveUsage(t *testing.T) {
 	}
 }
 
-// TestApproveUsageHint — Review Focus(v1.5.3 P2): 인자 검증 오류 message에
+// TestApproveUsageHint — Review Focus: 인자 검증 오류 message에
 // 사용법 안내 `--id N [--supersede OLD]` 포함 — 오타 플래그를 안내로
 // 바로잡을 수 있다.
 func TestApproveUsageHint(t *testing.T) {

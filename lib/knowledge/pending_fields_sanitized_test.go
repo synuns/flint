@@ -1,7 +1,6 @@
-// pending_fields_sanitized_test.go — v0.37.0 T4: pending 필드 재살균
-// (v0.31.3 감사 1)은 render 조크포인트(render.Text)를 경유한다. 출력
+// pending_fields_sanitized_test.go — pending 필드 재살균
+// (감사 1)은 render 조크포인트(render.Text)를 경유한다. 출력
 // 바이트 불변 — [flint] 마커·제어 문자 중립화 스팟 단언.
-// v0.39.0 T4: lib/cli에서 이동(cli/pending_fields_sanitized_test.go 원본).
 package knowledge
 
 import (

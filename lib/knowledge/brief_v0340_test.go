@@ -1,7 +1,6 @@
-// brief_v0340_test.go — v0.34.0 flint brief: 외부 AI 전달용 마스킹 브리프.
+// brief_v0340_test.go — flint brief: 외부 AI 전달용 마스킹 브리프.
 // 브리지(B) 계약 — 읽기 전용·active 뷰만(pending은 기기 밖으로 나가지
 // 않음)·MaskSecrets 유출 방어·SanitizeText 경계 방어·예산 절단.
-// v0.39.0 T4: lib/cli에서 이동(cli/brief_v0340_test.go 원본).
 package knowledge
 
 import (
@@ -62,7 +61,7 @@ func briefRows(n int, summary string) [][]any {
 func briefQueryFn(rows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
-		// v0.34.1: 조회 원천이 base 테이블 knowledge + status 필터로
+		// 조회 원천이 base 테이블 knowledge + status 필터로
 		// 이동(뷰는 pending을 노출 — TestBriefExcludesPending 참조).
 		case strings.Contains(sql, "FROM knowledge"):
 			return rows, nil

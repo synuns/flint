@@ -1,4 +1,4 @@
-// export.go — v1.3.0 T2: flint export 원천 조회(ExportRows·ExportRow·
+// export.go — flint export 원천 조회(ExportRows·ExportRow·
 // ExportFilter). 기존 read 조회 원천 승계:
 //   - 활성 단일 정의 status='active' AND invalid_at IS NULL(activeKnowledgeCount·
 //     BuildReadStatus 공통 규칙). pending은 Status:"all"에만 포함된다.
@@ -14,7 +14,7 @@
 //     (PAM §16 증분 차용, 0값=전체).
 //   - Kind는 항상 "knowledge"(원천 테이블 판별자 — DB 컬럼 아님).
 //   - Source는 origin 열(agent|human|import:pam:* — done 훅·PAM 수입이
-//     남기는 기록) 그대로. 왕복 재이식(T9) 해시가 origin 키를 포함하므로
+//     남기는 기록) 그대로. 왕복 재이식 해시가 origin 키를 포함하므로
 //     빈 값으로 내보내면 origin≠"agent" 행이 재이식에서 dedup 불일치로
 //     중복 적립된다(원천 열 보존이 왕복 계약).
 package knowledge
@@ -46,10 +46,10 @@ type ExportRow struct {
 	ContentHash    string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
-	ValidAt        time.Time // v1.4.0 T3: 검증 시각 원값(왕복 보존 — CreatedAt 치환 폐지)
+	ValidAt        time.Time // 검증 시각 원값(왕복 보존 — CreatedAt 치환 폐지)
 	SupersededBy   *int
-	RecallScore    int        // v1.7.0 T1: recall_score 실열(원천 파생 아님)
-	LastRecalledAt *time.Time // v1.7.0 T1: last_recalled_at 실열(nil=NULL)
+	RecallScore    int        // recall_score 실열(원천 파생 아님)
+	LastRecalledAt *time.Time // last_recalled_at 실열(nil=NULL)
 }
 
 // ExportFilter — ExportRows 필터. Status "active"(기본·0값)|"all"
@@ -80,8 +80,8 @@ func buildExportQuery(f ExportFilter) (string, []any) {
 		args = append(args, f.Since.UTC().Format(time.RFC3339Nano))
 		where = append(where, fmt.Sprintf("COALESCE(invalid_at, ingested_at) >= $%d", len(args)))
 	}
-	// valid_at 열은 v1.4.0 T3 추가(superseded_by 다음·ingested_at 이전 —
-	// jsonl 왕복 동일성의 원천). v1.7.0 T1 스코어 2열은 말미 추가
+	// valid_at 열은 superseded_by 다음·ingested_at 이전 —
+	// jsonl 왕복 동일성의 원천. 스코어 2열은 말미 추가
 	// (기존 셀 인덱스 계약 불변 — 테스트 seam 열 참조 승계).
 	sql := "SELECT id, topic, summary, tags, entity, domain, confidence, origin, status, " +
 		"content_hash, superseded_by, valid_at, ingested_at, COALESCE(invalid_at, ingested_at), " +
@@ -144,7 +144,7 @@ func mapExportRow(r []any) ExportRow {
 	row.CreatedAt = cellTime(cell(12))
 	row.UpdatedAt = cellTime(cell(13))
 	row.ValidAt = cellTime(cell(11))
-	// v1.7.0 T1 스코어 실열 — 0/NULL은 폴백(미지정 행·레거시 jsonl).
+	// 스코어 실열 — 0/NULL은 폴백(미지정 행·레거시 jsonl).
 	if s, ok := render.CellToInt(cell(14)); ok {
 		row.RecallScore = s
 	}

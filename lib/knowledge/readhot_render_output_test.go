@@ -1,5 +1,4 @@
-// readhot_render_output_test.go — v0.39.0 T3: lib/cli/readhot_render_
-// output_test.go 이동(v0.37.0 T2 스냅숏 계약 승계). read·hot 셀 살균이
+// readhot_render_output_test.go — read·hot 셀 살균이
 // render.Cells 위임 지점을 그대로 통과하며 출력 바이트가 불변임을 담보.
 // hot의 cli 잔류 의존(세션 라벨·프로파일·hot 통계)은 주입 seam에 테스트
 // 대역을 세운다(injectHotSeams — cli init이 실구현을 주입하는 것과 동일
@@ -43,7 +42,7 @@ func v0370SanitizeFixtureRows() [][]any {
 	}
 }
 
-// TestReadOutputUnchanged — Review Focus(T3 이동): 살균 대상 픽스처가
+// TestReadOutputUnchanged — Review Focus: 살균 대상 픽스처가
 // render 경로로 기존 출력 바이트와 동일(스냅숏 단얜). 마커는 공백 치환,
 // 제어 문자는 제거, 비문자열 셀은 무변형.
 func TestReadOutputUnchanged(t *testing.T) {
@@ -65,7 +64,7 @@ func TestReadOutputUnchanged(t *testing.T) {
 	}
 }
 
-// TestHotFullOutputUnchanged — Review Focus(T3 이동): hot --full 주입
+// TestHotFullOutputUnchanged — Review Focus: hot --full 주입
 // 경로의 동등성 스냅숏. 접미(pending 대기일수)·ClampHot 예산 절단 순서는
 // 살균 이후 기존 그대로 — pendingValidAts 동반 질의가 빈 결과면 접미
 // 생략(기존 계약)이므로 스냅숏은 기본 포맷 라인.

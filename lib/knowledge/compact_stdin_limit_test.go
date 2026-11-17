@@ -1,4 +1,4 @@
-// compact_stdin_limit_test.go — v1.0.3 R3 회귀: compact stdin 상한 8MiB.
+// compact_stdin_limit_test.go — compact stdin 상한 8MiB 회귀.
 // 상한 초과 입력은 정상 JSON이라도 파싱 전에 조용히 무동작 exit 0(§13
 // 비간섭 — 무상한 io.ReadAll 폐지). 경계 하한(정확히 8MiB)은 기존대로
 // 정상 처리 — LimitReader(max+1) 오프바이원 방향 고정.

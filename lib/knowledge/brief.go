@@ -1,7 +1,6 @@
 // brief.go — flint brief [query] [--limit N]: 외부 AI(비서 등)에게 붙여넣는
 // 읽기 전용 브리프. ADR-0015 브리지 계약 — 기기 밖으로 나가는 모든 문자열은
 // MaskSecrets 마스킹 + SanitizeText 중립화를 통과한다.
-// v0.39.0 T4: lib/cli에서 이동(cli/brief.go 원본).
 package knowledge
 
 import (
@@ -23,13 +22,13 @@ import (
 const defaultBriefBudget = 3000
 
 // briefRecallScoreIdx·briefRecallLastIdx — briefRankedSQL이 BuildReadStatus
-// SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의 — hot T3 관례 승계).
+// SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의 — hot 관례 승계).
 const (
 	briefRecallScoreIdx = 9 // readColumns 9열(id..read_count) 직후
 	briefRecallLastIdx  = 10
 )
 
-// briefRankedSQL — v1.7.0 T3: query.BuildReadStatus 조립 SQL의 SELECT 말미에
+// briefRankedSQL — query.BuildReadStatus 조립 SQL의 SELECT 말미에
 // recall_score·last_recalled_at를 병합한다. WHERE·ORDER BY(RankOrder)·
 // LIMIT·placeholder 번호는 원본을 그대로 승계 — 치환점 미발견 형태는
 // 원본 반환(랭킹 조용히 생략, 기존 동작 승계).
@@ -94,7 +93,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 			f.Limit, i = n, i+1
 		default:
-			// v1.5.5 T2 A5: unknown `-` 접두 인자는 무효 인자 exit 3 —
+			// unknown `-` 접두 인자는 무효 인자 exit 3 —
 			// 쿼리 문자열에 섞여 들어가 조용히 성공하던 것을 폐지.
 			// `-` 시작 쿼리는 `--` 이후 위치 인자로 전달한다(read N9).
 			if strings.HasPrefix(a, "-") {
@@ -107,12 +106,12 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	q := strings.Join(pos, " ")
 	// 조회 원천 — base 테이블 knowledge에 status='active'(+invalid_at IS
 	// NULL)를 건다. active_knowledge 뷰는 invalid_at만 걸러 pending 행을
-	// 포함하므로(v0.34.1 T2 발견) 뷰를 쓰면 미검수 지식이 기기 밖으로
+	// 포함하므로 뷰를 쓰면 미검수 지식이 기기 밖으로
 	// 나간다(ADR-0015 결정4 위반). BuildReadStatus(q, active) 경로가 이
 	// 이중 조건을 단일 조립한다(read --status active와 동일 계층).
 	f.Status = "active"
 	sql, sqlArgs := query.BuildReadStatus(q, f)
-	// v1.7.0 T3: 선정 순위에 감쇠 후 유효 회상 점수 반영 — 랭킹 열을
+	// 선정 순위에 감쇠 후 유효 회상 점수 반영 — 랭킹 열을
 	// SELECT 말미에 병합한 뒤 hot과 같은 안정 정렬(동점·0점은 RankOrder
 	// 순서 승계). 랭킹 열 부재 행은 0점 취급돼 기존 순서·출력이 그대로
 	// 살아남고, 마스킹·중립화·예산은 하류 불변이다.
@@ -127,7 +126,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	for _, row := range rows {
 		for i, cell := range row {
 			if cs, ok := cell.(string); ok {
-				row[i] = render.MaskedStrict(cs) // v1.0.10(B2): allowlist 등록값도 마스킹 — 기기 밖 계약(진단용 dump와 구분)
+				row[i] = render.MaskedStrict(cs) // allowlist 등록값도 마스킹 — 기기 밖 계약(진단용 dump와 구분)
 			}
 		}
 	}
@@ -136,7 +135,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		msg := "[flint] brief 0 — no matching knowledge"
 		fmt.Fprintln(stdout, msg)
 		RecordUsage(ctx, st, "brief", "")
-		// G5 바이트 계측(v1.1.0 T1): 0건 안내 1줄도 기기 밖으로 나온
+		// G5 바이트 계측: 0건 안내 1줄도 기기 밖으로 나온
 		// 총량이다(분모 정합). 조용히(§13).
 		recordBytes(ctx, st, "brief", len(msg)+1)
 		return 0
@@ -153,7 +152,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	out := query.ClampHot(header+body, budget)
 	fmt.Fprint(stdout, out)
 	RecordUsage(ctx, st, "brief", "")
-	// G5 바이트 계측(v1.1.0 T1): ClampHot 절단 '후' 최종 출력 길이(기기 밖
+	// G5 바이트 계측: ClampHot 절단 '후' 최종 출력 길이(기기 밖
 	// 유출량 실측 — 절단 전 아님, spec §1). 조용히(§13).
 	recordBytes(ctx, st, "brief", len(out))
 	return 0

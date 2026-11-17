@@ -1,7 +1,7 @@
-// export_pam.go — v1.4.0 T1: FormatPAM — PAM(Portable AI Memory) v1.0
+// export_pam.go — FormatPAM — PAM(Portable AI Memory) v1.0
 // 내보내기 포맷터(portable-ai-memory.org/spec/v1.0). 순수 함수:
 // 원천 조회(ExportRows)·파일 기록과 무관하며 스토어 무접촉.
-// v1.6.0 T4: ① relations §13.1 필수필드 완결({id, from, to, type,
+// ① relations §13.1 필수필드 완결({id, from, to, type,
 // created_at} — id는 결정적 UUIDv5) ② §18 FormatPAMSigned — 루트
 // owner{did:key:ed25519}·signature 블록(무서명 기본 경로 바이트 불변).
 //
@@ -49,7 +49,7 @@ import (
 const pamSpecURI = "https://portable-ai-memory.org/spec/v1.0"
 
 // pamExportDoc — PAM v1.0 문서 루트(§4). 필드 순서 = 직렬화 순서.
-// v1.6.0 T4: owner(§4 — 서명 경로만 발행)·signature(§18) 추가.
+// owner(§4 — 서명 경로만 발행)·signature(§18) 추가.
 type pamExportDoc struct {
 	Schema        string              `json:"schema"`
 	SchemaVersion string              `json:"schema_version"`
@@ -79,7 +79,7 @@ type pamExportSignature struct {
 }
 
 // pamExportMemory — PAM memory 1건(flint 행 매핑은 상단 주석).
-// v1.6.1 T2 A2: Metadata — flint 저장 content_hash(64 hex) 왕복 멱등
+// Metadata — flint 저장 content_hash(64 hex) 왕복 멱등
 // 확장(§10 additive). hex64 보유 행만 발행(무서명 골든 바이트 불변 —
 // 미보유·비hex 행은 미발행).
 type pamExportMemory struct {
@@ -199,7 +199,7 @@ func toPAMExportMemory(r ExportRow) pamExportMemory {
 	return m
 }
 
-// --- v1.6.0 T5: JCS 스트리밍 체크섬 + 문서 스트리밍 인코딩 (R30-A) ---
+// --- JCS 스트리밍 체크섬 + 문서 스트리밍 인코딩 ---
 
 // pamJCSHex — JCS \u00xx 이스케이프용 소문자 16진(jsoncanonicalizer
 // decorateString의 fmt "\\u%04x" 규칙과 동일).
@@ -210,8 +210,8 @@ const pamJCSHex = "0123456789abcdef"
 const jcsChunk = 8192
 
 // jcsBuf — §15 체크섬 산출용 JCS(RFC 8785) 스트리밍 기록기.
-// v1.6.0 T5: 종전 경로(json.Marshal → jsoncanonicalizer.Transform)는
-// 전체 문서를 interface 트리로 재파싱했다(R30-A 실측 churn 52%·
+// 종전 경로(json.Marshal → jsoncanonicalizer.Transform)는
+// 전체 문서를 interface 트리로 재파싱했다(실측 churn 52%·
 // alloc 7.15M). pamExportMemory 타입 집합은 폐쇄적이므로 JCS 직렬화를
 // 직접 기록한다 — 이스케이프는 jsoncanonicalizer와 바이트 단위 동일
 // (`"` `\` \b \f \n \r \t 단축형, 그 외 제어문자 \u00xx 소문자, 나머지
@@ -315,7 +315,7 @@ func (w *jcsBuf) memory(m pamExportMemory) error {
 	w.jcsString(m.CustomType)
 	w.put(`,"id":`)
 	w.jcsString(m.ID)
-	// v1.6.1 T2 A2 — metadata(§10 확장, hex64 보유 행만): 키 정렬순상
+	// metadata(§10 확장, hex64 보유 행만): 키 정렬순상
 	// id와 provenance 사이("metadata" < "provenance"). 키 집합은 폐쇄적
 	// (content_hash 1키)이므로 고정 발행 — 맵 반복 비결정을 유발하지
 	// 않는다.
@@ -349,7 +349,7 @@ func (w *jcsBuf) memory(m pamExportMemory) error {
 
 // pamChecksum — §15: memories(id 문자열 오름차순) → JCS 직렬화 →
 // SHA-256. memories는 이미 id 문자열순으로 구성되어 있어 호출부 정렬
-// 상태와 무결. v1.6.0 T5: 전체 재파싱 대신 jcsBuf로 스트리밍 — 체크섬
+// 상태와 무결. 전체 재파싱 대신 jcsBuf로 스트리밍 — 체크섬
 // 값은 종전과 동일(동일성 테스트가 보증).
 func pamChecksum(memories []pamExportMemory) (string, error) {
 	w := &jcsBuf{h: sha256.New(), b: make([]byte, 0, jcsChunk)}
@@ -368,9 +368,9 @@ func pamChecksum(memories []pamExportMemory) (string, error) {
 	return "sha256:" + hex.EncodeToString(sum), nil
 }
 
-// pamDocWriter — PAM 문서 스트리밍 인코더(v1.6.0 T5 ②). 종전
+// pamDocWriter — PAM 문서 스트리밍 인코더. 종전
 // json.Encoder(SetIndent)는 compact 전체 버퍼 + indent 전체 버퍼를
-// 이중으로 적재했다(R30-A 인덴트 인코딩 버퍼). 여기선 사전 확보한 단일
+// 이중으로 적재했다(인덴트 인코딩 버퍼). 여기선 사전 확보한 단일
 // 출력 버퍼에 조각(스칼라·행 1건) 단위로 인코딩해 붙인다 — 조각은 재사용
 // 소형 버퍼에서 json.Encoder(SetEscapeHTML(false))로 산출하므로 이스케이프
 // 규칙이 종전과 완전히 동일하고, json.Indent(동일 파라미터)가 인덴트를
@@ -550,7 +550,7 @@ func formatPAMDoc(rows []ExportRow, exportedBy string, key ed25519.PrivateKey) (
 	// §15 id 오름차순 = id 문자열(코드포인트) 오름차순. 수치 정렬이면
 	// "flint:9" < "flint:10"이 되지만, 외부 PAM 검증자는 id를 문자열로만
 	// 알므로 "flint:10" < "flint:9"로 정렬해 재현한다 — 자릿수 경계에서
-	// 체크섬 상호검증이 깨진다(리뷰 v1.4.0 수정). v1.6.0 T5: 비교함수
+	// 체크섬 상호검증이 깨진다. 비교함수
 	// 안의 Sprintf(n log n회 — alloc 다수점) 대신 id를 1회 선계산해
 	// 순열 인덱스로 안정 정렬한다(호출부 슬라이스 미변경 승계).
 	ids := make([]string, len(rows))
@@ -566,7 +566,7 @@ func formatPAMDoc(rows []ExportRow, exportedBy string, key ed25519.PrivateKey) (
 	})
 
 	memories := make([]pamExportMemory, 0, len(rows))
-	// emitted — memories에 실린 id 집합(v1.4.1 A1). relation은 양쪽
+	// emitted — memories에 실린 id 집합. relation은 양쪽
 	// 엔드포인트(From·To)가 모두 이 집합 내인 경우만 발행한다. pending
 	// superseder(미승인 대체 원천)·조회 범위 밖 superseder를 가리키는
 	// relation은 허참조가 되어 수입 측 계보 복원(import_pam.go
@@ -580,8 +580,8 @@ func formatPAMDoc(rows []ExportRow, exportedBy string, key ed25519.PrivateKey) (
 		if r.Status == "pending" {
 			// pending(미승인 내부 후보)은 PAM 문서에서 제외 — 폐쇄 분류에
 			// 미승인 개념이 없고(archived는 '역사 보존'이라 의미 왜곡),
-			// 승인되지 않은 후보를 표준 교환 문서에 싣지 않는다(룰링
-			// v1.4.0 T1). relations·total_memories·체크섬 전부 미포함.
+			// 승인되지 않은 후보를 표준 교환 문서에 싣지 않는다.
+			// relations·total_memories·체크섬 전부 미포함.
 			continue
 		}
 		memories = append(memories, toPAMExportMemory(r))

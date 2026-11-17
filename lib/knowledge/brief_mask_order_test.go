@@ -1,7 +1,6 @@
-// brief_mask_order_test.go — v0.37.0 T4: brief 셀 살균은 render 조크포인트
+// brief_mask_order_test.go — brief 셀 살균은 render 조크포인트
 // (render.Masked — MaskSecrets→SanitizeText 순서 보존, ADR-0015)를
 // 경유한다. [REDACTED:…] 흔적은 중립화를 통과해 생존한다.
-// v0.39.0 T4: lib/cli에서 이동(cli/brief_mask_order_test.go 원본).
 package knowledge
 
 import (

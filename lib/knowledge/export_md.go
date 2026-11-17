@@ -1,4 +1,4 @@
-// export_md.go — v1.3.0 T4: flint export --format md 포맷터.
+// export_md.go — flint export --format md 포맷터.
 // 파일 헤더(`# flint export`·생성일 UTC·항목 수) + 항목별 섹션
 // (`## #<id> <topic>` + 메타 라인 + content 원문). 노트앱 이식 전제.
 package knowledge

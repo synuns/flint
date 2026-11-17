@@ -1,8 +1,8 @@
-// import_pam.go — v1.3.0 T10: PAM(Portable AI Memory) v1.0 읽기.
+// import_pam.go — PAM(Portable AI Memory) v1.0 읽기.
 // 외부 PAM 내보내기 문서를 flint 임포트 후보로 변환하는 순수 파서 —
-// 스토어 무접촉(계약 5): pending 적립 정책·실제 write는 T9
-// (import_migrate.go) 소유. T9는 seam 변수 ParsePAMFn으로 연결한다.
-// v1.6.0 T4: ① integrity.checksum(§15) 재계산 검증 — 불일치는 오류
+// 스토어 무접촉(계약 5): pending 적립 정책·실제 write는
+// (import_migrate.go) 소유. seam 변수 ParsePAMFn으로 연결한다.
+// ① integrity.checksum(§15) 재계산 검증 — 불일치는 오류
 // (호출부 exit 3·조용 통과 금지) ② signature(§18) 있으면 Ed25519
 // 검증 — 실패는 stderr 경고 1행 후 계속(§21.4 SHOULD).
 package knowledge
@@ -34,7 +34,7 @@ type ImportCandidate struct {
 	Metadata   map[string]any `json:"metadata,omitempty"`
 }
 
-// PAMSkipped — 적립 대상이 아닌 status의 memory(보고용 — T9 출력).
+// PAMSkipped — 적립 대상이 아닌 status의 memory(보고용).
 type PAMSkipped struct {
 	ID     string `json:"id"`
 	Type   string `json:"type"`
@@ -58,7 +58,7 @@ type PAMResult struct {
 	SupersedePairs []SupersedePair
 }
 
-// ParsePAMFn — T9 소비 seam(테스트 치환 가능).
+// ParsePAMFn — 소비 seam(테스트 치환 가능).
 var ParsePAMFn = ParsePAM
 
 // PAM v1.0 문서 구조(필요 최소 필드만 — summary는 무시: content 우선).
@@ -256,7 +256,7 @@ func ParsePAM(data []byte) (*PAMResult, error) {
 		return nil, fmt.Errorf("pam schema mismatch: %q (want %q)", doc.Schema, "portable-ai-memory")
 	}
 	// §15 — integrity.checksum 재계산 검증(불일치 = 문서 변조 → 오류,
-	// 호출부 exit 3). 조용한 통과 금지(v1.6.0 T4).
+	// 호출부 exit 3). 조용한 통과 금지.
 	if doc.Integrity != nil {
 		if err := verifyPAMChecksum(data, doc.Integrity.Checksum); err != nil {
 			return nil, err

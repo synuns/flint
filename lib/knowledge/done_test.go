@@ -1,7 +1,5 @@
 // done_test.go — done 판정 계약(직접 호출 경로 — dispatch·realStore
 // 위임 경로는 cli 잔류 done_test가 담당).
-// v0.39.0 T4: lib/cli에서 이동(cli/done_test.go 직접 호출 분 +
-// cli/wire_approve_store_test.go의 TestDoneAutoBackupNoExtraPool).
 package knowledge
 
 import (
@@ -26,7 +24,7 @@ type doneFake struct {
 
 	// 기록
 	gotAgent string
-	// v0.41.0 T3: UpdateSessionSummary 위임 캡처
+	// UpdateSessionSummary 위임 캡처
 	updatedSessions []int
 }
 
@@ -38,7 +36,7 @@ func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, err
 	return d.runs, nil
 }
 
-// UpdateSessionSummary — v0.41.0 T3: 종료 요약 갱신은 db.Repo.
+// UpdateSessionSummary — 종료 요약 갱신은 db.Repo.
 // UpdateSessionSummary 위임(쓰기 가드) — fake는 갱신 id를 기록.
 func (d *doneFake) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	d.updatedSessions = append(d.updatedSessions, id)
@@ -59,7 +57,7 @@ func mustDone(t *testing.T, st wire.Store, args []string) (string, int) {
 func stubAutoBackup(t *testing.T) {
 	t.Helper()
 	prev := AutoBackupFn
-	// v0.34.3 R14: st 파라미터 확장(코디네이터 룰링 A안) — 스텁은 무시.
+	// st 파라미터 확장(코디네이터 룰링 A안) — 스텁은 무시.
 	AutoBackupFn = func(ctx context.Context, st wire.Store) {}
 	t.Cleanup(func() { AutoBackupFn = prev })
 }
@@ -220,7 +218,7 @@ func TestDoneWritesSession(t *testing.T) {
 	if m := decode(t, out); m["status"] != "ok" {
 		t.Fatalf("status=%v, want ok(출력 불변)", m["status"])
 	}
-	// v0.27.0: done은 세션 레코드 + 세션 지식화(pending)를 적립한다 —
+	// done은 세션 레코드 + 세션 지식화(pending)를 적립한다 —
 	// kind별로 검증(done_v0270_test이 지식 계약 단독 담당).
 	sessions, knowledge := 0, 0
 	for _, rec := range f.inserted {
@@ -247,7 +245,7 @@ func TestDoneWritesSession(t *testing.T) {
 // TestDoneStaleWarningReachable — 실배선 도달성 회귀(코드리뷰 #3): 훅은
 // Claude session_id(UUID)를 --session으로 넘긴다. UUID가 그대로 agent가
 // 되면 세션마다 agent가 갈라져 StaleSessionRuns가 1을 못 넘어 stale 경고가
-// 영구히 발화되지 않는다(T17/T44 무효). 서로 다른 UUID 세션이 끝나도
+// 영구히 발화되지 않는다. 서로 다른 UUID 세션이 끝나도
 // 집계 agent는 하니스 기본(claude)으로 안정되어야 임계값(기본 3) 도달
 // 시 4번째 done에서 경고가 실제 발화된다.
 func TestDoneStaleWarningReachable(t *testing.T) {
@@ -290,7 +288,7 @@ func TestDoneStaleWarningReachable(t *testing.T) {
 		t.Fatalf("4번째 출력=%v, want stale/3(경고 실제 발화)", m)
 	}
 	// sessions 행 agent도 안정 식별자 — 누적 카운트의 집계 키.
-	// v0.27.0: 지식화 pending(kind knowledge)도 agent 기반 topic을 쓰지만
+	// 지식화 pending(kind knowledge)도 agent 기반 topic을 쓰지만
 	// agent 키가 없다 — kind가 session인 행만 검증.
 	for i, rec := range f.inserted {
 		if rec["kind"] == "session" && rec["agent"] != "claude" {
@@ -347,13 +345,13 @@ func TestDoneUpdatesExistingSession(t *testing.T) {
 			t.Fatalf("%d회차 exit=%d, want 0; out=%s", i+1, code, out)
 		}
 		decode(t, out)
-		// v0.41.0 T3: 갱신은 UpdateSessionSummary 위임 — 최근 세션 id(7)로
+		// 갱신은 UpdateSessionSummary 위임 — 최근 세션 id(7)로
 		// 회차당 1회 실행.
 		if len(d.updatedSessions) != 1 || d.updatedSessions[0] != 7 {
 			t.Fatalf("%d회차 UPDATE sessions 미실행(위임 캡처=%v)", i+1, d.updatedSessions)
 		}
 	}
-	// v0.27.0: 세션 행 갱신(INSERT 아님) — inserted엔 지식화 pending만
+	// 세션 행 갱신(INSERT 아님) — inserted엔 지식화 pending만
 	// 남는다(정상). session kind의 INSERT 부재를 단언.
 	for _, rec := range f.inserted {
 		if rec["kind"] == "session" {

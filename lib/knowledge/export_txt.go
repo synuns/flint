@@ -1,4 +1,4 @@
-// export_txt.go — v1.3.0 T5: flint export --format txt 포맷터.
+// export_txt.go — flint export --format txt 포맷터.
 // 항목당 구분선 `==== #<id> <topic> ====` + 본문(content 원문 — 개행
 // 정규화 없음). 메타 최소(id·topic만 — LLM 주입·grep 용도).
 package knowledge

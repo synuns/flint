@@ -1,7 +1,7 @@
-// read_test.go — v0.39.0 T3: lib/cli/read_test.go 이동 + read 계약
+// read_test.go — read 계약
 // Review Focus(제로히트 exit 0·--session 자동 라벨·as-of). 계약
 // 불변: eligible(현재 시점·무상태필터) 제로히트는 텍스트 완전 무출력·
-// --json은 {"hits":0} 한 줄, exit 0(v1.5.3 P2 — 기존 exit 1),
+// --json은 {"hits":0} 한 줄, exit 0,
 // --session 미지정은 wire.ReadSessionLabel 라벨 조용히 채택, --as-of는
 // 결과 뒤 as_of 한 줄 JSON. asof 스펙 파서는 cli asof.go 소유라
 // ParseAsOfSpecFn 주입 seam으로 대역 주입(실구현 경로는 cli 잔류
@@ -50,7 +50,7 @@ func (r *readEventRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent
 }
 
 // bytesRecorder — fakeStore에 BytesRecorder seam을 얹은 fake(G5 바이트
-// 계측, v1.1.0 T1). RecordBytes 호출 인자를 녹음한다(패키지 공유 — hot·
+// 계측). RecordBytes 호출 인자를 녹음한다(패키지 공유 — hot·
 // brief 회귀가 같은 fake를 쓴다).
 type bytesRecorder struct {
 	*fakeStore
@@ -68,7 +68,7 @@ func (b *bytesRecorder) RecordBytes(ctx context.Context, kind string, n int) err
 	return nil
 }
 
-// TestRunReadRecordsBytes — Review Focus(v1.1.0 T1): read 출력 직후
+// TestRunReadRecordsBytes — Review Focus: read 출력 직후
 // len(최종 출력)을 kind="read"로 기록 — 제로히트 0바이트도 기록한다
 // (호출 수 분모 정합, spec §1).
 func TestRunReadRecordsBytes(t *testing.T) {
@@ -125,7 +125,7 @@ var hitRowsFixture = [][]any{
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
-// TestRunReadZeroHitExit0Silent — Review Focus(v1.5.3 P2): eligible
+// TestRunReadZeroHitExit0Silent — Review Focus: eligible
 // (현재 시점·무상태 필터) 제로히트는 텍스트 완전 무출력(침묵 유지)에
 // exit 0(기존 1) — 제로히트는 오류가 아니므로 에이전트 루프가 끊기지
 // 않는다.
@@ -144,7 +144,7 @@ func TestRunReadZeroHitExit0Silent(t *testing.T) {
 	}
 }
 
-// TestRunReadZeroHitJSONHits — Review Focus(v1.5.3 P2): --json 제로히트는
+// TestRunReadZeroHitJSONHits — Review Focus: --json 제로히트는
 // hits:0 한 줄 JSON({"hits":0}) + exit 0 — 호출자가 히트 수를 기계적으로
 // 판별한다. 텍스트 모드와 달리 침묵하지 않는다.
 func TestRunReadZeroHitJSONHits(t *testing.T) {
@@ -167,7 +167,7 @@ func TestRunReadZeroHitJSONHits(t *testing.T) {
 // 기록. 라벨 파일은 wire.ConfigDir seam 임시 디렉터리로 세운다.
 func TestRunReadSessionAutoLabel(t *testing.T) {
 	dir := t.TempDir()
-	// v1.1.0 T2(legacy 폴백 제거) 이후 라벨 원천은 세션별 파일
+	// 라벨 원천은 세션별 파일
 	// session-<id>.label 단일 경로다 — 구 session-current는 더 이상
 	// 읽히지 않는다.
 	if err := os.WriteFile(dir+"/session-demo1.label", []byte("auto-label-7\n"), 0o644); err != nil {
@@ -261,7 +261,7 @@ func TestRunReadAsOfInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadFieldsValidation — v0.20.2 F5 승계: --fields는 알려진 컬럼만
+// TestReadFieldsValidation — --fields는 알려진 컬럼만
 // 허용. 오타("sumary")는 exit 3, 정상 필드는 통과.
 func TestReadFieldsValidation(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -285,7 +285,7 @@ func TestReadFieldsValidation(t *testing.T) {
 	}
 }
 
-// TestReadRRFKInjectionBeforeReorder — v0.25.1 승계: rrf_k 주입
+// TestReadRRFKInjectionBeforeReorder — rrf_k 주입
 // (wire.LoadThresholdsFn seam)은 폴백 재랭킹 앞에서 호출된다.
 func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 	var order []string
@@ -318,7 +318,7 @@ func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 	}
 }
 
-// TestReadUnknownFlagExit3 — v1.5.3 T1: 미인식 '-' 접두 인자는 쿼리로
+// TestReadUnknownFlagExit3 — 미인식 '-' 접두 인자는 쿼리로
 // 흡수하지 않고 무효 인자 exit 3(read --jsonn이 조용히 제로히트로
 // 흘러 에이전트가 오타를 못 알아채던 사각 폐지). positional 쿼리·"--"
 // end-of-options 흡수는 불변.
@@ -327,7 +327,7 @@ func TestReadUnknownFlagExit3(t *testing.T) {
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"--jsonn"}, strings.NewReader(""), &out); code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
 	}
-	// v1.5.3 P2: unknown flag류는 error:"usage"(기존 internal에서 값만).
+	// unknown flag류는 error:"usage".
 	if !strings.Contains(out.String(), `"error":"usage"`) {
 		t.Fatalf("에러 JSON error:usage 아님: %q", out.String())
 	}
@@ -343,7 +343,7 @@ func TestReadUnknownFlagExit3(t *testing.T) {
 	}
 }
 
-// TestReadLimitClampJSONLine — Review Focus(v1.5.4 T2 P3): --json에서
+// TestReadLimitClampJSONLine — Review Focus: --json에서
 // 요청 limit이 상한(50)을 초과하면 additive 필드 limit_requested·
 // limit_applied를 한 줄 추가해 clamp 사실을 밝힌다(기존 키 불변).
 // 상한 이하·텍스트 모드는 기존 형식 그대로 — clamp 라인 없음.
@@ -404,7 +404,7 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 	})
 }
 
-// ── v1.6.2 T3(G4): 제안(SuggestSimilar) 입력 상한 truncate. ──
+// ── 제안(SuggestSimilar) 입력 상한 truncate. ──
 
 // TestSuggestQueryTruncate — G4 Review Focus: 제안 입력은 상한(suggestQueryMaxRunes
 // rune)으로 truncate된다(멀티바이트 안전 — TruncateRunes 단일 구현 승계).
@@ -424,10 +424,10 @@ func TestSuggestQueryTruncate(t *testing.T) {
 	}
 }
 
-// ── v1.7.0 T6: 계측 분리 커밋 — read/hot 완료 경로의 telemetry 커밋. ──
+// ── 계측 분리 커밋 — read/hot 완료 경로의 telemetry 커밋. ──
 
 // telemetryCommitter — fakeStore에 TelemetryCommitter seam을 얹은 fake
-// (v1.7.0 T6). CommitTelemetry 호출 인자(cmd)를 녹음한다.
+// CommitTelemetry 호출 인자(cmd)를 녹음한다.
 type telemetryCommitter struct {
 	*fakeStore
 	commands []string
@@ -439,7 +439,7 @@ func (tc *telemetryCommitter) CommitTelemetry(ctx context.Context, cmd string) e
 	return tc.err
 }
 
-// TestRunReadCommitsTelemetryOnce — Review Focus(v1.7.0 T6): read 완료
+// TestRunReadCommitsTelemetryOnce — Review Focus: read 완료
 // 경로는 계측 커밋을 정확히 1회(cmd="read") 호출한다. 실패는 조용
 // (§13 — exit 0·출력 불변). 미구현 Store(fakeStore 단독)은 스킵.
 func TestRunReadCommitsTelemetryOnce(t *testing.T) {
@@ -484,7 +484,7 @@ func TestRunReadCommitsTelemetryOnce(t *testing.T) {
 	})
 }
 
-// TestRunHotCommitsTelemetryOnce — Review Focus(v1.7.0 T6): hot 완료 경로도
+// TestRunHotCommitsTelemetryOnce — Review Focus: hot 완료 경로도
 // 계측 커밋을 1회(cmd="hot") 호출한다(헤드라인·--full 양 경로 공통).
 func TestRunHotCommitsTelemetryOnce(t *testing.T) {
 	injectHotSeams(t)
@@ -513,7 +513,7 @@ func TestRunHotCommitsTelemetryOnce(t *testing.T) {
 	}
 }
 
-// TestRunDoneCommitsTelemetryOnce — Review Focus(v1.7.0 T6): done 완료
+// TestRunDoneCommitsTelemetryOnce — Review Focus: done 완료
 // 경로는 기존 감사 Commit(session-end) 후 계측 커밋을 1회(cmd="done")
 // 호출한다. 실패는 조용(exit 0·출력 불변).
 func TestRunDoneCommitsTelemetryOnce(t *testing.T) {
@@ -590,7 +590,7 @@ func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
 	}
 }
 
-// ── v1.7.0 T2: 회상 강화 배선(recall_score+1·last_recalled_at=now) ──
+// ── 회상 강화 배선(recall_score+1·last_recalled_at=now) ──
 
 // recallBumperRecorder — RecordKnowledgeReads·BumpRecallScores 호출을 녹음하는
 // fake(KnowledgeReadsRecorder·RecallBumper seam 동시 구현). 실구현 경로
@@ -611,7 +611,7 @@ func (r *recallBumperRecorder) BumpRecallScores(ctx context.Context, ids []int) 
 	return nil
 }
 
-// TestRunReadBumpsRecallScores — Review Focus(v1.7.0 T2 강화 회귀): read 히트
+// TestRunReadBumpsRecallScores — Review Focus: read 히트
 // 행 전수가 회상 강화(RecallBumper seam)를 1회 통과한다 — RecordKnowledgeReads
 // 경로에 결합(kind=read).
 func TestRunReadBumpsRecallScores(t *testing.T) {
@@ -635,7 +635,7 @@ func TestRunReadBumpsRecallScores(t *testing.T) {
 }
 
 // TestRecordKnowledgeReadsHotNoBump — hot 주입(kind=hot)은 회상 강화에서
-// 제외 — 노출→강화→재노출 순환(hot 랭킹 T3이 recall_score를 소비하므로)을
+// 제외 — 노출→강화→재노출 순환(hot 랭킹이 recall_score를 소비하므로)을
 // 끊는 룰링. 이력 기록(knowledge_reads)은 불변.
 func TestRecordKnowledgeReadsHotNoBump(t *testing.T) {
 	st := &recallBumperRecorder{fakeStore: &fakeStore{}}

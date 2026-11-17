@@ -1,4 +1,4 @@
-// pending_test.go — v1.6.0 T1(R30-C C1): pending 유사 판정 접두 인덱스
+// pending_test.go — pending 유사 판정 접두 인덱스
 // O(N+M) 수렴의 계약 테스트. 판정 결과는 기존 matchTopicPrefix 스캔
 // 구현(아래 naiveMatch 참조 구현 — production 보존 금지, 테스트 오라클)과
 // 100% 동일함을 단언한다. 데이터는 전부 합성 데모.

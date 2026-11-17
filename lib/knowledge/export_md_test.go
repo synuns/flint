@@ -1,4 +1,4 @@
-// export_md_test.go — v1.3.0 T4: FormatMD 구조 단언(헤더·섹션 수·
+// export_md_test.go — FormatMD 구조 단언(헤더·섹션 수·
 // 메타 라인 형식·계보 링크)·빈 결과(헤더만)·개행 포함 content 원문.
 package knowledge
 

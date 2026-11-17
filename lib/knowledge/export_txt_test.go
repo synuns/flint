@@ -6,7 +6,7 @@ import (
 	"time"
 )
 
-// export_txt_test.go — v1.3.0 T5: FormatTXT 계약 테스트.
+// export_txt_test.go — FormatTXT 계약 테스트.
 // 구분선 `==== #<id> <topic> ====` + 본문(content 원문 — 개행 정규화 없음).
 // 메타 최소(id·topic만 — LLM 주입·grep 용도). 원천 행은 합성 데모 데이터.
 
