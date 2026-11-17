@@ -1,4 +1,4 @@
-// tuning_test.go — v0.23.0(D③): tuning 커맨드 계약 — list/get/set/reset·
+// tuning_test.go — tuning 커맨드 계약 — list/get/set/reset·
 // 실경로 값 검증(폴백 값 거부)·알려지지 않은 키 exit 3.
 package cli
 
@@ -54,7 +54,7 @@ func containsKey(args []any, k string) bool {
 	return false
 }
 
-// MetaDelete — v0.41.0 T3: reset은 db.Repo.MetaDelete 위임(쓰기 가드) —
+// MetaDelete — reset은 db.Repo.MetaDelete 위임(쓰기 가드) —
 // fake는 삭제 키를 기록·반영.
 func (f *tuningFake) MetaDelete(ctx context.Context, keys []string) (int64, error) {
 	for _, k := range keys {
@@ -108,7 +108,7 @@ func TestTuningUnknownKeyAndList(t *testing.T) {
 	}
 }
 
-// TestTuningKeysMatchRegistry — v0.23.0 리뷰 ⑧: tuningKeys와
+// TestTuningKeysMatchRegistry — tuningKeys와
 // thresholdsKeys(공유 소스)의 동질성 — 새 키 추가 시 3중 유지 드리프트 방어.
 func TestTuningKeysMatchRegistry(t *testing.T) {
 	reg := map[string]bool{}
@@ -126,8 +126,8 @@ func TestTuningKeysMatchRegistry(t *testing.T) {
 	}
 }
 
-// TestTuningSetRejectsZero — 리뷰 ②: 폴백 키의 0은 "미설정" 의미라
-// 표현 불가 — 거부되어야 한다(v0.5 4키 제외).
+// TestTuningSetRejectsZero — 폴백 키의 0은 "미설정" 의미라
+// 표현 불가 — 거부되어야 한다(4키 제외).
 func TestTuningSetRejectsZero(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
@@ -143,7 +143,7 @@ func TestTuningSetRejectsZero(t *testing.T) {
 	}
 }
 
-// TestTuningMetaKeysSetReset — v0.24.0 R1d/R4a: thresholds 밖 meta 키의
+// TestTuningMetaKeysSetReset — thresholds 밖 meta 키의
 // set 검증(열거·정수·목록)과 reset --all.
 func TestTuningMetaKeysSetReset(t *testing.T) {
 	f := newTuningFake()
@@ -175,7 +175,7 @@ func TestTuningMetaKeysSetReset(t *testing.T) {
 	}
 }
 
-// TestTuningSetEquivalentFloatNotation — v0.25.3(미커버 스윕 ③):
+// TestTuningSetEquivalentFloatNotation —
 // '0.30'처럼 수치는 유효하되 포맷이 다른 표기가 문자열 비교로 거부되던
 // 것을 수치 비교로 수용.
 func TestTuningSetEquivalentFloatNotation(t *testing.T) {

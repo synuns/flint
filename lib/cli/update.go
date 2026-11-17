@@ -1,4 +1,4 @@
-// update.go — v0.22.0 자동 업데이트(A): `flint update` 자가 교체 +
+// update.go — 자동 업데이트: `flint update` 자가 교체 +
 // 세션 시작 갱신 안내 + doctor update 체크. 원칙: 다운로드·교체는 오직
 // 명시적 실행 시만(안내는 해도 자동 실행 없음 — §13 비간섭). 네트워크
 // 실패는 조용히, 체크섬 불일치는 즉시 중단(ADR-0006 취지 승계).
@@ -46,7 +46,7 @@ const updateAPITimeout = 5 * time.Second
 // updateHTTPTimeout — 자산 다운로드 클라이언트 타임아웃.
 const updateHTTPTimeout = 30 * time.Second
 
-// updateClientFn — 클라이언트 팩토리 seam(v0.22.2 리뷰 ③: 프로덕션
+// updateClientFn — 클라이언트 팩토리 seam(프로덕션
 // 바이너리에서 InsecureSkipVerify를 완전히 제거 — 테스트는 httptest
 // srv.Client() 주입으로 자체 서명을 수용한다).
 var updateClientFn = func(timeout time.Duration) *http.Client { return updateClient(timeout) }
@@ -87,12 +87,12 @@ type updateCache struct {
 // updateSkipSignature — --insecure-skip-signature(키 롤링 등 신뢰 이전
 // 시 1회 명시 우회 — ADR-0014). 프로세스 상태로 유지되므로 MCP 등
 // 재진입 호출처가 update를 노출하는 미래 변경에 대비해 진입마다
-// 리셋된다(v0.31.3 감사 4 — 방어).
-// v1.0.1(F3): unknown flag는 무효 인자 exit 3(네트워크 접근 전 검증).
+// 리셋된다.
+// unknown flag는 무효 인자 exit 3(네트워크 접근 전 검증).
 var updateSkipSignature = false
 
 func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
 	// 불허 — 네트워크 접근 전 검증 계약 유지).
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
@@ -106,7 +106,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 		return 3
 	}
 	dry := res.Given("--check")
-	updateSkipSignature = false // 진입 리셋(v0.31.3 감사 4)
+	updateSkipSignature = false // 진입 리셋
 	if res.Given("--insecure-skip-signature") {
 		updateSkipSignature = true
 		fmt.Fprintln(os.Stderr, "[flint] update: signature verification bypass (one-time trust transfer — ADR-0014 key rollover procedure)")
@@ -178,7 +178,7 @@ func fetchReleaseMeta() (*releaseMeta, error) {
 		return nil, fmt.Errorf("api status %d", resp.StatusCode)
 	}
 	var meta releaseMeta
-	// v0.22.2 리뷰 ⑤: API 응답도 상한 해석(무한 JSON 적립 방어 — 릴리스
+	// API 응답도 상한 해석(무한 JSON 적립 방어 — 릴리스
 	// 메타는 수 KB 규모라 8MiB면 충분).
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&meta); err != nil {
 		return nil, err
@@ -205,7 +205,7 @@ func applyUpdate(latest string) (string, error) {
 		case "checksums.txt":
 			sumsURL = a.BrowserDownloadURL
 		case "checksums.txt.sig":
-			sigURL = a.BrowserDownloadURL // v0.31.3(감사 2): 목록 URL 사용 — 조립 금지
+			sigURL = a.BrowserDownloadURL // 목록 URL 사용 — 조립 금지
 		}
 	}
 	if assetURL == "" || sumsURL == "" {
@@ -219,7 +219,7 @@ func applyUpdate(latest string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("checksums download: %w", err)
 	}
-	// v0.31.0(ADR-0014): checksums.txt 서명 검증 — GitHub 오리진과 분리된
+	// (ADR-0014): checksums.txt 서명 검증 — GitHub 오리진과 분리된
 	// 신뢰 뿌리(임베드 공개키). 자산 목록으로 .sig 존재를 판정하고:
 	//   - 공개키 임베드(하드 검증): .sig 부재·불일치·스킴 오류 전부 거부
 	//     (fail-closed — .sig 삭제·쓰레기 서명 회피 차단, 리뷰 1)
@@ -260,12 +260,12 @@ func applyUpdate(latest string) (string, error) {
 	return swapBinary(bin)
 }
 
-// updateMaxBytes — 자산·체크섬 다운로드 상한(v0.22.1 패치 루프 1차 S2 —
+// updateMaxBytes — 자산·체크섬 다운로드 상한(
 // io.ReadAll 무한 적립 방어. 릴리스 자산은 통상 수 MB — 여유 상한).
 const updateMaxBytes = 128 << 20 // 128MiB
 
 // download — 전체 다운로드(자산·체크섬 모두 소형·단발).
-// v0.22.1(S1): 다운로드 URL은 https 강제 — API 응답의 browser_download_url이
+// 다운로드 URL은 https 강제 — API 응답의 browser_download_url이
 // 평문 스킴을 가리키면 거부한다(응답 변조·다운그레이드 방지).
 func download(url string) ([]byte, error) {
 	if !strings.HasPrefix(url, "https://") {
@@ -318,7 +318,7 @@ func extractBinary(archive []byte) ([]byte, error) {
 			return nil, fmt.Errorf("tar: %w", err)
 		}
 		if hdr.Typeflag == tar.TypeReg && filepath.Base(hdr.Name) == "flint" {
-			// v0.28.0(H④): 해제 스트림에도 동일 상한 — 압축 바이트 상한만으론
+			// 해제 스트림에도 동일 상한 — 압축 바이트 상한만으론
 			// gzip 폭발(작은 압축분의 수십 GiB 팽창)을 막지 못한다. 상한+1
 			// 읽기로 초과를 명시적 에러 처리(무음 절단 금지 — 리뷰 4).
 			b, rerr := io.ReadAll(io.LimitReader(tr, updateMaxBytes+1))
@@ -412,7 +412,7 @@ func versionParts(v string) [3]int {
 	return out
 }
 
-// maybeUpdateNotice — 세션 시작 갱신 안내(v0.22.0 R2): 캐시(TTL 24h)가
+// maybeUpdateNotice — 세션 시작 갱신 안내: 캐시(TTL 24h)가
 // 만료된 경우만 확인(하루 1회 왕복), 최신>현재면 [flint] 경계 내 1줄.
 // 네트워크 실패·캐시 부재는 조용히(§13 — 안내 부재가 곧 무해).
 func maybeUpdateNotice() string {

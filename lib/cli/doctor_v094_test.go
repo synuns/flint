@@ -1,4 +1,4 @@
-// doctor_v094_test.go — v0.9.4 T1: doctor --fix 자가수복(applyHookFix).
+// doctor_v094_test.go — doctor --fix 자가수복(applyHookFix).
 // 픽스처는 FLINT_CLAUDE_HOME 임시 디렉터리로 실사용 ~/.claude 미접촉.
 package cli
 

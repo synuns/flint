@@ -1,8 +1,8 @@
-// ops_alias_1.go — v0.40.0 T1: lib/ops로 이동한 doctor·audit·diff·status·
+// ops_alias_1.go — lib/ops로 이동한 doctor·audit·diff·status·
 // tuning 표면을 소문자 var·타입 별칭으로 재노출해 잔여 cli 파일 및 잔류
 // 테스트가 무편집 컴파일되게 한다. var 별칭은 테스트 seam 교체 관례
 // (소문자 var)를 승계한다(composePsFn·flintBinPathFn — cli 테스트가 교체).
-// seam 주입 init은 v0.40.0 T4부터 root.go composition root가 소유한다.
+// seam 주입 init은 root.go composition root가 소유한다.
 package cli
 
 import (

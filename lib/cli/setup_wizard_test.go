@@ -1,4 +1,4 @@
-// setup_wizard_test.go — v1.5.0 T6 진입 분기: 인자 없음+터미널 → 위저드
+// setup_wizard_test.go — 진입 분기: 인자 없음+터미널 → 위저드
 // seam 호출, 취소·비터미널 → 기존 no-arg 경로, 플래그(--exposure X)는
 // 위저드와 무관하게 완전 불변(동치 회귀). 위저드 결과는 기존
 // runSetupExposure·체인 재사용(중복 구현 금지 계약).

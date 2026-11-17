@@ -1,4 +1,4 @@
-// marker_test.go — T71 마커 헬퍼: pending-distill.json 기록·조회·삭제 라운드트립.
+// marker_test.go — 마커 헬퍼: pending-distill.json 기록·조회·삭제 라운드트립.
 package cli
 
 import (

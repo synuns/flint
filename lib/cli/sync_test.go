@@ -1,4 +1,4 @@
-// sync_test.go — v1.7.0 T4: `flint sync remote` CLI 계약 테스트.
+// sync_test.go — `flint sync remote` CLI 계약 테스트.
 // fast는 fakeStore.Query로 SQL을 stub — 로직(db.RemoteAdd/List/Remove
 // 실구현)은 실코드 경유, 실행만 fake(SUPERLITE_REAL=1 seam은 실DB).
 // Review Focus(security): 원격 url 원문·자격증명은 성공·오류·사용법
@@ -94,7 +94,7 @@ func TestSyncUsageErrors(t *testing.T) {
 		{},
 		{"remote"},
 		{"push"},           // push 원격명 부재
-		{"pull"},           // pull 원격명 부재(T5)
+		{"pull"},           // pull 원격명 부재
 		{"remote", "push"}, // remote의 무효 sub
 		{"remote", "add"},
 		{"remote", "add", "only-name"},
@@ -227,7 +227,7 @@ func TestSyncAddQueryFailure(t *testing.T) {
 	}
 }
 
-// syncOpsQueryFn — T5 push/pull용 fakeStore.queryFn: 원격명→url 사전
+// syncOpsQueryFn — push/pull용 fakeStore.queryFn: 원격명→url 사전
 // 조회·head 해시 큐(호출순 pop)·push/fetch/merge stub·오류 주입.
 func syncOpsQueryFn(remotes map[string]string, heads []string, pushErr, fetchErr, mergeErr error) func(string, []any) ([][]any, error) {
 	headIdx := 0

@@ -1,4 +1,4 @@
-// asof.go — v0.40.0 T4: as-of 정규화 원본은 lib/wire/asof.go로 이동(공용
+// asof.go — as-of 정규화 원본은 lib/wire/asof.go로 이동(공용
 // Store 유틸 — knowledge.read·ops.diff·ops.status seam이 소비). 이 파일은
 // cli 잔여 소비자(asof_test 실DB 회귀·root.go seam 주입) 호환 별칭만 담는다.
 package cli

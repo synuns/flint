@@ -1,4 +1,4 @@
-// audit_v08_test.go — T86 audit 확장: --stat(dolt_diff 테이블별 요약)·relTime
+// audit_v08_test.go — audit 확장: --stat(dolt_diff 테이블별 요약)·relTime
 // 상대 시각 포맷·기존 출력 키 회귀.
 package cli
 

@@ -1,11 +1,11 @@
-// profile.go — v0.11.0 R1 노출 프로파일: meta exposure_profile 판독.
+// profile.go — 노출 프로파일: meta exposure_profile 판독.
 // 프로파일은 hot·nudge 동작만 분기한다(다른 명령·exit 계약 불변).
-// v0.35.0(D① 완결): 프로파일 판정 — 추천에서 전환까지. profile_hint
+// 프로파일 판정 — 추천에서 전환까지. profile_hint
 // (report)가 안내만 하던 것을 실행 가능 회로로 완결한다. 판정 규칙은
 // profileHint와 단일 소스(표본 하한 zero_near_min_read·recall_led_pct
 // 50 기준 — METRICS §3 문서화). 근거 지표를 함께 노출해 사용자가 판정을
 // 검증할 수 있게 한다(관측 투명성 — GSM 원칙).
-// v0.40.0 T4: 판독 헬퍼(ExposureKey·ExposureProfile)는 lib/wire/profile.go
+// 판독 헬퍼(ExposureKey·ExposureProfile)는 lib/wire/profile.go
 // 로 이동 — 이 파일은 판정 명령 runProfile과 cli 호환 별칭을 소유한다.
 package cli
 
@@ -32,10 +32,10 @@ func init() { Register("profile", runProfile) }
 // runProfile — `flint profile [--apply normal|minimal]`.
 // 무인자: 현재 프로파일 + 근거 지표 + 추천. --apply: 전환 확정
 // (setup --exposure 재사용 — 기록 경로 단일 소스).
-// v1.0.1(F3): 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
+// 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
 // --exposure 무효 값 exit 3과 정합).
 func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관. 위치 값
+	// 수동 루프를 wire.ParseArgs 사양 테이블로 이관. 위치 값
 	// normal|minimal 허용은 그대로(그 외 위치 토큰은 기존대로 unknown
 	// flag). --apply·위치 값 병렬 지정 시 args 순서가 우선(기존 인카운터
 	// 덮어쓰기 승계 — 병합 워크로 재현).
@@ -99,7 +99,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	hint := profileHint(th, out.Effect)
 	recommend, reason := "", ""
 	switch {
-	// v1.5.0 T3: ops.ProfileHint 산출(영어) 마커로 판정 — 표준 문구
+	// ops.ProfileHint 산출(영어) 마커로 판정 — 표준 문구
 	// "insufficient sample"·"keep normal"·"low recall lead"(lib/ops
 	// report.go 단일 소스). low recall lead는 minimal 기본 분기.
 	case strings.Contains(hint, "insufficient sample"):

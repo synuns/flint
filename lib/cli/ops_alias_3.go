@@ -1,8 +1,8 @@
-// ops_alias_3.go — v0.40.0 T3: lib/ops로 이동한 report·report_html·backup·
+// ops_alias_3.go — lib/ops로 이동한 report·report_html·backup·
 // sigverify·rules_sync 표면을 소문자 var·타입 별칭으로 재노출해 잔여 cli
 // 파일(profile·setup·update·knowledge_curation_alias 및 잔류 테스트)이
 // 무편집 컴파일되게 한다(ops_alias_1·2 관례 승계). backup 등록은
-// root.go init이 ops.RunBackup·RunRestore를 직접 등록한다(T4 수렴).
+// root.go init이 ops.RunBackup·RunRestore를 직접 등록한다.
 // 교체 전파가 필요한 backup seam(dumpFn·restoreFn·rotateFn·keepFn —
 // backup_test가 cli var를 교체)은 root.go init이 래퍼로 주입한다.
 package cli

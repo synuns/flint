@@ -157,13 +157,13 @@ func TestCompact(t *testing.T) {
 	t.Run("accrues_session_knowledge", test_compact_accrues_session_knowledge)
 }
 
-// test_compact_accrues_session_knowledge — v0.27.2: PostCompact의
+// test_compact_accrues_session_knowledge — PostCompact의
 // compact_summary가 세션 지식화의 표준 경로 — 세션 행(계측)과 별개로
 // pending knowledge가 적립된다(최소 길이 충족 요약).
 func test_compact_accrues_session_knowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{}
-	// R22-A: knowledge 적립은 content_hash dedup·일 빈도 상한(meta
+	// knowledge 적립은 content_hash dedup·일 빈도 상한(meta
 	// session_knowledge_last)을 통과한다 — 공유 실DB 잔재를 시작 경계에서
 	// 정리하고, 실행마다 고유 summary(테스트명+시각)로 잔재 해시와의 충돌을
 	// 회피해야 적립=1이 멱등하게 성립한다.

@@ -1,4 +1,4 @@
-// hot_v0110_test.go — R2 hot 요약 헤드라인·--full 플래그(v0.11.0).
+// hot_v0110_test.go — hot 요약 헤드라인·--full 플래그.
 // 기본 경로는 프로파일별 헤드라인 1줄, --full은 기존 전체 출력(바이트 불변).
 package cli
 

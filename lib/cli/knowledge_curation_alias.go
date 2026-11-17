@@ -1,8 +1,8 @@
-// knowledge_curation_alias.go — v0.39.0 T4: lib/knowledge로 이동한
+// knowledge_curation_alias.go — lib/knowledge로 이동한
 // 3탄(brief·pending·approve·done·compact) 표면의 잔여 cli 소비자 호환
 // 별칭. 룰링: countPending 소문자 var는 render_alias.go 기존 선언을
 // knowledge.CountPending으로 재지정한다(이 파일에는 선언하지 않는다 —
-// 이중 선언 금지). knowledge 주입 seam 초기화는 v0.40.0 T4부터 root.go
+// 이중 선언 금지). knowledge 주입 seam 초기화는 root.go
 // composition root가 소유한다.
 package cli
 

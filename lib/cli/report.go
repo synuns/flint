@@ -1,4 +1,4 @@
-// report.go — v1.5.0 T9: `flint report --tui` 진입 분기. 등록은 ops
+// report.go — `flint report --tui` 진입 분기. 등록은 ops
 // 패키지 init(RunReport)이 먼저 하고, cli init이 이 래퍼로 재등록해
 // 덮는다(Register 후속 승계 — cli가 ops를 import하므로 순서 보장).
 // --tui 옵트인: 기존 3뷰(JSON 기본·--text·--html) 경로는 바이트 불변
@@ -30,7 +30,7 @@ var (
 	}
 	// reportTUIFn — 화면 기동(비터미널 오류 반환 — 호출부 exit 3).
 	reportTUIFn = tui.RunReportTUI
-	// reportTTYFn — v1.5.2 T1 적응형 진입 TTY 판정 seam(기본 실구현
+	// reportTTYFn — 적응형 진입 TTY 판정 seam(기본 실구현
 	// tui.IsTerminalStdout, 테스트 fake 교체).
 	reportTTYFn = tui.IsTerminalStdout
 )
@@ -38,7 +38,7 @@ var (
 func init() { Register("report", runReportEntry) }
 
 // runReportEntry — `flint report [--tui] [기존 플래그...]`. 진입 규칙
-// (v1.5.2 T1 통일): ① --tui 명시 → TUI(비터미널 폴백 exit 3 불변)
+// ① --tui 명시 → TUI(비터미널 폴백 exit 3 불변)
 // ② 무인자·무플래그 + 터미널 → TUI ③ 무인자 + 비터미널 → 기본 JSON 뷰
 // ④ 플래그 존재 → 기존 경로. --tui는 뷰 플래그(--html·--text·--out)와
 // 조합 불가(exit 3 — 화면·파일 이원 방지). TUI 경로: 수집(JSON 원천) →
@@ -52,7 +52,7 @@ func runReportEntry(ctx context.Context, st Store, args []string, stdin io.Reade
 			break
 		}
 	}
-	// v1.5.2 T1 적응형 전환: 인자·플래그 전혀 없음 + 터미널이면 TUI
+	// 적응형 전환: 인자·플래그 전혀 없음 + 터미널이면 TUI
 	// (--tui 등가 — rest가 빈 상태여 뷰 플래그 검증도 자동 통과).
 	// 3층 방어 1층 — FLINT_NO_TUI 설정 시 TTY 여부와 무관하게 차단.
 	if tuiIdx < 0 && !(len(args) == 0 && !tui.NoTUIForced() && reportTTYFn()) {

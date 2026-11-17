@@ -1,4 +1,4 @@
-// sessionhook_v0200_test.go — v0.20.0 D: session-start 훅이 세션 시작
+// sessionhook_v0200_test.go — session-start 훅이 세션 시작
 // 경계를 기록한다(출력·exit 불변 — 내부 계정만 추가).
 package cli
 
@@ -54,8 +54,8 @@ func TestSessionStartNoSessionLabel(t *testing.T) {
 	}
 }
 
-// TestSessionLabelLifecycle — v0.20.5(B②): session-start가 라벨 파일을
-// 남기고 session-end가 지운다(스테일 방지). v1.0.2 R2-A2: 라벨 파일은
+// TestSessionLabelLifecycle — session-start가 라벨 파일을
+// 남기고 session-end가 지운다(스테일 방지). 라벨 파일은
 // 세션별(session-<id>.label) — session-end는 자기 --session id의 파일만
 // 지운다(hooks.json의 session-end가 항상 session_id를 넘기는 것과 정합).
 func TestSessionLabelLifecycle(t *testing.T) {
@@ -81,7 +81,7 @@ func TestSessionLabelLifecycle(t *testing.T) {
 	}
 }
 
-// TestReadAutoSessionLabel — v0.20.5(B②): --session 미지정 read가 현재
+// TestReadAutoSessionLabel — --session 미지정 read가 현재
 // 세션 라벨을 자동 채택해 read_events에 기록한다.
 func TestReadAutoSessionLabel(t *testing.T) {
 	dir := t.TempDir()

@@ -1,7 +1,7 @@
 // wire_approve_store_test.go — 스펙 §1.4/R14: approve·done·backup이
 // root가 주입한 Store를 쓰는지(자체 db.NewRepo/db.Connect 폐지)와 파일 내
 // 중복 구현 수렴(quoteJSON·thresholds 로더)을 검증한다.
-// v0.39.0 T4: approve·done 구현은 lib/knowledge로 이동 — approve 재배선
+// approve·done 구현은 lib/knowledge로 이동 — approve 재배선
 // 검증(TestApproveUsesInjectedStore)·maybeAutoBackup st 경유 검증
 // (TestDoneAutoBackupNoExtraPool)은 knowledge 패키지 테스트로 이동했고,
 // 여기선 cli 소유 경로(backup)와 이동 위치의 소스 가드만 담는다.
@@ -93,7 +93,7 @@ func TestBackupUsesInjectedStore(t *testing.T) {
 
 // TestThresholdsLoaderSingle — Review Focus: doneThresholds 제거·
 // WriteThresholds(write.go) 공용. knowledge/done.go에 로컬 로더가 남으면
-// 실패(v0.39.0 T4: done.go 이동 위치 검사).
+// 실패(done.go 이동 위치 검사).
 func TestThresholdsLoaderSingle(t *testing.T) {
 	b, err := os.ReadFile("../knowledge/done.go")
 	if err != nil {

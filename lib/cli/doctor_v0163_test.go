@@ -1,4 +1,4 @@
-// doctor_v0163_test.go — v0.16.3: doctor 임계값 4종의 meta 오버라이드
+// doctor_v0163_test.go — doctor 임계값 4종의 meta 오버라이드
 // 우선(backup-age·zero-near 2종·pending-age). 패턴은
 // TestDoctorLastSeenThresholdOverride(stall_hot_h) 승계.
 package cli
@@ -44,7 +44,7 @@ func TestDoctorZeroNearWarnPctOverride(t *testing.T) {
 		[][]any{{"zero_near_warn_pct", "5"}},
 		func(sql string, args []any) ([][]any, error) {
 			if strings.Contains(sql, "daily:") {
-				// v0.42.0 T2: 창(오늘) 내 키만 합산된다.
+				// 창(오늘) 내 키만 합산된다.
 				return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":20,"read_zero_near":2}`}}, nil
 			}
 			return nil, nil
@@ -61,7 +61,7 @@ func TestDoctorZeroNearMinReadOverride(t *testing.T) {
 		[][]any{{"zero_near_min_read", "100"}},
 		func(sql string, args []any) ([][]any, error) {
 			if strings.Contains(sql, "daily:") {
-				// v0.42.0 T2: 창(오늘) 내 키만 합산된다.
+				// 창(오늘) 내 키만 합산된다.
 				return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":20,"read_zero_near":2}`}}, nil
 			}
 			return nil, nil

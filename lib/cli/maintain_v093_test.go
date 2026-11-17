@@ -1,4 +1,4 @@
-// maintain_v093_test.go — T3 `maintain --dup-suspects` 보고(보고 전용·exit 0).
+// maintain_v093_test.go — `maintain --dup-suspects` 보고(보고 전용·exit 0).
 package cli
 
 import (
@@ -50,7 +50,7 @@ func TestMaintainDupSuspectsFlag(t *testing.T) {
 	}
 
 	// usage 라인 갱신 — 모드 누락 에러 안내에 --dup-suspects 포함
-	// (bare usage는 v1.5.3 T1부터 exit 3).
+	// (bare usage는 exit 3).
 	u := &fakeMaint{fakeStore: &fakeStore{}}
 	uout, ucode := runMaintainArgs(t, u)
 	if ucode != 3 || !strings.Contains(uout, "--dup-suspects") {

@@ -1,4 +1,4 @@
-// doctor_v0162_test.go — T3 doctor pending-age 검사(스펙 R4): pending
+// doctor_v0162_test.go — doctor pending-age 검사(스펙 R4): pending
 // 최고령 경과 warn + maintain --expire-pending 만료 안내.
 package cli
 

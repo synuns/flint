@@ -207,7 +207,7 @@ func decode(t *testing.T, line string) map[string]any {
 func TestWriteCommitted(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// R22-A: write는 content_hash dedup(공유 실DB)를 통과한다 — 실행마다
+	// write는 content_hash dedup(공유 실DB)를 통과한다 — 실행마다
 	// 고유 topic으로 잔재 해시 충돌을 회피해야 committed가 멱등하다.
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
@@ -244,7 +244,7 @@ func TestWriteCommitted(t *testing.T) {
 func TestWritePendingBoundary(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// R22-A: 잔재 해시 충돌 회피(TestWriteCommitted 주석 참조).
+	// 잔재 해시 충돌 회피(TestWriteCommitted 주석 참조).
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"topic":"`+topic+`","summary":"s","confidence":0.79}`)
@@ -294,7 +294,7 @@ func TestWriteJSONLSingleCommit(t *testing.T) {
 func TestWriteStripsNonColumnKeys(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// R22-A: 공유 실DB의 프로젝트명 잔재 충돌 회피 — 실행마다 고유 name.
+	// 공유 실DB의 프로젝트명 잔재 충돌 회피 — 실행마다 고유 name.
 	name := fmt.Sprintf("p1-%s-%d", t.Name(), time.Now().UnixNano())
 	_, code := mustRun(t, []string{"write", "project"},
 		`{"name":"`+name+`","status":"active","note":"메타데이터"}`)
@@ -302,7 +302,7 @@ func TestWriteStripsNonColumnKeys(t *testing.T) {
 		t.Fatalf("exit=%d, want 0", code)
 	}
 	rec := f.inserted[0]
-	// v1.6.2 F5: note는 project 컬럼으로 등록돼 저장된다(kindColumns).
+	// note는 project 컬럼으로 등록돼 저장된다(kindColumns).
 	if rec["note"] != "메타데이터" {
 		t.Fatalf("note 컬럼 미저장: %v", rec)
 	}
@@ -365,14 +365,10 @@ func TestWriteBadJSONExit3(t *testing.T) {
 	decode(t, out) // 한 줄 JSON 에러여야 한다
 }
 
-// TestServerDownExit2 — v0.38.0 §1: Run 디스패치 특수 경로(공장 실패
-// quiet)는 lib/wire TestWireRunDispatch/server_down_quiet_line_exit2로
-// 이동. 아래는 커맨드 핸들러 계약 테스트.
-
 func TestRetriesExhaustedExit1(t *testing.T) {
 	f := &fakeStore{commitErr: store.ErrRetriesExhausted}
 	withFake(t, f)
-	// R22-A: 잔재 해시 충돌 회피(TestWriteCommitted 주석 참조) — duplicate로
+	// 잔재 해시 충돌 회피(TestWriteCommitted 주석 참조) — duplicate로
 	// commit 경로 도달 전 스킵되면 exit 1 재현 자체가 불가능하다.
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
@@ -405,7 +401,7 @@ func TestReadLimitClampAndJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
-	// v1.5.4 T2 P3: --json에서 요청 limit이 상한(50) 초과면 additive clamp
+	// --json에서 요청 limit이 상한(50) 초과면 additive clamp
 	// 라인(limit_requested·limit_applied)이 행 뒤에 따른다(기존 키 불변).
 	want := "{\"id\":\"1\",\"topic\":\"t\"}\n" +
 		`{"limit_requested":999,"limit_applied":50}`

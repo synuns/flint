@@ -1,4 +1,4 @@
-// nudge_test.go — T73 flint nudge: Stop 넛지(stop_hook_active 가드)·SessionStart
+// nudge_test.go — flint nudge: Stop 넛지(stop_hook_active 가드)·SessionStart
 // 안내·--clear 소비·그 외 조용히(exit 0) 검증.
 package cli
 

@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// v0.7 T76 — setup 보강: compose up --wait 인자 정합 · docker 미설치 안내 구분.
+// setup 보강: compose up --wait 인자 정합 · docker 미설치 안내 구분.
 
 // TestSetupWaitArgs — 기본 composeUpFn은 composeRunFn에
 // ["up","-d","--wait","--wait-timeout","60"]을 전달한다(스펙 §2 대기).

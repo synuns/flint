@@ -1,4 +1,4 @@
-// done_v0180_test.go — v0.18.0 R3: done의 회상 경고. 오늘 회상(read) 0회에
+// done_v0180_test.go — done의 회상 경고. 오늘 회상(read) 0회에
 // 기록(write)이 임계 이상이면 세션 종료 시 경고 한 줄(stale 경고와 같은
 // 패턴 — 임계값 기반·비차단, §13 원칙 4 준수).
 package cli
@@ -13,13 +13,13 @@ import (
 	"time"
 )
 
-// recallFake — v1.2.3 T1(R17 A1) 원천 갱신: write는 daily:write:<오늘>
+// recallFake — 원천 갱신: write는 daily:write:<오늘>
 // 플랫 키 int, read는 read_events 당일 COUNT를 반환하는 doneFake(실제
 // 생산자 원천 — RecordUsage 플랫 키·read_events 일원화 이후 계약).
 func recallFake(t *testing.T, read, write int) *doneFake {
 	t.Helper()
 	today := time.Now().UTC().Format("2006-01-02")
-	// R22-A(배선 버전): stubbed=true — stale 집계도 fake 영(零)으로 고정.
+	// stubbed=true — stale 집계도 fake 영(零)으로 고정.
 	// 미지정이면 실DB 모드에서 StaleSessionRuns가 공유 DB 잔재 위임으로
 	// stale 경고가 회상 경고를 덮어 멱등성이 깨진다(판정 원천은 queryFn).
 	d := &doneFake{fakeStore: &fakeStore{}, stubbed: true}
@@ -79,7 +79,7 @@ func TestDoneRecallBelowThreshold(t *testing.T) {
 }
 
 // TestDoneRecallMarkerWritten — 회상 부재 시 recall 마커가 남는다(다음
-// SessionStart nudge 소비 연결). v0.18.2: 별도 파일(recall-hint.json).
+// SessionStart nudge 소비 연결). 별도 파일(recall-hint.json).
 func TestDoneRecallMarkerWritten(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

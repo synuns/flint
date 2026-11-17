@@ -1,4 +1,4 @@
-// tuning_meta_v0342_test.go — v0.34.2 R1: tuning 키 단일 소스 계약.
+// tuning_meta_v0342_test.go — tuning 키 단일 소스 계약.
 // tuningCurrent·tuningResetAll이 하드코딩 6키 목록을 복제해
 // backup_encrypt(7번째 meta 키)가 누락되던 드리프트 방어.
 package cli
@@ -35,7 +35,7 @@ func TestTuningKeyAllContainsBackupEncrypt(t *testing.T) {
 }
 
 // resetAllCaptureFake — meta 삭제 위임(db.Repo.MetaDelete)의 인자(삭제
-// 대상 키)를 기록. v0.41.0 T3: DELETE 리터럴은 db 계층 소유(쓰기 가드).
+// 대상 키)를 기록. DELETE 리터럴은 db 계층 소유(쓰기 가드).
 type resetAllCaptureFake struct {
 	*fakeStore
 	deleted []any
@@ -78,7 +78,7 @@ func TestTuningResetAllCoversAllKeys(t *testing.T) {
 	}
 }
 
-// TestTuningMetaValueSanitized — v1.0.1 감사(F4): meta 원시 값(vocab_*는
+// TestTuningMetaValueSanitized — meta 원시 값(vocab_*는
 // 자유 문자열)이 get·list의 value 출력에서 살균 출구를 통과한다 —
 // 미살균이면 [flint] 마커가 원문 그대로 노출된다.
 func TestTuningMetaValueSanitized(t *testing.T) {

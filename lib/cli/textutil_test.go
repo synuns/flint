@@ -64,7 +64,7 @@ func TestUnknownFlagExitContract(t *testing.T) {
 
 // TestSupersedeZeroRowsFails — Review Focus(e): 사전 확인(active) 통과 후
 // 경합 등으로 갱신이 0행이면 무음 성공이 아니라 오류(exit 1·커밋 없음).
-// v0.41.0 T2: 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 위임이
+// 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 위임이
 // 오류를 돌려주는 것으로 시뮬레이션한다.
 func TestSupersedeZeroRowsFails(t *testing.T) {
 	shortRetryDelays(t)

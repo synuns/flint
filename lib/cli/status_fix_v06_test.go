@@ -1,4 +1,4 @@
-// status_fix_v06_test.go — T70 회귀: v0.6 신규 DB(EnsureSchemaV4 승격 →
+// status_fix_v06_test.go — 회귀: v0.6 신규 DB(EnsureSchemaV4 승격 →
 // meta.schema_version=4)에서 `flint status`가 exit 3으로 거부되던 결함.
 // 게이트는 v4도 정상 상태로 승인해야 한다(인시던트: lib/cli/status.go:61).
 package cli

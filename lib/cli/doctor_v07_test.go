@@ -1,4 +1,4 @@
-// doctor_v07_test.go — T75: port 검사. composePsFn 시임으로
+// doctor_v07_test.go — port 검사. composePsFn 시임으로
 // JSONL·배열 양쪽 파싱·flint 실행/정지·타 컨테이너 점유·docker 부재 skip를
 // 검증한다. 기존 검사 5종은 doctor_test.go 담당.
 package cli

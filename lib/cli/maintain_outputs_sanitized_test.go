@@ -1,6 +1,6 @@
-// maintain_v0370_test.go — v0.37.0 T3: maintain/audit/diff 출력 살균은
+// maintain_v0370_test.go — maintain/audit/diff 출력 살균은
 // render 조크포인트(render.Text, store.SanitizeText 위임)를 경유한다.
-// 출력 바이트 불변 — v0.28.0(H③) 재살균 승계 스팟 단언.
+// 출력 바이트 불변 — 재살균 승계 스팟 단언.
 package cli
 
 import (

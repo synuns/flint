@@ -1,4 +1,4 @@
-// export_tui_v1500_test.go — v1.5.0 T8: `flint export --tui` 진입 분기 계약.
+// export_tui_v1500_test.go — `flint export --tui` 진입 분기 계약.
 // runExport 본체(플래그 파싱·출력·사이드카·상한)는 기존 export_test.go가
 // 소유한다 — 여기는 ① --tui 진입 분기가 TUI 흐름 seam으로 위임 ② --tui
 // 미지정 시 플래그 경로 불변 ③ 기본 배선의 비터미널 폴백만 검증한다.

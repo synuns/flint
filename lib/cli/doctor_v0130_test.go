@@ -24,8 +24,7 @@ func TestConflictsWarn(t *testing.T) {
 }
 
 // TestConflictsDupOnlyOk — 회귀: 순수 중복 그룹(유사 요약)은 모순 후보가
-// 아니므로 warn하지 않는다. doctor가 그룹 총계만 세던 옛 동작(T3 초안)은
-// dup 그룹마다 warn해 T2 --conflict-suspects 출력(빈 groups)과 어긋났다.
+// 아니므로 warn하지 않는다.
 func TestConflictsDupOnlyOk(t *testing.T) {
 	same := "flint 백업은 매일 자동이다"
 	c := checkConflicts(context.Background(), &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

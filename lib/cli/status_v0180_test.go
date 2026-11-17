@@ -1,4 +1,4 @@
-// status_v0180_test.go — v0.18.0 R4: status 기간화 read 지표. 누적
+// status_v0180_test.go — status 기간화 read 지표. 누적
 // read_zero_pct(초기 이력 지배)와 별개로 14일 일별 합산 창 값을 병기한다.
 package cli
 
@@ -76,7 +76,7 @@ func TestStatusWindowedKeys(t *testing.T) {
 	}
 }
 
-// TestStatusZeroNearKey — v0.18.1: read_zero_near_pct_14d 노출(폴백 표면화).
+// TestStatusZeroNearKey — read_zero_near_pct_14d 노출(폴백 표면화).
 func TestStatusZeroNearKey(t *testing.T) {
 	windowedReadHarness(t)
 	out, code := mustRun(t, []string{"status"}, "")

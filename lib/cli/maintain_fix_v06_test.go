@@ -1,4 +1,4 @@
-// maintain_fix_v06_test.go — T70 회귀: `maintain --stale`의 SQL interval
+// maintain_fix_v06_test.go — 회귀: `maintain --stale`의 SQL interval
 // 파라미터 곱(`$1 * interval '1 day'`)이 실 Doltgres에서 $1을 interval
 // (OID 1186)로 추론해 pgx int 인코딩 실패 → exit 1이던 결함(인시던트:
 // lib/cli/maintain.go:165). 컷오프는 Go 계산 timestamptz 파라미터여야 한다.

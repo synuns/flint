@@ -1,4 +1,4 @@
-// maintain_v0130_test.go — T2 `maintain --conflict-suspects`(스펙 R2):
+// maintain_v0130_test.go — `maintain --conflict-suspects`(스펙 R2):
 // 동일 topic active 2+ 그룹을 요약 유사도로 분류해 모순 후보만 리스팅.
 package cli
 
@@ -101,7 +101,7 @@ func TestConflictSuspectsFlag(t *testing.T) {
 		t.Errorf("무관 플래그 거부 없음: exit=%d %q", mcode, mout)
 	}
 
-	// usage 안내에 --conflict-suspects 포함(bare usage는 v1.5.3 T1부터 3).
+	// usage 안내에 --conflict-suspects 포함(bare usage는 3).
 	u := &fakeConflict{fakeMaint: &fakeMaint{fakeStore: &fakeStore{}}}
 	uout, ucode := runConflictArgs(t, u)
 	if ucode != 3 || !strings.Contains(uout, "--conflict-suspects") {

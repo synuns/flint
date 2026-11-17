@@ -14,7 +14,7 @@ import (
 var version = "dev"
 var commit = "dev"
 
-// CurrentVersion — 유효 버전 문자열 반환. v0.22.0: ldflags 미주입
+// CurrentVersion — 유효 버전 문자열 반환. ldflags 미주입
 // 빌드(`go install github.com/synuns/flint/cmd/flint@vX.Y.Z`)는
 // debug.ReadBuildInfo의 모듈 버전으로 폴백한다 — go install 배포 경로의
 // 버전 자가 보고. 해석 불가면 "dev".

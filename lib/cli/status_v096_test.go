@@ -1,5 +1,5 @@
-// status_v096_test.go — v0.9.6 T2: status 출력에 read_fallback_calls(T1
-// 계측 meta) 노출 검증. 키 "3" → 3, 미설정 → null. 기존 필드·순서는
+// status_v096_test.go — status 출력에 read_fallback_calls(계측
+// meta) 노출 검증. 키 "3" → 3, 미설정 → null. 기존 필드·순서는
 // status_v06/v08 리플렉션 테스트가 담보.
 package cli
 

@@ -1,4 +1,4 @@
-// maintain_v0162_test.go — T3 `maintain --expire-pending`(스펙 R4):
+// maintain_v0162_test.go — `maintain --expire-pending`(스펙 R4):
 // valid_at 경과 N일 초과 pending 행 나열(dry-run 기본)·--commit 시
 // 기존 무효화 경로(status='invalidated'·invalid_at=now) 전환.
 package cli
@@ -11,7 +11,7 @@ import (
 
 // expireFixture — pending 2건(경과 7일·2일)을 반환하는 queryFn. 전이
 // 갱신은 Repo.Invalidate 위임이라 queryFn은 조회(SELECT)만 담당한다
-// (v0.41.0 T2 — UPDATE 캡처는 fakeMaint Invalidate가 대신한다).
+// (UPDATE 캡처는 fakeMaint Invalidate가 대신한다).
 func expireFixture(old, recent time.Time) *fakeMaint {
 	return &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return [][]any{

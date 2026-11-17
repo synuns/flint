@@ -1,4 +1,4 @@
-// wire_v07_test.go — T74 Review Focus: test_usage_includes_compact_nudge ·
+// wire_v07_test.go — Review Focus: test_usage_includes_compact_nudge ·
 // test_lookup_compact_nudge · test_nudge_store_free · dsnFromEnv→ResolveDSN 배선.
 package cli
 
@@ -18,7 +18,7 @@ func TestUsageIncludesCompactNudge(t *testing.T) {
 	}
 }
 
-// TestLookupCompactNudge — compact·nudge 등록(T72·T73 init Register).
+// TestLookupCompactNudge — compact·nudge 등록(init Register).
 func TestLookupCompactNudge(t *testing.T) {
 	for _, name := range []string{"compact", "nudge"} {
 		if _, ok := Lookup(name); !ok {
@@ -27,7 +27,7 @@ func TestLookupCompactNudge(t *testing.T) {
 	}
 }
 
-// TestNudgeStoreFree — Run("nudge")은 store 경유(v0.13.2 N5 갱신):
+// TestNudgeStoreFree — Run("nudge")은 store 경유:
 // newStore 시임을 호출하고 핸들러에 store가 주입된다(nudgeProfile가
 // exposure_profile을 조회해 minimal 계약 유지). nudge 핸들러는 가짜로
 // 등록(배선 자체를 검증 — 원래 구조 승계).
@@ -45,7 +45,7 @@ func TestNudgeStoreFree(t *testing.T) {
 		}
 		return 0
 	})
-	// v0.34.1 T1c(race 게이트 선결함): 클린업에서 무조건 unregister하면
+	// 클린업에서 무조건 unregister하면
 	// init이 등록한 원 nudge 핸들러까지 사라진다 — init()은 -count≥2에서
 	// 재실행되지 않으므로 2회차부터 Lookup("nudge") 미등록·nudge계 테스트
 	// 전체 오염. 원 핸들러를 캡처해 복원한다(부재 시에만 unregister).

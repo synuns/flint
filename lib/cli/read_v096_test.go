@@ -1,4 +1,4 @@
-// read_v096_test.go — v0.9.6 T1: read 제로히트 토큰 폴백(fake Store 질의
+// read_v096_test.go — read 제로히트 토큰 폴백(fake Store 질의
 // 캡처). SUPERLITE_REAL=1이면 delegatingFake로 실구현 경유(read_v08 관례).
 package cli
 

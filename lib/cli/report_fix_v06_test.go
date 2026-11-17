@@ -1,4 +1,4 @@
-// report_fix_v06_test.go — T70 회귀: report stale·기간 조회의
+// report_fix_v06_test.go — 회귀: report stale·기간 조회의
 // `$1 * interval '1 day'`가 실 Doltgres에서 실패하던 결함(인시던트:
 // lib/cli/report.go collectCounts). $1 int는 interval(OID 1186)로 추론돼 pgx
 // 인코딩에 실패하고, ::int 캐스트로 넘어가도 평가가 깨진다(timestamptz <
@@ -44,7 +44,7 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 	}
 	sawStale, sawPeriod, sawDead := false, false, false
 	for _, q := range argsBySQL {
-		// 쿼리 식별은 제품 SQL의 자기 식별 마커로(v0.20.2 T2 — substring
+		// 쿼리 식별은 제품 SQL의 자기 식별 마커로(substring
 		// 추측 판별이 제품 SQL 재작성과 공진화하던 왜곡 구조 해소).
 		isStale := strings.Contains(q.sql, "/* stale */")
 		isPeriod := strings.Contains(q.sql, "invalid_at >=")

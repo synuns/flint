@@ -1,7 +1,7 @@
-// usage_type_v154_test.go — v1.5.4 T1 회귀: 7커맨드(maintain·doctor·
+// usage_type_v154_test.go — 회귀: 7커맨드(maintain·doctor·
 // report·audit·backup·import·update)의 무효 인자(unknown flag·값 누락·
 // 무효 값·무효 검사명)는 error:"usage" + 메시지에 허용 플래그 안내
-// (v1.5.3 P2 read·approve 관례 확장). exit 코드 불변(무효 인자 3).
+// (read·approve 관례 확장). exit 코드 불변(무효 인자 3).
 // 진짜 내부 결함(네트워크 실패 등)은 internal 유지 — 여선의 대상 아님.
 package cli
 
@@ -51,7 +51,7 @@ var usageTypeProbes = []usageTypeProbe{
 	{"import", []string{"--format", "jsonl", "--wat"}, 3, "usage: flint import"},
 	// update — unknown flag(네트워크 접근 전 검증)
 	{"update", []string{"--bogus"}, 3, "usage: flint update"},
-	// v1.5.5 T2 A2 — 잔여 5사이트 unknown flag도 동일 계약:
+	// 잔여 5사이트 unknown flag도 동일 계약:
 	// pending(기본 경로 + --tui 조합)·export·profile·setup/teardown·
 	// report --tui×뷰 플래그 조합.
 	{"pending", []string{"--bogus"}, 3, "usage: flint pending"},
@@ -61,13 +61,13 @@ var usageTypeProbes = []usageTypeProbe{
 	{"setup", []string{"--bogus"}, 3, "usage: flint setup"},
 	{"teardown", []string{"--bogus"}, 3, "usage: flint teardown"},
 	{"report", []string{"--tui", "--html"}, 3, "usage: flint report"},
-	// v1.5.5 T2 A5 — hot·brief·compact·nudge: unknown `-` 접두 인자 exit 3
+	// hot·brief·compact·nudge: unknown `-` 접두 인자 exit 3
 	// (현행 조용한 무시·exit 0 폐지 — 조용한 성공 금지).
 	{"hot", []string{"--bogus"}, 3, "usage: flint hot"},
 	{"brief", []string{"--bogus"}, 3, "usage: flint brief"},
 	{"compact", []string{"--bogus"}, 3, "usage: flint compact"},
 	{"nudge", []string{"--bogus"}, 3, "usage: flint nudge"},
-	// v1.5.5 T2 A5 — write --help/-h: stdin 대기 전 usage 안내 exit 0
+	// write --help/-h: stdin 대기 전 usage 안내 exit 0
 	// (에러가 아니므로 error:"usage" 단언은 want!=0 행에만 적용).
 	{"write", []string{"--help"}, 0, "usage: flint write"},
 	{"write", []string{"-h"}, 0, "usage: flint write"},

@@ -1,5 +1,5 @@
-// write_v093_test.go — v0.9.3 회귀: 단일 줄 duplicate 응답에 기존 행 id
-// 노출(R3). {"status":"duplicate","id":N} 추가만 — JSONL 집계형·exit 0·
+// write_v093_test.go — 회귀: 단일 줄 duplicate 응답에 기존 행 id
+// 노출. {"status":"duplicate","id":N} 추가만 — JSONL 집계형·exit 0·
 // id 0 duplicate의 맨몸 출력은 불변.
 package cli
 
@@ -33,7 +33,7 @@ func (d *dupIDStore) DupIDByHash(ctx context.Context, hash string) (int, bool, e
 	return d.id, true, nil
 }
 
-// Query — v1.6.0 T3: 다중 줄 사전 dedup가 줄별 capability가 아닌 배치
+// Query — 다중 줄 사전 dedup가 줄별 capability가 아닌 배치
 // 조회(content_hash = ANY($1), knowledge.lookupHashBatch)로 이동했다.
 // 이 fake도 동일 존재 판정(기존 행 id)을 Query seam으로 응답해 다중 줄
 // duplicate 시나리오를 유지한다(단발 경로는 여전히 DupIDByHash).

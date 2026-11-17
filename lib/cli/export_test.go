@@ -1,5 +1,5 @@
-// export_test.go — v1.3.0 T7: flint export CLI 배선 계약 테스트.
-// 포맷터·원천 조회(T2~T6)는 seam var로 fake 주입 — RunExport 자체
+// export_test.go — flint export CLI 배선 계약 테스트.
+// 포맷터·원천 조회는 seam var로 fake 주입 — RunExport 자체
 // 계약(플래그 파싱·stdout/--out·경고·요약 stderr·exit 0/2/3)이 검증
 // 대상이다. 실구현 연결은 seam 기본값 대입 시점(컴파일 시점)에 활성화.
 package cli
@@ -28,8 +28,6 @@ import (
 // installExportFakes — export seam 일괄 fake 설치 + stderr 캡처.
 // rowsFn이 nil이면 기본 rows fake(2행)를, formatter는 포맷명을 그대로
 // 돌려주는 최소 fake를 설치한다. 반환값은 캡처된 stderr 버퍼.
-// 포맷터(T3~T6)는 seam 기본값이 실함수라 fake 설치로만 교체 검증되고,
-// 원천 조회(T2)는 미적립 — 실구현 경로는 적립 후 활성화된다.
 func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error)) *bytes.Buffer {
 	t.Helper()
 	if rowsFn == nil {
@@ -37,7 +35,7 @@ func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.S
 			return []knowledge.ExportRow{{ID: 1, Topic: "demo-a", Status: "active"}, {ID: 2, Topic: "demo-b", Status: "active"}}, nil
 		}
 	}
-	// v1.5.5 B1: 포맷터 seam은 (본문, 요약 보고 행수, 오류) 3값 — fake는
+	// 포맷터 seam은 (본문, 요약 보고 행수, 오류) 3값 — fake는
 	// 전행 수(len(rows))를 보고한다(pam 실구현만 발행 수 반환).
 	mk := func(name string) func([]knowledge.ExportRow) ([]byte, int, error) {
 		return func(rows []knowledge.ExportRow) ([]byte, int, error) {
@@ -373,7 +371,7 @@ func TestRunExportSidecarFailureWarnsButExits0(t *testing.T) {
 }
 
 // RF13 — --format pam: 파싱 통과(exit 0), pam 포맷터 결과가 stdout로,
-// 요약에 포맷명. v1.4.0: PAM(Portable AI Memory) v1.0 교환 문서.
+// 요약에 포맷명. PAM(Portable AI Memory) v1.0 교환 문서.
 func TestRunExportFormatPAM(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -426,7 +424,7 @@ func TestRunExportPAMSeamDefaultRealDoc(t *testing.T) {
 	}
 }
 
-// RF13c — pam도 --out 사이드카 공통 적용(T2 구현이 전 형식 공통).
+// RF13c — pam도 --out 사이드카 공통 적용(구현이 전 형식 공통).
 func TestRunExportPAMOutSidecar(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "export.pam.json")
@@ -438,7 +436,7 @@ func TestRunExportPAMOutSidecar(t *testing.T) {
 	}
 }
 
-// RF16 — v1.5.5 B1: --format pam 요약 행수는 pam 문서 발행 수
+// RF16 — --format pam 요약 행수는 pam 문서 발행 수
 // (total_memories — pending은 pam 설계 제외)로 보고한다. 조회 전행이
 // 3(1건 pending)이어도 요약은 "exported 2 rows".
 func TestRunExportPAMSummaryCountsIssuedRows(t *testing.T) {
@@ -480,7 +478,7 @@ func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
 	}
 }
 
-// --- v1.6.0 T4: §18 `--sign` 진입(--format pam 전용) ---
+// --- §18 `--sign` 진입(--format pam 전용) ---
 
 // installPAMSignFakes — exportSignKeyFn·formatPAMSignedFn 교체(호출
 // 기록 래퍼). 기본은 고정 합성 키·최소 fake 본문, SUPERLITE_REAL=1이면
@@ -612,7 +610,7 @@ func maxRowsExportFake(max string) *fakeStore {
 	}}
 }
 
-// RF14 — v1.4.1 B2: 조회 결과 행 수 == max(경계)는 통과. 상한 키는
+// RF14 — 조회 결과 행 수 == max(경계)는 통과. 상한 키는
 // export_import_max_rows(import와 동일 키 — meta 오버라이드로 max=2).
 func TestRunExportMaxRowsBoundary(t *testing.T) {
 	stderr := installExportFakes(t, nil) // 기본 rows fake: 2행
@@ -629,7 +627,7 @@ func TestRunExportMaxRowsBoundary(t *testing.T) {
 	}
 }
 
-// RF15 — v1.4.1 B2: 조회 결과 행 수 > max면 exit 3·오류 JSON {max,count}
+// RF15 — 조회 결과 행 수 > max면 exit 3·오류 JSON {max,count}
 // (import enforceImportMaxRows 형식 준용). 포맷터·출력은 실행되지 않는다.
 func TestRunExportMaxRowsExceeded(t *testing.T) {
 	installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
@@ -652,7 +650,7 @@ func TestRunExportMaxRowsExceeded(t *testing.T) {
 	}
 }
 
-// installExportTTY — v1.5.2 T1 적응형 진입 TTY 판정 seam 교체(기본
+// installExportTTY — 적응형 진입 TTY 판정 seam 교체(기본
 // 실구현 tui.IsTerminalStdout).
 func installExportTTY(t *testing.T, tty bool) {
 	t.Helper()
@@ -720,7 +718,6 @@ func TestRunExportExplicitTUINonTerminalFallback(t *testing.T) {
 	if !strings.Contains(stdout.String(), "TUI requires a terminal") {
 		t.Fatalf("fallback message missing: %q", stdout.String())
 	}
-	// v1.5.5 T2(리뷰): 무효 인자 분류 — error:"internal" 폐지.
 	if !strings.Contains(stdout.String(), `"error":"usage"`) {
 		t.Fatalf("--tui 비터미널은 error:usage 여야 한다: %q", stdout.String())
 	}

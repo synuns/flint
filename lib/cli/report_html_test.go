@@ -1,4 +1,4 @@
-// report_html_test.go — v0.36.0(E) v5: 제품 분석 기반 레이아웃(Plausible
+// report_html_test.go — 제품 분석 기반 레이아웃(Plausible
 // KPI 스트립·Vercel 히어로 인라인·Stripe 타입 규율). 카드 그리드 금지·
 // 서사 흐름·색 규율(녹=개선만)·토큰 추정 footer 계약.
 package cli
@@ -77,7 +77,7 @@ func TestRenderDashboardV5(t *testing.T) {
 			t.Errorf("요소 %q 누락", want)
 		}
 	}
-	// v5.1: AI slop 사본 금지 — 내부 jargon 잔존 검사.
+	// AI slop 사본 금지 — 내부 jargon 잔존 검사.
 	for _, jargon := range []string{"G1 ", "G2 ", "G3 ", "G4 ", "n=", "METRICS §", "fallback ", "dup_pct", "recall_led"} {
 		if strings.Contains(s, jargon) {
 			t.Errorf("내부 jargon %q 잔존 — 컨텍스트 없는 독자 기준 위반", jargon)

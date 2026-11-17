@@ -1,4 +1,4 @@
-// diff_test.go — T84 flint diff: 행 상세(dolt_commit_diff_knowledge)·요약
+// diff_test.go — flint diff: 행 상세(dolt_commit_diff_knowledge)·요약
 // (dolt_log×dolt_diff) 한 줄 JSON·무효 스펙 exit 3. fake 기본, SUPERLITE_REAL=1은
 // 실구현 위임 seam.
 package cli

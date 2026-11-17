@@ -1,4 +1,4 @@
-// report_test.go — T65 `flint report` fast 회귀(fake Store). numeric: 7일 창
+// report_test.go — `flint report` fast 회귀(fake Store). numeric: 7일 창
 // 경계(8일치 심기 → 7일만) · encoding: daily 부재 0·파손 스킵 · protocol: 인자·등록.
 package cli
 
@@ -24,7 +24,7 @@ func newReportFake(daily map[string]string) *fakeStore {
 				rows = append(rows, []any{k, v})
 			}
 			return rows, nil
-		case strings.Contains(sql, "hot_stats"): // v0.42.0 T2 — read_stats 폐지
+		case strings.Contains(sql, "hot_stats"): // read_stats 폐지
 			return [][]any{
 				{"read_stats", `{"calls":10,"zero":2}`},
 				{"hot_stats", `{"calls":4,"sum":1000,"lens":[100,200,300,400]}`},
@@ -118,7 +118,7 @@ func TestReportSevenDayWindow(t *testing.T) {
 	if m.Days[1].Write != 0 || m.Days[1].Read != 0 {
 		t.Errorf("파손 키 스킵 실패(0이어야): %+v", m.Days[1])
 	}
-	if m.ZeroPct != 33 { // v0.15.0 기간화 — daily 합산 zero 7/21(파손 1행 제외)
+	if m.ZeroPct != 33 { // 기간화 — daily 합산 zero 7/21(파손 1행 제외)
 		t.Errorf("zero_pct=%d, want 33", m.ZeroPct)
 	}
 	if m.HotP95 != 400 { // lens [100..400] p95=400
@@ -162,7 +162,7 @@ func TestReportDaysCapAndEmpty(t *testing.T) {
 }
 
 // TestReportArgErrors — 무효 --days(비수)·알 수 없는 플래그는 무효 인자
-// exit 3(v1.0.1 F3).
+// exit 3.
 func TestReportArgErrors(t *testing.T) {
 	for _, args := range [][]string{{"--days", "abc"}, {"--bogus"}, {"--days"}} {
 		f := newReportFake(nil)
@@ -234,7 +234,7 @@ func TestCellToIntUnifiedCoercion(t *testing.T) {
 
 // TestReportSQLDoltgresCompat — 회귀: report SQL은 Doltgres에서 실행돼야
 // 한다. FILTER 집계 금지(pattern.go 관례)·SQL 내 interval 산술 전면 금지
-// (make_interval·리터럴·$1 곱 모두 — T70 e2e: ($1 * interval)은 Doltgres가
+// (make_interval·리터럴·$1 곱 모두 — ($1 * interval)은 Doltgres가
 // $1을 interval로 추론해 pgx 인코딩 실패). 컷오프는 Go 계산 timestamptz
 // 파라미터($1)로만 스캔에 전달한다.
 func TestReportSQLDoltgresCompat(t *testing.T) {
@@ -248,7 +248,7 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
-		case strings.Contains(sql, "hot_stats"): // v0.42.0 T2 — read_stats 폐지
+		case strings.Contains(sql, "hot_stats"): // read_stats 폐지
 			return [][]any{{"read_stats", `{"calls":0,"zero":0}`}, {"hot_stats", `{"lens":[]}`}}, nil
 		case strings.Contains(sql, "invalid_at IS NOT NULL"):
 			return [][]any{{int64(0), int64(0), int64(0)}}, nil
@@ -273,7 +273,7 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		if strings.Contains(q.sql, "make_interval") || strings.Contains(q.sql, "interval") {
 			t.Errorf("SQL 내 interval 산술 금지(T70: Doltgres pgx 추론 결함): %q", q.sql)
 		}
-		// stale 판별은 last_read_at 고유 형태로 — v0.19.0 effect의 G3
+		// stale 판별은 last_read_at 고유 형태로 — effect의
 		// 집계(read_count, 30일 컷오프)도 "read_count"을 포함해 오판된다.
 		if strings.Contains(q.sql, "last_read_at") {
 			sawStale = true
@@ -308,7 +308,7 @@ func assertCutoffArg(t *testing.T, name string, args []any, backoff time.Duratio
 	}
 }
 
-// installReportTTY — v1.5.2 T1 적응형 진입 TTY 판정 seam 교체(기본
+// installReportTTY — 적응형 진입 TTY 판정 seam 교체(기본
 // 실구현 tui.IsTerminalStdout).
 func installReportTTY(t *testing.T, tty bool) {
 	t.Helper()
@@ -373,7 +373,6 @@ func TestReportEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	if !strings.Contains(out, "TUI requires a terminal") {
 		t.Fatalf("fallback message missing: %q", out)
 	}
-	// v1.5.5 T2(리뷰): 무효 인자 분류 — error:"internal" 폐지.
 	if !strings.Contains(out, `"error":"usage"`) {
 		t.Fatalf("--tui 비터미널은 error:usage 여야 한다: %q", out)
 	}

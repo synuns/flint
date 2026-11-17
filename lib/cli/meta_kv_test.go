@@ -1,7 +1,7 @@
-// meta_kv_test.go — v0.34.3 T2(스펙 §1.2 / R12): meta KV 소비측(증분
+// meta_kv_test.go — (스펙 §1.2 / R12): meta KV 소비측(증분
 // 위임·단일 소스 가드). 기본 metaKVFake, SUPERLITE_REAL=1이면
 // delegatingFake로 실구현 경유(스텑 미지정 연산은 실DB 위임).
-// v0.38.0 §1: Store 직접 왕복(TestMetaKVStoreRoundtrip)은 lib/wire
+// Store 직접 왕복(TestMetaKVStoreRoundtrip)은 lib/wire
 // 패키지 테스트로 이동 — 여기는 cli 소비 핸들러 경로만 담는다.
 package cli
 
@@ -118,11 +118,7 @@ func TestBumpFallbackAtomic(t *testing.T) {
 
 // TestMetaKVSingleSource — Review Focus: 소유 파일(metrics·tuning·setup·
 // hot·read·done·backup)에 meta SQL 리터럴 잔존 0 — 조회·증감 전부
-// meta_kv.go 단일 진입 위임(v0.34.3 리뷰 픽스: done bumpMetaCounter·
-// backup rotate getKV 잔존 수렴). v0.39.0 T3: hot·read은 lib/knowledge로
-// 이동 — 가드도 이동 위치를 검사한다. v0.39.0 T4: done.go 동일.
-// v0.40.0 T1: tuning.go는 lib/ops로 이동 — 가드도 이동 위치를 검사한다.
-// v0.40.0 T2: metrics.go 동일. v0.40.0 T3: backup.go 동일.
+// meta_kv.go 단일 진입 위임.
 func TestMetaKVSingleSource(t *testing.T) {
 	for _, f := range []string{"../ops/metrics.go", "../ops/tuning.go", "setup.go", "../knowledge/hot.go", "../knowledge/read.go", "../knowledge/done.go", "../ops/backup.go"} {
 		b, err := os.ReadFile(f)

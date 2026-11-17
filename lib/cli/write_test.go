@@ -1,4 +1,4 @@
-// write_test.go — v0.39.0 T2: write 본체 계약 테스트는 lib/knowledge로
+// write_test.go — write 본체 계약 테스트는 lib/knowledge로
 // 이동했다(write_test.go·import_test.go 참조). 이 파일은 잔류 cli 테스트
 // (write_v06_test.go)가 소비하는 공용 레이스 재현 fake만 남긴다 — 본체
 // 이동과 무관하게 dispatch(newStore seam) 경유 테스트가 cli에 잔류하기

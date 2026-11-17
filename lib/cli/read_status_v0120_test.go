@@ -1,4 +1,4 @@
-// read_status_v0120_test.go — v0.12.0 T1: read --status(fake Store 질의
+// read_status_v0120_test.go — read --status(fake Store 질의
 // 캡처). SUPERLITE_REAL=1이면 delegatingFake로 실구현 경유(read_v08 관례).
 package cli
 

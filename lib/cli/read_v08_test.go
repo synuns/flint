@@ -1,4 +1,4 @@
-// read_v08_test.go — T83 read --as-of fast 테스트(fake Store 질의 캡처).
+// read_v08_test.go — read --as-of fast 테스트(fake Store 질의 캡처).
 // SUPERLITE_REAL=1이면 ParseAsOfSpec 실구현이 실 dolt_log 질의로 돌아가는
 // seam 검증(delegatingFake — 스텑 미지정 연산은 실구현 위임).
 package cli
@@ -66,7 +66,7 @@ func TestReadAsOfAddsField(t *testing.T) {
 	if got := asofReadSQL(f); !strings.Contains(got, want) {
 		t.Errorf("AS OF 접합 실패:\n got %q\nwant 접미 %q", got, want)
 	}
-	// 기존 질의 불변 — RankOrder 정렬 절·LIMIT 유지. v0.28.0: q는
+	// 기존 질의 불변 — RankOrder 정렬 절·LIMIT 유지. q는
 	// 파라미터($2 — LIKE $1 뒤)로 조립된다.
 	if got := asofReadSQL(f); !strings.Contains(got, "ORDER BY (lower(topic)=lower($2)) DESC") {
 		t.Errorf("RankOrder 절 변형: %q", got)
@@ -126,7 +126,7 @@ func TestReadAsOfLimitRegression(t *testing.T) {
 	if !strings.Contains(got, " AS OF 'he08irluqn3v2m1k9x7c4jw5z6b8d0f'") {
 		t.Errorf("AS OF 접미 유실: %q", got)
 	}
-	// v0.28.0: q 랭킹 파라미터가 LIKE($1) 뒤 $2 — LIMIT은 $3.
+	// q 랭킹 파라미터가 LIKE($1) 뒤 $2 — LIMIT은 $3.
 	if !strings.Contains(got, "LIKE lower($1)") || !strings.Contains(got, "LIMIT $3") {
 		t.Errorf("q LIKE·LIMIT 인자 번호 밀림: %q", got)
 	}

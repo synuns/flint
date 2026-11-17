@@ -1,4 +1,4 @@
-// maintain.go — v1.6.0 T6: `flint maintain --tui` 진입 분기. 옵트인만
+// maintain.go — `flint maintain --tui` 진입 분기. 옵트인만
 // (적응형 전환 없음 — maintain 서브커맨드 인자가 많아 유령 인자 회귀
 // 방지): --tui 단독만 TUI(tui.RunMaintainTUI)로, 조합은 무효 인자
 // exit 3. FLINT_NO_TUI는 3층 방어 1층 — 명시 --tui도 차단 후 기존 경로

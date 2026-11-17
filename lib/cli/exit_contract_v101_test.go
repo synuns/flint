@@ -1,4 +1,4 @@
-// exit_contract_v101_test.go — v1.0.1(F3) 회귀: 전 커맨드 무효 인자 exit
+// exit_contract_v101_test.go — 회귀: 전 커맨드 무효 인자 exit
 // 코드 표. 계약(docs/PLAN.md §3 — exit 3 = 검증 실패·에이전트 자가수정):
 // unknown flag·플래그 값 누락·무효 값은 exit 3으로 통일하고, 쿼리 텍스트
 // 흡수(read·brief 등)·훅 비간섭(compact·nudge)은 문서화된 예외로 둔다.
@@ -23,10 +23,10 @@ type exitProbe struct {
 	note string
 }
 
-// exitContractProbes — 무효 인자 경로 구동 표. v1.0.1(F3) 변경분(1→3)과
+// exitContractProbes — 무효 인자 경로 구동 표. 변경분(1→3)과
 // 기존 3 계약(read·brief·import·maintain·doctor·tuning·diff)을 한 표에 둔다.
 var exitContractProbes = []exitProbe{
-	// unknown flag — 무효 인자 exit 3(v1.0.1 F3: 8종 1→3 통일)
+	// unknown flag — 무효 인자 exit 3
 	{"approve", []string{"--wat"}, 3, "F3 unknown flag"},
 	{"pending", []string{"--wat"}, 3, "F3 unknown flag"},
 	{"backup", []string{"--wat"}, 3, "F3 unknown flag"},
@@ -65,17 +65,17 @@ var exitContractProbes = []exitProbe{
 	{"export", []string{"--out"}, 3, "v1.3.0 T7 값 누락"},
 	{"read", []string{"--limit", "abc"}, 3, "기존 3 계약"},
 	{"brief", []string{"--limit", "abc"}, 3, "기존 3 계약"},
-	// --session 라벨 가드 — read 계약의 hot·done 승격(v1.0.1 F3·4번)
+	// --session 라벨 가드 — read 계약의 hot·done 승격
 	{"read", []string{"--session", "--json"}, 3, "세션 가드(기존)"},
 	{"hot", []string{"--session", "--full"}, 3, "F3 세션 가드 승격"},
 	{"hot", []string{"--session"}, 3, "F3 세션 가드(빈 값)"},
 	{"done", []string{"--session", "--json"}, 3, "F3 세션 가드 승격"},
 	{"done", []string{"--session"}, 3, "F3 세션 가드(빈 값)"},
-	// v1.5.3 T1 — 무인자 미인식 플래그·bare usage exit 3 통일
+	// 무인자 미인식 플래그·bare usage exit 3 통일
 	{"read", []string{"--jsonn"}, 3, "T1 unknown flag('-' 접두 흡수 폐지)"},
 	{"done", []string{}, 3, "T1 bare usage(기존 0)"},
 	{"maintain", []string{}, 3, "T1 bare usage(기존 1)"},
-	// v1.7.0 T4 — sync 원격 관리(unknown sub·무효 인자 exit 3)
+	// sync 원격 관리(unknown sub·무효 인자 exit 3)
 	{"sync", []string{}, 3, "v1.7.0 T4 bare usage"},
 	{"sync", []string{"push"}, 3, "v1.7.0 T4 unknown sub(T5 전 미지원)"},
 	{"sync", []string{"remote", "add"}, 3, "v1.7.0 T4 인자 수 부족"},

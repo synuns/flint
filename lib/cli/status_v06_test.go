@@ -1,4 +1,4 @@
-// status_v06_test.go — T63: status 한 줄 JSON에 last_write_at·last_hot_at·
+// status_v06_test.go — status 한 줄 JSON에 last_write_at·last_hot_at·
 // last_read_at 3필드 추가 검증. 키 부재/파손은 null, 기존 필드·순서 불변.
 package cli
 

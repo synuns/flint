@@ -149,7 +149,7 @@ func TestSetupDry(t *testing.T) {
 }
 
 // TestSetupUnknownFlag — 알 수 없는 플래그는 한 줄 JSON 에러 + 무효 인자
-// exit 3(v1.0.1 F3).
+// exit 3.
 func TestSetupUnknownFlag(t *testing.T) {
 	withFake(t, &fakeStore{})
 	out, code := mustRun(t, []string{"setup", "--bogus"}, "")
@@ -169,7 +169,7 @@ func TestSetupRegistered(t *testing.T) {
 	}
 }
 
-// TestTeardownDown — v1.5.3 T1: 무인자는 dry-run(계획 안내만, exec 없음,
+// TestTeardownDown — 무인자는 dry-run(계획 안내만, exec 없음,
 // exit 0). --yes 있을 때만 정지 exec(아래 TestTeardownYes).
 func TestTeardownDown(t *testing.T) {
 	withFake(t, &fakeStore{})
@@ -312,7 +312,7 @@ func TestTeardownStoreFree(t *testing.T) {
 	}
 }
 
-// withSetupPortProbe — v1.5.5 B4: 5434 점유 감지 seam 교체 + stderr
+// withSetupPortProbe — 5434 점유 감지 seam 교체 + stderr
 // 캡처. inUse=true면 점유로 판정.
 func withSetupPortProbe(t *testing.T, inUse bool) *bytes.Buffer {
 	t.Helper()
@@ -324,7 +324,7 @@ func withSetupPortProbe(t *testing.T, inUse bool) *bytes.Buffer {
 	return &buf
 }
 
-// TestSetupPortInUseWarnsAndContinues — v1.5.5 B4: compose 시작 전 5434
+// TestSetupPortInUseWarnsAndContinues — compose 시작 전 5434
 // 점유 감지 → 경고 1행 stderr, 진행 유지(compose·migrate 계속, exit 0).
 func TestSetupPortInUseWarnsAndContinues(t *testing.T) {
 	rec := withFakeCompose(t)
@@ -365,7 +365,7 @@ func TestSetupPortFreeNoWarning(t *testing.T) {
 	}
 }
 
-// TestSyncRulesSkipsSymlinks — v0.20.6(패치 루프 6차 S5): 소스의 심볼릭
+// TestSyncRulesSkipsSymlinks — 소스의 심볼릭
 // 링크는 복사하지 않는다(링크 대상 민감 파일 노출 차단).
 func TestSyncRulesSkipsSymlinks(t *testing.T) {
 	src := t.TempDir()

@@ -1,4 +1,4 @@
-// profile_v0110_test.go — v0.11.0 R1 노출 프로파일: 판독 기본 normal·
+// profile_v0110_test.go — 노출 프로파일: 판독 기본 normal·
 // setup --exposure 기록·무효 값 exit 3.
 package cli
 

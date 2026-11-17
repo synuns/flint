@@ -1,6 +1,6 @@
 // Package cli — flint 커맨드 진입점. os.Args 수동 파싱(프롬프트·TUI 금지),
 // 출력은 한 줄 JSON 또는 고정 포맷, exit code 0/1/2/3 계약을 지킨다.
-// v0.38.0 §1: 디스패치·계약은 lib/wire로 추출. v0.40.0 T4: 이 파일은
+// 디스패치·계약은 lib/wire로 추출. 이 파일은
 // composition root — realStore 어댑터·cli.Run 위임 래퍼와 함께 커맨드
 // 등록·양방향 seam 주입(ops·knowledge가 cli/wire 실구현을 쓰는 주입점)을
 // 이 init 한 곳에서 소유한다(별칭 파일의 산재 init 수렴).
@@ -32,7 +32,7 @@ func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 	return wire.Run(args, stdin, stdout, newStore)
 }
 
-// init — composition root(v0.40.0 T4 수렴). ① wire 설정 주입 ② cli 소유
+// init — composition root. ① wire 설정 주입 ② cli 소유
 // 핵심 커맨드 등록 ③ ops·knowledge 주입 seam(공용 유틸은 wire 직접,
 // cli 잔류 실구현은 별칭 경유). 교체 전파가 필요한 seam(composePsFn·
 // exposureProfileFn·backup 4종)은 cli var를 호출 시점에 읽는 래퍼로
@@ -92,7 +92,7 @@ func init() {
 	ops.PctOfFn = pctOf
 
 	// ③-3 교체 전파 래퍼 — cli var 재할당을 ops가 관측(composePsFn 패턴).
-	// v0.43.0 T3 조사: 유지분은 각 1줄 사유(소비 cli 테스트가 var 교체로
+	// 유지분은 각 1줄 사유(소비 cli 테스트가 var 교체로
 	// ops 실행 경로를 검증 — 래퍼 제거 시 전파 단절). 교체 소비 테스트가
 	// 없는 windowedDaily는 직접 참조로 전환했다(아래).
 	// 유지 — doctor_v07·rules_sync_v097_test가 composePsFn 교체 후 runDoctor 검증.
@@ -104,7 +104,7 @@ func init() {
 	// 유지 — nudge_v0110_test가 exposureProfileFn 교체 후 runNudge 검증.
 	ops.ExposureProfileFn = func(getKV func(string) (string, error)) string { return exposureProfileFn(getKV) }
 	// WindowedDailyFn — cli var 교체 소비 테스트 없음: ops 실구현 직접
-	// 참조(ReportDay→DailyRow 변환 어댑터만 — v0.43.0 T3 전환).
+	// 참조(ReportDay→DailyRow 변환 어댑터만).
 	ops.WindowedDailyFn = func(ctx context.Context, st wire.Store, days int) ([]ops.DailyRow, error) {
 		rows, err := ops.WindowedDaily(ctx, st, days)
 		if err != nil {

@@ -1,4 +1,4 @@
-// report_v0300_test.go — v0.30.0 계측 2막: hit 품질 근사(first_rank)와
+// report_v0300_test.go — 계측 2막: hit 품질 근사(first_rank)와
 // 7일 창 추세 계약.
 package cli
 
