@@ -755,20 +755,22 @@ func TestRunWriteMaxRowsBoundary(t *testing.T) {
 	}
 }
 
-// ── v1.6.2 T2(G2): 단일 payload 필드 바이트 상한(상수 1MB). ──
+// ── v1.6.2 T2(G2): 단일 payload 필드 바이트 상한(상수 — compact 8MiB 정합). ──
 
 // TestRunWriteFieldBytesExceeded — Review Focus(G2): 단일 필드 값이
-// maxPayloadFieldBytes(1MiB)를 초과하면 Validate 단계에서 거부(exit 3)되고
-// 적립은 발생하지 않는다(대형 필드가 살균·해시·적립으로 흐르는 OOM 방어).
+// maxPayloadFieldBytes(compactMaxBytes 8MiB 정합)를 초과하면 Validate 단계에서
+// 거부(exit 3)되고 적립은 발생하지 않는다(대형 필드가 살균·해시·적립으로
+// 흐르는 무상한 OOM 방어 — 초과만 차단).
 func TestRunWriteFieldBytesExceeded(t *testing.T) {
 	f := &fakeStore{}
-	big := strings.Repeat("a", 1<<20+1)
+	big := strings.Repeat("a", maxPayloadFieldBytes+1)
 	stdin := fmt.Sprintf("{\"topic\":\"demo field limit\",\"summary\":\"%s\",\"confidence\":0.9}\n", big)
 	out, code := run(t, f, []string{"knowledge"}, stdin)
 	if code != 3 {
 		t.Fatalf("exit=%d, want 3(필드 상한); out=%.200s", code, out)
 	}
-	if !strings.Contains(out, `"field":"summary"`) || !strings.Contains(out, "1048576") {
+	if !strings.Contains(out, `"field":"summary"`) ||
+		!strings.Contains(out, fmt.Sprint(maxPayloadFieldBytes)) {
 		t.Fatalf("필드 상한 오류(필드명·상한 바이트) 미포함: %.200s", out)
 	}
 	if len(f.inserted) != 0 {
@@ -776,16 +778,16 @@ func TestRunWriteFieldBytesExceeded(t *testing.T) {
 	}
 }
 
-// TestRunWriteFieldBytesBoundary — 정확히 1MiB는 통과(초과만 차단), 여러
-// 필드가 각각 상한 이내면 총량이 넘어도 통과(상한은 단일 필드 기준).
+// TestRunWriteFieldBytesBoundary — 정확히 상한 크기는 통과(초과만 차단),
+// 여러 필드가 각각 상한 이내면 총량이 넘어도 통과(상한은 단일 필드 기준).
 func TestRunWriteFieldBytesBoundary(t *testing.T) {
 	f := &fakeStore{}
-	ok := strings.Repeat("b", 1<<20)
+	ok := strings.Repeat("b", maxPayloadFieldBytes)
 	stdin := fmt.Sprintf("{\"topic\":\"%s\",\"summary\":\"%s\",\"confidence\":0.9}\n",
-		"demo ok"+strings.Repeat("c", 1<<20-7), ok)
+		"demo ok"+strings.Repeat("c", maxPayloadFieldBytes-7), ok)
 	out, code := run(t, f, []string{"knowledge"}, stdin)
 	if code != 0 {
-		t.Fatalf("경계(==1MiB) exit=%d, want 0; out=%.200s", code, out)
+		t.Fatalf("경계(==상한) exit=%d, want 0; out=%.200s", code, out)
 	}
 	if !strings.Contains(out, `"status":"committed"`) {
 		t.Fatalf("경계 적립 출력 아님: %.200s", out)
@@ -918,4 +920,39 @@ func TestWriteParallelRaceRealSlow(t *testing.T) {
 		}
 		t.Logf("라운드 %d: 경과=%v inserted 합=%d", round, elapsed.Round(time.Millisecond), inserted)
 	}
+}
+
+// TestWriteCommitMessageNamePreferred — D4(R33) 회귀: 커밋 제목은 project의
+// name을 우선한다("project: <name>"). name 부재(knowledge 등)는 기존
+// summary 폴백 불변 — 수정 전에는 project가 name 필드를 저장하지만 제목은
+// summary(nil)의 "<nil>"로 나갔다.
+func TestWriteCommitMessageNamePreferred(t *testing.T) {
+	t.Run("project — name 우선", func(t *testing.T) {
+		f := &fakeStore{}
+		out, code := run(t, f, []string{"project"},
+			`{"name":"demo-d4-프로젝트","status":"active"}`+"\n")
+		if code != 0 {
+			t.Fatalf("exit=%d, want 0; out=%s", code, out)
+		}
+		if len(f.commits) != 1 {
+			t.Fatalf("커밋=%d회, want 1", len(f.commits))
+		}
+		if want := "project: demo-d4-프로젝트"; f.commits[0] != want {
+			t.Fatalf("커밋 제목=%q, want %q", f.commits[0], want)
+		}
+	})
+	t.Run("name 부재 — summary 폴백 불변", func(t *testing.T) {
+		f := &fakeStore{}
+		out, code := run(t, f, []string{"knowledge"},
+			`{"topic":"demo-d4-토픽","summary":"합성 데모 요약","confidence":0.9}`+"\n")
+		if code != 0 {
+			t.Fatalf("exit=%d, want 0; out=%s", code, out)
+		}
+		if len(f.commits) != 1 {
+			t.Fatalf("커밋=%d회, want 1", len(f.commits))
+		}
+		if want := "knowledge: 합성 데모 요약"; f.commits[0] != want {
+			t.Fatalf("커밋 제목=%q, want %q", f.commits[0], want)
+		}
+	})
 }

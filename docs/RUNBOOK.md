@@ -173,7 +173,7 @@ cron 예(매월 1일 04:00, dry-run만 — `make install`은 `$(go env GOPATH)/b
   $(go env GOPATH)/bin/flint maintain --check >> "$HOME/.flint/maintain.log" 2>&1
 ```
 
-launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist` — plist는 변수 전개를 하지 않으므로 절대경로를 적는다. 기본 GOPATH라면 `/Users/<user>/go/bin/flint`):
+launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist` — plist는 변수 전개를 하지 않으므로 절대경로를 적는다. 기본 GOPATH라면 `$HOME/go/bin/flint (plist에서는 실제 경로)`):
 
 ```xml
 <?xml version="1.0" encoding="UTF-8"?>
@@ -183,7 +183,7 @@ launchd 예(`~/Library/LaunchAgents/dev.flint.maintain.plist` — plist는 변�
   <key>Label</key><string>dev.flint.maintain</string>
   <key>ProgramArguments</key>
   <array>
-    <string>/Users/USERNAME/go/bin/flint</string>
+    <string>YOURHOME/go/bin/flint</string>
     <string>maintain</string>
     <string>--check</string>
   </array>

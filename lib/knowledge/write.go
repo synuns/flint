@@ -239,6 +239,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		recs = append(recs, n)
 	}
 	for _, p := range payloads {
+		// v1.6.2 T2 G2: 단일 payload 필드 바이트 상한 — Validate 단계
+		// 거부(exit 3). 대형 단일 필드가 살균·해시·적립 파이프라인과 저장
+		// 본문을 통째로 타고 들어오는 OOM 경로를 차단한다.
+		if se := validateFieldBytes(p); se != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(se))
+			return 3
+		}
 		if se := store.Validate(kind, p); se != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(se))
 			return 3
@@ -568,6 +575,53 @@ func withWarnings(line string, dropped map[string]bool, secretWarns []string) st
 		return line
 	}
 	return string(b)
+}
+
+// maxPayloadFieldBytes — 단일 payload 필드(문자열 값)의 바이트 상한.
+// 등록표(thresholds meta 오버라이드) 대상이 아닌 코드 상수+TUNING 표기
+// 관례(G2 — 문서 표는 T4 정합). 크기는 compact 훅 경계(compactMaxBytes
+// 8MiB, §13 비간섭)와 정합한다 — compact는 8MiB compact_summary를
+// session 1행으로 RunWrite에 그대로 흘려보내므로 그보다 작은 상한은
+// 정상 compaction을 조용히 무동작화한다(경계 초과분만 차단).
+const maxPayloadFieldBytes = compactMaxBytes
+
+// validateFieldBytes — payload의 문자열 필드 값이 상한을 초과하면 해당
+// 필드의 SchemaError를 반환(Validate와 같은 exit 3 경로 — 초과만 차단).
+func validateFieldBytes(p map[string]any) *store.SchemaError {
+	for k, v := range p {
+		s, ok := v.(string)
+		if !ok {
+			continue
+		}
+		if len(s) > maxPayloadFieldBytes {
+			return &store.SchemaError{
+				Field:  k,
+				Expect: fmt.Sprintf("field bytes <= %d", maxPayloadFieldBytes),
+			}
+		}
+	}
+	return nil
+}
+
+// enforceWriteMaxRows — write stdin 행 수 상한(등록표 키
+// export_import_max_rows 재사용 — import enforceImportMaxRows와 동형).
+// 초과 시 max·count를 담은 오류 JSON을 stdout에 내고 3을 반환(호출부는
+// 그대로 반환). 파싱 직후·부작용 전 단계다.
+func enforceWriteMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, count int) int {
+	max := importMaxRowsLimit(ctx, st)
+	if count <= max {
+		return 0
+	}
+	b, err := json.Marshal(map[string]any{
+		"error": fmt.Sprintf("write row limit exceeded (export_import_max_rows=%d)", max),
+		"max":   max,
+		"count": count,
+	})
+	if err != nil {
+		b = []byte(fmt.Sprintf(`{"error":"write row limit exceeded","max":%d,"count":%d}`, max, count))
+	}
+	fmt.Fprintln(stdout, string(b))
+	return 3
 }
 
 // readPayloads — stdin을 줄 단위 JSON(또는 한 덩어리 JSON)으로 파싱한다.

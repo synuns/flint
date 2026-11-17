@@ -1624,7 +1624,7 @@ func g5Row(id, salt int, t0 time.Time) ExportRow {
 	return ExportRow{
 		ID: id, Topic: fmt.Sprintf("demo g5 row %d.%d", id, salt),
 		Content: fmt.Sprintf("합성 데모 — g5 재할당 검증 행 %d(변형 %d).", id, salt),
-		Kind: "knowledge", Status: "active", Confidence: 0.9,
+		Kind:    "knowledge", Status: "active", Confidence: 0.9,
 		Tags: []string{"demo", "g5"}, Domain: "main", Source: "agent",
 		ContentHash: fmt.Sprintf("%064x", id*1000+salt),
 		CreatedAt:   t0, UpdatedAt: t0,

@@ -267,7 +267,7 @@ type capStore struct {
 	commits    int
 }
 
-func (f *capStore) Migrate(ctx context.Context) error              { return nil }
+func (f *capStore) Migrate(ctx context.Context) error { return nil }
 func (f *capStore) InsertBatch(ctx context.Context, r []map[string]any) ([]int, error) {
 	return []int{5}, nil
 }

@@ -43,15 +43,15 @@ var (
 	_ interface { // knowledge.supersedeRefStore
 		SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error)
 	} = injectedStore{}
-	_ knowledge.DupMetaStore                     = injectedStore{}
-	_ knowledge.DupIDStore                      = injectedStore{}
-	_ knowledge.UsageStore                      = injectedStore{}
-	_ knowledge.UsageCountStore                 = injectedStore{}
-	_ knowledge.ReadEventStore                  = injectedStore{}
-	_ knowledge.BytesRecorder                   = injectedStore{}
-	_ knowledge.KnowledgeReadsRecorder          = injectedStore{}
-	_ knowledge.HotEventRecorder                = injectedStore{}
-	_ interface { // knowledge.readBumper
+	_ knowledge.DupMetaStore           = injectedStore{}
+	_ knowledge.DupIDStore             = injectedStore{}
+	_ knowledge.UsageStore             = injectedStore{}
+	_ knowledge.UsageCountStore        = injectedStore{}
+	_ knowledge.ReadEventStore         = injectedStore{}
+	_ knowledge.BytesRecorder          = injectedStore{}
+	_ knowledge.KnowledgeReadsRecorder = injectedStore{}
+	_ knowledge.HotEventRecorder       = injectedStore{}
+	_ interface {                      // knowledge.readBumper
 		BumpReads(ctx context.Context, ids []int) error
 	} = injectedStore{}
 	_ interface { // knowledge.usageStore(done)
@@ -64,7 +64,7 @@ var (
 		StaleSessionRuns(ctx context.Context, agent string) (int, error)
 	} = injectedStore{}
 	_ ops.SessionStartRecorder = injectedStore{}
-	_ interface { // ops.dumpStore
+	_ interface {              // ops.dumpStore
 		Dump(ctx context.Context, w io.Writer) error
 	} = injectedStore{}
 	_ interface { // ops.metaDeleteStore
