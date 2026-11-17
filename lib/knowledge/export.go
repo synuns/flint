@@ -33,23 +33,23 @@ import (
 
 // ExportRow — export 1행(원천 매핑은 상단 패키지 주석 참조).
 type ExportRow struct {
-	ID           int
-	Topic        string
-	Content      string
-	Kind         string
-	Status       string
-	Confidence   float64
-	Tags         []string
-	Entities     []string
-	Domain       string
-	Source       string
-	ContentHash  string
-	CreatedAt    time.Time
-	UpdatedAt    time.Time
-	ValidAt      time.Time // v1.4.0 T3: 검증 시각 원값(왕복 보존 — CreatedAt 치환 폐지)
-	SupersededBy *int
-	RecallScore     int        // v1.7.0 T1: recall_score 실열(원천 파생 아님)
-	LastRecalledAt  *time.Time // v1.7.0 T1: last_recalled_at 실열(nil=NULL)
+	ID             int
+	Topic          string
+	Content        string
+	Kind           string
+	Status         string
+	Confidence     float64
+	Tags           []string
+	Entities       []string
+	Domain         string
+	Source         string
+	ContentHash    string
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	ValidAt        time.Time // v1.4.0 T3: 검증 시각 원값(왕복 보존 — CreatedAt 치환 폐지)
+	SupersededBy   *int
+	RecallScore    int        // v1.7.0 T1: recall_score 실열(원천 파생 아님)
+	LastRecalledAt *time.Time // v1.7.0 T1: last_recalled_at 실열(nil=NULL)
 }
 
 // ExportFilter — ExportRows 필터. Status "active"(기본·0값)|"all"

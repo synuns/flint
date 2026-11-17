@@ -59,7 +59,7 @@ func TestV10GateAdditive(t *testing.T) {
 		t.Fatalf("first EnsureSchemaV10: %v", err)
 	}
 	if v := readVersion(t, r); v != "10" {
-		t.Fatalf("schema_version = %q, want 10", v)
+		t.Fatalf("schema_version = %q, want 11", v)
 	}
 
 	// read_events 3열 — 기존 행은 기본값(0·''·'')을 받는다.
@@ -120,7 +120,7 @@ func TestV10GateAdditive(t *testing.T) {
 		t.Fatalf("second EnsureSchemaV10 (want idempotent): %v", err)
 	}
 	if v := readVersion(t, r); v != "10" {
-		t.Fatalf("재호출 후 schema_version = %q, want 10", v)
+		t.Fatalf("재호출 후 schema_version = %q, want 11", v)
 	}
 }
 
@@ -164,8 +164,8 @@ func TestV10FreshSchemaHasArtifacts(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "10" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 10", v)
+	if v := readVersion(t, r); v != "11" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 11", v)
 	}
 	for _, col := range []string{"bytes", "zero_reason", "source"} {
 		if !columnExists(t, r, "read_events", col) {

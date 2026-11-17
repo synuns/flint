@@ -88,7 +88,7 @@ func TestBriefUnrecalledKeepsScore(t *testing.T) {
 	now := time.Now().UTC()
 	rows := [][]any{
 		{id(1), "회상있음", "요약", ":a:", nil, "main", 0.9, "active", int32(1), int32(6), now.Add(-3 * 24 * time.Hour)}, // 6-3=3
-		{id(2), "미회상", "요약", ":b:", nil, "main", 0.9, "active", int32(1), int32(6), nil},                              // 6 유지
+		{id(2), "미회상", "요약", ":b:", nil, "main", 0.9, "active", int32(1), int32(6), nil},                           // 6 유지
 	}
 	var out bytes.Buffer
 	if code := RunBrief(ctx, briefRankedStore(rows), nil, strings.NewReader(""), &out); code != 0 {

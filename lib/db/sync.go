@@ -7,6 +7,7 @@
 //     system table") — SELECT name, url FROM dolt_remotes로 읽는다.
 //   - SELECT dolt_remote('remove', name) → int 0. 미존재명은
 //     "unknown remote" 오류 — 사전 조회로 ErrRemoteNotFound로 정규화.
+//
 // 쿼리 함수는 임의 Querier(wire.Store·그 fake가 구조적으로 만족 —
 // BumpDailyFlatKey 관례)로 실행돼 CLI 배선이 쓰기 SQL을 db 소유 원칙
 // 그대로 재사용한다. 원격 url은 개인 데이터 방어 대상 — 원문은 어떤
