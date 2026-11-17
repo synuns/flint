@@ -11,6 +11,9 @@ import (
 
 // exportJSONLRow — ExportRow의 jsonl 직렬화 뷰(snake_case 태그).
 // ExportRow 원본(현재 T2 적립 전 T6 프록시)에는 태그를 두지 않는다.
+// v1.7.0 T1 스코어 2필드는 omitempty(additive) — 0/NULL 행은 기존 골든
+// 출력·키 구성을 그대로 두고, 값 있는 행만 키를 발행한다(레거시 jsonl
+// 파싱은 미지정 → 0/NULL 폴백).
 type exportJSONLRow struct {
 	ID           int       `json:"id"`
 	Topic        string    `json:"topic"`
@@ -27,6 +30,8 @@ type exportJSONLRow struct {
 	UpdatedAt    time.Time `json:"updated_at"`
 	ValidAt      time.Time `json:"valid_at"`
 	SupersededBy *int      `json:"superseded_by"`
+	RecallScore    int        `json:"recall_score,omitempty"`
+	LastRecalledAt *time.Time `json:"last_recalled_at,omitempty"`
 }
 
 // toExportJSONLRow — ExportRow를 snake_case 직렬화 뷰로 변환.

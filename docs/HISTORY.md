@@ -6,6 +6,45 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.7.0 minor (2026-11-17) — knowledge sync · recall decay · telemetry commit split
+
+- [x] Knowledge sync (`flint sync` — a human operator command, not agent-facing:
+  machine moves · team sharing): `sync remote add <name> <url>` · `remote
+  list` (the url is masked — remote endpoints are never written to any
+  output or log) · `remote remove`, wrapping the Doltgres remote functions;
+  `sync push <remote>` reports {status, hash}; `sync pull <remote>` runs
+  fetch+merge, `--dry` stops after fetch with nothing applied. A merge
+  conflict is an error JSON with exit 1 plus manual-resolution guidance
+  (the dolt CLI) — automatic resolution is forbidden (destructive-change
+  defense); an unregistered or unreachable remote keeps the cause and never
+  exposes the url. Design detail: docs/plans/2026-11-17-flint-v1700.md.
+- [x] Recall decay / reinforcement (schema v11 — additive columns
+  `knowledge.recall_score` (int, default 0) · `last_recalled_at`
+  (timestamptz, NULL), backward-compatible with v10 binaries): a read hit
+  reinforces the row (score+1, last_recalled_at=now — bound to the
+  read_events recording path); decay is scored as
+  `score − days_since_last_recall` with a floor of 0 (not continuously
+  recomputed); `hot` · `brief` headline ranking reflects the score with the
+  existing stable sort (score DESC, ingested_at DESC — same-recency
+  precedence for well-recalled entries, byte budget unchanged).
+  `maintain --decay-audit` lists archive candidates as JSON (score · last
+  recall · recommendation) — archiving itself stays approval-gated via the
+  existing `--invalidate` (no automatic archiving).
+- [x] Telemetry commit split (R33 E2): audit-path commits stage
+  knowledge · projects · meta only, while the instrumentation tables
+  (read_events · hot_events · knowledge_reads · session_starts) get their
+  own `telemetry` commit — verified in dolt log that a knowledge commit's
+  diff contains zero telemetry rows (audit purity). Telemetry commit
+  failures stay quiet (the data is already committed).
+- [x] Docs & CLI surface: usageOrder + sync (usage-exposed 27 + hook-only
+  2), HelpSummary sync/decay-audit lines; cli.md gains the sync section
+  (remote add/list/remove · masking · --dry · conflict guidance · the
+  never-log-url contract) and the decay-audit · recall_score schema notes;
+  TUNING.md §2 adds `decay_rate` (default 1/day) · `archive_below`
+  (default 0 = disabled); README EN/KO introduce sync · decay. SKILL.md
+  deliberately omits sync (human operator command — the plugin skill stays
+  agent-facing).
+
 ### v1.6.2 patch (2026-11-17) — R33 four-angle audit fixes: mcp wrapper delegation · write race survival · intake limits · doc truth
 
 - [x] MCP wrapper delegation (R33 F1–F4): the injectedStore wrapper now

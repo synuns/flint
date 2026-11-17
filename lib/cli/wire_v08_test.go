@@ -27,8 +27,9 @@ func TestLookupDiff(t *testing.T) {
 // 정확히 일치해야 한다(v0.22.0 update·v0.23.0 tuning 추가 반영,
 // v0.34.0 brief·v0.34.2 pending 추가 — 커맨드 추가의 본질적 동반 갱신).
 // v1.5.4 T2 P3: UsageLine error 키 폐지 반영(안내형 — 정보 내용 불변).
+// v1.7.0 T4: sync 추가(backup·restore 직후 — 원격 등록·push/pull).
 func TestUsageRestInvariant(t *testing.T) {
-	want := `{"usage":"flint <write|read|hot|brief|status|backup|restore|approve|pending|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit> [args]"}`
+	want := `{"usage":"flint <write|read|hot|brief|status|backup|restore|sync|approve|pending|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit> [args]"}`
 	got := strings.Replace(usageLine(), "|profile", "", 1) // v0.35.0 삽입 제거
 	got = strings.Replace(got, "|export", "", 1)           // v1.3.0 삽입 제거
 	got = strings.Replace(got, "audit|diff|update|tuning|import", "audit", 1)

@@ -170,6 +170,7 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 | `flint audit --limit n` | 최근 n개 커밋 조회 |
 | `flint backup` | SQL 덤프 + sha256 체크섬 (`--encrypt` age 저장 암호화·`--mask` 치환 진단 덤프) |
 | `flint restore --file f` | 백업 복구 (`--drill`로 훈련) |
+| `flint sync` | Doltgres 원격과 지식 동기화 — `remote add/list/remove` (url 마스킹), `push`/`pull [--dry]`; 병합 충돌 시 exit 1과 수동 해결 안내; 원격 url은 어떤 출력·로그에도 남지 않는다 (사람 운영자 명령) |
 | `flint profile` | 프로파일 판정: 근거 지표+추천, `--apply normal\|minimal` |
 | `flint status` | 스키마 버전 · 대기 건수 · hot p95 |
 | `flint mcp` | MCP 서버 (read·write·hot·pending·approve 도구) |
@@ -185,6 +186,10 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 **종료 코드:** 0 성공 (`read` 제로히트도 exit 0 — 텍스트는 침묵, `--json`은 `{"hits":0}` 한 줄) · 1 오류 · 2 저장소 장애 · exit 3 — 잘못된 입력 (값 없는 trailing 플래그, 잘못된 `--status`·`--as-of` 값, `write` 스키마 위반).
 
 `flint read`는 구문 검색이 무결과면 단어 단위 fallback으로 재시도합니다.
+
+기억처럼 감쇠하는 기억: `read`가 적중할 때마다 recall_score가 강화되고, 미사용
+항목은 매일 감쇠(하한 0)하며 `hot`/`brief` 순위에 반영된다 —
+`flint maintain --decay-audit`는 archive 후보를 제안하고, 실행은 항상 승인제다.
 
 ### 대화형 TUI (v1.5.0)
 

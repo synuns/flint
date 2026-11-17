@@ -74,6 +74,12 @@ Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
 같이 `flint approve`다. pending은 `maintain --expire-pending` 만료의
 대상이므로 임포트분·세션 지식 모두 만료 전 승격 검토가 필요하다.
 
+## 동기화·원격 관리는 미기재 (v1.7.0 판정)
+
+지식 동기화(원격 push/pull)는 사람 운영자 명령이다 — 기기 이동·팀 공유가
+목적이고 원격 접속 정보(url)를 다뤄 에이전트 자율 실행 대상이 아니다.
+이 스킬에는 해당 커맨드를 기재하지 않는다(계약: docs/contracts/cli.md).
+
 ## 명령 요약
 
 - `flint read [query] [--tag --entity --domain --limit] --json --fields`

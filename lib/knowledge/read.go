@@ -63,10 +63,43 @@ type KnowledgeReadsRecorder interface {
 	RecordKnowledgeReads(ctx context.Context, ids []int, session, kind string) error
 }
 
+// RecallBumper — 회상 강화 접합면(v1.7.0 T2). realStore는
+// db.Repo.BumpRecallScores로 구현하고(schema v11 열 recall_score·
+// last_recalled_at), 미구현 Store(fake)는 조용히 건너뛴다(readBumper
+// 소비 패턴 승계).
+type RecallBumper interface {
+	BumpRecallScores(ctx context.Context, ids []int) error
+}
+
 // recordKnowledgeReads — 회상 이력 기록(계측 — 실패는 조용히, §13).
+// v1.7.0 T2: kind=read(회상 반환 히트)는 이 경로에 결합해 강화
+// (recall_score+1·last_recalled_at=now)까지 함께 수행한다. kind=hot(주입
+// 노출)은 강화에서 제외 — hot 랭킹이 recall_score를 소기 때문에 노출→
+// 강화→재노출 순환이 생긴다(룰링). 이력 기록 자체는 양쪽 불변.
 func recordKnowledgeReads(ctx context.Context, st wire.Store, ids []int, session, kind string) {
 	if kr, ok := st.(KnowledgeReadsRecorder); ok {
 		_ = kr.RecordKnowledgeReads(ctx, ids, session, kind)
+	}
+	if kind == "read" {
+		if rb, ok := st.(RecallBumper); ok {
+			_ = rb.BumpRecallScores(ctx, ids)
+		}
+	}
+}
+
+// TelemetryCommitter — 계측 테이블 별도 커밋 접합면(v1.7.0 T6). realStore는
+// db.Repo.CommitTelemetry로 구현(cli/realstore_read.go), 미구현 Store(fake)는
+// 이 커밋을 건너뛴다(ReadEventStore 소비 패턴 승계). 감사 커밋(Commit)과
+// 독립 — read/hot/done 완료 경로가 1회 호출한다.
+type TelemetryCommitter interface {
+	CommitTelemetry(ctx context.Context, cmd string) error
+}
+
+// commitTelemetry — 계측 커밋(계측 — 실패는 조용히, §13. dolt_add는 이미
+// 스테이징만 해 뒀으므로 커밋 실패 분은 다음 호출이 회수한다).
+func commitTelemetry(ctx context.Context, st wire.Store, cmd string) {
+	if tc, ok := st.(TelemetryCommitter); ok {
+		_ = tc.CommitTelemetry(ctx, cmd)
 	}
 }
 
@@ -543,6 +576,9 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			Source:     source,
 		})
 	}
+	// v1.7.0 T6: 계측 테이블 별도 커밋(read 완료 경로 1회 — 감사 커밋과
+	// 독립). 실패는 조용히(§13 — 스테이징은 유지돼 다음 호출이 회수).
+	commitTelemetry(ctx, st, "read")
 	// R1(→v1.5.3 P2 변경): 제로히트는 exit 0 — 텍스트 침묵·--json
 	// {"hits":0}은 정상 응답이지 오류가 아니므로 에이전트의 오류-중단
 	// 루프가 끊기지 않는다(전 경로 eligible 여부와 무관하게 exit 0).

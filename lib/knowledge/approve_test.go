@@ -56,6 +56,7 @@ type fakeApprove struct {
 	sessionUpdates []sessionUpdate
 	recordedBytes  []bytesCall   // RecordBytes(G5 바이트 계측, v1.1.0 T1)
 	kreads         []kreadsCallV // RecordKnowledgeReads(회상 이력, v1.2.0 T2)
+	telemetryCmds  []string      // CommitTelemetry(계측 분리 커밋, v1.7.0 T6)
 }
 
 // kreadsCallV — RecordKnowledgeReads canned 호출 기록(kreadsCall과 동일
@@ -103,6 +104,11 @@ func (f *fakeApprove) SetSupersededRef(ctx context.Context, oldID, newID int) (i
 
 func (f *fakeApprove) BumpReads(ctx context.Context, ids []int) error {
 	f.bumped = append(f.bumped, ids)
+	return f.capErr
+}
+
+// BumpRecallScores — v1.7.0 T2 패리티 canned(RecallBumper 단언 대응).
+func (f *fakeApprove) BumpRecallScores(ctx context.Context, ids []int) error {
 	return f.capErr
 }
 
@@ -159,6 +165,11 @@ func (f *fakeApprove) LogPlaybookUse(ctx context.Context, id int, ok bool) error
 func (f *fakeApprove) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	f.sessionUpdates = append(f.sessionUpdates, sessionUpdate{id, summary, tasks})
 	return 0, f.capErr
+}
+
+func (f *fakeApprove) CommitTelemetry(ctx context.Context, cmd string) error {
+	f.telemetryCmds = append(f.telemetryCmds, cmd)
+	return f.capErr
 }
 
 // withApproveFake — ApproveFn seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +

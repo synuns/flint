@@ -22,7 +22,7 @@
 
 - 엔진: Go 단일 정적 바이너리(bin/flint, mcp 모드 내장·pgx 내장) +
   Doltgres(localhost:5434, docker compose restart 정책, ADR-0010).
-- 접점 3개: ① CLI — 등록 커맨드 28종(usage 노출 26 + 훅 전용 2:
+- 접점 3개: ① CLI — 등록 커맨드 29종(usage 노출 27 + 훅 전용 2:
   session-start·session-end) ② MCP(stdio 전용) — 도구 5종
   (flint_read·flint_write·flint_hot·flint_pending·flint_approve)
   ③ Claude Code 플러그인(훅·스킬·커맨드·.mcp.json).
@@ -94,9 +94,8 @@
 
 ## 6. 다음 마일스톤 — 안정 기조 (v1.0.0 달성)
 
-- [x] v1.0.0 게이트 충족(2026-11-12) — 표면 계약 6종·커맨드 표 가드·
-  단일 소스+동질 가드 체계(usageOrder·thresholds 등록표·쓰기 repo
-  전용·살균 조크포인트·fake 동질·커맨드 표) 전부 상시 녹색
+- [x] v1.0.0 게이트 충족(2026-11-12) — 표면 계약 6종·커맨드 표 가드·단일 소스+동질
+  가드 체계(usageOrder·thresholds 등록표·쓰기 repo 전용·살균 조크포인트·fake 동질) 전부 상시 녹색
 - [ ] 관측 이월 재판정 — 기저율 셔플 등 METRICS §4 트리거 도달 여부
 - [ ] 공개 전 이름 충돌 재스윕(ADR-0003 의무)·서명 릴리스 경로 재실증
 - [x] v1.1.0(2026-11-13) — legacy 세션 라벨(`session-current`) 폴백·청산
@@ -137,7 +136,8 @@
 - [x] v1.6.0(2026-11-16) — 성능 3종(pending 접두 map O(N+M)·import ANY($1) 배치 dedup+청크 트랜잭션·write 배치 dedup)·PAM 완결(스펙 준수 owner/relations·체크섬 수입 검증 exit 3·§18 Ed25519 서명 --sign·FormatPAM 메모리 절감)·maintain --tui(옵트인)·인자 파서 통합(12커맨드, N9 불변)·소형 청산(diff usage·doctor --json·maintain next 키·pending TUI expire)·docs/PERF.md 신설(합성 벤치 단일 소스)
 - [x] v1.6.1(2026-11-17) — R31 감사 수정: maintain TUI(필터 상태 행 제거 SetItems 재조립·목록 높이 재계산)·PAM 서명키 원자 생성(O_EXCL)·PAM 왕복 멱등(content_hash 발행·수입 승계)·소형(TUI 보고 3종 --limit 500 명시·usage --tui·--out '-' 리터럴 문서화)
 - [x] v1.6.2(2026-11-17) — R33 4각도 감사 수정: MCP injectedStore 선택 인터페이스 위임(approve 실경로·계량 부활·manifest 5종·ConnectTimeout 5s)·동시 write unique 분류 survive·write stdin/payload 상한·import 파일 상한·read 초대형 쿼리 제안 truncate·import id 충돌 재할당·project note 왕복·문서 정합 12건(빈 커밋·LWW 수용 문서화 포함)
-- [ ] v1.7(예정) — 이월 확정: read LIKE 개량(Doltgres pg_trgm 미지원 — 엔진 지원 시 재판정)·report/profile 병렬화·테스트 폭발 정리·주석 영어화·read/tuning TUI·마케팅·i18n(brew 설치·신뢰 아티팩트 포함)
+- [x] v1.7.0(2026-11-17) — 지식 동기화·decay 스코어·계측 분리: `flint sync`(Doltgres 원격 push/pull — url 마스킹·미기록 계약, 충돌 시 수동 안내 exit 1, `--dry`. 사람 운영자 명령이라 SKILL.md 플러그인 스킬에는 미기재 — 계약은 docs/contracts/cli.md)·스키마 v11(`recall_score`·`last_recalled_at`, read 강화·감쇠 산식 하한 0, hot/brief 순위 반영, `maintain --decay-audit` 승인제 archive 제안)·계측 테이블 별도 커밋(dolt log 감사 순수성)·TUNING 2키(`decay_rate`·`archive_below`). 설계: docs/plans/2026-11-17-flint-v1700.md
+- [ ] 이월 확정(차기 마이너) — read LIKE 개량(Doltgres pg_trgm 미지원 — 엔진 지원 시 재판정)·report/profile 병렬화·테스트 폭발 정리·주석 영어화·read/tuning TUI·마케팅·i18n(brew 설치·신뢰 아티팩트 포함)
 
 ## 7. 비목표
 
@@ -146,4 +146,4 @@
 - 임베딩 검색(pgvector 채택 보류 — ADR-0011)·다중 에이전트 domain
   스코프(트리거 대기)·METRICS.md 개편·ADR 재편
 - 대시보드 동적 서버(정적 export만 유지)·linux 배포 — TUI는 v1.5.0
-  실현, brew는 v1.7 이월(2026-11-13 사용자 지시)
+  실현, brew는 차기 이월(2026-11-13 사용자 지시)

@@ -42,3 +42,16 @@ func (s *realStore) RecordBytes(ctx context.Context, kind string, n int) error {
 func (s *realStore) RecordKnowledgeReads(ctx context.Context, ids []int, session, kind string) error {
 	return s.repo.RecordKnowledgeReads(ctx, ids, session, kind)
 }
+
+// realStore.CommitTelemetry — knowledge.TelemetryCommitter 확장의 실구현
+// (db.Repo.CommitTelemetry 위임, v1.7.0 T6 — 계측 테이블 별도 커밋).
+func (s *realStore) CommitTelemetry(ctx context.Context, cmd string) error {
+	return s.repo.CommitTelemetry(ctx, cmd)
+}
+
+// realStore.BumpRecallScores — knowledge.RecallBumper 확장의 실구현
+// (db.Repo.BumpRecallScores 위임, v1.7.0 T2 — 회상 강화 recall_score+1·
+// last_recalled_at=now).
+func (s *realStore) BumpRecallScores(ctx context.Context, ids []int) error {
+	return s.repo.BumpRecallScores(ctx, ids)
+}

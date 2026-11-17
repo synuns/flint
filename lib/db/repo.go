@@ -480,12 +480,37 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 	return n, nil
 }
 
-// Commit은 dolt_add('-A') 후 dolt_commit('-m', msg)을 실행해 커밋 해시를 돌려준다.
-// 충돌 가능성을 고려해 기본 delays(0s/1s/3s)로 Retry한다.
+// auditStageTables — 감사 커밋(Commit)의 스테이징 대상(v1.7.0 T6). 계측
+// 테이블(read_events·hot_events·knowledge_reads·session_starts)은 제외
+// — CommitTelemetry가 별도 커밋해 감사 커밋의 diff 순수성을 지킨다.
+// sessions 포함 룰링: done의 session-end 커밋이 세션 행 귀속을 잃지
+// 않는다. dolt_add는 테이블 지정 시 해당 테이블만 스테이징한다(실측:
+// '*_id_seq는 별도 항목으로 묻히지 않는다 — 잔여 시퀀스는 CommitTelemetry
+// 의 전역 스윕이 회수).
+var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs"}
+
+// telemetryStageTables — 계측 전용 커밋(CommitTelemetry)의 스테이징 대상.
+var telemetryStageTables = []string{"read_events", "hot_events", "knowledge_reads", "session_starts"}
+
+// doltAddSQL — dolt_add 리터럴 조립. dolt 계열 테이블 함수는 파라미터화된
+// 인자를 받지 않는다(실측) — 대상명은 패키지 상수(외부 입력 유입 없음)를
+// 작은따옴표 이스케이프해 인라인한다.
+func doltAddSQL(tables []string) string {
+	quoted := make([]string, len(tables))
+	for i, tbl := range tables {
+		quoted[i] = "'" + strings.ReplaceAll(tbl, "'", "''") + "'"
+	}
+	return "SELECT dolt_add(" + strings.Join(quoted, ",") + ")"
+}
+
+// Commit은 감사 테이블(knowledge·projects·sessions·meta·maintenance_runs)
+// 만 스테이징해 커밋한다(v1.7.0 T6: 전역 dolt_add('-A') 폐지 — 계측
+// 테이블은 CommitTelemetry 소관). 커밋 해시를 돌려주고, 충돌 가능성을
+// 고려해 기본 delays(0s/1s/3s)로 Retry한다.
 func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 	var hash string
 	err := Retry(ctx, func() error {
-		if _, err := r.pool.Exec(ctx, `SELECT dolt_add('-A')`); err != nil {
+		if _, err := r.pool.Exec(ctx, doltAddSQL(auditStageTables)); err != nil {
 			return fmt.Errorf("dolt_add: %w", err)
 		}
 		var h *string // 커밋할 게 없으면 NULL일 수 있다
@@ -495,9 +520,9 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 				return nil
 			}
 			if isNothingToCommit(err) {
-				// 병렬 writer의 dolt_add('-A')가 전역 스테이징이라 이
-				// 세션의 변경까지 이미 커밋한 경우(F-T50-1 실측) —
-				// 데이터는 영속됐으므로 성공으로 처리한다.
+				// 병렬 writer의 dolt_add가 이 세션의 변경까지 이미
+				// 커밋한 경우(F-T50-1 실측) — 데이터는 영속됐으므로
+				// 성공으로 처리한다.
 				hash = ""
 				return nil
 			}
@@ -512,6 +537,34 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 		return "", err
 	}
 	return hash, nil
+}
+
+// CommitTelemetry는 계측 테이블(read_events·hot_events·knowledge_reads·
+// session_starts)을 스테이징한 뒤 dolt_add('-A')로 잔여(감사 커밋의
+// 테이블 지정 스테이징이 남긴 *_id_seq 등)까지 스윕해 'telemetry: <cmd>'
+// 커밋을 만든다(v1.7.0 T6). 감사 커밋(Commit)과 독립 — read/hot/done
+// 완료 경로가 1회 호출한다. 감사 커밋은 이미 명시 스테이징으로 커밋됐으므
+// 로 순수성은 유지되고, 스윕이 흡수하는 것은 시퀀스 잔여뿐이다(룰링).
+// 계측 원칙(§13): 실패는 호출자가 조용히 흡수한다. dolt_add는 이미
+// 스테이징만 해 뒀으므로 커밋 실패 분은 다음 호출이 회수한다(유실 없음).
+// 스테이징 0행(nothing to commit)은 오류가 아니다.
+func (r *Repo) CommitTelemetry(ctx context.Context, cmd string) error {
+	if _, err := r.pool.Exec(ctx, doltAddSQL(telemetryStageTables)); err != nil {
+		return fmt.Errorf("dolt_add(telemetry): %w", err)
+	}
+	// 전역 스윕 — 테이블 지정 스테이징이 회수하지 않는 *_id_seq 잔여 등.
+	if _, err := r.pool.Exec(ctx, `SELECT dolt_add('-A')`); err != nil {
+		return fmt.Errorf("dolt_add(-A sweep): %w", err)
+	}
+	var h *string // 커밋할 게 없으면 NULL일 수 있다
+	if err := r.pool.QueryRow(ctx, `SELECT dolt_commit('-m', $1)`,
+		"telemetry: "+cmd).Scan(&h); err != nil {
+		if errors.Is(err, pgx.ErrNoRows) || isNothingToCommit(err) {
+			return nil
+		}
+		return fmt.Errorf("dolt_commit(telemetry): %w", err)
+	}
+	return nil
 }
 
 // execSQLScript는 세미콜론 구분 SQL 스크립트를 문장별로 실행한다.

@@ -57,6 +57,10 @@ type Thresholds struct {
 	// v1.4.0 T3 — export·import 공통 1회 행 수 상한. 대량 문서의
 	// 전량 파싱·적립 메모리 방어(비목표 스트리밍의 완화).
 	ExportImportMaxRows int // export·import 공통 행 수 상한(기본 100000)
+	// v1.7.0 T2 — decay 스코어 감쇠·archive 제안 임계값(schema v11 열
+	// recall_score·last_recalled_at 소비 — ops maintain --decay-audit).
+	DecayRate    float64 // 회상 감쇠 계수(점/일, 기본 1)
+	ArchiveBelow float64 // 감쇠 후 이 값 미만은 archive 권장(기본 0=비활성)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -100,6 +104,9 @@ const (
 	defaultDiagDeadWarn        = 10
 	defaultKreadsRetentionD    = 14
 	defaultExportImportMaxRows = 100000
+	// v1.7.0 T2 — decay 감쇠·archive 제안 기본값.
+	defaultDecayRate    = 1.0
+	defaultArchiveBelow = 0.0
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -146,6 +153,9 @@ func DefaultThresholds() Thresholds {
 		// v1.4.0 T3 — DefaultThresholds는 항상 기본값(Parse 미설정-0 규약과
 		// 별개 — 소비자 폴백 기준).
 		ExportImportMaxRows: defaultExportImportMaxRows,
+		// v1.7.0 T2 — decay 감쇠·archive 제안(소비자 폴백 기준).
+		DecayRate:    defaultDecayRate,
+		ArchiveBelow: defaultArchiveBelow,
 	}
 }
 
@@ -256,6 +266,14 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// v1.4.0 T3 등록 — 미설정은 0 유지(v0.16.3 규약: 전체 구조체
 			// 비교 테스트 회귀 없이 확장. 소비자가 DefaultThresholds 폴백).
 			th.ExportImportMaxRows = parseIntOrDefault(val, defaultExportImportMaxRows, ks)
+		case "decay_rate":
+			// v1.7.0 T2 등록 — 미설정 0 유지 규약(소비자 ops 폴백 기본 1).
+			// 0 이하는 폴백(감쇠 끔 튜닝은 archive_below=0과 달리 미제공).
+			th.DecayRate = parseFloatPositive(val, defaultDecayRate, ks)
+		case "archive_below":
+			// v1.7.0 T2 등록 — 0=비활성이 정상값이라 음수만 거부(스코어
+			// 임계값은 1 초과도 정상 — parseFloatOrDefault 0~1 클램프 부적합).
+			th.ArchiveBelow = parseFloatNonNegative(val, defaultArchiveBelow, ks)
 		}
 	}
 	return th, nil
@@ -325,6 +343,23 @@ func parseFloatOrDefault(val any, def float64, key string) float64 {
 	// v1.2.2(R16-B1): NaN 거부(NaN<0·NaN>1 모두 false라 통과).
 	if err != nil || f < 0 || f > 1 || math.IsNaN(f) {
 		log.Printf("[flint] thresholds: cannot parse %s=%q — default %v", key, s, def)
+		return def
+	}
+	return f
+}
+
+// parseFloatNonNegative — 0 이상 전범위 float 파서. archive_below(기본
+// 0=비활성 센티널이면서 1 초과 임계값도 정상)처럼 parseFloatOrDefault의
+// 0~1 클램프가 맞지 않는 스코어 임계 키용(v1.7.0 T2). NaN·Inf·음수 거부.
+func parseFloatNonNegative(val any, def float64, key string) float64 {
+	s, ok := toString(val)
+	if !ok {
+		log.Printf("[flint] thresholds: %s value type mismatch (%v) — default %v", key, val, def)
+		return def
+	}
+	f, err := strconv.ParseFloat(s, 64)
+	if err != nil || f < 0 || math.IsNaN(f) || math.IsInf(f, 0) {
+		log.Printf("[flint] thresholds: cannot parse %s=%q (non-negative required) — default %v", key, s, def)
 		return def
 	}
 	return f

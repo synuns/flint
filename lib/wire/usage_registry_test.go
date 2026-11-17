@@ -1,7 +1,7 @@
 // usage_registry_test.go — v0.34.2 R2 usage 드리프트 가드 3종
 // (v0.38.0 §1: lib/cli에서 계약층으로 이동·패키지명 갱신).
 // wire 패키지 단독 실행 시 registry가 비어 있으므로 seedCommands가
-// 실 커맨드 표면(사람 노출 26종 + 훅 전용 2종)을 미러링해 등록한다 —
+// 실 커맨드 표면(사람 노출 27종 + 훅 전용 2종)을 미러링해 등록한다 —
 // 신규 커맨드 추가 시 이 목록과 usageOrder가 함께 갱신되어야 한다
 // (기존 cli 테스트와 동일한 유지보수 계약).
 package wire
@@ -18,6 +18,7 @@ import (
 // 이어야 함 + 훅 전용 session-start/end). 핸들러는 검증 대상 아님.
 var seedCommands = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
+	"sync",
 	"approve", "pending", "maintain", "doctor", "report", "export",
 	"done", "compact", "nudge", "setup", "teardown", "version", "mcp",
 	"audit", "diff", "update", "tuning", "import",

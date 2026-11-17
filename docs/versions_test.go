@@ -303,6 +303,26 @@ var versionDocContracts = []struct {
 		"excluding hot exposure within the last 30 days",
 		"baseline shuffle deferred",
 	}},
+
+	// v1.7.0 T7: sync·decay·계측 분리 커밋 이행 기록 존재 계약.
+	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.7.0", "sync",
+	}},
+	// v1.7.0 T7: cli.md sync 절 계약 — 원격 add/list/remove·url 마스킹·
+	// --dry·충돌 시 수동 안내·decay-audit·recall_score 스키마 서술.
+	{name: "TestV1700CliContractSync", doc: "contracts/cli.md", wants: []string{
+		"remote add", "masked", "--dry", "decay-audit", "recall_score",
+	}},
+	// v1.7.0 T7: TUNING §2표 decay 2키(decay_rate·archive_below).
+	{name: "TestV1700TuningDecayKeys", doc: "TUNING.md", wants: []string{
+		"decay_rate", "archive_below",
+	}},
+	{name: "TestV1700ReadmeSyncDecay/README.md", doc: "../README.md", wants: []string{
+		"`flint sync`", "decay",
+	}},
+	{name: "TestV1700ReadmeSyncDecay/README.ko.md", doc: "../README.ko.md", wants: []string{
+		"`flint sync`", "감쇠",
+	}},
 }
 
 // TestVersionDocContracts — 표 계약 러너: 각 문서가 wants 키워드를 전부 담는지.
@@ -884,5 +904,20 @@ func TestReadmeHighlightMatchesVersion(t *testing.T) {
 		if !strings.Contains(doc, "> v"+ver+" ") {
 			t.Errorf("%s 하이라이트 줄에 v%s 없음(최신 버전 동기)", name, ver)
 		}
+	}
+}
+
+// TestV1700SkillOmitsSync — v1.7.0 T7: 지식 동기화는 사람 운영자 명령
+// (기기 이동·팀 공유 — 원격 접속 정보 취급)이라 SKILL.md 에이전트
+// 스킬에는 기재하지 않는다. 에이전트가 sync를 자가 실행하게 유도하는
+// 문구(`flint sync` 커맨드 안내)의 부재를 가드하고, 미기재 판정(운영자
+// 명령 — 계약은 cli.md)의 근거 문구만 존재해야 한다.
+func TestV1700SkillOmitsSync(t *testing.T) {
+	s := docStr(t, "../flint-plugin/skills/flint/SKILL.md")
+	if strings.Contains(s, "flint sync") {
+		t.Error("SKILL.md에 `flint sync` 안내 존재 — sync는 사람 운영자 명령(미기재 판정 위반)")
+	}
+	if !strings.Contains(s, "운영자") {
+		t.Error("SKILL.md에 sync 미기재 판정(운영자 명령) 근거 문구 없음")
 	}
 }

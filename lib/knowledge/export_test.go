@@ -8,6 +8,7 @@ package knowledge
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"strings"
@@ -29,12 +30,16 @@ var (
 	// exportTValid — valid_at fixture 값(ingested_at과 의도적 상이 —
 	// v1.4.0 T3 왕복 보존 검증: 검증 시각 ≠ 수집 시각 행).
 	exportTValid = time.Date(2026, 11, 10, 7, 30, 0, 0, time.UTC)
+	// exportTRecall — v1.7.0 T1 last_recalled_at fixture 값(스코어 실열
+	// 매핑·jsonl 왕복 보존 검증).
+	exportTRecall = time.Date(2026, 11, 16, 5, 0, 0, 0, time.UTC)
 )
 
 // exportHashPrefix — 실DB 시딩 행의 content_hash 접두사(스코프·정리 키).
 const exportHashPrefix = "expfix-"
 
 // exportFixtureRow — 합성 데모 행(SELECT 열 순서와 동일한 셀 생성).
+// v1.7.0 T1: score·lastRec 추가(스코어 실열 — 말미 2셀).
 type exportFixtureRow struct {
 	id       int
 	topic    string
@@ -50,6 +55,8 @@ type exportFixtureRow struct {
 	valid    time.Time
 	ingested time.Time
 	invalid  any // nil|time.Time
+	score    int // v11 recall_score(기본 0)
+	lastRec  any // nil|time.Time — v11 last_recalled_at
 }
 
 // updated — 파생 updated_at(COALESCE(invalid_at, ingested_at)와 동일 정의).
@@ -61,26 +68,29 @@ func (f exportFixtureRow) updated() time.Time {
 }
 
 // cells — SELECT 열 순서(id..COALESCE) 셀 튜플. valid_at은 v1.4.0 T3
-// 추가 열(superseded_by 다음·ingested_at 이전).
+// 추가 열(superseded_by 다음·ingested_at 이전). v1.7.0 T1 스코어 2열은
+// 말미 추가(기존 셀 인덱스 계약 불변 — exportEngine 열 참조 승계).
 func (f exportFixtureRow) cells() []any {
 	return []any{
 		int32(f.id), f.topic, f.summary, f.tags, f.entity, f.domain,
 		f.conf, f.origin, f.status, f.hash, f.sup, f.valid, f.ingested, f.updated(),
+		int32(f.score), f.lastRec,
 	}
 }
 
 // exportFixture — 합성 3행: active 2(배포 관례·회고 형식) + invalidated 1
-// (구 배포 정책 — invalid_at=tNew·superseded_by=88).
+// (구 배포 정책 — invalid_at=tNew·superseded_by=88). 배포 관례 행만
+// 스코어(3·recall 시각)를 가진다 — 매핑·왕복 검증의 비영행.
 var exportFixture = []exportFixtureRow{
 	{1, "배포 관례", "main 브랜치는 항상 green이어야 한다", ":deploy:ops:",
 		"main-branch", "demo", 0.9, "agent", "active", "expfix-a1", nil,
-		exportTValid, exportTOld, nil},
+		exportTValid, exportTOld, nil, 3, exportTRecall},
 	{7, "회고 형식", "회고는 성공/실패/시도 순서로 기록한다", ":meeting:",
 		nil, "demo", 0.5, "human", "active", "expfix-b2", nil,
-		exportTValid, exportTOld, nil},
+		exportTValid, exportTOld, nil, 0, nil},
 	{12, "구 배포 정책", "폐기된 이전 정책 — 신규 항목으로 대체됨", ":deploy:",
 		nil, "demo", 0.4, "agent", "invalidated", "expfix-c3", 88,
-		exportTValid, exportTOld, exportTNew},
+		exportTValid, exportTOld, exportTNew, 0, nil},
 }
 
 // exportEngine — fakeStore queryFn용 조회 원천 seam: 발행된 SQL의 조건
@@ -213,6 +223,8 @@ func (s *exportPoolStore) Query(ctx context.Context, sql string, args ...any) ([
 
 // exportRealStore — SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만 실DB 접속
 // 허용(운영 폴백 차단 — seamRealDSN N1 계약 승계). 미기동 시 스킵.
+// v1.7.0 T1: 접속 직후 게이트 v11(스코어 2열)을 보장한다 — ExportRows
+// SELECT가 신규 열을 참조해 미승격 DB에서는 42703으로 실패한다.
 func exportRealStore(t *testing.T) wire.Store {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") != "1" {
@@ -221,6 +233,13 @@ func exportRealStore(t *testing.T) wire.Store {
 	dsn := os.Getenv("FLINT_TEST_DSN")
 	if dsn == "" {
 		return nil
+	}
+	if repo, rerr := db.NewRepo(context.Background(), dsn); rerr == nil {
+		gerr := repo.EnsureSchemaV11(context.Background())
+		repo.Close()
+		if gerr != nil {
+			t.Skipf("schema v11 gate unavailable: %v", gerr)
+		}
 	}
 	pool, err := db.Connect(context.Background(), dsn)
 	if err != nil {
@@ -244,10 +263,12 @@ func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 	for _, f := range exportFixture {
 		if _, err := pool.Exec(ctx, `INSERT INTO knowledge
 			(topic, summary, tags, entity, domain, confidence, origin, status,
-			 content_hash, superseded_by, valid_at, ingested_at, invalid_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
+			 content_hash, superseded_by, valid_at, ingested_at, invalid_at,
+			 recall_score, last_recalled_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
 			f.topic, f.summary, f.tags, f.entity, f.domain, f.conf, f.origin,
-			f.status, f.hash, f.sup, f.valid, f.ingested, f.invalid); err != nil {
+			f.status, f.hash, f.sup, f.valid, f.ingested, f.invalid,
+			f.score, f.lastRec); err != nil {
 			t.Skipf("fixture 시딩 실패(스키마 미구비 의심): %v", err)
 		}
 	}
@@ -456,5 +477,186 @@ func TestExportRowsQueryErrorPropagation(t *testing.T) {
 	if _, err := ExportRows(context.Background(),
 		&fakeStore{queryErr: boom}, ExportFilter{Status: "all"}); !errors.Is(err, boom) {
 		t.Errorf("오류 전파 = %v, want boom", err)
+	}
+}
+
+// TestExportRowScoreColumnsMapping — v1.7.0 T1 Review Focus(encoding 원천):
+// SELECT는 recall_score·last_recalled_at 실열을 포함하고 ExportRow에
+// 매핑한다(원천 파생 아님 — 값 있는 행 3·exportTRecall, 없는 행 0·nil).
+func TestExportRowScoreColumnsMapping(t *testing.T) {
+	rows, err := ExportRows(context.Background(),
+		&fakeStore{queryFn: exportEngine}, ExportFilter{Status: "all"})
+	if err != nil {
+		t.Fatalf("ExportRows err = %v", err)
+	}
+	byTopic := map[string]ExportRow{}
+	for _, r := range rows {
+		byTopic[r.Topic] = r
+	}
+	a := byTopic["배포 관례"]
+	if a.RecallScore != 3 {
+		t.Errorf("배포 관례 recall_score = %d, want 3(실열 매핑)", a.RecallScore)
+	}
+	if a.LastRecalledAt == nil || !a.LastRecalledAt.Equal(exportTRecall) {
+		t.Errorf("배포 관례 last_recalled_at = %v, want %v(실열 매핑)", a.LastRecalledAt, exportTRecall)
+	}
+	b := byTopic["회고 형식"]
+	if b.RecallScore != 0 || b.LastRecalledAt != nil {
+		t.Errorf("회고 형식 스코어 열 = (%d,%v), want (0,nil — 기본값 행)", b.RecallScore, b.LastRecalledAt)
+	}
+}
+
+// TestExportScoreJSONLRoundTrip — v1.7.0 T1 Review Focus(encoding): jsonl
+// 왕복에서 스코어 2필드 보존. 레거시 라인(키 없음)은 폴백 0/NULL. 스코어
+// 0/NULL 행은 신규 키를 발행하지 않는다(additive — 기존 골든 출력 불변).
+func TestExportScoreJSONLRoundTrip(t *testing.T) {
+	// 왕복 보존 — 비영(5·회상 시각) 행.
+	scored := []ExportRow{{
+		ID: 21, Topic: "demo score roundtrip", Content: "합성 데모 — 스코어 왕복 보존.",
+		Kind: "knowledge", Status: "active", Confidence: 0.9, Domain: "demo",
+		Source: "agent", ContentHash: "score-rt", CreatedAt: exportTOld,
+		UpdatedAt: exportTOld, ValidAt: exportTValid,
+		RecallScore: 5, LastRecalledAt: &exportTRecall,
+	}}
+	data, err := FormatJSONL(scored)
+	if err != nil {
+		t.Fatalf("FormatJSONL: %v", err)
+	}
+	got, err := ParseJSONLRows(data)
+	if err != nil {
+		t.Fatalf("ParseJSONLRows: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("rows = %d, want 1", len(got))
+	}
+	if got[0].RecallScore != 5 {
+		t.Errorf("왕복 recall_score = %d, want 5", got[0].RecallScore)
+	}
+	if got[0].LastRecalledAt == nil || !got[0].LastRecalledAt.Equal(exportTRecall) {
+		t.Errorf("왕복 last_recalled_at = %v, want %v", got[0].LastRecalledAt, exportTRecall)
+	}
+
+	// 폴백 — 레거시 jsonl(스코어 키 없음)은 0/NULL.
+	legacy := `{"id":22,"topic":"legacy demo","content":"합성 데모","kind":"knowledge","status":"active","confidence":0.5,"tags":null,"entities":null,"domain":"main","source":"agent","content_hash":"legacy-h","created_at":"2026-11-01T00:00:00Z","updated_at":"2026-11-01T00:00:00Z","valid_at":"2026-11-01T00:00:00Z","superseded_by":null}` + "\n"
+	lr, err := ParseJSONLRows([]byte(legacy))
+	if err != nil {
+		t.Fatalf("ParseJSONLRows(legacy): %v", err)
+	}
+	if len(lr) != 1 {
+		t.Fatalf("legacy rows = %d, want 1", len(lr))
+	}
+	if lr[0].RecallScore != 0 || lr[0].LastRecalledAt != nil {
+		t.Errorf("legacy 폴백 = (%d,%v), want (0,nil)", lr[0].RecallScore, lr[0].LastRecalledAt)
+	}
+
+	// 골든 불변 — 0/NULL 행은 기존 15키만 발행(신규 키 미발행).
+	zero := scored[0]
+	zero.ID, zero.ContentHash, zero.RecallScore, zero.LastRecalledAt = 23, "score-zero", 0, nil
+	out, err := FormatJSONL([]ExportRow{zero})
+	if err != nil {
+		t.Fatalf("FormatJSONL(zero): %v", err)
+	}
+	var m map[string]any
+	if err := json.Unmarshal(out, &m); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if len(m) != 15 {
+		t.Errorf("0/NULL 행 키 수 = %d, want 15(기존 골든 불변): %v", len(m), m)
+	}
+	for _, k := range []string{"recall_score", "last_recalled_at"} {
+		if _, ok := m[k]; ok {
+			t.Errorf("0/NULL 행에 신규 키 %q 발행 — additive 위반", k)
+		}
+	}
+}
+
+// TestRowHashRecScoreCarry — jsonl 재이식 rec 승계: 값 있을 때만
+// recall_score·last_recalled_at rec 키를 포함하고 해시 입력에서는 제외
+// (importHashSkip — 회상 이력은 내용 정체성이 아님). 0/NULL은 키 미설정
+// → 컬럼 기본값 폴백.
+func TestRowHashRecScoreCarry(t *testing.T) {
+	scored := ExportRow{ID: 1, Topic: "demo score carry", Content: "합성 데모",
+		Kind: "knowledge", Status: "active", Confidence: 0.9, Domain: "demo",
+		Source: "agent", ContentHash: "scored-h", RecallScore: 4,
+		LastRecalledAt: &exportTRecall}
+	hashInput, rec, se := rowHashRec(scored)
+	if se != nil {
+		t.Fatalf("rowHashRec: %v", se)
+	}
+	if v, ok := rec["recall_score"].(int); !ok || v != 4 {
+		t.Errorf("rec recall_score = %#v, want 4", rec["recall_score"])
+	}
+	at, ok := rec["last_recalled_at"].(time.Time)
+	if !ok || !at.Equal(exportTRecall) {
+		t.Errorf("rec last_recalled_at = %#v, want %v", rec["last_recalled_at"], exportTRecall)
+	}
+	for _, k := range []string{"recall_score", "last_recalled_at"} {
+		if _, in := hashInput[k]; in {
+			t.Errorf("해시 입력에 %q 포함 — 정체성 키 아님(importHashSkip 계약)", k)
+		}
+	}
+
+	plain := scored
+	plain.RecallScore, plain.LastRecalledAt = 0, nil
+	_, rec2, se2 := rowHashRec(plain)
+	if se2 != nil {
+		t.Fatalf("rowHashRec(plain): %v", se2)
+	}
+	for _, k := range []string{"recall_score", "last_recalled_at"} {
+		if _, ok := rec2[k]; ok {
+			t.Errorf("0/NULL 행 rec에 %q 키 설정 — 컬럼 기본값 폴백 위반", k)
+		}
+	}
+}
+
+// TestExportScoreColumnsReal — slow(실DB): 게이트 v11 적용 DB에서 스코어
+// 실열 조회(원천 매핑 — 파생 아님)·jsonl 왕복 보존·미설정 행 폴백.
+// SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시에만 실행(exportRealStore seam).
+func TestExportScoreColumnsReal(t *testing.T) {
+	st := exportRealStore(t)
+	if st == nil {
+		t.Skip("real store not configured: SUPERLITE_REAL=1 + FLINT_TEST_DSN")
+	}
+	ctx := context.Background()
+	rows, err := ExportRows(ctx, st, ExportFilter{Status: "all"})
+	if err != nil {
+		t.Fatalf("ExportRows err = %v", err)
+	}
+	scoped := exportScopedRows(rows, exportHashPrefix)
+	if len(scoped) != 3 {
+		t.Fatalf("시딩 행 = %d, want 3", len(scoped))
+	}
+	var scored ExportRow
+	var plain *ExportRow
+	for i, r := range scoped {
+		if r.ContentHash == "expfix-a1" {
+			scored = r
+		}
+		if r.ContentHash == "expfix-b2" {
+			plain = &scoped[i]
+		}
+	}
+	if scored.RecallScore != 3 {
+		t.Errorf("실열 recall_score = %d, want 3", scored.RecallScore)
+	}
+	if scored.LastRecalledAt == nil || !scored.LastRecalledAt.Equal(exportTRecall) {
+		t.Errorf("실열 last_recalled_at = %v, want %v", scored.LastRecalledAt, exportTRecall)
+	}
+	if plain == nil || plain.RecallScore != 0 || plain.LastRecalledAt != nil {
+		t.Errorf("미설정 행 폴백 = %+v, want (0,nil)", plain)
+	}
+	// 왕복 — 실열에서 읽은 값이 jsonl을 경유해 보존된다.
+	data, err := FormatJSONL([]ExportRow{scored})
+	if err != nil {
+		t.Fatalf("FormatJSONL: %v", err)
+	}
+	got, err := ParseJSONLRows(data)
+	if err != nil {
+		t.Fatalf("ParseJSONLRows: %v", err)
+	}
+	if got[0].RecallScore != 3 || got[0].LastRecalledAt == nil ||
+		!got[0].LastRecalledAt.Equal(exportTRecall) {
+		t.Errorf("실DB 왕복 스코어 = (%d,%v), want (3,%v)",
+			got[0].RecallScore, got[0].LastRecalledAt, exportTRecall)
 	}
 }

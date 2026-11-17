@@ -137,6 +137,43 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   delegating to the existing maintain subcommands; non-terminal `--tui`
   keeps the one-error-line + exit 3 convention above.
 
+- Knowledge sync (v1.7.0 — `flint sync`, a **human operator command** for
+  machine moves · team sharing over a Doltgres remote; not exposed to
+  agents — SKILL.md and the MCP tool map omit it by design):
+  - `flint sync remote add <name> <url>` registers a remote (Doltgres
+    remote url forms — https://doltremoteapi… · `file://` · `postgres://`);
+    `flint sync remote list` shows names with the url **masked**;
+    `flint sync remote remove <name>` deletes it. A duplicate name is an
+    error.
+  - **The remote url is never written to any output or log** — not in
+    listings (masked), not in errors, not in docs or the repository. This
+    is a privacy defense of the same rank as secret sanitization.
+  - `flint sync push <remote>` pushes the `main` branch and reports
+    `{status, hash}` — no `--dry` (push is a single dolt_push call);
+    `flint sync pull <remote> [--dry]` runs fetch+merge, where `--dry`
+    (**pull-only**) stops after fetch with nothing applied.
+  - A merge conflict surfaces as `ErrMergeConflict` — an error JSON with
+    **exit 1** plus guidance to resolve manually with the dolt CLI
+    (`dolt_conflicts`) and re-run `flint sync pull`; the aborted
+    transaction leaves the working set intact (no partial apply —
+    measured). Automatic resolution is forbidden (destructive-change
+    defense). An unregistered or unreachable remote keeps the cause in
+    the error and never exposes the url.
+- Recall decay (v1.7.0 — schema v11, additive columns
+  `knowledge.recall_score` (int, default 0) · `last_recalled_at`
+  (timestamptz, NULL); v10 binaries remain read-compatible). A `read` hit
+  reinforces the row (score+1 · last_recalled_at=now). The effective score
+  is `recall_score − decay_rate × days since last recall` with a floor of 0
+  (whole 24h days; rows never recalled keep their score — no new-entry
+  penalty), and feeds `hot` · `brief` ranking (score DESC, ingested_at DESC
+  stable sort — byte budget unchanged). `flint maintain --decay-audit`
+  (read-only, exit 0, `--limit` default 20) reports decayed active rows as
+  JSON — `{status, decay_rate, archive_below, count, items[]}` where each
+  item carries `id · score · last_recalled · effective` and
+  `recommend:"archive"` only when `archive_below` is set and the effective
+  score falls below it; archiving itself is **approval-gated** via the
+  existing `maintain --invalidate` (`--yes`/`--reason`) — never automatic.
+
 ## Boundaries
 
 - Non-interference of hook-entry commands: `compact` exits 0 silently when

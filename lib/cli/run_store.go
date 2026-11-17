@@ -70,8 +70,9 @@ var (
 	_ interface { // ops.metaDeleteStore
 		MetaDelete(ctx context.Context, keys []string) (int64, error)
 	} = injectedStore{}
-	_ ops.ConflictStore = injectedStore{}
-	_ ops.MaintStore    = injectedStore{}
+	_ ops.ConflictStore            = injectedStore{}
+	_ ops.MaintStore               = injectedStore{}
+	_ knowledge.TelemetryCommitter = injectedStore{} // v1.7.0 T6 — 계측 분리 커밋
 )
 
 // --- 승격·전이 (knowledge approve/import) ---
@@ -169,6 +170,15 @@ func (s injectedStore) RecordKnowledgeReads(ctx context.Context, ids []int, sess
 func (s injectedStore) RecordHotEvent(ctx context.Context, ids string) error {
 	if rec, ok := s.Store.(knowledge.HotEventRecorder); ok {
 		return rec.RecordHotEvent(ctx, ids)
+	}
+	return nil
+}
+
+// CommitTelemetry — 계측 테이블 별도 커밋 위임(v1.7.0 T6). 미구현
+// 원본은 소비자(commitTelemetry의 타입 단언 실패 스킵)과 동일한 no-op.
+func (s injectedStore) CommitTelemetry(ctx context.Context, cmd string) error {
+	if tc, ok := s.Store.(knowledge.TelemetryCommitter); ok {
+		return tc.CommitTelemetry(ctx, cmd)
 	}
 	return nil
 }

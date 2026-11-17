@@ -120,8 +120,11 @@ type importMigrateOutcome struct {
 // importHashSkip — 재이식 해시 입력 제외 키(write payload에 없는 이식
 // 기계 키 — id·kind·status는 적립 시 부과되고 ingested_at·invalid_at은
 // A4 보존 열. valid_at·ts는 HashCanonical 휘발성 제외 승계).
+// v1.7.0 T1: recall_score·last_recalled_at도 제외 — 회상 이력은 내용
+// 정체성이 아니라 스코어 변동이 해시 dedup를 깨뜨리면 안 된다.
 var importHashSkip = map[string]bool{
 	"id": true, "kind": true, "status": true, "ingested_at": true, "invalid_at": true,
+	"recall_score": true, "last_recalled_at": true,
 }
 
 // rowHashRec — ExportRow 1건을 (해시 입력, 적립 rec) 쌍으로 변환.
@@ -168,6 +171,15 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 		rec["status"] = r.Status
 	} else {
 		rec["status"] = "active"
+	}
+	// v1.7.0 T1 스코어 왕복 승계: 값 있을 때만 rec에 실는다(InsertBatch
+	// 컬럼 승격 — 미지정·0/NULL은 컬럼 기본값 폴백). 해시 입력 제외는
+	// importHashSkip(상단 주석). PAM은 metadata 미확장 — jsonl 경로 담당.
+	if r.RecallScore != 0 {
+		rec["recall_score"] = r.RecallScore
+	}
+	if r.LastRecalledAt != nil {
+		rec["last_recalled_at"] = r.LastRecalledAt.UTC()
 	}
 	if r.ID > 0 {
 		rec["id"] = r.ID
