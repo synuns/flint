@@ -545,12 +545,28 @@ func splitStatements(script string) []string {
 	return out
 }
 
-// mapInsertErr는 unique 위반(23505)을 store.ErrDuplicate으로 감싼다.
+// mapInsertErr는 unique 위반을 store.ErrDuplicate으로 감싼다. 두 경로:
+// (1) SQLSTATE 23505(일반 unique 위반), (2) Doltgres 커밋 시점 레이스
+// 위반 — 동시 write에서 사전 확인을 통과한 두 세션이 동일 content_hash를
+// 적립하면 늦은 쪽 커밋에서 working set 제약 위반이 발견되어 코드 XX000에
+// "constraint violations, transaction rolled back" 메시지로 롤백된다
+// (v1.6.2 R33 E1 실측 2026-11-17). (2)을 분류하지 않으면 write의 survive
+// 경로(재확인 skip + 잔여 재시도)에 도달하지 못해 레이스 패자의 고유줄이
+// 유실된다.
 func mapInsertErr(err error) error {
-	if isPgCode(err, "23505") {
+	if isPgCode(err, "23505") || isConstraintRollback(err) {
 		return fmt.Errorf("%w: %v", store.ErrDuplicate, err)
 	}
 	return err
+}
+
+// isConstraintRollback — Doltgres 커밋 시점 제약 위반 롤백 판정. unique
+// 위반이어도 SQLSTATE 23505가 아닌 XX000으로 오므로(실측) 메시지로
+// 분류한다. isNothingToCommit과 같은 XX000 계열이지만 메시지가 다르다.
+func isConstraintRollback(err error) bool {
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) &&
+		strings.Contains(pgErr.Message, "constraint violations, transaction rolled back")
 }
 
 // isPgCode는 err 체인 안의 PgError가 해당 SQLSTATE인지 판정한다.

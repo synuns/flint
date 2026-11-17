@@ -14,6 +14,8 @@ import (
 	"testing"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // call — runFn 호출 기록(조립된 CLI 인자 + stdin).
@@ -249,5 +251,132 @@ func TestDispatchUnknownTool(t *testing.T) {
 	}
 	if !strings.Contains(out, "unknown tool") {
 		t.Errorf("out = %q, want unknown tool error", out)
+	}
+}
+
+// capStore — v1.6.2 R33-3 F1/F2 회귀 fake: wire.Store + 선택 capability
+// 전분. 서버 수명 store(cli.RunWithStore injectedStore 래퍼)를 통과해
+// capability 단언이 원본에 위임되는지 검증한다(v1.2.4 래퍼 도입 후
+// approve 승격·duplicate 메타·read_events 계량이 래퍼에서 차단된 결함).
+type capStore struct {
+	existsHash bool
+	dupMeta    knowledge.DupMeta
+	approved   []int
+	readEvents []db.ReadEvent
+	usage      []string
+	commits    int
+}
+
+func (f *capStore) Migrate(ctx context.Context) error { return nil }
+func (f *capStore) InsertBatch(ctx context.Context, r []map[string]any) ([]int, error) {
+	return []int{5}, nil
+}
+func (f *capStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
+	return f.existsHash, nil
+}
+func (f *capStore) ExistsProject(ctx context.Context, name string) (bool, error) {
+	return false, nil
+}
+func (f *capStore) Commit(ctx context.Context, msg string) (string, error) {
+	f.commits++
+	return "abc123", nil
+}
+func (f *capStore) Ping(ctx context.Context) error { return nil }
+func (f *capStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	return nil, nil // meta 조회 빈 행 → 기본 임계값 폴백
+}
+func (f *capStore) Close() {}
+
+// 선택 capability 실구현(원본 위임 도달 검증용 캡처).
+func (f *capStore) Approve(ctx context.Context, id int) error {
+	f.approved = append(f.approved, id)
+	return nil
+}
+func (f *capStore) DupRowByHash(ctx context.Context, hash string) (knowledge.DupMeta, bool, error) {
+	return f.dupMeta, f.existsHash, nil
+}
+func (f *capStore) DupIDByHash(ctx context.Context, hash string) (int, bool, error) {
+	return f.dupMeta.ID, f.existsHash, nil
+}
+func (f *capStore) RecordUsage(ctx context.Context, kind, source string) error {
+	f.usage = append(f.usage, kind+"/"+source)
+	return nil
+}
+func (f *capStore) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
+	f.readEvents = append(f.readEvents, ev)
+	return nil
+}
+
+var _ wire.Store = (*capStore)(nil)
+
+// installServerStore — 서버 수명 store 공급 seam을 capStore로 교체
+// (runFn·runWithStoreFn은 기본 실구현 — 래퍼 경로 전체를 통과시킨다).
+func installServerStore(t *testing.T, f *capStore) {
+	t.Helper()
+	resetStoreCache(t)
+	prev := storeSupply
+	storeSupply = func() (wire.Store, error) { return f, nil }
+	t.Cleanup(func() { storeSupply = prev })
+}
+
+// TestDispatchApprovePromotesViaServerStore — F1: flint_approve가 래퍼
+// 통과 주입 store의 Approve에 도달해 승격 응답을 낸다(현재 결함: 래퍼가
+// approveStore 단언을 차단해 "does not implement Approve" 폴백 exit 1).
+func TestDispatchApprovePromotesViaServerStore(t *testing.T) {
+	f := &capStore{}
+	installServerStore(t, f)
+	out, code := DispatchTool("flint_approve", map[string]any{"id": 7})
+	if code != 0 {
+		t.Fatalf("code = %d, want 0; out=%s", code, out)
+	}
+	if out != `{"status":"approved","id":7}` {
+		t.Fatalf("out = %q, want approved JSON", out)
+	}
+	if len(f.approved) != 1 || f.approved[0] != 7 {
+		t.Fatalf("Approve 위임 미도달: %v", f.approved)
+	}
+}
+
+// TestDispatchWriteDuplicateEchoesMetaViaServerStore — F2: 동일 payload
+// 재전송의 duplicate 응답이 기존 행 {id,topic,state}를 포함한다(래퍼가
+// DupMetaStore 단언을 차단하면 맨몸 {"status":"duplicate"}로 퇴화).
+func TestDispatchWriteDuplicateEchoesMetaViaServerStore(t *testing.T) {
+	f := &capStore{}
+	installServerStore(t, f)
+	payload := map[string]any{
+		"topic": "demo mcp wrapper", "summary": "합성 데모 — 래퍼 위임 회귀", "confidence": 0.9,
+	}
+	out, code := DispatchTool("flint_write", map[string]any{"kind": "knowledge", "payload": payload})
+	if code != 0 || !strings.Contains(out, `"status":"committed"`) {
+		t.Fatalf("1회차 code=%d out=%q, want committed", code, out)
+	}
+	f.existsHash = true
+	f.dupMeta = knowledge.DupMeta{ID: 5, Topic: "demo mcp wrapper", State: "active"}
+	out, code = DispatchTool("flint_write", map[string]any{"kind": "knowledge", "payload": payload})
+	if code != 0 {
+		t.Fatalf("2회차 code = %d, want 0; out=%s", code, out)
+	}
+	for _, want := range []string{`"status":"duplicate"`, `"id":5`, `"topic":"demo mcp wrapper"`, `"state":"active"`} {
+		if !strings.Contains(out, want) {
+			t.Errorf("duplicate 응답에 %s 누락: %q", want, out)
+		}
+	}
+}
+
+// TestDispatchReadRecordsReadEventSourceMCP — F2: flint_read가 read_events
+// 계층(RecordReadEvent)에 source=mcp로 도달한다(래퍼가 ReadEventStore
+// 단언을 차단하면 계측이 조용히 사라진다 — v1.2.4~ 상실).
+func TestDispatchReadRecordsReadEventSourceMCP(t *testing.T) {
+	f := &capStore{}
+	installServerStore(t, f)
+	out, code := DispatchTool("flint_read", map[string]any{"query": "demo"})
+	if code != 0 {
+		t.Fatalf("code = %d, want 0; out=%s", code, out)
+	}
+	if len(f.readEvents) != 1 {
+		t.Fatalf("RecordReadEvent 위임 미도달: %d건", len(f.readEvents))
+	}
+	if got := f.readEvents[0].Source; got != "mcp" {
+		t.Fatalf("read_events.source = %q, want mcp", got)
 	}
 }

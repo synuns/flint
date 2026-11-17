@@ -16,6 +16,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
@@ -401,4 +402,55 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 			t.Errorf("텍스트 모드에 clamp 라인 출력: %q", out.String())
 		}
 	})
+}
+
+// ── v1.6.2 T3(G4): 제안(SuggestSimilar) 입력 상한 truncate. ──
+
+// TestSuggestQueryTruncate — G4 Review Focus: 제안 입력은 상한(suggestQueryMaxRunes
+// rune)으로 truncate된다(멀티바이트 안전 — TruncateRunes 단일 구현 승계).
+// 본문 검색 쿼리 자체는 불변(상한은 제안 유사도 스캔에만 적용).
+func TestSuggestQueryTruncate(t *testing.T) {
+	short := "백업 복구 절차"
+	if got := suggestQuery(short); got != short {
+		t.Fatalf("상한 이하 쿼리 변형: %q", got)
+	}
+	huge := strings.Repeat("데", 100000)
+	got := suggestQuery(huge)
+	if n := len([]rune(got)); n != suggestQueryMaxRunes {
+		t.Fatalf("truncate 크기=%d rune, want %d", n, suggestQueryMaxRunes)
+	}
+	if !strings.HasPrefix(got, strings.Repeat("데", 100)) {
+		t.Fatal("rune 경계 절단 위반(멀티바이트 파손)")
+	}
+}
+
+// TestRunReadSuggestHugeQueryPerf — G4 가용성 회귀: 100KB 쿼리 제안이
+// 제안 스캔 행(2k)이 있어도 상한 truncate로 수 초 이내에 끝난다(수정 전
+// 17s급 — bigramDice가 행마다 쿼리 bigram 집합을 재구축했다). 단위 테스트
+// 상한 5s(환경 편차 흡수 — 실측은 t.Log).
+func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
+	scanRows := make([][]any, 0, 2000)
+	for i := 1; i <= 2000; i++ {
+		scanRows = append(scanRows, []any{
+			int32(i), fmt.Sprintf("demo suggest %04d", i), "합성 데모 요약 — 제안 스캔 행.",
+		})
+	}
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "SELECT id, topic, summary FROM active_knowledge") {
+			return scanRows, nil // 제안 스캔 행 존재
+		}
+		return nil, nil // 본문 구문·폴백은 제로히트
+	}}
+	q := strings.Repeat("쿼", 51200) // 100KB(UTF-8 3바이트 × 51200 rune)
+	var out strings.Builder
+	start := time.Now()
+	code := RunRead(context.Background(), st, []string{q}, strings.NewReader(""), &out)
+	elapsed := time.Since(start)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0: %s", code, out.String())
+	}
+	t.Logf("100KB 쿼리 제안 경과: %s(상한 5s)", elapsed)
+	if elapsed > 5*time.Second {
+		t.Fatalf("100KB 쿼리 제안 %s — 상한 5s 초과(truncate 미적용 의심)", elapsed)
+	}
 }

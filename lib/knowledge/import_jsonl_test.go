@@ -1115,23 +1115,25 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 type memMigrateFake struct {
 	*migrateFake
 	dup        map[string]DupMeta
+	ids        map[int]bool // 기존·적립 knowledge id 집합(v1.6.2 G5 id 충돌 판정)
 	nextID     int
 	insertErrs map[int]error
 	batchSizes []int
 	calls      int
 }
 
-// newMemMigrateFake — 기본 초기화(dup 맵·오류표 준비).
+// newMemMigrateFake — 기본 초기화(dup·id 맵·오류표 준비).
 func newMemMigrateFake() *memMigrateFake {
 	return &memMigrateFake{
 		migrateFake: &migrateFake{fakeStore: &fakeStore{}},
 		dup:         map[string]DupMeta{},
+		ids:         map[int]bool{},
 		insertErrs:  map[int]error{},
 	}
 }
 
-// Query — content_hash = ANY($1) 일괄 조회를 dup 맵으로 응답한다(나머지는
-// fakeStore 위임).
+// Query — content_hash = ANY($1) 일괄 조회를 dup 맵으로, id = ANY($1)
+// 충돌 조회를 ids 맵으로 응답한다(나머지는 fakeStore 위임).
 func (m *memMigrateFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	if strings.Contains(sql, "content_hash = ANY($1)") {
 		m.fakeStore.queries = append(m.fakeStore.queries, sql)
@@ -1144,6 +1146,17 @@ func (m *memMigrateFake) Query(ctx context.Context, sql string, args ...any) ([]
 		for h, meta := range m.dup {
 			if set[h] {
 				out = append(out, []any{h, int32(meta.ID), meta.Topic, meta.State})
+			}
+		}
+		return out, nil
+	}
+	if strings.Contains(sql, "id = ANY($1)") && strings.Contains(sql, "FROM knowledge") {
+		m.fakeStore.queries = append(m.fakeStore.queries, sql)
+		want, _ := args[0].([]int)
+		var out [][]any
+		for _, id := range want {
+			if m.ids[id] {
+				out = append(out, []any{int32(id)})
 			}
 		}
 		return out, nil
@@ -1172,6 +1185,7 @@ func (m *memMigrateFake) InsertBatch(ctx context.Context, recs []map[string]any)
 			}
 		}
 		ids[i] = id
+		m.ids[id] = true // 적립 id 등록(G5 — 재이식 충돌 판정 원천)
 		if h, ok := r["content_hash"].(string); ok && h != "" {
 			m.dup[h] = DupMeta{ID: id}
 		}
@@ -1423,7 +1437,10 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		cleanup()
 	})
 
-	t.Run("partial failure resume keeps first chunk", func(t *testing.T) {
+	t.Run("id collision reassign keeps import alive", func(t *testing.T) {
+		// v1.6.2 T3(G5): 선점 id(다른 내용)가 있어도 배치 PK 충돌 exit 1이
+		// 아니라 자동 재할당으로 전량 적립 exit 0 — 종전 부분 실패 재개
+		// 시나리오의 왕복 회복 회귀(청크 실패 재개는 단위 insertErrs로 승계).
 		maxRows, err := wire.QueryOnce(ctx, st, `SELECT COALESCE((SELECT MAX(id) FROM knowledge), 0)`, nil)
 		if err != nil || len(maxRows) == 0 {
 			t.Fatalf("max(id) 조회 실패: %v", err)
@@ -1435,7 +1452,7 @@ func TestImportChunkedRealSlow(t *testing.T) {
 			rows = append(rows, ExportRow{
 				ID:      base + i,
 				Topic:   fmt.Sprintf("demo t2 resume %02d", i),
-				Content: fmt.Sprintf("합성 데모 slow — 부분 실패 재개 행 %02d.", i),
+				Content: fmt.Sprintf("합성 데모 slow — 재할당 검증 행 %02d.", i),
 				Kind:    "knowledge", Status: "active", Confidence: 0.9,
 				Tags: []string{tag}, Domain: "main", Source: "agent",
 				CreatedAt: t0, UpdatedAt: t0,
@@ -1445,7 +1462,7 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// 청크 2 위치(id base+9)를 상이 본문으로 선점 → 청크 2 PK 충돌.
+		// 청크 2 위치(id base+9)를 상이 본문으로 선점 → G5 재할당 대상.
 		if _, err := wire.QueryOnce(ctx, st, fmt.Sprintf(
 			`INSERT INTO knowledge (id, topic, summary, tags, confidence, origin, status, content_hash)
 			 VALUES (%d, 'demo t2 squatter', '합성 데모 slow — 선점 행.', ':%s:', 0.9, 'agent', 'active', 't2-squatter-%d')`,
@@ -1454,29 +1471,19 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		}
 		var out strings.Builder
 		code := RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
-		if code != 1 {
-			t.Fatalf("exit=%d, want 1(청크 2 충돌); out=%s", code, out.String())
-		}
-		// 청크 1(id base+1..7)은 커밋되어 있다.
-		var n int
-		if err := st.pool.QueryRow(ctx, `SELECT count(*) FROM knowledge WHERE id = ANY($1)`,
-			[]int{base + 1, base + 7}).Scan(&n); err != nil {
-			t.Fatalf("청크 1 조회: %v", err)
-		}
-		if n != 2 {
-			t.Fatalf("청크 1 커밋 행=%d, want 2(부분 성공 보존)", n)
-		}
-		// 선점 해제 후 재실행 — dedup가 청크 1을 회복, 잔여 5행 적립.
-		if _, err := st.Query(ctx, `DELETE FROM knowledge WHERE id = $1`, base+9); err != nil {
-			t.Fatalf("선점 해제 실패: %v", err)
-		}
-		out.Reset()
-		code = RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
 		if code != 0 {
-			t.Fatalf("재개 exit=%d out=%s", code, out.String())
+			t.Fatalf("exit=%d, want 0(충돌 id 자동 재할당); out=%s", code, out.String())
 		}
-		if !strings.Contains(out.String(), `"imported":5`) || !strings.Contains(out.String(), `"duplicated":7`) {
-			t.Fatalf("재개 요약(멱등 재개): %s", out.String())
+		if !strings.Contains(out.String(), `"imported":12`) || !strings.Contains(out.String(), `"remapped":1`) {
+			t.Fatalf("재할당 요약(전량 적립): %s", out.String())
+		}
+		// 선점 행은 그대로 — 재할당이 덮어쓰지 않는다.
+		var squatter string
+		if err := st.pool.QueryRow(ctx, `SELECT topic FROM knowledge WHERE id = $1`, base+9).Scan(&squatter); err != nil {
+			t.Fatalf("선점 행 조회: %v", err)
+		}
+		if squatter != "demo t2 squatter" {
+			t.Fatalf("선점 행 변형: %q", squatter)
 		}
 		// 이식 후 write 성공 — setval 동기(명시 id 경로).
 		payload := `{"topic":"demo t2 after resume","summary":"합성 데모 slow — 재개 직후 write.","tags":["` + tag + `"],"domain":"main","confidence":0.9,"origin":"agent"}` + "\n"
@@ -1548,5 +1555,179 @@ func TestImportBatchBenchRealSlow(t *testing.T) {
 	t.Logf("bench reimport(dedup 5.6k): %s", dedupElapsed)
 	if dedupElapsed > 20*time.Second {
 		t.Fatalf("bench 재실행 dedup %s — 상한 20s 초과", dedupElapsed)
+	}
+}
+
+// ── v1.6.2 T3: import 파일 크기 상한(G3)·id 충돌 자동 재할당(G5)·
+// project note 저장(F5). 전부 합성 데모 데이터. ──
+
+// overrideImportMaxFileBytes — 파일 크기 상한 축소(테스트 종료 시 원복 —
+// 실 512MB 파일을 만들지 않고 stat 경계만 검증).
+func overrideImportMaxFileBytes(t *testing.T, max int64) {
+	t.Helper()
+	saved := importMaxFileBytes
+	importMaxFileBytes = max
+	t.Cleanup(func() { importMaxFileBytes = saved })
+}
+
+// TestRunImportMigrateFileSizeLimitExceeded — G3 Review Focus: FILE 크기가
+// 상한(512MB 기본)을 초과하면 os.ReadFile 전 stat 판정으로 exit 3 —
+// 오류 JSON에 max·size가 포함되고 적립·파싱은 발생하지 않는다(슬랩
+// 적재 전 차단).
+func TestRunImportMigrateFileSizeLimitExceeded(t *testing.T) {
+	data, err := FormatJSONL(migrateFixtureRows()[:1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "demo-g3.jsonl")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	overrideImportMaxFileBytes(t, int64(len(data)-1)) // 크기 > 상한
+	f := &fakeStore{}
+	out, code := runMigrate(t, f, []string{"--format=jsonl", path}, "")
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(크기 상한 초과); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"max":`) || !strings.Contains(out, `"size":`) {
+		t.Fatalf("오류 JSON max·size 미포함: %s", out)
+	}
+	if size := fmt.Sprintf(`"size":%d`, len(data)); !strings.Contains(out, size) {
+		t.Fatalf("오류 JSON size 부정합: %s", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("상한 초과 적립 발생: %d건", len(f.inserted))
+	}
+}
+
+// TestRunImportMigrateFileSizeBoundary — G3 경계: 크기 == 상한은 통과
+// (초과 판정은 초과분이 있을 때만).
+func TestRunImportMigrateFileSizeBoundary(t *testing.T) {
+	data, err := FormatJSONL(migrateFixtureRows()[:1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(t.TempDir(), "demo-g3b.jsonl")
+	if err := os.WriteFile(path, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	overrideImportMaxFileBytes(t, int64(len(data))) // 경계 — 통과
+	f := &fakeStore{}
+	out, code := runMigrate(t, f, []string{"--format=jsonl", path}, "")
+	if code != 0 || !strings.Contains(out, `"imported":1`) {
+		t.Fatalf("경계 파일 exit=%d out=%s", code, out)
+	}
+}
+
+// g5Row — G5 검증용 합성 행 1건(명시 id — salt로 본문·저장 해시 변형).
+func g5Row(id, salt int, t0 time.Time) ExportRow {
+	return ExportRow{
+		ID: id, Topic: fmt.Sprintf("demo g5 row %d.%d", id, salt),
+		Content: fmt.Sprintf("합성 데모 — g5 재할당 검증 행 %d(변형 %d).", id, salt),
+		Kind:    "knowledge", Status: "active", Confidence: 0.9,
+		Tags: []string{"demo", "g5"}, Domain: "main", Source: "agent",
+		ContentHash: fmt.Sprintf("%064x", id*1000+salt),
+		CreatedAt:   t0, UpdatedAt: t0,
+	}
+}
+
+// TestImportRowsBatchIDCollisionExistingReassigned — G5 Review Focus:
+// 기존 DB 동일 id·다른 내용 행(해시 dedup 미통과 — 동일 내용이었다면
+// 스킵됨)은 자동 재할당(명시 id 제거 → serial)으로 적립되고 remapped로
+// 계상된다. 충돌하지 않는 명시 id는 그대로 보존.
+func TestImportRowsBatchIDCollisionExistingReassigned(t *testing.T) {
+	t0 := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
+	m := newMemMigrateFake()
+	m.ids[9] = true // 기존 DB 행 id=9(다른 내용 — 해시는 미등록)
+	rows := []ExportRow{g5Row(9, 1, t0), g5Row(10, 1, t0)}
+	oc, err := importRowsBatch(context.Background(), m, rows)
+	if err != nil {
+		t.Fatalf("importRowsBatch: %v", err)
+	}
+	if oc.imported != 2 || oc.remapped != 1 {
+		t.Fatalf("imported=%d remapped=%d, want 2/1(충돌 id만 재할당)", oc.imported, oc.remapped)
+	}
+	if len(m.inserted) != 2 {
+		t.Fatalf("적립=%d, want 2(전량 적립)", len(m.inserted))
+	}
+	if _, has := m.inserted[0]["id"]; has {
+		t.Fatalf("충돌 id 미재할당: inserted[0].id=%v", m.inserted[0]["id"])
+	}
+	if id, _ := m.inserted[1]["id"].(int); id != 10 {
+		t.Fatalf("비충돌 명시 id 미보존: inserted[1].id=%v", m.inserted[1]["id"])
+	}
+	if got := oc.idmap[9]; got == 0 || got == 9 {
+		t.Fatalf("재할당 id 매핑 부재/불일치: idmap[9]=%d", got)
+	}
+}
+
+// TestImportRowsBatchInFileDuplicateIDReassigned — G5: 파일 내 중복 id(다른
+// 내용)는 첫 행이 id를 갖고 이후 행은 자동 재할당 — 배치 PK 충돌로 전체
+// 실패(exit 1)하던 경로 폐지.
+func TestImportRowsBatchInFileDuplicateIDReassigned(t *testing.T) {
+	t0 := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
+	m := newMemMigrateFake()
+	rows := []ExportRow{g5Row(7, 1, t0), g5Row(7, 2, t0), g5Row(8, 1, t0)}
+	oc, err := importRowsBatch(context.Background(), m, rows)
+	if err != nil {
+		t.Fatalf("importRowsBatch: %v", err)
+	}
+	if oc.imported != 3 || oc.remapped != 1 {
+		t.Fatalf("imported=%d remapped=%d, want 3/1(파일 내 중복 1건)", oc.imported, oc.remapped)
+	}
+	if id, _ := m.inserted[0]["id"].(int); id != 7 {
+		t.Fatalf("첫 행 id 미보존: %v", m.inserted[0]["id"])
+	}
+	if _, has := m.inserted[1]["id"]; has {
+		t.Fatalf("파일 내 중복 id 미재할당: %v", m.inserted[1]["id"])
+	}
+	if id, _ := m.inserted[2]["id"].(int); id != 8 {
+		t.Fatalf("독립 id 오염: %v", m.inserted[2]["id"])
+	}
+}
+
+// TestRunImportMigrateSameDBReassignRoundtrip — G5 왕복 회귀: 같은 DB에
+// 같은 id·다른 내용을 재이식하면 id 재할당으로 전량 적립 exit 0 —
+// 요약에 remapped가 보고된다(충돌 exit 1로 왕복이 끊기던 주 시나리오 회복).
+func TestRunImportMigrateSameDBReassignRoundtrip(t *testing.T) {
+	t0 := time.Date(2026, 11, 16, 11, 0, 0, 0, time.UTC)
+	m := newMemMigrateFake()
+	data, err := FormatJSONL([]ExportRow{g5Row(11, 1, t0), g5Row(22, 1, t0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, code := runMigrate(t, m, []string{"--format", "jsonl"}, string(data))
+	if code != 0 || !strings.Contains(out, `"imported":2`) {
+		t.Fatalf("1회차 exit=%d out=%s", code, out)
+	}
+	// 2회차 — 같은 id·다른 내용(해시·본문 변형) 재이식.
+	data2, err := FormatJSONL([]ExportRow{g5Row(11, 2, t0), g5Row(22, 2, t0)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	out, code = runMigrate(t, m, []string{"--format", "jsonl"}, string(data2))
+	if code != 0 {
+		t.Fatalf("재이식 exit=%d, want 0(id 재할당); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"imported":2`) || !strings.Contains(out, `"remapped":2`) {
+		t.Fatalf("재이식 요약(id 재할당·전량 적립): %s", out)
+	}
+}
+
+// TestWriteProjectNoteStored — F5 Review Focus: project payload의 note는
+// kindColumns 등록 컬럼으로 저장된다(SchemaV2 projects.note — 종전
+// 비컬럼 메타데이터 취급 버려짐 폐지).
+func TestWriteProjectNoteStored(t *testing.T) {
+	f := &fakeStore{}
+	payload := `{"name":"데모 노트 프로젝트","status":"active","note":"합성 데모 노트 — 저장 검증."}` + "\n"
+	out, code := run(t, f, []string{"project"}, payload)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("적립=%d, want 1: %s", len(f.inserted), out)
+	}
+	if got, _ := f.inserted[0]["note"].(string); got != "합성 데모 노트 — 저장 검증." {
+		t.Fatalf("note 미저장: %v", f.inserted[0]["note"])
 	}
 }

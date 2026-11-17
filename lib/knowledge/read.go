@@ -459,7 +459,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		}
 		ssql, sargs := query.BuildSuggestScan()
 		if srows, serr := wire.QueryOnce(ctx, st, ssql, sargs); serr == nil {
-			suggestions = query.SuggestSimilar(q, srows, 3)
+			suggestions = query.SuggestSimilar(suggestQuery(q), srows, 3)
 		}
 	}
 	// 출력 중립화(ADR-0006): 저장 단계 살균을 읽기에도 재적용 — 저장 이후
@@ -584,6 +584,19 @@ func ValidateSessionLabel(given bool, val string) error {
 // 때만 참. v1.5.3 P2로 exit 판정 소비는 폐지(exit 0 통일).
 func ReadSuggestEligible(rows int, asOfSpec, status string) bool {
 	return rows == 0 && asOfSpec == "" && status == ""
+}
+
+// suggestQueryMaxRunes — 제안(SuggestSimilar) 입력 상한(R33 G4, v1.6.2
+// T3): 4096 rune. bigramDice가 스캔 행마다 쿼리 bigram 집합을 재구축하는
+// 구조라 초대형 쿼리(100KB급)가 제안만으로 read를 17s급으로 지연시켰다 —
+// 제안 입력만 truncate하고 본문 검색 쿼리는 원문 그대로 유지한다(유사도
+// 신호는 선두 4KB로 충분 — did-you-mean 후보군 랭킹).
+const suggestQueryMaxRunes = 4096
+
+// suggestQuery — 제안 입력 상한 적용(멀티바이트 안전 — TruncateRunes
+// 단일 구현 승계). ClampLimit 관례: 조용히 절단하고 별도 보고는 없다.
+func suggestQuery(q string) string {
+	return render.TruncateRunes(q, suggestQueryMaxRunes)
 }
 
 // BumpReadFallbackToMeta — 폴백 시도 1회 증분(v0.9.6). 기존 계측 패턴

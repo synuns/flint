@@ -96,3 +96,30 @@ func TestConnectReal(t *testing.T) {
 		t.Fatalf("ping: %v", err)
 	}
 }
+
+// TestPoolConfigConnectTimeout — v1.6.2 R33-3 F4: 풀 설정의 접속
+// 타임아웃은 기본 5s(원격 불통 조기 실패 — hooks 10s 예산 내 exit 2).
+// DSN 지정값이 더 짧으면 사용자 값 유지, 더 길면 5s로 상한.
+func TestPoolConfigConnectTimeout(t *testing.T) {
+	cfg, err := PoolConfig("postgresql://flint:flint-dev@localhost:5434/flint")
+	if err != nil {
+		t.Fatalf("PoolConfig: %v", err)
+	}
+	if got := cfg.ConnConfig.ConnectTimeout; got != 5*time.Second {
+		t.Fatalf("ConnectTimeout = %v, want 5s", got)
+	}
+	cfg, err = PoolConfig("postgresql://flint:flint-dev@localhost:5434/flint?connect_timeout=1")
+	if err != nil {
+		t.Fatalf("PoolConfig(shorter): %v", err)
+	}
+	if got := cfg.ConnConfig.ConnectTimeout; got != 1*time.Second {
+		t.Fatalf("사용자 단축값 유지 실패: %v, want 1s", got)
+	}
+	cfg, err = PoolConfig("postgresql://flint:flint-dev@localhost:5434/flint?connect_timeout=30")
+	if err != nil {
+		t.Fatalf("PoolConfig(longer): %v", err)
+	}
+	if got := cfg.ConnConfig.ConnectTimeout; got != 5*time.Second {
+		t.Fatalf("장값 상한 실패: %v, want 5s", got)
+	}
+}

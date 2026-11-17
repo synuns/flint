@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/synuns/flint/lib/store"
 )
@@ -408,5 +409,80 @@ func TestInsertBatchBatchedAtomicAcrossChunks(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("want 0 rows after rollback across chunks, got %d", n)
+	}
+}
+
+// ── v1.6.2 T2(E1): Doltgres 커밋 시점 unique 위반(동시 write 레이스) 분류. ──
+
+// TestMapInsertErrConstraintRollback — 동시 write 레이스에서 Doltgres는
+// unique 위반을 SQLSTATE 23505가 아닌 XX000 + "constraint violations,
+// transaction rolled back" 메시지로 커밋 시점에 돌려준다(2026-11-17
+// 실측). 이 분류가 빠지면 InsertBatch 오류가 write.go survive 경로(재확인·
+// 재시도)에 도달하지 못해 레이스 패자의 고유줄이 유실된다.
+func TestMapInsertErrConstraintRollback(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		dup  bool
+	}{
+		{"커밋 시점 레이스 위반(XX000)은 ErrDuplicate", &pgconn.PgError{
+			Code: "XX000",
+			Message: "Committing this transaction resulted in a working set with constraint violations, transaction rolled back. " +
+				"Constraint violations: Type: Unique Key Constraint Violation, Name: knowledge_content_hash_key",
+		}, true},
+		{"동일 XX000이라도 제약 위반이 아닌 오류는 전파", &pgconn.PgError{
+			Code: "XX000", Message: "nothing to commit, working set clean",
+		}, false},
+		{"23505(일반 unique 위반) 분류 불변", &pgconn.PgError{
+			Code: "23505", Message: `duplicate key value violates unique constraint "knowledge_content_hash_key"`,
+		}, true},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			got := mapInsertErr(tc.err)
+			if errors.Is(got, store.ErrDuplicate) != tc.dup {
+				t.Fatalf("mapInsertErr 분류 = ErrDuplicate:%v, want %v (err=%v)",
+					errors.Is(got, store.ErrDuplicate), tc.dup, got)
+			}
+		})
+	}
+}
+
+// TestInsertBatchCommitRaceClassifiedRealSlow — 결정론적 교차로 실 Doltgres
+// 커밋 시점 위반을 일으켜, 실제 오류 메시지가 mapInsertErr 분류에 잡히는지
+// 검증한다(Dolt 메시지 드리프트 방어 — 실측 2026-11-17: XX000 +
+// "constraint violations, transaction rolled back"). 교차: txA가 동일
+// content_hash 삽입 후 보류 중 txB가 같은 해시를 삽입·커밋(승자)하면
+// txA의 커밋이 working set 제약 위반으로 롤백된다.
+func TestInsertBatchCommitRaceClassifiedRealSlow(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	const probeHash = "e1-race-probe-hash"
+	ins := `INSERT INTO knowledge (topic, summary, tags, domain, confidence, origin, status, content_hash)
+		VALUES ($1, '합성 프로브 줄', '', 'main', 0.9, 'agent', 'active', $2)`
+	txA, err := r.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("txA Begin: %v", err)
+	}
+	defer txA.Rollback(ctx)
+	if _, err := txA.Exec(ctx, ins, "e1-race-probe-a", probeHash); err != nil {
+		t.Fatalf("txA 삽입: %v", err)
+	}
+	txB, err := r.pool.Begin(ctx)
+	if err != nil {
+		t.Fatalf("txB Begin: %v", err)
+	}
+	if _, err := txB.Exec(ctx, ins, "e1-race-probe-b", probeHash); err != nil {
+		t.Fatalf("txB 삽입: %v", err)
+	}
+	if err := txB.Commit(ctx); err != nil {
+		t.Fatalf("txB 커밋(승자 — 성공해야 함): %v", err)
+	}
+	commitErr := txA.Commit(ctx)
+	if commitErr == nil {
+		t.Fatal("레이스 재현 실패 — txA 커밋이 성공함(교차가 성립하지 않음)")
+	}
+	if err := mapInsertErr(commitErr); !errors.Is(err, store.ErrDuplicate) {
+		t.Fatalf("실DB 커밋 시점 위반이 ErrDuplicate로 분류되지 않음(메시지 드리프트 의심): %v", err)
 	}
 }

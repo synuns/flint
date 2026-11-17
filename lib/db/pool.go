@@ -21,10 +21,34 @@ var (
 // DefaultDelays 는 기본 재시도 간격: 즉시, 1초, 3초.
 var DefaultDelays = []time.Duration{0, 1 * time.Second, 3 * time.Second}
 
+// DefaultConnectTimeout — v1.6.2 R33-3 F4: 접속 시도 상한 5s. 원격
+// 불통(패킷 드롭 — 연결 거부와 달리 커널 타임아웃까지 매달린다)을
+// 조기 실패시켜 세션 훅 예산(10s) 내 exit 2로 끝낸다.
+const DefaultConnectTimeout = 5 * time.Second
+
+// PoolConfig — DSN을 파싱해 ConnectTimeout이 보장된 풀 설정을 돌려준다.
+// 미지정(0)이면 기본 5s, 사용자 지정값이 더 길면(불통 지연) 5s로 상한,
+// 더 짧으면 사용자 값을 유지한다. 파싱 실패는 ErrServerDown으로 감싼다.
+func PoolConfig(dsn string) (*pgxpool.Config, error) {
+	cfg, err := pgxpool.ParseConfig(dsn)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrServerDown, err)
+	}
+	if cfg.ConnConfig.ConnectTimeout <= 0 || cfg.ConnConfig.ConnectTimeout > DefaultConnectTimeout {
+		cfg.ConnConfig.ConnectTimeout = DefaultConnectTimeout
+	}
+	return cfg, nil
+}
+
 // Connect 는 DSN으로 풀을 만들고 Ping으로 생존을 확인한다.
 // 서버에 닿을 수 없으면 ErrServerDown을 돌려준다(재시도 없음).
+// 접속 시도는 PoolConfig의 ConnectTimeout(기본 5s 상한)을 따른다.
 func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	pool, err := pgxpool.New(ctx, dsn)
+	cfg, err := PoolConfig(dsn)
+	if err != nil {
+		return nil, err
+	}
+	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrServerDown, err)
 	}
