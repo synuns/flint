@@ -241,8 +241,8 @@ func TestHotRankDecayRateMetaOverride(t *testing.T) {
 func TestHotRankRowsEffectiveOrderNotAccidental(t *testing.T) {
 	rows := [][]any{
 		{"gamma", 5, mustTime(t, "2026-08-01T00:00:00Z")}, // eff 0 (score 5 - 100일)
-		{"alpha", 1, mustTime(t, "2026-11-10T00:00:00Z")},  // eff 0 (score 1 - 2일)
-		{"beta", 3, mustTime(t, "2026-11-15T00:00:00Z")},   // eff 2 (score 3 - 0일)
+		{"alpha", 1, mustTime(t, "2026-11-10T00:00:00Z")}, // eff 0 (score 1 - 2일)
+		{"beta", 3, mustTime(t, "2026-11-15T00:00:00Z")},  // eff 2 (score 3 - 0일)
 	}
 	got := rankRowsByEffectiveScore(rows, 1, 2, 1.0, mustTime(t, "2026-11-17T00:00:00Z"))
 	if got[0][0] != "beta" || got[1][0] != "gamma" || got[2][0] != "alpha" {
