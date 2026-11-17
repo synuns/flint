@@ -6,6 +6,20 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.7.2 chore (2026-11-17) — release-gate 자동화
+
+- [x] scripts/release_gate.sh — 태그 전 VERSION·plugin.json·배지(EN/KO)·HISTORY
+  항목·versions_test 계약행·docs-sync 검사. make release가 선행 의존. 첫
+  실행에서 v1.7.1 항목/계약행 부재(R38-C4)를 즉시 포착 — 게이트 자체 실증.
+
+### v1.7.1 patch (2026-11-17) — decay ranking partial-sort fix
+
+- [x] rankRowsByEffectiveScore's sort.SliceStable swapped only rows while
+  the precomputed eff array drifted — decay ranking ended partially sorted
+  (effective-0 rows above effective-1; both hot/brief). Replaced with
+  index sort + reorder; brief caller now assigns the returned slice
+  (accompanying ignored-return bug). R36 reproduction regression included.
+
 ### v1.7.0 minor (2026-11-17) — knowledge sync · recall decay · telemetry commit split
 
 - [x] Knowledge sync (`flint sync` — a human operator command, not agent-facing:

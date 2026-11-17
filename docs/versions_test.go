@@ -305,6 +305,9 @@ var versionDocContracts = []struct {
 	}},
 
 	// v1.7.0 T7: sync·decay·계측 분리 커밋 이행 기록 존재 계약.
+	{name: "TestVersion0171Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.7.1", "partial-sort",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
