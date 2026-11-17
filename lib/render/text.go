@@ -1,9 +1,5 @@
-// text.go — 텍스트 출력 보조 유틸 단일 소스(v0.38.0 패키지 분할 1/3:
-// lib/cli textutil.go의 truncateRunes와 pending.go의 countPending을
-// 통합 이동, 스펙 §2). rune 절단 3중 복제 수렴(v0.34.3 감사 스윕)과
-// pending 수 단일 조회 관례를 승계한다. v0.39.0 T4 룰링: CountPending은
-// pending 도메인 소유라 lib/knowledge/pending.go로 이동했다(render에는
-// 임시 소속이었다 — render→knowledge 임포트는 사이클).
+// text.go — 텍스트 출력 보조 유틸 단일 소스(스펙 §2). rune 절단·
+// pending 수 단일 조회 관례를 유지한다.
 package render
 
 import (
@@ -21,8 +17,7 @@ func TruncateRunes(s string, n int) string {
 	return string(r[:n])
 }
 
-// CellToInt — 셀(any)→int 단일 강제 변환 유틸(v0.39.0 T3 부채 수렴 —
-// 구 lib/cli/read.go 복제본 삭제, 이 구현만 남는다). pgx 숫자형(int·
+// CellToInt — 셀(any)→int 단일 강제 변환 유틸. pgx 숫자형(int·
 // int32·int64)·float64·10진 문자열을 수용하고 nil·비수는 (0, false).
 // 소비자: knowledge read(rowIDs)·cli 잔류(maintain stale·report 집계·
 // doctor) — 별칭 경유.

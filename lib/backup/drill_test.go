@@ -69,10 +69,9 @@ func TestSkipForDrill(t *testing.T) {
 // 드릴 재생에서 원본 public 시퀀스를 건드리지 않는다. 오래된 keep-N 덤프로
 // 훈련해도 public 시퀀스가 과거 값으로 되감기지 않아야 한다(PK 충돌 방지).
 
-// requireDropVisibility 가드(v2 — 전용 DB 프로브)는 v0.15.2 격리 전환으로
-// 삭제했다: RunDrill이 전용 데이터베이스(flint_drill_db)에서 자가 정리형이
-// 되어 엔진 결함(DROP 무음 no-op)이 발동해도 실패는 드릴 DB 내부에 갇히고
-// 공유 flint_test는 무오염이다. 우리는 테이블을 DROP하지 않고 DB를 DROP한다.
+// requireDropVisibility 가드(전용 DB 프로브)는 불필요해 삭제했다:
+// RunDrill이 전용 데이터베이스(flint_drill_db)에서 자가 정리형이라 실패는
+// 드릴 DB 내부에 갇히고 공유 flint_test는 무오염이다.
 
 func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 	unlock := drillLock(t)
@@ -241,9 +240,8 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 // Review Focus(state): 실DB 덤프 재생 → Ok true·스키마 무잔존.
 // Review Focus(numeric): 행수 대조 — Expected==Restored==실제 knowledge 행수.
 
-// 회귀(원본 풀 무오염, 구 TestDrillConnResetsSearchPath 승계 — v0.15.2
-// 격리 전환): 드릴 재생이 별도 flint_drill_db 풀에서만 일어나므로 원본
-// DSN 풀의 커넥션 상태(search_path 등)를 오염시키지 않는다. MaxConns=1
+// 회귀(원본 풀 무오염): 드릴 재생이 별도 flint_drill_db 풀에서만 일어나므로
+// 원본 DSN 풀의 커넥션 상태(search_path 등)를 오염시키지 않는다. MaxConns=1
 // 풀에서 RunDrill 전후 같은 커넥션으로 current_setting을 읽어 잔류
 // 여부를 검증한다(잔류 시 이후 비한정 쿼리가 public 테이블을 못 찾는다
 // — CI PR #1 42P01).
@@ -543,7 +541,7 @@ func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	}
 }
 
-// 회귀(v0.15.2 격리 전환): 드릴 재생은 전용 데이터베이스 flint_drill_db에서
+// 회귀: 드릴 재생은 전용 데이터베이스 flint_drill_db에서
 // 일어나고 종료 시(성공·실패 무관) 항상 제거한다. 선행 잔존(이전 비정상
 // 종료로 남은 flint_drill_db)은 재생 전에 정리된다 — 감시 테이블이 든
 // 잔존 DB를 심어 두고 드릴 후 DB 부재로 라이프사이클 전체(선행 제거→

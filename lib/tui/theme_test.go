@@ -1,4 +1,4 @@
-// theme_test.go — 최소 색상 테마 값 존재 단언. v1.5.0 T5
+// theme_test.go — 최소 색상 테마 값 존재 단언.
 package tui
 
 import (

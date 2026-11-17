@@ -1,5 +1,5 @@
-// thresholds_v0163_test.go — v0.16.3: 하드코딩됐던 튜닝 상수 7종의
-// Thresholds 레지스트리화(기본값·meta 오버라이드 파싱).
+// thresholds_v0163_test.go — 튜닝 상수 7종의
+// Thresholds 레지스트리(기본값·meta 오버라이드 파싱) 테스트.
 package store
 
 import "testing"
@@ -74,7 +74,7 @@ func TestThresholdsV0163InvalidFallback(t *testing.T) {
 }
 
 // 미설정 신규 키는 0(미설정) — 소비자(loadThresholds)가 기본값으로
-// 폴백한다(v0.6 규약 승계, 기존 전체 구조체 비교 테스트 호환).
+// 폴백한다(규약: 기존 전체 구조체 비교 테스트 호환).
 func TestThresholdsV0163UnsetStaysZero(t *testing.T) {
 	th, err := ParseThresholds(nil)
 	if err != nil {

@@ -15,7 +15,7 @@ import (
 )
 
 // DefaultBackupIntervalH — 자동 백업 최소 주기 기본(시간). meta
-// backup_interval_h 오버라이드(v0.24.0 R1c — backup_keep과 한 세트).
+// backup_interval_h 오버라이드(backup_keep과 한 세트).
 const DefaultBackupIntervalH = 24
 
 // BackupIntervalKey — 주기 meta 키.
@@ -53,9 +53,8 @@ type Auto struct {
 
 // RunIfNeeded 는 last_backup 메타가 24h 이상 경과했을 때만 덤프를 dump에
 // 기록하고 메타를 갱신한다. 비경과면 no-op, 실패면 에러를 반환한다.
-// v1.0.10(감사 R2-A4): 원자 선점(CAS)으로 재설계 — claim(old→now)에 성공한
-// 세션만 덤프한다. 이전엔 덤프 뒤 스탬프라 병렬 done 세션이 동시 만료를
-// 함께 통과해 이중 덤프(keep-N 자리 낭비)가 가능했다. claim 값 자체가
+// 원자 선점(CAS) — claim(old→now)에 성공한
+// 세션만 덤프한다. claim 값 자체가
 // 타임스탬프라 최종 스탬프 별도 없음. 트레이드오프: 덤프 실패 시 당일
 // 재시도가 다음 날로 미뤄진다(일 1회 백업 계약 정합, 실패는 조용히 §13).
 func (a *Auto) RunIfNeeded(ctx context.Context,
@@ -77,7 +76,7 @@ func (a *Auto) RunIfNeeded(ctx context.Context,
 	if !ShouldBackup(last, now, intervalH) {
 		return nil
 	}
-	// v1.0.11(R12-A2): RFC3339Nano — 초 단위 타임스탬프는 동일 초 병렬
+	// RFC3339Nano — 초 단위 타임스탬프는 동일 초 병렬
 	// 세션이 같은 newVal을 쓰는 순간 CAS의 단일 승자 보장이 붕괴한다
 	// (실DB 8-way 실증: 동일값은 WHERE 스냅샷 평가 후 전원 승리).
 	// 나노초로 값 유일성을 확보한다. ShouldBackup은 RFC3339 파싱으로

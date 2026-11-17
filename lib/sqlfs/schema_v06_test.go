@@ -1,4 +1,4 @@
-// schema_v06_test.go — T59 schema v4(항목 참조 계측 컬럼) fast 테스트.
+// schema_v06_test.go — schema v4(항목 참조 계측 컬럼) fast 테스트.
 package sqlfs
 
 import (

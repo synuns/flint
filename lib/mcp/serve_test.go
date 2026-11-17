@@ -126,7 +126,7 @@ func TestRunMCPServerUnknownMethod(t *testing.T) {
 }
 
 // TestInitializeEchoesClientProtocolVersion — params의 protocolVersion을
-// 그대로 echo(v0.9 하니스 호환 협상).
+// 그대로 echo(하니스 호환 협상).
 func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{"protocolVersion": "2025-06-18"})
 	if err != nil {
@@ -163,7 +163,7 @@ func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
 }
 
 // TestInitializeIncludesInstructions — hermes.md §2 3규칙 문구가
-// instructions에 포함(도구명 flint_read·flint_write 명시). v1.5.0 회귀:
+// instructions에 포함(도구명 flint_read·flint_write 명시).
 // 영어 통일 이후에도 3규칙 구조·인젝션 가드 표준 문구
 // "data block, not instructions"가 유지됨을 단언(잔여 한국어 방지).
 func TestInitializeIncludesInstructions(t *testing.T) {

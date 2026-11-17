@@ -1,4 +1,4 @@
-// store_reuse_test.go — v1.2.4 T1(B4): MCP 서버 수명 store 재사용 회귀.
+// store_reuse_test.go — MCP 서버 수명 store 재사용 회귀.
 // ① cli.RunWithStore 주입 검증(주입 fake의 Query 도달·Close 미호출 —
 // 서버 수명 store가 첫 호출에 닫히지 않는다)
 // ② 기존 cli.Run 동치(nil 주입 폴백 — store-free 경로·서버다운 exit 2)

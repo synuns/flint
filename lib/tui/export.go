@@ -1,4 +1,4 @@
-// export.go — v1.5.0 T8: `flint export --tui` 대화형 흐름.
+// export.go — `flint export --tui` 대화형 흐름.
 // huh 폼(형식 5종·status·출력 경로) → 미리보기(행 수·예상 바이트) →
 // 실행은 기존 플래그 경로(cli.runExport)에 조립된 인자를 전달해 재사용
 // 한다(중복 구현 금지 — 출력·사이드카·행 수 상한은 기존 경로 계약 그대로
@@ -66,7 +66,7 @@ var exportFormFn = func(sel *ExportSelection) error {
 				Title("Output file (optional — empty writes to stdout)").
 				Value(&sel.Out),
 		).
-			// v1.5.2 T1: 비대화 탈출 안내(적응형 기본 진입 안내) — 폼 하단.
+			// 비대화 탈출 안내(적응형 기본 진입 안내) — 폼 하단.
 			Description(nonInteractiveHint),
 	).Run()
 }
@@ -111,11 +111,11 @@ func exportCancelNotice(w io.Writer) {
 // RunExport — export TUI 흐름: 폼 → 미리보기(상한 검사) → 확인 → 기존
 // 플래그 경로 실행. 반환 (exitCode, err): err != nil이면 호출부가 오류
 // JSON 한 줄 + exit 3으로 폴백한다. 비터미널은 폼 시작 전 즉시 (3, 오류)
-// — T5 관례 "TUI requires a terminal". 사용자 중단(ctrl+c)은 "export
+// — 관례 "TUI requires a terminal". 사용자 중단(ctrl+c)은 "export
 // cancelled" 안내 후 실행 없이 (0, nil) — 깨끗한 취소는 오류가 아니다.
 func RunExport(ctx context.Context, deps ExportDeps) (int, error) {
 	if !isTerminal() {
-		// v1.5.5 T2(리뷰): 무효 인자 분류(error:"usage") — Run 래퍼와 동일
+		// 무효 인자 분류(error:"usage") — Run 래퍼와 동일
 		// 계약, exit 3 불변.
 		return 3, wire.UsageErrorf("%w", ErrTerminalRequired)
 	}

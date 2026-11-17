@@ -1,4 +1,4 @@
-// suggest_v0100_test.go — v0.10.0 T1: did-you-mean 순수 함수 고정
+// suggest_v0100_test.go — did-you-mean 순수 함수 고정
 // (nfkc·bigramDice·SuggestSimilar — 스펙 §3 R1·R2).
 package query
 

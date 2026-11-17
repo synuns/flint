@@ -1,4 +1,4 @@
-// tools.go — flint mcp 도구 5종(v0.32.0). Dispatch는 cli.Run 인자를 조립해 호출하고
+// tools.go — flint mcp 도구 5종. Dispatch는 cli.Run 인자를 조립해 호출하고
 // CLI 출력 문자열과 exit 코드(0/1/2/3 계약)를 그대로 반환한다(실DB·계약 재사용).
 package mcp
 
@@ -25,7 +25,7 @@ type ToolDef struct {
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
-// runFn — seam. 기본은 서버 수명 store 재사용 실행기(v1.2.4 B4):
+// runFn — seam. 기본은 서버 수명 store 재사용 실행기:
 // 캐시 store(또는 supply 실패 시 nil)를 cli.RunWithStore로 주입한다.
 // nil 폴백은 RunWithStore 내부가 기존 cli.Run 동치 경로로 조용히 처리
 // 한다. 테스트는 fake 주입(SUPERLITE_REAL=1은 실구현 위임).
@@ -65,7 +65,7 @@ func serverStore() wire.Store {
 	return cachedStore
 }
 
-// ToolsManifest — 도구 5종 정의(read·write·hot·pending·approve — v0.32.0).
+// ToolsManifest — 도구 5종 정의(read·write·hot·pending·approve).
 func ToolsManifest() []ToolDef {
 	return []ToolDef{
 		{
@@ -93,9 +93,7 @@ func ToolsManifest() []ToolDef {
 			},
 		},
 		{
-			// v1.0.1 감사 F7: session_id 파라미터 폐지 — CLI hot의
-			// --session은 조회에 영향 없는 no-op이었으므로 광고-폐기
-			// 불일치. 실 세션 필터링은 신규 기능으로 제외.
+			// session_id 파라미터는 없다 — 실 세션 필터링은 제외.
 			Name:        "flint_hot",
 			Description: "Hot summary for injection (2,000-char cap). All recent items (no session filter).",
 			InputSchema: map[string]any{
@@ -104,7 +102,7 @@ func ToolsManifest() []ToolDef {
 			},
 		},
 		{
-			// v0.32.0: 검수 회로 — 세션 안에서 대기 지식 심사·승격.
+			// 검수 회로 — 세션 안에서 대기 지식 심사·승격.
 			Name:        "flint_pending",
 			Description: "Pending knowledge list + rule-based suggestions. verdict is promote|merge|expire|hold. Returns JSON.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
@@ -139,7 +137,7 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 	case "flint_approve":
 		return dispatchApprove(args)
 	default:
-		// v0.28.0(H③): 이름 이스케이프(원시 결합 JSON 파손 방지).
+		// 이름 이스케이프(원시 결합 JSON 파손 방지).
 		if b, err := json.Marshal(map[string]string{"error": "unknown tool: " + name}); err == nil {
 			return string(b), 1
 		}
@@ -151,7 +149,7 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 // (ClampLimit 상한 50)을 도구 경로에도 박제한다. query는 외부 입력이라
 // 플래그로 파싱되지 않게 "--" 뒤에 둔다(N9 — runRead의 end-of-options 규칙).
 func dispatchRead(args map[string]any) (string, int) {
-	// v1.2.0 T2 잔여: MCP 경로 라벨 — read_events.source='mcp' 계량.
+	// MCP 경로 라벨 — read_events.source='mcp' 계량.
 	cliArgs := []string{"--source", "mcp"}
 	if tag := strArg(args, "tag"); tag != "" {
 		cliArgs = append(cliArgs, "--tag", tag)
@@ -165,7 +163,7 @@ func dispatchRead(args map[string]any) (string, int) {
 	return runCall(append([]string{"read"}, cliArgs...), strings.NewReader(""))
 }
 
-// dispatchApprove — flint approve --id N [--supersede OLD]. v0.32.0 검수
+// dispatchApprove — flint approve --id N [--supersede OLD]. 검수
 // 회로: 신뢰 게이트(write와 동일 신뢰 수준 — 로컬 stdio 단일 사용자).
 // id는 양의 정수, supersede는 id와 상이해야 한다 — exit 3(검증 실패 계약).
 func dispatchApprove(args map[string]any) (string, int) {
@@ -174,7 +172,7 @@ func dispatchApprove(args map[string]any) (string, int) {
 		return `{"error":"schema","field":"id","expect":"positive integer"}`, 3
 	}
 	cliArgs := []string{"approve", "--id", strconv.Itoa(id)}
-	// v0.32.0 리뷰 1: supersede 키가 존재하면 타입·값 오류가 무음 스킵이
+	// supersede 키가 존재하면 타입·값 오류가 무음 스킵이
 	// 아니라 반드시 exit 3 — 문자열 "3" 등 LLM 호출기 오타이 승격만
 	// 실행되는 의미 변질을 차단한다.
 	if _, has := args["supersede"]; has {
@@ -193,7 +191,7 @@ func dispatchApprove(args map[string]any) (string, int) {
 	return runCall(cliArgs, strings.NewReader(""))
 }
 
-// intArgStrict — 정수성 검사 intArg(v0.32.1 감사 3): 소수(7.9)는 절삭이
+// intArgStrict — 정수성 검사 intArg: 소수(7.9)는 절삭이
 // 아니라 실패 — 승격·대체 대상 오지정 방지(read limit의 관대 절삭과
 // 구분되는 검증 엄격 계약).
 func intArgStrict(args map[string]any, key string) (int, bool) {
@@ -210,8 +208,8 @@ func intArgStrict(args map[string]any, key string) (int, bool) {
 }
 
 // writeKindExpect — flint write가 수용하는 kind 집합. 원천은 lib/store의
-// 수출 상수 KindExpect(v1.2.4 T2 승격 — 값 복제 제거, 단일 원천 참조).
-// v1.2.3 R17-B5: 무효 kind의 runFn 도달 전 서버측 차단.
+// 수출 상수 KindExpect(단일 원천 참조).
+// 무효 kind의 runFn 도달 전 서버측 차단.
 const writeKindExpect = store.KindExpect
 
 // dispatchWrite — flint write <kind> + stdin payload JSON. dedup는 CLI 파이프라인
@@ -237,9 +235,8 @@ func dispatchWrite(args map[string]any) (string, int) {
 	return runCall([]string{"write", kind, "--source", "mcp"}, bytes.NewReader(b))
 }
 
-// dispatchHot — flint hot 조립. v1.2.3 R17-B6: session_id 잔여 제거 —
-// v1.0.1 F7로 --session은 조회 무영향 no-op였고 광고에서도 폐기됐다.
-// 알 수 없는 인자는 무시한다(도구 계약상 인자 없음).
+// dispatchHot — flint hot 조립. 알 수 없는 인자는 무시한다
+// (도구 계약상 인자 없음).
 func dispatchHot(args map[string]any) (string, int) {
 	return runCall([]string{"hot"}, strings.NewReader(""))
 }
@@ -269,7 +266,3 @@ func intArg(args map[string]any, key string) (int, bool) {
 	}
 	return 0, false
 }
-
-// (v0.20.2 패치 루프 1차 F7: NewSimpleStore·simpleDSN·simpleStore 제거 —
-// DispatchTool이 cli.Run으로 각 호출 store를 열면서 미사용 죽은 방어 코드였다.
-// 이력은 git을 참조.)

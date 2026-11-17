@@ -1,4 +1,4 @@
-// suggest_v0132_test.go — v0.13.2 심층 리뷰 회귀: N13 제안 스캔 상한.
+// suggest_v0132_test.go — 제안 스캔 상한.
 // 스펙 §3 R1 '스캔 상한 없음' 정정 — 무상한 전체 스캔 방어.
 package query
 

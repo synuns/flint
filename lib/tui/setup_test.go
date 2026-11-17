@@ -1,4 +1,4 @@
-// setup_test.go — v1.5.0 T6 setup 위저드: 비터미널 폴백·폼 seam·취소
+// setup_test.go — setup 위저드: 비터미널 폴백·폼 seam·취소
 // 계약·플래그 등가물 검증. 폼 본체(huh)는 runSetupFormFn seam으로 갈아
 // 끼워 테스트한다(대화형 폼은 무인 테스트에서 실행 불가).
 package tui
@@ -29,7 +29,7 @@ func requireFakeForm(t *testing.T) {
 	}
 }
 
-// withTerminal — isTerminal seam 교체(T5 var 관례 승계).
+// withTerminal — isTerminal seam 교체(var 관례 승계).
 func withTerminal(t *testing.T, v bool) {
 	t.Helper()
 	prev := isTerminal

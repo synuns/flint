@@ -5,7 +5,7 @@ import (
 	"errors"
 )
 
-// exit 판정 기준 에러 심볼. db 계층(T2 pool·T7 repo)은 이 값을 그대로
+// exit 판정 기준 에러 심볼. db 계층(pool·repo)은 이 값을 그대로
 // 사용하거나(errors.Is로 통과) 자체 심볼을 별칭 지정한다.
 var (
 	// ErrServerDown — 즉시 실패, exit 2.
@@ -24,8 +24,8 @@ type committedOutput struct {
 	ID     int    `json:"id"`
 }
 
-// duplicateOutput — id>0일 때만 id 필드를 노출한다(R3: 기존 행 id.
-// v0.18.0 R1: topic·state 추가 — 이미 존재함 피드백. 빈 메타는 omitempty로
+// duplicateOutput — id>0일 때만 id 필드를 노출한다(기존 행 id.
+// topic·state additive 노출 — 이미 존재함 피드백. 빈 메타는 omitempty로
 // 기존 바이트 불변. id 0(미지원 Store·다중 줄)은 맨몸 {"status":"duplicate"}).
 type duplicateOutput struct {
 	Status string `json:"status"`
@@ -62,11 +62,11 @@ func OutputJSON(status, hash, state string, id int) string {
 	return string(b)
 }
 
-// DuplicateMetaJSON — 단일 줄 재전송의 duplicate 출력(v0.18.0 R1): 기존 행
+// DuplicateMetaJSON — 단일 줄 재전송의 duplicate 출력: 기존 행
 // topic·state를 additive 노출해 라이터가 read/supersede/approve로 전환하게
 // 한다(이미 존재함 피드백 루프). id 0·빈 메타는 기존 바이트와 동일(하위호환).
 func DuplicateMetaJSON(id int, topic, state string) string {
-	// v0.28.0(H③): 기존 행 topic echo 재살균 — 저장 본문이 살균 이전
+	// 기존 행 topic echo 재살균 — 저장 본문이 살균 이전
 	// 데이터·직접 SQL 유입이라도 출력 경계에서 마커를 중립화한다.
 	b, err := json.Marshal(duplicateOutput{Status: "duplicate", ID: id, Topic: SanitizeText(topic), State: state})
 	if err != nil {

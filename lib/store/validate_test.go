@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-// TestValidate — 플랜 T3 예제 4종 + 경계/거부 케이스.
+// TestValidate — 예제 4종 + 경계/거부 케이스.
 func TestValidate(t *testing.T) {
 	validKnowledge := map[string]any{"topic": "x", "summary": "y", "confidence": 0.9}
 	cases := []struct {

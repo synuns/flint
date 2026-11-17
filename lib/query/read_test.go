@@ -36,7 +36,7 @@ func TestBuildReadUsesActiveKnowledge(t *testing.T) {
 }
 
 // TestBuildReadEscapesLike — q의 %·_는 LIKE 와일드카드로 해석되지 않는다
-// (WHERE는 placeholder 주입). v0.28.0(H③): 랭킹 절 복사본도 파라미터
+// (WHERE는 placeholder 주입). 랭킹 절 복사본도 파라미터
 // ($2) — 이스케이프 인라인 자체가 사라졌다(인젝션 표면 제거).
 func TestBuildReadEscapesLike(t *testing.T) {
 	sql, args := BuildRead("100%_drop'", Filters{})
@@ -186,8 +186,8 @@ func TestFormatRowsFieldMapping(t *testing.T) {
 	}
 }
 
-// TestRankOrderParameterized — v0.28.0(H③): q는 파라미터($N) — 인라인
-// 리터럴 제거(이스케이프 의존 청산). 접두 절 구조만 정확 검사(T68 승계).
+// TestRankOrderParameterized — q는 파라미터($N) — 인라인
+// 리터럴 제거(이스케이프 의존 청산). 접두 절 구조만 정확 검사.
 func TestRankOrderParameterized(t *testing.T) {
 	got := RankOrder(5)
 	wantPrefix := "ORDER BY (lower(topic)=lower($5)) DESC, confidence DESC, ingested_at DESC"
@@ -197,7 +197,7 @@ func TestRankOrderParameterized(t *testing.T) {
 }
 
 // TestRankOrderPlain — 평범한 q도 파라미터 절(정확일치 → confidence → 최신순)
-// 접두 유지(T68 접미 tie-breaker 이후에도 선행 순위 불변).
+// 접두 유지(접미 tie-breaker 이후에도 선행 순위 불변).
 func TestRankOrderPlain(t *testing.T) {
 	got := RankOrder(1)
 	wantPrefix := "ORDER BY (lower(topic)=lower($1)) DESC, confidence DESC, ingested_at DESC"
@@ -209,7 +209,7 @@ func TestRankOrderPlain(t *testing.T) {
 // TestBuildReadUsesRankOrder — BuildRead의 정렬 절은 RankOrder(파라미터)를 그대로 삽입.
 func TestBuildReadUsesRankOrder(t *testing.T) {
 	sql, args := BuildRead("Flint", Filters{})
-	// v0.28.0: q는 랭킹 파라미터 — $2가 정합 비교값(BuildRead는 필터
+	// q는 랭킹 파라미터 — $2가 정합 비교값(BuildRead는 필터
 	// placeholder 뒤 q를 append).
 	if !strings.Contains(sql, RankOrder(len(args)-1)) {
 		t.Errorf("RankOrder 절 미삽입: %s", sql)
@@ -226,7 +226,7 @@ func TestFormatRowsUnknownFieldPositional(t *testing.T) {
 	}
 }
 
-// TestReorderByFallbackCountRRF — v0.25.0 R1: RRF 융합 — 다중 신호
+// TestReorderByFallbackCountRRF — RRF 융합 — 다중 신호
 // 조합이 순차 타이브레이크와 다르게 행렬을 매긴다(정합수 낮아도
 // read_count·자모 신호 합산이 크면 상위).
 func TestReorderByFallbackCountRRF(t *testing.T) {
@@ -244,7 +244,7 @@ func TestReorderByFallbackCountRRF(t *testing.T) {
 	}
 }
 
-// TestJamoOverlap — v0.25.0 R2: 자모 bigram이 어미 변형을 흡수한다.
+// TestJamoOverlap — 자모 bigram이 어미 변형을 흡수한다.
 func TestJamoOverlap(t *testing.T) {
 	if jamoOverlap(jamoTokenSets([]string{"백업"}), "백업용 스크립트", "") == 0 {
 		t.Error("'백업' ↔ '백업용' 자모 bigram 미매칭")
@@ -254,7 +254,7 @@ func TestJamoOverlap(t *testing.T) {
 	}
 }
 
-// TestReorderByTopicSignal — v0.25.1: topic 정합 제4신호 — read_count
+// TestReorderByTopicSignal — topic 정합 제4신호 — read_count
 // 지배적 행(관례 RankOrder의 topic 우선이 폴백 융합에서 소실되던 것)을
 // topic 정합 행이 이긴다.
 func TestReorderByTopicSignal(t *testing.T) {
@@ -268,7 +268,7 @@ func TestReorderByTopicSignal(t *testing.T) {
 	}
 }
 
-// TestRRFFuseDirect — v0.25.3(2차 리뷰 ④): rrfFuse 수학 계약 직접
+// TestRRFFuseDirect — rrfFuse 수학 계약 직접
 // 단얜 — 동률 경쟁 순위·0값 미기여·k 오버라이드가 순서를 바꾼다.
 func TestRRFFuseDirect(t *testing.T) {
 	// 동률: sig1에서 a·b 동순위(2), c 후순(1) — a·b 동점, c 미기여(0).

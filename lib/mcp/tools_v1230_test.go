@@ -1,4 +1,4 @@
-// tools_v1230_test.go — v1.2.3 R17-B5/B6: dispatchWrite kind 서버측 화이트리스트
+// tools_v1230_test.go — dispatchWrite kind 서버측 화이트리스트
 // 검증, dispatchHot session_id 잔여 제거.
 package mcp
 
@@ -42,8 +42,8 @@ func TestDispatchWriteRejectsBadKind(t *testing.T) {
 	}
 }
 
-// TestDispatchHotNoSessionResidue — B6: session_id는 더 이상 --session으로
-// 조립되지 않는다(v1.0.1 F7 no-op — 광고 폐기와 실구현 잔여의 불일치 제거).
+// TestDispatchHotNoSessionResidue — session_id는 --session으로
+// 조립되지 않는다(조회 무영향 no-op).
 func TestDispatchHotNoSessionResidue(t *testing.T) {
 	calls, _ := installRun(t, "hot summary", 0)
 	_, code := DispatchTool("flint_hot", map[string]any{"session_id": "s1"})

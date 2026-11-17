@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-// T66: 신규 임계값 3종 기본값 — stale_days 90·stall_hot_h 48·stall_write_h 72.
+// 신규 임계값 3종 기본값 — stale_days 90·stall_hot_h 48·stall_write_h 72.
 func TestThresholdsV06Defaults(t *testing.T) {
 	th := DefaultThresholds()
 	if th.StaleDays != 90 {

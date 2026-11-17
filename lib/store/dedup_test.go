@@ -27,7 +27,7 @@ func TestHashDistinct(t *testing.T) {
 	}
 }
 
-// TestHashPipelinePath — CanonicalJSON → ContentHash 파이프라인 경로(T4→T5 교차점).
+// TestHashPipelinePath — CanonicalJSON → ContentHash 파이프라인 경로.
 func TestHashPipelinePath(t *testing.T) {
 	n := Normalize("knowledge", map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
 		"tags": []any{"b", "a"}})

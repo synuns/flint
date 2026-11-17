@@ -1,5 +1,5 @@
-// render_test.go — render 출력층(살균 조크포인트·포맷) 테스트. v0.37.0
-// lib/cli/render_test.go에서 이동(스펙 §2), 기대값은 스펙 예시 그대로다.
+// render_test.go — render 출력층(살균 조크포인트·포맷) 테스트(스펙 §2),
+// 기대값은 스펙 예시 그대로다.
 package render
 
 import (
@@ -69,7 +69,7 @@ func TestRenderDelegates(t *testing.T) {
 // TestSanitizeTextChokepoint — lib/ 비테스트 소스에서 SanitizeText 직접
 // 언급(직접 호출·간접 참조 `f := store.SanitizeText` 모두)은 허용 파일
 // (lib/render/*·write.go·import.go·done.go·lib/store/sanitize.go·
-// lib/store/pipeline.go)에만 존재해야 한다. v0.37.0부터 활성 —
+// lib/store/pipeline.go)에만 존재해야 한다 —
 // render 우회는 영구 차단.
 func TestSanitizeTextChokepoint(t *testing.T) {
 	for _, v := range chokepointViolations("../..") {
@@ -80,16 +80,16 @@ func TestSanitizeTextChokepoint(t *testing.T) {
 // chokepointViolations — root 하위 lib/ 비테스트 .go 소스에서 SanitizeText
 // 식별자 토큰(호출 `SanitizeText(`·간접 참조 `:= store.SanitizeText`·
 // 별칭 import 경유 전부 — 식별자로서의 모든 언급)을 화이트리스트 밖에서
-// 보고한다("file:line" 목록). v1.0.1 가드 보강: go/scanner 토큰화 기반 —
+// 보고한다("file:line" 목록). go/scanner 토큰화 기반 —
 // 주석(COMMENT 토큰)은 애초에 식별자가 아니어서 무시되고, 문자열 리터럴
-// 내부의 "//"(R1-D 실증 우회 — 구 가드의 문자열 수준 주석 절단이 문자열
+// 내부의 "//"(구 가드의 문자열 수준 주석 절단이 문자열
 // 속 "//" 이후를 통째로 지워 호출을 숨김)도 STRING 토큰 안이라 절대
 // 우회되지 않는다.
 func chokepointViolations(root string) []string {
 	allowExact := map[string]bool{
-		"lib/knowledge/write.go":  true, // v0.39.0 T2 이동(cli/write.go)
-		"lib/knowledge/import.go": true, // v0.39.0 T2 이동(cli/import.go)
-		"lib/knowledge/done.go":   true, // v0.39.0 T4 이동(cli/done.go)
+		"lib/knowledge/write.go":  true,
+		"lib/knowledge/import.go": true,
+		"lib/knowledge/done.go":   true,
 		"lib/store/sanitize.go":   true,
 		"lib/store/pipeline.go":   true,
 	}
@@ -122,7 +122,7 @@ func chokepointViolations(root string) []string {
 			if tok == token.EOF {
 				break
 			}
-			// v1.0.11(R12-B3): MaskSecrets·MaskSecretsStrict 식별자도 가드 —
+			// MaskSecrets·MaskSecretsStrict 식별자도 가드 —
 			// 마스킹만 하고 살균을 건너뛰는 기기 밖 경로 여지 차단.
 			// backup.go MaskSecretsFn은 진단용 dump --mask 교체 seam이라 예외.
 			if tok == token.IDENT && (lit == "SanitizeText" || lit == "MaskSecrets" || lit == "MaskSecretsStrict") &&
@@ -140,7 +140,7 @@ func chokepointViolations(root string) []string {
 
 // TestSanitizeTextChokepointIndirect — 가드 우회 회귀: 간접 참조
 // (`leaky := store.SanitizeText` — 괄호 없는 토큰 언급)과 문자열 속
-// "//" 은폐(R1-D 실증: `"https://x//" + store.SanitizeText(s)` — 구
+// "//" 은폐(`"https://x//" + store.SanitizeText(s)` — 구
 // 가드의 주석 절단이 문자열 내 "//" 이후를 지워 호출을 숨겼다) 모두
 // 탐지되어야 한다. 직접 호출 탐지·주석 언급 무시·화이트리스트 통과도
 // 함께 단언.

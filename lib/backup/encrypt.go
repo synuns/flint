@@ -1,4 +1,4 @@
-// encrypt.go — v0.28.0 R1: 백업 at-rest 암호화(age, ADR 계열 — PLAN F).
+// encrypt.go — 백업 at-rest 암호화(age, ADR 계열 — PLAN F).
 // X25519 identity 파일(설정 디렉터리 backup.key, 0600) 기반 — 자동
 // 백업이 비대화형으로 돌아야 하므로 passphrase 프롬프트가 아닌 키 파일
 // 방식(룰링 ②). 위협 모델: 백업 파일이 기기를 벗어나는 유출(동기화·
@@ -30,7 +30,7 @@ var ErrEncryptKeyMissing = errors.New("backup encrypt: identity key file missing
 var ErrEncryptKeyCorrupt = errors.New("backup encrypt: identity key file corrupt — generating a new key would make existing ciphertext undecryptable (manual check: RUNBOOK)")
 
 // LoadIdentity — path에서 age X25519 identity 로드(부재 → ErrEncryptKeyMissing,
-// 불량 → ErrEncryptKeyCorrupt — v0.28.0: 구분해 EnsureIdentity가 불량 키를
+// 불량 → ErrEncryptKeyCorrupt — 구분해 EnsureIdentity가 불량 키를
 // 조용히 덮어쓰지 않게 한다).
 func LoadIdentity(path string) (*age.X25519Identity, error) {
 	b, err := os.ReadFile(path)

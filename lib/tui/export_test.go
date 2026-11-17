@@ -1,4 +1,4 @@
-// export_test.go — v1.5.0 T8: `flint export --tui` 흐름 계약 테스트.
+// export_test.go — `flint export --tui` 흐름 계약 테스트.
 // huh 폼·확인 단계·터미널 판정은 seam var로 fake 주입 — 검증 대상은
 // ① 폼 결과→플래그 인자 조립(ExportArgs 단일 진실원) ② 미리보기 행 수·
 // 바이트 산출 위임 ③ 상한 초과 오류 ④ 실행 위임(RunExport 재사용 —
@@ -100,7 +100,7 @@ func TestRunExportFormSelectionFlowsToPreviewAndRun(t *testing.T) {
 	}
 }
 
-// RF3 — 비터미널(파이프·CI): 폼 시작 전 즉시 폴백 (3, 오류) — T5 관례
+// 비터미널(파이프·CI): 폼 시작 전 즉시 폴백 (3, 오류) — 관례
 // "TUI requires a terminal". 폼은 열리지 않는다.
 func TestRunExportRequiresTerminal(t *testing.T) {
 	overrideExportTUISeams(t, false,

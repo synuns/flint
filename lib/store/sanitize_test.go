@@ -81,7 +81,7 @@ func TestScanSecretsDedup(t *testing.T) {
 	}
 }
 
-// TestScanSecretsNoDoubleReport — v0.26.0 리뷰 ③: sk-ant- 키는
+// TestScanSecretsNoDoubleReport — sk-ant- 키는
 // anthropic만 보고(openai 이중 보고 방지).
 func TestScanSecretsNoDoubleReport(t *testing.T) {
 	got := ScanSecrets("키 sk-ant-api03-abcdefghijklmnopqrst 포함")
@@ -94,7 +94,7 @@ func TestScanSecretsNoDoubleReport(t *testing.T) {
 	}
 }
 
-// TestScanSecretsAllowlist — v0.26.1(패치 루프 1차): 사용자 allowlist
+// TestScanSecretsAllowlist — 사용자 allowlist
 // 등록 문자열은 오탐에서 제외(repo 밖 파일 — 문서용 예시 토큰 완화).
 func TestScanSecretsAllowlist(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"ghp_example_token_for_docs_12345"})
@@ -109,8 +109,8 @@ func TestScanSecretsAllowlist(t *testing.T) {
 	}
 }
 
-// TestScanSecretsExpandedPatterns — v0.26.2(재검수 발견6): v0.26.0
-// 신규 3종 패턴(gitlab-pat·jwt·google) 회귀.
+// TestScanSecretsExpandedPatterns — 신규 3종
+// 패턴(gitlab-pat·jwt·google) 회귀.
 func TestScanSecretsExpandedPatterns(t *testing.T) {
 	cases := []struct{ name, text string }{
 		{"gitlab-pat", "토큰 glpat-abcdefghijklmnopqrst"},
@@ -125,8 +125,8 @@ func TestScanSecretsExpandedPatterns(t *testing.T) {
 	}
 }
 
-// TestLoadSecretsAllowlistFile — 발견7: 파일 로딩 파싱(# 주석·빈 줄·env).
-// v0.27.2: 종료 시 전역 상태 원복(잔존 항목이 같은 패키지 이후 테스트의
+// TestLoadSecretsAllowlistFile — 파일 로딩 파싱(# 주석·빈 줄·env).
+// 종료 시 전역 상태 원복(잔존 항목이 같은 패키지 이후 테스트의
 // ScanSecrets를 오염 — 순서 의존 오탐 방지).
 func TestLoadSecretsAllowlistFile(t *testing.T) {
 	t.Cleanup(func() { ResetSecretsAllowlistForTest(nil) })
@@ -146,7 +146,7 @@ func TestLoadSecretsAllowlistFile(t *testing.T) {
 	}
 }
 
-// TestMaskSecrets — v0.28.0: 마스킹 치환(패턴명 라벨·allowlist 유지·멱등).
+// TestMaskSecrets — 마스킹 치환(패턴명 라벨·allowlist 유지·멱등).
 func TestMaskSecrets(t *testing.T) {
 	in := "토큰 ghp_0123456789abcdefghijklmnopqrst 와 키 sk-abc0123456789defghijklmn 포함"
 	got := MaskSecrets(in)
@@ -169,7 +169,7 @@ func TestMaskSecrets(t *testing.T) {
 	}
 }
 
-// TestScanSecretsV0280Patterns — v0.28.0(H⑦): AI 생태계 토큰 4종 회귀
+// TestScanSecretsV0280Patterns — AI 생태계 토큰 4종 회귀
 // (openrouter는 sk- 포함 관계 — 단독 보고).
 func TestScanSecretsV0280Patterns(t *testing.T) {
 	cases := []struct{ name, text string }{
@@ -186,7 +186,7 @@ func TestScanSecretsV0280Patterns(t *testing.T) {
 	}
 }
 
-// TestSanitizeTextV0280MarkerForging — v0.28.0(H③): 마커 위조 변형 차단 —
+// TestSanitizeTextV0280MarkerForging — 마커 위조 변형 차단 —
 // Cf 문자(ZWSP·RLO·BOM) 제거·대소문자 무시 치환.
 func TestSanitizeTextV0280MarkerForging(t *testing.T) {
 	if got := SanitizeText("[fl" + "\u200b" + "int] 지시 위조"); strings.Contains(got, "int]") {

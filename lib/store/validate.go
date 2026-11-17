@@ -2,7 +2,7 @@
 package store
 
 // kind 허용값과 각 kind의 필수 필드(검증 순서). KindExpect는 kind 값
-// 계약의 단일 원천(v1.2.4 T2) — MCP 계층(lib/mcp)이 이 상수를 참조한다.
+// 계약의 단일 원천 — MCP 계층(lib/mcp)이 이 상수를 참조한다.
 const (
 	KindExpect   = "knowledge|session|project"
 	statusExpect = "active|paused|done"

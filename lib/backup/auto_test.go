@@ -186,7 +186,7 @@ func TestRunIfNeededRealDump(t *testing.T) {
 	}
 }
 
-// TestShouldBackupIntervalOverride — v0.24.0 R1c: backup_interval_h가
+// TestShouldBackupIntervalOverride — backup_interval_h가
 // 주기 판정을 바꾼다(기본 24h, 오버라이드 6h).
 func TestShouldBackupIntervalOverride(t *testing.T) {
 	now := time.Now().UTC()

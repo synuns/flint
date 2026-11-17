@@ -1,4 +1,4 @@
-// setup.go — v1.5.0 T6: `flint setup` 위저드(huh 폼). exposure 선택 →
+// setup.go — `flint setup` 위저드(huh 폼). exposure 선택 →
 // 백업 키 안내를 수집만 하고, 실행은 cli의 기존 setup 로직이 담당한다
 // (위저드는 플래그 등가물 조립 — 중복 구현 금지 계약).
 package tui

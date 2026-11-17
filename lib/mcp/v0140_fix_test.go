@@ -1,4 +1,4 @@
-// v0140_fix_test.go — v0.14.0 리뷰 수정 회귀(P1): MCP 도구 응답의 isError는
+// v0140_fix_test.go — MCP 도구 응답의 isError는
 // 빈 출력의 exit 1(제로히트 침묵 계약)을 오류로 취급하지 않는다.
 package mcp
 

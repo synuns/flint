@@ -1,4 +1,4 @@
-// dumpfile.go — v0.28.0: 덤프 파일 판독 단일 경로(restore·drill 공용).
+// dumpfile.go — 덤프 파일 판독 단일 경로(restore·drill 공용).
 // age 형식 감지→복호, 마스킹 덤프 거부(비복원 아티팩트 — 사이드카 미부여
 // 원칙과 이중 방어)를 한 곳에서 담당한다.
 package backup
@@ -30,7 +30,7 @@ func ReadDumpBytes(path, keyPath string) ([]byte, error) {
 	return ReadDumpFrom(b, keyPath)
 }
 
-// ReadDumpFrom — 미리 읽은(검증된) 바이트의 판독(v0.28.0 H③: restore
+// ReadDumpFrom — 미리 읽은(검증된) 바이트의 판독(restore
 // TOCTOU 폐쇄 — 파일 재판독 없이 검증한 바이트를 복호·검사한다).
 func ReadDumpFrom(b []byte, keyPath string) ([]byte, error) {
 	if ok, _ := IsEncrypted(bytes.NewReader(b)); ok {

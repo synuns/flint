@@ -1,5 +1,5 @@
 // Package query — flint read/hot 조회 조립. 읽기는 기본 active_knowledge 뷰,
-// --status 지정 시에만 base 테이블 knowledge를 직접 조회한다(v0.12.0 R1).
+// --status 지정 시에만 base 테이블 knowledge를 직접 조회한다.
 package query
 
 import (
@@ -16,7 +16,7 @@ type Filters struct {
 	Entity string
 	Domain string
 	Limit  int
-	// Status — --status pending|active|invalidated(v0.12.0 R1). 지정 시
+	// Status — --status pending|active|invalidated. 지정 시
 	// BuildRead 대신 BuildReadStatus이 base 테이블을 조회한다. BuildRead의
 	// 미지정 경로는 이 값을 무시한다(뷰 경로 완전 불변 — 룰링).
 	Status string
@@ -27,7 +27,7 @@ const (
 	maxLimit     = 50
 	summaryMax   = 80
 
-	// ReadFallbackCountKey — 제로히트 폴백 시도 횟수 meta 계측 키(v0.9.6).
+	// ReadFallbackCountKey — 제로히트 폴백 시도 횟수 meta 계측 키.
 	ReadFallbackCountKey = "read_fallback_calls"
 	// maxQueryTokens — 폴백 OR 스캔 비용 가드(룰링): 초과 토큰은 버린다.
 	maxQueryTokens = 8
@@ -51,7 +51,7 @@ var readColumns = []string{
 	"read_count",
 }
 
-// tokenizeQuery — 무료 텍스트 q를 검색 토큰으로 쪼갠다(v0.9.6 폴백용).
+// tokenizeQuery — 무료 텍스트 q를 검색 토큰으로 쪼갠다(폴백용).
 // strings.Fields 분리 후 각 토큰의 선행/후행 구두점(unicode.IsPunct)을
 // 제거하고 빈 토큰은 버린다. 상한 8 — 초과 토큰은 조용히 버림(에러 아님).
 func tokenizeQuery(q string) []string {
@@ -86,7 +86,7 @@ func trimPunct(s string) string {
 
 // fallbackMatchCount — 토큰이 topic·summary에 포함되는 개수(재랭킹 점수).
 // 대소문자 무시 lower 부분문자열 매칭. 비교 문자열 양측에 NFKC 정규화
-// 적용(v0.10.0 R2 — NFC/NFD 표기 차이 미스 차단. 원문·SQL 불변).
+// 적용(NFC/NFD 표기 차이 미스 차단. 원문·SQL 불변).
 func fallbackMatchCount(tokens []string, topic string, summary string) int {
 	t, s := nfkc(strings.ToLower(topic)), nfkc(strings.ToLower(summary))
 	n := 0
@@ -103,13 +103,13 @@ func fallbackMatchCount(tokens []string, topic string, summary string) int {
 // 작은따옴표는 placeholder 파라미터로 전달되므로 별도 이스케이프 불필요.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-// RankOrder — 검색 랭킹 정렬 절(T56): 주제어 정확 일치 우선 → confidence →
+// RankOrder — 검색 랭킹 정렬 절: 주제어 정확 일치 우선 → confidence →
 // 최신 수집 순.
-// v0.6(T68): 동률에서만 최근 참조 우선 — 말미에 last_read_at DESC NULLS LAST
+// 동률에서만 최근 참조 우선 — 말미에 last_read_at DESC NULLS LAST
 // 추가(조회시 파생·저장값 불변). NULLS LAST로 미참조 항목은 동률 꼴찌.
-// v0.13.0(R1): 채택 재랭킹 — last_read_at 뒤 최종 타이브레이크로 read_count
+// 채택 재랭킹 — last_read_at 뒤 최종 타이브레이크로 read_count
 // DESC 추가(많이 읽힌 항목 우선). 상위 순위 요소는 불변.
-// v0.28.0(H③): q는 인라인 리터럴이 아니라 파라미터 — 호출부가 args에
+// q는 인라인 리터럴이 아니라 파라미터 — 호출부가 args에
 // append한 뒤 그 인덱스를 받는다(같은 쿼리의 LIKE 절과 계약 일치,
 // standard_conforming_strings 의존 제거).
 func RankOrder(placeholder int) string {
@@ -154,14 +154,14 @@ func BuildRead(q string, f Filters) (string, []any) {
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
-	args = append(args, q) // v0.28.0(H③): 랭킹 정합값 파라미터화
+	args = append(args, q) // 랭킹 정합값 파라미터화
 	sql += " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args
 }
 
-// BuildReadStatus — --status 지정 경로 조회 SQL 조립(v0.12.0 R1). 뷰가
+// BuildReadStatus — --status 지정 경로 조회 SQL 조립. 뷰가
 // invalid_at IS NULL 행만 노출하므로 pending·invalidated 행을 보려면 base
 // 테이블 knowledge에서 직접 걸러야 한다. status 조건을 첫 파라미터로 두고
 // q·tag·entity·domain 필터는 appendReadFilters 공유 조립, RankOrder·LIMIT·
@@ -183,7 +183,7 @@ func BuildReadStatus(q string, f Filters) (string, []any) {
 	}
 	where, args = appendReadFilters(where, args, q, f)
 
-	args = append(args, q) // v0.28.0(H③): 랭킹 정합값 파라미터화
+	args = append(args, q) // 랭킹 정합값 파라미터화
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM knowledge WHERE " +
 		strings.Join(where, " AND ") + " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
@@ -191,7 +191,7 @@ func BuildReadStatus(q string, f Filters) (string, []any) {
 	return sql, args
 }
 
-// BuildReadFallback — 제로히트 폴백 조회 SQL 조립(v0.9.6). 토큰별
+// BuildReadFallback — 제로히트 폴백 조회 SQL 조립. 토큰별
 // OR LIKE + 기존 필터(tag·entity·domain)·active_knowledge 뷰·likeEscape·
 // RankOrder·LIMIT 승계. 토큰 2개 미만은 구문 매칭과 동질이라 ok=false
 // (폴백 생략 — 룰링).
@@ -204,7 +204,7 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 	var args []any
 	for _, tok := range tokens {
 		args = append(args, "%"+likeEscaper.Replace(tok)+"%")
-		// v0.18.0 R5: 폴백 접합면에 tags 포함 — 태그로만 분류된 지식도
+		// 폴백 접합면에 tags 포함 — 태그로만 분류된 지식도
 		// 단어 폴백에서 회수된다(tags 저장형 ':a:b:'의 부분 문자열 매칭).
 		// 구문(phrase) 쿼리의 접합면은 불변(tags는 --tag 필터 영역).
 		conds = append(conds, fmt.Sprintf("lower(topic || ' ' || summary || ' ' || tags) LIKE lower($%d)", len(args)))
@@ -222,7 +222,7 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 		args = append(args, f.Domain)
 		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
 	}
-	args = append(args, q) // v0.28.0(H③): 랭킹 정합값 파라미터화
+	args = append(args, q) // 랭킹 정합값 파라미터화
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge WHERE " +
 		strings.Join(where, " AND ") + " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
@@ -231,7 +231,7 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 }
 
 // rrfK — RRF 순위 완화 계수(원 논문 표준 60). 런타임 오버라이드는
-// SetRRFK(thresholds rrf_k 키 — v0.25.0 리뷰 ③: 튜닝값 단일 소스).
+// SetRRFK(thresholds rrf_k 키 — 튜닝값 단일 소스).
 var rrfK = 60.0
 
 // SetRRFK — thresholds 레지스트리 → query 주입(SetSuggestThresholds 승계).
@@ -241,12 +241,12 @@ func SetRRFK(k float64) {
 	}
 }
 
-// ReorderByFallbackCount — 폴백 결과 앱 재랭킹. v0.25.0: RRF 융합 —
-// 정합수·read_count·자모 유사도·topic 정합(v0.25.1 추가 — 구문 경로
-// RankOrder의 topic 정확 일치 우선이 폴백 융합에서 소실되던 것을
+// ReorderByFallbackCount — 폴백 결과 앱 재랭킹. RRF 융합 —
+// 정합수·read_count·자모 유사도·topic 정합(구문 경로
+// RankOrder의 topic 정확 일치 우선이 폴백 융합에서 소실되는 것을
 // 회수) 4신호를 각자 내림 순위에서
 // 1/(k+rank) 합산. 다중 신호 기여가 단일 신호 우위를 이길 수 있다
-// (v0.9.6 정합수 우선·v0.13.0 순차 타이브레이크와 계약이 다르다).
+// (정합수 우선·순차 타이브레이크와 계약이 다르다).
 // 동률은 기존 조회 순(SQL RankOrder)을 유지한다.
 func ReorderByFallbackCount(rows [][]any, tokens []string) {
 	if len(rows) < 2 {
@@ -269,7 +269,7 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 			fallbackMatchCount(tokens, t, sm),
 			readCountOf(row),
 			jamoOverlap(tokenJamo, t, sm),
-			topicMatchCount(tokens, t), // v0.25.1: topic 정합 신호
+			topicMatchCount(tokens, t), // topic 정합 신호
 		}
 	}
 	scores := rrfFuse(values)
@@ -320,9 +320,9 @@ func rrfFuse(values [][]int) []float64 {
 	return scores
 }
 
-// topicMatchCount — topic에 출현하는 토큰 수(v0.25.1: RRF 제4신호 —
+// topicMatchCount — topic에 출현하는 토큰 수(RRF 제4신호 —
 // topic 정합이 summary 정합보다 강하다는 RankOrder 관례의 융합 반영.
-// 설계 특성(2차 리뷰 ③): matchCount의 부분집합이라 토큰당 이중 가중 —
+// 설계 특성: matchCount의 부분집합이라 토큰당 이중 가중 —
 // RankOrder topic 우선 회수라는 의도적 가중이다.)
 func topicMatchCount(tokens []string, t string) int {
 	n := 0
@@ -334,10 +334,10 @@ func topicMatchCount(tokens []string, t string) int {
 	return n
 }
 
-// jamoOverlap — v0.25.0 R2(자모 bigram): 한글 토큰의 자모 분해 bigram
+// jamoOverlap — 자모 bigram: 한글 토큰의 자모 분해 bigram
 // 중첩으로 근사 유사도(오타·어미 변형 흡수). 한글 없는 토큰은 0(신호
-// 미기여 — 부분 문자열 신호와의 이중 계상 방지, 리뷰 ①). tokenSets는
-// 행 루프 밖 사전 계산(리뷰 ⑥).
+// 미기여 — 부분 문자열 신호와의 이중 계상 방지). tokenSets는
+// 행 루프 밖 사전 계산.
 func jamoOverlap(tokenSets []map[string]struct{}, t, s string) int {
 	if len(tokenSets) == 0 {
 		return 0
@@ -359,7 +359,7 @@ func jamoOverlap(tokenSets []map[string]struct{}, t, s string) int {
 func jamoTokenSets(tokens []string) []map[string]struct{} {
 	var out []map[string]struct{}
 	for _, tok := range tokens {
-		// v0.25.3(2차 리뷰 ②): 정규화 '후' 검사 — NFD 분해형 토큰(macOS
+		// 정규화 '후' 검사 — NFD 분해형 토큰(macOS
 		// 붙여넣기 경로)의 자모 신호가 조용히 누락되던 것을 회수.
 		n := nfkc(strings.ToLower(tok))
 		if containsHangul(n) {
@@ -436,7 +436,7 @@ func readCountOf(row []any) int {
 
 // columnIndexOf — fields 이름 → readColumns 인덱스. 없으면 -1.
 // ReadFieldKnown — --fields 이름이 read 결과의 알려진 컬럼인지 판별
-// (v0.20.2 패치 루프 1차 F5: 오타 필드가 FormatRows의 위치 fallback으로
+// (오타 필드가 FormatRows의 위치 fallback으로
 // 조용히 다른 컬럼 값을 채우던 왜곡 방지 — read 경로 사전 검증용).
 func ReadFieldKnown(name string) bool {
 	for _, c := range readColumns {

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestStrictMaskPrefixResidue — v1.0.11(R12-B1): 등록값이 실제 비밀의
+// TestStrictMaskPrefixResidue — 등록값이 실제 비밀의
 // 접두사여도 strict은 접미를 평문 유출하지 않는다(패턴 마스킹 우선).
 func TestStrictMaskPrefixResidue(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"ghp_" + strings.Repeat("a", 20)})
@@ -33,7 +33,7 @@ func TestStrictMaskAllowlistedEntry(t *testing.T) {
 	}
 }
 
-// TestMarkerNotMutatedByAllowlist — v1.0.11(R12-B2): 패턴명 부분문자열
+// TestMarkerNotMutatedByAllowlist — 패턴명 부분문자열
 // 등록으로 REDACTED 마커가 개조되지 않는다.
 func TestMarkerNotMutatedByAllowlist(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"token"})
@@ -58,7 +58,7 @@ func TestMaskSecretsPreservesAllowlist(t *testing.T) {
 	}
 }
 
-// TestNestedAllowlistLongestFirst — v1.0.11(R13-2): 중첩 등록은 긴 항목
+// TestNestedAllowlistLongestFirst — 중첩 등록은 긴 항목
 // 우선 — {"doc","doc-token-abc"}에서 잔여 평문 없이 전부 [ALLOWED].
 func TestNestedAllowlistLongestFirst(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"doc", "doc-token-abc"})

@@ -1,4 +1,4 @@
-// suggest_v0131_test.go — v0.13.1 F6: Dice 계수 공개 래퍼 2종(집합·
+// suggest_v0131_test.go — Dice 계수 공개 래퍼 2종(집합·
 // 다중집합) 계약. cli(maintain 모순 분류) 재사용 전용 — suggest 동작 불변.
 package query
 

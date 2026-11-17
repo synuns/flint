@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-// TestParseFloatNaNInfGuard — v1.2.2(R16-B1): NaN·±Inf는 파싱 불가로
+// TestParseFloatNaNInfGuard — NaN·±Inf는 파싱 불가로
 // 기본값 폴백 — rrf_k=NaN이 RRF 점수 전체를 조용히 무의미화하는 것 차단.
 func TestParseFloatNaNInfGuard(t *testing.T) {
 	th, _ := ParseThresholds([][2]any{{"rrf_k", "NaN"}})

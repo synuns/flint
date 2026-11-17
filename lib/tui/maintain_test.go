@@ -1,4 +1,4 @@
-// maintain_test.go — v1.6.0 T6: maintain 검토 TUI 계약 테스트. 소스 탭
+// maintain_test.go — maintain 검토 TUI 계약 테스트. 소스 탭
 // 전이·상세(양쪽 본문·보존 미리보기)·위임 seam(merge/invalidate — 기존
 // maintain --merge·--invalidate 경로 재사용 단언)·GlobalIndex 필터 회귀·
 // 로더 fake·비터미널 폴백. 합성 데모 데이터만 사용(개인 데이터 금지).
@@ -458,9 +458,9 @@ func TestMaintainFilteredInvalidateUsesGlobalIndex(t *testing.T) {
 	}
 }
 
-// ── RF-B1: 필터 중 제거 — SetItems 전량 재조립 ──
+// ── 필터 중 제거 — SetItems 전량 재조립 ──
 
-// RF-B1(v1.6.1 T1) — 필터 적용 상태의 제거(stale invalidate) 후에도
+// 필터 적용 상태의 제거(stale invalidate) 후에도
 // GlobalIndex가 전체 목록과 일치해야 한다: RemoveItem 비대칭(items는 전역
 // 인덱스·filteredItems는 필터 위치 → filteredItem.index 잔류) 대신 SetItems
 // 전량 재조립으로 통일. "#12" 필터 → i(12 무효화·제거) → 빈 재필터 해제 →
@@ -493,9 +493,9 @@ func TestMaintainFilteredInvalidateThenSecondActionTargetsRemaining(t *testing.T
 	}
 }
 
-// ── RF-B2: 목록 높이 산정 ──
+// ── 목록 높이 산정 ──
 
-// RF-B2(v1.6.1 T1) — 목록 높이 h=height-4는 실제 비목록 라인(소스 탭
+// 목록 높이 h=height-4는 실제 비목록 라인(소스 탭
 // 헤더 + 키 안내·status·비대화 안내 + 구분 공백 — 최대 7행)보다 적어
 // 화면이 단말 높이를 넘겼다. 목록(status 포함 최악)·pick 화면 모두 View
 // 렌더 라인 수가 단말 높이 이내. 단말 높이 ≥ 17: bubbles 내부 크롬(제목·

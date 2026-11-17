@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestAutoBackupClaimPreventsDuplicate — v1.0.10(감사 R2-A4): 병렬 done
+// TestAutoBackupClaimPreventsDuplicate — 병렬 done
 // 세션이 동시에 만료 창을 통과해도 CAS 선점으로 덤프는 정확히 1회.
 // claim은 원자 compare-exchange(실DB의 WHERE value=old와 동일 의미).
 func TestAutoBackupClaimPreventsDuplicate(t *testing.T) {
