@@ -544,8 +544,11 @@ func TestCommitExcludesTelemetryRealSlow(t *testing.T) {
 
 // TestCommitTelemetrySeparateRealSlow — Review Focus(v1.7.0 T6·slow 실측):
 // CommitTelemetry는 계측 테이블을 스테이징해 'telemetry: <cmd>' 커밋을
-// 만든다 — 감사 커밋 다음 호출에서 read_events diff ≥1행. 전역 스윕
-// (dolt_add('-A'))이 감사 커밋이 남긴 *_id_seq 잔여도 회수한다.
+// 만든다 — 감사 커밋 다음 호출에서 read_events diff ≥1행. v1.7.2 T1
+// (R38-C1): 전역 스윕(dolt_add('-A')) 폐지 — 계측 시퀀스(read_events_id_seq
+// 등 4종)는 명시 스테이징하고, 감사 테이블 시퀀스(knowledge_id_seq)는
+// telemetry 스테이징 대상 밖이라 working set에 남는다(실측 — 감사 변경
+// 흡수 방지가 스윕 폐지 목적).
 func TestCommitTelemetrySeparateRealSlow(t *testing.T) {
 	r := newTestRepo(t)
 	t6ClearTelemetry(t, r)
@@ -572,14 +575,110 @@ func TestCommitTelemetrySeparateRealSlow(t *testing.T) {
 	if n := t6DiffRowCount(t, r, head, head2, "read_events"); n < 1 {
 		t.Fatalf("telemetry 커밋 diff read_events = %d행, want ≥1", n)
 	}
-	// -A 스윕 실측 — 감사 커밋이 남긴 시퀀스 잔여가 working set에 없다.
-	var seqLeft int
+	// v1.7.2 T1 명시 스테이징 실측 — 계측 시퀀스는 회수, 감사 시퀀스는
+	// working set에 잔존(-A 스윕 폐지 — 감사 테이블 변경 흡수 방지).
+	var telSeqLeft, auditSeqLeft int
 	if err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM dolt_status WHERE table_name LIKE '%knowledge_id_seq'`).Scan(&seqLeft); err != nil {
-		t.Fatalf("dolt_status seq 잔여 조회: %v", err)
+		`SELECT count(*) FROM dolt_status WHERE table_name = 'public.read_events_id_seq' AND staged = false`).Scan(&telSeqLeft); err != nil {
+		t.Fatalf("dolt_status 계측 seq 잔여 조회: %v", err)
 	}
-	if seqLeft != 0 {
-		t.Fatalf("knowledge_id_seq 잔여 %d건, want 0(telemetry -A 스윕 회수)", seqLeft)
+	if telSeqLeft != 0 {
+		t.Fatalf("read_events_id_seq 잔여 %d건, want 0(명시 스테이징 회수)", telSeqLeft)
+	}
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM dolt_status WHERE table_name = 'public.knowledge_id_seq' AND staged = false`).Scan(&auditSeqLeft); err != nil {
+		t.Fatalf("dolt_status 감사 seq 잔여 조회: %v", err)
+	}
+	if auditSeqLeft != 1 {
+		t.Fatalf("knowledge_id_seq 잔여 %d건, want 1(감사 seq — telemetry 스테이징 대상 밖)", auditSeqLeft)
+	}
+	// telemetry 커밋은 감사 테이블을 흡수하지 않는다(-A 스윕 폐지 핵심).
+	if n := t6DiffRowCount(t, r, head, head2, "knowledge"); n != 0 {
+		t.Fatalf("telemetry 커밋 diff knowledge = %d행, want 0(-A 스윕 폐지)", n)
+	}
+}
+
+// TestReadAuditAttributionRealSlow — Review Focus(v1.7.2 T1·slow 실측,
+// R38-C1): read 완료 경로의 감사 변경(recall bump UPDATE knowledge·meta
+// 증분)은 감사 커밋(Commit)에, 계측 4종(read_events·hot_events·
+// knowledge_reads·session_starts)은 telemetry 커밋(CommitTelemetry)에
+// 귀속한다. 최신 2커밋의 dolt_diff로 실측 — -A 스윕이 감사 변경을 계측
+// 커밋으로 흡수하던 C1 회귀 방어(read.go 완료 경로와 동일한 호출 순서).
+func TestReadAuditAttributionRealSlow(t *testing.T) {
+	r := newTestRepo(t)
+	t6ClearTelemetry(t, r)
+	ctx := context.Background()
+	// 베이스라인 — 계측 테이블 삭제분을 커밋 이력에 올리고 감사 원본을
+	// 확보한 뒤 prev를 잡는(fresh DB dolt_diff "table not found" 방어 —
+	// TestCommitExcludesTelemetryRealSlow 관례 승계).
+	if err := r.CommitTelemetry(ctx, "t1 baseline"); err != nil {
+		t.Fatalf("베이스라인 CommitTelemetry: %v", err)
+	}
+	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("t1-read-audit")})
+	if err != nil || len(ids) != 1 {
+		t.Fatalf("InsertBatch: %v ids=%v", err, ids)
+	}
+	if _, err := r.Commit(ctx, "test: t1 감사 베이스라인 [session:0]"); err != nil {
+		t.Fatalf("베이스라인 Commit: %v", err)
+	}
+	prev := t6LastCommitHash(t, r) // 감사 커밋 직전 해시(커밋 생성 전에 확보)
+	// read 1회 상당의 적립 — 계측(read_events·knowledge_reads) + 감사
+	// (recall bump UPDATE knowledge·meta 증분). hot_events·session_starts
+	// 는 이 실행에 적립 없음(감사 커밋 순수성 단언 대상).
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (1,false,false,false)`); err != nil {
+		t.Fatalf("read_events 적립: %v", err)
+	}
+	if err := r.RecordKnowledgeReads(ctx, ids, "t1", "read"); err != nil {
+		t.Fatalf("knowledge_reads 적립: %v", err)
+	}
+	if err := r.BumpRecallScores(ctx, ids); err != nil {
+		t.Fatalf("recall bump: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('read_fallback_calls','1')
+		 ON CONFLICT (key) DO UPDATE SET value = ((meta.value::bigint)+1)::text`); err != nil {
+		t.Fatalf("meta 증분: %v", err)
+	}
+	// read 완료 경로 순서(lib/knowledge/read.go v1.7.2 T1) — 감사 커밋 후
+	// 계측 커밋.
+	if _, err := r.Commit(ctx, "read: recall bump (read audit attribution)"); err != nil {
+		t.Fatalf("read 감사 커밋: %v", err)
+	}
+	auditHead := t6LastCommitHash(t, r)
+	if auditHead == prev {
+		t.Fatal("감사 커밋이 생성되지 않음(recall bump 스테이징 0행 의심)")
+	}
+	if err := r.CommitTelemetry(ctx, "read"); err != nil {
+		t.Fatalf("CommitTelemetry: %v", err)
+	}
+	telHead := t6LastCommitHash(t, r)
+	if telHead == auditHead {
+		t.Fatal("telemetry 커밋이 생성되지 않음(스테이징 0행 의심)")
+	}
+	// 감사 커밋 diff — knowledge(recall bump)·meta ≥1, 계측 4종 0행.
+	if n := t6DiffRowCount(t, r, prev, auditHead, "knowledge"); n < 1 {
+		t.Fatalf("감사 커밋 diff knowledge = %d행, want ≥1(recall bump 귀속)", n)
+	}
+	if n := t6DiffRowCount(t, r, prev, auditHead, "meta"); n < 1 {
+		t.Fatalf("감사 커밋 diff meta = %d행, want ≥1(증분 귀속)", n)
+	}
+	for _, tbl := range telemetryStageTables {
+		if n := t6DiffRowCount(t, r, prev, auditHead, tbl); n != 0 {
+			t.Fatalf("감사 커밋 diff %s = %d행, want 0(계측 미스테이징)", tbl, n)
+		}
+	}
+	// telemetry 커밋 diff — 계측 ≥1, 감사(knowledge·meta) 0행.
+	if n := t6DiffRowCount(t, r, auditHead, telHead, "read_events"); n < 1 {
+		t.Fatalf("telemetry 커밋 diff read_events = %d행, want ≥1", n)
+	}
+	if n := t6DiffRowCount(t, r, auditHead, telHead, "knowledge_reads"); n < 1 {
+		t.Fatalf("telemetry 커밋 diff knowledge_reads = %d행, want ≥1", n)
+	}
+	for _, tbl := range []string{"knowledge", "meta"} {
+		if n := t6DiffRowCount(t, r, auditHead, telHead, tbl); n != 0 {
+			t.Fatalf("telemetry 커밋 diff %s = %d행, want 0(-A 스윕 폐지)", tbl, n)
+		}
 	}
 }
 

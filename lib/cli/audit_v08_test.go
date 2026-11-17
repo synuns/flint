@@ -57,8 +57,19 @@ func statFake(t *testing.T, logRows [][]any, diffMap map[string][][]any, seen *[
 		if limit, ok := args[0].(int); ok && limit > 0 && len(out) > limit {
 			out = out[:limit]
 		}
-		if strings.Contains(sql, "LIKE") && len(args) > 1 {
+		// v1.7.2 T2: 기본 쿼리 NOT LIKE 'telemetry: %' 제외 + --session LIKE.
+		if strings.Contains(sql, "message NOT LIKE ") && len(args) > 1 {
 			pat := strings.Trim(args[1].(string), "%")
+			var filtered [][]any
+			for _, r := range out {
+				if !strings.Contains(r[3].(string), pat) {
+					filtered = append(filtered, r)
+				}
+			}
+			out = filtered
+		}
+		if strings.Contains(sql, "message LIKE ") && len(args) > 1 {
+			pat := strings.Trim(args[len(args)-1].(string), "%")
 			var filtered [][]any
 			for _, r := range out {
 				if strings.Contains(r[3].(string), pat) {
