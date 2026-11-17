@@ -129,7 +129,7 @@ func RemoteRemove(ctx context.Context, q Querier, name string) error {
 // MaskRemoteURL — 원격 url 마스킹: 스킴+호스트만 노출(자격증명·포트·
 // 경로·쿼리 전부 미노출). file://처럼 호스트 없는 스킴은 "scheme://"만.
 // 파싱 불가·스킴 부재 원문은 고정 토큰으로 대체해 원문을 절대 되돌리지
-// 않는다(개인 데이터 방어 — Review Focus security).
+// 않는다(개인 데이터 방어).
 func MaskRemoteURL(raw string) string {
 	const unparsable = "(unparsable)"
 	u, err := url.Parse(raw)
@@ -239,7 +239,7 @@ func syncHeadHash(ctx context.Context, q Querier) (string, error) {
 // maskRemoteError — 오류 메시지에서 원격 url 원문을 마스킹 결과로 치환
 // (서버 오류가 url을 그대로 실을 수 있어 — push 성공 메시지 실측 기준).
 // 치환 시 오류 체인은 끊기지만 이 경로는 종단 exit 1 오류로 체인 소비자가
-// 없다(url 미노출 계약이 우선 — Review Focus security).
+// 없다(url 미노출 계약이 우선).
 func maskRemoteError(err error, rawURL string) error {
 	if rawURL == "" || !strings.Contains(err.Error(), rawURL) {
 		return err

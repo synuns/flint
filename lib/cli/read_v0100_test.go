@@ -38,7 +38,7 @@ func TestReadZeroHitSuggests(t *testing.T) {
 	}
 }
 
-// TestReadPhraseHitNoSuggest — Review Focus: 구문 히트 시 suggestions
+// TestReadPhraseHitNoSuggest — 구문 히트 시 suggestions
 // 미발생(히트 경로 완전 불변 — 룰링).
 func TestReadPhraseHitNoSuggest(t *testing.T) {
 	ctx := context.Background()

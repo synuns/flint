@@ -55,7 +55,7 @@ var transitionSources = []string{
 }
 
 // assertNoUpdateKnowledgeLiterals — 소스에 UPDATE knowledge 리터럴 잔여 0
-// (전부 Repo 경유 — Review Focus: TestInvalidateSupersedeSingleSource).
+// (전부 Repo 경유 — TestInvalidateSupersedeSingleSource).
 func assertNoUpdateKnowledgeLiterals(t *testing.T) {
 	t.Helper()
 	for _, path := range transitionSources {
@@ -69,7 +69,7 @@ func assertNoUpdateKnowledgeLiterals(t *testing.T) {
 	}
 }
 
-// TestInvalidateSupersedeSingleSource — Review Focus: 전이 UPDATE는 Repo
+// TestInvalidateSupersedeSingleSource — 전이 UPDATE는 Repo
 // 단일 경로 — ① Invalidate·Supersede SQL 병기 단언(fake repo 레벨)
 // ② maintain·approve 소스에 UPDATE knowledge 리터럴 0.
 func TestInvalidateSupersedeSingleSource(t *testing.T) {
@@ -130,7 +130,7 @@ func TestInvalidateSupersedeSingleSource(t *testing.T) {
 	}
 }
 
-// TestSupersedeRecordsLineage — Review Focus: 계보는 superseded_by 병기
+// TestSupersedeRecordsLineage — 계보는 superseded_by 병기
 // 단일 모델(텍스트 마커 이중 모델 폐지). fake — SQL이 superseded_by를
 // 기록하고 summary 텍스트 마커를 남기지 않음. REAL — 실DB에서
 // superseded_by·invalid_at=NEW.valid_at 기록 확인.
@@ -197,7 +197,7 @@ func testSupersedeRecordsLineageDB(t *testing.T) {
 	}
 }
 
-// TestInvalidateGuardsProcessedRows — Review Focus: Invalidate의
+// TestInvalidateGuardsProcessedRows — Invalidate의
 // WHERE는 invalid_at IS NULL 가드를 병기한다 — dry-run 나열과 --commit 사이
 // 병렬 supersede가 같은 행을 처리했으면 재갱신하지 않는다(계보
 // invalid_at=NEW.valid_at을 now()로 덮어쓰는 훼손 차단). fake — SQL 병기

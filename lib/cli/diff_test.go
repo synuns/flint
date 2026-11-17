@@ -50,7 +50,7 @@ func newDiffFake() (*fakeStore, *[]string) {
 	return f, &likeArgs
 }
 
-// TestDiffAddedCounts — Review Focus: 기본 모드 한 줄 JSON 수치·행 상세.
+// TestDiffAddedCounts — 기본 모드 한 줄 JSON 수치·행 상세.
 func TestDiffAddedCounts(t *testing.T) {
 	f, _ := newDiffFake()
 	withFake(t, f)
@@ -85,7 +85,7 @@ func TestDiffAddedCounts(t *testing.T) {
 	}
 }
 
-// TestDiffSummaryShape — Review Focus: --summary는 행 없이 수치+커밋 요약만.
+// TestDiffSummaryShape — --summary는 행 없이 수치+커밋 요약만.
 func TestDiffSummaryShape(t *testing.T) {
 	f, _ := newDiffFake()
 	withFake(t, f)
@@ -111,7 +111,7 @@ func TestDiffSummaryShape(t *testing.T) {
 	}
 }
 
-// TestDiffInvalidExit3 — Review Focus: 무효 as-of 스펙 exit 3(from·to 각각).
+// TestDiffInvalidExit3 — 무효 as-of 스펙 exit 3(from·to 각각).
 func TestDiffInvalidExit3(t *testing.T) {
 	cases := [][]string{
 		{"diff", "2 days ago", "bbbb2"},
@@ -131,7 +131,7 @@ func TestDiffInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestDiffPrefixParameterized — Review Focus: 해시 접두어는 LIKE $1 파라미터로.
+// TestDiffPrefixParameterized — 해시 접두어는 LIKE $1 파라미터로.
 func TestDiffPrefixParameterized(t *testing.T) {
 	f, likeArgs := newDiffFake()
 	withFake(t, f)

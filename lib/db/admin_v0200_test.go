@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestV7PromoteIdempotent — Review Focus(test_v7_promote_idempotent): v6
+// TestV7PromoteIdempotent — v6
 // 게이트를 경유한 DB에서 EnsureSchemaV7 → 버전 7·read_events.ids 컬럼
 // 존재(기록 동작 증명)·session_starts·hot_events 생성. 재호출 멱등.
 func TestV7PromoteIdempotent(t *testing.T) {

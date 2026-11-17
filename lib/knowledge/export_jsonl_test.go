@@ -125,7 +125,7 @@ func TestFormatJSONLRoundTripPreservesAllFields(t *testing.T) {
 	}
 }
 
-// TestFormatJSONLValidAtRoundtrip — Review Focus: valid_at 필드는
+// TestFormatJSONLValidAtRoundtrip — valid_at 필드는
 // FormatJSONL → ParseJSONLRows 왕복에서 원값이 보존된다(CreatedAt 치환
 // 폐지 — 재이식·재export 동일성의 원천).
 func TestFormatJSONLValidAtRoundtrip(t *testing.T) {

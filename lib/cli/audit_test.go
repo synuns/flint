@@ -47,7 +47,7 @@ func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 	return f, limits
 }
 
-// TestAuditLimitAndSessionFilter — Review Focus: limit 경계·session 필터.
+// TestAuditLimitAndSessionFilter — limit 경계·session 필터.
 func TestAuditLimitAndSessionFilter(t *testing.T) {
 	f, _ := auditFake(t, auditRows())
 	withFake(t, f)

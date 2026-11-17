@@ -23,7 +23,7 @@ func columnExists(t *testing.T, r *Repo, table, column string) bool {
 	return n == 1
 }
 
-// TestV10GateAdditive — Review Focus: 기존 DB 무손상·멱등 승격·read_events 열
+// TestV10GateAdditive — 기존 DB 무손상·멱등 승격·read_events 열
 // 존재·knowledge_reads 인덱스. v9 DB(열·테이블 부재)를 재현해 승격 → 기존
 // read_events 행은 기본값을 받고 knowledge 행은 무손상·재호출 멱등.
 func TestV10GateAdditive(t *testing.T) {

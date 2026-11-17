@@ -29,7 +29,7 @@ func shortRetryDelays(t *testing.T) {
 	t.Cleanup(func() { maintainRetryDelays = prev })
 }
 
-// TestStaleListsReasonsSummary — Review Focus: 각 항목에 사유
+// TestStaleListsReasonsSummary — 각 항목에 사유
 // stale|never_read, 요약 "N to invalidate". 기존 --days·--limit 불변.
 func TestStaleListsReasonsSummary(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -88,7 +88,7 @@ func TestInvalidateStaleDryRunDefault(t *testing.T) {
 	}
 }
 
-// TestInvalidateStaleYesApplies — Review Focus: --yes 시 대상 전체 전이
+// TestInvalidateStaleYesApplies — --yes 시 대상 전체 전이
 // (Repo.Invalidate 위임 — status·invalid_at 병기는 db 계층 소유)+Commit,
 // 쓰기 경로 Retry(40001 1회 후 회복).
 func TestInvalidateStaleYesApplies(t *testing.T) {
@@ -125,7 +125,7 @@ func TestInvalidateStaleYesApplies(t *testing.T) {
 	}
 }
 
-// TestInvalidateIdsSnapshot — Review Focus: --ids는 dry-run 재평가 무관
+// TestInvalidateIdsSnapshot — --ids는 dry-run 재평가 무관
 // 지정 id 고정(stale 질의 없음). 부재 id → exit 1. --yes 병행 필수.
 // 갱신은 Repo.Invalidate 위임(캡처로 단언).
 func TestInvalidateIdsSnapshot(t *testing.T) {
@@ -194,7 +194,7 @@ func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 	}
 }
 
-// TestSupersedeSetsFields — Review Focus: OLD active일 때만 전이 위임
+// TestSupersedeSetsFields — OLD active일 때만 전이 위임
 // (status·superseded_by=NEW·invalid_at=NEW valid_at 병기는 Repo.Supersede
 // 소유 — 위임 파라미터로 단언)+Commit.
 func TestSupersedeSetsFields(t *testing.T) {
@@ -220,7 +220,7 @@ func TestSupersedeSetsFields(t *testing.T) {
 	}
 }
 
-// TestSupersedeRejects — Review Focus: NEW 부재 exit 1 · 자기참조 exit 3 ·
+// TestSupersedeRejects — NEW 부재 exit 1 · 자기참조 exit 3 ·
 // OLD 비active(부재 포함) exit 1. 각각 전이(위임)·Commit 없음.
 func TestSupersedeRejects(t *testing.T) {
 	now := time.Now()

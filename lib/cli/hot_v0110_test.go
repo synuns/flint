@@ -41,7 +41,7 @@ func hotProfileQueryFn(profile string, hotRows [][]any) func(string, []any) ([][
 	}
 }
 
-// TestHotSummaryHeadlineByProfile — Review Focus: 프로파일 미설정=normal
+// TestHotSummaryHeadlineByProfile — 프로파일 미설정=normal
 // 헤드라인(펼치기 안내 포함), minimal은 카운트 2개만. 카운트는 전체
 // 출력과 동일 데이터 소스(hot_view 조회 행)에서 추출.
 func TestHotSummaryHeadlineByProfile(t *testing.T) {
@@ -70,7 +70,7 @@ func TestHotSummaryHeadlineByProfile(t *testing.T) {
 	}
 }
 
-// TestHotFullUnchanged — Review Focus: --full은 프로파일 무관 기존 전체
+// TestHotFullUnchanged — --full은 프로파일 무관 기존 전체
 // 출력 경로. 신규 단언은 플래그 파싱 라우팅만(전체 포맷 회귀는 기존 hot
 // 테스트가 담보).
 func TestHotFullUnchanged(t *testing.T) {

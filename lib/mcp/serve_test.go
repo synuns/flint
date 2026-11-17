@@ -1,4 +1,4 @@
-// serve_test.go — RunMCPServer 왕복 테스트(Review Focus: protocol 순서·EOF·깨진 JSON).
+// serve_test.go — RunMCPServer 왕복 테스트(protocol 순서·EOF·깨진 JSON).
 // runFn seam 재사용: 기본 fake, SUPERLITE_REAL=1이면 실 cli.Run.
 package mcp
 
@@ -68,7 +68,7 @@ func TestRunMCPServerRoundtrip(t *testing.T) {
 	}
 }
 
-// TestRunMCPServerProtocolOrder — Review Focus: initialize→tools/list→flint_read
+// TestRunMCPServerProtocolOrder — initialize→tools/list→flint_read
 // 순서 응답, 깨진 JSON 무시 후 루프 계속, EOF exit 0.
 func TestRunMCPServerProtocolOrder(t *testing.T) {
 	calls, real := installRun(t, `{"ok":true}`, 0)

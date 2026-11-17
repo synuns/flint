@@ -23,7 +23,7 @@ func TestDupSuspectsJSONEmpty(t *testing.T) {
 	}
 }
 
-// TestMaintainDupSuspectsFlag — Review Focus(명명): `--dup-suspects --limit 5`
+// TestMaintainDupSuspectsFlag — `--dup-suspects --limit 5`
 // 플래그 파싱(limit 전달·기본 10)·출력 JSON·usage 라인 갱신.
 func TestMaintainDupSuspectsFlag(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{},

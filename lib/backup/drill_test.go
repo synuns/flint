@@ -17,7 +17,7 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// Review Focus(numeric): INSERT 문 수와 테이블명 매칭 — knowledge만 세고
+// INSERT 문 수와 테이블명 매칭 — knowledge만 세고
 // 다른 테이블·주석·DELETE는 세지 않는다.
 func TestCountInserts(t *testing.T) {
 	stmts := splitStatements(`
@@ -237,8 +237,8 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	}
 }
 
-// Review Focus(state): 실DB 덤프 재생 → Ok true·스키마 무잔존.
-// Review Focus(numeric): 행수 대조 — Expected==Restored==실제 knowledge 행수.
+// 실DB 덤프 재생 → Ok true·스키마 무잔존.
+// 행수 대조 — Expected==Restored==실제 knowledge 행수.
 
 // 회귀(원본 풀 무오염): 드릴 재생이 별도 flint_drill_db 풀에서만 일어나므로
 // 원본 DSN 풀의 커넥션 상태(search_path 등)를 오염시키지 않는다. MaxConns=1
@@ -428,7 +428,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	}
 }
 
-// Review Focus(state): 재생 실패 시에도 드릴 DB 잔존 금지.
+// 재생 실패 시에도 드릴 DB 잔존 금지.
 func TestDrillFailureCleansSchema(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()

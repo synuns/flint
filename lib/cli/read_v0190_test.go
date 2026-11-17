@@ -44,7 +44,7 @@ var hitRowsFixture = [][]any{
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
-// TestReadEventRecordedOnHit — Review Focus: 히트 read는 결과 수·세션
+// TestReadEventRecordedOnHit — 히트 read는 결과 수·세션
 // 라벨을 그대로 기록한다(hits=2, zero=false, fallback=false).
 func TestReadEventRecordedOnHit(t *testing.T) {
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -78,7 +78,7 @@ func TestReadEventRecordedOnHit(t *testing.T) {
 	}
 }
 
-// TestReadEventRecordsFallback — Review Focus: 제로히트→폴백 재쿼리로
+// TestReadEventRecordsFallback — 제로히트→폴백 재쿼리로
 // 살아난 read는 fallback=true로 기록된다(폴백 플래그 전달).
 func TestReadEventRecordsFallback(t *testing.T) {
 	// 자동 라벨 채택 격리 — 주변 세션 라벨 상속 방지.
@@ -112,7 +112,7 @@ func TestReadEventRecordsFallback(t *testing.T) {
 	}
 }
 
-// TestReadSessionFlagValidation — Review Focus: 값 없는 trailing --session은
+// TestReadSessionFlagValidation — 값 없는 trailing --session은
 // 다른 값형 플래그와 동일 규칙 exit 3(N10/F1 관례). 플래그형 값
 // (`--session --json` 흡수 오타)도 exit 3 — 라벨이 read_events에 14일
 // 남는 만큼 DB 오염 방지가 조회 편의보다 우선(리뷰 #3).

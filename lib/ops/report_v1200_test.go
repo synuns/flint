@@ -201,7 +201,7 @@ func TestReportCost(t *testing.T) {
 	strEq(t, "cost.brief.mode", brief["mode"], "on-invoke")
 }
 
-// TestReportCostP95Guards — Review Focus: p95 가드(빈·표본 4건 — 분모<5는 0).
+// TestReportCostP95Guards — p95 가드(빈·표본 4건 — 분모<5는 0).
 func TestReportCostP95Guards(t *testing.T) {
 	now, today := v1200Today()
 	for name, n := range map[string]int{"빈 창": 0, "표본 4건": 4} {
@@ -225,7 +225,7 @@ func TestReportCostP95Guards(t *testing.T) {
 	}
 }
 
-// TestZeroDecompose — Review Focus: 제로히트 분해(spec §2.2). read 10회 중
+// TestZeroDecompose — 제로히트 분해(spec §2.2). read 10회 중
 // unowned 2·owned_miss 3 → zero_unowned_pct 20·zero_owned_miss_pct 30
 // (zero_pct 50과 분해 정합 — 분모는 창 내 read 이벤트).
 func TestZeroDecompose(t *testing.T) {
@@ -248,7 +248,7 @@ func TestZeroDecompose(t *testing.T) {
 	numEq(t, "zero_owned_miss_pct", e["zero_owned_miss_pct"], 30)
 }
 
-// TestRecallFate — Review Focus: 회상 운명(spec §2.6). 회상 id 1(활성 유지)·
+// TestRecallFate — 회상 운명(spec §2.6). 회상 id 1(활성 유지)·
 // id 2(7일 후 무효화) — 판정 대상 2 중 survived 50·bad_recall 50. 최근(1일)
 // 회상 id 3은 7일 미경과로 판정에서 제외.
 func TestRecallFate(t *testing.T) {
@@ -273,7 +273,7 @@ func TestRecallFate(t *testing.T) {
 	numEq(t, "bad_recall_pct", e["bad_recall_pct"], 50)
 }
 
-// TestHotReadChain — Review Focus: hot→read 연쇄(spec §2.1 갭8). hot 노출 2회 중
+// TestHotReadChain — hot→read 연쇄(spec §2.1 갭8). hot 노출 2회 중
 // 30분 내 같은 지식 read가 이어진 1회 → hot_read_chain_pct 50.
 func TestHotReadChain(t *testing.T) {
 	now, today := v1200Today()
@@ -291,7 +291,7 @@ func TestHotReadChain(t *testing.T) {
 	numEq(t, "hot_read_chain_pct", effectOf(t, m)["hot_read_chain_pct"], 50)
 }
 
-// TestRecallLedHotIncluded — Review Focus: G4 정합(spec §2.1). hot 노출이 세션
+// TestRecallLedHotIncluded — G4 정합(spec §2.1). hot 노출이 세션
 // 첫 회상인 세션(기록 앞섬)이 회상 선도로 계상된다(kind 불문 — kreads 원천).
 // read_events가 비어 있어도 kreads 원천으로 산출된다.
 func TestRecallLedHotIncluded(t *testing.T) {
@@ -359,7 +359,7 @@ func TestFlatDailyPreferredOverLegacy(t *testing.T) {
 	numEq(t, "days[0].hot(구 JSON 승계)", d["hot"], 7)
 }
 
-// TestHotStatsDerivedSwitch — Review Focus: hot_stats blob 소비 전환.
+// TestHotStatsDerivedSwitch — hot_stats blob 소비 전환.
 // (a) kreads·hot_events 어느 쪽도 데이터가 없으면 구 blob 값을 승계 보고
 // (전환 전과 동일 값 — 업그레이드 연속성). (b) 파생 원천이 있으면 blob과
 // 무관하게 파생값이 이긴다(소비 전환).

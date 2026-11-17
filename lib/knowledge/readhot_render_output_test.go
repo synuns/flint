@@ -42,7 +42,7 @@ func v0370SanitizeFixtureRows() [][]any {
 	}
 }
 
-// TestReadOutputUnchanged — Review Focus: 살균 대상 픽스처가
+// TestReadOutputUnchanged — 살균 대상 픽스처가
 // render 경로로 기존 출력 바이트와 동일(스냅숏 단얜). 마커는 공백 치환,
 // 제어 문자는 제거, 비문자열 셀은 무변형.
 func TestReadOutputUnchanged(t *testing.T) {
@@ -64,7 +64,7 @@ func TestReadOutputUnchanged(t *testing.T) {
 	}
 }
 
-// TestHotFullOutputUnchanged — Review Focus: hot --full 주입
+// TestHotFullOutputUnchanged — hot --full 주입
 // 경로의 동등성 스냅숏. 접미(pending 대기일수)·ClampHot 예산 절단 순서는
 // 살균 이후 기존 그대로 — pendingValidAts 동반 질의가 빈 결과면 접미
 // 생략(기존 계약)이므로 스냅숏은 기본 포맷 라인.

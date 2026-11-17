@@ -32,7 +32,7 @@ func diagFixture() ReportOutput {
 	return out
 }
 
-// TestDiagnoseRules — Review Focus: 각 규칙 트리거/비트리거·정상 침묵(빈
+// TestDiagnoseRules — 각 규칙 트리거/비트리거·정상 침묵(빈
 // 배열)·미설정(0) thresholds의 기본값 폴백. 규칙 수 계약: A계층 4(hot
 // 예산 밴드 고/저 2항목·bytes 추세·hit 원가 vs 절약 하한)·B계층 3(zero_near
 // 승계·dead·pending 승계)·C계층 1(recall_led 기본 목표) = 8항목(규칙 7종
@@ -143,7 +143,7 @@ func TestDiagnoseRules(t *testing.T) {
 	}
 }
 
-// TestDiagnosisSentenceContract — Review Focus: 문장 계약(스펙 §3) — 각
+// TestDiagnosisSentenceContract — 문장 계약(스펙 §3) — 각
 // 항목의 문장 렌더는 신호+수치+기준 출처+행동을 1줄에 포함한다. 기준
 // 출처는 계층을 드러낸다(A 자기참조 diag_*·B doctor 승계·C 가치 기본값).
 func TestDiagnosisSentenceContract(t *testing.T) {
@@ -210,7 +210,7 @@ func TestDiagnosisSentenceContract(t *testing.T) {
 	}
 }
 
-// TestDiagnosisReportExposure — Review Focus: 세 뷰 동일 원천(사용자 원칙 —
+// TestDiagnosisReportExposure — 세 뷰 동일 원천(사용자 원칙 —
 // 뷰 간 데이터 분열 금지). (a) report --json: diagnosis 배열이 ReportOutput
 // 에서 직렬화된다. (b) 정상 침묵: 빈 배열(null 아님). (c) HTML: 같은
 // ReportOutput.Diagnosis를 카드로 렌더(빈 경우 섹션 자체가 없다).

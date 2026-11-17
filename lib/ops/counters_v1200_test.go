@@ -67,7 +67,7 @@ func (c *counterCaptureV) sum(prefix string) int {
 
 func counterToday() string { return time.Now().UTC().Format("2006-01-02") }
 
-// TestCurationCounters — Review Focus: maintain 검수 경로 → daily 카운터.
+// TestCurationCounters — maintain 검수 경로 → daily 카운터.
 // supersede 성공 1·expire-pending 확정 행수·prune 삭제 행수(Repo 위임
 // 반환값). dry-run은 갱신이 없으므로 미계상.
 func TestCurationCounters(t *testing.T) {
@@ -151,7 +151,7 @@ func TestCurationCounters(t *testing.T) {
 	})
 }
 
-// TestFiredCounters — Review Focus: 발화 카운터. nudge distill(Stop 넛지)·
+// TestFiredCounters — 발화 카운터. nudge distill(Stop 넛지)·
 // recall(SessionStart 회상 안내)·update(sessionhook 갱신 안내) 3종·doctor
 // warn 종류별(fired_doctor_<check>). 미발화(마커 부재·ok 판정)는 0.
 func TestFiredCounters(t *testing.T) {

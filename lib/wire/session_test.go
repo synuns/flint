@@ -47,7 +47,7 @@ func TestReadSessionLabel(t *testing.T) {
 	}
 }
 
-// TestSessionLabelLegacyIgnored — Review Focus: 구 session-current
+// TestSessionLabelLegacyIgnored — 구 session-current
 // 잔존 파일은 무시 — 폴백 읽기 없음(라벨 부재), PruneSessionLabels 청산
 // 대상도 아니다(사용자 디스크 파일 미삭제).
 func TestSessionLabelLegacyIgnored(t *testing.T) {

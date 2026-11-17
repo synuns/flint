@@ -53,7 +53,7 @@ func hiddenAudit(reg, order []string, declared map[string]bool) []string {
 	return problems
 }
 
-// TestRegisteredMatchesUsage — Review Focus: wire.Registered() 집합 ==
+// TestRegisteredMatchesUsage — wire.Registered() 집합 ==
 // UsageOrder ∪ hidden(고정 선언). 신규 커맨드를 Register만 하고
 // usageOrder에 넣지 않으면(또는 그 반대) FAIL — 영구 드리프트 가드.
 func TestRegisteredMatchesUsage(t *testing.T) {

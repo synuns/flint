@@ -83,7 +83,7 @@ func TestDoneTriggersAutoBackupHook(t *testing.T) {
 	}
 }
 
-// Review Focus(protocol): runs 2 vs 3 경계 — 3에서 warning 포함·exit 0.
+// runs 2 vs 3 경계 — 3에서 warning 포함·exit 0.
 func TestDoneStaleBoundary(t *testing.T) {
 	cases := []struct {
 		runs   int
@@ -147,7 +147,7 @@ func TestDoneUsesMetaThreshold(t *testing.T) {
 	}
 }
 
-// Review Focus(protocol): 조회 실패 경로도 exit 0(비간섭, 한 줄 JSON).
+// 조회 실패 경로도 exit 0(비간섭, 한 줄 JSON).
 func TestDoneErrorStillExit0(t *testing.T) {
 	f := &fakeStore{queryErr: errors.New("meta blew up")}
 	d := &doneFake{fakeStore: f, stubbed: true, runsErr: errors.New("stale blew up")}
@@ -360,7 +360,7 @@ func TestDoneUpdatesExistingSession(t *testing.T) {
 	}
 }
 
-// TestDoneAutoBackupNoExtraPool — Review Focus: maybeAutoBackup이 자체
+// TestDoneAutoBackupNoExtraPool — maybeAutoBackup이 자체
 // 풀(db.Connect)을 열지 않고 주입 st로 meta에 접근한다. 도달 불가 DSN에서
 // 자체 풀 우선 구현은 st 조회 전 조용히 반환되어 fake 기록이 비게 된다.
 func TestDoneAutoBackupNoExtraPool(t *testing.T) {

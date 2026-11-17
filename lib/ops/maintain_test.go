@@ -215,7 +215,7 @@ func TestMaintainDecayAuditLimit(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditThresholdOverride — Review Focus: meta 오버라이드
+// TestMaintainDecayAuditThresholdOverride — meta 오버라이드
 // decay_rate·archive_below가 산식·권장에 반영된다(effective < archive_below
 // → recommend "archive").
 func TestMaintainDecayAuditThresholdOverride(t *testing.T) {

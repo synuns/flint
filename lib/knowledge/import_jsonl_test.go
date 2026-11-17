@@ -696,7 +696,7 @@ func maxRowsFixtureRows(n int) []ExportRow {
 	return rows
 }
 
-// TestRunImportMigrateMaxRowsExceeded — Review Focus: 행 수가 상한을
+// TestRunImportMigrateMaxRowsExceeded — 행 수가 상한을
 // 초과하면 exit 3·오류 JSON에 max·count가 포함되고 적립은 발생하지
 // 않는다(대량 문서 메모리 방어 — 적립 전 파이프라인 차단).
 func TestRunImportMigrateMaxRowsExceeded(t *testing.T) {
@@ -755,7 +755,7 @@ func TestRunImportMigrateMaxRowsPAMExceeded(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateValidAtPreserved — Review Focus: valid_at은
+// TestRunImportMigrateValidAtPreserved — valid_at은
 // 원값으로 보존 적립된다(경로 확장 — 종전 CreatedAt 치환 폐지.
 // 검증 시각 ≠ 수집 시각 행에서 원천 valid_at이 그대로 적립).
 func TestRunImportMigrateValidAtPreserved(t *testing.T) {
@@ -788,7 +788,7 @@ func TestRunImportMigrateValidAtPreserved(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMProjectKind — Review Focus: PAM project형
+// TestRunImportMigratePAMProjectKind — PAM project형
 // 후보는 스킵되지 않고 pending 적립된다(승격 모델 준수). 원천 kind 보존은
 // 태그 "pam:project" 추가로(ExportRow.Kind는 저장 라우터 상수라 태그로만
 // 구분 — 코디네이터 룰링 2026-11-14).
@@ -1222,7 +1222,7 @@ func TestCountJSONLRows(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateMaxRowsEarlyScan — P5 Review Focus: 상한 초과 판정은
+// TestRunImportMigrateMaxRowsEarlyScan — 상한 초과 판정은
 // 전량 파싱 전 라인 스캔으로 조기 발생한다 — 파손 행이 섞여 있어도 상한
 // 오류가 우선(파싱 메모리 방어가 parse 오류보다 앞선다). 적립 없음.
 func TestRunImportMigrateMaxRowsEarlyScan(t *testing.T) {
@@ -1245,7 +1245,7 @@ func TestRunImportMigrateMaxRowsEarlyScan(t *testing.T) {
 	}
 }
 
-// TestImportRowsBatchDedupBatchLookup — P1 Review Focus: dedup은 행별
+// TestImportRowsBatchDedupBatchLookup — dedup은 행별
 // lookupHash가 아니라 content_hash = ANY($1) 청크 사전 조회 1회(청크
 // 크기 초과분만 다음 왕복)로 판정한다. 파일 내 중복은 여전히 첫 행 우선
 // 스킵, 기존 행 id는 계보 참조 해석용 idmap으로 승계된다.
@@ -1298,7 +1298,7 @@ func TestImportRowsBatchDedupBatchLookup(t *testing.T) {
 	}
 }
 
-// TestImportRowsBatchChunkBoundary — P2 Review Focus: 적립은 청크
+// TestImportRowsBatchChunkBoundary — 적립은 청크
 // INSERT로 나뉜다(마지막 청크는 잔여 크기). id 매핑·imported 집계는
 // 행 순서와 동일하게 유지된다.
 func TestImportRowsBatchChunkBoundary(t *testing.T) {
@@ -1322,7 +1322,7 @@ func TestImportRowsBatchChunkBoundary(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePartialFailureResume — 청크 커밋 회귀 Review Focus:
+// TestRunImportMigratePartialFailureResume — 청크 커밋 회귀
 // 청크 2 INSERT 실패(23505 원인 보존·exit 1) 시 청크 1 커밋은 유지되고,
 // 재실행은 dedup가 이미 적립된 청크를 회복해 잔여만 적립(부분 성공
 // imported 수 보존·멱등 재개).
@@ -1570,7 +1570,7 @@ func overrideImportMaxFileBytes(t *testing.T, max int64) {
 	t.Cleanup(func() { importMaxFileBytes = saved })
 }
 
-// TestRunImportMigrateFileSizeLimitExceeded — G3 Review Focus: FILE 크기가
+// TestRunImportMigrateFileSizeLimitExceeded — FILE 크기가
 // 상한(512MB 기본)을 초과하면 os.ReadFile 전 stat 판정으로 exit 3 —
 // 오류 JSON에 max·size가 포함되고 적립·파싱은 발생하지 않는다(슬랩
 // 적재 전 차단).
@@ -1631,8 +1631,7 @@ func g5Row(id, salt int, t0 time.Time) ExportRow {
 	}
 }
 
-// TestImportRowsBatchIDCollisionExistingReassigned — G5 Review Focus:
-// 기존 DB 동일 id·다른 내용 행(해시 dedup 미통과 — 동일 내용이었다면
+// TestImportRowsBatchIDCollisionExistingReassigned — 기존 DB 동일 id·다른 내용 행(해시 dedup 미통과 — 동일 내용이었다면
 // 스킵됨)은 자동 재할당(명시 id 제거 → serial)으로 적립되고 remapped로
 // 계상된다. 충돌하지 않는 명시 id는 그대로 보존.
 func TestImportRowsBatchIDCollisionExistingReassigned(t *testing.T) {
@@ -1714,7 +1713,7 @@ func TestRunImportMigrateSameDBReassignRoundtrip(t *testing.T) {
 	}
 }
 
-// TestWriteProjectNoteStored — F5 Review Focus: project payload의 note는
+// TestWriteProjectNoteStored — project payload의 note는
 // kindColumns 등록 컬럼으로 저장된다(SchemaV2 projects.note — 종전
 // 비컬럼 메타데이터 취급 버려짐 폐지).
 func TestWriteProjectNoteStored(t *testing.T) {

@@ -14,7 +14,7 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// TestEnsureSchemasLatestSkipsGates — Review Focus: probe가 최신
+// TestEnsureSchemasLatestSkipsGates — probe가 최신
 // (LatestSchemaVersion)을 확인하면 쿼리 1건만 발행(게이트 순회 스킵).
 func TestEnsureSchemasLatestSkipsGates(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

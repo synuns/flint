@@ -72,7 +72,7 @@ func asofStore(t *testing.T, f *fakeStore) Store {
 	return f
 }
 
-// TestRelativeDh — Review Focus: test_relative_dh(72h·7d·무효 2.5h·"2 days ago").
+// TestRelativeDh — test_relative_dh(72h·7d·무효 2.5h·"2 days ago").
 func TestRelativeDh(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -100,7 +100,7 @@ func TestRelativeDh(t *testing.T) {
 	}
 }
 
-// TestPrefixUniqueAmbiguousZero — Review Focus: 접두어 1건 확정·모호·0건·
+// TestPrefixUniqueAmbiguousZero — 접두어 1건 확정·모호·0건·
 // LIKE 파라미터화(주입 방지).
 func TestPrefixUniqueAmbiguousZero(t *testing.T) {
 	f := asofFake(asofLogRows())
@@ -144,7 +144,7 @@ func TestPrefixUniqueAmbiguousZero(t *testing.T) {
 	}
 }
 
-// TestIsoBeforeFirst — Review Focus: 첫 커밋 이전 ISO 시각 → err, 문구에
+// TestIsoBeforeFirst — 첫 커밋 이전 ISO 시각 → err, 문구에
 // 첫 커밋 시각 포함. 정상 ISO는 시각 직전 최신 커밋 채택.
 func TestIsoBeforeFirst(t *testing.T) {
 	f := asofFake(asofLogRows())

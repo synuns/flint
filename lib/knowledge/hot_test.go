@@ -41,8 +41,7 @@ func hotRankedStore(t *testing.T, rows [][]any) *hotBumpRecorder {
 	}}}
 }
 
-// TestHotFullRanksByEffectiveScore — Review Focus(동일 최신성에서 score 높은
-// 항목 우선): --full 주입 행 순서가 감쇠 후 유효 점수 내림(9·5·0)이고,
+// TestHotFullRanksByEffectiveScore — --full 주입 행 순서가 감쇠 후 유효 점수 내림(9·5·0)이고,
 // 주문=증분 계약 그대로 증분 id도 같은 순서다.
 func TestHotFullRanksByEffectiveScore(t *testing.T) {
 	injectHotSeams(t)
@@ -103,8 +102,7 @@ func TestHotHeadlineRanksTopics(t *testing.T) {
 	}
 }
 
-// TestHotRankZeroScoresKeepExistingOrder — Review Focus(0점 전원 기존
-// 순서·포맷 회귀): 랭킹 열이 없는 행(구형 뷰 모양 7열)과 전원 0점 행은
+// TestHotRankZeroScoresKeepExistingOrder — 랭킹 열이 없는 행(구형 뷰 모양 7열)과 전원 0점 행은
 // 안정 정렬이 SQL 순서를 그대로 승계하고 출력은 기본 포맷과 바이트 동일.
 func TestHotRankZeroScoresKeepExistingOrder(t *testing.T) {
 	injectHotSeams(t)
@@ -142,8 +140,7 @@ func TestHotRankZeroScoresKeepExistingOrder(t *testing.T) {
 	}
 }
 
-// TestHotRankUnrecalledKeepsScore — Review Focus(미회상 score 유지):
-// last_recalled_at NULL(미회상)은 감쇠 불이익 없이 score 그대로 — 같은
+// TestHotRankUnrecalledKeepsScore — last_recalled_at NULL(미회상)은 감쇠 불이익 없이 score 그대로 — 같은
 // score의 회상 이력 항목(감쇠 진행)보다 위, 낮은 score보다는 아래.
 func TestHotRankUnrecalledKeepsScore(t *testing.T) {
 	injectHotSeams(t)

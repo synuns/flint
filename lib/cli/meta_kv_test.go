@@ -84,7 +84,7 @@ func metaKVCleanup(t *testing.T, st Store, keys ...string) {
 	}
 }
 
-// TestBumpFallbackAtomic — Review Focus: bumpReadFallbackToMeta가 단일
+// TestBumpFallbackAtomic — bumpReadFallbackToMeta가 단일
 // 원자 upsert로 증분한다(선행 SELECT→INSERT 왕복 제거). 0에서 2회 폴백 → "2".
 func TestBumpFallbackAtomic(t *testing.T) {
 	ctx := context.Background()
@@ -116,7 +116,7 @@ func TestBumpFallbackAtomic(t *testing.T) {
 	}
 }
 
-// TestMetaKVSingleSource — Review Focus: 소유 파일(metrics·tuning·setup·
+// TestMetaKVSingleSource — 소유 파일(metrics·tuning·setup·
 // hot·read·done·backup)에 meta SQL 리터럴 잔존 0 — 조회·증감 전부
 // meta_kv.go 단일 진입 위임.
 func TestMetaKVSingleSource(t *testing.T) {
@@ -134,7 +134,7 @@ func TestMetaKVSingleSource(t *testing.T) {
 	}
 }
 
-// TestBumpMetaCounterDelegates — Review Focus: done 회상 카운터 증분이
+// TestBumpMetaCounterDelegates — done 회상 카운터 증분이
 // bumpMetaKV 단일 진입을 쓴다(파손값 1 리셋 가드 승계 — 미가드 캐스트
 // 오류로 카운터가 얼어붙던 이전 구현 회귀 방지).
 func TestBumpMetaCounterDelegates(t *testing.T) {

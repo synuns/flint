@@ -19,7 +19,7 @@ func (s *sessionStartRecorder) RecordSessionStart(ctx context.Context, session s
 	return nil
 }
 
-// TestSessionStartRecordsBoundary — Review Focus: session-start가 --session
+// TestSessionStartRecordsBoundary — session-start가 --session
 // 라벨로 경계를 1회 기록한다. 기록 실패가 없어도 hot·nudge 출력은 불변
 // (기록은 출력 경로와 독립).
 func TestSessionStartRecordsBoundary(t *testing.T) {

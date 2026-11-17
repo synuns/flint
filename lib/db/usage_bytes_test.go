@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// TestRecordBytesDaily — Review Focus: 증분(연속 가산)·파손 재기작·무효 kind
+// TestRecordBytesDaily — 증분(연속 가산)·파손 재기작·무효 kind
 // 거부. e.g. RecordBytes("hot", 1180) → daily:hot_bytes:<오늘> +1180.
 func TestRecordBytesDaily(t *testing.T) {
 	r := newTestRepo(t)

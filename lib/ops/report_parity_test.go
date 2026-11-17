@@ -126,7 +126,7 @@ func TestZeroNearParity(t *testing.T) {
 	}
 }
 
-// TestDerivedWindowBoundary — Review Focus(창 집산 off-by-one): 파생 병합
+// TestDerivedWindowBoundary — 파생 병합
 // 컷오프는 창 첫 날의 UTC 자정 "정각 포함"(ts >= cutoff)이어야 한다.
 // 자정 1초 전 이벤트는 창 밖(첫 행 미집계), 자정 정각 이벤트는 첫 행에
 // 집계된다. 컷오프 인자와 일별 버킷 배치를 함께 단언한다.

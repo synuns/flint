@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestDoctorMentionsExpire — Review Focus: pending-age 검사 detail에
+// TestDoctorMentionsExpire — pending-age 검사 detail에
 // "expire-pending" 포함(최고령 pending 경과 임계 초과 시).
 func TestDoctorMentionsExpire(t *testing.T) {
 	old := time.Now().Add(-10 * 24 * time.Hour)

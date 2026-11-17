@@ -23,7 +23,7 @@ func sessionAt(agent string, ts time.Time) map[string]any {
 	return map[string]any{"kind": "session", "agent": agent, "summary": "세션", "ts": ts}
 }
 
-// TestApproveIdempotent — Review Focus(state): 2회 approve → 동일 상태·2번째도 에러 없음.
+// TestApproveIdempotent — 2회 approve → 동일 상태·2번째도 에러 없음.
 func TestApproveIdempotent(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -56,7 +56,7 @@ func TestApproveMissing(t *testing.T) {
 	}
 }
 
-// TestInvalidateSetsInvalidAt — Review Focus 지정 케이스: invalid_at NULL→NOT NULL.
+// TestInvalidateSetsInvalidAt — invalid_at NULL→NOT NULL.
 func TestInvalidateSetsInvalidAt(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -284,7 +284,7 @@ func flintIndexCount(t *testing.T, r *Repo) int {
 	return n
 }
 
-// TestEnsureSchemaV3Idempotent — Review Focus(state): 2회 호출 → 인덱스 3행·
+// TestEnsureSchemaV3Idempotent — 2회 호출 → 인덱스 3행·
 // 버전 3, 2회째는 무변화. protocol: v2 게이트를 경유한 DB(기존 배포 경로)도 승격.
 func TestEnsureSchemaV3Idempotent(t *testing.T) {
 	r := newTestRepo(t)
@@ -497,7 +497,7 @@ func dropV11ScoreColumns(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV11GateAdditive — Review Focus(state): v10 DB 재현 →
+// TestV11GateAdditive — v10 DB 재현 →
 // EnsureSchemaV11 승격이 recall_score(int 기본 0)·last_recalled_at
 // (timestamptz NULL) 2열을 additive 추가하고 기존 행은 무손상·기본값
 // (0·NULL)·재호출 멱등. 역방향(이전 바이너리가 v11 DB를 읽는 호환)은

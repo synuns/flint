@@ -901,7 +901,7 @@ func TestPendingFilteredDetailShowsSelectedBody(t *testing.T) {
 	}
 }
 
-// RF-filter-state — Review Focus(state): 필터 적용 상태의 supersede 확정은
+// RF-filter-state — 필터 적용 상태의 supersede 확정은
 // targetList visible 인덱스를 전체 인덱스로 환산(GlobalIndex) — 필터로
 // 가려진 앞 후보(#3)가 아닌 선택한 후보(#5)가 old로 위임된다.
 func TestPendingSupersedeFilteredTargetUsesGlobalIndex(t *testing.T) {

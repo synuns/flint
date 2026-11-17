@@ -23,7 +23,7 @@ func runEntryArgs(t *testing.T, f Store, args ...string) (string, int) {
 }
 
 // TestReportEntryFlagPathUnchanged — --tui 없이 들어오면 기존 JSON 경로
-// 바이트 동일 위임(기본 경로 불변 — Review Focus protocol).
+// 바이트 동일 위임(기본 경로 불변).
 func TestReportEntryFlagPathUnchanged(t *testing.T) {
 	out, code := runEntryArgs(t, newReportFake(nil))
 	if code != 0 {

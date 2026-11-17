@@ -26,7 +26,7 @@ type selfConnectError struct{}
 
 func (*selfConnectError) Error() string { return "self-connect path must not run" }
 
-// TestQuoteJSONSingle — Review Focus: quoteJSON 1구현으로 수렴.
+// TestQuoteJSONSingle — quoteJSON 1구현으로 수렴.
 // knowledge/approve.go의 quoteJSONApprove는 backup.go quoteJSON과 바이트
 // 동일이므로 소스에 잔존하지 않아야 한다(행위는 quoteJSON 자체 검증).
 func TestQuoteJSONSingle(t *testing.T) {
@@ -91,7 +91,7 @@ func TestBackupUsesInjectedStore(t *testing.T) {
 	}
 }
 
-// TestThresholdsLoaderSingle — Review Focus: doneThresholds 제거·
+// TestThresholdsLoaderSingle — doneThresholds 제거·
 // WriteThresholds(write.go) 공용. knowledge/done.go에 로컬 로더가 남으면
 // 실패(done.go 이동 위치 검사).
 func TestThresholdsLoaderSingle(t *testing.T) {

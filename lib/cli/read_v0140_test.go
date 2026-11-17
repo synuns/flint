@@ -40,7 +40,7 @@ func nearCountingStore(metaInserts *[]string) *fakeStore {
 	}}
 }
 
-// TestReadZeroHitSilent — Review Focus: 제로히트는 스캔 후보 있든 없든
+// TestReadZeroHitSilent — 제로히트는 스캔 후보 있든 없든
 // 완전 무출력·exit 1(suggestions 라인 부재 포함 — 제안 라인 잔존 금지).
 func TestReadZeroHitSilent(t *testing.T) {
 	cases := []struct {
@@ -65,7 +65,7 @@ func TestReadZeroHitSilent(t *testing.T) {
 	}
 }
 
-// TestReadZeroHitNearCounted — Review Focus: 제로히트·스캔
+// TestReadZeroHitNearCounted — 제로히트·스캔
 // 후보 1건 → 근접 분류가 read_events 1행(Near=true)으로 기록된다(구
 // read_stats zero_near 증분은 폐지 — meta INSERT에 read_stats 키 부재).
 func TestReadZeroHitNearCounted(t *testing.T) {

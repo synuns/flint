@@ -1,4 +1,4 @@
-// hot_kreads_v1200_test.go — 기록 배선(hot 표면). Review Focus:
+// hot_kreads_v1200_test.go — 기록 배선(hot 표면).
 // TestKnowledgeReadsHotHeadline(헤드라인 id 전수·kind=hot)·--full 주입 id도
 // kind=hot로 기록(주입=기록 정합). BumpReads 캐시 경로·출력 불변은
 // hot_single_view_test·hot_v0110 계약이 따로 든다.
@@ -33,7 +33,7 @@ func v1200HotRows(ts time.Time) [][]any {
 	}
 }
 
-// TestKnowledgeReadsHotHeadline — Review Focus: 헤드라인(비
+// TestKnowledgeReadsHotHeadline — 헤드라인(비
 // --full) 경로도 노출 id 전수를 knowledge_reads에 kind=hot로 남긴다(G4
 // 계상 원천 — 프로젝트 팔 제외).
 func TestKnowledgeReadsHotHeadline(t *testing.T) {

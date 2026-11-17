@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TestSessionStartAndHotEventRecords — Review Focus: 기록 메서드가 값을
+// TestSessionStartAndHotEventRecords — 기록 메서드가 값을
 // 그대로 남기고 14일 보존 정리(PruneReadEvents)가 3테이블 전부에서
 // 초과분만 삭제한다.
 func TestSessionStartAndHotEventRecords(t *testing.T) {

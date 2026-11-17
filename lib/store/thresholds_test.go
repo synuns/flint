@@ -49,7 +49,7 @@ func TestThresholdsAllSet(t *testing.T) {
 	}
 }
 
-// TestThresholdsConfFloorBoundaries — conf_floor 0·1·문자열 거부 시 기본값(Review Focus: numeric).
+// TestThresholdsConfFloorBoundaries — conf_floor 0·1·문자열 거부 시 기본값.
 func TestThresholdsConfFloorBoundaries(t *testing.T) {
 	cases := []struct {
 		name string

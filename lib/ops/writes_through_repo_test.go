@@ -188,7 +188,7 @@ func writeGuardScan(dir string) []string {
 	return out
 }
 
-// TestWritesThroughRepoOnly — Review Focus: 가드 위반 0(전소스·하위
+// TestWritesThroughRepoOnly — 가드 위반 0(전소스·하위
 // 디렉터리 포함). 쓰기 동사 토큰이 문자열 리터럴(조각·Sprintf 인자 포함,
 // 위치 불문) 또는 이어붙이기 조립 결과에 등장하면 위치와 함께 FAIL.
 func TestWritesThroughRepoOnly(t *testing.T) {

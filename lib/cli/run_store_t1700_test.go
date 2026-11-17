@@ -27,8 +27,7 @@ func (s *t1700TelStore) CommitTelemetry(ctx context.Context, cmd string) error {
 	return nil
 }
 
-// TestInjectedStoreForwardsCommitTelemetry — Review Focus:
-// injectedStore은 원본의 CommitTelemetry를 위임한다(미구현 원본은 조용
+// TestInjectedStoreForwardsCommitTelemetry — injectedStore은 원본의 CommitTelemetry를 위임한다(미구현 원본은 조용
 // no-op — 기존 계측 capability 폴백 패턴).
 func TestInjectedStoreForwardsCommitTelemetry(t *testing.T) {
 	orig := &t1700TelStore{}

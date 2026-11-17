@@ -97,7 +97,7 @@ func runMaintainArgs(t *testing.T, f *fakeMaint, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// Review Focus(state): 경계 — pending 49/50은 ok, 51부터 review-needed.
+// 경계 — pending 49/50은 ok, 51부터 review-needed.
 // 임계값은 meta에서 읽는다(기본 pending_max=50).
 func TestMaintainCheckBoundary(t *testing.T) {
 	cases := []struct {

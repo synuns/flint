@@ -76,7 +76,7 @@ func TestRotateKeepsNewest(t *testing.T) {
 	mustGone(t, filepath.Join(dir, c+".sha256"))
 }
 
-// Review Focus(file): 사이드카 누락 파일은 .sql 단독 삭제(removed에도 단독).
+// 사이드카 누락 파일은 .sql 단독 삭제(removed에도 단독).
 func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
@@ -97,7 +97,7 @@ func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	mustExist(t, filepath.Join(dir, newName+".sha256"))
 }
 
-// Review Focus(numeric): keep≤0은 전체 삭제 아님 — 최소 1 보장.
+// keep≤0은 전체 삭제 아님 — 최소 1 보장.
 func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)

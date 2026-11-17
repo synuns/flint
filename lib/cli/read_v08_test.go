@@ -52,7 +52,7 @@ func asofReadSQL(f *fakeStore) string {
 	return ""
 }
 
-// TestReadAsOfAddsField — Review Focus: --as-of 7d → 해시 확정 → 질의에
+// TestReadAsOfAddsField — --as-of 7d → 해시 확정 → 질의에
 // ` AS OF '<hash>'` 접합(RankOrder·LIMIT 불변) + 출력에 as_of{hash,commit_date}.
 func TestReadAsOfAddsField(t *testing.T) {
 	ctx := context.Background()
@@ -94,7 +94,7 @@ func TestReadAsOfAddsField(t *testing.T) {
 	}
 }
 
-// TestReadAsOfInvalidExit3 — Review Focus: 무효 스펙("2 days ago")은
+// TestReadAsOfInvalidExit3 — 무효 스펙("2 days ago")은
 // exit 3 한 줄 JSON, active_knowledge 질의 자체를 내지 않는다.
 func TestReadAsOfInvalidExit3(t *testing.T) {
 	ctx := context.Background()
@@ -113,7 +113,7 @@ func TestReadAsOfInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadAsOfLimitRegression — Review Focus: 기존 인자(--limit 등) 조합 —
+// TestReadAsOfLimitRegression — 기존 인자(--limit 등) 조합 —
 // AS OF와 동시 사용 시 필터·LIMIT가 그대로 조립된다.
 func TestReadAsOfLimitRegression(t *testing.T) {
 	ctx := context.Background()

@@ -60,7 +60,7 @@ func reportDates(n int) []string {
 	return out
 }
 
-// TestReportSevenDayWindow — Review Focus numeric: 8일치 daily 키를 심어도
+// TestReportSevenDayWindow — 8일치 daily 키를 심어도
 // 기본 7일 창의 7행만 나온다(8일째 배제). 파손된 당일-2 키는 0으로 스킵.
 func TestReportSevenDayWindow(t *testing.T) {
 	now := time.Now().UTC()

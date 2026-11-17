@@ -1,4 +1,4 @@
-// threshold_meta_test.go — 등록표 가드. Review Focus:
+// threshold_meta_test.go — 등록표 가드.
 // TestThresholdRegistrySingleSource(등록표 키 집합 == 기존 키 집합·Parse
 // 인식·tuningKeys·TUNING 표 노출 4곳 동질)·TestNewKeyPropagates(가상 키
 // 1건 등록 시 4경로 동시 반영 — 등록 후 제거). wire 외부 테스트 패키지 —
@@ -34,7 +34,7 @@ var frozenThresholdKeys = []string{
 	"decay_rate", "archive_below",
 }
 
-// TestThresholdRegistrySingleSource — Review Focus. 등록표가 4곳(기존 키
+// TestThresholdRegistrySingleSource — 등록표가 4곳(기존 키
 // 집합·Parse 인식·tuningKeys·TUNING 표 노출)과 동질한지 — 등록표와
 // store(구조체·기본값·Parse switch) 어느 한쪽에만 키를 추가해도 FAIL.
 func TestThresholdRegistrySingleSource(t *testing.T) {
@@ -145,7 +145,7 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 	}
 }
 
-// TestNewKeyPropagates — Review Focus. 가상 키 1건을 등록표에 등록하면
+// TestNewKeyPropagates — 가상 키 1건을 등록표에 등록하면
 // 4경로(ThresholdsKeys·TuningKeyAll·TuningKeyMap 행·TuningKeys 순서)가
 // 동시 반영되고, 제거 시 전부에서 사라진다 — 신규 키는 등록표 1곳 등록
 // (+store 구조체 필드)만으로 전파됨의 실증.

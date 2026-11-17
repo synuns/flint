@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-// TestTimeWindowHit — Review Focus(test_pair_window_boundary):
-// base 직후 창 안(0 < Δ ≤ window)의 시각만 히트 — 동시(Δ=0)·
+// TestTimeWindowHit — base 직후 창 안(0 < Δ ≤ window)의 시각만 히트 — 동시(Δ=0)·
 // 직전·창 밖은 제외, 창 끝은 포함. times 오름차순 가정.
 func TestTimeWindowHit(t *testing.T) {
 	base := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
@@ -48,7 +47,7 @@ func TestCellToTime(t *testing.T) {
 	}
 }
 
-// TestReportEffectSection — Review Focus(test_effect_section): 효과
+// TestReportEffectSection — 효과
 // 섹션이 METRICS §4 정의대로 산출된다 — daily 합산·knowledge 시점
 // 집계+노출 보정·세션 경계 페어링·회상 선도·연쇄.
 func TestReportEffectSection(t *testing.T) {
@@ -139,7 +138,7 @@ func TestReportEffectSection(t *testing.T) {
 	}
 }
 
-// TestReportEffectZeroReads — Review Focus: read_events 공백 시 G4는
+// TestReportEffectZeroReads — read_events 공백 시 G4는
 // 전부 0(제로 분모 가드 — 페어링 쿼리도 미실행).
 func TestReportEffectZeroReads(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -204,7 +203,7 @@ func TestReportEffectZeroReads(t *testing.T) {
 	}
 }
 
-// TestReportEffectSessionPairing — Review Focus: 세션 경계가
+// TestReportEffectSessionPairing — 세션 경계가
 // 페어링을 판별한다 — read(세션1) 뒤 20분 write(세션2)는 시간창 폴백과
 // 달리 페어가 아니다. 회상 선도는 write-only 세션에서 0.
 func TestReportEffectSessionPairing(t *testing.T) {
@@ -293,7 +292,7 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	}
 }
 
-// TestChainPct — Review Focus: 사용 연쇄의 두 경로와 비히트 —
+// TestChainPct — 사용 연쇄의 두 경로와 비히트 —
 // (a) 24h 내 같은 id 재반환 히트(Δ=0 동시 기록은 제외 — 페어링 규칙과
 // 일관), (b) 같은 topic write 히트, 24h 경과·다른 topic은 비히트.
 func TestChainPct(t *testing.T) {
@@ -326,8 +325,7 @@ func TestChainPct(t *testing.T) {
 	}
 }
 
-// TestReportEffectDegradesOnEventLogError — Review Focus(리뷰 #2):
-// read_events 조회 실패(테이블 부재 등)는 G4·fallback_pct를 0으로
+// TestReportEffectDegradesOnEventLogError — read_events 조회 실패(테이블 부재 등)는 G4·fallback_pct를 0으로
 // 강등할 뿐 report 전체를 깨지 않는다(계측 원칙 — 다른 지표는 그대로).
 func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

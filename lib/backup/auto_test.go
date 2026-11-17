@@ -32,7 +32,7 @@ func realDumpEnv(t *testing.T) {
 	}
 }
 
-// Review Focus(numeric): 23h59m no / 24h01m yes 경계.
+// 23h59m no / 24h01m yes 경계.
 func TestShouldBackupBoundary(t *testing.T) {
 	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -53,7 +53,7 @@ func TestShouldBackupBoundary(t *testing.T) {
 	}
 }
 
-// Review Focus(state): 경과 시 덤프 기록+last_backup 메타 갱신.
+// 경과 시 덤프 기록+last_backup 메타 갱신.
 func TestRunIfNeededBacksUp(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -109,7 +109,7 @@ func TestRunIfNeededSkipsRecent(t *testing.T) {
 	}
 }
 
-// Review Focus(state): setKV 실패 시 에러 반환 + 메타 미기록 → 다음 재시도.
+// setKV 실패 시 에러 반환 + 메타 미기록 → 다음 재시도.
 func TestRunIfNeededClaimFailureRetries(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)

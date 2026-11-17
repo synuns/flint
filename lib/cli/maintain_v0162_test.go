@@ -21,7 +21,7 @@ func expireFixture(old, recent time.Time) *fakeMaint {
 	}}}
 }
 
-// TestExpirePendingDryRun — Review Focus: pending 2건(경과 7일·2일)에서
+// TestExpirePendingDryRun — pending 2건(경과 7일·2일)에서
 // days=5 나열 시 7일 행 1건만 출력·전이·Commit 미호출.
 func TestExpirePendingDryRun(t *testing.T) {
 	old := time.Now().Add(-7 * 24 * time.Hour)
@@ -51,7 +51,7 @@ func TestExpirePendingDryRun(t *testing.T) {
 	}
 }
 
-// TestExpirePendingCommit — Review Focus: 전이 위임 캡처 — 대상 id(7일 행)
+// TestExpirePendingCommit — 전이 위임 캡처 — 대상 id(7일 행)
 // 스냅숏만 Invalidate에 전달·건수 출력·커밋 메시지.
 func TestExpirePendingCommit(t *testing.T) {
 	old := time.Now().Add(-7 * 24 * time.Hour)

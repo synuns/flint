@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestV6PromoteIdempotent — Review Focus(test_v6_promote_idempotent): v5
+// TestV6PromoteIdempotent — v5
 // 게이트를 경유한 DB(기존 배포 경로)에서 EnsureSchemaV6 → 버전 6·
 // read_events 테이블 생성(RecordReadEvent INSERT 동작 증명). 재호출은
 // 멱등 no-op.
@@ -55,7 +55,7 @@ func TestV6PromoteIdempotent(t *testing.T) {
 	}
 }
 
-// TestV6GateNumeric — Review Focus(test_v6_gate_numeric): 게이트는 수치
+// TestV6GateNumeric — 게이트는 수치
 // 비교(>=)다. '10'은 문자열 비교로는 하위로 보이지만 수치로는 상위이므로
 // 버전 기록·테이블 재생성 없이 no-op여야 한다(다운그레이드 사고
 // 회귀 — V5 게이트와 동일 계약).

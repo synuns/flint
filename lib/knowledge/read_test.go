@@ -1,5 +1,5 @@
 // read_test.go — read 계약
-// Review Focus(제로히트 exit 0·--session 자동 라벨·as-of). 계약
+// 제로히트 exit 0·--session 자동 라벨·as-of. 계약
 // 불변: eligible(현재 시점·무상태필터) 제로히트는 텍스트 완전 무출력·
 // --json은 {"hits":0} 한 줄, exit 0,
 // --session 미지정은 wire.ReadSessionLabel 라벨 조용히 채택, --as-of는
@@ -68,7 +68,7 @@ func (b *bytesRecorder) RecordBytes(ctx context.Context, kind string, n int) err
 	return nil
 }
 
-// TestRunReadRecordsBytes — Review Focus: read 출력 직후
+// TestRunReadRecordsBytes — read 출력 직후
 // len(최종 출력)을 kind="read"로 기록 — 제로히트 0바이트도 기록한다
 // (호출 수 분모 정합, spec §1).
 func TestRunReadRecordsBytes(t *testing.T) {
@@ -125,7 +125,7 @@ var hitRowsFixture = [][]any{
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
-// TestRunReadZeroHitExit0Silent — Review Focus: eligible
+// TestRunReadZeroHitExit0Silent — eligible
 // (현재 시점·무상태 필터) 제로히트는 텍스트 완전 무출력(침묵 유지)에
 // exit 0(기존 1) — 제로히트는 오류가 아니므로 에이전트 루프가 끊기지
 // 않는다.
@@ -144,7 +144,7 @@ func TestRunReadZeroHitExit0Silent(t *testing.T) {
 	}
 }
 
-// TestRunReadZeroHitJSONHits — Review Focus: --json 제로히트는
+// TestRunReadZeroHitJSONHits — --json 제로히트는
 // hits:0 한 줄 JSON({"hits":0}) + exit 0 — 호출자가 히트 수를 기계적으로
 // 판별한다. 텍스트 모드와 달리 침묵하지 않는다.
 func TestRunReadZeroHitJSONHits(t *testing.T) {
@@ -162,7 +162,7 @@ func TestRunReadZeroHitJSONHits(t *testing.T) {
 	}
 }
 
-// TestRunReadSessionAutoLabel — Review Focus: --session 미지정 시 현재
+// TestRunReadSessionAutoLabel — --session 미지정 시 현재
 // 세션 라벨 파일(wire.ReadSessionLabel)을 조용히 채택해 read_events에
 // 기록. 라벨 파일은 wire.ConfigDir seam 임시 디렉터리로 세운다.
 func TestRunReadSessionAutoLabel(t *testing.T) {
@@ -200,7 +200,7 @@ func TestRunReadSessionAutoLabel(t *testing.T) {
 	}
 }
 
-// TestRunReadAsOfAddsField — Review Focus: --as-of 지정 시 기존 행 출력
+// TestRunReadAsOfAddsField — --as-of 지정 시 기존 행 출력
 // 뒤 as_of{hash,commit_date} 한 줄 JSON 추가, 질의는 AS OF 인라인.
 // dolt_log commit_date 조회는 queryFn 대역.
 func TestRunReadAsOfAddsField(t *testing.T) {
@@ -343,7 +343,7 @@ func TestReadUnknownFlagExit3(t *testing.T) {
 	}
 }
 
-// TestReadLimitClampJSONLine — Review Focus: --json에서
+// TestReadLimitClampJSONLine — --json에서
 // 요청 limit이 상한(50)을 초과하면 additive 필드 limit_requested·
 // limit_applied를 한 줄 추가해 clamp 사실을 밝힌다(기존 키 불변).
 // 상한 이하·텍스트 모드는 기존 형식 그대로 — clamp 라인 없음.
@@ -406,7 +406,7 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 
 // ── 제안(SuggestSimilar) 입력 상한 truncate. ──
 
-// TestSuggestQueryTruncate — G4 Review Focus: 제안 입력은 상한(suggestQueryMaxRunes
+// TestSuggestQueryTruncate — 제안 입력은 상한(suggestQueryMaxRunes
 // rune)으로 truncate된다(멀티바이트 안전 — TruncateRunes 단일 구현 승계).
 // 본문 검색 쿼리 자체는 불변(상한은 제안 유사도 스캔에만 적용).
 func TestSuggestQueryTruncate(t *testing.T) {
@@ -439,7 +439,7 @@ func (tc *telemetryCommitter) CommitTelemetry(ctx context.Context, cmd string) e
 	return tc.err
 }
 
-// TestRunReadCommitsTelemetryOnce — Review Focus: read 완료
+// TestRunReadCommitsTelemetryOnce — read 완료
 // 경로는 계측 커밋을 정확히 1회(cmd="read") 호출한다. 실패는 조용
 // (§13 — exit 0·출력 불변). 미구현 Store(fakeStore 단독)은 스킵.
 func TestRunReadCommitsTelemetryOnce(t *testing.T) {
@@ -484,7 +484,7 @@ func TestRunReadCommitsTelemetryOnce(t *testing.T) {
 	})
 }
 
-// TestRunHotCommitsTelemetryOnce — Review Focus: hot 완료 경로도
+// TestRunHotCommitsTelemetryOnce — hot 완료 경로도
 // 계측 커밋을 1회(cmd="hot") 호출한다(헤드라인·--full 양 경로 공통).
 func TestRunHotCommitsTelemetryOnce(t *testing.T) {
 	injectHotSeams(t)
@@ -513,7 +513,7 @@ func TestRunHotCommitsTelemetryOnce(t *testing.T) {
 	}
 }
 
-// TestRunDoneCommitsTelemetryOnce — Review Focus: done 완료
+// TestRunDoneCommitsTelemetryOnce — done 완료
 // 경로는 기존 감사 Commit(session-end) 후 계측 커밋을 1회(cmd="done")
 // 호출한다. 실패는 조용(exit 0·출력 불변).
 func TestRunDoneCommitsTelemetryOnce(t *testing.T) {
@@ -611,7 +611,7 @@ func (r *recallBumperRecorder) BumpRecallScores(ctx context.Context, ids []int) 
 	return nil
 }
 
-// TestRunReadBumpsRecallScores — Review Focus: read 히트
+// TestRunReadBumpsRecallScores — read 히트
 // 행 전수가 회상 강화(RecallBumper seam)를 1회 통과한다 — RecordKnowledgeReads
 // 경로에 결합(kind=read).
 func TestRunReadBumpsRecallScores(t *testing.T) {

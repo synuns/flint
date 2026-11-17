@@ -123,7 +123,7 @@ func TestBriefExcludesPending(t *testing.T) {
 	})
 }
 
-// TestBriefRecordsBytes — Review Focus: brief 출력 직후
+// TestBriefRecordsBytes — brief 출력 직후
 // len(최종 출력)을 kind="brief"로 기록 — ClampHot 절단 '후' 길이(기기 밖
 // 유출량 실측), 0건 안내 경로도 쓴 총량을 기록한다(분모 정합).
 func TestBriefRecordsBytes(t *testing.T) {

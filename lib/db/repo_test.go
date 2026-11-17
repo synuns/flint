@@ -495,8 +495,7 @@ func t6ClearTelemetry(t *testing.T, r *Repo) {
 	}
 }
 
-// TestCommitExcludesTelemetryRealSlow — Review Focus(slow 실측):
-// 감사 커밋(Commit)은 계측 테이블을 스테이징하지 않는다. read 1회 상당의
+// TestCommitExcludesTelemetryRealSlow — 감사 커밋(Commit)은 계측 테이블을 스테이징하지 않는다. read 1회 상당의
 // read_events 적립 + write/done 상당의 knowledge·sessions 적립 후 Commit
 // 하면 — 커밋 diff에 knowledge ≥1·sessions ≥1·read_events 0행(감사 커밋
 // 순수성·세션 귀속 5테이블 룰링).
@@ -542,8 +541,7 @@ func TestCommitExcludesTelemetryRealSlow(t *testing.T) {
 	}
 }
 
-// TestCommitTelemetrySeparateRealSlow — Review Focus(slow 실측):
-// CommitTelemetry는 계측 테이블을 스테이징해 'telemetry: <cmd>' 커밋을
+// TestCommitTelemetrySeparateRealSlow — CommitTelemetry는 계측 테이블을 스테이징해 'telemetry: <cmd>' 커밋을
 // 만든다 — 감사 커밋 다음 호출에서 read_events diff ≥1행. 전역 스윕
 // (dolt_add('-A'))이 감사 커밋이 남긴 *_id_seq 잔여도 회수한다.
 func TestCommitTelemetrySeparateRealSlow(t *testing.T) {

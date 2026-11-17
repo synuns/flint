@@ -59,7 +59,7 @@ var (
 	_ BytesRecorder       = (*bytesRecorder)(nil)
 )
 
-// TestFakeParityKnowledge — Review Focus: 인터페이스 발견 목록(패키지
+// TestFakeParityKnowledge — 인터페이스 발견 목록(패키지
 // 비테스트 소스의 interface 전수)과 단언 목록(이 파일의 `var _ X =`
 // 단언)의 동질을 소스 스캔으로 검증. 단언 전수 자체는 컴파일이 보장
 // 하고, 이 가드는 신규 capability 인터페이스가 단언 없이 추가되는

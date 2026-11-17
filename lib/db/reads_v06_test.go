@@ -66,7 +66,7 @@ func TestBumpReadsIncrements(t *testing.T) {
 	}
 }
 
-// TestBumpReadsDuplicateIDs — Review Focus(numeric): id=ANY 중복 무결 —
+// TestBumpReadsDuplicateIDs — id=ANY 중복 무결 —
 // 슬라이스에 같은 id가 두 번 있어도 행은 1회만 증분된다(WHERE 매칭 기준).
 func TestBumpReadsDuplicateIDs(t *testing.T) {
 	r := newTestRepo(t)

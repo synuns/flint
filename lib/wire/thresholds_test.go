@@ -1,6 +1,6 @@
 // thresholds_test.go — 공용 헬퍼 검증. 기본 fake,
 // SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시 poolStore로 실DB 경유
-// (meta_kv_test.go seam 헬퍼 승계). Review Focus: TestLoadThresholdsFallback
+// (meta_kv_test.go seam 헬퍼 승계). TestLoadThresholdsFallback
 // (미설정·조회 실패 시 DefaultThresholds 폴백 — 기존 cli 관례와 동일 결과).
 package wire
 
@@ -62,7 +62,7 @@ func thresholdsStore(t *testing.T, f *thresholdsFake) Store {
 	return f
 }
 
-// TestLoadThresholdsFallback — Review Focus. 3계약:
+// TestLoadThresholdsFallback — 3계약:
 //  1. meta 비었으면 전 키 DefaultThresholds(미설정 폴백 — ParseThresholds
 //     규약 승계).
 //  2. 저장 키는 오버라이드, '0' 저장 키도 기본값 폴백(미설정 취급).

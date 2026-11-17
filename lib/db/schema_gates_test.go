@@ -15,7 +15,7 @@ import (
 	"testing"
 )
 
-// TestSchemaGatesContiguous — Review Focus: 등록표 버전은
+// TestSchemaGatesContiguous — 등록표 버전은
 // 2..LatestSchemaVersion 연속·중복 없음. 게이트가 빠지거나 순서가
 // 흐트러지면 연속 단언이 즉시 깨진다(무경고 스킵 방지).
 func TestSchemaGatesContiguous(t *testing.T) {
@@ -159,7 +159,7 @@ func cliGateAudit(t *testing.T, dir string) (bool, []string) {
 	return found, calls
 }
 
-// TestEnsureSchemasUsesGates — Review Focus: lib/cli ensureSchemas는
+// TestEnsureSchemasUsesGates — lib/cli ensureSchemas는
 // 등록표(db.SchemaGates) 순차 파생이어야 하고 게이트 메서드를 직접
 // 호출해서는 안 된다(수동 호출 목록 잔여 = 등록표 우회 회귀). 검사
 // 대상은 root.go가 아니라 lib/cli 비테스트 소스 전체다.

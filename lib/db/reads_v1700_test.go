@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// TestBumpRecallScoresIncrements — Review Focus: 히트 행만
+// TestBumpRecallScoresIncrements — 히트 행만
 // recall_score+1·last_recalled_at=now — 미지정 행은 0/NULL 유지(신규 항목
 // 불이익 금지의 실측).
 func TestBumpRecallScoresIncrements(t *testing.T) {

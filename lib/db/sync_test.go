@@ -1,7 +1,7 @@
 // sync_test.go — sync 원격 등록(dolt_remote 래핑) 테스트.
 // fast는 fake Querier로 SQL·오류 계약, slow(FLINT_TEST_DSN)는 격리
 // Doltgres에서 dolt_remote add/list/remove 실측(file:// 원격).
-// Review Focus(security): 원격 url 원문은 어떤 경로로도 노출되지
+// 원격 url 원문은 어떤 경로로도 노출되지
 // 않는다 — 마스킹은 MaskRemoteURL 단일 경로.
 package db
 
@@ -340,7 +340,7 @@ func TestSyncPushRunsAndReportsHash(t *testing.T) {
 }
 
 // TestSyncPushErrorMasksURL — push 실행 오류 메시지에 원격 url 원문이
-// 실리면 마스킹으로 치환한다(도달 불가 오류 — Review Focus security).
+// 실리면 마스킹으로 치환한다(도달 불가 오류).
 func TestSyncPushErrorMasksURL(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/secret-remote"}, nil,
 		errors.New("dial: push to file:///tmp/secret-remote refused"), nil, nil)
@@ -431,7 +431,7 @@ func TestSyncPullRemoteNotFound(t *testing.T) {
 }
 
 // TestSyncPullConflictGuidance — merge 충돌은 ErrMergeConflict + 수동 해결
-// 안내(자동 해결 금지 — Review Focus state). 실측 오류 문구 사본으로 판정.
+// 안내(자동 해결 금지). 실측 오류 문구 사본으로 판정.
 func TestSyncPullConflictGuidance(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0", "h0"}, nil, nil,
 		errors.New("Merge conflict detected, @autocommit transaction rolled back"))

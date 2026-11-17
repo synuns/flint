@@ -1,5 +1,5 @@
 // export_test.go — ExportRows 원천 조회 계약 테스트.
-// Review Focus(플랜): 합성 3행(active 2·invalidated 1) — active 필터 2행·
+// 합성 3행(active 2·invalidated 1) — active 필터 2행·
 // all 3행·tag 필터·Since 컷오프(updated_at 기준). 픽스처는 합성 데모
 // 데이터(개인 데이터 금지). 기본 fakeStore(queryFn이 조회 원천 seam),
 // SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시 실DB 경유로 동일 시나리오를
@@ -274,7 +274,7 @@ func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// TestExportRowsActiveFilter — Review Focus: active 필터는 invalidated를
+// TestExportRowsActiveFilter — active 필터는 invalidated를
 // 제외한 2행. Status 0값("")도 active 기본.
 func TestExportRowsActiveFilter(t *testing.T) {
 	ctx := context.Background()
@@ -289,7 +289,7 @@ func TestExportRowsActiveFilter(t *testing.T) {
 	}
 }
 
-// TestExportRowsAllIncludesInvalidated — Review Focus: Status "all"은
+// TestExportRowsAllIncludesInvalidated — Status "all"은
 // invalidated 포함 3행.
 func TestExportRowsAllIncludesInvalidated(t *testing.T) {
 	st, scope := exportTestStore(t)
@@ -301,7 +301,7 @@ func TestExportRowsAllIncludesInvalidated(t *testing.T) {
 		[]string{"배포 관례", "회고 형식", "구 배포 정책"})
 }
 
-// TestExportRowsTagFilter — Review Focus: tag 필터(':t:' 정확 매칭).
+// TestExportRowsTagFilter — tag 필터(':t:' 정확 매칭).
 // active 기본 + deploy → 1행, all + deploy → invalidated 포함 2행.
 func TestExportRowsTagFilter(t *testing.T) {
 	ctx := context.Background()
@@ -321,7 +321,7 @@ func TestExportRowsTagFilter(t *testing.T) {
 		[]string{"배포 관례", "구 배포 정책"})
 }
 
-// TestExportRowsSinceCutoff — Review Focus: Since는 updated_at 컷오프
+// TestExportRowsSinceCutoff — Since는 updated_at 컷오프
 // (COALESCE(invalid_at, ingested_at) 파생 — 0값은 전체). tMid 컷은
 // invalid_at=tNew인 행만 남긴다.
 func TestExportRowsSinceCutoff(t *testing.T) {
@@ -434,7 +434,7 @@ func TestExportRowFieldMapping(t *testing.T) {
 	}
 }
 
-// TestExportRowValidAtMapping — Review Focus: SELECT가 valid_at
+// TestExportRowValidAtMapping — SELECT가 valid_at
 // 열을 포함하고 ValidAt 필드로 매핑한다(왕복 보존의 원천 — 검증 시각이
 // 수집 시각과 다른 행에서 CreatedAt 치환 없이 원값 노출).
 func TestExportRowValidAtMapping(t *testing.T) {
@@ -480,8 +480,7 @@ func TestExportRowsQueryErrorPropagation(t *testing.T) {
 	}
 }
 
-// TestExportRowScoreColumnsMapping — Review Focus(encoding 원천):
-// SELECT는 recall_score·last_recalled_at 실열을 포함하고 ExportRow에
+// TestExportRowScoreColumnsMapping — SELECT는 recall_score·last_recalled_at 실열을 포함하고 ExportRow에
 // 매핑한다(원천 파생 아님 — 값 있는 행 3·exportTRecall, 없는 행 0·nil).
 func TestExportRowScoreColumnsMapping(t *testing.T) {
 	rows, err := ExportRows(context.Background(),
@@ -506,7 +505,7 @@ func TestExportRowScoreColumnsMapping(t *testing.T) {
 	}
 }
 
-// TestExportScoreJSONLRoundTrip — Review Focus(encoding): jsonl
+// TestExportScoreJSONLRoundTrip — jsonl
 // 왕복에서 스코어 2필드 보존. 레거시 라인(키 없음)은 폴백 0/NULL. 스코어
 // 0/NULL 행은 신규 키를 발행하지 않는다(additive — 기존 골든 출력 불변).
 func TestExportScoreJSONLRoundTrip(t *testing.T) {

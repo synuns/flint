@@ -24,8 +24,7 @@ func briefRankedStore(rows [][]any) *fakeStore {
 	}}
 }
 
-// TestBriefRanksByEffectiveScore — Review Focus(동일 최신성에서 score 높은
-// 항목 우선): 브리프 본문 행 순서가 감쇠 후 유효 점수 내림.
+// TestBriefRanksByEffectiveScore — 브리프 본문 행 순서가 감쇠 후 유효 점수 내림.
 func TestBriefRanksByEffectiveScore(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -48,8 +47,7 @@ func TestBriefRanksByEffectiveScore(t *testing.T) {
 	}
 }
 
-// TestBriefZeroScoresKeepExistingOrder — Review Focus(0점 전원 기존 순서·
-// 포맷 회귀): 랭킹 열 부재(9열)·전원 0점은 안정 정렬이 기존 순서를
+// TestBriefZeroScoresKeepExistingOrder — 랭킹 열 부재(9열)·전원 0점은 안정 정렬이 기존 순서를
 // 승계하고 출력은 헤더+FormatRows 기본 포맷과 바이트 동일.
 func TestBriefZeroScoresKeepExistingOrder(t *testing.T) {
 	ctx := context.Background()
@@ -81,8 +79,7 @@ func TestBriefZeroScoresKeepExistingOrder(t *testing.T) {
 	}
 }
 
-// TestBriefUnrecalledKeepsScore — Review Focus(미회상 score 유지):
-// last_recalled_at NULL은 감쇠 불이익 없이 score 그대로.
+// TestBriefUnrecalledKeepsScore — last_recalled_at NULL은 감쇠 불이익 없이 score 그대로.
 func TestBriefUnrecalledKeepsScore(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()

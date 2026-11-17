@@ -1,4 +1,4 @@
-// counters_v1200_test.go — Review Focus: 검수(curation) 카운터
+// counters_v1200_test.go — 검수(curation) 카운터
 // (approve 승격·not_found·supersede 오류 / import 적립·skip daily 플랫 키
 // 증분)·발화(fired) 카운터(done stale 경고 fired_done_stale 메타 누적 —
 // 발화 시 증분·미발화 0). 카운터 UPSERT는 전부 st.Query 경유라 인자
@@ -61,7 +61,7 @@ func (c *counterCaptureV) sum(prefix string) int {
 // counterToday — 카운터 daily 키 날짜(UTC — 기록 기준과 동일).
 func counterToday() string { return time.Now().UTC().Format("2006-01-02") }
 
-// TestCurationCounters — Review Focus: 검수 경로 각 1회 → daily 카운터.
+// TestCurationCounters — 검수 경로 각 1회 → daily 카운터.
 // approve 승격(approve_done)·부재(not_found)·대체 오류(supersede_err —
 // 승격은 성공했으므로 done도 병행 증분)·import 적립/스킵(added·skipped).
 func TestCurationCounters(t *testing.T) {
@@ -178,7 +178,7 @@ func TestCurationCounters(t *testing.T) {
 	})
 }
 
-// TestFiredCounters — Review Focus: done stale 경고 발화 시 fired_done_stale
+// TestFiredCounters — done stale 경고 발화 시 fired_done_stale
 // 증분·정상(ok) 경로 미발화 0.
 func TestFiredCounters(t *testing.T) {
 	cap := &counterCaptureV{}

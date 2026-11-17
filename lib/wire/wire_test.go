@@ -1,4 +1,3 @@
-// wire_test.go — Review Focus: TestWireRunDispatch.
 // 계약층 Run 디스패치의 특수 경로(store-free 3종·soft setup·
 // quiet compact/nudge)를 공장 주입형 시그니처로 직접 검증한다.
 // wire 패키지 단독 실행 시 registry가 비어 있으므로 각 서브테스트가
@@ -63,7 +62,7 @@ func errFactory(err error) func(ctx context.Context, dsn string) (Store, error) 
 	}
 }
 
-// TestWireRunDispatch — Review Focus: Run 특수 경로 디스패치.
+// TestWireRunDispatch — Run 특수 경로 디스패치.
 // store-free 3경로(version·teardown·mcp — 공장 미호출·st nil 주입)·
 // soft setup(공장 실패에도 핸들러 실행, st nil)·quiet compact(공장
 // 실패 시 st nil로 핸들러, exit는 핸들러 반환)·quiet nudge(공장 실패 시

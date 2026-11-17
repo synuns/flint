@@ -727,7 +727,7 @@ func writeMaxRowsFixture(n int) string {
 	return b.String()
 }
 
-// TestRunWriteMaxRowsExceeded — Review Focus(G1): stdin 줄 수가 상한을
+// TestRunWriteMaxRowsExceeded — stdin 줄 수가 상한을
 // 초과하면 exit 3·오류 JSON에 max·count가 포함되고 적립은 발생하지
 // 않는다(import enforce와 동형 — 대량 stdin 전량 적립의 메모리 방어).
 func TestRunWriteMaxRowsExceeded(t *testing.T) {
@@ -757,7 +757,7 @@ func TestRunWriteMaxRowsBoundary(t *testing.T) {
 
 // ── 단일 payload 필드 바이트 상한(상수 — compact 8MiB 정합). ──
 
-// TestRunWriteFieldBytesExceeded — Review Focus(G2): 단일 필드 값이
+// TestRunWriteFieldBytesExceeded — 단일 필드 값이
 // maxPayloadFieldBytes(compactMaxBytes 8MiB 정합)를 초과하면 Validate 단계에서
 // 거부(exit 3)되고 적립은 발생하지 않는다(대형 필드가 살균·해시·적립으로
 // 흐르는 무상한 OOM 방어 — 초과만 차단).
@@ -852,7 +852,7 @@ func raceRowCount(ctx context.Context, st *writeRealStore, roundTag string) int 
 	return n
 }
 
-// TestWriteParallelRaceRealSlow — Review Focus(E1): 동일 content 50줄 +
+// TestWriteParallelRaceRealSlow — 동일 content 50줄 +
 // 각자 고유 50줄을 2 라이터(독립 세션)가 동시에 write하면 레이스 패자도
 // survive 경로(content_hash 재확인 skip + 잔여 1회 재시도)로 고유줄을
 // 전부 남긴다 — 양쪽 exit 0·총 150행 잔존. 수정 전에는 패자의 InsertBatch

@@ -1,4 +1,3 @@
-// wire_v08_test.go — Review Focus: test_usage_includes_diff ·
 // test_lookup_diff · 기존 usage 문자열 회귀(나머지 불변).
 package cli
 

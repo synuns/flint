@@ -34,7 +34,7 @@ func TestPruneGateDueOpensAfter24h(t *testing.T) {
 	}
 }
 
-// TestPruneGateProbeCachesWithinTTL — Review Focus(성능): 프로세스
+// TestPruneGateProbeCachesWithinTTL — 프로세스
 // 내 게이트 캐시. probe 참 = maybePruneAfterRead가 게이트 meta SELECT를
 // 실행한다 — 최초 확인 1회(참), TTL 내 재확인 0회(거짓 — 매 read SELECT
 // 잔존 회귀 방어), TTL 경과 후 재확인 1회(참 — 게이트가 1h 넘게 얼어붙지
@@ -57,7 +57,7 @@ func TestPruneGateProbeCachesWithinTTL(t *testing.T) {
 	}
 }
 
-// TestRecordReadEventPrunesStaleRows — Review Focus: read만
+// TestRecordReadEventPrunesStaleRows — read만
 // 반복하는 세션(write 계측 없음 — recordWithRetry 롤오버 훅 미발화)에서도
 // RecordReadEvent 성공 경로의 24h 게이트 훅이 보존 한게 넘은 read_events
 // 행을 정리한다. 게이트가 닫힌(직전 정리 성공, 24h 이내) 경우에는 정리를

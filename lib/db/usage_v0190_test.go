@@ -7,8 +7,7 @@ import (
 	"time"
 )
 
-// TestRecordReadEventAndPrune — Review Focus(test_read_event_prune):
-// RecordReadEvent는 수치·플래그·라벨을 그대로 기록하고, PruneReadEvents는
+// TestRecordReadEventAndPrune — RecordReadEvent는 수치·플래그·라벨을 그대로 기록하고, PruneReadEvents는
 // 14일 보존을 넘긴 행만 삭제한다(최근 행 유지).
 func TestRecordReadEventAndPrune(t *testing.T) {
 	r := newTestRepo(t)

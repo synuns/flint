@@ -1,4 +1,3 @@
-// config_test.go — Review Focus: test_resolve_precedence ·
 // test_config_corrupt_fallback. ConfigPath·LoadConfigDSN·ResolveDSN 계약 검증.
 package cli
 

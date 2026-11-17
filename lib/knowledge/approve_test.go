@@ -214,7 +214,7 @@ func mustApprove(t *testing.T, args []string) (string, int) {
 	return out.String(), code
 }
 
-// TestApproveOK — 성공 시 {"status":"approved","id":N} exit 0(Review Focus: exit 매핑).
+// TestApproveOK — 성공 시 {"status":"approved","id":N} exit 0(exit 매핑).
 func TestApproveOK(t *testing.T) {
 	f := &fakeApprove{}
 	withApproveFake(t, f)
@@ -275,7 +275,7 @@ func TestApproveUsage(t *testing.T) {
 	}
 }
 
-// TestApproveUsageHint — Review Focus: 인자 검증 오류 message에
+// TestApproveUsageHint — 인자 검증 오류 message에
 // 사용법 안내 `--id N [--supersede OLD]` 포함 — 오타 플래그를 안내로
 // 바로잡을 수 있다.
 func TestApproveUsageHint(t *testing.T) {
@@ -328,7 +328,7 @@ type selfConnectError struct{}
 
 func (*selfConnectError) Error() string { return "self-connect path must not run" }
 
-// TestApproveUsesInjectedStore — Review Focus: fake st 주입 시 자체 연결
+// TestApproveUsesInjectedStore — fake st 주입 시 자체 연결
 // 경로(ApproveFn 기본 실구현의 db.NewRepo) 미호출·승격은 주입 st 경유.
 func TestApproveUsesInjectedStore(t *testing.T) {
 	f := &approveStoreFake{fakeStore: &fakeStore{}}

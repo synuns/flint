@@ -41,7 +41,7 @@ func runConflictArgs(t *testing.T, f *fakeConflict, args ...string) (string, int
 	return out.String(), code
 }
 
-// TestConflictSuspectsFlag — Review Focus: fake 그룹(동일 요약·이질 요약)
+// TestConflictSuspectsFlag — fake 그룹(동일 요약·이질 요약)
 // 2개에서 이질 1그룹만 출력. 출력은 dup-suspects 승계 + 요약 앞 40자.
 func TestConflictSuspectsFlag(t *testing.T) {
 	same := "flint 백업은 매일 자동이다"

@@ -97,7 +97,7 @@ func runCmd(t *testing.T, cmd string, args []string) (string, int) {
 	return out.String(), code
 }
 
-// Review Focus(file): fake Dump로 파일 생성.
+// fake Dump로 파일 생성.
 func TestBackupWritesFile(t *testing.T) {
 	f := &fakeBackup{dumpText: "-- flint backup probe\n"}
 	withBackupFake(t, f)
@@ -153,7 +153,7 @@ func TestBackupServerDownExit2(t *testing.T) {
 	}
 }
 
-// Review Focus(file): 경로 에러 — --out 경로값 누락(무효 인자 exit 3)·
+// 경로 에러 — --out 경로값 누락(무효 인자 exit 3)·
 // 쓸 수 없는 경로(파일 오류 exit 1).
 func TestBackupBadPathExit1(t *testing.T) {
 	f := &fakeBackup{dumpText: "x"}
@@ -206,7 +206,7 @@ func TestRestoreFromFile(t *testing.T) {
 	}
 }
 
-// Review Focus(file): 경로 에러 — --file 누락(무효 인자 exit 3)·존재하지 않는 파일(exit 1).
+// 경로 에러 — --file 누락(무효 인자 exit 3)·존재하지 않는 파일(exit 1).
 func TestRestoreMissingFileFlagExit3(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)

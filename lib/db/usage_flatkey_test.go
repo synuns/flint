@@ -28,7 +28,7 @@ func flatDailyValue(t *testing.T, r *Repo, kind, date string) int {
 	return n
 }
 
-// TestFlatKeyAtomicIncrement — Review Focus: 증분(연속 가산)·파손 0 재기작·
+// TestFlatKeyAtomicIncrement — 증분(연속 가산)·파손 0 재기작·
 // 병렬 원자 증분(경합 손실 폐지 — 플랫 전환의 동기).
 // e.g. bumpDailyFlat("2026-11-13","hot_bytes",1180) → 기존+1180 단일 UPSERT.
 func TestFlatKeyAtomicIncrement(t *testing.T) {
@@ -100,7 +100,7 @@ func TestFlatKeyAtomicIncrement(t *testing.T) {
 	}
 }
 
-// TestReadDailyFlatLegacyFallback — Review Focus: 플랫 키 우선·구
+// TestReadDailyFlatLegacyFallback — 플랫 키 우선·구
 // daily:<date> JSON 폴백 승계. 플랫 키가 없으면 구 JSON 값을 읽고(마이그레이션
 // 읽기 승계), 플랫 키가 생기면 그쪽이 이긴다. 폴백 JSON 파손·부재·null은 0.
 func TestReadDailyFlatLegacyFallback(t *testing.T) {
@@ -160,7 +160,7 @@ func TestReadDailyFlatLegacyFallback(t *testing.T) {
 	}
 }
 
-// TestPruneDailyBothKeyForms — Review Focus: PruneDaily는 구
+// TestPruneDailyBothKeyForms — PruneDaily는 구
 // daily:<date> JSON 키와 신규 daily:<kind>:<date> 플랫 키를 모두 정리한다
 // (보존 14일 불변 — 오늘+직전 13일).
 func TestPruneDailyBothKeyForms(t *testing.T) {

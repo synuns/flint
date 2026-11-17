@@ -145,7 +145,7 @@ func test_compact_st_nil_noop(t *testing.T) {
 	}
 }
 
-// TestCompact — Review Focus 묶음 실행.
+// TestCompact — 묶음 실행.
 func TestCompact(t *testing.T) {
 	t.Run("writes_session", test_compact_writes_session)
 	t.Run("bad_stdin_exit0", test_compact_bad_stdin_exit0)

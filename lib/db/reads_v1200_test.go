@@ -23,7 +23,7 @@ func ensureV1200Schema(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordReadEventColumns — Review Focus: ReadEvent 확장
+// TestRecordReadEventColumns — ReadEvent 확장
 // 3열(bytes·zero_reason·source)의 값이 그대로 저장된다.
 func TestRecordReadEventColumns(t *testing.T) {
 	r := newTestRepo(t)
@@ -73,7 +73,7 @@ func TestRecordReadEventColumns(t *testing.T) {
 	}
 }
 
-// TestRecordKnowledgeReads — Review Focus: ids 전수가
+// TestRecordKnowledgeReads — ids 전수가
 // knowledge_reads에 session·kind와 함께 1행씩 기록된다. 빈 ids는 no-op,
 // 무효 kind는 에러.
 func TestRecordKnowledgeReads(t *testing.T) {

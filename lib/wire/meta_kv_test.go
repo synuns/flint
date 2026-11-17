@@ -146,7 +146,7 @@ func metaKVCleanup(t *testing.T, st Store, keys ...string) {
 	}
 }
 
-// TestMetaKVStoreRoundtrip — Review Focus: SetMetaKV 후 GetMetaKV 왕복.
+// TestMetaKVStoreRoundtrip — SetMetaKV 후 GetMetaKV 왕복.
 // 신규 키 set→get·갱신 upsert 덮어쓰기·미존재 키 ("", false).
 // 이름 참고: TestMetaKVRoundtrip은 v0140_fix_test.go(cli)가 클로저
 // 왕복으로 이미 사용 — 스펙 지정명과 충돌해 Store 직접 왕복임을 드러낸다.
@@ -188,7 +188,7 @@ func (f *bumpFailFake) Query(ctx context.Context, sql string, args ...any) ([][]
 	return f.metaKVFake.Query(ctx, sql, args...)
 }
 
-// TestBumpMetaKVRunsSingleAttempt — Review Focus: 증분은
+// TestBumpMetaKVRunsSingleAttempt — 증분은
 // 비멱등이라 Query 실패 시에도 단발 실행(총 Query 1회)이어야 한다.
 // QueryOnce 재시도는 모호 실패(서버에서 실행된 뒤 응답만 유실)에서
 // 증분을 이중 계상한다.

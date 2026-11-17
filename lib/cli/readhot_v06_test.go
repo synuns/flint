@@ -46,7 +46,7 @@ func readQueryFn(sql string, args []any) ([][]any, error) {
 	return nil, nil
 }
 
-// TestReadInstrumentsSilently — Review Focus(state): 계측은 결과 항목 id
+// TestReadInstrumentsSilently — 계측은 결과 항목 id
 // 전수에 BumpReads + recordUsage("read",""). 계측 실패(bumpErr)·미구현 Store
 // 모두 exit 0·출력 불변.
 func TestReadInstrumentsSilently(t *testing.T) {
@@ -140,7 +140,7 @@ type errSilent struct{}
 
 func (errSilent) Error() string { return "계측 실패" }
 
-// TestHotSQLSingleQueryDefinition — Review Focus(단일 정의): 증분 id·
+// TestHotSQLSingleQueryDefinition — 증분 id·
 // pending 접미 valid_at은 hot_view 본질의 컬럼에서 나온다 — 세 팔 조건을
 // 다시 모은 동반 질의는 폐지. HotSQL은 ORDER BY ts DESC, id DESC
 // tie-break(CI run 39713526850 룰링 — 동률 ts의 완전 순서)와 예산 상한을

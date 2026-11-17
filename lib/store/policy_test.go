@@ -34,7 +34,7 @@ func TestCheckVocabularyAllKnown(t *testing.T) {
 	}
 }
 
-// TestCheckVocabularyCaseNormalize — 대소문자 정규화 후 비교(Review Focus: encoding).
+// TestCheckVocabularyCaseNormalize — 대소문자 정규화 후 비교(encoding).
 func TestCheckVocabularyCaseNormalize(t *testing.T) {
 	got := CheckVocabulary([]string{"Playbook", " ADR "}, "Main")
 	if len(got) != 0 {

@@ -18,7 +18,7 @@ var v9IndexNames = []string{
 	"flint_knowledge_pending_idx",
 }
 
-// TestV9PromoteIdempotent — Review Focus(test_v9_promote_idempotent): v8
+// TestV9PromoteIdempotent — v8
 // 게이트를 경유한 DB(기존 배포 경로)에서 EnsureSchemaV9 → 버전 9·
 // 인덱스 4종 존재·승격 전 기존 행 무손상(additive). 재호출은 멱등 no-op.
 func TestV9PromoteIdempotent(t *testing.T) {

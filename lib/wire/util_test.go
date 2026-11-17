@@ -1,4 +1,3 @@
-// util_test.go — Review Focus: TestCellToTimeQuoteJSONSingle.
 // CellToTime·QuoteJSON의 단일 구현(wire) 행위 + 전 repo 단일 소스 가드
 // (지식·ops 소비자는 복제 func 정의 없이 별칭 위임만 허용).
 package wire
@@ -50,7 +49,7 @@ func TestCellToTimeQuoteJSONSingle(t *testing.T) {
 	})
 }
 
-// TestBackupEncryptOnSingle — Review Focus: 술어 수렴.
+// TestBackupEncryptOnSingle — 술어 수렴.
 // wire.BackupEncryptOn 행위("true"·"1"만 참) + 전 repo 단일 소스 가드
 // (func 정의는 wire/util.go 단일 분만 허용 — knowledge 로컬 복제·ops
 // func 위임 금지, 소비자는 var 별칭 위임만).
