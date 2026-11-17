@@ -1,4 +1,4 @@
-// usage_v0341_test.go — v0.34.1 RecordUsageCount 화이트리스트에 "brief"
+// usage_v0341_test.go — RecordUsageCount 화이트리스트에 "brief"
 // 추가(additive). lib/cli/brief.go의 recordUsage(ctx, st, "brief", "")가
 // invalid kind로 거부되어 brief 유입 계측이 기록되지 않던 결함의 회귀 테스트.
 // 실DB slow — fast에서는 FLINT_DSN 부재로 스킵.

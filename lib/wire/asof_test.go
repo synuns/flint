@@ -1,4 +1,4 @@
-// asof_test.go — T4 wire 이동 동반 테스트(T81 원본 승계). as-of 정규화
+// asof_test.go — as-of 정규화
 // (상대 Nh/Nd·ISO·해시 접두어 → 커밋 해시)를 wire 패키지 직접 표면로
 // 검증한다. dolt_log 접근은 queryFn fake으로 세운다(실DB 회귀는
 // cli/asof_test.go TestParseAsOfSpecRealPrefix가 담당 — realStore 인프라

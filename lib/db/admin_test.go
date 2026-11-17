@@ -1,4 +1,4 @@
-// admin_test.go — T17 갱신·집계(승인·무효화·병합·카운트·연속 미기록) slow 테스트.
+// admin_test.go — 갱신·집계(승인·무효화·병합·카운트·연속 미기록) slow 테스트.
 package db
 
 import (
@@ -225,7 +225,7 @@ func resetVersionToV1(t *testing.T, r *Repo) {
 }
 
 // TestMigrateAcceptsV2 — 회귀(코디네이터 룰링): meta='2' 상태에서 Migrate는
-// err=nil로 통과하고 버전을 '1'로 되돌리지 않는다. v0.1 게이트가 '1'만
+// err=nil로 통과하고 버전을 '1'로 되돌리지 않는다. 게이트가 '1'만
 // 상정해 nil wrap 실패("%!w(<nil>)")를 냈다.
 func TestMigrateAcceptsV2(t *testing.T) {
 	r := newTestRepo(t)
@@ -248,8 +248,8 @@ func TestMigrateAcceptsV2(t *testing.T) {
 }
 
 // dropV3Indexes는 EnsureSchemaV3 테스트가 flint 인덱스를 남기지 않게
-// 되돌린다(다른 테스트의 newTestRepo가 영향받지 않도록). v0.43.0 T4
-// 수선: v9 flint_knowledge_pending_idx도 함께 정리 — 헬퍼 계약은
+// 되돌린다(다른 테스트의 newTestRepo가 영향받지 않도록).
+// v9 flint_knowledge_pending_idx도 함께 정리 — 헬퍼 계약은
 // 게이트별 flint knowledge 인덱스 전부 리셋.
 func dropV3Indexes(t *testing.T, r *Repo) {
 	t.Helper()
@@ -266,8 +266,8 @@ func dropV3Indexes(t *testing.T, r *Repo) {
 }
 
 // flintIndexCount는 v3 게이트 인덱스 3종(entity·domain·status)만 명시
-// 카운트한다. v0.43.0 T4 수선: LIKE 'flint_knowledge_%' 전수 카운트는
-// v0.42.0 스키마 v9 flint_knowledge_pending_idx까지 세어 4로 실패 —
+// 카운트한다. LIKE 'flint_knowledge_%' 전수 카운트는
+// 스키마 v9 flint_knowledge_pending_idx까지 세어 4로 실패 —
 // 검증 대상(이 게이트의 인덱스)만 센다.
 func flintIndexCount(t *testing.T, r *Repo) int {
 	t.Helper()
@@ -399,7 +399,7 @@ func TestEnsureSchemaV2(t *testing.T) {
 	}
 }
 
-// TestAllGatesArtifacts — v0.20.2(패치 루프 1차 T3): 게이트 v2~v7이 각자
+// TestAllGatesArtifacts — 게이트 v2~v7이 각자
 // 약속한 산출물(컬럼·인덱스·테이블)을 실제로 만드는지 표 기반 단언.
 // 이전엔 최신 게이트(v6·v7)만 내용 검증되고 v2~v5는 체인 '순차 통과'
 // 사실만 봤다 — 게이트 하나가 조용히 no-op으로 변해도 잡히지 않았다.
@@ -497,12 +497,12 @@ func dropV11ScoreColumns(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV11GateAdditive — v1.7.0 T1 Review Focus(state): v10 DB 재현 →
+// TestV11GateAdditive — Review Focus(state): v10 DB 재현 →
 // EnsureSchemaV11 승격이 recall_score(int 기본 0)·last_recalled_at
 // (timestamptz NULL) 2열을 additive 추가하고 기존 행은 무손상·기본값
 // (0·NULL)·재호출 멱등. 역방향(이전 바이너리가 v11 DB를 읽는 호환)은
 // 열 additive default 전제로 현 바이너리의 v11 값 삽입·판독 스팟으로
-// 갈음한다(플랜 T1 룰링 — 스코어 값 경로의 동작 증명).
+// 갈음한다(스코어 값 경로의 동작 증명).
 func TestV11GateAdditive(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

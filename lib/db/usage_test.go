@@ -1,4 +1,4 @@
-// usage_test.go — T37 플레이북 사용 로그·성공률(실DB slow 테스트).
+// usage_test.go — 플레이북 사용 로그·성공률(실DB slow 테스트).
 package db
 
 import (
@@ -16,7 +16,7 @@ func cleanPBKeys(t *testing.T, r *Repo) {
 	}
 }
 
-// TestPlaybookStats — 3회 중 2회 성공 → Uses 3·OK 2·Rate 0.667(플랜 T37).
+// TestPlaybookStats — 3회 중 2회 성공 → Uses 3·OK 2·Rate 0.667.
 func TestPlaybookStats(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

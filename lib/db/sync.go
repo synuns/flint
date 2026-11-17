@@ -1,5 +1,5 @@
-// sync.go — v1.7.0 T4: Doltgres 원격 등록(dolt_remote SQL 함수 래핑).
-// v1.7.0 T5: push/pull(dolt_push·dolt_fetch+dolt_merge 래핑).
+// sync.go — Doltgres 원격 등록(dolt_remote SQL 함수 래핑).
+// push/pull(dolt_push·dolt_fetch+dolt_merge 래핑).
 // 실측(dolthub/doltgresql, 2026-11-17):
 //   - SELECT dolt_remote('add', name, url) → int 0. 중복명도 오류 없이
 //     url을 조용히 덮어쓴다 — 중복 차단은 dolt_remotes 사전 조회 계약.

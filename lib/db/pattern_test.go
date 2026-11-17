@@ -1,4 +1,4 @@
-// pattern_test.go — T36 패턴 탐지. 같은 topic의 성공 반복·실패→성공
+// pattern_test.go — 패턴 탐지. 같은 topic의 성공 반복·실패→성공
 // 전환을 순수 SQL 집계로 식별한다(failure 태그 = 실패 학습, CONTENT.md §4).
 package db
 

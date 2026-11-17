@@ -1,4 +1,4 @@
-// usage_v0200_test.go — v0.20.0 세션 경계·hot 노출 기록·3테이블 통합
+// usage_v0200_test.go — 세션 경계·hot 노출 기록·3테이블 통합
 // 보존 정리 슬로우 테스트(실DB).
 package db
 

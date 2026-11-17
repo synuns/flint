@@ -1,4 +1,4 @@
-// threshold_meta.go — v0.42.0 T1(§2): thresholds 키 등록표(단일 소스).
+// threshold_meta.go — thresholds 키 등록표(단일 소스).
 // 키 추가는 이 등록표 1곳 + store.Thresholds 필드 정의로 수렴한다 —
 // ThresholdsKeys(thresholdsKeySQL IN·maintain meta 감사)와 ops
 // TuningKeys(TUNING §2 표 행: Default·Consumer·Get)가 전부 등록표에서
@@ -51,8 +51,8 @@ var thresholdMetas = []ThresholdMeta{
 	{"SecretsScanRows", "secrets_scan_row_limit", 10000, "doctor secrets row limit"},
 	{"SessionKnowledgeDays", "session_knowledge_days", 1, "session knowledge minimum interval"},
 
-	// v1.2.0 T5: 진단 엔진(diagnosis.go)·knowledge_reads 보존 — meta
-	// 오버라이드 실로드를 위한 등록표 항목(T5 concern 수렴).
+	// 진단 엔진(diagnosis.go)·knowledge_reads 보존 — meta
+	// 오버라이드 실로드를 위한 등록표 항목.
 	{"DiagHotBudgetHigh", "diag_hot_budget_high", 0.8, "report diagnostics"},
 	{"DiagHotBudgetLow", "diag_hot_budget_low", 0.2, "report diagnostics"},
 	{"DiagTrendPct", "diag_trend_pct", 50, "report diagnostics"},
@@ -60,11 +60,11 @@ var thresholdMetas = []ThresholdMeta{
 	{"DiagDeadWarn", "diag_dead_warn", 10, "report diagnostics"},
 	{"KreadsRetentionD", "knowledge_reads_retention_days", 14, "db retention"},
 
-	// v1.4.0 T3: import 행 수 상한(대량 문서 메모리 방어 — 소비 경로
+	// import 행 수 상한(대량 문서 메모리 방어 — 소비 경로
 	// knowledge/import_jsonl.go).
 	{"ExportImportMaxRows", "export_import_max_rows", 100000, "import row limit"},
 
-	// v1.7.0 T2: decay 감쇠 계수·archive 제안 임계값(소비 경로 ops
+	// decay 감쇠 계수·archive 제안 임계값(소비 경로 ops
 	// maintain --decay-audit — schema v11 recall_score·last_recalled_at).
 	{"DecayRate", "decay_rate", 1.0, "maintain --decay-audit"},
 	{"ArchiveBelow", "archive_below", 0.0, "maintain --decay-audit"},

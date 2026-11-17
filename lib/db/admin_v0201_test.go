@@ -1,4 +1,4 @@
-// admin_v0201_test.go — v0.20.1(패치 루프 1차 F1): 무효화·병합의 status
+// admin_v0201_test.go — 무효화·병합의 status
 // 병기와 승격 좀비 방어 회귀. 실DB 슬로우 테스트.
 package db
 

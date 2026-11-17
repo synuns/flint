@@ -1,4 +1,4 @@
-// admin_v08_test.go — T82 schema v5(EnsureSchemaV5) 슬로우 테스트(실DB).
+// admin_v08_test.go — schema v5(EnsureSchemaV5) 슬로우 테스트(실DB).
 package db
 
 import (
@@ -81,7 +81,7 @@ func TestV5PromoteIdempotent(t *testing.T) {
 
 // TestV5GateNumeric — Review Focus(test_v5_gate_numeric): 게이트는 수치
 // 비교(>=)다. '10'은 문자열 비교('10'<'5')로는 하위로 보이지만 수치로는
-// 상위이므로 no-op여야 한다. v0.6 다운그레이드 사고(문자열 동등 검사) 재발
+// 상위이므로 no-op여야 한다. 다운그레이드 사고(문자열 동등 검사) 재발
 // 방지 회귀.
 func TestV5GateNumeric(t *testing.T) {
 	r := newTestRepo(t)

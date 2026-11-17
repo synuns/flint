@@ -1,4 +1,4 @@
-// Package wire — flint CLI 계약층(v0.38.0 §1). Store 인터페이스·디스패치
+// Package wire — flint CLI 계약층. Store 인터페이스·디스패치
 // Run·registry·DSN 해결·에러 한 줄 JSON·meta KV 접근을 소유한다.
 // 커맨드 구현(lib/cli)은 공장 함수·Register로 이 층에 연결된다.
 package wire

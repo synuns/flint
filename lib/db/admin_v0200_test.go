@@ -1,4 +1,4 @@
-// admin_v0200_test.go — v0.20.0 schema v7(EnsureSchemaV7) 슬로우 테스트(실DB).
+// admin_v0200_test.go — schema v7(EnsureSchemaV7) 슬로우 테스트(실DB).
 // ids 컬럼 승격·session_starts·hot_events 생성·멱등·수치 비교 게이트 회귀.
 package db
 

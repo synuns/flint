@@ -1,4 +1,4 @@
-// usage_v0102_test.go — v0.10.2 R2 RecordUsageCount 소스별 dup 키: 화이트리스트에
+// usage_v0102_test.go — RecordUsageCount 소스별 dup 키: 화이트리스트에
 // dup_hook·dup_manual·dup_mcp 추가(additive — 총계 "dup" 불변). 무효 kind 거부는
 // 기존대로. 실DB slow — fast에서는 FLINT_DSN 부재로 스킵.
 package db

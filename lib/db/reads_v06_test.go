@@ -1,4 +1,4 @@
-// reads_v06_test.go — T62 BumpReads(항목 참조 계측, schema v4) slow 테스트.
+// reads_v06_test.go — BumpReads(항목 참조 계측, schema v4) slow 테스트.
 package db
 
 import (

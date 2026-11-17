@@ -1,4 +1,4 @@
-// admin_v093_test.go — T3 DupGroups 슬로우 테스트(실DB).
+// admin_v093_test.go — DupGroups 슬로우 테스트(실DB).
 package db
 
 import (

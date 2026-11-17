@@ -1,4 +1,4 @@
-// usage_v092_test.go — v0.9.2 RecordUsageCount: dup N 일괄 증분(실DB slow).
+// usage_v092_test.go — RecordUsageCount: dup N 일괄 증분(실DB slow).
 // 계약: count 1회 호출이 daily 카운터에 N을 더한다(recordDups의 O(N)
 // 읽기-쓰기 대체), dup는 last_ 시각 키 없음, count<1은 에러.
 package db

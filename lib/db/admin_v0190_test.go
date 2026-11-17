@@ -1,4 +1,4 @@
-// admin_v0190_test.go — v0.19.0 schema v6(EnsureSchemaV6) 슬로우 테스트(실DB).
+// admin_v0190_test.go — schema v6(EnsureSchemaV6) 슬로우 테스트(실DB).
 // read_events 테이블 승격·멱등·수치 비교 게이트 회귀.
 package db
 
@@ -57,7 +57,7 @@ func TestV6PromoteIdempotent(t *testing.T) {
 
 // TestV6GateNumeric — Review Focus(test_v6_gate_numeric): 게이트는 수치
 // 비교(>=)다. '10'은 문자열 비교로는 하위로 보이지만 수치로는 상위이므로
-// 버전 기록·테이블 재생성 없이 no-op여야 한다(v0.6 다운그레이드 사고
+// 버전 기록·테이블 재생성 없이 no-op여야 한다(다운그레이드 사고
 // 회귀 — V5 게이트와 동일 계약).
 func TestV6GateNumeric(t *testing.T) {
 	r := newTestRepo(t)

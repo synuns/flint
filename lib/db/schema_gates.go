@@ -1,9 +1,9 @@
-// schema_gates.go — T1(v0.41.0) 승격 게이트 등록표. admin.go의
+// schema_gates.go — 승격 게이트 등록표. admin.go의
 // EnsureSchemaV* 메서드를 단일 소스로 구성한다 — cli/root.go ensureSchemas의
 // 순차 실행과 최신 스키마 버전(LatestSchemaVersion)이 전부 여기서
 // 파생된다. 게이트 추가는 admin.go 함수 + 이 등록표 한 줄뿐이며,
 // 등록 누락은 TestSchemaGatesContiguous·TestSchemaGatesCoverAdmin이 잡는다
-// (함수만 추가하고 호출을 잊던 v0.28.1류 무경고 스킵 폐지).
+// (함수만 추가하고 호출을 잊던 무경고 스킵 폐지).
 package db
 
 import "context"

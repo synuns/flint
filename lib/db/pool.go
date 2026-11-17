@@ -21,7 +21,7 @@ var (
 // DefaultDelays 는 기본 재시도 간격: 즉시, 1초, 3초.
 var DefaultDelays = []time.Duration{0, 1 * time.Second, 3 * time.Second}
 
-// DefaultConnectTimeout — v1.6.2 R33-3 F4: 접속 시도 상한 5s. 원격
+// DefaultConnectTimeout — 접속 시도 상한 5s. 원격
 // 불통(패킷 드롭 — 연결 거부와 달리 커널 타임아웃까지 매달린다)을
 // 조기 실패시켜 세션 훅 예산(10s) 내 exit 2로 끝낸다.
 const DefaultConnectTimeout = 5 * time.Second
@@ -83,7 +83,7 @@ func Retry(ctx context.Context, fn func() error, delays []time.Duration) error {
 		last = err
 	}
 	// 마지막 오류를 함께 감싼다 — 소진 사실만 돌려주면 원인이 묻혀
-	// 진단 불가(v0.15.2 CI 조사에서 드러난 진단성 결함).
+	// 진단 불가(CI 조사에서 드러난 진단성 결함).
 	if last != nil {
 		return fmt.Errorf("%w: %v", ErrRetriesExhausted, last)
 	}

@@ -1,4 +1,4 @@
-// usage_v06_test.go — T60 RecordUsage: 유입 계측 meta 기록(실DB slow 테스트).
+// usage_v06_test.go — RecordUsage: 유입 계측 meta 기록(실DB slow 테스트).
 // 계약: last_<kind>_at RFC3339 upsert(dup 제외) + daily:YYYY-MM-DD JSON 증분,
 // 14일 초과 daily 키 정리(PruneDaily — 오늘 키 신규 생성 시에만), 경합
 // last-write-wins 수용.
@@ -21,12 +21,12 @@ func cleanUsageKeys(t *testing.T, r *Repo) {
 	}
 }
 
-// dailyValue(구 daily:<date> JSON 디코더)는 v1.2.0 T1 플랫 키 전환으로
+// dailyValue(구 daily:<date> JSON 디코더)는 플랫 키 전환으로
 // 폐지 — 플랫 읽기는 flatDailyValue(usage_flatkey_test.go)·구 JSON 폴백은
 // readDailyFlat이 담당한다.
 
 // TestRecordUsageDailyAndPrune — write·hot·read·dup 기록 → 플랫 키 값·last_*
-// 갱신·15일치 심기 → 초과 키 삭제(플랜 T60. v1.2.0 T1: 플랫 키 단언으로 갱신).
+// 갱신·15일치 심기 → 초과 키 삭제(플랫 키 단언으로 갱신).
 func TestRecordUsageDailyAndPrune(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -82,7 +82,7 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:"+today); err != nil {
 		t.Fatalf("delete today key: %v", err)
 	}
-	// 플랫 키도 함께 지운다(v1.2.0 T1 — read kind는 플랫 키 daily:read:<오늘>이
+	// 플랫 키도 함께 지운다(read kind는 플랫 키 daily:read:<오늘>이
 	// 롤오버 created 판정의 대상이다).
 	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:read:"+today); err != nil {
 		t.Fatalf("delete today flat key: %v", err)
@@ -162,7 +162,7 @@ func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
 }
 
 // TestRecordUsageCorruptDailyRewrites — 파손된 플랫 키 값은 0에서 재기작
-// (v1.2.0 T1: 구 JSON 파손 재기작 계약의 플랫 승계 — 정수 아닌 기존 값).
+// (구 JSON 파손 재기작 계약의 플랫 승계 — 정수 아닌 기존 값).
 func TestRecordUsageCorruptDailyRewrites(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -207,7 +207,7 @@ func TestRecordUsageWriteEmptySource(t *testing.T) {
 }
 
 // TestRecordUsageLegacyJSONIgnoredByWrite — 구 daily:<date> JSON은 쓰기
-// 경로가 건드리지 않는다(v1.2.0 T1 읽기 폴백 전용 승계 — null·부분
+// 경로가 건드리지 않는다(읽기 폴백 전용 승계 — null·부분
 // 파손 파상 재기작 회귀는 readDailyFlat 폴백 계약으로 이전,
 // usage_flatkey_test.go TestReadDailyFlatLegacyFallback 참조).
 func TestRecordUsageLegacyJSONIgnoredByWrite(t *testing.T) {
@@ -248,8 +248,8 @@ func TestRecordUsageInvalidKind(t *testing.T) {
 	}
 }
 
-// TestRecordUsageConcurrentNoError — 병렬 기록은 에러 없이 수용된다(v1.2.0
-// T1: 구 last-write-wins JSON 경합 계약의 플랫 승계. Doltgres는 같은 행
+// TestRecordUsageConcurrentNoError — 병렬 기록은 에러 없이 수용된다(구
+// last-write-wins JSON 경합 계약의 플랫 승계. Doltgres는 같은 행
 // 동시 UPSERT를 에러 없이 last-write-wins 수용 — 총계 정합은 보장하지
 // 않음, 유실 < 호출 실패 계측 원칙. 원자성은 Postgres 기준).
 func TestRecordUsageConcurrentNoError(t *testing.T) {

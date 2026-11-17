@@ -26,7 +26,7 @@ func (f *fakeArgStore) Query(ctx context.Context, sql string, args ...any) ([][]
 }
 func (f *fakeArgStore) Close() {}
 
-// TestCompareSetMetaKVArgSpread — v1.0.11(R12-A1): variadic Query에 인자
+// TestCompareSetMetaKVArgSpread — variadic Query에 인자
 // 3개가 스프레드로 전달되는지(슬라이스 1개 래핑이 CAS를 전면 불능으로
 // 만들었던 결함의 재발 방지 — fake Store가 실제 인자 수를 검증).
 func TestCompareSetMetaKVArgSpread(t *testing.T) {

@@ -1,4 +1,4 @@
-// config.go — T74 설정 파일(계약층 이동, v0.38.0 §1):
+// config.go — 설정 파일:
 // configDir()/config.json의 DSN을 읽어 FLINT_DSN > config.json >
 // DefaultDSN 우선순위로 해결한다(스펙 §2). 파손·부재는 조용히 폴백 —
 // 설정 파일 문제로 커맨드가 죽지 않게.

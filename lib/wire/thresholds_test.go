@@ -1,4 +1,4 @@
-// thresholds_test.go — v0.39.0 T1 공용 헬퍼 wire 이동 검증. 기본 fake,
+// thresholds_test.go — 공용 헬퍼 검증. 기본 fake,
 // SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시 poolStore로 실DB 경유
 // (meta_kv_test.go seam 헬퍼 승계). Review Focus: TestLoadThresholdsFallback
 // (미설정·조회 실패 시 DefaultThresholds 폴백 — 기존 cli 관례와 동일 결과).
@@ -106,10 +106,3 @@ func TestLoadThresholdsFallback(t *testing.T) {
 		t.Fatal("조회 실패 err 미전파 — 호출부 폴백 관례 깨짐")
 	}
 }
-
-// (v0.42.0 T2 폐지 — TestBumpReadStatsToMeta: read_stats blob 폐지로
-// LoadReadStats·BumpReadStatsToMeta가 사라졌다. 파생 경로 동등성은
-// lib/ops/report_parity_test.go(TestEffectParity)가 담당한다.)
-
-// (v1.1.0 T2 — TestReadSessionLabel·legacy 폴백 회귀는 lib/wire/
-// session_test.go로 이동·갱신: 구 session-current 폴백 제거.)

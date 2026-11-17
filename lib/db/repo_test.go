@@ -199,7 +199,7 @@ func TestMigratePreservesV3(t *testing.T) {
 	}
 }
 
-// 회귀(T15 인시던트): schema_version이 같아도 뷰 정의가 갱신되면
+// 회귀(인시던트): schema_version이 같아도 뷰 정의가 갱신되면
 // Migrate가 최신 뷰로 재적용해야 한다 — 낡은 active_knowledge가 read를 깨뜨렸음.
 func TestMigrateReappliesViews(t *testing.T) {
 	r := newTestRepo(t)
@@ -342,7 +342,7 @@ func TestCommitReturnsHash(t *testing.T) {
 	}
 }
 
-// ── v1.6.0 T2(P2): InsertBatch insertOne 루프 → pgx Batch 청크 전환 회귀. ──
+// ── InsertBatch insertOne 루프 → pgx Batch 청크 전환 회귀. ──
 
 // overrideBatchStmtChunk — 청크 문 수 축소(테스트 종료 시 원복).
 func overrideBatchStmtChunk(t *testing.T, n int) {
@@ -412,7 +412,7 @@ func TestInsertBatchBatchedAtomicAcrossChunks(t *testing.T) {
 	}
 }
 
-// ── v1.6.2 T2(E1): Doltgres 커밋 시점 unique 위반(동시 write 레이스) 분류. ──
+// ── Doltgres 커밋 시점 unique 위반(동시 write 레이스) 분류. ──
 
 // TestMapInsertErrConstraintRollback — 동시 write 레이스에서 Doltgres는
 // unique 위반을 SQLSTATE 23505가 아닌 XX000 + "constraint violations,
@@ -448,7 +448,7 @@ func TestMapInsertErrConstraintRollback(t *testing.T) {
 	}
 }
 
-// ── v1.7.0 T6: 계측 분리 커밋 — 감사 커밋 순수성·telemetry 별도 커밋. ──
+// ── 계측 분리 커밋 — 감사 커밋 순수성·telemetry 별도 커밋. ──
 
 // t6CommitHashRe — dolt_log 해시 문자셋(dolt_diff 인라인 전 재검증 —
 // read.go asOfHashRe와 동일 규격, 소문자 base32계).
@@ -485,7 +485,7 @@ func t6DiffRowCount(t *testing.T, r *Repo, from, to, table string) int {
 }
 
 // t6ClearTelemetry — 계측 테이블 적립 잔여 삭제(newTestRepo는 knowledge·
-// sessions·projects만 비운다 — 계측 테이블은 T6 테스트가 직접 정리).
+// sessions·projects만 비운다 — 계측 테이블은 테스트가 직접 정리).
 func t6ClearTelemetry(t *testing.T, r *Repo) {
 	t.Helper()
 	for _, tbl := range []string{"read_events", "hot_events", "knowledge_reads", "session_starts"} {
@@ -495,7 +495,7 @@ func t6ClearTelemetry(t *testing.T, r *Repo) {
 	}
 }
 
-// TestCommitExcludesTelemetryRealSlow — Review Focus(v1.7.0 T6·slow 실측):
+// TestCommitExcludesTelemetryRealSlow — Review Focus(slow 실측):
 // 감사 커밋(Commit)은 계측 테이블을 스테이징하지 않는다. read 1회 상당의
 // read_events 적립 + write/done 상당의 knowledge·sessions 적립 후 Commit
 // 하면 — 커밋 diff에 knowledge ≥1·sessions ≥1·read_events 0행(감사 커밋
@@ -542,7 +542,7 @@ func TestCommitExcludesTelemetryRealSlow(t *testing.T) {
 	}
 }
 
-// TestCommitTelemetrySeparateRealSlow — Review Focus(v1.7.0 T6·slow 실측):
+// TestCommitTelemetrySeparateRealSlow — Review Focus(slow 실측):
 // CommitTelemetry는 계측 테이블을 스테이징해 'telemetry: <cmd>' 커밋을
 // 만든다 — 감사 커밋 다음 호출에서 read_events diff ≥1행. 전역 스윕
 // (dolt_add('-A'))이 감사 커밋이 남긴 *_id_seq 잔여도 회수한다.

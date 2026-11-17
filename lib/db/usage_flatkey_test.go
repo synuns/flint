@@ -1,4 +1,4 @@
-// usage_flatkey_test.go — v1.2.0 T1 daily 플랫 키 전환(실DB slow — fast에서는
+// usage_flatkey_test.go — daily 플랫 키 전환(실DB slow — fast에서는
 // FLINT_TEST_DSN 부재로 스킵). 계약: daily:<kind>:<date> 정수 값 단일 UPSERT
 // 원자 증분(bumpMeta 패턴 — 읽기-수정-쓰기 last-write-wins 폐지)·파손 값은
 // 0에서 재기작·readDailyFlat은 플랫 키 우선 + 구 daily:<date> JSON 폴백 승계

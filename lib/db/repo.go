@@ -1,4 +1,4 @@
-// repo.go — flint 저장소 접근 계층(T7). 스키마 마이그레이션·삽입·dolt 커밋.
+// repo.go — flint 저장소 접근 계층. 스키마 마이그레이션·삽입·dolt 커밋.
 package db
 
 import (
@@ -27,7 +27,7 @@ var (
 	viewsSQLFn  = sqlfs.ViewsSQL
 )
 
-// reapplyViews seam — 게이트 테스트가 재적용 발생을 센다(F-T50-1).
+// reapplyViews seam — 게이트 테스트가 재적용 발생을 센다.
 var reapplyViewsFn = (*Repo).reapplyViews
 
 // kind → 대상 테이블. write는 INSERT 전용이라 각 kind마다 단일 테이블에만 쓴다.
@@ -58,7 +58,7 @@ func (r *Repo) Close() { r.pool.Close() }
 // Migrate는 스키마가 없을 때 SchemaSQL을 실행하고 meta.schema_version=1을
 // 기록한다. 버전 게이트는 정수 비교다: schema_version>=1이면 테이블이
 // 이미 있다고 본다(v2 승격은 admin.go EnsureSchemaV2 소관 — '1' 문자열
-// 일치만 검사하던 v0.1 게이트는 v2 DB에서 nil wrap 실패를 냈다).
+// 일치만 검사하던 게이트는 v2 DB에서 nil wrap 실패를 냈다).
 // 뷰는 schema_version과 무관하게 최신성(views_hash)으로 게이트한다 —
 // 버전이 같아도 뷰 정의가 갱신되는 경우(stale active_knowledge)는
 // hash 불일치로 재적용되지만, 이미 최신이면 재작성하지 않는다.
@@ -96,11 +96,11 @@ func (r *Repo) Migrate(ctx context.Context) error {
 	}
 	// 뷰는 테이블과 달리 트랜잭션 밖 simple protocol로 재적용한다.
 	// 다만 매 커맨드마다 DROP+CREATE하면 dolt_schemas가 매번 재작성돼
-	// 신규 DB의 병렬 write에서 working-set merge 충돌이 났다(F-T50-1).
+	// 신규 DB의 병렬 write에서 working-set merge 충돌이 났다.
 	// 뷰가 이미 최신이면 스킵한다 — 최신 판정은 ①배포 SQL 지문(views_hash)
 	// ②실제 뷰 컬럼 서명(views_sig, 재적용 직후 스냅샷) 이중 게이트.
 	// ①은 뷰 정의 갱신 배포를, ②는 외부로 낡아진 뷰(stale active_knowledge,
-	// T15 인시던트)를 각각 잡는다. 신규 DB의 동시 첫 실행은 재적용끼리
+	// 인시던트)를 각각 잡는다. 신규 DB의 동시 첫 실행은 재적용끼리
 	// merge 충돌을 낼 수 있어 재시도로 회복한다(루프 안에서 다른 writer가
 	// 완료한 재적용을 viewsCurrent로 흡수). 신규 DB 경합은 수 초간 지속될
 	// 수 있어 Commit 기본간격(0s/1s/3s)보다 긴 백오프를 쓴다(실측: 기본
@@ -152,7 +152,7 @@ func (r *Repo) viewsCurrent(ctx context.Context, viewsSQL string) bool {
 // viewsSig — 각 뷰의 실제 컬럼 순서를 "name:col1,col2\n" 형태로 모은다.
 // 뷰가 하나라도 없으면 오류(재적용 트리거). SELECT * LIMIT 0의 필드
 // 메타데이터로 읽는다 — Doltgres는 information_schema에 뷰 컬럼을
-// 노출하지 않는다(T15).
+// 노출하지 않는다.
 func (r *Repo) viewsSig(ctx context.Context, viewsSQL string) (string, error) {
 	names := viewNames(viewsSQL)
 	if len(names) == 0 {
@@ -218,7 +218,7 @@ func (r *Repo) reapplyViews(ctx context.Context) error {
 	return nil
 }
 
-// batchStmtChunk — v1.6.0 T2(P2): InsertBatch의 pgx Batch 1왕복 문 수.
+// batchStmtChunk — InsertBatch의 pgx Batch 1왕복 문 수.
 // insertOne 문별 왕복 루프를 청크 단위 파이프라이닝으로 바꾼다(대량
 // 적립 왕복 수 절감). 테스트가 경계를 축소해 청크 넘는 배치·오류 원자성을
 // 검증한다(repo_test.go overrideBatchStmtChunk).
@@ -232,7 +232,7 @@ type insertStmt struct {
 
 // buildInsertStmt — rec에서 kind별 테이블 INSERT 문을 만든다. 컬럼은
 // 정렬(SQL 문자열 안정 — 쿼리 캐시·로그 비교용), 식별자는 DB 계층에서도
-// 인용한다(v0.28.0 H③ — 방어가 CLI 컬럼 화이트리스트에만 존재하던 구조적
+// 인용한다(방어가 CLI 컬럼 화이트리스트에만 존재하던 구조적
 // 위험의 깊이 방어).
 func buildInsertStmt(rec map[string]any) (insertStmt, error) {
 	kind, _ := rec["kind"].(string)
@@ -266,7 +266,7 @@ func buildInsertStmt(rec map[string]any) (insertStmt, error) {
 // InsertBatch는 레코드들을 단일 트랜잭션에 삽입한다(all-or-nothing).
 // 각 레코드는 "kind" 키로 대상 테이블을 고르고, 나머지 키-값은 컬럼-값이 된다.
 // unique 위반(content_hash·project name)은 store.ErrDuplicate로 변환한다.
-// v1.6.0 T2(P2): insertOne 문별 왕복 루프를 pgx Batch 청크(batchStmtChunk문)
+// insertOne 문별 왕복 루프를 pgx Batch 청크(batchStmtChunk문)
 // 파이프라이닝으로 바꿨다 — RETURNING id 순서 보존, 오류 계약(23505 →
 // ErrDuplicate 랩·실패 시 전체 롤백 0행) 불변.
 func (r *Repo) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
@@ -315,16 +315,16 @@ func quoteIdent(s string) string {
 }
 
 // DupIDByHash는 해당 content_hash가 knowledge에 이미 있으면 기존 행 id와
-// dup=true를 돌려준다(dedup 사전 확인 + duplicate 응답 id 노출, R3).
+// dup=true를 돌려준다(dedup 사전 확인 + duplicate 응답 id 노출).
 // 없으면 (0, false, nil).
 // DupIDByHash — id만 필요한 하위 호환 경로(ExistsHash 어댑터·DupIDStore
-// 폴백). v0.18.1: 질의 중복 해소 — 판정 본체는 DupRowByHash 위임.
+// 폴백). 질의 중복 해소 — 판정 본체는 DupRowByHash 위임.
 func (r *Repo) DupIDByHash(ctx context.Context, hash string) (int, bool, error) {
 	id, _, _, exists, err := r.DupRowByHash(ctx, hash)
 	return id, exists, err
 }
 
-// DupRowByHash — duplicate 줄의 기존 행 메타 조회(v0.18.0 R1). content_hash
+// DupRowByHash — duplicate 줄의 기존 행 메타 조회. content_hash
 // UNIQUE라 최대 1행. status·invalid_at 무관(무효화 행도 동일 재기록 차단 —
 // NOOP 의도). dedup 판정의 단일 소스다.
 func (r *Repo) DupRowByHash(ctx context.Context, hash string) (id int, topic, state string, exists bool, err error) {
@@ -369,10 +369,10 @@ var transitionExecFn = func(ctx context.Context, r *Repo, query string, args ...
 	return ct.RowsAffected(), nil
 }
 
-// Invalidate는 knowledge 무효화 전이의 단일 갱신 경로다(v0.41.0 T2):
+// Invalidate는 knowledge 무효화 전이의 단일 갱신 경로다:
 // status='invalidated'·invalid_at=now() 병기. 유일 소스 — maintain
 // invalidate-stale·--ids·expire-pending·--id 경로가 전부 이 메서드를
-// 경유한다. WHERE의 invalid_at IS NULL 가드(v1.0.1 F2): 이미 처리된 행
+// 경유한다. WHERE의 invalid_at IS NULL 가드: 이미 처리된 행
 // (병렬 Invalidate·Supersede가 invalid_at을 새긴 행)은 재갱신하지 않는다
 // — 나열(pending·stale — 전부 invalid_at IS NULL로 대상을 뽑는다)과 확정
 // 사이 경합에서 supersede 계보(invalid_at=NEW.valid_at)를 now()로 덮어쓰는
@@ -397,7 +397,7 @@ func (r *Repo) Invalidate(ctx context.Context, ids []int, reason string) (int64,
 	return n, nil
 }
 
-// Supersede는 knowledge 대체 전이의 단일 갱신 경로다(v0.41.0 T2):
+// Supersede는 knowledge 대체 전이의 단일 갱신 경로다:
 // status='invalidated'·superseded_by=newID·invalid_at=at(NEW의 valid_at —
 // Zep t_invalid=t_valid 준거) 병기. 계보는 superseded_by 단일 모델 —
 // summary 텍스트 마커 이중 모델은 폐지했다. rows-affected 후견사 내장:
@@ -420,7 +420,7 @@ func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (i
 }
 
 // SetSupersededRef는 이미 무효화된 스냅샷 행의 계보 참조 복원 단일
-// 경로다(v1.3.0 T9 import --format jsonl 재이식): 상태 전이가 아니라
+// 경로다(import --format jsonl): 상태 전이가 아니라
 // superseded_by 참조만 채운다(전이는 Supersede 전용). 미참조 행(NULL)만
 // 갱신해 재실행 멱등을 유지하며, 0행(이미 참조 존재·행 부재)은 오류가
 // 아니다.
@@ -436,8 +436,8 @@ func (r *Repo) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, e
 	return n, nil
 }
 
-// PruneInvalidated는 N일 경과 invalidated 지식 DELETE의 단일 경로다
-// (v0.41.0 T3): maintain --prune-invalidated --commit이 위임한다.
+// PruneInvalidated는 N일 경과 invalidated 지식 DELETE의 단일 경로다:
+// maintain --prune-invalidated --commit이 위임한다.
 // 삭제 0행은 정상 결과다(dry-run과 확정 사이 경합도 "삭제 0건"으로
 // 보고 — Invalidate류 0행 후견사와 달리 대상 소멸이 오류가 아니다).
 // dolt 커밋은 호출자 소관(경로별 메시지).
@@ -451,7 +451,7 @@ func (r *Repo) PruneInvalidated(ctx context.Context, before time.Time) (int64, e
 	return n, nil
 }
 
-// MetaDelete는 meta 행 삭제의 단일 경로다(v0.41.0 T3): tuning reset·
+// MetaDelete는 meta 행 삭제의 단일 경로다: tuning reset·
 // reset --all이 위임한다. keys가 비면 no-op(0, nil). 삭제 0행(이미
 // 기본값)도 정상 — reset은 멱등 계약이다.
 func (r *Repo) MetaDelete(ctx context.Context, keys []string) (int64, error) {
@@ -466,8 +466,8 @@ func (r *Repo) MetaDelete(ctx context.Context, keys []string) (int64, error) {
 	return n, nil
 }
 
-// UpdateSessionSummary는 done 종료 요약의 sessions 갱신 단일 경로다
-// (v0.41.0 T3): writeSessionRecord(세션 수 불변 갱신)가 위임한다.
+// UpdateSessionSummary는 done 종료 요약의 sessions 갱신 단일 경로다:
+// writeSessionRecord(세션 수 불변 갱신)가 위임한다.
 // 갱신 0행 후견사는 없다 — 기존 계약과 동일하게 조용히 결과만 반환
 // (비간섭 §13 — done 경로의 실패는 호출자가 stderr 1행으로 흡수).
 func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
@@ -480,7 +480,7 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 	return n, nil
 }
 
-// auditStageTables — 감사 커밋(Commit)의 스테이징 대상(v1.7.0 T6). 계측
+// auditStageTables — 감사 커밋(Commit)의 스테이징 대상. 계측
 // 테이블(read_events·hot_events·knowledge_reads·session_starts)은 제외
 // — CommitTelemetry가 별도 커밋해 감사 커밋의 diff 순수성을 지킨다.
 // sessions 포함 룰링: done의 session-end 커밋이 세션 행 귀속을 잃지
@@ -504,7 +504,7 @@ func doltAddSQL(tables []string) string {
 }
 
 // Commit은 감사 테이블(knowledge·projects·sessions·meta·maintenance_runs)
-// 만 스테이징해 커밋한다(v1.7.0 T6: 전역 dolt_add('-A') 폐지 — 계측
+// 만 스테이징해 커밋한다(전역 dolt_add('-A') 폐지 — 계측
 // 테이블은 CommitTelemetry 소관). 커밋 해시를 돌려주고, 충돌 가능성을
 // 고려해 기본 delays(0s/1s/3s)로 Retry한다.
 func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
@@ -521,7 +521,7 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 			}
 			if isNothingToCommit(err) {
 				// 병렬 writer의 dolt_add가 이 세션의 변경까지 이미
-				// 커밋한 경우(F-T50-1 실측) — 데이터는 영속됐으므로
+				// 커밋한 경우(실측) — 데이터는 영속됐으므로
 				// 성공으로 처리한다.
 				hash = ""
 				return nil
@@ -542,7 +542,7 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 // CommitTelemetry는 계측 테이블(read_events·hot_events·knowledge_reads·
 // session_starts)을 스테이징한 뒤 dolt_add('-A')로 잔여(감사 커밋의
 // 테이블 지정 스테이징이 남긴 *_id_seq 등)까지 스윕해 'telemetry: <cmd>'
-// 커밋을 만든다(v1.7.0 T6). 감사 커밋(Commit)과 독립 — read/hot/done
+// 커밋을 만든다. 감사 커밋(Commit)과 독립 — read/hot/done
 // 완료 경로가 1회 호출한다. 감사 커밋은 이미 명시 스테이징으로 커밋됐으므
 // 로 순수성은 유지되고, 스윕이 흡수하는 것은 시퀀스 잔여뿐이다(룰링).
 // 계측 원칙(§13): 실패는 호출자가 조용히 흡수한다. dolt_add는 이미
@@ -603,7 +603,7 @@ func splitStatements(script string) []string {
 // 위반 — 동시 write에서 사전 확인을 통과한 두 세션이 동일 content_hash를
 // 적립하면 늦은 쪽 커밋에서 working set 제약 위반이 발견되어 코드 XX000에
 // "constraint violations, transaction rolled back" 메시지로 롤백된다
-// (v1.6.2 R33 E1 실측 2026-11-17). (2)을 분류하지 않으면 write의 survive
+// (실측 2026-11-17). (2)을 분류하지 않으면 write의 survive
 // 경로(재확인 skip + 잔여 재시도)에 도달하지 못해 레이스 패자의 고유줄이
 // 유실된다.
 func mapInsertErr(err error) error {
@@ -630,7 +630,7 @@ func isPgCode(err error, code string) bool {
 
 // isNothingToCommit — dolt_commit의 "nothing to commit"(XX000).
 // 스테이징이 비었다는 뜻으로, 병렬 write에서는 다른 writer가 대신
-// 커밋했음을 가리킨다(F-T50-1).
+// 커밋했음을 가리킨다.
 func isNothingToCommit(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "XX000" &&

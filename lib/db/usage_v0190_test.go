@@ -1,4 +1,4 @@
-// usage_v0190_test.go — v0.19.0 read_events 기록·보존 정리 슬로우 테스트(실DB).
+// usage_v0190_test.go — read_events 기록·보존 정리 슬로우 테스트(실DB).
 package db
 
 import (
@@ -64,7 +64,7 @@ func TestRecordReadEventAndPrune(t *testing.T) {
 	}
 }
 
-// TestPruneRetentionOverride — v0.20.4: 보존일 meta 오버라이드 —
+// TestPruneRetentionOverride — 보존일 meta 오버라이드 —
 // events_retention_days를 넉넉히 하면 기본 14일로는 삭제될 과거 행이 생존.
 func TestPruneRetentionOverride(t *testing.T) {
 	r := newTestRepo(t)

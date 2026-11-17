@@ -1,4 +1,4 @@
-// admin_v06_test.go — T59 schema v4(EnsureSchemaV4) slow 테스트(실DB).
+// admin_v06_test.go — schema v4(EnsureSchemaV4) slow 테스트(실DB).
 package db
 
 import (

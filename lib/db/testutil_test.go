@@ -8,8 +8,8 @@ import (
 )
 
 // testDSN은 slow 테스트용 DSN을 반환한다. testDSNFromEnv 가드가 거짓이면
-// 스킵한다(v0.15.0 — 운영 FLINT_DSN 환경에서 slow 테스트가 운영 DB에
-// 실행되는 v0.9.3 격리 사각 차단).
+// 스킵한다(운영 FLINT_DSN 환경에서 slow 테스트가 운영 DB에
+// 실행되는 격리 사각 차단).
 // (플랜 표기 TestDSN — go test가 Test* 이름에 func(t *testing.T)를 강제하므로 비내보내기로 둔다.)
 func testDSN(tb testing.TB) string {
 	dsn, ok := testDSNFromEnv(os.Getenv("FLINT_TEST_DSN"), os.Getenv("FLINT_DSN"))
@@ -51,7 +51,7 @@ func TestDSNReturnsEnv(t *testing.T) {
 	}
 }
 
-// TestDSNFromEnvGuard — 폴백 FLINT_DSN 가드 단위 테스트(v0.15.0 결함 회귀):
+// TestDSNFromEnvGuard — 폴백 FLINT_DSN 가드 단위 테스트(결함 회귀):
 // 운영 DB명(flint, "test" 부문자열 없음)은 스킵, 테스트 DB명은 통과.
 func TestDSNFromEnvGuard(t *testing.T) {
 	cases := []struct {

@@ -1,4 +1,4 @@
-// session_touch_test.go — v1.2.3 T9(A4): 세션 라벨 채택 mtime 터치 계약.
+// session_touch_test.go — 세션 라벨 채택 mtime 터치 계약.
 // 14일(기본)을 초과해 활성인 세션의 라벨이 타 세션 session-start 정리
 // (PruneSessionLabels)에서 삭제되지 않게, ReadSessionLabel 채택(읽기
 // 성공) 시 해당 라벨 파일의 mtime을 갱신한다.

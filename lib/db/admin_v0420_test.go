@@ -1,4 +1,4 @@
-// admin_v0420_test.go — v0.42.0 schema v9(EnsureSchemaV9) 슬로우 테스트(실DB).
+// admin_v0420_test.go — schema v9(EnsureSchemaV9) 슬로우 테스트(실DB).
 // 계측 ts 인덱스 3종·knowledge pending partial 인덱스 승격·additive
 // 무손상·멱등·수치 비교 게이트 회귀.
 package db
@@ -10,7 +10,7 @@ import (
 )
 
 // v9IndexNames — 게이트가 만드는 인덱스 4종(계측 테이블 ts 경로 3종 +
-// knowledge pending partial 1종 — v0.42.0 파생 산출 쿼리 경로).
+// knowledge pending partial 1종 — 파생 산출 쿼리 경로).
 var v9IndexNames = []string{
 	"flint_read_events_ts_idx",
 	"flint_hot_events_ts_idx",

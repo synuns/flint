@@ -1,4 +1,4 @@
-// admin.go — T17 갱신·집계. approve·invalidate·merge는 갱신 전용 허용
+// admin.go — 갱신·집계. approve·invalidate·merge는 갱신 전용 허용
 // 경로다(전역 제약: write INSERT 전용, projects 제외 UPDATE 금지 —
 // 승인/무효화/병합은 spec §8 큐레이션 경로, 사유를 dolt 커밋 메시지에 남긴다).
 // 승격 게이트 EnsureSchemaV*의 호출 순서·최신 버전은 schema_gates.go
@@ -181,7 +181,7 @@ func (r *Repo) ensureSchemaV4(ctx context.Context) error {
 // 버전 5를 기록한다(spec v0.8 §2: 배치 무효화가 대체 지식 id를 새긴다.
 // views 무변경 — 컬럼은 기존 뷰 정의에 영향 없다). 승격 전 기존 행은
 // 기본값 null을 받는다. 이미 v5 이상이면 트랜잭션·커밋 없이 no-op
-// (수치 비교 단락 — 문자열 비교 금지, v0.6 다운그레이드 사고 재발 방지)이며,
+// (수치 비교 단락 — 문자열 비교 금지, 다운그레이드 사고 재발 방지)이며,
 // v1~v4 게이트를 경유한 어느 DB에서도 멱등하다.
 func (r *Repo) EnsureSchemaV5(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV5(ctx) }, gateRetryBackoff)
@@ -222,9 +222,9 @@ func (r *Repo) ensureSchemaV5(ctx context.Context) error {
 
 // EnsureSchemaV6는 meta.schema_version<6인 DB를 v6로 무손실 승격한다:
 // 효과 계측 이벤트 로그 테이블 read_events를 CREATE TABLE IF NOT EXISTS로
-// 추가한다(v0.19.0 docs/METRICS.md — 기존 테이블·views 무변경, additive).
+// 추가한다(docs/METRICS.md — 기존 테이블·views 무변경, additive).
 // 승격 전 DB는 빈 로그를 받는다. 이미 v6 이상이면 트랜잭션·커밋 없이
-// no-op(수치 비교 단락 — v0.6 다운그레이드 사고 재발 방지)이며, v1~v5
+// no-op(수치 비교 단락 — 다운그레이드 사고 재발 방지)이며, v1~v5
 // 게이트를 경유한 어느 DB에서도 멱등하다.
 func (r *Repo) EnsureSchemaV6(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV6(ctx) }, gateRetryBackoff)
@@ -272,7 +272,7 @@ func (r *Repo) ensureSchemaV6(ctx context.Context) error {
 }
 
 // EnsureSchemaV8는 meta.schema_version<8인 DB를 v8로 무손실 승격한다:
-// hit 품질 근사(v0.30.0, METRICS §2 R2) — read_events에 first_rank 컬럼
+// hit 품질 근사(METRICS §2) — read_events에 first_rank 컬럼
 // 추가(ALTER, additive). 기존 테이블·views 무변경. 이미 v8 이상이면
 // no-op이며 어느 하위 버전 DB에서도 멱등한다.
 func (r *Repo) EnsureSchemaV8(ctx context.Context) error {
@@ -313,7 +313,7 @@ func (r *Repo) ensureSchemaV8(ctx context.Context) error {
 }
 
 // EnsureSchemaV7는 meta.schema_version<7인 DB를 v7로 무손실 승격한다:
-// 효과 계측 정밀화(v0.20.0, docs/METRICS.md §4) — read_events에 ids 컬럼
+// 효과 계측 정밀화(docs/METRICS.md §4) — read_events에 ids 컬럼
 // 추가(ALTER)·session_starts·hot_events 테이블 생성(CREATE IF NOT EXISTS).
 // 기존 테이블·views 무변경(additive). 이미 v7 이상이면 no-op(수치 비교
 // 단락)이며 v1~v6 게이트를 경유한 어느 DB에서도 멱등하다.
@@ -371,7 +371,7 @@ func (r *Repo) ensureSchemaV7(ctx context.Context) error {
 }
 
 // EnsureSchemaV9는 meta.schema_version<9인 DB를 v9로 무손실 승격한다:
-// 계측·파생 산출 쿼리 경로 인덱스 4종(v0.42.0) — read_events(ts)·
+// 계측·파생 산출 쿼리 경로 인덱스 4종 — read_events(ts)·
 // hot_events(ts)·session_starts(ts) 시간 창 스캔 3종과 knowledge pending
 // partial(status WHERE status='pending' AND invalid_at IS NULL — Counts
 // pending 집계 경로) 1종을 CREATE INDEX IF NOT EXISTS로 만들고 버전 9를
@@ -422,7 +422,7 @@ func (r *Repo) ensureSchemaV9(ctx context.Context) error {
 }
 
 // EnsureSchemaV10는 meta.schema_version<10인 DB를 v10으로 무손실 승격한다
-// (v1.2.0 T1, spec §1.2 — 관측 고도화 저장 기반, additive): read_events에
+// (spec §1.2 — 관측 고도화 저장 기반, additive): read_events에
 // bytes(출력 바이트)·zero_reason('unowned'|'owned_miss'|”)·source
 // ('hook'|'cli'|'mcp') 3열을 ADD COLUMN IF NOT EXISTS로 추가하고 항목별
 // 회상 이력 테이블 knowledge_reads(knowledge_id·ts·session·kind)를 CREATE
@@ -481,7 +481,7 @@ func (r *Repo) ensureSchemaV10(ctx context.Context) error {
 }
 
 // EnsureSchemaV11는 meta.schema_version<11인 DB를 v11로 무손실 승격한다
-// (v1.7.0 T1 — decay/강화 스코어 원천, additive): knowledge에
+// (decay/강화 스코어 원천, additive): knowledge에
 // recall_score(integer 기본 0)·last_recalled_at(timestamptz NULL) 2열을
 // ADD COLUMN IF NOT EXISTS로 추가한다. 승격 전 기존 행은 기본값 0·NULL을
 // 받는다. 열이 모두 default를 가지므로 이전 바이너리(v10)도 v11 DB를
@@ -530,9 +530,9 @@ func (r *Repo) ensureSchemaV11(ctx context.Context) error {
 }
 
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
-// v0.20.1: 승인은 유효 확정이므로 잔존 invalid_at을 함께 청소한다 —
+// 승인은 유효 확정이므로 잔존 invalid_at을 함께 청소한다 —
 // 무효화된 pending을 승인하면 active+invalid_at 좀비(뷰·--status 어디에도
-// 안 보이는 행)가 되던 결함 방어(패치 루프 1차 F1).
+// 안 보이는 행)가 되던 결함 방어.
 // 이미 active면 멱등 no-op, 없는 id는 ErrNotFound.
 func (r *Repo) Approve(ctx context.Context, id int) error {
 	ct, err := r.pool.Exec(ctx,
@@ -565,7 +565,7 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 }
 
 // Merge는 from을 무효화하고(status·superseded_by·invalid_at 병기 —
-// Supersede와 동일한 열·갱신 형식, v1.2.3 T4) to summary에 병합 표시를
+// Supersede와 동일한 열·갱신 형식) to summary에 병합 표시를
 // 남긴다(중복 정리). 계보는 superseded_by 단일 모델 — 마커 suffix 관례는
 // 유지하되 계보 질의가 유실되지 않게 두 갱신을 한 트랜잭션 블록으로 묶는다
 // (부분 갱신 — 마커만 남고 superseded_by 누락 — 차단). 이미 invalidated된

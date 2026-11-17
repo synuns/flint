@@ -1,5 +1,5 @@
 // registry — 서브커맨드 등록 테이블(계약층). 커맨드 구현 패키지(lib/cli)
-// 각 파일이 init에서 Register만 하면 되게 한다(개방-폐쇄, v0.1 부채).
+// 각 파일이 init에서 Register만 하면 되게 한다(개방-폐쇄).
 package wire
 
 import (
@@ -32,14 +32,14 @@ func Unregister(name string) {
 	delete(registry, name)
 }
 
-// usageOrder — usage 문장에 나열할 커맨드 순서(v0.34.2 R2: 하드코딩
-// 리터럴 제거, 이 슬라이스에서 조립). 신규 커맨드는 Register와 함께
+// usageOrder — usage 문장에 나열할 커맨드 순서(이 슬라이스에서 조립).
+// 신규 커맨드는 Register와 함께
 // 여기에도 추가해야 usage에 노출된다
 // (TestUsageOrderMatchesRegistry가 드리프트를 잡는다).
 // 제약: "audit|diff|update|tuning|import"는 항목 연속·후미 고정
 // (wire_v08 TestUsageRestInvariant 계약), "done|compact|nudge"·
 // "approve|pending"·"hot|brief" 순서 역시 기존 배선 테스트가 지킨다.
-// v1.7.0 T7: sync 추가(사람 운영자 명령 — 데이터 이동성 그룹
+// sync(사람 운영자 명령 — 데이터 이동성 그룹
 // backup/restore 직후. 원격 url은 출력·로그 미기록 계약).
 var usageOrder = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
@@ -56,17 +56,17 @@ func hiddenFromUsage(name string) bool {
 }
 
 // UsageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
-// v1.5.4 T2 P3: error 키 폐지 — usage는 안내 정보지 오류가 아니므로
+// error 키 폐지 — usage는 안내 정보지 오류가 아니므로
 // `{"usage":...}` 형태로만 전달한다(정보 내용·usageOrder 조립 불변).
 func UsageLine() string {
 	return `{"usage":"flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
 }
 
-// UnknownCommandLine — unknown command 안내 한 줄 JSON(v1.5.4 T2 P3):
+// UnknownCommandLine — unknown command 안내 한 줄 JSON:
 // error 키 없는 안내 형태로 unknown command 사실(message)과 usage
 // 정보(커맨드 목록)를 유지한다. cmd는 호출자 제어 문자열이라 원시 결합이
-// 아니라 json.Marshal 경유 이스케이프로 조립한다(v0.28.0 H③ 승계 —
-// ErrLine 마샬링 경유 관례와 동일 이유).
+// 아니라 json.Marshal 경유 이스케이프로 조립한다(ErrLine
+// 마샬링 경유 관례와 동일 이유).
 func UnknownCommandLine(cmd string) string {
 	b, _ := json.Marshal(map[string]string{
 		"message": "unknown command: " + cmd,
@@ -76,7 +76,7 @@ func UnknownCommandLine(cmd string) string {
 }
 
 // Registered — 등록된 커맨드명 열거(정렬 — bridge 가드 비교 안정성).
-// v0.38.0 T3: cli 측 동질 가드(TestRegisteredMatchesUsage)가 실등록
+// cli 측 동질 가드(TestRegisteredMatchesUsage)가 실등록
 // 표면을 읽기 위한 읽기 전용 접근자.
 func Registered() []string {
 	names := make([]string, 0, len(registry))

@@ -1,7 +1,7 @@
-// run_test.go — v1.5.3 T2 P2: ErrLine usage 분류 계약. 무효 인자
+// run_test.go — ErrLine usage 분류 계약. 무효 인자
 // (unknown flag·값 누락 등 사용법 오류)는 error:"usage"(값 확장 — 구조
 // 불변, 하류 파서 호환), 내부 결함은 internal 유지, SchemaError는 schema
-// 유지(회귀). v1.5.4 T2 P3: --version/-v 전역 별칭·help/unknown 안내
+// 유지(회귀). --version/-v 전역 별칭·help/unknown 안내
 // 형태(error 키 폐지) 계약 추가.
 package wire
 
@@ -27,7 +27,7 @@ func decodeErrLine(t *testing.T, line string) map[string]string {
 	return m
 }
 
-// TestErrLineUsage — Review Focus(v1.5.3 P2): usage 오류의 error 값은
+// TestErrLineUsage — Review Focus: usage 오류의 error 값은
 // "usage"(기존 internal에서 값만 교체).
 func TestErrLineUsage(t *testing.T) {
 	t.Run("usage 오류 — error:usage", func(t *testing.T) {
@@ -66,7 +66,7 @@ func TestUsageErrorfWrap(t *testing.T) {
 	}
 }
 
-// TestVersionFlagAlias — Review Focus(v1.5.4 T2 P3): `flint --version`·
+// TestVersionFlagAlias — Review Focus: `flint --version`·
 // `flint -v`는 전역 플래그 별칭 — `flint version`과 동일 출력·exit 0.
 // store-free 선행 처리라 unknown command exit 3과 충돌하지 않는다.
 func TestVersionFlagAlias(t *testing.T) {
@@ -95,7 +95,7 @@ func TestVersionFlagAlias(t *testing.T) {
 	}
 }
 
-// TestHelpFlagAlias — Review Focus(v1.5.5 T2 A4): `flint -h`·`flint --help`는
+// TestHelpFlagAlias — Review Focus: `flint -h`·`flint --help`는
 // 전역 별칭 — `flint help`와 동일 출력·exit 0(--version/-v 관례 승계,
 // 디스패치 앞 선행 치환). 근접 오타(--hel)는 별칭이 아니다(unknown 3).
 func TestHelpFlagAlias(t *testing.T) {
@@ -120,7 +120,7 @@ func TestHelpFlagAlias(t *testing.T) {
 	}
 }
 
-// TestHelpInformationalFirstLine — Review Focus(v1.5.4 T2 P3): help
+// TestHelpInformationalFirstLine — Review Focus: help
 // 출력 첫 줄은 error 키 없는 안내 형태 — 정보 내용(커맨드 목록)은
 // 유지하고 exit 0 계약도 그대로다.
 func TestHelpInformationalFirstLine(t *testing.T) {
@@ -141,7 +141,7 @@ func TestHelpInformationalFirstLine(t *testing.T) {
 	}
 }
 
-// TestUnknownCommandGuidanceNoErrorKey — Review Focus(v1.5.4 T2 P3):
+// TestUnknownCommandGuidanceNoErrorKey — Review Focus:
 // unknown command 안내도 error 키 없는 안내 형태 — unknown command
 // 사실(message)과 usage 정보를 유지하고 exit은 기존 계약 3.
 func TestUnknownCommandGuidanceNoErrorKey(t *testing.T) {
@@ -167,8 +167,8 @@ func TestUnknownCommandGuidanceNoErrorKey(t *testing.T) {
 	}
 }
 
-// TestUnknownCommandLineEscapesCommand — v1.5.4 T2 P3(이스케이프 회귀,
-// v0.28.0 H③ 승계): 안내 라인 조립은 호출자 제어 문자열(cmd)을
+// TestUnknownCommandLineEscapesCommand(이스케이프 회귀):
+// 안내 라인 조립은 호출자 제어 문자열(cmd)을
 // json.Marshal 경유 — 원시 결합이 JSON 구조를 파손하지 않는다.
 func TestUnknownCommandLineEscapesCommand(t *testing.T) {
 	line := UnknownCommandLine(`x"}{"injected":1`)

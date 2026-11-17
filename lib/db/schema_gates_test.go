@@ -1,4 +1,4 @@
-// schema_gates_test.go — T1(v0.41.0) 승격 게이트 등록표 가드.
+// schema_gates_test.go — 승격 게이트 등록표 가드.
 // 순수 테스트(DB 불필요): 등록표 연속성·admin.go 게이트 전량 등록·
 // cli ensureSchemas의 등록표 파생을 단언한다.
 package db
@@ -17,7 +17,7 @@ import (
 
 // TestSchemaGatesContiguous — Review Focus: 등록표 버전은
 // 2..LatestSchemaVersion 연속·중복 없음. 게이트가 빠지거나 순서가
-// 흐트러지면 연속 단언이 즉시 깨진다(v0.28.1류 무경고 스킵 방지).
+// 흐트러지면 연속 단언이 즉시 깨진다(무경고 스킵 방지).
 func TestSchemaGatesContiguous(t *testing.T) {
 	gates := SchemaGates()
 	if len(gates) == 0 {
@@ -41,7 +41,7 @@ func TestSchemaGatesContiguous(t *testing.T) {
 }
 
 // ensureSchemaDefs — dir의 비테스트 .go 전체에서 `func (r *Repo)
-// EnsureSchemaV#(` 정의를 버전→파일명 맵으로 수집한다. v1.0.1 R1-D:
+// EnsureSchemaV#(` 정의를 버전→파일명 맵으로 수집한다.
 // admin.go 한 정 파일 읽기는 다른 파일의 신규 게이트 정의(등록 누락
 // 시나리오)를 못 봤다 — 패키지 전체 소스가 스캔 대상이다.
 func ensureSchemaDefs(t *testing.T, dir string) map[int]string {
@@ -95,7 +95,7 @@ func TestSchemaGatesCoverAdmin(t *testing.T) {
 	}
 }
 
-// TestSchemaGateDefsSpanAllFiles — R1-D 회귀: admin.go 밖 파일에 정의된
+// TestSchemaGateDefsSpanAllFiles — 회귀: admin.go 밖 파일에 정의된
 // 게이트(등록 누락 시나리오)도 정의 수집이 본다(파일 한정 읽기 폐쇄).
 func TestSchemaGateDefsSpanAllFiles(t *testing.T) {
 	root := t.TempDir()
@@ -118,7 +118,7 @@ func TestSchemaGateDefsSpanAllFiles(t *testing.T) {
 
 // cliGateAudit — dir(lib/cli 등)의 비테스트 .go 전체(재귀, testdata
 // 제외)를 검사해 (등록표 파생 range 존재 여부, 직접 게이트 호출
-// "path:line: match" 목록)를 반환한다. v1.0.1 R1-D: root.go 한 정 읽기는
+// "path:line: match" 목록)를 반환한다. root.go 한 정 읽기는
 // 다른 cli 파일의 직접 호출을 못 봤다.
 func cliGateAudit(t *testing.T, dir string) (bool, []string) {
 	t.Helper()
@@ -173,7 +173,7 @@ func TestEnsureSchemasUsesGates(t *testing.T) {
 	}
 }
 
-// TestCliGateAuditSpansAllFiles — R1-D 회귀: root.go 밖 cli 파일의 직접
+// TestCliGateAuditSpansAllFiles — 회귀: root.go 밖 cli 파일의 직접
 // 게이트 호출(repo.EnsureSchemaV#() 등)도 감지된다(파일 한정 폐쇄).
 func TestCliGateAuditSpansAllFiles(t *testing.T) {
 	root := t.TempDir()

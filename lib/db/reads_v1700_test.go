@@ -1,4 +1,4 @@
-// reads_v1700_test.go — v1.7.0 T2 회상 강화 slow 테스트(실DB, schema v11).
+// reads_v1700_test.go — 회상 강화 slow 테스트(실DB, schema v11).
 // BumpRecallScores가 히트 행의 recall_score를 1 증분·last_recalled_at를
 // 새기고 미지정 행은 무변화로 둔다. 빈 슬라이스 no-op·중복 id 무결은
 // BumpReads 계약 승계.
@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// TestBumpRecallScoresIncrements — Review Focus(v1.7.0 T2): 히트 행만
+// TestBumpRecallScoresIncrements — Review Focus: 히트 행만
 // recall_score+1·last_recalled_at=now — 미지정 행은 0/NULL 유지(신규 항목
 // 불이익 금지의 실측).
 func TestBumpRecallScoresIncrements(t *testing.T) {
