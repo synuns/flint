@@ -134,7 +134,7 @@ them is a code change):
 
 | limit | value | scope |
 |---|---|---|
-| per-payload byte cap | 1MB | a single write payload field over this is rejected (exit 3) |
+| per-payload byte cap | 8MiB | a single write payload field over this is rejected (exit 3) |
 | import file size cap | 512MB | `import --format jsonl` files over this are rejected before read (exit 3, with max/size) |
 | read suggest query truncate | 4096 runes | oversized read queries are truncated for the suggestion scan (body search unaffected) |
 
