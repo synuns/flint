@@ -19,6 +19,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"github.com/synuns/flint/lib/wire"
@@ -48,22 +49,46 @@ func DefaultPAMSigningKeyPath() string {
 // PAMSigningKeyPathFn — 경로 seam(테스트 격리 주입).
 var PAMSigningKeyPathFn = DefaultPAMSigningKeyPath
 
+// pamKeyReadFile — 키 파일 읽기 seam(기본 os.ReadFile — EEXIST 강제
+// 경로 등 원자성 회귀 테스트가 읽기 시퀀스를 주입).
+var pamKeyReadFile = os.ReadFile
+
+// loadPAMSigningKeyFile — 키 파일 hex(64바이트 개인키) 로드. 파손 키는
+// 조용 재생성이 아니라 오류 — 재생성은 owner did:key를 갈아놓아 기존
+// 서명의 신뢰 사슬을 끊는다.
+func loadPAMSigningKeyFile(path string) (ed25519.PrivateKey, error) {
+	b, err := pamKeyReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	raw, derr := hex.DecodeString(strings.TrimSpace(string(b)))
+	if derr != nil || len(raw) != ed25519.PrivateKeySize {
+		return nil, fmt.Errorf("pam signing key corrupt (want %d-byte hex): %s",
+			ed25519.PrivateKeySize, path)
+	}
+	return ed25519.PrivateKey(raw), nil
+}
+
+// pamKeyEEXISTRetries·pamKeyEEXISTBackoff — EEXIST 재시도 예산: 선행
+// 생성자가 파일을 만들었으나 기록을 아직 flush하지 않은 찰나(불완전
+// 내용)를 흡수한다. 예산 소진은 오류(조용 재생성 금지 승계).
+const (
+	pamKeyEEXISTRetries = 20
+	pamKeyEEXISTBackoff = 5 * time.Millisecond
+)
+
 // LoadOrCreatePAMSigningKey — 서명 키 로드, 없으면 생성해 0600으로
 // 기록(부모 디렉터리 0700). 파일 포맷은 hex(64바이트 개인키 + 개행).
-// 파손 키는 조용 재생성이 아니라 오류 — 재생성은 owner did:key를 갈아
-// 놓아 기존 서명의 신뢰 사슬을 끊는다.
+// v1.6.1 T2 A1: 생성은 O_CREATE|O_EXCL 원자 오픈 — 동시 호출이 각자
+// 키를 발급해 상호 덮어쓰는 레이스(호출마다 다른 키 반환)를 원천
+// 차단한다. EEXIST는 선행 생성자의 기존 파일 로드로 흡수.
 func LoadOrCreatePAMSigningKey() (ed25519.PrivateKey, error) {
 	path := PAMSigningKeyPathFn()
 	if path == "" {
 		return nil, errors.New("pam signing key path unavailable (config dir unresolved)")
 	}
-	if b, err := os.ReadFile(path); err == nil {
-		raw, derr := hex.DecodeString(strings.TrimSpace(string(b)))
-		if derr != nil || len(raw) != ed25519.PrivateKeySize {
-			return nil, fmt.Errorf("pam signing key corrupt (want %d-byte hex): %s",
-				ed25519.PrivateKeySize, path)
-		}
-		return ed25519.PrivateKey(raw), nil
+	if k, err := loadPAMSigningKeyFile(path); err == nil {
+		return k, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
 		return nil, fmt.Errorf("pam signing key read failed: %w", err)
 	}
@@ -74,10 +99,44 @@ func LoadOrCreatePAMSigningKey() (ed25519.PrivateKey, error) {
 	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
 		return nil, fmt.Errorf("pam signing key dir create failed: %w", err)
 	}
-	if err := os.WriteFile(path, []byte(hex.EncodeToString(priv)+"\n"), 0o600); err != nil {
-		return nil, fmt.Errorf("pam signing key write failed: %w", err)
+	f, oerr := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	if oerr != nil {
+		if errors.Is(oerr, os.ErrExist) {
+			// 선행 동시 생성자가 이미 파일을 만들었다 — 새 키 폐기, 기존
+			// 키 로드(단일 키 보장). 기록 직전 찰나의 불완전 내용은 짧은
+			// 재시도로 흡수한다.
+			return loadPAMSigningKeyAfterRace(path)
+		}
+		return nil, fmt.Errorf("pam signing key create failed: %w", oerr)
+	}
+	if _, werr := f.WriteString(hex.EncodeToString(priv) + "\n"); werr != nil {
+		f.Close()
+		return nil, fmt.Errorf("pam signing key write failed: %w", werr)
+	}
+	if cerr := f.Close(); cerr != nil {
+		return nil, fmt.Errorf("pam signing key write failed: %w", cerr)
 	}
 	return priv, nil
+}
+
+// loadPAMSigningKeyAfterRace — EEXIST 이후 기존 파일 로드. 선행 생성자가
+// O_EXCL 오픈 직후·기록 직전일 수 있어 파손(불완전 hex) 판정은 예산
+// 내 재시도한다. 예산 소진 후에도 읽을 수 없으면 오류(재생성 금지).
+func loadPAMSigningKeyAfterRace(path string) (ed25519.PrivateKey, error) {
+	var lastErr error
+	for i := 0; i < pamKeyEEXISTRetries; i++ {
+		if i > 0 {
+			time.Sleep(pamKeyEEXISTBackoff)
+		}
+		k, err := loadPAMSigningKeyFile(path)
+		if err == nil {
+			return k, nil
+		}
+		lastErr = err
+		// ErrNotExist(파일 소실)·파손(불완전 hex) 모두 직후 기록 찰나일
+		// 수 있으므로 예산 내 재시도한다.
+	}
+	return nil, fmt.Errorf("pam signing key concurrent create unreadable: %w", lastErr)
 }
 
 // base58Alphabet — bitcoin 계열 base58btc(did:key multibase z 접두 관례).

@@ -552,6 +552,12 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 			Tags:       c.Tags,
 			Source:     c.Source,
 		}
+		// v1.6.1 T2 A2(왕복 멱등): flint 발행 문서가 실어온 저장
+		// content_hash(ParsePAM 승계 — 64 hex만)는 적립 해시로 승계해
+		// dedup가 원천 해시와 대칭한다(jsonl A9 isHex64 경로와 동일).
+		if h, ok := c.Metadata["content_hash"].(string); ok && isHex64(h) {
+			row.ContentHash = h
+		}
 		if c.Kind == "project" {
 			// 원천 kind 보존: knowledge 테이블 pending 적립(승격 모델)에서
 			// 원형 구분은 태그로만 가능 — "pam:project" 추가(왕복·검색 경로).

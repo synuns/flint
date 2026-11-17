@@ -5,10 +5,14 @@ package knowledge
 
 import (
 	"bytes"
+	"context"
+	"fmt"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/synuns/flint/lib/db"
 )
 
 // pamSample — 스펙 예시 형식의 최소 문서(합성).
@@ -454,5 +458,193 @@ func TestParsePAMUnsignedNoWarning(t *testing.T) {
 	}
 	if stderr.Len() != 0 {
 		t.Errorf("무서명 문서에 경고 발생: %q", stderr.String())
+	}
+}
+
+// --- v1.6.1 T2 A2: 저장 content_hash 승계·수입 dedup 멱등 ---
+
+// TestParsePAMInheritsStoredContentHash — A2: memory metadata.content_hash
+// (64 hex)는 ImportCandidate.Metadata로 승계된다(jsonl A9 isHex64 대칭).
+// 비hex 값·미기재는 승계하지 않는다.
+func TestParsePAMInheritsStoredContentHash(t *testing.T) {
+	doc := `{
+ "schema": "portable-ai-memory",
+ "memories": [
+  {"id":"k1","type":"fact","content":"해시 보유","status":"active","confidence":{"current":0.5},"provenance":{"platform":"flint"},
+   "metadata":{"content_hash":"cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd"}},
+  {"id":"k2","type":"fact","content":"비hex 해시","status":"active","confidence":{"current":0.5},"provenance":{"platform":"flint"},
+   "metadata":{"content_hash":"not-hex"}},
+  {"id":"k3","type":"fact","content":"미기재","status":"active","confidence":{"current":0.5},"provenance":{"platform":"flint"}}
+ ],
+ "relations": []}`
+	res, err := ParsePAM([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParsePAM err: %v", err)
+	}
+	if len(res.Candidates) != 3 {
+		t.Fatalf("candidates = %d, want 3", len(res.Candidates))
+	}
+	if got, _ := res.Candidates[0].Metadata["content_hash"].(string); got != "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd" {
+		t.Errorf("k1 metadata.content_hash 미승계: %v", res.Candidates[0].Metadata)
+	}
+	for i, id := range []string{"k2", "k3"} {
+		if _, ok := res.Candidates[i+1].Metadata["content_hash"]; ok {
+			t.Errorf("%s content_hash 승계 — 비hex·미기재는 승계 금지", id)
+		}
+	}
+}
+
+// TestParsePAMRoundtripOwnExportStoredHash — 발행→수입 왕복: FormatPAM이
+// 발행한 metadata.content_hash가 ParsePAM 후보에 그대로 승계된다.
+func TestParsePAMRoundtripOwnExportStoredHash(t *testing.T) {
+	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	res, err := ParsePAM(out)
+	if err != nil {
+		t.Fatalf("자체 발행 문서 파싱: %v", err)
+	}
+	if len(res.Candidates) != 3 {
+		t.Fatalf("candidates = %d, want 3", len(res.Candidates))
+	}
+	if got, _ := res.Candidates[0].Metadata["content_hash"].(string); got != "abababababababababababababababababababababababababababababababab" {
+		t.Errorf("왕복 저장 해시 손실: %v", res.Candidates[0].Metadata)
+	}
+	if _, ok := res.Candidates[1].Metadata["content_hash"]; ok {
+		t.Errorf("미보유 행 해시 승계 — 발행되지 않은 값")
+	}
+}
+
+// TestRunImportMigratePAMStoredHashDedupFast — A2 와이어링(패스트 fake):
+// 후보 metadata.content_hash는 적립 ExportRow.ContentHash로 승계되어
+// dedup 조회 해시로 쓰인다 — 기존 행 멱등(duplicated=전량·imported=0,
+// jsonl A9 대칭). 승계 누락 시 재계산 해시로 조회해 imported로 적립된다.
+func TestRunImportMigratePAMStoredHashDedupFast(t *testing.T) {
+	const stored = "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
+	doc := fmt.Sprintf(`{
+ "schema": "portable-ai-memory",
+ "memories": [
+  {"id":"m1","type":"fact","content":"저장 해시 dedmp 데모 본문","status":"active","confidence":{"current":0.5},"provenance":{"platform":"flint"},
+   "metadata":{"content_hash":%q}}
+ ],
+ "relations": []}`, stored)
+	f := &migrateFake{fakeStore: &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
+		if h == stored {
+			return DupMeta{ID: 77, Topic: "demo", State: "active"}, true
+		}
+		return DupMeta{}, false
+	}}}
+	out, code := runMigrate(t, f, []string{"--format", "pam"}, doc)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"duplicated":1`) {
+		t.Fatalf("저장 해시 dedup 미발동 — duplicated 미충족: %s", out)
+	}
+	if strings.Contains(out, `"imported":1`) {
+		t.Fatalf("기존 행이 신규 적립됨 — 왕복 멱등 위반: %s", out)
+	}
+	if len(f.fakeStore.inserted) != 0 {
+		t.Fatalf("dedup 행 적립 잔여: %d건", len(f.fakeStore.inserted))
+	}
+}
+
+// TestImportPAMRoundtripIdempotentRealSlow — A2 실DB 왕복(slow): 적립
+// (저장 content_hash 64 hex 보유)→export pam→import pam은 전량 중복
+// (duplicated=전량·imported=0 — 왕복 멱등)이고, 재export 본문은 첫
+// export와 동일하다(휘발 필드 export_id·export_date 제외). SUPERLITE_REAL=1
+// + FLINT_TEST_DSN 설정 시만.
+func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
+	dsn, ok := importRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	repo, err := db.NewRepo(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		repo.Close()
+		t.Skipf("real pool unavailable: %v", err)
+	}
+	st := &importRealStore{Repo: repo, pool: pool}
+	t.Cleanup(st.Close)
+	const marker = "demo-pam-idem-slow"
+	cleanup := func() {
+		_, _ = st.Query(ctx, `DELETE FROM knowledge WHERE origin = $1`, marker)
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	// 1. 적립 — jsonl A9 경로로 저장 content_hash(64 hex)를 보유한 행 확보.
+	t0 := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
+	rows := []ExportRow{
+		{ID: 910101, Topic: "demo pam idem alpha", Content: "합성 데모 pam 멱등 본문 alpha.",
+			Kind: "knowledge", Status: "active", Confidence: 0.9, Tags: []string{"demo"},
+			Domain: "main", Source: marker, ContentHash: "9090909090909090909090909090909090909090909090909090909090909090",
+			CreatedAt: t0, UpdatedAt: t0},
+		{ID: 910102, Topic: "demo pam idem beta", Content: "합성 데모 pam 멱등 본문 beta.",
+			Kind: "knowledge", Status: "active", Confidence: 0.8, Tags: []string{"demo"},
+			Domain: "main", Source: marker, ContentHash: "9191919191919191919191919191919191919191919191919191919191919191",
+			CreatedAt: t0, UpdatedAt: t0},
+	}
+	seed, err := FormatJSONL(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seedOut strings.Builder
+	if code := RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(seed)), &seedOut); code != 0 {
+		t.Fatalf("적립 exit=%d; out=%s", code, seedOut.String())
+	}
+
+	// 2. export pam — 저장 해시가 metadata로 발행된 문서. 공유 실DB
+	// 잔재 행과 격리하기 위해 마커 origin 행만 대상으로 한다.
+	all, err := ExportRows(ctx, st, ExportFilter{})
+	if err != nil {
+		t.Fatalf("ExportRows: %v", err)
+	}
+	got := make([]ExportRow, 0, 2)
+	for _, r := range all {
+		if r.Source == marker {
+			got = append(got, r)
+		}
+	}
+	if len(got) != 2 {
+		t.Fatalf("export marker rows = %d, want 2", len(got))
+	}
+	doc1, err := FormatPAM(got, "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 3. import pam — 전량 중복(멱등): duplicated=2·imported=0.
+	var out strings.Builder
+	if code := RunImportMigrate(ctx, st, []string{"--format", "pam"}, strings.NewReader(string(doc1)), &out); code != 0 {
+		t.Fatalf("pam 수입 exit=%d; out=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"imported":0`) || !strings.Contains(out.String(), `"duplicated":2`) {
+		t.Fatalf("왕복 멱등 미충족 — imported=0·duplicated=2 필요: %s", out.String())
+	}
+
+	// 4. 재export 동일 — 본문(휘발 필드 제외)은 첫 export와 바이트 동일.
+	all2, err := ExportRows(ctx, st, ExportFilter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got2 := make([]ExportRow, 0, len(got))
+	for _, r := range all2 {
+		if r.Source == marker {
+			got2 = append(got2, r)
+		}
+	}
+	doc2, err := FormatPAM(got2, "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if pamMaskedBody(t, doc1) != pamMaskedBody(t, doc2) {
+		t.Errorf("재export 본문 불일치 — 수입이 원천을 변경함")
 	}
 }

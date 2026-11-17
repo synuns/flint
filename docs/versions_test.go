@@ -122,6 +122,11 @@ var versionDocContracts = []struct {
 	{name: "TestPerfDocContractV1600", doc: "PERF.md", wants: []string{
 		"synthetic", "median of 3", "pg_trgm", "Reproducing",
 	}},
+	// v1.6.1: R31 감사 수정(maintain TUI 필터 인덱스·목록 높이·서명키
+	// 원자 생성·PAM 왕복 멱등·소형 3건) 기록 존재 계약.
+	{name: "TestVersion0161Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.6.1", "filter",
+	}},
 	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
 	// 기록 존재)는 불변, 위치만 재지정.
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{

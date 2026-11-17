@@ -190,14 +190,15 @@ func verifyPAMSignature(doc *pamDoc) {
 }
 
 type pamMemory struct {
-	ID         string        `json:"id"`
-	Type       string        `json:"type"`
-	Content    string        `json:"content"`
-	Temporal   pamTemporal   `json:"temporal"`
-	Status     string        `json:"status"`
-	Confidence pamConfidence `json:"confidence"`
-	Tags       []string      `json:"tags"`
-	Provenance pamProvenance `json:"provenance"`
+	ID         string         `json:"id"`
+	Type       string         `json:"type"`
+	Content    string         `json:"content"`
+	Metadata   map[string]any `json:"metadata"` // §10 확장 — A2 저장 해시 승계
+	Temporal   pamTemporal    `json:"temporal"`
+	Status     string         `json:"status"`
+	Confidence pamConfidence  `json:"confidence"`
+	Tags       []string       `json:"tags"`
+	Provenance pamProvenance  `json:"provenance"`
 }
 
 type pamTemporal struct {
@@ -292,6 +293,15 @@ func ParsePAM(data []byte) (*PAMResult, error) {
 				c.Metadata = map[string]any{}
 			}
 			c.Metadata["custom_type"] = m.Type
+		}
+		// A2(왕복 멱등): flint 발행 문서의 metadata.content_hash(64 hex)는
+		// 후보에 승계한다(jsonl A9 isHex64 대칭 — 비hex·미기재는 승계
+		// 금지). 수입 적립 경로가 원천 저장 해시로 dedup 대칭을 맞춘다.
+		if h, ok := m.Metadata["content_hash"].(string); ok && isHex64(h) {
+			if c.Metadata == nil {
+				c.Metadata = map[string]any{}
+			}
+			c.Metadata["content_hash"] = h
 		}
 		res.Candidates = append(res.Candidates, c)
 	}

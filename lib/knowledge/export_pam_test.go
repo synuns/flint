@@ -1048,3 +1048,77 @@ func TestPAMOwnerDIDRoundtrip(t *testing.T) {
 		t.Errorf("비-ed25519 did에서 오류 없음")
 	}
 }
+
+// --- v1.6.1 T2 A2: flint 저장 content_hash §10 metadata 발행 ---
+
+// pamStoredHashRows — A2 발행 픽스처: 64 hex 저장 해시 보유 행 1·미보유
+// 행 1·비hex(저장 해시 형식 아님) 행 1(합성 데모).
+func pamStoredHashRows() []ExportRow {
+	t0 := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
+	return []ExportRow{
+		{
+			ID: 21, Topic: "demo-stored-hash", Content: "저장 해시 보유 데모 행",
+			Kind: "lesson", Status: "active", Confidence: 0.8, Tags: []string{"demo"},
+			ContentHash: "abababababababababababababababababababababababababababababababab",
+			CreatedAt:   t0, UpdatedAt: t0,
+		},
+		{
+			ID: 22, Topic: "demo-no-hash", Content: "저장 해시 미보유 데모 행",
+			Kind: "lesson", Status: "active", Confidence: 0.7, Tags: []string{"demo"},
+			CreatedAt: t0, UpdatedAt: t0,
+		},
+		{
+			ID: 23, Topic: "demo-nonhex-hash", Content: "비hex 해시 데모 행",
+			Kind: "lesson", Status: "active", Confidence: 0.6, Tags: []string{"demo"},
+			ContentHash: "flint-hash-23", // jsonl A9 isHex64 대칭 — 승계 대상 아님
+			CreatedAt:   t0, UpdatedAt: t0,
+		},
+	}
+}
+
+// TestFormatPAMStoredHashMetadata — A2: flint 저장 content_hash(64 hex)
+// 보유 행만 §10 metadata.content_hash로 additive 발행된다. §6 content_hash
+// (스펙 정규화 산출)은 별도 필드로 무관하게 유지 — metadata는 왕복 dedup
+// 멱등(jsonl A9 대칭) 전용 확장이다.
+func TestFormatPAMStoredHashMetadata(t *testing.T) {
+	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
+	if err != nil {
+		t.Fatalf("FormatPAM error: %v", err)
+	}
+	doc := pamParseDoc(t, out)
+
+	// 보유 행 — metadata.content_hash 승계 발행.
+	m0 := pamMem(t, doc, 0)
+	meta, _ := m0["metadata"].(map[string]any)
+	if meta == nil {
+		t.Fatalf("저장 해시 보유 행에 metadata 블록 부재 — A2 발행 계약 위반")
+	}
+	if got, _ := meta["content_hash"].(string); got != "abababababababababababababababababababababababababababababababab" {
+		t.Errorf("metadata.content_hash = %v, want 저장 해시 승계", meta["content_hash"])
+	}
+	// §6 content_hash는 스펙 산출 유지(저장 해시와 다른 값).
+	if got, _ := m0["content_hash"].(string); got != pamWantHash(t, "저장 해시 보유 데모 행") {
+		t.Errorf("§6 content_hash = %q, want 스펙 정규화 산출(저장 해시 비사용)", got)
+	}
+
+	// 미보유·비hex 행 — metadata 미발행(무서명 골든 바이트 불변).
+	for _, i := range []int{1, 2} {
+		m := pamMem(t, doc, i)
+		if _, ok := m["metadata"]; ok {
+			t.Errorf("memories[%d]에 metadata 발행 — hex64 보유 행만 발행 계약", i)
+		}
+	}
+}
+
+// TestFormatPAMStoredHashChecksumVerified — metadata 블록은 §15 체크섬
+// 대상 본문에 포함된다(스트리밍 jcsBuf 산출 = 수입측 jsoncanonicalizer
+// 재계산 — 메타데이터 이스케이프·키 정렬 상호운용).
+func TestFormatPAMStoredHashChecksumVerified(t *testing.T) {
+	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := ParsePAM(out); err != nil {
+		t.Fatalf("저장 해시 포함 자체 발행 문서의 §15 재계산 불일치: %v", err)
+	}
+}

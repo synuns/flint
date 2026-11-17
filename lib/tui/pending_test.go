@@ -328,9 +328,10 @@ func TestPendingQuitReturnsTeaQuit(t *testing.T) {
 	}
 }
 
-// RF-resize — A1: WindowSizeMsg 수신 시 목록 크기가 터미널(높이-4)에
-// 맞고, 12행 이하 단말·연속 리사이즈에서도 선택 항목 렌더가 유지된다
-// (고정 80x20 폐지 — 시작 시 bubbletea가 전달하는 창 크기로 조정).
+// RF-resize — A1: WindowSizeMsg 수신 시 목록 크기가 터미널(높이-6 — B2
+// v1.6.1 T1 갱신)에 맞고, 12행 이하 단말·연속 리사이즈에서도 선택 항목
+// 렌더가 유지된다(고정 80x20 폐지 — 시작 시 bubbletea가 전달하는 창
+// 크기로 조정).
 func TestPendingResizeKeepsItemsRendered(t *testing.T) {
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	for _, sz := range []tea.WindowSizeMsg{
@@ -340,8 +341,8 @@ func TestPendingResizeKeepsItemsRendered(t *testing.T) {
 		{Width: 100, Height: 30},
 	} {
 		m = update(m, sz)
-		if m.list.Height() != sz.Height-4 {
-			t.Errorf("after %dx%d list height = %d, want %d", sz.Width, sz.Height, m.list.Height(), sz.Height-4)
+		if m.list.Height() != sz.Height-6 {
+			t.Errorf("after %dx%d list height = %d, want %d", sz.Width, sz.Height, m.list.Height(), sz.Height-6)
 		}
 		if !strings.Contains(m.View(), "demo topic alpha") {
 			t.Errorf("after %dx%d view lost item text\nview:\n%s", sz.Width, sz.Height, m.View())
@@ -805,6 +806,101 @@ func TestDefaultActionsAssembleExpireArgs(t *testing.T) {
 	}
 }
 
+// ── RF-B1: 필터 중 제거 — SetItems 전량 재조립 ──
+
+// RF-B1(v1.6.1 T1) — 필터 적용 상태의 액션 제거는 RemoveItem 폐지:
+// bubbles RemoveItem은 items는 전역 인덱스로, filteredItems는 필터
+// 위치로 지워 filteredItem.index가 어긋난다(두 번째 액션이 다른 항목
+// 지목). SetItems 전량 재조립 + 빈 재필터 해제로 통일 — "#9" 필터 →
+// a(9 승인·제거) → 두 번째 a는 남은 #7을 지목.
+func TestPendingFilteredApproveThenSecondActionTargetsRemaining(t *testing.T) {
+	rec := &recorderActions{}
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
+	m = update(m, sizeMsg(80, 24))
+	m = applyFilter(m, "#9")
+	if m.list.FilterState() != list.FilterApplied {
+		t.Fatalf("filter not applied: %v", m.list.FilterState())
+	}
+	m, cmd := drive(m, keyMsg("a"))
+	m = pump(m, cmd)
+	if len(rec.approves) != 1 || rec.approves[0] != 9 {
+		t.Fatalf("first approve = %v, want [9]", rec.approves)
+	}
+	if m.list.FilterState() != list.Unfiltered {
+		t.Errorf("empty re-filter must reset filter, state = %v", m.list.FilterState())
+	}
+	if !strings.Contains(m.View(), "demo topic alpha") {
+		t.Errorf("after removal view lost remaining item #7\nview:\n%s", m.View())
+	}
+	m, cmd = drive(m, keyMsg("a"))
+	m = pump(m, cmd)
+	if len(rec.approves) != 2 || rec.approves[1] != 7 {
+		t.Fatalf("second approve = %v, want [9 7] (remaining first item)", rec.approves)
+	}
+}
+
+// ── RF-B2: 목록 높이 산정 ──
+
+// viewLines — View 렌더 라인 수(B2 단언 기준 — trailing newline 없는 렌더).
+func viewLines(v string) int { return strings.Count(v, "\n") + 1 }
+
+// RF-B2(v1.6.1 T1) — 목록 높이 h=height-4는 실제 비목록 라인(키 안내·
+// status·비대화 안내 + 구분 공백 — 최대 6행)보다 적어 화면이 단말 높이를
+// 넘겼다. 목록(status 포함 최악)·supersede 화면 모두 View 렌더 라인 수가
+// 단말 높이 이내. 단말 높이 ≥ 16: bubbles 내부 크롬(제목·상태바·페이지
+// 네이션·help — 2행씩)과 최소 항목 1건을 포함하려면 목록 h ≥ 10이 필요.
+func TestPendingViewFitsTerminalHeight(t *testing.T) {
+	for _, sz := range []tea.WindowSizeMsg{{80, 24}, {60, 16}} {
+		m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
+		m = update(m, sz)
+		if got, want := m.list.Height(), sz.Height-6; got != want {
+			t.Errorf("%dx%d: list height = %d, want %d", sz.Width, sz.Height, got, want)
+		}
+		m = update(m, keyMsg("d")) // status 라인 포함 최악 라인 구성
+		if n := viewLines(m.View()); n > sz.Height {
+			t.Errorf("%dx%d: list view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, m.View())
+		}
+		s, cmd := drive(m, keyMsg("s"))
+		if cmd == nil {
+			t.Fatalf("%dx%d: s must issue load cmd", sz.Width, sz.Height)
+		}
+		s, _ = drive(s, cmd())
+		if s.mode != modeSupersede {
+			t.Fatalf("%dx%d: after load mode = %v, want modeSupersede", sz.Width, sz.Height, s.mode)
+		}
+		if n := viewLines(s.View()); n > sz.Height {
+			t.Errorf("%dx%d: supersede view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, s.View())
+		}
+	}
+}
+
+// RF-B1(v1.6.1 T1 후속) — 필터 적용 상태의 상세 화면 표시 항목도
+// GlobalIndex로 환산한다: View의 list.Index()는 필터 기준(visible)이라
+// m.items와 어긋나 잘못된 항목을 상세에 표시한다. "be" 필터(visible:
+// #9) → 커서 이동 → enter → 상세 본문이 선택한 #9와 일치.
+func TestPendingFilteredDetailShowsSelectedBody(t *testing.T) {
+	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
+	m = update(m, sizeMsg(80, 24))
+	m = applyFilter(m, "be") // visible: #9 demo topic beta(#7·#11은 필터로 가림)
+	if m.list.FilterState() != list.FilterApplied {
+		t.Fatalf("filter not applied: %v", m.list.FilterState())
+	}
+	m = update(m, keyMsg("down")) // 커서 이동(visible 1건 — 이동 없어도 진입 경로 동일)
+	m = update(m, enterMsg())
+	if m.mode != modeDetail {
+		t.Fatalf("after enter mode = %v, want modeDetail", m.mode)
+	}
+	d := stripANSI(m.View())
+	for _, want := range []string{"demo topic beta", "demo summary beta", "import:demo.jsonl"} {
+		if !strings.Contains(d, want) {
+			t.Errorf("filtered detail missing %q (wrong item shown)\nview:\n%s", want, d)
+		}
+	}
+	if strings.Contains(d, "demo summary alpha") || strings.Contains(d, "demo summary gamma") {
+		t.Errorf("filtered detail shows unselected item\nview:\n%s", d)
+	}
+}
+
 // RF-filter-state — Review Focus(state): 필터 적용 상태의 supersede 확정은
 // targetList visible 인덱스를 전체 인덱스로 환산(GlobalIndex) — 필터로
 // 가려진 앞 후보(#3)가 아닌 선택한 후보(#5)가 old로 위임된다.
@@ -821,5 +917,17 @@ func TestPendingSupersedeFilteredTargetUsesGlobalIndex(t *testing.T) {
 	}
 	if len(m.candidates) != 1 || m.candidates[0].ID != 3 {
 		t.Fatalf("candidates after supersede = %+v, want [3](stale 5 제거)", m.candidates)
+	}
+}
+
+// R31 후속 — 필터 중 상세 표시가 선택 항목과 일치(GlobalIndex).
+func TestPendingDetailMatchesSelectionUnderFilter(t *testing.T) {
+	items := []PendingItem{{ID: 1, Title: "alpha"}, {ID: 2, Title: "beta"}, {ID: 9, Title: "gamma-zebra"}}
+	m := NewPendingModel(context.Background(), items, nil, PendingActions{})
+	m = update(m, tea.WindowSizeMsg{Width: 80, Height: 24})
+	m.list.SetFilterText("gam")
+	m = update(m, enterMsg())
+	if !strings.Contains(m.View(), "#9") {
+		t.Fatalf("detail should show filtered selection #9:\n%s", m.View())
 	}
 }

@@ -6,6 +6,29 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.6.1 patch (2026-11-17) — R31 audit fixes: maintain TUI list correctness · key atomicity · PAM roundtrip idempotency
+
+- [x] `maintain --tui` list correctness (R31-B B1·B2): removing a row
+  after an action while a filter is active now rebuilds the list with
+  SetItems from the filtered source instead of an asymmetric RemoveItem —
+  GlobalIndex stays correct across a second action (filter → action →
+  remove → action regression); the list height is recomputed from the
+  actual non-list lines with no trailing-newline overflow (View lines ≤
+  terminal height).
+- [x] Signing-key atomicity (R31-A A1): LoadOrCreatePAMSigningKey creates
+  the key with O_CREATE|O_EXCL (EEXIST → load the existing key) —
+  concurrent first runs converge on a single key.
+- [x] PAM roundtrip idempotency (R31-A A2): export emits the stored
+  content_hash as an additive memory metadata field and import re-derives
+  it (jsonl A9 symmetry) — export → import → re-export is stable and a
+  re-import reports every row duplicated.
+- [x] Small closures (R31-B B3·B4·A3): the TUI suspects loader passes an
+  explicit `--limit 500` (single source `ops.MaintainTUILoadLimit`) on
+  all three report calls — silent truncation at the default 10/20 is
+  gone; the maintain usage line now mentions `--tui` (opt-in, run
+  alone); the export docs state `--out -` writes a literal file named
+  `-` — there is no stdout convention.
+
 ### v1.6.0 minor (2026-11-16) — performance fixes · PAM completion · maintain TUI · parser unification
 
 - [x] Performance (R30 findings; all numbers are synthetic benchmarks —
