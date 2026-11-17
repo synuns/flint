@@ -122,7 +122,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	rankRowsByEffectiveScore(rows, briefRecallScoreIdx, briefRecallLastIdx,
+	rows = rankRowsByEffectiveScore(rows, briefRecallScoreIdx, briefRecallLastIdx,
 		loadDecayRate(ctx, st), time.Now().UTC())
 	for _, row := range rows {
 		for i, cell := range row {

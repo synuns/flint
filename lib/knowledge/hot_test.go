@@ -235,3 +235,26 @@ func TestHotRankDecayRateMetaOverride(t *testing.T) {
 		t.Errorf("순서 = 완만감쇠@%d 저점@%d, want 완만감쇠 선행(0.5 계수: 8 > 7): %q", idxSlow, idxLow, out.String())
 	}
 }
+
+// R36-1 — 감쇠 랭킹 부분 정렬 회귀: 초기 순서가 우연히 정답과 같으면
+// 사전 계산 eff 슬라이스의 어긋남이 드러나지 않는다(감사 재현 케이스).
+func TestHotRankRowsEffectiveOrderNotAccidental(t *testing.T) {
+	rows := [][]any{
+		{"gamma", 5, mustTime(t, "2026-08-01T00:00:00Z")}, // eff 0 (score 5 - 100일)
+		{"alpha", 1, mustTime(t, "2026-11-10T00:00:00Z")}, // eff 0 (score 1 - 2일)
+		{"beta", 3, mustTime(t, "2026-11-15T00:00:00Z")},  // eff 2 (score 3 - 0일)
+	}
+	got := rankRowsByEffectiveScore(rows, 1, 2, 1.0, mustTime(t, "2026-11-17T00:00:00Z"))
+	if got[0][0] != "beta" || got[1][0] != "gamma" || got[2][0] != "alpha" {
+		t.Fatalf("rank order = %v %v %v, want beta gamma alpha(effective DESC·동점 안정)", got[0][0], got[1][0], got[2][0])
+	}
+}
+
+func mustTime(t *testing.T, s string) time.Time {
+	t.Helper()
+	v, err := time.Parse(time.RFC3339, s)
+	if err != nil {
+		t.Fatalf("parse %s: %v", s, err)
+	}
+	return v
+}

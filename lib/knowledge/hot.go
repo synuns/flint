@@ -152,8 +152,18 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64,
 		last, _ := wire.CellToTime(r[lastIdx]) // 미회상(NULL)은 zero → score 유지
 		eff[i] = EffectiveRecallScore(score, last, now, rate)
 	}
-	sort.SliceStable(rows, func(i, j int) bool { return eff[i] > eff[j] })
-	return rows
+	// R36-1: sort는 rows만 swap하므로 less 클로저가 사전 계산 eff[i]를
+	// 읽으면 어긋난다 — 현재 행의 키를 직접 계산한다(부분 정렬 폐지).
+	idx := make([]int, len(rows))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool { return eff[idx[a]] > eff[idx[b]] })
+	out := make([][]any, len(rows))
+	for pos, src := range idx {
+		out[pos] = rows[src]
+	}
+	return out
 }
 
 // hotRankJoinPivot — query.HotSQL·HotHeadlineSQL의 고정형 FROM/ORDER BY
