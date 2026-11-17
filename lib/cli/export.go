@@ -150,7 +150,12 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "out", Expect: "non-empty"}))
 				return 3
 			}
-			outPath = o.Value
+			// POSIX 관례: 경로 "-"는 stdout(미지정과 동일).
+			if o.Value == "-" {
+				outPath = ""
+			} else {
+				outPath = o.Value
+			}
 		case "--status":
 			if o.Value != "active" && o.Value != "all" {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "status", Expect: "active|all"}))

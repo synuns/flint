@@ -324,6 +324,29 @@ func TestRunExportNoSidecarOnStdoutOrOutFailure(t *testing.T) {
 	}
 }
 
+// RF18 — `--out -`: POSIX 관례(경로 "-" = stdout) — --out 생략과 완전히
+// 동일하다. 본문은 stdout으로, cwd에 `-`·`-.sha256` 파일을 남기지 않는다.
+func TestRunExportOutDashIsStdout(t *testing.T) {
+	t.Chdir(t.TempDir())
+	stderr := installExportFakes(t, nil)
+	var stdout bytes.Buffer
+	code := runExport(context.Background(), &fakeStore{}, []string{"--out", "-"}, strings.NewReader(""), &stdout)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (stdout: %s)", code, stdout.String())
+	}
+	if got, want := stdout.String(), "<jsonl of 2 rows>\n"; got != want {
+		t.Fatalf("stdout = %q, want %q", got, want)
+	}
+	for _, name := range []string{"-", "-.sha256"} {
+		if _, err := os.Stat(name); err == nil {
+			t.Fatalf("`--out -` must not create %q in cwd", name)
+		}
+	}
+	if !strings.Contains(stderr.String(), "exported 2 rows (jsonl, ") {
+		t.Fatalf("stderr summary missing: %q", stderr.String())
+	}
+}
+
 // RF12 — 사이드카 기록 실패(사이드카 경로가 디렉터리): stderr 경고 +
 // exit 0 유지(backup 관례 — 본문 기록 성공을 사이드카 실패가 해치지
 // 않는다).

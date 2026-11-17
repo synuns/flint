@@ -152,6 +152,28 @@ func TestSupplyBackupDefenseLayers(t *testing.T) {
 	}
 }
 
+// TestSupplyBackupOutDashStdout — `--out -`는 POSIX 관례(경로 "-" = stdout)
+// 로 out 미지정과 완전히 동일: 덤프 본문 stdout·평문 경고 유지·cwd에
+// `-`·`-.sha256` 파일 미생성.
+func TestSupplyBackupOutDashStdout(t *testing.T) {
+	t.Chdir(t.TempDir())
+	dump := "-- flint dump\nBEGIN;\nCOMMIT;\n"
+	withBackupSeams(t, dump, nil, nil)
+	var out strings.Builder
+	code := RunBackup(context.Background(), &fakeStore{}, []string{"--out", "-"}, nil, &out)
+	if code != 0 {
+		t.Fatalf("exit=%d: %s", code, out.String())
+	}
+	if got, want := out.String(), dump; got != want {
+		t.Fatalf("stdout=%q, want %q", got, want)
+	}
+	for _, name := range []string{"-", "-.sha256"} {
+		if _, err := os.Stat(name); err == nil {
+			t.Errorf("`--out -`는 파일 %q을(를) 만들면 안 된다", name)
+		}
+	}
+}
+
 // TestSupplyRestoreGuards — restore 가드: 체크섬 불일치·사이드카 부재는
 // 재생 전 차단(RestoreFn 미호출), 마스킹 덤프는 복원 거부.
 func TestSupplyRestoreGuards(t *testing.T) {

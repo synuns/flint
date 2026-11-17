@@ -83,6 +83,11 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	out := res.Value("--out")
+	// POSIX 관례: 경로 "-"는 stdout(미지정과 동일) — ValidateFlagValue
+	// 선행 정규화 없이는 "-"가 플래그형 값으로 거부된다.
+	if out == "-" {
+		out = ""
+	}
 	encrypt, mask := res.Given("--encrypt"), res.Given("--mask")
 	if res.Given("--out") && !res.HasValue("--out") {
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--out requires a path — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
