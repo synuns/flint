@@ -41,7 +41,6 @@ Preconditions:
 
 ## Gotchas
 
-- docs/contracts/cli.md는 아직 `--out -`가 "리터럴 파일 `-`"라고 서술하지만 이 브랜치 커밋 8d62221이 stdout 정규화로 바꿨다(lib/cli/export.go `POSIX 관례` 주석). 드라이브는 코드 계약(stdout·사이드카 없음)을 따른다.
 - md 헤더의 `created:`·pam의 `export_id`·`export_date`는 매 실행마다 달라진다. 포맷 간 바이트 동일성 재실행 비교는 jsonl·csv만 성립한다.
 - stderr 요약의 행수 기준이 포맷별로 다르다 — pam은 발행 수(pending 제외), 나머지 4포맷은 전행 수(lib/cli/export.go 포맷터 seam 주석).
 - 기존 파일 덮어씀 경고 `export: overwriting existing file: <path>`는 stderr에 먼저 나온다. stdout만 보면 경고를 놓친다.

@@ -1,7 +1,7 @@
 # flint 런타임 검증 단(verify layer) — 설계·계획
 
 - **날짜**: 2026-11-18
-- **상태**: 승인됨(사용자 3문항 응답 + 자율 진행 사전 승인[dev-loop-preferences])
+- **상태**: 승인됨(사용자 3문항 응답 + 자율 진행 사전 승인)
 - **오케스트레이터**: AI(Ruling: 메모리상 사전 승인 — 문서 자기검토 후 즉시 진행)
 - **플랜 detail**: tests(Ruling: 산출물이 스킬 문서·셸 스크립트·feature map이라 알고리즘 리스크 없음)
 
@@ -52,8 +52,7 @@ get to it (user POV) / Driving it with Claude Code / Gotchas). 초기 커버리�
 5. status·doctor·report(운영 진단)
 6. TUI(export·maintain·pending 폼 — tmux 구동, 텍스트 스냅샷)
 
-MCP 제외(다음 이터레이션 — 백로그: MUST KILL 3건과 함께
-agent-version-loop 메모리에 기록됨).
+MCP 제외(다음 이터레이션).
 
 ### 단위 3 — TUI 캡처 래퍼 (`scripts/verify/tui_capture.sh`)
 
@@ -109,3 +108,13 @@ T1 브랜치·워크트리(feat/verify-layer) + 스킬 초안 생성
   T5는 코디네이터가 실측(Prove It Works).
 - 커밋 단위: 태스크 1개 = 커밋 1개. 게이트: 문서 태스크은 make ci,
   스크립트는 bash -n+실구동, T7은 go test ./... -count=1 무영향 확인.
+
+## 4. 게이트 결과 (2026-11-18, 리뷰 반영 후)
+
+- make ci: green(go test 전 패키지 + check_personal)
+- tui_capture.sh: bash -n 통과·실구동 재검증(remain-on-exit·폴링 강화 후
+  `down` 키 입력→선택 이동 캡처 확인). shellcheck 미설치로 bash -n만.
+- 최종 리뷰: CHANGES_REQUESTED 7건 중 6건 반영·1건(export.md 낡은
+  Gotcha)은 comment-sicko 단계에서 선반영 — 전 건 처리. MUST KILL
+  2건(ClampLimit·DashPositional)은 백로그 이월.
+- 라이브 인도 드라이브 증거: .superlite/verify/1.7.2/(로컬).

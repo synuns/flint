@@ -8,7 +8,6 @@
 #   --keys <쉼표 키 목록>        tmux 키 이름 순서대로 주입(기본: 없음)
 #   --out  <파일>                capture-pane 결과 경로(기본: stdout)
 #   --wait <초>                  구동 후 안정 대기(기본 1)
-# 세션은 이 스크립트가 만든 것만 종료한다(프로세스명 킬 금지).
 set -euo pipefail
 
 cmd="" keys="" out="" wait=1
@@ -25,7 +24,17 @@ done
 
 session="flint-verify-$$"
 tmux new-session -d -x 200 -y 50 -s "$session" "$cmd"
+tmux set-option -t "$session" remain-on-exit on
 trap 'tmux kill-session -t "$session" 2>/dev/null || true' EXIT
+
+wait_for_pane() {
+  for _ in $(seq 1 50); do
+    [ -n "$(tmux capture-pane -p -t "$session" | tr -d '[:space:]')" ] && return 0
+    sleep 0.1
+  done
+  return 0
+}
+wait_for_pane
 sleep "$wait"
 
 if [ -n "$keys" ]; then

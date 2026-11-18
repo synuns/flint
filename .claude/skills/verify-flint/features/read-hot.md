@@ -33,7 +33,7 @@ Preconditions:
 - **제로히트.** 시드에 없는 무의미 단일 토큰을 찌른다. `FLINT_DSN=$DSN ./bin/flint read "지브릴스키월드"`. stdout 완전 무출력·exit 0. `--json`을 붙이면 `{"hits":0}` 한 줄·exit 0.
 - **limit clamp.** `FLINT_DSN=$DSN ./bin/flint read "flint" --limit 100 --json`. 결과 뒤에 `{"limit_requested":100,"limit_applied":50}` 부가 줄이 붙는다.
 - **status 필터.** `FLINT_DSN=$DSN ./bin/flint read "검증용 대기 지식" --status pending --json`. 기본 뷰(active)에 없던 pending 행이 나온다 — 판정 여정(write-pipeline)으로 pending 행을 먼저 만들었으면 히트, 아니면 `{"hits":0}`.
-- **hot 헤드라인.** `FLINT_DSN=$DSN ./bin/flint hot`. `[flint] active 3 · pending 1 · recent decisions: ... — recall: flint read <query>` 1줄·exit 0.
+- **hot 헤드라인.** `FLINT_DSN=$DSN ./bin/flint hot`. `[flint] active 3 · pending 1 · recent decisions: ... — recall: flint read <query>` 1줄·exit 0. `active 3`은 **활성 프로젝트 수**(시드 프로젝트 3행 — 지식 active 수와 무관, 실측 확인). decisions에 프로젝트명이 나열된다.
 - **hot 전체.** `FLINT_DSN=$DSN ./bin/flint hot --full`. `project|데모 게임 프로젝트|active|<ts>` 꼴 줄들이 나오고 전체 길이는 2,000 rune 이하다. pending 행 끝에 `·+N일` 접미가 붙는다.
 - **status.** `FLINT_DSN=$DSN ./bin/flint status`. `{"status":"ok","schema_version":"...","pending":N,...}` 한 줄·exit 0. write 여정 직후면 pending이 그 여정의 증가분만큼 올라 있다.
 

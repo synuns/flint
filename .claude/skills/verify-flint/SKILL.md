@@ -14,7 +14,7 @@ flint는 Go CLI(+bubbletea TUI, MCP). 이 스킬은 바이너리를 실제 구�
 
 ```bash
 make build                                # → ./bin/flint
-make up                                   # doltgres 127.0.0.1:5434 (기동 확인: docker compose ps)
+make up                                   # doltgres 127.0.0.1:5434 — 이미 5434 컨테이너가 있으면 생략(포트 충돌 방지)
 CID=$(docker ps --format '{{.Names}}\t{{.Ports}}' | grep '127.0.0.1:5434' | cut -f1) && docker exec -e PGPASSWORD=flint-dev "$CID" psql -h localhost -U flint -d flint -c "CREATE DATABASE flint_verify" 2>/dev/null || true
 FLINT_DSN='postgresql://flint:flint-dev@localhost:5434/flint_verify' ./bin/flint status   # 최초 접속이 스키마를 마이그레이션
 make seed FLINT_SEED_DSN='postgresql://flint:flint-dev@localhost:5434/flint_verify'       # 합성 시드(data/seed.jsonl)
@@ -46,7 +46,7 @@ doctor는 실패할 수 있다 — 워크트리에서는 `--check db` 서브셋,
 ## Drive
 
 - CLI: `FLINT_DSN=<검증 DSN> ./bin/flint <cmd> [args]` — exit code와
-  stdout JSON이 계약(PLAN §7). 오류 라인 `{"error":...}`도 **stdout**으로
+  stdout JSON이 계약(PLAN §3). 오류 라인 `{"error":...}`도 **stdout**으로
   나간다(stderr는 요약·경고 채널).
 - TUI: `scripts/verify/tui_capture.sh`(Helpers)로 tmux 세션에서 구동·
   키 시퀀스 주입·텍스트 스냅샷 캡처. 화면 좌표가 아닌 라벨·프롬프트
@@ -78,6 +78,6 @@ captures/        # tmux 텍스트 스냅샷·CLI 출력 원문(기능명-타임�
 
 ## Helpers
 
-- `scripts/verify/tui_capture.sh —cmd '<flint TUI 커맨드>' —keys 'tab,enter' —out captures/<이름>.txt`
+- `scripts/verify/tui_capture.sh --cmd '<flint TUI 커맨드>' --keys 'tab,enter' --out captures/<이름>.txt`
   tmux 세션 기동→커맨드 구동→키 주입→capture-pane 스냅샷→세션 종료.
   스크립트 헤더에 사용법 전문이 있다.
