@@ -128,7 +128,6 @@ func (r *Repo) logLatestN(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry
 	if q.MessageLike != "" {
 		conds = append(conds, fmt.Sprintf(`message LIKE $%d`, ph))
 		qargs = append(qargs, q.MessageLike)
-		ph++
 	}
 	if len(conds) > 0 {
 		sql += ` WHERE ` + strings.Join(conds, ` AND `)

@@ -62,26 +62,6 @@ func RelTime(t time.Time) string {
 	}
 }
 
-// parseAuditDate — dolt_log date 값을 time.Time으로(실구현은 time.Time,
-// fake/문자열은 레이아웃 3종 파싱). 실패 시 date_rel 미기재.
-func parseAuditDate(v any) (time.Time, bool) {
-	switch x := v.(type) {
-	case time.Time:
-		return x, true
-	case string:
-		for _, lay := range []string{
-			"2006-01-02 15:04:05.999999999 -0700 MST", // time.Time 기본 Sprint
-			"2006-01-02 15:04:05.999999999",
-			time.RFC3339,
-		} {
-			if ts, err := time.Parse(lay, x); err == nil {
-				return ts, true
-			}
-		}
-	}
-	return time.Time{}, false
-}
-
 // RunAudit — dolt_log 최근 N 조회. limit은 0·음수 → 기본 20, 상한 100 clamp
 // (무효 값 기본값 폴백 전역 제약). 인자 검증 경로(unknown flag·
 // 값 누락·비수 값)는 무효 인자 exit 3 — --limit 비수는 read·brief(--limit

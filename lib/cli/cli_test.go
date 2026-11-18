@@ -115,7 +115,6 @@ func (f *fakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.Log
 		if q.MessageLike != "" {
 			conds = append(conds, fmt.Sprintf(`message LIKE $%d`, ph))
 			args = append(args, q.MessageLike)
-			ph++
 		}
 		if len(conds) > 0 {
 			sql += ` WHERE ` + strings.Join(conds, ` AND `)
