@@ -12,7 +12,8 @@
   `.superlite/verify/<version>/`(증거 패킷 — 로컬 한정)를 둔다. 드라이브는
   합성 시드 전용 DB(flint_verify)만 사용. 증거 캡처는 tmux 텍스트
   스냅샷 표준(GIF·영상은 공개 데모 산출에만 선택). 사람 열람은
-  릴리스(G3) 승인 시 manifest로.
+  릴리스(G3) 승인 시 manifest로. feature map은 마이너 버전마다
+  maintain-verification-skill 패스로 드리프트를 정비한다(LOOP.md §4).
 - **되돌림 트리거**: 증거 패킷이 릴리스 승인에서 2회 연속 열람되지 않거나,
   드라이브 유지비(maintain-verification-skill 갱신)가 기능 변경 대비
   과중해지면 커버리지를 축소하거나 폐기한다.

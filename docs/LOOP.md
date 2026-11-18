@@ -64,6 +64,10 @@ L3 milestone 루프   v0.1 → v0.2 → v0.3 (각 DoD 체크리스트로 완료 
 | G2 | wave마다 1회 | 통합(Doltgres docker) + E2E 시나리오 + lint 전체 | ≤5분 |
 | G3 | milestone마다 1회 | 전체 E2E 3케이스(dedup/재시도/이스케이프) + `go test ./...` 전체(slow 포함, CI 패리티) + 신선한 최종 리뷰 + verify-flint 증거 패킷(`.superlite/verify/<version>/`) | ≤20분 |
 
+마이너 버전마다 G3에 이어 maintain-verification-skill 패스 1회 —
+feature map(`.claude/skills/verify-flint/features/`) 드리프트를 정비한다
+(신규·변경 서브커맨드의 여정 미등록 방지, ADR-0016).
+
 **최적화 규칙**
 1. 영향 받은 패키지만 테스트(`go test ./lib/store/...`). 전체 스위트는 G2/G3에서만.
 2. Doltgres 컨테이너는 wave 시작 시 1회 기동, wave 내 재사식(재기동 금지).
