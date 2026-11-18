@@ -1,6 +1,6 @@
 // asof_test.go — as-of 정규화
 // (상대 Nh/Nd·ISO·해시 접두어 → 커밋 해시)를 wire 패키지 직접 표면로
-// 검증한다. dolt_log 접근은 queryFn fake으로 세운다(실DB 회귀는
+// 검증한다. dolt_log 접근은 LogEntries fake으로 세운다(실DB 회귀는
 // cli/asof_test.go TestParseAsOfSpecRealPrefix가 담당 — realStore 인프라
 // 잔류). 픽스처·문구 단정은 cli 원본과 동일 값.
 package wire
@@ -13,72 +13,83 @@ import (
 	"time"
 )
 
-// asofLogRows — dolt_log 픽스처(인덱스 0이 commit_order DESC 최신).
-// 첫 두 해시는 "abc" 접두어 공유(모호성 케이스), 셋째는 base32계
-// (Doltgres 실측 — [0-9a-z] 전범위) 해시로 완화 검증 회귀.
-func asofLogRows() [][]any {
-	return [][]any{
-		{"abc12f00000000000000000000000000", time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)},
-		{"abc34f00000000000000000000000000", time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)},
-		{"he08irluq000000000000000000000z", time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)},
+// asofLogEntries — LogEntry 픽스처(인덱스 0이 최신). 첫 두 해시는 "abc"
+// 접두어 공유(모호성 케이스), 셋째는 base32계(Doltgres 실측 — [0-9a-z]
+// 전범위) 해시로 완화 검증 회귀.
+func asofLogEntries() []LogEntry {
+	return []LogEntry{
+		{Hash: "abc12f00000000000000000000000000", Date: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)},
+		{Hash: "abc34f00000000000000000000000000", Date: time.Date(2026, 10, 23, 12, 0, 0, 0, time.UTC)},
+		{Hash: "he08irluq000000000000000000000z", Date: time.Date(2026, 10, 20, 9, 0, 0, 0, time.UTC)},
 	}
 }
 
-// asofQueryFn — LIKE 접두어·date <=·첫 커밋 3종 질의를 흉내 내는 fake.
-type asofQueryFn struct {
-	queries []string
-	queryFn func(sql string, args []any) ([][]any, error)
+// asofFakeStore — 접두 일치·date≤ 최신 1건·첫 커밋 3종 LogQuery를
+// 픽스처로 응답하는 fake Store. calls로 호출된 쿼리를 기록한다.
+type asofFakeStore struct {
+	entries []LogEntry
+	calls   []LogQuery
 }
 
-func (f *asofQueryFn) Migrate(ctx context.Context) error { return nil }
-func (f *asofQueryFn) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
+func (f *asofFakeStore) Migrate(ctx context.Context) error { return nil }
+func (f *asofFakeStore) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	return nil, nil
 }
-func (f *asofQueryFn) ExistsHash(ctx context.Context, hash string) (bool, error) {
+func (f *asofFakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return false, nil
 }
-func (f *asofQueryFn) ExistsProject(ctx context.Context, name string) (bool, error) {
+func (f *asofFakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
 	return false, nil
 }
-func (f *asofQueryFn) Commit(ctx context.Context, msg string) (string, error) {
+func (f *asofFakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	return "abc123", nil
 }
-func (f *asofQueryFn) Ping(ctx context.Context) error { return nil }
-func (f *asofQueryFn) Close()                         {}
-func (f *asofQueryFn) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
-	f.queries = append(f.queries, sql)
-	return f.queryFn(sql, args)
+func (f *asofFakeStore) Ping(ctx context.Context) error { return nil }
+func (f *asofFakeStore) Close()                         {}
+func (f *asofFakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	return nil, errors.New("asof는 원시 SQL을 치면 안 됨: " + sql)
+}
+func (f *asofFakeStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([]DiffCommitSummary, error) {
+	return nil, nil
+}
+func (f *asofFakeStore) QueryAsOf(ctx context.Context, q AsOfQuery) ([][]any, error) {
+	return nil, nil
+}
+func (f *asofFakeStore) DiffRows(ctx context.Context, fromHash, toHash string) ([]KnowledgeDiffRow, error) {
+	return nil, nil
+}
+func (f *asofFakeStore) DiffStat(ctx context.Context, hashes []string) ([]TableDiffStat, error) {
+	return nil, nil
 }
 
-// newAsofFake — 픽스처 행으로 3종 질의를 응답하는 fake Store.
-func newAsofFake(rows [][]any) *asofQueryFn {
-	return &asofQueryFn{queryFn: func(sql string, args []any) ([][]any, error) {
-		switch {
-		case strings.Contains(sql, "LIKE"):
-			prefix, _ := args[0].(string)
-			var out [][]any
-			for _, r := range rows {
-				if strings.HasPrefix(r[0].(string), prefix) {
-					out = append(out, r)
-				}
+// LogEntries — Prefix(접두 일치 전체)·BeforeOrAt(date≤ 최신 1건)·
+// Earliest(첫 커밋) 시맨틱를 픽스처(entries는 Date 내림차순 가정)로
+// 흉내 낸다.
+func (f *asofFakeStore) LogEntries(ctx context.Context, q LogQuery) ([]LogEntry, error) {
+	f.calls = append(f.calls, q)
+	switch {
+	case q.Prefix != "":
+		var out []LogEntry
+		for _, e := range f.entries {
+			if strings.HasPrefix(e.Hash, q.Prefix) {
+				out = append(out, e)
 			}
-			return out, nil
-		case strings.Contains(sql, "date <= $1"):
-			t, _ := args[0].(time.Time)
-			for _, r := range rows {
-				if !r[1].(time.Time).After(t) {
-					return [][]any{{r[0]}}, nil
-				}
-			}
-			return nil, nil
-		case strings.Contains(sql, "commit_order ASC"):
-			if len(rows) == 0 {
-				return nil, nil
-			}
-			return [][]any{{rows[len(rows)-1][1]}}, nil
 		}
-		return nil, errors.New("예상 밖 쿼리: " + sql)
-	}}
+		return out, nil
+	case !q.BeforeOrAt.IsZero():
+		for _, e := range f.entries {
+			if !e.Date.After(q.BeforeOrAt) {
+				return []LogEntry{e}, nil
+			}
+		}
+		return nil, nil
+	case q.Earliest:
+		if len(f.entries) == 0 {
+			return nil, nil
+		}
+		return []LogEntry{f.entries[len(f.entries)-1]}, nil
+	}
+	return nil, errors.New("예상 밖 LogQuery")
 }
 
 // TestWireRelativeDh — 상대 Nh/Nd 확장·무효 형식(2.5h·"2 days ago") 배제.
@@ -109,17 +120,17 @@ func TestWireRelativeDh(t *testing.T) {
 	}
 }
 
-// TestWirePrefixUniqueAmbiguousZero — 접두어 1건 확정·모호·0건·LIKE 파라미터화.
+// TestWirePrefixUniqueAmbiguousZero — 접두어 1건 확정·모호·0건·LogQuery{Prefix} 사용.
 func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
-	f := newAsofFake(asofLogRows())
+	f := &asofFakeStore{entries: asofLogEntries()}
 	ctx := context.Background()
 
 	hash, err := ParseAsOfSpec(ctx, f, "abc12")
 	if err != nil || hash != "abc12f00000000000000000000000000" {
 		t.Fatalf("unique prefix → (%q,%v), want 전체 해시", hash, err)
 	}
-	if len(f.queries) == 0 || !strings.Contains(f.queries[len(f.queries)-1], "LIKE $1||'%'") {
-		t.Fatalf("SQL=%v, want LIKE $1||'%%' 파라미터화", f.queries)
+	if len(f.calls) == 0 || f.calls[0].Prefix != "abc12" {
+		t.Fatalf("calls=%+v, want LogQuery{Prefix:%q}", f.calls, "abc12")
 	}
 
 	// base32계 해시 회귀 — 소문자 영숫자 접두어 "he0" 수용.
@@ -128,27 +139,28 @@ func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 		t.Fatalf("base32 prefix he0 → (%q,%v), want 전체 해시", hash, err)
 	}
 
-	if _, err := ParseAsOfSpec(ctx, f, "abc"); !errors.Is(err, ErrInvalidAsOf) {
-		t.Fatalf("ambiguous err=%v, want ErrInvalidAsOf", err)
+	_, err = ParseAsOfSpec(ctx, f, "abc")
+	if !errors.Is(err, ErrInvalidAsOf) || !strings.Contains(err.Error(), "matches 2 commits") {
+		t.Fatalf("ambiguous err=%v, want ErrInvalidAsOf with count", err)
 	}
 	if _, err := ParseAsOfSpec(ctx, f, "abcd"); !errors.Is(err, ErrInvalidAsOf) {
 		t.Fatalf("zero-match err=%v, want ErrInvalidAsOf", err)
 	}
 	// 3자 미만·대문자·특수문자 — 질의 없이 즉시 err.
-	f2 := newAsofFake(asofLogRows())
+	f2 := &asofFakeStore{entries: asofLogEntries()}
 	for _, bad := range []string{"ab", "ABC12", "abc12!", "zzz!"} {
 		if _, err := ParseAsOfSpec(ctx, f2, bad); !errors.Is(err, ErrInvalidAsOf) {
 			t.Fatalf("%q err=%v, want ErrInvalidAsOf", bad, err)
 		}
 	}
-	if len(f2.queries) != 0 {
-		t.Fatalf("무효 스펙인데 질의함: %v", f2.queries)
+	if len(f2.calls) != 0 {
+		t.Fatalf("무효 스펙인데 질의함: %+v", f2.calls)
 	}
 }
 
 // TestWireIsoBeforeFirst — 첫 커밋 이전 ISO 시각 → err(문구에 첫 커밋 시각).
 func TestWireIsoBeforeFirst(t *testing.T) {
-	f := newAsofFake(asofLogRows())
+	f := &asofFakeStore{entries: asofLogEntries()}
 	ctx := context.Background()
 
 	spec := "2026-10-24T13:00"
@@ -156,8 +168,8 @@ func TestWireIsoBeforeFirst(t *testing.T) {
 	if err != nil || hash != "abc12f00000000000000000000000000" {
 		t.Fatalf("ISO %q → (%q,%v), want 최신 커밋", spec, hash, err)
 	}
-	if !strings.Contains(f.queries[0], "date <= $1") {
-		t.Fatalf("date 비교 SQL=%q, want 파라미터화", f.queries[0])
+	if len(f.calls) == 0 || f.calls[0].BeforeOrAt.IsZero() {
+		t.Fatalf("calls=%+v, want LogQuery{BeforeOrAt} 설정", f.calls)
 	}
 
 	hash, err = ParseAsOfSpec(ctx, f, "2026-10-21T00:00:00Z")
@@ -174,15 +186,45 @@ func TestWireIsoBeforeFirst(t *testing.T) {
 	}
 }
 
+// TestWireRelativeBoundary — 상대 스펙이 commitAtOrBefore(date≤)로
+// 연결되는 경계. 커밋 시각과 정확히 같은 t는 채택(≤), 커밋 없는 저장소는
+// no-commits 문구.
+func TestWireRelativeBoundary(t *testing.T) {
+	ctx := context.Background()
+
+	// now 기반이라 픽스처 전체가 과거 — 최신 커밋 확정.
+	f := &asofFakeStore{entries: asofLogEntries()}
+	hash, err := ParseAsOfSpec(ctx, f, "1h")
+	if err != nil || hash != "abc12f00000000000000000000000000" {
+		t.Fatalf("relative 1h → (%q,%v), want 최신 커밋", hash, err)
+	}
+	if len(f.calls) == 0 || f.calls[0].BeforeOrAt.IsZero() {
+		t.Fatalf("calls=%+v, want LogQuery{BeforeOrAt}", f.calls)
+	}
+
+	// 경계 — ISO 시각이 최신 커밋 시각과 정확히 같으면 그 커밋 채택(≤).
+	hash, err = ParseAsOfSpec(ctx, f, "2026-10-24T12:00:00Z")
+	if err != nil || hash != "abc12f00000000000000000000000000" {
+		t.Fatalf("ISO == 커밋 시각 → (%q,%v), want 경계 포함", hash, err)
+	}
+
+	// 커밋 없는 저장소 — date≤도 첫 커밋도 0건.
+	empty := &asofFakeStore{}
+	_, err = ParseAsOfSpec(ctx, empty, "1h")
+	if !errors.Is(err, ErrInvalidAsOf) || !strings.Contains(err.Error(), "no commits") {
+		t.Fatalf("빈 저장소 err=%v, want no-commits 문구", err)
+	}
+}
+
 // TestWireAsOfSpecNaturalLanguageRejected — 자연어·빈 스펙은 ErrInvalidAsOf.
 func TestWireAsOfSpecNaturalLanguageRejected(t *testing.T) {
-	f := newAsofFake(asofLogRows())
+	f := &asofFakeStore{entries: asofLogEntries()}
 	for _, bad := range []string{"2 days ago", "yesterday", "  "} {
 		if _, err := ParseAsOfSpec(context.Background(), f, bad); !errors.Is(err, ErrInvalidAsOf) {
 			t.Fatalf("%q err=%v, want ErrInvalidAsOf", bad, err)
 		}
 	}
-	if len(f.queries) != 1 {
-		t.Fatalf("질의 수=%d, want 1(yesterday 접두어 질의만): %v", len(f.queries), f.queries)
+	if len(f.calls) != 1 {
+		t.Fatalf("질의 수=%d, want 1(yesterday 접두어 질의만): %+v", len(f.calls), f.calls)
 	}
 }

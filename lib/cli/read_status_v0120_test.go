@@ -63,22 +63,15 @@ func TestReadDefaultUnchanged(t *testing.T) {
 }
 
 // TestReadStatusAsOfPrecedence — --as-of 병용 시 as-of 경로
-// 우선(룰링) — status 무시, active_knowledge AS OF 질의만 발행.
+// 우선(룰링) — status 무시, 과거 스냅샷(QueryAsOf) 질의만 발행.
 func TestReadStatusAsOfPrecedence(t *testing.T) {
 	var out bytes.Buffer
-	fn := func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "dolt_log") {
-			return asofQueryFn(sql, args)
-		}
-		return statusQueryFn()(sql, args)
-	}
-	f := &fakeStore{queryFn: fn}
-	if code := runRead(context.Background(), asofFakeOrReal(t, f), []string{"--as-of", "7d", "--status", "pending"}, strings.NewReader(""), &out); code != 0 {
+	f := &readAsofFake{fakeStore: &fakeStore{queryFn: statusQueryFn()}}
+	if code := runRead(context.Background(), readAsofStoreOrReal(t, f), []string{"--as-of", "7d", "--status", "pending"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("exit = %d (%s)", code, out.String())
 	}
-	got := asofReadSQL(f)
-	if !strings.Contains(got, "AS OF 'he08irluqn3v2m1k9x7c4jw5z6b8d0f'") {
-		t.Errorf("as-of 경로 미진입: %q", got)
+	if len(f.asofQueries) != 1 || f.asofQueries[0].Hash != asofHash {
+		t.Errorf("as-of 경로 미진입: %+v", f.asofQueries)
 	}
 	for _, q := range f.queries {
 		if strings.Contains(q, "FROM knowledge") {

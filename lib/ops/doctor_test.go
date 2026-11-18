@@ -45,6 +45,8 @@ func init() {
 // 필드(exists·*Err)는 지정 시 우선되고, rows·queryFn 미지정 시 영(零)
 // 동작을 반환한다.
 type fakeStore struct {
+	wire.HistoryStubs
+
 	// stub 조건
 	exists        bool
 	existsErr     error

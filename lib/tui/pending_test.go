@@ -472,7 +472,9 @@ func TestPendingDetailOriginWrapped(t *testing.T) {
 }
 
 // fakeStore — wire.Store 최소 fake(로더·진입 테스트용).
+// HistoryStubs 임베딩으로 히스토리 5메서드는 미지원 기본구현 흡수.
 type fakeStore struct {
+	wire.HistoryStubs
 	pingErr  error
 	queryErr error
 	queryFn  func(sql string, args []any) ([][]any, error)

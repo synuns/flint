@@ -9,6 +9,7 @@ import (
 // 검증 전용 — wire_test.go의 fakeStore는 SQL 문자열 캡처 중심).
 type fakeArgStore struct {
 	query func(ctx context.Context, sql string, args ...any) ([][]any, error)
+	HistoryStubs
 }
 
 func (f *fakeArgStore) Migrate(ctx context.Context) error { return nil }

@@ -257,6 +257,7 @@ func TestDispatchUnknownTool(t *testing.T) {
 // 전분. 서버 수명 store(cli.RunWithStore injectedStore 래퍼)를 통과해
 // capability 단언이 원본에 위임되는지 검증한다.
 type capStore struct {
+	wire.HistoryStubs
 	existsHash bool
 	dupMeta    knowledge.DupMeta
 	approved   []int

@@ -851,6 +851,24 @@ type importRealStore struct {
 	pool *pgxpool.Pool
 }
 
+// 히스토리 계약 중 db.Repo 미구현 4메서드는 미지원 반환(LogEntries는
+// *db.Repo 임베딩 승계 — wire.HistoryStubs와 동일 의미의 명시 흡수).
+func (s *importRealStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
+	return nil, wire.ErrHistoryUnsupported
+}
+
+func (s *importRealStore) DiffRows(ctx context.Context, fromHash, toHash string) ([]wire.KnowledgeDiffRow, error) {
+	return nil, wire.ErrHistoryUnsupported
+}
+
+func (s *importRealStore) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
+	return nil, wire.ErrHistoryUnsupported
+}
+
+func (s *importRealStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
+	return nil, wire.ErrHistoryUnsupported
+}
+
 func (s *importRealStore) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
 func (s *importRealStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {

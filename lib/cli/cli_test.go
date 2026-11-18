@@ -11,11 +11,16 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // fakeStore — Store 인터페이스 fake. stub 필드(exists·*Err)는 지정 시 우선되고,
-// rows·queryFn 미지정 시 영(零) 동작을 반환한다.
+// rows·queryFn 미지정 시 영(零) 동작을 반환한다. 히스토리 5메서드는
+// LogEntries 캡처 계층(아래)·HistoryStubs 기본구현(나머지 4종)으로
+// 승계한다.
 type fakeStore struct {
+	wire.HistoryStubs // LogEntries 오버라이드·나머지 4종 기본구현 승계
+
 	// stub 조건
 	exists        bool
 	existsErr     error
@@ -69,6 +74,111 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 		return f.queryFn(sql, args)
 	}
 	return f.rows, nil
+}
+
+// 히스토리 5메서드 — wire.Store 계약 충족용 캡처 계층. db 실SQL(방언)은
+// lib/db 소유 — 여기선 LogQuery 모드 식별자와 인자를 Query seam(queryFn·
+// queries 캡처)으로 내려보내 소비 테스트가 "어떤 로그 조회에 어떤 인자가
+// 갔는가"를 단언하게 한다. 모드 식별자는 방언 아닌 조각(LIKE·date <= $1·
+// commit_order 정렬·message NOT LIKE)로 구분된다(asof_test·audit_test 등
+// queryFn 소비자 호환). DiffRows·DiffStat·DiffCommits·QueryAsOf는 소비자가
+// 계약 오버라이드 fake를 쓰므로 HistoryStubs 기본구현으로 승계.
+func (f *fakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
+	var (
+		sql  string
+		args []any
+	)
+	switch {
+	case q.Earliest:
+		sql = `SELECT date FROM commit_log ORDER BY commit_order ASC LIMIT 1`
+	case q.Prefix != "":
+		sql = `SELECT commit_hash FROM commit_log WHERE commit_hash LIKE $1||'%' ORDER BY commit_order DESC`
+		args = []any{q.Prefix}
+	case q.Hash != "":
+		sql = `SELECT commit_hash, committer, date, message FROM commit_log WHERE commit_hash = $1`
+		args = []any{q.Hash}
+	case !q.BeforeOrAt.IsZero():
+		sql = `SELECT commit_hash FROM commit_log WHERE date <= $1 ORDER BY commit_order DESC LIMIT 1`
+		args = []any{q.BeforeOrAt}
+	case q.LatestN > 0:
+		// 조립 순서 승계: NOT LIKE→LIKE, $2부터 순차 부여, AND 결합,
+		// LIMIT $1은 문미(인자 전달 검증용).
+		sql = `SELECT commit_hash, committer, date, message FROM commit_log`
+		args = []any{q.LatestN}
+		var conds []string
+		ph := 2
+		if q.MessageNotLike != "" {
+			conds = append(conds, fmt.Sprintf(`message NOT LIKE $%d`, ph))
+			args = append(args, q.MessageNotLike)
+			ph++
+		}
+		if q.MessageLike != "" {
+			conds = append(conds, fmt.Sprintf(`message LIKE $%d`, ph))
+			args = append(args, q.MessageLike)
+			ph++
+		}
+		if len(conds) > 0 {
+			sql += ` WHERE ` + strings.Join(conds, ` AND `)
+		}
+		sql += ` ORDER BY commit_order DESC LIMIT $1`
+	default:
+		return nil, fmt.Errorf("log entries: empty query")
+	}
+	rows, err := f.Query(ctx, sql, args...)
+	if err != nil {
+		return nil, err
+	}
+	return fakeLogEntryRows(rows), nil
+}
+
+// fakeLogEntryRows — 로그 조회 행 → LogEntry 관용 매핑. 열 폭 관례 승계:
+// 4열(hash·committer·date·message), 2열(hash·date), 1열은 값이 시각
+// 파싱되면 date(Hash 모드 date 단독 픽스처), 아니면 hash.
+func fakeLogEntryRows(rows [][]any) []wire.LogEntry {
+	var out []wire.LogEntry
+	for _, r := range rows {
+		var e wire.LogEntry
+		switch len(r) {
+		case 0:
+			continue
+		case 1:
+			if t, ok := fakeLogDate(r[0]); ok {
+				e.Date = t
+			} else {
+				e.Hash = fmt.Sprint(r[0])
+			}
+		case 2:
+			e.Hash = fmt.Sprint(r[0])
+			e.Date, _ = fakeLogDate(r[1])
+		default:
+			e.Hash = fmt.Sprint(r[0])
+			e.Committer = fmt.Sprint(r[1])
+			e.Date, _ = fakeLogDate(r[2])
+			e.Message = fmt.Sprint(r[3])
+		}
+		out = append(out, e)
+	}
+	return out
+}
+
+// fakeLogDate — parseLogDate(db)와 동등: time.Time 그대로, 문자열은
+// 레이아웃 3종 파싱.
+func fakeLogDate(v any) (time.Time, bool) {
+	switch x := v.(type) {
+	case time.Time:
+		return x, true
+	case string:
+		for _, lay := range []string{
+			"2006-01-02 15:04:05.999999999 -0700 MST",
+			"2006-01-02 15:04:05.999999999",
+			time.RFC3339,
+		} {
+			if ts, err := time.Parse(lay, x); err == nil {
+				return ts, true
+			}
+		}
+	}
+	return time.Time{}, false
 }
 
 // seamRealDSN — SUPERLITE_REAL=1 실구현 seam의 DSN 해결: FLINT_TEST_DSN
@@ -136,6 +246,23 @@ type delegatingFake struct {
 }
 
 func (d *delegatingFake) Migrate(ctx context.Context) error { return d.real.Migrate(ctx) }
+
+// 히스토리 5메서드 — 위임 패턴 승계(실구현 seam 그대로 통과).
+func (d *delegatingFake) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
+	return d.real.LogEntries(ctx, q)
+}
+func (d *delegatingFake) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
+	return d.real.QueryAsOf(ctx, q)
+}
+func (d *delegatingFake) DiffRows(ctx context.Context, fromHash, toHash string) ([]wire.KnowledgeDiffRow, error) {
+	return d.real.DiffRows(ctx, fromHash, toHash)
+}
+func (d *delegatingFake) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
+	return d.real.DiffStat(ctx, hashes)
+}
+func (d *delegatingFake) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
+	return d.real.DiffCommits(ctx, fromHash, toHash)
+}
 func (d *delegatingFake) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	d.fake.inserted = append(d.fake.inserted, recs...)
 	if d.fake.insertErr != nil {

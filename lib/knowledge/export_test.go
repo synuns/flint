@@ -187,6 +187,7 @@ func exportTestStore(t *testing.T) (st wire.Store, scope string) {
 // 시나리오에 필요한 최소한, meta_kv_test poolStore 관례 승계).
 type exportPoolStore struct {
 	pool *pgxpool.Pool
+	wire.HistoryStubs
 }
 
 func (s *exportPoolStore) Migrate(ctx context.Context) error { return nil }

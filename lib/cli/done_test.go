@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // doneFake — fakeStore에 StaleSessionRuns 스텁을 얹은 fake.
@@ -67,6 +68,23 @@ type delegatingDone struct {
 }
 
 func (d *delegatingDone) Migrate(ctx context.Context) error { return d.real.Migrate(ctx) }
+
+// 히스토리 5메서드 — 위임 패턴 승계(실구현 seam 그대로 통과).
+func (d *delegatingDone) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
+	return d.real.LogEntries(ctx, q)
+}
+func (d *delegatingDone) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
+	return d.real.QueryAsOf(ctx, q)
+}
+func (d *delegatingDone) DiffRows(ctx context.Context, fromHash, toHash string) ([]wire.KnowledgeDiffRow, error) {
+	return d.real.DiffRows(ctx, fromHash, toHash)
+}
+func (d *delegatingDone) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
+	return d.real.DiffStat(ctx, hashes)
+}
+func (d *delegatingDone) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
+	return d.real.DiffCommits(ctx, fromHash, toHash)
+}
 func (d *delegatingDone) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	return d.real.InsertBatch(ctx, recs)
 }

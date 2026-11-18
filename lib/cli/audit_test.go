@@ -1,11 +1,13 @@
-// audit_test.go — 감사 커맨드: dolt_log 최근 N 조회(limit 경계·session 필터).
+// audit_test.go — 감사 커맨드: 커밋 로그 최근 N 조회(limit 경계·session 필터).
 package cli
 
 import (
+	"context"
 	"strings"
 	"testing"
 
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // auditRows — dolt_log 2행 픽스처(session 태그 서로 다름).
@@ -74,8 +76,9 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 		t.Fatalf("log=%v, want 2행", m["log"])
 	}
 	first := m["log"].([]any)[0].(map[string]any)
+	// date는 LogEntry.Date(time.Time) 포맷 승계(구현 fmt.Sprint — 시간대 포함).
 	if first["commit_hash"] != "hash2" || first["committer"] != "committer-b" ||
-		first["date"] != "2026-10-22 10:00:00" || first["message"] != "knowledge: s [session:S2]" {
+		first["date"] != "2026-10-22 10:00:00 +0000 UTC" || first["message"] != "knowledge: s [session:S2]" {
 		t.Fatalf("컬럼 4종 불일치: %v", first)
 	}
 
@@ -152,20 +155,17 @@ func TestAuditBadFlagExit3(t *testing.T) {
 	decode(t, out)
 }
 
-// TestAuditSanitizesStringColumns — dolt_log·dolt_diff의
-// 문자열 열(commit_hash·committer·table_name)이 render.Text 재살균을
-// 통과한다 — 미살균이면 [flint] 마커·제어문자가 원문 그대로 노출된다.
+// TestAuditSanitizesStringColumns — 커밋 로그(LogEntries)·테이블별 변경
+// 요약(DiffStat)의 문자열 열(commit_hash·committer·table)이 render.Text
+// 재살균을 통과한다 — 미살균이면 [flint] 마커·제어문자가 원문 그대로 노출된다.
 func TestAuditSanitizesStringColumns(t *testing.T) {
-	f := &fakeStore{}
+	f := &auditSanitizeFake{fakeStore: &fakeStore{}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "dolt_diff") {
-			return [][]any{{"ha\x01sh1", "table_[flint]_x", true, false}}, nil
-		}
 		return [][]any{
 			{"ha\x01sh1", "committer-[flint]-b", "2026-10-22 09:00:00", "m"},
 		}, nil
 	}
-	withFake(t, f)
+	withFakeStore(t, f)
 	out, code := mustRun(t, []string{"audit", "--stat"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
@@ -184,4 +184,16 @@ func TestAuditSanitizesStringColumns(t *testing.T) {
 	if _, ok := stat["table_ _x"]; !ok {
 		t.Errorf("table_name 미살균: %v", stat)
 	}
+}
+
+// auditSanitizeFake — 살균 회귀용: 로그는 queryFn(원시 오염 행), 테이블
+// 요약은 DiffStat canned(오염 원시 값 — 살균은 구현측 render.Text).
+type auditSanitizeFake struct {
+	*fakeStore
+}
+
+func (f *auditSanitizeFake) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
+	return []wire.TableDiffStat{
+		{CommitHash: "ha\x01sh1", Table: "table_[flint]_x", DataChange: true},
+	}, nil
 }

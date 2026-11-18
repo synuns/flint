@@ -1,6 +1,8 @@
 // meta_kv_test.go — meta KV 라운드트립. 기본 metaKVFake, SUPERLITE_REAL=1 +
 // FLINT_TEST_DSN 설정 시 poolStore로 실DB 경유(seam 검증).
-package wire
+// wire_test 외부 패키지 — wire가 lib/db를 import하는 T3 이후 내부 테스트는
+// import cycle로 빌드 불가.
+package wire_test
 
 import (
 	"context"
@@ -14,14 +16,16 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // metaKVFake — meta 테이블을 map으로 시뮬레이션하는 Store fake.
 // meta.go의 SQL 의미(단일 키 SELECT·$1/$2 upsert·$1/'1' 원자 증분)를
-// 그대로 적용한다.
+// 그대로 적용한다. HistoryStubs 임베딩으로 히스토리 5메서드 흡수.
 type metaKVFake struct {
 	meta    map[string]string
 	queries []string
+	wire.HistoryStubs
 }
 
 func (f *metaKVFake) Migrate(ctx context.Context) error { return nil }
@@ -66,8 +70,10 @@ func (f *metaKVFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 }
 
 // poolStore — 실DB seam용 최소 Store(읽기·쓰기는 풀 Query 위임).
+// HistoryStubs 임베딩으로 히스토리 5메서드 흡수.
 type poolStore struct {
 	pool *pgxpool.Pool
+	wire.HistoryStubs
 }
 
 func (p *poolStore) Migrate(ctx context.Context) error { return nil }
@@ -117,7 +123,7 @@ func seamRealDSN() (string, bool) {
 
 // metaKVStore — 기본 metaKVFake, SUPERLITE_REAL=1이면 poolStore로 실구현
 // 경로 반환(생산자 Store의 실코드 seam). 실DB 미기동 시 스킵.
-func metaKVStore(t *testing.T, f *metaKVFake) Store {
+func metaKVStore(t *testing.T, f *metaKVFake) wire.Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {
 		pool, err := db.Connect(context.Background(), dsn)
@@ -132,7 +138,7 @@ func metaKVStore(t *testing.T, f *metaKVFake) Store {
 }
 
 // metaKVCleanup — 실DB seam 실행 시 테스트 키 원복(로컬 map은 불필요).
-func metaKVCleanup(t *testing.T, st Store, keys ...string) {
+func metaKVCleanup(t *testing.T, st wire.Store, keys ...string) {
 	t.Helper()
 	if _, real := seamRealDSN(); !real {
 		return
@@ -141,7 +147,7 @@ func metaKVCleanup(t *testing.T, st Store, keys ...string) {
 	for _, k := range keys {
 		key := k
 		t.Cleanup(func() {
-			_, _ = QueryOnce(ctx, st, `DELETE FROM meta WHERE key = $1`, []any{key})
+			_, _ = wire.QueryOnce(ctx, st, `DELETE FROM meta WHERE key = $1`, []any{key})
 		})
 	}
 }
@@ -156,19 +162,19 @@ func TestMetaKVStoreRoundtrip(t *testing.T) {
 	st := metaKVStore(t, f)
 	key := "meta_kv_roundtrip_test"
 	metaKVCleanup(t, st, key)
-	if err := SetMetaKV(ctx, st, key, "v"); err != nil {
+	if err := wire.SetMetaKV(ctx, st, key, "v"); err != nil {
 		t.Fatalf("SetMetaKV err: %v", err)
 	}
-	if v, ok := GetMetaKV(ctx, st, key); v != "v" || !ok {
+	if v, ok := wire.GetMetaKV(ctx, st, key); v != "v" || !ok {
 		t.Fatalf("GetMetaKV(ctx,st,\"k\") = (%q,%v), want (\"v\",true)", v, ok)
 	}
-	if err := SetMetaKV(ctx, st, key, "v2"); err != nil {
+	if err := wire.SetMetaKV(ctx, st, key, "v2"); err != nil {
 		t.Fatalf("SetMetaKV 갱신 err: %v", err)
 	}
-	if v, ok := GetMetaKV(ctx, st, key); v != "v2" || !ok {
+	if v, ok := wire.GetMetaKV(ctx, st, key); v != "v2" || !ok {
 		t.Fatalf("upsert 덮어쓰기 실패: GetMetaKV = (%q,%v), want (\"v2\",true)", v, ok)
 	}
-	if v, ok := GetMetaKV(ctx, st, "meta_kv_absent_test"); v != "" || ok {
+	if v, ok := wire.GetMetaKV(ctx, st, "meta_kv_absent_test"); v != "" || ok {
 		t.Fatalf("미존재 키: GetMetaKV = (%q,%v), want (\"\",false)", v, ok)
 	}
 }
@@ -195,7 +201,7 @@ func (f *bumpFailFake) Query(ctx context.Context, sql string, args ...any) ([][]
 func TestBumpMetaKVRunsSingleAttempt(t *testing.T) {
 	ctx := context.Background()
 	f := &bumpFailFake{metaKVFake: metaKVFake{meta: map[string]string{}}}
-	if err := BumpMetaKV(ctx, f, "bump_once_probe"); err == nil {
+	if err := wire.BumpMetaKV(ctx, f, "bump_once_probe"); err == nil {
 		t.Fatalf("BumpMetaKV 오류 = nil, want 실패 전파(호출부 계측 원칙의 전제)")
 	}
 	if f.calls != 1 {

@@ -200,22 +200,49 @@ func TestRunReadSessionAutoLabel(t *testing.T) {
 	}
 }
 
+// asOfStore — fakeStore에 히스토리 seam(QueryAsOf·LogEntries)을 얹은
+// fake. 호출 인자를 녹음해 방언 절단(원시 AS OF SQL·dolt_log 질의 폐지)을
+// 검증한다.
+type asOfStore struct {
+	*fakeStore
+	asOfCalls  []wire.AsOfQuery
+	logCalls   []wire.LogQuery
+	asOfRows   [][]any
+	asOfErr    error
+	logEntries []wire.LogEntry
+	logErr     error
+}
+
+func (s *asOfStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
+	s.asOfCalls = append(s.asOfCalls, q)
+	if s.asOfErr != nil {
+		return nil, s.asOfErr
+	}
+	return s.asOfRows, nil
+}
+
+func (s *asOfStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
+	s.logCalls = append(s.logCalls, q)
+	if s.logErr != nil {
+		return nil, s.logErr
+	}
+	return s.logEntries, nil
+}
+
 // TestRunReadAsOfAddsField — --as-of 지정 시 기존 행 출력
-// 뒤 as_of{hash,commit_date} 한 줄 JSON 추가, 질의는 AS OF 인라인.
-// dolt_log commit_date 조회는 queryFn 대역.
+// 뒤 as_of{hash,commit_date} 한 줄 JSON 추가. 질의는 Store.QueryAsOf
+// (방언 절단 — 원시 AS OF 인라인 폐지), 커밋 시각은 LogEntries{Hash}.
 func TestRunReadAsOfAddsField(t *testing.T) {
-	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
-	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		switch {
-		case strings.Contains(sql, "FROM active_knowledge"):
-			return [][]any{{"3", "토픽", "요약", ":t:", "", "", "0.9", "active", "0"}}, nil
-		case strings.Contains(sql, "dolt_log"):
-			return [][]any{{"2026-10-20T12:00:00Z"}}, nil
-		case strings.Contains(sql, "SELECT value FROM meta"):
-			return nil, nil
-		}
-		return nil, nil
-	}}
+	const asOfHash = "he08irluqn3v2m1k9x7c4jw5z6b8d0f"
+	injectAsOfSeams(t, asOfHash)
+	st := &asOfStore{
+		fakeStore: &fakeStore{},
+		asOfRows:  [][]any{{"3", "토픽", "요약", ":t:", "", "", "0.9", "active", "0"}},
+		logEntries: []wire.LogEntry{{
+			Hash: asOfHash,
+			Date: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC),
+		}},
+	}
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
 		[]string{"--as-of", "7d", "토픽"}, strings.NewReader(""), &out)
@@ -229,14 +256,64 @@ func TestRunReadAsOfAddsField(t *testing.T) {
 	if !strings.Contains(got, `"as_of":{"hash":"he08irluqn3v2m1k9x7c4jw5z6b8d0f","commit_date":"2026-10-20T12:00:00Z"}`) {
 		t.Errorf("as_of 필드 누락/불일치: %q", got)
 	}
-	var inlined int
-	for _, q := range st.queries {
-		if strings.Contains(q, "FROM active_knowledge AS OF 'he08irluqn3v2m1k9x7c4jw5z6b8d0f'") {
-			inlined++
+	// 질의는 QueryAsOf 1회 — 해시·뷰 테이블·base 폴백 지정 계약.
+	if len(st.asOfCalls) != 1 {
+		t.Fatalf("QueryAsOf 호출 %d회, want 1: %v", len(st.asOfCalls), st.asOfCalls)
+	}
+	if aq := st.asOfCalls[0]; aq.Hash != asOfHash || aq.Table != "active_knowledge" ||
+		aq.FallbackTable != "knowledge" {
+		t.Errorf("AsOfQuery = %+v, want Hash·Table=active_knowledge·FallbackTable=knowledge", aq)
+	}
+	// 원시 AS OF 절 폐지 — Query 경로에 AS OF 문자열이 남으면 방언 절단 위반.
+	for _, raw := range st.fakeStore.queries {
+		if strings.Contains(raw, "AS OF") {
+			t.Errorf("원시 AS OF 절 잔존: %q", raw)
 		}
 	}
-	if inlined == 0 {
-		t.Errorf("AS OF 인라인 질의 미관찰: %q", st.queries)
+	// 커밋 시각 조회는 LogEntries{Hash} 1회(dolt_log 원시 질의 폐지).
+	if len(st.logCalls) != 1 || st.logCalls[0].Hash != asOfHash {
+		t.Errorf("LogEntries 호출 = %v, want 1회 Hash=%s", st.logCalls, asOfHash)
+	}
+}
+
+// TestRunReadAsOfQueryErrorExit — QueryAsOf 실패(해시 charset 위반 등
+// 게이트 오류의 db 구현 이관 후에도) 호출측 exit 계약은 한 줄 에러
+// JSON + MapExit(일반 오류 exit 1).
+func TestRunReadAsOfQueryErrorExit(t *testing.T) {
+	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
+	st := &asOfStore{
+		fakeStore: &fakeStore{},
+		asOfErr:   fmt.Errorf(`as-of hash charset violation: %q`, "NOTHASH"),
+	}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--as-of", "7d", "토픽"}, strings.NewReader(""), &out)
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1(일반 오류 MapExit): %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"error":"internal"`) ||
+		!strings.Contains(out.String(), "as-of hash charset violation") {
+		t.Errorf("게이트 오류 전파 미관찰: %q", out.String())
+	}
+}
+
+// TestRunReadAsOfDateQuietFailure — 커밋 시각 조회(LogEntries) 실패는
+// 조용히 — as_of 라인 commit_date 빈 값·exit 0(§13).
+func TestRunReadAsOfDateQuietFailure(t *testing.T) {
+	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
+	st := &asOfStore{
+		fakeStore: &fakeStore{},
+		asOfRows:  [][]any{{"3", "토픽", "요약", ":t:", "", "", "0.9", "active", "0"}},
+		logErr:    errors.New("log entries boom"),
+	}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--as-of", "7d", "토픽"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0(메타데이터 실패는 조용히): %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"commit_date":""`) {
+		t.Errorf("조용한 실패 위반 — commit_date 빈 값 아님: %q", out.String())
 	}
 }
 

@@ -1,11 +1,14 @@
-// audit_v08_test.go — audit 확장: --stat(dolt_diff 테이블별 요약)·relTime
-// 상대 시각 포맷·기존 출력 키 회귀.
+// audit_v08_test.go — audit 확장: --stat(테이블별 변경 요약 — DiffStat)·
+// relTime 상대 시각 포맷·기존 출력 키 회귀.
 package cli
 
 import (
+	"context"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // TestRelTimeFormat — relTime h·d 경계(분 단위 포함).
@@ -32,26 +35,43 @@ func TestRelTimeFormat(t *testing.T) {
 	}
 }
 
-// statFake — dolt_log 질의(기존 auditFake 흉내)와 dolt_diff 질의를 구분 응답.
-// diffMap: commit_hash → {table_name, data_change, schema_change} 행목록.
-// dolt_diff는 ANY($1) 배치 질의 — 해시 목록 전체에 대해 commit_hash를
-// 선행 컬럼으로 붙여 응답한다.
-func statFake(t *testing.T, logRows [][]any, diffMap map[string][][]any, seen *[]string) *fakeStore {
+// statFakeStore — audit --stat용 계약 canned: 로그 질의는 queryFn 승계
+// (LogEntries 번역 seam — limit·NOT LIKE/LIKE 흉내), 테이블별 변경 요약은
+// DiffStat 오버라이드. diffMap: commit_hash → {table, data_change,
+// schema_change} 목록. 해시 목록은 슬라이스 인수로 전달된다(배치 —
+// 파라미터화는 계약 시그니처 자체가 증명).
+type statFakeStore struct {
+	*fakeStore
+	diffMap   map[string][][]any
+	diffCalls int
+	diffArgs  [][]string
+}
+
+func (f *statFakeStore) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
+	f.diffCalls++
+	f.diffArgs = append(f.diffArgs, hashes)
+	var out []wire.TableDiffStat
+	for _, h := range hashes {
+		for _, r := range f.diffMap[h] {
+			out = append(out, wire.TableDiffStat{
+				CommitHash:   h,
+				Table:        r[0].(string),
+				DataChange:   r[1].(bool),
+				SchemaChange: r[2].(bool),
+			})
+		}
+	}
+	return out, nil
+}
+
+// statFake — 로그 queryFn(LIMIT·NOT LIKE/LIKE 흉내) + DiffStat canned.
+// seen은 로그 질의 캡처(DiffStat은 Query를 거치지 않는다).
+func statFake(t *testing.T, logRows [][]any, diffMap map[string][][]any, seen *[]string) *statFakeStore {
 	t.Helper()
-	f := &fakeStore{}
+	f := &statFakeStore{fakeStore: &fakeStore{}, diffMap: diffMap}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if seen != nil {
 			*seen = append(*seen, sql)
-		}
-		if strings.Contains(sql, "dolt_diff") {
-			list, _ := args[0].([]string)
-			var out [][]any
-			for _, h := range list {
-				for _, r := range diffMap[h] {
-					out = append(out, append([]any{h}, r...))
-				}
-			}
-			return out, nil
 		}
 		out := logRows
 		if limit, ok := args[0].(int); ok && limit > 0 && len(out) > limit {
@@ -91,13 +111,13 @@ func statLogRows() [][]any {
 	}
 }
 
-// TestAuditStatField — --stat 시 stat(dolt_diff 요약)·date_rel 부록.
+// TestAuditStatField — --stat 시 stat(DiffStat 요약)·date_rel 부록.
 func TestAuditStatField(t *testing.T) {
 	f := statFake(t, statLogRows(), map[string][][]any{
 		"hash2": {{"public.knowledge", true, false}, {"public.meta", false, true}},
 		"hash1": nil, // 변경 요약 없음 → 빈 stat
 	}, nil)
-	withFake(t, f)
+	withFakeStore(t, f)
 
 	out, code := mustRun(t, []string{"audit", "--stat"}, "")
 	if code != 0 {
@@ -141,7 +161,7 @@ func TestAuditStatRegression(t *testing.T) {
 		"hash2": {{"public.knowledge", true, false}},
 		"hash1": nil,
 	}, nil)
-	withFake(t, f)
+	withFakeStore(t, f)
 
 	out, code := mustRun(t, []string{"audit"}, "")
 	if code != 0 {
@@ -157,54 +177,45 @@ func TestAuditStatRegression(t *testing.T) {
 	}
 }
 
-// TestAuditStatQueryShape — dolt_diff 질의는 해시 파라미터화 + 로그 질의
-// commit_order 정렬 유지.
+// TestAuditStatQueryShape — DiffStat은 해시 목록을 슬라이스 인수로 받는다
+// (파라미터화 — 계약 시그니처 증명) + 로그 질의 commit_order 정렬 유지.
 func TestAuditStatQueryShape(t *testing.T) {
 	var seen []string
 	f := statFake(t, statLogRows(), map[string][][]any{
 		"hash2": {{"public.knowledge", true, false}},
 		"hash1": nil,
 	}, &seen)
-	withFake(t, f)
+	withFakeStore(t, f)
 
 	if _, code := mustRun(t, []string{"audit", "--stat"}, ""); code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
-	var logSQL, diffSQL string
-	for _, q := range seen {
-		if strings.Contains(q, "dolt_diff") {
-			diffSQL = q
-		} else {
-			logSQL = q
+	if len(seen) == 0 || !strings.Contains(seen[len(seen)-1], "ORDER BY commit_order DESC") {
+		t.Fatalf("로그 질의 정렬 유실: %q", seen)
+	}
+	// 해시 목록은 인수 슬라이스로 전달 — 커밋 수와 무관하게 배치 1회.
+	if f.diffCalls != 1 || len(f.diffArgs) != 1 {
+		t.Fatalf("DiffStat 호출=%d회, want 1(배치)", f.diffCalls)
+	}
+	for _, h := range f.diffArgs[0] {
+		if h != "hash1" && h != "hash2" {
+			t.Fatalf("DiffStat 해시 인수 불일치: %v", f.diffArgs[0])
 		}
-	}
-	if !strings.Contains(logSQL, "ORDER BY commit_order DESC") {
-		t.Fatalf("로그 질의 정렬 유실: %q", logSQL)
-	}
-	if !strings.Contains(diffSQL, "$1") || strings.Contains(diffSQL, "hash2") {
-		t.Fatalf("dolt_diff 질의 파라미터화 위반: %q", diffSQL)
 	}
 }
 
-// TestAuditStatSingleBatchQuery — N+1 회귀: 커밋 수와 무관하게 dolt_diff
-// 질의는 1회(해시 목록 ANY($1) 배치 — 상한 100 커밋에서 왕복 1회).
+// TestAuditStatSingleBatchQuery — N+1 회귀: 커밋 수와 무관하게 DiffStat
+// 호출은 1회(해시 목록 배치 — 상한 100 커밋에서 왕복 1회).
 func TestAuditStatSingleBatchQuery(t *testing.T) {
-	var seen []string
 	f := statFake(t, statLogRows(), map[string][][]any{
 		"hash2": {{"public.knowledge", true, false}},
 		"hash1": {{"public.meta", false, true}},
-	}, &seen)
-	withFake(t, f)
+	}, nil)
+	withFakeStore(t, f)
 	if _, code := mustRun(t, []string{"audit", "--stat"}, ""); code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
-	diffQueries := 0
-	for _, q := range seen {
-		if strings.Contains(q, "dolt_diff") {
-			diffQueries++
-		}
-	}
-	if diffQueries != 1 {
-		t.Fatalf("dolt_diff 질의=%d회, want 1(배치 — N+1 회귀): %v", diffQueries, seen)
+	if f.diffCalls != 1 {
+		t.Fatalf("DiffStat 호출=%d회, want 1(배치 — N+1 회귀)", f.diffCalls)
 	}
 }

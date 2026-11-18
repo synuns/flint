@@ -1,8 +1,7 @@
 // diff.go — flint diff <from> <to>: 두 as-of 지점 간 지식 변경 비교.
-// 행 상세는 dolt_commit_diff_knowledge(from_commit·to_commit WHERE 각 1개
-// 필수 — 실측 2026-10-24), 요약 커밋 목록은 dolt_log 범위×dolt_diff 조인.
-// 출력은 한 줄 JSON, 무효 as-of 스펙은 exit 3.
-// as-of 정규화는 cli 소유 asof.go — ParseAsOfSpecFn
+// 행 상세·요약 커밋 목록은 wire.Store DiffRows·DiffCommits(db 구현측
+// 소유)에서 typed 값으로 받는다. 출력은 한 줄 JSON, 무효 as-of 스펙은
+// exit 3. as-of 정규화는 cli 소유 asof.go — ParseAsOfSpecFn
 // seam으로 주입받는다.
 package ops
 
@@ -27,9 +26,6 @@ var ParseAsOfSpecFn func(ctx context.Context, st wire.Store, spec string) (strin
 // 이전). 커맨드 계층에서 exit 3으로 매핑한다. wire.ErrInvalidAsOf와 동일
 // 값(root.go composition root 주입) — errors.Is 판정 불변.
 var ErrInvalidAsOf error
-
-// diffCommitsMax — 요약 커밋 목록 상한(계약: 기본 20).
-const diffCommitsMax = 20
 
 // diffRow — 행 상세 1건. id·topic은 added·modified는 to_*, removed는
 // from_* 값(실측: removed 행은 to_* NULL → COALESCE).
@@ -70,19 +66,6 @@ type diffDetail struct {
 	Commits  []diffCommit `json:"commits"`
 }
 
-// diffCommitsSQL — from(초과)~to(이하) 커밋 범위의 dolt_log×dolt_diff 요약.
-// from/to 해시는 $1·$2 파라미터화(주입 방지, §3).
-var diffCommitsSQL = fmt.Sprintf(`SELECT l.commit_hash, l.date, l.message,
-  COALESCE(bool_or(d.data_change), false),
-  COALESCE(bool_or(d.schema_change), false)
-FROM dolt_log l
-LEFT JOIN dolt_diff d ON d.commit_hash = l.commit_hash
-WHERE l.commit_order > (SELECT commit_order FROM dolt_log WHERE commit_hash = $1)
-  AND l.commit_order <= (SELECT commit_order FROM dolt_log WHERE commit_hash = $2)
-GROUP BY l.commit_hash, l.commit_order, l.date, l.message
-ORDER BY l.commit_order DESC
-LIMIT %d`, diffCommitsMax)
-
 // RunDiff — `flint diff <from> <to> [--summary] [--data|--schema]`.
 // from·to는 as-of 스펙(각각 ParseAsOfSpec으로 커밋 해시 정규화). --data·
 // --schema는 커밋 요약을 해당 변경 커밋으로 한정하는 필터.
@@ -117,12 +100,9 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		return diffFail(stdout, err)
 	}
 
-	// 행 상세 — dolt_commit_diff_knowledge은 from·to 커밋 필터 각 1개가
-	// 쿼리 계획 요구사항이다(실측). COALESCE로 added/removed 공통 표현.
-	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT diff_type, COALESCE(to_id, from_id), COALESCE(to_topic, from_topic)
-FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
-		[]any{to, from})
+	// 행 상세 — DiffRows가 added(to_*)·removed(from_*) COALESCE 표현을
+	// typed 값으로 반환(db 구현측 소유).
+	rows, err := st.DiffRows(ctx, from, to)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
@@ -130,11 +110,7 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 	counts := diffCounts{From: from, To: to, Commits: []diffCommit{}}
 	detail := make([]diffRow, 0, len(rows))
 	for _, r := range rows {
-		if len(r) == 0 {
-			continue
-		}
-		dt := fmt.Sprint(r[0])
-		switch dt {
+		switch r.DiffType {
 		case "added":
 			counts.Added++
 		case "modified":
@@ -142,35 +118,26 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 		case "removed":
 			counts.Removed++
 		}
-		row := diffRow{DiffType: dt}
-		if len(r) > 1 {
-			row.ID = r[1]
-		}
-		if len(r) > 2 {
-			row.Topic = render.Text(fmt.Sprint(r[2])) // render.Text 경유(출력 재살균 승계)
-		}
-		detail = append(detail, row)
+		detail = append(detail, diffRow{
+			DiffType: r.DiffType,
+			ID:       r.ID,
+			Topic:    render.Text(r.Topic), // render.Text 경유(출력 재살균 승계)
+		})
 	}
 
-	// 요약 커밋 목록 — 최신순 상한 20. --data·--schema는 여기서 한정.
-	commits, err := wire.QueryOnce(ctx, st, diffCommitsSQL, []any{from, to})
+	// 요약 커밋 목록 — 최신순(상한은 구현측). --data·--schema는 여기서 한정.
+	commits, err := st.DiffCommits(ctx, from, to)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	for _, r := range commits {
-		if len(r) < 5 {
-			continue
-		}
-		c := diffCommit{Hash: fmt.Sprint(r[0]), Message: render.Text(fmt.Sprint(r[2]))} // render.Text 경유
-		if t, ok := parseAuditDate(r[1]); ok {
-			c.Date = t
-		}
-		if b, ok := r[3].(bool); ok {
-			c.DataChange = b
-		}
-		if b, ok := r[4].(bool); ok {
-			c.SchemaChange = b
+	for _, s := range commits {
+		c := diffCommit{
+			Hash:         s.Hash,
+			Date:         s.Date,
+			Message:      render.Text(s.Message), // render.Text 경유
+			DataChange:   s.DataChange,
+			SchemaChange: s.SchemaChange,
 		}
 		if dataOnly && !c.DataChange {
 			continue

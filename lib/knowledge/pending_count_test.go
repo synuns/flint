@@ -6,11 +6,15 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // fakeCountStore — CountPending 검증용 최소 wire.Store 대역. Query만
-// 동작하고 나머지는 미사용(호출되면 즉시 실패).
+// 동작하고 나머지는 미사용(호출되면 즉시 실패). HistoryStubs 임베딩으로
+// 히스토리 5메서드는 미지원 기본구현 흡수.
 type fakeCountStore struct {
+	wire.HistoryStubs
 	queryFn func(sql string, args []any) ([][]any, error)
 }
 

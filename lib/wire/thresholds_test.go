@@ -2,7 +2,9 @@
 // SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시 poolStore로 실DB 경유
 // (meta_kv_test.go seam 헬퍼 승계). TestLoadThresholdsFallback
 // (미설정·조회 실패 시 DefaultThresholds 폴백 — 기존 cli 관례와 동일 결과).
-package wire
+// wire_test 외부 패키지 — wire가 lib/db를 import하는 T3 이후 내부 테스트는
+// import cycle로 빌드 불가.
+package wire_test
 
 import (
 	"context"
@@ -12,6 +14,7 @@ import (
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // thresholdsFake — metaKVFake에 thresholds IN 조회 라우팅 추가.
@@ -28,7 +31,7 @@ func (f *thresholdsFake) Query(ctx context.Context, sql string, args ...any) ([]
 	}
 	if strings.Contains(sql, "SELECT key, value FROM meta WHERE key IN") {
 		thKeys := map[string]bool{}
-		for _, k := range ThresholdsKeys() {
+		for _, k := range wire.ThresholdsKeys() {
 			thKeys[k] = true
 		}
 		var keys []string
@@ -48,7 +51,7 @@ func (f *thresholdsFake) Query(ctx context.Context, sql string, args ...any) ([]
 }
 
 // thresholdsStore — 기본 thresholdsFake, SUPERLITE_REAL=1이면 poolStore.
-func thresholdsStore(t *testing.T, f *thresholdsFake) Store {
+func thresholdsStore(t *testing.T, f *thresholdsFake) wire.Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {
 		pool, err := db.Connect(context.Background(), dsn)
@@ -74,7 +77,7 @@ func TestLoadThresholdsFallback(t *testing.T) {
 
 	// 1. 미설정 — 전 키 기본값.
 	f := &thresholdsFake{metaKVFake: metaKVFake{meta: map[string]string{}}}
-	th, err := LoadThresholds(ctx, thresholdsStore(t, f))
+	th, err := wire.LoadThresholds(ctx, thresholdsStore(t, f))
 	if err != nil {
 		t.Fatalf("빈 meta 로드 err: %v", err)
 	}
@@ -89,7 +92,7 @@ func TestLoadThresholdsFallback(t *testing.T) {
 	}}}
 	st := thresholdsStore(t, f2)
 	metaKVCleanup(t, st, "stall_hot_h", "stale_days")
-	th2, err := LoadThresholds(ctx, st)
+	th2, err := wire.LoadThresholds(ctx, st)
 	if err != nil {
 		t.Fatalf("오버라이드 로드 err: %v", err)
 	}
@@ -102,7 +105,7 @@ func TestLoadThresholdsFallback(t *testing.T) {
 
 	// 3. 조회 실패 — err 전파(호출부 기본값 폴백 관례 승계).
 	f3 := &thresholdsFake{metaKVFake: metaKVFake{meta: map[string]string{}}, failQuery: true}
-	if _, err := LoadThresholds(ctx, thresholdsStore(t, f3)); err == nil {
+	if _, err := wire.LoadThresholds(ctx, thresholdsStore(t, f3)); err == nil {
 		t.Fatal("조회 실패 err 미전파 — 호출부 폴백 관례 깨짐")
 	}
 }
