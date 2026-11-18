@@ -6,6 +6,25 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.8.0 minor (2026-11-18) — db-severance: Store history interface seals the Doltgres dialect
+
+- [x] The Store interface gains the five history methods — `LogEntries` ·
+  `QueryAsOf` · `DiffRows` · `DiffStat` · `DiffCommits` — with their query
+  and result types in lib/wire. Every raw `dolt_log` · `dolt_diff` ·
+  `dolt_commit_diff_knowledge` · `AS OF '` query moved behind those methods
+  into lib/db: the Doltgres dialect is now owned by a single package and
+  the core is engine-swappable. Callers (asof · read · status · audit ·
+  diff) consume the interface only; HistoryStubs keeps embedded fakes
+  compiling (ErrHistoryUnsupported).
+- [x] Dialect closure gate (lib/wire/dialect_gate_test.go): any dialect
+  string outside lib/db fails the test with a file:line report — the
+  severance is permanently verified, not a one-time sweep.
+- [x] Byte-equivalence refactoring: outputs, JSON schemas, exit codes,
+  clamps and the telemetry commit filter are unchanged (machine channels
+  frozen) — callers were switched, never rewritten.
+
+Design detail: docs/plans/2026-11-18-flint-v1800.md
+
 ### v1.7.2 patch (2026-11-17) — R38 audit fixes: telemetry sweep · sync mitigations
 
 - [x] Telemetry commit regression (R38 C1): CommitTelemetry's `dolt_add('-A')`
