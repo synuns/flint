@@ -6,6 +6,23 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.8.1 patch (2026-11-18) — r40-hardening: QueryAsOf fallback removal · session escaping
+
+- [x] QueryAsOf view fallback removed (R40 High): the base-table retry on
+  view-incompatible errors is abolished — the original guided error is
+  surfaced unchanged (parity with pre-severance behavior) and invalid-row
+  exposure via silent fallback is gone. The `FallbackTable` field is
+  dropped from `wire.AsOfQuery`.
+- [x] `--session` LIKE escaping: literal values inlined into LIKE patterns
+  (`\`, `%`, `_` metacharacters) are escaped by a shared `EscapeLike`
+  helper — the read assembler's rule is reused by audit and other
+  callers (backslash default ESCAPE, consistent with the dialect SQL).
+- [x] Comment-only cleanups (no behavior change): dialect gate scope
+  (history-query dialect only; diagnostic/write dialects out of scope),
+  LogQuery Hash-mode assembly note (4-column rebuild vs the legacy
+  date-only query — value-equivalent, assembly differs), AsOfQuery Where
+  two-form contract (raw tail clause vs conditions-only).
+
 ### v1.8.0 minor (2026-11-18) — db-severance: Store history interface seals the Doltgres dialect
 
 - [x] The Store interface gains the five history methods — `LogEntries` ·
