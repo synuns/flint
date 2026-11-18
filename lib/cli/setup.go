@@ -1,7 +1,7 @@
-// setup/teardown 커맨드 — v0.4 원커맨드 설정(QUICKSTART 1커맨드).
+// setup/teardown 커맨드 — 원커맨드 설정(QUICKSTART 1커맨드).
 // setup: ①docker compose up -d --wait(exec, 실패는 안내로 계속) ②Migrate ③seed 안내
 // ④플러그인 설치 안내 — 진행 요약 한 줄 JSON. teardown: 기본 dry-run
-// (compose down 계획 안내만, v1.5.3 T1 파괴 가드) — --yes 실행 확정 시
+// (compose down 계획 안내만, 파괴 가드) — --yes 실행 확정 시
 // 컨테이너 정지, --purge면 volume까지 삭제 exec. 실패해도 다음 단계
 // 안내는 유지한다.
 package cli
@@ -47,7 +47,7 @@ var (
 	}
 )
 
-// setupPortDialFn — v1.5.5 B4: compose 시작 전 5434 점유 감지 seam. true =
+// setupPortDialFn — compose 시작 전 5434 점유 감지 seam. true =
 // 이미 무언가 수신 중(점유). 기본은 짧은 타임아웃 net.Dial.
 var setupPortDialFn = func(addr string) bool {
 	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
@@ -101,7 +101,7 @@ func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX)
 	if ux != nil {
 		ux.Step("Start Doltgres (docker compose up)")
 	}
-	// v1.5.5 B4: compose 시작 전 5434(ADR-0010 기본 포트) 점유 감지 —
+	// compose 시작 전 5434(ADR-0010 기본 포트) 점유 감지 —
 	// 기존 서버(다른 컨테이너·로컬 postgres)가 이미 점유하면 compose up이
 	// 실패하거나 ping이 잘못된 서버에 연결된다. 경고 1행 stderr만, 진행은
 	// 유지(ping·migrate가 실제 상태를 판정).
@@ -157,7 +157,7 @@ func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX)
 	return string(b), code
 }
 
-// exposureSummary — setup --exposure 기록 보고 한 줄 JSON 모양(v0.11.0 R1).
+// exposureSummary — setup --exposure 기록 보고 한 줄 JSON 모양.
 type exposureSummary struct {
 	Status   string `json:"status"`
 	Exposure string `json:"exposure"`
@@ -183,7 +183,7 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 		defer s.Close()
 		st = s
 	}
-	// v0.34.3 T2: 노출 기록 upsert는 setMetaKV 단일 진입 위임.
+	// 노출 기록 upsert는 setMetaKV 단일 진입 위임.
 	if err := setMetaKV(ctx, st, ExposureKey, val); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return 1
@@ -196,14 +196,14 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 	return 0
 }
 
-// setupWizardTTYFn — v1.5.0 T6 위저드 진입 터미널 판정 seam. 기존
+// setupWizardTTYFn — 위저드 진입 터미널 판정 seam. 기존
 // setupUX TTY 감지와 동일 기준(커맨드 stdout writer) — 파이프·리다이렉
 // 션·CI는 위저드 미진입(기존 안내 경로 유지 계약).
 var setupWizardTTYFn = func(stdout io.Writer) bool {
 	return newSetupUX(stdout, false).isTTY
 }
 
-// setupWizardFn — v1.5.0 T6 위저드 실행 seam(테스트 교체). (chosen, true)면
+// setupWizardFn — 위저드 실행 seam(테스트 교체). (chosen, true)면
 // 위저드 완료 — chosen은 플래그 등가물(--exposure 값), ("", false)면 취소·
 // 실패로 기존 no-arg 경로 폴백(부작용 없음).
 var setupWizardFn = func() (string, bool) {
@@ -215,19 +215,19 @@ var setupWizardFn = func() (string, bool) {
 }
 
 // runSetup — 커맨드 진입점. --dry는 단계만 출력(exec·쿼리 없음).
-// --json(v0.17.0 R2)은 기존 한 줄 JSON 요약 완전 불변, 미지정 시 TTY면
+// --json은 기존 한 줄 JSON 요약 완전 불변, 미지정 시 TTY면
 // setupUX 시각 진행으로 출력한다(동작 계약은 동일 — ping·migrate 동일
 // 순서·횟수). non-TTY(리다이렉션·스크립트)는 기존 JSON을 그대로 둔다.
-// --update-rules(v0.9.7 R1)는 스킬 싱크만 수행하고 즉시 반환 — compose·
-// migrate 체인에 끼지 않는다. --exposure(v0.11.0 R1)도 프로파일 기록만,
-// --mcp(v0.16.5 R1)도 하네스 MCP 등록만 수행하고 즉시 반환한다.
-// v1.5.0 T6: 인자 없는 TTY 실행은 huh 위저드로 진입(플래그 등가물을
+// --update-rules는 스킬 싱크만 수행하고 즉시 반환 — compose·
+// migrate 체인에 끼지 않는다. --exposure도 프로파일 기록만,
+// --mcp도 하네스 MCP 등록만 수행하고 즉시 반환한다.
+// 인자 없는 TTY 실행은 huh 위저드로 진입(플래그 등가물을
 // 조립해 기존 함수 재호출 — 플래그 경로·비터미널 경로는 불변).
 // store-free 디스패치로 st== nil일 수 있다
 // (첫 실행) — ping/migrate는 degraded 경고로 연기하고 1단계 compose는
 // 수행한다.
 func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
 	// 불허). --dry·--mcp 조기 반환은 병렬 지정 시 args 순서가 우선(기존
 	// 인카운터 순서 승계 — 인덱스 비교로 재현).
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
@@ -279,7 +279,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	if updateRules {
 		return runUpdateRules(stdout, srcOverride)
 	}
-	// v1.5.0 T6: 인자 없음 + 터미널이면 huh 위저드로 — exposure 선택 →
+	// 인자 없음 + 터미널이면 huh 위저드로 — exposure 선택 →
 	// 백업 키 안내 후 기존 체인·플래그 등가물 기록을 기존 함수로 수행
 	// (위저드는 값 조립만). 취소·비터미널은 기존 no-arg 경로 불변.
 	if len(args) == 0 && setupWizardTTYFn(stdout) {
@@ -344,10 +344,7 @@ var execCommandFn = func(name string, args ...string) error {
 	return exec.Command(name, args...).Run()
 }
 
-// (v0.21.0: mcpAddArgs switch는 harnessSpec.MCPAdd 필드로 이전 —
-// 하니스 추가가 레지스트리 1행으로 끝나게.)
-
-// mcpSetupSummary — setup --mcp 결과 한 줄 JSON 모양(v0.16.5 R1).
+// mcpSetupSummary — setup --mcp 결과 한 줄 JSON 모양.
 type mcpSetupSummary struct {
 	Status     string   `json:"status"`
 	Registered []string `json:"registered"`
@@ -356,7 +353,7 @@ type mcpSetupSummary struct {
 }
 
 // runSetupMCP — A급 하니스(MCPAdd 보유) 순회: exec.LookPath 탐지 후
-// 각 네이티브 CLI로 `flint mcp`를 등록한다(v0.21.0: copilot CLI 검증
+// 각 네이티브 CLI로 `flint mcp`를 등록한다(copilot CLI 검증
 // 승격 — 안내 전용 분기 폐지, 인자는 spec에서). B급(MCPAdd nil — 파일
 // 설정형)은 setup 대상 아님: 목록에서 제외(doctor 의사체크·문서 안내).
 // 미설치는 skipped(무해 — exit 0). 등록 실행 실패(이미 등록 등) 역시
@@ -396,12 +393,12 @@ type teardownSummary struct {
 	Next     string   `json:"next"`
 }
 
-// runTeardown — 컨테이너 정지 안내 + exec. v1.5.3 T1: 파괴 가드 — 기본은
+// runTeardown — 컨테이너 정지 안내 + exec. 파괴 가드 — 기본은
 // dry-run(내려갈 대상·compose down 계획 안내 JSON, exit 0)이고 --yes가
 // 있을 때만 실행한다(maintain --invalidate --ids의 실행 확정 관례 승계 —
 // 무인자 호출이 즉시 compose down하며 운영 DB를 정지시키던 사고 방지).
 // --purge 시 volume 삭제(down -v). 실패는 경고 + 수동 명령 안내로 exit 1.
-// v1.0.1(F3): unknown flag는 무효 인자 exit 3.
+// unknown flag는 무효 인자 exit 3.
 func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	purge, confirm := false, false
 	for _, a := range args {

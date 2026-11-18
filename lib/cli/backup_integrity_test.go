@@ -7,10 +7,8 @@ import (
 	"testing"
 )
 
-// ADR-0006 — restore 체크섬 가드(T47). 가드는 runRestore 1곳에만 존재한다.
+// ADR-0006 — restore 체크섬 가드. 가드는 runRestore 1곳에만 존재한다.
 // fake backup seam(backup_test.go) 재사용 — restoreFn 위임 여부로 가드 선행 검증.
-// v0.39.0 T4: TestLazyDumpPartialWriteDiscards(lazyDumpFile 소유)은
-// lib/knowledge/done_v0100_test.go로 이동했다.
 
 // 불일치 — 한 줄 JSON 경고 + exit 1, restoreFn 미호출(임의 SQL 실행 차단).
 func TestRestoreChecksumMismatchExit1(t *testing.T) {
@@ -39,10 +37,6 @@ func TestRestoreChecksumMismatchExit1(t *testing.T) {
 	}
 }
 
-// Review Focus(file): 사이드카 누락 — 경고(warn) + 진행, exit 0.
-// v0.20.6(S4) 재작성 — 이 테스트는 '무검증 재생 진행'을 계약으로
-// 문서화했으나 보안 스윕이 사이드카 부재 재생을 차단 계약으로 바꿨다
-// (백업=임의 SQL 매체, ADR-0006 즉시 중단 취지).
 func TestRestoreMissingSidecarBlocked(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)

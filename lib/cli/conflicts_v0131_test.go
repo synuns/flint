@@ -1,7 +1,7 @@
-// conflicts_v0131_test.go — v0.13.1 심층 리뷰 회귀(F6·F7·F9):
-// F6 conflictDice가 lib/query.BigramDiceMultiset로 위임(로컬 재구현 폐지),
-// F7/F9 checkConflicts가 ConflictStore.ConflictGroups seam 경유(인라인
-// GROUP BY SQL 폐지·상한 있는 조회). 기존 테스트 함수는 불변.
+// conflicts_v0131_test.go
+// conflictDice가 lib/query.BigramDiceMultiset로 위임(로컬 재구현 폐지),
+// checkConflicts가 ConflictStore.ConflictGroups seam 경유(인라인
+// GROUP BY SQL 폐지·상한 있는 조회).
 package cli
 
 import (
@@ -75,7 +75,7 @@ func (s *seamConflictStore) ConflictGroups(ctx context.Context, limit int) ([]db
 
 // TestConflictsUsesConflictGroupsSeam — F7/F9 회귀: checkConflicts의 그룹
 // 조회는 ConflictStore.ConflictGroups seam만 경유하고(직접 SQL 조회 금지),
-// 상한은 doctor 전용 doctorConflictLimit=50이다(v0.13.2 N8 갱신 — 상위
+// 상한은 doctor 전용 doctorConflictLimit=50이다(상위
 // 10그룹만 세면 초과 모순이 미보고로 누락).
 func TestConflictsUsesConflictGroupsSeam(t *testing.T) {
 	inner := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

@@ -1,4 +1,4 @@
-// hot_v0121_test.go — R2 pending 팔 대기일수(v0.12.1): 24h 미만 빈 문자열,
+// hot_v0121_test.go — pending 팔 대기일수: 24h 미만 빈 문자열,
 // 경과 일수 내림 "·+N일" 접미. --full pending 행 끝에만 붙는다.
 package cli
 
@@ -26,7 +26,7 @@ func TestPendingAgeSuffix(t *testing.T) {
 }
 
 // pendingAgeQueryFn — hot_view 본질의는 hotRows(말미에 id·valid_at·
-// ingested_at 컬럼 포함 — T5 단일 정의), 그 외 질의는 빈 결과.
+// ingested_at 컬럼 포함 — 단일 정의), 그 외 질의는 빈 결과.
 func pendingAgeQueryFn(hotRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {

@@ -1,4 +1,4 @@
-// read_v1200_test.go — v1.2.0 T2 기록 배선(read 표면). Review Focus:
+// read_v1200_test.go — 기록 배선(read 표면).
 // TestReadEventColumns(bytes=출력 len·source 라벨·zero_reason 분기)·
 // TestZeroReasonDecompose(임계 분기 순수 함수)·read id 전수 knowledge_reads
 // (kind=read). 계약: read 1회의 bytes·zero_reason·source가 read_events 1행에
@@ -45,7 +45,7 @@ func activeCountQueryRows(n int32) [][]any {
 	return [][]any{{n}}
 }
 
-// TestReadEventColumns — Review Focus(v1.2.0 T2): read 1회의 ReadEvent에
+// TestReadEventColumns — read 1회의 ReadEvent에
 // bytes(len 최종 출력)·source 라벨(세션 라벨→hook·미지정→cli·명시→우선)·
 // zero_reason 분기(unowned/owned_miss/빈값)이 담긴다.
 func TestReadEventColumns(t *testing.T) {
@@ -194,7 +194,7 @@ func TestZeroReasonDecompose(t *testing.T) {
 	}
 }
 
-// TestReadRecordsKnowledgeReads — Review Focus(v1.2.0 T2): read 반환 id
+// TestReadRecordsKnowledgeReads — read 반환 id
 // 전수가 knowledge_reads(kind=read)로 기록된다(세션 라벨 동반).
 func TestReadRecordsKnowledgeReads(t *testing.T) {
 	ctx := context.Background()

@@ -1,5 +1,5 @@
-// doctor_v0132_test.go — v0.13.2 심층 리뷰 회귀: N7 --check conflicts
-// 단독 실행(tail-chain 서브셋 일반화)·N8 조회 상한 도달 문구.
+// doctor_v0132_test.go — --check conflicts
+// 단독 실행(tail-chain 서브셋 일반화)·조회 상한 도달 문구.
 package cli
 
 import (

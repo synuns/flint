@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TestTruncateRunesSingleSource — Review Focus(a): rune 절단 3중 복제
+// TestTruncateRunesSingleSource — rune 절단 3중 복제
 // (import 500룬·maintain 접두 40·pending oneLine)의 단일 구현 수렴.
 // truncateRunes는 룬 단위 절단(멀티바이트 안전)이고 각 관례 래퍼는
 // 결과 불변으로 위임한다.
@@ -39,7 +39,7 @@ func TestTruncateRunesSingleSource(t *testing.T) {
 	}
 }
 
-// TestUnknownFlagExitContract — Review Focus(c): maintain·import의 무효
+// TestUnknownFlagExitContract — maintain·import의 무효
 // 플래그는 무효 인자 계약 exit 3(doctor·tuning·diff 정합).
 func TestUnknownFlagExitContract(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -62,9 +62,9 @@ func TestUnknownFlagExitContract(t *testing.T) {
 	}
 }
 
-// TestSupersedeZeroRowsFails — Review Focus(e): 사전 확인(active) 통과 후
+// TestSupersedeZeroRowsFails — 사전 확인(active) 통과 후
 // 경합 등으로 갱신이 0행이면 무음 성공이 아니라 오류(exit 1·커밋 없음).
-// v0.41.0 T2: 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 위임이
+// 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 위임이
 // 오류를 돌려주는 것으로 시뮬레이션한다.
 func TestSupersedeZeroRowsFails(t *testing.T) {
 	shortRetryDelays(t)

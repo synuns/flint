@@ -1,4 +1,4 @@
-// tools_test.go — 도구 왕복 테스트(v0.32.0: 5종). runFn seam: 기본 fake,
+// tools_test.go — 도구 왕복 테스트(5종). runFn seam: 기본 fake,
 // SUPERLITE_REAL=1이면 실 cli.Run 위임(인자 기록은 유지, 실DB 미기동 시 스킵).
 package mcp
 
@@ -94,7 +94,7 @@ func TestToolsManifest(t *testing.T) {
 	}
 }
 
-// TestHotManifestHasNoSessionID — v1.0.1 감사 F7: flint_hot의 session_id는
+// TestHotManifestHasNoSessionID — flint_hot의 session_id는
 // 조회에 영향 없는 no-op(HotSQL·HotHeadlineSQL 전부 폐기)이므로 매니페스트
 // 광고에서 제거된다(광고-폐기 불일치 — 실구현은 신규 기능으로 제외).
 func TestHotManifestHasNoSessionID(t *testing.T) {
@@ -117,7 +117,7 @@ func TestHotManifestHasNoSessionID(t *testing.T) {
 	t.Fatal("flint_hot 도구 정의 없음")
 }
 
-// TestToolManifestEnglish — v1.5.0 T4: 도구 description·파라미터
+// TestToolManifestEnglish — 도구 description·파라미터
 // description은 LLM 소비자 대상이라 영어다(한글 글자 부재 단언).
 func TestToolManifestEnglish(t *testing.T) {
 	hangul := regexp.MustCompile(`[가-힣]`)
@@ -228,8 +228,7 @@ func TestDispatchWriteMissingKind(t *testing.T) {
 	}
 }
 
-// TestDispatchHotRoundtrip — flint_hot → cli hot 조립(v1.2.3 B6: session_id
-// 잔여 제거 — 인자 없음).
+// TestDispatchHotRoundtrip — flint_hot → cli hot 조립(인자 없음).
 func TestDispatchHotRoundtrip(t *testing.T) {
 	calls, real := installRun(t, "hot summary", 0)
 	out, code := DispatchTool("flint_hot", nil)
@@ -254,10 +253,9 @@ func TestDispatchUnknownTool(t *testing.T) {
 	}
 }
 
-// capStore — v1.6.2 R33-3 F1/F2 회귀 fake: wire.Store + 선택 capability
+// capStore — 회귀 fake: wire.Store + 선택 capability
 // 전분. 서버 수명 store(cli.RunWithStore injectedStore 래퍼)를 통과해
-// capability 단언이 원본에 위임되는지 검증한다(v1.2.4 래퍼 도입 후
-// approve 승격·duplicate 메타·read_events 계량이 래퍼에서 차단된 결함).
+// capability 단언이 원본에 위임되는지 검증한다.
 type capStore struct {
 	existsHash bool
 	dupMeta    knowledge.DupMeta
@@ -363,9 +361,9 @@ func TestDispatchWriteDuplicateEchoesMetaViaServerStore(t *testing.T) {
 	}
 }
 
-// TestDispatchReadRecordsReadEventSourceMCP — F2: flint_read가 read_events
+// TestDispatchReadRecordsReadEventSourceMCP — flint_read가 read_events
 // 계층(RecordReadEvent)에 source=mcp로 도달한다(래퍼가 ReadEventStore
-// 단언을 차단하면 계측이 조용히 사라진다 — v1.2.4~ 상실).
+// 단언을 차단하면 계측이 조용히 사라진다).
 func TestDispatchReadRecordsReadEventSourceMCP(t *testing.T) {
 	f := &capStore{}
 	installServerStore(t, f)

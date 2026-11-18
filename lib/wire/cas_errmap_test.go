@@ -8,7 +8,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// TestCompareSetMetaKVSerializationLoser — v1.0.12(R14-F1): 경합 패자의
+// TestCompareSetMetaKVSerializationLoser — 경합 패자의
 // 직렬화 실패(40001)는 선점 탈락의 정상 경로 — (false, nil) 매핑.
 // 실DB에서는 타이밍 의존적이라 발화가 불안정 — fake 주입이 유일한
 // 확실한 회귀 보호망이다.

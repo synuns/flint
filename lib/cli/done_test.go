@@ -1,6 +1,4 @@
 // done_test.go — done의 dispatch·realStore 위임 경로(등록 활성·seam).
-// v0.39.0 T4: 직접 호출 단위 테스트는 lib/knowledge/done_test.go로 이동 —
-// AutoBackupFn seam 교체도 knowledge 소유 var를 직접 스텁한다.
 package cli
 
 import (
@@ -32,7 +30,7 @@ func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, err
 	return d.runs, nil
 }
 
-// UpdateSessionSummary — v0.41.0 T3: 종료 요약 갱신 위임(쓰기 가드).
+// UpdateSessionSummary — 종료 요약 갱신 위임(쓰기 가드).
 // fake는 no-op 성공(단위 경로 — 갱신 계약은 knowledge done_test가 단언).
 func (d *doneFake) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	return 1, nil
@@ -40,7 +38,7 @@ func (d *doneFake) UpdateSessionSummary(ctx context.Context, id int, summary, ta
 
 // withDoneFake — Run 경로 seam. 기본 fake, FLINT_TEST_DSN 설정 +
 // SUPERLITE_REAL=1이면 stub 미지정 연산을 실구현에 위임(실DB 미기동 시
-// 스킵). FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
+// 스킵). FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(seamRealDSN).
 func withDoneFake(t *testing.T, d *doneFake) {
 	t.Helper()
 	prev := newStore
@@ -96,7 +94,7 @@ func (d *delegatingDone) StaleSessionRuns(ctx context.Context, agent string) (in
 	return d.real.StaleSessionRuns(ctx, agent)
 }
 
-// UpdateSessionSummary — v0.41.0 T3: 쓰기 가드 전환분 — 실구현 위임.
+// UpdateSessionSummary — 쓰기 가드 전환분 — 실구현 위임.
 func (d *delegatingDone) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	return d.real.UpdateSessionSummary(ctx, id, summary, tasks)
 }
@@ -109,7 +107,7 @@ func mustDoneRun(t *testing.T, args []string) (string, int) {
 }
 
 // stubAutoBackup — knowledge.AutoBackupFn seam 교체(단위 테스트 무부작용
-// 보장). v0.39.0 T4: seam var는 구현 소유 패키지(knowledge)에 있으므로
+// 보장). seam var는 구현 소유 패키지(knowledge)에 있으므로
 // 직접 스텁한다.
 func stubAutoBackup(t *testing.T) {
 	t.Helper()

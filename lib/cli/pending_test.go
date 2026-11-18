@@ -1,4 +1,4 @@
-// pending_test.go — v1.5.0 T7: `flint pending --tui` 진입 분기 계약 테스트.
+// pending_test.go — `flint pending --tui` 진입 분기 계약 테스트.
 // 기본 경로(플래그 없음·--json·unknown flag)는 knowledge.RunPending에
 // 완전 불변 위임(회귀), --tui만 TUI seam으로 분기. TUI 런처는 seam var
 // fake 주입(기본 실구현 = tui.RunPendingTUI — SUPERLITE_REAL=1 +
@@ -114,7 +114,7 @@ func TestPendingEntryTUIRejectsExtraFlags(t *testing.T) {
 	}
 }
 
-// installPendingTTY — v1.5.2 T1 적응형 진입 TTY 판정 seam 교체
+// installPendingTTY — 적응형 진입 TTY 판정 seam 교체
 // (setupWizardTTYFn 관례 — 기본 실구현 tui.IsTerminalStdout).
 func installPendingTTY(t *testing.T, tty bool) {
 	t.Helper()
@@ -171,7 +171,6 @@ func TestPendingEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	if !strings.Contains(out.String(), "TUI requires a terminal") {
 		t.Fatalf("fallback message missing: %q", out.String())
 	}
-	// v1.5.5 T2(리뷰): 무효 인자 분류 — error:"internal" 폐지.
 	if !strings.Contains(out.String(), `"error":"usage"`) {
 		t.Fatalf("--tui 비터미널은 error:usage 여야 한다: %q", out.String())
 	}

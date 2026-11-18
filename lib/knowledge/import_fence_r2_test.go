@@ -1,8 +1,8 @@
-// import_fence_r2_test.go — v1.0.2 R2 회귀 2종.
+// import_fence_r2_test.go — 회귀 2종.
 // (1) CommonMark 닫는 펜스 길이 — 여는 펜스(````·~~~~)보다 짧은 펜스
 // 라인(```·~~~)은 닫는 펜스가 아니라 코드 본문: 짧은 라인 뒤의 "## "는
 // 헤딩이 아니어야 한다(펜스 내부 헤딩의 유사 지식 분할 방지).
-// (2) import 경로의 '-' 접두 값은 이미 무효 인자 exit 3(v0.27.3 unknown
+// (2) import 경로의 '-' 접두 값은 이미 무효 인자 exit 3(unknown
 // flag) — 플래그 흡수 가드(ValidateFlagValue)와 대칭 계약임을 고정.
 package knowledge
 

@@ -21,7 +21,7 @@ func testDSN() string {
 	return "postgresql://flint:flint-dev@localhost:5434/flint_test"
 }
 
-// Review Focus(file): 작은따옴표·줄바꿈·백슬래시 이스케이프.
+// 작은따옴표·줄바꿈·백슬래시 이스케이프.
 func TestSQLLiteral(t *testing.T) {
 	cases := []struct {
 		in   any
@@ -63,7 +63,7 @@ func TestSplitStatements(t *testing.T) {
 	}
 }
 
-// Review Focus(state): 라운드트립 row 수 일치 + 특수문자 값 보존.
+// 라운드트립 row 수 일치 + 특수문자 값 보존.
 func TestDumpRestoreRoundtrip(t *testing.T) {
 	// Restore 는 public 전체 테이블을 한 트랜잭션에 다시 쓴다 — 타 패키지
 	// 테스트(tests/regression)가 public 에 동시 커밋하면 Doltgres 낙관적

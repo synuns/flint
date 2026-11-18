@@ -1,4 +1,4 @@
-// encrypt.go — v0.28.0 R1: 백업 at-rest 암호화(age, ADR 계열 — PLAN F).
+// encrypt.go — 백업 at-rest 암호화(age, ADR 계열 — PLAN F).
 // X25519 identity 파일(설정 디렉터리 backup.key, 0600) 기반 — 자동
 // 백업이 비대화형으로 돌아야 하므로 passphrase 프롬프트가 아닌 키 파일
 // 방식(룰링 ②). 위협 모델: 백업 파일이 기기를 벗어나는 유출(동기화·
@@ -30,7 +30,7 @@ var ErrEncryptKeyMissing = errors.New("backup encrypt: identity key file missing
 var ErrEncryptKeyCorrupt = errors.New("backup encrypt: identity key file corrupt — generating a new key would make existing ciphertext undecryptable (manual check: RUNBOOK)")
 
 // LoadIdentity — path에서 age X25519 identity 로드(부재 → ErrEncryptKeyMissing,
-// 불량 → ErrEncryptKeyCorrupt — v0.28.0: 구분해 EnsureIdentity가 불량 키를
+// 불량 → ErrEncryptKeyCorrupt — 구분해 EnsureIdentity가 불량 키를
 // 조용히 덮어쓰지 않게 한다).
 func LoadIdentity(path string) (*age.X25519Identity, error) {
 	b, err := os.ReadFile(path)
@@ -46,7 +46,7 @@ func LoadIdentity(path string) (*age.X25519Identity, error) {
 
 // EnsureIdentity — identity 로드, 부재 시에만 생성·저장. 불량 기존 키는
 // 에러(기존 키로 암호화된 백업의 영구 복호 불가가 조용히 확정되는 것을
-// 방지 — 감사 발견). 생성은 O_EXCL 선행 클레임(리뷰 1: 병렬 첫 암호화가
+// 방지 — 감사 발견). 생성은 O_EXCL 선행 클레임(병렬 첫 암호화가
 // 서로 다른 키를 만들어 패자 키 암호문을 영구 잃는 경합 방지 — 클레임
 // 승자의 키 파일이 유일 원본이 된다). 첫 생성 중 크래시로 불량 파일이
 // 남면 재생성은 거부된다(수동 확인 — RUNBOOK).

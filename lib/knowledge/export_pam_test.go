@@ -1,4 +1,4 @@
-// export_pam_test.go — v1.4.0 T1: FormatPAM 계약 테스트.
+// export_pam_test.go — FormatPAM 계약 테스트.
 // PAM v1.0(portable-ai-memory.org/spec/v1.0) §4 문서 형식·§6 content_hash
 // 정규화·status 매핑·§13.2 relations 방향·§15 체크섬 결정성.
 package knowledge
@@ -248,7 +248,7 @@ func TestFormatPAMStatusMapping(t *testing.T) {
 // TestFormatPAMRelationsDirection — §13.2 "Source replaces target":
 // from=신규(대체하는 행 SupersededBy), to=구(대체되는 행 자신).
 // 양쪽 엔드포인트(8·12)가 모두 memories에 실리는 합성 2행으로 검증
-// (v1.4.1 A1 — 한쪽이라도 미포함이면 relation 자체를 발행하지 않는다).
+// (한쪽이라도 미포함이면 relation 자체를 발행하지 않는다).
 func TestFormatPAMRelationsDirection(t *testing.T) {
 	sup := 12
 	t0 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
@@ -284,7 +284,7 @@ func TestFormatPAMRelationsDirection(t *testing.T) {
 	}
 }
 
-// TestFormatPAMRelationsDroppedWhenEndpointMissing — v1.4.1 A1 회귀:
+// TestFormatPAMRelationsDroppedWhenEndpointMissing — 회귀:
 // relations는 From·To 양쪽 모두 memories에 실린 "flint:N"인 경우만
 // 발행한다. pending superseder(미승인 대체 원천 — 문서에서 제외)·조회
 // 범위 밖 superseder를 가리키는 relation은 허참조가 되므로 발행하지
@@ -424,7 +424,7 @@ func TestFormatPAMChecksumRecomputable(t *testing.T) {
 // TestFormatPAMChecksumIDStringOrder — §15 id 정렬은 id **문자열**
 // 오름차순: 자릿수 경계(9/10/100)에서 "flint:10" < "flint:100" < "flint:9".
 // 수치 정렬이면 외부 검증자(문자열 정렬 재현)와 체크섬이 어긋난다
-// (v1.4.0 리뷰 회귀 — 수치 정렬 시 이 테스트는 실패).
+// (리뷰 회귀 — 수치 정렬 시 이 테스트는 실패).
 func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 	t0 := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
 	rows := []ExportRow{
@@ -497,7 +497,7 @@ func TestFormatPAMEmpty(t *testing.T) {
 }
 
 // TestFormatPAMSkipsPendingRows — pending 행은 PAM 문서에서 제외
-// (룰링 v1.4.0 T1: PAM 폐쇄 분류에 미승인 후보 개념 부재 — 표준 교환
+// (PAM 폐쇄 분류에 미승인 후보 개념 부재 — 표준 교환
 // 문서에 내부 미승인 후보를 싣지 않는다). memories·relations·
 // total_memories·체크섬 전부 미포함.
 func TestFormatPAMSkipsPendingRows(t *testing.T) {
@@ -564,7 +564,7 @@ func TestFormatPAMFlintHashIndependent(t *testing.T) {
 	}
 }
 
-// --- v1.6.0 T4: §13.1 relations 필수필드·§18 서명·키 관리 ---
+// --- §13.1 relations 필수필드·§18 서명·키 관리 ---
 
 // pamUUIDRe — relation id(UUID) 형식.
 var pamUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
@@ -620,7 +620,7 @@ func TestFormatPAMRelationRequiredFields(t *testing.T) {
 }
 
 // TestFormatPAMUnsignedNoOwnerOrSignature — 무서명 기본 경로는 owner·
-// signature 블록을 발행하지 않는다(서명 없는 기본 경로 불변 — T5 바이트
+// signature 블록을 발행하지 않는다(서명 없는 기본 경로 불변 — 바이트
 // 동일성 기준선).
 func TestFormatPAMUnsignedNoOwnerOrSignature(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
@@ -637,7 +637,7 @@ func TestFormatPAMUnsignedNoOwnerOrSignature(t *testing.T) {
 }
 
 // TestFormatPAMUnsignedBodyGolden — 무서명 기본 경로 본문 골든(마스킹:
-// export_id·export_date 제외). T5 메모리 최적화의 출력 바이트 동일성
+// export_id·export_date 제외). 메모리 최적화의 출력 바이트 동일성
 // 회귀 기준 — 이 골든이 바뀌면 체크섬 상호운용이 깨진 것이다.
 func TestFormatPAMUnsignedBodyGolden(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
@@ -807,9 +807,9 @@ func TestDefaultPAMSigningKeyPathConfigDir(t *testing.T) {
 	}
 }
 
-// --- v1.6.0 T5: PAM 메모리 최적화(등가성·발행 수 반환·골든·벤치) ---
+// --- PAM 메모리 최적화(등가성·발행 수 반환·골든·벤치) ---
 
-// TestPAMChecksumStreamEquivalence — R30-A P3: JCS 체크섬 스트리밍
+// TestPAMChecksumStreamEquivalence — JCS 체크섬 스트리밍
 // 산출(재파싱 회피)이 라이브러리 경로(json.Marshal →
 // jsoncanonicalizer.Transform)와 **모든 입력에서 동일한 체크섬**을 내는지
 // 검증한다. 이스케이프 경계값 전부(HTML·제어문자·U+2028/9·invalid
@@ -880,7 +880,7 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 	}
 }
 
-// TestFormatPAMWithCount — v1.6.0 T5 P6: 발행 수(total_memories)를
+// TestFormatPAMWithCount — 발행 수(total_memories)를
 // 문서 재파싱 없이 함께 반환한다(cli 44MB 재 Unmarshal 제거 seam).
 // pending은 발행 수에서 제외(기존 계약 승계).
 func TestFormatPAMWithCount(t *testing.T) {
@@ -1002,7 +1002,7 @@ func pamBenchRows(n int) []ExportRow {
 	return rows
 }
 
-// BenchmarkFormatPAM — R30-A 실측 재현: 50k행 churn 876MB(출력 8.6배)의
+// BenchmarkFormatPAM — 실측 재현: 50k행 churn 876MB(출력 8.6배)의
 // 20k 합성 환산. 최적화 전후 totalAlloc(B/op) 비교 보고가 목적.
 func BenchmarkFormatPAM(b *testing.B) {
 	rows := pamBenchRows(20000)
@@ -1049,7 +1049,7 @@ func TestPAMOwnerDIDRoundtrip(t *testing.T) {
 	}
 }
 
-// --- v1.6.1 T2 A2: flint 저장 content_hash §10 metadata 발행 ---
+// --- flint 저장 content_hash §10 metadata 발행 ---
 
 // pamStoredHashRows — A2 발행 픽스처: 64 hex 저장 해시 보유 행 1·미보유
 // 행 1·비hex(저장 해시 형식 아님) 행 1(합성 데모).

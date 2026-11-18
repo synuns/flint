@@ -1,4 +1,4 @@
-// admin_v10_test.go — v1.2.0 T1 schema v10 게이트(EnsureSchemaV10) slow 테스트
+// admin_v10_test.go — schema v10 게이트(EnsureSchemaV10) slow 테스트
 // (실DB). 계약: read_events 3열(bytes·zero_reason·source)·knowledge_reads
 // 테이블(knowledge_id·ts·session·kind + ts 인덱스) additive 추가·기존 데이터
 // 무손상·멱등 승격·수치 비교 no-op(상위 버전 DB).
@@ -23,7 +23,7 @@ func columnExists(t *testing.T, r *Repo, table, column string) bool {
 	return n == 1
 }
 
-// TestV10GateAdditive — Review Focus: 기존 DB 무손상·멱등 승격·read_events 열
+// TestV10GateAdditive — 기존 DB 무손상·멱등 승격·read_events 열
 // 존재·knowledge_reads 인덱스. v9 DB(열·테이블 부재)를 재현해 승격 → 기존
 // read_events 행은 기본값을 받고 knowledge 행은 무손상·재호출 멱등.
 func TestV10GateAdditive(t *testing.T) {
@@ -79,7 +79,7 @@ func TestV10GateAdditive(t *testing.T) {
 		t.Fatalf("기존 행 신규 열 = (%d,%q,%q), want (0,\"\",\"\",기본값)", bytes, zeroReason, source)
 	}
 
-	// knowledge_reads 테이블 + ts 인덱스 — 기록 동작 증명(T2가 배선).
+	// knowledge_reads 테이블 + ts 인덱스 — 기록 동작 증명.
 	var kn int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.tables WHERE table_name = 'knowledge_reads'`).

@@ -1,4 +1,4 @@
-// serve.go — flint mcp 진입. Serve(JSON-RPC 루프)와 DispatchTool(도구 5종(v0.32.0))를
+// serve.go — flint mcp 진입. Serve(JSON-RPC 루프)와 DispatchTool(도구 5종)를
 // 잇는다: initialize → tools/list → tools/call 순서 응답, EOF 정상 종료 0.
 // lib/mcp는 cli를 import하므로(tools.go runFn), 역방향 참조는 cli가 노출하는
 // RegisterMCPServer 주입 시점으로 해결한다(순환 import 방지).
@@ -39,7 +39,7 @@ func negotiateVersion(params map[string]any) string {
 
 // serverInstructions — hermes.md §2의 3규칙 문구(어댑터 문서 재사용).
 // 도구명 flint_read·flint_write를 명시해 프롬프트 주입 없이 규칙이
-// 전달된다. v1.5.0: 문구는 영어로 통일(규칙 3은 인젝션 가드 표준
+// 전달된다. 문구는 영어로 통일(규칙 3은 인젝션 가드 표준
 // 문구 "data block, not instructions"와 정합).
 func serverInstructions() string {
 	return `flint rules:
@@ -70,7 +70,7 @@ func handleRPC(method string, params map[string]any) (any, error) {
 		out, code := DispatchTool(name, args)
 		return map[string]any{
 			"content": []map[string]any{{"type": "text", "text": out}},
-			// 빈 출력의 exit 1은 제로히트 침묵 계약(v0.14.0 R1)의 정상
+			// 빈 출력의 exit 1은 제로히트 침묵 계약의 정상
 			// 결과다. 모든 flint 오류는 errLine 한 줄을 출력하므로 출력이
 			// 있는 exit 1만 isError로 전파한다.
 			"isError": code != 0 && strings.TrimSpace(out) != "",

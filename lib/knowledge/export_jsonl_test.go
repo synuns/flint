@@ -1,4 +1,4 @@
-// export_jsonl_test.go — v1.3.0 T3: FormatJSONL 계약 테스트.
+// export_jsonl_test.go — FormatJSONL 계약 테스트.
 // 행당 1 JSON 객체·개행 구분·snake_case 필드·완전 스냅샷 보존.
 package knowledge
 
@@ -125,9 +125,9 @@ func TestFormatJSONLRoundTripPreservesAllFields(t *testing.T) {
 	}
 }
 
-// TestFormatJSONLValidAtRoundtrip — v1.4.0 T3 Review Focus: valid_at 필드는
-// FormatJSONL → ParseJSONLRows 왕복에서 원값이 보존된다(CreatedAt 치환
-// 폐지 — 재이식·재export 동일성의 원천).
+// TestFormatJSONLValidAtRoundtrip — valid_at 필드는
+// FormatJSONL → ParseJSONLRows 왕복에서 원값이 보존된다(재이식·
+// 재export 동일성의 원천).
 func TestFormatJSONLValidAtRoundtrip(t *testing.T) {
 	created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	valid := time.Date(2026, 11, 12, 23, 15, 0, 0, time.UTC) // 의도적 상이

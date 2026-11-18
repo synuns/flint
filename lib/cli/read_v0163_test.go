@@ -1,4 +1,4 @@
-// read_v0163_test.go — v0.16.3: read 제로히트 제안 경로가 meta
+// read_v0163_test.go — read 제로히트 제안 경로가 meta
 // suggest_scan_cap 오버라이드를 반영하는지(Thresholds → SetSuggestThresholds
 // 주입 배선. suggest_min_score도 같은 주입 호출로 흐른다).
 package cli

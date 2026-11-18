@@ -1,7 +1,7 @@
-// sync_test.go — v1.7.0 T4: `flint sync remote` CLI 계약 테스트.
+// sync_test.go — `flint sync remote` CLI 계약 테스트.
 // fast는 fakeStore.Query로 SQL을 stub — 로직(db.RemoteAdd/List/Remove
 // 실구현)은 실코드 경유, 실행만 fake(SUPERLITE_REAL=1 seam은 실DB).
-// Review Focus(security): 원격 url 원문·자격증명은 성공·오류·사용법
+// 원격 url 원문·자격증명은 성공·오류·사용법
 // 어느 출력에도 노출되지 않는다(list는 MaskRemoteURL 결과만).
 package cli
 
@@ -94,7 +94,7 @@ func TestSyncUsageErrors(t *testing.T) {
 		{},
 		{"remote"},
 		{"push"},           // push 원격명 부재
-		{"pull"},           // pull 원격명 부재(T5)
+		{"pull"},           // pull 원격명 부재
 		{"remote", "push"}, // remote의 무효 sub
 		{"remote", "add"},
 		{"remote", "add", "only-name"},
@@ -227,7 +227,7 @@ func TestSyncAddQueryFailure(t *testing.T) {
 	}
 }
 
-// syncOpsQueryFn — T5 push/pull용 fakeStore.queryFn: 원격명→url 사전
+// syncOpsQueryFn — push/pull용 fakeStore.queryFn: 원격명→url 사전
 // 조회·head 해시 큐(호출순 pop)·push/fetch/merge stub·오류 주입.
 // v1.7.2 T3: dolt_reset stub 추가(S2)·push 결과 행 커스터마이즈는
 // syncOpsRowsQueryFn으로 위임(S6 no-op).
@@ -375,7 +375,7 @@ func TestSyncPushFailureMasksURL(t *testing.T) {
 }
 
 // TestSyncPullConflict — merge 충돌 exit 1 + 수동 해결 안내(자동 해결
-// 금지 — Review Focus state).
+// 금지).
 func TestSyncPullConflict(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsQueryFn(

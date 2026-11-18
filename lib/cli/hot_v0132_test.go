@@ -1,5 +1,5 @@
-// hot_v0132_test.go — v0.13.2 심층 리뷰 회귀: N3 헤드라인 경로 증분 스킵,
-// N4 --full 접미 포함 생존 판정(실출력 행=증분 id 집합 정합).
+// hot_v0132_test.go — 헤드라인 경로 증분 스킵,
+// --full 접미 포함 생존 판정(실출력 행=증분 id 집합 정합).
 package cli
 
 import (
@@ -54,7 +54,7 @@ func TestHotHeadlineSkipsReadBump(t *testing.T) {
 
 // TestHotFullStillBumpsInjected — N3 반대편: --full 전체 출력 경로는 실제
 // 주입이 일어나므로 생존 지식 id 전수를 계속 증분한다(예산 넉넉 → 전체).
-// v0.41.0 T5: id는 본질의 hot_view 조회의 id 컬럼에서 직접(동반 질의 폐지).
+// id는 본질의 hot_view 조회의 id 컬럼에서 직접.
 func TestHotFullStillBumpsInjected(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{

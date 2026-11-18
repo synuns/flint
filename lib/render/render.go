@@ -1,6 +1,6 @@
-// render.go — 출력 살균 조크포인트(v0.38.0 패키지 분할 1/3: lib/cli에서
-// 이동, 스펙 §2). 모든 출력 경로는 이 출구를 통해서만 store.SanitizeText·
-// MaskSecrets에 도달한다(직접 호출은 TestSanitizeTextChokepoint가 차단).
+// render.go — 출력 살균 조크포인트(스펙 §2). 모든 출력 경로는 이 출구를
+// 통해서만 store.SanitizeText·MaskSecrets에 도달한다(직접 호출은
+// TestSanitizeTextChokepoint가 차단).
 package render
 
 import (
@@ -21,7 +21,7 @@ func Masked(s string) string {
 }
 
 // MaskedStrict — 기기 밖(브리지) 전용: allowlist 등록값도 마스킹
-// (v1.0.10 감사 B2 — 진단용 dump --mask의 Masked와 구분).
+// (진단용 dump --mask의 Masked와 구분).
 func MaskedStrict(s string) string {
 	return store.SanitizeText(store.MaskSecretsStrict(s))
 }

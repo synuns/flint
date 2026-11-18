@@ -1,4 +1,4 @@
-// maintain_v0330_test.go — v0.33.0 지식 위생: meta-audit 분류·prune dry-run/commit.
+// maintain_v0330_test.go — 지식 위생: meta-audit 분류·prune dry-run/commit.
 package cli
 
 import (
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestMaintainMetaAuditClassification — R1: known/threshold/daily/unknown 분류.
+// TestMaintainMetaAuditClassification — known/threshold/daily/unknown 분류.
 func TestMaintainMetaAuditClassification(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key = 'pending_max'") {
@@ -18,7 +18,7 @@ func TestMaintainMetaAuditClassification(t *testing.T) {
 				{"schema_version", "8"},
 				{"daily:2026-11-09", "{}"},
 				{"read_stats", "{}"},            // known(레거시 관측)
-				{"last_brief_at", "x"},          // known(v1.2.0 T1 즉치 — unknown 오탐 해소, spec §1.3)
+				{"last_brief_at", "x"},          // known(unknown 오탐 해소, spec §1.3)
 				{"daily:write:2026-11-09", "1"}, // daily(플랫 키 — daily: 접두 승계)
 				{"mystery_key", "x"},            // unknown
 			}, nil
@@ -38,8 +38,8 @@ func TestMaintainMetaAuditClassification(t *testing.T) {
 	}
 }
 
-// TestMaintainPruneInvalidatedDryRunCommit — R2: dry-run 기본·--commit 확정.
-// v0.41.0 T3: DELETE는 Repo.PruneInvalidated 위임 — fake는 pruneCalls로
+// TestMaintainPruneInvalidatedDryRunCommit — dry-run 기본·--commit 확정.
+// DELETE는 Repo.PruneInvalidated 위임 — fake는 pruneCalls로
 // 실행을 캡처(삭제 행 수 = 위임 반환값).
 func TestMaintainPruneInvalidatedDryRunCommit(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

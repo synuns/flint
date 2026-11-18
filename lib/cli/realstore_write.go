@@ -1,4 +1,4 @@
-// realstore_write.go — v0.39.0 T2: write.go가 lib/knowledge로 이동하며
+// realstore_write.go — write.go가 lib/knowledge로 이동하며
 // realStore 어댑터 메서드 2종(DupIDByHash·DupRowByHash)만 cli에 추출.
 // knowledge.DupIDStore·DupMetaStore 확장의 실구현 — realStore는 cli 소유
 // 타입이라 knowledge에 둘 수 없다(사이클).

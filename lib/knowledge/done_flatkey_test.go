@@ -1,7 +1,7 @@
-// done_flatkey_test.go — v1.2.3 T1(R17 A1): recallStarvedToday 기록 원천
-// 전환 회귀. write는 v1.2.0 T1 플랫 키(daily:write:<date> int), read는
-// v0.42 read_events 당일(UTC) 행 수 — 구 daily:<date> JSON 폴백 제거로
-// 카운터가 영구 0 동결되던 회상 경고 사망(A1)의 판정 경로.
+// done_flatkey_test.go — recallStarvedToday 기록 원천
+// 전환 회귀. write는 플랫 키(daily:write:<date> int), read는
+// read_events 당일(UTC) 행 수 — 구 daily:<date> JSON 폴백 제거로
+// 카운터가 영구 0 동결되던 회상 경고 사망의 판정 경로.
 package knowledge
 
 import (

@@ -1,4 +1,4 @@
-// maintain_v093_test.go — T3 `maintain --dup-suspects` 보고(보고 전용·exit 0).
+// maintain_v093_test.go — `maintain --dup-suspects` 보고(보고 전용·exit 0).
 package cli
 
 import (
@@ -23,7 +23,7 @@ func TestDupSuspectsJSONEmpty(t *testing.T) {
 	}
 }
 
-// TestMaintainDupSuspectsFlag — Review Focus(명명): `--dup-suspects --limit 5`
+// TestMaintainDupSuspectsFlag — `--dup-suspects --limit 5`
 // 플래그 파싱(limit 전달·기본 10)·출력 JSON·usage 라인 갱신.
 func TestMaintainDupSuspectsFlag(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{},
@@ -50,7 +50,7 @@ func TestMaintainDupSuspectsFlag(t *testing.T) {
 	}
 
 	// usage 라인 갱신 — 모드 누락 에러 안내에 --dup-suspects 포함
-	// (bare usage는 v1.5.3 T1부터 exit 3).
+	// (bare usage는 exit 3).
 	u := &fakeMaint{fakeStore: &fakeStore{}}
 	uout, ucode := runMaintainArgs(t, u)
 	if ucode != 3 || !strings.Contains(uout, "--dup-suspects") {

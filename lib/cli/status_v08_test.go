@@ -1,4 +1,4 @@
-// status_v08_test.go — T85: status --as-of. 카운트 질의에 AS OF 접합·
+// status_v08_test.go — status --as-of. 카운트 질의에 AS OF 접합·
 // 출력 말미 as_of 필드·미지정 시 출력 불변·무효 스펙 exit 3 검증.
 package cli
 
@@ -170,7 +170,7 @@ func TestStatusAsOfMissingValueExit3(t *testing.T) {
 	decode(t, out)
 }
 
-// TestStatusSchemaV5OK — v5 DB(EnsureSchemaV5 superseded_by 승격, T82·v0.8)에서
+// TestStatusSchemaV5OK — v5 DB(EnsureSchemaV5 superseded_by 승격)에서
 // status는 exit 0·버전 그대로 보고. 허용 목록이 "1"~"4" 하드코딩이라 v5를
 // 거부하던 결함(fresh Doltgres schema 에러 exit 3)의 회귀.
 func TestStatusSchemaV5OK(t *testing.T) {

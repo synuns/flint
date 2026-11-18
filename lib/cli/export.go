@@ -1,5 +1,5 @@
-// export.go — v1.3.0 T7: flint export CLI 배선. 원천 조회(ExportRows)와
-// 4형식 포맷터(jsonl·md·txt·csv)는 knowledge 원천(T2~T6)을 seam var로
+// export.go — flint export CLI 배선. 원천 조회(ExportRows)와
+// 4형식 포맷터(jsonl·md·txt·csv)는 knowledge 원천을 seam var로
 // 소비한다(테스트 fake 주입·과도기 미연결 방어 겸용). 출력 계약: 본문은
 // stdout(기본) 또는 --out 파일, 요약·덮어씀 경고는 stderr 1행씩.
 package cli
@@ -23,12 +23,12 @@ import (
 )
 
 // TEMP 완료 — ExportRow·ExportFilter·원천·포맷터 전부 knowledge 원천
-// 연결(T2~T6 적립). seam은 테스트 fake 주입용 var로 유지(반환형 통일
+// 연결. seam은 테스트 fake 주입용 var로 유지(반환형 통일
 // 래퍼 — FormatMD·FormatTXT는 단일 반환). SUPERLITE_REAL=1은 이 기본
 // 실구현 경로가 곧 실연결 검증이다.
 var (
 	exportRowsFn = knowledge.ExportRows
-	// v1.5.5 B1: 포맷터 seam은 (본문, 요약 보고 행수, 오류)를 반환한다.
+	// 포맷터 seam은 (본문, 요약 보고 행수, 오류)를 반환한다.
 	// jsonl·md·txt·csv는 전행 수(len(rows)), pam은 문서 발행 수
 	// (total_memories — pending은 pam 설계 제외)를 보고한다.
 	formatJSONLFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
@@ -45,17 +45,15 @@ var (
 		b, err := knowledge.FormatCSV(rows)
 		return b, len(rows), err
 	}
-	// v1.4.0 T2 후속: PAM v1.0 교환 문서 — exported_by는 "flint/"+버전
-	// (CurrentVersion 관례: ldflags→buildinfo→dev 폴백). v1.6.0 T5 P6:
-	// 발행 수(total_memories)를 포맷터에서 직접 받는다 — 종전엔 직렬화한
-	// 문서 전체(대량 export에서 수십 MB)를 발행 수만 읽으려고 재
-	// Unmarshal했다(산출 규칙 재구현도 아니고 2차 파싱 낭비).
+	// PAM v1.0 교환 문서 — exported_by는 "flint/"+버전
+	// (CurrentVersion 관례: ldflags→buildinfo→dev 폴백).
+	// 발행 수(total_memories)를 포맷터에서 직접 받는다.
 	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
 		return knowledge.FormatPAMWithCount(rows, "flint/"+CurrentVersion())
 	}
-	// v1.6.0 T4 §18: `--format pam --sign` 서명 경로 — 키는
+	// §18: `--format pam --sign` 서명 경로 — 키는
 	// knowledge.LoadOrCreatePAMSigningKey(configDir()/pam-signing-key).
-	// T5 P6: 발행 수 반환은 formatPAMFn과 동일 경유.
+	// 발행 수 반환은 formatPAMFn과 동일 경유.
 	formatPAMSignedFn = func(rows []knowledge.ExportRow, key ed25519.PrivateKey) ([]byte, int, error) {
 		return knowledge.FormatPAMSignedWithCount(rows, "flint/"+CurrentVersion(), key)
 	}
@@ -67,17 +65,17 @@ var exportSignKeyFn = knowledge.LoadOrCreatePAMSigningKey
 // exportStderr — 요약·경고 챈널 seam(stderr 계약 — stdout 본문과 분리).
 var exportStderr io.Writer = os.Stderr
 
-// exportTUIFn — `--tui` 진입 분기 위임 seam(v1.5.0 T8). 기본값은
+// exportTUIFn — `--tui` 진입 분기 위임 seam. 기본값은
 // tui.RunExport(폼→미리보기→인자 조립→runExport 재실행) — 테스트 fake
 // 주입으로 진입 분기만 검증한다(폼 흐름 자체는 lib/tui/export_test.go).
 var exportTUIFn = tui.RunExport
 
-// exportTTYFn — v1.5.2 T1 적응형 진입 TTY 판정 seam(기본 실구현
+// exportTTYFn — 적응형 진입 TTY 판정 seam(기본 실구현
 // tui.IsTerminalStdout, 테스트 fake 교체).
 var exportTTYFn = tui.IsTerminalStdout
 
 // exportFormatters — 포맷명 → 포맷터 seam 조회(무효 포맷 판별 겸용).
-// 반환 행수는 요약 보고 기준(v1.5.5 B1 — pam은 발행 수).
+// 반환 행수는 요약 보고 기준(pam은 발행 수).
 func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, int, error) {
 	return map[string]func([]knowledge.ExportRow) ([]byte, int, error){
 		"jsonl": formatJSONLFn,
@@ -97,7 +95,7 @@ func init() { Register("export", runExport) }
 // exit 2(MapExit 재사용). 성공 시 요약 1행 stderr:
 // `exported N rows (format, M bytes)`.
 func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// v1.5.0 T8 진입 분기 + v1.5.2 T1 적응형 전환: --tui 명시 또는
+	// 진입 분기 + 적응형 전환: --tui 명시 또는
 	// 무인자·무플래그 + 터미널이면 폼 흐름으로 위임하고 플래그 파싱은
 	// 하지 않는다(폼에서 조립된 인자가 runExport를 재진입한다 — 재진입
 	// 시 인자가 있으므로 적응형 재발산 없음). 플래그 경로는 불변.
@@ -115,7 +113,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 	if tuiEntry {
 		return runExportTUI(ctx, st, stdin, stdout)
 	}
-	// v1.6.0 T7: 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
+	// 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
 	// 불허 — read 계열 소비 관례 승계: 값 무조건 소비·trailing 값 부재는
 	// 호출부 빈 값 검증이 exit 3). 값 검증은 발생 순(AllOccs) 재현.
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
@@ -125,7 +123,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			{Name: "--status", Value: true},
 			{Name: "--tag", Value: true},
 			{Name: "--since", Value: true},
-			// v1.6.0 T4 §18 — pam 전용 서명 플래그(값 소비 없음).
+			// §18 — pam 전용 서명 플래그(값 소비 없음).
 			{Name: "--sign"},
 		},
 		Usage: "usage: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339] [--sign (pam only)]",
@@ -150,7 +148,12 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "out", Expect: "non-empty"}))
 				return 3
 			}
-			outPath = o.Value
+			// POSIX 관례: 경로 "-"는 stdout(미지정과 동일).
+			if o.Value == "-" {
+				outPath = ""
+			} else {
+				outPath = o.Value
+			}
 		case "--status":
 			if o.Value != "active" && o.Value != "all" {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "status", Expect: "active|all"}))
@@ -197,10 +200,10 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// v1.4.1 B2: 조회 결과 행 수 상한(등록표 키 export_import_max_rows —
+	// 조회 결과 행 수 상한(등록표 키 export_import_max_rows —
 	// import와 동일 키, 대량 export의 메모리·출력 방어). 조회 직후·포맷팅
 	// 전 판정이므로 전량 버퍼링 이전은 아니지만 포맷터·기록 부작용은 차단
-	// 한다. v1.5 스트리밍 export로 이관 시 이 판정은 커서 기준으로 재정의.
+	// 한다.
 	if code := enforceExportMaxRows(ctx, st, stdout, len(rows)); code != 0 {
 		return code
 	}
@@ -233,7 +236,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			fmt.Fprintln(stdout, wire.ErrLine(werr))
 			return 1
 		}
-		// v1.4.0 T2: 기록 성공 시 .sha256 사이드카(backup --out 관례
+		// 기록 성공 시 .sha256 사이드카(backup --out 관례
 		// 승계 — backup.WriteSidecar로 형식 통일, sha256sum -c 호환).
 		// 실패는 stderr 경고만: 본문 기록 성공을 해치지 않는다(ADR-0006).
 		digest := sha256.Sum256(data)
@@ -244,13 +247,13 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, wire.ErrLine(werr))
 		return 1
 	}
-	// v1.5.5 B1: 요약 행수는 포맷터 보고값 — pam은 문서 발행 수(pending
+	// 요약 행수는 포맷터 보고값 — pam은 문서 발행 수(pending
 	// 제외), 나머지 형식은 전행.
 	fmt.Fprintf(exportStderr, "exported %d rows (%s, %d bytes)\n", summaryRows, format, len(data))
 	return 0
 }
 
-// runExportTUI — `flint export --tui` 배선(v1.5.0 T8). 폼·확인은
+// runExportTUI — `flint export --tui` 배선. 폼·확인은
 // tui.RunExport에, 조회·포맷터·상한·실행은 기존 seam(exportRowsFn·
 // exportFormatters·exportMaxRowsLimit·runExport)을 래핑해 주입한다 —
 // TUI가 원천 로직을 재구현하지 않는다(사이드카·상한·요약은 runExport

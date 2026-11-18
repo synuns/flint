@@ -1,11 +1,11 @@
-// args.go — v1.6.0 T7(R30-D D1): 사양 테이블 기반 인자 mini-parser.
+// args.go — 사양 테이블 기반 인자 mini-parser.
 // 커맨드별 수동 for-switch 루프(토큰 순회·값 소비·"--" 판정·unknown
 // 오류의 12곳 중복)를 플래그 정의 테이블{이름·값 유무·반복 허용} →
 // 구조화 결과 1값으로 수렴한다. 파서는 토큰화만 담당 — 값 검증(숫자·
 // 허용값·빈 값)은 호출부 계약 그대로 남는다(오류 문구·exit 코드 불변).
 //
 // 보존 시맨틱(전환 커맨드 기존 버전 테스트가 최종 증명):
-//   - N9(DashDash=true): "--" 이후 전부 위치 인자 — 플래그 형태 토큰도
+//   - DashDash=true: "--" 이후 전부 위치 인자 — 플래그 형태 토큰도
 //     플래그로 파싱하지 않는다(read 관례). DashDash=false면 "--"는
 //     특별 토큰이 아니다(write: 위치 인자 흡수·엄격 커맨드: unknown).
 //   - 값 소비: 값 플래그는 다음 토큰을 무조건 소비("-" 접두·플래그명
@@ -33,7 +33,7 @@ type FlagSpec struct {
 type ArgSpec struct {
 	Flags []FlagSpec
 	Usage string // unknown flag 오류 접미("usage: flint …") — 빈 값이면 접미 없음
-	// N9: 참이면 "--" 이후 전부 위치 인자(플래그 파싱 종결).
+	// 참이면 "--" 이후 전부 위치 인자(플래그 파싱 종결).
 	DashDash bool
 	// 미인식 토큰의 위치 인자 흡수 허용. 거짓이면 무접두 토큰도 unknown
 	// flag 오류(doctor·report·audit 계열).
@@ -79,7 +79,7 @@ func ParseArgs(args []string, spec ArgSpec) (*ArgResult, error) {
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		// N9: "--" 이후 전부 위치 인자 — 이하 플래그 판정 없음.
+		// "--" 이후 전부 위치 인자 — 이하 플래그 판정 없음.
 		if a == "--" && spec.DashDash {
 			for j, p := range args[i+1:] {
 				res.pos = append(res.pos, PosTok{Value: p, Index: i + 1 + j})

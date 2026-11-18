@@ -1,4 +1,4 @@
-// reads_v06_test.go — T62 BumpReads(항목 참조 계측, schema v4) slow 테스트.
+// reads_v06_test.go — BumpReads(항목 참조 계측, schema v4) slow 테스트.
 package db
 
 import (
@@ -66,7 +66,7 @@ func TestBumpReadsIncrements(t *testing.T) {
 	}
 }
 
-// TestBumpReadsDuplicateIDs — Review Focus(numeric): id=ANY 중복 무결 —
+// TestBumpReadsDuplicateIDs — id=ANY 중복 무결 —
 // 슬라이스에 같은 id가 두 번 있어도 행은 1회만 증분된다(WHERE 매칭 기준).
 func TestBumpReadsDuplicateIDs(t *testing.T) {
 	r := newTestRepo(t)

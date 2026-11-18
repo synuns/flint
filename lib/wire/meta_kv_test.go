@@ -1,5 +1,4 @@
-// meta_kv_test.go — v0.34.3 T2 meta KV 라운드트립(v0.38.0 §1: lib/cli에서
-// 계약층으로 이동·패키지명 갱신). 기본 metaKVFake, SUPERLITE_REAL=1 +
+// meta_kv_test.go — meta KV 라운드트립. 기본 metaKVFake, SUPERLITE_REAL=1 +
 // FLINT_TEST_DSN 설정 시 poolStore로 실DB 경유(seam 검증).
 package wire
 
@@ -147,7 +146,7 @@ func metaKVCleanup(t *testing.T, st Store, keys ...string) {
 	}
 }
 
-// TestMetaKVStoreRoundtrip — Review Focus: SetMetaKV 후 GetMetaKV 왕복.
+// TestMetaKVStoreRoundtrip — SetMetaKV 후 GetMetaKV 왕복.
 // 신규 키 set→get·갱신 upsert 덮어쓰기·미존재 키 ("", false).
 // 이름 참고: TestMetaKVRoundtrip은 v0140_fix_test.go(cli)가 클로저
 // 왕복으로 이미 사용 — 스펙 지정명과 충돌해 Store 직접 왕복임을 드러낸다.
@@ -175,7 +174,7 @@ func TestMetaKVStoreRoundtrip(t *testing.T) {
 }
 
 // bumpFailFake — 증분 upsert SQL에서 오류를 돌려주는 metaKVFake 래퍼.
-// Query 호출 수를 세어 재시도 여부를 가린다(v1.0.1 F2).
+// Query 호출 수를 세어 재시도 여부를 가린다.
 type bumpFailFake struct {
 	metaKVFake
 	calls int
@@ -189,7 +188,7 @@ func (f *bumpFailFake) Query(ctx context.Context, sql string, args ...any) ([][]
 	return f.metaKVFake.Query(ctx, sql, args...)
 }
 
-// TestBumpMetaKVRunsSingleAttempt — Review Focus(v1.0.1 F2): 증분은
+// TestBumpMetaKVRunsSingleAttempt — 증분은
 // 비멱등이라 Query 실패 시에도 단발 실행(총 Query 1회)이어야 한다.
 // QueryOnce 재시도는 모호 실패(서버에서 실행된 뒤 응답만 유실)에서
 // 증분을 이중 계상한다.

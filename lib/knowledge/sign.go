@@ -1,4 +1,4 @@
-// sign.go — v1.6.0 T4: PAM §18 Ed25519 문서 서명. 키 관리(생성/로드 —
+// sign.go — PAM §18 Ed25519 문서 서명. 키 관리(생성/로드 —
 // configDir()/pam-signing-key, 0600)·did:key:ed25519 공개키 인코딩·
 // payload{checksum, export_id, export_date, owner_id} JCS → Ed25519
 // 서명/검증. 스토어 무접촉 — 경로는 PAMSigningKeyPathFn seam(기본
@@ -90,7 +90,9 @@ func LoadOrCreatePAMSigningKey() (ed25519.PrivateKey, error) {
 	if k, err := loadPAMSigningKeyFile(path); err == nil {
 		return k, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("pam signing key read failed: %w", err)
+		// 파손 판정은 선행 동시 생성자의 기록 직전 찰나일 수 있다 —
+		// 즉시 실패하지 않고 예산 내 재시도로 완전 기록에 수렴한다.
+		return loadPAMSigningKeyAfterRace(path)
 	}
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {

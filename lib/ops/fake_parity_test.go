@@ -1,9 +1,9 @@
-// fake_parity_test.go — v0.43.0 T2: ops capability seam 5종 fake 동질 가드.
+// fake_parity_test.go — ops capability seam 5종 fake 동질 가드.
 // 패키지의 runtime 타입 단언 seam(st.(capability))이 소비되는 유닛
 // 테스트에서 열화 폴백 분기가 아니라 위임 경로만 검증하게 한다 —
 // 모든 capability에 대해 컴파일 시점 단언(var _ X = (*fake)(nil))을
 // 두고, TestFakeParityOps가 발견(소스의 단언 seam 사용)과 단언 목록의
-// 동질을 검증한다(2026-11-11 리뷰 병인 ③).
+// 동질을 검증한다.
 package ops
 
 import (
@@ -27,10 +27,10 @@ var _ metaDeleteStore = (*fakeStore)(nil)
 
 // fakeParityExcluded — 발견 목록에서 제외하는 선택 훅 seam.
 // SessionStartRecorder는 미구현 fake가 조용히 건너뛰는 설계(세션 지표만
-// 0 강등 — sessionhook.go §13)로 열화 폴백 병인 ③ 대상이 아니다.
+// 0 강등 — sessionhook.go §13)로 열화 폴백 대상이 아니다.
 var fakeParityExcluded = map[string]bool{"SessionStartRecorder": true}
 
-// TestFakeParityOps — Review Focus: 발견 목록(비테스트 소스에서
+// TestFakeParityOps — 발견 목록(비테스트 소스에서
 // `.(X)` runtime 단언으로 소비되는 인터페이스)과 이 파일의 var _ 단언
 // 목록이 동질해야 한다. 새 capability seam이 추가되면 단언 없이는
 // 이 테스트가 실패한다(컴파일 단언 전수 강제).
@@ -57,7 +57,7 @@ func TestFakeParityOps(t *testing.T) {
 			defined[m[1]] = true
 		}
 	}
-	// v0.43.0 리뷰 수선: 단언 사용(`.(X)`)은 정의 파일과 무관하게 전
+	// 단언 사용(`.(X)`)은 정의 파일과 무관하게 전
 	// 소스에서 찾는다 — 정의 파일 내 사용만 검사하면 다른 파일에서
 	// 소비되는 신규 seam이 새어나간다(가상 인터페이스 프로브로 실증).
 	discovered := map[string]bool{}

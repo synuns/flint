@@ -1,7 +1,7 @@
-// doctor_alias_test.go — v0.40.0 T1: lib/ops로 이동한 doctor_test.go의
+// doctor_alias_test.go — lib/ops로 이동한 doctor_test.go의
 // 테스트 헬퍼(runDoctorArgs·freshDoctorFn·setHarnessEnvs)를 잔류 cli
-// 테스트(doctor_v07·doctor_v094·rules_sync_v097 등)에 재제공한다
-// (이동분 동반 — v0.39 관례). 실구현은 ops 별칭(runDoctor) 경유.
+// 테스트(doctor_v07·doctor_v094·rules_sync_v097 등)에 재제공한다.
+// 실구현은 ops 별칭(runDoctor) 경유.
 package cli
 
 import (

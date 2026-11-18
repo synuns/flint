@@ -1,4 +1,4 @@
-// supply_test.go — v0.40.0 T3 Review Focus: ops 3탄 이동(report·report_html·
+// supply_test.go — ops 이동분(report·report_html·
 // backup·sigverify·rules_sync)의 행위 불변. report 효과 지표 산출 불변·
 // backup 3층 방어(0600 강제·사이드카·로테이션)·restore 가드(체크섬·사이드카·
 // 마스킹)·sigverify 임베드 키 계약·dumpStore 위임(realstore_supply 경로)을
@@ -152,6 +152,28 @@ func TestSupplyBackupDefenseLayers(t *testing.T) {
 	}
 }
 
+// TestSupplyBackupOutDashStdout — `--out -`는 POSIX 관례(경로 "-" = stdout)
+// 로 out 미지정과 완전히 동일: 덤프 본문 stdout·평문 경고 유지·cwd에
+// `-`·`-.sha256` 파일 미생성.
+func TestSupplyBackupOutDashStdout(t *testing.T) {
+	t.Chdir(t.TempDir())
+	dump := "-- flint dump\nBEGIN;\nCOMMIT;\n"
+	withBackupSeams(t, dump, nil, nil)
+	var out strings.Builder
+	code := RunBackup(context.Background(), &fakeStore{}, []string{"--out", "-"}, nil, &out)
+	if code != 0 {
+		t.Fatalf("exit=%d: %s", code, out.String())
+	}
+	if got, want := out.String(), dump; got != want {
+		t.Fatalf("stdout=%q, want %q", got, want)
+	}
+	for _, name := range []string{"-", "-.sha256"} {
+		if _, err := os.Stat(name); err == nil {
+			t.Errorf("`--out -`는 파일 %q을(를) 만들면 안 된다", name)
+		}
+	}
+}
+
 // TestSupplyRestoreGuards — restore 가드: 체크섬 불일치·사이드카 부재는
 // 재생 전 차단(RestoreFn 미호출), 마스킹 덤프는 복원 거부.
 func TestSupplyRestoreGuards(t *testing.T) {
@@ -236,7 +258,7 @@ func (d *dumpDelegFake) Dump(ctx context.Context, w io.Writer) error {
 	return err
 }
 
-// TestSupplyDumpDelegation — v0.34.3 R14: 주입 st가 Dump를 구현하면
+// TestSupplyDumpDelegation — 주입 st가 Dump를 구현하면
 // dumpFn seam 폴백이 아니라 위임 경로가 우선한다(realstore_supply 소유).
 func TestSupplyDumpDelegation(t *testing.T) {
 	withBackupSeams(t, "SEAM-FALLBACK-NEVER", nil, nil)

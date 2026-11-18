@@ -1,12 +1,12 @@
-// sync.go — v1.7.0 T4: `flint sync remote add|list|remove` CLI 진입.
-// v1.7.0 T5: `flint sync push|pull [--dry]` 확장(충돌 시 수동 해결 안내).
+// sync.go — `flint sync remote add|list|remove` CLI 진입.
+// `flint sync push|pull [--dry]` 확장(충돌 시 수동 해결 안내).
 // 쿼리 구현은 lib/db/sync.go(dolt_remote 래핑) 소유 — 이 파일은 인자
 // 검증·exit 계약·출력 마스킹만 담는다(쓰기 SQL 리터럴의 db 소유 원칙,
-// BumpDailyFlatKey 관례). Review Focus(security): 원격 url 원문은
+// BumpDailyFlatKey 관례). 원격 url 원문은
 // 성공·오류·사용법 어떤 stdout 행에도 실리지 않는다 — list의 url은
 // db.MaskRemoteURL(스킴+호스트) 결과뿐, add 성공 행은 이름·상태만.
-// usageOrder의 "sync" 항목(T7)과 정합 — Register는 여기서, usage 문구는
-// wire.usageOrder 단일 소스. T5 push/pull도 이 파일에 확장.
+// usageOrder의 "sync" 항목과 정합 — Register는 여기서, usage 문구는
+// wire.usageOrder 단일 소스. push/pull도 이 파일에 확장.
 package cli
 
 import (
@@ -55,7 +55,7 @@ func runSync(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	}
 }
 
-// runSyncRemote — `flint sync remote ...` 하위 명령 분기(T4 범위).
+// runSyncRemote — `flint sync remote ...` 하위 명령 분기.
 func runSyncRemote(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))

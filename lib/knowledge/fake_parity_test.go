@@ -1,4 +1,4 @@
-// fake_parity_test.go — v0.43.0 T1: knowledge 패키지 fake-capability 동질
+// fake_parity_test.go — knowledge 패키지 fake-capability 동질
 // 가드(스펙 §1, 2026-11-11 리뷰 병인 ③). 패키지의 모든 capability
 // 인터페이스를 컴파일 시점에 fake에 단언한다 — 미구현 메서드는 패리티
 // fake(fakeApprove)의 canned 구현(호출 기록 슬라이스·선택적 capErr
@@ -40,8 +40,8 @@ var (
 	_ staleSessionStore      = (*fakeApprove)(nil)
 	_ usageStore             = (*fakeApprove)(nil)
 	_ sessionSummaryStore    = (*fakeApprove)(nil)
-	_ supersedeRefStore      = (*fakeApprove)(nil) // v1.3.0 T9 — 계보 참조 복원 capability
-	_ TelemetryCommitter     = (*fakeApprove)(nil) // v1.7.0 T6 — 계측 분리 커밋 capability
+	_ supersedeRefStore      = (*fakeApprove)(nil) // 계보 참조 복원 capability
+	_ TelemetryCommitter     = (*fakeApprove)(nil) // 계측 분리 커밋 capability
 
 	// 기존 capability fake의 자연 단언(이미 구현 — 문서화 + 시그니처
 	// 드리프트 회귀 가드).
@@ -59,7 +59,7 @@ var (
 	_ BytesRecorder       = (*bytesRecorder)(nil)
 )
 
-// TestFakeParityKnowledge — Review Focus: 인터페이스 발견 목록(패키지
+// TestFakeParityKnowledge — 인터페이스 발견 목록(패키지
 // 비테스트 소스의 interface 전수)과 단언 목록(이 파일의 `var _ X =`
 // 단언)의 동질을 소스 스캔으로 검증. 단언 전수 자체는 컴파일이 보장
 // 하고, 이 가드는 신규 capability 인터페이스가 단언 없이 추가되는

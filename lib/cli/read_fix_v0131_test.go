@@ -1,8 +1,8 @@
-// read_fix_v0131_test.go — 심층 리뷰 F1 회귀: --status 스펙 검증 강화.
+// read_fix_v0131_test.go — --status 스펙 검증 강화.
 // ①값 없는 trailing --status(단독·--as-of 병용 모두)는 값 없는 --as-of
 // 가드와 동일 규칙으로 exit 3 — 조용히 무시 금지. ②무효 status 값 검증은
 // --as-of 지정 여부와 무관하게 항상 수행(병용 시 as-of 우선 룰링은 유효한
-// 값에만 적용). 기존 테스트 수정 금지 룰에 따라 신규 파일.
+// 값에만 적용).
 package cli
 
 import (

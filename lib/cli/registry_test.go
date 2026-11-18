@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// TestAllCommandsRegistered — v0.1 전 커맨드가 registry에 등록되어 있어야 한다
-// (switch 제거 회귀 방지, T23 부채 회수).
+// TestAllCommandsRegistered — 전 커맨드가 registry에 등록되어 있어야 한다
+// (switch 제거 회귀 방지).
 func TestAllCommandsRegistered(t *testing.T) {
 	for _, name := range []string{"write", "read", "hot", "status", "backup", "restore"} {
 		if _, ok := Lookup(name); !ok {

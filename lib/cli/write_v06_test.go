@@ -1,4 +1,4 @@
-// write_v06_test.go — T61 write --source: 소스 파싱·유입 계측 배선(fake fast).
+// write_v06_test.go — write --source: 소스 파싱·유입 계측 배선(fake fast).
 // 계약: ParseSourceFlag(무효 ErrInvalidSource→exit 3·미지정 manual)·
 // recordUsage(UsageStore 단언, 미구현 no-op·실패 조용히)·
 // duplicate 시 write 1 + dup 1(이중 계수 금지).
@@ -36,7 +36,7 @@ func withRecorder(t *testing.T, f *fakeStore) *writeUsageRecorder {
 	return rec
 }
 
-// TestParseSourceFlag — 미지정 manual·무효값/값 부재 ErrInvalidSource(플랜 T61).
+// TestParseSourceFlag — 미지정 manual·무효값/값 부재 ErrInvalidSource.
 func TestParseSourceFlag(t *testing.T) {
 	cases := []struct {
 		name string
@@ -116,8 +116,8 @@ func TestWriteRecordsUsage(t *testing.T) {
 }
 
 // TestWriteDupCountsOnceEach — duplicate 시 write 1 + dup 각 키 1회(이중 계수
-// 금지, 호출 순서 [write,source]→[dup,""]→[dup_<source>,""] — v0.10.2 R2
-// additive, 룰링 갱신). dedup 이중 경로(ExistsHash·InsertBatch ErrDuplicate)
+// 금지, 호출 순서 [write,source]→[dup,""]→[dup_<source>,""] —
+// additive). dedup 이중 경로(ExistsHash·InsertBatch ErrDuplicate)
 // 모두 동일.
 func TestWriteDupCountsOnceEach(t *testing.T) {
 	// tags 없는 페이로드: 어휘 경고가 없어 duplicate 한 줄 exact-match가

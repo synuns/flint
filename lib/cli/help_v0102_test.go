@@ -12,7 +12,7 @@ func TestHelpExitsZeroAndPrintsUsage(t *testing.T) {
 		t.Fatalf("exit = %d, want 0", code)
 	}
 	got := out.String()
-	// v1.5.4 T2 P3: 첫 줄은 error 키 없는 안내형 {"usage":...} — 전체 일치.
+	// 첫 줄은 error 키 없는 안내형 {"usage":...} — 전체 일치.
 	if first := strings.SplitN(got, "\n", 2)[0]; first != usageLine() {
 		t.Errorf("usage 첫 줄 불일치: %q", first)
 	}

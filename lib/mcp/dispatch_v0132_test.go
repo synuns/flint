@@ -1,7 +1,7 @@
-// dispatch_v0132_test.go — 심층 리뷰 N9(mcp)·N11 회귀. N9: dispatchRead은
+// dispatch_v0132_test.go — dispatchRead은
 // 외부 입력 query를 플래그 파싱으로부터 보호하도록 "--" 뒤에 조립한다.
-// N11: 실구현 seam(installSimple)은 FLINT_TEST_DSN 설정 시만 실DB를 허용
-// (운영 기본 DSN 하드코딩·접속 금지). 신규 파일(기존 테스트 수정 금지).
+// 실구현 seam(installSimple)은 FLINT_TEST_DSN 설정 시만 실DB를 허용
+// (운영 기본 DSN 하드코딩·접속 금지).
 package mcp
 
 import (

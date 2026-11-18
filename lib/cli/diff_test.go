@@ -1,4 +1,4 @@
-// diff_test.go — T84 flint diff: 행 상세(dolt_commit_diff_knowledge)·요약
+// diff_test.go — flint diff: 행 상세(dolt_commit_diff_knowledge)·요약
 // (dolt_log×dolt_diff) 한 줄 JSON·무효 스펙 exit 3. fake 기본, SUPERLITE_REAL=1은
 // 실구현 위임 seam.
 package cli
@@ -50,7 +50,7 @@ func newDiffFake() (*fakeStore, *[]string) {
 	return f, &likeArgs
 }
 
-// TestDiffAddedCounts — Review Focus: 기본 모드 한 줄 JSON 수치·행 상세.
+// TestDiffAddedCounts — 기본 모드 한 줄 JSON 수치·행 상세.
 func TestDiffAddedCounts(t *testing.T) {
 	f, _ := newDiffFake()
 	withFake(t, f)
@@ -85,7 +85,7 @@ func TestDiffAddedCounts(t *testing.T) {
 	}
 }
 
-// TestDiffSummaryShape — Review Focus: --summary는 행 없이 수치+커밋 요약만.
+// TestDiffSummaryShape — --summary는 행 없이 수치+커밋 요약만.
 func TestDiffSummaryShape(t *testing.T) {
 	f, _ := newDiffFake()
 	withFake(t, f)
@@ -111,7 +111,7 @@ func TestDiffSummaryShape(t *testing.T) {
 	}
 }
 
-// TestDiffInvalidExit3 — Review Focus: 무효 as-of 스펙 exit 3(from·to 각각).
+// TestDiffInvalidExit3 — 무효 as-of 스펙 exit 3(from·to 각각).
 func TestDiffInvalidExit3(t *testing.T) {
 	cases := [][]string{
 		{"diff", "2 days ago", "bbbb2"},
@@ -131,7 +131,7 @@ func TestDiffInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestDiffPrefixParameterized — Review Focus: 해시 접두어는 LIKE $1 파라미터로.
+// TestDiffPrefixParameterized — 해시 접두어는 LIKE $1 파라미터로.
 func TestDiffPrefixParameterized(t *testing.T) {
 	f, likeArgs := newDiffFake()
 	withFake(t, f)
@@ -160,7 +160,7 @@ func TestDiffPrefixParameterized(t *testing.T) {
 // TestDiffSeamReal — SUPERLITE_REAL=1 실구현 seam: write 2커밋(A·B) 후
 // diff A B로 added ≥ 1·from/to 해시 일치. 해시는 커밋 메시지 세션 태그로
 // 특정해 병행 커밋과 무관하게 결정적. 실DB 미기동 시 스킵. 실DB는
-// FLINT_TEST_DSN 설정 시만(N1 — 운영 기본 DSN 접속 금지).
+// FLINT_TEST_DSN 설정 시만(운영 기본 DSN 접속 금지).
 func TestDiffSeamReal(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {

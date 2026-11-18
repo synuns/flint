@@ -40,7 +40,7 @@ type errFake struct{}
 
 func (errFake) Error() string { return "meta 조회 실패" }
 
-// TestHotOutputResanitizesMarkers — v0.20.6(패치 루프 6차 S1): 저장 후
+// TestHotOutputResanitizesMarkers — 저장 후
 // 유입된 [flint] 마커·제어 문자는 hot 출력(세션 시작 주입 경로)에서
 // 재중립화된다 — read 경로와 동일 방어.
 func TestHotOutputResanitizesMarkers(t *testing.T) {

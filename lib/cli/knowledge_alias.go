@@ -1,7 +1,7 @@
-// knowledge_alias.go — v0.39.0 T2: lib/knowledge로 이동한 write·import·
+// knowledge_alias.go — lib/knowledge로 이동한 write·import·
 // read·hot 표면을 소문자 var·타입 별칭으로 재노출해 잔여 cli 파일과 잔류
 // 테스트가 무편집 컴파일되게 한다. var 별칭은 테스트 seam 교체 관례
-// (소문자 var)를 승계한다. knowledge 주입 seam 초기화는 v0.40.0 T4부터
+// (소문자 var)를 승계한다. knowledge 주입 seam 초기화는
 // root.go composition root가 소유한다.
 package cli
 
@@ -33,7 +33,7 @@ var (
 	ErrInvalidSource = knowledge.ErrInvalidSource
 )
 
-// v0.39.0 T3(read·hot 이동분) — 잔여 cli 소비자(report·setup·update 및
+// 잔여 cli 소비자(report·setup·update 및
 // root.go seam 주입)와 잔류 테스트가 무편집 컴파일되게 하는 별칭.
 var (
 	runHot                 = knowledge.RunHot

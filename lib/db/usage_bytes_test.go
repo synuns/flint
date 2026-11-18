@@ -1,6 +1,6 @@
-// usage_bytes_test.go — v1.1.0 T1 RecordBytes: G5 바이트 계측 daily 증분
+// usage_bytes_test.go — RecordBytes: 바이트 계측 daily 증분
 // (실DB slow — fast에서는 FLINT_DSN 부재로 스킵). 계약: kind=read|hot|brief
-// 만 daily:<kind>_bytes:<date> 플랫 키 증분(v1.2.0 T1 플랫 전환), last_ 시각
+// 만 daily:<kind>_bytes:<date> 플랫 키 증분, last_ 시각
 // 키 없음(횟수 last_<kind>_at 준용), 파손 기존 값은 0에서 재기작, 무효
 // kind·음수 거부.
 package db
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// TestRecordBytesDaily — Review Focus: 증분(연속 가산)·파손 재기작·무효 kind
+// TestRecordBytesDaily — 증분(연속 가산)·파손 재기작·무효 kind
 // 거부. e.g. RecordBytes("hot", 1180) → daily:hot_bytes:<오늘> +1180.
 func TestRecordBytesDaily(t *testing.T) {
 	r := newTestRepo(t)

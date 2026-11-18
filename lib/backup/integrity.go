@@ -41,10 +41,10 @@ func Checksum(w io.Writer) (written int64, sum string, err error) {
 func WriteSidecar(path, sum string) error {
 	line := sum + "  " + filepath.Base(path) + "\n"
 	sp := path + ".sha256"
-	if err := os.WriteFile(sp, []byte(line), 0o600); err != nil { // v0.20.6 S3
+	if err := os.WriteFile(sp, []byte(line), 0o600); err != nil {
 		return err
 	}
-	// v0.28.0(H③): 기존 사이드카 파일의 완화된 모드 잔존 방지(WriteFile
+	// 기존 사이드카 파일의 완화된 모드 잔존 방지(WriteFile
 	// 퍼모드는 신규 파일에만 적용).
 	return os.Chmod(sp, 0o600)
 }
@@ -61,8 +61,8 @@ func VerifyFile(path string) (string, error) {
 	return VerifyBytes(data, path+".sha256")
 }
 
-// VerifyBytes — 미리 읽은 바이트의 sha256을 사이드카와 대조(v0.28.0
-// H③: restore TOCTOU 폐쇄 — 검증한 바이트를 그대로 재생하면 검증~재생
+// VerifyBytes — 미리 읽은 바이트의 sha256을 사이드카와 대조(restore
+// TOCTOU 폐쇄 — 검증한 바이트를 그대로 재생하면 검증~재생
 // 사이 파일 교체 창이 존재하지 않는다).
 func VerifyBytes(data []byte, sidecarPath string) (string, error) {
 	digest := sha256.Sum256(data)

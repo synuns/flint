@@ -1,9 +1,8 @@
-// nudge.go — T73 flint nudge: PostCompact가 남긴 미증류 마커를 Stop 훅에서
+// nudge.go — flint nudge: PostCompact가 남긴 미증류 마커를 Stop 훅에서
 // 넛지로, SessionStart에서 plain 안내로 상기시킨다. 모든 실패에 조용히 exit 0
 // (비간섭). 무한 넛지 방어 = stop_hook_active 1차 + 마커 1회성(--clear로 소비).
-// v0.11.0 R3: 노출 프로파일 분기 — normal은 짧은 문구 1줄, minimal은 출력
+// 노출 프로파일 분기 — normal은 짧은 문구 1줄, minimal은 출력
 // 없이 마커 자동 종결(compact가 이미 pending 적립 — 재적립 없음, 룰링).
-// v0.40.0 T2: lib/cli에서 이동(동작·출력·exit 불변 — 식별자 대문자화).
 package ops
 
 import (
@@ -17,18 +16,17 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// NudgePendingLine — v0.11.0 R3 Stop 넛지 additionalContext 짧은 지시문이자
-// SessionStart plain 안내 1줄(동일 문구 — v0.34.3 상수 2종 병합).
+// NudgePendingLine — Stop 넛지 additionalContext 짧은 지시문이자
+// SessionStart plain 안내 1줄(동일 문구).
 const NudgePendingLine = "flint: distillation pending — flint nudge"
 
-// NudgeReadHint — SessionStart 안내에 병합되는 read 촉진 힌트(v0.9.5).
+// NudgeReadHint — SessionStart 안내에 병합되는 read 촉진 힌트.
 const NudgeReadHint = "run flint read <query> before working — check existing knowledge"
 
-// NudgeRecallStartLine — v0.18.1: 회상 부재 마커(recall-hint.json)의
+// NudgeRecallStartLine — 회상 부재 마커(recall-hint.json)의
 // SessionStart 안내 1줄. done이 오늘 회상 0회·기록 임계 상태를 마커로
-// 남기면 다음 세션 시작에 1회 표시 후 자동 소진된다(경고가 자동 배선
-// Stop stdout으로만 나가 안 보이던 갭 폐쇄 — R3 후속).
-// v0.18.2: 파일 분리(recall-hint.json) — 증류 대기 마커(pending-distill,
+// 남기면 다음 세션 시작에 1회 표시 후 자동 소진된다.
+// 파일 분리(recall-hint.json) — 증류 대기 마커(pending-distill,
 // 내구)와 수명 주기가 달라 같은 파일을 쓰면 서로를 덮어썼다.
 const NudgeRecallStartLine = "flint: last session only wrote, never recalled — start with flint read <query>"
 
@@ -36,12 +34,12 @@ const NudgeRecallStartLine = "flint: last session only wrote, never recalled —
 const NudgeReasonRecall = "recall"
 
 // ExposureProfileFn — 노출 프로파일 판정 seam. 실구현(cli profile.go —
-// T4 wire 이동 예정)은 cli init이 주입하고, cli 테스트의 var 교체는
-// ops_alias_2 래퍼가 호출 시점에 읽어 전파한다(composePsFn 관례 승계).
+// 실구현(cli profile.go)은 cli init이 주입하고, cli 테스트의 var 교체는
+// ops_alias_2 래퍼가 호출 시점에 읽어 전파한다(composePsFn).
 var ExposureProfileFn func(getKV func(string) (string, error)) string
 
 // NudgeProfile — st의 노출 프로파일. st nil·조회 실패·미설정은 normal
-// (프로파일 조회 실패는 normal — R3).
+// (프로파일 조회 실패는 normal).
 func NudgeProfile(ctx context.Context, st wire.Store) string {
 	if st == nil || ExposureProfileFn == nil {
 		return "normal"
@@ -62,13 +60,13 @@ type nudgeStdin struct {
 }
 
 // RunNudge — 넛지 커맨드. 언제나 0 반환(비간섭).
-// v0.18.2: 증류 마커(pending-distill·내구)와 회상 마커(recall-hint·1회성)를
+// 증류 마커(pending-distill·내구)와 회상 마커(recall-hint·1회성)를
 // 독립 파일로 병행 소비한다 — Stop은 증류만 넛지(회상 마커를 증류로 오인해
 // 엉터리 넛지·--clear로 회상 알림을 지우던 결함 폐쇄), SessionStart는 둘 다
 // 안내(회상은 표시 후 자동 소진).
 func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	// --clear: 마커 소비 후 무출력 종료(에러도 조용히). 수동 경로 불변(R3).
-	// v1.5.5 T2 A5: unknown `-` 접두 인자는 무효 인자 exit 3 — 기존 조용한
+	// unknown `-` 접두 인자는 무효 인자 exit 3 — 기존 조용한
 	// 무시(exit 0) 폐지(조용한 성공 금지). 훅은 무인자로 호출하므로 정상
 	// 훅 경로(§13 비간섭)는 불변.
 	for _, a := range args {
@@ -84,16 +82,14 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 
 	distill, derr := ReadTypedMarker(MarkerKindDistill)
 	recall, rerr := ReadTypedMarker(MarkerKindRecall)
-	// v0.18.1 마이그레이션: 구 배포가 pending-distill.json에 recall을
+	// 구 배포가 pending-distill.json에 recall을
 	// 기록한 잔존 — Reason으로 식별해 회상 취급한다. 소진은 기록된
 	// 파일(증류 파일)에서 삭제한다.
 	legacyRecall := false
 	if distill != nil && distill.Reason == NudgeReasonRecall && recall == nil {
 		recall, distill, legacyRecall = distill, nil, true
 	}
-	// 파손(derr·rerr)은 읽힌 마커가 있으면 무시하고 진행한다. v0.20.2:
-	// 외곽 동치 조건문 제거(패치 루프 1차 F6 — 어느 경로에서도 추가 동작
-	// 없던 불가능 분기).
+	// 파손(derr·rerr)은 읽힌 마커가 있으면 무시하고 진행한다.
 	_ = derr
 	_ = rerr
 	if distill == nil && recall == nil {
@@ -138,14 +134,14 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return 0
 		}
 		fmt.Fprintln(stdout, string(b))
-		// v1.2.0 T4 발화 카운터 — Stop 넛지(distill) 실제 발화 1회.
+		// 발화 카운터 — Stop 넛지(distill) 실제 발화 1회.
 		knowledge.BumpMetaCounter(ctx, st, "fired_nudge_distill")
 	case "SessionStart":
 		// 회상 부재: 전용 문구 1회 표시 후 자동 소진 — 별도 행동(--clear)
 		// 없이 다음 세션이 read로 대응하면 끝(1회성 알림 의미론).
 		if recall != nil {
 			fmt.Fprintln(stdout, NudgeRecallStartLine)
-			// v1.2.0 T4 발화 카운터 — 회상 부재 안내 실제 발화 1회.
+			// 발화 카운터 — 회상 부재 안내 실제 발화 1회.
 			knowledge.BumpMetaCounter(ctx, st, "fired_nudge_recall")
 			if legacyRecall {
 				_ = ClearMarker() // 레거시: 기록 파일(pending-distill)에서 소진
@@ -155,11 +151,11 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		if distill != nil {
 			// 기존 안내 뒤에 read 힌트를 같은 줄로 병합(plain 1줄 계약 유지).
-			// v0.26.0 R5(예산 가시성 — Letta 인밴드 관례): pending 수/상한을
+			// 예산 가시성(Letta 인밴드 관례): pending 수/상한을
 			// 데이터로 동봉(임계 PendingMax 초과 시에만 — 기본 문구 불변).
 			line := NudgePendingLine + " · " + NudgeReadHint
 			if n, ok := pendingCount(ctx, st); ok {
-				if max := knowledge.WriteThresholds(ctx, st).PendingMax; n > max { // 리뷰 ④: 초과 계약(maintain·sessionhook와 정렬)
+				if max := knowledge.WriteThresholds(ctx, st).PendingMax; n > max { // 초과 계약(maintain·sessionhook와 정렬)
 					line = fmt.Sprintf("flint: %d items pending distillation (limit %d) — flint maintain --dup-suspects · %s", n, max, NudgeReadHint)
 				}
 			}
@@ -170,7 +166,7 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 }
 
 // pendingCount — pending 지식 수(조회 실패·부재는 ok=false — 조용히 §13).
-// 조회 자체는 countPending 단일 구현 위임(v0.34.3 3중 쿼리 복제 수렴).
+// 조회 자체는 countPending 단일 구현 위임.
 func pendingCount(ctx context.Context, st wire.Store) (int, bool) {
 	if st == nil {
 		return 0, false

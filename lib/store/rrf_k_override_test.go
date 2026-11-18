@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-// TestRrfKOverrideRange — v1.2.1(R15-B1): rrf_k 오버라이드는 양수 전범위
+// TestRrfKOverrideRange — rrf_k 오버라이드는 양수 전범위
 // 허용 — 0~1 클램프 파서를 공유하면 기본값 60이 전부 기각되어 오버라이드가
 // 불가했다(30 설정→60 복귀 실증).
 func TestRrfKOverrideRange(t *testing.T) {

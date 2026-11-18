@@ -1,4 +1,4 @@
-// asof_test.go — T81 as-of 정규화: 상대 Nh/Nd·ISO·해시 접두어 → 커밋 해시.
+// asof_test.go — as-of 정규화: 상대 Nh/Nd·ISO·해시 접두어 → 커밋 해시.
 // dolt_log 접근은 fake Store(queryFn)으로 세우고 SUPERLITE_REAL=1이면
 // 실구현 위임(delegatingFake — 질의 픽스처는 fake 우선).
 package cli
@@ -72,7 +72,7 @@ func asofStore(t *testing.T, f *fakeStore) Store {
 	return f
 }
 
-// TestRelativeDh — Review Focus: test_relative_dh(72h·7d·무효 2.5h·"2 days ago").
+// TestRelativeDh — test_relative_dh(72h·7d·무효 2.5h·"2 days ago").
 func TestRelativeDh(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -100,7 +100,7 @@ func TestRelativeDh(t *testing.T) {
 	}
 }
 
-// TestPrefixUniqueAmbiguousZero — Review Focus: 접두어 1건 확정·모호·0건·
+// TestPrefixUniqueAmbiguousZero — 접두어 1건 확정·모호·0건·
 // LIKE 파라미터화(주입 방지).
 func TestPrefixUniqueAmbiguousZero(t *testing.T) {
 	f := asofFake(asofLogRows())
@@ -144,7 +144,7 @@ func TestPrefixUniqueAmbiguousZero(t *testing.T) {
 	}
 }
 
-// TestIsoBeforeFirst — Review Focus: 첫 커밋 이전 ISO 시각 → err, 문구에
+// TestIsoBeforeFirst — 첫 커밋 이전 ISO 시각 → err, 문구에
 // 첫 커밋 시각 포함. 정상 ISO는 시각 직전 최신 커밋 채택.
 func TestIsoBeforeFirst(t *testing.T) {
 	f := asofFake(asofLogRows())
@@ -157,7 +157,7 @@ func TestIsoBeforeFirst(t *testing.T) {
 	if err != nil || hash != "abc12f00000000000000000000000000" {
 		t.Fatalf("ISO %q → (%q,%v), want 최신 커밋", spec, hash, err)
 	}
-	// date 비교 인자는 Go 계산 time.Time(v0.6 원칙 — SQL interval 금지).
+	// date 비교 인자는 Go 계산 time.Time(SQL interval 금지).
 	lastSQL := f.queries[0]
 	if !strings.Contains(lastSQL, "date <= $1") {
 		t.Fatalf("date 비교 SQL=%q, want 파라미터화", lastSQL)

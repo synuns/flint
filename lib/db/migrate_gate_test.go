@@ -6,7 +6,7 @@ import (
 )
 
 // TestMigrateGatesViewReapply — 뷰가 최신(해시 일치 + 전부 존재)이면
-// Migrate가 뷰 재적용을 스킵한다(F-T50-1 회귀). 매 커맨드마다 뷰를
+// Migrate가 뷰 재적용을 스킵한다(회귀). 매 커맨드마다 뷰를
 // DROP+CREATE하면 dolt_schemas가 재작성·스테이징되어 신규 DB의 병렬
 // write에서 working-set merge 충돌("schema conflict for dolt_schemas")이
 // 발생했다. 재적용 발생 여부는 reapplyViewsFn 호출 수로 검증한다.
@@ -90,7 +90,7 @@ func TestMigrateGatesViewReapply(t *testing.T) {
 
 // TestCommitNothingStagedSucceeds — 병렬 write에서 다른 writer의
 // dolt_add('-A')가 이 세션의 변경까지 스테이징·커밋하면, 이 세션의
-// dolt_commit는 "nothing to commit"(XX000) 오류를 낸다(F-T50-1 실측:
+// dolt_commit는 "nothing to commit"(XX000) 오류를 낸다(실측:
 // 신규 DB 8동시 write의 잔여 exit 1 원인). 스테이징된 게 없는 커밋은
 // 데이터가 이미 영속된 것이므로 nil, hash=""로 성공 처리해야 한다.
 func TestCommitNothingStagedSucceeds(t *testing.T) {

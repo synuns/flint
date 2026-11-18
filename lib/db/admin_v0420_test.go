@@ -1,4 +1,4 @@
-// admin_v0420_test.go — v0.42.0 schema v9(EnsureSchemaV9) 슬로우 테스트(실DB).
+// admin_v0420_test.go — schema v9(EnsureSchemaV9) 슬로우 테스트(실DB).
 // 계측 ts 인덱스 3종·knowledge pending partial 인덱스 승격·additive
 // 무손상·멱등·수치 비교 게이트 회귀.
 package db
@@ -10,7 +10,7 @@ import (
 )
 
 // v9IndexNames — 게이트가 만드는 인덱스 4종(계측 테이블 ts 경로 3종 +
-// knowledge pending partial 1종 — v0.42.0 파생 산출 쿼리 경로).
+// knowledge pending partial 1종 — 파생 산출 쿼리 경로).
 var v9IndexNames = []string{
 	"flint_read_events_ts_idx",
 	"flint_hot_events_ts_idx",
@@ -18,7 +18,7 @@ var v9IndexNames = []string{
 	"flint_knowledge_pending_idx",
 }
 
-// TestV9PromoteIdempotent — Review Focus(test_v9_promote_idempotent): v8
+// TestV9PromoteIdempotent — v8
 // 게이트를 경유한 DB(기존 배포 경로)에서 EnsureSchemaV9 → 버전 9·
 // 인덱스 4종 존재·승격 전 기존 행 무손상(additive). 재호출은 멱등 no-op.
 func TestV9PromoteIdempotent(t *testing.T) {

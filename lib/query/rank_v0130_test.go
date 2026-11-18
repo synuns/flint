@@ -1,4 +1,4 @@
-// rank_v0130_test.go — v0.13.0 R1 채택 재랭킹: read_count 최종 타이브레이크.
+// rank_v0130_test.go — 채택 재랭킹: read_count 최종 타이브레이크.
 package query
 
 import (
@@ -7,7 +7,7 @@ import (
 )
 
 func TestRankOrderEndsWithReadCount(t *testing.T) {
-	got := RankOrder(2) // v0.28.0: 파라미터 인덱스
+	got := RankOrder(2) // 파라미터 인덱스
 	if !strings.Contains(got, "last_read_at DESC NULLS LAST, read_count DESC") {
 		t.Errorf("read_count 타이브레이커 누락: %s", got)
 	}
@@ -17,9 +17,8 @@ func TestRankOrderEndsWithReadCount(t *testing.T) {
 // 내림 차순 후 read_count DESC. 동률(정합수·read_count 모두)은 기존
 // 조회 순서를 보존한다.
 func TestFallbackReorderByAdoption(t *testing.T) {
-	// v0.25.0 재작성: 순차 타이브레이크(정합>read)에서 RRF 융합으로
-	// 의미론 변경 — 다중 신호 기여 행이 단일 신호 우위 행을 이긴다.
-	// 원 의도(채택 신호가 순위에 반영·동률은 기존 순서)는 유지.
+	// RRF 융합 의미론 — 다중 신호 기여 행이 단일 신호 우위 행을 이긴다.
+	// 채택 신호가 순위에 반영·동률은 기존 순서 보존.
 	rows := [][]any{
 		{int32(1), "flint 백업", "복구 절차", ":a:", nil, "main", 0.9, "active", int32(0)}, // match2·rc0·jamo2
 		{int32(2), "flint 백업", "복구 절차", ":a:", nil, "main", 0.8, "active", int32(5)}, // match2·rc5·jamo2

@@ -22,8 +22,7 @@ func staleQueryFixture(t *testing.T, f *fakeMaint, metaRows, knolRows [][]any) {
 
 func ago(d time.Duration) time.Time { return time.Now().Add(-d) }
 
-// TestStaleBucketsAndStallWarnings — Review Focus(state):
-// 미참조(read_count=0)/경과(last_read_at)/활성 3행 → 2건만·never_read 1·경고 배열.
+// TestStaleBucketsAndStallWarnings — 미참조(read_count=0)/경과(last_read_at)/활성 3행 → 2건만·never_read 1·경고 배열.
 func TestStaleBucketsAndStallWarnings(t *testing.T) {
 	knol := [][]any{
 		{1, "미참조 노트", nil, ago(100 * 24 * time.Hour), 0},

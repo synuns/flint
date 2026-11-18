@@ -1,6 +1,6 @@
 package backup
 
-// R17-B1: Rotate는 flint 생성 덤프(flint-YYYYMMDD-HHMMSS-PID.sql|.age)만
+// Rotate는 flint 생성 덤프(flint-YYYYMMDD-HHMMSS-PID.sql|.age)만
 // 로테이션 대상으로 삼는다 — 사용자가 같은 디렉터리에 둔 .sql/.age는
 // 삭제도 keep 집계도 제외(데이터 손실 방지).
 

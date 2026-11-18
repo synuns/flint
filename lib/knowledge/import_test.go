@@ -1,4 +1,4 @@
-// import_test.go — v0.39.0 T2: lib/cli/import_test.go 이동(온보딩 임포트
+// import_test.go — 온보딩 임포트
 // 계약 — 후보 탐색·헤딩 분할·dry-run 기본·--commit 적립·dedup 멱등).
 // runImport 직접 호출 테스트는 RunImport로 치환(계약 불변).
 package knowledge
@@ -16,7 +16,7 @@ import (
 func TestParseMarkdownSections(t *testing.T) {
 	body := "# 제목\n\n## 규칙 A\n내용 12자 이상 있습니다.\n\n## 규칙 B\n\n짧\n\n## 규칙 C\n<!-- 주석 -->\n충분한 내용이 여기 있습니다.\n"
 	got := parseMarkdownSections(stripImportNoise(body))
-	// 리뷰 10: 수 계약 단언 — A·B·C 3섹션(짧은 B 포함 — 호출부 필터).
+	// 수 계약 단언 — A·B·C 3섹션(짧은 B 포함 — 호출부 필터).
 	if len(got) != 3 {
 		t.Fatalf("섹션 수=%d, want 3(A·B·C)", len(got))
 	}
@@ -67,7 +67,7 @@ func TestRunImportDryRunAndCommit(t *testing.T) {
 	}
 }
 
-// TestParseMarkdownFenceGuard — v0.27.0 리뷰 6: 펜스 내부 "## "는
+// TestParseMarkdownFenceGuard — 펜스 내부 "## "는
 // 헤딩이 아니다 — 섹션 분할·주석 제거 모두 펜스 보존.
 func TestParseMarkdownFenceGuard(t *testing.T) {
 	body := "## 규칙\n실제 내용 충분합니다.\n\n```markdown\n## 펜스 내부 예시\n```\n"
@@ -80,7 +80,7 @@ func TestParseMarkdownFenceGuard(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseCommentFence — v0.27.3(재감사 발견1): 주석 블록
+// TestStripImportNoiseCommentFence — 주석 블록
 // 내부의 ``` 라인이 펜스를 열어 이후 섹션 전체를 삼키던 결함 — 주석
 // 처리가 펜스보다 우선하고 펜스 판정은 주석 제거 후 라인만 본다.
 func TestStripImportNoiseCommentFence(t *testing.T) {
@@ -95,7 +95,7 @@ func TestStripImportNoiseCommentFence(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseSameLineClose — v0.27.3(발견2): 같은 줄
+// TestStripImportNoiseSameLineClose — 같은 줄
 // `<!-- 주석 --> 뒷텍스트`가 inComment를 잔류시켜 이후 문서 전체를
 // 무음 삭제하던 결함.
 func TestStripImportNoiseSameLineClose(t *testing.T) {
@@ -110,7 +110,7 @@ func TestStripImportNoiseSameLineClose(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseInline — v0.27.3(발견9): 줄 중간 인라인 주석은
+// TestStripImportNoiseInline — 줄 중간 인라인 주석은
 // 주석 부분만 제거되고 앞뒤 텍스트가 보존된다.
 func TestStripImportNoiseInline(t *testing.T) {
 	got := stripImportNoise("규칙은 이렇다 <!-- 비고: 예외 없음 --> 저렇게 쓴다")
@@ -122,7 +122,7 @@ func TestStripImportNoiseInline(t *testing.T) {
 	}
 }
 
-// TestParseMarkdownTildeFence — v0.27.3: ~~~ 펜스(CommonMark) 내부
+// TestParseMarkdownTildeFence — ~~~ 펜스(CommonMark) 내부
 // 헤딩 오판 방지 — 유사 지식("규칙[가짜]") 적립 차단.
 func TestParseMarkdownTildeFence(t *testing.T) {
 	body := "## 실제 섹션\n본문 충분합니다.\n\n~~~python\n## 물결 펜스 내부 헤딩\ncode\n~~~\n"
@@ -148,7 +148,7 @@ func TestParseMarkdownUnterminatedFence(t *testing.T) {
 	}
 }
 
-// TestRunImportSameFileTwice — v0.27.3(발견3): 같은 파일 2회 지정은
+// TestRunImportSameFileTwice — 같은 파일 2회 지정은
 // 배치 내 dedup으로 1건 적립(unique 위반 rollback+exit 0이 아니라
 // skipped 보고).
 func TestRunImportSameFileTwice(t *testing.T) {
@@ -169,7 +169,7 @@ func TestRunImportSameFileTwice(t *testing.T) {
 	}
 }
 
-// TestRunImportPartialUnreadableReported — v0.27.3(발견5): 읽기 가능·불가
+// TestRunImportPartialUnreadableReported — 읽기 가능·불가
 // 혼재 시 unreadable이 출력에 보고된다(부분 유실의 무음 누락 방지).
 func TestRunImportPartialUnreadableReported(t *testing.T) {
 	dir := t.TempDir()
@@ -189,7 +189,7 @@ func TestRunImportPartialUnreadableReported(t *testing.T) {
 	}
 }
 
-// TestRunImportOriginNormalized — v0.27.3(발견6): CLAUDE.md·./CLAUDE.md
+// TestRunImportOriginNormalized — CLAUDE.md·./CLAUDE.md
 // 재임포트가 같은 origin(파일명 기준)으로 동일 해시 — 멱등 유지.
 func TestRunImportOriginNormalized(t *testing.T) {
 	dir := t.TempDir()
@@ -206,9 +206,9 @@ func TestRunImportOriginNormalized(t *testing.T) {
 	}
 }
 
-// TestRunImportUnknownFlag — v0.27.3(발견12): 미확인 플래그는 사용법
-// 오류(오타 플래그의 무음 경로화 방지) — errLine 관례·v0.34.3부터 무효
-// 인자 계약 exit 3(doctor·tuning·diff·maintain 정합). v1.5.4(T1): 메시지에
+// TestRunImportUnknownFlag — 미확인 플래그는 사용법
+// 오류(오타 플래그의 무음 경로화 방지) — errLine 관례·무효
+// 인자 계약 exit 3(doctor·tuning·diff·maintain 정합). 메시지에
 // 허용 플래그 usage 힌트 부가 — 단언은 플래그 사실+힌트로 갱신.
 func TestRunImportUnknownFlag(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
@@ -229,7 +229,7 @@ func TestRunImportUnknownFlag(t *testing.T) {
 	}
 }
 
-// TestRunImportOriginCleanNotBase — 리뷰 1(v0.27.3): origin은 Clean
+// TestRunImportOriginCleanNotBase — origin은 Clean
 // 정규화 — 디렉터리가 다른 동일 파일명(a/rules.md·b/rules.md)은 서로
 // 다른 규칙으로 둘 다 적립(basename 충돌 무음 skip 방지).
 func TestRunImportOriginCleanNotBase(t *testing.T) {
@@ -250,7 +250,7 @@ func TestRunImportOriginCleanNotBase(t *testing.T) {
 	}
 }
 
-// TestRunImportDedupErrorAllFail — 리뷰 3(v0.27.3): dedup 조회 전량
+// TestRunImportDedupErrorAllFail — dedup 조회 전량
 // 실패는 '전부 중복'이 아닌 장애 — exit 1(거짓 성공 금지).
 func TestRunImportDedupErrorAllFail(t *testing.T) {
 	dir := t.TempDir()
@@ -265,7 +265,7 @@ func TestRunImportDedupErrorAllFail(t *testing.T) {
 	}
 }
 
-// TestParseMarkdownDanglingTilde — 리뷰 2(v0.27.3): 미종결 ~~~ 한 줄이
+// TestParseMarkdownDanglingTilde — 미종결 ~~~ 한 줄이
 // 나머지 문서 헤딩을 삼키지 않는다(개시 라인 본문 중립화).
 func TestParseMarkdownDanglingTilde(t *testing.T) {
 	body := "## A\n본문 A 충분합니다.\n\n~~~\n미종결 물결 표시\n\n## B\n본문 B 충분합니다.\n\n## C\n본문 C 충분합니다.\n"
@@ -301,7 +301,7 @@ func withStderrCapture(t *testing.T) func() string {
 	}
 }
 
-// TestImportMigrationExtRouting — v1.5.5 B3: --format 미지정 + 위치 인자
+// TestImportMigrationExtRouting — --format 미지정 + 위치 인자
 // 1개가 .jsonl/.pam 확장자면 마이그레이션 라우팅 판정. 명시 --format·
 // 기타 확장자·위치 인자 0/2개는 라우팅 없음(기존 규칙 변환 경로).
 func TestImportMigrationExtRouting(t *testing.T) {
@@ -330,7 +330,7 @@ func TestImportMigrationExtRouting(t *testing.T) {
 	}
 }
 
-// TestRunImportJsonlExtRoutesToMigration — v1.5.5 B3: --format 미지정 +
+// TestRunImportJsonlExtRoutesToMigration — --format 미지정 +
 // .jsonl 경로는 마이그레이션 진입(안내 1행 stderr) — 규칙 변환 아님.
 func TestRunImportJsonlExtRoutesToMigration(t *testing.T) {
 	dir := t.TempDir()
@@ -358,7 +358,7 @@ func TestRunImportJsonlExtRoutesToMigration(t *testing.T) {
 	}
 }
 
-// TestRunImportEmptyHint — v1.5.5 B3: 규칙 변환 결과 empty면 additive
+// TestRunImportEmptyHint — 규칙 변환 결과 empty면 additive
 // 힌트 키(마이그레이션 --format 안내).
 func TestRunImportEmptyHint(t *testing.T) {
 	dir := t.TempDir()
@@ -378,7 +378,7 @@ func TestRunImportEmptyHint(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseDoubleInline — 리뷰 4(v0.27.3): 같은 줄 주석 2쌍은
+// TestStripImportNoiseDoubleInline — 같은 줄 주석 2쌍은
 // 전부 제거(두 번째 개시 마커 잔존 방지).
 func TestStripImportNoiseDoubleInline(t *testing.T) {
 	got := stripImportNoise("설명 <!-- 비고1 --> 예시 <!-- 비고2")

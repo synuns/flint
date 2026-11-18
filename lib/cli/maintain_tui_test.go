@@ -1,4 +1,4 @@
-// maintain_tui_test.go — v1.6.0 T6: `flint maintain --tui` 진입 분기 계약
+// maintain_tui_test.go — `flint maintain --tui` 진입 분기 계약
 // 테스트. 옵트인만(적응형 X — 유령 인자 회귀 방지): --tui 단독만 TUI
 // (tui.RunMaintainTUI), 조합은 무효 인자 exit 3, FLINT_NO_TUI는 3층 방어
 // 1층으로 차단. 그 외 전부 ops.RunMaintain 불변 위임(회귀).

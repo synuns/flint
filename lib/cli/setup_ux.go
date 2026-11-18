@@ -1,4 +1,4 @@
-// setupUX — setup 진행 표시(v0.17.0 R2). stdlib fmt+ANSI 이스케이프만
+// setupUX — setup 진행 표시. stdlib fmt+ANSI 이스케이프만
 // 사용(ADR-0003 외부 의존성 금지). TTY면 스텝 인디케이터(◯… → ✓/✗)와
 // 색상으로, non-TTY면 색상 코드 없는 plain 한 줄 결과로 렌더한다.
 package cli

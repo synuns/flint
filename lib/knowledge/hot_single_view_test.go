@@ -1,7 +1,7 @@
-// hot_single_view_test.go — v0.41.0 T5: hot_view 단일 정의 기반 증분.
+// hot_single_view_test.go — hot_view 단일 정의 기반 증분.
 // 동반 질의(hotKnowledgeIDsSQL·pendingValidAtsSQL) 폐지 — id·valid_at를
 // hot_view 본질의에서 직접 소비해 주입 집합=증분 집합을 구조적으로
-// 보장한다(Review Focus: 동반 질의 제거 후에도 주입=증분·스냅숏 정합).
+// 보장한다(동반 질의 제거 후에도 주입=증분·스냅숏 정합).
 package knowledge
 
 import (
@@ -34,8 +34,7 @@ func (h *hotBumpRecorder) RecordHotEvent(ctx context.Context, ids string) error 
 	return nil
 }
 
-// TestHotViewSingleDefinition — Review Focus(views.sql 3팔 단일 정의):
-// hot_view 세 팔이 id·valid_at·ingested_at을 말미에 노출한다(프로젝트
+// TestHotViewSingleDefinition — hot_view 세 팔이 id·valid_at·ingested_at을 말미에 노출한다(프로젝트
 // 팔은 NULL). 세 팔 조건을 다시 모은 평행 정의(동반 질의)는 폐지.
 func TestHotViewSingleDefinition(t *testing.T) {
 	v := sqlfs.ViewsSQL()
@@ -77,8 +76,7 @@ func TestHotViewSingleDefinition(t *testing.T) {
 	}
 }
 
-// TestHotFullSingleQueryInjectionEqualsIncrement — Review Focus(주입=증분):
-// --full 경로는 hot_view 본질의 1개 질의만으로 주입·증분·접미를 전부
+// TestHotFullSingleQueryInjectionEqualsIncrement — --full 경로는 hot_view 본질의 1개 질의만으로 주입·증분·접미를 전부
 // 소비한다. 동반 질의("FROM projects p" 재조합·"FROM knowledge" valid_at
 // 별도 조회)가 나가지 않고, 주입된(생존) 지식 id 전수가 증분·노출 기록과
 // 정합한다.
@@ -131,7 +129,7 @@ func TestHotFullSingleQueryInjectionEqualsIncrement(t *testing.T) {
 	}
 }
 
-// TestHotRecordsBytes — Review Focus(v1.1.0 T1): hot 출력 직후 len(최종
+// TestHotRecordsBytes — hot 출력 직후 len(최종
 // 출력)을 kind="hot"으로 기록 — --full은 ClampHot 절단 '후' 길이(예산
 // 준수 실측 — 절단 전 아님), 헤드라인은 기록된 1줄(개행 포함 쓴 총량).
 func TestHotRecordsBytes(t *testing.T) {

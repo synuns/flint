@@ -1,7 +1,6 @@
-// brief_v0341_test.go — v0.34.1 사후 감사 회귀: read와의 계약 정합
+// brief_v0341_test.go — 사후 감사 회귀: read와의 계약 정합
 // (N9 `--` 가드·N10 값 없는 trailing 플래그 exit 3)과 예산 절단이
 // [flint] 경계 헤더를 잘라내지 않는 방어(ADR-0006).
-// v0.39.0 T4: lib/cli에서 이동(cli/brief_v0341_test.go 원본).
 package knowledge
 
 import (
@@ -69,7 +68,7 @@ func TestBriefDashDashGuard(t *testing.T) {
 // 승격된(active) 지식만 내보낸다(ADR-0015 결정4·spec §1.1 — 미검수
 // 지식 비출 금지). 뷰 경로로 조회하면 이 테스트의 fake가 pending 행을
 // 돌려 결함을 재현한다. invalidated는 status='active' 조건과
-// invalid_at IS NULL 이중으로 차단된다(코디네이터 룰링 — 무효화 경로
+// invalid_at IS NULL 이중으로 차단된다(무효화 경로
 // 3곳 모두 status와 invalid_at을 함께 설정).
 func TestBriefExcludesPending(t *testing.T) {
 	ctx := context.Background()
@@ -124,7 +123,7 @@ func TestBriefExcludesPending(t *testing.T) {
 	})
 }
 
-// TestBriefRecordsBytes — Review Focus(v1.1.0 T1): brief 출력 직후
+// TestBriefRecordsBytes — brief 출력 직후
 // len(최종 출력)을 kind="brief"로 기록 — ClampHot 절단 '후' 길이(기기 밖
 // 유출량 실측), 0건 안내 경로도 쓴 총량을 기록한다(분모 정합).
 func TestBriefRecordsBytes(t *testing.T) {

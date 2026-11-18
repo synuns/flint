@@ -1,4 +1,4 @@
-// write_v0180_test.go — v0.18.0 R1: duplicate 응답 피드백. 단일 줄 재전송에서
+// write_v0180_test.go — duplicate 응답 피드백. 단일 줄 재전송에서
 // 기존 행 topic·state를 additive 노출해 라이터가 read/supersede/approve로
 // 전환하게 한다(Anthropic already-exists 패턴의 규칙 기반 합성).
 package cli

@@ -1,4 +1,4 @@
-// report_bytes_v1110_test.go — v1.1.0 T3 G5 회귀: daily bytes 픽스처가
+// report_bytes_v1110_test.go — 회귀: daily bytes 픽스처가
 // report effect.bytes(read/hot/brief 각 bytes_14d·avg_bytes — 분모는 같은
 // 행의 호출 수 카운터)와 status hot_bytes_14d·read_bytes_14d로 정합.
 // 분모 0 가드(호출 0 → avg 0) 포함.
@@ -40,7 +40,7 @@ func bytesDailyFake(todayJSON string) *fakeStore {
 	}}
 }
 
-// TestReportBytes — Review Focus: 픽스처 daily bytes → effect.bytes 집합
+// TestReportBytes — 픽스처 daily bytes → effect.bytes 집합
 // 정합. read 4회 1,000B·hot 2회 900B·brief 3회 600B — 각 bytes_14d는
 // 일별 합산, avg_bytes는 바이트/호출 수(버림).
 func TestReportBytes(t *testing.T) {
@@ -82,7 +82,7 @@ func TestReportBytes(t *testing.T) {
 	}
 }
 
-// TestReportBytesZeroDenominator — Review Focus: 호출 수 0(바이트만 기록된
+// TestReportBytesZeroDenominator — 호출 수 0(바이트만 기록된
 // 표면)은 avg_bytes 0(제로 분모 가드 — 바이트 합은 그대로 보고).
 func TestReportBytesZeroDenominator(t *testing.T) {
 	fixture := `{"read":0,"hot":0,"brief":0,"read_bytes":0,"hot_bytes":500,"brief_bytes":0}`
@@ -109,7 +109,7 @@ func TestReportBytesZeroDenominator(t *testing.T) {
 	}
 }
 
-// TestStatusBytes14d — Review Focus: status 출력 말미에 hot_bytes_14d·
+// TestStatusBytes14d — status 출력 말미에 hot_bytes_14d·
 // read_bytes_14d(보존창 일별 합산 — 오늘 daily 행에서 유도).
 func TestStatusBytes14d(t *testing.T) {
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return "", nil })

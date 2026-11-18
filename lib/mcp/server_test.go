@@ -108,7 +108,7 @@ func TestUnknownMethod(t *testing.T) {
 	}
 }
 
-// TestServeSkipTooLongLine — v0.25.4(U6): 상한 초과 줄 이후 요청은
+// TestServeSkipTooLongLine — 상한 초과 줄 이후 요청은
 // 여전히 처리된다(서버 생존).
 func TestServeSkipTooLongLine(t *testing.T) {
 	huge := strings.Repeat("x", 5*1024*1024) + "\n"
@@ -125,7 +125,7 @@ func TestServeSkipTooLongLine(t *testing.T) {
 	}
 }
 
-// TestServeFlushesEachResponseImmediately — v1.7.2 T5(C5): 각 응답은 write
+// TestServeFlushesEachResponseImmediately — 각 응답은 write
 // 직후 즉시 flush된다 — 입력 EOF 전까지 bufio 버퍼에 머무르면 요청-응답
 // 왕복 클라이언트가 데드락한다. io.Pipe로 입력을 열어 둔 채 응답 도달을
 // 단언(EOF 폭주 시 deferred flush로도 늦게 도달하므로 타임아웃이 판정).
@@ -168,7 +168,7 @@ func TestServeFlushesEachResponseImmediately(t *testing.T) {
 	pw.Close()
 }
 
-// TestServeTooLongLineGetsErrorResponse — v1.0.1 감사 F7: 초과 줄을
+// TestServeTooLongLineGetsErrorResponse — 초과 줄을
 // 무응답으로 버리면 응답을 기다리는 클라이언트가 타임아웃한다. 초과 줄에는
 // -32600 응답 1줄을 돌려주고(id는 복원 불가라 null), 이후 요청은 계속
 // 처리된다.

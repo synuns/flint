@@ -1,9 +1,9 @@
-// run_store.go — v1.2.4 T1(B4): store 주입 실행 변형. flint mcp 장기
+// run_store.go — store 주입 실행 변형. flint mcp 장기
 // 프로세스가 도구 호출마다 store를 다시 열지 않도록 RunWithStore로
 // 서버 수명 store를 주입한다. 기존 cli.Run(root.go)은 무변 — nil 주입은
 // wire.Run(newStore) 기존 경로와 동치다.
 //
-// v1.6.2 R33-3 F1: 래퍼는 wire.Store 메서드만 승격하므로 커맨드층의
+// 래퍼는 wire.Store 메서드만 승격하므로 커맨드층의
 // 선택 인터페이스 단언(lib/{knowledge,ops}의 approveStore·DupMetaStore·
 // ReadEventStore 등 전수 grep 19종)이 전부 차단돼 approve 승격·duplicate
 // 메타·read_events 계량이 상실됐다. 각 capability를 원본에 위임하는
@@ -24,7 +24,7 @@ import (
 )
 
 // injectedStore — 주입 store의 Close 차단 래퍼. wire.Run은 명령 완료 후
-// st.Close()하는 단발 CLI 계약(v0.25.3 누수 패치)이라 서버 수명 store를
+// st.Close()하는 단발 CLI 계약이라 서버 수명 store를
 // 그대로 넘기면 첫 도구 호출에 닫힌다. 위임은 전부 원본, Close만 no-op.
 type injectedStore struct{ wire.Store }
 
@@ -72,7 +72,7 @@ var (
 	} = injectedStore{}
 	_ ops.ConflictStore            = injectedStore{}
 	_ ops.MaintStore               = injectedStore{}
-	_ knowledge.TelemetryCommitter = injectedStore{} // v1.7.0 T6 — 계측 분리 커밋
+	_ knowledge.TelemetryCommitter = injectedStore{} // 계측 분리 커밋
 )
 
 // --- 승격·전이 (knowledge approve/import) ---
@@ -174,7 +174,7 @@ func (s injectedStore) RecordHotEvent(ctx context.Context, ids string) error {
 	return nil
 }
 
-// CommitTelemetry — 계측 테이블 별도 커밋 위임(v1.7.0 T6). 미구현
+// CommitTelemetry — 계측 테이블 별도 커밋 위임. 미구현
 // 원본은 소비자(commitTelemetry의 타입 단언 실패 스킵)과 동일한 no-op.
 func (s injectedStore) CommitTelemetry(ctx context.Context, cmd string) error {
 	if tc, ok := s.Store.(knowledge.TelemetryCommitter); ok {

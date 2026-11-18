@@ -9,7 +9,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// TestMaskedDumpWarnsAllowlistEntries — v1.0.2(R2-C4): --mask 출력에
+// TestMaskedDumpWarnsAllowlistEntries — --mask 출력에
 // allowlist 등록 수 경고가 병기된다(공유 덤프의 평문 잔류 고지 계약).
 func TestMaskedDumpWarnsAllowlistEntries(t *testing.T) {
 	store.ResetSecretsAllowlistForTest([]string{"demo-token-123"})

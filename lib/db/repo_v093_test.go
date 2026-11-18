@@ -1,4 +1,4 @@
-// repo_v093_test.go — v0.9.3 회귀: DupIDByHash(해시 중복 시 기존 행 id
+// repo_v093_test.go — 회귀: DupIDByHash(해시 중복 시 기존 행 id
 // 노출, R3). 시드 행 해시는 (id, true), 미등록 해시는 (0, false).
 package db
 

@@ -1,9 +1,9 @@
-// read_fix_v0131_test.go — 심층 리뷰 F3·F8 회귀. F3: --status active의
+// read_fix_v0131_test.go — --status active의
 // active 정의를 active_knowledge 뷰(invalid_at IS NULL)와 동치화 — 뷰가
 // 차단하는 행(invalid_at 설정 active 행)이 --status active에만 보이는 정의
 // 분열 방지. pending·invalidated는 invalid_at 규약이 달라 조건 미부착.
-// F8: 두 조립기의 q·tag·entity·domain 필터가 언제나 동일(공유 조립)함을
-// 고정. 기존 테스트 수정 금지 룰에 따라 신규 파일.
+// 두 조립기의 q·tag·entity·domain 필터가 언제나 동일(공유 조립)함을
+// 고정.
 package query
 
 import (

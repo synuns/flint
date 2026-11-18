@@ -1,6 +1,5 @@
-// read_v0100_test.go — v0.10.0 T1: 제로히트 did-you-mean 제안 라인·
-// 구문 히트 경로 회귀(스펙 §3 R1). 인시던트 기록대로 가짜 검사식은
-// 스캔 시그니처로 확장, 질의는 유사도>0이 성립하는 것으로 변경했다.
+// read_v0100_test.go — 제로히트 did-you-mean 제안 라인·
+// 구문 히트 경로 회귀(스펙 §3 R1).
 package cli
 
 import (
@@ -24,7 +23,7 @@ func suggestQueryFn() func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestReadZeroHitSuggests — v0.14.0 R1 재작성(룰링): 제안 라인 폐지 —
+// TestReadZeroHitSuggests — 재작성(룰링): 제안 라인 폐지 —
 // 구문·폴백 모두 제로히트면 완전 무출력·exit 1. 스캔 후보가 있어도
 // 에이전트에게 보이지 않는다(내부 분류는 zero_near 계측으로만).
 func TestReadZeroHitSuggests(t *testing.T) {
@@ -39,7 +38,7 @@ func TestReadZeroHitSuggests(t *testing.T) {
 	}
 }
 
-// TestReadPhraseHitNoSuggest — Review Focus: 구문 히트 시 suggestions
+// TestReadPhraseHitNoSuggest — 구문 히트 시 suggestions
 // 미발생(히트 경로 완전 불변 — 룰링).
 func TestReadPhraseHitNoSuggest(t *testing.T) {
 	ctx := context.Background()

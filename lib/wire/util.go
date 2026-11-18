@@ -1,8 +1,7 @@
-// util.go — v0.41.0 T4: 순수 함수 단일 소스. cellToTime(셀→time)·
-// quoteJSON(JSON 문자열 리터럴)이 knowledge·ops에 사이클 금지로
-// 복제되어 있던 것의 수렴(wire는 양쪽이 임포트하는 계약층 — 소비자는
-// var 별칭 위임, 동작 불변). v0.43.0 T3: backupEncryptOn 술어도 같은
-// 사이클 사유로 knowledge 로컬 복제·ops 구현에서 wire로 수렴.
+// util.go — 순수 함수 단일 소스. cellToTime(셀→time)·
+// quoteJSON(JSON 문자열 리터럴)·backupEncryptOn(meta 판정) 소유.
+// wire는 knowledge·ops 양쪽이 임포트하는 계약층 — 소비자는
+// var 별칭 위임, 동작 불변.
 package wire
 
 import (
@@ -34,8 +33,8 @@ func QuoteJSON(s string) string {
 	return string(b)
 }
 
-// BackupEncryptOn — meta backup_encrypt 값 판정의 단일 소스(v0.43.0 T3
-// 수렴 — knowledge·ops 소비자는 var 별칭 위임). "true"·"1"만 참.
+// BackupEncryptOn — meta backup_encrypt 값 판정의 단일 소스
+// (knowledge·ops 소비자는 var 별칭 위임). "true"·"1"만 참.
 func BackupEncryptOn(v string) bool {
 	return v == "true" || v == "1"
 }

@@ -1,4 +1,4 @@
-// ops_alias_2.go — v0.40.0 T2: lib/ops로 이동한 maintain·metrics·marker·
+// ops_alias_2.go — lib/ops로 이동한 maintain·metrics·marker·
 // nudge·sessionhook 표면을 소문자 var·타입·상수 별칭으로 재노출해 잔여 cli
 // 파일(report·profile·update·knowledge_alias 및 잔류 테스트)이 무편집
 // 컴파일되게 한다(ops_alias_1 관례 승계). var 별칭은 테스트 seam 교체

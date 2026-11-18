@@ -1,7 +1,7 @@
-// render_test.go — T2(render 출력층 별칭) 테스트. 코어·가드 테스트는
+// render_test.go — render 출력층 별칭 테스트. 코어·가드 테스트는
 // lib/render/render_test.go로 이동했고, 여기선 render_alias.go의 var
 // 별칭이 잔여 cli 소비 파일을 무편집으로 컴파일·동등 동작시키는지만
-// 검증한다(T1 TestAliasCompat 패턴 승계).
+// 검증한다.
 package cli
 
 import (
@@ -15,7 +15,7 @@ import (
 // TestRenderAliasCompat — cli 별칭(Text·Masked·Cells·Rows·
 // TruncateRunes·CountPending·소문자 truncateRunes·countPending)은
 // 단일 구현과 동일 함수 값을 가리킨다(위임이 아니라 동등 — 소비
-// 파일 무편집 보장). v0.39.0 T4 룰링: CountPending·countPending은
+// 파일 무편집 보장). CountPending·countPending은
 // knowledge 구현(knowledge/pending.go 이관).
 func TestRenderAliasCompat(t *testing.T) {
 	pairs := []struct {

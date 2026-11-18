@@ -1,4 +1,4 @@
-// usage_v0200_test.go — v0.20.0 세션 경계·hot 노출 기록·3테이블 통합
+// usage_v0200_test.go — 세션 경계·hot 노출 기록·3테이블 통합
 // 보존 정리 슬로우 테스트(실DB).
 package db
 
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TestSessionStartAndHotEventRecords — Review Focus: 기록 메서드가 값을
+// TestSessionStartAndHotEventRecords — 기록 메서드가 값을
 // 그대로 남기고 14일 보존 정리(PruneReadEvents)가 3테이블 전부에서
 // 초과분만 삭제한다.
 func TestSessionStartAndHotEventRecords(t *testing.T) {

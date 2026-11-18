@@ -1,4 +1,4 @@
-// admin_v0201_test.go — v0.20.1(패치 루프 1차 F1): 무효화·병합의 status
+// admin_v0201_test.go — 무효화·병합의 status
 // 병기와 승격 좀비 방어 회귀. 실DB 슬로우 테스트.
 package db
 
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestInvalidateSetsStatus — Review Focus(test_invalidate_status): 단일
+// TestInvalidateSetsStatus — 단일
 // 무효화·Merge(from)이 status='invalidated'까지 병기 — 배치 경로와 단일
 // 법칙. read --status invalidated 노출·report counts 정합의 근거.
 func TestInvalidateSetsStatus(t *testing.T) {
@@ -47,7 +47,7 @@ func TestInvalidateSetsStatus(t *testing.T) {
 	}
 }
 
-// TestApproveClearsInvalidAt — Review Focus(test_approve_zombie): 무효화된
+// TestApproveClearsInvalidAt — 무효화된
 // pending을 승인하면 invalid_at까지 청소 — active+invalid_at 좀비(뷰·
 // --status 어디에도 안 보이는 행) 방어.
 func TestApproveClearsInvalidAt(t *testing.T) {

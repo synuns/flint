@@ -1,4 +1,4 @@
-// diagnosis.go — v1.2.0 T5: 규칙 진단 D(spec §3). report가 모은
+// diagnosis.go — 규칙 진단 D(spec §3). report가 모은
 // effect·counts·daily(ReportOutput)와 thresholds로 규칙 7종(항목 8개 — hot
 // 예산 밴드는 하나의 규칙 양방 판정)을 판정해 구조화 항목 배열을 반환한다.
 // 순수 함수(LLM 0개 — E 패킷 defer)·정상 침묵 유효(문제 없으면 빈 배열).
@@ -8,7 +8,7 @@
 // doctor 기존 키 승계 — 중복 키 방지, dead는 diag_dead_warn)·C 가치 기본값
 // (recall_led '기본 목표' 라벨 — 개인 목표가 아닌 습관 목표 표기).
 //
-// 사용자 원칙(플랜 T5 확정): 진단은 단일 데이터 모델이다 — text(문장
+// 사용자 원칙: 진단은 단일 데이터 모델이다 — text(문장
 // 렌더·Sentence)·--json(ReportOutput.Diagnosis 배열)·--html(카드) 세 뷰가
 // 같은 ReportOutput.Diagnosis에서 렌더된다(뷰 간 데이터 분열 금지).
 package ops
@@ -39,7 +39,7 @@ func (d DiagnosisItem) Sentence() string {
 // thresholds·hot_budget(meta hot_budget — knowledge.HotBudget 로드값). 정상
 // 침묵: 어느 규칙도 트리거하지 않으면 빈 배열(비-nil — JSON [])을 반환한다.
 // 미설정(0) thresholds 키는 DefaultThresholds로 폴백한다(ParseThresholds
-// 미설정-0 규약의 소비자측 완결 — v0.16.3 관례 승계).
+// 미설정-0 규약의 소비자측 완결).
 func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisItem {
 	th = diagThresholds(th)
 	e := out.Effect

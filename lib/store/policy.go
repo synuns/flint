@@ -21,7 +21,7 @@ var (
 		"main":       true,
 		"infra":      true,
 		"preference": true,
-		// v0.23.2(기획 리뷰 결함 1): hot_view '최근 결정' 팔이 domain='decision'을
+		// hot_view '최근 결정' 팔이 domain='decision'을
 		// 요구(views.sql)하는데 어휘표에 없어 unknown domain 경고·팔 공회전 —
 		// 어휘 4종으로 정합(확정 결정은 CONTENT §1 유형 1 최상위).
 		"decision": true,
@@ -60,7 +60,7 @@ func CheckVocabulary(tags []string, domain string) []string {
 }
 
 // suggestFrom — 어휘 집합에서 입력과 가장 가까운 후보 최대 2개
-// (접두 일치 우선, 다음 편집거리 ≤2 — v0.23.0 D②: 어휘 밖 값에 대한
+// (접두 일치 우선, 다음 편집거리 ≤2 — 어휘 밖 값에 대한
 // 오타 수정 제안).
 func suggestFrom(in string, known map[string]bool) []string {
 	n := normalizeVocab(in)
@@ -140,7 +140,7 @@ func unionVocab(base, extra map[string]bool) map[string]bool {
 	return out
 }
 
-// VocabExtras — meta 오버라이드 어휘(v0.24.0 R4a: 개인 어휘를 repo가
+// VocabExtras — meta 오버라이드 어휘(개인 어휘를 repo가
 // 아닌 운영 DB meta에 — 합집합. 어휘는 늘리는 게 일반 케이스라 기본
 // 집합을 대체하지 않는다). SetVocabExtras는 write 경로 시작 시 1회
 // 주입(단발 CLI 프로세스 — 갱신 경합 없음).
@@ -150,7 +150,7 @@ var (
 )
 
 // SetVocabExtras — 개인 어휘 주입(정규화 후 합집합 반영). 호출 시
-// 기존 extras를 대체한다(v0.24.0 리뷰 ⑤: flint mcp 장기 프로세스에서
+// 기존 extras를 대체한다(flint mcp 장기 프로세스에서
 // reset·변경이 반영되게 — 추가만 하면 영구 잔존).
 func SetVocabExtras(tags, domains []string) {
 	vocabExtraTags = map[string]bool{}

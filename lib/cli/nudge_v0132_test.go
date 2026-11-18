@@ -1,4 +1,4 @@
-// nudge_v0132_test.go — v0.13.2 심층 리뷰 회귀(N5): nudge store 경유 전환.
+// nudge_v0132_test.go — nudge store 경유 전환.
 // DB 미가용 시 에러 JSON 없이 조용히 MapExit(server_down=2) 종료만.
 package cli
 

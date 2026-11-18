@@ -1,4 +1,4 @@
-// sessionhook_v0110_test.go — v0.11.0 R4: session-start·session-end 통합
+// sessionhook_v0110_test.go — session-start·session-end 통합
 // 커맨드(hot+nudge / done+nudge 시퀀스 승계)와 hooks.json 3엔트리 재편
 // fast 테스트. SUPERLITE_REAL=1이면 asofFakeOrReal seam으로 실구현 재검증.
 package cli
@@ -65,7 +65,7 @@ func TestHooksJsonThreeEntries(t *testing.T) {
 	}
 }
 
-// TestHooksJsonSessionIdQuotedSafe — v1.0.1 감사(F4): session_id 치환은
+// TestHooksJsonSessionIdQuotedSafe — session_id 치환은
 // jq @sh + eval — 이중따옴표 치환("$(jq …)")은 id 원문의 "·$·`가 이중
 // 인용 안에서 해석되는 셸 삽입 창이었다. 정상 id 그대로 전달·부재 시
 // 빈 인자 동등성은 hooks.json command를 bash로 실행해 실증했다(감사 런).

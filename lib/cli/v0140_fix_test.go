@@ -1,5 +1,5 @@
-// v0140_fix_test.go — v0.14.0 리뷰 수정 회귀(cli): P3 eligible 헬퍼 단일
-// 소스, P4 metaKV 공유 헬퍼. (P2 BumpReadStats 와이프 방지는 v0.42.0 T2
+// v0140_fix_test.go — 회귀(cli): eligible 헬퍼 단일
+// 소스, metaKV 공유 헬퍼. (BumpReadStats 와이프 방지는
 // read_stats blob 폐지로 함께 폐지 — 파생 경로 동등성은 lib/ops/
 // report_parity_test.go가 담당한다.)
 package cli

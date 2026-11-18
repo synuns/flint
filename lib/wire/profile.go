@@ -1,7 +1,7 @@
-// profile.go — v0.11.0 R1 노출 프로파일 판독(공용 Store 유틸). meta
+// profile.go — 노출 프로파일 판독(공용 Store 유틸). meta
 // exposure_profile 값 normal(기본)|minimal을 읽는 헬퍼만 소유한다.
 // 프로파일은 hot·nudge 동작만 분기한다(다른 명령·exit 계약 불변).
-// v0.40.0 T4: cli 소유에서 wire로 이동 — knowledge·ops seam(exposure
+// knowledge·ops seam(exposure
 // profile 판독)이 소비. 판정 명령(flint profile)은 cli/profile.go 잔류.
 package wire
 

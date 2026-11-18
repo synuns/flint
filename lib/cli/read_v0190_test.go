@@ -1,4 +1,4 @@
-// read_v0190_test.go — v0.19.0 효과 계측 와이어링: read 1회가 read_events에
+// read_v0190_test.go — 효과 계측 와이어링: read 1회가 read_events에
 // 수치·플래그·세션 라벨로 기록된다(ReadEventStore seam, METRICS §4).
 // fakeStore 질의 캡처 패턴은 read_v0150_test.go 승계.
 package cli
@@ -11,9 +11,9 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// readEventRecorder — fakeStore에 ReadEventStore(v0.19.0 seam)를 얹은
+// readEventRecorder — fakeStore에 ReadEventStore(seam)를 얹은
 // fake(readUsageRecorder 패턴 승계). RecordReadUsage도 흡수해 카운터
-// 경로를 단순화한다. v0.20.0: ids(반환 id CSV) 녹음 추가.
+// 경로를 단순화한다. ids(반환 id CSV) 녹음 추가.
 type readEventRecorder struct {
 	*fakeStore
 	events []readEventRecord
@@ -44,7 +44,7 @@ var hitRowsFixture = [][]any{
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
-// TestReadEventRecordedOnHit — Review Focus: 히트 read는 결과 수·세션
+// TestReadEventRecordedOnHit — 히트 read는 결과 수·세션
 // 라벨을 그대로 기록한다(hits=2, zero=false, fallback=false).
 func TestReadEventRecordedOnHit(t *testing.T) {
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -72,17 +72,16 @@ func TestReadEventRecordedOnHit(t *testing.T) {
 	if ev.session != "s-42" {
 		t.Errorf("session = %q, want s-42", ev.session)
 	}
-	// v0.20.0: 반환 id CSV(상위 10) — 2행 히트이므로 "1,2".
+	// 반환 id CSV(상위 10) — 2행 히트이므로 "1,2".
 	if ev.ids != "1,2" {
 		t.Errorf("ids = %q, want 1,2", ev.ids)
 	}
 }
 
-// TestReadEventRecordsFallback — Review Focus: 제로히트→폴백 재쿼리로
+// TestReadEventRecordsFallback — 제로히트→폴백 재쿼리로
 // 살아난 read는 fallback=true로 기록된다(폴백 플래그 전달).
 func TestReadEventRecordsFallback(t *testing.T) {
-	// v0.20.5 자동 라벨 채택 격리 — 주변 세션 라벨 상속 방지(v0.18.1
-	// config 오염 교훈 승계).
+	// 자동 라벨 채택 격리 — 주변 세션 라벨 상속 방지.
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -113,10 +112,10 @@ func TestReadEventRecordsFallback(t *testing.T) {
 	}
 }
 
-// TestReadSessionFlagValidation — Review Focus: 값 없는 trailing --session은
-// 다른 값형 플래그와 동일 규칙 exit 3(N10/F1 관례). 플래그형 값
+// TestReadSessionFlagValidation — 값 없는 trailing --session은
+// 다른 값형 플래그와 동일 규칙 exit 3. 플래그형 값
 // (`--session --json` 흡수 오타)도 exit 3 — 라벨이 read_events에 14일
-// 남는 만큼 DB 오염 방지가 조회 편의보다 우선(리뷰 #3).
+// 남는 만큼 DB 오염 방지가 조회 편의보다 우선.
 func TestReadSessionFlagValidation(t *testing.T) {
 	for _, args := range [][]string{
 		{"--session"},           // 값 없음

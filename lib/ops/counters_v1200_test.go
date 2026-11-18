@@ -1,4 +1,4 @@
-// counters_v1200_test.go — v1.2.0 T4 Review Focus: 검수(curation) 카운터
+// counters_v1200_test.go — 검수(curation) 카운터
 // (maintain supersede 성공·expire-pending 확정 행수·prune 삭제 행수 daily
 // 플랫 키 증분 — dry-run 미계상)·발화(fired) 카운터(nudge distill·recall·
 // sessionhook 갱신 안내 update 3종·doctor warn 종류별 fired_doctor_<check>
@@ -67,7 +67,7 @@ func (c *counterCaptureV) sum(prefix string) int {
 
 func counterToday() string { return time.Now().UTC().Format("2006-01-02") }
 
-// TestCurationCounters — Review Focus: maintain 검수 경로 → daily 카운터.
+// TestCurationCounters — maintain 검수 경로 → daily 카운터.
 // supersede 성공 1·expire-pending 확정 행수·prune 삭제 행수(Repo 위임
 // 반환값). dry-run은 갱신이 없으므로 미계상.
 func TestCurationCounters(t *testing.T) {
@@ -151,7 +151,7 @@ func TestCurationCounters(t *testing.T) {
 	})
 }
 
-// TestFiredCounters — Review Focus: 발화 카운터. nudge distill(Stop 넛지)·
+// TestFiredCounters — 발화 카운터. nudge distill(Stop 넛지)·
 // recall(SessionStart 회상 안내)·update(sessionhook 갱신 안내) 3종·doctor
 // warn 종류별(fired_doctor_<check>). 미발화(마커 부재·ok 판정)는 0.
 func TestFiredCounters(t *testing.T) {

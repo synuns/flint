@@ -1,4 +1,4 @@
-// update_test.go — v0.22.0 자동 업데이트 계약: 버전 비교·체크섬·추출·
+// update_test.go — 자동 업데이트 계약: 버전 비교·체크섬·추출·
 // 전체 흐름(htptest 주입)·갱신 안내 캐시.
 package cli
 
@@ -93,7 +93,7 @@ func TestExtractBinary(t *testing.T) {
 	}
 }
 
-// TestApplyUpdateRejectsBadSignature — v0.31.0 리뷰 5: 서명 게이트 배선 —
+// TestApplyUpdateRejectsBadSignature — 서명 게이트 배선 —
 // 공개키 임베드 상태에서 .sig 불일치는 하드 거부, .sig 부재도 거부
 // (fail-closed). 전환 모드(빈 키)는 통과.
 func TestApplyUpdateRejectsBadSignature(t *testing.T) {
@@ -141,7 +141,7 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 }
 
 // updateTestSigAsset — .sig 자산 서빙 주입(빈 = 미제공). 서버 핸들러가
-// 목록과 내용 모두에 반영한다(v0.31.0 서명 게이트 배선 테스트).
+// 목록과 내용 모두에 반영한다.
 var updateTestSigAsset string
 
 // newUpdateServer — 가짜 릴리스 API+자산 서버. newBin은 새 바이너리
@@ -151,7 +151,7 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	mux := http.NewServeMux()
 	srv := httptest.NewTLSServer(mux)
 	// 클라이언트 팩토리 주입 — srv.Client()는 자체 서명을 신뢰(프로덕션
-	// 바이너리에 InsecureSkipVerify 없음, v0.22.2 리뷰 ③).
+	// 바이너리에 InsecureSkipVerify 없음).
 	prevClient := updateClientFn
 	updateClientFn = func(timeout time.Duration) *http.Client {
 		c := srv.Client()
@@ -163,7 +163,7 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	assetName := fmt.Sprintf("flint_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
 	archive := buildTarGz(t, newBin)
 	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		// v0.31.0: updateTestSigAsset(테스트 주입)이 비지 않으면 .sig
+		// updateTestSigAsset(테스트 주입)이 비지 않으면 .sig
 		// 자산도 목록에 포함해 서빙한다(서명 게이트 배선 검증용).
 		sigAsset := ""
 		if updateTestSigAsset != "" {
@@ -199,7 +199,7 @@ func withUpdateServer(t *testing.T, latest string, newBin []byte) {
 // executablePathFn을 임시 '현재 바이너리'로 주입해 실제 파일 교체를
 // 검증한다(검증 통과용 새 바이너리는 version 출력 셸 스크립트).
 func TestUpdateFlowReplacesBinary(t *testing.T) {
-	// v0.31.1: 실제 공개키가 임베드되어 기본 하드 검증이 켜진다 — 본
+	// 실제 공개키가 임베드되어 기본 하드 검증이 켜진다 — 본
 	// 테스트는 교체 흐름 검증이므로 전환 모드(빈 키)로 고정.
 	prevPub := releasePubPEM
 	releasePubPEM = nil
@@ -233,7 +233,7 @@ func TestUpdateFlowReplacesBinary(t *testing.T) {
 // TestUpdateFlowChecksumMismatch — 체크섬 불일치면 원본 불본(즉시 중단).
 // 단일 TLS 서버가 메타·자산(정상)+오염 체크섬을 모두 제공한다.
 func TestUpdateFlowChecksumMismatch(t *testing.T) {
-	// v0.31.1: 실제 공개키가 임베드되어 기본 하드 검증이 켜진다 — 본
+	// 실제 공개키가 임베드되어 기본 하드 검증이 켜진다 — 본
 	// 테스트는 교체 흐름 검증이므로 전환 모드(빈 키)로 고정.
 	prevPub := releasePubPEM
 	releasePubPEM = nil
@@ -314,7 +314,7 @@ func TestMaybeUpdateNoticeCache(t *testing.T) {
 	}
 }
 
-// TestDownloadRejectsNonHTTPS — v0.22.1(S1): 평문 스킴 URL은 다운로드
+// TestDownloadRejectsNonHTTPS — 평문 스킴 URL은 다운로드
 // 거부(응답 변조·다운그레이드 방어).
 func TestDownloadRejectsNonHTTPS(t *testing.T) {
 	if _, err := download("http://example.com/asset"); err == nil {

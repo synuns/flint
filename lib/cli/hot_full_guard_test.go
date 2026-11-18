@@ -11,9 +11,9 @@ import (
 	"time"
 )
 
-// TestHotFullNewlineSummarySkipsSuffix — 개행 포함 요약은 v0.20.6 S1
+// TestHotFullNewlineSummarySkipsSuffix — 개행 포함 요약은
 // 출력 재살균으로 개행이 중립화된 뒤 절단 출력된다(프롬프트 주입 경계
-// 방어 — read 경로와 동일). want는 리터럴 고정(v0.20.1 테스트 감사 T8).
+// 방어 — read 경로와 동일). want는 리터럴 고정.
 // 접미 가드(lines↔rows 대응)는 재살균과 무관한 심층 방어로 유지.
 func TestHotFullNewlineSummarySkipsSuffix(t *testing.T) {
 	ctx := context.Background()

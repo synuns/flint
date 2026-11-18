@@ -1,4 +1,4 @@
-// write_source_test.go — T61 회귀: MCP write 도구는 cli.Run 조립에
+// write_source_test.go — MCP write 도구는 cli.Run 조립에
 // --source mcp를 전달해 유입이 source=mcp로 계측되어야 한다(미전달 시 manual).
 package mcp
 
@@ -25,7 +25,7 @@ func TestDispatchWriteSourceMCP(t *testing.T) {
 	t.Errorf("args = %v, want --source mcp (T61: MCP 유입 manual 계측 방지)", (*calls)[0].args)
 }
 
-// TestDispatchPendingJSONMode — v0.32.0: flint_pending은 pending --json 조립.
+// TestDispatchPendingJSONMode — flint_pending은 pending --json 조립.
 func TestDispatchPendingJSONMode(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"ok","items":[]}`, 0)
 	DispatchTool("flint_pending", map[string]any{})
@@ -38,7 +38,7 @@ func TestDispatchPendingJSONMode(t *testing.T) {
 	}
 }
 
-// TestDispatchApproveAssembly — v0.32.0: id/supersede 검증·조립.
+// TestDispatchApproveAssembly — id/supersede 검증·조립.
 func TestDispatchApproveAssembly(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"approved","id":7}`, 0)
 	if _, code := DispatchTool("flint_approve", map[string]any{"id": 7}); code != 0 {

@@ -1,4 +1,4 @@
-// audit_test.go — T52 감사 커맨드: dolt_log 최근 N 조회(limit 경계·session 필터).
+// audit_test.go — 감사 커맨드: dolt_log 최근 N 조회(limit 경계·session 필터).
 package cli
 
 import (
@@ -59,7 +59,7 @@ func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 	return f, limits
 }
 
-// TestAuditLimitAndSessionFilter — Review Focus: limit 경계·session 필터.
+// TestAuditLimitAndSessionFilter — limit 경계·session 필터.
 func TestAuditLimitAndSessionFilter(t *testing.T) {
 	f, _ := auditFake(t, auditRows())
 	withFake(t, f)
@@ -141,8 +141,7 @@ func TestAuditServerDownExit2(t *testing.T) {
 	}
 }
 
-// TestAuditBadFlagExit3 — 알 수 없는 플래그는 무효 인자 exit 3 한 줄 JSON
-// (v1.0.1 F3 — exit 1에서 통일).
+// TestAuditBadFlagExit3 — 알 수 없는 플래그는 무효 인자 exit 3 한 줄 JSON.
 func TestAuditBadFlagExit3(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
@@ -153,7 +152,7 @@ func TestAuditBadFlagExit3(t *testing.T) {
 	decode(t, out)
 }
 
-// TestAuditSanitizesStringColumns — v1.0.1 감사(F4): dolt_log·dolt_diff의
+// TestAuditSanitizesStringColumns — dolt_log·dolt_diff의
 // 문자열 열(commit_hash·committer·table_name)이 render.Text 재살균을
 // 통과한다 — 미살균이면 [flint] 마커·제어문자가 원문 그대로 노출된다.
 func TestAuditSanitizesStringColumns(t *testing.T) {

@@ -1,4 +1,4 @@
-// tui_test.go — TUI 기반 래퍼 테스트: 비터미널 폴백 단언. v1.5.0 T5
+// tui_test.go — TUI 기반 래퍼 테스트: 비터미널 폴백 단언.
 package tui
 
 import (
@@ -45,7 +45,7 @@ func TestRunRejectsForcedNonTerminal(t *testing.T) {
 	}
 }
 
-// TestIsTerminalStdoutDelegates — v1.5.2 T1: 공개 판정 래퍼는 isTerminal
+// TestIsTerminalStdoutDelegates — 공개 판정 래퍼는 isTerminal
 // seam을 그대로 통과한다(진입 분기 seam의 기본 실구현).
 func TestIsTerminalStdoutDelegates(t *testing.T) {
 	orig := isTerminal
@@ -60,7 +60,7 @@ func TestIsTerminalStdoutDelegates(t *testing.T) {
 	}
 }
 
-// TestNonInteractiveHintInViews — v1.5.2 T1: pending·report 화면 하단에
+// TestNonInteractiveHintInViews — pending·report 화면 하단에
 // 비대화 탈출 안내 1줄이 렌더된다(export는 huh 폼 설명으로 제공).
 func TestNonInteractiveHintInViews(t *testing.T) {
 	pm := NewPendingModel(context.TODO(), nil, nil, PendingActions{})
@@ -73,7 +73,7 @@ func TestNonInteractiveHintInViews(t *testing.T) {
 	}
 }
 
-// TestIsTerminalDevNullNotTerminal — v1.5.5 T1(R29-A): /dev/null은
+// TestIsTerminalDevNullNotTerminal — /dev/null은
 // char device이므로 구 ModeCharDevice 판정이 이를 터미널로 오탐했다
 // (리다이렉션 stdout > /dev/null에서 TUI 폴백 exit 3). isatty 계열
 // 판정(charmbracelet/x/term)은 /dev/null을 거짓으로 판별해야 한다.
@@ -94,7 +94,7 @@ func TestIsTerminalDevNullNotTerminal(t *testing.T) {
 	}
 }
 
-// TestIsTerminalStdoutEnvEscapeHatch — v1.5.2 T1: FLINT_NO_TUI 설정 시
+// TestIsTerminalStdoutEnvEscapeHatch — FLINT_NO_TUI 설정 시
 // (값 무관) 환경 체크가 우선한다 — 터미널이어도 판정 거짓(적응형 TUI
 // 진입 전면 차단, 현행 경로 강제). GH_PROMPT_DISABLED류 표준 패턴.
 func TestIsTerminalStdoutEnvEscapeHatch(t *testing.T) {

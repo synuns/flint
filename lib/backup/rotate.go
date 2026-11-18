@@ -1,4 +1,4 @@
-// rotate.go — 백업 로테이션(T54). .sql 덤프를 mtime 최신순으로 keep-N 유지,
+// rotate.go — 백업 로테이션. .sql 덤프를 mtime 최신순으로 keep-N 유지,
 // 나머지와 짝이루는 .sha256 사이드카를 함께 삭제한다(ADR-0006 사이드카 규약).
 package backup
 
@@ -23,7 +23,7 @@ const DefaultBackupKeep = 14
 // BackupKeep 은 meta backup_keep 값을 읽어 유지 수를 반환한다.
 // getKV는 키→값 조회 함수(auto.RunIfNeeded의 metaKV와 동일 형태).
 // 에러·미설정·무효 값(비정수·1 미만)은 기본값 14로 폴백한다(에러 아님).
-// v1.5.4 T2 P3: 미설정(빈 값·조회 에러 — fresh DB의 "meta backup_keep
+// 미설정(빈 값·조회 에러 — fresh DB의 "meta backup_keep
 // not set")은 정상 기본값 상태라 조용히 폴백한다(경고 폐지). 설정됐으나
 // 무효한 값의 경고만 유지된다.
 // e.g. BackupKeep(getKV) with backup_keep="3" -> 3, "0"/"x"/에러 -> 14
@@ -45,7 +45,7 @@ func BackupKeep(getKV func(string) (string, error)) int {
 
 // flintDumpName — flint 생성 덤프 파일명(flint-YYYYMMDD-HHMMSS-PID.sql
 // 및 암호화 .sql.age, lazyDumpFile 조립 형식 그대로 — done.go ext 참조.
-// bare .age는 v0.28.0 로테이션 계약 승계). R17-B1: 로테이션은 이 패턴에
+// bare .age 포함). 로테이션은 이 패턴에
 // 일치하는 파일만 대상으로 삼는다 — 사용자가 같은 디렉터리에 둔
 // .sql/.age는 삭제도 keep 집계도 제외한다.
 var flintDumpName = regexp.MustCompile(`^flint-\d{8}-\d{6}-\d+\.(sql|sql\.age|age)$`)
@@ -73,8 +73,8 @@ func Rotate(dir string, keep int) ([]string, error) {
 	}
 	var dumps []dump
 	for _, e := range entries {
-		// v0.28.0: 암호화 백업(.sql.age)도 로테이션 대상 — ext는 .age.
-		// R17-B1: flint 생성 패턴만 대상 — 사용자 .sql/.age는 집계 제외.
+		// 암호화 백업(.sql.age)도 로테이션 대상 — ext는 .age.
+		// flint 생성 패턴만 대상 — 사용자 .sql/.age는 집계 제외.
 		if e.IsDir() || !isDumpExt(filepath.Ext(e.Name())) || !flintDumpName.MatchString(e.Name()) {
 			continue
 		}
@@ -106,7 +106,7 @@ func Rotate(dir string, keep int) ([]string, error) {
 	return removed, nil
 }
 
-// isDumpExt — 로테이션 대상 덤프 확장자(.sql 평문·.age 암호문, v0.28.0).
+// isDumpExt — 로테이션 대상 덤프 확장자(.sql 평문·.age 암호문).
 func isDumpExt(ext string) bool {
 	return ext == ".sql" || ext == ".age"
 }

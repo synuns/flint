@@ -1,4 +1,4 @@
-// readhot_v06_test.go — T62 read/hot 유입·참조 계측 fast 테스트(fake).
+// readhot_v06_test.go — read/hot 유입·참조 계측 fast 테스트(fake).
 package cli
 
 import (
@@ -46,7 +46,7 @@ func readQueryFn(sql string, args []any) ([][]any, error) {
 	return nil, nil
 }
 
-// TestReadInstrumentsSilently — Review Focus(state): 계측은 결과 항목 id
+// TestReadInstrumentsSilently — 계측은 결과 항목 id
 // 전수에 BumpReads + recordUsage("read",""). 계측 실패(bumpErr)·미구현 Store
 // 모두 exit 0·출력 불변.
 func TestReadInstrumentsSilently(t *testing.T) {
@@ -61,7 +61,7 @@ func TestReadInstrumentsSilently(t *testing.T) {
 		f.bumped[0][0] != 3 || f.bumped[0][1] != 5 {
 		t.Errorf("BumpReads ids = %v, want [3 5] (결과 id 전수)", f.bumped)
 	}
-	// v0.42.0 T2: read kind의 유입 계측(daily read 카운터)은 폐지 —
+	// read kind의 유입 계측(daily read 카운터)은 폐지 —
 	// 계측 원천이 read_events(RecordReadEvent)로 일원화됐다(쓰기 4→2).
 	if len(f.usage) != 0 {
 		t.Errorf("RecordUsage = %v, want [](read kind 유입 계측 폐지)", f.usage)
@@ -86,7 +86,7 @@ func TestReadInstrumentsSilently(t *testing.T) {
 }
 
 // hotQueryFn — hot_view 본질의는 증분 컬럼(id·valid_at·ingested_at)까지
-// 포함한 7열 행(지식 2행 id 3·7 — T5 단일 정의).
+// 포함한 7열 행(지식 2행 id 3·7 — 단일 정의).
 func hotQueryFn(sql string, args []any) ([][]any, error) {
 	if strings.Contains(sql, "FROM hot_view") {
 		return [][]any{
@@ -99,7 +99,7 @@ func hotQueryFn(sql string, args []any) ([][]any, error) {
 
 // TestHotInstrumentsSilently — hot 종료 시 주입 지식 id 전수 BumpReads +
 // recordUsage("hot",""). 계측 실패·미구현 Store exit 0·출력 불변.
-// v0.13.2 N3: 증분은 --full(실제 주입) 경로에서만 — 호출을 --full로 재지정
+// 증분은 --full(실제 주입) 경로에서만 — 호출을 --full로 재지정
 // (헤드라인 경로 스킵은 hot_v0132_test.go TestHotHeadlineSkipsReadBump 담보).
 func TestHotInstrumentsSilently(t *testing.T) {
 	ctx := context.Background()
@@ -140,7 +140,7 @@ type errSilent struct{}
 
 func (errSilent) Error() string { return "계측 실패" }
 
-// TestHotSQLSingleQueryDefinition — Review Focus(T5 단일 정의): 증분 id·
+// TestHotSQLSingleQueryDefinition — 증분 id·
 // pending 접미 valid_at은 hot_view 본질의 컬럼에서 나온다 — 세 팔 조건을
 // 다시 모은 동반 질의는 폐지. HotSQL은 ORDER BY ts DESC, id DESC
 // tie-break(CI run 39713526850 룰링 — 동률 ts의 완전 순서)와 예산 상한을
@@ -187,7 +187,7 @@ func TestHotUsageRecordedWithoutIDCells(t *testing.T) {
 // 출력에 남지 않은 행은 read_count/last_read_at 증분 대상이 아니다(회귀:
 // 상위 N 전체를 무조건 증분 — 잘린 행까지 올라가 랭킹·stale 집계를
 // 왜곡). 예산은 첫 행 포맷 길이와 정확히 같게 잡아 둘째 행 시작
-// 오프셋==예산(완전 절단 경계)을 만든다. v0.13.2 N3: 증분은 --full 경로
+// 오프셋==예산(완전 절단 경계)을 만든다. 증분은 --full 경로
 // — 호출을 --full로 재지정(헤드라인 스킵은 hot_v0132_test.go가 담보).
 func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
 	ctx := context.Background()
@@ -223,7 +223,7 @@ func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
 
 // TestUsageInstrumentationSingleSeam — hot 계측이 UsageStore 단일 seam
 // (write.go recordUsage)을 경유한다(회귀: 이중 seam 부활 방지 — UsageStore만
-// 구현한 Store로 경로 기록 확인). v0.42.0 T2: read kind는 유입 계측에서
+// 구현한 Store로 경로 기록 확인). read kind는 유입 계측에서
 // 제외되므로(원천 = read_events) 기록 0건을 함께 단언한다.
 func TestUsageInstrumentationSingleSeam(t *testing.T) {
 	ctx := context.Background()
@@ -246,7 +246,7 @@ func TestUsageInstrumentationSingleSeam(t *testing.T) {
 }
 
 // hotSharedDBLock — 공유 Doltgres DB를 쓰는 패키지 간 상호 배제(파일
-// 잠금, v0.5 선례 e1704b8). go test ./...는 패키지 바이너리를 병렬로
+// 잠금). go test ./...는 패키지 바이너리를 병렬로
 // 띄우므로 잠금 없이는 lib/db newTestRepo의 테이블 전체 DELETE·pendingRec
 // 승인이 이 테스트의 hot_view 조회와 자격 조회 사이에 끼어, 반환 id가
 // 조회 사이에 자격을 잃어 "주입 안 된 id 반환" 오탐을 낸다(CI run
@@ -272,7 +272,7 @@ func hotSharedDBLock(t *testing.T) {
 // TestHotViewQueryLimitsToInjected — 실DB 회귀(FLINT_DSN 설정 시에만):
 // 활성 프로젝트 3건이 상위를 차지하면 주입 지식은 상한(기본 10) - 3건뿐이다.
 // 무제한 증분이었던 버그(주입 안 된 지식까지 증분)의 엔드투엔드 방지.
-// v0.41.0 T5: 본질의 HotSQL 한 질의의 id 컬럼으로 직접 확인(동반 질의 폐지).
+// 본질의 HotSQL 한 질의의 id 컬럼으로 직접 확인(동반 질의 폐지).
 func TestHotViewQueryLimitsToInjected(t *testing.T) {
 	dsn := os.Getenv("FLINT_DSN")
 	if dsn == "" {
@@ -318,7 +318,7 @@ func TestHotViewQueryLimitsToInjected(t *testing.T) {
 		_, _ = real.Query(ctx, `DELETE FROM projects WHERE name LIKE 'hot-reg-p-%'`)
 	})
 
-	// 본질의 HotSQL 한 질의(T5 단일 정의) — id 컬럼(말미)에서 주입될
+	// 본질의 HotSQL 한 질의(단일 정의) — id 컬럼(말미)에서 주입될
 	// 지식 id를 직접 뽑는다. 시드 12건은 전부 동일 ts(동률)라 ", id DESC"
 	// tie-break(CI 39713526850)가 없으면 플래너 임의 동률 순서로 집합이
 	// 흔들렸다.

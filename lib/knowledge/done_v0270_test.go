@@ -1,7 +1,5 @@
-// done_v0270_test.go — v0.27.0 R1: 세션 지식화 적립 계약.
-// v0.27.2: 소스 문자열 시그니처 + 빈도 상한·-1 센티널·dedup·tags·
-// stale 경로·PostCompact 경로 계약 추가.
-// v0.39.0 T4: lib/cli에서 이동. 증류 마커 적립 검증은 cli 마커 저장
+// done_v0270_test.go — 세션 지식화 적립 계약.
+// 증류 마커 적립 검증은 cli 마커 저장
 // 구현(ReadTypedMarker) 대신 WriteTypedMarkerFn seam 캡처로 동등 검증
 // (마커 파일 IO는 cli 잔류 compact_test가 실경로로 담당).
 package knowledge
@@ -41,13 +39,13 @@ func TestMaybeSessionKnowledge(t *testing.T) {
 	if !strings.Contains(got["topic"].(string), "session[") {
 		t.Errorf("topic = %v", got["topic"])
 	}
-	// v0.27.2: tags는 []string{"process"}로 전달돼야 normalizeTags를
+	// tags는 []string{"process"}로 전달돼야 normalizeTags를
 	// 통과해 정규형 ":process:"로 저장된다(문자열 ":process:" 전달 시
 	// default 분기에서 빈 문자열로 소거되던 계약 위반 수선).
 	if tags, ok := got["tags"].(string); !ok || tags != ":process:" {
 		t.Errorf("tags = %#v, want \":process:\"", got["tags"])
 	}
-	// 증류 마커 적립(R2 회로 연결) — distill 종류·session 일치.
+	// 증류 마커 적립 — distill 종류·session 일치.
 	found := false
 	for _, c := range *markers {
 		if strings.HasPrefix(c, "distill|s1|") {
@@ -69,7 +67,7 @@ func TestMaybeSessionKnowledgeShortSummary(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeControlOnlyGate — v0.27.2: 길이 게이트는 살균
+// TestMaybeSessionKnowledgeControlOnlyGate — 길이 게이트는 살균
 // 후 기준 — 제어문자뿐인 요약은 sanitize 결과 빈 문자열로 미적립.
 func TestMaybeSessionKnowledgeControlOnlyGate(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -80,7 +78,7 @@ func TestMaybeSessionKnowledgeControlOnlyGate(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeTruncates — v0.27.2: 요약 500룬 절단(import
+// TestMaybeSessionKnowledgeTruncates — 요약 500룬 절단(import
 // 경로 대칭) — 초과분은 적립되지 않는다.
 func TestMaybeSessionKnowledgeTruncates(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -95,7 +93,7 @@ func TestMaybeSessionKnowledgeTruncates(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeFrequencyCap — v0.27.2: 빈도 상한 계약 —
+// TestMaybeSessionKnowledgeFrequencyCap — 빈도 상한 계약 —
 // 마지막 적립이 N일 이내면 skip, N일 경과·파손 값이면 적립.
 func TestMaybeSessionKnowledgeFrequencyCap(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -118,7 +116,7 @@ func TestMaybeSessionKnowledgeFrequencyCap(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeOffSentinel — v0.27.2: session_knowledge_days
+// TestMaybeSessionKnowledgeOffSentinel — session_knowledge_days
 // -1(끔)은 적립하지 않는다(0은 loadThresholds가 기본 1로 코어스 — 미설정).
 func TestMaybeSessionKnowledgeOffSentinel(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -134,7 +132,7 @@ func TestMaybeSessionKnowledgeOffSentinel(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeDedupSkip — v0.27.2: 같은 content_hash가 이미
+// TestMaybeSessionKnowledgeDedupSkip — 같은 content_hash가 이미
 // 있으면 재적립하지 않는다(같은 세션 재종료 차단).
 func TestMaybeSessionKnowledgeDedupSkip(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -146,7 +144,7 @@ func TestMaybeSessionKnowledgeDedupSkip(t *testing.T) {
 	}
 }
 
-// TestDoneStdinSummaryActivatesKnowledge — v0.27.1: Stop 훅 stdin의
+// TestDoneStdinSummaryActivatesKnowledge — Stop 훅 stdin의
 // compact_summary가 세션 지식화를 활성화한다(타 하네스 폴백 경로).
 func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -180,7 +178,7 @@ func (s *staleFake) StaleSessionRuns(ctx context.Context, agent string) (int, er
 	return s.runs, nil
 }
 
-// TestDoneStalePathAccruesKnowledge — v0.27.2: stale 경로(미기록 연속
+// TestDoneStalePathAccruesKnowledge — stale 경로(미기록 연속
 // 경고)에서도 요약이 있으면 지식화 — 조기 return에 갇히지 않는다.
 func TestDoneStalePathAccruesKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -206,7 +204,7 @@ func TestDoneStalePathAccruesKnowledge(t *testing.T) {
 	}
 }
 
-// TestDoneStdinSummaryBranches — v0.27.2: invalid JSON·필드 부재는
+// TestDoneStdinSummaryBranches — invalid JSON·필드 부재는
 // 빈 값(폴백 상용구 스킵 계약 — 유효 요약의 무증상 폐기 방지 회귀).
 func TestDoneStdinSummaryBranches(t *testing.T) {
 	if got := doneStdinSummary(strings.NewReader(`{bad json`)); got != "" {
@@ -223,7 +221,7 @@ func TestDoneStdinSummaryBranches(t *testing.T) {
 	}
 }
 
-// TestDoneCommitsAuditTrail — v0.29.1(동시성 감사 발견 8): 세션 종료는
+// TestDoneCommitsAuditTrail — 세션 종료는
 // 세션 행·지식화·카운터 쓰기를 감사 커밋으로 귀속시킨다(무관한 다음
 // write의 전역 스테이징 흡수 방지).
 func TestDoneCommitsAuditTrail(t *testing.T) {

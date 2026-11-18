@@ -1,4 +1,4 @@
-// theme.go — TUI 최소 색상 테마(Lip Gloss). v1.5.0 T5
+// theme.go — TUI 최소 색상 테마(Lip Gloss).
 package tui
 
 import "github.com/charmbracelet/lipgloss"

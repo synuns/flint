@@ -17,7 +17,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// fakeBackup — lib/backup(T12) fake. stub(dumpErr·dumpText·restoreErr) 미지정
+// fakeBackup — lib/backup fake. stub(dumpErr·dumpText·restoreErr) 미지정
 // 동작은 영(零) 덤프/성공. SUPERLITE_REAL=1이면 stub 미지정 시 실구현 위임.
 type fakeBackup struct {
 	dumpErr    error
@@ -97,7 +97,7 @@ func runCmd(t *testing.T, cmd string, args []string) (string, int) {
 	return out.String(), code
 }
 
-// Review Focus(file): fake Dump로 파일 생성.
+// fake Dump로 파일 생성.
 func TestBackupWritesFile(t *testing.T) {
 	f := &fakeBackup{dumpText: "-- flint backup probe\n"}
 	withBackupFake(t, f)
@@ -153,8 +153,8 @@ func TestBackupServerDownExit2(t *testing.T) {
 	}
 }
 
-// Review Focus(file): 경로 에러 — --out 경로값 누락(무효 인자 exit 3,
-// v1.0.1 F3)·쓸 수 없는 경로(파일 오류 exit 1).
+// 경로 에러 — --out 경로값 누락(무효 인자 exit 3)·
+// 쓸 수 없는 경로(파일 오류 exit 1).
 func TestBackupBadPathExit1(t *testing.T) {
 	f := &fakeBackup{dumpText: "x"}
 	withBackupFake(t, f)
@@ -188,7 +188,7 @@ func TestRestoreFromFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("BEGIN;\nCOMMIT;\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// v0.20.6 S4: 사이드카 필수 — 정상 경로는 무결 검증 통과 분기.
+	// 사이드카 필수 — 정상 경로는 무결 검증 통과 분기.
 	// 체크섬은 VerifyFile과 동일 알고리즘(sha256 hex)으로 계산해 기록.
 	digest := sha256.Sum256([]byte("BEGIN;\nCOMMIT;\n"))
 	if err := backup.WriteSidecar(path, hex.EncodeToString(digest[:])); err != nil {
@@ -206,8 +206,7 @@ func TestRestoreFromFile(t *testing.T) {
 	}
 }
 
-// Review Focus(file): 경로 에러 — --file 누락(무효 인자 exit 3, v1.0.1
-// F3)·존재하지 않는 파일(exit 1).
+// 경로 에러 — --file 누락(무효 인자 exit 3)·존재하지 않는 파일(exit 1).
 func TestRestoreMissingFileFlagExit3(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)
@@ -293,7 +292,7 @@ func TestBackupRestoreRealRoundtrip(t *testing.T) {
 	}
 }
 
-// TestBackupOutJSONWithRotate — F-T54-1 회귀: --out 성공 출력은 유효한 한 줄
+// TestBackupOutJSONWithRotate — --out 성공 출력은 유효한 한 줄
 // JSON이어야 한다(quoteJSON 뒤 겹따옴표로 파손 금지). 로테이션 삭제분은
 // "removed":N 요약으로, 사이드카 성공 시 sha256과 공존한다.
 func TestBackupOutJSONWithRotate(t *testing.T) {
@@ -311,7 +310,7 @@ func TestBackupOutJSONWithRotate(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
-	m := decode(t, out) // 겹따옴표면 여기서 파싱 실패(F-T54-1 재현 지점)
+	m := decode(t, out) // 겹따옴표면 여기서 파싱 실패
 	if m["status"] != "ok" || m["path"] != path {
 		t.Fatalf("성공 JSON=%v, want ok/path", m)
 	}
@@ -344,7 +343,7 @@ func TestBackupRotateFailureQuiet(t *testing.T) {
 	}
 }
 
-// TestBackupEncryptWritesAgeFile — v0.28.0(H②): --encrypt은 age 암호문
+// TestBackupEncryptWritesAgeFile — --encrypt은 age 암호문
 // 파일+사이드카(암호문 기준)·출력에 encrypted:true.
 func TestBackupEncryptWritesAgeFile(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -378,7 +377,7 @@ func TestBackupEncryptWritesAgeFile(t *testing.T) {
 	}
 }
 
-// TestBackupMaskDump — v0.28.0: --mask은 마커 선두·패턴 치환·사이드카
+// TestBackupMaskDump — --mask은 마커 선두·패턴 치환·사이드카
 // 미부여(비복원 아티팩트)·restore 거부.
 func TestBackupMaskDump(t *testing.T) {
 	withBackupFake(t, &fakeBackup{dumpText: "-- flint dump\nINSERT INTO knowledge VALUES (1,'토큰 ghp_0123456789abcdefghijklmnopqrst');"})
@@ -407,7 +406,7 @@ func TestBackupMaskDump(t *testing.T) {
 	}
 }
 
-// TestRestoreDecryptsEncrypted — v0.28.0: 암호화 백업 restore 복호 경로
+// TestRestoreDecryptsEncrypted — 암호화 백업 restore 복호 경로
 // (restoreFn이 평문을 받는다) + 키 없으면 명확 에러.
 func TestRestoreDecryptsEncrypted(t *testing.T) {
 	cfg := t.TempDir()
@@ -431,7 +430,7 @@ func TestRestoreDecryptsEncrypted(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", cfg)
 	fb := &fakeBackup{}
 	withBackupFake(t, fb)
-	// R22-A: 이 테스트의 목적은 복호 경로(restoreFn이 평문을 수신) 검증이지
+	// 이 테스트의 목적은 복호 경로(restoreFn이 평문을 수신) 검증이지
 	// 실 restore SQL 실행이 아니다 — real 모드에서도 stub이 실 backup.Restore를
 	// 호출하지 않게 재정의한다(2열 합성 dump는 실 14+열 knowledge 스키마와
 	// 불일치해 SQLSTATE 42601으로 실패한다). 정리는 withBackupFake의 cleanup이
@@ -461,7 +460,7 @@ func TestRestoreDecryptsEncrypted(t *testing.T) {
 	}
 }
 
-// TestOutInsideGitRepo — v0.28.2: --out의 git 저장소 내부 판정(.git
+// TestOutInsideGitRepo — --out의 git 저장소 내부 판정(.git
 // 디렉터리·하위 디렉터리 탐색).
 func TestOutInsideGitRepo(t *testing.T) {
 	dir := t.TempDir()
@@ -480,7 +479,7 @@ func TestOutInsideGitRepo(t *testing.T) {
 	}
 }
 
-// TestFlintHomeOverrideAndMigration — v0.28.3: FLINT_HOME 오버라이드와
+// TestFlintHomeOverrideAndMigration — FLINT_HOME 오버라이드와
 // 레거시(configDir) 아티팩트 자동 이전 — 백업 키가 설정 공간에서 인프라
 // 데이터 공간(~/.flint)으로 옮겨질 때 기존 키가 따라온다.
 func TestFlintHomeOverrideAndMigration(t *testing.T) {

@@ -1,4 +1,4 @@
-// thresholds_v0181_test.go — v0.18.1: recall_warn_writes의 -1(끔) 의미론.
+// thresholds_v0181_test.go — recall_warn_writes의 -1(끔) 의미론.
 // 공유 파서는 음수를 기본값으로 코안다려 이 키만 -1까지 수용한다.
 package store
 
@@ -26,7 +26,7 @@ func TestParseRecallWarnWritesOff(t *testing.T) {
 	}
 }
 
-// TestParseV0204EffectWindows — v0.20.4(패치 루프 4차): 효과 계측 판정
+// TestParseV0204EffectWindows — 효과 계측 판정
 // 창·보존 키 파싱 — 유효 값 수용·무효 값 기본 폴백.
 func TestParseV0204EffectWindows(t *testing.T) {
 	th, err := ParseThresholds([][2]any{

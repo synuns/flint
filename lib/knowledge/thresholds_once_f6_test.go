@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// TestReadZeroHitThresholdsLoadedOnce — Review Focus: eligible 제로히트
+// TestReadZeroHitThresholdsLoadedOnce — eligible 제로히트
 // read에서 thresholds IN 쿼리 1회(수정 전 2회).
 func TestReadZeroHitThresholdsLoadedOnce(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

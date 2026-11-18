@@ -1,4 +1,4 @@
-// args_test.go — v1.6.0 T7: 사양 테이블 mini-parser 단위 계약(Review
+// args_test.go — 사양 테이블 mini-parser 단위 계약(Review
 // Focus: N9 "--" 규칙·값 소비·반복 플래그·unknown→UsageErrorf 시맨틱
 // 보존). 전환 커맨드(read·write·maintain 등)의 기존 버전 테스트가
 // 최종 증명이고, 여기는 파서 자체의 표를 둔다.

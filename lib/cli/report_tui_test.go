@@ -1,4 +1,4 @@
-// report_tui_test.go — v1.5.0 T9 report --tui 진입 분기 테스트.
+// report_tui_test.go — report --tui 진입 분기 테스트.
 // protocol: --tui 오틋인 전 기본 3뷰(JSON·text·HTML) 경로 불변 ·
 // --tui 조합 오류 exit 3 · 비터미널 폴백 exit 3 · 수집 위임·오류 전파.
 // 수집 producer(ops.RunReport)는 fake Store 경유 실구현(SUPERLITE_REAL=1
@@ -23,7 +23,7 @@ func runEntryArgs(t *testing.T, f Store, args ...string) (string, int) {
 }
 
 // TestReportEntryFlagPathUnchanged — --tui 없이 들어오면 기존 JSON 경로
-// 바이트 동일 위임(기본 경로 불변 — Review Focus protocol).
+// 바이트 동일 위임(기본 경로 불변).
 func TestReportEntryFlagPathUnchanged(t *testing.T) {
 	out, code := runEntryArgs(t, newReportFake(nil))
 	if code != 0 {
@@ -87,7 +87,7 @@ func TestReportEntryTUIRunsScreen(t *testing.T) {
 }
 
 // TestReportEntryTUINonTerminalFallback — 비터미널(파이프·CI)에서 화면
-// 기동 오류는 exit 3 안내 폴백(T5 계약 문구).
+// 기동 오류는 exit 3 안내 폴백(계약 문구).
 func TestReportEntryTUINonTerminalFallback(t *testing.T) {
 	orig := reportTUIFn
 	reportTUIFn = nil // 실구현 유지 관례: nil이면 기본값 사용

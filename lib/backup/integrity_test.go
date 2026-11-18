@@ -39,7 +39,7 @@ func fakeDumpBuffer(t *testing.T) (*bytes.Buffer, []byte) {
 }
 
 // Test code(계획 그대로): Dump→변조→Verify 실패.
-// Review Focus(state): 원본 무결 — 변조 검사가 원본 파일을 건드리지 않는다.
+// 원본 무결 — 변조 검사가 원본 파일을 건드리지 않는다.
 func TestChecksumRoundtrip(t *testing.T) {
 	buf, data := fakeDumpBuffer(t)
 
@@ -85,7 +85,7 @@ func TestChecksumRoundtrip(t *testing.T) {
 	}
 }
 
-// Review Focus(file): 사이드카 누락 경로 — 경고용 센티널 + 계산된 해시 반환.
+// 사이드카 누락 경로 — 경고용 센티널 + 계산된 해시 반환.
 func TestVerifyFileMissingSidecar(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dump.sql")
 	data := []byte("BEGIN;\nCOMMIT;\n")

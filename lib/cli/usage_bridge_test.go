@@ -1,4 +1,4 @@
-// usage_bridge_test.go — v0.38.0 T3 bridge 가드(룰링 편입 소유). T1에서
+// usage_bridge_test.go — bridge 가드(룰링 편입 소유).
 // usage 드리프트 가드가 wire 내부 시드 기반으로 이동하며 생긴 공백 —
 // cli init이 등록한 실 커맨드 표면 ↔ wire usageOrder(+훅 전용) 동질성 —
 // 을 cli 패키지(실등록 주체)에서 직접 검증한다. cli→wire 임포트는
@@ -13,7 +13,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// hookOnlyDeclared — hidden(usage 비노출) 집합 고정 선언. v1.0.1 R1-D:
+// hookOnlyDeclared — hidden(usage 비노출) 집합 고정 선언.
 // hiddenFromUsage에 이름을 추가하는 것만으로 커맨드를 usage에서 조용히
 // 지우는 남용이 가능했다 — 이제 hidden 실측 집합이 이 선언과 정확히
 // 일치해야 한다. 신규 hidden 추가는 이 표 갱신(= 의도 서술)을 수반하는
@@ -53,7 +53,7 @@ func hiddenAudit(reg, order []string, declared map[string]bool) []string {
 	return problems
 }
 
-// TestRegisteredMatchesUsage — Review Focus: wire.Registered() 집합 ==
+// TestRegisteredMatchesUsage — wire.Registered() 집합 ==
 // UsageOrder ∪ hidden(고정 선언). 신규 커맨드를 Register만 하고
 // usageOrder에 넣지 않으면(또는 그 반대) FAIL — 영구 드리프트 가드.
 func TestRegisteredMatchesUsage(t *testing.T) {
@@ -96,7 +96,7 @@ func TestRegisteredMatchesUsage(t *testing.T) {
 	}
 }
 
-// TestHiddenAuditFlagsSilentHide — R1-D 회귀: 신규 커맨드를 등록하고
+// TestHiddenAuditFlagsSilentHide — 회귀: 신규 커맨드를 등록하고
 // 고정 선언 갱신 없이 hidden으로 돌리는 남용은 감사가 즉시 잡는다
 // (반대로 선언만 남는 경우도). 합성 입력으로 단언.
 func TestHiddenAuditFlagsSilentHide(t *testing.T) {

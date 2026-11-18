@@ -1,4 +1,4 @@
-// suggest_v0163_test.go — v0.16.3: 제안 임계값 seam. 기본값은
+// suggest_v0163_test.go — 제안 임계값 seam. 기본값은
 // store.DefaultThresholds(레지스트리 단일 소스), 런타임은 cli가 meta
 // 오버라이드 값을 SetSuggestThresholds로 주입한다.
 package query

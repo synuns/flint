@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// T54 backup 로테이션 — .sql mtime 최신순 keep-N 유지, 나머지+짝이루는
+// backup 로테이션 — .sql mtime 최신순 keep-N 유지, 나머지+짝이루는
 // .sha256 삭제. 계획 지정 테스트: 3쌍→keep 2 → 1쌍 삭제·2쌍 잔존.
 
 // writeDump — dir에 name(.sql)과 선택적 .sha256 사이드카를 mtime으로 생성.
@@ -50,7 +50,7 @@ func mustGone(t *testing.T, path string) {
 }
 
 // 계획 지정: 3쌍 → keep 2 → 1쌍 삭제(최신 2쌍 유지).
-// R17-B1 이후 파일명은 flintDumpName 패턴(flint- 생성 파일)을 사용.
+// 파일명은 flintDumpName 패턴(flint- 생성 파일)을 사용.
 func TestRotateKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
@@ -76,7 +76,7 @@ func TestRotateKeepsNewest(t *testing.T) {
 	mustGone(t, filepath.Join(dir, c+".sha256"))
 }
 
-// Review Focus(file): 사이드카 누락 파일은 .sql 단독 삭제(removed에도 단독).
+// 사이드카 누락 파일은 .sql 단독 삭제(removed에도 단독).
 func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
@@ -97,7 +97,7 @@ func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	mustExist(t, filepath.Join(dir, newName+".sha256"))
 }
 
-// Review Focus(numeric): keep≤0은 전체 삭제 아님 — 최소 1 보장.
+// keep≤0은 전체 삭제 아님 — 최소 1 보장.
 func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
@@ -188,7 +188,7 @@ func TestBackupKeep(t *testing.T) {
 	}
 }
 
-// TestBackupKeepQuietUnset — Review Focus(v1.5.4 T2 P3): backup_keep
+// TestBackupKeepQuietUnset — backup_keep
 // 미설정(빈 값·조회 에러)은 정상 기본값 폴백 — fresh DB에서 매번 경고가
 // 뜨는 것을 폐지하고 조용히 간다. 설정됐으나 무효한 값의 경고는 유지.
 func TestBackupKeepQuietUnset(t *testing.T) {

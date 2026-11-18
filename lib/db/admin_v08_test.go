@@ -1,4 +1,4 @@
-// admin_v08_test.go — T82 schema v5(EnsureSchemaV5) 슬로우 테스트(실DB).
+// admin_v08_test.go — schema v5(EnsureSchemaV5) 슬로우 테스트(실DB).
 package db
 
 import (
@@ -30,8 +30,7 @@ func readVersion(t *testing.T, r *Repo) string {
 	return v
 }
 
-// TestV5PromoteIdempotent — Review Focus(test_v5_promote_idempotent):
-// v4 게이트를 경유한 DB(기존 배포 경로)에서 EnsureSchemaV5 → 버전 5·
+// TestV5PromoteIdempotent — v4 게이트를 경유한 DB(기존 배포 경로)에서 EnsureSchemaV5 → 버전 5·
 // superseded_by 컬럼 존재(기존 행은 기본 null). 재호출은 멱등 no-op.
 func TestV5PromoteIdempotent(t *testing.T) {
 	r := newTestRepo(t)
@@ -79,9 +78,9 @@ func TestV5PromoteIdempotent(t *testing.T) {
 	}
 }
 
-// TestV5GateNumeric — Review Focus(test_v5_gate_numeric): 게이트는 수치
+// TestV5GateNumeric — 게이트는 수치
 // 비교(>=)다. '10'은 문자열 비교('10'<'5')로는 하위로 보이지만 수치로는
-// 상위이므로 no-op여야 한다. v0.6 다운그레이드 사고(문자열 동등 검사) 재발
+// 상위이므로 no-op여야 한다. 다운그레이드 사고(문자열 동등 검사) 재발
 // 방지 회귀.
 func TestV5GateNumeric(t *testing.T) {
 	r := newTestRepo(t)
@@ -96,7 +95,7 @@ func TestV5GateNumeric(t *testing.T) {
 	}
 }
 
-// TestV4GateNoDowngradeFromV5 — Review Focus(기존 v4 게이트 회귀): v5 DB에서
+// TestV4GateNoDowngradeFromV5 — v5 DB에서
 // 기존 v2~v4 게이트를 돌려도 버전을 되돌리지 않는다(배선은 추가만 —
 // 기존 게이트 논리 불변 확인).
 func TestV4GateNoDowngradeFromV5(t *testing.T) {
@@ -118,8 +117,7 @@ func TestV4GateNoDowngradeFromV5(t *testing.T) {
 	}
 }
 
-// TestFreshSchemaHasColumn — Review Focus(test_fresh_schema_has_column):
-// 신규 설치 경로 — 실 schema.sql로 knowledge를 새로 만들면 superseded_by가
+// TestFreshSchemaHasColumn — 신규 설치 경로 — 실 schema.sql로 knowledge를 새로 만들면 superseded_by가
 // 포함되고(기본 null), 게이트 체인 v2→v5 후 meta=5. fake DDL은 v5 컬럼이
 // 없어 이 테스트만 실 sqlfs로 고정한다(seam과 무관하게 배포 파일 검증).
 func TestFreshSchemaHasColumn(t *testing.T) {

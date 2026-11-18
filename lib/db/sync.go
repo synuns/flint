@@ -1,7 +1,7 @@
-// sync.go — v1.7.0 T4: Doltgres 원격 등록(dolt_remote SQL 함수 래핑).
-// v1.7.0 T5: push/pull(dolt_push·dolt_fetch+dolt_merge 래핑).
-// v1.7.2 T3: 원격 연산 30s 상한(S3)·no-op push 판정·분기 push 안내(S6)·
-// 엔진 패닉 전용 안내(S1 완화)·SyncReset(dolt_reset --hard 래핑, S2 완화).
+// sync.go — Doltgres 원격 등록(dolt_remote SQL 함수 래핑).
+// push/pull(dolt_push·dolt_fetch+dolt_merge 래핑).
+// 원격 연산 30s 상한·no-op push 판정·분기 push 안내·엔진 패닉 전용
+// 안내·SyncReset(dolt_reset --hard 래핑).
 // 실측(dolthub/doltgresql, 2026-11-17):
 //   - SELECT dolt_remote('add', name, url) → int 0. 중복명도 오류 없이
 //     url을 조용히 덮어쓴다 — 중복 차단은 dolt_remotes 사전 조회 계약.
@@ -155,7 +155,7 @@ func RemoteRemove(ctx context.Context, q Querier, name string) error {
 // MaskRemoteURL — 원격 url 마스킹: 스킴+호스트만 노출(자격증명·포트·
 // 경로·쿼리 전부 미노출). file://처럼 호스트 없는 스킴은 "scheme://"만.
 // 파싱 불가·스킴 부재 원문은 고정 토큰으로 대체해 원문을 절대 되돌리지
-// 않는다(개인 데이터 방어 — Review Focus security).
+// 않는다(개인 데이터 방어).
 func MaskRemoteURL(raw string) string {
 	const unparsable = "(unparsable)"
 	u, err := url.Parse(raw)
@@ -334,7 +334,7 @@ func syncHeadHash(ctx context.Context, q Querier) (string, error) {
 // maskRemoteError — 오류 메시지에서 원격 url 원문을 마스킹 결과로 치환
 // (서버 오류가 url을 그대로 실을 수 있어 — push 성공 메시지 실측 기준).
 // 치환 시 오류 체인은 끊기지만 이 경로는 종단 exit 1 오류로 체인 소비자가
-// 없다(url 미노출 계약이 우선 — Review Focus security).
+// 없다(url 미노출 계약이 우선).
 func maskRemoteError(err error, rawURL string) error {
 	if rawURL == "" || !strings.Contains(err.Error(), rawURL) {
 		return err

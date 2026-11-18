@@ -34,7 +34,7 @@ func TestCheckVocabularyAllKnown(t *testing.T) {
 	}
 }
 
-// TestCheckVocabularyCaseNormalize — 대소문자 정규화 후 비교(Review Focus: encoding).
+// TestCheckVocabularyCaseNormalize — 대소문자 정규화 후 비교(encoding).
 func TestCheckVocabularyCaseNormalize(t *testing.T) {
 	got := CheckVocabulary([]string{"Playbook", " ADR "}, "Main")
 	if len(got) != 0 {
@@ -50,7 +50,7 @@ func TestCheckVocabularyCaseNormalize(t *testing.T) {
 // TestCheckVocabularyMultipleWarnings — 표 밖 값 여러 개·중복은 값마다 1개.
 func TestCheckVocabularyMultipleWarnings(t *testing.T) {
 	got := CheckVocabulary([]string{"aaa", "playbook", "bbb"}, "main")
-	want := []string{"unknown tag: aaa (similar: adr)", "unknown tag: bbb"} // v0.23.0 D2: 근사 제안 포함
+	want := []string{"unknown tag: aaa (similar: adr)", "unknown tag: bbb"} // 근사 제안 포함
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("CheckVocabulary = %v, want %v", got, want)
 	}

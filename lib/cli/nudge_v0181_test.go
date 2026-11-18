@@ -1,4 +1,4 @@
-// nudge_v0181_test.go — v0.18.1: recall 마커(Reason "recall")의 SessionStart
+// nudge_v0181_test.go — recall 마커(Reason "recall")의 SessionStart
 // 소비. 회상 부재 경고가 자동 배선(Stop 훅 stdout)에서 안 보이던 갭 폐쇄 —
 // done이 마커를 남기면 다음 세션 시작에 전용 문구 1회 표시 후 자동 소진.
 package cli
@@ -12,7 +12,7 @@ import (
 )
 
 // TestNudgeRecallMarkerOneShot — recall 마커 + SessionStart → 전용 문구
-// 1줄 출력 후 마커 자동 소진(재실행은 무출력). v0.18.2: recall 전용 파일.
+// 1줄 출력 후 마커 자동 소진(재실행은 무출력). recall 전용 파일.
 func TestNudgeRecallMarkerOneShot(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteTypedMarker(markerKindRecall, "s1", nudgeReasonRecall); err != nil {

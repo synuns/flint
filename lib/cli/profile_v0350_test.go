@@ -1,4 +1,4 @@
-// profile_v0350_test.go — v0.35.0 프로파일 판정: 추천 규칙·근거·전환·next 표기.
+// profile_v0350_test.go — 프로파일 판정: 추천 규칙·근거·전환·next 표기.
 package cli
 
 import (
@@ -65,7 +65,7 @@ func TestProfileRecommendsBySample(t *testing.T) {
 }
 
 // TestProfileApplyInvalidRejected — 무효 값 exit 1.
-// v1.0.1(F3): 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
+// 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
 // --exposure와 정합).
 func TestProfileApplyInvalidRejected(t *testing.T) {
 	var out strings.Builder

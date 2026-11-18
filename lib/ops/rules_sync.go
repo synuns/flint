@@ -1,5 +1,4 @@
-// rules_sync.go — v0.9.7 R1 스킬 싱크. flint-plugin/skills/flint/ 전체를
-// v0.40.0 T3: lib/cli에서 이동(식별자 대문자화 — 동작 불변).
+// rules_sync.go — 스킬 싱크. flint-plugin/skills/flint/ 전체를
 // $CLAUDE_HOME/skills/flint/로 복사한다. 규칙이 세션에 도달할 마지막 마일
 // (스펙 §1). 싱크는 복사만 — 대상 전용 파일(사용자 수동 파일)은 절대
 // 삭제하지 않고, 내용이 같은 파일은 건너뛴다(멱등).
@@ -28,7 +27,7 @@ func SyncRules(srcDir string, destDir string) (copied int, err error) {
 		if e.IsDir() {
 			continue // 1단계 파일만 — 스킬 디렉터리는 평면(SKILL.md+부속)
 		}
-		// v0.20.6(패치 루프 6차 S5): 심볼릭 링크는 skip — ReadFile이 링크
+		// 심볼릭 링크는 skip — ReadFile이 링크
 		// 대상(소스 디렉터리에 심어진 민감 파일 포인터)을 따라가 복사·
 		// 노출하는 것을 차단한다.
 		if e.Type()&os.ModeSymlink != 0 {

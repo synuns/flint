@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// uniqTopic — 공유 실DB content_hash 잔재 충돌 회피(R22-A 패턴): 실행마다
+// uniqTopic — 공유 실DB content_hash 잔재 충돌 회피: 실행마다
 // 고유 topic으로 해시를 분리해 -count=2·잔재 DB에서도 판정이 duplicate로
 // 빠지지 않게 한다.
 func uniqTopic(t *testing.T) string {

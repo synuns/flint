@@ -1,5 +1,4 @@
-// usage_registry_test.go — v0.34.2 R2 usage 드리프트 가드 3종
-// (v0.38.0 §1: lib/cli에서 계약층으로 이동·패키지명 갱신).
+// usage_registry_test.go — usage 드리프트 가드 3종.
 // wire 패키지 단독 실행 시 registry가 비어 있으므로 seedCommands가
 // 실 커맨드 표면(사람 노출 27종 + 훅 전용 2종)을 미러링해 등록한다 —
 // 신규 커맨드 추가 시 이 목록과 usageOrder가 함께 갱신되어야 한다
@@ -81,7 +80,7 @@ func TestUsageOrderMatchesRegistry(t *testing.T) {
 	}
 }
 
-// TestHelpSummaryDocumentsPAMExport — v1.4.0 T4: HelpSummary의 export
+// TestHelpSummaryDocumentsPAMExport — HelpSummary의 export
 // 항목은 PAM 표준 내보내기(--format pam)와 --out 사이드카 체크섬을
 // 언급해야 한다(export 행 확장 — 신규 커맨드가 아니므로 usageOrder·
 // seedCommands 집합은 불변).
@@ -94,7 +93,7 @@ func TestHelpSummaryDocumentsPAMExport(t *testing.T) {
 	}
 }
 
-// TestHelpSummaryCoversUsageOrder — v1.4.1 R22-C2 완전성 가드:
+// TestHelpSummaryCoversUsageOrder — 완전성 가드:
 // HelpSummary는 usageOrder 전 항목의 키워드를 포함해야 한다. 신규
 // 커맨드를 usageOrder에 추가하고 HelpSummary를 갱신하지 않으면 이
 // 테스트가 FAIL한다(HelpSummary 드리프트 가드).
@@ -107,7 +106,7 @@ func TestHelpSummaryCoversUsageOrder(t *testing.T) {
 	}
 }
 
-// TestHelpSummaryEnglish — v1.5.0 T3: HelpSummary는 영어 단일 출력
+// TestHelpSummaryEnglish — HelpSummary는 영어 단일 출력
 // (한국어 잔입 금지 — 파이프·grep 관례). 완전성은
 // TestHelpSummaryCoversUsageOrder가 담당한다.
 func TestHelpSummaryEnglish(t *testing.T) {
@@ -119,7 +118,7 @@ func TestHelpSummaryEnglish(t *testing.T) {
 }
 
 // TestUsageLineAssembledFromOrder — usageLine은 usageOrder 순서 그대로
-// 조립(리터럴 금지, v0.34.2 Produces 계약). v1.5.4 T2 P3: error 키 폐지 —
+// 조립(리터럴 금지, Produces 계약). error 키 폐지 —
 // `{"usage":...}` 안내형(정보 내용 불변).
 func TestUsageLineAssembledFromOrder(t *testing.T) {
 	want := `{"usage":"flint <` + strings.Join(usageOrder, "|") + `> [args]"}`

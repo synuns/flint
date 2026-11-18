@@ -1,5 +1,5 @@
-// usage_v1010_test.go — v1.0.1 F2: read 경로 정리 훅(maybePruneAfterRead).
-// v0.42.0 T2가 RecordReadUsage를 폐지하면서 read가 recordWithRetry(롤오버
+// usage_v1010_test.go — read 경로 정리 훅(maybePruneAfterRead).
+// RecordReadUsage 폐지로 read가 recordWithRetry(롤오버
 // 훅)를 지나지 않게 됐다 — read 전용 세션의 read_events 무한 증가 회귀.
 // 게이트 판정은 순수 함수 단위(패스트), 정리·게이트 보유는 실DB 슬로우 라인.
 package db
@@ -34,7 +34,7 @@ func TestPruneGateDueOpensAfter24h(t *testing.T) {
 	}
 }
 
-// TestPruneGateProbeCachesWithinTTL — Review Focus(v1.0.2 R2 성능): 프로세스
+// TestPruneGateProbeCachesWithinTTL — 프로세스
 // 내 게이트 캐시. probe 참 = maybePruneAfterRead가 게이트 meta SELECT를
 // 실행한다 — 최초 확인 1회(참), TTL 내 재확인 0회(거짓 — 매 read SELECT
 // 잔존 회귀 방어), TTL 경과 후 재확인 1회(참 — 게이트가 1h 넘게 얼어붙지
@@ -57,7 +57,7 @@ func TestPruneGateProbeCachesWithinTTL(t *testing.T) {
 	}
 }
 
-// TestRecordReadEventPrunesStaleRows — Review Focus(v1.0.1 F2): read만
+// TestRecordReadEventPrunesStaleRows — read만
 // 반복하는 세션(write 계측 없음 — recordWithRetry 롤오버 훅 미발화)에서도
 // RecordReadEvent 성공 경로의 24h 게이트 훅이 보존 한게 넘은 read_events
 // 행을 정리한다. 게이트가 닫힌(직전 정리 성공, 24h 이내) 경우에는 정리를
@@ -74,7 +74,7 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 			`DELETE FROM read_events WHERE session = $1`, label)
 		_, _ = r.pool.Exec(context.Background(),
 			`DELETE FROM meta WHERE key = $1`, pruneReadGateKey)
-		// 프로세스 내 게이트 캐시(v1.0.2 R2)도 함께 리셋 — 같은 패키지의
+		// 프로세스 내 게이트 캐시도 함께 리셋 — 같은 패키지의
 		// 다른 테스트가 스탬프한 시각이 이 테스트의 DB 게이트 판정을
 		// 우연히 덮어쓰지 않게 한다.
 		pruneGateCheckedAt.Store(0)

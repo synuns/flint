@@ -1,4 +1,4 @@
-// sigverify_test.go — v0.31.0: cosign 키 서명 검증(실제 cosign v2.6 생성
+// sigverify_test.go — cosign 키 서명 검증(실제 cosign v2.6 생성
 // 픽스처 — 합성 테스트 키). 표준 라이브러리 경로(ECDSA·ed25519) 계약.
 package cli
 

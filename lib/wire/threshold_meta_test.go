@@ -1,4 +1,4 @@
-// threshold_meta_test.go — v0.42.0 T1(§2) 등록표 가드. Review Focus:
+// threshold_meta_test.go — 등록표 가드.
 // TestThresholdRegistrySingleSource(등록표 키 집합 == 기존 키 집합·Parse
 // 인식·tuningKeys·TUNING 표 노출 4곳 동질)·TestNewKeyPropagates(가상 키
 // 1건 등록 시 4경로 동시 반영 — 등록 후 제거). wire 외부 테스트 패키지 —
@@ -15,7 +15,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// frozenThresholdKeys — T1 이전 ThresholdsKeys 원본(순서 포함). 등록표
+// frozenThresholdKeys — ThresholdsKeys 원본(순서 포함). 등록표
 // 전환 후에도 키 집합·순서가 불변임을 단언하는 기준선.
 var frozenThresholdKeys = []string{
 	"pending_max", "dup_susp_max", "conf_floor", "stale_sessions",
@@ -26,15 +26,15 @@ var frozenThresholdKeys = []string{
 	"dead_days", "pair_window_minutes", "chain_window_hours",
 	"events_retention_days", "hot_events_retention_days",
 	"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit", "session_knowledge_days",
-	// v1.2.0 T5: 진단 엔진·kreads 보존(diagnosis.go·TUNING §2)
+	// 진단 엔진·kreads 보존(diagnosis.go·TUNING §2)
 	"diag_hot_budget_high", "diag_hot_budget_low", "diag_trend_pct", "diag_recall_led_goal", "diag_dead_warn", "knowledge_reads_retention_days",
-	// v1.4.0 T3: import 행 수 상한(knowledge/import_jsonl.go)
+	// import 행 수 상한(knowledge/import_jsonl.go)
 	"export_import_max_rows",
-	// v1.7.0 T2: decay 감쇠 계수·archive 제안 임계값(ops --decay-audit)
+	// decay 감쇠 계수·archive 제안 임계값(ops --decay-audit)
 	"decay_rate", "archive_below",
 }
 
-// TestThresholdRegistrySingleSource — Review Focus. 등록표가 4곳(기존 키
+// TestThresholdRegistrySingleSource — 등록표가 4곳(기존 키
 // 집합·Parse 인식·tuningKeys·TUNING 표 노출)과 동질한지 — 등록표와
 // store(구조체·기본값·Parse switch) 어느 한쪽에만 키를 추가해도 FAIL.
 func TestThresholdRegistrySingleSource(t *testing.T) {
@@ -145,7 +145,7 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 	}
 }
 
-// TestNewKeyPropagates — Review Focus. 가상 키 1건을 등록표에 등록하면
+// TestNewKeyPropagates — 가상 키 1건을 등록표에 등록하면
 // 4경로(ThresholdsKeys·TuningKeyAll·TuningKeyMap 행·TuningKeys 순서)가
 // 동시 반영되고, 제거 시 전부에서 사라진다 — 신규 키는 등록표 1곳 등록
 // (+store 구조체 필드)만으로 전파됨의 실증.

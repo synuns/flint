@@ -1,4 +1,4 @@
-// maintain.go — v1.6.0 T6: maintain 검토 TUI(`flint maintain --tui` —
+// maintain.go — maintain 검토 TUI(`flint maintain --tui` —
 // 옵트인만). dup-suspects/conflict-suspects/stale 3소스 탭 목록(bubbles
 // list) → 상세(양쪽 본문 + "무엇이 보존되는지" 미리보기 — merge UX 원칙)
 // → 키 액션: m(merge — maintain --merge 위임)·k(keep — 무시)·i(invalidate
@@ -6,7 +6,7 @@
 // 기존 maintain 서브커맨드(ops.RunMaintain)에 위임한다(서브커맨드 인자가
 // 복잡하므로 중복 구현 금지). pending TUI 패턴 승계: GlobalIndex(필터
 // 회귀)·sink 원인 파싱(actionFailureCause 재사용)·지연 본문 로드·
-// nonInteractiveHint. 데이터 조회는 로더 seam(T1 pending 수리와 결합도
+// nonInteractiveHint. 데이터 조회는 로더 seam(pending 수리와 결합도
 // 분리 — 조회 구현 교체가 모델에 스며들지 않는다).
 package tui
 
@@ -162,7 +162,7 @@ func maintainReportJSON(ctx context.Context, st wire.Store, args []string) ([]by
 func loadMaintainSuspects(ctx context.Context, st wire.Store) (MaintainData, error) {
 	var data MaintainData
 
-	// v1.6.1 T3(B3): 보고 3종은 상한을 명시한다(ops.MaintainTUILoadLimit
+	// 보고 3종은 상한을 명시한다(ops.MaintainTUILoadLimit
 	// 단일 소스) — 기본 10/20으로 잘려도 TUI 화면에는 잘림이 표시되지
 	// 않는다(잘림 무표시 폐지). 인자 순서는 파서 표 기반이라 무관하다.
 	dupRaw, err := maintainReportJSON(ctx, st,
@@ -269,7 +269,7 @@ func loadMaintainBodies(ctx context.Context, st wire.Store, ids []int) (map[int]
 }
 
 // RunMaintainTUI — `flint maintain --tui` 진입. 검토 대상 0건은 TUI 없이
-// 안내 exit 0, 비터미널은 Run 래퍼 폴백 exit 3(T5 계약 승계).
+// 안내 exit 0, 비터미널은 Run 래퍼 폴백 exit 3.
 func RunMaintainTUI(ctx context.Context, st wire.Store, stdout io.Writer) int {
 	ld := defaultMaintainLoaders(st)
 	data, err := ld.Suspects(ctx)
@@ -354,7 +354,7 @@ func (r pickRow) Title() string       { return fmt.Sprintf("#%d  %s", r.b.ID, r.
 func (r pickRow) Description() string { return r.b.Origin }
 func (r pickRow) FilterValue() string { return fmt.Sprintf("#%d %s", r.b.ID, r.b.Summary) }
 
-// suspectRows — 검토 목록 전량 재조립(B1 — v1.6.1 T1). 필터 중 제거는
+// suspectRows — 검토 목록 전량 재조립. 필터 중 제거는
 // bubbles RemoveItem을 쓰지 않는다: RemoveItem은 items는 전역 인덱스로,
 // filteredItems는 필터 위치 기준으로 지워 filteredItem.index가 어긋난다
 // (두 번째 액션이 다른 그룹을 지목). 모델 원본 슬라이스에서 행을 다시
@@ -368,7 +368,7 @@ func suspectRows(suspects []MaintainSuspect) []list.Item {
 	return rows
 }
 
-// maintainListHeight — 목록에 배분할 높이(B2 — v1.6.1 T1): View의 비목록
+// maintainListHeight — 목록에 배분할 높이: View의 비목록
 // 라인(소스 탭 헤더 + 키 안내·status·비대화 안내와 구분 공백 — 최대
 // 7행)을 제외한 나머지. 최소 1.
 func maintainListHeight(height int) int {
@@ -457,7 +457,7 @@ func (m MaintainModel) current() (MaintainSuspect, bool) {
 
 // updateList — 목록 화면: tab 소스 전환·enter 상세·m/i/k 액션. 필터 입력
 // 중(list.Filtering)에는 모든 키를 list에 위임한다(액션 키가 필터
-// 텍스트로 소비돼야 한다 — pending v1.5.3 #id 필터 회귀 승계).
+// 텍스트로 소비돼야 한다).
 func (m MaintainModel) updateList(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.lists[m.tab].FilterState() == list.Filtering {
 		var cmd tea.Cmd
@@ -836,7 +836,7 @@ func (m MaintainModel) View() string {
 	if m.status != "" {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))
 	}
-	// B2(v1.6.1 T1): trailing newline 제거 — 마지막 개행이 렌더 라인 수를
+	// trailing newline 제거 — 마지막 개행이 렌더 라인 수를
 	// 1줄 늘린다.
 	fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
 	return b.String()

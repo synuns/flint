@@ -1,4 +1,4 @@
-// pending_test.go — v1.5.0 T7: pending 검토 TUI 계약 테스트. 상태 전이
+// pending_test.go — pending 검토 TUI 계약 테스트. 상태 전이
 // (목록→상세→액션)와 액션 위임(seam — 기존 RunApprove 경로 재사용 단언),
 // 로더(fake store 주입), 비터미널 폴백. SUPERLITE_REAL 실DB 위임은
 // cli 진입 테스트(pending_test.go·withFake 관례)가 담당한다.
@@ -57,7 +57,7 @@ func demoTargets() []SupersedeTarget {
 type recorderActions struct {
 	approves   []int
 	supersedes [][2]int // {pendingID, oldID}
-	expires    [][2]int // v1.6.0 T8④: {pendingID, days} — e 액션 위임 기록
+	expires    [][2]int // {pendingID, days} — e 액션 위임 기록
 }
 
 func (r *recorderActions) actions() PendingActions {
@@ -328,8 +328,8 @@ func TestPendingQuitReturnsTeaQuit(t *testing.T) {
 	}
 }
 
-// RF-resize — A1: WindowSizeMsg 수신 시 목록 크기가 터미널(높이-6 — B2
-// v1.6.1 T1 갱신)에 맞고, 12행 이하 단말·연속 리사이즈에서도 선택 항목
+// WindowSizeMsg 수신 시 목록 크기가 터미널(높이-6)에 맞고, 12행 이하
+// 단말·연속 리사이즈에서도 선택 항목
 // 렌더가 유지된다(고정 80x20 폐지 — 시작 시 bubbletea가 전달하는 창
 // 크기로 조정).
 func TestPendingResizeKeepsItemsRendered(t *testing.T) {
@@ -678,7 +678,7 @@ func applyFilter(m PendingModel, text string) PendingModel {
 	return pump(m, c)
 }
 
-// RF-filter-state — Review Focus(state·v1.5.3 리뷰): 필터 입력 중('/' 후)
+// 필터 입력 중('/' 후)
 // 키는 전부 list에 위임 — 'a'를 타이핑해도 approve가 실행되지 않는다
 // (필터 텍스트로 소비). 필터 적용 후 'a'는 visible 항목을 정확히 승인.
 func TestPendingFilterTypingDoesNotApprove(t *testing.T) {
@@ -710,7 +710,7 @@ func TestPendingFilterTypingDoesNotApprove(t *testing.T) {
 	}
 }
 
-// RF-state — v1.6.0 T8④: e — 선택 항목 expire 위임(maintain --expire-pending
+// e — 선택 항목 expire 위임(maintain --expire-pending
 // 경유). 성공(0)만 목록에서 제거 + 상태 메시지. days는 항목 valid_at 경과에서
 // 산출(10일 경과 항목 → 10 — maintain 컷오프가 해당 항목을 포함).
 func TestPendingExpireDelegatesAndRemoves(t *testing.T) {
@@ -743,7 +743,7 @@ func TestPendingExpireDelegatesAndRemoves(t *testing.T) {
 	}
 }
 
-// RF-state — v1.6.0 T8④: e 실패(exit != 0): 항목 유지 + 실패 상태(원인 표시).
+// e 실패(exit != 0): 항목 유지 + 실패 상태(원인 표시).
 func TestPendingExpireFailureKeepsItem(t *testing.T) {
 	acts := PendingActions{
 		Expire: func(ctx context.Context, id, days int) (int, string) {
@@ -782,7 +782,7 @@ func TestExpireDaysFor(t *testing.T) {
 	}
 }
 
-// RF-protocol — v1.6.0 T8④: 액션 기본 실구현은 ops.RunMaintain에
+// 액션 기본 실구현은 ops.RunMaintain에
 // --expire-pending N --commit 인자 조립을 위임한다(기존 경로 재사용 —
 // TUI 자체 쓰기 없음).
 func TestDefaultActionsAssembleExpireArgs(t *testing.T) {
@@ -806,9 +806,9 @@ func TestDefaultActionsAssembleExpireArgs(t *testing.T) {
 	}
 }
 
-// ── RF-B1: 필터 중 제거 — SetItems 전량 재조립 ──
+// ── 필터 중 제거 — SetItems 전량 재조립 ──
 
-// RF-B1(v1.6.1 T1) — 필터 적용 상태의 액션 제거는 RemoveItem 폐지:
+// 필터 적용 상태의 액션 제거는 RemoveItem 폐지:
 // bubbles RemoveItem은 items는 전역 인덱스로, filteredItems는 필터
 // 위치로 지워 filteredItem.index가 어긋난다(두 번째 액션이 다른 항목
 // 지목). SetItems 전량 재조립 + 빈 재필터 해제로 통일 — "#9" 필터 →
@@ -839,12 +839,12 @@ func TestPendingFilteredApproveThenSecondActionTargetsRemaining(t *testing.T) {
 	}
 }
 
-// ── RF-B2: 목록 높이 산정 ──
+// ── 목록 높이 산정 ──
 
-// viewLines — View 렌더 라인 수(B2 단언 기준 — trailing newline 없는 렌더).
+// viewLines — View 렌더 라인 수(trailing newline 없는 렌더).
 func viewLines(v string) int { return strings.Count(v, "\n") + 1 }
 
-// RF-B2(v1.6.1 T1) — 목록 높이 h=height-4는 실제 비목록 라인(키 안내·
+// 목록 높이 h=height-4는 실제 비목록 라인(키 안내·
 // status·비대화 안내 + 구분 공백 — 최대 6행)보다 적어 화면이 단말 높이를
 // 넘겼다. 목록(status 포함 최악)·supersede 화면 모두 View 렌더 라인 수가
 // 단말 높이 이내. 단말 높이 ≥ 16: bubbles 내부 크롬(제목·상태바·페이지
@@ -874,7 +874,7 @@ func TestPendingViewFitsTerminalHeight(t *testing.T) {
 	}
 }
 
-// RF-B1(v1.6.1 T1 후속) — 필터 적용 상태의 상세 화면 표시 항목도
+// 필터 적용 상태의 상세 화면 표시 항목도
 // GlobalIndex로 환산한다: View의 list.Index()는 필터 기준(visible)이라
 // m.items와 어긋나 잘못된 항목을 상세에 표시한다. "be" 필터(visible:
 // #9) → 커서 이동 → enter → 상세 본문이 선택한 #9와 일치.
@@ -901,7 +901,7 @@ func TestPendingFilteredDetailShowsSelectedBody(t *testing.T) {
 	}
 }
 
-// RF-filter-state — Review Focus(state): 필터 적용 상태의 supersede 확정은
+// RF-filter-state — 필터 적용 상태의 supersede 확정은
 // targetList visible 인덱스를 전체 인덱스로 환산(GlobalIndex) — 필터로
 // 가려진 앞 후보(#3)가 아닌 선택한 후보(#5)가 old로 위임된다.
 func TestPendingSupersedeFilteredTargetUsesGlobalIndex(t *testing.T) {
@@ -920,7 +920,7 @@ func TestPendingSupersedeFilteredTargetUsesGlobalIndex(t *testing.T) {
 	}
 }
 
-// R31 후속 — 필터 중 상세 표시가 선택 항목과 일치(GlobalIndex).
+// 필터 중 상세 표시가 선택 항목과 일치(GlobalIndex).
 func TestPendingDetailMatchesSelectionUnderFilter(t *testing.T) {
 	items := []PendingItem{{ID: 1, Title: "alpha"}, {ID: 2, Title: "beta"}, {ID: 9, Title: "gamma-zebra"}}
 	m := NewPendingModel(context.Background(), items, nil, PendingActions{})

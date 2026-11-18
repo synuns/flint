@@ -1,4 +1,4 @@
-// admin_merge_test.go — R17 A2: Merge 계보 superseded_by 기록 slow 테스트.
+// admin_merge_test.go — Merge 계보 superseded_by 기록 slow 테스트.
 // 병합 전이는 Supersede와 동일한 열·갱신 형식(superseded_by 단일 모델)을
 // 따른다 — summary 마커만 남기던 계보 유실 결함 회귀.
 package db
@@ -12,7 +12,7 @@ import (
 )
 
 // TestMergeRecordsSupersededBy — 병합 후 from행 superseded_by==into.
-// (v1.2.3 T4 계약: Merge는 마커 suffix 관례와 함께 superseded_by를
+// (계약: Merge는 마커 suffix 관례와 함께 superseded_by를
 // Supersede와 동일한 형식으로 기록한다.)
 func TestMergeRecordsSupersededBy(t *testing.T) {
 	r := newTestRepo(t)
@@ -138,7 +138,7 @@ func TestMergePendingRejected(t *testing.T) {
 
 // TestMergeActiveInvalidAtRejected — status='active' + invalid_at 설정
 // (손상 상태) from도 0행 후견사로 거부된다. 이때 문구는 "active 아님 —
-// status: active" 자기모순 대신 invalid_at 원인을 명시해야 한다(v1.2.4 T3).
+// status: active" 자기모순 대신 invalid_at 원인을 명시해야 한다.
 func TestMergeActiveInvalidAtRejected(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

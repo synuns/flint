@@ -1,5 +1,5 @@
-// report_test.go — v1.5.0 T9 report TUI 모델 테스트. 구조 단언(렌더
-// 스냅샷 없음 — T5 관례): 진단 카드 수·제목·상세 확장·지표 뷰 전환·
+// report_test.go — report TUI 모델 테스트. 구조 단언(렌더
+// 스냅샷 없음 — 관례): 진단 카드 수·제목·상세 확장·지표 뷰 전환·
 // 종료 키. 픽스처는 합성 데모 데이터(저장소 원칙).
 package tui
 
@@ -140,7 +140,7 @@ func TestReportModelCursorMoveAndDetail(t *testing.T) {
 	}
 }
 
-// TestReportModelQuitKeys — q·esc 종료 관례(T5 계약).
+// TestReportModelQuitKeys — q·esc 종료 관례.
 func TestReportModelQuitKeys(t *testing.T) {
 	// tea.Quit는 Cmd(func)라 직접 비교 불가 — 실행 산물 tea.QuitMsg
 	// 타입 단언으로 판정한다.

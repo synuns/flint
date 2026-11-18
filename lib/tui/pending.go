@@ -1,4 +1,4 @@
-// pending.go — v1.5.0 T7: pending 검토 TUI. 대기 지식 목록(bubbles list)
+// pending.go — pending 검토 TUI. 대기 지식 목록(bubbles list)
 // → 상세(본문·출처) → 키 액션(a approve·s supersede 대상 선택·d skip·
 // e expire·q quit). 액션은 기존 경로 재사용 — approve/supersede 모두
 // knowledge.RunApprove(approve --id N [--supersede OLD] — maintain
@@ -34,7 +34,7 @@ type PendingItem struct {
 	ID                      int
 	Title, Confidence, Date string
 	Body, Origin            string
-	// ValidAt — v1.6.0 T8④: e 액션의 expire 위임 일수 산출 원천(valid_at 원값).
+	// ValidAt — e 액션의 expire 위임 일수 산출 원천(valid_at 원값).
 	ValidAt time.Time
 }
 
@@ -50,7 +50,7 @@ type SupersedeTarget struct {
 type PendingActions struct {
 	Approve   func(ctx context.Context, id int) (int, string)
 	Supersede func(ctx context.Context, id, oldID int) (int, string)
-	// Expire — v1.6.0 T8④: 선택 항목 만료 위임(id·위임 일수). maintain
+	// Expire — 선택 항목 만료 위임(id·위임 일수). maintain
 	// --expire-pending N --commit 경로(해당 항목이 컷오프에 포함되는 일수).
 	Expire func(ctx context.Context, id, days int) (int, string)
 }
@@ -59,7 +59,7 @@ type PendingActions struct {
 // 금지 — 인자 조립만 이 패키지 소유), 테스트는 fake으로 교체.
 var pendingApproveRunner = knowledge.RunApprove
 
-// pendingMaintainRunner — RunMaintain 주입 seam(v1.6.0 T8④ expire 위임 —
+// pendingMaintainRunner — RunMaintain 주입 seam(expire 위임 —
 // pendingApproveRunner와 같은 관례). 테스트는 fake으로 교체.
 var pendingMaintainRunner = ops.RunMaintain
 
@@ -159,7 +159,7 @@ func loadPendingItems(ctx context.Context, st wire.Store) ([]PendingItem, error)
 		fmt.Sscan(fmt.Sprint(r[0]), &it.ID)
 		if ts, ok := wire.CellToTime(r[4]); ok {
 			it.Date = ts.UTC().Format("2006-01-02")
-			it.ValidAt = ts // v1.6.0 T8④: e 액션 expire 일수 산출 원천
+			it.ValidAt = ts // e 액션 expire 일수 산출 원천
 		}
 		it.Confidence = confidenceLabel(r[5])
 		items = append(items, it)
@@ -208,7 +208,7 @@ func loadSupersedeTargets(ctx context.Context, st wire.Store) ([]SupersedeTarget
 }
 
 // RunPendingTUI — `flint pending --tui` 진입. 대기 0건은 TUI 없이 안내
-// exit 0, 비터미널은 Run 래퍼 폴백 exit 3(T5 계약 승계).
+// exit 0, 비터미널은 Run 래퍼 폴백 exit 3.
 func RunPendingTUI(ctx context.Context, st wire.Store, stdout io.Writer) int {
 	items, err := loadPendingItems(ctx, st)
 	if err != nil {
@@ -278,7 +278,7 @@ func (r targetRow) Title() string       { return fmt.Sprintf("#%d  %s", r.t.ID, 
 func (r targetRow) Description() string { return "" }
 func (r targetRow) FilterValue() string { return r.t.Title }
 
-// pendingRows / targetRows — 목록 전량 재조립(B1 — v1.6.1 T1). 필터 중
+// pendingRows / targetRows — 목록 전량 재조립. 필터 중
 // 제거는 bubbles RemoveItem을 쓰지 않는다: RemoveItem은 items는 전역
 // 인덱스로, filteredItems는 필터 위치 기준으로 지워 filteredItem.index가
 // 어긋난다(두 번째 액션이 다른 항목을 지목). 모델 원본 슬라이스에서 행을
@@ -300,7 +300,7 @@ func targetRows(ts []SupersedeTarget) []list.Item {
 	return rows
 }
 
-// resetEmptyFilter — B1(v1.6.1 T1): 재조립 후 필터 결과가 빈 목록이면
+// resetEmptyFilter — 재조립 후 필터 결과가 빈 목록이면
 // 필터를 해제한다(bubbles RemoveItem의 resetFiltering 준거 — 빈 필터
 // 화면에서 보이지 않는 항목 인덱스로 액션이 새어 들어가는 사고 방지).
 func resetEmptyFilter(l *list.Model) {
@@ -309,7 +309,7 @@ func resetEmptyFilter(l *list.Model) {
 	}
 }
 
-// pendingListHeight — 목록에 배분할 높이(B2 — v1.6.1 T1): View의 비목록
+// pendingListHeight — 목록에 배분할 높이: View의 비목록
 // 라인(키 안내·status·비대화 안내와 구분 공백 — 최대 6행)을 제외한
 // 나머지. 최소 1.
 func pendingListHeight(height int) int {
@@ -386,7 +386,7 @@ func (m PendingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 // 필터 입력 중(list.Filtering — '/'로 진입)에는 모든 키를 list에 위임
 // 한다: a/s/d/enter/q도 필터 텍스트·필터 확정으로 소비돼야 하며, 액션
 // 키가 새어 들어가 필터와 다른 항목에 approve/supersede하는 사고를
-// 막는다(v1.5.3 #id 필터 회귀 — Review Focus state).
+// 막는다(#id 필터 회귀 방지).
 func (m PendingModel) updateList(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.list.FilterState() == list.Filtering {
 		var cmd tea.Cmd
@@ -507,7 +507,7 @@ func (m PendingModel) approveSelected() (tea.Model, tea.Cmd) {
 	return m.removeItem(idx)
 }
 
-// expireSelected — v1.6.0 T8④: 선택 항목 만료 위임. 위임 일수는 항목
+// expireSelected — 선택 항목 만료 위임. 위임 일수는 항목
 // valid_at 경과에서 산출(컷오프가 해당 항목을 포함하는 최대 정수일 —
 // expireDaysFor). 성공(0)만 목록에서 제거. idx는 GlobalIndex(필터 회귀
 // 승계 — approveSelected와 동일 계약). days < 1(1일 미만 항목)은 위임
@@ -635,7 +635,7 @@ func (m PendingModel) View() string {
 	var b strings.Builder
 	switch m.mode {
 	case modeDetail:
-		// R31-B B1 부류: 필터 중 상세 표시도 GlobalIndex로(선택 항목 일치).
+		// 필터 중 상세 표시도 GlobalIndex로(선택 항목 일치).
 		idx := m.list.GlobalIndex()
 		if idx < 0 || idx >= len(m.items) {
 			return "no item selected"
@@ -663,8 +663,8 @@ func (m PendingModel) View() string {
 	if m.status != "" {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))
 	}
-	// v1.5.2 T1: 비대화 탈출 안내(적응형 기본 진입 안내) — 화면 최하단.
-	// 계약 1: 폭 저장 시 wordwrap(협폭 단말 가로 넘침 방지). B2(v1.6.1 T1):
+	// 비대화 탈출 안내(적응형 기본 진입 안내) — 화면 최하단.
+	// 계약 1: 폭 저장 시 wordwrap(협폭 단말 가로 넘침 방지).
 	// trailing newline 제거 — 마지막 개행이 렌더 라인 수를 1줄 늘린다.
 	fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
 	return b.String()

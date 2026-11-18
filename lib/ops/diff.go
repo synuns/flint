@@ -1,9 +1,8 @@
-// diff.go — flint diff <from> <to> (T84): 두 as-of 지점 간 지식 변경 비교.
+// diff.go — flint diff <from> <to>: 두 as-of 지점 간 지식 변경 비교.
 // 행 상세는 dolt_commit_diff_knowledge(from_commit·to_commit WHERE 각 1개
 // 필수 — 실측 2026-10-24), 요약 커밋 목록은 dolt_log 범위×dolt_diff 조인.
 // 출력은 한 줄 JSON, 무효 as-of 스펙은 exit 3.
-// v0.40.0 T1: lib/cli에서 이동(패키지문·내보내기만 변경 — 동작 불변).
-// as-of 정규화는 cli 소유 asof.go(T4 wire 이동 예정) — ParseAsOfSpecFn
+// as-of 정규화는 cli 소유 asof.go — ParseAsOfSpecFn
 // seam으로 주입받는다.
 package ops
 
@@ -21,7 +20,7 @@ import (
 )
 
 // ParseAsOfSpecFn — as-of 스펙 정규화 seam. 실구현 wire.ParseAsOfSpec을
-// cli/root.go composition root init이 주입한다(T4 wire 이동분 직접 주입).
+// cli/root.go composition root init이 주입한다.
 var ParseAsOfSpecFn func(ctx context.Context, st wire.Store, spec string) (string, error)
 
 // ErrInvalidAsOf — 무효 as-of 스펙(형식 오류·접두어 모호/미발견·첫 커밋
@@ -103,8 +102,8 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		}
 	}
 	if len(pos) != 2 {
-		// v1.6.0 T8①: v1.5.4 usage 타입 전환 누락분 회수 — 원시 문자열
-		// JSON이 아니라 wire.UsageErrorf → ErrLine 경로(error:"usage").
+		// 원시 문자열 JSON이 아니라 wire.UsageErrorf → ErrLine
+		// 경로(error:"usage").
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
 			"usage: flint diff <from> <to> [--summary] [--data|--schema]")))
 		return 3
@@ -148,7 +147,7 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 			row.ID = r[1]
 		}
 		if len(r) > 2 {
-			row.Topic = render.Text(fmt.Sprint(r[2])) // v0.37.0: render.Text 경유(출력 재살균 승계)
+			row.Topic = render.Text(fmt.Sprint(r[2])) // render.Text 경유(출력 재살균 승계)
 		}
 		detail = append(detail, row)
 	}
@@ -163,7 +162,7 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 		if len(r) < 5 {
 			continue
 		}
-		c := diffCommit{Hash: fmt.Sprint(r[0]), Message: render.Text(fmt.Sprint(r[2]))} // v0.37.0: render.Text 경유
+		c := diffCommit{Hash: fmt.Sprint(r[0]), Message: render.Text(fmt.Sprint(r[2]))} // render.Text 경유
 		if t, ok := parseAuditDate(r[1]); ok {
 			c.Date = t
 		}

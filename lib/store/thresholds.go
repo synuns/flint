@@ -13,11 +13,11 @@ type Thresholds struct {
 	DupSuspMax    int
 	ConfFloor     float64
 	StaleSessions int
-	// v0.6(T66): stale 스캔·stall 진단 임계값.
+	// stale 스캔·stall 진단 임계값.
 	StaleDays   int // maintain --stale 기준일(Confluence 관례 90)
 	StallHotH   int // last_hot_at stall grace 시간(Healthchecks.io 준용 48)
 	StallWriteH int // last_write_at stall grace 시간(72)
-	// v0.16.3: 하드코딩됐던 튜닝 상수의 레지스트리화(개인 튜닝값은
+	// 튜닝 상수 레지스트리(개인 튜닝값은
 	// meta 오버라이드로만 — 코드·문서 커밋 금지 원칙).
 	SuggestMinScore        float64 // 제안(did-you-mean) 채택 유사도 하한
 	SuggestScanCap         int     // 제안 스캔 행 상한(무상한 스캔 방어)
@@ -26,24 +26,24 @@ type Thresholds struct {
 	ZeroNearMinRead        int     // zero_near 판정 표본 하한(doctor)
 	ZeroNearWarnPct        int     // zero_near 경고 비율 %(doctor)
 	PendingAgeDays         int     // pending 만료 안내 기준일(doctor)
-	PendingPromoteDays     int     // pending 승격 추천 근사: 최근 N일(v0.29.0 R1)
-	PendingPromoteMinRunes int     // 승격 추천 본문 최소 룬 수(v0.29.0 R1)
-	InvalidatedPruneDays   int     // invalidated 정리 기준일(v0.33.0 R4)
-	// v0.18.0 R3: done 회상 경고 — 오늘 회상 0회 상태의 기록 수 임계.
+	PendingPromoteDays     int     // pending 승격 추천 근사: 최근 N일
+	PendingPromoteMinRunes int     // 승격 추천 본문 최소 룬 수
+	InvalidatedPruneDays   int     // invalidated 정리 기준일
+	// done 회상 경고 — 오늘 회상 0회 상태의 기록 수 임계.
 	RecallWarnWrites int // 이상이면 "회상 없이 기록만" 경고(done)
-	// v0.20.4(패치 루프 4차·마일스톤 B③·C①): 효과 계측 판정 창·보존.
+	// 효과 계측 판정 창·보존.
 	DeadDays             int     // dead_pct 기준일(기본 30)
 	PairWindowMin        int     // read→write 페어 판정 창(분, 기본 30)
 	ChainWindowH         int     // 사용 연쇄 판정 창(시간, 기본 24)
 	EventsRetentionD     int     // read_events·session_starts 보존(일, 기본 14)
 	HotRetentionD        int     // hot_events 보존(일, 기본 30 — dead 가드 창 정렬)
 	EventsVolumeWarn     int     // doctor 계측 테이블 경고 행 수(기본 50000)
-	DrillMaxDays         int     // 드릴 경과 보고 기준일(기본 30, v0.23.0 이관)
-	DailyRetentionD      int     // daily:* 보존·기간화 창 상한(기본 14, v0.24.0 R1b)
-	RrfK                 float64 // 검색 RRF 순위 완화 계수(기본 60, v0.25.0)
-	SecretsScanRows      int     // doctor secrets 1회 스캔 행 상한(기본 10000, v0.26.1)
-	SessionKnowledgeDays int     // 세션 지식화 최소 간격(일, 기본 1 — v0.27.0. -1=끔)
-	// v1.2.0 T5 — 규칙 진단 D 임계값(spec §3 diag_*·TUNING §2). B계층은
+	DrillMaxDays         int     // 드릴 경과 보고 기준일(기본 30)
+	DailyRetentionD      int     // daily:* 보존·기간화 창 상한(기본 14)
+	RrfK                 float64 // 검색 RRF 순위 완화 계수(기본 60)
+	SecretsScanRows      int     // doctor secrets 1회 스캔 행 상한(기본 10000)
+	SessionKnowledgeDays int     // 세션 지식화 최소 간격(일, 기본 1 — -1=끔)
+	// 규칙 진단 D 임계값(spec §3 diag_*·TUNING §2). B계층은
 	// doctor 기존 키(zero_near_warn_pct·pending_age_days)를 승계 읽기한다
 	// (중복 키 방지 — 신규 키는 A/C계층 자기참조·가치 기본값만).
 	DiagHotBudgetHigh float64 // hot 주입 평균/예산 '만성 절단' 판정 상한(기본 0.8)
@@ -51,13 +51,11 @@ type Thresholds struct {
 	DiagTrendPct      int     // hot bytes 추세 급변 판정 %(기본 50)
 	DiagRecallLedGoal int     // 회상 선도 세션 '기본 목표' %(C계층 가치 기본값, 기본 50)
 	DiagDeadWarn      int     // dead_pct 진단 경고 %(기본 10)
-	// v1.2.0 T5 — knowledge_reads 보존일 등록(T1 stopgap 인계 해소: 기존
-	// per-key 직접 읽기와 동일 키·기본값 14, spec §1.2).
-	KreadsRetentionD int // knowledge_reads 보존(일, 기본 14)
-	// v1.4.0 T3 — export·import 공통 1회 행 수 상한. 대량 문서의
+	KreadsRetentionD  int     // knowledge_reads 보존(일, 기본 14)
+	// export·import 공통 1회 행 수 상한. 대량 문서의
 	// 전량 파싱·적립 메모리 방어(비목표 스트리밍의 완화).
 	ExportImportMaxRows int // export·import 공통 행 수 상한(기본 100000)
-	// v1.7.0 T2 — decay 스코어 감쇠·archive 제안 임계값(schema v11 열
+	// decay 스코어 감쇠·archive 제안 임계값(schema v11 열
 	// recall_score·last_recalled_at 소비 — ops maintain --decay-audit).
 	DecayRate    float64 // 회상 감쇠 계수(점/일, 기본 1)
 	ArchiveBelow float64 // 감쇠 후 이 값 미만은 archive 권장(기본 0=비활성)
@@ -72,7 +70,7 @@ const (
 	defaultStaleDays     = 90
 	defaultStallHotH     = 48
 	defaultStallWriteH   = 72
-	// v0.16.3 — 소비부에서 제거한 하드코딩 상수의 기본값(단일 소스).
+	// 레지스트리 튜닝 상수의 기본값(단일 소스).
 	defaultSuggestMinScore        = 0.15
 	defaultSuggestScanCap         = 5000
 	defaultConflictDupThreshold   = 0.6
@@ -84,7 +82,7 @@ const (
 	defaultPendingPromoteMinRunes = 40
 	defaultInvalidatedPruneDays   = 90
 	defaultRecallWarnWrites       = 3
-	// v0.20.4 — 효과 계측 판정 창·보존 기본값.
+	// 효과 계측 판정 창·보존 기본값.
 	defaultDeadDays             = 30
 	defaultPairWindowMin        = 30
 	defaultChainWindowH         = 24
@@ -96,7 +94,7 @@ const (
 	defaultRrfK                 = 60.0
 	defaultSecretsScanRows      = 10000
 	defaultSessionKnowledgeDays = 1
-	// v1.2.0 T5 — 진단 diag_*·knowledge_reads 보존 기본값(spec §3·§1.2).
+	// 진단 diag_*·knowledge_reads 보존 기본값(spec §3·§1.2).
 	defaultDiagHotBudgetHigh   = 0.8
 	defaultDiagHotBudgetLow    = 0.2
 	defaultDiagTrendPct        = 50
@@ -104,7 +102,7 @@ const (
 	defaultDiagDeadWarn        = 10
 	defaultKreadsRetentionD    = 14
 	defaultExportImportMaxRows = 100000
-	// v1.7.0 T2 — decay 감쇠·archive 제안 기본값.
+	// decay 감쇠·archive 제안 기본값.
 	defaultDecayRate    = 1.0
 	defaultArchiveBelow = 0.0
 )
@@ -143,17 +141,17 @@ func DefaultThresholds() Thresholds {
 		RrfK:                   defaultRrfK,
 		SecretsScanRows:        defaultSecretsScanRows,
 		SessionKnowledgeDays:   defaultSessionKnowledgeDays,
-		// v1.2.0 T5 진단 키 — 소비자(ops.Diagnose) 폴백 기준값.
+		// 진단 키 — 소비자(ops.Diagnose) 폴백 기준값.
 		DiagHotBudgetHigh: defaultDiagHotBudgetHigh,
 		DiagHotBudgetLow:  defaultDiagHotBudgetLow,
 		DiagTrendPct:      defaultDiagTrendPct,
 		DiagRecallLedGoal: defaultDiagRecallLedGoal,
 		DiagDeadWarn:      defaultDiagDeadWarn,
 		KreadsRetentionD:  defaultKreadsRetentionD,
-		// v1.4.0 T3 — DefaultThresholds는 항상 기본값(Parse 미설정-0 규약과
+		// DefaultThresholds는 항상 기본값(Parse 미설정-0 규약과
 		// 별개 — 소비자 폴백 기준).
 		ExportImportMaxRows: defaultExportImportMaxRows,
-		// v1.7.0 T2 — decay 감쇠·archive 제안(소비자 폴백 기준).
+		// decay 감쇠·archive 제안(소비자 폴백 기준).
 		DecayRate:    defaultDecayRate,
 		ArchiveBelow: defaultArchiveBelow,
 	}
@@ -217,7 +215,7 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "invalidated_prune_days":
 			th.InvalidatedPruneDays = parseIntOrDefault(val, defaultInvalidatedPruneDays, ks)
 		case "recall_warn_writes":
-			// v0.18.2: min=-1 수용(-1=끔). 0은 미설정과 구분 불가 —
+			// min=-1 수용(-1=끔). 0은 미설정과 구분 불가 —
 			// loadThresholds가 기본값으로 폴백한다(TUNING §2 문서화).
 			th.RecallWarnWrites = parseIntInRangeOrDefault(val, defaultRecallWarnWrites, -1, ks)
 		case "dead_days":
@@ -233,15 +231,13 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "events_volume_warn":
 			th.EventsVolumeWarn = parseIntOrDefault(val, defaultEventsVolumeWarn, ks)
 		case "drill_max_days":
-			// v0.23.0: drillReport가 직접 읽던 메타 키를 레지스트리로
-			// 이관 — tuning 커맨드의 단일 소스.
 			th.DrillMaxDays = parseIntOrDefault(val, defaultDrillMaxDays, ks)
 		case "daily_retention_days":
 			th.DailyRetentionD = parseIntOrDefault(val, defaultDailyRetentionD, ks)
 		case "rrf_k":
-			// v1.2.1(R15-B1): rrf_k는 0~1 클램프 파서를 쓰면 기본값 60이
+			// rrf_k는 0~1 클램프 파서를 쓰면 기본값 60이
 			// 전부 기각되어 오버라이드가 원천 불가했다(실증). 전용 파서로
-			// 양수 전범위 허용 — RRF k는 통상 수십~수백(v0.25.0 스펙 참조).
+			// 양수 전범위 허용 — RRF k는 통상 수십~수백(스펙 참조).
 			th.RrfK = parseFloatPositive(val, defaultRrfK, ks)
 		case "secrets_scan_row_limit":
 			th.SecretsScanRows = parseIntOrDefault(val, defaultSecretsScanRows, ks)
@@ -259,19 +255,17 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "diag_dead_warn":
 			th.DiagDeadWarn = parseIntOrDefault(val, defaultDiagDeadWarn, ks)
 		case "knowledge_reads_retention_days":
-			// v1.2.0 T5 등록(T1 stopgap 인계 — usage.go per-key 직접 읽기와
-			// 동일 키·기본값. tuning/문서 노출은 등록표 후속 수렴).
 			th.KreadsRetentionD = parseIntOrDefault(val, defaultKreadsRetentionD, ks)
 		case "export_import_max_rows":
-			// v1.4.0 T3 등록 — 미설정은 0 유지(v0.16.3 규약: 전체 구조체
+			// 미설정은 0 유지(규약: 전체 구조체
 			// 비교 테스트 회귀 없이 확장. 소비자가 DefaultThresholds 폴백).
 			th.ExportImportMaxRows = parseIntOrDefault(val, defaultExportImportMaxRows, ks)
 		case "decay_rate":
-			// v1.7.0 T2 등록 — 미설정 0 유지 규약(소비자 ops 폴백 기본 1).
+			// 미설정 0 유지 규약(소비자 ops 폴백 기본 1).
 			// 0 이하는 폴백(감쇠 끔 튜닝은 archive_below=0과 달리 미제공).
 			th.DecayRate = parseFloatPositive(val, defaultDecayRate, ks)
 		case "archive_below":
-			// v1.7.0 T2 등록 — 0=비활성이 정상값이라 음수만 거부(스코어
+			// 0=비활성이 정상값이라 음수만 거부(스코어
 			// 임계값은 1 초과도 정상 — parseFloatOrDefault 0~1 클램프 부적합).
 			th.ArchiveBelow = parseFloatNonNegative(val, defaultArchiveBelow, ks)
 		}
@@ -296,7 +290,7 @@ func toString(val any) (string, bool) {
 }
 
 // parseIntOrDefault는 정수 파싱 실패 시 기본값+경고.
-// parseIntOrDefault — 정수 파싱(하한 0: 음수는 기본값). v0.18.2: 하한
+// parseIntOrDefault — 정수 파싱(하한 0: 음수는 기본값). 하한
 // 일반화 본체(parseIntInRangeOrDefault)의 별명.
 func parseIntOrDefault(val any, def int, key string) int {
 	return parseIntInRangeOrDefault(val, def, 0, key)
@@ -320,11 +314,11 @@ func parseIntInRangeOrDefault(val any, def, min int, key string) int {
 
 // parseFloatOrDefault는 실수 파싱 실패 시 기본값+경고.
 // parseFloatPositive — 양수(>0) 허용 전용 float 파서. rrf_k(기본 60)처럼
-// 0~1 범위 밖 값이 정상인 키용(v1.2.1 R15-B1).
+// 0~1 범위 밖 값이 정상인 키용.
 func parseFloatPositive(val any, def float64, key string) float64 {
 	s := fmt.Sprint(val)
 	f, err := strconv.ParseFloat(s, 64)
-	// v1.2.2(R16-B1): NaN·Inf 거부 — Go에서 NaN<=0은 false라 통과해
+	// NaN·Inf 거부 — Go에서 NaN<=0은 false라 통과해
 	// rrf_k=NaN이 폴백 점수 전체를 조용히 무의미화했다(프로브 실증).
 	if err != nil || f <= 0 || math.IsNaN(f) || math.IsInf(f, 0) {
 		log.Printf("[flint] thresholds: cannot parse %s=%q (positive required) — default %v", key, s, def)
@@ -340,7 +334,7 @@ func parseFloatOrDefault(val any, def float64, key string) float64 {
 		return def
 	}
 	f, err := strconv.ParseFloat(s, 64)
-	// v1.2.2(R16-B1): NaN 거부(NaN<0·NaN>1 모두 false라 통과).
+	// NaN 거부(NaN<0·NaN>1 모두 false라 통과).
 	if err != nil || f < 0 || f > 1 || math.IsNaN(f) {
 		log.Printf("[flint] thresholds: cannot parse %s=%q — default %v", key, s, def)
 		return def
@@ -350,7 +344,7 @@ func parseFloatOrDefault(val any, def float64, key string) float64 {
 
 // parseFloatNonNegative — 0 이상 전범위 float 파서. archive_below(기본
 // 0=비활성 센티널이면서 1 초과 임계값도 정상)처럼 parseFloatOrDefault의
-// 0~1 클램프가 맞지 않는 스코어 임계 키용(v1.7.0 T2). NaN·Inf·음수 거부.
+// 0~1 클램프가 맞지 않는 스코어 임계 키용. NaN·Inf·음수 거부.
 func parseFloatNonNegative(val any, def float64, key string) float64 {
 	s, ok := toString(val)
 	if !ok {

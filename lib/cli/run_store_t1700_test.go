@@ -1,5 +1,5 @@
-// run_store_t1700_test.go — v1.7.0 T6: injectedStore의 TelemetryCommitter
-// 위임(R33-3 F1 패턴 승계). MCP 주입 경로의 read/hot/done 계측 커밋이
+// run_store_t1700_test.go — injectedStore의 TelemetryCommitter
+// 위임. MCP 주입 경로의 read/hot/done 계측 커밋이
 // 래퍼에서 차단되지 않는지 검증.
 package cli
 
@@ -27,8 +27,7 @@ func (s *t1700TelStore) CommitTelemetry(ctx context.Context, cmd string) error {
 	return nil
 }
 
-// TestInjectedStoreForwardsCommitTelemetry — Review Focus(v1.7.0 T6):
-// injectedStore은 원본의 CommitTelemetry를 위임한다(미구현 원본은 조용
+// TestInjectedStoreForwardsCommitTelemetry — injectedStore은 원본의 CommitTelemetry를 위임한다(미구현 원본은 조용
 // no-op — 기존 계측 capability 폴백 패턴).
 func TestInjectedStoreForwardsCommitTelemetry(t *testing.T) {
 	orig := &t1700TelStore{}

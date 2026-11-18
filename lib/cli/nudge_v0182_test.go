@@ -1,7 +1,7 @@
-// nudge_v0182_test.go — v0.18.2: 마커 파일 분리 회귀. (a) Stop 이벤트에서
+// nudge_v0182_test.go — 마커 파일 분리 회귀. (a) Stop 이벤트에서
 // recall 마커는 무출력(증류 넛지 오발동 방지), (b) recall 기록이 증류 마커를
 // 덮어쓰지 않는다, (c) SessionStart에서 둘 다 안내(회상만 자동 소진),
-// (d) v0.18.1 잔존(pending-distill의 Reason=recall) 마이그레이션.
+// (d) 잔존(pending-distill의 Reason=recall) 마이그레이션.
 package cli
 
 import (
@@ -79,7 +79,7 @@ func TestNudgeSessionStartBothMarkers(t *testing.T) {
 	}
 }
 
-// TestNudgeLegacyRecallInDistillFile — v0.18.1 잔존(증류 파일에 Reason
+// TestNudgeLegacyRecallInDistillFile — 잔존(증류 파일에 Reason
 // recall)은 회상 취급: SessionStart 문구 표시 후 그 파일 소진.
 func TestNudgeLegacyRecallInDistillFile(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())

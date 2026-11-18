@@ -1,6 +1,5 @@
-// thresholds_v1200_test.go — v1.2.0 T5 등록표 가드(기존 v0.16.3 패턴 승계):
-// 진단 diag_* 키 5종 + knowledge_reads_retention_days(T1·T3 stopgap 인계
-// 해소)의 기본값·meta 오버라이드·무효값 폴백.
+// thresholds_v1200_test.go — 진단 diag_* 키 5종 +
+// knowledge_reads_retention_days의 기본값·meta 오버라이드·무효값 폴백.
 package store
 
 import "testing"

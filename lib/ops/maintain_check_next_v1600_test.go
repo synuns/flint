@@ -1,4 +1,4 @@
-// maintain_check_next_v1600_test.go — v1.6.0 T8③: maintain --check 응답의
+// maintain_check_next_v1600_test.go — maintain --check 응답의
 // next 키(권장 조치 — pending import dry-run 관례). 상태별 권장 명령 안내가
 // additive 필드로 붙는지 검증한다. fakeMaintStore는 care_test.go 관례 재사용.
 package ops
@@ -22,7 +22,7 @@ func (f *countsFake) Counts(ctx context.Context) (db.Counts, error) {
 	return f.counts, nil
 }
 
-// TestMaintainCheckNextKey — Review Focus(protocol): next 키는 상태별 권장
+// TestMaintainCheckNextKey — protocol: next 키는 상태별 권장
 // 조치를 담는다(임계 이내 none·pending 초과 pending 검토+만료·dup 초과
 // dup-suspects). 기존 status·수치 필드는 불변.
 func TestMaintainCheckNextKey(t *testing.T) {

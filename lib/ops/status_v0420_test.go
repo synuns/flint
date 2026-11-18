@@ -1,4 +1,4 @@
-// status_v0420_test.go — v0.42.0 T2 회귀: read 경로가 meta last_read_at을
+// status_v0420_test.go — 회귀: read 경로가 meta last_read_at을
 // 더 쓰지 않는다(RecordReadUsage 폐지) — status last_read_at은 잔존 meta
 // 값과 read_events max(ts) 중 더 최근 쪽(doctor checkLastSeen과 동일 룰).
 // meta 값만으로 보고하면 전환 후 영구히 과거 시각에 갇힌다.

@@ -1,4 +1,3 @@
-// wire_test.go — v0.38.0 T1 Review Focus: TestWireRunDispatch.
 // 계약층 Run 디스패치의 특수 경로(store-free 3종·soft setup·
 // quiet compact/nudge)를 공장 주입형 시그니처로 직접 검증한다.
 // wire 패키지 단독 실행 시 registry가 비어 있으므로 각 서브테스트가
@@ -63,7 +62,7 @@ func errFactory(err error) func(ctx context.Context, dsn string) (Store, error) 
 	}
 }
 
-// TestWireRunDispatch — Review Focus: Run 특수 경로 디스패치.
+// TestWireRunDispatch — Run 특수 경로 디스패치.
 // store-free 3경로(version·teardown·mcp — 공장 미호출·st nil 주입)·
 // soft setup(공장 실패에도 핸들러 실행, st nil)·quiet compact(공장
 // 실패 시 st nil로 핸들러, exit는 핸들러 반환)·quiet nudge(공장 실패 시
@@ -143,8 +142,8 @@ func TestWireRunDispatch(t *testing.T) {
 		}
 	})
 	t.Run("unknown_command_single_line_json_exit3", func(t *testing.T) {
-		// v1.5.3 T1: unknown command도 무효 인자 계약 exit 3 통일(기존 1).
-		// v1.5.4 T2 P3: 출력은 error 키 없는 안내 형태 — message(unknown
+		// unknown command도 무효 인자 계약 exit 3 통일.
+		// 출력은 error 키 없는 안내 형태 — message(unknown
 		// command 사실)+usage(커맨드 목록) 한 줄, 정보 내용 유지.
 		var out bytes.Buffer
 		if code := Run([]string{"no-such-cmd"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
@@ -172,7 +171,7 @@ func TestWireRunDispatch(t *testing.T) {
 		if code := Run(nil, strings.NewReader(""), &out, failFactory(t)); code != 1 {
 			t.Fatalf("exit=%d, want 1", code)
 		}
-		// v1.5.4 T2 P3: UsageLine은 error 키 없는 안내형 — exit 1은 유지.
+		// UsageLine은 error 키 없는 안내형 — exit 1은 유지.
 		if !strings.Contains(out.String(), `"usage":"flint <`) {
 			t.Fatalf("usage 미출력: %q", out.String())
 		}

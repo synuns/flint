@@ -1,4 +1,4 @@
-// read_v096_test.go — v0.9.6 T1: read 제로히트 토큰 폴백(fake Store 질의
+// read_v096_test.go — read 제로히트 토큰 폴백(fake Store 질의
 // 캡처). SUPERLITE_REAL=1이면 delegatingFake로 실구현 경유(read_v08 관례).
 package cli
 
@@ -51,7 +51,7 @@ func argKey(v any) string {
 	return ""
 }
 
-// TestReadFallbackOnZeroPhrase — Review Focus: 구문 제로히트 → 토큰 OR
+// TestReadFallbackOnZeroPhrase — 구문 제로히트 → 토큰 OR
 // 재쿼리·정합수 내림 재랭킹·read_fallback_calls 증분.
 func TestReadFallbackOnZeroPhrase(t *testing.T) {
 	ctx := context.Background()
@@ -88,7 +88,7 @@ func TestReadFallbackOnZeroPhrase(t *testing.T) {
 	}
 }
 
-// TestReadPhraseHitUnchanged — Review Focus: 구문 히트 시 폴백 미발생
+// TestReadPhraseHitUnchanged — 구문 히트 시 폴백 미발생
 // (OR 질의·계측 없이 기존 출력 그대로).
 func TestReadPhraseHitUnchanged(t *testing.T) {
 	ctx := context.Background()

@@ -1,5 +1,5 @@
-// metrics_test.go — v0.42.0 T5 Review Focus: hotLens 상한 절단 시
-// hotPersisted 오프셋 정합(fr-v0400 기록 엣지). 절단이 persisted 선두를
+// metrics_test.go — hotLens 상한 절단 시
+// hotPersisted 오프셋 정합. 절단이 persisted 선두를
 // 깎으면 오프셋도 함께 줄어야 한다 — 그렇지 않으면 미저장(pending)
 // 샘플이 절단분만큼 누락되어 calls·p95가 과소 보고된다.
 package ops

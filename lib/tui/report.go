@@ -1,4 +1,4 @@
-// report.go — v1.5.0 T9: `flint report --tui` 화면 모델. 진단 카드 목록
+// report.go — `flint report --tui` 화면 모델. 진단 카드 목록
 // (심각도 색)·선택 상세(Basis·Action·tuning key)·지표 요약 탐색 뷰.
 // 뷰 전용 — 쓰기 없음. 데이터는 호출부(cli 진입 분기)가 기존 ReportOutput
 // 수집 경로(JSON 뷰와 동일 원천)에서 모은 산물을 그대로 받는다 — TUI가
@@ -103,14 +103,14 @@ func (m ReportModel) View() string {
 	if m.mode == 1 {
 		b.WriteString(m.metricsView())
 		b.WriteString("\n" + Theme.Secondary.Render(keyHint(m.width, "tab: diagnosis · q: quit", "tab · q quit")))
-		b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // v1.5.2 T1 비대화 탈출 안내(계약 1 wrap)
+		b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // 비대화 탈출 안내(계약 1 wrap)
 		return b.String()
 	}
 	b.WriteString(m.diagnosisView())
 	b.WriteString("\n" + Theme.Secondary.Render(keyHint(m.width,
 		"↑/k ↓/j: move · enter: detail · tab: metrics · q: quit",
 		"j/k·enter·tab · q quit")))
-	b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // v1.5.2 T1 비대화 탈출 안내(계약 1 wrap)
+	b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // 비대화 탈출 안내(계약 1 wrap)
 	return b.String()
 }
 
@@ -169,7 +169,7 @@ func (m ReportModel) metricsView() string {
 	)
 }
 
-// RunReportTUI — 수집 완료된 ReportOutput으로 화면 기동(T5 Run 래퍼 —
+// RunReportTUI — 수집 완료된 ReportOutput으로 화면 기동(Run 래퍼 —
 // 비터미널은 즉시 오류, 호출부 exit 3 폴백).
 func RunReportTUI(rep ops.ReportOutput, days int) error {
 	return Run(NewReportModel(rep, days))

@@ -1,4 +1,4 @@
-// repo_v0180_test.go — v0.18.0 R1 회귀: DupRowByHash(해시 중복 시 기존 행
+// repo_v0180_test.go — 회귀: DupRowByHash(해시 중복 시 기존 행
 // id·topic·status 노출). 시드 행 해시는 메타 일치, 미등록 해시는 (0,"",false).
 package db
 

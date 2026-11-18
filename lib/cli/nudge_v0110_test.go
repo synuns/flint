@@ -1,4 +1,4 @@
-// nudge_v0110_test.go — v0.11.0 R3: normal 넛지 짧은 문구(nudgePendingLine)·
+// nudge_v0110_test.go — normal 넛지 짧은 문구(nudgePendingLine)·
 // minimal 자동 마커 종결(출력 0바이트) 검증.
 package cli
 
@@ -41,7 +41,7 @@ func TestNudgeMinimalAutoClears(t *testing.T) {
 }
 
 // fakeProfileStore — meta exposure_profile 반환 페이크. 기본은 ExposureProfile
-// seam을 페이크로 교체(T1 미구현 패닉 회피), SUPERLITE_REAL=1이면 실구현이
+// seam을 페이크로 교체, SUPERLITE_REAL=1이면 실구현이
 // 스토어 질의(meta exposure_profile=p)를 읽도록 놔둔다.
 func fakeProfileStore(t *testing.T, p string) Store {
 	if os.Getenv("SUPERLITE_REAL") != "1" {

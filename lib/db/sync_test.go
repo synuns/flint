@@ -1,7 +1,7 @@
-// sync_test.go — v1.7.0 T4: sync 원격 등록(dolt_remote 래핑) 테스트.
+// sync_test.go — sync 원격 등록(dolt_remote 래핑) 테스트.
 // fast는 fake Querier로 SQL·오류 계약, slow(FLINT_TEST_DSN)는 격리
 // Doltgres에서 dolt_remote add/list/remove 실측(file:// 원격).
-// Review Focus(security): 원격 url 원문은 어떤 경로로도 노출되지
+// 원격 url 원문은 어떤 경로로도 노출되지
 // 않는다 — 마스킹은 MaskRemoteURL 단일 경로.
 package db
 
@@ -236,7 +236,7 @@ func TestSyncRemoteRoundTripRealSlow(t *testing.T) {
 	}
 }
 
-// fakeSyncScriptQuerier — T5 push/pull용 Querier fake: 쿼리별 stub 함수
+// fakeSyncScriptQuerier — push/pull용 Querier fake: 쿼리별 stub 함수
 // (사전 조회·push·fetch·merge·head 해시를 SQL 부문자열로 분기). 실행된
 // 쿼리·인자는 전부 기록한다. v1.7.2 T3(S3): deadline 설정 여부도 기록
 // (ctx.WithTimeout 적용 단언용).
@@ -258,7 +258,7 @@ func (f *fakeSyncScriptQuerier) Query(ctx context.Context, sql string, args ...a
 	return f.fn(sql, args)
 }
 
-// newSyncScript — 표준 T5 스크립트 fake: 원격 조회(name→url)·head 해시
+// newSyncScript — 표준 스크립트 fake: 원격 조회(name→url)·head 해시
 // 큐(호출순 pop)·push/fetch/merge 결과·오류 주입. mergeErr·fetchErr·
 // pushErr는 해당 쿼리 오류, heads는 dolt_branches 조회 결과 큐.
 func newSyncScript(remotes map[string]string, heads []string, pushErr, fetchErr, mergeErr error) *fakeSyncScriptQuerier {
@@ -310,7 +310,7 @@ func newSyncScriptRows(remotes map[string]string, heads []string, pushRows [][]a
 func strAny(v any) string { s, _ := v.(string); return s }
 
 // TestSyncPushRemoteNotFound — push 대상 원격이 미등록이면 dolt_push 실행
-// 없이 ErrRemoteNotFound(사전 조회 계약 — T4 관례 승계).
+// 없이 ErrRemoteNotFound(사전 조회 계약 — 관례 승계).
 func TestSyncPushRemoteNotFound(t *testing.T) {
 	f := newSyncScript(map[string]string{}, []string{"h0"}, nil, nil, nil)
 	_, err := SyncPush(context.Background(), f, "ghost")
@@ -353,7 +353,7 @@ func TestSyncPushRunsAndReportsHash(t *testing.T) {
 }
 
 // TestSyncPushErrorMasksURL — push 실행 오류 메시지에 원격 url 원문이
-// 실리면 마스킹으로 치환한다(도달 불가 오류 — Review Focus security).
+// 실리면 마스킹으로 치환한다(도달 불가 오류).
 func TestSyncPushErrorMasksURL(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/secret-remote"}, nil,
 		errors.New("dial: push to file:///tmp/secret-remote refused"), nil, nil)
@@ -444,7 +444,7 @@ func TestSyncPullRemoteNotFound(t *testing.T) {
 }
 
 // TestSyncPullConflictGuidance — merge 충돌은 ErrMergeConflict + 수동 해결
-// 안내(자동 해결 금지 — Review Focus state). 실측 오류 문구 사본으로 판정.
+// 안내(자동 해결 금지). 실측 오류 문구 사본으로 판정.
 func TestSyncPullConflictGuidance(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0", "h0"}, nil, nil,
 		errors.New("Merge conflict detected, @autocommit transaction rolled back"))

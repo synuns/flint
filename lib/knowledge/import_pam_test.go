@@ -1,6 +1,6 @@
-// import_pam_test.go — v1.3.0 T10: PAM(Portable AI Memory) v1.0 파서
+// import_pam_test.go — PAM(Portable AI Memory) v1.0 파서
 // 테스트. 전부 합성 데모 데이터(개인 데이터 금지 — CLAUDE.md 최상위 원칙).
-// ParsePAM은 순수 변환(스토어 무접촉): pending 적립·write는 T9 소유.
+// ParsePAM은 순수 변환(스토어 무접촉): pending 적립·write는 import_jsonl.go 소유.
 package knowledge
 
 import (
@@ -144,7 +144,7 @@ func TestParsePAMStatusSkips(t *testing.T) {
 }
 
 // TestParsePAMSupersedes — relations 중 type=="supersedes"만 (from,to)
-// 쌍으로 추출 — 후처리 계보 갱신용(T9). 다른 relation type은 무시.
+// 쌍으로 추출 — 후처리 계보 갱신용. 다른 relation type은 무시.
 func TestParsePAMSupersedes(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -301,7 +301,7 @@ func TestParsePAMCorruptJSON(t *testing.T) {
 	}
 }
 
-// TestParsePAMFnSeam — T9 연결 seam 변수가 ParsePAM과 동일 동작.
+// TestParsePAMFnSeam — 연결 seam 변수가 ParsePAM과 동일 동작.
 func TestParsePAMFnSeam(t *testing.T) {
 	res, err := ParsePAMFn([]byte(pamSample))
 	if err != nil {
@@ -312,7 +312,7 @@ func TestParsePAMFnSeam(t *testing.T) {
 	}
 }
 
-// --- v1.6.0 T4: integrity.checksum 수입 검증·§18 서명 검증 ---
+// --- integrity.checksum 수입 검증·§18 서명 검증 ---
 
 // pamSwapImportStderr — pamImportStderr seam 교체(경고 캡처).
 func pamSwapImportStderr(t *testing.T) *bytes.Buffer {
@@ -461,7 +461,7 @@ func TestParsePAMUnsignedNoWarning(t *testing.T) {
 	}
 }
 
-// --- v1.6.1 T2 A2: 저장 content_hash 승계·수입 dedup 멱등 ---
+// --- 저장 content_hash 승계·수입 dedup 멱등 ---
 
 // TestParsePAMInheritsStoredContentHash — A2: memory metadata.content_hash
 // (64 hex)는 ImportCandidate.Metadata로 승계된다(jsonl A9 isHex64 대칭).

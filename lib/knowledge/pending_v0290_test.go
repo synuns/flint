@@ -1,6 +1,5 @@
-// pending_v0290_test.go — v0.29.0 증류 2막 계약: pending 심사 뷰·approve
+// pending_v0290_test.go — 증류 2막 계약: pending 심사 뷰·approve
 // 병합·세션 지식 topic 품질·session_id 연결.
-// v0.39.0 T4: lib/cli에서 이동(cli/pending_v0290_test.go 원본).
 package knowledge
 
 import (
@@ -24,7 +23,7 @@ func knFake(last string) *fakeStore {
 	}}
 }
 
-// TestSummaryKeyword — R3: topic 키워드 추출(첫 구분자·20룬 상한).
+// TestSummaryKeyword — topic 키워드 추출(첫 구분자·20룬 상한).
 func TestSummaryKeyword(t *testing.T) {
 	cases := []struct{ in, want string }{
 		{"v0.27.2 패치: 세션 지식화를 PostCompact 표준 경로로 활성화했다", "v0.27.2 패치: 세션 지식화를"}, // 20룬 상한
@@ -38,7 +37,7 @@ func TestSummaryKeyword(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeTopicQuality — R3: topic에 요약 키워드 반영.
+// TestMaybeSessionKnowledgeTopicQuality — topic에 요약 키워드 반영.
 func TestMaybeSessionKnowledgeTopicQuality(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
@@ -52,7 +51,7 @@ func TestMaybeSessionKnowledgeTopicQuality(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeSessionID — R4: agent의 최신 sessions.id 연결.
+// TestMaybeSessionKnowledgeSessionID — agent의 최신 sessions.id 연결.
 func TestMaybeSessionKnowledgeSessionID(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -76,7 +75,7 @@ func TestMaybeSessionKnowledgeSessionID(t *testing.T) {
 	}
 }
 
-// TestRunPendingVerdicts — R1: 삼단 추천(승격·병합·만료·보류) 분류.
+// TestRunPendingVerdicts — 삼단 추천(승격·병합·만료·보류) 분류.
 func TestRunPendingVerdicts(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	old, recent := time.Now().UTC().Add(-20*24*time.Hour), time.Now().UTC().Add(-24*time.Hour)
@@ -112,7 +111,7 @@ func TestRunPendingVerdicts(t *testing.T) {
 	}
 }
 
-// TestRunPendingMergeHint — R1: 유사 active 존재 시 병합 추천.
+// TestRunPendingMergeHint — 유사 active 존재 시 병합 추천.
 func TestRunPendingMergeHint(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	recent := time.Now().UTC().Add(-24 * time.Hour)
@@ -121,7 +120,7 @@ func TestRunPendingMergeHint(t *testing.T) {
 			return [][]any{{int32(9), "표 파이프 이스케이프 규칙(합성 데모)", "유사 active가 있는 최신 항목 — 병합 추천 대상", "agent", recent}}, nil
 		}
 		if strings.Contains(sql, "status = 'active'") {
-			// v0.29.0 리뷰: 유사 판정은 (id, topic) 2열 — 접두 일치.
+			// 유사 판정은 (id, topic) 2열 — 접두 일치.
 			return [][]any{{int32(4), "표 파이프 이스케이프 규칙(합성 데모) 기존 활성"}}, nil
 		}
 		return nil, nil
@@ -135,7 +134,7 @@ func TestRunPendingMergeHint(t *testing.T) {
 	}
 }
 
-// TestRunPendingJSONCountsConsistency — v0.32.1(감사 1): valid_at 파싱
+// TestRunPendingJSONCountsConsistency — valid_at 파싱
 // 불가 행의 counts·items 모순 수선 — 양쪽 다 hold로 일치.
 func TestRunPendingJSONCountsConsistency(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -157,7 +156,7 @@ func TestRunPendingJSONCountsConsistency(t *testing.T) {
 	if !strings.Contains(s, `"hold":1`) || !strings.Contains(s, `"verdict":"hold"`) {
 		t.Errorf("양쪽 hold 일치 없음: %s", s)
 	}
-	// v0.33.0(패치 감사 1): age_days도 0 — 292년치 표기 회귀 봉쇄.
+	// age_days도 0 — 292년치 표기 회귀 봉쇄.
 	if !strings.Contains(s, `"age_days":0`) {
 		t.Errorf("zero valid_at의 age_days 비정상: %s", s)
 	}

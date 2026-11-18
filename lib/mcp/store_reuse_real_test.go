@@ -1,4 +1,4 @@
-// store_reuse_real_test.go — v1.6.2 R33-3 F2 실스토어 slow 회귀:
+// store_reuse_real_test.go — 실스토어 slow 회귀:
 // MCP 도구 호출이 서버 수명 store(injectedStore 래퍼)를 통과해 실DB에서
 // ① 저신뢰 write → pending 적립 ② flint_approve 승격(active 전이)
 // ③ 동일 payload 재전송 duplicate {id,topic,state} 에코
@@ -23,7 +23,7 @@ import (
 )
 
 // realDBLock — 공유 Doltgres 테스트 DB를 쓰는 slow 테스트의 상호 배제
-// (파일 잠금, v1.6.3 R34-1). go test는 패키지 바이너리를 병렬로 띄우므로
+// (파일 잠금). go test는 패키지 바이너리를 병렬로 띄우므로
 // 잠금 없는 이 테스트의 라운드트립 행이 lib/db newTestRepo의
 // `DELETE FROM knowledge` 전체 삭제(repo_test.go)와 겹치면 approve
 // not_found 간헐 실패한다. 잠금 파일 경로는 lib/db sharedDBLock·

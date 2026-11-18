@@ -1,4 +1,4 @@
-// encrypt_test.go — v0.28.0(H②): age 암호화 코어 계약 — identity
+// encrypt_test.go — age 암호화 코어 계약 — identity
 // 생성·재로드(0600)·roundtrip·변조 감지·형식 감지·판독 단일 경로
 // (복호·마스킹 거부·키 요구).
 package backup
@@ -102,7 +102,7 @@ func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	if _, err := ReadDumpBytes(e, ""); err != ErrKeyPathRequired {
 		t.Errorf("키 없음 = %v, want ErrKeyPathRequired", err)
 	}
-	// 암호문 — 잘못된 키 파일이면 ErrEncryptKeyCorrupt(v0.28.0: 부재와 구분).
+	// 암호문 — 잘못된 키 파일이면 ErrEncryptKeyCorrupt(부재와 구분).
 	bad := filepath.Join(dir, "bad.key")
 	os.WriteFile(bad, []byte("AGE-SECRET-KEY-NOTVALID"), 0o600)
 	if _, err := ReadDumpBytes(e, bad); err != ErrEncryptKeyCorrupt {
@@ -137,7 +137,7 @@ func TestIsEncryptedFile(t *testing.T) {
 	}
 }
 
-// TestEnsureIdentityRefusesCorruptKey — v0.28.0: 불량 기존 키는 덮어쓰지
+// TestEnsureIdentityRefusesCorruptKey — 불량 기존 키는 덮어쓰지
 // 않는다(기존 암호문의 영구 복호 불가 확정 방지).
 func TestEnsureIdentityRefusesCorruptKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backup.key")

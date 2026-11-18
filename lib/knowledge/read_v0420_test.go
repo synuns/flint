@@ -1,4 +1,4 @@
-// read_v0420_test.go — v0.42.0 T2 Review Focus: read_stats blob 폐지 후
+// read_v0420_test.go — read_stats blob 폐지 후
 // read 1회 쓰기 4→2(BumpReads·RecordReadEvent만). read 경로가 meta
 // read_stats 키를 읽거나 쓰지 않는다(운영 DB 잔존 blob은 무해 잔류 —
 // 접근 부재가 계약). 유입 계측(RecordReadUsage daily 경로)도 read kind
@@ -70,7 +70,7 @@ func newReadBudgetRecorder(hit bool) *readBudgetRecorder {
 	return r
 }
 
-// TestReadWritesReduced — Review Focus: read 호출(히트·제로히트 각 1회)
+// TestReadWritesReduced — read 호출(히트·제로히트 각 1회)
 // 후 meta 쓰기에서 read_stats 키 부재 단언. 계측은 BumpReads(참조 증분)
 // ·RecordReadEvent(이벤트 1행)만 남는다.
 func TestReadWritesReduced(t *testing.T) {

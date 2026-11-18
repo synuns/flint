@@ -1,4 +1,4 @@
-// report_v0190_test.go — v0.19.0 효과 계측 섹션(docs/METRICS.md §4): GSM
+// report_v0190_test.go — 효과 계측 섹션(docs/METRICS.md §4): GSM
 // 지표 산출·시간 창 페어링·셀 변환. fakeStore queryFn 패턴(report_v0140
 // 승계).
 package cli
@@ -12,8 +12,7 @@ import (
 	"time"
 )
 
-// TestTimeWindowHit — Review Focus(test_pair_window_boundary, v0.20.0
-// 이식): base 직후 창 안(0 < Δ ≤ window)의 시각만 히트 — 동시(Δ=0)·
+// TestTimeWindowHit — base 직후 창 안(0 < Δ ≤ window)의 시각만 히트 — 동시(Δ=0)·
 // 직전·창 밖은 제외, 창 끝은 포함. times 오름차순 가정.
 func TestTimeWindowHit(t *testing.T) {
 	base := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
@@ -48,9 +47,9 @@ func TestCellToTime(t *testing.T) {
 	}
 }
 
-// TestReportEffectSection — Review Focus(test_effect_section): 효과
-// 섹션이 METRICS §4 정의대로 산출된다 — daily 합산(G1·G2)·knowledge 시점
-// 집계+노출 보정(G3)·세션 경계 페어링·회상 선도·연쇄(G4, v0.20.0).
+// TestReportEffectSection — 효과
+// 섹션이 METRICS §4 정의대로 산출된다 — daily 합산·knowledge 시점
+// 집계+노출 보정·세션 경계 페어링·회상 선도·연쇄.
 func TestReportEffectSection(t *testing.T) {
 	now := time.Now().UTC()
 	sessStart := now.Add(-3 * time.Hour) // 모든 이벤트의 세션 경계
@@ -59,16 +58,16 @@ func TestReportEffectSection(t *testing.T) {
 	writeAt := readB.Add(10 * time.Minute)
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // kreads 회상 이력
 			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
 			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
 			return nil, nil
-		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
+		case strings.Contains(sql, "IN ('hot_stats')"): // read_stats 폐지, hot_stats만
 			return [][]any{{"read_stats", `{"calls":10,"zero":4}`}}, nil
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
 			return nil, nil // read_fallback_calls 부재
 		case strings.Contains(sql, "key IN ('pending_max'"):
-			return nil, nil // thresholds 미설정 — 기본값(v0.20.4 이양)(누적 폴백률 0)
+			return nil, nil // thresholds 미설정 — 기본값(누적 폴백률 0)
 		case strings.Contains(sql, "daily:"):
 			return [][]any{{"daily:" + now.Format("2006-01-02"),
 				`{"read":10,"read_zero":4,"read_zero_near":3,"write":8,"dup":6}`}}, nil
@@ -81,7 +80,7 @@ func TestReportEffectSection(t *testing.T) {
 		case strings.Contains(sql, "hot_events"):
 			return [][]any{{"20,99"}}, nil
 		case strings.Contains(sql, "read_events"):
-			// v0.30.0 리뷰 4: 실 SELECT 열 모양 (ts, zero, fallback, ids,
+			// 실 SELECT 열 모양 (ts, zero, fallback, ids,
 			// first_rank) — readA 폴백 경유(ids=7, rank 0)·readB 정경로
 			// 정합 1위(rank 1) — fallback_pct=50·exact/top1/mrr 검증.
 			return [][]any{
@@ -139,22 +138,22 @@ func TestReportEffectSection(t *testing.T) {
 	}
 }
 
-// TestReportEffectZeroReads — Review Focus: read_events 공백 시 G4는
+// TestReportEffectZeroReads — read_events 공백 시 G4는
 // 전부 0(제로 분모 가드 — 페어링 쿼리도 미실행).
 func TestReportEffectZeroReads(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // kreads 회상 이력
 			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
 			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
 			return nil, nil
-		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
+		case strings.Contains(sql, "IN ('hot_stats')"): // read_stats 폐지, hot_stats만
 			return nil, nil
-		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // kreads 회상 이력
 			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
 			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
 			return nil, nil
-		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
+		case strings.Contains(sql, "IN ('hot_stats')"): // read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
@@ -168,7 +167,7 @@ func TestReportEffectZeroReads(t *testing.T) {
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
 			return nil, nil // read_fallback_calls 부재
 		case strings.Contains(sql, "key IN ('pending_max'"):
-			return nil, nil // thresholds 미설정 — 기본값(v0.20.4 이양)
+			return nil, nil // thresholds 미설정 — 기본값
 		case strings.Contains(sql, "read_events"):
 			return nil, nil
 		case strings.Contains(sql, "last_read_at"):
@@ -204,7 +203,7 @@ func TestReportEffectZeroReads(t *testing.T) {
 	}
 }
 
-// TestReportEffectSessionPairing — Review Focus(v0.20.0 D): 세션 경계가
+// TestReportEffectSessionPairing — 세션 경계가
 // 페어링을 판별한다 — read(세션1) 뒤 20분 write(세션2)는 시간창 폴백과
 // 달리 페어가 아니다. 회상 선도는 write-only 세션에서 0.
 func TestReportEffectSessionPairing(t *testing.T) {
@@ -216,11 +215,11 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	sessionsUp := true
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // kreads 회상 이력
 			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
 			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
 			return nil, nil
-		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
+		case strings.Contains(sql, "IN ('hot_stats')"): // read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
@@ -233,7 +232,7 @@ func TestReportEffectSessionPairing(t *testing.T) {
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
 			return nil, nil // read_fallback_calls 부재
 		case strings.Contains(sql, "key IN ('pending_max'"):
-			return nil, nil // thresholds 미설정 — 기본값(v0.20.4 이양)
+			return nil, nil // thresholds 미설정 — 기본값
 		case strings.Contains(sql, "read_events"):
 			return [][]any{{readA.Format(time.RFC3339), false, ""}}, nil
 		case strings.Contains(sql, "session_starts"):
@@ -280,12 +279,12 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	if pairs, led := run(t); pairs != 0 || led != 0 {
 		t.Errorf("세션 판별: pairs=%d led=%d, want 0/0(write-only 세션)", pairs, led)
 	}
-	// 폴백(세션 조회 실패) — 기존 v0.19.0 시간창 규칙: 20m 내 페어 1.
+	// 폴백(세션 조회 실패) — 기존 시간창 규칙: 20m 내 페어 1.
 	sessionsUp = false
 	if pairs, _ := run(t); pairs != 1 {
 		t.Errorf("폴백: pairs=%d, want 1(시간창 규칙)", pairs)
 	}
-	// ids 없는 read 단독 — topics 조회 미실행(분모 0 skip, 리뷰 #6).
+	// ids 없는 read 단독 — topics 조회 미실행(분모 0 skip).
 	for _, q := range st.queries {
 		if strings.Contains(q, "id, topic FROM knowledge") {
 			t.Errorf("ids 없는 이벤트만 있는데 topics 조회 실행: %s", q)
@@ -293,7 +292,7 @@ func TestReportEffectSessionPairing(t *testing.T) {
 	}
 }
 
-// TestChainPct — Review Focus(v0.20.0 B): 사용 연쇄의 두 경로와 비히트 —
+// TestChainPct — 사용 연쇄의 두 경로와 비히트 —
 // (a) 24h 내 같은 id 재반환 히트(Δ=0 동시 기록은 제외 — 페어링 규칙과
 // 일관), (b) 같은 topic write 히트, 24h 경과·다른 topic은 비히트.
 func TestChainPct(t *testing.T) {
@@ -326,17 +325,16 @@ func TestChainPct(t *testing.T) {
 	}
 }
 
-// TestReportEffectDegradesOnEventLogError — Review Focus(리뷰 #2):
-// read_events 조회 실패(테이블 부재 등)는 G4·fallback_pct를 0으로
+// TestReportEffectDegradesOnEventLogError — read_events 조회 실패(테이블 부재 등)는 G4·fallback_pct를 0으로
 // 강등할 뿐 report 전체를 깨지 않는다(계측 원칙 — 다른 지표는 그대로).
 func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // kreads 회상 이력
 			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
 			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
 			return nil, nil
-		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
+		case strings.Contains(sql, "IN ('hot_stats')"): // read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
@@ -349,7 +347,7 @@ func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 		case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1"):
 			return nil, nil // read_fallback_calls 부재
 		case strings.Contains(sql, "key IN ('pending_max'"):
-			return nil, nil // thresholds 미설정 — 기본값(v0.20.4 이양)
+			return nil, nil // thresholds 미설정 — 기본값
 		case strings.Contains(sql, "read_events"):
 			return nil, fmt.Errorf("relation \"read_events\" does not exist (42P01)")
 		case strings.Contains(sql, "last_read_at"):
@@ -384,18 +382,18 @@ func TestReportEffectDegradesOnEventLogError(t *testing.T) {
 	}
 }
 
-// TestReportProfileHintWithoutIDs — v0.24.1: ids 없는 read 이벤트만
+// TestReportProfileHintWithoutIDs — ids 없는 read 이벤트만
 // 있어도 profile_hint가 표본 하한 판정을 출력한다(hasIDs 조기 return
 // 뒤에 있어 영구 공백이던 결함 — 운영 관측 발견).
 func TestReportProfileHintWithoutIDs(t *testing.T) {
 	now := time.Now().UTC()
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "knowledge_id, ts, kind"), // v1.2.0 T3 — kreads 회상 이력
+		case strings.Contains(sql, "knowledge_id, ts, kind"), // kreads 회상 이력
 			strings.Contains(sql, "id, length(summary) FROM knowledge"),           // 토큰 회계 평균·hot 파생
 			strings.Contains(sql, "id, invalid_at, superseded_by FROM knowledge"): // 회상 운명
 			return nil, nil
-		case strings.Contains(sql, "IN ('hot_stats')"): // v0.42.0 T2 — read_stats 폐지, hot_stats만
+		case strings.Contains(sql, "IN ('hot_stats')"): // read_stats 폐지, hot_stats만
 			return nil, nil
 		case strings.Contains(sql, "key IN ('pending_max'"):
 			return nil, nil // thresholds 기본값

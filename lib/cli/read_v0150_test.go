@@ -1,4 +1,4 @@
-// read_v0150_test.go — read 와이어링 계약(스펙 R1·R2의 v0.42.0 T2 개정판).
+// read_v0150_test.go — read 와이어링 계약(스펙 R1·R2의 개정판).
 // read_stats blob 폐지 후 계측 왕복 예산 축소(쓰기 4→2: BumpReads·
 // RecordReadEvent만)·분류(zero·near)는 read_events 인자로만 전달된다.
 // fakeStore 질의 캡처 패턴은 read_v0140_test.go 승계.
@@ -30,8 +30,8 @@ func (r *readClassRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent
 	return nil
 }
 
-// TestReadInstrumentationQueryBudget — Review Focus: eligible 히트 read
-// 1회의 쿼리 왕복 ≤ 6(본 쿼리 1 + 계측 ≤ 5). v0.42.0 T2 이후 read_stats
+// TestReadInstrumentationQueryBudget — eligible 히트 read
+// 1회의 쿼리 왕복 ≤ 6(본 쿼리 1 + 계측 ≤ 5). read_stats
 // 읽기-쓰기·daily 유입 기록이 빠져 왕복은 더 줄어야 한다(상한은 유지).
 func TestReadInstrumentationQueryBudget(t *testing.T) {
 	count := 0
@@ -52,7 +52,7 @@ func TestReadInstrumentationQueryBudget(t *testing.T) {
 	}
 }
 
-// TestReadClassifiesZeroNear — Review Focus(v0.42.0 T2 개정): 제로히트+근접
+// TestReadClassifiesZeroNear — 제로히트+근접
 // read의 분류 (zero=true, near=true)는 read_events 1행(RecordReadEvent)에만
 // 반영된다 — read_stats blob 쓰기·RecordReadUsage 유입 기록은 폐지(0회).
 // 히트 read는 (false,false) 1행.

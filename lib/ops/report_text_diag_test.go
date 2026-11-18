@@ -1,4 +1,4 @@
-// report_text_diag_test.go — v1.2.3 R17 C3: report --text 진단 배선 회귀.
+// report_text_diag_test.go — report --text 진단 배선 회귀.
 // 세 뷰 동일 원천 계약(diagnosis.go 주석 — text(Sentence)·기본 JSON 필드·
 // --html 카드)의 text 담당: --text에서 ReportOutput.Diagnosis를 Sentence()
 // 라인으로 출력하고, 진단 0건이면 섹션을 내지 않는다(정상 침묵).

@@ -1,4 +1,4 @@
-// read_v08_test.go — T83 read --as-of fast 테스트(fake Store 질의 캡처).
+// read_v08_test.go — read --as-of fast 테스트(fake Store 질의 캡처).
 // SUPERLITE_REAL=1이면 ParseAsOfSpec 실구현이 실 dolt_log 질의로 돌아가는
 // seam 검증(delegatingFake — 스텑 미지정 연산은 실구현 위임).
 package cli
@@ -14,7 +14,7 @@ import (
 
 // asofFakeOrReal — 기본 fakeStore, FLINT_TEST_DSN 설정 + SUPERLITE_REAL=1이면
 // delegatingFake로 실구현을 랩해 반환(생산자 ParseAsOfSpec의 실코드 경로 seam).
-// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(N1 — seamRealDSN).
+// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(seamRealDSN).
 func asofFakeOrReal(t *testing.T, f *fakeStore) Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {
@@ -52,7 +52,7 @@ func asofReadSQL(f *fakeStore) string {
 	return ""
 }
 
-// TestReadAsOfAddsField — Review Focus: --as-of 7d → 해시 확정 → 질의에
+// TestReadAsOfAddsField — --as-of 7d → 해시 확정 → 질의에
 // ` AS OF '<hash>'` 접합(RankOrder·LIMIT 불변) + 출력에 as_of{hash,commit_date}.
 func TestReadAsOfAddsField(t *testing.T) {
 	ctx := context.Background()
@@ -66,7 +66,7 @@ func TestReadAsOfAddsField(t *testing.T) {
 	if got := asofReadSQL(f); !strings.Contains(got, want) {
 		t.Errorf("AS OF 접합 실패:\n got %q\nwant 접미 %q", got, want)
 	}
-	// 기존 질의 불변 — RankOrder 정렬 절·LIMIT 유지. v0.28.0: q는
+	// 기존 질의 불변 — RankOrder 정렬 절·LIMIT 유지. q는
 	// 파라미터($2 — LIKE $1 뒤)로 조립된다.
 	if got := asofReadSQL(f); !strings.Contains(got, "ORDER BY (lower(topic)=lower($2)) DESC") {
 		t.Errorf("RankOrder 절 변형: %q", got)
@@ -94,7 +94,7 @@ func TestReadAsOfAddsField(t *testing.T) {
 	}
 }
 
-// TestReadAsOfInvalidExit3 — Review Focus: 무효 스펙("2 days ago")은
+// TestReadAsOfInvalidExit3 — 무효 스펙("2 days ago")은
 // exit 3 한 줄 JSON, active_knowledge 질의 자체를 내지 않는다.
 func TestReadAsOfInvalidExit3(t *testing.T) {
 	ctx := context.Background()
@@ -113,7 +113,7 @@ func TestReadAsOfInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadAsOfLimitRegression — Review Focus: 기존 인자(--limit 등) 조합 —
+// TestReadAsOfLimitRegression — 기존 인자(--limit 등) 조합 —
 // AS OF와 동시 사용 시 필터·LIMIT가 그대로 조립된다.
 func TestReadAsOfLimitRegression(t *testing.T) {
 	ctx := context.Background()
@@ -126,7 +126,7 @@ func TestReadAsOfLimitRegression(t *testing.T) {
 	if !strings.Contains(got, " AS OF 'he08irluqn3v2m1k9x7c4jw5z6b8d0f'") {
 		t.Errorf("AS OF 접미 유실: %q", got)
 	}
-	// v0.28.0: q 랭킹 파라미터가 LIKE($1) 뒤 $2 — LIMIT은 $3.
+	// q 랭킹 파라미터가 LIKE($1) 뒤 $2 — LIMIT은 $3.
 	if !strings.Contains(got, "LIKE lower($1)") || !strings.Contains(got, "LIMIT $3") {
 		t.Errorf("q LIKE·LIMIT 인자 번호 밀림: %q", got)
 	}

@@ -1,4 +1,4 @@
-// admin_v06_test.go — T59 schema v4(EnsureSchemaV4) slow 테스트(실DB).
+// admin_v06_test.go — schema v4(EnsureSchemaV4) slow 테스트(실DB).
 package db
 
 import (
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TestEnsureSchemaV4Idempotent — Review Focus(state): 2회 호출 → 컬럼 2종·
+// TestEnsureSchemaV4Idempotent — 2회 호출 → 컬럼 2종·
 // 버전 4·기존 행 값 불변. protocol: v3 게이트를 경유한 DB(기존 배포 경로)도
 // 승격되며, 승격 전 기존 행은 기본값 read_count=0·last_read_at=null을 받는다.
 func TestEnsureSchemaV4Idempotent(t *testing.T) {

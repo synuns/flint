@@ -1,8 +1,8 @@
-// asof — 시점 스펙 정규화(T81). 스펙 3종(ISO 시각·상대 Nh/Nd·해시 접두어)을
+// asof — 시점 스펙 정규화. 스펙 3종(ISO 시각·상대 Nh/Nd·해시 접두어)을
 // dolt_log 조회로 커밋 해시 하나로 확정한다. 시간여행 질의는 항상 커밋 해시로
 // 정규화(§3 — AS OF SYSTEM TIME 비의존). 무효 스펙은 ErrInvalidAsOf(CLI exit 3).
-// v0.40.0 T4: cli 소유에서 wire로 이동(공용 Store 유틸 — knowledge·ops seam이
-// 소비). cli는 별칭(cli/asof.go)으로 재노출한다.
+// 공용 Store 유틸 — knowledge·ops seam이 소비. cli는 별칭(cli/asof.go)으로
+// 재노출한다.
 package wire
 
 import (
@@ -45,7 +45,7 @@ func ParseRelative(spec string) (time.Time, error) {
 // ParseAsOfSpec — 스펙을 커밋 해시로 정규화. 판정 순서: ① 상대(\d+[hd]는
 // 문서화된 상대 형식이므로 우선) ② ISO(RFC3339·2006-01-02T15:04) ③ 해시
 // 접두어(소문자 영숫자 3자 이상 — Doltgres 커밋 해시는 base32계 [0-9a-z]
-// 전범위, T84 실측). ISO·상대는 시각 직전 최신 커밋, 접두어는 LIKE 일치
+// 전범위, 실측). ISO·상대는 시각 직전 최신 커밋, 접두어는 LIKE 일치
 // 1건일 때만 확정(0건·2건 이상 = ErrInvalidAsOf — 유일성은 LIKE가 담당).
 func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 	spec = strings.TrimSpace(spec)
@@ -86,7 +86,7 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 }
 
 // commitAtOrBefore — 시각 직전 최신 커밋 채택. date 비교는 Go 계산
-// time.Time을 timestamptz 파라미터로 전달(v0.6 원칙 — SQL interval 금지).
+// time.Time을 timestamptz 파라미터로 전달(SQL interval 금지 원칙).
 func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (string, error) {
 	rows, err := QueryOnce(ctx, st,
 		`SELECT commit_hash FROM dolt_log WHERE date <= $1 ORDER BY commit_order DESC LIMIT 1`,
@@ -112,7 +112,7 @@ func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (
 
 // isLowerAlnumPrefix — 소문자 영숫자 [0-9a-z] 접두어 여부(빈 문자열 false).
 // Doltgres 커밋 해시가 base32계([0-9a-z] 전범위)라 16진 한정 검증은 실DB
-// 해시를 전부 거부했다(T84 실측 결함 폐쇄). 유일성 검증은 LIKE 매칭이 담당.
+// 해시를 전부 거부했다(실측 결함 폐쇄). 유일성 검증은 LIKE 매칭이 담당.
 func isLowerAlnumPrefix(s string) bool {
 	if s == "" {
 		return false

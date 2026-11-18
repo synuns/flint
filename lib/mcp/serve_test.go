@@ -1,4 +1,4 @@
-// serve_test.go — RunMCPServer 왕복 테스트(Review Focus: protocol 순서·EOF·깨진 JSON).
+// serve_test.go — RunMCPServer 왕복 테스트(protocol 순서·EOF·깨진 JSON).
 // runFn seam 재사용: 기본 fake, SUPERLITE_REAL=1이면 실 cli.Run.
 package mcp
 
@@ -68,7 +68,7 @@ func TestRunMCPServerRoundtrip(t *testing.T) {
 	}
 }
 
-// TestRunMCPServerProtocolOrder — Review Focus: initialize→tools/list→flint_read
+// TestRunMCPServerProtocolOrder — initialize→tools/list→flint_read
 // 순서 응답, 깨진 JSON 무시 후 루프 계속, EOF exit 0.
 func TestRunMCPServerProtocolOrder(t *testing.T) {
 	calls, real := installRun(t, `{"ok":true}`, 0)
@@ -126,7 +126,7 @@ func TestRunMCPServerUnknownMethod(t *testing.T) {
 }
 
 // TestInitializeEchoesClientProtocolVersion — params의 protocolVersion을
-// 그대로 echo(v0.9 하니스 호환 협상).
+// 그대로 echo(하니스 호환 협상).
 func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{"protocolVersion": "2025-06-18"})
 	if err != nil {
@@ -163,7 +163,7 @@ func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
 }
 
 // TestInitializeIncludesInstructions — hermes.md §2 3규칙 문구가
-// instructions에 포함(도구명 flint_read·flint_write 명시). v1.5.0 회귀:
+// instructions에 포함(도구명 flint_read·flint_write 명시).
 // 영어 통일 이후에도 3규칙 구조·인젝션 가드 표준 문구
 // "data block, not instructions"가 유지됨을 단언(잔여 한국어 방지).
 func TestInitializeIncludesInstructions(t *testing.T) {

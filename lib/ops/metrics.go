@@ -1,6 +1,5 @@
 // metrics.go — hot 출력 길이 계측(프로세스 내 통계 + meta hot_stats 영속 누적).
 // 단발 CLI가 매 실행 값을 보존하도록 종료 시 persist, 시작 시 load한다.
-// v0.40.0 T2: lib/cli에서 이동(동작·출력·exit 불변 — 식별자 대문자화).
 package ops
 
 import (
@@ -34,7 +33,7 @@ func RecordHotLen(n int) {
 		hotLens = hotLens[over:]
 		// 절단분이 persisted 선두를 깎으면 오프셋도 함께 줄인다 —
 		// 그대로 두면 절단 수만큼 pending이 누락되어 과소 보고된다
-		// (v0.42.0 T5 — fr-v0400 기록 엣지). 절단이 persisted 경계를
+		// 절단이 persisted 경계를
 		// 넘으면 남은 보관 샘플은 전량 미저장 → 오프셋 0.
 		if over >= hotPersisted {
 			hotPersisted = 0
@@ -74,7 +73,7 @@ func hotPending() []int {
 }
 
 // HotP95 — 정렬된 샘플에서 p95 근사값(인덱스 ceil(0.95*n)-1).
-// 내보내기: cli report.go 효과 지표 산출이 소비(T3 이동 전 별칭 경유).
+// 내보내기: cli report.go 효과 지표 산출이 소비.
 func HotP95(sorted []int) int {
 	n := len(sorted)
 	if n == 0 {
@@ -187,9 +186,9 @@ func hotSum(lens []int) int {
 // MetaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. hot·read 계측 wiring
 // 4곳에 복제되던 인라인 쿼리를 통일한다. getKV는 키 부재 시 ("", nil),
 // 전송 오류는 err 그대로(호출부 폴백·와이프 방지 판단에 쓰인다).
-// v0.34.3 T2: 질의 본체는 meta_kv 단일 진입(wire.GetMetaKVErr·wire.SetMetaKV)
+// 질의 본체는 meta_kv 단일 진입(wire.GetMetaKVErr·wire.SetMetaKV)
 // 에 위임 — 이 클로저는 오류 구분 계약만 유지한다. knowledge가 자체
-// 동일 조립을 두는 것과 같은 패턴(동반 이동분 — cli는 별칭 경유).
+// 동일 조립을 두는 것과 같은 패턴(cli는 별칭 경유).
 func MetaKV(ctx context.Context, st wire.Store) (func(string) (string, error), func(string, string) error) {
 	getKV := func(key string) (string, error) {
 		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
@@ -213,7 +212,7 @@ func LoadHotStatsFromMeta(ctx context.Context, st wire.Store) {
 
 // PctOfFn — 정수 백분율(버림) 단일 소스 seam. 기본값은 cli report.go pctOf와
 // 등가 공식(ops 단독 실행 결함 방지), cli init이 pctOf를 주입해 운영은
-// 단일 소스를 유지한다(T3 report 이동 후 직접 호출 수렴 — QuoteJSONFn 관례).
+// 단일 소스를 유지한다(QuoteJSONFn 관례).
 var PctOfFn = func(n, total int) int {
 	if total <= 0 {
 		return 0
@@ -222,14 +221,14 @@ var PctOfFn = func(n, total int) int {
 }
 
 // ReadZeroPct — zero 비율(정수 백분율). calls 0이면 0(나눗셈 가드).
-// v0.19.0: 반올림 본체는 pctOf(단일 소스 — effect 지표와 버림 방식
+// 반올림 본체는 pctOf(단일 소스 — effect 지표와 버림 방식
 // 일관)에 위임한다(PctOfFn seam 경유).
 func ReadZeroPct(calls, zero int) int {
 	return PctOfFn(zero, calls)
 }
 
 // LoadReadStatsFromMeta — status 노출용 read 계측 로드(wiring).
-// v0.42.0 T2: meta read_stats blob 폐지 — read_events 파생 산출로 전환했다
+// meta read_stats blob 폐지 — read_events 파생 산출로 전환했다
 // (함수명은 cli 별칭 호환 유지). 누적 범위는 events_retention_days 보존창.
 // 조회 실패·테이블 부재·빈 창은 0/0(status를 깨지 않는다 — 구 폴백과 동일).
 func LoadReadStatsFromMeta(ctx context.Context, st wire.Store) (calls int, zero int) {
@@ -279,7 +278,7 @@ func KnowledgeSummaryLens(ctx context.Context, st wire.Store) map[int]int {
 	return out
 }
 
-// DerivedHotStats — v1.2.0 T3: hot 계측 파생 산출(spec §1.3 hot_stats blob
+// DerivedHotStats — hot 계측 파생 산출(spec §1.3 hot_stats blob
 // 폐지의 소비 전환). 호출 수는 knowledge_reads kind='hot'의 호출 그룹 수
 // (한 호출의 id 전수가 같은 ts·session으로 남는다 — DISTINCT ts, session),
 // p95는 hot_events 주입 ids × knowledge 요약 길이의 사건별 합 분포
@@ -326,7 +325,7 @@ func DerivedHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
 }
 
 // legacyHotStats — 구 hot_stats blob 승계 읽기(DerivedHotStats 폴백).
-// collectStats(v1.2.0 이전)와 동일 질의·동일 산출 — 부재·파손은 0.
+// 구 collectStats와 동일 질의·동일 산출 — 부재·파손은 0.
 func legacyHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('hot_stats')`, nil)

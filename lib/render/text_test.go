@@ -1,7 +1,4 @@
-// text_test.go — TruncateRunes·CellToInt 테스트. v0.34.3 단일 구현
-// 수렴 관례를 lib/render 이동 후에도 승계한다(스펙 §2).
-// v0.39.0 T4: CountPending 테스트는 정의의 knowledge 이관에 동반해
-// lib/knowledge/pending_count_test.go로 이동했다(룰링).
+// text_test.go — TruncateRunes·CellToInt 테스트. 단일 구현 관례(스펙 §2).
 package render
 
 import (
@@ -30,10 +27,10 @@ func TestTruncateRunesSingleSource(t *testing.T) {
 	}
 }
 
-// TestCellToIntSingleSource — v0.39.0 T3 부채 수렴: 셀(any)→int 단일
+// TestCellToIntSingleSource — 셀(any)→int 단일
 // 강제 변환 구현이 render에만 존재한다. pgx 숫자형·float64·10진 문자열
 // 수용, nil·비수는 (0, false) — read rowIDs·maintain stale·report 집계가
-// 공유하는 계약(구 cli/read.go 복제본은 T3 이동으로 삭제).
+// 공유하는 계약.
 func TestCellToIntSingleSource(t *testing.T) {
 	cases := []struct {
 		in   any

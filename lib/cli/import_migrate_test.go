@@ -1,4 +1,4 @@
-// import_migrate_test.go — v1.3.0 T9: flint import --format jsonl|pam CLI
+// import_migrate_test.go — flint import --format jsonl|pam CLI
 // 배선 테스트(합성 데모 데이터만). 계약: --format 유무 라우팅(기존 규칙
 // import 불변)·cli 진입 시그니처(st, args, stdin, stdout)·실DB slow 왕복.
 package cli
@@ -25,11 +25,11 @@ func TestImportMigrateCLISignature(t *testing.T) {
 }
 
 // TestImportFormatRoutingDispatch — 배선 레지스트리 경로: --format jsonl은
-// migrate로, --verbose는 기존 경로 exit 3 불변(v0.36.1 관례 회귀).
+// migrate로, --verbose는 기존 경로 exit 3 불변.
 func TestImportFormatRoutingDispatch(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// R22-A: 적립은 content_hash dedup·PK(공유 실DB 잔재 ID 31)를 통과한다 —
+	// 적립은 content_hash dedup·PK(공유 실DB 잔재 ID 31)를 통과한다 —
 	// 시작 경계에서 topic 잔재를 정리하고, 실행마다 고유 Content(테스트명+
 	// 시각)로 잔재 해시 충돌을 회피해야 imported:1이 멱등하다.
 	cleanupRealResidue(`DELETE FROM knowledge WHERE topic = 'demo dispatch alpha'`)

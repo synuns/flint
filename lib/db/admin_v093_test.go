@@ -1,4 +1,4 @@
-// admin_v093_test.go — T3 DupGroups 슬로우 테스트(실DB).
+// admin_v093_test.go — DupGroups 슬로우 테스트(실DB).
 package db
 
 import (
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestDupGroupsSameTopic — Review Focus(명명, slow·실DB): 동일 topic active
+// TestDupGroupsSameTopic — 동일 topic active
 // 2건 이상 그룹 산출(ids 오름차순), 단독 topic·무효화 건은 제외.
 // 산식은 Counts의 dup_suspect GROUP BY와 동일(invalid_at IS NULL AND
 // status='active' GROUP BY topic HAVING count(*)>1).

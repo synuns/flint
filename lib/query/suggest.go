@@ -1,4 +1,4 @@
-// suggest.go — v0.10.0 T1: 제로히트 did-you-mean 제안(스펙 §3 R1·R2).
+// suggest.go — 제로히트 did-you-mean 제안(스펙 §3 R1·R2).
 // 유사도·정렬은 전부 앱 사이드 순수 함수 — 구문 LIKE SQL·출력 불변.
 package query
 
@@ -112,11 +112,11 @@ func suggestCellInt(v any) (int, bool) {
 	}
 }
 
-// suggestMinScore — 제안 채택 하한(v0.10.1 R1). 이 점수 미만 행은
+// suggestMinScore — 제안 채택 하한. 이 점수 미만 행은
 // 무관 후보로 간주해 제외한다. 기본값은 thresholds 레지스트리
 // (store.DefaultThresholds)의 단일 소스를 쓰고, 런타임에는 cli read
 // 경로가 meta suggest_min_score 오버라이드를 SetSuggestThresholds로
-// 주입한다(v0.16.3 — 이연됐던 메타 오버라이드 회수).
+// 주입한다.
 var suggestMinScore = store.DefaultThresholds().SuggestMinScore
 
 // SetSuggestThresholds — 제안 임계값(minScore·scanCap) 주입 seam.
@@ -180,7 +180,7 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 // 이상 규모에서 무상한 스캔이 제로히트 경로를 지연시키는 것을 방어한다.
 // 상한은 정렬 없는 방어선이다 — 제안은 상위 topN 재랭킹이므로 어느 행이
 // 걸리든 근접 후보 제공이라는 목적은 유지된다. 기본값·오버라이드는
-// suggestMinScore와 같은 seam(v0.16.3, meta suggest_scan_cap).
+// suggestMinScore와 같은 seam(meta suggest_scan_cap).
 var suggestScanCap = store.DefaultThresholds().SuggestScanCap
 
 // BuildSuggestScan — 제안용 active_knowledge 스캔 SQL. 필터 없음(제안은

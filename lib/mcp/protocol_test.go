@@ -1,5 +1,5 @@
-// protocol_test.go — v0.9 통합 시퀀스(Review Focus: 현대 클라이언트 협상·
-// 알림 무응답·ping·tools/list). T1의 협상 코드를 RunMCPServer 전체 경로로
+// protocol_test.go — 통합 시퀀스(현대 클라이언트 협상·
+// 알림 무응답·ping·tools/list). 협상 코드를 RunMCPServer 전체 경로로
 // 검증한다(알림 제외 응답 3줄).
 package mcp
 

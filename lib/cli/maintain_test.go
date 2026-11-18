@@ -14,7 +14,7 @@ import (
 )
 
 // fakeMaint — fakeStore에 admin 연산(Counts/Invalidate/Supersede/Merge)을
-// 얹은 fake. v0.41.0 T2: 전이 갱신(무효화·대체)은 Repo 위임 메서드로
+// 얹은 fake. 전이 갱신(무효화·대체)은 Repo 위임 메서드로
 // 캡처한다(UPDATE 리터럴은 db 계층 소유).
 type fakeMaint struct {
 	*fakeStore
@@ -30,13 +30,13 @@ type fakeMaint struct {
 	invalSeqErrs []error // 호출 순번별 선행 에러(재시도 시뮬레이션)
 	supersedeErr error
 	mergeErr     error
-	pruneErr     error // v0.41.0 T3: PruneInvalidated 선행 에러
+	pruneErr     error // PruneInvalidated 선행 에러
 
 	invalidateCalls [][]int
 	invalidateMsgs  []string
 	supersedeCalls  []supersedeCall
 	mergeCalls      [][2]int
-	pruneCalls      []time.Time // v0.41.0 T3: PruneInvalidated 위임 캡처
+	pruneCalls      []time.Time // PruneInvalidated 위임 캡처
 }
 
 // supersedeCall — Supersede 위임 캡처(old·new·invalid_at 병기 값).
@@ -80,7 +80,7 @@ func (f *fakeMaint) Merge(ctx context.Context, fromID, toID int) error {
 	return f.mergeErr
 }
 
-// PruneInvalidated — v0.41.0 T3: Repo 위임 메서드 캡처(반환 = 대상 2행
+// PruneInvalidated — Repo 위임 메서드 캡처(반환 = 대상 2행
 // 관례 — maintain_v0330 prune 계약과 동일).
 func (f *fakeMaint) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
 	f.pruneCalls = append(f.pruneCalls, before)
@@ -97,7 +97,7 @@ func runMaintainArgs(t *testing.T, f *fakeMaint, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// Review Focus(state): 경계 — pending 49/50은 ok, 51부터 review-needed.
+// 경계 — pending 49/50은 ok, 51부터 review-needed.
 // 임계값은 meta에서 읽는다(기본 pending_max=50).
 func TestMaintainCheckBoundary(t *testing.T) {
 	cases := []struct {
@@ -181,7 +181,7 @@ func TestMaintainCheckReportFields(t *testing.T) {
 
 // --invalidate --id N --reason — 갱신 경로 호출 + exit 0.
 func TestMaintainInvalidateOK(t *testing.T) {
-	// v0.41.1: 사전 확인(존재·invalid_at 조회)이 Query를 경유하므로
+	// 사전 확인(존재·invalid_at 조회)이 Query를 경유하므로
 	// active 행 1건을 시딩한다(멱등 no-op와 구분되는 최초 무효화 경로).
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
 		if strings.Contains(sql, "SELECT invalid_at FROM knowledge") {
@@ -240,20 +240,20 @@ func TestMaintainMergeNotFound(t *testing.T) {
 	}
 }
 
-// 모드 미지정(bare usage)은 무효 인자 exit 3(v1.5.3 T1)·모드 내 인자
+// 모드 미지정(bare usage)은 무효 인자 exit 3·모드 내 인자
 // 누락은 여전히 사용법 에러 exit 1.
 func TestMaintainUsageErrors(t *testing.T) {
 	cases := []struct {
 		args []string
 		want int
 	}{
-		{[]string{}, 3},                         // v1.5.3 T1: bare usage 3(기존 1)
-		{[]string{"--id", "5"}, 3},              // v1.5.3 T1: 모드 없음 → bare usage 3
+		{[]string{}, 3},                         // bare usage 3(기존 1)
+		{[]string{"--id", "5"}, 3},              // 모드 없음 → bare usage 3
 		{[]string{"--invalidate"}, 1},           // --id 없음
 		{[]string{"--merge", "--from", "3"}, 1}, // --to 없음
 		{[]string{"--check", "--id", "abc"}, 1}, // 숫자 아님 — id는 check에서 무시되지만 파싱은 실패해야
 	}
-	// 무효 플래그(--bogus)는 v0.34.3부터 exit 3(무효 인자 계약) —
+	// 무효 플래그(--bogus)는 exit 3(무효 인자 계약) —
 	// TestUnknownFlagExitContract(textutil_test.go)이 담당.
 	for _, c := range cases {
 		f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -291,7 +291,7 @@ var _ MaintStore = (*realStore)(nil)
 
 var _ = store.DefaultThresholds // import 방지(향후 확장용)
 
-// TestMaintainCheckDrillReport — T55 last_drill 경과 보고: 기록 없음→never,
+// TestMaintainCheckDrillReport — last_drill 경과 보고: 기록 없음→never,
 // 30일 초과→stale, 이내→필드 없음(테이블 커밋 확정 전 fast 회귀).
 func TestMaintainCheckDrillReport(t *testing.T) {
 	stale := time.Now().Add(-40 * 24 * time.Hour).UTC().Format(time.RFC3339)

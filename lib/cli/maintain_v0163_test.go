@@ -1,4 +1,4 @@
-// maintain_v0163_test.go — v0.16.3: conflict_dup_threshold meta 오버라이드가
+// maintain_v0163_test.go — conflict_dup_threshold meta 오버라이드가
 // --conflict-suspects 분류에 반영되는지(Thresholds 레지스트리 우선).
 package cli
 

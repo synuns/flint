@@ -1,4 +1,4 @@
-// v0.17.0 R2 — setupUX 렌더 계약: TTY 강제 시 스텝·성공 요소 포함,
+// setupUX 렌더 계약: TTY 강제 시 스텝·성공 요소 포함,
 // non-TTY는 ANSI 코드 없는 plain 결과.
 package cli
 
@@ -34,9 +34,7 @@ func TestSetupUXNonTTY(t *testing.T) {
 	}
 }
 
-// TestSetupJSONMode — v0.20.1 재작성: 이 테스트는 이전 배선 결함(정상
-// DB에서도 st=nil 고정 → 항상 degraded)을 '계약'으로 문서화하고 있었다
-// (패치 루프 1차 F2 + 테스트 감사 축2). 새 계약: store 가용 시 ping·
+// TestSetupJSONMode — 새 계약: store 가용 시 ping·
 // migrate가 실제로 돌아 ok. --json 한 줄·compose 1회·plain 동일성 불변.
 func TestSetupJSONMode(t *testing.T) {
 	withFake(t, &fakeStore{}) // Ping·Migrate 성공 fake — 건전 DB 경로.
@@ -62,8 +60,8 @@ func TestSetupJSONMode(t *testing.T) {
 	}
 }
 
-// TestSetupDegradedWhenStoreDown — DB 접속 불가(주 시나리오, T40)는
-// st nil로 진행해 degraded·exit 1·next 안내(T40 계약 — v0.20.1 배선
+// TestSetupDegradedWhenStoreDown — DB 접속 불가(주 시나리오)는
+// st nil로 진행해 degraded·exit 1·next 안내(배선
 // 수정 이후에도 nil 가드 경로 유지).
 func TestSetupDegradedWhenStoreDown(t *testing.T) {
 	prev := newStore

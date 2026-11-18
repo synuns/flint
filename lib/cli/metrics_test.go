@@ -10,8 +10,7 @@ import (
 )
 
 // resetMetrics — 프로세스 내 통계 초기화(테스트 격리). 영속 baseline도
-// 함께 지운다(프로세스 분리 시뮬레이션의 전제). v0.40.0 T2: 계측 상태는
-// lib/ops로 이동 — ops.ResetMetrics 위임.
+// 함께 지운다(프로세스 분리 시뮬레이션의 전제).
 func resetMetrics() {
 	ops.ResetMetrics()
 }
@@ -174,11 +173,6 @@ func TestStatusIncludesHotStats(t *testing.T) {
 	}
 }
 
-// (v0.42.0 T2 폐지 — TestReadStatsAccumulate·TestReadStatsMixed·
-// TestReadStatsCorruptFallback·TestReadStatsMissingFallback: read_stats
-// blob(BumpReadStats·LoadReadStats) 폐지. 누적·분류 계측은 read_events
-// 파생 경로로 이전했고 동등성은 lib/ops/report_parity_test.go가 담당한다.)
-
 // TestReadZeroPct — 비율: calls 0이면 0, 아니면 정수 백분율.
 func TestReadZeroPct(t *testing.T) {
 	cases := []struct {
@@ -198,9 +192,8 @@ func TestReadZeroPct(t *testing.T) {
 }
 
 // TestStatusIncludesReadStats — status 한 줄 JSON에 read_calls·read_zero_pct 노출.
-// v0.42.0 T2: read_stats blob 폐지 — read_calls는 read_events 파생 집계
-// (ops.LoadReadStatsFromMeta)에서 나온다. 같은 픽스처 수치(calls 4·zero 1 →
-// 25%)로 전환 전과 동일 노출을 담보한다.
+// read_calls는 read_events 파생 집계
+// (ops.LoadReadStatsFromMeta)에서 나온다.
 func TestStatusIncludesReadStats(t *testing.T) {
 	resetMetrics()
 	f := &fakeStore{}
@@ -224,8 +217,8 @@ func TestStatusIncludesReadStats(t *testing.T) {
 	}
 }
 
-// TestReadWritesNoReadStats — v0.42.0 T2: read 실행(제로히트)이 meta
-// read_stats를 쓰지 않는다(쓰기 4→2 — 계측 원천은 read_events).
+// TestReadWritesNoReadStats — read 실행(제로히트)이 meta
+// read_stats를 쓰지 않는다(계측 원천은 read_events).
 func TestReadWritesNoReadStats(t *testing.T) {
 	meta := map[string]string{}
 	f := &fakeStore{}
@@ -300,7 +293,7 @@ func TestHotStatsWiringAccumulates(t *testing.T) {
 }
 
 // TestStatusLoadsHotStatsFromMeta — 프로세스 분리 시뮬레이션(메모리 비어 있음):
-// status는 meta hot_stats baseline을 로드해 직전 실행 누적을 보고한다(F-T56-1).
+// status는 meta hot_stats baseline을 로드해 직전 실행 누적을 보고한다.
 func TestStatusLoadsHotStatsFromMeta(t *testing.T) {
 	resetMetrics()
 	f := &fakeStore{}

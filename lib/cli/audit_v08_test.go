@@ -1,4 +1,4 @@
-// audit_v08_test.go — T86 audit 확장: --stat(dolt_diff 테이블별 요약)·relTime
+// audit_v08_test.go — audit 확장: --stat(dolt_diff 테이블별 요약)·relTime
 // 상대 시각 포맷·기존 출력 키 회귀.
 package cli
 
@@ -8,7 +8,7 @@ import (
 	"time"
 )
 
-// TestRelTimeFormat — Review Focus: relTime h·d 경계(분 단위 포함).
+// TestRelTimeFormat — relTime h·d 경계(분 단위 포함).
 // 경계값은 -1s 여유를 두어 테스트 수행 시간(µs)과 무관하게 확정.
 func TestRelTimeFormat(t *testing.T) {
 	now := time.Now()
@@ -91,7 +91,7 @@ func statLogRows() [][]any {
 	}
 }
 
-// TestAuditStatField — Review Focus: --stat 시 stat(dolt_diff 요약)·date_rel 부록.
+// TestAuditStatField — --stat 시 stat(dolt_diff 요약)·date_rel 부록.
 func TestAuditStatField(t *testing.T) {
 	f := statFake(t, statLogRows(), map[string][][]any{
 		"hash2": {{"public.knowledge", true, false}, {"public.meta", false, true}},

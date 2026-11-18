@@ -1,4 +1,4 @@
-// maintain_v0162_test.go — T3 `maintain --expire-pending`(스펙 R4):
+// maintain_v0162_test.go — `maintain --expire-pending`(스펙 R4):
 // valid_at 경과 N일 초과 pending 행 나열(dry-run 기본)·--commit 시
 // 기존 무효화 경로(status='invalidated'·invalid_at=now) 전환.
 package cli
@@ -11,7 +11,7 @@ import (
 
 // expireFixture — pending 2건(경과 7일·2일)을 반환하는 queryFn. 전이
 // 갱신은 Repo.Invalidate 위임이라 queryFn은 조회(SELECT)만 담당한다
-// (v0.41.0 T2 — UPDATE 캡처는 fakeMaint Invalidate가 대신한다).
+// (UPDATE 캡처는 fakeMaint Invalidate가 대신한다).
 func expireFixture(old, recent time.Time) *fakeMaint {
 	return &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return [][]any{
@@ -21,7 +21,7 @@ func expireFixture(old, recent time.Time) *fakeMaint {
 	}}}
 }
 
-// TestExpirePendingDryRun — Review Focus: pending 2건(경과 7일·2일)에서
+// TestExpirePendingDryRun — pending 2건(경과 7일·2일)에서
 // days=5 나열 시 7일 행 1건만 출력·전이·Commit 미호출.
 func TestExpirePendingDryRun(t *testing.T) {
 	old := time.Now().Add(-7 * 24 * time.Hour)
@@ -51,7 +51,7 @@ func TestExpirePendingDryRun(t *testing.T) {
 	}
 }
 
-// TestExpirePendingCommit — Review Focus: 전이 위임 캡처 — 대상 id(7일 행)
+// TestExpirePendingCommit — 전이 위임 캡처 — 대상 id(7일 행)
 // 스냅숏만 Invalidate에 전달·건수 출력·커밋 메시지.
 func TestExpirePendingCommit(t *testing.T) {
 	old := time.Now().Add(-7 * 24 * time.Hour)

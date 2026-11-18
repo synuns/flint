@@ -1,4 +1,4 @@
-// drill_v0162_test.go — v0.16.2 R1 드릴 계약: DROP 후 pg_database 잔존
+// drill_v0162_test.go — 드릴 계약: DROP 후 pg_database 잔존
 // 검증·종료 정리 ctx 독립. 시임 주입으로 실재현 불가능한 시나리오(무음
 // no-op DROP·재생 ctx 만료)를 결정적으로 검증한다.
 package backup

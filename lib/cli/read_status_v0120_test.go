@@ -1,4 +1,4 @@
-// read_status_v0120_test.go — v0.12.0 T1: read --status(fake Store 질의
+// read_status_v0120_test.go — read --status(fake Store 질의
 // 캡처). SUPERLITE_REAL=1이면 delegatingFake로 실구현 경유(read_v08 관례).
 package cli
 
@@ -42,7 +42,7 @@ func TestReadStatusInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadDefaultUnchanged — Review Focus: --status 미지정 시 기존 BuildRead
+// TestReadDefaultUnchanged — --status 미지정 시 기존 BuildRead
 // SQL 그대로(FROM active_knowledge, base 테이블 질의 없음).
 func TestReadDefaultUnchanged(t *testing.T) {
 	var out bytes.Buffer
@@ -62,7 +62,7 @@ func TestReadDefaultUnchanged(t *testing.T) {
 	}
 }
 
-// TestReadStatusAsOfPrecedence — Review Focus: --as-of 병용 시 as-of 경로
+// TestReadStatusAsOfPrecedence — --as-of 병용 시 as-of 경로
 // 우선(룰링) — status 무시, active_knowledge AS OF 질의만 발행.
 func TestReadStatusAsOfPrecedence(t *testing.T) {
 	var out bytes.Buffer

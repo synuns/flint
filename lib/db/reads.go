@@ -1,4 +1,4 @@
-// reads.go — T62 항목 참조 계측(schema v4). read 결과·hot 주입 항목의
+// reads.go — 항목 참조 계측(schema v4). read 결과·hot 주입 항목의
 // read_count·last_read_at 증분. 신규 인덱스 없음(spec §2 — status 인덱스
 // 재사용, 개인 규모 시퀀셜 수용). 호출부(cli)는 실패를 조용히 무시한다.
 package db
@@ -24,7 +24,7 @@ func (r *Repo) BumpReads(ctx context.Context, ids []int) error {
 }
 
 // RecordKnowledgeReads는 항목별 회상 이력 1회분을 knowledge_reads에 남긴다
-// (v1.2.0 T2, schema v10 — spec §2.1 G4 정합·§2.6 회상 운명의 원천).
+// (schema v10 — spec §2.1 G4 정합·§2.6 회상 운명의 원천).
 // ids 전수(read 반환 행·hot 주입/헤드라인 노출 행)에 대해 knowledge_id·
 // session·kind('read'|'hot' 표면 라벨) 1행씩을 단일 INSERT ... SELECT
 // unnest로 적는다(쿼리 본문·요약 미기록 — 개인 문구 부재 원칙). 빈 ids는
@@ -47,7 +47,7 @@ func (r *Repo) RecordKnowledgeReads(ctx context.Context, ids []int, session, kin
 	return nil
 }
 
-// BumpRecallScores는 회상 강화(v1.7.0 T2, schema v11): ids 행의
+// BumpRecallScores는 회상 강화(schema v11): ids 행의
 // recall_score를 1 증분하고 last_recalled_at=now()를 새긴다. read 히트
 // 경로가 RecordKnowledgeReads와 함께 호출한다(계측 관례 — 실패는 호출부가
 // 조용히 무시). 감쇠(maintain --decay-audit·hot 랭킹)의 원천 열이고

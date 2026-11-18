@@ -1,4 +1,4 @@
-// rules_sync_v097_test.go — T1 R1: 스킬 싱크(syncRules 멱등·삭제 금지),
+// rules_sync_v097_test.go — 스킬 싱크(syncRules 멱등·삭제 금지),
 // skillSrcDir 탐지, setup --update-rules 보고, doctor skill-file warn 계약.
 // FLINT_CLAUDE_HOME 픽스처로 실제 ~/.claude에는 접촉하지 않는다.
 package cli

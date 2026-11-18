@@ -1,7 +1,7 @@
-// doctor_test.go — T64: flint doctor 검사 5종·exit 계약(fail만 1·warn 0)·
+// doctor_test.go — flint doctor 검사 5종·exit 계약(fail만 1·warn 0)·
 // FLINT_CLAUDE_HOME 오버라이드(--check 무효명 exit 3).
-// v0.40.0 T1: lib/cli에서 이동(행위명 유지 — v0.39 관례). fakeStore·
-// withComposePs 헬퍼도 동반 이동한다(cli_test.go·doctor_v07_test.go 관례).
+// fakeStore·
+// withComposePs 헬퍼 소유(cli_test.go·doctor_v07_test.go 관례).
 package ops
 
 import (
@@ -61,7 +61,7 @@ type fakeStore struct {
 	commits  []string
 	queries  []string
 
-	// v0.43.0 T2 fake 동질: metaDeleteStore canned(호출 기록·오류 주입).
+	// fake 동질: metaDeleteStore canned(호출 기록·오류 주입).
 	metaDeleted   []string
 	metaDeleteErr error
 }
@@ -94,7 +94,7 @@ func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
 func (f *fakeStore) Close()                         {}
 
-// MetaDelete — v0.43.0 T2 fake 동질: metaDeleteStore capability canned
+// MetaDelete — fake 동질: metaDeleteStore capability canned
 // 구현. tuning reset 경로가 열화 폴백이 아니라 위임 경로로 검증되게
 // 한다(호출 기록 슬라이스·선택적 오류 필드 — fakeStore 관례).
 func (f *fakeStore) MetaDelete(ctx context.Context, keys []string) (int64, error) {
@@ -159,7 +159,7 @@ func freshDoctorFn() func(string, []any) ([][]any, error) {
 	return doctorQueryFn(h, h, h)
 }
 
-// DoctorChecks — 고정 순서 계약(v0.7부터 6종 — port 추가).
+// DoctorChecks — 고정 순서 계약(6종 — port 추가).
 func TestDoctorChecksContract(t *testing.T) {
 	want := []string{"hook-file", "db", "schema", "integrity", "last-seen", "port"}
 	got := DoctorChecks()
@@ -180,8 +180,8 @@ func TestDoctorRegistered(t *testing.T) {
 	}
 }
 
-// --list-checks — 한 줄 JSON에 등록표 전량 16종(v0.34.3 R11 — 구 6종만
-// 내던 미노출 결함 회수). 코어 6종은 기존 순서(hook-file…port) 선두 유지.
+// --list-checks — 한 줄 JSON에 등록표 전량 16종.
+// 코어 6종은 기존 순서(hook-file…port) 선두 유지.
 func TestDoctorListChecks(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--list-checks")
@@ -478,7 +478,7 @@ func TestDoctorCheckRequiresNameExit3(t *testing.T) {
 	}
 }
 
-// protocol — v1.6.0 T8②: doctor --json — 기계 판독 명시 채널. 출력은
+// protocol — doctor --json — 기계 판독 명시 채널. 출력은
 // DoctorCheck 필드 구조(status·checks[].name/status)의 한 줄 JSON이고
 // exit 계약은 기본 경로와 동일. 기존 텍스트(기본 한 줄 JSON)는 불변 —
 // 기본 경로 회귀는 기존 전체 실행 테스트가 담당한다.
@@ -525,7 +525,7 @@ func TestDoctorJSONFlag(t *testing.T) {
 	}
 }
 
-// protocol — v1.6.0: doctor --json 출력은 기본 출력과 동일 바이트(명시적
+// protocol — doctor --json 출력은 기본 출력과 동일 바이트(명시적
 // 기계 채널 고정 — 두 번째 포맷이 아님). --fix 없는 경로에서 회귀 확인
 // (결정적 db 서브셋으로 바이트 비교).
 func TestDoctorJSONBytesMatchDefault(t *testing.T) {
@@ -724,7 +724,7 @@ func TestDoctorHookFileFlintWordOnlyFails(t *testing.T) {
 	}
 }
 
-// TestDoctorCheckNameSpace — v0.20.2(패치 루프 1차 O2): 전체 리포트가
+// TestDoctorCheckNameSpace — 전체 리포트가
 // 보여주는 체크명(skill-file·harness-*)이 --check 단독 실행으로 가능하다.
 func TestDoctorCheckNameSpace(t *testing.T) {
 	c := runDoctorCheck(context.Background(), &fakeStore{}, "skill-file")
@@ -741,7 +741,7 @@ func TestDoctorCheckNameSpace(t *testing.T) {
 	}
 }
 
-// TestDoctorEventVolume — v0.20.4(마일스톤 C①): 계측 3테이블 합계가
+// TestDoctorEventVolume — 계측 3테이블 합계가
 // events_volume_warn 임계를 넘으면 warn, 미만이면 ok(성장은 fail 아님).
 func TestDoctorEventVolume(t *testing.T) {
 	base := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -770,7 +770,7 @@ func TestDoctorEventVolume(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScan — v0.26.0 R1: 보유 지식에서 비밀 후보 발견 시
+// TestDoctorSecretsScan — 보유 지식에서 비밀 후보 발견 시
 // warn(패턴명+id만 — 본문 미출력).
 func TestDoctorSecretsScan(t *testing.T) {
 	hit := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -778,7 +778,7 @@ func TestDoctorSecretsScan(t *testing.T) {
 			return nil, nil // thresholds 미설정 — 기본 상한
 		}
 		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
-			// v0.26.0 리뷰 ②: 전열 스캔(7열)·무효화 제외.
+			// 전열 스캔(7열)·무효화 제외.
 			return [][]any{{int64(7), "토픽", "토큰 ghp_abcdefghijklmnopqrst 포함", "", "", "", ""}}, nil
 		}
 		return nil, nil
@@ -800,7 +800,7 @@ func TestDoctorSecretsScan(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanSessions — v0.27.4(이월 T4): sessions.summary
+// TestDoctorSecretsScanSessions — sessions.summary
 // 발견 경로 — PII 최다 필드라는 도입 취지의 발견 케이스가 무테스트였다.
 func TestDoctorSecretsScanSessions(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -822,7 +822,7 @@ func TestDoctorSecretsScanSessions(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanRowLimitReached — v0.27.4(이월 T5): 행 상한 도달
+// TestDoctorSecretsScanRowLimitReached — 행 상한 도달
 // 분기 — 부분 스캔을 '미발견 ok'로 거짓 보고하지 않는다(LIMIT 경계 >=).
 func TestDoctorSecretsScanRowLimitReached(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -844,7 +844,7 @@ func TestDoctorSecretsScanRowLimitReached(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanSessionsError — v0.27.4: 세션 조회 실패는 거짓
+// TestDoctorSecretsScanSessionsError — 세션 조회 실패는 거짓
 // ok가 아니라 warn(지식 경로 '지식 조회 실패'와 대칭).
 func TestDoctorSecretsScanSessionsError(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -865,7 +865,7 @@ func TestDoctorSecretsScanSessionsError(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsFindingsSurviveSessionError — v0.27.4 리뷰 3: 세션
+// TestDoctorSecretsFindingsSurviveSessionError — 세션
 // 조회 실패가 이미 잡은 지식 발견을 버리지 않는다(격차는 주석으로).
 func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -889,7 +889,7 @@ func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanProjects — v1.0.1 감사(F4): projects.name 사후
+// TestDoctorSecretsScanProjects — projects.name 사후
 // 스캔 — restore·레거시 유입은 쓰기 시점 스캔을 우회한다(세션 경로와 같은
 // 사각 폐쇄). 발견은 패턴명#project:id로만 보고(본문 미출력).
 func TestDoctorSecretsScanProjects(t *testing.T) {
@@ -914,7 +914,7 @@ func TestDoctorSecretsScanProjects(t *testing.T) {
 	}
 }
 
-// TestDoctorMetaHygieneUnknownKeySanitized — v1.0.1 감사(F4): meta-hygiene
+// TestDoctorMetaHygieneUnknownKeySanitized — meta-hygiene
 // 미지 키 샘플은 detail에 그대로 흐르는 출력이라 살균 출구를 통과한다.
 func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -935,9 +935,9 @@ func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
 	}
 }
 
-// TestFlintHookCmdEvalWrapped — v1.0.1 감사(F4): doctor가 설치하는 훅
+// TestFlintHookCmdEvalWrapped — doctor가 설치하는 훅
 // 명령도 jq @sh+eval 패턴 — 이중따옴표 치환("$(jq …)") 재발 방지.
-// v1.0.2 R2-A1: binPath 홑따옴표 인용 — 공백 경로의 무음 소실 방지.
+// binPath 홑따옴표 인용 — 공백 경로의 무음 소실 방지.
 func TestFlintHookCmdEvalWrapped(t *testing.T) {
 	cmd := flintHookCmd("/x/flint", `session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`)["command"].(string)
 	if !strings.HasPrefix(cmd, `eval "'/x/flint' `) {
@@ -948,7 +948,7 @@ func TestFlintHookCmdEvalWrapped(t *testing.T) {
 	}
 }
 
-// TestFlintHookCmdQuotesBinPath — v1.0.2 감사(R2-A1): 공백 포함 설치 경로도
+// TestFlintHookCmdQuotesBinPath — 공백 포함 설치 경로도
 // 홑따옴표 1개 인자로 조립(무인용 시 eval 단어 분할로 훅 무음 소실).
 // 조립 문자열 단언 + 멱등 식별 정합(flintHookSubRe가 신형 인용 형식과
 // 구형 무인용 형식 모두 잡아야 재설치 중복 방지 유지).
@@ -966,8 +966,8 @@ func TestFlintHookCmdQuotesBinPath(t *testing.T) {
 	}
 }
 
-// TestDoctorFullChainIncludesTailChecks — v0.28.1: 전체 실행 체인과
-// doctorTailChecks(--check 허용 목록)의 정합 — v0.28.0에서 backup-key를
+// TestDoctorFullChainIncludesTailChecks — 전체 실행 체인과
+// doctorTailChecks(--check 허용 목록)의 정합 — backup-key를
 // 목록에만 추가하고 체인 append를 누락해 전체 doctor가 체크를 실행하지
 // 않던 배선 누락의 재발 방지(이름 소스 단일화 검증).
 func TestDoctorFullChainIncludesTailChecks(t *testing.T) {

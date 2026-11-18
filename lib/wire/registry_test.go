@@ -1,4 +1,4 @@
-// registry_test.go — v0.38.0 T3: 계약층 registry 읽기 접근자 단위 검증.
+// registry_test.go — 계약층 registry 읽기 접근자 단위 검증.
 // bridge 동질 가드(실 cli 등록 ↔ usageOrder 대조)는 lib/cli
 // usage_bridge_test.go가 담당 — 여기는 접근자 자체의 계약만.
 package wire

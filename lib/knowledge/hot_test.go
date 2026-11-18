@@ -1,4 +1,4 @@
-// hot_test.go — v1.7.0 T3: hot 헤드라인 선정 순위에 감쇠 후 유효 회상
+// hot_test.go — hot 헤드라인 선정 순위에 감쇠 후 유효 회상
 // 점수(effective recall score) 반영. 정렬 계약: effective DESC 안정 정렬 —
 // 동점(및 0점 전원)은 기존 SQL 순서(ts DESC, id DESC)를 승계하고 주입
 // 포맷·바이트 상한은 불변이다.
@@ -41,8 +41,7 @@ func hotRankedStore(t *testing.T, rows [][]any) *hotBumpRecorder {
 	}}}
 }
 
-// TestHotFullRanksByEffectiveScore — Review Focus(동일 최신성에서 score 높은
-// 항목 우선): --full 주입 행 순서가 감쇠 후 유효 점수 내림(9·5·0)이고,
+// TestHotFullRanksByEffectiveScore — --full 주입 행 순서가 감쇠 후 유효 점수 내림(9·5·0)이고,
 // 주문=증분 계약 그대로 증분 id도 같은 순서다.
 func TestHotFullRanksByEffectiveScore(t *testing.T) {
 	injectHotSeams(t)
@@ -73,7 +72,7 @@ func TestHotFullRanksByEffectiveScore(t *testing.T) {
 
 // hotHeadlineFixture — 헤드라인 질의(HotHeadlineSQL: id까지만 노출)에
 // hotRankedSQL이 병합한 실제 7열 형태 픽스처(kind,topic,summary,ts,id,
-// recall_score,last_recalled_at — v1.7.0 리뷰 수정: --full 9열 픽스처를
+// recall_score,last_recalled_at — --full 9열 픽스처를
 // 그대로 쓰면 헤드라인 랭킹 인덱스 부정합이 가려진다).
 func hotHeadlineFixture(now time.Time) [][]any {
 	ts := now.Truncate(time.Second)
@@ -103,8 +102,7 @@ func TestHotHeadlineRanksTopics(t *testing.T) {
 	}
 }
 
-// TestHotRankZeroScoresKeepExistingOrder — Review Focus(0점 전원 기존
-// 순서·포맷 회귀): 랭킹 열이 없는 행(구형 뷰 모양 7열)과 전원 0점 행은
+// TestHotRankZeroScoresKeepExistingOrder — 랭킹 열이 없는 행(구형 뷰 모양 7열)과 전원 0점 행은
 // 안정 정렬이 SQL 순서를 그대로 승계하고 출력은 기본 포맷과 바이트 동일.
 func TestHotRankZeroScoresKeepExistingOrder(t *testing.T) {
 	injectHotSeams(t)
@@ -142,8 +140,7 @@ func TestHotRankZeroScoresKeepExistingOrder(t *testing.T) {
 	}
 }
 
-// TestHotRankUnrecalledKeepsScore — Review Focus(미회상 score 유지):
-// last_recalled_at NULL(미회상)은 감쇠 불이익 없이 score 그대로 — 같은
+// TestHotRankUnrecalledKeepsScore — last_recalled_at NULL(미회상)은 감쇠 불이익 없이 score 그대로 — 같은
 // score의 회상 이력 항목(감쇠 진행)보다 위, 낮은 score보다는 아래.
 func TestHotRankUnrecalledKeepsScore(t *testing.T) {
 	injectHotSeams(t)
@@ -236,7 +233,7 @@ func TestHotRankDecayRateMetaOverride(t *testing.T) {
 	}
 }
 
-// R36-1 — 감쇠 랭킹 부분 정렬 회귀: 초기 순서가 우연히 정답과 같으면
+// 감쇠 랭킹 부분 정렬 회귀: 초기 순서가 우연히 정답과 같으면
 // 사전 계산 eff 슬라이스의 어긋남이 드러나지 않는다(감사 재현 케이스).
 func TestHotRankRowsEffectiveOrderNotAccidental(t *testing.T) {
 	rows := [][]any{

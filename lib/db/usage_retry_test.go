@@ -1,4 +1,4 @@
-// usage_retry_test.go — v1.2.3 T9 후속2: bumpDailyFlat UPSERT의 40001
+// usage_retry_test.go — bumpDailyFlat UPSERT의 40001
 // (직렬화 실패) 재시도 계약(빠른 단위 테스트 — 실DB 불필요). CI 실증:
 // 병렬 8고루틴 경합에서 배포 Doltgres가 40001을 반환한다(로컬은 LWW
 // 수용 — 환경 가정 오류).

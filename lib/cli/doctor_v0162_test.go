@@ -1,4 +1,4 @@
-// doctor_v0162_test.go — T3 doctor pending-age 검사(스펙 R4): pending
+// doctor_v0162_test.go — doctor pending-age 검사(스펙 R4): pending
 // 최고령 경과 warn + maintain --expire-pending 만료 안내.
 package cli
 
@@ -9,7 +9,7 @@ import (
 	"time"
 )
 
-// TestDoctorMentionsExpire — Review Focus: pending-age 검사 detail에
+// TestDoctorMentionsExpire — pending-age 검사 detail에
 // "expire-pending" 포함(최고령 pending 경과 임계 초과 시).
 func TestDoctorMentionsExpire(t *testing.T) {
 	old := time.Now().Add(-10 * 24 * time.Hour)
