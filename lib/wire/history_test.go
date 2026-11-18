@@ -50,8 +50,8 @@ func TestHistoryTypesLiterals(t *testing.T) {
 	if e.Committer != "flint" || e.Message != "audit: demo" {
 		t.Fatalf("LogEntry 리터럴 불일치: %+v", e)
 	}
-	a := AsOfQuery{Hash: "abc1", Table: "knowledge", Columns: []string{"count(*)"}, Where: "topic = $1", Args: []any{"demo"}, Limit: 5, FallbackTable: "knowledge"}
-	if a.Table != "knowledge" || len(a.Columns) != 1 || a.FallbackTable != "knowledge" {
+	a := AsOfQuery{Hash: "abc1", Table: "knowledge", Columns: []string{"count(*)"}, Where: "topic = $1", Args: []any{"demo"}, Limit: 5}
+	if a.Table != "knowledge" || len(a.Columns) != 1 {
 		t.Fatalf("AsOfQuery 리터럴 불일치: %+v", a)
 	}
 	d := KnowledgeDiffRow{DiffType: "added", ID: "k-7", Topic: "demo topic"}

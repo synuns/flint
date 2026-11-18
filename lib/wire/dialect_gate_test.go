@@ -14,6 +14,9 @@ import (
 
 // dialectPatterns — 금지 패턴. 이 파일 자신이 게이트에 걸리지 않도록
 // 리터럴을 분해 조립한다(런타임에만 완성형).
+// 검사 범위는 히스토리 질의 방언(dolt_log·dolt_diff·
+// dolt_commit_diff_knowledge·AS OF) 한정 — dolt_status 등 진단·쓰기
+// 방언은 범위 밖(쓰기는 이미 lib/db 소유).
 func dialectPatterns() []string {
 	return []string{
 		"dolt_" + "log",

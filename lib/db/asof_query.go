@@ -1,6 +1,6 @@
 // asof_query.go — AS OF 시점 질의(wire.AsOfQuery 계약의 Doltgres 구현).
 // 호출측(lib/knowledge read)이 원시 AS OF 절 조립을 더 이상 하지 않는다 —
-// 인라인·해시 문자셋 재검증·뷰 비호환 폴백이 이 계층의 단일 소스다.
+// 인라인·해시 문자셋 재검증·뷰 비호환 안내 래핑이 이 계층의 단일 소스다.
 // 조립형: "SELECT {Columns} FROM {Table} AS OF '{hash}' {Where} LIMIT {Limit}"
 // (Limit은 int 리터럴, 0 이하면 LIMIT 절 생략).
 package db
@@ -42,23 +42,19 @@ var asOfWhereKeywordRe = regexp.MustCompile(`(?i)^(where|order|limit)\b`)
 // 조건-only 폼("status = 'pending' AND ..." — 조립부가 WHERE 접두 부여)
 // 으로 repo 내 질의 조립기 산출물만 받는 신뢰 경계(외부 입력은 Columns·Hash·
 // Table 검증으로 차단). 뷰(active_knowledge) 비호환 — "column ... does
-// not exist"(현재 정의 + 과거 행, C3) — 이면 FallbackTable(base)로
-// 재시도하고, 재시도도 실패하거나 폴백 미지정이면 안내 문구 랩 오류.
+// not exist"(현재 정의 + 과거 행, C3) — 이면 base 재시도 없이 즉시
+// 안내 문구 랩 오류(원본 read.go wrapViewColumnMismatch 동치 — base는
+// invalid_at 필터가 없어 폴백 노출이 시점 정합성을 깬다).
 func (r *Repo) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
 	rows, err := r.queryAsOfTable(ctx, q, q.Table)
-	if err == nil {
-		return rows, nil
-	}
-	if isViewColumnMismatch(err) {
-		if q.FallbackTable != "" && q.FallbackTable != q.Table {
-			if frows, ferr := r.queryAsOfTable(ctx, q, q.FallbackTable); ferr == nil {
-				return frows, nil
-			}
+	if err != nil {
+		if isViewColumnMismatch(err) {
+			// 원문 보존(read.go wrapViewColumnMismatch 이관) — 안내 문구 유지.
+			return nil, fmt.Errorf("%w — the active_knowledge view definition is incompatible with rows at that point in time; try an AS OF query on the base table (knowledge)", err)
 		}
-		// 원문 보존(read.go wrapViewColumnMismatch 이관) — 안내 문구 유지.
-		return nil, fmt.Errorf("%w — the active_knowledge view definition is incompatible with rows at that point in time; try an AS OF query on the base table (knowledge)", err)
+		return nil, err
 	}
-	return nil, err
+	return rows, nil
 }
 
 // queryAsOfTable — 검증 후 단일 테이블 AS OF 조립 실행.
@@ -106,7 +102,7 @@ func (r *Repo) queryAsOfTable(ctx context.Context, q wire.AsOfQuery, table strin
 // isViewColumnMismatch — 뷰-컬럼 미호환(과거 행에 없는 컬럼) 판정.
 // 원문 read.go wrapViewColumnMismatch의 휴리스틱 승계 + Doltgres 뷰 AS OF
 // 실측 형태("references invalid table(s) or column(s)") 확장 — 원문
-// 휴리스틱만으로는 이 형태를 놓쳐 폴백이 발동하지 않았다(실측).
+// 휴리스틱만으로는 이 형태를 놓친다(실측).
 func isViewColumnMismatch(err error) bool {
 	msg := err.Error()
 	if strings.Contains(msg, "column") && strings.Contains(msg, "does not exist") {

@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -124,7 +125,9 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		q.MessageNotLike = `telemetry: %`
 	}
 	if session != "" {
-		q.MessageLike = `%[session:` + session + `]%`
+		// LIKE 메타문자(%·_) 포함 세션 ID는 리터럴 일치로만 매칭 —
+		// query.EscapeLike로 이스케이프(값 자체는 계속 파라미터화).
+		q.MessageLike = `%[session:` + query.EscapeLike(session) + `]%`
 	}
 	entries, err := st.LogEntries(ctx, q)
 	if err != nil {

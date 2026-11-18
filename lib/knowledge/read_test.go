@@ -256,13 +256,12 @@ func TestRunReadAsOfAddsField(t *testing.T) {
 	if !strings.Contains(got, `"as_of":{"hash":"he08irluqn3v2m1k9x7c4jw5z6b8d0f","commit_date":"2026-10-20T12:00:00Z"}`) {
 		t.Errorf("as_of 필드 누락/불일치: %q", got)
 	}
-	// 질의는 QueryAsOf 1회 — 해시·뷰 테이블·base 폴백 지정 계약.
+	// 질의는 QueryAsOf 1회 — 해시·뷰 테이블 계약.
 	if len(st.asOfCalls) != 1 {
 		t.Fatalf("QueryAsOf 호출 %d회, want 1: %v", len(st.asOfCalls), st.asOfCalls)
 	}
-	if aq := st.asOfCalls[0]; aq.Hash != asOfHash || aq.Table != "active_knowledge" ||
-		aq.FallbackTable != "knowledge" {
-		t.Errorf("AsOfQuery = %+v, want Hash·Table=active_knowledge·FallbackTable=knowledge", aq)
+	if aq := st.asOfCalls[0]; aq.Hash != asOfHash || aq.Table != "active_knowledge" {
+		t.Errorf("AsOfQuery = %+v, want Hash·Table=active_knowledge", aq)
 	}
 	// 원시 AS OF 절 폐지 — Query 경로에 AS OF 문자열이 남으면 방언 절단 위반.
 	for _, raw := range st.fakeStore.queries {

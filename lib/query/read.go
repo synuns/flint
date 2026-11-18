@@ -103,6 +103,11 @@ func fallbackMatchCount(tokens []string, topic string, summary string) int {
 // 작은따옴표는 placeholder 파라미터로 전달되므로 별도 이스케이프 불필요.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
+// EscapeLike — LIKE 패턴에 인라인될 리터럴 값(\, %, _)의 메타문자
+// 이스케이프. read 조립기 내부용과 동일 규칙을 audit --session 등
+// 다른 호출부도 재사용한다(백슬래시 기본 ESCAPE — 방언 SQL과 계약 일치).
+func EscapeLike(s string) string { return likeEscaper.Replace(s) }
+
 // RankOrder — 검색 랭킹 정렬 절: 주제어 정확 일치 우선 → confidence →
 // 최신 수집 순.
 // 동률에서만 최근 참조 우선 — 말미에 last_read_at DESC NULLS LAST
