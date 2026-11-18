@@ -73,6 +73,11 @@ func TestQueryAsOfSlowAssembly(t *testing.T) {
 	}); err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
+	// 시드를 T8(status --as-of) 실경로와 동일하게 — status 컬럼 기본값은
+	// 'active'이므로 pending으로 바꾼 뒤 커밋한다.
+	if _, err := r.pool.Exec(ctx, `UPDATE knowledge SET status = 'pending'`); err != nil {
+		t.Fatalf("seed status pending: %v", err)
+	}
 	h, err := r.Commit(ctx, "flint v0180 t4 demo seed")
 	if err != nil || h == "" {
 		t.Fatalf("Commit: %v (hash %q)", err, h)
@@ -101,6 +106,18 @@ func TestQueryAsOfSlowAssembly(t *testing.T) {
 	}
 	if len(got) != 2 || fmt.Sprint(got[0][0]) != "토픽-v0180-t4-a" || fmt.Sprint(got[1][0]) != "토픽-v0180-t4-b" {
 		t.Fatalf("QueryAsOf(where+order) = %v, want main 2건 topic ASC", got)
+	}
+
+	// 조건-only Where 폼 — status(T8) 경로 재현. 절 키워드 없는 조건은
+	// 조립부가 " WHERE " 접두를 붙여야 한다(붙지 않으면
+	// "... AS OF 'h' status = ..." 문법 오류 42601 — CI run 44225427183).
+	got, err = r.QueryAsOf(ctx, wire.AsOfQuery{Hash: h, Table: "knowledge",
+		Columns: []string{"count(*)"}, Where: "status = 'pending' AND invalid_at IS NULL"})
+	if err != nil {
+		t.Fatalf("QueryAsOf(조건-only Where): %v", err)
+	}
+	if len(got) != 1 || fmt.Sprint(got[0][0]) != "3" {
+		t.Fatalf("QueryAsOf(조건-only Where) = %v, want [[3]] (시드 3건 전부 pending)", got)
 	}
 
 	// 뷰 경로 — active_knowledge AS OF 정상 조회(전 행 active).

@@ -32,9 +32,15 @@ var asOfHashReDB = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
 // 쉼표만(함수·표현식 허용 — count(*)·산술). 대문자·문장 구분자·대시 거부.
 var asOfColumnRe = regexp.MustCompile(`^[a-z_0-9)(* ,]+$`)
 
+// asOfWhereKeywordRe — Where가 이미 절 키워드(where/order/limit,
+// 대소문자 무시)로 시작하는지 판정. read 경로의 꼬리 절 폼은 그대로
+// 붙이고, status 경로의 조건-only 폼에는 " WHERE " 접두를 붙인다.
+var asOfWhereKeywordRe = regexp.MustCompile(`(?i)^(where|order|limit)\b`)
+
 // QueryAsOf — q를 조립해 시점 질의를 실행한다. Where는 테이블 참조 뒤
-// raw 꼬리 절("WHERE ... ORDER BY ..." — $N은 Args에 순서 바인딩)로
-// repo 내 질의 조립기 산출물만 받는 신뢰 경계(외부 입력은 Columns·Hash·
+// raw 꼬리 절("WHERE ... ORDER BY ..." — $N은 Args에 순서 바인딩) 또는
+// 조건-only 폼("status = 'pending' AND ..." — 조립부가 WHERE 접두 부여)
+// 으로 repo 내 질의 조립기 산출물만 받는 신뢰 경계(외부 입력은 Columns·Hash·
 // Table 검증으로 차단). 뷰(active_knowledge) 비호환 — "column ... does
 // not exist"(현재 정의 + 과거 행, C3) — 이면 FallbackTable(base)로
 // 재시도하고, 재시도도 실패하거나 폴백 미지정이면 안내 문구 랩 오류.
@@ -78,8 +84,18 @@ func (r *Repo) queryAsOfTable(ctx context.Context, q wire.AsOfQuery, table strin
 	b.WriteString(q.Hash)
 	b.WriteString("'")
 	if q.Where != "" {
+		// Where 양형식 수용: read(T7)은 "WHERE ... ORDER BY ..."처럼
+		// 키워드로 시작하는 꼬리 절을, status(T8)은 조건만
+		// ("status = 'pending' AND ...")을 전달한다. 선행 절 키워드
+		// (where/order/limit, 대소문자 무시)로 시작하지 않으면
+		// " WHERE " 접두를 붙인다 — 키워드 폼은 바이트 동치 유지.
 		b.WriteString(" ")
-		b.WriteString(q.Where)
+		if asOfWhereKeywordRe.MatchString(q.Where) {
+			b.WriteString(q.Where)
+		} else {
+			b.WriteString("WHERE ")
+			b.WriteString(q.Where)
+		}
 	}
 	if q.Limit > 0 {
 		b.WriteString(fmt.Sprintf(" LIMIT %d", q.Limit))
