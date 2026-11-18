@@ -3,13 +3,47 @@ package backup
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgxpool"
+
 	"github.com/synuns/flint/lib/db"
 )
+
+// probeSeqNameRe — pg_sequences 식별자 인라인 전 문자셋 재검증(방어).
+var probeSeqNameRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
+
+// dropProbeSequences — backup_probe* serial 시퀀스 회수. Doltgres는
+// DROP TABLE이 serial 소유 시퀀스를 지우지 않아(실측) backup_probe_id_seq가
+// untracked 신규 테이블로 dolt_status에 남고, 다음 실행의 serial CREATE가
+// 이름 충돌로 접미 시퀀스(…_seq1, …_seq2 …)를 계속 쌓는다(공유 테스트 DB
+// 오염). LIKE 패턴으로 접미분까지 전부 회수한다.
+func dropProbeSequences(ctx context.Context, pool *pgxpool.Pool) error {
+	rows, err := pool.Query(ctx,
+		`SELECT sequencename FROM pg_sequences WHERE sequencename LIKE 'backup_probe%'`)
+	if err != nil {
+		return fmt.Errorf("list sequences: %w", err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var seq string
+		if err := rows.Scan(&seq); err != nil {
+			return fmt.Errorf("scan sequence: %w", err)
+		}
+		if !probeSeqNameRe.MatchString(seq) {
+			return fmt.Errorf("sequence name charset violation: %q", seq)
+		}
+		if _, err := pool.Exec(ctx, "DROP SEQUENCE "+seq); err != nil {
+			return fmt.Errorf("drop sequence %s: %w", seq, err)
+		}
+	}
+	return rows.Err()
+}
 
 // testDSN — FLINT_TEST_DSN 우선, 없으면 flint_test 기본(tests/regression·
 // tests/e2e와 동일 계약). FLINT_DSN(운영)은 이 패키지가 무시한다 — slowlock
@@ -97,8 +131,33 @@ func TestDumpRestoreRoundtrip(t *testing.T) {
 			t.Fatalf("setup %q: %v", q, err)
 		}
 	}
-	defer pool.Exec(ctx, `DROP TABLE IF EXISTS backup_probe_child`)
-	defer pool.Exec(ctx, `DROP TABLE IF EXISTS backup_probe`)
+	// 정리 + 잔여 단언 — 테이블 DROP(기존 defer)과 시퀀스 회수를 한
+	// cleanup으로: 순서를 코드에 명시하고(테이블→시퀀스) 조용한 실패를
+	// 로그로 드러낸다. 시퀀스만 남겨두면 dolt_status에 untracked 신규
+	// 테이블로 누적되므로(위 dropProbeSequences 주석) 회수 후
+	// backup_probe* 잔여가 0임을 실측 단언한다(회귀 — 회수 누락 시 실패).
+	defer func() {
+		for _, q := range []string{
+			`DROP TABLE IF EXISTS backup_probe_child`,
+			`DROP TABLE IF EXISTS backup_probe`,
+		} {
+			if _, err := pool.Exec(ctx, q); err != nil {
+				t.Errorf("cleanup %q: %v", q, err)
+			}
+		}
+		if err := dropProbeSequences(ctx, pool); err != nil {
+			t.Errorf("backup_probe 시퀀스 회수: %v", err)
+		}
+		var left int
+		if err := pool.QueryRow(ctx,
+			`SELECT count(*) FROM dolt_status WHERE table_name LIKE '%backup_probe%'`).Scan(&left); err != nil {
+			t.Errorf("dolt_status 잔여 조회: %v", err)
+			return
+		}
+		if left != 0 {
+			t.Errorf("backup_probe* dolt_status 잔여 %d건, want 0(테이블·시퀀스 미회수)", left)
+		}
+	}()
 
 	tricky := "it's a \"quoted\"\nline2 \\ end"
 	probe := []string{
