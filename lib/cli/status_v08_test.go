@@ -1,38 +1,58 @@
-// status_v08_test.go — status --as-of. 카운트 질의에 AS OF 접합·
-// 출력 말미 as_of 필드·미지정 시 출력 불변·무효 스펙 exit 3 검증.
+// status_v08_test.go — status --as-of. 카운트 질의의 과거 스냅샷화
+// (QueryAsOf 해시·테이블 접합)·출력 말미 as_of 필드·미지정 시 출력 불변·
+// 무효 스펙 exit 3 검증.
 package cli
 
 import (
+	"context"
 	"reflect"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
+// statusAsofFake — status as-of 경로 계약 canned: 해시 접두어·커밋 시각은
+// LogEntries 오버라이드, 과거 pending 카운트는 QueryAsOf 오버라이드
+// (AsOfQuery 캡처). 현재 시점 카운트·meta는 queryFn 승계.
+type statusAsofFake struct {
+	*fakeStore
+	fullHash    string
+	asofCount   int64
+	asofQueries []wire.AsOfQuery
+}
+
+var statusCommitDate = time.Date(2026, 10, 20, 9, 30, 0, 0, time.UTC)
+
+func (f *statusAsofFake) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
+	switch {
+	case q.Prefix != "":
+		return []wire.LogEntry{{Hash: f.fullHash}}, nil // 단일 커밋 확정
+	case q.Hash == f.fullHash:
+		return []wire.LogEntry{{Hash: f.fullHash, Date: statusCommitDate}}, nil
+	}
+	return nil, nil
+}
+
+func (f *statusAsofFake) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
+	f.asofQueries = append(f.asofQueries, q)
+	return [][]any{{f.asofCount}}, nil
+}
+
 // statusAsOfHarness — fake Store에 as-of 경로를 세팅한다. hexPfx 해시
-// 접두어는 단일 커밋 fullHash로 확정되고, pendingCount는 AS OF 접합된
-// 카운트 질의에만 응답한다(비접합 질의는 curCount). 커밋 시각 질의
-// (commit_hash = $1)는 commitDate로 응답.
-func statusAsOfHarness(t *testing.T, _, fullHash string, curCount, asofCount int64) *fakeStore {
+// 접두어는 단일 커밋 fullHash로 확정되고, 과거 카운트는 QueryAsOf에만
+// 응답한다(현재 시점 카운트는 curCount).
+func statusAsOfHarness(t *testing.T, _, fullHash string, curCount, asofCount int64) *statusAsofFake {
 	t.Helper()
-	commitDate := time.Date(2026, 10, 20, 9, 30, 0, 0, time.UTC)
-	f := &fakeStore{}
+	f := &statusAsofFake{fakeStore: &fakeStore{}, fullHash: fullHash, asofCount: asofCount}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "FROM dolt_log") {
-			if strings.Contains(sql, "LIKE") {
-				return [][]any{{fullHash}}, nil
-			}
-			return [][]any{{commitDate}}, nil
-		}
 		if strings.Contains(sql, "FROM meta") {
 			return [][]any{{"4"}}, nil
 		}
-		if strings.Contains(sql, "AS OF") {
-			return [][]any{{asofCount}}, nil
-		}
 		return [][]any{{curCount}}, nil
 	}
-	withFake(t, f)
+	withFakeStore(t, f)
 	return f
 }
 
@@ -59,21 +79,16 @@ func TestStatusAsOfCounts(t *testing.T) {
 	if m["pending"] != float64(0) {
 		t.Fatalf("pending=%v, want 0(과거 스냅샷)", m["pending"])
 	}
-	// 카운트 질의가 정규화된 해시로 AS OF 접합됐는지 SQL로 확인.
-	spliced := false
-	for _, q := range f.queries {
-		if strings.Contains(q, "FROM knowledge") {
-			if !strings.Contains(q, "AS OF 'abcdef0123456789'") {
-				t.Fatalf("knowledge 질의에 AS OF 미접합: %s", q)
-			}
-			if !strings.Contains(q, "status = 'pending'") {
-				t.Fatalf("기존 pending 조건 유실: %s", q)
-			}
-			spliced = true
-		}
+	// 과거 pending 카운트 질의가 정규화된 해시·테이블로 접합됐는지 계약 캡처로 확인.
+	if len(f.asofQueries) != 1 {
+		t.Fatalf("과거 카운트 질의 %d건, want 1: %+v", len(f.asofQueries), f.asofQueries)
 	}
-	if !spliced {
-		t.Fatalf("knowledge 카운트 질의 미실행: %v", f.queries)
+	aq := f.asofQueries[0]
+	if aq.Hash != "abcdef0123456789" || aq.Table != "knowledge" {
+		t.Fatalf("knowledge 카운트 질의 접합 불일치: %+v", aq)
+	}
+	if !strings.Contains(aq.Where, "status = 'pending'") {
+		t.Fatalf("기존 pending 조건 유실: %s", aq.Where)
 	}
 	// schema_version은 현재 메타 그대로(as-of 대상 아님).
 	if m["schema_version"] != "4" {

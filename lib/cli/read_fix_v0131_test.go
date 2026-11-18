@@ -38,14 +38,8 @@ func TestReadStatusTrailingExits3(t *testing.T) {
 // exit 3으로 거부된다(기존에는 as-of 경로가 선행해 조용히 무시됨).
 func TestReadStatusInvalidWithAsOf(t *testing.T) {
 	var out bytes.Buffer
-	fn := func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "dolt_log") {
-			return asofQueryFn(sql, args)
-		}
-		return statusQueryFn()(sql, args)
-	}
-	f := &fakeStore{queryFn: fn}
-	if code := runRead(context.Background(), asofFakeOrReal(t, f),
+	f := &readAsofFake{fakeStore: &fakeStore{queryFn: statusQueryFn()}}
+	if code := runRead(context.Background(), readAsofStoreOrReal(t, f),
 		[]string{"--as-of", "7d", "--status", "bogus"}, strings.NewReader(""), &out); code != 3 {
 		t.Fatalf("exit = %d, want 3 (out %q)", code, out.String())
 	}

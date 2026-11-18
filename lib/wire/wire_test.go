@@ -16,8 +16,10 @@ import (
 )
 
 // fakeStore — Store 인터페이스 최소 fake(디스패치 검증용).
+// HistoryStubs 임베딩으로 히스토리 5메서드는 미지원 기본구현 흡수.
 type fakeStore struct {
 	queries []string
+	HistoryStubs
 }
 
 func (f *fakeStore) Migrate(ctx context.Context) error { return nil }

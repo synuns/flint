@@ -404,6 +404,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	} else {
 		sql, qargs = query.BuildRead(q, f)
 	}
+	var rows [][]any
 	if asOfSpec != "" {
 		hash, err := ParseAsOfSpecFn(ctx, st, asOfSpec)
 		if err != nil {
@@ -414,34 +415,33 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
-		// Doltgres 커밋 해시는 base32계 소문자([0-9a-z]) — ParseAsOfSpec이
-		// 접두어 검증·유일 해시를 보장하므로 반환값을 그대로 신뢰해 인라인.
-		// AS OF 절은 테이블 참조 바로 뒤(뷰+AS OF "현재 정의+과거 행"). 기존
-		// RankOrder·LIMIT 절은 그대로 둔다.
-		// 해시 값은 dolt_log 행 출처라 엔진 구현에 의존하지
-		// 않게 엄격 문자셋 재검증 — 벗어나면 인라인 대신 오류(종료 계약).
-		if !asOfHashRe.MatchString(hash) {
-			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash charset violation: %q", hash)))
-			return 1
-		}
-		sql = strings.Replace(sql, " FROM active_knowledge",
-			" FROM active_knowledge AS OF '"+hash+"'", 1)
+		// 방언 절단: AS OF 인라인(strings.Replace)과 해시 문자셋 재검증은
+		// Store.QueryAsOf(db 구현)로 이관 — 호출측에 원시 AS OF 절이 남지
+		// 않는다. 컬럼·필터 where·RankOrder·LIMIT은 query 조립기 산출물을
+		// 절단해 승계(단일 소스 — 재조립 중복 방지). 뷰 비호환 시 base
+		// (knowledge) 재시도와 안내 문구는 FallbackTable 지정으로 구현측이
+		// 처리한다(C3 계약 승계).
+		aq := splitReadAsOf(sql, qargs)
+		aq.Hash, aq.Table, aq.FallbackTable = hash, "active_knowledge", "knowledge"
 		asOfHash = hash
 		// 커밋 시각 첨부 — 메타데이터 조회 실패는 조용히(빈 값, §13).
-		if dr, err := wire.QueryOnce(ctx, st,
-			`SELECT date FROM dolt_log WHERE commit_hash = $1`, []any{hash}); err == nil &&
-			len(dr) == 1 && len(dr[0]) > 0 {
-			asOfDate = FmtAsOfDate(dr[0][0])
+		if les, lerr := st.LogEntries(ctx, wire.LogQuery{Hash: hash}); lerr == nil && len(les) == 1 {
+			asOfDate = FmtAsOfDate(les[0].Date)
 		}
-	}
-	rows, err := wire.QueryOnce(ctx, st, sql, qargs)
-	if err != nil {
-		// 뷰-컬럼 미호환(과거 행에 없는 컬럼)은 기본 테이블 조회 안내로 랩(C3).
-		if asOfSpec != "" {
-			err = wrapViewColumnMismatch(err)
+		rows, err = st.QueryAsOf(ctx, aq)
+		if err != nil {
+			// 뷰-컬럼 미호환(과거 행에 없는 컬럼) 안내 래핑도 구현측
+			// FallbackTable 재시도 경계로 이관 — 호출측은 전파만.
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
 		}
-		fmt.Fprintln(stdout, wire.ErrLine(err))
-		return store.MapExit(err)
+	} else {
+		var err error
+		rows, err = wire.QueryOnce(ctx, st, sql, qargs)
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
+		}
 	}
 	// 제로히트 폴백: 구문 매칭 히트가 없을 때만 단어 OR 재쿼리 후
 	// RRF 융합 재랭킹(구문 히트 경로는 완전 불변).
@@ -689,9 +689,10 @@ func FmtAsOfDate(v any) string {
 	return fmt.Sprint(v)
 }
 
-// wrapViewColumnMismatch — 뷰-컬럼 미호환(column ... does not exist) 오류에
 // asOfHashRe — AS OF 인라인 해시의 엄격 문자셋(소문자
 // base32계 — dolt_log commit_hash 규격). 엔진 반환값 신뢰의 이중 확인.
+// read 경로의 인라인 재검증은 db 구현(QueryAsOf)으로 이관했고, 이 정의는
+// ValidAsOfHash 공개 심볼(ops status 소비)의 단일 소스로 잔류한다.
 var asOfHashRe = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
 
 // ValidAsOfHash — AS OF 인라인용 해시의 asOfHashRe 문자셋 검증 노출
@@ -701,12 +702,28 @@ func ValidAsOfHash(hash string) bool {
 	return asOfHashRe.MatchString(hash)
 }
 
-// 기본 테이블 조회 안내를 붙인다. 뷰+AS OF는 "현재 정의 + 과거 행" 규칙
-// (C3)이라 과거 커밋에 없는 컬럼에서 이 오류가 난다. 그 외 오류는 불변.
-func wrapViewColumnMismatch(err error) error {
-	msg := err.Error()
-	if strings.Contains(msg, "column") && strings.Contains(msg, "does not exist") {
-		return fmt.Errorf("%w — the active_knowledge view definition is incompatible with rows at that point in time; try an AS OF query on the base table (knowledge)", err)
+// splitReadAsOf — BuildRead가 조립한 SQL/인자를 AsOfQuery 조각으로
+// 절단해 QueryAsOf로 넘긴다(단일 소스 — 컬럼·필터 where·RankOrder를
+// query 조립기 산출물에서 그대로 승계, 재조립 중복 방지). Where는 테이블
+// 참조 뒤 raw 꼬리 절("WHERE ... ORDER BY ..." — $N placeholder 포함,
+// 필터 없으면 "ORDER BY ..."), Args는 문미 LIMIT 인자를 제외한 나머지
+// (필터 + 랭킹 파라미터), Limit는 그 값. 구현측은
+// "SELECT cols FROM tbl AS OF 'hash' {Where} LIMIT {Limit}"로 조립한다.
+func splitReadAsOf(sql string, args []any) wire.AsOfQuery {
+	const from = " FROM active_knowledge"
+	var q wire.AsOfQuery
+	i := strings.Index(sql, from)
+	head := strings.TrimPrefix(sql[:i], "SELECT ")
+	tail := sql[i+len(from):]
+	// 문미 " LIMIT $n" 절거 — Limit int 필드로 승계.
+	if j := strings.LastIndex(tail, " LIMIT $"); j >= 0 {
+		tail = tail[:j]
 	}
-	return err
+	q.Columns = strings.Split(head, ", ")
+	q.Where = strings.TrimSpace(tail)
+	q.Args = args
+	if n, ok := args[len(args)-1].(int); ok {
+		q.Limit, q.Args = n, args[:len(args)-1]
+	}
+	return q
 }

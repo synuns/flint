@@ -7,7 +7,6 @@ import (
 	"context"
 	"strings"
 	"testing"
-	"time"
 )
 
 // fallbackRow — active_knowledge 행 픽스처(readColumns 순서).
@@ -119,18 +118,8 @@ func TestReadPhraseHitUnchanged(t *testing.T) {
 func TestReadFallbackSkippedOnAsOf(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
-	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		switch {
-		case strings.Contains(sql, "FROM dolt_log WHERE date <= $1"):
-			return [][]any{{"he08irluqn3v2m1k9x7c4jw5z6b8d0f"}}, nil
-		case strings.Contains(sql, "WHERE commit_hash = $1"):
-			return [][]any{{time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)}}, nil
-		case strings.Contains(sql, "FROM active_knowledge"):
-			return nil, nil // 과거 시점 제로히트
-		}
-		return nil, nil
-	}}
-	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"--as-of", "7d", "백업 복구"}, strings.NewReader(""), &out); code != 0 {
+	f := &readAsofFake{fakeStore: &fakeStore{}, zeroHit: true} // 과거 시점 제로히트
+	if code := runRead(ctx, readAsofStoreOrReal(t, f), []string{"--as-of", "7d", "백업 복구"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runRead exit = %d, want 0 (출력 %q)", code, out.String())
 	}
 	for _, q := range f.queries {

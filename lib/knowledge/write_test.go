@@ -28,6 +28,8 @@ import (
 // 필드(exists·*Err)는 지정 시 우선되고, rows·queryFn 미지정 시 영(零)
 // 동작을 반환한다.
 type fakeStore struct {
+	wire.HistoryStubs
+
 	// stub 조건
 	exists        bool
 	existsErr     error
@@ -605,6 +607,24 @@ func writeRealDSN() (string, bool) {
 type writeRealStore struct {
 	*db.Repo
 	pool *pgxpool.Pool
+}
+
+// 히스토리 계약 중 db.Repo 미구현 4메서드는 미지원 반환(LogEntries는
+// *db.Repo 임베딩 승계 — wire.HistoryStubs와 동일 의미의 명시 흡수).
+func (s *writeRealStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
+	return nil, wire.ErrHistoryUnsupported
+}
+
+func (s *writeRealStore) DiffRows(ctx context.Context, fromHash, toHash string) ([]wire.KnowledgeDiffRow, error) {
+	return nil, wire.ErrHistoryUnsupported
+}
+
+func (s *writeRealStore) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
+	return nil, wire.ErrHistoryUnsupported
+}
+
+func (s *writeRealStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
+	return nil, wire.ErrHistoryUnsupported
 }
 
 func (s *writeRealStore) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }

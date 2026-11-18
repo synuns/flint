@@ -23,6 +23,7 @@ import (
 // reuseFake — wire.Store fake. Query·Close 호출 수를 기록해 주입
 // 경로 도달과 수명(닫힘 여부)을 검증한다.
 type reuseFake struct {
+	wire.HistoryStubs
 	mu      sync.Mutex
 	queries int
 	closed  int

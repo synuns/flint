@@ -216,11 +216,9 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		}
 		asOfHash = hash
 		// 커밋 시각 첨부(read --as-of와 동일 질의·조용한 폴백 — 메타데이터
-		// 조회 실패 시 빈 값, §13).
-		if dr, err := wire.QueryOnce(ctx, st,
-			`SELECT date FROM dolt_log WHERE commit_hash = $1`, []any{hash}); err == nil &&
-			len(dr) == 1 && len(dr[0]) > 0 {
-			asOfDate = knowledge.FmtAsOfDate(dr[0][0])
+		// 조회 실패 시 빈 값, §13). LogEntries{Hash} — 방언 SQL은 lib/db.
+		if entries, err := st.LogEntries(ctx, wire.LogQuery{Hash: hash}); err == nil && len(entries) > 0 {
+			asOfDate = knowledge.FmtAsOfDate(entries[0].Date)
 		}
 	}
 	rows, err := wire.QueryOnce(ctx, st, `SELECT value FROM meta WHERE key = 'schema_version'`, nil)
@@ -263,21 +261,22 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	// 구현.
 	pending := 0
 	if asOfHash != "" {
-		// read --as-of와 동일 규칙: 접합 전 해시 문자셋을
-		// 재검증한다 — dolt_log 엔진 반환값을 신뢰해 SQL에 인라인하지
-		// 않는다. 위반은 오류 종료(오염 해시 접합 주입 차단).
+		// read --as-of와 동일 규칙: 조회 전 해시 문자셋을 재검증한다 —
+		// 엔진 반환값을 신뢰해 그대로 질의 조건에 넣지 않는다. 위반은
+		// 오류 종료(오염 해시 전달 주입 차단). QueryAsOf는 화이트리스트
+		// 테이블·해시 재검증을 lib/db에서 이중으로 시행한다.
 		if !knowledge.ValidAsOfHash(asOfHash) {
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash has invalid characters: %q", asOfHash)))
 			return 1
 		}
-		rows, err = wire.QueryOnce(ctx, st, `SELECT count(*) FROM knowledge AS OF '`+asOfHash+
-			`' WHERE status = 'pending' AND invalid_at IS NULL`, nil)
+		asOfRows, err := st.QueryAsOf(ctx, wire.AsOfQuery{Hash: asOfHash, Table: "knowledge",
+			Columns: []string{"count(*)"}, Where: "status = 'pending' AND invalid_at IS NULL"})
 		if err != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
-		if len(rows) > 0 {
-			fmt.Sscan(fmt.Sprint(rows[0][0]), &pending)
+		if len(asOfRows) > 0 {
+			fmt.Sscan(fmt.Sprint(asOfRows[0][0]), &pending)
 		}
 	} else {
 		n, cerr := knowledge.CountPending(ctx, st)

@@ -313,6 +313,13 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0172Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.2", "telemetry",
 	}},
+	// v1.8.0 T11: Doltgres 방언 절단(Store 히스토리 인터페이스 5메서드·
+	// lib/db 폐쇄·방언 게이트·바이트 동치)의 버전 기록 존재 계약.
+	// 이름은 v0.18.0 계약행(TestVersion0180Milestone/PLAN·/TUNING)과
+	// 구분되지만 release_gate.sh 그렵(0180)은 그대로 만족한다.
+	{name: "TestVersion0180Milestone/DbSeverance", doc: "HISTORY.md", wants: []string{
+		"v1.8.0", "db-severance",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

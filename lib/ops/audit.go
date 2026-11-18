@@ -13,7 +13,6 @@ import (
 	"fmt"
 	"io"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/synuns/flint/lib/render"
@@ -61,26 +60,6 @@ func RelTime(t time.Time) string {
 	default:
 		return fmt.Sprintf("%dd ago", int(d.Hours()/24))
 	}
-}
-
-// parseAuditDate — dolt_log date 값을 time.Time으로(실구현은 time.Time,
-// fake/문자열은 레이아웃 3종 파싱). 실패 시 date_rel 미기재.
-func parseAuditDate(v any) (time.Time, bool) {
-	switch x := v.(type) {
-	case time.Time:
-		return x, true
-	case string:
-		for _, lay := range []string{
-			"2006-01-02 15:04:05.999999999 -0700 MST", // time.Time 기본 Sprint
-			"2006-01-02 15:04:05.999999999",
-			time.RFC3339,
-		} {
-			if ts, err := time.Parse(lay, x); err == nil {
-				return ts, true
-			}
-		}
-	}
-	return time.Time{}, false
 }
 
 // RunAudit — dolt_log 최근 N 조회. limit은 0·음수 → 기본 20, 상한 100 clamp
@@ -136,93 +115,64 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		limit = auditMaxLimit
 	}
 
-	// v1.7.2 T2: 기본은 telemetry 커밋('telemetry: ' 접두 — CommitTelemetry
-	// 계약)을 NOT LIKE로 제외, --telemetry 플래그로 포함. --session 필터와
-	// AND 결합, placeholder는 $2부터 순차 부여(LIMIT $1 불변).
-	sql := `SELECT commit_hash, committer, date, message FROM dolt_log`
-	qargs := []any{limit}
-	var conds []string
-	ph := 2
+	// v1.7.2 T2(→ v1.8.0 T8 Store 이관): 기본은 telemetry 커밋('telemetry: '
+	// 접두 — CommitTelemetry 계약)을 MessageNotLike로 제외, --telemetry
+	// 플래그로 포함. --session 필터는 MessageLike('%[session:ID]%' 패턴)로
+	// AND 결합 — 세 조건 모두 DB 측 조건으로 전달된다(방언 SQL은 lib/db).
+	q := wire.LogQuery{LatestN: limit}
 	if !telemetry {
-		conds = append(conds, fmt.Sprintf(`message NOT LIKE $%d`, ph))
-		qargs = append(qargs, `telemetry: %`)
-		ph++
+		q.MessageNotLike = `telemetry: %`
 	}
 	if session != "" {
-		conds = append(conds, fmt.Sprintf(`message LIKE $%d`, ph))
-		qargs = append(qargs, `%[session:`+session+`]%`)
+		q.MessageLike = `%[session:` + session + `]%`
 	}
-	if len(conds) > 0 {
-		sql += ` WHERE ` + strings.Join(conds, ` AND `)
-	}
-	sql += ` ORDER BY commit_order DESC LIMIT $1`
-
-	rows, err := wire.QueryOnce(ctx, st, sql, qargs)
+	entries, err := st.LogEntries(ctx, q)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	log := make([]auditEntry, 0, len(rows)) // 0행도 "log":[] 보장
-	for _, r := range rows {
+	log := make([]auditEntry, 0, len(entries)) // 0행도 "log":[] 보장
+	for _, en := range entries {
 		e := auditEntry{}
-		// dolt_log 문자열 열은 전부 render.Text 재살균 —
-		// message뿐 아니라 commit_hash·committer도 원문 노출 경로다.
-		if len(r) > 0 {
-			e.CommitHash = render.Text(fmt.Sprint(r[0]))
+		// LogEntry 문자열 필드는 전부 render.Text 재살균 —
+		// message뿐 아니라 hash·committer도 원문 노출 경로다.
+		e.CommitHash = render.Text(en.Hash)
+		e.Committer = render.Text(en.Committer)
+		if !en.Date.IsZero() {
+			e.Date = fmt.Sprint(en.Date)
 		}
-		if len(r) > 1 {
-			e.Committer = render.Text(fmt.Sprint(r[1]))
-		}
-		if len(r) > 2 && r[2] != nil {
-			e.Date = fmt.Sprint(r[2])
-		}
-		if len(r) > 3 {
-			e.Message = render.Text(fmt.Sprint(r[3])) // render.Text 경유(dolt_log message 재살균 승계)
-		}
-		if stat {
-			if t, ok := parseAuditDate(r[2]); ok {
-				e.DateRel = RelTime(t)
-			}
+		e.Message = render.Text(en.Message) // render.Text 경유(엔진 커밋 로그 message 재살균 승계)
+		if stat && !en.Date.IsZero() {
+			e.DateRel = RelTime(en.Date)
 		}
 		log = append(log, e)
 	}
 	if stat && len(log) > 0 {
-		// dolt_diff 테이블별 data_change·schema_change 요약 부록 — 커밋당
-		// 1회씩 묻는 N+1(상한 100 커밋 = 100왕복) 대신 해시 목록 ANY($1)
-		// 단일 배치 질의로 한 번에 조회한다.
+		// 테이블별 data_change·schema_change 요약 부록 — 커밋당 1회씩
+		// 묻는 N+1(상한 100 커밋 = 100왕복) 대신 해시 목록 단일 배치
+		// 조회(DiffStat — 방언 SQL은 lib/db).
 		hashes := make([]string, 0, len(log))
 		for i := range log {
 			if log[i].CommitHash != "" {
 				hashes = append(hashes, log[i].CommitHash)
 			}
 		}
-		diffRows, err := wire.QueryOnce(ctx, st,
-			`SELECT commit_hash, table_name, data_change, schema_change
-FROM dolt_diff WHERE commit_hash = ANY($1)`, []any{hashes})
+		diffStats, err := st.DiffStat(ctx, hashes)
 		if err != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
 		stats := make(map[string]map[string]auditTableStat, len(log))
-		for _, dr := range diffRows {
-			if len(dr) < 4 {
-				continue
-			}
-			// dolt_diff commit_hash·table_name도 살균 —
+		for _, ds := range diffStats {
+			// DiffStat CommitHash·Table도 살균 —
 			// stats 맵 키는 살균된 log 측 CommitHash와 매칭되므로 같은
 			// 출구(render.Text)를 통과시켜 일관성을 유지한다.
-			h := render.Text(fmt.Sprint(dr[0]))
-			ts := auditTableStat{}
-			if b, ok := dr[2].(bool); ok {
-				ts.DataChange = b
-			}
-			if b, ok := dr[3].(bool); ok {
-				ts.SchemaChange = b
-			}
+			h := render.Text(ds.CommitHash)
+			ts := auditTableStat{DataChange: ds.DataChange, SchemaChange: ds.SchemaChange}
 			if stats[h] == nil {
 				stats[h] = map[string]auditTableStat{}
 			}
-			stats[h][render.Text(fmt.Sprint(dr[1]))] = ts
+			stats[h][render.Text(ds.Table)] = ts
 		}
 		for i := range log {
 			if s, ok := stats[log[i].CommitHash]; ok {

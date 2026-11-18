@@ -15,6 +15,12 @@ type Store interface {
 	Ping(ctx context.Context) error
 	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
 	Close()
+	// 히스토리 계약 5메서드 — 타입·기본구현은 history.go.
+	LogEntries(ctx context.Context, q LogQuery) ([]LogEntry, error)
+	QueryAsOf(ctx context.Context, q AsOfQuery) ([][]any, error)
+	DiffRows(ctx context.Context, fromHash, toHash string) ([]KnowledgeDiffRow, error)
+	DiffStat(ctx context.Context, hashes []string) ([]TableDiffStat, error)
+	DiffCommits(ctx context.Context, fromHash, toHash string) ([]DiffCommitSummary, error)
 }
 
 // QueryOnce — reader 계열 재시도 1회 후 실패 전파(spec §7 읽기).

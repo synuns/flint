@@ -273,3 +273,28 @@ func (s *realStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	}
 	return out, rows.Err()
 }
+
+// --- 히스토리 계약 위임(방언 유일 소유는 db.Repo) ---
+
+func (s *realStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
+	return s.repo.LogEntries(ctx, q)
+}
+
+func (s *realStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
+	return s.repo.QueryAsOf(ctx, q)
+}
+
+func (s *realStore) DiffRows(ctx context.Context, fromHash, toHash string) ([]wire.KnowledgeDiffRow, error) {
+	return s.repo.DiffRows(ctx, fromHash, toHash)
+}
+
+func (s *realStore) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
+	return s.repo.DiffStat(ctx, hashes)
+}
+
+func (s *realStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
+	return s.repo.DiffCommits(ctx, fromHash, toHash)
+}
+
+// 컴파일 타임 보증 — realStore가 wire.Store 전체를 충족(R33 관례).
+var _ wire.Store = (*realStore)(nil)

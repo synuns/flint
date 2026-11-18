@@ -1,14 +1,15 @@
-// diff_test.go — flint diff: 행 상세(dolt_commit_diff_knowledge)·요약
-// (dolt_log×dolt_diff) 한 줄 JSON·무효 스펙 exit 3. fake 기본, SUPERLITE_REAL=1은
-// 실구현 위임 seam.
+// diff_test.go — flint diff: 행 상세·요약 한 줄 JSON·무효 스펙 exit 3.
+// wire.Store 계약(LogEntries 접두어·DiffRows·DiffCommits) canned 오버라이드
+// 기반. SUPERLITE_REAL=1은 실구현 위임 seam.
 package cli
 
 import (
 	"context"
-	"fmt"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/synuns/flint/lib/wire"
 )
 
 // 실측(2026-10-24) 확정 해시 픽스처 — 접두어 정규화 응답용.
@@ -17,43 +18,46 @@ const (
 	diffToHash   = "bbbb2222bbbb2222bbbb2222bbbb2222"
 )
 
-// newDiffFake — as-of 접두어(LIKE)·행 상세·커밋 요약 질의를 구분 응답.
-// likeArgs에 접두어 질의 인자를 기록한다(파라미터화 검증).
-func newDiffFake() (*fakeStore, *[]string) {
-	f := &fakeStore{}
-	likeArgs := []string{}
-	f.queryFn = func(sql string, args []any) ([][]any, error) {
-		switch {
-		case strings.Contains(sql, "dolt_log") && strings.Contains(sql, "LIKE"):
-			likeArgs = append(likeArgs, fmt.Sprint(args[0]))
-			p := fmt.Sprint(args[0])
-			if strings.HasPrefix(diffFromHash, p) {
-				return [][]any{{diffFromHash}}, nil
-			}
-			if strings.HasPrefix(diffToHash, p) {
-				return [][]any{{diffToHash}}, nil
-			}
-			return nil, nil
-		case strings.Contains(sql, "dolt_commit_diff_knowledge"):
-			// 실측 diff_type 분포: added 2·modified 1·removed 1.
-			return [][]any{
-				{"added", 7, "new-topic"},
-				{"added", 8, "newer-topic"},
-				{"modified", 3, "changed-topic"},
-				{"removed", 5, "gone-topic"},
-			}, nil
-		case strings.Contains(sql, "dolt_diff"):
-			return [][]any{{diffToHash, time.Now(), "second write", true, false}}, nil
-		}
+// diffCliFake — diff 커맨드용 계약 canned: 접두어 정규화는 LogEntries,
+// 행 상세는 DiffRows, 커밋 요약은 DiffCommits 오버라이드. 접두어 인수는
+// logPrefixes에 기록(파라미터화 검증 — 질의 인자 전달 증명).
+type diffCliFake struct {
+	*fakeStore
+	logPrefixes []string
+}
+
+func (f *diffCliFake) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
+	if q.Prefix == "" {
 		return nil, nil
 	}
-	return f, &likeArgs
+	f.logPrefixes = append(f.logPrefixes, q.Prefix)
+	switch {
+	case strings.HasPrefix(diffFromHash, q.Prefix):
+		return []wire.LogEntry{{Hash: diffFromHash}}, nil
+	case strings.HasPrefix(diffToHash, q.Prefix):
+		return []wire.LogEntry{{Hash: diffToHash}}, nil
+	}
+	return nil, nil
+}
+
+func (f *diffCliFake) DiffRows(ctx context.Context, fromHash, toHash string) ([]wire.KnowledgeDiffRow, error) {
+	// 실측 diff_type 분포: added 2·modified 1·removed 1(ID는 계약 string).
+	return []wire.KnowledgeDiffRow{
+		{DiffType: "added", ID: "7", Topic: "new-topic"},
+		{DiffType: "added", ID: "8", Topic: "newer-topic"},
+		{DiffType: "modified", ID: "3", Topic: "changed-topic"},
+		{DiffType: "removed", ID: "5", Topic: "gone-topic"},
+	}, nil
+}
+
+func (f *diffCliFake) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
+	return []wire.DiffCommitSummary{{Hash: diffToHash, Date: time.Now(), Message: "second write", DataChange: true}}, nil
 }
 
 // TestDiffAddedCounts — 기본 모드 한 줄 JSON 수치·행 상세.
 func TestDiffAddedCounts(t *testing.T) {
-	f, _ := newDiffFake()
-	withFake(t, f)
+	f := &diffCliFake{fakeStore: &fakeStore{}}
+	withFakeStore(t, f)
 	out, code := mustRun(t, []string{"diff", "aaaa1", "bbbb2"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d out=%s", code, out)
@@ -72,7 +76,7 @@ func TestDiffAddedCounts(t *testing.T) {
 		t.Fatalf("rows len=%d want 4", len(rows))
 	}
 	first, _ := rows[0].(map[string]any)
-	if first["diff_type"] != "added" || first["id"].(float64) != 7 {
+	if first["diff_type"] != "added" || first["id"] != "7" {
 		t.Fatalf("rows[0]=%v", rows[0])
 	}
 	commits, _ := m["commits"].([]any)
@@ -87,8 +91,8 @@ func TestDiffAddedCounts(t *testing.T) {
 
 // TestDiffSummaryShape — --summary는 행 없이 수치+커밋 요약만.
 func TestDiffSummaryShape(t *testing.T) {
-	f, _ := newDiffFake()
-	withFake(t, f)
+	f := &diffCliFake{fakeStore: &fakeStore{}}
+	withFakeStore(t, f)
 	out, code := mustRun(t, []string{"diff", "aaaa1", "bbbb2", "--summary"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d out=%s", code, out)
@@ -113,6 +117,8 @@ func TestDiffSummaryShape(t *testing.T) {
 
 // TestDiffInvalidExit3 — 무효 as-of 스펙 exit 3(from·to 각각).
 func TestDiffInvalidExit3(t *testing.T) {
+	f := &diffCliFake{fakeStore: &fakeStore{}}
+	withFakeStore(t, f)
 	cases := [][]string{
 		{"diff", "2 days ago", "bbbb2"},
 		{"diff", "aaaa1", "zzz9"}, // 형식은 유효(base32 소문자)지만 실DB 0매칭 접두어
@@ -131,29 +137,17 @@ func TestDiffInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestDiffPrefixParameterized — 해시 접두어는 LIKE $1 파라미터로.
+// TestDiffPrefixParameterized — 해시 접두어는 LogQuery{Prefix} 값으로
+// 전달된다(접두어가 질의 인자·계약 필드로 흐르는 캡처 증명 — SQL 접합 아님).
 func TestDiffPrefixParameterized(t *testing.T) {
-	f, likeArgs := newDiffFake()
-	withFake(t, f)
+	f := &diffCliFake{fakeStore: &fakeStore{}}
+	withFakeStore(t, f)
 	out, code := mustRun(t, []string{"diff", "aaaa1", "bbbb2"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d out=%s", code, out)
 	}
-	found := false
-	for _, q := range f.queries {
-		if strings.Contains(q, "dolt_log") && strings.Contains(q, "LIKE") {
-			found = true
-			if !strings.Contains(q, "LIKE $1||'%'") {
-				t.Fatalf("LIKE 접합 비파라미터화: %q", q)
-			}
-		}
-	}
-	if !found {
-		t.Fatalf("접두어 질의 미검출")
-	}
-	// 접두어는 SQL 접합이 아닌 질의 인자로 전달돼야 한다(from·to 2회).
-	if len(*likeArgs) != 2 || (*likeArgs)[0] != "aaaa1" || (*likeArgs)[1] != "bbbb2" {
-		t.Fatalf("접두어 인자 기록: %v", *likeArgs)
+	if len(f.logPrefixes) != 2 || f.logPrefixes[0] != "aaaa1" || f.logPrefixes[1] != "bbbb2" {
+		t.Fatalf("접두어 인자 기록: %v", f.logPrefixes)
 	}
 }
 
@@ -176,25 +170,24 @@ func TestDiffSeamReal(t *testing.T) {
 		`{"topic":"diff-seam-b","summary":"seam b","confidence":0.6}`); code != 0 {
 		t.Fatalf("write B exit=%d out=%s", code, out)
 	}
-	// 내 두 커밋을 세션 태그로 조회(최신순 → [B, A]). 해시 스펙은 asof.go의
-	// 16진 접두어 가정이 실측 Doltgres 해시(base32계)와 불일치해 ISO 시각
-	// 스펙으로 지정한다(인시던트 기록 — from/to가 해당 커밋 date 직전
-	// 최신이 되도록 나노초 정밀도 시각 사용).
+	// 내 두 커밋을 세션 태그로 조회(최신순 → [B, A]). LogEntries 계약
+	// (LatestN + MessageLike 필터 — 해시·date typed)으로 스펙은 ISO 시각을
+	// 쓴다(asof.go의 16진 접두어 가정이 실측 Doltgres 해시와 불일치해
+	// ISO 시각 스펙으로 지정 — 인시던트 기록 승계).
 	ctx := context.Background()
 	real, err := newRealStore(ctx, dsn)
 	if err != nil {
 		t.Skipf("real store unavailable: %v", err)
 	}
 	defer real.Close()
-	rows, err := real.Query(ctx,
-		`SELECT commit_hash, date FROM dolt_log WHERE message LIKE $1 ORDER BY commit_order DESC LIMIT 2`,
-		`%[session:diff-seam]%`)
-	if err != nil || len(rows) != 2 {
-		t.Fatalf("세션 커밋 조회 실패: rows=%d err=%v", len(rows), err)
+	entries, err := real.LogEntries(ctx, wire.LogQuery{
+		LatestN: 2, MessageLike: `%[session:diff-seam]%`,
+	})
+	if err != nil || len(entries) != 2 {
+		t.Fatalf("세션 커밋 조회 실패: entries=%d err=%v", len(entries), err)
 	}
-	latestHash, prevHash := fmt.Sprint(rows[0][0]), fmt.Sprint(rows[1][0])
-	latestDate, _ := rows[0][1].(time.Time)
-	prevDate, _ := rows[1][1].(time.Time)
+	latestHash, prevHash := entries[0].Hash, entries[1].Hash
+	latestDate, prevDate := entries[0].Date, entries[1].Date
 	out, code := mustRun(t, []string{"diff", prevDate.Format(time.RFC3339Nano), latestDate.Format(time.RFC3339Nano)}, "")
 	if code != 0 {
 		t.Fatalf("diff exit=%d out=%s", code, out)
