@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // pamSyntheticKey — 고정 시드 합성 Ed25519 키(기존 파일 내용 재현용).
@@ -108,5 +109,30 @@ func TestLoadOrCreatePAMSigningKeyConcurrentSingleKey(t *testing.T) {
 	}
 	if !bytes.Equal(raw, keys[0]) {
 		t.Errorf("최종 파일 키가 반환 키와 불일치 — 상호 덮어쓰기 잔존")
+	}
+}
+
+// TestLoadOrCreatePAMSigningKeyPartialFileRetriesUntilComplete — 최초
+// fast-path 읽기가 선행 생성자의 불완전 파일(기록 직전 찰나)을 만나도
+// 예산 내 재시도로 완전 키에 수렴한다.
+func TestLoadOrCreatePAMSigningKeyPartialFileRetriesUntilComplete(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "pam-signing-key")
+	pamSwapKeyPath(t, path)
+
+	if werr := os.WriteFile(path, []byte("abc\n"), 0o600); werr != nil {
+		t.Fatal(werr)
+	}
+	full := pamSyntheticKey(t)
+	go func() {
+		time.Sleep(30 * time.Millisecond)
+		_ = os.WriteFile(path, []byte(hex.EncodeToString(full)+"\n"), 0o600)
+	}()
+
+	got, err := LoadOrCreatePAMSigningKey()
+	if err != nil {
+		t.Fatalf("불완전 파일 재시도 실패: %v", err)
+	}
+	if !bytes.Equal(got, full) {
+		t.Errorf("완전 기록 이후의 키와 불일치")
 	}
 }

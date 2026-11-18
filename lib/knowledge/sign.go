@@ -90,7 +90,9 @@ func LoadOrCreatePAMSigningKey() (ed25519.PrivateKey, error) {
 	if k, err := loadPAMSigningKeyFile(path); err == nil {
 		return k, nil
 	} else if !errors.Is(err, os.ErrNotExist) {
-		return nil, fmt.Errorf("pam signing key read failed: %w", err)
+		// 파손 판정은 선행 동시 생성자의 기록 직전 찰나일 수 있다 —
+		// 즉시 실패하지 않고 예산 내 재시도로 완전 기록에 수렴한다.
+		return loadPAMSigningKeyAfterRace(path)
 	}
 	_, priv, err := ed25519.GenerateKey(rand.Reader)
 	if err != nil {
