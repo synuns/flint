@@ -5,7 +5,9 @@ import (
 	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -215,18 +217,51 @@ func mustApprove(t *testing.T, args []string) (string, int) {
 }
 
 // TestApproveOK — 성공 시 {"status":"approved","id":N} exit 0(exit 매핑).
+// 실DB 경로(SUPERLITE_REAL=1)는 자가 시딩 — 합성 데모 pending 행 1건(고유
+// content_hash)을 InsertBatch로 적립해 그 반환 id로 승격을 단언한다.
+// 공유 DB의 타 테스트 시딩(id=7) 암묵 의존으로 상태에 따라 not_found가
+// 나던 결함 방어. 시딩 행은 종료 시 삭제(공유 DB 오염 방지).
 func TestApproveOK(t *testing.T) {
 	f := &fakeApprove{}
 	withApproveFake(t, f)
-	out, code := mustApprove(t, []string{"--id", "7"})
+	id := 7
+	if dsn, real := seamRealDSN(); real {
+		repo, err := db.NewRepo(context.Background(), dsn)
+		if err != nil {
+			t.Skipf("real db unavailable: %v", err)
+		}
+		defer repo.Close()
+		uniq := fmt.Sprintf("approve-ok-%d", time.Now().UnixNano())
+		ids, err := repo.InsertBatch(context.Background(), []map[string]any{{
+			"kind": "knowledge", "topic": uniq, "summary": "approve 승격 회귀(합성 데모)",
+			"tags": ":approve:", "confidence": 0.9, "content_hash": uniq,
+			"status": "pending", "ingested_at": time.Now(),
+		}})
+		if err != nil {
+			t.Skipf("real seeding unavailable: %v", err)
+		}
+		id = ids[0]
+		pool, err := db.Connect(context.Background(), dsn)
+		if err != nil {
+			t.Skipf("real db unavailable: %v", err)
+		}
+		t.Cleanup(func() {
+			if _, err := pool.Exec(context.Background(),
+				`DELETE FROM knowledge WHERE topic = $1`, uniq); err != nil {
+				t.Errorf("시딩 행 정리 실패: %v", err)
+			}
+			pool.Close()
+		})
+	}
+	out, code := mustApprove(t, []string{"--id", strconv.Itoa(id)})
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (out: %s)", code, out)
 	}
-	if strings.TrimSpace(out) != `{"status":"approved","id":7}` {
-		t.Errorf("out = %q, want approved JSON", out)
+	if want := fmt.Sprintf(`{"status":"approved","id":%d}`, id); strings.TrimSpace(out) != want {
+		t.Errorf("out = %q, want %s", out, want)
 	}
-	if f.gotID != 7 || f.calledN != 1 {
-		t.Errorf("Approve 호출 (id=%d, n=%d), want (7, 1)", f.gotID, f.calledN)
+	if f.gotID != id || f.calledN != 1 {
+		t.Errorf("Approve 호출 (id=%d, n=%d), want (%d, 1)", f.gotID, f.calledN, id)
 	}
 }
 
