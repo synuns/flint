@@ -116,7 +116,7 @@ func TestReadAsOfAddsField(t *testing.T) {
 		t.Fatalf("과거 스냅샷 질의 %d건, want 1", len(f.asofQueries))
 	}
 	aq := f.asofQueries[0]
-	if aq.Hash != asofHash || aq.Table != "active_knowledge" || aq.FallbackTable != "knowledge" {
+	if aq.Hash != asofHash || aq.Table != "active_knowledge" {
 		t.Errorf("해시 접합 실패: %+v", aq)
 	}
 	// 기존 질의 불변 — RankOrder 정렬 절·LIMIT 유지(Where·Limit 필드 승계).
@@ -209,8 +209,8 @@ func TestReadAsOfMissingValueExit3(t *testing.T) {
 }
 
 // TestReadAsOfViewColumnHint — 뷰-컬럼 미호환 오류(column ... does not
-// exist)는 기본 테이블(knowledge) 조회 안내 문구로 랩된다(구현측
-// FallbackTable 재시도 경계 — fake는 안내 문구 에러로 재현).
+// exist)는 기본 테이블(knowledge) 조회 안내 문구로 랩된다(구현측 안내
+// 래핑 경계 — fake는 안내 문구 에러로 재현).
 func TestReadAsOfViewColumnHint(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer

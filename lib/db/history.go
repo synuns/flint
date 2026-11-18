@@ -32,6 +32,9 @@ func (r *Repo) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry
 			`SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE $1||'%' ORDER BY commit_order DESC`,
 			q.Prefix)
 	case q.Hash != "":
+		// Hash 모드는 4열(commit_hash·committer·date·message) 신규 조립 —
+		// 구 read/status의 date 1열 질의를 대체한다(값은 동치, 조립 상이).
+		// "원문 승계"가 아님에 유의.
 		return r.logFullRows(ctx, `SELECT commit_hash, committer, date, message FROM dolt_log WHERE commit_hash = $1`, q.Hash)
 	case !q.BeforeOrAt.IsZero():
 		// 원문: asof.go 시각 직전 채택 질의. date 비교는 Go 계산 time.Time을

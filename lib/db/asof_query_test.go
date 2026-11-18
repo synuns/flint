@@ -1,7 +1,7 @@
 // asof_query_test.go — QueryAsOf(wire.AsOfQuery 계약의 Doltgres 구현)
 // slow 실DB 회귀. 조립형 AS OF 질의(count(*)·WHERE $N+ORDER BY 꼬리 절)·
 // 테이블 화이트리스트·해시 문자셋·컬럼 식별자 검증·뷰(active_knowledge)
-// 비호환 시 base(knowledge) 폴백과 안내 문구를 실측한다.
+// 비호환 시 base 재시도 없는 안내 문구 오류(원본 동치)를 실측한다.
 package db
 
 import (
@@ -154,11 +154,12 @@ func TestQueryAsOfSlowAssembly(t *testing.T) {
 	}
 }
 
-// TestQueryAsOfSlowViewFallback — 뷰 비호환 폴백. 시드 커밋(hA) 후 베이스에
-// 컬럼을 추가하고 뷰를 그 컬럼을 참조하도록 재정의(커밋 불필요 — 뷰는
-// 항상 현재 정의). hA 시점 행에는 해당 컬럼이 없어 뷰 AS OF 질의가
-// "column ... does not exist"로 실패하고, FallbackTable(knowledge) 재시도로
-// 회복한다. 폴백 미지정이면 안내 문구 랩 오류.
+// TestQueryAsOfSlowViewFallback — 뷰 비호환 안내 오류(폴백 없음, 원본
+// 동치). 시드 커밋(hA) 후 베이스에 컬럼을 추가하고 뷰를 그 컬럼을 참조
+// 하도록 재정의(커밋 불필요 — 뷰는 항상 현재 정의). hA 시점 행에는 해당
+// 컬럼이 없어 뷰 AS OF 질의가 "column ... does not exist"로 실패하고,
+// base(knowledge) 재시도 없이 즉시 안내 문구 랩 오류를 반환해야 한다
+// (base는 invalid_at 필터가 없어 재시도 성공은 무효 지식 노출이다).
 func TestQueryAsOfSlowViewFallback(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -199,34 +200,27 @@ func TestQueryAsOfSlowViewFallback(t *testing.T) {
 			t.Fatalf("view redefine: %v", err)
 		}
 	}
-	// 뷰 질의 단계 공통 — fresh 정의에서 hA 시점 뷰 질의는 항상 오류여야
-	// 한다(①·③ 샌드위치로 재현성 확인, ②의 폴백이 실제 발동했음을 보증).
+	// 뷰 질의 단계 공통 — fresh 정의에서 hA 시점 뷰 질의는 항상 안내
+	// 오류여야 한다(①·③ 샌드위치로 재현성 확인, ②는 폴백 시대에 base
+	// 재시도로 행을 돌려준 경로 — 회귀 단언의 핵심).
 	viewQ := wire.AsOfQuery{Hash: hA, Table: "active_knowledge", Columns: []string{"id", "topic"}}
 
-	// ① 폴백 미지정 — 안내 문구 랩 오류(원문 보존).
+	// ① 안내 문구 랩 오류(원문 보존).
 	redefineView()
 	if _, err := r.QueryAsOf(ctx, viewQ); err == nil || !strings.Contains(err.Error(),
 		"try an AS OF query on the base table (knowledge)") {
-		t.Fatalf("QueryAsOf(폴백 미지정) = %v, want 안내 문구 랩 오류", err)
+		t.Fatalf("QueryAsOf(뷰 비호환) = %v, want 안내 문구 랩 오류", err)
 	}
 
-	// ② 폴백 지정 — 뷰 오류 후 base 재시도로 시드 행 회복.
+	// ② 회귀 — 폴백 전면 제거: 뷰 오류가 나도 base(knowledge) 재시도로
+	// 행을 돌려주면 안 된다(무효 지식 노출). 안내 문구 랩 오류여야 한다.
 	redefineView()
-	rows, err := r.QueryAsOf(ctx, wire.AsOfQuery{
-		Hash:          hA,
-		Table:         "active_knowledge",
-		Columns:       []string{"id", "topic"},
-		FallbackTable: "knowledge",
-	})
-	if err != nil {
-		t.Fatalf("QueryAsOf(폴백): %v", err)
-	}
-	if len(rows) != 1 || fmt.Sprint(rows[0][1]) != "토픽-v0180-t4-fb" {
-		t.Fatalf("QueryAsOf(폴백) = %v, want 시드 1행", rows)
+	if rows, err := r.QueryAsOf(ctx, viewQ); err == nil || !strings.Contains(err.Error(),
+		"try an AS OF query on the base table (knowledge)") {
+		t.Fatalf("QueryAsOf(폴백 제거 회귀) = (%v, %v), want 안내 문구 랩 오류(base 재시도 금지)", rows, err)
 	}
 
-	// ③ 재현성 — fresh 정의에서 다시 랩 오류(②가 우회 성공이 아니었음을
-	// 보증하는 샌드위치 하단).
+	// ③ 재현성 — fresh 정의에서 다시 랩 오류(샌드위치 하단).
 	redefineView()
 	if _, err := r.QueryAsOf(ctx, viewQ); err == nil || !strings.Contains(err.Error(),
 		"try an AS OF query on the base table (knowledge)") {

@@ -320,6 +320,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0180Milestone/DbSeverance", doc: "HISTORY.md", wants: []string{
 		"v1.8.0", "db-severance",
 	}},
+	// v1.8.1: R40 패치(QueryAsOf 뷰 폴백 제거·--session 이스케이프·
+	// 주석 정리)의 버전 기록 존재 계약.
+	{name: "TestVersion0181Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.8.1", "r40-hardening",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

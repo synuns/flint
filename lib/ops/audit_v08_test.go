@@ -214,6 +214,21 @@ func TestAuditSessionFilterPassedAsMessageLike(t *testing.T) {
 	}
 }
 
+// TestAuditSessionEscapesLikeMeta — R40-C: --session ID에 LIKE 메타문자
+// (%·_)가 포함되면 이스케이프되어 리터럴 일치로만 매칭된다(파라미터화
+// 유지 — 패턴 조립 시 메타문자만 \로 이스케이프).
+func TestAuditSessionEscapesLikeMeta(t *testing.T) {
+	f := newAuditFake()
+	var out bytes.Buffer
+	if code := RunAudit(f, []string{"--session", `a%b_c\d`}, &out); code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
+	}
+	want := `%[session:a\%b\_c\\d]%`
+	if q := lastLogQ(t, f); q.MessageLike != want {
+		t.Fatalf("MessageLike=%q, want %q — 메타문자 미이스케이프", q.MessageLike, want)
+	}
+}
+
 // TestAuditLimitClamp — limit clamp 계약(기본 20·0/음수 → 20·상한 100)은
 // LogQuery.LatestN 전달 값으로 담보.
 func TestAuditLimitClamp(t *testing.T) {

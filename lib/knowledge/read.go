@@ -418,11 +418,11 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		// 방언 절단: AS OF 인라인(strings.Replace)과 해시 문자셋 재검증은
 		// Store.QueryAsOf(db 구현)로 이관 — 호출측에 원시 AS OF 절이 남지
 		// 않는다. 컬럼·필터 where·RankOrder·LIMIT은 query 조립기 산출물을
-		// 절단해 승계(단일 소스 — 재조립 중복 방지). 뷰 비호환 시 base
-		// (knowledge) 재시도와 안내 문구는 FallbackTable 지정으로 구현측이
-		// 처리한다(C3 계약 승계).
+		// 절단해 승계(단일 소스 — 재조립 중복 방지). 뷰 비호환 안내
+		// 래핑도 구현측이 처리한다(C3 계약 승계, 원본 동치 — base
+		// 재시도 없음).
 		aq := splitReadAsOf(sql, qargs)
-		aq.Hash, aq.Table, aq.FallbackTable = hash, "active_knowledge", "knowledge"
+		aq.Hash, aq.Table = hash, "active_knowledge"
 		asOfHash = hash
 		// 커밋 시각 첨부 — 메타데이터 조회 실패는 조용히(빈 값, §13).
 		if les, lerr := st.LogEntries(ctx, wire.LogQuery{Hash: hash}); lerr == nil && len(les) == 1 {
@@ -431,7 +431,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		rows, err = st.QueryAsOf(ctx, aq)
 		if err != nil {
 			// 뷰-컬럼 미호환(과거 행에 없는 컬럼) 안내 래핑도 구현측
-			// FallbackTable 재시도 경계로 이관 — 호출측은 전파만.
+			// 경계로 이관 — 호출측은 전파만.
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}

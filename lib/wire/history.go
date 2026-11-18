@@ -36,16 +36,16 @@ type LogEntry struct {
 	Date      time.Time
 }
 
-// AsOfQuery — 시점 조회. FallbackTable은 뷰 비호환 오류 시 base
-// 테이블로 재시도할 때 사용한다.
+// AsOfQuery — 시점 조회. Where는 raw 꼬리 절(WHERE...ORDER BY
+// 포함) 또는 조건-only(접두 WHERE 자동 부여) 양형식 — 내부 산출물만
+// 전달한다(사용자 raw 유입 금지).
 type AsOfQuery struct {
-	Hash          string
-	Table         string
-	Columns       []string
-	Where         string
-	Args          []any
-	Limit         int
-	FallbackTable string
+	Hash    string
+	Table   string
+	Columns []string
+	Where   string
+	Args    []any
+	Limit   int
 }
 
 // KnowledgeDiffRow — 두 커밋 간 knowledge 행 diff 1건.
