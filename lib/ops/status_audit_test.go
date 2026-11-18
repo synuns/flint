@@ -9,6 +9,7 @@
 //	동일 규칙): 오염 해시(작은따옴표 포함)는
 //	거부되고 질의에 접합되지 않는다. v1.8.0 T8 — 카운트는
 //	QueryAsOf(AsOfQuery{Hash,Table,Columns,Where}) 이관, 접합 단언은
+//
 // 전달 조건 단언으로 환치(문자셋 재검증 잔류 계약 유지).
 package ops
 
@@ -52,10 +53,10 @@ func statusSeams(t *testing.T, parse func(context.Context, wire.Store, string) (
 type statusStore struct {
 	*fakeStore
 	wire.HistoryStubs // 오버라이드 대상 외(DiffRows·DiffCommits·DiffStat) 기본구현
-	gotLog  []wire.LogQuery
-	gotAsOf []wire.AsOfQuery
-	logRows []wire.LogEntry
-	asOfRows [][]any
+	gotLog            []wire.LogQuery
+	gotAsOf           []wire.AsOfQuery
+	logRows           []wire.LogEntry
+	asOfRows          [][]any
 }
 
 func (s *statusStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {

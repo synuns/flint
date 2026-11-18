@@ -52,10 +52,10 @@ func TestDiffRowsSlowTypes(t *testing.T) {
 		`UPDATE knowledge SET topic = '토픽-v0180-t5-x2' WHERE id = $1`, ids[0])
 
 	cases := []struct {
-		name           string
-		from, to       string
-		wantType       string
-		wantTopic      string
+		name      string
+		from, to  string
+		wantType  string
+		wantTopic string
 	}{
 		{"added — c1→c2", c1, c2, "added", "토픽-v0180-t5-y"},
 		{"removed — c2→c3", c2, c3, "removed", "토픽-v0180-t5-y"},

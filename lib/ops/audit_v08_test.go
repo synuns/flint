@@ -43,12 +43,12 @@ func auditLogRows() []wire.LogEntry {
 type auditFakeStore struct {
 	*fakeStore
 	wire.HistoryStubs // DiffRows·DiffCommits 기본구현(오버라이드 대상 3종은 아래 명시 정의가 우선)
-	logQ        []wire.LogQuery
-	logEntriesErr error
-	diffCalls   int
-	diffHashes []string
-	diffRows  []wire.TableDiffStat
-	diffErr   error
+	logQ              []wire.LogQuery
+	logEntriesErr     error
+	diffCalls         int
+	diffHashes        []string
+	diffRows          []wire.TableDiffStat
+	diffErr           error
 }
 
 func (f *auditFakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {

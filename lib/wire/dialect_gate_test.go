@@ -106,7 +106,7 @@ func TestScanDialectViolationsClassifier(t *testing.T) {
 	}
 	files := map[string]string{
 		// lib/db 하위 — 방언 유일 소유 영역, 전부 허용.
-		"db/history.go":  "q := `SELECT * FROM " + "dolt_" + "log`\n",
+		"db/history.go":    "q := `SELECT * FROM " + "dolt_" + "log`\n",
 		"db/diff_store.go": "q := \"... " + "dolt_" + "diff ...\"\n",
 		// 주석 라인(// 선행)은 허용.
 		"ops/a.go": "// 주석: " + "dolt_" + "log 언급\nvar x = 1\n",

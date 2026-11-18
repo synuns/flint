@@ -15,7 +15,7 @@ type stubBaseStore struct {
 	HistoryStubs
 }
 
-func (s *stubBaseStore) Migrate(ctx context.Context) error                      { return nil }
+func (s *stubBaseStore) Migrate(ctx context.Context) error { return nil }
 func (s *stubBaseStore) InsertBatch(ctx context.Context, r []map[string]any) ([]int, error) {
 	return nil, nil
 }
@@ -25,9 +25,9 @@ func (s *stubBaseStore) ExistsHash(ctx context.Context, h string) (bool, error) 
 func (s *stubBaseStore) ExistsProject(ctx context.Context, n string) (bool, error) {
 	return false, nil
 }
-func (s *stubBaseStore) Commit(ctx context.Context, m string) (string, error)   { return "", nil }
-func (s *stubBaseStore) Ping(ctx context.Context) error                         { return nil }
-func (s *stubBaseStore) Close()                                                 {}
+func (s *stubBaseStore) Commit(ctx context.Context, m string) (string, error) { return "", nil }
+func (s *stubBaseStore) Ping(ctx context.Context) error                       { return nil }
+func (s *stubBaseStore) Close()                                               {}
 func (s *stubBaseStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	return nil, nil
 }
