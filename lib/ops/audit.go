@@ -1,7 +1,10 @@
-// audit 커맨드 — 감사.
-// `flint audit [--limit N] [--session ID] [--stat]` — dolt_log 최근 N(기본 20·상한 100)을
-// 컬럼 4종(commit_hash·committer·date·message)만 한 줄 JSON {"log":[...]}로 출력.
-// --session ID는 message LIKE '%[session:ID]%' 필터. 서버 다운 exit 2(§13 조용히).
+// audit 커맨드 — 감사(Ruling: revert 커맨드화 폐지, flint audit 신설).
+// `flint audit [--limit N] [--session ID] [--stat] [--telemetry]` — dolt_log 최근
+// N(기본 20·상한 100)을 컬럼 4종(commit_hash·committer·date·message)만 한 줄
+// JSON {"log":[...]}로 출력. --session ID는 message LIKE '%[session:ID]%' 필터.
+// 기본 쿼리는 telemetry 커밋(message이 'telemetry: ' 접두 —
+// CommitTelemetry 계약)을 NOT LIKE로 제외하고 --telemetry 플래그로 포함한다.
+// 서버 다운 exit 2(§13 조용히).
 package ops
 
 import (
@@ -10,6 +13,7 @@ import (
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/synuns/flint/lib/render"
@@ -17,10 +21,11 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// audit 기본·상한 limit.
+// audit 기본·상한 limit·사용법 행.
 const (
 	auditDefaultLimit = 20
 	auditMaxLimit     = 100
+	auditUsage        = "usage: flint audit [--limit N] [--session ID] [--stat] [--telemetry]"
 )
 
 // auditEntry — 감사 출력 최소 컬럼(토큰 예산 룰링: 4종만).
@@ -92,8 +97,9 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 			{Name: "--limit", Value: true},
 			{Name: "--stat"},
 			{Name: "--session", Value: true},
+			{Name: "--telemetry"},
 		},
-		Usage: "usage: flint audit [--limit N] [--session ID] [--stat]",
+		Usage: auditUsage,
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
@@ -102,16 +108,17 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 	limit := auditDefaultLimit
 	session := res.Value("--session")
 	stat := res.Given("--stat")
+	telemetry := res.Given("--telemetry")
 	for _, o := range res.AllOccs() {
 		switch o.Name {
 		case "--limit":
 			if !o.HasValue {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--limit requires a number — usage: flint audit [--limit N] [--session ID] [--stat]")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--limit requires a number — "+auditUsage)))
 				return 3
 			}
 			n, err := strconv.Atoi(o.Value)
 			if err != nil {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("invalid limit %q — usage: flint audit [--limit N] [--session ID] [--stat]", o.Value)))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("invalid limit %q — "+auditUsage, o.Value)))
 				return 3
 			}
 			if n < 1 {
@@ -120,7 +127,7 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 			limit = n
 		case "--session":
 			if !o.HasValue || o.Value == "" {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--session requires an id — usage: flint audit [--limit N] [--session ID] [--stat]")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--session requires an id — "+auditUsage)))
 				return 3
 			}
 		}
@@ -129,11 +136,24 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		limit = auditMaxLimit
 	}
 
+	// v1.7.2 T2: 기본은 telemetry 커밋('telemetry: ' 접두 — CommitTelemetry
+	// 계약)을 NOT LIKE로 제외, --telemetry 플래그로 포함. --session 필터와
+	// AND 결합, placeholder는 $2부터 순차 부여(LIMIT $1 불변).
 	sql := `SELECT commit_hash, committer, date, message FROM dolt_log`
 	qargs := []any{limit}
+	var conds []string
+	ph := 2
+	if !telemetry {
+		conds = append(conds, fmt.Sprintf(`message NOT LIKE $%d`, ph))
+		qargs = append(qargs, `telemetry: %`)
+		ph++
+	}
 	if session != "" {
-		sql += ` WHERE message LIKE $2`
+		conds = append(conds, fmt.Sprintf(`message LIKE $%d`, ph))
 		qargs = append(qargs, `%[session:`+session+`]%`)
+	}
+	if len(conds) > 0 {
+		sql += ` WHERE ` + strings.Join(conds, ` AND `)
 	}
 	sql += ` ORDER BY commit_order DESC LIMIT $1`
 

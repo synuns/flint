@@ -27,6 +27,9 @@ type rpcRequest struct {
 // each to handle, and writes exactly one response line per request to w.
 // Notifications (no id) get no reply. Malformed lines are skipped so the
 // server keeps serving subsequent messages. Serve returns when r is exhausted.
+// v1.7.2 T5(C5): each response is flushed immediately after write — a
+// request-response client waits for the reply before sending more input, so
+// an unflushed buffer deadlocks the session until EOF.
 func Serve(r io.Reader, w io.Writer, handle func(method string, params map[string]any) (any, error)) error {
 	bw := bufio.NewWriter(w)
 	defer bw.Flush()
@@ -48,6 +51,10 @@ func Serve(r io.Reader, w io.Writer, handle func(method string, params map[strin
 			continue // notification or unidentifiable: no reply
 		}
 		if err := writeResponse(bw, req, handle); err != nil {
+			return err
+		}
+		// v1.7.2 T5: 응답 write 직후 즉시 flush — EOF 전 대기 폐지.
+		if err := bw.Flush(); err != nil {
 			return err
 		}
 	}

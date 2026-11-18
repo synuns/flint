@@ -10,6 +10,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"regexp"
 	"strconv"
 	"strings"
@@ -573,6 +574,14 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			ZeroReason: zeroReason,
 			Source:     source,
 		})
+	}
+	// read 완료 경로 감사 커밋 — recall bump(UPDATE
+	// knowledge)·meta 증분이 계측 커밋에 흡수되지 않도록(telemetry의
+	// -A 스윕 폐지로 계측 스테이징은 계측 원본만) 감사 경계에서 커밋한다
+	// (done의 session-end 커밋 관례. 실패는 stderr 1행·비간섭 §13 —
+	// 잔여는 다음 감사 커밋이 회수, 유실 없음).
+	if _, cerr := st.Commit(ctx, "read: recall bump (read audit attribution)"); cerr != nil {
+		fmt.Fprintf(os.Stderr, "[flint] read audit commit: %v\n", cerr)
 	}
 	// 계측 테이블 별도 커밋(read 완료 경로 1회 — 감사 커밋과
 	// 독립). 실패는 조용히(§13 — 스테이징은 유지돼 다음 호출이 회수).

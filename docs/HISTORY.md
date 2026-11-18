@@ -6,6 +6,44 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.7.2 patch (2026-11-17) — R38 audit fixes: telemetry sweep · sync mitigations
+
+- [x] Telemetry commit regression (R38 C1): CommitTelemetry's `dolt_add('-A')`
+  sweep is abolished — the instrumentation sequences
+  (read_events_id_seq and 3 more, existence-checked) are staged
+  explicitly. Knowledge changes from audit-path tables now land in the
+  audit commit (dolt_diff-verified), keeping the audit-purity contract
+  of v1.7.0.
+- [x] `flint audit` filters telemetry commits out of the default list
+  (`NOT LIKE 'telemetry: %'`); the new `--telemetry` flag includes them
+  (`--stat` follows the same rule).
+- [x] sync mitigations (R38 S-series): a pull error matching
+  "DoltgresHandler caught panic" prints dedicated guidance (single
+  active device recommended — simultaneous multi-device use is not
+  supported by the Doltgres engine; recovery via reset); `sync reset
+  --to-remote <remote>` wraps `dolt_reset --hard origin/main` with a
+  data-loss warning and requires `--yes`; SyncPush/SyncPull get a 30s
+  context timeout; `remote add` accepts only https·http·file schemes
+  (postgres:// is rejected with exit 3); a no-op push reports
+  "up-to-date"; a diverged pull points to `flint sync pull`; `file://`
+  urls are Doltgres-server-side paths.
+- [x] Entry probe heal (R38 L1): a 42P01 failure of the schemaVersion
+  probe re-syncs the session catalog with one `SELECT 1` — the first
+  command on a fresh DB exits 0.
+- [x] MCP stdio responses flush immediately after write (EOF-wait
+  deadlock abolished).
+- [x] scripts/release_gate.sh — 태그 전 VERSION·plugin.json·배지(EN/KO)·HISTORY
+  항목·versions_test 계약행·docs-sync 검사. make release가 선행 의존. 첫
+  실행에서 v1.7.1 항목/계약행 부재(R38-C4)를 즉시 포착 — 게이트 자체 실증.
+
+### v1.7.1 patch (2026-11-17) — decay ranking partial-sort fix
+
+- [x] rankRowsByEffectiveScore's sort.SliceStable swapped only rows while
+  the precomputed eff array drifted — decay ranking ended partially sorted
+  (effective-0 rows above effective-1; both hot/brief). Replaced with
+  index sort + reorder; brief caller now assigns the returned slice
+  (accompanying ignored-return bug). R36 reproduction regression included.
+
 ### v1.7.0 minor (2026-11-17) — knowledge sync · recall decay · telemetry commit split
 
 - [x] Knowledge sync (`flint sync` — a human operator command, not agent-facing:

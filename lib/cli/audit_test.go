@@ -31,8 +31,20 @@ func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 		if len(out) > limit {
 			out = out[:limit]
 		}
-		if strings.Contains(sql, "LIKE") && len(args) > 1 {
+		// v1.7.2 T2: 기본 쿼리 NOT LIKE 'telemetry: %' 제외 + --session LIKE.
+		if strings.Contains(sql, "message NOT LIKE ") && len(args) > 1 {
 			pat, _ := args[1].(string)
+			pat = strings.Trim(pat, "%")
+			var filtered [][]any
+			for _, r := range out {
+				if !strings.Contains(r[3].(string), pat) {
+					filtered = append(filtered, r)
+				}
+			}
+			out = filtered
+		}
+		if strings.Contains(sql, "message LIKE ") && len(args) > 1 {
+			pat, _ := args[len(args)-1].(string)
 			pat = strings.Trim(pat, "%")
 			var filtered [][]any
 			for _, r := range out {

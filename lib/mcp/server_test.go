@@ -6,6 +6,7 @@ import (
 	"io"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestPingRoundtrip(t *testing.T) {
@@ -122,6 +123,49 @@ func TestServeSkipTooLongLine(t *testing.T) {
 	if !strings.Contains(out.String(), `"id":1`) {
 		t.Fatalf("초과 줄 이후 정상 요청 미처리: %q", out.String())
 	}
+}
+
+// TestServeFlushesEachResponseImmediately — 각 응답은 write
+// 직후 즉시 flush된다 — 입력 EOF 전까지 bufio 버퍼에 머무르면 요청-응답
+// 왕복 클라이언트가 데드락한다. io.Pipe로 입력을 열어 둔 채 응답 도달을
+// 단언(EOF 폭주 시 deferred flush로도 늦게 도달하므로 타임아웃이 판정).
+func TestServeFlushesEachResponseImmediately(t *testing.T) {
+	pr, pw := io.Pipe() // 입력 — 닫지 않고 열어 둔다(EOF 없음)
+	cr, cw := io.Pipe() // 출력 — Serve의 w
+	defer pr.Close()
+
+	go func() {
+		_ = Serve(pr, cw, func(method string, params map[string]any) (any, error) {
+			return "ok", nil
+		})
+		cw.Close()
+	}()
+	go func() {
+		_, _ = pw.Write([]byte(`{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}` + "\n"))
+	}()
+
+	type lineResult struct {
+		line []byte
+		err  error
+	}
+	done := make(chan lineResult, 1)
+	go func() {
+		var one [512]byte
+		n, err := cr.Read(one[:]) // 출력 파이프에서 개행 1줄이 오려면 flush돼야 한다
+		done <- lineResult{one[:n], err}
+	}()
+	select {
+	case res := <-done:
+		if res.err != nil {
+			t.Fatalf("응답 읽기: %v", res.err)
+		}
+		if !strings.Contains(string(res.line), `"id":1`) {
+			t.Fatalf("응답 내용: %q", res.line)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("EOF 전 응답 미도달 — 응답 후 즉시 flush 없음(버퍼 적체 데드락)")
+	}
+	pw.Close()
 }
 
 // TestServeTooLongLineGetsErrorResponse — 초과 줄을

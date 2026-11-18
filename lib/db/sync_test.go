@@ -238,15 +238,20 @@ func TestSyncRemoteRoundTripRealSlow(t *testing.T) {
 
 // fakeSyncScriptQuerier — push/pull용 Querier fake: 쿼리별 stub 함수
 // (사전 조회·push·fetch·merge·head 해시를 SQL 부문자열로 분기). 실행된
-// 쿼리·인자는 전부 기록한다.
+// 쿼리·인자는 전부 기록한다. v1.7.2 T3(S3): deadline 설정 여부도 기록
+// (ctx.WithTimeout 적용 단언용).
 type fakeSyncScriptQuerier struct {
-	fn      func(sql string, args []any) ([][]any, error)
-	queries []string
-	allArgs [][]any
+	fn        func(sql string, args []any) ([][]any, error)
+	queries   []string
+	allArgs   [][]any
+	deadlines []time.Time // ctx.Deadline()이 설정된 호출의 deadline 시각
 }
 
 func (f *fakeSyncScriptQuerier) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	f.queries = append(f.queries, sql)
+	if dl, ok := ctx.Deadline(); ok {
+		f.deadlines = append(f.deadlines, dl)
+	}
 	cp := make([]any, len(args))
 	copy(cp, args)
 	f.allArgs = append(f.allArgs, cp)
@@ -257,6 +262,12 @@ func (f *fakeSyncScriptQuerier) Query(ctx context.Context, sql string, args ...a
 // 큐(호출순 pop)·push/fetch/merge 결과·오류 주입. mergeErr·fetchErr·
 // pushErr는 해당 쿼리 오류, heads는 dolt_branches 조회 결과 큐.
 func newSyncScript(remotes map[string]string, heads []string, pushErr, fetchErr, mergeErr error) *fakeSyncScriptQuerier {
+	return newSyncScriptRows(remotes, heads, [][]any{{"(0,\"pushed\")"}}, pushErr, fetchErr, mergeErr)
+}
+
+// newSyncScriptRows — push 결과 행을 지정하는 newSyncScript 변형
+// (v1.7.2 T3 S6 no-op push 판정 테스트). dolt_reset stub 포함(S2).
+func newSyncScriptRows(remotes map[string]string, heads []string, pushRows [][]any, pushErr, fetchErr, mergeErr error) *fakeSyncScriptQuerier {
 	f := &fakeSyncScriptQuerier{}
 	headIdx := 0
 	f.fn = func(sql string, args []any) ([][]any, error) {
@@ -277,7 +288,7 @@ func newSyncScript(remotes map[string]string, heads []string, pushErr, fetchErr,
 			if pushErr != nil {
 				return nil, pushErr
 			}
-			return [][]any{{"(0,\"pushed\")"}}, nil
+			return pushRows, nil
 		case strings.Contains(sql, "dolt_fetch("):
 			if fetchErr != nil {
 				return nil, fetchErr
@@ -288,6 +299,8 @@ func newSyncScript(remotes map[string]string, heads []string, pushErr, fetchErr,
 				return nil, mergeErr
 			}
 			return [][]any{{"(\"h\",0,1,\"merge successful\")"}}, nil
+		case strings.Contains(sql, "dolt_reset("):
+			return [][]any{{0}}, nil
 		}
 		return nil, nil
 	}
@@ -444,6 +457,169 @@ func TestSyncPullConflictGuidance(t *testing.T) {
 	}
 }
 
+// TestSyncPushUpToDateReportsNoOp — v1.7.2 T3 S6: no-op push(dolt_push
+// 결과 행 "Everything up-to-date")은 status up_to_date 보고. 결과 행은
+// 판정에만 쓰고 어떤 출력에도 실리지 않는다(내부 처리 계약).
+func TestSyncPushUpToDateReportsNoOp(t *testing.T) {
+	f := newSyncScriptRows(map[string]string{"origin": "file:///tmp/rr"}, []string{"hash-1"},
+		[][]any{{0, "Everything up-to-date"}}, nil, nil, nil)
+	res, err := SyncPush(context.Background(), f, "origin")
+	if err != nil {
+		t.Fatalf("SyncPush err = %v", err)
+	}
+	if res.Status != "up_to_date" || res.Hash != "hash-1" {
+		t.Fatalf("result = %+v, want {up_to_date hash-1}", res)
+	}
+}
+
+// TestSyncPushDivergedGuide — v1.7.2 T3 S6: 분기 push(rejected 오류)는
+// ErrPushDiverged + 'flint sync pull' 우선 안내(dolt pull 아님 — 문구 계약).
+func TestSyncPushDivergedGuide(t *testing.T) {
+	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0"},
+		errors.New("error: failed to push some refs: updates were rejected because the tip of 'main' is behind"), nil, nil)
+	_, err := SyncPush(context.Background(), f, "origin")
+	if !errors.Is(err, ErrPushDiverged) {
+		t.Fatalf("err = %v, want ErrPushDiverged", err)
+	}
+	if !strings.Contains(err.Error(), "flint sync pull") {
+		t.Fatalf("분기 push 안내에 'flint sync pull' 부재: %v", err)
+	}
+}
+
+// TestSyncPushTimeoutBudget — v1.7.2 T3 S3: SyncPush의 모든 쿼리에 30s
+// 상한 deadline이 전파된다(ctx.WithTimeout — 원격 네트워크 상한).
+func TestSyncPushTimeoutBudget(t *testing.T) {
+	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0"}, nil, nil, nil)
+	start := time.Now()
+	if _, err := SyncPush(context.Background(), f, "origin"); err != nil {
+		t.Fatalf("SyncPush err = %v", err)
+	}
+	assertTimeoutBudget(t, f, start)
+}
+
+// TestSyncPullTimeoutBudget — v1.7.2 T3 S3: SyncPull 동일(30s 상한 전파).
+func TestSyncPullTimeoutBudget(t *testing.T) {
+	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0", "h1"}, nil, nil, nil)
+	start := time.Now()
+	if _, err := SyncPull(context.Background(), f, "origin", false); err != nil {
+		t.Fatalf("SyncPull err = %v", err)
+	}
+	assertTimeoutBudget(t, f, start)
+}
+
+// assertTimeoutBudget — fake가 기록한 deadline이 (a) 전 쿼리에 설정돼
+// 있고 (b) 호출 시점에서 30s 이내인지(원격 상한 계약).
+func assertTimeoutBudget(t *testing.T, f *fakeSyncScriptQuerier, start time.Time) {
+	t.Helper()
+	if len(f.deadlines) != len(f.queries) {
+		t.Fatalf("deadline 미설정 쿼리 존재: %d/%d", len(f.deadlines), len(f.queries))
+	}
+	for _, dl := range f.deadlines {
+		rem := dl.Sub(start)
+		// 시작 시각 계측과 deadline 설정 사이 미세 지연을 감안한 상한
+		// (30s + 0.5s 창 — 상한 자체가 무한정 커지는 것은 여전히 실패).
+		if rem <= 0 || rem > 30*time.Second+500*time.Millisecond {
+			t.Fatalf("deadline 상한 위반(30s 기대): %v", rem)
+		}
+	}
+}
+
+// TestSyncPullPanicGuidance — v1.7.2 T3 S1: fetch 오류에 "DoltgresHandler
+// caught panic"이 포함되면 ErrRemotePanic + 전용 안내(다중 기기 동시 사용
+// 미지원·단일 활성 기기·reset --to-remote 회복).
+func TestSyncPullPanicGuidance(t *testing.T) {
+	for name, inject := range map[string]struct{ fetchErr, mergeErr error }{
+		"fetch 경로": {errors.New("DoltgresHandler caught panic: runtime error"), nil},
+		"merge 경로": {nil, errors.New("DoltgresHandler caught panic: runtime error")},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0", "h0"},
+				nil, inject.fetchErr, inject.mergeErr)
+			_, err := SyncPull(context.Background(), f, "origin", false)
+			if !errors.Is(err, ErrRemotePanic) {
+				t.Fatalf("err = %v, want ErrRemotePanic", err)
+			}
+			for _, want := range []string{"multi-device", "single active device", "reset --to-remote"} {
+				if !strings.Contains(err.Error(), want) {
+					t.Fatalf("패닉 안내에 %q 부재: %v", want, err)
+				}
+			}
+		})
+	}
+}
+
+// TestSyncHeadMissingWording — v1.7.2 T3 S6: main 부재 오류 문구 — 원인과
+// 조치('main' 브랜치 필요)를 함께 안내한다.
+func TestSyncHeadMissingWording(t *testing.T) {
+	f := &fakeSyncScriptQuerier{fn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM dolt_remotes WHERE name"):
+			return [][]any{{"origin", "file:///tmp/rr"}}, nil
+		case strings.Contains(sql, "dolt_push("):
+			return [][]any{{0, "pushed"}}, nil
+		case strings.Contains(sql, "FROM dolt_branches"):
+			return nil, nil // main 브랜치 없음
+		}
+		return nil, nil
+	}}
+	_, err := SyncPush(context.Background(), f, "origin")
+	if err == nil {
+		t.Fatal("오류 기대")
+	}
+	if !strings.Contains(err.Error(), "main branch not found") || !strings.Contains(err.Error(), "flint") {
+		t.Fatalf("main 부재 문구 계약 위반: %v", err)
+	}
+}
+
+// TestSyncResetRemoteNotFound — v1.7.2 T3 S2: reset 대상 미등록은 fetch·
+// reset 실행 없이 ErrRemoteNotFound(사전 조회 계약 승계).
+func TestSyncResetRemoteNotFound(t *testing.T) {
+	f := newSyncScript(map[string]string{}, []string{"h0"}, nil, nil, nil)
+	_, err := SyncReset(context.Background(), f, "ghost")
+	if !errors.Is(err, ErrRemoteNotFound) {
+		t.Fatalf("err = %v, want ErrRemoteNotFound", err)
+	}
+	for _, q := range f.queries {
+		if strings.Contains(q, "dolt_fetch(") || strings.Contains(q, "dolt_reset(") {
+			t.Fatalf("미등록 판정 시 fetch/reset 실행됨: %s", q)
+		}
+	}
+}
+
+// TestSyncResetRunsFetchThenHardReset — v1.7.2 T3 S2: 등록 원격은
+// fetch(remote,'main') → dolt_reset('--hard', <remote>/main) 순 실행,
+// 결과 status "reset" + reset 후 head 해시. reset에도 30s 상한(S3).
+func TestSyncResetRunsFetchThenHardReset(t *testing.T) {
+	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h-remote"}, nil, nil, nil)
+	start := time.Now()
+	res, err := SyncReset(context.Background(), f, "origin")
+	if err != nil {
+		t.Fatalf("SyncReset err = %v", err)
+	}
+	if res.Status != "reset" || res.Hash != "h-remote" {
+		t.Fatalf("result = %+v, want {reset h-remote}", res)
+	}
+	var fetchIdx, resetIdx = -1, -1
+	for i, q := range f.queries {
+		if strings.Contains(q, "dolt_fetch(") {
+			fetchIdx = i
+			if len(f.allArgs[i]) != 2 || f.allArgs[i][0] != "origin" || f.allArgs[i][1] != "main" {
+				t.Fatalf("reset fetch 인자 = %v, want [origin main]", f.allArgs[i])
+			}
+		}
+		if strings.Contains(q, "dolt_reset(") {
+			resetIdx = i
+			if len(f.allArgs[i]) != 1 || f.allArgs[i][0] != "origin/main" {
+				t.Fatalf("reset 인자 = %v, want [origin/main]", f.allArgs[i])
+			}
+		}
+	}
+	if fetchIdx < 0 || resetIdx < 0 || fetchIdx > resetIdx {
+		t.Fatalf("fetch→reset 순서 위반: %v", f.queries)
+	}
+	assertTimeoutBudget(t, f, start)
+}
+
 // TestSyncPushPullRoundTripRealSlow — slow(FLINT_TEST_DSN): 격리 Doltgres
 // 2데이터베이스(file:// 원격) 왕복 실측 — A push→B(dolt_clone) pull→B에서
 // read 확인·충돌 시나리오(양측 동일 id 다른 내용)→ErrMergeConflict·
@@ -574,6 +750,96 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 	rows, err = qb.Query(ctx, `SELECT body FROM t5_note WHERE id='n1'`)
 	if err != nil || len(rows) != 1 || strAny(rows[0][0]) != "delta" {
 		t.Fatalf("dry 후 B 데이터 변형: rows=%v err=%v, want delta", rows, err)
+	}
+}
+
+// TestSyncResetRealSlow — v1.7.2 T3 S2 slow(FLINT_TEST_DSN): 격리
+// Doltgres에서 reset 실측 — 시드 커밋 push → 로컬 전용 커밋 추가 →
+// SyncReset이 main을 원격 head로 되돌리고 로컬 변경을 폐기한다.
+func TestSyncResetRealSlow(t *testing.T) {
+	ctx := context.Background()
+	dsn := testDSN(t)
+	base, err := Connect(ctx, dsn)
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	defer base.Close()
+
+	suffix := fmt.Sprintf("%d", time.Now().UnixNano()%1e9)
+	dbName := pgx.Identifier{"t3r_" + suffix}.Sanitize()
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+dbName) })
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+dbName); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	pool, err := Connect(ctx, dsnForDatabase(t, dsn, dbName))
+	if err != nil {
+		t.Fatalf("Connect DB: %v", err)
+	}
+	defer pool.Close()
+	q := poolQuerier{pool}
+
+	name := "t3-reset"
+	_ = RemoteRemove(ctx, q, name)
+	t.Cleanup(func() { _ = RemoteRemove(ctx, q, name) })
+	rawURL := "file://" + filepath.Join(t.TempDir(), "reset-remote")
+	if err := RemoteAdd(ctx, q, name, rawURL); err != nil {
+		t.Fatalf("RemoteAdd: %v", err)
+	}
+
+	commit := func(msg string) {
+		t.Helper()
+		if _, err := q.Query(ctx, `SELECT dolt_add('-A')`); err != nil {
+			t.Fatalf("dolt_add: %v", err)
+		}
+		if _, err := q.Query(ctx, `SELECT dolt_commit('-m', $1)`, msg); err != nil {
+			t.Fatalf("dolt_commit: %v", err)
+		}
+	}
+
+	// 시드 커밋 → 원격 push(원격 head 확정).
+	for _, s := range []string{
+		`CREATE TABLE t3_note (id text PRIMARY KEY, body text)`,
+		`INSERT INTO t3_note VALUES ('n1','alpha')`,
+	} {
+		if _, err := q.Query(ctx, s); err != nil {
+			t.Fatalf("seed %q: %v", s, err)
+		}
+	}
+	commit("seed alpha")
+	if _, err := SyncPush(ctx, q, name); err != nil {
+		t.Fatalf("SyncPush: %v", err)
+	}
+	remoteHead, err := syncHeadHash(ctx, q)
+	if err != nil {
+		t.Fatalf("remote head: %v", err)
+	}
+
+	// no-op push 실측(S6): 원격이 이미 최신이면 status up_to_date.
+	noop, err := SyncPush(ctx, q, name)
+	if err != nil {
+		t.Fatalf("no-op SyncPush: %v", err)
+	}
+	if noop.Status != "up_to_date" {
+		t.Fatalf("no-op push status = %q, want up_to_date", noop.Status)
+	}
+
+	// 로컬 전용 커밋(원격에 없음) — reset 대상 손실분.
+	if _, err := q.Query(ctx, `UPDATE t3_note SET body='local-only' WHERE id='n1'`); err != nil {
+		t.Fatalf("local edit: %v", err)
+	}
+	commit("local only edit")
+
+	// reset — main이 원격 head로 되돌고 로컬 전용 커밋은 폐기된다.
+	res, err := SyncReset(ctx, q, name)
+	if err != nil {
+		t.Fatalf("SyncReset: %v", err)
+	}
+	if res.Status != "reset" || res.Hash != remoteHead {
+		t.Fatalf("reset 결과 = %+v, want {reset %s}", res, remoteHead)
+	}
+	rows, err := q.Query(ctx, `SELECT body FROM t3_note WHERE id='n1'`)
+	if err != nil || len(rows) != 1 || strAny(rows[0][0]) != "alpha" {
+		t.Fatalf("reset 후 데이터 미복원: rows=%v err=%v, want alpha", rows, err)
 	}
 }
 

@@ -140,8 +140,14 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
 - Knowledge sync (v1.7.0 — `flint sync`, a **human operator command** for
   machine moves · team sharing over a Doltgres remote; not exposed to
   agents — SKILL.md and the MCP tool map omit it by design):
-  - `flint sync remote add <name> <url>` registers a remote (Doltgres
-    remote url forms — https://doltremoteapi… · `file://` · `postgres://`);
+  - **A single active device is recommended** — simultaneous multi-device
+    use is not supported (a Doltgres engine limitation, not a flint
+    policy). Move between machines sequentially: push from one, pull on
+    the other.
+  - `flint sync remote add <name> <url>` registers a remote; the url
+    scheme whitelist is **https · http · file** (a `postgres://` url is
+    rejected at add time with **exit 3**). A `file://` path is resolved
+    **on the Doltgres server**, not the flint client;
     `flint sync remote list` shows names with the url **masked**;
     `flint sync remote remove <name>` deletes it. A duplicate name is an
     error.
@@ -149,9 +155,13 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
     listings (masked), not in errors, not in docs or the repository. This
     is a privacy defense of the same rank as secret sanitization.
   - `flint sync push <remote>` pushes the `main` branch and reports
-    `{status, hash}` — no `--dry` (push is a single dolt_push call);
-    `flint sync pull <remote> [--dry]` runs fetch+merge, where `--dry`
-    (**pull-only**) stops after fetch with nothing applied.
+    `{status, hash}` — an up-to-date no-op reports `up-to-date`; no
+    `--dry` (push is a single dolt_push call). `flint sync pull <remote>
+    [--dry]` runs fetch+merge, where `--dry` (**pull-only**) stops after
+    fetch with nothing applied; a diverged branch is reported with
+    guidance to run `flint sync pull`.
+  - Push and pull run under a **30s context timeout** (a hung remote
+    fails fast instead of blocking the operator).
   - A merge conflict surfaces as `ErrMergeConflict` — an error JSON with
     **exit 1** plus guidance to resolve manually with the dolt CLI
     (`dolt_conflicts`) and re-run `flint sync pull`; the aborted
@@ -159,6 +169,16 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
     measured). Automatic resolution is forbidden (destructive-change
     defense). An unregistered or unreachable remote keeps the cause in
     the error and never exposes the url.
+  - A pull error matching `DoltgresHandler caught panic` (the engine's
+    multi-device write path) prints dedicated guidance: use a single
+    active device, and recover the local branch with
+    `flint sync reset --to-remote <remote>` — a `dolt_reset --hard` of
+    `origin/main` that **prints a data-loss warning and requires
+    `--yes`** (the teardown convention). Local unpushed commits are
+    discarded by the reset.
+- `flint audit` (v1.7.2) omits telemetry commits from the default list
+  and `--stat` output (`NOT LIKE 'telemetry: %'`); the `--telemetry`
+  flag includes them.
 - Recall decay (v1.7.0 — schema v11, additive columns
   `knowledge.recall_score` (int, default 0) · `last_recalled_at`
   (timestamptz, NULL); v10 binaries remain read-compatible). A `read` hit
