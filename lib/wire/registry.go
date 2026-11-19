@@ -1,5 +1,5 @@
-// registry — 서브커맨드 등록 테이블(계약층). 커맨드 구현 패키지(lib/cli)
-// 각 파일이 init에서 Register만 하면 되게 한다(개방-폐쇄).
+// registry — the subcommand registration table (the contract layer). So each file of
+// the command-implementation package (lib/cli) only needs to Register in init (open-closed).
 package wire
 
 import (
@@ -10,37 +10,37 @@ import (
 	"strings"
 )
 
-// Handler — 서브커맨드 실행 함수. Run이 store 접속 후 호출한다.
+// Handler — the subcommand execution function. Run calls it after connecting the store.
 type Handler func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int
 
-// registry — 커맨드명 → 핸들러. 등록은 init/시작 시점에만 일어나 잠금 불필요.
+// registry — command name -> handler. Registration happens only at init/startup, so no locking is needed.
 var registry = map[string]Handler{}
 
-// Register — 커맨드 등록. 같은 이름 재등록은 최신값으로 덮어쓴다(테스트 교체용).
+// Register — registers a command. Re-registering the same name overwrites with the latest value (for test swaps).
 func Register(name string, h Handler) {
 	registry[name] = h
 }
 
-// Lookup — 등록된 핸들러 조회. 미등록이면 false.
+// Lookup — looks up a registered handler. false when unregistered.
 func Lookup(name string) (Handler, bool) {
 	h, ok := registry[name]
 	return h, ok
 }
 
-// Unregister — 테스트 정리용(프로덕션 경로 아님).
+// Unregister — for test cleanup (not a production path).
 func Unregister(name string) {
 	delete(registry, name)
 }
 
-// usageOrder — usage 문장에 나열할 커맨드 순서(이 슬라이스에서 조립).
-// 신규 커맨드는 Register와 함께
-// 여기에도 추가해야 usage에 노출된다
-// (TestUsageOrderMatchesRegistry가 드리프트를 잡는다).
-// 제약: "audit|diff|update|tuning|import"는 항목 연속·후미 고정
-// (wire_v08 TestUsageRestInvariant 계약), "done|compact|nudge"·
-// "approve|pending"·"hot|brief" 순서 역시 기존 배선 테스트가 지킨다.
-// sync(사람 운영자 명령 — 데이터 이동성 그룹
-// backup/restore 직후. 원격 url은 출력·로그 미기록 계약).
+// usageOrder — the command order listed in the usage sentence (assembled from this slice).
+// A new command must be added here as well
+// as Register to be exposed in usage
+// (TestUsageOrderMatchesRegistry catches the drift).
+// Constraints: "audit|diff|update|tuning|import" keep their item order and fixed tail
+// (the wire_v08 TestUsageRestInvariant contract); the "done|compact|nudge",
+// "approve|pending", and "hot|brief" orders are likewise held by the existing wiring tests.
+// sync (a human-operator command — the data-portability group,
+// right after backup/restore. The remote url is never recorded in output or logs, by contract).
 var usageOrder = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
 	"sync",
@@ -49,24 +49,24 @@ var usageOrder = []string{
 	"audit", "diff", "update", "tuning", "import",
 }
 
-// hiddenFromUsage — registry에는 등록됐지만 usage 문장에 노출하지 않는
-// 훅 전용 진입점(hook이 호출, 사람 대상 커맨드 아님).
+// hiddenFromUsage — the hook-only entry points registered in the registry but not
+// exposed in the usage sentence (called by hooks, not human-facing commands).
 func hiddenFromUsage(name string) bool {
 	return name == "session-start" || name == "session-end"
 }
 
-// UsageLine — 인자 없음/도움말 공용 한 줄 JSON. usageOrder 순서로 조립.
-// error 키 폐지 — usage는 안내 정보지 오류가 아니므로
-// `{"usage":...}` 형태로만 전달한다(정보 내용·usageOrder 조립 불변).
+// UsageLine — the shared one-line JSON for no-args/help. Assembled in usageOrder order.
+// The error key is abolished — usage is guidance, not an error, so it is
+// delivered only as `{"usage":...}` (the informational content and usageOrder assembly unchanged).
 func UsageLine() string {
 	return `{"usage":"flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
 }
 
-// UnknownCommandLine — unknown command 안내 한 줄 JSON:
-// error 키 없는 안내 형태로 unknown command 사실(message)과 usage
-// 정보(커맨드 목록)를 유지한다. cmd는 호출자 제어 문자열이라 원시 결합이
-// 아니라 json.Marshal 경유 이스케이프로 조립한다(ErrLine
-// 마샬링 경유 관례와 동일 이유).
+// UnknownCommandLine — the unknown-command guidance as one line of JSON:
+// in the guidance form without an error key, it keeps the unknown-command fact
+// (message) and the usage information (the command list). Since cmd is a
+// caller-controlled string, it is assembled via json.Marshal escaping, not raw
+// concatenation (the same rationale as the ErrLine marshaling convention).
 func UnknownCommandLine(cmd string) string {
 	b, _ := json.Marshal(map[string]string{
 		"message": "unknown command: " + cmd,
@@ -75,9 +75,9 @@ func UnknownCommandLine(cmd string) string {
 	return string(b)
 }
 
-// Registered — 등록된 커맨드명 열거(정렬 — bridge 가드 비교 안정성).
-// cli 측 동질 가드(TestRegisteredMatchesUsage)가 실등록
-// 표면을 읽기 위한 읽기 전용 접근자.
+// Registered — enumerates the registered command names (sorted — for stable bridge-guard comparisons).
+// A read-only accessor for the cli-side homogeneity guard
+// (TestRegisteredMatchesUsage) to read the actually registered surface.
 func Registered() []string {
 	names := make([]string, 0, len(registry))
 	for name := range registry {
@@ -87,12 +87,12 @@ func Registered() []string {
 	return names
 }
 
-// UsageOrder — usageOrder 슬라이스 사본(외부 가드용 읽기 접근).
+// UsageOrder — a copy of the usageOrder slice (read access for external guards).
 func UsageOrder() []string {
 	return append([]string(nil), usageOrder...)
 }
 
-// HiddenFromUsage — 훅 전용 진입점 판정의 공개 접근(usage 노출 제어 계약).
+// HiddenFromUsage — public access for the hook-only-entry determination (the usage-exposure-control contract).
 func HiddenFromUsage(name string) bool {
 	return hiddenFromUsage(name)
 }

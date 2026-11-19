@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-// TestClampLimit — limit 기본 10, 상한 50.
+// TestClampLimit — limit defaults to 10, capped at 50.
 func TestClampLimit(t *testing.T) {
 	cases := []struct {
 		in   int
@@ -27,7 +27,7 @@ func TestClampLimit(t *testing.T) {
 	}
 }
 
-// TestBuildReadUsesActiveKnowledge — 읽기는 active_knowledge 뷰로 강제한다.
+// TestBuildReadUsesActiveKnowledge — reads are forced onto the active_knowledge view.
 func TestBuildReadUsesActiveKnowledge(t *testing.T) {
 	sql, _ := BuildRead("", Filters{})
 	if !strings.Contains(sql, "active_knowledge") {
@@ -35,9 +35,9 @@ func TestBuildReadUsesActiveKnowledge(t *testing.T) {
 	}
 }
 
-// TestBuildReadEscapesLike — q의 %·_는 LIKE 와일드카드로 해석되지 않는다
-// (WHERE는 placeholder 주입). 랭킹 절 복사본도 파라미터
-// ($2) — 이스케이프 인라인 자체가 사라졌다(인젝션 표면 제거).
+// TestBuildReadEscapesLike — q's % and _ are not interpreted as LIKE wildcards
+// (the WHERE clause uses placeholder injection). The ranking-clause copy is also
+// parameterized ($2) — the escaped inline form itself is gone (removing the injection surface).
 func TestBuildReadEscapesLike(t *testing.T) {
 	sql, args := BuildRead("100%_drop'", Filters{})
 	if !strings.Contains(sql, "LIKE lower($1)") {
@@ -59,7 +59,7 @@ func TestBuildReadEscapesLike(t *testing.T) {
 	}
 }
 
-// TestBuildReadFilters — tag/entity/domain 필터가 placeholder로 조립된다.
+// TestBuildReadFilters — the tag/entity/domain filters are assembled as placeholders.
 func TestBuildReadFilters(t *testing.T) {
 	f := Filters{Tag: "a", Entity: "user", Domain: "game"}
 	sql, args := BuildRead("", f)
@@ -81,7 +81,7 @@ func TestBuildReadFilters(t *testing.T) {
 	}
 }
 
-// TestBuildReadLimitParam — limit은 ClampLimit 결과가 SQL에 반영된다.
+// TestBuildReadLimitParam — the limit's ClampLimit result is reflected in the SQL.
 func TestBuildReadLimitParam(t *testing.T) {
 	sql, args := BuildRead("", Filters{Limit: 999})
 	if !strings.Contains(sql, "LIMIT") {
@@ -93,7 +93,7 @@ func TestBuildReadLimitParam(t *testing.T) {
 	}
 }
 
-// TestFormatRowsTruncates — summary는 rune 기반 80자 절단(한글 안전).
+// TestFormatRowsTruncates — the summary is truncated to 80 runes (Korean-safe).
 func TestFormatRowsTruncates(t *testing.T) {
 	rows := [][]any{{3, "topic", strings.Repeat("가", 100)}}
 	out := FormatRows(rows, "id,topic,summary", false)
@@ -106,7 +106,7 @@ func TestFormatRowsTruncates(t *testing.T) {
 	}
 }
 
-// TestFormatRowsShortSummary — 80자 미만은 그대로.
+// TestFormatRowsShortSummary — under 80 characters passes through as-is.
 func TestFormatRowsShortSummary(t *testing.T) {
 	rows := [][]any{{1, "t", "짧은 요약"}}
 	out := FormatRows(rows, "id,topic,summary", false)
@@ -116,7 +116,7 @@ func TestFormatRowsShortSummary(t *testing.T) {
 	}
 }
 
-// TestFormatRowsJSON — jsonMode는 행별 한 줄 JSON, 선택 fields 키만.
+// TestFormatRowsJSON — jsonMode is one JSON line per row, only the selected fields keys.
 func TestFormatRowsJSON(t *testing.T) {
 	rows := [][]any{{7, "주제", strings.Repeat("b", 100)}}
 	out := FormatRows(rows, "id,topic", true)
@@ -133,7 +133,7 @@ func TestFormatRowsJSON(t *testing.T) {
 	}
 }
 
-// TestFormatRowsDefaultFields — fields 공백 시 id|topic|summary 기본.
+// TestFormatRowsDefaultFields — with fields blank, the id|topic|summary default.
 func TestFormatRowsDefaultFields(t *testing.T) {
 	rows := [][]any{{1, "t", "s"}}
 	out := FormatRows(rows, "", false)
@@ -142,7 +142,7 @@ func TestFormatRowsDefaultFields(t *testing.T) {
 	}
 }
 
-// TestFormatRowsBoundary80 — 정확히 80자는 그대로, 81자만 절단(리뷰 회귀).
+// TestFormatRowsBoundary80 — exactly 80 characters passes; only 81 truncates (a review regression).
 func TestFormatRowsBoundary80(t *testing.T) {
 	rows := [][]any{{1, "t", strings.Repeat("a", 80)}}
 	if got := strings.TrimRight(FormatRows(rows, "id,topic,summary", false), "\n"); got != "1|t|"+strings.Repeat("a", 80) {
@@ -150,7 +150,7 @@ func TestFormatRowsBoundary80(t *testing.T) {
 	}
 }
 
-// TestFormatRowsFieldsNoTruncate — summary 외 컬럼은 fields 선택 시 무절단(리뷰 회귀).
+// TestFormatRowsFieldsNoTruncate — non-summary columns are not truncated when fields-selected (a review regression).
 func TestFormatRowsFieldsNoTruncate(t *testing.T) {
 	rows := [][]any{{7, strings.Repeat("t", 100), "s"}}
 	got := strings.TrimRight(FormatRows(rows, "id,topic", false), "\n")
@@ -160,14 +160,14 @@ func TestFormatRowsFieldsNoTruncate(t *testing.T) {
 	}
 }
 
-// TestFormatRowsEmpty — 행이 없으면 빈 문자열(리뷰 회귀).
+// TestFormatRowsEmpty — no rows means the empty string (a review regression).
 func TestFormatRowsEmpty(t *testing.T) {
 	if got := FormatRows(nil, "", false); got != "" {
 		t.Errorf("빈 결과 출력 = %q, want 빈 문자열", got)
 	}
 }
 
-// TestBuildReadSelectsAllFields — --fields 계약 지원을 위해 8컬럼 전부 SELECT(리뷰 회귀).
+// TestBuildReadSelectsAllFields — all 8 columns SELECTed to support the --fields contract (a review regression).
 func TestBuildReadSelectsAllFields(t *testing.T) {
 	sql, _ := BuildRead("", Filters{})
 	for _, c := range []string{"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status"} {
@@ -177,7 +177,7 @@ func TestBuildReadSelectsAllFields(t *testing.T) {
 	}
 }
 
-// TestFormatRowsFieldMapping — 8컬럼 행에서 entity 등은 이름 매핑으로 정확히 선택(위치 어긋남 회귀).
+// TestFormatRowsFieldMapping — from an 8-column row, entity etc. are selected exactly by name mapping (a positional-drift regression).
 func TestFormatRowsFieldMapping(t *testing.T) {
 	rows := [][]any{{1, "t", "s", ":a:b:", "ent", "dom", 0.9, "active"}}
 	got := strings.TrimRight(FormatRows(rows, "entity,domain", false), "\n")
@@ -186,8 +186,8 @@ func TestFormatRowsFieldMapping(t *testing.T) {
 	}
 }
 
-// TestRankOrderParameterized — q는 파라미터($N) — 인라인
-// 리터럴 제거(이스케이프 의존 청산). 접두 절 구조만 정확 검사.
+// TestRankOrderParameterized — q is a parameter ($N) — the inline
+// literal removed (settling the escape dependency). Only the prefix-clause structure is checked exactly.
 func TestRankOrderParameterized(t *testing.T) {
 	got := RankOrder(5)
 	wantPrefix := "ORDER BY (lower(topic)=lower($5)) DESC, confidence DESC, ingested_at DESC"
@@ -196,8 +196,8 @@ func TestRankOrderParameterized(t *testing.T) {
 	}
 }
 
-// TestRankOrderPlain — 평범한 q도 파라미터 절(정확일치 → confidence → 최신순)
-// 접두 유지(접미 tie-breaker 이후에도 선행 순위 불변).
+// TestRankOrderPlain — a plain q also keeps the parameterized clause prefix
+// (exact match -> confidence -> newest) (the leading priorities unchanged even after the trailing tiebreakers).
 func TestRankOrderPlain(t *testing.T) {
 	got := RankOrder(1)
 	wantPrefix := "ORDER BY (lower(topic)=lower($1)) DESC, confidence DESC, ingested_at DESC"
@@ -206,17 +206,17 @@ func TestRankOrderPlain(t *testing.T) {
 	}
 }
 
-// TestBuildReadUsesRankOrder — BuildRead의 정렬 절은 RankOrder(파라미터)를 그대로 삽입.
+// TestBuildReadUsesRankOrder — BuildRead's sort clause inserts RankOrder (parameterized) as-is.
 func TestBuildReadUsesRankOrder(t *testing.T) {
 	sql, args := BuildRead("Flint", Filters{})
-	// q는 랭킹 파라미터 — $2가 정합 비교값(BuildRead는 필터
-	// placeholder 뒤 q를 append).
+	// q is the ranking parameter — $2 is the exact-match comparison value (BuildRead appends q
+	// after the filter placeholders).
 	if !strings.Contains(sql, RankOrder(len(args)-1)) {
 		t.Errorf("RankOrder 절 미삽입: %s", sql)
 	}
 }
 
-// TestFormatRowsUnknownFieldPositional — 매핑 밖 필드(kind·ts)는 위치 fallback(hot_view 호환).
+// TestFormatRowsUnknownFieldPositional — fields outside the mapping (kind, ts) use the positional fallback (hot_view compatible).
 func TestFormatRowsUnknownFieldPositional(t *testing.T) {
 	rows := [][]any{{"project", "p", "active", "2026-10-21T00:00:00Z"}}
 	got := strings.TrimRight(FormatRows(rows, "kind,topic,summary,ts", false), "\n")
@@ -226,9 +226,9 @@ func TestFormatRowsUnknownFieldPositional(t *testing.T) {
 	}
 }
 
-// TestReorderByFallbackCountRRF — RRF 융합 — 다중 신호
-// 조합이 순차 타이브레이크와 다르게 행렬을 매긴다(정합수 낮아도
-// read_count·자모 신호 합산이 크면 상위).
+// TestReorderByFallbackCountRRF — RRF fusion — multiple signal
+// combinations score the matrix differently from sequential tiebreaks (even with a lower match
+// count, a larger read_count + jamo signal sum ranks higher).
 func TestReorderByFallbackCountRRF(t *testing.T) {
 	rows := [][]any{
 		{int32(1), "백업 정책", "매일 자동", "", "", "", 0.9, "active", 0},     // 정합 2·read 0
@@ -244,7 +244,7 @@ func TestReorderByFallbackCountRRF(t *testing.T) {
 	}
 }
 
-// TestJamoOverlap — 자모 bigram이 어미 변형을 흡수한다.
+// TestJamoOverlap — jamo bigrams absorb inflectional variation.
 func TestJamoOverlap(t *testing.T) {
 	if jamoOverlap(jamoTokenSets([]string{"백업"}), "백업용 스크립트", "") == 0 {
 		t.Error("'백업' ↔ '백업용' 자모 bigram 미매칭")
@@ -254,9 +254,9 @@ func TestJamoOverlap(t *testing.T) {
 	}
 }
 
-// TestReorderByTopicSignal — topic 정합 제4신호 — read_count
-// 지배적 행(관례 RankOrder의 topic 우선이 폴백 융합에서 소실되던 것)을
-// topic 정합 행이 이긴다.
+// TestReorderByTopicSignal — the 4th signal, topic match — a row with a dominant
+// read_count (whose conventional RankOrder topic priority used to be lost in fallback
+// fusion) is beaten by the topic-matching row.
 func TestReorderByTopicSignal(t *testing.T) {
 	rows := [][]any{
 		{int32(1), "flint 백업 복구 절차", "요약", "", "", "", 0.9, "active", int32(6)},
@@ -268,10 +268,10 @@ func TestReorderByTopicSignal(t *testing.T) {
 	}
 }
 
-// TestRRFFuseDirect — rrfFuse 수학 계약 직접
-// 단얜 — 동률 경쟁 순위·0값 미기여·k 오버라이드가 순서를 바꾼다.
+// TestRRFFuseDirect — direct assertions on the rrfFuse math
+// contract — tied competing ranks, zero-value non-contribution, and a k override changing the order.
 func TestRRFFuseDirect(t *testing.T) {
-	// 동률: sig1에서 a·b 동순위(2), c 후순(1) — a·b 동점, c 미기여(0).
+	// ties: in sig1, a and b share rank 2, c is lower (1) — a and b tie, c contributes 0.
 	sc := rrfFuse([][]int{{2, 0}, {2, 0}, {1, 0}})
 	if sc[0] != sc[1] {
 		t.Errorf("동률 행 스코어 불일치: %v", sc)
@@ -279,14 +279,14 @@ func TestRRFFuseDirect(t *testing.T) {
 	if sc[2] >= sc[0] {
 		t.Errorf("후순위가 동률 최상위와 같거나 큼: %v", sc)
 	}
-	// 0값 미기여: 전 신호 0이면 스코어 0.
+	// zero-value non-contribution: all signals 0 means score 0.
 	if got := rrfFuse([][]int{{0, 0}, {0, 0}}); got[0] != 0 || got[1] != 0 {
 		t.Errorf("0값 행이 신호 기여: %v", got)
 	}
-	// k 오버라이드: k 작으면 순위 격차 확대 — 다중 신호 우위가 강화된다.
+	// k override: a smaller k widens the rank gaps — multi-signal advantage is amplified.
 	prev := rrfK
 	t.Cleanup(func() { rrfK = prev })
-	// 비대칭 픽스처(전 신호 동일 우위) — k 축소가 절대 격차를 확대.
+	// an asymmetric fixture (one signal dominates all) — shrinking k widens the absolute gap.
 	rrfK = 1
 	tight := rrfFuse([][]int{{2, 3}, {1, 1}})
 	rrfK = 60

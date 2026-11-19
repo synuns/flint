@@ -1,9 +1,9 @@
-// read_fix_v0131_test.go — --status active의
-// active 정의를 active_knowledge 뷰(invalid_at IS NULL)와 동치화 — 뷰가
-// 차단하는 행(invalid_at 설정 active 행)이 --status active에만 보이는 정의
-// 분열 방지. pending·invalidated는 invalid_at 규약이 달라 조건 미부착.
-// 두 조립기의 q·tag·entity·domain 필터가 언제나 동일(공유 조립)함을
-// 고정.
+// read_fix_v0131_test.go — --status active's active definition made
+// equivalent to the active_knowledge view (invalid_at IS NULL) — preventing a
+// definitional split where rows the view blocks (active rows with invalid_at set)
+// appear only under --status active. pending and invalidated, with different
+// invalid_at conventions, get no such condition. Also pins that the two assemblers'
+// q/tag/entity/domain filters are always identical (the shared assembly).
 package query
 
 import (
@@ -12,10 +12,10 @@ import (
 	"testing"
 )
 
-// TestBuildReadStatusActiveInvalidAt — status='active' SQL은 invalid_at IS
-// NULL 조건 포함(invalid_at이 설정된 active 행은 이 조건으로 제외됨).
-// pending·invalidated에는 부착되지 않아야 한다(invalidated는 invalid_at
-// 설정이 본질 — 부착 시 영(零)히트, pending은 승격 전 규약 상이).
+// TestBuildReadStatusActiveInvalidAt — the status='active' SQL includes the
+// invalid_at IS NULL condition (active rows with invalid_at set are excluded by
+// it). It must not be attached to pending or invalidated (for invalidated, having
+// invalid_at set is the essence — attaching yields zero hits; pending has a different pre-promotion convention).
 func TestBuildReadStatusActiveInvalidAt(t *testing.T) {
 	sql, _ := BuildReadStatus("", Filters{Status: "active", Limit: 10})
 	if !strings.Contains(sql, "invalid_at IS NULL") {
@@ -29,9 +29,9 @@ func TestBuildReadStatusActiveInvalidAt(t *testing.T) {
 	}
 }
 
-// TestBuildReadReadStatusFilterParity — BuildRead·BuildReadStatus의 필터
-// 조립(q·tag·entity·domain)은 절 문자열·순서까지 동일해야 한다(placeholder
-// 번호는 base의 선행 status 조건만큼 shift하므로 정규화해 비교).
+// TestBuildReadReadStatusFilterParity — the filter assemblies (q, tag, entity,
+// domain) of BuildRead and BuildReadStatus must be identical down to the clause strings
+// and order (the placeholder numbers shift by the base's leading status condition, so the comparison normalizes them).
 func TestBuildReadReadStatusFilterParity(t *testing.T) {
 	f := Filters{Tag: "a", Entity: "e", Domain: "d", Limit: 7}
 	viewSQL, _ := BuildRead("키워드", f)
@@ -48,7 +48,7 @@ func TestBuildReadReadStatusFilterParity(t *testing.T) {
 	}
 }
 
-// fixWhereClause — SQL에서 WHERE 절 본문(ORDER BY 직전까지) 추출.
+// fixWhereClause — extracts the WHERE clause body from the SQL (up to just before ORDER BY).
 func fixWhereClause(sql string) string {
 	i := strings.Index(sql, " WHERE ")
 	j := strings.Index(sql, " ORDER BY ")

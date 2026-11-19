@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-// 신규 임계값 3종 기본값 — stale_days 90·stall_hot_h 48·stall_write_h 72.
+// the 3 new thresholds' defaults — stale_days 90, stall_hot_h 48, stall_write_h 72.
 func TestThresholdsV06Defaults(t *testing.T) {
 	th := DefaultThresholds()
 	if th.StaleDays != 90 {
@@ -16,7 +16,7 @@ func TestThresholdsV06Defaults(t *testing.T) {
 	}
 }
 
-// meta 오버라이드 — e.g. ParseThresholds(+[["stale_days","30"]]) → StaleDays=30.
+// meta overrides — e.g. ParseThresholds(+[["stale_days","30"]]) -> StaleDays=30.
 func TestThresholdsV06ParseOverride(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"stale_days", "30"},
@@ -31,7 +31,7 @@ func TestThresholdsV06ParseOverride(t *testing.T) {
 	}
 }
 
-// 무효값(비수·음수·소수)은 기본값 폴백(전역 제약).
+// invalid values (non-numeric, negative, fractional) fall back to defaults (the global constraint).
 func TestThresholdsV06InvalidFallback(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"stale_days", "abc"},
@@ -46,7 +46,7 @@ func TestThresholdsV06InvalidFallback(t *testing.T) {
 	}
 }
 
-// 기존 키와 신규 키가 공존할 때 서로 간섭 없음.
+// existing and new keys coexist without interfering with each other.
 func TestThresholdsV06CoexistWithLegacyKeys(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"pending_max", "10"},
@@ -63,8 +63,8 @@ func TestThresholdsV06CoexistWithLegacyKeys(t *testing.T) {
 	}
 }
 
-// 미설정 신규 키는 0(미설정) — 소비자(loadThresholds)가 DefaultThresholds로 폴백.
-// (기존 전체 구조체 비교 테스트 호환 규약, thresholds.go 주석 참조.)
+// unset new keys stay 0 (unset) — the consumer (loadThresholds) falls back to DefaultThresholds
+// (the existing whole-struct comparison-test compatibility convention — see the thresholds.go comment).
 func TestThresholdsV06UnsetStaysZero(t *testing.T) {
 	th, err := ParseThresholds(nil)
 	if err != nil {

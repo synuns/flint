@@ -1,5 +1,5 @@
-// run.go — 계약층 디스패치.
-// Store 공장 함수 주입형: cli 래퍼가 cli.newStore seam을 전달한다.
+// run.go — the contract-layer dispatch.
+// Store-factory injected: the cli wrapper passes the cli.newStore seam.
 package wire
 
 import (
@@ -12,59 +12,59 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// DSNFromEnv — DSN 해결 진입점. ResolveDSN 위임:
-// FLINT_DSN > config.json(LoadConfigDSN) > 기본값.
+// DSNFromEnv — the DSN resolution entry point. Delegates to ResolveDSN:
+// FLINT_DSN > config.json (LoadConfigDSN) > the default.
 func DSNFromEnv() string {
 	return ResolveDSN()
 }
 
-// Run은 args로 커맨드를 실행해 stdout에 기록하고 exit code를 반환한다.
+// Run executes the command from args, writes to stdout, and returns the exit code.
 func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx context.Context, dsn string) (Store, error)) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stdout, UsageLine())
 		return 1
 	}
 	cmd, rest := args[0], args[1:]
-	// --version/-v 전역 플래그 별칭 — `flint --version`·
-	// `flint -v`를 `flint version`과 동일 출력·exit 0으로 선행 치환한다.
-	// 커맨드 테이블 등록이 아니라 디스패치 앞 단계 처리라 unknown command
-	// exit 3 계약과 충돌하지 않는다(오타 `--versio` 등은 여전히 unknown 3).
+	// the --version/-v global flag alias — rewrites `flint --version` and
+	// `flint -v` up front to the same output and exit 0 as `flint version`.
+	// Being a pre-dispatch step rather than a command-table registration, it does not
+	// conflict with the unknown-command exit 3 contract (a typo like `--versio` is still unknown 3).
 	if cmd == "--version" || cmd == "-v" {
 		cmd = "version"
 	}
-	// help도 store-free fast path: registry 핸들러가
-	// 아니라 접속 전에 직접 출력한다. 인자(`help foo`)는 무시.
-	// -h/--help 전역 별칭 — --version/-v와
-	// 동일 출력·exit 0. 오타(--hel)는 별칭이 아니라 unknown command 3.
+	// help is also a store-free fast path: printed directly before connecting,
+	// not via a registry handler. Arguments (`help foo`) are ignored.
+	// the -h/--help global alias — the same
+	// output and exit 0 as --version/-v. A typo (--hel) is not an alias but unknown command 3.
 	if cmd == "help" || cmd == "-h" || cmd == "--help" {
 		return RunHelp(stdout)
 	}
 	run, ok := Lookup(cmd)
 	if !ok {
-		// 이름 이스케이프 — 원시 결합은 호출자 제어 문자열로
-		// JSON 구조 자체를 파손할 수 있다(ErrLine도 마샬링 경유 —
-		// UnknownCommandLine이 json.Marshal 경유로 승계).
-		// unknown command도 무효 인자 계약 exit 3 통일 —
-		// 커맨드 오타를 에이전트가 자가수신하게 한다. 출력은
-		// error 키 없는 안내 형태(message+usage, 정보 내용 유지) — usage
-		// 안내는 오류가 아니라는 계약(UsageLine 전환과 동일 맥락). exit 3과
-		// ErrLine의 error:"usage" 분류(커맨드 인자 오류 경로)는 불변.
+		// name escaping — raw concatenation could corrupt the JSON structure itself
+		// with a caller-controlled string (ErrLine also goes through marshaling —
+		// UnknownCommandLine inherits this via json.Marshal).
+		// unknown command is also unified to the invalid-arg contract exit 3 —
+		// so an agent can self-correct a command typo. The output uses the
+		// guidance form without an error key (message + usage, informational content kept) — the
+		// contract that usage guidance is not an error (the same context as the UsageLine
+		// transition). Exit 3 and the ErrLine usage classification (the command-argument-error path) are unchanged.
 		fmt.Fprintln(stdout, UnknownCommandLine(cmd))
 		return 3
 	}
 	ctx := context.Background()
-	// version·teardown·mcp는 store-free — DB 미기동에도 즉시 응답
-	// (§13: mcp는 도구 호출이 cli.Run으로 각자
-	// store를 연결한다). nudge는 store 경유 — nudgeProfile가
-	// exposure_profile을 조회해 minimal 계약을 지킨다(구형 store-free 시
-	// minimal 자동 종결 불가).
+	// version, teardown, and mcp are store-free — they respond immediately even
+	// without a running DB (§13: for mcp, each tool call connects its own store
+	// via cli.Run). nudge goes through the store — nudgeProfile looks up
+	// exposure_profile to honor the minimal contract (a legacy store-free version
+	// could not auto-conclude minimal).
 	if cmd == "version" || cmd == "teardown" || cmd == "mcp" || cmd == "update" {
 		return run(ctx, nil, rest, stdin, stdout)
 	}
-	// setup도 DB 다운이 주 시나리오라 store 없이도 응답한다 — 다만
-	// 정상 기동 DB에선 ping·migrate 단계가 실제로 돌아야 한다.
-	// 연결 시도 후 실패 시에만
-	// nil로 진행 — setup의 nil 가드는 DB 다운 안내 경로로 유효 유지.
+	// setup also responds without a store, since DB-down is its main scenario —
+	// but with a normally running DB, the ping and migrate steps must actually run.
+	// Only after a connection attempt fails does it proceed with
+	// nil — setup's nil guard remains valid as the DB-down guidance path.
 	if cmd == "setup" {
 		var st Store
 		if s, err := newStore(ctx, DSNFromEnv()); err == nil {
@@ -74,54 +74,54 @@ func Run(args []string, stdin io.Reader, stdout io.Writer, newStore func(ctx con
 	}
 	st, err := newStore(ctx, DSNFromEnv())
 	if err != nil {
-		// compact는 훅 진입 커맨드 — DB 부재도 조용히 exit 0(§3 비간섭).
-		// st nil로 실행하면 runCompact가 무동작 0을 반환한다.
+		// compact is a hook-entry command — even without a DB it silently exits 0 (§3 non-interference).
+		// Run with st nil makes runCompact return a no-op 0.
 		if cmd == "compact" {
 			return run(ctx, nil, rest, stdin, stdout)
 		}
-		// nudge도 훅 진입 커맨드 — 에러 JSON을 stdout에 흘리지 않고
-		// 조용히 MapExit 코드로만 종료한다(서버 다운=2, 훅 quiet 계약).
+		// nudge is also a hook-entry command — it does not leak an error JSON to stdout
+		// and ends with only the quiet MapExit code (server down = 2, the hook quiet contract).
 		if cmd == "nudge" {
 			return store.MapExit(err)
 		}
 		fmt.Fprintln(stdout, ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 명령 완료 후 store 종결 — 단발 CLI는
-	// 프로세스 종료가 회수했지만 flint mcp(tools/call마다 cli.Run 호출)의
-	// 장기 프로세스에서 pgxpool 2개씩 영구 누적되던 것을 닫는다.
+	// closing the store after the command — a one-shot CLI had process exit to
+	// reclaim it, but this closes the leak where flint mcp (calling cli.Run per
+	// tools/call) accumulated 2 pgx pools permanently in a long-lived process.
 	defer st.Close()
 	return run(ctx, st, rest, stdin, stdout)
 }
 
-// RunHelp — `flint help` 출력. usage JSON 1줄 + 명령 요약 1줄, exit 0.
-// help는 인자 없음 — 남는 인자는 무시한다.
+// RunHelp — the `flint help` output. 1 usage JSON line + 1 command-summary line, exit 0.
+// help takes no arguments — leftover arguments are ignored.
 func RunHelp(w io.Writer) int {
 	fmt.Fprintln(w, UsageLine())
 	fmt.Fprintln(w, HelpSummary())
 	return 0
 }
 
-// HelpSummary — 명령별 1줄 요약(usageOrder
-// 전 항목 키워드 포함 — TestHelpSummaryCoversUsageOrder 완전성 가드).
+// HelpSummary — the per-command 1-line summaries (including the keywords of
+// every usageOrder item — the TestHelpSummaryCoversUsageOrder completeness guard).
 func HelpSummary() string {
 	return "write capture · read search · hot injection · brief external-AI briefing · status state · profile exposure · pending review · doctor diagnostics · report observability · export extraction (4 formats · pam standard · --out sha256 sidecar) · import migration (jsonl·pam) · backup/restore backups · sync remote knowledge sync (push/pull · operator command) · maintain upkeep (--supersede handover · --decay-audit archive candidates) · approve promotion · tuning thresholds · update self-update · done/compact/nudge hooks · setup/teardown install · audit/diff time travel · mcp server · version"
 }
 
-// UsageError — 무효 인자(unknown flag·값 누락 등 사용법 오류) 분류
-// 마커(ErrLine error 값을 internal에서 "usage"로 확장 —
-// 구조 불변, 하류 파서 호환). 원본을 래핑하며 Error·Unwrap은 위임.
+// UsageError — the invalid-argument (unknown flag, missing value, etc.)
+// classification marker (extending the ErrLine error value from "internal" to "usage" —
+// structure unchanged, downstream-parser compatible). Wraps the original; Error and Unwrap delegate.
 type UsageError struct{ err error }
 
 func (u *UsageError) Error() string { return u.err.Error() }
 func (u *UsageError) Unwrap() error { return u.err }
 
-// UsageErrorf — UsageError 조립(fmt.Errorf 관례 — %w 래핑 지원).
+// UsageErrorf — assembles a UsageError (the fmt.Errorf convention — %w wrapping supported).
 func UsageErrorf(format string, a ...any) *UsageError {
 	return &UsageError{err: fmt.Errorf(format, a...)}
 }
 
-// ErrLine — 에러를 한 줄 JSON으로. 서버 다운은 조용히(server_down) 한 줄만.
+// ErrLine — the error as one line of JSON. Server down is silent, one line only (server_down).
 func ErrLine(err error) string {
 	m := map[string]string{"error": "internal", "message": err.Error()}
 	var se *store.SchemaError

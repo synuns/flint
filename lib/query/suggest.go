@@ -1,5 +1,5 @@
-// suggest.go — 제로히트 did-you-mean 제안(스펙 §3 R1·R2).
-// 유사도·정렬은 전부 앱 사이드 순수 함수 — 구문 LIKE SQL·출력 불변.
+// suggest.go — zero-hit did-you-mean suggestions (spec §3 R1, R2).
+// Similarity and sorting are pure app-side functions — the phrase LIKE SQL and output are unchanged.
 package query
 
 import (
@@ -11,18 +11,18 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// Suggestion — 제안 한 건(active_knowledge 행의 id·topic).
+// Suggestion — one suggestion (the id and topic of an active_knowledge row).
 type Suggestion struct {
 	ID    int    `json:"id"`
 	Topic string `json:"topic"`
 }
 
-// nfkc — 매칭 비교 문자열 Unicode NFKC 정규화(R2). NFC/NFD·조합형 표기
-// 차이로 인한 미스를 차단한다. 비교 문자열에만 적용 — 원문·SQL·출력 불변.
+// nfkc — Unicode NFKC normalization of the matching comparison strings (R2).
+// Blocks misses from NFC/NFD and composed-form notation differences. Applied only to the comparison strings — the originals, SQL, and output are unchanged.
 func nfkc(s string) string { return norm.NFKC.String(s) }
 
-// bigramDice — rune bigram 집합의 Dice 계수(0~1). 양변 모두 bigram이
-// 없는 1-rune 문자열은 동등성 판정(1/0). 빈 문자열·공집합은 0.
+// bigramDice — the Dice coefficient (0..1) of rune-bigram sets. For 1-rune
+// strings with no bigrams on either side, an equality verdict (1/0). Empty strings and empty sets are 0.
 func bigramDice(a string, b string) float64 {
 	ra, rb := []rune(a), []rune(b)
 	if len(ra) < 2 && len(rb) < 2 {
@@ -44,7 +44,7 @@ func bigramDice(a string, b string) float64 {
 	return 2 * float64(inter) / float64(len(sa)+len(sb))
 }
 
-// bigramSet — rune 슬라이스의 인접 bigram 집합(중복 제거).
+// bigramSet — the set of adjacent bigrams of a rune slice (deduplicated).
 func bigramSet(r []rune) map[string]struct{} {
 	set := make(map[string]struct{}, len(r))
 	for i := 0; i+1 < len(r); i++ {
@@ -53,16 +53,16 @@ func bigramSet(r []rune) map[string]struct{} {
 	return set
 }
 
-// BigramDice — rune bigram 집합 Dice 계수 공개 래퍼(집합판 bigramDice).
-// suggest 제안 점수와 같은 측정을 패키지 밖(cli 등)에서 재사용할 때 쓴다.
+// BigramDice — the public wrapper of the rune-bigram set Dice coefficient (the set version, bigramDice).
+// Used when reusing the same measure as the suggestion score outside the package (cli, etc.).
 func BigramDice(a string, b string) float64 { return bigramDice(a, b) }
 
-// BigramDiceMultiset — rune bigram 다중집합 Dice 계수(maintain 모순 분류
-// 측정). 반복 bigram을 집합처럼 접지 않고 출현 수로 세아려, 같은 bigram이
-// 반복되는 문장에서 집합판보다 유사도를 보수적으로 낸다 —
-// cli.conflictDupThreshold(0.6) 룰링은 이 측정 기준이므로 집합판으로
-// 통합하지 않는다. bigram이 없는 짧은 문자열(2 미만 rune)은 둘 다 비면
-// 1(동일), 아니면 0(비교 불가=이질)으로 처리한다.
+// BigramDiceMultiset — the rune-bigram multiset Dice coefficient (the maintain
+// contradiction-classification measure). Counts repeated bigrams by occurrence rather than
+// flattening them like a set, yielding a more conservative similarity than the set version
+// for sentences with repeated bigrams — the cli.conflictDupThreshold (0.6) ruling is based on
+// this measure, so it is not merged into the set version. For short strings without bigrams
+// (fewer than 2 runes), both-empty is 1 (identical), otherwise 0 (incomparable = dissimilar).
 func BigramDiceMultiset(a, b string) float64 {
 	ra, rb := []rune(a), []rune(b)
 	if len(ra) < 2 || len(rb) < 2 {
@@ -92,8 +92,8 @@ func BigramDiceMultiset(a, b string) float64 {
 	return 2 * float64(inter) / float64(len(ra)-1+len(rb)-1)
 }
 
-// suggestCellInt — 스캔 id 셀(any)→int. pgx 숫자형·float64·10진 문자열
-// 수용, 그 외 (0, false) — cli.cellToInt와 같은 계약의 query 국소 복제.
+// suggestCellInt — the scan id cell (any) -> int. Accepts pgx numerics, float64,
+// and decimal strings; anything else is (0, false) — a query-local clone with the same contract as cli.cellToInt.
 func suggestCellInt(v any) (int, bool) {
 	switch n := v.(type) {
 	case int:
@@ -112,15 +112,15 @@ func suggestCellInt(v any) (int, bool) {
 	}
 }
 
-// suggestMinScore — 제안 채택 하한. 이 점수 미만 행은
-// 무관 후보로 간주해 제외한다. 기본값은 thresholds 레지스트리
-// (store.DefaultThresholds)의 단일 소스를 쓰고, 런타임에는 cli read
-// 경로가 meta suggest_min_score 오버라이드를 SetSuggestThresholds로
-// 주입한다.
+// suggestMinScore — the suggestion adoption floor. Rows below this score are
+// excluded as irrelevant candidates. The default uses the thresholds registry
+// (store.DefaultThresholds) as the single source; at runtime, the cli read path
+// injects the meta suggest_min_score override via SetSuggestThresholds.
+// injects them.
 var suggestMinScore = store.DefaultThresholds().SuggestMinScore
 
-// SetSuggestThresholds — 제안 임계값(minScore·scanCap) 주입 seam.
-// cli가 loadThresholds 결과를 건넨다. 0 이하는 무시(미설정 폴백 이중 방어).
+// SetSuggestThresholds — the suggestion-threshold (minScore, scanCap) injection seam.
+// cli passes the loadThresholds result. Values <= 0 are ignored (double defense against unset fallbacks).
 func SetSuggestThresholds(minScore float64, scanCap int) {
 	if minScore > 0 {
 		suggestMinScore = minScore
@@ -130,9 +130,9 @@ func SetSuggestThresholds(minScore float64, scanCap int) {
 	}
 }
 
-// SuggestSimilar — 질의 q와 스캔 행([0]=id·[1]=topic·[2]=summary)의
-// NFKC 정규화 bigram Dice 유사도로 상위 topN 제안. suggestMinScore
-// 미만(0 포함)은 제외, 내림차순·동률은 id 오름차순. topN 이하는 그대로 반환.
+// SuggestSimilar — the top-N suggestions by NFKC-normalized bigram Dice similarity
+// between the query q and the scanned rows ([0]=id, [1]=topic, [2]=summary).
+// Rows below suggestMinScore (including 0) are excluded; descending, ties by ascending id. Fewer than topN are returned as-is.
 func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 	nq := nfkc(q)
 	type scored struct {
@@ -175,16 +175,16 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 	return out
 }
 
-// suggestScanCap — 제안 스캔 행 상한(N13). 스펙 §3 R1의 '스캔 상한 없음'을
-// 정정한다: 개인 지식관리 규모(수천 행)는 전부 수용하면서, 대량 유입 등
-// 이상 규모에서 무상한 스캔이 제로히트 경로를 지연시키는 것을 방어한다.
-// 상한은 정렬 없는 방어선이다 — 제안은 상위 topN 재랭킹이므로 어느 행이
-// 걸리든 근접 후보 제공이라는 목적은 유지된다. 기본값·오버라이드는
-// suggestMinScore와 같은 seam(meta suggest_scan_cap).
+// suggestScanCap — the suggestion scan row cap (N13). Corrects spec §3 R1's 'no scan cap':
+// personal knowledge-management scale (thousands of rows) is fully accepted, while
+// defending the zero-hit path against unbounded scans at anomalous scale (mass
+// intake, etc.). The cap is an unsorted defense line — since suggestions re-rank
+// the top-N, whichever rows are caught still serve the purpose of providing near
+// candidates. The default and override use the same seam as suggestMinScore (meta suggest_scan_cap).
 var suggestScanCap = store.DefaultThresholds().SuggestScanCap
 
-// BuildSuggestScan — 제안용 active_knowledge 스캔 SQL. 필터 없음(제안은
-// 필터 무관 전체 active 대상 — 스펙 §3 R1), 상한은 suggestScanCap.
+// BuildSuggestScan — the active_knowledge scan SQL for suggestions. No filters
+// (suggestions target all active rows regardless of filters — spec §3 R1); the cap is suggestScanCap.
 func BuildSuggestScan() (string, []any) {
 	return "SELECT id, topic, summary FROM active_knowledge LIMIT " + strconv.Itoa(suggestScanCap), nil
 }

@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestHashStable — 동일 입력 2회 동일 해시, hex 64자.
+// TestHashStable — the same input twice gives the same hash, 64 hex chars.
 func TestHashStable(t *testing.T) {
 	h1 := ContentHash(`{"a":1}`)
 	h2 := ContentHash(`{"a":1}`)
@@ -20,14 +20,14 @@ func TestHashStable(t *testing.T) {
 	}
 }
 
-// TestHashDistinct — 다른 입력은 다른 해시.
+// TestHashDistinct — different inputs give different hashes.
 func TestHashDistinct(t *testing.T) {
 	if ContentHash(`{"a":1}`) == ContentHash(`{"a":2}`) {
 		t.Error("다른 입력에 동일 해시")
 	}
 }
 
-// TestHashPipelinePath — CanonicalJSON → ContentHash 파이프라인 경로.
+// TestHashPipelinePath — the CanonicalJSON -> ContentHash pipeline path.
 func TestHashPipelinePath(t *testing.T) {
 	n := Normalize("knowledge", map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
 		"tags": []any{"b", "a"}})
@@ -37,8 +37,8 @@ func TestHashPipelinePath(t *testing.T) {
 	}
 }
 
-// TestHashStableAcrossRuns — 동일 payload 2회 Normalize는 서로 다른 valid_at(now)를
-// 갖지만 해시는 동일해야 한다(시딩 멱등, duplicate 판정 회귀).
+// TestHashStableAcrossRuns — normalizing the same payload twice yields different
+// valid_at (now) values, but the hash must be identical (seeding idempotence, a duplicate-verdict regression).
 func TestHashStableAcrossRuns(t *testing.T) {
 	payload := func() map[string]any {
 		return map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
@@ -51,7 +51,7 @@ func TestHashStableAcrossRuns(t *testing.T) {
 	}
 }
 
-// TestHashIgnoresVolatileFields — valid_at·ts 값이 달라도 해시는 동일해야 한다.
+// TestHashIgnoresVolatileFields — even with different valid_at and ts values, the hash must be identical.
 func TestHashIgnoresVolatileFields(t *testing.T) {
 	base := func(validAt, ts string) map[string]any {
 		return map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
@@ -64,7 +64,7 @@ func TestHashIgnoresVolatileFields(t *testing.T) {
 	}
 }
 
-// TestHashDistinctOnContent — 내용이 다르면 해시도 달라야 한다(제외 과잉 방지).
+// TestHashDistinctOnContent — different content must give different hashes (preventing over-exclusion).
 func TestHashDistinctOnContent(t *testing.T) {
 	a := ContentHash(HashCanonical(map[string]any{"topic": "x", "summary": "y", "confidence": 0.9}))
 	b := ContentHash(HashCanonical(map[string]any{"topic": "z", "summary": "y", "confidence": 0.9}))

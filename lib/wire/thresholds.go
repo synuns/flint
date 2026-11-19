@@ -1,9 +1,9 @@
-// thresholds.go — loadThresholds 체계와 read 계측 wiring. knowledge 패키지
-// 공용 소비 표면 — cli 잔류 파일은 cliwire_alias.go var 별칭으로 무편집
-// 컴파일된다. 임계값 키 목록·폴백 규칙(미설정 키는 DefaultThresholds).
-// read 계측 원천은 read_events(RecordReadEvent)와 daily:* 파생 산출 —
-// read_stats blob 계측은 폐지. 운영 DB에 잔존한 meta read_stats 키는
-// 읽지 않는다(무해 잔류 — 정리 원하면 psql에서 삭제).
+// thresholds.go — the loadThresholds system and the read metering wiring. A shared
+// consumption surface for the knowledge package — residual cli files compile
+// unedited via the cliwire_alias.go var aliases. The threshold key list and the
+// fallback rules (unset keys use DefaultThresholds). The read metering source is
+// read_events (RecordReadEvent) plus the daily:* derived computation — the
+// read_stats blob metering is abolished. The residual meta read_stats key on an operational DB is never read (a harmless leftover — delete it via psql if desired).
 package wire
 
 import (
@@ -13,10 +13,10 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// ThresholdsKeys — thresholds 메타 키 결정적 목록.
-// threshold_meta.go 등록표에서 파생된다(키 집합·순서는 가드 테스트가
-// 단언). SQL IN·maintain meta 감사·tuningKeys
-// 동질성 드리프트 테스트의 공유 소스 계약은 불변.
+// ThresholdsKeys — the deterministic list of thresholds meta keys.
+// Derived from the threshold_meta.go registry (the key set and order are asserted
+// by guard tests). The shared-source contract of the SQL IN, the maintain meta
+// audit, and the tuningKeys homogeneity drift tests is unchanged.
 func ThresholdsKeys() []string {
 	metas := ThresholdMetas()
 	out := make([]string, 0, len(metas))
@@ -26,21 +26,21 @@ func ThresholdsKeys() []string {
 	return out
 }
 
-// thresholdsKeySQL — IN 목록 SQL 조각(결정적 순서).
+// thresholdsKeySQL — the IN-list SQL fragment (deterministic order).
 func thresholdsKeySQL() string {
 	return "SELECT key, value FROM meta WHERE key IN ('" +
 		strings.Join(ThresholdsKeys(), "','") + "')"
 }
 
-// ApplyThresholdsFallback — 미설정(0)·비허용 음수 키를 DefaultThresholds
-// 값으로 폴백(ParseThresholds 미설정-0 규약의 소비자 측 완결). cli
-// maintain.go 이동분 — tuning.go 등 cli 잔류 소비자는 별칭으로 승계.
+// ApplyThresholdsFallback — falls back unset (0) and disallowed negative keys to
+// the DefaultThresholds values (the consumer-side completion of the
+// ParseThresholds unset-0 convention). Moved from cli maintain.go — residual cli consumers such as tuning.go inherit it via an alias.
 func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 	def := store.DefaultThresholds()
 	for _, f := range []struct {
 		cur   *int
 		def   int
-		allow bool // true면 -1 등 음수 센티널 허용 키(RecallWarnWrites)
+		allow bool // when true, negative sentinels like -1 are allowed (RecallWarnWrites)
 	}{
 		{&th.StaleDays, def.StaleDays, false},
 		{&th.StallHotH, def.StallHotH, false},
@@ -62,7 +62,7 @@ func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.EventsVolumeWarn, def.EventsVolumeWarn, false},
 		{&th.DrillMaxDays, def.DrillMaxDays, false},
 		{&th.SecretsScanRows, def.SecretsScanRows, false},
-		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, true}, // -1=끔 센티널 허용
+		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, true}, // the -1 = off sentinel allowed
 		{&th.DailyRetentionD, def.DailyRetentionD, false},
 		{&th.RecallEventRetentionD, def.RecallEventRetentionD, false},
 	} {
@@ -79,17 +79,17 @@ func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 	return th
 }
 
-// LoadThresholdsFn — LoadThresholds seam(rrf_k 주입
-// 순서 테스트용 주입점). cli 하위 패키지 테스트는 cliwire_alias var
-// 별칭(loadThresholdsFn)으로 기존 교체 관례를 승계한다.
+// LoadThresholdsFn — the LoadThresholds seam (the injection point for
+// rrf_k injection-order tests). Cli subpackage tests inherit the existing swap
+// convention via the cliwire_alias var (loadThresholdsFn).
 var LoadThresholdsFn = LoadThresholds
 
-// LoadThresholds — meta 테이블 키-값 → ParseThresholds(미설정 키 기본값).
-// 키(stale_days·stall_hot_h·stall_write_h)와 키(suggest_*·
-// conflict_dup_threshold·backup_age_warn_h·zero_near_*·pending_age_days)는
-// ParseThresholds가 미설정을 0으로 두므로(기존 테스트 호환 규약)
-// DefaultThresholds 값으로 폴백한다. 조회 실패는 err 전파 — 호출부(cli
-// doctor 등)가 DefaultThresholds로 폴백하는 기존 관례와 동일.
+// LoadThresholds — meta-table key-values -> ParseThresholds (unset keys get
+// defaults). The keys (stale_days, stall_hot_h, stall_write_h) and the keys
+// (suggest_*, conflict_dup_threshold, backup_age_warn_h, zero_near_*,
+// pending_age_days) are left at 0 when unset by ParseThresholds (the
+// existing-test-compatibility convention), so they fall back to the DefaultThresholds values.
+// A lookup failure propagates the err — the same as the existing convention where the caller (cli doctor, etc.) falls back to DefaultThresholds.
 func LoadThresholds(ctx context.Context, st Store) (store.Thresholds, error) {
 	rows, err := QueryOnce(ctx, st, thresholdsKeySQL(), nil)
 	if err != nil {

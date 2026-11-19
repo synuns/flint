@@ -1,6 +1,6 @@
-// registry_test.go — 계약층 registry 읽기 접근자 단위 검증.
-// bridge 동질 가드(실 cli 등록 ↔ usageOrder 대조)는 lib/cli
-// usage_bridge_test.go가 담당 — 여기는 접근자 자체의 계약만.
+// registry_test.go — unit verification of the contract-layer registry read accessors.
+// The bridge homogeneity guard (the real cli registrations vs usageOrder) is owned
+// by lib/cli usage_bridge_test.go — here only the accessors' own contracts.
 package wire
 
 import (
@@ -10,8 +10,8 @@ import (
 	"testing"
 )
 
-// TestRegisteredEnumerates — Registered는 Register 후 포함·Unregister 후
-// 제외되는 등록 표면의 충실한 열거(정렬 순).
+// TestRegisteredEnumerates — Registered faithfully enumerates the registered
+// surface: included after Register, excluded after Unregister (sorted order).
 func TestRegisteredEnumerates(t *testing.T) {
 	before := map[string]bool{}
 	for _, n := range Registered() {
@@ -23,7 +23,7 @@ func TestRegisteredEnumerates(t *testing.T) {
 	if sort.SearchStrings(got, "probe-accessor") >= len(got) || got[sort.SearchStrings(got, "probe-accessor")] != "probe-accessor" {
 		t.Fatalf("Registered에 등록 항목 없음: %v", got)
 	}
-	// 정렬 계약 — 호출부 비교 안정성.
+	// the sorting contract — caller comparison stability.
 	if !sort.StringsAreSorted(got) {
 		t.Fatalf("Registered 미정렬: %v", got)
 	}
@@ -35,8 +35,8 @@ func TestRegisteredEnumerates(t *testing.T) {
 	}
 }
 
-// TestUsageOrderCopyNotAlias — UsageOrder는 사본 반환 — 호출부 변경이
-// 내부 usageOrder를 오염시키지 않는다.
+// TestUsageOrderCopyNotAlias — UsageOrder returns a copy — caller mutations do
+// not pollute the internal usageOrder.
 func TestUsageOrderCopyNotAlias(t *testing.T) {
 	got := UsageOrder()
 	if len(got) == 0 {
@@ -48,7 +48,7 @@ func TestUsageOrderCopyNotAlias(t *testing.T) {
 	}
 }
 
-// TestHiddenFromUsagePublic — 훅 전용 2종만 true.
+// TestHiddenFromUsagePublic — only the 2 hook-only kinds are true.
 func TestHiddenFromUsagePublic(t *testing.T) {
 	for _, name := range []string{"session-start", "session-end"} {
 		if !HiddenFromUsage(name) {

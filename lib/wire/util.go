@@ -1,7 +1,7 @@
-// util.go — 순수 함수 단일 소스. cellToTime(셀→time)·
-// quoteJSON(JSON 문자열 리터럴)·backupEncryptOn(meta 판정) 소유.
-// wire는 knowledge·ops 양쪽이 임포트하는 계약층 — 소비자는
-// var 별칭 위임, 동작 불변.
+// util.go — the single source of pure functions. Owns cellToTime
+// (cell -> time), quoteJSON (a JSON string literal), and backupEncryptOn (the
+// meta verdict). wire is the contract layer both knowledge and ops import —
+// consumers delegate via var aliases, behavior unchanged.
 package wire
 
 import (
@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// CellToTime — 셀(any)→time 변환(pgx timestamptz=time.Time, fake·
-// 문자열은 RFC3339). 매핑 불가칸은 (zero, false).
+// CellToTime — cell (any) -> time conversion (pgx timestamptz = time.Time;
+// fakes and strings use RFC3339). Unmappable cells are (zero, false).
 func CellToTime(v any) (time.Time, bool) {
 	switch t := v.(type) {
 	case time.Time:
@@ -23,8 +23,8 @@ func CellToTime(v any) (time.Time, bool) {
 	}
 }
 
-// QuoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다(마샬 실패
-// 시 빈 리터럴 폴백 — 동작 계약 승계).
+// QuoteJSON — wraps a path or other string as a JSON string literal (on marshal
+// failure, the empty-literal fallback — inheriting the behavior contract).
 func QuoteJSON(s string) string {
 	b, err := json.Marshal(s)
 	if err != nil {
@@ -33,8 +33,8 @@ func QuoteJSON(s string) string {
 	return string(b)
 }
 
-// BackupEncryptOn — meta backup_encrypt 값 판정의 단일 소스
-// (knowledge·ops 소비자는 var 별칭 위임). "true"·"1"만 참.
+// BackupEncryptOn — the single source of the meta backup_encrypt verdict
+// (knowledge/ops consumers delegate via var aliases). True only for "true" and "1".
 func BackupEncryptOn(v string) bool {
 	return v == "true" || v == "1"
 }

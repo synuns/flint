@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestCheckVocabularyUnknownTag — 표 밖 tag마다 경고 1개(빈 슬라이스=통과).
+// TestCheckVocabularyUnknownTag — 1 warning per out-of-table tag (an empty slice = pass).
 func TestCheckVocabularyUnknownTag(t *testing.T) {
 	got := CheckVocabulary([]string{"playbook", "xxx"}, "main")
 	want := []string{"unknown tag: xxx"}
@@ -14,7 +14,7 @@ func TestCheckVocabularyUnknownTag(t *testing.T) {
 	}
 }
 
-// TestCheckVocabularyDomainViolation — domain 표(main·infra·preference) 밖 값 경고.
+// TestCheckVocabularyDomainViolation — warns on values outside the domain table (main, infra, preference).
 func TestCheckVocabularyDomainViolation(t *testing.T) {
 	got := CheckVocabulary([]string{"adr"}, "ops")
 	want := []string{"unknown domain: ops"}
@@ -23,7 +23,7 @@ func TestCheckVocabularyDomainViolation(t *testing.T) {
 	}
 }
 
-// TestCheckVocabularyAllKnown — 어휘표 전 값 통과(경고 없음).
+// TestCheckVocabularyAllKnown — every value in the vocabulary tables passes (no warnings).
 func TestCheckVocabularyAllKnown(t *testing.T) {
 	got := CheckVocabulary(
 		[]string{"adr", "correction", "failure", "env", "process", "contract", "playbook"},
@@ -34,7 +34,7 @@ func TestCheckVocabularyAllKnown(t *testing.T) {
 	}
 }
 
-// TestCheckVocabularyCaseNormalize — 대소문자 정규화 후 비교(encoding).
+// TestCheckVocabularyCaseNormalize — compared after case normalization (encoding).
 func TestCheckVocabularyCaseNormalize(t *testing.T) {
 	got := CheckVocabulary([]string{"Playbook", " ADR "}, "Main")
 	if len(got) != 0 {
@@ -47,10 +47,10 @@ func TestCheckVocabularyCaseNormalize(t *testing.T) {
 	}
 }
 
-// TestCheckVocabularyMultipleWarnings — 표 밖 값 여러 개·중복은 값마다 1개.
+// TestCheckVocabularyMultipleWarnings — multiple and repeated out-of-table values give 1 per value.
 func TestCheckVocabularyMultipleWarnings(t *testing.T) {
 	got := CheckVocabulary([]string{"aaa", "playbook", "bbb"}, "main")
-	want := []string{"unknown tag: aaa (similar: adr)", "unknown tag: bbb"} // 근사 제안 포함
+	want := []string{"unknown tag: aaa (similar: adr)", "unknown tag: bbb"} // including approximation suggestions
 	if !reflect.DeepEqual(got, want) {
 		t.Errorf("CheckVocabulary = %v, want %v", got, want)
 	}

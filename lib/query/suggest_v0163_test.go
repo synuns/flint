@@ -1,6 +1,6 @@
-// suggest_v0163_test.go — 제안 임계값 seam. 기본값은
-// store.DefaultThresholds(레지스트리 단일 소스), 런타임은 cli가 meta
-// 오버라이드 값을 SetSuggestThresholds로 주입한다.
+// suggest_v0163_test.go — the suggestion-threshold seam. The defaults come from
+// store.DefaultThresholds (the registry's single source); at runtime, cli injects
+// the meta override values via SetSuggestThresholds.
 package query
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// 기본값이 레지스트리(thresholds.go)와 동일 소스인지 — 하드코딩 이중 소스 방지.
+// that the defaults share the source with the registry (thresholds.go) — preventing a hardcoded dual source.
 func TestSuggestDefaultsFromThresholds(t *testing.T) {
 	def := store.DefaultThresholds()
 	if suggestMinScore != def.SuggestMinScore {
@@ -23,8 +23,8 @@ func TestSuggestDefaultsFromThresholds(t *testing.T) {
 	}
 }
 
-// SetSuggestThresholds — 주입한 minScore·scanCap이 제안 필터·스캔 SQL에
-// 반영된다(meta 오버라이드 우선 경로).
+// SetSuggestThresholds — the injected minScore and scanCap are reflected in the
+// suggestion filter and the scan SQL (the meta-override priority path).
 func TestSetSuggestThresholdsApplies(t *testing.T) {
 	t.Cleanup(func() {
 		def := store.DefaultThresholds()
@@ -54,7 +54,7 @@ func TestSetSuggestThresholdsApplies(t *testing.T) {
 	}
 }
 
-// 0 이하 주입은 무시(미설정 폴백 이중 방어).
+// injections <= 0 are ignored (double defense against unset fallbacks).
 func TestSetSuggestThresholdsIgnoresNonPositive(t *testing.T) {
 	t.Cleanup(func() {
 		def := store.DefaultThresholds()

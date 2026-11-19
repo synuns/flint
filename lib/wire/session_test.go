@@ -1,6 +1,6 @@
-// session_test.go — 세션 라벨 읽기 계약. 구 단일 공유
-// 파일(session-current) 폴백은 제거되었다 — 잔존 파일은 읽지도·지우지도
-// 않는다(사용자 디스크 — 미삭제 원칙).
+// session_test.go — the session-label read contract. The legacy single
+// shared-file (session-current) fallback is removed — residual files are neither
+// read nor erased (the user's disk — the no-deletion principle).
 package wire
 
 import (
@@ -10,9 +10,9 @@ import (
 	"time"
 )
 
-// TestReadSessionLabel — 부재·빈 내용 ok=false, 1줄 라벨 ok=true, 다중
-// 세션 파일은 mtime 최신 채택(marker.go 이동분 계약 승계). ConfigDir
-// seam 주입으로 격리.
+// TestReadSessionLabel — absent or empty content is ok=false; a 1-line label is
+// ok=true; multiple session files adopt the newest mtime (inheriting the
+// moved-from-marker.go contract). Isolated via the ConfigDir seam injection.
 func TestReadSessionLabel(t *testing.T) {
 	saved := ConfigDir
 	dir := t.TempDir()
@@ -34,7 +34,7 @@ func TestReadSessionLabel(t *testing.T) {
 	if got, ok := ReadSessionLabel(); !ok || got != "label-1" {
 		t.Fatalf("라벨 읽기: got=%q ok=%v", got, ok)
 	}
-	// 다중 세션 — mtime 최신 파일 채택(last-writer-wins 승계).
+	// multiple sessions — the newest-mtime file is adopted (inheriting last-writer-wins).
 	old := time.Now().Add(-time.Hour)
 	if err := os.Chtimes(SessionLabelFile("sess-1"), old, old); err != nil {
 		t.Fatal(err)
@@ -47,9 +47,9 @@ func TestReadSessionLabel(t *testing.T) {
 	}
 }
 
-// TestSessionLabelLegacyIgnored — 구 session-current
-// 잔존 파일은 무시 — 폴백 읽기 없음(라벨 부재), PruneSessionLabels 청산
-// 대상도 아니다(사용자 디스크 파일 미삭제).
+// TestSessionLabelLegacyIgnored — the legacy session-current residual file is
+// ignored — no fallback read (label absent), and it is not a PruneSessionLabels
+// cleanup target either (user-disk files are not deleted).
 func TestSessionLabelLegacyIgnored(t *testing.T) {
 	saved := ConfigDir
 	dir := t.TempDir()

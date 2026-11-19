@@ -5,39 +5,39 @@ import (
 	"unicode/utf8"
 )
 
-// truncatedSuffix — ClampHot 절단 시 붙는 접미사.
+// truncatedSuffix — the suffix attached when ClampHot truncates.
 const truncatedSuffix = "…[truncated]"
 
-// HotSQL는 hot_view 조회 SQL을 반환한다(활성 프로젝트+pending+최근 결정 7일).
-// sessionID는 hot_view에 session_id 컬럼이 없어 서명 호환용으로만 받는다.
-// 단일 정의: 말미에 id·valid_at·ingested_at까지 함께 조회 —
-// 증분 id·pending 대기일수 접미를 동반 질의 없이 이 질의 하나로 소비한다.
-// tie-break ", id DESC"(CI 39713526850 룰링)는 유지: 동률 ts에서 플래너
-// 임의 순서로는 주입 순서가 흔들린다 — hot_view 말미의 id로 완전 순서를
-// 만들어 출력·증분이 같은 행 집합·순서를 보게 한다.
+// HotSQL returns the hot_view query SQL (active projects + pending + recent
+// decisions from the last 7 days). sessionID is accepted only for signature
+// compatibility (hot_view has no session_id column).
+// A single definition: the trailing id, valid_at, and ingested_at are selected too —
+// the increment ids and the pending-waiting-days suffix are consumed from this one
+// query, without a companion query. The tie-break ", id DESC" (CI 39713526850
+// ruling) is kept: with planner-arbitrary order among tied ts, the injection order wobbles — hot_view's trailing id creates a total order so the output and increment see the same row set and order.
 func HotSQL(sessionID string) string {
 	_ = sessionID
-	limit := ClampLimit(0) // 토큰 예산: 기본 10
+	limit := ClampLimit(0) // token budget: default 10
 	return "SELECT kind, topic, summary, ts, id, valid_at, ingested_at FROM hot_view ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(limit)
 }
 
-// hotHeadlineLimit — 헤드라인(카운트) 경로 행 상한. 주입 예산(ClampLimit
-// 기본 10)과 달리 카운트가 목적이라 넉넉히(상한 10에서 카운트를 내며
-// 활성 20이 '활성 10'으로, 상위 10행에 밀린
-// pending이 '대기 0'으로 왜곡되던 결함).
+// hotHeadlineLimit — the row cap for the headline (counts) path. Unlike the
+// injection budget (ClampLimit default 10), counting is the purpose, so it is
+// generous (the defect where, at a cap of 10, active 20 was reported as 'active
+// 10' and pending pushed out of the top 10 rows was reported as 'pending 0').
 const hotHeadlineLimit = 50
 
-// HotHeadlineSQL — hot_view 조회 중 헤드라인 경로용(상한 hotHeadlineLimit).
-// 주입(--full) 경로는 HotSQL(예산 상한)을 그대로 쓴다 — 출력 예산·생존
-// 판정 계약 불변.
+// HotHeadlineSQL — the hot_view query for the headline path (cap
+// hotHeadlineLimit). The injection (--full) path uses HotSQL (the budget cap)
+// as-is — the output-budget and survival-judgment contracts unchanged.
 func HotHeadlineSQL(sessionID string) string {
 	_ = sessionID
-	// id 노출 — 헤드라인 주입 id 전수(knowledge_reads kind=hot
-	// 기록 원천). --full의 id 노출과 동일 계약.
+	// id exposure — the headline's full set of injected ids (the recording source of
+	// knowledge_reads kind=hot). The same contract as --full's id exposure.
 	return "SELECT kind, topic, summary, ts, id FROM hot_view ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(hotHeadlineLimit)
 }
 
-// ClampHot는 s가 max rune을 넘으면 max로 절단하고 접미사를 붙인다.
+// ClampHot truncates s to max runes when exceeded and attaches the suffix.
 func ClampHot(s string, max int) string {
 	if utf8.RuneCountInString(s) <= max {
 		return s

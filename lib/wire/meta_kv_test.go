@@ -1,7 +1,7 @@
-// meta_kv_test.go — meta KV 라운드트립. 기본 metaKVFake, SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN 설정 시 poolStore로 실DB 경유(seam 검증).
-// wire_test 외부 패키지 — wire가 lib/db를 import하는 T3 이후 내부 테스트는
-// import cycle로 빌드 불가.
+// meta_kv_test.go — the meta KV round trip. Default metaKVFake; with SUPERLITE_REAL=1 +
+// FLINT_TEST_DSN set, goes through the real DB via poolStore (seam verification).
+// An external wire_test package — after T3, when wire imports lib/db, internal tests
+// cannot build due to the import cycle.
 package wire_test
 
 import (
@@ -19,9 +19,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// metaKVFake — meta 테이블을 map으로 시뮬레이션하는 Store fake.
-// meta.go의 SQL 의미(단일 키 SELECT·$1/$2 upsert·$1/'1' 원자 증분)를
-// 그대로 적용한다. HistoryStubs 임베딩으로 히스토리 5메서드 흡수.
+// metaKVFake — a Store fake simulating the meta table with a map.
+// It applies meta.go's SQL semantics as-is (single-key SELECT, $1/$2 upsert,
+// $1/'1' atomic increment). The HistoryStubs embedding absorbs the 5 history methods.
 type metaKVFake struct {
 	meta    map[string]string
 	queries []string
@@ -54,7 +54,7 @@ func (f *metaKVFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 		}
 		return nil, nil
 	case strings.Contains(sql, "INSERT INTO meta") && strings.Contains(sql, "'1')"):
-		// 원자 증분 upsert — 기존값이 양의 정수 표기면 +1, 아니면 1 리셋.
+		// the atomic increment upsert — if the existing value is a positive-integer notation, +1; otherwise reset to 1.
 		k := fmt.Sprint(args[0])
 		if n, err := strconv.Atoi(f.meta[k]); err == nil && n >= 0 {
 			f.meta[k] = strconv.Itoa(n + 1)
@@ -69,8 +69,8 @@ func (f *metaKVFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 	return nil, nil
 }
 
-// poolStore — 실DB seam용 최소 Store(읽기·쓰기는 풀 Query 위임).
-// HistoryStubs 임베딩으로 히스토리 5메서드 흡수.
+// poolStore — the minimal Store for the real-DB seam (reads and writes delegate to the pool Query).
+// The HistoryStubs embedding absorbs the 5 history methods.
 type poolStore struct {
 	pool *pgxpool.Pool
 	wire.HistoryStubs
@@ -108,8 +108,8 @@ func (p *poolStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return out, rows.Err()
 }
 
-// seamRealDSN — SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만 실DB 접속
-// 허용(운영 폴백 차단 — cli seamRealDSN N1 계약 승계).
+// seamRealDSN — allows a real DB connection only when SUPERLITE_REAL=1 + FLINT_TEST_DSN
+// are set (blocking the production fallback — inheriting the cli seamRealDSN N1 contract).
 func seamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -121,8 +121,8 @@ func seamRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// metaKVStore — 기본 metaKVFake, SUPERLITE_REAL=1이면 poolStore로 실구현
-// 경로 반환(생산자 Store의 실코드 seam). 실DB 미기동 시 스킵.
+// metaKVStore — the default metaKVFake; with SUPERLITE_REAL=1, returns the real
+// implementation path via poolStore (the real-code seam of the producer Store). Skips without a running real DB.
 func metaKVStore(t *testing.T, f *metaKVFake) wire.Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {
@@ -137,7 +137,7 @@ func metaKVStore(t *testing.T, f *metaKVFake) wire.Store {
 	return f
 }
 
-// metaKVCleanup — 실DB seam 실행 시 테스트 키 원복(로컬 map은 불필요).
+// metaKVCleanup — restores the test keys when the real-DB seam runs (unnecessary for the local map).
 func metaKVCleanup(t *testing.T, st wire.Store, keys ...string) {
 	t.Helper()
 	if _, real := seamRealDSN(); !real {
@@ -152,10 +152,10 @@ func metaKVCleanup(t *testing.T, st wire.Store, keys ...string) {
 	}
 }
 
-// TestMetaKVStoreRoundtrip — SetMetaKV 후 GetMetaKV 왕복.
-// 신규 키 set→get·갱신 upsert 덮어쓰기·미존재 키 ("", false).
-// 이름 참고: TestMetaKVRoundtrip은 v0140_fix_test.go(cli)가 클로저
-// 왕복으로 이미 사용 — 스펙 지정명과 충돌해 Store 직접 왕복임을 드러낸다.
+// TestMetaKVStoreRoundtrip — the SetMetaKV then GetMetaKV round trip.
+// A new-key set->get, an update-upsert overwrite, and a missing key
+// ("", false). Naming note: TestMetaKVKoundtrip was already used by v0140_fix_test.go
+// (cli) for the closure round trip — the name reveals this is the direct Store round trip.
 func TestMetaKVStoreRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	f := &metaKVFake{meta: map[string]string{}}
@@ -179,8 +179,8 @@ func TestMetaKVStoreRoundtrip(t *testing.T) {
 	}
 }
 
-// bumpFailFake — 증분 upsert SQL에서 오류를 돌려주는 metaKVFake 래퍼.
-// Query 호출 수를 세어 재시도 여부를 가린다.
+// bumpFailFake — a metaKVFake wrapper returning an error from the increment-upsert SQL.
+// Counts the Query calls to detect any retry.
 type bumpFailFake struct {
 	metaKVFake
 	calls int
@@ -194,10 +194,10 @@ func (f *bumpFailFake) Query(ctx context.Context, sql string, args ...any) ([][]
 	return f.metaKVFake.Query(ctx, sql, args...)
 }
 
-// TestBumpMetaKVRunsSingleAttempt — 증분은
-// 비멱등이라 Query 실패 시에도 단발 실행(총 Query 1회)이어야 한다.
-// QueryOnce 재시도는 모호 실패(서버에서 실행된 뒤 응답만 유실)에서
-// 증분을 이중 계상한다.
+// TestBumpMetaKVRunsSingleAttempt — the increment is non-idempotent,
+// so even on a Query failure it must be a single attempt (1 total Query).
+// A QueryOnce retry would double-count the increment on an ambiguous failure
+// (executed on the server, only the response lost).
 func TestBumpMetaKVRunsSingleAttempt(t *testing.T) {
 	ctx := context.Background()
 	f := &bumpFailFake{metaKVFake: metaKVFake{meta: map[string]string{}}}

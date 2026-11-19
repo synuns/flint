@@ -1,5 +1,5 @@
-// CellToTime·QuoteJSON의 단일 구현(wire) 행위 + 전 repo 단일 소스 가드
-// (지식·ops 소비자는 복제 func 정의 없이 별칭 위임만 허용).
+// The single-implementation (wire) behavior of CellToTime and QuoteJSON + a
+// whole-repo single-source guard (knowledge/ops consumers may only alias-delegate, with no duplicated func definitions).
 package wire
 
 import (
@@ -49,10 +49,10 @@ func TestCellToTimeQuoteJSONSingle(t *testing.T) {
 	})
 }
 
-// TestBackupEncryptOnSingle — 술어 수렴.
-// wire.BackupEncryptOn 행위("true"·"1"만 참) + 전 repo 단일 소스 가드
-// (func 정의는 wire/util.go 단일 분만 허용 — knowledge 로컬 복제·ops
-// func 위임 금지, 소비자는 var 별칭 위임만).
+// TestBackupEncryptOnSingle — predicate convergence.
+// wire.BackupEncryptOn's behavior (true only for "true" and "1") + a whole-repo
+// single-source guard (only the single func definition in wire/util.go is allowed —
+// no knowledge-local copies or ops func delegations; consumers may only delegate via var aliases).
 func TestBackupEncryptOnSingle(t *testing.T) {
 	t.Run("행위 — true·1만 참", func(t *testing.T) {
 		for _, v := range []string{"true", "1"} {
@@ -77,7 +77,7 @@ func TestBackupEncryptOnSingle(t *testing.T) {
 				return nil
 			}
 			if filepath.Base(path) == "util.go" && filepath.Base(filepath.Dir(path)) == "wire" {
-				return nil // 단일 구현 소유분
+				return nil // the single-implementation owner
 			}
 			b, err := os.ReadFile(path)
 			if err != nil {
@@ -96,9 +96,9 @@ func TestBackupEncryptOnSingle(t *testing.T) {
 	})
 }
 
-// TestCellToTimeQuoteJSONNoLocalCopies — lib 전체(비테스트) 소스에서
-// CellToTime·QuoteJSON의 func 정의는 wire/util.go 단일 분만 허용한다.
-// 소비자(knowledge·ops)는 var 별칭 위임이어야 한다(복제 부채 재발 가드).
+// TestCellToTimeQuoteJSONNoLocalCopies — across all lib (non-test) sources, the
+// func definitions of CellToTime and QuoteJSON are allowed only in the single wire/util.go
+// spot. Consumers (knowledge, ops) must delegate via var aliases (a guard against duplicated-debt recurrence).
 func TestCellToTimeQuoteJSONNoLocalCopies(t *testing.T) {
 	names := []string{"CellToTime", "cellToTime", "QuoteJSON", "quoteJSON"}
 	root := filepath.Join("..", "..", "lib")
@@ -110,7 +110,7 @@ func TestCellToTimeQuoteJSONNoLocalCopies(t *testing.T) {
 			return nil
 		}
 		if filepath.Base(path) == "util.go" && filepath.Base(filepath.Dir(path)) == "wire" {
-			return nil // 단일 구현 소유분
+			return nil // the single-implementation owner
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {

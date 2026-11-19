@@ -1,4 +1,4 @@
-// rank_v0130_test.go — 채택 재랭킹: read_count 최종 타이브레이크.
+// rank_v0130_test.go — adoption reranking: read_count as the final tiebreaker.
 package query
 
 import (
@@ -7,18 +7,18 @@ import (
 )
 
 func TestRankOrderEndsWithReadCount(t *testing.T) {
-	got := RankOrder(2) // 파라미터 인덱스
+	got := RankOrder(2) // the parameter index
 	if !strings.Contains(got, "last_read_at DESC NULLS LAST, read_count DESC") {
 		t.Errorf("read_count 타이브레이커 누락: %s", got)
 	}
 }
 
-// TestFallbackReorderByAdoption — 폴백 재랭킹 2차 타이브레이크: 정합수
-// 내림 차순 후 read_count DESC. 동률(정합수·read_count 모두)은 기존
-// 조회 순서를 보존한다.
+// TestFallbackReorderByAdoption — the fallback rerank's secondary tiebreaker:
+// descending match count, then read_count DESC. Ties (both match count and
+// read_count equal) preserve the existing query order.
 func TestFallbackReorderByAdoption(t *testing.T) {
-	// RRF 융합 의미론 — 다중 신호 기여 행이 단일 신호 우위 행을 이긴다.
-	// 채택 신호가 순위에 반영·동률은 기존 순서 보존.
+	// RRF fusion semantics — a multi-signal-contribution row beats a single-signal-dominant row.
+	// The adoption signal is reflected in the ranking; ties preserve the existing order.
 	rows := [][]any{
 		{int32(1), "flint 백업", "복구 절차", ":a:", nil, "main", 0.9, "active", int32(0)}, // match2·rc0·jamo2
 		{int32(2), "flint 백업", "복구 절차", ":a:", nil, "main", 0.8, "active", int32(5)}, // match2·rc5·jamo2
@@ -29,7 +29,7 @@ func TestFallbackReorderByAdoption(t *testing.T) {
 	if rows[0][0] != int32(2) {
 		t.Errorf("3신호 전부 상위 행이 첫 자리 아님: %v", rows[0][0])
 	}
-	// 3·4(3신호 소액 기여)는 1(2신호)보다 위 — RRF 다중 기여 속성.
+	// rows 3 and 4 (small contributions over 3 signals) beat row 1 (2 signals) — the RRF multi-contribution property.
 	if rows[1][0] != int32(3) || rows[2][0] != int32(4) {
 		t.Errorf("다중 신호 행 우선 위반: %v then %v", rows[1][0], rows[2][0])
 	}

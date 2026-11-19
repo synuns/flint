@@ -7,9 +7,9 @@ import (
 	"time"
 )
 
-// Normalize는 kind 입력값을 저장 규격으로 정규화한 새 맵을 반환한다.
-// tags []string → 정렬 후 ":a:b:" 단일 문자열, 타임스탬프는 UTC,
-// knowledge의 domain·origin 기본값과 valid_at 미지정 시 now를 채운다.
+// Normalize returns a new map with the kind input values normalized to the
+// storage format. tags []string -> a single ":a:b:" string after sorting;
+// timestamps to UTC; fills knowledge's domain and origin defaults and now when valid_at is unspecified.
 func Normalize(kind string, p map[string]any) map[string]any {
 	out := make(map[string]any, len(p)+3)
 	for k, v := range p {
@@ -37,7 +37,7 @@ func Normalize(kind string, p map[string]any) map[string]any {
 	return out
 }
 
-// normalizeTags — 정렬 후 ":a:b:" 형식으로. 빈 태그면 빈 문자열.
+// normalizeTags — sorted, then in ":a:b:" form. Empty tags yield the empty string.
 func normalizeTags(v any) string {
 	var tags []string
 	switch t := v.(type) {
@@ -59,7 +59,7 @@ func normalizeTags(v any) string {
 	return ":" + strings.Join(tags, ":") + ":"
 }
 
-// toUTC — RFC3339 문자열을 UTC로 정규화. 파싱 불가면 원값 그대로.
+// toUTC — normalizes an RFC3339 string to UTC. Unparsable values pass through as-is.
 func toUTC(v any) any {
 	s, ok := v.(string)
 	if !ok {
@@ -72,23 +72,23 @@ func toUTC(v any) any {
 	return t.UTC().Format(time.RFC3339Nano)
 }
 
-// CanonicalJSON은 키 정렬 직렬화해 해시 안정성을 보장한다.
+// CanonicalJSON serializes with sorted keys, guaranteeing hash stability.
 // e.g. CanonicalJSON({"b":1,"a":2}) -> `{"a":2,"b":1}`
 func CanonicalJSON(p map[string]any) string {
-	b, err := json.Marshal(p) // encoding/json은 map 키를 정렬한다
+	b, err := json.Marshal(p) // encoding/json sorts map keys
 	if err != nil {
 		return ""
 	}
 	return string(b)
 }
 
-// hashVolatile — 해시 계산 시 제외하는 휘발성 필드. valid_at은 Normalize가
-// 미지정 시 now로 주입하고 ts는 시각 그 자체라, 해시에 포함하면 동일 payload의
-// 재전송(시딩 멱등)이 duplicate로 판정되지 않는다.
+// hashVolatile — the volatile fields excluded from hash computation. valid_at is
+// injected as now by Normalize when unspecified, and ts is the time itself;
+// including them in the hash would keep a resend of the same payload (seeding idempotence) from being judged duplicate.
 var hashVolatile = map[string]bool{"valid_at": true, "ts": true}
 
-// HashCanonical은 휘발성 필드(valid_at, ts)를 제외한 canonical JSON을 반환한다.
-// ContentHash의 입력은 반드시 이 경로를 거쳐야 한다.
+// HashCanonical returns the canonical JSON excluding the volatile fields
+// (valid_at, ts). ContentHash input must always go through this path.
 func HashCanonical(p map[string]any) string {
 	m := make(map[string]any, len(p))
 	for k, v := range p {

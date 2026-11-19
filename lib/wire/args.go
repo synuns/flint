@@ -1,72 +1,72 @@
-// args.go — 사양 테이블 기반 인자 mini-parser.
-// 커맨드별 수동 for-switch 루프(토큰 순회·값 소비·"--" 판정·unknown
-// 오류의 12곳 중복)를 플래그 정의 테이블{이름·값 유무·반복 허용} →
-// 구조화 결과 1값으로 수렴한다. 파서는 토큰화만 담당 — 값 검증(숫자·
-// 허용값·빈 값)은 호출부 계약 그대로 남는다(오류 문구·exit 코드 불변).
+// args.go — a spec-table-based argument mini-parser.
+// It converges the per-command manual for-switch loops (token traversal, value consumption,
+// "--" handling, and the unknown-error logic duplicated across 12 places) into one
+// structured result from a flag-definition table {name, takes a value, repeatable}. The parser only tokenizes — value validation (numbers,
+// allowed values, empty values) stays with the caller's contract (error wording and exit codes unchanged).
 //
-// 보존 시맨틱(전환 커맨드 기존 버전 테스트가 최종 증명):
-//   - DashDash=true: "--" 이후 전부 위치 인자 — 플래그 형태 토큰도
-//     플래그로 파싱하지 않는다(read 관례). DashDash=false면 "--"는
-//     특별 토큰이 아니다(write: 위치 인자 흡수·엄격 커맨드: unknown).
-//   - 값 소비: 값 플래그는 다음 토큰을 무조건 소비("-" 접두·플래그명
-//     여부와 무관 — read --tag --json 계열). trailing 값 플래그는 발생만
-//     기록(HasValue=false, Value="") — 호출부 빈 값 검증이 exit를 정한다.
-//   - 반복: 어느 플래그이든 중복 지정은 거부하지 않고 마지막 값 우선
-//     (전 커맨드 기존 동작). Repeat=true 선언 플래그는 Occs로 발생
-//     순서 전체를 소비한다.
-//   - unknown: 미인식 토큰은 UsageErrorf("unknown flag: …") — ErrLine
-//     분류 error:"usage", 호출부 exit 3. AllowPositional·DashPositional로
-//     위치 인자 헡수 여부를 사양이 정한다(read: 무접두만 흡수 · write:
-//     전부 흡수 · doctor·report 계열: 흡수 없음).
+// Preserved semantics (the migrated commands' existing version tests are the final proof):
+//   - DashDash=true: everything after "--" is positional — even flag-shaped tokens
+//     are not parsed as flags (the read convention). With DashDash=false, "--" is not
+//     a special token (write: absorbed as positional; strict commands: unknown).
+//   - Value consumption: a value flag unconditionally consumes the next token
+//     (regardless of a "-" prefix or a flag name — the read --tag --json family).
+//     A trailing value flag only records its occurrence (HasValue=false, Value="")
+//     — the caller's empty-value validation decides the exit.
+//   - Repetition: any flag's duplicate specification is not rejected; the last value
+//     wins (the pre-existing behavior of every command). Flags declared Repeat=true
+//     consume the full occurrence order via Occs.
+//   - Unknown: unrecognized tokens get UsageErrorf("unknown flag: ...") — the ErrLine
+//     classification error:"usage", caller exit 3. AllowPositional and DashPositional
+//     let the spec decide positional absorption (read: only prefix-less absorbed; write: all absorbed; the doctor/report family: none).
 package wire
 
 import "strings"
 
-// FlagSpec — 플래그 정의 1건(이름·값 유무·반복 허용).
+// FlagSpec — one flag definition (name, takes a value, repeatable).
 type FlagSpec struct {
-	Name   string // "--json" — 대시 포함 정식명
-	Value  bool   // 참이면 다음 토큰을 값으로 소비
-	Repeat bool   // 반복 허용 선언(Occs 순서 소비 — 파싱 거부 없음)
+	Name   string // the formal name including dashes, e.g. "--json"
+	Value  bool   // when true, consumes the next token as its value
+	Repeat bool   // the repeatable declaration (consumes the Occs order — no parse rejection)
 }
 
-// ArgSpec — 커맨드별 인자 사양 테이블.
+// ArgSpec — the per-command argument spec table.
 type ArgSpec struct {
 	Flags []FlagSpec
-	Usage string // unknown flag 오류 접미("usage: flint …") — 빈 값이면 접미 없음
-	// 참이면 "--" 이후 전부 위치 인자(플래그 파싱 종결).
+	Usage string // the unknown-flag error suffix ("usage: flint ...") — empty means no suffix
+	// when true, everything after "--" is positional (flag parsing terminates).
 	DashDash bool
-	// 미인식 토큰의 위치 인자 흡수 허용. 거짓이면 무접두 토큰도 unknown
-	// flag 오류(doctor·report·audit 계열).
+	// allows unrecognized tokens to be absorbed as positional. When false, even
+	// prefix-less tokens are unknown-flag errors (the doctor/report/audit family).
 	AllowPositional bool
-	// '-' 접두 미인식 토큰도 위치 인자로 흡수(write 계열). AllowPositional
-	// && !DashPositional이면 '-' 접두는 unknown flag 오류(read 계열).
+	// '-'-prefixed unrecognized tokens are also absorbed as positional (the write
+	// family). With AllowPositional && !DashPositional, a '-' prefix is an
 	DashPositional bool
 }
 
-// ArgOcc — 플래그 발생 1건(발생 순서·args 인덱스 보존 — 모드 선출·
-// 오류 순서 재현 소비자용).
+// ArgOcc — one flag occurrence (occurrence order and args index preserved — for
+// mode election and error-order reproduction consumers).
 type ArgOcc struct {
 	Name     string
-	Value    string // 값 플래그: 소비한 값(부재 "")
-	HasValue bool   // 값 토큰이 뒤따랐는가(trailing 판별)
-	Index    int    // 플래그 토큰의 args 내 위치
+	Value    string // a value flag: the consumed value (\"\" if absent)
+	HasValue bool   // whether a value token followed (trailing detection)
+	Index    int    // the flag token's position within args
 }
 
-// PosTok — 위치 인자 토큰(순서·인덱스 보존 — profile 위치 값 병합용).
+// PosTok — a positional token (order and index preserved — for the profile positional-value merge).
 type PosTok struct {
 	Value string
 	Index int
 }
 
-// ArgResult — 구조화 파싱 결과(불변 값 객체).
+// ArgResult — the structured parse result (an immutable value object).
 type ArgResult struct {
 	occ    []ArgOcc
 	byName map[string][]ArgOcc
 	pos    []PosTok
 }
 
-// ParseArgs — args를 사양 테이블로 파싱. 미인식 토큰은 *UsageError
-// (호출부: ErrLine 1줄 + exit 3 관례).
+// ParseArgs — parses args against the spec table. Unrecognized tokens yield a
+// *UsageError (caller convention: 1 ErrLine + exit 3).
 func ParseArgs(args []string, spec ArgSpec) (*ArgResult, error) {
 	flags := make(map[string]FlagSpec, len(spec.Flags))
 	for _, f := range spec.Flags {
@@ -79,7 +79,7 @@ func ParseArgs(args []string, spec ArgSpec) (*ArgResult, error) {
 	}
 	for i := 0; i < len(args); i++ {
 		a := args[i]
-		// "--" 이후 전부 위치 인자 — 이하 플래그 판정 없음.
+		// after "--" everything is positional — no further flag detection.
 		if a == "--" && spec.DashDash {
 			for j, p := range args[i+1:] {
 				res.pos = append(res.pos, PosTok{Value: p, Index: i + 1 + j})
@@ -107,14 +107,14 @@ func ParseArgs(args []string, spec ArgSpec) (*ArgResult, error) {
 	return res, nil
 }
 
-// Given — 플래그가 1회 이상 지정됐는가.
+// Given — whether the flag was specified at least once.
 func (r *ArgResult) Given(name string) bool { return r.Count(name) > 0 }
 
-// Count — 발생 횟수(반복 플래그).
+// Count — the occurrence count (repeatable flags).
 func (r *ArgResult) Count(name string) int { return len(r.byName[name]) }
 
-// Value — 마지막 값(전 커맨드 마지막 값 우선 시맨틱 승계. 미지정·
-// trailing 값 부재는 "").
+// Value — the last value (inheriting the every-command last-value-wins
+// semantics. Unspecified or a missing trailing value is "").
 func (r *ArgResult) Value(name string) string {
 	occs := r.byName[name]
 	if len(occs) == 0 {
@@ -123,8 +123,8 @@ func (r *ArgResult) Value(name string) string {
 	return occs[len(occs)-1].Value
 }
 
-// HasValue — 마지막 발생이 값 토큰을 가졌는가(trailing 값 플래그와
-// 구별 — 호출부 "requires a value" 오류 재현용).
+// HasValue — whether the last occurrence had a value token (distinguished from
+// a trailing value flag — for reproducing the caller's "requires a value" error).
 func (r *ArgResult) HasValue(name string) bool {
 	occs := r.byName[name]
 	if len(occs) == 0 {
@@ -133,14 +133,14 @@ func (r *ArgResult) HasValue(name string) bool {
 	return occs[len(occs)-1].HasValue
 }
 
-// Occs — 플래그 발생 전체(발생 순서·인덱스 보존 — Repeat 선언 소비자).
+// Occs — all the flag's occurrences (order and index preserved — for Repeat-declared consumers).
 func (r *ArgResult) Occs(name string) []ArgOcc { return r.byName[name] }
 
-// AllOccs — 모든 플래그 발생의 교차 순서 로그(값 검증을 인카운터 순서로
-// 재현하는 소비자용 — maintain 계열).
+// AllOccs — the interleaved-order log of all flag occurrences (for consumers
+// reproducing value validation in encounter order — the maintain family).
 func (r *ArgResult) AllOccs() []ArgOcc { return r.occ }
 
-// FlagOrder — 플래그 발생 순 로그(모드 선출·오류 순서 재현용).
+// FlagOrder — the flag occurrence order log (for mode election and error-order reproduction).
 func (r *ArgResult) FlagOrder() []string {
 	out := make([]string, 0, len(r.occ))
 	for _, o := range r.occ {
@@ -149,10 +149,10 @@ func (r *ArgResult) FlagOrder() []string {
 	return out
 }
 
-// PosToks — 위치 인자 토큰 전체(순서·인덱스 보존).
+// PosToks — all positional tokens (order and index preserved).
 func (r *ArgResult) PosToks() []PosTok { return r.pos }
 
-// Positional — 위치 인자 값 슬라이스(순서 보존).
+// Positional — the positional values slice (order preserved).
 func (r *ArgResult) Positional() []string {
 	out := make([]string, 0, len(r.pos))
 	for _, p := range r.pos {

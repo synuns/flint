@@ -2,9 +2,9 @@ package store
 
 import "testing"
 
-// TestRrfKOverrideRange — rrf_k 오버라이드는 양수 전범위
-// 허용 — 0~1 클램프 파서를 공유하면 기본값 60이 전부 기각되어 오버라이드가
-// 불가했다(30 설정→60 복귀 실증).
+// TestRrfKOverrideRange — the rrf_k override allows the full positive
+// range — sharing the 0..1 clamping parser would reject the default 60 entirely,
+// making an override impossible (demonstrated: setting 30 reverted to 60).
 func TestRrfKOverrideRange(t *testing.T) {
 	rows := [][2]any{
 		{"rrf_k", "30"}, {"rrf_k", "120.5"}, {"rrf_k", "0.5"},

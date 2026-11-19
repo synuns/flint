@@ -5,7 +5,7 @@ import (
 	"time"
 )
 
-// TestNormalizeTagsSorted — 태그는 정렬 후 ":a:b:" 단일 문자열이어야 한다(해시 안정).
+// TestNormalizeTagsSorted — tags must become a single ":a:b:" string after sorting (hash stability).
 func TestNormalizeTagsSorted(t *testing.T) {
 	in := map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
 		"tags": []any{"b", "a"}}
@@ -15,7 +15,7 @@ func TestNormalizeTagsSorted(t *testing.T) {
 	}
 }
 
-// TestNormalizeDefaults — 기본값 3종: domain main, origin agent, valid_at now.
+// TestNormalizeDefaults — the 3 defaults: domain main, origin agent, valid_at now.
 func TestNormalizeDefaults(t *testing.T) {
 	got := Normalize("knowledge", map[string]any{"topic": "x", "summary": "y", "confidence": 0.9})
 	if got["domain"] != "main" {
@@ -33,7 +33,7 @@ func TestNormalizeDefaults(t *testing.T) {
 	}
 }
 
-// TestNormalizeTimestampsUTC — 명시된 타임스탬프는 UTC로 정규화.
+// TestNormalizeTimestampsUTC — explicit timestamps are normalized to UTC.
 func TestNormalizeTimestampsUTC(t *testing.T) {
 	got := Normalize("knowledge", map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
 		"valid_at": "2026-10-21T10:00:00+09:00"})
@@ -42,7 +42,7 @@ func TestNormalizeTimestampsUTC(t *testing.T) {
 	}
 }
 
-// TestNormalizeDoesNotMutateInput — 원본 맵은 변경하지 않는다.
+// TestNormalizeDoesNotMutateInput — the original map is not mutated.
 func TestNormalizeDoesNotMutateInput(t *testing.T) {
 	in := map[string]any{"tags": []any{"b", "a"}}
 	Normalize("knowledge", in)
@@ -51,7 +51,7 @@ func TestNormalizeDoesNotMutateInput(t *testing.T) {
 	}
 }
 
-// TestCanonicalJSONKeyOrder — 키 정렬 직렬화.
+// TestCanonicalJSONKeyOrder — serialized with sorted keys.
 func TestCanonicalJSONKeyOrder(t *testing.T) {
 	got := CanonicalJSON(map[string]any{"b": 1, "a": 2})
 	want := `{"a":2,"b":1}`
@@ -60,10 +60,10 @@ func TestCanonicalJSONKeyOrder(t *testing.T) {
 	}
 }
 
-// TestCanonicalJSONStable — 직렬화는 호출마다 동일해야 한다(해시 안정 선행 조건).
+// TestCanonicalJSONStable — serialization must be identical across calls (a hash-stability precondition).
 func TestCanonicalJSONStable(t *testing.T) {
 	p := map[string]any{"topic": "x", "tags": []any{"b", "a"}, "n": 1.5}
-	a, b := CanonicalJSON(p), CanonicalJSON(p) // 2회 호출 비교(비결정성 탐지)
+	a, b := CanonicalJSON(p), CanonicalJSON(p) // comparing 2 calls (detecting non-determinism)
 	if a != b {
 		t.Error("CanonicalJSON 비결정적 출력")
 	}

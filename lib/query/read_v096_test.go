@@ -27,8 +27,8 @@ func TestFallbackMatchCount(t *testing.T) {
 	}
 }
 
-// TestTokenizeQueryCapsAtEight — 토큰 상한 8(스캔 비용 가드): 9개 이상
-// 입력은 처음 8개만.
+// TestTokenizeQueryCapsAtEight — the token cap of 8 (a scan-cost guard): inputs of
+// 9+ tokens keep only the first 8.
 func TestTokenizeQueryCapsAtEight(t *testing.T) {
 	got := tokenizeQuery("a b c d e f g h i j")
 	want := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
@@ -37,8 +37,8 @@ func TestTokenizeQueryCapsAtEight(t *testing.T) {
 	}
 }
 
-// TestBuildReadFallbackSkipsSingleToken — 1-토큰 질의는 구문 매칭과
-// 동질이라 폴백 생략(ok=false).
+// TestBuildReadFallbackSkipsSingleToken — a 1-token query is identical to phrase
+// matching, so the fallback is skipped (ok=false).
 func TestBuildReadFallbackSkipsSingleToken(t *testing.T) {
 	if _, _, ok := BuildReadFallback("백업", queryDefaultFilters()); ok {
 		t.Errorf("1-토큰 질의에 폴백 조립됨")
@@ -48,8 +48,8 @@ func TestBuildReadFallbackSkipsSingleToken(t *testing.T) {
 	}
 }
 
-// TestBuildReadFallbackEscapesLike — 토큰의 % _ \ 는 리터럴로 이스케이프
-// 되고 필터·limit 인자가 뒤따른다.
+// TestBuildReadFallbackEscapesLike — the tokens' %, _, and \\ are escaped as
+// literals, and the filter and limit arguments follow.
 func TestBuildReadFallbackEscapesLike(t *testing.T) {
 	sql, args, ok := BuildReadFallback("a%b c_d", Filters{Tag: "t", Limit: 99})
 	if !ok {
@@ -64,14 +64,14 @@ func TestBuildReadFallbackEscapesLike(t *testing.T) {
 	if !strings.Contains(sql, " OR ") || !strings.Contains(sql, "FROM active_knowledge") {
 		t.Errorf("폴백 SQL 형태 오류: %q", sql)
 	}
-	// 마지막 인자는 ClampLimit 상한(99 → 50).
+	// the last argument is the ClampLimit cap (99 -> 50).
 	if last, ok := args[len(args)-1].(int); !ok || last != 50 {
 		t.Errorf("limit 인자 = %v, want 50", args[len(args)-1])
 	}
 }
 
-// TestReorderByFallbackCountStableTies — 동률은 조회 순(RankOrder 순)을
-// 유지한다(SliceStable 계약).
+// TestReorderByFallbackCountStableTies — ties keep the query order (the
+// RankOrder order) (the SliceStable contract).
 func TestReorderByFallbackCountStableTies(t *testing.T) {
 	rows := [][]any{
 		{int32(1), "백업", "요약1", ":a:", nil, "main", 0.9, "active"},              // 정합수 1
@@ -87,5 +87,5 @@ func TestReorderByFallbackCountStableTies(t *testing.T) {
 	}
 }
 
-// queryDefaultFilters — 기본 Filters(테스트 국소).
+// queryDefaultFilters — the default Filters (test-local).
 func queryDefaultFilters() Filters { return Filters{} }

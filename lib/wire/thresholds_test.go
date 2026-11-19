@@ -1,9 +1,9 @@
-// thresholds_test.go — 공용 헬퍼 검증. 기본 fake,
-// SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시 poolStore로 실DB 경유
-// (meta_kv_test.go seam 헬퍼 승계). TestLoadThresholdsFallback
-// (미설정·조회 실패 시 DefaultThresholds 폴백 — 기존 cli 관례와 동일 결과).
-// wire_test 외부 패키지 — wire가 lib/db를 import하는 T3 이후 내부 테스트는
-// import cycle로 빌드 불가.
+// thresholds_test.go — shared-helper verification. Default fake; with
+// SUPERLITE_REAL=1 + FLINT_TEST_DSN set, goes through the real DB via poolStore
+// (inheriting the meta_kv_test.go seam helpers). TestLoadThresholdsFallback
+// (unset and lookup failure fall back to DefaultThresholds — the same result as the
+// existing cli convention). An external wire_test package — after T3, when wire
+// imports lib/db, internal tests cannot build due to the import cycle.
 package wire_test
 
 import (
@@ -17,9 +17,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// thresholdsFake — metaKVFake에 thresholds IN 조회 라우팅 추가.
-// LoadThresholds의 `SELECT key, value FROM meta WHERE key IN (...)`를
-// meta 맵에서 thresholds 키만 골라 응답한다(나머지는 임베디드 위임).
+// thresholdsFake — metaKVFake with thresholds IN-lookup routing added.
+// LoadThresholds's `SELECT key, value FROM meta WHERE key IN (...)` answers
+// from the meta map selecting only the thresholds keys (the rest delegates to the embedded).
 type thresholdsFake struct {
 	metaKVFake
 	failQuery bool
@@ -40,7 +40,7 @@ func (f *thresholdsFake) Query(ctx context.Context, sql string, args ...any) ([]
 				keys = append(keys, k)
 			}
 		}
-		sort.Strings(keys) // 결정적 순서(thresholdsKeySQL 관례)
+		sort.Strings(keys) // deterministic order (the thresholdsKeySQL convention)
 		rows := make([][]any, 0, len(keys))
 		for _, k := range keys {
 			rows = append(rows, []any{k, f.meta[k]})
@@ -50,7 +50,7 @@ func (f *thresholdsFake) Query(ctx context.Context, sql string, args ...any) ([]
 	return f.metaKVFake.Query(ctx, sql, args...)
 }
 
-// thresholdsStore — 기본 thresholdsFake, SUPERLITE_REAL=1이면 poolStore.
+// thresholdsStore — the default thresholdsFake; with SUPERLITE_REAL=1, poolStore.
 func thresholdsStore(t *testing.T, f *thresholdsFake) wire.Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {
@@ -65,17 +65,17 @@ func thresholdsStore(t *testing.T, f *thresholdsFake) wire.Store {
 	return f
 }
 
-// TestLoadThresholdsFallback — 3계약:
-//  1. meta 비었으면 전 키 DefaultThresholds(미설정 폴백 — ParseThresholds
-//     규약 승계).
-//  2. 저장 키는 오버라이드, '0' 저장 키도 기본값 폴백(미설정 취급).
-//  3. 조회 실패는 err 전파 — 호출부(cli doctor 등)가 DefaultThresholds로
-//     폴백하는 기존 관례를 그대로 승계한다.
+// TestLoadThresholdsFallback — 3 contracts: (1) empty meta means every key at
+// DefaultThresholds (the unset fallback — inheriting the ParseThresholds
+// convention); (2) stored keys override, and a stored '0' also falls back to
+// the default (treated as unset); (3) a lookup failure propagates the err —
+// verbatim inheritance of the existing convention where the caller (cli doctor,
+// etc.) falls back to DefaultThresholds.
 func TestLoadThresholdsFallback(t *testing.T) {
 	ctx := context.Background()
 	def := store.DefaultThresholds()
 
-	// 1. 미설정 — 전 키 기본값.
+	// 1. unset — every key at its default.
 	f := &thresholdsFake{metaKVFake: metaKVFake{meta: map[string]string{}}}
 	th, err := wire.LoadThresholds(ctx, thresholdsStore(t, f))
 	if err != nil {
@@ -85,7 +85,7 @@ func TestLoadThresholdsFallback(t *testing.T) {
 		t.Fatalf("미설정 폴백 위반: stale_days=%d stall_hot_h=%d drill_max_days=%d", th.StaleDays, th.StallHotH, th.DrillMaxDays)
 	}
 
-	// 2. 오버라이드 반영 + '0'은 미설정 폴백.
+	// 2. override reflected + '0' falls back as unset.
 	f2 := &thresholdsFake{metaKVFake: metaKVFake{meta: map[string]string{
 		"stall_hot_h": "24",
 		"stale_days":  "0",
@@ -103,7 +103,7 @@ func TestLoadThresholdsFallback(t *testing.T) {
 		t.Fatalf("'0' 저장 키 기본값 폴백 위반: %d", th2.StaleDays)
 	}
 
-	// 3. 조회 실패 — err 전파(호출부 기본값 폴백 관례 승계).
+	// 3. lookup failure — err propagates (inheriting the caller-default-fallback convention).
 	f3 := &thresholdsFake{metaKVFake: metaKVFake{meta: map[string]string{}}, failQuery: true}
 	if _, err := wire.LoadThresholds(ctx, thresholdsStore(t, f3)); err == nil {
 		t.Fatal("조회 실패 err 미전파 — 호출부 폴백 관례 깨짐")

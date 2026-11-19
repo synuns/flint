@@ -1,5 +1,5 @@
-// thresholds_v0181_test.go — recall_warn_writes의 -1(끔) 의미론.
-// 공유 파서는 음수를 기본값으로 코안다려 이 키만 -1까지 수용한다.
+// thresholds_v0181_test.go — recall_warn_writes' -1 (off) semantics.
+// The shared parser clamps negatives to the default; only this key accepts down to -1.
 package store
 
 import "testing"
@@ -9,11 +9,11 @@ func TestParseRecallWarnWritesOff(t *testing.T) {
 		val  string
 		want int
 	}{
-		{"-1", -1}, // 끔
-		{"5", 5},   // 정상 오버라이드
-		{"0", 0},   // 명시 0 — 미설정과 동일 취급(소비자가 기본값 폴백)
-		{"x", 3},   // 파싱 불가 → 기본값
-		{"-2", 3},  // -1 미만 → 기본값
+		{"-1", -1}, // off
+		{"5", 5},   // a normal override
+		{"0", 0},   // explicit 0 — treated the same as unset (the consumer falls back to the default)
+		{"x", 3},   // unparsable -> the default
+		{"-2", 3},  // below -1 -> the default
 	}
 	for _, tc := range cases {
 		th, err := ParseThresholds([][2]any{{"recall_warn_writes", tc.val}})
@@ -26,8 +26,8 @@ func TestParseRecallWarnWritesOff(t *testing.T) {
 	}
 }
 
-// TestParseV0204EffectWindows — 효과 계측 판정
-// 창·보존 키 파싱 — 유효 값 수용·무효 값 기본 폴백.
+// TestParseV0204EffectWindows — the effect-metering decision
+// window and retention key parsing — valid values accepted, invalid fall back to defaults.
 func TestParseV0204EffectWindows(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"dead_days", "60"}, {"pair_window_minutes", "15"},
@@ -42,7 +42,7 @@ func TestParseV0204EffectWindows(t *testing.T) {
 		th.EventsRetentionD != 7 || th.HotRetentionD != 90 || th.EventsVolumeWarn != 1000 {
 		t.Errorf("효과 창 = %+v", th)
 	}
-	// 무효 값은 기본값.
+	// invalid values give the defaults.
 	th2, _ := ParseThresholds([][2]any{{"dead_days", "many"}})
 	if th2.DeadDays != 30 {
 		t.Errorf("무효 dead_days = %d, want 기본 30", th2.DeadDays)

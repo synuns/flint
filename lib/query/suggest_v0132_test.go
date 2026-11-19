@@ -1,5 +1,5 @@
-// suggest_v0132_test.go — 제안 스캔 상한.
-// 스펙 §3 R1 '스캔 상한 없음' 정정 — 무상한 전체 스캔 방어.
+// suggest_v0132_test.go — the suggestion scan cap.
+// Correcting spec §3 R1's 'no scan cap' — defending against unbounded full scans.
 package query
 
 import (
@@ -8,9 +8,9 @@ import (
 	"testing"
 )
 
-// TestBuildSuggestScanCapped — N13: 제안 스캔 SQL은 LIMIT 상한을 가진다
-// (개인 규모 수천 행은 수용하는 5000 이상, 이상 대량 유입은 방어).
-// 수정 전에는 상한 없는 전체 스캔이었다.
+// TestBuildSuggestScanCapped — N13: the suggestion scan SQL has a LIMIT cap
+// (5000+, accepting personal-scale thousands of rows; defending against anomalous
+// mass intake). Before the fix it was an uncapped full scan.
 func TestBuildSuggestScanCapped(t *testing.T) {
 	sql, args := BuildSuggestScan()
 	if len(args) != 0 {

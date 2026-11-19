@@ -5,18 +5,18 @@ import (
 	"errors"
 )
 
-// exit 판정 기준 에러 심볼. db 계층(pool·repo)은 이 값을 그대로
-// 사용하거나(errors.Is로 통과) 자체 심볼을 별칭 지정한다.
+// the error symbols for the exit verdicts. The db layer (pool, repo) uses these
+// values directly (passing through errors.Is) or aliases its own symbols to them.
 var (
-	// ErrServerDown — 즉시 실패, exit 2.
+	// ErrServerDown — immediate failure, exit 2.
 	ErrServerDown = errors.New("flint: server down")
-	// ErrRetriesExhausted — 재시도 소진, exit 1.
+	// ErrRetriesExhausted — retries exhausted, exit 1.
 	ErrRetriesExhausted = errors.New("flint: retries exhausted")
-	// ErrDuplicate — content_hash 중복, exit 0(멱등).
+	// ErrDuplicate — a content_hash duplicate, exit 0 (idempotent).
 	ErrDuplicate = errors.New("flint: duplicate")
 )
 
-// committed 출력 바디. 한 줄 JSON, 키 순서는 status·hash·state·id로 고정.
+// the committed output body. One line of JSON, the key order fixed as status, hash, state, id.
 type committedOutput struct {
 	Status string `json:"status"`
 	Hash   string `json:"hash"`
@@ -24,9 +24,9 @@ type committedOutput struct {
 	ID     int    `json:"id"`
 }
 
-// duplicateOutput — id>0일 때만 id 필드를 노출한다(기존 행 id.
-// topic·state additive 노출 — 이미 존재함 피드백. 빈 메타는 omitempty로
-// 기존 바이트 불변. id 0(미지원 Store·다중 줄)은 맨몸 {"status":"duplicate"}).
+// duplicateOutput — exposes the id field only when id > 0 (the existing row's
+// id. The topic and state are exposed additively — already-exists feedback. An
+// empty meta keeps the existing bytes via omitempty. id 0 (an unsupported Store or multi-line) yields the bare {"status":"duplicate"}).
 type duplicateOutput struct {
 	Status string `json:"status"`
 	ID     int    `json:"id,omitempty"`
@@ -34,10 +34,10 @@ type duplicateOutput struct {
 	State  string `json:"state,omitempty"`
 }
 
-// Classify는 쓰기 판정 규칙: kind==knowledge && confidence<floor → pending,
-// 그 외(경계 포함)는 active. floor는 호출자가 meta conf_floor에서 읽어 값으로
-// 전달한다(전역 주입 없음 — doneThresholds 관례). 범위 검사는 파서
-// (ParseThresholds, 0~1 수용)가 단일 출처다.
+// Classify is the write verdict rule: kind == knowledge && confidence < floor
+// -> pending; everything else (including the boundary) is active. The floor is
+// read from meta conf_floor by the caller and passed as a value (no global
+// injection — the doneThresholds convention). The range check has a single source in the parser (ParseThresholds, accepting 0..1).
 func Classify(kind string, conf, floor float64) string {
 	if kind == "knowledge" && conf < floor {
 		return "pending"
@@ -45,8 +45,8 @@ func Classify(kind string, conf, floor float64) string {
 	return "active"
 }
 
-// OutputJSON은 파이프라인 출력을 한 줄 JSON으로 직렬화한다.
-// status=="duplicate"면 status·(id>0인 경우)id만 출력하고 나머지 필드는 버린다.
+// OutputJSON serializes the pipeline output as one line of JSON.
+// If status == "duplicate", it outputs only status and (when id > 0) id, discarding the other fields.
 func OutputJSON(status, hash, state string, id int) string {
 	if status == "duplicate" {
 		b, err := json.Marshal(duplicateOutput{Status: status, ID: id})
@@ -62,12 +62,12 @@ func OutputJSON(status, hash, state string, id int) string {
 	return string(b)
 }
 
-// DuplicateMetaJSON — 단일 줄 재전송의 duplicate 출력: 기존 행
-// topic·state를 additive 노출해 라이터가 read/supersede/approve로 전환하게
-// 한다(이미 존재함 피드백 루프). id 0·빈 메타는 기존 바이트와 동일(하위호환).
+// DuplicateMetaJSON — the duplicate output of a single-line resend: exposes the
+// existing row's topic and state additively so the writer can switch to
+// read/supersede/approve (the already-exists feedback loop). id 0 or empty meta matches the existing bytes (backward compatible).
 func DuplicateMetaJSON(id int, topic, state string) string {
-	// 기존 행 topic echo 재살균 — 저장 본문이 살균 이전
-	// 데이터·직접 SQL 유입이라도 출력 경계에서 마커를 중립화한다.
+	// the existing row's topic echo is re-sanitized — even if the stored body predates
+	// sanitization or came from direct SQL, the output boundary neutralizes markers.
 	b, err := json.Marshal(duplicateOutput{Status: "duplicate", ID: id, Topic: SanitizeText(topic), State: state})
 	if err != nil {
 		return `{"status":"duplicate"}`
@@ -75,8 +75,8 @@ func DuplicateMetaJSON(id int, topic, state string) string {
 	return string(b)
 }
 
-// MapExit는 파이프라인 에러를 exit code로 매핑한다.
-// nil/중복→0, 재시도 소진→1, 서버 다운→2, 검증 실패→3, 그 외→1.
+// MapExit maps a pipeline error to an exit code.
+// nil/duplicate -> 0, retries exhausted -> 1, server down -> 2, validation failure -> 3, else -> 1.
 func MapExit(err error) int {
 	var se *SchemaError
 	switch {
@@ -93,9 +93,9 @@ func MapExit(err error) int {
 	}
 }
 
-// MultiCommitOutput — JSONL 다중(2줄 이상) 커밋 출력 바디. 줄별 hash·state·id
-// 혼합 대신 집계(inserted·duplicates)와 배치 dolt 커밋 해시 1개만 남긴다
-// (출력 계약 소유는 store 계층 — committedOutput 옆).
+// MultiCommitOutput — the JSONL multi-line (2+) commit output body. Instead of
+// per-line mixed hash/state/id, it keeps only the aggregates (inserted,
+// duplicates) and 1 batch dolt commit hash (the output contract is owned by the store layer — next to committedOutput).
 func MultiCommitOutput(inserted, duplicates int, commitHash string) string {
 	b, err := json.Marshal(map[string]any{
 		"status":     "committed",
