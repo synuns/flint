@@ -325,6 +325,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0181Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.8.1", "r40-hardening",
 	}},
+	// v1.9.0 T7: 다중 기기 안정화 마일스톤 — recall append-only(스키마 v12).
+	{name: "TestVersion0190Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.9.0", "multi-device",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

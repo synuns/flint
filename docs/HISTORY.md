@@ -6,6 +6,35 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.9.0 minor (2026-11-18) — multi-device: recall append-only (schema v12)
+
+- [x] Root-cause fix for the dual-device fatal scenarios (R38): recall
+  reinforcement was an in-place `UPDATE` on the `knowledge` row
+  (`recall_score` · `last_recalled_at`), so two devices recalling the
+  same item produced row conflicts that surfaced as sync panics and
+  last-write-wins recall loss. Recall history now lives in a dedicated
+  append-only `recall_events` table (one row per recall, schema v12) —
+  inserts from any device merge without touching the same row, and the
+  two dropped v11 columns are the migration's whole destructive surface.
+- [x] Derived ranking: hot · brief · read ranking and
+  `maintain --decay-audit` · `status` derive the effective score from
+  the event aggregate (`count(*)` · `max(recalled_at)` joined per
+  knowledge, single definition `EventEffectiveScore`) instead of reading
+  score columns — output schemas and tuning overrides (decay_rate ·
+  archive_below) are unchanged.
+- [x] Lossless migration (EnsureSchemaV12): existing scores are backfilled
+  as **synthetic** events (one per score point, `recalled_at` =
+  last-recalled or now) to preserve score continuity — these are
+  continuity placeholders, not real history; the event source is exact
+  from v12 onward. `DROP COLUMN` runs behind an information_schema guard
+  (Doltgres lacks `DROP COLUMN IF EXISTS`).
+- [x] Recall events are absorbed by the read audit commit
+  (`read: recall bump`) — telemetry separation is unchanged, and events
+  propagate across devices via push/pull. Dual-device regression
+  (isolated DBs A·B: independent reads and writes, then push/pull) is
+  exercised in the test suite as the acceptance criterion — no panics,
+  event union on both sides, identical ranking.
+
 ### v1.8.1 patch (2026-11-18) — r40-hardening: QueryAsOf fallback removal · session escaping
 
 - [x] QueryAsOf view fallback removed (R40 High): the base-table retry on

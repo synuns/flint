@@ -48,8 +48,8 @@ type ExportRow struct {
 	UpdatedAt      time.Time
 	ValidAt        time.Time // 검증 시각 원값(왕복 보존)
 	SupersededBy   *int
-	RecallScore    int        // recall_score 실열(원천 파생 아님)
-	LastRecalledAt *time.Time // last_recalled_at 실열(nil=NULL)
+	RecallScore    int        // 파생 이벤트 수(recall_events cnt — v1.9.0 T4)
+	LastRecalledAt *time.Time // 파생 최종 회상 시각(recall_events last_at, nil=미회상)
 }
 
 // ExportFilter — ExportRows 필터. Status "active"(기본·0값)|"all"
@@ -82,10 +82,13 @@ func buildExportQuery(f ExportFilter) (string, []any) {
 	}
 	// valid_at 열은 superseded_by 다음·ingested_at 이전 —
 	// jsonl 왕복 동일성의 원천. 스코어 2열은 말미 추가
-	// (기존 셀 인덱스 계약 불변 — 테스트 seam 열 참조 승계).
+	// (기존 셀 인덱스 계약 불변 — 테스트 seam 열 참조 승계). v1.9.0 T4:
+	// 값은 recall_events 파생 집계(re.cnt·re.last_at) 공급 — v11
+	// knowledge 실열 폐지, 출력 스키마 필드명은 불변.
 	sql := "SELECT id, topic, summary, tags, entity, domain, confidence, origin, status, " +
 		"content_hash, superseded_by, valid_at, ingested_at, COALESCE(invalid_at, ingested_at), " +
-		"recall_score, last_recalled_at FROM knowledge"
+		"re.cnt, re.last_at FROM knowledge" +
+		" LEFT JOIN (" + recallAggregateSQL + ") re ON re.knowledge_id = knowledge.id"
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -144,7 +147,7 @@ func mapExportRow(r []any) ExportRow {
 	row.CreatedAt = cellTime(cell(12))
 	row.UpdatedAt = cellTime(cell(13))
 	row.ValidAt = cellTime(cell(11))
-	// 스코어 실열 — 0/NULL은 폴백(미지정 행·레거시 jsonl).
+	// 스코어 2셀 — 파생 집계값(미회상은 NULL → 0/nil 폴백, 레거시 jsonl와 동일).
 	if s, ok := render.CellToInt(cell(14)); ok {
 		row.RecallScore = s
 	}

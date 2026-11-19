@@ -6,12 +6,9 @@ package db
 
 import (
 	"context"
-	"errors"
 	"fmt"
 	"strings"
 	"testing"
-
-	"github.com/jackc/pgx/v5"
 
 	"github.com/synuns/flint/lib/wire"
 )
@@ -228,35 +225,29 @@ func TestQueryAsOfSlowViewFallback(t *testing.T) {
 	}
 }
 
-// TestActiveKnowledgeRestoredAfterViewFallback — TestQueryAsOfSlowViewFallback
-// 이 active_knowledge를 배포 정의로 복원했는지 검증(명시적 복원 회귀).
-// 복원 cleanup이 없던 시대에는 뷰가 실험 정의(extra 컬럼)로 남아 이
-// 단언이 실패한다. newTestRepo를 쓰지 않는다 — 그 안의 Migrate가 뷰를
-// 재적용(자가 치유)해 복원 누락을 가리기 때문. 원시 접속으로 뷰 최신성
-// (views_hash·views_sig 이중 게이트)을 그대로 본다.
+// TestActiveKnowledgeRestoredAfterViewFallback — 뷰 실험(TestQueryAsOf-
+// SlowViewFallback 계열)이 active_knowledge를 배포 정의로 복원하는
+// 경로(명시적 복원 회귀)를 자기 완결적으로 검증한다. 복원 cleanup이
+// 없던 시대에는 뷰가 실험 정의로 남아 이 단언이 실패했다. 과거에는 공유
+// DB의 잔여 뷰 상태를 원시 접속으로 조사했으나 newTestRepo의 scratch
+// 전환으로 ViewFallback 오염이 공유 DB에 남지 않게 됐다 — 오염을 직접
+// 심고(simple protocol DROP+CREATE — 서버 카탈로그까지 교체, 실제 실험
+// 경로의 재현) 복원(reapplyViews)을 거쳐 뷰 최신성(views_hash·views_sig
+// 이중 게이트)이 회복되는지 본다. newTestRepo 직후의 Migrate를 거치지
+// 않는다 — 자가 치유 재적용이 복원 누락을 가리기 때문(원문 계약 승계).
 func TestActiveKnowledgeRestoredAfterViewFallback(t *testing.T) {
-	unlock := sharedDBLock(t)
-	t.Cleanup(unlock)
-	useFakeSQL(t)
+	r := newTestRepo(t)
 	ctx := context.Background()
-	r, err := NewRepo(ctx, testDSN(t))
-	if err != nil {
-		t.Fatalf("NewRepo: %v", err)
+	// 오염 — 실험 정의(id 단일 컬럼)로 교체. 게이트에 잡혀야 전제가
+	// 성립한다.
+	plantStaleView(t, r.dsn)
+	if r.viewsCurrent(ctx, viewsSQLFn()) {
+		t.Fatal("실험 정의 오염이 views 게이트에 잡히지 않음 — 검증 전제 위반")
 	}
-	t.Cleanup(r.Close)
-	// meta에 뷰 지문 기록이 없는 완전 fresh DB에서는 비교 재료가 없다 —
-	// 최초 기록(Migrate) 후에만 판정한다(이 실행에 폴백 테스트가 오염시킬
-	// 경로는 없다). 기록이 있는데 최신이 아니면 복원 누락이다.
-	var recorded string
-	switch err := r.pool.QueryRow(ctx,
-		`SELECT value FROM meta WHERE key = 'views_hash'`).Scan(&recorded); {
-	case err == nil:
-	case errors.Is(err, pgx.ErrNoRows) || isPgCode(err, "42P01"):
-		if err := r.Migrate(ctx); err != nil {
-			t.Fatalf("fresh Migrate: %v", err)
-		}
-	default:
-		t.Fatalf("views_hash 조회: %v", err)
+	// 명시 복원 — ViewFallback cleanup과 동일 경로(reapplyViews:
+	// simple-protocol DROP+CREATE, meta는 이미 배포 지문이라 재기록 불필요).
+	if err := reapplyViewsFn(r, ctx); err != nil {
+		t.Fatalf("active_knowledge 원본 복원 실패: %v", err)
 	}
 	if !r.viewsCurrent(ctx, viewsSQLFn()) {
 		t.Fatal("active_knowledge가 배포 정의가 아니다 — ViewFallback 테스트 원본 복원 누락")

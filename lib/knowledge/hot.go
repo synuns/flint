@@ -86,7 +86,8 @@ const (
 // ── hot·brief 선정 순위에 감쇠 후 유효 회상 점수 반영 ──
 
 // hotViewRecallScoreIdx·hotViewLastRecalledIdx — hotRankedSQL이 hot_view
-// 본질의 SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의).
+// 본질의 SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의 — v1.9.0 T4부터
+// 열은 recall_events 파생 집계 re.cnt·re.last_at, 인덱스는 불변).
 const (
 	hotViewRecallScoreIdx  = 7
 	hotViewLastRecalledIdx = 8
@@ -101,23 +102,34 @@ const (
 	hotHeadlineRecallLastIdx  = 6
 )
 
-// EffectiveRecallScore — 감쇠 산식(v1.7.0 T2 순수 함수 — T3에 본체를
-// knowledge로 이동, ops는 위임해 단일 정의 유지: knowledge→ops 임포트
-// 사이클 방지 위해 아래 방향(ops→knowledge)만 성립):
-// recall_score - decay_rate*days_since(last_recalled_at), 하한 0.
-// last가 zero(미회상)는 score 그대로 — 회상 이력이 없는 신규 항목의
-// 불이익 금지(룰링). days는 24h 단위 정수 경과(23h59m = 0일 감쇠 없음).
-func EffectiveRecallScore(score int, last, now time.Time, rate float64) int {
-	if last.IsZero() || rate <= 0 {
-		return score
+// recallAggregateSQL — recall_events 파생 집계 서브질의(v1.9.0 T4 단일
+// 정의): 지식별 이벤트 수(cnt)·최종 회상 시각(last_at). 랭킹 질의
+// (hotRankedSQL)가 LEFT JOIN으로 병합한다 — v11 knowledge.recall_score·
+// last_recalled_at 직접 열(스키마 v12 폐기)의 파생 대체.
+const recallAggregateSQL = "SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at FROM recall_events GROUP BY knowledge_id"
+
+// EventEffectiveScore — 이벤트 카운트 기반 유효 점수 순수 함수
+// (v1.9.0 T1 — recall append-only 스키마 v12): max(0, count −
+// rate×경과일수). 미회상(count 0)은 0. days는 24h 단위 정수 경과
+// (23h59m = 0일), 결과 소수는 0 방향 내림(int 변환). 미래
+// last_recalled·rate 0 이하는 역성장·부풀림 방어로 count 그대로,
+// count<=0은 0(음수 카운트 방어). v1.9.0 T4: 구 EffectiveRecallScore
+// (v11 실열 산식)는 폐지 — 산식 단일 정의는 본 함수다(소비자: hot·brief
+// 랭킹, ops decay-audit 위임).
+func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64) int {
+	if eventCount <= 0 {
+		return 0
 	}
-	days := int(now.Sub(last).Hours() / 24)
+	if lastRecalled.IsZero() || decayPerDay <= 0 {
+		return eventCount
+	}
+	days := int(now.Sub(lastRecalled).Hours() / 24)
 	if days <= 0 {
-		return score
+		return eventCount
 	}
-	eff := float64(score) - rate*float64(days)
+	eff := float64(eventCount) - decayPerDay*float64(days)
 	if eff < 0 {
-		eff = 0
+		return 0
 	}
 	return int(eff)
 }
@@ -134,11 +146,12 @@ func loadDecayRate(ctx context.Context, st wire.Store) float64 {
 }
 
 // rankRowsByEffectiveScore — 조회 행을 감쇠 후 유효 점수 내림 안정 정렬
-// scoreIdx·lastIdx 열이 없는 행(구형 뷰 모양·fake)·score 셀
-// 변환 불가(NULL — 프로젝트 팔 등)는 0점 취급이고, 미회상(last NULL)은
-// score를 그대로 유지한다. 안정 정렬이 기존 SQL 순서(hot: ts DESC,
-// id DESC / brief: RankOrder)를 동점 순서로 승계 — 0점 전원·랭킹 열 부재
-// 환경은 기존 출력과 바이트 동일이다.
+// (v1.9.0 T4 — 산식은 EventEffectiveScore 단일 정의: 유효 점수 =
+// max(0, cnt − rate×경과일수)). scoreIdx·lastIdx 열이 없는 행(구형 뷰
+// 모양·fake)·cnt 셀 변환 불가(NULL — 프로젝트 팔·미회상 이벤트 0건)은
+// 0점 취급이다. 안정 정렬이 기존 SQL 순서(hot: ts DESC, id DESC /
+// brief: RankOrder)를 동점 순서로 승계 — 0점 전원·랭킹 열 부재 환경은
+// 기존 출력과 바이트 동일이다.
 func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64, now time.Time) [][]any {
 	eff := make([]int, len(rows))
 	for i, r := range rows {
@@ -147,10 +160,10 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64,
 		}
 		score, ok := render.CellToInt(r[scoreIdx])
 		if !ok {
-			continue // score 셀 부재·NULL → 0점
+			continue // cnt 셀 부재·NULL → 0점
 		}
-		last, _ := wire.CellToTime(r[lastIdx]) // 미회상(NULL)은 zero → score 유지
-		eff[i] = EffectiveRecallScore(score, last, now, rate)
+		last, _ := wire.CellToTime(r[lastIdx]) // last NULL+cnt>0(fake 형태)은 cnt 유지(T1 계약)
+		eff[i] = EventEffectiveScore(score, last, now, rate)
 	}
 	// sort는 rows만 swap하므로 less 클로저가 사전 계산 eff[i]를
 	// 읽으면 어긋난다 — 현재 행의 키를 직접 계산한다(부분 정렬 폐지).
@@ -171,10 +184,13 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64,
 const hotRankJoinPivot = " FROM hot_view ORDER BY ts DESC, id DESC"
 
 // hotRankedSQL — hot_view 단일 질의(단일 정의 = query.HotSQL·
-// HotHeadlineSQL)에 knowledge 조인으로 recall_score·last_recalled_at를
-// SELECT 말미에 병합한다. 열은 h. 한정(조인 후 모호성 제거), ORDER BY·
-// LIMIT은 원본 정의를 그대로 승계한다 — 치환점 미발견 형태(미래 SQL
-// 변경)는 원본을 반환해 랭킹을 조용히 생략, 기존 동작을 승계한다.
+// HotHeadlineSQL)에 recall_events 파생 집계 조인으로 cnt·last_at를
+// SELECT 말미에 병합한다(v1.9.0 T4 — v11 knowledge 직접 열 폐지에
+// 따른 전환. 회상 원천이 append-only 이벤트로 이동해도 주입 질의는
+// 단일 질의 계약을 유지한다). 열은 h. 한정(조인 후 모호성 제거),
+// ORDER BY·LIMIT은 원본 정의를 그대로 승계한다 — 치환점 미발견
+// 형태(미래 SQL 변경)는 원본을 반환해 랭킹을 조용히 생략, 기존 동작을
+// 승계한다.
 func hotRankedSQL(base string) string {
 	i := strings.Index(base, hotRankJoinPivot)
 	if i <= 0 || !strings.HasPrefix(base, "SELECT ") {
@@ -185,9 +201,9 @@ func hotRankedSQL(base string) string {
 	for _, c := range cols {
 		q = append(q, "h."+c)
 	}
-	q = append(q, "k.recall_score", "k.last_recalled_at")
+	q = append(q, "re.cnt", "re.last_at")
 	return "SELECT " + strings.Join(q, ", ") +
-		" FROM hot_view h LEFT JOIN knowledge k ON h.id = k.id ORDER BY h.ts DESC, h.id DESC" +
+		" FROM hot_view h LEFT JOIN (" + recallAggregateSQL + ") re ON re.knowledge_id = h.id ORDER BY h.ts DESC, h.id DESC" +
 		base[i+len(hotRankJoinPivot):]
 }
 
@@ -417,7 +433,7 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		// 주입(--full)은 예산 상한 계약 불변.
 		sql = query.HotHeadlineSQL(session)
 	}
-	// 단일 질의에 랭킹 열(recall_score·last_recalled_at)을
+	// 단일 질의에 랭킹 열(파생 cnt·last_at — recall_events 집계)을
 	// 병합한다 — 동반 질의 없이(주문=증분 구조 승계).
 	sql = hotRankedSQL(sql)
 	rows, err := wire.QueryOnce(ctx, st, sql, nil)
@@ -433,9 +449,10 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	rows = render.Cells(rows)
 	// 선정 순위에 감쇠 후 유효 회상 점수 반영 — effective DESC
 	// 안정 정렬(동점·0점은 기존 SQL 순서 ts DESC, id DESC 승계). 랭킹 열이
-	// 없는 행(구형 뷰·fake)은 0점 취급돼 기존 순서·출력이 그대로 살아남는다.
-	// 포맷·예산·증분은 하류가 이 rows를 소비해 주문=증분 계약이 불변이다.
-	// 랭킹 열 인덱스는 경로별 질의 형태(--full 9열·헤드라인 7열)를 따른다.
+	// 없는 행(구형 뷰·fake)·미회상(cnt NULL)은 0점 취급돼 기존 순서·출력이
+	// 그대로 살아남는다. 포맷·예산·증분은 하류가 이 rows를 소비해 주문=증분
+	// 계약이 불변이다. 랭킹 열 인덱스는 경로별 질의 형태(--full 9열·헤드라인
+	// 7열)를 따른다.
 	scoreIdx, lastIdx := hotViewRecallScoreIdx, hotViewLastRecalledIdx
 	if !full {
 		scoreIdx, lastIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx

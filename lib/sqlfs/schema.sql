@@ -24,6 +24,10 @@
 -- last_recalled_at(timestamptz NULL) 2열. 기존 v10 DB는 EnsureSchemaV11
 -- 게이트가 적용(additive — 열이 default라 이전 바이너리 읽기 호환).
 -- views는 무변경 — 컬럼이 기존 뷰 정의에 영향 없다.
+-- v12(v1.9.0): recall append-only 원천 — recall_events 테이블 + 인덱스.
+-- 기존 v11 DB는 EnsureSchemaV12 게이트가 적용: score수 합성 이벤트 백필
+-- (스코어 연속성 보존용 — 실제 이력 아님) 후 knowledge 2열(v11) 폐기.
+-- 신규 생성 경로도 게이트 체인이 같은 종착상태(2열 부재)로 수렴시킨다.
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -122,6 +126,17 @@ CREATE TABLE IF NOT EXISTS hot_events (
     ts  timestamptz NOT NULL DEFAULT now(),
     ids text NOT NULL DEFAULT ''            -- 주입 지식 id CSV
 );
+
+-- v12: 회상 이벤트 1행(append-only — 다중 기기 동기화 시 충돌 없는
+-- 회상 원천. 감쇠 유효점수는 이벤트 파생). 개인 문구 부재 원칙 승계.
+CREATE TABLE IF NOT EXISTS recall_events (
+    knowledge_id integer NOT NULL,
+    recalled_at  timestamptz NOT NULL DEFAULT now()
+);
+
+-- v12: 파생 랭킹 조인(count·max(recalled_at)) 경로 인덱스.
+CREATE INDEX IF NOT EXISTS idx_recall_events_id_time
+    ON recall_events (knowledge_id, recalled_at DESC);
 
 -- v3(ADR-0008): 검색 필터 경로 인덱스 — 신규 DB 생성 시점에 포함.
 CREATE INDEX IF NOT EXISTS flint_knowledge_entity_idx ON knowledge (entity);

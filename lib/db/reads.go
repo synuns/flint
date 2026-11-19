@@ -47,19 +47,22 @@ func (r *Repo) RecordKnowledgeReads(ctx context.Context, ids []int, session, kin
 	return nil
 }
 
-// BumpRecallScores는 회상 강화(schema v11): ids 행의
-// recall_score를 1 증분하고 last_recalled_at=now()를 새긴다. read 히트
+// BumpRecallScores는 회상 강화(schema v12 — recall append-only): ids 행의
+// 회상 이벤트를 recall_events에 1행씩 적립한다(INSERT 전용 — 다중 기기
+// 동기화에서 쓰기 충돌 없는 회상 원천. 구 v11 UPDATE knowledge 증분은
+// 폐지 — knowledge 행은 회상 경로에서 더 이상 갱신되지 않는다). read 히트
 // 경로가 RecordKnowledgeReads와 함께 호출한다(계측 관례 — 실패는 호출부가
-// 조용히 무시). 감쇠(maintain --decay-audit·hot 랭킹)의 원천 열이고
-// read_count 캐시(BumpReads)와는 별개 계층이다. 빈 슬라이스 no-op·중복 id는
-// 행 기준 1회(BumpReads 계약 승계).
+// 조용히 무시 §13). 감쇠 유효점수는 이벤트 파생(집계 조인 — 랭킹 전환은
+// knowledge 패키지 소관)이고 read_count 캐시(BumpReads)·항목별 이력
+// (knowledge_reads)과는 별개 계층이다. 빈 슬라이스 no-op·중복 id는 행
+// 기준 1회(DISTINCT — 구 UPDATE id=ANY 계약 승계).
 func (r *Repo) BumpRecallScores(ctx context.Context, ids []int) error {
 	if len(ids) == 0 {
 		return nil
 	}
 	if _, err := r.pool.Exec(ctx,
-		`UPDATE knowledge SET recall_score = recall_score + 1, last_recalled_at = now()
-		 WHERE id = ANY($1)`, ids); err != nil {
+		`INSERT INTO recall_events (knowledge_id)
+		 SELECT DISTINCT u FROM unnest($1::int[]) AS u`, ids); err != nil {
 		return fmt.Errorf("bump recall scores: %w", err)
 	}
 	return nil

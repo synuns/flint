@@ -905,17 +905,6 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 // decayNow — 감쇠 기준 시각 seam(테스트 주입용 var).
 var decayNow = time.Now
 
-// EffectiveRecallScore — 감쇠 산식(순수 함수). 본체는 knowledge가
-// 소유(hot·brief 순위가 같은 산식을 소비 — 단일 정의. knowledge→ops
-// 임포트 사이클 방지)하고 여기선 위임한다.
-// 위임한다. 산식: recall_score - decay_rate*days_since(last_recalled_at),
-// 하한 0. last가 zero(미회상)는 score 그대로 — 회상 이력이 없는 신규
-// 항목의 불이익 금지(룰링). days는 24h 단위 정수 경과(23h59m = 0일 감쇠
-// 없음).
-func EffectiveRecallScore(score int, last, now time.Time, rate float64) int {
-	return knowledge.EffectiveRecallScore(score, last, now, rate)
-}
-
 // decayAuditItem — --decay-audit 나열 항목. 보고 전용 —
 // archive 실행은 기존 --invalidate가 승인제(--yes/--reason)로 수행한다
 // (자동 아님 — SQL 자동 판정 금지 원칙 승계).
@@ -928,11 +917,15 @@ type decayAuditItem struct {
 }
 
 // maintainDecayAudit — 감쇠 후보 보고(읽기 전용·exit 0). 대상: active 중
-// 회상 이력이 있고 감쇠가 진행된(effective < recall_score) 행 — 미회상
-// 행은 score가 유지되므로 후보가 아니다. decay_rate·archive_below는 meta
-// 오버라이드 우선(미설정 decay_rate=0은 ApplyThresholdsFallback 미탄 키라
-// 여기서 기본 1 폴백 — 소비자측 완결). 항목 상한은 --limit(기본 20, stale
-// 관례 승계).
+// 회상 이력이 있고 감쇠가 진행된(effective < cnt) 행 — 미회상 행은
+// 이벤트가 없어 후보가 아니다. 점수 원천은 v1.9.0 파생 전환: recall_events
+// 집계 조인(지식별 이벤트 수 cnt·최종 회상 시각 last_at — lib/knowledge
+// recallAggregateSQL과 동등 SQL. 함수 export는 knowledge 소유라 ops측
+// 사본을 둔다)이고 v11 실열(recall_score·last_recalled_at — 스키마 v12
+// 폐기)은 참조하지 않는다. decay_rate·archive_below는 meta 오버라이드
+// 우선(미설정 decay_rate=0은 ApplyThresholdsFallback 미탄 키라 여기서
+// 기본 1 폴백 — 소비자측 완결). 항목 상한은 --limit(기본 20, stale 관례
+// 승계).
 func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, limit int) int {
 	th := store.DefaultThresholds()
 	if loaded, lErr := wire.LoadThresholds(ctx, ms); lErr == nil {
@@ -944,13 +937,18 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 	if limit <= 0 {
 		limit = 20
 	}
-	// 컷오프 Go 계산·파라미터 전달 관례 승계. 정렬은 last_recalled_at
-	// ASC — 가장 오래 미회상(=최대 감쇠) 행이 앞에 온다.
+	// 컷오프 Go 계산·파라미터 전달 관례 승계. 정렬은 최종 회상 시각
+	// ASC — 가장 오래 미회상(=최대 감쇠) 행이 앞에 온다. last_at IS NOT
+	// NULL이 이력 없는 행(LEFT JOIN 미스)을 서버측에서 제외한다.
 	rows, err := wire.QueryOnce(ctx, ms, `
-		SELECT id, recall_score, last_recalled_at
-		FROM knowledge
-		WHERE status = 'active' AND invalid_at IS NULL AND last_recalled_at IS NOT NULL
-		ORDER BY last_recalled_at ASC
+		SELECT k.id, re.cnt, re.last_at
+		FROM knowledge k
+		LEFT JOIN (
+		    SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at
+		    FROM recall_events GROUP BY knowledge_id
+		) re ON re.knowledge_id = k.id
+		WHERE k.status = 'active' AND k.invalid_at IS NULL AND re.last_at IS NOT NULL
+		ORDER BY re.last_at ASC
 		LIMIT $1`, []any{limit})
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -971,7 +969,7 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 		if !ok || last.IsZero() {
 			continue
 		}
-		eff := EffectiveRecallScore(score, last, now, th.DecayRate)
+		eff := knowledge.EventEffectiveScore(score, last, now, th.DecayRate)
 		if eff >= score {
 			continue // 감쇠 없음(24h 미만 경과 등) — 후보 아님
 		}
