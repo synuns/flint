@@ -1,6 +1,6 @@
-// nudge_v0181_test.go — recall 마커(Reason "recall")의 SessionStart
-// 소비. 회상 부재 경고가 자동 배선(Stop 훅 stdout)에서 안 보이던 갭 폐쇄 —
-// done이 마커를 남기면 다음 세션 시작에 전용 문구 1회 표시 후 자동 소진.
+// nudge_v0181_test.go — SessionStart consumption of the recall marker (Reason "recall").
+// Closes the gap where the missing-recall warning was invisible on the automatic wiring (the Stop hook's stdout) —
+// when done leaves the marker, the next session start shows the dedicated wording once and auto-consumes it.
 package cli
 
 import (
@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// TestNudgeRecallMarkerOneShot — recall 마커 + SessionStart → 전용 문구
-// 1줄 출력 후 마커 자동 소진(재실행은 무출력). recall 전용 파일.
+// TestNudgeRecallMarkerOneShot — recall marker + SessionStart -> the dedicated wording
+// printed once, then the marker auto-consumed (re-runs are silent). A recall-specific file.
 func TestNudgeRecallMarkerOneShot(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteTypedMarker(markerKindRecall, "s1", nudgeReasonRecall); err != nil {
@@ -28,15 +28,15 @@ func TestNudgeRecallMarkerOneShot(t *testing.T) {
 	if _, err := os.Stat(RecallMarkerFile()); !os.IsNotExist(err) {
 		t.Fatalf("recall 마커 미소진: %v", err)
 	}
-	// 소진 후 재실행 — 무출력(1회성).
+	// re-run after consumption — silent (one-shot).
 	out2, _ := nudgeRun(nil, `{"hook_event_name":"SessionStart","session_id":"s2"}`)
 	if strings.TrimSpace(out2) != "" {
 		t.Fatalf("소진 후 out=%q, want 무출력", out2)
 	}
 }
 
-// TestNudgeCompactMarkerUnchanged — 기존 증류 마커(compact)는 소진 없이
-// 기존 문구·마커 유지(회귀 — recall 분기가 기본 경로를 삼키지 않음).
+// TestNudgeCompactMarkerUnchanged — the existing distillation marker (compact) keeps its
+// existing wording and marker without consumption (regression — the recall branch must not swallow the default path).
 func TestNudgeCompactMarkerUnchanged(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteMarker("s1", "compact"); err != nil {

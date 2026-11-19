@@ -1,7 +1,7 @@
-// hot_v0180_test.go — normal 프로파일 헤드라인에 최근 결정
-// 주제 노출 + 회상 힌트. 주입이 카운트만 주면 다음 세션이 "뭘 검색할지"
-// 알 수 없어 read가 굶는다(관측: read:write 불균형) — 주제명이 검색
-// 큐리로 쓰이게 한다. minimal 프로파일은 불변(비간섭 원칙).
+// hot_v0180_test.go — expose recent decision topics in the normal-profile headline
+// + a recall hint. If the injection only gives counts, the next session cannot know "what to
+// search", starving read (observation: a read:write imbalance) — topic names now serve as search
+// cues. The minimal profile is unchanged (the non-interference principle).
 package cli
 
 import (
@@ -11,8 +11,8 @@ import (
 	"testing"
 )
 
-// TestHotHeadlineTopics — normal 헤드라인: 주제 K개 · 회상 힌트.
-// 주제 없으면 기존 카운트+펼치기 문구 폴백(결정 0건 세션).
+// TestHotHeadlineTopics — normal headline: K topics + a recall hint.
+// Without topics, the existing counts + expand guidance fallback (a 0-decision session).
 func TestHotHeadlineTopics(t *testing.T) {
 	withT := []string{"doltgres 포트 충돌", "CI 멱등 가드", "seed DSN 가드"}
 	got := hotHeadline("normal", 5, 2, 3, withT)
@@ -20,18 +20,18 @@ func TestHotHeadlineTopics(t *testing.T) {
 	if got != want {
 		t.Fatalf("헤드라인=%q\nwant=%q", got, want)
 	}
-	// 주제 없음 → 기존 문구(펼치기 안내) 폴백.
+	// no topics -> the existing wording (expand guidance) fallback.
 	if got := hotHeadline("normal", 5, 2, 0, nil); got != "[flint] active 5 · pending 2 · recent decisions 0 — expand: flint hot --full" {
 		t.Fatalf("빈 주제 폴백=%q", got)
 	}
-	// minimal 불변.
+	// minimal unchanged.
 	if got := hotHeadline("minimal", 5, 2, 3, withT); got != "[flint] active 5 · pending 2" {
 		t.Fatalf("minimal=%q", got)
 	}
 }
 
-// TestHotTopicsFromRows — hot_view 행(최신순)에서 decision 주제 상위 K.
-// 주제 절단(16 rune + …)·동일 주제 중복 제거·K 초과 분기.
+// TestHotTopicsFromRows — the top K decision topics from hot_view rows (newest first).
+// Topic truncation (16 runes + …), same-topic dedup, and the over-K branch.
 func TestHotTopicsFromRows(t *testing.T) {
 	long := strings.Repeat("주", 20) // 20 rune → 16+…
 	rows := [][]any{
@@ -57,8 +57,8 @@ func TestHotTopicsFromRows(t *testing.T) {
 	}
 }
 
-// TestHotHeadlineRunPath — runHot 전체 경로: normal 프로파일에서 주제가
-// 실제 헤드라인에 반영된다(hot_v0110 hotProfileQueryFn 재사용).
+// TestHotHeadlineRunPath — the full runHot path: under the normal profile, topics are
+// reflected in the actual headline (reusing the hot_v0110 hotProfileQueryFn).
 func TestHotHeadlineRunPath(t *testing.T) {
 	hotRows := [][]any{
 		{"decision", "검색 품질 트리거", "요약", "2026-11-05"},

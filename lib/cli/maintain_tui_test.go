@@ -1,7 +1,7 @@
-// maintain_tui_test.go — `flint maintain --tui` 진입 분기 계약
-// 테스트. 옵트인만(적응형 X — 유령 인자 회귀 방지): --tui 단독만 TUI
-// (tui.RunMaintainTUI), 조합은 무효 인자 exit 3, FLINT_NO_TUI는 3층 방어
-// 1층으로 차단. 그 외 전부 ops.RunMaintain 불변 위임(회귀).
+// maintain_tui_test.go — contract tests for the `flint maintain --tui` entry
+// branching. Opt-in only (no adaptive switching — preventing ghost-argument regressions): --tui standalone only goes to the TUI
+// (tui.RunMaintainTUI); combinations are invalid-arg exit 3; FLINT_NO_TUI blocks as layer 1 of the
+// 3-layer guard. Everything else delegates unchanged to ops.RunMaintain (regression).
 package cli
 
 import (
@@ -17,7 +17,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// installMaintainTuiFake — maintainTuiFn seam 교체(호출 기록 fake).
+// installMaintainTuiFake — swaps the maintainTuiFn seam (call-recording fake).
 func installMaintainTuiFake(t *testing.T) *[][]string {
 	t.Helper()
 	var calls [][]string
@@ -30,7 +30,7 @@ func installMaintainTuiFake(t *testing.T) *[][]string {
 	return &calls
 }
 
-// installMaintainOpsFake — maintainOpsRun seam 교체(호출 인자 기록 fake).
+// installMaintainOpsFake — swaps the maintainOpsRun seam (fake recording call args).
 func installMaintainOpsFake(t *testing.T) *[][]string {
 	t.Helper()
 	var calls [][]string
@@ -43,7 +43,7 @@ func installMaintainOpsFake(t *testing.T) *[][]string {
 	return &calls
 }
 
-// RF-protocol — --tui 단독: TUI seam 호출·exit 전파.
+// RF-protocol — --tui standalone: TUI seam called, exit propagates.
 func TestMaintainEntryTUIBranch(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	opsCalls := installMaintainOpsFake(t)
@@ -61,7 +61,7 @@ func TestMaintainEntryTUIBranch(t *testing.T) {
 	}
 }
 
-// RF-protocol — --tui + 다른 플래그: 무효 인자 exit 3(단독만 허용).
+// RF-protocol — --tui + other flags: invalid-arg exit 3 (standalone only).
 func TestMaintainEntryTUIRejectsExtraFlags(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	var out bytes.Buffer
@@ -78,7 +78,7 @@ func TestMaintainEntryTUIRejectsExtraFlags(t *testing.T) {
 	}
 }
 
-// RF-protocol — FLINT_NO_TUI(3층 방어 1층): 명시 --tui도 차단 exit 3.
+// RF-protocol — FLINT_NO_TUI (layer 1 of the 3-layer guard): even an explicit --tui is blocked, exit 3.
 func TestMaintainEntryNoTUIEnvBlocksExplicitTUI(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	calls := installMaintainTuiFake(t)
@@ -93,8 +93,8 @@ func TestMaintainEntryNoTUIEnvBlocksExplicitTUI(t *testing.T) {
 	}
 }
 
-// RF-protocol — 옵트인만: 무인자는 적응형 TUI 없이 ops 위임 유지(유령
-// 인자 방지 — bare maintain은 기존 usage exit 3).
+// RF-protocol — opt-in only: no-arg keeps the ops delegation without adaptive TUI (preventing ghost
+// arguments — bare maintain keeps the existing usage exit 3).
 func TestMaintainEntryNoAdaptiveBareRun(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	opsCalls := installMaintainOpsFake(t)
@@ -112,7 +112,7 @@ func TestMaintainEntryNoAdaptiveBareRun(t *testing.T) {
 	}
 }
 
-// RF-protocol — 기존 플래그 회귀: --check 등은 인자 그대로 ops 위임.
+// RF-protocol — existing-flag regression: --check etc. delegate to ops with the args as-is.
 func TestMaintainEntryFlagsDelegateUnchanged(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	opsCalls := installMaintainOpsFake(t)
@@ -131,8 +131,8 @@ func TestMaintainEntryFlagsDelegateUnchanged(t *testing.T) {
 	}
 }
 
-// RF-protocol — seam 기본값: TUI 런처 = tui.RunMaintainTUI, ops 위임 =
-// ops.RunMaintain(중복 구현 금지 — 옵트인 진입만 이 파일 소유).
+// RF-protocol — seam defaults: TUI launcher = tui.RunMaintainTUI, ops delegation =
+// ops.RunMaintain (no duplicate implementation — this file owns only the opt-in entry).
 func TestMaintainEntrySeamDefaults(t *testing.T) {
 	if reflect.ValueOf(maintainTuiFn).Pointer() != reflect.ValueOf(tui.RunMaintainTUI).Pointer() {
 		t.Fatal("maintainTuiFn seam must default to tui.RunMaintainTUI")

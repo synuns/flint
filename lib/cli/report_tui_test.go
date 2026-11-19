@@ -1,8 +1,8 @@
-// report_tui_test.go — report --tui 진입 분기 테스트.
-// protocol: --tui 오틋인 전 기본 3뷰(JSON·text·HTML) 경로 불변 ·
-// --tui 조합 오류 exit 3 · 비터미널 폴백 exit 3 · 수집 위임·오류 전파.
-// 수집 producer(ops.RunReport)는 fake Store 경유 실구현(SUPERLITE_REAL=1
-// 동일 경로), 화면 기동(reportTUIFn)은 stub seam.
+// report_tui_test.go — tests for the report --tui entry branching.
+// protocol: without the --tui opt-in, the existing 3 views (JSON, text, HTML) are unchanged;
+// --tui combination errors exit 3; non-terminal fallback exits 3; collection delegation and error propagation.
+// The collection producer (ops.RunReport) is the real implementation via a fake Store (same path with
+// SUPERLITE_REAL=1); the screen launch (reportTUIFn) is a stub seam.
 package cli
 
 import (
@@ -14,7 +14,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// runEntryArgs — 진입 래퍼(runReportEntry) 직접 실행 헬퍼.
+// runEntryArgs — a helper running the entry wrapper (runReportEntry) directly.
 func runEntryArgs(t *testing.T, f Store, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -22,8 +22,8 @@ func runEntryArgs(t *testing.T, f Store, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// TestReportEntryFlagPathUnchanged — --tui 없이 들어오면 기존 JSON 경로
-// 바이트 동일 위임(기본 경로 불변).
+// TestReportEntryFlagPathUnchanged — without --tui, byte-identical delegation to the existing JSON path
+// (default path unchanged).
 func TestReportEntryFlagPathUnchanged(t *testing.T) {
 	out, code := runEntryArgs(t, newReportFake(nil))
 	if code != 0 {
@@ -34,8 +34,8 @@ func TestReportEntryFlagPathUnchanged(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUIExclusive — --tui는 다른 뷰 플래그와 조합 불가
-// (화면·파일 출력 이원 방지) — exit 3 에러 JSON.
+// TestReportEntryTUIExclusive — --tui cannot combine with other view flags
+// (preventing screen/file output duality) — exit 3 error JSON.
 func TestReportEntryTUIExclusive(t *testing.T) {
 	for _, args := range [][]string{
 		{"--tui", "--html"},
@@ -52,9 +52,9 @@ func TestReportEntryTUIExclusive(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUIRunsScreen — --tui는 수집(실구현 — fake Store) 후
-// 화면 모델에 ReportOutput·창 일수를 넘긴다. stdout에 JSON을 남기지
-// 않는다(뷰 전용).
+// TestReportEntryTUIRunsScreen — --tui collects (real implementation — fake Store) and then
+// passes the ReportOutput and window days to the screen model. It leaves no JSON on
+// stdout (view-only).
 func TestReportEntryTUIRunsScreen(t *testing.T) {
 	daily := map[string]string{}
 	for _, d := range reportDates(3) {
@@ -86,11 +86,11 @@ func TestReportEntryTUIRunsScreen(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUINonTerminalFallback — 비터미널(파이프·CI)에서 화면
-// 기동 오류는 exit 3 안내 폴백(계약 문구).
+// TestReportEntryTUINonTerminalFallback — on non-terminal (pipe, CI), a screen-launch
+// error is the exit 3 guidance fallback (the contract wording).
 func TestReportEntryTUINonTerminalFallback(t *testing.T) {
 	orig := reportTUIFn
-	reportTUIFn = nil // 실구현 유지 관례: nil이면 기본값 사용
+	reportTUIFn = nil // keep-the-real-implementation convention: nil means use the default
 	defer func() { reportTUIFn = orig }()
 
 	out, code := runEntryArgs(t, newReportFake(nil), "--tui")
@@ -102,8 +102,8 @@ func TestReportEntryTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUICollectErrorPropagates — 수집 단계 오류(서버다운)는
-// 기존 JSON 경로와 동일 에러·exit로 전파(2).
+// TestReportEntryTUICollectErrorPropagates — a collection-stage error (server down) propagates
+// with the same error and exit as the existing JSON path (2).
 func TestReportEntryTUICollectErrorPropagates(t *testing.T) {
 	f := &fakeStore{pingErr: store.ErrServerDown}
 	orig := reportTUIFn
@@ -123,8 +123,8 @@ func TestReportEntryTUICollectErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUIBadFlagStillValidated — --tui와 함께 쓴 무효 플래그는
-// 기존 인자 검증 경로가 그대로 담당(exit 3).
+// TestReportEntryTUIBadFlagStillValidated — an invalid flag used together with --tui is still
+// handled by the existing argument-validation path (exit 3).
 func TestReportEntryTUIBadFlagStillValidated(t *testing.T) {
 	out, code := runEntryArgs(t, newReportFake(nil), "--tui", "--days", "abc")
 	if code != 3 {

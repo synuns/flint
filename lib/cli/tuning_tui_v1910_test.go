@@ -1,11 +1,11 @@
-// tuning_tui_v1910_test.go — v1.9.3 T3 `flint tuning --tui` 옵트인
-// 계약 테스트. 진입 분기: 무인자·기존 서브커맨드는 ops.RunTuning 바이트
-// 불변 위임(적응형 진입 없음 — 무인자 list JSON은 에이전트 계약),
-// --tui 단독만 TUI, 조합은 무효 인자 exit 3, FLINT_NO_TUI는 3층 방어
-// 1층 차단. TUI 흐름(tui.RunTuningTUI): 비터미널 exit 3
-// (ErrTerminalRequired 관례), 폼 확정은 기존 set/reset 표준 경로 위임
-// (fake seam·기본 경로 실위임), ctrl+c 취소 위생. pty 실구동 1회
-// (터미널 진입·폼 렌더·종료 위생).
+// tuning_tui_v1910_test.go — v1.9.3 T3 contract tests for the `flint tuning --tui` opt-in.
+// Entry branching: no-arg and existing subcommands delegate byte-for-byte unchanged to ops.RunTuning
+// (no adaptive entry — the no-arg list JSON is an agent contract),
+// --tui standalone only goes to the TUI, combinations are invalid-arg exit 3, and FLINT_NO_TUI is the layer-1
+// block of the 3-layer guard. The TUI flow (tui.RunTuningTUI): non-terminal exit 3
+// (the ErrTerminalRequired convention); form confirmation delegates to the existing set/reset standard path
+// (fake seam; real delegation on the default path); ctrl+c cancel hygiene. One real pty run
+// (terminal entry, form render, exit hygiene).
 package cli
 
 import (
@@ -30,7 +30,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// installTuningTuiFake — tuningTuiFn seam 교체(호출 기록 fake).
+// installTuningTuiFake — swaps the tuningTuiFn seam (call-recording fake).
 func installTuningTuiFake(t *testing.T) *int {
 	t.Helper()
 	calls := 0
@@ -43,7 +43,7 @@ func installTuningTuiFake(t *testing.T) *int {
 	return &calls
 }
 
-// installTuningOpsFake — tuningOpsRun seam 교체(호출 인자 기록 fake).
+// installTuningOpsFake — swaps the tuningOpsRun seam (fake recording call args).
 func installTuningOpsFake(t *testing.T) *[][]string {
 	t.Helper()
 	var calls [][]string
@@ -56,7 +56,7 @@ func installTuningOpsFake(t *testing.T) *[][]string {
 	return &calls
 }
 
-// RF-protocol — --tui 단독: TUI seam 호출·exit 전파.
+// RF-protocol — --tui standalone: TUI seam called, exit propagates.
 func TestTuningEntryTUIBranch(t *testing.T) {
 	calls := installTuningTuiFake(t)
 	opsCalls := installTuningOpsFake(t)
@@ -74,8 +74,8 @@ func TestTuningEntryTUIBranch(t *testing.T) {
 	}
 }
 
-// RF-protocol — --tui + 다른 인자: 무효 인자 exit 3(단독만 허용 —
-// 위치 서브커맨드(set/get/reset)와의 유령 인자 조합 방지).
+// RF-protocol — --tui + other args: invalid-arg exit 3 (standalone only —
+// prevents ghost-argument combinations with the positional subcommands set/get/reset).
 func TestTuningEntryTUIRejectsExtraArgs(t *testing.T) {
 	calls := installTuningTuiFake(t)
 	var out bytes.Buffer
@@ -92,7 +92,7 @@ func TestTuningEntryTUIRejectsExtraArgs(t *testing.T) {
 	}
 }
 
-// RF-protocol — FLINT_NO_TUI(3층 방어 1층): 명시 --tui도 차단 exit 3.
+// RF-protocol — FLINT_NO_TUI (layer 1 of the 3-layer guard): even an explicit --tui is blocked, exit 3.
 func TestTuningEntryNoTUIEnvBlocksExplicitTUI(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	calls := installTuningTuiFake(t)
@@ -107,8 +107,8 @@ func TestTuningEntryNoTUIEnvBlocksExplicitTUI(t *testing.T) {
 	}
 }
 
-// RF-protocol — 옵트인만: 무인자는 적응형 TUI 없이 ops 위임 유지
-// (무인자 = list JSON — 에이전트·스크립트 기존 경로 절대 보장).
+// RF-protocol — opt-in only: no-arg keeps the ops delegation without adaptive TUI
+// (no-arg = list JSON — the existing agent/script path is absolutely guaranteed).
 func TestTuningEntryNoAdaptiveBareRun(t *testing.T) {
 	calls := installTuningTuiFake(t)
 	opsCalls := installTuningOpsFake(t)
@@ -126,8 +126,8 @@ func TestTuningEntryNoAdaptiveBareRun(t *testing.T) {
 	}
 }
 
-// RF-protocol — 기존 서브커맨드 회귀: set/get/reset/list 등은 인자 그대로
-// ops 위임.
+// RF-protocol — existing subcommand regression: set/get/reset/list etc. keep their args and
+// delegate to ops.
 func TestTuningEntrySubcommandsDelegateUnchanged(t *testing.T) {
 	calls := installTuningTuiFake(t)
 	opsCalls := installTuningOpsFake(t)
@@ -146,8 +146,8 @@ func TestTuningEntrySubcommandsDelegateUnchanged(t *testing.T) {
 	}
 }
 
-// RF-protocol — seam 기본값: TUI 런처 = tui.RunTuningTUI, ops 위임 =
-// ops.RunTuning(중복 구현 금지 — 옵트인 진입만 이 파일 소유).
+// RF-protocol — seam defaults: TUI launcher = tui.RunTuningTUI, ops delegation =
+// ops.RunTuning (no duplicate implementation — this file owns only the opt-in entry).
 func TestTuningEntrySeamDefaults(t *testing.T) {
 	if reflect.ValueOf(tuningTuiFn).Pointer() != reflect.ValueOf(tui.RunTuningTUI).Pointer() {
 		t.Fatal("tuningTuiFn seam must default to tui.RunTuningTUI")
@@ -157,9 +157,9 @@ func TestTuningEntrySeamDefaults(t *testing.T) {
 	}
 }
 
-// RF-protocol — 바이트 동치: 무인자·기존 서브커맨드 전 경로가
-// ops.RunTuning 직접 호출과 출력·exit 바이트 불변(위임이지 재구현이
-// 아님을 증명).
+// RF-protocol — byte equivalence: every no-arg and existing-subcommand path is byte-for-byte
+// identical in output and exit to calling ops.RunTuning directly (proving it is a delegation,
+// not a reimplementation).
 func TestTuningEntryByteParityWithOps(t *testing.T) {
 	cases := [][]string{
 		nil,
@@ -188,10 +188,10 @@ func TestTuningEntryByteParityWithOps(t *testing.T) {
 	}
 }
 
-// RF-protocol — 비터미널 --tui: 실경로(tui.RunTuningTUI 기본 배선)에서
-// 폼 시작 전 즉시 exit 3(ErrTerminalRequired 관례 — go test stdout은
-// 터미널이 아님). 스토어 조회도 일어나지 않는다(nil store로도 진입
-// 직후 차단).
+// RF-protocol — non-terminal --tui: on the real wiring (tui.RunTuningTUI default) it exits 3
+// immediately before the form starts (the ErrTerminalRequired convention — go test stdout is
+// not a terminal). No store lookup happens either (blocked right after entry even with a nil
+// store).
 func TestTuningEntryTUIRequiresTerminalRealPath(t *testing.T) {
 	var out bytes.Buffer
 	code := runTuningEntry(context.Background(), nil, []string{"--tui"},
@@ -204,9 +204,9 @@ func TestTuningEntryTUIRequiresTerminalRealPath(t *testing.T) {
 	}
 }
 
-// RF-state — 폼 확정 → 기존 set 경로 위임(fake seam): Form이 채운
-// 선택(키·값·set)이 deps.Run에 ["set", key, value]로 전달되고 exit 코드가
-// 그대로 전파된다.
+// RF-state — form confirmation -> delegates to the existing set path (fake seam): the Form-filled
+// selection (key, value, set) is passed to deps.Run as ["set", key, value] and the exit code
+// propagates as-is.
 func TestRunTuningTUIFormConfirmDelegatesSet(t *testing.T) {
 	var gotArgs []string
 	var out bytes.Buffer
@@ -233,7 +233,7 @@ func TestRunTuningTUIFormConfirmDelegatesSet(t *testing.T) {
 	}
 }
 
-// RF-state — reset 확정: 값 없이 ["reset", key]만 전달.
+// RF-state — reset confirmation: only ["reset", key] is passed, without a value.
 func TestRunTuningTUIFormConfirmDelegatesReset(t *testing.T) {
 	var gotArgs []string
 	var out bytes.Buffer
@@ -260,9 +260,9 @@ func TestRunTuningTUIFormConfirmDelegatesReset(t *testing.T) {
 	}
 }
 
-// RF-state — 기본 Run 위임(deps.Run nil): 실 ops.RunTuning set 표준
-// 경로가 재사용된다 — JSON 1행 출력({"status":"set",...})·실경로 값
-// 검증·meta 기록 전부 기존 경로 소유(중복 구현 금지 증명).
+// RF-state — default Run delegation (deps.Run nil): the real ops.RunTuning set standard path is
+// reused — the one-line JSON output ({"status":"set",...}), real-path value
+// validation, and the meta write all belong to the existing path (proving no duplicate implementation).
 func TestRunTuningTUIDefaultRunReusesStandardSetPath(t *testing.T) {
 	f := newTuningFake()
 	var out bytes.Buffer
@@ -285,7 +285,7 @@ func TestRunTuningTUIDefaultRunReusesStandardSetPath(t *testing.T) {
 	if len(f.sets) != 1 || f.meta["dead_days"] != "45" {
 		t.Fatalf("meta not written through standard path: sets=%v meta=%v", f.sets, f.meta)
 	}
-	// 무효 값도 표준 경로 검증(실경로 파싱 폴백 거부·안내)으로 exit 3.
+	// invalid values also exit 3 via standard-path validation (real-path parse-fallback rejection and guidance).
 	out.Reset()
 	code = tui.RunTuningTUI(context.Background(), newTuningFake(), &out, tui.TuningDeps{
 		IsTerminal: func() bool { return true },
@@ -305,8 +305,8 @@ func TestRunTuningTUIDefaultRunReusesStandardSetPath(t *testing.T) {
 	}
 }
 
-// RF-protocol — ctrl+c 취소(huh.ErrUserAborted): "tuning cancelled" 안내
-// 1행 후 exit 0, 실행 위임 없음 — 깨끗한 취소.
+// RF-protocol — ctrl+c cancel (huh.ErrUserAborted): after the one-line "tuning cancelled"
+// notice, exit 0 with no run delegation — a clean cancel.
 func TestRunTuningTUIUserAbortExitsCleanly(t *testing.T) {
 	var out bytes.Buffer
 	ran := false
@@ -334,8 +334,8 @@ func TestRunTuningTUIUserAbortExitsCleanly(t *testing.T) {
 	}
 }
 
-// RF-protocol — 키 행 로드 실패: 표준 오류 경로(ErrLine + MapExit)로
-// 폼 없이 종료.
+// RF-protocol — key-row load failure: ends via the standard error path (ErrLine + MapExit)
+// without the form.
 func TestRunTuningTUIRowsFailureUsesStandardExit(t *testing.T) {
 	var out bytes.Buffer
 	dbErr := errors.New("db unreachable")
@@ -357,15 +357,15 @@ func TestRunTuningTUIRowsFailureUsesStandardExit(t *testing.T) {
 	}
 }
 
-// TestTuningTUIPtyRealRun — pty 실구동 1회: 실 터미널에서 기본 huh 폼이
-// 렌더되고(터미널 진입 통과) ctrl+c 종료가 "tuning cancelled" 안내·
-// exit 0으로 위생 처리되는지. 자식 프로세스(FLINT_TUNING_TUI_PTY_CHILD=1)
-// 는 실 폼· Rows/Run fake로 tui.RunTuningTUI를 실행하고, 부모는
-// `script`(BSD pty 래퍼)로 구동해 산출물·종료 상태를 검증한다. script
-// 부재 환경은 스킵(pty 실구동은 이 1회로 한정).
+// TestTuningTUIPtyRealRun — one real pty run: in a real terminal the default huh form
+// renders (terminal entry passes) and the ctrl+c exit is hygienically handled with the "tuning cancelled"
+// notice and exit 0. The child process (FLINT_TUNING_TUI_PTY_CHILD=1)
+// runs tui.RunTuningTUI with the real form and faked Rows/Run; the parent drives it via
+// `script` (a BSD pty wrapper) and verifies the output and exit status. Environments without
+// script skip (the real pty run is limited to this one).
 func TestTuningTUIPtyRealRun(t *testing.T) {
-	// pty 실구동은 로컬/발행 전 TUI 표준 검증 — CI headless 러너의
-	// 단말 에뮬레이션 타이밍 차이로 회귀 판정이 불안정해 CI는 스킵.
+	// the real pty run is the local pre-release TUI standard check — CI headless runners'
+	// terminal-emulation timing differences make regression verdicts flaky, so CI skips it.
 	if os.Getenv("CI") == "true" {
 		t.Skip("pty 실구동: CI 환경 제외(로컬 TUI 표준 검증)")
 	}
@@ -383,9 +383,9 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 	if err != nil {
 		t.Skip("script(pty wrapper) not available — pty real-run skipped")
 	}
-	// script의 pty 크기는 부모 tty에서 상속되는데 go test stdout은
-	// 파이프라 0x0이 된다(폭 0 렌더 → 빈 필드). sh -c로 pty 크기를
-	// 지정한 뒤 자식을 실행해 실제 터미널과 같은 조건을 만든다.
+	// script's pty size is inherited from the parent tty, but go test stdout is a pipe, so it becomes
+	// 0x0 (width-0 render -> empty fields). Use sh -c to set the pty size and then run the child,
+	// creating the same conditions as a real terminal.
 	cmd := exec.Command(script, "-q", "/dev/null", "/bin/sh", "-c",
 		`stty rows 40 cols 120 2>/dev/null; exec "$0" -test.run=^TestTuningTUIPtyRealRun$`,
 		os.Args[0])
@@ -402,10 +402,10 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start pty child: %v", err)
 	}
-	// 렌더 대기 — 폼 제목("Tuning")·키 행("dead_days")이 보일 때까지 폴링.
-	// bubbletea는 첫 페인트 전 터미널 질의(OSC 11 배경색·DSR 커서 위치)를
-	// 보내고 응답을 기다린다 — script의 pty에는 응답자가 없으므로 부모가
-	// 실제 터미널처럼 응답한다(에뮬레이터 최소 동작).
+	// wait for render — poll until the form title ("Tuning") and the key row ("dead_days") are visible.
+	// bubbletea sends terminal queries before the first paint (OSC 11 background color, DSR cursor
+	// position) and waits for replies — script's pty has no responder, so the parent replies
+	// like a real terminal (minimal emulator behavior).
 	deadline := time.Now().Add(20 * time.Second)
 	rendered, answeredBG, answeredCPR := false, false, false
 	for time.Now().Before(deadline) {
@@ -428,7 +428,7 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 		cmd.Process.Kill()
 		t.Fatalf("form did not render in pty output: %q", out.String())
 	}
-	// ctrl+c(0x03) → huh 중단 → 안내·exit 0 위생.
+	// ctrl+c (0x03) -> huh abort -> notice and exit 0 hygiene.
 	if _, err := stdin.Write([]byte{3}); err != nil {
 		cmd.Process.Kill()
 		t.Fatalf("send ctrl+c: %v", err)
@@ -451,10 +451,10 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 	}
 }
 
-// lockedBuffer — exec 복사 고루틴(Write)과 메인 폴링(String)이 동시에
-// 접근하는 pty 출력 수집용 뮤텍스 보호 버퍼. bytes.Buffer는 동시
-// Write/Read가 정의되지 않는다(go test -race 실레이스 — 공유 버퍼
-// Write·String 전부 Lock으로 직렬화).
+// lockedBuffer — a mutex-protected buffer for collecting pty output, accessed concurrently by the
+// exec copy goroutine (Write) and the main polling loop (String). bytes.Buffer does not define
+// concurrent Write/Read (a real race under go test -race — both shared-buffer Write and String
+// are serialized with Lock).
 type lockedBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -472,7 +472,7 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
-// tailFor — 진단용 출력 꼬리(마지막 n바이트).
+// tailFor — the output tail for diagnostics (last n bytes).
 func tailFor(s string, n int) string {
 	if len(s) <= n {
 		return s

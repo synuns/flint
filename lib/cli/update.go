@@ -1,9 +1,9 @@
-// update.go — 자동 업데이트: `flint update` 자가 교체 +
-// 세션 시작 갱신 안내 + doctor update 체크. 원칙: 다운로드·교체는 오직
-// 명시적 실행 시만(안내는 해도 자동 실행 없음 — §13 비간섭). 네트워크
-// 실패는 조용히, 체크섬 불일치는 즉시 중단(ADR-0006 취지 승계).
-// 검증 후 교체(verify-then-swap): 새 바이너리가 `version`을 정상 출력해야
-// rename하므로 실패 경로는 원본을 건드리지 않는다.
+// update.go — auto-update: `flint update` self-replacement +
+// session-start update notice + the doctor update check. Principle: download and replacement happen only
+// on explicit invocation (notices are fine, never auto-execution — §13 non-interference). Network
+// failures are silent; checksum mismatch aborts immediately (carrying over the ADR-0006 intent).
+// verify-then-swap: the new binary must run `version` successfully before the
+// rename, so failure paths never touch the original.
 package cli
 
 import (
@@ -32,28 +32,28 @@ import (
 
 func init() { Register("update", runUpdateCmd) }
 
-// updateAPIBase — GitHub Releases API 기본(테스트는 httptest로 주입).
+// updateAPIBase — the GitHub Releases API base (tests inject httptest).
 var updateAPIBase = "https://api.github.com"
 
-// executablePathFn — 자가 경로 조회 seam(테스트는 임시 파일로 주입 —
-// 테스트 바이너리 자체를 교체하지 않게).
+// executablePathFn — self-path lookup seam (tests inject a temp file —
+// so the test binary itself is never replaced).
 var executablePathFn = os.Executable
 
-// updateAPITimeout — Releases API 조회 타임아웃(단발 소형 — 오프라인
-// 환경에서 훅·doctor가 길게 걸리지 않게 짧게).
+// updateAPITimeout — Releases API lookup timeout (small and one-shot — kept short so
+// hooks and doctor don't hang long in offline environments).
 const updateAPITimeout = 5 * time.Second
 
-// updateHTTPTimeout — 자산 다운로드 클라이언트 타임아웃.
+// updateHTTPTimeout — asset download client timeout.
 const updateHTTPTimeout = 30 * time.Second
 
-// updateClientFn — 클라이언트 팩토리 seam(프로덕션
-// 바이너리에서 InsecureSkipVerify를 완전히 제거 — 테스트는 httptest
-// srv.Client() 주입으로 자체 서명을 수용한다).
+// updateClientFn — client factory seam (removes InsecureSkipVerify
+// entirely from production binaries — tests accept self-signed certs by injecting
+// httptest srv.Client()).
 var updateClientFn = func(timeout time.Duration) *http.Client { return updateClient(timeout) }
 
-// updateClient — API·다운로드 공통 클라이언트. DefaultTransport 복제로
-// ProxyFromEnvironment 유지(리뷰 ① — 프록시 환경 단절 회귀 방지),
-// 리다이렉트는 https만 추적(리뷰 ② — https→http 다운그레이드 방어).
+// updateClient — shared client for the API and downloads. Clones DefaultTransport to
+// keep ProxyFromEnvironment (review 1 — prevents a proxy-environment regression),
+// and follows https-only redirects (review 2 — defends against https->http downgrade).
 func updateClient(timeout time.Duration) *http.Client {
 	tr := http.DefaultTransport.(*http.Transport).Clone()
 	return &http.Client{
@@ -68,32 +68,32 @@ func updateClient(timeout time.Duration) *http.Client {
 	}
 }
 
-// updateNoticeTTL — 세션 시작 갱신 확인 캐시 수명(하루 1회 확인).
+// updateNoticeTTL — lifetime of the session-start update-check cache (one check per day).
 const updateNoticeTTL = 24 * time.Hour
 
-// updateCacheFile — 갱신 확인 캐시 경로(configDir — 마커 패턴 승계).
+// updateCacheFile — update-check cache path (configDir — carrying over the marker pattern).
 func updateCacheFile() string {
 	return dataFile("update-check.json")
 }
 
-// updateCache — 갱신 확인 캐시 1행.
+// updateCache — one line of update-check cache.
 type updateCache struct {
 	Latest    string `json:"latest"`
 	CheckedAt string `json:"checked_at"`
 }
 
-// runUpdateCmd — `flint update` 진입: --check 드라이런, 기본은 확인·
-// 다운로드·검증·교체. store-free(네트워크·파일시스템만).
-// updateSkipSignature — --insecure-skip-signature(키 롤링 등 신뢰 이전
-// 시 1회 명시 우회 — ADR-0014). 프로세스 상태로 유지되므로 MCP 등
-// 재진입 호출처가 update를 노출하는 미래 변경에 대비해 진입마다
-// 리셋된다.
-// unknown flag는 무효 인자 exit 3(네트워크 접근 전 검증).
+// runUpdateCmd — `flint update` entry: --check dry-run; default is check,
+// download, verify, and replace. store-free (network and filesystem only).
+// updateSkipSignature — --insecure-skip-signature (a one-time explicit bypass for trust
+// transitions such as key rolling — ADR-0014). It lives as process state, so it is reset on every entry
+// in preparation for a future change where re-entrant callers like MCP expose
+// update.
+// unknown flags are invalid-arg exit 3 (validated before network access).
 var updateSkipSignature = false
 
 func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
-	// 불허 — 네트워크 접근 전 검증 계약 유지).
+	// moved the manual loop to the wire.ParseArgs spec table (positional args
+	// not allowed — keeping the validate-before-network-access contract).
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--check"},
@@ -106,15 +106,15 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 		return 3
 	}
 	dry := res.Given("--check")
-	updateSkipSignature = false // 진입 리셋
+	updateSkipSignature = false // entry reset
 	if res.Given("--insecure-skip-signature") {
 		updateSkipSignature = true
 		fmt.Fprintln(os.Stderr, "[flint] update: signature verification bypass (one-time trust transfer — ADR-0014 key rollover procedure)")
 	}
 	latest, err := fetchLatestVersion()
 	if err != nil {
-		// 네트워크 실패 — 조용한 계약은 안내 경로(훅)에만 적용, 명시적
-		// 실행이므로 사유를 알린다(exit 1).
+		// network failure — the silent contract applies only to the notice path (hooks); this is an
+		// explicit invocation, so report the reason (exit 1).
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("update: failed to check the latest version: %w", err)))
 		return 1
 	}
@@ -140,7 +140,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 	return 0
 }
 
-// releaseMeta — releases/latest 응답의 필요 필드만.
+// releaseMeta — only the needed fields of the releases/latest response.
 type releaseMeta struct {
 	TagName string `json:"tag_name"`
 	Assets  []struct {
@@ -149,15 +149,15 @@ type releaseMeta struct {
 	} `json:"assets"`
 }
 
-// releasePubPEM — 릴리스 서명 검증 공개키(신뢰 뿌리 — ADR-0014).
-// lib/cli/cosign.pub을 빌드 시점에 임베드. 빈 파일 = 미구성 전환 모드
-// (.sig가 있어도 경고만 하고 통과). 공개키 임베드 후 하드 검증: .sig
-// 부재·불일치·스킴 오류 전부 거부(fail-closed).
+// releasePubPEM — public key for release signature verification (the trust root — ADR-0014).
+// lib/cli/cosign.pub embedded at build time. An empty file = unconfigured transition mode
+// (even with a .sig present, only warn and pass). With the public key embedded, hard verification:
+// missing .sig, mismatch, or scheme errors are all rejected (fail-closed).
 //
 //go:embed cosign.pub
 var releasePubPEM []byte
 
-// fetchLatestVersion — 최신 태그(v 접두 제거) 조회. 캐시 갱신은 호출부.
+// fetchLatestVersion — looks up the latest tag (v prefix stripped). Cache refresh is the caller's job.
 func fetchLatestVersion() (string, error) {
 	meta, err := fetchReleaseMeta()
 	if err != nil {
@@ -166,7 +166,7 @@ func fetchLatestVersion() (string, error) {
 	return strings.TrimPrefix(meta.TagName, "v"), nil
 }
 
-// fetchReleaseMeta — releases/latest 조회(공식 API만).
+// fetchReleaseMeta — releases/latest lookup (official API only).
 func fetchReleaseMeta() (*releaseMeta, error) {
 	client := updateClientFn(updateAPITimeout)
 	resp, err := client.Get(updateAPIBase + "/repos/synuns/flint/releases/latest")
@@ -178,8 +178,8 @@ func fetchReleaseMeta() (*releaseMeta, error) {
 		return nil, fmt.Errorf("api status %d", resp.StatusCode)
 	}
 	var meta releaseMeta
-	// API 응답도 상한 해석(무한 JSON 적립 방어 — 릴리스
-	// 메타는 수 KB 규모라 8MiB면 충분).
+	// the API response is also read with a cap (defense against unbounded JSON accumulation — release
+	// metadata is a few KB, so 8MiB is plenty).
 	if err := json.NewDecoder(io.LimitReader(resp.Body, 8<<20)).Decode(&meta); err != nil {
 		return nil, err
 	}
@@ -189,8 +189,8 @@ func fetchReleaseMeta() (*releaseMeta, error) {
 	return &meta, nil
 }
 
-// applyUpdate — 자산 다운로드·sha256 검증(checksums.txt)·바이너리 추출·
-// version 실행 검증·원자 교체(rename). 모든 실패는 원본 불변.
+// applyUpdate — asset download, sha256 verification (checksums.txt), binary extraction,
+// version-run verification, and atomic replacement (rename). Every failure leaves the original untouched.
 func applyUpdate(latest string) (string, error) {
 	meta, err := fetchReleaseMeta()
 	if err != nil {
@@ -205,7 +205,7 @@ func applyUpdate(latest string) (string, error) {
 		case "checksums.txt":
 			sumsURL = a.BrowserDownloadURL
 		case "checksums.txt.sig":
-			sigURL = a.BrowserDownloadURL // 목록 URL 사용 — 조립 금지
+			sigURL = a.BrowserDownloadURL // use the listed URL — never assemble one
 		}
 	}
 	if assetURL == "" || sumsURL == "" {
@@ -219,16 +219,16 @@ func applyUpdate(latest string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("checksums download: %w", err)
 	}
-	// (ADR-0014): checksums.txt 서명 검증 — GitHub 오리진과 분리된
-	// 신뢰 뿌리(임베드 공개키). 자산 목록으로 .sig 존재를 판정하고:
-	//   - 공개키 임베드(하드 검증): .sig 부재·불일치·스킴 오류 전부 거부
-	//     (fail-closed — .sig 삭제·쓰레기 서명 회피 차단)
-	//   - 미구성(전환 모드): .sig 있으면 경고 후 진행, 없으면 진행
-	// 키 롤링 등 신뢰 이전은 --insecure-skip-signature(사용자 명시).
+	// (ADR-0014): checksums.txt signature verification — a trust root separate from the
+	// GitHub origin (embedded public key). The asset list decides whether a .sig exists:
+	//   - public key embedded (hard verification): missing .sig, mismatch, or scheme errors are all rejected
+	//     (fail-closed — blocks .sig deletion and garbage-signature evasion)
+	//   - unconfigured (transition mode): with a .sig, warn and proceed; without, proceed
+	// trust transitions such as key rolling use --insecure-skip-signature (explicit user opt-in).
 	verifier := ReleaseVerifier{PublicPEM: releasePubPEM}
 	if updateSkipSignature {
 		fmt.Fprintln(os.Stderr, "[flint] update: signature verification bypass (--insecure-skip-signature)")
-		verifier = ReleaseVerifier{} // 미구성 취급 — 경로는 통과
+		verifier = ReleaseVerifier{} // treated as unconfigured — the path passes
 	}
 	if sigURL != "" {
 		sig, serr := download(sigURL)
@@ -260,13 +260,13 @@ func applyUpdate(latest string) (string, error) {
 	return swapBinary(bin)
 }
 
-// updateMaxBytes — 자산·체크섬 다운로드 상한(
-// io.ReadAll 무한 적립 방어. 릴리스 자산은 통상 수 MB — 여유 상한).
+// updateMaxBytes — download cap for assets and checksums (
+// defense against unbounded io.ReadAll accumulation. Release assets are usually a few MB — a generous cap).
 const updateMaxBytes = 128 << 20 // 128MiB
 
-// download — 전체 다운로드(자산·체크섬 모두 소형·단발).
-// 다운로드 URL은 https 강제 — API 응답의 browser_download_url이
-// 평문 스킴을 가리키면 거부한다(응답 변조·다운그레이드 방지).
+// download — full download (both asset and checksum are small, one-shot).
+// download URLs force https — if browser_download_url in the API response
+// points to a plaintext scheme, reject it (prevents response tampering and downgrade).
 func download(url string) ([]byte, error) {
 	if !strings.HasPrefix(url, "https://") {
 		return nil, fmt.Errorf("non-https download URL rejected: %s", url)
@@ -290,7 +290,7 @@ func download(url string) ([]byte, error) {
 	return body, nil
 }
 
-// checksumFor — sha256sum 관련 checksums.txt에서 해당 파일 해시 추출.
+// checksumFor — extracts the file's hash from the sha256sum-style checksums.txt.
 func checksumFor(sums, name string) (string, error) {
 	for _, line := range strings.Split(sums, "\n") {
 		fields := strings.Fields(line)
@@ -301,7 +301,7 @@ func checksumFor(sums, name string) (string, error) {
 	return "", fmt.Errorf("%s not found in checksums.txt", name)
 }
 
-// extractBinary — tar.gz에서 루트 flint 바이너리 추출.
+// extractBinary — extracts the root flint binary from the tar.gz.
 func extractBinary(archive []byte) ([]byte, error) {
 	gz, err := gzip.NewReader(bytes.NewReader(archive))
 	if err != nil {
@@ -318,9 +318,9 @@ func extractBinary(archive []byte) ([]byte, error) {
 			return nil, fmt.Errorf("tar: %w", err)
 		}
 		if hdr.Typeflag == tar.TypeReg && filepath.Base(hdr.Name) == "flint" {
-			// 해제 스트림에도 동일 상한 — 압축 바이트 상한만으론
-			// gzip 폭발(작은 압축분의 수십 GiB 팽창)을 막지 못한다. 상한+1
-			// 읽기로 초과를 명시적 에러 처리(무음 절단 금지).
+			// the same cap on the decompressed stream too — a compressed-byte cap alone cannot
+			// stop a gzip bomb (a small archive expanding to tens of GiB). Read cap+1
+			// bytes to turn overflow into an explicit error (no silent truncation).
 			b, rerr := io.ReadAll(io.LimitReader(tr, updateMaxBytes+1))
 			if rerr != nil {
 				return nil, fmt.Errorf("archive read: %w", rerr)
@@ -333,7 +333,7 @@ func extractBinary(archive []byte) ([]byte, error) {
 	}
 }
 
-// swapBinary — 새 바이너리를 임시 파일로 검증(version 실행) 후 원자 교체.
+// swapBinary — verifies the new binary via a temp file (running version), then atomically replaces it.
 func swapBinary(bin []byte) (string, error) {
 	self, err := executablePathFn()
 	if err != nil {
@@ -345,7 +345,7 @@ func swapBinary(bin []byte) (string, error) {
 		return "", err
 	}
 	tmpPath := tmp.Name()
-	defer os.Remove(tmpPath) // rename 성공 시 no-op(이동됨)
+	defer os.Remove(tmpPath) // no-op after a successful rename (it moved)
 	mode := os.FileMode(0o755)
 	if fi, err := os.Stat(self); err == nil {
 		mode = fi.Mode()
@@ -360,7 +360,7 @@ func swapBinary(bin []byte) (string, error) {
 	if err := os.Chmod(tmpPath, mode); err != nil {
 		return "", err
 	}
-	// 검증 후 교체 — 새 바이너리가 version을 출력해야 rename한다.
+	// verify-then-swap — the new binary must print version before the rename.
 	out, err := exec.Command(tmpPath, "version").Output()
 	if err != nil || !strings.Contains(string(out), `"version"`) {
 		return "", fmt.Errorf("new binary verification failed (no version output): %v", err)
@@ -371,7 +371,7 @@ func swapBinary(bin []byte) (string, error) {
 	return self, nil
 }
 
-// validVersion — x.y.z 형식(dev 등 미주입 빌드 판별).
+// validVersion — x.y.z form (detects uninjected builds like dev).
 func validVersion(v string) bool {
 	parts := strings.Split(v, ".")
 	if len(parts) != 3 {
@@ -385,7 +385,7 @@ func validVersion(v string) bool {
 	return true
 }
 
-// compareVersions — a>b면 1, a<b면 -1, 동일 0(x.y.z 수치 비교).
+// compareVersions — 1 if a>b, -1 if a<b, 0 if equal (numeric x.y.z comparison).
 func compareVersions(a, b string) int {
 	ap, bp := versionParts(a), versionParts(b)
 	for i := range ap {
@@ -399,7 +399,7 @@ func compareVersions(a, b string) int {
 	return 0
 }
 
-// versionParts — x.y.z → [3]int(무효는 0 취급 — 방어).
+// versionParts — x.y.z -> [3]int (invalid treated as 0 — defensive).
 func versionParts(v string) [3]int {
 	var out [3]int
 	for i, p := range strings.Split(v, ".") {
@@ -412,9 +412,9 @@ func versionParts(v string) [3]int {
 	return out
 }
 
-// maybeUpdateNotice — 세션 시작 갱신 안내: 캐시(TTL 24h)가
-// 만료된 경우만 확인(하루 1회 왕복), 최신>현재면 [flint] 경계 내 1줄.
-// 네트워크 실패·캐시 부재는 조용히(§13 — 안내 부재가 곧 무해).
+// maybeUpdateNotice — session-start update notice: check only when the cache (24h TTL) has
+// expired (one round trip per day); if latest > current, one line inside the [flint] banner.
+// Network failure or missing cache is silent (§13 — no notice is harmless by definition).
 func maybeUpdateNotice() string {
 	cur := CurrentVersion()
 	if !validVersion(cur) {
@@ -434,7 +434,7 @@ func maybeUpdateNotice() string {
 	}
 	latest, err := fetchLatestVersion()
 	if err != nil {
-		return "" // 조용히 — 캐시도 갱신하지 않는다(다음 세션 재시도)
+		return "" // silent — the cache is not refreshed either (retry next session)
 	}
 	c = updateCache{Latest: latest, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
 	if b, err := json.Marshal(c); err == nil {
@@ -443,7 +443,7 @@ func maybeUpdateNotice() string {
 	return noticeLine(latest, cur)
 }
 
-// noticeLine — 최신이 앞서면 안내 1줄, 아니면 빈 문자열.
+// noticeLine — one notice line if a newer release is ahead, else the empty string.
 func noticeLine(latest, cur string) string {
 	if latest != "" && validVersion(latest) && compareVersions(latest, cur) > 0 {
 		return "[flint] new version v" + latest + " — flint update"

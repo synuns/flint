@@ -1,9 +1,9 @@
-// report.go — `flint report --tui` 진입 분기. 등록은 ops
-// 패키지 init(RunReport)이 먼저 하고, cli init이 이 래퍼로 재등록해
-// 덮는다(Register 후속 승계 — cli가 ops를 import하므로 순서 보장).
-// --tui 옵트인: 기존 3뷰(JSON 기본·--text·--html) 경로는 바이트 불변
-// 위임. TUI 데이터는 RunReport(JSON 뷰) 수집 산물을 그대로 파싱해
-// 쓴다 — 4뷰 동일 원천(중복 수집 구현 금지).
+// report.go — entry branching for `flint report --tui`. Registration is done first by the ops
+// package init (RunReport); the cli init re-registers this wrapper to
+// overwrite it (last Register wins — cli imports ops, so ordering is guaranteed).
+// --tui opt-in: the existing 3 views (JSON default, --text, --html) path is delegated byte-for-byte
+// unchanged. TUI data reuses the RunReport (JSON view) collection output, parsed
+// as-is — all 4 views share one source (no duplicate collection implementation).
 package cli
 
 import (
@@ -18,32 +18,32 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// 수집·화면 seam(테스트 주입 — export 관례 승계: 기본 실구현, 테스트는
-// fake 교체, nil 재할당은 기본값 해석).
+// collection and screen seams (test injection — carrying over the export convention: real
+// implementation by default, tests swap in fakes, nil reassignment means default).
 var (
-	// reportCollectFn — ReportOutput 수집(JSON 뷰 경로 재사용 — 산물을
-	// stdout 대신 버퍼로 받는 것뿐). 오류 시 (에러 한 줄, exit 코드).
+	// reportCollectFn — collects the ReportOutput (reusing the JSON view path — just
+	// receiving the output into a buffer instead of stdout). On error: (one error line, exit code).
 	reportCollectFn = func(ctx context.Context, st Store, args []string, stdin io.Reader) (string, int) {
 		var buf strings.Builder
 		code := runReport(ctx, st, args, stdin, &buf)
 		return buf.String(), code
 	}
-	// reportTUIFn — 화면 기동(비터미널 오류 반환 — 호출부 exit 3).
+	// reportTUIFn — launches the screen (returns a non-terminal error — caller exits 3).
 	reportTUIFn = tui.RunReportTUI
-	// reportTTYFn — 적응형 진입 TTY 판정 seam(기본 실구현
-	// tui.IsTerminalStdout, 테스트 fake 교체).
+	// reportTTYFn — TTY check seam for adaptive entry (real implementation
+	// tui.IsTerminalStdout by default; tests swap in a fake).
 	reportTTYFn = tui.IsTerminalStdout
 )
 
 func init() { Register("report", runReportEntry) }
 
-// runReportEntry — `flint report [--tui] [기존 플래그...]`. 진입 규칙
-// ① --tui 명시 → TUI(비터미널 폴백 exit 3 불변)
-// ② 무인자·무플래그 + 터미널 → TUI ③ 무인자 + 비터미널 → 기본 JSON 뷰
-// ④ 플래그 존재 → 기존 경로. --tui는 뷰 플래그(--html·--text·--out)와
-// 조합 불가(exit 3 — 화면·파일 이원 방지). TUI 경로: 수집(JSON 원천) →
-// ReportOutput 파싱 → TUI. 창 일수는 수집 산물 행 수에서 유도(상한
-// clamp가 반영된 실제 창).
+// runReportEntry — `flint report [--tui] [existing flags...]`. Entry rules:
+// (1) explicit --tui -> TUI (non-terminal fallback exit 3 unchanged)
+// (2) no args or flags + terminal -> TUI (3) no args + non-terminal -> default JSON view
+// (4) flags present -> existing path. --tui cannot combine with view flags (--html, --text, --out)
+// (exit 3 — prevents screen/file duality). TUI path: collect (JSON source) ->
+// parse ReportOutput -> TUI. Window days are derived from the collection output row count (the actual
+// window after the cap clamp).
 func runReportEntry(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	tuiIdx := -1
 	for i, a := range args {
@@ -52,11 +52,11 @@ func runReportEntry(ctx context.Context, st Store, args []string, stdin io.Reade
 			break
 		}
 	}
-	// 적응형 전환: 인자·플래그 전혀 없음 + 터미널이면 TUI
-	// (--tui 등가 — rest가 빈 상태여 뷰 플래그 검증도 자동 통과).
-	// 3층 방어 1층 — FLINT_NO_TUI 설정 시 TTY 여부와 무관하게 차단.
+	// adaptive switching: no args or flags at all + terminal means TUI
+	// (equivalent to --tui — rest is empty, so view-flag validation passes automatically).
+	// layer 1 of the 3-layer guard — with FLINT_NO_TUI set, blocked regardless of TTY.
 	if tuiIdx < 0 && !(len(args) == 0 && !tui.NoTUIForced() && reportTTYFn()) {
-		return runReport(ctx, st, args, stdin, stdout) // 기본 경로 불변 위임
+		return runReport(ctx, st, args, stdin, stdout) // unchanged delegation to the default path
 	}
 	rest := args
 	if tuiIdx >= 0 {
@@ -69,11 +69,11 @@ func runReportEntry(ctx context.Context, st Store, args []string, stdin io.Reade
 			return 3
 		}
 	}
-	// --out 다음 토큰 검사는 불필요 — --out 값이 먼저 오는 조합은
-	// RunReport 인자 검증이 이미 exit 3으로 잡는다(--out은 값을 흡수).
+	// checking the token after --out is unnecessary — the combination where an --out value comes first
+	// is already caught by RunReport argument validation as exit 3 (--out absorbs a value).
 	line, code := reportCollectFn(ctx, st, rest, stdin)
 	if code != 0 {
-		fmt.Fprint(stdout, line) // 수집 산물 에러 한 줄 전달(개행 포함)
+		fmt.Fprint(stdout, line) // forward the collection output's one error line (with newline)
 		return code
 	}
 	var rep ops.ReportOutput

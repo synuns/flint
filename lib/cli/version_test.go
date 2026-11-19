@@ -8,7 +8,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// TestVersionJSON — 기본 dev 폴백 한 줄 JSON(ldflags 미주입 시).
+// TestVersionJSON — the default dev fallback as one-line JSON (when ldflags are not injected).
 func TestVersionJSON(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
@@ -28,14 +28,14 @@ func TestVersionJSON(t *testing.T) {
 	}
 }
 
-// TestVersionRegistered — init() Register 확인.
+// TestVersionRegistered — verifies the init() Register.
 func TestVersionRegistered(t *testing.T) {
 	if _, ok := Lookup("version"); !ok {
 		t.Fatal("Lookup(\"version\") 실패 — 미등록 커맨드")
 	}
 }
 
-// TestVersionStoreFree — DB 다운(접속 실패)에도 version은 exit 0(§13 정합).
+// TestVersionStoreFree — even with the DB down (connection failure), version exits 0 (§13 consistency).
 func TestVersionStoreFree(t *testing.T) {
 	prev := newStore
 	newStore = func(ctx context.Context, dsn string) (Store, error) {

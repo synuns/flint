@@ -9,7 +9,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// staleQueryFixture — meta 조회는 임계값 rows, knowledge 조회는 지정 rows를 반환.
+// staleQueryFixture — the meta query returns threshold rows; the knowledge query returns the given rows.
 func staleQueryFixture(t *testing.T, f *fakeMaint, metaRows, knolRows [][]any) {
 	t.Helper()
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -22,7 +22,7 @@ func staleQueryFixture(t *testing.T, f *fakeMaint, metaRows, knolRows [][]any) {
 
 func ago(d time.Duration) time.Time { return time.Now().Add(-d) }
 
-// TestStaleBucketsAndStallWarnings — 미참조(read_count=0)/경과(last_read_at)/활성 3행 → 2건만·never_read 1·경고 배열.
+// TestStaleBucketsAndStallWarnings — 3 rows unreferenced (read_count=0) / elapsed (last_read_at) / active -> only 2, never_read 1 + a warnings array.
 func TestStaleBucketsAndStallWarnings(t *testing.T) {
 	knol := [][]any{
 		{1, "미참조 노트", nil, ago(100 * 24 * time.Hour), 0},
@@ -55,7 +55,7 @@ func TestStaleBucketsAndStallWarnings(t *testing.T) {
 		t.Errorf("id/topic/경과 필드 누락: %v", first)
 	}
 
-	// --check stall 경고 — last_hot_at 73h(>48h grace) 경과 → warnings 배열·exit 0.
+	// --check stall warning — last_hot_at 73h elapsed (> 48h grace) -> warnings array, exit 0.
 	hotOld := time.Now().Add(-73 * time.Hour).UTC().Format(time.RFC3339)
 	writeFresh := time.Now().Add(-time.Hour).UTC().Format(time.RFC3339)
 	fc := &fakeMaint{fakeStore: &fakeStore{}}
@@ -91,13 +91,13 @@ func jsonStr(t *testing.T, v any) string {
 	return string(b)
 }
 
-// TestStaleDaysOverride — --days N 우선·meta stale_days 오버라이드(기본 90).
+// TestStaleDaysOverride — --days N takes precedence; meta stale_days overrides (default 90).
 func TestStaleDaysOverride(t *testing.T) {
 	knol := [][]any{
 		{10, "40일 경과", nil, ago(40 * 24 * time.Hour), 0},
 		{11, "20일 경과", nil, ago(20 * 24 * time.Hour), 0},
 	}
-	// 기본 90일 → 0건.
+	// default 90 days -> 0 rows.
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f, nil, knol)
 	out, code := runMaintainArgs(t, f, "--stale")
@@ -108,7 +108,7 @@ func TestStaleDaysOverride(t *testing.T) {
 		t.Fatalf("기본 90일에는 0건이어야 함: %s", out)
 	}
 
-	// --days 30 → 40일 행만.
+	// --days 30 -> only the 40-day row.
 	f2 := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f2, nil, knol)
 	out2, _ := runMaintainArgs(t, f2, "--stale", "--days", "30")
@@ -116,7 +116,7 @@ func TestStaleDaysOverride(t *testing.T) {
 		t.Fatalf("--days 30 미반영: %s", out2)
 	}
 
-	// meta stale_days=30 → 플래그 없이도 40일 행만.
+	// meta stale_days=30 -> only the 40-day row even without the flag.
 	f3 := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f3, [][]any{{"stale_days", "30"}}, knol)
 	out3, _ := runMaintainArgs(t, f3, "--stale")
@@ -125,7 +125,7 @@ func TestStaleDaysOverride(t *testing.T) {
 	}
 }
 
-// TestStaleDayBoundary — 경계는 미만: 91일 행 포함·89일 행 제외.
+// TestStaleDayBoundary — the boundary is exclusive: the 91-day row included, the 89-day row excluded.
 func TestStaleDayBoundary(t *testing.T) {
 	knol := [][]any{
 		{20, "91일", nil, ago(91 * 24 * time.Hour), 0},
@@ -145,7 +145,7 @@ func TestStaleDayBoundary(t *testing.T) {
 	}
 }
 
-// TestStaleServerDown — 서버 다운 → MapExit 2.
+// TestStaleServerDown — server down -> MapExit 2.
 func TestStaleServerDown(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryErr: store.ErrServerDown}}
 	out, code := runMaintainArgs(t, f, "--stale")
@@ -157,7 +157,7 @@ func TestStaleServerDown(t *testing.T) {
 	}
 }
 
-// --limit 기본 20 — SQL LIMIT 인자로 전달된다.
+// --limit defaults to 20 — passed as the SQL LIMIT argument.
 func TestStaleLimitDefault(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f, nil, nil)
@@ -173,16 +173,16 @@ func TestStaleLimitDefault(t *testing.T) {
 	}
 }
 
-// TestMaintainModeFlagValidation — 모드 무관 플래그는 조용히 무시하지 않고
-// 에러 한 줄 + exit 1(회귀: --days·--limit이 --stale 아닌 모드에서, --id 등이
-// 역으로 흐르던 결함). 허용 조합은 기존 동작 유지.
+// TestMaintainModeFlagValidation — flags unrelated to a mode are not silently ignored but a
+// one-line error + exit 1 (regression: the defect where --days/--limit ran under non-stale modes and --id
+// flowed the other way). Allowed combinations keep the existing behavior.
 func TestMaintainModeFlagValidation(t *testing.T) {
 	bad := [][]string{
-		{"--check", "--days", "5"},   // --stale 전용
-		{"--check", "--limit", "5"},  // --stale 전용
-		{"--check", "--id", "3"},     // --invalidate 전용
-		{"--stale", "--id", "3"},     // --invalidate 전용
-		{"--stale", "--reason", "x"}, // --invalidate 전용
+		{"--check", "--days", "5"},   // --stale only
+		{"--check", "--limit", "5"},  // --stale only
+		{"--check", "--id", "3"},     // --invalidate only
+		{"--stale", "--id", "3"},     // --invalidate only
+		{"--stale", "--reason", "x"}, // --invalidate only
 		{"--invalidate", "--id", "3", "--reason", "x", "--days", "5"},
 		{"--merge", "--from", "1", "--to", "2", "--limit", "4"},
 	}
@@ -200,7 +200,7 @@ func TestMaintainModeFlagValidation(t *testing.T) {
 				args, f.invalidateCalls, f.mergeCalls)
 		}
 	}
-	// 허용 조합은 동작 유지: --stale --days·--limit 함께 exit 0.
+	// allowed combinations keep working: --stale with --days and --limit exits 0.
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f, nil, nil)
 	if _, code := runMaintainArgs(t, f, "--stale", "--days", "30", "--limit", "5"); code != 0 {

@@ -6,10 +6,10 @@ import (
 	"testing"
 )
 
-// 시임: lookPathFn 선언은 setup.go(비테스트 빌드 포함) — 여기선 교체만.
+// seam: the lookPathFn declaration lives in setup.go (included in non-test builds) — here we only swap it.
 
 func TestSetupMcpDetectsInstalled(t *testing.T) {
-	// codex·gemini 설치, opencode·cursor·copilot 미설치 가짜 환경
+	// a fake environment with codex and gemini installed; opencode, cursor, and copilot not installed
 	saved := lookPathFn
 	lookPathFn = func(name string) (string, error) {
 		if name == "codex" || name == "gemini" {
@@ -27,8 +27,8 @@ func TestSetupMcpDetectsInstalled(t *testing.T) {
 	if !strings.Contains(s, `"registered":["codex","gemini"]`) {
 		t.Errorf("등록 목록: %s", s)
 	}
-	// A급 확장 — 미설치 하니스는 레지스트리 순서(opencode·
-	// copilot·cursor·qwen·devin·cline). B급(파일 설정형)은 목록 제외.
+	// tier-A expansion — uninstalled harnesses follow the registry order (opencode,
+	// copilot, cursor, qwen, devin, cline). Tier B (file-config style) is excluded from the list.
 	if !strings.Contains(s, `"skipped":["opencode","copilot","cursor","qwen","devin","cline"]`) {
 		t.Errorf("스킵 목록: %s", s)
 	}

@@ -1,6 +1,6 @@
-// sessionhook_v0110_test.go — session-start·session-end 통합
-// 커맨드(hot+nudge / done+nudge 시퀀스 승계)와 hooks.json 3엔트리 재편
-// fast 테스트. SUPERLITE_REAL=1이면 asofFakeOrReal seam으로 실구현 재검증.
+// sessionhook_v0110_test.go — fast tests for the unified session-start/session-end
+// commands (inheriting the hot+nudge / done+nudge sequences) and the hooks.json 3-entry rework;
+// with SUPERLITE_REAL=1, re-verified against the real implementation via the asofFakeOrReal seam.
 package cli
 
 import (
@@ -23,8 +23,8 @@ func TestSessionStartRunsHotAndNudge(t *testing.T) {
 	}
 }
 
-// TestSessionEndRunsDoneAndNudge — runSessionEnd는 done 판정 뒤 nudge로
-// 이어진다(출력·순서 승계). autoBackup은 seam 스텁(단위 테스트 무부작용).
+// TestSessionEndRunsDoneAndNudge — runSessionEnd continues into nudge after the done
+// determination (output and order inherited). autoBackup is a seam stub (side-effect-free unit test).
 func TestSessionEndRunsDoneAndNudge(t *testing.T) {
 	stubAutoBackup(t)
 	var out bytes.Buffer
@@ -38,8 +38,8 @@ func TestSessionEndRunsDoneAndNudge(t *testing.T) {
 }
 
 func TestHooksJsonThreeEntries(t *testing.T) {
-	// 플랜 검증 코드의 경로는 "../flint-plugin/…"로 주어졌으나 lib/cli
-	// 기준으로는 lib/flint-plugin이 되어 실패 — 루트 기준 "../../"로 교정.
+	// the plan-validation code's path was given as "../flint-plugin/..." but relative to lib/cli
+	// it becomes lib/flint-plugin and fails — corrected to "../../" from the root.
 	b, err := os.ReadFile("../../flint-plugin/hooks/hooks.json")
 	if err != nil {
 		t.Fatal(err)
@@ -65,10 +65,10 @@ func TestHooksJsonThreeEntries(t *testing.T) {
 	}
 }
 
-// TestHooksJsonSessionIdQuotedSafe — session_id 치환은
-// jq @sh + eval — 이중따옴표 치환("$(jq …)")은 id 원문의 "·$·`가 이중
-// 인용 안에서 해석되는 셸 삽입 창이었다. 정상 id 그대로 전달·부재 시
-// 빈 인자 동등성은 hooks.json command를 bash로 실행해 실증했다(감사 런).
+// TestHooksJsonSessionIdQuotedSafe — the session_id substitution is
+// jq @sh + eval — the double-quoted substitution ("$(jq ...)") was a shell-injection window where the id's " $ ` were interpreted inside
+// double quotes. Pass-through of normal ids and empty-argument equivalence were
+// demonstrated by running the hooks.json command with bash (audit run).
 func TestHooksJsonSessionIdQuotedSafe(t *testing.T) {
 	b, err := os.ReadFile("../../flint-plugin/hooks/hooks.json")
 	if err != nil {
@@ -95,9 +95,9 @@ func TestHooksJsonSessionIdQuotedSafe(t *testing.T) {
 	}
 }
 
-// TestApplyHookFixReplacesLegacyFlintEntries — 기존 5엔트리(hot·nudge·done
-// 직접 실행) flint 훅은 3엔트리(session-start·session-end·compact)로 교체.
-// 타 도구 훅(orca)과 그 외 설정은 불변.
+// TestApplyHookFixReplacesLegacyFlintEntries — the existing 5 entries (running hot, nudge, and done
+// directly) are replaced by 3 flint entries (session-start, session-end, compact).
+// Other tools' hooks (orca) and the rest of the settings are unchanged.
 func TestApplyHookFixReplacesLegacyFlintEntries(t *testing.T) {
 	legacyCmd := func(sub string) map[string]any {
 		return map[string]any{"type": "command", "command": "flint " + sub}

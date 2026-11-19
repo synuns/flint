@@ -1,8 +1,8 @@
-// ensure_schemas_f6_test.go — F6(성능) 회귀: 최신 DB에서 ensureSchemas는
-// schema_version probe 1회만 실행하고 게이트 8종 순회(db.SchemaGates —
-// 각 게이트가 버전을 재조회하던 접속당 16왕복)를 통째로 건너뛴다.
-// repo에 nil을 주어 순회가 살아나면 즉시 드러난다(게이트가 nil repo를
-// 건드려 패닉 — 최신 단축이 유일한 통과 경로).
+// ensure_schemas_f6_test.go — F6 (performance) regression: on a latest DB, ensureSchemas runs
+// only the 1 schema_version probe and skips the whole 8-gate walk (db.SchemaGates —
+// 16 round trips per connection when each gate re-queried the version).
+// Passing a nil repo makes any walk revival immediately visible (a gate touching the nil repo
+// panics — the latest shortcut is the only passing path).
 package cli
 
 import (
@@ -14,8 +14,8 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// TestEnsureSchemasLatestSkipsGates — probe가 최신
-// (LatestSchemaVersion)을 확인하면 쿼리 1건만 발행(게이트 순회 스킵).
+// TestEnsureSchemasLatestSkipsGates — when the probe confirms latest
+// (LatestSchemaVersion), only 1 query is issued (gate walk skipped).
 func TestEnsureSchemasLatestSkipsGates(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "schema_version") {
@@ -36,8 +36,8 @@ func TestEnsureSchemasLatestSkipsGates(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionFnParsing — probe 판정: 정수 최신 → (9,true), 미달·
-// 비정수·빈 결과·조회 오류 → (…,false)로 순차 승격 경로에 폴백.
+// TestSchemaVersionFnParsing — probe verdict: integer latest -> (9,true); below latest,
+// non-integer, empty results, or lookup errors -> (...,false), falling back to the sequential promotion path.
 func TestSchemaVersionFnParsing(t *testing.T) {
 	cases := []struct {
 		name string
@@ -66,8 +66,8 @@ func TestSchemaVersionFnParsing(t *testing.T) {
 			}
 		})
 	}
-	// 경계: LatestSchemaVersion 미달은 게이트 순회 대상(ok=true여도
-	// ensureSchemas의 단축 조건 v >= LatestSchemaVersion에서 걸러진다).
+	// boundary: below LatestSchemaVersion remains a gate-walk target (even with ok=true,
+	// ensureSchemas's shortcut condition v >= LatestSchemaVersion filters it out).
 	if _, ok := schemaVersionFn(context.Background(), &fakeStore{
 		queryFn: func(string, []any) ([][]any, error) {
 			return [][]any{{fmt.Sprint(db.LatestSchemaVersion - 1)}}, nil

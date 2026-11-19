@@ -1,4 +1,4 @@
-// readhot_v06_test.go — read/hot 유입·참조 계측 fast 테스트(fake).
+// readhot_v06_test.go — fast (fake) tests for read/hot inbound and reference metering.
 package cli
 
 import (
@@ -17,8 +17,8 @@ import (
 	"github.com/synuns/flint/lib/render"
 )
 
-// instrumentedFake — fakeStore에 BumpReads·RecordUsage 계측을 얹은 fake.
-// 실패 주입(bumpErr·usageErr)으로 조용한 실패 경로를 검증한다.
+// instrumentedFake — a fakeStore with BumpReads and RecordUsage metering layered on.
+// Verifies the silent failure paths via injected failures (bumpErr, usageErr).
 type instrumentedFake struct {
 	fakeStore
 	bumped   [][]int
@@ -37,7 +37,7 @@ func (f *instrumentedFake) RecordUsage(ctx context.Context, kind, source string)
 	return f.usageErr
 }
 
-// readQueryFn — active_knowledge 조회는 id 2행, 그 외 meta 질의는 빈 결과.
+// readQueryFn — the active_knowledge query returns 2 id rows; other meta queries return empty results.
 func readQueryFn(sql string, args []any) ([][]any, error) {
 	if strings.Contains(sql, "FROM active_knowledge") {
 		return [][]any{{int32(3), "t", "s", ":a:", nil, "main", 0.9, "active"},
@@ -46,9 +46,9 @@ func readQueryFn(sql string, args []any) ([][]any, error) {
 	return nil, nil
 }
 
-// TestReadInstrumentsSilently — 계측은 결과 항목 id
-// 전수에 BumpReads + recordUsage("read",""). 계측 실패(bumpErr)·미구현 Store
-// 모두 exit 0·출력 불변.
+// TestReadInstrumentsSilently — metering does BumpReads over all result item ids
+// + recordUsage("read",""). Metering failure (bumpErr) and an unimplemented Store
+// both keep exit 0 and unchanged output.
 func TestReadInstrumentsSilently(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
@@ -61,13 +61,13 @@ func TestReadInstrumentsSilently(t *testing.T) {
 		f.bumped[0][0] != 3 || f.bumped[0][1] != 5 {
 		t.Errorf("BumpReads ids = %v, want [3 5] (결과 id 전수)", f.bumped)
 	}
-	// read kind의 유입 계측(daily read 카운터)은 폐지 —
-	// 계측 원천이 read_events(RecordReadEvent)로 일원화됐다(쓰기 4→2).
+	// the read-kind inbound metering (daily read counter) is gone —
+	// the metering source was unified into read_events (RecordReadEvent) (writes 4->2).
 	if len(f.usage) != 0 {
 		t.Errorf("RecordUsage = %v, want [](read kind 유입 계측 폐지)", f.usage)
 	}
 
-	// 계측 실패는 조용히 — exit 0·동일 출력.
+	// metering failure is silent — exit 0, identical output.
 	var out2 bytes.Buffer
 	f2 := &instrumentedFake{fakeStore: fakeStore{queryFn: readQueryFn}, bumpErr: errSilent{}}
 	if code := runRead(ctx, f2, []string{"topic"}, strings.NewReader(""), &out2); code != 0 {
@@ -77,7 +77,7 @@ func TestReadInstrumentsSilently(t *testing.T) {
 		t.Errorf("bumpErr 시 출력 변형:\n%q\n%q", out.String(), out2.String())
 	}
 
-	// 미구현 Store(plain fakeStore)에서도 no-op — exit 0.
+	// with an unimplemented Store (plain fakeStore) it is also a no-op — exit 0.
 	var out3 bytes.Buffer
 	plain := &fakeStore{queryFn: readQueryFn}
 	if code := runRead(ctx, plain, []string{"topic"}, strings.NewReader(""), &out3); code != 0 {
@@ -85,8 +85,8 @@ func TestReadInstrumentsSilently(t *testing.T) {
 	}
 }
 
-// hotQueryFn — hot_view 본질의는 증분 컬럼(id·valid_at·ingested_at)까지
-// 포함한 7열 행(지식 2행 id 3·7 — 단일 정의).
+// hotQueryFn — the hot_view essential query returns 7-column rows including the increment columns
+// (id, valid_at, ingested_at) (2 knowledge rows, ids 3 and 7 — a single definition).
 func hotQueryFn(sql string, args []any) ([][]any, error) {
 	if strings.Contains(sql, "FROM hot_view") {
 		return [][]any{
@@ -97,10 +97,10 @@ func hotQueryFn(sql string, args []any) ([][]any, error) {
 	return nil, nil
 }
 
-// TestHotInstrumentsSilently — hot 종료 시 주입 지식 id 전수 BumpReads +
-// recordUsage("hot",""). 계측 실패·미구현 Store exit 0·출력 불변.
-// 증분은 --full(실제 주입) 경로에서만 — 호출을 --full로 재지정
-// (헤드라인 경로 스킵은 hot_v0132_test.go TestHotHeadlineSkipsReadBump 담보).
+// TestHotInstrumentsSilently — on hot exit, BumpReads over all injected knowledge ids +
+// recordUsage("hot",""). Metering failure and unimplemented Store keep exit 0 and unchanged output.
+// Incrementing happens only on the --full (actual injection) path — redirect the call to --full
+// (the headline-path skip is covered by TestHotHeadlineSkipsReadBump in hot_v0132_test.go).
 func TestHotInstrumentsSilently(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
@@ -117,7 +117,7 @@ func TestHotInstrumentsSilently(t *testing.T) {
 		t.Errorf("RecordUsage = %v, want [[hot ]]", f.usage)
 	}
 
-	// usageErr·bumpErr 모두 exit 0·출력 불변.
+	// both usageErr and bumpErr keep exit 0 and unchanged output.
 	var out2 bytes.Buffer
 	f2 := &instrumentedFake{fakeStore: fakeStore{queryFn: hotQueryFn}, usageErr: errSilent{}}
 	if code := runHot(ctx, f2, []string{"--full"}, strings.NewReader(""), &out2); code != 0 {
@@ -127,7 +127,7 @@ func TestHotInstrumentsSilently(t *testing.T) {
 		t.Errorf("usageErr 시 출력 변형:\n%q\n%q", out.String(), out2.String())
 	}
 
-	// 미구현 Store(plain fakeStore)에서도 no-op — exit 0.
+	// with an unimplemented Store (plain fakeStore) it is also a no-op — exit 0.
 	var out3 bytes.Buffer
 	plain := &fakeStore{queryFn: hotQueryFn}
 	if code := runHot(ctx, plain, []string{"--full"}, strings.NewReader(""), &out3); code != 0 {
@@ -135,23 +135,23 @@ func TestHotInstrumentsSilently(t *testing.T) {
 	}
 }
 
-// errSilent — 계측 실패 주입용.
+// errSilent — for injecting metering failures.
 type errSilent struct{}
 
 func (errSilent) Error() string { return "계측 실패" }
 
-// TestHotSQLSingleQueryDefinition — 증분 id·
-// pending 접미 valid_at은 hot_view 본질의 컬럼에서 나온다 — 세 팔 조건을
-// 다시 모은 동반 질의는 폐지. HotSQL은 ORDER BY ts DESC, id DESC
-// tie-break(CI run 39713526850 룰링 — 동률 ts의 완전 순서)와 예산 상한을
-// 유지한다: 주입 행·증분 id가 같은 질의·같은 순서에서 나오므로 주입
-// 집합=증분 집합이 구조적으로 보장된다.
+// TestHotSQLSingleQueryDefinition — the increment ids and
+// the pending-suffix valid_at come from the essential hot_view columns — the companion query
+// re-gathering the three arm conditions is gone. HotSQL keeps ORDER BY ts DESC, id DESC
+// tie-break (CI run 39713526850 ruling — a total order for tied ts) and the budget cap:
+// the injected rows and increment ids come from the same query in the same order, so injected set = increment
+// set is structurally guaranteed.
 func TestHotSQLSingleQueryDefinition(t *testing.T) {
 	sql := query.HotSQL("")
 	for _, frag := range []string{
 		"FROM hot_view",
-		"id, valid_at, ingested_at", // 증분·접미 컬럼까지 본질의에서
-		"ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(query.ClampLimit(0)), // 예산 상한·tie-break
+		"id, valid_at, ingested_at", // increment and suffix columns come from the essential query too
+		"ORDER BY ts DESC, id DESC LIMIT " + strconv.Itoa(query.ClampLimit(0)), // budget cap and tie-break
 	} {
 		if !strings.Contains(sql, frag) {
 			t.Errorf("HotSQL에 %q 누락: %s", frag, sql)
@@ -159,8 +159,8 @@ func TestHotSQLSingleQueryDefinition(t *testing.T) {
 	}
 }
 
-// TestHotUsageRecordedWithoutIDCells — id 셀 부재(구형 뷰 모양 4열 행)면
-// 증분 대상 id는 없고 hot 유입 1회 기록만 유지(조회 자체는 성공했으므로).
+// TestHotUsageRecordedWithoutIDCells — with no id cells (an old-view-style 4-column row) there are no
+// ids to increment; only the single hot inbound record remains (the query itself succeeded).
 func TestHotUsageRecordedWithoutIDCells(t *testing.T) {
 	ctx := context.Background()
 	f := &instrumentedFake{fakeStore: fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -183,12 +183,12 @@ func TestHotUsageRecordedWithoutIDCells(t *testing.T) {
 	}
 }
 
-// TestHotBudgetTruncationSkipsCutRows — ClampHot rune 예산에 잘려 실제
-// 출력에 남지 않은 행은 read_count/last_read_at 증분 대상이 아니다(회귀:
-// 상위 N 전체를 무조건 증분 — 잘린 행까지 올라가 랭킹·stale 집계를
-// 왜곡). 예산은 첫 행 포맷 길이와 정확히 같게 잡아 둘째 행 시작
-// 오프셋==예산(완전 절단 경계)을 만든다. 증분은 --full 경로
-// — 호출을 --full로 재지정(헤드라인 스킵은 hot_v0132_test.go가 담보).
+// TestHotBudgetTruncationSkipsCutRows — rows cut by the ClampHot rune budget and absent from the actual
+// output are not read_count/last_read_at increment targets (regression:
+// unconditionally incrementing the whole top N — reaching even the cut rows — distorted the ranking
+// and stale tallies). The budget is set exactly to the first row's formatted length, making the second
+// row's start offset == the budget (a full-truncation boundary). Incrementing is on the --full path —
+// redirect the call to --full (the headline skip is covered by hot_v0132_test.go).
 func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -221,10 +221,10 @@ func TestHotBudgetTruncationSkipsCutRows(t *testing.T) {
 	}
 }
 
-// TestUsageInstrumentationSingleSeam — hot 계측이 UsageStore 단일 seam
-// (write.go recordUsage)을 경유한다(회귀: 이중 seam 부활 방지 — UsageStore만
-// 구현한 Store로 경로 기록 확인). read kind는 유입 계측에서
-// 제외되므로(원천 = read_events) 기록 0건을 함께 단언한다.
+// TestUsageInstrumentationSingleSeam — hot metering goes through the single UsageStore seam
+// (write.go recordUsage) (regression: prevents a dual-seam revival — path recording checked with a
+// Store implementing only UsageStore). The read kind is excluded from inbound metering
+// (source = read_events), so 0 records is asserted alongside.
 func TestUsageInstrumentationSingleSeam(t *testing.T) {
 	ctx := context.Background()
 	rec := &writeUsageRecorder{Store: &fakeStore{queryFn: readQueryFn}}
@@ -245,13 +245,13 @@ func TestUsageInstrumentationSingleSeam(t *testing.T) {
 	}
 }
 
-// hotSharedDBLock — 공유 Doltgres DB를 쓰는 패키지 간 상호 배제(파일
-// 잠금). go test ./...는 패키지 바이너리를 병렬로
-// 띄우므로 잠금 없이는 lib/db newTestRepo의 테이블 전체 DELETE·pendingRec
-// 승인이 이 테스트의 hot_view 조회와 자격 조회 사이에 끼어, 반환 id가
-// 조회 사이에 자격을 잃어 "주입 안 된 id 반환" 오탐을 낸다(CI run
-// 39713526850). 잠금 파일 경로는 lib/db sharedDBLock·lib/backup drillLock과
-// 동일해야 상호 배제가 성립한다.
+// hotSharedDBLock — mutual exclusion between packages using the shared Doltgres DB (file
+// locking). go test ./... launches package binaries in parallel, so without the lock the full-table
+// DELETE and pendingRec approval in lib/db newTestRepo can slip between this test's hot_view query
+// and the eligibility query, making returned ids lose eligibility between the queries and produce
+// the "returned un-injected ids" false positive (CI run
+// 39713526850). The lock file path must match lib/db sharedDBLock and lib/backup drillLock for the
+// mutual exclusion to hold.
 func hotSharedDBLock(t *testing.T) {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -269,10 +269,10 @@ func hotSharedDBLock(t *testing.T) {
 	})
 }
 
-// TestHotViewQueryLimitsToInjected — 실DB 회귀(FLINT_DSN 설정 시에만):
-// 활성 프로젝트 3건이 상위를 차지하면 주입 지식은 상한(기본 10) - 3건뿐이다.
-// 무제한 증분이었던 버그(주입 안 된 지식까지 증분)의 엔드투엔드 방지.
-// 본질의 HotSQL 한 질의의 id 컬럼으로 직접 확인(동반 질의 폐지).
+// TestHotViewQueryLimitsToInjected — real-DB regression (only when FLINT_DSN is set):
+// if 3 active projects occupy the top, the injected knowledge gets only cap (default 10) - 3 slots.
+// End-to-end prevention of the unlimited-increment bug (incrementing even un-injected knowledge).
+// Verified directly via the id column of the single essential HotSQL query (companion query gone).
 func TestHotViewQueryLimitsToInjected(t *testing.T) {
 	dsn := os.Getenv("FLINT_DSN")
 	if dsn == "" {
@@ -296,7 +296,7 @@ func TestHotViewQueryLimitsToInjected(t *testing.T) {
 			"status":       "pending", "ingested_at": older,
 		})
 	}
-	// 프로젝트는 updated=now()로 지식(2시간 전)보다 최신 — 상위 3슬롯 점유.
+	// projects have updated=now(), newer than the knowledge (2h ago) — they occupy the top 3 slots.
 	precords := make([]map[string]any, 0, 3)
 	for i := 0; i < 3; i++ {
 		precords = append(precords, map[string]any{
@@ -318,10 +318,10 @@ func TestHotViewQueryLimitsToInjected(t *testing.T) {
 		_, _ = real.Query(ctx, `DELETE FROM projects WHERE name LIKE 'hot-reg-p-%'`)
 	})
 
-	// 본질의 HotSQL 한 질의(단일 정의) — id 컬럼(말미)에서 주입될
-	// 지식 id를 직접 뽑는다. 시드 12건은 전부 동일 ts(동률)라 ", id DESC"
-	// tie-break(CI 39713526850)가 없으면 플래너 임의 동률 순서로 집합이
-	// 흔들렸다.
+	// the single essential HotSQL query (single definition) — the knowledge ids to inject are pulled
+	// directly from the id column (at the end). The 12 seeded rows all share one ts (a tie); without
+	// the ", id DESC" tie-break (CI 39713526850), the set would
+	// wobble with planner-arbitrary tie ordering.
 	hrows, err := queryOnce(ctx, real, query.HotSQL(""), nil)
 	if err != nil {
 		t.Fatalf("hot_view 본질의 조회: %v", err)
@@ -334,8 +334,8 @@ func TestHotViewQueryLimitsToInjected(t *testing.T) {
 			}
 		}
 	}
-	// 공유 DB 간섭 대비: 기대치는 현재 활성 프로젝트 수로 계산(상위 슬롯
-	// 점유분). 시드 지식 12건이 있어 자격 지식은 항상 상한을 채운다.
+	// against shared-DB interference: the expectation is computed from the current number of active
+	// projects (the top-slot occupants). With 12 seeded knowledge rows, the eligible knowledge always fills the cap.
 	projs, err := queryOnce(ctx, real,
 		`SELECT count(*) FROM projects WHERE status = 'active'`, nil)
 	if err != nil || len(projs) == 0 || len(projs[0]) == 0 {
@@ -347,7 +347,7 @@ func TestHotViewQueryLimitsToInjected(t *testing.T) {
 		t.Fatalf("주입 지식 id 수 = %d, want %d(상한 - 활성 프로젝트 %d): %v",
 			len(got), wantN, nActive, got)
 	}
-	// 자격 지식(pending·결정 7일) id 전수만 반환 — 상한 밀림 항목 누출 없음.
+	// only the eligible knowledge ids (pending, decided within 7 days) are returned — no cap-overflow leakage.
 	krows, err := queryOnce(ctx, real,
 		`SELECT id FROM knowledge k WHERE k.invalid_at IS NULL
 		   AND (k.status = 'pending'

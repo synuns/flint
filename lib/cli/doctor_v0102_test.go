@@ -1,6 +1,6 @@
-// doctor_v0102_test.go — doctor --check backup-age 단독 실행.
-// 이름 공간 밖 별도 체인의 서브셋 특수경로 — DoctorChecks() 6종·port
-// 마지막 계약은 불변(룰링). 무효 검사명 exit 3·안내 문구 불변.
+// doctor_v0102_test.go — standalone execution of doctor --check backup-age.
+// A special subset path of a separate chain outside the namespace — the 6 DoctorChecks() kinds and the
+// port-last contracts are unchanged (ruling). Invalid check names exit 3; guidance wording unchanged.
 package cli
 
 import (

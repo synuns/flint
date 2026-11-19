@@ -1,8 +1,8 @@
-// write_test.go — write 본체 계약 테스트는 lib/knowledge로
-// 이동했다(write_test.go·import_test.go 참조). 이 파일은 잔류 cli 테스트
-// (write_v06_test.go)가 소비하는 공용 레이스 재현 fake만 남긴다 — 본체
-// 이동과 무관하게 dispatch(newStore seam) 경유 테스트가 cli에 잔류하기
-// 때문이다(knowledge 복제분과 동일 계약).
+// write_test.go — the write body's contract tests moved to lib/knowledge
+// (see write_test.go and import_test.go there). This file keeps only the shared race-reproduction fake
+// consumed by the residual cli tests (write_v06_test.go) — dispatch-based tests (via the
+// newStore seam) remain in cli regardless of the body's move (same contract as the
+// knowledge copies).
 package cli
 
 import (
@@ -11,9 +11,9 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// raceDupStore — 레이스 재현 fake: 사전 ExistsHash는 전부 통과(false),
-// InsertBatch 첫 호출만 store.ErrDuplicate(동시 삽입으로 트랜잭션 롤백).
-// 이후 ExistsHash는 앞 racedDups줄만 존재(true)로 응답(재확인 시점).
+// raceDupStore — a race-reproduction fake: the pre-check ExistsHash passes everything (false),
+// only the first InsertBatch call returns store.ErrDuplicate (a concurrent insert rolls the transaction back).
+// Subsequent ExistsHash calls answer true only for the first racedDups lines (the recheck moment).
 type raceDupStore struct {
 	*fakeStore
 	insertCalls int
@@ -31,8 +31,8 @@ func (r *raceDupStore) InsertBatch(ctx context.Context, recs []map[string]any) (
 
 func (r *raceDupStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	if r.insertCalls == 0 {
-		return false, nil // 사전 확인: 전부 신규로 통과
+		return false, nil // pre-check: everything passes as new
 	}
 	r.rechecks++
-	return r.rechecks <= r.racedDups, nil // 재확인: 앞 racedDups줄만 동시 삽입됨
+	return r.rechecks <= r.racedDups, nil // recheck: only the first racedDups lines were concurrently inserted
 }

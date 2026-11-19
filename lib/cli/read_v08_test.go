@@ -1,6 +1,6 @@
-// read_v08_test.go — read --as-of fast 테스트(계약 canned Store).
-// SUPERLITE_REAL=1이면 ParseAsOfSpec 실구현이 실 커밋 로그로 돌아가는
-// seam 검증(delegatingFake — 스텑 미지정 연산은 실구현 위임).
+// read_v08_test.go — read --as-of fast tests (contract canned Store).
+// With SUPERLITE_REAL=1, a seam check where the real ParseAsOfSpec runs against the real commit log
+// (delegatingFake — unstubbed operations delegate to the real implementation).
 package cli
 
 import (
@@ -14,10 +14,10 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// withFakeStore — withFake의 wire.Store판: 계약 메서드 오버라이드 fake를
-// newStore seam에 주입한다. SUPERLITE_REAL=1에서도 fake 시맨틱을 유지한다
-// (오버라이드가 전 연산을 canned 처리 — 기존 withFake의 queryFn 우선
-// 규칙과 동등).
+// withFakeStore — the wire.Store version of withFake: injects a contract-method-override fake
+// into the newStore seam. Even with SUPERLITE_REAL=1 the fake semantics hold
+// (the overrides handle every operation as canned — equivalent to the existing withFake's queryFn-first
+// rule).
 func withFakeStore(t *testing.T, st Store) {
 	t.Helper()
 	prev := newStore
@@ -25,27 +25,27 @@ func withFakeStore(t *testing.T, st Store) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// readAsofStoreOrReal — asofFakeOrReal의 wire.Store판(오버라이드 fake 수용).
-// SUPERLITE_REAL=1이면 delegatingFake로 실구현을 랩하되, 계약 메서드는
-// fake 오버라이드가 응답한다(delegatingFake의 fake 임베딩 한계 보완).
+// readAsofStoreOrReal — the wire.Store version of asofFakeOrReal (accepts override fakes).
+// With SUPERLITE_REAL=1 it wraps the real implementation in a delegatingFake, but the contract methods
+// are answered by the fake overrides (compensating for delegatingFake's fake-embedding limitation).
 func readAsofStoreOrReal(t *testing.T, st Store) Store {
 	t.Helper()
-	return st // 계약 오버라이드 fake는 실구현 위임이 필요 없음(canned 완결)
+	return st // a contract-override fake needs no real delegation (fully canned)
 }
 
-// as-of 경로 확정 픽스처(기존 실측 해시·커밋 시각 승계).
+// fixed as-of fixtures (inheriting previously observed hashes and commit times).
 const asofHash = "he08irluqn3v2m1k9x7c4jw5z6b8d0f"
 
 var asofCommitDate = time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC)
 
-// readAsofFake — as-of 경로 계약 canned: 시각 직전 커밋·해시 커밋 시각은
-// LogEntries 오버라이드, 과거 스냅샷 본문은 QueryAsOf 오버라이드
-// (AsOfQuery 캡처 — 해시·Where·Limit 검증). 비as-of 질의(queryFn)는
-// fakeStore 승계.
+// readAsofFake — canned contracts for the as-of path: the last commit before the time and the hash's commit time via
+// a LogEntries override; the past-snapshot body via a QueryAsOf override
+// (AsOfQuery captured — hash, Where, and Limit verified). Non-as-of queries (queryFn)
+// are inherited from fakeStore.
 type readAsofFake struct {
 	*fakeStore
 	asofQueries []wire.AsOfQuery
-	zeroHit     bool // 과거 스냅샷 제로히트(기본은 active_knowledge 1행)
+	zeroHit     bool // past-snapshot zero hit (default: 1 active_knowledge row)
 	asofErr     error
 }
 
@@ -57,7 +57,7 @@ func (f *readAsofFake) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.
 		}
 		return nil, nil
 	case !q.BeforeOrAt.IsZero():
-		return []wire.LogEntry{{Hash: asofHash}}, nil // 시각 직전 커밋 1건
+		return []wire.LogEntry{{Hash: asofHash}}, nil // the 1 commit just before the time
 	case q.Hash == asofHash:
 		return []wire.LogEntry{{Hash: asofHash, Date: asofCommitDate}}, nil
 	}
@@ -75,9 +75,9 @@ func (f *readAsofFake) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any
 	return [][]any{{int32(3), "토픽", "요약", ":a:", nil, "main", 0.9, "active"}}, nil
 }
 
-// asofFakeOrReal — 기본 fakeStore, FLINT_TEST_DSN 설정 + SUPERLITE_REAL=1이면
-// delegatingFake로 실구현을 랩해 반환(생산자 ParseAsOfSpec의 실코드 경로 seam).
-// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(seamRealDSN).
+// asofFakeOrReal — the default fakeStore; with FLINT_TEST_DSN set + SUPERLITE_REAL=1 it returns the real
+// implementation wrapped in a delegatingFake (the real-code path seam for the producer ParseAsOfSpec).
+// Without FLINT_TEST_DSN, no real-implementation fallback (seamRealDSN).
 func asofFakeOrReal(t *testing.T, f *fakeStore) Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {
@@ -91,8 +91,8 @@ func asofFakeOrReal(t *testing.T, f *fakeStore) Store {
 	return f
 }
 
-// asofReadSQL — 캡처된 질의 중 active_knowledge 조회 하나를 반환
-// (비as-of·폴백 경로 — Query seam 승계).
+// asofReadSQL — returns the one active_knowledge query among the captured queries
+// (non-as-of and fallback paths — inherited from the Query seam).
 func asofReadSQL(f *fakeStore) string {
 	for _, q := range f.queries {
 		if strings.Contains(q, "FROM active_knowledge") {
@@ -102,9 +102,9 @@ func asofReadSQL(f *fakeStore) string {
 	return ""
 }
 
-// TestReadAsOfAddsField — --as-of 7d → 해시 확정 → 과거 스냅샷 질의는
-// QueryAsOf{Hash, Table: active_knowledge}(RankOrder Where·Limit 불별) +
-// 출력에 as_of{hash,commit_date}.
+// TestReadAsOfAddsField — --as-of 7d -> hash resolved -> the past-snapshot query is
+// QueryAsOf{Hash, Table: active_knowledge} (RankOrder Where and Limit carried over) +
+// as_of{hash,commit_date} in the output.
 func TestReadAsOfAddsField(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
@@ -119,14 +119,14 @@ func TestReadAsOfAddsField(t *testing.T) {
 	if aq.Hash != asofHash || aq.Table != "active_knowledge" {
 		t.Errorf("해시 접합 실패: %+v", aq)
 	}
-	// 기존 질의 불변 — RankOrder 정렬 절·LIMIT 유지(Where·Limit 필드 승계).
+	// existing queries unchanged — the RankOrder sort clause and LIMIT kept (Where and Limit fields inherited).
 	if !strings.Contains(aq.Where, "ORDER BY (lower(topic)=lower($2)) DESC") {
 		t.Errorf("RankOrder 절 변형: %q", aq.Where)
 	}
 	if aq.Limit <= 0 {
 		t.Errorf("LIMIT 유실: %d", aq.Limit)
 	}
-	// 출력 — 기존 행 + as_of 한 줄.
+	// output — the existing rows + one as_of line.
 	got := out.String()
 	if !strings.HasPrefix(got, "3|토픽|요약\n") {
 		t.Errorf("기존 행 출력 변형: %q", got)
@@ -135,7 +135,7 @@ func TestReadAsOfAddsField(t *testing.T) {
 		t.Errorf("as_of 필드 누락/불일치: %q", got)
 	}
 
-	// 미지정 회귀 — as_of 줄 없음·기존 출력만.
+	// unspecified regression — no as_of line, only the existing output.
 	var out2 bytes.Buffer
 	f2 := &fakeStore{}
 	if code := runRead(ctx, asofFakeOrReal(t, f2), []string{"토픽"}, strings.NewReader(""), &out2); code != 0 {
@@ -146,8 +146,8 @@ func TestReadAsOfAddsField(t *testing.T) {
 	}
 }
 
-// TestReadAsOfInvalidExit3 — 무효 스펙("2 days ago")은
-// exit 3 한 줄 JSON, 과거 스냅샷 질의 자체를 내지 않는다.
+// TestReadAsOfInvalidExit3 — an invalid spec ("2 days ago") is
+// exit 3 one-line JSON; the past-snapshot query is never issued.
 func TestReadAsOfInvalidExit3(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
@@ -165,8 +165,8 @@ func TestReadAsOfInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadAsOfLimitRegression — 기존 인자(--limit 등) 조합 —
-// QueryAsOf와 동시 사용 시 필터·LIMIT가 그대로 조립된다.
+// TestReadAsOfLimitRegression — combining with existing args (--limit etc.) —
+// filters and LIMIT are assembled as-is when used together with QueryAsOf.
 func TestReadAsOfLimitRegression(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
@@ -181,7 +181,7 @@ func TestReadAsOfLimitRegression(t *testing.T) {
 	if aq.Hash != asofHash {
 		t.Errorf("해시 접합 유실: %+v", aq)
 	}
-	// q 랭킹 파라미터가 LIKE($1) 뒤 $2 — LIMIT은 별도 필드(인자 번호 밀림 없음).
+	// the q ranking parameter comes after LIKE($1) as $2 — LIMIT is a separate field (no argument-number shift).
 	if !strings.Contains(aq.Where, "LIKE lower($1)") || !strings.Contains(aq.Where, "lower($2)") {
 		t.Errorf("q LIKE·랭킹 절 변형: %q", aq.Where)
 	}
@@ -190,8 +190,8 @@ func TestReadAsOfLimitRegression(t *testing.T) {
 	}
 }
 
-// TestReadAsOfMissingValueExit3 — 값 없는 --as-of(마지막 인자)는 조용한
-// 현재 시점 조회가 아니라 무효 스펙 exit 3(잘못된 결과 방지 — status 규칙).
+// TestReadAsOfMissingValueExit3 — a --as-of with no value (the last argument) is invalid-spec exit 3,
+// not a silent current-time lookup (preventing wrong results — the status rule).
 func TestReadAsOfMissingValueExit3(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
@@ -208,9 +208,9 @@ func TestReadAsOfMissingValueExit3(t *testing.T) {
 	}
 }
 
-// TestReadAsOfViewColumnHint — 뷰-컬럼 미호환 오류(column ... does not
-// exist)는 기본 테이블(knowledge) 조회 안내 문구로 랩된다(구현측 안내
-// 래핑 경계 — fake는 안내 문구 에러로 재현).
+// TestReadAsOfViewColumnHint — a view-column incompatibility error (column ... does not
+// exist) is wrapped in guidance wording pointing at the base table (knowledge) (the implementation-side
+// guidance-wrapping boundary — the fake reproduces it as a guidance-wording error).
 func TestReadAsOfViewColumnHint(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer

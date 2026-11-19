@@ -1,6 +1,6 @@
-// read_v0163_test.go — read 제로히트 제안 경로가 meta
-// suggest_scan_cap 오버라이드를 반영하는지(Thresholds → SetSuggestThresholds
-// 주입 배선. suggest_min_score도 같은 주입 호출로 흐른다).
+// read_v0163_test.go — the read zero-hit suggestion path reflects the meta
+// suggest_scan_cap override (the Thresholds -> SetSuggestThresholds injection wiring.
+// suggest_min_score also flows through the same injection call).
 package cli
 
 import (
@@ -13,8 +13,8 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// suggest_scan_cap=42 오버라이드 — 제안 스캔 SQL의 LIMIT이 42로 바뀐다
-// (기본 5000이었다면 오버라이드 미반영).
+// suggest_scan_cap=42 override — the suggestion scan SQL's LIMIT becomes 42
+// (if it stayed the default 5000, the override was not reflected).
 func TestReadSuggestScanCapOverride(t *testing.T) {
 	t.Cleanup(func() {
 		def := store.DefaultThresholds()
@@ -29,7 +29,7 @@ func TestReadSuggestScanCapOverride(t *testing.T) {
 		if strings.Contains(sql, "FROM meta WHERE key IN") {
 			return [][]any{{"suggest_scan_cap", "42"}}, nil
 		}
-		return nil, nil // 구문·폴백·계측 전부 제로/빈
+		return nil, nil // phrase, fallback, and metering all zero/empty
 	}}
 	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("제로히트 exit = %d, want 0(제로히트 exit 0 — v1.5.3)", code)

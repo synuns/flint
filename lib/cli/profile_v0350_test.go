@@ -1,4 +1,4 @@
-// profile_v0350_test.go — 프로파일 판정: 추천 규칙·근거·전환·next 표기.
+// profile_v0350_test.go — profile determination: recommendation rules, evidence, switching, and next notation.
 package cli
 
 import (
@@ -8,14 +8,14 @@ import (
 	"time"
 )
 
-// profFake — 판정 경로 fake: pending_max 질의로 표본 제어.
+// profFake — a determination-path fake: controls the sample via the pending_max query.
 func profFake(events int, recallLed int) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
-			return nil, nil // 기본 임계(zero_near_min_read 등)
+			return nil, nil // default thresholds (zero_near_min_read etc.)
 		}
 		if strings.Contains(sql, "exposure_profile") {
-			return nil, nil // 기본 normal
+			return nil, nil // default normal
 		}
 		if strings.Contains(sql, "FROM read_events") {
 			rows := make([][]any, events)
@@ -39,10 +39,10 @@ func profFake(events int, recallLed int) *fakeStore {
 	}}
 }
 
-// TestProfileRecommendsBySample — 표본 부족은 보류(유지)·충족 시 판정.
+// TestProfileRecommendsBySample — insufficient sample defers (keep); sufficient sample determines.
 func TestProfileRecommendsBySample(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	// 표본 0 → 보류(유지) — next 없음.
+	// sample 0 -> defers (keep) — no next.
 	var out strings.Builder
 	if code := runProfile(context.Background(), profFake(0, 0), nil, nil, &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
@@ -50,7 +50,7 @@ func TestProfileRecommendsBySample(t *testing.T) {
 	if !strings.Contains(out.String(), `"recommend":"keep"`) || strings.Contains(out.String(), `"next"`) {
 		t.Errorf("insufficient-sample verdict: %s", out.String())
 	}
-	// 표본 충족·회상 선도 0 → minimal 추천 + next(전환 필요).
+	// sample met + recall lead 0 -> recommends minimal + next (switch needed).
 	out.Reset()
 	if code := runProfile(context.Background(), profFake(20, 0), nil, nil, &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
@@ -64,9 +64,9 @@ func TestProfileRecommendsBySample(t *testing.T) {
 	}
 }
 
-// TestProfileApplyInvalidRejected — 무효 값 exit 1.
-// 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
-// --exposure와 정합).
+// TestProfileApplyInvalidRejected — invalid value exits 1.
+// Invalid --apply values and unknown flags are invalid-arg exit 3
+// (consistent with setup --exposure).
 func TestProfileApplyInvalidRejected(t *testing.T) {
 	var out strings.Builder
 	if code := runProfile(context.Background(), profFake(0, 0), []string{"--apply", "bogus"}, nil, &out); code != 3 {

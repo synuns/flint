@@ -1,6 +1,6 @@
-// asof_test.go — as-of 정규화: 상대 Nh/Nd·ISO·해시 접두어 → 커밋 해시.
-// dolt_log 접근은 fake Store(queryFn)으로 세우고 SUPERLITE_REAL=1이면
-// 실구현 위임(delegatingFake — 질의 픽스처는 fake 우선).
+// asof_test.go — as-of normalization: relative Nh/Nd, ISO, and hash prefixes -> commit hashes.
+// dolt_log access is stubbed with a fake Store (queryFn); with SUPERLITE_REAL=1 it delegates to the
+// real implementation (delegatingFake — query fixtures prefer the fake).
 package cli
 
 import (
@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// asofLogRows — dolt_log 픽스처(인덱스 0이 commit_order DESC 최신).
-// 첫 두 해시는 "abc" 접두어 공유(모호성 케이스), 셋째는 base32계
-// (Doltgres 실측 — [0-9a-z] 전범위) 해시로 완화 검증 회귀.
+// asofLogRows — dolt_log fixtures (index 0 is the newest by commit_order DESC).
+// The first two hashes share the "abc" prefix (the ambiguity case); the third is a base32-like
+// hash (a Doltgres observation — the full [0-9a-z] range) for the relaxed-validation regression.
 func asofLogRows() [][]any {
 	return [][]any{
 		{"abc12f00000000000000000000000000", time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)},
@@ -24,7 +24,7 @@ func asofLogRows() [][]any {
 	}
 }
 
-// asofFake — LIKE 접두어·date <=·첫 커밋 3종 질의를 흉내 내는 queryFn.
+// asofFake — a queryFn mimicking the 3 queries: LIKE prefix, date <=, and first commit.
 func asofFake(rows [][]any) *fakeStore {
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -57,8 +57,8 @@ func asofFake(rows [][]any) *fakeStore {
 	return f
 }
 
-// asofStore — 기본 fake, FLINT_TEST_DSN 설정 + SUPERLITE_REAL=1이면 실구현
-// 위임 store(미설정 시 fake 폴백 — N1 seamRealDSN).
+// asofStore — the default fake; with FLINT_TEST_DSN set + SUPERLITE_REAL=1, a store delegating to the real
+// implementation (fake fallback when unset — N1 seamRealDSN).
 func asofStore(t *testing.T, f *fakeStore) Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {
@@ -72,12 +72,12 @@ func asofStore(t *testing.T, f *fakeStore) Store {
 	return f
 }
 
-// TestRelativeDh — test_relative_dh(72h·7d·무효 2.5h·"2 days ago").
+// TestRelativeDh — test_relative_dh (72h, 7d, invalid 2.5h, "2 days ago").
 func TestRelativeDh(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
 		spec string
-		want time.Duration // now 기준 과거 오프셋
+		want time.Duration // past offset from now
 	}{
 		{"72h", 72 * time.Hour},
 		{"7d", 7 * 24 * time.Hour},
@@ -100,38 +100,38 @@ func TestRelativeDh(t *testing.T) {
 	}
 }
 
-// TestPrefixUniqueAmbiguousZero — 접두어 1건 확정·모호·0건·
-// LIKE 파라미터화(주입 방지).
+// TestPrefixUniqueAmbiguousZero — prefix: 1 hit resolved, ambiguous, 0 hits, and
+// LIKE parameterization (injection-proofing).
 func TestPrefixUniqueAmbiguousZero(t *testing.T) {
 	f := asofFake(asofLogRows())
 	st := asofStore(t, f)
 	ctx := context.Background()
 
-	// 1건 확정 — 접두어 "abc12" → 전체 해시 반환.
+	// 1 hit resolved — prefix "abc12" -> full hash returned.
 	hash, err := ParseAsOfSpec(ctx, st, "abc12")
 	if err != nil || hash != "abc12f00000000000000000000000000" {
 		t.Fatalf("unique prefix → (%q,%v), want 전체 해시", hash, err)
 	}
-	// LIKE 파라미터화 — SQL은 $1 플레이스홀더, 접두어는 인자로.
+	// LIKE parameterized — SQL uses a $1 placeholder; the prefix is an argument.
 	if len(f.queries) == 0 || !strings.Contains(f.queries[len(f.queries)-1], "LIKE $1||'%'") {
 		t.Fatalf("SQL=%v, want LIKE $1||'%%' 파라미터화", f.queries)
 	}
 
-	// base32계 해시 회귀(실측 결함 폐쇄) — 소문자 영숫자 접두어 "he0" 수용.
+	// base32-like hash regression (closes an observed defect) — accepts the lowercase-alphanumeric prefix "he0".
 	hash, err = ParseAsOfSpec(ctx, st, "he0")
 	if err != nil || hash != "he08irluq000000000000000000000z" {
 		t.Fatalf("base32 prefix he0 → (%q,%v), want 전체 해시", hash, err)
 	}
 
-	// 모호 — "abc"가 2건과 일치 → err.
+	// ambiguous — "abc" matches 2 rows -> err.
 	if _, err := ParseAsOfSpec(ctx, st, "abc"); !errors.Is(err, ErrInvalidAsOf) {
 		t.Fatalf("ambiguous err=%v, want ErrInvalidAsOf", err)
 	}
-	// 0건 — "abcd" 접두어 매칭 없음 → err.
+	// 0 hits — no match for prefix "abcd" -> err.
 	if _, err := ParseAsOfSpec(ctx, st, "abcd"); !errors.Is(err, ErrInvalidAsOf) {
 		t.Fatalf("zero-match err=%v, want ErrInvalidAsOf", err)
 	}
-	// 3자 미만·대문자·특수문자 — 질의 없이 즉시 err.
+	// under 3 chars, uppercase, special chars — instant err without a query.
 	f2 := asofFake(asofLogRows())
 	st2 := asofStore(t, f2)
 	for _, bad := range []string{"ab", "ABC12", "abc12!", "zzz!"} {
@@ -144,32 +144,32 @@ func TestPrefixUniqueAmbiguousZero(t *testing.T) {
 	}
 }
 
-// TestIsoBeforeFirst — 첫 커밋 이전 ISO 시각 → err, 문구에
-// 첫 커밋 시각 포함. 정상 ISO는 시각 직전 최신 커밋 채택.
+// TestIsoBeforeFirst — an ISO time before the first commit -> err; the message includes
+// the first commit time. A valid ISO picks the newest commit at or before the time.
 func TestIsoBeforeFirst(t *testing.T) {
 	f := asofFake(asofLogRows())
 	st := asofStore(t, f)
 	ctx := context.Background()
 
-	// 정상 — t3와 t2 사이 시각 → 최신 커밋(abc12f…) 채택.
+	// valid — a time between t3 and t2 -> picks the newest commit (abc12f...).
 	spec := "2026-10-24T13:00"
 	hash, err := ParseAsOfSpec(ctx, st, spec)
 	if err != nil || hash != "abc12f00000000000000000000000000" {
 		t.Fatalf("ISO %q → (%q,%v), want 최신 커밋", spec, hash, err)
 	}
-	// date 비교 인자는 Go 계산 time.Time(SQL interval 금지).
+	// the date-comparison argument is a Go-computed time.Time (no SQL intervals).
 	lastSQL := f.queries[0]
 	if !strings.Contains(lastSQL, "date <= $1") {
 		t.Fatalf("date 비교 SQL=%q, want 파라미터화", lastSQL)
 	}
 
-	// RFC3339 형식도 수용.
+	// RFC3339 form is also accepted.
 	hash, err = ParseAsOfSpec(ctx, st, "2026-10-21T00:00:00Z")
 	if err != nil || hash != "he08irluq000000000000000000000z" {
 		t.Fatalf("RFC3339 → (%q,%v), want 첫 커밋 해시", hash, err)
 	}
 
-	// 첫 커밋(2026-10-20 09:00) 이전 → ErrInvalidAsOf + 문구에 첫 커밋 시각.
+	// before the first commit (2026-10-20 09:00) -> ErrInvalidAsOf + the first commit time in the message.
 	_, err = ParseAsOfSpec(ctx, st, "2026-10-01T00:00")
 	if !errors.Is(err, ErrInvalidAsOf) {
 		t.Fatalf("before-first err=%v, want ErrInvalidAsOf", err)
@@ -179,9 +179,9 @@ func TestIsoBeforeFirst(t *testing.T) {
 	}
 }
 
-// TestAsOfSpecNaturalLanguageRejected — 자연어·빈 스펙은 ErrInvalidAsOf(§1 배제).
-// 공백 포함·빈 스펙은 질의 없이 즉시 err. 순소문자 단어("yesterday")는 완화
-// 알파벳상 접두어 후보라 질의 후 0건 매칭으로 같은 err(정상 경로).
+// TestAsOfSpecNaturalLanguageRejected — natural language and empty specs are ErrInvalidAsOf (§1 exclusion).
+// Specs with spaces or empty err immediately without a query. A pure lowercase word ("yesterday") is a plausible
+// alphabetical prefix candidate, so it is queried and errs via 0 matches (the normal path).
 func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 	f := asofFake(asofLogRows())
 	st := asofStore(t, f)
@@ -190,16 +190,16 @@ func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 			t.Fatalf("%q err=%v, want ErrInvalidAsOf", bad, err)
 		}
 	}
-	// "2 days ago"(공백) 1건만 질의 — "yesterday" 1건은 접두어 경로 정상 질의.
+	// only "2 days ago" (with a space) queries once — the single "yesterday" case is a normal query on the prefix path.
 	if len(f.queries) != 1 {
 		t.Fatalf("질의 수=%d, want 1(yesterday 접두어 질의만): %v", len(f.queries), f.queries)
 	}
 }
 
-// TestParseAsOfSpecRealPrefix — 실DB 회귀(FLINT_DSN 설정 시에만): write 1건
-// 커밋 후 실제 해시(base32계) 접두어 3자로 ParseAsOfSpec이 전체 해시를
-// 되돌리는지 실측. 소문자 영숫자 완화 검증의 엔드투엔드 보증.
-// uniq 행은 cleanup에서 삭제·커밋(공유 DB pending 오염 방지).
+// TestParseAsOfSpecRealPrefix — real-DB regression (only when FLINT_DSN is set): after committing one write,
+// verifies by observation that a 3-character prefix of the real (base32-like) hash makes ParseAsOfSpec return the
+// full hash. End-to-end guarantee of the relaxed lowercase-alphanumeric validation.
+// The uniq row is deleted and committed in cleanup (preventing shared-DB pending pollution).
 func TestParseAsOfSpecRealPrefix(t *testing.T) {
 	dsn := os.Getenv("FLINT_DSN")
 	if dsn == "" {
@@ -211,7 +211,7 @@ func TestParseAsOfSpecRealPrefix(t *testing.T) {
 		t.Skipf("real store unavailable: %v", err)
 	}
 	t.Cleanup(real.Close)
-	// 변경 없는 커밋 방지 — 고유 content_hash 1건 적립 후 커밋.
+	// avoid an empty commit — stage exactly 1 unique content_hash, then commit.
 	uniq := fmt.Sprintf("asof-t81-%d", time.Now().UnixNano())
 	recs := []map[string]any{{
 		"kind": "knowledge", "topic": uniq, "summary": "as-of 회귀",
@@ -221,9 +221,9 @@ func TestParseAsOfSpecRealPrefix(t *testing.T) {
 	if _, err := real.InsertBatch(ctx, recs); err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
-	// 공유 DB 오염 방지 — 이 테스트가 남기는 uniq pending 행을 종료 시
-	// 삭제·커밋(e2e 전역 pending 단정 오염원). t.Cleanup은 LIFO라 본
-	// 정리가 real.Close(위 등록)보다 먼저 실행되도록 이후에 등록한다.
+	// prevent shared-DB pollution — delete and commit the uniq pending row this test leaves at the end
+	// (a pollution source for the global e2e pending assertion). t.Cleanup is LIFO, so this cleanup is
+	// registered after (the real.Close registration above) so it runs before real.Close.
 	t.Cleanup(func() {
 		rs, ok := real.(*realStore)
 		if !ok {
@@ -244,9 +244,9 @@ func TestParseAsOfSpecRealPrefix(t *testing.T) {
 	if len(full) < asofMinPrefix {
 		t.Fatalf("커밋 해시가 너무 짧음: %q", full)
 	}
-	// 접두어 창 선택 — 제품 계약상 상대 문법(\d+[hd])이 접두어보다 우선
-	// 파싱되므로(asof.go ① 우선), 우연히 "97h"처럼 상대 형식과 겹치는
-	// 창은 피한다(신규 DB에서 상대 해석이 먼저 실패하는 플레이크 방지).
+	// prefix window selection — by product contract the relative syntax (\d+[hd]) parses before prefixes
+	// (asof.go, priority 1), so windows that happen to overlap a relative form like "97h"
+	// are avoided (preventing flakes where the relative interpretation fails first on a fresh DB).
 	pre := ""
 	for i := 0; i+asofMinPrefix <= len(full); i++ {
 		w := full[i : i+asofMinPrefix]

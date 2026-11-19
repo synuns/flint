@@ -1,6 +1,6 @@
-// write_v0180_test.go — duplicate 응답 피드백. 단일 줄 재전송에서
-// 기존 행 topic·state를 additive 노출해 라이터가 read/supersede/approve로
-// 전환하게 한다(Anthropic already-exists 패턴의 규칙 기반 합성).
+// write_v0180_test.go — duplicate-response feedback. A single-line resend additively
+// exposes the existing row's topic and state so the writer can switch to read/supersede/approve
+// (a rules-based synthesis of the Anthropic already-exists pattern).
 package cli
 
 import (
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// dupMetaStore — DupMetaStore 확장 fake: 해시와 무관하게 고정 행 메타 반환.
+// dupMetaStore — a DupMetaStore-extension fake: returns a fixed row's meta regardless of hash.
 type dupMetaStore struct {
 	*fakeStore
 	meta DupMeta
@@ -19,7 +19,7 @@ func (d *dupMetaStore) DupRowByHash(ctx context.Context, hash string) (DupMeta, 
 	return d.meta, d.meta.ID > 0, nil
 }
 
-// withDupMeta — newStore seam을 dupMetaStore로 교체(write_v093 withDupID 패턴).
+// withDupMeta — swaps the newStore seam to dupMetaStore (the write_v093 withDupID pattern).
 func withDupMeta(t *testing.T, d *dupMetaStore) {
 	t.Helper()
 	prev := newStore
@@ -27,12 +27,12 @@ func withDupMeta(t *testing.T, d *dupMetaStore) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// TestWriteDupFeedback — 단일 줄 재전송: {"status":"duplicate","id":7,
-// "topic":...,"state":"active"} — 키는 additive, 기존 status·id는 불변.
+// TestWriteDupFeedback — a single-line resend: {"status":"duplicate","id":7,
+// "topic":...,"state":"active"} — keys are additive; the existing status and id are unchanged.
 func TestWriteDupFeedback(t *testing.T) {
 	f := &dupMetaStore{fakeStore: &fakeStore{}, meta: DupMeta{ID: 7, Topic: "doltgres 포트 충돌", State: "active"}}
 	withDupMeta(t, f)
-	// fakeStore는 삽입 전 dedup 경로만 탄다(해시 존재) — payload는 최소 스키마.
+	// fakeStore takes only the pre-insert dedup path (hash exists) — the payload is the minimal schema.
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"kind":"knowledge","topic":"doltgres 포트 충돌","summary":"5434 점유 시 이동","tags":["doltgres"],"confidence":0.9}`)
 	if code != 0 {
@@ -53,10 +53,10 @@ func TestWriteDupFeedback(t *testing.T) {
 	}
 }
 
-// TestWriteDupMetaAbsent — 미구현 Store(레거시 fake) 폴백: 메타 없이
-// {"status":"duplicate"} 바이트 불변(하위호환 — v06 exact-match 계약).
+// TestWriteDupMetaAbsent — an unimplemented Store (legacy fake) fallback: without meta,
+// the {"status":"duplicate"} bytes are unchanged (backward compatibility — the v06 exact-match contract).
 func TestWriteDupMetaAbsent(t *testing.T) {
-	f := &fakeStore{exists: true} // ExistsHash 폴백 경로(해시 존재)
+	f := &fakeStore{exists: true} // the ExistsHash fallback path (hash exists)
 	withFake(t, f)
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"kind":"knowledge","topic":"t","summary":"s","confidence":0.9}`)

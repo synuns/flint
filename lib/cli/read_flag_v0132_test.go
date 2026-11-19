@@ -1,8 +1,8 @@
-// read_flag_v0132_test.go — read 인자 파싱.
-// "--" 이후 전부 위치 인자(표준 end-of-options) — MCP 등 외부 입력의
-// query가 "--json"처럼 보여도 플래그로 해석되지 않는다. 값 없는
-// trailing --tag/--entity/--domain/--fields는 --status/--as-of와 동일
-// 규칙 exit 3.
+// read_flag_v0132_test.go — read argument parsing.
+// Everything after "--" is positional (the standard end-of-options) — even if an external
+// input's query (MCP etc.) looks like "--json", it is not parsed as a flag. A trailing
+// --tag/--entity/--domain/--fields without a value follows the same rule as
+// --status/--as-of: exit 3.
 package cli
 
 import (
@@ -13,8 +13,8 @@ import (
 	"testing"
 )
 
-// TestReadDashDashTreatsRestAsQuery — N9: "--" 뒤 토큰은 검색어로 취급되고
-// 출력 모드(텍스트)는 불변 — "--json"이 플래그로 파싱되지 않는다.
+// TestReadDashDashTreatsRestAsQuery — N9: tokens after "--" are treated as the search query
+// and the output mode (text) is unchanged — "--json" is not parsed as a flag.
 func TestReadDashDashTreatsRestAsQuery(t *testing.T) {
 	var gotArgs [][]any
 	fn := func(sql string, args []any) ([][]any, error) {
@@ -29,9 +29,9 @@ func TestReadDashDashTreatsRestAsQuery(t *testing.T) {
 		strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("exit = %d, want 0 (out %q)", code, out.String())
 	}
-	// BuildRead는 q를 LIKE 패턴으로 감싸 인자화(%q%) — 인자에 "--json"이
-	// 남아 있으면 검색어로 취급된 것(플래그 파싱이었다면 q가 비어 LIKE
-	// 인자 자체가 없다).
+	// BuildRead wraps q into a LIKE pattern and parameterizes it (%q%) — if "--json" remains in the
+	// arguments, it was treated as the query (under flag parsing, q would be empty and there would be no
+	// LIKE argument at all).
 	if len(gotArgs) == 0 || len(gotArgs[0]) < 2 ||
 		!strings.Contains(fmt.Sprint(gotArgs[0][0]), "--json") {
 		t.Fatalf("검색어 인자 = %v, want LIKE 인자에 \"--json\" — 플래그로 파싱됨", gotArgs)
@@ -44,8 +44,8 @@ func TestReadDashDashTreatsRestAsQuery(t *testing.T) {
 	}
 }
 
-// TestReadDashDashKeepsLeadingFlags — N9: "--" 앞 플래그는 그대로 파싱된다
-// (출력 모드는 선행 --json이 지정한 대로 유지, 뒤 토큰은 검색어).
+// TestReadDashDashKeepsLeadingFlags — N9: flags before "--" are parsed as-is
+// (the output mode stays as the leading --json specified; the trailing tokens are the query).
 func TestReadDashDashKeepsLeadingFlags(t *testing.T) {
 	fn := func(sql string, args []any) ([][]any, error) {
 		return [][]any{{float64(1), "t", "s"}}, nil
@@ -61,9 +61,9 @@ func TestReadDashDashKeepsLeadingFlags(t *testing.T) {
 	}
 }
 
-// TestReadTrailingFilterFlagsExit3 — N10: 값 없는 trailing
-// --tag/--entity/--domain/--fields는 SchemaError exit 3 — 조용히 무시 시
-// 의도와 다른 필터로 결과를 돌려주므로(--limit은 기존 exit 3).
+// TestReadTrailingFilterFlagsExit3 — N10: a trailing --tag/--entity/--domain/--fields
+// without a value is a SchemaError exit 3 — silently ignoring it would return results under
+// different filters than intended (--limit already exits 3).
 func TestReadTrailingFilterFlagsExit3(t *testing.T) {
 	for _, flag := range []string{"--tag", "--entity", "--domain", "--fields"} {
 		var out bytes.Buffer

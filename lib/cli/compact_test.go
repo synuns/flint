@@ -10,7 +10,7 @@ import (
 	"time"
 )
 
-// compactRun — fake store로 `flint compact` 실행 + 기본 단언(항상 exit 0·stdout 빈).
+// compactRun — runs `flint compact` with a fake store + base assertions (always exit 0, empty stdout).
 func compactRun(t *testing.T, f *fakeStore, stdin string) (string, int) {
 	t.Helper()
 	withFake(t, f)
@@ -18,7 +18,7 @@ func compactRun(t *testing.T, f *fakeStore, stdin string) (string, int) {
 	return out, code
 }
 
-// test_compact_writes_session — 유효 훅 JSON: session 1행 적립 + 마커 기록.
+// test_compact_writes_session — a valid hook JSON: 1 session row accrued + a marker written.
 func test_compact_writes_session(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{}
@@ -55,7 +55,7 @@ func test_compact_writes_session(t *testing.T) {
 	}
 }
 
-// test_compact_bad_stdin_exit0 — 파싱 실패: 무동작 exit 0.
+// test_compact_bad_stdin_exit0 — parse failure: no-op exit 0.
 func test_compact_bad_stdin_exit0(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{}
@@ -74,7 +74,7 @@ func test_compact_bad_stdin_exit0(t *testing.T) {
 	}
 }
 
-// test_compact_empty_summary_noop — 빈 요약: 적립·마커 없음.
+// test_compact_empty_summary_noop — empty summary: no accrual, no marker.
 func test_compact_empty_summary_noop(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{}
@@ -94,7 +94,7 @@ func test_compact_empty_summary_noop(t *testing.T) {
 	}
 }
 
-// test_compact_no_session_id_no_marker — session_id 비빔: 적립은 하되 마커 없음.
+// test_compact_no_session_id_no_marker — missing session_id: accrual happens but no marker.
 func test_compact_no_session_id_no_marker(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{}
@@ -114,7 +114,7 @@ func test_compact_no_session_id_no_marker(t *testing.T) {
 	}
 }
 
-// test_compact_write_fail_exit0 — 적립 실패(insert 오류): 마커 없이 exit 0.
+// test_compact_write_fail_exit0 — accrual failure (insert error): exit 0 without a marker.
 func test_compact_write_fail_exit0(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{insertErr: errFakeInsert}
@@ -131,8 +131,8 @@ func test_compact_write_fail_exit0(t *testing.T) {
 	}
 }
 
-// test_compact_st_nil_noop — st nil: 패닉 없이 무동작 exit 0.
-// Run 경유 대신 runCompact 직접 호출(withFake는 typed-nil을 감싸 버림).
+// test_compact_st_nil_noop — st nil: no-op exit 0 without a panic.
+// calls runCompact directly instead of Run (withFake would wrap the typed-nil).
 func test_compact_st_nil_noop(t *testing.T) {
 	var out bytes.Buffer
 	code := runCompact(context.Background(), nil, nil,
@@ -145,7 +145,7 @@ func test_compact_st_nil_noop(t *testing.T) {
 	}
 }
 
-// TestCompact — 묶음 실행.
+// TestCompact — bundle run.
 func TestCompact(t *testing.T) {
 	t.Run("writes_session", test_compact_writes_session)
 	t.Run("bad_stdin_exit0", test_compact_bad_stdin_exit0)
@@ -157,16 +157,16 @@ func TestCompact(t *testing.T) {
 	t.Run("accrues_session_knowledge", test_compact_accrues_session_knowledge)
 }
 
-// test_compact_accrues_session_knowledge — PostCompact의
-// compact_summary가 세션 지식화의 표준 경로 — 세션 행(계측)과 별개로
-// pending knowledge가 적립된다(최소 길이 충족 요약).
+// test_compact_accrues_session_knowledge — PostCompact's
+// compact_summary is the standard path for session knowledge — independently of the session row
+// (metering), pending knowledge is accrued (summaries meeting the minimum length).
 func test_compact_accrues_session_knowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{}
-	// knowledge 적립은 content_hash dedup·일 빈도 상한(meta
-	// session_knowledge_last)을 통과한다 — 공유 실DB 잔재를 시작 경계에서
-	// 정리하고, 실행마다 고유 summary(테스트명+시각)로 잔재 해시와의 충돌을
-	// 회피해야 적립=1이 멱등하게 성립한다.
+	// the knowledge accrual passes content_hash dedup and the once-daily cap (meta
+	// session_knowledge_last) — so the shared real-DB residue must be cleaned at the start boundary,
+	// and each run must use a unique summary (test name + timestamp) to avoid colliding with residue
+	// hashes, for accrual=1 to hold idempotently.
 	cleanupRealResidue(`DELETE FROM meta WHERE key = 'session_knowledge_last'`)
 	summary := fmt.Sprintf("API 설계와 구현을 마쳤고 리뷰 피드백을 반영했다 (%s %d)",
 		t.Name(), time.Now().UnixNano())
@@ -198,8 +198,8 @@ func test_compact_accrues_session_knowledge(t *testing.T) {
 	}
 }
 
-// test_compact_store_error_quiet — Run 진입에서 newStore 실패(DB 다운)도
-// 조용히 exit 0(§3 비간섭 — 훅 stdout에 에러 JSON이 새어 나가지 않아야 함).
+// test_compact_store_error_quiet — even a newStore failure at Run entry (DB down) is
+// silent exit 0 (§3 non-interference — no error JSON may leak into the hook's stdout).
 func test_compact_store_error_quiet(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	prev := newStore
@@ -223,5 +223,5 @@ func test_compact_store_error_quiet(t *testing.T) {
 	}
 }
 
-// errFakeInsert — fakeStore.insertErr용 sentinel(적립 실패 경로 점검).
+// errFakeInsert — a sentinel for fakeStore.insertErr (checking the accrual-failure path).
 var errFakeInsert = errors.New("insert fail")

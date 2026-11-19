@@ -13,9 +13,9 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// fakeMaint — fakeStore에 admin 연산(Counts/Invalidate/Supersede/Merge)을
-// 얹은 fake. 전이 갱신(무효화·대체)은 Repo 위임 메서드로
-// 캡처한다(UPDATE 리터럴은 db 계층 소유).
+// fakeMaint — a fakeStore with the admin operations (Counts/Invalidate/Supersede/Merge) layered on.
+// Transition updates (invalidate, supersede) are captured via the Repo delegation methods
+// (UPDATE literals are owned by the db layer).
 type fakeMaint struct {
 	*fakeStore
 
@@ -27,20 +27,20 @@ type fakeMaint struct {
 	dupGroupsCalls []int
 
 	invalErr     error
-	invalSeqErrs []error // 호출 순번별 선행 에러(재시도 시뮬레이션)
+	invalSeqErrs []error // pre-set errors per call ordinal (retry simulation)
 	supersedeErr error
 	mergeErr     error
-	pruneErr     error // PruneInvalidated 선행 에러
+	pruneErr     error // PruneInvalidated pre-set error
 
 	invalidateCalls  [][]int
 	invalidateMsgs   []string
 	supersedeCalls   []supersedeCall
 	mergeCalls       [][2]int
-	pruneCalls       []time.Time // PruneInvalidated 위임 캡처
-	recallPruneCalls []time.Time // PruneRecallEvents 위임 캡처
+	pruneCalls       []time.Time // PruneInvalidated delegation capture
+	recallPruneCalls []time.Time // PruneRecallEvents delegation capture
 }
 
-// supersedeCall — Supersede 위임 캡처(old·new·invalid_at 병기 값).
+// supersedeCall — Supersede delegation capture (old, new, and invalid_at values).
 type supersedeCall struct {
 	oldID, newID int
 	at           time.Time
@@ -81,8 +81,8 @@ func (f *fakeMaint) Merge(ctx context.Context, fromID, toID int) error {
 	return f.mergeErr
 }
 
-// PruneInvalidated — Repo 위임 메서드 캡처(반환 = 대상 2행
-// 관례 — maintain_v0330 prune 계약과 동일).
+// PruneInvalidated — Repo delegation-method capture (return = the 2-target-row
+// convention — same as the maintain_v0330 prune contract).
 func (f *fakeMaint) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
 	f.pruneCalls = append(f.pruneCalls, before)
 	if f.pruneErr != nil {
@@ -91,8 +91,8 @@ func (f *fakeMaint) PruneInvalidated(ctx context.Context, before time.Time) (int
 	return 2, nil
 }
 
-// PruneRecallEvents — Repo 위임 메서드 캡처(반환 = 0행 관례 —
-// 이벤트 만료 수는 queryFn count 질의로 시나리오 구성).
+// PruneRecallEvents — Repo delegation-method capture (return = the 0-row convention —
+// expired-event counts are set up via queryFn count queries).
 func (f *fakeMaint) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
 	f.recallPruneCalls = append(f.recallPruneCalls, before)
 	return 0, nil
@@ -105,8 +105,8 @@ func runMaintainArgs(t *testing.T, f *fakeMaint, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// 경계 — pending 49/50은 ok, 51부터 review-needed.
-// 임계값은 meta에서 읽는다(기본 pending_max=50).
+// boundary — pending 49/50 is ok; 51 onward is review-needed.
+// The threshold is read from meta (default pending_max=50).
 func TestMaintainCheckBoundary(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -138,7 +138,7 @@ func TestMaintainCheckBoundary(t *testing.T) {
 	}
 }
 
-// dup_suspect 경계(기본 20) — 20 ok, 21 review-needed.
+// dup_suspect boundary (default 20) — 20 ok, 21 review-needed.
 func TestMaintainCheckDupBoundary(t *testing.T) {
 	for _, c := range []struct {
 		dup  int
@@ -155,7 +155,7 @@ func TestMaintainCheckDupBoundary(t *testing.T) {
 	}
 }
 
-// 임계값을 meta에서 읽는다 — pending_max=5면 pending 6이 review-needed.
+// thresholds are read from meta — with pending_max=5, pending 6 is review-needed.
 func TestMaintainCheckThresholdsFromMeta(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{
 		queryFn: func(sql string, args []any) ([][]any, error) {
@@ -171,7 +171,7 @@ func TestMaintainCheckThresholdsFromMeta(t *testing.T) {
 	}
 }
 
-// review-needed 보고는 양쪽 수치를 모두 포함하고 exit 0이다.
+// the review-needed report includes both counts and exits 0.
 func TestMaintainCheckReportFields(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}, counts: db.Counts{Pending: 60, DupSuspect: 25}}
 	out, code := runMaintainArgs(t, f, "--check")
@@ -187,10 +187,10 @@ func TestMaintainCheckReportFields(t *testing.T) {
 	}
 }
 
-// --invalidate --id N --reason — 갱신 경로 호출 + exit 0.
+// --invalidate --id N --reason — update-path call + exit 0.
 func TestMaintainInvalidateOK(t *testing.T) {
-	// 사전 확인(존재·invalid_at 조회)이 Query를 경유하므로
-	// active 행 1건을 시딩한다(멱등 no-op와 구분되는 최초 무효화 경로).
+	// the pre-check (existence and invalid_at lookup) goes through Query, so
+	// seed 1 active row (the first-invalidation path, distinct from the idempotent no-op).
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
 		if strings.Contains(sql, "SELECT invalid_at FROM knowledge") {
 			return [][]any{{nil}}, nil // id 7: active(invalid_at NULL)
@@ -212,7 +212,7 @@ func TestMaintainInvalidateOK(t *testing.T) {
 	}
 }
 
-// 없는 id 무효화 — ErrNotFound → exit 1 한 줄 JSON.
+// invalidating a missing id — ErrNotFound -> exit 1 one-line JSON.
 func TestMaintainInvalidateNotFound(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}, invalErr: db.ErrNotFound}
 	out, code := runMaintainArgs(t, f, "--invalidate", "--id", "99", "--reason", "x")
@@ -224,7 +224,7 @@ func TestMaintainInvalidateNotFound(t *testing.T) {
 	}
 }
 
-// --merge --from N --to M — 병합 경로 호출 + exit 0.
+// --merge --from N --to M — merge-path call + exit 0.
 func TestMaintainMergeOK(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--merge", "--from", "3", "--to", "9")
@@ -239,7 +239,7 @@ func TestMaintainMergeOK(t *testing.T) {
 	}
 }
 
-// --merge 대상 부재 — ErrNotFound → exit 1.
+// missing merge target — ErrNotFound -> exit 1.
 func TestMaintainMergeNotFound(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}, mergeErr: db.ErrNotFound}
 	_, code := runMaintainArgs(t, f, "--merge", "--from", "1", "--to", "2")
@@ -248,21 +248,21 @@ func TestMaintainMergeNotFound(t *testing.T) {
 	}
 }
 
-// 모드 미지정(bare usage)은 무효 인자 exit 3·모드 내 인자
-// 누락은 여전히 사용법 에러 exit 1.
+// no mode given (bare usage) is invalid-arg exit 3; a missing argument within a mode
+// remains a usage error exit 1.
 func TestMaintainUsageErrors(t *testing.T) {
 	cases := []struct {
 		args []string
 		want int
 	}{
-		{[]string{}, 3},                         // bare usage 3(기존 1)
-		{[]string{"--id", "5"}, 3},              // 모드 없음 → bare usage 3
-		{[]string{"--invalidate"}, 1},           // --id 없음
-		{[]string{"--merge", "--from", "3"}, 1}, // --to 없음
-		{[]string{"--check", "--id", "abc"}, 1}, // 숫자 아님 — id는 check에서 무시되지만 파싱은 실패해야
+		{[]string{}, 3},                         // bare usage 3 (previously 1)
+		{[]string{"--id", "5"}, 3},              // no mode -> bare usage 3
+		{[]string{"--invalidate"}, 1},           // no --id
+		{[]string{"--merge", "--from", "3"}, 1}, // no --to
+		{[]string{"--check", "--id", "abc"}, 1}, // not a number — the id is ignored by check but parsing must still fail
 	}
-	// 무효 플래그(--bogus)는 exit 3(무효 인자 계약) —
-	// TestUnknownFlagExitContract(textutil_test.go)이 담당.
+	// invalid flag (--bogus) is exit 3 (the invalid-arg contract) —
+	// covered by TestUnknownFlagExitContract (textutil_test.go).
 	for _, c := range cases {
 		f := &fakeMaint{fakeStore: &fakeStore{}}
 		out, code := runMaintainArgs(t, f, c.args...)
@@ -275,7 +275,7 @@ func TestMaintainUsageErrors(t *testing.T) {
 	}
 }
 
-// Counts 실패 — errLine 전파·MapExit 코드.
+// Counts failure — errLine propagation, MapExit code.
 func TestMaintainCheckCountError(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}, countsErr: errors.New("boom")}
 	out, code := runMaintainArgs(t, f, "--check")
@@ -287,27 +287,27 @@ func TestMaintainCheckCountError(t *testing.T) {
 	}
 }
 
-// 등록 확인 — registry에 maintain이 있어야 Run이 디스패치한다.
+// registration check — maintain must be in the registry for Run to dispatch it.
 func TestMaintainRegistered(t *testing.T) {
 	if _, ok := Lookup("maintain"); !ok {
 		t.Fatal("maintain 미등록")
 	}
 }
 
-// 스키마 버전 게이트 — realStore는 MaintainStore를 만족해야 한다(컴파일 보증).
+// schema-version gate — realStore must satisfy MaintainStore (compile-time guarantee).
 var _ MaintStore = (*realStore)(nil)
 
-var _ = store.DefaultThresholds // import 방지(향후 확장용)
+var _ = store.DefaultThresholds // keep the import (for future extension)
 
-// TestMaintainCheckDrillReport — last_drill 경과 보고: 기록 없음→never,
-// 30일 초과→stale, 이내→필드 없음(테이블 커밋 확정 전 fast 회귀).
+// TestMaintainCheckDrillReport — last_drill elapsed reporting: no record -> never,
+// over 30 days -> stale, within -> field absent (a fast regression pending the table-commit decision).
 func TestMaintainCheckDrillReport(t *testing.T) {
 	stale := time.Now().Add(-40 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	fresh := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	cases := []struct {
 		name string
 		last string
-		want string // "" = drill 필드 없음
+		want string // "" = no drill field
 	}{
 		{"기록 없음", "", `"drill":"never"`},
 		{"40일 경과", stale, `"drill":"stale"`},
@@ -322,7 +322,7 @@ func TestMaintainCheckDrillReport(t *testing.T) {
 				}
 				return [][]any{{"last_drill", c.last}}, nil
 			}
-			return nil, nil // 임계값 미설정 → 기본값
+			return nil, nil // thresholds unset -> defaults
 		}
 		out, code := runMaintainArgs(t, f, "--check")
 		if code != 0 {

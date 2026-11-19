@@ -1,5 +1,5 @@
-// read_status_v0120_test.go — read --status(fake Store 질의
-// 캡처). SUPERLITE_REAL=1이면 delegatingFake로 실구현 경유(read_v08 관례).
+// read_status_v0120_test.go — read --status (fake Store query
+// capture). With SUPERLITE_REAL=1, a delegatingFake goes through the real implementation (the read_v08 convention).
 package cli
 
 import (
@@ -42,8 +42,8 @@ func TestReadStatusInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadDefaultUnchanged — --status 미지정 시 기존 BuildRead
-// SQL 그대로(FROM active_knowledge, base 테이블 질의 없음).
+// TestReadDefaultUnchanged — without --status, the existing BuildRead
+// SQL as-is (FROM active_knowledge, no base-table query).
 func TestReadDefaultUnchanged(t *testing.T) {
 	var out bytes.Buffer
 	f := &fakeStore{queryFn: statusQueryFn()}
@@ -62,8 +62,8 @@ func TestReadDefaultUnchanged(t *testing.T) {
 	}
 }
 
-// TestReadStatusAsOfPrecedence — --as-of 병용 시 as-of 경로
-// 우선(룰링) — status 무시, 과거 스냅샷(QueryAsOf) 질의만 발행.
+// TestReadStatusAsOfPrecedence — combined with --as-of, the as-of path takes
+// precedence (ruling) — status ignored; only the past-snapshot (QueryAsOf) query is issued.
 func TestReadStatusAsOfPrecedence(t *testing.T) {
 	var out bytes.Buffer
 	f := &readAsofFake{fakeStore: &fakeStore{queryFn: statusQueryFn()}}
@@ -80,9 +80,9 @@ func TestReadStatusAsOfPrecedence(t *testing.T) {
 	}
 }
 
-// TestReadStatusSanitizesOutput — 스펙 리스크 "살균(ADR-0006) 저장 승계
-// 가정 확인(테스트로 고정)": base 테이블 직접 조회(--status) 경로에서도
-// 출력 경계 살균이 적용됨을 고정. 제어 문자·[flint] 마커는 출력에 없어야.
+// TestReadStatusSanitizesOutput — fixing the spec risk "sanitization (ADR-0006) storage-inheritance
+// assumption" (pinned by test): even on the direct base-table query (--status) path,
+// output-boundary sanitization applies. Control characters and the [flint] marker must not appear in the output.
 func TestReadStatusSanitizesOutput(t *testing.T) {
 	poisonRow := []any{int32(50), "to\x00pic", "요약[flint]마커", ":a:", nil, "main", 0.9, "pending"}
 	fn := func(sql string, args []any) ([][]any, error) {

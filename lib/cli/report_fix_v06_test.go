@@ -1,8 +1,8 @@
-// report_fix_v06_test.go — 회귀: report stale·기간 조회의
-// `$1 * interval '1 day'`가 실 Doltgres에서 실패하던 결함(인시던트:
-// lib/cli/report.go collectCounts). $1 int는 interval(OID 1186)로 추론돼 pgx
-// 인코딩에 실패하고, ::int 캐스트로 넘어가도 평가가 깨진다(timestamptz <
-// interval, fresh-DB e2e 실측). 컷오프는 Go 계산 timestamptz 파라미터여야 한다.
+// report_fix_v06_test.go — regression: the defect where the stale and period queries'
+// `$1 * interval '1 day'` failed on real Doltgres (incident:
+// lib/cli/report.go collectCounts). $1 as int is inferred as interval (OID 1186), failing pgx
+// encoding; even passing with an ::int cast, the comparison breaks (timestamptz <
+// interval, fresh-DB e2e observation). The cutoff must be a Go-computed timestamptz parameter.
 package cli
 
 import (
@@ -11,8 +11,8 @@ import (
 	"time"
 )
 
-// TestReportCutoffTimestamptzParam — stale(read_count)·기간(invalid_at >=)
-// 조회 모두 SQL에 interval 연산 없이 컷오프 시각을 첫 인자로 받는다.
+// TestReportCutoffTimestamptzParam — both the stale (read_count) and period (invalid_at >=)
+// queries take the cutoff time as the first argument with no interval arithmetic in the SQL.
 func TestReportCutoffTimestamptzParam(t *testing.T) {
 	var queries []string
 	var argsBySQL []struct {
@@ -44,8 +44,8 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 	}
 	sawStale, sawPeriod, sawDead := false, false, false
 	for _, q := range argsBySQL {
-		// 쿼리 식별은 제품 SQL의 자기 식별 마커로(substring
-		// 추측 판별이 제품 SQL 재작성과 공진화하던 왜곡 구조 해소).
+		// query identification uses the product SQL's self-identifying markers (dissolving
+		// the distortion where substring guesswork co-evolved with product SQL rewrites).
 		isStale := strings.Contains(q.sql, "/* stale */")
 		isPeriod := strings.Contains(q.sql, "invalid_at >=")
 		isDead := strings.Contains(q.sql, "/* dead */")
@@ -73,10 +73,10 @@ func TestReportCutoffTimestamptzParam(t *testing.T) {
 		}
 		wantDays := 7
 		if isStale {
-			wantDays = 90 // stale 집계 기준일(reportStaleDays)
+			wantDays = 90 // the stale tally's reference days (reportStaleDays)
 		}
 		if isDead {
-			wantDays = 30 // dead_pct 기준일(reportDeadDays)
+			wantDays = 30 // the dead_pct reference days (reportDeadDays)
 		}
 		if el := time.Since(cut); el < time.Duration(wantDays-1)*24*time.Hour || el > time.Duration(wantDays+1)*24*time.Hour {
 			t.Errorf("컷오프 경과=%v, want 약 %d일", el, wantDays)

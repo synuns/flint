@@ -1,6 +1,6 @@
-// status_gate_test.go — schema_version 호환 검사 게이트(룰링: {"1","2"} 허용).
-// v2 승격(newRealStore→EnsureSchemaV2) 후에도 status가 exit 0을 유지하는지,
-// 미지 버전은 여전히 exit 3으로 거부하는지를 fast로 검증한다(e2e ④의 백엔드 회귀).
+// status_gate_test.go — the schema_version compatibility gate (ruling: {"1","2"} allowed).
+// Fast verification that status keeps exit 0 after the v2 promotion (newRealStore -> EnsureSchemaV2)
+// and still rejects unknown versions with exit 3 (the backend regression of e2e case 4).
 package cli
 
 import (
@@ -11,7 +11,7 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// statusWithVersion — meta.schema_version이 version인 fake 저장소로 status 실행.
+// statusWithVersion — runs status against a fake store whose meta.schema_version is version.
 func statusWithVersion(t *testing.T, version string) (map[string]any, int) {
 	t.Helper()
 	f := &fakeStore{}
@@ -30,7 +30,7 @@ func statusWithVersion(t *testing.T, version string) (map[string]any, int) {
 	return m, code
 }
 
-// TestStatusSchemaV2OK — v2 DB(승격 완료)에서 status는 exit 0·버전 그대로 보고.
+// TestStatusSchemaV2OK — on a v2 DB (promotion done), status exits 0 and reports the version as-is.
 func TestStatusSchemaV2OK(t *testing.T) {
 	m, code := statusWithVersion(t, "2")
 	if code != 0 {
@@ -41,8 +41,8 @@ func TestStatusSchemaV2OK(t *testing.T) {
 	}
 }
 
-// TestStatusSchemaV3OK — v3 DB(EnsureSchemaV3 인덱스 승격)에서 status는
-// exit 0·버전 그대로 보고(무손실 승격이므로 호환 거부 대상 아님).
+// TestStatusSchemaV3OK — on a v3 DB (EnsureSchemaV3 index promotion), status
+// exits 0 and reports the version as-is (a lossless promotion, so not a compatibility-rejection target).
 func TestStatusSchemaV3OK(t *testing.T) {
 	m, code := statusWithVersion(t, "3")
 	if code != 0 {
@@ -53,9 +53,9 @@ func TestStatusSchemaV3OK(t *testing.T) {
 	}
 }
 
-// TestStatusUnknownSchemaExit3 — 미지 버전(최신+1)은 호환 검사 실패로 exit 3.
-// 허용 범위는 db.LatestSchemaVersion 파생 — '미지'도 파생한다
-// (과거 리터럴 "9"는 v9 승격 후 정상 버전이 돼 오판 게이트를 굳혔다).
+// TestStatusUnknownSchemaExit3 — an unknown version (latest+1) exits 3 on the compatibility check.
+// The allowed range derives from db.LatestSchemaVersion — so does "unknown"
+// (the past literal "9" became a valid version after the v9 promotion, cementing a misjudging gate).
 func TestStatusUnknownSchemaExit3(t *testing.T) {
 	_, code := statusWithVersion(t, strconv.Itoa(db.LatestSchemaVersion+1))
 	if code != 3 {

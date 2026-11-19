@@ -8,8 +8,8 @@ import (
 )
 
 func TestZeroNearWarn(t *testing.T) {
-	// zero-near 산출은 WindowedDaily(창 마킹) 경유 — 키 날짜가
-	// 창 내(오늘)여야 합산된다(구 직접 meta 조회는 SQL이 창 컷을 담당).
+	// the zero-near tally goes through WindowedDaily (window marking) — the key's date must be
+	// inside the window (today) to be summed (the old direct meta lookup had the SQL do the window cut).
 	today := time.Now().UTC().Format("2006-01-02")
 	c := checkZeroNear(context.Background(), &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "daily:") {

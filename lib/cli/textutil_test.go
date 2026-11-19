@@ -8,10 +8,10 @@ import (
 	"time"
 )
 
-// TestTruncateRunesSingleSource — rune 절단 3중 복제
-// (import 500룬·maintain 접두 40·pending oneLine)의 단일 구현 수렴.
-// truncateRunes는 룬 단위 절단(멀티바이트 안전)이고 각 관례 래퍼는
-// 결과 불변으로 위임한다.
+// TestTruncateRunesSingleSource — the 3-way duplication of rune truncation
+// (import 500 runes, maintain 40-char prefix, pending oneLine) converged to a single implementation.
+// truncateRunes truncates by runes (multibyte-safe) and each convention wrapper
+// delegates with the result unchanged.
 func TestTruncateRunesSingleSource(t *testing.T) {
 	long := strings.Repeat("한", 60) // 60룬(180바이트) — 바이트 절단이면 파손
 	if got := truncateRunes(long, 40); len([]rune(got)) != 40 || got != strings.Repeat("한", 40) {
@@ -29,18 +29,18 @@ func TestTruncateRunesSingleSource(t *testing.T) {
 	if got := truncateRunes("", 40); got != "" {
 		t.Errorf("빈 문자열: %q", got)
 	}
-	// 관례 위임 동치 — maintain 접두 40자(공백·개행 없는 입력으로 비교).
+	// convention-delegation equivalence — the maintain 40-char prefix (compared with input without spaces/newlines).
 	if conflictSummaryPrefix(long) != truncateRunes(long, 40) {
 		t.Errorf("conflictSummaryPrefix 미위임")
 	}
-	// pending oneLine 상한(개행·공백 정리 후 위임 — 정제 불필요 입력으로 비교).
+	// the pending oneLine cap (delegated after newline/space cleanup — compared with input needing no cleanup).
 	if oneLine(long, 48) != truncateRunes(long, 48) {
 		t.Errorf("oneLine 미위임")
 	}
 }
 
-// TestUnknownFlagExitContract — maintain·import의 무효
-// 플래그는 무효 인자 계약 exit 3(doctor·tuning·diff 정합).
+// TestUnknownFlagExitContract — invalid flags on maintain and import follow the
+// invalid-arg contract exit 3 (consistent with doctor, tuning, diff).
 func TestUnknownFlagExitContract(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--check", "--bogus")
@@ -62,10 +62,10 @@ func TestUnknownFlagExitContract(t *testing.T) {
 	}
 }
 
-// TestSupersedeZeroRowsFails — 사전 확인(active) 통과 후
-// 경합 등으로 갱신이 0행이면 무음 성공이 아니라 오류(exit 1·커밋 없음).
-// 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 위임이
-// 오류를 돌려주는 것으로 시뮬레이션한다.
+// TestSupersedeZeroRowsFails — if the update hits 0 rows after passing the pre-check
+// (active) due to a race, it is an error, not a silent success (exit 1, no commit).
+// The stewardship is built into db.Repo.Supersede via rows-affected — simulated here by the delegation
+// returning an error.
 func TestSupersedeZeroRowsFails(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{supersedeErr: errors.New("supersede: id=3 갱신 미반영(경합 — 재시도)")}

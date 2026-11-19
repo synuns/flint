@@ -1,8 +1,8 @@
-// pending_test.go — `flint pending --tui` 진입 분기 계약 테스트.
-// 기본 경로(플래그 없음·--json·unknown flag)는 knowledge.RunPending에
-// 완전 불변 위임(회귀), --tui만 TUI seam으로 분기. TUI 런처는 seam var
-// fake 주입(기본 실구현 = tui.RunPendingTUI — SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN 시 withFake 위임 fake로 실DB 경로).
+// pending_test.go — contract tests for the `flint pending --tui` entry branching.
+// The default paths (no flags, --json, unknown flag) delegate fully unchanged to knowledge.RunPending
+// (regression); only --tui branches to the TUI seam. The TUI launcher is a seam var with a fake
+// injected (default real = tui.RunPendingTUI — with SUPERLITE_REAL=1 +
+// FLINT_TEST_DSN, a withFake-delegating fake takes the real-DB path).
 package cli
 
 import (
@@ -16,7 +16,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// installPendingTuiFake — pendingTuiFn seam 교체(호출 기록 fake).
+// installPendingTuiFake — swaps the pendingTuiFn seam (call-recording fake).
 func installPendingTuiFake(t *testing.T) *[]wire.Store {
 	t.Helper()
 	var calls []wire.Store
@@ -29,9 +29,9 @@ func installPendingTuiFake(t *testing.T) *[]wire.Store {
 	return &calls
 }
 
-// pendingDemoStore — 대기 1건을 내주는 fake(pending 조회 + active 조회).
-// pending 행은 TUI 실구현 조회 6열(id·topic·summary·origin·valid_at·
-// confidence)에 맞춘다 — 실 RunPendingTUI 폴백 경로 검증용.
+// pendingDemoStore — a fake serving 1 pending row (pending query + active query).
+// The pending row matches the real TUI query's 6 columns (id, topic, summary, origin, valid_at,
+// confidence) — for verifying the real RunPendingTUI fallback path.
 func pendingDemoStore() *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "status = 'pending'") {
@@ -41,7 +41,7 @@ func pendingDemoStore() *fakeStore {
 	}}
 }
 
-// RF-protocol — 기본 경로 회귀: 플래그 없음은 RunPending과 바이트 동일.
+// RF-protocol — default-path regression: no flags is byte-identical to RunPending.
 func TestPendingEntryDefaultDelegatesUnchanged(t *testing.T) {
 	var mine, ref bytes.Buffer
 	code := runPendingEntry(context.Background(), pendingDemoStore(), nil,
@@ -56,8 +56,8 @@ func TestPendingEntryDefaultDelegatesUnchanged(t *testing.T) {
 	}
 }
 
-// RF-protocol — 기존 플래그 회귀: --json은 RunPending 경로(기계 출력),
-// unknown flag는 기존 exit 3. --tui 미포함 시 TUI seam 미호출.
+// RF-protocol — existing-flag regression: --json takes the RunPending path (machine output),
+// an unknown flag keeps the existing exit 3. Without --tui, the TUI seam is not called.
 func TestPendingEntryJSONAndUnknownFlagRegression(t *testing.T) {
 	calls := installPendingTuiFake(t)
 
@@ -83,7 +83,7 @@ func TestPendingEntryJSONAndUnknownFlagRegression(t *testing.T) {
 	}
 }
 
-// RF-protocol — --tui 분기: TUI seam 호출·exit 전파·스토어 전달.
+// RF-protocol — --tui branch: TUI seam called, exit propagates, store passed through.
 func TestPendingEntryTUIBranch(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	st := pendingDemoStore()
@@ -98,7 +98,7 @@ func TestPendingEntryTUIBranch(t *testing.T) {
 	}
 }
 
-// RF-protocol — --tui + 다른 플래그: 무효 인자 exit 3(부분 조합 금지).
+// RF-protocol — --tui + other flags: invalid-arg exit 3 (no partial combinations).
 func TestPendingEntryTUIRejectsExtraFlags(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	var out bytes.Buffer
@@ -114,8 +114,8 @@ func TestPendingEntryTUIRejectsExtraFlags(t *testing.T) {
 	}
 }
 
-// installPendingTTY — 적응형 진입 TTY 판정 seam 교체
-// (setupWizardTTYFn 관례 — 기본 실구현 tui.IsTerminalStdout).
+// installPendingTTY — swaps the adaptive-entry TTY-check seam
+// (the setupWizardTTYFn convention — default real implementation tui.IsTerminalStdout).
 func installPendingTTY(t *testing.T, tty bool) {
 	t.Helper()
 	orig := pendingTTYFn
@@ -123,7 +123,7 @@ func installPendingTTY(t *testing.T, tty bool) {
 	t.Cleanup(func() { pendingTTYFn = orig })
 }
 
-// RF-adaptive-② — 무인자·무플래그 + 터미널: TUI 위임 호출.
+// RF-adaptive-2 — no args or flags + terminal: TUI delegation called.
 func TestPendingEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	installPendingTTY(t, true)
@@ -138,7 +138,7 @@ func TestPendingEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	}
 }
 
-// RF-adaptive-③ — 무인자 + 비터미널(파이프): RunPending 바이트 동일 위임.
+// RF-adaptive-3 — no args + non-terminal (pipe): byte-identical delegation to RunPending.
 func TestPendingEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	installPendingTTY(t, false)
@@ -158,8 +158,8 @@ func TestPendingEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	}
 }
 
-// RF-adaptive-① — --tui 명시 + 비터미널: 기존 폴백 exit 3 불변
-// (pendingTuiFn 기본 실구현 = tui.RunPendingTUI — Run 래퍼 폴백).
+// RF-adaptive-1 — explicit --tui + non-terminal: the existing fallback exit 3 unchanged
+// (pendingTuiFn default = tui.RunPendingTUI — the Run-wrapper fallback).
 func TestPendingEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	installPendingTTY(t, false)
 	var out bytes.Buffer
@@ -176,7 +176,7 @@ func TestPendingEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// RF-adaptive-④ — 플래그 존재 + 터미널: 현행 플래그 경로 유지(TUI 미진입).
+// RF-adaptive-4 — flags present + terminal: the current flag path is kept (no TUI entry).
 func TestPendingEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	installPendingTTY(t, true)
@@ -194,8 +194,8 @@ func TestPendingEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	}
 }
 
-// RF-protocol — 등록표: "pending"은 이 진입 분기 핸들러로 최종 등록
-// (knowledge.init 등록을 덮어쓴다 — wire.Register 최신값 승계).
+// RF-protocol — registry: "pending" is finally registered to this entry-branching handler
+// (overwriting the knowledge.init registration — inheriting the latest wire.Register value).
 func TestPendingEntryRegistered(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	h, ok := wire.Lookup("pending")
@@ -212,8 +212,8 @@ func TestPendingEntryRegistered(t *testing.T) {
 	}
 }
 
-// RF-noenv — FLINT_NO_TUI=1 + 터미널이어도 현행 경로 강제(탈출구 —
-// 환경 체크가 TTY seam보다 우선하는 3층 방어 1층).
+// RF-noenv — FLINT_NO_TUI=1 forces the current path even on a terminal (escape hatch —
+// layer 1 of the 3-layer guard, where the environment check precedes the TTY seam).
 func TestPendingEntryNoTUIEnvForcesFlagPath(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	calls := installPendingTuiFake(t)
@@ -234,8 +234,8 @@ func TestPendingEntryNoTUIEnvForcesFlagPath(t *testing.T) {
 	}
 }
 
-// RF-noenv-explicit — FLINT_NO_TUI는 적응형 진입만 차단한다: 명시적
-// --tui는 환경변수보다 우선한다(cli.md 계약 — 사용자 명시 의사 승계).
+// RF-noenv-explicit — FLINT_NO_TUI blocks only adaptive entry: an explicit --tui takes
+// precedence over the environment variable (the cli.md contract — the user's explicit intent wins).
 func TestPendingEntryExplicitTUIOverridesNoTUIEnv(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	calls := installPendingTuiFake(t)

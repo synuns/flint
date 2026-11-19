@@ -1,8 +1,8 @@
-// tuning_keys_single_source_test.go — 키 집합 동질성 가드는
-// tuning_test.go TestTuningKeysMatchRegistry가 담당한다. 여기선 그 가드가
-// 못 잡는 나머지 드리프트 지점 하나: meta 관리 키가 thresholds 키와
-// 겹치면 tuningList가 같은 키를 두 번 출력한다(표시 이중 행 —
-// tuningKeyAll의 중복 제거는 reset --all만 구한다).
+// tuning_keys_single_source_test.go — the key-set homogeneity guard is owned by
+// TestTuningKeysMatchRegistry in tuning_test.go. Here we cover the one remaining drift point that guard
+// cannot catch: if a meta management key overlaps a thresholds key,
+// tuningList prints the same key twice (a duplicate display row —
+// tuningKeyAll's dedup serves only reset --all).
 package cli
 
 import "testing"

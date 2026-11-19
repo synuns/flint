@@ -1,7 +1,7 @@
-// root_test.go — v1.7.2 T4: schemaVersionFn probe 42P01 heal. probe가
-// 42P01(테이블 부재)로 실패하면 st 풀에 SELECT 1을 1회 실행해 세션
-// 카탈로그를 재동기(R38-B probeheal)하고 probe를 재시도한다 — 여전히
-// 실패하면(진짜 신규 DB) 기존 순차 승격 경로로 폴백.
+// root_test.go — v1.7.2 T4: the schemaVersionFn probe 42P01 heal. When the probe
+// fails with 42P01 (missing table), run SELECT 1 once on the st pool to resynchronize the session
+// catalog (R38-B probeheal) and retry the probe — if it still fails
+// (a genuinely fresh DB), fall back to the existing sequential promotion path.
 package cli
 
 import (
@@ -19,8 +19,8 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// probeHealFake — 호출 순서 기록형 fake: 첫 probe 42P01 → SELECT 1 성공 →
-// 재시도 결과는 retryRows로 응답.
+// probeHealFake — a call-order-recording fake: first probe 42P01 -> SELECT 1 succeeds ->
+// the retry answers from retryRows.
 func probeHealFake(t *testing.T, retryRows [][]any, retryErr error) (*fakeStore, *[]string) {
 	t.Helper()
 	seq := &[]string{}
@@ -40,7 +40,7 @@ func probeHealFake(t *testing.T, retryRows [][]any, retryErr error) (*fakeStore,
 }
 
 // TestSchemaVersionProbeHealsUndefinedTable — Review Focus: 42P01 → SELECT 1
-// heal 1회 → probe 재시도 성공 시퀀스(쿼리 순서 단언 포함).
+// a heal-once -> probe-retry-success sequence (including query-order assertions).
 func TestSchemaVersionProbeHealsUndefinedTable(t *testing.T) {
 	f, seq := probeHealFake(t, [][]any{{fmt.Sprint(db.LatestSchemaVersion)}}, nil)
 	v, ok := schemaVersionFn(context.Background(), f)
@@ -56,8 +56,8 @@ func TestSchemaVersionProbeHealsUndefinedTable(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionProbeHealFallsBackOnFreshDB — heal 후에도 42P01이면
-// (진짜 신규 DB) 3쿼리만 소비하고 (0,false) 폴백 — 순차 승격 경로 위임.
+// TestSchemaVersionProbeHealFallsBackOnFreshDB — if it is still 42P01 after the heal
+// (a genuinely fresh DB), only 3 queries are consumed and it falls back to (0,false) — delegating to the sequential promotion path.
 func TestSchemaVersionProbeHealFallsBackOnFreshDB(t *testing.T) {
 	f, seq := probeHealFake(t, nil, &pgconn.PgError{Code: "42P01", Message: `relation "meta" does not exist`})
 	v, ok := schemaVersionFn(context.Background(), f)
@@ -69,8 +69,8 @@ func TestSchemaVersionProbeHealFallsBackOnFreshDB(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionProbeNoHealOnOtherErrors — 42P01 외 오류(서버 다운 등)는
-// heal 없이 즉시 폴백 — 불필요한 왕복 금지.
+// TestSchemaVersionProbeNoHealOnOtherErrors — errors other than 42P01 (server down etc.)
+// fall back immediately without healing — no unnecessary round trips.
 func TestSchemaVersionProbeNoHealOnOtherErrors(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, errors.New("connection refused")
@@ -85,8 +85,8 @@ func TestSchemaVersionProbeNoHealOnOtherErrors(t *testing.T) {
 }
 
 // TestFreshDBFirstCommandExit0RealSlow — slow(FLINT_TEST_DSN + SUPERLITE_REAL=1):
-// 신규 DB 생성 직후 첫 커맨드(status)가 exit 0 — probe 42P01 → heal → 순차
-// 승격 경로 전체를 실DB로 실증(L1 회귀).
+// the first command (status) right after creating a fresh DB exits 0 — the probe 42P01 -> heal ->
+// sequential promotion path demonstrated end-to-end on a real DB (L1 regression).
 func TestFreshDBFirstCommandExit0RealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {

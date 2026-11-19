@@ -1,12 +1,12 @@
-// sync.go — `flint sync remote add|list|remove` CLI 진입.
-// `flint sync push|pull [--dry]` 확장(충돌 시 수동 해결 안내).
-// 쿼리 구현은 lib/db/sync.go(dolt_remote 래핑) 소유 — 이 파일은 인자
-// 검증·exit 계약·출력 마스킹만 담는다(쓰기 SQL 리터럴의 db 소유 원칙,
-// BumpDailyFlatKey 관례). 원격 url 원문은
-// 성공·오류·사용법 어떤 stdout 행에도 실리지 않는다 — list의 url은
-// db.MaskRemoteURL(스킴+호스트) 결과뿐, add 성공 행은 이름·상태만.
-// usageOrder의 "sync" 항목과 정합 — Register는 여기서, usage 문구는
-// wire.usageOrder 단일 소스. push/pull도 이 파일에 확장.
+// sync.go — CLI entry for `flint sync remote add|list|remove`.
+// Extended with `flint sync push|pull [--dry]` (manual-resolution guidance on conflict).
+// The query implementation is owned by lib/db/sync.go (wrapping dolt_remote) — this file handles only argument
+// validation, exit contracts, and output masking (the db-owns-write-SQL-literals principle,
+// the BumpDailyFlatKey convention). The raw remote url never
+// appears in any stdout line — success, error, or usage: list's url is only the
+// db.MaskRemoteURL (scheme+host) result, and the add success line carries only name and status.
+// Consistent with the "sync" entry in usageOrder — Register lives here, the usage wording is
+// the single source in wire.usageOrder. push/pull were also extended in this file.
 package cli
 
 import (
@@ -23,18 +23,18 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// syncUsage — 사용법 안내(exit 3 공용 문구 — url 예는 스킴+호스트
-// 형태만, 실제 형식 안내에 자격증명 예시를 실지 않는다). v1.7.2 T3:
-// reset 서브커맨드 추가(S2 완화).
+// syncUsage — usage guidance (the shared exit-3 wording — url examples show only scheme+host
+// form; real-format guidance never includes credential examples). v1.7.2 T3:
+// added the reset subcommand (S2 mitigation).
 const syncUsage = "usage: flint sync remote add <name> <url> | flint sync remote list | flint sync remote remove <name> | flint sync push <remote> | flint sync pull <remote> [--dry] | flint sync reset --to-remote <name> [--yes]"
 
 func init() { Register("sync", runSync) }
 
-// runSync — sync 커맨드 진입(wire.Handler 시그니처). 계약:
-//   - 사용법 오류(인자 수·무효 sub·빈 값·스킴 없는 url) exit 3
-//   - 중복 add·미존재 remove exit 3(사용법류 오류 계약)
-//   - 스토어 nil·서버다운 exit 2, 기타 실행 오류 exit 1(원인 보존)
-//   - 성공은 결과 1행 JSON stdout, exit 0
+// runSync — sync command entry (wire.Handler signature). Contract:
+//   - usage errors (arg count, invalid sub, empty value, scheme-less url) exit 3
+//   - duplicate add or missing remove exits 3 (usage-class error contract)
+//   - nil store or server-down exits 2; other execution errors exit 1 (cause preserved)
+//   - success is one result-line JSON on stdout, exit 0
 func runSync(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if len(args) == 0 {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
@@ -55,7 +55,7 @@ func runSync(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	}
 }
 
-// runSyncRemote — `flint sync remote ...` 하위 명령 분기.
+// runSyncRemote — subcommand branching for `flint sync remote ...`.
 func runSyncRemote(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) < 1 {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
@@ -78,8 +78,8 @@ func runSyncRemote(ctx context.Context, st Store, args []string, stdout io.Write
 	}
 }
 
-// runSyncPush — `flint sync push <remote>`: dolt_push(remote,'main') 결과
-// {remote,status,hash} JSON. 미등록 exit 3, 실행 오류 exit 1(마스킹).
+// runSyncPush — `flint sync push <remote>`: the dolt_push(remote,'main') result as
+// {remote,status,hash} JSON. Unregistered exits 3; execution errors exit 1 (masked).
 func runSyncPush(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) != 1 || args[0] == "" {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
@@ -98,7 +98,7 @@ func runSyncPush(ctx context.Context, st Store, args []string, stdout io.Writer)
 }
 
 // runSyncPull — `flint sync pull <remote> [--dry]`: dolt_fetch+dolt_merge.
-// 충돌은 exit 1 + 수동 해결 안내(자동 해결 금지). --dry는 fetch까지만.
+// conflicts exit 1 + manual-resolution guidance (no auto-resolution). --dry stops at fetch.
 func runSyncPull(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) < 1 || len(args) > 2 || args[0] == "" {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
@@ -125,10 +125,10 @@ func runSyncPull(ctx context.Context, st Store, args []string, stdout io.Writer)
 }
 
 // runSyncReset — `flint sync reset --to-remote <name> [--yes]`: v1.7.2
-// S2 완화. fetch 후 main을 원격 head로 dolt_reset --hard 되돌린다(로컬
-// 미커밋 변경·로컬 전용 커밋 폐기 — 파괴 연산). teardown 관례 승계:
-// 기본 dry-run(손실 경고·실행 없음·exit 0), --yes만 실행. 미등록 원격은
-// exit 3(db ErrRemoteNotFound 계약).
+// S2 mitigation. After fetch, resets main to the remote head with dolt_reset --hard (discarding local
+// uncommitted changes and local-only commits — a destructive operation). Carrying over the teardown convention:
+// dry-run by default (loss warning, no execution, exit 0); --yes alone executes. An unregistered remote
+// exits 3 (the db ErrRemoteNotFound contract).
 func runSyncReset(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	name := ""
 	confirm := false
@@ -172,8 +172,8 @@ func runSyncReset(ctx context.Context, st Store, args []string, stdout io.Writer
 	return 0
 }
 
-// syncStoreReady — 스토어 nil·서버다운 검사(export 관례 승계 — ErrLine
-// 한 줄 + MapExit, exit 2).
+// syncStoreReady — nil-store/server-down check (carrying over the export convention — one ErrLine
+// + MapExit, exit 2).
 func syncStoreReady(ctx context.Context, st Store, stdout io.Writer) bool {
 	if st == nil {
 		fmt.Fprintln(stdout, wire.ErrLine(store.ErrServerDown))
@@ -187,10 +187,10 @@ func syncStoreReady(ctx context.Context, st Store, stdout io.Writer) bool {
 }
 
 // runSyncRemoteAdd — `flint sync remote add <name> <url>`. v1.7.2 T3 S5:
-// url 스킴은 화이트리스트 https·http·file만 승인한다 — dolt_push/fetch는
-// 원격 url을 Doltgres 서버에서 해석하므로 postgres:// 등 호스트 로컬
-// 스킴은 등록 자체가 오설정(add 시점 exit 3). 성공 행에 url을 실지
-// 않는다(이름·상태만). S4: 성공 직후 file:// 경로 해석 주체 안내 1행.
+// the url scheme whitelist admits only https, http, and file — dolt_push/fetch has the
+// remote url interpreted by the Doltgres server, so host-local schemes like postgres:// are
+// misconfiguration to register in the first place (add-time exit 3). The success line carries no url
+// (name and status only). S4: one line of guidance about the file:// path interpretation right after success.
 func runSyncRemoteAdd(ctx context.Context, st Store, args []string, stdout io.Writer) int {
 	if len(args) != 2 {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("%s", syncUsage)))
@@ -201,8 +201,8 @@ func runSyncRemoteAdd(ctx context.Context, st Store, args []string, stdout io.Wr
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "name", Expect: "non-empty"}))
 		return 3
 	}
-	// url 검증 — 스킴 부재·공백·파손·비허용 스킴은 사용법 오류(원문은
-	// 안내에 재기록하지 않는다 — 스킴 형식 안내만).
+	// url validation — missing scheme, whitespace, malformed, or disallowed scheme is a usage error (the raw value is
+	// not echoed in the guidance — scheme-form guidance only).
 	if !validRemoteURL(remoteURL) {
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "url", Expect: "remote URL with allowed scheme (https://, http://, file://)"}))
 		return 3
@@ -218,7 +218,7 @@ func runSyncRemoteAdd(ctx context.Context, st Store, args []string, stdout io.Wr
 	return 0
 }
 
-// runSyncRemoteList — `flint sync remote list`. url은 마스킹만.
+// runSyncRemoteList — `flint sync remote list`. The url is masked only.
 func runSyncRemoteList(ctx context.Context, st Store, stdout io.Writer) int {
 	if !syncStoreReady(ctx, st, stdout) {
 		return store.MapExit(store.ErrServerDown)
@@ -256,9 +256,9 @@ func runSyncRemoteRemove(ctx context.Context, st Store, args []string, stdout io
 	return 0
 }
 
-// syncOpExit — 원격 연산 오류의 exit 매핑. 중복명·미존재명은 사용법류
-// exit 3, 그 외 실행 오류는 exit 1(ErrLine 원인 보존 — 오류 체인에
-// url 원문이 실리지 않음은 db 쪽 래핑 계약).
+// syncOpExit — exit mapping for remote-operation errors. Duplicate and missing names are usage-class
+// exit 3; other execution errors exit 1 (ErrLine preserves the cause — that no raw url
+// appears in the error chain is the db-side wrapping contract).
 func syncOpExit(stdout io.Writer, err error) int {
 	fmt.Fprintln(stdout, wire.ErrLine(err))
 	if errors.Is(err, db.ErrRemoteExists) || errors.Is(err, db.ErrRemoteNotFound) {
@@ -267,18 +267,18 @@ func syncOpExit(stdout io.Writer, err error) int {
 	return 1
 }
 
-// syncLineJSON — 결과 1행 JSON 출력(ErrLine 채널 관례 — stdout 1행).
+// syncLineJSON — one result-line JSON output (the ErrLine channel convention — one stdout line).
 func syncLineJSON(w io.Writer, v any) {
 	b, err := json.Marshal(v)
 	if err != nil {
-		return // 마샬 불가값 없음 — 사실상 도달 불가
+		return // no unmarshalable values — effectively unreachable
 	}
 	fmt.Fprintln(w, string(b))
 }
 
-// validRemoteURL — v1.7.2 T3 S5: add url 검증. 파싱 가능·공백 부재에
-// 더해 스킴 화이트리스트(https·http·file) — 원격 url은 Doltgres 서버가
-// 해석하므로 그 외 스킴(postgres:// 등)은 add 시점에 거부한다.
+// validRemoteURL — v1.7.2 T3 S5: add url validation. Beyond parseability and no whitespace,
+// a scheme whitelist (https, http, file) — the remote url is interpreted by the Doltgres server, so
+// other schemes (postgres:// etc.) are rejected at add time.
 func validRemoteURL(raw string) bool {
 	if raw == "" || strings.ContainsAny(raw, " \t\r\n") {
 		return false

@@ -1,7 +1,7 @@
-// doctor_alias_test.go — lib/ops로 이동한 doctor_test.go의
-// 테스트 헬퍼(runDoctorArgs·freshDoctorFn·setHarnessEnvs)를 잔류 cli
-// 테스트(doctor_v07·doctor_v094·rules_sync_v097 등)에 재제공한다.
-// 실구현은 ops 별칭(runDoctor) 경유.
+// doctor_alias_test.go — re-provides the test helpers of doctor_test.go, moved to
+// lib/ops (runDoctorArgs, freshDoctorFn, setHarnessEnvs), to the residual cli tests
+// (doctor_v07, doctor_v094, rules_sync_v097, etc.).
+// The real implementation goes via the ops alias (runDoctor).
 package cli
 
 import (
@@ -12,8 +12,8 @@ import (
 	"time"
 )
 
-// runDoctorArgs — fake store으로 runDoctor(=ops.RunDoctor) 실행.
-// 출력·exit 반환.
+// runDoctorArgs — runs runDoctor (=ops.RunDoctor) with a fake store.
+// Returns output and exit.
 func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -21,14 +21,14 @@ func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// freshDoctorFn — 전 검사 통과 기준 응답(1시간 전 last-seen).
+// freshDoctorFn — the all-checks-pass baseline response (last-seen 1h ago).
 func freshDoctorFn() func(string, []any) ([][]any, error) {
 	h := time.Now().Add(-time.Hour)
 	return doctorQueryFn(h, h, h)
 }
 
-// doctorQueryFn — 검사별 meta/pg_indexes 응답을 주입하는 공용 queryFn.
-// schema=4·인덱스 3행·last-seen 3키(경과 조절)를 반환한다.
+// doctorQueryFn — a shared queryFn injecting per-check meta/pg_indexes responses.
+// Returns schema=4, 3 index rows, and 3 last-seen keys (with adjustable elapsed).
 func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -47,8 +47,8 @@ func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) (
 	}
 }
 
-// setHarnessEnvs — 하니스 5종 env를 전부 빈 임시 디렉터리로 격리.
-// harnessChecks 단위 테스트의 전제(실홈 설정 파일 영향 차단).
+// setHarnessEnvs — isolates all 5 harness envs to empty temp directories.
+// A precondition of the harnessChecks unit tests (blocking real-home settings files).
 func setHarnessEnvs(t *testing.T) {
 	t.Helper()
 	for _, e := range []string{

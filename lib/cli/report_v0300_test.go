@@ -1,5 +1,5 @@
-// report_v0300_test.go — 계측 2막: hit 품질 근사(first_rank)와
-// 7일 창 추세 계약.
+// report_v0300_test.go — metering act 2: the hit-quality approximation (first_rank)
+// and the 7-day window trend contract.
 package cli
 
 import (
@@ -7,7 +7,7 @@ import (
 	"time"
 )
 
-// TestFirstExactRank — 첫 topic 정합 순위(1-기반·정합 없음 0·빈 쿼리 0).
+// TestFirstExactRank — the first topic-exact rank (1-based; 0 without an exact match; 0 for an empty query).
 func TestFirstExactRank(t *testing.T) {
 	rows := [][]any{
 		{int32(1), "다른 주제", "요약"},
@@ -23,22 +23,22 @@ func TestFirstExactRank(t *testing.T) {
 	if got := firstExactRank(rows, ""); got != 0 {
 		t.Errorf("빈 쿼리 = %d, want 0", got)
 	}
-	// 대소문자 무시.
+	// case-insensitive.
 	mixed := [][]any{{int32(1), "Flint 배포"}}
 	if got := firstExactRank(mixed, "flint 배포"); got != 1 {
 		t.Errorf("대소문자 = %d, want 1", got)
 	}
 }
 
-// TestTrendOfDiff — 창 통계·전후 비교(빈 창 nil 강등).
+// TestTrendOfDiff — window stats and before/after comparison (nil demotion for an empty window).
 func TestTrendOfDiff(t *testing.T) {
 	now := time.Now()
 	mk := func(daysAgo int, zero, fallback bool, rank int) readEventRow {
 		return readEventRow{Ts: now.Add(-time.Duration(daysAgo) * 24 * time.Hour),
 			Zero: zero, Fallback: fallback, FirstRank: rank}
 	}
-	// cur(0~6일 전): 4건 중 hit 3·fallback 1·top1 2(정합 3).
-	// prev(7~13일 전): 2건 중 hit 1·fallback 1·정합 0.
+	// cur (0-6 days ago): of 4, hit 3, fallback 1, top1 2 (exact 3).
+	// prev (7-13 days ago): of 2, hit 1, fallback 1, exact 0.
 	evs := []readEventRow{
 		mk(1, false, false, 1), mk(2, false, false, 1), mk(3, false, true, 4), mk(5, true, false, 0),
 		mk(8, false, true, 0), mk(10, true, false, 0),
@@ -57,7 +57,7 @@ func TestTrendOfDiff(t *testing.T) {
 	if tr.HitPct.Delta != 25 { // 75-50
 		t.Errorf("hit delta = %d, want 25", tr.HitPct.Delta)
 	}
-	// 한쪽 창 비면 nil(표본 없는 비교 금지).
+	// an empty window on either side -> nil (no comparison without samples).
 	emptyCur, _ := trendWindow(now, nil)
 	if emptyCur.Diff(prev) != nil {
 		t.Error("빈 창 추세가 nil 아님")

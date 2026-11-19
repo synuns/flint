@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestUsageIncludesCompactNudge — usageLine에 done| 뒤 compact|nudge.
+// TestUsageIncludesCompactNudge — usageLine includes compact|nudge after done|.
 func TestUsageIncludesCompactNudge(t *testing.T) {
 	u := usageLine()
 	if !strings.Contains(u, "done|compact|nudge") {
@@ -16,7 +16,7 @@ func TestUsageIncludesCompactNudge(t *testing.T) {
 	}
 }
 
-// TestLookupCompactNudge — compact·nudge 등록(init Register).
+// TestLookupCompactNudge — compact and nudge registered (init Register).
 func TestLookupCompactNudge(t *testing.T) {
 	for _, name := range []string{"compact", "nudge"} {
 		if _, ok := Lookup(name); !ok {
@@ -25,10 +25,10 @@ func TestLookupCompactNudge(t *testing.T) {
 	}
 }
 
-// TestNudgeStoreFree — Run("nudge")은 store 경유:
-// newStore 시임을 호출하고 핸들러에 store가 주입된다(nudgeProfile가
-// exposure_profile을 조회해 minimal 계약 유지). nudge 핸들러는 가짜로
-// 등록(배선 자체를 검증 — 원래 구조 승계).
+// TestNudgeStoreFree — Run("nudge") goes through the store:
+// it calls the newStore seam and injects the store into the handler (nudgeProfile looks up
+// exposure_profile to keep the minimal contract). The nudge handler is registered as a fake
+// (verifying the wiring itself — inheriting the original structure).
 func TestNudgeStoreFree(t *testing.T) {
 	called := false
 	orig := newStore
@@ -43,10 +43,10 @@ func TestNudgeStoreFree(t *testing.T) {
 		}
 		return 0
 	})
-	// 클린업에서 무조건 unregister하면
-	// init이 등록한 원 nudge 핸들러까지 사라진다 — init()은 -count≥2에서
-	// 재실행되지 않으므로 2회차부터 Lookup("nudge") 미등록·nudge계 테스트
-	// 전체 오염. 원 핸들러를 캡처해 복원한다(부재 시에만 unregister).
+	// unconditionally unregistering in cleanup would also remove the original nudge handler
+	// registered by init — init() does not re-run with -count>=2, so from the 2nd run on,
+	// Lookup("nudge") would be unregistered, polluting every nudge-family test.
+	// The original handler is captured and restored (unregister only if absent).
 	origNudge, hadNudge := Lookup("nudge")
 	t.Cleanup(func() {
 		if hadNudge {
@@ -64,7 +64,7 @@ func TestNudgeStoreFree(t *testing.T) {
 	}
 }
 
-// TestDsnFromEnvWiredToResolve — dsnFromEnv 본체가 ResolveDSN 위임.
+// TestDsnFromEnvWiredToResolve — the dsnFromEnv body delegates to ResolveDSN.
 func TestDsnFromEnvWiredToResolve(t *testing.T) {
 	t.Run("env only", func(t *testing.T) {
 		t.Setenv("FLINT_CONFIG_DIR", t.TempDir())

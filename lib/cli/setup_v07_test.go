@@ -8,10 +8,10 @@ import (
 	"testing"
 )
 
-// setup 보강: compose up --wait 인자 정합 · docker 미설치 안내 구분.
+// setup hardening: compose up --wait argument consistency and a distinct docker-missing guidance.
 
-// TestSetupWaitArgs — 기본 composeUpFn은 composeRunFn에
-// ["up","-d","--wait","--wait-timeout","60"]을 전달한다(스펙 §2 대기).
+// TestSetupWaitArgs — the default composeUpFn passes
+// ["up","-d","--wait","--wait-timeout","60"] to composeRunFn (spec §2 wait).
 func TestSetupWaitArgs(t *testing.T) {
 	var gotArgs []string
 	prevUp, prevRun := composeUpFn, composeRunFn
@@ -35,8 +35,8 @@ func TestSetupWaitArgs(t *testing.T) {
 	}
 }
 
-// TestSetupDockerMissingHint — exec not found(docker 미설치)는 전용 안내로
-// 구분, 그 외 실패(타임아웃 등)는 기존 경고 경로 유지.
+// TestSetupDockerMissingHint — exec not found (docker not installed) gets its own dedicated
+// guidance; other failures (timeout etc.) keep the existing warning path.
 func TestSetupDockerMissingHint(t *testing.T) {
 	withFakeCompose(t)
 	rec := withDockerMissing(t)
@@ -62,7 +62,7 @@ func TestSetupDockerMissingHint(t *testing.T) {
 	}
 }
 
-// withDockerMissing — composeUpFn이 exec not found를 반환하는 seam.
+// withDockerMissing — a seam where composeUpFn returns exec not found.
 func withDockerMissing(t *testing.T) *composeRecorder {
 	t.Helper()
 	rec := &composeRecorder{}

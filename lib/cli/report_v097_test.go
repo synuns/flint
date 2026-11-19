@@ -1,5 +1,5 @@
-// report_v097_test.go — dupPct·fallbackPct 순수 함수 고정
-// (기간 중복률·폴백 비율, 제로 분모 0).
+// report_v097_test.go — pinning the dupPct and fallbackPct pure functions
+// (period duplication rate and fallback ratio; 0 for zero denominators).
 package cli
 
 import "testing"

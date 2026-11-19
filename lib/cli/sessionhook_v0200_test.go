@@ -1,5 +1,5 @@
-// sessionhook_v0200_test.go — session-start 훅이 세션 시작
-// 경계를 기록한다(출력·exit 불변 — 내부 계정만 추가).
+// sessionhook_v0200_test.go — the session-start hook records the session-start
+// boundary (output and exit unchanged — only an internal account is added).
 package cli
 
 import (
@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// sessionStartRecorder — SessionStartRecorder seam을 녹음하는 fake.
+// sessionStartRecorder — a fake recording the SessionStartRecorder seam.
 type sessionStartRecorder struct {
 	*fakeStore
 	starts []string
@@ -19,12 +19,12 @@ func (s *sessionStartRecorder) RecordSessionStart(ctx context.Context, session s
 	return nil
 }
 
-// TestSessionStartRecordsBoundary — session-start가 --session
-// 라벨로 경계를 1회 기록한다. 기록 실패가 없어도 hot·nudge 출력은 불변
-// (기록은 출력 경로와 독립).
+// TestSessionStartRecordsBoundary — session-start records the boundary once with the
+// --session label. Even with successful recording, the hot and nudge outputs are unchanged
+// (recording is independent of the output path).
 func TestSessionStartRecordsBoundary(t *testing.T) {
 	st := &sessionStartRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		// hot 헤드라인 경로 — 카운트 0으로 최소 동작.
+		// the hot headline path — minimal behavior with counts 0.
 		return nil, nil
 	}}}
 	var out strings.Builder
@@ -38,8 +38,8 @@ func TestSessionStartRecordsBoundary(t *testing.T) {
 	}
 }
 
-// TestSessionStartNoSessionLabel — 라벨 미지정(빈) 훅도 빈 라벨로 기록
-// (경계 시각 자체가 원천 — 라벨은 보조).
+// TestSessionStartNoSessionLabel — a hook without a label (empty) also records with an empty label
+// (the boundary time itself is the source — the label is auxiliary).
 func TestSessionStartNoSessionLabel(t *testing.T) {
 	st := &sessionStartRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil
@@ -54,10 +54,10 @@ func TestSessionStartNoSessionLabel(t *testing.T) {
 	}
 }
 
-// TestSessionLabelLifecycle — session-start가 라벨 파일을
-// 남기고 session-end가 지운다(스테일 방지). 라벨 파일은
-// 세션별(session-<id>.label) — session-end는 자기 --session id의 파일만
-// 지운다(hooks.json의 session-end가 항상 session_id를 넘기는 것과 정합).
+// TestSessionLabelLifecycle — session-start leaves the label file and
+// session-end removes it (preventing staleness). The label file is
+// per-session (session-<id>.label) — session-end removes only its own --session id's file
+// (consistent with session-end in hooks.json always passing a session_id).
 func TestSessionLabelLifecycle(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &sessionStartRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -81,8 +81,8 @@ func TestSessionLabelLifecycle(t *testing.T) {
 	}
 }
 
-// TestReadAutoSessionLabel — --session 미지정 read가 현재
-// 세션 라벨을 자동 채택해 read_events에 기록한다.
+// TestReadAutoSessionLabel — a read without --session adopts the current
+// session label automatically and records it into read_events.
 func TestReadAutoSessionLabel(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

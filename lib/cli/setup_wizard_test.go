@@ -1,7 +1,7 @@
-// setup_wizard_test.go — 진입 분기: 인자 없음+터미널 → 위저드
-// seam 호출, 취소·비터미널 → 기존 no-arg 경로, 플래그(--exposure X)는
-// 위저드와 무관하게 완전 불변(동치 회귀). 위저드 결과는 기존
-// runSetupExposure·체인 재사용(중복 구현 금지 계약).
+// setup_wizard_test.go — entry branching: no args + terminal -> wizard
+// seam call; cancel or non-terminal -> the existing no-arg path; flags (--exposure X) are
+// fully unchanged regardless of the wizard (equivalence regression). The wizard result reuses the existing
+// runSetupExposure and chain (the no-duplicate-implementation contract).
 package cli
 
 import (
@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// withSetupWizard — setupWizardFn seam 교체(호출 수 반환).
+// withSetupWizard — swaps the setupWizardFn seam (returns the call count).
 func withSetupWizard(t *testing.T, chosen string, ok bool) *int {
 	t.Helper()
 	calls := 0
@@ -25,7 +25,7 @@ func withSetupWizard(t *testing.T, chosen string, ok bool) *int {
 	return &calls
 }
 
-// withWizardTTY — setupWizardTTYFn seam 교체(위저드 진입 판정).
+// withWizardTTY — swaps the setupWizardTTYFn seam (the wizard-entry decision).
 func withWizardTTY(t *testing.T, v bool) {
 	t.Helper()
 	prev := setupWizardTTYFn
@@ -33,7 +33,7 @@ func withWizardTTY(t *testing.T, v bool) {
 	t.Cleanup(func() { setupWizardTTYFn = prev })
 }
 
-// newExposureRecorder — meta upsert(exposure 기록) 포착 fakeStore.
+// newExposureRecorder — a fakeStore capturing meta upserts (the exposure write).
 func newExposureRecorder() (*fakeStore, *string, *string) {
 	var key, val string
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -45,9 +45,9 @@ func newExposureRecorder() (*fakeStore, *string, *string) {
 	return st, &key, &val
 }
 
-// TestSetupWizardEntryBranch — 인자 없음+터미널: 위저드 완료 시 기존 체인
-// 실행 후 위저드가 조립한 플래그 등가물(--exposure chosen)을 기존
-// runSetupExposure로 기록한다.
+// TestSetupWizardEntryBranch — no args + terminal: on wizard completion, the existing chain
+// runs, then the flag equivalent the wizard assembled (--exposure chosen) is recorded via the existing
+// runSetupExposure.
 func TestSetupWizardEntryBranch(t *testing.T) {
 	st, key, val := newExposureRecorder()
 	rec := withFakeCompose(t)
@@ -72,8 +72,8 @@ func TestSetupWizardEntryBranch(t *testing.T) {
 	}
 }
 
-// TestSetupWizardCancelFallsBack — 위저드 취소(("", false))는 기존
-// no-arg 경로 그대로: 체인은 실행하되 exposure 기록은 없다.
+// TestSetupWizardCancelFallsBack — wizard cancel (("", false)) keeps the existing
+// no-arg path as-is: the chain runs but no exposure write.
 func TestSetupWizardCancelFallsBack(t *testing.T) {
 	st, key, val := newExposureRecorder()
 	withFakeCompose(t)
@@ -95,12 +95,12 @@ func TestSetupWizardCancelFallsBack(t *testing.T) {
 	}
 }
 
-// TestSetupNonTTYNoWizard — 비터미널(파이프·리다이렉션)에서는 위저드 seam을
-// 부르지 않고 기존 안내 경로(한 줄 JSON 요약)를 유지한다.
+// TestSetupNonTTYNoWizard — on non-terminal (pipe, redirection), the wizard seam is not
+// called and the existing guidance path (one-line JSON summary) is kept.
 func TestSetupNonTTYNoWizard(t *testing.T) {
 	st, key, _ := newExposureRecorder()
 	withFakeCompose(t)
-	calls := withSetupWizard(t, "minimal", true) // seam이 ok여도 진입 불가
+	calls := withSetupWizard(t, "minimal", true) // even with the seam ok, no entry
 	var out bytes.Buffer
 	code := runSetup(context.Background(), st, nil, strings.NewReader(""), &out)
 	if code != 0 {
@@ -117,14 +117,14 @@ func TestSetupNonTTYNoWizard(t *testing.T) {
 	}
 }
 
-// TestSetupExposureFlagSkipsWizard — 플래그 경로 완전 불변: 터미널로
-// 간주해도 --exposure X는 위저드를 거치지 않고 기존 단독 모드 결과와
-// 동일하다(동치 회귀).
+// TestSetupExposureFlagSkipsWizard — the flag path is fully unchanged: even when treated as a
+// terminal, --exposure X bypasses the wizard and matches the existing standalone-mode result
+// (equivalence regression).
 func TestSetupExposureFlagSkipsWizard(t *testing.T) {
 	st, key, val := newExposureRecorder()
 	rec := withFakeCompose(t)
 	calls := withSetupWizard(t, "minimal", true)
-	withWizardTTY(t, true) // 터미널로 간주해도 플래그 우선
+	withWizardTTY(t, true) // even treated as a terminal, the flag wins
 	var out bytes.Buffer
 	code := runSetup(context.Background(), st, []string{"--exposure", "minimal"}, strings.NewReader(""), &out)
 	if code != 0 {
@@ -136,7 +136,7 @@ func TestSetupExposureFlagSkipsWizard(t *testing.T) {
 	if *key != ExposureKey || *val != "minimal" {
 		t.Fatalf("기록=(%q,%q), want (%q,minimal)", *key, *val, ExposureKey)
 	}
-	// 기존 단독 모드 출력 동치 — exposure 보고 한 줄뿐, 체인 미실행.
+	// equivalent to the existing standalone-mode output — only the one exposure report line, no chain run.
 	if got := strings.TrimSpace(out.String()); got != `{"status":"ok","exposure":"minimal"}` {
 		t.Fatalf("출력=%q, want 기존 플래그 모드와 동일", got)
 	}

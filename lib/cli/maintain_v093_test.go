@@ -1,4 +1,4 @@
-// maintain_v093_test.go — `maintain --dup-suspects` 보고(보고 전용·exit 0).
+// maintain_v093_test.go — the `maintain --dup-suspects` report (report-only, exit 0).
 package cli
 
 import (
@@ -24,7 +24,7 @@ func TestDupSuspectsJSONEmpty(t *testing.T) {
 }
 
 // TestMaintainDupSuspectsFlag — `--dup-suspects --limit 5`
-// 플래그 파싱(limit 전달·기본 10)·출력 JSON·usage 라인 갱신.
+// flag parsing (limit passthrough, default 10), the output JSON, and the usage-line update.
 func TestMaintainDupSuspectsFlag(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{},
 		dupGroups: []db.DupGroup{{Topic: "rv-e", IDs: []int{63, 64}}}}
@@ -39,7 +39,7 @@ func TestMaintainDupSuspectsFlag(t *testing.T) {
 		t.Errorf("DupGroups 호출 limit = %v, want [5]", f.dupGroupsCalls)
 	}
 
-	// 기본 limit 10(스펙 R4: --limit M 기본 10).
+	// default limit 10 (spec R4: --limit M defaults to 10).
 	f2 := &fakeMaint{fakeStore: &fakeStore{}}
 	out2, code2 := runMaintainArgs(t, f2, "--dup-suspects")
 	if code2 != 0 {
@@ -49,22 +49,22 @@ func TestMaintainDupSuspectsFlag(t *testing.T) {
 		t.Errorf("기본 limit 호출 = %v, want [10]", f2.dupGroupsCalls)
 	}
 
-	// usage 라인 갱신 — 모드 누락 에러 안내에 --dup-suspects 포함
-	// (bare usage는 exit 3).
+	// usage-line update — the missing-mode error guidance includes --dup-suspects
+	// (bare usage is exit 3).
 	u := &fakeMaint{fakeStore: &fakeStore{}}
 	uout, ucode := runMaintainArgs(t, u)
 	if ucode != 3 || !strings.Contains(uout, "--dup-suspects") {
 		t.Errorf("usage 갱신 누락: exit=%d %q", ucode, uout)
 	}
 
-	// 조회 실패 — errLine 전파·MapExit 코드.
+	// lookup failure — errLine propagation, MapExit code.
 	e := &fakeMaint{fakeStore: &fakeStore{}, dupGroupsErr: errors.New("boom")}
 	eout, ecode := runMaintainArgs(t, e, "--dup-suspects")
 	if ecode == 0 || !strings.Contains(eout, "boom") {
 		t.Errorf("에러 미전파: exit=%d %q", ecode, eout)
 	}
 
-	// 모드 귀속 — --id는 --dup-suspects와 함께 쓸 수 없다.
+	// mode ownership — --id cannot be used with --dup-suspects.
 	m := &fakeMaint{fakeStore: &fakeStore{}}
 	mout, mcode := runMaintainArgs(t, m, "--dup-suspects", "--id", "7", "--reason", "x")
 	if mcode != 1 || !strings.Contains(mout, `"error"`) {

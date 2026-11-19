@@ -1,6 +1,6 @@
-// read_v0140_test.go — 제로히트 침묵 계약(완전 무출력·
-// exit 1)·zero_near 내부 분류 계측(스펙 §3 R1·R2). fakeStore 질의
-// 캡처 패턴은 read_v0100_test.go 승계.
+// read_v0140_test.go — the zero-hit silence contract (fully no output +
+// exit 1) and the zero_near internal classification metering (spec §3 R1, R2). The fakeStore query
+// capture pattern is inherited from read_v0100_test.go.
 package cli
 
 import (
@@ -11,19 +11,19 @@ import (
 	"testing"
 )
 
-// mustSuggestStore — 구문·폴백 모두 제로히트, 제안 스캔은 scan 행 반환.
-// scan이 빈 슬라이스면 스캔 후보 0건 픽스처가 된다.
+// mustSuggestStore — both phrase and fallback zero-hit; the suggestion scan returns the scan rows.
+// If scan is an empty slice, it becomes a 0-candidate fixture.
 func mustSuggestStore(scan [][]any) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "id, topic, summary FROM active_knowledge") {
 			return scan, nil
 		}
-		return nil, nil // 구문·폴백·meta 전부 제로/빈
+		return nil, nil // phrase, fallback, and meta all zero/empty
 	}}
 }
 
-// nearCountingStore — 제안 스캔 1행(유사도 상한 후보) + meta INSERT
-// key=value 캡처. zero_near 증분 재기록을 검증한다.
+// nearCountingStore — 1 suggestion-scan row (a similarity-cap candidate) + meta INSERT
+// key=value capture. Verifies the zero_near increment rewrite.
 func nearCountingStore(metaInserts *[]string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -35,13 +35,13 @@ func nearCountingStore(metaInserts *[]string) *fakeStore {
 			}
 			return nil, nil
 		default:
-			return nil, nil // 구문·폴백·meta 읽기 전부 제로/빈
+			return nil, nil // phrase, fallback, and meta reads all zero/empty
 		}
 	}}
 }
 
-// TestReadZeroHitSilent — 제로히트는 스캔 후보 있든 없든
-// 완전 무출력·exit 1(suggestions 라인 부재 포함 — 제안 라인 잔존 금지).
+// TestReadZeroHitSilent — a zero hit is fully silent with or without scan candidates
+// (exit 1, including no suggestions line — no leftover suggestion line).
 func TestReadZeroHitSilent(t *testing.T) {
 	cases := []struct {
 		name string
@@ -65,9 +65,9 @@ func TestReadZeroHitSilent(t *testing.T) {
 	}
 }
 
-// TestReadZeroHitNearCounted — 제로히트·스캔
-// 후보 1건 → 근접 분류가 read_events 1행(Near=true)으로 기록된다(구
-// read_stats zero_near 증분은 폐지 — meta INSERT에 read_stats 키 부재).
+// TestReadZeroHitNearCounted — a zero hit with 1 scan candidate ->
+// the near classification is recorded in 1 read_events row (Near=true) (the old
+// read_stats zero_near increment is abolished — no read_stats key in the meta INSERT).
 func TestReadZeroHitNearCounted(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer

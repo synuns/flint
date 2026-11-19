@@ -1,14 +1,14 @@
-// run_store.go — store 주입 실행 변형. flint mcp 장기
-// 프로세스가 도구 호출마다 store를 다시 열지 않도록 RunWithStore로
-// 서버 수명 store를 주입한다. 기존 cli.Run(root.go)은 무변 — nil 주입은
-// wire.Run(newStore) 기존 경로와 동치다.
+// run_store.go — store-injected run variant. So the long-lived flint mcp
+// process does not reopen the store on every tool call, RunWithStore injects a
+// server-lifetime store. The existing cli.Run (root.go) is unchanged — nil injection is
+// equivalent to the existing wire.Run(newStore) path.
 //
-// 래퍼는 wire.Store 메서드만 승격하므로 커맨드층의
-// 선택 인터페이스 단언(lib/{knowledge,ops}의 approveStore·DupMetaStore·
-// ReadEventStore 등 전수 grep 19종)이 전부 차단돼 approve 승격·duplicate
-// 메타·read_events 계량이 상실됐다. 각 capability를 원본에 위임하는
-// 메서드를 추가해 단언이 다시 통과하게 한다 — 미구현 원본은 소비자의
-// 기존 폴백(에러 문자열·no-op·ExistsHash)과 동일하게 재현한다.
+// the wrapper promotes only wire.Store methods, so the command layer's
+// optional interface assertions (approveStore, DupMetaStore,
+// ReadEventStore and others in lib/{knowledge,ops} — 19 kinds by exhaustive grep) were all blocked, losing approve promotion, duplicate
+// metadata, and read_events metering. Delegate each capability to the
+// underlying store so the assertions pass again — for unimplemented originals, reproduce the
+// consumer's existing fallback (error string, no-op, ExistsHash) exactly.
 package cli
 
 import (
@@ -23,16 +23,16 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// injectedStore — 주입 store의 Close 차단 래퍼. wire.Run은 명령 완료 후
-// st.Close()하는 단발 CLI 계약이라 서버 수명 store를
-// 그대로 넘기면 첫 도구 호출에 닫힌다. 위임은 전부 원본, Close만 no-op.
+// injectedStore — close-blocking wrapper around the injected store. wire.Run follows the one-shot
+// CLI contract of calling st.Close() after the command, so passing a server-lifetime store
+// through as-is would close it on the first tool call. Everything delegates to the original; only Close is a no-op.
 type injectedStore struct{ wire.Store }
 
 func (injectedStore) Close() {}
 
-// 컴파일 타임 보증 — 래퍼가 아래 전수 capability를 전부 구현한다
-// (익명 인터페이스는 knowledge·ops의 비내보내기 단언 대상과 동일
-// 메서드 집합이다. 구조적 타이핑이라 패키지를 넘어 단언이 통과된다).
+// compile-time guarantee — the wrapper implements the full capability set below
+// (the anonymous interfaces mirror the method sets targeted by the unexported assertions in
+// knowledge and ops. Structural typing lets the assertions pass across packages).
 var (
 	_ interface { // knowledge.approveStore
 		Approve(ctx context.Context, id int) error
@@ -72,10 +72,10 @@ var (
 	} = injectedStore{}
 	_ ops.ConflictStore            = injectedStore{}
 	_ ops.MaintStore               = injectedStore{}
-	_ knowledge.TelemetryCommitter = injectedStore{} // 계측 분리 커밋
+	_ knowledge.TelemetryCommitter = injectedStore{} // telemetry separate commit
 )
 
-// --- 승격·전이 (knowledge approve/import) ---
+// --- promotion and transition (knowledge approve/import) ---
 
 func (s injectedStore) Approve(ctx context.Context, id int) error {
 	if a, ok := s.Store.(interface {
@@ -83,7 +83,7 @@ func (s injectedStore) Approve(ctx context.Context, id int) error {
 	}); ok {
 		return a.Approve(ctx, id)
 	}
-	// 소비자 폴백(approve.go ApproveFn 기본값)과 동일 문구.
+	// same wording as the consumer fallback (the approve.go ApproveFn default).
 	return errors.New("approve: injected store does not implement Approve")
 }
 
@@ -102,15 +102,15 @@ func (s injectedStore) SetSupersededRef(ctx context.Context, oldID, newID int) (
 	}); ok {
 		return rs.SetSupersededRef(ctx, oldID, newID)
 	}
-	// 소비자 폴백은 건너뛰기(stderr 안내) — 0행으로 동등하게 스킵.
+	// the consumer fallback is a skip with a stderr notice — equivalently skipped as 0 rows.
 	return 0, nil
 }
 
-// --- dedup 메타 (knowledge write) ---
+// --- dedup metadata (knowledge write) ---
 
 func (s injectedStore) DupRowByHash(ctx context.Context, hash string) (knowledge.DupMeta, bool, error) {
-	// lookupHash 폴백 사슬(DupMetaStore→DupIDStore→ExistsHash)을 그대로
-	// 재현 — 래퍼가 항상 DupMetaStore를 만족하므로 사슬 전체가 여기 있다.
+	// reproduces the lookupHash fallback chain (DupMetaStore->DupIDStore->ExistsHash) as-is —
+	// the wrapper always satisfies DupMetaStore, so the whole chain lives here.
 	if ms, ok := s.Store.(knowledge.DupMetaStore); ok {
 		return ms.DupRowByHash(ctx, hash)
 	}
@@ -130,7 +130,7 @@ func (s injectedStore) DupIDByHash(ctx context.Context, hash string) (int, bool,
 	return 0, exists, err
 }
 
-// --- 계측 (소비자가 오류를 조용히 무시 — 미구현 원본은 no-op) ---
+// --- metering (consumers silently ignore errors — no-op for unimplemented originals) ---
 
 func (s injectedStore) RecordUsage(ctx context.Context, kind, source string) error {
 	if us, ok := s.Store.(knowledge.UsageStore); ok {
@@ -174,8 +174,8 @@ func (s injectedStore) RecordHotEvent(ctx context.Context, ids string) error {
 	return nil
 }
 
-// CommitTelemetry — 계측 테이블 별도 커밋 위임. 미구현
-// 원본은 소비자(commitTelemetry의 타입 단언 실패 스킵)과 동일한 no-op.
+// CommitTelemetry — delegates the separate telemetry-table commit. Unimplemented
+// originals are a no-op, same as the consumer (the failed type assertion skip in commitTelemetry).
 func (s injectedStore) CommitTelemetry(ctx context.Context, cmd string) error {
 	if tc, ok := s.Store.(knowledge.TelemetryCommitter); ok {
 		return tc.CommitTelemetry(ctx, cmd)
@@ -208,7 +208,7 @@ func (s injectedStore) LogPlaybookUse(ctx context.Context, id int, ok bool) erro
 	return nil
 }
 
-// --- 세션·유지보수 갱신 ---
+// --- session and maintenance updates ---
 
 func (s injectedStore) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	if us, ok := s.Store.(interface {
@@ -216,7 +216,7 @@ func (s injectedStore) UpdateSessionSummary(ctx context.Context, id int, summary
 	}); ok {
 		return us.UpdateSessionSummary(ctx, id, summary, tasks)
 	}
-	// 소비자 폴백은 stderr 1행 + 갱신 생략 — 오류 반환으로 동등하게 남긴다.
+	// the consumer fallback is one stderr line + skip the update — kept equivalent by returning the error.
 	return 0, errors.New("session summary: unsupported store")
 }
 
@@ -226,7 +226,7 @@ func (s injectedStore) StaleSessionRuns(ctx context.Context, agent string) (int,
 	}); ok {
 		return ss.StaleSessionRuns(ctx, agent)
 	}
-	return 0, nil // 소비자 폴백: 경고 없는 0
+	return 0, nil // consumer fallback: 0 with no warning
 }
 
 // --- admin (ops backup·tuning·maintain·doctor) ---
@@ -237,7 +237,7 @@ func (s injectedStore) Dump(ctx context.Context, w io.Writer) error {
 	}); ok {
 		return ds.Dump(ctx, w)
 	}
-	// 소비자 폴백(ops.RunBackup DumpFn seam)과 동일 경로.
+	// same path as the consumer fallback (the ops.RunBackup DumpFn seam).
 	return ops.DumpFn(ctx, wire.DSNFromEnv(), w)
 }
 
@@ -299,17 +299,17 @@ func (s injectedStore) Merge(ctx context.Context, fromID, toID int) error {
 	return errors.New("maintain: unsupported store")
 }
 
-// OpenServerStore — 서버 수명 store open(DSN 해결 포함). lib/mcp
-// storeSupply 기본 실구현이 쓴다. 실패는 호출자가 nil 폴백으로 흡수
-// (각 호출이 기존 Run 계약대로 알아서 실패한다).
+// OpenServerStore — opens the server-lifetime store (including DSN resolution). The lib/mcp
+// default storeSupply implementation uses it. Failures are absorbed by the caller via nil fallback
+// (each call fails on its own per the existing Run contract).
 func OpenServerStore() (wire.Store, error) {
 	return newStore(context.Background(), wire.DSNFromEnv())
 }
 
-// RunWithStore — 주입 store로 커맨드를 실행한다. st가 nil이면 기존
-// Run과 동일하게 내부 open(wire.Run + cli.newStore seam) — 출력·exit
-// 계약 불변. 주입 시 연결 수명은 pgx pool에 위임(재연결 포함)하고
-// Close만 차단해 서버 수명 재사용을 보장한다.
+// RunWithStore — runs the command with an injected store. If st is nil, it opens internally just
+// like the existing Run (wire.Run + the cli.newStore seam) — output and exit
+// contracts unchanged. When injected, connection lifetime is delegated to the pgx pool (including
+// reconnects) and only Close is blocked, guaranteeing server-lifetime reuse.
 func RunWithStore(args []string, stdin io.Reader, stdout io.Writer, st wire.Store) int {
 	if st == nil {
 		return wire.Run(args, stdin, stdout, newStore)

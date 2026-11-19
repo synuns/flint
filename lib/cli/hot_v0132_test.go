@@ -1,5 +1,5 @@
-// hot_v0132_test.go — 헤드라인 경로 증분 스킵,
-// --full 접미 포함 생존 판정(실출력 행=증분 id 집합 정합).
+// hot_v0132_test.go — the headline path skips increments;
+// --full survival judgment includes the suffix (actual-output rows = increment id-set consistency).
 package cli
 
 import (
@@ -14,8 +14,8 @@ import (
 	"github.com/synuns/flint/lib/query"
 )
 
-// hotN3QueryFn — hot_view 본질의는 hotRows(증분 id·valid_at 컬럼 포함),
-// 그 외 질의는 빈 결과.
+// hotN3QueryFn — the hot_view essential query returns hotRows (including the increment id and valid_at columns);
+// other queries return empty results.
 func hotN3QueryFn(hotRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -26,10 +26,10 @@ func hotN3QueryFn(hotRows [][]any) func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestHotHeadlineSkipsReadBump — N3: 기본 헤드라인 경로(비--full)는 지식을
-// 실제로 주입하지 않는다(카운트만 노출) — BumpReads 미호출, hot 유입 1회
-// 기록만 유지. 수정 전에는 상위 지식 id가 무조건 증분돼 read_count·
-// last_read_at을 왜곡하고 stale 판정을 동결시켰다.
+// TestHotHeadlineSkipsReadBump — N3: the default headline path (without --full) does not actually inject knowledge
+// (counts only) — BumpReads is not called; only the single hot inbound record
+// remains. Before the fix, the top knowledge ids were unconditionally incremented, distorting read_count and
+// last_read_at and freezing the stale determination.
 func TestHotHeadlineSkipsReadBump(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -52,9 +52,9 @@ func TestHotHeadlineSkipsReadBump(t *testing.T) {
 	}
 }
 
-// TestHotFullStillBumpsInjected — N3 반대편: --full 전체 출력 경로는 실제
-// 주입이 일어나므로 생존 지식 id 전수를 계속 증분한다(예산 넉넉 → 전체).
-// id는 본질의 hot_view 조회의 id 컬럼에서 직접.
+// TestHotFullStillBumpsInjected — the N3 flip side: the --full full-output path does actually
+// inject, so it keeps incrementing every surviving knowledge id (generous budget -> everything).
+// The ids come directly from the id column of the essential hot_view query.
 func TestHotFullStillBumpsInjected(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -75,14 +75,14 @@ func TestHotFullStillBumpsInjected(t *testing.T) {
 	}
 }
 
-// TestHotFullSuffixSurvivorMatchesOutput — N4: --full pending 접미(·+N일)가
-// ClampHot 절단 대상 텍스트에 포함되므로, 생존(증분) 판정도 접미 포함
-// 텍스트 기준이어야 한다. 예산을 '접미 포함 첫 행 끝+줄바꿈'으로 잡아
-// 둘째 행을 경계에서 잘라면(접미 없는 옛 산정으로는 생존으로 판정되는
-// 경계) 실출력에 남은 행과 증분 id 집합이 일치해야 한다.
+// TestHotFullSuffixSurvivorMatchesOutput — N4: the --full pending suffix (+N days) is
+// part of the text subject to ClampHot truncation, so the survival (increment) judgment must also
+// use the suffix-included text. Setting the budget to 'the first row's end including the suffix + newline'
+// cuts the second row exactly at the boundary (a boundary the old suffix-excluded estimate would judge as
+// surviving), so the rows left in the actual output must match the increment id set.
 func TestHotFullSuffixSurvivorMatchesOutput(t *testing.T) {
 	ctx := context.Background()
-	validAt := time.Now().UTC().Add(-72 * time.Hour) // 내림 3일 → ·+3d
+	validAt := time.Now().UTC().Add(-72 * time.Hour) // rounded down to 3 days -> ·+3d
 	hotRows := [][]any{
 		{"pending", "펜딩토픽", "요약", validAt, int32(10), validAt, validAt},
 		{"decision", "잘린토픽", "요약2", "2026-10-21", int32(11), nil, nil},
@@ -91,9 +91,9 @@ func TestHotFullSuffixSurvivorMatchesOutput(t *testing.T) {
 	suffix := "·+3d"
 	baseLines := strings.Split(strings.TrimSuffix(
 		query.FormatRows(hotRows, hotFields, false), "\n"), "\n")
-	// 접미 포함 첫 행 끝(+)줄바꿈까지가 예산 — 둘째 행 시작 오프셋==예산.
-	// 접미 없는 산정이면 둘째 행 시작(첫 행 기본 포맷+1) < 예산이라 옛
-	// 코드는 둘째 행을 생존으로 오판해 id 11까지 증분했다.
+	// the budget is up to the first row's end (suffix included) + newline — the second row's start offset == the budget.
+	// Under a suffix-excluded estimate, the second row's start (first row's base format + 1) < the budget, so the old
+	// code misjudged the second row as surviving and incremented up to id 11.
 	budget := len([]rune(baseLines[0])) + len([]rune(suffix)) + 1
 	qfn := func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -110,14 +110,14 @@ func TestHotFullSuffixSurvivorMatchesOutput(t *testing.T) {
 	if code := runHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runHot --full exit = %d, want 0", code)
 	}
-	// 실출력: 접미 포함 첫 행만 노출, 둘째·셋째 행은 절단.
+	// actual output: only the first row (suffix included) is exposed; rows 2 and 3 are cut.
 	if !strings.Contains(out.String(), "펜딩토픽") || !strings.Contains(out.String(), suffix) {
 		t.Fatalf("첫 행(접미 포함) 미노출: %q", out.String())
 	}
 	if strings.Contains(out.String(), "잘린토픽") || strings.Contains(out.String(), "더잘린토픽") {
 		t.Fatalf("예산 절단된 행이 출력에 남음: %q", out.String())
 	}
-	// 증분 집합 = 실출력 생존 집합: 첫 행(id 10)만.
+	// the increment set = the actual-output survivor set: only the first row (id 10).
 	if len(f.bumped) != 1 || len(f.bumped[0]) != 1 || f.bumped[0][0] != 10 {
 		t.Errorf("BumpReads ids = %v, want [10](접미 포함 생존 행만 — 잘린 id 11·12 제외)", f.bumped)
 	}

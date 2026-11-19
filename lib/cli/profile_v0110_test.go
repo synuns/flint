@@ -1,5 +1,5 @@
-// profile_v0110_test.go — 노출 프로파일: 판독 기본 normal·
-// setup --exposure 기록·무효 값 exit 3.
+// profile_v0110_test.go — exposure profile: reading defaults to normal;
+// the setup --exposure write; invalid values exit 3.
 package cli
 
 import (
@@ -26,7 +26,7 @@ func TestExposureProfileDefaults(t *testing.T) {
 	}
 }
 
-// TestSetupExposureWrites — minimal 기록(meta upsert)·한 줄 JSON 보고 exit 0.
+// TestSetupExposureWrites — records minimal (meta upsert) and reports one-line JSON, exit 0.
 func TestSetupExposureWrites(t *testing.T) {
 	var gotKey, gotVal string
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -55,7 +55,7 @@ func TestSetupExposureWrites(t *testing.T) {
 	}
 }
 
-// TestSetupExposureInvalid — 무효 값·값 누락은 무효 인자 exit 3(전역 계약).
+// TestSetupExposureInvalid — invalid values and missing values are invalid-arg exit 3 (the global contract).
 func TestSetupExposureInvalid(t *testing.T) {
 	cases := [][]string{
 		{"--exposure", "bogus"},

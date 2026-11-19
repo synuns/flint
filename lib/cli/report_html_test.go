@@ -1,6 +1,6 @@
-// report_html_test.go — 제품 분석 기반 레이아웃(Plausible
-// KPI 스트립·Vercel 히어로 인라인·Stripe 타입 규율). 카드 그리드 금지·
-// 서사 흐름·색 규율(녹=개선만)·토큰 추정 footer 계약.
+// report_html_test.go — a product-analytics-grounded layout (the Plausible
+// KPI strip, Vercel hero inline, Stripe type discipline). No card grids;
+// a narrative flow, color discipline (green = improvement only), and the token-estimate footer contract.
 package cli
 
 import (
@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// synthDash5 — 스펙 전 요소 합성 픽스처.
+// synthDash5 — a synthetic fixture of all spec elements.
 func synthDash5() htmlDashboard {
 	d := htmlDashboard{
 		GeneratedAt: "2026-01-01T00:00:00Z",
@@ -58,7 +58,7 @@ func synthDash5() htmlDashboard {
 	return d
 }
 
-// TestRenderDashboardV5 — 서사 흐름 구조·카드 그리드 부재·색 규율.
+// TestRenderDashboardV5 — narrative-flow structure, no card grid, color discipline.
 func TestRenderDashboardV5(t *testing.T) {
 	var b strings.Builder
 	if err := renderDashboard(&b, synthDash5()); err != nil {
@@ -77,13 +77,13 @@ func TestRenderDashboardV5(t *testing.T) {
 			t.Errorf("요소 %q 누락", want)
 		}
 	}
-	// AI slop 사본 금지 — 내부 jargon 잔존 검사.
+	// no AI-slop copy — checks for internal-jargon residue.
 	for _, jargon := range []string{"G1 ", "G2 ", "G3 ", "G4 ", "n=", "METRICS §", "fallback ", "dup_pct", "recall_led"} {
 		if strings.Contains(s, jargon) {
 			t.Errorf("내부 jargon %q 잔존 — 컨텍스트 없는 독자 기준 위반", jargon)
 		}
 	}
-	// slop 패턴 금지 — 카드 그리드·박스 인벤토리 부재.
+	// no slop patterns — no card grid or box inventory.
 	for _, banned := range []string{`class="card`, `class="grid"`, `class="inv .cell"`} {
 		if strings.Contains(s, banned) {
 			t.Errorf("slop 패턴 %q 존재", banned)
@@ -100,14 +100,14 @@ func TestRenderDashboardV5(t *testing.T) {
 	}
 }
 
-// TestEstTok — 한글 혼합 근사(±30% 명시 계약 — 대략 값만).
+// TestEstTok — the Korean-mixed approximation (±30% explicit contract — approximate values only).
 func TestEstTok(t *testing.T) {
 	if got := EstTok(1000); got < 300 || got > 900 {
 		t.Errorf("EstTok(1000)=%d — 합리 범위 이탈", got)
 	}
 }
 
-// TestChipDiscipline — 감소는 회색 ▼(Good=false) — 빨강 없음.
+// TestChipDiscipline — decreases are gray ▼ (Good=false) — no red.
 func TestChipDiscipline(t *testing.T) {
 	down := chipFor("hit", trendPoint{Prev: 90, Cur: 80, Delta: -10}, false)
 	if down.Show && down.Good {
@@ -115,7 +115,7 @@ func TestChipDiscipline(t *testing.T) {
 	}
 }
 
-// TestReportHTMLFlagWiring — 플래그·파일·확장자 보정.
+// TestReportHTMLFlagWiring — flags, files, and extension correction.
 func TestReportHTMLFlagWiring(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}

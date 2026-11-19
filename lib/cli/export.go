@@ -1,7 +1,7 @@
-// export.go — flint export CLI 배선. 원천 조회(ExportRows)와
-// 4형식 포맷터(jsonl·md·txt·csv)는 knowledge 원천을 seam var로
-// 소비한다(테스트 fake 주입·과도기 미연결 방어 겸용). 출력 계약: 본문은
-// stdout(기본) 또는 --out 파일, 요약·덮어씀 경고는 stderr 1행씩.
+// export.go — flint export CLI wiring. The source query (ExportRows) and
+// the 4 formatters (jsonl, md, txt, csv) consume the knowledge source via seam vars
+// (for test fake injection and as transitional unconnected defense). Output contract: the body goes to
+// stdout (default) or the --out file; the summary and overwrite warning are one stderr line each.
 package cli
 
 import (
@@ -22,15 +22,15 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// TEMP 완료 — ExportRow·ExportFilter·원천·포맷터 전부 knowledge 원천
-// 연결. seam은 테스트 fake 주입용 var로 유지(반환형 통일
-// 래퍼 — FormatMD·FormatTXT는 단일 반환). SUPERLITE_REAL=1은 이 기본
-// 실구현 경로가 곧 실연결 검증이다.
+// TEMP done — ExportRow, ExportFilter, the source, and the formatters all connect to the knowledge
+// source. The seams remain as vars for test fake injection (return-shape unifying
+// wrappers — FormatMD and FormatTXT return a single value). SUPERLITE_REAL=1 means this default
+// real-implementation path is itself the live-connection verification.
 var (
 	exportRowsFn = knowledge.ExportRows
-	// 포맷터 seam은 (본문, 요약 보고 행수, 오류)를 반환한다.
-	// jsonl·md·txt·csv는 전행 수(len(rows)), pam은 문서 발행 수
-	// (total_memories — pending은 pam 설계 제외)를 보고한다.
+	// formatter seams return (body, summary-reported row count, error).
+	// jsonl, md, txt, and csv report the total row count (len(rows)); pam reports the number of published documents
+	// (total_memories — pending excluded by pam design).
 	formatJSONLFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
 		b, err := knowledge.FormatJSONL(rows)
 		return b, len(rows), err
@@ -45,37 +45,37 @@ var (
 		b, err := knowledge.FormatCSV(rows)
 		return b, len(rows), err
 	}
-	// PAM v1.0 교환 문서 — exported_by는 "flint/"+버전
-	// (CurrentVersion 관례: ldflags→buildinfo→dev 폴백).
-	// 발행 수(total_memories)를 포맷터에서 직접 받는다.
+	// PAM v1.0 exchange document — exported_by is "flint/"+version
+	// (the CurrentVersion convention: ldflags -> buildinfo -> dev fallback).
+	// The published count (total_memories) comes straight from the formatter.
 	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
 		return knowledge.FormatPAMWithCount(rows, "flint/"+CurrentVersion())
 	}
-	// §18: `--format pam --sign` 서명 경로 — 키는
+	// §18: the `--format pam --sign` signing path — the key is
 	// knowledge.LoadOrCreatePAMSigningKey(configDir()/pam-signing-key).
-	// 발행 수 반환은 formatPAMFn과 동일 경유.
+	// returning the published count via the same route as formatPAMFn.
 	formatPAMSignedFn = func(rows []knowledge.ExportRow, key ed25519.PrivateKey) ([]byte, int, error) {
 		return knowledge.FormatPAMSignedWithCount(rows, "flint/"+CurrentVersion(), key)
 	}
 )
 
-// exportSignKeyFn — §18 서명 키 로드 seam(테스트 fake 주입).
+// exportSignKeyFn — §18 signing-key load seam (test fake injection).
 var exportSignKeyFn = knowledge.LoadOrCreatePAMSigningKey
 
-// exportStderr — 요약·경고 챈널 seam(stderr 계약 — stdout 본문과 분리).
+// exportStderr — summary/warning channel seam (the stderr contract — separate from the stdout body).
 var exportStderr io.Writer = os.Stderr
 
-// exportTUIFn — `--tui` 진입 분기 위임 seam. 기본값은
-// tui.RunExport(폼→미리보기→인자 조립→runExport 재실행) — 테스트 fake
-// 주입으로 진입 분기만 검증한다(폼 흐름 자체는 lib/tui/export_test.go).
+// exportTUIFn — delegation seam for the `--tui` entry branch. Default is
+// tui.RunExport (form -> preview -> arg assembly -> re-run runExport) — tests inject a fake
+// to verify only the entry branch (the form flow itself is lib/tui/export_test.go).
 var exportTUIFn = tui.RunExport
 
-// exportTTYFn — 적응형 진입 TTY 판정 seam(기본 실구현
-// tui.IsTerminalStdout, 테스트 fake 교체).
+// exportTTYFn — TTY check seam for adaptive entry (real implementation
+// tui.IsTerminalStdout by default; tests swap in a fake).
 var exportTTYFn = tui.IsTerminalStdout
 
-// exportFormatters — 포맷명 → 포맷터 seam 조회(무효 포맷 판별 겸용).
-// 반환 행수는 요약 보고 기준(pam은 발행 수).
+// exportFormatters — format name -> formatter seam lookup (also used to detect invalid formats).
+// The returned row count is the summary-report basis (pam: published count).
 func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, int, error) {
 	return map[string]func([]knowledge.ExportRow) ([]byte, int, error){
 		"jsonl": formatJSONLFn,
@@ -89,16 +89,16 @@ func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, int, err
 func init() { Register("export", runExport) }
 
 // runExport — `flint export [--format jsonl|md|txt|csv|pam] [--out FILE]
-// [--status active|all] [--tag X] [--since RFC3339] [--sign (pam 전용 —
-// §18 서명)]`. 기본 jsonl·stdout.
-// 무효 format·status·since·unknown flag는 exit 3, 스토어 nil·서버다운은
-// exit 2(MapExit 재사용). 성공 시 요약 1행 stderr:
+// [--status active|all] [--tag X] [--since RFC3339] [--sign (pam only —
+// §18 signing)]`. Defaults: jsonl to stdout.
+// Invalid format, status, since, or unknown flag exits 3; nil store or server-down exits
+// 2 (reusing MapExit). On success, one summary line on stderr:
 // `exported N rows (format, M bytes)`.
 func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 진입 분기 + 적응형 전환: --tui 명시 또는
-	// 무인자·무플래그 + 터미널이면 폼 흐름으로 위임하고 플래그 파싱은
-	// 하지 않는다(폼에서 조립된 인자가 runExport를 재진입한다 — 재진입
-	// 시 인자가 있으므로 적응형 재발산 없음). 플래그 경로는 불변.
+	// entry branch + adaptive switching: explicit --tui or
+	// no args or flags + terminal delegates to the form flow without parsing flags
+	// (the form re-enters runExport with assembled args — on re-entry args exist, so no adaptive
+	// re-divergence). The flag path is unchanged.
 	tuiEntry := false
 	for _, a := range args {
 		if a == "--tui" {
@@ -106,16 +106,16 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			break
 		}
 	}
-	// 3층 방어 1층 — FLINT_NO_TUI 설정 시 TTY 여부와 무관하게 차단.
+	// layer 1 of the 3-layer guard — with FLINT_NO_TUI set, blocked regardless of TTY.
 	if !tuiEntry && len(args) == 0 && !tui.NoTUIForced() && exportTTYFn() {
 		tuiEntry = true
 	}
 	if tuiEntry {
 		return runExportTUI(ctx, st, stdin, stdout)
 	}
-	// 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
-	// 불허 — read 계열 소비 관례 승계: 값 무조건 소비·trailing 값 부재는
-	// 호출부 빈 값 검증이 exit 3). 값 검증은 발생 순(AllOccs) 재현.
+	// moved the manual loop to the wire.ParseArgs spec table (positional args
+	// not allowed — carrying over the read-family consumption convention: always consume a value, a missing trailing value is
+	// an empty-value check by the caller exiting 3). Value validation reproduces occurrence order (AllOccs).
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--format", Value: true},
@@ -123,7 +123,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			{Name: "--status", Value: true},
 			{Name: "--tag", Value: true},
 			{Name: "--since", Value: true},
-			// §18 — pam 전용 서명 플래그(값 소비 없음).
+			// §18 — pam-only signing flag (consumes no value).
 			{Name: "--sign"},
 		},
 		Usage: "usage: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339] [--sign (pam only)]",
@@ -148,7 +148,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "out", Expect: "non-empty"}))
 				return 3
 			}
-			// POSIX 관례: 경로 "-"는 stdout(미지정과 동일).
+			// POSIX convention: the path "-" means stdout (same as unspecified).
 			if o.Value == "-" {
 				outPath = ""
 			} else {
@@ -161,7 +161,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			}
 			status = o.Value
 		case "--tag":
-			// read 관례 승계: 반복 지정 시 마지막 값 우선.
+			// carrying over the read convention: on repeated specification, the last value wins.
 			if o.Value == "" {
 				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "tag", Expect: "non-empty"}))
 				return 3
@@ -176,13 +176,13 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			since = t
 		}
 	}
-	// --sign는 PAM §18 서명 경로 전용 — 다른 포맷 조합은 사용법 오류.
+	// --sign is exclusive to the PAM §18 signing path — combining with other formats is a usage error.
 	if sign && format != "pam" {
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "sign", Expect: "requires --format pam"}))
 		return 3
 	}
-	// 계약: 스토어 nil·서버다운 exit 2. export는 store-free가 아니므로
-	// nil은 서버다운과 동일 취급(ErrLine 한 줄 + MapExit).
+	// contract: nil store or server-down exits 2. export is not store-free, so
+	// nil is treated the same as server-down (one ErrLine + MapExit).
 	if st == nil {
 		fmt.Fprintln(stdout, wire.ErrLine(store.ErrServerDown))
 		return store.MapExit(store.ErrServerDown)
@@ -200,10 +200,10 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 조회 결과 행 수 상한(등록표 키 export_import_max_rows —
-	// import와 동일 키, 대량 export의 메모리·출력 방어). 조회 직후·포맷팅
-	// 전 판정이므로 전량 버퍼링 이전은 아니지만 포맷터·기록 부작용은 차단
-	// 한다.
+	// cap on the query result row count (registry key export_import_max_rows —
+	// shared with import; a memory/output defense for large exports). The check runs right after the query and before
+	// formatting, so it does not precede full buffering, but it blocks formatter and write side
+	// effects.
 	if code := enforceExportMaxRows(ctx, st, stdout, len(rows)); code != 0 {
 		return code
 	}
@@ -213,7 +213,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		return 1
 	}
 	if sign {
-		// §18: 서명 키 로드(없으면 생성 — 0600) 후 서명 포맷터로 교체.
+		// §18: load the signing key (creating it if absent — 0600), then swap in the signing formatter.
 		key, kerr := exportSignKeyFn()
 		if kerr != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("export: pam signing key unavailable: %v", kerr)))
@@ -228,7 +228,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		return 1
 	}
 	if outPath != "" {
-		// 기존 파일 덮어씀 — 경고 1행을 기록보다 먼저 stderr에.
+		// overwriting an existing file — one warning line to stderr before writing.
 		if _, serr := os.Stat(outPath); serr == nil {
 			fmt.Fprintf(exportStderr, "export: overwriting existing file: %s\n", outPath)
 		}
@@ -236,9 +236,9 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			fmt.Fprintln(stdout, wire.ErrLine(werr))
 			return 1
 		}
-		// 기록 성공 시 .sha256 사이드카(backup --out 관례
-		// 승계 — backup.WriteSidecar로 형식 통일, sha256sum -c 호환).
-		// 실패는 stderr 경고만: 본문 기록 성공을 해치지 않는다(ADR-0006).
+		// on successful write, a .sha256 sidecar (carrying over the backup --out
+		// convention — format unified via backup.WriteSidecar, sha256sum -c compatible).
+		// failure is a stderr warning only: it must not harm the successful body write (ADR-0006).
 		digest := sha256.Sum256(data)
 		if serr := backup.WriteSidecar(outPath, hex.EncodeToString(digest[:])); serr != nil {
 			fmt.Fprintf(exportStderr, "export: checksum sidecar write failed: %v\n", serr)
@@ -247,17 +247,17 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, wire.ErrLine(werr))
 		return 1
 	}
-	// 요약 행수는 포맷터 보고값 — pam은 문서 발행 수(pending
-	// 제외), 나머지 형식은 전행.
+	// the summary row count is the formatter-reported value — pam reports published documents (pending
+	// excluded); the other formats report total rows.
 	fmt.Fprintf(exportStderr, "exported %d rows (%s, %d bytes)\n", summaryRows, format, len(data))
 	return 0
 }
 
-// runExportTUI — `flint export --tui` 배선. 폼·확인은
-// tui.RunExport에, 조회·포맷터·상한·실행은 기존 seam(exportRowsFn·
-// exportFormatters·exportMaxRowsLimit·runExport)을 래핑해 주입한다 —
-// TUI가 원천 로직을 재구현하지 않는다(사이드카·상한·요약은 runExport
-// 재실행으로 자동 적용). 오류(비터미널 포함)는 ErrLine 한 줄 + exit 3.
+// runExportTUI — wiring for `flint export --tui`. The form and confirmation go to
+// tui.RunExport; the query, formatters, cap, and execution are injected by wrapping the existing seams (exportRowsFn,
+// exportFormatters, exportMaxRowsLimit, runExport) —
+// the TUI does not reimplement source logic (sidecar, cap, and summary apply automatically via the
+// runExport re-run). Errors (including non-terminal) are one ErrLine + exit 3.
 func runExportTUI(ctx context.Context, st Store, stdin io.Reader, stdout io.Writer) int {
 	code, err := exportTUIFn(ctx, tui.ExportDeps{
 		Preview: func(ctx context.Context, sel tui.ExportSelection) (tui.ExportPreview, error) {
@@ -288,9 +288,9 @@ func runExportTUI(ctx context.Context, st Store, stdin io.Reader, stdout io.Writ
 	return code
 }
 
-// exportMaxRowsLimit — export 1회 행 수 상한 로드(등록표 키
-// export_import_max_rows — import와 동일 키 공유). 조회 실패·미설정(0)은
-// DefaultThresholds 폴백(importMaxRowsLimit과 동일 규약).
+// exportMaxRowsLimit — loads the per-export row cap (registry key
+// export_import_max_rows — shared with import). Query failure or unset (0) falls back to
+// DefaultThresholds (same convention as importMaxRowsLimit).
 func exportMaxRowsLimit(ctx context.Context, st Store) int {
 	def := store.DefaultThresholds().ExportImportMaxRows
 	th, err := wire.LoadThresholdsFn(ctx, st)
@@ -300,9 +300,9 @@ func exportMaxRowsLimit(ctx context.Context, st Store) int {
 	return th.ExportImportMaxRows
 }
 
-// enforceExportMaxRows — 행 수 상한 초과 시 오류 JSON(max·count 포함)을
-// stdout에 내고 3을 반환(호출부는 그대로 반환). 형식은 import
-// enforceImportMaxRows를 준용한다. 포맷터·파일 기록 전 단계라 부작용 없음.
+// enforceExportMaxRows — on exceeding the row cap, prints an error JSON (including max and count) to
+// stdout and returns 3 (the caller returns it as-is). The format follows import's
+// enforceImportMaxRows. It runs before the formatters and file write, so no side effects.
 func enforceExportMaxRows(ctx context.Context, st Store, stdout io.Writer, count int) int {
 	max := exportMaxRowsLimit(ctx, st)
 	if count <= max {
@@ -320,7 +320,7 @@ func enforceExportMaxRows(ctx context.Context, st Store, stdout io.Writer, count
 	return 3
 }
 
-// validExportFormat — 플래그 검증 시점용(포맷터 미연결 판별은 조회 시).
+// validExportFormat — for flag-validation time (unconnected-formatter detection happens at query time).
 func validExportFormat(v string) bool {
 	switch v {
 	case "jsonl", "md", "txt", "csv", "pam":

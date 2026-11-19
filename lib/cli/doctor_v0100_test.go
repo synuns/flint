@@ -49,8 +49,8 @@ func TestBackupAgeMissing(t *testing.T) {
 	}
 }
 
-// 파손된 last_backup 값은 미설정 취급(무효 값 폴백) — warn이지
-// crash·fail이 아니다.
+// a corrupt last_backup value is treated as unset (invalid-value fallback) — a warn, not a
+// crash or fail.
 func TestBackupAgeCorruptTS(t *testing.T) {
 	c := checkBackupAge(context.Background(), &fakeStore{queryFn: backupAgeQueryFn("yesterday-ish", false)})
 	if c.Status != "warn" {
@@ -58,8 +58,8 @@ func TestBackupAgeCorruptTS(t *testing.T) {
 	}
 }
 
-// 임계 직전(71h59m)은 ok — 72h가 d >= backupAgeWarn로 warn로
-// 넘어가는 경계를 지킨다.
+// just under the threshold (71h59m) is ok — guarding the boundary where 72h crosses into
+// warn via d >= backupAgeWarn.
 func TestBackupAgeJustUnderThreshold(t *testing.T) {
 	ts := time.Now().UTC().Add(-71*time.Hour - 59*time.Minute).Format(time.RFC3339)
 	c := checkBackupAge(context.Background(), &fakeStore{queryFn: backupAgeQueryFn(ts, false)})

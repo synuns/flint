@@ -1,10 +1,10 @@
-// wire_approve_store_test.go — 스펙 §1.4/R14: approve·done·backup이
-// root가 주입한 Store를 쓰는지(자체 db.NewRepo/db.Connect 폐지)와 파일 내
-// 중복 구현 수렴(quoteJSON·thresholds 로더)을 검증한다.
-// approve·done 구현은 lib/knowledge로 이동 — approve 재배선
-// 검증(TestApproveUsesInjectedStore)·maybeAutoBackup st 경유 검증
-// (TestDoneAutoBackupNoExtraPool)은 knowledge 패키지 테스트로 이동했고,
-// 여기선 cli 소유 경로(backup)와 이동 위치의 소스 가드만 담는다.
+// wire_approve_store_test.go — spec §1.4/R14: verifies that approve, done, and backup use
+// the Store injected by root (their own db.NewRepo/db.Connect abolished) and the convergence of
+// in-file duplicate implementations (quoteJSON, the thresholds loader).
+// The approve and done implementations moved to lib/knowledge — the approve re-wiring
+// check (TestApproveUsesInjectedStore) and the maybeAutoBackup-via-st check
+// (TestDoneAutoBackupNoExtraPool) moved to the knowledge package tests;
+// this file covers only the cli-owned path (backup) and a source guard on the moved locations.
 package cli
 
 import (
@@ -19,16 +19,16 @@ import (
 	"testing"
 )
 
-// errSelfConnectDisabled — sentinel 전용 에러(재배선 후 도달 불가 경로).
+// errSelfConnectDisabled — a sentinel-only error (an unreachable path after the re-wiring).
 var errSelfConnectDisabled = &selfConnectError{}
 
 type selfConnectError struct{}
 
 func (*selfConnectError) Error() string { return "self-connect path must not run" }
 
-// TestQuoteJSONSingle — quoteJSON 1구현으로 수렴.
-// knowledge/approve.go의 quoteJSONApprove는 backup.go quoteJSON과 바이트
-// 동일이므로 소스에 잔존하지 않아야 한다(행위는 quoteJSON 자체 검증).
+// TestQuoteJSONSingle — converged to 1 quoteJSON implementation.
+// knowledge/approve.go's quoteJSONApprove is byte-identical to backup.go's quoteJSON, so it
+// must not remain in the source (behavior is verified by quoteJSON itself).
 func TestQuoteJSONSingle(t *testing.T) {
 	b, err := os.ReadFile("../knowledge/approve.go")
 	if err != nil {
@@ -48,7 +48,7 @@ func TestQuoteJSONSingle(t *testing.T) {
 	}
 }
 
-// dumpStoreFake — fakeStore에 전체 덤프 스텁을 얹은 fake(backup 경로).
+// dumpStoreFake — a fakeStore with a full-dump stub layered on (the backup path).
 type dumpStoreFake struct {
 	*fakeStore
 
@@ -61,8 +61,8 @@ func (d *dumpStoreFake) Dump(ctx context.Context, w io.Writer) error {
 	return nil
 }
 
-// TestBackupUsesInjectedStore — dumpFn 자체 풀 경로 폐지: 주입 st가 덤프를
-// 위임받고 dumpFn(기본 자체 연결)은 호출되지 않는다.
+// TestBackupUsesInjectedStore — the dumpFn self-pool path is abolished: the injected st receives
+// the dump delegation, and dumpFn (default self-connect) is not called.
 func TestBackupUsesInjectedStore(t *testing.T) {
 	prev := dumpFn
 	selfConn := 0
@@ -91,9 +91,9 @@ func TestBackupUsesInjectedStore(t *testing.T) {
 	}
 }
 
-// TestThresholdsLoaderSingle — doneThresholds 제거·
-// WriteThresholds(write.go) 공용. knowledge/done.go에 로컬 로더가 남으면
-// 실패(done.go 이동 위치 검사).
+// TestThresholdsLoaderSingle — doneThresholds removed;
+// shared WriteThresholds (write.go). A local loader left in knowledge/done.go fails
+// (a check of done.go's moved location).
 func TestThresholdsLoaderSingle(t *testing.T) {
 	b, err := os.ReadFile("../knowledge/done.go")
 	if err != nil {

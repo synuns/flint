@@ -1,6 +1,6 @@
-// nudge_v095_test.go — SessionStart 안내에 read 촉진 힌트
-// (nudgeReadHint)가 병합되었는지, 고정 문구(nudgePendingLine·nudgePendingLine,
-// 짧은 문구로 갱신 — 룰링)는 훼손되지 않았는지 검증한다.
+// nudge_v095_test.go — verifies that the SessionStart notice merges the read-promotion
+// hint (nudgeReadHint), and that the fixed wordings (nudgePendingLine —
+// updated to the short wording, ruling —) are not corrupted.
 package cli
 
 import (

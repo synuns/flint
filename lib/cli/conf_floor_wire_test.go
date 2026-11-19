@@ -1,7 +1,7 @@
-// conf_floor_wire_test.go — meta conf_floor가 쓰기 판정에 도달하는 배선
-// (runWrite → loadThresholds → Classify(kind, conf, floor) 값 전달)의 회귀.
-// 전역 주입(SetClassifyThresholds)은 폐지 — 판정 기준은 항상 이번 쓰기가
-// 읽은 meta 값(갱신 즉시 재적용, TUNING.md §2).
+// conf_floor_wire_test.go — regression of the wiring that brings the meta conf_floor into
+// the write classification (runWrite -> loadThresholds -> Classify(kind, conf, floor) value passing).
+// Global injection (SetClassifyThresholds) is abolished — the classification basis is always the
+// meta value read by this write (reapplied immediately on update, TUNING.md §2).
 package cli
 
 import (
@@ -11,16 +11,16 @@ import (
 	"time"
 )
 
-// uniqTopic — 공유 실DB content_hash 잔재 충돌 회피: 실행마다
-// 고유 topic으로 해시를 분리해 -count=2·잔재 DB에서도 판정이 duplicate로
-// 빠지지 않게 한다.
+// uniqTopic — avoids shared real-DB content_hash residue collisions: a unique topic per run
+// separates the hashes so the classification never falls into duplicate even with -count=2
+// or a residual DB.
 func uniqTopic(t *testing.T) string {
 	t.Helper()
 	return fmt.Sprintf("cw-%s-%d", t.Name(), time.Now().UnixNano())
 }
 
-// TestWriteConsumesConfFloor — meta conf_floor=0.6 로드 시 confidence 0.7이
-// active로 판정·저장(회귀: 0.8 고정이면 pending).
+// TestWriteConsumesConfFloor — with meta conf_floor=0.6 loaded, confidence 0.7 is
+// classified and stored as active (regression: with the fixed 0.8 it would be pending).
 func TestWriteConsumesConfFloor(t *testing.T) {
 	f := &fakeStore{rows: [][]any{{"conf_floor", "0.6"}}}
 	withFake(t, f)
@@ -34,8 +34,8 @@ func TestWriteConsumesConfFloor(t *testing.T) {
 	}
 }
 
-// TestWriteConfFloorLoadFailureKeepsDefault — meta 조회 실패 시 기본 0.8
-// 불변(하위호환: 판정 로드 실패가 쓰기 결과·exit을 바꾸지 않는다).
+// TestWriteConfFloorLoadFailureKeepsDefault — on a meta lookup failure, the default 0.8
+// is unchanged (backward compatibility: a classification-load failure must not change the write result or exit).
 func TestWriteConfFloorLoadFailureKeepsDefault(t *testing.T) {
 	f := &fakeStore{queryErr: errors.New("meta down")}
 	withFake(t, f)
@@ -49,8 +49,8 @@ func TestWriteConfFloorLoadFailureKeepsDefault(t *testing.T) {
 	}
 }
 
-// TestWriteConfFloorZeroAccepted — conf_floor=0(수용 범위 0~1의 하한)도
-// 파서·TUNING.md대로 적용된다(회귀: 판정측 경계 거부로 pending).
+// TestWriteConfFloorZeroAccepted — conf_floor=0 (the lower bound of the accepted range 0..1)
+// is also applied per the parser and TUNING.md (regression: a classification-side boundary rejection would make it pending).
 func TestWriteConfFloorZeroAccepted(t *testing.T) {
 	f := &fakeStore{rows: [][]any{{"conf_floor", "0"}}}
 	withFake(t, f)

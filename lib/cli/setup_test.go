@@ -12,7 +12,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// composeRecorder — composeUpFn/composeDownFn seam 교체 기록(순수 단계테스트, exec 없음).
+// composeRecorder — swaps and records the composeUpFn/composeDownFn seams (pure phase test, no exec).
 type composeRecorder struct {
 	upCalls int
 	upErr   error
@@ -39,7 +39,7 @@ func withFakeCompose(t *testing.T) *composeRecorder {
 	return rec
 }
 
-// TestSetupSteps — 4단계 고정 순서(①compose ②migrate ③seed ④플러그인).
+// TestSetupSteps — the fixed 4-step order ((1)compose (2)migrate (3)seed (4)plugins).
 func TestSetupSteps(t *testing.T) {
 	steps := SetupSteps()
 	if len(steps) != 4 {
@@ -53,7 +53,7 @@ func TestSetupSteps(t *testing.T) {
 	}
 }
 
-// TestSetupAllGreen — fake ping/migrate 성공 → 요약 한 줄 JSON · exit 0.
+// TestSetupAllGreen — fake ping/migrate success -> one-line JSON summary, exit 0.
 func TestSetupAllGreen(t *testing.T) {
 	rec := withFakeCompose(t)
 	migrateCalled := false
@@ -85,7 +85,7 @@ func TestSetupAllGreen(t *testing.T) {
 	}
 }
 
-// TestSetupPingFailKeepsGuidance — ping 실패 시에도 다음 단계 안내 유지(protocol).
+// TestSetupPingFailKeepsGuidance — even on ping failure the next-step guidance is kept (protocol).
 func TestSetupPingFailKeepsGuidance(t *testing.T) {
 	withFakeCompose(t)
 	migrateCalled := false
@@ -110,7 +110,7 @@ func TestSetupPingFailKeepsGuidance(t *testing.T) {
 	}
 }
 
-// TestSetupComposeFailNotFatal — docker 미설치 등은 경고로(안내 후 계속, exit 0).
+// TestSetupComposeFailNotFatal — docker not installed etc. is a warning (continue after guidance, exit 0).
 func TestSetupComposeFailNotFatal(t *testing.T) {
 	rec := withFakeCompose(t)
 	rec.upErr = context.Canceled
@@ -126,7 +126,7 @@ func TestSetupComposeFailNotFatal(t *testing.T) {
 	}
 }
 
-// TestSetupDry — --dry는 단계만 출력, exec·store 연산 없음.
+// TestSetupDry — --dry prints the steps only; no exec or store operations.
 func TestSetupDry(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
@@ -148,7 +148,7 @@ func TestSetupDry(t *testing.T) {
 	}
 }
 
-// TestSetupUnknownFlag — 알 수 없는 플래그는 한 줄 JSON 에러 + 무효 인자
+// TestSetupUnknownFlag — an unknown flag is a one-line JSON error + invalid-arg
 // exit 3.
 func TestSetupUnknownFlag(t *testing.T) {
 	withFake(t, &fakeStore{})
@@ -159,7 +159,7 @@ func TestSetupUnknownFlag(t *testing.T) {
 	decode(t, out)
 }
 
-// TestSetupRegistered — init() Register 확인.
+// TestSetupRegistered — verifies the init() Register.
 func TestSetupRegistered(t *testing.T) {
 	if _, ok := Lookup("setup"); !ok {
 		t.Fatal("Lookup(\"setup\") 실패 — 미등록 커맨드")
@@ -169,8 +169,8 @@ func TestSetupRegistered(t *testing.T) {
 	}
 }
 
-// TestTeardownDown — 무인자는 dry-run(계획 안내만, exec 없음,
-// exit 0). --yes 있을 때만 정지 exec(아래 TestTeardownYes).
+// TestTeardownDown — no args is a dry-run (plan notice only, no exec,
+// exit 0). Only --yes executes the stop (see TestTeardownYes below).
 func TestTeardownDown(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -190,7 +190,7 @@ func TestTeardownDown(t *testing.T) {
 	}
 }
 
-// TestTeardownDryRunPurgePlan — --purge 단독도 dry-run: 실행 없이 -v 계획만.
+// TestTeardownDryRunPurgePlan — --purge alone is also a dry-run: only the -v plan, no execution.
 func TestTeardownDryRunPurgePlan(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -206,7 +206,7 @@ func TestTeardownDryRunPurgePlan(t *testing.T) {
 	}
 }
 
-// TestTeardownYes — --yes 있을 때만 정지 안내 + exec 위임, 성공 시 exit 0.
+// TestTeardownYes — only with --yes: stop guidance + exec delegation, exit 0 on success.
 func TestTeardownYes(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -223,7 +223,7 @@ func TestTeardownYes(t *testing.T) {
 	}
 }
 
-// TestTeardownPurge — --yes --purge 시 volume 삭제(down -v) exec.
+// TestTeardownPurge — with --yes --purge, the volume deletion (down -v) exec.
 func TestTeardownPurge(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -236,7 +236,7 @@ func TestTeardownPurge(t *testing.T) {
 	}
 }
 
-// TestTeardownFailGuidance — 정지 실패 시 수동 안내 유지 + exit 1.
+// TestTeardownFailGuidance — on stop failure, manual guidance is kept + exit 1.
 func TestTeardownFailGuidance(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -252,7 +252,7 @@ func TestTeardownFailGuidance(t *testing.T) {
 	}
 }
 
-// storeDown — newStore가 항상 실패하는 seam(DB 전면 다운 = setup 주 시나리오).
+// storeDown — a seam where newStore always fails (DB fully down = the main setup scenario).
 func storeDown(t *testing.T) {
 	t.Helper()
 	prev := newStore
@@ -262,7 +262,7 @@ func storeDown(t *testing.T) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// TestSetupDryStoreFree — DB 다운(무효 DSN)에도 setup --dry는 exit 0(§13 정합).
+// TestSetupDryStoreFree — even with the DB down (invalid DSN), setup --dry exits 0 (§13 consistency).
 func TestSetupDryStoreFree(t *testing.T) {
 	storeDown(t)
 	rec := withFakeCompose(t)
@@ -278,8 +278,8 @@ func TestSetupDryStoreFree(t *testing.T) {
 	}
 }
 
-// TestSetupNilStoreDegraded — store 없이(첫 실행) setup 실행: 패닉 없이
-// degraded + 안내로 exit 1(compose 단계는 수행).
+// TestSetupNilStoreDegraded — running setup without a store (first run): no panic,
+// degraded + guidance with exit 1 (the compose step still runs).
 func TestSetupNilStoreDegraded(t *testing.T) {
 	storeDown(t)
 	rec := withFakeCompose(t)
@@ -299,7 +299,7 @@ func TestSetupNilStoreDegraded(t *testing.T) {
 	}
 }
 
-// TestTeardownStoreFree — DB 다운 상태에서도 teardown은 안내·(--yes) exec 수행.
+// TestTeardownStoreFree — even with the DB down, teardown does guidance and (--yes) exec.
 func TestTeardownStoreFree(t *testing.T) {
 	storeDown(t)
 	rec := withFakeCompose(t)
@@ -312,8 +312,8 @@ func TestTeardownStoreFree(t *testing.T) {
 	}
 }
 
-// withSetupPortProbe — 5434 점유 감지 seam 교체 + stderr
-// 캡처. inUse=true면 점유로 판정.
+// withSetupPortProbe — swaps the 5434-occupancy detection seam + captures
+// stderr. inUse=true means occupied.
 func withSetupPortProbe(t *testing.T, inUse bool) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
@@ -324,8 +324,8 @@ func withSetupPortProbe(t *testing.T, inUse bool) *bytes.Buffer {
 	return &buf
 }
 
-// TestSetupPortInUseWarnsAndContinues — compose 시작 전 5434
-// 점유 감지 → 경고 1행 stderr, 진행 유지(compose·migrate 계속, exit 0).
+// TestSetupPortInUseWarnsAndContinues — 5434 occupancy detected before compose start ->
+// one warning line on stderr, progress continues (compose and migrate run on, exit 0).
 func TestSetupPortInUseWarnsAndContinues(t *testing.T) {
 	rec := withFakeCompose(t)
 	errs := withSetupPortProbe(t, true)
@@ -347,7 +347,7 @@ func TestSetupPortInUseWarnsAndContinues(t *testing.T) {
 	}
 }
 
-// TestSetupPortFreeNoWarning — 미점유면 stderr 경고 없음(진행 동일).
+// TestSetupPortFreeNoWarning — when free, no stderr warning (progress identical).
 func TestSetupPortFreeNoWarning(t *testing.T) {
 	rec := withFakeCompose(t)
 	errs := withSetupPortProbe(t, false)
@@ -365,8 +365,8 @@ func TestSetupPortFreeNoWarning(t *testing.T) {
 	}
 }
 
-// TestSyncRulesSkipsSymlinks — 소스의 심볼릭
-// 링크는 복사하지 않는다(링크 대상 민감 파일 노출 차단).
+// TestSyncRulesSkipsSymlinks — symbolic links in the source are
+// not copied (blocking exposure of sensitive files at link targets).
 func TestSyncRulesSkipsSymlinks(t *testing.T) {
 	src := t.TempDir()
 	dest := t.TempDir()

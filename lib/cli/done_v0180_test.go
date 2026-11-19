@@ -1,6 +1,6 @@
-// done_v0180_test.go — done의 회상 경고. 오늘 회상(read) 0회에
-// 기록(write)이 임계 이상이면 세션 종료 시 경고 한 줄(stale 경고와 같은
-// 패턴 — 임계값 기반·비차단, §13 원칙 4 준수).
+// done_v0180_test.go — done's recall warning. If today's recalls (read) are 0 while
+// writes are at or above the threshold, one warning line appears at session close (the same
+// pattern as the stale warning — threshold-based, non-blocking, per §13 principle 4).
 package cli
 
 import (
@@ -13,15 +13,15 @@ import (
 	"time"
 )
 
-// recallFake — 원천 갱신: write는 daily:write:<오늘>
-// 플랫 키 int, read는 read_events 당일 COUNT를 반환하는 doneFake(실제
-// 생산자 원천 — RecordUsage 플랫 키·read_events 일원화 이후 계약).
+// recallFake — source updates: a doneFake where write returns the flat key
+// daily:write:<today> as int and read returns today's read_events COUNT (the real
+// producer sources — the contract after the RecordUsage flat-key and read_events unification).
 func recallFake(t *testing.T, read, write int) *doneFake {
 	t.Helper()
 	today := time.Now().UTC().Format("2006-01-02")
-	// stubbed=true — stale 집계도 fake 영(零)으로 고정.
-	// 미지정이면 실DB 모드에서 StaleSessionRuns가 공유 DB 잔재 위임으로
-	// stale 경고가 회상 경고를 덮어 멱등성이 깨진다(판정 원천은 queryFn).
+	// stubbed=true — the stale tally is also pinned to fake zero.
+	// If unspecified, in real-DB mode StaleSessionRuns delegates over shared-DB residue, so the
+	// stale warning crowds out the recall warning and idempotence breaks (the determination source is queryFn).
 	d := &doneFake{fakeStore: &fakeStore{}, stubbed: true}
 	d.queryFn = func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -29,7 +29,7 @@ func recallFake(t *testing.T, read, write int) *doneFake {
 			if len(args) > 0 && fmt.Sprint(args[0]) == "daily:write:"+today {
 				return [][]any{{strconv.Itoa(write)}}, nil
 			}
-			return nil, nil // thresholds 미설정 → 기본값
+			return nil, nil // thresholds unset -> defaults
 		case strings.Contains(sql, "FROM read_events"):
 			return [][]any{{int64(read)}}, nil
 		}
@@ -38,9 +38,9 @@ func recallFake(t *testing.T, read, write int) *doneFake {
 	return d
 }
 
-// TestDoneRecallWarn — 회상 0·기록 3(기본 임계)이면 recall 경고 줄·마커 기록.
+// TestDoneRecallWarn — recalls 0 + writes 3 (the default threshold) -> a recall warning line and a marker written.
 func TestDoneRecallWarn(t *testing.T) {
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // 마커가 실사용자 config에 남지 않게
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // so the marker does not land in the real user's config
 	d := recallFake(t, 0, 3)
 	withDoneFake(t, d)
 	out, code := mustRun(t, []string{"done", "--session", "s1"}, "")
@@ -52,7 +52,7 @@ func TestDoneRecallWarn(t *testing.T) {
 	}
 }
 
-// TestDoneRecallQuiet — 회상 1회면 경고 없음(기록이 임계 이상이어도).
+// TestDoneRecallQuiet — 1 recall means no warning (even if writes are at or above the threshold).
 func TestDoneRecallQuiet(t *testing.T) {
 	d := recallFake(t, 1, 10)
 	withDoneFake(t, d)
@@ -65,7 +65,7 @@ func TestDoneRecallQuiet(t *testing.T) {
 	}
 }
 
-// TestDoneRecallBelowThreshold — 기록이 임계(3) 미만이면 경고 없음.
+// TestDoneRecallBelowThreshold — writes below the threshold (3) mean no warning.
 func TestDoneRecallBelowThreshold(t *testing.T) {
 	d := recallFake(t, 0, 2)
 	withDoneFake(t, d)
@@ -78,8 +78,8 @@ func TestDoneRecallBelowThreshold(t *testing.T) {
 	}
 }
 
-// TestDoneRecallMarkerWritten — 회상 부재 시 recall 마커가 남는다(다음
-// SessionStart nudge 소비 연결). 별도 파일(recall-hint.json).
+// TestDoneRecallMarkerWritten — with no recalls, a recall marker remains (connecting to the next
+// SessionStart nudge consumption). A separate file (recall-hint.json).
 func TestDoneRecallMarkerWritten(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

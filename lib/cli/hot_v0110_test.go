@@ -1,5 +1,5 @@
-// hot_v0110_test.go — hot 요약 헤드라인·--full 플래그.
-// 기본 경로는 프로파일별 헤드라인 1줄, --full은 기존 전체 출력(바이트 불변).
+// hot_v0110_test.go — the hot summary headline and the --full flag.
+// The default path is a one-line profile-specific headline; --full is the existing full output (byte-identical).
 package cli
 
 import (
@@ -24,8 +24,8 @@ func TestHotHeadline(t *testing.T) {
 	}
 }
 
-// hotProfileQueryFn — hot_view 본질의는 hotRows(증분 id·valid_at 컬럼 포함
-// 가능), meta exposure_profile은 profile(빈 문자열이면 미설정=0행).
+// hotProfileQueryFn — the hot_view essential query returns hotRows (possibly including the increment id
+// and valid_at columns); the meta exposure_profile lookup returns profile (an empty string means unset = 0 rows).
 func hotProfileQueryFn(profile string, hotRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -41,9 +41,9 @@ func hotProfileQueryFn(profile string, hotRows [][]any) func(string, []any) ([][
 	}
 }
 
-// TestHotSummaryHeadlineByProfile — 프로파일 미설정=normal
-// 헤드라인(펼치기 안내 포함), minimal은 카운트 2개만. 카운트는 전체
-// 출력과 동일 데이터 소스(hot_view 조회 행)에서 추출.
+// TestHotSummaryHeadlineByProfile — unset profile = the normal
+// headline (including the expand guidance); minimal is just 2 counts. The counts are extracted from the same
+// data source as the full output (the hot_view query rows).
 func TestHotSummaryHeadlineByProfile(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -70,9 +70,9 @@ func TestHotSummaryHeadlineByProfile(t *testing.T) {
 	}
 }
 
-// TestHotFullUnchanged — --full은 프로파일 무관 기존 전체
-// 출력 경로. 신규 단언은 플래그 파싱 라우팅만(전체 포맷 회귀는 기존 hot
-// 테스트가 담보).
+// TestHotFullUnchanged — --full is the existing full-output path regardless of profile.
+// New assertions cover only the flag-parsing routing (full-format regression is covered by the existing hot
+// tests).
 func TestHotFullUnchanged(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -87,7 +87,7 @@ func TestHotFullUnchanged(t *testing.T) {
 	if want := query.FormatRows(hotRows, hotFields, false); out.String() != want {
 		t.Fatalf("--full 출력 = %q, want %q(기존 전체 출력)", out.String(), want)
 	}
-	// --session과 --full 병용도 동일 라우팅.
+	// --session combined with --full takes the same routing.
 	var out2 bytes.Buffer
 	f2 := &fakeStore{queryFn: hotProfileQueryFn("minimal", hotRows)}
 	if code := runHot(ctx, f2, []string{"--session", "S1", "--full"}, strings.NewReader(""), &out2); code != 0 {

@@ -1,7 +1,7 @@
-// render_test.go — render 출력층 별칭 테스트. 코어·가드 테스트는
-// lib/render/render_test.go로 이동했고, 여기선 render_alias.go의 var
-// 별칭이 잔여 cli 소비 파일을 무편집으로 컴파일·동등 동작시키는지만
-// 검증한다.
+// render_test.go — tests for the render output-layer aliases. The core and guard tests
+// moved to lib/render/render_test.go; here we only verify that the var aliases in
+// render_alias.go compile and behave equivalently for the residual cli consumer files,
+// unedited.
 package cli
 
 import (
@@ -12,11 +12,11 @@ import (
 	"github.com/synuns/flint/lib/render"
 )
 
-// TestRenderAliasCompat — cli 별칭(Text·Masked·Cells·Rows·
-// TruncateRunes·CountPending·소문자 truncateRunes·countPending)은
-// 단일 구현과 동일 함수 값을 가리킨다(위임이 아니라 동등 — 소비
-// 파일 무편집 보장). CountPending·countPending은
-// knowledge 구현(knowledge/pending.go 이관).
+// TestRenderAliasCompat — the cli aliases (Text, Masked, Cells, Rows,
+// TruncateRunes, CountPending, and the lowercase truncateRunes and countPending) point to
+// the same function values as the single implementation (equivalence, not delegation —
+// guaranteeing consumer files stay unedited). CountPending and countPending use
+// the knowledge implementation (moved to knowledge/pending.go).
 func TestRenderAliasCompat(t *testing.T) {
 	pairs := []struct {
 		name string
@@ -37,7 +37,7 @@ func TestRenderAliasCompat(t *testing.T) {
 			t.Errorf("%s 별칭이 render 구현과 다른 함수를 가리킴", p.name)
 		}
 	}
-	// 동작 스폿체크 — 별칭 경유 출력도 기대값 그대로.
+	// behavior spot-check — output via the aliases still matches the expected values.
 	if got := Text("a[flint]b"); got != "a b" {
 		t.Errorf("Text 별칭 = %q, want \"a b\"", got)
 	}

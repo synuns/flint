@@ -1,5 +1,5 @@
-// report_test.go — `flint report` fast 회귀(fake Store). numeric: 7일 창
-// 경계(8일치 심기 → 7일만) · encoding: daily 부재 0·파손 스킵 · protocol: 인자·등록.
+// report_test.go — `flint report` fast regression (fake Store). numeric: 7-day window
+// boundary (seed 8 days -> only 7); encoding: missing daily = 0, broken skipped; protocol: args and registration.
 package cli
 
 import (
@@ -13,8 +13,8 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// newReportFake — report 조회 5종(meta daily·stats·counts·stale·기간 무효화)을
-// SQL 텍스트로 구분해 반환하는 fake.
+// newReportFake — a fake distinguishing the 5 report queries (meta daily, stats, counts, stale, period invalidations)
+// by SQL text.
 func newReportFake(daily map[string]string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -24,19 +24,19 @@ func newReportFake(daily map[string]string) *fakeStore {
 				rows = append(rows, []any{k, v})
 			}
 			return rows, nil
-		case strings.Contains(sql, "hot_stats"): // read_stats 폐지
+		case strings.Contains(sql, "hot_stats"): // read_stats abolished
 			return [][]any{
 				{"read_stats", `{"calls":10,"zero":2}`},
 				{"hot_stats", `{"calls":4,"sum":1000,"lens":[100,200,300,400]}`},
 			}, nil
 		case strings.Contains(sql, "invalid_at IS NOT NULL"):
-			// pending·active·invalidated(총) — FILTER 3종 단일 행.
+			// pending, active, and invalidated (total) — 3 FILTER kinds in a single row.
 			return [][]any{{int64(3), int64(5), int64(2)}}, nil
 		case strings.Contains(sql, "read_count"):
 			// stale days90·never_read.
 			return [][]any{{int64(2), int64(1)}}, nil
 		case strings.Contains(sql, "invalid_at >="):
-			// 기간(N일) 내 무효화 수.
+			// invalidations within the period (N days).
 			return [][]any{{int64(1)}}, nil
 		}
 		return nil, nil
@@ -50,7 +50,7 @@ func runReportArgs(t *testing.T, f Store, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// reportDates — 구현과 동일 규약(UTC, 오늘 포함 N일)의 창 날짜 생성(테스트용).
+// reportDates — window date generation for tests, same convention as the implementation (UTC, N days including today).
 func reportDates(n int) []string {
 	now := time.Now().UTC()
 	out := make([]string, 0, n)
@@ -60,16 +60,16 @@ func reportDates(n int) []string {
 	return out
 }
 
-// TestReportSevenDayWindow — 8일치 daily 키를 심어도
-// 기본 7일 창의 7행만 나온다(8일째 배제). 파손된 당일-2 키는 0으로 스킵.
+// TestReportSevenDayWindow — even seeding 8 days of daily keys yields only the
+// 7 rows of the default 7-day window (the 8th day excluded). A broken day-2 key is skipped as 0.
 func TestReportSevenDayWindow(t *testing.T) {
 	now := time.Now().UTC()
 	daily := map[string]string{}
-	for i := 0; i <= 7; i++ { // 오늘 포함 8일치
+	for i := 0; i <= 7; i++ { // 8 days including today
 		d := now.AddDate(0, 0, -i).Format("2006-01-02")
 		daily["daily:"+d] = `{"write":1,"hook":1,"manual":0,"mcp":0,"dup":0,"hot":2,"read":3,"read_zero":1}`
 	}
-	daily["daily:"+reportDates(7)[1]] = `{broken json` // 파손 → 0 폴백(스킵)
+	daily["daily:"+reportDates(7)[1]] = `{broken json` // broken -> 0 fallback (skipped)
 	f := newReportFake(daily)
 	out, code := runReportArgs(t, f)
 	if code != 0 {
@@ -118,7 +118,7 @@ func TestReportSevenDayWindow(t *testing.T) {
 	if m.Days[1].Write != 0 || m.Days[1].Read != 0 {
 		t.Errorf("파손 키 스킵 실패(0이어야): %+v", m.Days[1])
 	}
-	if m.ZeroPct != 33 { // 기간화 — daily 합산 zero 7/21(파손 1행 제외)
+	if m.ZeroPct != 33 { // periodized — daily-summed zero 7/21 (excluding the 1 broken row)
 		t.Errorf("zero_pct=%d, want 33", m.ZeroPct)
 	}
 	if m.HotP95 != 400 { // lens [100..400] p95=400
@@ -135,8 +135,8 @@ func TestReportSevenDayWindow(t *testing.T) {
 	}
 }
 
-// TestReportDaysCapAndEmpty — --days 상한 14(20은 14로) · daily 키 부재는
-// 전일 0행으로 채운다(encoding: 부재 0).
+// TestReportDaysCapAndEmpty — --days caps at 14 (20 becomes 14); a missing daily key
+// fills as a 0 row for that day (encoding: missing = 0).
 func TestReportDaysCapAndEmpty(t *testing.T) {
 	f := newReportFake(nil)
 	out, code := runReportArgs(t, f, "--days", "20")
@@ -161,7 +161,7 @@ func TestReportDaysCapAndEmpty(t *testing.T) {
 	}
 }
 
-// TestReportArgErrors — 무효 --days(비수)·알 수 없는 플래그는 무효 인자
+// TestReportArgErrors — invalid --days (non-numeric) and unknown flags are invalid-arg
 // exit 3.
 func TestReportArgErrors(t *testing.T) {
 	for _, args := range [][]string{{"--days", "abc"}, {"--bogus"}, {"--days"}} {
@@ -176,7 +176,7 @@ func TestReportArgErrors(t *testing.T) {
 	}
 }
 
-// TestReportServerDown — ping 실패는 errLine + MapExit(서버 다운 2).
+// TestReportServerDown — a ping failure is errLine + MapExit (server-down 2).
 func TestReportServerDown(t *testing.T) {
 	f := &fakeStore{pingErr: store.ErrServerDown}
 	out, code := runReportArgs(t, f)
@@ -188,16 +188,16 @@ func TestReportServerDown(t *testing.T) {
 	}
 }
 
-// TestReportRegistered — registry에 report가 있어야 Run이 디스패치한다.
+// TestReportRegistered — report must be in the registry for Run to dispatch it.
 func TestReportRegistered(t *testing.T) {
 	if _, ok := Lookup("report"); !ok {
 		t.Fatal("report 미등록")
 	}
 }
 
-// TestCellToIntUnifiedCoercion — 셀→int 단일 유틸(cellToInt) 경계 회귀:
-// 문자열 숫자·float·nil·비수. rowIDs(구 구현은 문자열 id 미수용)·
-// readCounters(Sscan 별도 구현)가 같은 규약을 공유한다(3중 구현 방지).
+// TestCellToIntUnifiedCoercion — boundary regression for the single cell->int utility (cellToInt):
+// numeric strings, floats, nil, non-numbers. rowIDs (the old implementation rejected string ids) and
+// readCounters (a separate Sscan implementation) share the same convention (preventing a 3rd implementation).
 func TestCellToIntUnifiedCoercion(t *testing.T) {
 	cases := []struct {
 		v    any
@@ -219,12 +219,12 @@ func TestCellToIntUnifiedCoercion(t *testing.T) {
 			t.Errorf("cellToInt(%#v) = (%d,%v), want (%d,%v)", c.v, got, ok, c.want, c.ok)
 		}
 	}
-	// rowIDs — 문자열 숫자 id도 수용, nil·비수는 조용히 건너뛴다.
+	// rowIDs — accepts numeric-string ids too; nil and non-numbers are silently skipped.
 	if ids := rowIDs([][]any{{int32(3)}, {"9"}, {nil}, {7.0}, {"x"}, {}}); len(ids) != 3 ||
 		ids[0] != 3 || ids[1] != 9 || ids[2] != 7 {
 		t.Errorf("rowIDs = %v, want [3 9 7]", ids)
 	}
-	// readCounters — 문자열·int64·float·nil 혼합 행(불가칸은 0 유지).
+	// readCounters — rows mixing strings, int64, floats, and nil (unparsable cells stay 0).
 	var a, b, c, d int
 	readCounters([]any{"5", int64(6), 7.0, nil}, &a, &b, &c, &d)
 	if a != 5 || b != 6 || c != 7 || d != 0 {
@@ -232,11 +232,11 @@ func TestCellToIntUnifiedCoercion(t *testing.T) {
 	}
 }
 
-// TestReportSQLDoltgresCompat — 회귀: report SQL은 Doltgres에서 실행돼야
-// 한다. FILTER 집계 금지(pattern.go 관례)·SQL 내 interval 산술 전면 금지
-// (make_interval·리터럴·$1 곱 모두 — ($1 * interval)은 Doltgres가
-// $1을 interval로 추론해 pgx 인코딩 실패). 컷오프는 Go 계산 timestamptz
-// 파라미터($1)로만 스캔에 전달한다.
+// TestReportSQLDoltgresCompat — regression: report SQL must run on Doltgres.
+// No FILTER aggregates (the pattern.go convention) and no interval arithmetic in SQL at all
+// (make_interval, literals, $1 multiplication alike — ($1 * interval) makes Doltgres infer
+// $1 as interval and pgx encoding fails). The cutoff is computed in Go and passed to the scan only as a
+// timestamptz parameter ($1).
 func TestReportSQLDoltgresCompat(t *testing.T) {
 	type q struct {
 		sql  string
@@ -248,7 +248,7 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
-		case strings.Contains(sql, "hot_stats"): // read_stats 폐지
+		case strings.Contains(sql, "hot_stats"): // read_stats abolished
 			return [][]any{{"read_stats", `{"calls":0,"zero":0}`}, {"hot_stats", `{"lens":[]}`}}, nil
 		case strings.Contains(sql, "invalid_at IS NOT NULL"):
 			return [][]any{{int64(0), int64(0), int64(0)}}, nil
@@ -273,8 +273,8 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		if strings.Contains(q.sql, "make_interval") || strings.Contains(q.sql, "interval") {
 			t.Errorf("SQL 내 interval 산술 금지(T70: Doltgres pgx 추론 결함): %q", q.sql)
 		}
-		// stale 판별은 last_read_at 고유 형태로 — effect의
-		// 집계(read_count, 30일 컷오프)도 "read_count"을 포함해 오판된다.
+		// stale detection uses a last_read_at-specific shape — the effect
+		// tally (read_count, 30-day cutoff) also contains "read_count" and would be misjudged.
 		if strings.Contains(q.sql, "last_read_at") {
 			sawStale = true
 			assertCutoffArg(t, "stale", q.args, 90*24*time.Hour)
@@ -289,8 +289,8 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 	}
 }
 
-// assertCutoffArg — 컷오프 인자는 timestamptz(time.Time) 1개이며 now-backoff
-// (±5분 허용, 실행 지연 여유)임을 단언. int 인자였다면 타입 단언이 실패한다.
+// assertCutoffArg — asserts the cutoff argument is a single timestamptz (time.Time) with now-backoff
+// (±5min allowed for run latency). An int argument would fail the type assertion.
 func assertCutoffArg(t *testing.T, name string, args []any, backoff time.Duration) {
 	t.Helper()
 	if len(args) != 1 {
@@ -308,8 +308,8 @@ func assertCutoffArg(t *testing.T, name string, args []any, backoff time.Duratio
 	}
 }
 
-// installReportTTY — 적응형 진입 TTY 판정 seam 교체(기본
-// 실구현 tui.IsTerminalStdout).
+// installReportTTY — swaps the adaptive-entry TTY-check seam (default real
+// implementation tui.IsTerminalStdout).
 func installReportTTY(t *testing.T, tty bool) {
 	t.Helper()
 	orig := reportTTYFn
@@ -317,7 +317,7 @@ func installReportTTY(t *testing.T, tty bool) {
 	t.Cleanup(func() { reportTTYFn = orig })
 }
 
-// installReportTUIFake — reportTUIFn seam 교체(호출 기록 — 호출부 exit 0).
+// installReportTUIFake — swaps the reportTUIFn seam (records calls; the caller exits 0).
 func installReportTUIFake(t *testing.T) *int {
 	t.Helper()
 	called := 0
@@ -330,7 +330,7 @@ func installReportTUIFake(t *testing.T) *int {
 	return &called
 }
 
-// RF-adaptive-② — 무인자·무플래그 + 터미널: 수집 후 TUI 위임(stdout 무 JSON).
+// RF-adaptive-2 — no args or flags + terminal: collects then delegates to the TUI (no JSON on stdout).
 func TestReportEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	called := installReportTUIFake(t)
 	installReportTTY(t, true)
@@ -346,7 +346,7 @@ func TestReportEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	}
 }
 
-// RF-adaptive-③ — 무인자 + 비터미널(파이프): 기본 JSON 뷰 불변.
+// RF-adaptive-3 — no args + non-terminal (pipe): the default JSON view unchanged.
 func TestReportEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	called := installReportTUIFake(t)
 	installReportTTY(t, false)
@@ -362,8 +362,8 @@ func TestReportEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	}
 }
 
-// RF-adaptive-① — --tui 명시 + 비터미널: 기존 폴백 exit 3 불변
-// (reportTUIFn 기본 실구현 = tui.RunReportTUI — Run 래퍼 폴백).
+// RF-adaptive-1 — explicit --tui + non-terminal: the existing fallback exit 3 unchanged
+// (reportTUIFn default = tui.RunReportTUI — the Run-wrapper fallback).
 func TestReportEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	installReportTTY(t, false)
 	out, code := runEntryArgs(t, newReportFake(nil), "--tui")
@@ -378,7 +378,7 @@ func TestReportEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// RF-adaptive-④ — 플래그 존재 + 터미널: 현행 플래그 경로 유지(TUI 미진입).
+// RF-adaptive-4 — flags present + terminal: the current flag path is kept (no TUI entry).
 func TestReportEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	called := installReportTUIFake(t)
 	installReportTTY(t, true)
@@ -394,7 +394,7 @@ func TestReportEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	}
 }
 
-// RF-noenv — FLINT_NO_TUI=1 + 터미널이어도 기본 JSON 뷰 강제(탈출구).
+// RF-noenv — FLINT_NO_TUI=1 forces the default JSON view even on a terminal (escape hatch).
 func TestReportEntryNoTUIEnvForcesFlagPath(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	called := installReportTUIFake(t)

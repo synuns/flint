@@ -1,5 +1,5 @@
-// hot_full_guard_test.go — --full 접미 안전 가드: 요약에 줄바꿈이 있으면
-// lines↔rows 대응이 무너지므로 접미를 전혀 붙이지 않는다(출력·행 수 불변).
+// hot_full_guard_test.go — the --full suffix safety guard: if a summary contains a newline,
+// the lines<->rows correspondence breaks, so no suffix is appended at all (output and row count unchanged).
 package cli
 
 import (
@@ -11,19 +11,19 @@ import (
 	"time"
 )
 
-// TestHotFullNewlineSummarySkipsSuffix — 개행 포함 요약은
-// 출력 재살균으로 개행이 중립화된 뒤 절단 출력된다(프롬프트 주입 경계
-// 방어 — read 경로와 동일). want는 리터럴 고정.
-// 접미 가드(lines↔rows 대응)는 재살균과 무관한 심층 방어로 유지.
+// TestHotFullNewlineSummarySkipsSuffix — a newline-containing summary is output
+// truncated after the newline is neutralized by output re-sanitization (the prompt-injection
+// boundary defense — same as the read path). want is pinned as a literal.
+// The suffix guard (lines<->rows correspondence) remains a defense-in-depth independent of re-sanitization.
 func TestHotFullNewlineSummarySkipsSuffix(t *testing.T) {
 	ctx := context.Background()
 	validAt := time.Now().UTC().Add(-49 * time.Hour)
 	hotRows := [][]any{
 		{"pending", "토픽", "요약\n둘째 줄", validAt, int32(3), validAt, validAt},
 	}
-	// 리터럴 형식: 필드 구분 "|"·시각은 fmt.Sprint 기본형(FormatRows 비JSON
-	// 계약). 입력값 자체의 표준 포맷팅은 자기복창이 아니다(생산 코드 무관).
-	// 재살균된 요약(개행 제거)은 정상 접미 대상 — -49h는 ·+2d.
+	// the literal format: fields separated by "|", time in fmt.Sprint's default form (the FormatRows non-JSON
+	// contract). Standard formatting of the input values themselves is not self-echoing (irrelevant to production code).
+	// a re-sanitized summary (newline removed) is a normal suffix target — -49h is ·+2d.
 	want := "pending|토픽|요약둘째 줄|" + fmt.Sprint(validAt) + "·+2d\n"
 	var out bytes.Buffer
 	f := &fakeStore{queryFn: pendingAgeQueryFn(hotRows)}

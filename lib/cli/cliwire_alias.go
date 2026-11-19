@@ -1,19 +1,19 @@
-// cliwire_alias.go — 계약층 추출 호환 별칭. lib/wire로 이동한
-// Store·디스패치·registry·DSN·에러 라인·meta KV 표면을 소문자/var 별칭으로
-// 재노출해 잔여 cli 파일이 무편집 컴파일되게 한다. var 별칭은 테스트
-// seam 교체 관례(소문자 var)를 승계한다. 초기 등록 init(구 registry.go)과
-// seam 주입은 root.go composition root가 소유한다.
+// cliwire_alias.go — compatibility aliases for the contract-layer extraction. The
+// Store, dispatch, registry, DSN, error-line, and meta KV surfaces moved to lib/wire are
+// re-exported as lowercase var and type aliases so remaining cli files compile without edits. Var aliases
+// carry over the test seam-swap convention (lowercase var). Initial registration init (the former
+// registry.go) and seam injection are owned by the root.go composition root.
 package cli
 
 import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// 타입 별칭 — 인터페이스 구현·임베딩 무편집.
+// Type aliases — interface implementations and embedding unchanged.
 type Store = wire.Store
 type Handler = wire.Handler
 
-// 함수/var 별칭 — 소비 파일의 소문자 호출·seam 교체 호환.
+// Function/var aliases — lowercase calls and seam swaps in consumer files stay compatible.
 var (
 	Register   = wire.Register
 	Lookup     = wire.Lookup
@@ -25,17 +25,17 @@ var (
 	getMetaKV  = wire.GetMetaKV
 	setMetaKV  = wire.SetMetaKV
 
-	// DSN 해결(config.go 이동분) — ResolveDSN·ConfigPath·LoadConfigDSN는
-	// 기존 공개명 그대로 별칭.
+	// DSN resolution (moved from config.go) — ResolveDSN, ConfigPath, and LoadConfigDSN are
+	// aliased under their existing public names.
 	dsnFromEnv    = wire.DSNFromEnv
 	ResolveDSN    = wire.ResolveDSN
 	LoadConfigDSN = wire.LoadConfigDSN
 	ConfigPath    = wire.ConfigPath
 	defaultDSN    = wire.DefaultDSN
 
-	// 임계값 체계·세션
-	// 라벨 읽기. 소문자 var는 잔류 소비자(tuning·doctor·maintain·read·
-	// marker) 호환용이다.
+	// Threshold system and session
+	// label reads. Lowercase vars remain for residual consumers (tuning, doctor, maintain,
+	// read, marker).
 	thresholdsKeys   = wire.ThresholdsKeys
 	ReadSessionLabel = wire.ReadSessionLabel
 )

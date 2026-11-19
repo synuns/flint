@@ -1,7 +1,7 @@
-// maintain_v08_test.go — 수명주기 액션 회귀(spec §2):
-// --stale 사유·요약 강화 · --invalidate-stale dry-run/--yes · --invalidate
-// --ids 스냅샷 · --supersede. 전부 fake Store(UPDATE 문·파라미터 단언,
-// 컬럼 스키마 무관).
+// maintain_v08_test.go — lifecycle-action regressions (spec §2):
+// --stale reason and summary enrichment; --invalidate-stale dry-run/--yes; --invalidate
+// --ids snapshot; --supersede. All with a fake Store (UPDATE statement and parameter assertions,
+// independent of the column schema).
 package cli
 
 import (
@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-// v08StaleRows — stale 조회 픽스처: 미참조 1건(never_read)·경과 1건(stale).
+// v08StaleRows — stale-query fixtures: 1 unreferenced row (never_read) and 1 elapsed row (stale).
 func v08StaleRows() [][]any {
 	return [][]any{
 		{1, "미참조 노트", nil, ago(100 * 24 * time.Hour), 0},
@@ -21,7 +21,7 @@ func v08StaleRows() [][]any {
 	}
 }
 
-// shortRetryDelays — Retry 재시도를 즉시 실행(테스트 지연 제거).
+// shortRetryDelays — makes Retry retries run immediately (removes test delays).
 func shortRetryDelays(t *testing.T) {
 	t.Helper()
 	prev := maintainRetryDelays
@@ -29,8 +29,8 @@ func shortRetryDelays(t *testing.T) {
 	t.Cleanup(func() { maintainRetryDelays = prev })
 }
 
-// TestStaleListsReasonsSummary — 각 항목에 사유
-// stale|never_read, 요약 "N to invalidate". 기존 --days·--limit 불변.
+// TestStaleListsReasonsSummary — each item carries the reason
+// stale|never_read and the summary "N to invalidate". The existing --days and --limit unchanged.
 func TestStaleListsReasonsSummary(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f, nil, v08StaleRows())
@@ -56,7 +56,7 @@ func TestStaleListsReasonsSummary(t *testing.T) {
 	}
 }
 
-// mustJSON — 한 줄 출력 파싱 헬퍼.
+// mustJSON — one-line output parsing helper.
 func mustJSON(t *testing.T, out string) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -66,8 +66,8 @@ func mustJSON(t *testing.T, out string) map[string]any {
 	return m
 }
 
-// TestInvalidateStaleDryRunDefault — 마커(--yes) 없으면 갱신 없이 --stale과
-// 동일 출력·exit 0(dry-run 기본).
+// TestInvalidateStaleDryRunDefault — without the marker (--yes), identical output to --stale with no updates
+// and exit 0 (dry-run by default).
 func TestInvalidateStaleDryRunDefault(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f, nil, v08StaleRows())
@@ -88,9 +88,9 @@ func TestInvalidateStaleDryRunDefault(t *testing.T) {
 	}
 }
 
-// TestInvalidateStaleYesApplies — --yes 시 대상 전체 전이
-// (Repo.Invalidate 위임 — status·invalid_at 병기는 db 계층 소유)+Commit,
-// 쓰기 경로 Retry(40001 1회 후 회복).
+// TestInvalidateStaleYesApplies — with --yes, the transition applies to all targets
+// (Repo.Invalidate delegation — status and invalid_at recording is owned by the db layer) + Commit,
+// and the write path uses Retry (one 40001 then recovery).
 func TestInvalidateStaleYesApplies(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -125,9 +125,9 @@ func TestInvalidateStaleYesApplies(t *testing.T) {
 	}
 }
 
-// TestInvalidateIdsSnapshot — --ids는 dry-run 재평가 무관
-// 지정 id 고정(stale 질의 없음). 부재 id → exit 1. --yes 병행 필수.
-// 갱신은 Repo.Invalidate 위임(캡처로 단언).
+// TestInvalidateIdsSnapshot — --ids pins the given ids regardless of dry-run reevaluation
+// (no stale query). A missing id -> exit 1. --yes is mandatory alongside.
+// The update is a Repo.Invalidate delegation (asserted via capture).
 func TestInvalidateIdsSnapshot(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -154,7 +154,7 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 		t.Errorf("Commit 호출=%d회, want 1", len(f.commits))
 	}
 
-	// 부재 id — 존재 확인 1건만 → exit 1, 전이·Commit 없음.
+	// missing id — only 1 existence check -> exit 1, no transition and no Commit.
 	f2 := &fakeMaint{fakeStore: &fakeStore{}}
 	f2.queryFn = func(sql string, args []any) ([][]any, error) {
 		return [][]any{{4}}, nil
@@ -173,7 +173,7 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 		t.Errorf("부재 시 Commit 발생: %v", f2.commits)
 	}
 
-	// --yes 없는 --ids — 실행 확정 미수반 → exit 1.
+	// --ids without --yes — no execution confirmation -> exit 1.
 	_, code3 := runMaintainArgs(t, &fakeMaint{fakeStore: &fakeStore{}},
 		"--invalidate", "--ids", "4")
 	if code3 != 1 {
@@ -181,9 +181,9 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 	}
 }
 
-// supersedeFixture — OLD 상태·NEW valid_at 조회 응답. 갱신은
-// Repo.Supersede 위임(fakeMaint 캡처) — 0행 경합 후견사는 rows-affected로
-// db 계층에 내장.
+// supersedeFixture — responses for the OLD state and NEW valid_at lookups. The update is a
+// Repo.Supersede delegation (captured by fakeMaint) — the 0-row race stewardship is built into
+// the db layer via rows-affected.
 func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 	t.Helper()
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -194,9 +194,9 @@ func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 	}
 }
 
-// TestSupersedeSetsFields — OLD active일 때만 전이 위임
-// (status·superseded_by=NEW·invalid_at=NEW valid_at 병기는 Repo.Supersede
-// 소유 — 위임 파라미터로 단언)+Commit.
+// TestSupersedeSetsFields — the transition delegates only when OLD is active
+// (status, superseded_by=NEW, and invalid_at=NEW valid_at recording is owned by Repo.Supersede —
+// asserted via delegation parameters) + Commit.
 func TestSupersedeSetsFields(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -220,8 +220,8 @@ func TestSupersedeSetsFields(t *testing.T) {
 	}
 }
 
-// TestSupersedeRejects — NEW 부재 exit 1 · 자기참조 exit 3 ·
-// OLD 비active(부재 포함) exit 1. 각각 전이(위임)·Commit 없음.
+// TestSupersedeRejects — missing NEW exits 1; self-reference exits 3;
+// non-active OLD (including missing) exits 1. No transition (delegation) or Commit in either case.
 func TestSupersedeRejects(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -254,8 +254,8 @@ func TestSupersedeRejects(t *testing.T) {
 	}
 }
 
-// TestMaintainV08ModeFlagConflicts — 기존 모드 귀속 검증 패턴 준수:
-// 무관 값 플래그·--yes 남용은 조용한 무시가 아니라 에러.
+// TestMaintainV08ModeFlagConflicts — follows the existing mode-ownership validation pattern:
+// unrelated value flags and --yes misuse are errors, not silently ignored.
 func TestMaintainV08ModeFlagConflicts(t *testing.T) {
 	cases := []struct {
 		name string

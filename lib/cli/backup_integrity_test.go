@@ -7,10 +7,10 @@ import (
 	"testing"
 )
 
-// ADR-0006 — restore 체크섬 가드. 가드는 runRestore 1곳에만 존재한다.
-// fake backup seam(backup_test.go) 재사용 — restoreFn 위임 여부로 가드 선행 검증.
+// ADR-0006 — the restore checksum guard. The guard exists in exactly one place, runRestore.
+// Reuses the fake backup seam (backup_test.go) — verifies the guard runs first via whether restoreFn is called.
 
-// 불일치 — 한 줄 JSON 경고 + exit 1, restoreFn 미호출(임의 SQL 실행 차단).
+// mismatch — one-line JSON warning + exit 1, restoreFn not called (blocking arbitrary SQL execution).
 func TestRestoreChecksumMismatchExit1(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)
@@ -56,7 +56,7 @@ func TestRestoreMissingSidecarBlocked(t *testing.T) {
 	}
 }
 
-// backup --out 이 원본+.sha256 사이드카를 함께 생성하는지(ADR-0006).
+// that backup --out creates the original + .sha256 sidecar together (ADR-0006).
 func TestBackupWritesSidecar(t *testing.T) {
 	f := &fakeBackup{dumpText: "-- flint backup probe\nBEGIN;\nCOMMIT;\n"}
 	withBackupFake(t, f)

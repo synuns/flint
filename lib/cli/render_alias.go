@@ -1,10 +1,10 @@
-// render_alias.go — lib/render 출력층 별칭(패키지 분할 1/3,
-// 스펙 §2). render.go·textutil.go 원본은 lib/render로 이동됐고, 잔여
-// cli 소비 파일(read·hot·pending·brief·maintain 등)이 무편집 컴파일
-// 되도록 같은 이름의 var 별칭을 제공한다. 소문자 var(truncateRunes·
-// countPending)는 테스트 seam 교체 관례 호환 유지.
-// CountPending 정의는 pending 도메인 소유라
-// lib/knowledge로 이동 — 별칭만 knowledge.CountPending으로 재지정한다.
+// render_alias.go — aliases for the lib/render output layer (package split 1/3,
+// spec §2). The render.go and textutil.go originals moved to lib/render; same-name
+// var aliases keep remaining cli consumer files (read, hot, pending, brief, maintain, etc.)
+// compiling without edits. Lowercase vars (truncateRunes,
+// countPending) keep test seam-swap convention compatibility.
+// The CountPending definition belongs to the pending domain, so it
+// moved to lib/knowledge — only the alias is re-pointed at knowledge.CountPending.
 package cli
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/synuns/flint/lib/render"
 )
 
-// 출력 살균 조크포인트 — render 패키지 단일 구현 위임.
+// output sanitization choke point — delegated to the single render-package implementation.
 var (
 	Text          = render.Text
 	Masked        = render.Masked
@@ -22,8 +22,8 @@ var (
 	CountPending  = knowledge.CountPending
 )
 
-// 소비자 호환 소문자 별칭(무편집 관례 — import·maintain·done 및
-// sessionhook·status·nudge가 그대로 호출한다).
+// Consumer-compat lowercase aliases (no-edit convention — import, maintain, done and
+// sessionhook, status, nudge call them as-is).
 var (
 	truncateRunes = render.TruncateRunes
 	countPending  = knowledge.CountPending

@@ -1,7 +1,7 @@
-// v0140_fix_test.go — 회귀(cli): eligible 헬퍼 단일
-// 소스, metaKV 공유 헬퍼. (BumpReadStats 와이프 방지는
-// read_stats blob 폐지로 함께 폐지 — 파생 경로 동등성은 lib/ops/
-// report_parity_test.go가 담당한다.)
+// v0140_fix_test.go — cli regressions: the single-source eligible
+// helper and the shared metaKV helper. (The BumpReadStats wipe guard was
+// abolished along with the read_stats blob — derived-path equivalence is covered by
+// lib/ops/report_parity_test.go.)
 package cli
 
 import (
@@ -12,8 +12,8 @@ import (
 	"testing"
 )
 
-// TestReadSuggestEligible — eligible 판정 단일 소스(P3): 현재 시점·
-// 무상태필터·0행일 때만 참(폴백 게이트·제안 스캔 게이트·침묵 exit 공유).
+// TestReadSuggestEligible — the eligible determination is a single source (P3): true only for the current time,
+// no stateful filters, and 0 rows (sharing the fallback gate, suggestion-scan gate, and silent exit).
 func TestReadSuggestEligible(t *testing.T) {
 	cases := []struct {
 		rows   int
@@ -21,12 +21,12 @@ func TestReadSuggestEligible(t *testing.T) {
 		status string
 		want   bool
 	}{
-		{0, "", "", true},              // eligible 제로히트
-		{1, "", "", false},             // 히트
-		{3, "", "", false},             // 히트(복수)
-		{0, "abc123", "", false},       // --as-of(과거 시점)
-		{0, "", "active", false},       // --status(상태 필터)
-		{0, "abc123", "active", false}, // 둘 다
+		{0, "", "", true},              // eligible zero hit
+		{1, "", "", false},             // hit
+		{3, "", "", false},             // hit (multiple)
+		{0, "abc123", "", false},       // --as-of (past point in time)
+		{0, "", "active", false},       // --status (state filter)
+		{0, "abc123", "active", false}, // both
 	}
 	for _, c := range cases {
 		if got := readSuggestEligible(c.rows, c.asOf, c.status); got != c.want {
@@ -36,8 +36,8 @@ func TestReadSuggestEligible(t *testing.T) {
 	}
 }
 
-// TestMetaKVRoundtrip — metaKV가 Store 위에 getKV/setKV 클로저를 올바르게
-// 조립한다(P4): 부재 ("",nil)·set→get 왕복·전송 오류 전파.
+// TestMetaKVRoundtrip — metaKV correctly assembles getKV/setKV closures over a Store
+// (P4): absent ("",nil), a set->get round trip, and transport-error propagation.
 func TestMetaKVRoundtrip(t *testing.T) {
 	meta := map[string]string{}
 	f := &fakeStore{}
@@ -50,7 +50,7 @@ func TestMetaKVRoundtrip(t *testing.T) {
 			if v, ok := meta[fmt.Sprint(args[0])]; ok {
 				return [][]any{{v}}, nil
 			}
-			return nil, nil // 키 부재
+			return nil, nil // key absent
 		}
 		return nil, nil
 	}
@@ -64,7 +64,7 @@ func TestMetaKVRoundtrip(t *testing.T) {
 	if v, err := getKV("read_stats"); err != nil || v != `{"calls":1}` {
 		t.Fatalf("왕복 getKV=(%q,%v), want 저장값 원문", v, err)
 	}
-	// 전송 오류 전파 — getKV·setKV 모두 query 오류를 그대로 반환한다.
+	// transport-error propagation — both getKV and setKV return query errors as-is.
 	g := &fakeStore{queryErr: errors.New("db down")}
 	get2, set2 := metaKV(context.Background(), g)
 	if _, err := get2("k"); err == nil {

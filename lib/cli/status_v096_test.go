@@ -1,12 +1,12 @@
-// status_v096_test.go — status 출력에 read_fallback_calls(계측
-// meta) 노출 검증. 키 "3" → 3, 미설정 → null. 기존 필드·순서는
-// status_v06/v08 리플렉션 테스트가 담보.
+// status_v096_test.go — verifies the status output exposes read_fallback_calls (metering
+// meta). Key "3" -> 3; unset -> null. The existing fields and order are
+// covered by the status_v06/v08 reflection tests.
 package cli
 
 import "testing"
 
 func TestStatusIncludesFallbackField(t *testing.T) {
-	// schema_version은 헬퍼 특성상 kv로 심어야 exit 3(스키마 불일치)을 피한다.
+	// the helper's nature requires seeding schema_version into kv to avoid exit 3 (schema mismatch).
 	res, code := statusWithMeta(t, map[string]string{"schema_version": "3", "read_fallback_calls": "3"})
 	if code != 0 {
 		t.Fatalf("exit=%d", code)
