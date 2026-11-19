@@ -1,4 +1,4 @@
-// Package db 는 Doltgres 접속 풀과 재시도 정책을 제공한다.
+// Package db provides the Doltgres connection pool and retry policy.
 package db
 
 import (
@@ -12,23 +12,26 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// 에러 심볼 단일 소유는 lib/store — db는 별칭만 제공한다.
+// Single ownership of the error symbols lives in lib/store — db provides
+// aliases only.
 var (
 	ErrServerDown       = store.ErrServerDown
 	ErrRetriesExhausted = store.ErrRetriesExhausted
 )
 
-// DefaultDelays 는 기본 재시도 간격: 즉시, 1초, 3초.
+// DefaultDelays is the default retry spacing: immediate, 1s, 3s.
 var DefaultDelays = []time.Duration{0, 1 * time.Second, 3 * time.Second}
 
-// DefaultConnectTimeout — 접속 시도 상한 5s. 원격
-// 불통(패킷 드롭 — 연결 거부와 달리 커널 타임아웃까지 매달린다)을
-// 조기 실패시켜 세션 훅 예산(10s) 내 exit 2로 끝낸다.
+// DefaultConnectTimeout — the 5s connection-attempt cap. Fails remote
+// unreachability early (packet drop — unlike a refused connection, it
+// hangs until the kernel timeout) so the session hook finishes with
+// exit 2 within its budget (10s).
 const DefaultConnectTimeout = 5 * time.Second
 
-// PoolConfig — DSN을 파싱해 ConnectTimeout이 보장된 풀 설정을 돌려준다.
-// 미지정(0)이면 기본 5s, 사용자 지정값이 더 길면(불통 지연) 5s로 상한,
-// 더 짧으면 사용자 값을 유지한다. 파싱 실패는 ErrServerDown으로 감싼다.
+// PoolConfig — parses the DSN and returns a pool config with a
+// guaranteed ConnectTimeout. Unspecified (0) defaults to 5s; a longer
+// user-specified value (unreachable-delay) is capped at 5s; a shorter
+// one is kept. A parse failure is wrapped as ErrServerDown.
 func PoolConfig(dsn string) (*pgxpool.Config, error) {
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
@@ -40,9 +43,10 @@ func PoolConfig(dsn string) (*pgxpool.Config, error) {
 	return cfg, nil
 }
 
-// Connect 는 DSN으로 풀을 만들고 Ping으로 생존을 확인한다.
-// 서버에 닿을 수 없으면 ErrServerDown을 돌려준다(재시도 없음).
-// 접속 시도는 PoolConfig의 ConnectTimeout(기본 5s 상한)을 따른다.
+// Connect builds a pool from the DSN and confirms liveness with Ping.
+// Returns ErrServerDown when the server is unreachable (no retry).
+// Connection attempts follow PoolConfig's ConnectTimeout (default 5s
+// cap).
 func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	cfg, err := PoolConfig(dsn)
 	if err != nil {
@@ -59,9 +63,11 @@ func Connect(ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	return pool, nil
 }
 
-// Retry 는 fn을 delays 횟수만큼 시도한다. delays[i]는 i+1번째 시도 전 대기다.
-// fn이 nil을 돌려주면 즉시 nil, ErrServerDown이면 재시도 없이 즉시 반환,
-// 모두 실패하면 ErrRetriesExhausted. 재시도 중 ctx 취소는 ctx.Err() 반환.
+// Retry attempts fn delays-many times. delays[i] is the wait before the
+// i+1-th attempt. fn returning nil returns nil immediately;
+// ErrServerDown returns immediately without retry; exhausting all
+// attempts yields ErrRetriesExhausted. A ctx cancellation during retry
+// returns ctx.Err().
 func Retry(ctx context.Context, fn func() error, delays []time.Duration) error {
 	var last error
 	for i, d := range delays {
@@ -82,15 +88,16 @@ func Retry(ctx context.Context, fn func() error, delays []time.Duration) error {
 		}
 		last = err
 	}
-	// 마지막 오류를 함께 감싼다 — 소진 사실만 돌려주면 원인이 묻혀
-	// 진단 불가(CI 조사에서 드러난 진단성 결함).
+	// Wraps the last error too — returning only the exhaustion buries
+	// the cause and makes diagnosis impossible (a diagnosability defect
+	// surfaced during a CI investigation).
 	if last != nil {
 		return fmt.Errorf("%w: %v", ErrRetriesExhausted, last)
 	}
 	return ErrRetriesExhausted
 }
 
-// sleepCtx 는 ctx 취소 시 즉시 반환되는 sleep이다.
+// sleepCtx is a sleep that returns immediately on ctx cancellation.
 func sleepCtx(ctx context.Context, d time.Duration) error {
 	if d <= 0 {
 		return ctx.Err()

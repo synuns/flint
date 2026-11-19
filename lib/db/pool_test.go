@@ -75,7 +75,7 @@ func TestRetryServerDownImmediate(t *testing.T) {
 func TestConnectServerDown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// 포트 5439는 미사용 — 서버 다운 유도
+	// Port 5439 is unused — inducing a server-down
 	_, err := Connect(ctx, "postgresql://flint:flint-dev@localhost:5439/flint")
 	if !errors.Is(err, ErrServerDown) {
 		t.Fatalf("want ErrServerDown, got %v", err)
@@ -83,7 +83,8 @@ func TestConnectServerDown(t *testing.T) {
 }
 
 func TestConnectReal(t *testing.T) {
-	// FLINT_DSN 미설정 시 5433 폴백 대신 스킵 — testutil_test.go 참조.
+	// Without FLINT_DSN, skip instead of the 5433 fallback — see
+	// testutil_test.go.
 	dsn := testDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -97,9 +98,10 @@ func TestConnectReal(t *testing.T) {
 	}
 }
 
-// TestPoolConfigConnectTimeout — 풀 설정의 접속
-// 타임아웃은 기본 5s(원격 불통 조기 실패 — hooks 10s 예산 내 exit 2).
-// DSN 지정값이 더 짧으면 사용자 값 유지, 더 길면 5s로 상한.
+// TestPoolConfigConnectTimeout — the pool config's connection timeout
+// defaults to 5s (failing remote unreachability early — exit 2 within
+// the hooks' 10s budget). A shorter DSN-specified value is kept; a
+// longer one is capped at 5s.
 func TestPoolConfigConnectTimeout(t *testing.T) {
 	cfg, err := PoolConfig("postgresql://flint:flint-dev@localhost:5434/flint")
 	if err != nil {

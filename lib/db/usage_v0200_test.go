@@ -1,5 +1,5 @@
-// usage_v0200_test.go — 세션 경계·hot 노출 기록·3테이블 통합
-// 보존 정리 슬로우 테스트(실DB).
+// usage_v0200_test.go — session boundaries·hot exposure recording·the
+// 3-table unified retention cleanup slow tests (real DB).
 package db
 
 import (
@@ -8,9 +8,9 @@ import (
 	"time"
 )
 
-// TestSessionStartAndHotEventRecords — 기록 메서드가 값을
-// 그대로 남기고 14일 보존 정리(PruneReadEvents)가 3테이블 전부에서
-// 초과분만 삭제한다.
+// TestSessionStartAndHotEventRecords — the recording methods leave the
+// values as-is, and the 14-day retention cleanup (PruneReadEvents)
+// deletes only the expired portion across all 3 tables.
 func TestSessionStartAndHotEventRecords(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -33,7 +33,8 @@ func TestSessionStartAndHotEventRecords(t *testing.T) {
 	if err := r.RecordHotEvent(ctx, label); err != nil {
 		t.Fatalf("RecordHotEvent: %v", err)
 	}
-	// 세션 시작 2건을 20일 전으로 되돌려 보존 한도 밖으로.
+	// Roll the 2 session starts back 20 days, past the retention
+	// horizon.
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE session_starts SET ts = $1 WHERE session = $2`,
 		time.Now().UTC().Add(-20*24*time.Hour), label); err != nil {

@@ -1,8 +1,10 @@
-// asof_query.go — AS OF 시점 질의(wire.AsOfQuery 계약의 Doltgres 구현).
-// 호출측(lib/knowledge read)이 원시 AS OF 절 조립을 더 이상 하지 않는다 —
-// 인라인·해시 문자셋 재검증·뷰 비호환 안내 래핑이 이 계층의 단일 소스다.
-// 조립형: "SELECT {Columns} FROM {Table} AS OF '{hash}' {Where} LIMIT {Limit}"
-// (Limit은 int 리터럴, 0 이하면 LIMIT 절 생략).
+// asof_query.go — the AS OF point-in-time query (the Doltgres
+// implementation of the wire.AsOfQuery contract). The caller
+// (lib/knowledge read) no longer assembles a raw AS OF clause —
+// inlining·hash-charset revalidation·view-incompatibility guidance
+// wrapping are this layer's single source. Assembly shape:
+// "SELECT {Columns} FROM {Table} AS OF '{hash}' {Where} LIMIT {Limit}"
+// (Limit is an int literal; 0 or below omits the LIMIT clause).
 package db
 
 import (
@@ -16,42 +18,53 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// asOfTables — AS OF 질의 허용 테이블. base(knowledge)와 뷰
-// (active_knowledge)만 — 그 외 참조는 조립 전 거부.
+// asOfTables — the tables allowed for AS OF queries. The base
+// (knowledge) and the view (active_knowledge) only — other references
+// are rejected before assembly.
 var asOfTables = map[string]bool{
 	"knowledge":        true,
 	"active_knowledge": true,
 }
 
-// asOfHashReDB — AS OF 인라인 해시의 엄격 문자셋(소문자 base32계,
-// lib/knowledge asOfHashRe와 동등 규칙 — 원본 수정 금지라 db에 동등
-// 정의 신규 작성). 엔진 반환값 신뢰의 이중 확인: 위반은 인라인 대신 오류.
+// asOfHashReDB — the strict charset of the AS OF inline hash (lowercase
+// base32-family, the same rule as lib/knowledge asOfHashRe — the
+// original must not be modified, so an equivalent definition was newly
+// written in db). A double check of the engine-returned value: a
+// violation is an error instead of inlining.
 var asOfHashReDB = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
 
-// asOfColumnRe — Columns 식별자 검증. 소문자·숫자·밑줄·괄호·별표·공백·
-// 쉼표만(함수·표현식 허용 — count(*)·산술). 대문자·문장 구분자·대시 거부.
+// asOfColumnRe — Columns identifier validation. Lowercase·digits·
+// underscore·parens·asterisk·space·comma only (functions·expressions
+// allowed — count(*)·arithmetic). Uppercase·sentence punctuation·dash
+// rejected.
 var asOfColumnRe = regexp.MustCompile(`^[a-z_0-9)(* ,]+$`)
 
-// asOfWhereKeywordRe — Where가 이미 절 키워드(where/order/limit,
-// 대소문자 무시)로 시작하는지 판정. read 경로의 꼬리 절 폼은 그대로
-// 붙이고, status 경로의 조건-only 폼에는 " WHERE " 접두를 붙인다.
+// asOfWhereKeywordRe — decides whether Where already starts with a
+// clause keyword (where/order/limit, case-insensitive). The read path's
+// tail-clause form is attached as-is; the status path's conditions-only
+// form gets the " WHERE " prefix attached.
 var asOfWhereKeywordRe = regexp.MustCompile(`(?i)^(where|order|limit)\b`)
 
-// QueryAsOf — q를 조립해 시점 질의를 실행한다. Where는 테이블 참조 뒤
-// raw 꼬리 절("WHERE ... ORDER BY ..." — $N은 Args에 순서 바인딩) 또는
-// 조건-only 폼("status = 'pending' AND ..." — 조립부가 WHERE 접두 부여)
-// 으로 repo 내 질의 조립기 산출물만 받는 신뢰 경계(외부 입력은 Columns·Hash·
-// Table 검증으로 차단). 뷰(active_knowledge) 비호환 — "column ... does
-// not exist"(현재 정의 + 과거 행, C3) — 이면 base 재시도 없이 즉시
-// 안내 문구 랩 오류(안내 문구는 원본 read.go wrapViewColumnMismatch와
-// 동치 — 판정 isViewColumnMismatch는 원본 휴리스틱에 "references
-// invalid table(s)" 확장 포함. base는 invalid_at 필터가 없어 폴백
-// 노출이 시점 정합성을 깬다).
+// QueryAsOf — assembles q and runs the point-in-time query. Where
+// accepts, as a trust boundary receiving only repo-internal query-
+// assembler output, either the raw tail clause after the table
+// reference ("WHERE ... ORDER BY ..." — $N binds positionally to Args)
+// or the conditions-only form ("status = 'pending' AND ..." — the
+// assembler attaches the WHERE prefix) (external input is blocked by
+// the Columns·Hash·Table validation). On view (active_knowledge)
+// incompatibility — "column ... does not exist" (current definition +
+// past rows, C3) — immediately returns the guidance-wrapped error
+// without a base retry (the guidance text is equivalent to the original
+// read.go wrapViewColumnMismatch — the isViewColumnMismatch verdict
+// includes the "references invalid table(s)" extension over the
+// original heuristic. The base lacks the invalid_at filter, so fallback
+// exposure breaks point-in-time consistency).
 func (r *Repo) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
 	rows, err := r.queryAsOfTable(ctx, q, q.Table)
 	if err != nil {
 		if isViewColumnMismatch(err) {
-			// 원문 보존(read.go wrapViewColumnMismatch 이관) — 안내 문구 유지.
+			// Original preserved (transferred from read.go
+			// wrapViewColumnMismatch) — guidance text kept.
 			return nil, fmt.Errorf("%w — the active_knowledge view definition is incompatible with rows at that point in time; try an AS OF query on the base table (knowledge)", err)
 		}
 		return nil, err
@@ -59,13 +72,13 @@ func (r *Repo) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error)
 	return rows, nil
 }
 
-// queryAsOfTable — 검증 후 단일 테이블 AS OF 조립 실행.
+// queryAsOfTable — validates then runs the single-table AS OF assembly.
 func (r *Repo) queryAsOfTable(ctx context.Context, q wire.AsOfQuery, table string) ([][]any, error) {
 	if !asOfTables[table] {
 		return nil, fmt.Errorf("query as of: table %q not allowed (knowledge, active_knowledge)", table)
 	}
 	if !asOfHashReDB.MatchString(q.Hash) {
-		// 원문 정합(read.go) — "as-of hash charset violation".
+		// Original-aligned (read.go) — "as-of hash charset violation".
 		return nil, fmt.Errorf("as-of hash charset violation: %q", q.Hash)
 	}
 	for _, c := range q.Columns {
@@ -82,11 +95,12 @@ func (r *Repo) queryAsOfTable(ctx context.Context, q wire.AsOfQuery, table strin
 	b.WriteString(q.Hash)
 	b.WriteString("'")
 	if q.Where != "" {
-		// Where 양형식 수용: read(T7)은 "WHERE ... ORDER BY ..."처럼
-		// 키워드로 시작하는 꼬리 절을, status(T8)은 조건만
-		// ("status = 'pending' AND ...")을 전달한다. 선행 절 키워드
-		// (where/order/limit, 대소문자 무시)로 시작하지 않으면
-		// " WHERE " 접두를 붙인다 — 키워드 폼은 바이트 동치 유지.
+		// Both Where forms accepted: read (T7) passes a tail clause
+		// starting with a keyword ("WHERE ... ORDER BY ..."); status
+		// (T8) passes conditions only ("status = 'pending' AND ...").
+		// When it does not start with a leading clause keyword
+		// (where/order/limit, case-insensitive), the " WHERE " prefix
+		// is attached — keyword-form keeps byte equivalence.
 		b.WriteString(" ")
 		if asOfWhereKeywordRe.MatchString(q.Where) {
 			b.WriteString(q.Where)
@@ -101,10 +115,12 @@ func (r *Repo) queryAsOfTable(ctx context.Context, q wire.AsOfQuery, table strin
 	return r.queryRows(ctx, b.String(), q.Args...)
 }
 
-// isViewColumnMismatch — 뷰-컬럼 미호환(과거 행에 없는 컬럼) 판정.
-// 원문 read.go wrapViewColumnMismatch의 휴리스틱 승계 + Doltgres 뷰 AS OF
-// 실측 형태("references invalid table(s) or column(s)") 확장 — 원문
-// 휴리스틱만으로는 이 형태를 놓친다(실측).
+// isViewColumnMismatch — the view-column incompatibility verdict (a
+// column absent from past rows). Inherits the original read.go
+// wrapViewColumnMismatch heuristic + extends it with the measured
+// Doltgres view-AS OF shape ("references invalid table(s) or
+// column(s)") — the original heuristic alone misses this shape
+// (measured).
 func isViewColumnMismatch(err error) bool {
 	msg := err.Error()
 	if strings.Contains(msg, "column") && strings.Contains(msg, "does not exist") {
@@ -113,8 +129,8 @@ func isViewColumnMismatch(err error) bool {
 	return strings.Contains(msg, "references invalid table(s) or column(s)")
 }
 
-// queryRows — pgx 질의를 [][]any로(pool Query 공용 패턴 — rows.Values).
-// 질의 실패는 재시도 1회(spec §7).
+// queryRows — a pgx query into [][]any (the pool Query common pattern —
+// rows.Values). A query failure retries once (spec §7).
 func (r *Repo) queryRows(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	rows, err := r.queryRetry(ctx, sql, args...)
 	if err != nil {
@@ -132,15 +148,17 @@ func (r *Repo) queryRows(ctx context.Context, sql string, args ...any) ([][]any,
 	return out, rows.Err()
 }
 
-// queryRetry — pool.Query를 재시도 1회로 실행(모든 db 히스토리 읽기 공용).
+// queryRetry — runs pool.Query with one retry (shared by all db history
+// reads).
 func (r *Repo) queryRetry(ctx context.Context, sql string, args ...any) (pgx.Rows, error) {
 	return retryOnce(func() (pgx.Rows, error) {
 		return r.pool.Query(ctx, sql, args...)
 	})
 }
 
-// retryOnce — 읽기 재시도 1회(spec §7 — wire.QueryOnce 동등 계약의 db
-// 구현 내 사본). 첫 실패 → 1회 재실행 → 최종 결과 전파.
+// retryOnce — one read retry (spec §7 — an in-db copy of the
+// wire.QueryOnce equivalent contract). First failure → one re-run →
+// final result propagated.
 func retryOnce[T any](fn func() (T, error)) (T, error) {
 	v, err := fn()
 	if err != nil {

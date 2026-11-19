@@ -1,7 +1,8 @@
-// repo_transition_test.go — knowledge 상태 전이 UPDATE의 repo
-// 단일화(Invalidate·Supersede — rows-affected 후견사 내장). fake는
-// transitionExecFn seam으로 SQL·파라미터를 가로채고(SUPERLITE_REAL=1이면
-// 실구현 — 실경로 왕복은 slow 실DB 라인이 검증한다).
+// repo_transition_test.go — the repo unification of the knowledge
+// state-transition UPDATEs (Invalidate·Supersede — rows-affected
+// stewardship built in). The fake intercepts SQL·parameters via the
+// transitionExecFn seam (SUPERLITE_REAL=1 keeps the real implementation
+// — the real-path round trip is verified by the slow real-DB line).
 package db
 
 import (
@@ -15,11 +16,11 @@ import (
 	"time"
 )
 
-// transitionRecorder — fake 실행 seam 기록(호출별 SQL·파라미터)과
-// 스크립트된 rows-affected.
+// transitionRecorder — the fake execution-seam recording (per-call
+// SQL·parameters) plus scripted rows-affected.
 type transitionRecorder struct {
 	calls []transitionCall
-	n     int64 // 각 호출이 돌려줄 rows-affected(기본 1)
+	n     int64 // the rows-affected each call returns (default 1)
 }
 
 type transitionCall struct {
@@ -27,8 +28,9 @@ type transitionCall struct {
 	args []any
 }
 
-// useFakeTransitionExec — transitionExecFn seam 교체. SUPERLITE_REAL=1이면
-// 실구현을 그대로 둔다(시험 seam 체크 — 그 경우 호출자는 slow 라인으로).
+// useFakeTransitionExec — swaps the transitionExecFn seam. With
+// SUPERLITE_REAL=1, leaves the real implementation as-is (a test-seam
+// check — in that case the caller goes to the slow line).
 func useFakeTransitionExec(t *testing.T) *transitionRecorder {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") == "1" {
@@ -44,18 +46,20 @@ func useFakeTransitionExec(t *testing.T) *transitionRecorder {
 	return rec
 }
 
-// updateKnowledgeRe — 유일 소스 단언: ops·knowledge 비테스트 소스의
-// UPDATE knowledge 리터럴 탐지.
+// updateKnowledgeRe — the single-source assertion: detecting UPDATE
+// knowledge literals in the ops·knowledge non-test sources.
 var updateKnowledgeRe = regexp.MustCompile(`(?i)UPDATE\s+knowledge`)
 
-// transitionSources — 전이 위임 대상 소스(maintain 갱신 3경로·approve 갱신).
+// transitionSources — the sources of transition-delegation targets
+// (maintain's 3 renewal paths·approve's renewal).
 var transitionSources = []string{
 	"../ops/maintain.go",
 	"../knowledge/approve.go",
 }
 
-// assertNoUpdateKnowledgeLiterals — 소스에 UPDATE knowledge 리터럴 잔여 0
-// (전부 Repo 경유 — TestInvalidateSupersedeSingleSource).
+// assertNoUpdateKnowledgeLiterals — 0 residual UPDATE knowledge literals
+// in the sources (everything via Repo —
+// TestInvalidateSupersedeSingleSource).
 func assertNoUpdateKnowledgeLiterals(t *testing.T) {
 	t.Helper()
 	for _, path := range transitionSources {
@@ -69,9 +73,10 @@ func assertNoUpdateKnowledgeLiterals(t *testing.T) {
 	}
 }
 
-// TestInvalidateSupersedeSingleSource — 전이 UPDATE는 Repo
-// 단일 경로 — ① Invalidate·Supersede SQL 병기 단언(fake repo 레벨)
-// ② maintain·approve 소스에 UPDATE knowledge 리터럴 0.
+// TestInvalidateSupersedeSingleSource — the transition UPDATEs have the
+// single Repo path — ① asserts Invalidate·Supersede's SQL co-writing
+// (fake repo level) ② 0 UPDATE knowledge literals in the maintain·
+// approve sources.
 func TestInvalidateSupersedeSingleSource(t *testing.T) {
 	assertNoUpdateKnowledgeLiterals(t)
 	if os.Getenv("SUPERLITE_REAL") == "1" {
@@ -115,8 +120,8 @@ func TestInvalidateSupersedeSingleSource(t *testing.T) {
 		t.Errorf("Supersede 파라미터=%v, want [3 7 %v]", rec.calls[1].args, at)
 	}
 
-	// 0행 후견사 — 경합 무음 성공 금지(ErrNotFound 랩: 기존 supersede
-	// 후견사 계약 승계).
+	// The 0-rows steward — no silent race success (ErrNotFound wrap:
+	// inheriting the existing supersede steward contract).
 	rec.n = 0
 	if _, err := r.Invalidate(ctx, []int{9}, "경합"); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Invalidate 0행 오류 = %v, want ErrNotFound 랩", err)
@@ -124,16 +129,18 @@ func TestInvalidateSupersedeSingleSource(t *testing.T) {
 	if _, err := r.Supersede(ctx, 3, 7, at); !errors.Is(err, ErrNotFound) {
 		t.Errorf("Supersede 0행 오류 = %v, want ErrNotFound 랩", err)
 	}
-	// 경합 에러 메시지는 영어 — 메시지는 MCP rpcError로 직통된다.
+	// The race error message is English — the message passes through
+	// directly to MCP rpcError.
 	if _, err := r.Invalidate(ctx, []int{9}, "race"); !strings.Contains(err.Error(), "0 rows updated (race)") {
 		t.Errorf("Invalidate 0행 메시지 = %v, want English race message", err)
 	}
 }
 
-// TestSupersedeRecordsLineage — 계보는 superseded_by 병기
-// 단일 모델(텍스트 마커 이중 모델 폐지). fake — SQL이 superseded_by를
-// 기록하고 summary 텍스트 마커를 남기지 않음. REAL — 실DB에서
-// superseded_by·invalid_at=NEW.valid_at 기록 확인.
+// TestSupersedeRecordsLineage — the lineage is the single
+// superseded_by-recording model (the dual text-marker model abolished).
+// Fake — the SQL records superseded_by and leaves no summary text
+// marker. REAL — verifies superseded_by·invalid_at=NEW.valid_at
+// recording on the real DB.
 func TestSupersedeRecordsLineage(t *testing.T) {
 	if os.Getenv("SUPERLITE_REAL") == "1" {
 		testSupersedeRecordsLineageDB(t)
@@ -156,7 +163,8 @@ func TestSupersedeRecordsLineage(t *testing.T) {
 	}
 }
 
-// testSupersedeRecordsLineageDB — slow 실DB 라인(seam 체크 — REAL 모드).
+// testSupersedeRecordsLineageDB — the slow real-DB line (a seam check —
+// REAL mode).
 func testSupersedeRecordsLineageDB(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -191,18 +199,21 @@ func testSupersedeRecordsLineageDB(t *testing.T) {
 	if strings.Contains(summary, "merged:from") {
 		t.Error("텍스트 마커 이중 모델 — summary에 merged 마커 잔여")
 	}
-	// 재호출(이미 invalidated) — 0행 후견사.
+	// Recalled (already invalidated) — the 0-rows steward.
 	if _, err := r.Supersede(ctx, oldID, newID, newAt); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("0행 재시도 오류 = %v, want ErrNotFound 랩", err)
 	}
 }
 
-// TestInvalidateGuardsProcessedRows — Invalidate의
-// WHERE는 invalid_at IS NULL 가드를 병기한다 — dry-run 나열과 --commit 사이
-// 병렬 supersede가 같은 행을 처리했으면 재갱신하지 않는다(계보
-// invalid_at=NEW.valid_at을 now()로 덮어쓰는 훼손 차단). fake — SQL 병기
-// 단언(나열 측 listExpiredPending·invalidate-stale과 같은 가드). REAL — 실DB에서
-// supersede된 행 재 Invalidate 시 0행(ErrNotFound)·계보 불변.
+// TestInvalidateGuardsProcessedRows — Invalidate's WHERE co-writes the
+// invalid_at IS NULL guard — if a parallel supersede processed the same
+// row between the dry-run listing and --commit, it is not re-updated
+// (blocking the corruption of overwriting the lineage's
+// invalid_at=NEW.valid_at with now()). Fake — the SQL co-write
+// assertion (the same guard as the listing side's
+// listExpiredPending·invalidate-stale). REAL — on the real DB, re-
+// Invalidation of a superseded row yields 0 rows (ErrNotFound)·the
+// lineage unchanged.
 func TestInvalidateGuardsProcessedRows(t *testing.T) {
 	if os.Getenv("SUPERLITE_REAL") == "1" {
 		testInvalidateGuardsProcessedRowsDB(t)
@@ -220,8 +231,9 @@ func TestInvalidateGuardsProcessedRows(t *testing.T) {
 	}
 }
 
-// testInvalidateGuardsProcessedRowsDB — slow 실DB 라인(REAL 모드):
-// supersede로 이미 처리된 행에 Invalidate 재호출 — 0행 후견사 + 계보 불변.
+// testInvalidateGuardsProcessedRowsDB — the slow real-DB line (REAL
+// mode): re-calling Invalidate on a row already processed by supersede —
+// the 0-rows steward + lineage unchanged.
 func testInvalidateGuardsProcessedRowsDB(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -236,11 +248,13 @@ func testInvalidateGuardsProcessedRowsDB(t *testing.T) {
 	if _, err := r.Supersede(ctx, oldID, newID, newAt); err != nil {
 		t.Fatalf("Supersede: %v", err)
 	}
-	// 나열(건너뛴)과 확정 사이 경합 재현 — 가드가 0행으로 차단한다.
+	// Reproducing the race between listing (skipped) and confirmation —
+	// the guard blocks it with 0 rows.
 	if _, err := r.Invalidate(ctx, []int{oldID}, "경합 재시도"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("재 Invalidate 오류 = %v, want ErrNotFound 랩(0행 — 가드)", err)
 	}
-	// 계보 불변 — superseded_by·invalid_at=NEW.valid_at 유지(now() 덮어쓰기 없음).
+	// Lineage unchanged — superseded_by·invalid_at=NEW.valid_at kept (no
+	// now() overwrite).
 	var supBy *int
 	var invalidAt *time.Time
 	if err := r.pool.QueryRow(ctx,

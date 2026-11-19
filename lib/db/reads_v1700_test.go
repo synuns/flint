@@ -1,9 +1,11 @@
-// reads_v1700_test.go — 회상 강화 slow 테스트(실DB, schema v12).
-// v1.9.0 T4 이관: v11 knowledge.recall_score·last_recalled_at 직접 열
-// SELECT 검증은 스키마 v12(열 폐기)에서 42703으로 파손돼, recall_events
-// 파생 집계(랭킹 질의가 소비하는 같은 집계 조인)로 검증을 갱신한다.
-// 이벤트 적립 원천 검증(reads_v1900_test.go)과 달리 여기선 파생 값
-// cnt·last_at이 적립 결과를 정확히 반영하는지를 본다.
+// reads_v1700_test.go — recall reinforcement slow tests (real DB,
+// schema v12). v1.9.0 T4 transfer: verifying the v11
+// knowledge.recall_score·last_recalled_at direct columns via SELECT
+// breaks with 42703 under schema v12 (columns dropped), so the check
+// was updated to the recall_events derived aggregate (the same aggregate
+// join the ranking query consumes). Unlike the event-accrual source
+// checks (reads_v1900_test.go), this file examines whether the derived
+// values cnt·last_at accurately reflect the accrual result.
 package db
 
 import (
@@ -12,8 +14,9 @@ import (
 	"time"
 )
 
-// derivedRecall — 랭킹 질의와 동일한 recall_events 파생 집계 조인으로
-// 지식 1행의 (cnt, last_at)을 읽는다(미회상은 NULL, NULL).
+// derivedRecall — reads one knowledge row's (cnt, last_at) with the
+// same recall_events derived aggregate join as the ranking query
+// (never-recalled yields NULL, NULL).
 func derivedRecall(t *testing.T, r *Repo, ctx context.Context, id int) (*int, *time.Time) {
 	t.Helper()
 	var cnt *int
@@ -29,9 +32,10 @@ func derivedRecall(t *testing.T, r *Repo, ctx context.Context, id int) (*int, *t
 	return cnt, last
 }
 
-// TestBumpRecallScoresIncrements — 히트 행의 회상 이벤트 적립이 파생
-// cnt·last_at에 반영된다: 적립 행 cnt 1·last_at 최근, 미적립 행은
-// NULL(미회상 — 랭킹 0점 원천). 빈 슬라이스 no-op.
+// TestBumpRecallScoresIncrements — the recall-event accrual of hit rows
+// is reflected in the derived cnt·last_at: the accrued row gets cnt 1·
+// last_at recent; the unaccrued row gets NULL (never recalled — the
+// ranking zero-score source). Empty slice no-op.
 func TestBumpRecallScoresIncrements(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -58,7 +62,7 @@ func TestBumpRecallScoresIncrements(t *testing.T) {
 	if c2 != nil || l2 != nil {
 		t.Errorf("미적립 행 파생 cnt/last = %v/%v, want nil/nil(미회상)", c2, l2)
 	}
-	// 빈 슬라이스 no-op — 에러 없이 파생 값 무변화.
+	// Empty slice no-op — no error, derived values unchanged.
 	if err := r.BumpRecallScores(ctx, nil); err != nil {
 		t.Fatalf("BumpRecallScores(nil): %v", err)
 	}
@@ -68,8 +72,9 @@ func TestBumpRecallScoresIncrements(t *testing.T) {
 	}
 }
 
-// TestBumpRecallScoresDuplicateIDs — 중복 id 무결: 같은 id를 여러 번
-// 전달해도 행은 1회만 적립된다(파생 cnt 1 — BumpReads 계약 승계).
+// TestBumpRecallScoresDuplicateIDs — duplicate-id immunity: passing the
+// same id multiple times accrues the row once (derived cnt 1 —
+// inheriting the BumpReads contract).
 func TestBumpRecallScoresDuplicateIDs(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

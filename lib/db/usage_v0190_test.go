@@ -1,4 +1,5 @@
-// usage_v0190_test.go — read_events 기록·보존 정리 슬로우 테스트(실DB).
+// usage_v0190_test.go — read_events recording·retention cleanup slow
+// tests (real DB).
 package db
 
 import (
@@ -7,15 +8,17 @@ import (
 	"time"
 )
 
-// TestRecordReadEventAndPrune — RecordReadEvent는 수치·플래그·라벨을 그대로 기록하고, PruneReadEvents는
-// 14일 보존을 넘긴 행만 삭제한다(최근 행 유지).
+// TestRecordReadEventAndPrune — RecordReadEvent records the numbers·
+// flags·labels as-is, and PruneReadEvents deletes only rows past the
+// 14-day retention (recent rows kept).
 func TestRecordReadEventAndPrune(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	if err := r.EnsureSchemaV6(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV6: %v", err)
 	}
-	// 이 테스트 라벨 행 정리(공유 DB 무결 — 이전 실패 잔여 대비).
+	// Clean this test's label rows (shared-DB integrity — in case of
+	// prior-failure residue).
 	const label = "v0190-prune-probe"
 	if _, err := r.pool.Exec(ctx,
 		`DELETE FROM read_events WHERE session = $1`, label); err != nil {
@@ -32,7 +35,8 @@ func TestRecordReadEventAndPrune(t *testing.T) {
 	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 0, Zero: true, Session: label}); err != nil {
 		t.Fatalf("RecordReadEvent(zero): %v", err)
 	}
-	// 첫 행을 20일 전으로 되돌려 보존 한도 밖으로(컷오프 파라미터 검증).
+	// Roll the first row back 20 days, past the retention horizon
+	// (verifying the cutoff parameter).
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE read_events SET ts = $1
 		  WHERE session = $2 AND hits = 3`,
@@ -63,8 +67,9 @@ func TestRecordReadEventAndPrune(t *testing.T) {
 	}
 }
 
-// TestPruneRetentionOverride — 보존일 meta 오버라이드 —
-// events_retention_days를 넉넉히 하면 기본 14일로는 삭제될 과거 행이 생존.
+// TestPruneRetentionOverride — retention-day meta override — with
+// events_retention_days generously raised, a past row that the default
+// 14 days would delete survives.
 func TestPruneRetentionOverride(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -85,7 +90,7 @@ func TestPruneRetentionOverride(t *testing.T) {
 		time.Now().UTC().Add(-20*24*time.Hour), label); err != nil {
 		t.Fatalf("과거화: %v", err)
 	}
-	// 오버라이드 100일 — 20일 행은 생존해야 한다.
+	// Override 100 days — the 20-day row must survive.
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ('events_retention_days', '100')
 		 ON CONFLICT (key) DO UPDATE SET value = '100'`); err != nil {

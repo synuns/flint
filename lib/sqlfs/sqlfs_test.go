@@ -5,7 +5,8 @@ import (
 	"testing"
 )
 
-// TestSchemaHasUniqueHash — 스키마에 content_hash UNIQUE 제약이 있어야 dedup가 성립한다.
+// TestSchemaHasUniqueHash — the schema must have the content_hash
+// UNIQUE constraint for dedup to hold.
 func TestSchemaHasUniqueHash(t *testing.T) {
 	s := SchemaSQL()
 	if s == "" {
@@ -19,7 +20,8 @@ func TestSchemaHasUniqueHash(t *testing.T) {
 	}
 }
 
-// TestViewsFilterInvalid — 뷰는 무효 사실(invalid_at)을 차단해야 한다.
+// TestViewsFilterInvalid — the views must block invalid facts
+// (invalid_at).
 func TestViewsFilterInvalid(t *testing.T) {
 	v := ViewsSQL()
 	if v == "" {
@@ -33,7 +35,8 @@ func TestViewsFilterInvalid(t *testing.T) {
 	}
 }
 
-// TestHotViewSevenDays — 최근 결정 컷이 now()-interval '7 days'여야 한다.
+// TestHotViewSevenDays — the recent-decision cutoff must be
+// now()-interval '7 days'.
 func TestHotViewSevenDays(t *testing.T) {
 	if !strings.Contains(ViewsSQL(), "interval '7 days'") {
 		t.Error("ViewsSQL()에 7일 컷(now() - interval '7 days') 누락")

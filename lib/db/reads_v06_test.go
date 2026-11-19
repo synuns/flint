@@ -1,4 +1,5 @@
-// reads_v06_test.go — BumpReads(항목 참조 계측, schema v4) slow 테스트.
+// reads_v06_test.go — BumpReads (item reference metering, schema v4)
+// slow tests.
 package db
 
 import (
@@ -7,7 +8,8 @@ import (
 	"time"
 )
 
-// TestBumpReadsIncrements — 증분·last_read_at 갱신·미지정 행 무변화·no-op.
+// TestBumpReadsIncrements — increments·last_read_at renewal·unspecified
+// rows unchanged·no-op.
 func TestBumpReadsIncrements(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -50,7 +52,7 @@ func TestBumpReadsIncrements(t *testing.T) {
 	if l1 == nil || l3 == nil {
 		t.Error("last_read_at 미갱신 (want non-null for bumped rows)")
 	}
-	// 빈 슬라이스는 no-op — 에러 없이 무변화.
+	// An empty slice is a no-op — no error, nothing changed.
 	if err := r.BumpReads(ctx, nil); err != nil {
 		t.Fatalf("BumpReads(nil): %v", err)
 	}
@@ -66,8 +68,9 @@ func TestBumpReadsIncrements(t *testing.T) {
 	}
 }
 
-// TestBumpReadsDuplicateIDs — id=ANY 중복 무결 —
-// 슬라이스에 같은 id가 두 번 있어도 행은 1회만 증분된다(WHERE 매칭 기준).
+// TestBumpReadsDuplicateIDs — id=ANY duplicate immunity — even with the
+// same id twice in the slice, the row increments once (WHERE-matching
+// basis).
 func TestBumpReadsDuplicateIDs(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

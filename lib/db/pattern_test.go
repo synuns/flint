@@ -1,5 +1,6 @@
-// pattern_test.go — 패턴 탐지. 같은 topic의 성공 반복·실패→성공
-// 전환을 순수 SQL 집계로 식별한다(failure 태그 = 실패 학습, CONTENT.md §4).
+// pattern_test.go — pattern detection. Identifies same-topic repeated
+// successes·failure→success transitions with pure SQL aggregation (the
+// failure tag = failure learning, CONTENT.md §4).
 package db
 
 import (
@@ -8,7 +9,7 @@ import (
 	"testing"
 )
 
-// patRec는 테스트용 knowledge 레코드(고유 hash 필요).
+// patRec is a knowledge record for tests (a unique hash required).
 func patRec(topic, summary, tags, hash string) map[string]any {
 	return map[string]any{
 		"kind":         "knowledge",
@@ -20,8 +21,9 @@ func patRec(topic, summary, tags, hash string) map[string]any {
 	}
 }
 
-// TestPatternRepeatSuccess — 동일 topic 성공(non-failure) 2건이면
-// repeat-success 후보가 나오고, 증거에 레코드 id·summary가 담긴다.
+// TestPatternRepeatSuccess — 2 successful (non-failure) records on the
+// same topic yield a repeat-success candidate, with the record id·
+// summary in the evidence.
 func TestPatternRepeatSuccess(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -56,8 +58,10 @@ func TestPatternRepeatSuccess(t *testing.T) {
 	}
 }
 
-// TestPatternFailThenSuccess — 같은 topic에서 failure 태그 기록 뒤 성공
-// 기록이 오면 fail-then-success로 잡는다(실패가 성공보다 나중이면 제외).
+// TestPatternFailThenSuccess — when a failure-tagged record is followed
+// by a successful record on the same topic, it is caught as
+// fail-then-success (excluded when the failure is later than the
+// success).
 func TestPatternFailThenSuccess(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -78,7 +82,7 @@ func TestPatternFailThenSuccess(t *testing.T) {
 		t.Fatalf("want failure+success evidence, got %v", pats[0].Evidence)
 	}
 
-	// 역순(성공 후 실패)은 후보가 아니다.
+	// The reverse order (success then failure) is not a candidate.
 	if _, err := r.pool.Exec(ctx, `DELETE FROM knowledge`); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -97,7 +101,7 @@ func TestPatternFailThenSuccess(t *testing.T) {
 	}
 }
 
-// TestPatternCapTwenty — 후보는 topic당 1건·전체 상한 20건이다.
+// TestPatternCapTwenty — candidates are 1 per topic·20 overall cap.
 func TestPatternCapTwenty(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

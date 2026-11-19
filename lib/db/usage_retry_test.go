@@ -1,7 +1,8 @@
-// usage_retry_test.go — bumpDailyFlat UPSERT의 40001
-// (직렬화 실패) 재시도 계약(빠른 단위 테스트 — 실DB 불필요). CI 실증:
-// 병렬 8고루틴 경합에서 배포 Doltgres가 40001을 반환한다(로컬은 LWW
-// 수용 — 환경 가정 오류).
+// usage_retry_test.go — the 40001 (serialization failure) retry
+// contract of the bumpDailyFlat UPSERT (fast unit tests — no real DB
+// needed). CI-demonstrated: under a parallel 8-goroutine race, the
+// deployed Doltgres returns 40001 (locally it accepts LWW — an
+// environment assumption error).
 package db
 
 import (
@@ -12,11 +13,11 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// pg40001 — SQLSTATE 40001 흉내 오류.
+// pg40001 — a mock SQLSTATE 40001 error.
 func pg40001() error { return &pgconn.PgError{Code: "40001", Message: "conflict"} }
 
-// TestBumpRetrySucceedsAfterTransient — 2회 40001 후 3회째 성공 → nil,
-// 시도 총 3회.
+// TestBumpRetrySucceedsAfterTransient — 40001 twice then success on the
+// 3rd → nil, 3 attempts total.
 func TestBumpRetrySucceedsAfterTransient(t *testing.T) {
 	attempts := 0
 	err := retryBump40001(context.Background(), func() error {
@@ -34,8 +35,8 @@ func TestBumpRetrySucceedsAfterTransient(t *testing.T) {
 	}
 }
 
-// TestBumpRetryExhausts — 3회 연속 40001 → 에러 반환(원인 보존),
-// 그 이상 시도하지 않는다.
+// TestBumpRetryExhausts — 3 consecutive 40001s → an error returned
+// (cause preserved), with no further attempts.
 func TestBumpRetryExhausts(t *testing.T) {
 	attempts := 0
 	err := retryBump40001(context.Background(), func() error {
@@ -54,7 +55,8 @@ func TestBumpRetryExhausts(t *testing.T) {
 	}
 }
 
-// TestBumpRetryNon40001Immediate — 40001 아닌 에러는 재시도 없이 즉시 반환.
+// TestBumpRetryNon40001Immediate — a non-40001 error returns
+// immediately without retry.
 func TestBumpRetryNon40001Immediate(t *testing.T) {
 	attempts := 0
 	boom := errors.New("boom-nonconflict")
@@ -70,7 +72,8 @@ func TestBumpRetryNon40001Immediate(t *testing.T) {
 	}
 }
 
-// TestBumpRetryCtxCancel — 재시도 대기 중 ctx 취소는 ctx.Err() 반환.
+// TestBumpRetryCtxCancel — a ctx cancellation during a retry wait
+// returns ctx.Err().
 func TestBumpRetryCtxCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	attempts := 0

@@ -1,8 +1,10 @@
-// admin_v1200_test.go — schema v12 게이트(EnsureSchemaV12) slow 테스트
-// (실DB). 계약: recall_events 테이블(knowledge_id·recalled_at + id_time
-// 인덱스) 생성·recall_score수 합성 이벤트 백필(스코어>0 행만)·knowledge
-// 2열(recall_score·last_recalled_at) 폐기(information_schema 실측)·버전
-// 12 기록·재호출 멱등·신규 DB(schema.sql 경로)에 recall_events 존재.
+// admin_v1200_test.go — schema v12 gate (EnsureSchemaV12) slow tests
+// (real DB). Contract: creating the recall_events table (knowledge_id·
+// recalled_at + the id_time index)·backfilling score-count synthetic
+// events (only rows with score>0)·dropping the 2 knowledge columns
+// (recall_score·last_recalled_at, information_schema-measured)·
+// recording version 12·idempotent rerun·recall_events present on fresh
+// DBs (the schema.sql path).
 package db
 
 import (
@@ -13,17 +15,20 @@ import (
 	"github.com/synuns/flint/lib/sqlfs"
 )
 
-// backfillAt — 백필 합성 이벤트의 recalled_at 원천 검증용 고정 시각
-// (COALESCE(last_recalled_at, now()) 중 last_recalled_at 경로).
+// backfillAt — a fixed time for verifying the backfilled synthetic
+// events' recalled_at source (the last_recalled_at path of
+// COALESCE(last_recalled_at, now())).
 var backfillAt = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 
-// TestV12GateRecallAppendOnly — v11 DB(합성 지식 2건: recall_score 3·0)를
-// v12로 승격: 스코어>0 행만 score수(3건) 합성 이벤트 적립·두 컬럼 폐기·
-// 버전 12·재호출 멱등(이벤트 중복 없음).
+// TestV12GateRecallAppendOnly — promotes a v11 DB (2 synthetic
+// knowledge rows: recall_score 3·0) to v12: only the score>0 row
+// accrues score-count (3) synthetic events·the two columns dropped·
+// version 12·the rerun idempotent (no event duplication).
 func TestV12GateRecallAppendOnly(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// v11 상태 재현 — recall_events 제거·v11 컬럼 보증(IF NOT EXISTS)·버전 11.
+	// Reproduce the v11 state — remove recall_events·guarantee the v11
+	// columns (IF NOT EXISTS)·version 11.
 	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS recall_events`); err != nil {
 		t.Fatalf("v11 재현 recall_events 삭제: %v", err)
 	}
@@ -37,7 +42,8 @@ func TestV12GateRecallAppendOnly(t *testing.T) {
 	}
 	setVersion(t, r, "11")
 
-	// 합성 지식 2건 — hot(recall_score 3)·cold(0, 기본값 그대로).
+	// 2 synthetic knowledge rows — hot (recall_score 3)·cold (0, default
+	// as-is).
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("v12-hot"), knowledgeRec("v12-cold"),
 	})
@@ -57,7 +63,8 @@ func TestV12GateRecallAppendOnly(t *testing.T) {
 		t.Fatalf("schema_version = %q, want 12", v)
 	}
 
-	// ① recall_events 3건 — hot 지식만(score수 합성), cold는 0건.
+	// ① recall_events 3 rows — only the hot knowledge (score-count
+	// synthetics); cold 0.
 	var n int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM recall_events`).Scan(&n); err != nil {
@@ -80,15 +87,16 @@ func TestV12GateRecallAppendOnly(t *testing.T) {
 		t.Fatalf("hot 지식 이벤트 = %d건(시각 정합 %d), want 3(3) — last_recalled_at 원천 백필", hotN, atN)
 	}
 
-	// ② knowledge 두 컬럼 폐기(information_schema 실측).
+	// ② The 2 knowledge columns dropped (information_schema-measured).
 	for _, col := range []string{"recall_score", "last_recalled_at"} {
 		if columnExists(t, r, "knowledge", col) {
 			t.Fatalf("knowledge.%s 잔존 — v12 컬럼 폐기 계약 위반", col)
 		}
 	}
 
-	// ③ idx_recall_events_id_time 인덱스 — statistics는 인덱스 컬럼마다
-	// 1행(2컬럼 인덱스 → 2행)이므로 1 이상으로 존재를 단언한다.
+	// ③ The idx_recall_events_id_time index — statistics has 1 row per
+	// index column (a 2-column index → 2 rows), so presence is asserted
+	// as 1 or more.
 	var idx int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.statistics
@@ -100,7 +108,8 @@ func TestV12GateRecallAppendOnly(t *testing.T) {
 		t.Fatalf("idx_recall_events_id_time 부재 — 인덱스 계약 위반")
 	}
 
-	// ④ 재호출 멱등 — no-op(버전 12 유지·이벤트 중복 없음·에러 없음).
+	// ④ The rerun is idempotent — no-op (version 12 kept·no event
+	// duplication·no error).
 	if err := r.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV12 (want idempotent): %v", err)
 	}
@@ -116,33 +125,37 @@ func TestV12GateRecallAppendOnly(t *testing.T) {
 	}
 }
 
-// TestV12GateNumeric — 상위 버전 DB는 수치 비교로 no-op(다운그레이드 방지
-// 회귀 — '12'<'9' 문자열 정렬 함정).
+// TestV12GateNumeric — a higher-version DB no-ops via numeric
+// comparison (a downgrade-prevention regression — the '12'<'9'
+// string-order trap).
 func TestV12GateNumeric(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// no-op 증명 기준선 — 컬럼 존재를 보증해 둔다(선행 테스트가 폐기했을 수
-	// 있는 공유 DB 상태와 무관하게 성립시킨다).
+	// The no-op-proof baseline — guarantee the column's presence (so it
+	// holds regardless of the shared DB state a preceding test may have
+	// dropped).
 	if _, err := r.pool.Exec(ctx,
 		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS recall_score integer NOT NULL DEFAULT 0`); err != nil {
 		t.Fatalf("recall_score 보증: %v", err)
 	}
-	setVersion(t, r, "99") // 문자열 정렬로는 '12' 이전, 수치로는 상위.
+	setVersion(t, r, "99") // before '12' in string order, higher numerically.
 	if err := r.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV12(상위 버전 DB): %v", err)
 	}
 	if v := readVersion(t, r); v != "99" {
 		t.Fatalf("게이트 하강 기록: schema_version=%q, want 99(수치 비교 no-op)", v)
 	}
-	// 상위 버전 DB의 knowledge 컬럼은 건드리지 않는다(no-op 증명).
+	// The higher-version DB's knowledge columns are untouched (the no-op
+	// proof).
 	if !columnExists(t, r, "knowledge", "recall_score") {
 		t.Fatalf("상위 버전 DB에서 knowledge.recall_score 폐기 — no-op 계약 위반")
 	}
 }
 
-// TestV12FreshSchemaHasRecallEvents — 신규 설치 경로: 실 schema.sql 재생성 +
-// 게이트 체인 v2→v12 순차 승격(root.go 배선과 동일) 후 recall_events·인덱스
-// 존재·두 컬럼 폐기·버전 12.
+// TestV12FreshSchemaHasRecallEvents — the fresh-install path: recreate
+// with the real schema.sql + run the gate chain v2→v12 in order (same
+// as the root.go wiring), then recall_events·the index present·the 2
+// columns dropped·version 12.
 func TestV12FreshSchemaHasRecallEvents(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
@@ -196,11 +209,13 @@ func TestV12FreshSchemaHasRecallEvents(t *testing.T) {
 	}
 }
 
-// TestV11GateFreshDirectToV12 — R43 직행 단락: 신규 DB(schema.sql v12
-// 종착로 생성 — recall_events 존재·버전 3)는 v11 게이트에서 폐기 예정
-// 2열(recall_score·last_recalled_at)을 add하지 않는다(구 동작은 v11이
-// add하고 v12가 drop하는 DDL 왕복). 게이트 체인 v2~v11 실행 직후 실측:
-// 2열 부재·recall_events 존재·버전 11 — v12로의 진짜 직행.
+// TestV11GateFreshDirectToV12 — the R43 direct-run short circuit: a
+// fresh DB (created at the schema.sql v12 terminus — recall_events
+// present·version 3) does not add the 2 soon-dropped columns
+// (recall_score·last_recalled_at) at the v11 gate (the old behavior was
+// the v11-adds-then-v12-drops DDL round trip). Measured right after
+// running the gate chain v2~v11: the 2 columns absent·recall_events
+// present·version 11 — a true direct run to v12.
 func TestV11GateFreshDirectToV12(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
@@ -222,13 +237,15 @@ func TestV11GateFreshDirectToV12(t *testing.T) {
 	}
 	for _, gate := range SchemaGates() {
 		if gate.Version > 11 {
-			break // v11 직후 시점 실측 — v12는 아래 ②에서
+			break // measuring the moment right after v11 — v12 comes in ② below
 		}
 		if err := gate.Ensure(ctx, r); err != nil {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	// ① v11 게이트 직후 — 2열 부재(직행 단락 실측)·recall_events 존재·버전 11.
+	// ① Right after the v11 gate — the 2 columns absent (the
+	// direct-run short circuit measured)·recall_events present·version
+	// 11.
 	for _, col := range []string{"recall_score", "last_recalled_at"} {
 		if columnExists(t, r, "knowledge", col) {
 			t.Fatalf("신규 DB v11 게이트 직후 knowledge.%s add — add→drop 왕복(R43 직행 위반)", col)
@@ -246,7 +263,8 @@ func TestV11GateFreshDirectToV12(t *testing.T) {
 	if v := readVersion(t, r); v != "11" {
 		t.Fatalf("v11 게이트 후 schema_version = %q, want 11", v)
 	}
-	// ② v12 게이트 — 왕복 없는 종착(버전 12·2열 부재 유지).
+	// ② The v12 gate — the round-trip-free terminus (version 12·the 2
+	// columns still absent).
 	for _, gate := range SchemaGates() {
 		if gate.Version != 12 {
 			continue

@@ -1,6 +1,7 @@
-// admin_merge_test.go — Merge 계보 superseded_by 기록 slow 테스트.
-// 병합 전이는 Supersede와 동일한 열·갱신 형식(superseded_by 단일 모델)을
-// 따른다 — summary 마커만 남기던 계보 유실 결함 회귀.
+// admin_merge_test.go — Merge's lineage superseded_by recording slow
+// tests. The merge transition follows the same columns·update shape as
+// Supersede (the single superseded_by model) — a regression of the
+// lineage-loss defect that left only a summary marker.
 package db
 
 import (
@@ -11,9 +12,9 @@ import (
 	"testing"
 )
 
-// TestMergeRecordsSupersededBy — 병합 후 from행 superseded_by==into.
-// (계약: Merge는 마커 suffix 관례와 함께 superseded_by를
-// Supersede와 동일한 형식으로 기록한다.)
+// TestMergeRecordsSupersededBy — after merging, the from row's
+// superseded_by==into. (Contract: Merge records superseded_by in the
+// same shape as Supersede, alongside the marker-suffix convention.)
 func TestMergeRecordsSupersededBy(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -41,7 +42,7 @@ func TestMergeRecordsSupersededBy(t *testing.T) {
 	if status != "invalidated" {
 		t.Fatalf("from.status = %q, want invalidated", status)
 	}
-	// to는 그대로 active — 계보 수신자 무변화.
+	// to stays active — the lineage receiver unchanged.
 	if err := r.pool.QueryRow(ctx,
 		`SELECT status FROM knowledge WHERE id = $1`, to).Scan(&status); err != nil {
 		t.Fatalf("read to: %v", err)
@@ -51,9 +52,11 @@ func TestMergeRecordsSupersededBy(t *testing.T) {
 	}
 }
 
-// TestMergeTwiceRejected — 이미 invalidated된 from 재병합 거부 + 마커 단일.
-// 재병합은 Supersede의 0행 후견사 관례(ErrNotFound 랩 오류)로 거부하며,
-// 거부 문구는 이미 처리됨(invalidated) 케이스를 유지한다.
+// TestMergeTwiceRejected — re-merging an already-invalidated from is
+// refused + the marker stays single. The re-merge is refused by
+// Supersede's 0-rows steward convention (an ErrNotFound-wrapped error),
+// and the refusal wording keeps the already-processed (invalidated)
+// case.
 func TestMergeTwiceRejected(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -83,7 +86,7 @@ func TestMergeTwiceRejected(t *testing.T) {
 	if n := strings.Count(summary, marker); n != 1 {
 		t.Fatalf("marker count = %d, want 1 (summary %q)", n, summary)
 	}
-	// 계보도 첫 병합 값 그대로.
+	// The lineage also keeps the first merge's value.
 	var supersededBy *int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT superseded_by FROM knowledge WHERE id = $1`, from).
@@ -95,9 +98,10 @@ func TestMergeTwiceRejected(t *testing.T) {
 	}
 }
 
-// TestMergePendingRejected — active 외 상태(pending) from 병합 거부.
-// 0행 후견사는 상태를 구분해 안내한다: invalidated(이미 처리됨)가 아닌
-// active 외 상태는 "active 아님(병합 불가) — status: <값>" 문구.
+// TestMergePendingRejected — merging a non-active (pending) from is
+// refused. The 0-rows steward distinguishes the status in its guidance:
+// statuses other than invalidated get the "not active (cannot merge) —
+// status: <value>" wording.
 func TestMergePendingRejected(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -109,7 +113,8 @@ func TestMergePendingRejected(t *testing.T) {
 		t.Fatalf("InsertBatch: %v", err)
 	}
 	from, to := ids[0], ids[1]
-	// from을 pending으로 강제 — active 갱신 조건 미충족 케이스 재현.
+	// Force from to pending — reproducing the case failing the
+	// active-update condition.
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE knowledge SET status = 'pending' WHERE id = $1`, from); err != nil {
 		t.Fatalf("force pending: %v", err)
@@ -125,7 +130,7 @@ func TestMergePendingRejected(t *testing.T) {
 		t.Fatalf("merge of pending from: message %q, want \"status: pending\" 구분 안내",
 			err.Error())
 	}
-	// to는 무변화 — 거부 경로에서 마커 부착 없음.
+	// to unchanged — no marker attached on the refusal path.
 	var toStatus string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT status FROM knowledge WHERE id = $1`, to).Scan(&toStatus); err != nil {
@@ -136,9 +141,10 @@ func TestMergePendingRejected(t *testing.T) {
 	}
 }
 
-// TestMergeActiveInvalidAtRejected — status='active' + invalid_at 설정
-// (손상 상태) from도 0행 후견사로 거부된다. 이때 문구는 "active 아님 —
-// status: active" 자기모순 대신 invalid_at 원인을 명시해야 한다.
+// TestMergeActiveInvalidAtRejected — a from with status='active' +
+// invalid_at set (a corrupted state) is also refused by the 0-rows
+// steward. The wording must name the invalid_at cause instead of the
+// self-contradictory "not active — status: active".
 func TestMergeActiveInvalidAtRejected(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -150,7 +156,8 @@ func TestMergeActiveInvalidAtRejected(t *testing.T) {
 		t.Fatalf("InsertBatch: %v", err)
 	}
 	from, to := ids[0], ids[1]
-	// 손상 상태 강제 — status는 active인데 invalid_at가 설정됨.
+	// Force the corrupted state — status is active yet invalid_at is
+	// set.
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE knowledge SET invalid_at = now() WHERE id = $1`, from); err != nil {
 		t.Fatalf("force invalid_at: %v", err)

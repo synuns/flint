@@ -1,8 +1,9 @@
-// usage_bytes_test.go — RecordBytes: 바이트 계측 daily 증분
-// (실DB slow — fast에서는 FLINT_DSN 부재로 스킵). 계약: kind=read|hot|brief
-// 만 daily:<kind>_bytes:<date> 플랫 키 증분, last_ 시각
-// 키 없음(횟수 last_<kind>_at 준용), 파손 기존 값은 0에서 재기작, 무효
-// kind·음수 거부.
+// usage_bytes_test.go — RecordBytes: byte-metering daily increments
+// (real-DB slow — skipped in fast mode without FLINT_DSN). Contract:
+// only kind=read|hot|brief increments the daily:<kind>_bytes:<date>
+// flat key; no last_ time key (reuses the count last_<kind>_at);
+// corrupted existing values rewrite from 0; invalid kinds·negatives
+// rejected.
 package db
 
 import (
@@ -11,14 +12,16 @@ import (
 	"time"
 )
 
-// TestRecordBytesDaily — 증분(연속 가산)·파손 재기작·무효 kind
-// 거부. e.g. RecordBytes("hot", 1180) → daily:hot_bytes:<오늘> +1180.
+// TestRecordBytesDaily — increments (consecutive additions)·corrupt
+// rewrite·invalid-kind rejection. e.g. RecordBytes("hot", 1180) →
+// daily:hot_bytes:<today> +1180.
 func TestRecordBytesDaily(t *testing.T) {
 	r := newTestRepo(t)
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// 증분 — 같은 kind 연속 기록은 가산된다(1180 + 820 = 2000).
+	// Increments — consecutive records of the same kind add up (1180 +
+	// 820 = 2000).
 	if err := r.RecordBytes(context.Background(), "hot", 1180); err != nil {
 		t.Fatalf("RecordBytes(hot,1180): %v", err)
 	}
@@ -29,7 +32,8 @@ func TestRecordBytesDaily(t *testing.T) {
 		t.Fatalf("daily:hot_bytes:%s = %d, want 2000(1180+820 증분)", today, got)
 	}
 
-	// 다른 kind는 별도 키 — read·brief 0바이트 포함(제로히트 분모 정합).
+	// Different kinds get separate keys — read·brief including 0 bytes
+	// (zero-hit denominator consistency).
 	if err := r.RecordBytes(context.Background(), "read", 0); err != nil {
 		t.Fatalf("RecordBytes(read,0): %v — 0바이트도 기록(호출 수 분모 정합)", err)
 	}
@@ -43,7 +47,8 @@ func TestRecordBytesDaily(t *testing.T) {
 		t.Fatalf("daily:brief_bytes:%s = %d, want 42(키 kind별 분리)", today, got)
 	}
 
-	// last_ 시각 키 없음 — 바이트는 횟수 계측의 last_<kind>_at을 준용한다.
+	// No last_ time key — bytes reuse the count metering's
+	// last_<kind>_at.
 	var n int
 	if err := r.pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM meta WHERE key IN ('last_read_bytes_at','last_hot_bytes_at','last_brief_bytes_at')`).Scan(&n); err != nil {
@@ -53,20 +58,23 @@ func TestRecordBytesDaily(t *testing.T) {
 		t.Fatalf("last_*_bytes_at 키 %d건 — 바이트 계측은 시각 키 없음(계약)", n)
 	}
 
-	// 무효 kind 거부 — 유입 계측 화이트리스트(read|hot|brief)와 별도 판정.
+	// Invalid-kind rejection — a separate verdict from the intake-metering
+	// whitelist (read|hot|brief).
 	for _, bad := range []string{"write", "hot_bytes", ""} {
 		if err := r.RecordBytes(context.Background(), bad, 1); err == nil {
 			t.Errorf("무효 kind %q 수용 — 거부 계약 위반", bad)
 		}
 	}
-	// 음수 거부 — 0은 유효(제로히트), 음수는 카운터 감소라 무효.
+	// Negative rejection — 0 is valid (zero-hit); a negative would
+	// decrease the counter and is invalid.
 	if err := r.RecordBytes(context.Background(), "read", -1); err == nil {
 		t.Errorf("음수 n 수용 — 거부 계약 위반")
 	}
 }
 
-// TestRecordBytesCorruptRewrite — 파손된 기존 플랫 값은 0에서 재기작한다
-// (bumpDailyFlat 계약 승계 — non-정수 전부).
+// TestRecordBytesCorruptRewrite — a corrupted existing flat value is
+// rewritten from 0 (inheriting the bumpDailyFlat contract — any
+// non-integer).
 func TestRecordBytesCorruptRewrite(t *testing.T) {
 	r := newTestRepo(t)
 	cleanUsageKeys(t, r)

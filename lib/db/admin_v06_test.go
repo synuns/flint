@@ -1,4 +1,4 @@
-// admin_v06_test.go — schema v4(EnsureSchemaV4) slow 테스트(실DB).
+// admin_v06_test.go — schema v4 (EnsureSchemaV4) slow tests (real DB).
 package db
 
 import (
@@ -7,18 +7,21 @@ import (
 	"time"
 )
 
-// TestEnsureSchemaV4Idempotent — 2회 호출 → 컬럼 2종·
-// 버전 4·기존 행 값 불변. protocol: v3 게이트를 경유한 DB(기존 배포 경로)도
-// 승격되며, 승격 전 기존 행은 기본값 read_count=0·last_read_at=null을 받는다.
+// TestEnsureSchemaV4Idempotent — 2 calls → the 2 columns·version 4·
+// existing row values unchanged. Protocol: a DB that passed the v3
+// gates (the existing deployment path) also promotes, and pre-promotion
+// existing rows get the defaults read_count=0·last_read_at=null.
 func TestEnsureSchemaV4Idempotent(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
 	ctx := context.Background()
-	// 기존 배포 경로 재현: v1 → v3 게이트 경유 DB.
+	// Reproducing the existing deployment path: a DB that passed v1 →
+	// the v3 gates.
 	if err := r.EnsureSchemaV3(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV3: %v", err)
 	}
-	// 승격 전 기존 행 — v4 컬럼은 기본값으로 채워져야 한다.
+	// A pre-promotion existing row — the v4 columns must be filled with
+	// defaults.
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v4-old")})
 	if err != nil {
 		t.Fatalf("InsertBatch pre-v4 row: %v", err)
@@ -48,7 +51,8 @@ func TestEnsureSchemaV4Idempotent(t *testing.T) {
 	if version != "4" {
 		t.Fatalf("schema_version = %q, want 4", version)
 	}
-	// 2회째 호출은 멱등 no-op — 버전 4·기존 행 값 무변화.
+	// The 2nd call is an idempotent no-op — version 4·existing row values
+	// unchanged.
 	if err := r.EnsureSchemaV4(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV4 (want idempotent): %v", err)
 	}
@@ -69,8 +73,9 @@ func TestEnsureSchemaV4Idempotent(t *testing.T) {
 	}
 }
 
-// TestEnsureSchemaV4FromV1 — v3을 건너뛴 v1 DB도 v4 게이트 하나로 승격된다
-// (게이트는 버전만 갱신하고 컬럼은 IF NOT EXISTS로 멱등 적용).
+// TestEnsureSchemaV4FromV1 — a v1 DB that skipped v3 also promotes with
+// the single v4 gate (the gate only updates the version; the columns
+// apply idempotently via IF NOT EXISTS).
 func TestEnsureSchemaV4FromV1(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
@@ -92,7 +97,8 @@ func TestEnsureSchemaV4FromV1(t *testing.T) {
 	if readCount != 0 || lastRead != nil {
 		t.Errorf("v1 승격 행 read_count=%d last_read_at=%v, want 0/null", readCount, lastRead)
 	}
-	// 신규 컬럼으로 갱신 가능(컬럼 존재의 동작 증명).
+	// Updatable via the new columns (a behavior proof of the columns'
+	// presence).
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE knowledge SET read_count = read_count + 1, last_read_at = now()
 		 WHERE id = $1`, ids[0]); err != nil {
@@ -107,10 +113,12 @@ func TestEnsureSchemaV4FromV1(t *testing.T) {
 	}
 }
 
-// TestEnsureSchemaGatesShortCircuitAbove — 상위 버전 DB에서 하위 게이트는
-// 트랜잭션·커밋 자체를 skip한다(수치 비교 단락). 문자열 동등 검사였을 때는
-// v3 DB에서 EnsureSchemaV2가 승격 트랜잭션을 열어 버전을 '2'로 되돌렸다
-// (하강 기록 + 병렬 기동의 40001 창 확대 — CI run 39717583172).
+// TestEnsureSchemaGatesShortCircuitAbove — on a higher-version DB,
+// lower gates skip even opening the transaction·commit (the
+// numeric-comparison short circuit). When it was a string-equality
+// check, EnsureSchemaV2 on a v3 DB opened the promotion transaction and
+// rolled the version back to '2' (a downgrade record + widening the
+// 40001 window under parallel startup — CI run 39717583172).
 func TestEnsureSchemaGatesShortCircuitAbove(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
