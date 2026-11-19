@@ -6,6 +6,7 @@ package db
 
 import (
 	"context"
+	"strconv"
 	"testing"
 
 	"github.com/synuns/flint/lib/sqlfs"
@@ -164,8 +165,9 @@ func TestV10FreshSchemaHasArtifacts(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "11" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 11", v)
+	if v := readVersion(t, r); v != strconv.Itoa(LatestSchemaVersion) {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want %d(파생 — 상한 갱신 시 본 테스트도 따라간다)",
+			v, LatestSchemaVersion)
 	}
 	for _, col := range []string{"bytes", "zero_reason", "source"} {
 		if !columnExists(t, r, "read_events", col) {

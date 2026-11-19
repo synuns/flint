@@ -39,7 +39,8 @@ var (
 const exportHashPrefix = "expfix-"
 
 // exportFixtureRow — 합성 데모 행(SELECT 열 순서와 동일한 셀 생성).
-// score·lastRec 추가(스코어 실열 — 말미 2셀).
+// score·lastRec 추가(말미 2셀 — v1.9.0 T4부터 파생 집계 re.cnt·re.last_at
+// 형태: score=이벤트 수, lastRec=최종 회상 시각).
 type exportFixtureRow struct {
 	id       int
 	topic    string
@@ -55,8 +56,8 @@ type exportFixtureRow struct {
 	valid    time.Time
 	ingested time.Time
 	invalid  any // nil|time.Time
-	score    int // v11 recall_score(기본 0)
-	lastRec  any // nil|time.Time — v11 last_recalled_at
+	score    int // 회상 이벤트 수(파생 cnt — 기본 0)
+	lastRec  any // nil|time.Time — 파생 last_at
 }
 
 // updated — 파생 updated_at(COALESCE(invalid_at, ingested_at)와 동일 정의).
@@ -252,11 +253,15 @@ func exportRealStore(t *testing.T) wire.Store {
 }
 
 // seedExportFixture — 합성 fixture 3행 시딩 + 정리(prefix 키 — 이전 런
-// 잔존도 선행 DELETE로 흡수).
+// 잔존도 선행 DELETE로 흡수). v1.9.0 T4: 스키마 v12 — 스코어는
+// recall_score 실열 대신 회상 이벤트(행당 score수만큼, recalled_at=
+// lastRec)로 시딩한다(파생 집계가 cnt·last_at으로 재현).
 func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
 	del := func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM recall_events WHERE knowledge_id IN
+			(SELECT id FROM knowledge WHERE content_hash LIKE $1)`, exportHashPrefix+"%")
 		_, _ = pool.Exec(ctx, `DELETE FROM knowledge WHERE content_hash LIKE $1`, exportHashPrefix+"%")
 	}
 	del()
@@ -264,13 +269,20 @@ func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 	for _, f := range exportFixture {
 		if _, err := pool.Exec(ctx, `INSERT INTO knowledge
 			(topic, summary, tags, entity, domain, confidence, origin, status,
-			 content_hash, superseded_by, valid_at, ingested_at, invalid_at,
-			 recall_score, last_recalled_at)
-			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`,
+			 content_hash, superseded_by, valid_at, ingested_at, invalid_at)
+			VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
 			f.topic, f.summary, f.tags, f.entity, f.domain, f.conf, f.origin,
-			f.status, f.hash, f.sup, f.valid, f.ingested, f.invalid,
-			f.score, f.lastRec); err != nil {
+			f.status, f.hash, f.sup, f.valid, f.ingested, f.invalid); err != nil {
 			t.Skipf("fixture 시딩 실패(스키마 미구비 의심): %v", err)
+		}
+		// 스코어 이벤트 — score수만큼 1행씩(lastRec 시각).
+		if f.score > 0 {
+			if _, err := pool.Exec(ctx,
+				`INSERT INTO recall_events (knowledge_id, recalled_at)
+				 SELECT k.id, $2 FROM knowledge k, generate_series(1, $3::int)
+				 WHERE k.content_hash = $1`, f.hash, f.lastRec, f.score); err != nil {
+				t.Skipf("회상 이벤트 시딩 실패(스키마 미구비 의심): %v", err)
+			}
 		}
 	}
 }

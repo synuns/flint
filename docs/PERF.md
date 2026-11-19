@@ -33,10 +33,16 @@ convention.
 | `import --format jsonl` (ANY($1) batch dedup + chunked batch INSERT + chunk commits) | 5.6k | 25.6s | seconds | 6.1s — real-DB bench, 5.6k rows (`TestImportBatchBenchRealSlow`) |
 | `write` batch dedup (ANY($1) batch precheck) | 50k | 137s | seconds | 5.2s — real-DB bench, 5k-line batch (`TestWriteBatchDedupRealSlow`) |
 | `export --format pam` peak memory churn | 50k | 876MB | ≤ 1/4 | 47.3MB — in-memory bench, 20k rows (`BenchmarkFormatPAM`, B/op) |
+| `hot --full` ranking query (recall_events derived join, schema v12) | 100 knowledge / 10k events | 9.15ms p95 (v11 direct columns, median of 3) | < 2× v11 | 16.37ms p95 — real-DB bench, 1.79× v11 (`TestHotDerivedRankingBenchRealSlow`) |
 
 Note: every After figure is a measured median at its **own** scale, named
 in the cell (the shipped bench scales are smaller than the R30 survey
-scales; a number is never quoted without its scale). Per-row comparison
+scales; a number is never quoted without its scale). The v1.9.0 derived
+ranking row compares the schema v12 `recall_events` aggregate join (count +
+max per knowledge, index `idx_recall_events_id_time`) against the dropped
+v11 `knowledge.recall_score`/`last_recalled_at` direct columns, reproduced
+as a synthetic table with the identical distribution (`bench_k11`); the
+"before" figure is that baseline, not an R30 survey number. Per-row comparison
 for the churn row: 17.5KB/row (876MB @50k) → 2.4KB/row (47.3MB @20k),
 a ~7.4× cut — the 50k linear extrapolation ≈118MB sits under the
 ≤219MB (1/4) target, but the extrapolation is marked as such, not

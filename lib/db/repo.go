@@ -483,12 +483,15 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 // auditStageTables — 감사 커밋(Commit)의 스테이징 대상. 계측
 // 테이블(read_events·hot_events·knowledge_reads·session_starts)은 제외
 // — CommitTelemetry가 별도 커밋해 감사 커밋의 diff 순수성을 지킨다.
+// recall_events 포함 룰링(v1.9.0 T3): 회상 이벤트(INSERT 전용)는 감사
+// 커밋("read: recall bump")에 흡수돼야 기기 간 push/pull로 전파된다 —
+// 계측 테이블이 아니라 감사 데이터(다중 기기 동기화의 전제).
 // sessions 포함 룰링: done의 session-end 커밋이 세션 행 귀속을 잃지
 // 않는다. dolt_add는 테이블 지정 시 해당 테이블만 스테이징한다(실측:
 // '*_id_seq는 별도 항목이라 테이블 스테이징에 묻히지 않는다 — 감사
 // 시퀀스 잔여는 working set에 남는다. v1.7.2 T1: 전역 스윕 폐지로
 // 회수 주체가 사라졌다·무해(dolt_status 잔여 표시뿐, 계측·조회 불변)).
-var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs"}
+var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events"}
 
 // telemetryStageTables — 계측 전용 커밋(CommitTelemetry)의 스테이징 대상.
 var telemetryStageTables = []string{"read_events", "hot_events", "knowledge_reads", "session_starts"}

@@ -79,7 +79,10 @@ func TestBriefZeroScoresKeepExistingOrder(t *testing.T) {
 	}
 }
 
-// TestBriefUnrecalledKeepsScore — last_recalled_at NULL은 감쇠 불이익 없이 score 그대로.
+// TestBriefUnrecalledKeepsScore — cnt 셀은 있으나 last_at NULL(fake
+// 형태 — 실DB 파생 집계에서는 cnt>0이면 last_at도 항상 존재)은 감쇠
+// 불이익 없이 cnt 그대로(EventEffectiveScore T1 계약의 가드 분기).
+// 실DB 미회상(이벤트 0건)은 cnt NULL → 0점이다(hot 시맨틱과 동일).
 func TestBriefUnrecalledKeepsScore(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -98,21 +101,27 @@ func TestBriefUnrecalledKeepsScore(t *testing.T) {
 	}
 }
 
-// TestBriefRankedSQLShape — BuildReadStatus 조립 SQL 치환 계약: SELECT 말미에
-// recall_score·last_recalled_at 병합, WHERE·ORDER BY·LIMIT·placeholder
-// 번호는 원본 승계. 치환점 미발견 형태는 원본 반환.
+// TestBriefRankedSQLShape — BuildReadStatus 조립 SQL 치환 계약: SELECT
+// 말미에 recall_events 파생 집계 조인(re.cnt·re.last_at) 병합,
+// WHERE·ORDER BY·LIMIT·placeholder 번호는 원본 승계(v1.9.0 T4 — v11
+// 직접 열 폐지). 치환점 미발견 형태는 원본 반환.
 func TestBriefRankedSQLShape(t *testing.T) {
 	f := query.Filters{Status: "active", Limit: 5}
 	base, args := query.BuildReadStatus("q", f)
 	got := briefRankedSQL(base)
 	for _, frag := range []string{
-		"read_count, recall_score, last_recalled_at FROM knowledge",
+		"read_count, re.cnt, re.last_at FROM knowledge",
+		"LEFT JOIN (SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at FROM recall_events GROUP BY knowledge_id) re ON re.knowledge_id = knowledge.id",
 		"status = $1",
 		"invalid_at IS NULL",
 	} {
 		if !strings.Contains(got, frag) {
 			t.Errorf("ranked SQL에 %q 누락: %s", frag, got)
 		}
+	}
+	// v11 직접 열 참조 잔존 방어.
+	if strings.Contains(got, "recall_score") || strings.Contains(got, "last_recalled_at") {
+		t.Errorf("v11 직접 열 참조 잔존: %s", got)
 	}
 	if !strings.HasSuffix(got, base[strings.LastIndex(base, " ORDER BY"):]) {
 		t.Errorf("ORDER BY·LIMIT 절 미승계: %s", got)

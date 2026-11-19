@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/knowledge"
 )
 
 // limitCapturingStore — DupGroups·ConflictGroups 상한 캡처 fake
@@ -95,34 +96,68 @@ func TestMaintainUsageLineMentionsTUI(t *testing.T) {
 
 // ── decay 감쇠 산식·--decay-audit(회상 강화 회귀는 knowledge 패키지) ──
 
-// TestEffectiveRecallScoreBoundaries — 감쇠 산식
-// 경계 — 1일(선형 -1)·100일(하한 0)·미회상(score 유지)·rate 오버라이드.
-func TestEffectiveRecallScoreBoundaries(t *testing.T) {
+// TestEventEffectiveScoreBoundaries — 감쇠 산식 경계(v1.9.0 — 단일 정의
+// knowledge.EventEffectiveScore로 소비. 구 ops.EffectiveRecallScore 래퍼는
+// 파생 전환과 함께 폐지). 1일(선형 -1)·100일(하한 0)·미회상(count 0=0)·
+// rate 오버라이드.
+func TestEventEffectiveScoreBoundaries(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
 		name  string
-		score int
+		count int
 		last  time.Time
 		rate  float64
 		want  int
 	}{
-		{"1일 경과 — score-1", 5, now.Add(-25 * time.Hour), 1, 4},
+		{"1일 경과 — count-1", 5, now.Add(-25 * time.Hour), 1, 4},
 		{"100일 경과 — 하한 0", 5, now.Add(-100 * 24 * time.Hour), 1, 0},
 		{"23시간 — 0일(절사) 감쇠 없음", 5, now.Add(-23 * time.Hour), 1, 5},
-		{"미회상(last 없음) — score 그대로", 7, time.Time{}, 1, 7},
+		{"미회상(count 0) — 0", 0, now.Add(-10 * 24 * time.Hour), 1, 0},
 		{"rate 0.5 — 2일 -1", 5, now.Add(-2 * 24 * time.Hour), 0.5, 4},
 		{"rate 2 — 가속 하한 0", 3, now.Add(-2 * 24 * time.Hour), 2, 0},
 	}
 	for _, c := range cases {
-		if got := EffectiveRecallScore(c.score, c.last, now, c.rate); got != c.want {
-			t.Errorf("%s: EffectiveRecallScore(%d, %v, rate %v) = %d, want %d",
-				c.name, c.score, c.last, c.rate, got, c.want)
+		if got := knowledge.EventEffectiveScore(c.count, c.last, now, c.rate); got != c.want {
+			t.Errorf("%s: EventEffectiveScore(%d, %v, rate %v) = %d, want %d",
+				c.name, c.count, c.last, c.rate, got, c.want)
 		}
 	}
 }
 
-// decayAuditRowsFixture — --decay-audit 조회 원천 행(합성 데모 — id,
-// recall_score, last_recalled_at 3열). 미회상(NULL)·0일 경과 행이 후보
+// TestMaintainDecayAuditDerivedSource — v1.9.0 파생 전환 회귀: 조회
+// 원천은 recall_events 집계 조인(cnt·last_at)이어야 하고 폐기된 v11
+// 실열(knowledge.recall_score·last_recalled_at)을 참조해서는 안 된다.
+func TestMaintainDecayAuditDerivedSource(t *testing.T) {
+	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	var gotSQL string
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			gotSQL = sql
+			return decayAuditRowsFixture(now), nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--decay-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if !strings.Contains(gotSQL, "recall_events") {
+		t.Fatalf("조회 원천에 recall_events 파생 조인 부재: %s", gotSQL)
+	}
+	for _, gone := range []string{"k.recall_score", "k.last_recalled_at", ", recall_score", ", last_recalled_at"} {
+		if strings.Contains(gotSQL, gone) {
+			t.Fatalf("폐기된 v11 실열 %q 참조 잔존: %s", gone, gotSQL)
+		}
+	}
+}
+
+// decayAuditRowsFixture — --decay-audit 조회 원천 행(합성 데모 — v1.9.0
+// 파생 전환 후 id, cnt(이벤트 수), last_at(최종 회상 시각) 3열). 미회상
+// (NULL — 서버측 WHERE 제외분의 Go 방어 재현)·0일 경과 행이 후보
 // 필터에서 제외되는지까지 함께 검증한다.
 func decayAuditRowsFixture(now time.Time) [][]any {
 	return [][]any{

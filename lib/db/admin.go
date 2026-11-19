@@ -529,6 +529,97 @@ func (r *Repo) ensureSchemaV11(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV12는 meta.schema_version<12인 DB를 v12로 무손실 승격한다
+// (다중 기기 안정화 — recall append-only 원천 전환): 회상 이력 전용
+// recall_events(knowledge_id·recalled_at) 테이블+인덱스를 만들고
+// knowledge의 recall_score·last_recalled_at 2열을 폐기한다(읽기 경로는
+// 이벤트 파생 조인으로 전환 — v1.9.0). 승격 전 점수는 score수만큼의
+// 합성 이벤트(recalled_at=COALESCE(last_recalled_at, now()))로 백핍한다 —
+// 스코어 연속성 보존용 합성이지 실제 이벤트 이력이 아니다(이벤트 원천은
+// v12부터 정확). Doltgres는 DROP COLUMN IF EXISTS를 지원하지 않아(R40
+// 실측) information_schema.columns 사전 확인 후 DROP한다. 이미 v12
+// 이상이면 no-op(수치 비교 단락)이며 멱등하다.
+func (r *Repo) EnsureSchemaV12(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV12(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV12(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v12: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 12 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v12: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS recall_events (
+		    knowledge_id integer NOT NULL,
+		    recalled_at timestamptz NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_recall_events_id_time
+		 ON recall_events (knowledge_id, recalled_at DESC)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v12: create: %w", err)
+		}
+	}
+	// 백필·컬럼 폐기 — recall_score 존재 시에만(부분 승격 상태 등 컬럼이
+	// 이미 없으면 백필을 건너뛴다 — SELECT가 42703으로 실패하기 때문).
+	var hasScore int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM information_schema.columns
+		 WHERE table_name = 'knowledge' AND column_name = 'recall_score'`).Scan(&hasScore); err != nil {
+		return fmt.Errorf("schema v12: check recall_score: %w", err)
+	}
+	if hasScore == 1 {
+		// 합성 이벤트 백필 — score수만큼 1행씩(스코어 연속성 보존.
+		// 실제 회상 이력이 아님 — 위 주석 참조).
+		if _, err := tx.Exec(ctx,
+			`INSERT INTO recall_events (knowledge_id, recalled_at)
+			 SELECT k.id, COALESCE(k.last_recalled_at, now())
+			 FROM knowledge k, generate_series(1, k.recall_score) g
+			 WHERE k.recall_score > 0`); err != nil {
+			return fmt.Errorf("schema v12: backfill: %w", err)
+		}
+		// 컬럼 폐기 — Doltgres는 DROP COLUMN IF EXISTS 미지원(R40 실측)이라
+		// information_schema 사전 확인 후 실행한다(위 hasScore와 동일 패턴).
+		for _, col := range []string{"recall_score", "last_recalled_at"} {
+			var n int
+			if err := tx.QueryRow(ctx,
+				`SELECT count(*) FROM information_schema.columns
+				 WHERE table_name = 'knowledge' AND column_name = $1`, col).Scan(&n); err != nil {
+				return fmt.Errorf("schema v12: check column %s: %w", col, err)
+			}
+			if n == 0 {
+				continue
+			}
+			if _, err := tx.Exec(ctx,
+				`ALTER TABLE knowledge DROP COLUMN `+col); err != nil {
+				return fmt.Errorf("schema v12: drop %s: %w", col, err)
+			}
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '12')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v12: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v12: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
 // 승인은 유효 확정이므로 잔존 invalid_at을 함께 청소한다 —
 // 무효화된 pending을 승인하면 active+invalid_at 좀비(뷰·--status 어디에도

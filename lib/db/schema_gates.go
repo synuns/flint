@@ -10,7 +10,7 @@ import "context"
 
 // LatestSchemaVersion — 이 CLI가 아는 최신 스키마 버전(status·doctor
 // schema 호환 검사의 상한. 등록표 마지막 원소와 같아야 한다).
-const LatestSchemaVersion = 11
+const LatestSchemaVersion = 12
 
 // SchemaGate — 버전 승격 게이트 1건. Version은 목표 schema_version,
 // Ensure는 그 버전으로 무손실 승격하는 admin.go 게이트(멱등 — 수치
@@ -35,5 +35,6 @@ func SchemaGates() []SchemaGate {
 		{9, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV9(ctx) }},   // 계측·파생 쿼리 인덱스 4종(ts 3종·pending partial)
 		{10, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV10(ctx) }}, // 관측 확장: read_events bytes·zero_reason·source·knowledge_reads
 		{11, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV11(ctx) }}, // decay/강화 스코어: knowledge recall_score·last_recalled_at
+		{12, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV12(ctx) }}, // recall append-only: recall_events 테이블 + knowledge 2열 폐기(파생 전환)
 	}
 }

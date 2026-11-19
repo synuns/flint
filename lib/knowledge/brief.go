@@ -22,22 +22,26 @@ import (
 const defaultBriefBudget = 3000
 
 // briefRecallScoreIdx·briefRecallLastIdx — briefRankedSQL이 BuildReadStatus
-// SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의 — hot 관례 승계).
+// SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의 — hot 관례 승계.
+// v1.9.0 T4부터 열은 recall_events 파생 집계 re.cnt·re.last_at).
 const (
 	briefRecallScoreIdx = 9 // readColumns 9열(id..read_count) 직후
 	briefRecallLastIdx  = 10
 )
 
 // briefRankedSQL — query.BuildReadStatus 조립 SQL의 SELECT 말미에
-// recall_score·last_recalled_at를 병합한다. WHERE·ORDER BY(RankOrder)·
-// LIMIT·placeholder 번호는 원본을 그대로 승계 — 치환점 미발견 형태는
-// 원본 반환(랭킹 조용히 생략, 기존 동작 승계).
+// recall_events 파생 집계 조인이 산출하는 cnt·last_at를 병합한다
+// (v1.9.0 T4 — v11 knowledge.recall_score·last_recalled_at 직접 열
+// 폐지에 따른 전환. hot의 hotRankedSQL과 같은 파생 조인 패턴). WHERE·
+// ORDER BY(RankOrder)·LIMIT·placeholder 번호는 원본을 그대로 승계 —
+// 치환점 미발견 형태는 원본 반환(랭킹 조용히 생략, 기존 동작 승계).
 func briefRankedSQL(sql string) string {
 	const pivot = " FROM knowledge "
 	if !strings.Contains(sql, pivot) {
 		return sql
 	}
-	return strings.Replace(sql, pivot, ", recall_score, last_recalled_at"+pivot, 1)
+	joined := pivot + "LEFT JOIN (" + recallAggregateSQL + ") re ON re.knowledge_id = knowledge.id "
+	return strings.Replace(sql, pivot, ", re.cnt, re.last_at"+joined, 1)
 }
 
 func init() { wire.Register("brief", RunBrief) }
@@ -111,10 +115,10 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// 이중 조건을 단일 조립한다(read --status active와 동일 계층).
 	f.Status = "active"
 	sql, sqlArgs := query.BuildReadStatus(q, f)
-	// 선정 순위에 감쇠 후 유효 회상 점수 반영 — 랭킹 열을
+	// 선정 순위에 감쇠 후 유효 회상 점수 반영 — 파생 랭킹 열을
 	// SELECT 말미에 병합한 뒤 hot과 같은 안정 정렬(동점·0점은 RankOrder
-	// 순서 승계). 랭킹 열 부재 행은 0점 취급돼 기존 순서·출력이 그대로
-	// 살아남고, 마스킹·중립화·예산은 하류 불변이다.
+	// 순서 승계). 랭킹 열 부재 행·미회상(cnt NULL)은 0점 취급돼 기존
+	// 순서·출력이 그대로 살아남고, 마스킹·중립화·예산은 하류 불변이다.
 	sql = briefRankedSQL(sql)
 	rows, err := wire.QueryOnce(ctx, st, sql, sqlArgs)
 	if err != nil {

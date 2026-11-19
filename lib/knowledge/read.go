@@ -65,18 +65,19 @@ type KnowledgeReadsRecorder interface {
 }
 
 // RecallBumper — 회상 강화 접합면(v1.7.0 T2). realStore는
-// db.Repo.BumpRecallScores로 구현하고(schema v11 열 recall_score·
-// last_recalled_at), 미구현 Store(fake)는 조용히 건너뛴다(readBumper
-// 소비 패턴 승계).
+// db.Repo.BumpRecallScores로 구현하고(v1.9.0 T3부터 schema v12
+// recall_events INSERT 적립 — v11 knowledge.recall_score·
+// last_recalled_at 열 증분은 폐지), 미구현 Store(fake)는 조용히 건너뛴다
+// (readBumper 소비 패턴 승계).
 type RecallBumper interface {
 	BumpRecallScores(ctx context.Context, ids []int) error
 }
 
 // recordKnowledgeReads — 회상 이력 기록(계측 — 실패는 조용히, §13).
-// kind=read(회상 반환 히트)는 이 경로에 결합해 강화
-// (recall_score+1·last_recalled_at=now)까지 함께 수행한다. kind=hot(주입
-// 노출)은 강화에서 제외 — hot 랭킹이 recall_score를 소기 때문에 노출→
-// 강화→재노출 순환이 생긴다. 이력 기록 자체는 양쪽 불변.
+// kind=read(회상 반환 히트)는 이 경로에 결합해 강화(회상 이벤트
+// recall_events 적립)까지 함께 수행한다. kind=hot(주입 노출)은 강화에서
+// 제외 — 노출→적립→재노출 순환이 생긴다(회상 이벤트 원천은 실제 회상
+// 반환 히트만). 이력 기록 자체는 양쪽 불변.
 func recordKnowledgeReads(ctx context.Context, st wire.Store, ids []int, session, kind string) {
 	if kr, ok := st.(KnowledgeReadsRecorder); ok {
 		_ = kr.RecordKnowledgeReads(ctx, ids, session, kind)
@@ -575,8 +576,8 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			Source:     source,
 		})
 	}
-	// read 완료 경로 감사 커밋 — recall bump(UPDATE
-	// knowledge)·meta 증분이 계측 커밋에 흡수되지 않도록(telemetry의
+	// read 완료 경로 감사 커밋 — recall bump(INSERT
+	// recall_events)·meta 증분이 계측 커밋에 흡수되지 않도록(telemetry의
 	// -A 스윕 폐지로 계측 스테이징은 계측 원본만) 감사 경계에서 커밋한다
 	// (done의 session-end 커밋 관례. 실패는 stderr 1행·비간섭 §13 —
 	// 잔여는 다음 감사 커밋이 회수, 유실 없음).
