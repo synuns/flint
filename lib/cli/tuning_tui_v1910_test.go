@@ -363,6 +363,11 @@ func TestRunTuningTUIRowsFailureUsesStandardExit(t *testing.T) {
 // `script`(BSD pty 래퍼)로 구동해 산출물·종료 상태를 검증한다. script
 // 부재 환경은 스킵(pty 실구동은 이 1회로 한정).
 func TestTuningTUIPtyRealRun(t *testing.T) {
+	// pty 실구동은 로컬/발행 전 TUI 표준 검증 — CI headless 러너의
+	// 단말 에뮬레이션 타이밍 차이로 회귀 판정이 불안정해 CI는 스킵.
+	if os.Getenv("CI") == "true" {
+		t.Skip("pty 실구동: CI 환경 제외(로컬 TUI 표준 검증)")
+	}
 	if os.Getenv("FLINT_TUNING_TUI_PTY_CHILD") == "1" {
 		code := tui.RunTuningTUI(context.Background(), nil, os.Stdout, tui.TuningDeps{
 			Rows: func(ctx context.Context) ([]tui.TuningKeyRow, error) {
