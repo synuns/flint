@@ -332,6 +332,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0190Milestone/MultiDevice", doc: "HISTORY.md", wants: []string{
 		"v1.9.0", "multi-device",
 	}},
+	// v1.9.1: R42 패치 — jsonl 회상 재생·이벤트 보존기한·고아 정리·소형군.
+	{name: "TestVersion0191Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.9.1", "r42-hardening",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
