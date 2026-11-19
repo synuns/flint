@@ -68,9 +68,13 @@ var thresholdMetas = []ThresholdMeta{
 	// maintain --decay-audit — schema v11 recall_score·last_recalled_at).
 	{"DecayRate", "decay_rate", 1.0, "maintain --decay-audit"},
 	{"ArchiveBelow", "archive_below", 0.0, "maintain --decay-audit"},
+
+	// recall_events 보존기한(schema v12 append-only 회상 원천의 성장
+	// 상한 — 소비 경로 maintain --prune-invalidated 이벤트 정리).
+	{"RecallEventRetentionD", "recall_event_retention_days", 90, "maintain --prune-invalidated (recall events retention)"},
 }
 
-// ThresholdMetas — 등록표 결정적 복사본(38항목 — 키 집합은 기존
+// ThresholdMetas — 등록표 결정적 복사본(39항목 — 키 집합은 기존
 // ThresholdsKeys와 동일, 가드 테스트가 단언).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

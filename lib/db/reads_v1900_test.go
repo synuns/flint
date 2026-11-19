@@ -178,3 +178,80 @@ func TestRecallEventsAuditStaged(t *testing.T) {
 		t.Fatalf("감사 커밋 후 recall_events unstaged 잔여 %d, want 0(auditStageTables 흡수)", n)
 	}
 }
+
+// TestReplayRecallEventsSynthesizesEvents — 이식 스코어 재생 산식(R42-A):
+// score수만큼 합성 이벤트 적립·recalled_at은 COALESCE(last, now())로
+// EnsureSchemaV12 백필과 동일(지정 시각 승계·미회상 now 폴백)·score 0과
+// 빈 슬라이스는 no-op. 감사 커밋 흡수(recall_events 스테이징)도 함께.
+func TestReplayRecallEventsSynthesizesEvents(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	// v12 상태 보증 — recall_events 존재·knowledge 2열 폐기(멱등).
+	if err := r.EnsureSchemaV12(ctx); err != nil {
+		t.Fatalf("EnsureSchemaV12: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx, `DELETE FROM recall_events`); err != nil {
+		t.Fatalf("recall_events 초기화: %v", err)
+	}
+	ids, err := r.InsertBatch(ctx, []map[string]any{
+		knowledgeRec("t3-r42a-a"), knowledgeRec("t3-r42a-b"), knowledgeRec("t3-r42a-c"),
+	})
+	if err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	last := time.Date(2026, 11, 19, 9, 30, 0, 123456000, time.UTC)
+	before := time.Now().UTC().Add(-time.Second)
+	if err := r.ReplayRecallEvents(ctx, []RecallReplay{
+		{ID: ids[0], Score: 3, LastRecalled: last}, // 지정 시각 승계
+		{ID: ids[1], Score: 2},                     // 미회상 — now 폴백
+		{ID: ids[2], Score: 0},                     // score 0 — 재생 생략
+	}); err != nil {
+		t.Fatalf("ReplayRecallEvents: %v", err)
+	}
+	after := time.Now().UTC().Add(time.Second)
+	agg := func(id int) (int, time.Time) {
+		var n int
+		var mx *time.Time
+		if err := r.pool.QueryRow(ctx,
+			`SELECT count(*), max(recalled_at) FROM recall_events WHERE knowledge_id = $1`, id).
+			Scan(&n, &mx); err != nil {
+			t.Fatalf("이벤트 집계 id=%d: %v", id, err)
+		}
+		if mx == nil {
+			return n, time.Time{}
+		}
+		return n, *mx
+	}
+	if n, mx := agg(ids[0]); n != 3 || !mx.Equal(last) {
+		t.Fatalf("지정 시각 재생: cnt=%d max=%v, want 3 %v", n, mx, last)
+	}
+	if n, mx := agg(ids[1]); n != 2 || mx.Before(before) || mx.After(after) {
+		t.Fatalf("now 폴백 재생: cnt=%d max=%v, want 2 [%v, %v]", n, mx, before, after)
+	}
+	if n, _ := agg(ids[2]); n != 0 {
+		t.Fatalf("score 0 재생: cnt=%d, want 0", n)
+	}
+	// 빈 슬라이스·전부 무효(0) — no-op(오류·적립 없음).
+	if err := r.ReplayRecallEvents(ctx, nil); err != nil {
+		t.Fatalf("빈 슬라이스: %v", err)
+	}
+	if err := r.ReplayRecallEvents(ctx, []RecallReplay{{ID: ids[2]}}); err != nil {
+		t.Fatalf("전부 score 0: %v", err)
+	}
+	if n, _ := agg(ids[2]); n != 0 {
+		t.Fatalf("무효 재생 후 cnt=%d, want 0", n)
+	}
+	// 감사 커밋 흡수 — 재생 이벤트도 recall_events 스테이징에 흡수된다.
+	if _, err := r.Commit(ctx, "import: recall replay (test staging)"); err != nil {
+		t.Fatalf("감사 커밋: %v", err)
+	}
+	var left int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM dolt_status
+		 WHERE table_name = 'public.recall_events' AND staged = false`).Scan(&left); err != nil {
+		t.Fatalf("dolt_status recall_events 조회: %v", err)
+	}
+	if left != 0 {
+		t.Fatalf("감사 커밋 후 recall_events unstaged 잔여 %d, want 0", left)
+	}
+}

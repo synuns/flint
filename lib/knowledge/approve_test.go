@@ -53,9 +53,10 @@ type fakeApprove struct {
 	staleAgents    []string       // StaleSessionRuns
 	playbookUses   []playbookUse  // LogPlaybookUse
 	sessionUpdates []sessionUpdate
-	recordedBytes  []bytesCall   // RecordBytes(G5 바이트 계측)
-	kreads         []kreadsCallV // RecordKnowledgeReads(회상 이력)
-	telemetryCmds  []string      // CommitTelemetry(계측 분리 커밋)
+	recordedBytes  []bytesCall       // RecordBytes(G5 바이트 계측)
+	kreads         []kreadsCallV     // RecordKnowledgeReads(회상 이력)
+	telemetryCmds  []string          // CommitTelemetry(계측 분리 커밋)
+	replayedRecall []db.RecallReplay // ReplayRecallEvents(R42-A 스코어 이관 재생)
 }
 
 // kreadsCallV — RecordKnowledgeReads canned 호출 기록(kreadsCall과 동일
@@ -108,6 +109,13 @@ func (f *fakeApprove) BumpReads(ctx context.Context, ids []int) error {
 
 // BumpRecallScores — 패리티 canned(RecallBumper 단언 대응).
 func (f *fakeApprove) BumpRecallScores(ctx context.Context, ids []int) error {
+	return f.capErr
+}
+
+// ReplayRecallEvents — 패리티 canned(recallReplayStore 단언 대응 — R42-A
+// 이식 스코어 재생. 호출 기록을 남겨 왕복 유닛 검증이 재생 계약을 소비).
+func (f *fakeApprove) ReplayRecallEvents(ctx context.Context, items []db.RecallReplay) error {
+	f.replayedRecall = append(f.replayedRecall, items...)
 	return f.capErr
 }
 

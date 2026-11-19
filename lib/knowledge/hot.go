@@ -102,11 +102,12 @@ const (
 	hotHeadlineRecallLastIdx  = 6
 )
 
-// recallAggregateSQL — recall_events 파생 집계 서브질의(v1.9.0 T4 단일
+// RecallAggregateSQL — recall_events 파생 집계 서브질의(v1.9.0 T4 단일
 // 정의): 지식별 이벤트 수(cnt)·최종 회상 시각(last_at). 랭킹 질의
-// (hotRankedSQL)가 LEFT JOIN으로 병합한다 — v11 knowledge.recall_score·
-// last_recalled_at 직접 열(스키마 v12 폐기)의 파생 대체.
-const recallAggregateSQL = "SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at FROM recall_events GROUP BY knowledge_id"
+// (hotRankedSQL)와 ops(maintain decay-audit)가 LEFT JOIN으로 병합한다 —
+// v11 knowledge.recall_score·last_recalled_at 직접 열(스키마 v12 폐기)의
+// 파생 대체. 공개 상수가 단일 정의다(ops측 사본 폐지).
+const RecallAggregateSQL = "SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at FROM recall_events GROUP BY knowledge_id"
 
 // EventEffectiveScore — 이벤트 카운트 기반 유효 점수 순수 함수
 // (v1.9.0 T1 — recall append-only 스키마 v12): max(0, count −
@@ -165,8 +166,10 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64,
 		last, _ := wire.CellToTime(r[lastIdx]) // last NULL+cnt>0(fake 형태)은 cnt 유지(T1 계약)
 		eff[i] = EventEffectiveScore(score, last, now, rate)
 	}
-	// sort는 rows만 swap하므로 less 클로저가 사전 계산 eff[i]를
-	// 읽으면 어긋난다 — 현재 행의 키를 직접 계산한다(부분 정렬 폐지).
+	// sort.SliceStable은 idx 슬라이스만 swap하므로 사전 계산 eff 배열은
+	// 제자리에 남는다 — less 클로저는 eff[idx[a]]·eff[idx[b]]로 현재
+	// 순위의 값을 읽고, idx 재조립(out)이 최종 행 순서를 확정한다
+	// (부분 정렬 폐지).
 	idx := make([]int, len(rows))
 	for i := range idx {
 		idx[i] = i
@@ -203,7 +206,7 @@ func hotRankedSQL(base string) string {
 	}
 	q = append(q, "re.cnt", "re.last_at")
 	return "SELECT " + strings.Join(q, ", ") +
-		" FROM hot_view h LEFT JOIN (" + recallAggregateSQL + ") re ON re.knowledge_id = h.id ORDER BY h.ts DESC, h.id DESC" +
+		" FROM hot_view h LEFT JOIN (" + RecallAggregateSQL + ") re ON re.knowledge_id = h.id ORDER BY h.ts DESC, h.id DESC" +
 		base[i+len(hotRankJoinPivot):]
 }
 

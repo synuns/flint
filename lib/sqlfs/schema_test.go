@@ -50,3 +50,17 @@ func TestSchemaV3Indexes(t *testing.T) {
 		}
 	}
 }
+
+// TestSchemaV12NoV11RecallColumns — v1.9.0(R42): 신규 DB는 폐기될 v11
+// 2열(recall_score·last_recalled_at)을 생성하지 않는다 — schema.sql이
+// 처음부터 v12 종착상태(2열 부재)로 직행한다. 2열은 기존 v11 DB의
+// EnsureSchemaV12 게이트 승격 경로 전용이다(회상 원천은 recall_events).
+func TestSchemaV12NoV11RecallColumns(t *testing.T) {
+	knowledge := tableBlock(t, "knowledge")
+	for _, col := range []string{"recall_score", "last_recalled_at"} {
+		re := regexp.MustCompile(`(?m)^\s*` + col + `\s`)
+		if re.MatchString(knowledge) {
+			t.Errorf("schema.sql knowledge 정의에 폐기된 v11 열 %s 잔존 — 신규 DB는 v12 종착 직행:\n%s", col, knowledge)
+		}
+	}
+}

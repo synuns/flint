@@ -326,8 +326,15 @@ var versionDocContracts = []struct {
 		"v1.8.1", "r40-hardening",
 	}},
 	// v1.9.0 T7: 다중 기기 안정화 마일스톤 — recall append-only(스키마 v12).
-	{name: "TestVersion0190Milestone", doc: "HISTORY.md", wants: []string{
+	// 이름은 v0.19.0 계약행(TestVersion0190Milestone)과 구분되는 서브이름
+	// /MultiDevice — release_gate.sh 그렵(0190)은 그대로 만족한다
+	// (v1.8.0 /DbSeverance 선례와 같은 형태).
+	{name: "TestVersion0190Milestone/MultiDevice", doc: "HISTORY.md", wants: []string{
 		"v1.9.0", "multi-device",
+	}},
+	// v1.9.1: R42 패치 — jsonl 회상 재생·이벤트 보존기한·고아 정리·소형군.
+	{name: "TestVersion0191Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.9.1", "r42-hardening",
 	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",

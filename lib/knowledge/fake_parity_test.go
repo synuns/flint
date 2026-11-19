@@ -42,6 +42,7 @@ var (
 	_ sessionSummaryStore    = (*fakeApprove)(nil)
 	_ supersedeRefStore      = (*fakeApprove)(nil) // 계보 참조 복원 capability
 	_ TelemetryCommitter     = (*fakeApprove)(nil) // 계측 분리 커밋 capability
+	_ recallReplayStore      = (*fakeApprove)(nil) // 이식 스코어 재생 capability(R42-A)
 
 	// 기존 capability fake의 자연 단언(이미 구현 — 문서화 + 시그니처
 	// 드리프트 회귀 가드).

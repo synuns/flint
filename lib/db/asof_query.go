@@ -43,8 +43,10 @@ var asOfWhereKeywordRe = regexp.MustCompile(`(?i)^(where|order|limit)\b`)
 // 으로 repo 내 질의 조립기 산출물만 받는 신뢰 경계(외부 입력은 Columns·Hash·
 // Table 검증으로 차단). 뷰(active_knowledge) 비호환 — "column ... does
 // not exist"(현재 정의 + 과거 행, C3) — 이면 base 재시도 없이 즉시
-// 안내 문구 랩 오류(원본 read.go wrapViewColumnMismatch 동치 — base는
-// invalid_at 필터가 없어 폴백 노출이 시점 정합성을 깬다).
+// 안내 문구 랩 오류(안내 문구는 원본 read.go wrapViewColumnMismatch와
+// 동치 — 판정 isViewColumnMismatch는 원본 휴리스틱에 "references
+// invalid table(s)" 확장 포함. base는 invalid_at 필터가 없어 폴백
+// 노출이 시점 정합성을 깬다).
 func (r *Repo) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
 	rows, err := r.queryAsOfTable(ctx, q, q.Table)
 	if err != nil {

@@ -6,6 +6,28 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.9.1 patch (2026-11-19) — r42-hardening: jsonl recall replay · event retention · orphan cleanup
+
+- [x] Fatal import fix (R42): rows with recall history failed the jsonl
+  round-trip — the assembler still INSERTed the dropped v11 columns
+  (`recall_score` · `last_recalled_at`), error 42703 rolling back the whole
+  batch. The INSERT is now assembled without the dropped columns, and after
+  the batch commit the recall history is replayed into `recall_events` as
+  synthetic events (one per score point, same backfill formula as the v12
+  migration) — recall history now travels across devices via jsonl
+  export/import.
+- [x] Event lifecycle management (R42): `maintain --prune-invalidated`
+  now also enforces `recall_event_retention_days` (default 90, tuning
+  override) — the append-only `recall_events` source gets a structural
+  growth bound, independent of knowledge invalidation.
+- [x] Orphan cleanup (R42): pruning invalidated knowledge deletes its
+  `recall_events` · `knowledge_reads` orphans in the same transaction —
+  no growth multiplication from deleted knowledge.
+- [x] Small hygiene pass (no behavior change): duplicate
+  v0.19.0/v1.9.0 contract-row name (`/MultiDevice` subname), fresh-DB
+  schema straight to the v12 end state (no dropped-column detour), single
+  `RecallAggregateSQL` definition, comment accuracy fixes.
+
 ### v1.9.0 minor (2026-11-18) — multi-device: recall append-only (schema v12)
 
 - [x] Root-cause fix for the dual-device fatal scenarios (R38): recall
@@ -44,8 +66,8 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
   dropped from `wire.AsOfQuery`.
 - [x] `--session` LIKE escaping: literal values inlined into LIKE patterns
   (`\`, `%`, `_` metacharacters) are escaped by a shared `EscapeLike`
-  helper — the read assembler's rule is reused by audit and other
-  callers (backslash default ESCAPE, consistent with the dialect SQL).
+  helper — the read assembler's rule is reused by audit
+  (backslash default ESCAPE, consistent with the dialect SQL).
 - [x] Comment-only cleanups (no behavior change): dialect gate scope
   (history-query dialect only; diagnostic/write dialects out of scope),
   LogQuery Hash-mode assembly note (4-column rebuild vs the legacy

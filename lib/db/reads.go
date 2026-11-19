@@ -6,6 +6,7 @@ package db
 import (
 	"context"
 	"fmt"
+	"time"
 )
 
 // BumpReads는 ids에 해당하는 knowledge 행의 참조를 1씩 증분한다
@@ -64,6 +65,78 @@ func (r *Repo) BumpRecallScores(ctx context.Context, ids []int) error {
 		`INSERT INTO recall_events (knowledge_id)
 		 SELECT DISTINCT u FROM unnest($1::int[]) AS u`, ids); err != nil {
 		return fmt.Errorf("bump recall scores: %w", err)
+	}
+	return nil
+}
+
+// PruneRecallEvents는 보존기한을 넘은 회상 이벤트 DELETE의 단일 경로다
+// (schema v12 append-only 원천의 성장 상한 — R42-D). maintain
+// --prune-invalidated --commit이 recall_event_retention_days(기본 90,
+// meta 오버라이드)로 위임한다. 삭제 0행은 정상(멱등 재실행). dolt 흡수:
+// recall_events는 감사 스테이징(auditStageTables) 대상이라 같은 경로의
+// 감사 커밋이 곧바로 흡수한다(계측 테이블과 달리 별도 회수 불필요).
+// 랭킹 정합(EventEffectiveScore = count−rate×days_since(last)): rate
+// 기본 1.0에서 마지막 회상이 보존기한(90일)+경과한 행은 유효 점수가
+// 이미 0 하한으로 소멸해 정리가 랭킹을 바꾸지 않는다. 최근 회상이 있는
+// 행은 보존 창 내 이벤트만 카운트되는 창 상한 효과(의도된 성장 경계).
+func (r *Repo) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
+	n, err := transitionExecFn(ctx, r,
+		`DELETE FROM recall_events WHERE recalled_at < $1`, before)
+	if err != nil {
+		return 0, fmt.Errorf("prune_recall_events: %w", err)
+	}
+	return n, nil
+}
+
+// RecallReplay — 이식 스코어 재생 1행분(import --format jsonl — R42-A):
+// 적립 완료 행 id와 이식 원천의 스코어·최종 회상 시각(0값=now() 폴백).
+type RecallReplay struct {
+	ID           int
+	Score        int
+	LastRecalled time.Time
+}
+
+// ReplayRecallEvents — 이식된 행들의 회상 이력을 합성 이벤트로 재생한다
+// (import --format jsonl 전용 — R42-A). v12에서 knowledge의
+// recall_score·last_recalled_at 2열은 폐기돼 INSERT 컬럼으로 이관할 수
+// 없어, InsertBatch 커밋 후 jsonl이 실어온 (score, last) 쌍을
+// EnsureSchemaV12 백필과 동일 산식(score수만큼 1행씩, recalled_at=
+// COALESCE(last, now()))으로 recall_events에 적립한다 — 파생 랭킹(cnt·
+// last_at)이 원천 DB와 동등하게 복원된다. score<=0 행은 재생 생략(백필
+// WHERE 관례와 동일), 빈 슬라이스·전부 0은 no-op. 적립분은 감사 커밋
+// (Commit)의 recall_events 스테이징에 자동 흡수된다(auditStageTables).
+func (r *Repo) ReplayRecallEvents(ctx context.Context, items []RecallReplay) error {
+	if len(items) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(items))
+	scores := make([]int, 0, len(items))
+	lasts := make([]*time.Time, 0, len(items))
+	for _, it := range items {
+		if it.ID <= 0 || it.Score <= 0 {
+			continue // score 0·키 부재 행은 재생 생략(원천 미회상)
+		}
+		ids = append(ids, it.ID)
+		scores = append(scores, it.Score)
+		var last *time.Time
+		if !it.LastRecalled.IsZero() {
+			t := it.LastRecalled.UTC()
+			last = &t
+		}
+		lasts = append(lasts, last)
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	// unnest 3배열 + generate_series — 백필(FROM knowledge k,
+	// generate_series(1, k.recall_score) g)과 동일 암묵 lateral 패턴.
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO recall_events (knowledge_id, recalled_at)
+		 SELECT u.id, COALESCE(u.last, now())
+		 FROM unnest($1::int[], $2::int[], $3::timestamptz[]) AS u(id, score, last),
+		      generate_series(1, u.score) g
+		 WHERE u.score > 0`, ids, scores, lasts); err != nil {
+		return fmt.Errorf("replay recall events: %w", err)
 	}
 	return nil
 }

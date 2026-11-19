@@ -170,15 +170,11 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	} else {
 		rec["status"] = "active"
 	}
-	// 스코어 왕복 승계: 값 있을 때만 rec에 실는다(InsertBatch
-	// 컬럼 승격 — 미지정·0/NULL은 컬럼 기본값 폴백). 해시 입력 제외는
+	// 스코어 2키(recall_score·last_recalled_at)는 INSERT rec에 넣지
+	// 않는다(R42-A — v12에서 knowledge의 해당 2열 폐기로 컬럼 조립이면
+	// 42703·배치 롤백). 값은 InsertBatch 커밍 후 합성 이벤트 재생
+	// (replayRecall — chunk 적립 뒤)으로 이관한다. 해시 입력 제외는
 	// importHashSkip(상단 주석). PAM은 metadata 미확장 — jsonl 경로 담당.
-	if r.RecallScore != 0 {
-		rec["recall_score"] = r.RecallScore
-	}
-	if r.LastRecalledAt != nil {
-		rec["last_recalled_at"] = r.LastRecalledAt.UTC()
-	}
 	if r.ID > 0 {
 		rec["id"] = r.ID
 	}
@@ -422,6 +418,7 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 	// 유지), id 매핑·집계는 행 순서 불변.
 	explicit := false
 	for start := 0; start < len(batch); start += importInsertChunk {
+		var replays []db.RecallReplay // 청크 재생 아이템(아래 수집)
 		end := min(start+importInsertChunk, len(batch))
 		chunk := batch[start:end]
 		recs := make([]map[string]any, 0, len(chunk))
@@ -456,6 +453,20 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 			if t, ok := oc.validAt[p.row.ID]; ok {
 				oc.validAt[id] = t // 재할당 id로도 참조 가능하게
 			}
+			// 스코어 이관 재생 원청(R42-A) — chunk 커밋 직후 실행(아래).
+			if p.row.RecallScore > 0 {
+				rr := db.RecallReplay{ID: id, Score: p.row.RecallScore}
+				if p.row.LastRecalledAt != nil {
+					rr.LastRecalled = *p.row.LastRecalledAt
+				}
+				replays = append(replays, rr)
+			}
+		}
+		// 회상 이력 재생(R42-A) — 폐기 2열 대신 합성 이벤트로 스코어
+		// 이관. chunk 적립 커밋에 붙여 실행해 "적립+재생"을 회복 단위로
+		// 묶는다(재실행 시 dedup가 커밋 행을 스킵 → 이중 재생 없음).
+		if err := replayRecall(ctx, st, replays); err != nil {
+			return nil, err
 		}
 	}
 	if explicit {
@@ -494,6 +505,39 @@ func syncKnowledgeIDSequence(ctx context.Context, st wire.Store) {
 // 단언으로만 소비한다.
 type supersedeRefStore interface {
 	SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error)
+}
+
+// recallReplayStore — 이식 스코어 재생 capability(R42-A). realStore는
+// db.Repo.ReplayRecallEvents로 구현. 쓰기 SQL은 db.Repo 단일 경로 —
+// knowledge는 capability 단언으로만 소비한다(supersedeRefStore 관례).
+type recallReplayStore interface {
+	ReplayRecallEvents(ctx context.Context, items []db.RecallReplay) error
+}
+
+// replayRecall — 이식 스코어 재생(R42-A): InsertBatch 커밋 직후 청크
+// 단위로 실행. v12에서 jsonl의 recall_score·last_recalled_at은 폐기된
+// knowledge 2열이라 INSERT 컬럼으로 못 넣고, EnsureSchemaV12 백필과 동일
+// 산식의 합성 이벤트(recall_events)로 이관한다. 오류는 InsertBatch와
+// 동일 계약(ErrServerDown 체인 보존·그 외 exit 1 랩 — 적립분은 이미
+// 커밋돼 재실행 시 dedup가 회복하고, 이중 재생도 없다: 커밋 행은
+// duplicated 스킵이라 재생 수집에서 빠진다). 미구현 store(fake 등)는
+// stderr 경고 후 스킵(restoreSupersede 관례).
+func replayRecall(ctx context.Context, st wire.Store, replays []db.RecallReplay) error {
+	if len(replays) == 0 {
+		return nil
+	}
+	rs, ok := st.(recallReplayStore)
+	if !ok {
+		fmt.Fprintf(os.Stderr, "[flint] import: recall replay unsupported by store — skipped (%d rows)\n", len(replays))
+		return nil
+	}
+	if err := rs.ReplayRecallEvents(ctx, replays); err != nil {
+		if errors.Is(err, store.ErrServerDown) {
+			return err
+		}
+		return fmt.Errorf("import: recall replay failed: %v", err)
+	}
+	return nil
 }
 
 // restoreSupersede — 계보 복원 후처리: superseded_by 참조 행을 기존

@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v1.9.0-blue" alt="v1.9.0">
+  <img src="https://img.shields.io/badge/release-v1.9.1-blue" alt="v1.9.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -50,6 +50,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 > v0.44.0 · PLAN 재무장 · 표면 계약 6종 · [전체 변경 이력](docs/HISTORY.md)
 > v1.7.2 · 계측 귀속·sync 완화·probe heal(R38) · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.0 · 다중 기기 동기화 지원 — 회상 이벤트 append-only·파생 랭킹(스키마 v12) · [전체 변경 이력](docs/HISTORY.md)
+> v1.9.1 · R42 하드닝 — 다중 기기 이식(jsonl 회상 재생)·회상 이벤트 수명 관리 · [전체 변경 이력](docs/HISTORY.md)
 ---
 
 ## 빠른 시작

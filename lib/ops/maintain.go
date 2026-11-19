@@ -34,6 +34,9 @@ type MaintStore interface {
 	// invalidated 정리 DELETE도 같은 원칙(쓰기 가드 —
 	// writes_through_repo_test).
 	PruneInvalidated(ctx context.Context, before time.Time) (int64, error)
+	// 회상 이벤트 보존기한 정리 DELETE도 Repo 단일 경로 위임
+	// (recall_event_retention_days — R42-D).
+	PruneRecallEvents(ctx context.Context, before time.Time) (int64, error)
 	Merge(ctx context.Context, fromID, toID int) error
 }
 
@@ -919,10 +922,10 @@ type decayAuditItem struct {
 // maintainDecayAudit — 감쇠 후보 보고(읽기 전용·exit 0). 대상: active 중
 // 회상 이력이 있고 감쇠가 진행된(effective < cnt) 행 — 미회상 행은
 // 이벤트가 없어 후보가 아니다. 점수 원천은 v1.9.0 파생 전환: recall_events
-// 집계 조인(지식별 이벤트 수 cnt·최종 회상 시각 last_at — lib/knowledge
-// recallAggregateSQL과 동등 SQL. 함수 export는 knowledge 소유라 ops측
-// 사본을 둔다)이고 v11 실열(recall_score·last_recalled_at — 스키마 v12
-// 폐기)은 참조하지 않는다. decay_rate·archive_below는 meta 오버라이드
+// 집계 조인(지식별 이벤트 수 cnt·최종 회상 시각 last_at — 단일 정의
+// lib/knowledge RecallAggregateSQL 참조)이고 v11 실열(recall_score·
+// last_recalled_at — 스키마 v12 폐기)은 참조하지 않는다.
+// decay_rate·archive_below는 meta 오버라이드
 // 우선(미설정 decay_rate=0은 ApplyThresholdsFallback 미탄 키라 여기서
 // 기본 1 폴백 — 소비자측 완결). 항목 상한은 --limit(기본 20, stale 관례
 // 승계).
@@ -943,10 +946,7 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 	rows, err := wire.QueryOnce(ctx, ms, `
 		SELECT k.id, re.cnt, re.last_at
 		FROM knowledge k
-		LEFT JOIN (
-		    SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at
-		    FROM recall_events GROUP BY knowledge_id
-		) re ON re.knowledge_id = k.id
+		LEFT JOIN (`+knowledge.RecallAggregateSQL+`) re ON re.knowledge_id = k.id
 		WHERE k.status = 'active' AND k.invalid_at IS NULL AND re.last_at IS NOT NULL
 		ORDER BY re.last_at ASC
 		LIMIT $1`, []any{limit})
@@ -1276,18 +1276,32 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 	return 0
 }
 
-// maintainPruneInvalidated — N일 경과 invalidated 지식 정리. dry-run
-// 기본(대상 목록·건수)·--commit 확정. DELETE는 현재 상태만 정리 — dolt
-// 이력에 행 내용이 남는다(버전 기억·감사 원칙 유지, ADR-0012와 무관).
+// maintainPruneInvalidated — N일 경과 invalidated 지식 정리 + 회상
+// 이벤트 보존기한(recall_event_retention_days, 기본 90) 만료 정리.
+// dry-run 기본(대상 목록·건수)·--commit 확정. DELETE는 현재 상태만 정리
+// — dolt 이력에 행 내용이 남는다(버전 기억·감사 원칙 유지, ADR-0012와
+// 무관). 이벤트 정리(R42-D)는 지식 무효화 대상 유무와 무관하게 실행
+// — append-only 원천(recall_events)의 구조적 성장 상한이다. 감사 커밋
+// 스테이징(auditStageTables)이 recall_events를 흡수하고, knowledge_reads
+// 고아 분은 계측 커밋(TelemetryCommitter — 구현 Store만)이 조용히 회수
+// 한다(§13).
 func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writer, days int, commit bool) int {
+	// 임계값 1회 로드 — invalidated_prune_days(지식 만료일·tuning
+	// 오버라이드, --stale stale_days 관례)·recall_event_retention_days
+	// (회상 이벤트 보존기한) 폴백 공통 원천. 파싱 도달 방어 겸용.
+	th := knowledge.WriteThresholds(ctx, ms)
 	if days <= 0 {
-		// 임계값 폴백 — invalidated_prune_days(tuning
-		// 오버라이드, --stale stale_days 관례). 파싱 도달 방어 겸용.
-		days = knowledge.WriteThresholds(ctx, ms).InvalidatedPruneDays
+		days = th.InvalidatedPruneDays
 		if days <= 0 {
 			days = 90
 		}
 	}
+	// 회상 이벤트 보존기간 — 등록표 키 폴백(미설정 0·파손은 기본 90).
+	retention := th.RecallEventRetentionD
+	if retention <= 0 {
+		retention = 90
+	}
+	eventCutoff := time.Now().UTC().AddDate(0, 0, -retention)
 	cutoff := time.Now().UTC().AddDate(0, 0, -days) // timestamptz 파라미터
 	rows, err := wire.QueryOnce(ctx, ms,
 		`SELECT id FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1 ORDER BY invalid_at`,
@@ -1305,7 +1319,22 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 			ids = append(ids, n)
 		}
 	}
-	if len(ids) == 0 {
+	// 만료 회상 이벤트 수 — dry-run 보고·commit 실행 공통 원천(fake 등
+	// 0행 응답은 0 취급).
+	expired := 0
+	erows, err := wire.QueryOnce(ctx, ms,
+		`SELECT count(*)::int FROM recall_events WHERE recalled_at < $1`,
+		[]any{eventCutoff})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	if len(erows) > 0 && len(erows[0]) > 0 {
+		if n, ok := render.CellToInt(erows[0][0]); ok {
+			expired = n
+		}
+	}
+	if len(ids) == 0 && expired == 0 {
 		fmt.Fprintln(stdout, `{"status":"prune-invalidated","deleted":0,"detail":"no targets"}`)
 		return 0
 	}
@@ -1318,28 +1347,55 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 		if len(list) > 200 {
 			list = list[:200] + "…"
 		}
-		fmt.Fprintf(stdout, `{"status":"dry-run","would_delete":%d,"older_than_days":%d,"ids":"%s","next":"run with --commit to apply"}`+"\n",
-			len(ids), days, list)
+		fmt.Fprintf(stdout, `{"status":"dry-run","would_delete":%d,"older_than_days":%d,"ids":"%s","would_prune_recall_events":%d,"recall_retention_days":%d,"next":"run with --commit to apply"}`+"\n",
+			len(ids), days, list, expired, retention)
 		return 0
 	}
 	deleted := 0
+	if len(ids) > 0 {
+		if err := retryWrite(ctx, func() error {
+			// DELETE는 db.Repo.PruneInvalidated 단일 경로
+			// (반환 = 실제 영향 행 수 — 스냅숏 아님).
+			n, err := ms.PruneInvalidated(ctx, cutoff)
+			if err != nil {
+				return err
+			}
+			deleted = int(n)
+			_, err = ms.Commit(ctx, fmt.Sprintf(
+				"prune-invalidated: removed %d rows (%dd+ elapsed) (knowledge hygiene path) [session:0]", deleted, days))
+			return err
+		}); err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
+		}
+		// 검수 카운터 — 실제 삭제 행수(Repo 반환값). dry-run은 미계상.
+		knowledge.BumpCurationCounter(ctx, ms, "maintain_prune_rows", deleted)
+	}
+	// 회상 이벤트 보존기한 정리 — DELETE는 db.Repo.PruneRecallEvents
+	// 단일 경로. 감사 커밋 스테이징이 recall_events를 흡수한다.
+	prunedEvents := 0
 	if err := retryWrite(ctx, func() error {
-		// DELETE는 db.Repo.PruneInvalidated 단일 경로
-		// (반환 = 실제 영향 행 수 — 스냅숏 아님).
-		n, err := ms.PruneInvalidated(ctx, cutoff)
+		n, err := ms.PruneRecallEvents(ctx, eventCutoff)
 		if err != nil {
 			return err
 		}
-		deleted = int(n)
+		prunedEvents = int(n)
+		if prunedEvents == 0 {
+			return nil // 스테이징 0행 — 빈 감사 커밋 방지
+		}
 		_, err = ms.Commit(ctx, fmt.Sprintf(
-			"prune-invalidated: removed %d rows (%dd+ elapsed) (knowledge hygiene path) [session:0]", deleted, days))
+			"prune-recall-events: removed %d rows (%dd retention) (knowledge hygiene path) [session:0]", prunedEvents, retention))
 		return err
 	}); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 검수 카운터 — 실제 삭제 행수(Repo 반환값). dry-run은 미계상.
-	knowledge.BumpCurationCounter(ctx, ms, "maintain_prune_rows", deleted)
-	fmt.Fprintf(stdout, `{"status":"prune-invalidated","deleted":%d,"older_than_days":%d}`+"\n", deleted, days)
+	// 고아 knowledge_reads 분 회수 — 계측 커밋(미구현 Store는 조용히
+	// 스킵, §13. dolt_add 선스테이징 덕에 실패분은 다음 계측 커밋이 회수).
+	if tc, ok := ms.(knowledge.TelemetryCommitter); ok {
+		_ = tc.CommitTelemetry(ctx, "prune-invalidated")
+	}
+	fmt.Fprintf(stdout, `{"status":"prune-invalidated","deleted":%d,"older_than_days":%d,"pruned_recall_events":%d,"recall_retention_days":%d}`+"\n",
+		deleted, days, prunedEvents, retention)
 	return 0
 }
