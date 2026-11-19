@@ -109,10 +109,11 @@ const (
 	defaultDecayRate    = 1.0
 	defaultArchiveBelow = 0.0
 	// recall_events 보존기한 기본값(90일 — EventEffectiveScore 산식
-	// count−rate×days_since(last)에서 rate 기본 1.0일 때 마지막 회상이
-	// 보존기한을 넘은 행은 유효 점수가 사실상 소멸(0 하한)하므로 정리의
-	// 랭킹 영향이 작다. 최근 회상이 있는 행은 보존 창 내 이벤트만 카운트
-	// 되는 창 상한 효과가 의도된 성장 경계다).
+	// count−rate×days_since(last)에서 rate 기본 1.0일 때 경과일수가
+	// count 이상인 행만 유효 점수가 0 하한으로 소멸한다. 빈도 높은 행은
+	// 양의 점수를 유지하므로 정리가 랭킹을 옮길 수 있다. 최근 회상이
+	// 있는 행은 보존 창 내 이벤트만 카운트되는 창 상한 효과가 의도된
+	// 성장 경계다).
 	defaultRecallEventRetentionD = 90
 )
 

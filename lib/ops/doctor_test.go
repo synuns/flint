@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -62,6 +63,7 @@ type fakeStore struct {
 	inserted []map[string]any
 	commits  []string
 	queries  []string
+	qmu      sync.Mutex // queries append 보호(병렬 수집 — v1.9.3 T2)
 
 	// fake 동질: metaDeleteStore canned(호출 기록·오류 주입).
 	metaDeleted   []string
@@ -107,7 +109,12 @@ func (f *fakeStore) MetaDelete(ctx context.Context, keys []string) (int64, error
 	return int64(len(keys)), nil
 }
 func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	// v1.9.3 T2: report 수집 병렬화로 queryFn이 다중 고루틴에서 같이
+	// 불린다 — 기록 슬라이스 append만 뮤텍스로 보호한다(읽기는 커맨드
+	// 반환 후 테스트 스레드에서만).
+	f.qmu.Lock()
 	f.queries = append(f.queries, sql)
+	f.qmu.Unlock()
 	if f.queryErr != nil {
 		return nil, f.queryErr
 	}

@@ -340,6 +340,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0192Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.9.2", "r43-recovery",
 	}},
+	// v1.9.3: TUI·성능 마일스톤 — 저화면 TUI 크롬 최소화·report 병렬화·
+	// tuning --tui 옵트인.
+	{name: "TestVersion0193Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.9.3", "c-tui-perf",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

@@ -369,10 +369,17 @@ func suspectRows(suspects []MaintainSuspect) []list.Item {
 }
 
 // maintainListHeight — 목록에 배분할 높이: View의 비목록
-// 라인(소스 탭 헤더 + 키 안내·status·비대화 안내와 구분 공백 — 최대
-// 7행)을 제외한 나머지. 최소 1.
+// 라인을 제외한 나머지. 최소 1.
+//   - 높이 ≥ 12: 크롬 7행(소스 탭 헤더 + 키 안내·status·비대화 안내와
+//     구분 공백).
+//   - 저화면(< 12): 크롬 2행(소스 탭 헤더 + 키 안내만 — 비대화 안내·구분
+//     여백·status는 View에서 생략, q/ESC 탈출 안내 유지).
 func maintainListHeight(height int) int {
-	h := height - 7
+	chrome := 7
+	if lowHeight(height) {
+		chrome = 2
+	}
+	h := height - chrome
 	if h < 1 {
 		h = 1
 	}
@@ -411,13 +418,16 @@ func (m MaintainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		h := maintainListHeight(msg.Height) // B2: 비목록 라인 7행 제외
+		h := maintainListHeight(msg.Height) // B2: 비목록 라인 제외(저화면 크롬 2행)
+		// 저화면(< 12)에서는 bubbles 내장 help를 끈다(내장 help 1행이
+		// 목록 최소 높이를 넘긴다 — 자체 힌트가 q/ESC 탈출 안내를 유지).
+		showHelp := msg.Width > 40 && !lowHeight(msg.Height)
 		for i := range m.lists {
 			m.lists[i].SetSize(msg.Width, h)
-			m.lists[i].SetShowHelp(msg.Width > 40)
+			m.lists[i].SetShowHelp(showHelp)
 		}
 		m.pick.SetSize(msg.Width, h)
-		m.pick.SetShowHelp(msg.Width > 40)
+		m.pick.SetShowHelp(showHelp)
 		return m, nil
 	case tea.KeyMsg:
 		switch m.mode {
@@ -646,7 +656,7 @@ func (m MaintainModel) buildPick(what string) MaintainModel {
 		// 창 크기 재적용(새 list는 0x0에서 조립된다).
 		h := maintainListHeight(m.height)
 		m.pick.SetSize(m.width, h)
-		m.pick.SetShowHelp(m.width > 40)
+		m.pick.SetShowHelp(m.width > 40 && !lowHeight(m.height))
 	}
 	if what == "merge" {
 		m.pick.Title = "Merge — pick the survivor (stays active)"
@@ -773,9 +783,22 @@ const maintainStalePreviewFmt = "invalidate preview (i): #%d is marked invalidat
 // maintainPickHint — 선택 화면 보존 미리보기.
 const maintainMergePickHint = "survivor stays active · others invalidated (kept in history) · [merged:from=N] marker appended"
 
-// View — 화면 렌더. 키 안내는 영어 고정(플러그인 룰).
+// View — 화면 렌더. 키 안내는 영어 고정(플러그인 룰). 저화면(높이
+// < 12)에서는 선택 크롬(비대화 안내·구분 여백·status)을 생략하고 소스
+// 탭 헤더·키 안내(q/ESC 탈출)만 유지한다 — 임계 이상 레이아웃은 바이트
+// 불변.
 func (m MaintainModel) View() string {
+	low := lowHeight(m.height)
 	var b strings.Builder
+	// writeHint — 키 안내 라인. lead는 모드 구분(목록 계열은 list.View가
+	// 개행 없이 끝나므로 "\n", 상세는 ""). 저화면은 접미 개행만 생략.
+	writeHint := func(lead, full, short string) {
+		suffix := "\n"
+		if low {
+			suffix = ""
+		}
+		fmt.Fprintf(&b, "%s%s%s", lead, Theme.Secondary.Render(keyHint(m.width, full, short)), suffix)
+	}
 	switch m.mode {
 	case maintainDetail:
 		cur, ok := m.current()
@@ -804,18 +827,14 @@ func (m MaintainModel) View() string {
 			preview = fmt.Sprintf(maintainStalePreviewFmt, cur.IDs[0])
 		}
 		fmt.Fprintf(&b, "%s\n", Theme.Secondary.Render(wrapDetailBody(m.width, preview)))
-		fmt.Fprintf(&b, "%s\n", Theme.Secondary.Render(keyHint(m.width,
-			"m merge · i invalidate · k keep · esc back · q quit",
-			"m/i/k/esc · q quit")))
+		writeHint("", "m merge · i invalidate · k keep · esc back · q quit",
+			"m/i/k/esc · q quit")
 	case maintainPick:
 		b.WriteString(m.pick.View())
 		if m.pickWhat == "merge" {
-			fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(keyHint(m.width,
-				maintainMergePickHint, "enter pick · esc back · q quit")))
+			writeHint("\n", maintainMergePickHint, "enter pick · esc back · q quit")
 		} else {
-			fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(keyHint(m.width,
-				"enter confirm · esc back · q quit",
-				"enter/esc · q quit")))
+			writeHint("\n", "enter confirm · esc back · q quit", "enter/esc · q quit")
 		}
 	default:
 		// 소스 탭 헤더: 활성 탭 대괄호 강조 + 건수.
@@ -829,15 +848,16 @@ func (m MaintainModel) View() string {
 		}
 		fmt.Fprintf(&b, "%s\n", Theme.Accent.Render(strings.Join(parts, " · ")))
 		b.WriteString(m.lists[m.tab].View())
-		fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(keyHint(m.width,
-			"tab source · enter detail · m merge · i invalidate · k keep · q quit",
-			"tab/enter/m/i/k · q quit")))
+		writeHint("\n", "tab source · enter detail · m merge · i invalidate · k keep · q quit",
+			"tab/enter/m/i/k · q quit")
 	}
-	if m.status != "" {
+	if m.status != "" && !low {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))
 	}
-	// trailing newline 제거 — 마지막 개행이 렌더 라인 수를
-	// 1줄 늘린다.
-	fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
+	if !low {
+		// trailing newline 제거 — 마지막 개행이 렌더 라인 수를
+		// 1줄 늘린다.
+		fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
+	}
 	return b.String()
 }
