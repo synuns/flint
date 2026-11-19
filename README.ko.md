@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v1.9.3-blue" alt="v1.9.3">
+  <img src="https://img.shields.io/badge/release-v1.9.4-blue" alt="v1.9.4">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -51,6 +51,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 > v1.7.2 · 계측 귀속·sync 완화·probe heal(R38) · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.1 · R42 하드닝 — 다중 기기 이식(jsonl 회상 재생)·회상 이벤트 수명 관리 · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.2 · R43 회복성 — import 회상 이관 회복성·신규 DB 스키마 직행·문서 정합 · [전체 변경 이력](docs/HISTORY.md)
+> v1.9.4 · R45 하드닝 — 테스트 레이스 위생·tuning --tui 문서 · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.3 · TUI·성능 — 저화면 TUI 크롬 최소화·report 병렬 수집·tuning --tui 옵트인 · [전체 변경 이력](docs/HISTORY.md)
 ---
 
@@ -160,7 +161,7 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 | :--- | :--- |
 | `flint setup` | Doltgres 기동 · 마이그레이션 · 시드/플러그인 다음 단계 안내 |
 | `flint update` | 최신 릴리스 자가 업데이트(체크섬 검증·`--check` 드라이런) |
-| `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`) |
+| `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`; 옵트인 `--tui` 폼) |
 | `flint write <kind>` | 표준 입력에서 지식 기록 (멱등) |
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
 | `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카, PAM `--sign` Ed25519 서명 — 스펙 §18) |

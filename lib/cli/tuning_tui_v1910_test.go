@@ -18,6 +18,7 @@ import (
 	"os/exec"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -396,7 +397,7 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 	if err != nil {
 		t.Fatalf("stdin pipe: %v", err)
 	}
-	var out bytes.Buffer
+	var out lockedBuffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start pty child: %v", err)
@@ -448,6 +449,27 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 	if !strings.Contains(got, "PTY-CHILD-EXIT 0") {
 		t.Errorf("pty output missing clean-exit sentinel: %q", tailFor(got, 200))
 	}
+}
+
+// lockedBuffer — exec 복사 고루틴(Write)과 메인 폴링(String)이 동시에
+// 접근하는 pty 출력 수집용 뮤텍스 보호 버퍼. bytes.Buffer는 동시
+// Write/Read가 정의되지 않는다(go test -race 실레이스 — 공유 버퍼
+// Write·String 전부 Lock으로 직렬화).
+type lockedBuffer struct {
+	mu  sync.Mutex
+	buf bytes.Buffer
+}
+
+func (b *lockedBuffer) Write(p []byte) (int, error) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.Write(p)
+}
+
+func (b *lockedBuffer) String() string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	return b.buf.String()
 }
 
 // tailFor — 진단용 출력 꼬리(마지막 n바이트).

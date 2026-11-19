@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v1.9.3-blue" alt="v1.9.3">
+  <img src="https://img.shields.io/badge/release-v1.9.4-blue" alt="v1.9.4">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -51,6 +51,7 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 > v1.7.2 · telemetry attribution · sync mitigation · probe heal (R38) · [full changelog](docs/HISTORY.md)
 > v1.9.1 · R42 hardening — multi-device portability (jsonl recall replay) · recall event lifecycle · [full changelog](docs/HISTORY.md)
 > v1.9.2 · R43 recovery — import recall-migration resilience · fresh-DB schema direct path · doc accuracy · [full changelog](docs/HISTORY.md)
+> v1.9.4 · R45 hardening — test race hygiene · tuning --tui docs · [full changelog](docs/HISTORY.md)
 > v1.9.3 · TUI & perf — low-height TUI chrome minimization · parallel report collection · opt-in tuning TUI · [full changelog](docs/HISTORY.md)
 ---
 
@@ -152,7 +153,7 @@ flint brief [query]        # masked, read-only context block — paste it into a
 | :--- | :--- |
 | `flint setup` | Start Doltgres, migrate, print seed/plugin next steps |
 | `flint update` | Self-update to the latest release (checksum-verified, `--check` dry-run) |
-| `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`) |
+| `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`; opt-in `--tui` form) |
 | `flint write <kind>` | Record knowledge from stdin (idempotent) |
 | `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`); `--format jsonl\|pam` migrates knowledge back in (round-trip re-import · PAM v1.0 intake) |
 | `flint export [--format f]` | Export knowledge as jsonl·md·txt·csv·pam (PAM v1.0 portable memory-store; `--status`·`--tag`·`--since` filters, `--out` file with `.sha256` sidecar; PAM `--sign` Ed25519 signature, spec §18) |

@@ -345,6 +345,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0193Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.9.3", "c-tui-perf",
 	}},
+	// v1.9.4: R45 패치 — 테스트 레이스 위생(pty 버퍼·fakeStore)·
+	// tuning --tui 문서화.
+	{name: "TestVersion0194Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.9.4", "r45-hardening",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

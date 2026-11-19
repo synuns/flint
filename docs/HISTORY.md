@@ -6,12 +6,37 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.9.4 patch (2026-11-19) — r45-hardening: test race hygiene · tuning --tui docs
+
+- [x] pty test buffer race (R45): TestTuningTUIPtyRealRun shared one
+  bytes.Buffer between the exec copy goroutines (Write) and the main
+  polling loop (String) — an actual data race (go test -race,
+  reproducible). Replaced with a mutex-guarded buffer (Write and String
+  both under Lock).
+- [x] cli fakeStore race (R45): the v1.9.3 parallel report collection
+  calls Query concurrently, but the cli test fakeStore appended to its
+  recording slices without a lock (TestReport* failed 19 tests under
+  -race, even standalone). Query·InsertBatch·Commit recording is now
+  mutex-guarded; Query runs queryFn under the same lock so test-local
+  closure recording is serialized too.
+- [x] tuning --tui docs (R45): TUNING.md §2 now describes the opt-in
+  form — must run alone (combined args exit 3), non-terminal or
+  FLINT_NO_TUI exits 3 before the form, the no-arg and subcommand JSON
+  paths are unchanged (agents/scripts unaffected), and confirmations go
+  through the existing set/reset standard path.
+- [x] README command tables (R45): the `flint tuning` row (EN/KO) now
+  notes the opt-in `--tui` form.
+- [x] HISTORY wording fix (R45): v1.9.3's "threshold
+  `lowHeightThreshold`" corrected to "layout constant" — a tui.go
+  constant, not a tuning-key override.
+
 ### v1.9.3 minor (2026-11-20) — c-tui-perf: low-height TUI chrome · parallel report collection · opt-in tuning TUI
 
 - [x] Low-height TUI chrome minimization (T1): on terminals under 12
   rows the pending/maintain review screens drop the selective chrome
   (non-interactive hint, separator blanks, status line) and hand the
-  freed rows to the list (threshold `lowHeightThreshold` in tui.go);
+  freed rows to the list (layout constant `lowHeightThreshold` in tui.go —
+  not a tuning key);
   the q/ESC escape hint survives even at 8 rows, and layouts at 12
   rows or more are byte-identical.
 - [x] Parallel report collection (T2): the four independent collect
