@@ -442,7 +442,16 @@ func TestAllGatesArtifacts(t *testing.T) {
 				assertObject(t, r, ctx, idx)
 			}
 		}},
-		{"v11", r.EnsureSchemaV11, func(t *testing.T) {
+		{"v11", func(ctx context.Context) error {
+			// v10 DB 재현 충실화(R43 직행 단락 이후) — v10에는
+			// recall_events가 없다(v12 게이트가 처음 만든다). 신규 DB에
+			// 남아 있는 recall_events를 내려 승격 산출물(2열 add) 경로를
+			// 실측한다(신규 DB 직행 경로는 TestV11GateFreshDirectToV12).
+			if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS recall_events`); err != nil {
+				return err
+			}
+			return r.EnsureSchemaV11(ctx)
+		}, func(t *testing.T) {
 			assertColumn(t, r, ctx, "knowledge", "recall_score")
 			assertColumn(t, r, ctx, "knowledge", "last_recalled_at")
 		}},
@@ -507,6 +516,12 @@ func TestV11GateAdditive(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	dropV11ScoreColumns(t, r)
+	// v10 재현 충실화(R43 직행 단락 이후) — v10에는 recall_events가
+	// 없다(v12 게이트가 처음 만든다). 남아 있으면 v11 게이트가 신규 DB
+	// 직행 판별로 2열 add를 스킵한다(그 경로는 TestV11GateFreshDirectToV12).
+	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS recall_events`); err != nil {
+		t.Fatalf("v10 재현 recall_events 삭제: %v", err)
+	}
 	setVersion(t, r, "10")
 
 	// 승격 전 기존 데이터 — 무손상 증명의 기준선.

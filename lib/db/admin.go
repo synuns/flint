@@ -487,7 +487,9 @@ func (r *Repo) ensureSchemaV10(ctx context.Context) error {
 // 받는다. 열이 모두 default를 가지므로 이전 바이너리(v10)도 v11 DB를
 // 그대로 읽는다(역방향 호환). 기존 테이블·views·데이터 무변경. 이미
 // v11 이상이면 no-op(수치 비교 단락)이며 v1~v10 게이트를 경유한 어느
-// DB에서도 멱등하다.
+// DB에서도 멱등하다. recall_events 테이블이 이미 있는 DB(schema.sql v12
+// 종착로 생성된 신규 DB)는 열 추가를 스킵해 v12 게이트로 직행한다 —
+// add 후 v12가 곧바로 drop하는 DDL 왕복 방지(R43).
 func (r *Repo) EnsureSchemaV11(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV11(ctx) }, gateRetryBackoff)
 }
@@ -510,12 +512,25 @@ func (r *Repo) ensureSchemaV11(ctx context.Context) error {
 		return fmt.Errorf("schema v11: begin: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	for _, stmt := range []string{
-		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS recall_score integer NOT NULL DEFAULT 0`,
-		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS last_recalled_at timestamptz`,
-	} {
-		if _, err := tx.Exec(ctx, stmt); err != nil {
-			return fmt.Errorf("schema v11: alter: %w", err)
+	// 신규 DB 직행 단락(R43) — recall_events 테이블이 이미 있으면 이 DB는
+	// schema.sql v12 종착로 생성된 신규 DB다(버전은 아직 3 — 체인이 v4부터
+	// 승격 중): v11 2열을 add했다가 v12 게이트가 곧바로 drop하는 DDL 왕복
+	// 을 하지 않는다. 기존 v11 DB는 recall_events가 없으므로(v12 게이트가
+	// 처음 만든다) 종전대로 열 추가 — v12 승격의 백필 원천이 된다.
+	var hasRecallEvents int
+	if err := tx.QueryRow(ctx,
+		`SELECT count(*) FROM information_schema.tables
+		 WHERE table_name = 'recall_events'`).Scan(&hasRecallEvents); err != nil {
+		return fmt.Errorf("schema v11: check recall_events: %w", err)
+	}
+	if hasRecallEvents == 0 {
+		for _, stmt := range []string{
+			`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS recall_score integer NOT NULL DEFAULT 0`,
+			`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS last_recalled_at timestamptz`,
+		} {
+			if _, err := tx.Exec(ctx, stmt); err != nil {
+				return fmt.Errorf("schema v11: alter: %w", err)
+			}
 		}
 	}
 	if _, err := tx.Exec(ctx,

@@ -1845,15 +1845,15 @@ func r42aScratchStore(t *testing.T, ctx context.Context, label, dsn string) *imp
 
 // r42aRankSnapshot — 파생 랭킹 스냅샷(recallAggregateSQL과 동일 정의의
 // 집계 조인): 스코프 태그 행을 id·cnt·last_at(µs 직렬화)로 정렬해 양측
-// 동등 판정에 쓴다.
-func r42aRankSnapshot(t *testing.T, st *importRealStore) string {
+// 동등 판정에 쓴다(R43 재생 보충 회귀가 태그만 달리 재사용).
+func r42aRankSnapshot(t *testing.T, st *importRealStore, tag string) string {
 	t.Helper()
 	rows, err := st.Query(context.Background(), `SELECT k.id, re.cnt::int,
 		COALESCE(to_char(re.last_at, 'YYYY-MM-DD"T"HH24:MI:SS.US'), '-')
 		FROM knowledge k LEFT JOIN (
 			SELECT knowledge_id, count(*) AS cnt, max(recalled_at) AS last_at
 			FROM recall_events GROUP BY knowledge_id) re ON re.knowledge_id = k.id
-		WHERE strpos(k.tags, ':r42ademo:') > 0 ORDER BY k.id`)
+		WHERE strpos(k.tags, ':`+tag+`:') > 0 ORDER BY k.id`)
 	if err != nil {
 		t.Fatalf("r42a 랭킹 집계: %v", err)
 	}
@@ -1930,7 +1930,7 @@ func TestImportMigrateR42ARecallReplayRealSlow(t *testing.T) {
 	}
 
 	// ③ 파생 랭킹 동등 — A·B 동일 집계(cnt·last_at; 값이 같으면 순서도 같다).
-	if aSnap, bSnap := r42aRankSnapshot(t, stA), r42aRankSnapshot(t, stB); aSnap != bSnap {
+	if aSnap, bSnap := r42aRankSnapshot(t, stA, "r42ademo"), r42aRankSnapshot(t, stB, "r42ademo"); aSnap != bSnap {
 		t.Fatalf("파생 랭킹 불일치(A vs B):\nA:\n%s\nB:\n%s", aSnap, bSnap)
 	}
 
@@ -1956,5 +1956,115 @@ func TestImportMigrateR42ARecallReplayRealSlow(t *testing.T) {
 		t.Fatalf("B 재적립 집계: %v", qerr)
 	} else if n, cok := render.CellToInt(rs[0][0]); !cok || n != 3 {
 		t.Fatalf("B 재read 후 이벤트 수=%v, want 3(재생 2+추가 1): %v", rs[0][0], rs)
+	}
+}
+
+// r43ReplayFailStore — ReplayRecallEvents 첫 호출만 실패 주입하는 래퍼
+// (R43 회귀): InsertBatch 커밋은 성공하고 재생만 실패한 상태(직전 실행
+// 실패 재현)를 만든다. 이후 호출은 실구현 승계.
+type r43ReplayFailStore struct {
+	*importRealStore
+	failFirst bool
+	calls     int
+}
+
+func (s *r43ReplayFailStore) ReplayRecallEvents(ctx context.Context, items []db.RecallReplay) error {
+	s.calls++
+	if s.failFirst && s.calls == 1 {
+		return fmt.Errorf("r43 demo injected replay failure")
+	}
+	return s.importRealStore.ReplayRecallEvents(ctx, items)
+}
+
+// TestImportMigrateR43ReplayRestoreRealSlow — R43 회귀(실DB slow, scratch
+// A·B 격리): 이전 실행이 chunk 커밋 후 재생 실패로 exit 1되면 재실행의
+// dedup 스킵이 재생 수집에서 그 행을 빼 버려 스코어 이관이 영구 누락되던
+// 결함. ① 재생 실패 주입 import → exit 1(적립 커밋 보존·이벤트 0건)
+// ② 재실행 → duplicated 스킵 행 이벤트 보충 ③ 파생 랭킹 A·B 동등
+// ④ 3회 실행 재검증 — 이중 재생 없음(스냅샷 불변). 합성 데모 데이터만 사용.
+func TestImportMigrateR43ReplayRestoreRealSlow(t *testing.T) {
+	dsn, ok := importRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	stA := r42aScratchStore(t, ctx, "a43", dsn)
+	stB := r42aScratchStore(t, ctx, "b43", dsn)
+
+	// A — 합성 지식 2건 적립 + 회상 이력 변별 시딩(cnt 2·0).
+	nano := time.Now().UnixNano() % 1e9
+	recs := make([]map[string]any, 0, 2)
+	for i := 0; i < 2; i++ {
+		recs = append(recs, map[string]any{
+			"kind":         "knowledge",
+			"topic":        fmt.Sprintf("r43-demo-%d", i),
+			"summary":      fmt.Sprintf("합성 데모 R43 재생 보충 행 %d.", i),
+			"tags":         ":r43demo:",
+			"confidence":   0.9,
+			"origin":       "agent",
+			"content_hash": fmt.Sprintf("r43-demo-hash-%d-%d", i, nano),
+		})
+	}
+	ids, err := stA.InsertBatch(ctx, recs)
+	if err != nil {
+		t.Fatalf("A InsertBatch: %v", err)
+	}
+	if err := stA.BumpRecallScores(ctx, []int{ids[0]}); err != nil {
+		t.Fatalf("A BumpRecallScores 1회차: %v", err)
+	}
+	if err := stA.BumpRecallScores(ctx, []int{ids[0]}); err != nil {
+		t.Fatalf("A BumpRecallScores 2회차: %v", err)
+	}
+	rows, err := ExportRows(ctx, stA, ExportFilter{Status: "all", Tag: "r43demo"})
+	if err != nil {
+		t.Fatalf("A ExportRows: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("A export rows=%d, want 2", len(rows))
+	}
+	data, err := FormatJSONL(rows)
+	if err != nil {
+		t.Fatalf("FormatJSONL: %v", err)
+	}
+
+	// ① 재생 실패 주입 import — exit 1, 적립 커밋만 보존(재생 누락 상태).
+	wrap := &r43ReplayFailStore{importRealStore: stB, failFirst: true}
+	var out strings.Builder
+	if code := RunImportMigrate(ctx, wrap, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out); code != 1 {
+		t.Fatalf("① 재생 실패 주입 exit=%d, want 1; out=%s", code, out.String())
+	}
+	if rs, qerr := stB.Query(ctx,
+		`SELECT count(*)::int FROM knowledge WHERE strpos(tags, ':r43demo:') > 0`); qerr != nil {
+		t.Fatalf("① B 적립 확인: %v", qerr)
+	} else if n, cok := render.CellToInt(rs[0][0]); !cok || n != 2 {
+		t.Fatalf("① B 적립=%v, want 2(커밋 보존): %v", rs[0][0], rs)
+	}
+	if rs, qerr := stB.Query(ctx,
+		`SELECT count(*)::int FROM recall_events`); qerr != nil {
+		t.Fatalf("① B 이벤트 확인: %v", qerr)
+	} else if n, cok := render.CellToInt(rs[0][0]); !cok || n != 0 {
+		t.Fatalf("① B 이벤트=%v, want 0(재생만 누락): %v", rs[0][0], rs)
+	}
+
+	// ② 재실행(정상) — dedup 스킵 행의 이벤트 보충.
+	out.Reset()
+	if code := RunImportMigrate(ctx, stB, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out); code != 0 ||
+		!strings.Contains(out.String(), `"duplicated":2`) || !strings.Contains(out.String(), `"imported":0`) {
+		t.Fatalf("② 재실행 exit·요약(전행 스킵+보충): out=%s", out.String())
+	}
+	want := r42aRankSnapshot(t, stA, "r43demo")
+
+	// ③ 파생 랭킹 동등 — 보충 재생으로 A·B 동일 집계(cnt·last_at).
+	if got := r42aRankSnapshot(t, stB, "r43demo"); got != want {
+		t.Fatalf("③ 파생 랭킹 불일치(A vs B):\nA:\n%s\nB:\n%s", want, got)
+	}
+
+	// ④ 멱등 재검증 — 3회 실행에도 이중 재생 없음(스냅샷 불변).
+	out.Reset()
+	if code := RunImportMigrate(ctx, stB, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out); code != 0 {
+		t.Fatalf("④ 3회 실행 exit=%d, want 0; out=%s", code, out.String())
+	}
+	if got := r42aRankSnapshot(t, stB, "r43demo"); got != want {
+		t.Fatalf("④ 이중 재생(스냅샷 변동):\n불변 기대:\n%s\n실측:\n%s", want, got)
 	}
 }

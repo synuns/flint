@@ -76,9 +76,11 @@ func (r *Repo) BumpRecallScores(ctx context.Context, ids []int) error {
 // recall_events는 감사 스테이징(auditStageTables) 대상이라 같은 경로의
 // 감사 커밋이 곧바로 흡수한다(계측 테이블과 달리 별도 회수 불필요).
 // 랭킹 정합(EventEffectiveScore = count−rate×days_since(last)): rate
-// 기본 1.0에서 마지막 회상이 보존기한(90일)+경과한 행은 유효 점수가
-// 이미 0 하한으로 소멸해 정리가 랭킹을 바꾸지 않는다. 최근 회상이 있는
-// 행은 보존 창 내 이벤트만 카운트되는 창 상한 효과(의도된 성장 경계).
+// 기본 1.0에서 유효 점수가 0 하한으로 소멸하는 행은 count ≤ 경과일수인
+// 행뿐이다(마지막 회상이 보존기한 90일+ 경과라도 count가 더 큰 고빈도
+// 행은 유효 점수가 잔존해, 정리가 이들 행의 이벤트를 지우면 랭킹이
+// 변한다). 최근 회상이 있는 행은 보존 창 내 이벤트만 카운트되는 창
+// 상한 효과(의도된 성장 경계).
 func (r *Repo) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
 	n, err := transitionExecFn(ctx, r,
 		`DELETE FROM recall_events WHERE recalled_at < $1`, before)
