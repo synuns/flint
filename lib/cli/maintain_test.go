@@ -36,7 +36,8 @@ type fakeMaint struct {
 	invalidateMsgs  []string
 	supersedeCalls  []supersedeCall
 	mergeCalls      [][2]int
-	pruneCalls      []time.Time // PruneInvalidated 위임 캡처
+	pruneCalls       []time.Time // PruneInvalidated 위임 캡처
+	recallPruneCalls []time.Time // PruneRecallEvents 위임 캡처
 }
 
 // supersedeCall — Supersede 위임 캡처(old·new·invalid_at 병기 값).
@@ -88,6 +89,13 @@ func (f *fakeMaint) PruneInvalidated(ctx context.Context, before time.Time) (int
 		return 0, f.pruneErr
 	}
 	return 2, nil
+}
+
+// PruneRecallEvents — Repo 위임 메서드 캡처(반환 = 0행 관례 —
+// 이벤트 만료 수는 queryFn count 질의로 시나리오 구성).
+func (f *fakeMaint) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
+	f.recallPruneCalls = append(f.recallPruneCalls, before)
+	return 0, nil
 }
 
 func runMaintainArgs(t *testing.T, f *fakeMaint, args ...string) (string, int) {

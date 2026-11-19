@@ -44,8 +44,8 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
   dropped from `wire.AsOfQuery`.
 - [x] `--session` LIKE escaping: literal values inlined into LIKE patterns
   (`\`, `%`, `_` metacharacters) are escaped by a shared `EscapeLike`
-  helper — the read assembler's rule is reused by audit and other
-  callers (backslash default ESCAPE, consistent with the dialect SQL).
+  helper — the read assembler's rule is reused by audit
+  (backslash default ESCAPE, consistent with the dialect SQL).
 - [x] Comment-only cleanups (no behavior change): dialect gate scope
   (history-query dialect only; diagnostic/write dialects out of scope),
   LogQuery Hash-mode assembly note (4-column rebuild vs the legacy

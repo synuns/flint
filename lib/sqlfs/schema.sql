@@ -23,11 +23,13 @@
 -- v11(v1.7.0): decay/강화 스코어 원천 — knowledge에 recall_score(int 기본 0)·
 -- last_recalled_at(timestamptz NULL) 2열. 기존 v10 DB는 EnsureSchemaV11
 -- 게이트가 적용(additive — 열이 default라 이전 바이너리 읽기 호환).
--- views는 무변경 — 컬럼이 기존 뷰 정의에 영향 없다.
+-- views는 무변경 — 컬럼이 기존 뷰 정의에 영향 없다. v12부터 이 2열은
+-- 신규 생성에서 빠진다(아래 v12 참조 — 폐기된 열).
 -- v12(v1.9.0): recall append-only 원천 — recall_events 테이블 + 인덱스.
 -- 기존 v11 DB는 EnsureSchemaV12 게이트가 적용: score수 합성 이벤트 백필
 -- (스코어 연속성 보존용 — 실제 이력 아님) 후 knowledge 2열(v11) 폐기.
--- 신규 생성 경로도 게이트 체인이 같은 종착상태(2열 부재)로 수렴시킨다.
+-- 신규 DB는 생성 시점부터 2열 없이 v12 종착상태로 직행한다(위
+-- knowledge 정의에 v11 2열이 부재하는 이유 — 게이트 승격은 기존 DB 전용).
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -63,9 +65,7 @@ CREATE TABLE IF NOT EXISTS knowledge (
     ingested_at  timestamptz NOT NULL DEFAULT now(),
     read_count   integer NOT NULL DEFAULT 0,  -- v4: 참조 횟수(신규 인덱스 없음)
     last_read_at timestamptz,                 -- v4: 최근 참조 시각
-    superseded_by int,                        -- v5: 대체 지식 id(기본 NULL)
-    recall_score    integer NOT NULL DEFAULT 0, -- v11: decay/강화 스코어 원천
-    last_recalled_at timestamptz                -- v11: 최근 회상 시각(기본 NULL)
+    superseded_by int                         -- v5: 대체 지식 id(기본 NULL)
 );
 
 CREATE TABLE IF NOT EXISTS maintenance_runs (

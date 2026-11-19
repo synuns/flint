@@ -285,6 +285,13 @@ func (s injectedStore) PruneInvalidated(ctx context.Context, before time.Time) (
 	return 0, errors.New("maintain: unsupported store")
 }
 
+func (s injectedStore) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
+	if ms, ok := s.Store.(ops.MaintStore); ok {
+		return ms.PruneRecallEvents(ctx, before)
+	}
+	return 0, errors.New("maintain: unsupported store")
+}
+
 func (s injectedStore) Merge(ctx context.Context, fromID, toID int) error {
 	if ms, ok := s.Store.(ops.MaintStore); ok {
 		return ms.Merge(ctx, fromID, toID)

@@ -32,6 +32,8 @@ var frozenThresholdKeys = []string{
 	"export_import_max_rows",
 	// decay 감쇠 계수·archive 제안 임계값(ops --decay-audit)
 	"decay_rate", "archive_below",
+	// recall_events 보존기한(maintain --prune-invalidated 이벤트 정리)
+	"recall_event_retention_days",
 }
 
 // TestThresholdRegistrySingleSource — 등록표가 4곳(기존 키

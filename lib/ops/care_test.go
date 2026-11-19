@@ -26,6 +26,8 @@ type fakeMaintStore struct {
 	supersedeErr   error
 	superseded     [][2]int
 	prunedAt       []time.Time // PruneInvalidated 위임 캡처
+	recallPrunedAt []time.Time // PruneRecallEvents 위임 캡처
+	recallPruneN   int64       // PruneRecallEvents 반환(기본 0)
 }
 
 func (f *fakeMaintStore) Counts(ctx context.Context) (db.Counts, error) {
@@ -55,6 +57,12 @@ func (f *fakeMaintStore) Merge(ctx context.Context, fromID, toID int) error {
 func (f *fakeMaintStore) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
 	f.prunedAt = append(f.prunedAt, before)
 	return 2, nil
+}
+
+// PruneRecallEvents — Repo 위임 메서드 캡처(반환 = recallPruneN 설정값).
+func (f *fakeMaintStore) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
+	f.recallPrunedAt = append(f.recallPrunedAt, before)
+	return f.recallPruneN, nil
 }
 func (f *fakeMaintStore) ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error) {
 	return nil, nil
@@ -133,6 +141,64 @@ func TestMaintainExpirePendingDryRun(t *testing.T) {
 	}
 	if len(f.commits) != 0 || strings.Contains(strings.Join(f.queries, ";"), "UPDATE") {
 		t.Error("dry-run에서 갱신 발생 — 계약 위반")
+	}
+}
+
+// TestMaintainPruneInvalidatedAlsoPrunesRecallEvents — R42-D 배선 회귀:
+// --prune-invalidated은 회상 이벤트 보존기한(recall_event_retention_days
+// 기본 90) 만료분도 같이 정리한다. dry-run은 보고만(would_prune_recall_
+// events)·--commit은 PruneRecallEvents 위임+감사 커밋. 대상 소멸 후
+// 재실행은 "no targets" 멱등(위임 재호출 없음).
+func TestMaintainPruneInvalidatedAlsoPrunesRecallEvents(t *testing.T) {
+	shortRetry(t)
+	f := &fakeMaintStore{fakeStore: &fakeStore{}, recallPruneN: 7}
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "status = 'invalidated'") && strings.Contains(sql, "SELECT") {
+			return [][]any{{int64(3)}}, nil
+		}
+		if strings.Contains(sql, "count(*)") && strings.Contains(sql, "recall_events") {
+			return [][]any{{int64(7)}}, nil
+		}
+		return nil, nil
+	}
+	out, code := runMaintainArgs(t, f, "--prune-invalidated", "30")
+	if code != 0 {
+		t.Fatalf("dry-run exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"would_prune_recall_events":7`) || !strings.Contains(out, `"recall_retention_days":90`) {
+		t.Errorf("dry-run 이벤트 보고 누락: %s", out)
+	}
+	if len(f.recallPrunedAt) != 0 {
+		t.Error("dry-run에서 PruneRecallEvents 위임 실행")
+	}
+	out, code = runMaintainArgs(t, f, "--prune-invalidated", "30", "--commit")
+	if code != 0 {
+		t.Fatalf("commit exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"deleted":2`) || !strings.Contains(out, `"pruned_recall_events":7`) {
+		t.Errorf("commit 출력: %s", out)
+	}
+	if len(f.recallPrunedAt) != 1 {
+		t.Fatalf("PruneRecallEvents 위임 %d회, want 1", len(f.recallPrunedAt))
+	}
+	if want := 90 * 24 * time.Hour; time.Since(f.recallPrunedAt[0]) < want-time.Hour || time.Since(f.recallPrunedAt[0]) > want+time.Hour {
+		t.Errorf("이벤트 cutoff 경과 = %v, want 약 %v(보존기한 90일)", time.Since(f.recallPrunedAt[0]), want)
+	}
+	if !strings.Contains(strings.Join(f.commits, ";"), "prune-recall-events") {
+		t.Errorf("감사 커밋 메시지에 이벤트 정리 귀속 없음: %v", f.commits)
+	}
+	// 멱등 — 대상 소멸(나열 0·만료 0) 후 재실행은 no targets·위임 없음.
+	f2 := &fakeMaintStore{fakeStore: &fakeStore{}}
+	f2.queryFn = func(sql string, args []any) ([][]any, error) { return nil, nil }
+	out, code = runMaintainArgs(t, f2, "--prune-invalidated", "30", "--commit")
+	if code != 0 {
+		t.Fatalf("재실행 exit=%d, want 0; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"detail":"no targets"`) {
+		t.Errorf("빈 재실행 출력: %s", out)
+	}
+	if len(f2.recallPrunedAt) != 0 || len(f2.prunedAt) != 0 {
+		t.Errorf("빈 재실행 위임 발생 — 멱등 위반(prune=%d recall=%d)", len(f2.prunedAt), len(f2.recallPrunedAt))
 	}
 }
 

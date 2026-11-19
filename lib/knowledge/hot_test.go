@@ -575,3 +575,134 @@ func TestHotDerivedRankingBenchRealSlow(t *testing.T) {
 		t.Errorf("파생 랭킹 p95 비율 = %.2fx, want < 2x(스펙 §성능)", ratio)
 	}
 }
+
+// TestHotDerivedRankingAfterPruneBenchRealSlow — v1.9.1 R42-D 회귀:
+// recall_events 보존기한(recall_event_retention_days 기본 90) prune이
+// 대량 축적 이벤트 상태의 파생 랭킹 p95를 2x 계약 내로 회복시킨다. 합성
+// 시드 100 지식 × 이벤트 10만(0~900일 균등 — 장기 축적 재현, 90일 보존
+// 창에 약 10% 잔존)·prune(db.Repo.PruneRecallEvents 단일 경로) 전후의
+// 파생 랭킹 p95를 측정하고, 잔존 이벤트로 v11 직접 열 대조군(bench_k11)을
+// 재구축해 3회 중앙값 비율 < 2x를 단언한다(PERF.md 관례 — 잔존 스케일
+// 명시). 보존 구간 불변도 병행 단언 — 전체 이벤트가 보존 창 내인 행의
+// cnt·last_at는 prune 전후 동일(랭킹 원천 불변).
+func TestHotDerivedRankingAfterPruneBenchRealSlow(t *testing.T) {
+	st := hotRealStore(t)
+	const prefix = "t4-v1910-prune-"
+	hotSynthCleanup(t, st, prefix)
+	t.Cleanup(func() {
+		if _, err := st.pool.Exec(context.Background(), `DROP TABLE IF EXISTS bench_k11`); err != nil {
+			t.Errorf("bench_k11 정리: %v", err)
+		}
+	})
+	ctx := context.Background()
+	// 합성 시드 — 랭킹 행 100(이벤트 1000건씩 × 0~900일) + 보존 구간 행 1
+	// (이벤트 3건·2일 전 — 만료분 0, prune 불변 단언 대상).
+	recs := make([]map[string]any, 0, 101)
+	for i := 0; i < 100; i++ {
+		recs = append(recs, hotRec(
+			prefix+"토픽", fmt.Sprintf("t4-v1910-prune-%03d", i), "pending"))
+	}
+	recs = append(recs, hotRec(prefix+"보존", "t4-v1910-prune-fresh", "pending"))
+	ids, err := st.InsertBatch(ctx, recs)
+	if err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	freshID := ids[len(ids)-1]
+	if _, err := st.pool.Exec(ctx,
+		`INSERT INTO recall_events (knowledge_id, recalled_at)
+		 SELECT k.id, now() - (random()*900 || ' days')::interval
+		 FROM knowledge k, generate_series(1, 1000) g
+		 WHERE k.topic LIKE $1 AND k.id <> $2`, prefix+"%", freshID); err != nil {
+		t.Fatalf("이벤트 시드: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx,
+		`INSERT INTO recall_events (knowledge_id, recalled_at)
+		 SELECT $1::int, now() - interval '2 days' FROM generate_series(1, 3)`, freshID); err != nil {
+		t.Fatalf("보존 행 이벤트 시드: %v", err)
+	}
+	var seeded int
+	if err := st.pool.QueryRow(ctx,
+		`SELECT count(*)::int FROM recall_events re JOIN knowledge k ON k.id = re.knowledge_id
+		 WHERE k.topic LIKE $1`, prefix+"%").Scan(&seeded); err != nil {
+		t.Fatalf("시드 수 확인: %v", err)
+	}
+	if seeded != 100*1000+3 {
+		t.Fatalf("시드 이벤트 = %d, want 100003", seeded)
+	}
+	// prune 전 보존 행 스냅숏(cnt·last_at).
+	var preCnt int
+	var preLast time.Time
+	if err := st.pool.QueryRow(ctx,
+		`SELECT count(*)::int, max(recalled_at) FROM recall_events WHERE knowledge_id = $1`,
+		freshID).Scan(&preCnt, &preLast); err != nil {
+		t.Fatalf("보존 행 스냅숏: %v", err)
+	}
+	derivedSQL := hotRankedSQL(query.HotSQL(""))
+	const warmup, samples = 5, 30
+	run := func(sql string) float64 {
+		for i := 0; i < warmup; i++ {
+			if _, err := st.Query(ctx, sql); err != nil {
+				t.Fatalf("warmup 질의: %v", err)
+			}
+		}
+		ms := make([]float64, 0, samples)
+		for i := 0; i < samples; i++ {
+			start := time.Now()
+			if _, err := st.Query(ctx, sql); err != nil {
+				t.Fatalf("벤치 질의: %v", err)
+			}
+			ms = append(ms, float64(time.Since(start).Microseconds())/1000)
+		}
+		return hotBenchP95(ms)
+	}
+	// 3회 중앙값(PERF.md §1 관례).
+	med := func(sql string) float64 {
+		a, b, c := run(sql), run(sql), run(sql)
+		meds := []float64{a, b, c}
+		sort.Float64s(meds)
+		return meds[1]
+	}
+	preDerived := med(derivedSQL) // 축적 상태(10만 이벤트)의 열화된 p95
+	// prune — 보존기한 90일(기본값 경로 — meta 오버라이드 부재).
+	n, err := st.PruneRecallEvents(ctx, time.Now().UTC().AddDate(0, 0, -90))
+	if err != nil {
+		t.Fatalf("PruneRecallEvents: %v", err)
+	}
+	if n <= 0 || int(n) >= seeded {
+		t.Fatalf("prune 삭제 = %d(시드 %d) — 만료분만 삭제하는 성장 상한이 아님", n, seeded)
+	}
+	var postCnt int
+	var postLast time.Time
+	if err := st.pool.QueryRow(ctx,
+		`SELECT count(*)::int, max(recalled_at) FROM recall_events WHERE knowledge_id = $1`,
+		freshID).Scan(&postCnt, &postLast); err != nil {
+		t.Fatalf("보존 행 재조회: %v", err)
+	}
+	if postCnt != preCnt || !postLast.Equal(preLast) {
+		t.Errorf("보존 구간 불변 위반: cnt %d→%d, last %v→%v", preCnt, postCnt, preLast, postLast)
+	}
+	// v11 대조군 — 잔존 이벤트의 동일 분포 재현 테이블.
+	if _, err := st.pool.Exec(ctx,
+		`CREATE TABLE IF NOT EXISTS bench_k11 (
+		     knowledge_id integer NOT NULL,
+		     recall_score integer NOT NULL,
+		     last_recalled_at timestamptz)`); err != nil {
+		t.Fatalf("bench_k11 생성: %v", err)
+	}
+	if _, err := st.pool.Exec(ctx,
+		`INSERT INTO bench_k11
+		 SELECT knowledge_id, count(*)::int, max(recalled_at)
+		 FROM recall_events GROUP BY knowledge_id`); err != nil {
+		t.Fatalf("bench_k11 적재: %v", err)
+	}
+	v11SQL := "SELECT h.kind, h.topic, h.summary, h.ts, h.id, h.valid_at, h.ingested_at," +
+		" k.recall_score, k.last_recalled_at FROM hot_view h" +
+		" LEFT JOIN bench_k11 k ON h.id = k.knowledge_id" +
+		" ORDER BY h.ts DESC, h.id DESC LIMIT 10"
+	derivedMed, v11Med := med(derivedSQL), med(v11SQL)
+	t.Logf("prune 전(축적 10만) 파생 p95 %.2fms → prune 후 파생 p95 중앙값 %.2fms vs v11 직접 열 %.2fms — 비율 %.2fx(잔존 이벤트 %d/%d)",
+		preDerived, derivedMed, v11Med, derivedMed/v11Med, seeded-int(n), seeded)
+	if ratio := derivedMed / v11Med; ratio >= 2 {
+		t.Errorf("prune 후 파생 랭킹 p95 비율 = %.2fx, want < 2x(R42-D 회복 계약)", ratio)
+	}
+}

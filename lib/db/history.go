@@ -1,9 +1,9 @@
 // history.go — dolt_log 히스토리 조회(wire.LogQuery 계약의 Doltgres
 // 구현). 커밋 로그 접근의 단일 소스 — asof(lib/wire/asof.go)·audit
 // (lib/ops/audit.go)가 이식 대상이다. 포팅 쿼리는 원문 그대로(바이트
-// 동치 원칙): 컬럼 충원 범위도 원문 승계 — Hash·LatestN은 4열
-// (commit_hash·committer·date·message), Prefix·BeforeOrAt은 commit_hash만,
-// Earliest는 date만.
+// 동치 원칙). 컬럼 충원 범위 — LatestN은 원문 승계 4열(commit_hash·
+// committer·date·message), Hash는 4열 신규 조립(구 date 1열 질의 대체),
+// Prefix·BeforeOrAt은 commit_hash만, Earliest는 date만.
 package db
 
 import (

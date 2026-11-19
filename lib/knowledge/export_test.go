@@ -582,10 +582,12 @@ func TestExportScoreJSONLRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRowHashRecScoreCarry — jsonl 재이식 rec 승계: 값 있을 때만
-// recall_score·last_recalled_at rec 키를 포함하고 해시 입력에서는 제외
-// (importHashSkip — 회상 이력은 내용 정체성이 아님). 0/NULL은 키 미설정
-// → 컬럼 기본값 폴백.
+// TestRowHashRecScoreCarry — jsonl 재이식 rec에서 스코어 2키 제외
+// (R42-A — v12에서 knowledge의 recall_score·last_recalled_at 2열 폐기로
+// INSERT 컬럼 조립이면 42703·배치 롤백. 값 이관은 InsertBatch 후 합성
+// 이벤트 재생 경로). 해시 입력 제외 단언은 승계(importHashSkip — 회상
+// 이력은 내용 정체성이 아님). 값 유무와 무관하게 어느 rec에도 키가
+// 없어야 한다.
 func TestRowHashRecScoreCarry(t *testing.T) {
 	scored := ExportRow{ID: 1, Topic: "demo score carry", Content: "합성 데모",
 		Kind: "knowledge", Status: "active", Confidence: 0.9, Domain: "demo",
@@ -595,14 +597,10 @@ func TestRowHashRecScoreCarry(t *testing.T) {
 	if se != nil {
 		t.Fatalf("rowHashRec: %v", se)
 	}
-	if v, ok := rec["recall_score"].(int); !ok || v != 4 {
-		t.Errorf("rec recall_score = %#v, want 4", rec["recall_score"])
-	}
-	at, ok := rec["last_recalled_at"].(time.Time)
-	if !ok || !at.Equal(exportTRecall) {
-		t.Errorf("rec last_recalled_at = %#v, want %v", rec["last_recalled_at"], exportTRecall)
-	}
 	for _, k := range []string{"recall_score", "last_recalled_at"} {
+		if _, ok := rec[k]; ok {
+			t.Errorf("rec에 %q 키 설정 — R42-A: 폐기 컬럼 INSERT 조립 위반(재생 경로로 이관)", k)
+		}
 		if _, in := hashInput[k]; in {
 			t.Errorf("해시 입력에 %q 포함 — 정체성 키 아님(importHashSkip 계약)", k)
 		}
@@ -616,7 +614,7 @@ func TestRowHashRecScoreCarry(t *testing.T) {
 	}
 	for _, k := range []string{"recall_score", "last_recalled_at"} {
 		if _, ok := rec2[k]; ok {
-			t.Errorf("0/NULL 행 rec에 %q 키 설정 — 컬럼 기본값 폴백 위반", k)
+			t.Errorf("0/NULL 행 rec에 %q 키 설정", k)
 		}
 	}
 }

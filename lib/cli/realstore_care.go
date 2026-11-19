@@ -36,6 +36,12 @@ func (s *realStore) PruneInvalidated(ctx context.Context, before time.Time) (int
 	return s.repo.PruneInvalidated(ctx, before)
 }
 
+// PruneRecallEvents — 보존기한 경과 회상 이벤트 DELETE 위임
+// (recall_event_retention_days — R42-D).
+func (s *realStore) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
+	return s.repo.PruneRecallEvents(ctx, before)
+}
+
 // MetaDelete — meta 행 삭제(tuning reset·reset --all) 위임.
 func (s *realStore) MetaDelete(ctx context.Context, keys []string) (int64, error) {
 	return s.repo.MetaDelete(ctx, keys)

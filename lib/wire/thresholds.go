@@ -64,6 +64,7 @@ func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.SecretsScanRows, def.SecretsScanRows, false},
 		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, true}, // -1=끔 센티널 허용
 		{&th.DailyRetentionD, def.DailyRetentionD, false},
+		{&th.RecallEventRetentionD, def.RecallEventRetentionD, false},
 	} {
 		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
 			*f.cur = f.def

@@ -147,6 +147,12 @@ v0.8 무효화 경로(항상 dry-run 먼저):
    N일 초과 경과 pending을 만료(invalidated)한다. 기본 dry-run,
    `--commit`으로 실행(doctor pending-age 경고의 정리 경로).
    일수는 모드 값으로 받는다(`--days` 아님).
+6. **invalidated 정리 + 회상 이벤트 보존기한** — `flint maintain
+   --prune-invalidated N`: N일 초과 경과 invalidated 지식 삭제와 함께
+   `recall_event_retention_days`(기본 90일) 만료 회상 이벤트를 정리한다
+   (append-only 원천 recall_events의 구조적 성장 상한 — dry-run은
+   `would_prune_recall_events` 보고). 지식 삭제 대상의 이벤트·이력
+   고아도 같이 정리된다. `--commit`으로 실행.
 
 ## 7. 유지보수 주기 — 스케줄 실행 가이드 (v0.8)
 

@@ -88,7 +88,7 @@ func buildExportQuery(f ExportFilter) (string, []any) {
 	sql := "SELECT id, topic, summary, tags, entity, domain, confidence, origin, status, " +
 		"content_hash, superseded_by, valid_at, ingested_at, COALESCE(invalid_at, ingested_at), " +
 		"re.cnt, re.last_at FROM knowledge" +
-		" LEFT JOIN (" + recallAggregateSQL + ") re ON re.knowledge_id = knowledge.id"
+		" LEFT JOIN (" + RecallAggregateSQL + ") re ON re.knowledge_id = knowledge.id"
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}

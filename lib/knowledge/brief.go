@@ -40,7 +40,7 @@ func briefRankedSQL(sql string) string {
 	if !strings.Contains(sql, pivot) {
 		return sql
 	}
-	joined := pivot + "LEFT JOIN (" + recallAggregateSQL + ") re ON re.knowledge_id = knowledge.id "
+	joined := pivot + "LEFT JOIN (" + RecallAggregateSQL + ") re ON re.knowledge_id = knowledge.id "
 	return strings.Replace(sql, pivot, ", re.cnt, re.last_at"+joined, 1)
 }
 
