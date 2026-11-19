@@ -440,15 +440,40 @@ func (r *Repo) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, e
 // maintain --prune-invalidated --commit이 위임한다.
 // 삭제 0행은 정상 결과다(dry-run과 확정 사이 경합도 "삭제 0건"으로
 // 보고 — Invalidate류 0행 후견사와 달리 대상 소멸이 오류가 아니다).
+// 고아 정리(R42-C): knowledge DELETE와 같은 조건의 하위 질의로
+// recall_events(감사 — 감사 커밋이 흡수)·knowledge_reads(계측 —
+// CommitTelemetry가 회수) 잔존 행을 먼저 지운다 — 없으면 이력 행이
+// 원천 행 없이 남아 recall_events 성장에 곱연산으로 붙는다. 같은
+// 트랜잭션 블록으로 묶는다(Merge 관례 — 부분 삭제 차단). 선행 순서는
+// 경합 안전: invalidated 행은 hot/read 노출에서 제외돼(status='active'
+// 노출 규칙) 삭제 대상 확정 후 신규 회상 이벤트가 굳지 않는다.
 // dolt 커밋은 호출자 소관(경로별 메시지).
 func (r *Repo) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
-	n, err := transitionExecFn(ctx, r, `
-		DELETE FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1`,
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return 0, fmt.Errorf("prune_invalidated: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, q := range []string{
+		`DELETE FROM recall_events WHERE knowledge_id IN
+		 (SELECT id FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1)`,
+		`DELETE FROM knowledge_reads WHERE knowledge_id IN
+		 (SELECT id FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1)`,
+	} {
+		if _, err := tx.Exec(ctx, q, before); err != nil {
+			return 0, fmt.Errorf("prune_invalidated: orphans: %w", err)
+		}
+	}
+	ct, err := tx.Exec(ctx,
+		`DELETE FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1`,
 		before)
 	if err != nil {
 		return 0, fmt.Errorf("prune_invalidated: %w", err)
 	}
-	return n, nil
+	if err := tx.Commit(ctx); err != nil {
+		return 0, fmt.Errorf("prune_invalidated: commit: %w", err)
+	}
+	return ct.RowsAffected(), nil
 }
 
 // MetaDelete는 meta 행 삭제의 단일 경로다: tuning reset·

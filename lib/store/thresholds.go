@@ -59,6 +59,9 @@ type Thresholds struct {
 	// recall_score·last_recalled_at 소비 — ops maintain --decay-audit).
 	DecayRate    float64 // 회상 감쇠 계수(점/일, 기본 1)
 	ArchiveBelow float64 // 감쇠 후 이 값 미만은 archive 권장(기본 0=비활성)
+	// recall_events 보존기한(schema v12 append-only 회상 원천의 성장
+	// 상한 — maintain --prune-invalidated가 만료 이벤트를 정리한다).
+	RecallEventRetentionD int // 회상 이벤트 보존(일, 기본 90)
 }
 
 // 기본값 — pending>50·중복의심>20·conf<0.8·연속 3세션·stale 90일·stall 48/72h.
@@ -105,6 +108,12 @@ const (
 	// decay 감쇠·archive 제안 기본값.
 	defaultDecayRate    = 1.0
 	defaultArchiveBelow = 0.0
+	// recall_events 보존기한 기본값(90일 — EventEffectiveScore 산식
+	// count−rate×days_since(last)에서 rate 기본 1.0일 때 마지막 회상이
+	// 보존기한을 넘은 행은 유효 점수가 사실상 소멸(0 하한)하므로 정리의
+	// 랭킹 영향이 작다. 최근 회상이 있는 행은 보존 창 내 이벤트만 카운트
+	// 되는 창 상한 효과가 의도된 성장 경계다).
+	defaultRecallEventRetentionD = 90
 )
 
 // DefaultThresholds는 전 키 기본값 구조체.
@@ -154,6 +163,8 @@ func DefaultThresholds() Thresholds {
 		// decay 감쇠·archive 제안(소비자 폴백 기준).
 		DecayRate:    defaultDecayRate,
 		ArchiveBelow: defaultArchiveBelow,
+		// recall_events 보존기한(소비자 폴백 기준).
+		RecallEventRetentionD: defaultRecallEventRetentionD,
 	}
 }
 
@@ -268,6 +279,10 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// 0=비활성이 정상값이라 음수만 거부(스코어
 			// 임계값은 1 초과도 정상 — parseFloatOrDefault 0~1 클램프 부적합).
 			th.ArchiveBelow = parseFloatNonNegative(val, defaultArchiveBelow, ks)
+		case "recall_event_retention_days":
+			// 미설정 0 유지 규약(소비자 maintain --prune-invalidated가
+			// DefaultThresholds 90으로 폴백 — kreads 보존 키와 동일 계열).
+			th.RecallEventRetentionD = parseIntOrDefault(val, defaultRecallEventRetentionD, ks)
 		}
 	}
 	return th, nil

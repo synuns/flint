@@ -34,6 +34,7 @@ convention.
 | `write` batch dedup (ANY($1) batch precheck) | 50k | 137s | seconds | 5.2s — real-DB bench, 5k-line batch (`TestWriteBatchDedupRealSlow`) |
 | `export --format pam` peak memory churn | 50k | 876MB | ≤ 1/4 | 47.3MB — in-memory bench, 20k rows (`BenchmarkFormatPAM`, B/op) |
 | `hot --full` ranking query (recall_events derived join, schema v12) | 100 knowledge / 10k events | 9.15ms p95 (v11 direct columns, median of 3) | < 2× v11 | 16.37ms p95 — real-DB bench, 1.79× v11 (`TestHotDerivedRankingBenchRealSlow`) |
+| `hot --full` ranking after retention prune (`recall_event_retention_days` 90, v1.9.1 R42-D) | 100 knowledge / 100k accumulated events → ~9.9k retained | 54.23ms p95 (same derived join on the accumulated state, median of 3) | < 2× v11 | 12.29ms p95, 1.06× v11 — real-DB bench (`TestHotDerivedRankingAfterPruneBenchRealSlow`) |
 
 Note: every After figure is a measured median at its **own** scale, named
 in the cell (the shipped bench scales are smaller than the R30 survey
@@ -42,7 +43,17 @@ ranking row compares the schema v12 `recall_events` aggregate join (count +
 max per knowledge, index `idx_recall_events_id_time`) against the dropped
 v11 `knowledge.recall_score`/`last_recalled_at` direct columns, reproduced
 as a synthetic table with the identical distribution (`bench_k11`); the
-"before" figure is that baseline, not an R30 survey number. Per-row comparison
+"before" figure is that baseline, not an R30 survey number. The v1.9.1
+retention-prune row seeds 100k events spread over 0–900 days (long-horizon
+accumulation), prunes to the 90-day retention window (`db.Repo.
+PruneRecallEvents`, wired into `maintain --prune-invalidated --commit`) and
+compares the post-prune derived join against a v11 mirror rebuilt from the
+retained events. The prune is the structural growth cap for the append-only
+source: without it the ratio keeps climbing with total events (measured
+2.33× at ~50k retained in an intermediate run of the same bench — the < 2×
+contract holds at the retained scale stated in the row, and heavier arrival
+rates keep a larger window). Scale statement, not a universal bound.
+Per-row comparison
 for the churn row: 17.5KB/row (876MB @50k) → 2.4KB/row (47.3MB @20k),
 a ~7.4× cut — the 50k linear extrapolation ≈118MB sits under the
 ≤219MB (1/4) target, but the extrapolation is marked as such, not
