@@ -51,8 +51,8 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 > v1.7.2 · telemetry attribution · sync mitigation · probe heal (R38) · [full changelog](docs/HISTORY.md)
 > v1.9.1 · R42 hardening — multi-device portability (jsonl recall replay) · recall event lifecycle · [full changelog](docs/HISTORY.md)
 > v1.9.2 · R43 recovery — import recall-migration resilience · fresh-DB schema direct path · doc accuracy · [full changelog](docs/HISTORY.md)
-> v1.9.4 · R45 hardening — test race hygiene · tuning --tui docs · [full changelog](docs/HISTORY.md)
 > v1.9.3 · TUI & perf — low-height TUI chrome minimization · parallel report collection · opt-in tuning TUI · [full changelog](docs/HISTORY.md)
+> v1.9.4 · R45 hardening — test race hygiene · tuning --tui docs · [full changelog](docs/HISTORY.md)
 ---
 
 ## Quick Start

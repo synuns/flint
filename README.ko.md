@@ -51,8 +51,8 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 > v1.7.2 · 계측 귀속·sync 완화·probe heal(R38) · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.1 · R42 하드닝 — 다중 기기 이식(jsonl 회상 재생)·회상 이벤트 수명 관리 · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.2 · R43 회복성 — import 회상 이관 회복성·신규 DB 스키마 직행·문서 정합 · [전체 변경 이력](docs/HISTORY.md)
-> v1.9.4 · R45 하드닝 — 테스트 레이스 위생·tuning --tui 문서 · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.3 · TUI·성능 — 저화면 TUI 크롬 최소화·report 병렬 수집·tuning --tui 옵트인 · [전체 변경 이력](docs/HISTORY.md)
+> v1.9.4 · R45 하드닝 — 테스트 레이스 위생·tuning --tui 문서 · [전체 변경 이력](docs/HISTORY.md)
 ---
 
 ## 빠른 시작

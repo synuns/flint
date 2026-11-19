@@ -909,7 +909,7 @@ func viewLines(v string) int { return strings.Count(v, "\n") + 1 }
 // 단말 높이 이내. 단말 높이 ≥ 16: bubbles 내부 크롬(제목·상태바·페이지
 // 네이션·help — 2행씩)과 최소 항목 1건을 포함하려면 목록 h ≥ 10이 필요.
 func TestPendingViewFitsTerminalHeight(t *testing.T) {
-	for _, sz := range []tea.WindowSizeMsg{{80, 24}, {60, 16}} {
+	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 60, Height: 16}} {
 		m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 		m = update(m, sz)
 		if got, want := m.list.Height(), sz.Height-6; got != want {

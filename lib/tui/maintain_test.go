@@ -501,7 +501,7 @@ func TestMaintainFilteredInvalidateThenSecondActionTargetsRemaining(t *testing.T
 // 렌더 라인 수가 단말 높이 이내. 단말 높이 ≥ 17: bubbles 내부 크롬(제목·
 // 상태바·페이지네이션·help — 2행씩)과 최소 항목 1건 포함에 h ≥ 10 필요.
 func TestMaintainViewFitsTerminalHeight(t *testing.T) {
-	for _, sz := range []tea.WindowSizeMsg{{80, 24}, {60, 18}} {
+	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 60, Height: 18}} {
 		m := newDemoMaintainModel(MaintainActions{})
 		m = mUpdate(m, sz)
 		if got, want := m.lists[m.tab].Height(), sz.Height-7; got != want {

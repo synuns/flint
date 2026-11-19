@@ -6,7 +6,7 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v1.9.4 patch (2026-11-19) — r45-hardening: test race hygiene · tuning --tui docs
+### v1.9.4 patch (2026-11-20) — r45-hardening: test race hygiene · tuning --tui docs
 
 - [x] pty test buffer race (R45): TestTuningTUIPtyRealRun shared one
   bytes.Buffer between the exec copy goroutines (Write) and the main

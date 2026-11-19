@@ -311,6 +311,11 @@ func (d *delegatingFake) Ping(ctx context.Context) error {
 // pool 에러로 실패한다. 실 스토어 종결 소유권은 withFake의 t.Cleanup에 있다.
 func (d *delegatingFake) Close() {}
 func (d *delegatingFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	// 기록 append는 fakeStore.Query와 같은 mu로 직렬화(일원화) — report
+	// 병렬 수집이 delegatingFake 경로에서도 Query를 동시 호출한다.
+	// queryFn 호출도 락 내 실행(테스트 로컬 기록 클로저 직렬화 승계).
+	d.fake.mu.Lock()
+	defer d.fake.mu.Unlock()
 	d.fake.queries = append(d.fake.queries, sql)
 	if d.fake.queryErr != nil {
 		return nil, d.fake.queryErr
@@ -322,6 +327,32 @@ func (d *delegatingFake) Query(ctx context.Context, sql string, args ...any) ([]
 		return d.fake.rows, nil
 	}
 	return d.real.Query(ctx, sql, args...)
+}
+
+// TestDelegatingFakeQueryRecordsSerialized — report 병렬 수집(v1.9.3 T2)이
+// delegatingFake 경로에서도 Query를 동시 호출한다. queries append가
+// fakeStore.mu로 직렬화됨을 -race 하에서 검증(R46 일원화 회귀 가드).
+// rows 지정으로 real 위임 분기는 닿지 않는다(기록 직렬화만 검증 대상).
+func TestDelegatingFakeQueryRecordsSerialized(t *testing.T) {
+	f := &fakeStore{rows: [][]any{{"x"}}}
+	d := &delegatingFake{fake: f, real: f}
+	const n = 16
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := d.Query(context.Background(), "select 1"); err != nil {
+				t.Errorf("Query err: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.queries) != n {
+		t.Fatalf("queries=%d, want %d", len(f.queries), n)
+	}
 }
 
 // mustRun — Run 실행 + exit code assert.
