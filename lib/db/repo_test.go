@@ -4,15 +4,18 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"hash/fnv"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
+	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/synuns/flint/lib/store"
 )
@@ -99,14 +102,23 @@ func sharedDBLock(t *testing.T) func() {
 }
 
 // newTestRepo는 접속+마이그레이션 후 데이터를 비운 Repo를 돌려준다.
-// 공유 DB 쓰기 전체(테스트 본문 포함)를 잠금으로 직렬화한다.
+// 기본 경로는 테스트당 전용 scratch DB(FLINT_TEST_DSN 서버에 생성·말미
+// DROP — 실 sqlfs로 마이그레이션한 격리 스키마). 공유 DB 경로는
+// recall_events·meta·계측 테이블 누적과 dolt working set이 테스트 간
+// 색는 비결정성(패키지 조합 플레이크 — lib/backup 선행 등)의 원천이라
+// DELETE 3테이블 정리로는 막을 수 없다. scratch 생성 불가(권한 등) 시
+// 기존 공유 경로로 폴백 — 기존 동작 보존.
 func newTestRepo(t *testing.T) *Repo {
 	t.Helper()
+	ctx := context.Background()
+	if r := newScratchTestRepo(t, ctx); r != nil {
+		return r
+	}
+	// 폴백 — 공유 DB 쓰기 전체(테스트 본문 포함)를 잠금으로 직렬화한다.
 	unlock := sharedDBLock(t)
 	// t.Cleanup은 LIFO — r.Close(아래 등록)가 먼저 실행되고 그다음 잠금 해제.
 	t.Cleanup(unlock)
 	useFakeSQL(t)
-	ctx := context.Background()
 	r, err := NewRepo(ctx, testDSN(t))
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
@@ -120,6 +132,83 @@ func newTestRepo(t *testing.T) *Repo {
 		if _, err := r.pool.Exec(ctx, "DELETE FROM "+tbl); err != nil {
 			t.Fatalf("delete %s: %v", tbl, err)
 		}
+	}
+	return r
+}
+
+// scratchDBName — 테스트당 유일한 scratch DB 이름(테스트명 해시+나노
+// 타임 — 같은 테스트의 -count 재실행 충돌 방지).
+func scratchDBName(t *testing.T) string {
+	h := fnv.New32a()
+	_, _ = h.Write([]byte(t.Name()))
+	return fmt.Sprintf("flint_scratch_%08x_%d", h.Sum32(), time.Now().UnixNano()%1e9)
+}
+
+// adminConnectForScratch — CREATE/DROP DATABASE용 관리 접속. DSN 경로를
+// postgres 카탈로그로 바꿔 연다(자기 DB에 접속한 채의 생성 시도는 서버
+// 정책에 따라 거부될 수 있다); postgres 부재 서버는 원본 경로로 재시도
+// (sync_test·dual_device_test scratch 관례 — 실측 작동). 둘 다 실패하면
+// (nil, err) — 호출부이 공유 DB 경로로 폴백.
+func adminConnectForScratch(t *testing.T, ctx context.Context, dsn string) (*pgxpool.Pool, error) {
+	t.Helper()
+	if admin, err := Connect(ctx, dsnForDatabase(t, dsn, "postgres")); err == nil {
+		t.Cleanup(admin.Close)
+		return admin, nil
+	}
+	admin, err := Connect(ctx, dsn)
+	if err != nil {
+		return nil, err
+	}
+	t.Cleanup(admin.Close)
+	return admin, nil
+}
+
+// newScratchTestRepo — 테스트당 전용 scratch DB를 만들어 마이그레이션된
+// Repo를 돌려준다(생성 불가 시 nil — 호출부이 공유 DB 경로로 폴백).
+// 실 sqlfs로 마이그레이션한다(격리 스키마 v12 상태 — 계측 4종·
+// recall_events 포함 전 테이블. fake DDL 하위집합만으로는 slow 계측
+// 테스트가 요구하는 테이블이 생기지 않는다). cleanup LIFO 순서:
+// r.Close → DROP DATABASE(관리 접속 경유) → 관리 풀 close — DROP이
+// 살아있는 repo 풀과 경쟁하면 scratch가 서버에 잔존한다(dual_device_test
+// T6 패턴 — cleanup 순서 결함 교훈 승계).
+func newScratchTestRepo(t *testing.T, ctx context.Context) *Repo {
+	t.Helper()
+	dsn := testDSN(t)
+	admin, err := adminConnectForScratch(t, ctx, dsn)
+	if err != nil {
+		t.Logf("scratch 관리 접속 불가 — 공유 DB 폴백: %v", err)
+		return nil
+	}
+	name := pgx.Identifier{scratchDBName(t)}.Sanitize()
+	t.Cleanup(func() {
+		if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name); err != nil {
+			t.Logf("scratch DROP %s 실패(서버 잔존 가능): %v", name, err)
+		}
+	})
+	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Logf("scratch 생성 불가 — 공유 DB 폴백: %v", err)
+		return nil
+	}
+	r, err := NewRepo(ctx, dsnForDatabase(t, dsn, name))
+	if err != nil {
+		t.Fatalf("NewRepo(scratch): %v", err)
+	}
+	// t.Cleanup은 LIFO — r.Close(여기 등록)가 DROP(위 등록)보다 먼저 실행.
+	t.Cleanup(r.Close)
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(scratch): %v", err)
+	}
+	// 초기 스키마 커밋 — fresh DB의 DDL은 working set에만 있어 커밋 이력에
+	// 테이블이 없으면 dolt_diff가 "table not found"로 실패한다(게이트
+	// 맹점 — fresh DB 검증. t6Commit 관례). 마이그레이션이 만든 전
+	// 스키마를 -A로 이력에 올린다(테스트 하네스 커밋 — flint 런타임의
+	// -A 폐지 계약과 무관).
+	if _, err := r.pool.Exec(ctx, `SELECT dolt_add('-A')`); err != nil {
+		t.Fatalf("scratch 베이스라인 dolt_add: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx,
+		`SELECT dolt_commit('-m', $1)`, "test: scratch schema baseline"); err != nil {
+		t.Fatalf("scratch 베이스라인 dolt_commit: %v", err)
 	}
 	return r
 }
@@ -206,8 +295,10 @@ func TestMigrateReappliesViews(t *testing.T) {
 	ctx := context.Background()
 	// 낡은(stale) 뷰 정의 심기 — simple protocol로 심어야 서버 카탈로그가
 	// 실제로 1컬럼이 된다(확장 프로토콜 CREATE OR REPLACE는 컬럼 목록을
-	// 갱신하지 않는 사고의 재현 조건, 인시던트 참조).
-	plantStaleView(t, testDSN(t))
+	// 갱신하지 않는 사고의 재현 조건, 인시던트 참조). repo가 접속한 DB
+	// 그 자체(r.dsn)에 심는다 — scratch 경로에서 testDSN(공유 DB)을
+	// 심으면 재적용 대상과 어긋나 단언이 우연 통과한다.
+	plantStaleView(t, r.dsn)
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
@@ -597,7 +688,7 @@ func TestCommitTelemetrySeparateRealSlow(t *testing.T) {
 }
 
 // TestReadAuditAttributionRealSlow — Review Focus(v1.7.2 T1·slow 실측,
-// R38-C1): read 완료 경로의 감사 변경(recall bump UPDATE knowledge·meta
+// R38-C1): read 완료 경로의 감사 변경(recall bump INSERT recall_events·meta
 // 증분)은 감사 커밋(Commit)에, 계측 4종(read_events·hot_events·
 // knowledge_reads·session_starts)은 telemetry 커밋(CommitTelemetry)에
 // 귀속한다. 최신 2커밋의 dolt_diff로 실측 — -A 스윕이 감사 변경을 계측
@@ -621,7 +712,7 @@ func TestReadAuditAttributionRealSlow(t *testing.T) {
 	}
 	prev := t6LastCommitHash(t, r) // 감사 커밋 직전 해시(커밋 생성 전에 확보)
 	// read 1회 상당의 적립 — 계측(read_events·knowledge_reads) + 감사
-	// (recall bump UPDATE knowledge·meta 증분). hot_events·session_starts
+	// (recall bump INSERT recall_events·meta 증분). hot_events·session_starts
 	// 는 이 실행에 적립 없음(감사 커밋 순수성 단언 대상).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (1,false,false,false)`); err != nil {
@@ -654,9 +745,14 @@ func TestReadAuditAttributionRealSlow(t *testing.T) {
 	if telHead == auditHead {
 		t.Fatal("telemetry 커밋이 생성되지 않음(스테이징 0행 의심)")
 	}
-	// 감사 커밋 diff — knowledge(recall bump)·meta ≥1, 계측 4종 0행.
-	if n := t6DiffRowCount(t, r, prev, auditHead, "knowledge"); n < 1 {
-		t.Fatalf("감사 커밋 diff knowledge = %d행, want ≥1(recall bump 귀속)", n)
+	// 감사 커밋 diff — recall_events(recall bump INSERT)·meta ≥1,
+	// knowledge 0행(회상 경로가 더 이상 knowledge를 갱신하지 않는다 —
+	// v1.9.0 append-only 전환)·계측 4종 0행.
+	if n := t6DiffRowCount(t, r, prev, auditHead, "recall_events"); n < 1 {
+		t.Fatalf("감사 커밋 diff recall_events = %d행, want ≥1(recall bump 귀속)", n)
+	}
+	if n := t6DiffRowCount(t, r, prev, auditHead, "knowledge"); n != 0 {
+		t.Fatalf("감사 커밋 diff knowledge = %d행, want 0(회상 경로 무갱신 — append-only)", n)
 	}
 	if n := t6DiffRowCount(t, r, prev, auditHead, "meta"); n < 1 {
 		t.Fatalf("감사 커밋 diff meta = %d행, want ≥1(증분 귀속)", n)
@@ -673,7 +769,7 @@ func TestReadAuditAttributionRealSlow(t *testing.T) {
 	if n := t6DiffRowCount(t, r, auditHead, telHead, "knowledge_reads"); n < 1 {
 		t.Fatalf("telemetry 커밋 diff knowledge_reads = %d행, want ≥1", n)
 	}
-	for _, tbl := range []string{"knowledge", "meta"} {
+	for _, tbl := range []string{"knowledge", "meta", "recall_events"} {
 		if n := t6DiffRowCount(t, r, auditHead, telHead, tbl); n != 0 {
 			t.Fatalf("telemetry 커밋 diff %s = %d행, want 0(-A 스윕 폐지)", tbl, n)
 		}
