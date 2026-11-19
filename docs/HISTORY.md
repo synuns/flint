@@ -6,6 +6,27 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.9.2 patch (2026-11-19) — r43-recovery: import replay recovery · fresh-DB direct path · tuning note scope
+
+- [x] Import replay recovery (R43): when an import run committed its
+  knowledge batch but failed the recall-history replay, re-running the
+  import skipped the committed rows via dedup and the recall migration
+  was silently lost forever. The import now collects score-bearing
+  dedup-skipped rows and replays only those with zero `recall_events`
+  in the target DB — recovery without double replay (idempotent across
+  chunked partial replay).
+- [x] Fresh-DB schema direct path (R43): a newly created DB (schema.sql
+  v12 end state) no longer takes the v11 gate detour of adding the two
+  dropped columns just to drop them again in the v12 gate — the v11
+  gate skips the add when `recall_events` already exists; existing v11
+  DBs still get the columns (v12 backfill source preserved).
+- [x] Tuning note scope fix (R43): the `recall_event_retention_days`
+  ranking note over-stated the extinction condition — only rows whose
+  count is at most the days since the last recall drop to an effective
+  score of 0; high-frequency rows retain a positive score (so pruning
+  them can move ranking). TUNING.md and the PruneRecallEvents comment
+  corrected to the bounded wording.
+
 ### v1.9.1 patch (2026-11-19) — r42-hardening: jsonl recall replay · event retention · orphan cleanup
 
 - [x] Fatal import fix (R42): rows with recall history failed the jsonl

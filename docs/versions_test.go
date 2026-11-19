@@ -336,6 +336,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0191Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.9.1", "r42-hardening",
 	}},
+	// v1.9.2: R43 패치 — 재생 실패 회복·신규 DB 직행·TUNING 서술 한정.
+	{name: "TestVersion0192Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.9.2", "r43-recovery",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
