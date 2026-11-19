@@ -195,3 +195,72 @@ func TestV12FreshSchemaHasRecallEvents(t *testing.T) {
 		}
 	}
 }
+
+// TestV11GateFreshDirectToV12 — R43 직행 단락: 신규 DB(schema.sql v12
+// 종착로 생성 — recall_events 존재·버전 3)는 v11 게이트에서 폐기 예정
+// 2열(recall_score·last_recalled_at)을 add하지 않는다(구 동작은 v11이
+// add하고 v12가 drop하는 DDL 왕복). 게이트 체인 v2~v11 실행 직후 실측:
+// 2열 부재·recall_events 존재·버전 11 — v12로의 진짜 직행.
+func TestV11GateFreshDirectToV12(t *testing.T) {
+	r := newTestRepo(t)
+	resetVersionToV1(t, r)
+	saved := schemaSQLFn
+	schemaSQLFn = sqlfs.SchemaSQL
+	t.Cleanup(func() { schemaSQLFn = saved })
+	ctx := context.Background()
+	for _, stmt := range []string{
+		`DROP VIEW IF EXISTS active_knowledge, hot_view`,
+		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events`,
+		`DELETE FROM meta WHERE key = 'schema_version'`,
+	} {
+		if _, err := r.pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("신규 DB 재현 %q: %v", stmt, err)
+		}
+	}
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(신규 생성): %v", err)
+	}
+	for _, gate := range SchemaGates() {
+		if gate.Version > 11 {
+			break // v11 직후 시점 실측 — v12는 아래 ②에서
+		}
+		if err := gate.Ensure(ctx, r); err != nil {
+			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
+		}
+	}
+	// ① v11 게이트 직후 — 2열 부재(직행 단락 실측)·recall_events 존재·버전 11.
+	for _, col := range []string{"recall_score", "last_recalled_at"} {
+		if columnExists(t, r, "knowledge", col) {
+			t.Fatalf("신규 DB v11 게이트 직후 knowledge.%s add — add→drop 왕복(R43 직행 위반)", col)
+		}
+	}
+	var hasEvents int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM information_schema.tables WHERE table_name = 'recall_events'`).
+		Scan(&hasEvents); err != nil {
+		t.Fatal(err)
+	}
+	if hasEvents != 1 {
+		t.Fatalf("신규 DB v11 게이트 후 recall_events 부재 — 직행 판별 원천 훼손")
+	}
+	if v := readVersion(t, r); v != "11" {
+		t.Fatalf("v11 게이트 후 schema_version = %q, want 11", v)
+	}
+	// ② v12 게이트 — 왕복 없는 종착(버전 12·2열 부재 유지).
+	for _, gate := range SchemaGates() {
+		if gate.Version != 12 {
+			continue
+		}
+		if err := gate.Ensure(ctx, r); err != nil {
+			t.Fatalf("게이트 v12: %v", err)
+		}
+	}
+	if v := readVersion(t, r); v != "12" {
+		t.Fatalf("v12 게이트 후 schema_version = %q, want 12", v)
+	}
+	for _, col := range []string{"recall_score", "last_recalled_at"} {
+		if columnExists(t, r, "knowledge", col) {
+			t.Fatalf("신규 DB v12 게이트 후 knowledge.%s 잔존", col)
+		}
+	}
+}

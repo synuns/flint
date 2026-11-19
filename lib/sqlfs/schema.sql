@@ -28,8 +28,10 @@
 -- v12(v1.9.0): recall append-only 원천 — recall_events 테이블 + 인덱스.
 -- 기존 v11 DB는 EnsureSchemaV12 게이트가 적용: score수 합성 이벤트 백필
 -- (스코어 연속성 보존용 — 실제 이력 아님) 후 knowledge 2열(v11) 폐기.
--- 신규 DB는 생성 시점부터 2열 없이 v12 종착상태로 직행한다(위
--- knowledge 정의에 v11 2열이 부재하는 이유 — 게이트 승격은 기존 DB 전용).
+-- 신규 DB는 생성 시점부터 2열 없이 v12 종착상태로 직행한다(위 knowledge
+-- 정의에 v11 2열이 부재하는 이유). 게이트 체인 재유입 시에도
+-- EnsureSchemaV11이 recall_events 존재 판별로 v11 2열 추가를 스킵해
+-- add→drop 왕복이 없다(R43 직행 단락 — 게이트 ALTER는 기존 DB 승격 전용).
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (

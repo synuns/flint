@@ -362,14 +362,28 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		return nil, err
 	}
 	// 3단계 — 기존 행은 duplicate 스킵(계보 참조 해석용 id 승계), 신규만
-	// 적립 rec 완성(정규화·content_hash·valid_at).
+	// 적립 rec 완성(정규화·content_hash·valid_at). score>0 스킵 행은
+	// 4.5단계 보충 후보로 수집한다(R43 — 아래 주석).
 	var batch []pending
+	var skippedReplays []db.RecallReplay // dedup 스킵 행 중 score>0(4.5단계 보충 후보)
 	for _, p := range fresh {
 		if meta, ok := existing[p.hash]; ok {
 			oc.duplicated++
 			if meta.ID > 0 {
 				oc.idmap[p.row.ID] = meta.ID // 계보 참조 해석용
 				oc.byIndex[p.idx] = meta.ID
+				// R43 재생 누락 보충 후보 — 이전 실행이 이 행을 적립
+				// (chunk 커밋)한 뒤 재생에서 실패해 exit 1했다면, 이번
+				// 실행의 dedup 스킵이 재생 수집에서 이 행을 빼 버려
+				// 스코어 이관이 영구 누락된다. 4.5단계에서 대상 DB
+				// 이벤트 0건인 행만 보충한다.
+				if p.row.RecallScore > 0 {
+					rr := db.RecallReplay{ID: meta.ID, Score: p.row.RecallScore}
+					if p.row.LastRecalledAt != nil {
+						rr.LastRecalled = *p.row.LastRecalledAt
+					}
+					skippedReplays = append(skippedReplays, rr)
+				}
 			}
 			continue
 		}
@@ -464,10 +478,20 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		}
 		// 회상 이력 재생(R42-A) — 폐기 2열 대신 합성 이벤트로 스코어
 		// 이관. chunk 적립 커밋에 붙여 실행해 "적립+재생"을 회복 단위로
-		// 묶는다(재실행 시 dedup가 커밋 행을 스킵 → 이중 재생 없음).
+		// 묶는다(재실행 시 dedup가 커밋 행을 스킵 → 이중 재생 없음 —
+		// 스킵 행의 스코어 누락은 아래 4.5단계가 보충한다).
 		if err := replayRecall(ctx, st, replays); err != nil {
 			return nil, err
 		}
+	}
+	// 4.5단계 — dedup 스킵 행의 재생 누락 보충(R43): 이전 실행이 chunk
+	// 커밋 후 replayRecall 실패로 exit 1되면, 재실행의 dedup 스킵이 그
+	// 행을 4단계 재생 수집에서 빼 버려 스코어 이관이 영구 누락된다.
+	// score>0 스킵 행 중 대상 DB recall_events에 이벤트가 0건인 행만
+	// 골라 보충한다 — 정상 재생된 행은 이벤트 존재로 걸러져 이중 재생이
+	// 없다(restoreSkippedRecallReplay).
+	if err := restoreSkippedRecallReplay(ctx, st, skippedReplays); err != nil {
+		return nil, err
 	}
 	if explicit {
 		// 명시 id INSERT는 id serial의 nextval을 소비하지 않는다.
@@ -538,6 +562,54 @@ func replayRecall(ctx context.Context, st wire.Store, replays []db.RecallReplay)
 		return fmt.Errorf("import: recall replay failed: %v", err)
 	}
 	return nil
+}
+
+// restoreSkippedRecallReplay — dedup 스킵 행의 재생 누락 보충(R43):
+// candidates는 3단계 스킵 시점의 재생 아이템(승계 id·score·last).
+// 대상 DB recall_events의 이벤트 보유 id를 DISTINCT 1왕복 조회
+// (dedup 청크 관례 승계)로 구해, 이벤트 0건인 후보만 replayRecall로
+// 보충한다 — 이전 실행에서 이미 재생된 행은 걸러져 이중 재생이 없고,
+// 청크 경계 부분 재생 후 재실행에도 미보충 행만 골라 멱등이다.
+// 오류 계약은 replayRecall과 동일(ErrServerDown 체인 보존·그 외
+// exit 1 랩).
+func restoreSkippedRecallReplay(ctx context.Context, st wire.Store, candidates []db.RecallReplay) error {
+	if len(candidates) == 0 {
+		return nil
+	}
+	ids := make([]int, 0, len(candidates))
+	for _, c := range candidates {
+		if c.ID > 0 {
+			ids = append(ids, c.ID)
+		}
+	}
+	hasEvent := make(map[int]bool, len(ids))
+	for start := 0; start < len(ids); start += importDedupChunk {
+		end := min(start+importDedupChunk, len(ids))
+		rows, err := wire.QueryOnce(ctx, st,
+			`SELECT DISTINCT knowledge_id FROM recall_events WHERE knowledge_id = ANY($1)`,
+			[]any{ids[start:end]})
+		if err != nil {
+			if errors.Is(err, store.ErrServerDown) {
+				return err
+			}
+			return fmt.Errorf("import: replay restore lookup failed: %v", err)
+		}
+		for _, row := range rows {
+			if len(row) == 0 {
+				continue
+			}
+			if id, ok := render.CellToInt(row[0]); ok && id > 0 {
+				hasEvent[id] = true
+			}
+		}
+	}
+	var replays []db.RecallReplay
+	for _, c := range candidates {
+		if c.ID > 0 && !hasEvent[c.ID] {
+			replays = append(replays, c)
+		}
+	}
+	return replayRecall(ctx, st, replays)
 }
 
 // restoreSupersede — 계보 복원 후처리: superseded_by 참조 행을 기존
