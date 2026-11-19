@@ -11,8 +11,11 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/synuns/flint/lib/db"
 )
 
 // TestLegacyV3UpgradeColumnsBeforeViews — 레거시 v3 상태(read_count·
@@ -95,16 +98,17 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 		t.Fatalf("read 출력에 seed 행 없음: %q", out)
 	}
 
-	// 승격 단언 — schema_version=10(v0.8 V5·v0.19.0 V6·v0.20.0 V7·
-	// v0.30.0 V8·v0.42.0 V9·v1.2.0 V10 게이트 체인 추가로 레거시 v3 DB는
-	// v3→…→v10 전부 승격. 컬럼-뷰 순서 회귀 아님 — 아래 read·뷰 단언은 그대로).
+	// 승격 단언 — 레거시 v3 DB는 게이트 체인(v3→…→최신)을 전부 승격한다.
+	// want는 lib/db.LatestSchemaVersion 파생(하드코딩은 승격 버전이 오를
+	// 때마다 확정 실패 — v12 후폭. admin_v10_test readVersion 선례와 동일
+	// 계열). 컬럼-뷰 순서 회귀 아님 — 아래 read·뷰 단언은 그대로).
 	var version string
 	if err := pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회: %v", err)
 	}
-	if version != "11" {
-		t.Fatalf("schema_version=%q, want 11", version)
+	if want := strconv.Itoa(db.LatestSchemaVersion); version != want {
+		t.Fatalf("schema_version=%q, want %s", version, want)
 	}
 
 	// 뷰 단언 — active_knowledge가 v4 컬럼 2종을 노출.
