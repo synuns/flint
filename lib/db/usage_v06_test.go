@@ -29,8 +29,7 @@ func cleanUsageKeys(t *testing.T, r *Repo) {
 // TestRecordUsageDailyAndPrune — write·hot·read·dup records → flat-key
 // values·last_* renewal·seeding 15 days' worth → excess keys deleted
 // (updated to flat-key assertions).
-func TestRecordUsageDailyAndPrune(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageDailyAndPrune(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
@@ -126,8 +125,7 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 // today's daily key is newly created (the rollover's first event)
 // (regression: a DELETE on every RecordUsage — hot-path waste·duplicate
 // writes cleaning twice).
-func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsagePrunesOnlyOnNewDayKey(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	old := time.Now().UTC().AddDate(0, 0, -20).Format("2006-01-02")
@@ -172,8 +170,7 @@ func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
 // TestRecordUsageCorruptDailyRewrites — a corrupted flat-key value is
 // rewritten from 0 (the flat inheritance of the legacy JSON
 // corrupt-rewrite contract — any non-integer existing value).
-func TestRecordUsageCorruptDailyRewrites(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageCorruptDailyRewrites(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
@@ -195,8 +192,7 @@ func TestRecordUsageCorruptDailyRewrites(t *testing.T) {
 
 // TestRecordUsageWriteEmptySource — write with source="" updates only
 // the write counter.
-func TestRecordUsageWriteEmptySource(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageWriteEmptySource(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
@@ -221,8 +217,7 @@ func TestRecordUsageWriteEmptySource(t *testing.T) {
 // null·partial-corruption rewrite regression moved to the readDailyFlat
 // fallback contract; see usage_flatkey_test.go
 // TestReadDailyFlatLegacyFallback).
-func TestRecordUsageLegacyJSONIgnoredByWrite(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageLegacyJSONIgnoredByWrite(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
@@ -252,8 +247,7 @@ func TestRecordUsageLegacyJSONIgnoredByWrite(t *testing.T) {
 
 // TestRecordUsageInvalidKind — an out-of-contract kind is an error
 // (nothing recorded).
-func TestRecordUsageInvalidKind(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageInvalidKind(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	if err := r.RecordUsage(context.Background(), "bogus", ""); err == nil {
 		t.Fatalf("invalid kind — want error")
@@ -266,8 +260,7 @@ func TestRecordUsageInvalidKind(t *testing.T) {
 // last-write-wins without error — total-count consistency not
 // guaranteed; the loss < call-failure metering principle. Atomicity is
 // the Postgres baseline).
-func TestRecordUsageConcurrentNoError(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageConcurrentNoError(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	var wg sync.WaitGroup

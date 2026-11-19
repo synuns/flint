@@ -13,8 +13,7 @@ import (
 // TestRecordUsageCountBatches — RecordUsageCount("dup","",3)+
 // ("write","hook",2) are bulk-reflected into daily with one upsert each
 // (regression: an N-iteration RecordUsage loop).
-func TestRecordUsageCountBatches(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageCountBatches(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 

@@ -37,8 +37,7 @@ func flatDailyValue(t *testing.T, r *Repo, kind, date string) int {
 // loss — the motivation of the flat switch).
 // e.g. bumpDailyFlat("2026-11-13","hot_bytes",1180) → existing+1180 in
 // one UPSERT.
-func TestFlatKeyAtomicIncrement(t *testing.T) {
-	r := newTestRepo(t)
+func slowFlatKeyAtomicIncrement(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	today := time.Now().UTC().Format("2006-01-02")
@@ -115,8 +114,7 @@ func TestFlatKeyAtomicIncrement(t *testing.T) {
 // daily:<date> JSON fallback inherited. When the flat key is absent,
 // the legacy JSON value is read (a migration-read inheritance); once
 // the flat key exists, it wins. Corrupt·absent·null fallback JSON is 0.
-func TestReadDailyFlatLegacyFallback(t *testing.T) {
-	r := newTestRepo(t)
+func slowReadDailyFlatLegacyFallback(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	today := time.Now().UTC().Format("2006-01-02")
@@ -178,8 +176,7 @@ func TestReadDailyFlatLegacyFallback(t *testing.T) {
 // TestPruneDailyBothKeyForms — PruneDaily cleans both the legacy
 // daily:<date> JSON keys and the new daily:<kind>:<date> flat keys (the
 // 14-day retention unchanged — today + the prior 13 days).
-func TestPruneDailyBothKeyForms(t *testing.T) {
-	r := newTestRepo(t)
+func slowPruneDailyBothKeyForms(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	day := func(age int) string {

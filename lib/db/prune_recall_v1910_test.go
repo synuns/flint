@@ -18,8 +18,7 @@ import (
 // leaves no recall-history orphans (blocking multiplicative growth).
 // Non-orphan retention targets (an active knowledge's events·history)
 // are unchanged.
-func TestPruneInvalidatedCleansRecallOrphans(t *testing.T) {
-	r := newTestRepo(t)
+func slowPruneInvalidatedCleansRecallOrphans(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	// Synthetic seed — 3 knowledge rows: 2 invalidated+expired (deletion
 	// targets), 1 active.
@@ -108,8 +107,7 @@ func TestPruneInvalidatedCleansRecallOrphans(t *testing.T) {
 // retention-horizon prune deletes only expired events (retained events
 // kept — the ranking source's invariant window)·the rerun is idempotent
 // (0 rows on the 2nd·residual count unchanged).
-func TestPruneRecallEventsRetentionOnlyExpired(t *testing.T) {
-	r := newTestRepo(t)
+func slowPruneRecallEventsRetentionOnlyExpired(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("r42d-exp"), knowledgeRec("r42d-fresh"),

@@ -17,8 +17,7 @@ func cleanPBKeys(t *testing.T, r *Repo) {
 }
 
 // TestPlaybookStats — 2 successes out of 3 → Uses 3·OK 2·Rate 0.667.
-func TestPlaybookStats(t *testing.T) {
-	r := newTestRepo(t)
+func slowPlaybookStats(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanPBKeys(t, r)
 	for _, ok := range []bool{true, false, true} {
@@ -58,8 +57,7 @@ func TestPlaybookStats(t *testing.T) {
 
 // TestPlaybookStatsMultiple — 2 playbooks, id-ascending; only successes
 // increment ok.
-func TestPlaybookStatsMultiple(t *testing.T) {
-	r := newTestRepo(t)
+func slowPlaybookStatsMultiple(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanPBKeys(t, r)
 	if err := r.LogPlaybookUse(ctx, 7, true); err != nil {
@@ -88,8 +86,7 @@ func TestPlaybookStatsMultiple(t *testing.T) {
 }
 
 // TestPlaybookStatsEmpty — no logs yields an empty slice·nil error.
-func TestPlaybookStatsEmpty(t *testing.T) {
-	r := newTestRepo(t)
+func slowPlaybookStatsEmpty(t *testing.T, r *Repo) {
 	cleanPBKeys(t, r)
 	stats, err := r.PlaybookStats(context.Background())
 	if err != nil {

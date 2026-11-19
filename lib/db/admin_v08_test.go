@@ -35,8 +35,7 @@ func readVersion(t *testing.T, r *Repo) string {
 // existing deployment path), EnsureSchemaV5 → version 5·the
 // superseded_by column present (existing rows get the default null).
 // A second call is an idempotent no-op.
-func TestV5PromoteIdempotent(t *testing.T) {
-	r := newTestRepo(t)
+func slowV5PromoteIdempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	// Reproducing the existing deployment path: v1 → passing the v4 gates
@@ -88,8 +87,7 @@ func TestV5PromoteIdempotent(t *testing.T) {
 // lower under string comparison ('10'<'5') but is higher numerically,
 // so it must no-op. A regression preventing a recurrence of the
 // downgrade incident (the string-equality check).
-func TestV5GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+func slowV5GateNumeric(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	setVersion(t, r, "10") // below '5' in string order, above 5 numerically.
@@ -104,8 +102,7 @@ func TestV5GateNumeric(t *testing.T) {
 // TestV4GateNoDowngradeFromV5 — running the existing v2~v4 gates on a
 // v5 DB does not roll the version back (wiring is addition-only — the
 // existing gate logic unchanged).
-func TestV4GateNoDowngradeFromV5(t *testing.T) {
-	r := newTestRepo(t)
+func slowV4GateNoDowngradeFromV5(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	if err := r.EnsureSchemaV5(ctx); err != nil {
@@ -128,8 +125,7 @@ func TestV4GateNoDowngradeFromV5(t *testing.T) {
 // null), and the gate chain v2→v5 yields meta=5. The fake DDL lacks the
 // v5 column, so this test alone pins the real sqlfs (verifying the
 // deployed file regardless of the seam).
-func TestFreshSchemaHasColumn(t *testing.T) {
-	r := newTestRepo(t)
+func slowFreshSchemaHasColumn(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	saved := schemaSQLFn
 	schemaSQLFn = sqlfs.SchemaSQL

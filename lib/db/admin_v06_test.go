@@ -11,8 +11,7 @@ import (
 // existing row values unchanged. Protocol: a DB that passed the v3
 // gates (the existing deployment path) also promotes, and pre-promotion
 // existing rows get the defaults read_count=0·last_read_at=null.
-func TestEnsureSchemaV4Idempotent(t *testing.T) {
-	r := newTestRepo(t)
+func slowEnsureSchemaV4Idempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	// Reproducing the existing deployment path: a DB that passed v1 →
@@ -76,8 +75,7 @@ func TestEnsureSchemaV4Idempotent(t *testing.T) {
 // TestEnsureSchemaV4FromV1 — a v1 DB that skipped v3 also promotes with
 // the single v4 gate (the gate only updates the version; the columns
 // apply idempotently via IF NOT EXISTS).
-func TestEnsureSchemaV4FromV1(t *testing.T) {
-	r := newTestRepo(t)
+func slowEnsureSchemaV4FromV1(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v4-from1")})
@@ -119,8 +117,7 @@ func TestEnsureSchemaV4FromV1(t *testing.T) {
 // check, EnsureSchemaV2 on a v3 DB opened the promotion transaction and
 // rolled the version back to '2' (a downgrade record + widening the
 // 40001 window under parallel startup — CI run 39717583172).
-func TestEnsureSchemaGatesShortCircuitAbove(t *testing.T) {
-	r := newTestRepo(t)
+func slowEnsureSchemaGatesShortCircuitAbove(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ('schema_version', '3')

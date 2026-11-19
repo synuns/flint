@@ -11,8 +11,7 @@ import (
 // TestRecordReadEventAndPrune — RecordReadEvent records the numbers·
 // flags·labels as-is, and PruneReadEvents deletes only rows past the
 // 14-day retention (recent rows kept).
-func TestRecordReadEventAndPrune(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordReadEventAndPrune(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV6(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV6: %v", err)
@@ -70,8 +69,7 @@ func TestRecordReadEventAndPrune(t *testing.T) {
 // TestPruneRetentionOverride — retention-day meta override — with
 // events_retention_days generously raised, a past row that the default
 // 14 days would delete survives.
-func TestPruneRetentionOverride(t *testing.T) {
-	r := newTestRepo(t)
+func slowPruneRetentionOverride(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV7(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV7: %v", err)

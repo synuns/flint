@@ -11,8 +11,7 @@ import (
 // TestSessionStartAndHotEventRecords — the recording methods leave the
 // values as-is, and the 14-day retention cleanup (PruneReadEvents)
 // deletes only the expired portion across all 3 tables.
-func TestSessionStartAndHotEventRecords(t *testing.T) {
-	r := newTestRepo(t)
+func slowSessionStartAndHotEventRecords(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV7(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV7: %v", err)

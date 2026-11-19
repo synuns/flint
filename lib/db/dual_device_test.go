@@ -138,7 +138,11 @@ func t6TopicCount(t *testing.T, q Querier) int {
 func TestDualDeviceRecallAppendOnlyRealSlow(t *testing.T) {
 	ctx := context.Background()
 	dsn := testDSN(t)
-	_ = sharedDBLock(t) // scratch creation on the shared server·mutual exclusion with other tests
+	// Scratch creation on the shared server·mutual exclusion with other
+	// tests. The unlock must be registered on t — discarding it held the
+	// exclusive flock for the rest of the process and stalled every later
+	// sharedDBLock caller (~120s, measured on TestMigrateGatesViewReapply).
+	t.Cleanup(sharedDBLock(t))
 	base, err := Connect(ctx, dsn)
 	if err != nil {
 		t.Fatalf("Connect base: %v", err)

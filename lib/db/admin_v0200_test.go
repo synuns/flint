@@ -12,8 +12,7 @@ import (
 // EnsureSchemaV7 → version 7·the read_events.ids column present
 // (recording behavior proven)·session_starts·hot_events created. A
 // second call is idempotent.
-func TestV7PromoteIdempotent(t *testing.T) {
-	r := newTestRepo(t)
+func slowV7PromoteIdempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	// Reproducing the existing deployment path: v1 → passing the v6 gates
@@ -84,8 +83,7 @@ func TestV7PromoteIdempotent(t *testing.T) {
 
 // TestV7GateNumeric — the gate numeric-comparison regression (the same
 // contract as V5·V6).
-func TestV7GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+func slowV7GateNumeric(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	setVersion(t, r, "10")

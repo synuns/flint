@@ -24,8 +24,7 @@ var v9IndexNames = []string{
 // existing deployment path), EnsureSchemaV9 → version 9·the 4 indexes
 // present·pre-promotion existing rows intact (additive). A second call
 // is an idempotent no-op.
-func TestV9PromoteIdempotent(t *testing.T) {
-	r := newTestRepo(t)
+func slowV9PromoteIdempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	// Reproducing the existing deployment path: v1 → passing the v8 gates
@@ -98,8 +97,7 @@ func TestV9PromoteIdempotent(t *testing.T) {
 // TestV9GateNumeric — the gate numeric-comparison regression (the same
 // contract as V5~V7): '10' is numerically higher, so it must no-op
 // (preventing downgrades).
-func TestV9GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+func slowV9GateNumeric(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	setVersion(t, r, "10")

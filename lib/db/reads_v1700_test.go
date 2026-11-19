@@ -36,8 +36,7 @@ func derivedRecall(t *testing.T, r *Repo, ctx context.Context, id int) (*int, *t
 // is reflected in the derived cnt·last_at: the accrued row gets cnt 1·
 // last_at recent; the unaccrued row gets NULL (never recalled — the
 // ranking zero-score source). Empty slice no-op.
-func TestBumpRecallScoresIncrements(t *testing.T) {
-	r := newTestRepo(t)
+func slowBumpRecallScoresIncrements(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV12: %v", err)
@@ -75,8 +74,7 @@ func TestBumpRecallScoresIncrements(t *testing.T) {
 // TestBumpRecallScoresDuplicateIDs — duplicate-id immunity: passing the
 // same id multiple times accrues the row once (derived cnt 1 —
 // inheriting the BumpReads contract).
-func TestBumpRecallScoresDuplicateIDs(t *testing.T) {
-	r := newTestRepo(t)
+func slowBumpRecallScoresDuplicateIDs(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV12: %v", err)

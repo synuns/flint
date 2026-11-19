@@ -12,8 +12,7 @@ import (
 // existing deployment path), EnsureSchemaV6 → version 6·the read_events
 // table created (RecordReadEvent INSERT behavior proven). A second call
 // is an idempotent no-op.
-func TestV6PromoteIdempotent(t *testing.T) {
-	r := newTestRepo(t)
+func slowV6PromoteIdempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	// Reproducing the existing deployment path: v1 → passing the v5 gates
@@ -63,8 +62,7 @@ func TestV6PromoteIdempotent(t *testing.T) {
 // lower under string comparison but is higher numerically, so it must
 // no-op without recording the version or recreating tables (a
 // downgrade-incident regression — the same contract as the V5 gate).
-func TestV6GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+func slowV6GateNumeric(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	setVersion(t, r, "10") // below '6' in string order, above 6 numerically.

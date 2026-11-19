@@ -27,8 +27,7 @@ func ensureV1200Schema(t *testing.T, r *Repo) {
 
 // TestRecordReadEventColumns — the ReadEvent extension 3 columns
 // (bytes·zero_reason·source) store their values as-is.
-func TestRecordReadEventColumns(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordReadEventColumns(t *testing.T, r *Repo) {
 	ensureV1200Schema(t, r)
 	ctx := context.Background()
 	t.Cleanup(func() {
@@ -78,8 +77,7 @@ func TestRecordReadEventColumns(t *testing.T) {
 // TestRecordKnowledgeReads — the full id set is recorded in
 // knowledge_reads one row each, together with session·kind. Empty ids
 // is a no-op; an invalid kind is an error.
-func TestRecordKnowledgeReads(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordKnowledgeReads(t *testing.T, r *Repo) {
 	ensureV1200Schema(t, r)
 	ctx := context.Background()
 	t.Cleanup(func() {

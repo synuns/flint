@@ -15,8 +15,7 @@ import (
 // TestMergeRecordsSupersededBy — after merging, the from row's
 // superseded_by==into. (Contract: Merge records superseded_by in the
 // same shape as Supersede, alongside the marker-suffix convention.)
-func TestMergeRecordsSupersededBy(t *testing.T) {
-	r := newTestRepo(t)
+func slowMergeRecordsSupersededBy(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("merge-sup-from"),
@@ -57,8 +56,7 @@ func TestMergeRecordsSupersededBy(t *testing.T) {
 // Supersede's 0-rows steward convention (an ErrNotFound-wrapped error),
 // and the refusal wording keeps the already-processed (invalidated)
 // case.
-func TestMergeTwiceRejected(t *testing.T) {
-	r := newTestRepo(t)
+func slowMergeTwiceRejected(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("merge-twice-from"),
@@ -102,8 +100,7 @@ func TestMergeTwiceRejected(t *testing.T) {
 // refused. The 0-rows steward distinguishes the status in its guidance:
 // statuses other than invalidated get the "not active (cannot merge) —
 // status: <value>" wording.
-func TestMergePendingRejected(t *testing.T) {
-	r := newTestRepo(t)
+func slowMergePendingRejected(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("merge-pending-from"),
@@ -145,8 +142,7 @@ func TestMergePendingRejected(t *testing.T) {
 // invalid_at set (a corrupted state) is also refused by the 0-rows
 // steward. The wording must name the invalid_at cause instead of the
 // self-contradictory "not active — status: active".
-func TestMergeActiveInvalidAtRejected(t *testing.T) {
-	r := newTestRepo(t)
+func slowMergeActiveInvalidAtRejected(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("merge-actinv-from"),

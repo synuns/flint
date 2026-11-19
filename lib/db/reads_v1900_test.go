@@ -14,8 +14,7 @@ import (
 // TestBumpRecallScoresInsertsEvents — recall-event accrual for hit ids·
 // knowledge rows unchanged·empty slice no-op·duplicate id once per row
 // (DISTINCT — inheriting the old UPDATE id=ANY contract).
-func TestBumpRecallScoresInsertsEvents(t *testing.T) {
-	r := newTestRepo(t)
+func slowBumpRecallScoresInsertsEvents(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	// v12 state guarantee — recall_events present·the 2 knowledge
 	// columns dropped (idempotent).
@@ -151,8 +150,7 @@ func TestBumpRecallScoresInsertsEvents(t *testing.T) {
 // with the global -A sweep abolished, not staging this table would stop
 // recall events propagating across devices via push/pull (the T6
 // premise).
-func TestRecallEventsAuditStaged(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecallEventsAuditStaged(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV12: %v", err)
@@ -193,8 +191,7 @@ func TestRecallEventsAuditStaged(t *testing.T) {
 // (a given time inherited·never-recalled falls back to now)·score 0 and
 // empty slices are no-ops. Audit-commit absorption (recall_events
 // staging) checked along the way.
-func TestReplayRecallEventsSynthesizesEvents(t *testing.T) {
-	r := newTestRepo(t)
+func slowReplayRecallEventsSynthesizesEvents(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	// v12 state guarantee — recall_events present·the 2 knowledge
 	// columns dropped (idempotent).

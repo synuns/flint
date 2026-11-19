@@ -28,8 +28,7 @@ func sessionAt(agent string, ts time.Time) map[string]any {
 
 // TestApproveIdempotent — 2 approves → the same state·the 2nd also
 // without error.
-func TestApproveIdempotent(t *testing.T) {
-	r := newTestRepo(t)
+func slowApproveIdempotent(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{pendingRec("appr-1")})
 	if err != nil {
@@ -53,16 +52,14 @@ func TestApproveIdempotent(t *testing.T) {
 }
 
 // TestApproveMissing — a missing id is ErrNotFound.
-func TestApproveMissing(t *testing.T) {
-	r := newTestRepo(t)
+func slowApproveMissing(t *testing.T, r *Repo) {
 	if err := r.Approve(context.Background(), 99999); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
 
 // TestInvalidateSetsInvalidAt — invalid_at NULL→NOT NULL.
-func TestInvalidateSetsInvalidAt(t *testing.T) {
-	r := newTestRepo(t)
+func slowInvalidateSetsInvalidAt(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("inv-1")})
 	if err != nil {
@@ -87,8 +84,7 @@ func TestInvalidateSetsInvalidAt(t *testing.T) {
 
 // TestMergeMarksAndInvalidates — from invalidated + the merge marker on
 // to's summary.
-func TestMergeMarksAndInvalidates(t *testing.T) {
-	r := newTestRepo(t)
+func slowMergeMarksAndInvalidates(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("merge-from"),
@@ -133,8 +129,7 @@ func containsMarker(summary string, fromID int) bool {
 
 // TestCounts — the pending count + the duplicate-suspect count (2+
 // active rows sharing a topic).
-func TestCounts(t *testing.T) {
-	r := newTestRepo(t)
+func slowCounts(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	dupA := knowledgeRec("cnt-dup-a")
 	dupA["topic"] = "dup-topic"
@@ -164,8 +159,7 @@ func TestCounts(t *testing.T) {
 // TestStaleSessionRuns — the consecutive count of sessions without a
 // knowledge write, from the most recent. The aggregation must stop at
 // the first session with a record (not the total unrecorded count).
-func TestStaleSessionRuns(t *testing.T) {
-	r := newTestRepo(t)
+func slowStaleSessionRuns(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	base := time.Now().Add(-10 * time.Hour)
 	recs := []map[string]any{sessionAt("stale-a", base)} // oldest: has a record
@@ -237,8 +231,7 @@ func resetVersionToV1(t *testing.T, r *Repo) {
 // TestMigrateAcceptsV2 — regression: with meta='2', Migrate passes with
 // err=nil and does not roll the version back to '1'. The gate assumed
 // only '1' and produced a nil wrap failure ("%!w(<nil>)").
-func TestMigrateAcceptsV2(t *testing.T) {
-	r := newTestRepo(t)
+func slowMigrateAcceptsV2(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	if err := r.EnsureSchemaV2(ctx); err != nil {
@@ -297,8 +290,7 @@ func flintIndexCount(t *testing.T, r *Repo) int {
 // TestEnsureSchemaV3Idempotent — 2 calls → 3 indexes·version 3, the 2nd
 // unchanged. Protocol: a DB that passed the v2 gate (the existing
 // deployment path) also promotes.
-func TestEnsureSchemaV3Idempotent(t *testing.T) {
-	r := newTestRepo(t)
+func slowEnsureSchemaV3Idempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	dropV3Indexes(t, r)
 	ctx := context.Background()
@@ -356,8 +348,7 @@ func TestEnsureSchemaV3Idempotent(t *testing.T) {
 // TestEnsureSchemaV3FromV1 — a v1 DB that skipped v2 also promotes with
 // the single v3 gate (the gate only updates the version; the indexes
 // apply idempotently via IF NOT EXISTS).
-func TestEnsureSchemaV3FromV1(t *testing.T) {
-	r := newTestRepo(t)
+func slowEnsureSchemaV3FromV1(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	dropV3Indexes(t, r)
 	if err := r.EnsureSchemaV3(context.Background()); err != nil {
@@ -370,8 +361,7 @@ func TestEnsureSchemaV3FromV1(t *testing.T) {
 
 // TestEnsureSchemaV2 — a v1 DB's (fake DDL) lossless promotion: ALTER
 // column additions + version 2 + existing data kept + idempotent.
-func TestEnsureSchemaV2(t *testing.T) {
-	r := newTestRepo(t)
+func slowEnsureSchemaV2(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	// v1-era data — must survive the promotion.
@@ -419,8 +409,7 @@ func TestEnsureSchemaV2(t *testing.T) {
 // while v2~v5 were checked only for 'sequential passage' through the
 // chain — a gate quietly turning into a no-op would not have been
 // caught.
-func TestAllGatesArtifacts(t *testing.T) {
-	r := newTestRepo(t)
+func slowAllGatesArtifacts(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 
@@ -531,8 +520,7 @@ func dropV11ScoreColumns(t *testing.T, r *Repo) {
 // (an older binary reading a v11 DB) is covered by a spot of the
 // current binary inserting·reading v11 values under the columns'
 // additive-default premise (a behavior proof of the score-value path).
-func TestV11GateAdditive(t *testing.T) {
-	r := newTestRepo(t)
+func slowV11GateAdditive(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	dropV11ScoreColumns(t, r)
 	// Faithful v10-DB reproduction (after the R43 direct-run short
@@ -615,8 +603,7 @@ func TestV11GateAdditive(t *testing.T) {
 // TestV11GateNumeric — a higher-version DB no-ops via numeric
 // comparison (a downgrade-prevention regression — inheriting the
 // TestV10GateNumeric convention).
-func TestV11GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+func slowV11GateNumeric(t *testing.T, r *Repo) {
 	setVersion(t, r, "99")
 	if err := r.EnsureSchemaV11(context.Background()); err != nil {
 		t.Fatalf("EnsureSchemaV11(상위 버전 DB): %v", err)

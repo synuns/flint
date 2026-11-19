@@ -14,8 +14,7 @@ import (
 // TestRecordUsageCountBrief — kind "brief" increments the daily counter
 // and last_brief_at is recorded (not a dup-family kind, so it inherits
 // the time-key contract). Invalid-kind rejection stays as before.
-func TestRecordUsageCountBrief(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageCountBrief(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 

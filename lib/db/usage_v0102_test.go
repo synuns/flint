@@ -13,8 +13,7 @@ import (
 // TestRecordUsageCountDupSources — the 3 new kinds increment the daily
 // counters under their own keys (ruling: whitelist addition only), and
 // invalid kinds are still rejected.
-func TestRecordUsageCountDupSources(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordUsageCountDupSources(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 

@@ -24,8 +24,7 @@ var backfillAt = time.Date(2026, 11, 1, 12, 0, 0, 0, time.UTC)
 // knowledge rows: recall_score 3·0) to v12: only the score>0 row
 // accrues score-count (3) synthetic events·the two columns dropped·
 // version 12·the rerun idempotent (no event duplication).
-func TestV12GateRecallAppendOnly(t *testing.T) {
-	r := newTestRepo(t)
+func slowV12GateRecallAppendOnly(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	// Reproduce the v11 state — remove recall_events·guarantee the v11
 	// columns (IF NOT EXISTS)·version 11.
@@ -128,8 +127,7 @@ func TestV12GateRecallAppendOnly(t *testing.T) {
 // TestV12GateNumeric — a higher-version DB no-ops via numeric
 // comparison (a downgrade-prevention regression — the '12'<'9'
 // string-order trap).
-func TestV12GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+func slowV12GateNumeric(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	// The no-op-proof baseline — guarantee the column's presence (so it
 	// holds regardless of the shared DB state a preceding test may have
@@ -156,8 +154,7 @@ func TestV12GateNumeric(t *testing.T) {
 // with the real schema.sql + run the gate chain v2→v12 in order (same
 // as the root.go wiring), then recall_events·the index present·the 2
 // columns dropped·version 12.
-func TestV12FreshSchemaHasRecallEvents(t *testing.T) {
-	r := newTestRepo(t)
+func slowV12FreshSchemaHasRecallEvents(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	saved := schemaSQLFn
 	schemaSQLFn = sqlfs.SchemaSQL
@@ -216,8 +213,7 @@ func TestV12FreshSchemaHasRecallEvents(t *testing.T) {
 // the v11-adds-then-v12-drops DDL round trip). Measured right after
 // running the gate chain v2~v11: the 2 columns absent·recall_events
 // present·version 11 — a true direct run to v12.
-func TestV11GateFreshDirectToV12(t *testing.T) {
-	r := newTestRepo(t)
+func slowV11GateFreshDirectToV12(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	saved := schemaSQLFn
 	schemaSQLFn = sqlfs.SchemaSQL

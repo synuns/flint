@@ -11,8 +11,7 @@ import (
 // topic (ids ascending); solo topics·invalidated rows excluded. The
 // formula is the same GROUP BY as Counts' dup_suspect (invalid_at IS
 // NULL AND status='active' GROUP BY topic HAVING count(*)>1).
-func TestDupGroupsSameTopic(t *testing.T) {
-	r := newTestRepo(t)
+func slowDupGroupsSameTopic(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	a := knowledgeRec("dup-a")
 	a["topic"] = "rv-e"

@@ -10,8 +10,7 @@ import (
 // TestInvalidateSetsStatus — single invalidation·Merge(from) also write
 // status='invalidated' — the same law as the batch path. The basis for
 // read --status invalidated exposure·report count consistency.
-func TestInvalidateSetsStatus(t *testing.T) {
-	r := newTestRepo(t)
+func slowInvalidateSetsStatus(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("inv-status-a"), knowledgeRec("inv-status-b"),
@@ -50,8 +49,7 @@ func TestInvalidateSetsStatus(t *testing.T) {
 // TestApproveClearsInvalidAt — approving an invalidated pending clears
 // invalid_at too — defense against the active+invalid_at zombie (a row
 // visible neither in the view nor --status).
-func TestApproveClearsInvalidAt(t *testing.T) {
-	r := newTestRepo(t)
+func slowApproveClearsInvalidAt(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	rec := knowledgeRec("approve-zombie")
 	rec["status"] = "pending"

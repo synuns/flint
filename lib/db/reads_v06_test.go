@@ -10,8 +10,7 @@ import (
 
 // TestBumpReadsIncrements — increments·last_read_at renewal·unspecified
 // rows unchanged·no-op.
-func TestBumpReadsIncrements(t *testing.T) {
-	r := newTestRepo(t)
+func slowBumpReadsIncrements(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV4(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV4: %v", err)
@@ -71,8 +70,7 @@ func TestBumpReadsIncrements(t *testing.T) {
 // TestBumpReadsDuplicateIDs — id=ANY duplicate immunity — even with the
 // same id twice in the slice, the row increments once (WHERE-matching
 // basis).
-func TestBumpReadsDuplicateIDs(t *testing.T) {
-	r := newTestRepo(t)
+func slowBumpReadsDuplicateIDs(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV4(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV4: %v", err)

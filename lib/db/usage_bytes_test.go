@@ -15,8 +15,7 @@ import (
 // TestRecordBytesDaily — increments (consecutive additions)·corrupt
 // rewrite·invalid-kind rejection. e.g. RecordBytes("hot", 1180) →
 // daily:hot_bytes:<today> +1180.
-func TestRecordBytesDaily(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordBytesDaily(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 
@@ -75,8 +74,7 @@ func TestRecordBytesDaily(t *testing.T) {
 // TestRecordBytesCorruptRewrite — a corrupted existing flat value is
 // rewritten from 0 (inheriting the bumpDailyFlat contract — any
 // non-integer).
-func TestRecordBytesCorruptRewrite(t *testing.T) {
-	r := newTestRepo(t)
+func slowRecordBytesCorruptRewrite(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 
