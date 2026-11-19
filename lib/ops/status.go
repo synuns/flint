@@ -1,6 +1,6 @@
-// status.go — flint status: ping + schema_version + pending 수를 한 줄 JSON으로.
-// windowedDaily(cli report.go)·hot/read 계측 로더(cli
-// metrics.go)는 Fn seam으로 주입받는다.
+// status.go — flint status: ping + schema_version + pending count as one-line JSON.
+// windowedDaily (cli report.go) and the hot/read metering loaders (cli
+// metrics.go) are injected via Fn seams.
 package ops
 
 import (
@@ -19,31 +19,31 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// DailyRow — status 창 지표 산출에 필요한 일별 계측 열(report windowedDaily
-// 호환 — seam 전달형).
+// DailyRow — the daily metering columns needed for status's windowed metrics (report windowedDaily
+// compatible — the seam-passing type).
 type DailyRow struct {
 	Read     int
 	ReadZero int
 	ReadNear int
 }
 
-// WindowedDailyFn — N일 창 일별 행 조회 seam. 실구현(cli report.go
-// windowedDaily)은 cli/ops_alias_1.go init이 변환 래퍼로 주입한다.
+// WindowedDailyFn — the N-day window daily-rows seam. The real implementation (cli report.go
+// windowedDaily) is injected by the cli/ops_alias_1.go init as a conversion wrapper.
 var WindowedDailyFn func(ctx context.Context, st wire.Store, days int) ([]DailyRow, error)
 
-// ReadZeroPctFn — zero 비율(정수 백분율, calls 0 가드) seam(cli metrics.go).
+// ReadZeroPctFn — the zero ratio (integer percent, calls-0 guard) seam (cli metrics.go).
 var ReadZeroPctFn func(calls, zero int) int
 
-// HotStatsFn — 누적 hot 계측 노출 seam(cli metrics.go).
+// HotStatsFn — the cumulative hot metering exposure seam (cli metrics.go).
 var HotStatsFn func() (calls int, p95 int, max int)
 
-// LoadHotStatsFromMetaFn — meta hot_stats baseline 로드 seam(cli metrics.go).
+// LoadHotStatsFromMetaFn — the meta hot_stats baseline load seam (cli metrics.go).
 var LoadHotStatsFromMetaFn func(ctx context.Context, st wire.Store)
 
-// LoadReadStatsFromMetaFn — meta read_stats 로드 seam(cli metrics.go).
+// LoadReadStatsFromMetaFn — the meta read_stats load seam (cli metrics.go).
 var LoadReadStatsFromMetaFn func(ctx context.Context, st wire.Store) (calls int, zero int)
 
-// StatusOutput — 키 순서 status·schema_version·pending으로 직렬화된다.
+// StatusOutput — serialized with key order status, schema_version, pending.
 type StatusOutput struct {
 	Status        string  `json:"status"`
 	SchemaVersion string  `json:"schema_version"`
@@ -57,41 +57,41 @@ type StatusOutput struct {
 	LastReadAt    *string `json:"last_read_at"`
 }
 
-// statusV096Output — StatusOutput 필드를 임베딩해 키 순서를 그대로
-// 두고 read_fallback_calls(계측 meta 노출)를 말미에 추가한다. 미설정은
-// null(last_* 패턴 승계). StatusOutput 자체는 불변(기존 필드·순서
-// 계약 — status_v06/v08 리플렉션 테스트가 담보).
+// statusV096Output — embeds the StatusOutput fields, keeping the key order as-is
+// and appending read_fallback_calls (metering meta exposure) at the end. Unset is
+// null (inheriting the last_* pattern). StatusOutput itself is unchanged (the existing
+// field-and-order contract — covered by the status_v06/v08 reflection tests).
 type statusV096Output struct {
 	StatusOutput
 	ReadFallbackCalls *int `json:"read_fallback_calls"`
 }
 
-// statusV0180Output — 기간화 read 지표 추가. 누적 read_calls·
-// read_zero_pct는 초기 이력에 지배돼 현행 상태를 오독하게 한다(누적과
-// report 기간화 값이 크게 갈린 사례) — 14일 일별 합산 창 값을 말미에
-// 병기한다(report zero_pct와 동일 산식). 기존 키·순서 불변(additive).
+// statusV0180Output — windowed read metrics added. The cumulative read_calls and
+// read_zero_pct are dominated by early history and misread the current state (cases
+// where the cumulative and the report's windowed values diverged sharply) — so a 14-day
+// daily-sum window value is reported alongside (the same formula as report zero_pct). Existing keys and order unchanged (additive).
 type statusV0180Output struct {
 	statusV096Output
 	ReadCalls14d       int `json:"read_calls_14d"`
 	ReadZeroPct14d     int `json:"read_zero_pct_14d"`
 	ReadZeroNearPct14d int `json:"read_zero_near_pct_14d"`
-	// *_14d 명칭은 역호환 유지, 실제 창은 이 필드로
-	// 표시(daily_retention_days 오버라이드 반영 — 거짓 이름 방어).
+	// the *_14d name is kept for backward compatibility; the actual window is expressed by this field
+	// (reflecting the daily_retention_days override — false-name defense).
 	ReadWindowDays int `json:"read_window_days"`
-	// G5 최소 주입 — hot(주입)·read 출력 바이트의 창 합산
-	// (hot_budget 준수 실측 감시, METRICS §4 G5). additive 말미 추가.
+	// G5 minimal injection — the windowed sum of hot (injection) and read output bytes
+	// (monitoring actual compliance with hot_budget, METRICS §4 G5). Additive, appended at the end.
 	HotBytes14d  int `json:"hot_bytes_14d"`
 	ReadBytes14d int `json:"read_bytes_14d"`
-	// 표면별 bytes p95(spec §2.3). read는 read_events bytes
-	// 분포(nearest-rank·표본<5는 0), hot은 hot_events×요약 길이 파생
-	// (DerivedHotStats). additive 말미 추가.
+	// per-surface bytes p95 (spec §2.3). read uses the read_events bytes
+	// distribution (nearest-rank; <5 samples is 0); hot derives from hot_events x summary lengths
+	// (DerivedHotStats). Additive, appended at the end.
 	ReadBytesP95 int `json:"read_bytes_p95"`
 	HotBytesP95  int `json:"hot_bytes_p95"`
 }
 
-// StatusWindowedRead — N일 창 일별 합산으로 read·zero%/near%(버림 정수%).
-// 파서는 windowedDaily 공유 리더(report와 단일 소스). 조회 실패는
-// 전부 0(계측 표시 — status를 깨지 않는다, FallbackCallsOrNull와 같은 원칙).
+// StatusWindowedRead — read and zero%/near% as N-day window daily sums (floored integer %).
+// The parser is the shared windowedDaily reader (a single source with report). Lookup failures
+// are all 0 (a metering indication — it must not break status, the same principle as FallbackCallsOrNull).
 func StatusWindowedRead(ctx context.Context, st wire.Store, days int) (read, zeroPct, nearPct int) {
 	dayRows, err := WindowedDailyFn(ctx, st, days)
 	if err != nil {
@@ -106,11 +106,11 @@ func StatusWindowedRead(ctx context.Context, st wire.Store, days int) (read, zer
 	return read, ReadZeroPctFn(read, zero), ReadZeroPctFn(read, near)
 }
 
-// StatusWindowedBytes — G5: N일 창 hot(주입)·read 출력 바이트
-// 합산. WindowedDaily 실구현 직속 호출(파서 단일 소스 — seam DailyRow는
-// read 계측만 전달하므로 bytes는 여기서 직접 합산). 조회 실패·파손은
-// 전부 0(계측 표시 — status를 깨지 않는다, StatusWindowedRead와 동일
-// 원칙).
+// StatusWindowedBytes — G5: the N-day window sum of hot (injection) and read output bytes.
+// Calls the real WindowedDaily implementation directly (a single parser source — the seam's DailyRow
+// carries only read metering, so the bytes are summed here directly). Lookup failures and corrupt
+// values are all 0 (a metering indication — it must not break status, the same principle
+// as StatusWindowedRead).
 func StatusWindowedBytes(ctx context.Context, st wire.Store, days int) (hotBytes, readBytes int) {
 	rows, err := WindowedDaily(ctx, st, days)
 	if err != nil {
@@ -123,21 +123,21 @@ func StatusWindowedBytes(ctx context.Context, st wire.Store, days int) (hotBytes
 	return hotBytes, readBytes
 }
 
-// statusAsOfOutput — --as-of 지정 시 출력. 기존 StatusOutput 필드를
-// 임베딩해 키 순서를 그대로 두고 as_of{hash,commit_date}를 말미에 추가한다.
-// v0.9.6부터는 statusV096Output(끝에 read_fallback_calls)을, v0.18.0부터는
-// statusV0180Output(끝에 기간화 read 지표)을 임베딩한다.
-// as_of 형태는 read --as-of(asOfInfo)와 동일 — 소비자가 한 형태로 파싱한다
-// (스펙 §1 "as_of 해시·시각"·e2e asOfHash 정합). StatusOutput 자체는 불변
-// (미지정 시 출력 불변 — last_* 원칙 승계).
+// statusAsOfOutput — the output when --as-of is given. Embeds the existing StatusOutput
+// fields, keeping the key order and appending as_of{hash,commit_date} at the end.
+// From v0.9.6 it embeds statusV096Output (ending in read_fallback_calls); from v0.18.0,
+// statusV0180Output (ending in the windowed read metrics).
+// The as_of shape is identical to read --as-of (asOfInfo) — consumers parse one form
+// (spec §1 "as_of hash/time", consistent with the e2e asOfHash). StatusOutput itself is unchanged
+// (unspecified means the output is unchanged — inheriting the last_* principle).
 type statusAsOfOutput struct {
 	statusV0180Output
 	AsOf knowledge.AsOfInfo `json:"as_of"`
 }
 
-// FallbackCallsOrNull — meta read_fallback_calls(폴백 계측) 조회.
-// 부재·파손(비정수)·조회 오류는 nil(JSON null) — 계측 표시이므로 status를
-// 깨지 않는다(lastSeenOrNull와 같은 원칙).
+// FallbackCallsOrNull — looks up the meta read_fallback_calls (fallback metering).
+// Absent, corrupt (non-integer), or lookup errors are nil (JSON null) — being a metering
+// indication, it must not break status (the same principle as lastSeenOrNull).
 func FallbackCallsOrNull(getKV func(string, string) (string, error)) *int {
 	v, err := getKV("read_fallback_calls", "")
 	if err != nil || v == "" {
@@ -150,8 +150,8 @@ func FallbackCallsOrNull(getKV func(string, string) (string, error)) *int {
 	return &n
 }
 
-// lastSeenOrNull — meta에서 RFC3339 last_* 키 조회. 키 부재·파손(비-RFC3339)은
-// nil(JSON null). 계측 표시이므로 조회 오류도 조용히 null로 폴백한다.
+// lastSeenOrNull — looks up the RFC3339 last_* keys in meta. Missing or corrupt keys (non-RFC3339)
+// are nil (JSON null). Being a metering indication, lookup errors also silently fall back to null.
 func lastSeenOrNull(getKV func(string, string) (string, error), key string) *string {
 	v, err := getKV(key, "")
 	if err != nil || v == "" {
@@ -164,10 +164,10 @@ func lastSeenOrNull(getKV func(string, string) (string, error), key string) *str
 	return &s
 }
 
-// lastReadAtOrNull — read 경로가 meta last_read_at을 더 쓰지
-// 않는다(쓰기 4→2 — RecordReadUsage 폐지). 잔존 meta 값과 read_events
-// 최근 시각(max(ts)) 중 더 최근 쪽을 보고한다(doctor checkLastSeen과
-// 동일 병합 룰). 조회 실패·매핑 불가는 기존 meta 값 유지(조용히).
+// lastReadAtOrNull — the read path no longer writes meta last_read_at
+// (writes 4->2 — RecordReadUsage abolished). Reports the more recent of the residual meta
+// value and read_events' latest time (max(ts)) — the same merge rule as doctor's
+// checkLastSeen. Lookup failures and unmappable cells keep the existing meta value (silent).
 func lastReadAtOrNull(ctx context.Context, st wire.Store, getKV func(string, string) (string, error)) *string {
 	out := lastSeenOrNull(getKV, "last_read_at")
 	rows, err := wire.QueryOnce(ctx, st, `SELECT max(ts) FROM read_events`, nil)
@@ -184,10 +184,10 @@ func lastReadAtOrNull(ctx context.Context, st wire.Store, getKV func(string, str
 	return out
 }
 
-// RunStatus — 서버 생존·스키마 호환·pending 대기 수를 보고한다.
-// --as-of <스펙> 지정 시 카운트 질의에 AS OF '<해시>'를 접합해 과거
-// 스냅샷 pending 수를 보고하고 출력 말미에 as_of(정규화 해시)를 추가한다.
-// 무효 스펙은 ErrInvalidAsOf → exit 3.
+// RunStatus — reports server liveness, schema compatibility, and the pending backlog count.
+// With --as-of <spec>, it splices AS OF '<hash>' into the count queries, reports the past
+// snapshot's pending count, and appends as_of (the normalized hash) at the end of the output.
+// An invalid spec is ErrInvalidAsOf -> exit 3.
 func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if err := st.Ping(ctx); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -197,7 +197,7 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--as-of" {
 			if i+1 >= len(args) {
-				// 값 없는 --as-of도 무효 스펙(빈 스펙)으로 exit 3.
+				// a --as-of with no value is also an invalid spec (empty spec) exiting 3.
 				fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("empty as-of spec: %w", ErrInvalidAsOf)))
 				return 3
 			}
@@ -215,8 +215,8 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			return store.MapExit(err)
 		}
 		asOfHash = hash
-		// 커밋 시각 첨부(read --as-of와 동일 질의·조용한 폴백 — 메타데이터
-		// 조회 실패 시 빈 값, §13). LogEntries{Hash} — 방언 SQL은 lib/db.
+		// attach the commit time (the same query as read --as-of, silent fallback — on a metadata
+		// lookup failure, the empty value, §13). LogEntries{Hash} — dialect SQL belongs to lib/db.
 		if entries, err := st.LogEntries(ctx, wire.LogQuery{Hash: hash}); err == nil && len(entries) > 0 {
 			asOfDate = knowledge.FmtAsOfDate(entries[0].Date)
 		}
@@ -230,41 +230,41 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	if len(rows) > 0 && rows[0][0] != nil {
 		version = fmt.Sprint(rows[0][0])
 	}
-	// meta.schema_version 호환 검사(PLAN §10): 이 CLI가 아는 버전만 허용.
-	// 허용 범위는 db.LatestSchemaVersion에서 파생한다(1..최신 — 각 버전의
-	// 승격 순서는 db.SchemaGates 연속성이 담보). 하드코딩 목록은 스키마
-	// 승격마다 낡는다(v9 DB에서 정상 상태인데 exit 3 — 감사 F1).
+	// the meta.schema_version compatibility check (PLAN §10): only versions this CLI knows are allowed.
+	// The allowed range derives from db.LatestSchemaVersion (1..latest — the promotion order
+	// of each version is guaranteed by the db.SchemaGates continuity). A hardcoded list goes
+	// stale at every schema promotion (a v9 DB is a normal state yet exits 3 — audit F1).
 	ver, perr := strconv.Atoi(strings.TrimSpace(version))
 	if perr != nil || ver < 1 || ver > db.LatestSchemaVersion {
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "schema_version",
 			Expect: "1~" + strconv.Itoa(db.LatestSchemaVersion)}))
 		return 3
 	}
-	// 기간화 read 지표(창 = daily_retention_days) —
-	// 누적값과 복기. *_14d 필드명은 역호환 유지(실제 창은 read_window_days).
+	// the windowed read metrics (window = daily_retention_days) —
+	// reported alongside the cumulative values. The *_14d field names are kept for backward compatibility (the actual window is read_window_days).
 	winDays := knowledge.WriteThresholds(ctx, st).DailyRetentionD
 	winRead, winZeroPct, winNearPct := StatusWindowedRead(ctx, st, winDays)
-	// G5 — hot·read 출력 바이트 창 합산(조회 실패는 0 폴백).
+	// G5 — the windowed sum of hot and read output bytes (lookup failure falls back to 0).
 	winHotBytes, winReadBytes := StatusWindowedBytes(ctx, st, winDays)
-	// 표면별 bytes p95(spec §2.3). read는 read_events bytes
-	// 분포, hot은 hot_events×요약 길이 파생(DerivedHotStats). as-of 모드에선
-	// 카운트 스냅샷 전용(계측 질의는 현재 상태 원칙)이므로 0.
-	// 조회 실패는 0(계측 표시 — status를 깨지 않는다, StatusWindowedBytes와
-	// 동일 원칙).
+	// per-surface bytes p95 (spec §2.3). read uses the read_events bytes
+	// distribution; hot derives from hot_events x summary lengths (DerivedHotStats). In as-of mode
+	// they are count-snapshot-only (metering queries follow the current-state principle), hence 0.
+	// A lookup failure is 0 (a metering indication — it must not break status, the same principle
+	// as StatusWindowedBytes).
 	readBytesP95, hotBytesP95 := 0, 0
 	if asOfSpec == "" {
 		readBytesP95 = ReadBytesP95Of(ctx, st)
 		_, hotBytesP95 = DerivedHotStats(ctx, st)
 	}
-	// as-of 지정 시 카운트 질의에만 AS OF 접합. meta·계측 조회는
-	// 현재 상태 그대로. 현재 시점 카운트는 countPending 단일
-	// 구현.
+	// with --as-of, only the count queries get the AS OF splice. Meta and metering lookups
+	// use the current state as-is. The current-time count uses the single
+	// countPending implementation.
 	pending := 0
 	if asOfHash != "" {
-		// read --as-of와 동일 규칙: 조회 전 해시 문자셋을 재검증한다 —
-		// 엔진 반환값을 신뢰해 그대로 질의 조건에 넣지 않는다. 위반은
-		// 오류 종료(오염 해시 전달 주입 차단). QueryAsOf는 화이트리스트
-		// 테이블·해시 재검증을 lib/db에서 이중으로 시행한다.
+		// the same rule as read --as-of: revalidate the hash charset before the query —
+		// never trust an engine return value by putting it straight into a query condition. A violation
+		// ends in an error (blocking injection via a tainted hash). QueryAsOf enforces the
+		// whitelist table and hash revalidation doubly in lib/db.
 		if !knowledge.ValidAsOfHash(asOfHash) {
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("as-of hash has invalid characters: %q", asOfHash)))
 			return 1
@@ -286,18 +286,18 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		}
 		pending = n
 	}
-	// status는 별도 프로세스이므로 in-memory 샘플이
-	// 비어 있다 — meta hot_stats baseline을 로드해 직전 실행 누적을 보고한다.
+	// status is a separate process, so the in-memory samples are
+	// empty — it loads the meta hot_stats baseline and reports the previous run's cumulative.
 	LoadHotStatsFromMetaFn(ctx, st)
 	calls, p95, _ := HotStatsFn()
 	readCalls, readZero := LoadReadStatsFromMetaFn(ctx, st)
-	// 유입 3경로 last-seen(meta last_*_at) — 부재·파손은 null.
+	// the 3-path intake last-seen (meta last_*_at) — absent or corrupt is null.
 	getKV := knowledge.MetaGetKV(ctx, st)
 	base := statusV096Output{StatusOutput: StatusOutput{Status: "ok", SchemaVersion: version, Pending: pending,
 		HotCalls: calls, HotP95: p95, ReadCalls: readCalls, ReadZeroPct: ReadZeroPctFn(readCalls, readZero),
 		LastWriteAt: lastSeenOrNull(getKV, "last_write_at"),
 		LastHotAt:   lastSeenOrNull(getKV, "last_hot_at"),
-		// last_read_at은 meta 잔존값과 read_events 파생 병합.
+		// last_read_at merges the residual meta value with the read_events-derived one.
 		LastReadAt: lastReadAtOrNull(ctx, st, getKV)},
 		ReadFallbackCalls: FallbackCallsOrNull(getKV)}
 	var b []byte

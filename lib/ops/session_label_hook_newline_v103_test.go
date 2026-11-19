@@ -1,8 +1,8 @@
-// session_label_hook_newline_v103_test.go — 회귀(훅 경로):
-// 개행 포함 --session 라벨은 부재 취급. sanitizeHookSession은
-// knowledge.ValidateSessionLabel 공용 가드를 쓰므로, 가드의 개행 거부가
-// 훅 진입점(session-start·session-end 폴백 경로)에도 그대로 흐른다 —
-// 무효 쌍이 걷어진 인자와 빈 라벨로 정리되는지 고정.
+// session_label_hook_newline_v103_test.go — regression (hook path):
+// a --session label containing a newline is treated as absent. sanitizeHookSession
+// uses the shared knowledge.ValidateSessionLabel guard, so the guard's newline rejection
+// flows as-is into the hook entry points (the session-start/session-end fallback paths) —
+// pinning that it resolves to the arguments with the invalid pair stripped and an empty label.
 package ops
 
 import (

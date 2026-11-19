@@ -1,6 +1,6 @@
-// maintain_check_next_v1600_test.go — maintain --check 응답의
-// next 키(권장 조치 — pending import dry-run 관례). 상태별 권장 명령 안내가
-// additive 필드로 붙는지 검증한다. fakeMaintStore는 care_test.go 관례 재사용.
+// maintain_check_next_v1600_test.go — the next key of the maintain --check
+// response (recommended actions — the pending import dry-run convention). Verifies
+// that the per-state recommended-command guidance is attached as an additive field. fakeMaintStore reuses the care_test.go conventions.
 package ops
 
 import (
@@ -12,7 +12,7 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// countsFake — fakeMaintStore에 고정 Counts 주입(경계값 케이스용).
+// countsFake — injects fixed Counts into fakeMaintStore (for boundary cases).
 type countsFake struct {
 	*fakeMaintStore
 	counts db.Counts
@@ -22,9 +22,9 @@ func (f *countsFake) Counts(ctx context.Context) (db.Counts, error) {
 	return f.counts, nil
 }
 
-// TestMaintainCheckNextKey — protocol: next 키는 상태별 권장
-// 조치를 담는다(임계 이내 none·pending 초과 pending 검토+만료·dup 초과
-// dup-suspects). 기존 status·수치 필드는 불변.
+// TestMaintainCheckNextKey — protocol: the next key carries the per-state
+// recommended action (none within thresholds; pending over -> pending review + expiry;
+// dup over -> dup-suspects). The existing status and numeric fields are unchanged.
 func TestMaintainCheckNextKey(t *testing.T) {
 	cases := []struct {
 		name       string

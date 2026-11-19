@@ -1,9 +1,9 @@
-// maintain_test.go — maintain 소형 계약. ① TUI 로더가
-// 보고 3종에 명시하는 --limit 500 호출 패턴이 모드 귀속 검증을 통과하고
-// 저장소 조회에 상한이 그대로 반영된다(잘림 무표시 폐지의 ops측 절반 —
-// TUI측 인자 조립은 ops.MaintainTUILoadLimit 단일 소스). ② usage 라인이
-// --tui 진입을 안내한다. fakeMaintStore·runMaintainArgs는 care_test.go
-// 관례 재사용.
+// maintain_test.go — small maintain contracts. (1) The --limit 500 call pattern the TUI
+// loader uses for the 3 reports passes mode-ownership validation and the cap is reflected
+// as-is in the store lookup (the ops-side half of abolishing invisible truncation — the
+// TUI-side argument assembly uses ops.MaintainTUILoadLimit as the single source). (2) The
+// usage line guides toward --tui entry. fakeMaintStore and runMaintainArgs reuse the
+// care_test.go conventions.
 package ops
 
 import (
@@ -17,8 +17,8 @@ import (
 	"github.com/synuns/flint/lib/knowledge"
 )
 
-// limitCapturingStore — DupGroups·ConflictGroups 상한 캡처 fake
-// (fakeMaintStore은 limit을 기록하지 않는다 — 여기서만 필요한 얇은 랩).
+// limitCapturingStore — a fake capturing the DupGroups/ConflictGroups caps
+// (fakeMaintStore does not record the limit — a thin wrapper needed only here).
 type limitCapturingStore struct {
 	*fakeMaintStore
 	dupLimit      int
@@ -34,8 +34,8 @@ func (f *limitCapturingStore) ConflictGroups(ctx context.Context, limit int) ([]
 	return nil, nil
 }
 
-// runLimitArgs — 랩 store을 그대로 RunMaintain에 넣는 실행 헬퍼
-// (runMaintainArgs는 *fakeMaintStore 고정이라 여기선 로컬 판).
+// runLimitArgs — a run helper that passes the wrapper store straight into RunMaintain
+// (runMaintainArgs is fixed to *fakeMaintStore, so a local version here).
 func runLimitArgs(t *testing.T, f *limitCapturingStore, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -43,18 +43,18 @@ func runLimitArgs(t *testing.T, f *limitCapturingStore, args ...string) (string,
 	return out.String(), code
 }
 
-// TestMaintainTUILoadLimitContract — B3: TUI suspects 로더의 호출 패턴
-// (--limit 500 + 모드)이 세 보고 모드 전부에서 무효 인자(exit 1/3)로
-// 거부되지 않고 상한 500이 스캔에 그대로 흐른다. 기본 상한
-// (dup/conflict 10·stale 20)은 사람 대화형용 — TUI는 잘림이 화면에
-// 표시되지 않는 만큼 명시적 상한으로 대체한다.
+// TestMaintainTUILoadLimitContract — B3: the TUI suspects loader's call pattern
+// (--limit 500 + mode) is not rejected as an invalid argument (exit 1/3) in any of the 3
+// report modes, and the 500 cap flows as-is into the scan. The default caps
+// (dup/conflict 10, stale 20) are for human interactivity — the TUI replaces them with an
+// explicit cap, since truncation is not visible on its screen.
 func TestMaintainTUILoadLimitContract(t *testing.T) {
 	if MaintainTUILoadLimit != 500 {
 		t.Fatalf("MaintainTUILoadLimit = %d, want 500(스펙 v1.6.1 B3)", MaintainTUILoadLimit)
 	}
 	f := &limitCapturingStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{}}}
 
-	// dup-suspects — TUI가 조립하는 인자 패턴 그대로.
+	// dup-suspects — exactly the argument pattern the TUI assembles.
 	out, code := runLimitArgs(t, f, "--limit", "500", "--dup-suspects")
 	if code != 0 || !strings.Contains(out, `"status":"dup-suspects"`) {
 		t.Fatalf("dup-suspects exit=%d out=%s", code, out)
@@ -77,9 +77,9 @@ func TestMaintainTUILoadLimitContract(t *testing.T) {
 	}
 }
 
-// TestMaintainUsageLineMentionsTUI — B4: bare usage(모드 미지정 exit 3)
-// 안내에 --tui 옵트인 진입이 포함된다(에이전트 자가수신 — 에러 메시지
-// 공통 접미가 유일한 발견 경로인 경우).
+// TestMaintainUsageLineMentionsTUI — B4: the bare-usage guidance (no mode, exit 3)
+// includes the --tui opt-in entry (agent self-correction — for cases where the error
+// message's common suffix is the only discovery path).
 func TestMaintainUsageLineMentionsTUI(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f)
@@ -94,12 +94,12 @@ func TestMaintainUsageLineMentionsTUI(t *testing.T) {
 	}
 }
 
-// ── decay 감쇠 산식·--decay-audit(회상 강화 회귀는 knowledge 패키지) ──
+// ── decay formulas and --decay-audit (the recall-reinforcement regression is in the knowledge package) ──
 
-// TestEventEffectiveScoreBoundaries — 감쇠 산식 경계(v1.9.0 — 단일 정의
-// knowledge.EventEffectiveScore로 소비. 구 ops.EffectiveRecallScore 래퍼는
-// 파생 전환과 함께 폐지). 1일(선형 -1)·100일(하한 0)·미회상(count 0=0)·
-// rate 오버라이드.
+// TestEventEffectiveScoreBoundaries — the decay formula boundaries (v1.9.0 — consumed via
+// the single definition knowledge.EventEffectiveScore. The old ops.EffectiveRecallScore
+// wrapper was abolished with the derived-source switch). 1 day (linear -1), 100 days
+// (floor 0), never recalled (count 0 = 0), and the rate override.
 func TestEventEffectiveScoreBoundaries(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -124,9 +124,9 @@ func TestEventEffectiveScoreBoundaries(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditDerivedSource — v1.9.0 파생 전환 회귀: 조회
-// 원천은 recall_events 집계 조인(cnt·last_at)이어야 하고 폐기된 v11
-// 실열(knowledge.recall_score·last_recalled_at)을 참조해서는 안 된다.
+// TestMaintainDecayAuditDerivedSource — the v1.9.0 derived-source regression: the query
+// source must be the recall_events aggregate join (cnt, last_at) and must not reference
+// the dropped v11 physical columns (knowledge.recall_score, last_recalled_at).
 func TestMaintainDecayAuditDerivedSource(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -155,20 +155,20 @@ func TestMaintainDecayAuditDerivedSource(t *testing.T) {
 	}
 }
 
-// decayAuditRowsFixture — --decay-audit 조회 원천 행(합성 데모 — v1.9.0
-// 파생 전환 후 id, cnt(이벤트 수), last_at(최종 회상 시각) 3열). 미회상
-// (NULL — 서버측 WHERE 제외분의 Go 방어 재현)·0일 경과 행이 후보
-// 필터에서 제외되는지까지 함께 검증한다.
+// decayAuditRowsFixture — the --decay-audit query source rows (synthetic demo — after the
+// v1.9.0 derived switch, the 3 columns id, cnt (event count), and last_at (last recall
+// time)). Also verifies that never-recalled (NULL — reproducing the Go defense for the
+// server-side WHERE exclusion) and 0-day-elapsed rows are excluded by the candidate filter.
 func decayAuditRowsFixture(now time.Time) [][]any {
 	return [][]any{
-		{int32(3), int32(5), now.Add(-100 * 24 * time.Hour)}, // 완전 감쇠(하한 0)
-		{int32(1), int32(5), now.Add(-25 * time.Hour)},       // 1일 감쇠
-		{int32(2), int32(7), nil},                            // 미회상 — 제외
-		{int32(4), int32(9), now.Add(-1 * time.Hour)},        // 0일 — 제외
+		{int32(3), int32(5), now.Add(-100 * 24 * time.Hour)}, // fully decayed (floor 0)
+		{int32(1), int32(5), now.Add(-25 * time.Hour)},       // 1-day decay
+		{int32(2), int32(7), nil},                            // never recalled — excluded
+		{int32(4), int32(9), now.Add(-1 * time.Hour)},        // 0 days — excluded
 	}
 }
 
-// decayAuditJSON — --decay-audit 출력 파싱용.
+// decayAuditJSON — for parsing the --decay-audit output.
 type decayAuditJSON struct {
 	Status       string  `json:"status"`
 	DecayRate    float64 `json:"decay_rate"`
@@ -183,9 +183,9 @@ type decayAuditJSON struct {
 	} `json:"items"`
 }
 
-// TestMaintainDecayAuditList — 감쇠 후보 목록 —
-// 감쇠 진행 행만 나열(미회상·0일 제외)·기본 decay_rate=1·archive_below=0
-// (비활성 — recommend 전원 공란).
+// TestMaintainDecayAuditList — the decay-candidate listing — lists only
+// decay-progressed rows (never-recalled and 0-day excluded); the default decay_rate=1
+// and archive_below=0 (inactive — all recommends empty).
 func TestMaintainDecayAuditList(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -196,7 +196,7 @@ func TestMaintainDecayAuditList(t *testing.T) {
 		if strings.Contains(sql, "FROM knowledge") {
 			return decayAuditRowsFixture(now), nil
 		}
-		return nil, nil // meta(thresholds) 비어 있음 — 기본값
+		return nil, nil // meta (thresholds) empty — defaults
 	}}}
 	out, code := runMaintainArgs(t, f, "--decay-audit")
 	if code != 0 {
@@ -224,7 +224,7 @@ func TestMaintainDecayAuditList(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditLimit — --limit 상한이 목록에 반영된다(stale 관례).
+// TestMaintainDecayAuditLimit — the --limit cap is reflected in the listing (the stale convention).
 func TestMaintainDecayAuditLimit(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -250,8 +250,8 @@ func TestMaintainDecayAuditLimit(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditThresholdOverride — meta 오버라이드
-// decay_rate·archive_below가 산식·권장에 반영된다(effective < archive_below
+// TestMaintainDecayAuditThresholdOverride — the meta-override decay_rate and
+// archive_below are reflected in the formula and recommendation (effective < archive_below -> archive).
 // → recommend "archive").
 func TestMaintainDecayAuditThresholdOverride(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
@@ -264,7 +264,7 @@ func TestMaintainDecayAuditThresholdOverride(t *testing.T) {
 		case strings.Contains(sql, "FROM knowledge"):
 			return [][]any{
 				{int32(1), int32(5), now.Add(-6 * 24 * time.Hour)},  // 5-0.5*6=2 → archive
-				{int32(2), int32(10), now.Add(-4 * 24 * time.Hour)}, // 10-0.5*4=8 → 유지
+				{int32(2), int32(10), now.Add(-4 * 24 * time.Hour)}, // 10-0.5*4=8 -> kept
 			}, nil
 		case strings.Contains(sql, "FROM meta"):
 			return [][]any{{"decay_rate", "0.5"}, {"archive_below", "3"}}, nil
@@ -290,8 +290,8 @@ func TestMaintainDecayAuditThresholdOverride(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditRejectsForeignFlags — 모드 귀속 검증: --decay-audit는
-// 읽기 전용 보고 — --days 등 무관 값 플래그는 에러 거부(exit 1).
+// TestMaintainDecayAuditRejectsForeignFlags — mode-ownership validation: --decay-audit
+// is a read-only report — unrelated value flags like --days are rejected with an error (exit 1).
 func TestMaintainDecayAuditRejectsForeignFlags(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--decay-audit", "--days", "5")

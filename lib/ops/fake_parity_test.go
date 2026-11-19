@@ -1,9 +1,9 @@
-// fake_parity_test.go — ops capability seam 5종 fake 동질 가드.
-// 패키지의 runtime 타입 단언 seam(st.(capability))이 소비되는 유닛
-// 테스트에서 열화 폴백 분기가 아니라 위임 경로만 검증하게 한다 —
-// 모든 capability에 대해 컴파일 시점 단언(var _ X = (*fake)(nil))을
-// 두고, TestFakeParityOps가 발견(소스의 단언 seam 사용)과 단언 목록의
-// 동질을 검증한다.
+// fake_parity_test.go — a fake-parity guard for the 5 ops capability seams.
+// The package's runtime type-assertion seams (st.(capability)) let the unit tests that
+// consume them verify only the delegation path, not the degraded fallback — a
+// compile-time assertion (var _ X = (*fake)(nil)) exists for every capability, and
+// TestFakeParityOps verifies the homogeneity between the discovered set (assertion-seam
+// usages in the source) and the assertion list.
 package ops
 
 import (
@@ -14,28 +14,28 @@ import (
 	"testing"
 )
 
-// 컴파일 시점 fake 단언 — ops capability 5종 전수(TestFakeParityOps가
-// 발견 목록과의 동질을 검증). fakeMaintStore은 fakeStore 임베딩으로
-// MaintStore·ConflictStore·conflictStore(구조적 동일)를 모두 충족하고,
-// dumpStore는 위임 경로 fake(supply_test.go), metaDeleteStore는 패키지
-// 공통 fakeStore의 canned 구현(doctor_test.go)으로 충족한다.
+// compile-time fake assertions — all 5 ops capabilities (TestFakeParityOps verifies
+// homogeneity with the discovered list). fakeMaintStore, via the fakeStore embedding,
+// satisfies MaintStore, ConflictStore, and conflictStore (structurally identical);
+// dumpStore is satisfied by the delegation-path fake (supply_test.go), and
+// metaDeleteStore by the package-common fakeStore's canned implementation (doctor_test.go).
 var _ dumpStore = (*dumpDelegFake)(nil)
 var _ MaintStore = (*fakeMaintStore)(nil)
 var _ ConflictStore = (*fakeMaintStore)(nil)
 var _ conflictStore = (*fakeMaintStore)(nil)
 var _ metaDeleteStore = (*fakeStore)(nil)
 
-// fakeParityExcluded — 발견 목록에서 제외하는 선택 훅 seam.
-// SessionStartRecorder는 미구현 fake가 조용히 건너뛰는 설계(세션 지표만
-// 0 강등 — sessionhook.go §13)로 열화 폴백 대상이 아니다.
+// fakeParityExcluded — the optional hook seams excluded from the discovered list.
+// SessionStartRecorder is designed so an unimplemented fake silently skips (only the
+// session metrics demote to 0 — sessionhook.go §13); it is not a degraded-fallback target.
 var fakeParityExcluded = map[string]bool{"SessionStartRecorder": true}
 
-// TestFakeParityOps — 발견 목록(비테스트 소스에서
-// `.(X)` runtime 단언으로 소비되는 인터페이스)과 이 파일의 var _ 단언
-// 목록이 동질해야 한다. 새 capability seam이 추가되면 단언 없이는
-// 이 테스트가 실패한다(컴파일 단언 전수 강제).
+// TestFakeParityOps — the discovered list (interfaces consumed via runtime
+// `.(X)` assertions in non-test sources) and this file's var _ assertion list must be
+// homogeneous. When a new capability seam is added, this test fails without an
+// assertion (forcing compile-time assertions for all).
 func TestFakeParityOps(t *testing.T) {
-	// ── 발견: 비테스트 소스의 인터페이스 정의 중 타입 단언으로 쓰이는 것 ──
+	// ── discovery: among the interface definitions in non-test sources, those used in type assertions ──
 	ifaceRe := regexp.MustCompile(`(?m)^type (\w+) interface\b`)
 	allSrc, defined := "", map[string]bool{}
 	entries, err := os.ReadDir(".")
@@ -57,9 +57,9 @@ func TestFakeParityOps(t *testing.T) {
 			defined[m[1]] = true
 		}
 	}
-	// 단언 사용(`.(X)`)은 정의 파일과 무관하게 전
-	// 소스에서 찾는다 — 정의 파일 내 사용만 검사하면 다른 파일에서
-	// 소비되는 신규 seam이 새어나간다(가상 인터페이스 프로브로 실증).
+	// assertion usages (`.(X)`) are searched across all sources regardless of the
+	// definition file — checking only the definition file would let a new seam consumed
+	// elsewhere slip through (demonstrated with a virtual-interface probe).
 	discovered := map[string]bool{}
 	for iface := range defined {
 		if fakeParityExcluded[iface] {
@@ -70,7 +70,7 @@ func TestFakeParityOps(t *testing.T) {
 		}
 	}
 
-	// ── 단언: 이 파일의 var _ 목록 ──
+	// ── assertions: this file's var _ list ──
 	self, err := os.ReadFile("fake_parity_test.go")
 	if err != nil {
 		t.Fatalf("자기 소스 읽기: %v", err)
@@ -90,7 +90,7 @@ func TestFakeParityOps(t *testing.T) {
 	}
 }
 
-// fakeParityKeys — 맵 키 정렬(비교 안정화).
+// fakeParityKeys — sorted map keys (stabilizing the comparison).
 func fakeParityKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

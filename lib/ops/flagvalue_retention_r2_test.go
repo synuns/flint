@@ -1,8 +1,8 @@
-// flagvalue_retention_r2_test.go — 인자 검증 회귀 2종.
-// (1) 값형 플래그가 뒤 플래그를 흡수하는 오타('--out --encrypt' → 경로
-// "--encrypt")는 knowledge.ValidateFlagValue 공용 가드로 exit 3 — read
-// --session 계약과 대칭. (2) report 기본 --days 7도 보존창
-// 상한(daily_retention_days) clamp — 오버라이드 <7일 환경의 빈 일자 행 방지.
+// flagvalue_retention_r2_test.go — two argument-validation regressions.
+// (1) A typo where a value flag absorbs a following flag ('--out --encrypt' -> the path
+// "--encrypt") exits 3 via the shared knowledge.ValidateFlagValue guard — symmetric
+// with the read --session contract. (2) report's default --days 7 is also clamped to
+// the retention cap (daily_retention_days) — preventing empty day rows in environments with an override < 7.
 package ops
 
 import (
@@ -16,8 +16,8 @@ import (
 	"github.com/synuns/flint/lib/knowledge"
 )
 
-// guardDumpFake — 덤프 위임 fake: Dump 호출 자체를 기록(가드가 덤프
-// 이전에 차단했는지 검증 — supply_test dumpDelegFake 관례의 가드 검증판).
+// guardDumpFake — a dump-delegation fake that records the Dump call itself (verifying
+// the guard blocked before the dump — the guard-verification version of supply_test's dumpDelegFake convention).
 type guardDumpFake struct {
 	*fakeStore
 	dumped bool
@@ -28,8 +28,8 @@ func (g *guardDumpFake) Dump(ctx context.Context, w io.Writer) error {
 	return errors.New("dump은 인자 검증 이후여야 한다")
 }
 
-// TestFlagAbsorptionExits3 — 플래그 흡수 값은 exit 3(무효 인자 계약).
-// 표 구동: 커맨드×인자 — 정상 경로(대조행)는 통과해야 한다.
+// TestFlagAbsorptionExits3 — a flag-absorption value exits 3 (the invalid-arg contract).
+// Table-driven: command x arguments — the normal paths (control rows) must pass.
 func TestFlagAbsorptionExits3(t *testing.T) {
 	t.Run("backup --out --encrypt", func(t *testing.T) {
 		st := &guardDumpFake{fakeStore: &fakeStore{}}
@@ -58,7 +58,7 @@ func TestFlagAbsorptionExits3(t *testing.T) {
 		}
 	})
 	t.Run("report --out --html", func(t *testing.T) {
-		t.Chdir(t.TempDir()) // 미가드 시 기록 시도하는 파일 격리
+		t.Chdir(t.TempDir()) // isolate the file a missing guard would attempt to write
 		var out strings.Builder
 		code := RunReport(context.Background(), &fakeStore{}, []string{"--out", "--html"}, nil, &out)
 		if code != 3 {
@@ -66,7 +66,7 @@ func TestFlagAbsorptionExits3(t *testing.T) {
 		}
 	})
 	t.Run("report --days --out", func(t *testing.T) {
-		// --days 값의 플래그 흡수 — Atoi 실패 경로가 이미 exit 3(계약 행).
+		// a --days value absorbing a flag — the Atoi-failure path already exits 3 (a contract row).
 		var out strings.Builder
 		code := RunReport(context.Background(), &fakeStore{}, []string{"--days", "--out"}, nil, &out)
 		if code != 3 {
@@ -74,7 +74,7 @@ func TestFlagAbsorptionExits3(t *testing.T) {
 		}
 	})
 	t.Run("backup --out 정상 경로 통과", func(t *testing.T) {
-		// 대조행 — '-' 접두가 아닌 경로는 가드가 막지 않는다(덤프는 seam 성공).
+		// control row — a path without the '-' prefix is not blocked by the guard (the dump succeeds via the seam).
 		withBackupSeams(t, "-- flint dump\n", nil, nil)
 		path := t.TempDir() + "/ok.sql"
 		var out strings.Builder
@@ -96,8 +96,8 @@ func TestFlagAbsorptionExits3(t *testing.T) {
 	})
 }
 
-// retentionFake — thresholds(daily_retention_days)·daily:* 키를 응답하는
-// fake(supplyFake 관례 — thresholds 쿼리가 "key IN"으로 daily:보다 먼저).
+// retentionFake — a fake answering the thresholds (daily_retention_days) and daily:*
+// keys (the supplyFake convention — the thresholds query ("key IN") comes before daily:).
 func retentionFake(retention string, daily map[string]string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -121,7 +121,7 @@ func retentionFake(retention string, daily map[string]string) *fakeStore {
 	}}
 }
 
-// reportDaysLen — RunReport 출력의 days 배열 길이.
+// reportDaysLen — the length of the days array in the RunReport output.
 func reportDaysLen(t *testing.T, args []string, retention string) int {
 	t.Helper()
 	var out strings.Builder
@@ -138,9 +138,9 @@ func reportDaysLen(t *testing.T, args []string, retention string) int {
 	return len(m.Days)
 }
 
-// TestReportDefaultDaysClampedToRetention — 기본 --days 7도 보존창 상한
-// clamp: retention 3 오버라이드 환경에서 기본(무인자)·명시(--days 5) 모두
-// 3행. 미설정 환경은 기본 7 불변(clamp는 상한 초과 시에만).
+// TestReportDefaultDaysClampedToRetention — the default --days 7 is also clamped to the
+// retention cap: with a retention 3 override, both the default (no args) and an explicit
+// (--days 5) yield 3 rows. An unset environment keeps the default 7 (the clamp applies only above the cap).
 func TestReportDefaultDaysClampedToRetention(t *testing.T) {
 	if n := reportDaysLen(t, nil, "3"); n != 3 {
 		t.Errorf("기본값+retention 3: days=%d행, want 3(기본 7이 상한 미적용)", n)
@@ -153,12 +153,12 @@ func TestReportDefaultDaysClampedToRetention(t *testing.T) {
 	}
 }
 
-// TestReportHTMLDefaultDaysClampedToRetention — 기본 days clamp는
-// HTML 단독 경로(report --html 무인자)에도 동일 적용 — 수정 전에는 th
-// 미로드 스킵으로 retention 3 환경의 HTML 대시보드에만 빈 일자 타일 4개가
-// 남았다(JSON 경로와의 비대칭).
+// TestReportHTMLDefaultDaysClampedToRetention — the default-days clamp also applies
+// to the standalone HTML path (report --html with no args) — before the fix, the skipped
+// th load left 4 empty day tiles only in the retention-3 environment's HTML dashboard
+// (the asymmetry with the JSON path).
 func TestReportHTMLDefaultDaysClampedToRetention(t *testing.T) {
-	t.Chdir(t.TempDir()) // report.html 기본 출력 격리
+	t.Chdir(t.TempDir()) // isolate the default report.html output
 	var out strings.Builder
 	code := RunReport(context.Background(), retentionFake("3", nil), []string{"--html"}, nil, &out)
 	if code != 0 {

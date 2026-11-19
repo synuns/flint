@@ -1,7 +1,7 @@
-// status_v0420_test.go — 회귀: read 경로가 meta last_read_at을
-// 더 쓰지 않는다(RecordReadUsage 폐지) — status last_read_at은 잔존 meta
-// 값과 read_events max(ts) 중 더 최근 쪽(doctor checkLastSeen과 동일 룰).
-// meta 값만으로 보고하면 전환 후 영구히 과거 시각에 갇힌다.
+// status_v0420_test.go — regression: the read path no longer writes meta
+// last_read_at (RecordReadUsage abolished) — status's last_read_at is the more recent
+// of the residual meta value and read_events max(ts) (the same rule as doctor checkLastSeen).
+// Reporting only the meta value would be stuck forever in the past after the migration.
 package ops
 
 import (
@@ -11,7 +11,7 @@ import (
 	"time"
 )
 
-// lastReadFake — meta kv 맵 + read_events max(ts) 셀을 반환하는 fake.
+// lastReadFake — a fake returning the meta kv map + the read_events max(ts) cell.
 func lastReadFake(kv map[string]string, evMax any, evErr bool) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "max(ts) FROM read_events") {
@@ -32,7 +32,7 @@ func lastReadFake(kv map[string]string, evMax any, evErr bool) *fakeStore {
 	}}
 }
 
-// TestLastReadAtDerivedFromEvents — meta 부재 시 read_events max(ts) 노출.
+// TestLastReadAtDerivedFromEvents — with meta absent, read_events max(ts) is exposed.
 func TestLastReadAtDerivedFromEvents(t *testing.T) {
 	ev := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	st := lastReadFake(nil, ev, false)
@@ -45,23 +45,23 @@ func TestLastReadAtDerivedFromEvents(t *testing.T) {
 	}
 }
 
-// TestLastReadAtMergesNewerSide — 잔존 meta 값과 이벤트 시각 중 최근 쪽.
+// TestLastReadAtMergesNewerSide — the more recent of the residual meta value and the event time.
 func TestLastReadAtMergesNewerSide(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	older := now.Add(-2 * time.Hour).Truncate(time.Second)
-	// 이벤트가 더 최신 → 이벤트 승.
+	// the event is newer -> the event wins.
 	st := lastReadFake(map[string]string{"last_read_at": older.Format(time.RFC3339)}, now, false)
 	if got := lastReadAtOrNull(context.Background(), st, metaKVOf(st)); got == nil || *got != now.Format(time.RFC3339) {
 		t.Errorf("이벤트 최신: got %v, want %v", got, now.Format(time.RFC3339))
 	}
-	// 잔존 meta가 더 최신 → meta 승(이벤트는 무시).
+	// the residual meta is newer -> meta wins (the event is ignored).
 	st = lastReadFake(map[string]string{"last_read_at": now.Format(time.RFC3339)}, older, false)
 	if got := lastReadAtOrNull(context.Background(), st, metaKVOf(st)); got == nil || *got != now.Format(time.RFC3339) {
 		t.Errorf("meta 최신: got %v, want %v", got, now.Format(time.RFC3339))
 	}
 }
 
-// TestLastReadAtQueryErrorKeepsMeta — 이벤트 조회 실패 시 잔존 meta 유지.
+// TestLastReadAtQueryErrorKeepsMeta — on an event lookup failure, the residual meta is kept.
 func TestLastReadAtQueryErrorKeepsMeta(t *testing.T) {
 	want := time.Now().UTC().Add(-time.Minute).Truncate(time.Second).Format(time.RFC3339)
 	st := lastReadFake(map[string]string{"last_read_at": want}, nil, true)
@@ -71,7 +71,7 @@ func TestLastReadAtQueryErrorKeepsMeta(t *testing.T) {
 	}
 }
 
-// metaKVOf — fake에서 동작하는 getKV(MetaGetKV와 동일 계약 래퍼).
+// metaKVOf — a getKV that works against the fake (a wrapper with the same contract as MetaGetKV).
 func metaKVOf(st *fakeStore) func(string, string) (string, error) {
 	return func(key, def string) (string, error) {
 		rows, err := st.Query(context.Background(), `SELECT value FROM meta WHERE key = $1`, key)

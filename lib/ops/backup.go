@@ -1,6 +1,6 @@
-// backup 커맨드 — ADR-0002 자체 SQL 덤프의 CLI 진입점.
-// `flint backup [--out file]`(미지정 시 stdout) · `flint restore --file path`.
-// 실패는 한 줄 JSON 에러 + exit 코드 계약(MapExit: 1 재시도/일반, 2 서버 다운).
+// the backup command — the CLI entry point of the ADR-0002 native SQL dump.
+// `flint backup [--out file]` (stdout when unspecified) and `flint restore --file path`.
+// Failures are a one-line JSON error + the exit-code contract (MapExit: 1 retry/general, 2 server down).
 package ops
 
 import (
@@ -21,7 +21,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// DumpFn·RestoreFn — seam. 기본 실구현, 테스트는 fake 교체(SUPERLITE_REAL=1은 위임).
+// DumpFn and RestoreFn — seams. Real implementations by default; tests swap in fakes (SUPERLITE_REAL=1 delegates).
 var (
 	DumpFn        = backup.Dump
 	RestoreFn     = backup.Restore
@@ -33,14 +33,14 @@ var (
 	MaskSecretsFn = store.MaskSecrets
 )
 
-// BackupKeyPath — 암호화 백업 identity 경로(FLINT_HOME 인프라 루트,
-// 레거시 자동 마이그레이션).
+// BackupKeyPath — the encryption backup identity path (the FLINT_HOME infrastructure root,
+// with legacy auto-migration).
 func BackupKeyPath() string {
 	return DataFile("backup.key")
 }
 
-// buildMaskExtra — allowlist 등록값은 마스킹에서 원문
-// 보존된다(공유 덤프에 평문 잔류). 1건 이상 등록 시 경고를 extra에 병기.
+// buildMaskExtra — allowlist-registered values keep their raw form in the masked
+// dump (plain text remains in shared dumps). With 1+ registrations, a warning joins extra.
 func buildMaskExtra(allowlistN int) string {
 	if allowlistN <= 0 {
 		return ""
@@ -48,27 +48,27 @@ func buildMaskExtra(allowlistN int) string {
 	return fmt.Sprintf(`,"allowlist_entries":%d,"warn":"%d allowlist entries are not masked — re-review before sharing"`, allowlistN, allowlistN)
 }
 
-// dumpStore — 전체 덤프 접근(approveStore와 동일 관례의 타입 단언 seam).
-// RunBackup이 주입 st 경유로 덤프한다(미구현 st만 DumpFn
-// seam 폴백). 물리적 풀은 lib/backup.Dump 내부에서 열고 닫는다(defer).
-// realStore 위임 구현은 cli/realstore_supply.go(cli 소유 타입).
+// dumpStore — full-dump access (a type-assertion seam in the same convention as approveStore).
+// RunBackup dumps via the injected st (only an unimplemented st falls back to the
+// DumpFn seam). The physical pool is opened and closed inside lib/backup.Dump (defer).
+// The realStore delegation implementation is cli/realstore_supply.go (a cli-owned type).
 type dumpStore interface {
 	Dump(ctx context.Context, w io.Writer) error
 }
 
-// BackupEncryptOn — meta backup_encrypt 값 판정의 위임 별칭(단일
-// 소스는 wire.BackupEncryptOn — 수동·자동·doctor 3경로 정합).
+// BackupEncryptOn — a delegation alias for the meta backup_encrypt verdict (the single
+// source is wire.BackupEncryptOn — consistent across the manual, automatic, and doctor paths).
 var BackupEncryptOn = wire.BackupEncryptOn
 
-// RunBackup — 덤프 생성. wire.Store는 root 디스패치 호환용이며 사용하지 않는다
-// (Dump가 자체 풀을 연다). stdout 모드는 버퍼 경유로 깨끗한 출력을 보장한다.
-// --encrypt(age 암호화·--out 필수)·--mask(비밀 패턴 치환
-// 진단 덤프 — 사이드카 미부여 비복원 아티팩트).
-// 인자 검증 경로(unknown flag·값 누락·--encrypt 단독)는 무효
-// 인자 exit 3으로 통일.
+// RunBackup — produces the dump. The wire.Store parameter exists for root-dispatch
+// compatibility and is unused (Dump opens its own pool). The stdout mode guarantees clean output via a buffer.
+// --encrypt (age encryption, --out required) and --mask (secret-pattern substitution
+// diagnostic dump — a non-restorable artifact without a sidecar).
+// The argument-validation paths (unknown flag, missing value, --encrypt alone) are unified to
+// invalid-arg exit 3.
 func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 위치 인자 불허(wire.ParseArgs 사양 테이블).
-	// 값 검증(오타 가드 포함)은 호출부 계약 그대로.
+	// positional args not allowed (the wire.ParseArgs spec table).
+	// Value validation (including typo guards) stays with the caller's contract as-is.
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--out", Value: true},
@@ -82,8 +82,8 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	out := res.Value("--out")
-	// POSIX 관례: 경로 "-"는 stdout(미지정과 동일) — ValidateFlagValue
-	// 선행 정규화 없이는 "-"가 플래그형 값으로 거부된다.
+	// POSIX convention: the path "-" means stdout (same as unspecified) — without a preceding
+	// ValidateFlagValue normalization, "-" would be rejected as a flag-shaped value.
 	if out == "-" {
 		out = ""
 	}
@@ -92,8 +92,8 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--out requires a path — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
 		return 3
 	}
-	// 값이 플래그를 흡수하는 오타('--out --encrypt' →
-	// 경로 "--encrypt")는 read --session 계약과 동일하게 exit 3.
+	// a typo where the value absorbs a flag ('--out --encrypt' ->
+	// the path "--encrypt") exits 3, the same contract as read --session.
 	if err := knowledge.ValidateFlagValue("out", out); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 3
@@ -102,21 +102,21 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--encrypt requires --out (ciphertext is file-only) — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
 		return 3
 	}
-	// v0.28.2: --out이 git 저장소 내부면 경고(진행 유지 — 사용자 명시
-	// 선택이나 개인 데이터 덤프의 repo 반입·커밋·동기화 유출 사고 예방).
+	// v0.28.2: if --out is inside a git repository, warn (continue — preventing accidents
+	// where an explicitly chosen or personal-data dump enters a repo and leaks via commit/sync).
 	if out != "" && OutInsideGitRepo(out) {
 		fmt.Fprintf(os.Stderr, "[flint] backup: --out path is inside a git repo — risk of committing or syncing the dump. Prefer ~/.flint/backup\n")
 	}
-	// meta backup_encrypt=true면 수동 백업도 암호화(일관성 —
-	// 플래그 없이 평문·자동만 암호문인 혼재 방지). stdout 파이프는
-	// 평문 계약 유지(암호화는 파일 출력만).
+	// with meta backup_encrypt=true, manual backups are also encrypted (consistency —
+	// preventing a mix of plaintext without the flag and ciphertext for automatic ones). The
+	// stdout pipe keeps the plaintext contract (encryption is file output only).
 	if !encrypt && out != "" && backupEncryptMeta(ctx, st) {
 		encrypt = true
 	}
 
 	var buf bytes.Buffer
-	// 주입 st 우선(realStore는 Dump 위임). 미구현 st만
-	// DumpFn seam 폴백(기존 테스트 fake) — 폴백 시에만 자체 연결이 열린다.
+	// the injected st takes precedence (realStore delegates Dump). Only an unimplemented st
+	// falls back to the DumpFn seam (the existing test fakes) — only then is a self-connection opened.
 	var dumpErr error
 	if ds, ok := st.(dumpStore); ok {
 		dumpErr = ds.Dump(ctx, &buf)
@@ -131,7 +131,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 
 	extra := ""
 	if mask {
-		// 마스킹 — 진단·공유용: 비밀 패턴 치환 + 비복원 마커 선두 부착.
+		// masking — for diagnostics and sharing: secret-pattern substitution + a non-restorable marker prefix.
 		data = append([]byte(backup.MaskDumpHeader+"\n"), MaskSecretsFn(string(data))...)
 		extra += `,"masked":true`
 		extra += buildMaskExtra(store.SecretsAllowlistCount())
@@ -157,28 +157,28 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 
 	if out == "" {
-		// v0.28.0(H③): 무인자 stdout은 전체 DB 평문 노출(터미널 스크롤백·
-		// 로그·에이전트 컨텍스트) — 파일 0600 정책과의 자세 상충을 경고로
-		// 메운다(사용은 허용 — 파이프 리다이렉션 관례).
+		// v0.28.0 (H3): a no-arg stdout dump exposes the whole DB in plaintext (terminal scrollback,
+		// logs, agent context) — the posture conflict with the 0600 file policy is surfaced as a warning
+		// (use is still allowed — the pipe-redirection convention).
 		if !encrypt && !mask {
 			fmt.Fprintln(os.Stderr, "[flint] backup: writing plaintext dump to stdout — beware terminal and log leaks (saving to a file is recommended)")
 		}
 		stdout.Write(data)
 		return 0
 	}
-	if err := os.WriteFile(out, data, 0o600); err != nil { // v0.20.6 S3: 민감 평문 덤프
+	if err := os.WriteFile(out, data, 0o600); err != nil { // v0.20.6 S3: sensitive plaintext dump
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 1
 	}
-	// v0.28.0(H③): WriteFile의 퍼모드는 신규 파일에만 적용 — 기존 파일
-	// 재사용 시 완화된 모드가 남아 민감 덤프가 느슨하게 노출된다. 강제.
+	// v0.28.0 (H3): WriteFile's mode applies only to new files — reusing an existing
+	// file leaves a relaxed mode, loosely exposing a sensitive dump. Forced.
 	if err := os.Chmod(out, 0o600); err != nil {
 		fmt.Fprintln(os.Stderr, "[flint] backup: failed to force mode 0600:", err)
 	}
-	// ADR-0006: 원본+.sha256 사이드카 생성(restore 검증용). 실패는 덤프 성공을 해치지 않는다.
-	// 암호화 백업의 사이드카는 암호문 기준(저장 아티팩트 무결성 —
-	// 평문 무결성은 age AEAD가 담보). 마스킹 덤프는 비복원 아티팩트라
-	// 사이드카를 부여하지 않는다(restore 원천 차단 + 마커 이중 방어).
+	// ADR-0006: create the original + .sha256 sidecar (for restore verification). Failure must not harm the dump's success.
+	// An encrypted backup's sidecar is over the ciphertext (stored-artifact integrity —
+	// plaintext integrity is guaranteed by age AEAD). A masked dump is a non-restorable
+	// artifact, so it gets no sidecar (blocking the restore source + double defense with the marker).
 	sumField := ""
 	if !mask {
 		if _, sum, cerr := backup.Checksum(bytes.NewBuffer(data)); cerr == nil {
@@ -187,15 +187,15 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			}
 		}
 	}
-	// 백업 성공 경로 마지막에 로테이션 — keep은 meta backup_keep(기본 14).
-	// 로테이션 실패도 백업 성공을 해치지 않는다. QuoteJSON이 이미 따옴표를
-	// 감싸므로 추가 `"` 금지(겹따옴표로 JSON 파손).
+	// rotation at the end of the successful backup path — keep is meta backup_keep (default 14).
+	// A rotation failure must not harm the backup's success either. QuoteJSON already wraps
+	// quotes, so no extra `"` (doubled quotes corrupt the JSON).
 	fmt.Fprintln(stdout, `{"status":"ok","path":`+QuoteJSON(out)+sumField+extra+rotateAfterBackup(ctx, st, out)+"}")
 	return 0
 }
 
-// backupEncryptMeta — meta backup_encrypt 판정(오류·미설정=false 폴백).
-// meta 접근은 wire.GetMetaKV 단일 진입(meta_kv.go) 경유.
+// backupEncryptMeta — the meta backup_encrypt verdict (error/unset = false fallback).
+// Meta access goes through the single wire.GetMetaKV entry (meta_kv.go).
 func backupEncryptMeta(ctx context.Context, st wire.Store) bool {
 	if st == nil {
 		return false
@@ -204,15 +204,15 @@ func backupEncryptMeta(ctx context.Context, st wire.Store) bool {
 	return ok && BackupEncryptOn(v)
 }
 
-// rotateAfterBackup — 성공한 --out 경로 뒤 로테이션 요약 필드(`,"removed":N`)를
-// 반환한다. 삭제가 없거나 실패하면 빈 문자열(실패는 경고만, exit 불변).
+// rotateAfterBackup — returns the rotation summary field (`,"removed":N`) to append after a
+// successful --out path. Nothing deleted or a failure yields the empty string (failure is a warning only; exit unchanged).
 func rotateAfterBackup(ctx context.Context, st wire.Store, out string) string {
 	getKV := func(key string) (string, error) {
 		if st == nil {
 			return "", errors.New("no store")
 		}
-		// 조회 본체는 wire.GetMetaKVErr 단일 진입 위임 — 키 부재
-		// ("", false, nil)를 기존 미설정 오류로 치환한다.
+		// the lookup body delegates to the single wire.GetMetaKVErr entry — a missing key
+		// ("", false, nil) is mapped to the existing unset case.
 		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
 		if err != nil {
 			return "", err
@@ -233,13 +233,13 @@ func rotateAfterBackup(ctx context.Context, st wire.Store, out string) string {
 	return `,"removed":` + strconv.Itoa(len(removed))
 }
 
-// RunRestore — 덤프 스크립트 재생. --file 필수. --drill은 실재생 대신
-// flint_drill_db 임시 데이터베이스 재생 훈련 — 원본 불변, 결과만 보고.
-// 인자 검증 경로(unknown flag·값 누락·--file 부재)는 무효
-// 인자 exit 3으로 통일.
+// RunRestore — replays the dump script. --file is required. --drill, instead of a real replay,
+// runs a replay drill against the temporary flint_drill_db database — the original is untouched; only the result is reported.
+// The argument-validation paths (unknown flag, missing value, missing --file) are unified to
+// invalid-arg exit 3.
 func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 위치 인자 불허(wire.ParseArgs 사양 테이블).
-	// 값 검증(오타 가드 포함)은 호출부 계약 그대로.
+	// positional args not allowed (the wire.ParseArgs spec table).
+	// Value validation (including typo guards) stays with the caller's contract as-is.
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--drill"},
@@ -257,7 +257,7 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--file requires a path — usage: flint restore --file FILE [--drill]")))
 		return 3
 	}
-	// 플래그 흡수 값 가드(--out과 동일 계약).
+	// the flag-absorption value guard (the same contract as --out).
 	if err := knowledge.ValidateFlagValue("file", file); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 3
@@ -267,10 +267,10 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return 3
 	}
 
-	// ADR-0006 restore 가드 — 재생 전 체크섬 검증(가드는 이 1곳뿐).
-	// 백업 파일은 임의 SQL을 실행하므로 위조 감지 시 즉시 중단한다.
-	// v0.28.0(H③): 파일을 1회만 읽고 그 바이트를 검증·재생한다 —
-	// 검증 후 재오픈(VerifyFile→os.Open)의 TOCTOU 창을 제거.
+	// the ADR-0006 restore guard — checksum verification before replay (the guard exists only here).
+	// A backup file executes arbitrary SQL, so on tamper detection it aborts immediately.
+	// v0.28.0 (H3): the file is read once and those bytes are both verified and replayed —
+	// removing the TOCTOU window of reopening after verification (VerifyFile -> os.Open).
 	raw, rerr2 := os.ReadFile(file)
 	if rerr2 != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(rerr2))
@@ -281,10 +281,10 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		fmt.Fprintln(stdout, mismatchLine(file))
 		return 1
 	}
-	// 사이드카 부재도 재생 전 차단 — 백업은
-	// 임의 SQL 매체라 무결 검증 없는 재생은 ADR-0006 '위조 감지 시 즉시
-	// 중단' 취지 위반이었다(종료 후 경고만으로 진행되던 것을 가드로).
-	// sidecar 재생성은 `flint backup --out <동일경로>`로 가능.
+	// a missing sidecar is also blocked before replay — a backup file is a
+	// medium for arbitrary SQL, so replaying it without integrity verification violated ADR-0006's
+	// 'abort immediately on tamper detection' intent (previously it proceeded with only a
+	// post-exit warning; now it is a guard). The sidecar can be regenerated with `flint backup --out <same path>`.
 	if errors.Is(verr, backup.ErrNoSidecar) {
 		fmt.Fprintln(stdout, `{"error":"checksum sidecar missing — blocking replay without integrity verification (regenerate the backup: flint backup --out)"}`)
 		return 1
@@ -295,8 +295,8 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	}
 	_ = sum
 
-	// 판독 단일 경로 — age 복호·마스킹 거부가 검증된 바이트에
-	// 적용된다. 키 경로는 항상 전달(평문이면 사용하지 않는다).
+	// a single read path — age decryption and mask rejection are applied to the verified
+	// bytes. The key path is always passed (unused for plaintext).
 	key := BackupKeyPath()
 	data, rerr := backup.ReadDumpFrom(raw, key)
 	if errors.Is(rerr, backup.ErrMaskedDump) {
@@ -312,9 +312,9 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return 1
 	}
 
-	// --drill — 실재생 대신 훈련: flint_drill_db 데이터베이스에 재생해 행수 대조.
-	// 원본은 불변이며, 결과는 한 줄 JSON(불일치 시 ok:false + exit 1).
-	// 검증·복호된 바이트를 그대로 재생(DrillDataFn).
+	// --drill — a drill instead of a real replay: replays into the flint_drill_db database and compares row counts.
+	// The original is untouched; the result is one line of JSON (on mismatch, ok:false + exit 1).
+	// The verified, decrypted bytes are replayed as-is (DrillDataFn).
 	if drill {
 		res, derr := DrillDataFn(wire.DSNFromEnv(), data)
 		if derr != nil {
@@ -337,13 +337,13 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 결과 한 줄 JSON — 사이드카 누락은 재생 전 차단되므로
-	// 여기는 항상 검증 통과 분기다.
+	// the one-line JSON result — a missing sidecar is blocked before replay,
+	// so this is always the verification-passed branch.
 	fmt.Fprintln(stdout, `{"status":"restored","sha256":`+QuoteJSON(sum)+"}")
 	return 0
 }
 
-// mismatchLine — 체크섬 불일치 경고 한 줄 JSON(임의 SQL 실행 차단 안내 포함).
+// mismatchLine — the checksum-mismatch warning as one-line JSON (including the arbitrary-SQL-execution-blocking notice).
 func mismatchLine(path string) string {
 	m := map[string]string{
 		"error":   "checksum_mismatch",
@@ -354,12 +354,12 @@ func mismatchLine(path string) string {
 	return string(b)
 }
 
-// QuoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
-// wire.QuoteJSON 단일 구현 별칭(cli 소비자 호환 export 유지).
+// QuoteJSON — wraps a path or other string as a JSON string literal.
+// An alias of the single wire.QuoteJSON implementation (keeping the export for cli-consumer compatibility).
 var QuoteJSON = wire.QuoteJSON
 
-// OutInsideGitRepo — 경로가 git 저장소(작업 트리) 내부인지 판정.
-// .git 디렉터리(일반)·파일(워크트리) 모두 인식, 상위로 최대 64단계.
+// OutInsideGitRepo — determines whether a path is inside a git repository (work tree).
+// Recognizes both a .git directory (normal) and a file (worktree), walking up at most 64 levels.
 func OutInsideGitRepo(out string) bool {
 	dir, err := filepath.Abs(filepath.Dir(out))
 	if err != nil {

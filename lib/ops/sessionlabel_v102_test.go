@@ -1,7 +1,7 @@
-// sessionlabel_v102_test.go — 훅·세션 라벨 클러스터
-// 회귀: 세션별 라벨 파일 분리(병렬 경합·만료 정리·레거시 무시),
-// 무효 라벨 검증의 기록 앞 이동, 훅 진입점 무효 인자 조용함,
-// hooks.json·doctor jq 폴백 정합(empty — 무효=부재 취급과 동일 방향).
+// sessionlabel_v102_test.go — the hook/session-label cluster
+// regressions: per-session label file separation (parallel races, expiry cleanup,
+// ignoring legacy), moving invalid-label validation ahead of recording, silent invalid
+// arguments at hook entry points, and hooks.json/doctor jq fallback consistency (empty — the same direction as treating invalid as absent).
 package ops
 
 import (
@@ -16,9 +16,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// injectSessionLabelFn — ops 단독 실행 시 hot의 주입 seam 정리(실배선은
-// cli root init — cli sessionhook 테스트와 동일 관례). SessionLabelFn은
-// ops 구현을, 나머지 계측 seam은 최소 no-op으로 연결한다.
+// injectSessionLabelFn — cleans up hot's injection seams for standalone ops runs (the
+// real wiring is the cli root init — the same convention as the cli sessionhook tests).
+// SessionLabelFn points to the ops implementation; the other metering seams get minimal no-ops.
 func injectSessionLabelFn(t *testing.T) {
 	t.Helper()
 	oldLabel := knowledge.SessionLabelFn
@@ -40,8 +40,8 @@ func injectSessionLabelFn(t *testing.T) {
 	})
 }
 
-// labelRecorder — SessionStartRecorder seam을 녹음하는 fake(cli
-// sessionhook_v0200_test 관례의 ops 대응분).
+// labelRecorder — a fake recording the SessionStartRecorder seam (the ops counterpart
+// of the cli sessionhook_v0200_test convention).
 type labelRecorder struct {
 	*fakeStore
 	starts []string
@@ -58,11 +58,11 @@ func quietLabelStore() *labelRecorder {
 	}}}
 }
 
-// TestSessionStartInvalidLabelSilent — 무효 라벨(`--session
-// --json` 플래그 흡수·trailing --session) 훅 진입은 (1) exit 3·stdout
-// 오류 없음(비간섭 §3 — SessionStart stdout은 주입 경로), (2) 무효 값이
-// 세션 경계·라벨 파일에 기록되지 않음(부재 취급), (3) read 자동 채택
-// 부재 — 오염 부활 경로 폐쇄.
+// TestSessionStartInvalidLabelSilent — a hook entry with an invalid label (a
+// `--session --json` flag absorption, or a trailing --session) means (1) no exit 3 and no
+// stdout error (non-interference §3 — SessionStart stdout is the injection path), (2) the
+// invalid value is not recorded in the session boundary or the label file (treated as
+// absent), and (3) no read auto-adoption — closing the pollution-revival path.
 func TestSessionStartInvalidLabelSilent(t *testing.T) {
 	for _, tc := range []struct {
 		name string
@@ -94,9 +94,9 @@ func TestSessionStartInvalidLabelSilent(t *testing.T) {
 	}
 }
 
-// TestSessionEndInvalidLabelSilent — session-end의 무효 라벨도
-// 부재 취급(exit 3·검증 오류 없이 done의 기존 부재 경로) + 이 세션이
-// 아닌 병렬 세션의 라벨 파일은 보존(제거 경합 폐쇄).
+// TestSessionEndInvalidLabelSilent — session-end's invalid label is also treated as
+// absent (no exit 3 or validation error; done's existing absent path) + parallel
+// sessions' label files are preserved (closing the removal race).
 func TestSessionEndInvalidLabelSilent(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteSessionLabel("sess-a"); err != nil {
@@ -105,8 +105,8 @@ func TestSessionEndInvalidLabelSilent(t *testing.T) {
 	st := quietLabelStore()
 	var out strings.Builder
 	code := RunSessionEnd(context.Background(), st, []string{"--session", "-x"}, strings.NewReader(""), &out)
-	// done 사용법 오류(부재 경로) exit 0→3 갱신 — 무효 라벨이
-	// 여전히 '검증 에러'가 아닌 부재 경로를 탄다는 게 이 테스트의 단언.
+	// the done usage-error (absent path) exit updated 0->3 — the assertion of this test is
+	// that an invalid label still takes the absent path, not a 'validation error'.
 	if code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
 	}
@@ -118,10 +118,10 @@ func TestSessionEndInvalidLabelSilent(t *testing.T) {
 	}
 }
 
-// TestSessionLabelParallelSeparation — 병렬 2세션의 라벨이 독립
-// 파일로 분리(덮어쓰기 경합 폐쇄) + 한 세션 종료가 다른 세션 라벨을
-// 보존(제거 경합 폐쇄). 구 단일 공유 파일이라면 sess-b 기록이 sess-a를
-// 파괴하고 session-end가 전부를 지웠다.
+// TestSessionLabelParallelSeparation — the labels of 2 parallel sessions are separated
+// into independent files (closing the overwrite race) + ending one session preserves the
+// other's label (closing the removal race). Under the old single shared file, sess-b's
+// write destroyed sess-a's, and session-end wiped them all.
 func TestSessionLabelParallelSeparation(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteSessionLabel("sess-a"); err != nil {
@@ -142,9 +142,9 @@ func TestSessionLabelParallelSeparation(t *testing.T) {
 	}
 }
 
-// TestSessionLabelLegacyIgnored — 구 session-current 잔존
-// 파일은 읽지도·청산하지도 않는다(사용자 디스크 — 미삭제 원칙). 세션별
-// 파일 없이 부재 취급, ClearSessionLabel은 자기 세션 파일만 제거.
+// TestSessionLabelLegacyIgnored — the legacy session-current residual file is neither
+// read nor settled (the user's disk — the no-deletion principle). Without a per-session
+// file it is treated as absent; ClearSessionLabel removes only its own session's file.
 func TestSessionLabelLegacyIgnored(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -167,9 +167,9 @@ func TestSessionLabelLegacyIgnored(t *testing.T) {
 	}
 }
 
-// TestSessionStartPrunesExpiredLabels — 만료 정리: session-end를 못
-// 만난 잔존 라벨 파일이 새 세션 시작 시 정리된다(창 = events_retention_days
-// 기본 14일 — 라벨이 가리키는 read_events 행의 보존 창과 정렬).
+// TestSessionStartPrunesExpiredLabels — expiry cleanup: residual label files that never
+// met a session-end are cleaned at the next session start (window =
+// events_retention_days, default 14 days — aligned with the retention window of the read_events rows the label points at).
 func TestSessionStartPrunesExpiredLabels(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteSessionLabel("stale-sess"); err != nil {
@@ -195,10 +195,10 @@ func TestSessionStartPrunesExpiredLabels(t *testing.T) {
 	}
 }
 
-// TestHooksJsonSessionFallbackEmpty — 플러그인 폴백 hooks.json과
-// doctor가 설치하는 훅(flintHookDefs)의 session-start·session-end jq 폴백은
-// empty — session_id 부재 시 빈 라벨을 흘려보내지 않는다(진입점의
-// 무효=부재 취급과 동일 방향, 양측 동일 패턴).
+// TestHooksJsonSessionFallbackEmpty — the plugin-fallback hooks.json and the hooks
+// doctor installs (flintHookDefs) use empty for the session-start/session-end jq
+// fallback — when session_id is absent, no empty label is passed along (the same
+// direction as the entry point treating invalid as absent; both sides use the same pattern).
 func TestHooksJsonSessionFallbackEmpty(t *testing.T) {
 	b, err := os.ReadFile("../../flint-plugin/hooks/hooks.json")
 	if err != nil {

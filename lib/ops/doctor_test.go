@@ -1,7 +1,7 @@
-// doctor_test.go — flint doctor 검사 5종·exit 계약(fail만 1·warn 0)·
-// FLINT_CLAUDE_HOME 오버라이드(--check 무효명 exit 3).
+// doctor_test.go — flint doctor's 5 checks and exit contracts (only fail exits 1, warn 0) and the
+// FLINT_CLAUDE_HOME override (--check invalid name exit 3).
 // fakeStore·
-// withComposePs 헬퍼 소유(cli_test.go·doctor_v07_test.go 관례).
+// the withComposePs helper is owned here (moved per the cli_test.go / doctor_v07_test.go convention).
 package ops
 
 import (
@@ -21,11 +21,11 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// init — ops 단독 테스트 바이너리에서는 cli init(ops_alias_1.go)의 seam
-// 주입이 없다 — 진단 체인이 참조하는 seam에 기본 구현을 둔다(cli 실함수와
-// 동일 행동: dev 빌드 버전 미확정·스킬 소스 미탐지·조용한 실패).
+// init — in the standalone ops test binary there is no cli init (ops_alias_1.go) seam
+// injection — so the diagnostic chain's referenced seams get default implementations (same
+// behavior as the cli real functions: dev build version indeterminate, skill source undetected, silent failure).
 func init() {
-	CurrentVersionFn = func() string { return "" } // dev 빌드 — 판정 보류 경로
+	CurrentVersionFn = func() string { return "" } // dev build — the deferred-verdict path
 	ValidVersionFn = func(string) bool { return false }
 	FetchLatestVersionFn = func() (string, error) { return "", errors.New("offline") }
 	CompareVersionsFn = func(a, b string) int { return strings.Compare(a, b) }
@@ -38,20 +38,20 @@ func init() {
 	ConflictDupThresholdFn = func() float64 { return store.DefaultThresholds().ConflictDupThreshold }
 	BackupEncryptOnFn = func(string) bool { return false }
 	BackupKeyPathFn = func() string { return "" }
-	SkillSrcDirFn = func(string) string { return "" } // 소스 미탐지 — 검사 생략
+	SkillSrcDirFn = func(string) string { return "" } // source undetected — check skipped
 	CheckSkillFileFn = func(string, string) (DoctorCheck, bool) { return DoctorCheck{}, false }
 }
 
-// fakeStore — wire.Store 인터페이스 fake(cli_test.go 관례 이동분). stub
-// 필드(exists·*Err)는 지정 시 우선되고, rows·queryFn 미지정 시 영(零)
-// 동작을 반환한다.
+// fakeStore — a wire.Store interface fake (moved per the cli_test.go convention). Stub
+// fields (exists, *Err) take precedence when set; without rows or queryFn it returns
+// zero behavior.
 type fakeStore struct {
 	wire.HistoryStubs
 
-	// stub 조건
+	// stub conditions
 	exists        bool
 	existsErr     error
-	existsProject map[string]bool // name별 존재 판정(nil이면 전부 false)
+	existsProject map[string]bool // existence per name (nil means all false)
 	insertErr     error
 	commitErr     error
 	pingErr       error
@@ -59,13 +59,13 @@ type fakeStore struct {
 	rows          [][]any
 	queryFn       func(sql string, args []any) ([][]any, error)
 
-	// 기록
+	// recording
 	inserted []map[string]any
 	commits  []string
 	queries  []string
-	qmu      sync.Mutex // queries append 보호(병렬 수집 — v1.9.3 T2)
+	qmu      sync.Mutex // protects the queries append (parallel collection — v1.9.3 T2)
 
-	// fake 동질: metaDeleteStore canned(호출 기록·오류 주입).
+	// fake-equivalent: metaDeleteStore canned (call recording, error injection).
 	metaDeleted   []string
 	metaDeleteErr error
 }
@@ -86,7 +86,7 @@ func (f *fakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return f.exists, f.existsErr
 }
 func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
-	return f.existsProject[name], nil // nil map 조회는 false(영 동작)
+	return f.existsProject[name], nil // a nil map lookup is false (zero behavior)
 }
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	f.commits = append(f.commits, msg)
@@ -98,9 +98,9 @@ func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
 func (f *fakeStore) Close()                         {}
 
-// MetaDelete — fake 동질: metaDeleteStore capability canned
-// 구현. tuning reset 경로가 열화 폴백이 아니라 위임 경로로 검증되게
-// 한다(호출 기록 슬라이스·선택적 오류 필드 — fakeStore 관례).
+// MetaDelete — fake-equivalent: the metaDeleteStore capability canned
+// implementation. So the tuning reset path is verified as a delegation path, not a
+// degraded fallback (call-recording slice and an optional error field — the fakeStore convention).
 func (f *fakeStore) MetaDelete(ctx context.Context, keys []string) (int64, error) {
 	f.metaDeleted = append(f.metaDeleted, keys...)
 	if f.metaDeleteErr != nil {
@@ -109,9 +109,9 @@ func (f *fakeStore) MetaDelete(ctx context.Context, keys []string) (int64, error
 	return int64(len(keys)), nil
 }
 func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
-	// v1.9.3 T2: report 수집 병렬화로 queryFn이 다중 고루틴에서 같이
-	// 불린다 — 기록 슬라이스 append만 뮤텍스로 보호한다(읽기는 커맨드
-	// 반환 후 테스트 스레드에서만).
+	// v1.9.3 T2: with report collection parallelized, queryFn is also called from multiple
+	// goroutines — only the recording-slice append is mutex-protected (reads happen only on the
+	// test thread after the command returns).
 	f.qmu.Lock()
 	f.queries = append(f.queries, sql)
 	f.qmu.Unlock()
@@ -124,9 +124,9 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return f.rows, nil
 }
 
-// withComposePs — ComposePsFn seam 교체(테스트 후 원복).
-// doctor_v07_test.go 관례 이동분(cli 측 withComposePs는 cli var 교체로
-// ops_alias_1.go 래퍼를 경유해 같은 효과를 낸다).
+// withComposePs — swaps the ComposePsFn seam (restored after the test).
+// Moved per the doctor_v07_test.go convention (the cli-side withComposePs swaps the cli var via
+// the ops_alias_1.go wrapper for the same effect).
 func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Helper()
 	old := ComposePsFn
@@ -134,7 +134,7 @@ func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Cleanup(func() { ComposePsFn = old })
 }
 
-// runDoctorArgs — fake store으로 RunDoctor 실행. 출력·exit 반환.
+// runDoctorArgs — runs RunDoctor with a fake store. Returns output and exit.
 func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -142,8 +142,8 @@ func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// doctorQueryFn — 검사별 meta/pg_indexes 응답을 주입하는 공용 queryFn.
-// schema=4·인덱스 3행·last-seen 3키(경과 조절)를 반환한다.
+// doctorQueryFn — a shared queryFn injecting per-check meta/pg_indexes responses.
+// Returns schema=4, 3 index rows, and 3 last-seen keys (with adjustable elapsed).
 func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -162,13 +162,13 @@ func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) (
 	}
 }
 
-// freshDoctorFn — 전 검사 통과 기준 응답(1시간 전 last-seen).
+// freshDoctorFn — the all-checks-pass baseline response (last-seen 1h ago).
 func freshDoctorFn() func(string, []any) ([][]any, error) {
 	h := time.Now().Add(-time.Hour)
 	return doctorQueryFn(h, h, h)
 }
 
-// DoctorChecks — 고정 순서 계약(6종 — port 추가).
+// DoctorChecks — the fixed order contract (6 kinds — port added).
 func TestDoctorChecksContract(t *testing.T) {
 	want := []string{"hook-file", "db", "schema", "integrity", "last-seen", "port"}
 	got := DoctorChecks()
@@ -182,15 +182,15 @@ func TestDoctorChecksContract(t *testing.T) {
 	}
 }
 
-// registry 등록 — Run이 doctor를 디스패치해야 한다.
+// registry registration — Run must dispatch doctor.
 func TestDoctorRegistered(t *testing.T) {
 	if _, ok := wire.Lookup("doctor"); !ok {
 		t.Fatal("doctor 미등록")
 	}
 }
 
-// --list-checks — 한 줄 JSON에 등록표 전량 16종.
-// 코어 6종은 기존 순서(hook-file…port) 선두 유지.
+// --list-checks — one-line JSON with all 16 registry kinds.
+// The core 6 keep the existing order (hook-file... port) at the front.
 func TestDoctorListChecks(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--list-checks")
@@ -211,7 +211,7 @@ func TestDoctorListChecks(t *testing.T) {
 	}
 }
 
-// protocol — --check 무효명 exit 3·유효명은 서브셋만 실행.
+// protocol — --check with an invalid name exits 3; a valid name runs only the subset.
 func TestDoctorCheckSubset(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--check", "bogus")
@@ -235,11 +235,11 @@ func TestDoctorCheckSubset(t *testing.T) {
 	}
 }
 
-// file — FLINT_CLAUDE_HOME 오버라이드: 훅 없는 임시 홈 → hook-file fail.
-// fail은 exit 1 + fix 문구 한 줄.
+// file — FLINT_CLAUDE_HOME override: a temp home without hooks -> hook-file fail.
+// fail means exit 1 + a one-line fix wording.
 func TestDoctorHookFileFailWithFix(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("FLINT_CLAUDE_HOME", home) // settings.json 부재
+	t.Setenv("FLINT_CLAUDE_HOME", home) // no settings.json
 
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f)
@@ -277,14 +277,14 @@ func TestDoctorHookFileFailWithFix(t *testing.T) {
 	}
 }
 
-// file — 훅 등록된 임시 환경(settings.json에 flint 포함) → hook-file ok.
+// file — a temp environment with the hook registered (settings.json contains flint) -> hook-file ok.
 func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
-	setHarnessEnvs(t) // 하니스 5종 격리 — 실홈 설정 파일이 전체 실행에 끼어들지 않게
+	setHarnessEnvs(t) // isolate the 5 harnesses — so real-home settings files cannot interfere with the full run
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write --source hook"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -300,20 +300,20 @@ func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
 	}
 }
 
-// state — grace 경과 last-seen은 warn·exit 0. write 72h·hot 48h 초과로 warn.
+// state — last-seen past grace is warn, exit 0. write over 72h and hot over 48h warn.
 func TestDoctorWarnVsFailExit(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
-	setHarnessEnvs(t) // 하니스 5종 격리 — 실홈 설정 파일이 전체 실행에 끼어들지 않게
+	setHarnessEnvs(t) // isolate the 5 harnesses — so real-home settings files cannot interfere with the full run
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// write 80시간 전(>72h)·hot 1시간 전 → warn만 → exit 0.
+	// write 80h ago (>72h) and hot 1h ago -> warn only -> exit 0.
 	f := &fakeStore{queryFn: doctorQueryFn(
 		time.Now().Add(-80*time.Hour),
 		time.Now().Add(-time.Hour),
@@ -331,14 +331,14 @@ func TestDoctorWarnVsFailExit(t *testing.T) {
 	}
 }
 
-// state — grace 이내면 전부 ok·exit 0.
+// state — within grace everything is ok, exit 0.
 func TestDoctorAllOk(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
-	setHarnessEnvs(t) // 하니스 5종 격리 — 실홈 설정 파일이 전체 실행에 끼어들지 않게
+	setHarnessEnvs(t) // isolate the 5 harnesses — so real-home settings files cannot interfere with the full run
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -354,7 +354,7 @@ func TestDoctorAllOk(t *testing.T) {
 	}
 }
 
-// db — ping 실패 → fail·exit 1.
+// db — ping failure -> fail, exit 1.
 func TestDoctorDBFail(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -373,7 +373,7 @@ func TestDoctorDBFail(t *testing.T) {
 	}
 }
 
-// schema — 버전 4가 아니면 fail(기존 3 DB).
+// schema — any version other than 4 fails (a legacy v3 DB).
 func TestDoctorSchemaVersionGate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -396,7 +396,7 @@ func TestDoctorSchemaVersionGate(t *testing.T) {
 	}
 }
 
-// integrity — flint_knowledge_* 인덱스 3행 미만이면 fail.
+// integrity — fewer than 3 flint_knowledge_* index rows fails.
 func TestDoctorIntegrityRowGate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -419,7 +419,7 @@ func TestDoctorIntegrityRowGate(t *testing.T) {
 	}
 }
 
-// last-seen — 기록 부재(never)는 warn(nodata 패턴)·exit 0.
+// last-seen — no record (never) is warn (the nodata pattern), exit 0.
 func TestDoctorLastSeenNeverWarns(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -442,7 +442,7 @@ func TestDoctorLastSeenNeverWarns(t *testing.T) {
 	}
 }
 
-// hot 49시간 전(>48h)도 warn.
+// hot 49h ago (>48h) is also warn.
 func TestDoctorHotStallWarns(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -463,7 +463,7 @@ func TestDoctorHotStallWarns(t *testing.T) {
 	}
 }
 
-// 알 수 없는 플래그 — 무효 인자 exit 3(전역 계약, 무효 --check명과 일치).
+// an unknown flag — invalid-arg exit 3 (the global contract, matching an invalid --check name).
 func TestDoctorUnknownFlag(t *testing.T) {
 	f := &fakeStore{}
 	out, code := runDoctorArgs(t, f, "--bogus")
@@ -475,7 +475,7 @@ func TestDoctorUnknownFlag(t *testing.T) {
 	}
 }
 
-// --check 값 누락 — 무효 인자 exit 3(unknown flag·무효 --check명과 통일).
+// a missing --check value — invalid-arg exit 3 (unified with unknown flag and invalid --check name).
 func TestDoctorCheckRequiresNameExit3(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--check")
@@ -487,17 +487,17 @@ func TestDoctorCheckRequiresNameExit3(t *testing.T) {
 	}
 }
 
-// protocol — doctor --json — 기계 판독 명시 채널. 출력은
-// DoctorCheck 필드 구조(status·checks[].name/status)의 한 줄 JSON이고
-// exit 계약은 기본 경로와 동일. 기존 텍스트(기본 한 줄 JSON)는 불변 —
-// 기본 경로 회귀는 기존 전체 실행 테스트가 담당한다.
+// protocol — doctor --json — the explicit machine-readable channel. The output is
+// a one-line JSON of the DoctorCheck field structure (status, checks[].name/status), and
+// the exit contract matches the default path. The existing text (the default one-line JSON) is unchanged —
+// default-path regression is covered by the existing full-run tests.
 func TestDoctorJSONFlag(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("FLINT_CLAUDE_HOME", home) // hook-file fail 고정(임시 홈)
+	t.Setenv("FLINT_CLAUDE_HOME", home) // pin hook-file fail (temp home)
 
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--json")
-	if code != 1 { // fail 있음 — 기본 전체 실행과 동일 exit
+	if code != 1 { // a fail exists — the same exit as the default full run
 		t.Fatalf("exit=%d, want 1 (출력 %q)", code, out)
 	}
 	var m struct {
@@ -520,7 +520,7 @@ func TestDoctorJSONFlag(t *testing.T) {
 		t.Errorf("checks[0]=%+v, want hook-file fail", m.Checks[0])
 	}
 
-	// --json --check NAME — 서브셋도 동일 구조.
+	// --json --check NAME — the subset uses the same structure.
 	f2 := &fakeStore{queryFn: freshDoctorFn()}
 	out2, code2 := runDoctorArgs(t, f2, "--json", "--check", "db")
 	if code2 != 0 {
@@ -534,9 +534,9 @@ func TestDoctorJSONFlag(t *testing.T) {
 	}
 }
 
-// protocol — doctor --json 출력은 기본 출력과 동일 바이트(명시적
-// 기계 채널 고정 — 두 번째 포맷이 아님). --fix 없는 경로에서 회귀 확인
-// (결정적 db 서브셋으로 바이트 비교).
+// protocol — the doctor --json output is byte-identical to the default output (pinning the explicit
+// machine channel — not a second format). Verified on the path without --fix
+// (byte comparison with a deterministic db subset).
 func TestDoctorJSONBytesMatchDefault(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	def, defCode := runDoctorArgs(t, f, "--check", "db")
@@ -550,8 +550,8 @@ func TestDoctorJSONBytesMatchDefault(t *testing.T) {
 	}
 }
 
-// schema — 상위 버전(예: 향후 v5)은 정상. 문자열 동등 "4" 검사였을 때
-// v5 DB가 fail로 오탐됐다(수치 비교 n>=4 계약).
+// schema — a higher version (e.g. a future v5) is normal. Under the old string-equality "4" check,
+// a v5 DB was a false fail (the numeric n>=4 contract).
 func TestDoctorSchemaFutureVersionOk(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -571,9 +571,9 @@ func TestDoctorSchemaFutureVersionOk(t *testing.T) {
 	}
 }
 
-// last-seen — stall_hot_h 메타 오버라이드(24h)를 loadThresholds가 반영:
-// 30h 경과 last_hot_at은 하드코딩 48h였다면 ok, 오버라이드 24h면 warn
-// (maintain --check와 결론 일치).
+// last-seen — the stall_hot_h meta override (24h) is reflected by loadThresholds:
+// a 30h-elapsed last_hot_at is ok under the hardcoded 48h but warn under the 24h override
+// (conclusions match maintain --check).
 func TestDoctorLastSeenThresholdOverride(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -582,11 +582,11 @@ func TestDoctorLastSeenThresholdOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	fn := doctorQueryFn(
-		time.Now().Add(-30*time.Hour), // last_write_at — 기본 72h 이내
-		time.Now().Add(-30*time.Hour), // last_hot_at — 기본 48h 이내, 오버라이드 24h 초과
+		time.Now().Add(-30*time.Hour), // last_write_at — within the default 72h
+		time.Now().Add(-30*time.Hour), // last_hot_at — within the default 48h, over the 24h override
 		time.Now().Add(-time.Hour))
 	over := func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "stall_hot_h") { // loadThresholds 질의
+		if strings.Contains(sql, "stall_hot_h") { // the loadThresholds query
 			return [][]any{{"stall_hot_h", "24"}, {"stall_write_h", "72"}}, nil
 		}
 		return fn(sql, args)
@@ -601,8 +601,7 @@ func TestDoctorLastSeenThresholdOverride(t *testing.T) {
 	}
 }
 
-// hook-file — hooks.json 실체 형태(이벤트 배열 → hooks[].command 중첩)로
-// 등록된 경우 ok.
+// hook-file — ok when registered in the real hooks.json shape (event arrays -> nested hooks[].command).
 func TestDoctorHookFileNestedShapeOk(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -621,8 +620,8 @@ func TestDoctorHookFileNestedShapeOk(t *testing.T) {
 	}
 }
 
-// setHarnessEnvs — 하니스 5종 env를 전부 빈 임시 디렉터리로 격리.
-// harnessChecks 단위 테스트의 전제(실홈 설정 파일 영향 차단).
+// setHarnessEnvs — isolates all 5 harness envs to empty temp directories.
+// A precondition of the harnessChecks unit tests (blocking real-home settings files).
 func setHarnessEnvs(t *testing.T) {
 	t.Helper()
 	for _, e := range []string{
@@ -633,8 +632,8 @@ func setHarnessEnvs(t *testing.T) {
 	}
 }
 
-// state — 설정 파일 전부 부재 → 하니스 검사 생성 없음(빈 슬라이스).
-// 미설치 하니스는 경고가 아니다(§4 a).
+// state — all settings files absent -> no harness checks produced (an empty slice).
+// An uninstalled harness is not a warning (§4 a).
 func TestHarnessChecksSkipWhenAbsent(t *testing.T) {
 	setHarnessEnvs(t)
 	if got := harnessChecks(); len(got) != 0 {
@@ -642,8 +641,8 @@ func TestHarnessChecksSkipWhenAbsent(t *testing.T) {
 	}
 }
 
-// file — codex config만 있고 flint 미등록 → 1건 fail. Name "harness-codex"·
-// Fix에 문서 경로(§4 b).
+// file — only the codex config present, flint unregistered -> 1 fail. Name "harness-codex" and
+// the Fix carries the doc path (§4 b).
 func TestHarnessChecksFailWhenUnregistered(t *testing.T) {
 	setHarnessEnvs(t)
 	home := t.TempDir()
@@ -667,7 +666,7 @@ func TestHarnessChecksFailWhenUnregistered(t *testing.T) {
 	}
 }
 
-// file — 본문에 "flint" 포함 → ok(등록 판정은 문자열 매칭, 포맷 무관 — C6).
+// file — the body contains "flint" -> ok (the registration check is string matching, format-agnostic — C6).
 func TestHarnessChecksOkWhenRegistered(t *testing.T) {
 	setHarnessEnvs(t)
 	home := t.TempDir()
@@ -685,8 +684,8 @@ func TestHarnessChecksOkWhenRegistered(t *testing.T) {
 	}
 }
 
-// file — cursor는 프로젝트 스코프(.cursor/mcp.json) 우선: FLINT_CURSOR_DIR
-// 루트의 프로젝트 파일을 검사 대상으로 삼는다(C5).
+// file — cursor prefers the project scope (.cursor/mcp.json): the FLINT_CURSOR_DIR
+// root's project file becomes the check target (C5).
 func TestHarnessChecksCursorProjectScope(t *testing.T) {
 	setHarnessEnvs(t)
 	root := t.TempDir()
@@ -711,8 +710,8 @@ func TestHarnessChecksCursorProjectScope(t *testing.T) {
 	}
 }
 
-// hook-file — 본문에 'flint' 문자열만 있고 hooks.command 없으면 fail
-// (전문 포함 검사였을 때 통과하던 우연 일치).
+// hook-file — a body with only the 'flint' string and no hooks.command fails
+// (an accidental match that passed under the old full-text containment check).
 func TestDoctorHookFileFlintWordOnlyFails(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -733,8 +732,8 @@ func TestDoctorHookFileFlintWordOnlyFails(t *testing.T) {
 	}
 }
 
-// TestDoctorCheckNameSpace — 전체 리포트가
-// 보여주는 체크명(skill-file·harness-*)이 --check 단독 실행으로 가능하다.
+// TestDoctorCheckNameSpace — every check name the full report
+// shows (skill-file, harness-*) is runnable via --check standalone.
 func TestDoctorCheckNameSpace(t *testing.T) {
 	c := runDoctorCheck(context.Background(), &fakeStore{}, "skill-file")
 	if c.Name != "skill-file" || (c.Status != "ok" && c.Status != "warn" && c.Status != "fail") {
@@ -750,13 +749,13 @@ func TestDoctorCheckNameSpace(t *testing.T) {
 	}
 }
 
-// TestDoctorEventVolume — 계측 3테이블 합계가
-// events_volume_warn 임계를 넘으면 warn, 미만이면 ok(성장은 fail 아님).
+// TestDoctorEventVolume — when the 3 metering tables' total exceeds
+// the events_volume_warn threshold it warns; below it, ok (growth is not a fail).
 func TestDoctorEventVolume(t *testing.T) {
 	base := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "key IN ('pending_max'"):
-			return nil, nil // thresholds 기본값(50000)
+			return nil, nil // thresholds defaults (50000)
 		case strings.Contains(sql, "count(*) FROM read_events"):
 			return [][]any{{int64(60000)}}, nil
 		}
@@ -779,15 +778,15 @@ func TestDoctorEventVolume(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScan — 보유 지식에서 비밀 후보 발견 시
-// warn(패턴명+id만 — 본문 미출력).
+// TestDoctorSecretsScan — a secret candidate found in held knowledge
+// warns (pattern name + id only — no body output).
 func TestDoctorSecretsScan(t *testing.T) {
 	hit := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
-			return nil, nil // thresholds 미설정 — 기본 상한
+			return nil, nil // thresholds unset — the default cap
 		}
 		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
-			// 전열 스캔(7열)·무효화 제외.
+			// full-column scan (7 columns), invalidation excluded.
 			return [][]any{{int64(7), "토픽", "토큰 ghp_abcdefghijklmnopqrst 포함", "", "", "", ""}}, nil
 		}
 		return nil, nil
@@ -810,7 +809,7 @@ func TestDoctorSecretsScan(t *testing.T) {
 }
 
 // TestDoctorSecretsScanSessions — sessions.summary
-// 발견 경로 — PII 최다 필드라는 도입 취지의 발견 케이스가 무테스트였다.
+// the findings path — the founding motive (the most PII-dense field) had no test case.
 func TestDoctorSecretsScanSessions(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
@@ -820,7 +819,7 @@ func TestDoctorSecretsScanSessions(t *testing.T) {
 			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
 		}
 		if strings.Contains(sql, "FROM sessions") {
-			// 세션 요약에 실제 패턴 — 발견되어야 warn.
+			// a real pattern in the session summary — must be found and warn
 			return [][]any{{int64(3), "claude", "요약에 토큰 ghp_abcdefghijklmnopqrst 포함"}}, nil
 		}
 		return nil, nil
@@ -831,15 +830,15 @@ func TestDoctorSecretsScanSessions(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanRowLimitReached — 행 상한 도달
-// 분기 — 부분 스캔을 '미발견 ok'로 거짓 보고하지 않는다(LIMIT 경계 >=).
+// TestDoctorSecretsScanRowLimitReached — the row-cap-reached branch —
+// never falsely reports a partial scan as a clean ok (the LIMIT boundary is >=).
 func TestDoctorSecretsScanRowLimitReached(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
 			return [][]any{{"secrets_scan_row_limit", "2"}}, nil
 		}
 		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
-			// 상한 2와 동일 수 반환 → 상한 도달(LIMIT 잘리면 더 있음).
+			// returns the same count as the cap of 2 -> cap reached (a truncated LIMIT means more exist).
 			return [][]any{
 				{int64(1), "토픽", "무해한 요약", "", "", "", ""},
 				{int64(2), "토픽", "또 다른 무해한 요약", "", "", "", ""},
@@ -853,8 +852,8 @@ func TestDoctorSecretsScanRowLimitReached(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanSessionsError — 세션 조회 실패는 거짓
-// ok가 아니라 warn(지식 경로 '지식 조회 실패'와 대칭).
+// TestDoctorSecretsScanSessionsError — a session lookup failure is warn,
+// not a false ok (symmetric with the knowledge path's 'knowledge lookup failure').
 func TestDoctorSecretsScanSessionsError(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
@@ -874,8 +873,8 @@ func TestDoctorSecretsScanSessionsError(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsFindingsSurviveSessionError — 세션
-// 조회 실패가 이미 잡은 지식 발견을 버리지 않는다(격차는 주석으로).
+// TestDoctorSecretsFindingsSurviveSessionError — a session lookup
+// failure does not discard already-caught knowledge findings (the gap is annotated).
 func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
@@ -898,9 +897,9 @@ func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanProjects — projects.name 사후
-// 스캔 — restore·레거시 유입은 쓰기 시점 스캔을 우회한다(세션 경로와 같은
-// 사각 폐쇄). 발견은 패턴명#project:id로만 보고(본문 미출력).
+// TestDoctorSecretsScanProjects — the post-hoc scan of projects.name —
+// restore and legacy intake bypass the write-time scan (closing the same blind spot as the
+// session path). Findings are reported only as pattern#project:id (no body output).
 func TestDoctorSecretsScanProjects(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
@@ -924,7 +923,7 @@ func TestDoctorSecretsScanProjects(t *testing.T) {
 }
 
 // TestDoctorMetaHygieneUnknownKeySanitized — meta-hygiene
-// 미지 키 샘플은 detail에 그대로 흐르는 출력이라 살균 출구를 통과한다.
+// unknown-key samples flow verbatim into the detail, so they pass through the sanitization outlet.
 func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta") {
@@ -944,9 +943,9 @@ func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
 	}
 }
 
-// TestFlintHookCmdEvalWrapped — doctor가 설치하는 훅
-// 명령도 jq @sh+eval 패턴 — 이중따옴표 치환("$(jq …)") 재발 방지.
-// binPath 홑따옴표 인용 — 공백 경로의 무음 소실 방지.
+// TestFlintHookCmdEvalWrapped — the hook command doctor installs also uses the
+// jq @sh + eval pattern — preventing a recurrence of the double-quoted substitution ("$(jq ...)").
+// binPath single-quoted — preventing silent loss for paths with spaces.
 func TestFlintHookCmdEvalWrapped(t *testing.T) {
 	cmd := flintHookCmd("/x/flint", `session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`)["command"].(string)
 	if !strings.HasPrefix(cmd, `eval "'/x/flint' `) {
@@ -957,10 +956,10 @@ func TestFlintHookCmdEvalWrapped(t *testing.T) {
 	}
 }
 
-// TestFlintHookCmdQuotesBinPath — 공백 포함 설치 경로도
-// 홑따옴표 1개 인자로 조립(무인용 시 eval 단어 분할로 훅 무음 소실).
-// 조립 문자열 단언 + 멱등 식별 정합(flintHookSubRe가 신형 인용 형식과
-// 구형 무인용 형식 모두 잡아야 재설치 중복 방지 유지).
+// TestFlintHookCmdQuotesBinPath — an install path containing spaces is also
+// assembled as 1 single-quoted argument (unquoted, eval word-splitting silently drops the hook).
+// Asserts the assembled string + idempotence-identification consistency (flintHookSubRe must catch
+// both the new quoted form and the old unquoted form to keep preventing reinstall duplicates).
 func TestFlintHookCmdQuotesBinPath(t *testing.T) {
 	cmd := flintHookCmd("/My Tools/flint", `session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`)["command"].(string)
 	if !strings.HasPrefix(cmd, `eval "'/My Tools/flint' session-start `) {
@@ -975,10 +974,10 @@ func TestFlintHookCmdQuotesBinPath(t *testing.T) {
 	}
 }
 
-// TestDoctorFullChainIncludesTailChecks — 전체 실행 체인과
-// doctorTailChecks(--check 허용 목록)의 정합 — backup-key를
-// 목록에만 추가하고 체인 append를 누락해 전체 doctor가 체크를 실행하지
-// 않던 배선 누락의 재발 방지(이름 소스 단일화 검증).
+// TestDoctorFullChainIncludesTailChecks — consistency between the full run chain and
+// doctorTailChecks (the --check allow list) — preventing a recurrence of the wiring omission
+// where backup-key was added to the list but the chain append was missed, so the full doctor
+// never ran the check (verifying the single source of names).
 func TestDoctorFullChainIncludesTailChecks(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{queryFn: doctorQueryFn(time.Now().Add(-time.Hour), time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))}

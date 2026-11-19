@@ -1,6 +1,6 @@
-// maintain 커맨드 — 에이전트 큐레이션 세션 진입점(spec §8).
-// `flint maintain --check`(임계값 보고만) · `--invalidate --id N --reason`
-// · `--merge --from N --to M`. 판정은 사람(에이전트)이 하고 CLI는 갱신 경로만 연결한다.
+// the maintain command — the agent curation session entry point (spec §8).
+// `flint maintain --check` (threshold reporting only), `--invalidate --id N --reason`,
+// and `--merge --from N --to M`. Humans (agents) make the verdicts; the CLI only wires the update paths.
 package ops
 
 import (
@@ -21,42 +21,42 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// MaintStore — maintain이 필요한 저장소 연산(Store + admin 갱신·집계).
-// 상태 전이 갱신(무효화·대체)은 db.Repo 단일 경로 위임 —
-// Invalidate(배치·rows-affected 후견사 내장)·Supersede(계보 superseded_by
-// 병기 — 텍스트 마커 이중 모델 폐지).
+// MaintStore — the store operations maintain needs (Store + admin updates and tallies).
+// State-transition updates (invalidate, supersede) delegate to the single db.Repo path —
+// Invalidate (batch, with the rows-affected stewardship built in) and Supersede (recording the
+// superseded_by lineage — the dual text-marker model abolished).
 type MaintStore interface {
 	wire.Store
 	Counts(ctx context.Context) (db.Counts, error)
 	DupGroups(ctx context.Context, limit int) ([]db.DupGroup, error)
 	Invalidate(ctx context.Context, ids []int, reason string) (int64, error)
 	Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error)
-	// invalidated 정리 DELETE도 같은 원칙(쓰기 가드 —
+	// the invalidated cleanup DELETE follows the same principle (the write guard —
 	// writes_through_repo_test).
 	PruneInvalidated(ctx context.Context, before time.Time) (int64, error)
-	// 회상 이벤트 보존기한 정리 DELETE도 Repo 단일 경로 위임
+	// the recall-event retention cleanup DELETE also delegates to the single Repo path
 	// (recall_event_retention_days — R42-D).
 	PruneRecallEvents(ctx context.Context, before time.Time) (int64, error)
 	Merge(ctx context.Context, fromID, toID int) error
 }
 
-// ConflictStore — 모순 후보 보고에 필요한 추가 조회(요약 포함 그룹).
-// MaintStore와 분리된 조건부 인터페이스 — 기존 fake는 그대로 둔다.
+// ConflictStore — the extra lookup needed for contradiction-candidate reporting (groups with summaries).
+// A conditional interface separate from MaintStore — existing fakes stay as-is.
 type ConflictStore interface {
 	ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error)
 }
 
-// maintainValueFlags — 값을 받는 플래그 전체(모드 귀속 검증 대상).
+// maintainValueFlags — all value-taking flags (mode-ownership validation targets).
 var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to", "--reason",
 	"--ids", "--supersede", "--by"}
 
-// maintainModeFlags — 모드별 허용 값 플래그. 무관 플래그는 조용히 무시하지
-// 않고 에러로 거부한다(--days·--limit이 --stale 아닌 모드에서 흐르는 등).
+// maintainModeFlags — the value flags allowed per mode. Unrelated flags are not silently
+// ignored but rejected with an error (e.g. --days or --limit flowing under a non-stale mode).
 var maintainModeFlags = map[string]map[string]bool{
 	"--check":      {},
-	"--meta-audit": {}, // meta 키 위생 보고(읽기 전용)
-	// --prune-invalidated N — N일 경과 invalidated 정리(dry-run 기본,
-	// --commit 확정 — expire-pending 관례 승계. 일수는 모드 값).
+	"--meta-audit": {}, // meta key hygiene report (read-only)
+	// --prune-invalidated N — cleans invalidated rows past N days (dry-run by default,
+	// --commit confirms — inheriting the expire-pending convention. The days are the mode's value).
 	"--prune-invalidated": {},
 	"--dup-suspects":      {"--limit": true},
 	"--conflict-suspects": {"--limit": true},
@@ -65,46 +65,46 @@ var maintainModeFlags = map[string]map[string]bool{
 	"--invalidate":        {"--id": true, "--reason": true, "--ids": true},
 	"--merge":             {"--from": true, "--to": true},
 	"--supersede":         {"--supersede": true, "--by": true},
-	// --expire-pending N — 일수는 모드 값으로 받는다(--days 아님).
+	// --expire-pending N — the days are taken as the mode's value (not --days).
 	"--expire-pending": {},
-	// decay 감쇠 후보 보고(읽기 전용 — 실행은 --invalidate 위임).
+	// decay decay-candidate report (read-only — execution is delegated to --invalidate).
 	"--decay-audit": {"--limit": true},
 }
 
-// maintainYesModes — --yes(실행 확정)가 뜻 있는 모드. 나머지 모드에서의
-// --yes도 조용한 무시 대신 에러로 거부한다.
+// maintainYesModes — the modes where --yes (execution confirmation) is meaningful. In the
+// other modes, --yes is also rejected with an error instead of silent ignoring.
 var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true}
 
-// maintainCommitModes — --commit(전환 확정)이 뜻 있는 모드. 나머지 모드의
-// --commit도 --yes와 같은 원칙으로 에러 거부한다.
+// maintainCommitModes — the modes where --commit (transition confirmation) is meaningful. In the
+// other modes, --commit is rejected with an error by the same principle as --yes.
 var maintainCommitModes = map[string]bool{"--expire-pending": true, "--prune-invalidated": true}
 
-// MaintainRetryDelays — 유지보수 쓰기 경로 Retry 간격(전역 제약: 쓰기는
-// 40001 대응 Retry 동반). 테스트는 즉시 재시도로 교체.
+// MaintainRetryDelays — the Retry intervals for the maintenance write path (global constraint:
+// writes come with 40001-handling Retry). Tests substitute immediate retries.
 var MaintainRetryDelays = db.DefaultDelays
 
-// MaintainRetryDelaysFn — Retry 간격 seam. cli maintain_v08_test가 cli var
-// (ops_alias_2 재노출) 교체로 즉시 재시도를 주입하면 래퍼가 호출 시점에
-// 읽어 전파한다(composePsFn 관례 승계).
+// MaintainRetryDelaysFn — the Retry-interval seam. When the cli maintain_v08_test injects
+// immediate retries by swapping the cli var (re-exported via ops_alias_2), the wrapper reads it
+// at call time and propagates (inheriting the composePsFn convention).
 var MaintainRetryDelaysFn = func() []time.Duration { return MaintainRetryDelays }
 
-// retryWrite — 쓰기(UPDATE+Commit) 클로저를 Retry로 감싼다(전역 제약).
+// retryWrite — wraps a write (UPDATE + Commit) closure in Retry (the global constraint).
 func retryWrite(ctx context.Context, fn func() error) error {
 	return db.Retry(ctx, fn, MaintainRetryDelaysFn())
 }
 
-// maintainUsageLine — 허용 플래그 안내(무효 인자 오류 메시지의
-// 공통 접미 — error:"usage" 전환과 함께 에이전트 자가수신용).
+// maintainUsageLine — the allowed-flags guidance (the common suffix of the invalid-arg
+// error message — for agent self-correction, alongside the error:"usage" transition).
 const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --tui (opt-in, run alone)"
 
-// maintainUsageErrf — 무효 인자 오류 조립(approve.approveUsageErr
-// 관례 — UsageError 타입 + 허용 플래그 접미. exit 코드는 호출부 불변).
+// maintainUsageErrf — assembles the invalid-arg error (the approve.approveUsageErr
+// convention — a UsageError type + the allowed-flags suffix. The exit code stays with the caller).
 func maintainUsageErrf(format string, a ...any) *wire.UsageError {
 	return wire.UsageErrorf(format+" — "+maintainUsageLine, a...)
 }
 
-// RunMaintain — 서브옵션 파싱 후 모드별 실행. --check는 보고만(exit 0),
-// 갱신 계열은 성공 0 · 대상 부재(ErrNotFound) 1 · 그 외 MapExit.
+// RunMaintain — parses the sub-options then runs per mode. --check only reports (exit 0);
+// the update family succeeds with 0, missing targets (ErrNotFound) 1, else MapExit.
 func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	ms, ok := st.(MaintStore)
 	if !ok {
@@ -112,16 +112,16 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return 1
 	}
 
-	// 파싱은 wire.ParseArgs 사양 테이블 — 시맨틱 100% 보존(값 무조건
-	// 소비·마지막 모드 우선·unknown exit 3). 값 검증(숫자·사유 가드·ids
-	// 파싱)은 발생 순(AllOccs)으로 아래에서 재현 — 기존 인카운터
-	// 순서 오류 우선 그대로.
+	// parsing uses the wire.ParseArgs spec table — semantics 100% preserved (always consume a
+	// value, last mode wins, unknown exits 3). Value validation (numbers, reason guards, ids
+	// parsing) is reproduced below in occurrence order (AllOccs) — the existing encounter-order
+	// error precedence stays as-is.
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--check"}, {Name: "--dup-suspects"}, {Name: "--conflict-suspects"},
 			{Name: "--merge"}, {Name: "--stale"}, {Name: "--invalidate"},
 			{Name: "--invalidate-stale"}, {Name: "--meta-audit"}, {Name: "--decay-audit"},
-			// --expire-pending·--prune-invalidated는 모드+값(N 일수).
+			// --expire-pending and --prune-invalidated are mode + value (N days).
 			{Name: "--expire-pending", Value: true}, {Name: "--prune-invalidated", Value: true},
 			{Name: "--days", Value: true}, {Name: "--limit", Value: true},
 			{Name: "--id", Value: true}, {Name: "--from", Value: true}, {Name: "--to", Value: true},
@@ -132,21 +132,21 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		Usage: maintainUsageLine,
 	})
 	if perr != nil {
-		// 무효 플래그는 무효 인자 계약 exit 3(doctor·tuning·
-		// diff·import 정합).
+		// invalid flags follow the invalid-arg contract exit 3 (consistent with doctor, tuning,
+		// diff, and import).
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
 		return 3
 	}
 	mode := ""
 	id, from, to := 0, 0, 0
 	old, by := 0, 0                  // --supersede OLD --by NEW
-	days, limit := 0, 20             // --stale: days=0 → meta stale_days(기본 90) 폴백
-	dupLimit := SuspectsDefaultLimit // --dup-suspects 기본(스펙 R4: --limit M 기본 10)
-	expireDays := 0                  // --expire-pending N — 기본값 없음(오삭제 방지)
+	days, limit := 0, 20             // --stale: days=0 -> the meta stale_days (default 90) fallback
+	dupLimit := SuspectsDefaultLimit // the --dup-suspects default (spec R4: --limit M defaults to 10)
+	expireDays := 0                  // --expire-pending N — no default (preventing accidental deletion)
 	reason := ""
 	yes, commit := res.Given("--yes"), res.Given("--commit")
-	var idList []int // --ids 파싱 결과(스냅샷 — 재평가 없음)
-	// 모드 선출: 모드 플래그 중 마지막 발생이 우선(기존 루프 덮어쓰기 승계).
+	var idList []int // the --ids parse result (a snapshot — no reevaluation)
+	// mode election: the last occurrence among the mode flags wins (inheriting the old loop overwrite).
 	for _, name := range res.FlagOrder() {
 		switch name {
 		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
@@ -155,7 +155,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			mode = name
 		}
 	}
-	// 값 플래그 검증·확정 — 발생 순(기존 인카운터 순서 재현).
+	// value-flag validation and confirmation — in occurrence order (reproducing the old encounter order).
 	for _, o := range res.AllOccs() {
 		switch o.Name {
 		case "--days", "--limit":
@@ -165,8 +165,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			}
 			n, err := strconv.Atoi(o.Value)
 			if err != nil || n <= 0 {
-				// --limit 무효 값은 read·brief·audit 계열과 동일
-				// 무효 인자 exit 3(값 누락 포함).
+				// an invalid --limit value is invalid-arg exit 3 like the read, brief,
+				// and audit family (including a missing value).
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
 				return 3
 			}
@@ -175,7 +175,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			} else {
 				limit, dupLimit = n, n
 			}
-		case "--expire-pending", "--prune-invalidated": // 값 N 공통 파싱
+		case "--expire-pending", "--prune-invalidated": // common parsing of the N value
 			if !o.HasValue {
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number of days", o.Name)))
 				return 1
@@ -209,9 +209,9 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --reason requires a value")))
 				return 1
 			}
-			// 값이 뒤 플래그를 흡수하는 오타('--reason
-			// --commit' → 사유 "--commit")는 공용 가드로 무효 인자
-			// exit 3(backup --out·restore --file와 동일 계약).
+			// a typo where the value absorbs a following flag ('--reason
+			// ' --commit' -> the reason "--commit") is invalid-arg exit 3 via the shared guard
+			// (the same contract as backup --out and restore --file).
 			if err := knowledge.ValidateFlagValue("reason", o.Value); err != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return 3
@@ -257,7 +257,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		seen[f] = res.Given(f)
 	}
 
-	// 모드 귀속 검증: 해당 모드가 받지 않는 값 플래그는 에러(조용한 무시 금지).
+	// mode-ownership validation: value flags the mode does not take are errors (no silent ignoring).
 	if allowed, ok := maintainModeFlags[mode]; ok {
 		for _, f := range maintainValueFlags {
 			if seen[f] && !allowed[f] {
@@ -266,12 +266,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			}
 		}
 	}
-	// --yes는 실행 확정 마커 — 해당 없는 모드에서 흐르면 에러(동일 원칙).
+	// --yes is the execution-confirmation marker — flowing into a mode without it is an error (the same principle).
 	if yes && !maintainYesModes[mode] {
 		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --yes is not valid with %s", mode)))
 		return 1
 	}
-	// --commit도 같은 원칙(dry-run 기본 모드의 전환 마커).
+	// --commit follows the same principle (the transition marker of dry-run-default modes).
 	if commit && !maintainCommitModes[mode] {
 		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --commit is not valid with %s", mode)))
 		return 1
@@ -307,7 +307,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainSupersede(ctx, ms, stdout, old, by)
 	case "--invalidate":
 		if len(idList) > 0 {
-			if !yes { // 스펙 §2: --ids는 --yes 병행 필요(실행 확정)
+			if !yes { // spec §2: --ids requires --yes alongside (execution confirmation)
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --invalidate --ids requires --yes"))))
 				return 1
 			}
@@ -317,11 +317,11 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --invalidate requires --id and --reason"))))
 			return 1
 		}
-		// 원본 단일 경로(admin.go Invalidate)의
-		// 멱등 계약 승계. 이미 무효화된 id는 재갱신·재커밋 없는 no-op 성공 —
-		// invalid_at을 now()로 다시 새기면 prune-invalidated 시기가
-		// 미뤄지는 부수효과가 생긴다. 부재 id는 ErrNotFound(원본
-		// ensureExists 계약). 쓰기 자체는 Repo.Invalidate 단일 경로 유지.
+		// inheriting the idempotence contract of the original single path
+		// (admin.go Invalidate). Already-invalidated ids are no-op successes with no re-update or
+		// re-commit — re-stamping invalid_at with now() would defer the
+		// prune-invalidated timing as a side effect. Missing ids are ErrNotFound (the original
+		// ensureExists contract). The write itself stays on the single Repo.Invalidate path.
 		chk, err := wire.QueryOnce(ctx, ms,
 			`SELECT invalid_at FROM knowledge WHERE id = $1`, []any{id})
 		if err != nil {
@@ -343,8 +343,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		fmt.Fprintf(stdout, `{"status":"invalidated","id":%d}`+"\n", id)
 		return 0
 	case "--expire-pending":
-		// expireDays<=0 이중 방어 불요 — 파서가
-		// 이미 양수만 통과시킨다.
+		// no need for a second expireDays<=0 defense — the parser
+		// already passes only positive values.
 		return maintainExpirePending(ctx, ms, stdout, expireDays, commit)
 	case "--merge":
 		if from == 0 || to == 0 {
@@ -357,13 +357,13 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		fmt.Fprintf(stdout, `{"status":"merged","from":%d,"to":%d}`+"\n", from, to)
 		return 0
 	default:
-		// bare usage(모드 미지정)도 무효 인자 exit 3 통일.
+		// bare usage (no mode given) is also unified to invalid-arg exit 3.
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", maintainUsageLine)))
 		return 3
 	}
 }
 
-// parseIDList — "1,2,3" 형태 id 스냅샷 파싱(빈 토큰·비양수·비수 거부).
+// parseIDList — parses a "1,2,3"-style id snapshot (rejecting empty tokens, non-positive, and non-numeric).
 func parseIDList(s string) ([]int, error) {
 	parts := strings.Split(s, ",")
 	out := make([]int, 0, len(parts))
@@ -378,19 +378,19 @@ func parseIDList(s string) ([]int, error) {
 	return out, nil
 }
 
-// staleItem — maintain --stale 보고 항목. never_read 버킷(read_count=0)을
-// 사유(reason)로 구분 표시한다(Devin "사용 안 한 노트" 준거). 보고 전용.
+// staleItem — a maintain --stale report item. Distinguishes the never_read bucket
+// (read_count=0) as the reason (following Devin's "unused notes"). Reporting only.
 type staleItem struct {
 	ID        int    `json:"id"`
 	Topic     string `json:"topic"`
 	NeverRead bool   `json:"never_read"`
-	Reason    string `json:"reason"`     // never_read(미참조) | stale(경과)
-	StaleDays int    `json:"stale_days"` // 기준 시각(last_read_at·없으면 ingested_at) 경과일
+	Reason    string `json:"reason"`     // never_read (unreferenced) | stale (elapsed)
+	StaleDays int    `json:"stale_days"` // elapsed days from the reference time (last_read_at, else ingested_at)
 }
 
-// maintainDupSuspects — active 중 동일 topic 2건+ 그룹 보고(보고 전용·
-// exit 0). 판정(병합·무효화)은 기존 --merge·--invalidate로 에이전트 수행
-// — SQL 자동 판정 금지 원칙 유지(spec R4).
+// maintainDupSuspects — reports same-topic 2+-row groups among active (report-only,
+// exit 0). Verdicts (merge, invalidate) are performed by the agent via the existing --merge
+// and --invalidate — keeping the no-SQL-auto-verdict principle (spec R4).
 func maintainDupSuspects(ctx context.Context, ms MaintStore, stdout io.Writer, limit int) int {
 	groups, err := ms.DupGroups(ctx, limit)
 	if err != nil {
@@ -401,8 +401,8 @@ func maintainDupSuspects(ctx context.Context, ms MaintStore, stdout io.Writer, l
 	return 0
 }
 
-// DupSuspectsJSON — --dup-suspects 출력 한 줄 JSON. ids null 방지를 위해
-// 빈 슬라이스로 정규화한다(nil이면 "ids":null이 되어 형식 계약 위반).
+// DupSuspectsJSON — the --dup-suspects one-line JSON output. To avoid null ids,
+// it normalizes to an empty slice (nil would yield "ids":null, violating the shape contract).
 func DupSuspectsJSON(groups []db.DupGroup) string {
 	type dupGroupJSON struct {
 		Topic string `json:"topic"`
@@ -417,7 +417,7 @@ func DupSuspectsJSON(groups []db.DupGroup) string {
 		if ids == nil {
 			ids = []int{}
 		}
-		out.Groups = append(out.Groups, dupGroupJSON{Topic: render.Text(g.Topic), IDs: ids}) // render.Text 경유(출력 재살균 승계)
+		out.Groups = append(out.Groups, dupGroupJSON{Topic: render.Text(g.Topic), IDs: ids}) // via render.Text (inheriting output re-sanitization)
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -426,57 +426,57 @@ func DupSuspectsJSON(groups []db.DupGroup) string {
 	return string(b)
 }
 
-// ConflictDupThreshold — 모순 분류 기준(룰링): 그룹 내 요약 유사도가
-// 이 값 이상이면 중복 후보(기존 --dup-suspects), 미만이면 모순 후보.
-// 제안 임계값(0.15)과 목적이 다른 독립 값이다. 기본값은 thresholds
-// 레지스트리(store.DefaultThresholds) 단일 소스이고, 런타임에는 meta
-// conflict_dup_threshold 오버라이드가 classifyConflictAt 주입으로
-// 우선한다. var인 것은 레지스트리 참조 때문(값 불변 계약).
+// ConflictDupThreshold — the contradiction classification criterion (ruling): a group whose
+// summary similarity is at or above this value is a duplicate candidate (the existing --dup-suspects);
+// below it, a contradiction candidate. An independent value with a different purpose from the
+// suggestion threshold (0.15). The default's single source is the thresholds registry
+// (store.DefaultThresholds); at runtime the meta conflict_dup_threshold override takes
+// precedence via the classifyConflictAt injection. It is a var for the registry reference (the value-immutability contract).
 var ConflictDupThreshold = store.DefaultThresholds().ConflictDupThreshold
 
-// SuspectsDefaultLimit — --dup-suspects·--conflict-suspects 공통 기본
-// 상한(스펙 R4: --limit M 기본 10). doctor conflicts 검사도
-// 그룹 조회를 이 상한으로 묶는다 — 무제한 스캔 방지.
+// SuspectsDefaultLimit — the shared default cap of --dup-suspects and --conflict-suspects
+// (spec R4: --limit M defaults to 10). The doctor conflicts check also
+// bounds its group lookup with this cap — preventing unbounded scans.
 const SuspectsDefaultLimit = 10
 
-// MaintainTUILoadLimit — maintain TUI 로더가 보고 3종
-// (--dup-suspects·--conflict-suspects·--stale)을 조회할 때 명시하는
-// 상한. 기본(dup/conflict SuspectsDefaultLimit 10·stale 20)은 사람
-// 대화형용인데 TUI는 잘림이 화면에 표시되지 않는다 — 명시 상한으로
-// 대체한다(잘림 무표시 폐지). lib/tui loadMaintainSuspects가 단일
-// 소스로 참조한다.
+// MaintainTUILoadLimit — the explicit cap the maintain TUI loader uses when querying the
+// 3 reports (--dup-suspects, --conflict-suspects, --stale). The defaults
+// (dup/conflict SuspectsDefaultLimit 10, stale 20) are for human interactivity,
+// but the TUI does not show truncation on screen — replaced with an explicit cap
+// (abolishing invisible truncation). lib/tui's loadMaintainSuspects references it as the
+// single source.
 const MaintainTUILoadLimit = 500
 
-// ConflictDice — rune bigram 다중집합 Dice 계수. 구현은 lib/query
-// BigramDiceMultiset 위임(집합판 BigramDice와는 반복 bigram 출현 수에서
-// 갈린다 — 임계값 0.6은 다중집합 기준 룰링이므로 기존 분류 동작 유지).
+// ConflictDice — the rune-bigram multiset Dice coefficient. The implementation delegates
+// to lib/query's BigramDiceMultiset (it differs from the set version BigramDice in repeated-bigram
+// counts — the 0.6 threshold is a multiset-based ruling, so the existing classification behavior is kept).
 func ConflictDice(a, b string) float64 {
 	return query.BigramDiceMultiset(a, b)
 }
 
-// ClassifyConflict — 요약 두 건의 모순 여부(기본 임계값): 유사도가
-// ConflictDupThreshold 미만이면 모순 후보(같은 주제에 서로 다른 주장),
-// 이상이면 중복 후보. 오버라이드 경로는 classifyConflictAt.
+// ClassifyConflict — whether two summaries contradict (default threshold): similarity below
+// ConflictDupThreshold means a contradiction candidate (different claims on the same topic),
+// at or above a duplicate candidate. The override path is classifyConflictAt.
 func ClassifyConflict(summA, summB string) bool {
 	return classifyConflictAt(summA, summB, ConflictDupThreshold)
 }
 
-// classifyConflictAt — 임계값 주입판(ClassifyConflict). 소비자
-// (maintain --conflict-suspects·doctor conflicts)는 loadThresholds의
-// meta 오버라이드 값을 넘긴다.
+// classifyConflictAt — the threshold-injected variant (ClassifyConflict). Consumers
+// (maintain --conflict-suspects, doctor conflicts) pass the loadThresholds
+// meta override value.
 func classifyConflictAt(summA, summB string, dupThreshold float64) bool {
 	return ConflictDice(summA, summB) < dupThreshold
 }
 
-// ConflictSummaryPrefix — 보고용 요약 앞 40자(단일 구현 render.TruncateRunes
-// 위임).
+// ConflictSummaryPrefix — the first 40 chars of a summary for reporting (delegating to the
+// single render.TruncateRunes implementation).
 func ConflictSummaryPrefix(s string) string {
 	return render.TruncateRunes(s, 40)
 }
 
-// IsConflictGroup — 그룹이 모순 후보인지: 어느 한 쌍이라도 유사도가
-// 임계값(dupThreshold) 미만이면 이질 주장이 섞인 것으로 본다(전 쌍
-// 동일·유사만 중복). 임계값은 호출자가 loadThresholds 값으로 주입한다.
+// IsConflictGroup — whether a group is a contradiction candidate: if any pair's similarity is
+// below the threshold (dupThreshold), the group is taken to mix distinct claims (only all-pairs
+// identical/similar counts as duplicate). The threshold is injected by the caller with the loadThresholds value.
 func IsConflictGroup(g db.ConflictGroup, dupThreshold float64) bool {
 	for i := 0; i < len(g.Summaries); i++ {
 		for j := i + 1; j < len(g.Summaries); j++ {
@@ -488,20 +488,20 @@ func IsConflictGroup(g db.ConflictGroup, dupThreshold float64) bool {
 	return false
 }
 
-// maintainConflictSuspects — active 동일 topic 그룹 중 요약 유사도
-// 미만(모순 후보) 그룹만 보고(보고 전용·exit 0). 그룹핑은 --dup-suspects
-// 승계, 출력도 그 형식에 요약 앞 40자를 더한다. 분류 임계값은 meta
-// conflict_dup_threshold 오버라이드 우선(조회 실패는 기본값).
-// 판정(무효화·승격)은 기존 --invalidate·--supersede로 에이전트 수행 —
-// SQL 자동 판정 금지 유지.
+// maintainConflictSuspects — among same-topic active groups, reports only those with below-
+// threshold summary similarity (contradiction candidates) (report-only, exit 0). Grouping inherits
+// --dup-suspects; the output adds the first 40 chars of summaries to that shape. The classification
+// threshold prefers the meta conflict_dup_threshold override (lookup failure falls back to the default).
+// Verdicts (invalidate, promote) are performed by the agent via the existing --invalidate and
+// --supersede — keeping the no-SQL-auto-verdict principle.
 func maintainConflictSuspects(ctx context.Context, cs ConflictStore, stdout io.Writer, limit int) int {
 	groups, err := cs.ConflictGroups(ctx, limit)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// ConflictStore 시그니처에는 Query가 없다 — 구체 타입이 Store(및
-	// MaintStore)를 구현하면 그것으로 임계값을 읽는다(read 경로와 동일 원칙).
+	// the ConflictStore signature has no Query — if the concrete type implements Store (and
+	// MaintStore), it reads the threshold from that (the same principle as the read path).
 	th := store.DefaultThresholds()
 	if ms, ok := cs.(wire.Store); ok {
 		if loaded, lErr := wire.LoadThresholds(ctx, ms); lErr == nil {
@@ -518,8 +518,8 @@ func maintainConflictSuspects(ctx context.Context, cs ConflictStore, stdout io.W
 	return 0
 }
 
-// conflictSuspectsJSON — --conflict-suspects 출력 한 줄 JSON. dup-suspects
-// 형식 승계 + 요약 앞 40자. nil 슬라이스 정규화로 null 방지.
+// conflictSuspectsJSON — the --conflict-suspects one-line JSON output. Inheriting the
+// dup-suspects shape + the first 40 chars of summaries. nil-slice normalization prevents null.
 func conflictSuspectsJSON(groups []db.ConflictGroup) string {
 	type conflictGroupJSON struct {
 		Topic     string   `json:"topic"`
@@ -537,9 +537,9 @@ func conflictSuspectsJSON(groups []db.ConflictGroup) string {
 		}
 		sums := make([]string, 0, len(g.Summaries))
 		for _, s := range g.Summaries {
-			sums = append(sums, ConflictSummaryPrefix(render.Text(s))) // render.Text 경유(출력 재살균 승계)
+			sums = append(sums, ConflictSummaryPrefix(render.Text(s))) // via render.Text (inheriting output re-sanitization)
 		}
-		out.Groups = append(out.Groups, conflictGroupJSON{Topic: render.Text(g.Topic), IDs: ids, Summaries: sums}) // render.Text 경유
+		out.Groups = append(out.Groups, conflictGroupJSON{Topic: render.Text(g.Topic), IDs: ids, Summaries: sums}) // via render.Text
 	}
 	b, err := json.Marshal(out)
 	if err != nil {
@@ -548,8 +548,8 @@ func conflictSuspectsJSON(groups []db.ConflictGroup) string {
 	return string(b)
 }
 
-// maintainStale — active 중 오래 참조되지 않은 항목 보고(보고 전용·exit 0).
-// 항목별 사유(reason)와 요약(summary "N to invalidate") 추가.
+// maintainStale — reports long-unreferenced items among active (report-only, exit 0).
+// Adds a per-item reason and a summary (summary "N to invalidate").
 func maintainStale(ctx context.Context, ms MaintStore, stdout io.Writer, daysOverride, limit int) int {
 	items, days, err := listStale(ctx, ms, daysOverride, limit)
 	if err != nil {
@@ -565,9 +565,9 @@ func maintainStale(ctx context.Context, ms MaintStore, stdout io.Writer, daysOve
 	return 0
 }
 
-// listStale — stale 대상 산출(공통: --stale 보고·--invalidate-stale 적용).
-// 대상: (last_read_at < now-days) OR (read_count = 0 AND ingested_at < now-days).
-// 경계는 미만 — 컷오프와 동일 시각은 포함하지 않는다. cron 친화적.
+// listStale — computes the stale targets (shared by the --stale report and --invalidate-stale application).
+// Targets: (last_read_at < now-days) OR (read_count = 0 AND ingested_at < now-days).
+// The boundary is strict — the exact cutoff moment is not included. Cron-friendly.
 func listStale(ctx context.Context, ms MaintStore, daysOverride, limit int) ([]staleItem, int, error) {
 	th, err := wire.LoadThresholds(ctx, ms)
 	if err != nil {
@@ -575,12 +575,12 @@ func listStale(ctx context.Context, ms MaintStore, daysOverride, limit int) ([]s
 	}
 	days := th.StaleDays
 	if daysOverride > 0 {
-		days = daysOverride // --days N이 meta stale_days보다 우선
+		days = daysOverride // --days N takes precedence over meta stale_days
 	}
-	// 컷오프를 Go에서 계산해 timestamptz 파라미터로 전달한다. SQL의
-	// ($1 * interval) 곱은 Doltgres가 $1을 interval(OID 1186)로 추론해 pgx가
-	// int 인코딩에 실패한다(maintain --stale exit 1). SQL·Go 필터가 같은
-	// 컷오프를 쓰므로 경계도 일치한다.
+	// The cutoff is computed in Go and passed as a timestamptz parameter. An SQL
+	// ($1 * interval) product makes Doltgres infer $1 as interval (OID 1186) and pgx fails the
+	// int encoding (maintain --stale exit 1). The SQL and Go filters use the same cutoff,
+	// so the boundaries match too.
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
 	rows, err := wire.QueryOnce(ctx, ms, `
 		SELECT id, topic, last_read_at, ingested_at, read_count
@@ -604,11 +604,11 @@ func listStale(ctx context.Context, ms MaintStore, daysOverride, limit int) ([]s
 		}
 		topic, _ := r[1].(string)
 		readCount, _ := render.CellToInt(r[4])
-		ref, ok := AnyToTime(r[2]) // last_read_at 우선, 없으면 ingested_at
+		ref, ok := AnyToTime(r[2]) // last_read_at first, else ingested_at
 		if !ok || ref.IsZero() {
 			ref, ok = AnyToTime(r[3])
 		}
-		if !ok || !ref.Before(cutoff) { // 경계 미만 — 컷오프 이후(활성) 제외
+		if !ok || !ref.Before(cutoff) { // strictly before the cutoff — exclude rows at or after it (active)
 			continue
 		}
 		reason := "stale"
@@ -617,7 +617,7 @@ func listStale(ctx context.Context, ms MaintStore, daysOverride, limit int) ([]s
 		}
 		items = append(items, staleItem{
 			ID:        id,
-			Topic:     render.Text(topic), // render.Text 경유(출력 재살균 승계)
+			Topic:     render.Text(topic), // via render.Text (inheriting output re-sanitization)
 			NeverRead: readCount == 0,
 			Reason:    reason,
 			StaleDays: int(time.Since(ref).Hours() / 24),
@@ -626,8 +626,8 @@ func listStale(ctx context.Context, ms MaintStore, daysOverride, limit int) ([]s
 	return items, days, nil
 }
 
-// staleReport — dry-run(기본) 출력 한 줄 JSON. --stale·--invalidate-stale
-// dry-run이 같은 모양을 쓴다(스펙 §2).
+// staleReport — the dry-run (default) one-line JSON output. The --stale and --invalidate-stale
+// dry runs share this shape (spec §2).
 func staleReport(items []staleItem, days int) (string, error) {
 	out, err := json.Marshal(struct {
 		Status  string      `json:"status"`
@@ -643,9 +643,9 @@ func staleReport(items []staleItem, days int) (string, error) {
 	return string(out), nil
 }
 
-// maintainInvalidateStale — 배치 무효화(spec §2). dry-run 기본(마커 없으면
-// --stale과 동일 출력·갱신 없음). --yes 시 목록 산출 시점 id 전체에
-// UPDATE(status='invalidated'·invalid_at=now)+Commit — 쓰기는 Retry 동반.
+// maintainInvalidateStale — batch invalidation (spec §2). Dry-run by default (without the
+// marker, identical output to --stale, no updates). With --yes, all ids from the listing
+// get UPDATE (status='invalidated', invalid_at=now) + Commit — the write comes with Retry.
 func maintainInvalidateStale(ctx context.Context, ms MaintStore, stdout io.Writer,
 	daysOverride, limit int, apply bool) int {
 	items, days, err := listStale(ctx, ms, daysOverride, limit)
@@ -673,14 +673,14 @@ func maintainInvalidateStale(ctx context.Context, ms MaintStore, stdout io.Write
 	return 0
 }
 
-// maintainInvalidateIDs — --invalidate --ids 스냅샷 경로. dry-run 재평가 없이
-// 지정 id 고정 적용(plan-파일 패턴). 존재하지 않는 id는 exit 1.
+// maintainInvalidateIDs — the --invalidate --ids snapshot path. Applies the given ids
+// without dry-run reevaluation (the plan-file pattern). Nonexistent ids exit 1.
 func maintainInvalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []int) int {
 	return invalidateIDs(ctx, ms, stdout, ids, "invalidate --ids")
 }
 
-// invalidateIDs — 공통 배치 무효화: 존재 확인 → 전이(Repo 위임)+Commit
-// (Retry). UPDATE 리터럴은 db.Repo.Invalidate 단일 경로.
+// invalidateIDs — the common batch invalidation: existence check -> transition (Repo
+// delegation) + Commit (Retry). The UPDATE literal stays on the single db.Repo.Invalidate path.
 func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []int, op string) int {
 	rows, err := wire.QueryOnce(ctx, ms,
 		`SELECT id FROM knowledge WHERE id = ANY($1)`, []any{ids})
@@ -729,26 +729,26 @@ func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []i
 	return 0
 }
 
-// expireItem — --expire-pending 나열 항목. pending 경과일은
-// valid_at 기준이고 요약은 앞 40자로 절단해 나열한다(conflict 접두 승계).
+// expireItem — an --expire-pending listing item. The pending elapsed days are measured
+// from valid_at, and the summary is listed truncated to the first 40 chars (inheriting the conflict prefix).
 type expireItem struct {
 	ID      int    `json:"id"`
 	Topic   string `json:"topic"`
 	Summary string `json:"summary"`
-	AgeDays int    `json:"age_days"` // valid_at 경과일
+	AgeDays int    `json:"age_days"` // elapsed days since valid_at
 }
 
-// listExpiredPending — pending 만료 대상 산출: status='pending' AND
-// invalid_at IS NULL AND valid_at < now-days. 컷오프는 Go 계산 후
-// timestamptz 파라미터로 전달하고(listStale 관례 승계 — Doltgres
-// interval 추론 회피) Go 필터로 같은 경계를 재확인한다.
-// expireListLimit — dry-run 나열 상한(무상한 JSON 방어).
+// listExpiredPending — computes the pending expiry targets: status='pending' AND
+// invalid_at IS NULL AND valid_at < now-days. The cutoff is computed in Go and passed as a
+// timestamptz parameter (inheriting the listStale convention — avoiding Doltgres interval
+// inference), and the same boundary is rechecked with a Go filter.
+// expireListLimit — the dry-run listing cap (unbounded-JSON defense).
 const expireListLimit = 20
 
 func listExpiredPending(ctx context.Context, ms MaintStore, days int) ([]expireItem, time.Time, error) {
 	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
-	// dry-run 나열 상한 — listStale과 동일
-	// LIMIT 관례(기본 20)로 무상한 JSON 나열을 막는다.
+	// the dry-run listing cap — the same LIMIT convention as listStale
+	// (default 20), preventing an unbounded JSON listing.
 	rows, err := wire.QueryOnce(ctx, ms, `
 		SELECT id, topic, summary, valid_at
 		FROM knowledge
@@ -770,24 +770,24 @@ func listExpiredPending(ctx context.Context, ms MaintStore, days int) ([]expireI
 		topic, _ := r[1].(string)
 		summary, _ := r[2].(string)
 		va, ok := AnyToTime(r[3])
-		if !ok || !va.Before(cutoff) { // 경계 미만 — 컷오프 이후(미만료) 제외
+		if !ok || !va.Before(cutoff) { // strictly before the cutoff — exclude rows at or after it (not yet expired)
 			continue
 		}
 		items = append(items, expireItem{
 			ID:      id,
-			Topic:   render.Text(topic),                          // render.Text 경유
-			Summary: ConflictSummaryPrefix(render.Text(summary)), // render.Text 경유
+			Topic:   render.Text(topic),                          // via render.Text
+			Summary: ConflictSummaryPrefix(render.Text(summary)), // via render.Text
 			AgeDays: int(time.Since(va).Hours() / 24),
 		})
 	}
 	return items, cutoff, nil
 }
 
-// maintainExpirePending — pending 만료. dry-run 기본: 대상
-// 나열만(staleReport 형식 승계)·exit 0. --commit 시 나열된 id 전체를
-// 무효화(status='invalidated'·invalid_at=now 병기 — db.Repo.Invalidate
-// 단일 경로)+Commit — 기존 무효화 경로 승계(신규 상태 없음·스키마
-// 불변). 쓰기는 Retry 동반.
+// maintainExpirePending — pending expiry. Dry-run by default: only lists the targets
+// (inheriting the staleReport shape), exit 0. With --commit, all listed ids are
+// invalidated (status='invalidated' and invalid_at=now recorded — the single
+// db.Repo.Invalidate path) + Commit — inheriting the existing invalidation path (no new state,
+// schema unchanged). The write comes with Retry.
 func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer, days int, apply bool) int {
 	items, _, err := listExpiredPending(ctx, ms, days)
 	if err != nil {
@@ -810,9 +810,9 @@ func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer,
 		fmt.Fprintln(stdout, string(out))
 		return 0
 	}
-	// 갱신은 나열된 id 스냅숏 한정(무효화 조건 재평가 대신) —
-	// dry-run이 보여준 대상과 확정 대상이 일치한다. UPDATE 리터럴은
-	// db.Repo.Invalidate 단일 경로.
+	// the update is limited to the listed id snapshot (instead of reevaluating the
+	// invalidation condition) — the dry-run targets and the confirmed targets match. The UPDATE
+	// literal stays on the single db.Repo.Invalidate path.
 	ids := make([]int, len(items))
 	for i, it := range items {
 		ids[i] = it.ID
@@ -828,7 +828,7 @@ func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer,
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 검수 카운터 — 확정(무효화) 행수. dry-run은 미계상.
+	// curation counter — the count of confirmed (invalidated) rows. Not counted in dry-run.
 	knowledge.BumpCurationCounter(ctx, ms, "maintain_expire", len(items))
 	out, mErr := json.Marshal(struct {
 		Status string `json:"status"`
@@ -845,9 +845,9 @@ func maintainExpirePending(ctx context.Context, ms MaintStore, stdout io.Writer,
 }
 
 // maintainSupersede — `--supersede OLD --by NEW`(spec §2 superseded).
-// OLD가 active일 때만: status='invalidated'·superseded_by=NEW·
-// invalid_at=NEW의 valid_at(Zep t_invalid=t_valid 준거). 쓰기는 Retry 동반.
-// NEW 부재 → exit 1 · OLD==NEW → exit 3(무효 스펙) · OLD 비active → exit 1.
+// Only when OLD is active: status='superseded'-style transition with superseded_by=NEW and
+// invalid_at=NEW's valid_at (following Zep's t_invalid=t_valid). The write comes with Retry.
+// NEW missing -> exit 1; OLD==NEW -> exit 3 (invalid spec); OLD non-active -> exit 1.
 func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, oldID, newID int) int {
 	if oldID == newID {
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
@@ -873,7 +873,7 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 			"maintain: --supersede: NEW id=%d not found", newID)))
 		return 1
 	}
-	if oldStatus != "active" { // 부재(빈 상태) 포함 — active일 때만 승격
+	if oldStatus != "active" { // including absent (empty status) — only active gets promoted
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
 			"maintain: --supersede: id=%d is not active (status %q)", oldID, oldStatus)))
 		return 1
@@ -884,8 +884,8 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 			"maintain: --supersede: cannot read NEW valid_at id=%d", newID)))
 		return 1
 	}
-	// 갱신 UPDATE·0행 경합 후견사는 db.Repo.Supersede 단일
-	// 경로(rows-affected 후견사 내장 — 결과 확인 후견사 승계).
+	// The update UPDATE and the 0-row race stewardship stay on the single db.Repo.Supersede
+	// path (rows-affected stewardship built in — inheriting the result-verification stewardship).
 	if err := retryWrite(ctx, func() error {
 		if _, err := ms.Supersede(ctx, oldID, newID, at); err != nil {
 			return err
@@ -897,38 +897,38 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	knowledge.BumpCurationCounter(ctx, ms, "maintain_supersede", 1) // 검수 카운터 — 성공 1회
+	knowledge.BumpCurationCounter(ctx, ms, "maintain_supersede", 1) // curation counter — 1 on success
 	fmt.Fprintf(stdout, `{"status":"superseded","old":%d,"superseded_by":%d}`+"\n",
 		oldID, newID)
 	return 0
 }
 
-// ── decay 감쇠 산식·--decay-audit 보고 ──
+// ── decay scoring formulas and the --decay-audit report ──
 
-// decayNow — 감쇠 기준 시각 seam(테스트 주입용 var).
+// decayNow — the decay reference-time seam (a var for test injection).
 var decayNow = time.Now
 
-// decayAuditItem — --decay-audit 나열 항목. 보고 전용 —
-// archive 실행은 기존 --invalidate가 승인제(--yes/--reason)로 수행한다
-// (자동 아님 — SQL 자동 판정 금지 원칙 승계).
+// decayAuditItem — a --decay-audit listing item. Reporting only —
+// archiving is performed by the existing --invalidate with its approval system (--yes/--reason)
+// (not automatic — inheriting the no-SQL-auto-verdict principle).
 type decayAuditItem struct {
 	ID           int    `json:"id"`
 	Score        int    `json:"score"`
-	LastRecalled string `json:"last_recalled"` // RFC3339(후보는 전부 회상 이력 있음)
+	LastRecalled string `json:"last_recalled"` // RFC3339 (candidates all have recall history)
 	Effective    int    `json:"effective"`
-	Recommend    string `json:"recommend"` // "archive" | ""(제안 없음)
+	Recommend    string `json:"recommend"` // "archive" | "" (no recommendation)
 }
 
-// maintainDecayAudit — 감쇠 후보 보고(읽기 전용·exit 0). 대상: active 중
-// 회상 이력이 있고 감쇠가 진행된(effective < cnt) 행 — 미회상 행은
-// 이벤트가 없어 후보가 아니다. 점수 원천은 v1.9.0 파생 전환: recall_events
-// 집계 조인(지식별 이벤트 수 cnt·최종 회상 시각 last_at — 단일 정의
-// lib/knowledge RecallAggregateSQL 참조)이고 v11 실열(recall_score·
-// last_recalled_at — 스키마 v12 폐기)은 참조하지 않는다.
-// decay_rate·archive_below는 meta 오버라이드
-// 우선(미설정 decay_rate=0은 ApplyThresholdsFallback 미탄 키라 여기서
-// 기본 1 폴백 — 소비자측 완결). 항목 상한은 --limit(기본 20, stale 관례
-// 승계).
+// maintainDecayAudit — the decay-candidate report (read-only, exit 0). Targets: among active,
+// rows with recall history where decay has progressed (effective < cnt) — never-recalled rows
+// have no events and are not candidates. The score source switched in v1.9.0 to the derived
+// path: a recall_events aggregate join (per-knowledge event count cnt and last recall time
+// last_at — see the single definition lib/knowledge RecallAggregateSQL) and it does not
+// reference the v11 physical columns (recall_score and last_recalled_at — dropped in schema
+// v12). decay_rate and archive_below prefer the meta overrides (an unset
+// decay_rate=0 is a key not covered by ApplyThresholdsFallback, so the default 1 fallback is
+// applied here — consumer-side completeness). The item cap is --limit (default 20, inheriting
+// the stale convention).
 func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, limit int) int {
 	th := store.DefaultThresholds()
 	if loaded, lErr := wire.LoadThresholds(ctx, ms); lErr == nil {
@@ -940,9 +940,9 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 	if limit <= 0 {
 		limit = 20
 	}
-	// 컷오프 Go 계산·파라미터 전달 관례 승계. 정렬은 최종 회상 시각
-	// ASC — 가장 오래 미회상(=최대 감쇠) 행이 앞에 온다. last_at IS NOT
-	// NULL이 이력 없는 행(LEFT JOIN 미스)을 서버측에서 제외한다.
+	// inheriting the Go-computed cutoff + parameter-passing convention. The sort is last recall
+	// time ASC — the least recently recalled (= most decayed) rows come first. last_at IS NOT
+	// NULL excludes history-less rows (LEFT JOIN misses) on the server side.
 	rows, err := wire.QueryOnce(ctx, ms, `
 		SELECT k.id, re.cnt, re.last_at
 		FROM knowledge k
@@ -971,7 +971,7 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 		}
 		eff := knowledge.EventEffectiveScore(score, last, now, th.DecayRate)
 		if eff >= score {
-			continue // 감쇠 없음(24h 미만 경과 등) — 후보 아님
+			continue // no decay (elapsed under 24h, etc.) — not a candidate
 		}
 		rec := ""
 		if th.ArchiveBelow > 0 && float64(eff) < th.ArchiveBelow {
@@ -1006,7 +1006,7 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 	return 0
 }
 
-// AnyToTime — 셀 값을 시각으로(time.Time·RFC3339 문자열 수용).
+// AnyToTime — a cell value as time (accepting time.Time and RFC3339 strings).
 func AnyToTime(v any) (time.Time, bool) {
 	switch t := v.(type) {
 	case time.Time:
@@ -1022,8 +1022,8 @@ func AnyToTime(v any) (time.Time, bool) {
 	}
 }
 
-// maintainCheck — Counts vs Thresholds 비교 보고. 임계값은 meta에서 읽고
-// (전역 제약: 하드코딩 금지), 경계는 초과분부터(pending==50은 ok, 51부터 경보).
+// maintainCheck — the Counts vs Thresholds comparison report. Thresholds are read from meta
+// (global constraint: no hardcoding), and the boundary starts at the excess (pending==50 is ok; 51+ alarms).
 func maintainCheck(ctx context.Context, ms MaintStore, stdout io.Writer) int {
 	counts, err := ms.Counts(ctx)
 	if err != nil {
@@ -1040,27 +1040,27 @@ func maintainCheck(ctx context.Context, ms MaintStore, stdout io.Writer) int {
 		line = fmt.Sprintf(`{"status":"review-needed","pending":%d,"dup_suspect":%d}`,
 			counts.Pending, counts.DupSuspect)
 	}
-	// stall 경고 — last_hot_at·last_write_at 경과 > grace(warnings 배열).
+	// stall warnings — last_hot_at and last_write_at elapsed > grace (a warnings array).
 	if warns := stallWarnings(ctx, ms, th); len(warns) > 0 {
 		b, mErr := json.Marshal(warns)
 		if mErr == nil {
 			line = line[:len(line)-1] + `,"warnings":` + string(b) + `}`
 		}
 	}
-	// 마지막 복구 훈련(restore --drill) 경과 보고 — 초과 시에만 필드 추가.
+	// the last restore drill (restore --drill) elapsed report — the field is added only when exceeded.
 	if extra := drillReport(ctx, ms); extra != "" {
 		line = line[:len(line)-1] + extra + "}"
 	}
-	// next 키 — 상태별 권장 조치 명령(pending import dry-run
-	// 관례). additive 필드라 기존 status·수치 필드는 불변.
+	// the next key — the recommended action command per state (the pending import
+	// dry-run convention). Being additive, the existing status and numeric fields are unchanged.
 	line = line[:len(line)-1] + `,"next":` + strconv.Quote(maintainCheckNext(counts, th)) + `}`
 	fmt.Fprintln(stdout, line)
 	return 0
 }
 
-// maintainCheckNext — --check next 키 값: 초과 항목별 권장 명령을
-// 이어붙인다(임계 이내는 none). 명령은 실제 존재 경로만(pending 검토·
-// expire-pending 만료·dup-suspects 목록).
+// maintainCheckNext — the --check next key value: concatenates the recommended commands
+// per exceeded item (none within the threshold). The commands are only paths that actually
+// exist (pending review, expire-pending expiry, dup-suspects listing).
 func maintainCheckNext(counts db.Counts, th store.Thresholds) string {
 	var cmds []string
 	if counts.Pending > th.PendingMax {
@@ -1075,14 +1075,14 @@ func maintainCheckNext(counts db.Counts, th store.Thresholds) string {
 	return strings.Join(cmds, " · ")
 }
 
-// stallWarnings — last-seen heartbeat 경과 진단(spec §1: nodata 패턴).
-// last_hot_at 경과 > stall_hot_h(기본 48h)·last_write_at 경과 > stall_write_h
-// (기본 72h) 초과 시 경고 문자열. warn은 exit 0 유지(brew doctor 준용).
+// stallWarnings — the last-seen heartbeat elapsed diagnostics (spec §1: the nodata pattern).
+// A warning string when last_hot_at elapsed > stall_hot_h (default 48h) or last_write_at
+// elapsed > stall_write_h (default 72h). warn keeps exit 0 (following brew doctor).
 func stallWarnings(ctx context.Context, st wire.Store, th store.Thresholds) []string {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('last_hot_at','last_write_at')`, nil)
 	if err != nil {
-		return nil // 읽기 실패는 --check 결과를 해치지 않게 생략
+		return nil // read failures are skipped so they do not harm the --check result
 	}
 	kv := map[string]string{}
 	for _, r := range rows {
@@ -1107,7 +1107,7 @@ func stallWarnings(ctx context.Context, st wire.Store, th store.Thresholds) []st
 	return warns
 }
 
-// drillThresholds — 드릴 경과 임계일(레지스트리 경유, 실패 시 기본).
+// drillThresholds — the drill elapsed threshold days (via the registry, default on failure).
 func drillThresholds(ctx context.Context, st wire.Store) int {
 	if th, err := wire.LoadThresholds(ctx, st); err == nil {
 		return th.DrillMaxDays
@@ -1115,9 +1115,9 @@ func drillThresholds(ctx context.Context, st wire.Store) int {
 	return 30
 }
 
-// drillReport — last_drill 경과 보고. 30일(메타 drill_max_days) 초과 시
-// `,"drill":"stale"`, 유효한 기록 자체가 없으면 `,"drill":"never"`를 반환한다.
-// 이내면 빈 문자열(보고 없음). 읽기 실패는 --check 결과를 해치지 않게 생략.
+// drillReport — the last_drill elapsed report. Over 30 days (the meta drill_max_days) it
+// returns `,"drill":"stale"`; with no valid record at all, `,"drill":"never"`.
+// Within it, the empty string (no report). Read failures are skipped so they do not harm --check.
 func drillReport(ctx context.Context, st wire.Store) string {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('last_drill')`, nil)
@@ -1130,7 +1130,7 @@ func drillReport(ctx context.Context, st wire.Store) string {
 			kv[fmt.Sprint(r[0])] = fmt.Sprint(r[1])
 		}
 	}
-	maxDays := drillThresholds(ctx, st) // 단일 소스(아래 last_drill은 kv 유지)
+	maxDays := drillThresholds(ctx, st) // the single source (last_drill below stays in kv)
 	last, err := time.Parse(time.RFC3339, kv["last_drill"])
 	if err != nil {
 		return `,"drill":"never"`
@@ -1141,7 +1141,7 @@ func drillReport(ctx context.Context, st wire.Store) string {
 	return ""
 }
 
-// adminErrLine — 갱신 경로 에러 출력. ErrNotFound는 1, 그 외 MapExit.
+// adminErrLine — the update-path error output. ErrNotFound is 1; the rest MapExit.
 func adminErrLine(stdout io.Writer, err error) int {
 	fmt.Fprintln(stdout, wire.ErrLine(err))
 	if errors.Is(err, db.ErrNotFound) {
@@ -1150,29 +1150,29 @@ func adminErrLine(stdout io.Writer, err error) int {
 	return store.MapExit(err)
 }
 
-// ── 지식 위생·이력 관리 ──
+// ── knowledge hygiene and history management ──
 
-// metaKnownKeys — 알려진 meta 키(네임스페이스·고정 키). 위생 감사의
-// 분류 기준 — 여기 없는 키는 미지(unknown)로 보고한다.
+// metaKnownKeys — the known meta keys (namespaces and fixed keys). The classification
+// basis of the hygiene audit — keys not here are reported as unknown.
 var metaKnownKeys = map[string]bool{
 	"schema_version": true, "views_hash": true, "views_sig": true,
 	"exposure_profile": true, "last_backup": true, "last_drill": true,
 	"last_hot_at": true, "last_read_at": true, "last_write_at": true,
 	"read_stats": true, "read_fallback_calls": true, "hot_stats": true,
 	"session_knowledge_last": true, "recall_starved_count": true,
-	"last_brief_at": true, // 즉치(spec §1.3 — brief 시각 키 unknown 오탐 해소)
+	"last_brief_at": true, // instant (spec §1.3 — resolving the brief time-key unknown false positive)
 }
 
-// metaKnownPrefixes — 알려진 접두(daily: 날짜 카운터·pb_: 플레이북
-// 사용 카운터 pb_<id>_uses/_ok — 활성 통계의 미지 오탐
-// 방지. fired_: 발화 카운터 누적 키(fired_nudge_{distill,recall,
-// update} 3종·fired_done_stale 1종·fired_doctor_<check> — 검사 등록표
-// 16종+harness 14종+skill-file 1종 = 종류 상한 31). doctor가 자기 카운터를
-// 미지 키로 경고하는 자기참조 오탐 방지. 임계값 오버라이드 키는
-// thresholdsKeys가 담당 — 동적 조회).
+// metaKnownPrefixes — the known prefixes (daily: date counters; pb_: playbook
+// usage counters pb_<id>_uses/_ok — preventing false unknowns in the active
+// statistics. fired_: the fired-counter cumulative keys (the 3 fired_nudge_{distill,recall,
+// update} kinds, the 1 fired_done_stale kind, and fired_doctor_<check> — the check
+// registry's 16 + harness 14 + skill-file 1 = 31 kind cap). Preventing doctor from warning
+// about its own counters as unknown keys (a self-reference false positive). The threshold override
+// keys are handled by thresholdsKeys — a dynamic lookup).
 var metaKnownPrefixes = []string{"daily:", "pb_", "fired_"}
 
-// KnownMetaKey — 분류 단일 소스(접두 포함 — 하드코딩 분열 방지).
+// KnownMetaKey — the single classification source (prefixes included — preventing hardcoded splits).
 func KnownMetaKey(k string) bool {
 	if metaKnownKeys[k] {
 		return true
@@ -1185,15 +1185,15 @@ func KnownMetaKey(k string) bool {
 	return false
 }
 
-// dailyKeyDate — daily 카운터 키에서 날짜 세그먼트 추출.
-// daily:<date>(2세그먼트)와 daily:<kind>:<date>(3세그먼트) 모두 지원 —
-// 판정 대상은 마지막 세그먼트. 무효 날짜(YYYY-MM-DD 아님)면 false(기존
-// 관례: 그 키는 나이 판정에서 제외, daily 카운트에는 포함). maintain
-// oldest-daily와 doctor staleDaily가 공유하는 단일 구현.
+// dailyKeyDate — extracts the date segment from a daily counter key.
+// Supports both daily:<date> (2 segments) and daily:<kind>:<date> (3 segments) —
+// the last segment is what is judged. An invalid date (not YYYY-MM-DD) is false (the
+// existing convention: the key is excluded from age judgment but included in the daily
+// count). The single implementation shared by maintain oldest-daily and doctor staleDaily.
 func dailyKeyDate(k string) (string, bool) {
 	segs := strings.Split(strings.TrimPrefix(k, "daily:"), ":")
 	d := segs[len(segs)-1]
-	if len(d) != 10 { // YYYY-MM-DD 엄격 길이(2026-1-1 등 느슨형 제외)
+	if len(d) != 10 { // strict YYYY-MM-DD length (excluding loose forms like 2026-1-1)
 		return "", false
 	}
 	if _, err := time.Parse("2006-01-02", d); err != nil {
@@ -1202,8 +1202,8 @@ func dailyKeyDate(k string) (string, bool) {
 	return d, true
 }
 
-// maintainMetaAudit — meta 키 위생 보고(읽기 전용·항상 exit 0).
-// 분류: known(고정)·threshold(임계값)·daily(나이 표기)·unknown(점검 권장).
+// maintainMetaAudit — the meta key hygiene report (read-only, always exit 0).
+// Classification: known (fixed), threshold (threshold keys), daily (age-marked), unknown (review recommended).
 func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int {
 	rows, err := wire.QueryOnce(ctx, ms, `SELECT key, value FROM meta ORDER BY key`, nil)
 	if err != nil {
@@ -1230,14 +1230,14 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 		switch {
 		case strings.HasPrefix(k, "daily:"):
 			dailyN++
-			// 플랫 키(daily:<kind>:<date>) 지원 — 날짜 세그먼트
-			// 기준 비교(키 원문 비교는 kind 정렬에 좌우됨).
+			// flat keys (daily:<kind>:<date>) supported — compared by the date
+			// segment (comparing the raw key would depend on kind sorting).
 			if d, ok := dailyKeyDate(k); ok && d < now.Format("2006-01-02") {
 				if oldestDaily == "" || d < oldestDate {
 					oldestDaily, oldestDate = k, d
 				}
 			}
-		case KnownMetaKey(k): // daily: 제외 경로 — pb_ 등 접두 포함
+		case KnownMetaKey(k): // the non-daily path — including pb_ and similar prefixes
 			known++
 		case thKeys[k]:
 			thresholdN++
@@ -1248,8 +1248,8 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 			unknownList = append(unknownList, k)
 		}
 	}
-	// daily 나이 — 보존 창(daily_retention_days) 대비. 이미 받은 전체
-	// rows에서 직접 파싱(meta 이중 스캔 제거).
+	// daily age — versus the retention window (daily_retention_days). Parsed directly from
+	// the already-fetched rows (removing a double meta scan).
 	retention := 0
 	for _, r := range rows {
 		if len(r) >= 2 && fmt.Sprint(r[0]) == "daily_retention_days" {
@@ -1276,19 +1276,19 @@ func maintainMetaAudit(ctx context.Context, ms MaintStore, stdout io.Writer) int
 	return 0
 }
 
-// maintainPruneInvalidated — N일 경과 invalidated 지식 정리 + 회상
-// 이벤트 보존기한(recall_event_retention_days, 기본 90) 만료 정리.
-// dry-run 기본(대상 목록·건수)·--commit 확정. DELETE는 현재 상태만 정리
-// — dolt 이력에 행 내용이 남는다(버전 기억·감사 원칙 유지, ADR-0012와
-// 무관). 이벤트 정리(R42-D)는 지식 무효화 대상 유무와 무관하게 실행
-// — append-only 원천(recall_events)의 구조적 성장 상한이다. 감사 커밋
-// 스테이징(auditStageTables)이 recall_events를 흡수하고, knowledge_reads
-// 고아 분은 계측 커밋(TelemetryCommitter — 구현 Store만)이 조용히 회수
-// 한다(§13).
+// maintainPruneInvalidated — cleans invalidated knowledge past N days, plus the recall-event
+// retention (recall_event_retention_days, default 90) expiry cleanup.
+// Dry-run by default (target list and counts); --commit confirms. The DELETE cleans only the
+// current state — the row contents remain in dolt history (keeping the versioned-memory and
+// audit principles; unrelated to ADR-0012). The event cleanup (R42-D) runs regardless of
+// whether invalidated-knowledge targets exist — it is the structural growth cap of the
+// append-only source (recall_events). The audit commit staging (auditStageTables) absorbs
+// recall_events, and the knowledge_reads orphan portion is quietly reclaimed by the metering
+// commit (TelemetryCommitter — implemented Stores only) (§13).
 func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writer, days int, commit bool) int {
-	// 임계값 1회 로드 — invalidated_prune_days(지식 만료일·tuning
-	// 오버라이드, --stale stale_days 관례)·recall_event_retention_days
-	// (회상 이벤트 보존기한) 폴백 공통 원천. 파싱 도달 방어 겸용.
+	// a single threshold load — invalidated_prune_days (the knowledge expiry days; the tuning
+	// override, following the --stale stale_days convention) and recall_event_retention_days
+	// (the recall-event retention) share the fallback source. Also a parse-reach defense.
 	th := knowledge.WriteThresholds(ctx, ms)
 	if days <= 0 {
 		days = th.InvalidatedPruneDays
@@ -1296,13 +1296,13 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 			days = 90
 		}
 	}
-	// 회상 이벤트 보존기간 — 등록표 키 폴백(미설정 0·파손은 기본 90).
+	// the recall-event retention — registry-key fallback (unset 0; corrupt falls back to the default 90).
 	retention := th.RecallEventRetentionD
 	if retention <= 0 {
 		retention = 90
 	}
 	eventCutoff := time.Now().UTC().AddDate(0, 0, -retention)
-	cutoff := time.Now().UTC().AddDate(0, 0, -days) // timestamptz 파라미터
+	cutoff := time.Now().UTC().AddDate(0, 0, -days) // a timestamptz parameter
 	rows, err := wire.QueryOnce(ctx, ms,
 		`SELECT id FROM knowledge WHERE status = 'invalidated' AND invalid_at < $1 ORDER BY invalid_at`,
 		[]any{cutoff})
@@ -1319,8 +1319,8 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 			ids = append(ids, n)
 		}
 	}
-	// 만료 회상 이벤트 수 — dry-run 보고·commit 실행 공통 원천(fake 등
-	// 0행 응답은 0 취급).
+	// the expired recall-event count — the common source for the dry-run report and the
+	// commit execution (a fake's 0-row response counts as 0).
 	expired := 0
 	erows, err := wire.QueryOnce(ctx, ms,
 		`SELECT count(*)::int FROM recall_events WHERE recalled_at < $1`,
@@ -1354,8 +1354,8 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 	deleted := 0
 	if len(ids) > 0 {
 		if err := retryWrite(ctx, func() error {
-			// DELETE는 db.Repo.PruneInvalidated 단일 경로
-			// (반환 = 실제 영향 행 수 — 스냅숏 아님).
+			// the DELETE stays on the single db.Repo.PruneInvalidated path
+			// (the return = the actual affected row count — not a snapshot).
 			n, err := ms.PruneInvalidated(ctx, cutoff)
 			if err != nil {
 				return err
@@ -1368,11 +1368,11 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
-		// 검수 카운터 — 실제 삭제 행수(Repo 반환값). dry-run은 미계상.
+		// curation counter — the actually deleted rows (the Repo return value). Not counted in dry-run.
 		knowledge.BumpCurationCounter(ctx, ms, "maintain_prune_rows", deleted)
 	}
-	// 회상 이벤트 보존기한 정리 — DELETE는 db.Repo.PruneRecallEvents
-	// 단일 경로. 감사 커밋 스테이징이 recall_events를 흡수한다.
+	// the recall-event retention cleanup — the DELETE is the single db.Repo.PruneRecallEvents
+	// path. The audit commit staging absorbs recall_events.
 	prunedEvents := 0
 	if err := retryWrite(ctx, func() error {
 		n, err := ms.PruneRecallEvents(ctx, eventCutoff)
@@ -1381,7 +1381,7 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 		}
 		prunedEvents = int(n)
 		if prunedEvents == 0 {
-			return nil // 스테이징 0행 — 빈 감사 커밋 방지
+			return nil // 0 staged rows — preventing an empty audit commit
 		}
 		_, err = ms.Commit(ctx, fmt.Sprintf(
 			"prune-recall-events: removed %d rows (%dd retention) (knowledge hygiene path) [session:0]", prunedEvents, retention))
@@ -1390,8 +1390,8 @@ func maintainPruneInvalidated(ctx context.Context, ms MaintStore, stdout io.Writ
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 고아 knowledge_reads 분 회수 — 계측 커밋(미구현 Store는 조용히
-	// 스킵, §13. dolt_add 선스테이징 덕에 실패분은 다음 계측 커밋이 회수).
+	// reclaiming the orphan knowledge_reads portion — the metering commit (unimplemented Stores
+	// silently skip, §13; thanks to dolt_add pre-staging, any failure is reclaimed by the next metering commit).
 	if tc, ok := ms.(knowledge.TelemetryCommitter); ok {
 		_ = tc.CommitTelemetry(ctx, "prune-invalidated")
 	}

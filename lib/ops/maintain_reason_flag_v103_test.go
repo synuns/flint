@@ -1,7 +1,7 @@
-// maintain_reason_flag_v103_test.go — 회귀: maintain --reason
-// 값이 뒤 플래그를 흡수하는 오타. '--reason --commit'이 사유 "--commit"과
-// 확정 마커로 갈라져 "not valid" exit 1을 내던 경로를, 공용 가드
-// (knowledge.ValidateFlagValue) 무효 인자 exit 3으로 선행 차단한다.
+// maintain_reason_flag_v103_test.go — regression: a maintain --reason value
+// absorbing a following flag. The path where '--reason --commit' split into the reason
+// "--commit" and the confirm marker, yielding "not valid" exit 1, is now preempted by
+// the shared guard (knowledge.ValidateFlagValue) as invalid-arg exit 3.
 package ops
 
 import (

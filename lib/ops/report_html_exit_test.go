@@ -1,14 +1,14 @@
-// report_html_exit_test.go — report --html exit 코드 정합.
-// 병인: runReportHTML 수집 경로가 Ping 실패·전 수집 스텝 오류를
-// 하드코딩 1로 반환 — JSON 경로(RunReport)는 store.MapExit(
-// server_down→2·SchemaError→3)로 같은 커맨드의 두 뷰가 같은 실패에
-// 다른 코드를 냈다. HTML 경로도 MapExit을 재사용해 계약을 일치시킨다.
-// 주의: RunReport 진입부의 Ping 선검사가 이미 MapExit이라 상위 경로는
-// 우연히 통과 — 결함은 runReportHTML 직접 경로(수집 스텝·내부 Ping)에
-// 있으므로 단위 테스트는 runReportHTML을 직접 호출한다.
-// 리뷰 포인트: exit 3은 인자 검증 실패(RunReport 플래그 파서)와 별개.
-// 여기의 3은 '스토어가 SchemaError 계열을 반환'할 때만 — MapExit 소스라
-// JSON 경로와 의미가 같다.
+// report_html_exit_test.go — report --html exit-code consistency.
+// Root cause: the runReportHTML collection path returned hardcoded 1 for Ping failures
+// and every collection-step error — while the JSON path (RunReport) uses store.MapExit
+// (server_down -> 2, SchemaError -> 3), so the same command's two views emitted
+// different codes for the same failure. The HTML path now reuses MapExit, aligning the contract.
+// Note: RunReport's entry Ping pre-check already used MapExit, so the upper path passed by
+// luck — the defect is in the direct runReportHTML path (collection steps, internal Ping),
+// so the unit tests call runReportHTML directly.
+// Review point: exit 3 here is separate from the argument-validation failure (the RunReport
+// flag parser). The 3 here occurs only when 'the store returns a SchemaError-family
+// error' — it comes from MapExit, so it means the same as the JSON path.
 package ops
 
 import (
@@ -20,25 +20,25 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// htmlExitFake — exit 매핑 검증용 최소 fake(fakeStore 관례 재사용):
-// pingErr·queryErr stub만 지정.
+// htmlExitFake — the minimal fake for exit-mapping verification (reusing the fakeStore
+// conventions): only the pingErr and queryErr stubs are set.
 func htmlExitCode(t *testing.T, f *fakeStore) int {
 	t.Helper()
-	t.Chdir(t.TempDir()) // report.html 기본 출력 격리
+	t.Chdir(t.TempDir()) // isolate the default report.html output
 	var out strings.Builder
 	return runReportHTML(context.Background(), f, 7, "report.html", &out)
 }
 
-// TestHTMLExitServerDown — Ping 실패(서버 다운)는 JSON 경로와 동일하게
-// exit 2. 수정 전에는 하드코딩 1이었다(실패 실증).
+// TestHTMLExitServerDown — a Ping failure (server down) exits 2 like the JSON path.
+// Before the fix it was the hardcoded 1 (demonstrating the failure).
 func TestHTMLExitServerDown(t *testing.T) {
 	if code := htmlExitCode(t, &fakeStore{pingErr: store.ErrServerDown}); code != 2 {
 		t.Fatalf("report --html 서버 다운 exit=%d, want 2", code)
 	}
 }
 
-// TestHTMLExitSchemaMismatch — 수집 중 SchemaError 계열(스키마 버전
-// 불일치 포함)은 JSON 경로와 동일하게 exit 3.
+// TestHTMLExitSchemaMismatch — a SchemaError-family error during collection (including
+// a schema-version mismatch) exits 3 like the JSON path.
 func TestHTMLExitSchemaMismatch(t *testing.T) {
 	if code := htmlExitCode(t,
 		&fakeStore{queryErr: &store.SchemaError{Field: "schema_version", Expect: "v9"}}); code != 3 {
@@ -46,8 +46,8 @@ func TestHTMLExitSchemaMismatch(t *testing.T) {
 	}
 }
 
-// TestHTMLExitOtherCollectionErrorStays1 — 그 외 수집 오류는 기존 1 유지
-// (계약: 변경되는 것은 server_down·SchemaError 매핑뿐).
+// TestHTMLExitOtherCollectionErrorStays1 — other collection errors keep the existing 1
+// (the contract: only the server_down and SchemaError mappings change).
 func TestHTMLExitOtherCollectionErrorStays1(t *testing.T) {
 	if code := htmlExitCode(t,
 		&fakeStore{queryErr: errors.New("synthetic: query boom")}); code != 1 {
@@ -55,9 +55,9 @@ func TestHTMLExitOtherCollectionErrorStays1(t *testing.T) {
 	}
 }
 
-// TestHTMLExitViaRunReportMatchesJSON — 엔드투엔드 대조: 같은 실패가
-// RunReport --html 진입에서도 동일 코드(진입부 Ping MapExit + 전달
-// 경로 회귀 가드). JSON 뷰와 값이 같은지가 이 태스크의 계약.
+// TestHTMLExitViaRunReportMatchesJSON — end-to-end comparison: the same failure gets
+// the same code via the RunReport --html entry (the entry Ping MapExit + a pass-through
+// path regression guard). Matching the JSON view's value is this task's contract.
 func TestHTMLExitViaRunReportMatchesJSON(t *testing.T) {
 	t.Chdir(t.TempDir())
 	cases := []struct {

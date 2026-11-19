@@ -1,16 +1,16 @@
-// diagnosis.go — 규칙 진단 D(spec §3). report가 모은
-// effect·counts·daily(ReportOutput)와 thresholds로 규칙 7종(항목 8개 — hot
-// 예산 밴드는 하나의 규칙 양방 판정)을 판정해 구조화 항목 배열을 반환한다.
-// 순수 함수(LLM 0개 — E 패킷 defer)·정상 침묵 유효(문제 없으면 빈 배열).
+// diagnosis.go — rule diagnostics D (spec §3). From the effect, counts, and daily
+// data collected by report (ReportOutput) plus thresholds, it evaluates the 7 rules (8 items — the hot
+// budget band is one rule judging both directions) and returns a structured item array.
+// Pure functions (0 LLMs — E-packet deferred); normal silence is valid (an empty array when nothing is wrong).
 //
-// 기준 3계층(spec §3): A 자기참조(hot 평균/예산 밴드·hot bytes 추세·hit
-// 원가 vs 절약 하한 비교)·B 레지스트리 승계 읽기(zero_near·pending_age는
-// doctor 기존 키 승계 — 중복 키 방지, dead는 diag_dead_warn)·C 가치 기본값
-// (recall_led '기본 목표' 라벨 — 개인 목표가 아닌 습관 목표 표기).
+// The 3-tier criteria basis (spec §3): A self-reference (hot mean/budget band, hot bytes trend, hit
+// cost vs savings lower bound), B registry-inherited reads (zero_near and pending_age inherit
+// doctor's existing keys — preventing duplicate keys; dead uses diag_dead_warn), C value defaults
+// (the recall_led 'default goal' label — a habitual-goal notation, not a personal goal).
 //
-// 사용자 원칙: 진단은 단일 데이터 모델이다 — text(문장
-// 렌더·Sentence)·--json(ReportOutput.Diagnosis 배열)·--html(카드) 세 뷰가
-// 같은 ReportOutput.Diagnosis에서 렌더된다(뷰 간 데이터 분열 금지).
+// User principle: diagnostics are a single data model — text (sentence
+// render, Sentence), --json (the ReportOutput.Diagnosis array), and --html (cards) — all three
+// views render from the same ReportOutput.Diagnosis (no data split across views).
 package ops
 
 import (
@@ -19,36 +19,36 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// DiagnosisItem — 진단 1항목. 문장 계약(spec §3): 신호+수치+기준 출처+
-// 행동이 각 한 필드로 구조화되고 Sentence()가 1줄로 합친다. tuning_key는
-// 행동으로 이어지는 meta 오버라이드 키(비어 있으면 규칙상 조정 키 없음).
+// DiagnosisItem — one diagnostic item. The sentence contract (spec §3): signal + value +
+// basis source + action, each structured as one field, with Sentence() joining them into 1
+// line. tuning_key is the meta override key leading to the action (empty means no tuning key for that rule).
 type DiagnosisItem struct {
-	Signal    string `json:"signal"`               // 신호 id(kebab-case)
-	Value     string `json:"value"`                // 수치 요약(관측값)
-	Basis     string `json:"basis"`                // 기준 출처(계층·키·기본값 명시)
-	Action    string `json:"action"`               // 권장 행동 1개
-	TuningKey string `json:"tuning_key,omitempty"` // 기준 조정 meta 키(없으면 생략)
+	Signal    string `json:"signal"`               // signal id (kebab-case)
+	Value     string `json:"value"`                // value summary (the observation)
+	Basis     string `json:"basis"`                // basis source (tier, key, and default made explicit)
+	Action    string `json:"action"`               // the 1 recommended action
+	TuningKey string `json:"tuning_key,omitempty"` // the basis-adjusting meta key (omitted when absent)
 }
 
-// Sentence — text 뷰 문장 렌더(신호+수치+기준 출처+행동 1줄).
+// Sentence — the text-view sentence render (signal + value + basis source + action in 1 line).
 func (d DiagnosisItem) Sentence() string {
 	return fmt.Sprintf("%s: %s (basis: %s) → %s", d.Signal, d.Value, d.Basis, d.Action)
 }
 
-// Diagnose — 순수 함수 규칙 엔진. 입력은 report 수집 산물(ReportOutput)과
-// thresholds·hot_budget(meta hot_budget — knowledge.HotBudget 로드값). 정상
-// 침묵: 어느 규칙도 트리거하지 않으면 빈 배열(비-nil — JSON [])을 반환한다.
-// 미설정(0) thresholds 키는 DefaultThresholds로 폴백한다(ParseThresholds
-// 미설정-0 규약의 소비자측 완결).
+// Diagnose — the pure-function rule engine. Inputs are report's collection output
+// (ReportOutput) plus thresholds and hot_budget (meta hot_budget — the knowledge.HotBudget
+// loaded value). Normal silence: if no rule triggers, it returns an empty array (non-nil —
+// JSON []). Unset (0) thresholds keys fall back to DefaultThresholds (the consumer-side
+// completion of the ParseThresholds unset-0 convention).
 func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisItem {
 	th = diagThresholds(th)
 	e := out.Effect
 	items := make([]DiagnosisItem, 0, 8)
 
-	// ── A계층: 자기참조 기준 ──
-	// A1/A2 hot 주입 평균 vs hot_budget 밴드(호출 0·예산 0은 판정하지
-	// 않는다 — 제로 분모 관례). 평균은 effect.bytes.hot.avg_bytes(daily
-	// 합산과 동일 원천).
+	// ── tier A: self-referencing criteria ──
+	// A1/A2 hot injection mean vs the hot_budget band (0 calls or 0 budget means no verdict —
+	// the zero-denominator convention). The mean is effect.bytes.hot.avg_bytes (the same source
+	// as the daily sums).
 	if avg := e.Bytes.Hot.AvgBytes; avg > 0 && hotBudget > 0 {
 		ratio := float64(avg) / float64(hotBudget)
 		pct := int(ratio * 100)
@@ -71,8 +71,8 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 		}
 	}
 
-	// A3 hot bytes 추세 — 창 전반 vs 후반 일별 hot_bytes 합 비교. 전반
-	// 합 0(신규 사용 등)은 비교 없음. |증감| ≥ diag_trend_pct%면 급변.
+	// A3 hot bytes trend — comparing the daily hot_bytes sums of the window's first half vs
+	// second half. A zero first-half sum (new usage, etc.) means no comparison. |change| >= diag_trend_pct% is a sharp shift.
 	if cur, prev, ok := hotBytesHalves(out.Days); ok && prev > 0 {
 		delta := (cur - prev) * 100 / prev
 		if pct := absInt(delta); pct >= th.DiagTrendPct {
@@ -90,10 +90,10 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 		}
 	}
 
-	// A4 주입 원가 vs 절약 하한 — cost.hit_injection_cost_bytes가
-	// savings_lower_bound_bytes를 초과하면 보고(절약은 '하한 추정'이라
-	// 상회가 곧 순손실 증명은 아님 — 라벨 문구 계약, spec §2.3). 절약
-	// 하한 0은 비교 원천이 없어 판정하지 않는다.
+	// A4 injection cost vs savings lower bound — reported when cost.hit_injection_cost_bytes
+	// exceeds savings_lower_bound_bytes (savings is a 'lower-bound estimate', so exceeding is
+	// not proof of net loss — the label wording contract, spec §2.3). A zero savings
+	// lower bound means no comparison source, so no verdict.
 	if s, c := e.Cost.SavingsLowerBoundBytes, e.Cost.HitInjectionCostBytes; s > 0 && c > s {
 		items = append(items, DiagnosisItem{
 			Signal: "hit_cost_exceeds_savings",
@@ -103,9 +103,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 		})
 	}
 
-	// ── B계층: 레지스트리(doctor) 승계 읽기 ──
-	// B1 zero_near — doctor zero-near 기준 승계(표본 하한 zero_near_min_read
-	// ·경고 비율 zero_near_warn_pct — 신규 diag 키를 만들지 않는다).
+	// ── tier B: registry (doctor) inherited reads ──
+	// B1 zero_near — inheriting doctor's zero-near criteria (sample floor zero_near_min_read
+	// and warning ratio zero_near_warn_pct — no new diag keys are created).
 	if e.ReadEventsN >= th.ZeroNearMinRead && out.ZeroNearPct >= th.ZeroNearWarnPct {
 		items = append(items, DiagnosisItem{
 			Signal:    "zero_near_high",
@@ -127,8 +127,8 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 		})
 	}
 
-	// B3 pending 적체 — doctor pending-age 기준일 승계(최고령 경과는
-	// report 원천에 없어 건수로 보고 — 기준일은 문장에 명시).
+	// B3 pending backlog — inheriting doctor's pending-age threshold days (the oldest elapsed
+	// is not in the report sources, so it reports the count — the threshold days are stated in the sentence).
 	if out.Counts.Pending > 0 {
 		items = append(items, DiagnosisItem{
 			Signal:    "pending_backlog",
@@ -139,9 +139,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 		})
 	}
 
-	// ── C계층: 가치 기본값 ──
-	// recall_led < diag_recall_led_goal — '기본 목표' 라벨(가치 기본값 —
-	// 개인 목표 아님). 표본 하한은 zero_near 관례 승계(관측 없는 판정 금지).
+	// ── tier C: value defaults ──
+	// recall_led < diag_recall_led_goal — the 'default goal' label (a value default —
+	// not a personal goal). The sample floor inherits the zero_near convention (no verdict without observation).
 	if e.ReadEventsN >= th.ZeroNearMinRead && e.RecallLedPct < th.DiagRecallLedGoal {
 		items = append(items, DiagnosisItem{
 			Signal:    "recall_led_below_goal",
@@ -154,9 +154,9 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 	return items
 }
 
-// diagThresholds — 미설정(0·무효) 진단 키의 기본값 폴백(ParseThresholds
-// 미설정-0 규약의 소비자측 완결). B계층 승계 키(zero_near·pending_age)도
-// 여기서 채운다(직접 호출자가 폴백 전 값을 넘긴 경우 방어).
+// diagThresholds — the default fallback for unset (0, invalid) diagnostic keys (the
+// consumer-side completion of the ParseThresholds unset-0 convention). The tier-B inherited
+// keys (zero_near, pending_age) are also filled here (a defense for direct callers passing pre-fallback values).
 func diagThresholds(th store.Thresholds) store.Thresholds {
 	def := store.DefaultThresholds()
 	if th.DiagHotBudgetHigh <= 0 {
@@ -189,8 +189,8 @@ func diagThresholds(th store.Thresholds) store.Thresholds {
 	return th
 }
 
-// hotBytesHalves — days 창의 전반/후반 hot_bytes 합. 창 1일 이하·전반
-// 비었으면 ok=false(추세 비교 불성립).
+// hotBytesHalves — the first/second-half hot_bytes sums of the days window. A window of 1
+// day or less, or an empty first half, means ok=false (no valid trend comparison).
 func hotBytesHalves(days []ReportDay) (cur, prev int, ok bool) {
 	if len(days) < 2 {
 		return 0, 0, false
@@ -205,7 +205,7 @@ func hotBytesHalves(days []ReportDay) (cur, prev int, ok bool) {
 	return cur, prev, true
 }
 
-// absInt — 절댓값(추세 ±판정용).
+// absInt — absolute value (for ± trend verdicts).
 func absInt(n int) int {
 	if n < 0 {
 		return -n

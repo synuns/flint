@@ -1,8 +1,8 @@
-// report_text_diag_test.go — report --text 진단 배선 회귀.
-// 세 뷰 동일 원천 계약(diagnosis.go 주석 — text(Sentence)·기본 JSON 필드·
-// --html 카드)의 text 담당: --text에서 ReportOutput.Diagnosis를 Sentence()
-// 라인으로 출력하고, 진단 0건이면 섹션을 내지 않는다(정상 침묵).
-// 기본(플래그 없음) 한 줄 JSON·--html 경로는 불변(출력 계약 방어).
+// report_text_diag_test.go — the report --text diagnostics-wiring regression.
+// The text leg of the all-three-views-one-source contract (the diagnosis.go comment —
+// text (Sentence), the default JSON field, and --html cards): --text prints
+// ReportOutput.Diagnosis as Sentence() lines, and with 0 diagnostics it emits no section
+// (normal silence). The default (no flags) one-line JSON and the --html path are unchanged (output-contract defense).
 package ops
 
 import (
@@ -13,28 +13,28 @@ import (
 	"testing"
 )
 
-// diagFake — 진단 2건 트리거 픽스처(B계층: pending 적체 + dead 경고).
-// 나머지 질의는 공란(집계 0·계측 없음 — 정상 침묵 원칙).
+// diagFake — a fixture triggering 2 diagnostics (tier B: pending backlog + a dead warning).
+// The other queries are blank (tallies 0, no metering — the normal-silence principle).
 func diagFake() *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "status = 'pending'"): // counts 3열
+		case strings.Contains(sql, "status = 'pending'"): // the counts 3 columns
 			return [][]any{{int64(3), int64(5), int64(0)}}, nil
 		case strings.Contains(sql, "/* stale */"):
 			return [][]any{{int64(0), int64(0)}}, nil
-		case strings.Contains(sql, "invalid_at >= $1"): // 기간 무효화
+		case strings.Contains(sql, "invalid_at >= $1"): // period invalidations
 			return [][]any{{int64(0)}}, nil
-		case strings.Contains(sql, "count(CASE WHEN read_count > 0"): // G3 분모
+		case strings.Contains(sql, "count(CASE WHEN read_count > 0"): // the G3 denominator
 			return [][]any{{int64(5), int64(0)}}, nil
-		case strings.Contains(sql, "/* dead */"): // 회상 0 활성 5행
+		case strings.Contains(sql, "/* dead */"): // 5 active rows with 0 recalls
 			return [][]any{{int64(1)}, {int64(2)}, {int64(3)}, {int64(4)}, {int64(5)}}, nil
 		}
 		return nil, nil
 	}}
 }
 
-// TestTextReportPrintsDiagnosis — --text: Diagnose 산물 2건(pending_backlog·
-// dead_knowledge)이 각각 Sentence() 문장으로 stdout에 찍힌다.
+// TestTextReportPrintsDiagnosis — --text: the 2 Diagnose products (pending_backlog
+// and dead_knowledge) each print as a Sentence() line on stdout.
 func TestTextReportPrintsDiagnosis(t *testing.T) {
 	var out strings.Builder
 	if code := RunReport(context.Background(), diagFake(), []string{"--text"}, nil, &out); code != 0 {
@@ -51,8 +51,8 @@ func TestTextReportPrintsDiagnosis(t *testing.T) {
 	}
 }
 
-// TestTextReportSilentWhenNoDiagnosis — --text + 진단 0건: 진단 섹션
-// 미출력(정상 침묵 — 헤더조차 없음).
+// TestTextReportSilentWhenNoDiagnosis — --text + 0 diagnostics: no diagnostics
+// section (normal silence — not even a header).
 func TestTextReportSilentWhenNoDiagnosis(t *testing.T) {
 	var out strings.Builder
 	if code := RunReport(context.Background(), &fakeStore{}, []string{"--text"}, nil, &out); code != 0 {
@@ -63,8 +63,8 @@ func TestTextReportSilentWhenNoDiagnosis(t *testing.T) {
 	}
 }
 
-// TestDefaultOutputStaysJSON — 플래그 없음: 한 줄 JSON 불변(diagnosis는
-// JSON 필드로 존재, text 문장 렌더 없음 — 라인 1개).
+// TestDefaultOutputStaysJSON — no flags: the one-line JSON unchanged (diagnosis
+// exists as a JSON field, no text sentence render — 1 line).
 func TestDefaultOutputStaysJSON(t *testing.T) {
 	var out strings.Builder
 	if code := RunReport(context.Background(), diagFake(), nil, nil, &out); code != 0 {
@@ -83,10 +83,10 @@ func TestDefaultOutputStaysJSON(t *testing.T) {
 	}
 }
 
-// TestHTMLOutputUnchanged — --html: 기존 경로 불변(stdout 한 줄 요약 +
-// 파일 카드에 진단 신호 렌더 — --text 신규 코드 미경유).
+// TestHTMLOutputUnchanged — --html: the existing path unchanged (a one-line stdout
+// summary + the diagnostic signals rendered in the file's cards — not passing through the new --text code).
 func TestHTMLOutputUnchanged(t *testing.T) {
-	t.Chdir(t.TempDir()) // report.html 기본 출력 격리
+	t.Chdir(t.TempDir()) // isolate the default report.html output
 	var out strings.Builder
 	if code := RunReport(context.Background(), diagFake(), []string{"--html"}, nil, &out); code != 0 {
 		t.Fatalf("report --html exit=%d: %s", code, out.String())

@@ -1,8 +1,8 @@
-// diagnosis_test.go — 규칙 진단 D 회귀:
-// TestDiagnoseRules(규칙 8항목 트리거/비트리거·정상 침묵·미설정 키 폴백)·
-// TestDiagnosisSentenceContract(문장 계약 — 신호+수치+기준 출처+행동)·
-// TestDiagnosisReportExposure(세 뷰 동일 원천 — report JSON 배열·HTML 카드
-// 모두 ReportOutput.Diagnosis에서 렌더).
+// diagnosis_test.go — rule-diagnostics D regressions:
+// TestDiagnoseRules (the 8 rule items trigger/not-trigger, normal silence, unset-key
+// fallback), TestDiagnosisSentenceContract (the sentence contract — signal + value +
+// basis source + action), and TestDiagnosisReportExposure (all three views share one
+// source — the report JSON array and the HTML cards both render from ReportOutput.Diagnosis).
 package ops
 
 import (
@@ -13,9 +13,9 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// diagFixture — 규칙 판정 입력 기본값(정상 — 어느 규칙도 트리거하지 않는다).
-// hot 평균 1000/상한 2000(50%·밴드 중간)·추세 0%·절약 하한이 주입 원가보다
-// 큼·zero_near 5%(표본 100)·dead 2%·pending 0·recall_led 80.
+// diagFixture — the rule-evaluation input defaults (healthy — no rule triggers).
+// hot mean 1000 / cap 2000 (50%, mid-band), trend 0%, the savings lower bound above the
+// injection cost, zero_near 5% (sample 100), dead 2%, pending 0, recall_led 80.
 func diagFixture() ReportOutput {
 	var out ReportOutput
 	out.Effect.Bytes.Hot = SurfaceBytes{Bytes14d: 1000, AvgBytes: 1000}
@@ -32,11 +32,11 @@ func diagFixture() ReportOutput {
 	return out
 }
 
-// TestDiagnoseRules — 각 규칙 트리거/비트리거·정상 침묵(빈
-// 배열)·미설정(0) thresholds의 기본값 폴백. 규칙 수 계약: A계층 4(hot
-// 예산 밴드 고/저 2항목·bytes 추세·hit 원가 vs 절약 하한)·B계층 3(zero_near
-// 승계·dead·pending 승계)·C계층 1(recall_led 기본 목표) = 8항목(규칙 7종
-// — hot 예산 밴드는 하나의 규칙 양방 판정).
+// TestDiagnoseRules — each rule's trigger/not-trigger, normal silence (the empty
+// array), and the default fallback for unset (0) thresholds. The rule-count contract:
+// tier A 4 (the hot budget band high/low as 2 items, bytes trend, hit cost vs the savings
+// lower bound), tier B 3 (inherited zero_near, dead, inherited pending), tier C 1
+// (the recall_led default goal) = 8 items (7 rules — the hot budget band is one rule judging both directions).
 func TestDiagnoseRules(t *testing.T) {
 	th := store.DefaultThresholds()
 	const budget = 2000
@@ -50,7 +50,7 @@ func TestDiagnoseRules(t *testing.T) {
 		return false
 	}
 
-	// 정상 침묵 — 문제 없으면 빈 배열(스펙 §3 정상 침묵 유효).
+	// normal silence — an empty array when nothing is wrong (spec §3: normal silence is valid).
 	if got := Diagnose(diagFixture(), th, budget); len(got) != 0 {
 		t.Errorf("정상 입력 진단 = %v, want 빈 배열", got)
 	}
@@ -91,13 +91,13 @@ func TestDiagnoseRules(t *testing.T) {
 		if !has(Diagnose(out, th, budget), tc.signal) {
 			t.Errorf("%s: 진단에 %q 없음", tc.name, tc.signal)
 		}
-		// 비트리거 — 원본(정상) 입력에는 해당 신호가 없다.
+		// not triggered — the original (healthy) input has no such signal.
 		if has(Diagnose(diagFixture(), th, budget), tc.signal) {
 			t.Errorf("%s: 정상 입력에서 %q 오탐", tc.name, tc.signal)
 		}
 	}
 
-	// 트리거 경계 근처 비트리거 — 밴드 중간·완만 추세·원가 우위.
+	// near-boundary not-triggered — mid-band, mild trend, cost advantage.
 	mid := diagFixture()
 	mid.Effect.DeadPct = 9
 	mid.ZeroNearPct = 29
@@ -107,7 +107,7 @@ func TestDiagnoseRules(t *testing.T) {
 		t.Errorf("경계 미달 입력 진단 = %v, want 빈 배열", got)
 	}
 
-	// 표본 하한 승계 — zero_near·recall_led 모두 read 표본 < 10이면 판정 보류.
+	// sample-floor inheritance — both zero_near and recall_led defer the verdict when the read sample is < 10.
 	sparse := diagFixture()
 	sparse.ZeroNearPct = 100
 	sparse.Effect.RecallLedPct = 0
@@ -116,26 +116,26 @@ func TestDiagnoseRules(t *testing.T) {
 		t.Errorf("표본 부족 입력 진단 = %v, want 빈 배열(판정 보류)", got)
 	}
 
-	// 미설정(0) thresholds — 소비자 폴백으로 기본값 판정(dead 25 트리거).
+	// unset (0) thresholds — the consumer fallback yields the default verdict (dead 25 triggers).
 	zero := diagFixture()
 	zero.Effect.DeadPct = 25
 	if !has(Diagnose(zero, store.Thresholds{}, budget), "dead_knowledge") {
 		t.Error("미설정 th에서 dead 규칙 미발동 — 기본값 폴백 계약 위반")
 	}
 
-	// 제로 가드 — hot 호출 0(avg 0)이면 예산 밴드 판정하지 않는다.
+	// zero guard — with 0 hot calls (avg 0), no budget-band verdict.
 	noHot := diagFixture()
 	noHot.Effect.Bytes.Hot = SurfaceBytes{}
 	if got := Diagnose(noHot, th, budget); len(got) != 0 {
 		t.Errorf("hot 호출 0 입력 진단 = %v, want 빈 배열", got)
 	}
-	// 추세 제로 가드 — 전반 합 0이면 비교 없음(신규 사용 등).
+	// trend zero guard — a zero first-half sum means no comparison (new usage, etc.).
 	newHot := diagFixture()
 	newHot.Days = []ReportDay{{Date: "2026-11-12"}, {Date: "2026-11-13", HotBytes: 900}}
 	if got := Diagnose(newHot, th, budget); len(got) != 0 {
 		t.Errorf("전반 0 입력 진단 = %v, want 빈 배열", got)
 	}
-	// 절약 하한 0(비교 원천 없음)이면 원가 비교하지 않는다.
+	// a zero savings lower bound (no comparison source) means no cost comparison.
 	noSavings := diagFixture()
 	noSavings.Effect.Cost.SavingsLowerBoundBytes = 0
 	if got := Diagnose(noSavings, th, budget); len(got) != 0 {
@@ -143,9 +143,9 @@ func TestDiagnoseRules(t *testing.T) {
 	}
 }
 
-// TestDiagnosisSentenceContract — 문장 계약(스펙 §3) — 각
-// 항목의 문장 렌더는 신호+수치+기준 출처+행동을 1줄에 포함한다. 기준
-// 출처는 계층을 드러낸다(A 자기참조 diag_*·B doctor 승계·C 가치 기본값).
+// TestDiagnosisSentenceContract — the sentence contract (spec §3) — each item's
+// sentence render contains signal + value + basis source + action in 1 line. The basis
+// source reveals the tier (A self-reference diag_*, B doctor-inherited, C value default).
 func TestDiagnosisSentenceContract(t *testing.T) {
 	th := store.DefaultThresholds()
 	out := diagFixture()
@@ -161,9 +161,9 @@ func TestDiagnosisSentenceContract(t *testing.T) {
 		bySignal[it.Signal] = it
 	}
 	for signal, wantBasis := range map[string]string{
-		"hot_budget_saturation": "diag_hot_budget_high=0.8", // A — 자기참조 키
-		"dead_knowledge":        "diag_dead_warn=10",        // B diag 키
-		"recall_led_below_goal": "diag_recall_led_goal=50",  // C — 가치 기본값 라벨
+		"hot_budget_saturation": "diag_hot_budget_high=0.8", // A — a self-reference key
+		"dead_knowledge":        "diag_dead_warn=10",        // B — a diag key
+		"recall_led_below_goal": "diag_recall_led_goal=50",  // C — a value-default label
 	} {
 		it, ok := bySignal[signal]
 		if !ok {
@@ -182,15 +182,15 @@ func TestDiagnosisSentenceContract(t *testing.T) {
 			t.Errorf("%q basis=%q, 기준 출처 %q 미포함", signal, it.Basis, wantBasis)
 		}
 	}
-	// C계층 라벨 — 가치 기본값(습관 목표) 표기.
+	// the tier-C label — a value-default (habitual-goal) notation.
 	if it := bySignal["recall_led_below_goal"]; !strings.Contains(it.Basis, "default goal") {
 		t.Errorf("C계층 basis=%q, '기본 목표' 라벨 미포함", it.Basis)
 	}
-	// A1 만성 절단 라벨.
+	// the A1 chronic-truncation label.
 	if it := bySignal["hot_budget_saturation"]; !strings.Contains(it.Action, "chronic truncation") {
 		t.Errorf("A1 action=%q, '만성 절단' 라벨 미포함", it.Action)
 	}
-	// JSON 배열 노출 — 항목은 5필드 구조로 직렬화된다(단일 데이터 모델).
+	// JSON array exposure — items serialize in the 5-field structure (a single data model).
 	b, err := json.Marshal(items)
 	if err != nil {
 		t.Fatalf("marshal: %v", err)
@@ -200,7 +200,7 @@ func TestDiagnosisSentenceContract(t *testing.T) {
 			t.Errorf("진단 JSON에 필드 키 %s 없음: %s", key, b)
 		}
 	}
-	// B계층 승계 표기 — zero_near는 doctor 키를 기준 출처로 인용한다(중복 키 방지).
+	// the tier-B inheritance notation — zero_near cites the doctor key as its basis source (preventing duplicate keys).
 	zn := diagFixture()
 	zn.ZeroNearPct = 40
 	items = Diagnose(zn, th, 2000)
@@ -210,13 +210,13 @@ func TestDiagnosisSentenceContract(t *testing.T) {
 	}
 }
 
-// TestDiagnosisReportExposure — 세 뷰 동일 원천(사용자 원칙 —
-// 뷰 간 데이터 분열 금지). (a) report --json: diagnosis 배열이 ReportOutput
-// 에서 직렬화된다. (b) 정상 침묵: 빈 배열(null 아님). (c) HTML: 같은
-// ReportOutput.Diagnosis를 카드로 렌더(빈 경우 섹션 자체가 없다).
+// TestDiagnosisReportExposure — all three views share one source (the user principle —
+// no data split across views). (a) report --json: the diagnosis array serializes inside
+// ReportOutput. (b) Normal silence: the empty array (not null). (c) HTML: the same
+// ReportOutput.Diagnosis rendered as cards (when empty, no section at all).
 func TestDiagnosisReportExposure(t *testing.T) {
 	_, today := v1200Today()
-	// (a) hot 평균 1900/상한 2000(95%) — A1 트리거 픽스처.
+	// (a) hot mean 1900 / cap 2000 (95%) — the A1-trigger fixture.
 	s := &v1200Store{daily: map[string]string{
 		"daily:read:" + today: "1", "daily:hot:" + today: "1",
 		"daily:hot_bytes:" + today: "1900",
@@ -233,7 +233,7 @@ func TestDiagnosisReportExposure(t *testing.T) {
 	if d["signal"] != "hot_budget_saturation" {
 		t.Errorf("diagnosis[0].signal=%v, want hot_budget_saturation", d["signal"])
 	}
-	// (b) 정상 침묵 — 빈 배열(문제 없을 때 null이 아닌 []).
+	// (b) normal silence — the empty array ([] rather than null when nothing is wrong).
 	s2 := &v1200Store{daily: map[string]string{
 		"daily:read:" + today: "1", "daily:hot:" + today: "1",
 		"daily:hot_bytes:" + today: "1000",
@@ -243,7 +243,7 @@ func TestDiagnosisReportExposure(t *testing.T) {
 	if !ok || len(arr2) != 0 {
 		t.Errorf("정상 diagnosis=%v(%T), want 빈 배열", m2["diagnosis"], m2["diagnosis"])
 	}
-	// (c) HTML — 같은 항목을 카드로 렌더·정상 침묵은 섹션 없음.
+	// (c) HTML — the same items rendered as cards; normal silence means no section.
 	items := Diagnose(func() ReportOutput {
 		o := diagFixture()
 		o.Effect.DeadPct = 25

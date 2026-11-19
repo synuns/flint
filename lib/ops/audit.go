@@ -1,10 +1,10 @@
-// audit 커맨드 — 감사(Ruling: revert 커맨드화 폐지, flint audit 신설).
-// `flint audit [--limit N] [--session ID] [--stat] [--telemetry]` — dolt_log 최근
-// N(기본 20·상한 100)을 컬럼 4종(commit_hash·committer·date·message)만 한 줄
-// JSON {"log":[...]}로 출력. --session ID는 message LIKE '%[session:ID]%' 필터.
-// 기본 쿼리는 telemetry 커밋(message이 'telemetry: ' 접두 —
-// CommitTelemetry 계약)을 NOT LIKE로 제외하고 --telemetry 플래그로 포함한다.
-// 서버 다운 exit 2(§13 조용히).
+// the audit command — the audit trail (Ruling: making revert a command was dropped; flint audit created).
+// `flint audit [--limit N] [--session ID] [--stat] [--telemetry]` — the most recent N of dolt_log
+// (default 20, cap 100) with only the 4 columns (commit_hash, committer, date, message) as
+// one-line JSON {"log":[...]}. --session ID is a message LIKE '%[session:ID]%' filter.
+// The default query excludes telemetry commits (messages with the 'telemetry: ' prefix —
+// the CommitTelemetry contract) via NOT LIKE; the --telemetry flag includes them.
+// Server down exits 2 (silent, §13).
 package ops
 
 import (
@@ -21,15 +21,15 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// audit 기본·상한 limit·사용법 행.
+// audit default/cap limits and the usage line.
 const (
 	auditDefaultLimit = 20
 	auditMaxLimit     = 100
 	auditUsage        = "usage: flint audit [--limit N] [--session ID] [--stat] [--telemetry]"
 )
 
-// auditEntry — 감사 출력 최소 컬럼(토큰 예산 룰링: 4종만).
-// --stat 전용 부록 필드(stat·date_rel)는 omitempty — 기본 출력 키 불변.
+// auditEntry — the minimal audit output columns (the token-budget ruling: only 4).
+// The --stat-only appendix fields (stat, date_rel) are omitempty — the default output keys are unchanged.
 type auditEntry struct {
 	CommitHash string                    `json:"commit_hash"`
 	Committer  string                    `json:"committer"`
@@ -39,15 +39,15 @@ type auditEntry struct {
 	DateRel    string                    `json:"date_rel,omitempty"`
 }
 
-// auditTableStat — dolt_diff 테이블별 변경 요약(--stat 부록).
+// auditTableStat — the per-table change summary from dolt_diff (the --stat appendix).
 type auditTableStat struct {
 	DataChange   bool `json:"data_change"`
 	SchemaChange bool `json:"schema_change"`
 }
 
-// RelTime — t를 now 대비 상대 시각으로("3h ago"·"2d ago" — log 시각 옵션
-// 부재로 자체 포맷, C13). 1시간 미만은 분, 24시간 미만은 시, 이후는 일(내림).
-// 미래 시각은 0으로 클램프.
+// RelTime — t relative to now ("3h ago", "2d ago" — no log-time option,
+// so its own format, C13). Under 1 hour, minutes; under 24 hours, hours; beyond, days (floored).
+// Future times are clamped to 0.
 func RelTime(t time.Time) string {
 	d := time.Since(t)
 	if d < 0 {
@@ -63,15 +63,15 @@ func RelTime(t time.Time) string {
 	}
 }
 
-// RunAudit — dolt_log 최근 N 조회. limit은 0·음수 → 기본 20, 상한 100 clamp
-// (무효 값 기본값 폴백 전역 제약). 인자 검증 경로(unknown flag·
-// 값 누락·비수 값)는 무효 인자 exit 3 — --limit 비수는 read·brief(--limit
-// Atoi 실패 exit 3)와 동일 규칙. 수치형 0·음수만 조용한 clamp 폴백
-// (read ClampLimit 관례).
+// RunAudit — the most recent N of dolt_log. limit: 0 or negative -> default 20; capped at 100
+// (the invalid-value default-fallback global constraint). The argument-validation paths
+// (unknown flag, missing value, non-numeric value) are invalid-arg exit 3 — a non-numeric
+// --limit follows the same rule as read and brief (--limit Atoi failure exits 3). Only
+// numeric 0/negative get the silent clamp fallback (the read ClampLimit convention).
 func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 	ctx := context.Background()
-	// 위치 인자 불허(wire.ParseArgs 사양 테이블).
-	// 값 검증은 발생 순(AllOccs) 재현 — 기존 오류 우선 순서 그대로.
+	// positional args not allowed (the wire.ParseArgs spec table).
+	// Value validation reproduces occurrence order (AllOccs) — the existing error precedence as-is.
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--limit", Value: true},
@@ -102,7 +102,7 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 				return 3
 			}
 			if n < 1 {
-				n = auditDefaultLimit // 수치형 0·음수 폴백(에러 아님)
+				n = auditDefaultLimit // numeric 0/negative fallback (not an error)
 			}
 			limit = n
 		case "--session":
@@ -116,17 +116,17 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		limit = auditMaxLimit
 	}
 
-	// v1.7.2 T2(→ v1.8.0 T8 Store 이관): 기본은 telemetry 커밋('telemetry: '
-	// 접두 — CommitTelemetry 계약)을 MessageNotLike로 제외, --telemetry
-	// 플래그로 포함. --session 필터는 MessageLike('%[session:ID]%' 패턴)로
-	// AND 결합 — 세 조건 모두 DB 측 조건으로 전달된다(방언 SQL은 lib/db).
+	// v1.7.2 T2 (-> v1.8.0 T8 Store migration): by default, telemetry commits (the 'telemetry: '
+	// prefix — the CommitTelemetry contract) are excluded via MessageNotLike; the --telemetry
+	// flag includes them. The --session filter combines via AND with MessageLike (the
+	// '%[session:ID]%' pattern) — all three conditions are passed to the DB side (dialect SQL is lib/db).
 	q := wire.LogQuery{LatestN: limit}
 	if !telemetry {
 		q.MessageNotLike = `telemetry: %`
 	}
 	if session != "" {
-		// LIKE 메타문자(%·_) 포함 세션 ID는 리터럴 일치로만 매칭 —
-		// query.EscapeLike로 이스케이프(값 자체는 계속 파라미터화).
+		// a session ID containing LIKE metacharacters (% _) is matched only literally —
+		// escaped with query.EscapeLike (the value itself stays parameterized).
 		q.MessageLike = `%[session:` + query.EscapeLike(session) + `]%`
 	}
 	entries, err := st.LogEntries(ctx, q)
@@ -134,26 +134,26 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	log := make([]auditEntry, 0, len(entries)) // 0행도 "log":[] 보장
+	log := make([]auditEntry, 0, len(entries)) // even 0 rows guarantee "log":[]
 	for _, en := range entries {
 		e := auditEntry{}
-		// LogEntry 문자열 필드는 전부 render.Text 재살균 —
-		// message뿐 아니라 hash·committer도 원문 노출 경로다.
+		// every LogEntry string field is re-sanitized via render.Text —
+		// not only message; hash and committer are also raw-exposure paths.
 		e.CommitHash = render.Text(en.Hash)
 		e.Committer = render.Text(en.Committer)
 		if !en.Date.IsZero() {
 			e.Date = fmt.Sprint(en.Date)
 		}
-		e.Message = render.Text(en.Message) // render.Text 경유(엔진 커밋 로그 message 재살균 승계)
+		e.Message = render.Text(en.Message) // via render.Text (inheriting re-sanitization of the engine commit-log message)
 		if stat && !en.Date.IsZero() {
 			e.DateRel = RelTime(en.Date)
 		}
 		log = append(log, e)
 	}
 	if stat && len(log) > 0 {
-		// 테이블별 data_change·schema_change 요약 부록 — 커밋당 1회씩
-		// 묻는 N+1(상한 100 커밋 = 100왕복) 대신 해시 목록 단일 배치
-		// 조회(DiffStat — 방언 SQL은 lib/db).
+		// the per-table data_change/schema_change summary appendix — instead of asking
+		// per commit (an N+1 of up to 100 commits = 100 round trips), a single batch lookup
+		// of the hash list (DiffStat — dialect SQL is lib/db).
 		hashes := make([]string, 0, len(log))
 		for i := range log {
 			if log[i].CommitHash != "" {
@@ -167,9 +167,9 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		}
 		stats := make(map[string]map[string]auditTableStat, len(log))
 		for _, ds := range diffStats {
-			// DiffStat CommitHash·Table도 살균 —
-			// stats 맵 키는 살균된 log 측 CommitHash와 매칭되므로 같은
-			// 출구(render.Text)를 통과시켜 일관성을 유지한다.
+			// DiffStat's CommitHash and Table are also sanitized —
+			// the stats map keys must match the sanitized log-side CommitHash, so they pass
+			// through the same outlet (render.Text) for consistency.
 			h := render.Text(ds.CommitHash)
 			ts := auditTableStat{DataChange: ds.DataChange, SchemaChange: ds.SchemaChange}
 			if stats[h] == nil {
@@ -188,8 +188,8 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 	return 0
 }
 
-// runAudit — registry 핸들러 래퍼(approve.go 패턴 — RunAudit는 ctx·stdin을
-// 사용하지 않는다).
+// runAudit — the registry handler wrapper (the approve.go pattern — RunAudit does not use
+// ctx or stdin).
 func runAudit(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	return RunAudit(st, args, stdout)
 }

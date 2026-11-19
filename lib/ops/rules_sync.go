@@ -1,7 +1,7 @@
-// rules_sync.go — 스킬 싱크. flint-plugin/skills/flint/ 전체를
-// $CLAUDE_HOME/skills/flint/로 복사한다. 규칙이 세션에 도달할 마지막 마일
-// (스펙 §1). 싱크는 복사만 — 대상 전용 파일(사용자 수동 파일)은 절대
-// 삭제하지 않고, 내용이 같은 파일은 건너뛴다(멱등).
+// rules_sync.go — the skill sync. Copies all of flint-plugin/skills/flint/ to
+// $CLAUDE_HOME/skills/flint/. The last mile for rules to reach the session
+// (spec §1). Sync is copy-only — destination-only files (user manual files) are never
+// deleted, and files with identical content are skipped (idempotent).
 package ops
 
 import (
@@ -15,9 +15,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// SyncRules — srcDir의 파일 전체를 destDir로 싱크. 대상에 동일 내용이
-// 있으면 skip(문자열 비교), 다르면 덮어쓰기 복사. 대상 전용 파일은
-// 무시(삭제 없음). 반환값은 새로 복사한 파일 수.
+// SyncRules — syncs all files from srcDir to destDir. Identical content at the
+// destination is skipped (string comparison); different content is overwritten by
+// copying. Destination-only files are ignored (no deletion). The return is the count of newly copied files.
 func SyncRules(srcDir string, destDir string) (copied int, err error) {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
@@ -25,11 +25,11 @@ func SyncRules(srcDir string, destDir string) (copied int, err error) {
 	}
 	for _, e := range entries {
 		if e.IsDir() {
-			continue // 1단계 파일만 — 스킬 디렉터리는 평면(SKILL.md+부속)
+			continue // top-level files only — the skill directory is flat (SKILL.md + attachments)
 		}
-		// 심볼릭 링크는 skip — ReadFile이 링크
-		// 대상(소스 디렉터리에 심어진 민감 파일 포인터)을 따라가 복사·
-		// 노출하는 것을 차단한다.
+		// symlinks are skipped — blocking ReadFile from following
+		// the link target (potentially a sensitive-file pointer planted in the source directory)
+		// and copying/exposing it.
 		if e.Type()&os.ModeSymlink != 0 {
 			continue
 		}
@@ -40,7 +40,7 @@ func SyncRules(srcDir string, destDir string) (copied int, err error) {
 		}
 		destPath := filepath.Join(destDir, e.Name())
 		if prev, rerr := os.ReadFile(destPath); rerr == nil && string(prev) == string(body) {
-			continue // 멱등 skip
+			continue // idempotent skip
 		}
 		if err := os.MkdirAll(destDir, 0o755); err != nil {
 			return copied, err
@@ -53,9 +53,9 @@ func SyncRules(srcDir string, destDir string) (copied int, err error) {
 	return copied, nil
 }
 
-// SkillSrcDir — 스킬 소스 경로 탐지. ① binPath 인접
-// flint-plugin/skills/flint(설치형 배포) ② 워킹디렉터리 상대(저장소
-// 실행 — go run ./cmd/flint). 어디에도 없으면 빈 문자열(검사 생략 신호).
+// SkillSrcDir — detects the skill source path. (1) flint-plugin/skills/flint adjacent
+// to binPath (installed distribution); (2) relative to the working directory (repo
+// execution — go run ./cmd/flint). Neither present yields the empty string (the skip-check signal).
 func SkillSrcDir(binPath string) string {
 	var cands []string
 	if binPath != "" {
@@ -72,23 +72,23 @@ func SkillSrcDir(binPath string) string {
 	return ""
 }
 
-// CheckSkillFile — doctor 검사 skill-file(룰링: warn·exit 0). 대상
-// SKILL.md 부재·소스와 불일치 시 warn + update-rules 안내. 소스 미탐지
-// (빈 문자열)·소스 SKILL.md 부재는 판정 불능 — 검사를 생성하지 않는다
-// (harness 패턴과 동일).
+// CheckSkillFile — the doctor skill-file check (ruling: warn, exit 0). A missing
+// target SKILL.md or a mismatch with the source warns + update-rules guidance. Source
+// undetected (empty string) or a missing source SKILL.md means no verdict possible — no
+// check is produced (the same pattern as harness).
 func CheckSkillFile(srcDir, destDir string) (DoctorCheck, bool) {
 	if srcDir == "" {
 		return DoctorCheck{}, false
 	}
 	src, err := os.ReadFile(filepath.Join(srcDir, "SKILL.md"))
 	if err != nil {
-		return DoctorCheck{}, false // 소스 SKILL.md 부재 — 판정 불가
+		return DoctorCheck{}, false // source SKILL.md missing — no verdict possible
 	}
 	c := DoctorCheck{Name: "skill-file"}
 	destPath := filepath.Join(destDir, "SKILL.md")
 	dest, rerr := os.ReadFile(destPath)
 	if rerr != nil {
-		c.Status = "warn" // 스킬 없어도 훅은 동작 — fail 아님(룰링)
+		c.Status = "warn" // hooks work without skills — not a fail (ruling)
 		c.Detail = destPath + " not found"
 		c.Fix = "fix: flint setup --update-rules — skill sync"
 		return c, true
@@ -104,9 +104,9 @@ func CheckSkillFile(srcDir, destDir string) (DoctorCheck, bool) {
 	return c, true
 }
 
-// RunUpdateRules — setup --update-rules 실행. 소스는 --src 오버라이드,
-// 기본 SkillSrcDir 탐지. 대상은 $CLAUDE_HOME/skills/flint(FLINT_CLAUDE_HOME
-// 승계). 보고 한 줄 JSON {"status":"synced","copied":N,"dest":…}.
+// RunUpdateRules — runs setup --update-rules. The source is the --src override, defaulting
+// to the SkillSrcDir detection. The destination is $CLAUDE_HOME/skills/flint (inheriting
+// FLINT_CLAUDE_HOME). The report is one line of JSON {"status":"synced","copied":N,"dest":...}.
 func RunUpdateRules(stdout io.Writer, srcOverride string) int {
 	src := srcOverride
 	if src == "" {

@@ -1,7 +1,7 @@
-// audit_v08_test.go — v1.8.0 T8: audit 목록 조회를 wire.LogQuery 기반
-// fake로 검증(audit_test.go v1.7.2 T2 계승 — dolt_log 원시 SQL 단언을
-// LogEntries 전달 조건 단언으로 환치). telemetry 커밋은 CommitTelemetry가
-// 'telemetry: <cmd>' 접두로 남긴다(lib/db/repo.go 계약 — MessageNotLike).
+// audit_v08_test.go — v1.8.0 T8: verifies the audit list lookup with a wire.LogQuery-based
+// fake (succeeding audit_test.go v1.7.2 T2 — swapping the raw dolt_log SQL assertions for
+// assertions on the passed LogEntries conditions). Telemetry commits are left by
+// CommitTelemetry with the 'telemetry: <cmd>' prefix (the lib/db/repo.go contract — MessageNotLike).
 package ops
 
 import (
@@ -15,7 +15,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// auditLogRows — LogEntries 픽스처: telemetry 커밋 3 + 감사 커밋 2(최신순).
+// auditLogRows — the LogEntries fixture: 3 telemetry commits + 2 audit commits (newest first).
 func auditLogRows() []wire.LogEntry {
 	base := time.Date(2026, 11, 17, 6, 0, 0, 0, time.UTC)
 	msgs := []struct {
@@ -36,13 +36,13 @@ func auditLogRows() []wire.LogEntry {
 	return out
 }
 
-// auditFakeStore — LogEntries·DiffStat 훅 오버라이드 fake(*fakeStore 승격
-// 대신 명시 정의가 우선 — Query 등 기존 동작은 승격 유지). logQ·diffHashes는
-// 수신 조건 기록(전달 단언). LogEntries fake는 MessageNotLike·MessageLike
-// 필터와 LatestN clamp를 흉내 낸다.
+// auditFakeStore — a fake overriding the LogEntries and DiffStat hooks (explicit
+// definitions take precedence over the promoted *fakeStore — Query and the rest keep the
+// promoted behavior). logQ and diffHashes record the received conditions (pass-through
+// assertions). The LogEntries fake mimics the MessageNotLike and MessageLike filters and the LatestN clamp.
 type auditFakeStore struct {
 	*fakeStore
-	wire.HistoryStubs // DiffRows·DiffCommits 기본구현(오버라이드 대상 3종은 아래 명시 정의가 우선)
+	wire.HistoryStubs // default DiffRows/DiffCommits implementations (the 3 overridden ones take precedence below)
 	logQ              []wire.LogQuery
 	logEntriesErr     error
 	diffCalls         int
@@ -86,12 +86,12 @@ func (f *auditFakeStore) DiffStat(ctx context.Context, hashes []string) ([]wire.
 	return f.diffRows, nil
 }
 
-// newAuditFake — 기본 fakeStore 영동작 + 히스토리 훅.
+// newAuditFake — the default fakeStore zero behavior + the history hooks.
 func newAuditFake() *auditFakeStore {
 	return &auditFakeStore{fakeStore: &fakeStore{}}
 }
 
-// decodeAuditLog — RunAudit 출력 파싱해 log 슬라이스만 반환.
+// decodeAuditLog — parses the RunAudit output and returns only the log slice.
 func decodeAuditLog(t *testing.T, out string) []map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -109,7 +109,7 @@ func decodeAuditLog(t *testing.T, out string) []map[string]any {
 	return entries
 }
 
-// lastLogQ — fake가 받은 LogEntries 조건(미수신 시 fatal).
+// lastLogQ — the LogEntries condition the fake received (fatal if not received).
 func lastLogQ(t *testing.T, f *auditFakeStore) wire.LogQuery {
 	t.Helper()
 	if len(f.logQ) == 0 {
@@ -118,9 +118,9 @@ func lastLogQ(t *testing.T, f *auditFakeStore) wire.LogQuery {
 	return f.logQ[len(f.logQ)-1]
 }
 
-// TestAuditTelemetryExcludedByDefault — Review Focus: telemetry 커밋 다수
-// 상태에서 기본 목록에 telemetry 0건. 필터는 DB 측 조건으로 전달돼야
-// 한다(MessageNotLike — 클라이언트 후처리가 아님).
+// TestAuditTelemetryExcludedByDefault — Review Focus: with many telemetry commits,
+// the default list contains 0 of them. The filter must be passed as a DB-side condition
+// (MessageNotLike — not client-side post-processing).
 func TestAuditTelemetryExcludedByDefault(t *testing.T) {
 	f := newAuditFake()
 	var out bytes.Buffer
@@ -141,8 +141,8 @@ func TestAuditTelemetryExcludedByDefault(t *testing.T) {
 	}
 }
 
-// TestAuditTelemetryFlagIncludes — Review Focus: --telemetry 시 telemetry
-// 커밋 포함(전달 조건에서 MessageNotLike 소거).
+// TestAuditTelemetryFlagIncludes — Review Focus: with --telemetry, the telemetry commits
+// are included (MessageNotLike removed from the passed conditions).
 func TestAuditTelemetryFlagIncludes(t *testing.T) {
 	f := newAuditFake()
 	var out bytes.Buffer
@@ -167,8 +167,8 @@ func TestAuditTelemetryFlagIncludes(t *testing.T) {
 	}
 }
 
-// TestAuditStatAppliesTelemetryFilter — --stat도 동일 필터: 기본은
-// MessageNotLike, --telemetry 조합은 제외.
+// TestAuditStatAppliesTelemetryFilter — --stat uses the same filter: default is
+// MessageNotLike; combined with --telemetry, excluded.
 func TestAuditStatAppliesTelemetryFilter(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -196,9 +196,9 @@ func TestAuditStatAppliesTelemetryFilter(t *testing.T) {
 	}
 }
 
-// TestAuditSessionFilterPassedAsMessageLike — Review Focus: --session 필터는
-// LogQuery.MessageLike('%[session:ID]%' 패턴)로 이관돼 DB 측 조건으로
-// 전달된다(클라이언트 후처리·SQL 잔류 금지 계약).
+// TestAuditSessionFilterPassedAsMessageLike — Review Focus: the --session filter is
+// transferred as LogQuery.MessageLike (the '%[session:ID]%' pattern) and passed as a
+// DB-side condition (the no-client-post-processing and no-residual-SQL contract).
 func TestAuditSessionFilterPassedAsMessageLike(t *testing.T) {
 	f := newAuditFake()
 	var out bytes.Buffer
@@ -214,9 +214,9 @@ func TestAuditSessionFilterPassedAsMessageLike(t *testing.T) {
 	}
 }
 
-// TestAuditSessionEscapesLikeMeta — R40-C: --session ID에 LIKE 메타문자
-// (%·_)가 포함되면 이스케이프되어 리터럴 일치로만 매칭된다(파라미터화
-// 유지 — 패턴 조립 시 메타문자만 \로 이스케이프).
+// TestAuditSessionEscapesLikeMeta — R40-C: a --session ID containing LIKE metacharacters
+// (% or _) is escaped and matched only literally (parameterization kept — only the
+// metacharacters are escaped with \\ when assembling the pattern).
 func TestAuditSessionEscapesLikeMeta(t *testing.T) {
 	f := newAuditFake()
 	var out bytes.Buffer
@@ -229,8 +229,8 @@ func TestAuditSessionEscapesLikeMeta(t *testing.T) {
 	}
 }
 
-// TestAuditLimitClamp — limit clamp 계약(기본 20·0/음수 → 20·상한 100)은
-// LogQuery.LatestN 전달 값으로 담보.
+// TestAuditLimitClamp — the limit clamp contract (default 20; 0/negative -> 20; cap 100)
+// is guaranteed by the LogQuery.LatestN passed value.
 func TestAuditLimitClamp(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -253,9 +253,9 @@ func TestAuditLimitClamp(t *testing.T) {
 	}
 }
 
-// TestAuditStatMapsDiffStat — Review Focus: --stat 부록은 DiffStat 배치
-// 조회([]TableDiffStat) → log[].stat 매핑. 살균된 CommitHash로 해시 목록을
-// 건네고 data_change·schema_change·date_rel이 첨부된다.
+// TestAuditStatMapsDiffStat — Review Focus: the --stat appendix is the DiffStat batch
+// lookup ([]TableDiffStat) -> the log[].stat mapping. The hash list is passed with the
+// sanitized CommitHash, and data_change, schema_change, and date_rel are attached.
 func TestAuditStatMapsDiffStat(t *testing.T) {
 	f := newAuditFake()
 	f.diffRows = []wire.TableDiffStat{
@@ -299,14 +299,14 @@ func TestAuditStatMapsDiffStat(t *testing.T) {
 	if h2["date_rel"] == "" {
 		t.Fatalf("date_rel 미기재: %v", h2)
 	}
-	// stat 미수신 커밋(hash1)은 stat 키 자체가 없어야 한다(omitempty).
+	// a commit without a stat received (hash1) must have no stat key at all (omitempty).
 	if _, has := byHash["hash1"]["stat"]; has {
 		t.Fatalf("hash1에 stat 잔류: %v", byHash["hash1"])
 	}
 }
 
-// TestAuditDiffStatErrorPropagates — DiffStat 오류는 기존 질의 오류와 같은
-// exit 매핑(store.MapExit)으로 전파.
+// TestAuditDiffStatErrorPropagates — a DiffStat error propagates with the same exit
+// mapping as existing query errors (store.MapExit).
 func TestAuditDiffStatErrorPropagates(t *testing.T) {
 	f := newAuditFake()
 	f.diffErr = context.DeadlineExceeded
@@ -316,13 +316,13 @@ func TestAuditDiffStatErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestAuditLogEntriesErrorPropagates — LogEntries 오류 전파(exit 매핑).
+// TestAuditLogEntriesErrorPropagates — LogEntries error propagation (exit mapping).
 func TestAuditLogEntriesErrorPropagates(t *testing.T) {
 	f := newAuditFake()
 	f.fakeStore.queryErr = nil
 	f.logQ = nil
 	f.diffHashes = nil
-	// LogEntries 훅 오류 주입 — auditFakeStore.LogEntries를 치환.
+	// injecting a LogEntries hook error — swaps auditFakeStore.LogEntries.
 	prev := f.logEntriesErr
 	f.logEntriesErr = context.DeadlineExceeded
 	t.Cleanup(func() { f.logEntriesErr = prev })

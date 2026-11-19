@@ -1,7 +1,7 @@
-// sigverify.go — 릴리스 서명 검증(ADR-0014). cosign 키 기반
-// 서명(ECDSA P-256 기본·ed25519 지원)을 Go 표준 라이브러리만으로 검증
-// 한다(신규 의존 0 — cosign 라이브러리 트리 회피). 신뢰 뿌리는 바이너리에
-// 임베드된 공개키(cosign.pub) — GitHub 오리진과 분리된 제3 신뢰점.
+// sigverify.go — release signature verification (ADR-0014). Verifies cosign key-based
+// signatures (ECDSA P-256 default, ed25519 supported) using only the Go standard library
+// (0 new dependencies — avoiding the cosign library tree). The trust root is the public key
+// embedded in the binary (cosign.pub) — a third trust point separate from the GitHub origin.
 package ops
 
 import (
@@ -16,25 +16,25 @@ import (
 	"strings"
 )
 
-// ErrSignatureInvalid — 서명 불일치(위조·손상 의심 — 업데이트 즉시 거부).
+// ErrSignatureInvalid — signature mismatch (suspected forgery or corruption — the update is rejected immediately).
 var ErrSignatureInvalid = errors.New("release signature: signature mismatch")
 
-// ErrSignatureScheme — 미지원 키/형식(공개키 스킴·서명 인코딩).
+// ErrSignatureScheme — unsupported key/format (public-key scheme, signature encoding).
 var ErrSignatureScheme = errors.New("release signature: unsupported scheme")
 
-// ReleaseVerifier — 임베드 공개키 기반 검증기(빈 공개키 = 미구성 전환 모드).
+// ReleaseVerifier — the verifier based on the embedded public key (an empty public key = unconfigured transition mode).
 type ReleaseVerifier struct {
-	PublicPEM []byte // cosign.pub 원문(비었으면 검증 건너뜀)
+	PublicPEM []byte // the raw cosign.pub (verification skipped when empty)
 }
 
-// Configured — 공개키 임베드 여부(미구성이면 .sig가 있어도 경고만).
+// Configured — whether the public key is embedded (if unconfigured, even a .sig present is only a warning).
 func (v ReleaseVerifier) Configured() bool {
 	return len(v.PublicPEM) > 0
 }
 
-// Verify — data(예: checksums.txt 원문)에 대한 base64 서명 검증.
-// 공개키 타입에 따라 ECDSA(SHA-256+ASN.1)·ed25519(순수)로 분기 —
-// cosign sign-blob --key의 두 표준 스킴.
+// Verify — verifies a base64 signature over data (e.g. the raw checksums.txt).
+// Branches by public-key type into ECDSA (SHA-256+ASN.1) or ed25519 (raw) —
+// the two standard schemes of cosign sign-blob --key.
 func (v ReleaseVerifier) Verify(data []byte, sigB64 string) error {
 	if !v.Configured() {
 		return fmt.Errorf("release signature: public key not configured (transition mode)")

@@ -1,9 +1,9 @@
-// sessionhook.go — SessionStart·Stop 훅 실행을 각 1커맨드로
-// 통합(session-start·session-end). 내부에서 기존 hot→nudge / done→nudge
-// 시퀀스를 같은 stdout에 순서대로 실행해 출력·계측·exit 승계. 기존 직접
-// 실행 커맨드(hot·done·nudge)도 그대로 유효(하위호환).
-// SessionStart에서 세션 시작 경계를 session_starts에 기록 —
-// 효과 계측의 세션 구간 배정 원천(출력 없는 내부 계정, §13).
+// sessionhook.go — unifies the SessionStart and Stop hook executions into one command
+// each (session-start, session-end). Internally it runs the existing hot->nudge / done->nudge
+// sequences in order on the same stdout, inheriting output, metering, and exit. The existing
+// direct-run commands (hot, done, nudge) also remain valid (backward compatible).
+// SessionStart records the session-start boundary into session_starts —
+// the source for the effect metering's session-interval assignment (an internal account with no output, §13).
 package ops
 
 import (
@@ -19,21 +19,21 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// SessionStartRecorder — 세션 시작 경계 기록 접합면. realStore는
-// db.Repo.RecordSessionStart로 구현(cli realstore_care.go), 미구현 Store
-// (fake)는 조용히 건너뛴다.
+// SessionStartRecorder — the seam for recording session-start boundaries. realStore
+// implements it via db.Repo.RecordSessionStart (cli realstore_care.go); an unimplemented
+// Store (fake) silently skips.
 type SessionStartRecorder interface {
 	RecordSessionStart(ctx context.Context, session string) error
 }
 
-// sanitizeHookSession — 훅 진입점(session-start·session-end) 전용
-// --session 정리. 무효 라벨(빈 값·'-' 접두 플래그 흡수
-// 오타 — knowledge.ValidateSessionLabel 공용 가드)은 라벨 부재 취급:
-// --session 쌍을 걷어낸 인자와 남은 유효 라벨을 반환한다. 훅 stdout은
-// 프롬프트 주입 경로라 무효 인자도 조용히(비간섭 §3·§13) — 검증 에러
-// exit 3은 CLI 직접 호출(hot·done·read) 계약에만 남는다. hooks.json의
-// session-start·session-end는 하니스 session_id만 전달하므로 이 정리는
-// 폴백(레거시·변형 훅) 경로 정합.
+// sanitizeHookSession — the --session cleanup dedicated to the hook entry points
+// (session-start, session-end). An invalid label (empty value, or a '-'-prefixed
+// flag-absorption typo — the shared knowledge.ValidateSessionLabel guard) is treated as
+// label-absent: it returns the arguments with the --session pair stripped and the remaining
+// valid label. Hook stdout is a prompt-injection path, so even invalid arguments stay silent
+// (non-interference §3, §13) — the validation-error exit 3 remains only in the direct CLI-call
+// contract (hot, done, read). Since hooks.json's session-start and session-end pass only the
+// harness session_id, this cleanup aligns the fallback (legacy and variant hooks) path.
 func sanitizeHookSession(args []string) ([]string, string) {
 	out := make([]string, 0, len(args))
 	for i := 0; i < len(args); i++ {
@@ -53,10 +53,10 @@ func sanitizeHookSession(args []string) ([]string, string) {
 	return out, SessionLabel(out)
 }
 
-// sessionLabelMaxAge — 세션 라벨 만료 창: events_retention_days
-// 재사용 — 라벨이 가리키는 read_events 행의 보존 창과 정렬(행이 정리된
-// 뒤의 라벨은 스테일). 신규 튜닝값 없이 meta 오버라이드 승계, 조회 실패·
-// 비값은 기본 14일(threshold_meta 등록값).
+// sessionLabelMaxAge — the session-label expiry window: reuses
+// events_retention_days — aligned with the retention window of the read_events rows the label
+// points at (a label whose rows were cleaned is stale). No new tuning value; the meta override
+// is inherited, and a lookup failure or non-value falls back to the default 14 days (the threshold_meta registered value).
 func sessionLabelMaxAge(ctx context.Context, st wire.Store) time.Duration {
 	d := knowledge.WriteThresholds(ctx, st).EventsRetentionD
 	if d <= 0 {
@@ -65,23 +65,23 @@ func sessionLabelMaxAge(ctx context.Context, st wire.Store) time.Duration {
 	return time.Duration(d) * 24 * time.Hour
 }
 
-// RunSessionStart — SessionStart 훅 1회: 세션 경계 기록 뒤 hot 주입·nudge.
-// stdin은 hot·done이 소비하지 않으므로 nudge가 그대로 파싱한다(훅 stdin
-// JSON의 hook_event_name으로 nudge 분기). nudge는 언제나 0이라 exit은
-// 실질적으로 hot의 코드. 경계 기록 실패는 조용히(§13 계측 원칙 —
-// 세션 지표만 0 강등, 주입·안내는 불변).
-// 무효 라벨 검증을 라벨 기록·세션 시작 기록 앞으로 —
-// 무효 값("--json" 플래그 흡수 등)이 라벨 파일과 경계에 남아 read 자동
-// 채택으로 오염을 부활시키던 경로 폐쇄(무효는 부재 취급, 조용히).
+// RunSessionStart — one SessionStart hook: records the session boundary, then hot injection and nudge.
+// stdin is not consumed by hot or done, so nudge parses it as-is (the nudge branch keys on
+// the hook stdin JSON's hook_event_name). nudge always returns 0, so the exit is effectively
+// hot's code. A boundary-record failure is silent (the §13 metering principle —
+// only the session metrics demote to 0; injection and notices are unchanged).
+// Invalid-label validation now precedes label recording and session-start recording —
+// closing the path where an invalid value (e.g. a "--json" flag absorption) remained in the
+// label file and the boundary, reviving pollution via read's auto-adoption (invalid is treated as absent, silently).
 func RunSessionStart(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	args, label := sanitizeHookSession(args)
 	if rec, ok := st.(SessionStartRecorder); ok {
 		_ = rec.RecordSessionStart(ctx, label)
 	}
-	// 현재 세션 라벨을 config 경로에 남겨 read가 자동
-	// 채택하게 한다 — G4 라벨 자동화. 실패는 조용히(§13 — 라벨은 보조).
-	// 세션별 파일 + 만료 정리(session-end 못 만난 잔존
-	// 청산 — nudge·compact가 타는 같은 훅 경로).
+	// leave the current session label in the config path so read adopts it automatically —
+	// G4 label automation. Failure is silent (§13 — the label is auxiliary).
+	// a per-session file + expiry cleanup (settling residues that never meet
+	// session-end — the same hook path nudge and compact ride).
 	_ = WriteSessionLabel(label)
 	if label != "" {
 		wire.PruneSessionLabels(sessionLabelMaxAge(ctx, st))
@@ -90,47 +90,47 @@ func RunSessionStart(ctx context.Context, st wire.Store, args []string, stdin io
 	if ncode := RunNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
 		return ncode
 	}
-	// 갱신 안내 — [flint] 경계 내 1줄, 캐시 TTL로 하루
-	// 1회 확인. 네트워크 실패·최신 아님은 무출력(§13). 실구현은 cli
-	// update.go — MaybeUpdateNoticeFn seam 주입.
+	// the update notice — 1 line inside the [flint] banner, checked once a day
+	// via the cache TTL. Network failure or not-latest means no output (§13). The real
+	// implementation is cli update.go — injected via the MaybeUpdateNoticeFn seam.
 	if MaybeUpdateNoticeFn != nil {
 		if line := MaybeUpdateNoticeFn(); line != "" {
 			fmt.Fprintln(stdout, line)
-			// 발화 카운터 — 갱신 안내 실제 발화 1회(종류 3종
-			// distill·recall·update의 하나, spec §2.5).
+			// fired counter — the update notice actually firing once (one of the 3 kinds
+			// distill, recall, update — spec §2.5).
 			knowledge.BumpMetaCounter(ctx, st, "fired_nudge_update")
 		}
 	}
-	// 정비 경고 요약(24h 캐시).
-	// 발동 창구가 수동 커맨드뿐이던 pending_max를 하루 1회 [flint] 경계
-	// 내 1줄로 연결한다. 실패는 무출력(§13).
+	// the maintenance-warning summary (24h cache).
+	// Connects pending_max — whose firing window had been manual commands only — as one line
+	// inside the [flint] banner once a day. Failure means no output (§13).
 	if line := maybeMaintenanceNotice(ctx, st); line != "" {
 		fmt.Fprintln(stdout, line)
 	}
 	return code
 }
 
-// MaybeUpdateNoticeFn — 갱신 안내 seam(cli update.go 실구현을 cli init이
-// 주입 — ops 단독 실행·테스트에서는 무안내).
+// MaybeUpdateNoticeFn — the update-notice seam (the cli update.go real implementation is
+// injected by the cli init — no notice in standalone ops runs or tests).
 var MaybeUpdateNoticeFn func() string
 
-// UpdateNoticeTTL — 갱신·정비 안내 캐시 TTL(cli update.go updateNoticeTTL과
-// 동일 값 — cli init이 주입해 단일 소스 유지).
+// UpdateNoticeTTL — the update/maintenance notice cache TTL (the same value as cli update.go's
+// updateNoticeTTL — injected by the cli init, keeping a single source).
 var UpdateNoticeTTL = 24 * time.Hour
 
-// maintenanceNoticeCache — 정비 요약 캐시 파일 포맷. checked_at 필드는
-// cli update.go updateCache와 동일 계약(세션 훅 소유 캐시 파일).
+// maintenanceNoticeCache — the maintenance-summary cache file format. The checked_at field
+// follows the same contract as cli update.go's updateCache (a session-hook-owned cache file).
 type maintenanceNoticeCache struct {
 	CheckedAt string `json:"checked_at"`
 }
 
-// maintenanceCacheFile — 정비 요약 캐시 경로(갱신 캐시 패턴 승계).
+// maintenanceCacheFile — the maintenance-summary cache path (inheriting the update-cache pattern).
 func maintenanceCacheFile() string {
 	return DataFile("maintenance-check.json")
 }
 
-// maybeMaintenanceNotice — pending_max 초과만 검사(가장 발동 빈번한
-// 정비 경고 — 24h 캐시로 왕복 1회). 최소 왕복 원칙(§2) 유지.
+// maybeMaintenanceNotice — checks only the pending_max excess (the most frequently
+// triggered maintenance warning — 1 round trip via the 24h cache). Keeping the minimal-round-trip principle (§2).
 func maybeMaintenanceNotice(ctx context.Context, st wire.Store) string {
 	path := maintenanceCacheFile()
 	if path == "" {
@@ -141,15 +141,15 @@ func maybeMaintenanceNotice(ctx context.Context, st wire.Store) string {
 		if json.Unmarshal(b, &c) == nil {
 			if checked, err := time.Parse(time.RFC3339, c.CheckedAt); err == nil &&
 				time.Since(checked) < UpdateNoticeTTL {
-				return "" // 오늘 확인 완료 — 무출력
+				return "" // already checked today — no output
 			}
 		}
 	}
 	th := knowledge.WriteThresholds(ctx, st)
-	// pending 수 조회는 countPending 단일 구현 위임.
+	// the pending-count lookup delegates to the single countPending implementation.
 	n, err := knowledge.CountPending(ctx, st)
 	if err != nil {
-		return "" // 검사 실패 — 캐시 갱신 안 함(갱신 안내 패턴: 다음 세션 재시도)
+		return "" // check failure — the cache is not refreshed (the update-notice pattern: retry next session)
 	}
 	_ = os.WriteFile(path, []byte(`{"checked_at":"`+time.Now().UTC().Format(time.RFC3339)+`"}`), 0o600)
 	if n > th.PendingMax {
@@ -158,9 +158,9 @@ func maybeMaintenanceNotice(ctx context.Context, st wire.Store) string {
 	return ""
 }
 
-// SessionLabel — 인자에서 --session 값을 추출(hot·session-start 공유
-// 단일 파서 — 미러 복제로 두 경로가 어긋나는 일을 방지한다).
-// knowledge.SessionLabelFn seam이 이 내보내기(별칭 경유)를 주입받는다.
+// SessionLabel — extracts the --session value from the arguments (the shared single
+// parser of hot and session-start — preventing the two paths from diverging via
+// duplicated mirrors). The knowledge.SessionLabelFn seam receives this export (via an alias) as its injection.
 func SessionLabel(args []string) string {
 	s := ""
 	for i := 0; i < len(args); i++ {
@@ -172,15 +172,15 @@ func SessionLabel(args []string) string {
 	return s
 }
 
-// RunSessionEnd — Stop 훅 1회: done 판정 뒤 nudge(Stop 추가 컨텍스트).
-// done은 언제나 0을 반환하므로 exit은 사실상 0(비간섭 §13 승계).
-// 세션 구간은 session_starts만으로 정의([start_i, start_{i+1})) —
-// 종료 경계는 별도 기록하지 않는다(룰링).
+// RunSessionEnd — one Stop hook: the done verdict, then nudge (the Stop additional context).
+// done always returns 0, so the exit is effectively 0 (inheriting non-interference §13).
+// The session interval is defined by session_starts alone ([start_i, start_{i+1})) —
+// no end boundary is recorded separately (ruling).
 func RunSessionEnd(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 무효 라벨은 부재 취급(조용히 — Stop stdout도 훅 경로).
+	// an invalid label is treated as absent (silently — Stop stdout is also a hook path).
 	args, label := sanitizeHookSession(args)
-	// 세션 종료 — 이 세션의 라벨 파일만 정리
-	// (종료 후 스테일 방지·병렬 세션 라벨 보존).
+	// session end — clean up only this session's label file
+	// (preventing staleness after exit, preserving parallel-session labels).
 	ClearSessionLabel(label)
 	code := knowledge.RunDone(ctx, st, args, stdin, stdout)
 	if ncode := RunNudge(ctx, st, nil, stdin, stdout); ncode != 0 {
