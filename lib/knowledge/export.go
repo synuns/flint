@@ -1,22 +1,27 @@
-// export.go — flint export 원천 조회(ExportRows·ExportRow·
-// ExportFilter). 기존 read 조회 원천 승계:
-//   - 활성 단일 정의 status='active' AND invalid_at IS NULL(activeKnowledgeCount·
-//     BuildReadStatus 공통 규칙). pending은 Status:"all"에만 포함된다.
-//   - tag 필터 ':t:' strpos 정확 매칭(appendReadFilters 관례).
-//   - base 테이블 knowledge 직접 조회 — active_knowledge 뷰는 superseded_by·
-//     invalid_at을 노출하지 않는다(BuildReadStatus와 동일 사유).
-//   - LIMIT 없음(전수 export — read의 토큰 예산 clamp는 검색 경로 전용).
+// export.go — the flint export source query (ExportRows·ExportRow·
+// ExportFilter). Inherits the existing read query source:
+//   - Single definition of active: status='active' AND invalid_at IS NULL
+//     (the activeKnowledgeCount·BuildReadStatus common rule). pending is
+//     included only under Status:"all".
+//   - Tag filter ':t:' strpos exact matching (appendReadFilters convention).
+//   - Direct query on the base table knowledge — the active_knowledge view
+//     does not expose superseded_by·invalid_at (same rationale as
+//     BuildReadStatus).
+//   - No LIMIT (full export — read's token-budget clamp is for the search
+//     path only).
 //
-// 스키마 실측 매핑(스키마 변경 금지 — 이번 패치 불변):
-//   - content ← summary, entities ← entity(단일 열), created_at ← ingested_at.
-//   - updated_at 열 부재 → COALESCE(invalid_at, ingested_at) 파생(행은 불변
-//     커밋이라 invalid_at이 마지막 갱신 시각). Since 컷오프도 동일 정의
-//     (PAM §16 증분 차용, 0값=전체).
-//   - Kind는 항상 "knowledge"(원천 테이블 판별자 — DB 컬럼 아님).
-//   - Source는 origin 열(agent|human|import:pam:* — done 훅·PAM 수입이
-//     남기는 기록) 그대로. 왕복 재이식 해시가 origin 키를 포함하므로
-//     빈 값으로 내보내면 origin≠"agent" 행이 재이식에서 dedup 불일치로
-//     중복 적립된다(원천 열 보존이 왕복 계약).
+// Schema-measured mapping (schema changes forbidden — invariant in this patch):
+//   - content ← summary, entities ← entity (single column), created_at ← ingested_at.
+//   - updated_at column absent → derived as COALESCE(invalid_at, ingested_at)
+//     (rows are immutable commits, so invalid_at is the last update time).
+//     The Since cutoff uses the same definition (PAM §16 incremental borrow,
+//     zero value = everything).
+//   - Kind is always "knowledge" (source-table discriminator — not a DB column).
+//   - Source is the origin column (agent|human|import:pam:* — the record left
+//     by the done hook·PAM import) verbatim. Round-trip re-import hashes
+//     include the origin key, so exporting it empty would re-accrue
+//     origin≠"agent" rows as duplicates on re-import (preserving the source
+//     column is the round-trip contract).
 package knowledge
 
 import (
@@ -31,7 +36,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ExportRow — export 1행(원천 매핑은 상단 패키지 주석 참조).
+// ExportRow — one export row (see the package comment above for the source mapping).
 type ExportRow struct {
 	ID             int
 	Topic          string
@@ -46,27 +51,29 @@ type ExportRow struct {
 	ContentHash    string
 	CreatedAt      time.Time
 	UpdatedAt      time.Time
-	ValidAt        time.Time // 검증 시각 원값(왕복 보존)
+	ValidAt        time.Time // valid-at raw value (round-trip preserved)
 	SupersededBy   *int
-	RecallScore    int        // 파생 이벤트 수(recall_events cnt — v1.9.0 T4)
-	LastRecalledAt *time.Time // 파생 최종 회상 시각(recall_events last_at, nil=미회상)
+	RecallScore    int        // derived event count (recall_events cnt — v1.9.0 T4)
+	LastRecalledAt *time.Time // derived last recall time (recall_events last_at, nil=never recalled)
 }
 
-// ExportFilter — ExportRows 필터. Status "active"(기본·0값)|"all"
-// (invalidated·pending 포함 전체). Tag는 ':t:' 정확 매칭. Since는
-// updated_at(COALESCE(invalid_at, ingested_at)) 컷오프 — 0값은 전체.
+// ExportFilter — the ExportRows filter. Status "active" (default·zero value)
+// |"all" (everything including invalidated·pending). Tag is ':t:' exact
+// matching. Since is an updated_at (COALESCE(invalid_at, ingested_at))
+// cutoff — zero value means everything.
 type ExportFilter struct {
 	Status string
 	Tag    string
 	Since  time.Time
 }
 
-// buildExportQuery — export 조회 SQL 조립. 조건 순서 = placeholder 순서
-// (tag → since — 테스트 seam이 이 순서를 계약으로 소비한다).
+// buildExportQuery — assembles the export query SQL. Condition order =
+// placeholder order (tag → since — the test seam consumes this order as a
+// contract).
 func buildExportQuery(f ExportFilter) (string, []any) {
 	var where []string
 	var args []any
-	if f.Status != "all" { // active 기본(0값 포함) — 활성 단일 정의
+	if f.Status != "all" { // active default (incl. zero value) — single definition of active
 		where = append(where, "status = 'active'", "invalid_at IS NULL")
 	}
 	if f.Tag != "" {
@@ -74,17 +81,19 @@ func buildExportQuery(f ExportFilter) (string, []any) {
 		where = append(where, fmt.Sprintf("strpos(tags, ':' || $%d || ':') > 0", len(args)))
 	}
 	if !f.Since.IsZero() {
-		// time.Time 직접 바인드 폐지 — RFC3339Nano 문자열(import_jsonl
-		// valid_at 관례와 동일 형식. Doltgres/PG 파라미터 이종 회피 —
-		// 컷오프 결과는 문자열화 전후 불변).
+		// No direct time.Time binding — an RFC3339Nano string (the same
+		// format as the import_jsonl valid_at convention. Avoids Doltgres/PG
+		// parameter type mismatch — cutoff results are identical before and
+		// after stringification).
 		args = append(args, f.Since.UTC().Format(time.RFC3339Nano))
 		where = append(where, fmt.Sprintf("COALESCE(invalid_at, ingested_at) >= $%d", len(args)))
 	}
-	// valid_at 열은 superseded_by 다음·ingested_at 이전 —
-	// jsonl 왕복 동일성의 원천. 스코어 2열은 말미 추가
-	// (기존 셀 인덱스 계약 불변 — 테스트 seam 열 참조 승계). v1.9.0 T4:
-	// 값은 recall_events 파생 집계(re.cnt·re.last_at) 공급 — v11
-	// knowledge 실열 폐지, 출력 스키마 필드명은 불변.
+	// The valid_at column sits after superseded_by and before ingested_at —
+	// the source of jsonl round-trip identity. The two score columns are
+	// appended at the tail (existing cell-index contract unchanged — test
+	// seam column references inherited). v1.9.0 T4: values come from the
+	// recall_events derived aggregate (re.cnt·re.last_at) — v11 knowledge
+	// physical columns removed, output schema field names unchanged.
 	sql := "SELECT id, topic, summary, tags, entity, domain, confidence, origin, status, " +
 		"content_hash, superseded_by, valid_at, ingested_at, COALESCE(invalid_at, ingested_at), " +
 		"re.cnt, re.last_at FROM knowledge" +
@@ -95,8 +104,9 @@ func buildExportQuery(f ExportFilter) (string, []any) {
 	return sql + " ORDER BY id", args
 }
 
-// ExportRows — export 원천 조회. 무효 Status는 *store.SchemaError(호출부
-// exit 3 매핑), 조회 실패는 그대로 전파(MapExit exit 2 매핑).
+// ExportRows — the export source query. Invalid Status yields
+// *store.SchemaError (caller maps to exit 3); query failure propagates
+// unchanged (MapExit maps to exit 2).
 func ExportRows(ctx context.Context, st wire.Store, f ExportFilter) ([]ExportRow, error) {
 	switch f.Status {
 	case "", "active", "all":
@@ -115,8 +125,9 @@ func ExportRows(ctx context.Context, st wire.Store, f ExportFilter) ([]ExportRow
 	return out, nil
 }
 
-// mapExportRow — SELECT 열 순서 셀 튜플 → ExportRow. pgx 실측형
-// (int32/int64·float64·time.Time)과 fake 문자열 셀을 모두 수용한다.
+// mapExportRow — SELECT column-order cell tuple → ExportRow. Accepts both
+// the pgx-measured types (int32/int64·float64·time.Time) and fake string
+// cells.
 func mapExportRow(r []any) ExportRow {
 	cell := func(i int) any {
 		if i < len(r) {
@@ -124,7 +135,7 @@ func mapExportRow(r []any) ExportRow {
 		}
 		return nil
 	}
-	row := ExportRow{Kind: "knowledge"} // 원천 테이블 판별자(상단 주석)
+	row := ExportRow{Kind: "knowledge"} // source-table discriminator (see comment above)
 	if id, ok := render.CellToInt(cell(0)); ok {
 		row.ID = id
 	}
@@ -136,7 +147,7 @@ func mapExportRow(r []any) ExportRow {
 	}
 	row.Domain = cellString(cell(5))
 	row.Confidence = cellFloat(cell(6))
-	row.Source = cellString(cell(7)) // origin 열 — 왕복 해시 대칭(상단 주석)
+	row.Source = cellString(cell(7)) // origin column — round-trip hash symmetry (see comment above)
 	row.Status = cellString(cell(8))
 	row.ContentHash = cellString(cell(9))
 	if cell(10) != nil {
@@ -147,7 +158,8 @@ func mapExportRow(r []any) ExportRow {
 	row.CreatedAt = cellTime(cell(12))
 	row.UpdatedAt = cellTime(cell(13))
 	row.ValidAt = cellTime(cell(11))
-	// 스코어 2셀 — 파생 집계값(미회상은 NULL → 0/nil 폴백, 레거시 jsonl와 동일).
+	// Two score cells — derived aggregate values (never-recalled is NULL →
+	// 0/nil fallback, same as legacy jsonl).
 	if s, ok := render.CellToInt(cell(14)); ok {
 		row.RecallScore = s
 	}
@@ -159,7 +171,8 @@ func mapExportRow(r []any) ExportRow {
 	return row
 }
 
-// parseExportTags — ':a:b:' 정규화 형식 → ["a","b"]. 빈 값·빈 조각은 nil.
+// parseExportTags — ':a:b:' normalized form → ["a","b"]. Empty values·empty
+// fragments yield nil.
 func parseExportTags(s string) []string {
 	if s == "" {
 		return nil
@@ -177,7 +190,7 @@ func parseExportTags(s string) []string {
 	return out
 }
 
-// cellString — nil → "", string은 그대로, 그 외는 fmt.Sprint.
+// cellString — nil → "", strings as-is, everything else via fmt.Sprint.
 func cellString(v any) string {
 	switch s := v.(type) {
 	case nil:
@@ -189,7 +202,8 @@ func cellString(v any) string {
 	}
 }
 
-// cellFloat — 수치 셀 관용 변환(pgx float64·정수형·문자열 파싱).
+// cellFloat — lenient numeric cell conversion (pgx float64·integer types·
+// string parsing).
 func cellFloat(v any) float64 {
 	switch n := v.(type) {
 	case float64:
@@ -211,8 +225,8 @@ func cellFloat(v any) float64 {
 	}
 }
 
-// cellTime — 시각 셀 관용 변환(time.Time 우선, 문자열은 RFC3339 계열
-// 파싱 — 파싱 불가는 0값).
+// cellTime — lenient time cell conversion (time.Time preferred; strings
+// parsed as RFC3339 family — unparseable yields the zero value).
 func cellTime(v any) time.Time {
 	switch t := v.(type) {
 	case time.Time:

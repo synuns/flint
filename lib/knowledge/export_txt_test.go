@@ -6,9 +6,10 @@ import (
 	"time"
 )
 
-// export_txt_test.go — FormatTXT 계약 테스트.
-// 구분선 `==== #<id> <topic> ====` + 본문(content 원문 — 개행 정규화 없음).
-// 메타 최소(id·topic만 — LLM 주입·grep 용도). 원천 행은 합성 데모 데이터.
+// export_txt_test.go — FormatTXT contract tests.
+// Delimiter `==== #<id> <topic> ====` + body (content verbatim — no
+// newline normalization). Minimal metadata (id·topic only — LLM
+// injection·grep use cases). Source rows are synthetic demo data.
 
 func txtTestTime() time.Time {
 	return time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
@@ -71,7 +72,8 @@ func TestFormatTXTRows(t *testing.T) {
 	if !strings.Contains(out, "회고는 성공/실패/시도 순서로 기록한다") {
 		t.Error("본문2 누락")
 	}
-	// 메타 최소 — kind·status·tags·confidence는 txt에 없어야 한다.
+	// Minimal metadata — kind·status·tags·confidence must not appear in
+	// txt.
 	for _, meta := range []string{"rule", "invalidated", "deploy", "0.9", "hook"} {
 		if strings.Contains(out, meta) {
 			t.Errorf("메타 %q이(가) txt 출력에 존재 — 메타 최소 위반", meta)

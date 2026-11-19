@@ -1,7 +1,9 @@
-// pending.go — pending 지식 심사 뷰. 사람 게이트(승격)의
-// 병목 해소 — 규칙 기반 삼단 추천(승격/병합/만료/보류)으로 검수 안내.
-// 판정은 안내일 뿐 실행은 approve·maintain이 담당(신뢰 게이트 불변 —
-// LLM 판정 배제 §13). 출력은 사람 읽는 테이블(read 형식 승계).
+// pending.go — the pending knowledge review view. Relieves the bottleneck
+// of the human gate (promotion) — rule-based three-stage recommendations
+// (promote/merge/expire/hold) guide the review. The verdict is guidance
+// only; approve·maintain do the execution (trust gate unchanged — LLM
+// verdicts excluded, §13). Output is a human-readable table (inheriting the
+// read format).
 package knowledge
 
 import (
@@ -19,24 +21,26 @@ import (
 
 func init() { wire.Register("pending", RunPending) }
 
-// pendingItem — 심사 행.
+// pendingItem — one review row.
 type pendingItem struct {
 	ID                     int
 	Topic, Summary, Origin string
 	ValidAt                time.Time
 }
 
-// pendingVerdict — 규칙 기반 판정. 우선순위: 만료 > 병합 > 승격 > 보류.
+// pendingVerdict — the rule-based verdict. Priority: expire > merge > promote > hold.
 type pendingVerdict struct {
 	Kind string // promote | merge | expire | hold
 	Why  string
 }
 
-// CountPending — pending 지식 수 단일 조회(v0.34.3: status·nudge·
-// sessionhook의 3중 쿼리 복제 수렴 — report.go는 v0.36 트랙 제외).
-// 조회 실패만 오류; 빈 응답·해석 불가 값은 0(기존 소비자 관례: 조용한
-// 0 처리)이다. v0.39.0 T4 룰링: lib/render에서 knowledge로 이동(정의는
-// pending 도메인 소유 — render→knowledge 임포트는 사이클이라 불가).
+// CountPending — single query of the pending knowledge count (v0.34.3:
+// converging the triple query duplication across status·nudge·sessionhook —
+// the report.go track is excluded per v0.36). Only a query failure is an
+// error; an empty response or unparseable value is 0 (the existing consumer
+// convention: quiet zero handling). v0.39.0 T4 ruling: moved from
+// lib/render to knowledge (the definition belongs to the pending domain —
+// a render→knowledge import would be a cycle).
 func CountPending(ctx context.Context, st wire.Store) (int, error) {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`, nil)
@@ -50,14 +54,14 @@ func CountPending(ctx context.Context, st wire.Store) (int, error) {
 	return n, nil
 }
 
-// RunPending — `flint pending` — 보류 지식 목록 + 추천.
-// v1.0.1(F3): unknown flag는 무효 인자 exit 3(v0.36.1 maintain·import 관례
-// 통일).
+// RunPending — `flint pending` — the held knowledge list + recommendations.
+// v1.0.1 (F3): unknown flags get the invalid-arg exit 3 (unified with the
+// v0.36.1 maintain·import convention).
 func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	jsonMode := false
 	for _, a := range args {
 		if a == "--json" {
-			jsonMode = true // MCP·스크립트용 기계 판독 출력
+			jsonMode = true // machine-readable output for MCP·scripts
 			continue
 		}
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint pending [--json]", a)))
@@ -77,13 +81,14 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return store.MapExit(err)
 	}
 	now := time.Now().UTC()
-	// active 전체 1회 조회.
-	// 조회 결과를 접두 키 인덱스로 1회 빌드 —
-	// 행마다 active 전체 재스캔(합성 5만에서 수백 초)을 O(N+M)로 수렴.
+	// One query for all actives.
+	// The result is built once into a prefix-key index — converging the
+	// per-row full active rescan (hundreds of seconds at 50k synthetic rows)
+	// to O(N+M).
 	actives := fetchActiveTopicRows(ctx, st)
 	idx := buildTopicPrefixIndex(actives)
 	counts := map[string]int{}
-	// JSON 모드용 행 구조 — 판정 데이터를 그대로 직렬화한다.
+	// Row structure for JSON mode — serializes the verdict data as-is.
 	type jsonItem struct {
 		ID           int    `json:"id"`
 		Verdict      string `json:"verdict"`
@@ -93,31 +98,33 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		Topic        string `json:"topic"`
 		Why          string `json:"why,omitempty"`
 	}
-	jsonItems := make([]jsonItem, 0) // 빈 경우 null 아닌 []
+	jsonItems := make([]jsonItem, 0) // [] not null when empty
 	for _, r := range rows {
 		if len(r) < 5 {
 			continue
 		}
-		// 저장값 출력 재살균 — 제어 문자·Cf·[flint] 마커 중립화.
-		// render 조크포인트 경유(render.Text).
+		// Re-sanitize stored values on output — neutralize control
+		// characters·Cf·[flint] markers. Via the render choke point
+		// (render.Text).
 		it := pendingItem{
 			Topic:   render.Text(fmt.Sprint(r[1])),
 			Summary: render.Text(fmt.Sprint(r[2])),
 			Origin:  render.Text(fmt.Sprint(r[3])),
 		}
 		fmt.Sscan(fmt.Sprint(r[0]), &it.ID)
-		if ts, ok := cellToTime(r[4]); ok { // 타입 단언 폴백 정경로
+		if ts, ok := cellToTime(r[4]); ok { // normal path with type-assertion fallback
 			it.ValidAt = ts.UTC()
 		}
-		// valid_at 파싱 불가 가드를 판정·counts 앞으로 —
-		// jsonMode 한정 오버라이드가 counts(원 kind)와 items(보정 kind)를
-		// 어긋나게 하던 모순 수선, 텍스트 모드에도 동일 적용.
+		// Move the unparsable-valid_at guard ahead of the verdict·counts —
+		// fixing the contradiction where the jsonMode-only override left
+		// counts (original kind) and items (corrected kind) inconsistent;
+		// the same applies in text mode.
 		v := verdictFor(it, th, now, idx)
 		if it.ValidAt.IsZero() {
 			v = pendingVerdict{"hold", "valid_at unparsable — data check required"}
 		}
 		counts[v.Kind]++
-		// zero valid_at의 age 표기 0 보정 복원.
+		// Restore the corrected age of 0 for zero valid_at.
 		age := 0
 		if !it.ValidAt.IsZero() {
 			age = ageDays(now, it.ValidAt)
@@ -163,17 +170,21 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	return 0
 }
 
-// verdictFor — 판정 규칙(우선순위 고정):
-//   - 만료: valid_at 경과 > PendingAgeDays(doctor 기준 승계)
-//   - 병합: 유사 active 존재(topic 접두 일치 — approve R2와 동일 근사)
-//   - 승격: 최근 3일 이내 + 본문 40룬 이상(유의미성 근사)
-//   - 보류: 그 외(짧은 최근 행 등 — 더 쌓여서 판단)
+// verdictFor — the verdict rules (fixed priority):
+//   - expire: valid_at elapsed > PendingAgeDays (inheriting the doctor baseline)
+//   - merge: a similar active exists (topic prefix match — the same
+//     approximation as approve R2)
+//   - promote: within the last 3 days + body of 40 runes or more (a
+//     significance approximation)
+//   - hold: everything else (short recent rows etc. — accumulate more, then
+//     decide)
 func verdictFor(it pendingItem, th store.Thresholds, now time.Time, idx topicPrefixIndex) pendingVerdict {
 	age := now.Sub(it.ValidAt)
 	if d := th.PendingAgeDays; d > 0 && age > time.Duration(d)*24*time.Hour {
 		return pendingVerdict{"expire", fmt.Sprintf("%dd elapsed (threshold %dd) — expire review: maintain --invalidate --id %d --reason review", int(age.Hours()/24), d, it.ID)}
 	}
-	// 병합 후보 — 유사 active 탐색(사전 빌드 인덱스 조회).
+	// Merge candidate — find similar actives (a lookup into the prebuilt
+	// index).
 	if sims := idx.match(topicSimilarityKey(it.Topic)); len(sims) > 0 {
 		return pendingVerdict{"merge", fmt.Sprintf("similar active %d (id %s) — review approve --id %d --supersede OLD",
 			len(sims), joinInts(sims), it.ID)}
@@ -184,9 +195,10 @@ func verdictFor(it pendingItem, th store.Thresholds, now time.Time, idx topicPre
 	return pendingVerdict{"hold", "short body or under observation — hold until next review"}
 }
 
-// fetchActiveTopicRows — 유사 판정용 active (id, topic) 전체 1회 조회
-// (행당 재조회 제거. 실패는 빈 세트: 병합 판정만
-// 생략되고 나머지 판정·출력 계약 불변).
+// fetchActiveTopicRows — one query of all active (id, topic) rows for the
+// similarity verdict (removing per-row re-queries. Failure yields an empty
+// set: only the merge verdict is skipped; the remaining verdict·output
+// contracts are unchanged).
 func fetchActiveTopicRows(ctx context.Context, st wire.Store) [][]any {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT id, topic FROM knowledge WHERE status = 'active' AND invalid_at IS NULL`, nil)
@@ -196,9 +208,10 @@ func fetchActiveTopicRows(ctx context.Context, st wire.Store) [][]any {
 	return rows
 }
 
-// topicSimilarityKey — 유사 판정 기준 키. 세션 지식 topic은 전부
-// "세션[agent] " 공통 접두를 공유해 12룬 접두 비교가 agent 라벨+첫 1룬으로
-// 퇴화 — 세션 접두는 제거한 본문 키로 비교한다.
+// topicSimilarityKey — the key for similarity matching. Session-knowledge
+// topics all share the "session[agent] " common prefix, so a 12-rune prefix
+// comparison degenerates to the agent label + 1 rune — compare on the body
+// key with the session prefix stripped.
 func topicSimilarityKey(topic string) string {
 	if i := strings.Index(topic, "] "); i > 0 &&
 		(strings.HasPrefix(topic, "session[") || strings.HasPrefix(topic, "세션[")) {
@@ -207,15 +220,17 @@ func topicSimilarityKey(topic string) string {
 	return topic
 }
 
-// topicPrefixIndex — active (id, topic) 행의 유사 접두 키 → id 목록
-// (active 조회 순서 보존·동일 접두 중복 포함).
-// matchTopicPrefix가 행마다 active 전체를 재스캔하던 O(pending×active)를
-// 인덱스 사전 빌드 1회 + 조회 O(1)로 수렴. 접두 정책(세션 공통 접두
-// 제거 후 12룬)·행 필터(id 파싱 가능·열 충족)는 구 스캔 구현과 동일하다.
+// topicPrefixIndex — similar-prefix key → active id list, from active (id,
+// topic) rows (active query order preserved·same-prefix duplicates
+// included). Converges matchTopicPrefix's per-row full active rescan,
+// O(pending×active), into one index build + O(1) lookups. The prefix policy
+// (12 runes after stripping the session common prefix)·row filter (parsable
+// id·sufficient columns) are identical to the old scan implementation.
 type topicPrefixIndex map[string][]int
 
-// buildTopicPrefixIndex — active (id, topic) 행으로 인덱스 1회 빌드.
-// 빈 접두 키 행은 어느 키와도 일치하지 않으므로(구현 원본 동일) 제외.
+// buildTopicPrefixIndex — builds the index once from active (id, topic)
+// rows. Rows with an empty prefix key match no key (same as the original
+// implementation) and are excluded.
 func buildTopicPrefixIndex(actives [][]any) topicPrefixIndex {
 	idx := topicPrefixIndex{}
 	for _, r := range actives {
@@ -232,7 +247,8 @@ func buildTopicPrefixIndex(actives [][]any) topicPrefixIndex {
 	return idx
 }
 
-// match — key의 12룬 접두가 일치하는 active id 목록(조회 순·중복 포함).
+// match — the active id list whose 12-rune prefix matches the key (query
+// order·duplicates included).
 func (idx topicPrefixIndex) match(key string) []int {
 	prefix := render.TruncateRunes(key, 12)
 	if prefix == "" || idx == nil {
@@ -241,14 +257,15 @@ func (idx topicPrefixIndex) match(key string) []int {
 	return idx[prefix]
 }
 
-// matchTopicPrefix — key 12룬 접두가 일치하는 active (id,topic) 행의 id.
-// approve·pending 양쪽이 공유하는 단일 근사 구현.
-// 내부는 접두 인덱스 경유(스캔 루프 폐지, 판정 결과는 구현과 동일).
+// matchTopicPrefix — the ids of active (id, topic) rows whose 12-rune
+// prefix matches the key. The single approximation implementation shared by
+// approve·pending. Internally via the prefix index (scan loop abolished;
+// verdict results identical to the old implementation).
 func matchTopicPrefix(key string, actives [][]any) []int {
 	return buildTopicPrefixIndex(actives).match(key)
 }
 
-// originLabel — 출처 축약 표기(hook/agent/import:파일).
+// originLabel — abbreviated origin notation (hook/agent/import:file).
 func originLabel(origin string) string {
 	if strings.HasPrefix(origin, "import:") {
 		return "import"
@@ -256,7 +273,7 @@ func originLabel(origin string) string {
 	return origin
 }
 
-// verdictLabel — 판정 한글 표기.
+// verdictLabel — the display label for the verdict kind.
 func verdictLabel(kind string) string {
 	switch kind {
 	case "promote":
@@ -270,7 +287,7 @@ func verdictLabel(kind string) string {
 	}
 }
 
-// ageDays — 경과 일수(최소 0).
+// ageDays — elapsed days (minimum 0).
 func ageDays(now, t time.Time) int {
 	d := int(now.Sub(t).Hours() / 24)
 	if d < 0 {
@@ -279,22 +296,24 @@ func ageDays(now, t time.Time) int {
 	return d
 }
 
-// summaryLen — 요약 룬 수.
+// summaryLen — the summary's rune count.
 func summaryLen(s string) int { return len([]rune(s)) }
 
-// OneLine — 한 줄화(개행 제거·상한 — 절단은 단일 구현 TruncateRunes 위임).
-// v0.39.0 T4 내보내기: cli 잔류 소비자(textutil_test의 관례 위임 동치
-// 검증)가 knowledge.OneLine 별칭으로 무편집 컴파일된다.
+// OneLine — one-line-ification (newline removal·cap — truncation delegated
+// to the single TruncateRunes implementation). v0.39.0 T4 export: residual
+// cli consumers (textutil_test's convention-delegation equivalence checks)
+// compile unmodified via the knowledge.OneLine alias.
 func OneLine(s string, max int) string {
 	s = strings.ReplaceAll(strings.ReplaceAll(s, "\n", " "), "\r", "")
 	return render.TruncateRunes(strings.TrimSpace(s), max)
 }
 
-// cellToTime — 셀(any)→time 변환.
-// wire.CellToTime 단일 구현 별칭(사이클 금지 해소, 동일 계약).
+// cellToTime — cell (any) → time conversion. Alias of the single
+// wire.CellToTime implementation (resolving the cycle prohibition, same
+// contract).
 var cellToTime = wire.CellToTime
 
-// joinInts — 콤마 결합(상한 5).
+// joinInts — comma-joined (capped at 5).
 func joinInts(ids []int) string {
 	if len(ids) > 5 {
 		ids = ids[:5]

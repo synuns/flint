@@ -1,7 +1,8 @@
-// pending_test.go — pending 유사 판정 접두 인덱스
-// O(N+M) 수렴의 계약 테스트. 판정 결과는 기존 matchTopicPrefix 스캔
-// 구현(아래 naiveMatch 참조 구현 — production 보존 금지, 테스트 오라클)과
-// 100% 동일함을 단언한다. 데이터는 전부 합성 데모.
+// pending_test.go — contract tests for the pending similarity-verdict
+// prefix index converging to O(N+M). Asserts the verdict results are
+// 100% identical to the existing matchTopicPrefix scan implementation
+// (the naiveMatch reference below — never kept in production, a test
+// oracle). All data is synthetic demo.
 package knowledge
 
 import (
@@ -14,8 +15,9 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// naiveMatch — 구 스캔 구현의 테스트 오라클 복제(행별 active 전체
-// 재스캔 — 동일성 판정 기준선. production 코드에는 보존하지 않는다).
+// naiveMatch — the test-oracle replica of the old scan implementation (a
+// full active rescan per row — the equivalence baseline. Not kept in
+// production code).
 func naiveMatch(key string, actives [][]any) []int {
 	prefix := render.TruncateRunes(key, 12)
 	if prefix == "" {
@@ -35,20 +37,21 @@ func naiveMatch(key string, actives [][]any) []int {
 	return out
 }
 
-// TestPendingPrefixIndexEquivalence — 다양한 접두 셋에서 인덱스 경로와
-// 구 스캔 경로의 판정(id 목록·순서·중복 포함) 100% 동일성.
+// TestPendingPrefixIndexEquivalence — across varied prefix sets, the
+// index path and the old scan path are 100% identical in verdict (id
+// lists·order·duplicates included).
 func TestPendingPrefixIndexEquivalence(t *testing.T) {
 	actives := [][]any{
-		{int32(4), "표 파이프 이스케이프 규칙(합성 데모) 기존 활성"},              // 그대로 일치
-		{int32(5), "session[claude] 표 파이프 이스케이프 규칙(합성 데모) 신규"}, // 세션 접두 제거 후 일치
-		{int32(6), "세션[gpt] 표 파이프 이스케이프 규칙(합성 데모) 국문"},         // 국문 세션 접두 제거 후 일치
-		{int32(7), "전혀 다른 주제의 활성 지식"},                          // 불일치
-		{int32(8), ""},                 // 빈 topic — 어떤 키와도 불일치
-		{nil, "nil id 행"},              // id nil 스킵
-		{"not-a-number", "id 파싱 실패 행"}, // id 비수 스킵
-		{int32(9)},                     // 열 부족 스킵
-		{int32(10), nil},               // topic nil — fmt.Sprint "<nil>" 접두
-		{int32(11), "session[claude]"}, // 세션 접두만 있고 본문 空 → 빈 키
+		{int32(4), "표 파이프 이스케이프 규칙(합성 데모) 기존 활성"},              // matches as-is
+		{int32(5), "session[claude] 표 파이프 이스케이프 규칙(합성 데모) 신규"}, // matches after session-prefix strip
+		{int32(6), "세션[gpt] 표 파이프 이스케이프 규칙(합성 데모) 국문"},         // matches after Korean session-prefix strip
+		{int32(7), "전혀 다른 주제의 활성 지식"},                          // no match
+		{int32(8), ""},                 // empty topic — matches no key
+		{nil, "nil id 행"},              // nil id skipped
+		{"not-a-number", "id 파싱 실패 행"}, // non-numeric id skipped
+		{int32(9)},                     // insufficient columns, skipped
+		{int32(10), nil},               // nil topic — fmt.Sprint "<nil>" prefix
+		{int32(11), "session[claude]"}, // session prefix only, empty body → empty key
 	}
 	keys := []string{
 		"표 파이프 이스케이프 규칙(합성 데모) 신규 후보",
@@ -59,11 +62,12 @@ func TestPendingPrefixIndexEquivalence(t *testing.T) {
 		"짧",
 		"<nil>",
 		"session[claude]",
-		strings.Repeat("경계", 7), // 14룬 — 12룬 절단 경계(경계의 13·14번째 룬만 다른 active 추가 확인)
+		strings.Repeat("경계", 7), // 14 runes — the 12-rune truncation boundary (also checks an active differing only at boundary runes 13·14)
 	}
-	// 절단 경계 정밀 확인용: 12룬째까지 동일·13룬째부터 상이한 active 2행.
+	// For precise truncation-boundary checks: 2 active rows identical
+	// through rune 12·differing from rune 13.
 	boundary := append(actives, []any{int32(12), strings.Repeat("경계", 7) + "여기서부터다름"},
-		[]any{int32(13), strings.Repeat("경계", 6) + "다른뒤"}) // 12룬째부터 상이
+		[]any{int32(13), strings.Repeat("경계", 6) + "다른뒤"}) // differs from rune 12
 	for _, tt := range []struct {
 		name    string
 		actives [][]any
@@ -89,8 +93,9 @@ func TestPendingPrefixIndexEquivalence(t *testing.T) {
 	}
 }
 
-// TestPendingVerdictIdentical — verdictFor(인덱스 경로)가 스캔 기준 구현과
-// 판정 kind·Why 문자열까지 동일함을 단언(판정 결과 100% 동일성).
+// TestPendingVerdictIdentical — asserts verdictFor (the index path) is
+// identical to the scan-baseline implementation down to the verdict
+// kind·Why strings (100% verdict-result identity).
 func TestPendingVerdictIdentical(t *testing.T) {
 	th := store.Thresholds{PendingAgeDays: 7, PendingPromoteDays: 3, PendingPromoteMinRunes: 40}
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
@@ -117,7 +122,8 @@ func TestPendingVerdictIdentical(t *testing.T) {
 	}
 }
 
-// naiveVerdictFor — 구 스캔 경로 verdictFor(동일성 기준선).
+// naiveVerdictFor — the old scan-path verdictFor (the equivalence
+// baseline).
 func naiveVerdictFor(it pendingItem, th store.Thresholds, now time.Time, actives [][]any) pendingVerdict {
 	age := now.Sub(it.ValidAt)
 	if d := th.PendingAgeDays; d > 0 && age > time.Duration(d)*24*time.Hour {
@@ -133,8 +139,9 @@ func naiveVerdictFor(it pendingItem, th store.Thresholds, now time.Time, actives
 	return pendingVerdict{"hold", "short body or under observation — hold until next review"}
 }
 
-// TestPendingPrefixIndexSpeed — 합성 대량(active 4k × pending 400, 전체
-// 20k 이내·CI 안전 규모)에서 인덱스 경로가 스캔 경로보다 빠름을 단언.
+// TestPendingPrefixIndexSpeed — on a synthetic bulk set (4k active × 400
+// pending, under 20k total — a CI-safe scale), asserts the index path is
+// faster than the scan path.
 func TestPendingPrefixIndexSpeed(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short 모드 제외 — 시간 비교 벤치")
@@ -170,8 +177,8 @@ func TestPendingPrefixIndexSpeed(t *testing.T) {
 	t.Logf("합성 %d×%d: 스캔=%v 인덱스=%v (%.0fx)", nActive, nPending, naiveDur, idxDur, float64(naiveDur)/float64(idxDur))
 }
 
-// BenchmarkPendingMatchNaive / BenchmarkPendingMatchIndex — 합성 5k active
-// 기준 벤치마크(`go test -bench . -run ^$ ./lib/knowledge`).
+// BenchmarkPendingMatchNaive / BenchmarkPendingMatchIndex — benchmarks
+// on a synthetic 5k active set (`go test -bench . -run ^$ ./lib/knowledge`).
 func BenchmarkPendingMatchNaive(b *testing.B) {
 	actives := make([][]any, 5000)
 	for i := range actives {
@@ -200,8 +207,8 @@ func BenchmarkPendingMatchIndexBuild(b *testing.B) {
 	}
 }
 
-// BenchmarkPendingMatchIndexLookup — 사전 빌드 인덱스의 행별 조회 비용
-// (pending 루프 실경로: 빌드 1회 + 조회 N회).
+// BenchmarkPendingMatchIndexLookup — the per-row lookup cost of a
+// prebuilt index (the real pending-loop path: 1 build + N lookups).
 func BenchmarkPendingMatchIndexLookup(b *testing.B) {
 	actives := make([][]any, 5000)
 	for i := range actives {

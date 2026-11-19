@@ -1,6 +1,7 @@
-// pending_fields_sanitized_test.go — pending 필드 재살균
-// (감사 1)은 render 조크포인트(render.Text)를 경유한다. 출력
-// 바이트 불변 — [flint] 마커·제어 문자 중립화 스팟 단언.
+// pending_fields_sanitized_test.go — the pending field re-sanitization
+// (audit 1) goes through the render choke point (render.Text). Output
+// bytes unchanged — spot assertions on [flint] marker·control-character
+// neutralization.
 package knowledge
 
 import (
@@ -10,8 +11,9 @@ import (
 	"time"
 )
 
-// TestPendingFieldsSanitized — topic·summary·origin 저장값의 [flint] 마커·
-// 제어 문자는 pending 출력(텍스트 모드)에서 중립화된다.
+// TestPendingFieldsSanitized — [flint] markers·control characters in the
+// stored topic·summary·origin values are neutralized in the pending
+// output (text mode).
 func TestPendingFieldsSanitized(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	recent := time.Now().UTC().Add(-24 * time.Hour)

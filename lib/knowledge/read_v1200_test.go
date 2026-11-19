@@ -1,9 +1,11 @@
-// read_v1200_test.go — 기록 배선(read 표면).
-// TestReadEventColumns(bytes=출력 len·source 라벨·zero_reason 분기)·
-// TestZeroReasonDecompose(임계 분기 순수 함수)·read id 전수 knowledge_reads
-// (kind=read). 계약: read 1회의 bytes·zero_reason·source가 read_events 1행에
-// 기록되고 반환 id 전수가 knowledge_reads에 kind='read'로 남는다(BumpReads
-// 캐시 경로 불볕 — read_v0420_test가 따로 든다).
+// read_v1200_test.go — the recording wiring (read surface).
+// TestReadEventColumns (bytes=output len·source label·zero_reason
+// branches)·TestZeroReasonDecompose (the threshold-branch pure
+// function)·the read full id set into knowledge_reads (kind=read).
+// Contract: one read's bytes·zero_reason·source are recorded in one
+// read_events row, and the full returned id set is left in
+// knowledge_reads with kind='read' (the BumpReads cache path untouched —
+// covered separately by read_v0420_test).
 package knowledge
 
 import (
@@ -15,15 +17,16 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// v1200Recorder — ReadEvent 전체 값·RecordKnowledgeReads 호출을 녹음하는
-// fake(ReadEventStore·KnowledgeReadsRecorder seam 동시 구현).
+// v1200Recorder — a fake recording the full ReadEvent value·
+// RecordKnowledgeReads calls (implementing the ReadEventStore·
+// KnowledgeReadsRecorder seams together).
 type v1200Recorder struct {
 	*fakeStore
 	events []db.ReadEvent
 	kreads []kreadsCall
 }
 
-// kreadsCall — RecordKnowledgeReads 호출 인자 녹음.
+// kreadsCall — a recorded RecordKnowledgeReads call's arguments.
 type kreadsCall struct {
 	ids     []int
 	session string
@@ -40,14 +43,15 @@ func (r *v1200Recorder) RecordKnowledgeReads(ctx context.Context, ids []int, ses
 	return nil
 }
 
-// activeCountQueryHit — 제로히트 분해의 활성 지식 수 질의 응답( count(*) ).
+// activeCountQueryRows — the active-knowledge count query answer for
+// zero-hit decomposition ( count(*) ).
 func activeCountQueryRows(n int32) [][]any {
 	return [][]any{{n}}
 }
 
-// TestReadEventColumns — read 1회의 ReadEvent에
-// bytes(len 최종 출력)·source 라벨(세션 라벨→hook·미지정→cli·명시→우선)·
-// zero_reason 분기(unowned/owned_miss/빈값)이 담긴다.
+// TestReadEventColumns — one read's ReadEvent carries bytes (len of the
+// final output)·the source label (session label→hook·absent→cli·explicit
+// wins)·the zero_reason branch (unowned/owned_miss/empty).
 func TestReadEventColumns(t *testing.T) {
 	ctx := context.Background()
 	t.Run("히트 — bytes=출력 len·source=cli·zero_reason 공란", func(t *testing.T) {
@@ -125,7 +129,7 @@ func TestReadEventColumns(t *testing.T) {
 			case strings.Contains(sql, "count(*)"):
 				return activeCountQueryRows(0), nil
 			}
-			return nil, nil // active_knowledge 제로히트·폴백·제안 전부 0행
+			return nil, nil // active_knowledge zero-hit·fallback·suggestion all 0 rows
 		}}}
 		var out bytes.Buffer
 		if code := RunRead(ctx, st, []string{"없는토픽"}, strings.NewReader(""), &out); code != 0 {
@@ -171,7 +175,8 @@ func TestReadEventColumns(t *testing.T) {
 	})
 }
 
-// TestZeroReasonDecompose — 제로히트 분해 순수 함수(임계 분기 표).
+// TestZeroReasonDecompose — the zero-hit decomposition pure function
+// (the threshold-branch table).
 func TestZeroReasonDecompose(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -194,8 +199,8 @@ func TestZeroReasonDecompose(t *testing.T) {
 	}
 }
 
-// TestReadRecordsKnowledgeReads — read 반환 id
-// 전수가 knowledge_reads(kind=read)로 기록된다(세션 라벨 동반).
+// TestReadRecordsKnowledgeReads — the read-returned full id set is
+// recorded in knowledge_reads (kind=read, session label accompanying).
 func TestReadRecordsKnowledgeReads(t *testing.T) {
 	ctx := context.Background()
 	st := &v1200Recorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

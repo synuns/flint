@@ -1,7 +1,8 @@
-// hot_kreads_v1200_test.go — 기록 배선(hot 표면).
-// TestKnowledgeReadsHotHeadline(헤드라인 id 전수·kind=hot)·--full 주입 id도
-// kind=hot로 기록(주입=기록 정합). BumpReads 캐시 경로·출력 불변은
-// hot_single_view_test·hot_v0110 계약이 따로 든다.
+// hot_kreads_v1200_test.go — the recording wiring (hot surface).
+// TestKnowledgeReadsHotHeadline (headline full id set·kind=hot)·the --full
+// injected ids are also recorded with kind=hot (injection=recording
+// alignment). The BumpReads cache path·output invariants are covered
+// separately by the hot_single_view_test·hot_v0110 contracts.
 package knowledge
 
 import (
@@ -12,7 +13,7 @@ import (
 	"time"
 )
 
-// hotKreadsRecorder — RecordKnowledgeReads 호출을 녹음하는 hot fake.
+// hotKreadsRecorder — a hot fake that records RecordKnowledgeReads calls.
 type hotKreadsRecorder struct {
 	*fakeStore
 	kreads []kreadsCall
@@ -23,8 +24,9 @@ func (h *hotKreadsRecorder) RecordKnowledgeReads(ctx context.Context, ids []int,
 	return nil
 }
 
-// v1200HotRows — 헤드라인 질의 행(5열 — kind,topic,summary,ts,id).
-// project 팔(id NULL)·pending(3)·decision(7)의 합성 데모 픽스처.
+// v1200HotRows — headline query rows (5 columns — kind,topic,summary,ts,
+// id). A synthetic demo fixture of a project entry (id NULL)·pending (3)·
+// decision (7).
 func v1200HotRows(ts time.Time) [][]any {
 	return [][]any{
 		{"project", "p1", "active", ts, nil},
@@ -33,9 +35,9 @@ func v1200HotRows(ts time.Time) [][]any {
 	}
 }
 
-// TestKnowledgeReadsHotHeadline — 헤드라인(비
-// --full) 경로도 노출 id 전수를 knowledge_reads에 kind=hot로 남긴다(G4
-// 계상 원천 — 프로젝트 팔 제외).
+// TestKnowledgeReadsHotHeadline — the headline (non --full) path also
+// leaves the full exposed id set in knowledge_reads with kind=hot (the G4
+// accounting source — project entries excluded).
 func TestKnowledgeReadsHotHeadline(t *testing.T) {
 	injectHotSeams(t)
 	saved := SessionLabelFn
@@ -64,8 +66,9 @@ func TestKnowledgeReadsHotHeadline(t *testing.T) {
 	}
 }
 
-// TestKnowledgeReadsHotFull — --full 주입 id 전수도 kind=hot로 기록된다
-// (주문=증분 집합과 동일 원천 — injectedIDsForSurvivors).
+// TestKnowledgeReadsHotFull — the --full injected full id set is also
+// recorded with kind=hot (the same source as the order=increment set —
+// injectedIDsForSurvivors).
 func TestKnowledgeReadsHotFull(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()

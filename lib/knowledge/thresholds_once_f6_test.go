@@ -1,7 +1,8 @@
-// thresholds_once_f6_test.go — F6(성능) 회귀: read 제로히트 경로의
-// thresholds IN 쿼리는 1회. rrf_k 주입(폴백 재랭킹)과 제안 임계값 주입이
-// 각자 LoadThresholdsFn을 호출하던 것(2회)을 첫 eligible 블록의 1회
-// 로드 결과 재사용으로.
+// thresholds_once_f6_test.go — F6 (performance) regression: on the read
+// zero-hit path, the thresholds IN query runs once. The rrf_k injection
+// (fallback rerank) and the suggestion-threshold injection each used to
+// call LoadThresholdsFn (twice); now they reuse the single load from the
+// first eligible block.
 package knowledge
 
 import (
@@ -10,11 +11,11 @@ import (
 	"testing"
 )
 
-// TestReadZeroHitThresholdsLoadedOnce — eligible 제로히트
-// read에서 thresholds IN 쿼리 1회(수정 전 2회).
+// TestReadZeroHitThresholdsLoadedOnce — on an eligible zero-hit read, one
+// thresholds IN query (two before the fix).
 func TestReadZeroHitThresholdsLoadedOnce(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // 전 쿼리 0행 — 제로히트(폴백·제안 모두 시도)
+		return nil, nil // 0 rows for every query — zero-hit (fallback·suggestion both attempted)
 	}}
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
@@ -24,8 +25,9 @@ func TestReadZeroHitThresholdsLoadedOnce(t *testing.T) {
 	}
 	n := 0
 	for _, q := range st.queries {
-		// hot_stats 등 다른 meta IN 조회와 구분 — thresholds 레지스트리
-		// 키('stale_days') 동봉으로 판정.
+		// Distinguished from other meta IN lookups such as hot_stats —
+		// judged by the inclusion of a thresholds registry key
+		// ('stale_days').
 		if strings.Contains(q, "FROM meta WHERE key IN") && strings.Contains(q, "'stale_days'") {
 			n++
 		}

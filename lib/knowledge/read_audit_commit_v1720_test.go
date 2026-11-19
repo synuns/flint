@@ -1,8 +1,10 @@
-// read_audit_commit_v1720_test.go — v1.7.2 T1(R38-C1): read 완료 경로 감사
-// 커밋. Review Focus: TestReadCompletionAuditCommit — RunRead가 계측 커밋과
-// 별개로 감사 커밋(st.Commit 'read: ' 접두)을 완료 경로에서 1회 수행한다
-// (recall bump UPDATE knowledge·meta 증분의 감사 귀속 — telemetry -A 스윕
-// 폐지 후 계측 커밋이 감사 변경을 흡수하지 않게 하는 회귀 방어).
+// read_audit_commit_v1720_test.go — v1.7.2 T1 (R38-C1): the read
+// completion-path audit commit. Review Focus: TestReadCompletionAuditCommit
+// — RunRead performs the audit commit (st.Commit with the 'read: '
+// prefix) once on the completion path, separate from the metering commit
+// (audit attribution of the recall bump UPDATE knowledge·meta increments
+// — regression defense keeping the metering commit from absorbing audit
+// changes after the telemetry -A sweep was abolished).
 package knowledge
 
 import (
@@ -13,9 +15,9 @@ import (
 	"testing"
 )
 
-// TestReadCompletionAuditCommit — Review Focus(v1.7.2 T1): read 완료 경로의
-// 감사 커밋. 실패는 조용해야 한다(§13 — 커밋 오류가 read exit를 깨지
-// 않는다).
+// TestReadCompletionAuditCommit — Review Focus (v1.7.2 T1): the read
+// completion-path audit commit. Failures must be quiet (§13 — a commit
+// error never breaks the read exit).
 func TestReadCompletionAuditCommit(t *testing.T) {
 	ctx := context.Background()
 	t.Run("히트 — 감사 커밋 1회 'read: ' 접두", func(t *testing.T) {

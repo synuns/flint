@@ -1,7 +1,9 @@
-// session_label_newline_v103_test.go — 회귀: --session 라벨
-// 개행 거부. 라벨은 세션 라벨 파일(값 1줄 계약)과 read_events·hot_view
-// 저장값 양쪽으로 쓰인다 — \n·\r 포함 값은 CLI 경로(read 계약 승격)
-// 무효 인자 exit 3. given=false(미지정) 통과는 기존 불변.
+// session_label_newline_v103_test.go — regression: --session label
+// newline rejection. The label feeds both the session label file (a
+// one-line value contract) and the stored values of read_events·hot_view
+// — values containing \n·\r are invalid arguments on the CLI path (read
+// contract promotion) with exit 3. given=false (absent) passing is the
+// existing invariant.
 package knowledge
 
 import (
@@ -10,8 +12,9 @@ import (
 	"testing"
 )
 
-// TestSessionLabelNewlineRejected — 공용 가드 단위 계약: 개행(LF·CR·CRLF)
-// 포함 라벨은 SchemaError, 정상 라벨·미지정은 통과.
+// TestSessionLabelNewlineRejected — the shared-guard unit contract:
+// labels containing newlines (LF·CR·CRLF) are SchemaErrors; normal
+// labels·absence pass.
 func TestSessionLabelNewlineRejected(t *testing.T) {
 	for _, bad := range []string{"two\nlines", "cr\rlabel", "\n", "a\r\nb"} {
 		if err := ValidateSessionLabel(true, bad); err == nil {
@@ -28,8 +31,9 @@ func TestSessionLabelNewlineRejected(t *testing.T) {
 	}
 }
 
-// TestRunReadSessionNewlineExits3 — CLI 경로: 개행 라벨은 검증 에러
-// exit 3, 조회 실행 전 차단(쿼리 0회 — 오염 경로 폐쇄).
+// TestRunReadSessionNewlineExits3 — the CLI path: a newline label is a
+// validation error exit 3, blocked before any query runs (0 queries —
+// closing the pollution path).
 func TestRunReadSessionNewlineExits3(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil

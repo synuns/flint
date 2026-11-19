@@ -1,5 +1,6 @@
-// export_md_test.go — FormatMD 구조 단언(헤더·섹션 수·
-// 메타 라인 형식·계보 링크)·빈 결과(헤더만)·개행 포함 content 원문.
+// export_md_test.go — FormatMD structure assertions (header·section
+// count·meta line shape·lineage link)·empty result (header only)·content
+// verbatim including newlines.
 package knowledge
 
 import (
@@ -43,8 +44,8 @@ func mdSampleRows() []ExportRow {
 	}
 }
 
-// 헤더(`# flint export`·생성일 UTC·항목 수)·섹션 수·메타 라인 형식·
-// 계보 링크(`→ #N`) 단언.
+// Asserts the header (`# flint export`, created-at UTC, item count)·
+// section count·meta line shape·lineage link (`→ #N`).
 func TestFormatMDStructure(t *testing.T) {
 	out := FormatMD(mdSampleRows())
 	s := string(out)
@@ -75,7 +76,8 @@ func TestFormatMDStructure(t *testing.T) {
 	}
 }
 
-// superseded_by가 nil이면 메타 라인에 해당 조각이 없어야 한다.
+// When superseded_by is nil, the meta line must not contain that
+// fragment.
 func TestFormatMDNoSupersededLeak(t *testing.T) {
 	out := string(FormatMD(mdSampleRows()))
 	if n := regexp.MustCompile(`superseded_by: → #`).FindAllString(out, -1); len(n) != 1 {
@@ -83,7 +85,7 @@ func TestFormatMDNoSupersededLeak(t *testing.T) {
 	}
 }
 
-// 빈 결과 — 헤더만(items: 0), 섹션 없음.
+// Empty result — header only (items: 0), no sections.
 func TestFormatMDEmpty(t *testing.T) {
 	out := FormatMD(nil)
 	s := string(out)
@@ -98,11 +100,12 @@ func TestFormatMDEmpty(t *testing.T) {
 	}
 }
 
-// content는 원문 그대로(개행 보존) — 노트앱 이식 전제.
+// Content is verbatim (newlines preserved) — the note-app portability
+// premise.
 func TestFormatMDContentVerbatim(t *testing.T) {
 	rows := []ExportRow{{
 		ID:        7,
-		Topic:     "C# 네이밍 #관례", // 헤딩 충돌 문자 — 그대로 출력
+		Topic:     "C# 네이밍 #관례", // heading-collision characters — printed as-is
 		Content:   "1줄\n2줄\n\n4줄",
 		Status:    "active",
 		Source:    "manual",

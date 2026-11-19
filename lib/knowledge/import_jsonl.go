@@ -1,9 +1,10 @@
-// import_jsonl.go — flint import --format jsonl|pam 마이그레이션
-// 경로. export jsonl(포맷) 재이식 — 행마다 기존 write 회로(Normalize →
-// content_hash dedup → InsertBatch)를 재사용하고, superseded_by 참조 행은
-// 후처리로 기존 Supersede 전이를 재사용해 계보를 복원한다. 기존 `flint
-// import [path]` 규칙 변환 경로는 불변(RunImportRouted가 --format 유무로
-// 분기 — 등록은 knowledge.go 1줄 위임).
+// import_jsonl.go — the flint import --format jsonl|pam migration path.
+// Re-planting an export jsonl (the format) — each row reuses the existing
+// write circuit (Normalize → content_hash dedup → InsertBatch), and rows
+// with superseded_by references restore lineage in a post-pass reusing the
+// existing Supersede transition. The existing `flint import [path]` rule
+// conversion path is unchanged (RunImportRouted branches on --format
+// presence — registration is the one-line delegation in knowledge.go).
 package knowledge
 
 import (
@@ -22,9 +23,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ParseJSONLRows — export jsonl(T3 FormatJSONL 출력)을 ExportRow 슬라이스로
-// 되돌린다. 행별 파싱이며 파손 행은 1 기반 행 번호를 포함한 오류(호출부는
-// exit 3).
+// ParseJSONLRows — turns an export jsonl (the FormatJSONL output, T3) back
+// into an ExportRow slice. Parses per line; a corrupt row is an error
+// carrying the 1-based row number (the caller exits 3).
 func ParseJSONLRows(data []byte) ([]ExportRow, error) {
 	text := strings.TrimSpace(string(data))
 	if text == "" {
@@ -39,14 +40,15 @@ func ParseJSONLRows(data []byte) ([]ExportRow, error) {
 		if err := json.Unmarshal([]byte(line), &v); err != nil {
 			return nil, fmt.Errorf("jsonl row %d corrupt: %w", i+1, err)
 		}
-		rows = append(rows, ExportRow(v)) // S1016 — 필드 구성 동일 타입 변환
+		rows = append(rows, ExportRow(v)) // S1016 — identical field layout, a type conversion
 	}
 	return rows, nil
 }
 
-// importMigrateSummary — 요약 1행 조립(stdout 계약: status·imported·
-// duplicated·superseded. id 재할당은 remapped, PAM 스킵(status 비적립
-// 대상·비 knowledge 후보)은 skipped를 조건부 추가 보고).
+// importMigrateSummary — assembles the one-line summary (the stdout
+// contract: status·imported·duplicated·superseded. Id reassignments are
+// remapped; PAM skips (rows whose status is not accrual-eligible·non-
+// knowledge candidates) are conditionally reported as skipped).
 func importMigrateSummary(imported, duplicated, superseded, remapped, skipped int) string {
 	m := map[string]any{
 		"status":     "ok",
@@ -68,11 +70,12 @@ func importMigrateSummary(imported, duplicated, superseded, remapped, skipped in
 	return string(b)
 }
 
-// migrateValidFormats — --format 허용값(jsonl·pam).
+// migrateValidFormats — the allowed --format values (jsonl·pam).
 var migrateValidFormats = map[string]bool{"jsonl": true, "pam": true}
 
-// parseImportMigrateArgs — --format 값(필수)과 FILE 위치 인자(선택 1개).
-// 무효 값·값 누락·미확인 플래그·FILE 2개 이상은 사용법 오류(exit 3).
+// parseImportMigrateArgs — the --format value (required) and the FILE
+// positional argument (one, optional). Invalid values·a missing value·
+// unrecognized flags·two or more FILEs are usage errors (exit 3).
 func parseImportMigrateArgs(args []string) (format, file string, err error) {
 	format = ""
 	for i := 0; i < len(args); i++ {
@@ -109,29 +112,31 @@ func parseImportMigrateArgs(args []string) (format, file string, err error) {
 	return format, file, nil
 }
 
-// importMigrateOutcome — 1회 실행 결과 집계.
+// importMigrateOutcome — the aggregate result of one run.
 type importMigrateOutcome struct {
 	imported, duplicated, superseded, remapped, skipped int
-	idmap                                               map[int]int // export id → 적립 id
-	byIndex                                             []int       // 입력 행 인덱스 → 적립 id(0=미해석)
+	idmap                                               map[int]int // export id → accrued id
+	byIndex                                             []int       // input row index → accrued id (0=unresolved)
 	validAt                                             map[int]time.Time
 }
 
-// importHashSkip — 재이식 해시 입력 제외 키(write payload에 없는 이식
-// 기계 키 — id·kind·status는 적립 시 부과되고 ingested_at·invalid_at은
-// A4 보존 열. valid_at·ts는 HashCanonical 휘발성 제외 승계).
-// recall_score·last_recalled_at도 제외 — 회상 이력은 내용
-// 정체성이 아니라 스코어 변동이 해시 dedup를 깨뜨리면 안 된다.
+// importHashSkip — the keys excluded from the re-plant hash input
+// (migration machine keys absent from the write payload — id·kind·status
+// are imposed at accrual, ingested_at·invalid_at are A4 preservation
+// columns. valid_at·ts inherit the HashCanonical volatility exclusion).
+// recall_score·last_recalled_at are also excluded — recall history is not
+// content identity; score drift must not break hash dedup.
 var importHashSkip = map[string]bool{
 	"id": true, "kind": true, "status": true, "ingested_at": true, "invalid_at": true,
 	"recall_score": true, "last_recalled_at": true,
 }
 
-// rowHashRec — ExportRow 1건을 (해시 입력, 적립 rec) 쌍으로 변환.
-// 해시 입력은 write 경로 산출식(ContentHash(HashCanonical(n)) — 전체 키)과
-// 대칭이다(7키 고정 부분집합은 write payload 부가 키 행과
-// 비대칭). entities는 entity 텍스트 열로 ":" 결합(원천 매핑 승계 —
-// 왕복 대칭).
+// rowHashRec — converts one ExportRow into a (hash input, accrual rec)
+// pair. The hash input is symmetric with the write-path formula
+// (ContentHash(HashCanonical(n)) — full key set) — a fixed 7-key subset
+// would be asymmetric against rows with write-payload extra keys.
+// entities joins into the entity text column with ":" (source-mapping
+// inheritance — round-trip symmetry).
 func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaError) {
 	rec = map[string]any{
 		"kind":       "knowledge",
@@ -147,10 +152,12 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	if len(r.Entities) > 0 {
 		rec["entity"] = strings.Join(r.Entities, ":")
 	}
-	// 시각 보존: ingested_at은 CreatedAt(원천
-	// ingested_at), invalidated 행의 invalid_at은 UpdatedAt(export 파생
-	// COALESCE(invalid_at, ingested_at)의 역매핑). valid_at은 원값 우선 —
-	// jsonl 미실어 행(손작성 등)만 기존 폴백(CreatedAt → UpdatedAt) 승계.
+	// Time preservation: ingested_at is CreatedAt (the source ingested_at);
+	// an invalidated row's invalid_at is UpdatedAt (the reverse mapping of
+	// the export-derived COALESCE(invalid_at, ingested_at)). valid_at
+	// prefers the raw value — only rows not carrying it in the jsonl
+	// (hand-written etc.) inherit the existing fallback (CreatedAt →
+	// UpdatedAt).
 	if !r.CreatedAt.IsZero() {
 		rec["ingested_at"] = r.CreatedAt.UTC()
 	}
@@ -170,20 +177,24 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	} else {
 		rec["status"] = "active"
 	}
-	// 스코어 2키(recall_score·last_recalled_at)는 INSERT rec에 넣지
-	// 않는다(R42-A — v12에서 knowledge의 해당 2열 폐기로 컬럼 조립이면
-	// 42703·배치 롤백). 값은 InsertBatch 커밍 후 합성 이벤트 재생
-	// (replayRecall — chunk 적립 뒤)으로 이관한다. 해시 입력 제외는
-	// importHashSkip(상단 주석). PAM은 metadata 미확장 — jsonl 경로 담당.
+	// The two score keys (recall_score·last_recalled_at) do not go into the
+	// INSERT rec (R42-A — with those two knowledge columns dropped in v12,
+	// column assembly would hit 42703·a batch rollback). The values moved
+	// to synthetic event replay after the InsertBatch commit (replayRecall
+	// — after chunk accrual). Their hash-input exclusion is
+	// importHashSkip (comment above). PAM does not extend metadata — the
+	// jsonl path owns this.
 	if r.ID > 0 {
 		rec["id"] = r.ID
 	}
 	if se := store.Validate("knowledge", rec); se != nil {
 		return nil, nil, se
 	}
-	// 살균(ADR-0006): import는 외부 파일 원천이다 — write 파이프라인과
-	// 동일하게 Validate 뒤·해시 앞에 제어 문자·[flint] 마커 중립화 + 비밀
-	// 스캔을 적용한다(살균 결과가 곧 저장·해시 본문 — 왕복 대칭 유지).
+	// Sanitization (ADR-0006): import is an external-file source — exactly
+	// like the write pipeline, control characters·[flint] markers are
+	// neutralized + secrets scanned after Validate·before hashing (the
+	// sanitized result becomes the stored·hashed body — round-trip
+	// symmetry preserved).
 	for _, w := range SanitizePayload(rec) {
 		fmt.Fprintf(os.Stderr, "[flint] import: %s\n", w)
 	}
@@ -198,7 +209,7 @@ func rowHashRec(r ExportRow) (hashInput, rec map[string]any, se *store.SchemaErr
 	return hashInput, rec, nil
 }
 
-// isHex64 — 저장 content_hash 형식(64자 hex) 판정.
+// isHex64 — checks the stored content_hash format (64 hex characters).
 func isHex64(s string) bool {
 	if len(s) != 64 {
 		return false
@@ -213,25 +224,28 @@ func isHex64(s string) bool {
 	return true
 }
 
-// importDedupChunk·importInsertChunk — 청크 크기.
-// dedup은 content_hash = ANY($1) 사전 조회 해시 수(1k), 적립은 청크
-// 커밋 행 수(5k — 단일 대형 트랜잭션의 EOF 위험 분산). 테스트가 경계를
-// 축소해 청크 동작을 검증한다(import_jsonl_test.go overrideImportChunks).
+// importDedupChunk·importInsertChunk — chunk sizes. dedup is the pre-query
+// hash count for content_hash = ANY($1) (1k); insert is the committed row
+// count per chunk (5k — spreading the EOF risk of a single huge
+// transaction). Tests shrink the boundaries to verify chunking
+// (import_jsonl_test.go overrideImportChunks).
 var (
 	importDedupChunk  = 1000
 	importInsertChunk = 5000
 )
 
-// importMaxFileBytes — import 입력 FILE 크기 상한:
-// 512MB. os.ReadFile 전 stat으로 판정해 초과 문서를 슬랩에 적재하기 전에
-// exit 3으로 차단한다(대량 문서 OOM 방어 — 행 수 상한과 한 쌍). var인 것은
-// 테스트 경계 축소뿐(기본값 512MB가 계약).
+// importMaxFileBytes — the import input FILE size cap: 512MB. Judged via
+// stat before os.ReadFile, blocking oversized documents with exit 3
+// before loading them into the slab (large-document OOM defense — a pair
+// with the row-count cap). A var only for test boundary shrinking (the
+// 512MB default is the contract).
 var importMaxFileBytes int64 = 512 << 20
 
-// lookupHashBatch — dedup 사전 조회: 해시 배열을 content_hash =
-// ANY($1) 청크로 1왕복씩 조회해 해시→기존 행 메타 맵을 돌려준다(행별
-// SELECT N회 폐지). 맵 부재 해시 = 신규. 오류는 전파(조용한 신규 판정
-// 금지 — 체인 보존으로 서버다운 exit 2 유지).
+// lookupHashBatch — the dedup pre-query: queries a hash array as
+// content_hash = ANY($1) chunks, one round trip each, returning a
+// hash→existing-row-meta map (abolishing N per-row SELECTs). A hash
+// absent from the map = new. Errors propagate (no silent new-verdict —
+// chain preservation keeps a server-down exit 2).
 func lookupHashBatch(ctx context.Context, st wire.Store, hashes []string) (map[string]DupMeta, error) {
 	existing := make(map[string]DupMeta, len(hashes))
 	for start := 0; start < len(hashes); start += importDedupChunk {
@@ -259,11 +273,12 @@ func lookupHashBatch(ctx context.Context, st wire.Store, hashes []string) (map[s
 	return existing, nil
 }
 
-// lookupExistingIDs — 명시 id 충돌 사전 조회: id 배열을
-// id = ANY($1) 청크로 1왕복씩 조회해 존재 id 집합을 돌려준다(해시 dedup를
-// 통과한 행의 명시 id가 DB에 이미 있다는 것은 내용이 다르다는 뜻 — PK
-// 충돌). 오류는 전파(dedup 조회와 동일 — 조용한 재할당 판정 금지, 서버다운
-// exit 2 체인 보존).
+// lookupExistingIDs — the explicit-id conflict pre-query: queries an id
+// array as id = ANY($1) chunks, one round trip each, returning the set of
+// existing ids (an explicit id of a row that passed hash dedup already
+// being in the DB means different content — a PK conflict). Errors
+// propagate (same as the dedup lookup — no silent reassignment verdict,
+// preserving the server-down exit 2 chain).
 func lookupExistingIDs(ctx context.Context, st wire.Store, ids []int) (map[int]bool, error) {
 	existing := make(map[int]bool, len(ids))
 	for start := 0; start < len(ids); start += importDedupChunk {
@@ -286,10 +301,11 @@ func lookupExistingIDs(ctx context.Context, st wire.Store, ids []int) (map[int]b
 	return existing, nil
 }
 
-// countJSONLRows — 비어 있지 않은 줄 수: ParseJSONLRows의 행 수
-// 기준(공백 줄 제외)과 동일하게 바이트 라인 스캔 1회로 센다 — 전량
-// 파싱 전 상한 조기 판정용(대량 문서의 파싱 메모리 방어). 유니코드
-// 공백만으로 이루어진 줄은 JSON 줄이 아니므로 고려하지 않는다.
+// countJSONLRows — the count of non-empty lines: one byte-line scan
+// counting under the same row criterion as ParseJSONLRows (blank lines
+// excluded) — for early cap judgment before full parsing (parse-memory
+// defense for large documents). Lines consisting solely of Unicode
+// whitespace are not JSON lines and are not considered.
 func countJSONLRows(data []byte) int {
 	n := 0
 	blank := true
@@ -301,7 +317,7 @@ func countJSONLRows(data []byte) int {
 			}
 			blank = true
 		case c == ' ' || c == '\t' || c == '\r':
-			// 공백류 — 줄 공백 판정 유지
+			// whitespace — keeps the line blank
 		default:
 			blank = false
 		}
@@ -312,10 +328,11 @@ func countJSONLRows(data []byte) int {
 	return n
 }
 
-// importRowsBatch — dedup 통과 행 청크 적립 + id 매핑. ①행별
-// lookupHash 대신 해시 배열 ANY($1) 청크 사전 조회 ②InsertBatch 1회 대신
-// importInsertChunk행 청크 커밋(부분 성공 보존 — 실패 청크 이전 커밋은
-// 유지되고 재실행은 dedup가 회복해 멱등 재개).
+// importRowsBatch — chunked accrual + id mapping of dedup-passing rows.
+// ①A hash-array ANY($1) chunk pre-query instead of per-row lookupHash
+// ②Chunked commits of importInsertChunk rows instead of one InsertBatch
+// (partial-success preservation — commits before a failing chunk survive,
+// and a rerun recovers idempotently via dedup).
 func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*importMigrateOutcome, error) {
 	oc := &importMigrateOutcome{
 		idmap:   map[int]int{},
@@ -325,10 +342,11 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 	type pending struct {
 		idx  int
 		row  ExportRow
-		rec  map[string]any // rowHashRec 산출(검증·살균 완료 — 미정규화)
+		rec  map[string]any // produced by rowHashRec (validated·sanitized — unnormalized)
 		hash string
 	}
-	// 1단계 — 검증·살균·해시 산출 + 파일 내 중복 스킵(행 순서 우선).
+	// Stage 1 — validate·sanitize·derive hashes + skip in-file duplicates
+	// (row order first).
 	var fresh []pending
 	seen := map[string]bool{}
 	hashes := make([]string, 0, len(rows))
@@ -340,10 +358,12 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		if se != nil {
 			return nil, se
 		}
-		// 해시: export가 실어온 저장 content_hash(64 hex)는 write가
-		// 부가 키(session_id 등 payload 부가 키)까지 포함해 산출한 값이라
-		// 재계산으로 재현 불가다 — 유효하면 승계해 dedup·적립의 왕복 대칭을
-		// 맞춘다. 없는 행(손작성 jsonl)은 write 산출식으로 재계산한다.
+		// Hash: a stored content_hash (64 hex) carried by the export is the
+		// value write derived including payload extra keys (session_id
+		// etc.), so it cannot be reproduced by recomputation — when valid,
+		// inherit it to keep dedup·accrual round-trip symmetric. Rows
+		// without one (hand-written jsonl) recompute with the write
+		// formula.
 		h := store.ContentHash(store.HashCanonical(hashInput))
 		if isHex64(r.ContentHash) {
 			h = r.ContentHash
@@ -356,27 +376,31 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		hashes = append(hashes, h)
 		fresh = append(fresh, pending{idx: i, row: r, rec: rec, hash: h})
 	}
-	// 2단계 — dedup 사전 조회(ANY($1) 청크 — 행별 조회 폐지).
+	// Stage 2 — the dedup pre-query (ANY($1) chunks — per-row queries
+	// abolished).
 	existing, err := lookupHashBatch(ctx, st, hashes)
 	if err != nil {
 		return nil, err
 	}
-	// 3단계 — 기존 행은 duplicate 스킵(계보 참조 해석용 id 승계), 신규만
-	// 적립 rec 완성(정규화·content_hash·valid_at). score>0 스킵 행은
-	// 4.5단계 보충 후보로 수집한다(R43 — 아래 주석).
+	// Stage 3 — existing rows skip as duplicates (inheriting ids for
+	// lineage-reference resolution); only new rows complete their accrual
+	// rec (normalization·content_hash·valid_at). Skipped rows with
+	// score>0 are collected as stage-4.5 replenishment candidates (R43 —
+	// comment below).
 	var batch []pending
-	var skippedReplays []db.RecallReplay // dedup 스킵 행 중 score>0(4.5단계 보충 후보)
+	var skippedReplays []db.RecallReplay // among dedup-skipped rows, those with score>0 (stage-4.5 replenishment candidates)
 	for _, p := range fresh {
 		if meta, ok := existing[p.hash]; ok {
 			oc.duplicated++
 			if meta.ID > 0 {
-				oc.idmap[p.row.ID] = meta.ID // 계보 참조 해석용
+				oc.idmap[p.row.ID] = meta.ID // for lineage-reference resolution
 				oc.byIndex[p.idx] = meta.ID
-				// R43 재생 누락 보충 후보 — 이전 실행이 이 행을 적립
-				// (chunk 커밋)한 뒤 재생에서 실패해 exit 1했다면, 이번
-				// 실행의 dedup 스킵이 재생 수집에서 이 행을 빼 버려
-				// 스코어 이관이 영구 누락된다. 4.5단계에서 대상 DB
-				// 이벤트 0건인 행만 보충한다.
+				// R43 missing-replay replenishment candidate — if a previous
+				// run accrued this row (chunk commit) then failed in replay
+				// with exit 1, this run's dedup skip drops it from replay
+				// collection and the score transfer is permanently lost.
+				// Stage 4.5 replenishes only rows with 0 events in the
+				// target DB.
 				if p.row.RecallScore > 0 {
 					rr := db.RecallReplay{ID: meta.ID, Score: p.row.RecallScore}
 					if p.row.LastRecalledAt != nil {
@@ -388,7 +412,7 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 			continue
 		}
 		rec := store.Normalize("knowledge", p.rec)
-		rec["content_hash"] = p.hash // NOT NULL UNIQUE — write 경로와 동일 적립
+		rec["content_hash"] = p.hash // NOT NULL UNIQUE — the same accrual as the write path
 		switch v := rec["valid_at"].(type) {
 		case string:
 			if t, err := time.Parse(time.RFC3339Nano, v); err == nil {
@@ -399,11 +423,14 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		}
 		batch = append(batch, pending{idx: p.idx, row: p.row, rec: rec, hash: p.hash})
 	}
-	// 3.5단계 — 명시 id 충돌 자동 재할당. 기존 DB 동일
-	// id(다른 내용 — 동일 내용이면 2~3단계 dedup가 이미 스킵)와 파일 내
-	// 중복 id는 명시 id를 제거해 serial 재할당 경로로 보낸다(재할당 행은
-	// 4단계에서 id≠원본 id로 remapped 계상·요약 보고 — 배치 PK 충돌로
-	// 전체 exit 1되던 왕복 주 시나리오 회복).
+	// Stage 3.5 — automatic reassignment of explicit-id conflicts. An
+	// identical id already in the DB (different content — identical content
+	// was already skipped by the stage-2~3 dedup) and duplicate ids within
+	// the file have their explicit id removed, sending them down the serial
+	// reassignment path (reassigned rows are counted as remapped with
+	// id≠original id in stage 4·reported in the summary — recovering the
+	// main round-trip scenario that used to die wholesale on a batch PK
+	// conflict exit 1).
 	explicitIDs := make([]int, 0, len(batch))
 	for _, p := range batch {
 		if id, ok := p.rec["id"].(int); ok && id > 0 {
@@ -415,24 +442,25 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		if lerr != nil {
 			return nil, lerr
 		}
-		taken := map[int]bool{} // 파일 선행 행이 점유한 명시 id
+		taken := map[int]bool{} // explicit ids occupied by earlier file rows
 		for i := range batch {
 			id, ok := batch[i].rec["id"].(int)
 			if !ok || id <= 0 {
 				continue
 			}
 			if existingIDs[id] || taken[id] {
-				delete(batch[i].rec, "id") // 자동 재할당 — serial 할당
+				delete(batch[i].rec, "id") // automatic reassignment — serial allocation
 				continue
 			}
 			taken[id] = true
 		}
 	}
-	// 4단계 — 청크 적립+커밋: 청크 단위 부분 성공(실패 청크 이전 커밋
-	// 유지), id 매핑·집계는 행 순서 불변.
+	// Stage 4 — chunked accrual+commit: partial success per chunk (commits
+	// before a failing chunk survive); id mapping·aggregation keep row
+	// order invariant.
 	explicit := false
 	for start := 0; start < len(batch); start += importInsertChunk {
-		var replays []db.RecallReplay // 청크 재생 아이템(아래 수집)
+		var replays []db.RecallReplay // chunk replay items (collected below)
 		end := min(start+importInsertChunk, len(batch))
 		chunk := batch[start:end]
 		recs := make([]map[string]any, 0, len(chunk))
@@ -441,13 +469,15 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 		}
 		ids, err := st.InsertBatch(ctx, recs)
 		if err != nil {
-			// 배치 적립 실패은 유령 성공이 될 수 없다 — 실구현
-			// mapInsertErr는 unique 위반(23505: 기존 DB 동일 id·다른 content
-			// 행의 PK 충돌 포함)을 ErrDuplicate로 감싸고 MapExit(ErrDuplicate)
-			// =0이라 그대로 두면 "오류 JSON + exit 0 + 0건 커밋"이 된다
-			// (write.go의 '전체 폐기 후 exit 0 duplicate' 금지 원칙).
-			// 서버다운(exit 2)만 체인을 보존하고 나머지는 원인 문자열을
-			// 보존한 채 exit 1로 매핑한다.
+			// A batch accrual failure can never become a phantom success —
+			// the real mapInsertErr wraps unique violations (23505: PK
+			// conflicts of existing-DB same-id·different-content rows
+			// included) as ErrDuplicate, and MapExit(ErrDuplicate)=0, so
+			// leaving it as-is would yield "error JSON + exit 0 + zero-row
+			// commit" (write.go's principle forbidding 'discard everything
+			// then exit 0 duplicate'). Only server-down (exit 2) keeps the
+			// chain; everything else maps to exit 1 with the cause string
+			// preserved.
 			if errors.Is(err, store.ErrServerDown) {
 				return nil, err
 			}
@@ -459,15 +489,16 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 			if p.row.ID > 0 {
 				explicit = true
 				if id != p.row.ID {
-					oc.remapped++ // id 보존 불가 — 자동 할당 후 매핑 보고
+					oc.remapped++ // id not preservable — report the mapping after automatic allocation
 				}
 			}
 			oc.idmap[p.row.ID] = id
 			oc.byIndex[p.idx] = id
 			if t, ok := oc.validAt[p.row.ID]; ok {
-				oc.validAt[id] = t // 재할당 id로도 참조 가능하게
+				oc.validAt[id] = t // referenceable under the reassigned id too
 			}
-			// 스코어 이관 재생 원청(R42-A) — chunk 커밋 직후 실행(아래).
+			// The score-transfer replay payload (R42-A) — executed right
+			// after the chunk commit (below).
 			if p.row.RecallScore > 0 {
 				rr := db.RecallReplay{ID: id, Score: p.row.RecallScore}
 				if p.row.LastRecalledAt != nil {
@@ -476,35 +507,40 @@ func importRowsBatch(ctx context.Context, st wire.Store, rows []ExportRow) (*imp
 				replays = append(replays, rr)
 			}
 		}
-		// 회상 이력 재생(R42-A) — 폐기 2열 대신 합성 이벤트로 스코어
-		// 이관. chunk 적립 커밋에 붙여 실행해 "적립+재생"을 회복 단위로
-		// 묶는다(재실행 시 dedup가 커밋 행을 스킵 → 이중 재생 없음 —
-		// 스킵 행의 스코어 누락은 아래 4.5단계가 보충한다).
+		// Recall-history replay (R42-A) — transfers scores as synthetic
+		// events instead of the two dropped columns. Attached to the chunk
+		// accrual commit so "accrue+replay" forms one recovery unit (on
+		// rerun, dedup skips the committed rows → no double replay — and
+		// the score gap of skipped rows is replenished by stage 4.5 below).
 		if err := replayRecall(ctx, st, replays); err != nil {
 			return nil, err
 		}
 	}
-	// 4.5단계 — dedup 스킵 행의 재생 누락 보충(R43): 이전 실행이 chunk
-	// 커밋 후 replayRecall 실패로 exit 1되면, 재실행의 dedup 스킵이 그
-	// 행을 4단계 재생 수집에서 빼 버려 스코어 이관이 영구 누락된다.
-	// score>0 스킵 행 중 대상 DB recall_events에 이벤트가 0건인 행만
-	// 골라 보충한다 — 정상 재생된 행은 이벤트 존재로 걸러져 이중 재생이
-	// 없다(restoreSkippedRecallReplay).
+	// Stage 4.5 — replenishing the replay gap of dedup-skipped rows (R43):
+	// if a previous run exited 1 on a replayRecall failure after the chunk
+	// commit, this rerun's dedup skip drops that row from stage-4 replay
+	// collection and the score transfer is permanently lost. Only rows
+	// with 0 events in the target DB's recall_events are picked among
+	// score>0 skipped rows for replenishment — normally replayed rows are
+	// filtered out by their existing events, so no double replay
+	// (restoreSkippedRecallReplay).
 	if err := restoreSkippedRecallReplay(ctx, st, skippedReplays); err != nil {
 		return nil, err
 	}
 	if explicit {
-		// 명시 id INSERT는 id serial의 nextval을 소비하지 않는다.
+		// An explicit-id INSERT does not consume the id serial's nextval.
 		syncKnowledgeIDSequence(ctx, st)
 	}
 	return oc, nil
 }
 
-// syncKnowledgeIDSequence — 명시 id 이식 직후 id serial nextval이
-// 기존 행과 충돌해 flint write가 연속 실패하지 않게 시퀀스를 max(id)+1로
-// 맞춘다(setval …, false — 다음 nextval = max+1). 시퀀스명은
-// pg_get_serial_sequence로 확인하고, 미지원 저장소는 표준 명칭
-// knowledge_id_seq로 폴백한다. 실패는 stderr 경고만(exit 불변).
+// syncKnowledgeIDSequence — right after an explicit-id migration, aligns
+// the id serial nextval to max(id)+1 so the sequence does not collide with
+// existing rows and make flint write fail repeatedly (setval …, false —
+// the next nextval = max+1). The sequence name is resolved via
+// pg_get_serial_sequence; an unsupported store falls back to the standard
+// name knowledge_id_seq. Failure is a stderr warning only (exit
+// unchanged).
 func syncKnowledgeIDSequence(ctx context.Context, st wire.Store) {
 	if rows, err := wire.QueryOnce(ctx, st,
 		`SELECT pg_get_serial_sequence('knowledge', 'id')`, nil); err == nil &&
@@ -523,29 +559,34 @@ func syncKnowledgeIDSequence(ctx context.Context, st wire.Store) {
 	}
 }
 
-// supersedeRefStore — 계보 참조 복원 capability. realStore는
-// db.Repo.SetSupersededRef로 구현(cli/import_migrate.go 위임). 쓰기 SQL은
-// db.Repo 단일 경로(writes_through_repo 가드) — knowledge는 capability
-// 단언으로만 소비한다.
+// supersedeRefStore — the lineage-reference restoration capability.
+// realStore implements it via db.Repo.SetSupersededRef (delegated from
+// cli/import_migrate.go). The write SQL has the single db.Repo path
+// (writes_through_repo guard) — knowledge consumes it only via the
+// capability assertion.
 type supersedeRefStore interface {
 	SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error)
 }
 
-// recallReplayStore — 이식 스코어 재생 capability(R42-A). realStore는
-// db.Repo.ReplayRecallEvents로 구현. 쓰기 SQL은 db.Repo 단일 경로 —
-// knowledge는 capability 단언으로만 소비한다(supersedeRefStore 관례).
+// recallReplayStore — the migration score-replay capability (R42-A).
+// realStore implements it via db.Repo.ReplayRecallEvents. The write SQL
+// has the single db.Repo path — knowledge consumes it only via the
+// capability assertion (the supersedeRefStore convention).
 type recallReplayStore interface {
 	ReplayRecallEvents(ctx context.Context, items []db.RecallReplay) error
 }
 
-// replayRecall — 이식 스코어 재생(R42-A): InsertBatch 커밋 직후 청크
-// 단위로 실행. v12에서 jsonl의 recall_score·last_recalled_at은 폐기된
-// knowledge 2열이라 INSERT 컬럼으로 못 넣고, EnsureSchemaV12 백필과 동일
-// 산식의 합성 이벤트(recall_events)로 이관한다. 오류는 InsertBatch와
-// 동일 계약(ErrServerDown 체인 보존·그 외 exit 1 랩 — 적립분은 이미
-// 커밋돼 재실행 시 dedup가 회복하고, 이중 재생도 없다: 커밋 행은
-// duplicated 스킵이라 재생 수집에서 빠진다). 미구현 store(fake 등)는
-// stderr 경고 후 스킵(restoreSupersede 관례).
+// replayRecall — migration score replay (R42-A): runs chunk-by-chunk
+// right after the InsertBatch commit. In v12 the jsonl's recall_score·
+// last_recalled_at are dropped knowledge columns that cannot go into the
+// INSERT as columns; the transfer goes through synthetic events
+// (recall_events) with the same formula as the EnsureSchemaV12 backfill.
+// Errors follow the InsertBatch contract (ErrServerDown chain preserved·
+// everything else an exit 1 wrap — the accrued portion is already
+// committed, a rerun recovers via dedup, and no double replay: committed
+// rows are duplicated-skipped and drop out of replay collection). A
+// non-implementing store (fake etc.) gets a stderr warning then a skip
+// (the restoreSupersede convention).
 func replayRecall(ctx context.Context, st wire.Store, replays []db.RecallReplay) error {
 	if len(replays) == 0 {
 		return nil
@@ -564,14 +605,17 @@ func replayRecall(ctx context.Context, st wire.Store, replays []db.RecallReplay)
 	return nil
 }
 
-// restoreSkippedRecallReplay — dedup 스킵 행의 재생 누락 보충(R43):
-// candidates는 3단계 스킵 시점의 재생 아이템(승계 id·score·last).
-// 대상 DB recall_events의 이벤트 보유 id를 DISTINCT 1왕복 조회
-// (dedup 청크 관례 승계)로 구해, 이벤트 0건인 후보만 replayRecall로
-// 보충한다 — 이전 실행에서 이미 재생된 행은 걸러져 이중 재생이 없고,
-// 청크 경계 부분 재생 후 재실행에도 미보충 행만 골라 멱등이다.
-// 오류 계약은 replayRecall과 동일(ErrServerDown 체인 보존·그 외
-// exit 1 랩).
+// restoreSkippedRecallReplay — replenishes the replay gap of
+// dedup-skipped rows (R43): candidates are the replay items captured at
+// the stage-3 skip (inherited id·score·last). The ids holding events in
+// the target DB's recall_events are fetched with one DISTINCT round trip
+// (inheriting the dedup chunk convention), and only candidates with 0
+// events are replenished via replayRecall — rows already replayed in a
+// previous run are filtered out (no double replay), and even after a
+// partial replay across a chunk boundary, a rerun picks only the
+// unreplenished rows, staying idempotent. The error contract matches
+// replayRecall (ErrServerDown chain preserved·everything else an exit 1
+// wrap).
 func restoreSkippedRecallReplay(ctx context.Context, st wire.Store, candidates []db.RecallReplay) error {
 	if len(candidates) == 0 {
 		return nil
@@ -612,10 +656,12 @@ func restoreSkippedRecallReplay(ctx context.Context, st wire.Store, candidates [
 	return replayRecall(ctx, st, replays)
 }
 
-// restoreSupersede — 계보 복원 후처리: superseded_by 참조 행을 기존
-// Supersede 전이로 갱신(from→to id 매핑 후). 전이 불가(이미 invalidated
-// 스냅샷 복원 등 ErrNotFound)면 SetSupersededRef로 참조만 복원하고,
-// 둘 다 없는 store는 경고 후 스킵한다(직접 쓰기 SQL 금지).
+// restoreSupersede — the lineage-restoration post-pass: updates rows with
+// superseded_by references via the existing Supersede transition (after
+// from→to id mapping). When the transition is impossible (an already
+// invalidated snapshot restoration etc. yielding ErrNotFound),
+// SetSupersededRef restores the reference only; a store with neither gets
+// a warning then a skip (direct write SQL forbidden).
 func restoreSupersede(ctx context.Context, st wire.Store, oc *importMigrateOutcome, refs [][2]int) (int, error) {
 	n := 0
 	for _, pair := range refs {
@@ -643,7 +689,7 @@ func restoreSupersede(ctx context.Context, st wire.Store, oc *importMigrateOutco
 					return n, err
 				}
 				if rows > 0 {
-					n++ // 실제 복원된 행만 계상(0행=이미 참조 존재 제외)
+					n++ // count only rows actually restored (0 rows = existing reference, excluded)
 				}
 				continue
 			}
@@ -653,7 +699,8 @@ func restoreSupersede(ctx context.Context, st wire.Store, oc *importMigrateOutco
 	return n, nil
 }
 
-// resolveRef — export id → 실제 적립 id(배치 내 매핑 → 기존 행 확인).
+// resolveRef — export id → the actually accrued id (in-batch mapping →
+// existing-row check).
 func resolveRef(ctx context.Context, st wire.Store, oc *importMigrateOutcome, id int) (int, bool) {
 	if id <= 0 {
 		return 0, false
@@ -687,7 +734,7 @@ func resolveRef(ctx context.Context, st wire.Store, oc *importMigrateOutcome, id
 	return got, true
 }
 
-// importJSONL — jsonl 재이식 본체(파싱은 완료된 rows).
+// importJSONL — the jsonl re-planting body (rows already parsed).
 func importJSONL(ctx context.Context, st wire.Store, rows []ExportRow) (*importMigrateOutcome, error) {
 	oc, err := importRowsBatch(ctx, st, rows)
 	if err != nil {
@@ -719,9 +766,10 @@ func importJSONL(ctx context.Context, st wire.Store, rows []ExportRow) (*importM
 	return oc, nil
 }
 
-// importPAM — PAM 후보 pending 적립(승격 모델 준수 — approve 경로 승계) +
-// relations supersedes 계보 복원. topic은 PAM memory id에서 파생(import.go
-// "규칙[헤딩]" 관례).
+// importPAM — pending accrual of PAM candidates (following the promotion
+// model — inheriting the approve path) + relations supersedes lineage
+// restoration. topic derives from the PAM memory id (the import.go
+// "rule[heading]" convention).
 func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigrateOutcome, error) {
 	var rows []ExportRow
 	skipped := len(res.Skipped)
@@ -734,21 +782,24 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 		row := ExportRow{
 			Topic:      render.Text(render.TruncateRunes("pam["+c.ID+"]", 80)),
 			Content:    c.Content,
-			Kind:       "knowledge", // 저장 라우터 상수 — projects 테이블 아님(루팅 룰링 2026-11-14)
+			Kind:       "knowledge", // the storage-router constant — not the projects table (routing ruling 2026-11-14)
 			Status:     "pending",
 			Confidence: c.Confidence,
 			Tags:       c.Tags,
 			Source:     c.Source,
 		}
-		// 왕복 멱등: flint 발행 문서가 실어온 저장
-		// content_hash(ParsePAM 승계 — 64 hex만)는 적립 해시로 승계해
-		// dedup가 원천 해시와 대칭한다(jsonl A9 isHex64 경로와 동일).
+		// Round-trip idempotence: a stored content_hash carried by a
+		// flint-issued document (inherited by ParsePAM — 64 hex only) is
+		// inherited as the accrual hash so dedup is symmetric with the
+		// source hash (the same as the jsonl A9 isHex64 path).
 		if h, ok := c.Metadata["content_hash"].(string); ok && isHex64(h) {
 			row.ContentHash = h
 		}
 		if c.Kind == "project" {
-			// 원천 kind 보존: knowledge 테이블 pending 적립(승격 모델)에서
-			// 원형 구분은 태그로만 가능 — "pam:project" 추가(왕복·검색 경로).
+			// Source-kind preservation: in a knowledge-table pending
+			// accrual (promotion model), the original shape is
+			// distinguishable only by tag — append "pam:project"
+			// (round-trip·search paths).
 			row.Tags = append(append([]string{}, c.Tags...), "pam:project")
 		}
 		rows = append(rows, row)
@@ -761,7 +812,8 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 		return nil, err
 	}
 	oc.skipped = skipped
-	// 후보 PAM id → 적립 id 연결(행 인덱스 — 중복 적립은 lookupHash 메타).
+	// Connect candidate PAM ids → accrued ids (row index — duplicates go
+	// through the lookupHash meta).
 	pamID := map[string]int{}
 	idx := 0
 	for _, c := range res.Candidates {
@@ -775,9 +827,10 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 	}
 	var refs [][2]int
 	for _, p := range res.SupersedePairs {
-		// PAM §13.2 "supersedes: Source replaces target"(import_pam.go
-		// SupersedePair 계약): From=신규(대체하는 원천), To=구(피대체) —
-		// Supersede(oldID=구 To의 적립 id, newID=신규 From의 적립 id).
+		// PAM §13.2 "supersedes: Source replaces target" (the
+		// import_pam.go SupersedePair contract): From=new (the replacing
+		// source), To=old (the replaced) — Supersede(oldID=old To's accrued
+		// id, newID=new From's accrued id).
 		newID, okFrom := pamID[p.From]
 		oldID, okTo := pamID[p.To]
 		if !okFrom || oldID <= 0 || !okTo || newID <= 0 {
@@ -796,9 +849,10 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 	return oc, nil
 }
 
-// RunImportRouted — "import" 커맨드 라우팅(v1.3.0 T9): --format 있으면
-// 마이그레이션 경로, 없으면 기존 규칙 변환 RunImport(불변). 등록은
-// knowledge.go가 이 핸들러로 1줄 위임한다.
+// RunImportRouted — the "import" command routing (v1.3.0 T9): with
+// --format, the migration path; without, the existing rule conversion
+// RunImport (unchanged). Registration is the one-line delegation from
+// knowledge.go to this handler.
 func RunImportRouted(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	for _, a := range args {
 		if a == "--format" || strings.HasPrefix(a, "--format=") {
@@ -808,9 +862,10 @@ func RunImportRouted(ctx context.Context, st wire.Store, args []string, stdin io
 	return RunImport(ctx, st, args, stdin, stdout)
 }
 
-// importMaxRowsLimit — import 1회 행 수 상한 로드(등록표 키
-// export_import_max_rows). 조회 실패·미설정(0)은 DefaultThresholds 폴백
-// (키 규약 — ApplyThresholdsFallback 미등록 키의 소비자 완결).
+// importMaxRowsLimit — loads the per-import row-count cap (the registry
+// key export_import_max_rows). Lookup failure·unset (0) fall back to
+// DefaultThresholds (the key convention — consumer completeness for keys
+// not registered in ApplyThresholdsFallback).
 func importMaxRowsLimit(ctx context.Context, st wire.Store) int {
 	def := store.DefaultThresholds().ExportImportMaxRows
 	th, err := wire.LoadThresholdsFn(ctx, st)
@@ -820,9 +875,10 @@ func importMaxRowsLimit(ctx context.Context, st wire.Store) int {
 	return th.ExportImportMaxRows
 }
 
-// enforceImportMaxRows — 행 수 상한 초과 시 오류 JSON(max·count 포함)을
-// stdout에 내고 3을 반환(호출부는 그대로 반환). 파싱 직후·적립 전 단계라
-// 부작용 없음(대량 문서 전량 적립의 메모리 방어).
+// enforceImportMaxRows — on exceeding the row-count cap, prints an error
+// JSON (with max·count) to stdout and returns 3 (the caller returns it
+// as-is). The stage is right after parsing·before accrual, so no side
+// effects (memory defense against accruing a large document in full).
 func enforceImportMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, count int) int {
 	max := importMaxRowsLimit(ctx, st)
 	if count <= max {
@@ -840,8 +896,9 @@ func enforceImportMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, 
 	return 3
 }
 
-// RunImportMigrate — `flint import --format jsonl|pam [FILE]`(FILE 미지정
-// stdin). 무효 format·파손 jsonl exit 3, 서버다운 exit 2(MapExit 재사용).
+// RunImportMigrate — `flint import --format jsonl|pam [FILE]` (without
+// FILE, stdin). Invalid format·corrupt jsonl exit 3; server-down exit 2
+// (reusing MapExit).
 func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	if err := st.Ping(ctx); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -854,9 +911,9 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 	}
 	var data []byte
 	if file != "" {
-		// 크기 상한은 os.ReadFile 앞 stat으로 판정한다 —
-		// 초과 파일을 읽지 않고 exit 3(max·size 포함). stat 실패는 ReadFile
-		// 오류 경로(A7 원인 보존)에 맡긴다.
+		// The size cap is judged via stat before os.ReadFile — an
+		// oversized file exits 3 unread (with max·size). A stat failure is
+		// left to the ReadFile error path (A7 cause preservation).
 		if fi, serr := os.Stat(file); serr == nil && fi.Size() > importMaxFileBytes {
 			b, merr := json.Marshal(map[string]any{
 				"error": fmt.Sprintf("import file size limit exceeded (%d bytes max)", importMaxFileBytes),
@@ -872,8 +929,8 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 		}
 		data, err = os.ReadFile(file)
 		if err != nil {
-			// 원인(ENOENT/EACCES·경로)을 폐기하지 않고 expect에
-			// 포함한다(SchemaError 랩 유지 — exit 3 불변).
+			// The cause (ENOENT/EACCES·path) is not discarded but included
+			// in expect (keeping the SchemaError wrap — exit 3 unchanged).
 			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "file",
 				Expect: "readable jsonl file: " + err.Error()}))
 			return 3
@@ -889,9 +946,9 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 	var oc *importMigrateOutcome
 	switch format {
 	case "jsonl":
-		// 상한 판정을 전량 파싱 앞당긴다 — 라인 스캔 1회
-		// 카운트로 조기 exit 3(대량 문서의 파싱 메모리 방어가 파손 행
-		// 오류보다 우선).
+		// The cap check is moved ahead of full parsing — an early exit 3
+		// from one line-scan count (parse-memory defense for large
+		// documents takes priority over the corrupt-row error).
 		if code := enforceImportMaxRows(ctx, st, stdout, countJSONLRows(data)); code != 0 {
 			return code
 		}
@@ -902,7 +959,7 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 		}
 		oc, err = importJSONL(ctx, st, rows)
 	case "pam":
-		if ParsePAMFn == nil { // seam 미준비
+		if ParsePAMFn == nil { // seam not ready
 			fmt.Fprintln(stdout, `{"error":"pam import unsupported"}`)
 			return 3
 		}
@@ -912,7 +969,8 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return 3
 		}
-		// 상한은 후보+스킵 합산(문서 전체 memory 행 수 기준).
+		// The cap counts candidates+skips together (by the document's
+		// total memory rows).
 		if code := enforceImportMaxRows(ctx, st, stdout, len(res.Candidates)+len(res.Skipped)); code != 0 {
 			return code
 		}

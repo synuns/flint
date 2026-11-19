@@ -1,9 +1,11 @@
-// import_fence_r2_test.go — 회귀 2종.
-// (1) CommonMark 닫는 펜스 길이 — 여는 펜스(````·~~~~)보다 짧은 펜스
-// 라인(```·~~~)은 닫는 펜스가 아니라 코드 본문: 짧은 라인 뒤의 "## "는
-// 헤딩이 아니어야 한다(펜스 내부 헤딩의 유사 지식 분할 방지).
-// (2) import 경로의 '-' 접두 값은 이미 무효 인자 exit 3(unknown
-// flag) — 플래그 흡수 가드(ValidateFlagValue)와 대칭 계약임을 고정.
+// import_fence_r2_test.go — two regressions.
+// (1) CommonMark closing-fence length — a fence line (```·~~~) shorter
+// than the opening fence (````·~~~~) is code content, not a closing
+// fence: a "## " after the short line must not be a heading (preventing
+// spurious knowledge splitting of in-fence headings).
+// (2) A '-'-prefixed value on the import path is already the
+// invalid-arg exit 3 (unknown flag) — pinned as the symmetric contract
+// with the flag-swallowing guard (ValidateFlagValue).
 package knowledge
 
 import (
@@ -12,10 +14,11 @@ import (
 	"testing"
 )
 
-// TestFenceCloseRequiresOpenLength — 여는 펜스 이상 길이만 닫는 펜스.
-// 4개 펜스를 3개 펜스로 닫으려는 문서는 닫힘으로 취급하면 그 뒤 "## 가짜
-// 헤딩"이 섹션으로 분할된다(3 sections) — CommonMark 위반. 수정 후에는
-// 펜스 내부 본문으로 흡수(2 sections).
+// TestFenceCloseRequiresOpenLength — only a fence at least as long as the
+// opener closes. If a document trying to close 4 fences with 3 were
+// treated as closed, the "## 가짜 헤딩" after it would split into a
+// section (3 sections) — a CommonMark violation. After the fix it is
+// absorbed as in-fence content (2 sections).
 func TestFenceCloseRequiresOpenLength(t *testing.T) {
 	cases := []struct{ name, open, short, close string }{
 		{"backtick 4>3", "````", "```", "````"},
@@ -34,8 +37,9 @@ func TestFenceCloseRequiresOpenLength(t *testing.T) {
 	}
 }
 
-// TestFenceCloseEqualOrLongerStillCloses — 같은 길이·그 이상 닫는 펜스는
-// 기존대로 닫는다(3 열고 3·4로 닫음 — 하한 규칙의 정상 방향 불변).
+// TestFenceCloseEqualOrLongerStillCloses — equal-length·longer closing
+// fences still close as before (opened with 3, closed with 3·4 — the
+// normal direction of the lower-bound rule stays invariant).
 func TestFenceCloseEqualOrLongerStillCloses(t *testing.T) {
 	for _, closing := range []string{"```", "````"} {
 		body := "## 섹션\n본문 충분합니다.\n\n```\ncode\n## 펜스 내부\n" + closing + "\n\n## 다음\n본문 충분합니다.\n"
@@ -46,9 +50,10 @@ func TestFenceCloseEqualOrLongerStillCloses(t *testing.T) {
 	}
 }
 
-// TestImportPathFlagLikeArgExits3 — import 경로 인자의 '-' 접두는 사용법
-// 오류 exit 3(unknown flag) — backup --out·restore --file의
-// ValidateFlagValue 가드와 같은 계약(흡수 오타 경로 무효 인자).
+// TestImportPathFlagLikeArgExits3 — a '-' prefix on an import path
+// argument is a usage error exit 3 (unknown flag) — the same contract as
+// the ValidateFlagValue guard of backup --out·restore --file (a
+// swallowed-typo path is an invalid argument).
 func TestImportPathFlagLikeArgExits3(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	for _, args := range [][]string{

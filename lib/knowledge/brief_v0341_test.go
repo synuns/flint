@@ -1,6 +1,7 @@
-// brief_v0341_test.go — 사후 감사 회귀: read와의 계약 정합
-// (N9 `--` 가드·N10 값 없는 trailing 플래그 exit 3)과 예산 절단이
-// [flint] 경계 헤더를 잘라내지 않는 방어(ADR-0006).
+// brief_v0341_test.go — post-audit regressions: contract alignment with
+// read (the N9 `--` guard·the N10 valueless trailing flag exit 3) and
+// defense ensuring budget truncation never cuts away the [flint] boundary
+// header (ADR-0006).
 package knowledge
 
 import (
@@ -9,8 +10,9 @@ import (
 	"testing"
 )
 
-// TestBriefLimitContract — --limit 파싱은 read(N10 승계)와 동일 규칙:
-// 값 없는 trailing --limit·비정수 값은 exit 3 + 한 줄 JSON 에러.
+// TestBriefLimitContract — --limit parsing follows the same rule as read
+// (N9 inheritance): a valueless trailing --limit·a non-integer value is
+// exit 3 + a one-line JSON error.
 func TestBriefLimitContract(t *testing.T) {
 	cases := []struct {
 		name string
@@ -35,8 +37,9 @@ func TestBriefLimitContract(t *testing.T) {
 	}
 }
 
-// TestBriefDashDashGuard — N9 승계: "--" 이후 "--limit 5"는 플래그가
-// 아니라 질의 텍스트로 처리된다(exit 0·질의 인자에 원문 전달).
+// TestBriefDashDashGuard — N9 inheritance: after "--", "--limit 5" is
+// treated as query text, not a flag (exit 0·the original passed through
+// as the query argument).
 func TestBriefDashDashGuard(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(1, "요약")
@@ -63,13 +66,14 @@ func TestBriefDashDashGuard(t *testing.T) {
 	}
 }
 
-// TestBriefExcludesPending — active_knowledge 뷰는 invalid_at IS NULL만
-// 걸러 status 조건이 없어 pending 행을 포함한다(views.sql). 브리프는
-// 승격된(active) 지식만 내보낸다(ADR-0015 결정4·spec §1.1 — 미검수
-// 지식 비출 금지). 뷰 경로로 조회하면 이 테스트의 fake가 pending 행을
-// 돌려 결함을 재현한다. invalidated는 status='active' 조건과
-// invalid_at IS NULL 이중으로 차단된다(무효화 경로
-// 3곳 모두 status와 invalid_at을 함께 설정).
+// TestBriefExcludesPending — the active_knowledge view filters only
+// invalid_at IS NULL and carries no status condition, so it includes
+// pending rows (views.sql). The brief exports only promoted (active)
+// knowledge (ADR-0015 decision 4·spec §1.1 — unreviewed knowledge must
+// not be exported). Querying via the view makes this test's fake return
+// the pending row and reproduce the defect. invalidated is doubly blocked
+// by status='active' + invalid_at IS NULL (all three invalidation paths
+// set status and invalid_at together).
 func TestBriefExcludesPending(t *testing.T) {
 	ctx := context.Background()
 	leakRows := []struct {
@@ -86,11 +90,11 @@ func TestBriefExcludesPending(t *testing.T) {
 			st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 				switch {
 				case strings.Contains(sql, "FROM active_knowledge"):
-					// 뷰는 status 미필터 — pending 행을 노출하는 결함 경로
+					// The view applies no status filter — the defective path exposing the pending row
 					return [][]any{row}, nil
 				case strings.Contains(sql, "FROM knowledge"):
 					activeSQL = append(activeSQL, sql)
-					return nil, nil // status='active' 경로는 해당 행 미포함
+					return nil, nil // the status='active' path excludes the row
 				}
 				return nil, nil
 			}}
@@ -109,7 +113,7 @@ func TestBriefExcludesPending(t *testing.T) {
 			}
 		})
 	}
-	// 대조: active 행은 노출된다(과도 차단 아님).
+	// Contrast: an active row is exposed (no over-blocking).
 	t.Run("active 노출", func(t *testing.T) {
 		row := []any{int32(2), "승격 토픽", "active 요약", "demo:tag", "엔티티", "도메인", 0.9, "active", int32(0)}
 		st := &fakeStore{queryFn: briefQueryFn([][]any{row})}
@@ -123,9 +127,10 @@ func TestBriefExcludesPending(t *testing.T) {
 	})
 }
 
-// TestBriefRecordsBytes — brief 출력 직후
-// len(최종 출력)을 kind="brief"로 기록 — ClampHot 절단 '후' 길이(기기 밖
-// 유출량 실측), 0건 안내 경로도 쓴 총량을 기록한다(분모 정합).
+// TestBriefRecordsBytes — right after the brief output, records
+// len(final output) with kind="brief" — the length 'after' ClampHot
+// truncation (the measured off-device egress); the zero-match notice
+// path also records the total written (denominator consistency).
 func TestBriefRecordsBytes(t *testing.T) {
 	ctx := context.Background()
 	t.Run("히트 — ClampHot 후 길이", func(t *testing.T) {
@@ -134,7 +139,7 @@ func TestBriefRecordsBytes(t *testing.T) {
 			case strings.Contains(sql, "FROM knowledge"):
 				return briefRows(2, strings.Repeat("긴", 60)), nil
 			case strings.Contains(sql, "FROM meta"):
-				return [][]any{{"60"}}, nil // brief_budget=60 — 절단 강제
+				return [][]any{{"60"}}, nil // brief_budget=60 — forces truncation
 			}
 			return nil, nil
 		}}}
@@ -151,7 +156,7 @@ func TestBriefRecordsBytes(t *testing.T) {
 	})
 	t.Run("0건 안내 — 쓴 총량", func(t *testing.T) {
 		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			return nil, nil // 일치 지식 없음
+			return nil, nil // no matching knowledge
 		}}}
 		var out strings.Builder
 		if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
@@ -166,10 +171,11 @@ func TestBriefRecordsBytes(t *testing.T) {
 	})
 }
 
-// TestBriefHeaderSurvivesTinyBudget — meta brief_budget이 헤더 길이보다
-// 작아도 [flint] 경계 마커 줄은 절단하지 않는다(본문이 전부 절단되므로
-// 데이터는 늘지 않는다 — 마커가 잘리면 수신 AI가 블록을 지시로 취급할
-// 수 있다, ADR-0006).
+// TestBriefHeaderSurvivesTinyBudget — even when meta brief_budget is
+// smaller than the header length, the [flint] boundary marker line is
+// never truncated (the body is cut entirely, so no data grows — if the
+// marker were cut, the receiving AI could treat the block as
+// instructions, ADR-0006).
 func TestBriefHeaderSurvivesTinyBudget(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(2, strings.Repeat("긴", 60))
@@ -178,7 +184,7 @@ func TestBriefHeaderSurvivesTinyBudget(t *testing.T) {
 		case strings.Contains(sql, "FROM knowledge"):
 			return rows, nil
 		case strings.Contains(sql, "FROM meta"):
-			return [][]any{{"5"}}, nil // brief_budget=5 (헤더보다 작은 역설정)
+			return [][]any{{"5"}}, nil // brief_budget=5 (a paradoxical setting below the header)
 		}
 		return nil, nil
 	}}

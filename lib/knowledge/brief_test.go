@@ -1,6 +1,7 @@
-// brief_test.go — brief 선정 순위에 감쇠 후 유효 회상 점수
-// 반영. hot과 동일 계약 — effective DESC 안정 정렬(동점·0점은 기존
-// RankOrder 순서 승계), 마스킹·중립화·바이트 상한 불변.
+// brief_test.go — reflecting the decay-adjusted effective recall score
+// in brief selection ranking. The same contract as hot — effective DESC
+// stable sort (ties·zero scores inherit the existing RankOrder),
+// masking·neutralization·byte cap unchanged.
 package knowledge
 
 import (
@@ -13,8 +14,9 @@ import (
 	"github.com/synuns/flint/lib/query"
 )
 
-// briefRankedStore — BuildReadStatus(랭킹 열 병합형) 질의에 rows를
-// 반환하는 fake(meta는 미설정 — 기본 감쇠 계수 1·기본 예산 3,000).
+// briefRankedStore — a fake returning rows for the BuildReadStatus (the
+// ranking-column-merged form) query (meta unset — default decay
+// coefficient 1·default budget 3,000).
 func briefRankedStore(rows [][]any) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge") {
@@ -24,12 +26,13 @@ func briefRankedStore(rows [][]any) *fakeStore {
 	}}
 }
 
-// TestBriefRanksByEffectiveScore — 브리프 본문 행 순서가 감쇠 후 유효 점수 내림.
+// TestBriefRanksByEffectiveScore — the brief body row order is the
+// decay-adjusted effective score, descending.
 func TestBriefRanksByEffectiveScore(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
 	rows := [][]any{
-		// readColumns 9열 + recall_score·last_recalled_at
+		// readColumns 9 columns + recall_score·last_recalled_at
 		{id(5), "저점", "요약5", ":a:", nil, "main", 0.9, "active", int32(1), int32(2), nil},
 		{id(3), "고점미회상", "요약3", ":b:", nil, "main", 0.9, "active", int32(1), int32(8), nil},
 		{id(7), "고점감쇠", "요약7", ":c:", nil, "main", 0.9, "active", int32(1), int32(10), now.Add(-10 * 24 * time.Hour)}, // 10-10=0
@@ -41,14 +44,16 @@ func TestBriefRanksByEffectiveScore(t *testing.T) {
 	wantOrder := []string{"고점미회상", "저점", "고점감쇠"} // 8 > 2 > 0
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	for i, want := range wantOrder {
-		if i+1 >= len(lines) || !strings.Contains(lines[i+1], want) { // +1: 헤더 줄 제외
+		if i+1 >= len(lines) || !strings.Contains(lines[i+1], want) { // +1: skip the header line
 			t.Errorf("본문 행 %d = %v, want %q 포함(유효 점수 내림 8·2·0)", i, lines, want)
 		}
 	}
 }
 
-// TestBriefZeroScoresKeepExistingOrder — 랭킹 열 부재(9열)·전원 0점은 안정 정렬이 기존 순서를
-// 승계하고 출력은 헤더+FormatRows 기본 포맷과 바이트 동일.
+// TestBriefZeroScoresKeepExistingOrder — missing ranking columns (9
+// columns)·an all-zero score set: the stable sort inherits the existing
+// order and the output is byte-identical to the header+the FormatRows
+// base format.
 func TestBriefZeroScoresKeepExistingOrder(t *testing.T) {
 	ctx := context.Background()
 	base := [][]any{
@@ -79,10 +84,11 @@ func TestBriefZeroScoresKeepExistingOrder(t *testing.T) {
 	}
 }
 
-// TestBriefUnrecalledKeepsScore — cnt 셀은 있으나 last_at NULL(fake
-// 형태 — 실DB 파생 집계에서는 cnt>0이면 last_at도 항상 존재)은 감쇠
-// 불이익 없이 cnt 그대로(EventEffectiveScore T1 계약의 가드 분기).
-// 실DB 미회상(이벤트 0건)은 cnt NULL → 0점이다(hot 시맨틱과 동일).
+// TestBriefUnrecalledKeepsScore — a cnt cell present but last_at NULL (a
+// fake shape — in the real-DB derived aggregate, cnt>0 always comes with
+// last_at) keeps cnt as-is with no decay penalty (the guard branch of
+// the EventEffectiveScore T1 contract). A real-DB never-recalled row
+// (0 events) has cnt NULL → zero score (the same semantics as hot).
 func TestBriefUnrecalledKeepsScore(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()
@@ -101,10 +107,11 @@ func TestBriefUnrecalledKeepsScore(t *testing.T) {
 	}
 }
 
-// TestBriefRankedSQLShape — BuildReadStatus 조립 SQL 치환 계약: SELECT
-// 말미에 recall_events 파생 집계 조인(re.cnt·re.last_at) 병합,
-// WHERE·ORDER BY·LIMIT·placeholder 번호는 원본 승계(v1.9.0 T4 — v11
-// 직접 열 폐지). 치환점 미발견 형태는 원본 반환.
+// TestBriefRankedSQLShape — the BuildReadStatus assembled-SQL
+// substitution contract: the recall_events derived aggregate join
+// (re.cnt·re.last_at) merges at the SELECT tail; WHERE·ORDER BY·LIMIT·
+// placeholder numbering inherit the original (v1.9.0 T4 — the v11 direct
+// columns dropped). A shape without the pivot returns the original.
 func TestBriefRankedSQLShape(t *testing.T) {
 	f := query.Filters{Status: "active", Limit: 5}
 	base, args := query.BuildReadStatus("q", f)
@@ -119,7 +126,7 @@ func TestBriefRankedSQLShape(t *testing.T) {
 			t.Errorf("ranked SQL에 %q 누락: %s", frag, got)
 		}
 	}
-	// v11 직접 열 참조 잔존 방어.
+	// Defense against residual v11 direct-column references.
 	if strings.Contains(got, "recall_score") || strings.Contains(got, "last_recalled_at") {
 		t.Errorf("v11 직접 열 참조 잔존: %s", got)
 	}
@@ -129,7 +136,7 @@ func TestBriefRankedSQLShape(t *testing.T) {
 	if strings.Count(got, "$") != strings.Count(base, "$") {
 		t.Errorf("placeholder 수 변화 = %q (원본 %q)", got, base)
 	}
-	if len(args) != 4 { // status·q·랭킹 정합값·limit — 치환은 인자 불변
+	if len(args) != 4 { // status·q·the rank-match value·limit — the substitution leaves args unchanged
 		t.Errorf("args = %v, want 4개(치환은 인자 불변)", args)
 	}
 	if got := briefRankedSQL("SELECT x FROM other"); got != "SELECT x FROM other" {
@@ -137,5 +144,5 @@ func TestBriefRankedSQLShape(t *testing.T) {
 	}
 }
 
-// id — fixture 헬퍼(fake 셀 int32 관례).
+// id — a fixture helper (the fake-cell int32 convention).
 func id(n int) any { return int32(n) }

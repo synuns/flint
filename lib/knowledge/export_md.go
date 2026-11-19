@@ -1,6 +1,7 @@
-// export_md.go — flint export --format md 포맷터.
-// 파일 헤더(`# flint export`·생성일 UTC·항목 수) + 항목별 섹션
-// (`## #<id> <topic>` + 메타 라인 + content 원문). 노트앱 이식 전제.
+// export_md.go — the flint export --format md formatter.
+// File header (`# flint export`, created-at UTC, item count) + a section per
+// item (`## #<id> <topic>` + meta line + content verbatim). Designed for
+// note-app portability.
 package knowledge
 
 import (
@@ -10,10 +11,11 @@ import (
 	"time"
 )
 
-// FormatMD — rows를 Markdown으로 직렬화한다. 순수 함수: 원천 조회(T2)·
-// 파일 기록(T7)과 무관. content는 개행 포함 원문 그대로, topic의 헤딩
-// 충돌 문자(# 등)도 그대로 출력(섹션 헤딩은 `## ` 고정).
-// superseded_by는 nil(또는 미설정)일 때 조각 자체를 생략한다.
+// FormatMD — serializes rows into Markdown. Pure function: independent of
+// source queries (T2) and file writing (T7). Content is emitted verbatim
+// including newlines; heading-collision characters in topics (# etc.) are
+// printed as-is (section headings are the fixed `## ` prefix).
+// superseded_by omits the fragment entirely when nil (or unset).
 func FormatMD(rows []ExportRow) []byte {
 	var b bytes.Buffer
 	b.WriteString("# flint export\n\n")

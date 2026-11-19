@@ -1,7 +1,8 @@
-// compact_stdin_limit_test.go — compact stdin 상한 8MiB 회귀.
-// 상한 초과 입력은 정상 JSON이라도 파싱 전에 조용히 무동작 exit 0(§13
-// 비간섭 — 무상한 io.ReadAll 폐지). 경계 하한(정확히 8MiB)은 기존대로
-// 정상 처리 — LimitReader(max+1) 오프바이원 방향 고정.
+// compact_stdin_limit_test.go — the compact stdin 8MiB cap regression.
+// Over-cap input is a quiet no-op exit 0 before parsing, even if it is
+// valid JSON (§13 non-interference — abolishing unbounded io.ReadAll).
+// The boundary lower edge (exactly 8MiB) is processed normally as before
+// — pinning the off-by-one direction of LimitReader(max+1).
 package knowledge
 
 import (
@@ -11,8 +12,9 @@ import (
 	"testing"
 )
 
-// overLimitHookJSON — compact_summary가 유효한 채로 전체 직렬화가
-// 8MiB를 초과하는 훅 JSON(초과분이 파싱 가능해야 무상한 구현과 구별됨).
+// overLimitHookJSON — a hook JSON whose compact_summary is valid while
+// the whole serialization exceeds 8MiB (the excess must be parseable to
+// distinguish this from an unbounded implementation).
 func overLimitHookJSON(t *testing.T) string {
 	t.Helper()
 	b, err := json.Marshal(map[string]any{
@@ -29,9 +31,10 @@ func overLimitHookJSON(t *testing.T) string {
 	return string(b)
 }
 
-// TestCompactStdinOverLimitSilentNoOp — 초과 입력은 exit 0·stdout 무출력·
-// 적립 0건. 무상한 io.ReadAll 구현에서는 이 JSON이 파싱돼 session 행이
-// 적립되므로 inserted 0 단언이 회귀를 잡는다.
+// TestCompactStdinOverLimitSilentNoOp — over-cap input: exit 0·empty
+// stdout·0 accruals. Under an unbounded io.ReadAll implementation this
+// JSON would be parsed and a session row accrued, so the inserted 0
+// assertion catches the regression.
 func TestCompactStdinOverLimitSilentNoOp(t *testing.T) {
 	f := &fakeStore{}
 	var out strings.Builder
@@ -48,8 +51,9 @@ func TestCompactStdinOverLimitSilentNoOp(t *testing.T) {
 	}
 }
 
-// TestCompactStdinAtLimitStillParsed — 정확히 상한 크기 JSON은 거부가
-// 아니라 기존 파이프라인 진행(경계 하강 방향 불변).
+// TestCompactStdinAtLimitStillParsed — a JSON of exactly the cap size
+// proceeds down the existing pipeline, not rejected (the boundary
+// lower-edge direction stays invariant).
 func TestCompactStdinAtLimitStillParsed(t *testing.T) {
 	head := `{"hook_event_name":"PostCompact","session_id":"","compact_summary":"본문`
 	tail := `"}`

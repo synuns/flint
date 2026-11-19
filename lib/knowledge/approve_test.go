@@ -1,4 +1,5 @@
-// approve_test.go — approve 커맨드 계약(exit 매핑·주입 st 재배선).
+// approve_test.go — the approve command contract (exit mapping·injected
+// st rewiring).
 package knowledge
 
 import (
@@ -16,8 +17,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// seamRealDSN — SUPERLITE_REAL=1 실구현 seam의 DSN 해결(cli/cli_test.go
-// 관례 이동분, N1): FLINT_TEST_DSN 설정 시만 실DB 접속을 허용한다.
+// seamRealDSN — the DSN resolution of the SUPERLITE_REAL=1 real
+// implementation seam (moved from the cli/cli_test.go convention, N1):
+// real-DB connections are allowed only when FLINT_TEST_DSN is set.
 func seamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -29,17 +31,18 @@ func seamRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// fakeApprove — admin Approve fake. errErr 미지정 시 성공,
-// SUPERLITE_REAL=1이면 실 Repo에 위임(실DB 미기동 시 스킵).
-// (fake 동질 가드): knowledge capability 인터페이스 전부의
-// 패리티 fake를 겸한다 — 미구현 메서드는 아래 canned 구현(호출 기록
-// 슬라이스·선택적 capErr 주입), 단언은 fake_parity_test.go가 든다.
+// fakeApprove — the admin Approve fake. Success when err is unset; with
+// SUPERLITE_REAL=1 it delegates to the real Repo (skipped when the real
+// DB is down). (fake-equivalence guard): also serves as the parity fake
+// for all the knowledge capability interfaces — unimplemented methods
+// get the canned implementations below (call-recording slices·optional
+// capErr injection); fake_parity_test.go carries the assertions.
 type fakeApprove struct {
 	err     error
 	gotID   int
 	calledN int
 
-	// canned 공통 오류(미지정 시 영 동작 — 성공·0행·부재).
+	// canned common errors (a no-op when unset — success·0 rows·absence).
 	capErr         error
 	approveIDs     []int // Approve
 	superseded     []supersedeCall
@@ -47,44 +50,45 @@ type fakeApprove struct {
 	readEvents     []db.ReadEvent // RecordReadEvent
 	hotEvents      []string       // RecordHotEvent
 	recordedUses   []countCall    // RecordUsage
-	dupIDQueries   []string       // DupIDByHash 질의 해시
-	dupRowQueries  []string       // DupRowByHash 질의 해시
+	dupIDQueries   []string       // DupIDByHash query hashes
+	dupRowQueries  []string       // DupRowByHash query hashes
 	countedUses    []countCall    // RecordUsageCount
 	staleAgents    []string       // StaleSessionRuns
 	playbookUses   []playbookUse  // LogPlaybookUse
 	sessionUpdates []sessionUpdate
-	recordedBytes  []bytesCall       // RecordBytes(G5 바이트 계측)
-	kreads         []kreadsCallV     // RecordKnowledgeReads(회상 이력)
-	telemetryCmds  []string          // CommitTelemetry(계측 분리 커밋)
-	replayedRecall []db.RecallReplay // ReplayRecallEvents(R42-A 스코어 이관 재생)
+	recordedBytes  []bytesCall       // RecordBytes (G5 byte metering)
+	kreads         []kreadsCallV     // RecordKnowledgeReads (recall history)
+	telemetryCmds  []string          // CommitTelemetry (the separated metering commit)
+	replayedRecall []db.RecallReplay // ReplayRecallEvents (R42-A score-transfer replay)
 }
 
-// kreadsCallV — RecordKnowledgeReads canned 호출 기록(kreadsCall과 동일
-// 모양 — fake 소유 로컬 정의).
+// kreadsCallV — a canned RecordKnowledgeReads call record (the same shape
+// as kreadsCall — a fake-owned local definition).
 type kreadsCallV struct {
 	ids     []int
 	session string
 	kind    string
 }
 
-// supersedeCall — Supersede canned 호출 기록.
+// supersedeCall — a canned Supersede call record.
 type supersedeCall struct{ oldID, newID int }
 
-// playbookUse — LogPlaybookUse canned 호출 기록.
+// playbookUse — a canned LogPlaybookUse call record.
 type playbookUse struct {
 	id int
 	ok bool
 }
 
-// sessionUpdate — UpdateSessionSummary canned 호출 기록.
+// sessionUpdate — a canned UpdateSessionSummary call record.
 type sessionUpdate struct {
 	id             int
 	summary, tasks string
 }
 
-// 패리티 canned 구현 — 전부 기록 후 capErr(미지정 nil) 반환, 값 반환은
-// 영 동작(rows 0·exists false·runs 0). 폴백이 아닌 capability 경로가
-// 컴파일 시점에 보장된다(스펙 §1).
+// Parity canned implementations — all record the call then return capErr
+// (nil when unset); value returns are no-ops (rows 0·exists false·runs
+// 0). The capability path — not a fallback — is guaranteed at compile
+// time (spec §1).
 func (f *fakeApprove) Approve(ctx context.Context, id int) error {
 	f.approveIDs = append(f.approveIDs, id)
 	return f.capErr
@@ -95,8 +99,9 @@ func (f *fakeApprove) Supersede(ctx context.Context, oldID, newID int, at time.T
 	return 0, f.capErr
 }
 
-// SetSupersededRef — 계보 참조 복원 canned 구현(패리티 —
-// superseded 슬라이스 재사용, 호출 기록).
+// SetSupersededRef — a canned lineage-reference-restoration
+// implementation (parity — reuses the superseded slice, records the
+// call).
 func (f *fakeApprove) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error) {
 	f.superseded = append(f.superseded, supersedeCall{oldID, newID})
 	return 1, f.capErr
@@ -107,13 +112,14 @@ func (f *fakeApprove) BumpReads(ctx context.Context, ids []int) error {
 	return f.capErr
 }
 
-// BumpRecallScores — 패리티 canned(RecallBumper 단언 대응).
+// BumpRecallScores — a parity canned (for the RecallBumper assertions).
 func (f *fakeApprove) BumpRecallScores(ctx context.Context, ids []int) error {
 	return f.capErr
 }
 
-// ReplayRecallEvents — 패리티 canned(recallReplayStore 단언 대응 — R42-A
-// 이식 스코어 재생. 호출 기록을 남겨 왕복 유닛 검증이 재생 계약을 소비).
+// ReplayRecallEvents — a parity canned (for the recallReplayStore
+// assertions — the R42-A migration score replay. Leaves a call record so
+// the round-trip unit tests can consume the replay contract).
 func (f *fakeApprove) ReplayRecallEvents(ctx context.Context, items []db.RecallReplay) error {
 	f.replayedRecall = append(f.replayedRecall, items...)
 	return f.capErr
@@ -179,9 +185,11 @@ func (f *fakeApprove) CommitTelemetry(ctx context.Context, cmd string) error {
 	return f.capErr
 }
 
-// withApproveFake — ApproveFn seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +
-// SUPERLITE_REAL=1이면 stub 미설정 시 실구현 위임(위임 DSN도 FLINT_TEST_DSN).
-// FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(seamRealDSN).
+// withApproveFake — swaps the ApproveFn seam. Base fake; with
+// FLINT_TEST_DSN set + SUPERLITE_REAL=1, delegates unset stubs to the
+// real implementation (the delegation DSN is also FLINT_TEST_DSN).
+// Without FLINT_TEST_DSN, no real-implementation fallback
+// (seamRealDSN).
 func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Helper()
 	prev := ApproveFn
@@ -212,7 +220,8 @@ func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Cleanup(func() { ApproveFn = prev })
 }
 
-// mustApprove — wire.Lookup("approve") 경로 실행(등록·디스패치 동시 검증).
+// mustApprove — runs via the wire.Lookup("approve") path (verifying
+// registration·dispatch together).
 func mustApprove(t *testing.T, args []string) (string, int) {
 	t.Helper()
 	h, ok := wire.Lookup("approve")
@@ -224,11 +233,13 @@ func mustApprove(t *testing.T, args []string) (string, int) {
 	return out.String(), code
 }
 
-// TestApproveOK — 성공 시 {"status":"approved","id":N} exit 0(exit 매핑).
-// 실DB 경로(SUPERLITE_REAL=1)는 자가 시딩 — 합성 데모 pending 행 1건(고유
-// content_hash)을 InsertBatch로 적립해 그 반환 id로 승격을 단언한다.
-// 공유 DB의 타 테스트 시딩(id=7) 암묵 의존으로 상태에 따라 not_found가
-// 나던 결함 방어. 시딩 행은 종료 시 삭제(공유 DB 오염 방지).
+// TestApproveOK — on success {"status":"approved","id":N} exit 0 (exit
+// mapping). The real-DB path (SUPERLITE_REAL=1) self-seeds — accrues one
+// synthetic demo pending row (a unique content_hash) via InsertBatch and
+// asserts the promotion with the returned id. Defense against the defect
+// where, depending on state, not_found occurred due to the implicit
+// dependence on other tests' seeding (id=7) on the shared DB. The seeded
+// row is deleted at the end (preventing shared-DB pollution).
 func TestApproveOK(t *testing.T) {
 	f := &fakeApprove{}
 	withApproveFake(t, f)
@@ -273,7 +284,7 @@ func TestApproveOK(t *testing.T) {
 	}
 }
 
-// TestApproveMissing — ErrNotFound → 한 줄 JSON 에러 exit 1.
+// TestApproveMissing — ErrNotFound → a one-line JSON error, exit 1.
 func TestApproveMissing(t *testing.T) {
 	withApproveFake(t, &fakeApprove{err: db.ErrNotFound})
 	out, code := mustApprove(t, []string{"--id", "999"})
@@ -289,9 +300,10 @@ func TestApproveMissing(t *testing.T) {
 	}
 }
 
-// TestApproveUsage — --id 누락·비정수·알 수 없는 플래그 → exit 1.
-// 인자 검증 경로는 무효 인자 exit 3(unknown flag·값 누락·
-// 무효 id·--id 부재 — mcp dispatchApprove와 정합).
+// TestApproveUsage — missing --id·non-integer·unknown flag → exit 1.
+// The argument-validation paths get the invalid-arg exit 3 (unknown
+// flag·missing value·invalid id·missing --id — aligned with mcp
+// dispatchApprove).
 func TestApproveUsage(t *testing.T) {
 	cases := []struct {
 		name string
@@ -309,8 +321,9 @@ func TestApproveUsage(t *testing.T) {
 			if code != 3 {
 				t.Fatalf("exit = %d, want 3 (out: %s)", code, out)
 			}
-			// 인자 검증(usage) 오류는 error:"usage"(기존 internal
-			// 에서 값만 교체 — 구조 불변).
+			// An argument-validation (usage) error carries error:"usage"
+			// (only the value replaced from the previous internal —
+			// structure unchanged).
 			if !strings.Contains(out, `"error":"usage"`) {
 				t.Errorf("out = %q, want error:usage", out)
 			}
@@ -318,9 +331,9 @@ func TestApproveUsage(t *testing.T) {
 	}
 }
 
-// TestApproveUsageHint — 인자 검증 오류 message에
-// 사용법 안내 `--id N [--supersede OLD]` 포함 — 오타 플래그를 안내로
-// 바로잡을 수 있다.
+// TestApproveUsageHint — the argument-validation error message includes
+// the usage hint `--id N [--supersede OLD]` — a mistyped flag can be
+// corrected from the guidance.
 func TestApproveUsageHint(t *testing.T) {
 	withApproveFake(t, &fakeApprove{})
 	out, code := mustApprove(t, []string{"--wat", "1"})
@@ -335,7 +348,8 @@ func TestApproveUsageHint(t *testing.T) {
 	}
 }
 
-// TestApproveOtherError — 일반 에러는 errLine 위임·MapExit exit 1.
+// TestApproveOtherError — ordinary errors delegate to errLine·MapExit
+// exit 1.
 func TestApproveOtherError(t *testing.T) {
 	withApproveFake(t, &fakeApprove{err: errors.New("boom")})
 	out, code := mustApprove(t, []string{"--id", "3"})
@@ -347,9 +361,10 @@ func TestApproveOtherError(t *testing.T) {
 	}
 }
 
-// approveStoreFake — fakeStore에 Approve 승격 스텁을 얹은 fake.
-// 승격 행위(실DB UPDATE)는 ApproveFn real seam이 담당 — 여기는
-// 배선(주입 st 사용·자체 연결 미발동)만 계약으로 삼는다.
+// approveStoreFake — a fakeStore with the Approve promotion stub layered
+// on. The promotion action (the real-DB UPDATE) belongs to the ApproveFn
+// real seam — only the wiring (uses the injected st·never opens its own
+// connection) is the contract here.
 type approveStoreFake struct {
 	*fakeStore
 
@@ -364,19 +379,23 @@ func (a *approveStoreFake) Approve(ctx context.Context, id int) error {
 	return a.approveErr
 }
 
-// errSelfConnectDisabled — sentinel 전용 에러(재배선 후 도달 불가 경로).
+// errSelfConnectDisabled — a sentinel-only error (a path unreachable
+// after the rewiring).
 var errSelfConnectDisabled = &selfConnectError{}
 
 type selfConnectError struct{}
 
 func (*selfConnectError) Error() string { return "self-connect path must not run" }
 
-// TestApproveUsesInjectedStore — fake st 주입 시 자체 연결
-// 경로(ApproveFn 기본 실구현의 db.NewRepo) 미호출·승격은 주입 st 경유.
+// TestApproveUsesInjectedStore — with a fake st injected, the
+// self-connection path (db.NewRepo of the ApproveFn default real
+// implementation) is never called·the promotion goes through the injected
+// st.
 func TestApproveUsesInjectedStore(t *testing.T) {
 	f := &approveStoreFake{fakeStore: &fakeStore{}}
-	// sentinel — 재배선 전 RunApprove는 st를 무시하고 이 seam을 부르므로
-	// 호출 자체가 실패 신호다(기본 실구현 대신 호출 카운터로 안전하게).
+	// sentinel — before the rewiring, RunApprove ignored st and called
+	// this seam, so the call itself is a failure signal (safely via a
+	// call counter instead of the default real implementation).
 	prev := ApproveFn
 	selfConn := 0
 	ApproveFn = func(ctx context.Context, id int) error {

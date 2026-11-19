@@ -1,8 +1,8 @@
-// write.go — flint write <kind>: 5단계 파이프라인(검증→dedup→판정→커밋→출력).
-// 유입 계측(RecordUsage)·
-// 판정 임계값 로더(WriteThresholds)·살균(SanitizePayload)은 knowledge
-// 공용 표면 — read·hot·done과 cli 잔류 소비자는
-// cli/knowledge_alias.go 별칭으로 승계한다.
+// write.go — flint write <kind>: a five-stage pipeline (validate→dedup→
+// classify→commit→output). Intake metering (RecordUsage)·decision threshold
+// loader (WriteThresholds)·sanitization (SanitizePayload) are the knowledge
+// shared surfaces — read·hot·done and residual cli consumers inherit them
+// via the cli/knowledge_alias.go aliases.
 package knowledge
 
 import (
@@ -19,26 +19,30 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// kindColumns — kind별 저장 가능 컬럼(spec §6). payload의 비컬럼 키(예:
-// session의 tasks)는 메타데이터라 버린다. project의 note는 컬럼이다(F5).
+// kindColumns — the storable columns per kind (spec §6). Non-column keys of
+// the payload (e.g. session's tasks) are metadata and dropped. project's
+// note is a column (F5).
 var kindColumns = map[string]map[string]bool{
 	"knowledge": {"topic": true, "summary": true, "tags": true, "entity": true,
 		"domain": true, "confidence": true, "origin": true, "status": true,
 		"content_hash": true, "session_id": true, "valid_at": true},
 	"session": {"ts": true, "agent": true, "summary": true},
-	// note는 SchemaV2 컬럼(projects.note)이라 메타데이터
-	// 취급 버림 폐지 — 저장 컬럼으로 등록.
+	// note is a SchemaV2 column (projects.note), so the drop-as-metadata
+	// treatment is abolished — registered as a storage column.
 	"project": {"name": true, "status": true, "updated": true, "note": true},
 }
 
-// ErrInvalidSource — --source 무효값(exit 3). 유입 계측 소스는 3종뿐이다.
+// ErrInvalidSource — an invalid --source value (exit 3). There are only
+// three intake metering sources.
 var ErrInvalidSource = errors.New("write: invalid --source (hook|manual|mcp)")
 
-// validSources — 계측 소스 허용값(spec §1: 훅 hook · 사람/기본 manual · MCP mcp).
+// validSources — the allowed metering sources (spec §1: hook via hook ·
+// human/default manual · MCP mcp).
 var validSources = map[string]bool{"hook": true, "manual": true, "mcp": true}
 
-// ParseSourceFlag — args에서 --source 값을 파싱한다(플랜 T61). 미지정은
-// "manual", 무효값·값 부재는 ErrInvalidSource(CLI는 exit 3).
+// ParseSourceFlag — parses the --source value from args (plan T61). Unset
+// is "manual"; invalid values·a missing value are ErrInvalidSource (the CLI
+// exits 3).
 func ParseSourceFlag(args []string) (string, error) {
 	for i := 0; i < len(args); i++ {
 		if args[i] != "--source" {
@@ -56,39 +60,43 @@ func ParseSourceFlag(args []string) (string, error) {
 	return "manual", nil
 }
 
-// UsageStore — 유입 계측(RecordUsage, T60)이 가능한 저장소(maintain의
-// MaintStore와 같은 단언 패턴). 미구현 Store는 RecordUsage가 no-op로 건너뛴다.
+// UsageStore — a store capable of intake metering (RecordUsage, T60) (the
+// same assertion pattern as maintain's MaintStore). A non-implementing
+// Store has RecordUsage skipped as a no-op.
 type UsageStore interface {
 	RecordUsage(ctx context.Context, kind, source string) error
 }
 
-// DupIDStore — duplicate 줄의 기존 행 id를 제공하는 확장(R3). realStore는
-// db.Repo.DupIDByHash로 구현하고(cli/realstore_write.go), 미구현 Store(레거시
-// fake)는 ExistsHash 폴백(id 0 — 맨몸 duplicate 출력, 하위호환).
+// DupIDStore — the extension supplying the existing row id for duplicate
+// lines (R3). realStore implements it via db.Repo.DupIDByHash
+// (cli/realstore_write.go); a non-implementing Store (legacy fake) falls
+// back to ExistsHash (id 0 — a bare duplicate output, backward-compatible).
 type DupIDStore interface {
 	DupIDByHash(ctx context.Context, hash string) (int, bool, error)
 }
 
-// DupMeta — duplicate 줄의 기존 행 메타(v0.18.0 R1). 재전송 라이터에게
-// topic·state를 돌려줘 재기록 대신 read(회상)·supersede(승계)·
-// approve(대기 승격) 전환을 유도한다 — 이미 존재함 피드백 루프.
+// DupMeta — the existing-row metadata for a duplicate line (v0.18.0 R1).
+// Returns topic·state to the resending writer to induce switching to read
+// (recall)·supersede (succession)·approve (pending promotion) instead of
+// rewriting — an already-exists feedback loop.
 type DupMeta struct {
 	ID    int
 	Topic string
 	State string
 }
 
-// DupMetaStore — DupIDStore의 메타 확장(v0.18.0 R1). realStore는
-// db.Repo.DupRowByHash로 구현(cli/realstore_write.go). 미구현 Store는
-// DupIDStore→ExistsHash 순서로 폴백(메타 없이 id만·또는 맨몸 duplicate —
-// 하위호환).
+// DupMetaStore — the metadata extension of DupIDStore (v0.18.0 R1).
+// realStore implements it via db.Repo.DupRowByHash (cli/realstore_write.go).
+// A non-implementing Store falls back DupIDStore→ExistsHash in that order
+// (id only without metadata·or a bare duplicate — backward-compatible).
 type DupMetaStore interface {
 	DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error)
 }
 
-// lookupHash — content_hash 중복 확인. DupMetaStore면 기존 행 메타까지
-// 함께 돌려준다(duplicate 응답 topic·state 노출, R1). DupIDStore는 id만,
-// 미구현 Store은 ExistsHash 폴백.
+// lookupHash — checks content_hash duplication. A DupMetaStore also returns
+// the existing row's metadata (duplicate-response topic·state exposure,
+// R1). A DupIDStore returns the id only; a non-implementing Store falls
+// back to ExistsHash.
 func lookupHash(ctx context.Context, st wire.Store, hash string) (DupMeta, bool, error) {
 	if ms, ok := st.(DupMetaStore); ok {
 		return ms.DupRowByHash(ctx, hash)
@@ -101,24 +109,27 @@ func lookupHash(ctx context.Context, st wire.Store, hash string) (DupMeta, bool,
 	return DupMeta{}, exists, err
 }
 
-// UsageCountStore — count회를 일괄 증분하는 유입 계측 확장. RecordDups가
-// dup N을 1회 호출로 기록한다(O(N) 읽기-쓰기 회피 — db.Repo.RecordUsageCount).
-// 미구현 Store(레거시 fake)는 RecordDups가 1회씩 N번 폴백.
+// UsageCountStore — the intake metering extension that increments counts in
+// bulk. RecordDups records dup N with one call (avoiding O(N)
+// read-writes — db.Repo.RecordUsageCount). A non-implementing Store
+// (legacy fake) has RecordDups fall back to N single calls.
 type UsageCountStore interface {
 	RecordUsageCount(ctx context.Context, kind, source string, count int) error
 }
 
-// RecordUsage — Store가 UsageStore면 유입 1회를 기록한다. 미구현 no-op,
-// 실패는 조용히(계측이 쓰기 결과·exit 코드를 깨지 않는다 — 플랜 T61).
+// RecordUsage — records one intake if the Store is a UsageStore. A
+// non-implementation is a no-op; failures are quiet (metering never breaks
+// the write result·exit code — plan T61).
 func RecordUsage(ctx context.Context, st wire.Store, kind, source string) {
 	if us, ok := st.(UsageStore); ok {
 		_ = us.RecordUsage(ctx, kind, source)
 	}
 }
 
-// WriteThresholds — wire.LoadThresholds 재사용(doneThresholds 관례 승계):
-// 판정 임계값은 쓰기 시점 meta 값. 읽기 실패 시 기본값 폴백(비간섭: 판정
-// 로드가 쓰기 결과·exit를 바꾸지 않는다).
+// WriteThresholds — reuses wire.LoadThresholds (inheriting the
+// doneThresholds convention): decision thresholds are the write-time meta
+// values. A read failure falls back to defaults (non-interference: decision
+// loading never changes the write result·exit).
 func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 	th, err := wire.LoadThresholds(ctx, st)
 	if err != nil {
@@ -127,27 +138,31 @@ func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 	return th
 }
 
-// RunWrite — stdin JSON/JSONL 다중을 처리한다. 커밋은 배치 1회, dedup은
-// duplicate 줄 skip·신규 줄 부분 커밋(전부 duplicate면 0건 커밋). 다중 줄
-// knowledge의 사전 중복 확인은 v1.6.0 T3부터 해시 배열 배치 조회 1회
-// (lookupHashBatch — 줄별 N왕복 폐지), 단발(1행 hook 패턴)은 줄별 조회
-// 계약 불변.
-// v1.5.5 T2 A5: --help/-h는 stdin 대기 전 usage 안내 exit 0.
+// RunWrite — processes multiple stdin JSON/JSONL entries. The commit is one
+// per batch; dedup skips duplicate lines·partially commits the new lines
+// (all-duplicate means a zero-row commit). Since v1.6.0 T3, the
+// pre-duplicate check for multi-line knowledge is one batched hash-array
+// query (lookupHashBatch — abolishing per-line N round trips); the
+// single-shot (1-row hook pattern) keeps the per-line query contract
+// unchanged.
+// v1.5.5 T2 A5: --help/-h prints the usage hint exit 0 before waiting on
+// stdin.
 func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// --help/-h 감지 시 usage 안내 exit 0 — stdin 대기 전
-	// 안내한다(write는 kind를 위치 인자로 받아 `--help`가 kind로 오인돼
-	// stdin 파이프를 물고 있던 문제 폐지).
+	// On --help/-h detection, print the usage hint exit 0 — before waiting
+	// on stdin (abolishing the issue where write takes kind as a positional
+	// argument, so `--help` was mistaken for the kind and hung on the stdin
+	// pipe).
 	for _, a := range args {
 		if a == "--help" || a == "-h" {
 			fmt.Fprintln(stdout, "usage: flint write <kind> [--source hook|manual|mcp] [--session ID] — kind: knowledge|session|project, payload: JSON/JSONL on stdin")
 			return 0
 		}
 	}
-	// write는 unknown 플래그
-	// 를 위치 인자로 흡수하는 관례(kind·positional 계열 — DashPositional)
-	// 라 사양이 그대로 반영한다. --source 값 검증은 ParseSourceFlag
-	// 단일 소스 승계(첫 발생 검증 계약), --help/-h 사전 스캔도 위 루프
-	// 그대로.
+	// write follows the convention of absorbing unknown flags into
+	// positional arguments (the kind·positional family — DashPositional),
+	// so the spec is reflected as-is. --source value validation inherits
+	// the ParseSourceFlag single source (first-occurrence validation
+	// contract); the --help/-h pre-scan also stays in the loop above.
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--session", Value: true},
@@ -179,20 +194,24 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "payload", Expect: "non-empty JSON/JSONL on stdin"}))
 		return 3
 	}
-	// stdin 행 수 상한(등록표 키 export_import_max_rows
-	// 재사용 — import 대칭). 파싱 직후·부작용 전에 차단해 대량 stdin 전량
-	// 적립의 메모리 방어를 이룬다(오류 JSON {max,count}·exit 3).
+	// The stdin row cap (reusing the registry key export_import_max_rows —
+	// import symmetry). Blocking right after parsing·before side effects
+	// provides the memory defense against accruing a huge stdin in full
+	// (error JSON {max,count}·exit 3).
 	if code := enforceWriteMaxRows(ctx, st, stdout, len(payloads)); code != 0 {
 		return code
 	}
 
-	// 검증 → 살균 → 정규화 → 해시 dedup(줄별 skip) → 판정. 검증 실패에서만 즉시
-	// 반환(exit 3). duplicate 줄은 배치 전체를 폐기하지 않고 skip — 부분 커밋.
-	// 판정 floor는 이번 쓰기가 읽은 meta conf_floor(값 전달 — 전역 주입 없음).
+	// Validate → sanitize → normalize → hash dedup (per-line skip) →
+	// classify. Only validation failure returns immediately (exit 3).
+	// Duplicate lines are skipped, not discarding the whole batch — partial
+	// commit. The classification floor is the meta conf_floor this write
+	// read (pass-by-value — no global injection).
 	th := WriteThresholds(ctx, st)
 	floor := th.ConfFloor
-	// 개인 어휘(vocab_tags·vocab_domains 콤마 목록) 합집합
-	// 주입 — repo가 아닌 운영 DB에 개인 어휘.
+	// Personal-vocabulary (vocab_tags·vocab_domains comma lists) union
+	// injection — personal vocabulary lives in the operational DB, not the
+	// repo.
 	if rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains')`, nil); err == nil {
 		var tags, domains []string
@@ -214,20 +233,24 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	var warnings []string
 	hash, state := "", "active"
 	dups := 0
-	dupID := 0     // 단일 줄 duplicate의 기존 행 id(R3) — 미지원 Store·다중 줄은 0 유지
-	dupTopic := "" // 기존 행 topic·state — 재전송 라이터 피드백
+	dupID := 0     // the existing row id for a single-line duplicate (R3) — stays 0 for unsupported Stores·multi-line
+	dupTopic := "" // the existing row's topic·state — resender feedback
 	dupState := ""
-	// 배치 내 동일 키 줄(knowledge content_hash·project name): InsertBatch 전체 실패 방지
+	// Same-key lines within a batch (knowledge content_hash·project name):
+	// prevents a whole InsertBatch failure
 	seen := map[string]bool{}
-	// knowledge 다중 줄의 사전 dedup 배치화 — 줄별
-	// lookupHash(N왕복 — 대형 배치에서 RTT N회가 지배) 대신 해시를 모아
-	// 루프 후 lookupHashBatch(content_hash = ANY($1) 청크, import
-	// 재사용) 1회 조회로 감지 동일성을 유지한다. 단발(len==1, hook 패턴)은
-	// 기존 줄별 조회 계약(DupMetaStore→DupIDStore→ExistsHash 폴백) 불변.
+	// Batched pre-dedup for multi-line knowledge — instead of per-line
+	// lookupHash (N round trips — RTT×N dominates large batches), hashes
+	// are collected and detected after the loop with one lookupHashBatch
+	// query (content_hash = ANY($1) chunks, reused from import), keeping
+	// detection identical. The single-shot (len==1, hook pattern) keeps the
+	// existing per-line query contract (DupMetaStore→DupIDStore→ExistsHash
+	// fallback) unchanged.
 	batched := len(payloads) > 1
-	var stagedN []map[string]any // 배치 조회 대기 knowledge 줄(순서 보존)
-	var stagedH []string         // stagedN 같은 인덱스의 content_hash
-	// finalizeRec — 판정 통과 줄 확정: kind 태깅·비컬럼 키 정리·recs 적립.
+	var stagedN []map[string]any // knowledge lines awaiting the batch query (order preserved)
+	var stagedH []string         // content_hash at the same index as stagedN
+	// finalizeRec — finalizes a line that passed classification: kind
+	// tagging·non-column key cleanup·recs accrual.
 	finalizeRec := func(n map[string]any) {
 		n["kind"] = kind
 		for k := range n {
@@ -239,9 +262,10 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		recs = append(recs, n)
 	}
 	for _, p := range payloads {
-		// 단일 payload 필드 바이트 상한 — Validate 단계
-		// 거부(exit 3). 대형 단일 필드가 살균·해시·적립 파이프라인과 저장
-		// 본문을 통째로 타고 들어오는 OOM 경로를 차단한다.
+		// The per-payload field byte cap — rejected at the Validate stage
+		// (exit 3). Blocks the OOM path where a huge single field rides
+		// through the sanitize·hash·accrual pipeline and the stored body
+		// wholesale.
 		if se := validateFieldBytes(p); se != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(se))
 			return 3
@@ -250,13 +274,16 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			fmt.Fprintln(stdout, wire.ErrLine(se))
 			return 3
 		}
-		// 살균(ADR-0006): 저장 전 제어 문자·[flint] 마커 중립화 + 비밀 스캔.
-		// 해시 계산 전 단계라 살균 결과가 곧 저장·해시 본문이 된다.
+		// Sanitization (ADR-0006): neutralize control characters·[flint]
+		// markers before storage + secret scanning. This stage precedes
+		// hash computation, so the sanitized result becomes the stored·
+		// hashed body.
 		warnings = append(warnings, SanitizePayload(p)...)
 		n := store.Normalize(kind, p)
 		if kind == "knowledge" {
-			// 어휘 검증: Normalize된 domain과 tags 기준 경고 병합 —
-			// 경고만(저장 차단 아님·exit 불변). 살균 경고 뒤 순서 유지.
+			// Vocabulary validation: merge warnings based on the Normalized
+			// domain and tags — warnings only (no storage block·exit
+			// unchanged). Order preserved after the sanitization warnings.
 			if raw, ok := p["tags"].([]any); ok {
 				tags := make([]string, 0, len(raw))
 				for _, tag := range raw {
@@ -267,16 +294,18 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				domain, _ := n["domain"].(string)
 				warnings = append(warnings, store.CheckVocabulary(tags, domain)...)
 			}
-			// 해시 입력은 휘발성 필드(valid_at 등) 제외 경로(HashCanonical)여야
-			// 동일 payload 재전송이 duplicate로 판정된다(시딩 멱등).
+			// The hash input must be the volatile-field-excluded path
+			// (HashCanonical — valid_at etc.) so resending the same payload
+			// is judged duplicate (seeding idempotence).
 			h := store.ContentHash(store.HashCanonical(n))
-			if seen[h] { // 같은 배치 내 중복 줄도 skip 대상
+			if seen[h] { // a duplicate line within the same batch is also skipped
 				dups++
 				continue
 			}
 			seen[h] = true
 			if batched {
-				// 다중 줄: 사전 조회를 루프 후 1회 배치로 지연 — 해시만 모은다.
+				// Multi-line: defer the pre-query to one batch after the
+				// loop — collect hashes only.
 				n["content_hash"] = h
 				stagedN = append(stagedN, n)
 				stagedH = append(stagedH, h)
@@ -288,9 +317,9 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return store.MapExit(err)
 			}
 			if exists {
-				dups++ // 줄별 dedup: 이 줄만 skip, 나머지 신규 줄은 커밋된다
+				dups++ // per-line dedup: only this line is skipped; the remaining new lines commit
 				if len(payloads) == 1 {
-					dupID = existsMeta.ID // 단일 줄 재전송: 기존 행 메타 노출(R3·R1)
+					dupID = existsMeta.ID // single-line resend: expose the existing row metadata (R3·R1)
 					dupTopic, dupState = existsMeta.Topic, existsMeta.State
 				}
 				continue
@@ -302,10 +331,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			hash = h
 		}
 		if kind == "project" {
-			// 자연키 name 줄별 dedup(knowledge content_hash와 동일 계약 —
-			// unique(name) 충돌을 배치 전에 skip해 시딩 멱등 확보).
+			// Per-line dedup on the natural key name (the same contract as
+			// knowledge content_hash — skipping unique(name) collisions
+			// before the batch secures seeding idempotence).
 			name, _ := n["name"].(string)
-			if seen["project:"+name] { // 같은 배치 내 동일 name 줄도 skip 대상
+			if seen["project:"+name] { // a same-name line within the same batch is also skipped
 				dups++
 				continue
 			}
@@ -316,7 +346,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return store.MapExit(err)
 			}
 			if exists {
-				dups++ // 줄별 dedup: 이 줄만 skip, 나머지 신규 줄은 커밋된다
+				dups++ // per-line dedup: only this line is skipped; the remaining new lines commit
 				continue
 			}
 		}
@@ -324,10 +354,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		finalizeRec(n)
 	}
 
-	// 다중 줄 knowledge 확정 — 모은 해시를 1회 배치 조회(ANY($1) 청크)해
-	// 기존 줄은 skip, 신규 줄만 판정·적립한다(줄 순서 보존 — 부분 커밋·
-	// 계측·경고 계약은 단발 경로와 동일). 조회 오류는 조용한 신규 판정
-	// 없이 전파(오류 계약 — MapExit 체인 보존).
+	// Multi-line knowledge finalize — one batch query over the collected
+	// hashes (ANY($1) chunks) skips existing lines; only new lines are
+	// classified·accrued (line order preserved — partial commit·metering·
+	// warning contracts identical to the single-shot path). A query error
+	// propagates without silent new-line classification (the error contract
+	// — MapExit chain preserved).
 	if len(stagedH) > 0 {
 		existing, err := lookupHashBatch(ctx, st, stagedH)
 		if err != nil {
@@ -336,7 +368,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		for i, n := range stagedN {
 			if _, dup := existing[stagedH[i]]; dup {
-				dups++ // 배치 dedup 감지 동일성: 이 줄만 skip, 나머지는 커밋
+				dups++ // batched dedup detection identical: only this line is skipped; the rest commit
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
@@ -347,9 +379,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 	}
 
-	// emitDuplicate — 전부 duplicate(사전 확인·레이스 재확인 공통): 0건 커밋·
-	// exit 0 "duplicate"(시딩 멱등). 유입 계측은 write 1회 + 실제 skip 줄
-	// 수(이중 계수 금지), 경고는 폐기하지 않는다(dup 줄의 살균·비밀 경고 유지).
+	// emitDuplicate — all duplicates (common to the pre-check·race
+	// recheck): zero-row commit·exit 0 "duplicate" (seeding idempotence).
+	// Intake metering is write × 1 + the actual skipped-line count (no
+	// double counting); warnings are not discarded (the dup line's
+	// sanitization·secret warnings survive).
 	emitDuplicate := func() {
 		RecordUsage(ctx, st, "write", source)
 		RecordDups(ctx, st, source, dups)
@@ -370,15 +404,18 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
-		// 레이스(사전 확인 통과 후 동시 삽입)로 배치가 롤백됐다: 생존 recs의
-		// 고유 키(knowledge content_hash·project name)를 재확인해 실제 존재하는
-		// 줄만 skip하고 잔여만 1회 재시도 — 전체 폐기 후 exit 0 "duplicate"는
-		// 신규줄 유실이므로 금지.
+		// The batch rolled back due to a race (concurrent insert after the
+		// pre-check passed): recheck the unique keys (knowledge
+		// content_hash·project name) of surviving recs, skip only the lines
+		// that actually exist, and retry the remainder once — discarding
+		// everything then exiting 0 "duplicate" would lose new lines and is
+		// forbidden.
 		survive := make([]map[string]any, 0, len(recs))
 		for _, r := range recs {
 			if r["kind"] == "project" {
-				// project 줄은 자연키 name 재확인(content_hash가 없어 재시도로
-				// 판정하면 재충돌해 에러화된다 — 첫 시딩 실패의 사슬).
+				// Project lines recheck the natural key name (they have no
+				// content_hash, so deciding by retry would collide again and
+				// turn into an error — the chain of first-seeding failures).
 				name, _ := r["name"].(string)
 				exists, err2 := st.ExistsProject(ctx, name)
 				if err2 != nil {
@@ -386,7 +423,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 					return store.MapExit(err2)
 				}
 				if exists {
-					dups++ // 동시 삽입된 줄: skip — 계측도 실제 skip 수만 반영
+					dups++ // concurrently inserted line: skip — metering also reflects only actual skips
 					continue
 				}
 				survive = append(survive, r)
@@ -394,7 +431,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 			h, _ := r["content_hash"].(string)
 			if h == "" {
-				survive = append(survive, r) // 해시 없는 kind는 재확인 불가 — 재시도로 판정
+				survive = append(survive, r) // kinds without a hash cannot be rechecked — decided by retry
 				continue
 			}
 			existsMeta, exists, err2 := lookupHash(ctx, st, h)
@@ -403,9 +440,9 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return store.MapExit(err2)
 			}
 			if exists {
-				dups++ // 동시 삽입된 줄: skip — 계측도 실제 skip 수만 반영
+				dups++ // concurrently inserted line: skip — metering also reflects only actual skips
 				if len(payloads) == 1 {
-					dupID = existsMeta.ID // 레이스 재확인 경로도 기존 행 메타 노출(R3·R1)
+					dupID = existsMeta.ID // the race-recheck path also exposes the existing row metadata (R3·R1)
 					dupTopic, dupState = existsMeta.Topic, existsMeta.State
 				}
 				continue
@@ -413,15 +450,18 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			survive = append(survive, r)
 		}
 		if len(survive) == 0 {
-			// 재확인 전부 존재: 신규줄 유실 없는 경로 — exit 0 "duplicate".
+			// Everything exists on recheck: the path with no new-line loss —
+			// exit 0 "duplicate".
 			emitDuplicate()
 			return 0
 		}
 		ids, err = st.InsertBatch(ctx, survive)
 		if err != nil {
 			if errors.Is(err, store.ErrDuplicate) {
-				// 재시도까지 ErrDuplicate: 재확인을 통과한 해시의 실제 충돌 —
-				// ErrDuplicate 자격을 벗겨 에러로 보고(유실 없는 경로만 exit 0).
+				// ErrDuplicate even on retry: an actual collision of a hash
+				// that passed the recheck — strip the ErrDuplicate
+				// qualification and report it as an error (only the
+				// loss-free path exits 0).
 				err = fmt.Errorf("write: batch conflict after dedup recheck: %v", err)
 			}
 			fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -429,8 +469,9 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		recs = survive
 	}
-	// D4(R33): 커밋 제목 — project는 name 우선(knowledge는 name 부재라
-	// summary). 양쪽 다 부재면 "%v"의 <nil> 폴백(기존 계약 유지).
+	// D4 (R33): the commit title — project prefers name (knowledge lacks
+	// name, so summary). If both are absent, the "%v" <nil> fallback (the
+	// existing contract kept).
 	subject := recs[0]["name"]
 	if subject == nil {
 		subject = recs[0]["summary"]
@@ -446,29 +487,33 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	}
 	var out string
 	if len(payloads) == 1 {
-		// 단일 줄은 기존 {status,hash,state,id} 불변(하위호환).
+		// A single line keeps the existing {status,hash,state,id}
+		// (backward-compatible).
 		id := 0
 		if len(ids) > 0 {
 			id = ids[0]
 		}
 		out = store.OutputJSON("committed", hash, state, id)
 	} else {
-		// 다중 줄: 마지막 줄 hash·state + 첫 줄 id 혼합 대신 집계형 단일 커밋 해시.
+		// Multi-line: an aggregate single commit hash instead of mixing the
+		// last line's hash·state + the first line's id.
 		out = store.MultiCommitOutput(len(recs), dups, commitHash)
 	}
 	if len(dropped) > 0 || len(warnings) > 0 {
 		out = withWarnings(out, dropped, warnings)
 	}
-	RecordUsage(ctx, st, "write", source) // 신규 커밋 성공 후 유입 1회
-	RecordDups(ctx, st, source, dups)     // 혼합 배치의 skip 줄도 dup 계측(총계+소스)
+	RecordUsage(ctx, st, "write", source) // one intake after a successful new commit
+	RecordDups(ctx, st, source, dups)     // the skipped lines of a mixed batch are also dup-metered (total+source)
 	fmt.Fprintln(stdout, out)
 	return 0
 }
 
-// RecordDups — skip된 duplicate 줄 수만큼 dup 유입을 계측한다(0은 no-op).
-// 총계 "dup" 키는 불변(루링)이고 소스별 "dup_"+source(hook·manual·mcp)를
-// 추가 증분한다(additive — v0.10.2 R2). UsageCountStore(실구현)는 각 키를
-// count 1회 호출로 일괄 증분, 미구현 Store는 1회씩.
+// RecordDups — meters dup intake by the number of skipped duplicate lines
+// (0 is a no-op). The total "dup" key is invariant (ruling); per-source
+// "dup_"+source (hook·manual·mcp) is additionally incremented (additive —
+// v0.10.2 R2). A UsageCountStore (the real implementation) increments each
+// key in bulk with one count call; a non-implementing Store does it one at
+// a time.
 func RecordDups(ctx context.Context, st wire.Store, source string, n int) {
 	if n <= 0 {
 		return
@@ -484,16 +529,19 @@ func RecordDups(ctx context.Context, st wire.Store, source string, n int) {
 	}
 }
 
-// sanitizeFields — 살균 대상 텍스트 컬럼(kind 공통 최소집합).
-var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id"} // session_id 추가(임의 문자열 무살균 방어)
+// sanitizeFields — the text columns to sanitize (the kind-common minimal
+// set).
+var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id"} // session_id added (defense against arbitrary unsanitized strings)
 
-// SanitizePayload — 텍스트 필드를 살균해 원본 맵을 갱신하고, 비밀 후보 경고
-// ("possible secret: 패턴명")를 반환한다. 저장 거부 아님(경고+살균).
+// SanitizePayload — sanitizes the text fields, updates the original map,
+// and returns secret-candidate warnings ("possible secret: pattern-name").
+// Not a storage rejection (warn + sanitize).
 func SanitizePayload(p map[string]any) []string {
 	var warns []string
-	// 살균·비밀 스캔 대상을 문자열 필드
-	// 5종에서 tags 배열 원소·domain·origin까지 확장 — 이 필드들은
-	// 정규화·저장·백업 덤프에 그대로 남아 경고 계약의 사각지대였다.
+	// The sanitize·secret-scan targets were expanded from the 5 string
+	// fields to tags array elements·domain·origin — these fields remain
+	// verbatim through normalization·storage·backup dumps and were blind
+	// spots of the warning contract.
 	for _, f := range sanitizeFields {
 		s, ok := p[f].(string)
 		if !ok {
@@ -546,15 +594,17 @@ func SanitizePayload(p map[string]any) []string {
 			}
 		}
 	}
-	// []string 태그(import 재이식 rec — jsonl 왕복 경로)도 동일 살균.
+	// []string tags (import re-planting recs — the jsonl round-trip path)
+	// get the same sanitization.
 	if raw, ok := p["tags"].([]string); ok {
 		sanitizeTagElems(raw)
 	}
 	return warns
 }
 
-// withWarnings — 출력 한 줄 JSON에 경고 배열(dropped keys·비밀 스캔 병합)을
-// 추가한다(무경고 삭제·감지 누락 방지).
+// withWarnings — appends a warnings array (dropped keys·merged secret
+// scans) to the one-line output JSON (no silent drops·no missed
+// detections).
 func withWarnings(line string, dropped map[string]bool, secretWarns []string) string {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(line), &m); err != nil {
@@ -577,16 +627,18 @@ func withWarnings(line string, dropped map[string]bool, secretWarns []string) st
 	return string(b)
 }
 
-// maxPayloadFieldBytes — 단일 payload 필드(문자열 값)의 바이트 상한.
-// 등록표(thresholds meta 오버라이드) 대상이 아닌 코드 상수+TUNING 표기
-// 관례. 크기는 compact 훅 경계(compactMaxBytes
-// 8MiB, §13 비간섭)와 정합한다 — compact는 8MiB compact_summary를
-// session 1행으로 RunWrite에 그대로 흘려보내므로 그보다 작은 상한은
-// 정상 compaction을 조용히 무동작화한다(경계 초과분만 차단).
+// maxPayloadFieldBytes — the byte cap of a single payload field (string
+// value). A code constant + TUNING notation, not a registry target
+// (thresholds meta override). The size matches the compact hook boundary
+// (compactMaxBytes 8MiB, §13 non-interference) — compact flows an 8MiB
+// compact_summary straight into RunWrite as one session row, so a smaller
+// cap would silently no-op normal compaction (only the boundary excess is
+// blocked).
 const maxPayloadFieldBytes = compactMaxBytes
 
-// validateFieldBytes — payload의 문자열 필드 값이 상한을 초과하면 해당
-// 필드의 SchemaError를 반환(Validate와 같은 exit 3 경로 — 초과만 차단).
+// validateFieldBytes — returns a SchemaError for the field when a payload
+// string field value exceeds the cap (the same exit 3 path as Validate —
+// excess only is blocked).
 func validateFieldBytes(p map[string]any) *store.SchemaError {
 	for k, v := range p {
 		s, ok := v.(string)
@@ -603,10 +655,11 @@ func validateFieldBytes(p map[string]any) *store.SchemaError {
 	return nil
 }
 
-// enforceWriteMaxRows — write stdin 행 수 상한(등록표 키
-// export_import_max_rows 재사용 — import enforceImportMaxRows와 동형).
-// 초과 시 max·count를 담은 오류 JSON을 stdout에 내고 3을 반환(호출부는
-// 그대로 반환). 파싱 직후·부작용 전 단계다.
+// enforceWriteMaxRows — the write stdin row cap (reusing the registry key
+// export_import_max_rows — the same shape as import's
+// enforceImportMaxRows). On excess, prints an error JSON with max·count to
+// stdout and returns 3 (the caller returns it as-is). This stage is right
+// after parsing·before side effects.
 func enforceWriteMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, count int) int {
 	max := importMaxRowsLimit(ctx, st)
 	if count <= max {
@@ -624,7 +677,7 @@ func enforceWriteMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, c
 	return 3
 }
 
-// readPayloads — stdin을 줄 단위 JSON(또는 한 덩어리 JSON)으로 파싱한다.
+// readPayloads — parses stdin as line-delimited JSON (or one bulk JSON).
 func readPayloads(stdin io.Reader) ([]map[string]any, error) {
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, stdin); err != nil {

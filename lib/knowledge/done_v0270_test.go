@@ -1,7 +1,8 @@
-// done_v0270_test.go — 세션 지식화 적립 계약.
-// 증류 마커 적립 검증은 cli 마커 저장
-// 구현(ReadTypedMarker) 대신 WriteTypedMarkerFn seam 캡처로 동등 검증
-// (마커 파일 IO는 cli 잔류 compact_test가 실경로로 담당).
+// done_v0270_test.go — the session-knowledgization accrual contract.
+// The distill-marker accrual check verifies equivalently by capturing
+// the WriteTypedMarkerFn seam instead of the cli marker-storage
+// implementation (ReadTypedMarker) (marker file IO belongs to the
+// cli-residual compact_test on the real path).
 package knowledge
 
 import (
@@ -11,7 +12,8 @@ import (
 	"time"
 )
 
-// captureTypedMarker — WriteTypedMarkerFn seam 교체(호출 기록).
+// captureTypedMarker — swaps the WriteTypedMarkerFn seam (call
+// recording).
 func captureTypedMarker(t *testing.T) *[]string {
 	t.Helper()
 	var calls []string
@@ -39,13 +41,14 @@ func TestMaybeSessionKnowledge(t *testing.T) {
 	if !strings.Contains(got["topic"].(string), "session[") {
 		t.Errorf("topic = %v", got["topic"])
 	}
-	// tags는 []string{"process"}로 전달돼야 normalizeTags를
-	// 통과해 정규형 ":process:"로 저장된다(문자열 ":process:" 전달 시
-	// default 분기에서 빈 문자열로 소거되던 계약 위반 수선).
+	// tags must be passed as []string{"process"} so it passes
+	// normalizeTags and is stored in the normalized form ":process:"
+	// (repairing the contract violation where passing the string
+	// ":process:" was dropped to an empty string in the default branch).
 	if tags, ok := got["tags"].(string); !ok || tags != ":process:" {
 		t.Errorf("tags = %#v, want \":process:\"", got["tags"])
 	}
-	// 증류 마커 적립 — distill 종류·session 일치.
+	// Distill-marker accrual — the distill kind·session must match.
 	found := false
 	for _, c := range *markers {
 		if strings.HasPrefix(c, "distill|s1|") {
@@ -57,7 +60,8 @@ func TestMaybeSessionKnowledge(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeShortSummary — 최소 길이 미달은 미적립.
+// TestMaybeSessionKnowledgeShortSummary — under the minimum length, no
+// accrual.
 func TestMaybeSessionKnowledgeShortSummary(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
@@ -67,8 +71,9 @@ func TestMaybeSessionKnowledgeShortSummary(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeControlOnlyGate — 길이 게이트는 살균
-// 후 기준 — 제어문자뿐인 요약은 sanitize 결과 빈 문자열로 미적립.
+// TestMaybeSessionKnowledgeControlOnlyGate — the length gate is applied
+// after sanitization — a control-characters-only summary sanitizes to an
+// empty string and is not accrued.
 func TestMaybeSessionKnowledgeControlOnlyGate(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
@@ -78,8 +83,8 @@ func TestMaybeSessionKnowledgeControlOnlyGate(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeTruncates — 요약 500룬 절단(import
-// 경로 대칭) — 초과분은 적립되지 않는다.
+// TestMaybeSessionKnowledgeTruncates — the summary is truncated to 500
+// runes (import-path symmetry) — the excess is not accrued.
 func TestMaybeSessionKnowledgeTruncates(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
@@ -93,8 +98,9 @@ func TestMaybeSessionKnowledgeTruncates(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeFrequencyCap — 빈도 상한 계약 —
-// 마지막 적립이 N일 이내면 skip, N일 경과·파손 값이면 적립.
+// TestMaybeSessionKnowledgeFrequencyCap — the frequency-cap contract —
+// skip if the last accrual is within N days; accrue if N days have
+// elapsed·the value is corrupt.
 func TestMaybeSessionKnowledgeFrequencyCap(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	today := time.Now().UTC().Format(time.RFC3339)
@@ -116,8 +122,9 @@ func TestMaybeSessionKnowledgeFrequencyCap(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeOffSentinel — session_knowledge_days
-// -1(끔)은 적립하지 않는다(0은 loadThresholds가 기본 1로 코어스 — 미설정).
+// TestMaybeSessionKnowledgeOffSentinel — session_knowledge_days -1
+// (off) accrues nothing (0 is coerced to the default 1 by
+// loadThresholds — i.e. unset).
 func TestMaybeSessionKnowledgeOffSentinel(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -132,8 +139,8 @@ func TestMaybeSessionKnowledgeOffSentinel(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeDedupSkip — 같은 content_hash가 이미
-// 있으면 재적립하지 않는다(같은 세션 재종료 차단).
+// TestMaybeSessionKnowledgeDedupSkip — an already-present
+// content_hash is not re-accrued (blocking same-session re-exits).
 func TestMaybeSessionKnowledgeDedupSkip(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
@@ -144,8 +151,9 @@ func TestMaybeSessionKnowledgeDedupSkip(t *testing.T) {
 	}
 }
 
-// TestDoneStdinSummaryActivatesKnowledge — Stop 훅 stdin의
-// compact_summary가 세션 지식화를 활성화한다(타 하네스 폴백 경로).
+// TestDoneStdinSummaryActivatesKnowledge — the Stop hook stdin's
+// compact_summary activates session knowledgization (another harness's
+// fallback path).
 func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	stubAutoBackup(t)
@@ -156,7 +164,7 @@ func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
-	// 적립 — knowledge pending 1건(Summary가 채워진 경우만).
+	// Accrual — 1 pending knowledge row (only when Summary is filled).
 	knowledge := 0
 	for _, rec := range st.inserted {
 		if rec["kind"] == "knowledge" {
@@ -168,7 +176,8 @@ func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
 	}
 }
 
-// staleFake — fakeStore + StaleSessionRuns 고정 반환(stale 분기 유도).
+// staleFake — fakeStore + a fixed StaleSessionRuns return (inducing the
+// stale branch).
 type staleFake struct {
 	*fakeStore
 	runs int
@@ -178,8 +187,9 @@ func (s *staleFake) StaleSessionRuns(ctx context.Context, agent string) (int, er
 	return s.runs, nil
 }
 
-// TestDoneStalePathAccruesKnowledge — stale 경로(미기록 연속
-// 경고)에서도 요약이 있으면 지식화 — 조기 return에 갇히지 않는다.
+// TestDoneStalePathAccruesKnowledge — on the stale path (the
+// consecutive-unrecorded warning), a filled summary still
+// knowledgizes — not trapped in an early return.
 func TestDoneStalePathAccruesKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	stubAutoBackup(t)
@@ -204,8 +214,9 @@ func TestDoneStalePathAccruesKnowledge(t *testing.T) {
 	}
 }
 
-// TestDoneStdinSummaryBranches — invalid JSON·필드 부재는
-// 빈 값(폴백 상용구 스킵 계약 — 유효 요약의 무증상 폐기 방지 회귀).
+// TestDoneStdinSummaryBranches — invalid JSON·a missing field yield the
+// empty value (the skip-fallback-boilerplate contract — a regression
+// preventing the asymptomatic discard of valid summaries).
 func TestDoneStdinSummaryBranches(t *testing.T) {
 	if got := doneStdinSummary(strings.NewReader(`{bad json`)); got != "" {
 		t.Errorf("invalid JSON = %q, want \"\"", got)
@@ -221,9 +232,9 @@ func TestDoneStdinSummaryBranches(t *testing.T) {
 	}
 }
 
-// TestDoneCommitsAuditTrail — 세션 종료는
-// 세션 행·지식화·카운터 쓰기를 감사 커밋으로 귀속시킨다(무관한 다음
-// write의 전역 스테이징 흡수 방지).
+// TestDoneCommitsAuditTrail — the session exit attributes the session
+// row·knowledgization·counter writes to an audit commit (preventing
+// absorption into an unrelated next write's global staging).
 func TestDoneCommitsAuditTrail(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	stubAutoBackup(t)

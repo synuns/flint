@@ -1,5 +1,6 @@
-// export_jsonl_test.go — FormatJSONL 계약 테스트.
-// 행당 1 JSON 객체·개행 구분·snake_case 필드·완전 스냅샷 보존.
+// export_jsonl_test.go — FormatJSONL contract tests.
+// One JSON object per row·newline-delimited·snake_case fields·full
+// snapshot preservation.
 package knowledge
 
 import (
@@ -15,7 +16,7 @@ func jsonlFixtureRows() []ExportRow {
 	sup := 42
 	t0 := time.Date(2026, 11, 1, 9, 0, 0, 0, time.UTC)
 	t1 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
-	tv := time.Date(2026, 10, 31, 22, 0, 0, 0, time.UTC) // valid_at(ingested와 상이)
+	tv := time.Date(2026, 10, 31, 22, 0, 0, 0, time.UTC) // valid_at (distinct from ingested)
 	return []ExportRow{
 		{
 			ID: 7, Topic: "demo-topic", Content: "첫 번째 데모 지식 행",
@@ -37,8 +38,8 @@ func jsonlFixtureRows() []ExportRow {
 	}
 }
 
-// TestFormatJSONLTwoRowsTwoLines — 2행 입력은 정확히 2개의
-// 개행 종결 라인을 낸다.
+// TestFormatJSONLTwoRowsTwoLines — a 2-row input yields exactly 2
+// newline-terminated lines.
 func TestFormatJSONLTwoRowsTwoLines(t *testing.T) {
 	out, err := FormatJSONL(jsonlFixtureRows())
 	if err != nil {
@@ -65,8 +66,9 @@ func TestFormatJSONLTwoRowsTwoLines(t *testing.T) {
 	}
 }
 
-// TestFormatJSONLRoundTripPreservesAllFields — json.Unmarshal 왕복으로
-// 전 필드(완전 스냅샷)가 보존됨을 검증한다.
+// TestFormatJSONLRoundTripPreservesAllFields — verifies via a
+// json.Unmarshal round trip that every field (the full snapshot) is
+// preserved.
 func TestFormatJSONLRoundTripPreservesAllFields(t *testing.T) {
 	rows := jsonlFixtureRows()
 	out, err := FormatJSONL(rows)
@@ -125,12 +127,12 @@ func TestFormatJSONLRoundTripPreservesAllFields(t *testing.T) {
 	}
 }
 
-// TestFormatJSONLValidAtRoundtrip — valid_at 필드는
-// FormatJSONL → ParseJSONLRows 왕복에서 원값이 보존된다(재이식·
-// 재export 동일성의 원천).
+// TestFormatJSONLValidAtRoundtrip — the valid_at field's raw value is
+// preserved in the FormatJSONL → ParseJSONLRows round trip (the source of
+// re-plant·re-export identity).
 func TestFormatJSONLValidAtRoundtrip(t *testing.T) {
 	created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
-	valid := time.Date(2026, 11, 12, 23, 15, 0, 0, time.UTC) // 의도적 상이
+	valid := time.Date(2026, 11, 12, 23, 15, 0, 0, time.UTC) // deliberately distinct
 	rows := []ExportRow{{
 		ID: 55, Topic: "demo validat roundtrip",
 		Content: "합성 데모 — valid_at 왕복 보존 검증.", Kind: "knowledge",
@@ -157,8 +159,8 @@ func TestFormatJSONLValidAtRoundtrip(t *testing.T) {
 	}
 }
 
-// TestFormatJSONLSnakeCaseKeys — 직렬화 키가 snake_case 계약
-// (id·…·content_hash·superseded_by)을 정확히 따른다.
+// TestFormatJSONLSnakeCaseKeys — the serialized keys follow the
+// snake_case contract (id·…·content_hash·superseded_by) exactly.
 func TestFormatJSONLSnakeCaseKeys(t *testing.T) {
 	out, err := FormatJSONL(jsonlFixtureRows()[:1])
 	if err != nil {
@@ -183,8 +185,8 @@ func TestFormatJSONLSnakeCaseKeys(t *testing.T) {
 	}
 }
 
-// TestFormatJSONLEscapesSpecialChars — 개행·따옴표·한글이 포함된
-// content도 단일 라인으로 이스케이프된다.
+// TestFormatJSONLEscapesSpecialChars — content containing newlines·
+// quotes·Korean is still escaped onto a single line.
 func TestFormatJSONLEscapesSpecialChars(t *testing.T) {
 	rows := []ExportRow{{
 		ID: 9, Topic: "특수 \"따옴표\" 주제",
@@ -214,7 +216,7 @@ func TestFormatJSONLEscapesSpecialChars(t *testing.T) {
 	}
 }
 
-// TestFormatJSONLEmpty — 빈 slice는 빈 바이트·nil 오류.
+// TestFormatJSONLEmpty — an empty slice yields empty bytes·a nil error.
 func TestFormatJSONLEmpty(t *testing.T) {
 	out, err := FormatJSONL([]ExportRow{})
 	if err != nil {

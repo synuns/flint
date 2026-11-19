@@ -1,5 +1,6 @@
-// pending_count_test.go — CountPending 단일 조회 계약(빈 응답·해석 불가
-// 값은 조용한 0, 조회 실패는 오류 전파 — 기존 cli.countPending 관례 불변).
+// pending_count_test.go — the CountPending single-lookup contract (empty
+// response·unparseable value are a quiet 0; a lookup failure propagates as
+// an error — the existing cli.countPending convention unchanged).
 package knowledge
 
 import (
@@ -10,9 +11,10 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// fakeCountStore — CountPending 검증용 최소 wire.Store 대역. Query만
-// 동작하고 나머지는 미사용(호출되면 즉시 실패). HistoryStubs 임베딩으로
-// 히스토리 5메서드는 미지원 기본구현 흡수.
+// fakeCountStore — the minimal wire.Store double for CountPending
+// verification. Only Query works; the rest are unused (fail immediately
+// if called). The HistoryStubs embedding absorbs the five history methods
+// with unsupported default implementations.
 type fakeCountStore struct {
 	wire.HistoryStubs
 	queryFn func(sql string, args []any) ([][]any, error)
@@ -44,8 +46,10 @@ func (f *fakeCountStore) Ping(ctx context.Context) error { return errors.New("un
 
 func (f *fakeCountStore) Close() {}
 
-// TestCountPendingSingleLookup — pending 수 단일 조회(빈 응답·해석 불가
-// 값은 조용한 0, 조회 실패는 오류 전파 — 기존 cli.countPending 관례 불변).
+// TestCountPendingSingleLookup — single lookup of the pending count
+// (empty response·unparseable value are a quiet 0; a lookup failure
+// propagates as an error — the existing cli.countPending convention
+// unchanged).
 func TestCountPendingSingleLookup(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {

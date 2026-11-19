@@ -1,11 +1,12 @@
-// read_test.go — read 계약
-// 제로히트 exit 0·--session 자동 라벨·as-of. 계약
-// 불변: eligible(현재 시점·무상태필터) 제로히트는 텍스트 완전 무출력·
-// --json은 {"hits":0} 한 줄, exit 0,
-// --session 미지정은 wire.ReadSessionLabel 라벨 조용히 채택, --as-of는
-// 결과 뒤 as_of 한 줄 JSON. asof 스펙 파서는 cli asof.go 소유라
-// ParseAsOfSpecFn 주입 seam으로 대역 주입(실구현 경로는 cli 잔류
-// read_v08_test.go가 SUPERLITE_REAL=1로 담당).
+// read_test.go — the read contract
+// zero-hit exit 0·--session auto-label·as-of. Contract invariants: an
+// eligible (present-point·stateless-filter) zero-hit is fully silent in
+// text mode·--json is a one-line {"hits":0}, exit 0; without --session,
+// the wire.ReadSessionLabel label is quietly adopted; --as-of appends a
+// one-line as_of JSON after the results. The as-of spec parser is
+// cli-asof.go-owned, so a double is injected through the ParseAsOfSpecFn
+// seam (the real-implementation path belongs to the cli-residual
+// read_v08_test.go under SUPERLITE_REAL=1).
 package knowledge
 
 import (
@@ -23,14 +24,15 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// readEventRecorder — fakeStore에 ReadEventStore seam을 얹은 fake
-// (cli read_v0190_test.go 관례 이동분). RecordReadUsage도 흡수.
+// readEventRecorder — a fakeStore with the ReadEventStore seam layered
+// on (moved from the cli read_v0190_test.go convention). Also absorbs
+// RecordReadUsage.
 type readEventRecorder struct {
 	*fakeStore
 	events []readEventRecord
 }
 
-// readEventRecord — RecordReadEvent 호출 인자 녹음.
+// readEventRecord — recorded RecordReadEvent call arguments.
 type readEventRecord struct {
 	hits     int
 	zero     bool
@@ -49,15 +51,15 @@ func (r *readEventRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent
 	return nil
 }
 
-// bytesRecorder — fakeStore에 BytesRecorder seam을 얹은 fake(G5 바이트
-// 계측). RecordBytes 호출 인자를 녹음한다(패키지 공유 — hot·
-// brief 회귀가 같은 fake를 쓴다).
+// bytesRecorder — a fakeStore with the BytesRecorder seam layered on (G5
+// byte metering). Records RecordReadEvent call arguments (package-shared
+// — the hot·brief regressions use the same fake).
 type bytesRecorder struct {
 	*fakeStore
 	recorded []bytesCall
 }
 
-// bytesCall — RecordBytes 호출 인자 녹음.
+// bytesCall — recorded RecordBytes call arguments.
 type bytesCall struct {
 	kind string
 	n    int
@@ -68,9 +70,9 @@ func (b *bytesRecorder) RecordBytes(ctx context.Context, kind string, n int) err
 	return nil
 }
 
-// TestRunReadRecordsBytes — read 출력 직후
-// len(최종 출력)을 kind="read"로 기록 — 제로히트 0바이트도 기록한다
-// (호출 수 분모 정합, spec §1).
+// TestRunReadRecordsBytes — right after the read output, records
+// len(final output) with kind="read" — even a 0-byte zero-hit is
+// recorded (call-count denominator consistency, spec §1).
 func TestRunReadRecordsBytes(t *testing.T) {
 	t.Run("히트 — 최종 출력 바이트", func(t *testing.T) {
 		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -94,7 +96,7 @@ func TestRunReadRecordsBytes(t *testing.T) {
 	})
 	t.Run("제로히트 — 0바이트도 기록", func(t *testing.T) {
 		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			return nil, nil // 제로히트 — 폴백·제안 스캔도 전부 0행
+			return nil, nil // zero-hit — fallback·suggestion scan also all 0 rows
 		}}}
 		var out strings.Builder
 		if code := RunRead(context.Background(), st,
@@ -107,8 +109,9 @@ func TestRunReadRecordsBytes(t *testing.T) {
 	})
 }
 
-// injectAsOfSeams — ParseAsOfSpecFn·ErrInvalidAsOf 주입 점에 고정 해시
-// 대역을 주입(스펙 "7d" → 해시 1건 확정). 원복은 t.Cleanup.
+// injectAsOfSeams — injects a fixed-hash double at the ParseAsOfSpecFn·
+// ErrInvalidAsOf injection points (spec "7d" → one hash resolved).
+// Restored via t.Cleanup.
 func injectAsOfSeams(t *testing.T, hash string) {
 	t.Helper()
 	savedFn, savedErr := ParseAsOfSpecFn, ErrInvalidAsOf
@@ -119,19 +122,20 @@ func injectAsOfSeams(t *testing.T, hash string) {
 	t.Cleanup(func() { ParseAsOfSpecFn, ErrInvalidAsOf = savedFn, savedErr })
 }
 
-// hitRowsFixture — 히트 read의 active_knowledge 행(9열, cli 관례 승계).
+// hitRowsFixture — the active_knowledge rows of a hit read (9 columns,
+// inheriting the cli convention).
 var hitRowsFixture = [][]any{
 	{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"},
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
-// TestRunReadZeroHitExit0Silent — eligible
-// (현재 시점·무상태 필터) 제로히트는 텍스트 완전 무출력(침묵 유지)에
-// exit 0(기존 1) — 제로히트는 오류가 아니므로 에이전트 루프가 끊기지
-// 않는다.
+// TestRunReadZeroHitExit0Silent — an eligible (present-point·stateless
+// filter) zero-hit is fully silent in text (silence kept) with exit 0
+// (previously 1) — a zero-hit is not an error, so the agent loop is not
+// broken.
 func TestRunReadZeroHitExit0Silent(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // 제로히트 — 폴백·제안 스캔도 전부 0행
+		return nil, nil // zero-hit — fallback·suggestion scan also all 0 rows
 	}}
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
@@ -144,12 +148,12 @@ func TestRunReadZeroHitExit0Silent(t *testing.T) {
 	}
 }
 
-// TestRunReadZeroHitJSONHits — --json 제로히트는
-// hits:0 한 줄 JSON({"hits":0}) + exit 0 — 호출자가 히트 수를 기계적으로
-// 판별한다. 텍스트 모드와 달리 침묵하지 않는다.
+// TestRunReadZeroHitJSONHits — a --json zero-hit is a one-line
+// hits:0 JSON ({"hits":0}) + exit 0 — the caller machine-reads the hit
+// count. Unlike text mode, it is not silent.
 func TestRunReadZeroHitJSONHits(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // 제로히트 — 폴백·제안 스캔도 전부 0행
+		return nil, nil // zero-hit — fallback·suggestion scan also all 0 rows
 	}}
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
@@ -162,14 +166,15 @@ func TestRunReadZeroHitJSONHits(t *testing.T) {
 	}
 }
 
-// TestRunReadSessionAutoLabel — --session 미지정 시 현재
-// 세션 라벨 파일(wire.ReadSessionLabel)을 조용히 채택해 read_events에
-// 기록. 라벨 파일은 wire.ConfigDir seam 임시 디렉터리로 세운다.
+// TestRunReadSessionAutoLabel — without --session, the current session
+// label file (wire.ReadSessionLabel) is quietly adopted and recorded in
+// read_events. The label file is set up in a temporary directory via the
+// wire.ConfigDir seam.
 func TestRunReadSessionAutoLabel(t *testing.T) {
 	dir := t.TempDir()
-	// 라벨 원천은 세션별 파일
-	// session-<id>.label 단일 경로다 — 구 session-current는 더 이상
-	// 읽히지 않는다.
+	// The label source is the per-session file, the single
+	// session-<id>.label path — the legacy session-current is no longer
+	// read.
 	if err := os.WriteFile(dir+"/session-demo1.label", []byte("auto-label-7\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -200,9 +205,9 @@ func TestRunReadSessionAutoLabel(t *testing.T) {
 	}
 }
 
-// asOfStore — fakeStore에 히스토리 seam(QueryAsOf·LogEntries)을 얹은
-// fake. 호출 인자를 녹음해 방언 절단(원시 AS OF SQL·dolt_log 질의 폐지)을
-// 검증한다.
+// asOfStore — a fakeStore with the history seams (QueryAsOf·LogEntries)
+// layered on. Records call arguments to verify the dialect severance
+// (raw AS OF SQL·dolt_log queries abolished).
 type asOfStore struct {
 	*fakeStore
 	asOfCalls  []wire.AsOfQuery
@@ -229,9 +234,11 @@ func (s *asOfStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.Log
 	return s.logEntries, nil
 }
 
-// TestRunReadAsOfAddsField — --as-of 지정 시 기존 행 출력
-// 뒤 as_of{hash,commit_date} 한 줄 JSON 추가. 질의는 Store.QueryAsOf
-// (방언 절단 — 원시 AS OF 인라인 폐지), 커밋 시각은 LogEntries{Hash}.
+// TestRunReadAsOfAddsField — with --as-of, a one-line
+// as_of{hash,commit_date} JSON is appended after the existing row
+// output. The query goes through Store.QueryAsOf (dialect severance —
+// raw AS OF inlining abolished); the commit time through
+// LogEntries{Hash}.
 func TestRunReadAsOfAddsField(t *testing.T) {
 	const asOfHash = "he08irluqn3v2m1k9x7c4jw5z6b8d0f"
 	injectAsOfSeams(t, asOfHash)
@@ -256,28 +263,31 @@ func TestRunReadAsOfAddsField(t *testing.T) {
 	if !strings.Contains(got, `"as_of":{"hash":"he08irluqn3v2m1k9x7c4jw5z6b8d0f","commit_date":"2026-10-20T12:00:00Z"}`) {
 		t.Errorf("as_of 필드 누락/불일치: %q", got)
 	}
-	// 질의는 QueryAsOf 1회 — 해시·뷰 테이블 계약.
+	// The query is QueryAsOf once — the hash·view-table contract.
 	if len(st.asOfCalls) != 1 {
 		t.Fatalf("QueryAsOf 호출 %d회, want 1: %v", len(st.asOfCalls), st.asOfCalls)
 	}
 	if aq := st.asOfCalls[0]; aq.Hash != asOfHash || aq.Table != "active_knowledge" {
 		t.Errorf("AsOfQuery = %+v, want Hash·Table=active_knowledge", aq)
 	}
-	// 원시 AS OF 절 폐지 — Query 경로에 AS OF 문자열이 남으면 방언 절단 위반.
+	// Raw AS OF clauses abolished — any AS OF string left on the Query
+	// path is a dialect-severance violation.
 	for _, raw := range st.fakeStore.queries {
 		if strings.Contains(raw, "AS OF") {
 			t.Errorf("원시 AS OF 절 잔존: %q", raw)
 		}
 	}
-	// 커밋 시각 조회는 LogEntries{Hash} 1회(dolt_log 원시 질의 폐지).
+	// The commit-time lookup is LogEntries{Hash} once (raw dolt_log
+	// queries abolished).
 	if len(st.logCalls) != 1 || st.logCalls[0].Hash != asOfHash {
 		t.Errorf("LogEntries 호출 = %v, want 1회 Hash=%s", st.logCalls, asOfHash)
 	}
 }
 
-// TestRunReadAsOfQueryErrorExit — QueryAsOf 실패(해시 charset 위반 등
-// 게이트 오류의 db 구현 이관 후에도) 호출측 exit 계약은 한 줄 에러
-// JSON + MapExit(일반 오류 exit 1).
+// TestRunReadAsOfQueryErrorExit — on QueryAsOf failure (even after the
+// db-implementation transfer of gate errors such as a hash-charset
+// violation), the caller-side exit contract is a one-line error JSON +
+// MapExit (an ordinary error exits 1).
 func TestRunReadAsOfQueryErrorExit(t *testing.T) {
 	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
 	st := &asOfStore{
@@ -296,8 +306,8 @@ func TestRunReadAsOfQueryErrorExit(t *testing.T) {
 	}
 }
 
-// TestRunReadAsOfDateQuietFailure — 커밋 시각 조회(LogEntries) 실패는
-// 조용히 — as_of 라인 commit_date 빈 값·exit 0(§13).
+// TestRunReadAsOfDateQuietFailure — a commit-time lookup (LogEntries)
+// failure is quiet — the as_of line's commit_date is empty·exit 0 (§13).
 func TestRunReadAsOfDateQuietFailure(t *testing.T) {
 	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
 	st := &asOfStore{
@@ -316,8 +326,9 @@ func TestRunReadAsOfDateQuietFailure(t *testing.T) {
 	}
 }
 
-// TestRunReadAsOfInvalidExit3 — 무효 스펙은 exit 3 한 줄 JSON
-// invalid_as_of(ErrInvalidAsOf 주입점 경유 판정).
+// TestRunReadAsOfInvalidExit3 — an invalid spec is exit 3 with a
+// one-line JSON invalid_as_of (judged via the ErrInvalidAsOf injection
+// point).
 func TestRunReadAsOfInvalidExit3(t *testing.T) {
 	savedFn, savedErr := ParseAsOfSpecFn, ErrInvalidAsOf
 	ParseAsOfSpecFn = func(ctx context.Context, st wire.Store, spec string) (string, error) {
@@ -337,8 +348,8 @@ func TestRunReadAsOfInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadFieldsValidation — --fields는 알려진 컬럼만
-// 허용. 오타("sumary")는 exit 3, 정상 필드는 통과.
+// TestReadFieldsValidation — --fields accepts known columns only. A
+// typo ("sumary") is exit 3; valid fields pass.
 func TestReadFieldsValidation(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil
@@ -352,7 +363,7 @@ func TestReadFieldsValidation(t *testing.T) {
 	if !strings.Contains(out.String(), `"fields"`) {
 		t.Errorf("오류 필드에 fields 없음: %s", out.String())
 	}
-	// 정상 필드는 통과(회귀 — 기존 사용 형태).
+	// Valid fields pass (regression — the existing usage shape).
 	var out2 strings.Builder
 	code2 := RunRead(context.Background(), st,
 		[]string{"백업", "--fields", "topic,confidence"}, strings.NewReader(""), &out2)
@@ -361,8 +372,8 @@ func TestReadFieldsValidation(t *testing.T) {
 	}
 }
 
-// TestReadRRFKInjectionBeforeReorder — rrf_k 주입
-// (wire.LoadThresholdsFn seam)은 폴백 재랭킹 앞에서 호출된다.
+// TestReadRRFKInjectionBeforeReorder — the rrf_k injection (the
+// wire.LoadThresholdsFn seam) is called before the fallback rerank.
 func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 	var order []string
 	savedLT := wire.LoadThresholdsFn
@@ -371,7 +382,7 @@ func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 		return store.DefaultThresholds(), nil
 	}
 	t.Cleanup(func() { wire.LoadThresholdsFn = savedLT })
-	// 폴백 경로 read(제로히트 구문 → OR 재쿼리 히트).
+	// A fallback-path read (zero-hit phrase → OR re-query hit).
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM active_knowledge"):
@@ -394,35 +405,38 @@ func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 	}
 }
 
-// TestReadUnknownFlagExit3 — 미인식 '-' 접두 인자는 쿼리로
-// 흡수하지 않고 무효 인자 exit 3(read --jsonn이 조용히 제로히트로
-// 흘러 에이전트가 오타를 못 알아채던 사각 폐지). positional 쿼리·"--"
-// end-of-options 흡수는 불변.
+// TestReadUnknownFlagExit3 — an unrecognized '-'-prefixed argument is
+// not absorbed into the query but is the invalid-arg exit 3 (abolishing
+// the blind spot where read --jsonn quietly flowed to zero-hit and the
+// agent never noticed the typo). The positional query·"--"
+// end-of-options absorption are unchanged.
 func TestReadUnknownFlagExit3(t *testing.T) {
 	var out strings.Builder
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"--jsonn"}, strings.NewReader(""), &out); code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
 	}
-	// unknown flag류는 error:"usage".
+	// The unknown-flag class carries error:"usage".
 	if !strings.Contains(out.String(), `"error":"usage"`) {
 		t.Fatalf("에러 JSON error:usage 아님: %q", out.String())
 	}
-	// positional 쿼리 불변 — '-' 비접두는 여전히 쿼리 텍스트로 흡수.
+	// Positional query unchanged — non-'-'-prefixed values are still
+	// absorbed as query text.
 	out.Reset()
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"docker"}, strings.NewReader(""), &out); code == 3 {
 		t.Fatalf("positional 쿼리가 exit 3: %s", out.String())
 	}
-	// "--" 이후는 전부 positional — '--jsonn'도 쿼리로 흡수.
+	// Everything after "--" is positional — even '--jsonn' is absorbed as
+	// a query.
 	out.Reset()
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"--", "--jsonn"}, strings.NewReader(""), &out); code == 3 {
 		t.Fatalf("'--' 이후 쿼리가 exit 3: %s", out.String())
 	}
 }
 
-// TestReadLimitClampJSONLine — --json에서
-// 요청 limit이 상한(50)을 초과하면 additive 필드 limit_requested·
-// limit_applied를 한 줄 추가해 clamp 사실을 밝힌다(기존 키 불변).
-// 상한 이하·텍스트 모드는 기존 형식 그대로 — clamp 라인 없음.
+// TestReadLimitClampJSONLine — in --json, when the requested limit
+// exceeds the cap (50), one additive-field line with limit_requested·
+// limit_applied discloses the clamp (existing keys unchanged). Under the
+// cap·text mode keep the existing format — no clamp line.
 func TestReadLimitClampJSONLine(t *testing.T) {
 	newStore := func() *fakeStore {
 		return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -439,7 +453,7 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 			t.Fatalf("exit=%d, want 0: %s", code, out.String())
 		}
 		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
-		if len(lines) != 3 { // 히트 2행 + clamp 라인 1
+		if len(lines) != 3 { // 2 hit rows + 1 clamp line
 			t.Fatalf("출력 라인 수 = %d, want 3(히트 2 + clamp 1): %q", len(lines), out.String())
 		}
 		var clamp map[string]int
@@ -449,7 +463,8 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 		if clamp["limit_requested"] != 99 || clamp["limit_applied"] != 50 {
 			t.Fatalf("clamp 필드 = %v, want limit_requested:99·limit_applied:50", clamp)
 		}
-		// 기존 키 불변 — 히트 행은 id·topic·summary 그대로.
+		// Existing keys unchanged — the hit rows keep id·topic·summary
+		// as-is.
 		var row map[string]string
 		if err := json.Unmarshal([]byte(lines[0]), &row); err != nil {
 			t.Fatalf("히트 행 JSON 아님: %q", lines[0])
@@ -480,11 +495,12 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 	})
 }
 
-// ── 제안(SuggestSimilar) 입력 상한 truncate. ──
+// ── Suggestion (SuggestSimilar) input-cap truncation. ──
 
-// TestSuggestQueryTruncate — 제안 입력은 상한(suggestQueryMaxRunes
-// rune)으로 truncate된다(멀티바이트 안전 — TruncateRunes 단일 구현 승계).
-// 본문 검색 쿼리 자체는 불변(상한은 제안 유사도 스캔에만 적용).
+// TestSuggestQueryTruncate — the suggestion input is truncated to the
+// cap (suggestQueryMaxRunes runes) (multibyte-safe — inheriting the
+// single TruncateRunes implementation). The body search query itself is
+// unchanged (the cap applies only to the suggestion similarity scan).
 func TestSuggestQueryTruncate(t *testing.T) {
 	short := "백업 복구 절차"
 	if got := suggestQuery(short); got != short {
@@ -500,10 +516,10 @@ func TestSuggestQueryTruncate(t *testing.T) {
 	}
 }
 
-// ── 계측 분리 커밋 — read/hot 완료 경로의 telemetry 커밋. ──
+// ── The separated metering commit — the telemetry commit on the read/hot completion paths. ──
 
-// telemetryCommitter — fakeStore에 TelemetryCommitter seam을 얹은 fake
-// CommitTelemetry 호출 인자(cmd)를 녹음한다.
+// telemetryCommitter — a fakeStore with the TelemetryCommitter seam
+// layered on. Records CommitTelemetry call arguments (cmd).
 type telemetryCommitter struct {
 	*fakeStore
 	commands []string
@@ -515,9 +531,10 @@ func (tc *telemetryCommitter) CommitTelemetry(ctx context.Context, cmd string) e
 	return tc.err
 }
 
-// TestRunReadCommitsTelemetryOnce — read 완료
-// 경로는 계측 커밋을 정확히 1회(cmd="read") 호출한다. 실패는 조용
-// (§13 — exit 0·출력 불변). 미구현 Store(fakeStore 단독)은 스킵.
+// TestRunReadCommitsTelemetryOnce — the read completion path calls the
+// metering commit exactly once (cmd="read"). Failures are quiet (§13 —
+// exit 0·output unchanged). A non-implementing Store (fakeStore alone)
+// skips it.
 func TestRunReadCommitsTelemetryOnce(t *testing.T) {
 	newStore := func() *telemetryCommitter {
 		return &telemetryCommitter{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -560,8 +577,9 @@ func TestRunReadCommitsTelemetryOnce(t *testing.T) {
 	})
 }
 
-// TestRunHotCommitsTelemetryOnce — hot 완료 경로도
-// 계측 커밋을 1회(cmd="hot") 호출한다(헤드라인·--full 양 경로 공통).
+// TestRunHotCommitsTelemetryOnce — the hot completion path also calls
+// the metering commit once (cmd="hot") (common to the headline·--full
+// paths).
 func TestRunHotCommitsTelemetryOnce(t *testing.T) {
 	injectHotSeams(t)
 	for _, tc := range []struct {
@@ -589,9 +607,9 @@ func TestRunHotCommitsTelemetryOnce(t *testing.T) {
 	}
 }
 
-// TestRunDoneCommitsTelemetryOnce — done 완료
-// 경로는 기존 감사 Commit(session-end) 후 계측 커밋을 1회(cmd="done")
-// 호출한다. 실패는 조용(exit 0·출력 불변).
+// TestRunDoneCommitsTelemetryOnce — the done completion path calls the
+// metering commit once (cmd="done") after the existing audit Commit
+// (session-end). Failures are quiet (exit 0·output unchanged).
 func TestRunDoneCommitsTelemetryOnce(t *testing.T) {
 	stubAutoBackup(t)
 	newDone := func() *telemetryDoneFake {
@@ -623,7 +641,8 @@ func TestRunDoneCommitsTelemetryOnce(t *testing.T) {
 	})
 }
 
-// telemetryDoneFake — doneFake에 TelemetryCommitter seam을 얹은 fake.
+// telemetryDoneFake — a doneFake with the TelemetryCommitter seam
+// layered on.
 type telemetryDoneFake struct {
 	*doneFake
 	telemetryCmds []string
@@ -635,10 +654,12 @@ func (d *telemetryDoneFake) CommitTelemetry(ctx context.Context, cmd string) err
 	return d.telErr
 }
 
-// TestRunReadSuggestHugeQueryPerf — G4 가용성 회귀: 100KB 쿼리 제안이
-// 제안 스캔 행(2k)이 있어도 상한 truncate로 수 초 이내에 끝난다(수정 전
-// 17s급 — bigramDice가 행마다 쿼리 bigram 집합을 재구축했다). 단위 테스트
-// 상한 5s(환경 편차 흡수 — 실측은 t.Log).
+// TestRunReadSuggestHugeQueryPerf — a G4 availability regression: a
+// 100KB query suggestion finishes within seconds even with suggestion
+// scan rows (2k) present, thanks to the cap truncation (before the fix,
+// ~17s — bigramDice rebuilt the query bigram set per row). Unit-test
+// ceiling 5s (absorbing environment variance — the measured value goes
+// to t.Log).
 func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
 	scanRows := make([][]any, 0, 2000)
 	for i := 1; i <= 2000; i++ {
@@ -648,11 +669,11 @@ func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
 	}
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "SELECT id, topic, summary FROM active_knowledge") {
-			return scanRows, nil // 제안 스캔 행 존재
+			return scanRows, nil // suggestion scan rows present
 		}
-		return nil, nil // 본문 구문·폴백은 제로히트
+		return nil, nil // body phrase·fallback zero-hit
 	}}
-	q := strings.Repeat("쿼", 51200) // 100KB(UTF-8 3바이트 × 51200 rune)
+	q := strings.Repeat("쿼", 51200) // 100KB (UTF-8 3 bytes × 51200 runes)
 	var out strings.Builder
 	start := time.Now()
 	code := RunRead(context.Background(), st, []string{q}, strings.NewReader(""), &out)
@@ -666,11 +687,13 @@ func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
 	}
 }
 
-// ── 회상 강화 배선(recall_score+1·last_recalled_at=now) ──
+// ── Recall reinforcement wiring (recall_score+1·last_recalled_at=now) ──
 
-// recallBumperRecorder — RecordKnowledgeReads·BumpRecallScores 호출을 녹음하는
-// fake(KnowledgeReadsRecorder·RecallBumper seam 동시 구현). 실구현 경로
-// (db.Repo.BumpRecallScores의 실DB 증분)는 lib/db reads_v1700_test가 든다.
+// recallBumperRecorder — a fake recording RecordKnowledgeReads·
+// BumpRecallScores calls (implementing the KnowledgeReadsRecorder·
+// RecallBumper seams together). The real-implementation path (the real
+// DB increments of db.Repo.BumpRecallScores) is covered by
+// lib/db reads_v1700_test.
 type recallBumperRecorder struct {
 	*fakeStore
 	kreads []kreadsCall
@@ -687,9 +710,9 @@ func (r *recallBumperRecorder) BumpRecallScores(ctx context.Context, ids []int) 
 	return nil
 }
 
-// TestRunReadBumpsRecallScores — read 히트
-// 행 전수가 회상 강화(RecallBumper seam)를 1회 통과한다 — RecordKnowledgeReads
-// 경로에 결합(kind=read).
+// TestRunReadBumpsRecallScores — the full set of read hit rows passes
+// through recall reinforcement (the RecallBumper seam) once — coupled to
+// the RecordKnowledgeReads path (kind=read).
 func TestRunReadBumpsRecallScores(t *testing.T) {
 	st := &recallBumperRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM active_knowledge") {
@@ -710,9 +733,10 @@ func TestRunReadBumpsRecallScores(t *testing.T) {
 	}
 }
 
-// TestRecordKnowledgeReadsHotNoBump — hot 주입(kind=hot)은 회상 강화에서
-// 제외 — 노출→강화→재노출 순환(hot 랭킹이 recall_score를 소비하므로)을
-// 끊는 룰링. 이력 기록(knowledge_reads)은 불변.
+// TestRecordKnowledgeReadsHotNoBump — hot injection (kind=hot) is
+// excluded from recall reinforcement — the ruling breaking the
+// exposure→reinforcement→re-exposure cycle (hot ranking consumes
+// recall_score). The history recording (knowledge_reads) is unchanged.
 func TestRecordKnowledgeReadsHotNoBump(t *testing.T) {
 	st := &recallBumperRecorder{fakeStore: &fakeStore{}}
 	ctx := context.Background()

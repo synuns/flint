@@ -1,9 +1,11 @@
-// fake_parity_test.go — knowledge 패키지 fake-capability 동질
-// 가드(스펙 §1, 2026-11-11 리뷰 병인 ③). 패키지의 모든 capability
-// 인터페이스를 컴파일 시점에 fake에 단언한다 — 미구현 메서드는 패리티
-// fake(fakeApprove)의 canned 구현(호출 기록 슬라이스·선택적 capErr
-// 주입)이 채운다. 의도적 폴백 검증 fake(레거시 fake 호환 — 비목표로
-// 프로덕션 폴백 코드 유지)는 그대로 둔다.
+// fake_parity_test.go — the knowledge package's fake-capability
+// equivalence guard (spec §1, 2026-11-11 review root ③). Asserts every
+// capability interface of the package onto the fake at compile time —
+// unimplemented methods are filled by the parity fake (fakeApprove)'s
+// canned implementations (call-recording slices·optional capErr
+// injection). Deliberate fallback-verification fakes (legacy fake
+// compatibility — a non-goal of keeping production fallback code) stay
+// as-is.
 package knowledge
 
 import (
@@ -20,10 +22,11 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// 컴파일 시점 단언 전수 — 패키지 capability 인터페이스 전부를 패리티
-// fake(fakeApprove)에 단언한다. 신규 인터페이스 추가 시
-// TestFakeParityKnowledge가 발견 목록 ≠ 단언 목록으로 실패해 이 블록
-// 갱신을 강제한다(인터페이스마다 최소 1단언).
+// The full set of compile-time assertions — every package capability
+// interface asserted onto the parity fake (fakeApprove). When a new
+// interface is added, TestFakeParityKnowledge fails with discovered list
+// ≠ asserted list, forcing an update of this block (at least one
+// assertion per interface).
 var (
 	_ approveStore           = (*fakeApprove)(nil)
 	_ supersedeStore         = (*fakeApprove)(nil)
@@ -40,12 +43,12 @@ var (
 	_ staleSessionStore      = (*fakeApprove)(nil)
 	_ usageStore             = (*fakeApprove)(nil)
 	_ sessionSummaryStore    = (*fakeApprove)(nil)
-	_ supersedeRefStore      = (*fakeApprove)(nil) // 계보 참조 복원 capability
-	_ TelemetryCommitter     = (*fakeApprove)(nil) // 계측 분리 커밋 capability
-	_ recallReplayStore      = (*fakeApprove)(nil) // 이식 스코어 재생 capability(R42-A)
+	_ supersedeRefStore      = (*fakeApprove)(nil) // the lineage-reference restoration capability
+	_ TelemetryCommitter     = (*fakeApprove)(nil) // the separated metering-commit capability
+	_ recallReplayStore      = (*fakeApprove)(nil) // the migration score-replay capability (R42-A)
 
-	// 기존 capability fake의 자연 단언(이미 구현 — 문서화 + 시그니처
-	// 드리프트 회귀 가드).
+	// Natural assertions of the existing capability fakes (already
+	// implemented — documentation + a signature-drift regression guard).
 	_ approveStore        = (*approveStoreFake)(nil)
 	_ staleSessionStore   = (*doneFake)(nil)
 	_ sessionSummaryStore = (*doneFake)(nil)
@@ -60,11 +63,12 @@ var (
 	_ BytesRecorder       = (*bytesRecorder)(nil)
 )
 
-// TestFakeParityKnowledge — 인터페이스 발견 목록(패키지
-// 비테스트 소스의 interface 전수)과 단언 목록(이 파일의 `var _ X =`
-// 단언)의 동질을 소스 스캔으로 검증. 단언 전수 자체는 컴파일이 보장
-// 하고, 이 가드는 신규 capability 인터페이스가 단언 없이 추가되는
-// 사각을 막는다.
+// TestFakeParityKnowledge — verifies by source scan that the discovered
+// interface list (every interface in the package's non-test sources) and
+// the asserted list (the `var _ X =` assertions in this file) are
+// equivalent. The compilation itself guarantees the assertions work;
+// this guard blocks the blind spot of a new capability interface being
+// added without an assertion.
 func TestFakeParityKnowledge(t *testing.T) {
 	_, thisFile, _, ok := runtime.Caller(0)
 	if !ok {
@@ -72,14 +76,15 @@ func TestFakeParityKnowledge(t *testing.T) {
 	}
 	dir := filepath.Dir(thisFile)
 
-	// 발견 — 비테스트 소스의 interface 전수(capability 여부와 무관하게
-	// 패키지 인터페이스는 전부 단언 대상 — 동질이 계약).
+	// Discovery — every interface in the non-test sources (capability or
+	// not, every package interface is an assertion target — equivalence is
+	// the contract).
 	ifaceRe := regexp.MustCompile(`(?m)^type (\w+) interface \{`)
 	srcs, err := filepath.Glob(filepath.Join(dir, "*.go"))
 	if err != nil {
 		t.Fatalf("소스 글로브 실패: %v", err)
 	}
-	discovered := map[string]string{} // 인터페이스명 → 정의 파일
+	discovered := map[string]string{} // interface name → defining file
 	for _, src := range srcs {
 		if strings.HasSuffix(src, "_test.go") {
 			continue
@@ -96,7 +101,7 @@ func TestFakeParityKnowledge(t *testing.T) {
 		t.Fatal("인터페이스 발견 0건 — 스캔 자체 오류 의심")
 	}
 
-	// 단언 — 이 파일의 `var _ X = (*Y)(nil)` 전수.
+	// Assertions — every `var _ X = (*Y)(nil)` in this file.
 	self, err := os.ReadFile(thisFile)
 	if err != nil {
 		t.Fatalf("단언 파일 읽기 실패: %v", err)
@@ -110,7 +115,7 @@ func TestFakeParityKnowledge(t *testing.T) {
 		t.Fatal("단언 발견 0건 — 단언 블록 파싱 오류 의심")
 	}
 
-	// 동질 — 양방향 차집합 0.
+	// Equivalence — both directional set differences are empty.
 	for name, file := range discovered {
 		if !asserted[name] {
 			t.Errorf("인터페이스 %s(%s) 단언 없음 — 이 파일 var 블록에\n"+
@@ -124,9 +129,9 @@ func TestFakeParityKnowledge(t *testing.T) {
 	}
 }
 
-// TestFakeParityKnowledgeCanned — 패리티 fake canned 구현 행위: 미지정 시
-// 영(零) 동작(성공·0행·부재) + 호출 슬라이스 기록, capErr 지정 시 전
-// 메서드 오류 반환.
+// TestFakeParityKnowledgeCanned — the parity fake's canned
+// implementation behavior: a no-op when unset (success·0 rows·absence) +
+// call-slice recording; with capErr set, every method returns it.
 func TestFakeParityKnowledgeCanned(t *testing.T) {
 	ctx := context.Background()
 	f := &fakeApprove{}
@@ -152,7 +157,7 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 			t.Fatalf("%d번째 canned 호출 오류(미지정 시 성공): %v", i, err)
 		}
 	}
-	// 기록 — 각 capability 슬라이스에 정확히 1건.
+	// Recording — exactly 1 entry per capability slice.
 	if len(f.approveIDs) != 1 || f.approveIDs[0] != 5 {
 		t.Errorf("Approve 기록=%v, want [5]", f.approveIDs)
 	}
@@ -199,7 +204,7 @@ func TestFakeParityKnowledgeCanned(t *testing.T) {
 		t.Errorf("CommitTelemetry 기록=%v, want [read]", f.telemetryCmds)
 	}
 
-	// 오류 주입 — capErr 지정 시 전 capability가 이를 반환.
+	// Error injection — with capErr set, every capability returns it.
 	f.capErr = errors.New("canned boom")
 	for i, call := range calls {
 		if err := call(); err != f.capErr {

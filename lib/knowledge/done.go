@@ -1,7 +1,9 @@
-// done.go — flint done: Stop 훅 종료 경로. 미기록 연속 경고만 내고
-// 종료를 절대 막지 않는다(PLAN §13 비간섭 5원칙 — 어떤 경로든 exit 0.
-// 무효 인자 예외: --session 무효 값·세션 미지정 사용법 오류
-// 만 무효 인자 exit 3 — 훅 실배선은 항상 세션을 넘긴다).
+// done.go — flint done: the Stop hook exit path. Only emits the
+// consecutive-unrecorded warning and never blocks exit (PLAN §13 the five
+// non-interference principles — exit 0 on every path. Invalid-argument
+// exception: only an invalid --session value·a usage error from a missing
+// session gets the invalid-arg exit 3 — the real hook wiring always passes
+// a session).
 package knowledge
 
 import (
@@ -29,21 +31,24 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// staleSessionStore — StaleSessionRuns 접근. wire.Store 인터페이스는
-// v0.1 소유라 확장 대신 타입 단언으로 소비한다(root.go 수정 금지).
+// staleSessionStore — StaleSessionRuns access. The wire.Store interface is
+// v0.1-owned, so it is consumed via type assertion instead of extension
+// (root.go modifications forbidden).
 type staleSessionStore interface {
 	StaleSessionRuns(ctx context.Context, agent string) (int, error)
 }
 
-// usageStore — LogPlaybookUse 접근. wire.Store 인터페이스는 v0.1
-// 소유라 확장 대신 타입 단언으로 소비한다(root.go 수정 금지).
+// usageStore — LogPlaybookUse access. The wire.Store interface is
+// v0.1-owned, so it is consumed via type assertion instead of extension
+// (root.go modifications forbidden).
 type usageStore interface {
 	LogPlaybookUse(ctx context.Context, id int, ok bool) error
 }
 
-// logPlaybookUse — 종료 직전 사용 로그 1건. --playbook으로 받은 id가
-// 있을 때만 기록하며 done 출력·exit code는 완전 불변, 실패는 stderr 1행
-// 이하로 조용히 무시한다(비간섭 §13 — AutoBackupFn과 같은 격).
+// logPlaybookUse — one use log right before exit. Recorded only when an id
+// was received via --playbook; the done output·exit code are fully
+// invariant and failures are quietly ignored as at most one stderr line
+// (non-interference §13 — the same treatment as AutoBackupFn).
 func logPlaybookUse(ctx context.Context, st wire.Store, id int, ok bool) {
 	if id <= 0 {
 		return
@@ -57,20 +62,23 @@ func logPlaybookUse(ctx context.Context, st wire.Store, id int, ok bool) {
 	}
 }
 
-// DoneResult — done 판정 결과(세션 자동 요약 재료).
+// DoneResult — the done verdict result (material for the automatic session
+// summary).
 type DoneResult struct {
-	Agent      string // 집계 대상 agent
-	Unrecorded int    // 미기록 연속 세션 수
-	// 종료 요약(세션 지식화 소스) — Stop 훅 stdin이 요약을
-	// 전달하지 않으면 빈 값(폴백 상용구는 SessionRecord 전용 — 지식화는
-	// 빈 요약을 스킵한다).
+	Agent      string // the aggregated agent
+	Unrecorded int    // consecutive unrecorded session count
+	// The exit summary (the session-knowledgization source) — empty when
+	// the Stop hook stdin delivers no summary (the fallback boilerplate is
+	// SessionRecord-only — knowledgization skips empty summaries).
 	Summary string
 }
 
-// sessionEndPrefix — 종료 요약 마커 접두(세션 갱신 대상 식별용).
+// sessionEndPrefix — the exit-summary marker prefix (for identifying
+// session-renewal targets).
 const sessionEndPrefix = "session end"
 
-// SessionRecord — sessions upsert용 레코드(kind·agent·종료 요약·빈 tasks).
+// SessionRecord — the record for the sessions upsert (kind·agent·exit
+// summary·empty tasks).
 func (d *DoneResult) SessionRecord() map[string]any {
 	return map[string]any{
 		"kind":    "session",
@@ -80,24 +88,27 @@ func (d *DoneResult) SessionRecord() map[string]any {
 	}
 }
 
-// sessionSummaryStore — sessions 종료 요약 갱신의 단일 경로 capability
-// realStore는 db.Repo.UpdateSessionSummary 위임 — 쓰기 가드
-// (writes_through_repo_test)로 lib/{ops,knowledge} 소스의 Query/queryOnce
-// 호출부 쓰기 토큰이 금지된다.
+// sessionSummaryStore — the single-path capability for updating the
+// sessions exit summary. realStore delegates to db.Repo.UpdateSessionSummary
+// — the write guard (writes_through_repo_test) forbids write tokens in
+// Query/queryOnce call sites in lib/{ops,knowledge} sources.
 type sessionSummaryStore interface {
 	UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error)
 }
 
-// writeSessionRecord — 세션 자동 요약 upsert:
-// 같은 agent의 최근 세션 행을 종료 요약으로 갱신해 세션 수를 불변으로
-// 유지한다(신규 행이 StaleSessionRuns 미기록 카운트를 오염시키는 결함
-// 해소). agent의 세션이 없을 때만 INSERT. sessions 갱신은
-// maintain 갱신 경로 준용. 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13).
+// writeSessionRecord — the session auto-summary upsert: updates the
+// agent's most recent session row with the exit summary, keeping the
+// session count invariant (resolving the defect where a new row polluted
+// the StaleSessionRuns unrecorded count). INSERT only when the agent has
+// no session. The sessions update follows the maintain renewal path.
+// Failures are quietly ignored as at most one stderr line (non-interference
+// §13).
 func writeSessionRecord(ctx context.Context, st wire.Store, rec map[string]any) int {
 	agent, _ := rec["agent"].(string)
-	// agent 라벨 살균·비밀 스캔 — InsertBatch 직접
-	// 호출이라 sanitizePayload를 우회하던 사각([flint] 마커·비밀 무검사
-	// 저장). 경고만(저장은 계약대로 계속 — §13). warnSecrets 헬퍼로.
+	// Agent-label sanitization·secret scanning — closing the blind spot
+	// where a direct InsertBatch call bypassed sanitizePayload (storing
+	// [flint] markers·unchecked secrets). Warnings only (storage continues
+	// per the contract — §13). Via the warnSecrets helper.
 	warnSecrets("session agent", agent)
 	agent = store.SanitizeText(agent)
 	rec["agent"] = agent
@@ -105,23 +116,26 @@ func writeSessionRecord(ctx context.Context, st wire.Store, rec map[string]any) 
 		`SELECT id FROM sessions WHERE agent = $1
 		 ORDER BY ts DESC, id DESC LIMIT 1`, []any{agent})
 	if err == nil && len(rows) > 0 && rows[0][0] != nil {
-		// pgx는 int4를 int32로 스캔한다 — 타입 단언 대신 문자열 경유 파싱.
+		// pgx scans int4 as int32 — parse via a string instead of a type
+		// assertion.
 		var id int
 		if n, _ := fmt.Sscan(fmt.Sprint(rows[0][0]), &id); n == 1 {
-			// 갱신 UPDATE는 db.Repo.UpdateSessionSummary 단일
-			// 경로. capability 미구현(레거시 fake)은 stderr 1행으로 조용히
-			// 알리고 갱신 생략(비간섭 §13 — 종료는 계속).
+			// The renewal UPDATE has the single path
+			// db.Repo.UpdateSessionSummary. A capability non-implementation
+			// (legacy fake) gets a quiet one-line stderr notice and the
+			// renewal is skipped (non-interference §13 — the exit
+			// continues).
 			us, ok := st.(sessionSummaryStore)
 			if !ok {
 				fmt.Fprintln(os.Stderr, "[flint] session summary: unsupported store")
-				return id // 세션 종료당 1회 조회로 지식화 session_id 공유
+				return id // one lookup per session exit, sharing the knowledgization session_id
 			}
 			summary, _ := rec["summary"].(string)
 			tasks, _ := rec["tasks"].(string)
 			if _, err := us.UpdateSessionSummary(ctx, id, summary, tasks); err != nil {
 				fmt.Fprintf(os.Stderr, "[flint] session summary: %v\n", err)
 			}
-			return id // 세션 종료당 1회 조회로 지식화 session_id 공유
+			return id // one lookup per session exit, sharing the knowledgization session_id
 		}
 	}
 	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
@@ -130,22 +144,27 @@ func writeSessionRecord(ctx context.Context, st wire.Store, rec map[string]any) 
 	return 0
 }
 
-// hookDefaultAgent — UUID 세션의 집계 agent 기본값. 훅 실배선은 Claude
-// session_id(UUID)를 --session으로 넘기는데, UUID를 그대로 agent로 쓰면
-// 세션마다 agent가 갈라져 StaleSessionRuns가 영구히 1을 못 넘어 stale
-// 경고가 발화되지 않는다(도달성 결함). compact 적립 행의 agent
-// (compact.go "claude")와 같은 하니스 식별자로 안정시킨다.
+// hookDefaultAgent — the default aggregated agent for UUID sessions. The
+// real hook wiring passes the Claude session_id (a UUID) as --session; if
+// the UUID were used as the agent verbatim, each session would split into
+// its own agent and StaleSessionRuns could never exceed 1, so the stale
+// warning would never fire (a reachability defect). Stabilized to the same
+// harness identifier as the compact accrual row's agent (compact.go
+// "claude").
 const hookDefaultAgent = "claude"
 
-// hookSessionUUIDRe — 훅 실배선이 넘기는 Claude session_id 형식
-// (8-4-4-4-12 hex). claude 흡수는 이 형식에만 해당한다.
+// hookSessionUUIDRe — the Claude session_id format the real hook wiring
+// passes (8-4-4-4-12 hex). Absorption into claude applies to this format
+// only.
 var hookSessionUUIDRe = regexp.MustCompile(`^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$`)
 
-// agentForSession — session 값으로 집계 대상 agent를 찾는다. 숫자면
-// sessions.id 조회 결과를 쓰고, UUID면 하니스 기본 agent(hookDefaultAgent,
-// 훅 UUID 세션이 compact 행과 한 agent로 집계). 그 외 미해석 값(e2e·타
-// 하니스 문자 세션, 미발견 숫자 id)은 그 값 자체를 agent로 쓴다 —
-// 흡수하면 실제 claude 세션 summary를 덮어쓰고 stale 경고가 오발화된다.
+// agentForSession — finds the aggregated agent from the session value. If
+// numeric, uses the sessions.id lookup result; if a UUID, the harness
+// default agent (hookDefaultAgent — hook UUID sessions aggregate with the
+// compact rows under one agent). Other uninterpreted values (e2e·another
+// harness's string sessions, an unfound numeric id) are used as the agent
+// verbatim — absorbing them would overwrite real claude session summaries
+// and misfire the stale warning.
 func agentForSession(ctx context.Context, st wire.Store, session string) string {
 	if id, err := strconv.Atoi(session); err == nil {
 		rows, err := wire.QueryOnce(ctx, st, `SELECT agent FROM sessions WHERE id = $1`, []any{id})
@@ -161,8 +180,8 @@ func agentForSession(ctx context.Context, st wire.Store, session string) string 
 	return session
 }
 
-// staleRuns — Store가 StaleSessionRuns를 미구현(레거시 fake)이면
-// 경고 없는 0이 안전한 기본값이다.
+// staleRuns — if the Store does not implement StaleSessionRuns (legacy
+// fake), a warning-free 0 is the safe default.
 func staleRuns(ctx context.Context, st wire.Store, agent string) (int, error) {
 	if ss, ok := st.(staleSessionStore); ok {
 		return ss.StaleSessionRuns(ctx, agent)
@@ -170,15 +189,17 @@ func staleRuns(ctx context.Context, st wire.Store, agent string) (int, error) {
 	return 0, nil
 }
 
-// RunDone — `flint done --session <id>`: 미기록 연속 >= StaleSessions면
-// stale 경고, 그 외 ok. 경고일 뿐 종료를 막지 않는다(항상 exit 0).
-// v1.0.1(F3) 예외: --session 무효 값(빈 값·'-' 접두)은 무효 인자 exit 3 —
-// read·hot와 같은 공용 가드. 훅 실배선은 항상 실제 세션 id를 넘기므로
-// 정상 종료 경로는 불변(플래그 미지정의 사용법 안내는 여전히 exit 0).
+// RunDone — `flint done --session <id>`: a stale warning when consecutive
+// unrecorded >= StaleSessions, otherwise ok. Only a warning — it never
+// blocks exit (always exit 0). v1.0.1 (F3) exception: an invalid --session
+// value (empty·'-'-prefixed) gets the invalid-arg exit 3 — the same shared
+// guard as read·hot. The real hook wiring always passes a real session id,
+// so the normal exit path is invariant (the usage hint for a missing flag
+// remains exit 0).
 func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	session := ""
 	sessionGiven := false
-	playbook, playbookOK := 0, true // --playbook <id>·--playbook-ok <bool>(기본 성공)
+	playbook, playbookOK := 0, true // --playbook <id>·--playbook-ok <bool> (success by default)
 	for i := 0; i < len(args); i++ {
 		if args[i] == "--session" {
 			sessionGiven = true
@@ -188,7 +209,8 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			}
 		}
 		if args[i] == "--playbook" && i+1 < len(args) {
-			// 최근 read가 참조한 플레이북 id를 훅이 넘긴다(사용 로그).
+			// The hook passes the playbook id the most recent read
+			// referenced (use log).
 			if n, err := strconv.Atoi(args[i+1]); err == nil {
 				playbook = n
 			}
@@ -201,22 +223,24 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			i++
 		}
 	}
-	// --session 라벨 가드 — read·hot 공용 계약(빈 값·플래그
-	// 흡수 오타는 무효 인자 exit 3, 세션 라벨의 DB 기록 오염 방지).
+	// The --session label guard — the shared read·hot contract (empty
+	// values·flag-swallowing typos get the invalid-arg exit 3, preventing
+	// DB pollution of the recorded session label).
 	if err := validateSessionLabel(sessionGiven, session); err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 3
 	}
 	if session == "" {
-		// 사용법 오류(세션 미지정)는 무효 인자 exit 3 통일.
-		// 훅 실배선은 항상 실제 세션 id를 넘기므로 정상 종료 경로는 불변
-		// (비간섭 §13 — 경고·부작용 경로의 exit 0은 유지).
-		// 오류 타입도 usage 공통형.
+		// A usage error (missing session) is unified to the invalid-arg
+		// exit 3. The real hook wiring always passes a real session id, so
+		// the normal exit path is invariant (non-interference §13 — the
+		// warning·side-effect paths keep exit 0). The error type is also
+		// the common usage form.
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("usage: flint done --session <id>")))
 		return 3
 	}
-	// thresholds 로더 단일화 — write.go의 WriteThresholds
-	// 공용(바이트 동일한 로컬 복제 폐지).
+	// Threshold-loader unification — the shared WriteThresholds from
+	// write.go (abolishing the byte-identical local duplicate).
 	th := WriteThresholds(ctx, st)
 	agent := agentForSession(ctx, st, session)
 	runs, err := staleRuns(ctx, st, agent)
@@ -224,28 +248,35 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return 0
 	}
-	// Stop 훅 stdin의 compact_summary를 세션
-	// 지식화 소스로 연결. Claude Code 규격상 Stop stdin에
-	// 이 필드가 없으므로 이 경로는 타 하네스 폴백이고, 표준 경로는
-	// PostCompact(flint compact)의 maybeSessionKnowledge 호출이다.
+	// Wire the Stop hook stdin's compact_summary as the session
+	// knowledgization source. Per the Claude Code spec the Stop stdin has
+	// no such field, so this path is another harness's fallback; the
+	// standard path is the maybeSessionKnowledge call in PostCompact
+	// (flint compact).
 	res := &DoneResult{Agent: agent, Unrecorded: runs, Summary: doneStdinSummary(stdin)}
-	// stale·recall·ok 출력 분기 뒤 공통 꼬리로 흐른다(종료 시퀀스
-	// 이중 유지로 인한 드리프트 방지 — stale 조기 return이 지식화를
-	// 누락시키던 사각의 재발 차단).
+	// Flows into the common tail after the stale·recall·ok output branch
+	// (preventing drift from maintaining the exit sequence twice — blocking
+	// the recurrence of the blind spot where the stale early return missed
+	// knowledgization).
 	if runs >= th.StaleSessions {
 		fmt.Fprintf(stdout, `{"status":"stale","runs":%d,"warning":"%d consecutive sessions unrecorded"}`+"\n", runs, runs)
-		// 발화 카운터 — stale 경고 발화 1회(진단 D 원천, spec §2.5).
+		// The firing counter — one stale warning firing (diagnostics D
+		// source, spec §2.5).
 		BumpMetaCounter(ctx, st, "fired_done_stale")
 	} else if w, starved := recallStarvedToday(ctx, st, th); starved {
-		// 회상 경고 — 오늘 회상 0회에 기록이 임계 이상이면 한 줄
-		// 경고로 종료(stale 경고와 같은 패턴 — 임계값 기반·종료 불가, §13).
-		// Stop 훅 stdout은 자동 배선에서 안 보이므로 recall 마커도
-		// 남긴다 — 다음 SessionStart(nudge)가 1회 표시 후 소진한다.
-		// 별도 파일(recall-hint.json) — 증류 대기 마커와 덮어쓰기
-		// 충돌 방지(수명 주기 상이: 1회성 vs 내구).
+		// Recall warning — when today has 0 recalls and records are at or
+		// above the threshold, exit with a one-line warning (the same
+		// pattern as the stale warning — threshold-based·never blocking
+		// exit, §13). The Stop hook stdout is invisible in automatic
+		// wiring, so a recall marker is also left — the next SessionStart
+		// (nudge) consumes it after showing it once. A separate file
+		// (recall-hint.json) — avoiding an overwrite collision with the
+		// distillation-pending marker (different lifecycles: one-shot vs
+		// durable).
 		fmt.Fprintf(stdout, `{"status":"recall","writes":%d,"warning":"0 recalls vs %d writes today — run flint read before work next session"}`+"\n", w, w)
-		// 마커와 병행 meta 카운터 적립 — minimal 프로파일이
-		// 마커를 조용히 종결해도 doctor가 프로파일 무관 관측한다.
+		// A meta counter accrues alongside the marker — even if the
+		// minimal profile quietly concludes the marker, doctor observes it
+		// profile-independently.
 		BumpMetaCounter(ctx, st, "recall_starved_count")
 		if merr := writeTypedMarker(markerKindRecall, session, nudgeReasonRecall); merr != nil {
 			fmt.Fprintf(os.Stderr, "[flint] recall marker: %v\n", merr)
@@ -254,52 +285,58 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		fmt.Fprintln(stdout, `{"status":"ok"}`)
 	}
 	sessionRowID := writeSessionRecord(ctx, st, res.SessionRecord())
-	// stale 종료에서도 요약이 있으면 지식화 — 미기록 연속은
-	// 지식 보존이 가장 필요한 상황이므로 스킵하면 기능이 죽는다.
+	// Even a stale exit knowledgizes when a summary exists — consecutive
+	// unrecorded is exactly when knowledge preservation is most needed;
+	// skipping it would kill the feature.
 	maybeSessionKnowledge(ctx, st, res.Summary, agent, session, sessionRowID)
 	logPlaybookUse(ctx, st, playbook, playbookOK)
-	// 세션 행·지식화·meta 카운터는 dolt
-	// 커밋 없이 종료되던 것을 무관한 다음 write의 전역 스테이징이 흡수해
-	// 감사 귀속이 어긋났다 — 종료 경계에서 커밋(실패는 stderr·비간섭 §13).
+	// The session row·knowledgization·meta counters used to exit without a
+	// dolt commit and be absorbed by an unrelated next write's global
+	// staging, skewing audit attribution — commit at the exit boundary
+	// (failure is stderr·non-interference §13).
 	if _, cerr := st.Commit(ctx, fmt.Sprintf(
 		"session-end: agent=%s runs=%d (session-end audit attribution) [session:0]",
 		agentLabel(agent, 24), runs)); cerr != nil {
 		fmt.Fprintf(os.Stderr, "[flint] session-end commit: %v\n", cerr)
 	}
-	// 계측 테이블 별도 커밋(done 완료 경로 1회 — 기존 감사
-	// 커밋 후·실패 조용, §13).
+	// A separate commit for the metering table (once on the done completion
+	// path — after the existing audit commit·failure quiet, §13).
 	commitTelemetry(ctx, st, "done")
 	AutoBackupFn(ctx, st)
 	return 0
 }
 
-// maybeSessionKnowledge — 세션 지식화: 세션 종료 시 세션
-// 요약에서 지식 후보를 pending knowledge로 적립한다. 규칙 기반만
-// (LLM 판정 배제 — §13·조사 확정): 최소 길이·중복(content_hash dedup)·
-// 빈도 상한(임계 session_knowledge_days로 일 1회)을 지닌 요약만.
-// 적립은 pending(검수 대기) — approve 경로로 승격된다(신뢰 게이트 승계).
-// 소스를 문자열로 받는다 — Stop 훅 stdin(타 하네스 폴백)과
-// PostCompact(flint compact — Claude Code 표준 경로, 요약의 실제 도달
-// 지점) 양쪽에서 호출. 계약 수선: 살균 후 길이 게이트·topic 살균·요약
-// 500룬 절단(import와 대칭)·tags []string("process" 문자열은
-// normalizeTags에서 빈 값으로 소거됨)·저장 시점 비밀 스캔 경고(write
-// 경로 계약 정렬).
+// maybeSessionKnowledge — session knowledgization: at session end, accrues
+// a knowledge candidate from the session summary as pending knowledge.
+// Rule-based only (LLM verdicts excluded — §13·investigation ruling): only
+// summaries meeting the minimum length·dedup (content_hash)·frequency cap
+// (the session_knowledge_days threshold, once per day). Accrual is pending
+// (awaiting review) — promoted via the approve path (trust gate
+// inherited). Takes the source as a string — called from both the Stop
+// hook stdin (another harness's fallback) and PostCompact (flint compact —
+// the Claude Code standard path, where summaries actually arrive).
+// Contract repairs: length gate after sanitization·topic sanitization·
+// summary truncation to 500 runes (import symmetry)·tags []string (the
+// "process" string is dropped to empty in normalizeTags)·storage-time
+// secret-scan warnings (aligned with the write-path contract).
 func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, session string, sessionRowID int) {
-	// 빈 게이트를 임계값 로드 앞으로 — 요약 없는 종료(일반
-	// Stop)이 thresholds 왕복을 물리지 않게 한다.
+	// Move the empty gate ahead of the threshold load — exits without a
+	// summary (ordinary Stop) no longer pay the thresholds round trip.
 	summary = render.TruncateRunes(store.SanitizeText(strings.TrimSpace(summary)), 500)
-	// 실제 요약(Compact 결과 등)이 전달된 경우만 적립 —
-	// 폴백 상용구("세션 종료(미기록 N)")는 지식이 아니므로 스킵.
-	// 게이트는 살균·절단 후 기준(제어문자뿐인 입력이 빈 summary
-	// 행으로 저장되는 사각 방지).
+	// Accrue only when a real summary (the Compact result etc.) is
+	// delivered — the fallback boilerplate ("session end (unrecorded N)")
+	// is not knowledge and is skipped. The gate is applied after
+	// sanitization·truncation (preventing control-character-only input
+	// from being stored as an empty summary row).
 	if summary == "" || len([]rune(summary)) < 12 {
 		return
 	}
 	th := WriteThresholds(ctx, st)
 	if th.SessionKnowledgeDays <= 0 {
-		return // -1 = 끔
+		return // -1 = off
 	}
-	// 일 빈도 상한 — 마지막 적립이 N일 이내면 skip(연속 세션 스팸 방지).
+	// The daily frequency cap — skip if the last accrual is within N days
+	// (preventing consecutive-session spam).
 	getKV, _ := metaKV(ctx, st)
 	if v, err := getKV("session_knowledge_last"); err == nil && v != "" {
 		if last, perr := time.Parse(time.RFC3339, v); perr == nil &&
@@ -307,24 +344,25 @@ func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, s
 			return
 		}
 	}
-	// topic에 요약 키워드 — "세션[claude]"는 회상 topic 정합
-	// 신호로 무의미했다. 첫 문장의 앞부분(첫 구분자 또는 20룬)을 반영해
-	// 브라우징·검색 품질을 높인다(규칙 기반 — LLM 판정 배제 §13).
+	// Summary keywords in the topic — "session[claude]" was meaningless as
+	// a recall topic-match signal. Reflects the leading part of the first
+	// sentence (the first delimiter or 20 runes) to improve browsing·search
+	// quality (rule-based — LLM verdicts excluded, §13).
 	topic := store.SanitizeText(render.TruncateRunes(
 		fmt.Sprintf("session[%s] %s", agentLabel(agent, 24), summaryKeyword(summary)), 80))
 	rec := map[string]any{
 		"kind":       "knowledge",
 		"topic":      topic,
 		"summary":    summary,
-		"tags":       []string{"process"}, // 문자열은 normalizeTags에서 소거
+		"tags":       []string{"process"}, // the string is dropped in normalizeTags
 		"domain":     "main",
-		"confidence": 0.5, // pending 게이트 — approve 경로 승격
+		"confidence": 0.5, // pending gate — promoted via the approve path
 		"status":     "pending",
-		"origin":     "hook", // 기계 적립 식별(기본 "agent"와 구분)
+		"origin":     "hook", // machine-accrual identification (distinct from the default "agent")
 	}
-	// session_id는 writeSessionRecord가 찾은 id를
-	// 승계(세션 종료당 1회 조회). compact 등 이 경로 밖 호출은 0 —
-	// sessionRowIDForAgent 폴백으로 1회만 더 조회한다.
+	// session_id inherits the id writeSessionRecord found (one lookup per
+	// session exit). Out-of-path calls such as compact pass 0 — one more
+	// lookup at most via the sessionRowIDForAgent fallback.
 	if sessionRowID <= 0 {
 		sessionRowID = sessionRowIDForAgent(ctx, st, agent)
 	}
@@ -334,21 +372,23 @@ func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, s
 	rec = store.Normalize("knowledge", rec)
 	rec["content_hash"] = store.ContentHash(store.HashCanonical(rec))
 	if exists, err := st.ExistsHash(ctx, rec["content_hash"].(string)); err == nil && exists {
-		return // 중복 방지(같은 세션 재종료 재적립 차단)
+		return // duplicate prevention (blocking re-accrual on session re-exit)
 	}
-	// 저장 시점 비밀 스캔 — write 경로 계약 정렬(dedup
-	// 통과분만 경고 — 영구 skip되는 내용의 재경고 소음 방지). 경고만
-	// (저장 거부 아님 — doctor 사후 스캔과 이중 방어).
+	// Storage-time secret scanning — aligned with the write-path contract
+	// (warn only on dedup passers — avoiding re-warning noise for
+	// permanently skipped content). Warnings only (not a storage rejection
+	// — dual defense with the doctor's after-the-fact scan).
 	warnSecrets("session knowledge", summary)
 	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
-		// 완전 침묵 대신 stderr 1줄(recall 마커 관례 정렬) —
-		// 종료는 막지 않는다(§13).
+		// One stderr line instead of total silence (aligned with the recall
+		// marker convention) — the exit is never blocked (§13).
 		fmt.Fprintf(os.Stderr, "[flint] session knowledge: %v\n", err)
 		return
 	}
-	// 마커 적립 — 증류 회로(nudge 예산 문구)로 자연 연결(R2). 세션
-	// 식별 가능할 때만(compact의 session_id 부재 폴백
-	// 마커와 인접 WriteMarker 가드 정렬).
+	// Marker accrual — naturally feeding the distillation circuit (the
+	// nudge budget wording) (R2). Only when the session is identifiable
+	// (aligned with the WriteMarker guard adjacent to the marker-less
+	// session_id fallback in compact).
 	if session != "" {
 		if merr := writeTypedMarker(markerKindDistill, session, "session-knowledge"); merr != nil {
 			fmt.Fprintf(os.Stderr, "[flint] distill marker: %v\n", merr)
@@ -360,12 +400,13 @@ func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, s
 	}
 }
 
-// summaryKeyword — 요약 첫 문장에서 topic용 키워드(첫 구분자·20룬
-// 상한 — 규칙 기반).
+// summaryKeyword — the topic keyword from the summary's first sentence
+// (the first delimiter·20-rune cap — rule-based).
 func summaryKeyword(summary string) string {
 	first := strings.SplitN(summary, "\n", 2)[0]
-	// 콜론은 제외 — "X 패치: 핵심 주제" 형태에서 핵심이 콜론 뒤에 온다.
-	// 목록 순서가 아니라 가장 이른 경계에서 자른다.
+	// Colons excluded — in the shape "X patch: the core subject", the core
+	// comes after the colon. Cut at the earliest boundary, not in list
+	// order.
 	cut := -1
 	for _, sep := range []string{"。", "다.", ". ", "— "} {
 		if i := strings.Index(first, sep); i > 4 && (cut < 0 || i < cut) {
@@ -378,8 +419,8 @@ func summaryKeyword(summary string) string {
 	return strings.TrimSpace(render.TruncateRunes(first, 20))
 }
 
-// sessionRowIDForAgent — agent의 최신 sessions.id(writeSessionRecord
-// 조회 승계). 미발견·오류는 0.
+// sessionRowIDForAgent — the agent's latest sessions.id (inheriting the
+// writeSessionRecord lookup). Not found·error yields 0.
 func sessionRowIDForAgent(ctx context.Context, st wire.Store, agent string) int {
 	if agent == "" {
 		return 0
@@ -397,16 +438,17 @@ func sessionRowIDForAgent(ctx context.Context, st wire.Store, agent string) int 
 	return 0
 }
 
-// warnSecrets — 저장 시점 비밀 스캔 경고의 단일 헬퍼(
-// writeSessionRecord·세션 지식화·import 3중 복제 수렴). stderr 1줄씩.
+// warnSecrets — the single helper for storage-time secret-scan warnings
+// (converging the writeSessionRecord·session-knowledgization·import
+// triple duplication). One stderr line each.
 func warnSecrets(prefix, s string) {
 	for _, name := range store.ScanSecrets(s) {
 		fmt.Fprintf(os.Stderr, "[flint] %s: possible secret: %s\n", prefix, name)
 	}
 }
 
-// agentLabel — 세션 라벨(빈 값 폴백 + TruncateRunes 재사용 —
-// 절단 헬퍼 단일화).
+// agentLabel — the session label (empty-value fallback + TruncateRunes
+// reuse — truncation-helper unification).
 func agentLabel(agent string, max int) string {
 	if agent == "" {
 		return "unknown"
@@ -414,17 +456,21 @@ func agentLabel(agent string, max int) string {
 	return render.TruncateRunes(agent, max)
 }
 
-// recallStarvedToday — 오늘 daily 카운터로 회상 부재 판정.
-// read 0 && write >= RecallWarnWrites일 때만 true. 카운터 조회·파손은
-// 조용히 false(경고 부재 = 종료 경로 불변 — §13).
-// 기록 원천을 실제 생산자와 정렬 — write는
-// 플랫 키 `daily:write:<date>` int 값 직독(구 daily:<date> JSON 폴백 폐지
-// — RecordUsage가 그 키를 더 쓰지 않아 폴백이 항상 0을 돌려주며 카운터가
-// 영구 동결, 회상 경고·recall_starved_count가 사망했다). read는
-// read_events 당일(UTC 자정 이후·내일 자정 미만) 행 수 — 일자 절단은
-// ops.mergeDerivedReadDaily와 동일 관례(Go 계산 UTC 자정 컷오프 파라미터,
-// SQL interval 산산 금지). read_events 부재 스키마·조회 실패는 read=0
-// 취급이 아니라 조용히 (0, false). 파손된 플랫 값(비int)도 기존처럼 조용히 0.
+// recallStarvedToday — the recall-absence verdict from today's daily
+// counters. true only when reads are 0 && writes >= RecallWarnWrites.
+// Counter lookup·corruption are quietly false (absence of the warning =
+// the exit path unchanged — §13). The recording source is aligned with the
+// actual producer — writes are read directly from the flat key
+// `daily:write:<date>` int value (abolishing the legacy daily:<date> JSON
+// fallback — RecordUsage no longer writes that key, so the fallback always
+// returned 0, the counter froze forever, and the recall warning·
+// recall_starved_count died). Reads are the count of same-day (UTC
+// midnight or later·before tomorrow's midnight) read_events rows — the
+// date severance follows the same convention as ops.mergeDerivedReadDaily
+// (a Go-computed UTC-midnight cutoff parameter, no SQL interval
+// arithmetic). A missing-schema·failed lookup of read_events is not
+// treated as read=0 but quietly (0, false). A corrupted flat value
+// (non-int) is also quietly 0 as before.
 func recallStarvedToday(ctx context.Context, st wire.Store, th store.Thresholds) (writes int, starved bool) {
 	if th.RecallWarnWrites <= 0 {
 		return 0, false
@@ -436,10 +482,10 @@ func recallStarvedToday(ctx context.Context, st wire.Store, th store.Thresholds)
 		return 0, false
 	}
 	if writes, err = strconv.Atoi(strings.TrimSpace(v)); err != nil {
-		return 0, false // 파손된 플랫 값 — 조용히 0
+		return 0, false // corrupted flat value — quietly 0
 	}
 	if writes < th.RecallWarnWrites {
-		return writes, false // 임계 미달 — read 조회 없이 경고 없음
+		return writes, false // under the threshold — no warning without a read lookup
 	}
 	cutoff, cerr := time.Parse("2006-01-02", day)
 	if cerr != nil {
@@ -458,16 +504,18 @@ func recallStarvedToday(ctx context.Context, st wire.Store, th store.Thresholds)
 	return writes, reads == 0
 }
 
-// AutoBackupFn — seam. 기본 실동작, fast 단위 테스트는 no-op으로 교체
-// (실동작 검증은 e2e ④가 실DB·실덤프로 한다). v0.39.0 T4 내보내기:
-// seam 교체는 구현 소유 패키지 var여야 전파되므로 대문자화했다
-// (cli 잔류 done_test가 knowledge.AutoBackupFn을 직접 스텁).
+// AutoBackupFn — the seam. Real action by default; fast unit tests swap
+// in a no-op (real-action verification is done by e2e ④ against a real
+// DB·real dump). v0.39.0 T4 export: upper-cased because a seam swap must
+// be a package var owned by the implementation to propagate (the residual
+// cli done_test stubs knowledge.AutoBackupFn directly).
 var AutoBackupFn = maybeAutoBackup
 
-// maybeAutoBackup — 하루 1회 자동 백업(spec §8 "하루 첫 세션 지연 트리거").
-// done 판정 뒤에만 실행하며 출력·exit code는 완전 불변, 실패는 stderr 1행
-// 이하로 조용히 무시한다(비간섭 §13).
-// meta 접근은 주입 st 경유.
+// maybeAutoBackup — the once-a-day automatic backup (spec §8 "lazy trigger
+// on the first session of the day"). Runs only after the done verdict;
+// the output·exit code are fully invariant and failures are quietly
+// ignored as at most one stderr line (non-interference §13).
+// Meta access goes through the injected st.
 func maybeAutoBackup(ctx context.Context, st wire.Store) {
 	if st == nil {
 		return
@@ -481,30 +529,36 @@ func maybeAutoBackup(ctx context.Context, st wire.Store) {
 		dir = filepath.Join(home, ".flint", "backup")
 	}
 
-	// meta 접근은 GetMetaKVErr/SetMetaKV 단일 진입 위임
-	// (키 부재 ("", nil)·전송 오류 구분 계약 유지).
+	// Meta access is delegated to the GetMetaKVErr/SetMetaKV single
+	// entries (keeping the key-absent ("", nil)·transport-error
+	// distinction contract).
 	metaGet := func(key string) (string, error) {
 		v, _, err := wire.GetMetaKVErr(ctx, st, key)
 		return v, err
 	}
-	// 자동 백업 선점은 CAS — 병렬 세션과 원자 경쟁.
+	// Automatic-backup claiming is CAS — an atomic race with parallel
+	// sessions.
 	claimKV := func(oldVal, newVal string) (bool, error) {
 		return wire.CompareSetMetaKV(ctx, st, "last_backup", oldVal, newVal)
 	}
 	lf := &lazyDumpFile{dir: dir}
-	// meta backup_encrypt=true면 자동 백업도 암호화
-	// (키는 config 디렉터리 — 첫 암호화 시 자동 생성). 판독 실패는 기본
-	// 평문(비간섭 §13 — 백업 실패가 종료를 깨지 않는 계약 유지).
+	// With meta backup_encrypt=true, the automatic backup is also
+	// encrypted (the key lives in the config directory — auto-generated on
+	// first encryption). A read failure defaults to plaintext
+	// (non-interference §13 — keeping the contract that a backup failure
+	// never breaks the exit).
 	if v, ok := wire.GetMetaKV(ctx, st, "backup_encrypt"); ok && wire.BackupEncryptOn(v) {
 		lf.encrypt = true
 	}
 	defer lf.close()
 	auto := backup.Auto{DSN: wire.DSNFromEnv()}
 	runErr := auto.RunIfNeeded(ctx, metaGet, claimKV, lf)
-	// 자동 백업도 로테이션 — 파일 확정(사이드카
-	// 포함) 뒤 keep-N 정책을 적용한다. 이전엔 수동 `flint backup --out`
-	// 경로(rotateAfterBackup)에만 묶여 있어 자동 파일이 무한히 축적됐다.
-	// 실패는 경고만(백업 성공 불변 — 수동 경로와 동일 계약).
+	// The automatic backup also rotates — the keep-N policy applies after
+	// the file is finalized (sidecar included). Previously it was bound
+	// only to the manual `flint backup --out` path (rotateAfterBackup), so
+	// automatic files accumulated indefinitely. Failures are warnings only
+	// (the successful backup is invariant — the same contract as the
+	// manual path).
 	if runErr == nil {
 		if name := lf.closeAndPath(); name != "" {
 			if _, rerr := rotateFn(dir, keepFn(metaGet)); rerr != nil {
@@ -517,10 +571,11 @@ func maybeAutoBackup(ctx context.Context, st wire.Store) {
 	}
 }
 
-// metaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. 조회·쓰기 본체는
-// wire.GetMetaKVErr·wire.SetMetaKV 단일 진입 직접 경유(
-// ops.MetaKV와 같은 패턴, 이 클로저는 오류 구분 계약만 유지). getKV는
-// 키 부재 시 ("", nil), 전송 오류는 err 그대로.
+// metaKV — assembles the meta-table getKV/setKV closure pair. The lookup·
+// write bodies go directly through the wire.GetMetaKVErr·wire.SetMetaKV
+// single entries (the same pattern as ops.MetaKV; these closures keep only
+// the error-distinction contract). getKV returns ("", nil) on key absence;
+// transport errors return err as-is.
 func metaKV(ctx context.Context, st wire.Store) (func(string) (string, error), func(string, string) error) {
 	getKV := func(key string) (string, error) {
 		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
@@ -535,24 +590,26 @@ func metaKV(ctx context.Context, st wire.Store) (func(string) (string, error), f
 	return getKV, setKV
 }
 
-// markerKindDistill·markerKindRecall — 마커 종류(cli/marker.go 소유 상수
-// 값과 동일 — pending-distill.json·recall-hint.json 파일명 계약).
+// markerKindDistill·markerKindRecall — the marker kinds (same values as
+// the cli/marker.go-owned constants — the pending-distill.json·
+// recall-hint.json filename contract).
 const (
 	markerKindDistill = "distill"
 	markerKindRecall  = "recall"
 )
 
-// nudgeReasonRecall — done 회상 부재 마커의 Reason 값(cli/nudge.go 소유
-// 상수와 동일 — 진단 표시).
+// nudgeReasonRecall — the Reason value of the done recall-absence marker
+// (same as the cli/nudge.go-owned constant — diagnostics display).
 const nudgeReasonRecall = "recall"
 
-// WriteTypedMarkerFn — 마커 기록 seam(cli marker.go 소유 구현 주입 —
-// knowledge는 cli를 임포트할 수 없다. cli/knowledge_curation_alias.go
-// init이 주입한다. 미주입(단위 테스트) 호출은 조용히 무시한다 — 마커
-// 누락은 비간섭 §13 경로와 같은 격).
+// WriteTypedMarkerFn — the marker-writing seam (the cli marker.go-owned
+// implementation is injected — knowledge cannot import cli.
+// cli/knowledge_curation_alias.go init injects it. Calls without injection
+// (unit tests) are quietly ignored — a missing marker is the same
+// treatment as the non-interference §13 paths).
 var WriteTypedMarkerFn func(kind, sessionID, reason string) error
 
-// writeTypedMarker — seam 경유 마커 기록 래퍼.
+// writeTypedMarker — the marker-writing wrapper through the seam.
 func writeTypedMarker(kind, sessionID, reason string) error {
 	if WriteTypedMarkerFn == nil {
 		return nil
@@ -560,24 +617,26 @@ func writeTypedMarker(kind, sessionID, reason string) error {
 	return WriteTypedMarkerFn(kind, sessionID, reason)
 }
 
-// BackupKeyPathFn — 암호화 키 경로 seam(cli BackupKeyPath — dataFile
-// 인프라가 cli 소유). cli init이 주입한다.
+// BackupKeyPathFn — the encryption-key path seam (cli BackupKeyPath — the
+// dataFile infrastructure is cli-owned). cli init injects it.
 var BackupKeyPathFn func() string
 
-// 백업 보조 seam — cli/backup.go 소유 var와 동일하게 backup 패키지
-// 실구현 기본값(테스트 교체 관례 승계).
+// Backup helper seams — the backup package's real implementations as
+// defaults, identical to the cli/backup.go-owned vars (inheriting the
+// test-swap convention).
 var (
 	rotateFn    = backup.Rotate
 	keepFn      = backup.BackupKeep
 	ensureKeyFn = backup.EnsureIdentity
 )
 
-// lazyDumpFile — 첫 Write 시에만 덤프 파일을 만드는 지연 writer.
-// RunIfNeeded가 비경과 no-op일 때 빈 파일을 남기지 않게 한다.
-// 기록 바이트는 sha256 tee로 합산되고 close가 .sha256 사이드카를
-// 남긴다(ADR-0006 무결 검증을 자동 파일에도 적용).
-// encrypt=true면 age 암호화 — 체인은 평문→age writer→
-// hashFile(파일+sha256 tee)로, 해시·사이드카는 암호문 기준이 된다.
+// lazyDumpFile — a lazy writer that creates the dump file only on the
+// first Write. Prevents leaving an empty file when RunIfNeeded is a
+// no-op due to non-elapsed time. The written bytes are summed through a
+// sha256 tee and close leaves a .sha256 sidecar (applying ADR-0006
+// integrity verification to automatic files too). With encrypt=true, age
+// encryption — the chain is plaintext→age writer→hashFile (file + sha256
+// tee), so the hash·sidecar are over the ciphertext.
 type lazyDumpFile struct {
 	dir     string
 	encrypt bool
@@ -585,11 +644,11 @@ type lazyDumpFile struct {
 	f       *os.File
 	h       hash.Hash
 	hw      *hashFile
-	aw      io.WriteCloser // age 래핑(encrypt 시)
+	aw      io.WriteCloser // age wrapping (when encrypt)
 	failed  bool
 }
 
-// hashFile — 파일 기록 + sha256 tee 동시 기록(sink).
+// hashFile — file writing + a simultaneous sha256 tee (the sink).
 type hashFile struct {
 	f *os.File
 	h hash.Hash
@@ -605,7 +664,7 @@ func (w *hashFile) Write(p []byte) (int, error) {
 
 func (l *lazyDumpFile) Write(p []byte) (int, error) {
 	l.once.Do(func() {
-		if err := os.MkdirAll(l.dir, 0o700); err != nil { // v0.20.6 S3: 덤프는 민감 평문 — 0700
+		if err := os.MkdirAll(l.dir, 0o700); err != nil { // v0.20.6 S3: dumps are sensitive plaintext — 0700
 			l.failed = true
 			return
 		}
@@ -613,8 +672,8 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 		if l.encrypt {
 			ext = ".sql.age"
 		}
-		// 키 확보를 파일 생성보다 먼저 — 키 실패가 부분 파일을 남기지
-		// 않게 한다.
+		// Key acquisition before file creation — so a key failure leaves no
+		// partial file.
 		var recipient *age.X25519Recipient
 		if l.encrypt {
 			if BackupKeyPathFn == nil {
@@ -633,8 +692,8 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 			}
 			recipient = id.Recipient()
 		}
-		// 파일명에 PID — 병렬 세션이 같은 초에 종료해도
-		// O_TRUNC 상호 덮어쓰기(내용 뒤섞임)가 없게 한다.
+		// PID in the file name — so parallel sessions exiting in the same
+		// second never mutually overwrite via O_TRUNC (mixed contents).
 		name := filepath.Join(l.dir,
 			"flint-"+time.Now().UTC().Format("20060102-150405")+"-"+strconv.Itoa(os.Getpid())+ext)
 		f, err := os.OpenFile(name, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
@@ -657,9 +716,9 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 	if l.failed {
 		return 0, errors.New("backup auto: cannot create dump file")
 	}
-	// 본문 기록 실패 시 failed 마킹 — 부분 파일이
-	// '내용과 일치하는' 정상 사이드카를 받아 온전한 구 백업을 rotate에서
-	// 밀어내던 오탐 상태를 차단한다.
+	// Mark failed on body-write failure — blocking the false-positive
+	// state where a partial file received a normal sidecar 'matching its
+	// contents' and pushed a sound old backup out of rotation.
 	if l.aw != nil {
 		n, err := l.aw.Write(p)
 		if err != nil {
@@ -675,11 +734,12 @@ func (l *lazyDumpFile) Write(p []byte) (int, error) {
 	return n, nil
 }
 
-// close — 덤프 close 성공 후 .sha256 사이드카 기록. once 미발동(0바이트
-// no-op)이면 파일·사이드카 모두 만들지 않는다. 사이드카 실패는 경고 로그
-// 후 진행(비차단 — done 반환·exit 불변).
-// age 래핑이 있으면 age writer 종결(최종 플러시)을 파일 close
-// 보다 먼저 — 종결 실패는 부분 파일 폐기 대상.
+// close — writes the .sha256 sidecar after a successful dump close. If
+// once never fired (a 0-byte no-op), neither file nor sidecar is created.
+// Sidecar failure logs a warning and proceeds (non-blocking — done
+// return·exit invariant). With age wrapping, the age writer is finalized
+// (final flush) before the file close — a finalization failure makes the
+// partial file a discard candidate.
 func (l *lazyDumpFile) close() error {
 	if l.f == nil {
 		return nil
@@ -687,7 +747,7 @@ func (l *lazyDumpFile) close() error {
 	name := l.f.Name()
 	if l.aw != nil {
 		if aerr := l.aw.Close(); aerr != nil {
-			l.failed = true // age 종결 실패 — 부분 암호문
+			l.failed = true // age finalization failure — partial ciphertext
 			_ = l.f.Close()
 			l.f = nil
 			_ = os.Remove(name)
@@ -696,10 +756,11 @@ func (l *lazyDumpFile) close() error {
 		l.aw = nil
 	}
 	closeErr := l.f.Close()
-	l.f = nil // 멱등 — closeAndPath 이후 defer close의 이중 close 방어
-	// 본문 기록 실패한 부분 파일은 사이드카 없이 제거 —
-	// 체크섬 통과하는 오탐 백업 슬롯을 남기지 않는다. 이중 close
-	// 에러(실패 유도로 이미 닫힌 경우)보다 폐기가 우선.
+	l.f = nil // idempotent — double-close defense for the deferred close after closeAndPath
+	// A partial file whose body write failed is removed without a sidecar
+	// — leaving no false-positive backup slot that passes the checksum.
+	// Discarding takes precedence over a double-close error (already
+	// closed via failure injection).
 	if l.failed {
 		_ = os.Remove(name)
 		return errors.New("backup auto: partial dump discarded")
@@ -715,9 +776,10 @@ func (l *lazyDumpFile) close() error {
 	return nil
 }
 
-// closeAndPath — 파일을 확정(close·사이드카)하고 경로를 반환한다.
-// 기록이 없던 no-op면 빈 문자열. 자동 백업 로테이션이 확정된
-// 경로를 얻는 접합(이후 defer close는 l.f=nil로 no-op).
+// closeAndPath — finalizes the file (close·sidecar) and returns its path.
+// An empty string for a no-op that wrote nothing. The interface by which
+// the automatic backup rotation obtains the finalized path (the later
+// deferred close is a no-op via l.f=nil).
 func (l *lazyDumpFile) closeAndPath() string {
 	if l.f == nil {
 		return ""
@@ -733,13 +795,15 @@ func init() {
 	wire.Register("done", RunDone)
 }
 
-// BumpMetaCounter — meta 카운터 1 증분(done 회상 카운터 전용 유틸).
-// 실패는 조용히(§13 — 계측 원칙). v0.34.3 T2: 증분 본체는 BumpMetaKV
-// 단일 진입 위임 — 미가드 ::bigint 캐스트는 파손값에서 오류로 증분이
-// 영구히 얼어붙었으나, 단일 구현의 파손값 1 리셋 가드로 회수된다.
-// v0.39.0 T4 내보내기: cli 잔류 소비자(meta_kv_test)가 별칭으로 호출.
-// v1.2.0 T4: st nil(네트지향 훅 경로 — nudge 무store 호출)도 조용히
-// 스킵(BumpMetaKV의 nil 인터페이스 호출 패닉 방지).
+// BumpMetaCounter — increments a meta counter by 1 (a done recall-counter
+// utility). Failures are quiet (§13 — metering principle). v0.34.3 T2: the
+// increment body is delegated to the BumpMetaKV single entry — the
+// unguarded ::bigint cast used to freeze the increment forever on a
+// corrupted value, recovered by the single implementation's corrupted-
+// value reset-to-1 guard. v0.39.0 T4 export: residual cli consumers
+// (meta_kv_test) call it via the alias. v1.2.0 T4: a nil st (a
+// network-oriented hook path — a no-store nudge call) is also quietly
+// skipped (preventing a panic on a nil-interface call to BumpMetaKV).
 func BumpMetaCounter(ctx context.Context, st wire.Store, key string) {
 	if st == nil {
 		return
@@ -747,8 +811,9 @@ func BumpMetaCounter(ctx context.Context, st wire.Store, key string) {
 	_ = wire.BumpMetaKV(ctx, st, key)
 }
 
-// doneStdinSummary — Stop 훅 stdin JSON에서 compact_summary 추출
-// 파싱 실패·부재는 빈 값 — 폴백 상용구 스킵 계약 유지.
+// doneStdinSummary — extracts compact_summary from the Stop hook stdin
+// JSON. Parse failure·absence yield the empty value — keeping the
+// skip-fallback-boilerplate contract.
 func doneStdinSummary(stdin io.Reader) string {
 	if stdin == nil {
 		return ""

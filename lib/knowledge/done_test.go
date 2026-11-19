@@ -1,5 +1,6 @@
-// done_test.go — done 판정 계약(직접 호출 경로 — dispatch·realStore
-// 위임 경로는 cli 잔류 done_test가 담당).
+// done_test.go — the done verdict contract (the direct-call path — the
+// dispatch·realStore delegation paths belong to the cli-residual
+// done_test).
 package knowledge
 
 import (
@@ -13,18 +14,19 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// doneFake — fakeStore에 StaleSessionRuns 스텁을 얹은 fake.
-// stub(stubbed) 미지정 시 영(零) 동작(cli 잔류 doneFake와 동일 계약).
+// doneFake — a fakeStore with the StaleSessionRuns stub layered on. A
+// no-op when the stub (stubbed) is unset (the same contract as the
+// cli-residual doneFake).
 type doneFake struct {
 	*fakeStore
 
-	stubbed bool // runs·runsErr 중 하나라도 지정됐는가
+	stubbed bool // whether runs·runsErr is set
 	runs    int
 	runsErr error
 
-	// 기록
+	// recording
 	gotAgent string
-	// UpdateSessionSummary 위임 캡처
+	// UpdateSessionSummary delegation capture
 	updatedSessions []int
 }
 
@@ -36,15 +38,17 @@ func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, err
 	return d.runs, nil
 }
 
-// UpdateSessionSummary — 종료 요약 갱신은 db.Repo.
-// UpdateSessionSummary 위임(쓰기 가드) — fake는 갱신 id를 기록.
+// UpdateSessionSummary — the exit-summary renewal delegates to
+// db.Repo.UpdateSessionSummary (the write guard) — the fake records the
+// renewed id.
 func (d *doneFake) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	d.updatedSessions = append(d.updatedSessions, id)
 	return 1, nil
 }
 
-// mustDone — RunDone 직접 실행(root.go 등록과 무관한 단위 경로).
-// 자동 백업 트리거는 no-op 스텁(실동작은 e2e ④가 실DB로 검증).
+// mustDone — runs RunDone directly (the unit path, independent of the
+// root.go registration). The automatic-backup trigger is a no-op stub
+// (the real action is verified against a real DB by e2e ④).
 func mustDone(t *testing.T, st wire.Store, args []string) (string, int) {
 	t.Helper()
 	stubAutoBackup(t)
@@ -53,18 +57,20 @@ func mustDone(t *testing.T, st wire.Store, args []string) (string, int) {
 	return out.String(), code
 }
 
-// stubAutoBackup — AutoBackupFn seam 교체(단위 테스트 무부작용 보장).
+// stubAutoBackup — swaps the AutoBackupFn seam (guaranteeing
+// side-effect-free unit tests).
 func stubAutoBackup(t *testing.T) {
 	t.Helper()
 	prev := AutoBackupFn
-	// st 파라미터 확장 — 스텁은 무시.
+	// st parameter extension — the stub ignores it.
 	AutoBackupFn = func(ctx context.Context, st wire.Store) {}
 	t.Cleanup(func() { AutoBackupFn = prev })
 }
 
-// done 판정 뒤 자동 백업 훅 호출(stale·ok 양 경로).
+// The automatic-backup hook fires after the done verdict (both the
+// stale·ok paths).
 func TestDoneTriggersAutoBackupHook(t *testing.T) {
-	for _, runs := range []int{0, 3} { // ok·stale 양쪽에서 1회씩
+	for _, runs := range []int{0, 3} { // once on each of the ok·stale sides
 		f := &fakeStore{}
 		d := &doneFake{fakeStore: f, stubbed: true, runs: runs}
 		called := 0
@@ -83,14 +89,14 @@ func TestDoneTriggersAutoBackupHook(t *testing.T) {
 	}
 }
 
-// runs 2 vs 3 경계 — 3에서 warning 포함·exit 0.
+// The runs 2 vs 3 boundary — at 3 the warning is included·exit 0.
 func TestDoneStaleBoundary(t *testing.T) {
 	cases := []struct {
 		runs   int
 		status string
 	}{
-		{2, "ok"},    // 임계값 직전
-		{3, "stale"}, // 기본 StaleSessions=3 도달
+		{2, "ok"},    // just under the threshold
+		{3, "stale"}, // reaches the default StaleSessions=3
 	}
 	for _, c := range cases {
 		f := &fakeStore{}
@@ -118,7 +124,8 @@ func TestDoneStaleBoundary(t *testing.T) {
 	}
 }
 
-// meta 임계값 우선 — stale_sessions=5면 runs=3도 ok, =2면 runs=2도 stale.
+// The meta threshold wins — with stale_sessions=5, runs=3 is still ok;
+// with =2, runs=2 is already stale.
 func TestDoneUsesMetaThreshold(t *testing.T) {
 	cases := []struct {
 		meta   string
@@ -147,7 +154,8 @@ func TestDoneUsesMetaThreshold(t *testing.T) {
 	}
 }
 
-// 조회 실패 경로도 exit 0(비간섭, 한 줄 JSON).
+// Even the lookup-failure path exits 0 (non-interference, one-line
+// JSON).
 func TestDoneErrorStillExit0(t *testing.T) {
 	f := &fakeStore{queryErr: errors.New("meta blew up")}
 	d := &doneFake{fakeStore: f, stubbed: true, runsErr: errors.New("stale blew up")}
@@ -155,10 +163,11 @@ func TestDoneErrorStillExit0(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
-	decode(t, out) // 한 줄 JSON이면 충분
+	decode(t, out) // a one-line JSON suffices
 }
 
-// Store가 StaleSessionRuns를 미구현(레거시 fake)이면 경고 없는 ok가 기본값.
+// A Store not implementing StaleSessionRuns (a legacy fake) defaults to
+// a warning-free ok.
 func TestDoneStoreWithoutStaleImpl(t *testing.T) {
 	f := &fakeStore{}
 	out, code := mustDone(t, f, []string{"--session", "claude"})
@@ -170,7 +179,8 @@ func TestDoneStoreWithoutStaleImpl(t *testing.T) {
 	}
 }
 
-// 숫자 세션 id는 sessions.agent 조회로 대상을 찾는다.
+// A numeric session id resolves the target via the sessions.agent
+// lookup.
 func TestDoneAgentLookupBySessionID(t *testing.T) {
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -192,7 +202,7 @@ func TestDoneAgentLookupBySessionID(t *testing.T) {
 	}
 }
 
-// SessionRecord 계약 — 종료 요약 마커·빈 tasks.
+// The SessionRecord contract — the exit-summary marker·empty tasks.
 func TestDoneSessionRecord(t *testing.T) {
 	d := &DoneResult{Agent: "claude", Unrecorded: 2}
 	rec := d.SessionRecord()
@@ -207,7 +217,8 @@ func TestDoneSessionRecord(t *testing.T) {
 	}
 }
 
-// done 실행 시 세션 요약 레코드 기록(fake store 호출 검증)·출력 불변.
+// Running done records the session summary record (verified via fake
+// store calls)·output unchanged.
 func TestDoneWritesSession(t *testing.T) {
 	f := &fakeStore{}
 	d := &doneFake{fakeStore: f, stubbed: true, runs: 1}
@@ -218,8 +229,9 @@ func TestDoneWritesSession(t *testing.T) {
 	if m := decode(t, out); m["status"] != "ok" {
 		t.Fatalf("status=%v, want ok(출력 불변)", m["status"])
 	}
-	// done은 세션 레코드 + 세션 지식화(pending)를 적립한다 —
-	// kind별로 검증(done_v0270_test이 지식 계약 단독 담당).
+	// done accrues the session record + session knowledgization (pending)
+	// — verified per kind (done_v0270_test owns the knowledge contract
+	// alone).
 	sessions, knowledge := 0, 0
 	for _, rec := range f.inserted {
 		if rec["kind"] == "session" {
@@ -242,12 +254,14 @@ func TestDoneWritesSession(t *testing.T) {
 	}
 }
 
-// TestDoneStaleWarningReachable — 실배선 도달성 회귀: 훅은
-// Claude session_id(UUID)를 --session으로 넘긴다. UUID가 그대로 agent가
-// 되면 세션마다 agent가 갈라져 StaleSessionRuns가 1을 못 넘어 stale 경고가
-// 영구히 발화되지 않는다. 서로 다른 UUID 세션이 끝나도
-// 집계 agent는 하니스 기본(claude)으로 안정되어야 임계값(기본 3) 도달
-// 시 4번째 done에서 경고가 실제 발화된다.
+// TestDoneStaleWarningReachable — a real-wiring reachability
+// regression: the hook passes the Claude session_id (a UUID) as
+// --session. If the UUID became the agent verbatim, each session would
+// split into its own agent and StaleSessionRuns could never exceed 1,
+// so the stale warning would never fire. Distinct UUID sessions ending
+// must stabilize the aggregated agent on the harness default (claude)
+// so the warning actually fires on the 4th done when the threshold
+// (default 3) is reached.
 func TestDoneStaleWarningReachable(t *testing.T) {
 	sessions := []string{
 		"3f2a1c9e-6b7d-4c8e-9f0a-1b2c3d4e5f67",
@@ -256,9 +270,10 @@ func TestDoneStaleWarningReachable(t *testing.T) {
 	}
 	f := &fakeStore{}
 	d := &doneFake{fakeStore: f, stubbed: true}
-	// 서로 다른 세션 3회(카운트 후 적립 모델 — 세션 행은 done이 세고 나서
-	// 쌓이므로 0→1→2) — 어느 UUID로 끝나도 집계 agent는 하나로 안정되고
-	// 임계값 직전이라 ok.
+	// 3 distinct sessions (the count-then-accrue model — session rows
+	// pile up after done counts them, so 0→1→2) — whichever UUID ends,
+	// the aggregated agent stabilizes on one and it stays just under the
+	// threshold, so ok.
 	for i, sid := range sessions {
 		d.runs = i
 		d.gotAgent = ""
@@ -273,7 +288,8 @@ func TestDoneStaleWarningReachable(t *testing.T) {
 			t.Fatalf("%d세션 status=%v, want ok(임계값 직전); out=%s", i+1, m["status"], out)
 		}
 	}
-	// 4번째 done — 누적 3 도달, 경고 실제 발화.
+	// The 4th done — the accumulated count reaches 3, the warning
+	// actually fires.
 	uuid4 := "d1c2b3a4-9f8e-4d7c-b6a5-4e3f2d1c0b9a"
 	d.runs = 3
 	out, code := mustDone(t, d, []string{"--session", uuid4})
@@ -287,9 +303,11 @@ func TestDoneStaleWarningReachable(t *testing.T) {
 	if m["status"] != "stale" || m["runs"] != float64(3) {
 		t.Fatalf("4번째 출력=%v, want stale/3(경고 실제 발화)", m)
 	}
-	// sessions 행 agent도 안정 식별자 — 누적 카운트의 집계 키.
-	// 지식화 pending(kind knowledge)도 agent 기반 topic을 쓰지만
-	// agent 키가 없다 — kind가 session인 행만 검증.
+	// The sessions row's agent is also the stable identifier — the
+	// aggregation key of the accumulated count. The knowledgization
+	// pending (kind knowledge) also uses an agent-based topic, but
+	// carries no agent key — only rows whose kind is session are
+	// verified.
 	for i, rec := range f.inserted {
 		if rec["kind"] == "session" && rec["agent"] != "claude" {
 			t.Fatalf("삽입 %d건째 agent=%v, want claude", i, rec["agent"])
@@ -297,13 +315,14 @@ func TestDoneStaleWarningReachable(t *testing.T) {
 	}
 }
 
-// UUID 형식(훅 실배선 형식)만 claude로 집계된다.
+// Only the UUID shape (the real hook-wiring shape) aggregates into
+// claude.
 func TestAgentForSessionUUIDMapsClaude(t *testing.T) {
 	f := &fakeStore{}
 	d := &doneFake{fakeStore: f, stubbed: true}
 	for _, sid := range []string{
 		"3f2a1c9e-6b7d-4c8e-9f0a-1b2c3d4e5f67",
-		"D1C2B3A4-9F8E-4D7C-B6A5-4E3F2D1C0B9A", // 대문자 hex도 UUID
+		"D1C2B3A4-9F8E-4D7C-B6A5-4E3F2D1C0B9A", // uppercase hex is also a UUID
 	} {
 		if got := agentForSession(context.Background(), d, sid); got != "claude" {
 			t.Fatalf("UUID %s agent=%q, want claude", sid, got)
@@ -311,9 +330,9 @@ func TestAgentForSessionUUIDMapsClaude(t *testing.T) {
 	}
 }
 
-// UUID가 아닌 미해석 문자열(e2e·타 하니스)은 그 값 자체를
-// agent로 쓴다. claude로 흡수되면 실제 claude 세션 summary를 덮어쓰고
-// stale 경고가 오발화된다.
+// A non-UUID uninterpreted string (e2e·another harness) is used as the
+// agent verbatim. Absorbing it into claude would overwrite a real claude
+// session's summary and misfire the stale warning.
 func TestAgentForSessionNonUUIDStaysOwn(t *testing.T) {
 	f := &fakeStore{}
 	d := &doneFake{fakeStore: f, stubbed: true}
@@ -321,7 +340,7 @@ func TestAgentForSessionNonUUIDStaysOwn(t *testing.T) {
 		"e2e-backup-probe",
 		"codex-xyz",
 		"done-seam-probe",
-		"42", // 숫자 id 미발견 — 원본 문자열 유지
+		"42", // numeric id unfound — the original string kept
 	} {
 		if got := agentForSession(context.Background(), d, sid); got != sid {
 			t.Fatalf("비-UUID %q agent=%q, want 원본 문자열(고립 행)", sid, got)
@@ -329,7 +348,8 @@ func TestAgentForSessionNonUUIDStaysOwn(t *testing.T) {
 	}
 }
 
-// 2회 done 시 갱신(중복 행 금지) — 최근 세션이 종료 마커면 UPDATE만.
+// On a second done, renewal (no duplicate rows) — if the latest session
+// carries the exit marker, UPDATE only.
 func TestDoneUpdatesExistingSession(t *testing.T) {
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -345,14 +365,15 @@ func TestDoneUpdatesExistingSession(t *testing.T) {
 			t.Fatalf("%d회차 exit=%d, want 0; out=%s", i+1, code, out)
 		}
 		decode(t, out)
-		// 갱신은 UpdateSessionSummary 위임 — 최근 세션 id(7)로
-		// 회차당 1회 실행.
+		// The renewal delegates to UpdateSessionSummary — executed once
+		// per round with the latest session id (7).
 		if len(d.updatedSessions) != 1 || d.updatedSessions[0] != 7 {
 			t.Fatalf("%d회차 UPDATE sessions 미실행(위임 캡처=%v)", i+1, d.updatedSessions)
 		}
 	}
-	// 세션 행 갱신(INSERT 아님) — inserted엔 지식화 pending만
-	// 남는다(정상). session kind의 INSERT 부재를 단언.
+	// Session-row renewal (not INSERT) — only the knowledgization pending
+	// remains in inserted (normal). Asserts the absence of a session-kind
+	// INSERT.
 	for _, rec := range f.inserted {
 		if rec["kind"] == "session" {
 			t.Fatalf("갱신 경로에서 세션 INSERT 발생(중복 행 금지 위반): %v", rec)
@@ -360,15 +381,17 @@ func TestDoneUpdatesExistingSession(t *testing.T) {
 	}
 }
 
-// TestDoneAutoBackupNoExtraPool — maybeAutoBackup이 자체
-// 풀(db.Connect)을 열지 않고 주입 st로 meta에 접근한다. 도달 불가 DSN에서
-// 자체 풀 우선 구현은 st 조회 전 조용히 반환되어 fake 기록이 비게 된다.
+// TestDoneAutoBackupNoExtraPool — maybeAutoBackup never opens its own
+// pool (db.Connect) and reaches meta through the injected st. A
+// self-pool-first implementation on an unreachable DSN would quietly
+// return before the st lookup and leave the fake record empty.
 func TestDoneAutoBackupNoExtraPool(t *testing.T) {
 	t.Setenv("FLINT_BACKUP_DIR", t.TempDir())
 	t.Setenv("FLINT_DSN", "postgresql://flint@127.0.0.1:1/flint?sslmode=disable&connect_timeout=1")
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta") {
-			// last_backup=방금 → 덤프 미발동(연결 시도 자체가 없어야 한다).
+			// last_backup=just now → no dump fired (there must be no
+			// connection attempt at all).
 			return [][]any{{time.Now().UTC().Format(time.RFC3339)}}, nil
 		}
 		return nil, nil
