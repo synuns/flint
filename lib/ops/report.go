@@ -18,6 +18,8 @@ import (
 	"strings"
 	"time"
 
+	"golang.org/x/sync/errgroup"
+
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -336,20 +338,41 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 검수 결과 카운터 창 합산(계측 — 실패 조용히 0).
-	collectCuration(ctx, st, days, &out)
-	if err := collectStats(ctx, st, &out); err != nil {
-		fmt.Fprintln(stdout, wire.ErrLine(err))
-		return store.MapExit(err)
-	}
-	if err := collectCounts(ctx, st, days, th, &out); err != nil {
-		fmt.Fprintln(stdout, wire.ErrLine(err))
-		return store.MapExit(err)
-	}
-	// 효과 계측 — METRICS §4 정의 산출(days 창·knowledge 시점).
-	if err := collectEffect(ctx, st, days, th, &out); err != nil {
-		fmt.Fprintln(stdout, wire.ErrLine(err))
-		return store.MapExit(err)
+	// v1.9.3 T2 — 수집 병렬화. 독립성 조사 결론(쓰기 필드 상호 배타):
+	//   collectCuration → out.Curation만 쓴다.
+	//   collectStats    → out.HotP95만 쓴다(DerivedHotStats 강등 계약상
+	//                     오류를 반환하지 않는다 — 슬롯은 우선순위 보존용).
+	//   collectCounts   → out.Counts·out.Stale·out.InvalidatedPeriod만 쓴다.
+	//   collectEffect   → out.Effect 하위 필드·out.FallbackPct만 쓰고,
+	//                     collectDaily 산물(Days 파생 HitPct·NearPct·
+	//                     DupPrevented·Effect.Bytes)은 읽기만 한다.
+	// 넷의 쓰기 필드가 겹치지 않으므로 같은 out 동시 쓰기는 서로 다른
+	// 메모리 위치에만 놓인다(Go 메모리 모델 — 필드 단위 독립). 공유 원천
+	// (daily:*·hot_events·knowledge 등)은 전부 SELECT라 읽기 경합도 없다.
+	// collectDaily(Days 원천 — 후속 산출의 입력)는 위처럼 선행 유지,
+	// out.DupPct·합산 후처리는 전 완료 후 아래 순차(기존 순서) 그대로.
+	//
+	// 오류 선택은 결정적: 전부 완료한 뒤 기존 순차 우선순위
+	// stats > counts > effect(daily는 위에서 이미 반환, curation은
+	// 강등 계약상 오류 없음) 순으로 첫 오류를 택한다 — 복수 실패 시에도
+	// 순차 경로와 동일 ErrLine·exit이 나온다(전체 대기 후 판정 — 지연
+	// 미미, 기계 채널 불변이 우선).
+	//
+	// wall-clock 실측(격리 scratch DSN·합성 시드 knowledge 500·
+	// read_events 2000·knowledge_reads 800·3회 중앙값):
+	// 순차 121ms → 병렬 83ms(로컬 Doltgres 합성 데모 — 환경값).
+	var g errgroup.Group
+	var statErr, countErr, effectErr error
+	g.Go(func() error { collectCuration(ctx, st, days, &out); return nil })
+	g.Go(func() error { statErr = collectStats(ctx, st, &out); return nil })
+	g.Go(func() error { countErr = collectCounts(ctx, st, days, th, &out); return nil })
+	g.Go(func() error { effectErr = collectEffect(ctx, st, days, th, &out); return nil })
+	g.Wait()
+	for _, err := range []error{statErr, countErr, effectErr} {
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
+		}
 	}
 	// 관측 지표 — dup_pct는 일별 행에서, fallback_pct는 CollectEffect의
 	// read_events 창 집산에서(effect.fallback_pct와 동일 산출).

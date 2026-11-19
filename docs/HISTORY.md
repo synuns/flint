@@ -6,6 +6,26 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.9.3 minor (2026-11-20) — c-tui-perf: low-height TUI chrome · parallel report collection · opt-in tuning TUI
+
+- [x] Low-height TUI chrome minimization (T1): on terminals under 12
+  rows the pending/maintain review screens drop the selective chrome
+  (non-interactive hint, separator blanks, status line) and hand the
+  freed rows to the list (threshold `lowHeightThreshold` in tui.go);
+  the q/ESC escape hint survives even at 8 rows, and layouts at 12
+  rows or more are byte-identical.
+- [x] Parallel report collection (T2): the four independent collect
+  passes (curation·stats·counts·effect) run concurrently via errgroup
+  after the daily pass; error selection keeps the sequential priority
+  and JSON output is byte-identical. Synthetic wall-clock demo
+  (isolated scratch DSN, 3-run median): sequential 121ms → parallel
+  83ms (local Doltgres synthetic seed — environment-specific).
+- [x] Opt-in tuning TUI (T3): `flint tuning --tui` opens a huh form
+  (key list → value edit → set/reset) that validates through the real
+  loadThresholds→ParseThresholds path and confirms via the existing
+  set/reset JSON line. Adaptive entry is intentionally absent — the
+  no-arg JSON path for agents and scripts stays unchanged.
+
 ### v1.9.2 patch (2026-11-19) — r43-recovery: import replay recovery · fresh-DB direct path · tuning note scope
 
 - [x] Import replay recovery (R43): when an import run committed its

@@ -522,6 +522,62 @@ func TestMaintainViewFitsTerminalHeight(t *testing.T) {
 	}
 }
 
+// ── 저화면(높이 < 12) 크롬 최소화 ──
+
+// RF-numeric — 높이 8·11: 목록 배분은 크롬 2행(소스 탭 헤더 + 키 안내)만
+// 감산한 height−2로 증가하고, View는 선택 크롬(비대화 안내
+// nonInteractiveHint·구분 여백·status)을 생략한다. 탭 헤더(소스 전환)·
+// q/ESC 탈출 안내는 유지.
+func TestMaintainLowHeightMaximizesList(t *testing.T) {
+	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 8}, {Width: 80, Height: 11}} {
+		m := newDemoMaintainModel(MaintainActions{})
+		m = mUpdate(m, sz)
+		if got, want := m.lists[m.tab].Height(), sz.Height-2; got != want {
+			t.Errorf("%dx%d: list height = %d, want %d (low chrome 2)", sz.Width, sz.Height, got, want)
+		}
+		v := m.View()
+		if !strings.Contains(stripANSI(v), "demo topic dup") {
+			t.Errorf("%dx%d: low view lost item text\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		m = mUpdate(m, keyMsg("k")) // status 발생 — 저화면에서는 생략
+		v = m.View()
+		if strings.Contains(stripANSI(v), nonInteractiveHint) {
+			t.Errorf("%dx%d: low view must omit non-interactive hint\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		if strings.Contains(stripANSI(v), "kept — no changes") {
+			t.Errorf("%dx%d: low view must omit status line\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		if !strings.Contains(stripANSI(v), "q quit") {
+			t.Errorf("%dx%d: low view must keep q/ESC escape hint\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		if !strings.Contains(stripANSI(v), "dup-suspects") {
+			t.Errorf("%dx%d: low view must keep source tab header\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		if n := viewLines(v); n > sz.Height {
+			t.Errorf("%dx%d: low view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, v)
+		}
+	}
+}
+
+// RF-numeric — 경계 12·높은 화면(24): 기존 배분(height−7)과 크롬(비대화
+// 안내·status) 유지 — 임계 이상 레이아웃 동치.
+func TestMaintainHeightAtThresholdKeepsLayout(t *testing.T) {
+	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 12}, {Width: 80, Height: 24}} {
+		m := newDemoMaintainModel(MaintainActions{})
+		m = mUpdate(m, sz)
+		if got, want := m.lists[m.tab].Height(), sz.Height-7; got != want {
+			t.Errorf("%dx%d: list height = %d, want %d (full chrome 7)", sz.Width, sz.Height, got, want)
+		}
+		m = mUpdate(m, keyMsg("k"))
+		v := stripANSI(m.View())
+		for _, want := range []string{nonInteractiveHint, "kept — no changes", "q quit"} {
+			if !strings.Contains(v, want) {
+				t.Errorf("%dx%d: view missing %q\nview:\n%s", sz.Width, sz.Height, want, v)
+			}
+		}
+	}
+}
+
 // ── RF-protocol: 기본 실구현 위임 인자 ──
 
 // RF5 — maintainRunner seam 기본값은 ops.RunMaintain(중복 구현 금지).

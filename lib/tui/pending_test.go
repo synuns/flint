@@ -328,24 +328,81 @@ func TestPendingQuitReturnsTeaQuit(t *testing.T) {
 	}
 }
 
-// WindowSizeMsg 수신 시 목록 크기가 터미널(높이-6)에 맞고, 12행 이하
+// WindowSizeMsg 수신 시 목록 크기가 터미널에 맞고, 12행 이하
 // 단말·연속 리사이즈에서도 선택 항목
 // 렌더가 유지된다(고정 80x20 폐지 — 시작 시 bubbletea가 전달하는 창
-// 크기로 조정).
+// 크기로 조정). 배분: 높이 ≥ 12는 height−6, 저화면(< 12)은 크롬 1행
+// 감산 height−1(저화면 크롬 최소화 계약).
 func TestPendingResizeKeepsItemsRendered(t *testing.T) {
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	for _, sz := range []tea.WindowSizeMsg{
 		{Width: 60, Height: 24},
-		{Width: 60, Height: 12}, // 12행 단말
-		{Width: 40, Height: 8},  // 그 이하
+		{Width: 60, Height: 12}, // 12행 단말(임계 — 기존 배분)
+		{Width: 40, Height: 8},  // 저화면(크롬 최소화)
 		{Width: 100, Height: 30},
 	} {
+		want := sz.Height - 6
+		if sz.Height < 12 {
+			want = sz.Height - 1
+		}
 		m = update(m, sz)
-		if m.list.Height() != sz.Height-6 {
-			t.Errorf("after %dx%d list height = %d, want %d", sz.Width, sz.Height, m.list.Height(), sz.Height-6)
+		if m.list.Height() != want {
+			t.Errorf("after %dx%d list height = %d, want %d", sz.Width, sz.Height, m.list.Height(), want)
 		}
 		if !strings.Contains(m.View(), "demo topic alpha") {
 			t.Errorf("after %dx%d view lost item text\nview:\n%s", sz.Width, sz.Height, m.View())
+		}
+	}
+}
+
+// ── 저화면(높이 < 12) 크롬 최소화 ──
+
+// RF-numeric — 높이 8·11: 목록 배분은 크롬 1행(키 안내)만 감산한
+// height−1로 증가하고, View는 선택 크롬(비대화 안내 nonInteractiveHint·
+// 구분 여백·status)을 생략한다. q/ESC 탈출 안내는 8행에서도 유지.
+func TestPendingLowHeightMaximizesList(t *testing.T) {
+	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 8}, {Width: 80, Height: 11}} {
+		m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
+		m = update(m, sz)
+		if got, want := m.list.Height(), sz.Height-1; got != want {
+			t.Errorf("%dx%d: list height = %d, want %d (low chrome 1)", sz.Width, sz.Height, got, want)
+		}
+		v := m.View()
+		if !strings.Contains(stripANSI(v), "demo topic alpha") {
+			t.Errorf("%dx%d: low view lost item text\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		m = update(m, keyMsg("d")) // status 발생 — 저화면에서는 생략
+		v = m.View()
+		if strings.Contains(stripANSI(v), nonInteractiveHint) {
+			t.Errorf("%dx%d: low view must omit non-interactive hint\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		if strings.Contains(stripANSI(v), "skipped") {
+			t.Errorf("%dx%d: low view must omit status line\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		if !strings.Contains(stripANSI(v), "q quit") {
+			t.Errorf("%dx%d: low view must keep q/ESC escape hint\nview:\n%s", sz.Width, sz.Height, v)
+		}
+		if n := viewLines(v); n > sz.Height {
+			t.Errorf("%dx%d: low view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, v)
+		}
+	}
+}
+
+// RF-numeric — 경계 12·높은 화면(24): 기존 배분(height−6)과 크롬
+// (비대화 안내·status) 유지 — 임계 이상 레이아웃 동치.
+func TestPendingHeightAtThresholdKeepsLayout(t *testing.T) {
+	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 12}, {Width: 80, Height: 24}} {
+		m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
+		m = update(m, sz)
+		if got, want := m.list.Height(), sz.Height-6; got != want {
+			t.Errorf("%dx%d: list height = %d, want %d (full chrome 6)", sz.Width, sz.Height, got, want)
+		}
+		m = update(m, keyMsg("d"))
+		v := stripANSI(m.View())
+		for _, want := range []string{nonInteractiveHint, "skipped", "q quit"} {
+			if !strings.Contains(v, want) {
+				t.Errorf("%dx%d: view missing %q\nview:\n%s", sz.Width, sz.Height, want, v)
+			}
 		}
 	}
 }

@@ -255,6 +255,7 @@ type PendingModel struct {
 	targetList    list.Model
 	status        string
 	width         int // 마지막 WindowSizeMsg 폭(상세 본문 wordwrap 기준)
+	height        int // 마지막 WindowSizeMsg 높이(저화면 크롬 분기 기준)
 }
 
 // targetsLoadedMsg — 지연 로드 완료(계약 3). err != nil이면 targets 무시.
@@ -310,10 +311,16 @@ func resetEmptyFilter(l *list.Model) {
 }
 
 // pendingListHeight — 목록에 배분할 높이: View의 비목록
-// 라인(키 안내·status·비대화 안내와 구분 공백 — 최대 6행)을 제외한
-// 나머지. 최소 1.
+// 라인을 제외한 나머지. 최소 1.
+//   - 높이 ≥ 12: 크롬 6행(키 안내·status·비대화 안내와 구분 공백).
+//   - 저화면(< 12): 크롬 1행(키 안내만 — 비대화 안내·구분 여백·status는
+//     View에서 생략, q/ESC 탈출 안내 유지).
 func pendingListHeight(height int) int {
-	h := height - 6
+	chrome := 6
+	if lowHeight(height) {
+		chrome = 1
+	}
+	h := height - chrome
 	if h < 1 {
 		h = 1
 	}
@@ -343,13 +350,17 @@ func (m PendingModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
-		h := pendingListHeight(msg.Height) // B2: 비목록 라인 6행 제외
+		m.height = msg.Height
+		h := pendingListHeight(msg.Height) // B2: 비목록 라인 제외(저화면 크롬 1행)
 		m.list.SetSize(msg.Width, h)
 		m.targetList.SetSize(msg.Width, h)
 		// 계약 1: 40컬 이하에서는 bubbles 내장 help(53자 고정)를 끄고
-		// 화면 자체 축약 키 안내로 대체한다.
-		m.list.SetShowHelp(msg.Width > 40)
-		m.targetList.SetShowHelp(msg.Width > 40)
+		// 화면 자체 축약 키 안내로 대체한다. 저화면(< 12)에서도 같은
+		// 이유로 끈다(내장 help 1행이 목록 최소 높이를 넘긴다 — 자체
+		// 힌트가 q/ESC 탈출 안내를 유지한다).
+		showHelp := msg.Width > 40 && !lowHeight(msg.Height)
+		m.list.SetShowHelp(showHelp)
+		m.targetList.SetShowHelp(showHelp)
 		return m, nil
 	case tea.KeyMsg:
 		switch m.mode {
@@ -630,9 +641,22 @@ func wrapHint(width int, s string) string {
 	return lipgloss.NewStyle().Width(width).Render(s)
 }
 
-// View — 화면 렌더. 키 안내는 영어 고정(플러그인 룰).
+// View — 화면 렌더. 키 안내는 영어 고정(플러그인 룰). 저화면(높이
+// < 12)에서는 선택 크롬(비대화 안내·구분 여백·status)을 생략하고 키
+// 안내(q/ESC 탈출)만 유지한다 — 임계 이상 레이아웃은 바이트 불변.
 func (m PendingModel) View() string {
+	low := lowHeight(m.height)
 	var b strings.Builder
+	// writeHint — 키 안내 라인. lead는 모드 구분(목록 계열은 list.View가
+	// 개행 없이 끝나므로 "\n", 상세는 ""). 저화면은 접미 개행만 생략
+	// (trailing newline이 렌더 라인 수를 1줄 늘린다).
+	writeHint := func(lead, full, short string) {
+		suffix := "\n"
+		if low {
+			suffix = ""
+		}
+		fmt.Fprintf(&b, "%s%s%s", lead, Theme.Secondary.Render(keyHint(m.width, full, short)), suffix)
+	}
 	switch m.mode {
 	case modeDetail:
 		// 필터 중 상세 표시도 GlobalIndex로(선택 항목 일치).
@@ -646,26 +670,24 @@ func (m PendingModel) View() string {
 		fmt.Fprintf(&b, "%s\n\n", wrapDetailBody(m.width, it.Body))
 		fmt.Fprintf(&b, "%s\n", Theme.Neutral.Render(wrapDetailBody(m.width,
 			fmt.Sprintf("origin: %s · confidence %s · date %s", it.Origin, it.Confidence, it.Date))))
-		fmt.Fprintf(&b, "%s\n", Theme.Secondary.Render(keyHint(m.width,
-			"a approve · s supersede · d skip · e expire · esc back · q quit",
-			"a/s/d/e/esc · q quit")))
+		writeHint("", "a approve · s supersede · d skip · e expire · esc back · q quit",
+			"a/s/d/e/esc · q quit")
 	case modeSupersede:
 		b.WriteString(m.targetList.View())
-		fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(keyHint(m.width,
-			"enter confirm · esc cancel · q quit",
-			"enter/esc · q quit")))
+		writeHint("\n", "enter confirm · esc cancel · q quit", "enter/esc · q quit")
 	default:
 		b.WriteString(m.list.View())
-		fmt.Fprintf(&b, "\n%s\n", Theme.Secondary.Render(keyHint(m.width,
-			"enter detail · a approve · s supersede · d skip · e expire · q quit",
-			"a/s/d/e/enter · q quit")))
+		writeHint("\n", "enter detail · a approve · s supersede · d skip · e expire · q quit",
+			"a/s/d/e/enter · q quit")
 	}
-	if m.status != "" {
+	if m.status != "" && !low {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))
 	}
-	// 비대화 탈출 안내(적응형 기본 진입 안내) — 화면 최하단.
-	// 계약 1: 폭 저장 시 wordwrap(협폭 단말 가로 넘침 방지).
-	// trailing newline 제거 — 마지막 개행이 렌더 라인 수를 1줄 늘린다.
-	fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
+	if !low {
+		// 비대화 탈출 안내(적응형 기본 진입 안내) — 화면 최하단.
+		// 계약 1: 폭 저장 시 wordwrap(협폭 단말 가로 넘침 방지).
+		// trailing newline 제거 — 마지막 개행이 렌더 라인 수를 1줄 늘린다.
+		fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
+	}
 	return b.String()
 }
