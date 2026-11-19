@@ -32,10 +32,10 @@ type fakeMaint struct {
 	mergeErr     error
 	pruneErr     error // PruneInvalidated 선행 에러
 
-	invalidateCalls [][]int
-	invalidateMsgs  []string
-	supersedeCalls  []supersedeCall
-	mergeCalls      [][2]int
+	invalidateCalls  [][]int
+	invalidateMsgs   []string
+	supersedeCalls   []supersedeCall
+	mergeCalls       [][2]int
 	pruneCalls       []time.Time // PruneInvalidated 위임 캡처
 	recallPruneCalls []time.Time // PruneRecallEvents 위임 캡처
 }
