@@ -67,6 +67,14 @@ Override management is `flint tuning` (v0.23.0) — `list`, `get <key>`,
 path (rejects invalid values and 0 on fallback keys); personal tuning values
 live only in the operational DB via this route.
 
+`flint tuning --tui` (v1.9.3) is an opt-in interactive form (key list →
+value edit → set/reset confirm) for humans. It must run alone (combining
+it with other arguments exits 3) and it is the only TUI entry — the
+no-arg and subcommand JSON paths are unchanged, so agents and scripts
+are unaffected. On a non-terminal, or with FLINT_NO_TUI set, it exits 3
+before the form starts. Form confirmations validate and emit their JSON
+line through the existing set/reset standard path above.
+
 | meta key | default | meaning | warning trigger |
 |---|---|---|---|
 | `pending_max` | 50 | cap on unrecorded (pending) decisions | maintain --check |

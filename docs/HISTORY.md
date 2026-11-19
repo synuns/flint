@@ -11,7 +11,8 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 - [x] Low-height TUI chrome minimization (T1): on terminals under 12
   rows the pending/maintain review screens drop the selective chrome
   (non-interactive hint, separator blanks, status line) and hand the
-  freed rows to the list (threshold `lowHeightThreshold` in tui.go);
+  freed rows to the list (layout constant `lowHeightThreshold` in tui.go —
+  not a tuning key);
   the q/ESC escape hint survives even at 8 rows, and layouts at 12
   rows or more are byte-identical.
 - [x] Parallel report collection (T2): the four independent collect

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -32,7 +33,11 @@ type fakeStore struct {
 	rows          [][]any
 	queryFn       func(sql string, args []any) ([][]any, error)
 
-	// 기록
+	// 기록 — report 병렬 수집(v1.9.3 T2)이 Query를 동시 호출하므로
+	// 기록 계열 필드 접근은 전부 mu로 직렬화한다(doctor_test 선례 계열).
+	// Query는 queryFn 호출까지 락 내에서 실행 — queryFn 클로저의 테스트
+	// 로컬 기록(queries·argsBySQL append 등)도 같이 직렬화된다.
+	mu       sync.Mutex
 	inserted []map[string]any
 	commits  []string
 	queries  []string
@@ -40,6 +45,8 @@ type fakeStore struct {
 
 func (f *fakeStore) Migrate(ctx context.Context) error { return nil }
 func (f *fakeStore) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.inserted = append(f.inserted, recs...)
 	if f.insertErr != nil {
 		return nil, f.insertErr
@@ -57,6 +64,8 @@ func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error
 	return f.existsProject[name], nil // nil map 조회는 false(영 동작)
 }
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.commits = append(f.commits, msg)
 	if f.commitErr != nil {
 		return "", f.commitErr
@@ -66,6 +75,8 @@ func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
 func (f *fakeStore) Close()                         {}
 func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.queries = append(f.queries, sql)
 	if f.queryErr != nil {
 		return nil, f.queryErr

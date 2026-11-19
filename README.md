@@ -152,7 +152,7 @@ flint brief [query]        # masked, read-only context block — paste it into a
 | :--- | :--- |
 | `flint setup` | Start Doltgres, migrate, print seed/plugin next steps |
 | `flint update` | Self-update to the latest release (checksum-verified, `--check` dry-run) |
-| `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`) |
+| `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`; opt-in `--tui` form) |
 | `flint write <kind>` | Record knowledge from stdin (idempotent) |
 | `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`); `--format jsonl\|pam` migrates knowledge back in (round-trip re-import · PAM v1.0 intake) |
 | `flint export [--format f]` | Export knowledge as jsonl·md·txt·csv·pam (PAM v1.0 portable memory-store; `--status`·`--tag`·`--since` filters, `--out` file with `.sha256` sidecar; PAM `--sign` Ed25519 signature, spec §18) |
