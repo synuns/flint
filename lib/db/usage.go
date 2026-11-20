@@ -98,7 +98,7 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 // (write·read·hot) discarding errors.
 func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	switch kind {
-	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "brief":
+	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "brief":
 	default:
 		return fmt.Errorf("record usage: invalid kind %q", kind)
 	}
