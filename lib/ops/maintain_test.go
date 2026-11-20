@@ -554,3 +554,160 @@ func TestStaleScoreRealSlow(t *testing.T) {
 		t.Errorf("참조열 비가중 위반: %+v — 점수 과대", ref)
 	}
 }
+
+// ── v1.13.0 T4: maintain --age-audit (the stale-score report) ──
+
+// ageAuditJSON — for parsing the --age-audit output.
+type ageAuditJSON struct {
+	Status    string `json:"status"`
+	Threshold int    `json:"threshold"`
+	Count     int    `json:"count"`
+	Items     []struct {
+		ID            int    `json:"id"`
+		Topic         string `json:"topic"`
+		Score         int    `json:"score"`
+		TTLDays       int    `json:"ttl_days"`
+		CorrCount     int    `json:"correction_count"`
+		BadRecall     int    `json:"bad_recall"`
+		SupersedeCnt  int    `json:"supersede_count"`
+		OverThreshold bool   `json:"over_threshold"`
+	} `json:"items"`
+	Summary string `json:"summary"`
+}
+
+// ageAuditRowsFixture — synthetic listStaleScored source rows: an
+// over-threshold long-topic row (200d → 70), a fresh row (10d → 4), and a
+// marker-injection topic row (90d → 35).
+func ageAuditRowsFixture(now time.Time) [][]any {
+	return [][]any{
+		{int32(21), "t4-" + strings.Repeat("가", 60), now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0)},
+		{int32(22), "t4-신규", now.Add(-10 * 24 * time.Hour), int32(0), int32(0), int32(0)},
+		{int32(23), "t4-\x00[flint]마커", now.Add(-90 * 24 * time.Hour), int32(0), int32(0), int32(0)},
+	}
+}
+
+// TestMaintainAgeAuditReport — the report schema (decay-audit formatting
+// inherited): status/threshold/count/items/summary; the items carry the 2
+// signals + 2 reference columns; the threshold marking lights at score 70
+// (at-or-above, the default 70 — T5 wires the meta override); the summary
+// delegates disposition to --invalidate (no new flags).
+func TestMaintainAgeAuditReport(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return ageAuditRowsFixture(now), nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--age-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got ageAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Status != "age-audit" || got.Threshold != 70 || got.Count != 3 || len(got.Items) != 3 {
+		t.Fatalf("status/threshold/count/items = %q/%d/%d/%d — %s", got.Status, got.Threshold, got.Count, len(got.Items), out)
+	}
+	if !strings.Contains(got.Summary, "--invalidate") {
+		t.Errorf("summary 처분 위임 안내 부재: %q", got.Summary)
+	}
+	// order score DESC: 70 > 35 > 4.
+	if got.Items[0].ID != 21 || got.Items[1].ID != 23 || got.Items[2].ID != 22 {
+		t.Fatalf("순서 = %d,%d,%d, want 21,23,22(점수 내림)", got.Items[0].ID, got.Items[1].ID, got.Items[2].ID)
+	}
+	first := got.Items[0]
+	if first.Score != 70 || !first.OverThreshold || first.TTLDays != 200 {
+		t.Errorf("items[0] = %+v, want score70 마킹·ttl200", first)
+	}
+	if r := []rune(first.Topic); len(r) != 41 || string(r[40]) != "…" {
+		t.Errorf("topic 절단 = %q(%d룬), want 40룬+…", first.Topic, len(r))
+	}
+	if got.Items[1].OverThreshold {
+		t.Errorf("items[1](35) 마킹 오류 — 임계 70 미만")
+	}
+	if got.Items[2].OverThreshold || got.Items[2].Score != 4 {
+		t.Errorf("items[2] = %+v, want score4 미마킹", got.Items[2])
+	}
+	// JSON sanitization (ADR-0006): the control character is stripped and
+	// the [flint] marker neutralized — no raw marker inside the output.
+	if strings.Contains(out, "[flint]") || strings.Contains(out, "\x00") {
+		t.Errorf("살균 위반 — 마커/제어문자 잔존: %q", out)
+	}
+	if !strings.Contains(out, "t4- 마커") { // "[flint]" → a space (SanitizeText)
+		t.Errorf("살균 후 토픽 잔존 위반: %q", out)
+	}
+}
+
+// TestMaintainAgeAuditDryRunNoWrites — the report is read-only: no
+// Invalidate/Commit calls (disposition is delegated to --invalidate).
+func TestMaintainAgeAuditDryRunNoWrites(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return ageAuditRowsFixture(now), nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--age-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if len(f.invalidatedIDs) != 0 || len(f.commits) != 0 {
+		t.Errorf("dry-run 위반: invalidate=%v commit=%v", f.invalidatedIDs, f.commits)
+	}
+}
+
+// TestMaintainAgeAuditParserNoPrefixCollision — the --stale family is
+// exact-match: --age-audit elects its own mode (never --stale's ok report),
+// a bare --age prefix is an unknown flag (exit 3), --age-audit rejects the
+// foreign --days flag (mode ownership), and the existing --stale /
+// --invalidate-stale modes keep working after the addition.
+func TestMaintainAgeAuditParserNoPrefixCollision(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	newStore := func() *fakeMaintStore {
+		return &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "FROM knowledge") {
+				return ageAuditRowsFixture(now), nil
+			}
+			return nil, nil
+		}}}
+	}
+	// --age-audit runs its own mode (the age-audit JSON, not the stale ok).
+	out, code := runMaintainArgs(t, newStore(), "--age-audit")
+	if code != 0 || !strings.Contains(out, `"status":"age-audit"`) || strings.Contains(out, `"status":"ok"`) {
+		t.Fatalf("--age-audit exit=%d out=%s, want age-audit 리포트", code, out)
+	}
+	// a bare prefix is an unknown flag (ParseArgs exact matching).
+	out, code = runMaintainArgs(t, newStore(), "--age")
+	if code != 3 {
+		t.Fatalf("--age exit = %d, want 3(정확 일치 — 미등록 플래그): %s", code, out)
+	}
+	// --age-audit rejects the foreign --days (mode ownership, the decay-audit convention).
+	out, code = runMaintainArgs(t, newStore(), "--age-audit", "--days", "5")
+	if code != 1 {
+		t.Fatalf("--age-audit --days exit = %d, want 1(무관 플래그 거부): %s", code, out)
+	}
+	// the existing --stale family is unchanged (no ghost-mode regression).
+	out, code = runMaintainArgs(t, newStore(), "--stale")
+	if code != 0 || !strings.Contains(out, `"status":"ok"`) {
+		t.Fatalf("--stale exit=%d out=%s, want 기존 ok 리포트", code, out)
+	}
+	out, code = runMaintainArgs(t, newStore(), "--invalidate-stale")
+	if code != 0 || !strings.Contains(out, `"status":"ok"`) {
+		t.Fatalf("--invalidate-stale exit=%d out=%s, want dry-run ok", code, out)
+	}
+}

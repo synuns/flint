@@ -70,6 +70,9 @@ var maintainModeFlags = map[string]map[string]bool{
 	"--expire-pending": {},
 	// decay decay-candidate report (read-only — execution is delegated to --invalidate).
 	"--decay-audit": {"--limit": true},
+	// v1.13.0 T4: the stale-score report (read-only, dry-run by default —
+	// disposition is delegated to --invalidate; no new execution flags).
+	"--age-audit": {"--limit": true},
 }
 
 // maintainYesModes — the modes where --yes (execution confirmation) is meaningful. In the
@@ -96,7 +99,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 
 // maintainUsageLine — the allowed-flags guidance (the common suffix of the invalid-arg
 // error message — for agent self-correction, alongside the error:"usage" transition).
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --tui (opt-in, run alone)"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --tui (opt-in, run alone)"
 
 // maintainUsageErrf — assembles the invalid-arg error (the approve.approveUsageErr
 // convention — a UsageError type + the allowed-flags suffix. The exit code stays with the caller).
@@ -122,6 +125,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			{Name: "--check"}, {Name: "--dup-suspects"}, {Name: "--conflict-suspects"},
 			{Name: "--merge"}, {Name: "--stale"}, {Name: "--invalidate"},
 			{Name: "--invalidate-stale"}, {Name: "--meta-audit"}, {Name: "--decay-audit"},
+			{Name: "--age-audit"},
 			// --expire-pending and --prune-invalidated are mode + value (N days).
 			{Name: "--expire-pending", Value: true}, {Name: "--prune-invalidated", Value: true},
 			{Name: "--days", Value: true}, {Name: "--limit", Value: true},
@@ -152,7 +156,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		switch name {
 		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
 			"--invalidate", "--invalidate-stale", "--meta-audit", "--expire-pending",
-			"--prune-invalidated", "--supersede", "--decay-audit":
+			"--prune-invalidated", "--supersede", "--decay-audit", "--age-audit":
 			mode = name
 		}
 	}
@@ -285,6 +289,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainMetaAudit(ctx, ms, stdout)
 	case "--decay-audit":
 		return maintainDecayAudit(ctx, ms, stdout, limit)
+	case "--age-audit":
+		return maintainAgeAudit(ctx, ms, stdout, limit)
 	case "--prune-invalidated":
 		return maintainPruneInvalidated(ctx, ms, stdout, expireDays, commit)
 	case "--dup-suspects":
@@ -1139,6 +1145,88 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Score > items[j].Score })
 	return items, nil
+}
+
+// ageAuditThresholdDefault — the over-threshold marking line. T5 registers
+// the stale_score_threshold meta key (default 70) and wires the runtime
+// override into this consumer; until then the code default applies (the
+// at-or-above convention: score >= threshold is marked).
+const ageAuditThresholdDefault = 70
+
+// ageAuditTopicMax — the rune cap of the report topic (the hotHeadline
+// truncation convention — … suffix when over; the full topic stays
+// addressable via --invalidate --id N).
+const ageAuditTopicMax = 40
+
+// ageAuditItem — one --age-audit listing item (the decay-audit formatting
+// inherited): the scored signals plus the 2 non-weighted reference columns,
+// with the threshold marking. Disposition is NOT performed — the summary
+// delegates to the existing --invalidate approval system.
+type ageAuditItem struct {
+	ID            int    `json:"id"`
+	Topic         string `json:"topic"`
+	Score         int    `json:"score"`
+	TTLDays       int    `json:"ttl_days"`
+	CorrCount     int    `json:"correction_count"`
+	BadRecall     int    `json:"bad_recall"`
+	SupersedeCnt  int    `json:"supersede_count"`
+	OverThreshold bool   `json:"over_threshold"`
+}
+
+// clampAgeTopic — truncates a report topic to the rune cap (… suffix when over).
+func clampAgeTopic(s string) string {
+	r := []rune(s)
+	if len(r) <= ageAuditTopicMax {
+		return s
+	}
+	return string(r[:ageAuditTopicMax]) + "…"
+}
+
+// maintainAgeAudit — the v1.13.0 stale-score report (read-only, dry-run by
+// default — no execution flag exists; disposition goes through the existing
+// --invalidate approval system). The listing is listStaleScored (T3: the 2
+// weighted signals, the :vol:immutable: server-side exclusion, and the
+// score DESC order); this report adds the threshold marking and the topic
+// clamp (--limit inherited, default 20 — the decay-audit convention).
+func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limit int) int {
+	items, err := listStaleScored(ctx, ms, limit)
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	out := make([]ageAuditItem, 0, len(items))
+	over := 0
+	for _, it := range items {
+		marked := it.Score >= ageAuditThresholdDefault
+		if marked {
+			over++
+		}
+		out = append(out, ageAuditItem{
+			ID:            it.ID,
+			Topic:         clampAgeTopic(it.Topic), // already render.Text-sanitized in listStaleScored
+			Score:         it.Score,
+			TTLDays:       it.TTLDays,
+			CorrCount:     it.CorrCount,
+			BadRecall:     it.BadRecall,
+			SupersedeCnt:  it.Supersede,
+			OverThreshold: marked,
+		})
+	}
+	b, mErr := json.Marshal(struct {
+		Status    string         `json:"status"`
+		Threshold int            `json:"threshold"`
+		Count     int            `json:"count"`
+		Items     []ageAuditItem `json:"items"`
+		Summary   string         `json:"summary"`
+	}{Status: "age-audit", Threshold: ageAuditThresholdDefault, Count: len(out), Items: out,
+		Summary: fmt.Sprintf("%d stale candidates (%d over threshold %d) — dispose via maintain --invalidate (approval required)",
+			len(out), over, ageAuditThresholdDefault)})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(b))
+	return 0
 }
 
 // AnyToTime — a cell value as time (accepting time.Time and RFC3339 strings).
