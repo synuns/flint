@@ -892,3 +892,95 @@ func TestRunReadBumpsGapQueryOnOwnedMiss(t *testing.T) {
 		}
 	})
 }
+
+// TestRunReadGapAccrualAfterThresholdReads — three owned_miss reads of
+// the same query auto-accrue one pending gap candidate (the T3 read-path
+// integration): the 3rd read's count reaching the threshold ADDs the
+// candidate — the 1st·2nd do not.
+func TestRunReadGapAccrualAfterThresholdReads(t *testing.T) {
+	g := &gapQueryRecorder{fakeStore: &fakeStore{}, active: 2, gapq: map[string]int{}}
+	ctx := context.Background()
+	for i := 1; i <= 2; i++ {
+		var out strings.Builder
+		if code := RunRead(ctx, g, []string{"없는 데모 쿼리"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("read %d exit=%d, want 0; out=%s", i, code, out.String())
+		}
+		if len(g.inserted) != 0 {
+			t.Fatalf("read %d 후 삽입=%d건, want 0(임계 미달)", i, len(g.inserted))
+		}
+	}
+	var out strings.Builder
+	if code := RunRead(ctx, g, []string{"없는 데모 쿼리"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("read 3 exit=%d, want 0; out=%s", code, out.String())
+	}
+	if len(g.inserted) != 1 {
+		t.Fatalf("read 3 후 삽입=%d건, want 1(임계 도달 적립)", len(g.inserted))
+	}
+	rec := g.inserted[0]
+	if want := "격차 후보: 없는 데모 쿼리"; rec["topic"] != want {
+		t.Fatalf("topic=%v, want %q", rec["topic"], want)
+	}
+	if want := "회상 실패 3회 — 지식 격차 후보"; rec["summary"] != want {
+		t.Fatalf("summary=%v, want %q", rec["summary"], want)
+	}
+	if rec["status"] != "pending" || rec["tags"] != ":gap-candidate:" {
+		t.Fatalf("status=%v tags=%v, want pending/:gap-candidate:", rec["status"], rec["tags"])
+	}
+}
+
+// TestRunReadAsOfSkipsGapCount — an as-of read (a past-point snapshot
+// inspection) never counts as a present gap even on a zero-hit: no bump,
+// no accrual (the T2 incident ruling — one guard line at the bump hook).
+func TestRunReadAsOfSkipsGapCount(t *testing.T) {
+	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
+	g := &gapAsOfStore{asOfStore: &asOfStore{
+		fakeStore: &fakeStore{},
+		logEntries: []wire.LogEntry{{
+			Hash: "he08irluqn3v2m1k9x7c4jw5z6b8d0f",
+			Date: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC),
+		}},
+	}, active: 2, gapq: map[string]int{}}
+	var out strings.Builder
+	code := RunRead(context.Background(), g,
+		[]string{"--as-of", "1d", "없는 데모 쿼리"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(as-of 제로히트); out=%s", code, out.String())
+	}
+	if len(g.bumps) != 0 || len(g.inserted) != 0 {
+		t.Fatalf("as-of 가드 위반: bumps=%d inserted=%d, want 0/0", len(g.bumps), len(g.inserted))
+	}
+}
+
+// gapAsOfStore — the asOfStore fake layered with the gapq meta
+// interception (an as-of zero-hit on owned ground still must not bump).
+type gapAsOfStore struct {
+	*asOfStore
+	active int
+	gapq   map[string]int
+	bumps  []string
+}
+
+func (g *gapAsOfStore) RecordReadUsage(ctx context.Context, zero, near bool) error {
+	return nil
+}
+
+func (g *gapAsOfStore) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
+	return nil
+}
+
+func (g *gapAsOfStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	switch {
+	case strings.Contains(sql, "INSERT INTO meta") && len(args) > 0 &&
+		strings.HasPrefix(fmt.Sprint(args[0]), "daily:gapq:"):
+		k := fmt.Sprint(args[0])
+		g.gapq[k]++
+		g.bumps = append(g.bumps, k)
+		return nil, nil
+	case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1") && len(args) > 0 &&
+		strings.HasPrefix(fmt.Sprint(args[0]), "daily:gapq:"):
+		return [][]any{{fmt.Sprint(g.gapq[fmt.Sprint(args[0])])}}, nil
+	case strings.Contains(sql, "FROM knowledge WHERE status = 'active'"):
+		return [][]any{{fmt.Sprint(g.active)}}, nil
+	}
+	return g.fakeStore.Query(ctx, sql, args...)
+}

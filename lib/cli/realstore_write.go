@@ -22,3 +22,10 @@ func (s *realStore) DupRowByHash(ctx context.Context, hash string) (knowledge.Du
 	id, topic, state, exists, err := s.repo.DupRowByHash(ctx, hash)
 	return knowledge.DupMeta{ID: id, Topic: topic, State: state}, exists, err
 }
+
+// realStore.UpdatePendingSummary — real implementation of the
+// knowledge.pendingSummaryStore extension (v1.12.0 T3 — delegates to
+// db.Repo.UpdatePendingSummary, the pending-only summary UPDATE).
+func (s *realStore) UpdatePendingSummary(ctx context.Context, id int, summary string) (int64, error) {
+	return s.repo.UpdatePendingSummary(ctx, id, summary)
+}

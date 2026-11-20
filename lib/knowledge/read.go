@@ -218,12 +218,14 @@ func BumpGapQuery(ctx context.Context, st wire.Store, sanitizedQuery string) (co
 	if err := db.BumpDailyFlatKey(ctx, st, "gapq:"+hash, day, 1); err != nil {
 		return 0, false
 	}
-	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT value FROM meta WHERE key = $1`, []any{"daily:gapq:" + hash + ":" + day})
-	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+	// The readback goes through the meta single-entry delegate
+	// (GetMetaKVErr — no meta SQL literals here, the TestMetaKVSingleSource
+	// guard). Absent·corrupt yields (0, false) quietly.
+	val, _, err := wire.GetMetaKVErr(ctx, st, "daily:gapq:"+hash+":"+day)
+	if err != nil || val == "" {
 		return 0, false
 	}
-	n, perr := strconv.ParseInt(strings.TrimSpace(fmt.Sprint(rows[0][0])), 10, 64)
+	n, perr := strconv.ParseInt(strings.TrimSpace(val), 10, 64)
 	if perr != nil {
 		return 0, false
 	}
@@ -689,14 +691,17 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			ZeroReason: zeroReason,
 			Source:     source,
 		})
-		// v1.12.0 T2 — the recall-gap signal: a zero-hit on owned ground
-		// (owned_miss) bumps the normalized-query daily counter (the T3
-		// gap-candidate threshold input). unowned is DB-void noise
-		// (research ruling) — not counted. The hot path is out of scope by
-		// the same convention. Quiet (§13 — the counter never breaks the
-		// read·exit).
-		if zeroReason == "owned_miss" {
-			_, _ = BumpGapQuery(ctx, st, q)
+		// v1.12.0 T2·T3 — the recall-gap signal: a zero-hit on owned
+		// ground (owned_miss) bumps the normalized-query daily counter;
+		// reaching gap_query_threshold accrues a pending gap candidate
+		// (quietly — §13). unowned is DB-void noise (research ruling) —
+		// not counted; an as-of read (a past-point snapshot inspection) is
+		// not a present gap — the guard skips the count. The hot path is
+		// out of scope by the same convention.
+		if zeroReason == "owned_miss" && asOfSpec == "" {
+			if n, ok := BumpGapQuery(ctx, st, q); ok {
+				maybeAccrueGapCandidate(ctx, st, q, n)
+			}
 		}
 	}
 	// The read completion-path audit commit — so the recall bump (INSERT

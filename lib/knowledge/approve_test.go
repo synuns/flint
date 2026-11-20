@@ -43,23 +43,24 @@ type fakeApprove struct {
 	calledN int
 
 	// canned common errors (a no-op when unset — success·0 rows·absence).
-	capErr         error
-	approveIDs     []int // Approve
-	superseded     []supersedeCall
-	bumped         [][]int        // BumpReads
-	readEvents     []db.ReadEvent // RecordReadEvent
-	hotEvents      []string       // RecordHotEvent
-	recordedUses   []countCall    // RecordUsage
-	dupIDQueries   []string       // DupIDByHash query hashes
-	dupRowQueries  []string       // DupRowByHash query hashes
-	countedUses    []countCall    // RecordUsageCount
-	staleAgents    []string       // StaleSessionRuns
-	playbookUses   []playbookUse  // LogPlaybookUse
-	sessionUpdates []sessionUpdate
-	recordedBytes  []bytesCall       // RecordBytes (G5 byte metering)
-	kreads         []kreadsCallV     // RecordKnowledgeReads (recall history)
-	telemetryCmds  []string          // CommitTelemetry (the separated metering commit)
-	replayedRecall []db.RecallReplay // ReplayRecallEvents (R42-A score-transfer replay)
+	capErr           error
+	approveIDs       []int // Approve
+	superseded       []supersedeCall
+	bumped           [][]int        // BumpReads
+	readEvents       []db.ReadEvent // RecordReadEvent
+	hotEvents        []string       // RecordHotEvent
+	recordedUses     []countCall    // RecordUsage
+	dupIDQueries     []string       // DupIDByHash query hashes
+	dupRowQueries    []string       // DupRowByHash query hashes
+	countedUses      []countCall    // RecordUsageCount
+	staleAgents      []string       // StaleSessionRuns
+	playbookUses     []playbookUse  // LogPlaybookUse
+	sessionUpdates   []sessionUpdate
+	recordedBytes    []bytesCall       // RecordBytes (G5 byte metering)
+	kreads           []kreadsCallV     // RecordKnowledgeReads (recall history)
+	telemetryCmds    []string          // CommitTelemetry (the separated metering commit)
+	replayedRecall   []db.RecallReplay // ReplayRecallEvents (R42-A score-transfer replay)
+	pendingSummaries []string          // UpdatePendingSummary (v1.12.0 T3 gap-candidate refresh)
 }
 
 // kreadsCallV — a canned RecordKnowledgeReads call record (the same shape
@@ -183,6 +184,16 @@ func (f *fakeApprove) UpdateSessionSummary(ctx context.Context, id int, summary,
 func (f *fakeApprove) CommitTelemetry(ctx context.Context, cmd string) error {
 	f.telemetryCmds = append(f.telemetryCmds, cmd)
 	return f.capErr
+}
+
+// UpdatePendingSummary — canned pending-row summary refresh recording
+// (v1.12.0 T3 — the gap-candidate N update seam).
+func (f *fakeApprove) UpdatePendingSummary(ctx context.Context, id int, summary string) (int64, error) {
+	f.pendingSummaries = append(f.pendingSummaries, fmt.Sprintf("%d:%s", id, summary))
+	if f.capErr != nil {
+		return 0, f.capErr
+	}
+	return 1, nil
 }
 
 // withApproveFake — swaps the ApproveFn seam. Base fake; with

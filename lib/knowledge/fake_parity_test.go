@@ -46,6 +46,7 @@ var (
 	_ supersedeRefStore      = (*fakeApprove)(nil) // the lineage-reference restoration capability
 	_ TelemetryCommitter     = (*fakeApprove)(nil) // the separated metering-commit capability
 	_ recallReplayStore      = (*fakeApprove)(nil) // the migration score-replay capability (R42-A)
+	_ pendingSummaryStore    = (*fakeApprove)(nil) // the gap-candidate pending-summary refresh capability (v1.12.0 T3)
 
 	// Natural assertions of the existing capability fakes (already
 	// implemented — documentation + a signature-drift regression guard).
