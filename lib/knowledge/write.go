@@ -36,13 +36,15 @@ var kindColumns = map[string]map[string]bool{
 
 // sourceRegistry — the single source of truth of the allowed metering
 // sources (spec §1: hook via hook · human/default manual · MCP mcp ·
-// v1.11.0 correction). The usage hint·the ErrInvalidSource message·the
-// membership check are all derived from this registry (no duplicate
-// hardcoded lists).
-var sourceRegistry = []string{"hook", "manual", "mcp", "correction"}
+// v1.11.0 correction · v1.12.0 gap — recall-failure gap candidates, a
+// machine channel whose payload T3 accrues; no write-time defaults, the
+// gap-candidate tag is attached by the candidate payload itself). The
+// usage hint·the ErrInvalidSource message·the membership check are all
+// derived from this registry (no duplicate hardcoded lists).
+var sourceRegistry = []string{"hook", "manual", "mcp", "correction", "gap"}
 
 // sourceList — the pipe-joined display form of the registry
-// (hook|manual|mcp|correction) shared by usage·error messages.
+// (hook|manual|mcp|correction|gap) shared by usage·error messages.
 func sourceList() string { return strings.Join(sourceRegistry, "|") }
 
 // ErrInvalidSource — an invalid --source value (exit 3). The allowed list
@@ -621,7 +623,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 
 // RecordDups — meters dup intake by the number of skipped duplicate lines
 // (0 is a no-op). The total "dup" key is invariant (ruling); per-source
-// "dup_"+source (hook·manual·mcp·correction) is additionally incremented (additive —
+// "dup_"+source (hook·manual·mcp·correction·gap) is additionally incremented (additive —
 // v0.10.2 R2). A UsageCountStore (the real implementation) increments each
 // key in bulk with one count call; a non-implementing Store does it one at
 // a time.

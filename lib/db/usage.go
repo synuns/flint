@@ -71,14 +71,14 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 
 // RecordUsageCount — bulk-increments count rounds of intake metering
 // into daily counters (avoiding the O(N) read-writes of dup N
-// accounting). kind = write|hot|read|dup + dup_hook|dup_manual|dup_mcp|dup_correction
-// (per-source dup, additive) + brief (brief intake metering, additive).
+// accounting). kind = write|hot|read|dup + dup_hook|dup_manual|dup_mcp|dup_correction|dup_gap
+// (per-source dup, additive — v1.12.0 gap added) + brief (brief intake metering, additive).
 // Upserts last_<kind>_at as RFC3339 (dup carries no time key — the
 // write time is reused) and increments the `daily:<kind>:YYYY-MM-DD`
 // integer flat key (the legacy `daily:YYYY-MM-DD` JSON counter
 // abolished — reads parse directly via report's WindowedDaily). write
-// also increments the source counters (hook|manual|mcp|correction — the
-// sourceRegistry of knowledge/write.go, v1.11.0 correction added) in parallel.
+// also increments the source counters (hook|manual|mcp|correction|gap — the
+// sourceRegistry of knowledge/write.go, v1.12.0 gap added) in parallel.
 // daily keys beyond 14 days are cleaned by PruneDaily, run only when
 // today's daily key was newly created (the date-rollover first event) —
 // a DELETE on every record wastes the hot path and duplicate writes run
@@ -98,7 +98,7 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 // (write·read·hot) discarding errors.
 func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	switch kind {
-	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "brief":
+	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "dup_gap", "brief":
 	default:
 		return fmt.Errorf("record usage: invalid kind %q", kind)
 	}

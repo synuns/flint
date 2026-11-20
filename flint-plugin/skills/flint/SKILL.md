@@ -93,9 +93,10 @@ Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
 ## 명령 요약
 
 - `flint read [query] [--tag --entity --domain --limit] --json --fields`
-- `flint write knowledge --source hook|manual|mcp|correction` — stdin
+- `flint write knowledge --source hook|manual|mcp|correction|gap` — stdin
   JSON/JSONL (confidence<0.8 → pending · 소스 미지정 시 manual 취급 ·
-  correction은 payload 미지정 시 기본 confidence 0.7)
+  correction은 payload 미지정 시 기본 confidence 0.7 · gap은 격차 후보
+  적립용 기계 채널 — 회상 실패 누적 임계 도달 시 자동 적립)
 - `flint hot` — 활성 프로젝트+pending+최근 결정 7일 (2,000자 상한),
   전체 펼침은 `flint hot --full`
   (pending 열람 — `flint read --status pending`, --as-of 병용 시 as-of 우선)

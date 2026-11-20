@@ -1061,6 +1061,55 @@ func TestSourceRegistryDerivationGuard(t *testing.T) {
 	}
 }
 
+// ── v1.12.0 T1 — the `gap` channel registration: the fifth metering
+// source (recall-failure gap candidates — T3 accrues them; no defaults
+// are attached at write time, unlike correction). The registry remains
+// the single source: usage·ErrInvalidSource·membership derive from it. ──
+
+// TestParseSourceGapValid — "gap" is a registered source: ParseSourceFlag
+// accepts it, and RunWrite with --source gap commits exit 0 (metered
+// under gap — the registry admission contract). A gap write attaches no
+// tag·confidence defaults (T3's candidate payload supplies them).
+func TestParseSourceGapValid(t *testing.T) {
+	if !validSources["gap"] {
+		t.Fatal("등록표에 gap 없음(validSources 멤버십 누락)")
+	}
+	src, err := ParseSourceFlag([]string{"--source", "gap"})
+	if err != nil || src != "gap" {
+		t.Fatalf("ParseSourceFlag=%q,%v — want gap,nil(등록표 통과)", src, err)
+	}
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge", "--source", "gap"},
+		`{"topic":"v1120-t1-gap","summary":"합성 데모 격차 줄","confidence":0.4}`+"\n")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(--source gap 유효); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"status":"committed"`) {
+		t.Fatalf("출력=%q, want committed", out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("삽입=%d건, want 1", len(f.inserted))
+	}
+	if f.inserted[0]["tags"] != nil && f.inserted[0]["tags"] != "" {
+		t.Fatalf("tags=%v, want 부착 없음(gap은 태그 기본값 없음 — T3가 부착)", f.inserted[0]["tags"])
+	}
+}
+
+// TestParseSourceUnregisteredStillRejectedAfterGap — the gap admission
+// keeps the invalid-source contract: an unregistered value is still
+// rejected exit 3 (guard against a loosened membership check).
+func TestParseSourceUnregisteredStillRejectedAfterGap(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge", "--source", "gaps"},
+		`{"topic":"v1120-t1-bad","summary":"합성 데모","confidence":0.9}`+"\n")
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(미등록 source); out=%s", code, out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("미등록 source 적립 발생: %d건", len(f.inserted))
+	}
+}
+
 // ── v1.11.0 T2 — the --source correction path: only two defaults are
 // added (missing confidence → the correction_confidence threshold·the
 // "correction" tag merged); validate→hash dedup→classify→approve are the
