@@ -1,0 +1,70 @@
+// tuning_test.go — TUNING.md의 메타 키 이름이 코드에서 실제 사용하는
+// 키와 일치하는지 grep 정합 검증한다(T30 — 문서 임계값 절차의 계약).
+// thresholds 4키는 lib/store/thresholds.go, last_backup은 lib/backup/auto.go,
+// hot_budget은 lib/knowledge/hot.go(v0.39.0 T3 이동), hot_stats는
+// lib/ops/metrics.go(v0.40.0 T2 이동)와 각각 대조한다.
+package doclint
+
+import (
+	"os"
+	"strings"
+	"testing"
+)
+
+func read(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(docPath(path))
+	if err != nil {
+		t.Fatalf("읽기 실패 %s: %v", path, err)
+	}
+	return string(b)
+}
+
+// TestTuningMetaKeysMatch — TUNING.md에 언급된 임계값 키가 thresholds.go
+// case 문(큰따옴표 키)과 일치하고, last_backup은 auto.go, hot_budget은
+// hot.go, hot_stats는 metrics.go의 실제 키와 각각 일치하는지 검증.
+func TestTuningMetaKeysMatch(t *testing.T) {
+	doc := read(t, "TUNING.md")
+
+	for _, key := range []string{"pending_max", "dup_susp_max", "conf_floor", "stale_sessions", "pending_promote_days", "pending_promote_min_runes",
+		// v1.2.1(R15-B4): diag_*·kreads·zero_owned_floor 문서 가드 확장
+		"diag_hot_budget_high", "diag_hot_budget_low", "diag_trend_pct", "diag_recall_led_goal", "diag_dead_warn", "knowledge_reads_retention_days", "zero_owned_floor"} {
+		src := read(t, "../lib/store/thresholds.go")
+		// v1.2.1(R15-B4): per-key 직접 오버라이드 키는 knowledge/read.go에
+		// 상주하므로 양쪽에서 찾는다(thresholds 등록표 밖 관례).
+		if !strings.Contains(src, `"`+key+`"`) {
+			src2 := read(t, "../lib/knowledge/read.go")
+			if !strings.Contains(src2, `"`+key+`"`) {
+				t.Errorf("코드에 임계값 키 %s 없음 (thresholds.go·read.go)", key)
+			}
+		}
+		if !strings.Contains(doc, key) {
+			t.Errorf("TUNING.md에 %s 절차 없음", key)
+		}
+	}
+
+	if strings.Contains(doc, "last_backup") {
+		if !strings.Contains(read(t, "../lib/backup/auto.go"), `"last_backup"`) {
+			t.Error("last_backup 키 auto.go와 불일치")
+		}
+	}
+
+	if !strings.Contains(read(t, "../lib/knowledge/hot.go"), `"hot_budget"`) {
+		t.Error("hot_budget 키 hot.go와 불일치")
+	}
+	if !strings.Contains(doc, "hot_budget") {
+		t.Error("TUNING.md에 hot_budget 절차 없음")
+	}
+}
+
+// TestTuningHotStatsKeyMatch — meta hot_stats 키가 metrics.go 실구현과
+// 일치하고 TUNING.md에도 언급되는지 검증. v0.40.0 T2: metrics.go는
+// lib/ops로 이동 — 가드도 이동 위치를 검사한다.
+func TestTuningHotStatsKeyMatch(t *testing.T) {
+	if !strings.Contains(read(t, "../lib/ops/metrics.go"), `"hot_stats"`) {
+		t.Error("hot_stats 키 metrics.go(ops)와 불일치")
+	}
+	if !strings.Contains(read(t, "TUNING.md"), "hot_stats") {
+		t.Error("TUNING.md에 hot_stats 언급 없음")
+	}
+}

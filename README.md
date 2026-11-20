@@ -190,7 +190,7 @@ session start ──hook──► flint hot ──budgeted [flint] block──�
 
 ## Beyond local agents — the bridge
 
-flint's surfaces (hooks, stdio MCP, localhost Doltgres) assume the agent runs on your machine — that's deliberate ([ADR-0013](docs/adr/ADR-0013-threat-model.md)). For AIs that don't — a cloud assistant, a phone app — use the bridge instead of a connector:
+flint's surfaces (hooks, stdio MCP, localhost Doltgres) assume the agent runs on your machine — that's deliberate ([ADR-0013](docs/adr/0013-threat-model.md)). For AIs that don't — a cloud assistant, a phone app — use the bridge instead of a connector:
 
 ```bash
 flint brief [query]        # masked, read-only context block — paste it into any chat
@@ -252,7 +252,7 @@ Memory that decays like memory: every `read` hit reinforces the entry (`recall_s
 
 Four screens built on bubbletea: `flint setup` (no arguments) opens the setup wizard, and `pending`, `export`, and `report` become interactive review, preview, and diagnostics views. Interactive by default in a terminal — a bare invocation opens the TUI (since v1.5.2). Piped/non-terminal runs and any flag keep the existing output untouched — same JSON on stdout. `flint maintain --tui` (v1.6.0) adds an opt-in curation screen: suspect lists → a what-survives merge preview → merge/keep/invalidate, delegating to the existing subcommands.
 
-Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/TUNING.md) · Metrics: [docs/METRICS.md](docs/METRICS.md) · Performance: [docs/PERF.md](docs/PERF.md)
+Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/TUNING.md) · Metrics: [docs/METRICS.md](docs/METRICS.md) · Performance: [docs/PERF.md](docs/PERF.md) · Docs index: [docs/README.md](docs/README.md)
 
 ---
 

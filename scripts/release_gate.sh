@@ -24,7 +24,7 @@ grep -qE "^### v${ver//./\\.}" docs/HISTORY.md || fail "HISTORY 항목 부재 (�
 major_minor_patch="${ver#v}" 2>/dev/null || true
 nums="0${ver//./}"
 row="TestVersion${nums}Milestone"
-grep -q "$row" docs/versions_test.go || fail "versions_test 계약행(${row}) 부재"
+grep -q "$row" internal/doclint/versions_test.go || fail "versions_test 계약행(${row}) 부재"
 
 # 5. docs 계약 green (배지-하이라이트-버전 동기 테스트 포함)
 make docs-sync >/dev/null || fail "make docs-sync red"

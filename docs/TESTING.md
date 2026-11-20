@@ -9,7 +9,7 @@
   read_test.go, 스키마 게이트면 admin_test.go) — 버전은 테스트 주석에
   표기(`v0.20.2: …`). `*_v0XXX_test.go` 신규 생성 금지(기존 70%가 버전
   접두 파일로 흩어진 전례 — 같은 계약이 여러 파일에 중복됨).
-- 문서 회귀는 docs/versions_test.go의 표에 행 추가로 끝낸다(v0.20.2
+- 문서 회귀는 internal/doclint/versions_test.go의 표에 행 추가로 끝낸다(v0.20.2
   통합 — 버전별 파일 재증식 금지).
 
 ## 2. fixture 라우팅(queryFn)

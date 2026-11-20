@@ -392,7 +392,7 @@ Knowledge pipeline step 1 (draft: docs/plans/2026-11-19-flint-knowledge-pipeline
   clamps and the telemetry commit filter are unchanged (machine channels
   frozen) — callers were switched, never rewritten.
 
-Design detail: docs/plans/2026-11-18-flint-v1800.md
+Design detail: docs/plans/archive/2026-11/2026-11-18-flint-v1800.md
 
 ### v1.7.2 patch (2026-11-17) — R38 audit fixes: telemetry sweep · sync mitigations
 
@@ -443,7 +443,7 @@ Design detail: docs/plans/2026-11-18-flint-v1800.md
   conflict is an error JSON with exit 1 plus manual-resolution guidance
   (the dolt CLI) — automatic resolution is forbidden (destructive-change
   defense); an unregistered or unreachable remote keeps the cause and never
-  exposes the url. Design detail: docs/plans/2026-11-17-flint-v1700.md.
+  exposes the url. Design detail: docs/plans/archive/2026-11/2026-11-17-flint-v1700.md.
 - [x] Recall decay / reinforcement (schema v11 — additive columns
   `knowledge.recall_score` (int, default 0) · `last_recalled_at`
   (timestamptz, NULL), backward-compatible with v10 binaries): a read hit
@@ -2318,7 +2318,7 @@ v0.35.0 프로파일·v0.36.0 report-html은 예외).
 - [x] R10 소규모 — CONTENT 8종·exit 1 서술·배지 기준
 - [x] 버전 — VERSION·배지 v0.34.2(EN/KO)·plugin.json 동기
 
-세부: [docs/plans/2026-11-11-flint-v0342.spec.md](plans/2026-11-11-flint-v0342.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-11-flint-v0342.spec.md](plans/2026-11-11-flint-v0342.spec.md)
 
 ### v0.35.0 마이너 (2026-11-11) — 프로파일 판정 완결: 추천에서 전환까지 (D①)
 
@@ -2409,7 +2409,7 @@ html/template 렌더):
 
 리넘버 룰링: 스펙 작성 시 v0.34.3 → v0.35.0 선행 병합으로 v0.35.1 →
 v0.36.0 선행 병합으로 v0.36.1 (스펙 §2 조항 2회 발동·스펙 파일명은
-작성 시점 그대로). report.go·profile.go는 무결(v0.36.0 트랙 충돌 회피). 세부: [docs/plans/2026-11-11-flint-v0343.spec.md](plans/2026-11-11-flint-v0343.spec.md)
+작성 시점 그대로). report.go·profile.go는 무결(v0.36.0 트랙 충돌 회피). 세부: [docs/plans/archive/2026-11/2026-11-11-flint-v0343.spec.md](plans/2026-11-11-flint-v0343.spec.md)
 
 ### v0.37.0 마이너 (2026-11-12) — 구조 수렴 1막: 출력 살균 조크포인트 (render)
 
@@ -2429,7 +2429,7 @@ render 단일 출구로 수렴(패키지 분할 없음, 위임만 — 출력 바
   pipeline(lib/store/sanitize.go·pipeline.go)은 화이트리스트 유지
 - [x] 버전 — VERSION·배지 v0.37.0(EN/KO)·plugin.json 동기
 
-세부: [docs/plans/2026-11-12-flint-v0370.spec.md](plans/2026-11-12-flint-v0370.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-12-flint-v0370.spec.md](plans/2026-11-12-flint-v0370.spec.md)
 
 ### v0.38.0 마이너 (2026-11-12) — 패키지 분할 1/3: 계약층 lib/wire · 출력층 lib/render
 
@@ -2470,7 +2470,7 @@ render 단일 출구로 수렴(패키지 분할 없음, 위임만 — 출력 바
 | v0.43 | seam 동질화 (v0.43.0 완료) |
 | v0.44 | PLAN 재무장·표면 계약 6종 → v1.0 게이트 |
 
-세부: [docs/plans/2026-11-12-flint-v0380.spec.md](plans/2026-11-12-flint-v0380.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-12-flint-v0380.spec.md](plans/2026-11-12-flint-v0380.spec.md)
 
 ### v0.39.0 마이너 (2026-11-12) — 패키지 분할 2/3: 지식 명령층 lib/knowledge
 
@@ -2499,7 +2499,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
   금지로 임시 복제. v0.41 wire 재편 시 계약층 수렴 예정
 - [x] 버전 — VERSION·배지 v0.39.0(EN/KO)·plugin.json 동기
 
-세부: [docs/plans/2026-11-12-flint-v0390.spec.md](plans/2026-11-12-flint-v0390.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-12-flint-v0390.spec.md](plans/2026-11-12-flint-v0390.spec.md)
 
 ### v0.40.0 마이너 (2026-11-12) — 패키지 분할 3/3: 진단·정리·관측 lib/ops · 3분할 완결
 
@@ -2528,7 +2528,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
 3분할 완결(v0.38 wire·render / v0.39 knowledge / v0.40 ops). cli 이상
 축소·realStore 본체 이동은 v0.43 seam 동질화에서 재검.
 
-세부: [docs/plans/2026-11-13-flint-v0400.spec.md](plans/2026-11-13-flint-v0400.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-13-flint-v0400.spec.md](plans/2026-11-13-flint-v0400.spec.md)
 
 ### v0.41.0 마이너 (2026-11-12) — 스키마 진실: 게이트 등록표·상태 전이 단일화·쓰기 repo 집중
 
@@ -2556,7 +2556,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
   로컬 복제 4종 삭제(v0.39 이월 부채 회수)
 - [x] 버전 — VERSION·배지 v0.41.0(EN/KO)·plugin.json 동기
 
-세부: [docs/plans/2026-11-13-flint-v0411.spec.md](plans/2026-11-13-flint-v0411.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-13-flint-v0411.spec.md](plans/2026-11-13-flint-v0411.spec.md)
 
 ### v0.42.0 마이너 (2026-11-12) — 계측·튜닝 단일 원천: 등록표·파생 산출·이벤트 인덱스
 
@@ -2589,7 +2589,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
   events_retention_days 보존창(기본 14일)의 read_events 집계가 된다
 - [x] 버전 — VERSION·배지 v0.42.0(EN/KO)·plugin.json 동기
 
-세부: [docs/plans/2026-11-13-flint-v0422.spec.md](plans/2026-11-13-flint-v0422.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-13-flint-v0422.spec.md](plans/2026-11-13-flint-v0422.spec.md)
 
 ### v0.43.0 마이너 (2026-11-12) — seam 동질화: fake-capability 단언 전수·술어 수렴·wrapper 사유 명시
 
@@ -2615,7 +2615,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
   ①②③④ 해소, ⑤(기획 문서 사망 — PLAN 재무장)는 v0.44
 - [x] 버전 — VERSION·배지 v0.43.0(EN/KO)·plugin.json 동기
 
-세부: [docs/plans/2026-11-13-flint-v0433.spec.md](plans/2026-11-13-flint-v0433.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-13-flint-v0433.spec.md](plans/2026-11-13-flint-v0433.spec.md)
 
 ### v0.44.0 마이너 (2026-11-12) — PLAN 재무장·표면 계약 6종·커맨드 표 가드: 병인 ⑤ 해소 완결·v1.0.0 게이트 준비
 
@@ -2637,7 +2637,7 @@ exit 코드 전부 불변, cmd/flint/main.go 무변경.
   8커맨드 누락을 포획·수정
 - [x] 버전 — VERSION·배지 v0.44.0(EN/KO)·plugin.json 동기
 
-세부: [docs/plans/2026-11-13-flint-v0444.spec.md](plans/2026-11-13-flint-v0444.spec.md)
+세부: [docs/plans/archive/2026-11/2026-11-13-flint-v0444.spec.md](plans/2026-11-13-flint-v0444.spec.md)
 
 ### v1.0.0 메이저 (2026-11-12) — 구조 수렴 완결·게이트 충족: 안정 기조 전환
 

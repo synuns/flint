@@ -310,7 +310,7 @@ browsing) — render from the same source (ReportOutput.Diagnosis, a single
 Diagnose() computation; no data splitting between views). --text was added
 in v1.2.3 (before that, JSON · HTML 2 views).
 Source code: lib/ops/diagnosis.go · design:
-docs/plans/2026-11-13-flint-v1200.spec.md.
+docs/plans/archive/2026-11/2026-11-13-flint-v1200.spec.md.
 
 Three criterion layers · eight rules (the metrics column cross-references
 the §4 signal→metric mapping):

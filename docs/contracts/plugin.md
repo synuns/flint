@@ -2,7 +2,7 @@
 
 > English documentation. For a Korean overview, see [README.ko.md](../../README.ko.md).
 
-Sources: `flint-plugin/` · `.claude-plugin/marketplace.json` · `docs/versions_test.go`.
+Sources: `flint-plugin/` · `.claude-plugin/marketplace.json` · `internal/doclint/versions_test.go`.
 
 ## Contract
 
@@ -26,7 +26,7 @@ Sources: `flint-plugin/` · `.claude-plugin/marketplace.json` · `docs/versions_
   both the hooks and the MCP server execute the binary on PATH. It does
   not work without the binary (doctor checks this as a diagnostic item).
 - **Version sync**: VERSION = plugin.json version = README EN/KO badges
-  update together on every release (`docs/versions_test.go` guard — 4-way
+  update together on every release (`internal/doclint/versions_test.go` guard — 4-way
   match).
 
 ## Boundaries

@@ -191,7 +191,7 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 ## 로컬 밖의 AI — 브리지
 
 flint의 표면(훅·stdio MCP·localhost Doltgres)은 에이전트가 내 기기에서
-실행된다고 가정한다 — 의도된 설계다([ADR-0013](docs/adr/ADR-0013-threat-model.md)).
+실행된다고 가정한다 — 의도된 설계다([ADR-0013](docs/adr/0013-threat-model.md)).
 그렇지 않은 AI — 클라우드 비서, 폰 앱 — 에는 커넥터 대신 브리지를 쓴다:
 
 ```bash
@@ -263,7 +263,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 
 `flint setup`(무인자) 위저드와 `pending`·`export`·`report`의 4화면. 터미널에서는 기본 대화형 — 무인자 실행 시 TUI가 열린다(v1.5.2부터). 파이프·비터미널 실행과 플래그 지정 시 기존 출력이 그대로 유지된다. `flint maintain --tui`(v1.6.0)는 옵트인 관리 화면 — 의심 목록 → 병합 시 무엇이 남는지 미리보기 → 병합/유지/무효화, 실행은 기존 서브커맨드에 위임.
 
-운영: [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝: [docs/TUNING.md](docs/TUNING.md) · 메트릭: [docs/METRICS.md](docs/METRICS.md) · 성능: [docs/PERF.md](docs/PERF.md)
+운영: [docs/RUNBOOK.md](docs/RUNBOOK.md) · 튜닝: [docs/TUNING.md](docs/TUNING.md) · 메트릭: [docs/METRICS.md](docs/METRICS.md) · 성능: [docs/PERF.md](docs/PERF.md) · 문서 지도: [docs/README.md](docs/README.md)
 
 ---
 
