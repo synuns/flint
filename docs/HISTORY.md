@@ -6,6 +6,10 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.10.1 patch (2026-11-20) — r47-counts: fix file counts in v1.10.0 notes (424, not 394; per-package counts corrected)
+
+### v1.10.1 patch (2026-11-20) — r47-counts: fix file counts in v1.10.0 notes (424, not 394; per-package counts corrected)
+
 ### v1.10.0 minor (2026-11-20) — hygiene: comments in English across 424 files · slow suite 34.5% faster · test race fixes
 
 - [x] T1 — R46 precision fixes: HISTORY date ordering, README highlight
