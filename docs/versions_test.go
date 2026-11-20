@@ -362,6 +362,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01102Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.10.2", "r48-notes",
 	}},
+	// v1.11.0: 지식화 파이프라인 1단계 — 사용자 교정 채널(B안 룰링).
+	{name: "TestVersion01110Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.11.0", "correction-channel",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

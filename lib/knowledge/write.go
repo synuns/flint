@@ -14,7 +14,9 @@ import (
 	"io"
 	"sort"
 	"strings"
+	"time"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -32,13 +34,79 @@ var kindColumns = map[string]map[string]bool{
 	"project": {"name": true, "status": true, "updated": true, "note": true},
 }
 
-// ErrInvalidSource — an invalid --source value (exit 3). There are only
-// three intake metering sources.
-var ErrInvalidSource = errors.New("write: invalid --source (hook|manual|mcp)")
+// sourceRegistry — the single source of truth of the allowed metering
+// sources (spec §1: hook via hook · human/default manual · MCP mcp ·
+// v1.11.0 correction). The usage hint·the ErrInvalidSource message·the
+// membership check are all derived from this registry (no duplicate
+// hardcoded lists).
+var sourceRegistry = []string{"hook", "manual", "mcp", "correction"}
 
-// validSources — the allowed metering sources (spec §1: hook via hook ·
-// human/default manual · MCP mcp).
-var validSources = map[string]bool{"hook": true, "manual": true, "mcp": true}
+// sourceList — the pipe-joined display form of the registry
+// (hook|manual|mcp|correction) shared by usage·error messages.
+func sourceList() string { return strings.Join(sourceRegistry, "|") }
+
+// ErrInvalidSource — an invalid --source value (exit 3). The allowed list
+// is derived from sourceRegistry (registry-drift breaks the guard test).
+var ErrInvalidSource = fmt.Errorf("write: invalid --source (%s)", sourceList())
+
+// validSources — the membership view derived from sourceRegistry
+// (1:1 — the derivation guard test enforces sync).
+var validSources = func() map[string]bool {
+	m := make(map[string]bool, len(sourceRegistry))
+	for _, s := range sourceRegistry {
+		m[s] = true
+	}
+	return m
+}()
+
+// correctionTodayCount — today's committed correction count (the
+// daily:correction_write:<UTC date> flat key — the BumpDailyFlatKey
+// convention; PruneDaily cleans daily:* beyond the retention window). A
+// lookup·parse failure is a quiet 0 (§13 — the cap never breaks the
+// write).
+func correctionTodayCount(ctx context.Context, st wire.Store) int {
+	key := "daily:correction_write:" + time.Now().UTC().Format("2006-01-02")
+	rows, err := wire.QueryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0
+	}
+	n := 0
+	if _, err := fmt.Sscan(fmt.Sprint(rows[0][0]), &n); err != nil {
+		return 0
+	}
+	return n
+}
+
+// applyCorrectionDefaults — the --source correction payload defaults
+// (v1.11.0 T2, knowledge only): a missing confidence gets def (the
+// correction_confidence threshold — default 0.7, below conf_floor so a
+// correction lands pending for review); the "correction" tag is merged
+// (an absent tags becomes ["correction"]; an existing list is appended
+// unless already present — idempotent). An explicitly given confidence
+// (including 0) is respected — the manual contract unchanged.
+func applyCorrectionDefaults(p map[string]any, def float64) {
+	if _, ok := p["confidence"]; !ok {
+		p["confidence"] = def
+	}
+	switch tags := p["tags"].(type) {
+	case []any:
+		for _, t := range tags {
+			if s, ok := t.(string); ok && s == "correction" {
+				return
+			}
+		}
+		p["tags"] = append(tags, "correction")
+	case []string:
+		for _, s := range tags {
+			if s == "correction" {
+				return
+			}
+		}
+		p["tags"] = append(tags, "correction")
+	default:
+		p["tags"] = []any{"correction"}
+	}
+}
 
 // ParseSourceFlag — parses the --source value from args (plan T61). Unset
 // is "manual"; invalid values·a missing value are ErrInvalidSource (the CLI
@@ -154,7 +222,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// pipe).
 	for _, a := range args {
 		if a == "--help" || a == "-h" {
-			fmt.Fprintln(stdout, "usage: flint write <kind> [--source hook|manual|mcp] [--session ID] — kind: knowledge|session|project, payload: JSON/JSONL on stdin")
+			fmt.Fprintf(stdout, "usage: flint write <kind> [--source %s] [--session ID] — kind: knowledge|session|project, payload: JSON/JSONL on stdin\n", sourceList())
 			return 0
 		}
 	}
@@ -231,6 +299,21 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	recs := make([]map[string]any, 0, len(payloads))
 	dropped := map[string]bool{}
 	var warnings []string
+	// v1.11.0 T3 — the correction daily cap: correction lines still
+	// accrualable today (correction_daily_max minus the committed count in
+	// the daily:correction_write:<date> flat key). -1 = unlimited (not a
+	// correction knowledge write). The quota is consumed only by lines that
+	// reach accrual (finalizeRec) — duplicate-skipped lines never burn it;
+	// a count lookup failure is a quiet 0 (§13 — the cap never breaks the
+	// write).
+	correctionQuota := -1
+	if source == "correction" && kind == "knowledge" {
+		correctionQuota = th.CorrectionDailyMax - correctionTodayCount(ctx, st)
+		if correctionQuota < 0 {
+			correctionQuota = 0
+		}
+	}
+	capWarned := false
 	hash, state := "", "active"
 	dups := 0
 	dupID := 0     // the existing row id for a single-line duplicate (R3) — stays 0 for unsupported Stores·multi-line
@@ -250,8 +333,22 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	var stagedN []map[string]any // knowledge lines awaiting the batch query (order preserved)
 	var stagedH []string         // content_hash at the same index as stagedN
 	// finalizeRec — finalizes a line that passed classification: kind
-	// tagging·non-column key cleanup·recs accrual.
+	// tagging·non-column key cleanup·recs accrual. The correction daily
+	// cap gates here (single choke point covering the single-shot·batched
+	// accrual paths alike): a line past the quota is quietly skipped with
+	// one warning line (exit 0 — independent of the dup mechanism).
 	finalizeRec := func(n map[string]any) {
+		if correctionQuota == 0 {
+			if !capWarned {
+				warnings = append(warnings, fmt.Sprintf(
+					"correction daily max reached (correction_daily_max=%d) — line skipped", th.CorrectionDailyMax))
+				capWarned = true
+			}
+			return
+		}
+		if correctionQuota > 0 {
+			correctionQuota--
+		}
 		n["kind"] = kind
 		for k := range n {
 			if !kindColumns[kind][k] && k != "kind" {
@@ -262,6 +359,15 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		recs = append(recs, n)
 	}
 	for _, p := range payloads {
+		// v1.11.0 T2 — the --source correction defaults (knowledge only —
+		// the sole kind with confidence·tags columns): a missing confidence
+		// gets the correction_confidence threshold default·the "correction"
+		// tag is merged in. These two defaults are the whole correction
+		// branch — validate→sanitize→hash dedup→classify→approve circuits
+		// are reused unchanged below.
+		if source == "correction" && kind == "knowledge" {
+			applyCorrectionDefaults(p, th.CorrectionConfidence)
+		}
 		// The per-payload field byte cap — rejected at the Validate stage
 		// (exit 3). Blocks the OOM path where a huge single field rides
 		// through the sanitize·hash·accrual pipeline and the stored body
@@ -504,6 +610,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	}
 	RecordUsage(ctx, st, "write", source) // one intake after a successful new commit
 	RecordDups(ctx, st, source, dups)     // the skipped lines of a mixed batch are also dup-metered (total+source)
+	// The correction daily-cap count — bumped only by lines that actually
+	// committed (the cap's count source, independent of the dup metering).
+	if source == "correction" && kind == "knowledge" && len(recs) > 0 {
+		_ = db.BumpDailyFlatKey(ctx, st, "correction_write", time.Now().UTC().Format("2006-01-02"), len(recs))
+	}
 	fmt.Fprintln(stdout, out)
 	return 0
 }

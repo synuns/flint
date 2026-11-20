@@ -72,9 +72,15 @@ var thresholdMetas = []ThresholdMeta{
 	// the recall_events retention (the growth cap of the schema v12 append-only
 	// recall source — the consumption path: maintain --prune-invalidated event cleanup).
 	{"RecallEventRetentionD", "recall_event_retention_days", 90, "maintain --prune-invalidated (recall events retention)"},
+
+	// the --source correction write default confidence (the consumption path knowledge/write.go applyCorrectionDefaults).
+	{"CorrectionConfidence", "correction_confidence", 0.7, "write correction source default"},
+
+	// the --source correction daily accrual cap (the consumption path knowledge/write.go — the daily:correction_write flat-key count).
+	{"CorrectionDailyMax", "correction_daily_max", 20, "write correction daily cap"},
 }
 
-// ThresholdMetas — the registry's deterministic copy (39 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (41 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

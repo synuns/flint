@@ -34,6 +34,10 @@ var frozenThresholdKeys = []string{
 	"decay_rate", "archive_below",
 	// the recall_events retention (maintain --prune-invalidated event cleanup)
 	"recall_event_retention_days",
+	// the --source correction write default (knowledge/write.go)
+	"correction_confidence",
+	// the --source correction daily accrual cap (knowledge/write.go)
+	"correction_daily_max",
 }
 
 // TestThresholdRegistrySingleSource — the registry is homogeneous with the 4 places

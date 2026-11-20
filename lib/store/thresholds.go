@@ -62,6 +62,13 @@ type Thresholds struct {
 	// the recall_events retention (the growth cap of the schema v12 append-only
 	// recall source — maintain --prune-invalidated cleans expired events).
 	RecallEventRetentionD int // the recall-event retention (days, default 90)
+	// the --source correction write default (v1.11.0): the confidence applied
+	// when a correction payload omits it (write.go applyCorrectionDefaults).
+	CorrectionConfidence float64 // default 0.7 — below conf_floor so a correction lands pending
+	// the --source correction daily cap (v1.11.0): correction lines beyond
+	// this many committed accruals per UTC day are quietly skipped with a
+	// warning (write.go — the daily:correction_write flat-key count).
+	CorrectionDailyMax int // default 20
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -115,6 +122,11 @@ const (
 	// ranking. For rows with recent recalls, only events inside the retention
 	// window count — the intended growth boundary via the window-cap effect).
 	defaultRecallEventRetentionD = 90
+	// the --source correction write default confidence (v1.11.0 — pending at
+	// review, below the 0.8 conf_floor).
+	defaultCorrectionConfidence = 0.7
+	// the --source correction daily accrual cap (v1.11.0).
+	defaultCorrectionDailyMax = 20
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -166,6 +178,9 @@ func DefaultThresholds() Thresholds {
 		ArchiveBelow: defaultArchiveBelow,
 		// the recall_events retention (the consumer fallback basis).
 		RecallEventRetentionD: defaultRecallEventRetentionD,
+		// the correction write default (the consumer fallback basis).
+		CorrectionConfidence: defaultCorrectionConfidence,
+		CorrectionDailyMax:   defaultCorrectionDailyMax,
 	}
 }
 
@@ -284,6 +299,14 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// unset keeps 0 (the convention — the consumer, maintain --prune-invalidated,
 			// falls back to the DefaultThresholds 90 — the same family as the kreads retention key).
 			th.RecallEventRetentionD = parseIntOrDefault(val, defaultRecallEventRetentionD, ks)
+		case "correction_confidence":
+			// unset keeps 0 (the convention — the consumer, write's correction
+			// default, falls back to DefaultThresholds via ApplyThresholdsFallback).
+			th.CorrectionConfidence = parseFloatOrDefault(val, defaultCorrectionConfidence, ks)
+		case "correction_daily_max":
+			// unset keeps 0 (the convention — the consumer, write's correction
+			// daily cap, falls back via ApplyThresholdsFallback).
+			th.CorrectionDailyMax = parseIntOrDefault(val, defaultCorrectionDailyMax, ks)
 		}
 	}
 	return th, nil

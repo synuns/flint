@@ -120,6 +120,8 @@ line through the existing set/reset standard path above.
 | `export_import_max_rows` | 100000 | shared row cap for export · import (excess → exit 3 — memory defense against bulk document intake, v1.4.0 T3) | export · import |
 | `decay_rate` | 1 | recall decay per day (v1.7.0) — effective score = `recall_score − decay_rate × days since last_recall`, floored at 0 (whole 24h days; never-recalled rows keep their score). Ranking only, never deletes. 0/invalid falls back to 1 — decay-off tuning is not provided | hot · brief ranking · maintain --decay-audit |
 | `archive_below` | 0 | archive-recommendation floor on the effective score (v1.7.0) — `maintain --decay-audit` lists decayed rows regardless; `recommend:"archive"` appears only when this is > 0 and the effective score is below it. **0 disables** recommendations (listing still works) | maintain --decay-audit |
+| `correction_confidence` | 0.7 | default confidence of a `write --source correction` payload that omits it (v1.11.0) — below the `conf_floor` default 0.8, so a correction lands `pending` for review; an explicitly given confidence (including 0) is always respected. An explicit `approve` promotes the pending row | write correction source default |
+| `correction_daily_max` | 20 | daily cap of committed `write --source correction` accruals per UTC day (v1.11.0) — lines past the cap are quietly skipped with one warning line (exit 0, independent of the duplicate mechanism); the count source is the `daily:correction_write:<date>` flat key, bumped only by lines that actually committed | write correction daily cap |
 
 Diagnostics layer-B rules inherit reads from existing doctor keys (avoiding
 duplicate keys — see the `zero_near_warn_pct` · `pending_age_days` rows).
