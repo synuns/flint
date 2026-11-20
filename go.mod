@@ -3,7 +3,7 @@ module github.com/synuns/flint
 go 1.26.0
 
 require (
-	github.com/jackc/pgx/v5 v5.12.0
+	github.com/jackc/pgx/v5 v5.13.0
 	golang.org/x/text v0.44.0 // NFKC 정규화(v0.10.0 R2 — 기존 indirect 승격)
 )
 
