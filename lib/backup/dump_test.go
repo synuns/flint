@@ -15,14 +15,15 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// probeSeqNameRe — pg_sequences 식별자 인라인 전 문자셋 재검증(방어).
+// probeSeqNameRe — re-validates the identifier charset before inlining it into pg_sequences (defense).
 var probeSeqNameRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
-// dropProbeSequences — backup_probe* serial 시퀀스 회수. Doltgres는
-// DROP TABLE이 serial 소유 시퀀스를 지우지 않아(실측) backup_probe_id_seq가
-// untracked 신규 테이블로 dolt_status에 남고, 다음 실행의 serial CREATE가
-// 이름 충돌로 접미 시퀀스(…_seq1, …_seq2 …)를 계속 쌓는다(공유 테스트 DB
-// 오염). LIKE 패턴으로 접미분까지 전부 회수한다.
+// dropProbeSequences — reclaims backup_probe* serial sequences. Doltgres's
+// DROP TABLE does not delete serial-owned sequences (verified), so
+// backup_probe_id_seq lingers in dolt_status as an untracked new table, and
+// the next run's serial CREATE piles up suffixed sequences (..._seq1,
+// ..._seq2, ...) on name collisions (shared-test-DB pollution). The LIKE
+// pattern reclaims the suffixed ones too.
 func dropProbeSequences(ctx context.Context, pool *pgxpool.Pool) error {
 	rows, err := pool.Query(ctx,
 		`SELECT sequencename FROM pg_sequences WHERE sequencename LIKE 'backup_probe%'`)
@@ -45,9 +46,10 @@ func dropProbeSequences(ctx context.Context, pool *pgxpool.Pool) error {
 	return rows.Err()
 }
 
-// testDSN — FLINT_TEST_DSN 우선, 없으면 flint_test 기본(tests/regression·
-// tests/e2e와 동일 계약). FLINT_DSN(운영)은 이 패키지가 무시한다 — slowlock
-// TestMain의 교차 스위트 직렬화가 운영 DB에 접속하지 않게 한다.
+// testDSN — FLINT_TEST_DSN first, otherwise the flint_test default (same
+// contract as tests/regression and tests/e2e). This package ignores
+// FLINT_DSN (production) — so the slowlock TestMain cross-suite
+// serialization never connects to the production DB.
 func testDSN() string {
 	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
 		return d
@@ -55,7 +57,7 @@ func testDSN() string {
 	return "postgresql://flint:flint-dev@localhost:5434/flint_test"
 }
 
-// 작은따옴표·줄바꿈·백슬래시 이스케이프.
+// single-quote, newline, and backslash escaping.
 func TestSQLLiteral(t *testing.T) {
 	cases := []struct {
 		in   any
@@ -77,7 +79,7 @@ func TestSQLLiteral(t *testing.T) {
 	}
 }
 
-// 세미콜론이 문자열·주석·달러인용 안에 있으면 문장 분리하지 않는다.
+// a semicolon inside strings, comments, or dollar quoting does not split statements.
 func TestSplitStatements(t *testing.T) {
 	script := "INSERT INTO t VALUES ('a;b');\n-- comment; here\nUPDATE t SET v='x'';y';\n/* block; */ DELETE FROM t;\nSELECT $body$; inside$body$;"
 	got := splitStatements(script)
@@ -97,11 +99,12 @@ func TestSplitStatements(t *testing.T) {
 	}
 }
 
-// 라운드트립 row 수 일치 + 특수문자 값 보존.
+// roundtrip row-count match + special-character value preservation.
 func TestDumpRestoreRoundtrip(t *testing.T) {
-	// Restore 는 public 전체 테이블을 한 트랜잭션에 다시 쓴다 — 타 패키지
-	// 테스트(tests/regression)가 public 에 동시 커밋하면 Doltgres 낙관적
-	// 충돌(40001)로 간헐 실패한다. 드릴 락으로 public 쓰기를 직렬화한다.
+	// Restore rewrites every public table in one transaction — if another
+	// package's tests (tests/regression) commit to public concurrently,
+	// Doltgres optimistic conflicts (40001) cause intermittent failures.
+	// The drill lock serializes public writes.
 	unlock := drillLock(t)
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -131,11 +134,13 @@ func TestDumpRestoreRoundtrip(t *testing.T) {
 			t.Fatalf("setup %q: %v", q, err)
 		}
 	}
-	// 정리 + 잔여 단언 — 테이블 DROP(기존 defer)과 시퀀스 회수를 한
-	// cleanup으로: 순서를 코드에 명시하고(테이블→시퀀스) 조용한 실패를
-	// 로그로 드러낸다. 시퀀스만 남겨두면 dolt_status에 untracked 신규
-	// 테이블로 누적되므로(위 dropProbeSequences 주석) 회수 후
-	// backup_probe* 잔여가 0임을 실측 단언한다(회귀 — 회수 누락 시 실패).
+	// Cleanup + residue assertion — table DROP (the existing defer) and
+	// sequence reclaim in one cleanup: the order is explicit in code
+	// (tables -> sequences) and quiet failures surface in the log. Leaving
+	// just the sequences would accumulate them in dolt_status as untracked
+	// new tables (see dropProbeSequences above), so after reclaiming we
+	// assert zero backup_probe* residue (regression — fails if the reclaim
+	// is missed).
 	defer func() {
 		for _, q := range []string{
 			`DROP TABLE IF EXISTS backup_probe_child`,
@@ -184,7 +189,7 @@ func TestDumpRestoreRoundtrip(t *testing.T) {
 		t.Fatalf("dump does not escape single quote:\n%s", dump)
 	}
 
-	// 완전히 날린 뒤 복구 — DDL 재생성 포함.
+	// Wipe everything, then restore — including DDL re-creation.
 	for _, q := range setup[:2] {
 		if _, err := pool.Exec(ctx, q); err != nil {
 			t.Fatalf("wipe %q: %v", q, err)
@@ -215,7 +220,7 @@ func TestDumpRestoreRoundtrip(t *testing.T) {
 	if childCount != 1 {
 		t.Fatalf("child rows = %d, want 1", childCount)
 	}
-	// serial 복구 확인: id 미지정 삽입이 충돌 없이 성공해야 한다.
+	// serial restoration check: inserting without an id must succeed without collisions.
 	if _, err := pool.Exec(ctx, `INSERT INTO backup_probe (val) VALUES ('post-restore')`); err != nil {
 		t.Fatalf("serial not restored, insert failed: %v", err)
 	}

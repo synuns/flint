@@ -1,5 +1,6 @@
-// ADR-0006 백업 무결성 — 덤프 원본 + .sha256 사이드카, restore 전 검증.
-// 백업 파일은 임의 SQL을 실행하므로, 재생 전 체크섬 위조 여부를 대조한다.
+// ADR-0006 backup integrity — the dump original plus a .sha256 sidecar,
+// verified before restore. Backup files execute arbitrary SQL, so the
+// checksum is checked for tampering before replay.
 package backup
 
 import (
@@ -14,15 +15,16 @@ import (
 )
 
 var (
-	// ErrNoSidecar — .sha256 사이드카 없음. 원본 무결 확인 불가: 경고 후 진행.
+	// ErrNoSidecar — no .sha256 sidecar. The original cannot be confirmed intact: warn and proceed.
 	ErrNoSidecar = errors.New("checksum sidecar missing")
-	// ErrChecksumMismatch — 원본 해시와 사이드카 불일치. restore 거부 대상.
+	// ErrChecksumMismatch — sidecar mismatch with the original's hash. Grounds for refusing restore.
 	ErrChecksumMismatch = errors.New("checksum mismatch")
 )
 
-// Checksum 은 덤프가 기록된 w(*bytes.Buffer처럼 io.Reader를 함께 구현하는
-// writer)의 내용에서 기록량과 sha256 hex 다이제스트를 반환한다.
-// 버퍼를 소모하므로 원본 바이트는 호출 전에 보존해 둔다.
+// Checksum returns the byte count and sha256 hex digest from the contents of
+// w, where the dump was written (a writer that also implements io.Reader,
+// e.g. *bytes.Buffer). It consumes the buffer, so preserve the original
+// bytes before calling.
 func Checksum(w io.Writer) (written int64, sum string, err error) {
 	r, ok := w.(io.Reader)
 	if !ok {
@@ -36,23 +38,24 @@ func Checksum(w io.Writer) (written int64, sum string, err error) {
 	return n, hex.EncodeToString(h.Sum(nil)), nil
 }
 
-// WriteSidecar 은 path+".sha256"에 sha256sum -c 호환 형식
-// ("<hex>  <basename>\n")으로 사이드카를 기록한다.
+// WriteSidecar writes the sidecar to path+".sha256" in the sha256sum -c
+// compatible form ("<hex>  <basename>\n").
 func WriteSidecar(path, sum string) error {
 	line := sum + "  " + filepath.Base(path) + "\n"
 	sp := path + ".sha256"
 	if err := os.WriteFile(sp, []byte(line), 0o600); err != nil {
 		return err
 	}
-	// 기존 사이드카 파일의 완화된 모드 잔존 방지(WriteFile
-	// 퍼모드는 신규 파일에만 적용).
+	// Prevents a relaxed mode lingering on an existing sidecar file
+	// (WriteFile's perm applies only to new files).
 	return os.Chmod(sp, 0o600)
 }
 
-// VerifyFile 은 path 원본의 sha256을 계산해 사이드카(path+".sha256")의
-// 첫 토큰과 대조한다. 성공 시 계산된 해시 반환. 사이드카 누락은
-// ErrNoSidecar(계산된 해시와 함께 반환 — 경고 후 진행용), 불일치는
-// ErrChecksumMismatch. 원본 파일은 수정하지 않는다.
+// VerifyFile computes the sha256 of the path original and compares it with
+// the first token of the sidecar (path+".sha256"). On success it returns
+// the computed hash. A missing sidecar yields ErrNoSidecar (returned with
+// the computed hash — for warn-and-proceed); a mismatch yields
+// ErrChecksumMismatch. The original file is not modified.
 func VerifyFile(path string) (string, error) {
 	data, err := os.ReadFile(path)
 	if err != nil {
@@ -61,9 +64,9 @@ func VerifyFile(path string) (string, error) {
 	return VerifyBytes(data, path+".sha256")
 }
 
-// VerifyBytes — 미리 읽은 바이트의 sha256을 사이드카와 대조(restore
-// TOCTOU 폐쇄 — 검증한 바이트를 그대로 재생하면 검증~재생
-// 사이 파일 교체 창이 존재하지 않는다).
+// VerifyBytes — compares the sha256 of pre-read bytes against the sidecar
+// (closes the restore TOCTOU — replaying the exact verified bytes leaves no
+// window for file replacement between verification and replay).
 func VerifyBytes(data []byte, sidecarPath string) (string, error) {
 	digest := sha256.Sum256(data)
 	got := hex.EncodeToString(digest[:])

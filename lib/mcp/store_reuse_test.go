@@ -1,9 +1,12 @@
-// store_reuse_test.go — MCP 서버 수명 store 재사용 회귀.
-// ① cli.RunWithStore 주입 검증(주입 fake의 Query 도달·Close 미호출 —
-// 서버 수명 store가 첫 호출에 닫히지 않는다)
-// ② 기존 cli.Run 동치(nil 주입 폴백 — store-free 경로·서버다운 exit 2)
-// ③ DispatchTool 2회 호출 시 supply 1회(캐시)·동시 호출 경합·supply
-// 실패 시 nil 폴백(조용히 기존 계약).
+// store_reuse_test.go — MCP server-lifetime store reuse regressions.
+// (1) cli.RunWithStore injection verification (the injected fake's Query
+// is reached and Close is never called — the server-lifetime store is not
+// closed by the first call)
+// (2) equivalence with the existing cli.Run (nil-injection fallback —
+// store-free paths and server-down exit 2)
+// (3) two DispatchTool calls with one supply (the cache), concurrent-call
+// races, and nil fallback on supply failure (quietly, per the existing
+// contract).
 package mcp
 
 import (
@@ -20,8 +23,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// reuseFake — wire.Store fake. Query·Close 호출 수를 기록해 주입
-// 경로 도달과 수명(닫힘 여부)을 검증한다.
+// reuseFake — a wire.Store fake. Records Query and Close call counts to
+// verify that the injection path is reached and the lifetime (whether
+// closed).
 type reuseFake struct {
 	wire.HistoryStubs
 	mu      sync.Mutex
@@ -59,7 +63,7 @@ func (f *reuseFake) Close() {
 
 var _ wire.Store = (*reuseFake)(nil)
 
-// resetStoreCache — 서버 수명 store 캐시 초기화(테스트 간 오염 차단).
+// resetStoreCache — resets the server-lifetime store cache (blocking cross-test contamination).
 func resetStoreCache(t *testing.T) {
 	t.Helper()
 	storeMu.Lock()
@@ -72,8 +76,8 @@ func resetStoreCache(t *testing.T) {
 	})
 }
 
-// installRunWithStore — runWithStoreFn seam 교체(호출 인자·주입 store
-// 기록, 고정 출력·코드 반환).
+// installRunWithStore — swaps the runWithStoreFn seam (records call args
+// and the injected store; returns fixed output and code).
 func installRunWithStore(t *testing.T, out string, code int) *[]wire.Store {
 	t.Helper()
 	var got []wire.Store
@@ -90,9 +94,10 @@ func installRunWithStore(t *testing.T, out string, code int) *[]wire.Store {
 	return &got
 }
 
-// TestRunWithStoreReusesInjection — 주입 store가 커맨드 실행에 실제로
-// 쓰이고(Query 도달) 실행 후에도 닫히지 않는다(wire.Run의 단발 Close
-// 계약 차단 — 서버 수명 재사용의 핵심).
+// TestRunWithStoreReusesInjection — the injected store is actually used by
+// the command (Query reached) and not closed after the run (blocking
+// wire.Run's one-shot Close contract — the crux of server-lifetime
+// reuse).
 func TestRunWithStoreReusesInjection(t *testing.T) {
 	f := &reuseFake{}
 	var out bytes.Buffer
@@ -108,8 +113,9 @@ func TestRunWithStoreReusesInjection(t *testing.T) {
 	}
 }
 
-// TestRunDelegatesToRunWithStore — nil 주입은 기존 cli.Run과 동치
-// (store-free 출력·exit·서버다운 exit 2 계약 불변).
+// TestRunDelegatesToRunWithStore — a nil injection is equivalent to the
+// existing cli.Run (store-free output, exit codes, and the server-down
+// exit 2 contract unchanged).
 func TestRunDelegatesToRunWithStore(t *testing.T) {
 	cases := []struct {
 		name string
@@ -133,7 +139,7 @@ func TestRunDelegatesToRunWithStore(t *testing.T) {
 		})
 	}
 	t.Run("server_down_exit2_both", func(t *testing.T) {
-		// 접속 거부(포트 1)는 재시도 없이 ErrServerDown — 빠른 허메틱 시뮬.
+		// Connection refused (port 1) hits ErrServerDown without retries — a fast hermetic simulation.
 		t.Setenv("FLINT_DSN", "postgres://flint:flint@127.0.0.1:1/flint?sslmode=disable")
 		var a, b bytes.Buffer
 		ca := cli.Run([]string{"hot"}, strings.NewReader(""), &a)
@@ -150,9 +156,10 @@ func TestRunDelegatesToRunWithStore(t *testing.T) {
 	})
 }
 
-// TestDispatchToolReusesServerStore — 도구 호출 2회에 supply(store open)
-// 1회 — 서버 수명 캐시. 동시 호출 경합에서도 open 1회, supply 실패는
-// nil 주입 폴백(조용히 기존 Run 계약).
+// TestDispatchToolReusesServerStore — two tool calls with one supply (one
+// store open) — the server-lifetime cache. Even under a concurrent-call
+// race there is one open; a supply failure is the nil-injection fallback
+// (quietly, per the existing Run contract).
 func TestDispatchToolReusesServerStore(t *testing.T) {
 	t.Run("two_calls_one_open", func(t *testing.T) {
 		resetStoreCache(t)

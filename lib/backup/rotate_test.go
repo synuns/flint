@@ -11,10 +11,11 @@ import (
 	"time"
 )
 
-// backup 로테이션 — .sql mtime 최신순 keep-N 유지, 나머지+짝이루는
-// .sha256 삭제. 계획 지정 테스트: 3쌍→keep 2 → 1쌍 삭제·2쌍 잔존.
+// backup rotation — keep the newest N .sql by mtime, delete the rest plus
+// their paired .sha256. Plan-specified test: 3 pairs -> keep 2 -> 1 pair
+// deleted, 2 pairs remain.
 
-// writeDump — dir에 name(.sql)과 선택적 .sha256 사이드카를 mtime으로 생성.
+// writeDump — creates name (.sql) in dir with an optional .sha256 sidecar at the given mtime.
 func writeDump(t *testing.T, dir, name string, mtime time.Time, withSide bool) {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -49,14 +50,14 @@ func mustGone(t *testing.T, path string) {
 	}
 }
 
-// 계획 지정: 3쌍 → keep 2 → 1쌍 삭제(최신 2쌍 유지).
-// 파일명은 flintDumpName 패턴(flint- 생성 파일)을 사용.
+// Plan-specified: 3 pairs -> keep 2 -> 1 pair deleted (the newest 2 kept).
+// Filenames use the flintDumpName pattern (flint-generated files).
 func TestRotateKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	a := "flint-20261022-120000-101.sql" // 최신
-	b := "flint-20261022-110000-102.sql" // 중간
-	c := "flint-20261022-100000-103.sql" // 가장 오래됨
+	a := "flint-20261022-120000-101.sql" // newest
+	b := "flint-20261022-110000-102.sql" // middle
+	c := "flint-20261022-100000-103.sql" // oldest
 	writeDump(t, dir, a, base, true)
 	writeDump(t, dir, b, base.Add(-time.Hour), true)
 	writeDump(t, dir, c, base.Add(-2*time.Hour), true)
@@ -76,14 +77,14 @@ func TestRotateKeepsNewest(t *testing.T) {
 	mustGone(t, filepath.Join(dir, c+".sha256"))
 }
 
-// 사이드카 누락 파일은 .sql 단독 삭제(removed에도 단독).
+// A file missing its sidecar is deleted as the .sql alone (alone in removed too).
 func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	newName := "flint-20261022-120000-201.sql"
 	oldName := "flint-20261022-110000-202.sql"
 	writeDump(t, dir, newName, base, true)
-	writeDump(t, dir, oldName, base.Add(-time.Hour), false) // 사이드카 없음
+	writeDump(t, dir, oldName, base.Add(-time.Hour), false) // no sidecar
 
 	removed, err := Rotate(dir, 1)
 	if err != nil {
@@ -97,7 +98,7 @@ func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	mustExist(t, filepath.Join(dir, newName+".sha256"))
 }
 
-// keep≤0은 전체 삭제 아님 — 최소 1 보장.
+// keep <= 0 does not delete everything — a minimum of 1 is guaranteed.
 func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
@@ -116,7 +117,7 @@ func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	mustExist(t, filepath.Join(dir, newName))
 	mustExist(t, filepath.Join(dir, newName+".sha256"))
 
-	// 음수도 동일 — 최소 1.
+	// Negative likewise — minimum 1.
 	writeDump(t, dir, oldName, base.Add(-time.Hour), true)
 	if removed, err = Rotate(dir, -3); err != nil || len(removed) != 2 {
 		t.Fatalf("keep=-3: removed=%v err=%v, want 2항목 잔존 1쌍", removed, err)
@@ -124,7 +125,7 @@ func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	mustExist(t, filepath.Join(dir, newName))
 }
 
-// keep 이하 — no-op, removed 빈 목록.
+// At or below keep — no-op, removed empty.
 func TestRotateNoopWhenUnderKeep(t *testing.T) {
 	dir := t.TempDir()
 	writeDump(t, dir, "flint-20261022-120000-401.sql", time.Now(), true)
@@ -139,7 +140,7 @@ func TestRotateNoopWhenUnderKeep(t *testing.T) {
 	mustExist(t, filepath.Join(dir, "flint-20261022-120000-401.sql"))
 }
 
-// .sql 외 파일(.sha256 단독 orphan 등)은 건드리지 않는다.
+// Non-.sql files (e.g. an orphan .sha256 alone) are left untouched.
 func TestRotateIgnoresNonSql(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Now()
@@ -159,14 +160,14 @@ func TestRotateIgnoresNonSql(t *testing.T) {
 	mustExist(t, other)
 }
 
-// 디렉터리 부재 — 에러.
+// Missing directory — error.
 func TestRotateMissingDir(t *testing.T) {
 	if _, err := Rotate(filepath.Join(t.TempDir(), "absent"), 3); err == nil {
 		t.Fatal("존재하지 않는 dir은 에러")
 	}
 }
 
-// BackupKeep — meta backup_keep 우선, 무효·에러·미설정 시 기본 14.
+// BackupKeep — meta backup_keep first; invalid, error, or unset falls back to 14.
 func TestBackupKeep(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -188,9 +189,9 @@ func TestBackupKeep(t *testing.T) {
 	}
 }
 
-// TestBackupKeepQuietUnset — backup_keep
-// 미설정(빈 값·조회 에러)은 정상 기본값 폴백 — fresh DB에서 매번 경고가
-// 뜨는 것을 폐지하고 조용히 간다. 설정됐으나 무효한 값의 경고는 유지.
+// TestBackupKeepQuietUnset — an unset backup_keep (blank value or lookup
+// error) falls back to the normal default quietly — the every-run warning
+// on fresh DBs was removed. The warning for a set-but-invalid value stays.
 func TestBackupKeepQuietUnset(t *testing.T) {
 	capture := func(t *testing.T, getKV func(string) (string, error)) (int, string) {
 		t.Helper()

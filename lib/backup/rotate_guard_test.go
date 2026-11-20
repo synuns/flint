@@ -1,8 +1,8 @@
 package backup
 
-// Rotate는 flint 생성 덤프(flint-YYYYMMDD-HHMMSS-PID.sql|.age)만
-// 로테이션 대상으로 삼는다 — 사용자가 같은 디렉터리에 둔 .sql/.age는
-// 삭제도 keep 집계도 제외(데이터 손실 방지).
+// Rotate targets only flint-generated dumps (flint-YYYYMMDD-HHMMSS-PID.sql
+// or .age) — user-placed .sql/.age in the same directory are excluded from
+// both deletion and the keep count (data-loss prevention).
 
 import (
 	"path/filepath"
@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// 계획 지정: flint 2개(구·신)+사용자 파일(최구 mtime) → keep 1 →
-// 구 flint만 삭제, 사용자 파일은 잔존.
+// Plan-specified: 2 flint dumps (old, new) + a user file (the oldest
+// mtime) -> keep 1 -> only the old flint deleted; the user file remains.
 func TestRotateSkipsForeignDumps(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
-	writeDump(t, dir, "mine.sql", base.Add(-48*time.Hour), false) // 가장 구 mtime
+	writeDump(t, dir, "mine.sql", base.Add(-48*time.Hour), false) // the oldest mtime
 	writeDump(t, dir, "flint-20260101-000000-1.sql", base.Add(-24*time.Hour), false)
-	writeDump(t, dir, "flint-20260102-000000-2.sql", base, false) // 최신
+	writeDump(t, dir, "flint-20260102-000000-2.sql", base, false) // newest
 
 	removed, err := Rotate(dir, 1)
 	if err != nil {
@@ -32,7 +32,7 @@ func TestRotateSkipsForeignDumps(t *testing.T) {
 	mustGone(t, filepath.Join(dir, want))
 }
 
-// 계획 지정: 사용자 파일만 있으면 no-op — (nil, nil).
+// Plan-specified: user files only -> no-op — (nil, nil).
 func TestRotateForeignOnlyNoop(t *testing.T) {
 	dir := t.TempDir()
 	writeDump(t, dir, "mine.sql", time.Now(), true)
@@ -50,26 +50,26 @@ func TestRotateForeignOnlyNoop(t *testing.T) {
 	mustExist(t, filepath.Join(dir, "manual.age"))
 }
 
-// 패턴 경계: flint 생성 형식에서 한 글자라도 어긋면 사용자 파일로 취급.
+// Pattern boundary: a single character off the flint-generated form makes it a user file.
 func TestRotatePatternBoundaries(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	foreign := []string{
-		"flint-202601-000000-1.sql",            // 날짜 7자리
-		"flint-20260101-00000-1.sql",           // 시각 5자리
-		"flint-20260101-000000-x.sql",          // PID 비숫자
-		"flint-20260101-000000-.sql",           // PID 빈 문자열
-		"flint-20260101-000000-1.txt",          // 확장자 불일치
-		"flint-20260101-000000-1.sqlx",         // 확장자 접미
-		"xflint-20260101-000000-1.sql",         // 접두
-		"flint--20260101-000000-1.sql",         // 대시 중복
-		"mybackup-flint-20260101-000000-1.sql", // 중간 삽입
+		"flint-202601-000000-1.sql",            // 7-digit date
+		"flint-20260101-00000-1.sql",           // 5-digit time
+		"flint-20260101-000000-x.sql",          // non-numeric PID
+		"flint-20260101-000000-.sql",           // empty PID
+		"flint-20260101-000000-1.txt",          // extension mismatch
+		"flint-20260101-000000-1.sqlx",         // extension suffix
+		"xflint-20260101-000000-1.sql",         // prefix
+		"flint--20260101-000000-1.sql",         // doubled dash
+		"mybackup-flint-20260101-000000-1.sql", // inserted in the middle
 	}
 	for i, name := range foreign {
 		writeDump(t, dir, name, base.Add(time.Duration(i)*time.Hour), false)
 	}
-	writeDump(t, dir, "flint-20260101-000000-42.age", base.Add(-100*time.Hour), false) // 대상(가장 구)
-	writeDump(t, dir, "flint-20260113-235959-999.sql", base, false)                    // 대상(최신 — keep 1 점유)
+	writeDump(t, dir, "flint-20260101-000000-42.age", base.Add(-100*time.Hour), false) // a target (the oldest)
+	writeDump(t, dir, "flint-20260113-235959-999.sql", base, false)                    // a target (newest — occupies keep 1)
 
 	removed, err := Rotate(dir, 1)
 	if err != nil {
@@ -83,14 +83,15 @@ func TestRotatePatternBoundaries(t *testing.T) {
 	}
 }
 
-// 계약 원천 정합: 실제 생산자(lazyDumpFile)는 암호화 덤프를
-// flint-<date8>-<time6>-<pid>.sql.age로 짓는다(done.go ext=".sql.age").
-// 패턴이 이 형식을 놓치면 암호화 백업이 영구 로테이션 제외(무한 축적).
+// Contract-source consistency: the real producer (lazyDumpFile) names
+// encrypted dumps flint-<date8>-<time6>-<pid>.sql.age (done.go ext =
+// ".sql.age"). If the pattern missed this form, encrypted backups would be
+// permanently excluded from rotation (unbounded accumulation).
 func TestRotateMatchesEncryptedDumpName(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
-	enc := "flint-20261112-080000-77.sql.age"             // 생산 조립 형식 그대로
-	writeDump(t, dir, enc, base.Add(-24*time.Hour), true) // .sql.age.sha256 사이드카
+	enc := "flint-20261112-080000-77.sql.age"             // exactly the producer's assembled form
+	writeDump(t, dir, enc, base.Add(-24*time.Hour), true) // .sql.age.sha256 sidecar
 	writeDump(t, dir, "flint-20261113-090000-78.sql", base, false)
 
 	removed, err := Rotate(dir, 1)
@@ -105,15 +106,15 @@ func TestRotateMatchesEncryptedDumpName(t *testing.T) {
 	mustExist(t, filepath.Join(dir, "flint-20261113-090000-78.sql"))
 }
 
-// 사용자 파일이 keep 슬롯을 차지하지 않는다 — flint 3개+사용자 1개(최신)
-// → keep 2여도 flint 1개가 삭제된다.
+// A user file does not occupy a keep slot — 3 flint dumps + 1 user file
+// (newest) -> even with keep 2, one flint is deleted.
 func TestRotateForeignDoesNotOccupyKeepSlot(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	writeDump(t, dir, "flint-20260101-000000-1.sql", base.Add(-3*time.Hour), false)
 	writeDump(t, dir, "flint-20260102-000000-2.sql", base.Add(-2*time.Hour), false)
 	writeDump(t, dir, "flint-20260103-000000-3.sql", base.Add(-1*time.Hour), false)
-	writeDump(t, dir, "mine.sql", base, false) // 최신이지만 집계 제외
+	writeDump(t, dir, "mine.sql", base, false) // newest but excluded from the count
 
 	removed, err := Rotate(dir, 2)
 	if err != nil {

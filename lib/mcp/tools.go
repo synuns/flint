@@ -1,5 +1,6 @@
-// tools.go — flint mcp 도구 5종. Dispatch는 cli.Run 인자를 조립해 호출하고
-// CLI 출력 문자열과 exit 코드(0/1/2/3 계약)를 그대로 반환한다(실DB·계약 재사용).
+// tools.go — the five flint mcp tools. Dispatch assembles cli.Run arguments
+// and calls it, returning the CLI output string and exit code (the 0/1/2/3
+// contract) as-is (real DB and contract reuse).
 package mcp
 
 import (
@@ -18,40 +19,44 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ToolDef — MCP tools/list 항목. InputSchema는 JSON Schema 객체.
+// ToolDef — one MCP tools/list entry. InputSchema is a JSON Schema object.
 type ToolDef struct {
 	Name        string         `json:"name"`
 	Description string         `json:"description"`
 	InputSchema map[string]any `json:"inputSchema"`
 }
 
-// runFn — seam. 기본은 서버 수명 store 재사용 실행기:
-// 캐시 store(또는 supply 실패 시 nil)를 cli.RunWithStore로 주입한다.
-// nil 폴백은 RunWithStore 내부가 기존 cli.Run 동치 경로로 조용히 처리
-// 한다. 테스트는 fake 주입(SUPERLITE_REAL=1은 실구현 위임).
+// runFn — a seam. The default is the server-lifetime store-reusing runner:
+// it injects the cached store (or nil when supply fails) into
+// cli.RunWithStore. The nil fallback is handled quietly inside RunWithStore
+// on the path equivalent to the existing cli.Run. Tests inject a fake
+// (SUPERLITE_REAL=1 delegates to the real implementation).
 var runFn = func(cliArgs []string, stdin io.Reader, stdout io.Writer) int {
 	return runWithStoreFn(cliArgs, stdin, stdout, serverStore())
 }
 
-// runWithStoreFn — 주입 실행 seam(B4). 기본 실 cli.RunWithStore.
+// runWithStoreFn — the injected-runner seam (B4). Defaults to the real cli.RunWithStore.
 var runWithStoreFn = cli.RunWithStore
 
-// storeSupply — 서버 수명 store 공급 seam(B4). 기본 cli.OpenServerStore
-// (DSN 해결 포함 1회 open). 테스트는 counting fake 주입.
+// storeSupply — the server-lifetime store supply seam (B4). Defaults to
+// cli.OpenServerStore (one open including DSN resolution). Tests inject a
+// counting fake.
 var storeSupply = cli.OpenServerStore
 
-// 서버 수명 store 캐시(B4). MCP 서버는 장기 프로세스 — 도구 호출마다
-// store를 다시 열지 않고 1회 open해 재사용한다. storeMu는 동시 도구
-// 호출 시 초기화 경합을 가드한다.
+// Server-lifetime store cache (B4). An MCP server is a long-lived process —
+// instead of reopening the store per tool call, it opens once and reuses.
+// storeMu guards the initialization race under concurrent tool calls.
 var (
 	storeMu     sync.Mutex
 	cachedStore wire.Store
 )
 
-// serverStore — 캐시된 서버 수명 store 반환(1회 open). supply 실패·nil은
-// nil 반환 — runFn 기본 경로가 RunWithStore(nil) 폴백으로 기존 계약
-// (각 호출 store open 후 실패 전파, 조용히)을 따른다. 연결 끊김 복구는
-// store 내부 pgx pool의 재연결에 위임(캐시는 항목을 버리지 않는다).
+// serverStore — returns the cached server-lifetime store (opened once). On
+// supply failure or nil it returns nil — the default runFn path then follows
+// the existing contract via the RunWithStore(nil) fallback (open the store
+// per call, propagate failure, quietly). Disconnect recovery is delegated
+// to reconnection in the store's internal pgx pool (the cache never drops
+// the entry).
 func serverStore() wire.Store {
 	storeMu.Lock()
 	defer storeMu.Unlock()
@@ -65,7 +70,7 @@ func serverStore() wire.Store {
 	return cachedStore
 }
 
-// ToolsManifest — 도구 5종 정의(read·write·hot·pending·approve).
+// ToolsManifest — the five tool definitions (read, write, hot, pending, approve).
 func ToolsManifest() []ToolDef {
 	return []ToolDef{
 		{
@@ -93,7 +98,7 @@ func ToolsManifest() []ToolDef {
 			},
 		},
 		{
-			// session_id 파라미터는 없다 — 실 세션 필터링은 제외.
+			// No session_id parameter — real-session filtering is excluded.
 			Name:        "flint_hot",
 			Description: "Hot summary for injection (2,000-char cap). All recent items (no session filter).",
 			InputSchema: map[string]any{
@@ -102,7 +107,7 @@ func ToolsManifest() []ToolDef {
 			},
 		},
 		{
-			// 검수 회로 — 세션 안에서 대기 지식 심사·승격.
+			// Review loop — inspect and promote waiting knowledge within the session.
 			Name:        "flint_pending",
 			Description: "Pending knowledge list + rule-based suggestions. verdict is promote|merge|expire|hold. Returns JSON.",
 			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
@@ -122,8 +127,9 @@ func ToolsManifest() []ToolDef {
 	}
 }
 
-// DispatchTool — 도구 이름과 인자를 cli.Run 호출로 조립해 실행한다.
-// 반환 = (CLI 출력 한 줄, exit 코드). 미정의 도구는 exit 1.
+// DispatchTool — assembles the tool name and arguments into a cli.Run call
+// and executes it. Returns (one line of CLI output, exit code). Unknown
+// tools yield exit 1.
 func DispatchTool(name string, args map[string]any) (string, int) {
 	switch name {
 	case "flint_read":
@@ -137,7 +143,7 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 	case "flint_approve":
 		return dispatchApprove(args)
 	default:
-		// 이름 이스케이프(원시 결합 JSON 파손 방지).
+		// Escape the name (prevents raw-concatenation JSON corruption).
 		if b, err := json.Marshal(map[string]string{"error": "unknown tool: " + name}); err == nil {
 			return string(b), 1
 		}
@@ -145,11 +151,12 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 	}
 }
 
-// dispatchRead — flint read [query] --tag --limit 조립. limit은 토큰 예산
-// (ClampLimit 상한 50)을 도구 경로에도 박제한다. query는 외부 입력이라
-// 플래그로 파싱되지 않게 "--" 뒤에 둔다(runRead의 end-of-options 규칙).
+// dispatchRead — assembles flint read [query] --tag --limit. The limit bakes
+// the token budget (ClampLimit cap of 50) into the tool path too. query is
+// external input, so it goes after "--" to keep it from being parsed as a
+// flag (runRead's end-of-options rule).
 func dispatchRead(args map[string]any) (string, int) {
-	// MCP 경로 라벨 — read_events.source='mcp' 계량.
+	// MCP path label — metering read_events.source='mcp'.
 	cliArgs := []string{"--source", "mcp"}
 	if tag := strArg(args, "tag"); tag != "" {
 		cliArgs = append(cliArgs, "--tag", tag)
@@ -163,18 +170,19 @@ func dispatchRead(args map[string]any) (string, int) {
 	return runCall(append([]string{"read"}, cliArgs...), strings.NewReader(""))
 }
 
-// dispatchApprove — flint approve --id N [--supersede OLD]. 검수
-// 회로: 신뢰 게이트(write와 동일 신뢰 수준 — 로컬 stdio 단일 사용자).
-// id는 양의 정수, supersede는 id와 상이해야 한다 — exit 3(검증 실패 계약).
+// dispatchApprove — flint approve --id N [--supersede OLD]. Review loop:
+// trust gate (the same trust level as write — local stdio, single user).
+// id must be a positive integer and supersede must differ from id — exit 3
+// (the validation-failure contract).
 func dispatchApprove(args map[string]any) (string, int) {
 	id, ok := intArgStrict(args, "id")
 	if !ok || id < 1 {
 		return `{"error":"schema","field":"id","expect":"positive integer"}`, 3
 	}
 	cliArgs := []string{"approve", "--id", strconv.Itoa(id)}
-	// supersede 키가 존재하면 타입·값 오류가 무음 스킵이
-	// 아니라 반드시 exit 3 — 문자열 "3" 등 LLM 호출기 오타이 승격만
-	// 실행되는 의미 변질을 차단한다.
+	// When the supersede key exists, type/value errors must exit 3, not be
+	// silently skipped — blocks the semantic drift where an LLM caller typo
+	// like the string "3" runs the promotion alone.
 	if _, has := args["supersede"]; has {
 		sup, ok := intArgStrict(args, "supersede")
 		if !ok {
@@ -191,9 +199,10 @@ func dispatchApprove(args map[string]any) (string, int) {
 	return runCall(cliArgs, strings.NewReader(""))
 }
 
-// intArgStrict — 정수성 검사 intArg: 소수(7.9)는 절삭이
-// 아니라 실패 — 승격·대체 대상 오지정 방지(read limit의 관대 절삭과
-// 구분되는 검증 엄격 계약).
+// intArgStrict — an integer-strictness-checking intArg: a decimal (7.9)
+// fails rather than truncating — preventing mis-targeted promotions and
+// supersedes (a stricter validation contract, distinct from the lenient
+// truncation of the read limit).
 func intArgStrict(args map[string]any, key string) (int, bool) {
 	switch v := args[key].(type) {
 	case float64:
@@ -207,13 +216,14 @@ func intArgStrict(args map[string]any, key string) (int, bool) {
 	return 0, false
 }
 
-// writeKindExpect — flint write가 수용하는 kind 집합. 원천은 lib/store의
-// 수출 상수 KindExpect(단일 원천 참조).
-// 무효 kind의 runFn 도달 전 서버측 차단.
+// writeKindExpect — the set of kinds flint write accepts. Sourced from the
+// exported lib/store constant KindExpect (a single-source reference).
+// Server-side blocking of invalid kinds before reaching runFn.
 const writeKindExpect = store.KindExpect
 
-// dispatchWrite — flint write <kind> + stdin payload JSON. dedup는 CLI 파이프라인
-// 위임으로 도구 호출로도 멱등이다. kind는 화이트리스트 서버측 검증(B5).
+// dispatchWrite — flint write <kind> + payload JSON on stdin. dedup is
+// delegated to the CLI pipeline, so tool calls are idempotent too. kind is
+// whitelist-validated server-side (B5).
 func dispatchWrite(args map[string]any) (string, int) {
 	kind := strArg(args, "kind")
 	if kind == "" {
@@ -235,20 +245,20 @@ func dispatchWrite(args map[string]any) (string, int) {
 	return runCall([]string{"write", kind, "--source", "mcp"}, bytes.NewReader(b))
 }
 
-// dispatchHot — flint hot 조립. 알 수 없는 인자는 무시한다
-// (도구 계약상 인자 없음).
+// dispatchHot — assembles flint hot. Unknown arguments are ignored (the
+// tool contract takes no arguments).
 func dispatchHot(args map[string]any) (string, int) {
 	return runCall([]string{"hot"}, strings.NewReader(""))
 }
 
-// runCall — 조립된 인자로 runFn 실행, 출력의 끝 개행만 제거해 반환.
+// runCall — runs runFn with the assembled arguments, returning the output with trailing newlines removed.
 func runCall(cliArgs []string, stdin io.Reader) (string, int) {
 	var out bytes.Buffer
 	code := runFn(cliArgs, stdin, &out)
 	return strings.TrimRight(out.String(), "\n"), code
 }
 
-// strArg — map에서 문자열 인자 추출(JSON은 문자열만).
+// strArg — extracts a string argument from the map (JSON strings only).
 func strArg(args map[string]any, key string) string {
 	if v, ok := args[key].(string); ok {
 		return v
@@ -256,7 +266,7 @@ func strArg(args map[string]any, key string) string {
 	return ""
 }
 
-// intArg — map에서 정수 인자 추출. JSON 디코딩 결과는 float64.
+// intArg — extracts an integer argument from the map. JSON decoding yields float64.
 func intArg(args map[string]any, key string) (int, bool) {
 	switch v := args[key].(type) {
 	case float64:

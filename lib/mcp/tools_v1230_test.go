@@ -1,5 +1,5 @@
-// tools_v1230_test.go — dispatchWrite kind 서버측 화이트리스트
-// 검증, dispatchHot session_id 잔여 제거.
+// tools_v1230_test.go — server-side whitelist validation of the
+// dispatchWrite kind, and removal of the dispatchHot session_id residue.
 package mcp
 
 import (
@@ -7,10 +7,12 @@ import (
 	"testing"
 )
 
-// TestDispatchWriteRejectsBadKind — B5: 무효 kind는 runFn 도달 전 스키마
-// 오류(exit 3, 기존 MCP 오류 포맷). 유효 kind(knowledge)는 통과해
-// cli write 조립으로 흐른다. 화이트리스트 원천은 lib/store/validate.go
-// kindExpect(knowledge|session|project) — 비수출이라 값 계약으로 동기.
+// TestDispatchWriteRejectsBadKind — B5: an invalid kind is a schema error
+// before reaching runFn (exit 3, the existing MCP error format). A valid
+// kind (knowledge) passes through to the cli write assembly. The whitelist
+// source is kindExpect in lib/store/validate.go
+// (knowledge|session|project) — unexported, so kept in sync by value
+// contract.
 func TestDispatchWriteRejectsBadKind(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"committed","id":1}`, 0)
 
@@ -42,8 +44,8 @@ func TestDispatchWriteRejectsBadKind(t *testing.T) {
 	}
 }
 
-// TestDispatchHotNoSessionResidue — session_id는 --session으로
-// 조립되지 않는다(조회 무영향 no-op).
+// TestDispatchHotNoSessionResidue — session_id is never assembled into
+// --session (a query-neutral no-op).
 func TestDispatchHotNoSessionResidue(t *testing.T) {
 	calls, _ := installRun(t, "hot summary", 0)
 	_, code := DispatchTool("flint_hot", map[string]any{"session_id": "s1"})

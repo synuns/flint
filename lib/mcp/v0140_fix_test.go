@@ -1,15 +1,16 @@
-// v0140_fix_test.go — MCP 도구 응답의 isError는
-// 빈 출력의 exit 1(제로히트 침묵 계약)을 오류로 취급하지 않는다.
+// v0140_fix_test.go — the MCP tool response's isError does not treat an
+// exit 1 with empty output (the zero-hit silence contract) as an error.
 package mcp
 
 import (
 	"testing"
 )
 
-// TestToolsCallIsErrorRequiresOutput — exit 1은 출력 유무로 구분한다:
-// 제로히트 read(exit 1·출력 "")는 isError:false·text ""(침묵 정상 결과),
-// 오류(exit 1·에러 JSON 한 줄)는 isError:true. 모든 flint 오류는 errLine을
-// 출력하므로 빈 출력+exit 1은 침묵 계약뿐이다.
+// TestToolsCallIsErrorRequiresOutput — exit 1 is distinguished by the
+// presence of output: a zero-hit read (exit 1, output "") is
+// isError:false with text "" (the normal silence outcome); an error
+// (exit 1, one JSON error line) is isError:true. Every flint error prints
+// an errLine, so empty output + exit 1 can only be the silence contract.
 func TestToolsCallIsErrorRequiresOutput(t *testing.T) {
 	for _, tc := range []struct {
 		name    string
@@ -35,8 +36,9 @@ func TestToolsCallIsErrorRequiresOutput(t *testing.T) {
 			if m["isError"] != tc.wantErr {
 				t.Errorf("isError = %v, want %v (out=%q code=1)", m["isError"], tc.wantErr, tc.out)
 			}
-			// handleRPC 직접 호출이라 content는 JSON 직렬화 전 값
-			// ([]map[string]any — Serve 경로는 한 줄로 직렬화된다).
+			// handleRPC is called directly, so content is the
+			// pre-serialization value ([]map[string]any — the Serve path
+			// serializes it into one line).
 			content, _ := m["content"].([]map[string]any)
 			if len(content) != 1 {
 				t.Fatalf("content = %v, want 1건", m["content"])
