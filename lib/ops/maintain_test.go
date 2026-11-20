@@ -328,27 +328,36 @@ func TestStaleScoreFormula(t *testing.T) {
 		{"포화 초과 상한: 400·9 → 100", 400, 9, 100},
 	}
 	for _, c := range cases {
-		if got := StaleScore(c.ttl, c.corr); got != c.want {
+		if got := StaleScore(c.ttl, c.corr, 180); got != c.want {
 			t.Errorf("%s: StaleScore(%d, %d) = %d, want %d", c.name, c.ttl, c.corr, got, c.want)
 		}
 	}
 	// Monotonicity in each signal (the other held fixed) — the scoring
 	// contract: more elapsed TTL·more corrections never lower the score.
 	for ttl := 0; ttl <= 360; ttl += 20 {
-		if StaleScore(ttl+20, 1) < StaleScore(ttl, 1) {
+		if StaleScore(ttl+20, 1, 180) < StaleScore(ttl, 1, 180) {
 			t.Fatalf("TTL 단조성 위반: %d→%d", ttl, ttl+20)
 		}
 	}
 	for corr := 0; corr < 6; corr++ {
-		if StaleScore(100, corr+1) < StaleScore(100, corr) {
+		if StaleScore(100, corr+1, 180) < StaleScore(100, corr, 180) {
 			t.Fatalf("corr 단조성 위반: %d→%d", corr, corr+1)
 		}
 	}
 	// Independence: the correction signal moves the score at every TTL level.
 	for ttl := 0; ttl <= 180; ttl += 45 {
-		if StaleScore(ttl, 3) <= StaleScore(ttl, 0) {
+		if StaleScore(ttl, 3, 180) <= StaleScore(ttl, 0, 180) {
 			t.Fatalf("신호 독립 위반: ttl %d에서 corr 0→3 무효", ttl)
 		}
+	}
+	// The TTL saturation is the stale_ttl_days threshold (T5): moving it to
+	// 90 re-lights the TTL component earlier (90d → 70, not 35)·the
+	// non-positive defense falls back to the default 180.
+	if got := StaleScore(90, 0, 90); got != 70 {
+		t.Errorf("TTL 포화 이동(90일 임계): StaleScore(90,0,90) = %d, want 70", got)
+	}
+	if got := StaleScore(90, 0, 0); got != 35 {
+		t.Errorf("비양수 포화 방어: StaleScore(90,0,0) = %d, want 35(기본 180 폴백)", got)
 	}
 }
 
@@ -404,8 +413,9 @@ func TestListStaleScoredFake(t *testing.T) {
 	if len(items) != 3 {
 		t.Fatalf("항목 수 = %d, want 3: %+v", len(items), items)
 	}
-	// Scores: 오래미회상 ttl200·corr0 → 70; 교정다발 ttl10·corr3 → 34;
-	// 참조열 ttl100·corr0 → 39 (reference columns carry no weight — 39 not 100+).
+	// Scores: the 200d row ttl200·corr0 → 70; the corrected row ttl10·corr3 →
+	// 34; the reference row ttl100·corr0 → 39 (reference columns carry no
+	// weight — 39, not 100+).
 	byID := map[int]staleScoredItem{}
 	for _, it := range items {
 		byID[it.ID] = it
@@ -709,5 +719,85 @@ func TestMaintainAgeAuditParserNoPrefixCollision(t *testing.T) {
 	out, code = runMaintainArgs(t, newStore(), "--invalidate-stale")
 	if code != 0 || !strings.Contains(out, `"status":"ok"`) {
 		t.Fatalf("--invalidate-stale exit=%d out=%s, want dry-run ok", code, out)
+	}
+}
+
+// TestStaleScoredTTLOverride — the stale_ttl_days meta override re-scales
+// the TTL component (T5 wiring): with 90, a 100-day-old row saturates
+// (score 70, not 39) and the listing order follows.
+func TestStaleScoredTTLOverride(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM knowledge"):
+			return staleScoredRowsFixture(now), nil
+		case strings.Contains(sql, "FROM meta"):
+			return [][]any{{"stale_ttl_days", "90"}}, nil
+		}
+		return nil, nil
+	}}}
+	items, err := listStaleScored(context.Background(), f, 0)
+	if err != nil {
+		t.Fatalf("listStaleScored: %v", err)
+	}
+	byID := map[int]staleScoredItem{}
+	for _, it := range items {
+		byID[it.ID] = it
+	}
+	// ttl 100 ≥ 90 → saturated TTL (70); ttl 200 also saturated (70·stable
+	// ties keep the SQL order); the fresh 10d·corr3 row stays 34.
+	if s := byID[13]; s.Score != 70 {
+		t.Errorf("id13(TTL 100·포화 90) = %d, want 70(포화 조기 점등)", s.Score)
+	}
+	if s := byID[11]; s.Score != 70 {
+		t.Errorf("id11(TTL 200) = %d, want 70", s.Score)
+	}
+	if s := byID[12]; s.Score != 38 {
+		t.Errorf("id12 = %d, want 38(TTL 성분만 재조정: 10/90·corr 30)", s.Score)
+	}
+}
+
+// TestMaintainAgeAuditThresholdOverride — the stale_score_threshold meta
+// override is reflected in the report threshold field and the marking
+// (with 30, the score-35 row flips to marked; the score-4 row stays
+// unmarked — the default 70 would leave it unmarked).
+func TestMaintainAgeAuditThresholdOverride(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM knowledge"):
+			return ageAuditRowsFixture(now), nil
+		case strings.Contains(sql, "FROM meta"):
+			return [][]any{{"stale_score_threshold", "30"}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--age-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got ageAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Threshold != 30 {
+		t.Fatalf("threshold = %d, want 30(오버라이드)", got.Threshold)
+	}
+	byID := map[int]int{}
+	marked := map[int]bool{}
+	for _, it := range got.Items {
+		byID[it.ID] = it.Score
+		marked[it.ID] = it.OverThreshold
+	}
+	if !marked[21] || !marked[23] || marked[22] {
+		t.Errorf("마킹(임계 30) = %v — want 21·23 마킹, 22 미마킹(점수 %v)", marked, byID)
 	}
 }

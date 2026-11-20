@@ -363,8 +363,8 @@ func TestHotRankRowsEffectiveOrderNotAccidental(t *testing.T) {
 // measured on the --full path: a decay-exhausted row tagged
 // :vol:immutable: keeps its event count (10) and outranks both a
 // freshly-recalled row (9) and a vol:conditional row that decays verbatim
-// (10 events·10 days → 0). Without the exemption the order would be
-// 최고점수 > (ties).
+// (10 events·10 days → 0). Without the exemption the order would put
+// the freshly-recalled row (9) first.
 func TestHotVolImmutableExemptFromDecay(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()

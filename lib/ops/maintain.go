@@ -1036,21 +1036,27 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 //	:correction: tag (user correction frequency — strpos
 //	':correction:', excluding the candidate itself).
 //
-// 180        — TTL saturation (aligning the T5 stale_ttl_days default);
+// ttlSatDays — the TTL saturation days: the stale_ttl_days threshold
 //
-//	at/above it the TTL component is fully lit.
+//	(T5 wiring — meta-overrideable, default 180). At/above it the
+//	TTL component is fully lit; a non-positive value falls back to
+//	the default (the unset-keeps-0 parse convention defense).
 //
 // 3          — correction saturation: 3+ same-topic corrections fully lit.
+//
+//	A code constant, part of the formula — not a tuning key.
 const (
 	staleScoreWeightTTL  = 0.7
 	staleScoreWeightCorr = 0.3
-	staleTTLDays         = 180.0
 	staleCorrSat         = 3.0
 )
 
 // StaleScore — the pure weighted-sum formula, 0..100, monotone in each
 // signal, saturated at the caps above (the scoring single definition).
-func StaleScore(ttlDays, corrCount int) int {
+func StaleScore(ttlDays, corrCount, ttlSatDays int) int {
+	if ttlSatDays <= 0 {
+		ttlSatDays = store.DefaultThresholds().StaleTTLDays // unset-0 parse convention defense
+	}
 	clamp01 := func(v float64) float64 {
 		if v < 0 {
 			return 0
@@ -1060,7 +1066,7 @@ func StaleScore(ttlDays, corrCount int) int {
 		}
 		return v
 	}
-	v := 100 * (staleScoreWeightTTL*clamp01(float64(ttlDays)/staleTTLDays) +
+	v := 100 * (staleScoreWeightTTL*clamp01(float64(ttlDays)/float64(ttlSatDays)) +
 		staleScoreWeightCorr*clamp01(float64(corrCount)/staleCorrSat))
 	return int(v + 0.5)
 }
@@ -1092,6 +1098,13 @@ type staleScoredItem struct {
 func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScoredItem, error) {
 	if limit <= 0 {
 		limit = 20
+	}
+	// The TTL saturation prefers the stale_ttl_days meta override (T5
+	// wiring — the decay-audit threshold convention: unset·load failure·
+	// non-positive all fall back to the DefaultThresholds basis).
+	ttlSat := store.DefaultThresholds().StaleTTLDays
+	if th, err := wire.LoadThresholds(ctx, ms); err == nil && th.StaleTTLDays > 0 {
+		ttlSat = th.StaleTTLDays
 	}
 	rows, err := wire.QueryOnce(ctx, ms, `
 		SELECT k.id, k.topic, COALESCE(re.last_at, k.ingested_at),
@@ -1141,17 +1154,11 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 		})
 	}
 	for i := range items {
-		items[i].Score = StaleScore(items[i].TTLDays, items[i].CorrCount)
+		items[i].Score = StaleScore(items[i].TTLDays, items[i].CorrCount, ttlSat)
 	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Score > items[j].Score })
 	return items, nil
 }
-
-// ageAuditThresholdDefault — the over-threshold marking line. T5 registers
-// the stale_score_threshold meta key (default 70) and wires the runtime
-// override into this consumer; until then the code default applies (the
-// at-or-above convention: score >= threshold is marked).
-const ageAuditThresholdDefault = 70
 
 // ageAuditTopicMax — the rune cap of the report topic (the hotHeadline
 // truncation convention — … suffix when over; the full topic stays
@@ -1189,6 +1196,14 @@ func clampAgeTopic(s string) string {
 // score DESC order); this report adds the threshold marking and the topic
 // clamp (--limit inherited, default 20 — the decay-audit convention).
 func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limit int) int {
+	// The marking line prefers the stale_score_threshold meta override (T5
+	// wiring — the decay-audit threshold convention: unset·load failure·
+	// non-positive all fall back to the default 70; the at-or-above
+	// convention: score >= threshold is marked).
+	threshold := store.DefaultThresholds().StaleScoreThreshold
+	if th, err := wire.LoadThresholds(ctx, ms); err == nil && th.StaleScoreThreshold > 0 {
+		threshold = th.StaleScoreThreshold
+	}
 	items, err := listStaleScored(ctx, ms, limit)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -1197,7 +1212,7 @@ func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limi
 	out := make([]ageAuditItem, 0, len(items))
 	over := 0
 	for _, it := range items {
-		marked := it.Score >= ageAuditThresholdDefault
+		marked := it.Score >= threshold
 		if marked {
 			over++
 		}
@@ -1218,9 +1233,9 @@ func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limi
 		Count     int            `json:"count"`
 		Items     []ageAuditItem `json:"items"`
 		Summary   string         `json:"summary"`
-	}{Status: "age-audit", Threshold: ageAuditThresholdDefault, Count: len(out), Items: out,
+	}{Status: "age-audit", Threshold: threshold, Count: len(out), Items: out,
 		Summary: fmt.Sprintf("%d stale candidates (%d over threshold %d) — dispose via maintain --invalidate (approval required)",
-			len(out), over, ageAuditThresholdDefault)})
+			len(out), over, threshold)})
 	if mErr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(mErr))
 		return 1

@@ -148,7 +148,7 @@ func TestBriefRankedSQLShape(t *testing.T) {
 // path: the tags column is already exposed by BuildReadStatus (readColumns
 // idx 3 — no SQL change), so a decay-exhausted row tagged :vol:immutable:
 // keeps its count (10) and tops the body, while vol:conditional decays
-// verbatim (0). Without the exemption the order would be 고점미회상 first.
+// verbatim (0). Without the exemption the fresh-recalled row (8) would lead.
 func TestBriefVolImmutableExempt(t *testing.T) {
 	ctx := context.Background()
 	now := time.Now().UTC()

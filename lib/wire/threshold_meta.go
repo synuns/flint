@@ -82,9 +82,14 @@ var thresholdMetas = []ThresholdMeta{
 	// the gap-candidate accrual trigger and daily cap (v1.12.0 — the consumption path knowledge/write.go gap source, the daily:gapq flat-key count).
 	{"GapQueryThreshold", "gap_query_threshold", 3, "gap candidate accrual threshold"},
 	{"GapDailyMax", "gap_daily_max", 10, "gap candidate daily cap"},
+
+	// the stale-score report marking threshold and the TTL saturation days (v1.13.0 —
+	// the consumption path ops maintain --age-audit·StaleScore).
+	{"StaleScoreThreshold", "stale_score_threshold", 70, "maintain --age-audit over-threshold marking"},
+	{"StaleTTLDays", "stale_ttl_days", 180, "maintain --age-audit score TTL saturation"},
 }
 
-// ThresholdMetas — the registry's deterministic copy (43 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (45 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

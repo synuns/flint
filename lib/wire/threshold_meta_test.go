@@ -40,6 +40,44 @@ var frozenThresholdKeys = []string{
 	"correction_daily_max",
 	// the gap-candidate accrual trigger and daily cap (v1.12.0 — knowledge/write.go gap source)
 	"gap_query_threshold", "gap_daily_max",
+	// the stale-score report marking threshold and the TTL saturation days (v1.13.0 — ops maintain --age-audit)
+	"stale_score_threshold", "stale_ttl_days",
+}
+
+// TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults
+// (70 · 180), meta override reflection, and the unset-keeps-0 convention
+// (the consumer falls back to DefaultThresholds — the gap 2-key convention).
+func TestStaleThresholdDefaultsOverride(t *testing.T) {
+	// defaults.
+	def := store.DefaultThresholds()
+	if def.StaleScoreThreshold != 70 {
+		t.Errorf("StaleScoreThreshold 기본값=%d, want 70", def.StaleScoreThreshold)
+	}
+	if def.StaleTTLDays != 180 {
+		t.Errorf("StaleTTLDays 기본값=%d, want 180", def.StaleTTLDays)
+	}
+	// override (the verify-gate ruling values: threshold 50 · TTL 90).
+	th, err := store.ParseThresholds([][2]any{
+		{"stale_score_threshold", "50"},
+		{"stale_ttl_days", "90"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.StaleScoreThreshold != 50 {
+		t.Errorf("stale_score_threshold 오버라이드=%d, want 50", th.StaleScoreThreshold)
+	}
+	if th.StaleTTLDays != 90 {
+		t.Errorf("stale_ttl_days 오버라이드=%d, want 90", th.StaleTTLDays)
+	}
+	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.StaleScoreThreshold != 0 || unset.StaleTTLDays != 0 {
+		t.Errorf("unset 폴백: stale_score_threshold=%d stale_ttl_days=%d, want 0·0", unset.StaleScoreThreshold, unset.StaleTTLDays)
+	}
 }
 
 // TestGapThresholdDefaultsOverride — the v1.12.0 gap keys: defaults (3 · 10),
