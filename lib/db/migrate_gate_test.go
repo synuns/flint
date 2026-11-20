@@ -30,6 +30,14 @@ func TestMigrateGatesViewReapply(t *testing.T) {
 		t.Fatalf("NewRepo: %v", err)
 	}
 	t.Cleanup(r.Close)
+	// A freshly created shared DB has no meta table yet (NewRepo does not
+	// migrate) — the DELETE below would hit 42P01 on a new/reshuffled
+	// order. Migrate once so the setup is order-independent; the hash
+	// DELETE right after invalidates whatever it recorded, keeping the
+	// test body unchanged.
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(신규 DB meta 생성): %v", err)
+	}
 
 	// Setup: invalidate views_hash → Migrate reapplies then records the
 	// hash.

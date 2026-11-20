@@ -71,14 +71,14 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 
 // RecordUsageCount — bulk-increments count rounds of intake metering
 // into daily counters (avoiding the O(N) read-writes of dup N
-// accounting). kind = write|hot|read|dup + dup_hook|dup_manual|dup_mcp|dup_correction
-// (per-source dup, additive) + brief (brief intake metering, additive).
+// accounting). kind = write|hot|read|dup + dup_hook|dup_manual|dup_mcp|dup_correction|dup_gap
+// (per-source dup, additive — v1.12.0 gap added) + brief (brief intake metering, additive).
 // Upserts last_<kind>_at as RFC3339 (dup carries no time key — the
 // write time is reused) and increments the `daily:<kind>:YYYY-MM-DD`
 // integer flat key (the legacy `daily:YYYY-MM-DD` JSON counter
 // abolished — reads parse directly via report's WindowedDaily). write
-// also increments the source counters (hook|manual|mcp|correction — the
-// sourceRegistry of knowledge/write.go, v1.11.0 correction added) in parallel.
+// also increments the source counters (hook|manual|mcp|correction|gap — the
+// sourceRegistry of knowledge/write.go, v1.12.0 gap added) in parallel.
 // daily keys beyond 14 days are cleaned by PruneDaily, run only when
 // today's daily key was newly created (the date-rollover first event) —
 // a DELETE on every record wastes the hot path and duplicate writes run
@@ -98,7 +98,7 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 // (write·read·hot) discarding errors.
 func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	switch kind {
-	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "brief":
+	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "dup_gap", "brief":
 	default:
 		return fmt.Errorf("record usage: invalid kind %q", kind)
 	}
@@ -579,15 +579,23 @@ func (r *Repo) readDailyFlat(ctx context.Context, kind, day string) (int, error)
 	}
 }
 
+// pruneDailyKeyPattern — the retention-target key shape: one or more
+// [a-z0-9_]+ segments (kind names·the v1.12.0 gapq:<sha256> hash
+// fragment — digits entered the class with the hex digests, and the
+// multi-segment `*` covers kind+hash keys) before the trailing UTC date.
+// Dateless daily:* keys stay out (the format check before the cast).
+const pruneDailyKeyPattern = `^daily:([a-z0-9_]+:)*[0-9]{4}-[0-9]{2}-[0-9]{2}$`
+
 // PruneDaily — deletes daily keys beyond the 14-day retention (today +
-// the prior 13 days). Cleans both the legacy `daily:<date>` JSON keys
-// and the new `daily:<kind>:<date>` flat keys (the two formats coexist
-// during migration). Key dates are UTC (the RecordUsage recording
-// basis), so the cutoff day is also taken as UTC (excluding server-TZ
-// influence). Keys whose date portion is not a date (daily:*) are left
-// alone (a format check before the cast). Retention days come from the
-// meta override (daily_retention_days) — re-parsed via the derived path
-// (thresholdsForPrune) (absent·corrupt·0 yield defaults).
+// the prior 13 days). Cleans the legacy `daily:<date>` JSON keys, the
+// `daily:<kind>:<date>` flat keys, and the v1.12.0 gapq counter keys
+// `daily:gapq:<sha256>:<date>` (auto-expiry at the date rollover — the
+// same-day aggregation contract). Key dates are UTC (the RecordUsage
+// recording basis), so the cutoff day is also taken as UTC (excluding
+// server-TZ influence). Keys whose date portion is not a date (daily:*)
+// are left alone (a format check before the cast). Retention days come
+// from the meta override (daily_retention_days) — re-parsed via the
+// derived path (thresholdsForPrune) (absent·corrupt·0 yield defaults).
 func (r *Repo) PruneDaily(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "daily_retention_days")
 	days := th.DailyRetentionD
@@ -596,7 +604,7 @@ func (r *Repo) PruneDaily(ctx context.Context) error {
 	// interval; regression defense).
 	cutoff := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
 	_, err := r.pool.Exec(ctx,
-		`DELETE FROM meta WHERE key ~ '^daily:([a-z_]+:)?[0-9]{4}-[0-9]{2}-[0-9]{2}$'
+		`DELETE FROM meta WHERE key ~ '`+pruneDailyKeyPattern+`'
 		   AND substring(key from '[0-9]{4}-[0-9]{2}-[0-9]{2}$')::date <= $1::date`, cutoff)
 	return err
 }

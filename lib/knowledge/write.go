@@ -12,11 +12,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
 	"sort"
 	"strings"
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -36,13 +38,15 @@ var kindColumns = map[string]map[string]bool{
 
 // sourceRegistry — the single source of truth of the allowed metering
 // sources (spec §1: hook via hook · human/default manual · MCP mcp ·
-// v1.11.0 correction). The usage hint·the ErrInvalidSource message·the
-// membership check are all derived from this registry (no duplicate
-// hardcoded lists).
-var sourceRegistry = []string{"hook", "manual", "mcp", "correction"}
+// v1.11.0 correction · v1.12.0 gap — recall-failure gap candidates, a
+// machine channel whose payload T3 accrues; no write-time defaults, the
+// gap-candidate tag is attached by the candidate payload itself). The
+// usage hint·the ErrInvalidSource message·the membership check are all
+// derived from this registry (no duplicate hardcoded lists).
+var sourceRegistry = []string{"hook", "manual", "mcp", "correction", "gap"}
 
 // sourceList — the pipe-joined display form of the registry
-// (hook|manual|mcp|correction) shared by usage·error messages.
+// (hook|manual|mcp|correction|gap) shared by usage·error messages.
 func sourceList() string { return strings.Join(sourceRegistry, "|") }
 
 // ErrInvalidSource — an invalid --source value (exit 3). The allowed list
@@ -105,6 +109,145 @@ func applyCorrectionDefaults(p map[string]any, def float64) {
 		p["tags"] = append(tags, "correction")
 	default:
 		p["tags"] = []any{"correction"}
+	}
+}
+
+// ── v1.12.0 T3 — the gap-candidate accrual (the knowledge pipeline
+// step 2): a recall-failure count reaching gap_query_threshold accrues
+// one pending candidate on the `gap` channel. ──
+
+// gapCandidateConfidence — the fixed payload confidence of a gap
+// candidate (spec): below conf_floor, so a candidate always lands
+// pending for review (the promotion gate — a Letta-style self-
+// reinforcement trap is blocked by the explicit approve).
+const gapCandidateConfidence = 0.4
+
+// gapCandidateTag — the candidate tag (source/channel distinction is
+// metering-only; the tag is the row-level filter surface).
+const gapCandidateTag = "gap-candidate"
+
+// gapCandidateTopicPrefix — the topic prefix of a candidate row.
+const gapCandidateTopicPrefix = "격차 후보: "
+
+// gapCandidateTopicRunes — the normalized-query truncation bound of the
+// candidate topic (the original-text exposure happens only here — the
+// truncated·sanitized·normalized form, the non-persistence principle).
+const gapCandidateTopicRunes = 60
+
+// gapCandidateSummaryFmt — the summary template (N = the same-day
+// normalized-query failure count at accrual time).
+const gapCandidateSummaryFmt = "회상 실패 %d회 — 지식 격차 후보"
+
+// gapWriteDailyKind — the daily flat-key kind counting committed
+// candidate ADDs (the gap_daily_max cap source — new ADDs only, updates
+// never consume it, the correction convention).
+const gapWriteDailyKind = "gap_write"
+
+// pendingSummaryStore — the pending-row summary refresh seam (the T3
+// UPDATE). realStore delegates to db.UpdatePendingSummary; a
+// non-implementing Store quietly skips the refresh (the NOOP fallback).
+// The returned rows count lets the caller commit only on an applied
+// update (a 0-row NOOP — an active·raced row — makes no empty commit).
+type pendingSummaryStore interface {
+	UpdatePendingSummary(ctx context.Context, id int, summary string) (int64, error)
+}
+
+// gapCandidateHash — the N-invariant content digest of a normalized
+// query's candidate: the hash input is the topic·tag·confidence shape
+// with the summary omitted (the N lives only in the stored summary — a
+// later accrual at another N must find the same row for succession).
+func gapCandidateHash(normalized string) string {
+	topic := gapCandidateTopicPrefix + render.TruncateRunes(normalized, gapCandidateTopicRunes)
+	n := store.Normalize("knowledge", map[string]any{
+		"topic":      topic,
+		"tags":       []any{gapCandidateTag},
+		"confidence": gapCandidateConfidence,
+	})
+	return store.ContentHash(store.HashCanonical(n))
+}
+
+// gapTodayCount — today's committed candidate ADD count (the
+// daily:gap_write:<UTC date> flat key — the correctionTodayCount
+// convention). A lookup·parse failure is a quiet 0 (§13).
+func gapTodayCount(ctx context.Context, st wire.Store) int {
+	key := "daily:" + gapWriteDailyKind + ":" + time.Now().UTC().Format("2006-01-02")
+	rows, err := wire.QueryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0
+	}
+	n := 0
+	if _, err := fmt.Sscan(fmt.Sprint(rows[0][0]), &n); err != nil {
+		return 0
+	}
+	return n
+}
+
+// maybeAccrueGapCandidate — attempts one gap-candidate accrual when the
+// count has reached gap_query_threshold (the read completion path calls
+// this quietly after BumpGapQuery — §13: an accrual failure never breaks
+// the read). Threshold·cap load via LoadThresholds (meta overrides); an
+// unset/zero value falls back to the registered defaults (the 0-fallback
+// clamp). Dedup: the N-invariant content_hash succeeds — an existing
+// pending row gets its summary N refreshed (an UPDATE, not a supersede);
+// an active row is a NOOP (the promotion-fixed integrity ruling); no
+// row ADDs one pending candidate (the gap_daily_max cap gates ADDs only
+// — a capped accrual is quietly skipped with one stderr warning line).
+func maybeAccrueGapCandidate(ctx context.Context, st wire.Store, sanitizedQuery string, count int64) {
+	th := WriteThresholds(ctx, st)
+	def := store.DefaultThresholds()
+	threshold := th.GapQueryThreshold
+	if threshold <= 0 {
+		threshold = def.GapQueryThreshold
+	}
+	if count < int64(threshold) {
+		return
+	}
+	normalized := NormalizeGapQuery(sanitizedQuery)
+	topic := gapCandidateTopicPrefix + render.TruncateRunes(normalized, gapCandidateTopicRunes)
+	summary := fmt.Sprintf(gapCandidateSummaryFmt, count)
+	hash := gapCandidateHash(normalized)
+	meta, exists, err := lookupHash(ctx, st, hash)
+	if err != nil {
+		return // quiet §13 — the next bump retries
+	}
+	if exists {
+		// The pending refresh (summary N) — an UPDATE via the seam; the
+		// active·invalidated states are NOOPs (integrity ruling).
+		if meta.State == "pending" {
+			if ps, ok := st.(pendingSummaryStore); ok {
+				if n, err := ps.UpdatePendingSummary(ctx, meta.ID, summary); err == nil && n > 0 {
+					if _, cerr := st.Commit(ctx, "knowledge: gap candidate refresh"); cerr != nil {
+						fmt.Fprintf(os.Stderr, "[flint] gap candidate refresh commit: %v\n", cerr)
+					}
+				}
+			}
+		}
+		return
+	}
+	max := th.GapDailyMax
+	if max <= 0 {
+		max = def.GapDailyMax
+	}
+	if gapTodayCount(ctx, st) >= max {
+		fmt.Fprintf(os.Stderr, "[flint] gap daily max reached (gap_daily_max=%d) — candidate skipped\n", max)
+		return
+	}
+	rec := store.Normalize("knowledge", map[string]any{
+		"topic":      topic,
+		"summary":    summary,
+		"tags":       []any{gapCandidateTag},
+		"confidence": gapCandidateConfidence,
+	})
+	rec["kind"] = "knowledge"
+	rec["content_hash"] = hash
+	rec["status"] = "pending"
+	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
+		return // quiet — a concurrent insert (race) succeeds; the next bump refreshes
+	}
+	_ = db.BumpDailyFlatKey(ctx, st, gapWriteDailyKind, time.Now().UTC().Format("2006-01-02"), 1)
+	RecordUsage(ctx, st, "write", "gap")
+	if _, err := st.Commit(ctx, "knowledge: gap candidate (recall failure)"); err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] gap candidate commit: %v\n", err)
 	}
 }
 
@@ -621,7 +764,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 
 // RecordDups — meters dup intake by the number of skipped duplicate lines
 // (0 is a no-op). The total "dup" key is invariant (ruling); per-source
-// "dup_"+source (hook·manual·mcp·correction) is additionally incremented (additive —
+// "dup_"+source (hook·manual·mcp·correction·gap) is additionally incremented (additive —
 // v0.10.2 R2). A UsageCountStore (the real implementation) increments each
 // key in bulk with one count call; a non-implementing Store does it one at
 // a time.

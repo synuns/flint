@@ -15,6 +15,7 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"regexp"
 	"strings"
 	"testing"
 	"time"
@@ -748,4 +749,238 @@ func TestRecordKnowledgeReadsHotNoBump(t *testing.T) {
 	if len(st.bumps) != 1 || st.bumps[0][0] != 3 {
 		t.Fatalf("read: bumps=%v, want 1회 ids [3]", st.bumps)
 	}
+}
+
+// ── v1.12.0 T2 — the gapq counter: the recall-gap signal of a zero-hit
+// read on owned ground (owned_miss). The normalized-query daily counter
+// (daily:gapq:<sha256>:<date>) is the T3 threshold input. ──
+
+// gapQueryRecorder — a fakeStore layered for the gapq path: a map-backed
+// meta store answering the gapq flat-key upsert·readback, an active-count
+// row for the zero-hit decomposition, and everything else delegated to
+// the embedded fakeStore. fail=true injects a transport error on the
+// gapq branches (the quiet-failure path).
+type gapQueryRecorder struct {
+	*fakeStore
+	active int
+	fail   bool
+	gapq   map[string]int
+	bumps  []string
+}
+
+func (g *gapQueryRecorder) RecordReadUsage(ctx context.Context, zero, near bool) error {
+	return nil
+}
+
+func (g *gapQueryRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
+	return nil
+}
+
+func (g *gapQueryRecorder) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	if g.fail {
+		return nil, errors.New("gapq transport failure")
+	}
+	switch {
+	case strings.Contains(sql, "INSERT INTO meta") && len(args) > 0 &&
+		strings.HasPrefix(fmt.Sprint(args[0]), "daily:gapq:"):
+		k := fmt.Sprint(args[0])
+		g.gapq[k]++
+		g.bumps = append(g.bumps, k)
+		return nil, nil
+	case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1") && len(args) > 0 &&
+		strings.HasPrefix(fmt.Sprint(args[0]), "daily:gapq:"):
+		k := fmt.Sprint(args[0])
+		return [][]any{{fmt.Sprint(g.gapq[k])}}, nil
+	case strings.Contains(sql, "FROM knowledge WHERE status = 'active'"):
+		return [][]any{{fmt.Sprint(g.active)}}, nil
+	}
+	return g.fakeStore.Query(ctx, sql, args...)
+}
+
+// TestNormalizeGapQueryEquivalence — the normalization pipeline collapses
+// representation noise before hashing (the same recall failure counts
+// once): NFKC composed/decomposed Korean·case·whitespace runs·[flint]
+// markers converge; differences beyond the 80-rune truncation vanish;
+// genuinely different queries hash apart.
+func TestNormalizeGapQueryEquivalence(t *testing.T) {
+	composed := "각"     // U+AC01
+	decomposed := "각" // NFD jamo sequence — converges under NFKC
+	if NormalizeGapQuery(composed) != NormalizeGapQuery(decomposed) {
+		t.Fatalf("NFKC 동치 실패: %q vs %q", NormalizeGapQuery(composed), NormalizeGapQuery(decomposed))
+	}
+	if NormalizeGapQuery("Flint  BACKUP") != NormalizeGapQuery(" flint backup ") {
+		t.Fatalf("대소문자·공백 동치 실패: %q vs %q",
+			NormalizeGapQuery("Flint  BACKUP"), NormalizeGapQuery(" flint backup "))
+	}
+	if NormalizeGapQuery("demo [flint] query") != NormalizeGapQuery("demo query") {
+		t.Fatalf("살균 동치 실패: %q vs %q",
+			NormalizeGapQuery("demo [flint] query"), NormalizeGapQuery("demo query"))
+	}
+	long1 := strings.Repeat("가", 90) + "X"
+	long2 := strings.Repeat("가", 90) + "Y"
+	if NormalizeGapQuery(long1) != NormalizeGapQuery(long2) {
+		t.Fatal("80룬 절단 후 해시 상이 — 절단 미적용")
+	}
+	if NormalizeGapQuery("백업 정책") == NormalizeGapQuery("복구 정책") {
+		t.Fatal("상이 쿼리가 동일 정규화 — 충돌")
+	}
+}
+
+// TestGapQueryHashShape — the digest is 64 lowercase hex chars (the
+// sha256 output reused as the meta key fragment).
+func TestGapQueryHashShape(t *testing.T) {
+	h := GapQueryHash(NormalizeGapQuery("데모 쿼리"))
+	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(h) {
+		t.Fatalf("해시 형태=%q, want 64자 소문자 hex", h)
+	}
+}
+
+// TestBumpGapQueryCountAndQuiet — 3 same-day bumps return 1·2·3 under one
+// key (the T3 threshold input); a store failure is quiet ok=false (§13 —
+// the counter never breaks the caller).
+func TestBumpGapQueryCountAndQuiet(t *testing.T) {
+	g := &gapQueryRecorder{fakeStore: &fakeStore{}, active: 1, gapq: map[string]int{}}
+	ctx := context.Background()
+	for want := int64(1); want <= 3; want++ {
+		n, ok := BumpGapQuery(ctx, g, "데모 쿼리")
+		if !ok || n != want {
+			t.Fatalf("BumpGapQuery=%d,%v — want %d,true", n, ok, want)
+		}
+	}
+	distinct := map[string]bool{}
+	for _, k := range g.bumps {
+		distinct[k] = true
+	}
+	if len(g.bumps) != 3 || len(distinct) != 1 {
+		t.Fatalf("bumps=%v — want 3회·단일 키(당일 동일 쿼리 집계)", g.bumps)
+	}
+	// failure injection — quiet, no panic
+	bad := &gapQueryRecorder{fakeStore: &fakeStore{}, fail: true, gapq: map[string]int{}}
+	if n, ok := BumpGapQuery(ctx, bad, "데모 쿼리"); ok || n != 0 {
+		t.Fatalf("오류 주입 결과=%d,%v — want 0,false(조용히)", n, ok)
+	}
+}
+
+// TestRunReadBumpsGapQueryOnOwnedMiss — the read completion path bumps
+// the gapq counter only on owned_miss; unowned (active < floor) is
+// DB-void noise — not counted (research ruling).
+func TestRunReadBumpsGapQueryOnOwnedMiss(t *testing.T) {
+	ctx := context.Background()
+	t.Run("owned_miss — 카운트", func(t *testing.T) {
+		g := &gapQueryRecorder{fakeStore: &fakeStore{}, active: 3, gapq: map[string]int{}}
+		var out strings.Builder
+		if code := RunRead(ctx, g, []string{"없는 데모 쿼리"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit=%d, want 0(제로히트); out=%s", code, out.String())
+		}
+		if len(g.bumps) != 1 {
+			t.Fatalf("gapq bump=%d회, want 1(owned_miss)", len(g.bumps))
+		}
+		day := time.Now().UTC().Format("2006-01-02")
+		want := "daily:gapq:" + GapQueryHash(NormalizeGapQuery("없는 데모 쿼리")) + ":" + day
+		if g.bumps[0] != want {
+			t.Fatalf("bump 키=%q, want %q", g.bumps[0], want)
+		}
+	})
+	t.Run("unowned — 미카운트", func(t *testing.T) {
+		g := &gapQueryRecorder{fakeStore: &fakeStore{}, active: 0, gapq: map[string]int{}}
+		var out strings.Builder
+		if code := RunRead(ctx, g, []string{"없는 데모 쿼리"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit=%d, want 0(제로히트); out=%s", code, out.String())
+		}
+		if len(g.bumps) != 0 {
+			t.Fatalf("gapq bump=%d회, want 0(unowned 노이즈)", len(g.bumps))
+		}
+	})
+}
+
+// TestRunReadGapAccrualAfterThresholdReads — three owned_miss reads of
+// the same query auto-accrue one pending gap candidate (the T3 read-path
+// integration): the 3rd read's count reaching the threshold ADDs the
+// candidate — the 1st·2nd do not.
+func TestRunReadGapAccrualAfterThresholdReads(t *testing.T) {
+	g := &gapQueryRecorder{fakeStore: &fakeStore{}, active: 2, gapq: map[string]int{}}
+	ctx := context.Background()
+	for i := 1; i <= 2; i++ {
+		var out strings.Builder
+		if code := RunRead(ctx, g, []string{"없는 데모 쿼리"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("read %d exit=%d, want 0; out=%s", i, code, out.String())
+		}
+		if len(g.inserted) != 0 {
+			t.Fatalf("read %d 후 삽입=%d건, want 0(임계 미달)", i, len(g.inserted))
+		}
+	}
+	var out strings.Builder
+	if code := RunRead(ctx, g, []string{"없는 데모 쿼리"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("read 3 exit=%d, want 0; out=%s", code, out.String())
+	}
+	if len(g.inserted) != 1 {
+		t.Fatalf("read 3 후 삽입=%d건, want 1(임계 도달 적립)", len(g.inserted))
+	}
+	rec := g.inserted[0]
+	if want := "격차 후보: 없는 데모 쿼리"; rec["topic"] != want {
+		t.Fatalf("topic=%v, want %q", rec["topic"], want)
+	}
+	if want := "회상 실패 3회 — 지식 격차 후보"; rec["summary"] != want {
+		t.Fatalf("summary=%v, want %q", rec["summary"], want)
+	}
+	if rec["status"] != "pending" || rec["tags"] != ":gap-candidate:" {
+		t.Fatalf("status=%v tags=%v, want pending/:gap-candidate:", rec["status"], rec["tags"])
+	}
+}
+
+// TestRunReadAsOfSkipsGapCount — an as-of read (a past-point snapshot
+// inspection) never counts as a present gap even on a zero-hit: no bump,
+// no accrual (the T2 incident ruling — one guard line at the bump hook).
+func TestRunReadAsOfSkipsGapCount(t *testing.T) {
+	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
+	g := &gapAsOfStore{asOfStore: &asOfStore{
+		fakeStore: &fakeStore{},
+		logEntries: []wire.LogEntry{{
+			Hash: "he08irluqn3v2m1k9x7c4jw5z6b8d0f",
+			Date: time.Date(2026, 10, 20, 12, 0, 0, 0, time.UTC),
+		}},
+	}, active: 2, gapq: map[string]int{}}
+	var out strings.Builder
+	code := RunRead(context.Background(), g,
+		[]string{"--as-of", "1d", "없는 데모 쿼리"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(as-of 제로히트); out=%s", code, out.String())
+	}
+	if len(g.bumps) != 0 || len(g.inserted) != 0 {
+		t.Fatalf("as-of 가드 위반: bumps=%d inserted=%d, want 0/0", len(g.bumps), len(g.inserted))
+	}
+}
+
+// gapAsOfStore — the asOfStore fake layered with the gapq meta
+// interception (an as-of zero-hit on owned ground still must not bump).
+type gapAsOfStore struct {
+	*asOfStore
+	active int
+	gapq   map[string]int
+	bumps  []string
+}
+
+func (g *gapAsOfStore) RecordReadUsage(ctx context.Context, zero, near bool) error {
+	return nil
+}
+
+func (g *gapAsOfStore) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
+	return nil
+}
+
+func (g *gapAsOfStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	switch {
+	case strings.Contains(sql, "INSERT INTO meta") && len(args) > 0 &&
+		strings.HasPrefix(fmt.Sprint(args[0]), "daily:gapq:"):
+		k := fmt.Sprint(args[0])
+		g.gapq[k]++
+		g.bumps = append(g.bumps, k)
+		return nil, nil
+	case strings.Contains(sql, "SELECT value FROM meta WHERE key = $1") && len(args) > 0 &&
+		strings.HasPrefix(fmt.Sprint(args[0]), "daily:gapq:"):
+		return [][]any{{fmt.Sprint(g.gapq[fmt.Sprint(args[0])])}}, nil
+	case strings.Contains(sql, "FROM knowledge WHERE status = 'active'"):
+		return [][]any{{fmt.Sprint(g.active)}}, nil
+	}
+	return g.fakeStore.Query(ctx, sql, args...)
 }

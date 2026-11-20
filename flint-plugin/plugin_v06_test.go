@@ -82,7 +82,7 @@ func TestHooksPassSourceFlag(t *testing.T) {
 // 소스 등록표는 lib/knowledge/write.go sourceRegistry — 여기서는
 // 미러 목록(플러그인 모듈 경계)로 동질 유지, 신규 채널 추가 시 갱신.
 func TestPluginDocsPassSourceHook(t *testing.T) {
-	sources := []string{"hook", "manual", "mcp", "correction"}
+	sources := []string{"hook", "manual", "mcp", "correction", "gap"}
 	for _, path := range []string{
 		"commands/flint.md",
 		"skills/flint/SKILL.md",

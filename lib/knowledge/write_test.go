@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"strings"
 	"sync"
@@ -1061,6 +1062,55 @@ func TestSourceRegistryDerivationGuard(t *testing.T) {
 	}
 }
 
+// ── v1.12.0 T1 — the `gap` channel registration: the fifth metering
+// source (recall-failure gap candidates — T3 accrues them; no defaults
+// are attached at write time, unlike correction). The registry remains
+// the single source: usage·ErrInvalidSource·membership derive from it. ──
+
+// TestParseSourceGapValid — "gap" is a registered source: ParseSourceFlag
+// accepts it, and RunWrite with --source gap commits exit 0 (metered
+// under gap — the registry admission contract). A gap write attaches no
+// tag·confidence defaults (T3's candidate payload supplies them).
+func TestParseSourceGapValid(t *testing.T) {
+	if !validSources["gap"] {
+		t.Fatal("등록표에 gap 없음(validSources 멤버십 누락)")
+	}
+	src, err := ParseSourceFlag([]string{"--source", "gap"})
+	if err != nil || src != "gap" {
+		t.Fatalf("ParseSourceFlag=%q,%v — want gap,nil(등록표 통과)", src, err)
+	}
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge", "--source", "gap"},
+		`{"topic":"v1120-t1-gap","summary":"합성 데모 격차 줄","confidence":0.4}`+"\n")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(--source gap 유효); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"status":"committed"`) {
+		t.Fatalf("출력=%q, want committed", out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("삽입=%d건, want 1", len(f.inserted))
+	}
+	if f.inserted[0]["tags"] != nil && f.inserted[0]["tags"] != "" {
+		t.Fatalf("tags=%v, want 부착 없음(gap은 태그 기본값 없음 — T3가 부착)", f.inserted[0]["tags"])
+	}
+}
+
+// TestParseSourceUnregisteredStillRejectedAfterGap — the gap admission
+// keeps the invalid-source contract: an unregistered value is still
+// rejected exit 3 (guard against a loosened membership check).
+func TestParseSourceUnregisteredStillRejectedAfterGap(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge", "--source", "gaps"},
+		`{"topic":"v1120-t1-bad","summary":"합성 데모","confidence":0.9}`+"\n")
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(미등록 source); out=%s", code, out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("미등록 source 적립 발생: %d건", len(f.inserted))
+	}
+}
+
 // ── v1.11.0 T2 — the --source correction path: only two defaults are
 // added (missing confidence → the correction_confidence threshold·the
 // "correction" tag merged); validate→hash dedup→classify→approve are the
@@ -1393,4 +1443,180 @@ func TestWriteCommitMessageNamePreferred(t *testing.T) {
 			t.Fatalf("커밋 제목=%q, want %q", f.commits[0], want)
 		}
 	})
+}
+
+// ── v1.12.0 T3 — the gap-candidate accrual: a recall failure count at
+// the gap_query_threshold accrues a pending candidate (source gap·tag
+// gap-candidate·confidence 0.4·N-invariant content_hash succession). ──
+
+// gapAccrualStore — a fakeStore layered for the accrual: DupMetaStore
+// rows by hash (pending/active existing-row shapes) + the
+// UpdatePendingSummary seam recorder.
+type gapAccrualStore struct {
+	*fakeStore
+	dupRows map[string]DupMeta
+	updates []string // "id:summary" per UpdatePendingSummary call
+}
+
+func (g *gapAccrualStore) DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error) {
+	m, ok := g.dupRows[hash]
+	return m, ok, nil
+}
+
+func (g *gapAccrualStore) UpdatePendingSummary(ctx context.Context, id int, summary string) (int64, error) {
+	g.updates = append(g.updates, fmt.Sprintf("%d:%s", id, summary))
+	return 1, nil
+}
+
+// captureStderr — swaps os.Stderr for a pipe around fn (the cap warning
+// line assertion).
+func captureStderr(t *testing.T, fn func()) string {
+	t.Helper()
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	saved := os.Stderr
+	os.Stderr = w
+	fn()
+	w.Close()
+	os.Stderr = saved
+	b, _ := io.ReadAll(r)
+	return string(b)
+}
+
+// TestGapCandidateAccrualAtThreshold — the count reaching the threshold
+// (3 — the clamped default: the fake carries no meta override) ADDs one
+// pending candidate: topic prefix + the 60-rune normalized query·summary
+// N·confidence 0.4·tag :gap-candidate:·source-gap metering·one commit.
+// Below the threshold nothing accrues.
+func TestGapCandidateAccrualAtThreshold(t *testing.T) {
+	t.Run("임계 미달 — 미적립", func(t *testing.T) {
+		f := &gapAccrualStore{fakeStore: &fakeStore{}, dupRows: map[string]DupMeta{}}
+		maybeAccrueGapCandidate(context.Background(), f, "데모 쿼리", 2)
+		if len(f.inserted) != 0 {
+			t.Fatalf("삽입=%d건, want 0(임계 미달)", len(f.inserted))
+		}
+	})
+	t.Run("임계 도달 — pending 적립", func(t *testing.T) {
+		f := &gapAccrualStore{fakeStore: &fakeStore{}, dupRows: map[string]DupMeta{}}
+		maybeAccrueGapCandidate(context.Background(), f, "데모 쿼리", 3)
+		if len(f.inserted) != 1 {
+			t.Fatalf("삽입=%d건, want 1", len(f.inserted))
+		}
+		rec := f.inserted[0]
+		if want := "격차 후보: 데모 쿼리"; rec["topic"] != want {
+			t.Fatalf("topic=%v, want %q", rec["topic"], want)
+		}
+		if want := "회상 실패 3회 — 지식 격차 후보"; rec["summary"] != want {
+			t.Fatalf("summary=%v, want %q", rec["summary"], want)
+		}
+		if conf, _ := rec["confidence"].(float64); conf != 0.4 {
+			t.Fatalf("confidence=%v, want 0.4", rec["confidence"])
+		}
+		if rec["tags"] != ":gap-candidate:" {
+			t.Fatalf("tags=%v, want :gap-candidate:", rec["tags"])
+		}
+		if rec["status"] != "pending" {
+			t.Fatalf("status=%v, want pending", rec["status"])
+		}
+		if rec["kind"] != "knowledge" {
+			t.Fatalf("kind=%v, want knowledge", rec["kind"])
+		}
+		if rec["content_hash"] != gapCandidateHash(NormalizeGapQuery("데모 쿼리")) {
+			t.Fatalf("content_hash=%v, want gapCandidateHash(N-invariant)", rec["content_hash"])
+		}
+		if len(f.commits) != 1 {
+			t.Fatalf("커밋=%d회, want 1(적립 커밋)", len(f.commits))
+		}
+	})
+}
+
+// TestGapCandidateThresholdMetaOverride — the meta override loads through
+// LoadThresholds: gap_query_threshold=5 in meta moves the trigger (3 →
+// no accrual; 5 → accrual).
+func TestGapCandidateThresholdMetaOverride(t *testing.T) {
+	f := &gapAccrualStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "SELECT key, value FROM meta WHERE key IN (") {
+			return [][]any{{"gap_query_threshold", "5"}}, nil
+		}
+		return nil, nil
+	}}, dupRows: map[string]DupMeta{}}
+	maybeAccrueGapCandidate(context.Background(), f, "데모 쿼리", 3)
+	if len(f.inserted) != 0 {
+		t.Fatalf("삽입=%d건, want 0(오버라이드 5 > 3)", len(f.inserted))
+	}
+	maybeAccrueGapCandidate(context.Background(), f, "데모 쿼리", 5)
+	if len(f.inserted) != 1 {
+		t.Fatalf("삽입=%d건, want 1(오버라이드 5 도달)", len(f.inserted))
+	}
+}
+
+// TestGapCandidatePendingRefreshUpdatesN — an existing pending row with
+// the same N-invariant hash gets its summary N refreshed via the
+// UpdatePendingSummary seam (an UPDATE, not a supersede) — no new insert.
+func TestGapCandidatePendingRefreshUpdatesN(t *testing.T) {
+	f := &gapAccrualStore{fakeStore: &fakeStore{}, dupRows: map[string]DupMeta{
+		gapCandidateHash(NormalizeGapQuery("데모 쿼리")): {ID: 7, Topic: "격차 후보: 데모 쿼리", State: "pending"},
+	}}
+	maybeAccrueGapCandidate(context.Background(), f, "데모 쿼리", 5)
+	if len(f.updates) != 1 || f.updates[0] != "7:회상 실패 5회 — 지식 격차 후보" {
+		t.Fatalf("갱신=%v, want [7:회상 실패 5회 — 지식 격차 후보](pending N 갱신)", f.updates)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("삽입=%d건, want 0(갱신 경로 — 신규 아님)", len(f.inserted))
+	}
+}
+
+// TestGapCandidateActiveNoop — an existing active row with the same hash
+// is left untouched (the promotion-fixed integrity ruling): no update,
+// no insert, no commit.
+func TestGapCandidateActiveNoop(t *testing.T) {
+	f := &gapAccrualStore{fakeStore: &fakeStore{}, dupRows: map[string]DupMeta{
+		gapCandidateHash(NormalizeGapQuery("데모 쿼리")): {ID: 9, Topic: "격차 후보: 데모 쿼리", State: "active"},
+	}}
+	maybeAccrueGapCandidate(context.Background(), f, "데모 쿼리", 3)
+	if len(f.updates) != 0 || len(f.inserted) != 0 || len(f.commits) != 0 {
+		t.Fatalf("active NOOP 위반: updates=%v inserted=%d commits=%d", f.updates, len(f.inserted), len(f.commits))
+	}
+}
+
+// TestGapCandidateDailyCapSkipsQuietly — with the day's ADD count at the
+// cap (10 — the clamped default), the candidate is quietly skipped with
+// one stderr warning line; the counter key counts ADDs only.
+func TestGapCandidateDailyCapSkipsQuietly(t *testing.T) {
+	today := time.Now().UTC().Format("2006-01-02")
+	f := &gapAccrualStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "SELECT value FROM meta WHERE key = $1") && len(args) > 0 {
+			if fmt.Sprint(args[0]) == "daily:gap_write:"+today {
+				return [][]any{{"10"}}, nil
+			}
+		}
+		return nil, nil
+	}}, dupRows: map[string]DupMeta{}}
+	var inserted int
+	stderr := captureStderr(t, func() {
+		maybeAccrueGapCandidate(context.Background(), f, "데모 쿼리", 3)
+		inserted = len(f.inserted)
+	})
+	if inserted != 0 {
+		t.Fatalf("삽입=%d건, want 0(상한 도달 skip)", inserted)
+	}
+	if !strings.Contains(stderr, "gap_daily_max") || strings.Count(stderr, "\n") != 1 {
+		t.Fatalf("경고=%q, want 1행(gap_daily_max 언급)", stderr)
+	}
+}
+
+// TestGapCandidateHashInvariantToN — the digest is computed over the
+// topic·tag·confidence shape with the summary omitted: the same query at
+// different N hashes identically (the succession key), different queries
+// hash apart.
+func TestGapCandidateHashInvariantToN(t *testing.T) {
+	h := gapCandidateHash(NormalizeGapQuery("데모 쿼리"))
+	if h != gapCandidateHash(NormalizeGapQuery("데모 쿼리")) {
+		t.Fatal("동일 쿼리 해시 불안정")
+	}
+	if h == gapCandidateHash(NormalizeGapQuery("다른 쿼리")) {
+		t.Fatal("상이 쿼리 해시 충돌")
+	}
 }

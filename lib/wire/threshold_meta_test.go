@@ -38,6 +38,44 @@ var frozenThresholdKeys = []string{
 	"correction_confidence",
 	// the --source correction daily accrual cap (knowledge/write.go)
 	"correction_daily_max",
+	// the gap-candidate accrual trigger and daily cap (v1.12.0 — knowledge/write.go gap source)
+	"gap_query_threshold", "gap_daily_max",
+}
+
+// TestGapThresholdDefaultsOverride — the v1.12.0 gap keys: defaults (3 · 10),
+// meta override reflection, and the unset-keeps-0 convention (the consumer
+// falls back to DefaultThresholds — the correction 2-key convention).
+func TestGapThresholdDefaultsOverride(t *testing.T) {
+	// defaults.
+	def := store.DefaultThresholds()
+	if def.GapQueryThreshold != 3 {
+		t.Errorf("GapQueryThreshold 기본값=%d, want 3", def.GapQueryThreshold)
+	}
+	if def.GapDailyMax != 10 {
+		t.Errorf("GapDailyMax 기본값=%d, want 10", def.GapDailyMax)
+	}
+	// override.
+	th, err := store.ParseThresholds([][2]any{
+		{"gap_query_threshold", "5"},
+		{"gap_daily_max", "2"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.GapQueryThreshold != 5 {
+		t.Errorf("gap_query_threshold 오버라이드=%d, want 5", th.GapQueryThreshold)
+	}
+	if th.GapDailyMax != 2 {
+		t.Errorf("gap_daily_max 오버라이드=%d, want 2", th.GapDailyMax)
+	}
+	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.GapQueryThreshold != 0 || unset.GapDailyMax != 0 {
+		t.Errorf("unset 폴백: gap_query_threshold=%d gap_daily_max=%d, want 0·0", unset.GapQueryThreshold, unset.GapDailyMax)
+	}
 }
 
 // TestThresholdRegistrySingleSource — the registry is homogeneous with the 4 places

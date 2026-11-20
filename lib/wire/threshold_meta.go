@@ -78,9 +78,13 @@ var thresholdMetas = []ThresholdMeta{
 
 	// the --source correction daily accrual cap (the consumption path knowledge/write.go — the daily:correction_write flat-key count).
 	{"CorrectionDailyMax", "correction_daily_max", 20, "write correction daily cap"},
+
+	// the gap-candidate accrual trigger and daily cap (v1.12.0 — the consumption path knowledge/write.go gap source, the daily:gapq flat-key count).
+	{"GapQueryThreshold", "gap_query_threshold", 3, "gap candidate accrual threshold"},
+	{"GapDailyMax", "gap_daily_max", 10, "gap candidate daily cap"},
 }
 
-// ThresholdMetas — the registry's deterministic copy (41 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (43 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

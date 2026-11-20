@@ -69,6 +69,11 @@ type Thresholds struct {
 	// this many committed accruals per UTC day are quietly skipped with a
 	// warning (write.go — the daily:correction_write flat-key count).
 	CorrectionDailyMax int // default 20
+	// the gap-candidate accrual trigger and daily cap (v1.12.0): the daily
+	// gapq counter reaching the threshold accrues a gap candidate; the cap
+	// bounds new ADDs per UTC day (knowledge/write.go gap source).
+	GapQueryThreshold int // default 3 — same-normalized-query recall-failure count triggering a candidate
+	GapDailyMax       int // default 10 — only new ADDs consume the cap (updates don't, the correction convention)
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -127,6 +132,9 @@ const (
 	defaultCorrectionConfidence = 0.7
 	// the --source correction daily accrual cap (v1.11.0).
 	defaultCorrectionDailyMax = 20
+	// the gap-candidate accrual trigger and daily cap (v1.12.0).
+	defaultGapQueryThreshold = 3
+	defaultGapDailyMax       = 10
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -181,6 +189,9 @@ func DefaultThresholds() Thresholds {
 		// the correction write default (the consumer fallback basis).
 		CorrectionConfidence: defaultCorrectionConfidence,
 		CorrectionDailyMax:   defaultCorrectionDailyMax,
+		// the gap-candidate trigger and cap (the consumer fallback basis).
+		GapQueryThreshold: defaultGapQueryThreshold,
+		GapDailyMax:       defaultGapDailyMax,
 	}
 }
 
@@ -307,6 +318,14 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// unset keeps 0 (the convention — the consumer, write's correction
 			// daily cap, falls back via ApplyThresholdsFallback).
 			th.CorrectionDailyMax = parseIntOrDefault(val, defaultCorrectionDailyMax, ks)
+		case "gap_query_threshold":
+			// unset keeps 0 (the convention — the consumer, write's gap
+			// accrual, falls back via ApplyThresholdsFallback).
+			th.GapQueryThreshold = parseIntOrDefault(val, defaultGapQueryThreshold, ks)
+		case "gap_daily_max":
+			// unset keeps 0 (the convention — the consumer, write's gap
+			// daily cap, falls back via ApplyThresholdsFallback).
+			th.GapDailyMax = parseIntOrDefault(val, defaultGapDailyMax, ks)
 		}
 	}
 	return th, nil
