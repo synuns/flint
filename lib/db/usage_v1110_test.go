@@ -5,9 +5,9 @@ import (
 	"testing"
 )
 
-// TestRecordUsageCountDupCorrectionKind — R50-A: dup_correction kind가
-// 화이트리스트에 등록돼 per-source 카운터가 실DB에서 기록된다
-// (RecordDups의 "dup_"+source 파생 경로).
+// TestRecordUsageCountDupCorrectionKind — R50-A: the dup_correction kind
+// is registered in the whitelist so the per-source counter is recorded on
+// the real DB (the "dup_"+source derivation path in RecordDups).
 func TestRecordUsageCountDupCorrectionKind(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
