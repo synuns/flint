@@ -1,4 +1,4 @@
-// theme_test.go — 최소 색상 테마 값 존재 단언.
+// theme_test.go — asserts the minimal color-theme values exist.
 package tui
 
 import (
@@ -7,8 +7,8 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// TestThemeValuesExist — 강조·보조·중립 스타일이 모두 전경색을 가져야
-// 한다(색 코드는 터미널 테마가 존중되는 ANSI 기본색 번호 사용).
+// TestThemeValuesExist — the accent, secondary, and neutral styles must all
+// have foreground colors (the color codes use ANSI base-color numbers so the terminal theme is respected).
 func TestThemeValuesExist(t *testing.T) {
 	cases := []struct {
 		name  string

@@ -1,6 +1,6 @@
-// setup.go — `flint setup` 위저드(huh 폼). exposure 선택 →
-// 백업 키 안내를 수집만 하고, 실행은 cli의 기존 setup 로직이 담당한다
-// (위저드는 플래그 등가물 조립 — 중복 구현 금지 계약).
+// setup.go — the `flint setup` wizard (a huh form). It only collects the exposure
+// selection and backup-key acknowledgment; execution is handled by cli's existing
+// setup logic (the wizard assembles the flag equivalent — the no-duplicate-implementation contract).
 package tui
 
 import (
@@ -10,32 +10,32 @@ import (
 	"github.com/charmbracelet/huh"
 )
 
-// 위저드 오류 계약 — 호출부(cli)는 두 오류 모두 기존 경로 폴백으로
-// 처리한다(비터미널·취소 모두 부작용 없음).
+// the wizard error contracts — the caller (cli) handles both errors by falling
+// back to the existing paths (both non-terminal and cancel are side-effect-free).
 var (
-	// ErrWizardUnavailable — 터미널이 아니어서 위저드를 시작할 수 없음.
+	// ErrWizardUnavailable — not a terminal, so the wizard cannot start.
 	ErrWizardUnavailable = errors.New("TUI requires a terminal — use flag-mode instead")
-	// ErrWizardCancelled — 사용자가 ctrl+c로 위저드를 취소함.
+	// ErrWizardCancelled — the user cancelled the wizard with ctrl+c.
 	ErrWizardCancelled = errors.New("setup wizard cancelled")
 )
 
-// SetupAnswers — 위저드가 수집한 플래그 등가물.
+// SetupAnswers — the flag equivalents the wizard collected.
 type SetupAnswers struct {
-	// Exposure — setup --exposure 값("normal"|"minimal").
+	// Exposure — the setup --exposure value ("normal"|"minimal").
 	Exposure string
 }
 
-// BackupKeyNote — 백업 키 안내(기존 setup·RUNBOOK 백업 암호화 안내의
-// 영문 표기: 옵트인·첫 암호화 시 자동 생성·분실 시 해독 불가).
+// BackupKeyNote — the backup-key notice (the English rendering of the existing
+// setup/RUNBOOK backup-encryption notice: opt-in, auto-generated on first encryption, undecipherable if lost).
 const BackupKeyNote = `Encrypted backups are opt-in: "flint tuning set backup_encrypt true" or "flint backup --out <path> --encrypt".
 The key file (backup.key, 0600) is created automatically on first encryption under FLINT_HOME.
 If the key is lost, encrypted backups cannot be decrypted — keep a copy in a password manager.`
 
-// runSetupFormFn — huh 폼 실행 seam(테스트 교체).
+// runSetupFormFn — the huh form execution seam (test swap).
 var runSetupFormFn = runSetupForm
 
-// runSetupForm — 실제 huh 폼: ①exposure 선택 ②백업 키 안내.
-// 완료 요약 화면은 cli가 기존 체인 결과·다음 단계 안내로 제공한다.
+// runSetupForm — the real huh form: (1) exposure selection (2) the backup-key
+// notice. The completion-summary screen is provided by cli from the existing chain's results and next-step guidance.
 func runSetupForm() (SetupAnswers, error) {
 	a := SetupAnswers{}
 	err := huh.NewForm(
@@ -58,10 +58,10 @@ func runSetupForm() (SetupAnswers, error) {
 	return a, err
 }
 
-// RunSetupWizard — setup 위저드 실행. 비터미널은 폼 시작 전
-// ErrWizardUnavailable, 사용자 취소(huh.ErrUserAborted)는
-// ErrWizardCancelled로 변환한다. 허용값 밖 exposure는 선제 거부
-// (setup --exposure 무효값 exit 3 계약과 정합).
+// RunSetupWizard — runs the setup wizard. Non-terminal gives
+// ErrWizardUnavailable before the form starts; a user cancel
+// (huh.ErrUserAborted) is converted to ErrWizardCancelled. An exposure outside
+// the allowed values is preemptively rejected (consistent with the setup --exposure invalid-value exit 3 contract).
 func RunSetupWizard() (SetupAnswers, error) {
 	if !isTerminal() {
 		return SetupAnswers{}, ErrWizardUnavailable

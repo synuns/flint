@@ -1,6 +1,6 @@
-// report_test.go — report TUI 모델 테스트. 구조 단언(렌더
-// 스냅샷 없음 — 관례): 진단 카드 수·제목·상세 확장·지표 뷰 전환·
-// 종료 키. 픽스처는 합성 데모 데이터(저장소 원칙).
+// report_test.go — the report TUI model tests. Structural assertions (no render
+// snapshots — the convention): the diagnostic card count, titles, detail
+// expansion, metrics-view switching, and quit keys. The fixtures are synthetic demo data (the storage principle).
 package tui
 
 import (
@@ -12,8 +12,8 @@ import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// diagFixture — 진단 2항목(경고 1·정보 1)과 최소 지표를 담은 합성
-// ReportOutput. 진단 문장 값은 TUI가 원천 그대로 노출하는지만 본다.
+// diagFixture — a synthetic ReportOutput with 2 diagnostic items (1 warn, 1
+// info) and minimal metrics. The diagnostic sentence values only check that the TUI exposes the source as-is.
 func diagFixture() ops.ReportOutput {
 	rep := ops.ReportOutput{
 		Days: []ops.ReportDay{
@@ -47,7 +47,7 @@ func diagFixture() ops.ReportOutput {
 	return rep
 }
 
-// updateKey — 모델에 키 입력 1개를 넣고 ReportModel로 되돌리는 헬퍼.
+// updateKey — a helper that feeds 1 key input to the model and returns it as a ReportModel.
 func updateKey(t *testing.T, m ReportModel, key tea.KeyType) ReportModel {
 	t.Helper()
 	next, cmd := m.Update(tea.KeyMsg{Type: key})
@@ -56,13 +56,13 @@ func updateKey(t *testing.T, m ReportModel, key tea.KeyType) ReportModel {
 		t.Fatalf("Update returned %T, want ReportModel", next)
 	}
 	if cmd != nil {
-		_ = cmd() // tea.Quit 여부는 별도 단언
+		_ = cmd() // whether it is tea.Quit is asserted separately
 	}
 	return mm
 }
 
-// TestReportModelCardList — 진단 항목 수·카드 제목 렌더: 항목 2개면
-// 신호 제목 2개가 모두 보인다(진단 뷰 기본).
+// TestReportModelCardList — the diagnostic item count and card titles rendered:
+// with 2 items, both signal titles are visible (the diagnostic view default).
 func TestReportModelCardList(t *testing.T) {
 	m := NewReportModel(diagFixture(), 7)
 	v := m.View()
@@ -76,8 +76,8 @@ func TestReportModelCardList(t *testing.T) {
 	}
 }
 
-// TestReportModelDetailExpand — 선택 항목 확장(enter) 시 Basis·Action·
-// tuning key 필드가 Value와 함께 보인다(계약: 선택 상세).
+// TestReportModelDetailExpand — expanding the selected item (enter) shows the
+// Basis, Action, and tuning-key fields along with Value (contract: selection detail).
 func TestReportModelDetailExpand(t *testing.T) {
 	m := NewReportModel(diagFixture(), 7)
 	m = updateKey(t, m, tea.KeyEnter)
@@ -93,16 +93,16 @@ func TestReportModelDetailExpand(t *testing.T) {
 	}
 }
 
-// TestReportModelMetricsView — tab으로 지표 요약 뷰: 창 총적립·회상·
-// 핵심 비율·counts가 보인다(계약: 지표 요약 탐색).
+// TestReportModelMetricsView — tab switches to the metrics summary view: the window
+// totals, recalls, key ratios, and counts are visible (contract: metrics summary navigation).
 func TestReportModelMetricsView(t *testing.T) {
 	m := NewReportModel(diagFixture(), 7)
 	m = updateKey(t, m, tea.KeyTab)
 	v := m.View()
 	for _, want := range []string{
 		"Metrics",
-		"writes 5",  // Days 합산
-		"reads 18",  // Days 합산
+		"writes 5",  // the Days sum
+		"reads 18",  // the Days sum
 		"hit 90%",   // effect.hit_pct
 		"pending 2", // counts.pending
 	} {
@@ -112,8 +112,8 @@ func TestReportModelMetricsView(t *testing.T) {
 	}
 }
 
-// TestReportModelEmptyDiagnosis — 진단 0건은 정상 침묵 대응 메시지
-// (지표 뷰는 여전히 탐색 가능 — 빈 화면 금지).
+// TestReportModelEmptyDiagnosis — 0 diagnostics gets the normal-silence message
+// (the metrics view remains navigable — no empty screen).
 func TestReportModelEmptyDiagnosis(t *testing.T) {
 	rep := diagFixture()
 	rep.Diagnosis = nil
@@ -128,8 +128,8 @@ func TestReportModelEmptyDiagnosis(t *testing.T) {
 	}
 }
 
-// TestReportModelCursorMoveAndDetail — 커서 이동(j/k) 후 확장은 커서가
-// 가리키는 항목의 상세를 보인다(두 번째 항목).
+// TestReportModelCursorMoveAndDetail — after moving the cursor (j/k), expansion
+// shows the detail of the item the cursor points at (the second item).
 func TestReportModelCursorMoveAndDetail(t *testing.T) {
 	m := NewReportModel(diagFixture(), 7)
 	m = updateKey(t, m, tea.KeyDown)
@@ -140,10 +140,10 @@ func TestReportModelCursorMoveAndDetail(t *testing.T) {
 	}
 }
 
-// TestReportModelQuitKeys — q·esc 종료 관례.
+// TestReportModelQuitKeys — the q and esc quit conventions.
 func TestReportModelQuitKeys(t *testing.T) {
-	// tea.Quit는 Cmd(func)라 직접 비교 불가 — 실행 산물 tea.QuitMsg
-	// 타입 단언으로 판정한다.
+	// tea.Quit is a Cmd (a func), so it cannot be compared directly — judged by a
+	// type assertion on the executed product tea.QuitMsg.
 	for _, key := range []tea.KeyType{tea.KeyEsc, tea.KeyCtrlC} {
 		_, cmd := NewReportModel(diagFixture(), 7).Update(tea.KeyMsg{Type: key})
 		if cmd == nil {
@@ -154,14 +154,14 @@ func TestReportModelQuitKeys(t *testing.T) {
 			t.Errorf("key %v: cmd() is not tea.QuitMsg", key)
 		}
 	}
-	// 'q' 룬키도 종료.
+	// the 'q' rune key also quits.
 	_, cmd := NewReportModel(diagFixture(), 7).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Error("rune 'q' should quit")
 	}
 }
 
-// updateSize — 리사이즈 시뮬레이션 헬퍼(report 모델 — 폭 저장).
+// updateSize — a resize simulation helper (the report model — width stored).
 func updateSize(m ReportModel, w int) ReportModel {
 	next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 24})
 	mm, ok := next.(ReportModel)
@@ -171,8 +171,8 @@ func updateSize(m ReportModel, w int) ReportModel {
 	return mm
 }
 
-// RF-narrow — 계약 1: 40컬 — 두 모드 모두 키 안내 라인이 폭 안에 들어오되
-// "q quit" 단서는 유지되고, 탈출 안내(nonInteractiveHint)는 wrap된다.
+// RF-narrow — contract 1: 40 columns — both modes keep the key-hint line within
+// the width while keeping the "q quit" cue, and the exit guidance (nonInteractiveHint) is wrapped.
 func TestReportNarrowWidthClipping(t *testing.T) {
 	views := map[string]string{
 		"diagnosis": updateSize(NewReportModel(diagFixture(), 7), 40).View(),
@@ -193,9 +193,9 @@ func TestReportNarrowWidthClipping(t *testing.T) {
 	}
 }
 
-// TestSeverityOf — 심각도 파생 매핑: 유일한 '정보성' 항목(hot_budget_slack
-// — 진단 문구 계약상 informational)은 info, 나머지는 warn. DiagnosisItem에
-// 심각도 필드가 없어 TUI가 신호 id로 파생한다(가정 로그 참조).
+// TestSeverityOf — the severity-derivation mapping: the sole 'informational'
+// item (hot_budget_slack — informational per the diagnostic wording contract)
+// is info; the rest are warn. DiagnosisItem has no severity field, so the TUI derives it from the signal id (see the assumption log).
 func TestSeverityOf(t *testing.T) {
 	if got := severityOf("hot_budget_slack"); got != "info" {
 		t.Errorf("hot_budget_slack severity=%q, want info", got)

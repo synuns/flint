@@ -1,9 +1,9 @@
-// export.go — `flint export --tui` 대화형 흐름.
-// huh 폼(형식 5종·status·출력 경로) → 미리보기(행 수·예상 바이트) →
-// 실행은 기존 플래그 경로(cli.runExport)에 조립된 인자를 전달해 재사용
-// 한다(중복 구현 금지 — 출력·사이드카·행 수 상한은 기존 경로 계약 그대로
-// 자동 적용). 조회·포맷터·상한·실행 의존은 cli 측에서 주입받는다(순환
-// 임포트 회피 겸 seam — 테스트는 폼·확인 단계 var로 fake 주입).
+// export.go — the `flint export --tui` interactive flow.
+// huh form (5 formats, status, output path) -> preview (row count, estimated
+// bytes) -> execution reuses the existing flag path (cli.runExport) by passing
+// the assembled arguments (no duplicate implementation — the output, sidecar, and
+// row cap all apply automatically per the existing path's contract). The query,
+// formatters, cap, and execution dependencies are injected from the cli side (both avoiding the import cycle and serving as seams — tests inject fakes via the form/confirm stage vars).
 package tui
 
 import (
@@ -18,39 +18,39 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ExportSelection — huh 폼 결과(형식·status·출력 경로). Out이 빈 문자열이면
-// stdout 출력(stdout 모드).
+// ExportSelection — the huh form result (format, status, output path). An empty
+// Out means stdout output (stdout mode).
 type ExportSelection struct {
 	Format string
 	Status string
 	Out    string
 }
 
-// ExportPreview — 미리보기 결과: 선택된 필터의 행 수·예상 바이트.
+// ExportPreview — the preview result: the selected filter's row count and estimated bytes.
 type ExportPreview struct {
 	Rows  int
 	Bytes int
 }
 
-// ExportDeps — cli 측 주입 의존. Preview·MaxRows·Run 모두 기존 조회·
-// 등록표·실행 seam의 래퍼다(TUI가 원천 로직을 재구현하지 않는다).
+// ExportDeps — the cli-injected dependencies. Preview, MaxRows, and Run are all
+// wrappers of the existing query, registry, and execution seams (the TUI does not reimplement source logic).
 type ExportDeps struct {
-	// Preview — 선택된 필터로 행 수·예상 바이트 산출(기존 조회·포맷터
-	// seam 재사용). nil이면 미리보기·확인 단계를 건너뛴다.
+	// Preview — computes the row count and estimated bytes for the selected filter
+	// (reusing the existing query and formatter seams). If nil, the preview and confirm stages are skipped.
 	Preview func(ctx context.Context, sel ExportSelection) (ExportPreview, error)
-	// MaxRows — 행 수 상한(등록표 키 export_import_max_rows, 기본값
-	// 폴백 포함). nil이면 상한 검사를 생략한다(실행 시 기존 경로가
-	// 다시 판정한다).
+	// MaxRows — the row cap (the registry key export_import_max_rows, including the
+	// default fallback). If nil, the cap check is skipped (the existing path
+	// re-checks at execution).
 	MaxRows func(ctx context.Context) int
-	// Run — 조립된 인자로 기존 runExport 실행. 반환은 exit 코드.
+	// Run — runs the existing runExport with the assembled arguments. Returns the exit code.
 	Run func(args []string) int
-	// CancelNote — 사용자 취소(폼 중단·확인 거절) 시 "export cancelled"
-	// 1행 안내를 쓸 출력 대상. nil이면 os.Stdout.
+	// CancelNote — where to write the 1-line "export cancelled" notice on a user
+	// cancel (form abort or confirmation decline). If nil, os.Stdout.
 	CancelNote io.Writer
 }
 
-// exportFormFn — huh 폼 seam(테스트 fake 주입). 기본 폼: 형식 5종·
-// status 2종·출력 경로(선택 — 빈 값 stdout). ctrl+c는 huh.ErrUserAborted.
+// exportFormFn — the huh form seam (test fake injection). The default form: 5
+// formats, 2 statuses, and the output path (optional — empty means stdout). ctrl+c is huh.ErrUserAborted.
 var exportFormFn = func(sel *ExportSelection) error {
 	return huh.NewForm(
 		huh.NewGroup(
@@ -66,13 +66,13 @@ var exportFormFn = func(sel *ExportSelection) error {
 				Title("Output file (optional — empty writes to stdout)").
 				Value(&sel.Out),
 		).
-			// 비대화 탈출 안내(적응형 기본 진입 안내) — 폼 하단.
+			// the non-interactive escape guidance (the adaptive default-entry notice) — the bottom of the form.
 			Description(nonInteractiveHint),
 	).Run()
 }
 
-// exportConfirmFn — 미리보기 확인 seam(테스트 fake 주입). 기본은 huh
-// confirm 폼: 행 수·예상 바이트를 보여주고 진행 여부를 묻는다.
+// exportConfirmFn — the preview-confirmation seam (test fake injection). The default
+// is a huh confirm form: shows the row count and estimated bytes and asks whether to proceed.
 var exportConfirmFn = func(pv ExportPreview) (bool, error) {
 	proceed := false
 	err := huh.NewForm(
@@ -88,9 +88,9 @@ var exportConfirmFn = func(pv ExportPreview) (bool, error) {
 	return proceed, err
 }
 
-// ExportArgs — 폼 결과 → 플래그 인자 조립(단일 진실원 — Run 위임 시
-// 에도 이 조립을 쓴다). Out이 빈 문자열이면 --out을 붙이지 않는다
-// (stdout 모드).
+// ExportArgs — assembles the form result -> flag arguments (a single source of
+// truth — the Run delegation uses this same assembly). An empty Out adds no
+// --out (stdout mode).
 func ExportArgs(sel ExportSelection) []string {
 	args := []string{"--format", sel.Format, "--status", sel.Status}
 	if sel.Out != "" {
@@ -99,8 +99,8 @@ func ExportArgs(sel ExportSelection) []string {
 	return args
 }
 
-// exportCancelNotice — 사용자 취소 안내 1행(조용한 0바이트 폐지 —
-// A3). exit 0은 유지된다.
+// exportCancelNotice — the 1-line user-cancel notice (abolishing the silent
+// 0 bytes — A3). exit 0 is kept.
 func exportCancelNotice(w io.Writer) {
 	if w == nil {
 		w = os.Stdout
@@ -108,15 +108,15 @@ func exportCancelNotice(w io.Writer) {
 	fmt.Fprintln(w, "export cancelled")
 }
 
-// RunExport — export TUI 흐름: 폼 → 미리보기(상한 검사) → 확인 → 기존
-// 플래그 경로 실행. 반환 (exitCode, err): err != nil이면 호출부가 오류
-// JSON 한 줄 + exit 3으로 폴백한다. 비터미널은 폼 시작 전 즉시 (3, 오류)
-// — 관례 "TUI requires a terminal". 사용자 중단(ctrl+c)은 "export
-// cancelled" 안내 후 실행 없이 (0, nil) — 깨끗한 취소는 오류가 아니다.
+// RunExport — the export TUI flow: form -> preview (cap check) -> confirmation
+// -> the existing flag path. Returns (exitCode, err): if err != nil, the caller
+// falls back to 1 line of error JSON + exit 3. Non-terminal immediately returns
+// (3, error) before the form starts — the convention "TUI requires a terminal".
+// A user abort (ctrl+c) shows the export-cancelled notice and returns (0, nil) without executing — a clean cancel is not an error.
 func RunExport(ctx context.Context, deps ExportDeps) (int, error) {
 	if !isTerminal() {
-		// 무효 인자 분류(error:"usage") — Run 래퍼와 동일
-		// 계약, exit 3 불변.
+		// the invalid-argument classification (error:"usage") — the same
+		// contract as the Run wrapper; exit 3 unchanged.
 		return 3, wire.UsageErrorf("%w", ErrTerminalRequired)
 	}
 	sel := ExportSelection{Format: "jsonl", Status: "active"}

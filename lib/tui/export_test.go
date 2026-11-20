@@ -1,8 +1,8 @@
-// export_test.go — `flint export --tui` 흐름 계약 테스트.
-// huh 폼·확인 단계·터미널 판정은 seam var로 fake 주입 — 검증 대상은
-// ① 폼 결과→플래그 인자 조립(ExportArgs 단일 진실원) ② 미리보기 행 수·
-// 바이트 산출 위임 ③ 상한 초과 오류 ④ 실행 위임(RunExport 재사용 —
-// 중복 구현 금지). 실폼 연결은 seam 기본값(컴파일 시점) 활성화.
+// export_test.go — contract tests for the `flint export --tui` flow.
+// The huh form, confirm stage, and terminal check are faked via seam vars — the
+// verification targets are (1) the form result -> flag-argument assembly, (2) the
+// preview row-count and byte delegation, (3) the over-cap error, and (4) the
+// delegation, (3) the over-cap error, and (4) the execution delegation (reusing RunExport — no duplicate implementation). The real form wiring activates at the seam defaults (compile time).
 package tui
 
 import (
@@ -14,8 +14,8 @@ import (
 	"github.com/charmbracelet/huh"
 )
 
-// overrideExportTUISeams — export TUI seam(터미널 판정·폼·확인) 일괄 교체.
-// form·confirm이 nil이면 기본 seam을 그대로 둔다(터미널 판정만 교체).
+// overrideExportTUISeams — bulk-swaps the export TUI seams (terminal check, form, confirm).
+// If form or confirm is nil, the default seam is kept (only the terminal check is swapped).
 func overrideExportTUISeams(t *testing.T, term bool, form func(*ExportSelection) error, confirm func(ExportPreview) (bool, error)) {
 	t.Helper()
 	oldTerm, oldForm, oldConfirm := isTerminal, exportFormFn, exportConfirmFn
@@ -29,8 +29,8 @@ func overrideExportTUISeams(t *testing.T, term bool, form func(*ExportSelection)
 	t.Cleanup(func() { isTerminal, exportFormFn, exportConfirmFn = oldTerm, oldForm, oldConfirm })
 }
 
-// RF1 — 폼 결과→인자 조립: format·status·out 순서로 --format/--status/
-// --out 조립. Out이 빈 문자열(stdout)이면 --out 생략.
+// RF1 — the form result -> argument assembly: --format/--status/--out assembled
+// in the format, status, out order. An empty Out (stdout) omits --out.
 func TestExportArgsAssemblesFormSelection(t *testing.T) {
 	got := ExportArgs(ExportSelection{Format: "md", Status: "all", Out: "/tmp/export.md"})
 	want := []string{"--format", "md", "--status", "all", "--out", "/tmp/export.md"}
@@ -42,7 +42,7 @@ func TestExportArgsAssemblesFormSelection(t *testing.T) {
 			t.Fatalf("args = %v, want %v", got, want)
 		}
 	}
-	// stdout 모드(Out 없음): --out 미포함.
+	// stdout mode (no Out): --out not included.
 	got = ExportArgs(ExportSelection{Format: "jsonl", Status: "active"})
 	for _, a := range got {
 		if a == "--out" {
@@ -54,9 +54,9 @@ func TestExportArgsAssemblesFormSelection(t *testing.T) {
 	}
 }
 
-// RF2 — 폼 선택이 미리보기·실행으로 동일하게 전달: Preview는 선택된
-// 필터로 행 수·바이트를 반환하고, Run은 조립된 인자로 기존 플래그
-// 경로(runExport)를 재실행한다(exit 코드 통과).
+// RF2 — the form selection passes identically to the preview and execution:
+// Preview returns the row count and bytes for the selected filter, and Run
+// re-runs the existing flag path (runExport) with the assembled arguments (the exit code passes through).
 func TestRunExportFormSelectionFlowsToPreviewAndRun(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error {
@@ -100,8 +100,8 @@ func TestRunExportFormSelectionFlowsToPreviewAndRun(t *testing.T) {
 	}
 }
 
-// 비터미널(파이프·CI): 폼 시작 전 즉시 폴백 (3, 오류) — 관례
-// "TUI requires a terminal". 폼은 열리지 않는다.
+// Non-terminal (pipe, CI): falls back immediately to (3, error) before the form
+// starts — the convention "TUI requires a terminal". The form never opens.
 func TestRunExportRequiresTerminal(t *testing.T) {
 	overrideExportTUISeams(t, false,
 		func(sel *ExportSelection) error { t.Fatal("form must not open without a terminal"); return nil },
@@ -116,8 +116,8 @@ func TestRunExportRequiresTerminal(t *testing.T) {
 	}
 }
 
-// RF4 — 사용자 중단(ctrl+c, huh.ErrUserAborted): "export cancelled" 안내
-// 후 실행 없이 (0, nil) — 깨끗한 취소는 오류가 아니다(안내는 RF4a).
+// RF4 — a user abort (ctrl+c, huh.ErrUserAborted): after the "export cancelled"
+// notice, (0, nil) without executing — a clean cancel is not an error (the notice is RF4a).
 func TestRunExportUserAbortExitsCleanly(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { return huh.ErrUserAborted },
@@ -135,8 +135,8 @@ func TestRunExportUserAbortExitsCleanly(t *testing.T) {
 	}
 }
 
-// RF4a — A3: 폼 중단·확인 거절 모두 조용한 0바이트가 아니라
-// "export cancelled" 1행 안내(CancelNote — 기본 os.Stdout) 후 exit 0.
+// RF4a — A3: both a form abort and a confirmation decline produce not a silent
+// 0 bytes but a 1-line "export cancelled" notice (CancelNote — default os.Stdout) and exit 0.
 func TestRunExportCancelPrintsNotice(t *testing.T) {
 	t.Run("form abort", func(t *testing.T) {
 		var out bytes.Buffer
@@ -178,8 +178,8 @@ func TestRunExportCancelPrintsNotice(t *testing.T) {
 	})
 }
 
-// RF5 — 상한 초과 시 TUI 오류: 미리보기 행 수 > export_import_max_rows면
-// 확인 단계 대신 오류로 (3, err) — 실행(Run)은 호출되지 않는다.
+// RF5 — over-cap TUI error: if the preview row count > export_import_max_rows,
+// it becomes (3, err) instead of the confirm stage — Run is never called.
 func TestRunExportOverLimitShowsTUIError(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { sel.Format, sel.Status = "jsonl", "all"; return nil },
@@ -204,7 +204,7 @@ func TestRunExportOverLimitShowsTUIError(t *testing.T) {
 	}
 }
 
-// RF6 — 미리보기 확인 거절: 실행 없이 (0, nil).
+// RF6 — declining the preview confirmation: (0, nil) without executing.
 func TestRunExportDeclineSkipsRun(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { sel.Format, sel.Status = "md", "active"; return nil },
@@ -227,7 +227,7 @@ func TestRunExportDeclineSkipsRun(t *testing.T) {
 	}
 }
 
-// RF7 — 미리보기 조회 실패: (3, err), 실행 없음.
+// RF7 — a preview query failure: (3, err), no execution.
 func TestRunExportPreviewFailureExits3(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { return nil },
@@ -244,7 +244,7 @@ func TestRunExportPreviewFailureExits3(t *testing.T) {
 	}
 }
 
-// RF8 — 경계(행 수 == max): 초과 아님 — 확인 단계로 진행.
+// RF8 — the boundary (row count == max): not over — proceeds to the confirm stage.
 func TestRunExportBoundaryEqualMaxProceeds(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { sel.Format, sel.Status = "jsonl", "active"; return nil },

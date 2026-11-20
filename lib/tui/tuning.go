@@ -1,10 +1,10 @@
-// tuning.go — `flint tuning --tui` 대화형 폼(huh). 키 선택 → 값 편집 →
-// set/reset 확정. 키 목록은 TuningKeys 단일 소스(ops 등록표)에서, 값
-// 검증(loadThresholds→ParseThresholds 실경로 — 폴백 값 거부·안내)과
-// JSON 1행 출력은 기존 ops.RunTuning set/reset 표준 경로에 그대로 위임한다
-// (중복 구현 금지). 비터미널 --tui는 폼 시작 전 즉시 exit 3
-// (ErrTerminalRequired 관례). 진입 분기(옵트인-only·FLINT_NO_TUI 차단)는
-// lib/cli/tuning.go 소유 — 여기는 TUI 흐름만.
+// tuning.go — the `flint tuning --tui` interactive form (huh). Key selection ->
+// value editing -> set/reset confirmation. The key list comes from the TuningKeys
+// single source (the ops registry); value validation (loadThresholds ->
+// ParseThresholds real path — rejecting fallback values with guidance) and the
+// 1-line JSON output delegate as-is to the existing ops.RunTuning set/reset
+// standard path (no duplicate implementation). Non-terminal --tui exits 3 immediately
+// before the form starts (the ErrTerminalRequired convention). The entry branching (opt-in only, FLINT_NO_TUI blocking) is owned by lib/cli/tuning.go — here only the TUI flow.
 package tui
 
 import (
@@ -22,8 +22,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// TuningKeyRow — 폼 키 선택 행(현재값·기본값 표시). TuningKeys 단일
-// 소스에서 파생된다.
+// TuningKeyRow — a form key-selection row (current and default values shown).
+// Derived from the TuningKeys single source.
 type TuningKeyRow struct {
 	Key      string
 	Value    string
@@ -31,39 +31,39 @@ type TuningKeyRow struct {
 	Consumer string
 }
 
-// TuningSelection — huh 폼 확정 결과. Action "set"은 Value 사용,
-// "reset"은 기본값 복귀(Value 미사용).
+// TuningSelection — the huh form confirmation result. Action "set" uses
+// Value; "reset" restores the default (Value unused).
 type TuningSelection struct {
 	Key    string
 	Value  string
 	Action string
 }
 
-// TuningDeps — 진입 분기(cli)·테스트에서 주입하는 의존(export
-// ExportDeps 관례). nil 필드는 기본 실구현으로 해석된다.
+// TuningDeps — the dependencies injected by the entry branch (cli) and tests (the
+// export ExportDeps convention). nil fields resolve to the default real implementations.
 type TuningDeps struct {
-	// Rows — 키 행 로드. 기본: ops.TuningKeys × ops.TuningCurrent 실경로.
+	// Rows — loads the key rows. Default: the ops.TuningKeys x ops.TuningCurrent real paths.
 	Rows func(ctx context.Context) ([]TuningKeyRow, error)
-	// Form — huh 폼. 기본: 키 선택 → 값 편집 → set/reset 선택 단일 그룹.
+	// Form — the huh form. Default: key selection -> value editing -> a single set/reset-choice group.
 	Form func(sel *TuningSelection, rows []TuningKeyRow) error
-	// IsTerminal — 터미널 판정. 기본: tui 내부 판정(isTerminal seam).
-	// FLINT_NO_TUI 검사는 cli 3층 방어 1층이 이미 소유(원시 판정 사용).
+	// IsTerminal — the terminal check. Default: the tui-internal check (the isTerminal seam).
+	// The FLINT_NO_TUI check is already owned by cli's 3-layer defense layer 1 (uses the raw check).
 	IsTerminal func() bool
-	// Run — 기존 set/reset 표준 경로 실행 위임(기본 ops.RunTuning —
-	// JSON 1행 출력·실경로 값 검증·exit 코드 전부 표준 경로 재사용).
+	// Run — delegates to the existing set/reset standard path (default ops.RunTuning
+	// — the 1-line JSON output, real-path value validation, and exit codes all reuse the standard path).
 	Run func(args []string) int
-	// CancelNote — 사용자 취소(ctrl+c) 안내 1행 출력 대상. 기본 호출부
-	// stdout(TUI 종료 후 채널 — 실구현에서는 os.Stdout과 동일).
+	// CancelNote — where to write the user-cancel (ctrl+c) 1-line notice. Default:
+	// the caller's stdout (the post-TUI channel — same as os.Stdout in the real implementation).
 	CancelNote io.Writer
 }
 
-// tuningRunner — 기본 Run 위임 원천 seam(ops.RunTuning — 중복 구현
-// 금지). deps.Run이 nil일 때 st·stdout을 묶어 호출한다.
+// tuningRunner — the seam sourcing the default Run delegation (ops.RunTuning — no
+// duplicate implementation). When deps.Run is nil, calls it with st and stdout.
 var tuningRunner = ops.RunTuning
 
-// tuningKeyRows — 기본 키 행 로드: TuningKeys 단일 소스에 현재값
-// (TuningCurrent — loadThresholds→ParseThresholds 실경로 산물)을 조합,
-// 결정적 정렬(list 표기와 동일 규약).
+// tuningKeyRows — the default key-row load: combines the TuningKeys single source
+// with the current values (TuningCurrent — the loadThresholds -> ParseThresholds
+// real-path product), deterministically sorted (the same convention as the list display).
 func tuningKeyRows(ctx context.Context, st wire.Store) ([]TuningKeyRow, error) {
 	th, _, err := ops.TuningCurrent(ctx, st)
 	if err != nil {
@@ -80,10 +80,10 @@ func tuningKeyRows(ctx context.Context, st wire.Store) ([]TuningKeyRow, error) {
 	return rows, nil
 }
 
-// tuningFormFn — 기본 huh 폼: 키 선택(행 라벨에 현재값·기본값 표시) →
-// 값 편집(선택 키의 현재값으로 prefilled) → set/reset 선택. 값 검증은
-// 폼이 아니라 확정 위임 시 표준 경로(tuningSet 실경로 파싱)가 소유한다 —
-// 폼 검증 규칙의 이중 유지를 하지 않는다(중복 구현 금지). ctrl+c는
+// tuningFormFn — the default huh form: key selection (row labels show current and
+// default) -> value editing (prefilled with the selected key's current value) ->
+// set/reset choice. Value validation is owned not by the form but by the standard
+// path at confirmation (the tuningSet real-path parse) — no dual maintenance of form validation rules (no duplicate implementation). ctrl+c is huh.ErrUserAborted.
 // huh.ErrUserAborted.
 var tuningFormFn = func(sel *TuningSelection, rows []TuningKeyRow) error {
 	opts := make([]huh.Option[string], 0, len(rows))
@@ -91,7 +91,7 @@ var tuningFormFn = func(sel *TuningSelection, rows []TuningKeyRow) error {
 		opts = append(opts, huh.NewOption(
 			fmt.Sprintf("%s — now %s (default %s)", r.Key, r.Value, r.Default), r.Key))
 	}
-	// 프리필: 첫 키의 현재값·기본 액션(선택 변경 시 값은 편집으로 갱신).
+	// prefill: the first key's current value and default action (the value updates via editing when the selection changes).
 	if sel.Key == "" && len(rows) > 0 {
 		sel.Key, sel.Value = rows[0].Key, rows[0].Value
 	}
@@ -108,13 +108,13 @@ var tuningFormFn = func(sel *TuningSelection, rows []TuningKeyRow) error {
 	).Run()
 }
 
-// RunTuningTUI — `flint tuning --tui` 진입. 비터미널은 폼 시작 전 즉시
-// ErrLine(ErrTerminalRequired) + exit 3(Run 래퍼 관례 — 오류 분류
-// error:"usage"). 키 행 로드 실패도 표준 오류 경로(ErrLine + MapExit).
-// 폼 확정은 deps.Run(기본 ops.RunTuning set/reset)에 위임한다 — JSON
-// 1행 출력·실경로 값 검증(폴백 거부·안내)·exit 코드 전부 표준 경로
-// 재사용. 사용자 중단(ctrl+c, huh.ErrUserAborted)은 "tuning cancelled"
-// 안내 1행 후 exit 0 — 깨끗한 취소는 오류가 아니다(export 관례).
+// RunTuningTUI — the `flint tuning --tui` entry. Non-terminal immediately
+// returns ErrLine(ErrTerminalRequired) + exit 3 before the form starts (the Run
+// wrapper convention — the error classification error:"usage"). A key-row load
+// failure also takes the standard error path (ErrLine + MapExit). Form
+// confirmation delegates to deps.Run (default: ops.RunTuning set/reset) — the JSON
+// 1-line output, real-path value validation (rejecting and guiding on fallback), and
+// exit codes all reuse the standard path. A user abort (ctrl+c, huh.ErrUserAborted) shows the 1-line
 func RunTuningTUI(ctx context.Context, st wire.Store, stdout io.Writer, deps TuningDeps) int {
 	term := isTerminal
 	if deps.IsTerminal != nil {

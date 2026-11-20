@@ -1,9 +1,9 @@
-// report.go — `flint report --tui` 화면 모델. 진단 카드 목록
-// (심각도 색)·선택 상세(Basis·Action·tuning key)·지표 요약 탐색 뷰.
-// 뷰 전용 — 쓰기 없음. 데이터는 호출부(cli 진입 분기)가 기존 ReportOutput
-// 수집 경로(JSON 뷰와 동일 원천)에서 모은 산물을 그대로 받는다 — TUI가
-// 별도 지표를 만들지 않는다(3뷰+TUI=4뷰 동일 원천 원칙).
-// 키: ↑/k·↓/j 이동 · enter 상세 확장/축소 · tab 진단↔지표 뷰 · q/esc 종료.
+// report.go — the `flint report --tui` screen model. A diagnostic card list
+// (severity-colored), selection detail (Basis, Action, tuning key), and a metrics
+// summary navigation view. View-only — no writes. The data comes as-is from the
+// collection output of the caller's (the cli entry branch's) existing ReportOutput
+// path (the same source as the JSON view) — the TUI creates no metrics of its own
+// (the 3 views + TUI = 4 views, one source principle). Keys: up/k, down/j to move; enter to expand/collapse the detail; tab to switch diagnostic <-> metrics; q/esc to quit.
 package tui
 
 import (
@@ -16,15 +16,15 @@ import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// 심각도 스타일 — 테마 철학 승계(ANSI 기본색 번호만 — 터미널 팔레트 존중).
-// DiagnosisItem에 심각도 필드가 없어 신호 id로 파생한다(severityOf).
+// the severity styles — inheriting the theme philosophy (only ANSI base-color
+// numbers — respecting the terminal palette). DiagnosisItem has no severity field, so it derives from the signal id (severityOf).
 var (
-	sevWarn = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3")) // 경고: 노랑
-	sevInfo = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))            // 정보: 시안
+	sevWarn = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3")) // warn: yellow
+	sevInfo = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))            // info: cyan
 )
 
-// severityOf — 진단 신호 id → 심각도 라벨. 유일하게 '정보성'으로 규정된
-// hot_budget_slack만 info, 나머지는 warn(진단 문구 계약 기준 파생).
+// severityOf — diagnostic signal id -> severity label. Only hot_budget_slack,
+// defined as 'informational', is info; the rest are warn (derived from the diagnostic wording contracts).
 func severityOf(signal string) string {
 	if signal == "hot_budget_slack" {
 		return "info"
@@ -32,25 +32,25 @@ func severityOf(signal string) string {
 	return "warn"
 }
 
-// ReportModel — report TUI 화면. mode 0=진단 카드, 1=지표 요약.
+// ReportModel — the report TUI screen. mode 0 = diagnostic cards, 1 = the metrics summary.
 type ReportModel struct {
 	rep    ops.ReportOutput
 	days   int
 	cursor int
 	mode   int // 0 diagnosis · 1 metrics
 	detail bool
-	width  int // 마지막 WindowSizeMsg 폭(키 안내 축약·탈출 안내 wrap 기준)
+	width  int // the latest WindowSizeMsg width (the key-hint abbreviation and exit-guidance wrap basis)
 }
 
-// NewReportModel — 수집 산물(ReportOutput)과 창 일수로 화면 모델 구성.
+// NewReportModel — assembles the screen model from the collection output (ReportOutput) and window days.
 func NewReportModel(rep ops.ReportOutput, days int) ReportModel {
 	return ReportModel{rep: rep, days: days}
 }
 
-// Init — 시작 커맨드 없음.
+// Init — no startup commands.
 func (m ReportModel) Init() tea.Cmd { return nil }
 
-// Update — 창 폭 저장(리사이즈)과 키 입력 처리(뷰 전용 — 그 외 메시지 없음).
+// Update — stores the window width (resize) and handles key input (view-only — no other messages).
 func (m ReportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if sz, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = sz.Width
@@ -92,7 +92,7 @@ func (m ReportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View — 현재 모드 렌더.
+// View — renders the current mode.
 func (m ReportModel) View() string {
 	var b strings.Builder
 	title := fmt.Sprintf("flint report — Diagnosis (%d-day window)", m.days)
@@ -103,18 +103,18 @@ func (m ReportModel) View() string {
 	if m.mode == 1 {
 		b.WriteString(m.metricsView())
 		b.WriteString("\n" + Theme.Secondary.Render(keyHint(m.width, "tab: diagnosis · q: quit", "tab · q quit")))
-		b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // 비대화 탈출 안내(계약 1 wrap)
+		b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // the non-interactive escape guidance (the contract-1 wrap)
 		return b.String()
 	}
 	b.WriteString(m.diagnosisView())
 	b.WriteString("\n" + Theme.Secondary.Render(keyHint(m.width,
 		"↑/k ↓/j: move · enter: detail · tab: metrics · q: quit",
 		"j/k·enter·tab · q quit")))
-	b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // 비대화 탈출 안내(계약 1 wrap)
+	b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // the non-interactive escape guidance (the contract-1 wrap)
 	return b.String()
 }
 
-// diagnosisView — 진단 카드 목록 렌더. 0건은 정상 침묵 대응 안내 문장.
+// diagnosisView — renders the diagnostic card list. 0 items gets the normal-silence response sentence.
 func (m ReportModel) diagnosisView() string {
 	if len(m.rep.Diagnosis) == 0 {
 		return Theme.Neutral.Render("No diagnosis findings — all quiet.") + "\n"
@@ -137,7 +137,7 @@ func (m ReportModel) diagnosisView() string {
 				{"Tuning key:", d.TuningKey},
 			} {
 				if line.val == "" {
-					continue // tuning_key 없는 규칙은 행 생략(omitempty 대응)
+					continue // rules without a tuning_key omit the row (the omitempty counterpart)
 				}
 				b.WriteString(fmt.Sprintf("    %s %s\n", Theme.Neutral.Render(line.label), line.val))
 			}
@@ -146,8 +146,8 @@ func (m ReportModel) diagnosisView() string {
 	return b.String()
 }
 
-// metricsView — 지표 요약. text 뷰(printReportText)와 같은 원천 필드의
-// 영문 요약(계열 재계산 없음 — Days 합산만).
+// metricsView — the metrics summary. An English summary of the same source
+// fields as the text view (printReportText) — no series recomputation (only the Days sum).
 func (m ReportModel) metricsView() string {
 	var write, read, dup int
 	for _, d := range m.rep.Days {
@@ -169,8 +169,8 @@ func (m ReportModel) metricsView() string {
 	)
 }
 
-// RunReportTUI — 수집 완료된 ReportOutput으로 화면 기동(Run 래퍼 —
-// 비터미널은 즉시 오류, 호출부 exit 3 폴백).
+// RunReportTUI — launches the screen with the completed ReportOutput (the Run
+// wrapper — non-terminal errors immediately; the caller falls back to exit 3).
 func RunReportTUI(rep ops.ReportOutput, days int) error {
 	return Run(NewReportModel(rep, days))
 }
