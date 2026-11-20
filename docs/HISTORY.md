@@ -6,7 +6,7 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v1.10.1 patch (2026-11-20) — r47-counts: fix file counts in v1.10.0 notes (424, not 394; per-package counts corrected)
+### v1.10.2 patch (2026-11-20) — r48-notes: remove duplicated v1.10.1 heading · highlight order · count footnote
 
 ### v1.10.1 patch (2026-11-20) — r47-counts: fix file counts in v1.10.0 notes (424, not 394; per-package counts corrected)
 
@@ -17,7 +17,8 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
   fields.
 - [x] T2–T7 — comment translation to English across lib/ (424 files):
   cli 149, knowledge 58, ops 45, db+sqlfs 56, wire+query+store 68,
-  render 4, tui 16, backup 17, mcp 13. Meaning-preserving only — string
+  render 4, tui 16, backup 17, mcp 13 (package sum 426; unique files 424
+  — two files span two task waves). Meaning-preserving only — string
   literals, test data, t.Errorf messages, identifiers, and SQL untouched;
   diffs are comment-line symmetric with zero code deletions.
 - [x] T8 — lib/db slow suite 34.5% faster: 72 test bodies hoisted, shared
