@@ -381,7 +381,9 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
   -count=1` 직접 실행이 표준(v1.0.1 룰링 승계, 여기에 문서화).
 - CI `make ci`는 `-count=1` 고정 — 로컬과 동일 경로 보장.
 
-## 지식화 파이프라인 1단계 — 사용자 교정 채널 (v1.11.0)
+## 지식화 파이프라인 1단계
+- **채널 추가 체크리스트**: source 등록표(lib/knowledge/write.go)에 채널 추가 시 plugin_v06_test.go 미러 목록, RecordUsageCount kind("dup_"+source), SKILL 소스 표기를 함께 갱신.
+ — 사용자 교정 채널 (v1.11.0)
 
 케이스 매트릭스 최우선(사용자 직접 교정)만 실증한 단계다
 (원 제안 — docs/plans/2026-11-19-flint-knowledge-pipelines.md).
