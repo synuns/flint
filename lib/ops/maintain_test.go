@@ -9,6 +9,9 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net/url"
+	"os"
 	"strings"
 	"testing"
 	"time"
@@ -156,15 +159,18 @@ func TestMaintainDecayAuditDerivedSource(t *testing.T) {
 }
 
 // decayAuditRowsFixture — the --decay-audit query source rows (synthetic demo — after the
-// v1.9.0 derived switch, the 3 columns id, cnt (event count), and last_at (last recall
-// time)). Also verifies that never-recalled (NULL — reproducing the Go defense for the
-// server-side WHERE exclusion) and 0-day-elapsed rows are excluded by the candidate filter.
+// v1.9.0 derived switch and the v1.13.0 T2 tags tail, the 4 columns id, cnt (event count),
+// last_at (last recall time), and tags). Also verifies that never-recalled (NULL —
+// reproducing the Go defense for the server-side WHERE exclusion) and 0-day-elapsed rows
+// are excluded by the candidate filter, and that a :vol:immutable: row keeps its count
+// (exempt — not a decay candidate).
 func decayAuditRowsFixture(now time.Time) [][]any {
 	return [][]any{
-		{int32(3), int32(5), now.Add(-100 * 24 * time.Hour)}, // fully decayed (floor 0)
-		{int32(1), int32(5), now.Add(-25 * time.Hour)},       // 1-day decay
-		{int32(2), int32(7), nil},                            // never recalled — excluded
-		{int32(4), int32(9), now.Add(-1 * time.Hour)},        // 0 days — excluded
+		{int32(3), int32(5), now.Add(-100 * 24 * time.Hour), ":adr:"},           // fully decayed (floor 0)
+		{int32(1), int32(5), now.Add(-25 * time.Hour), ":adr:"},                 // 1-day decay
+		{int32(2), int32(7), nil, ":adr:"},                                      // never recalled — excluded
+		{int32(4), int32(9), now.Add(-1 * time.Hour), ":adr:"},                  // 0 days — excluded
+		{int32(6), int32(8), now.Add(-100 * 24 * time.Hour), ":vol:immutable:"}, // exempt — eff==cnt, excluded
 	}
 }
 
@@ -263,8 +269,8 @@ func TestMaintainDecayAuditThresholdOverride(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "FROM knowledge"):
 			return [][]any{
-				{int32(1), int32(5), now.Add(-6 * 24 * time.Hour)},  // 5-0.5*6=2 → archive
-				{int32(2), int32(10), now.Add(-4 * 24 * time.Hour)}, // 10-0.5*4=8 -> kept
+				{int32(1), int32(5), now.Add(-6 * 24 * time.Hour), ":adr:"},  // 5-0.5*6=2 → archive
+				{int32(2), int32(10), now.Add(-4 * 24 * time.Hour), ":adr:"}, // 10-0.5*4=8 -> kept
 			}, nil
 		case strings.Contains(sql, "FROM meta"):
 			return [][]any{{"decay_rate", "0.5"}, {"archive_below", "3"}}, nil
@@ -297,5 +303,254 @@ func TestMaintainDecayAuditRejectsForeignFlags(t *testing.T) {
 	out, code := runMaintainArgs(t, f, "--decay-audit", "--days", "5")
 	if code != 1 {
 		t.Fatalf("exit = %d, want 1(무관 플래그 거부): %s", code, out)
+	}
+}
+
+// ── v1.13.0 T3: the stale score (2 weighted signals — the --age-audit scoring source) ──
+
+// TestStaleScoreFormula — the pure weighted-sum formula: 0-100 normalized,
+// monotone in each signal, saturated at ttl 180d·corr 3 (weights 0.7/0.3 —
+// code constants, part of the formula, not tuning values).
+func TestStaleScoreFormula(t *testing.T) {
+	cases := []struct {
+		name string
+		ttl  int
+		corr int
+		want int
+	}{
+		{"계약: 0·0 → 0", 0, 0, 0},
+		{"계약: TTL 포화 180·corr 0 → 70", 180, 0, 70},
+		{"계약: corr 포화 0·3 → 30", 0, 3, 30},
+		{"계약: 이중 포화 180·3 → 100", 180, 3, 100},
+		{"중간: 90·0 → 35", 90, 0, 35},
+		{"중간: 0·2 → 20", 0, 2, 20},
+		{"중간: 90·2 → 55", 90, 2, 55},
+		{"포화 초과 상한: 400·9 → 100", 400, 9, 100},
+	}
+	for _, c := range cases {
+		if got := StaleScore(c.ttl, c.corr); got != c.want {
+			t.Errorf("%s: StaleScore(%d, %d) = %d, want %d", c.name, c.ttl, c.corr, got, c.want)
+		}
+	}
+	// Monotonicity in each signal (the other held fixed) — the scoring
+	// contract: more elapsed TTL·more corrections never lower the score.
+	for ttl := 0; ttl <= 360; ttl += 20 {
+		if StaleScore(ttl+20, 1) < StaleScore(ttl, 1) {
+			t.Fatalf("TTL 단조성 위반: %d→%d", ttl, ttl+20)
+		}
+	}
+	for corr := 0; corr < 6; corr++ {
+		if StaleScore(100, corr+1) < StaleScore(100, corr) {
+			t.Fatalf("corr 단조성 위반: %d→%d", corr, corr+1)
+		}
+	}
+	// Independence: the correction signal moves the score at every TTL level.
+	for ttl := 0; ttl <= 180; ttl += 45 {
+		if StaleScore(ttl, 3) <= StaleScore(ttl, 0) {
+			t.Fatalf("신호 독립 위반: ttl %d에서 corr 0→3 무효", ttl)
+		}
+	}
+}
+
+// staleScoredRowsFixture — the listStaleScored query shape (synthetic): id,
+// topic, ttl reference (COALESCE(re.last_at, ingested_at)), same-topic
+// correction count, bad-recall count, supersede count.
+func staleScoredRowsFixture(now time.Time) [][]any {
+	return [][]any{
+		{int32(11), "t3-오래미회상", now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0)},
+		{int32(12), "t3-교정다발", now.Add(-10 * 24 * time.Hour), int32(3), int32(0), int32(0)},
+		{int32(13), "t3-참조열", now.Add(-100 * 24 * time.Hour), int32(0), int32(2), int32(1)},
+	}
+}
+
+// TestListStaleScoredFake — the listing contract on a fake: the SQL excludes
+// :vol:immutable: server-side (strpos, NULL-tags safe), counts same-topic
+// :correction: rows via strpos, joins the recall_events aggregate, and caps
+// the population with LIMIT $1; the items carry the 2 signal values + the 2
+// non-weighted reference columns, and the output order is score DESC.
+func TestListStaleScoredFake(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	var gotSQL string
+	var gotArgs []any
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			gotSQL, gotArgs = sql, args
+			return staleScoredRowsFixture(now), nil
+		}
+		return nil, nil
+	}}}
+	items, err := listStaleScored(context.Background(), f, 0)
+	if err != nil {
+		t.Fatalf("listStaleScored: %v", err)
+	}
+	for _, frag := range []string{
+		"strpos(k.tags, ':vol:immutable:') = 0",
+		"k.tags IS NULL OR strpos(k.tags, ':vol:immutable:') = 0",
+		"strpos(c.tags, ':correction:') > 0",
+		"recall_events",
+		"LIMIT $1",
+	} {
+		if !strings.Contains(gotSQL, frag) {
+			t.Errorf("조회에 %q 부재: %s", frag, gotSQL)
+		}
+	}
+	if len(gotArgs) != 1 || gotArgs[0].(int) != 20 {
+		t.Errorf("LIMIT 인자 = %v, want [20](기본 캡 — decay-audit 선례)", gotArgs)
+	}
+	if len(items) != 3 {
+		t.Fatalf("항목 수 = %d, want 3: %+v", len(items), items)
+	}
+	// Scores: 오래미회상 ttl200·corr0 → 70; 교정다발 ttl10·corr3 → 34;
+	// 참조열 ttl100·corr0 → 39 (reference columns carry no weight — 39 not 100+).
+	byID := map[int]staleScoredItem{}
+	for _, it := range items {
+		byID[it.ID] = it
+	}
+	if s := byID[11]; s.Score != 70 || s.TTLDays != 200 || s.CorrCount != 0 {
+		t.Errorf("id11 = %+v, want score70 ttl200 corr0", s)
+	}
+	if s := byID[12]; s.Score != 34 || s.TTLDays != 10 || s.CorrCount != 3 {
+		t.Errorf("id12 = %+v, want score34 ttl10 corr3", s)
+	}
+	if s := byID[13]; s.Score != 39 || s.BadRecall != 2 || s.Supersede != 1 {
+		t.Errorf("id13 = %+v, want score39(참조열 비가중) bad2 sup1", s)
+	}
+	// Output order: score DESC (70 > 39 > 34).
+	if items[0].ID != 11 || items[1].ID != 13 || items[2].ID != 12 {
+		t.Errorf("순서 = %d,%d,%d, want 11,13,12(점수 내림)", items[0].ID, items[1].ID, items[2].ID)
+	}
+}
+
+// staleSeedRec — a synthetic knowledge record for the slow stale-score seed
+// (the knowledge-package hotRec convention — no personal data).
+func staleSeedRec(topic, hash, status, tags string) map[string]any {
+	return map[string]any{
+		"kind":         "knowledge",
+		"topic":        topic,
+		"summary":      "요약-" + hash,
+		"tags":         tags,
+		"confidence":   0.9,
+		"content_hash": hash,
+		"status":       status,
+	}
+}
+
+// TestStaleScoreRealSlow — slow (FLINT_TEST_DSN — the verify-gate DB):
+// synthetic seed on an isolated scratch DB, then the measured contracts:
+// TTL monotonicity (older reference → higher score), the correction signal
+// moving a fresh row above an uncorrected fresh row, the server-side
+// :vol:immutable: exclusion, and the 2 non-weighted reference columns.
+func TestStaleScoreRealSlow(t *testing.T) {
+	if os.Getenv("FLINT_TEST_DSN") == "" {
+		t.Skip("FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	defer base.Close()
+	name := fmt.Sprintf("flint_t3stale_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	u.Path = "/" + name
+	repo, err := db.NewRepo(ctx, u.String())
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	pool, err := db.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	// reportSlowStore (the package's shared real-DB wire.Store — repo+pool).
+	// UPDATE seeding goes through Query (pool.Query executes any statement).
+	st := &reportSlowStore{repo: repo, pool: pool}
+	defer st.Close()
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+
+	const prefix = "t3-stale-"
+	// The correction·reference rows SHARE the candidate's topic (the
+	// signals are same-topic counts): the corr topic carries 3 correction-
+	// tagged rows, the ref topic a superseded-after-recall row.
+	ids, err := st.InsertBatch(ctx, []map[string]any{
+		staleSeedRec(prefix+"old", "t3-old", "active", ":adr:"),
+		staleSeedRec(prefix+"corr", "t3-corr", "active", ":adr:"),
+		staleSeedRec(prefix+"corr", "t3-cx1", "superseded", ":correction:"),
+		staleSeedRec(prefix+"corr", "t3-cx2", "superseded", ":correction:"),
+		staleSeedRec(prefix+"corr", "t3-cx3", "superseded", ":correction:"),
+		staleSeedRec(prefix+"ref", "t3-ref", "active", ":adr:"),
+		staleSeedRec(prefix+"ref", "t3-rd", "superseded", ":adr:"),
+		staleSeedRec(prefix+"imm", "t3-imm", "active", ":adr::vol:immutable:"),
+	})
+	if err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	// TTL aging: the old row 200d, the corr·ref rows 10d, immutable 300d
+	// (ingested_at is set directly — the listStale convention's fallback).
+	for id, d := range map[int]int{ids[0]: 200, ids[1]: 10, ids[5]: 10, ids[7]: 300} {
+		if _, err := st.Query(ctx, `UPDATE knowledge SET ingested_at = now() - ($1 || ' days')::interval WHERE id = $2`, fmt.Sprint(d), id); err != nil {
+			t.Fatalf("시드 경과일 적용 id=%d: %v", id, err)
+		}
+	}
+	// The ref row's reference history: a same-topic superseded row that had
+	// been recalled before supersession (bad_recall = invalidated/superseded
+	// after recall).
+	if _, err := st.Query(ctx,
+		`UPDATE knowledge SET superseded_by = $1 WHERE id = $2`, ids[5], ids[6]); err != nil {
+		t.Fatalf("supersede 시드: %v", err)
+	}
+	if _, err := st.Query(ctx,
+		`INSERT INTO recall_events (knowledge_id, recalled_at)
+		 SELECT $1::int, now() - interval '5 days'`, ids[6]); err != nil {
+		t.Fatalf("bad_recall 이벤트 시드: %v", err)
+	}
+
+	items, err := listStaleScored(ctx, st, 50)
+	if err != nil {
+		t.Fatalf("listStaleScored: %v", err)
+	}
+	byTopic := map[string]staleScoredItem{}
+	for _, it := range items {
+		byTopic[strings.TrimPrefix(it.Topic, prefix)] = it
+	}
+	old, hasOld := byTopic["old"]
+	corr, hasCorr := byTopic["corr"]
+	imm, hasImm := byTopic["imm"]
+	ref, hasRef := byTopic["ref"]
+	if !hasOld || !hasCorr || !hasRef {
+		t.Fatalf("후보 누락: old=%v corr=%v ref=%v — %+v", hasOld, hasCorr, hasRef, items)
+	}
+	if hasImm {
+		t.Fatalf("immutable 행이 후보에 존재: %+v(서버측 strpos 제외 위반)", imm)
+	}
+	// TTL monotonicity measured: old (200d·corr 0 → 70) above corr (10d·3 → 34).
+	if old.Score <= corr.Score {
+		t.Errorf("TTL 단조성: old %d ≤ corr %d — %+v / %+v", old.Score, corr.Score, old, corr)
+	}
+	// Correction independence measured: the fresh corrected row (34) is
+	// scored·listed (a fresh uncorrected row would be ~4).
+	if corr.CorrCount != 3 || corr.Score < 30 || corr.Score > 38 {
+		t.Errorf("corr 신호 = %+v, want corr3·점수 34±4", corr)
+	}
+	// Reference columns (non-weighted): the ref row carries bad_recall 1·
+	// supersede 1 without any score inflation (ttl 10 → ≤ 10).
+	if ref.BadRecall != 1 || ref.Supersede != 1 {
+		t.Errorf("참조열 = %+v, want bad1·sup1", ref)
+	}
+	if ref.Score > 10 {
+		t.Errorf("참조열 비가중 위반: %+v — 점수 과대", ref)
 	}
 }

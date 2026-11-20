@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -942,9 +943,11 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 	}
 	// inheriting the Go-computed cutoff + parameter-passing convention. The sort is last recall
 	// time ASC — the least recently recalled (= most decayed) rows come first. last_at IS NOT
-	// NULL excludes history-less rows (LEFT JOIN misses) on the server side.
+	// NULL excludes history-less rows (LEFT JOIN misses) on the server side. v1.13.0 T2/T3:
+	// k.tags rides along so the effective score goes through EffectiveScoreFor — a
+	// :vol:immutable: row keeps its count (eff == cnt) and drops out below.
 	rows, err := wire.QueryOnce(ctx, ms, `
-		SELECT k.id, re.cnt, re.last_at
+		SELECT k.id, re.cnt, re.last_at, k.tags
 		FROM knowledge k
 		LEFT JOIN (`+knowledge.RecallAggregateSQL+`) re ON re.knowledge_id = k.id
 		WHERE k.status = 'active' AND k.invalid_at IS NULL AND re.last_at IS NOT NULL
@@ -969,9 +972,10 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 		if !ok || last.IsZero() {
 			continue
 		}
-		eff := knowledge.EventEffectiveScore(score, last, now, th.DecayRate)
+		tags, _ := r[3].(string) // missing/NULL tags — no exemption (the pure path)
+		eff := knowledge.EffectiveScoreFor(score, last, now, th.DecayRate, tags)
 		if eff >= score {
-			continue // no decay (elapsed under 24h, etc.) — not a candidate
+			continue // no decay (elapsed under 24h, exempt, etc.) — not a candidate
 		}
 		rec := ""
 		if th.ArchiveBelow > 0 && float64(eff) < th.ArchiveBelow {
@@ -1004,6 +1008,137 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 	}
 	fmt.Fprintln(stdout, string(out))
 	return 0
+}
+
+// ── v1.13.0 T3: the stale score (2 weighted signals — the --age-audit scoring source) ──
+
+// The stale score formula (the gate ruling — weights are code constants,
+// part of the formula, NOT tuning values; only the report marking threshold
+// is a thresholds.go key, T5):
+//
+//	score = round(100 × (0.7 × min(1, ttl_days / 180)
+//	                     + 0.3 × min(1, corr_count / 3)))
+//
+// ttl_days   — signal ①: integer days since COALESCE(last recall
+//
+//	(recall_events re.last_at), ingested_at) — the listStale
+//	convention (never-recalled rows age from ingestion; 23h59m
+//	= 0 days, the EventEffectiveScore unit).
+//
+// corr_count — signal ②: same-topic knowledge rows carrying the
+//
+//	:correction: tag (user correction frequency — strpos
+//	':correction:', excluding the candidate itself).
+//
+// 180        — TTL saturation (aligning the T5 stale_ttl_days default);
+//
+//	at/above it the TTL component is fully lit.
+//
+// 3          — correction saturation: 3+ same-topic corrections fully lit.
+const (
+	staleScoreWeightTTL  = 0.7
+	staleScoreWeightCorr = 0.3
+	staleTTLDays         = 180.0
+	staleCorrSat         = 3.0
+)
+
+// StaleScore — the pure weighted-sum formula, 0..100, monotone in each
+// signal, saturated at the caps above (the scoring single definition).
+func StaleScore(ttlDays, corrCount int) int {
+	clamp01 := func(v float64) float64 {
+		if v < 0 {
+			return 0
+		}
+		if v > 1 {
+			return 1
+		}
+		return v
+	}
+	v := 100 * (staleScoreWeightTTL*clamp01(float64(ttlDays)/staleTTLDays) +
+		staleScoreWeightCorr*clamp01(float64(corrCount)/staleCorrSat))
+	return int(v + 0.5)
+}
+
+// staleScoredItem — one scored stale candidate (the --age-audit listing
+// item material, T4). Score carries only the 2 weighted signals; bad_recall
+// (same-topic knowledge invalidated/superseded after recall — the report.go
+// bad-recall derivation) and supersede (same-topic superseded_by lineage)
+// are REFERENCE columns — report information only, no weight.
+type staleScoredItem struct {
+	ID        int    `json:"id"`
+	Topic     string `json:"topic"`
+	Score     int    `json:"score"`
+	TTLDays   int    `json:"ttl_days"`
+	CorrCount int    `json:"correction_count"`
+	BadRecall int    `json:"bad_recall"`
+	Supersede int    `json:"supersede_count"`
+}
+
+// listStaleScored — the stale-candidate population with the 2-signal score
+// (read-only). Exclusions are server-side: :vol:immutable: rows (strpos —
+// NULL tags safe via the IS NULL arm) never enter the population (the
+// volatility tier contract), and only active·non-invalidated rows do. The
+// population cap is LIMIT $1 (the decay-audit convention — the SQL pre-order
+// COALESCE(re.last_at, k.ingested_at) ASC is the monotone proxy of the
+// dominant TTL signal; the final order is the Go-side score DESC stable
+// sort). Disposition is NOT performed here — the report (T4) delegates to
+// the existing --invalidate approval system.
+func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScoredItem, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := wire.QueryOnce(ctx, ms, `
+		SELECT k.id, k.topic, COALESCE(re.last_at, k.ingested_at),
+		       (SELECT count(*) FROM knowledge c
+		         WHERE c.topic = k.topic AND c.id <> k.id
+		           AND strpos(c.tags, ':correction:') > 0),
+		       (SELECT count(*) FROM knowledge b
+		         WHERE b.topic = k.topic AND b.id <> k.id
+		           AND (b.invalid_at IS NOT NULL OR b.superseded_by IS NOT NULL)
+		           AND EXISTS (SELECT 1 FROM recall_events rb WHERE rb.knowledge_id = b.id)),
+		       (SELECT count(*) FROM knowledge s
+		         WHERE s.topic = k.topic AND s.id <> k.id AND s.superseded_by IS NOT NULL)
+		FROM knowledge k
+		LEFT JOIN (`+knowledge.RecallAggregateSQL+`) re ON re.knowledge_id = k.id
+		WHERE k.status = 'active' AND k.invalid_at IS NULL
+		  AND (k.tags IS NULL OR strpos(k.tags, ':vol:immutable:') = 0)
+		ORDER BY COALESCE(re.last_at, k.ingested_at) ASC
+		LIMIT $1`, []any{limit})
+	if err != nil {
+		return nil, err
+	}
+	now := decayNow()
+	items := []staleScoredItem{}
+	for _, r := range rows {
+		if len(r) < 6 {
+			continue
+		}
+		id, ok := render.CellToInt(r[0])
+		if !ok {
+			continue
+		}
+		topic, _ := r[1].(string)
+		ref, ok := AnyToTime(r[2])
+		if !ok || ref.IsZero() {
+			continue
+		}
+		corr, _ := render.CellToInt(r[3])
+		bad, _ := render.CellToInt(r[4])
+		sup, _ := render.CellToInt(r[5])
+		items = append(items, staleScoredItem{
+			ID:        id,
+			Topic:     render.Text(topic), // via render.Text (the output re-sanitization convention)
+			TTLDays:   int(now.Sub(ref).Hours() / 24),
+			CorrCount: corr,
+			BadRecall: bad,
+			Supersede: sup,
+		})
+	}
+	for i := range items {
+		items[i].Score = StaleScore(items[i].TTLDays, items[i].CorrCount)
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Score > items[j].Score })
+	return items, nil
 }
 
 // AnyToTime — a cell value as time (accepting time.Time and RFC3339 strings).
