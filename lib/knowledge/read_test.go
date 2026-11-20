@@ -20,6 +20,8 @@ import (
 	"testing"
 	"time"
 
+	"golang.org/x/text/unicode/norm"
+
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -823,6 +825,24 @@ func TestNormalizeGapQueryEquivalence(t *testing.T) {
 	}
 	if NormalizeGapQuery("백업 정책") == NormalizeGapQuery("복구 정책") {
 		t.Fatal("상이 쿼리가 동일 정규화 — 충돌")
+	}
+}
+
+// TestNormalizeGapQueryTruncateAfterNFKC — v1.12.1 regression: the 80-rune
+// truncation applies to the NFKC-normalized form. An NFD input of 81 runes
+// (27 Hangul syllables × 3 jamo) must hash identically to its 27-rune NFC
+// twin — truncating before normalization split the last syllable's jamo
+// sequence and hashed the two spellings apart.
+func TestNormalizeGapQueryTruncateAfterNFKC(t *testing.T) {
+	nfc := strings.Repeat("각", 27) // 27 runes
+	nfd := norm.NFD.String(nfc)    // 81 runes (3 jamo each)
+	if got := len([]rune(nfd)); got != 81 {
+		t.Fatalf("NFD 전제 룬수=%d, want 81(픽스처 가정 붕괴)", got)
+	}
+	hn, hf := GapQueryHash(NormalizeGapQuery(nfc)), GapQueryHash(NormalizeGapQuery(nfd))
+	if hn != hf {
+		t.Fatalf("NFKC 후 절단 동치 실패: NFC 27룬 %q vs NFD 81룬 — 해시 %s / %s",
+			NormalizeGapQuery(nfc), hn, hf)
 	}
 }
 
