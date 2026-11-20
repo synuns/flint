@@ -6,6 +6,8 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.12.1 patch (2026-11-21) — r54-docs: RUNBOOK knowledge pipeline step 2 section (owned_miss-only trigger·normalized-hash daily counter·thresholds·pending→approve promotion) · pipeline follow-up freshness fix (recall-failure accrual shipped in v1.12.0) · NormalizeGapQuery truncation moved after NFKC (the 80-rune bound is defined on the normalized form — a decomposed spelling no longer truncates mid-sequence and hashes apart from its composed twin) · gapq flat-key PruneDaily pruning demonstrated on the real DB (15-day-old key expired·yesterday's retained)
+
 ### v1.12.0 minor (2026-11-21) — gap-candidates: recall-failure gap candidates enter long-term memory as pending rows (knowledge pipeline step 2)
 
 Spec requirements 1·2 merged into one mechanism (planning ruling) — recall

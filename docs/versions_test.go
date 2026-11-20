@@ -377,6 +377,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01120Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.12.0", "gap-candidates",
 	}},
+	// v1.12.1: R54 패치 — RUNBOOK 2단계 절·NFKC 후 절단·실DB 프루닝.
+	{name: "TestVersion01121Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.12.1", "r54-docs",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
