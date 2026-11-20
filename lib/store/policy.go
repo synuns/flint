@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// the CONTENT.md §4 vocabulary tables — 7 tags and 3 domains (extend the tables first when needed).
+// the CONTENT.md §4 vocabulary tables — 10 tags and 3 domains (extend the tables first when needed).
 var (
 	knownTags = map[string]bool{
 		"adr":        true,
@@ -16,6 +16,12 @@ var (
 		"process":    true,
 		"contract":   true,
 		"playbook":   true,
+		// v1.13.0 volatility tier markers (CONTENT.md §4). The colon format is
+		// dictionary-reserved: a user token containing ':' passes only on an
+		// exact dictionary match — no coincidental exemption (see CheckVocabulary).
+		"vol:immutable":   true,
+		"vol:conditional": true,
+		"vol:volatile":    true,
 	}
 	knownDomains = map[string]bool{
 		"main":       true,
@@ -37,10 +43,21 @@ func normalizeVocab(s string) string {
 // vocabulary tables, returning 1 warning string per out-of-table value (an
 // empty slice = pass; not a store refusal). An empty domain is not checked (the optional-argument convention).
 // e.g. CheckVocabulary(["playbook","xxx"],"main") -> ["unknown tag: xxx"]
+//
+// v1.13.0 colon guard: a tag token containing ':' is REJECTED (the distinct
+// "rejected tag:" class) unless it exactly matches a dictionary-registered
+// tag — vol:* exists only as dictionary tags, so near-misses like
+// "vol:immutable2" or unrelated "foo:bar" are refused, not merely warned.
+// Colon-free unknown tags keep the plain "unknown tag:" warning class.
 func CheckVocabulary(tags []string, domain string) []string {
 	var warnings []string
 	for _, tag := range tags {
 		n := normalizeVocab(tag)
+		if strings.Contains(n, ":") && !knownTag(n) {
+			warnings = append(warnings, fmt.Sprintf(
+				"rejected tag: %s (colon tokens are dictionary-registered only: vol:immutable, vol:conditional, vol:volatile)", n))
+			continue
+		}
 		if !knownTag(n) {
 			w := fmt.Sprintf("unknown tag: %s", n)
 			if s := SuggestTag(n); len(s) > 0 {
