@@ -1,7 +1,8 @@
-// usage_v0341_test.go — RecordUsageCount 화이트리스트에 "brief"
-// 추가(additive). lib/cli/brief.go의 recordUsage(ctx, st, "brief", "")가
-// invalid kind로 거부되어 brief 유입 계측이 기록되지 않던 결함의 회귀 테스트.
-// 실DB slow — fast에서는 FLINT_DSN 부재로 스킵.
+// usage_v0341_test.go — "brief" added to the RecordUsageCount
+// whitelist (additive). A regression test for the defect where
+// lib/cli/brief.go's recordUsage(ctx, st, "brief", "") was rejected as
+// an invalid kind and brief intake metering was never recorded.
+// Real-DB slow — skipped in fast mode without FLINT_DSN.
 package db
 
 import (
@@ -10,11 +11,10 @@ import (
 	"time"
 )
 
-// TestRecordUsageCountBrief — kind "brief"가 daily 카운터에 증분되고
-// last_brief_at이 기록된다(dup 계열이 아니므로 시각 키 계약 승계).
-// 무효 kind 거부는 기존 계약 그대로.
-func TestRecordUsageCountBrief(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsageCountBrief — kind "brief" increments the daily counter
+// and last_brief_at is recorded (not a dup-family kind, so it inherits
+// the time-key contract). Invalid-kind rejection stays as before.
+func slowRecordUsageCountBrief(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 
@@ -29,7 +29,8 @@ func TestRecordUsageCountBrief(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'last_brief_at'`).Scan(&last); err != nil {
 		t.Fatalf("last_brief_at 부재 — brief는 시각 키 계약 대상: %v", err)
 	}
-	// 무효 kind 거부는 기존 계약 그대로(화이트리스트 검증 구조 불변).
+	// Invalid-kind rejection is the existing contract as-is (the
+	// whitelist-validation structure unchanged).
 	if err := r.RecordUsageCount(context.Background(), "briefing", "", 1); err == nil {
 		t.Fatalf("무효 kind briefing 수용 — 기존 거부 계약 위반")
 	}

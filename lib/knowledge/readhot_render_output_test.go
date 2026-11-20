@@ -1,8 +1,9 @@
-// readhot_render_output_test.go — read·hot 셀 살균이
-// render.Cells 위임 지점을 그대로 통과하며 출력 바이트가 불변임을 담보.
-// hot의 cli 잔류 의존(세션 라벨·프로파일·hot 통계)은 주입 seam에 테스트
-// 대역을 세운다(injectHotSeams — cli init이 실구현을 주입하는 것과 동일
-// 경로).
+// readhot_render_output_test.go — ensures read·hot cell sanitization
+// passes through the render.Cells delegation point unchanged and the
+// output bytes are invariant. hot's cli-residual dependencies (session
+// label·profile·hot stats) get test doubles on the injection seams
+// (injectHotSeams — the same path cli init uses to inject the real
+// implementations).
 package knowledge
 
 import (
@@ -14,9 +15,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// injectHotSeams — hot 주입 점(cli sessionLabel·ExposureProfile·
-// RecordHotLen·hot 통계 로드/persist)에 no-op·기본 프로파일 대역을
-// 세운다. 원복은 t.Cleanup.
+// injectHotSeams — installs no-op·default-profile doubles on the hot
+// injection points (cli sessionLabel·ExposureProfile·RecordHotLen·hot
+// stats load/persist). Restored via t.Cleanup.
 func injectHotSeams(t *testing.T) {
 	t.Helper()
 	savedSes, savedExp := SessionLabelFn, ExposureProfileFn
@@ -32,9 +33,10 @@ func injectHotSeams(t *testing.T) {
 	})
 }
 
-// v0370SanitizeFixtureRows — 살균 대상이 섞인 read 조회 픽스처(합성 데모
-// 데이터): [flint] 마커(대소문자 무시 치환), 제어 문자(\x01·\x00 제거),
-// 비문자열 셀(id — 살균 대상 아님).
+// v0370SanitizeFixtureRows — a read query fixture mixing sanitization
+// targets (synthetic demo data): [flint] markers (case-insensitive
+// replacement), control characters (\x01·\x00 removed), non-string cells
+// (id — not sanitization targets).
 func v0370SanitizeFixtureRows() [][]any {
 	return [][]any{
 		{int32(3), "토픽\x01[flint]마커", "[FLINT]요약\x00", ":a:", nil, "main", 0.9, "active"},
@@ -42,9 +44,10 @@ func v0370SanitizeFixtureRows() [][]any {
 	}
 }
 
-// TestReadOutputUnchanged — 살균 대상 픽스처가
-// render 경로로 기존 출력 바이트와 동일(스냅숏 단얜). 마커는 공백 치환,
-// 제어 문자는 제거, 비문자열 셀은 무변형.
+// TestReadOutputUnchanged — the fixture with sanitization targets goes
+// through the render path with output bytes identical to before (a
+// snapshot assertion). Markers are space-replaced, control characters
+// removed, non-string cells untouched.
 func TestReadOutputUnchanged(t *testing.T) {
 	ctx := context.Background()
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -64,10 +67,11 @@ func TestReadOutputUnchanged(t *testing.T) {
 	}
 }
 
-// TestHotFullOutputUnchanged — hot --full 주입
-// 경로의 동등성 스냅숏. 접미(pending 대기일수)·ClampHot 예산 절단 순서는
-// 살균 이후 기존 그대로 — pendingValidAts 동반 질의가 빈 결과면 접미
-// 생략(기존 계약)이므로 스냅숏은 기본 포맷 라인.
+// TestHotFullOutputUnchanged — the equivalence snapshot of the hot --full
+// injection path. Suffixes (pending wait-days)·the ClampHot budget
+// truncation order stay as before, after sanitization — since an empty
+// pendingValidAts companion-query result skips the suffix (the existing
+// contract), the snapshot is the base-format lines.
 func TestHotFullOutputUnchanged(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()

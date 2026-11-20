@@ -1,5 +1,5 @@
-// doctor_v0162_test.go — doctor pending-age 검사(스펙 R4): pending
-// 최고령 경과 warn + maintain --expire-pending 만료 안내.
+// doctor_v0162_test.go — the doctor pending-age check (spec R4): a warn for the oldest
+// pending's elapsed age + the maintain --expire-pending expiry guidance.
 package cli
 
 import (
@@ -9,8 +9,8 @@ import (
 	"time"
 )
 
-// TestDoctorMentionsExpire — pending-age 검사 detail에
-// "expire-pending" 포함(최고령 pending 경과 임계 초과 시).
+// TestDoctorMentionsExpire — the pending-age check's detail includes
+// "expire-pending" (when the oldest pending's elapsed age exceeds the threshold).
 func TestDoctorMentionsExpire(t *testing.T) {
 	old := time.Now().Add(-10 * 24 * time.Hour)
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -27,7 +27,7 @@ func TestDoctorMentionsExpire(t *testing.T) {
 		t.Errorf("detail에 만료 명령 안내 없음: %q", c.Detail)
 	}
 
-	// 임계 이내 — ok, 안내 없음.
+	// within the threshold — ok, no guidance.
 	fresh := time.Now().Add(-1 * 24 * time.Hour)
 	f2 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return [][]any{{fresh}}, nil
@@ -37,7 +37,7 @@ func TestDoctorMentionsExpire(t *testing.T) {
 		t.Errorf("신선 pending status=%q, want ok (detail %q)", c2.Status, c2.Detail)
 	}
 
-	// pending 부재(0행) — ok.
+	// no pending (0 rows) — ok.
 	f3 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil
 	}}

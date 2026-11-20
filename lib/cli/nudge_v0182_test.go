@@ -1,7 +1,7 @@
-// nudge_v0182_test.go — 마커 파일 분리 회귀. (a) Stop 이벤트에서
-// recall 마커는 무출력(증류 넛지 오발동 방지), (b) recall 기록이 증류 마커를
-// 덮어쓰지 않는다, (c) SessionStart에서 둘 다 안내(회상만 자동 소진),
-// (d) 잔존(pending-distill의 Reason=recall) 마이그레이션.
+// nudge_v0182_test.go — marker-file separation regression. (a) On a Stop event,
+// a recall marker produces no output (preventing distillation-nudge misfiring); (b) a recall record does not
+// overwrite the distillation marker; (c) SessionStart announces both (only recall auto-consumes);
+// (d) migration of residue (pending-distill with Reason=recall).
 package cli
 
 import (
@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// TestNudgeRecallSilentOnStop — recall 마커 + Stop → 무출력·마커 유지.
+// TestNudgeRecallSilentOnStop — recall marker + Stop -> no output, marker kept.
 func TestNudgeRecallSilentOnStop(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteTypedMarker(markerKindRecall, "s1", nudgeReasonRecall); err != nil {
@@ -29,7 +29,7 @@ func TestNudgeRecallSilentOnStop(t *testing.T) {
 	}
 }
 
-// TestNudgeRecallDoesNotClobberDistill — recall 기록 후에도 증류 마커 존재.
+// TestNudgeRecallDoesNotClobberDistill — even after a recall record, the distillation marker exists.
 func TestNudgeRecallDoesNotClobberDistill(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -47,8 +47,8 @@ func TestNudgeRecallDoesNotClobberDistill(t *testing.T) {
 	}
 }
 
-// TestNudgeSessionStartBothMarkers — 두 마커 동시: recall 문구 + 증류 안내
-// 2줄, recall만 소진.
+// TestNudgeSessionStartBothMarkers — both markers at once: the recall wording + a 2-line distillation
+// notice; only recall is consumed.
 func TestNudgeSessionStartBothMarkers(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteMarker("s1", "compact"); err != nil {
@@ -79,11 +79,11 @@ func TestNudgeSessionStartBothMarkers(t *testing.T) {
 	}
 }
 
-// TestNudgeLegacyRecallInDistillFile — 잔존(증류 파일에 Reason
-// recall)은 회상 취급: SessionStart 문구 표시 후 그 파일 소진.
+// TestNudgeLegacyRecallInDistillFile — residue (Reason=recall in the distillation file) is treated as
+// recall: SessionStart shows the wording and consumes that file.
 func TestNudgeLegacyRecallInDistillFile(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	if err := WriteMarker("s1", nudgeReasonRecall); err != nil { // 구배포 기록 형태
+	if err := WriteMarker("s1", nudgeReasonRecall); err != nil { // the legacy-deployment record form
 		t.Fatalf("WriteMarker err = %v", err)
 	}
 	out, code := nudgeRun(nil, `{"hook_event_name":"SessionStart","session_id":"s2"}`)

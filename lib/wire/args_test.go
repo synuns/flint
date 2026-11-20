@@ -1,7 +1,7 @@
-// args_test.go — 사양 테이블 mini-parser 단위 계약(Review
-// Focus: N9 "--" 규칙·값 소비·반복 플래그·unknown→UsageErrorf 시맨틱
-// 보존). 전환 커맨드(read·write·maintain 등)의 기존 버전 테스트가
-// 최종 증명이고, 여기는 파서 자체의 표를 둔다.
+// args_test.go — the spec-table mini-parser's unit contracts (Review Focus:
+// the N9 "--" rule, value consumption, repeated flags, and the unknown ->
+// UsageErrorf semantics preserved). The migrated commands' (read, write,
+// maintain, etc.) existing version tests are the final proof; this file holds the parser's own table.
 package wire
 
 import (
@@ -9,8 +9,8 @@ import (
 	"testing"
 )
 
-// demoSpec — 표 검증용 공통 사양(read 계열 승계: N9·위치 인자 허용·
-// '-' 접두 미인식은 오류).
+// demoSpec — the shared spec for table verification (inheriting the read family:
+// N9, positional allowed, '-'-prefixed unrecognized is an error).
 func demoSpec() ArgSpec {
 	return ArgSpec{
 		Flags: []FlagSpec{
@@ -24,8 +24,8 @@ func demoSpec() ArgSpec {
 	}
 }
 
-// TestParseArgsN9DashDash — N9: "--" 이후 전부 위치 인자(플래그 형태
-// 토큰도 플래그로 파싱하지 않는다).
+// TestParseArgsN9DashDash — N9: everything after "--" is positional (even
+// flag-shaped tokens are not parsed as flags).
 func TestParseArgsN9DashDash(t *testing.T) {
 	res, err := ParseArgs([]string{"--json", "--", "--tag", "x"}, demoSpec())
 	if err != nil {
@@ -41,7 +41,7 @@ func TestParseArgsN9DashDash(t *testing.T) {
 		t.Errorf("positional = %v, want [--tag x]", got)
 	}
 
-	// 선두 "--" — 전부 위치 인자.
+	// a leading "--" — everything becomes positional.
 	res, err = ParseArgs([]string{"--", "--json"}, demoSpec())
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
@@ -54,9 +54,9 @@ func TestParseArgsN9DashDash(t *testing.T) {
 	}
 }
 
-// TestParseArgsValueConsumption — 값 플래그는 다음 토큰을 무조건 소비
-// (플래그형 토큰도 값이다 — read --tag --json 계열 기존 동작). trailing
-// 값 플래그는 발생만 기록(값 부재 — 호출부 빈 값 검증이 맡는다).
+// TestParseArgsValueConsumption — a value flag unconditionally consumes the next
+// token (a flag-shaped token is a value too — the read --tag --json family's
+// existing behavior). A trailing value flag only records its occurrence (no value — the caller's empty-value validation owns it).
 func TestParseArgsValueConsumption(t *testing.T) {
 	res, err := ParseArgs([]string{"--tag", "--json"}, demoSpec())
 	if err != nil {
@@ -69,7 +69,7 @@ func TestParseArgsValueConsumption(t *testing.T) {
 		t.Errorf("--json이 값이 아니라 플래그로 파싱됨")
 	}
 
-	// trailing — 값 토큰 부재.
+	// trailing — no value token.
 	res, err = ParseArgs([]string{"x", "--tag"}, demoSpec())
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
@@ -81,7 +81,7 @@ func TestParseArgsValueConsumption(t *testing.T) {
 		t.Errorf("trailing --tag = (%q, HasValue=%v), want 빈 값·HasValue false", res.Value("--tag"), res.HasValue("--tag"))
 	}
 
-	// bool 플래그는 소비 없음 — 다음 토큰은 위치 인자.
+	// a bool flag consumes nothing — the next token is positional.
 	res, err = ParseArgs([]string{"--json", "x"}, demoSpec())
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
@@ -91,8 +91,8 @@ func TestParseArgsValueConsumption(t *testing.T) {
 	}
 }
 
-// TestParseArgsRepeat — 반복 지정 시 마지막 값 우선(전 커맨드 기존
-// 시맨틱). Occs는 발생 순서 전체를 보존한다(반복 플래그 소비자용).
+// TestParseArgsRepeat — on repeated specification the last value wins (the
+// existing semantics of every command). Occs preserves the full occurrence order (for repeatable-flag consumers).
 func TestParseArgsRepeat(t *testing.T) {
 	res, err := ParseArgs([]string{"--tag", "a", "--tag", "b"}, demoSpec())
 	if err != nil {
@@ -110,10 +110,10 @@ func TestParseArgsRepeat(t *testing.T) {
 	}
 }
 
-// TestParseArgsUnknown — 미인식 토큰은 UsageErrorf(unknown flag). Usage
-// 접미 포함, 위치 인자 허용 여부는 사양이 정한다.
+// TestParseArgsUnknown — unrecognized tokens get UsageErrorf (unknown flag).
+// Includes the Usage suffix; whether positional is allowed is decided by the spec.
 func TestParseArgsUnknown(t *testing.T) {
-	// read 계열: '-' 접두 미인식은 오류, 무접두는 위치 인자.
+	// the read family: a '-'-prefixed unrecognized token is an error; prefix-less is positional.
 	res, err := ParseArgs([]string{"query", "-x"}, demoSpec())
 	if err == nil {
 		t.Fatalf("err = nil, want unknown flag 오류(res=%+v)", res)
@@ -134,14 +134,14 @@ func TestParseArgsUnknown(t *testing.T) {
 		t.Errorf("positional = %v, want [query]", got)
 	}
 
-	// 엄격(doctor·report 계열): 무접두 토큰도 unknown flag.
+	// strict (the doctor/report family): even prefix-less tokens are unknown flags.
 	strict := demoSpec()
 	strict.AllowPositional = false
 	if _, err := ParseArgs([]string{"foo"}, strict); err == nil {
 		t.Errorf("엄격 스펙에서 무접두 토큰이 통과됨")
 	}
 
-	// write 계열: '-' 접두 미인식도 위치 인자 흡수.
+	// the write family: a '-'-prefixed unrecognized token is also absorbed as positional.
 	absorb := demoSpec()
 	absorb.DashPositional = true
 	res, err = ParseArgs([]string{"-x", "--y"}, absorb)
@@ -153,8 +153,8 @@ func TestParseArgsUnknown(t *testing.T) {
 	}
 }
 
-// TestParseArgsDashDashOff — DashDash=false면 "--"는 특별 토큰이 아니다
-// (write: 위치 인자 흡수 / 엄격 커맨드: unknown flag — 기존 동작).
+// TestParseArgsDashDashOff — with DashDash=false, "--" is not a special token
+// (write: absorbed as positional / strict commands: unknown flag — the existing behavior).
 func TestParseArgsDashDashOff(t *testing.T) {
 	absorb := demoSpec()
 	absorb.DashDash = false
@@ -175,8 +175,8 @@ func TestParseArgsDashDashOff(t *testing.T) {
 	}
 }
 
-// TestParseArgsOrderAndIndex — 발생 순서·args 인덱스 보존(모드 선출·
-// 오류 순서 재현·profile 위치 값 병합 소비자용).
+// TestParseArgsOrderAndIndex — occurrence order and args index preserved (for
+// mode-election, error-order-reproduction, and profile positional-merge consumers).
 func TestParseArgsOrderAndIndex(t *testing.T) {
 	res, err := ParseArgs([]string{"q", "--json", "--tag", "a", "z", "--entity", "e"}, demoSpec())
 	if err != nil {

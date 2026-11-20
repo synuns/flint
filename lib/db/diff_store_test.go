@@ -1,8 +1,10 @@
-// diff_store_test.go — DiffRows·DiffStat·DiffCommits(wire 히스토리
-// 계약의 Doltgres 구현) slow 실DB 회귀. 합성 데모 지식 4커밋(추가→
-// 추가→삭제→수정)을 심어 3종 diff_type·테이블별 요약·커밋 범위·순서를
-// 실측한다. SQL은 lib/ops 원문 이식(바이트 동치)이라 커밋 구성도 원문
-// 계약(added/removed는 COALESCE 공용 표현)을 따른다.
+// diff_store_test.go — DiffRows·DiffStat·DiffCommits (the Doltgres
+// implementation of the wire history contract) slow real-DB regression.
+// Seeds 4 synthetic demo commits (add→add→delete→modify) and measures
+// the 3 diff_types·per-table summaries·commit ranges·ordering. The SQL
+// is a lib/ops original port (byte-equivalent), so the commit
+// composition also follows the original contract (added/removed via the
+// shared COALESCE expression).
 package db
 
 import (
@@ -10,8 +12,9 @@ import (
 	"testing"
 )
 
-// seedT5Commit — 커밋 1개 시드. sql이 비면 스테이징만(InsertBatch·
-// pool.Exec 후 호출), 있으면 해당 SQL 실행 후 커밋. 커밋 해시 반환.
+// seedT5Commit — seeds one commit. With an empty sql, staging only
+// (called after InsertBatch·pool.Exec); otherwise runs the SQL then
+// commits. Returns the commit hash.
 func seedT5Commit(t *testing.T, r *Repo, msg, sql string, args ...any) string {
 	t.Helper()
 	ctx := context.Background()
@@ -30,14 +33,14 @@ func seedT5Commit(t *testing.T, r *Repo, msg, sql string, args ...any) string {
 	return h
 }
 
-// TestDiffRowsSlowTypes — 커밋 쌍 3종에서 diff_type 실측. c1이
-// newTestRepo의 미커밋 정리 DELETE를 흡수할 수 있어 added 검증은 c1
-// 이후 구간(c1→c2)으로만 수행한다.
+// TestDiffRowsSlowTypes — measures diff_types across 3 commit pairs.
+// Since c1 can absorb newTestRepo's uncommitted cleanup DELETE, the
+// added verification uses only the post-c1 range (c1→c2).
 func TestDiffRowsSlowTypes(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
-		knowledgeRec("v0180-t5-x"), // X — 수정 대상
+		knowledgeRec("v0180-t5-x"), // X — the modify target
 	})
 	if err != nil {
 		t.Fatalf("InsertBatch(X): %v", err)
@@ -78,7 +81,7 @@ func TestDiffRowsSlowTypes(t *testing.T) {
 			t.Errorf("DiffRows(%s) ID 비어 있음: %+v", tc.name, got)
 		}
 	}
-	// 동일 커밋 범위 — 차 없음(0행).
+	// The identical commit range — no diff (0 rows).
 	same, err := r.DiffRows(ctx, c4, c4)
 	if err != nil {
 		t.Fatalf("DiffRows(동일 해시): %v", err)
@@ -88,8 +91,9 @@ func TestDiffRowsSlowTypes(t *testing.T) {
 	}
 }
 
-// TestDiffStatSlowSummary — 커밋 해시 목록의 테이블별 변경 통계.
-// 지식 커밋은 knowledge 테이블 data_change=true·schema_change=false.
+// TestDiffStatSlowSummary — per-table change statistics for a
+// commit-hash list. A knowledge commit yields knowledge-table
+// data_change=true·schema_change=false.
 func TestDiffStatSlowSummary(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -120,7 +124,7 @@ func TestDiffStatSlowSummary(t *testing.T) {
 	if !found {
 		t.Fatalf("DiffStat(%s) = %v, want 해당 해시 행", h, stats)
 	}
-	// 빈 목록 — ANY($1) 빈 배열 오류 없이 0행.
+	// An empty list — 0 rows without an empty-array ANY($1) error.
 	none, err := r.DiffStat(ctx, nil)
 	if err != nil {
 		t.Fatalf("DiffStat(nil): %v", err)
@@ -130,9 +134,11 @@ func TestDiffStatSlowSummary(t *testing.T) {
 	}
 }
 
-// TestDiffCommitsSlowRange — from(초과)~to(이하) 범위·최신순·data_change.
-// LIMIT diffCommitsMax(20)은 원문 상수 승계 — 21커밋 시드 비용 대신
-// 경계(동일 해시=빈 범위)·범위 밖 제외·DESC 순서로 계약 검증.
+// TestDiffCommitsSlowRange — the from(exclusive)~to(inclusive) range·
+// newest-first·data_change. LIMIT diffCommitsMax (20) inherits the
+// original constant — instead of seeding 21 commits, the contract is
+// verified via the boundary (identical hash = empty range)·out-of-range
+// exclusion·DESC ordering.
 func TestDiffCommitsSlowRange(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -146,7 +152,7 @@ func TestDiffCommitsSlowRange(t *testing.T) {
 	c3 := seedT5Commit(t, r, "flint v0180 t5 demo r3",
 		`UPDATE knowledge SET summary = '요약2' WHERE content_hash = 'v0180-t5-c2'`)
 
-	// c1(초과)~c3(이하) — c3, c2 DESC.
+	// c1(exclusive)~c3(inclusive) — c3, c2 DESC.
 	cs, err := r.DiffCommits(ctx, c1, c3)
 	if err != nil {
 		t.Fatalf("DiffCommits: %v", err)
@@ -170,7 +176,7 @@ func TestDiffCommitsSlowRange(t *testing.T) {
 		t.Errorf("DiffCommits[0].SchemaChange = true, want false")
 	}
 
-	// 동일 해시 — 빈 범위(commit_order > h AND <= h).
+	// The identical hash — an empty range (commit_order > h AND <= h).
 	same, err := r.DiffCommits(ctx, c3, c3)
 	if err != nil {
 		t.Fatalf("DiffCommits(동일 해시): %v", err)

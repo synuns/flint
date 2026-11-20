@@ -1,10 +1,10 @@
-// thresholds_v0163_test.go — 튜닝 상수 7종의
-// Thresholds 레지스트리(기본값·meta 오버라이드 파싱) 테스트.
+// thresholds_v0163_test.go — the Thresholds registry tests
+// for the 7 tuning constants (defaults and meta-override parsing).
 package store
 
 import "testing"
 
-// 신규 키 7종 기본값 — 코드 단일 소스(DefaultThresholds).
+// the 7 new keys' defaults — a single code source (DefaultThresholds).
 func TestThresholdsV0163Defaults(t *testing.T) {
 	th := DefaultThresholds()
 	want := []struct {
@@ -27,7 +27,7 @@ func TestThresholdsV0163Defaults(t *testing.T) {
 	}
 }
 
-// meta 오버라이드 — 전 키 설정 값 반영.
+// meta overrides — every key's set value reflected.
 func TestThresholdsV0163ParseOverride(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"suggest_min_score", "0.4"},
@@ -50,7 +50,7 @@ func TestThresholdsV0163ParseOverride(t *testing.T) {
 	}
 }
 
-// 무효값(비수·음수·범위 밖)은 기본값 폴백(전역 제약 승계).
+// invalid values (non-numeric, negative, out of range) fall back to defaults (inheriting the global constraint).
 func TestThresholdsV0163InvalidFallback(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"suggest_min_score", "abc"},
@@ -73,8 +73,8 @@ func TestThresholdsV0163InvalidFallback(t *testing.T) {
 	}
 }
 
-// 미설정 신규 키는 0(미설정) — 소비자(loadThresholds)가 기본값으로
-// 폴백한다(규약: 기존 전체 구조체 비교 테스트 호환).
+// unset new keys stay 0 (unset) — the consumer (loadThresholds) falls back to
+// the default (the convention: compatibility with the existing whole-struct comparison tests).
 func TestThresholdsV0163UnsetStaysZero(t *testing.T) {
 	th, err := ParseThresholds(nil)
 	if err != nil {

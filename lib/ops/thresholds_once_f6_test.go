@@ -1,8 +1,8 @@
-// thresholds_once_f6_test.go — 성능 회귀: thresholds IN 쿼리
-// (SELECT key, value FROM meta WHERE key IN …)는 커맨드 실행당 1회.
-// report는 --days 상한·stale 컷오프·효과 판정 창이, doctor는 검사 7종이
-// 각자 재조회하던 것을 커맨드 스코프 1회 로드로 공유한다
-// (secrets ThFn 편입 — 전체 doctor 실행도 1회).
+// thresholds_once_f6_test.go — performance regression: the thresholds IN query
+// (SELECT key, value FROM meta WHERE key IN ...) runs once per command execution.
+// report's --days cap, stale cutoff, and effect decision window, and doctor's 7 checks,
+// which each re-queried, now share 1 command-scoped load (secrets folded into
+// the ThFn — a full doctor run is also 1).
 package ops
 
 import (
@@ -12,9 +12,9 @@ import (
 	"time"
 )
 
-// thresholdsLoads — fake가 실행한 thresholds IN 쿼리 수. hot_stats 조회
-// (IN ('hot_stats'))도 같은 문법이라 thresholds 레지스트리 키('stale_days')
-// 동봉 여부로 구분한다.
+// thresholdsLoads — the count of thresholds IN queries the fake saw. The hot_stats lookup
+// (IN ('hot_stats')) uses the same syntax, so it is distinguished by whether a thresholds-registry
+// key ('stale_days') is included.
 func thresholdsLoads(f *fakeStore) int {
 	n := 0
 	for _, q := range f.queries {
@@ -25,10 +25,10 @@ func thresholdsLoads(f *fakeStore) int {
 	return n
 }
 
-// TestReportThresholdsLoadedOnce — report --days 실행에서
-// thresholds IN 쿼리 1회.
+// TestReportThresholdsLoadedOnce — a report --days run issues the thresholds IN
+// query once.
 func TestReportThresholdsLoadedOnce(t *testing.T) {
-	f := parityFake(10, 3, 1, 2) // read 10·zero 3·near 1·폴백 2 픽스처
+	f := parityFake(10, 3, 1, 2) // the read 10, zero 3, near 1, fallback 2 fixture
 	var out strings.Builder
 	if code := RunReport(context.Background(), f, []string{"--days", "7"}, nil, &out); code != 0 {
 		t.Fatalf("report exit=%d: %s", code, out.String())
@@ -38,9 +38,9 @@ func TestReportThresholdsLoadedOnce(t *testing.T) {
 	}
 }
 
-// f6DoctorFn — 검사 7종(last-seen·backup-age·zero-near·pending-age·
-// event-volume·meta-hygiene·secrets)이 모두 thresholds를 소비하는 응답:
-// last_backup·pending 최근 1건·계측 테이블 0행.
+// f6DoctorFn — responses where all 7 checks (last-seen, backup-age, zero-near,
+// pending-age, event-volume, meta-hygiene, secrets) consume thresholds:
+// last_backup, the most recent pending row, and 0 metering-table rows.
 func f6DoctorFn() func(string, []any) ([][]any, error) {
 	now := time.Now().UTC()
 	fresh := now.Add(-time.Hour).Format(time.RFC3339)
@@ -59,17 +59,17 @@ func f6DoctorFn() func(string, []any) ([][]any, error) {
 		case strings.Contains(sql, "last_backup"):
 			return [][]any{{"last_backup", fresh}}, nil
 		case strings.Contains(sql, "count(*) FROM read_events"):
-			return [][]any{{int64(0)}}, nil // event-volume 3테이블 합계
+			return [][]any{{int64(0)}}, nil // the event-volume 3-table total
 		case strings.Contains(sql, "valid_at"):
-			return [][]any{{now.Add(-24 * time.Hour)}}, nil // pending 존재
+			return [][]any{{now.Add(-24 * time.Hour)}}, nil // a pending exists
 		}
-		return nil, nil // thresholds·daily·read_events·meta 키 — 미설정
+		return nil, nil // thresholds, daily, read_events, meta keys — unset
 	}
 }
 
-// TestDoctorThresholdsSharedAcrossChecks — thresholds 소비
-// 검사 7종을 실행 스코프 메모(doctorThresholds)로 돌리면 IN 쿼리 1회
-// (secrets 편입).
+// TestDoctorThresholdsSharedAcrossChecks — running the 7 thresholds-consuming
+// checks through the run-scoped memo (doctorThresholds) means 1 IN query
+// (secrets folded in).
 func TestDoctorThresholdsSharedAcrossChecks(t *testing.T) {
 	f := &fakeStore{queryFn: f6DoctorFn()}
 	th := doctorThresholds(context.Background(), f)
@@ -90,11 +90,11 @@ func TestDoctorThresholdsSharedAcrossChecks(t *testing.T) {
 	}
 }
 
-// TestDoctorFullRunThresholdsQueries — 전체 doctor 실행에서
-// thresholds IN 쿼리 1회(secrets ThFn 편입).
+// TestDoctorFullRunThresholdsQueries — a full doctor run issues the thresholds IN
+// query once (secrets folded into the ThFn).
 func TestDoctorFullRunThresholdsQueries(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir()) // 스킬 미탐지 — 별도 체인 생략
+	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir()) // skill undetected — the separate chain skipped
 	f := &fakeStore{queryFn: f6DoctorFn()}
 	out, code := runDoctorArgs(t, f)
 	if code != 0 && !strings.Contains(out, `"status":"ok"`) {

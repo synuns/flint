@@ -1,4 +1,4 @@
-// tui_test.go — TUI 기반 래퍼 테스트: 비터미널 폴백 단언.
+// tui_test.go — the TUI-base wrapper tests: non-terminal fallback assertions.
 package tui
 
 import (
@@ -12,15 +12,15 @@ import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// stubModel — 래퍼 테스트용 최소 모델(Run이 시작 전에 반환하므로 미사용).
+// stubModel — a minimal model for the wrapper tests (unused since Run returns before starting).
 type stubModel struct{}
 
 func (stubModel) Init() tea.Cmd                         { return nil }
 func (m stubModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return m, nil }
 func (stubModel) View() string                          { return "" }
 
-// TestRunRejectsNonTerminal — go test 표준 출력은 파이프이므로
-// Run은 시작 전 즉시 오류를 반환해야 한다(호출부 exit 3 폴백).
+// TestRunRejectsNonTerminal — go test's stdout is a pipe, so Run must return
+// an error immediately before starting (the caller falls back to exit 3).
 func TestRunRejectsNonTerminal(t *testing.T) {
 	err := Run(stubModel{})
 	if err == nil {
@@ -34,7 +34,7 @@ func TestRunRejectsNonTerminal(t *testing.T) {
 	}
 }
 
-// TestRunRejectsForcedNonTerminal — 판정 함수를 주입해 비터미널 경로 재확인.
+// TestRunRejectsForcedNonTerminal — re-verifies the non-terminal path by injecting the check function.
 func TestRunRejectsForcedNonTerminal(t *testing.T) {
 	orig := isTerminal
 	isTerminal = func() bool { return false }
@@ -45,8 +45,8 @@ func TestRunRejectsForcedNonTerminal(t *testing.T) {
 	}
 }
 
-// TestIsTerminalStdoutDelegates — 공개 판정 래퍼는 isTerminal
-// seam을 그대로 통과한다(진입 분기 seam의 기본 실구현).
+// TestIsTerminalStdoutDelegates — the public check wrapper passes through the
+// isTerminal seam as-is (the entry-branch seam's default real implementation).
 func TestIsTerminalStdoutDelegates(t *testing.T) {
 	orig := isTerminal
 	isTerminal = func() bool { return true }
@@ -60,8 +60,8 @@ func TestIsTerminalStdoutDelegates(t *testing.T) {
 	}
 }
 
-// TestNonInteractiveHintInViews — pending·report 화면 하단에
-// 비대화 탈출 안내 1줄이 렌더된다(export는 huh 폼 설명으로 제공).
+// TestNonInteractiveHintInViews — a 1-line non-interactive escape notice is
+// rendered at the bottom of the pending and report screens (for export, provided in the huh form description).
 func TestNonInteractiveHintInViews(t *testing.T) {
 	pm := NewPendingModel(context.TODO(), nil, nil, PendingActions{})
 	if v := pm.View(); !strings.Contains(v, nonInteractiveHint) {
@@ -73,10 +73,10 @@ func TestNonInteractiveHintInViews(t *testing.T) {
 	}
 }
 
-// TestIsTerminalDevNullNotTerminal — /dev/null은
-// char device이므로 구 ModeCharDevice 판정이 이를 터미널로 오탐했다
-// (리다이렉션 stdout > /dev/null에서 TUI 폴백 exit 3). isatty 계열
-// 판정(charmbracelet/x/term)은 /dev/null을 거짓으로 판별해야 한다.
+// TestIsTerminalDevNullNotTerminal — /dev/null is also a char device, so the
+// old ModeCharDevice check misdetected it as a terminal (a stdout > /dev/null
+// redirection triggered the TUI fallback exit 3). The isatty-family check
+// (charmbracelet/x/term) must judge /dev/null false.
 func TestIsTerminalDevNullNotTerminal(t *testing.T) {
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
@@ -94,12 +94,12 @@ func TestIsTerminalDevNullNotTerminal(t *testing.T) {
 	}
 }
 
-// TestIsTerminalStdoutEnvEscapeHatch — FLINT_NO_TUI 설정 시
-// (값 무관) 환경 체크가 우선한다 — 터미널이어도 판정 거짓(적응형 TUI
-// 진입 전면 차단, 현행 경로 강제). GH_PROMPT_DISABLED류 표준 패턴.
+// TestIsTerminalStdoutEnvEscapeHatch — with FLINT_NO_TUI set (any value), the
+// environment check takes precedence — false even on a terminal (adaptive TUI
+// entry blocked entirely, forcing the current path). The standard pattern of the GH_PROMPT_DISABLED kind.
 func TestIsTerminalStdoutEnvEscapeHatch(t *testing.T) {
 	orig := isTerminal
-	isTerminal = func() bool { return true } // 강제 터미널
+	isTerminal = func() bool { return true } // forced terminal
 	defer func() { isTerminal = orig }()
 
 	t.Setenv("FLINT_NO_TUI", "1")
@@ -110,7 +110,7 @@ func TestIsTerminalStdoutEnvEscapeHatch(t *testing.T) {
 		t.Error("IsTerminalStdout() = true under FLINT_NO_TUI, want false (환경 체크 우선)")
 	}
 
-	t.Setenv("FLINT_NO_TUI", "") // 빈 값은 미설정 취급(os.Getenv != "" 규약)
+	t.Setenv("FLINT_NO_TUI", "") // the empty value counts as unset (the os.Getenv != "" convention)
 	if NoTUIForced() || !IsTerminalStdout() {
 		t.Error("빈 값은 미차단이어야 함(os.Getenv != \"\" 규약)")
 	}

@@ -1,6 +1,7 @@
-// import_test.go — 온보딩 임포트
-// 계약 — 후보 탐색·헤딩 분할·dry-run 기본·--commit 적립·dedup 멱등).
-// runImport 직접 호출 테스트는 RunImport로 치환(계약 불변).
+// import_test.go — the onboarding import contract — candidate discovery·
+// heading splitting·dry-run default·--commit accrual·dedup idempotence).
+// Direct runImport-call tests were replaced with RunImport (contract
+// unchanged).
 package knowledge
 
 import (
@@ -16,7 +17,8 @@ import (
 func TestParseMarkdownSections(t *testing.T) {
 	body := "# 제목\n\n## 규칙 A\n내용 12자 이상 있습니다.\n\n## 규칙 B\n\n짧\n\n## 규칙 C\n<!-- 주석 -->\n충분한 내용이 여기 있습니다.\n"
 	got := parseMarkdownSections(stripImportNoise(body))
-	// 수 계약 단언 — A·B·C 3섹션(짧은 B 포함 — 호출부 필터).
+	// Count-contract assertion — 3 sections A·B·C (the short B included —
+	// the caller filters).
 	if len(got) != 3 {
 		t.Fatalf("섹션 수=%d, want 3(A·B·C)", len(got))
 	}
@@ -37,7 +39,7 @@ func TestRunImportDryRunAndCommit(t *testing.T) {
 	}
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
-	// 후보 명시 + dry-run.
+	// Explicit candidate + dry-run.
 	code := RunImport(context.Background(), f, []string{claude}, strings.NewReader(""), &out)
 	if code != 0 {
 		t.Fatalf("dry-run exit=%d: %s", code, out.String())
@@ -57,9 +59,9 @@ func TestRunImportDryRunAndCommit(t *testing.T) {
 	if len(f.inserted) != 2 {
 		t.Fatalf("적립 = %d건, want 2", len(f.inserted))
 	}
-	// 재임포트 — dedup 멱등.
+	// Re-import — dedup idempotence.
 	f2 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
-	f2.exists = true // 모든 해시 존재 → skip
+	f2.exists = true // every hash exists → skip
 	out.Reset()
 	code = RunImport(context.Background(), f2, []string{claude, "--commit"}, strings.NewReader(""), &out)
 	if code != 0 || !strings.Contains(out.String(), `"inserted":0`) {
@@ -67,8 +69,8 @@ func TestRunImportDryRunAndCommit(t *testing.T) {
 	}
 }
 
-// TestParseMarkdownFenceGuard — 펜스 내부 "## "는
-// 헤딩이 아니다 — 섹션 분할·주석 제거 모두 펜스 보존.
+// TestParseMarkdownFenceGuard — a "## " inside a fence is not a heading
+// — both section splitting·comment removal preserve fences.
 func TestParseMarkdownFenceGuard(t *testing.T) {
 	body := "## 규칙\n실제 내용 충분합니다.\n\n```markdown\n## 펜스 내부 예시\n```\n"
 	secs := parseMarkdownSections(body)
@@ -80,9 +82,10 @@ func TestParseMarkdownFenceGuard(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseCommentFence — 주석 블록
-// 내부의 ``` 라인이 펜스를 열어 이후 섹션 전체를 삼키던 결함 — 주석
-// 처리가 펜스보다 우선하고 펜스 판정은 주석 제거 후 라인만 본다.
+// TestStripImportNoiseCommentFence — the defect where a ``` line inside
+// a comment block opened a fence and swallowed all later sections —
+// comment handling takes precedence over fences, and fence detection
+// sees only the post-comment-removal lines.
 func TestStripImportNoiseCommentFence(t *testing.T) {
 	in := "## A\n본문 A 충분합니다.\n\n<!--\n```\n주석 안 펜스\n-->\n\n## B\n본문 B 충분합니다.\n"
 	got := stripImportNoise(in)
@@ -95,9 +98,9 @@ func TestStripImportNoiseCommentFence(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseSameLineClose — 같은 줄
-// `<!-- 주석 --> 뒷텍스트`가 inComment를 잔류시켜 이후 문서 전체를
-// 무음 삭제하던 결함.
+// TestStripImportNoiseSameLineClose — the defect where a same-line
+// `<!-- comment --> trailing text` left inComment lingering and silently
+// deleted the whole rest of the document.
 func TestStripImportNoiseSameLineClose(t *testing.T) {
 	in := "## A\n<!-- 주석 --> 뒷 텍스트\n본문 계속 충분합니다.\n\n## B\n본문 B 충분합니다.\n"
 	got := stripImportNoise(in)
@@ -110,8 +113,8 @@ func TestStripImportNoiseSameLineClose(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseInline — 줄 중간 인라인 주석은
-// 주석 부분만 제거되고 앞뒤 텍스트가 보존된다.
+// TestStripImportNoiseInline — a mid-line inline comment removes only the
+// comment part; the surrounding text is preserved.
 func TestStripImportNoiseInline(t *testing.T) {
 	got := stripImportNoise("규칙은 이렇다 <!-- 비고: 예외 없음 --> 저렇게 쓴다")
 	if strings.Contains(got, "비고") {
@@ -122,8 +125,9 @@ func TestStripImportNoiseInline(t *testing.T) {
 	}
 }
 
-// TestParseMarkdownTildeFence — ~~~ 펜스(CommonMark) 내부
-// 헤딩 오판 방지 — 유사 지식("규칙[가짜]") 적립 차단.
+// TestParseMarkdownTildeFence — prevents heading misjudgment inside a
+// ~~~ fence (CommonMark) — blocking spurious-knowledge ("rule[fake]")
+// accrual.
 func TestParseMarkdownTildeFence(t *testing.T) {
 	body := "## 실제 섹션\n본문 충분합니다.\n\n~~~python\n## 물결 펜스 내부 헤딩\ncode\n~~~\n"
 	secs := parseMarkdownSections(body)
@@ -135,8 +139,9 @@ func TestParseMarkdownTildeFence(t *testing.T) {
 	}
 }
 
-// TestParseMarkdownUnterminatedFence — EOF에서 닫히지 않은 펜스는
-// 잔여 라인을 직전 섹션 본문으로 흡수(헤딩 오판 없이).
+// TestParseMarkdownUnterminatedFence — a fence unclosed at EOF absorbs
+// the remaining lines into the previous section's body (no heading
+// misjudgment).
 func TestParseMarkdownUnterminatedFence(t *testing.T) {
 	body := "## 섹션\n본문 충분합니다.\n\n```\n미닫힘 코드 블록\n## 여기도 헤딩 아님\n"
 	secs := parseMarkdownSections(body)
@@ -148,9 +153,9 @@ func TestParseMarkdownUnterminatedFence(t *testing.T) {
 	}
 }
 
-// TestRunImportSameFileTwice — 같은 파일 2회 지정은
-// 배치 내 dedup으로 1건 적립(unique 위반 rollback+exit 0이 아니라
-// skipped 보고).
+// TestRunImportSameFileTwice — giving the same file twice accrues once
+// via in-batch dedup (a skipped report, not a unique-violation
+// rollback+exit 0).
 func TestRunImportSameFileTwice(t *testing.T) {
 	dir := t.TempDir()
 	p := dir + "/rules.md"
@@ -169,8 +174,9 @@ func TestRunImportSameFileTwice(t *testing.T) {
 	}
 }
 
-// TestRunImportPartialUnreadableReported — 읽기 가능·불가
-// 혼재 시 unreadable이 출력에 보고된다(부분 유실의 무음 누락 방지).
+// TestRunImportPartialUnreadableReported — when readable·unreadable
+// files are mixed, unreadable is reported in the output (preventing the
+// silent loss of partial failure).
 func TestRunImportPartialUnreadableReported(t *testing.T) {
 	dir := t.TempDir()
 	p := dir + "/rules.md"
@@ -189,16 +195,17 @@ func TestRunImportPartialUnreadableReported(t *testing.T) {
 	}
 }
 
-// TestRunImportOriginNormalized — CLAUDE.md·./CLAUDE.md
-// 재임포트가 같은 origin(파일명 기준)으로 동일 해시 — 멱등 유지.
+// TestRunImportOriginNormalized — re-importing CLAUDE.md·./CLAUDE.md
+// yields the same origin (path-normalized) and thus the same hash —
+// idempotence preserved.
 func TestRunImportOriginNormalized(t *testing.T) {
 	dir := t.TempDir()
 	os.WriteFile(dir+"/CLAUDE.md", []byte("## 규칙\n경로 정규화 검증용 충분한 본문입니다.\n"), 0o644)
-	t.Chdir(dir) // 상대경로 후보 탐색도 같은 디렉터리에서
+	t.Chdir(dir) // relative-path candidate discovery also in the same directory
 	f1 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	RunImport(context.Background(), f1, []string{"CLAUDE.md", "--commit"}, strings.NewReader(""), &strings.Builder{})
 	f2 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
-	f2.exists = true // 첫 적립과 동일 해시 → ExistsHash 참으로 멱등 skip
+	f2.exists = true // the same hash as the first accrual → ExistsHash true, idempotent skip
 	var out strings.Builder
 	code := RunImport(context.Background(), f2, []string{"./CLAUDE.md", "--commit"}, strings.NewReader(""), &out)
 	if code != 0 || !strings.Contains(out.String(), `"inserted":0`) {
@@ -206,10 +213,11 @@ func TestRunImportOriginNormalized(t *testing.T) {
 	}
 }
 
-// TestRunImportUnknownFlag — 미확인 플래그는 사용법
-// 오류(오타 플래그의 무음 경로화 방지) — errLine 관례·무효
-// 인자 계약 exit 3(doctor·tuning·diff·maintain 정합). 메시지에
-// 허용 플래그 usage 힌트 부가 — 단언은 플래그 사실+힌트로 갱신.
+// TestRunImportUnknownFlag — an unrecognized flag is a usage error
+// (preventing a mistyped flag from becoming a silent path) — the errLine
+// convention·the invalid-argument contract exit 3 (doctor·tuning·diff·
+// maintain alignment). The message carries an allowed-flag usage hint —
+// the assertion updated to flag fact + hint.
 func TestRunImportUnknownFlag(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	var out strings.Builder
@@ -218,7 +226,7 @@ func TestRunImportUnknownFlag(t *testing.T) {
 		!strings.Contains(out.String(), "usage: flint import") {
 		t.Fatalf("미확인 플래그 = exit %d %s, want 3 unknown flag + usage 힌트", code, out.String())
 	}
-	// 따옴표 포함 플래그도 JSON 파싱 가능(errLine 이스케이프).
+	// A flag containing quotes still parses as JSON (errLine escaping).
 	out.Reset()
 	code = RunImport(context.Background(), f, []string{`--x"y`}, strings.NewReader(""), &out)
 	if code != 3 {
@@ -229,9 +237,10 @@ func TestRunImportUnknownFlag(t *testing.T) {
 	}
 }
 
-// TestRunImportOriginCleanNotBase — origin은 Clean
-// 정규화 — 디렉터리가 다른 동일 파일명(a/rules.md·b/rules.md)은 서로
-// 다른 규칙으로 둘 다 적립(basename 충돌 무음 skip 방지).
+// TestRunImportOriginCleanNotBase — origin is Clean-normalized — the
+// same file name in different directories (a/rules.md·b/rules.md) is
+// two different rules, both accrued (preventing a silent basename
+// collision skip).
 func TestRunImportOriginCleanNotBase(t *testing.T) {
 	dir := t.TempDir()
 	body := "## 코딩 스타일\n동일 제목·본문 — 최소 길이 충분합니다.\n"
@@ -250,8 +259,8 @@ func TestRunImportOriginCleanNotBase(t *testing.T) {
 	}
 }
 
-// TestRunImportDedupErrorAllFail — dedup 조회 전량
-// 실패는 '전부 중복'이 아닌 장애 — exit 1(거짓 성공 금지).
+// TestRunImportDedupErrorAllFail — a total dedup-lookup failure is an
+// outage, not 'all duplicates' — exit 1 (no false success).
 func TestRunImportDedupErrorAllFail(t *testing.T) {
 	dir := t.TempDir()
 	p := dir + "/rules.md"
@@ -265,8 +274,9 @@ func TestRunImportDedupErrorAllFail(t *testing.T) {
 	}
 }
 
-// TestParseMarkdownDanglingTilde — 미종결 ~~~ 한 줄이
-// 나머지 문서 헤딩을 삼키지 않는다(개시 라인 본문 중립화).
+// TestParseMarkdownDanglingTilde — a one-line unterminated ~~~ does not
+// swallow the remaining document's headings (the opening line
+// neutralized into body content).
 func TestParseMarkdownDanglingTilde(t *testing.T) {
 	body := "## A\n본문 A 충분합니다.\n\n~~~\n미종결 물결 표시\n\n## B\n본문 B 충분합니다.\n\n## C\n본문 C 충분합니다.\n"
 	secs := parseMarkdownSections(body)
@@ -279,9 +289,9 @@ func TestParseMarkdownDanglingTilde(t *testing.T) {
 	}
 }
 
-// withStderrCapture — os.Stderr를 임시 파일로 교체하고 읽기 클로저 반환
-// (import 경고는 os.Stderr 직접 기록 관례 — *os.File 타입이라 버퍼가 아닌
-// 파일로 캡처).
+// withStderrCapture — swaps os.Stderr for a temp file and returns a
+// read closure (import warnings go directly to os.Stderr by convention —
+// an *os.File type, so captured to a file rather than a buffer).
 func withStderrCapture(t *testing.T) func() string {
 	t.Helper()
 	tmp, err := os.CreateTemp(t.TempDir(), "stderr")
@@ -301,9 +311,10 @@ func withStderrCapture(t *testing.T) func() string {
 	}
 }
 
-// TestImportMigrationExtRouting — --format 미지정 + 위치 인자
-// 1개가 .jsonl/.pam 확장자면 마이그레이션 라우팅 판정. 명시 --format·
-// 기타 확장자·위치 인자 0/2개는 라우팅 없음(기존 규칙 변환 경로).
+// TestImportMigrationExtRouting — without --format, a single positional
+// ending in .jsonl/.pam triggers the migration-routing verdict. An
+// explicit --format·other extensions·0 or 2 positionals mean no routing
+// (the existing rule-conversion path).
 func TestImportMigrationExtRouting(t *testing.T) {
 	cases := []struct {
 		args   []string
@@ -330,8 +341,9 @@ func TestImportMigrationExtRouting(t *testing.T) {
 	}
 }
 
-// TestRunImportJsonlExtRoutesToMigration — --format 미지정 +
-// .jsonl 경로는 마이그레이션 진입(안내 1행 stderr) — 규칙 변환 아님.
+// TestRunImportJsonlExtRoutesToMigration — without --format, a .jsonl
+// path enters migration (a one-line stderr notice) — not rule
+// conversion.
 func TestRunImportJsonlExtRoutesToMigration(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "demo.jsonl")
@@ -358,8 +370,8 @@ func TestRunImportJsonlExtRoutesToMigration(t *testing.T) {
 	}
 }
 
-// TestRunImportEmptyHint — 규칙 변환 결과 empty면 additive
-// 힌트 키(마이그레이션 --format 안내).
+// TestRunImportEmptyHint — an empty rule-conversion result gets an
+// additive hint key (the migration --format guidance).
 func TestRunImportEmptyHint(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "rules.md")
@@ -378,8 +390,8 @@ func TestRunImportEmptyHint(t *testing.T) {
 	}
 }
 
-// TestStripImportNoiseDoubleInline — 같은 줄 주석 2쌍은
-// 전부 제거(두 번째 개시 마커 잔존 방지).
+// TestStripImportNoiseDoubleInline — two comment pairs on the same line
+// are both removed (preventing a residual second opening marker).
 func TestStripImportNoiseDoubleInline(t *testing.T) {
 	got := stripImportNoise("설명 <!-- 비고1 --> 예시 <!-- 비고2")
 	if strings.Contains(got, "<!--") || strings.Contains(got, "비고") {

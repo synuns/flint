@@ -1,9 +1,9 @@
-// Package cli — flint 커맨드 진입점. os.Args 수동 파싱(프롬프트·TUI 금지),
-// 출력은 한 줄 JSON 또는 고정 포맷, exit code 0/1/2/3 계약을 지킨다.
-// 디스패치·계약은 lib/wire로 추출. 이 파일은
-// composition root — realStore 어댑터·cli.Run 위임 래퍼와 함께 커맨드
-// 등록·양방향 seam 주입(ops·knowledge가 cli/wire 실구현을 쓰는 주입점)을
-// 이 init 한 곳에서 소유한다(별칭 파일의 산재 init 수렴).
+// Package cli — flint command entry points. Manual os.Args parsing (no prompts, no TUI),
+// output is one-line JSON or a fixed format, honoring the exit code 0/1/2/3 contract.
+// Dispatch and contracts were extracted to lib/wire. This file is the
+// composition root — it owns command registration together with the realStore adapter
+// and the cli.Run delegation wrapper, plus bidirectional seam injection (the injection point where ops and knowledge
+// use the cli/wire real implementations) in this single init (converging the scattered inits of the alias files).
 package cli
 
 import (
@@ -23,42 +23,42 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// newStore — seam. 기본 실구현, 테스트는 fake으로 교체(SUPERLITE_REAL=1은 실구현 위임).
+// newStore — seam. Real implementation by default; tests swap in a fake (SUPERLITE_REAL=1 delegates to the real implementation).
 var newStore = func(ctx context.Context, dsn string) (Store, error) {
 	return newRealStore(ctx, dsn)
 }
 
-// Run은 wire.Run 위임 래퍼 — cli.newStore seam을 공장으로 주입한다
-// (테스트 교체 관례 불변: 호출 시점의 newStore var 값을 전달).
+// Run is a wire.Run delegation wrapper — injects the cli.newStore seam as the factory
+// (the test-swap convention unchanged: passes the newStore var value at call time).
 func Run(args []string, stdin io.Reader, stdout io.Writer) int {
 	return wire.Run(args, stdin, stdout, newStore)
 }
 
-// init — composition root. ① wire 설정 주입 ② cli 소유
-// 핵심 커맨드 등록 ③ ops·knowledge 주입 seam(공용 유틸은 wire 직접,
-// cli 잔류 실구현은 별칭 경유). 교체 전파가 필요한 seam(composePsFn·
-// exposureProfileFn·backup 4종)은 cli var를 호출 시점에 읽는 래퍼로
-// 주입한다 — 테스트의 cli var 재할당이 ops 실행 경로에 전파된다.
-// doctor·status·tuning·maintain·nudge·session-*·report 등록은 ops
-// 패키지 init이, write·read·hot·approve·pending·brief·done·compact는
-// knowledge 패키지 init이 담당한다(이 init이 knowledge·ops를 임포트해
-// 활성화).
+// init — composition root. (1) inject wire configuration (2) register cli-owned
+// core commands (3) ops and knowledge injection seams (shared utils go directly to wire;
+// cli-residual real implementations go via aliases). Seams that need swap propagation (composePsFn,
+// exposureProfileFn, the 4 backup seams) are injected as wrappers reading the cli vars at call time
+// — test reassignment of cli vars propagates to the ops execution path.
+// Registration of doctor, status, tuning, maintain, nudge, session-*, and report is handled by the ops
+// package init; write, read, hot, approve, pending, brief, done, and compact by the
+// knowledge package init (this init imports knowledge and ops to
+// activate them).
 func init() {
-	// ① wire 계약층 주입 — 설정 디렉터리 규칙(FLINT_CONFIG_DIR >
-	// os.UserConfigDir()/flint)은 cli(marker.go→ops 이동분) 소유.
+	// (1) wire contract-layer injection — the config-directory rule (FLINT_CONFIG_DIR >
+	// os.UserConfigDir()/flint) is cli-owned (marker.go -> moved to ops).
 	wire.ConfigDir = configDir
 
-	// ② cli 소유 커맨드 등록 — knowledge 이동분 핵심 3종 + ops 이동분
-	// backup·restore(핸들러 직접 등록). help는 미등록 — wire.Run이
-	// store 접속 전에 출력하는 usage 경로가 담당한다.
+	// (2) cli-owned command registration — the 3 core commands moved to knowledge + backup and restore
+	// moved to ops (handlers registered directly). help is unregistered — the usage path that
+	// wire.Run prints before connecting to the store covers it.
 	Register("write", runWrite)
 	Register("read", runRead)
 	Register("hot", runHot)
 	Register("backup", ops.RunBackup)
 	Register("restore", ops.RunRestore)
 
-	// ③-1 knowledge 주입 seam — as-of 정규화는 wire 이동분 직접,
-	// 마커·계측 계열은 ops 이동분 별칭 경유.
+	// (3)-1 knowledge injection seams — as-of normalization goes directly to the wire version;
+	// the marker and metering families go via the ops-moved aliases.
 	knowledge.ParseAsOfSpecFn = wire.ParseAsOfSpec
 	knowledge.ErrInvalidAsOf = wire.ErrInvalidAsOf
 	knowledge.SessionLabelFn = sessionLabel
@@ -69,7 +69,7 @@ func init() {
 	knowledge.WriteTypedMarkerFn = WriteTypedMarker
 	knowledge.BackupKeyPathFn = BackupKeyPath
 
-	// ③-2 ops 주입 seam — cli 잔류 실구현(version·update·backup 인프라).
+	// (3)-2 ops injection seams — cli-residual real implementations (version, update, backup infrastructure).
 	ops.CurrentVersionFn = CurrentVersion
 	ops.FetchLatestVersionFn = fetchLatestVersion
 	ops.ValidVersionFn = validVersion
@@ -93,20 +93,20 @@ func init() {
 	ops.UpdateNoticeTTL = updateNoticeTTL
 	ops.PctOfFn = pctOf
 
-	// ③-3 교체 전파 래퍼 — cli var 재할당을 ops가 관측(composePsFn 패턴).
-	// 유지분은 각 1줄 사유(소비 cli 테스트가 var 교체로
-	// ops 실행 경로를 검증 — 래퍼 제거 시 전파 단절). 교체 소비 테스트가
-	// 없는 windowedDaily는 직접 참조로 전환했다(아래).
-	// 유지 — doctor_v07·rules_sync_v097_test가 composePsFn 교체 후 runDoctor 검증.
+	// (3)-3 swap-propagation wrappers — ops observes cli var reassignment (the composePsFn pattern).
+	// Kept seams carry a one-line rationale each (consuming cli tests verify the ops
+	// execution path by swapping the var — removing the wrapper breaks propagation). windowedDaily,
+	// which has no swap-consuming test, was switched to a direct reference (below).
+	// kept — doctor_v07 and rules_sync_v097_test verify runDoctor after swapping composePsFn.
 	ops.ComposePsFn = func(ctx context.Context) ([]byte, error) { return composePsFn(ctx) }
-	// 유지 — doctor_v094·rules_sync_v097_test가 flintBinPathFn 교체 후 runDoctor 검증.
+	// kept — doctor_v094 and rules_sync_v097_test verify runDoctor after swapping flintBinPathFn.
 	ops.FlintBinPathFn = func() string { return flintBinPathFn() }
-	// 유지 — maintain_v08_test가 maintainRetryDelays 교체 후 runMaintain 검증.
+	// kept — maintain_v08_test verifies runMaintain after swapping maintainRetryDelays.
 	ops.MaintainRetryDelaysFn = func() []time.Duration { return maintainRetryDelays }
-	// 유지 — nudge_v0110_test가 exposureProfileFn 교체 후 runNudge 검증.
+	// kept — nudge_v0110_test verifies runNudge after swapping exposureProfileFn.
 	ops.ExposureProfileFn = func(getKV func(string) (string, error)) string { return exposureProfileFn(getKV) }
-	// WindowedDailyFn — cli var 교체 소비 테스트 없음: ops 실구현 직접
-	// 참조(ReportDay→DailyRow 변환 어댑터만).
+	// WindowedDailyFn — no cli var swap-consuming test: direct reference to the ops real
+	// implementation (only the ReportDay->DailyRow conversion adapter).
 	ops.WindowedDailyFn = func(ctx context.Context, st wire.Store, days int) ([]ops.DailyRow, error) {
 		rows, err := ops.WindowedDaily(ctx, st, days)
 		if err != nil {
@@ -118,20 +118,20 @@ func init() {
 		}
 		return out, nil
 	}
-	// 유지 — backup_test·wire_approve_store_test가 4종 교체 후 runBackup·runRestore 검증.
+	// kept — backup_test and wire_approve_store_test verify runBackup/runRestore after swapping the 4 seams.
 	ops.DumpFn = func(ctx context.Context, dsn string, w io.Writer) error { return dumpFn(ctx, dsn, w) }
 	ops.RestoreFn = func(ctx context.Context, dsn string, r io.Reader) error { return restoreFn(ctx, dsn, r) }
 	ops.RotateFn = func(dir string, keep int) ([]string, error) { return rotateFn(dir, keep) }
 	ops.KeepFn = func(getKV func(string) (string, error)) int { return keepFn(getKV) }
 }
 
-// realStore — 쓰기는 db.Repo, 읽기·ping은 풀로 위임하는 어댑터.
+// realStore — adapter delegating writes to db.Repo and reads/pings to the pool.
 type realStore struct {
 	repo *db.Repo
 	pool *pgxpool.Pool
 }
 
-// newRealStore — 접속 후 스키마를 보장한다(Migrate는 멱등).
+// newRealStore — ensures the schema after connecting (Migrate is idempotent).
 func newRealStore(ctx context.Context, dsn string) (Store, error) {
 	repo, err := db.NewRepo(ctx, dsn)
 	if err != nil {
@@ -143,11 +143,11 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 		return nil, err
 	}
 	s := &realStore{repo: repo, pool: pool}
-	// 컬럼이 뷰보다 먼저: 승격 게이트(v2~v4)를 Migrate의 뷰 재적용 앞에
-	// 돌린다. v4 뷰(views.sql)가 knowledge.read_count·last_read_at을
-	// 참조하므로, 레거시 v3 DB에서 컬럼 없이 뷰부터 만들면 CREATE VIEW가
-	// 42703으로 실패해 재시도를 소진하고(전 커맨드 실패) 뷰 DROP만 남아
-	// 구형 CLI도 파손한다. 신규 DB(테이블 부재)는 게이트가 no-op로 지나친다.
+	// columns before views: run the promotion gates (v2-v4) ahead of Migrate's view reapplication.
+	// Since the v4 views (views.sql) reference knowledge.read_count and last_read_at,
+	// creating the views first without the columns on a legacy v3 DB makes CREATE VIEW fail with
+	// 42703, exhausting retries (every command fails) and leaving only the views dropped,
+	// breaking old CLIs too. New DBs (no tables) pass the gate as a no-op.
 	latest, err := ensureSchemas(ctx, repo, s)
 	if err != nil {
 		s.Close()
@@ -157,11 +157,11 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 		s.Close()
 		return nil, err
 	}
-	// 2차 게이트 — 신규 DB는 Migrate가 schema_version=1로 테이블을 만들므로
-	// 여기서 v2→최신으로 자연 승격된다(기존 배포 경로 동일). F6(성능):
-	// 진입 probe(ensureSchemas)가 최신을 확인했으면 스킵 — Migrate는
-	// 버전을 내리지 않아 승격 원천이 없고, 뷰 최신성은 Migrate의
-	// views_hash 게이트가 계속 담당한다.
+	// second gate — a new DB gets its tables from Migrate at schema_version=1, so it is
+	// naturally promoted v2->latest here (same as the existing deployment path). F6 (performance):
+	// skip if the entry probe (ensureSchemas) already confirmed latest — Migrate never
+	// lowers the version, so there is no promotion source, and view freshness remains the
+	// responsibility of Migrate's views_hash gate.
 	if !latest {
 		if _, err := ensureSchemas(ctx, repo, s); err != nil {
 			s.Close()
@@ -171,23 +171,23 @@ func newRealStore(ctx context.Context, dsn string) (Store, error) {
 	return s, nil
 }
 
-// isPgUndefinedTable — 42P01(undefined table) 판정. db.isPgCode가 미내보출이라
-// cli 측 최소 구현으로 둔다(판정 로직 동일 — errors.As PgError.Code 비교).
+// isPgUndefinedTable — detects 42P01 (undefined table). db.isPgCode is unexported, so
+// a minimal cli-side copy stays here (same logic — errors.As PgError.Code comparison).
 func isPgUndefinedTable(err error) bool {
 	var pgErr *pgconn.PgError
 	return errors.As(err, &pgErr) && pgErr.Code == "42P01"
 }
 
-// schemaVersionFn — ensureSchemas 최신 단축의 schema_version 1회 조회
-// seam(F6 성능). ok=false는 조회 실패·meta 부재·미기록·비정수 — 기존
-// 순차 승격 경로(게이트 각자의 오류 처리)가 담당한다. 테스트는 호출
-// 카운트로 순회 스킵을 단언한다.
-// v1.7.2 T4(L1): probe가 42P01으로 실패하면 세션 카탈로그 부실 동기
-// 가능성이 있다(R38-B probeheal — 테이블이 실재해도 첫 조회가
-// undefined table로 나오는 Doltgres 실측) — st 풀에 SELECT 1을 1회
-// 실행해 카탈로그를 재동기한 뒤 probe를 1회 재시도한다. 재시도에서도
-// 42P01이면 진짜 신규 DB이므로 기존 순차 승격 경로로 폴백(왕복은
-// 신규 DB 접속당 최대 +2회).
+// schemaVersionFn — seam doing the single schema_version lookup for the ensureSchemas
+// latest shortcut (F6 performance). ok=false covers lookup failure, missing meta, unrecorded,
+// or non-integer — the existing sequential promotion path (each gate's own error handling)
+// takes over. Tests assert the walk is skipped via call counts.
+// v1.7.2 T4 (L1): if the probe fails with 42P01, the session catalog may be stale
+// (R38-B probeheal — a Doltgres observation where the first query reports
+// undefined table even though the table exists) — run SELECT 1 once on the st pool
+// to resynchronize the catalog, then retry the probe once. If it is still 42P01 on retry,
+// it is a genuinely new DB, so fall back to the existing sequential promotion path (at most
+// +2 round trips per new-DB connection).
 var schemaVersionFn = func(ctx context.Context, st Store) (version int, ok bool) {
 	rows, err := st.Query(ctx, `SELECT value FROM meta WHERE key = 'schema_version'`)
 	if err != nil {
@@ -210,15 +210,15 @@ var schemaVersionFn = func(ctx context.Context, st Store) (version int, ok bool)
 	return n, true
 }
 
-// ensureSchemas — 등록표(db.SchemaGates) 순차 승격(newRealStore 전용).
-// 순서 불변: v1 DB가 최신 버전으로 건너뛰며 중간 컬럼·인덱스·테이블을
-// 놓치지 않게 한다. 게이트 목록·순서는 등록표 단일 소스(연속성은
-// TestSchemaGatesContiguous·파생은 TestEnsureSchemasUsesGates 가드).
-// F6(성능) 최신 단축: 진입 시 schema_version 1회 조회(schemaVersionFn)
-// 로 최신(LatestSchemaVersion) DB는 순회를 통째로 건너뛴다 — 게이트
-// 8종이 각자 버전을 재조회하던 접속당 16왕복(2회 호출×8)을 probe 1회로.
-// 조회 실패·레거시·신규 DB는 기존 순차 승격 경로 유지. 반환값 latest는
-// 진입 probe가 최신을 확인했는지(newRealStore 2차 게이트 스킵 판정).
+// ensureSchemas — sequential promotion through the registry (db.SchemaGates), for newRealStore only.
+// Order invariant: lets a v1 DB jump to the latest version without missing intermediate
+// columns, indexes, or tables. The gate list and order are the single registry source (continuity is
+// guarded by TestSchemaGatesContiguous, derivation by TestEnsureSchemasUsesGates).
+// F6 (performance) latest shortcut: one schema_version lookup on entry (schemaVersionFn)
+// lets a latest (LatestSchemaVersion) DB skip the whole walk — instead of 16 round trips per
+// connection (2 calls x 8 gates each re-querying the version), one probe. Lookup failure,
+// legacy, or new DBs keep the existing sequential promotion path. The latest return value
+// tells whether the entry probe confirmed latest (used to skip the newRealStore second gate).
 func ensureSchemas(ctx context.Context, repo *db.Repo, st Store) (latest bool, err error) {
 	if v, ok := schemaVersionFn(ctx, st); ok && v >= db.LatestSchemaVersion {
 		return true, nil
@@ -231,7 +231,7 @@ func ensureSchemas(ctx context.Context, repo *db.Repo, st Store) (latest bool, e
 	return false, nil
 }
 
-// Close — 풀 정리.
+// Close — cleans up the pool.
 func (s *realStore) Close() {
 	s.repo.Close()
 	s.pool.Close()
@@ -274,7 +274,7 @@ func (s *realStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return out, rows.Err()
 }
 
-// --- 히스토리 계약 위임(방언 유일 소유는 db.Repo) ---
+// --- history-contract delegation (db.Repo is the sole dialect owner) ---
 
 func (s *realStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	return s.repo.LogEntries(ctx, q)
@@ -296,5 +296,5 @@ func (s *realStore) DiffCommits(ctx context.Context, fromHash, toHash string) ([
 	return s.repo.DiffCommits(ctx, fromHash, toHash)
 }
 
-// 컴파일 타임 보증 — realStore가 wire.Store 전체를 충족(R33 관례).
+// compile-time guarantee — realStore satisfies all of wire.Store (the R33 convention).
 var _ wire.Store = (*realStore)(nil)

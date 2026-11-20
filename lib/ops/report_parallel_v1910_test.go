@@ -1,9 +1,9 @@
-// report_parallel_v1910_test.go — v1.9.3 T2: report 수집 병렬화 회귀.
-// 1) 동시성 증명(배리어 — 순차 실행이면 타임아웃 실패)
-// 2) 병렬 경로 JSON 바이트 동치(순차 체인 오라클 대조)
-// 3) 오류 주입 시 순차와 동일 exit/ErrLine(우선순위 보존)
-// 4) slow: 실DB wall-clock 실측(격리 scratch DSN·합성 시드·3회 중애값).
-// 픽스처는 전부 합성 데모 데이터(개인 데이터 금지 원칙).
+// report_parallel_v1910_test.go — v1.9.3 T2: report collection-parallelization regressions.
+// 1) Concurrency proof (a barrier — under sequential execution it fails by timeout)
+// 2) Byte-identical JSON on the parallel path (compared against the sequential-chain oracle)
+// 3) On injected errors, the same exit/ErrLine as sequential (priority preserved)
+// 4) slow: real-DB wall-clock measurement (isolated scratch DSN, synthetic seed, median of 3).
+// All fixtures are synthetic demo data (the no-personal-data principle).
 package ops
 
 import (
@@ -27,10 +27,10 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// dispatchReportQuery — 병렬화 대상 4수집기(curation·stats·counts·
-// effect)가 두루 치는 질의의 풍성한 합성 응답(부재 응답이면 일부
-// 경로가 조용히 0 강등해 동시성·패리티 검증이 약해진다). SQL 부분
-// 일치 우선순위 주의 — 구체적인 패턴을 먼저 매칭한다.
+// dispatchReportQuery — rich synthetic responses for the queries the 4 parallelized
+// collectors (curation, stats, counts, effect) all hit (with absent responses, some paths
+// silently demote to 0, weakening the concurrency and parity verification). Mind the SQL
+// substring match precedence — match the more specific patterns first.
 func dispatchReportQuery(sql string) ([][]any, error) {
 	now := time.Now().UTC()
 	switch {
@@ -48,7 +48,7 @@ func dispatchReportQuery(sql string) ([][]any, error) {
 				[]any{"daily:import_added:" + d, "2"},
 			)
 		}
-		// 창 밖 키(배제 검증 — 합산되면 안 된다).
+		// out-of-window keys (exclusion verification — they must not be summed).
 		return append(rows, []any{"daily:write:" + now.AddDate(0, 0, -30).Format("2006-01-02"), "999"}), nil
 	case strings.Contains(sql, "near FROM read_events"): // mergeDerivedReadDaily
 		return [][]any{{now, false, false}, {now, true, true}, {now, false, false}}, nil
@@ -58,39 +58,39 @@ func dispatchReportQuery(sql string) ([][]any, error) {
 			{now, true, true, "", 0, 0, "unowned", 0},
 			{now, false, true, "3", 2, 250, "", 1},
 		}, nil
-	case strings.Contains(sql, "status = 'pending'"): // collectCounts 본집계
+	case strings.Contains(sql, "status = 'pending'"): // the collectCounts main tally
 		return [][]any{{int64(5), int64(50), int64(2)}}, nil
 	case strings.Contains(sql, "/* stale */"):
 		return [][]any{{int64(3), int64(1)}}, nil
-	case strings.Contains(sql, "invalid_at >= $1"): // 기간 무효화
+	case strings.Contains(sql, "invalid_at >= $1"): // period invalidations
 		return [][]any{{int64(1)}}, nil
 	case strings.Contains(sql, "read_count > 0"): // collectEffect active/reused
 		return [][]any{{int64(50), int64(15)}}, nil
 	case strings.Contains(sql, "/* dead */"):
 		return [][]any{{int64(1)}, {int64(2)}, {int64(7)}}, nil
-	case strings.Contains(sql, "id, topic FROM knowledge"): // 연쇄 topics
+	case strings.Contains(sql, "id, topic FROM knowledge"): // chain topics
 		return [][]any{{int64(1), "demo-topic-001"}, {int64(2), "demo-topic-002"}, {int64(3), "demo-topic-003"}}, nil
-	case strings.Contains(sql, "id, invalid_at, superseded_by"): // 회상 운명
+	case strings.Contains(sql, "id, invalid_at, superseded_by"): // recall fate
 		return [][]any{{int64(1), nil, nil}, {int64(2), nil, nil}}, nil
 	case strings.Contains(sql, "length(summary)"): // KnowledgeSummaryLens
 		return [][]any{{int64(1), int64(200)}, {int64(2), int64(180)}, {int64(3), int64(220)}}, nil
 	case strings.Contains(sql, "FROM hot_events"): // exposed·DerivedHotStats
 		return [][]any{{"1,2"}, {"3"}}, nil
-	case strings.Contains(sql, "FROM knowledge_reads"): // 회상 원천·hot 세션
+	case strings.Contains(sql, "FROM knowledge_reads"): // the recall source and hot sessions
 		return [][]any{{int64(1), now, "read"}, {int64(2), now, "hot"}, {int64(3), now, "read"}}, nil
 	case strings.Contains(sql, "FROM session_starts"):
 		return [][]any{{now.Add(-2 * time.Hour)}, {now.Add(-1 * time.Hour)}}, nil
 	case strings.Contains(sql, "ingested_at >="): // queryWrites
 		return [][]any{{now.Add(-30 * time.Minute), "demo-topic-001"}}, nil
-	case strings.Contains(sql, "FROM meta"): // thresholds·hot_budget 등 — 부재
+	case strings.Contains(sql, "FROM meta"): // thresholds, hot_budget, etc. — absent
 		return nil, nil
 	}
 	return [][]any{{int64(0), int64(0), int64(0)}}, nil
 }
 
-// parallelReportFake — errs(부분 문자열→오류) 우선, 나머지는 풍성한
-// 디스패치로 응답하는 fake. 오류는 매 질의마다 같은 문구의 새 인스턴스를
-// 반환한다(ErrLine 문자열 동일성용).
+// parallelReportFake — errs (substring -> error) takes precedence; the rest answers via
+// the rich dispatch. Errors return a fresh instance of the same wording per query
+// (for ErrLine string identity).
 func parallelReportFake(errs map[string]error) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		for pat, msg := range errs {
@@ -102,9 +102,9 @@ func parallelReportFake(errs map[string]error) *fakeStore {
 	}}
 }
 
-// reportSequentialJSON — 병렬화 전 순차 체인의 오라클(구 RunReport 본체
-// 순서 그대로: daily → curation → stats → counts → effect → 후처리 →
-// JSON). 병렬 산물과 바이트 단위로 비교한다. 반환 (한 줄 JSON+\n, exit).
+// reportSequentialJSON — the oracle of the pre-parallelization sequential chain (the old
+// RunReport body order as-is: daily -> curation -> stats -> counts -> effect ->
+// post-processing -> JSON). Compared byte-for-byte with the parallel output. Returns (the one-line JSON + \n, exit).
 func reportSequentialJSON(ctx context.Context, st wire.Store, days int) (string, int) {
 	th := knowledge.WriteThresholds(ctx, st)
 	if max := th.DailyRetentionD; max > 0 && days > max {
@@ -137,20 +137,20 @@ func reportSequentialJSON(ctx context.Context, st wire.Store, days int) (string,
 	return string(b) + "\n", 0
 }
 
-// TestReportParallelConcurrent — 배리어 증명: curation·stats·counts·
-// effect의 대표 질의 4종이 실제로 동시에 겹친다. 순차 실행이면 아무
-// 질의도 배리어를 통과하지 못해 타임아웃 오류 → exit≠0으로 실패한다
-// (병렬화 도입 전 red 단계).
+// TestReportParallelConcurrent — barrier proof: the 4 representative queries of
+// curation, stats, counts, and effect actually overlap in time. Under sequential
+// execution, no query passes the barrier, so a timeout error -> failure with exit != 0
+// (the red phase before parallelization was introduced).
 func TestReportParallelConcurrent(t *testing.T) {
-	const want = 4 // curation(daily 2회째)·stats(hot 세션)·counts(pending)·effect(reused)
+	const want = 4 // curation (the 2nd daily call), stats (hot sessions), counts (pending), effect (reused)
 	dailyCalls := 0
 	var mu sync.Mutex
 	entered := 0
 	joined := map[string]bool{}
 	release := make(chan struct{})
-	// join — 패턴 최초 질의만 배리어에 가입하고, 그 패턴의 이후 질의
-	// (QueryOnce 1회 재시도 포함)도 release까지 같이 막는다(sticky —
-	// 재시도 우회 방지).
+	// join — only a pattern's first query joins the barrier; that pattern's later queries
+	// (including the 1 QueryOnce retry) are also blocked until release (sticky —
+	// preventing a retry bypass).
 	join := func(pat string) error {
 		mu.Lock()
 		if !joined[pat] {
@@ -173,14 +173,14 @@ func TestReportParallelConcurrent(t *testing.T) {
 		case strings.Contains(sql, "LIKE 'daily:%'"):
 			mu.Lock()
 			dailyCalls++
-			second := dailyCalls == 2 // 1회째=collectDaily(선행), 2회째=collectCuration(병렬 구간)
+			second := dailyCalls == 2 // 1st = collectDaily (sequential), 2nd = collectCuration (the parallel section)
 			mu.Unlock()
 			if second {
 				return "curation"
 			}
-		case strings.Contains(sql, "FROM knowledge_reads"): // stats: DerivedHotStats 첫 질의
+		case strings.Contains(sql, "FROM knowledge_reads"): // stats: the first DerivedHotStats query
 			return "stats"
-		case strings.Contains(sql, "status = 'pending'"): // counts 본집계
+		case strings.Contains(sql, "status = 'pending'"): // the counts main tally
 			return "counts"
 		case strings.Contains(sql, "read_count > 0"): // effect active/reused
 			return "effect"
@@ -201,8 +201,8 @@ func TestReportParallelConcurrent(t *testing.T) {
 	}
 }
 
-// TestReportParallelJSONByteParity — 병렬 경로의 한 줄 JSON이 순차
-// 오라클과 바이트 동치(report_bytes·parity 계약 승계 — 기계 채널 불변).
+// TestReportParallelJSONByteParity — the parallel path's one-line JSON is byte-identical
+// to the sequential oracle (inheriting the report_bytes and parity contracts — the machine channel unchanged).
 func TestReportParallelJSONByteParity(t *testing.T) {
 	ctx := context.Background()
 	f := parallelReportFake(nil)
@@ -219,9 +219,9 @@ func TestReportParallelJSONByteParity(t *testing.T) {
 	}
 }
 
-// TestReportParallelErrorPriority — 오류 주입 시 순차와 동일 exit·
-// ErrLine. 복수 실패(counts+effect)에서는 순차 우선순위(counts) 오류가
-// 결정적으로 선택되어야 한다.
+// TestReportParallelErrorPriority — on injected errors, the same exit and ErrLine as
+// sequential. With multiple failures (counts + effect), the sequential-priority (counts)
+// error must be chosen deterministically.
 func TestReportParallelErrorPriority(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -262,10 +262,10 @@ func TestReportParallelErrorPriority(t *testing.T) {
 	}
 }
 
-// ── slow: 실DB wall-clock 실측 ──
+// ── slow: real-DB wall-clock measurement ──
 
-// reportSlowStore — lib/ops slow 테스트용 최소 실DB wire.Store(cli
-// realStore를 ops 테스트에 베끼지 않고 같은 배선 — repo+pool 조합).
+// reportSlowStore — the minimal real-DB wire.Store for lib/ops slow tests (the same
+// wiring without copying the cli realStore into ops tests — a repo + pool combination).
 type reportSlowStore struct {
 	wire.HistoryStubs
 	repo *db.Repo
@@ -304,10 +304,10 @@ func (s *reportSlowStore) Query(ctx context.Context, sql string, args ...any) ([
 	return out, rows.Err()
 }
 
-// seedReportSlow — 합성 데모 시드(전부 중류 데이터 — 개인 데이터 금지).
-// 병렬화 이득이 측정되도록 각 수집기 질의가 충분한 행을 훑게 한다:
+// seedReportSlow — synthetic demo seed (all mid-flow data — the no-personal-data rule).
+// Lets each collector's query scan enough rows for the parallelization gain to register:
 // knowledge 500·read_events 2000·knowledge_reads 800·hot_events 40·
-// session_starts 60·daily 플랫 키 13일치.
+// session_starts 60, daily flat keys over 13 days.
 func seedReportSlow(ctx context.Context, s *reportSlowStore, now time.Time) error {
 	var kb strings.Builder
 	kb.WriteString(`INSERT INTO knowledge (topic, summary, tags, domain, confidence, origin, status, content_hash, valid_at, ingested_at, read_count, last_read_at) VALUES `)
@@ -414,9 +414,9 @@ func seedReportSlow(ctx context.Context, s *reportSlowStore, now time.Time) erro
 }
 
 // TestReportParallelWallClockRealSlow — slow(SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN): 격리 scratch DB에서 순차·병렬 체인의 wall-clock을
-// 3회 측정해 중앙값을 비교·기록한다. 회귀 가드: 병렬 중앙값이 순차
-// 중앙값의 1.5배를 넘으면 실패. JSON 바이트 동치도 실DB에서 재확인.
+// FLINT_TEST_DSN): measures the wall-clock of the sequential and parallel chains on an
+// isolated scratch DB 3 times and compares/records the medians. Regression guard: the
+// test fails if the parallel median exceeds 1.5x the sequential median. JSON byte parity is also re-verified on the real DB.
 func TestReportParallelWallClockRealSlow(t *testing.T) {
 	if os.Getenv("SUPERLITE_REAL") != "1" || os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")

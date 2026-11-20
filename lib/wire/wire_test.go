@@ -1,7 +1,7 @@
-// 계약층 Run 디스패치의 특수 경로(store-free 3종·soft setup·
-// quiet compact/nudge)를 공장 주입형 시그니처로 직접 검증한다.
-// wire 패키지 단독 실행 시 registry가 비어 있으므로 각 서브테스트가
-// probe 핸들러를 직접 등록·정리한다(원 cli 배선 테스트 구조 승계).
+// Directly verifies the contract layer Run dispatch's special paths (the 3
+// store-free ones, soft setup, quiet compact/nudge) with the factory-injected
+// signature. When the wire package runs standalone the registry is empty, so each subtest
+// registers and cleans up its own probe handlers (inheriting the original cli wiring-test structure).
 package wire
 
 import (
@@ -15,8 +15,8 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// fakeStore — Store 인터페이스 최소 fake(디스패치 검증용).
-// HistoryStubs 임베딩으로 히스토리 5메서드는 미지원 기본구현 흡수.
+// fakeStore — a minimal Store interface fake (for dispatch verification).
+// The HistoryStubs embedding absorbs the 5 history methods as unsupported defaults.
 type fakeStore struct {
 	queries []string
 	HistoryStubs
@@ -42,14 +42,14 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return nil, nil
 }
 
-// probeHandler — 이름 등록 + 클린업. 핸들러 본체는 인자로.
+// probeHandler — registers the name + cleanup. The handler body comes as an argument.
 func probeHandler(t *testing.T, name string, h Handler) {
 	t.Helper()
 	Register(name, h)
 	t.Cleanup(func() { Unregister(name) })
 }
 
-// failFactory — 호출되면 안 되는 공장(store-free 경로 검증).
+// failFactory — a factory that must never be called (for store-free path verification).
 func failFactory(t *testing.T) func(ctx context.Context, dsn string) (Store, error) {
 	return func(ctx context.Context, dsn string) (Store, error) {
 		t.Errorf("newStore 공장 호출됨 — %q는 store-free여야 함", dsn)
@@ -57,18 +57,18 @@ func failFactory(t *testing.T) func(ctx context.Context, dsn string) (Store, err
 	}
 }
 
-// errFactory — 항상 실패하는 공장(DB 다운 시뮬레이션).
+// errFactory — a factory that always fails (simulating DB down).
 func errFactory(err error) func(ctx context.Context, dsn string) (Store, error) {
 	return func(ctx context.Context, dsn string) (Store, error) {
 		return nil, err
 	}
 }
 
-// TestWireRunDispatch — Run 특수 경로 디스패치.
-// store-free 3경로(version·teardown·mcp — 공장 미호출·st nil 주입)·
-// soft setup(공장 실패에도 핸들러 실행, st nil)·quiet compact(공장
-// 실패 시 st nil로 핸들러, exit는 핸들러 반환)·quiet nudge(공장 실패 시
-// 핸들러 미실행, MapExit 코드만 — 에러 JSON 미유출).
+// TestWireRunDispatch — Run's special-path dispatch.
+// The 3 store-free paths (version, teardown, mcp — factory not called, st nil
+// injected); soft setup (handler runs even on factory failure, st nil); quiet
+// compact (on factory failure, handler with st nil, exit = the handler's
+// return); quiet nudge (on factory failure, handler not run, only the MapExit code — no error JSON leaked).
 func TestWireRunDispatch(t *testing.T) {
 	t.Run("store_free_skips_factory", func(t *testing.T) {
 		for _, name := range []string{"version", "teardown", "mcp", "update"} {
@@ -76,7 +76,7 @@ func TestWireRunDispatch(t *testing.T) {
 				if st != nil {
 					t.Errorf("%s: store-free인데 store 주입됨", name)
 				}
-				return 7 // 핸들러 고유 코드 — 디스패치 통과 증명
+				return 7 // the handler's own code — proof of dispatch passthrough
 			})
 			var out bytes.Buffer
 			if code := Run([]string{name}, strings.NewReader(""), &out, failFactory(t)); code != 7 {
@@ -128,8 +128,8 @@ func TestWireRunDispatch(t *testing.T) {
 		}
 	})
 	t.Run("server_down_quiet_line_exit2", func(t *testing.T) {
-		// 원 cli TestServerDownExit2 이관: 일반 커맨드 store 접속 실패 시
-		// ErrLine 한 줄(server_down) + MapExit 코드. 핸들러는 미실행.
+		// moved from the original cli TestServerDownExit2: on a general command's store
+		// connection failure, 1 ErrLine (server_down) + the MapExit code. The handler is not run.
 		probeHandler(t, "write", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 			t.Error("write 핸들러 실행됨 — 공장 실패 시 핸들러 미실행")
 			return 0
@@ -144,9 +144,9 @@ func TestWireRunDispatch(t *testing.T) {
 		}
 	})
 	t.Run("unknown_command_single_line_json_exit3", func(t *testing.T) {
-		// unknown command도 무효 인자 계약 exit 3 통일.
-		// 출력은 error 키 없는 안내 형태 — message(unknown
-		// command 사실)+usage(커맨드 목록) 한 줄, 정보 내용 유지.
+		// unknown command is also unified to the invalid-arg contract exit 3.
+		// The output is the guidance form without an error key — message (the
+		// unknown-command fact) + usage (the command list) on one line, informational content kept.
 		var out bytes.Buffer
 		if code := Run([]string{"no-such-cmd"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
 			return &fakeStore{}, nil
@@ -173,7 +173,7 @@ func TestWireRunDispatch(t *testing.T) {
 		if code := Run(nil, strings.NewReader(""), &out, failFactory(t)); code != 1 {
 			t.Fatalf("exit=%d, want 1", code)
 		}
-		// UsageLine은 error 키 없는 안내형 — exit 1은 유지.
+		// UsageLine is the guidance form without an error key — exit 1 is kept.
 		if !strings.Contains(out.String(), `"usage":"flint <`) {
 			t.Fatalf("usage 미출력: %q", out.String())
 		}

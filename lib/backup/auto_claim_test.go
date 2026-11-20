@@ -9,9 +9,10 @@ import (
 	"time"
 )
 
-// TestAutoBackupClaimPreventsDuplicate — 병렬 done
-// 세션이 동시에 만료 창을 통과해도 CAS 선점으로 덤프는 정확히 1회.
-// claim은 원자 compare-exchange(실DB의 WHERE value=old와 동일 의미).
+// TestAutoBackupClaimPreventsDuplicate — even when parallel done sessions
+// pass the expiry window simultaneously, CAS claiming keeps the dump to
+// exactly once. claim is an atomic compare-exchange (same semantics as the
+// real-DB WHERE value=old).
 func TestAutoBackupClaimPreventsDuplicate(t *testing.T) {
 	origDump := dumpFn
 	defer func() { dumpFn = origDump }()
@@ -53,7 +54,7 @@ func TestAutoBackupClaimPreventsDuplicate(t *testing.T) {
 	}
 }
 
-// TestAutoBackupClaimSkipsWhenFresh — 신선 스탬프는 no-op(덤프 0회).
+// TestAutoBackupClaimSkipsWhenFresh — a fresh stamp is a no-op (zero dumps).
 func TestAutoBackupClaimSkipsWhenFresh(t *testing.T) {
 	origDump := dumpFn
 	defer func() { dumpFn = origDump }()

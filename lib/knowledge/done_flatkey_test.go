@@ -1,7 +1,8 @@
-// done_flatkey_test.go — recallStarvedToday 기록 원천
-// 전환 회귀. write는 플랫 키(daily:write:<date> int), read는
-// read_events 당일(UTC) 행 수 — 구 daily:<date> JSON 폴백 제거로
-// 카운터가 영구 0 동결되던 회상 경고 사망의 판정 경로.
+// done_flatkey_test.go — the recallStarvedToday recording-source switch
+// regression. Writes come from the flat key (daily:write:<date> int);
+// reads from the count of same-day (UTC) read_events rows — the verdict
+// path of the recall-warning death where counters froze permanently at 0
+// after removing the legacy daily:<date> JSON fallback.
 package knowledge
 
 import (
@@ -15,10 +16,11 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// flatKeyFake — meta 플랫 키·read_events 당일 COUNT를 응답하는 최소 fake
-// (fakeStore 관례 승계 — queryFn 경유, 미지정 쿼리는 영(零) 동작).
-// readEvents는 read_events ts 행을 흉내 낸다: 조회 인자 [lo, hi) 경계로
-// 행을 걸러 SQL WHERE ts >= $1 AND ts < $2와 동일하게 세어 돌려준다.
+// flatKeyFake — the minimal fake answering meta flat keys·the same-day
+// read_events COUNT (inheriting the fakeStore convention — via queryFn,
+// unspecified queries are a no-op). readEvents mimics read_events ts
+// rows: rows are filtered by the [lo, hi) query-argument bounds and
+// counted exactly as SQL WHERE ts >= $1 AND ts < $2 would.
 func flatKeyFake(t *testing.T, meta map[string]string, readEvents []time.Time, readErr error) *fakeStore {
 	t.Helper()
 	f := &fakeStore{}
@@ -31,7 +33,7 @@ func flatKeyFake(t *testing.T, meta map[string]string, readEvents []time.Time, r
 			if v, ok := meta[fmt.Sprint(args[0])]; ok {
 				return [][]any{{v}}, nil
 			}
-			return nil, nil // 키 부재 — GetMetaKVErr ("", false, nil) 계약
+			return nil, nil // key absent — the GetMetaKVErr ("", false, nil) contract
 		case strings.Contains(sql, "FROM read_events"):
 			if readErr != nil {
 				return nil, readErr
@@ -54,14 +56,16 @@ func flatKeyFake(t *testing.T, meta map[string]string, readEvents []time.Time, r
 	return f
 }
 
-// flatTestThresholds — 판정 임계 고정(기본값 변동과 무결).
+// flatTestThresholds — the verdict threshold fixed (immune to default
+// drift).
 func flatTestThresholds() store.Thresholds {
 	return store.Thresholds{RecallWarnWrites: 5}
 }
 
-// TestRecallStarvedFlatKey — daily:write:<오늘>=5 + read_events 0행 →
-// (5, true). 구 daily:<오늘> JSON 키는 무시됨을 함께 확인(폴백이 읽히면
-// write=99·read=9로 판정이 뒤집힌다 — 폴백 제거 계약).
+// TestRecallStarvedFlatKey — daily:write:<today>=5 + 0 read_events rows
+// → (5, true). Also confirms the legacy daily:<today> JSON key is ignored
+// (if the fallback were read, the verdict would flip to write=99·read=9
+// — the fallback-removal contract).
 func TestRecallStarvedFlatKey(t *testing.T) {
 	today := time.Now().UTC().Format("2006-01-02")
 	f := flatKeyFake(t, map[string]string{
@@ -74,18 +78,19 @@ func TestRecallStarvedFlatKey(t *testing.T) {
 	}
 }
 
-// TestRecallStarvedReadEventsToday — read 카운터는 read_events 당일(UTC)
-// 행 수: 오늘 2행 + 내일 1행이면 read=2(내일 행 제외) → 회상 있음,
-// writes를 그대로 돌려주되 경고 없음.
+// TestRecallStarvedReadEventsToday — the read counter is the same-day
+// (UTC) row count of read_events: 2 rows today + 1 tomorrow means read=2
+// (tomorrow's row excluded) → recalls exist; writes are returned as-is
+// without a warning.
 func TestRecallStarvedReadEventsToday(t *testing.T) {
 	now := time.Now().UTC()
 	today := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
 	f := flatKeyFake(t,
 		map[string]string{"daily:write:" + now.Format("2006-01-02"): "7"},
 		[]time.Time{
-			today.Add(1 * time.Hour),              // 오늘
-			today.Add(23*time.Hour - time.Minute), // 오늘 (자정 직전)
-			today.AddDate(0, 0, 1).Add(time.Hour), // 내일 — 제외
+			today.Add(1 * time.Hour),              // today
+			today.Add(23*time.Hour - time.Minute), // today (just before midnight)
+			today.AddDate(0, 0, 1).Add(time.Hour), // tomorrow — excluded
 		}, nil)
 	w, starved := recallStarvedToday(context.Background(), f, flatTestThresholds())
 	if starved {
@@ -96,8 +101,8 @@ func TestRecallStarvedReadEventsToday(t *testing.T) {
 	}
 }
 
-// TestRecallStarvedCorruptValue — daily:write:<오늘> 파손값(비int)은
-// 기존처럼 조용히 0 → (0, false).
+// TestRecallStarvedCorruptValue — a corrupt (non-int) daily:write:<today>
+// value is quietly 0 as before → (0, false).
 func TestRecallStarvedCorruptValue(t *testing.T) {
 	today := time.Now().UTC().Format("2006-01-02")
 	f := flatKeyFake(t, map[string]string{"daily:write:" + today: "abc"}, nil, nil)
@@ -107,9 +112,10 @@ func TestRecallStarvedCorruptValue(t *testing.T) {
 	}
 }
 
-// TestRecallStarvedReadQueryError — read_events 조회 실패(테이블 없는 구
-// 스키마 등)는 read=0 취급이 아니라 조용히 (0, false)(§13 종료 경로
-// 불변 — 조회 에러는 경고 없이 false).
+// TestRecallStarvedReadQueryError — a read_events lookup failure (an old
+// schema without the table etc.) is quietly (0, false), not treated as
+// read=0 (§13 exit-path invariance — a lookup error is a warning-free
+// false).
 func TestRecallStarvedReadQueryError(t *testing.T) {
 	today := time.Now().UTC().Format("2006-01-02")
 	f := flatKeyFake(t,

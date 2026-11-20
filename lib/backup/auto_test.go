@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// fakeDump 은 dumpFn seam을 교체해 실 DB 없이 덤프 기록을 흉내 낸다.
-// SUPERLITE_REAL=1이면 실 Dump가 사용된다(slow 대상).
+// fakeDump swaps the dumpFn seam to fake dump writing without a real DB.
+// With SUPERLITE_REAL=1 the real Dump is used (slow suite).
 func fakeDump(t *testing.T, calls *int) {
 	t.Helper()
 	orig := dumpFn
@@ -32,7 +32,7 @@ func realDumpEnv(t *testing.T) {
 	}
 }
 
-// 23h59m no / 24h01m yes 경계.
+// the 23h59m no / 24h01m yes boundary.
 func TestShouldBackupBoundary(t *testing.T) {
 	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -53,7 +53,7 @@ func TestShouldBackupBoundary(t *testing.T) {
 	}
 }
 
-// 경과 시 덤프 기록+last_backup 메타 갱신.
+// elapsed: write the dump + update the last_backup meta.
 func TestRunIfNeededBacksUp(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -89,7 +89,7 @@ func TestRunIfNeededBacksUp(t *testing.T) {
 	}
 }
 
-// 비경과 시 no-op — 덤프도 메타 갱신도 일어나지 않는다.
+// not elapsed: no-op — neither the dump nor the meta update happens.
 func TestRunIfNeededSkipsRecent(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -109,7 +109,7 @@ func TestRunIfNeededSkipsRecent(t *testing.T) {
 	}
 }
 
-// setKV 실패 시 에러 반환 + 메타 미기록 → 다음 재시도.
+// setKV failure: error returned + meta not recorded -> retried next time.
 func TestRunIfNeededClaimFailureRetries(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -134,7 +134,7 @@ func TestRunIfNeededClaimFailureRetries(t *testing.T) {
 	if calls != 0 {
 		t.Errorf("claim 실패 시 덤프하면 안 됨: %d회", calls)
 	}
-	// 메타가 여전히 과거 값이므로 다음 호출은 다시 백업을 시도한다.
+	// The meta still holds the old value, so the next call retries the backup.
 	calls = 0
 	if err := a.RunIfNeeded(context.Background(),
 		func(k string) (string, error) { return old, nil },
@@ -147,7 +147,7 @@ func TestRunIfNeededClaimFailureRetries(t *testing.T) {
 	}
 }
 
-// meta 읽기 실패는 에러로 전달한다(비차단은 호출부 책임).
+// A meta read failure is propagated as an error (non-blocking is the caller's job).
 func TestRunIfNeededMetaReadError(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -165,7 +165,7 @@ func TestRunIfNeededMetaReadError(t *testing.T) {
 	}
 }
 
-// SUPERLITE_REAL=1 — 실 Dump로 동일 시나리오(DSN 필요).
+// SUPERLITE_REAL=1 — the same scenario with the real Dump (DSN required).
 func TestRunIfNeededRealDump(t *testing.T) {
 	realDumpEnv(t)
 	orig := dumpFn
@@ -186,8 +186,8 @@ func TestRunIfNeededRealDump(t *testing.T) {
 	}
 }
 
-// TestShouldBackupIntervalOverride — backup_interval_h가
-// 주기 판정을 바꾼다(기본 24h, 오버라이드 6h).
+// TestShouldBackupIntervalOverride — backup_interval_h changes the interval
+// verdict (default 24h, override 6h).
 func TestShouldBackupIntervalOverride(t *testing.T) {
 	now := time.Now().UTC()
 	last := now.Add(-12 * time.Hour).Format(time.RFC3339)

@@ -1,11 +1,11 @@
-// Package wire — flint CLI 계약층. Store 인터페이스·디스패치
-// Run·registry·DSN 해결·에러 한 줄 JSON·meta KV 접근을 소유한다.
-// 커맨드 구현(lib/cli)은 공장 함수·Register로 이 층에 연결된다.
+// Package wire — the flint CLI contract layer. Owns the Store interface, dispatch
+// Run, registry, DSN resolution, the one-line error JSON, and meta KV access.
+// Command implementations (lib/cli) connect to this layer via factory functions and Register.
 package wire
 
 import "context"
 
-// Store — 커맨드가 필요한 저장소 연산. 테스트는 fake으로 주입한다.
+// Store — the store operations commands need. Tests inject fakes.
 type Store interface {
 	Migrate(ctx context.Context) error
 	InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error)
@@ -15,7 +15,7 @@ type Store interface {
 	Ping(ctx context.Context) error
 	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
 	Close()
-	// 히스토리 계약 5메서드 — 타입·기본구현은 history.go.
+	// the 5 history-contract methods — types and default implementations in history.go.
 	LogEntries(ctx context.Context, q LogQuery) ([]LogEntry, error)
 	QueryAsOf(ctx context.Context, q AsOfQuery) ([][]any, error)
 	DiffRows(ctx context.Context, fromHash, toHash string) ([]KnowledgeDiffRow, error)
@@ -23,7 +23,7 @@ type Store interface {
 	DiffCommits(ctx context.Context, fromHash, toHash string) ([]DiffCommitSummary, error)
 }
 
-// QueryOnce — reader 계열 재시도 1회 후 실패 전파(spec §7 읽기).
+// QueryOnce — retries reader-family queries once, then propagates the failure (spec §7 reads).
 func QueryOnce(ctx context.Context, st Store, sql string, args []any) ([][]any, error) {
 	rows, err := st.Query(ctx, sql, args...)
 	if err != nil {

@@ -1,4 +1,5 @@
-// schema_v06_test.go — schema v4(항목 참조 계측 컬럼) fast 테스트.
+// schema_v06_test.go — schema v4 (item reference-metering columns)
+// fast tests.
 package sqlfs
 
 import (
@@ -6,9 +7,9 @@ import (
 	"testing"
 )
 
-// TestSchemaV4Columns — v4 신규 컬럼 knowledge.read_count·last_read_at가
-// 신규 DB 생성 시점(스키마 SQL)에 포함된다. 기존 v3 DB는 admin.go의
-// EnsureSchemaV4 게이트가 ALTER로 적용한다.
+// TestSchemaV4Columns — the v4 new columns knowledge.read_count·
+// last_read_at are included at fresh-DB creation (the schema SQL).
+// Existing v3 DBs get them via admin.go's EnsureSchemaV4 gate ALTER.
 func TestSchemaV4Columns(t *testing.T) {
 	knowledge := tableBlock(t, "knowledge")
 	if !regexp.MustCompile(`(?m)^\s*read_count\s+integer\s+NOT NULL DEFAULT 0\s*(,|--|$)`).

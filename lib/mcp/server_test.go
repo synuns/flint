@@ -108,8 +108,8 @@ func TestUnknownMethod(t *testing.T) {
 	}
 }
 
-// TestServeSkipTooLongLine — 상한 초과 줄 이후 요청은
-// 여전히 처리된다(서버 생존).
+// TestServeSkipTooLongLine — requests after an over-limit line are still
+// processed (the server survives).
 func TestServeSkipTooLongLine(t *testing.T) {
 	huge := strings.Repeat("x", 5*1024*1024) + "\n"
 	normal := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n"
@@ -125,13 +125,15 @@ func TestServeSkipTooLongLine(t *testing.T) {
 	}
 }
 
-// TestServeFlushesEachResponseImmediately — 각 응답은 write
-// 직후 즉시 flush된다 — 입력 EOF 전까지 bufio 버퍼에 머무르면 요청-응답
-// 왕복 클라이언트가 데드락한다. io.Pipe로 입력을 열어 둔 채 응답 도달을
-// 단언(EOF 폭주 시 deferred flush로도 늦게 도달하므로 타임아웃이 판정).
+// TestServeFlushesEachResponseImmediately — each response is flushed
+// immediately after write — if it lingered in the bufio buffer until input
+// EOF, a request-response roundtrip client would deadlock. With io.Pipe
+// keeping the input open, we assert the response arrives (if EOF arrives
+// in a burst the deferred flush delivers it late, so the timeout is the
+// judge).
 func TestServeFlushesEachResponseImmediately(t *testing.T) {
-	pr, pw := io.Pipe() // 입력 — 닫지 않고 열어 둔다(EOF 없음)
-	cr, cw := io.Pipe() // 출력 — Serve의 w
+	pr, pw := io.Pipe() // input — kept open, never closed (no EOF)
+	cr, cw := io.Pipe() // output — Serve's w
 	defer pr.Close()
 
 	go func() {
@@ -151,7 +153,7 @@ func TestServeFlushesEachResponseImmediately(t *testing.T) {
 	done := make(chan lineResult, 1)
 	go func() {
 		var one [512]byte
-		n, err := cr.Read(one[:]) // 출력 파이프에서 개행 1줄이 오려면 flush돼야 한다
+		n, err := cr.Read(one[:]) // for one newline-delimited line to arrive on the output pipe, it must be flushed
 		done <- lineResult{one[:n], err}
 	}()
 	select {
@@ -168,10 +170,10 @@ func TestServeFlushesEachResponseImmediately(t *testing.T) {
 	pw.Close()
 }
 
-// TestServeTooLongLineGetsErrorResponse — 초과 줄을
-// 무응답으로 버리면 응답을 기다리는 클라이언트가 타임아웃한다. 초과 줄에는
-// -32600 응답 1줄을 돌려주고(id는 복원 불가라 null), 이후 요청은 계속
-// 처리된다.
+// TestServeTooLongLineGetsErrorResponse — dropping the over-limit line
+// without a reply would time out clients waiting for a response. The
+// oversized line gets one -32600 response line (id null, since it cannot
+// be recovered), and later requests keep being processed.
 func TestServeTooLongLineGetsErrorResponse(t *testing.T) {
 	huge := `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"arguments":{"payload":"` +
 		strings.Repeat("x", 5*1024*1024) + `"}}` + "\n"

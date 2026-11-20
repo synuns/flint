@@ -1,7 +1,7 @@
-// maintain_test.go — maintain 검토 TUI 계약 테스트. 소스 탭
-// 전이·상세(양쪽 본문·보존 미리보기)·위임 seam(merge/invalidate — 기존
-// maintain --merge·--invalidate 경로 재사용 단언)·GlobalIndex 필터 회귀·
-// 로더 fake·비터미널 폴백. 합성 데모 데이터만 사용(개인 데이터 금지).
+// maintain_test.go — the maintain review TUI contract tests. Source tab
+// transitions, detail (both bodies, preservation preview), delegation seams (merge/
+// invalidate — asserting reuse of the existing maintain --merge and --invalidate
+// paths), the GlobalIndex filter regression, loader fakes, and the non-terminal fallback.
 package tui
 
 import (
@@ -21,9 +21,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ── 테스트 픽스처 ──
+// ── test fixtures ──
 
-// demoMaintainData — 3소스 각 1건 합성 데모.
+// demoMaintainData — 1 synthetic demo item per source.
 func demoMaintainData() MaintainData {
 	return MaintainData{
 		Dup:      []MaintainSuspect{{Source: MaintainDup, Topic: "demo topic dup", IDs: []int{3, 5}}},
@@ -32,7 +32,7 @@ func demoMaintainData() MaintainData {
 	}
 }
 
-// demoMaintainBodies — 상세·선택 화면 본문 캐시용 합성 데모.
+// demoMaintainBodies — a synthetic demo for the detail/pick body cache.
 func demoMaintainBodies() map[int]MaintainBody {
 	return map[int]MaintainBody{
 		3:  {ID: 3, Topic: "demo topic dup", Summary: "demo body three", Origin: "hook", ValidAt: "2026-10-01"},
@@ -44,12 +44,12 @@ func demoMaintainBodies() map[int]MaintainBody {
 	}
 }
 
-// staticMaintainBodies — 고정 본문 로더 fake.
+// staticMaintainBodies — a fixed body loader fake.
 func staticMaintainBodies(bs map[int]MaintainBody) func(context.Context, []int) (map[int]MaintainBody, error) {
 	return func(context.Context, []int) (map[int]MaintainBody, error) { return bs, nil }
 }
 
-// recorderMaintainActions — 호출 기록 fake(기본 fixture).
+// recorderMaintainActions — a call-recording fake (the default fixture).
 type recorderMaintainActions struct {
 	merges      [][2]int // {from, to}
 	invalidates []int
@@ -68,8 +68,8 @@ func (r *recorderMaintainActions) actions() MaintainActions {
 	}
 }
 
-// mUpdate / mDrive / mPump / mApplyFilter — pending 헬퍼 관례의 maintain판
-// (이름 충돌 회피 — keyMsg·sizeMsg·stripANSI는 pending_test 공유).
+// mUpdate / mDrive / mPump / mApplyFilter — the maintain versions of the pending
+// helper conventions (name-collision avoidance — keyMsg, sizeMsg, and stripANSI are shared in pending_test).
 func mUpdate(m MaintainModel, msg tea.Msg) MaintainModel {
 	m2, _ := m.Update(msg)
 	return m2.(MaintainModel)
@@ -112,16 +112,16 @@ func mApplyFilter(m MaintainModel, text string) MaintainModel {
 	return mPump(m, c)
 }
 
-// newDemoMaintainModel — 기본 fixture 조립.
+// newDemoMaintainModel — assembles the default fixture.
 func newDemoMaintainModel(acts MaintainActions) MaintainModel {
 	return NewMaintainModel(context.Background(), demoMaintainData(),
 		MaintainLoaders{Bodies: staticMaintainBodies(demoMaintainBodies())}, acts)
 }
 
-// ── RF 전이: 소스 탭·상세 ──
+// ── RF transitions: source tabs, detail ──
 
-// RF1 — 목록: 소스 탭 헤더(활성 강조)·주제 노출, tab 키 소스 전환,
-// enter→상세(양쪽 본문 + 보존 미리보기), esc→복귀.
+// RF1 — list: source tab header (active highlighted), topic shown; the tab key
+// switches sources; enter -> detail (both bodies + preservation preview); esc -> back.
 func TestMaintainTabsAndDetailTransition(t *testing.T) {
 	m := newDemoMaintainModel(MaintainActions{})
 	m = mUpdate(m, sizeMsg(80, 24))
@@ -134,7 +134,7 @@ func TestMaintainTabsAndDetailTransition(t *testing.T) {
 	if m.mode != maintainList {
 		t.Fatalf("initial mode = %v, want maintainList", m.mode)
 	}
-	// tab 전환: dup → conflict → stale.
+	// tab switching: dup -> conflict -> stale.
 	m = mUpdate(m, keyMsg("tab"))
 	if !strings.Contains(m.View(), "[conflict-suspects") {
 		t.Errorf("after tab, conflict tab not active\nview:\n%s", m.View())
@@ -146,11 +146,11 @@ func TestMaintainTabsAndDetailTransition(t *testing.T) {
 	if !strings.Contains(m.View(), "[stale") {
 		t.Errorf("after tab x2, stale tab not active\nview:\n%s", m.View())
 	}
-	m = mUpdate(m, keyMsg("tab")) // stale → dup (빈 탭 스킵 — 전부 비어 있지 않으므로 순환)
+	m = mUpdate(m, keyMsg("tab")) // stale -> dup (skipping empty tabs — all non-empty, so it cycles)
 	if !strings.Contains(m.View(), "[dup-suspects") {
 		t.Errorf("after tab x3, dup tab not active\nview:\n%s", m.View())
 	}
-	// 상세 진입: 본문 지연 로드(계약 — enter 시점 로드).
+	// entering detail: lazy body loading (the contract — loading at enter time).
 	m, cmd := mDrive(m, enterMsg())
 	if m.mode != maintainList || !strings.Contains(m.View(), "loading") {
 		t.Fatalf("enter should defer detail until bodies load (mode=%v)\nview:\n%s", m.mode, m.View())
@@ -168,7 +168,7 @@ func TestMaintainTabsAndDetailTransition(t *testing.T) {
 			t.Errorf("detail view missing %q\nview:\n%s", want, d)
 		}
 	}
-	// RF 미리보기 — merge UX 원칙: "무엇이 보존되는지" 명시.
+	// RF preview — the merge UX principle: stating "what will be preserved".
 	if !strings.Contains(stripANSI(d), "preserved") {
 		t.Errorf("detail view missing preservation preview\nview:\n%s", d)
 	}
@@ -178,7 +178,7 @@ func TestMaintainTabsAndDetailTransition(t *testing.T) {
 	}
 }
 
-// RF1 — stale 상세: invalidate 미리보기 + 되돌림 경로(asof) 안내.
+// RF1 — stale detail: the invalidate preview + recovery-path (asof) guidance.
 func TestMaintainStaleDetailPreview(t *testing.T) {
 	m := newDemoMaintainModel(MaintainActions{})
 	m = mUpdate(m, sizeMsg(80, 24))
@@ -197,7 +197,7 @@ func TestMaintainStaleDetailPreview(t *testing.T) {
 	}
 }
 
-// RF1 — 본문 로드 실패: 목록 유지 + 원인 status(재시도 가능).
+// RF1 — body load failure: list kept + cause in status (retry possible).
 func TestMaintainDetailBodyLoadError(t *testing.T) {
 	ld := MaintainLoaders{Bodies: func(context.Context, []int) (map[int]MaintainBody, error) {
 		return nil, errors.New("demo store down")
@@ -214,10 +214,10 @@ func TestMaintainDetailBodyLoadError(t *testing.T) {
 	}
 }
 
-// ── RF 위임: merge ──
+// ── RF delegation: merge ──
 
-// RF2 — m: 생존자(survivor) 선택 화면 → enter 위임(from=나머지, to=선택)
-// + 그룹 제거 + 보존 status. 위임은 maintain --merge --from N --to M 등가.
+// RF2 — m: the survivor pick screen -> enter delegates (from = the rest, to = the
+// selected) + group removal + preservation status. The delegation is equivalent to maintain --merge --from N --to M.
 func TestMaintainMergePickFlowDelegates(t *testing.T) {
 	rec := &recorderMaintainActions{}
 	m := newDemoMaintainModel(rec.actions())
@@ -253,7 +253,7 @@ func TestMaintainMergePickFlowDelegates(t *testing.T) {
 	}
 }
 
-// RF2 — pick 화면에서 커서 이동 후 enter: 선택한 쪽이 survivor(to)가 된다.
+// RF2 — moving the cursor on the pick screen then enter: the chosen side becomes the survivor (to).
 func TestMaintainMergePickSecondSurvivor(t *testing.T) {
 	rec := &recorderMaintainActions{}
 	m := newDemoMaintainModel(rec.actions())
@@ -261,14 +261,14 @@ func TestMaintainMergePickSecondSurvivor(t *testing.T) {
 	m, cmd := mDrive(m, keyMsg("m"))
 	m, _ = mDrive(m, cmd())
 	m = mUpdate(m, keyMsg("down"))
-	// enter 확정은 부수효과(위임 기록)만 검사 대상 — 반환 모델 미사용(SA4006).
+	// the enter confirmation's side effect (the delegation record) is the only thing under test — the returned model is unused (SA4006).
 	mUpdate(m, enterMsg())
 	if len(rec.merges) != 1 || rec.merges[0] != [2]int{3, 5} {
 		t.Fatalf("merges = %v, want [{3 5}] (survivor=5)", rec.merges)
 	}
 }
 
-// RF2 — merge 실패(exit != 0): 그룹 유지 + 실패 status(원인 표기).
+// RF2 — merge failure (exit != 0): group kept + failure status (cause shown).
 func TestMaintainMergeFailureKeepsGroup(t *testing.T) {
 	acts := MaintainActions{Merge: func(ctx context.Context, from, to int) (int, string) {
 		return 1, "not_found"
@@ -287,7 +287,7 @@ func TestMaintainMergeFailureKeepsGroup(t *testing.T) {
 	}
 }
 
-// RF2 — 원인 없는 실패: exit code 폴백 표기(계약 5 승계).
+// RF2 — failure without a cause: the exit-code fallback display (inheriting contract 5).
 func TestMaintainMergeFailureFallsBackToExitCode(t *testing.T) {
 	acts := MaintainActions{Merge: func(ctx context.Context, from, to int) (int, string) {
 		return 3, ""
@@ -302,7 +302,7 @@ func TestMaintainMergeFailureFallsBackToExitCode(t *testing.T) {
 	}
 }
 
-// RF2 — merge는 dup/conflict 그룹 전용: stale 탭에서 m은 안내만.
+// RF2 — merge is dup/conflict-group only: on the stale tab, m just shows a notice.
 func TestMaintainMergeRejectedOnStale(t *testing.T) {
 	rec := &recorderMaintainActions{}
 	m := newDemoMaintainModel(rec.actions())
@@ -318,9 +318,9 @@ func TestMaintainMergeRejectedOnStale(t *testing.T) {
 	}
 }
 
-// ── RF 위임: invalidate ──
+// ── RF delegation: invalidate ──
 
-// RF3 — i(stale): 본문 로드·선택 없이 즉시 위임 + 되돌림 경로 안내.
+// RF3 — i (stale): delegates immediately without body loading or picking + recovery-path guidance.
 func TestMaintainInvalidateStaleDirectWithUndoHint(t *testing.T) {
 	rec := &recorderMaintainActions{}
 	m := newDemoMaintainModel(rec.actions())
@@ -346,7 +346,7 @@ func TestMaintainInvalidateStaleDirectWithUndoHint(t *testing.T) {
 	}
 }
 
-// RF3 — i(dup/conflict 그룹): 무효화할 id 선택 화면 → enter 위임.
+// RF3 — i (dup/conflict groups): the id pick screen -> enter delegates.
 func TestMaintainInvalidateGroupPickDelegates(t *testing.T) {
 	rec := &recorderMaintainActions{}
 	m := newDemoMaintainModel(rec.actions())
@@ -368,7 +368,7 @@ func TestMaintainInvalidateGroupPickDelegates(t *testing.T) {
 	}
 }
 
-// RF3 — invalidate 실패: 항목 유지 + 원인 status.
+// RF3 — invalidate failure: item kept + cause in status.
 func TestMaintainInvalidateFailureKeepsItem(t *testing.T) {
 	acts := MaintainActions{Invalidate: func(ctx context.Context, id int) (int, string) {
 		return 1, "nonexistent ids"
@@ -387,9 +387,9 @@ func TestMaintainInvalidateFailureKeepsItem(t *testing.T) {
 	}
 }
 
-// ── RF keep·quit·종료 ──
+// ── RF keep, quit, exit ──
 
-// RF4 — k: 위임 없이 검토 목록에서 제거 + "kept" status.
+// RF4 — k: removes from the review list without delegation + a "kept" status.
 func TestMaintainKeepRemovesWithoutDelegation(t *testing.T) {
 	rec := &recorderMaintainActions{}
 	m := newDemoMaintainModel(rec.actions())
@@ -406,7 +406,7 @@ func TestMaintainKeepRemovesWithoutDelegation(t *testing.T) {
 	}
 }
 
-// RF4 — q: 종료 커맨드 반환.
+// RF4 — q: returns the quit command.
 func TestMaintainQuitReturnsTeaQuit(t *testing.T) {
 	m := newDemoMaintainModel(MaintainActions{})
 	_, cmd := m.Update(keyMsg("q"))
@@ -418,7 +418,7 @@ func TestMaintainQuitReturnsTeaQuit(t *testing.T) {
 	}
 }
 
-// RF4 — 마지막 항목 처리 후 전소스 비면 자동 종료.
+// RF4 — after the last item is processed, auto-exits when all sources are empty.
 func TestMaintainAllSourcesEmptyQuits(t *testing.T) {
 	data := MaintainData{Stale: demoMaintainData().Stale}
 	rec := &recorderMaintainActions{}
@@ -434,11 +434,11 @@ func TestMaintainAllSourcesEmptyQuits(t *testing.T) {
 	}
 }
 
-// ── RF-state: GlobalIndex 필터 회귀 ──
+// ── RF-state: the GlobalIndex filter regression ──
 
-// RF-state — 필터 적용 상태의 액션은 visible 인덱스 → 전체 인덱스
-// 환산(GlobalIndex — pending #id 필터 회귀 승계). stale 2건 중 "#12"
-// 필터 후 i는 12번을 무효화한다.
+// RF-state — actions under an applied filter convert the visible index -> the full
+// index (GlobalIndex — inheriting the pending #id filter regression). Of 2 stale
+// items, after the "#12" filter, i invalidates #12.
 func TestMaintainFilteredInvalidateUsesGlobalIndex(t *testing.T) {
 	data := demoMaintainData()
 	data.Stale = append(data.Stale, MaintainSuspect{Source: MaintainStale, Topic: "demo topic stale two", IDs: []int{12}, Reason: "never_read", StaleDays: 200})
@@ -458,13 +458,13 @@ func TestMaintainFilteredInvalidateUsesGlobalIndex(t *testing.T) {
 	}
 }
 
-// ── 필터 중 제거 — SetItems 전량 재조립 ──
+// ── removal during filtering — the full SetItems reassembly ──
 
-// 필터 적용 상태의 제거(stale invalidate) 후에도
-// GlobalIndex가 전체 목록과 일치해야 한다: RemoveItem 비대칭(items는 전역
-// 인덱스·filteredItems는 필터 위치 → filteredItem.index 잔류) 대신 SetItems
-// 전량 재조립으로 통일. "#12" 필터 → i(12 무효화·제거) → 빈 재필터 해제 →
-// 두 번째 i는 남은 #7을 지목.
+// After a removal under an applied filter (stale invalidate), the
+// GlobalIndex must still match the full list: instead of the RemoveItem asymmetry
+// (items by global index, filteredItems by filter position -> a stale
+// filteredItem.index), everything uses the full SetItems reassembly. The "#12"
+// filter -> i (invalidates and removes 12) -> the empty refilter is cleared -> the second i targets the remaining #7.
 func TestMaintainFilteredInvalidateThenSecondActionTargetsRemaining(t *testing.T) {
 	data := demoMaintainData()
 	data.Stale = append(data.Stale, MaintainSuspect{Source: MaintainStale, Topic: "demo topic stale two", IDs: []int{12}, Reason: "never_read", StaleDays: 200})
@@ -483,7 +483,7 @@ func TestMaintainFilteredInvalidateThenSecondActionTargetsRemaining(t *testing.T
 	if m.lists[m.tab].FilterState() != list.Unfiltered {
 		t.Errorf("empty re-filter must reset filter, state = %v", m.lists[m.tab].FilterState())
 	}
-	if !strings.Contains(m.View(), "120d") { // 남은 #7(stale · 120d) 가시
+	if !strings.Contains(m.View(), "120d") { // the remaining #7 (stale, 120d) is visible
 		t.Errorf("after removal view lost remaining item #7\nview:\n%s", m.View())
 	}
 	m, cmd = mDrive(m, keyMsg("i"))
@@ -493,21 +493,21 @@ func TestMaintainFilteredInvalidateThenSecondActionTargetsRemaining(t *testing.T
 	}
 }
 
-// ── 목록 높이 산정 ──
+// ── list height computation ──
 
-// 목록 높이 h=height-4는 실제 비목록 라인(소스 탭
-// 헤더 + 키 안내·status·비대화 안내 + 구분 공백 — 최대 7행)보다 적어
-// 화면이 단말 높이를 넘겼다. 목록(status 포함 최악)·pick 화면 모두 View
-// 렌더 라인 수가 단말 높이 이내. 단말 높이 ≥ 17: bubbles 내부 크롬(제목·
-// 상태바·페이지네이션·help — 2행씩)과 최소 항목 1건 포함에 h ≥ 10 필요.
+// The list height h=height-4 was less than the actual non-list lines (the source tab
+// header + key hints, status, non-interactive notice + separator blanks — up to 7
+// lines), so the screen exceeded the terminal height. Both the list screen (worst
+// case, including status) and the pick screen keep the View render line count within
+// the terminal height. Terminal height >= 17: to include bubbles' internal chrome (title, status bar, pagination, help — 2 lines each) and at least 1 item, h >= 10 is needed.
 func TestMaintainViewFitsTerminalHeight(t *testing.T) {
-	for _, sz := range []tea.WindowSizeMsg{{80, 24}, {60, 18}} {
+	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 60, Height: 18}} {
 		m := newDemoMaintainModel(MaintainActions{})
 		m = mUpdate(m, sz)
 		if got, want := m.lists[m.tab].Height(), sz.Height-7; got != want {
 			t.Errorf("%dx%d: list height = %d, want %d", sz.Width, sz.Height, got, want)
 		}
-		p, cmd := mDrive(m, keyMsg("m")) // pick 화면(선택 list 포함)
+		p, cmd := mDrive(m, keyMsg("m")) // the pick screen (including the pick list)
 		p, _ = mDrive(p, cmd())
 		if p.mode != maintainPick {
 			t.Fatalf("%dx%d: after load mode = %v, want maintainPick", sz.Width, sz.Height, p.mode)
@@ -515,19 +515,19 @@ func TestMaintainViewFitsTerminalHeight(t *testing.T) {
 		if n := viewLines(p.View()); n > sz.Height {
 			t.Errorf("%dx%d: pick view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, p.View())
 		}
-		m = mUpdate(m, keyMsg("k")) // 제거 + status — 최악 라인 구성
+		m = mUpdate(m, keyMsg("k")) // removal + status — the worst line composition
 		if n := viewLines(m.View()); n > sz.Height {
 			t.Errorf("%dx%d: list view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, m.View())
 		}
 	}
 }
 
-// ── 저화면(높이 < 12) 크롬 최소화 ──
+// ── low-screen (height < 12) chrome minimization ──
 
-// RF-numeric — 높이 8·11: 목록 배분은 크롬 2행(소스 탭 헤더 + 키 안내)만
-// 감산한 height−2로 증가하고, View는 선택 크롬(비대화 안내
-// nonInteractiveHint·구분 여백·status)을 생략한다. 탭 헤더(소스 전환)·
-// q/ESC 탈출 안내는 유지.
+// RF-numeric — heights 8 and 11: the list allocation grows to height-2 (subtracting
+// only the 2 chrome lines — the source tab header + key hints), and View omits the
+// optional chrome (the non-interactive notice nonInteractiveHint, separator
+// blanks, status). The tab header (source switching) and the q/ESC exit hint are kept.
 func TestMaintainLowHeightMaximizesList(t *testing.T) {
 	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 8}, {Width: 80, Height: 11}} {
 		m := newDemoMaintainModel(MaintainActions{})
@@ -539,7 +539,7 @@ func TestMaintainLowHeightMaximizesList(t *testing.T) {
 		if !strings.Contains(stripANSI(v), "demo topic dup") {
 			t.Errorf("%dx%d: low view lost item text\nview:\n%s", sz.Width, sz.Height, v)
 		}
-		m = mUpdate(m, keyMsg("k")) // status 발생 — 저화면에서는 생략
+		m = mUpdate(m, keyMsg("k")) // a status occurs — omitted on low screens
 		v = m.View()
 		if strings.Contains(stripANSI(v), nonInteractiveHint) {
 			t.Errorf("%dx%d: low view must omit non-interactive hint\nview:\n%s", sz.Width, sz.Height, v)
@@ -559,8 +559,8 @@ func TestMaintainLowHeightMaximizesList(t *testing.T) {
 	}
 }
 
-// RF-numeric — 경계 12·높은 화면(24): 기존 배분(height−7)과 크롬(비대화
-// 안내·status) 유지 — 임계 이상 레이아웃 동치.
+// RF-numeric — the boundary 12 and a tall screen (24): the existing allocation
+// (height-7) and chrome (non-interactive notice, status) kept — the above-threshold layout is equivalent.
 func TestMaintainHeightAtThresholdKeepsLayout(t *testing.T) {
 	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 12}, {Width: 80, Height: 24}} {
 		m := newDemoMaintainModel(MaintainActions{})
@@ -578,17 +578,17 @@ func TestMaintainHeightAtThresholdKeepsLayout(t *testing.T) {
 	}
 }
 
-// ── RF-protocol: 기본 실구현 위임 인자 ──
+// ── RF-protocol: the default real implementation's delegation arguments ──
 
-// RF5 — maintainRunner seam 기본값은 ops.RunMaintain(중복 구현 금지).
+// RF5 — the maintainRunner seam default is ops.RunMaintain (no duplicate implementation).
 func TestMaintainRunnerSeamDefaultsToOps(t *testing.T) {
 	if reflect.ValueOf(maintainRunner).Pointer() != reflect.ValueOf(ops.RunMaintain).Pointer() {
 		t.Fatal("maintainRunner seam must default to ops.RunMaintain")
 	}
 }
 
-// RF5 — 기본 액션: RunMaintain 인자 조립(merge --from N --to M /
-// invalidate --ids N --yes) + sink JSON 원인 파싱 + exit 폴백.
+// RF5 — the default actions: RunMaintain argument assembly (merge --from N --to
+// M / invalidate --ids N --yes) + sink JSON cause parsing + the exit fallback.
 func TestDefaultMaintainActionsAssembleRunnerArgs(t *testing.T) {
 	orig := maintainRunner
 	defer func() { maintainRunner = orig }()
@@ -618,7 +618,7 @@ func TestDefaultMaintainActionsAssembleRunnerArgs(t *testing.T) {
 		t.Fatalf("RunMaintain args = %v, want %v", got, want)
 	}
 
-	// 실패 원인 파싱(actionFailureCause 재사용 — 계약 5).
+	// failure-cause parsing (reusing actionFailureCause — contract 5).
 	got = nil
 	code, out = 1, `{"error":"not_found","id":9001}`+"\n"
 	if _, cause := acts.Invalidate(context.Background(), 9001); cause != "not_found" {
@@ -630,9 +630,9 @@ func TestDefaultMaintainActionsAssembleRunnerArgs(t *testing.T) {
 	}
 }
 
-// ── RF-protocol: 기본 로더 ──
+// ── RF-protocol: the default loaders ──
 
-// fakeMaintainRunner — 인자별 고정 JSON을 내주는 maintainRunner fake.
+// fakeMaintainRunner — a maintainRunner fake serving fixed JSON per argument.
 func fakeMaintainRunner() (func(context.Context, wire.Store, []string, io.Reader, io.Writer) int, *[][]string) {
 	var seen [][]string
 	fn := func(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
@@ -654,8 +654,8 @@ func fakeMaintainRunner() (func(context.Context, wire.Store, []string, io.Reader
 	return fn, &seen
 }
 
-// RF6 — suspects 로더: 세 실행(--dup-suspects·--conflict-suspects·--stale)
-// JSON 파싱 → MaintainData(소스·ids·요약·사유·경과일).
+// RF6 — the suspects loader: the 3 runs (--dup-suspects,
+// --conflict-suspects, --stale) parse their JSON -> MaintainData (source, ids, summaries, reasons, elapsed days).
 func TestMaintainLoadSuspectsParsesRunnerJSON(t *testing.T) {
 	orig := maintainRunner
 	defer func() { maintainRunner = orig }()
@@ -682,7 +682,7 @@ func TestMaintainLoadSuspectsParsesRunnerJSON(t *testing.T) {
 	}
 }
 
-// RF6 — suspects 로더: 위임 경로 실패(exit != 0)는 원인 오류로 전파.
+// RF6 — the suspects loader: a delegated-path failure (exit != 0) propagates as a cause error.
 func TestMaintainLoadSuspectsRunnerError(t *testing.T) {
 	orig := maintainRunner
 	defer func() { maintainRunner = orig }()
@@ -695,7 +695,7 @@ func TestMaintainLoadSuspectsRunnerError(t *testing.T) {
 	}
 }
 
-// RF6 — bodies 로더: id 배치 조회(ANY($1)) → 재살균 본문 맵.
+// RF6 — the bodies loader: an id batch query (ANY($1)) -> the re-sanitized body map.
 func TestMaintainLoadBodies(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if !strings.Contains(sql, "ANY($1)") {
@@ -715,9 +715,9 @@ func TestMaintainLoadBodies(t *testing.T) {
 	}
 }
 
-// ── RF-protocol: 진입 ──
+// ── RF-protocol: entry ──
 
-// RF7 — 검토 대상 0건: TUI 없이 안내 후 exit 0.
+// RF7 — 0 review targets: guidance without the TUI, then exit 0.
 func TestRunMaintainTUIEmpty(t *testing.T) {
 	orig := maintainRunner
 	defer func() { maintainRunner = orig }()
@@ -746,14 +746,14 @@ func TestRunMaintainTUIEmpty(t *testing.T) {
 	}
 }
 
-// RF7 — 비터미널(파이프): 폴백 exit 3 + 안내(Run 래퍼 계약 승계).
+// RF7 — non-terminal (pipe): fallback exit 3 + guidance (inheriting the Run wrapper contract).
 func TestRunMaintainTUINonTerminalFallback(t *testing.T) {
 	orig := maintainRunner
 	defer func() { maintainRunner = orig }()
 	fn, _ := fakeMaintainRunner()
 	maintainRunner = fn
 	var stdout bytes.Buffer
-	// go test stdout은 파이프 — Run의 비터미널 판정이 자동으로 참.
+	// go test stdout is a pipe — Run's non-terminal check is automatically true.
 	code := RunMaintainTUI(context.Background(), nil, &stdout)
 	if code != 3 {
 		t.Fatalf("exit = %d, want 3 (stdout: %s)", code, stdout.String())

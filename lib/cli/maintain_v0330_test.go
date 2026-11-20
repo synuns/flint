@@ -1,4 +1,4 @@
-// maintain_v0330_test.go — 지식 위생: meta-audit 분류·prune dry-run/commit.
+// maintain_v0330_test.go — knowledge hygiene: meta-audit classification and prune dry-run/commit.
 package cli
 
 import (
@@ -7,7 +7,7 @@ import (
 	"testing"
 )
 
-// TestMaintainMetaAuditClassification — known/threshold/daily/unknown 분류.
+// TestMaintainMetaAuditClassification — known/threshold/daily/unknown classification.
 func TestMaintainMetaAuditClassification(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key = 'pending_max'") {
@@ -17,9 +17,9 @@ func TestMaintainMetaAuditClassification(t *testing.T) {
 			return [][]any{
 				{"schema_version", "8"},
 				{"daily:2026-11-09", "{}"},
-				{"read_stats", "{}"},            // known(레거시 관측)
-				{"last_brief_at", "x"},          // known(unknown 오탐 해소, spec §1.3)
-				{"daily:write:2026-11-09", "1"}, // daily(플랫 키 — daily: 접두 승계)
+				{"read_stats", "{}"},            // known (legacy observation)
+				{"last_brief_at", "x"},          // known (resolving the unknown false positive, spec §1.3)
+				{"daily:write:2026-11-09", "1"}, // daily (flat key — inheriting the daily: prefix)
 				{"mystery_key", "x"},            // unknown
 			}, nil
 		}
@@ -38,9 +38,9 @@ func TestMaintainMetaAuditClassification(t *testing.T) {
 	}
 }
 
-// TestMaintainPruneInvalidatedDryRunCommit — dry-run 기본·--commit 확정.
-// DELETE는 Repo.PruneInvalidated 위임 — fake는 pruneCalls로
-// 실행을 캡처(삭제 행 수 = 위임 반환값).
+// TestMaintainPruneInvalidatedDryRunCommit — dry-run by default, --commit confirms.
+// The DELETE is a Repo.PruneInvalidated delegation — the fake captures the
+// execution via pruneCalls (deleted row count = the delegation's return value).
 func TestMaintainPruneInvalidatedDryRunCommit(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "status = 'invalidated'") && strings.Contains(sql, "SELECT") {
@@ -58,7 +58,7 @@ func TestMaintainPruneInvalidatedDryRunCommit(t *testing.T) {
 	if len(f.pruneCalls) != 0 {
 		t.Error("dry-run에서 DELETE 위임 실행")
 	}
-	// --commit: DELETE 실행·커밋.
+	// --commit: DELETE executes and commits.
 	out.Reset()
 	if code := runMaintain(context.Background(), f, []string{"--prune-invalidated", "30", "--commit"}, nil, &out); code != 0 {
 		t.Fatalf("commit exit=%d: %s", code, out.String())
@@ -69,7 +69,7 @@ func TestMaintainPruneInvalidatedDryRunCommit(t *testing.T) {
 	if len(f.pruneCalls) != 1 {
 		t.Fatalf("DELETE 위임 실행 %d회, want 1", len(f.pruneCalls))
 	}
-	// N 부재 → exit 3.
+	// missing N -> exit 3.
 	out.Reset()
 	if code := runMaintain(context.Background(), f, []string{"--prune-invalidated"}, nil, &out); code != 1 {
 		t.Errorf("N 부재 exit=%d, want 1(사용법 오류): %s", code, out.String())

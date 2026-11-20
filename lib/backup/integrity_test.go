@@ -14,10 +14,11 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// ADR-0006 백업 무결성 — Checksum·WriteSidecar·VerifyFile 단위 테스트(fast).
-// 원본 덤프는 fake 버퍼로 대체하고, SUPERLITE_REAL=1에서만 실 Dump를 사용한다.
+// ADR-0006 backup integrity — unit tests for Checksum, WriteSidecar, and
+// VerifyFile (fast). The original dump is replaced by a fake buffer; only
+// SUPERLITE_REAL=1 uses the real Dump.
 
-// fakeDumpBuffer — 테스트용 덤프 버퍼(fake). SUPERLITE_REAL=1이면 실DB Dump로.
+// fakeDumpBuffer — a dump buffer for tests (fake). With SUPERLITE_REAL=1, a real-DB Dump.
 func fakeDumpBuffer(t *testing.T) (*bytes.Buffer, []byte) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -38,8 +39,8 @@ func fakeDumpBuffer(t *testing.T) (*bytes.Buffer, []byte) {
 	return &buf, append([]byte(nil), buf.Bytes()...)
 }
 
-// Test code(계획 그대로): Dump→변조→Verify 실패.
-// 원본 무결 — 변조 검사가 원본 파일을 건드리지 않는다.
+// Test code (as planned): Dump -> tamper -> Verify failure.
+// Original intact — the tamper check does not touch the original file.
 func TestChecksumRoundtrip(t *testing.T) {
 	buf, data := fakeDumpBuffer(t)
 
@@ -68,7 +69,7 @@ func TestChecksumRoundtrip(t *testing.T) {
 		t.Fatalf("verify ok path: sum=%s err=%v, want %s nil", got, err, sum)
 	}
 
-	// 변조 — 원본 끝에 문장 추가 후 재검증 → 불일치.
+	// Tamper — append a statement to the original, re-verify -> mismatch.
 	tampered := append(append([]byte(nil), data...), []byte("DELETE FROM knowledge;\n")...)
 	if err := os.WriteFile(path, tampered, 0o644); err != nil {
 		t.Fatal(err)
@@ -76,7 +77,7 @@ func TestChecksumRoundtrip(t *testing.T) {
 	if _, err := VerifyFile(path); !errors.Is(err, ErrChecksumMismatch) {
 		t.Fatalf("tampered verify err=%v, want ErrChecksumMismatch", err)
 	}
-	// 원본 무결: 되살리면 다시 통과(VerifyFile이 파일을 수정하지 않았다).
+	// Original intact: restoring it passes again (VerifyFile did not modify the file).
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -85,7 +86,7 @@ func TestChecksumRoundtrip(t *testing.T) {
 	}
 }
 
-// 사이드카 누락 경로 — 경고용 센티널 + 계산된 해시 반환.
+// Missing sidecar path — the warn sentinel + the computed hash returned.
 func TestVerifyFileMissingSidecar(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dump.sql")
 	data := []byte("BEGIN;\nCOMMIT;\n")
@@ -100,14 +101,15 @@ func TestVerifyFileMissingSidecar(t *testing.T) {
 	if got != hex.EncodeToString(want[:]) {
 		t.Fatalf("sum=%s, want %s", got, hex.EncodeToString(want[:]))
 	}
-	// 원본 무결 — 사이드카는 만들지 않는다.
+	// Original intact — no sidecar is created.
 	if _, statErr := os.Stat(path + ".sha256"); !os.IsNotExist(statErr) {
 		t.Fatalf("sidecar should not be created by VerifyFile: %v", statErr)
 	}
 }
 
-// 사이드카는 sha256sum -c 호환 형식("<hex>  <basename>\n")이어야 하며,
-// VerifyFile은 첫 토큰만 대조한다(파일명 무시 — 경로 이동 허용).
+// The sidecar must be in sha256sum -c compatible form ("<hex>  <basename>\n"),
+// and VerifyFile compares only the first token (filename ignored — moves
+// allowed).
 func TestSidecarSha256sumCompatible(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dump.sql")
@@ -126,7 +128,7 @@ func TestSidecarSha256sumCompatible(t *testing.T) {
 	if string(side) != hex.EncodeToString(want[:])+"  dump.sql\n" {
 		t.Fatalf("sidecar=%q, want sha256sum format", side)
 	}
-	// 파일명이 달라져도(이동 복사) 해시 토큰만 보고 통과.
+	// Even with a different filename (moved/copied), it passes on the hash token alone.
 	moved := filepath.Join(dir, "moved.sql")
 	if err := os.WriteFile(moved, data, 0o644); err != nil {
 		t.Fatal(err)

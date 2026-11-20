@@ -1,8 +1,11 @@
-// usage_flatkey_test.go — daily 플랫 키 전환(실DB slow — fast에서는
-// FLINT_TEST_DSN 부재로 스킵). 계약: daily:<kind>:<date> 정수 값 단일 UPSERT
-// 원자 증분(bumpMeta 패턴 — 읽기-수정-쓰기 last-write-wins 폐지)·파손 값은
-// 0에서 재기작·readDailyFlat은 플랫 키 우선 + 구 daily:<date> JSON 폴백 승계
-// (기존 창 통계 손실 방지 — 읽기 전용)·PruneDaily는 양쪽 키 형식 정리.
+// usage_flatkey_test.go — the daily flat-key switch (real-DB slow —
+// skipped in fast mode without FLINT_TEST_DSN). Contract: single-UPSERT
+// atomic increments of the daily:<kind>:<date> integer values (the
+// bumpMeta pattern — abolishing read-modify-write last-write-wins)·
+// corrupted values rewritten from 0·readDailyFlat prefers the flat key +
+// inherits the legacy daily:<date> JSON fallback (preventing loss of
+// existing window statistics — read-only)·PruneDaily cleans both key
+// forms.
 package db
 
 import (
@@ -13,7 +16,8 @@ import (
 	"time"
 )
 
-// flatDailyValue — daily:<kind>:<date> 값을 정수로 읽는다(테스트 헬퍼).
+// flatDailyValue — reads the daily:<kind>:<date> value as an integer
+// (a test helper).
 func flatDailyValue(t *testing.T, r *Repo, kind, date string) int {
 	t.Helper()
 	var val string
@@ -28,16 +32,18 @@ func flatDailyValue(t *testing.T, r *Repo, kind, date string) int {
 	return n
 }
 
-// TestFlatKeyAtomicIncrement — 증분(연속 가산)·파손 0 재기작·
-// 병렬 원자 증분(경합 손실 폐지 — 플랫 전환의 동기).
-// e.g. bumpDailyFlat("2026-11-13","hot_bytes",1180) → 기존+1180 단일 UPSERT.
-func TestFlatKeyAtomicIncrement(t *testing.T) {
-	r := newTestRepo(t)
+// TestFlatKeyAtomicIncrement — increments (consecutive additions)·
+// corrupt rewrite-from-0·parallel atomic increments (abolishing race
+// loss — the motivation of the flat switch).
+// e.g. bumpDailyFlat("2026-11-13","hot_bytes",1180) → existing+1180 in
+// one UPSERT.
+func slowFlatKeyAtomicIncrement(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// 증분 — 연속 기록은 가산된다(1180 + 820 = 2000, 단일 UPSERT 2회).
+	// Increments — consecutive records add up (1180 + 820 = 2000, 2
+	// single UPSERTs).
 	if _, err := r.bumpDailyFlat(ctx, today, "hot_bytes", 1180); err != nil {
 		t.Fatalf("bumpDailyFlat(hot_bytes,1180): %v", err)
 	}
@@ -48,7 +54,8 @@ func TestFlatKeyAtomicIncrement(t *testing.T) {
 		t.Fatalf("daily:hot_bytes:%s = %d, want 2000(1180+820 증분)", today, got)
 	}
 
-	// kind별 키 분리 — 다른 kind는 같은 날짜라도 별도 키.
+	// Per-kind key separation — a different kind gets a separate key even
+	// on the same date.
 	if _, err := r.bumpDailyFlat(ctx, today, "read_bytes", 42); err != nil {
 		t.Fatalf("bumpDailyFlat(read_bytes,42): %v", err)
 	}
@@ -56,7 +63,8 @@ func TestFlatKeyAtomicIncrement(t *testing.T) {
 		t.Fatalf("daily:read_bytes:%s = %d, want 42(키 kind별 분리)", today, got)
 	}
 
-	// 파손 0 재기작 — 정수 아닌 기존 값은 0에서 다시 센다(5).
+	// Corrupt rewrite-from-0 — a non-integer existing value recounts from
+	// 0 (5).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
@@ -70,10 +78,12 @@ func TestFlatKeyAtomicIncrement(t *testing.T) {
 		t.Fatalf("파손 재기작 후 daily:brief:%s = %d, want 5(0에서 재기작)", today, got)
 	}
 
-	// 병렬 기록 — 에러 없이 수용되고 카운터는 1 이상. Doltgres는 같은 행의
-	// 동시 UPSERT를 조용히 last-write-wins 수용한다(2026-11-13 실증 — 에러
-	// 없이 일부 증분 손실, 구 JSON 경합 계약과 동일 수준. 단일 문장 원자성은
-	// Postgres 기준이며 Doltgres에서는 오류·재시기 없는 완화형).
+	// Parallel records — accepted without error, and the counter is at
+	// least 1. Doltgres quietly accepts concurrent UPSERTs of the same
+	// row as last-write-wins (demonstrated 2026-11-13 — some increments
+	// lost without error, the same level as the legacy JSON race
+	// contract. Single-statement atomicity is the Postgres baseline; on
+	// Doltgres it is the relaxed form with no error·no retry).
 	if _, err := r.pool.Exec(ctx,
 		`DELETE FROM meta WHERE key = $1`, "daily:write:"+today); err != nil {
 		t.Fatal(err)
@@ -100,16 +110,17 @@ func TestFlatKeyAtomicIncrement(t *testing.T) {
 	}
 }
 
-// TestReadDailyFlatLegacyFallback — 플랫 키 우선·구
-// daily:<date> JSON 폴백 승계. 플랫 키가 없으면 구 JSON 값을 읽고(마이그레이션
-// 읽기 승계), 플랫 키가 생기면 그쪽이 이긴다. 폴백 JSON 파손·부재·null은 0.
-func TestReadDailyFlatLegacyFallback(t *testing.T) {
-	r := newTestRepo(t)
+// TestReadDailyFlatLegacyFallback — flat key preferred·the legacy
+// daily:<date> JSON fallback inherited. When the flat key is absent,
+// the legacy JSON value is read (a migration-read inheritance); once
+// the flat key exists, it wins. Corrupt·absent·null fallback JSON is 0.
+func slowReadDailyFlatLegacyFallback(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// 구 JSON 승계 — 플랫 키 부재 시 폴백 읽기(쓰기 마이그레이션 없음).
+	// Legacy-JSON inheritance — the fallback read when the flat key is
+	// absent (no write migration).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)`,
 		"daily:"+today, `{"write":4,"hot":7}`); err != nil {
@@ -130,7 +141,8 @@ func TestReadDailyFlatLegacyFallback(t *testing.T) {
 		}
 	}
 
-	// 플랫 우선 — 플랫 키가 생기면 구 JSON과 무관하게 그 값.
+	// Flat priority — once the flat key exists, its value regardless of
+	// the legacy JSON.
 	if _, err := r.bumpDailyFlat(ctx, today, "write", 1); err != nil {
 		t.Fatal(err)
 	}
@@ -142,7 +154,8 @@ func TestReadDailyFlatLegacyFallback(t *testing.T) {
 		t.Fatalf("readDailyFlat(write) = %d, want 1(플랫 키 우선 — 폴백값 4 아님)", got)
 	}
 
-	// 폴백 JSON 파손·null·부재 키 — 0(재기작 계약과 정합, panic 없음).
+	// Corrupt·null·absent-key fallback JSON — 0 (aligned with the
+	// rewrite contract, no panic).
 	for _, corrupt := range []string{"{broken", "null", `{"write":"x"}`} {
 		if _, err := r.pool.Exec(ctx,
 			`INSERT INTO meta (key, value) VALUES ($1, $2)
@@ -160,17 +173,17 @@ func TestReadDailyFlatLegacyFallback(t *testing.T) {
 	}
 }
 
-// TestPruneDailyBothKeyForms — PruneDaily는 구
-// daily:<date> JSON 키와 신규 daily:<kind>:<date> 플랫 키를 모두 정리한다
-// (보존 14일 불변 — 오늘+직전 13일).
-func TestPruneDailyBothKeyForms(t *testing.T) {
-	r := newTestRepo(t)
+// TestPruneDailyBothKeyForms — PruneDaily cleans both the legacy
+// daily:<date> JSON keys and the new daily:<kind>:<date> flat keys (the
+// 14-day retention unchanged — today + the prior 13 days).
+func slowPruneDailyBothKeyForms(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	day := func(age int) string {
 		return time.Now().UTC().AddDate(0, 0, -age).Format("2006-01-02")
 	}
-	// 15일 전(삭제 대상) 양쪽 형식 + 어제(보존) 플랫 키.
+	// Both forms 15 days old (deletion targets) + a yesterday flat key
+	// (retained).
 	for _, stmt := range []struct{ key, val string }{
 		{"daily:" + day(15), `{"write":9}`},
 		{"daily:write:" + day(15), "9"},

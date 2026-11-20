@@ -1,7 +1,7 @@
-// report_bytes_v1110_test.go — 회귀: daily bytes 픽스처가
-// report effect.bytes(read/hot/brief 각 bytes_14d·avg_bytes — 분모는 같은
-// 행의 호출 수 카운터)와 status hot_bytes_14d·read_bytes_14d로 정합.
-// 분모 0 가드(호출 0 → avg 0) 포함.
+// report_bytes_v1110_test.go — regression: the daily bytes fixture is consistent
+// with report effect.bytes (read/hot/brief each with bytes_14d and avg_bytes — the
+// denominator is the same row's call-count counter) and with status's hot_bytes_14d
+// and read_bytes_14d. Includes the zero-denominator guard (0 calls -> avg 0).
 package ops
 
 import (
@@ -16,8 +16,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// bytesDailyFake — 오늘 daily:<date> 1행만 반환하는 fake(나머지 질의는
-// parityFake 관례 — 계측·이벤트 원천 공란, 집계 0).
+// bytesDailyFake — a fake returning only today's daily:<date> row (the other queries
+// follow the parityFake convention — metering and event sources blank, tallies 0).
 func bytesDailyFake(todayJSON string) *fakeStore {
 	today := "daily:" + time.Now().UTC().Format("2006-01-02")
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -40,9 +40,9 @@ func bytesDailyFake(todayJSON string) *fakeStore {
 	}}
 }
 
-// TestReportBytes — 픽스처 daily bytes → effect.bytes 집합
-// 정합. read 4회 1,000B·hot 2회 900B·brief 3회 600B — 각 bytes_14d는
-// 일별 합산, avg_bytes는 바이트/호출 수(버림).
+// TestReportBytes — the fixture daily bytes -> the effect.bytes set is consistent.
+// read 4 calls 1,000B, hot 2 calls 900B, brief 3 calls 600B — each bytes_14d is the
+// daily sum, and avg_bytes is bytes/calls (floored).
 func TestReportBytes(t *testing.T) {
 	fixture := `{"read":4,"hot":2,"brief":3,"read_bytes":1000,"hot_bytes":900,"brief_bytes":600}`
 	var out strings.Builder
@@ -82,8 +82,8 @@ func TestReportBytes(t *testing.T) {
 	}
 }
 
-// TestReportBytesZeroDenominator — 호출 수 0(바이트만 기록된
-// 표면)은 avg_bytes 0(제로 분모 가드 — 바이트 합은 그대로 보고).
+// TestReportBytesZeroDenominator — 0 calls (a surface with only bytes recorded)
+// means avg_bytes 0 (the zero-denominator guard — the byte sum is still reported).
 func TestReportBytesZeroDenominator(t *testing.T) {
 	fixture := `{"read":0,"hot":0,"brief":0,"read_bytes":0,"hot_bytes":500,"brief_bytes":0}`
 	var out strings.Builder
@@ -109,8 +109,8 @@ func TestReportBytesZeroDenominator(t *testing.T) {
 	}
 }
 
-// TestStatusBytes14d — status 출력 말미에 hot_bytes_14d·
-// read_bytes_14d(보존창 일별 합산 — 오늘 daily 행에서 유도).
+// TestStatusBytes14d — hot_bytes_14d and read_bytes_14d at the end of the status
+// output (retention-window daily sums — derived from today's daily row).
 func TestStatusBytes14d(t *testing.T) {
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return "", nil })
 	fixture := `{"read":4,"hot":2,"read_bytes":1000,"hot_bytes":900}`

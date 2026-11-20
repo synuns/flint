@@ -1,5 +1,5 @@
-// setupUX 렌더 계약: TTY 강제 시 스텝·성공 요소 포함,
-// non-TTY는 ANSI 코드 없는 plain 결과.
+// setupUX render contract: with TTY forced, step and success elements are included;
+// non-TTY is a plain result without ANSI codes.
 package cli
 
 import (
@@ -34,10 +34,10 @@ func TestSetupUXNonTTY(t *testing.T) {
 	}
 }
 
-// TestSetupJSONMode — 새 계약: store 가용 시 ping·
-// migrate가 실제로 돌아 ok. --json 한 줄·compose 1회·plain 동일성 불변.
+// TestSetupJSONMode — new contract: with a store available, ping and
+// migrate actually run, so ok. One --json line, compose called once, plain equivalence unchanged.
 func TestSetupJSONMode(t *testing.T) {
-	withFake(t, &fakeStore{}) // Ping·Migrate 성공 fake — 건전 DB 경로.
+	withFake(t, &fakeStore{}) // a Ping/Migrate-succeeding fake — the healthy DB path.
 	rec := withFakeCompose(t)
 	out, code := mustRun(t, []string{"setup", "--json"}, "")
 	if code != 0 {
@@ -53,16 +53,16 @@ func TestSetupJSONMode(t *testing.T) {
 	if rec.upCalls != 1 {
 		t.Fatalf("compose=%d회, want 1(동작 불변)", rec.upCalls)
 	}
-	// plain(non-TTY) 경로와 출력 완전 동일.
+	// fully identical output to the plain (non-TTY) path.
 	plain, code2 := mustRun(t, []string{"setup"}, "")
 	if code2 != code || strings.TrimSpace(plain) != strings.TrimSpace(out) {
 		t.Fatalf("plain(--json 미지정, non-TTY) 불일치:\nplain=%q\njson =%q", plain, out)
 	}
 }
 
-// TestSetupDegradedWhenStoreDown — DB 접속 불가(주 시나리오)는
-// st nil로 진행해 degraded·exit 1·next 안내(배선
-// 수정 이후에도 nil 가드 경로 유지).
+// TestSetupDegradedWhenStoreDown — DB unreachable (the main scenario) proceeds
+// with st nil to degraded, exit 1, and next guidance (the nil-guard path is kept
+// even after the wiring fix).
 func TestSetupDegradedWhenStoreDown(t *testing.T) {
 	prev := newStore
 	newStore = func(ctx context.Context, dsn string) (Store, error) {

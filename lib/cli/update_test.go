@@ -1,5 +1,5 @@
-// update_test.go — 자동 업데이트 계약: 버전 비교·체크섬·추출·
-// 전체 흐름(htptest 주입)·갱신 안내 캐시.
+// update_test.go — auto-update contracts: version comparison, checksums, extraction,
+// the full flow (httptest injection), and the update-notice cache.
 package cli
 
 import (
@@ -25,8 +25,8 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(d[:])
 }
 
-// withFakeVersion — version 패키지 변수 주입(테스트 바이너리는 ldflags
-// 미주입으로 "dev"이므로).
+// withFakeVersion — injects the version package vars (the test binary is "dev"
+// without ldflags injection).
 func withFakeVersion(t *testing.T, v string) {
 	t.Helper()
 	prev := version
@@ -65,7 +65,7 @@ func TestChecksumFor(t *testing.T) {
 	}
 }
 
-// buildTarGz — flint 바이너리 1개를 담은 tar.gz 픽스처.
+// buildTarGz — a tar.gz fixture containing a single flint binary.
 func buildTarGz(t *testing.T, bin []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -93,12 +93,12 @@ func TestExtractBinary(t *testing.T) {
 	}
 }
 
-// TestApplyUpdateRejectsBadSignature — 서명 게이트 배선 —
-// 공개키 임베드 상태에서 .sig 불일치는 하드 거부, .sig 부재도 거부
-// (fail-closed). 전환 모드(빈 키)는 통과.
+// TestApplyUpdateRejectsBadSignature — signature-gate wiring —
+// with the public key embedded, a .sig mismatch is a hard reject and a missing .sig is rejected too
+// (fail-closed). Transition mode (empty key) passes.
 func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	newBin := []byte("#!/bin/sh\necho '{\"version\":\"9.9.9\"}'\n")
-	// 실제 키 픽스처로 검증기 동작까지 포함(불일치 유도: 타인 키).
+	// includes verifier behavior with real key fixtures (mismatch induced: a stranger's key).
 	pub, err := os.ReadFile("testdata/cosign-ecdsa.pub")
 	if err != nil {
 		t.Fatal(err)
@@ -107,15 +107,15 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	t.Cleanup(func() { releasePubPEM = prevPub; updateSkipSignature = false })
 	updateSkipSignature = false
 
-	// (a) .sig 존재 + 공개키 임베드 + 쓰레기 서명 → 거부.
+	// (a) .sig present + public key embedded + garbage signature -> rejected.
 	releasePubPEM = pub
-	updateTestSigAsset = "bm90LWEtc2ln" // base64 디코딩은 되지만 서명 불일치
+	updateTestSigAsset = "bm90LWEtc2ln" // base64-decodes but the signature mismatches
 	t.Cleanup(func() { updateTestSigAsset = "" })
 	withUpdateServer(t, "9.9.9", newBin)
 	if _, err := applyUpdate("9.9.9"); err == nil || !strings.Contains(err.Error(), "refus") {
 		t.Fatalf("garbage signature = %v, want refused", err)
 	}
-	// (a-2) 같은 상태에서 --insecure-skip-signature → 통과.
+	// (a-2) same state + --insecure-skip-signature -> passes.
 	updateSkipSignature = true
 	withUpdateServer(t, "9.9.8", newBin)
 	_, err2 := applyUpdate("9.9.8")
@@ -125,14 +125,14 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	}
 	updateTestSigAsset = ""
 
-	// (b) .sig 부재 + Configured → 거부.
+	// (b) .sig missing + Configured -> rejected.
 	releasePubPEM = pub
 	withUpdateServer(t, "9.8.0", newBin)
 	if _, err := applyUpdate("9.8.0"); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf(".sig missing = %v, want refused", err)
 	}
 
-	// (c) 전환 모드(빈 공개키) + .sig 없음 → 통과(기존 호환).
+	// (c) transition mode (empty public key) + no .sig -> passes (existing compatibility).
 	releasePubPEM = nil
 	withUpdateServer(t, "9.7.0", newBin)
 	if _, err := applyUpdate("9.7.0"); err != nil {
@@ -140,18 +140,18 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	}
 }
 
-// updateTestSigAsset — .sig 자산 서빙 주입(빈 = 미제공). 서버 핸들러가
-// 목록과 내용 모두에 반영한다.
+// updateTestSigAsset — injects a served .sig asset (empty = not provided). The server handler
+// reflects it in both the listing and the content.
 var updateTestSigAsset string
 
-// newUpdateServer — 가짜 릴리스 API+자산 서버. newBin은 새 바이너리
-// 내용(실행 시 version JSON을 출력하는 셸 스크립트여야 검증 통과).
+// newUpdateServer — a fake releases API + asset server. newBin is the new binary's
+// content (must be a shell script printing the version JSON when run, to pass verification).
 func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	srv := httptest.NewTLSServer(mux)
-	// 클라이언트 팩토리 주입 — srv.Client()는 자체 서명을 신뢰(프로덕션
-	// 바이너리에 InsecureSkipVerify 없음).
+	// client factory injection — srv.Client() trusts the self-signed cert (no
+	// InsecureSkipVerify in production binaries).
 	prevClient := updateClientFn
 	updateClientFn = func(timeout time.Duration) *http.Client {
 		c := srv.Client()
@@ -163,8 +163,8 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	assetName := fmt.Sprintf("flint_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
 	archive := buildTarGz(t, newBin)
 	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		// updateTestSigAsset(테스트 주입)이 비지 않으면 .sig
-		// 자산도 목록에 포함해 서빙한다(서명 게이트 배선 검증용).
+		// when updateTestSigAsset (test injection) is non-empty, the .sig asset is
+		// included in the listing and served too (for verifying the signature-gate wiring).
 		sigAsset := ""
 		if updateTestSigAsset != "" {
 			sigAsset = fmt.Sprintf(`,{"name":"checksums.txt.sig","browser_download_url":%q}`, srv.URL+"/dl/checksums.txt.sig")
@@ -178,7 +178,7 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	mux.HandleFunc("/dl/"+assetName, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(archive)
 	})
-	// sha256은 archive 바이트 기반 — 핸들러 내 계산을 위해 클로저로.
+	// sha256 is over the archive bytes — a closure so it can be computed inside the handler.
 	sum := sha256Hex(archive)
 	mux.HandleFunc("/dl/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s  %s\n", sum, assetName)
@@ -186,7 +186,7 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	return srv
 }
 
-// withUpdateServer — API 베이스 주입 공통 절차.
+// withUpdateServer — the common API-base injection procedure.
 func withUpdateServer(t *testing.T, latest string, newBin []byte) {
 	t.Helper()
 	srv := newUpdateServer(t, latest, newBin)
@@ -195,12 +195,12 @@ func withUpdateServer(t *testing.T, latest string, newBin []byte) {
 	t.Cleanup(func() { updateAPIBase = prev })
 }
 
-// TestUpdateFlowReplacesBinary — 전체 흐름: 확인→다운로드→검증→교체.
-// executablePathFn을 임시 '현재 바이너리'로 주입해 실제 파일 교체를
-// 검증한다(검증 통과용 새 바이너리는 version 출력 셸 스크립트).
+// TestUpdateFlowReplacesBinary — the full flow: check -> download -> verify -> replace.
+// Injects a temp 'current binary' via executablePathFn to verify a real file
+// replacement (the new binary that passes verification is a shell script printing version).
 func TestUpdateFlowReplacesBinary(t *testing.T) {
-	// 실제 공개키가 임베드되어 기본 하드 검증이 켜진다 — 본
-	// 테스트는 교체 흐름 검증이므로 전환 모드(빈 키)로 고정.
+	// the real public key is embedded, so default hard verification is on — this test
+	// verifies the replacement flow, so it pins transition mode (empty key).
 	prevPub := releasePubPEM
 	releasePubPEM = nil
 	t.Cleanup(func() { releasePubPEM = prevPub })
@@ -230,11 +230,11 @@ func TestUpdateFlowReplacesBinary(t *testing.T) {
 	}
 }
 
-// TestUpdateFlowChecksumMismatch — 체크섬 불일치면 원본 불본(즉시 중단).
-// 단일 TLS 서버가 메타·자산(정상)+오염 체크섬을 모두 제공한다.
+// TestUpdateFlowChecksumMismatch — on checksum mismatch the original is untouched (immediate abort).
+// A single TLS server serves metadata, assets (valid), and the poisoned checksum together.
 func TestUpdateFlowChecksumMismatch(t *testing.T) {
-	// 실제 공개키가 임베드되어 기본 하드 검증이 켜진다 — 본
-	// 테스트는 교체 흐름 검증이므로 전환 모드(빈 키)로 고정.
+	// the real public key is embedded, so default hard verification is on — this test
+	// verifies the replacement flow, so it pins transition mode (empty key).
 	prevPub := releasePubPEM
 	releasePubPEM = nil
 	t.Cleanup(func() { releasePubPEM = prevPub })
@@ -251,7 +251,7 @@ func TestUpdateFlowChecksumMismatch(t *testing.T) {
 	archive := buildTarGz(t, newBin)
 	assetName := fmt.Sprintf("flint_9.9.9_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
 	mux := http.NewServeMux()
-	srv := httptest.NewTLSServer(mux) // 먼저 생성 — URL 확정
+	srv := httptest.NewTLSServer(mux) // create first — the URL must be known
 	t.Cleanup(srv.Close)
 	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":%q},{"name":"checksums.txt","browser_download_url":%q}]}`,
@@ -283,23 +283,23 @@ func TestUpdateFlowChecksumMismatch(t *testing.T) {
 	}
 }
 
-// TestMaybeUpdateNoticeCache — 캐시 TTL 내 확인은 네트워크 없이 판정,
-// 만료 시 재확인 후 캐시 갱신.
+// TestMaybeUpdateNoticeCache — within the cache TTL the check is decided without network;
+// on expiry it re-checks and refreshes the cache.
 func TestMaybeUpdateNoticeCache(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	// 신선 캐시: 최신이 뒤처림 → 무출력(서버 죽어도 무호출이어야).
+	// fresh cache: latest is behind -> no output (must make no calls even with a dead server).
 	fresh, _ := os.ReadFile(updateCacheFile())
 	_ = fresh
 	c := updateCache{Latest: "0.0.1", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
 	b, _ := json.Marshal(c)
 	os.WriteFile(updateCacheFile(), b, 0o600)
-	// 죽은 서버 — TTL 내면 호출 자체가 없어야 한다.
+	// dead server — within the TTL there must be no call at all.
 	withUpdateServer(t, "9.9.9", nil)
 	if got := maybeUpdateNotice(); got != "" {
 		t.Errorf("캐시 무시·무출력 위반: %q", got)
 	}
-	// 만료 캐시 + 최신 9.9.9 → 안내 1줄 + 캐시 갱신.
+	// expired cache + latest 9.9.9 -> one notice line + cache refresh.
 	c.CheckedAt = time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339)
 	b, _ = json.Marshal(c)
 	os.WriteFile(updateCacheFile(), b, 0o600)
@@ -314,8 +314,8 @@ func TestMaybeUpdateNoticeCache(t *testing.T) {
 	}
 }
 
-// TestDownloadRejectsNonHTTPS — 평문 스킴 URL은 다운로드
-// 거부(응답 변조·다운그레이드 방어).
+// TestDownloadRejectsNonHTTPS — plaintext-scheme URLs are rejected for
+// download (defense against response tampering and downgrade).
 func TestDownloadRejectsNonHTTPS(t *testing.T) {
 	if _, err := download("http://example.com/asset"); err == nil {
 		t.Error("http:// URL 거부 안 됨")

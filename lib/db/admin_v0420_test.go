@@ -1,6 +1,7 @@
-// admin_v0420_test.go — schema v9(EnsureSchemaV9) 슬로우 테스트(실DB).
-// 계측 ts 인덱스 3종·knowledge pending partial 인덱스 승격·additive
-// 무손상·멱등·수치 비교 게이트 회귀.
+// admin_v0420_test.go — schema v9 (EnsureSchemaV9) slow tests (real
+// DB). The 3 metering ts indexes·the knowledge pending partial index
+// promotion·additive losslessness·idempotence·the numeric-comparison
+// gate regression.
 package db
 
 import (
@@ -9,8 +10,9 @@ import (
 	"testing"
 )
 
-// v9IndexNames — 게이트가 만드는 인덱스 4종(계측 테이블 ts 경로 3종 +
-// knowledge pending partial 1종 — 파생 산출 쿼리 경로).
+// v9IndexNames — the 4 indexes the gate creates (3 metering-table ts
+// paths + 1 knowledge pending partial — the derived-output query
+// paths).
 var v9IndexNames = []string{
 	"flint_read_events_ts_idx",
 	"flint_hot_events_ts_idx",
@@ -18,14 +20,15 @@ var v9IndexNames = []string{
 	"flint_knowledge_pending_idx",
 }
 
-// TestV9PromoteIdempotent — v8
-// 게이트를 경유한 DB(기존 배포 경로)에서 EnsureSchemaV9 → 버전 9·
-// 인덱스 4종 존재·승격 전 기존 행 무손상(additive). 재호출은 멱등 no-op.
-func TestV9PromoteIdempotent(t *testing.T) {
-	r := newTestRepo(t)
+// TestV9PromoteIdempotent — on a DB that passed the v8 gates (the
+// existing deployment path), EnsureSchemaV9 → version 9·the 4 indexes
+// present·pre-promotion existing rows intact (additive). A second call
+// is an idempotent no-op.
+func slowV9PromoteIdempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
-	// 기존 배포 경로 재현: v1 → v8 게이트 순차 통과.
+	// Reproducing the existing deployment path: v1 → passing the v8 gates
+	// in order.
 	for _, gate := range []func(context.Context) error{
 		r.EnsureSchemaV2, r.EnsureSchemaV3, r.EnsureSchemaV4,
 		r.EnsureSchemaV5, r.EnsureSchemaV6, r.EnsureSchemaV7, r.EnsureSchemaV8,
@@ -34,7 +37,8 @@ func TestV9PromoteIdempotent(t *testing.T) {
 			t.Fatalf("상위 게이트: %v", err)
 		}
 	}
-	// 승격 전 기존 행 — additive 무손상 증명 입력.
+	// Pre-promotion existing rows — the additive-losslessness proof
+	// input.
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v9-old")})
 	if err != nil {
 		t.Fatalf("InsertBatch pre-v9 row: %v", err)
@@ -56,15 +60,16 @@ func TestV9PromoteIdempotent(t *testing.T) {
 	if v := readVersion(t, r); v != "9" {
 		t.Fatalf("schema_version = %q, want 9", v)
 	}
-	// 인덱스 4종 존재 단언.
+	// Assert the 4 indexes exist.
 	for _, idx := range v9IndexNames {
 		assertObject(t, r, ctx, idx)
 	}
-	// pending partial 인덱스 — WHERE 절이 승격 약속 그대로인지 정의 단언
-	// (일반 인덱스로 조용히 변해도 존재 단언만으론 못 잡는다).
+	// The pending partial index — assert the definition keeps the WHERE
+	// clause exactly as promised (a quiet degradation to a plain index
+	// would slip past a mere existence assertion).
 	assertPartialIndex(t, r, ctx, "flint_knowledge_pending_idx",
 		[]string{"status = 'pending'", "invalid_at IS NULL"})
-	// 기존 행 무손상(additive — 게이트가 데이터를 건드리지 않는다).
+	// Existing rows intact (additive — the gate never touches data).
 	var n int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM knowledge WHERE id = $1`, old).Scan(&n); err != nil {
@@ -80,7 +85,7 @@ func TestV9PromoteIdempotent(t *testing.T) {
 	if n != 1 {
 		t.Errorf("기존 행 유실: read_events count = %d, want 1", n)
 	}
-	// 2회째 호출은 멱등 no-op.
+	// The 2nd call is an idempotent no-op.
 	if err := r.EnsureSchemaV9(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV9 (want idempotent): %v", err)
 	}
@@ -89,10 +94,10 @@ func TestV9PromoteIdempotent(t *testing.T) {
 	}
 }
 
-// TestV9GateNumeric — 게이트 수치 비교 회귀(V5~V7과 동일 계약):
-// '10'은 수치로는 상위이므로 no-op여야 한다(다운그레이드 방지).
-func TestV9GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+// TestV9GateNumeric — the gate numeric-comparison regression (the same
+// contract as V5~V7): '10' is numerically higher, so it must no-op
+// (preventing downgrades).
+func slowV9GateNumeric(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	setVersion(t, r, "10")
@@ -104,9 +109,10 @@ func TestV9GateNumeric(t *testing.T) {
 	}
 }
 
-// assertPartialIndex — pg_indexes.indexdef에 WHERE 절과 조건 부문자열
-// 전부가 포함되는지 단언(Doltgres는 조건을 테이블 한정
-// "knowledge.status = 'pending'" 형태로 정규화하므로 낱개 부문자열 검사).
+// assertPartialIndex — asserts that pg_indexes.indexdef contains the
+// WHERE clause and every condition substring (Doltgres normalizes
+// conditions into the table-qualified "knowledge.status = 'pending'"
+// form, so the check uses individual substrings).
 func assertPartialIndex(t *testing.T, r *Repo, ctx context.Context, name string, conds []string) {
 	t.Helper()
 	var def string

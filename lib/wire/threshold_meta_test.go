@@ -1,8 +1,8 @@
-// threshold_meta_test.go — 등록표 가드.
-// TestThresholdRegistrySingleSource(등록표 키 집합 == 기존 키 집합·Parse
-// 인식·tuningKeys·TUNING 표 노출 4곳 동질)·TestNewKeyPropagates(가상 키
-// 1건 등록 시 4경로 동시 반영 — 등록 후 제거). wire 외부 테스트 패키지 —
-// ops 파생 경로(TuningKeys) 검증을 위해 ops를 임포트한다.
+// threshold_meta_test.go — the registry guard.
+// TestThresholdRegistrySingleSource (the registry key set == the existing key
+// set, Parse recognition, tuningKeys, and the TUNING-table exposure — 4-way
+// homogeneity) and TestNewKeyPropagates (registering 1 virtual key reflects in
+// all 4 paths simultaneously — registered then removed). An external wire test package — imports ops to verify the ops-derived path (TuningKeys).
 package wire_test
 
 import (
@@ -15,8 +15,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// frozenThresholdKeys — ThresholdsKeys 원본(순서 포함). 등록표
-// 전환 후에도 키 집합·순서가 불변임을 단언하는 기준선.
+// frozenThresholdKeys — the ThresholdsKeys original (order included). The baseline
+// asserting the key set and order stay unchanged after the registry migration.
 var frozenThresholdKeys = []string{
 	"pending_max", "dup_susp_max", "conf_floor", "stale_sessions",
 	"stale_days", "stall_hot_h", "stall_write_h",
@@ -26,26 +26,26 @@ var frozenThresholdKeys = []string{
 	"dead_days", "pair_window_minutes", "chain_window_hours",
 	"events_retention_days", "hot_events_retention_days",
 	"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit", "session_knowledge_days",
-	// 진단 엔진·kreads 보존(diagnosis.go·TUNING §2)
+	// the diagnostics engine and kreads retention (diagnosis.go, TUNING §2)
 	"diag_hot_budget_high", "diag_hot_budget_low", "diag_trend_pct", "diag_recall_led_goal", "diag_dead_warn", "knowledge_reads_retention_days",
-	// import 행 수 상한(knowledge/import_jsonl.go)
+	// the import row cap (knowledge/import_jsonl.go)
 	"export_import_max_rows",
-	// decay 감쇠 계수·archive 제안 임계값(ops --decay-audit)
+	// the decay coefficient and archive-recommendation thresholds (ops --decay-audit)
 	"decay_rate", "archive_below",
-	// recall_events 보존기한(maintain --prune-invalidated 이벤트 정리)
+	// the recall_events retention (maintain --prune-invalidated event cleanup)
 	"recall_event_retention_days",
 }
 
-// TestThresholdRegistrySingleSource — 등록표가 4곳(기존 키
-// 집합·Parse 인식·tuningKeys·TUNING 표 노출)과 동질한지 — 등록표와
-// store(구조체·기본값·Parse switch) 어느 한쪽에만 키를 추가해도 FAIL.
+// TestThresholdRegistrySingleSource — the registry is homogeneous with the 4 places
+// (the existing key set, Parse recognition, tuningKeys, and the TUNING-table
+// exposure) — adding a key to only the registry or only store (the struct, defaults, or the Parse switch) FAILs.
 func TestThresholdRegistrySingleSource(t *testing.T) {
 	metas := wire.ThresholdMetas()
 	if len(metas) != len(frozenThresholdKeys) {
 		t.Fatalf("등록표 항목 수: %d, want %d", len(metas), len(frozenThresholdKeys))
 	}
-	// 1. 기존 키 집합(순서 포함) — ThresholdsKeys는 등록표 파생이므로
-	// 양방향 동질이 곧 파생 계약이다.
+	// 1. the existing key set (order included) — since ThresholdsKeys derives from
+	// the registry, two-way homogeneity is exactly the derivation contract.
 	if got := wire.ThresholdsKeys(); !reflect.DeepEqual(got, frozenThresholdKeys) {
 		t.Fatalf("ThresholdsKeys 드리프트:\n got=%v\nwant=%v", got, frozenThresholdKeys)
 	}
@@ -65,8 +65,8 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 			t.Errorf("%q: Thresholds 필드 무효 %q", m.Key, m.Field)
 			continue
 		}
-		// 기본값 동질 — 등록표 Default == DefaultThresholds 필드값.
-		// Parse 인식 — 구분 가능한 센티널 값이 파싱 폴백 없이 반영되는지.
+		// defaults homogeneity — registry Default == the DefaultThresholds field value.
+		// Parse recognition — a distinguishable sentinel value is reflected without a parse fallback.
 		var sentinel any
 		switch fv.Kind() {
 		case reflect.Int:
@@ -100,8 +100,8 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 			}
 		}
 	}
-	// 2. tuningKeys 동질 — TuningKeys는 등록표 파생(순서·Default·
-	// Consumer·Get 전부 등록표에서).
+	// 2. tuningKeys homogeneity — TuningKeys derives from the registry (order,
+	// Default, Consumer, and Get all from the registry).
 	tk := ops.TuningKeys()
 	if len(tk) != len(metas) {
 		t.Fatalf("TuningKeys 수: %d, want %d(등록표)", len(tk), len(metas))
@@ -128,8 +128,8 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 			t.Errorf("%q: Default=%q, want 등록표 기본값 표기 %q", m.Key, info.Default, want)
 		}
 	}
-	// 3. TUNING 표 노출 — TuningKeyAll(list·reset --all·TuningCurrent
-	// IN 조회 소스)이 등록표 전체를 포함.
+	// 3. TUNING-table exposure — TuningKeyAll (the source of the list,
+	// reset --all, and the TuningCurrent IN lookup) includes the whole registry.
 	all := map[string]bool{}
 	for _, k := range ops.TuningKeyAll() {
 		all[k] = true
@@ -147,13 +147,13 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 	}
 }
 
-// TestNewKeyPropagates — 가상 키 1건을 등록표에 등록하면
-// 4경로(ThresholdsKeys·TuningKeyAll·TuningKeyMap 행·TuningKeys 순서)가
-// 동시 반영되고, 제거 시 전부에서 사라진다 — 신규 키는 등록표 1곳 등록
-// (+store 구조체 필드)만으로 전파됨의 실증.
+// TestNewKeyPropagates — registering 1 virtual key in the registry reflects
+// simultaneously in the 4 paths (ThresholdsKeys, TuningKeyAll, the TuningKeyMap
+// row, and the TuningKeys order), and removing it makes it vanish from all —
+// demonstrating that a new key propagates with just 1 registry registration (+ a store struct field).
 func TestNewKeyPropagates(t *testing.T) {
 	probe := wire.ThresholdMeta{
-		Field:   "PendingMax", // 가상 키도 실 필드에 Get을 바인딩(표 행 계약)
+		Field:   "PendingMax", // the virtual key also binds Get to a real field (the table-row contract)
 		Key:     "zz_registry_probe",
 		Default: 7,
 		Desc:    "가드 테스트 가상 키",
@@ -168,15 +168,15 @@ func TestNewKeyPropagates(t *testing.T) {
 		}
 		return false
 	}
-	// 경로 1: ThresholdsKeys(thresholdsKeySQL IN·maintain 감사 소스).
+	// path 1: ThresholdsKeys (the thresholdsKeySQL IN, the maintain audit source).
 	if !inKeys(wire.ThresholdsKeys()) {
 		t.Error("ThresholdsKeys에 가상 키 미반영")
 	}
-	// 경로 2: TuningKeyAll(TuningCurrent IN 조회·reset --all).
+	// path 2: TuningKeyAll (the TuningCurrent IN lookup, reset --all).
 	if !inKeys(ops.TuningKeyAll()) {
 		t.Error("TuningKeyAll에 가상 키 미반영")
 	}
-	// 경로 3: TuningKeyMap 행(TUNING 표 Default·Consumer·Get).
+	// path 3: the TuningKeyMap row (the TUNING-table Default, Consumer, Get).
 	info, ok := ops.TuningKeyMap()[probe.Key]
 	if !ok {
 		t.Fatal("TuningKeyMap에 가상 키 미반영")
@@ -187,7 +187,7 @@ func TestNewKeyPropagates(t *testing.T) {
 	if got := info.Get(store.DefaultThresholds()); got != "50" {
 		t.Errorf("가상 키 Get(실 필드 폴백)= %q, want 50", got)
 	}
-	// 경로 4: TuningKeys(TUNING 표 행 순서 소스).
+	// path 4: TuningKeys (the TUNING-table row-order source).
 	if !func() bool {
 		for _, k := range ops.TuningKeys() {
 			if k.Key == probe.Key {
@@ -199,7 +199,7 @@ func TestNewKeyPropagates(t *testing.T) {
 		t.Error("TuningKeys에 가상 키 미반영")
 	}
 
-	// 등록 제거 — 전 경로에서 소거 단언.
+	// removing the registration — asserting erasure from every path.
 	restore()
 	if inKeys(wire.ThresholdsKeys()) || inKeys(ops.TuningKeyAll()) {
 		t.Error("제거 후에도 키 잔류")
@@ -209,6 +209,6 @@ func TestNewKeyPropagates(t *testing.T) {
 	}
 }
 
-// fmtInt/fmtFloat — 등록표 기본값 표기(ops 파생과 동일 규칙).
+// fmtInt/fmtFloat — the registry-default notation (the same rules as the ops derivation).
 func fmtInt(v int) string       { return strconv.Itoa(v) }
 func fmtFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }

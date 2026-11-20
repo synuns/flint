@@ -1,6 +1,6 @@
-// read_v0190_test.go — 효과 계측 와이어링: read 1회가 read_events에
-// 수치·플래그·세션 라벨로 기록된다(ReadEventStore seam, METRICS §4).
-// fakeStore 질의 캡처 패턴은 read_v0150_test.go 승계.
+// read_v0190_test.go — effect-metering wiring: a single read is recorded into read_events
+// with counts, flags, and the session label (ReadEventStore seam, METRICS §4).
+// The fakeStore query-capture pattern is inherited from read_v0150_test.go.
 package cli
 
 import (
@@ -11,15 +11,15 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// readEventRecorder — fakeStore에 ReadEventStore(seam)를 얹은
-// fake(readUsageRecorder 패턴 승계). RecordReadUsage도 흡수해 카운터
-// 경로를 단순화한다. ids(반환 id CSV) 녹음 추가.
+// readEventRecorder — a fake layering ReadEventStore (the seam) onto fakeStore
+// (inheriting the readUsageRecorder pattern). It also absorbs RecordReadUsage, simplifying
+// the counter paths. Adds recording of ids (the returned-id CSV).
 type readEventRecorder struct {
 	*fakeStore
 	events []readEventRecord
 }
 
-// readEventRecord — RecordReadEvent 호출 인자 녹음.
+// readEventRecord — records RecordReadEvent call arguments.
 type readEventRecord struct {
 	hits     int
 	zero     bool
@@ -38,14 +38,14 @@ func (r *readEventRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent
 	return nil
 }
 
-// hitRowsFixture — 히트 read의 active_knowledge 행(9열, v0150 관례).
+// hitRowsFixture — the hit read's active_knowledge rows (9 columns, the v0150 convention).
 var hitRowsFixture = [][]any{
 	{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"},
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
-// TestReadEventRecordedOnHit — 히트 read는 결과 수·세션
-// 라벨을 그대로 기록한다(hits=2, zero=false, fallback=false).
+// TestReadEventRecordedOnHit — a hit read records the result count and session
+// label as-is (hits=2, zero=false, fallback=false).
 func TestReadEventRecordedOnHit(t *testing.T) {
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -72,29 +72,29 @@ func TestReadEventRecordedOnHit(t *testing.T) {
 	if ev.session != "s-42" {
 		t.Errorf("session = %q, want s-42", ev.session)
 	}
-	// 반환 id CSV(상위 10) — 2행 히트이므로 "1,2".
+	// the returned-id CSV (top 10) — "1,2" for a 2-row hit.
 	if ev.ids != "1,2" {
 		t.Errorf("ids = %q, want 1,2", ev.ids)
 	}
 }
 
-// TestReadEventRecordsFallback — 제로히트→폴백 재쿼리로
-// 살아난 read는 fallback=true로 기록된다(폴백 플래그 전달).
+// TestReadEventRecordsFallback — a read revived by the zero-hit -> fallback re-query
+// is recorded with fallback=true (the fallback flag passed through).
 func TestReadEventRecordsFallback(t *testing.T) {
-	// 자동 라벨 채택 격리 — 주변 세션 라벨 상속 방지.
+	// auto-label adoption isolation — prevents inheriting the ambient session label.
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, " OR "):
-			// 폴백 OR 재쿼리 — 1행 회수(제로히트 탈출).
+			// fallback OR re-query — 1 row recovered (escaping the zero hit).
 			return [][]any{{"3", "백업 상태", "매일 점검", ":b:", "", "", "0.9", "active", "0"}}, nil
 		case strings.Contains(sql, "SELECT value FROM meta"):
 			return [][]any{{`{"calls":5,"zero":2}`}}, nil
 		}
-		return nil, nil // 본 쿼리 제로히트
+		return nil, nil // the main query zero-hits
 	}}}
 	var out strings.Builder
-	// 다중 토큰 질의 — 단일 토큰은 폴백이 구문과 동질이라 미발동.
+	// a multi-token query — a single token is identical to the fallback syntax, so it never triggers.
 	code := runRead(context.Background(), st,
 		[]string{"백업 정책 상태"}, strings.NewReader(""), &out)
 	if code != 0 {
@@ -112,15 +112,15 @@ func TestReadEventRecordsFallback(t *testing.T) {
 	}
 }
 
-// TestReadSessionFlagValidation — 값 없는 trailing --session은
-// 다른 값형 플래그와 동일 규칙 exit 3. 플래그형 값
-// (`--session --json` 흡수 오타)도 exit 3 — 라벨이 read_events에 14일
-// 남는 만큼 DB 오염 방지가 조회 편의보다 우선.
+// TestReadSessionFlagValidation — a trailing --session with no value follows the
+// same rule as other value flags: exit 3. A flag-shaped value
+// (the `--session --json` absorption typo) is also exit 3 — since the label persists in read_events
+// for 14 days, preventing DB pollution takes precedence over lookup convenience.
 func TestReadSessionFlagValidation(t *testing.T) {
 	for _, args := range [][]string{
-		{"--session"},           // 값 없음
-		{"--session", "--json"}, // 플래그 흡수 오타
-		{"--session", "-q"},     // 짧은 플래그형
+		{"--session"},           // no value
+		{"--session", "--json"}, // flag-absorption typo
+		{"--session", "-q"},     // short flag form
 	} {
 		st := &fakeStore{}
 		var out strings.Builder

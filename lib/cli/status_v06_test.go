@@ -1,5 +1,5 @@
-// status_v06_test.go — status 한 줄 JSON에 last_write_at·last_hot_at·
-// last_read_at 3필드 추가 검증. 키 부재/파손은 null, 기존 필드·순서 불변.
+// status_v06_test.go — verifies the 3 added fields last_write_at, last_hot_at, and
+// last_read_at in the status one-line JSON. Missing/corrupt keys are null; existing fields and order unchanged.
 package cli
 
 import (
@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// statusWithMeta — meta 키 맵(kv)으로 status 실행 후 디코딩된 출력과 exit 반환.
-// 스키마 버전은 3(호환), pending은 0으로 고정하고 나머지 meta 조회는 키 맵 참조.
+// statusWithMeta — runs status with a meta key map (kv) and returns the decoded output and exit.
+// The schema version is pinned to 3 (compatible), pending to 0; the other meta lookups reference the key map.
 func statusWithMeta(t *testing.T, kv map[string]string) (map[string]any, int) {
 	t.Helper()
 	f := &fakeStore{}
@@ -42,7 +42,7 @@ func statusWithMeta(t *testing.T, kv map[string]string) (map[string]any, int) {
 	return m, code
 }
 
-// TestStatusLastSeenFields — 3키 심기 → RFC3339 값 그대로 3필드 보고.
+// TestStatusLastSeenFields — seeding the 3 keys -> the 3 fields report the RFC3339 values as-is.
 func TestStatusLastSeenFields(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	w := ts.Add(-2 * time.Hour).Format(time.RFC3339)
@@ -68,7 +68,7 @@ func TestStatusLastSeenFields(t *testing.T) {
 	}
 }
 
-// TestStatusLastSeenMissingOrNull — 미설정·파손(비-RFC3339) 키는 null.
+// TestStatusLastSeenMissingOrNull — unset or corrupt (non-RFC3339) keys are null.
 func TestStatusLastSeenMissingOrNull(t *testing.T) {
 	m, code := statusWithMeta(t, map[string]string{
 		"schema_version": "3",
@@ -88,7 +88,7 @@ func TestStatusLastSeenMissingOrNull(t *testing.T) {
 	}
 }
 
-// TestStatusLastSeenFieldOrder — 기존 필드 회귀: 순서·값 불변, 신규 필드는 말미.
+// TestStatusLastSeenFieldOrder — existing-field regression: order and values unchanged; new fields at the end.
 func TestStatusLastSeenFieldOrder(t *testing.T) {
 	m, code := statusWithMeta(t, map[string]string{"schema_version": "3"})
 	if code != 0 {
@@ -97,7 +97,7 @@ func TestStatusLastSeenFieldOrder(t *testing.T) {
 	want := []string{"status", "schema_version", "pending", "hot_calls",
 		"hot_p95", "read_calls", "read_zero_pct", "last_write_at",
 		"last_hot_at", "last_read_at"}
-	// statusOutput 구조체 태그 순서를 직접 확인한다.
+	// checks the statusOutput struct tag order directly.
 	var got []string
 	typ := reflect.TypeOf(statusOutput{})
 	for i := 0; i < typ.NumField(); i++ {
@@ -117,8 +117,8 @@ func TestStatusLastSeenFieldOrder(t *testing.T) {
 	}
 }
 
-// TestStatusLastSeenEmptyAndQueryError — 빈값·last_* 조회 오류는 null 폴백,
-// status 자체는 exit 0을 유지한다(계측 표시이므로 조회를 깨지 않는다).
+// TestStatusLastSeenEmptyAndQueryError — empty values and last_* lookup errors are a null fallback;
+// status itself keeps exit 0 (a metering indication must not break the lookup).
 func TestStatusLastSeenEmptyAndQueryError(t *testing.T) {
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -129,16 +129,16 @@ func TestStatusLastSeenEmptyAndQueryError(t *testing.T) {
 			}
 		}
 		if strings.Contains(sql, "'schema_version'") {
-			// runStatus의 스키마 조회는 키를 SQL에 인라인한다(args nil).
+			// runStatus's schema lookup inlines the key into the SQL (args nil).
 			return [][]any{{"3"}}, nil
 		}
 		if strings.HasPrefix(sql, "SELECT value FROM meta") {
 			switch key {
 			case "last_write_at":
-				// 빈값 — 키는 있으나 값이 빈 문자열.
+				// empty value — the key exists but the value is an empty string.
 				return [][]any{{""}}, nil
 			case "last_hot_at", "last_read_at":
-				// 조회 오류 — last_* 조회만 실패.
+				// lookup error — only the last_* lookup fails.
 				return nil, errors.New("boom")
 			}
 			return nil, nil

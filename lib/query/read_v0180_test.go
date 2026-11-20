@@ -1,6 +1,6 @@
-// read_v0180_test.go — 폴백 검색면에 tags 포함. 태그로만
-// 분류된 지식(topic·summary에 어휘 없음)이 단어 폴백에서 회수된다 —
-// 폴백 유입의 주요 원인 중 하나를 제거한다.
+// read_v0180_test.go — the fallback search surface includes tags. Knowledge
+// classified only by tags (no vocabulary in topic or summary) is recovered by the
+// word fallback — removing one of the main causes of fallback intake.
 package query
 
 import (
@@ -8,8 +8,8 @@ import (
 	"testing"
 )
 
-// TestBuildReadFallbackIncludesTags — 폴백 LIKE 접합면이
-// topic || ' ' || summary || ' ' || tags로 확장된다(구문 쿼리는 불변).
+// TestBuildReadFallbackIncludesTags — the fallback LIKE surface expands to
+// topic || ' ' || summary || ' ' || tags (the phrase query unchanged).
 func TestBuildReadFallbackIncludesTags(t *testing.T) {
 	sql, _, ok := BuildReadFallback("doltgres 포트", Filters{})
 	if !ok {
@@ -20,8 +20,8 @@ func TestBuildReadFallbackIncludesTags(t *testing.T) {
 	}
 }
 
-// TestBuildReadPhraseSurfaceUnchanged — 구문(phrase) 쿼리 접합면은
-// topic || ' ' || summary 그대로(tags는 --tag 필터의 영역 — 계약 불변).
+// TestBuildReadPhraseSurfaceUnchanged — the phrase query's surface stays
+// topic || ' ' || summary as-is (tags belong to the --tag filter's domain — the contract unchanged).
 func TestBuildReadPhraseSurfaceUnchanged(t *testing.T) {
 	sql, _ := BuildRead("doltgres", Filters{})
 	if !strings.Contains(sql, "lower(topic || ' ' || summary) LIKE") {

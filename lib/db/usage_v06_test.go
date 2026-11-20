@@ -1,7 +1,8 @@
-// usage_v06_test.go — RecordUsage: 유입 계측 meta 기록(실DB slow 테스트).
-// 계약: last_<kind>_at RFC3339 upsert(dup 제외) + daily:YYYY-MM-DD JSON 증분,
-// 14일 초과 daily 키 정리(PruneDaily — 오늘 키 신규 생성 시에만), 경합
-// last-write-wins 수용.
+// usage_v06_test.go — RecordUsage: intake-metering meta recording
+// (real-DB slow tests). Contract: last_<kind>_at RFC3339 upsert (dup
+// excluded) + daily:YYYY-MM-DD JSON increments, cleanup of daily keys
+// beyond 14 days (PruneDaily — only when today's key is newly created),
+// race last-write-wins accepted.
 package db
 
 import (
@@ -11,7 +12,7 @@ import (
 	"time"
 )
 
-// cleanUsageKeys — last_*·daily:* meta 키를 지워 테스트끼리 격리한다.
+// cleanUsageKeys — wipes the last_*·daily:* meta keys to isolate tests.
 func cleanUsageKeys(t *testing.T, r *Repo) {
 	t.Helper()
 	if _, err := r.pool.Exec(context.Background(),
@@ -21,19 +22,19 @@ func cleanUsageKeys(t *testing.T, r *Repo) {
 	}
 }
 
-// dailyValue(구 daily:<date> JSON 디코더)는 플랫 키 전환으로
-// 폐지 — 플랫 읽기는 flatDailyValue(usage_flatkey_test.go)·구 JSON 폴백은
-// readDailyFlat이 담당한다.
+// dailyValue (the legacy daily:<date> JSON decoder) was abolished by
+// the flat-key switch — flat reads belong to flatDailyValue
+// (usage_flatkey_test.go)·the legacy JSON fallback to readDailyFlat.
 
-// TestRecordUsageDailyAndPrune — write·hot·read·dup 기록 → 플랫 키 값·last_*
-// 갱신·15일치 심기 → 초과 키 삭제(플랫 키 단언으로 갱신).
-func TestRecordUsageDailyAndPrune(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsageDailyAndPrune — write·hot·read·dup records → flat-key
+// values·last_* renewal·seeding 15 days' worth → excess keys deleted
+// (updated to flat-key assertions).
+func slowRecordUsageDailyAndPrune(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// write 2회(hook·mcp) + hot + read + dup.
+	// write ×2 (hook·mcp) + hot + read + dup.
 	for _, call := range []struct{ kind, source string }{
 		{"write", "hook"}, {"write", "mcp"}, {"hot", ""}, {"read", ""}, {"dup", ""},
 	} {
@@ -48,7 +49,7 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 		}
 	}
 
-	// last_* 3키 RFC3339 파싱 가능·dup는 last_dup_at 미기록.
+	// The 3 last_* keys parse as RFC3339; dup records no last_dup_at.
 	for _, key := range []string{"last_write_at", "last_hot_at", "last_read_at"} {
 		var val string
 		if err := r.pool.QueryRow(ctx,
@@ -68,9 +69,10 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 		t.Fatalf("last_dup_at exists — dup은 last_ 시각을 기록하지 않는다")
 	}
 
-	// 15일치(어제~15일 전) 심기 + 오늘 키 삭제(롤오버 첫 이벤트 시뮬레이션)
-	// → 다음 기록이 오늘 키를 신규 생성하며 PruneDaily(신규 생성 시에만
-	// 실행)로 초과 키 삭제.
+	// Seed 15 days (yesterday~15 days ago) + delete today's key
+	// (simulating the rollover's first event) → the next record newly
+	// creates today's key and PruneDaily (run only on new creation)
+	// deletes the excess keys.
 	for i := 1; i <= 15; i++ {
 		d := time.Now().UTC().AddDate(0, 0, -i).Format("2006-01-02")
 		if _, err := r.pool.Exec(ctx,
@@ -82,15 +84,16 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:"+today); err != nil {
 		t.Fatalf("delete today key: %v", err)
 	}
-	// 플랫 키도 함께 지운다(read kind는 플랫 키 daily:read:<오늘>이
-	// 롤오버 created 판정의 대상이다).
+	// Delete the flat key too (the read kind's flat key
+	// daily:read:<today> is the rollover created-verdict target).
 	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:read:"+today); err != nil {
 		t.Fatalf("delete today flat key: %v", err)
 	}
 	if err := r.RecordUsage(ctx, "read", ""); err != nil {
 		t.Fatalf("RecordUsage(read) after seeding: %v", err)
 	}
-	// 보존 14일 = 오늘 + 어제~13일 전. 14·15일 전 키는 삭제.
+	// The 14-day retention = today + yesterday~13 days ago. Keys 14·15
+	// days old are deleted.
 	for _, age := range []int{14, 15} {
 		d := time.Now().UTC().AddDate(0, 0, -age).Format("2006-01-02")
 		if err := r.pool.QueryRow(ctx,
@@ -101,7 +104,8 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 			t.Fatalf("daily key %d일 전 잔존 — 14일 초과 미삭제", age)
 		}
 	}
-	// 어제~13일 전 키는 보존·오늘 키는 신규 생성 경로로 재기록(read=1).
+	// Keys yesterday~13 days ago are retained; today's key is re-recorded
+	// via the new-creation path (read=1).
 	for _, age := range []int{1, 13} {
 		d := time.Now().UTC().AddDate(0, 0, -age).Format("2006-01-02")
 		if err := r.pool.QueryRow(ctx,
@@ -117,11 +121,11 @@ func TestRecordUsageDailyAndPrune(t *testing.T) {
 	}
 }
 
-// TestRecordUsagePrunesOnlyOnNewDayKey — PruneDaily는 오늘 daily 키가 신규
-// 생성된 경우(롤오버 첫 이벤트)에만 실행된다(회귀: RecordUsage마다 DELETE
-// 실행 — 핫패스 낭비·duplicate write 2회 정리).
-func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsagePrunesOnlyOnNewDayKey — PruneDaily runs only when
+// today's daily key is newly created (the rollover's first event)
+// (regression: a DELETE on every RecordUsage — hot-path waste·duplicate
+// writes cleaning twice).
+func slowRecordUsagePrunesOnlyOnNewDayKey(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	old := time.Now().UTC().AddDate(0, 0, -20).Format("2006-01-02")
@@ -143,7 +147,8 @@ func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
 		return n
 	}
 
-	// 1회째: 오늘 키 신규 생성 → 정리 실행 → 20일 전 키 삭제.
+	// 1st: today's key newly created → cleanup runs → the 20-day-old key
+	// deleted.
 	seed()
 	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
 		t.Fatalf("RecordUsage #1: %v", err)
@@ -151,7 +156,8 @@ func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
 	if countOld() != 0 {
 		t.Fatalf("신규 생성 시 20일 전 키 잔존 — PruneDaily 미실행")
 	}
-	// 2회째: 오늘 키 이미 존재 → 정리 건너뜀 → 재심은 20일 전 키 잔존.
+	// 2nd: today's key already exists → cleanup skipped → the re-seeded
+	// 20-day-old key survives.
 	seed()
 	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
 		t.Fatalf("RecordUsage #2: %v", err)
@@ -161,10 +167,10 @@ func TestRecordUsagePrunesOnlyOnNewDayKey(t *testing.T) {
 	}
 }
 
-// TestRecordUsageCorruptDailyRewrites — 파손된 플랫 키 값은 0에서 재기작
-// (구 JSON 파손 재기작 계약의 플랫 승계 — 정수 아닌 기존 값).
-func TestRecordUsageCorruptDailyRewrites(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsageCorruptDailyRewrites — a corrupted flat-key value is
+// rewritten from 0 (the flat inheritance of the legacy JSON
+// corrupt-rewrite contract — any non-integer existing value).
+func slowRecordUsageCorruptDailyRewrites(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
@@ -184,9 +190,9 @@ func TestRecordUsageCorruptDailyRewrites(t *testing.T) {
 	}
 }
 
-// TestRecordUsageWriteEmptySource — write에 source=""면 write 카운터만.
-func TestRecordUsageWriteEmptySource(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsageWriteEmptySource — write with source="" updates only
+// the write counter.
+func slowRecordUsageWriteEmptySource(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
@@ -206,12 +212,12 @@ func TestRecordUsageWriteEmptySource(t *testing.T) {
 	}
 }
 
-// TestRecordUsageLegacyJSONIgnoredByWrite — 구 daily:<date> JSON은 쓰기
-// 경로가 건드리지 않는다(읽기 폴백 전용 승계 — null·부분
-// 파손 파상 재기작 회귀는 readDailyFlat 폴백 계약으로 이전,
-// usage_flatkey_test.go TestReadDailyFlatLegacyFallback 참조).
-func TestRecordUsageLegacyJSONIgnoredByWrite(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsageLegacyJSONIgnoredByWrite — the legacy daily:<date> JSON
+// is untouched by the write path (a read-fallback-only inheritance — the
+// null·partial-corruption rewrite regression moved to the readDailyFlat
+// fallback contract; see usage_flatkey_test.go
+// TestReadDailyFlatLegacyFallback).
+func slowRecordUsageLegacyJSONIgnoredByWrite(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
@@ -239,21 +245,22 @@ func TestRecordUsageLegacyJSONIgnoredByWrite(t *testing.T) {
 	}
 }
 
-// TestRecordUsageInvalidKind — 계약 밖 kind는 에러(기록 없음).
-func TestRecordUsageInvalidKind(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsageInvalidKind — an out-of-contract kind is an error
+// (nothing recorded).
+func slowRecordUsageInvalidKind(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	if err := r.RecordUsage(context.Background(), "bogus", ""); err == nil {
 		t.Fatalf("invalid kind — want error")
 	}
 }
 
-// TestRecordUsageConcurrentNoError — 병렬 기록은 에러 없이 수용된다(구
-// last-write-wins JSON 경합 계약의 플랫 승계. Doltgres는 같은 행
-// 동시 UPSERT를 에러 없이 last-write-wins 수용 — 총계 정합은 보장하지
-// 않음, 유실 < 호출 실패 계측 원칙. 원자성은 Postgres 기준).
-func TestRecordUsageConcurrentNoError(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsageConcurrentNoError — parallel records are accepted
+// without error (the flat inheritance of the legacy last-write-wins JSON
+// race contract. Doltgres accepts concurrent UPSERTs of the same row as
+// last-write-wins without error — total-count consistency not
+// guaranteed; the loss < call-failure metering principle. Atomicity is
+// the Postgres baseline).
+func slowRecordUsageConcurrentNoError(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	var wg sync.WaitGroup

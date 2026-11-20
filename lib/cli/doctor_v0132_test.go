@@ -1,5 +1,5 @@
 // doctor_v0132_test.go — --check conflicts
-// 단독 실행(tail-chain 서브셋 일반화)·조회 상한 도달 문구.
+// standalone execution (generalizing the tail-chain subset) and the query-cap-reached wording.
 package cli
 
 import (
@@ -12,13 +12,13 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// TestDoctorCheckConflictsSubset — N7: `doctor --check conflicts`는
-// unknown check exit 3이 아니라 검사 1건(conflicts)만 실행해 exit 0.
-// fakeStore는 ConflictGroups seam(conflicts_v0131_test.go)을 제공하므로
-// 그룹 0개 → ok 경로로 단독 실행 계약을 확인한다.
+// TestDoctorCheckConflictsSubset — N7: `doctor --check conflicts` is not an unknown-check
+// exit 3 but runs just the 1 check (conflicts) and exits 0.
+// fakeStore provides the ConflictGroups seam (conflicts_v0131_test.go), so with
+// 0 groups it confirms the standalone-execution contract via the ok path.
 func TestDoctorCheckConflictsSubset(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // 모순 후보 그룹 0개
+		return nil, nil // 0 contradiction-candidate groups
 	}}
 	var out bytes.Buffer
 	code := runDoctor(context.Background(), st, []string{"--check", "conflicts"}, strings.NewReader(""), &out)
@@ -30,15 +30,15 @@ func TestDoctorCheckConflictsSubset(t *testing.T) {
 	}
 }
 
-// TestConflictsLimitReachedNotesOverflow — N8: 그룹 수가 doctor 상한
-// (doctorConflictLimit)에 도달하면 detail에 상한 초과 가능 문구가 붙는다.
+// TestConflictsLimitReachedNotesOverflow — N8: when the group count reaches the doctor cap
+// (doctorConflictLimit), the detail carries a possible-overflow note.
 func TestConflictsLimitReachedNotesOverflow(t *testing.T) {
 	groups := make([]db.ConflictGroup, doctorConflictLimit)
 	for i := range groups {
 		groups[i] = db.ConflictGroup{
 			Topic: fmt.Sprintf("topic-%d", i),
 			IDs:   []int{2*i + 1, 2*i + 2},
-			// 요약이 완전히 달라 isConflictGroup 참 — 모순 후보 50그룹.
+			// the summaries are completely different, so isConflictGroup is true — 50 contradiction-candidate groups.
 			Summaries: []string{"포트 기본값은 5433이다", "환경설정 초기화는 setup이 담당한다"},
 		}
 	}

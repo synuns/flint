@@ -1,9 +1,9 @@
-// setup/teardown 커맨드 — 원커맨드 설정(QUICKSTART 1커맨드).
-// setup: ①docker compose up -d --wait(exec, 실패는 안내로 계속) ②Migrate ③seed 안내
-// ④플러그인 설치 안내 — 진행 요약 한 줄 JSON. teardown: 기본 dry-run
-// (compose down 계획 안내만, 파괴 가드) — --yes 실행 확정 시
-// 컨테이너 정지, --purge면 volume까지 삭제 exec. 실패해도 다음 단계
-// 안내는 유지한다.
+// setup/teardown commands — one-command setup (the QUICKSTART single command).
+// setup: (1) docker compose up -d --wait (exec; on failure, continue with guidance) (2) Migrate (3) seed guidance
+// (4) plugin install guidance — a one-line JSON progress summary. teardown: dry-run by default
+// (only a compose down plan notice, destructive guard) — with --yes the execution is confirmed:
+// stop the containers; with --purge, also delete the volumes via exec. Even on failure, the next-step
+// guidance is kept.
 package cli
 
 import (
@@ -22,8 +22,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// composeRunFn — docker compose 실행 seam(var). 실패 시 stderr를 에러에
-// 실어 안내 출력로 원인이 보이게 한다(장애 침묵 금지). 테스트는 fake 교체.
+// composeRunFn — docker compose execution seam (var). On failure, the stderr is attached to the error
+// so the cause shows in the guidance output (no silent failures). Tests swap in a fake.
 var composeRunFn = func(ctx context.Context, args ...string) error {
 	argv := append([]string{"compose"}, args...)
 	out, err := exec.CommandContext(ctx, "docker", argv...).CombinedOutput()
@@ -33,8 +33,8 @@ var composeRunFn = func(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// composeUpFn·composeDownFn — 단계 seam. up은 --wait으로 컨테이너
-// 준비 완료까지 대기(스펙 §2, 60s 타임아웃).
+// composeUpFn and composeDownFn — phase seams. up waits with --wait until the containers are
+// ready (spec §2, 60s timeout).
 var (
 	composeUpFn = func(ctx context.Context) error {
 		return composeRunFn(ctx, "up", "-d", "--wait", "--wait-timeout", "60")
@@ -47,8 +47,8 @@ var (
 	}
 )
 
-// setupPortDialFn — compose 시작 전 5434 점유 감지 seam. true =
-// 이미 무언가 수신 중(점유). 기본은 짧은 타임아웃 net.Dial.
+// setupPortDialFn — seam detecting port 5434 occupancy before compose starts. true =
+// something is already listening (occupied). Default is a short-timeout net.Dial.
 var setupPortDialFn = func(addr string) bool {
 	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
 	if err != nil {
@@ -58,10 +58,10 @@ var setupPortDialFn = func(addr string) bool {
 	return true
 }
 
-// setupStderr — setup 경고 stderr 챈널 seam(테스트 캡처).
+// setupStderr — setup warning stderr channel seam (test capture).
 var setupStderr io.Writer = os.Stderr
 
-// SetupSteps — setup 단계 고정 순서(①compose ②migrate ③seed ④플러그인).
+// SetupSteps — the fixed setup step order ((1)compose (2)migrate (3)seed (4)plugins).
 func SetupSteps() []string {
 	return []string{
 		"docker compose up -d --wait --wait-timeout 60",
@@ -71,13 +71,13 @@ func SetupSteps() []string {
 	}
 }
 
-// setupNext — ③④ 안내. 실행이 아니라 다음 수동 단계 안내다(비간섭 원칙).
+// setupNext — (3)(4) guidance. Not execution — guidance for the next manual step (non-interference principle).
 var setupNext = []string{
 	"make seed — seed demo data",
 	"install the flint-plugin/ directory into your plugin path",
 }
 
-// setupSummary — 진행 요약 한 줄 JSON 모양.
+// setupSummary — the one-line JSON progress summary shape.
 type setupSummary struct {
 	Status   string   `json:"status"`
 	Steps    []string `json:"steps"`
@@ -85,15 +85,15 @@ type setupSummary struct {
 	Next     []string `json:"next"`
 }
 
-// RunSetup — ①~④ 실행(③④는 안내) 후 요약 JSON과 exit 코드를 반환한다.
-// compose 실패는 경고로만(ping이 성공하면 계속), ping/migrate 실패는
-// degraded + 수동 재시도 안내로 exit 1.
+// RunSetup — runs steps (1)-(4) ((3)(4) guidance only) and returns the summary JSON and exit code.
+// compose failure is a warning only (continue if ping succeeds); ping/migrate failure means
+// degraded + manual-retry guidance with exit 1.
 func RunSetup(ctx context.Context, ping, migrate func() error) (string, int) {
 	return runSetupSteps(ctx, ping, migrate, nil)
 }
 
-// runSetupSteps — RunSetup 본체. ux가 nil이 아니면 각 단계 진행을
-// setupUX로 표시한다(요약 JSON·경고·exit 계약은 ux 유무와 무관하게 동일).
+// runSetupSteps — the RunSetup body. If ux is non-nil, each step's progress is shown via
+// setupUX (the summary JSON, warnings, and exit contract are identical regardless of ux).
 func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX) (string, int) {
 	var warns []string
 	status := "ok"
@@ -101,15 +101,15 @@ func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX)
 	if ux != nil {
 		ux.Step("Start Doltgres (docker compose up)")
 	}
-	// compose 시작 전 5434(ADR-0010 기본 포트) 점유 감지 —
-	// 기존 서버(다른 컨테이너·로컬 postgres)가 이미 점유하면 compose up이
-	// 실패하거나 ping이 잘못된 서버에 연결된다. 경고 1행 stderr만, 진행은
-	// 유지(ping·migrate가 실제 상태를 판정).
+	// detect port 5434 (the ADR-0010 default port) occupancy before compose starts —
+	// if an existing server (another container, a local postgres) already holds it, compose up
+	// fails or ping connects to the wrong server. Only a one-line stderr warning; proceed anyway
+	// (ping and migrate determine the actual state).
 	if setupPortDialFn("localhost:5434") {
 		fmt.Fprintf(setupStderr, "flint setup: port 5434 already in use — compose may fail or connect to an existing server; continuing\n")
 	}
 	if err := composeUpFn(ctx); err != nil {
-		// docker 미설치(exec not found)는 전용 안내로 구분한다.
+		// docker not installed (exec not found) gets its own dedicated guidance.
 		if errors.Is(err, exec.ErrNotFound) {
 			warns = append(warns, "docker not installed — install from https://docs.docker.com/get-docker/ and re-run")
 		} else {
@@ -157,16 +157,16 @@ func runSetupSteps(ctx context.Context, ping, migrate func() error, ux *setupUX)
 	return string(b), code
 }
 
-// exposureSummary — setup --exposure 기록 보고 한 줄 JSON 모양.
+// exposureSummary — the one-line JSON shape of the setup --exposure write report.
 type exposureSummary struct {
 	Status   string `json:"status"`
 	Exposure string `json:"exposure"`
 }
 
-// runSetupExposure — --exposure normal|minimal 기록만 수행하고 즉시 반환
-// (compose·migrate 체인에 끼지 않는다 — --update-rules와 같은 단독 모드).
-// setup은 store-free 진입이라 st==nil이면 여기서만 접속한다. 무효 값은
-// 무효 인자 exit 3(전역 계약), 기록 실패는 exit 1.
+// runSetupExposure — only records --exposure normal|minimal and returns immediately
+// (not part of the compose/migrate chain — a standalone mode like --update-rules).
+// setup is a store-free entry, so it connects here only if st==nil. Invalid values are
+// invalid-arg exit 3 (global contract); write failure is exit 1.
 func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Writer) int {
 	switch val {
 	case "normal", "minimal":
@@ -183,7 +183,7 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 		defer s.Close()
 		st = s
 	}
-	// 노출 기록 upsert는 setMetaKV 단일 진입 위임.
+	// the exposure-write upsert is delegated to the single setMetaKV entry point.
 	if err := setMetaKV(ctx, st, ExposureKey, val); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return 1
@@ -196,16 +196,16 @@ func runSetupExposure(ctx context.Context, st Store, val string, stdout io.Write
 	return 0
 }
 
-// setupWizardTTYFn — 위저드 진입 터미널 판정 seam. 기존
-// setupUX TTY 감지와 동일 기준(커맨드 stdout writer) — 파이프·리다이렉
-// 션·CI는 위저드 미진입(기존 안내 경로 유지 계약).
+// setupWizardTTYFn — terminal-check seam for wizard entry. Same criterion as the existing
+// setupUX TTY detection (the command's stdout writer) — pipes, redirection,
+// and CI do not enter the wizard (the existing guidance-path contract is kept).
 var setupWizardTTYFn = func(stdout io.Writer) bool {
 	return newSetupUX(stdout, false).isTTY
 }
 
-// setupWizardFn — 위저드 실행 seam(테스트 교체). (chosen, true)면
-// 위저드 완료 — chosen은 플래그 등가물(--exposure 값), ("", false)면 취소·
-// 실패로 기존 no-arg 경로 폴백(부작용 없음).
+// setupWizardFn — wizard execution seam (test swap). (chosen, true) means the wizard
+// completed — chosen is the flag equivalent (the --exposure value); ("", false) means cancelled or
+// failed, falling back to the existing no-arg path (no side effects).
 var setupWizardFn = func() (string, bool) {
 	answers, err := tui.RunSetupWizard()
 	if err != nil {
@@ -214,22 +214,22 @@ var setupWizardFn = func() (string, bool) {
 	return answers.Exposure, true
 }
 
-// runSetup — 커맨드 진입점. --dry는 단계만 출력(exec·쿼리 없음).
-// --json은 기존 한 줄 JSON 요약 완전 불변, 미지정 시 TTY면
-// setupUX 시각 진행으로 출력한다(동작 계약은 동일 — ping·migrate 동일
-// 순서·횟수). non-TTY(리다이렉션·스크립트)는 기존 JSON을 그대로 둔다.
-// --update-rules는 스킬 싱크만 수행하고 즉시 반환 — compose·
-// migrate 체인에 끼지 않는다. --exposure도 프로파일 기록만,
-// --mcp도 하네스 MCP 등록만 수행하고 즉시 반환한다.
-// 인자 없는 TTY 실행은 huh 위저드로 진입(플래그 등가물을
-// 조립해 기존 함수 재호출 — 플래그 경로·비터미널 경로는 불변).
-// store-free 디스패치로 st== nil일 수 있다
-// (첫 실행) — ping/migrate는 degraded 경고로 연기하고 1단계 compose는
-// 수행한다.
+// runSetup — command entry point. --dry prints the steps only (no exec, no queries).
+// --json keeps the existing one-line JSON summary fully unchanged; when unspecified and on a TTY,
+// output switches to the setupUX visual progress (identical behavior contract — same ping/migrate
+// order and count). non-TTY (redirection, scripts) keeps the existing JSON as-is.
+// --update-rules only syncs the skills and returns immediately — not part of the
+// compose/migrate chain. --exposure also only records the profile; --mcp only registers
+// the harness MCP and returns immediately.
+// A TTY run with no arguments enters the huh wizard (assembles the flag equivalent
+// and re-invokes the existing function — the flag path and non-terminal path are unchanged).
+// As a store-free dispatch, st may be nil
+// (first run) — ping/migrate are deferred as a degraded warning, and step-1 compose is still
+// performed.
 func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 수동 루프를 wire.ParseArgs 사양 테이블로 이관(위치 인자
-	// 불허). --dry·--mcp 조기 반환은 병렬 지정 시 args 순서가 우선(기존
-	// 인카운터 순서 승계 — 인덱스 비교로 재현).
+	// moved the manual loop to the wire.ParseArgs spec table (positional args
+	// not allowed). For the --dry/--mcp early returns given in parallel, args order wins (carrying over the
+	// existing encounter order — reproduced by index comparison).
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--dry"},
@@ -279,9 +279,9 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	if updateRules {
 		return runUpdateRules(stdout, srcOverride)
 	}
-	// 인자 없음 + 터미널이면 huh 위저드로 — exposure 선택 →
-	// 백업 키 안내 후 기존 체인·플래그 등가물 기록을 기존 함수로 수행
-	// (위저드는 값 조립만). 취소·비터미널은 기존 no-arg 경로 불변.
+	// no args + terminal goes to the huh wizard — exposure selection ->
+	// backup-key guidance, then the existing chain and the flag-equivalent write run through the existing functions
+	// (the wizard only assembles values). Cancel and non-terminal keep the existing no-arg path unchanged.
 	if len(args) == 0 && setupWizardTTYFn(stdout) {
 		if chosen, ok := setupWizardFn(); ok {
 			if code := runSetupChain(ctx, st, stdout, false); code != 0 {
@@ -293,8 +293,8 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 	return runSetupChain(ctx, st, stdout, jsonMode)
 }
 
-// setupPingMigrate — st nil 가드 ping/migrate 클로저(기존 runSetup 본체
-// 추출 — 위저드 경로가 동일 클로저를 재사용한다).
+// setupPingMigrate — the st-nil-guarded ping/migrate closure (extracted from the existing runSetup body
+// — the wizard path reuses the same closure).
 func setupPingMigrate(ctx context.Context, st Store) (func() error, func() error) {
 	ping := func() error {
 		if st == nil {
@@ -311,8 +311,8 @@ func setupPingMigrate(ctx context.Context, st Store) (func() error, func() error
 	return ping, migrate
 }
 
-// runSetupChain — setup 주 체인 실행(기존 runSetup 꼬리 추출, 계약
-// 불변). --json·non-TTY는 기존 한 줄 JSON 요약, TTY는 setupUX 시각 진행.
+// runSetupChain — runs the main setup chain (extracted from the tail of the existing runSetup; contract
+// unchanged). --json and non-TTY use the existing one-line JSON summary; TTY uses setupUX visual progress.
 func runSetupChain(ctx context.Context, st Store, stdout io.Writer, jsonMode bool) int {
 	ping, migrate := setupPingMigrate(ctx, st)
 	if jsonMode {
@@ -320,8 +320,8 @@ func runSetupChain(ctx context.Context, st Store, stdout io.Writer, jsonMode boo
 		fmt.Fprintln(stdout, line)
 		return code
 	}
-	// 미지정 시 시각 진행 — 단, TTY에서만(터미널이 아니면 기존 한 줄
-	// JSON 유지: 스크립트·파이프 소비자 호환).
+	// when unspecified, visual progress — but only on a TTY (otherwise keep the existing one-line
+	// JSON: script/pipe consumer compatibility).
 	ux := newSetupUX(stdout, false)
 	if !ux.isTTY {
 		line, code := RunSetup(ctx, ping, migrate)
@@ -333,18 +333,18 @@ func runSetupChain(ctx context.Context, st Store, stdout io.Writer, jsonMode boo
 	return code
 }
 
-// lookPathFn — 하네스 CLI 탐지 seam(exec.LookPath). 선언은 프로덕션
-// 파일에 둔다(_test.go 전용 var는 go build가 깨진다) — 테스트는 교체만.
+// lookPathFn — harness CLI detection seam (exec.LookPath). Declared in the production file
+// (a _test.go-only var breaks go build) — tests only swap it.
 var lookPathFn = exec.LookPath
 
-// execCommandFn — 하네스 네이티브 CLI 실행 seam(var). 인자 name은
-// lookPathFn이 반환한 절대 경로다(가짜 경로는 ENOENT로 즉시 실패 —
-// 테스트가 실제 하네스 설정을 건드리지 않는다). 실패는 치명 아님.
+// execCommandFn — harness native CLI execution seam (var). The name argument is the
+// absolute path returned by lookPathFn (a fake path fails instantly with ENOENT —
+// so tests never touch real harness settings). Failure is non-fatal.
 var execCommandFn = func(name string, args ...string) error {
 	return exec.Command(name, args...).Run()
 }
 
-// mcpSetupSummary — setup --mcp 결과 한 줄 JSON 모양.
+// mcpSetupSummary — the one-line JSON shape of the setup --mcp result.
 type mcpSetupSummary struct {
 	Status     string   `json:"status"`
 	Registered []string `json:"registered"`
@@ -352,19 +352,19 @@ type mcpSetupSummary struct {
 	Detail     []string `json:"detail,omitempty"`
 }
 
-// runSetupMCP — A급 하니스(MCPAdd 보유) 순회: exec.LookPath 탐지 후
-// 각 네이티브 CLI로 `flint mcp`를 등록한다(copilot CLI 검증
-// 승격 — 안내 전용 분기 폐지, 인자는 spec에서). B급(MCPAdd nil — 파일
-// 설정형)은 setup 대상 아님: 목록에서 제외(doctor 의사체크·문서 안내).
-// 미설치는 skipped(무해 — exit 0). 등록 실행 실패(이미 등록 등) 역시
-// 치명 아님 — 설치 자체는 확인됐으므로 registered 유지·사유는 detail에.
+// runSetupMCP — iterates the tier-A harnesses (those with MCPAdd): detect via exec.LookPath, then
+// register `flint mcp` with each native CLI (promoted from the copilot CLI
+// validation — the guidance-only branch is gone; the argument list comes from the spec). Tier B (MCPAdd nil —
+// file-config style) is not a setup target: excluded from the list (doctor pseudo-check + doc guidance).
+// Not installed means skipped (harmless — exit 0). A registration run failure (already registered, etc.) is also
+// non-fatal — the install itself was confirmed, so registered is kept with the reason in detail.
 func runSetupMCP(stdout io.Writer) int {
 	registered := []string{}
 	skipped := []string{}
 	var detail []string
 	for _, h := range harnessRegistry {
 		if h.MCPAdd == nil {
-			continue // B급 — 파일 설정형
+			continue // tier B — file-config style
 		}
 		path, err := lookPathFn(h.Name)
 		if err != nil {
@@ -385,7 +385,7 @@ func runSetupMCP(stdout io.Writer) int {
 	return 0
 }
 
-// teardownSummary — teardown 요약 한 줄 JSON 모양.
+// teardownSummary — the one-line JSON teardown summary shape.
 type teardownSummary struct {
 	Status   string   `json:"status"`
 	Purge    bool     `json:"purge"`
@@ -393,12 +393,12 @@ type teardownSummary struct {
 	Next     string   `json:"next"`
 }
 
-// runTeardown — 컨테이너 정지 안내 + exec. 파괴 가드 — 기본은
-// dry-run(내려갈 대상·compose down 계획 안내 JSON, exit 0)이고 --yes가
-// 있을 때만 실행한다(maintain --invalidate --ids의 실행 확정 관례 승계 —
-// 무인자 호출이 즉시 compose down하며 운영 DB를 정지시키던 사고 방지).
-// --purge 시 volume 삭제(down -v). 실패는 경고 + 수동 명령 안내로 exit 1.
-// unknown flag는 무효 인자 exit 3.
+// runTeardown — container-stop guidance + exec. Destructive guard — the default is a
+// dry-run (a JSON notice of what would go down and the compose down plan, exit 0); only --yes
+// executes (carrying over the confirm-to-run convention of maintain --invalidate --ids —
+// preventing the incident where a no-arg call immediately ran compose down and stopped the production DB).
+// With --purge, volumes are deleted (down -v). Failure is a warning + manual-command guidance, exit 1.
+// unknown flags are invalid-arg exit 3.
 func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	purge, confirm := false, false
 	for _, a := range args {

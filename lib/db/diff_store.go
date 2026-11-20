@@ -1,8 +1,10 @@
-// diff_store.go — Diff 계열 3메서드(wire 히스토리 계약의 Doltgres
-// 구현). diff 원시 SQL의 유일 소유(lib/ops/diff.go·audit.go에서 이식,
-// 바이트 동치 — 파라미터화 승계). 출력 살균(render.Text)은 호출측
-// 책임이라 이 층은 원시 값만 반환한다. 질의 실패는 재시도 1회
-// (spec §7 — queryRetry 공용 헬퍼, asof_query.go).
+// diff_store.go — the 3 Diff-family methods (the Doltgres
+// implementation of the wire history contract). Sole ownership of the
+// raw diff SQL (ported from lib/ops/diff.go·audit.go, byte-equivalent —
+// parameterization inherited). Output sanitization (render.Text) is the
+// caller's responsibility, so this layer returns raw values only. A
+// query failure retries once (spec §7 — the queryRetry shared helper,
+// asof_query.go).
 package db
 
 import (
@@ -12,13 +14,13 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// diffCommitsMax — 요약 커밋 목록 상한(계약: 기본 20). lib/ops/diff.go
-// 원문 상수 이관.
+// diffCommitsMax — the summary commit-list cap (contract: default 20).
+// Transferred from the lib/ops/diff.go original constant.
 const diffCommitsMax = 20
 
-// diffCommitsSQL — from(초과)~to(이하) 커밋 범위의 로그×테이블 diff
-// 요약. lib/ops/diff.go 원문 그대로(LEFT JOIN·범위 서브쿼리·GROUP BY·
-// DESC·LIMIT 상수 조립).
+// diffCommitsSQL — a log×table-diff summary of the commit range
+// from(exclusive)~to(inclusive). Verbatim from lib/ops/diff.go (LEFT
+// JOIN·range subqueries·GROUP BY·DESC·LIMIT constant assembly).
 var diffCommitsSQL = fmt.Sprintf(`SELECT l.commit_hash, l.date, l.message,
   COALESCE(bool_or(d.data_change), false),
   COALESCE(bool_or(d.schema_change), false)
@@ -30,10 +32,11 @@ GROUP BY l.commit_hash, l.commit_order, l.date, l.message
 ORDER BY l.commit_order DESC
 LIMIT %d`, diffCommitsMax)
 
-// DiffRows — 두 커밋 간 knowledge 행 diff. 원문(lib/ops/diff.go):
-// dolt_commit_diff_knowledge to/from 커밋 필터 각 1개(쿼리 계획
-// 요구사항 — 실측), added/removed 공용 COALESCE 표현. 인자 순서는
-// 원문 승계: $1=to, $2=from.
+// DiffRows — the knowledge row diff between two commits. Original
+// (lib/ops/diff.go): one dolt_commit_diff_knowledge filter each for the
+// to/from commits (a query-planner requirement — measured), with the
+// shared COALESCE expression for added/removed. Argument order inherits
+// the original: $1=to, $2=from.
 func (r *Repo) DiffRows(ctx context.Context, fromHash, toHash string) ([]wire.KnowledgeDiffRow, error) {
 	rows, err := r.queryRetry(ctx,
 		`SELECT diff_type, COALESCE(to_id, from_id), COALESCE(to_topic, from_topic)
@@ -54,9 +57,10 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 	return out, rows.Err()
 }
 
-// DiffStat — 커밋 해시 목록의 테이블별 변경 통계. 원문(lib/ops/audit.go):
-// 커밋당 N+1 회피용 ANY($1) 단일 배치 질의. 살균은 호출측 출구와의
-// 일관성 유지 목적이므로 이 층은 원시 값 반환.
+// DiffStat — per-table change statistics for a commit-hash list.
+// Original (lib/ops/audit.go): a single ANY($1) batch query avoiding N+1
+// per commit. Sanitization serves consistency with the caller's exit,
+// so this layer returns raw values.
 func (r *Repo) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
 	if hashes == nil {
 		hashes = []string{}
@@ -79,8 +83,9 @@ FROM dolt_diff WHERE commit_hash = ANY($1)`, hashes)
 	return out, rows.Err()
 }
 
-// DiffCommits — from(초과)~to(이하) 커밋 요약 최신순 상한 20. date는
-// parseLogDate 파싱(fake/실DB 레이아웃 공용 — LogEntries 승계).
+// DiffCommits — commit summaries of the from(exclusive)~to(inclusive)
+// range, newest first, capped at 20. date is parsed by parseLogDate
+// (shared across the fake/real-DB layouts — LogEntries inheritance).
 func (r *Repo) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
 	rows, err := r.queryRetry(ctx, diffCommitsSQL, fromHash, toHash)
 	if err != nil {

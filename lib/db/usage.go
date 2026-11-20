@@ -1,6 +1,7 @@
-// usage.go — 플레이북 사용 로그·성공률. 신규 테이블 금지 제약(schema v2
-// 유지)이라 meta 키 pb_<id>_uses/pb_<id>_ok 증분으로 기록한다. 사용 로그는
-// 의도적으로 비멱등이다 — 같은 호출이 두 번 세지는 게 결함이 아니라 로그다.
+// usage.go — playbook use logs·success rate. Under the no-new-tables
+// constraint (schema v2 kept), records via increments of the meta keys
+// pb_<id>_uses/pb_<id>_ok. Use logging is intentionally non-idempotent
+// — the same call counted twice is a log, not a defect.
 package db
 
 import (
@@ -21,16 +22,18 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// Stat — 플레이북별 사용 통계(내부 유틸 — 소비 CLI 경로 없음).
+// Stat — per-playbook usage statistics (an internal utility — no
+// consuming CLI path).
 type Stat struct {
 	ID   int
 	Uses int
 	OK   int
-	Rate float64 // OK/Uses, 셋째 자리 반올림(2/3 → 0.667)
+	Rate float64 // OK/Uses, rounded to the third digit (2/3 → 0.667)
 }
 
-// LogPlaybookUse는 플레이북 사용 1회를 meta에 증분 기록한다. ok=true면
-// uses·ok 둘 다, 아니면 uses만 증가한다(실패도 사용 수에 들어간다).
+// LogPlaybookUse records one playbook use as meta increments. With
+// ok=true, both uses·ok increment; otherwise uses only (failures still
+// count as uses).
 func (r *Repo) LogPlaybookUse(ctx context.Context, id int, ok bool) error {
 	if err := bumpMeta(ctx, r.pool, fmt.Sprintf("pb_%d_uses", id)); err != nil {
 		return fmt.Errorf("log playbook use: uses: %w", err)
@@ -43,7 +46,8 @@ func (r *Repo) LogPlaybookUse(ctx context.Context, id int, ok bool) error {
 	return nil
 }
 
-// bumpMeta는 meta key를 1 증분 upsert한다(단일 문장 — 읽고 쓰는 경합 없음).
+// bumpMeta increments a meta key by 1 with an upsert (a single
+// statement — no read-write race).
 func bumpMeta(ctx context.Context, pool *pgxpool.Pool, key string) error {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, '1')
@@ -51,37 +55,46 @@ func bumpMeta(ctx context.Context, pool *pgxpool.Pool, key string) error {
 	return err
 }
 
-// usageRetryBackoff — RecordUsage 기록의 40001(직렬화 실패) 재시도 간격.
-// 병렬 기동(공유 DB 풀 스위트 부하)에서 daily 카운터 upsert가 타 세션
-// 커밋과 낙관적 충돌한다 — 드릴 DROP·승격 커밋과 같은 회복 패턴.
+// usageRetryBackoff — the 40001 (serialization failure) retry spacing
+// for RecordUsage writes. Under parallel startup (shared-DB pool suite
+// load), the daily-counter upsert optimistically conflicts with another
+// session's commit — the same recovery pattern as drift DROP·promotion
+// commits.
 var usageRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second}
 
-// RecordUsage — 유입 계측 1회를 meta에 기록한다.
-// count 일괄 증분 본체는 RecordUsageCount — 이 메서드는 count=1 위임.
+// RecordUsage — records one intake-metering round in meta. The bulk
+// count-increment body is RecordUsageCount — this method delegates with
+// count=1.
 func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 	return r.RecordUsageCount(ctx, kind, source, 1)
 }
 
-// RecordUsageCount — 유입 계측 count회를 daily 카운터에 일괄 증분한다
-// (dup N 회계의 O(N) 읽기-쓰기 회피). kind = write|hot|read|dup +
-// dup_hook|dup_manual|dup_mcp(소스별 dup, additive) +
-// brief(brief 유입 계측, additive). last_<kind>_at을 RFC3339로
-// upsert하고(dup는 시각 키 없음 — write 시각 준용)
-// `daily:<kind>:YYYY-MM-DD` 정수 플랫 키를 증분한다(구 `daily:YYYY-MM-DD`
-// JSON 카운터 폐지 — 읽기는 report 내 WindowedDaily가 직접 파싱). write는 source
-// 카운터(hook|manual|mcp)를 병행한다. 14일 초과 daily 키는 PruneDaily로
-// 정리하되 오늘 daily 키가 신규 생성된 경우(날짜 롤오버 첫 이벤트)에만
-// 실행한다 — 매 기록마다 DELETE하면 핫패스 낭비고 duplicate write는 2회
-// 실행된다. 정리 실패는 기록에 영향 주지 않는다(무시).
-// 플랫 증분은 bumpMeta 패턴의 단일 UPSERT 문장이다(스펙 §1.1 — doltgres에
-// jsonb_object_agg가 없어 JSON 값으론 불가능했던 증분, 2026-10-22 확인
-// 한계 회피). 읽기-수정-쓰기 왕복과 40001 재시기 창이 사라진다. 단 Doltgres는
-// 같은 행의 동시 UPSERT를 에러 없이 last-write-wins 수용한다(2026-11-13
-// 실증) — 병렬 동시 증분의 총계 정합은 구 JSON 계약과 동일하게 보장하지
-// 않는다(계측 원칙: 유실 < 호출 실패). 파손된 기존 플랫 값은 0에서 재기작한다.
-// 재시도 경로(recordWithRetry)는 PruneDaily 롤오버 훅 보존을 위해 승계하며,
-// 소진 시 조용히 넘긴다 — 호출부(write·read·hot)가 이미 오류를 폐기하는
-// 계측 원칙을 RecordUsage도 따른다.
+// RecordUsageCount — bulk-increments count rounds of intake metering
+// into daily counters (avoiding the O(N) read-writes of dup N
+// accounting). kind = write|hot|read|dup + dup_hook|dup_manual|dup_mcp
+// (per-source dup, additive) + brief (brief intake metering, additive).
+// Upserts last_<kind>_at as RFC3339 (dup carries no time key — the
+// write time is reused) and increments the `daily:<kind>:YYYY-MM-DD`
+// integer flat key (the legacy `daily:YYYY-MM-DD` JSON counter
+// abolished — reads parse directly via report's WindowedDaily). write
+// also increments the source counters (hook|manual|mcp) in parallel.
+// daily keys beyond 14 days are cleaned by PruneDaily, run only when
+// today's daily key was newly created (the date-rollover first event) —
+// a DELETE on every record wastes the hot path and duplicate writes run
+// it twice. A cleanup failure never affects the record (ignored). The
+// flat increment is a single UPSERT statement in the bumpMeta pattern
+// (spec §1.1 — an increment impossible with JSON values because
+// doltgres lacks jsonb_object_agg, working around a limitation confirmed
+// 2026-10-22). The read-modify-write round trip and the 40001 retry
+// window disappear. However, Doltgres accepts concurrent UPSERTs of the
+// same row as last-write-wins without error (demonstrated 2026-11-13) —
+// total-count consistency under parallel concurrent increments is not
+// guaranteed, same as the legacy JSON contract (metering principle:
+// loss < call failure). Corrupted existing flat values are rewritten
+// from 0. The retry path (recordWithRetry) is kept to preserve the
+// PruneDaily rollover hook, and exhaustion passes quietly — RecordUsage
+// follows the metering principle already applied by the callers
+// (write·read·hot) discarding errors.
 func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	switch kind {
 	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "brief":
@@ -96,8 +109,9 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 		delta[source] = count
 	}
 	r.recordWithRetry(ctx, func(ctx context.Context, day string) (bool, error) {
-		// dup 계열(총계 dup·dup_<source>)은 last_ 시각 키를 기록하지 않는다
-		// (계약 승계 — write 시각 준용, 룰링: 미사용 메타 키 누적 방지).
+		// The dup family (total dup·dup_<source>) records no last_ time
+		// key (contract inherited — the write time is reused; ruling:
+		// prevent unused-meta-key accumulation).
 		if !strings.HasPrefix(kind, "dup") {
 			now := time.Now().UTC().Format(time.RFC3339)
 			if _, err := r.pool.Exec(ctx,
@@ -120,16 +134,18 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 	return nil
 }
 
-// RecordBytes — 바이트 계측: 표면 1회의 출력 바이트를
-// daily:<kind>_bytes:<date> 정수 플랫 키로 증분한다(spec §1 — read|hot|brief).
-// 파손된 기존 플랫 값은 0에서 재기작(bumpDailyFlat
-// 계약 승계).
-// 유입 계측(RecordUsageCount)과 동일 계층·동일 보존창이지만 last_ 시각
-// 키는 없다(횟수 계측의 last_<kind>_at을 준용 — 룰링: 미사용 메타 키
-// 누적 방지). n=0은 유틨(제로히트 read의 0바이트 — 호출 수 분모 정합),
-// 음수·무효 kind는 거부한다. 파손된 기존 daily JSON은 0에서 재기작
-// (bumpDaily 계약 승계). 일괄 쓰기 실패·재시도 소진은 조용히 넘긴다
-// (§13 계측 원칙 — RecordUsageCount와 동일 recordWithRetry 경로).
+// RecordBytes — byte metering: increments one surface round's output
+// bytes into the daily:<kind>_bytes:<date> integer flat key (spec §1 —
+// read|hot|brief). Corrupted existing flat values are rewritten from 0
+// (inheriting the bumpDailyFlat contract). The same layer·retention
+// window as intake metering (RecordUsageCount) but with no last_ time
+// key (reuses the count metering's last_<kind>_at — ruling: prevent
+// unused-meta-key accumulation). n=0 is valid (a zero-hit read's 0
+// bytes — call-count denominator consistency); negative·invalid kinds
+// are rejected. A corrupted existing daily JSON is rewritten from 0
+// (inheriting the bumpDaily contract). Bulk-write failure·retry
+// exhaustion pass quietly (the §13 metering principle — the same
+// recordWithRetry path as RecordUsageCount).
 func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
 	switch kind {
 	case "read", "hot", "brief":
@@ -149,25 +165,29 @@ func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
 	return nil
 }
 
-// Querier — meta 접근 최소 접합면. wire.Store(및 그 fake)이
-// 구조적으로 만족한다 — 커맨드층 카운터가 db.Repo 없이 이 패키지의
-// 단일 UPSERT 구현을 재사용한다(쓰기 SQL 리터럴의 db 소유 원칙 유지).
+// Querier — the minimal meta-access interface. wire.Store (and its
+// fakes) structurally satisfy it — command-layer counters reuse this
+// package's single-UPSERT implementation without db.Repo (keeping the
+// db-ownership principle for write SQL literals).
 type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
 }
 
-// BumpDailyFlatKey — `daily:<kind>:<date>` 플랫 키 카운터 증분의 쿼리
-// 본체(검수 카운터 — approve·maintain·import 결과). bumpDailyFlat
-// 과 동일 문장·동일 파손 가드(^[0-9]+$ 아님 → n 재기작)를 임의 Querier로
-// 실행한다(커맨드측 wire.Store 경유). 비멱등 증분이라 재시도 없이 단발
-// 실행(BumpMetaKV 계약) — 오류는 그대로 반환하고 호출부가 계측 원칙으로
-// 흡수한다. kind 화이트리스트는 호출부(knowledge.BumpCurationCounter)
-// 소유 — 여기는 키 조립·증분만.
+// BumpDailyFlatKey — the query body incrementing the
+// `daily:<kind>:<date>` flat-key counter (review counters — the
+// approve·maintain·import outcomes). Runs the same statement·corruption
+// guard as bumpDailyFlat (not ^[0-9]+$ → rewrite n) against an
+// arbitrary Querier (via the command side's wire.Store). A
+// non-idempotent increment, so it fires once without retry (the
+// BumpMetaKV contract) — errors return as-is and the caller absorbs
+// them under the metering principle. The kind whitelist belongs to the
+// caller (knowledge.BumpCurationCounter) — here only key
+// assembly·increment.
 func BumpDailyFlatKey(ctx context.Context, q Querier, kind, day string, n int) error {
 	key := "daily:" + kind + ":" + day
-	// EXCLUDED.value로 증분값을 받는다 — 같은 플레이스홀더($2) 재사용은
-	// Doltgres 확장 프로토콜이 인덱스 추론에 실패한다(bumpDailyFlat 주석
-	// 승계, 2026-11-13 확인).
+	// The increment value arrives via EXCLUDED.value — reusing the same
+	// placeholder ($2) fails Doltgres extended-protocol index inference
+	// (inherited from the bumpDailyFlat comment, confirmed 2026-11-13).
 	_, err := q.Query(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value =
@@ -179,14 +199,17 @@ func BumpDailyFlatKey(ctx context.Context, q Querier, kind, day string, n int) e
 	return nil
 }
 
-// ReadEvent — 효과 계측 이벤트 1행(구조체화 — 7파라미터 산재
-// 호출부를 값 하나로 수렴, 지표·저장 불변). IDs는 반환 지식 id CSV(상위
-// 10), FirstRank는 첫 topic 정합 순위(0=정합 없음·폴백 제외).
-// Bytes
-// Bytes(출력 바이트 — G5와 동일 정의 len 최종 출력)·ZeroReason
-// ('unowned'|'owned_miss'|빈값, zero=1 행만 — spec §2.2 제로히트 분해)·
-// Source('hook'|'cli'|'mcp' 채널 라벨 — 세션 라벨 유무 hook/cli, MCP
-// 경로는 호출부 전달) 3열 확장(additive — 미채워 행은 기본값 0·빈값).
+// ReadEvent — one effectiveness-metering event row (struct-ified —
+// converging the scattered 7-parameter call sites into one value,
+// metrics·storage unchanged). IDs is the returned knowledge id CSV
+// (top 10); FirstRank is the first topic-match rank (0 = no match·
+// fallback excluded).
+// Three additional columns (additive — unfilled rows default to 0·
+// empty): Bytes (output bytes — the same definition as G5, len of the
+// final output)·ZeroReason ('unowned'|'owned_miss'|empty, only on
+// zero=1 rows — the spec §2.2 zero-hit decomposition)·Source (the
+// 'hook'|'cli'|'mcp' channel label — hook/cli by session-label
+// presence; the MCP path is passed by the caller).
 type ReadEvent struct {
 	Hits       int
 	Zero       bool
@@ -200,16 +223,18 @@ type ReadEvent struct {
 	Source     string
 }
 
-// RecordReadEvent — 효과 계측 이벤트 1행 기록(docs/METRICS.md §4).
-// read 1회의 수치·플래그·세션 라벨만 남긴다(쿼리 본문·결과 내용 없음 —
-// 개인 문구 부재 원칙). 반환 지식 id CSV(ids, 상위 10) 추가 —
-// 첫 topic 정합 순위(firstRank, 0=정합 없음·폴백 제외) 추가.
-// ReadEvent 구조체 1값 수렴. 사용 연쇄(chain) 산출 원천.
-// bytes·zero_reason·source 3열(schema v10) 동반 기록.
-// INSERT 전용이라 읽기-쓰기 경합(40001)이 없고 재시도 없이 단발 실행한다.
-// 성공 경로에서 maybePruneAfterRead(24h 게이트 정리 훅)을
-// 함께 발화한다 — read가 RecordUsage를 우회하는 구조에서도 정리가
-// 일어나야 하기 때문(아래 훅 주석 참조).
+// RecordReadEvent — records one effectiveness-metering event row
+// (docs/METRICS.md §4). Leaves only one read's numbers·flags·session
+// label (no query body·result content — the no-personal-wording
+// principle). Adds the returned knowledge id CSV (ids, top 10) — and
+// the first topic-match rank (firstRank, 0 = no match·fallback
+// excluded). Converged into the single ReadEvent struct value. The
+// source of usage-chain computation. Also records the 3 columns
+// bytes·zero_reason·source (schema v10). INSERT-only, so there is no
+// read-write race (40001) and it fires once without retry. The success
+// path also fires maybePruneAfterRead (the 24h-gated cleanup hook) —
+// cleanup must happen even in the structure where read bypasses
+// RecordUsage (see the hook comment below).
 func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank, bytes, zero_reason, source)
@@ -223,12 +248,14 @@ func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	return nil
 }
 
-// pruneReadGateKey — read 경로 정리 훅의 24h 게이트 meta 키(last_*_at
-// RFC3339 관례 준용). last_read_at과는 별개 키다(유입 계측 시각 아님).
+// pruneReadGateKey — the 24h-gate meta key of the read-path cleanup
+// hook (following the last_*_at RFC3339 convention). A key separate
+// from last_read_at (not the intake-metering time).
 const pruneReadGateKey = "last_events_prune_at"
 
-// pruneGateDue — 게이트 판정 순수 함수(단위 테스트 대상): last가 RFC3339로
-// 파싱되고 24h 이내면 거짓(정리 스킵), 그 외(부재·공란·파손·24h 경과)는 참.
+// pruneGateDue — the gate-decision pure function (unit-test target):
+// false if last parses as RFC3339 and is within 24h (cleanup skipped);
+// otherwise (absent·blank·corrupt·24h elapsed) true.
 func pruneGateDue(last string, now time.Time) bool {
 	if last == "" {
 		return true
@@ -240,22 +267,25 @@ func pruneGateDue(last string, now time.Time) bool {
 	return now.Sub(t) >= 24*time.Hour
 }
 
-// pruneGateCheckedAt — 프로세스 내 게이트 재확인 캐시(성능):
-// 마지막 게이트 확인 시각의 unix 초(atomic — Repo 인스턴스 무관 공유).
-// 0=미확인. RecordReadEvent마다 meta 게이트 SELECT가 남던 read 핫패스
-// 왕복을 1h마다 1회로 축소한다.
+// pruneGateCheckedAt — the in-process gate-recheck cache (performance):
+// the unix seconds of the last gate check (atomic — shared regardless
+// of Repo instance). 0 = unchecked. Shrinks the read hot path — which
+// used to leave a meta gate SELECT on every RecordReadEvent — to one
+// round trip per hour.
 var pruneGateCheckedAt atomic.Int64
 
-// pruneGateCacheTTL — 프로세스 내 게이트 캐시 수명. DB 게이트(24h)보다
-// 짧은 1h — 단발 CLI는 물론 장기 프로세스도 최대 1h마다 게이트를 재평가
-// 해 정리가 하루 통째로 밀리지 않게 한다.
+// pruneGateCacheTTL — the in-process gate-cache lifetime. 1h, shorter
+// than the DB gate (24h) — both single-shot CLIs and long-lived
+// processes re-evaluate the gate at least hourly so cleanup never slips
+// a whole day.
 const pruneGateCacheTTL = time.Hour
 
-// pruneGateProbe — 게이트 캐시 판정(순수·단위 테스트 대상): 마지막 확인
-// 후 TTL 이내면 거짓(게이트 meta SELECT 스킵 — TTL 내 재확인 0회), 경과
-// 했거나 최초면 참이고 확인 시각을 스탬프한다(SELECT 1회). 스탬프는 게이트
-// 확인 시점 기준 — 이후 정리 실패가 있어도 DB 게이트는 새겨지지 않아 다른
-// 프로세스·TTL 경과 후 재시도가 열려 있다.
+// pruneGateProbe — the gate-cache verdict (pure·unit-test target):
+// false if within the TTL of the last check (gate meta SELECT skipped —
+// 0 rechecks within the TTL); true if elapsed or first-time, stamping
+// the check time (1 SELECT). The stamp reflects the gate-check moment —
+// even a later cleanup failure leaves the DB gate unstamped, keeping
+// retry open for other processes·after TTL expiry.
 func pruneGateProbe(now time.Time) bool {
 	if last := pruneGateCheckedAt.Load(); last != 0 &&
 		now.Sub(time.Unix(last, 0)) < pruneGateCacheTTL {
@@ -265,18 +295,21 @@ func pruneGateProbe(now time.Time) bool {
 	return true
 }
 
-// maybePruneAfterRead — read 전용 세션의 정리 훅.
-// RecordReadUsage(read daily 쓰기)를 폐지하면서 read 경로가
-// recordWithRetry(롤오버 훅)를 지나지 않게 됐다 — write가 없는 세션에서는
-// PruneReadEvents가 발화되지 않아 read_events가 보존 한게 넘게 무한
-// 증가한다. RecordReadEvent 성공 경로에서 last_events_prune_at 게이트가
-// 열릴 때(마지막 정리 후 24h — 매 read마다 DELETE·meta 왕복은 핫패스
-// 낭비) PruneDaily·PruneReadEvents를 실행한다. 게이트
-// 재확인은 프로세스 내 1h 캐시(pruneGateProbe)로 축소 — 캐시 미충족
-// 시에만 DB 게이트(24h) SELECT를 실행한다. 정리 성공 시에만 DB 게이트를
-// 새겨 실패한 정리가 하루 동안 묻히지 않게 한다(스탬프-후-실패면 재시도
-// 없이 24h 스킵). 병렬 read가 동시에 통과해도 DELETE는 멱등 — 중복 실행
-// 무해하다. 게이트 읽기·정리·스탬프 실패는 조용히 넘긴다(계측 원칙).
+// maybePruneAfterRead — the cleanup hook for read-only sessions. With
+// RecordReadUsage (the read daily write) abolished, the read path no
+// longer passes through recordWithRetry (the rollover hook) — in
+// sessions without a write, PruneReadEvents never fires and read_events
+// grows unbounded past the retention horizon. On the RecordReadEvent
+// success path, when the last_events_prune_at gate opens (24h since
+// the last cleanup — a DELETE·meta round trip on every read wastes the
+// hot path), it runs PruneDaily·PruneReadEvents. Gate rechecking is
+// shrunk to the in-process 1h cache (pruneGateProbe) — the DB gate
+// (24h) SELECT runs only when the cache misses. The DB gate is stamped
+// only on cleanup success so a failed cleanup is not buried for a day
+// (stamp-then-fail would skip 24h with no retry). Even if parallel
+// reads pass simultaneously, the DELETE is idempotent — duplicate
+// execution is harmless. Gate-read·cleanup·stamp failures pass quietly
+// (the metering principle).
 func (r *Repo) maybePruneAfterRead(ctx context.Context) {
 	if !pruneGateProbe(time.Now().UTC()) {
 		return
@@ -299,9 +332,10 @@ func (r *Repo) maybePruneAfterRead(ctx context.Context) {
 		pruneReadGateKey, time.Now().UTC().Format(time.RFC3339))
 }
 
-// RecordSessionStart — 세션 시작 경계 1행(session-start 커맨드).
-// 세션 구간 [start_i, start_{i+1}) 배정의 원천 — 출력 없는 내부 계정이라
-// 어느 프로파일에서도 기록한다(§13 — 에이전트 노출 아님).
+// RecordSessionStart — one session-start boundary row (the session-start
+// command). The source of the session-interval [start_i, start_{i+1})
+// assignment — an internal account with no output, recorded under every
+// profile (§13 — not agent exposure).
 func (r *Repo) RecordSessionStart(ctx context.Context, session string) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO session_starts (session) VALUES ($1)`, session)
@@ -311,9 +345,10 @@ func (r *Repo) RecordSessionStart(ctx context.Context, session string) error {
 	return nil
 }
 
-// RecordHotEvent — hot --full 주입 노출 1행(실출력에 남은 지식
-// id CSV). dead_pct의 hot 노출 보정 원천 — 주입은 --full 경로에서만
-// 일어난다(hot.go 계약 승계).
+// RecordHotEvent — one hot --full injection-exposure row (the knowledge
+// id CSV left in the actual output). The source of the hot-exposure
+// correction of dead_pct — injection happens only on the --full path
+// (inheriting the hot.go contract).
 func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO hot_events (ids) VALUES ($1)`, ids)
@@ -323,17 +358,18 @@ func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
 	return nil
 }
 
-// thresholdsForPrune — PruneReadEvents·PruneDaily 공유: meta 임계값
-// 오버라이드를 등록표 파생 경로(store.ParseThresholds — threshold_meta.go
-// 가드 대상)로 읽는다(키별 SELECT+Atoi 재파싱 제거).
-// 조회 실패·키 부재·파손·0(미설정)은 기본값(DefaultThresholds) 폴백
-// — 이전 per-key 규약(n>0만 수용)과 동일 결과.
+// thresholdsForPrune — shared by PruneReadEvents·PruneDaily: reads the
+// meta threshold overrides via the registry-derived path
+// (store.ParseThresholds — a threshold_meta.go guard target) (removing
+// the per-key SELECT+Atoi re-parsing). Lookup failure·absent key·
+// corrupt·0 (unset) fall back to defaults (DefaultThresholds) — the
+// same outcome as the former per-key convention (only n>0 accepted).
 func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Thresholds, error) {
 	def := store.DefaultThresholds()
 	rows, err := r.pool.Query(ctx,
 		`SELECT key, value FROM meta WHERE key = ANY($1)`, keys)
 	if err != nil {
-		return def, nil // 메타 읽기 실패는 기본값 폴백(이전 규약 승계)
+		return def, nil // a meta-read failure falls back to defaults (former convention inherited)
 	}
 	defer rows.Close()
 	var kv [][2]any
@@ -363,20 +399,24 @@ func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Th
 	return th, nil
 }
 
-// PruneReadEvents — 보존 한도를 넘은 효과 계측 이벤트 삭제.
-// read_events·session_starts는 14일(daily 카운터와 동일 정책), hot_events는
-// 30일(dead_pct 노출 정합 가드 창과 정렬 — 14일이면 가드가 문서 계약의
-// 절반만 커버한다). 보존일은 meta 오버라이드
-// (events_retention_days·hot_events_retention_days, TUNING §2) — 키
-// 부재·파손은 기본값. knowledge_reads 항목별 회상 이력도 같은
-// 트리거로 정리한다(초기 14일·knowledge_reads_retention_days 분리 오버라이드).
-// knowledge_reads 보존일 per-key 직접 SELECT stopgap 제거
-// — thresholdsForPrune(등록표 store.ParseThresholds 파생) 경유 단일화.
-// 트리거는 2개(PruneDaily와 동시 발화): ① recordWithRetry의
-// 롤오버 훅(오늘 daily 키 신규 생성 — 하루 첫 write 계측), ②
-// maybePruneAfterRead(RecordReadEvent 성공 + last_events_prune_at 24h 게이트
-// — read만 하는 세션에서도 정리가 일어난다). 하루 1회 수준이라 메타
-// 읽기 왕복 부담이 없다. 실패는 호출부가 조용히 넘긴다(계측 원칙).
+// PruneReadEvents — deletes effectiveness-metering events past the
+// retention horizon. read_events·session_starts at 14 days (the same
+// policy as the daily counters); hot_events at 30 days (aligned with
+// the dead_pct exposure-consistency guard window — at 14 days the guard
+// would cover only half the documented contract). Retention days come
+// from the meta overrides (events_retention_days·
+// hot_events_retention_days, TUNING §2) — absent·corrupt keys yield
+// defaults. The per-item recall history knowledge_reads is cleaned by
+// the same trigger (initially 14 days·a separate
+// knowledge_reads_retention_days override). The per-key direct SELECT
+// stopgap for the knowledge_reads retention days is removed — unified
+// via thresholdsForPrune (registry-derived store.ParseThresholds). Two
+// triggers (firing alongside PruneDaily): ① recordWithRetry's rollover
+// hook (today's daily key newly created — the day's first write
+// metering), ② maybePruneAfterRead (RecordReadEvent success + the
+// last_events_prune_at 24h gate — cleanup happens even in read-only
+// sessions). Roughly once a day, so no meta-read round-trip burden.
+// Failures pass quietly at the caller (the metering principle).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx,
 		"events_retention_days", "hot_events_retention_days",
@@ -397,13 +437,15 @@ func (r *Repo) PruneReadEvents(ctx context.Context) error {
 	return nil
 }
 
-// recordWithRetry — daily 증분 기록 공통 절차(RecordUsageCount용.
-// RecordReadUsage(read kind daily 쓰기)는 폐지 — read 유입
-// 계측의 원천은 read_events다). fn을 40001 재시도(usageRetryBackoff)로 실행하고, fn이 오늘 daily 키
-// 신규 생성(롤오버 첫 이벤트)을 보고하면 PruneDaily·PruneReadEvents(각 14일
-// 정리)를 실행한다 — 매 기록마다 DELETE하면 핫패스 낭비고 duplicate write는
-// 2회 실행된다. 재시도 소진·정리 실패는 조용히 넘긴다(계측 원칙 — 사용 로그
-// 유실이 호출 실패보다 낫다).
+// recordWithRetry — the daily-increment recording common procedure (for
+// RecordUsageCount. RecordReadUsage (the read-kind daily write) is
+// abolished — the source of read intake metering is read_events). Runs
+// fn with 40001 retries (usageRetryBackoff); when fn reports today's
+// daily key newly created (the rollover's first event), runs
+// PruneDaily·PruneReadEvents (14-day cleanups each) — a DELETE on every
+// record wastes the hot path and duplicate writes run it twice. Retry
+// exhaustion·cleanup failures pass quietly (the metering principle — a
+// lost use log beats a failed call).
 func (r *Repo) recordWithRetry(ctx context.Context, fn func(ctx context.Context, day string) (created bool, err error)) {
 	day := time.Now().UTC().Format("2006-01-02")
 	created := false
@@ -421,15 +463,18 @@ func (r *Repo) recordWithRetry(ctx context.Context, fn func(ctx context.Context,
 	}
 }
 
-// bumpRetryBackoff — bumpDailyFlat UPSERT의 40001(직렬화 실패) 재시도
-// 간격. 3회 시도(초기 + 재시도 2), 대기 2ms·8ms — 테스트 속도를 고려한
-// 최소 지수 백오프(4배 계단).
+// bumpRetryBackoff — the 40001 (serialization failure) retry spacing
+// for the bumpDailyFlat UPSERT. 3 attempts (initial + 2 retries), waits
+// 2ms·8ms — a minimal exponential backoff (4x steps) mindful of test
+// speed.
 var bumpRetryBackoff = []time.Duration{0, 2 * time.Millisecond, 8 * time.Millisecond}
 
-// retryBump40001 — fn(단일 UPSERT 시도)을 SQLSTATE 40001(직렬화 실패)일
-// 때만 bumpRetryBackoff 간격으로 재시도한다. 40001이 아닌 에러는 재시도
-// 없이 즉시 반환, 3회 소진 시 마지막 40001을 그대로 돌려준다(호출부가
-// 기존 형태로 감싼다). 재시도 대기 중 ctx 취소는 ctx.Err() 반환.
+// retryBump40001 — retries fn (a single UPSERT attempt) at
+// bumpRetryBackoff spacing only on SQLSTATE 40001 (serialization
+// failure). Non-40001 errors return immediately without retry; after 3
+// exhausted attempts, the last 40001 is returned as-is (the caller
+// wraps it in the existing shape). A ctx cancellation during a retry
+// wait returns ctx.Err().
 func retryBump40001(ctx context.Context, fn func() error) error {
 	var last error
 	for i, d := range bumpRetryBackoff {
@@ -454,20 +499,24 @@ func retryBump40001(ctx context.Context, fn func() error) error {
 	return last
 }
 
-// bumpDailyFlat — `daily:<kind>:<date>` 정수 값 카운터 증분.
-// bumpMeta 패턴의 단일 UPSERT 원자 문장이다(스펙 §1.1) — 구 daily:<date>
-// JSON 읽기-수정-쓰기의 40001 재시기 창을 제거한다. 병렬 유실(총계
-// 정합)은 RecordUsageCount와 동일하게 last-write-wins로 감수한다
-// (실증: 동시 UPSERT 시 Doltgres가 에러 없이 LWW — 유실은
-// 남으며 이는 플랜 계약상 허용).
-// LWW 수용 실증(2026-11-13 로컬)과 달리 배포 Doltgres는
-// 40001을 반환할 수 있다(CI 실증 — TestFlatKeyAtomicIncrement 병렬 8고루틴
-// 경합). 단일 UPSERT도 직렬화 충돌 대상이므로 최소 재시기를 회귀한다
-// (플랫 키 전환 시 제거했던 재시기의 조건부 회귀 — retryBump40001,
-// 3회·2ms·8ms). 소진 에러는 기존대로 반환(호출부 계측 원칙 — 조용히
-// 무시는 호출부 책임, 불변).
-// 파손된 기존 값(정수 아님)은 0에서 재기작한다. 신규 키 생성(기존 행 부재)
-// 시 created=true를 돌려준다(recordWithRetry의 PruneDaily 롤오버 트리거).
+// bumpDailyFlat — increments the `daily:<kind>:<date>` integer-value
+// counter. A single atomic UPSERT statement in the bumpMeta pattern
+// (spec §1.1) — removes the 40001 retry window of the legacy
+// daily:<date> JSON read-modify-write. Parallel loss (total-count
+// consistency) is accepted as last-write-wins, same as RecordUsageCount
+// (demonstrated: Doltgres accepts concurrent UPSERTs as LWW without
+// error — loss remains, which the plan contract permits).
+// Unlike the LWW-acceptance demonstration (local, 2026-11-13), the
+// deployed Doltgres can return 40001 (CI-demonstrated —
+// TestFlatKeyAtomicIncrement racing 8 parallel goroutines). Even a
+// single UPSERT is subject to serialization conflicts, so a minimal
+// retry is regressed (a conditional regression of the retry removed at
+// the flat-key switch — retryBump40001, 3 attempts·2ms·8ms). The
+// exhaustion error returns as before (the caller's metering principle —
+// quiet ignoring is the caller's responsibility, unchanged).
+// A corrupted existing value (non-integer) is rewritten from 0. On new
+// key creation (no existing row), returns created=true (the
+// PruneDaily rollover trigger of recordWithRetry).
 func (r *Repo) bumpDailyFlat(ctx context.Context, day, kind string, n int) (created bool, err error) {
 	key := "daily:" + kind + ":" + day
 	if err := r.pool.QueryRow(ctx,
@@ -475,8 +524,9 @@ func (r *Repo) bumpDailyFlat(ctx context.Context, day, kind string, n int) (crea
 		return false, fmt.Errorf("bump daily flat: exists: %w", err)
 	}
 	created = !created
-	// EXCLUDED.value로 증분값을 받는다 — 같은 플레이스홀더($2) 재사용은
-	// Doltgres 확장 프로토콜이 인덱스 추론에 실패한다(2026-11-13 확인).
+	// The increment value arrives via EXCLUDED.value — reusing the same
+	// placeholder ($2) fails Doltgres extended-protocol index inference
+	// (confirmed 2026-11-13).
 	if err := retryBump40001(ctx, func() error {
 		_, err := r.pool.Exec(ctx,
 			`INSERT INTO meta (key, value) VALUES ($1, $2)
@@ -490,11 +540,13 @@ func (r *Repo) bumpDailyFlat(ctx context.Context, day, kind string, n int) (crea
 	return created, nil
 }
 
-// readDailyFlat — daily:<kind>:<date> 카운터 현재 값(플랫 키 우선). 플랫
-// 키 행이 없으면 구 daily:<date> JSON 카운터에서 kind를 읽어 승계한다
-// (마이그레이션 읽기 폴백 — 기존 창 통계 손실 방지, 읽기 전용: JSON을
-// 플랫 키로 옮겨 쓰지 않는다). 파손·부재·JSON null은 0(bumpDailyFlat의
-// 0 재기작 계약과 정합).
+// readDailyFlat — the current value of the daily:<kind>:<date> counter
+// (flat key first). When the flat-key row is absent, reads the kind
+// from the legacy daily:<date> JSON counter and inherits it (a
+// migration-read fallback — preventing loss of existing window
+// statistics; read-only: the JSON is not rewritten into flat keys). Corrupt·
+// absent·JSON null yield 0 (aligned with bumpDailyFlat's rewrite-from-0
+// contract).
 func (r *Repo) readDailyFlat(ctx context.Context, kind, day string) (int, error) {
 	var val string
 	err := r.pool.QueryRow(ctx,
@@ -503,7 +555,7 @@ func (r *Repo) readDailyFlat(ctx context.Context, kind, day string) (int, error)
 	case err == nil:
 		n, perr := strconv.Atoi(val)
 		if perr != nil {
-			return 0, nil // 파손된 플랫 값 — 재기작 전 관측치는 0
+			return 0, nil // corrupted flat value — the pre-rewrite observation is 0
 		}
 		return n, nil
 	case errors.Is(err, pgx.ErrNoRows):
@@ -526,18 +578,21 @@ func (r *Repo) readDailyFlat(ctx context.Context, kind, day string) (int, error)
 	}
 }
 
-// PruneDaily — 14일 보존(오늘+직전 13일)을 넘는 daily 키 삭제.
-// 구 `daily:<date>` JSON 키와 신규 `daily:<kind>:<date>` 플랫 키 양쪽을
-// 정리한다(마이그레이션 기간 두 형식이 공존). 키 날짜는 UTC(RecordUsage
-// 기록 기준)이므로 기준일도 UTC로 잡는다(서버 TZ 영향 배제). 날짜 형식이
-// 아닌 키(daily:*)는 건드리지 않는다(형식 검사 후 cast). 보존일은 meta
-// 오버라이드(daily_retention_days) — 파생 경로(thresholdsForPrune)
-// 로 재파싱(키 부재·파손·0은 기본값).
+// PruneDaily — deletes daily keys beyond the 14-day retention (today +
+// the prior 13 days). Cleans both the legacy `daily:<date>` JSON keys
+// and the new `daily:<kind>:<date>` flat keys (the two formats coexist
+// during migration). Key dates are UTC (the RecordUsage recording
+// basis), so the cutoff day is also taken as UTC (excluding server-TZ
+// influence). Keys whose date portion is not a date (daily:*) are left
+// alone (a format check before the cast). Retention days come from the
+// meta override (daily_retention_days) — re-parsed via the derived path
+// (thresholdsForPrune) (absent·corrupt·0 yield defaults).
 func (r *Repo) PruneDaily(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "daily_retention_days")
 	days := th.DailyRetentionD
-	// 컷오프는 Go 계산 date 파라미터(관례 — `date - $1` 산술은
-	// Doltgres가 $1을 interval로 추론해 실패한다, 회귀 방어).
+	// The cutoff is a Go-computed date parameter (convention — `$1`
+	// arithmetic like `date - $1` fails because Doltgres infers $1 as
+	// interval; regression defense).
 	cutoff := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM meta WHERE key ~ '^daily:([a-z_]+:)?[0-9]{4}-[0-9]{2}-[0-9]{2}$'
@@ -545,8 +600,9 @@ func (r *Repo) PruneDaily(ctx context.Context) error {
 	return err
 }
 
-// PlaybookStats는 pb_* 사용 로그를 플레이북별 통계로 모은다(id 오름차순).
-// 형식에 맞지 않는 pb_* 키는 조용히 건너뛴다(스키마 아닌 로그 파싱).
+// PlaybookStats aggregates the pb_* use logs into per-playbook
+// statistics (ascending by id). pb_* keys not matching the shape are
+// quietly skipped (log parsing, not schema).
 func (r *Repo) PlaybookStats(ctx context.Context) ([]Stat, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT key, value FROM meta WHERE key LIKE 'pb\_%'`)

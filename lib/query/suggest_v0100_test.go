@@ -1,5 +1,5 @@
-// suggest_v0100_test.go — did-you-mean 순수 함수 고정
-// (nfkc·bigramDice·SuggestSimilar — 스펙 §3 R1·R2).
+// suggest_v0100_test.go — pinning the did-you-mean pure functions
+// (nfkc, bigramDice, SuggestSimilar — spec §3 R1, R2).
 package query
 
 import (
@@ -8,7 +8,7 @@ import (
 )
 
 func TestNfkcComposesNFD(t *testing.T) {
-	decomposed := "한" // "한" NFD(자모 3)
+	decomposed := "한" // its NFD form (3 jamo runes)
 	if got := nfkc(decomposed); got != "한" {
 		t.Errorf("nfkc(NFD 한) = %q, want 한", got)
 	}

@@ -1,5 +1,5 @@
-// status_v0180_test.go — status 기간화 read 지표. 누적
-// read_zero_pct(초기 이력 지배)와 별개로 14일 일별 합산 창 값을 병기한다.
+// status_v0180_test.go — status's windowed read metrics. Alongside the cumulative
+// read_zero_pct (dominated by early history), a 14-day daily-sum window value is reported.
 package cli
 
 import (
@@ -9,17 +9,17 @@ import (
 	"time"
 )
 
-// windowedReadHarness — daily:* 질의에 3개 키(오늘·어제·창 밖 40일 전)를
-// 반환하는 fake. 창 밖 합산 배제가 핵심 계약이므로 극단값(100/100)을 심는다.
+// windowedReadHarness — a fake returning 3 keys for daily:* queries (today, yesterday, and 40 days ago — outside the window).
+// Excluding the outside-window sum is the core contract, so extreme values (100/100) are seeded.
 func windowedReadHarness(t *testing.T) *fakeStore {
 	t.Helper()
 	now := time.Now().UTC()
 	today := now.Format("2006-01-02")
 	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
 	old := now.AddDate(0, 0, -40).Format("2006-01-02")
-	daily := `{"read":10,"read_zero":4,"read_zero_near":1}` // 오늘
-	dailyY := `{"read":10,"read_zero":1}`                   // 어제
-	dailyOld := `{"read":100,"read_zero":100}`              // 창 밖
+	daily := `{"read":10,"read_zero":4,"read_zero_near":1}` // today
+	dailyY := `{"read":10,"read_zero":1}`                   // yesterday
+	dailyOld := `{"read":100,"read_zero":100}`              // outside the window
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "LIKE 'daily:%'") {
@@ -30,7 +30,7 @@ func windowedReadHarness(t *testing.T) *fakeStore {
 			}, nil
 		}
 		if strings.Contains(sql, "FROM meta") {
-			return [][]any{{"5"}}, nil // schema_version 호환값 — 파손 JSON 경로는 0 폴백
+			return [][]any{{"5"}}, nil // a schema_version compatibility value — the corrupt-JSON path falls back to 0
 		}
 		return [][]any{{int64(0)}}, nil
 	}
@@ -38,8 +38,8 @@ func windowedReadHarness(t *testing.T) *fakeStore {
 	return f
 }
 
-// TestStatusWindowedRead — 창 내(14일) 일별 합산만: read=20·zero=5 →
-// zero_pct 25. 40일 전 극단값(100/100)은 배제.
+// TestStatusWindowedRead — only the in-window (14-day) daily sums: read=20, zero=5 ->
+// zero_pct 25. The extreme 40-day-old values (100/100) are excluded.
 func TestStatusWindowedRead(t *testing.T) {
 	f := windowedReadHarness(t)
 	read, zeroPct, nearPct := statusWindowedRead(context.Background(), f, 14)
@@ -54,8 +54,8 @@ func TestStatusWindowedRead(t *testing.T) {
 	}
 }
 
-// TestStatusWindowedKeys — status 출력에 read_calls_14d·read_zero_pct_14d
-// 키가 additive로 존재하고 창 합산 값이다(기존 키 불변).
+// TestStatusWindowedKeys — read_calls_14d and read_zero_pct_14d keys exist additively in the
+// status output with the window-sum values (existing keys unchanged).
 func TestStatusWindowedKeys(t *testing.T) {
 	windowedReadHarness(t)
 	out, code := mustRun(t, []string{"status"}, "")
@@ -76,7 +76,7 @@ func TestStatusWindowedKeys(t *testing.T) {
 	}
 }
 
-// TestStatusZeroNearKey — read_zero_near_pct_14d 노출(폴백 표면화).
+// TestStatusZeroNearKey — exposes read_zero_near_pct_14d (surfacing the near-fallback).
 func TestStatusZeroNearKey(t *testing.T) {
 	windowedReadHarness(t)
 	out, code := mustRun(t, []string{"status"}, "")

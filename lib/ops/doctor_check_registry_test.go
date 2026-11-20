@@ -1,6 +1,6 @@
-// doctor_check_registry_test.go — doctor 체크 등록표가
-// 전체 실행 체인·--check 허용 목록·--list-checks의 단일 소스인지 검증.
-// harness-* 14종·skill-file은 동적 감지 별도 체인이라 등록표 밖(제외 명시).
+// doctor_check_registry_test.go — verifies that the doctor check registry
+// is the single source of the full run chain, the --check allow list, and --list-checks.
+// The 14 harness-* kinds and skill-file rely on dynamic detection in a separate chain, outside the registry (explicitly excluded).
 package ops
 
 import (
@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// doctorRegistryNames — 등록표 전체 이름 순서(코어6+tail10 = 16종).
+// doctorRegistryNames — the whole registry's name order (core 6 + tail 10 = 16).
 func doctorRegistryNames() []string {
 	specs := doctorChecks()
 	names := make([]string, 0, len(specs))
@@ -20,7 +20,7 @@ func doctorRegistryNames() []string {
 	return names
 }
 
-// doctorRegistryChainedNames — 등록표에서 특정 체인("core"|"tail") 이름만.
+// doctorRegistryChainedNames — only the names of a given chain ("core"|"tail") from the registry.
 func doctorRegistryChainedNames(chain string) []string {
 	var names []string
 	for _, s := range doctorChecks() {
@@ -31,12 +31,12 @@ func doctorRegistryChainedNames(chain string) []string {
 	return names
 }
 
-// 등록표 — 이름 집합이 전체 실행 체인 조립 집합과 같다(코어6+tail10).
-// 하네스·스킬 계열은 동적 감지(파일 존재) 별도 체인이라 출력이 환경에
-// 따라 변하므로 비교 전 제외한다.
+// registry — the name set equals the full run chain's assembled set (core 6 + tail 10).
+// The harness and skill families are dynamic-detection (file-existence) separate chains
+// whose output varies by environment, so they are excluded before comparing.
 func TestDoctorRegistryCoversChain(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir()) // 스킬 소스 미탐지 — skill-file 생략 확정
+	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir()) // skill source undetected — skill-file omission guaranteed
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f)
 	var m struct {
@@ -51,7 +51,7 @@ func TestDoctorRegistryCoversChain(t *testing.T) {
 	chain := map[string]bool{}
 	for _, c := range m.Checks {
 		if c.Name == "skill-file" || strings.HasPrefix(c.Name, "harness-") {
-			continue // 등록표 밖 별도 체인(동적 감지)
+			continue // a separate chain outside the registry (dynamic detection)
 		}
 		chain[c.Name] = true
 	}
@@ -76,8 +76,8 @@ func TestDoctorRegistryCoversChain(t *testing.T) {
 	}
 }
 
-// --list-checks — 등록표 16종 전량 출력(구 6종만 내던 회귀 방지).
-// 코어 6종은 기존 DoctorChecks 순서(hook-file…port)를 선두에 유지한다.
+// --list-checks — outputs all 16 registry kinds (preventing the regression of listing only the old 6).
+// The core 6 keep the existing DoctorChecks order (hook-file... port) at the front.
 func TestDoctorListChecksShowsAll(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--list-checks")
@@ -99,7 +99,7 @@ func TestDoctorListChecksShowsAll(t *testing.T) {
 			t.Errorf("checks[%d]=%q, want %q(등록표 순서)", i, m.Checks[i], name)
 		}
 	}
-	// 구 6종 회귀 — DoctorChecks 순서가 선두에 그대로 남는다.
+	// the old-6 regression — the DoctorChecks order stays at the front as-is.
 	core := DoctorChecks()
 	for i, name := range core {
 		if m.Checks[i] != name {
@@ -108,9 +108,9 @@ func TestDoctorListChecksShowsAll(t *testing.T) {
 	}
 }
 
-// onStoreNil — 등록표 속성이 실제 st==nil 행동(코어 4종 fail·tail warn)
-// 과 동일하다. st를 쓰지 않는 검사(hook-file·port·update)는 속성 ""로
-// 명문화해 판정 대상에서 제외한다.
+// onStoreNil — the registry attributes match the actual st==nil behavior (core 4
+// fail, tail warn). Checks not using st (hook-file, port, update) are codified as
+// attribute "" and excluded from the verdict.
 func TestDoctorStoreNilSeverity(t *testing.T) {
 	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir())
 	fail, warn := 0, 0

@@ -1,8 +1,9 @@
-// read_v0420_test.go — read_stats blob 폐지 후
-// read 1회 쓰기 4→2(BumpReads·RecordReadEvent만). read 경로가 meta
-// read_stats 키를 읽거나 쓰지 않는다(운영 DB 잔존 blob은 무해 잔류 —
-// 접근 부재가 계약). 유입 계측(RecordReadUsage daily 경로)도 read kind
-// 에서는 더 호출되지 않는다.
+// read_v0420_test.go — after the read_stats blob abolition, one read
+// writes 4→2 (BumpReads·RecordReadEvent only). The read path neither
+// reads nor writes the meta read_stats key (the blob remaining in an
+// operational DB is a harmless residue — the absence of access is the
+// contract). Intake metering (the RecordReadUsage daily path) is also no
+// longer called for the read kind.
 package knowledge
 
 import (
@@ -13,8 +14,9 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// readBudgetRecorder — BumpReads·RecordReadEvent·RecordReadUsage 호출과
-// meta 질의(SQL·인자)를 전부 녹음하는 fake(readEventRecorder 관례 승계).
+// readBudgetRecorder — a fake recording all BumpReads·RecordReadEvent·
+// RecordReadUsage calls and meta queries (SQL·args) (inheriting the
+// readEventRecorder convention).
 type readBudgetRecorder struct {
 	*fakeStore
 	bumped  [][]int
@@ -41,8 +43,9 @@ func (r *readBudgetRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEven
 	return nil
 }
 
-// newReadBudgetRecorder — active_knowledge 조회만 응답하는 녹음 fake.
-// hit=true면 구문 히트 행, 아니면 제로히트+제안 스캔 1행(근접 분류).
+// newReadBudgetRecorder — a recording fake answering only the
+// active_knowledge query. hit=true yields phrase-hit rows; otherwise one
+// zero-hit+suggestion-scan row (near classification).
 func newReadBudgetRecorder(hit bool) *readBudgetRecorder {
 	r := &readBudgetRecorder{fakeStore: &fakeStore{}}
 	r.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -55,32 +58,34 @@ func newReadBudgetRecorder(hit bool) *readBudgetRecorder {
 			return nil, nil
 		}
 		if strings.Contains(sql, "id, topic, summary FROM active_knowledge") {
-			// 제안 스캔(3열) — 제로히트 read의 근접 후보 1행. 히트 read는
-			// 애초에 스캔이 발동하지 않는다.
+			// The suggestion scan (3 columns) — one near candidate row of a
+			// zero-hit read. A hit read never triggers the scan in the first
+			// place.
 			return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil
 		}
 		if strings.Contains(sql, "FROM active_knowledge") {
 			if hit {
 				return hitRowsFixture, nil
 			}
-			return nil, nil // 구문·폴백 제로히트
+			return nil, nil // phrase·fallback zero-hit
 		}
 		return nil, nil
 	}
 	return r
 }
 
-// TestReadWritesReduced — read 호출(히트·제로히트 각 1회)
-// 후 meta 쓰기에서 read_stats 키 부재 단언. 계측은 BumpReads(참조 증분)
-// ·RecordReadEvent(이벤트 1행)만 남는다.
+// TestReadWritesReduced — after one read call each (hit·zero-hit),
+// asserts the read_stats key is absent from meta writes. Metering leaves
+// only BumpReads (reference increments)·RecordReadEvent (one event row).
 func TestReadWritesReduced(t *testing.T) {
-	// ① 히트 read — BumpReads ids 전수 + read_events 1행(hits·zero=false).
+	// ① Hit read — BumpReads full ids + one read_events row (hits·
+	// zero=false).
 	hit := newReadBudgetRecorder(true)
 	var out strings.Builder
 	if code := RunRead(context.Background(), hit, []string{"백업 정책"}, nil, &out); code != 0 {
 		t.Fatalf("hit read exit=%d: %s", code, out.String())
 	}
-	// ② 제로히트+근접 read — read_events 1행(zero·near=true).
+	// ② Zero-hit+near read — one read_events row (zero·near=true).
 	zn := newReadBudgetRecorder(false)
 	var out2 strings.Builder
 	if code := RunRead(context.Background(), zn, []string{"백업 복구 절차"}, nil, &out2); code != 0 {

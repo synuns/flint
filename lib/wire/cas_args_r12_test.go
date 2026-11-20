@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// fakeArgStore — Query 호출의 실제 인자를 포횰하는 최소 fake(스프레드
-// 검증 전용 — wire_test.go의 fakeStore는 SQL 문자열 캡처 중심).
+// fakeArgStore — a minimal fake capturing the actual arguments of Query calls
+// (for spread verification — wire_test.go's fakeStore focuses on SQL string capture).
 type fakeArgStore struct {
 	query func(ctx context.Context, sql string, args ...any) ([][]any, error)
 	HistoryStubs
@@ -27,9 +27,9 @@ func (f *fakeArgStore) Query(ctx context.Context, sql string, args ...any) ([][]
 }
 func (f *fakeArgStore) Close() {}
 
-// TestCompareSetMetaKVArgSpread — variadic Query에 인자
-// 3개가 스프레드로 전달되는지(슬라이스 1개 래핑이 CAS를 전면 불능으로
-// 만들었던 결함의 재발 방지 — fake Store가 실제 인자 수를 검증).
+// TestCompareSetMetaKVArgSpread — verifies that the 3 arguments are passed
+// spread to the variadic Query (preventing a recurrence of the defect where
+// wrapping as 1 slice broke CAS entirely — the fake Store verifies the actual argument count).
 func TestCompareSetMetaKVArgSpread(t *testing.T) {
 	var gotArgs []any
 	st := &fakeArgStore{query: func(_ context.Context, _ string, args ...any) ([][]any, error) {
@@ -48,10 +48,10 @@ func TestCompareSetMetaKVArgSpread(t *testing.T) {
 	}
 }
 
-// TestCompareSetMetaKVLost — WHERE 미충족(0행)은 lost=false.
+// TestCompareSetMetaKVLost — a WHERE miss (0 rows) is lost=false.
 func TestCompareSetMetaKVLost(t *testing.T) {
 	st := &fakeArgStore{query: func(_ context.Context, _ string, _ ...any) ([][]any, error) {
-		return nil, nil // RETURNING 0행
+		return nil, nil // RETURNING 0 rows
 	}}
 	won, err := CompareSetMetaKV(context.Background(), st, "k", "old", "new")
 	if err != nil {

@@ -1,12 +1,12 @@
-// profile.go — 노출 프로파일: meta exposure_profile 판독.
-// 프로파일은 hot·nudge 동작만 분기한다(다른 명령·exit 계약 불변).
-// 프로파일 판정 — 추천에서 전환까지. profile_hint
-// (report)가 안내만 하던 것을 실행 가능 회로로 완결한다. 판정 규칙은
-// profileHint와 단일 소스(표본 하한 zero_near_min_read·recall_led_pct
-// 50 기준 — METRICS §3 문서화). 근거 지표를 함께 노출해 사용자가 판정을
-// 검증할 수 있게 한다(관측 투명성 — GSM 원칙).
-// 판독 헬퍼(ExposureKey·ExposureProfile)는 lib/wire/profile.go
-// 로 이동 — 이 파일은 판정 명령 runProfile과 cli 호환 별칭을 소유한다.
+// profile.go — exposure profile: reads meta exposure_profile.
+// The profile branches only hot and nudge behavior (other commands and exit contracts unchanged).
+// Profile determination — from recommendation to switching. profile_hint
+// (report) was guidance only; this completes it into an actionable circuit. The determination rules share
+// a single source with profileHint (sample floor zero_near_min_read and recall_led_pct
+// 50 thresholds — documented in METRICS §3). Supporting metrics are exposed alongside so users can verify
+// the determination (observability transparency — the GSM principle).
+// The reading helpers (ExposureKey, ExposureProfile) moved to lib/wire/profile.go
+// — this file owns the determination command runProfile and cli compatibility aliases.
 package cli
 
 import (
@@ -21,8 +21,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// 별칭 — wire 이동분 재노출(setup.go 기록 경로·ops_alias_2 seam·
-// profile_v0110_test 호환).
+// Aliases — re-exports of the wire-moved pieces (the setup.go write path, the ops_alias_2 seam,
+// profile_v0110_test compatibility).
 const ExposureKey = wire.ExposureKey
 
 var ExposureProfile = wire.ExposureProfile
@@ -30,15 +30,15 @@ var ExposureProfile = wire.ExposureProfile
 func init() { Register("profile", runProfile) }
 
 // runProfile — `flint profile [--apply normal|minimal]`.
-// 무인자: 현재 프로파일 + 근거 지표 + 추천. --apply: 전환 확정
-// (setup --exposure 재사용 — 기록 경로 단일 소스).
-// 무효 --apply 값·unknown flag는 무효 인자 exit 3(setup
-// --exposure 무효 값 exit 3과 정합).
+// No args: current profile + supporting metrics + recommendation. --apply: commits the switch
+// (reuses setup --exposure — single source for the write path).
+// Invalid --apply values and unknown flags are invalid-arg exit 3 (consistent with
+// setup --exposure invalid-value exit 3).
 func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 수동 루프를 wire.ParseArgs 사양 테이블로 이관. 위치 값
-	// normal|minimal 허용은 그대로(그 외 위치 토큰은 기존대로 unknown
-	// flag). --apply·위치 값 병렬 지정 시 args 순서가 우선(기존 인카운터
-	// 덮어쓰기 승계 — 병합 워크로 재현).
+	// moved the manual loop to the wire.ParseArgs spec table. Positional values
+	// normal|minimal stay allowed (other positional tokens remain unknown
+	// flags as before). When --apply and a positional value are both given, args order wins (inheriting
+	// the existing overwrite-on-encounter semantics — reproduced in the merge test).
 	pres, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--apply", Value: true},
@@ -51,10 +51,10 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 3
 	}
 	apply := ""
-	// 위치 토큰·플래그 발생을 args 인덱스로 병합(오류·덮어쓰기 순서 보존).
+	// merges positional tokens and flag occurrences by args index (preserving error and overwrite order).
 	type step struct {
 		idx      int
-		flag     string // "" = 위치 토큰
+		flag     string // "" = positional token
 		val      string
 		hasValue bool
 	}
@@ -75,7 +75,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 			apply = s.val
 			continue
 		}
-		// 위치 허용(--apply 없이 값만) — 그 외 위치 토큰은 unknown flag.
+		// positional allowed (value only, without --apply) — other positional tokens are unknown flags.
 		if s.val != "normal" && s.val != "minimal" {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint profile [--apply normal|minimal]", s.val)))
 			return 3
@@ -89,8 +89,8 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	if apply != "" {
 		return runSetupExposure(ctx, st, apply, stdout)
 	}
-	// 판정: report 효과 산출 재사용(창 14일 고정 — 판정 창 표준).
-	// 산출 실패는 근거 없음 판정으로 강등(§13 — 보고 불변).
+	// determination: reuses the report effect computation (window fixed at 14 days — the standard determination window).
+	// computation failure demotes to a no-evidence determination (§13 — reporting invariant).
 	var out reportOutput
 	_ = collectEffect(ctx, st, 14, &out)
 	th := writeThresholds(ctx, st)
@@ -99,9 +99,9 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	hint := profileHint(th, out.Effect)
 	recommend, reason := "", ""
 	switch {
-	// ops.ProfileHint 산출(영어) 마커로 판정 — 표준 문구
+	// determined via the ops.ProfileHint (English) marker — standard wording,
 	// "insufficient sample"·"keep normal"·"low recall lead"(lib/ops
-	// report.go 단일 소스). low recall lead는 minimal 기본 분기.
+	// single source in report.go). low recall lead is the minimal default branch.
 	case strings.Contains(hint, "insufficient sample"):
 		recommend, reason = "keep", "insufficient sample (observe first — read_events_n < zero_near_min_read)"
 	case strings.Contains(hint, "keep normal"):
@@ -115,7 +115,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		"recommend": recommend,
 		"reason":    reason,
 		"hint":      hint,
-		// 근거 지표 — 판정에 쓰인 신호만(전체 지표는 report가 원천).
+		// supporting metrics — only the signals used for the determination (report is the source for full metrics).
 		"evidence": map[string]int{
 			"read_events_n":  out.Effect.ReadEventsN,
 			"recall_led_pct": out.Effect.RecallLedPct,

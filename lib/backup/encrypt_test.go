@@ -1,6 +1,6 @@
-// encrypt_test.go — age 암호화 코어 계약 — identity
-// 생성·재로드(0600)·roundtrip·변조 감지·형식 감지·판독 단일 경로
-// (복호·마스킹 거부·키 요구).
+// encrypt_test.go — the age encryption core contract — identity creation
+// and reload (0600), roundtrip, tamper detection, format detection, and the
+// single read path (decryption, masked-dump rejection, key requirement).
 package backup
 
 import (
@@ -11,7 +11,7 @@ import (
 	"testing"
 )
 
-// TestEnsureIdentityCreatesAndReloads — 생성→재로드 멱등(0600).
+// TestEnsureIdentityCreatesAndReloads — create -> reload idempotence (0600).
 func TestEnsureIdentityCreatesAndReloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "backup.key")
 	id1, err := EnsureIdentity(path)
@@ -34,7 +34,7 @@ func TestEnsureIdentityCreatesAndReloads(t *testing.T) {
 	}
 }
 
-// TestEncryptRoundtrip — 암호화→복호 roundtrip + age 헤더.
+// TestEncryptRoundtrip — encrypt -> decrypt roundtrip + the age header.
 func TestEncryptRoundtrip(t *testing.T) {
 	id, err := EnsureIdentity(filepath.Join(t.TempDir(), "backup.key"))
 	if err != nil {
@@ -60,19 +60,19 @@ func TestEncryptRoundtrip(t *testing.T) {
 	}
 }
 
-// TestDecryptTamperedFails — 변조 감지(age AEAD).
+// TestDecryptTamperedFails — tamper detection (age AEAD).
 func TestDecryptTamperedFails(t *testing.T) {
 	id, _ := EnsureIdentity(filepath.Join(t.TempDir(), "backup.key"))
 	var ct bytes.Buffer
 	EncryptTo(&ct, []byte("덤프 본문 — 최소 길이"), id.Recipient())
 	b := ct.Bytes()
-	b[len(b)-1] ^= 0xFF // 마지막 바이트 변조
+	b[len(b)-1] ^= 0xFF // tamper the last byte
 	if _, err := DecryptFrom(bytes.NewReader(b), id); err == nil {
 		t.Error("변조 암호문 복호 성공 — AEAD 무결성 위반")
 	}
 }
 
-// TestReadDumpBytesPlainEncryptedMasked — 판독 단일 경로 4분기.
+// TestReadDumpBytesPlainEncryptedMasked — the four quadrants of the single read path.
 func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	dir := t.TempDir()
 	key := filepath.Join(dir, "backup.key")
@@ -80,14 +80,14 @@ func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 평문.
+	// Plaintext.
 	p := filepath.Join(dir, "p.sql")
 	os.WriteFile(p, []byte("-- dump\nINSERT 1;"), 0o600)
 	got, err := ReadDumpBytes(p, "")
 	if err != nil || string(got) != "-- dump\nINSERT 1;" {
 		t.Fatalf("평문 판독: %v %q", err, got)
 	}
-	// 암호문 — 키 있으면 복호.
+	// Ciphertext — decrypted when the key is present.
 	e := filepath.Join(dir, "e.sql.age")
 	var ct bytes.Buffer
 	if err := EncryptTo(&ct, []byte("-- dump\nINSERT 2;"), id.Recipient()); err != nil {
@@ -98,17 +98,17 @@ func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	if err != nil || !strings.Contains(string(got), "INSERT 2;") {
 		t.Fatalf("암호문 판독: %v %q", err, got)
 	}
-	// 암호문 — 키 경로 없으면 ErrKeyPathRequired.
+	// Ciphertext — ErrKeyPathRequired when no key path.
 	if _, err := ReadDumpBytes(e, ""); err != ErrKeyPathRequired {
 		t.Errorf("키 없음 = %v, want ErrKeyPathRequired", err)
 	}
-	// 암호문 — 잘못된 키 파일이면 ErrEncryptKeyCorrupt(부재와 구분).
+	// Ciphertext — ErrEncryptKeyCorrupt for a corrupt key file (distinct from absence).
 	bad := filepath.Join(dir, "bad.key")
 	os.WriteFile(bad, []byte("AGE-SECRET-KEY-NOTVALID"), 0o600)
 	if _, err := ReadDumpBytes(e, bad); err != ErrEncryptKeyCorrupt {
 		t.Errorf("불량 키 = %v, want ErrEncryptKeyCorrupt", err)
 	}
-	// 마스킹 덤프 — 거부(평문·암호문 무관).
+	// Masked dump — rejected (plaintext or ciphertext alike).
 	m := filepath.Join(dir, "m.sql")
 	os.WriteFile(m, []byte(MaskDumpHeader+"\n-- masked\nINSERT 3;"), 0o600)
 	if _, err := ReadDumpBytes(m, ""); err != ErrMaskedDump {
@@ -116,7 +116,7 @@ func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	}
 }
 
-// TestIsEncryptedFile — 파일 감지(부재 파일 false).
+// TestIsEncryptedFile — file detection (absent file -> false).
 func TestIsEncryptedFile(t *testing.T) {
 	dir := t.TempDir()
 	id, _ := EnsureIdentity(filepath.Join(dir, "backup.key"))
@@ -137,8 +137,9 @@ func TestIsEncryptedFile(t *testing.T) {
 	}
 }
 
-// TestEnsureIdentityRefusesCorruptKey — 불량 기존 키는 덮어쓰지
-// 않는다(기존 암호문의 영구 복호 불가 확정 방지).
+// TestEnsureIdentityRefusesCorruptKey — a corrupt existing key is not
+// overwritten (preventing a confirmed permanent loss of decryptability for
+// existing ciphertext).
 func TestEnsureIdentityRefusesCorruptKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backup.key")
 	os.WriteFile(path, []byte("AGE-SECRET-KEY-NOTVALID"), 0o600)

@@ -1,8 +1,8 @@
-// nudge.go — flint nudge: PostCompact가 남긴 미증류 마커를 Stop 훅에서
-// 넛지로, SessionStart에서 plain 안내로 상기시킨다. 모든 실패에 조용히 exit 0
-// (비간섭). 무한 넛지 방어 = stop_hook_active 1차 + 마커 1회성(--clear로 소비).
-// 노출 프로파일 분기 — normal은 짧은 문구 1줄, minimal은 출력
-// 없이 마커 자동 종결(compact가 이미 pending 적립 — 재적립 없음, 룰링).
+// nudge.go — flint nudge: nudges the pending-distillation marker left by PostCompact at the
+// Stop hook and reminds via a plain notice at SessionStart. Silent exit 0 on every failure
+// (non-interference). Infinite-nudge defense = the stop_hook_active first gate + the one-shot marker (consumed via --clear).
+// Exposure-profile branching — normal is 1 short line; minimal, with no output,
+// auto-concludes the marker (compact has already accrued pending — no re-accrual, ruling).
 package ops
 
 import (
@@ -16,30 +16,30 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// NudgePendingLine — Stop 넛지 additionalContext 짧은 지시문이자
-// SessionStart plain 안내 1줄(동일 문구).
+// NudgePendingLine — the short directive of the Stop nudge's additionalContext and
+// the 1-line SessionStart plain notice (the same wording).
 const NudgePendingLine = "flint: distillation pending — flint nudge"
 
-// NudgeReadHint — SessionStart 안내에 병합되는 read 촉진 힌트.
+// NudgeReadHint — the read-promotion hint merged into the SessionStart notice.
 const NudgeReadHint = "run flint read <query> before working — check existing knowledge"
 
-// NudgeRecallStartLine — 회상 부재 마커(recall-hint.json)의
-// SessionStart 안내 1줄. done이 오늘 회상 0회·기록 임계 상태를 마커로
-// 남기면 다음 세션 시작에 1회 표시 후 자동 소진된다.
-// 파일 분리(recall-hint.json) — 증류 대기 마커(pending-distill,
-// 내구)와 수명 주기가 달라 같은 파일을 쓰면 서로를 덮어썼다.
+// NudgeRecallStartLine — the 1-line SessionStart notice for the missing-recall marker
+// (recall-hint.json). When done leaves a marker for the state of 0 recalls today with
+// writes at the threshold, the next session start shows it once and auto-consumes it.
+// The separate file (recall-hint.json) — the pending-distillation marker (pending-distill,
+// durable) has a different lifecycle; sharing a file meant they overwrote each other.
 const NudgeRecallStartLine = "flint: last session only wrote, never recalled — start with flint read <query>"
 
-// NudgeReasonRecall — done 회상 부재 마커의 Reason 값(진단 표시).
+// NudgeReasonRecall — the Reason value of done's missing-recall marker (diagnostic display).
 const NudgeReasonRecall = "recall"
 
-// ExposureProfileFn — 노출 프로파일 판정 seam. 실구현(cli profile.go —
-// 실구현(cli profile.go)은 cli init이 주입하고, cli 테스트의 var 교체는
-// ops_alias_2 래퍼가 호출 시점에 읽어 전파한다(composePsFn).
+// ExposureProfileFn — the exposure-profile determination seam. The real implementation (cli
+// profile.go) is injected by the cli init, and the cli tests' var swap propagates via the
+// ops_alias_2 wrapper reading it at call time (composePsFn).
 var ExposureProfileFn func(getKV func(string) (string, error)) string
 
-// NudgeProfile — st의 노출 프로파일. st nil·조회 실패·미설정은 normal
-// (프로파일 조회 실패는 normal).
+// NudgeProfile — st's exposure profile. st nil, lookup failure, or unset means normal
+// (a profile lookup failure is normal).
 func NudgeProfile(ctx context.Context, st wire.Store) string {
 	if st == nil || ExposureProfileFn == nil {
 		return "normal"
@@ -52,23 +52,23 @@ func NudgeProfile(ctx context.Context, st wire.Store) string {
 	return p
 }
 
-// nudgeStdin — Claude Code 훅 stdin 중 nudge가 보는 필드.
+// nudgeStdin — the fields of the Claude Code hook stdin that nudge looks at.
 type nudgeStdin struct {
 	HookEventName  string `json:"hook_event_name"`
 	SessionID      string `json:"session_id"`
 	StopHookActive bool   `json:"stop_hook_active"`
 }
 
-// RunNudge — 넛지 커맨드. 언제나 0 반환(비간섭).
-// 증류 마커(pending-distill·내구)와 회상 마커(recall-hint·1회성)를
-// 독립 파일로 병행 소비한다 — Stop은 증류만 넛지(회상 마커를 증류로 오인해
-// 엉터리 넛지·--clear로 회상 알림을 지우던 결함 폐쇄), SessionStart는 둘 다
-// 안내(회상은 표시 후 자동 소진).
+// RunNudge — the nudge command. Always returns 0 (non-interference).
+// The distillation marker (pending-distill, durable) and the recall marker
+// (recall-hint, one-shot) are consumed in parallel from independent files — Stop nudges only
+// the distillation one (closing the defect of mistaking the recall marker for distillation,
+// producing a bogus nudge and wiping the recall notice via --clear); SessionStart announces both (the recall one is shown once and auto-consumed).
 func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// --clear: 마커 소비 후 무출력 종료(에러도 조용히). 수동 경로 불변(R3).
-	// unknown `-` 접두 인자는 무효 인자 exit 3 — 기존 조용한
-	// 무시(exit 0) 폐지(조용한 성공 금지). 훅은 무인자로 호출하므로 정상
-	// 훅 경로(§13 비간섭)는 불변.
+	// --clear: consume the marker and exit with no output (errors silent too). The manual path is unchanged (R3).
+	// an unknown `-`-prefixed argument is invalid-arg exit 3 — abolishing the old silent
+	// ignore (exit 0) (no silent success). Hooks are invoked with no arguments, so the normal
+	// hook path (§13 non-interference) is unchanged.
 	for _, a := range args {
 		if a == "--clear" {
 			_ = ClearMarker()
@@ -82,22 +82,22 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 
 	distill, derr := ReadTypedMarker(MarkerKindDistill)
 	recall, rerr := ReadTypedMarker(MarkerKindRecall)
-	// 구 배포가 pending-distill.json에 recall을
-	// 기록한 잔존 — Reason으로 식별해 회상 취급한다. 소진은 기록된
-	// 파일(증류 파일)에서 삭제한다.
+	// a legacy deployment recorded recall into pending-distill.json —
+	// residue identified by Reason and treated as recall. Consumption deletes from the file
+	// it was recorded in (the distillation file).
 	legacyRecall := false
 	if distill != nil && distill.Reason == NudgeReasonRecall && recall == nil {
 		recall, distill, legacyRecall = distill, nil, true
 	}
-	// 파손(derr·rerr)은 읽힌 마커가 있으면 무시하고 진행한다.
+	// corruption (derr, rerr) is ignored if any marker was read; proceed.
 	_ = derr
 	_ = rerr
 	if distill == nil && recall == nil {
-		return 0 // 둘 다 부재·파손 모두 조용히
+		return 0 // both absent or corrupt — silent either way
 	}
 
-	// minimal: 에이전트 노출 0 — 출력 없이 마커 자동 종결만. 종결 실패는
-	// 조용히 스킵(마커 유지). stdin 파식보다 앞선다(빈 stdin 자동 종결 포함).
+	// minimal: zero agent exposure — no output, only the marker auto-conclusion. A conclusion
+	// failure is silently skipped (the marker stays). It precedes stdin parsing (including auto-concluding on empty stdin).
 	if NudgeProfile(ctx, st) == "minimal" {
 		if recall != nil {
 			_ = ClearTypedMarker(MarkerKindRecall)
@@ -108,7 +108,7 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		return 0
 	}
 
-	// stdin 파싱 실패는 조용히 스킵(비간섭).
+	// a stdin parse failure is silently skipped (non-interference).
 	var in nudgeStdin
 	if err := json.NewDecoder(stdin).Decode(&in); err != nil {
 		return 0
@@ -116,11 +116,11 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 
 	switch in.HookEventName {
 	case "Stop":
-		// 회상 마커만 있으면 Stop에서 무출력 — 다음 SessionStart가 소비.
+		// with only the recall marker, Stop is silent — the next SessionStart consumes it.
 		if distill == nil {
 			return 0
 		}
-		// 이미 Stop을 차단한 적 있으면(stop_hook_active) 재넛지하지 않는다.
+		// if Stop has already been blocked once (stop_hook_active), do not re-nudge.
 		if in.StopHookActive {
 			return 0
 		}
@@ -134,28 +134,28 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return 0
 		}
 		fmt.Fprintln(stdout, string(b))
-		// 발화 카운터 — Stop 넛지(distill) 실제 발화 1회.
+		// fired counter — the Stop nudge (distill) actually firing once.
 		knowledge.BumpMetaCounter(ctx, st, "fired_nudge_distill")
 	case "SessionStart":
-		// 회상 부재: 전용 문구 1회 표시 후 자동 소진 — 별도 행동(--clear)
-		// 없이 다음 세션이 read로 대응하면 끝(1회성 알림 의미론).
+		// missing recall: show the dedicated wording once, then auto-consume — without a separate
+		// action (--clear); once the next session responds with a read, it is done (one-shot notice semantics).
 		if recall != nil {
 			fmt.Fprintln(stdout, NudgeRecallStartLine)
-			// 발화 카운터 — 회상 부재 안내 실제 발화 1회.
+			// fired counter — the missing-recall notice actually firing once.
 			knowledge.BumpMetaCounter(ctx, st, "fired_nudge_recall")
 			if legacyRecall {
-				_ = ClearMarker() // 레거시: 기록 파일(pending-distill)에서 소진
+				_ = ClearMarker() // legacy: consume from the file it was recorded in (pending-distill)
 			} else {
 				_ = ClearTypedMarker(MarkerKindRecall)
 			}
 		}
 		if distill != nil {
-			// 기존 안내 뒤에 read 힌트를 같은 줄로 병합(plain 1줄 계약 유지).
-			// 예산 가시성(Letta 인밴드 관례): pending 수/상한을
-			// 데이터로 동봉(임계 PendingMax 초과 시에만 — 기본 문구 불변).
+			// merge the read hint onto the same line after the existing notice (keeping the
+			// 1-plain-line contract). Budget visibility (the Letta in-band convention): attach the
+			// pending count/cap as data (only when over the PendingMax threshold — the default wording is unchanged).
 			line := NudgePendingLine + " · " + NudgeReadHint
 			if n, ok := pendingCount(ctx, st); ok {
-				if max := knowledge.WriteThresholds(ctx, st).PendingMax; n > max { // 초과 계약(maintain·sessionhook와 정렬)
+				if max := knowledge.WriteThresholds(ctx, st).PendingMax; n > max { // the excess contract (aligned with maintain and sessionhook)
 					line = fmt.Sprintf("flint: %d items pending distillation (limit %d) — flint maintain --dup-suspects · %s", n, max, NudgeReadHint)
 				}
 			}
@@ -165,8 +165,8 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	return 0
 }
 
-// pendingCount — pending 지식 수(조회 실패·부재는 ok=false — 조용히 §13).
-// 조회 자체는 countPending 단일 구현 위임.
+// pendingCount — the pending knowledge count (a lookup failure or absence is ok=false —
+// silent, §13). The lookup itself delegates to the single countPending implementation.
 func pendingCount(ctx context.Context, st wire.Store) (int, bool) {
 	if st == nil {
 		return 0, false

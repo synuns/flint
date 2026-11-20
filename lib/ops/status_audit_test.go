@@ -1,16 +1,16 @@
-// status_audit_test.go — 회귀 2건.
-// ① schema_version 허용 범위는 db.LatestSchemaVersion 파생 — 하드코딩
+// status_audit_test.go — two regressions.
+// (1) The schema_version allowed range derives from db.LatestSchemaVersion — a hardcoded
 //
-//	목록("1"~"8")은 v9 DB를 exit 3으로 오판했다. 가드 승격: 파생 비교
-//	동작 + 소스 스캔(문자열 리터럴 버전 비교 재발 시 FAIL).
+//	list ("1"~"8") misjudged a v9 DB as exit 3. Guard upgraded: the derived-comparison
+//	behavior + a source scan (FAIL if a string-literal version comparison reappears).
 //
-// ② --as-of 카운트 질의 접합 전 asOfHashRe 문자셋 재검증(read --as-of와
+// (2) Before splicing the --as-of count queries, the asOfHashRe charset is revalidated
 //
-//	동일 규칙): 오염 해시(작은따옴표 포함)는
-//	거부되고 질의에 접합되지 않는다. v1.8.0 T8 — 카운트는
-//	QueryAsOf(AsOfQuery{Hash,Table,Columns,Where}) 이관, 접합 단언은
+//	(the same rule as read --as-of): a tainted hash (containing a single quote) is
+//	rejected and never spliced into a query. v1.8.0 T8 — the counts moved to
+//	QueryAsOf(AsOfQuery{Hash,Table,Columns,Where}); the splice assertions were swapped
 //
-// 전달 조건 단언으로 환치(문자셋 재검증 잔류 계약 유지).
+// for passed-condition assertions (keeping the residual charset-revalidation contract).
 package ops
 
 import (
@@ -27,8 +27,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// statusSeams — RunStatus가 참조하는 ops seam을 테스트용 기본 구현으로
-// 교체했다가 원복한다(cli root.go init과 동일 구성 — 파서만 per-test 지정).
+// statusSeams — swaps the ops seams RunStatus references with test default
+// implementations, then restores them (the same composition as the cli root.go init — only the parser is per-test).
 func statusSeams(t *testing.T, parse func(context.Context, wire.Store, string) (string, error)) {
 	t.Helper()
 	prevParse, prevWD := ParseAsOfSpecFn, WindowedDailyFn
@@ -47,12 +47,12 @@ func statusSeams(t *testing.T, parse func(context.Context, wire.Store, string) (
 	})
 }
 
-// statusStore — meta(schema_version)는 *fakeStore Query 승격, 히스토리
-// 경로(LogEntries{Hash}·QueryAsOf)는 명시 오버라이드 훅. 수신 조건은
-// gotLog·gotAsOf에 기록돼 전달 단언에 쓰인다.
+// statusStore — meta (schema_version) via the promoted *fakeStore Query; the history
+// paths (LogEntries{Hash}, QueryAsOf) via explicit override hooks. The received
+// conditions are recorded in gotLog/gotAsOf for the pass-through assertions.
 type statusStore struct {
 	*fakeStore
-	wire.HistoryStubs // 오버라이드 대상 외(DiffRows·DiffCommits·DiffStat) 기본구현
+	wire.HistoryStubs // default implementations for the non-overridden ones (DiffRows, DiffCommits, DiffStat)
 	gotLog            []wire.LogQuery
 	gotAsOf           []wire.AsOfQuery
 	logRows           []wire.LogEntry
@@ -69,7 +69,7 @@ func (s *statusStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any,
 	return s.asOfRows, nil
 }
 
-// statusFake — meta schema_version·AS OF 카운트(7)만 응답하는 fake.
+// statusFake — a fake answering only meta schema_version and the AS OF count (7).
 func statusFake(schemaVersion string) *statusStore {
 	return &statusStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key = 'schema_version'") {
@@ -79,8 +79,8 @@ func statusFake(schemaVersion string) *statusStore {
 	}}, asOfRows: [][]any{{int64(7)}}}
 }
 
-// TestStatusAcceptsLatestSchemaVersion — 최신 스키마 버전 DB는 exit 0.
-// 하드코딩 목록("1"~"8")이면 v9에서 exit 3(감사 F1 원증).
+// TestStatusAcceptsLatestSchemaVersion — a latest-schema-version DB exits 0.
+// With a hardcoded list ("1"~"8"), v9 would exit 3 (the audit F1 original incident).
 func TestStatusAcceptsLatestSchemaVersion(t *testing.T) {
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return "", nil })
 	want := strconv.Itoa(db.LatestSchemaVersion)
@@ -97,8 +97,8 @@ func TestStatusAcceptsLatestSchemaVersion(t *testing.T) {
 	}
 }
 
-// TestStatusSchemaVersionBoundsStillRejected — 파생 범위 밖(0·초과·비정수·
-// 빈 값)은 여전히 exit 3, 안내 문구도 파생 범위(1~최신)를 말한다.
+// TestStatusSchemaVersionBoundsStillRejected — outside the derived range (0, above,
+// non-integer, empty) still exits 3, and the guidance states the derived range (1..latest).
 func TestStatusSchemaVersionBoundsStillRejected(t *testing.T) {
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return "", nil })
 	wantMsg := "1~" + strconv.Itoa(db.LatestSchemaVersion)
@@ -113,9 +113,9 @@ func TestStatusSchemaVersionBoundsStillRejected(t *testing.T) {
 	}
 }
 
-// TestStatusSchemaAllowlistNotHardcoded — 가드: status.go에 문자열 리터럴
-// 버전 비교(`version != "8"` 따위)가 재발하면 FAIL. 허용 범위은
-// db.LatestSchemaVersion 파생이어야 한다(감사 F1 재발 방지).
+// TestStatusSchemaAllowlistNotHardcoded — guard: if a string-literal version
+// comparison (`version != "8"` and the like) reappears in status.go, FAIL. The allowed
+// range must derive from db.LatestSchemaVersion (preventing an audit-F1 recurrence).
 func TestStatusSchemaAllowlistNotHardcoded(t *testing.T) {
 	src, err := os.ReadFile("status.go")
 	if err != nil {
@@ -126,9 +126,9 @@ func TestStatusSchemaAllowlistNotHardcoded(t *testing.T) {
 	}
 }
 
-// TestStatusAsOfPollutedHashRejected — 파서가 오염 해시(작은따옴표 포함)를
-// 돌려주면 카운트 질의 전 거부(exit 1·문자셋 위반 문구) — QueryAsOf에는
-// 오염값이 어떤 형태로도 전달되지 않는다(인라인 주입 차단 계약 승계).
+// TestStatusAsOfPollutedHashRejected — when the parser returns a tainted hash
+// (containing a single quote), it is rejected before the count queries (exit 1,
+// charset-violation wording) — the tainted value never reaches QueryAsOf in any form (inheriting the inline-injection-blocking contract).
 func TestStatusAsOfPollutedHashRejected(t *testing.T) {
 	bad := "ab12'; DROP TABLE knowledge;--"
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return bad, nil })
@@ -151,9 +151,9 @@ func TestStatusAsOfPollutedHashRejected(t *testing.T) {
 	}
 }
 
-// TestStatusAsOfValidHashCountedFromSnapshot — 정상 해시는 QueryAsOf 카운트
-// 조회가 knowledge 테이블·count(*)·pending 조건으로 발생하고 pending(스냅샷
-// 수)·as_of.hash를 보고한다(재검증이 정상 경로를 막지 않음).
+// TestStatusAsOfValidHashCountedFromSnapshot — a valid hash issues the QueryAsOf
+// count query against the knowledge table with count(*) and the pending condition, and
+// reports pending (the snapshot count) and as_of.hash (the revalidation must not block the normal path).
 func TestStatusAsOfValidHashCountedFromSnapshot(t *testing.T) {
 	hash := "abc123def"
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return hash, nil })
@@ -192,8 +192,8 @@ func TestStatusAsOfValidHashCountedFromSnapshot(t *testing.T) {
 	}
 }
 
-// TestStatusAsOfCommitDateFromLogEntries — as_of 날짜 첨부는
-// LogEntries{Hash}에서 파생(RFC3339 — 기존 FmtAsOfDate(time.Time) 동치).
+// TestStatusAsOfCommitDateFromLogEntries — the as_of date attachment derives from
+// LogEntries{Hash} (RFC3339 — equivalent to the existing FmtAsOfDate(time.Time)).
 func TestStatusAsOfCommitDateFromLogEntries(t *testing.T) {
 	hash := "abc123def"
 	at := time.Date(2026, 11, 17, 5, 4, 3, 0, time.UTC)

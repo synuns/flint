@@ -1,9 +1,10 @@
-// export_test.go — ExportRows 원천 조회 계약 테스트.
-// 합성 3행(active 2·invalidated 1) — active 필터 2행·
-// all 3행·tag 필터·Since 컷오프(updated_at 기준). 픽스처는 합성 데모
-// 데이터(개인 데이터 금지). 기본 fakeStore(queryFn이 조회 원천 seam),
-// SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시 실DB 경유로 동일 시나리오를
-// 재실행한다(metaKVStore seam 관례 승계).
+// export_test.go — the ExportRows source-query contract tests.
+// Synthetic 3 rows (2 active·1 invalidated) — the active filter yields
+// 2 rows·all 3 rows·tag filter·Since cutoff (on updated_at). Fixtures
+// are synthetic demo data (personal data forbidden). Base fakeStore
+// (queryFn is the source-query seam); with SUPERLITE_REAL=1 +
+// FLINT_TEST_DSN set, the same scenarios re-run against the real DB
+// (inheriting the metaKVStore seam convention).
 package knowledge
 
 import (
@@ -22,31 +23,35 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// exportTOld/TMid/TNew — fixture 시각(증분 컷오프 검증 3단계).
+// exportTOld/TMid/TNew — fixture times (a 3-stage incremental-cutoff
+// check).
 var (
 	exportTOld = time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
 	exportTMid = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
 	exportTNew = time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
-	// exportTValid — valid_at fixture 값(ingested_at과 의도적 상이 —
-	// 왕복 보존 검증: 검증 시각 ≠ 수집 시각 행).
+	// exportTValid — the valid_at fixture value (deliberately distinct
+	// from ingested_at — round-trip preservation check: a row whose
+	// validation time ≠ collection time).
 	exportTValid = time.Date(2026, 11, 10, 7, 30, 0, 0, time.UTC)
-	// exportTRecall — last_recalled_at fixture 값(스코어 실열
-	// 매핑·jsonl 왕복 보존 검증).
+	// exportTRecall — the last_recalled_at fixture value (score
+	// physical-column mapping·jsonl round-trip preservation check).
 	exportTRecall = time.Date(2026, 11, 16, 5, 0, 0, 0, time.UTC)
 )
 
-// exportHashPrefix — 실DB 시딩 행의 content_hash 접두사(스코프·정리 키).
+// exportHashPrefix — the content_hash prefix of the real-DB seeded rows
+// (the scoping·cleanup key).
 const exportHashPrefix = "expfix-"
 
-// exportFixtureRow — 합성 데모 행(SELECT 열 순서와 동일한 셀 생성).
-// score·lastRec 추가(말미 2셀 — v1.9.0 T4부터 파생 집계 re.cnt·re.last_at
-// 형태: score=이벤트 수, lastRec=최종 회상 시각).
+// exportFixtureRow — a synthetic demo row (cells generated in the same
+// order as the SELECT columns). score·lastRec added (the 2 tail cells —
+// since v1.9.0 T4 in the derived-aggregate re.cnt·re.last_at shape:
+// score=event count, lastRec=last recall time).
 type exportFixtureRow struct {
 	id       int
 	topic    string
 	summary  string
 	tags     string
-	entity   any // nil 허용(열 NULL)
+	entity   any // nil allowed (column NULL)
 	domain   string
 	conf     float64
 	origin   string
@@ -56,11 +61,12 @@ type exportFixtureRow struct {
 	valid    time.Time
 	ingested time.Time
 	invalid  any // nil|time.Time
-	score    int // 회상 이벤트 수(파생 cnt — 기본 0)
-	lastRec  any // nil|time.Time — 파생 last_at
+	score    int // recall event count (derived cnt — default 0)
+	lastRec  any // nil|time.Time — derived last_at
 }
 
-// updated — 파생 updated_at(COALESCE(invalid_at, ingested_at)와 동일 정의).
+// updated — the derived updated_at (the same definition as
+// COALESCE(invalid_at, ingested_at)).
 func (f exportFixtureRow) updated() time.Time {
 	if t, ok := f.invalid.(time.Time); ok {
 		return t
@@ -68,9 +74,10 @@ func (f exportFixtureRow) updated() time.Time {
 	return f.ingested
 }
 
-// cells — SELECT 열 순서(id..COALESCE) 셀 튜플. valid_at은
-// 추가 열(superseded_by 다음·ingested_at 이전). 스코어 2열은
-// 말미 추가(기존 셀 인덱스 계약 불변 — exportEngine 열 참조 승계).
+// cells — the cell tuple in SELECT column order (id..COALESCE).
+// valid_at is an added column (after superseded_by·before ingested_at).
+// The 2 score columns are appended at the tail (the existing cell-index
+// contract unchanged — exportEngine column references inherited).
 func (f exportFixtureRow) cells() []any {
 	return []any{
 		int32(f.id), f.topic, f.summary, f.tags, f.entity, f.domain,
@@ -79,9 +86,11 @@ func (f exportFixtureRow) cells() []any {
 	}
 }
 
-// exportFixture — 합성 3행: active 2(배포 관례·회고 형식) + invalidated 1
-// (구 배포 정책 — invalid_at=tNew·superseded_by=88). 배포 관례 행만
-// 스코어(3·recall 시각)를 가진다 — 매핑·왕복 검증의 비영행.
+// exportFixture — 3 synthetic rows: 2 active (deploy convention + retro
+// format) + 1 invalidated (the old deploy policy — invalid_at=tNew,
+// superseded_by=88). Only the deploy-convention row carries a score (3,
+// the recall time) — the non-zero row
+// for mapping·round-trip checks.
 var exportFixture = []exportFixtureRow{
 	{1, "배포 관례", "main 브랜치는 항상 green이어야 한다", ":deploy:ops:",
 		"main-branch", "demo", 0.9, "agent", "active", "expfix-a1", nil,
@@ -94,15 +103,16 @@ var exportFixture = []exportFixtureRow{
 		exportTValid, exportTOld, exportTNew, 0, nil},
 }
 
-// exportEngine — fakeStore queryFn용 조회 원천 seam: 발행된 SQL의 조건
-// 마컈와 placeholder args로 fixture 행을 실제 규칙과 동일하게 걸러 돌려준다
-// (active 단일 정의·':t:' strpos 태그·COALESCE 컷오프).
+// exportEngine — the source-query seam for the fakeStore queryFn:
+// filters fixture rows by the emitted SQL's condition markers and
+// placeholder args under the actual rules (the single active
+// definition·':t:' strpos tag·COALESCE cutoff) and returns them.
 func exportEngine(sql string, args []any) ([][]any, error) {
 	rows := make([][]any, 0, len(exportFixture))
 	for _, f := range exportFixture {
 		rows = append(rows, f.cells())
 	}
-	if strings.Contains(sql, "invalid_at IS NULL") { // 활성 단일 정의 절
+	if strings.Contains(sql, "invalid_at IS NULL") { // the single-active-definition clause
 		out := rows[:0]
 		for _, r := range rows {
 			if r[8] == "active" {
@@ -111,19 +121,21 @@ func exportEngine(sql string, args []any) ([][]any, error) {
 		}
 		rows = out
 	}
-	if strings.Contains(sql, "strpos(") { // tag 필터 — args[0]=tag(조립 순서 계약)
+	if strings.Contains(sql, "strpos(") { // tag filter — args[0]=tag (assembly-order contract)
 		tag, _ := args[0].(string)
 		out := rows[:0]
 		for _, r := range rows {
-			if strings.Contains(r[3].(string), ":"+tag+":") { // 열 3 = tags
+			if strings.Contains(r[3].(string), ":"+tag+":") { // column 3 = tags
 				out = append(out, r)
 			}
 		}
 		rows = out
 	}
 	if strings.Contains(sql, "COALESCE(invalid_at, ingested_at) >=") {
-		// 말미 인자=Since — 시각 비교 전 관용 변환(time.Time 직접 바인드
-		// 폐지 후 RFC3339 문자열 인자 — 결과 불변 검증 동일 경로).
+		// The trailing argument = Since — lenient conversion before the
+		// time comparison (after the direct time.Time bind was abolished,
+		// an RFC3339 string argument — the results-unchanged check runs
+		// the same path).
 		var since time.Time
 		switch v := args[len(args)-1].(type) {
 		case time.Time:
@@ -144,7 +156,8 @@ func exportEngine(sql string, args []any) ([][]any, error) {
 	return rows, nil
 }
 
-// assertExportTopics — 결과 토픽 순서(지정 순)와 id 오름차순 정렬 단언.
+// assertExportTopics — asserts the result topic order (as given) and the
+// ascending-id sort.
 func assertExportTopics(t *testing.T, rows []ExportRow, want []string) {
 	t.Helper()
 	got := make([]string, len(rows))
@@ -159,8 +172,9 @@ func assertExportTopics(t *testing.T, rows []ExportRow, want []string) {
 	}
 }
 
-// exportScopedRows — 실DB 경로에서 이번 시딩 행(prefix)만 스코프(공유
-// flint_test DB의 외래 행 제외 — fake 경로는 전수 그대로).
+// exportScopedRows — on the real-DB path, scopes to this run's seeded
+// rows (prefix) only (excluding foreign rows of the shared flint_test DB
+// — the fake path passes everything through).
 func exportScopedRows(rows []ExportRow, prefix string) []ExportRow {
 	if prefix == "" {
 		return rows
@@ -174,8 +188,9 @@ func exportScopedRows(rows []ExportRow, prefix string) []ExportRow {
 	return out
 }
 
-// exportTestStore — 시나리오용 저장소: 기본 fake, SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN 시 실DB(시딩 동반). 반환 scope는 실DB 행 스코프 접두사.
+// exportTestStore — the store for the scenarios: base fake; with
+// SUPERLITE_REAL=1 + FLINT_TEST_DSN, the real DB (seeding included).
+// The returned scope is the real-DB row-scoping prefix.
 func exportTestStore(t *testing.T) (st wire.Store, scope string) {
 	t.Helper()
 	if real := exportRealStore(t); real != nil {
@@ -184,8 +199,9 @@ func exportTestStore(t *testing.T) (st wire.Store, scope string) {
 	return &fakeStore{queryFn: exportEngine}, ""
 }
 
-// exportPoolStore — 실DB wire.Store 최소 구현(Query만 실동작 — 조회
-// 시나리오에 필요한 최소한, meta_kv_test poolStore 관례 승계).
+// exportPoolStore — the minimal real-DB wire.Store implementation (only
+// Query actually works — the minimum the query scenarios need,
+// inheriting the meta_kv_test poolStore convention).
 type exportPoolStore struct {
 	pool *pgxpool.Pool
 	wire.HistoryStubs
@@ -223,10 +239,11 @@ func (s *exportPoolStore) Query(ctx context.Context, sql string, args ...any) ([
 	return out, rows.Err()
 }
 
-// exportRealStore — SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만 실DB 접속
-// 허용(운영 폴백 차단 — seamRealDSN N1 계약 승계). 미기동 시 스킵.
-// 접속 직후 게이트 v11(스코어 2열)을 보장한다 — ExportRows
-// SELECT가 신규 열을 참조해 미승격 DB에서는 42703으로 실패한다.
+// exportRealStore — real-DB connection allowed only with SUPERLITE_REAL=1
+// + FLINT_TEST_DSN set (operational fallback blocked — inheriting the
+// seamRealDSN N1 contract). Skipped when the DB is down. Right after
+// connecting, gates on v11 (the 2 score columns) — the ExportRows SELECT
+// references the new columns and fails with 42703 on an unmigrated DB.
 func exportRealStore(t *testing.T) wire.Store {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") != "1" {
@@ -252,10 +269,11 @@ func exportRealStore(t *testing.T) wire.Store {
 	return &exportPoolStore{pool: pool}
 }
 
-// seedExportFixture — 합성 fixture 3행 시딩 + 정리(prefix 키 — 이전 런
-// 잔존도 선행 DELETE로 흡수). v1.9.0 T4: 스키마 v12 — 스코어는
-// recall_score 실열 대신 회상 이벤트(행당 score수만큼, recalled_at=
-// lastRec)로 시딩한다(파생 집계가 cnt·last_at으로 재현).
+// seedExportFixture — seeds the 3 synthetic fixture rows + cleanup (the
+// prefix key — prior-run residue also absorbed by the leading DELETE).
+// v1.9.0 T4: schema v12 — instead of a recall_score physical column, the
+// score is seeded as recall events (score rows each, recalled_at=
+// lastRec) (the derived aggregate reproduces cnt·last_at).
 func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -275,7 +293,8 @@ func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 			f.status, f.hash, f.sup, f.valid, f.ingested, f.invalid); err != nil {
 			t.Skipf("fixture 시딩 실패(스키마 미구비 의심): %v", err)
 		}
-		// 스코어 이벤트 — score수만큼 1행씩(lastRec 시각).
+		// Score events — one row each per score count (at the lastRec
+		// time).
 		if f.score > 0 {
 			if _, err := pool.Exec(ctx,
 				`INSERT INTO recall_events (knowledge_id, recalled_at)
@@ -287,8 +306,9 @@ func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// TestExportRowsActiveFilter — active 필터는 invalidated를
-// 제외한 2행. Status 0값("")도 active 기본.
+// TestExportRowsActiveFilter — the active filter yields the 2 rows
+// excluding invalidated. The Status zero value ("") is also the active
+// default.
 func TestExportRowsActiveFilter(t *testing.T) {
 	ctx := context.Background()
 	for _, status := range []string{"active", ""} {
@@ -302,8 +322,8 @@ func TestExportRowsActiveFilter(t *testing.T) {
 	}
 }
 
-// TestExportRowsAllIncludesInvalidated — Status "all"은
-// invalidated 포함 3행.
+// TestExportRowsAllIncludesInvalidated — Status "all" yields 3 rows
+// including invalidated.
 func TestExportRowsAllIncludesInvalidated(t *testing.T) {
 	st, scope := exportTestStore(t)
 	rows, err := ExportRows(context.Background(), st, ExportFilter{Status: "all"})
@@ -314,8 +334,9 @@ func TestExportRowsAllIncludesInvalidated(t *testing.T) {
 		[]string{"배포 관례", "회고 형식", "구 배포 정책"})
 }
 
-// TestExportRowsTagFilter — tag 필터(':t:' 정확 매칭).
-// active 기본 + deploy → 1행, all + deploy → invalidated 포함 2행.
+// TestExportRowsTagFilter — the tag filter (':t:' exact matching).
+// active default + deploy → 1 row; all + deploy → 2 rows including
+// invalidated.
 func TestExportRowsTagFilter(t *testing.T) {
 	ctx := context.Background()
 	st, scope := exportTestStore(t)
@@ -334,9 +355,9 @@ func TestExportRowsTagFilter(t *testing.T) {
 		[]string{"배포 관례", "구 배포 정책"})
 }
 
-// TestExportRowsSinceCutoff — Since는 updated_at 컷오프
-// (COALESCE(invalid_at, ingested_at) 파생 — 0값은 전체). tMid 컷은
-// invalid_at=tNew인 행만 남긴다.
+// TestExportRowsSinceCutoff — Since is an updated_at cutoff (the
+// COALESCE(invalid_at, ingested_at) derivation — the zero value means
+// everything). The tMid cut leaves only the row with invalid_at=tNew.
 func TestExportRowsSinceCutoff(t *testing.T) {
 	ctx := context.Background()
 	st, scope := exportTestStore(t)
@@ -346,7 +367,8 @@ func TestExportRowsSinceCutoff(t *testing.T) {
 	}
 	assertExportTopics(t, exportScopedRows(rows, scope), []string{"구 배포 정책"})
 
-	// active + 컷오프 — 두 active 행의 updated_at(=ingested_at)은 tOld라 0행.
+	// active + cutoff — the two active rows' updated_at (=ingested_at)
+	// is tOld, so 0 rows.
 	st2, scope2 := exportTestStore(t)
 	rows2, err := ExportRows(ctx, st2, ExportFilter{Since: exportTMid})
 	if err != nil {
@@ -357,10 +379,12 @@ func TestExportRowsSinceCutoff(t *testing.T) {
 	}
 }
 
-// TestExportSinceBindsRFC3339String — Since는 time.Time을 직접 바인드하지
-// 않고 RFC3339 문자열로 바인드한다(코드베이스 유일의 time.Time 파라미터
-// 폐지 — Doltgres/PG 파라미터 이종 위험. import_jsonl valid_at 관례와
-// 동일 형식). 문자열화 전후 쿼리 결과 불변도 같이 단언(컷오프 동일).
+// TestExportSinceBindsRFC3339String — Since binds as an RFC3339 string,
+// not a direct time.Time bind (abolishing the codebase's only
+// time.Time parameter — the Doltgres/PG parameter type-mismatch risk.
+// The same format as the import_jsonl valid_at convention). Also
+// asserts the query results are unchanged before/after stringification
+// (the same cutoff).
 func TestExportSinceBindsRFC3339String(t *testing.T) {
 	_, args := buildExportQuery(ExportFilter{Status: "all", Since: exportTMid})
 	if len(args) != 1 {
@@ -377,7 +401,8 @@ func TestExportSinceBindsRFC3339String(t *testing.T) {
 	if !pt.Equal(exportTMid) {
 		t.Errorf("Since 문자열 = %q(%v), want %v 원시각 보존", s, pt, exportTMid)
 	}
-	// 결과 불변 — 문자열 Since로도 동일 컷오프(TestExportRowsSinceCutoff 기준선).
+	// Results unchanged — the string Since yields the same cutoff (the
+	// TestExportRowsSinceCutoff baseline).
 	st, scope := exportTestStore(t)
 	rows, err := ExportRows(context.Background(), st, ExportFilter{Status: "all", Since: exportTMid})
 	if err != nil {
@@ -386,10 +411,12 @@ func TestExportSinceBindsRFC3339String(t *testing.T) {
 	assertExportTopics(t, exportScopedRows(rows, scope), []string{"구 배포 정책"})
 }
 
-// TestExportRowFieldMapping — 전 필드 매핑 단억(fake — 결정적 id).
-// content←summary·tags ':a:b:' 파싱·entities←entity열·kind 원천 판별자·
-// source←origin열(왕복 해시 대칭 — 빈 값이면 origin≠agent 행이 재이식
-// 중복 적립)·created_at←ingested_at·updated_at 파생·superseded_by nil/int.
+// TestExportRowFieldMapping — the full-field mapping assertion (fake —
+// deterministic ids). content←summary·tags ':a:b:' parsing·entities←the
+// entity column·kind the source-table discriminator·source←the origin
+// column (round-trip hash symmetry — if empty, origin≠agent rows
+// double-accrue on re-import)·created_at←ingested_at·updated_at
+// derived·superseded_by nil/int.
 func TestExportRowFieldMapping(t *testing.T) {
 	rows, err := ExportRows(context.Background(),
 		&fakeStore{queryFn: exportEngine}, ExportFilter{Status: "all"})
@@ -447,9 +474,10 @@ func TestExportRowFieldMapping(t *testing.T) {
 	}
 }
 
-// TestExportRowValidAtMapping — SELECT가 valid_at
-// 열을 포함하고 ValidAt 필드로 매핑한다(왕복 보존의 원천 — 검증 시각이
-// 수집 시각과 다른 행에서 CreatedAt 치환 없이 원값 노출).
+// TestExportRowValidAtMapping — the SELECT includes the valid_at column
+// and maps it into the ValidAt field (the source of round-trip
+// preservation — rows whose validation time differs from the collection
+// time expose the raw value without CreatedAt substitution).
 func TestExportRowValidAtMapping(t *testing.T) {
 	rows, err := ExportRows(context.Background(),
 		&fakeStore{queryFn: exportEngine}, ExportFilter{Status: "all"})
@@ -469,8 +497,9 @@ func TestExportRowValidAtMapping(t *testing.T) {
 	}
 }
 
-// TestExportRowsInvalidStatusError — Status는 active|all만 허용(무효값은
-// SchemaError — 호출부 exit 3 매핑 원천).
+// TestExportRowsInvalidStatusError — Status accepts active|all only (an
+// invalid value is a SchemaError — the source of the caller's exit 3
+// mapping).
 func TestExportRowsInvalidStatusError(t *testing.T) {
 	_, err := ExportRows(context.Background(), &fakeStore{},
 		ExportFilter{Status: "pending"})
@@ -483,8 +512,8 @@ func TestExportRowsInvalidStatusError(t *testing.T) {
 	}
 }
 
-// TestExportRowsQueryErrorPropagation — 조회 오류는 그대로 전파(호출부
-// MapExit exit 2 매핑 원천).
+// TestExportRowsQueryErrorPropagation — a lookup error propagates as-is
+// (the source of the caller's MapExit exit 2 mapping).
 func TestExportRowsQueryErrorPropagation(t *testing.T) {
 	boom := errors.New("boom")
 	if _, err := ExportRows(context.Background(),
@@ -493,8 +522,10 @@ func TestExportRowsQueryErrorPropagation(t *testing.T) {
 	}
 }
 
-// TestExportRowScoreColumnsMapping — SELECT는 recall_score·last_recalled_at 실열을 포함하고 ExportRow에
-// 매핑한다(원천 파생 아님 — 값 있는 행 3·exportTRecall, 없는 행 0·nil).
+// TestExportRowScoreColumnsMapping — the SELECT includes the
+// recall_score·last_recalled_at physical columns and maps them into
+// ExportRow (not source-derived — the row with values gets 3·
+// exportTRecall; the row without gets 0·nil).
 func TestExportRowScoreColumnsMapping(t *testing.T) {
 	rows, err := ExportRows(context.Background(),
 		&fakeStore{queryFn: exportEngine}, ExportFilter{Status: "all"})
@@ -518,11 +549,12 @@ func TestExportRowScoreColumnsMapping(t *testing.T) {
 	}
 }
 
-// TestExportScoreJSONLRoundTrip — jsonl
-// 왕복에서 스코어 2필드 보존. 레거시 라인(키 없음)은 폴백 0/NULL. 스코어
-// 0/NULL 행은 신규 키를 발행하지 않는다(additive — 기존 골든 출력 불변).
+// TestExportScoreJSONLRoundTrip — the 2 score fields survive the jsonl
+// round trip. Legacy lines (no keys) fall back to 0/NULL. Rows with
+// score 0/NULL do not emit the new keys (additive — the existing golden
+// output unchanged).
 func TestExportScoreJSONLRoundTrip(t *testing.T) {
-	// 왕복 보존 — 비영(5·회상 시각) 행.
+	// Round-trip preservation — a non-zero row (5·the recall time).
 	scored := []ExportRow{{
 		ID: 21, Topic: "demo score roundtrip", Content: "합성 데모 — 스코어 왕복 보존.",
 		Kind: "knowledge", Status: "active", Confidence: 0.9, Domain: "demo",
@@ -548,7 +580,7 @@ func TestExportScoreJSONLRoundTrip(t *testing.T) {
 		t.Errorf("왕복 last_recalled_at = %v, want %v", got[0].LastRecalledAt, exportTRecall)
 	}
 
-	// 폴백 — 레거시 jsonl(스코어 키 없음)은 0/NULL.
+	// Fallback — legacy jsonl (no score keys) is 0/NULL.
 	legacy := `{"id":22,"topic":"legacy demo","content":"합성 데모","kind":"knowledge","status":"active","confidence":0.5,"tags":null,"entities":null,"domain":"main","source":"agent","content_hash":"legacy-h","created_at":"2026-11-01T00:00:00Z","updated_at":"2026-11-01T00:00:00Z","valid_at":"2026-11-01T00:00:00Z","superseded_by":null}` + "\n"
 	lr, err := ParseJSONLRows([]byte(legacy))
 	if err != nil {
@@ -561,7 +593,8 @@ func TestExportScoreJSONLRoundTrip(t *testing.T) {
 		t.Errorf("legacy 폴백 = (%d,%v), want (0,nil)", lr[0].RecallScore, lr[0].LastRecalledAt)
 	}
 
-	// 골든 불변 — 0/NULL 행은 기존 15키만 발행(신규 키 미발행).
+	// Golden invariance — a 0/NULL row emits only the existing 15 keys
+	// (no new keys).
 	zero := scored[0]
 	zero.ID, zero.ContentHash, zero.RecallScore, zero.LastRecalledAt = 23, "score-zero", 0, nil
 	out, err := FormatJSONL([]ExportRow{zero})
@@ -582,12 +615,13 @@ func TestExportScoreJSONLRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRowHashRecScoreCarry — jsonl 재이식 rec에서 스코어 2키 제외
-// (R42-A — v12에서 knowledge의 recall_score·last_recalled_at 2열 폐기로
-// INSERT 컬럼 조립이면 42703·배치 롤백. 값 이관은 InsertBatch 후 합성
-// 이벤트 재생 경로). 해시 입력 제외 단언은 승계(importHashSkip — 회상
-// 이력은 내용 정체성이 아님). 값 유무와 무관하게 어느 rec에도 키가
-// 없어야 한다.
+// TestRowHashRecScoreCarry — the 2 score keys are excluded from the
+// jsonl re-plant rec (R42-A — with knowledge's recall_score·
+// last_recalled_at columns dropped in v12, INSERT column assembly would
+// hit 42703·a batch rollback. The value transfer moved to the synthetic
+// event replay path after InsertBatch). The hash-input exclusion
+// assertion is inherited (importHashSkip — recall history is not content
+// identity). No rec, regardless of value presence, may carry the keys.
 func TestRowHashRecScoreCarry(t *testing.T) {
 	scored := ExportRow{ID: 1, Topic: "demo score carry", Content: "합성 데모",
 		Kind: "knowledge", Status: "active", Confidence: 0.9, Domain: "demo",
@@ -619,9 +653,10 @@ func TestRowHashRecScoreCarry(t *testing.T) {
 	}
 }
 
-// TestExportScoreColumnsReal — slow(실DB): 게이트 v11 적용 DB에서 스코어
-// 실열 조회(원천 매핑 — 파생 아님)·jsonl 왕복 보존·미설정 행 폴백.
-// SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시에만 실행(exportRealStore seam).
+// TestExportScoreColumnsReal — slow (real DB): on a v11-gated DB, the
+// score physical-column lookup (source mapping — not derived)·jsonl
+// round-trip preservation·the unset-row fallback. Runs only with
+// SUPERLITE_REAL=1 + FLINT_TEST_DSN set (the exportRealStore seam).
 func TestExportScoreColumnsReal(t *testing.T) {
 	st := exportRealStore(t)
 	if st == nil {
@@ -655,7 +690,8 @@ func TestExportScoreColumnsReal(t *testing.T) {
 	if plain == nil || plain.RecallScore != 0 || plain.LastRecalledAt != nil {
 		t.Errorf("미설정 행 폴백 = %+v, want (0,nil)", plain)
 	}
-	// 왕복 — 실열에서 읽은 값이 jsonl을 경유해 보존된다.
+	// Round trip — values read from the physical columns survive via
+	// jsonl.
 	data, err := FormatJSONL([]ExportRow{scored})
 	if err != nil {
 		t.Fatalf("FormatJSONL: %v", err)

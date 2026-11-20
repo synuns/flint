@@ -1,6 +1,7 @@
-// dumpfile.go — 덤프 파일 판독 단일 경로(restore·drill 공용).
-// age 형식 감지→복호, 마스킹 덤프 거부(비복원 아티팩트 — 사이드카 미부여
-// 원칙과 이중 방어)를 한 곳에서 담당한다.
+// dumpfile.go — the single path for reading dump files (shared by restore and
+// drill). Owns age format detection -> decryption and masked-dump rejection
+// (a non-restorable artifact) in one place, per the no-sidecar principle and
+// as a second line of defense.
 package backup
 
 import (
@@ -10,18 +11,19 @@ import (
 	"strings"
 )
 
-// ErrMaskedDump — 마스킹 덤프는 진단·공유용 비복원 아티팩트다.
+// ErrMaskedDump — a masked dump is a non-restorable artifact for diagnostics and sharing.
 var ErrMaskedDump = errors.New("backup: masked dump is not restorable (diagnostics/sharing only)")
 
-// ErrKeyPathRequired — 암호화 덤프인데 키 경로가 제공되지 않음.
+// ErrKeyPathRequired — the dump is encrypted but no key path was provided.
 var ErrKeyPathRequired = errors.New("backup: encrypted dump — decryption key path required")
 
-// MaskDumpHeader — 마스킹 덤프 파일 선두 마커(restore·drill 거부 근거).
+// MaskDumpHeader — the leading marker of masked dump files (the basis for restore/drill rejection).
 const MaskDumpHeader = "-- flint-masked-dump: never restore (masked diagnostic artifact)"
 
-// ReadDumpBytes — 덤프 파일을 읽어 재생 가능한 평문 바이트를 반환.
-// age 형식이면 keyPath의 identity로 복호하고, 마스킹 마커가 있으면
-// ErrMaskedDump. keyPath 공백이면 암호화 파일은 ErrKeyPathRequired.
+// ReadDumpBytes — reads a dump file and returns replayable plaintext bytes.
+// An age-format file is decrypted with the keyPath identity; a masked marker
+// yields ErrMaskedDump. An encrypted file with a blank keyPath yields
+// ErrKeyPathRequired.
 func ReadDumpBytes(path, keyPath string) ([]byte, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -30,8 +32,9 @@ func ReadDumpBytes(path, keyPath string) ([]byte, error) {
 	return ReadDumpFrom(b, keyPath)
 }
 
-// ReadDumpFrom — 미리 읽은(검증된) 바이트의 판독(restore
-// TOCTOU 폐쇄 — 파일 재판독 없이 검증한 바이트를 복호·검사한다).
+// ReadDumpFrom — reads back pre-read (verified) bytes (closes the restore
+// TOCTOU — decrypts and inspects the verified bytes without re-reading the
+// file).
 func ReadDumpFrom(b []byte, keyPath string) ([]byte, error) {
 	if ok, _ := IsEncrypted(bytes.NewReader(b)); ok {
 		if keyPath == "" {
@@ -52,7 +55,7 @@ func ReadDumpFrom(b []byte, keyPath string) ([]byte, error) {
 	return b, nil
 }
 
-// isMaskedDump — 평문 선두 마커 검사(주석 형식 — SQL 파서에 무해).
+// isMaskedDump — checks the plaintext leading marker (comment form — harmless to the SQL parser).
 func isMaskedDump(b []byte) bool {
 	head := b
 	if len(head) > 512 {
@@ -64,9 +67,9 @@ func isMaskedDump(b []byte) bool {
 			if strings.HasPrefix(t, MaskDumpHeader) {
 				return true
 			}
-			continue // 선행 주석·빈 줄은 건너뛰며 마커 탐색
+			continue // skip leading comments and blank lines while scanning for the marker
 		}
-		return false // 본문 시작 — 마커 없음
+		return false // body starts — no marker
 	}
 	return false
 }

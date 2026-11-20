@@ -1,16 +1,16 @@
-// knowledge_alias.go — lib/knowledge로 이동한 write·import·
-// read·hot 표면을 소문자 var·타입 별칭으로 재노출해 잔여 cli 파일과 잔류
-// 테스트가 무편집 컴파일되게 한다. var 별칭은 테스트 seam 교체 관례
-// (소문자 var)를 승계한다. knowledge 주입 seam 초기화는
-// root.go composition root가 소유한다.
+// knowledge_alias.go — re-exports the write, import,
+// read, and hot surfaces moved to lib/knowledge as lowercase var and type aliases so remaining
+// cli files and residual tests compile without edits. The var aliases
+// carry over the test seam-swap convention (lowercase var). Initialization of the knowledge
+// injection seam is owned by the root.go composition root.
 package cli
 
 import (
 	"github.com/synuns/flint/lib/knowledge"
 )
 
-// 타입 별칭 — 인터페이스 구현·임베딩·fake 단언 무편집(usage_wire.go의
-// realStore 단언·read.go ReadUsageStore 계약 주석 등).
+// Type aliases — interface implementations, embedding, and fake assertions unchanged (the
+// realStore assertion in usage_wire.go, the read.go ReadUsageStore contract comment, etc.).
 type (
 	UsageStore       = knowledge.UsageStore
 	UsageCountStore  = knowledge.UsageCountStore
@@ -21,9 +21,9 @@ type (
 	HotEventRecorder = knowledge.HotEventRecorder
 )
 
-// 함수/var 별칭 — 소비 파일의 소문자 호출 호환(compact의 runWrite·
-// done/doctor/…의 writeThresholds·brief/hot/read의 recordUsage·dup_v0102
-// 테스트의 recordDups 등) 및 기존 공개명(ParseSourceFlag·ErrInvalidSource).
+// Function/var aliases — compatible with lowercase calls in consumer files (runWrite in
+// compact, writeThresholds in done/doctor/..., recordUsage in brief/hot/read, recordDups in the
+// dup_v0102 test, etc.) and existing public names (ParseSourceFlag, ErrInvalidSource).
 var (
 	runWrite         = knowledge.RunWrite
 	runImport        = knowledge.RunImport
@@ -33,8 +33,8 @@ var (
 	ErrInvalidSource = knowledge.ErrInvalidSource
 )
 
-// 잔여 cli 소비자(report·setup·update 및
-// root.go seam 주입)와 잔류 테스트가 무편집 컴파일되게 하는 별칭.
+// Aliases letting remaining cli consumers (report, setup, update and
+// root.go seam injection) and residual tests compile without edits.
 var (
 	runHot                 = knowledge.RunHot
 	runRead                = knowledge.RunRead

@@ -1,8 +1,10 @@
-// counters_v1200_test.go — 검수(curation) 카운터
-// (approve 승격·not_found·supersede 오류 / import 적립·skip daily 플랫 키
-// 증분)·발화(fired) 카운터(done stale 경고 fired_done_stale 메타 누적 —
-// 발화 시 증분·미발화 0). 카운터 UPSERT는 전부 st.Query 경유라 인자
-// (key, 증분) 캡처로 검증한다(fakeStore queryFn 관례).
+// counters_v1200_test.go — the review (curation) counters (approve
+// promotion·not_found·supersede error / import accrual·skip daily
+// flat-key increments)·the firing (fired) counters (the done stale
+// warning's fired_done_stale meta accumulation — incremented on firing·0
+// when not fired). All counter UPSERTs go through st.Query, so they are
+// verified by capturing the arguments (key, increment) (the fakeStore
+// queryFn convention).
 package knowledge
 
 import (
@@ -19,13 +21,13 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// capturedQueryV — fakeStore.Query가 본 (sql, args) 1건.
+// capturedQueryV — one (sql, args) seen by fakeStore.Query.
 type capturedQueryV struct {
 	sql  string
 	args []any
 }
 
-// counterCaptureV — 카운터 UPSERT 인자 수집기(queryFn 경유).
+// counterCaptureV — the counter-UPSERT argument collector (via queryFn).
 type counterCaptureV struct {
 	queries []capturedQueryV
 }
@@ -35,8 +37,10 @@ func (c *counterCaptureV) fn(sql string, args []any) ([][]any, error) {
 	return nil, nil
 }
 
-// sum — 접두 매칭 카운터 키의 증분 합. daily 플랫 키는 (key, n) 2인자,
-// fired_* 메타는 (key,) 1인자(증분 1 고정) — 양쪽을 같은 표면으로 센다.
+// sum — the increment sum of prefix-matching counter keys. Daily flat
+// keys take (key, n) 2-argument form; fired_* meta takes the (key,)
+// 1-argument form (fixed increment 1) — both counted on the same
+// surface.
 func (c *counterCaptureV) sum(prefix string) int {
 	n := 0
 	for _, q := range c.queries {
@@ -58,12 +62,14 @@ func (c *counterCaptureV) sum(prefix string) int {
 	return n
 }
 
-// counterToday — 카운터 daily 키 날짜(UTC — 기록 기준과 동일).
+// counterToday — the counter daily-key date (UTC — same basis as the
+// recording).
 func counterToday() string { return time.Now().UTC().Format("2006-01-02") }
 
-// TestCurationCounters — 검수 경로 각 1회 → daily 카운터.
-// approve 승격(approve_done)·부재(not_found)·대체 오류(supersede_err —
-// 승격은 성공했으므로 done도 병행 증분)·import 적립/스킵(added·skipped).
+// TestCurationCounters — one pass per review path → daily counters.
+// approve promotion (approve_done)·absence (not_found)·supersede error
+// (supersede_err — the promotion itself succeeded, so done increments in
+// parallel)·import accrual/skip (added·skipped).
 func TestCurationCounters(t *testing.T) {
 	today := counterToday()
 
@@ -101,7 +107,8 @@ func TestCurationCounters(t *testing.T) {
 
 	t.Run("approve supersede 오류", func(t *testing.T) {
 		cap := &counterCaptureV{}
-		// supersedeStore 미구현 fake — 승격 성공 후 대체 단계 오류 경로.
+		// A fake without the supersedeStore implementation — the error
+		// path at the supersede stage after a successful promotion.
 		f := &approveStoreFake{fakeStore: &fakeStore{queryFn: cap.fn}}
 		var out bytes.Buffer
 		if code := RunApprove(context.Background(), f, []string{"--id", "7", "--supersede", "3"},
@@ -126,7 +133,7 @@ func TestCurationCounters(t *testing.T) {
 		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
 			t.Fatalf("픽스처 작성 오류: %v", err)
 		}
-		// 1차 적립 — 섹션 2건 모두 신규(added=2·skip=0).
+		// First accrual — both sections new (added=2·skip=0).
 		cap := &counterCaptureV{}
 		st := &fakeStore{queryFn: cap.fn}
 		var out bytes.Buffer
@@ -140,7 +147,8 @@ func TestCurationCounters(t *testing.T) {
 		if got := cap.sum("daily:import_skipped:" + today); got != 0 {
 			t.Errorf("import_skipped 증분=%d, want 0", got)
 		}
-		// 2차 재임포트 — dedup로 전량 스킵(skipped=2·added 증분 없음).
+		// Second re-import — dedup skips everything (skipped=2·no added
+		// increment).
 		cap2 := &counterCaptureV{}
 		st2 := &fakeStore{queryFn: cap2.fn, exists: true}
 		var out2 bytes.Buffer
@@ -178,8 +186,8 @@ func TestCurationCounters(t *testing.T) {
 	})
 }
 
-// TestFiredCounters — done stale 경고 발화 시 fired_done_stale
-// 증분·정상(ok) 경로 미발화 0.
+// TestFiredCounters — on a done stale-warning firing, fired_done_stale
+// increments; the normal (ok) path stays unfired at 0.
 func TestFiredCounters(t *testing.T) {
 	cap := &counterCaptureV{}
 	d := &doneFake{fakeStore: &fakeStore{queryFn: cap.fn}, stubbed: true, runs: 3}
@@ -194,7 +202,7 @@ func TestFiredCounters(t *testing.T) {
 		t.Errorf("fired_done_stale 증분=%d, want 1", got)
 	}
 
-	// 미발화 — 임계 미달(ok) 경로는 카운터 없음.
+	// Not fired — the under-threshold (ok) path carries no counter.
 	capOK := &counterCaptureV{}
 	dOK := &doneFake{fakeStore: &fakeStore{queryFn: capOK.fn}, stubbed: true, runs: 1}
 	outOK, codeOK := mustDone(t, dOK, []string{"--session", "claude"})

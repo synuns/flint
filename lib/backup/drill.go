@@ -1,7 +1,8 @@
-// drill.go — restore --drill: 백업 복구 훈련(리스토어 리허설).
-// 덤프 SQL을 임시 데이터베이스 flint_drill_db에 재생해 knowledge 행수를
-// 대조하고, 종료 시(실패 포함) 데이터베이스를 항상 DROP한다. 원본 public
-// 데이터는 불가침.
+// drill.go — restore --drill: backup recovery practice (a restore
+// rehearsal). Replays the dump SQL into the temporary database
+// flint_drill_db, compares knowledge row counts, and always DROPs the
+// database on exit (including on failure). The original public data is
+// untouchable.
 package backup
 
 import (
@@ -16,41 +17,45 @@ import (
 )
 
 const (
-	// DrillDB — 드릴 재생 전용 임시 데이터베이스.
+	// DrillDB — the temporary database dedicated to drill replay.
 	DrillDB = "flint_drill_db"
-	// LastDrillKey — 마지막 드릴 성공 시각(RFC3339) meta 키. maintain --check가 읽는다.
+	// LastDrillKey — the meta key for the last successful drill time (RFC3339). Read by maintain --check.
 	LastDrillKey = "last_drill"
-	// drillTimeout — 드릴 1회(재생) 상한.
+	// drillTimeout — the per-drill (replay) time limit.
 	drillTimeout = 120 * time.Second
-	// drillCleanupTimeout — 종료 정리 DROP 전용 상한. 재생 ctx(120s)와
-	// 분리 — 재생이 상한을 전부 소진해도 정리는 살아 있는 ctx로 실행된다.
+	// drillCleanupTimeout — a separate limit for the final-cleanup DROP.
+	// Split from the replay ctx (120s) — even if replay exhausts its whole
+	// budget, cleanup still runs on a live ctx.
 	drillCleanupTimeout = 30 * time.Second
 )
 
-// DrillResult — 드릴 결과. Expected는 덤프 내 knowledge INSERT 문 수,
-// Restored는 flint_drill_db에 실제 재생된 knowledge 행수. Ok는 양자 일치.
+// DrillResult — the drill outcome. Expected is the number of knowledge
+// INSERT statements in the dump; Restored is the knowledge row count
+// actually replayed into flint_drill_db. Ok means the two match.
 type DrillResult struct {
 	Expected int
 	Restored int
 	Ok       bool
 }
 
-// dump가 생성하는 public 시퀀스 조작문 — 드릴 재생에서는 건너뛴다.
-// Dump의 CREATE SEQUENCE IF NOT EXISTS public.x·SELECT setval('public.x',…)을
-// 그대로 재생하면 재생 대상 DB의 public 시퀀스가 바뀐다. 드릴 DB는 통째로
-// 폐기되므로 사실상 무해하지만, 행수 대조에도 불필요하므로 생략한다.
+// public sequence-manipulation statements emitted by dump — skipped during
+// drill replay. Replaying Dump's CREATE SEQUENCE IF NOT EXISTS public.x or
+// SELECT setval('public.x',…) as-is would alter the target DB's public
+// sequences. The drill DB is discarded wholesale so this is effectively
+// harmless, but it is also unnecessary for the row-count comparison, so it
+// is skipped.
 var (
 	drillCreateSeqRe = regexp.MustCompile(`(?i)^CREATE\s+SEQUENCE\s+IF\s+NOT\s+EXISTS\s+public\.`)
 	drillSetvalRe    = regexp.MustCompile(`(?i)^SELECT\s+setval\s*\(\s*'public\.`)
 )
 
-// skipForDrill — 드릴 재생에서 제외할 문장(public 시퀀스 조작문) 판정.
+// skipForDrill — decides which statements to exclude from drill replay (public sequence manipulation).
 func skipForDrill(stmt string) bool {
 	s := stripComments(stmt)
 	return drillCreateSeqRe.MatchString(s) || drillSetvalRe.MatchString(s)
 }
 
-// countInserts — 문장 목록에서 table INTO 문 수를 센다(대소문자·따옴표 무관).
+// countInserts — counts INSERT INTO table statements in a statement list (case- and quote-insensitive).
 func countInserts(stmts []string, table string) int {
 	re := regexp.MustCompile(`(?i)^INSERT\s+INTO\s+"?` + regexp.QuoteMeta(table) + `"?\s*\(`)
 	n := 0
@@ -62,27 +67,32 @@ func countInserts(stmts []string, table string) int {
 	return n
 }
 
-// RunDrill — dumpPath 덤프를 임시 데이터베이스 flint_drill_db에 재생해
-// knowledge 행수를 대조한다. 재생은 원본 DSN과 분리된 드릴 DB 전용 풀에서
-// 일어나므로 원본 풀의 어떤 커넥션 상태(search_path 등)도 오염되지 않는다.
-// 성공 시 maintenance_runs 1행(kind=drill)과 meta last_drill을 원본 DSN에
-// 기록한다. 드릴 DB는 성공·실패 무관하게 항상 DROP한다(40001은 재시도로
-// 회복). 행수 불일치는 에러가 아닌 Ok=false로 보고한다. DROP 재시도 소진
-// 시 잔존을 숨기지 않고 성공 대신 명시적 실패를 반환한다(계약: 재생 실패
-// 시에도 잔존 금지 — CI run 39719705178). DROP이 nil을 반환해도 pg_database
-// 로 잔존을 검증한다(무음 no-op 엔진 결함 방어). 테이블·스키마
-// 개별 DROP이 무음 no-op로 잔존하는 doltgresql 결함(1.3.3·1.4.0 실측)과
-// 무관하게 DB 단위 삭제는 이 결함 조합에서도 동작한다(실측).
-// 종료 정리 DROP은 재생 ctx와 독립된 짧은 타임아웃
-// 으로 실행된다(재생이 120s를 소진해도 정리는 항상 실행).
+// RunDrill — replays the dumpPath dump into the temporary database
+// flint_drill_db and compares knowledge row counts. Replay happens on a
+// dedicated drill-DB pool separate from the original DSN, so no connection
+// state in the original pool (search_path, etc.) is contaminated. On
+// success it records one maintenance_runs row (kind=drill) and the meta
+// last_drill on the original DSN. The drill DB is always DROPped regardless
+// of success or failure (40001 recovers via retry). A row-count mismatch is
+// reported as Ok=false, not an error. When DROP retries are exhausted it
+// does not hide the residue and returns an explicit failure instead of
+// success (contract: no residue even on replay failure — CI run
+// 39719705178). Even when DROP returns nil, residue is verified via
+// pg_database (defense against silent no-op engine defects). Regardless of
+// the doltgresql defect where per-table/per-schema DROPs silently no-op and
+// leave residue (observed on 1.3.3 and 1.4.0), database-level deletion
+// works even under this combination of defects (verified). The final-cleanup
+// DROP runs on a short timeout independent of the replay ctx (even if
+// replay exhausts 120s, cleanup always runs).
 func RunDrill(dsn string, dumpPath string) (res DrillResult, err error) {
 	return RunDrillWithKey(dsn, dumpPath, "")
 }
 
-// RunDrillWithKey — 암호화 덤프 지원 드릴(keyPath = age
-// identity 경로, 공백이면 평문 전용). 파일 판독 후 RunDrillData로.
+// RunDrillWithKey — drill with encrypted-dump support (keyPath = the age
+// identity path; blank means plaintext only). Reads the file, then defers
+// to RunDrillData.
 func RunDrillWithKey(dsn string, dumpPath string, keyPath string) (res DrillResult, err error) {
-	// 판독 단일 경로 — age 복호·마스킹 거부가 여기서 적용된다.
+	// The single read path — age decryption and masked-dump rejection apply here.
 	data, err := ReadDumpBytes(dumpPath, keyPath)
 	if err != nil {
 		return DrillResult{}, err
@@ -90,8 +100,8 @@ func RunDrillWithKey(dsn string, dumpPath string, keyPath string) (res DrillResu
 	return RunDrillData(dsn, data)
 }
 
-// RunDrillData — 미리 읽은(검증·복호 완료) 바이트 재생 드릴(CLI가
-// 검증한 바이트를 그대로 재생 — TOCTOU 창 없음).
+// RunDrillData — a replay drill on pre-read (verified/decrypted) bytes
+// (the CLI replays the exact bytes it verified — no TOCTOU window).
 func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 	ctx, cancel := drillCtxFn()
 	defer cancel()
@@ -105,12 +115,13 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 	drop := func(ctx context.Context) error {
 		return db.Retry(ctx, func() error { return dropDrillDBFn(ctx, pool) }, drillDropBackoff)
 	}
-	if derr := drop(ctx); derr != nil { // 선행 잔존 정리(이전 비정상 종료 대비)
+	if derr := drop(ctx); derr != nil { // pre-clean leftover residue (in case of a previous abnormal exit)
 		return DrillResult{}, fmt.Errorf("drill: pre-clean %s failed: %w", DrillDB, derr)
 	}
 	defer func() {
-		// 종료 정리 DROP은 재생 ctx와 독립된 별도 타임아웃 —
-		// 재생이 상한을 전부 소진해도 정리는 살아 있는 ctx로 항상 실행된다.
+		// The final-cleanup DROP uses its own timeout, independent of the
+		// replay ctx — even if replay exhausts its whole budget, cleanup
+		// always runs on a live ctx.
 		cctx, ccancel := context.WithTimeout(context.Background(), drillCleanupTimeout)
 		defer ccancel()
 		if derr := drop(cctx); derr != nil && err == nil {
@@ -122,8 +133,9 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 		return DrillResult{}, fmt.Errorf("drill: create database: %w", err)
 	}
 
-	// 드릴 DB 접속 — 원본 DSN 설정(자격증명·호스트)을 승계하고 대상 DB만
-	// 바꾼다. 재생은 이 별도 풀에서만 일어난다.
+	// Drill DB connection — inherits the original DSN settings (credentials,
+	// host) and changes only the target database. Replay happens exclusively
+	// on this separate pool.
 	cfg, err := pgxpool.ParseConfig(dsn)
 	if err != nil {
 		return DrillResult{}, fmt.Errorf("drill: build drill DSN: %w", err)
@@ -134,9 +146,10 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 		return DrillResult{}, fmt.Errorf("drill: connect drill DB: %w", err)
 	}
 
-	// 재생 — 덤프는 BEGIN/COMMIT을 포함하므로 트랜잭션 상태가 커넥션에
-	// 남는다: 전체를 1커넥션에서 실행한다. 커넥션·풀은 모든 경로에서
-	// 반납·종료한다 — DROP DATABASE는 드릴 DB 커넥션이 닫혀야 성공한다.
+	// Replay — the dump contains BEGIN/COMMIT, so transaction state lingers
+	// on the connection: run everything on a single connection. Connections
+	// and the pool are released/closed on every path — DROP DATABASE only
+	// succeeds once the drill DB connections are closed.
 	var expected, restored int
 	replayErr := func() error {
 		defer drillPool.Close()
@@ -168,9 +181,10 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 		return res, nil
 	}
 
-	// 성공 기록 — 원본 DSN 공용 스키마에 명시 한정 기록. 개발 DB가 v0.4
-	// 이전 생성이면 maintenance_runs이 없을 수 있다(마이그레이션 게이트
-	// 공백) — 드릴 성공이 기록 실패로 뭉개지지 않게 테이블을 보장한다.
+	// Success record — written only where explicitly declared, on the
+	// original DSN's public schema. A dev DB created before v0.4 may lack
+	// maintenance_runs (a migration-gate gap) — ensure the table so a drill
+	// success is not buried by a recording failure.
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.maintenance_runs (
 		id serial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
 		kind text NOT NULL, details text)`); err != nil {
@@ -191,28 +205,31 @@ func RunDrillData(dsn string, data []byte) (res DrillResult, err error) {
 	return res, nil
 }
 
-// drillDropBackoff — 드릴 DB DROP의 40001(직렬화 실패) 재시도 간격.
-// CI 직렬화 부하에서 DROP이 타 세션 커밋과 충돌해 실패했는데 오류가
-// 무시되면 DB가 잔존했다(CI run 39719705178) — 승격 커밋·views 재적용과
-// 같은 회복 패턴으로 짧게 3회 시도한다.
+// drillDropBackoff — retry intervals for 40001 (serialization failure) on
+// the drill DB DROP. Under CI serialization load, DROP once failed by
+// colliding with another session's commit, and ignoring the error left the
+// DB behind (CI run 39719705178) — retries briefly 3 times, the same
+// recovery pattern as promotion commits and view reapplication.
 var drillDropBackoff = []time.Duration{0, time.Second, 3 * time.Second}
 
-// dropDrillDBFn — DROP 주입 seam(회귀 테스트가 일시 실패를 흉내 낸다).
+// dropDrillDBFn — DROP injection seam (regression tests fake transient failures).
 var dropDrillDBFn = dropDrillDB
 
-// drillCtxFn — 재생 컨텍스트 조립 seam(단위 테스트가 만료를 주입한다).
+// drillCtxFn — seam for building the replay context (unit tests inject expiry).
 var drillCtxFn = func() (context.Context, context.CancelFunc) {
 	return context.WithTimeout(context.Background(), drillTimeout)
 }
 
-// drillResidueFn — pg_database 잔존 조사 seam(단위 테스트가 잔존을 주입).
+// drillResidueFn — seam for the pg_database residue probe (unit tests inject residue).
 var drillResidueFn = drillDBResidue
 
-// dropDrillDB — flint_drill_db 데이터베이스 제거+잔존 검증. 테이블·스키마
-// 개별 DROP 대신 DB 단위로 지운다 — doltgresql의 무음 DROP no-op 결함이
-// 재생 테이블 잔존으로 번지지 않는다(실측). DROP이 nil을 반환해도 믿지
-// 않는다: no-op 엔진 결함은 에러 없이 잔존시킨다. pg_database로 직접
-// 확인해 잔존을 숨기지 않고 명시적 실패로 돌려준다.
+// dropDrillDB — removes the flint_drill_db database and verifies no
+// residue. Deletes at the database level instead of per-table/per-schema
+// DROPs — doltgresql's silent DROP no-op defect cannot spread into
+// replay-table residue (verified). Even a nil return from DROP is not
+// trusted: a no-op engine defect leaves residue without an error. It checks
+// pg_database directly and returns an explicit failure instead of hiding
+// residue.
 func dropDrillDB(ctx context.Context, pool *pgxpool.Pool) error {
 	if _, err := pool.Exec(ctx, `DROP DATABASE IF EXISTS `+DrillDB); err != nil {
 		return err
@@ -227,7 +244,7 @@ func dropDrillDB(ctx context.Context, pool *pgxpool.Pool) error {
 	return nil
 }
 
-// drillDBResidue — pg_database의 flint_drill_db 행수(0=부재).
+// drillDBResidue — the flint_drill_db row count in pg_database (0 = absent).
 func drillDBResidue(ctx context.Context, pool *pgxpool.Pool) (int, error) {
 	var n int
 	if err := pool.QueryRow(ctx,

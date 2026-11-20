@@ -1,7 +1,8 @@
-// sign_test.go — PAM 서명 키 생성 경로 원자성 회귀.
-// LoadOrCreatePAMSigningKey 생성은 O_CREATE|O_EXCL 원자 오픈 — 동시
-// 호출이 같은 키 파일을 두벌 생성·상호 덮어쓰지 않는다(EEXIST 강제
-// 경로·동시 호출 전수 단일 키). 전부 합성 키(개인 데이터 금지).
+// sign_test.go — PAM signing-key creation-path atomicity regression.
+// LoadOrCreatePAMSigningKey creation is an atomic O_CREATE|O_EXCL open —
+// concurrent calls never create two copies of the same key file·
+// overwrite each other (forced-EEXIST path·all concurrent calls yield a
+// single key). All keys are synthetic (personal data forbidden).
 package knowledge
 
 import (
@@ -17,17 +18,20 @@ import (
 	"time"
 )
 
-// pamSyntheticKey — 고정 시드 합성 Ed25519 키(기존 파일 내용 재현용).
+// pamSyntheticKey — a fixed-seed synthetic Ed25519 key (for reproducing
+// existing file contents).
 func pamSyntheticKey(t *testing.T) ed25519.PrivateKey {
 	t.Helper()
 	seed := sha256.Sum256([]byte("flint-pam-eexist-demo-seed"))
 	return ed25519.NewKeyFromSeed(seed[:])
 }
 
-// TestLoadOrCreatePAMSigningKeyForcedEEXIST — EEXIST 강제 경로: 파일이
-// 있지만 최초 읽기가 ErrNotExist를 돌려주면(가시성 레이스) 생성 경로로
-// 진입하고, O_EXCL 오픈이 EEXIST를 만나면 새 키 발급이 아니라 **기존
-// 파일 키를 로드해 반환**한다 — 단일 키 보장(원자 생성 계약).
+// TestLoadOrCreatePAMSigningKeyForcedEEXIST — the forced-EEXIST path: if
+// the file exists but the first read returns ErrNotExist (a visibility
+// race), the create path is entered, and when the O_EXCL open meets
+// EEXIST it **loads and returns the existing file's key** instead of
+// issuing a new one — the single-key guarantee (the atomic creation
+// contract).
 func TestLoadOrCreatePAMSigningKeyForcedEEXIST(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pam-signing-key")
 	pamSwapKeyPath(t, path)
@@ -36,7 +40,8 @@ func TestLoadOrCreatePAMSigningKeyForcedEEXIST(t *testing.T) {
 	if werr := os.WriteFile(path, []byte(hex.EncodeToString(existing)+"\n"), 0o600); werr != nil {
 		t.Fatal(werr)
 	}
-	// 첫 ReadFile만 ErrNotExist — 생성 경로 강제 유도(이후 읽기는 실파일).
+	// Only the first ReadFile returns ErrNotExist — forcing the create
+	// path (subsequent reads hit the real file).
 	old := pamKeyReadFile
 	calls := 0
 	pamKeyReadFile = func(p string) ([]byte, error) {
@@ -55,7 +60,7 @@ func TestLoadOrCreatePAMSigningKeyForcedEEXIST(t *testing.T) {
 	if !bytes.Equal(got, existing) {
 		t.Errorf("EEXIST 경로가 신규 키를 발급/반환 — 기존 파일 키여야 한다(단일 키 위반)")
 	}
-	// 파일도 기존 키 그대로(덮어쓰지 않음).
+	// The file also keeps the existing key (not overwritten).
 	b, rerr := os.ReadFile(path)
 	if rerr != nil {
 		t.Fatal(rerr)
@@ -65,9 +70,10 @@ func TestLoadOrCreatePAMSigningKeyForcedEEXIST(t *testing.T) {
 	}
 }
 
-// TestLoadOrCreatePAMSigningKeyConcurrentSingleKey — 동시 호출 전수가
-// 동일한 단일 키를 반환한다(배리어 동시 시작 — WriteFile truncate 레이스
-// 회귀: 구현은 마지막 호출의 키로 갱신되어 호출마다 다른 키를 돌려준다).
+// TestLoadOrCreatePAMSigningKeyConcurrentSingleKey — every concurrent
+// call returns the identical single key (barrier-synchronized start — a
+// WriteFile truncate-race regression: the old implementation updated to
+// the last caller's key and returned different keys per call).
 func TestLoadOrCreatePAMSigningKeyConcurrentSingleKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pam-signing-key")
 	pamSwapKeyPath(t, path)
@@ -98,7 +104,7 @@ func TestLoadOrCreatePAMSigningKeyConcurrentSingleKey(t *testing.T) {
 			t.Fatalf("동시 호출 키 분기(호출 0 vs %d) — 원자 생성 위반", i)
 		}
 	}
-	// 최종 파일도 동일 키.
+	// The final file also holds the same key.
 	b, rerr := os.ReadFile(path)
 	if rerr != nil {
 		t.Fatal(rerr)
@@ -112,9 +118,9 @@ func TestLoadOrCreatePAMSigningKeyConcurrentSingleKey(t *testing.T) {
 	}
 }
 
-// TestLoadOrCreatePAMSigningKeyPartialFileRetriesUntilComplete — 최초
-// fast-path 읽기가 선행 생성자의 불완전 파일(기록 직전 찰나)을 만나도
-// 예산 내 재시도로 완전 키에 수렴한다.
+// TestLoadOrCreatePAMSigningKeyPartialFileRetriesUntilComplete — even if
+// the first fast-path read hits a preceding creator's incomplete file
+// (the pre-write instant), a bounded retry converges on the complete key.
 func TestLoadOrCreatePAMSigningKeyPartialFileRetriesUntilComplete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pam-signing-key")
 	pamSwapKeyPath(t, path)

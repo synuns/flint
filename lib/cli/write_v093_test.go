@@ -1,6 +1,6 @@
-// write_v093_test.go — 회귀: 단일 줄 duplicate 응답에 기존 행 id
-// 노출. {"status":"duplicate","id":N} 추가만 — JSONL 집계형·exit 0·
-// id 0 duplicate의 맨몸 출력은 불변.
+// write_v093_test.go — regression: expose the existing row's id in the single-line duplicate
+// response. Only {"status":"duplicate","id":N} is added — the JSONL aggregate form, exit 0,
+// and the bare output of an id-0 duplicate are unchanged.
 package cli
 
 import (
@@ -23,7 +23,7 @@ func TestDuplicateZeroIDStaysBare(t *testing.T) {
 	}
 }
 
-// dupIDStore — DupIDByHash로 기존 행 id를 돌려주는 fake(재전송 시나리오).
+// dupIDStore — a fake returning the existing row's id via DupIDByHash (the resend scenario).
 type dupIDStore struct {
 	*fakeStore
 	id int
@@ -33,10 +33,10 @@ func (d *dupIDStore) DupIDByHash(ctx context.Context, hash string) (int, bool, e
 	return d.id, true, nil
 }
 
-// Query — 다중 줄 사전 dedup가 줄별 capability가 아닌 배치
-// 조회(content_hash = ANY($1), knowledge.lookupHashBatch)로 이동했다.
-// 이 fake도 동일 존재 판정(기존 행 id)을 Query seam으로 응답해 다중 줄
-// duplicate 시나리오를 유지한다(단발 경로는 여전히 DupIDByHash).
+// Query — multi-line pre-dedup moved from per-line capability to a batch lookup
+// (content_hash = ANY($1), knowledge.lookupHashBatch).
+// This fake also answers the same existence check (the existing row's id) via the Query seam, keeping the multi-line
+// duplicate scenario (the single-shot path is still DupIDByHash).
 func (d *dupIDStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	if strings.Contains(sql, "content_hash = ANY($1)") {
 		if hashes, ok := args[0].([]string); ok {
@@ -50,7 +50,7 @@ func (d *dupIDStore) Query(ctx context.Context, sql string, args ...any) ([][]an
 	return d.fakeStore.Query(ctx, sql, args...)
 }
 
-// withDupID — newStore seam을 dupIDStore로 교체.
+// withDupID — swaps the newStore seam to dupIDStore.
 func withDupID(t *testing.T, d *dupIDStore) {
 	t.Helper()
 	prev := newStore
@@ -58,8 +58,8 @@ func withDupID(t *testing.T, d *dupIDStore) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// TestWriteDuplicateIncludesID — 재전송(단일 줄 duplicate): 출력에 기존 행
-// id가 붙고 0건 커밋·exit 0(시딩 멱등 유지).
+// TestWriteDuplicateIncludesID — a resend (single-line duplicate): the output carries the existing
+// row's id, 0 commits, exit 0 (seeding idempotence kept).
 func TestWriteDuplicateIncludesID(t *testing.T) {
 	ds := &dupIDStore{fakeStore: &fakeStore{}, id: 109}
 	withDupID(t, ds)
@@ -76,8 +76,8 @@ func TestWriteDuplicateIncludesID(t *testing.T) {
 	}
 }
 
-// TestWriteDuplicateMultiStaysBare — JSONL 다중 줄 전부 duplicate는 id 없는
-// 맨몸 duplicate 한 줄(집계형·단일 줄 규칙 혼합 금지 — R3는 단일 줄 추가만).
+// TestWriteDuplicateMultiStaysBare — all-duplicate JSONL multi-line input stays a single bare
+// duplicate line without ids (no mixing aggregate and single-line rules — R3 adds only the single line).
 func TestWriteDuplicateMultiStaysBare(t *testing.T) {
 	ds := &dupIDStore{fakeStore: &fakeStore{}, id: 109}
 	withDupID(t, ds)

@@ -17,8 +17,8 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// INSERT 문 수와 테이블명 매칭 — knowledge만 세고
-// 다른 테이블·주석·DELETE는 세지 않는다.
+// INSERT-statement counting with table-name matching — counts knowledge
+// only; other tables, comments, and DELETEs are not counted.
 func TestCountInserts(t *testing.T) {
 	stmts := splitStatements(`
 -- flint backup probe
@@ -38,7 +38,7 @@ COMMIT;`)
 	}
 }
 
-// skipForDrill — public 시퀀스 조작문만 제외(빠른 단위 검증).
+// skipForDrill — excludes only public sequence-manipulation statements (quick unit check).
 func TestSkipForDrill(t *testing.T) {
 	yes := []string{
 		"CREATE SEQUENCE IF NOT EXISTS public.knowledge_id_seq;",
@@ -65,9 +65,10 @@ func TestSkipForDrill(t *testing.T) {
 	}
 }
 
-// 회귀(비간섭): 덤프의 setval('public.*')·CREATE SEQUENCE public.* 문이
-// 드릴 재생에서 원본 public 시퀀스를 건드리지 않는다. 오래된 keep-N 덤프로
-// 훈련해도 public 시퀀스가 과거 값으로 되감기지 않아야 한다(PK 충돌 방지).
+// Regression (non-interference): the dump's setval('public.*') and CREATE
+// SEQUENCE public.* statements must not touch the original public sequences
+// during drill replay. Drilling with an old keep-N dump must not rewind
+// public sequences to past values (PK-collision prevention).
 
 func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 	unlock := drillLock(t)
@@ -81,13 +82,15 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// 상태 판정(헤르메틱, CI run 39713526850): 마이그레이션 전 신규 DB에서는
-	// public.knowledge_id_seq가 아예 없다(pg_sequences 0행) — 미사용·부재는
-	// 정상 조건으로 수용하고 "드릴 전후 상태 불변"으로 비간섭을 판정한다.
-	// 시퀀스가 있으면 되감기 검증이 성립하도록 스스로 초기화한다(기존 최대
-	// id보다 항상 앞인 값 — 잔여 DB의 이후 INSERT도 안전). 테스트가 시퀀스를
-	// 새로 만들지는 않는다: 이후 마이그레이션의 CREATE TABLE ... serial이
-	// 시퀀스 자동 생성과 충돌(42P07)하기 때문.
+	// State probe (hermetic, CI run 39713526850): on a fresh pre-migration DB
+	// public.knowledge_id_seq does not exist at all (zero pg_sequences rows) —
+	// unused/absent is accepted as a normal condition, and non-interference
+	// is judged as "state unchanged before vs after the drill". If the
+	// sequence exists, it seeds itself so the rewind check is meaningful (a
+	// value always ahead of the existing max id — later INSERTs on the
+	// leftover DB stay safe too). The test never creates the sequence
+	// itself: a later migration's CREATE TABLE ... serial would collide with
+	// the auto-created sequence (42P07).
 	probe := func() (bool, int) {
 		var exists bool
 		if err := pool.QueryRow(ctx,
@@ -98,10 +101,11 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 			return false, 0
 		}
 		var last int
-		// NULL 안전(CI run 39715701573): 마이그레이션만 된 신규 DB의
-		// 미사용 시퀀스는 last_value가 NULL이다(한 번도 nextval 안 됨).
-		// 미사용은 되감김 대상이 아니므로 0으로 읽어 판정한다 — 시딩
-		// setval 뒤에는 항상 실값이므로 전후 불변 판정은 그대로 엄격하다.
+		// NULL safety (CI run 39715701573): on a DB that has only been
+		// migrated, an unused sequence has a NULL last_value (nextval never
+		// called). Unused is not a rewind target, so it reads as 0 — after
+		// the seeding setval there is always a real value, so the
+		// before/after invariance check stays just as strict.
 		if err := pool.QueryRow(ctx,
 			`SELECT COALESCE(last_value, 0) FROM pg_sequences WHERE schemaname='public' AND sequencename='knowledge_id_seq'`).Scan(&last); err != nil {
 			t.Fatalf("sequence last_value: %v", err)
@@ -120,8 +124,9 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 			t.Fatalf("knowledge 존재 확인: %v", err)
 		}
 		if hasKn {
-			// 스칼라 서브쿼리 형태여야 한다 — Doltgres는 빈 테이블의
-			// bare 집계(MAX)가 0행을 반환한다(Postgres는 NULL 1행).
+			// Must be the scalar-subquery form — on an empty table Doltgres
+			// returns zero rows for a bare aggregate MAX (Postgres returns
+			// one NULL row).
 			if err := pool.QueryRow(ctx,
 				`SELECT COALESCE((SELECT MAX("id") FROM "knowledge"), 0)`).Scan(&base); err != nil {
 				t.Fatalf("knowledge max id: %v", err)
@@ -146,22 +151,25 @@ SELECT setval('public.knowledge_id_seq', COALESCE((SELECT MAX("id") FROM "knowle
 		t.Fatal(err)
 	}
 
-	// 마이그레이션 전 신규 DB 대응(헤르메틱, 실측 round4): RunDrill은 성공
-	// 기록을 public.meta에 쓰는데 maintenance_runs과 달리 meta 보장이
-	// 없다(42P01 "table not found: meta"). 병렬 패키지가 아직 마이그레이션
-	// 전일 때 이 테스트가 최초 드릴이 될 수 있으므로 스키마.sql 정의로
-	// 보장한다(아래 TestDrillRestoresAndCleans의 maintenance_runs 보장과
-	// 같은 패턴).
+	// Fresh pre-migration DB handling (hermetic, verified round 4):
+	// RunDrill writes its success record to public.meta, which — unlike
+	// maintenance_runs — has no ensure step (42P01 "table not found: meta").
+	// If parallel packages have not migrated yet, this test can be the first
+	// drill, so we ensure it with the schema.sql definition (the same
+	// pattern as the maintenance_runs ensure in TestDrillRestoresAndCleans
+	// below).
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.meta (
 		key   text PRIMARY KEY,
 		value text NOT NULL)`); err != nil {
 		t.Fatalf("ensure meta: %v", err)
 	}
 
-	// 재시도 1회 허용: 병렬 패키지의 마이그레이션이 드릴 사이에 시퀀스를
-	// 만들면 부재→존재로 보일 수 있다(잠금 밖 lib/cli Migrate). 진짜 회귀
-	// (드릴이 setval·CREATE SEQUENCE public.*을 실행)는 재시도에서도
-	// 불일치로 잡힌다 — 되감기 값은 결정적(2)이라 base+7과 항상 다르다.
+	// One retry allowed: if a parallel package's migration creates the
+	// sequence between our drills, absence can appear as presence (the
+	// lib/cli Migrate runs outside our lock). A real regression (the drill
+	// executing setval or CREATE SEQUENCE public.*) still shows up as a
+	// mismatch on retry — the rewind value is deterministic (2), always
+	// different from base+7.
 	var before, after int
 	var beforeExists, afterExists bool
 	for attempt := 0; attempt < 2; attempt++ {
@@ -192,8 +200,9 @@ SELECT setval('public.knowledge_id_seq', COALESCE((SELECT MAX("id") FROM "knowle
 	}
 }
 
-// 회귀: maintenance_runs 테이블 부재(마이그레이션 게이트 공백 DB) 시에도
-// 드릴 성공·기록이 동작해야 한다(에러로 뭉개지지 않음).
+// Regression: even without the maintenance_runs table (a migration-gate
+// gap DB), drill success and recording must work (not crushed into an
+// error).
 func TestDrillWithoutMaintenanceRuns(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -233,14 +242,15 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	}
 }
 
-// 실DB 덤프 재생 → Ok true·스키마 무잔존.
-// 행수 대조 — Expected==Restored==실제 knowledge 행수.
+// Real-DB dump replay -> Ok true, no schema residue.
+// Row-count comparison — Expected == Restored == the actual knowledge row count.
 
-// 회귀(원본 풀 무오염): 드릴 재생이 별도 flint_drill_db 풀에서만 일어나므로
-// 원본 DSN 풀의 커넥션 상태(search_path 등)를 오염시키지 않는다. MaxConns=1
-// 풀에서 RunDrill 전후 같은 커넥션으로 current_setting을 읽어 잔류
-// 여부를 검증한다(잔류 시 이후 비한정 쿼리가 public 테이블을 못 찾는다
-// — CI PR #1 42P01).
+// Regression (no contamination of the original pool): drill replay happens
+// only on the separate flint_drill_db pool, so it must not contaminate
+// connection state (search_path, etc.) in the original DSN pool. From a
+// MaxConns=1 pool, current_setting is read on the same connection before
+// and after RunDrill to verify no residue (with residue, later unqualified
+// queries fail to find public tables — CI PR #1 42P01).
 func TestDrillReplayDoesNotContaminateOriginalPool(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -250,7 +260,7 @@ func TestDrillReplayDoesNotContaminateOriginalPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
-	cfg.MaxConns = 1 // 재취득이 같은 커넥션이 되게 강제
+	cfg.MaxConns = 1 // forces re-acquisition to be the same connection
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -281,9 +291,9 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	}
 }
 
-// drillLock — 드릴 재생 대상(flint_drill_db)은 패키지 간(프로세스 간)
-// 공유 자원이다.
-// go test가 패키지를 병렬 실행하므로 파일 잠금으로 상호 배제한다.
+// drillLock — the drill replay target (flint_drill_db) is a resource shared
+// across packages (across processes). go test runs packages in parallel,
+// so mutual exclusion uses a file lock.
 func drillLock(t *testing.T) func() {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -324,8 +334,9 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	cleanup := func() {
 		pool.Exec(ctx, `DELETE FROM knowledge WHERE content_hash LIKE 't55-drill-%'`)
 	}
-	// 개발 DB가 v0.4 이전에 만들어져 maintenance_runs이 없을 수 있다(마이그레이션
-	// 게이트가 schema_version>=1이면 건너뛴다) — 스키마.sql 정의로 멱등 보장.
+	// A dev DB created before v0.4 may lack maintenance_runs (the migration
+	// gate skips when schema_version >= 1) — idempotently ensured with the
+	// schema.sql definition.
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS maintenance_runs (
 		id serial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
 		kind text NOT NULL, details text)`); err != nil {
@@ -334,10 +345,11 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	cleanup()
 	defer cleanup()
 
-	// 헤르메틱 대조: 사전 시딩(로컬 잔류 데이터)에 의존하지 않고 매 시도마다
-	// 자체 행을 심는다. 잠금 없는 타 패키지 테스트가 count와 dump 사이에
-	// knowledge를 비우면 행수가 어긋난다(CI PR #1: expected=1 restored=1,
-	// want 12/12) — 에러뿐 아니라 불일치도 재시도로 흡수한다.
+	// Hermetic comparison: no reliance on pre-seeded (locally lingering)
+	// data; each attempt seeds its own rows. If another package's tests —
+	// which run without our lock — empty knowledge between the count and
+	// the dump, the row counts drift (CI PR #1: expected=1 restored=1, want
+	// 12/12) — both errors and mismatches are absorbed by retries.
 	var res DrillResult
 	var before int
 	var runErr error
@@ -363,7 +375,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		}
 		res, runErr = RunDrill(dsn, path)
 		if runErr == nil && res.Ok && res.Expected == before && res.Restored == before {
-			break // 일관된 스냅샷 — 대조 성립
+			break // a consistent snapshot — the comparison holds
 		}
 	}
 	if runErr != nil {
@@ -380,8 +392,8 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 			res.Expected, res.Restored, before, before)
 	}
 
-	// state — 스키마 무잔존.
-	// state — 드릴 DB 무잔존.
+	// state — no schema residue.
+	// state — no drill DB residue.
 	var dbs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
@@ -392,7 +404,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		t.Fatalf("%s 잔존: %d", DrillDB, dbs)
 	}
 
-	// 비간섭 — 원본 knowledge 행수 불변.
+	// Non-interference — the original knowledge row count is unchanged.
 	var after int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&after); err != nil {
 		t.Fatalf("count after: %v", err)
@@ -401,7 +413,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		t.Fatalf("원본 훼손: before=%d after=%d", before, after)
 	}
 
-	// 성공 기록 — maintenance_runs 1행(kind=drill) + meta last_drill.
+	// Success record — one maintenance_runs row (kind=drill) + meta last_drill.
 	var runs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM maintenance_runs WHERE kind = 'drill'`).Scan(&runs); err != nil {
@@ -424,7 +436,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	}
 }
 
-// 재생 실패 시에도 드릴 DB 잔존 금지.
+// Even on replay failure, no drill DB residue.
 func TestDrillFailureCleansSchema(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -457,9 +469,10 @@ func TestDrillFailureCleansSchema(t *testing.T) {
 	}
 }
 
-// dropInjectScaffold — DROP 주입 회귀 공통: 마이그레이션 + 고유 프로브 1행
-// 시딩 + 덤프 파일 경로. 반환 pool의 클린업(프로브 삭제)은 각 테스트
-// defer로 — drillLock 해제보다 먼저 실행되게 한다.
+// dropInjectScaffold — shared scaffold for DROP-injection regressions:
+// migration + seeding one unique probe row + the dump file path. Cleanup of
+// the returned pool (deleting the probe) is each test's defer — so it runs
+// before the drillLock release.
 func dropInjectScaffold(t *testing.T) (dsn, path string, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -494,9 +507,9 @@ func dropInjectScaffold(t *testing.T) (dsn, path string, pool *pgxpool.Pool) {
 	return dsn, path, pool
 }
 
-// TestDrillDropRetriesTransientFailure — 회귀(CI run 39719705178): 최종
-// 드릴 DB DROP의 일시 40001은 재시도로 회복된다 — 드릴은 성공하고
-// 드릴 DB 무잔존.
+// TestDrillDropRetriesTransientFailure — regression (CI run 39719705178):
+// a transient 40001 on the final drill DB DROP recovers via retry — the
+// drill succeeds and the drill DB leaves no residue.
 func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -504,7 +517,8 @@ func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	defer pool.Exec(context.Background(),
 		`DELETE FROM knowledge WHERE content_hash LIKE 't55-drop-%'`)
 
-	// 주입: 선행 정리(call 1)는 성공, 최종 DROP 첫 시도(call 2)만 실패.
+	// Injection: the pre-clean (call 1) succeeds; only the final DROP's
+	// first attempt (call 2) fails.
 	calls := 0
 	saved := dropDrillDBFn
 	dropDrillDBFn = func(ctx context.Context, p *pgxpool.Pool) error {
@@ -537,12 +551,14 @@ func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	}
 }
 
-// 회귀: 드릴 재생은 전용 데이터베이스 flint_drill_db에서
-// 일어나고 종료 시(성공·실패 무관) 항상 제거한다. 선행 잔존(이전 비정상
-// 종료로 남은 flint_drill_db)은 재생 전에 정리된다 — 감시 테이블이 든
-// 잔존 DB를 심어 두고 드릴 후 DB 부재로 라이프사이클 전체(선행 제거→
-// 재생→종료 정리)를 검증한다. 테이블·스키마 개별 DROP이 무음 no-op로
-// 잔존하는 doltgresql 결함과 무관하게 DB 단위 삭제는 동작한다(실측).
+// Regression: drill replay happens in the dedicated database flint_drill_db
+// and is always removed on exit (success or failure alike). Pre-existing
+// residue (a flint_drill_db left by a previous abnormal exit) is cleaned
+// before replay — we plant a leftover DB containing a sentinel table and
+// verify the whole lifecycle (pre-clean -> replay -> final cleanup) by the
+// DB's absence after the drill. Regardless of the doltgresql defect where
+// per-table/per-schema DROPs silently no-op and leave residue,
+// database-level deletion works (verified).
 func TestDrillIsolatedInDedicatedDatabase(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -555,7 +571,7 @@ func TestDrillIsolatedInDedicatedDatabase(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// 선행 잔존 흉내 — 감시 테이블 1개가 든 flint_drill_db를 남긴다.
+	// Fake pre-existing residue — leave behind a flint_drill_db containing one sentinel table.
 	if _, err := pool.Exec(ctx, `DROP DATABASE IF EXISTS `+DrillDB); err != nil {
 		t.Fatalf("잔존 조립 전 정리: %v", err)
 	}
@@ -595,7 +611,7 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 		t.Fatalf("드릴 결과: %+v, want Ok true 1/1", res)
 	}
 
-	// 종료 정리 — 드릴 DB는 재생 성공 여부와 무관하게 부재해야 한다.
+	// Final cleanup — the drill DB must be absent regardless of replay success.
 	var dbs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
@@ -605,7 +621,7 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	if dbs != 0 {
 		t.Fatalf("%s 잔존: %d", DrillDB, dbs)
 	}
-	// 스키마 경로 부활 방지 — 구(flint_drill 스키마) 격리 잔재도 없다.
+	// No schema-path revival — no leftover from the old (flint_drill schema) isolation either.
 	var schemas int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
@@ -617,9 +633,10 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	}
 }
 
-// TestDrillDropExhaustionFailsExplicitly — 회귀(CI run 39719705178): 최종
-// DROP 재시도 소진 시 RunDrill은 성공을 가장하지 않고 잔존을 명시적
-// 실패로 돌려준다(드릴 자체는 성공 — 성공 경로의 승격이 핵심).
+// TestDrillDropExhaustionFailsExplicitly — regression (CI run 39719705178):
+// when the final DROP exhausts its retries, RunDrill does not fake success
+// and returns the residue as an explicit failure (the drill itself
+// succeeded — promoting the failure on the success path is the point).
 func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -627,7 +644,8 @@ func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
 	defer pool.Exec(context.Background(),
 		`DELETE FROM knowledge WHERE content_hash LIKE 't55-drop-%'`)
 
-	// 주입: 선행 정리(call 1)는 성공, 최종 DROP은 전부 실패(소진).
+	// Injection: the pre-clean (call 1) succeeds; the final DROP fails
+	// every time (exhausted).
 	calls := 0
 	saved := dropDrillDBFn
 	dropDrillDBFn = func(ctx context.Context, p *pgxpool.Pool) error {
@@ -652,7 +670,7 @@ func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
 	if calls < 4 {
 		t.Fatalf("재시도 소진 미관측: drop 호출 %d회, want ≥4(선행+3회 시도)", calls)
 	}
-	// 주입으로 남은 드릴 DB를 실 구현으로 정리(이후 테스트 오염 방지).
+	// Clean up the drill DB left by the injection with the real implementation (to avoid polluting later tests).
 	if derr := saved(context.Background(), pool); derr != nil {
 		t.Fatalf("잔존 정리: %v", derr)
 	}

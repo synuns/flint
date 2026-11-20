@@ -1,10 +1,10 @@
-// thresholds_v1200_test.go — 진단 diag_* 키 5종 +
-// knowledge_reads_retention_days의 기본값·meta 오버라이드·무효값 폴백.
+// thresholds_v1200_test.go — the 5 diagnostic diag_* keys plus
+// knowledge_reads_retention_days: defaults, meta overrides, and invalid-value fallbacks.
 package store
 
 import "testing"
 
-// 신규 키 기본값 — 코드 단일 소스(DefaultThresholds).
+// the new keys' defaults — a single code source (DefaultThresholds).
 func TestThresholdsV1200DiagDefaults(t *testing.T) {
 	th := DefaultThresholds()
 	want := []struct {
@@ -26,7 +26,7 @@ func TestThresholdsV1200DiagDefaults(t *testing.T) {
 	}
 }
 
-// meta 오버라이드 — 전 키 설정 값 반영(diag_* SSOT 계약).
+// meta overrides — every key's set value reflected (the diag_* SSOT contract).
 func TestThresholdsV1200DiagParseOverride(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"diag_hot_budget_high", "0.7"},
@@ -48,7 +48,7 @@ func TestThresholdsV1200DiagParseOverride(t *testing.T) {
 	}
 }
 
-// 무효값(비수·음수·범위 밖)은 기본값 폴백(전역 제약 승계).
+// invalid values (non-numeric, negative, out of range) fall back to defaults (inheriting the global constraint).
 func TestThresholdsV1200DiagInvalidFallback(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"diag_hot_budget_high", "1.5"},

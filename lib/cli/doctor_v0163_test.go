@@ -1,6 +1,6 @@
-// doctor_v0163_test.go — doctor 임계값 4종의 meta 오버라이드
-// 우선(backup-age·zero-near 2종·pending-age). 패턴은
-// TestDoctorLastSeenThresholdOverride(stall_hot_h) 승계.
+// doctor_v0163_test.go — meta overrides take precedence for the 4 doctor thresholds
+// (backup-age, the 2 zero-near kinds, pending-age). The pattern inherits
+// TestDoctorLastSeenThresholdOverride (stall_hot_h).
 package cli
 
 import (
@@ -10,8 +10,8 @@ import (
 	"time"
 )
 
-// thresholdsQueryFn — meta 임계값 키-값 행을 반환하는 queryFn 래퍼.
-// 임계값 질의(key IN (...))에만 응답하고 나머지는 fallback으로 넘긴다.
+// thresholdsQueryFn — a queryFn wrapper returning meta threshold key-value rows.
+// It answers only the threshold query (key IN (...)); the rest falls through to fallback.
 func thresholdsQueryFn(kv [][]any, fallback func(string, []any) ([][]any, error)) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key IN") {
@@ -21,7 +21,7 @@ func thresholdsQueryFn(kv [][]any, fallback func(string, []any) ([][]any, error)
 	}
 }
 
-// backup_age_warn_h=1 오버라이드 — 2h 경과 백업이 warn(기본 72h였다면 ok).
+// backup_age_warn_h=1 override — a 2h-old backup warns (ok under the default 72h).
 func TestDoctorBackupAgeThresholdOverride(t *testing.T) {
 	twoHourOld := time.Now().UTC().Add(-2 * time.Hour).Format(time.RFC3339)
 	f := &fakeStore{queryFn: thresholdsQueryFn(
@@ -38,13 +38,13 @@ func TestDoctorBackupAgeThresholdOverride(t *testing.T) {
 	}
 }
 
-// zero_near_warn_pct=5 오버라이드 — 10% 근접비율이 warn(기본 30이면 ok).
+// zero_near_warn_pct=5 override — a 10% near ratio warns (ok at the default 30).
 func TestDoctorZeroNearWarnPctOverride(t *testing.T) {
 	f := &fakeStore{queryFn: thresholdsQueryFn(
 		[][]any{{"zero_near_warn_pct", "5"}},
 		func(sql string, args []any) ([][]any, error) {
 			if strings.Contains(sql, "daily:") {
-				// 창(오늘) 내 키만 합산된다.
+				// only keys within the window (today) are summed.
 				return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":20,"read_zero_near":2}`}}, nil
 			}
 			return nil, nil
@@ -55,13 +55,13 @@ func TestDoctorZeroNearWarnPctOverride(t *testing.T) {
 	}
 }
 
-// zero_near_min_read=100 오버라이드 — read 20 표본이 판정 보류 ok(기본 10이면 판정).
+// zero_near_min_read=100 override — a read sample of 20 holds the determination ok (determined at the default 10).
 func TestDoctorZeroNearMinReadOverride(t *testing.T) {
 	f := &fakeStore{queryFn: thresholdsQueryFn(
 		[][]any{{"zero_near_min_read", "100"}},
 		func(sql string, args []any) ([][]any, error) {
 			if strings.Contains(sql, "daily:") {
-				// 창(오늘) 내 키만 합산된다.
+				// only keys within the window (today) are summed.
 				return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":20,"read_zero_near":2}`}}, nil
 			}
 			return nil, nil
@@ -72,7 +72,7 @@ func TestDoctorZeroNearMinReadOverride(t *testing.T) {
 	}
 }
 
-// pending_age_days=1 오버라이드 — 2일 경과 pending이 warn(기본 7이면 ok).
+// pending_age_days=1 override — a 2-day-old pending warns (ok at the default 7).
 func TestDoctorPendingAgeThresholdOverride(t *testing.T) {
 	twoDayOld := time.Now().Add(-2 * 24 * time.Hour)
 	f := &fakeStore{queryFn: thresholdsQueryFn(

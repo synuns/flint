@@ -1,9 +1,9 @@
-// maintain.go — `flint maintain --tui` 진입 분기. 옵트인만
-// (적응형 전환 없음 — maintain 서브커맨드 인자가 많아 유령 인자 회귀
-// 방지): --tui 단독만 TUI(tui.RunMaintainTUI)로, 조합은 무효 인자
-// exit 3. FLINT_NO_TUI는 3층 방어 1층 — 명시 --tui도 차단 후 기존 경로
-// 안내. 그 외 전부 ops.RunMaintain에 불변 위임한다(파이프·CI 무영향).
-// TUI 런처·ops 위임은 seam var(테스트 fake 주입).
+// maintain.go — entry branching for `flint maintain --tui`. Opt-in only
+// (no adaptive switching — the maintain subcommand takes many arguments, which prevents ghost-argument
+// regressions): --tui standalone only goes to the TUI (tui.RunMaintainTUI); combinations are invalid-arg
+// exit 3. FLINT_NO_TUI is layer 1 of the 3-layer guard — even an explicit --tui is blocked, then the existing path is
+// announced. Everything else delegates unchanged to ops.RunMaintain (pipes and CI unaffected).
+// The TUI launcher and ops delegation are seam vars (test fake injection).
 package cli
 
 import (
@@ -16,25 +16,25 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// maintainTuiFn — TUI 진입 seam. 기본 실구현, 테스트 fake 교체.
+// maintainTuiFn — TUI entry seam. Real implementation by default; tests swap in a fake.
 var maintainTuiFn = tui.RunMaintainTUI
 
-// maintainOpsRun — 기존 maintain 경로 위임 seam(ops.RunMaintain — 중복
-// 구현 금지). 기본 실구현, 진입 분기 테스트 fake 교체.
+// maintainOpsRun — delegation seam for the existing maintain path (ops.RunMaintain — no duplicate
+// implementation). Real implementation by default; entry-branching tests swap in a fake.
 var maintainOpsRun = ops.RunMaintain
 
 func init() {
-	// ops.init 등록(RunMaintain)을 덮어쓴다 — wire.Register 최신값 승계
-	// (같은 이름 재등록 규약, pending 관례). 기본 경로는 아래 위임으로
-	// 불변(--tui 분기만 이 파일 소유).
+	// overwrites the ops.init registration (RunMaintain) — inherits the latest wire.Register value
+	// (same-name re-registration convention, the pending precedent). The default path is unchanged via
+	// the delegation below (this file owns only the --tui branch).
 	Register("maintain", runMaintainEntry)
 }
 
-// runMaintainEntry — maintain 핸들러. 진입 규칙: ① --tui 단독 → TUI
-// (조합은 무효 인자 exit 3·FLINT_NO_TUI 설정 시 차단 exit 3) ② 그 외
-// (무인자·플래그 전부) → ops.RunMaintain 현행 경로 — 옵트인만이라
-// 무인자 + 터미널 적응형 전환은 없다(pending·export와 달리 유령 인자
-// 방지).
+// runMaintainEntry — maintain handler. Entry rules: (1) --tui standalone -> TUI
+// (combinations are invalid-arg exit 3; blocked with exit 3 when FLINT_NO_TUI is set) (2) everything
+// else (no args, any flags) -> the current ops.RunMaintain path — opt-in only, so there is no
+// no-arg + terminal adaptive switching (unlike pending and export, to prevent ghost
+// arguments).
 func runMaintainEntry(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	for i, a := range args {
 		if a != "--tui" {
@@ -47,8 +47,8 @@ func runMaintainEntry(ctx context.Context, st Store, args []string, stdin io.Rea
 				return 3
 			}
 		}
-		// 3층 방어 1층 — FLINT_NO_TUI 설정 시 TTY 여부와 무관하게 차단
-		// (에이전트·CI 명시 탈출구 우선).
+		// layer 1 of the 3-layer guard — with FLINT_NO_TUI set, blocked regardless of TTY
+		// (the explicit agent/CI escape hatch takes precedence).
 		if tui.NoTUIForced() {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
 				"maintain: --tui is blocked by FLINT_NO_TUI — use maintain flag-mode subcommands")))

@@ -1,6 +1,6 @@
-// export_jsonl.go — flint export --format jsonl 포맷터.
-// 행당 1 JSON 객체, LF 개행 구분. 전 필드 완전 스냅샷 — 재이식이
-// 소비. snake_case 키는 csv·md와 동일 계약.
+// export_jsonl.go — the flint export --format jsonl formatter.
+// One JSON object per line, LF-separated. Full snapshot of every field —
+// re-import is the consumer. snake_case keys share the csv·md contract.
 package knowledge
 
 import (
@@ -9,11 +9,11 @@ import (
 	"time"
 )
 
-// exportJSONLRow — ExportRow의 jsonl 직렬화 뷰(snake_case 태그).
-// ExportRow 원본(현재 적립 전 프록시)에는 태그를 두지 않는다.
-// 스코어 2필드는 omitempty(additive) — 0/NULL 행은 기존 골든
-// 출력·키 구성을 그대로 두고, 값 있는 행만 키를 발행한다(레거시 jsonl
-// 파싱은 미지정 → 0/NULL 폴백).
+// exportJSONLRow — the jsonl serialization view of ExportRow (snake_case
+// tags). The ExportRow original (a proxy before any accrual lands) carries no
+// tags. The two score fields are omitempty (additive) — rows with 0/NULL keep
+// the existing golden output and key composition, and only rows with values
+// emit the keys (legacy jsonl parsing treats absent as 0/NULL fallback).
 type exportJSONLRow struct {
 	ID             int        `json:"id"`
 	Topic          string     `json:"topic"`
@@ -34,14 +34,16 @@ type exportJSONLRow struct {
 	LastRecalledAt *time.Time `json:"last_recalled_at,omitempty"`
 }
 
-// toExportJSONLRow — ExportRow를 snake_case 직렬화 뷰로 변환.
-// 동일 필드 구조체라 타입 변환으로 치환된다(필드별 복사 불필요).
+// toExportJSONLRow — converts an ExportRow to the snake_case serialization
+// view. Identical field layout, so a type conversion suffices (no per-field
+// copy needed).
 func toExportJSONLRow(r ExportRow) exportJSONLRow {
 	return exportJSONLRow(r)
 }
 
-// FormatJSONL — rows를 jsonl(행당 1 JSON 객체 + LF)로 직렬화한다.
-// 순수 함수: 원천 조회·파일 기록과 무관. 빈 입력은 빈 바이트.
+// FormatJSONL — serializes rows into jsonl (one JSON object per line + LF).
+// Pure function: independent of source queries and file writing. Empty input
+// yields empty bytes.
 func FormatJSONL(rows []ExportRow) ([]byte, error) {
 	var buf bytes.Buffer
 	enc := json.NewEncoder(&buf)

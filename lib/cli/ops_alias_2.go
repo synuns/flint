@@ -1,25 +1,25 @@
-// ops_alias_2.go — lib/ops로 이동한 maintain·metrics·marker·
-// nudge·sessionhook 표면을 소문자 var·타입·상수 별칭으로 재노출해 잔여 cli
-// 파일(report·profile·update·knowledge_alias 및 잔류 테스트)이 무편집
-// 컴파일되게 한다(ops_alias_1 관례 승계). var 별칭은 테스트 seam 교체
-// 관례(소문자 var)를 승계한다(maintainRetryDelays·exposureProfileFn —
-// root.go init이 교체 전파 래퍼로 주입).
+// ops_alias_2.go — re-exports the maintain, metrics, marker,
+// nudge, and sessionhook surfaces moved to lib/ops as lowercase var, type, and constant aliases so
+// remaining cli files (report, profile, update, knowledge_alias and residual tests) compile without
+// edits (carrying over the ops_alias_1 convention). The var aliases carry over the test seam-swap
+// convention (lowercase var) (maintainRetryDelays, exposureProfileFn —
+// injected by the root.go init as swap-propagation wrappers).
 package cli
 
 import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// 타입 별칭 — 인터페이스 구현·fake 단언 무편집(maintain_test의 MaintStore·
-// conflicts_v0131의 ConflictStore·sessionhook_v0200의 SessionStartRecorder).
+// Type aliases — interface implementations and fake assertions unchanged (MaintStore in maintain_test,
+// ConflictStore in conflicts_v0131, SessionStartRecorder in sessionhook_v0200).
 type (
 	MaintStore           = ops.MaintStore
 	ConflictStore        = ops.ConflictStore
 	SessionStartRecorder = ops.SessionStartRecorder
 )
 
-// 상수 별칭 — 잔류 cli 소비자(maintain_v0130의 suspectsDefaultLimit·
-// nudge_v0181/182의 markerKindRecall·nudge_v0110의 nudgePendingLine 등).
+// Constant aliases — residual cli consumers (suspectsDefaultLimit in maintain_v0130,
+// markerKindRecall in nudge_v0181/182, nudgePendingLine in nudge_v0110, etc.).
 const (
 	suspectsDefaultLimit = ops.SuspectsDefaultLimit
 	markerKindRecall     = ops.MarkerKindRecall
@@ -29,7 +29,7 @@ const (
 	nudgeReasonRecall    = ops.NudgeReasonRecall
 )
 
-// 함수/var 별칭 — 소비 파일의 소문자 호출 호환 및 기존 공개명.
+// Function/var aliases — lowercase-call compatibility in consumer files plus existing public names.
 var (
 	// maintain
 	runMaintain           = ops.RunMaintain
@@ -71,7 +71,7 @@ var (
 	runSessionEnd   = ops.RunSessionEnd
 	sessionLabel    = ops.SessionLabel
 
-	// exposureProfileFn — cli 소유 var(nudge_v0110 테스트 교체 관례).
-	// 초기값은 wire 이동분 실구현, root.go init 래퍼가 교체를 ops에 전파.
+	// exposureProfileFn — cli-owned var (the nudge_v0110 test swap convention).
+	// Initialized to the real implementation moved to wire; the root.go init wrapper propagates swaps into ops.
 	exposureProfileFn = ExposureProfile
 )

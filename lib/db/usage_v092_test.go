@@ -1,6 +1,7 @@
-// usage_v092_test.go — RecordUsageCount: dup N 일괄 증분(실DB slow).
-// 계약: count 1회 호출이 daily 카운터에 N을 더한다(recordDups의 O(N)
-// 읽기-쓰기 대체), dup는 last_ 시각 키 없음, count<1은 에러.
+// usage_v092_test.go — RecordUsageCount: bulk dup N increments (real-DB
+// slow). Contract: one count call adds N to the daily counter
+// (replacing recordDups' O(N) read-writes); dup carries no last_ time
+// key; count<1 is an error.
 package db
 
 import (
@@ -9,10 +10,10 @@ import (
 	"time"
 )
 
-// TestRecordUsageCountBatches — RecordUsageCount("dup","",3)+("write","hook",2)
-// 가 각 1회 upsert로 daily에 일괄 반영(회귀: N번 RecordUsage 루프).
-func TestRecordUsageCountBatches(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordUsageCountBatches — RecordUsageCount("dup","",3)+
+// ("write","hook",2) are bulk-reflected into daily with one upsert each
+// (regression: an N-iteration RecordUsage loop).
+func slowRecordUsageCountBatches(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 

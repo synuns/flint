@@ -1,6 +1,6 @@
-// meta.go — meta 테이블 키-값 접근의 단일 진입점. metrics metaKV·tuning
-// set·setup 노출 기록·hot 조회·read 폴백 증분이 소비한다(출력·exit
-// 계약 불변).
+// meta.go — the single entry point for meta-table key-value access. Consumed by the
+// metrics metaKV, the tuning set, the setup exposure write, the hot lookup, and
+// the read fallback increment (the output and exit contracts unchanged).
 package wire
 
 import (
@@ -11,16 +11,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// GetMetaKV — meta 단일 키 조회. 키 부재·빈 값·전송 오류는 전부
-// ("", false)로 귀결된다(오류 구분이 필요한 호출부는 GetMetaKVErr).
+// GetMetaKV — a single-key meta lookup. A missing key, an empty value, and a
+// transport error all collapse to ("", false) (callers needing the error distinction use GetMetaKVErr).
 func GetMetaKV(ctx context.Context, st Store, key string) (string, bool) {
 	v, ok, _ := GetMetaKVErr(ctx, st, key)
 	return v, ok
 }
 
-// GetMetaKVErr — GetMetaKV의 원형: (값, 존재, 전송 오류)를 그대로
-// 돌려준다. 계측 경로(Bump*)는 오류 시 쓰기를 생략해 기존 값을
-// 와이프하지 않으므로 err 구분이 계약이다.
+// GetMetaKVErr — GetMetaKV's prototype: returns (value, exists, transport
+// error) as-is. The metering paths (Bump*) skip the write on error so as not
+// to wipe the existing value — the err distinction is the contract.
 func GetMetaKVErr(ctx context.Context, st Store, key string) (string, bool, error) {
 	rows, err := QueryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
 	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
@@ -29,7 +29,7 @@ func GetMetaKVErr(ctx context.Context, st Store, key string) (string, bool, erro
 	return fmt.Sprint(rows[0][0]), true, nil
 }
 
-// SetMetaKV — ON CONFLICT 원자 upsert 단일 구현.
+// SetMetaKV — the single ON CONFLICT atomic-upsert implementation.
 func SetMetaKV(ctx context.Context, st Store, key, value string) error {
 	_, err := QueryOnce(ctx, st,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
@@ -37,24 +37,24 @@ func SetMetaKV(ctx context.Context, st Store, key, value string) error {
 	return err
 }
 
-// CompareSetMetaKV — 원자 조건부 갱신(CAS): 현재 값이 old면 new로
-// 바꾸고 true, 아니면 false(병렬 세션의 자원 선점).
-// 단일 upsert-WHERE 문으로 부재(최초)·기존값 일치 양쪽을 원자 처리한다.
-// BumpMetaKV와 동일 계약: 조건부 쓰기는 모호 실패에서 재실행해도 안전
-// 하지 않으므로 재시도 없이 단발 st.Query로 실행한다.
+// CompareSetMetaKV — an atomic conditional update (CAS): if the current value is
+// old, change to new and return true, else false (parallel-session resource
+// claiming). A single upsert-WHERE statement atomically handles both the absent
+// (first) and the matching-existing cases. The same contract as BumpMetaKV:
+// a conditional write is not safe to retry on ambiguous failure, so it runs as a single st.Query with no retry.
 func CompareSetMetaKV(ctx context.Context, st Store, key, oldVal, newVal string) (bool, error) {
-	// 인자는 스프레드 전달 — variadic Query에 슬라이스
-	// 1개로 넘기면 pgx가 "expected 3, got 1"로 거부해 CAS가 전면 불능
-	// 되었다(실DB 실증 — fake claim 주입 테스트는 이 결함을 못 본다).
+	// the arguments are passed spread — passing a single slice to the variadic
+	// Query would make pgx reject it with "expected 3, got 1", breaking CAS
+	// entirely (demonstrated on a real DB — fake claim-injection tests could not
 	rows, err := st.Query(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $3)
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value
 		 WHERE meta.value = $2
 		 RETURNING key`, key, oldVal, newVal)
 	if err != nil {
-		// 경합 패자의 직렬화 실패(Doltgres 40001)는
-		// 선점 탈락의 정상 경로 — won=false로 매핑해 병렬 no-op 계약
-		// 유지(실DB 8-way: 패자 7이 에러로 복귀하던 것을 no-op화).
+		// a race loser's serialization failure (Doltgres 40001) is the
+		// normal lost-claim path — mapped to won=false, keeping the parallel no-op
+		// contract (a real-DB 8-way run: the 7 losers used to return as errors, now no-ops).
 		var pgErr *pgconn.PgError
 		if errors.As(err, &pgErr) && pgErr.Code == "40001" {
 			return false, nil
@@ -64,14 +64,14 @@ func CompareSetMetaKV(ctx context.Context, st Store, key, oldVal, newVal string)
 	return len(rows) > 0, nil
 }
 
-// BumpMetaKV — 카운터 키 1회 원자 증분. SELECT→INSERT 비원자 왕복
-// 없이 단일 upsert에서 계산한다. 기존값이 양의 정수 표기가 아니면
-// (부재·파손) 1로 리셋 — 기존 read_fallback_calls 폴백과 동일 결과.
-// 계약: 증분은 비멱등이라 재시도 금지 — QueryOnce(오류 시 1회
-// 재실행)를 쓰면 모호 실패(서버에서 실행된 뒤 응답만 유실)에서 이중
-// 계상한다. 단발 st.Query로 실행하고 실패는 그대로 전파한다(호출부는
-// 계측 원칙으로 흡수 — done.go·read.go 참조). SetMetaKV(멱등 갱신)·
-// GetMetaKVErr(읽기)만 QueryOnce를 쓴다.
+// BumpMetaKV — a single atomic increment of a counter key. Computes within a
+// single upsert, without the non-atomic SELECT->INSERT round trip. If the
+// existing value is not a positive-integer notation (absent or corrupt), it
+// resets to 1 — the same result as the existing read_fallback_calls fallback.
+// Contract: the increment is non-idempotent, so no retry — using QueryOnce
+// (1 rerun on error) would double-count on an ambiguous failure (executed on
+// the server, only the response lost). It runs as a single st.Query and
+// propagates the failure as-is (the caller absorbs it per the metering principle — see done.go, read.go).
 func BumpMetaKV(ctx context.Context, st Store, key string) error {
 	_, err := st.Query(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, '1')

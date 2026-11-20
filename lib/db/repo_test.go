@@ -20,10 +20,11 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// testDSN은 testutil_test.go로 이동 — FLINT_DSN 비빈 반환, 빈이면 스킵(5433 폴백 폐지).
+// testDSN moved to testutil_test.go — returns FLINT_DSN when non-empty; skips otherwise (the 5433 fallback abolished).
 
-// fake DDL — 실 sqlfs(schema.sql)의 테스트에 필요한 하위집합.
-// 컬럼 제약(UNIQUE content_hash 포함)은 실제와 동일해야 원자성 테스트가 유효하다.
+// fake DDL — the subset of the real sqlfs (schema.sql) needed by the
+// tests. Column constraints (including UNIQUE content_hash) must match
+// the real ones for the atomicity tests to be valid.
 const fakeSchemaSQL = `
 CREATE TABLE IF NOT EXISTS projects (
     id      serial PRIMARY KEY,
@@ -65,8 +66,9 @@ SELECT id, topic, summary, tags, entity, domain
 FROM knowledge WHERE invalid_at IS NULL;
 `
 
-// useFakeSQL은 sqlfs seam을 테스트 DDL로 교체한다.
-// SUPERLITE_REAL=1이면 실 sqlfs 구현을 그대로 쓴다(시험 seam 체크).
+// useFakeSQL swaps the sqlfs seam for the test DDL. With
+// SUPERLITE_REAL=1, the real sqlfs implementation is used as-is (a
+// test-seam check).
 func useFakeSQL(t *testing.T) {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") == "1" {
@@ -78,12 +80,13 @@ func useFakeSQL(t *testing.T) {
 	t.Cleanup(func() { schemaSQLFn, viewsSQLFn = savedSchema, savedViews })
 }
 
-// sharedDBLock은 공유 Doltgres DB를 쓰는 슬로우 테스트의 상호 배제(파일
-// 잠금)다. go test ./...는 패키지 바이너리를 병렬로 띄우므로 잠금 없는
-// 이 패키지의 DELETE·INSERT가 lib/backup의 dump·restore·drill 테스트(동일
-// 잠금 사용)와 겹치면 Doltgres 낙관적 충돌(40001)·행수 어긋남이 간헐
-// 실패한다(CI PR #1). 잠금 파일 경로는 lib/backup drillLock과 동일해야
-// 상호 배제가 성립한다.
+// sharedDBLock is the mutual exclusion (file locking) of the slow tests
+// using the shared Doltgres DB. go test ./... launches package binaries
+// in parallel, so without the lock this package's DELETE·INSERT can
+// overlap with lib/backup's dump·restore·drill tests (which use the
+// same lock), causing intermittent Doltgres optimistic conflicts
+// (40001)·row-count mismatches (CI PR #1). The lock file path must
+// match lib/backup's drillLock for the mutual exclusion to hold.
 func sharedDBLock(t *testing.T) func() {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -101,22 +104,27 @@ func sharedDBLock(t *testing.T) func() {
 	}
 }
 
-// newTestRepo는 접속+마이그레이션 후 데이터를 비운 Repo를 돌려준다.
-// 기본 경로는 테스트당 전용 scratch DB(FLINT_TEST_DSN 서버에 생성·말미
-// DROP — 실 sqlfs로 마이그레이션한 격리 스키마). 공유 DB 경로는
-// recall_events·meta·계측 테이블 누적과 dolt working set이 테스트 간
-// 색는 비결정성(패키지 조합 플레이크 — lib/backup 선행 등)의 원천이라
-// DELETE 3테이블 정리로는 막을 수 없다. scratch 생성 불가(권한 등) 시
-// 기존 공유 경로로 폴백 — 기존 동작 보존.
+// newTestRepo returns a connected+migrated Repo with the data emptied.
+// The default path is a per-test dedicated scratch DB (created on the
+// FLINT_TEST_DSN server·dropped at the end — an isolated schema
+// migrated with the real sqlfs). The shared-DB path is the source of
+// the nondeterminism (package-combination flakes — e.g. lib/backup
+// running first) from recall_events·meta·metering-table accumulation
+// and the dolt working set bleeding across tests, which a 3-table DELETE
+// cleanup cannot prevent. When scratch creation is impossible
+// (permissions etc.), it falls back to the existing shared path —
+// preserving the existing behavior.
 func newTestRepo(t *testing.T) *Repo {
 	t.Helper()
 	ctx := context.Background()
 	if r := newScratchTestRepo(t, ctx); r != nil {
 		return r
 	}
-	// 폴백 — 공유 DB 쓰기 전체(테스트 본문 포함)를 잠금으로 직렬화한다.
+	// Fallback — serializes the whole shared-DB usage (including the
+	// test body) with the lock.
 	unlock := sharedDBLock(t)
-	// t.Cleanup은 LIFO — r.Close(아래 등록)가 먼저 실행되고 그다음 잠금 해제.
+	// t.Cleanup is LIFO — r.Close (registered below) runs first, then the
+	// lock release.
 	t.Cleanup(unlock)
 	useFakeSQL(t)
 	r, err := NewRepo(ctx, testDSN(t))
@@ -127,7 +135,7 @@ func newTestRepo(t *testing.T) *Repo {
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	// Doltgres는 TRUNCATE ... RESTART IDENTITY를 지원하지 않아 DELETE로 비운다.
+	// Doltgres lacks TRUNCATE ... RESTART IDENTITY, so DELETE empties.
 	for _, tbl := range []string{"knowledge", "sessions", "projects"} {
 		if _, err := r.pool.Exec(ctx, "DELETE FROM "+tbl); err != nil {
 			t.Fatalf("delete %s: %v", tbl, err)
@@ -136,19 +144,21 @@ func newTestRepo(t *testing.T) *Repo {
 	return r
 }
 
-// scratchDBName — 테스트당 유일한 scratch DB 이름(테스트명 해시+나노
-// 타임 — 같은 테스트의 -count 재실행 충돌 방지).
+// scratchDBName — a per-test unique scratch DB name (test-name hash +
+// nano time — preventing collisions on the same test's -count reruns).
 func scratchDBName(t *testing.T) string {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(t.Name()))
 	return fmt.Sprintf("flint_scratch_%08x_%d", h.Sum32(), time.Now().UnixNano()%1e9)
 }
 
-// adminConnectForScratch — CREATE/DROP DATABASE용 관리 접속. DSN 경로를
-// postgres 카탈로그로 바꿔 연다(자기 DB에 접속한 채의 생성 시도는 서버
-// 정책에 따라 거부될 수 있다); postgres 부재 서버는 원본 경로로 재시도
-// (sync_test·dual_device_test scratch 관례 — 실측 작동). 둘 다 실패하면
-// (nil, err) — 호출부이 공유 DB 경로로 폴백.
+// adminConnectForScratch — the administrative connection for CREATE/
+// DROP DATABASE. Opens with the DSN path switched to the postgres
+// catalog (a creation attempt while connected to one's own DB can be
+// rejected by server policy); servers without postgres retry with the
+// original path (the sync_test·dual_device_test scratch convention —
+// measured working). Both failing yields (nil, err) — the caller falls
+// back to the shared-DB path.
 func adminConnectForScratch(t *testing.T, ctx context.Context, dsn string) (*pgxpool.Pool, error) {
 	t.Helper()
 	if admin, err := Connect(ctx, dsnForDatabase(t, dsn, "postgres")); err == nil {
@@ -163,14 +173,16 @@ func adminConnectForScratch(t *testing.T, ctx context.Context, dsn string) (*pgx
 	return admin, nil
 }
 
-// newScratchTestRepo — 테스트당 전용 scratch DB를 만들어 마이그레이션된
-// Repo를 돌려준다(생성 불가 시 nil — 호출부이 공유 DB 경로로 폴백).
-// 실 sqlfs로 마이그레이션한다(격리 스키마 v12 상태 — 계측 4종·
-// recall_events 포함 전 테이블. fake DDL 하위집합만으로는 slow 계측
-// 테스트가 요구하는 테이블이 생기지 않는다). cleanup LIFO 순서:
-// r.Close → DROP DATABASE(관리 접속 경유) → 관리 풀 close — DROP이
-// 살아있는 repo 풀과 경쟁하면 scratch가 서버에 잔존한다(dual_device_test
-// T6 패턴 — cleanup 순서 결함 교훈 승계).
+// newScratchTestRepo — creates a per-test dedicated scratch DB and
+// returns a migrated Repo (nil on creation failure — the caller falls
+// back to the shared-DB path). Migrates with the real sqlfs (an
+// isolated schema-v12 state — all tables including the 4 metering
+// kinds·recall_events. The fake DDL subset alone would not create the
+// tables the slow metering tests require). Cleanup LIFO order: r.Close
+// → DROP DATABASE (via the administrative connection) → admin pool
+// close — if the DROP races a live repo pool, the scratch survives on
+// the server (the dual_device_test T6 pattern — inheriting the
+// cleanup-order-defect lesson).
 func newScratchTestRepo(t *testing.T, ctx context.Context) *Repo {
 	t.Helper()
 	dsn := testDSN(t)
@@ -193,16 +205,18 @@ func newScratchTestRepo(t *testing.T, ctx context.Context) *Repo {
 	if err != nil {
 		t.Fatalf("NewRepo(scratch): %v", err)
 	}
-	// t.Cleanup은 LIFO — r.Close(여기 등록)가 DROP(위 등록)보다 먼저 실행.
+	// t.Cleanup is LIFO — r.Close (registered here) runs before the DROP
+	// (registered above).
 	t.Cleanup(r.Close)
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate(scratch): %v", err)
 	}
-	// 초기 스키마 커밋 — fresh DB의 DDL은 working set에만 있어 커밋 이력에
-	// 테이블이 없으면 dolt_diff가 "table not found"로 실패한다(게이트
-	// 맹점 — fresh DB 검증. t6Commit 관례). 마이그레이션이 만든 전
-	// 스키마를 -A로 이력에 올린다(테스트 하네스 커밋 — flint 런타임의
-	// -A 폐지 계약과 무관).
+	// The initial schema commit — a fresh DB's DDL lives only in the
+	// working set; without the tables in commit history, dolt_diff fails
+	// with "table not found" (a gate blind spot — fresh-DB verification.
+	// The t6Commit convention). Puts the migration's full schema into
+	// history with -A (a test-harness commit — independent of the flint
+	// runtime's -A-abolition contract).
 	if _, err := r.pool.Exec(ctx, `SELECT dolt_add('-A')`); err != nil {
 		t.Fatalf("scratch 베이스라인 dolt_add: %v", err)
 	}
@@ -224,12 +238,14 @@ func knowledgeRec(hash string) map[string]any {
 	}
 }
 
-// TestMigrateSetsVersion — Migrate는 schema_version 부재(최초 생성) 시
-// 스키마를 만들고 '1'을 기록한다. 공유 DB는 타 패키지(e2e·mcp)가 v3으로
-// 올릴 수 있어 "방금 newTestRepo가 마이그레이션한 값=1" 기대는 상태
-// 의존적이다(CI PR #1: want 1, got 3). meta 행을 지워 최초 생성 경로를
-// 강제로 재현해 상태 무관하게 검증한다. 버전 상한은 Migrate 소관이
-// 아니다(승격은 admin.go EnsureSchemaV2/V3 담당).
+// TestMigrateSetsVersion — on schema_version absence (first creation),
+// Migrate creates the schema and records '1'. The shared DB can be
+// raised to v3 by other packages (e2e·mcp), so expecting "the value
+// newTestRepo just migrated = 1" is state-dependent (CI PR #1: want 1,
+// got 3). Deletes the meta row to force-reproduce the first-creation
+// path and verify state-independently. The version ceiling is not
+// Migrate's business (promotion belongs to admin.go
+// EnsureSchemaV2/V3).
 func TestMigrateSetsVersion(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -247,7 +263,7 @@ func TestMigrateSetsVersion(t *testing.T) {
 	if version != "1" {
 		t.Fatalf("want schema_version 1 after fresh Migrate, got %q", version)
 	}
-	// 재호급은 멱등이어야 한다.
+	// The rerun must be idempotent.
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
@@ -260,9 +276,10 @@ func TestMigrateSetsVersion(t *testing.T) {
 	}
 }
 
-// TestMigratePreservesV3 — 회귀(CI PR #1): 공유 DB가 이미 v3일 때 Migrate는
-// 버전을 내리거나 올리지 않는다(게이트는 n>=1 하한만 판정 — 상한·승격은
-// EnsureSchemaV3 소관).
+// TestMigratePreservesV3 — regression (CI PR #1): when the shared DB is
+// already v3, Migrate neither lowers nor raises the version (the gate
+// checks only the n>=1 floor — the ceiling·promotion belong to
+// EnsureSchemaV3).
 func TestMigratePreservesV3(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -288,22 +305,25 @@ func TestMigratePreservesV3(t *testing.T) {
 	}
 }
 
-// 회귀(인시던트): schema_version이 같아도 뷰 정의가 갱신되면
-// Migrate가 최신 뷰로 재적용해야 한다 — 낡은 active_knowledge가 read를 깨뜨렸음.
+// Regression (incident): even with the same schema_version, when the
+// view definition is updated, Migrate must reapply with the latest view
+// — a stale active_knowledge broke read.
 func TestMigrateReappliesViews(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// 낡은(stale) 뷰 정의 심기 — simple protocol로 심어야 서버 카탈로그가
-	// 실제로 1컬럼이 된다(확장 프로토콜 CREATE OR REPLACE는 컬럼 목록을
-	// 갱신하지 않는 사고의 재현 조건, 인시던트 참조). repo가 접속한 DB
-	// 그 자체(r.dsn)에 심는다 — scratch 경로에서 testDSN(공유 DB)을
-	// 심으면 재적용 대상과 어긋나 단언이 우연 통과한다.
+	// Planting a stale view definition — planting over the simple protocol
+	// is required for the server catalog to actually become 1 column
+	// (the reproduction condition of the incident where extended-protocol
+	// CREATE OR REPLACE does not update the column list). Planted on the
+	// very DB the repo is connected to (r.dsn) — on the scratch path,
+	// planting into testDSN (the shared DB) would mismatch the
+	// reapplied target and the assertion would pass by accident.
 	plantStaleView(t, r.dsn)
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("second Migrate: %v", err)
 	}
-	// Doltgres는 information_schema에 뷰 컬럼을 노출하지 않으므로
-	// 쿼리 필드 메타데이터로 검증한다.
+	// Doltgres does not expose view columns in information_schema, so
+	// verification uses the query field metadata.
 	rows, err := r.pool.Query(ctx, `SELECT * FROM active_knowledge LIMIT 0`)
 	if err != nil {
 		t.Fatalf("query view: %v", err)
@@ -313,9 +333,9 @@ func TestMigrateReappliesViews(t *testing.T) {
 		cols = append(cols, string(fd.Name))
 	}
 	rows.Close()
-	// 최신 뷰 정의는 tags·entity·domain을 노출해야 한다 —
-	// Doltgres CREATE OR REPLACE는 컬럼 목록을 갱신하지 않아(인시던트)
-	// DROP+CREATE로 재적용해야 한다.
+	// The latest view definition must expose tags·entity·domain — since
+	// Doltgres CREATE OR REPLACE does not update the column list (the
+	// incident), reapplication must DROP+CREATE.
 	want := []string{"id", "topic", "summary", "tags", "entity", "domain"}
 	for _, w := range want {
 		found := false
@@ -331,8 +351,8 @@ func TestMigrateReappliesViews(t *testing.T) {
 	}
 }
 
-// plantStaleView는 simple protocol 커넥션으로 active_knowledge를
-// id 단일 컬럼 뷰로 교체한다.
+// plantStaleView replaces active_knowledge with a single-id-column view
+// over a simple-protocol connection.
 func plantStaleView(t *testing.T, dsn string) {
 	t.Helper()
 	sep := "?"
@@ -360,7 +380,7 @@ func TestInsertBatchAtomic(t *testing.T) {
 	ctx := context.Background()
 	recs := []map[string]any{
 		knowledgeRec("atomic-1"),
-		knowledgeRec("atomic-1"), // 동일 content_hash → unique 위반
+		knowledgeRec("atomic-1"), // same content_hash → unique violation
 	}
 	_, err := r.InsertBatch(ctx, recs)
 	if !errors.Is(err, store.ErrDuplicate) {
@@ -433,9 +453,10 @@ func TestCommitReturnsHash(t *testing.T) {
 	}
 }
 
-// ── InsertBatch insertOne 루프 → pgx Batch 청크 전환 회귀. ──
+// ── The insertOne-loop → pgx-Batch-chunk switch regression. ──
 
-// overrideBatchStmtChunk — 청크 문 수 축소(테스트 종료 시 원복).
+// overrideBatchStmtChunk — shrinks the chunk statement count (restored
+// when the test ends).
 func overrideBatchStmtChunk(t *testing.T, n int) {
 	t.Helper()
 	saved := batchStmtChunk
@@ -443,8 +464,9 @@ func overrideBatchStmtChunk(t *testing.T, n int) {
 	t.Cleanup(func() { batchStmtChunk = saved })
 }
 
-// TestInsertBatchBatchedChunkedReturnsIDs — 청크를 넘는 배치도 RETURNING id
-// 순서·행 수가 불변이다(청크 경계 2로 축소 — 5문 배치는 3왕복).
+// TestInsertBatchBatchedChunkedReturnsIDs — a batch crossing chunk
+// boundaries keeps the RETURNING id order·row count unchanged (chunk
+// boundary shrunk to 2 — a 5-statement batch is 3 round trips).
 func TestInsertBatchBatchedChunkedReturnsIDs(t *testing.T) {
 	r := newTestRepo(t)
 	overrideBatchStmtChunk(t, 2)
@@ -479,8 +501,10 @@ func TestInsertBatchBatchedChunkedReturnsIDs(t *testing.T) {
 	}
 }
 
-// TestInsertBatchBatchedAtomicAcrossChunks — 청크 경계를 넘어 오류(23505)
-// 가 나도 배치 전체는 롤백된다(ErrDuplicate 랩·0행 — 기존 원자성 계약 승계).
+// TestInsertBatchBatchedAtomicAcrossChunks — even when an error (23505)
+// fires across a chunk boundary, the whole batch rolls back
+// (ErrDuplicate wrap·0 rows — inheriting the existing atomicity
+// contract).
 func TestInsertBatchBatchedAtomicAcrossChunks(t *testing.T) {
 	r := newTestRepo(t)
 	overrideBatchStmtChunk(t, 2)
@@ -488,7 +512,7 @@ func TestInsertBatchBatchedAtomicAcrossChunks(t *testing.T) {
 	recs := []map[string]any{
 		knowledgeRec("across-1"),
 		knowledgeRec("across-2"),
-		knowledgeRec("across-1"), // 3문째(청크 2 시작) — 첫 청크 커밋 없이 전체 폐기
+		knowledgeRec("across-1"), // the 3rd statement (start of chunk 2) — whole-batch discard without committing the first chunk
 	}
 	_, err := r.InsertBatch(ctx, recs)
 	if !errors.Is(err, store.ErrDuplicate) {
@@ -503,13 +527,15 @@ func TestInsertBatchBatchedAtomicAcrossChunks(t *testing.T) {
 	}
 }
 
-// ── Doltgres 커밋 시점 unique 위반(동시 write 레이스) 분류. ──
+// ── Classification of the Doltgres commit-time unique violation
+// (concurrent-write race). ──
 
-// TestMapInsertErrConstraintRollback — 동시 write 레이스에서 Doltgres는
-// unique 위반을 SQLSTATE 23505가 아닌 XX000 + "constraint violations,
-// transaction rolled back" 메시지로 커밋 시점에 돌려준다(2026-11-17
-// 실측). 이 분류가 빠지면 InsertBatch 오류가 write.go survive 경로(재확인·
-// 재시도)에 도달하지 못해 레이스 패자의 고유줄이 유실된다.
+// TestMapInsertErrConstraintRollback — under a concurrent-write race,
+// Doltgres returns the unique violation at commit time as XX000 + the
+// message "constraint violations, transaction rolled back" rather than
+// SQLSTATE 23505 (measured 2026-11-17). Without this classification, the
+// InsertBatch error never reaches write.go's survive path (recheck·
+// retry) and the race loser's unique lines are lost.
 func TestMapInsertErrConstraintRollback(t *testing.T) {
 	cases := []struct {
 		name string
@@ -539,13 +565,16 @@ func TestMapInsertErrConstraintRollback(t *testing.T) {
 	}
 }
 
-// ── 계측 분리 커밋 — 감사 커밋 순수성·telemetry 별도 커밋. ──
+// ── The separated metering commit — audit-commit purity·the separate
+// telemetry commit. ──
 
-// t6CommitHashRe — dolt_log 해시 문자셋(dolt_diff 인라인 전 재검증 —
-// read.go asOfHashRe와 동일 규격, 소문자 base32계).
+// t6CommitHashRe — the dolt_log hash charset (revalidation before
+// dolt_diff inlining — the same format as read.go asOfHashRe, lowercase
+// base32-family).
 var t6CommitHashRe = regexp.MustCompile(`^[0-9a-z]{6,64}$`)
 
-// t6LastCommitHash — dolt_log 최신 커밋 해시(기본 정렬 = 최신 우선).
+// t6LastCommitHash — the newest dolt_log commit hash (the default sort
+// = newest first).
 func t6LastCommitHash(t *testing.T, r *Repo) string {
 	t.Helper()
 	var h string
@@ -556,9 +585,10 @@ func t6LastCommitHash(t *testing.T, r *Repo) string {
 	return h
 }
 
-// t6DiffRowCount — dolt_diff(from,to,table) 변경 행 수. dolt_diff는
-// 파라미터화된 인자를 받지 않는다(실측: "Invalid argument to dolt_diff") —
-// 해시·테이블명 문자셋 재검증 후 리터럴 인라인.
+// t6DiffRowCount — the changed-row count of dolt_diff(from,to,table).
+// dolt_diff takes no parameterized arguments (measured: "Invalid
+// argument to dolt_diff") — revalidates the hash·table-name charsets
+// then inlines the literals.
 func t6DiffRowCount(t *testing.T, r *Repo, from, to, table string) int {
 	t.Helper()
 	if !t6CommitHashRe.MatchString(from) || !t6CommitHashRe.MatchString(to) {
@@ -575,8 +605,9 @@ func t6DiffRowCount(t *testing.T, r *Repo, from, to, table string) int {
 	return n
 }
 
-// t6ClearTelemetry — 계측 테이블 적립 잔여 삭제(newTestRepo는 knowledge·
-// sessions·projects만 비운다 — 계측 테이블은 테스트가 직접 정리).
+// t6ClearTelemetry — deletes the metering tables' residual accruals
+// (newTestRepo empties only knowledge·sessions·projects — the metering
+// tables are cleaned by the tests themselves).
 func t6ClearTelemetry(t *testing.T, r *Repo) {
 	t.Helper()
 	for _, tbl := range []string{"read_events", "hot_events", "knowledge_reads", "session_starts"} {
@@ -586,23 +617,28 @@ func t6ClearTelemetry(t *testing.T, r *Repo) {
 	}
 }
 
-// TestCommitExcludesTelemetryRealSlow — 감사 커밋(Commit)은 계측 테이블을 스테이징하지 않는다. read 1회 상당의
-// read_events 적립 + write/done 상당의 knowledge·sessions 적립 후 Commit
-// 하면 — 커밋 diff에 knowledge ≥1·sessions ≥1·read_events 0행(감사 커밋
-// 순수성·세션 귀속 5테이블 룰링).
+// TestCommitExcludesTelemetryRealSlow — the audit commit (Commit) does
+// not stage the metering tables. After a read-round's worth of
+// read_events accrual + write/done-rounds' worth of knowledge·sessions
+// accrual, Commit yields — in the commit diff, knowledge ≥1·sessions ≥1·
+// read_events 0 rows (audit-commit purity·the 5-table session-
+// attribution ruling).
 func TestCommitExcludesTelemetryRealSlow(t *testing.T) {
 	r := newTestRepo(t)
 	t6ClearTelemetry(t, r)
 	ctx := context.Background()
-	// 베이스라인 — fresh DB(커밋 이력에 계측 테이블이 아직 없는 환경:
-	// Migrate DDL은 working set에만 있다)에서 dolt_diff(prev, head,
-	// 'read_events')가 "table not found"로 실패하지 않게, 계측 테이블을
-	// 먼저 커밋 이력에 올린 뒤 prev를 잡는(게이트 맹점 — fresh DB 검증).
-	// 이미 초기화된 DB에서는 no-op 커밋이라 prev는 마지막 커밋 그대로.
+	// Baseline — on a fresh DB (an environment where the metering tables
+	// are not yet in commit history: the Migrate DDL lives only in the
+	// working set), first put the metering tables into commit history so
+	// dolt_diff(prev, head, 'read_events') does not fail with "table not
+	// found" (a gate blind spot — fresh-DB verification). On an already-
+	// initialized DB this is a no-op commit, so prev stays the last
+	// commit.
 	if err := r.CommitTelemetry(ctx, "t6 baseline"); err != nil {
 		t.Fatalf("베이스라인 CommitTelemetry: %v", err)
 	}
-	// 감사 데이터(knowledge 1행 + sessions 1행) + 계측 데이터(read_events 1행).
+	// Audit data (1 knowledge + 1 sessions row) + metering data (1
+	// read_events row).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (1,false,false,false)`); err != nil {
 		t.Fatalf("read_events 적립: %v", err)
@@ -632,12 +668,14 @@ func TestCommitExcludesTelemetryRealSlow(t *testing.T) {
 	}
 }
 
-// TestCommitTelemetrySeparateRealSlow — CommitTelemetry는 계측 테이블을 스테이징해 'telemetry: <cmd>' 커밋을
-// 만든다 — 감사 커밋 다음 호출에서 read_events diff ≥1행. 전역 스윕
-// (dolt_add('-A'))은 폐지 — 계측 시퀀스(read_events_id_seq 등 4종)는
-// 명시 스테이징하고, 감사 테이블 시퀀스(knowledge_id_seq)는 telemetry
-// 스테이징 대상 밖이라 working set에 남는다(실측 — 감사 변경 흡수
-// 방지가 스윕 폐지 목적).
+// TestCommitTelemetrySeparateRealSlow — CommitTelemetry stages the
+// metering tables and makes the 'telemetry: <cmd>' commit — read_events
+// diff ≥1 row on the call after the audit commit. The global sweep
+// (dolt_add('-A')) is abolished — the metering sequences
+// (read_events_id_seq etc., 4 kinds) are staged explicitly, and the
+// audit-table sequences (knowledge_id_seq) stay in the working set,
+// outside the telemetry staging targets (measured — preventing audit-
+// change absorption was the sweep-abolition purpose).
 func TestCommitTelemetrySeparateRealSlow(t *testing.T) {
 	r := newTestRepo(t)
 	t6ClearTelemetry(t, r)
@@ -646,7 +684,8 @@ func TestCommitTelemetrySeparateRealSlow(t *testing.T) {
 		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (1,false,false,false)`); err != nil {
 		t.Fatalf("read_events 적립: %v", err)
 	}
-	// 감사 커밋 1회 — knowledge_id_seq 잔여가 남는다(테이블 지정 스테이징).
+	// One audit commit — knowledge_id_seq residue remains (table-specified
+	// staging).
 	if _, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("t6-tel-1")}); err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
@@ -664,8 +703,9 @@ func TestCommitTelemetrySeparateRealSlow(t *testing.T) {
 	if n := t6DiffRowCount(t, r, head, head2, "read_events"); n < 1 {
 		t.Fatalf("telemetry 커밋 diff read_events = %d행, want ≥1", n)
 	}
-	// v1.7.2 T1 명시 스테이징 실측 — 계측 시퀀스는 회수, 감사 시퀀스는
-	// working set에 잔존(-A 스윕 폐지 — 감사 테이블 변경 흡수 방지).
+	// The v1.7.2 T1 explicit-staging measurement — metering sequences
+	// recovered, audit sequences residual in the working set (the -A
+	// sweep abolished — preventing absorption of audit-table changes).
 	var telSeqLeft, auditSeqLeft int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM dolt_status WHERE table_name = 'public.read_events_id_seq' AND staged = false`).Scan(&telSeqLeft); err != nil {
@@ -681,25 +721,30 @@ func TestCommitTelemetrySeparateRealSlow(t *testing.T) {
 	if auditSeqLeft != 1 {
 		t.Fatalf("knowledge_id_seq 잔여 %d건, want 1(감사 seq — telemetry 스테이징 대상 밖)", auditSeqLeft)
 	}
-	// telemetry 커밋은 감사 테이블을 흡수하지 않는다(-A 스윕 폐지 핵심).
+	// The telemetry commit does not absorb the audit tables (the core of
+	// the -A-sweep abolition).
 	if n := t6DiffRowCount(t, r, head, head2, "knowledge"); n != 0 {
 		t.Fatalf("telemetry 커밋 diff knowledge = %d행, want 0(-A 스윕 폐지)", n)
 	}
 }
 
-// TestReadAuditAttributionRealSlow — Review Focus(v1.7.2 T1·slow 실측,
-// R38-C1): read 완료 경로의 감사 변경(recall bump INSERT recall_events·meta
-// 증분)은 감사 커밋(Commit)에, 계측 4종(read_events·hot_events·
-// knowledge_reads·session_starts)은 telemetry 커밋(CommitTelemetry)에
-// 귀속한다. 최신 2커밋의 dolt_diff로 실측 — -A 스윕이 감사 변경을 계측
-// 커밋으로 흡수하던 C1 회귀 방어(read.go 완료 경로와 동일한 호출 순서).
+// TestReadAuditAttributionRealSlow — Review Focus (v1.7.2 T1·slow
+// measurement, R38-C1): the read completion path's audit changes (the
+// recall bump INSERT into recall_events·meta increments) are attributed
+// to the audit commit (Commit), and the 4 metering kinds (read_events·
+// hot_events·knowledge_reads·session_starts) to the telemetry commit
+// (CommitTelemetry). Measured via the latest 2 commits' dolt_diff —
+// defense of the C1 regression where the -A sweep absorbed audit
+// changes into the metering commit (the same call order as read.go's
+// completion path).
 func TestReadAuditAttributionRealSlow(t *testing.T) {
 	r := newTestRepo(t)
 	t6ClearTelemetry(t, r)
 	ctx := context.Background()
-	// 베이스라인 — 계측 테이블 삭제분을 커밋 이력에 올리고 감사 원본을
-	// 확보한 뒤 prev를 잡는(fresh DB dolt_diff "table not found" 방어 —
-	// TestCommitExcludesTelemetryRealSlow 관례 승계).
+	// Baseline — put the metering tables' deletions into commit history,
+	// secure the audit originals, then take prev (fresh-DB dolt_diff
+	// "table not found" defense — inheriting the
+	// TestCommitExcludesTelemetryRealSlow convention).
 	if err := r.CommitTelemetry(ctx, "t1 baseline"); err != nil {
 		t.Fatalf("베이스라인 CommitTelemetry: %v", err)
 	}
@@ -710,10 +755,11 @@ func TestReadAuditAttributionRealSlow(t *testing.T) {
 	if _, err := r.Commit(ctx, "test: t1 감사 베이스라인 [session:0]"); err != nil {
 		t.Fatalf("베이스라인 Commit: %v", err)
 	}
-	prev := t6LastCommitHash(t, r) // 감사 커밋 직전 해시(커밋 생성 전에 확보)
-	// read 1회 상당의 적립 — 계측(read_events·knowledge_reads) + 감사
-	// (recall bump INSERT recall_events·meta 증분). hot_events·session_starts
-	// 는 이 실행에 적립 없음(감사 커밋 순수성 단언 대상).
+	prev := t6LastCommitHash(t, r) // the hash just before the audit commit (secured before commit creation)
+	// A read round's worth of accruals — metering (read_events·
+	// knowledge_reads) + audit (the recall bump INSERT into
+	// recall_events·meta increments). hot_events·session_starts get no
+	// accruals in this run (audit-commit purity assertion targets).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (1,false,false,false)`); err != nil {
 		t.Fatalf("read_events 적립: %v", err)
@@ -729,8 +775,8 @@ func TestReadAuditAttributionRealSlow(t *testing.T) {
 		 ON CONFLICT (key) DO UPDATE SET value = ((meta.value::bigint)+1)::text`); err != nil {
 		t.Fatalf("meta 증분: %v", err)
 	}
-	// read 완료 경로 순서(lib/knowledge/read.go v1.7.2 T1) — 감사 커밋 후
-	// 계측 커밋.
+	// The read completion-path order (lib/knowledge/read.go v1.7.2 T1) —
+	// the audit commit then the metering commit.
 	if _, err := r.Commit(ctx, "read: recall bump (read audit attribution)"); err != nil {
 		t.Fatalf("read 감사 커밋: %v", err)
 	}
@@ -745,9 +791,9 @@ func TestReadAuditAttributionRealSlow(t *testing.T) {
 	if telHead == auditHead {
 		t.Fatal("telemetry 커밋이 생성되지 않음(스테이징 0행 의심)")
 	}
-	// 감사 커밋 diff — recall_events(recall bump INSERT)·meta ≥1,
-	// knowledge 0행(회상 경로가 더 이상 knowledge를 갱신하지 않는다 —
-	// v1.9.0 append-only 전환)·계측 4종 0행.
+	// The audit commit diff — recall_events (the recall bump INSERT)·meta
+	// ≥1, knowledge 0 rows (the recall path no longer updates knowledge —
+	// the v1.9.0 append-only switch)·the 4 metering kinds 0 rows.
 	if n := t6DiffRowCount(t, r, prev, auditHead, "recall_events"); n < 1 {
 		t.Fatalf("감사 커밋 diff recall_events = %d행, want ≥1(recall bump 귀속)", n)
 	}
@@ -762,7 +808,8 @@ func TestReadAuditAttributionRealSlow(t *testing.T) {
 			t.Fatalf("감사 커밋 diff %s = %d행, want 0(계측 미스테이징)", tbl, n)
 		}
 	}
-	// telemetry 커밋 diff — 계측 ≥1, 감사(knowledge·meta) 0행.
+	// The telemetry commit diff — metering ≥1, audit (knowledge·meta) 0
+	// rows.
 	if n := t6DiffRowCount(t, r, auditHead, telHead, "read_events"); n < 1 {
 		t.Fatalf("telemetry 커밋 diff read_events = %d행, want ≥1", n)
 	}
@@ -776,12 +823,14 @@ func TestReadAuditAttributionRealSlow(t *testing.T) {
 	}
 }
 
-// TestCommitTelemetryNothingStagedQuiet — 계측 원칙(§13): 스테이징할 게
-// 없으면(정상 working set) 오류가 아니다 — nothing-to-commit 관용.
+// TestCommitTelemetryNothingStagedQuiet — the metering principle (§13):
+// nothing to stage (a normal working set) is not an error — the
+// nothing-to-commit tolerance.
 func TestCommitTelemetryNothingStagedQuiet(t *testing.T) {
 	r := newTestRepo(t)
 	t6ClearTelemetry(t, r)
-	// 커밋 후 working set에서 계측 잔여를 소진시킨 상태를 만든다.
+	// Create a state where the metering residue is drained from the
+	// working set by a commit.
 	if err := r.CommitTelemetry(context.Background(), "read"); err != nil {
 		t.Fatalf("1회차 CommitTelemetry: %v", err)
 	}
@@ -790,12 +839,14 @@ func TestCommitTelemetryNothingStagedQuiet(t *testing.T) {
 	}
 }
 
-// TestInsertBatchCommitRaceClassifiedRealSlow — 결정론적 교차로 실 Doltgres
-// 커밋 시점 위반을 일으켜, 실제 오류 메시지가 mapInsertErr 분류에 잡히는지
-// 검증한다(Dolt 메시지 드리프트 방어 — 실측 2026-11-17: XX000 +
-// "constraint violations, transaction rolled back"). 교차: txA가 동일
-// content_hash 삽입 후 보류 중 txB가 같은 해시를 삽입·커밋(승자)하면
-// txA의 커밋이 working set 제약 위반으로 롤백된다.
+// TestInsertBatchCommitRaceClassifiedRealSlow — induces a real
+// Doltgres commit-time violation with a deterministic crossing and
+// verifies that the actual error message is caught by mapInsertErr's
+// classification (Dolt message-drift defense — measured 2026-11-17:
+// XX000 + "constraint violations, transaction rolled back"). Crossing:
+// with txA having inserted an identical content_hash and pending, txB
+// inserts the same hash and commits (the winner) — txA's commit rolls
+// back as a working-set constraint violation.
 func TestInsertBatchCommitRaceClassifiedRealSlow(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

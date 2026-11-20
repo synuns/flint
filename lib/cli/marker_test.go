@@ -1,4 +1,4 @@
-// marker_test.go — 마커 헬퍼: pending-distill.json 기록·조회·삭제 라운드트립.
+// marker_test.go — the marker helpers: a pending-distill.json write/read/delete round trip.
 package cli
 
 import (
@@ -8,8 +8,8 @@ import (
 	"time"
 )
 
-// test_marker_roundtrip — WriteMarker 후 ReadMarker가 session·reason을 그대로 돌려주고
-// ClearMarker가 파일을 지우면 (nil, nil)이 되는지.
+// test_marker_roundtrip — after WriteMarker, ReadMarker returns session and reason as-is, and
+// ClearMarker removing the file leaves (nil, nil).
 func TestMarkerRoundtrip(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
@@ -39,7 +39,7 @@ func TestMarkerRoundtrip(t *testing.T) {
 	}
 }
 
-// test_marker_absent_nil — 마커 파일이 없으면 ReadMarker (nil, nil), ClearMarker nil.
+// test_marker_absent_nil — without a marker file, ReadMarker (nil, nil) and ClearMarker nil.
 func TestMarkerAbsentNil(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
@@ -52,7 +52,7 @@ func TestMarkerAbsentNil(t *testing.T) {
 	}
 }
 
-// test_marker_corrupt_nil — 파손된 JSON이면 (nil, err).
+// test_marker_corrupt_nil — with corrupt JSON, (nil, err).
 func TestMarkerCorruptNil(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -66,7 +66,7 @@ func TestMarkerCorruptNil(t *testing.T) {
 	}
 }
 
-// TestMarkerFileConfigDir — MarkerFile은 configDir/pending-distill.json 경로를 따른다.
+// TestMarkerFileConfigDir — MarkerFile follows the configDir/pending-distill.json path.
 func TestMarkerFileConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

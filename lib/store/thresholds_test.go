@@ -5,7 +5,7 @@ import (
 	"testing"
 )
 
-// TestThresholdsDefaults — 미설정 키는 기본값 50·20·0.8·3.
+// TestThresholdsDefaults — unset keys give the defaults 50, 20, 0.8, 3.
 func TestThresholdsDefaults(t *testing.T) {
 	got, err := ParseThresholds(nil)
 	if err != nil {
@@ -17,7 +17,7 @@ func TestThresholdsDefaults(t *testing.T) {
 	}
 }
 
-// TestThresholdsPartialSet — 일부 키만 설정 시 나머지 기본값.
+// TestThresholdsPartialSet — with only some keys set, the rest get defaults.
 func TestThresholdsPartialSet(t *testing.T) {
 	got, err := ParseThresholds([][2]any{
 		{"pending_max", "50"},
@@ -32,7 +32,7 @@ func TestThresholdsPartialSet(t *testing.T) {
 	}
 }
 
-// TestThresholdsAllSet — 전 키 설정 값 반영.
+// TestThresholdsAllSet — every key's set value is reflected.
 func TestThresholdsAllSet(t *testing.T) {
 	got, err := ParseThresholds([][2]any{
 		{"pending_max", "10"},
@@ -49,7 +49,7 @@ func TestThresholdsAllSet(t *testing.T) {
 	}
 }
 
-// TestThresholdsConfFloorBoundaries — conf_floor 0·1·문자열 거부 시 기본값.
+// TestThresholdsConfFloorBoundaries — conf_floor 0, 1, and string rejection give defaults.
 func TestThresholdsConfFloorBoundaries(t *testing.T) {
 	cases := []struct {
 		name string
@@ -73,7 +73,7 @@ func TestThresholdsConfFloorBoundaries(t *testing.T) {
 	}
 }
 
-// TestThresholdsInvalidFallback — 정수 키 잘못된 값은 기본값+경고(에러 아님).
+// TestThresholdsInvalidFallback — an integer key's invalid value gives defaults + a warning (not an error).
 func TestThresholdsInvalidFallback(t *testing.T) {
 	got, err := ParseThresholds([][2]any{
 		{"pending_max", "abc"},
@@ -94,7 +94,7 @@ func TestThresholdsInvalidFallback(t *testing.T) {
 	}
 }
 
-// TestThresholdsNonStringValues — 값이 숫자 타입으로 와도 파싱.
+// TestThresholdsNonStringValues — values arriving as numeric types still parse.
 func TestThresholdsNonStringValues(t *testing.T) {
 	got, err := ParseThresholds([][2]any{
 		{"pending_max", 30},
@@ -111,7 +111,7 @@ func TestThresholdsNonStringValues(t *testing.T) {
 	}
 }
 
-// TestThresholdsUnknownKeyIgnored — 모르는 키는 무시.
+// TestThresholdsUnknownKeyIgnored — unknown keys are ignored.
 func TestThresholdsUnknownKeyIgnored(t *testing.T) {
 	got, err := ParseThresholds([][2]any{{"unknown_key", "999"}})
 	if err != nil {

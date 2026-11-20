@@ -1,10 +1,12 @@
-// write_test.go — write 5단계
-// 파이프라인 계약 — dedup·레이스 재확인·경고 병합. 계약 불변: duplicate
-// 줄은 skip(신규 줄 부분 커밋), 전부 duplicate 재실행은 0건 커밋·exit 0
-// "duplicate"(시딩 멱등), 2줄 이상 출력은 집계형(inserted·duplicates·
-// 커밋 hash), 단일 줄 출력은 기존 불변. 레이스(InsertBatch ErrDuplicate)는
-// 재확인 skip + 잔여 재시도로 신규줄 유실 제거. dispatch(mustRun) 경유
-// 테스트는 cli 잔류(write_v06 등)가 담당 — 여기선 RunWrite 직접 호출.
+// write_test.go — the write five-stage pipeline contract — dedup·race
+// recheck·warning merging. Contract invariants: duplicate lines are
+// skipped (new lines partially committed); an all-duplicate rerun is a
+// zero-row commit·exit 0 "duplicate" (seeding idempotence); output of 2+
+// lines is aggregate (inserted·duplicates·commit hash); single-line
+// output stays as before. A race (InsertBatch ErrDuplicate) removes new
+// -line loss via recheck skip + one retry of the remainder. dispatch
+// (mustRun)-mediated tests belong to the cli residual (write_v06 etc.)
+// — this file calls RunWrite directly.
 package knowledge
 
 import (
@@ -24,27 +26,28 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// fakeStore — wire.Store 인터페이스 fake(cli_test.go 관례 이동분). stub
-// 필드(exists·*Err)는 지정 시 우선되고, rows·queryFn 미지정 시 영(零)
-// 동작을 반환한다.
+// fakeStore — the wire.Store interface fake (moved from the cli_test.go
+// convention). Stub fields (exists·*Err) take precedence when set; with
+// rows·queryFn unset it returns a no-op.
 type fakeStore struct {
 	wire.HistoryStubs
 
-	// stub 조건
+	// stub conditions
 	exists        bool
 	existsErr     error
-	existsProject map[string]bool // name별 존재 판정(nil이면 전부 false)
+	existsProject map[string]bool // per-name existence (nil means all false)
 	insertErr     error
 	commitErr     error
 	pingErr       error
 	queryErr      error
 	rows          [][]any
 	queryFn       func(sql string, args []any) ([][]any, error)
-	// hashExistsFn — content_hash = ANY($1) 배치 dedup 조회의
-	// 해시별 응답(미지정 시 exists 플래그로 전 해시 균일 응답).
+	// hashExistsFn — the per-hash response of the content_hash = ANY($1)
+	// batch dedup lookup (unset: the exists flag answers uniformly for
+	// all hashes).
 	hashExistsFn func(hash string) (DupMeta, bool)
 
-	// 기록
+	// recording
 	inserted []map[string]any
 	commits  []string
 	queries  []string
@@ -66,7 +69,7 @@ func (f *fakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return f.exists, f.existsErr
 }
 func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
-	return f.existsProject[name], nil // nil map 조회는 false(영 동작)
+	return f.existsProject[name], nil // a nil map lookup is false (no-op)
 }
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	f.commits = append(f.commits, msg)
@@ -85,8 +88,9 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	if f.queryFn != nil {
 		return f.queryFn(sql, args)
 	}
-	// 배치 dedup 조회(content_hash = ANY($1)) 응답 — 해시별
-	// hashExistsFn(미지정 시 exists 플래그)로 기존 행 메타 행을 만든다.
+	// The batch dedup lookup (content_hash = ANY($1)) response — builds
+	// existing-row meta rows from the per-hash hashExistsFn (unset: the
+	// exists flag).
 	if strings.Contains(sql, "content_hash = ANY($1)") {
 		if hashes, ok := args[0].([]string); ok {
 			var rows [][]any
@@ -105,8 +109,9 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return f.rows, nil
 }
 
-// run — RunWrite 직접 실행 + 출력 반환(dispatch 토큰 "write"는 제외한
-// args). cli mustRun 경유 테스트와 동일 계약, 저장소 주입만 명시적.
+// run — runs RunWrite directly + returns the output (args exclude the
+// dispatch token "write"). The same contract as the cli mustRun-mediated
+// tests; only the store injection is explicit.
 func run(t *testing.T, st wire.Store, args []string, stdin string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -123,13 +128,14 @@ func decode(t *testing.T, line string) map[string]any {
 	return m
 }
 
-// TestWriteJSONLMixedCommitsNew — 신규+duplicate 혼합: duplicate 줄은 skip,
-// 신규 줄만 커밋(부분 커밋). exit 0·inserted=1·duplicates=1.
+// TestWriteJSONLMixedCommitsNew — new+duplicate mixed: duplicate lines
+// are skipped, only new lines commit (partial commit). exit 0·inserted=1·
+// duplicates=1.
 func TestWriteJSONLMixedCommitsNew(t *testing.T) {
 	calls := 0
 	f := &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
 		calls++
-		return DupMeta{ID: 11}, calls == 1 // 첫 줄(rv-b)만 기존 레코드
+		return DupMeta{ID: 11}, calls == 1 // only the first line (rv-b) is an existing record
 	}}
 	jsonl := `{"topic":"rv-b","summary":"existing","confidence":0.9}` + "\n" +
 		`{"topic":"rv-c","summary":"fresh","confidence":0.9}`
@@ -149,8 +155,9 @@ func TestWriteJSONLMixedCommitsNew(t *testing.T) {
 	}
 }
 
-// TestWriteJSONLAllDuplicateIdempotent — 전부 duplicate 재실행: 0건 커밋·
-// exit 0·{"status":"duplicate"} 한 줄(시딩 멱등 계약).
+// TestWriteJSONLAllDuplicateIdempotent — an all-duplicate rerun:
+// zero-row commit·exit 0·one {"status":"duplicate"} line (the seeding
+// idempotence contract).
 func TestWriteJSONLAllDuplicateIdempotent(t *testing.T) {
 	f := &fakeStore{exists: true}
 	jsonl := `{"topic":"sd-a","summary":"a","confidence":0.9}` + "\n" +
@@ -167,8 +174,9 @@ func TestWriteJSONLAllDuplicateIdempotent(t *testing.T) {
 	}
 }
 
-// TestWriteJSONLMultiOutputNoFieldMix — 2신규(pending+active 혼합 confidence):
-// 다중 줄 출력에 id·state 없음·inserted=2·hash는 실제 커밋 1개(커밋 해시).
+// TestWriteJSONLMultiOutputNoFieldMix — 2 new lines (mixed confidence
+// yielding pending+active): the multi-line output has no id·state,
+// inserted=2, and hash is the one actual commit (the commit hash).
 func TestWriteJSONLMultiOutputNoFieldMix(t *testing.T) {
 	f := &fakeStore{}
 	jsonl := `{"topic":"mx-a","summary":"low","confidence":0.5}` + "\n" +
@@ -198,10 +206,12 @@ func TestWriteJSONLMultiOutputNoFieldMix(t *testing.T) {
 	}
 }
 
-// raceDupStore — 레이스 재현 fake: 사전 ExistsHash는 전부 통과(false),
-// InsertBatch 첫 호출만 store.ErrDuplicate(동시 삽입으로 트랜잭션 롤백).
-// 이후 ExistsHash는 앞 racedDups줄만 존재(true)로 응답(재확인 시점).
-// failRetry면 재시도 배치도 계속 ErrDuplicate(실제 충돌).
+// raceDupStore — the race-reproducing fake: the pre-ExistsHash passes
+// everything (false), only the first InsertBatch call returns
+// store.ErrDuplicate (a transaction rollback from a concurrent insert).
+// Subsequent ExistsHash answers true only for the first racedDups lines
+// (the recheck point). With failRetry, the retry batch also keeps
+// failing ErrDuplicate (an actual collision).
 type raceDupStore struct {
 	*fakeStore
 	insertCalls int
@@ -220,15 +230,17 @@ func (r *raceDupStore) InsertBatch(ctx context.Context, recs []map[string]any) (
 
 func (r *raceDupStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	if r.insertCalls == 0 {
-		return false, nil // 사전 확인: 전부 신규로 통과
+		return false, nil // pre-check: everything passes as new
 	}
 	r.rechecks++
-	return r.rechecks <= r.racedDups, nil // 재확인: 앞 racedDups줄만 동시 삽입됨
+	return r.rechecks <= r.racedDups, nil // recheck: only the first racedDups lines were concurrently inserted
 }
 
-// TestWriteRaceRecoversNewLines — 레이스(사전 확인 통과 후 배치에서 일부만
-// 동시 삽입): 재확인으로 존재 줄은 skip, 신규 줄은 재시도로 커밋(회귀: 전체
-// 롤백 + exit 0 "duplicate"로 신규줄 유실). inserted=1·duplicates=1.
+// TestWriteRaceRecoversNewLines — a race (pre-check passes, then only
+// some lines are concurrently inserted in the batch): the recheck skips
+// existing lines and the retry commits the new lines (regression: a full
+// rollback + exit 0 "duplicate" lost the new lines). inserted=1·
+// duplicates=1.
 func TestWriteRaceRecoversNewLines(t *testing.T) {
 	f := &fakeStore{}
 	rs := &raceDupStore{fakeStore: f, racedDups: 1}
@@ -253,8 +265,9 @@ func TestWriteRaceRecoversNewLines(t *testing.T) {
 	}
 }
 
-// TestWriteRaceAllDupIdempotent — 레이스 후 재확인에서 전부 존재: 신규줄
-// 유실 없이 0건 커밋·exit 0 "duplicate"(시딩 멱등 계약 유지).
+// TestWriteRaceAllDupIdempotent — after the race, the recheck finds
+// everything existing: zero-row commit·exit 0 "duplicate" with no
+// new-line loss (the seeding idempotence contract kept).
 func TestWriteRaceAllDupIdempotent(t *testing.T) {
 	f := &fakeStore{}
 	rs := &raceDupStore{fakeStore: f, racedDups: 1}
@@ -274,9 +287,10 @@ func TestWriteRaceAllDupIdempotent(t *testing.T) {
 	}
 }
 
-// TestWriteRaceRetryConflictErrors — 재확인을 통과한 줄의 재시도까지
-// ErrDuplicate면 실제 충돌: exit 0 "duplicate"가 아닌 에러 보고(회귀: 유실
-// 가능한 경로의 exit 0 성공 위장).
+// TestWriteRaceRetryConflictErrors — if even the retry of a line that
+// passed the recheck yields ErrDuplicate, it is an actual collision: an
+// error report, not exit 0 "duplicate" (regression: an exit 0 success
+// disguise on a lossy path).
 func TestWriteRaceRetryConflictErrors(t *testing.T) {
 	f := &fakeStore{}
 	rs := &raceDupStore{fakeStore: f, failRetry: true}
@@ -296,9 +310,11 @@ func TestWriteRaceRetryConflictErrors(t *testing.T) {
 	}
 }
 
-// raceProjectStore — project 레이스 재현 fake: 사전 ExistsProject는 전부
-// 통과(false), InsertBatch 첫 호출만 store.ErrDuplicate(동시 삽입 롤백),
-// 이후 ExistsProject는 존재(true)로 응답(재확인 시점 — 자연키 name 확인).
+// raceProjectStore — the project-race-reproducing fake: the pre-
+// ExistsProject passes everything (false), only the first InsertBatch
+// call returns store.ErrDuplicate (a concurrent-insert rollback), and
+// subsequent ExistsProject answers true (the recheck point — the
+// natural-key name check).
 type raceProjectStore struct {
 	*fakeStore
 	insertCalls int
@@ -316,10 +332,12 @@ func (r *raceProjectStore) ExistsProject(ctx context.Context, name string) (bool
 	return r.insertCalls > 0, nil
 }
 
-// TestWriteProjectKindDedup — project kind 자연키(name) 줄별 dedup: 기존
-// name 줄은 skip, 신규 줄만 커밋·duplicates=1·exit 0(회귀: project는
-// content_hash가 없어 사전 dedup·재확인 모두 불가 → InsertBatch unique(name)
-// 충돌 → 재시도 재충돌 "batch conflict" 에러로 첫 시딩 실패).
+// TestWriteProjectKindDedup — per-line dedup on the project kind's
+// natural key (name): lines with an existing name are skipped, only new
+// lines commit·duplicates=1·exit 0 (regression: project has no
+// content_hash, so neither pre-dedup nor recheck is possible →
+// InsertBatch unique(name) collision → the retry re-collides with a
+// "batch conflict" error, failing the first seeding).
 func TestWriteProjectKindDedup(t *testing.T) {
 	t.Run("pre-check mixed", func(t *testing.T) {
 		f := &fakeStore{existsProject: map[string]bool{"데모 게임 프로젝트": true}}
@@ -360,15 +378,16 @@ func TestWriteProjectKindDedup(t *testing.T) {
 	})
 }
 
-// countCall — RecordUsageCount 호출 기록(kind, source, count).
+// countCall — a recorded RecordUsageCount call (kind, source, count).
 type countCall struct {
 	kind, source string
 	n            int
 }
 
-// countRecorder — RecordUsage(1회)·RecordUsageCount(일괄) 호출을 녹음하는
-// fake: realStore 계측 세임(#5: dup N을 1회 호출로 일괄 증분). dedup 시나리오
-// 는 fakeStore.hashExistsFn(배치 ANY($1) 조회 응답)로 지정한다.
+// countRecorder — a fake recording RecordUsage (single)·
+// RecordUsageCount (bulk) calls: the realStore metering seam (#5: dup N
+// incremented in bulk with one call). Dedup scenarios are specified via
+// fakeStore.hashExistsFn (the batch ANY($1) lookup response).
 type countRecorder struct {
 	*fakeStore
 	singles []countCall
@@ -385,10 +404,10 @@ func (c *countRecorder) RecordUsageCount(ctx context.Context, kind, source strin
 	return nil
 }
 
-// TestWriteDupBatchSingleCountCall — dup 계측은 줄 수와 무관하게 각 키
-// RecordUsageCount 1회 호출(회귀: recordDups가 RecordUsage를 N회 루프 — O(N)
-// 읽기-쓰기). write 1회(RecordUsage)·총계 dup N + 소스 dup_<source> N
-// (RecordUsageCount 각 1회).
+// TestWriteDupBatchSingleCountCall — dup metering is one RecordUsageCount
+// call per key regardless of line count (regression: recordDups looped
+// RecordUsage N times — O(N) read-writes). write ×1 (RecordUsage)·total
+// dup N + source dup_<source> N (one RecordUsageCount each).
 func TestWriteDupBatchSingleCountCall(t *testing.T) {
 	t.Run("all-dup", func(t *testing.T) {
 		c := &countRecorder{fakeStore: &fakeStore{exists: true}}
@@ -412,7 +431,7 @@ func TestWriteDupBatchSingleCountCall(t *testing.T) {
 		calls := 0
 		c := &countRecorder{fakeStore: &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
 			calls++
-			return DupMeta{}, calls <= 2 // 첫 2줄만 기존 레코드
+			return DupMeta{}, calls <= 2 // only the first 2 lines are existing records
 		}}}
 		jsonl := `{"topic":"rv-e","summary":"a","confidence":0.9}` + "\n" +
 			`{"topic":"rv-f","summary":"b","confidence":0.9}` + "\n" +
@@ -435,8 +454,9 @@ func TestWriteDupBatchSingleCountCall(t *testing.T) {
 	})
 }
 
-// TestWriteAllDuplicateKeepsWarnings — 전부 duplicate여도 경고(비밀 스캔)는
-// 폐기되지 않는다(회귀: recs==0 분기가 경고 없이 duplicate 한 줄만 출력).
+// TestWriteAllDuplicateKeepsWarnings — even an all-duplicate run does
+// not discard the warnings (secret scan) (regression: the recs==0 branch
+// printed only the duplicate line without warnings).
 func TestWriteAllDuplicateKeepsWarnings(t *testing.T) {
 	f := &fakeStore{exists: true}
 	out, code := run(t, f, []string{"knowledge"},
@@ -454,11 +474,12 @@ func TestWriteAllDuplicateKeepsWarnings(t *testing.T) {
 	}
 }
 
-// ── write 배치 dedup — 줄별 lookupHash(N왕복) 대신
-// lookupHashBatch(content_hash = ANY($1) 청크) 1회 조회. 단발(1행 hook
-// 패턴)은 기존 줄별 조회 계약 불변. ──
+// ── write batch dedup — one lookupHashBatch (content_hash = ANY($1)
+// chunks) lookup instead of per-line lookupHash (N round trips). The
+// single-shot (1-row hook pattern) keeps the per-line lookup contract. ──
 
-// dedupQueryCount — 기록된 질의 중 배치 dedup(ANY($1)) 질의 수.
+// dedupQueryCount — the number of batch dedup (ANY($1)) queries among
+// the recorded queries.
 func dedupQueryCount(f *fakeStore) int {
 	n := 0
 	for _, q := range f.queries {
@@ -469,14 +490,16 @@ func dedupQueryCount(f *fakeStore) int {
 	return n
 }
 
-// TestWriteMultiLineDedupBatchQuery — 다중 줄 사전 dedup은 줄 수와 무관하게
-// ANY($1) 배치 질의 1회(회귀: 줄별 조회 N왕복 — 50k행 RTT 지배). 감지
-// 동일성: 기존 줄 skip·신규 줄 부분 커밋·duplicates 계수 불변.
+// TestWriteMultiLineDedupBatchQuery — the multi-line pre-dedup is one
+// ANY($1) batch query regardless of line count (regression: per-line
+// lookups N round trips — RTT-dominated at 50k rows). Detection
+// identical: existing lines skipped·new lines partially committed·the
+// duplicates count unchanged.
 func TestWriteMultiLineDedupBatchQuery(t *testing.T) {
 	calls := 0
 	f := &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
 		calls++
-		return DupMeta{ID: calls}, calls == 2 // 둘째 줄만 기존 행
+		return DupMeta{ID: calls}, calls == 2 // only the second line is an existing row
 	}}
 	var lines []string
 	for _, topic := range []string{"wb-a", "wb-b", "wb-c", "wb-d"} {
@@ -502,11 +525,12 @@ func TestWriteMultiLineDedupBatchQuery(t *testing.T) {
 	}
 }
 
-// TestWriteSingleLineDedupKeepsRowLookup — 단발(1행 hook 패턴)은 배치
-// 질의로 전환하지 않는다: ANY($1) 질의 0회·ExistsHash 줄별 조회 그대로
-// (DupMetaStore→DupIDStore→ExistsHash 폴백 계약 불변).
+// TestWriteSingleLineDedupKeepsRowLookup — the single-shot (1-row hook
+// pattern) does not switch to the batch query: 0 ANY($1) queries·the
+// per-line ExistsHash lookup as before (the DupMetaStore→DupIDStore→
+// ExistsHash fallback contract unchanged).
 func TestWriteSingleLineDedupKeepsRowLookup(t *testing.T) {
-	f := &fakeStore{exists: true} // ExistsHash 폴백 경로
+	f := &fakeStore{exists: true} // the ExistsHash fallback path
 	out, code := run(t, f, []string{"knowledge"},
 		`{"topic":"sl-a","summary":"단발 합성","confidence":0.9}`)
 	if code != 0 {
@@ -520,8 +544,9 @@ func TestWriteSingleLineDedupKeepsRowLookup(t *testing.T) {
 	}
 }
 
-// TestWriteMultiLineBatchLookupErrorExits — 배치 dedup 조회 오류는 조용한
-// 신규 판정 없이 전파(오류 계약: 서버다운 exit 2 — 래핑을 거쳐도 보존).
+// TestWriteMultiLineBatchLookupErrorExits — a batch dedup lookup error
+// propagates without a silent new verdict (the error contract:
+// server-down exit 2 — preserved even through wrapping).
 func TestWriteMultiLineBatchLookupErrorExits(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "content_hash = ANY($1)") {
@@ -543,8 +568,9 @@ func TestWriteMultiLineBatchLookupErrorExits(t *testing.T) {
 	}
 }
 
-// TestWriteMultiLineDedupChunked — 배치 질의도 청크 경계를 넘으면 청크
-// 수만큼 발화(lookupHashBatch importDedupChunk 재사용 — 경계 축소 검증).
+// TestWriteMultiLineDedupChunked — the batch query also fires once per
+// chunk across chunk boundaries (lookupHashBatch reusing importDedupChunk
+// — boundary-shrink verification).
 func TestWriteMultiLineDedupChunked(t *testing.T) {
 	saved := importDedupChunk
 	importDedupChunk = 2
@@ -552,7 +578,7 @@ func TestWriteMultiLineDedupChunked(t *testing.T) {
 	calls := 0
 	f := &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
 		calls++
-		return DupMeta{}, calls <= 2 // 첫 2줄만 기존 행
+		return DupMeta{}, calls <= 2 // only the first 2 lines are existing rows
 	}}
 	var lines []string
 	for _, topic := range []string{"ck-a", "ck-b", "ck-c", "ck-d", "ck-e"} {
@@ -571,8 +597,9 @@ func TestWriteMultiLineDedupChunked(t *testing.T) {
 	}
 }
 
-// BenchmarkWriteMultiLinePipeline — 합성 다중 줄 write 파이프라인(검증→
-// 살균→해시→배치 dedup→적립)의 줄당 CPU 비용(fake 저장소 — RTT 제외).
+// BenchmarkWriteMultiLinePipeline — the per-line CPU cost of the
+// synthetic multi-line write pipeline (validate→sanitize→hash→batch
+// dedup→accrue) (a fake store — RTT excluded).
 func BenchmarkWriteMultiLinePipeline(b *testing.B) {
 	const lines = 2000
 	var buf strings.Builder
@@ -590,8 +617,9 @@ func BenchmarkWriteMultiLinePipeline(b *testing.B) {
 	}
 }
 
-// writeRealDSN — SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만 실DB 접속
-// 허용(cli seamRealDSN·importRealDSN 계약 승계 — 운영 폴백 차단).
+// writeRealDSN — real-DB connection allowed only with SUPERLITE_REAL=1 +
+// FLINT_TEST_DSN set (inheriting the cli seamRealDSN·importRealDSN
+// contract — operational fallback blocked).
 func writeRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -603,14 +631,16 @@ func writeRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// writeRealStore — db.Repo 쓰기 + 풀 읽기 어댑터(importRealStore 관례).
+// writeRealStore — the db.Repo write + pool read adapter (the
+// importRealStore convention).
 type writeRealStore struct {
 	*db.Repo
 	pool *pgxpool.Pool
 }
 
-// 히스토리 계약 중 db.Repo 미구현 4메서드는 미지원 반환(LogEntries는
-// *db.Repo 임베딩 승계 — wire.HistoryStubs와 동일 의미의 명시 흡수).
+// Of the history contract, the 4 methods db.Repo does not implement
+// return unsupported (LogEntries is inherited via the *db.Repo embedding
+// — an explicit absorption with the same meaning as wire.HistoryStubs).
 func (s *writeRealStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
 	return nil, wire.ErrHistoryUnsupported
 }
@@ -651,9 +681,11 @@ func (s *writeRealStore) Close() {
 	s.pool.Close()
 }
 
-// TestWriteBatchDedupRealSlow — 실DB slow 벤치: 합성 5k줄 1차 적립(신규)
-// ·2차 재전송(전부 duplicate)의 배치 dedup 완복 시간. 줄별 조회 대비
-// 환산 수치를 로그로 남긴다(합성 데모 데이터만 — 태그로 행 정리).
+// TestWriteBatchDedupRealSlow — the real-DB slow benchmark: the
+// round-trip times of the batch dedup for a first accrual (new) of 5k
+// synthetic lines·a second resend (all duplicates). The converted
+// per-line-lookup comparison figures are logged (synthetic demo data
+// only — rows cleaned by tag).
 func TestWriteBatchDedupRealSlow(t *testing.T) {
 	dsn, ok := writeRealDSN()
 	if !ok {
@@ -674,7 +706,7 @@ func TestWriteBatchDedupRealSlow(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatalf("migrate 실패: %v", err)
 	}
-	const tag = "wt3-합성-" // topic 접두사(정리 마커) — tags는 어휘 경고를 만들어 벤치 출력을 오염시키므로 쓰지 않는다
+	const tag = "wt3-합성-" // the topic prefix (cleanup marker) — tags are unused since they produce vocabulary warnings polluting the bench output
 	const lines = 5000
 	cleanup := func() {
 		_, _ = st.Query(ctx, `DELETE FROM knowledge WHERE topic LIKE $1 || '%'`, tag)
@@ -706,14 +738,15 @@ func TestWriteBatchDedupRealSlow(t *testing.T) {
 	if strings.TrimSpace(out2.String()) != `{"status":"duplicate"}` {
 		t.Fatalf("2차 재전송 출력=%q, want duplicate(멱등)", out2.String())
 	}
-	// 50k 환산(선형 근사 — 벤치 기록용 로그).
+	// A 50k conversion (linear approximation — a log for the benchmark
+	// record).
 	t.Logf("실DB 배치 dedup: 1차(신규 %d줄)=%v·2차(전부 dup)=%v·50k 환산 1차≈%v·2차≈%v",
 		lines, fresh.Round(time.Millisecond), rerun.Round(time.Millisecond),
 		(fresh * 10).Round(time.Millisecond), (rerun * 10).Round(time.Millisecond))
 }
 
-// TestSanitizePayloadTagsSecrets — tags 배열
-// 원소·domain에도 살균·비밀 스캔이 적용된다(이전 사각지대).
+// TestSanitizePayloadTagsSecrets — sanitization·secret scanning also
+// apply to tags array elements·domain (formerly blind spots).
 func TestSanitizePayloadTagsSecrets(t *testing.T) {
 	p := map[string]any{
 		"topic":  "토픽",
@@ -725,8 +758,9 @@ func TestSanitizePayloadTagsSecrets(t *testing.T) {
 	if !strings.Contains(joined, "possible secret") {
 		t.Errorf("비밀 경고 없음: %v", warns)
 	}
-	// 비밀은 경고 후 저장 허용이 기존 룰링(문자열 필드와 동일 계약) —
-	// 여기선 경고 발화와 마커 중립화를 각각 단언한다.
+	// Allowing storage after a secret warning is the existing ruling (the
+	// same contract as string fields) — here the warning firing and the
+	// marker neutralization are each asserted.
 	p2 := map[string]any{"tags": []any{"a[flint]b"}}
 	_ = SanitizePayload(p2)
 	if raw, _ := p2["tags"].([]any); len(raw) > 0 {
@@ -736,9 +770,10 @@ func TestSanitizePayloadTagsSecrets(t *testing.T) {
 	}
 }
 
-// ── write stdin 행 수 상한(export_import_max_rows 재사용). ──
+// ── The write stdin row cap (reusing export_import_max_rows). ──
 
-// writeMaxRowsFixture — 상한 검증용 합성 knowledge N줄 stdin(해시 충돌 없음).
+// writeMaxRowsFixture — a synthetic N-line knowledge stdin for the cap
+// checks (no hash collisions).
 func writeMaxRowsFixture(n int) string {
 	var b strings.Builder
 	for i := 1; i <= n; i++ {
@@ -747,9 +782,10 @@ func writeMaxRowsFixture(n int) string {
 	return b.String()
 }
 
-// TestRunWriteMaxRowsExceeded — stdin 줄 수가 상한을
-// 초과하면 exit 3·오류 JSON에 max·count가 포함되고 적립은 발생하지
-// 않는다(import enforce와 동형 — 대량 stdin 전량 적립의 메모리 방어).
+// TestRunWriteMaxRowsExceeded — when the stdin line count exceeds the
+// cap, exit 3·the error JSON includes max·count, and no accrual happens
+// (the same shape as the import enforcement — memory defense against
+// accruing a huge stdin in full).
 func TestRunWriteMaxRowsExceeded(t *testing.T) {
 	f := maxRowsFake("2")
 	out, code := run(t, f, []string{"knowledge"}, writeMaxRowsFixture(3))
@@ -765,8 +801,9 @@ func TestRunWriteMaxRowsExceeded(t *testing.T) {
 	}
 }
 
-// TestRunWriteMaxRowsBoundary — 상한과 같은 줄 수는 통과(count == max
-// 허용 — 초과만 차단. import 경계 계약과 동일).
+// TestRunWriteMaxRowsBoundary — a line count equal to the cap passes
+// (count == max allowed — only the excess is blocked. The same boundary
+// contract as import).
 func TestRunWriteMaxRowsBoundary(t *testing.T) {
 	f := maxRowsFake("2")
 	out, code := run(t, f, []string{"knowledge"}, writeMaxRowsFixture(2))
@@ -775,12 +812,14 @@ func TestRunWriteMaxRowsBoundary(t *testing.T) {
 	}
 }
 
-// ── 단일 payload 필드 바이트 상한(상수 — compact 8MiB 정합). ──
+// ── The per-payload field byte cap (a constant — aligned with compact's
+// 8MiB). ──
 
-// TestRunWriteFieldBytesExceeded — 단일 필드 값이
-// maxPayloadFieldBytes(compactMaxBytes 8MiB 정합)를 초과하면 Validate 단계에서
-// 거부(exit 3)되고 적립은 발생하지 않는다(대형 필드가 살균·해시·적립으로
-// 흐르는 무상한 OOM 방어 — 초과만 차단).
+// TestRunWriteFieldBytesExceeded — when a single field value exceeds
+// maxPayloadFieldBytes (aligned with compactMaxBytes 8MiB), it is
+// rejected at the Validate stage (exit 3) and no accrual happens
+// (unbounded-OOM defense against a huge field flowing into
+// sanitize·hash·accrue — only the excess is blocked).
 func TestRunWriteFieldBytesExceeded(t *testing.T) {
 	f := &fakeStore{}
 	big := strings.Repeat("a", maxPayloadFieldBytes+1)
@@ -798,8 +837,9 @@ func TestRunWriteFieldBytesExceeded(t *testing.T) {
 	}
 }
 
-// TestRunWriteFieldBytesBoundary — 정확히 상한 크기는 통과(초과만 차단),
-// 여러 필드가 각각 상한 이내면 총량이 넘어도 통과(상한은 단일 필드 기준).
+// TestRunWriteFieldBytesBoundary — exactly the cap size passes (only the
+// excess is blocked); several fields each within the cap pass even if
+// the total exceeds it (the cap is per single field).
 func TestRunWriteFieldBytesBoundary(t *testing.T) {
 	f := &fakeStore{}
 	ok := strings.Repeat("b", maxPayloadFieldBytes)
@@ -814,11 +854,13 @@ func TestRunWriteFieldBytesBoundary(t *testing.T) {
 	}
 }
 
-// ── 동시 write 레이스 survive — slow 실DB 병렬 회귀. ──
+// ── The concurrent write race survive — a slow real-DB parallel
+// regression. ──
 
-// openWriteRealStore — SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만 실DB
-// 저장소를 만든다(writeRealDSN 계약 승계 — 운영 폴백 차단). DSN도 함께
-// 반환(레이스 상대 라이터용 추가 접속).
+// openWriteRealStore — builds the real-DB store only with
+// SUPERLITE_REAL=1 + FLINT_TEST_DSN set (inheriting the writeRealDSN
+// contract — operational fallback blocked). Also returns the DSN (for
+// the race opponent writer's extra connection).
 func openWriteRealStore(t *testing.T) (*writeRealStore, string) {
 	t.Helper()
 	dsn, ok := writeRealDSN()
@@ -843,8 +885,9 @@ func openWriteRealStore(t *testing.T) (*writeRealStore, string) {
 	return st, dsn
 }
 
-// raceStdin — 병렬 레이스 검증 합성 stdin: shared줄은 두 라이터가 동일
-// content(동일 content_hash), uniq줄은 writerTag별 고유 content.
+// raceStdin — the synthetic stdin for the parallel race check: shared
+// lines carry identical content (identical content_hash) for both
+// writers; uniq lines carry content unique per writerTag.
 func raceStdin(roundTag, writerTag string, shared, uniq int) string {
 	var b strings.Builder
 	for i := 0; i < shared; i++ {
@@ -856,7 +899,8 @@ func raceStdin(roundTag, writerTag string, shared, uniq int) string {
 	return b.String()
 }
 
-// raceRowCount — roundTag 접두사 행 수 카운트(잔존 검증).
+// raceRowCount — counts the rows with the roundTag prefix (residue
+// check).
 func raceRowCount(ctx context.Context, st *writeRealStore, roundTag string) int {
 	rows, err := st.Query(ctx, `SELECT count(*) FROM knowledge WHERE topic LIKE $1 || '%'`, roundTag)
 	if err != nil {
@@ -872,14 +916,16 @@ func raceRowCount(ctx context.Context, st *writeRealStore, roundTag string) int 
 	return n
 }
 
-// TestWriteParallelRaceRealSlow — 동일 content 50줄 +
-// 각자 고유 50줄을 2 라이터(독립 세션)가 동시에 write하면 레이스 패자도
-// survive 경로(content_hash 재확인 skip + 잔여 1회 재시도)로 고유줄을
-// 전부 남긴다 — 양쪽 exit 0·총 150행 잔존. 수정 전에는 패자의 InsertBatch
-// 커밋 시점 위반이 미분류(XX000 "constraint violations, transaction
-// rolled back")로 전파돼 고유줄 50줄이 유실됐다. 여러 라운드로 레이스
-// 교차(양쪽 사전 확인 모두 통과)를 확률적으로 담는다 — 결정론적 교차
-// 검증은 lib/db TestInsertBatchCommitRaceClassifiedRealSlow가 담당.
+// TestWriteParallelRaceRealSlow — when 2 writers (independent sessions)
+// concurrently write 50 identical-content lines + 50 unique lines each,
+// the race loser also keeps all its unique lines via the survive path
+// (content_hash recheck skip + one retry of the remainder) — both sides
+// exit 0·150 total rows remain. Before the fix, the loser's InsertBatch
+// commit-time violation propagated unclassified (XX000 "constraint
+// violations, transaction rolled back") and its 50 unique lines were
+// lost. Multiple rounds probabilistically cover the race crossing (both
+// pre-checks passing) — the deterministic crossing check belongs to
+// lib/db TestInsertBatchCommitRaceClassifiedRealSlow.
 func TestWriteParallelRaceRealSlow(t *testing.T) {
 	stA, dsn := openWriteRealStore(t)
 	ctx := context.Background()
@@ -942,10 +988,11 @@ func TestWriteParallelRaceRealSlow(t *testing.T) {
 	}
 }
 
-// TestWriteCommitMessageNamePreferred — D4(R33) 회귀: 커밋 제목은 project의
-// name을 우선한다("project: <name>"). name 부재(knowledge 등)는 기존
-// summary 폴백 불변 — 수정 전에는 project가 name 필드를 저장하지만 제목은
-// summary(nil)의 "<nil>"로 나갔다.
+// TestWriteCommitMessageNamePreferred — the D4 (R33) regression: the
+// commit title prefers the project's name ("project: <name>"). Without
+// name (knowledge etc.), the existing summary fallback is unchanged —
+// before the fix, project stored the name field but the title went out
+// as summary's (nil) "<nil>".
 func TestWriteCommitMessageNamePreferred(t *testing.T) {
 	t.Run("project — name 우선", func(t *testing.T) {
 		f := &fakeStore{}

@@ -1,5 +1,5 @@
-// maintain_v0163_test.go — conflict_dup_threshold meta 오버라이드가
-// --conflict-suspects 분류에 반영되는지(Thresholds 레지스트리 우선).
+// maintain_v0163_test.go — the conflict_dup_threshold meta override is reflected in the
+// --conflict-suspects classification (the Thresholds registry takes precedence).
 package cli
 
 import (
@@ -10,9 +10,9 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// conflict_dup_threshold 오버라이드 — 임계를 요약 쌍 실측 유사도 초과로
-// 올리면 기본 0.6에서 중복(제외)이던 그룹이 모순 후보로 리스팅된다.
-// 임계값은 실측 Dice와 1의 중점 — 픽스처 문구에 의존하지 않는 결정적 검증.
+// conflict_dup_threshold override — raising the threshold above the observed similarity of a summary pair
+// lists as a contradiction candidate a group that was duplicate (excluded) at the default 0.6.
+// The threshold is the midpoint between the observed Dice and 1 — deterministic verification independent of fixture wording.
 func TestConflictThresholdOverride(t *testing.T) {
 	summA, summB := "flint 백업은 매일 자동이다", "flint 백업은 매주 수동 점검이다"
 	dice := conflictDice(summA, summB)
@@ -21,7 +21,7 @@ func TestConflictThresholdOverride(t *testing.T) {
 	}
 	over := strconv.FormatFloat((dice+1)/2, 'f', -1, 64)
 
-	// 기본(빈 meta) — 중복 후보: 리스팅되지 않는다.
+	// default (empty meta) — duplicate candidate: not listed.
 	base := &fakeConflict{fakeMaint: &fakeMaint{fakeStore: &fakeStore{}},
 		conflictGroups: []db.ConflictGroup{
 			{Topic: "backup-policy", IDs: []int{1, 2}, Summaries: []string{summA, summB}}}}
@@ -33,7 +33,7 @@ func TestConflictThresholdOverride(t *testing.T) {
 		t.Errorf("기본 0.6에서 중복 그룹이 리스팅됨: %q", out)
 	}
 
-	// 오버라이드 — 임계 상향으로 같은 그룹이 모순 후보로 리스팅된다.
+	// override — raising the threshold lists the same group as a contradiction candidate.
 	f := &fakeConflict{fakeMaint: &fakeMaint{fakeStore: &fakeStore{
 		queryFn: func(sql string, args []any) ([][]any, error) {
 			if strings.Contains(sql, "conflict_dup_threshold") {
@@ -53,7 +53,7 @@ func TestConflictThresholdOverride(t *testing.T) {
 	}
 }
 
-// 대조 — 오버라이드 없음(빈 meta)이면 기본 0.6으로 같은 그룹이 모순 후보.
+// contrast — without the override (empty meta), the default 0.6 keeps the same group a duplicate candidate.
 func TestConflictThresholdDefaultKept(t *testing.T) {
 	f := &fakeConflict{fakeMaint: &fakeMaint{fakeStore: &fakeStore{}},
 		conflictGroups: []db.ConflictGroup{

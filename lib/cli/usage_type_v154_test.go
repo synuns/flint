@@ -1,8 +1,8 @@
-// usage_type_v154_test.go — 회귀: 7커맨드(maintain·doctor·
-// report·audit·backup·import·update)의 무효 인자(unknown flag·값 누락·
-// 무효 값·무효 검사명)는 error:"usage" + 메시지에 허용 플래그 안내
-// (read·approve 관례 확장). exit 코드 불변(무효 인자 3).
-// 진짜 내부 결함(네트워크 실패 등)은 internal 유지 — 여선의 대상 아님.
+// usage_type_v154_test.go — regression: invalid args (unknown flag, missing value,
+// invalid value, invalid check name) for the 7 commands (maintain, doctor,
+// report, audit, backup, import, update) produce error:"usage" + allowed-flag guidance in the message
+// (extending the read/approve convention). Exit codes unchanged (invalid arg 3).
+// Genuine internal faults (network failure etc.) stay internal — not the target here.
 package cli
 
 import (
@@ -13,8 +13,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// usageTypeProbes — 무효 인자 경로 구동 표: (커맨드, 인자, 기대 exit,
-// 메시지에 포함되어야 할 usage 안내 접두).
+// usageTypeProbes — the table driving invalid-arg paths: (command, args, expected exit,
+// usage-guidance prefix that must appear in the message).
 type usageTypeProbe struct {
 	cmd      string
 	args     []string
@@ -23,37 +23,37 @@ type usageTypeProbe struct {
 }
 
 var usageTypeProbes = []usageTypeProbe{
-	// maintain — unknown flag·값 누락·bare usage
+	// maintain — unknown flag, missing value, bare usage
 	{"maintain", []string{"--check", "--bogus"}, 3, "usage: flint maintain"},
 	{"maintain", []string{"--limit"}, 3, "usage: flint maintain"},
 	{"maintain", []string{}, 3, "usage: flint maintain"},
-	// doctor — unknown flag·--check 값 누락·무효 검사명
+	// doctor — unknown flag, missing --check value, invalid check name
 	{"doctor", []string{"--bogus"}, 3, "usage: flint doctor"},
 	{"doctor", []string{"--check"}, 3, "usage: flint doctor"},
 	{"doctor", []string{"--check", "nope"}, 3, "usage: flint doctor"},
-	// report — unknown flag·--days 값 누락·무효 숫자
+	// report — unknown flag, missing --days value, invalid number
 	{"report", []string{"--bogus"}, 3, "usage: flint report"},
 	{"report", []string{"--days"}, 3, "usage: flint report"},
 	{"report", []string{"--days", "abc"}, 3, "usage: flint report"},
-	// audit — unknown flag·--limit 값 누락·무효 숫자
+	// audit — unknown flag, missing --limit value, invalid number
 	{"audit", []string{"--bogus"}, 3, "usage: flint audit"},
 	{"audit", []string{"--limit"}, 3, "usage: flint audit"},
 	{"audit", []string{"--limit", "abc"}, 3, "usage: flint audit"},
-	// backup — unknown flag·--out 값 누락·--encrypt 단독
+	// backup — unknown flag, missing --out value, --encrypt alone
 	{"backup", []string{"--wat"}, 3, "usage: flint backup"},
 	{"backup", []string{"--out"}, 3, "usage: flint backup"},
 	{"backup", []string{"--encrypt"}, 3, "usage: flint backup"},
-	// restore(backup.go 소유 — 동일 계약) — unknown flag·--file 값 누락
+	// restore (owned by backup.go — same contract) — unknown flag, missing --file value
 	{"restore", []string{"--wat"}, 3, "usage: flint restore"},
 	{"restore", []string{"--file"}, 3, "usage: flint restore"},
-	// import — 규칙 변환 경로 unknown flag·마이그레이션 경로 unknown flag
+	// import — unknown flag on the rules-conversion path and the migration path
 	{"import", []string{"--verbose"}, 3, "usage: flint import"},
 	{"import", []string{"--format", "jsonl", "--wat"}, 3, "usage: flint import"},
-	// update — unknown flag(네트워크 접근 전 검증)
+	// update — unknown flag (validated before network access)
 	{"update", []string{"--bogus"}, 3, "usage: flint update"},
-	// 잔여 5사이트 unknown flag도 동일 계약:
-	// pending(기본 경로 + --tui 조합)·export·profile·setup/teardown·
-	// report --tui×뷰 플래그 조합.
+	// the remaining 5 sites' unknown flags share the same contract:
+	// pending (default path + --tui combination), export, profile, setup/teardown,
+	// and the report --tui x view-flag combination.
 	{"pending", []string{"--bogus"}, 3, "usage: flint pending"},
 	{"pending", []string{"--tui", "--json"}, 3, "usage: flint pending"},
 	{"export", []string{"--bogus"}, 3, "usage: flint export"},
@@ -61,20 +61,20 @@ var usageTypeProbes = []usageTypeProbe{
 	{"setup", []string{"--bogus"}, 3, "usage: flint setup"},
 	{"teardown", []string{"--bogus"}, 3, "usage: flint teardown"},
 	{"report", []string{"--tui", "--html"}, 3, "usage: flint report"},
-	// hot·brief·compact·nudge: unknown `-` 접두 인자 exit 3
-	// (현행 조용한 무시·exit 0 폐지 — 조용한 성공 금지).
+	// hot, brief, compact, nudge: unknown `-`-prefixed args exit 3
+	// (abolishing the old silent ignore + exit 0 — no silent success).
 	{"hot", []string{"--bogus"}, 3, "usage: flint hot"},
 	{"brief", []string{"--bogus"}, 3, "usage: flint brief"},
 	{"compact", []string{"--bogus"}, 3, "usage: flint compact"},
 	{"nudge", []string{"--bogus"}, 3, "usage: flint nudge"},
-	// write --help/-h: stdin 대기 전 usage 안내 exit 0
-	// (에러가 아니므로 error:"usage" 단언은 want!=0 행에만 적용).
+	// write --help/-h: usage guidance with exit 0 before waiting on stdin
+	// (not an error, so the error:"usage" assertion applies only to want!=0 rows).
 	{"write", []string{"--help"}, 0, "usage: flint write"},
 	{"write", []string{"-h"}, 0, "usage: flint write"},
 }
 
-// TestUsageTypeProbes — 각 행: exit 3 불변 + error:"usage" + 허용 플래그
-// 안내 포함. 수정 전 기대치(현행 error:"internal")로 red.
+// TestUsageTypeProbes — each row: exit 3 unchanged + error:"usage" + allowed-flag
+// guidance included. Red against the pre-fix expectation (current error:"internal").
 func TestUsageTypeProbes(t *testing.T) {
 	ctx := context.Background()
 	for _, p := range usageTypeProbes {
@@ -91,7 +91,7 @@ func TestUsageTypeProbes(t *testing.T) {
 		if code != p.want {
 			t.Errorf("%s %v: exit=%d, want %d — 출력 %q", p.cmd, p.args, code, p.want, b.String())
 		}
-		// write --help(exit 0) 등 안내 행은 에러 JSON이 아니므로 제외.
+		// guidance rows like write --help (exit 0) are excluded since they are not error JSON.
 		if p.want != 0 && !strings.Contains(b.String(), `"error":"usage"`) {
 			t.Errorf("%s %v: error:usage 아님 — %q", p.cmd, p.args, b.String())
 		}

@@ -1,8 +1,8 @@
-// usage_registry_test.go — usage 드리프트 가드 3종.
-// wire 패키지 단독 실행 시 registry가 비어 있으므로 seedCommands가
-// 실 커맨드 표면(사람 노출 27종 + 훅 전용 2종)을 미러링해 등록한다 —
-// 신규 커맨드 추가 시 이 목록과 usageOrder가 함께 갱신되어야 한다
-// (기존 cli 테스트와 동일한 유지보수 계약).
+// usage_registry_test.go — 3 usage-drift guards.
+// When the wire package runs standalone, the registry is empty, so seedCommands
+// registers a mirror of the real command surface (27 human-exposed + 2
+// hook-only) — adding a new command requires updating this list together with
+// usageOrder (the same maintenance contract as the existing cli tests).
 package wire
 
 import (
@@ -13,8 +13,8 @@ import (
 	"testing"
 )
 
-// seedCommands — 실 커맨드 표면 미러(사람 노출 = usageOrder와 동일 집합
-// 이어야 함 + 훅 전용 session-start/end). 핸들러는 검증 대상 아님.
+// seedCommands — a mirror of the real command surface (the human-exposed set must
+// equal usageOrder + the hook-only session-start/end). The handlers are not under test.
 var seedCommands = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
 	"sync",
@@ -24,7 +24,7 @@ var seedCommands = []string{
 	"session-start", "session-end",
 }
 
-// seedRegistry — seedCommands를 stub 핸들러로 등록(테스트 후 원복).
+// seedRegistry — registers seedCommands with stub handlers (restored after the test).
 func seedRegistry(t *testing.T) {
 	t.Helper()
 	stub := func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int { return 0 }
@@ -35,9 +35,9 @@ func seedRegistry(t *testing.T) {
 	}
 }
 
-// TestUsageLineListsAllRegistered — usageLine은 registry에 등록된 모든
-// 사용자 노출 커맨드를 나열해야 한다. session-start/end는 훅 전용
-// 진입점이라 제외(wire_v08 TestUsageRestInvariant 계약과 양립 불가).
+// TestUsageLineListsAllRegistered — usageLine must list every user-exposed
+// command registered in the registry. session-start/end are hook-only entry
+// points, so excluded (incompatible with the wire_v08 TestUsageRestInvariant contract).
 func TestUsageLineListsAllRegistered(t *testing.T) {
 	seedRegistry(t)
 	line := UsageLine()
@@ -57,9 +57,9 @@ func TestUsageLineListsAllRegistered(t *testing.T) {
 	}
 }
 
-// TestUsageOrderMatchesRegistry — usageOrder 집합 == registry 키 집합
-// (훅 전용 제외). 신규 커맨드를 Register만 하고 usageOrder에 넣지 않으면
-// 이 테스트가 FAIL한다 — 영구 드리프트 가드.
+// TestUsageOrderMatchesRegistry — the usageOrder set == the registry key set
+// (hook-only excluded). Registering a new command without adding it to
+// usageOrder FAILs this test — a permanent drift guard.
 func TestUsageOrderMatchesRegistry(t *testing.T) {
 	seedRegistry(t)
 	want := map[string]bool{}
@@ -80,10 +80,10 @@ func TestUsageOrderMatchesRegistry(t *testing.T) {
 	}
 }
 
-// TestHelpSummaryDocumentsPAMExport — HelpSummary의 export
-// 항목은 PAM 표준 내보내기(--format pam)와 --out 사이드카 체크섬을
-// 언급해야 한다(export 행 확장 — 신규 커맨드가 아니므로 usageOrder·
-// seedCommands 집합은 불변).
+// TestHelpSummaryDocumentsPAMExport — the HelpSummary export entry must
+// mention the PAM standard export (--format pam) and the --out sidecar
+// checksum (an export-row extension — not a new command, so the usageOrder
+// and seedCommands sets are unchanged).
 func TestHelpSummaryDocumentsPAMExport(t *testing.T) {
 	s := HelpSummary()
 	for _, want := range []string{"export", "pam", "sha256"} {
@@ -93,10 +93,10 @@ func TestHelpSummaryDocumentsPAMExport(t *testing.T) {
 	}
 }
 
-// TestHelpSummaryCoversUsageOrder — 완전성 가드:
-// HelpSummary는 usageOrder 전 항목의 키워드를 포함해야 한다. 신규
-// 커맨드를 usageOrder에 추가하고 HelpSummary를 갱신하지 않으면 이
-// 테스트가 FAIL한다(HelpSummary 드리프트 가드).
+// TestHelpSummaryCoversUsageOrder — a completeness guard:
+// HelpSummary must include the keywords of every usageOrder item. Adding a new
+// command to usageOrder without updating HelpSummary FAILs this test (a
+// HelpSummary drift guard).
 func TestHelpSummaryCoversUsageOrder(t *testing.T) {
 	s := HelpSummary()
 	for _, name := range usageOrder {
@@ -106,9 +106,9 @@ func TestHelpSummaryCoversUsageOrder(t *testing.T) {
 	}
 }
 
-// TestHelpSummaryEnglish — HelpSummary는 영어 단일 출력
-// (한국어 잔입 금지 — 파이프·grep 관례). 완전성은
-// TestHelpSummaryCoversUsageOrder가 담당한다.
+// TestHelpSummaryEnglish — HelpSummary is a single English output
+// (no Korean residue — the pipe/grep convention). Completeness is covered by
+// TestHelpSummaryCoversUsageOrder.
 func TestHelpSummaryEnglish(t *testing.T) {
 	for _, r := range HelpSummary() {
 		if r >= '가' && r <= '힣' {
@@ -117,9 +117,9 @@ func TestHelpSummaryEnglish(t *testing.T) {
 	}
 }
 
-// TestUsageLineAssembledFromOrder — usageLine은 usageOrder 순서 그대로
-// 조립(리터럴 금지, Produces 계약). error 키 폐지 —
-// `{"usage":...}` 안내형(정보 내용 불변).
+// TestUsageLineAssembledFromOrder — usageLine is assembled exactly in
+// usageOrder order (no literals, a Produces contract). The error key is
+// abolished — the `{"usage":...}` guidance form (informational content unchanged).
 func TestUsageLineAssembledFromOrder(t *testing.T) {
 	want := `{"usage":"flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
 	if UsageLine() != want {

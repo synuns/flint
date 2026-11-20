@@ -6,7 +6,7 @@ import (
 	"strings"
 )
 
-// CONTENT.md §4 어휘표 — tags 7종·domain 3종(필요시 표 먼저 확장).
+// the CONTENT.md §4 vocabulary tables — 7 tags and 3 domains (extend the tables first when needed).
 var (
 	knownTags = map[string]bool{
 		"adr":        true,
@@ -21,21 +21,21 @@ var (
 		"main":       true,
 		"infra":      true,
 		"preference": true,
-		// hot_view '최근 결정' 팔이 domain='decision'을
-		// 요구(views.sql)하는데 어휘표에 없어 unknown domain 경고·팔 공회전 —
-		// 어휘 4종으로 정합(확정 결정은 CONTENT §1 유형 1 최상위).
+		// the hot_view 'recent decisions' arm requires domain='decision' (views.sql),
+		// which was absent from the vocabulary, causing an unknown-domain warning and an
+		// idle arm — aligned with a 4th vocabulary item (a finalized decision is CONTENT §1 type 1, top-level).
 		"decision": true,
 	}
 )
 
-// normalizeVocab은 어휘 값을 소문자+공백 제거로 정규화한다(대소문자 경계 흡수).
+// normalizeVocab normalizes a vocabulary value to lowercase with spaces removed (absorbing case differences).
 func normalizeVocab(s string) string {
 	return strings.ToLower(strings.TrimSpace(s))
 }
 
-// CheckVocabulary는 tags·domain이 CONTENT.md §4 어휘표 안에 있는지 검증해
-// 표 밖 값마다 경고 문자열 1개를 반환한다(빈 슬라이스=통과, 저장 거부 아님).
-// domain이 빈 값이면 검사하지 않는다(선택 인자 규약).
+// CheckVocabulary verifies that tags and domain are within the CONTENT.md §4
+// vocabulary tables, returning 1 warning string per out-of-table value (an
+// empty slice = pass; not a store refusal). An empty domain is not checked (the optional-argument convention).
 // e.g. CheckVocabulary(["playbook","xxx"],"main") -> ["unknown tag: xxx"]
 func CheckVocabulary(tags []string, domain string) []string {
 	var warnings []string
@@ -59,9 +59,9 @@ func CheckVocabulary(tags []string, domain string) []string {
 	return warnings
 }
 
-// suggestFrom — 어휘 집합에서 입력과 가장 가까운 후보 최대 2개
-// (접두 일치 우선, 다음 편집거리 ≤2 — 어휘 밖 값에 대한
-// 오타 수정 제안).
+// suggestFrom — up to the 2 closest candidates to the input from the vocabulary set
+// (prefix matches first, then edit distance <= 2 — typo-correction
+// suggestions for out-of-vocabulary values).
 func suggestFrom(in string, known map[string]bool) []string {
 	n := normalizeVocab(in)
 	if n == "" {
@@ -82,13 +82,13 @@ func suggestFrom(in string, known map[string]bool) []string {
 		keys = append(keys, k)
 	}
 	sort.Strings(keys)
-	// ① 접두 일치(의도 확실).
+	// (1) prefix matches (certain intent).
 	for _, k := range keys {
 		if (strings.HasPrefix(k, n) || strings.HasPrefix(n, k)) && add(k) {
 			return out
 		}
 	}
-	// ② 편집거리 ≤2 근사.
+	// (2) edit distance <= 2 approximation.
 	for _, k := range keys {
 		if editDistance(n, k) <= 2 && add(k) {
 			return out
@@ -97,7 +97,7 @@ func suggestFrom(in string, known map[string]bool) []string {
 	return out
 }
 
-// editDistance — 레벤슈타인(소문자·짧은 어휘 규모 — 전형적 DP).
+// editDistance — Levenshtein (lowercase, small vocabulary scale — a classic DP).
 func editDistance(a, b string) int {
 	ra, rb := []rune(a), []rune(b)
 	prev := make([]int, len(rb)+1)
@@ -119,7 +119,7 @@ func editDistance(a, b string) int {
 	return prev[len(rb)]
 }
 
-// SuggestTag·SuggestDomain — 어휘 밖 값의 수정 후보.
+// SuggestTag and SuggestDomain — correction candidates for out-of-vocabulary values.
 func SuggestTag(in string) []string {
 	return suggestFrom(in, unionVocab(knownTags, vocabExtraTags))
 }
@@ -128,7 +128,7 @@ func SuggestDomain(in string) []string {
 	return suggestFrom(in, unionVocab(knownDomains, vocabExtraDomains))
 }
 
-// unionVocab — 기본 ∪ 개인(제안도 개인 어휘에서).
+// unionVocab — the base set union the personal set (suggestions also come from the personal vocabulary).
 func unionVocab(base, extra map[string]bool) map[string]bool {
 	out := make(map[string]bool, len(base)+len(extra))
 	for k := range base {
@@ -140,18 +140,18 @@ func unionVocab(base, extra map[string]bool) map[string]bool {
 	return out
 }
 
-// VocabExtras — meta 오버라이드 어휘(개인 어휘를 repo가
-// 아닌 운영 DB meta에 — 합집합. 어휘는 늘리는 게 일반 케이스라 기본
-// 집합을 대체하지 않는다). SetVocabExtras는 write 경로 시작 시 1회
-// 주입(단발 CLI 프로세스 — 갱신 경합 없음).
+// VocabExtras — the meta-override vocabulary (personal vocabulary lives in the
+// operational DB meta, not the repo — unioned. Since growing the vocabulary is
+// the common case, it does not replace the base set). SetVocabExtras is injected
+// once at the start of the write path (a one-shot CLI process — no update race).
 var (
 	vocabExtraTags    = map[string]bool{}
 	vocabExtraDomains = map[string]bool{}
 )
 
-// SetVocabExtras — 개인 어휘 주입(정규화 후 합집합 반영). 호출 시
-// 기존 extras를 대체한다(flint mcp 장기 프로세스에서
-// reset·변경이 반영되게 — 추가만 하면 영구 잔존).
+// SetVocabExtras — injects the personal vocabulary (normalized, then unioned
+// in). Each call replaces the existing extras (so resets and changes are
+// reflected in the long-lived flint mcp process — append-only would leave them forever).
 func SetVocabExtras(tags, domains []string) {
 	vocabExtraTags = map[string]bool{}
 	vocabExtraDomains = map[string]bool{}
@@ -167,8 +167,8 @@ func SetVocabExtras(tags, domains []string) {
 	}
 }
 
-// knownTag — 기본 ∪ 개인.
+// knownTag — the base set union the personal set.
 func knownTag(s string) bool { return knownTags[s] || vocabExtraTags[s] }
 
-// knownDomain — 기본 ∪ 개인.
+// knownDomain — the base set union the personal set.
 func knownDomain(s string) bool { return knownDomains[s] || vocabExtraDomains[s] }

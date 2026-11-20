@@ -1,9 +1,11 @@
-// history.go — dolt_log 히스토리 조회(wire.LogQuery 계약의 Doltgres
-// 구현). 커밋 로그 접근의 단일 소스 — asof(lib/wire/asof.go)·audit
-// (lib/ops/audit.go)가 이식 대상이다. 포팅 쿼리는 원문 그대로(바이트
-// 동치 원칙). 컬럼 충원 범위 — LatestN은 원문 승계 4열(commit_hash·
-// committer·date·message), Hash는 4열 신규 조립(구 date 1열 질의 대체),
-// Prefix·BeforeOrAt은 commit_hash만, Earliest는 date만.
+// history.go — dolt_log history lookups (the Doltgres implementation
+// of the wire.LogQuery contract). The single source of commit-log
+// access — asof (lib/wire/asof.go)·audit (lib/ops/audit.go) are the
+// porting sources. The ported queries are verbatim (the byte-equivalence
+// principle). Column-filling scope — LatestN inherits the original 4
+// columns (commit_hash·committer·date·message), Hash is a new 4-column
+// assembly (replacing the old date 1-column query), Prefix·BeforeOrAt
+// fill commit_hash only, Earliest fills date only.
 package db
 
 import (
@@ -15,30 +17,35 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// LogEntries — q 모드별 dolt_log 조회. 모드 우선순위: Earliest > Prefix >
-// Hash > BeforeOrAt(비제로) > LatestN. 어느 것도 지정 없으면 오류.
-// 질의 실패는 재시도 1회(spec §7 — wire.QueryOnce 동등, queryRetry).
-// Prefix는 LIKE 일치 전체 목록을 돌려주고 유일성 판정은 호출측(asof 계약
-// 승계), BeforeOrAt은 시각 직전(포함) 최신 1행, Earliest는 첫 커밋 시각
-// 1행(date만 충원), LatestN은 DESC 최근 N에 MessageNotLike NOT LIKE 필터
-// (audit 기본 telemetry 제외 필터 표현).
+// LogEntries — the dolt_log query per q mode. Mode priority: Earliest >
+// Prefix > Hash > BeforeOrAt (non-zero) > LatestN. None specified is an
+// error. A query failure retries once (spec §7 — wire.QueryOnce
+// equivalent, queryRetry). Prefix returns the full LIKE-match list with
+// the uniqueness verdict left to the caller (asof contract inherited);
+// BeforeOrAt returns the newest 1 row at or before the time; Earliest
+// returns the first commit time as 1 row (date only filled); LatestN is
+// DESC recent N with the MessageNotLike NOT LIKE filter (the audit
+// default telemetry-exclusion filter expression).
 func (r *Repo) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	switch {
 	case q.Earliest:
 		return r.logEarliest(ctx)
 	case q.Prefix != "":
-		// 원문: asof.go 접두어 확정 질의(전체 일치 목록).
+		// Original: the asof.go prefix-resolution query (the full match
+		// list).
 		return r.logHashRows(ctx,
 			`SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE $1||'%' ORDER BY commit_order DESC`,
 			q.Prefix)
 	case q.Hash != "":
-		// Hash 모드는 4열(commit_hash·committer·date·message) 신규 조립 —
-		// 구 read/status의 date 1열 질의를 대체한다(값은 동치, 조립 상이).
-		// "원문 승계"가 아님에 유의.
+		// Hash mode is a new 4-column (commit_hash·committer·date·
+		// message) assembly — replacing the old read/status date
+		// 1-column query (values equivalent, assembly differs). Note it
+		// is NOT an "original inheritance".
 		return r.logFullRows(ctx, `SELECT commit_hash, committer, date, message FROM dolt_log WHERE commit_hash = $1`, q.Hash)
 	case !q.BeforeOrAt.IsZero():
-		// 원문: asof.go 시각 직전 채택 질의. date 비교는 Go 계산 time.Time을
-		// timestamptz 파라미터로 전달(SQL interval 금지 원칙 승계).
+		// Original: the asof.go at-or-before adoption query. The date
+		// comparison passes a Go-computed time.Time as a timestamptz
+		// parameter (inheriting the no-SQL-interval principle).
 		return r.logHashRows(ctx,
 			`SELECT commit_hash FROM dolt_log WHERE date <= $1 ORDER BY commit_order DESC LIMIT 1`,
 			q.BeforeOrAt)
@@ -48,7 +55,8 @@ func (r *Repo) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry
 	return nil, fmt.Errorf("log entries: empty query")
 }
 
-// logHashRows — commit_hash 단일 열 질의(Prefix·BeforeOrAt 원문 승계).
+// logHashRows — a commit_hash single-column query (Prefix·BeforeOrAt
+// original inheritance).
 func (r *Repo) logHashRows(ctx context.Context, sql string, arg any) ([]wire.LogEntry, error) {
 	rows, err := r.queryRetry(ctx, sql, arg)
 	if err != nil {
@@ -66,8 +74,9 @@ func (r *Repo) logHashRows(ctx context.Context, sql string, arg any) ([]wire.Log
 	return out, rows.Err()
 }
 
-// logFullRows — 4열(commit_hash·committer·date·message) 질의(Hash 모드).
-// date 셀은 parseLogDate로 파싱(time.Time 아닐 때 문자열 3레이아웃).
+// logFullRows — a 4-column (commit_hash·committer·date·message) query
+// (Hash mode). The date cell is parsed by parseLogDate (3 string
+// layouts when not a time.Time).
 func (r *Repo) logFullRows(ctx context.Context, sql string, arg ...any) ([]wire.LogEntry, error) {
 	rows, err := r.queryRetry(ctx, sql, arg...)
 	if err != nil {
@@ -91,8 +100,9 @@ func (r *Repo) logFullRows(ctx context.Context, sql string, arg ...any) ([]wire.
 	return out, rows.Err()
 }
 
-// logEarliest — 첫 커밋 시각 1행. 원문: asof.go Earliest 질의(date만
-// 선택 — commit_hash 열 미충원은 원문 쿼리 승계).
+// logEarliest — the first commit time as 1 row. Original: the asof.go
+// Earliest query (date-only selection — the commit_hash column left
+// unfilled inherits the original query).
 func (r *Repo) logEarliest(ctx context.Context) ([]wire.LogEntry, error) {
 	rows, err := r.queryRetry(ctx,
 		`SELECT date FROM dolt_log ORDER BY commit_order ASC LIMIT 1`)
@@ -115,9 +125,11 @@ func (r *Repo) logEarliest(ctx context.Context) ([]wire.LogEntry, error) {
 	return out, rows.Err()
 }
 
-// logLatestN — 최근 N 조회(audit.go 이식). 원문 조립 순서 보존: 조건은
-// NOT LIKE(기본 telemetry 제외)→LIKE(--session 포함) 순, placeholder는
-// $2부터 순차 부여, AND 결합, LIMIT $1은 문미 불변.
+// logLatestN — the recent-N lookup (ported from audit.go). Preserves
+// the original assembly order: conditions in NOT LIKE (default
+// telemetry exclusion)→LIKE (--session inclusion) order, placeholders
+// numbered sequentially from $2, AND-joined, LIMIT $1 unchanged at the
+// tail.
 func (r *Repo) logLatestN(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	sql := `SELECT commit_hash, committer, date, message FROM dolt_log`
 	qargs := []any{q.LatestN}
@@ -139,16 +151,17 @@ func (r *Repo) logLatestN(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry
 	return r.logFullRows(ctx, sql, qargs...)
 }
 
-// parseLogDate — dolt_log date 값을 time.Time으로(실구현은 time.Time,
-// fake/문자열은 레이아웃 3종 파싱). audit.go parseAuditDate 로직 이관
-// (원 로직 보존).
+// parseLogDate — a dolt_log date value into a time.Time (the real
+// implementation yields time.Time; fakes/strings parse across 3
+// layouts). Logic transferred from audit.go parseAuditDate (original
+// logic preserved).
 func parseLogDate(v any) (time.Time, bool) {
 	switch x := v.(type) {
 	case time.Time:
 		return x, true
 	case string:
 		for _, lay := range []string{
-			"2006-01-02 15:04:05.999999999 -0700 MST", // time.Time 기본 Sprint
+			"2006-01-02 15:04:05.999999999 -0700 MST", // time.Time default Sprint
 			"2006-01-02 15:04:05.999999999",
 			time.RFC3339,
 		} {

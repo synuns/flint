@@ -1,12 +1,12 @@
-// status_fix_v06_test.go — 회귀: v0.6 신규 DB(EnsureSchemaV4 승격 →
-// meta.schema_version=4)에서 `flint status`가 exit 3으로 거부되던 결함.
-// 게이트는 v4도 정상 상태로 승인해야 한다(인시던트: lib/cli/status.go:61).
+// status_fix_v06_test.go — regression: on a v0.6 fresh DB (EnsureSchemaV4 promotion ->
+// meta.schema_version=4), `flint status` was rejected with exit 3.
+// The gate must also accept v4 as a normal state (incident: lib/cli/status.go:61).
 package cli
 
 import "testing"
 
-// TestStatusSchemaV4OK — v4 DB(계측 컬럼 승격 완료)에서 status는 exit 0·
-// 버전 그대로 보고. 수정 전 게이트가 {"1","2","3"} 하드코드라 exit 3.
+// TestStatusSchemaV4OK — on a v4 DB (metering-column promotion done), status exits 0
+// and reports the version as-is. Before the fix the gate hardcoded {"1","2","3"}, hence exit 3.
 func TestStatusSchemaV4OK(t *testing.T) {
 	m, code := statusWithVersion(t, "4")
 	if code != 0 {

@@ -1,7 +1,9 @@
-// usage_v1010_test.go — read 경로 정리 훅(maybePruneAfterRead).
-// RecordReadUsage 폐지로 read가 recordWithRetry(롤오버
-// 훅)를 지나지 않게 됐다 — read 전용 세션의 read_events 무한 증가 회귀.
-// 게이트 판정은 순수 함수 단위(패스트), 정리·게이트 보유는 실DB 슬로우 라인.
+// usage_v1010_test.go — the read-path cleanup hook
+// (maybePruneAfterRead). With RecordReadUsage abolished, the read path
+// no longer passes through recordWithRetry (the rollover hook) — a
+// regression of unbounded read_events growth in read-only sessions.
+// The gate verdict is a pure-function unit (fast); the cleanup·gate
+// holding is the real-DB slow line.
 package db
 
 import (
@@ -10,8 +12,9 @@ import (
 	"time"
 )
 
-// TestPruneGateDueOpensAfter24h — 게이트 판정: 부재·공란·파손·24h 경과는
-// 열림(정리 실행), 24h 이내 정상 RFC3339는 닫힘(스킵 — 매 read 정리 방지).
+// TestPruneGateDueOpensAfter24h — the gate verdict: absent·blank·
+// corrupt·24h-elapsed opens (cleanup runs); a valid RFC3339 within 24h
+// closes (skipped — preventing cleanup on every read).
 func TestPruneGateDueOpensAfter24h(t *testing.T) {
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -34,11 +37,11 @@ func TestPruneGateDueOpensAfter24h(t *testing.T) {
 	}
 }
 
-// TestPruneGateProbeCachesWithinTTL — 프로세스
-// 내 게이트 캐시. probe 참 = maybePruneAfterRead가 게이트 meta SELECT를
-// 실행한다 — 최초 확인 1회(참), TTL 내 재확인 0회(거짓 — 매 read SELECT
-// 잔존 회귀 방어), TTL 경과 후 재확인 1회(참 — 게이트가 1h 넘게 얼어붙지
-// 않음).
+// TestPruneGateProbeCachesWithinTTL — the in-process gate cache. probe
+// true = maybePruneAfterRead runs the gate meta SELECT — the first
+// check once (true), 0 rechecks within the TTL (false — defending
+// against the residual per-read SELECT regression), 1 recheck after TTL
+// expiry (true — the gate never freezes beyond 1h).
 func TestPruneGateProbeCachesWithinTTL(t *testing.T) {
 	pruneGateCheckedAt.Store(0)
 	t.Cleanup(func() { pruneGateCheckedAt.Store(0) })
@@ -57,11 +60,12 @@ func TestPruneGateProbeCachesWithinTTL(t *testing.T) {
 	}
 }
 
-// TestRecordReadEventPrunesStaleRows — read만
-// 반복하는 세션(write 계측 없음 — recordWithRetry 롤오버 훅 미발화)에서도
-// RecordReadEvent 성공 경로의 24h 게이트 훅이 보존 한게 넘은 read_events
-// 행을 정리한다. 게이트가 닫힌(직전 정리 성공, 24h 이내) 경우에는 정리를
-// 스킵한다(매 read DELETE는 핫패스 낭비).
+// TestRecordReadEventPrunesStaleRows — even in a session doing reads
+// only (no write metering — the recordWithRetry rollover hook never
+// fires), the 24h-gated hook on the RecordReadEvent success path cleans
+// read_events rows past the retention horizon. When the gate is closed
+// (a recent successful cleanup, within 24h), the cleanup is skipped (a
+// DELETE on every read wastes the hot path).
 func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -74,15 +78,16 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 			`DELETE FROM read_events WHERE session = $1`, label)
 		_, _ = r.pool.Exec(context.Background(),
 			`DELETE FROM meta WHERE key = $1`, pruneReadGateKey)
-		// 프로세스 내 게이트 캐시도 함께 리셋 — 같은 패키지의
-		// 다른 테스트가 스탬프한 시각이 이 테스트의 DB 게이트 판정을
-		// 우연히 덮어쓰지 않게 한다.
+		// The in-process gate cache resets too — so a timestamp stamped by
+		// another test in the same package never accidentally overrides
+		// this test's DB-gate verdict.
 		pruneGateCheckedAt.Store(0)
 	}
 	cleanup()
 	t.Cleanup(cleanup)
 
-	// 20일 전 행을 직접 심는다 — write 없이 read만 하던 세션의 잔여 재현.
+	// Seed a 20-day-old row directly — reproducing the residue of a
+	// read-only session without writes.
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)
 		 VALUES (1, false, false, false, $1, '', 0)`, label); err != nil {
@@ -94,7 +99,8 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 		t.Fatalf("과거화: %v", err)
 	}
 
-	// read 1회 — 게이트 열림(키 부재) → 훅이 14일 창 밖 행을 정리한다.
+	// One read — gate open (key absent) → the hook cleans the
+	// out-of-14-day-window row.
 	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 2, Session: label}); err != nil {
 		t.Fatalf("RecordReadEvent: %v", err)
 	}
@@ -107,10 +113,11 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 		t.Fatalf("게이트 열림 정리 실패 — 잔여 %d행, want 1(20일 전 행 삭제·신규 1행 유지)", n)
 	}
 
-	// 게이트 닫힘(직전 정리 성공 — 24h 이내 스탬프): 다시 심은 과거 행은
-	// 정리되지 않고 살아남는다. 캐시를 리셋하고 DB 게이트(24h 스탬프)의
-	// 닫힘을 직접 검증한다 — 프로세스 캐시 스킵과 결과가 같아 우연
-	// 통과가 아니어야 한다.
+	// Gate closed (a recent successful cleanup — a stamp within 24h): a
+	// re-seeded past row survives uncleaned. The cache is reset and the
+	// DB gate's (24h stamp) closure verified directly — the outcome must
+	// not be an accidental pass indistinguishable from a process-cache
+	// skip.
 	pruneGateCheckedAt.Store(0)
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)

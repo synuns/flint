@@ -1,8 +1,11 @@
-// history_test.go — LogEntries(wire.LogQuery 계약의 Doltgres 구현) slow
-// 실DB 회귀. 커밋 3개(합성 데모 지식 — 비telemetry 2·telemetry 1)를 심고
-// Hash·Prefix·BeforeOrAt·Earliest·LatestN(+MessageNotLike) 모드를 실측한다.
-// 포팅 쿼리는 원문 보존(asof.go·audit.go 이식)이라 컬럼 충원 범위도 원문
-// 승계: Hash·LatestN은 4열, Prefix·BeforeOrAt은 commit_hash만, Earliest는 date만.
+// history_test.go — LogEntries (the Doltgres implementation of the
+// wire.LogQuery contract) slow real-DB regression. Seeds 3 commits
+// (synthetic demo knowledge — 2 non-telemetry·1 telemetry) and measures
+// the Hash·Prefix·BeforeOrAt·Earliest·LatestN (+MessageNotLike) modes.
+// The ported queries preserve the originals (ported from asof.go·
+// audit.go), so the column-filling scope also inherits them: Hash·
+// LatestN fill 4 columns, Prefix·BeforeOrAt fill commit_hash only,
+// Earliest fills date only.
 package db
 
 import (
@@ -14,16 +17,18 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// seedT3Commit — 합성 데모 지식 1건 적립 후 마커 메시지로 dolt 커밋.
-// 커밋 해시(빈 해시 = 스테이징 0행)를 돌려준다.
+// seedT3Commit — accrues one synthetic demo knowledge then makes a dolt
+// commit with a marker message. Returns the commit hash (an empty hash
+// = 0 rows staged).
 func seedT3Commit(t *testing.T, r *Repo, marker string) string {
 	t.Helper()
 	ctx := context.Background()
 	if _, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v0180-t3-" + marker)}); err != nil {
 		t.Fatalf("InsertBatch(%s): %v", marker, err)
 	}
-	// tel 마커는 'telemetry: ' 접두 커밋으로 — MessageNotLike 제외가
-	// 실제로 매칭되는지 검증한다(공회전 단정 방지).
+	// The tel marker commits with the 'telemetry: ' prefix — verifying
+	// that the MessageNotLike exclusion actually matches (preventing a
+	// vacuous assertion).
 	msg := "flint v0180 t3 demo " + marker
 	if marker == "tel" {
 		msg = "telemetry: v0180 t3 demo tel"
@@ -38,10 +43,12 @@ func seedT3Commit(t *testing.T, r *Repo, marker string) string {
 	return h
 }
 
-// TestLogEntriesSlowModes — 5모드 실측. 커밋 시각 구분을 위해 커밋 사이
-// 1.1s 대기(dolt_log date 초 단위 절단 대비). 공유 DB에는 타 테스트 커밋이
-// 남지만 flock 직렬화로 본 테스트 커밋이 최신이고, LatestN 검증은
-// 비telemetry 최신 2건이 본 테스트 커밋임에 의존한다.
+// TestLogEntriesSlowModes — measures the 5 modes. Waits 1.1s between
+// commits to distinguish commit times (dolt_log dates truncate to
+// seconds). The shared DB carries other tests' commits, but flock
+// serialization makes this test's commits the newest, and the LatestN
+// verification depends on the newest 2 non-telemetry commits being this
+// test's.
 func TestLogEntriesSlowModes(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -49,9 +56,10 @@ func TestLogEntriesSlowModes(t *testing.T) {
 	time.Sleep(1100 * time.Millisecond)
 	h2 := seedT3Commit(t, r, "two")
 	time.Sleep(1100 * time.Millisecond)
-	htel := seedT3Commit(t, r, "tel") // LatestN 기본 필터 회피 검증용(아래 msg 참조)
+	htel := seedT3Commit(t, r, "tel") // for verifying the LatestN default-filter escape (see msg above)
 
-	// ── Hash 정확 일치 — 4열(해시·작성자·시각·메시지) 충원. ──
+	// ── Hash exact match — 4 columns (hash·committer·date·message)
+	// filled. ──
 	e2, err := r.LogEntries(ctx, wire.LogQuery{Hash: h2})
 	if err != nil {
 		t.Fatalf("LogEntries(Hash): %v", err)
@@ -76,7 +84,8 @@ func TestLogEntriesSlowModes(t *testing.T) {
 		t.Fatalf("LogEntries(Hash h1) = %v, want date 충원 1행", e1)
 	}
 
-	// ── Prefix — LIKE 일치 전체 목록(유일성 판정은 호출측). ──
+	// ── Prefix — the full LIKE-match list (the uniqueness verdict is the
+	// caller's). ──
 	prefix := h2
 	if len(prefix) > 8 {
 		prefix = prefix[:8]
@@ -105,7 +114,7 @@ func TestLogEntriesSlowModes(t *testing.T) {
 		t.Fatalf("LogEntries(미발견 prefix) = %v, want 0행", zs)
 	}
 
-	// ── BeforeOrAt — 시각 직전(포함) 최신 커밋 1행. ──
+	// ── BeforeOrAt — the newest commit at or before the time, 1 row. ──
 	bs, err := r.LogEntries(ctx, wire.LogQuery{BeforeOrAt: e2[0].Date})
 	if err != nil {
 		t.Fatalf("LogEntries(BeforeOrAt): %v", err)
@@ -114,7 +123,8 @@ func TestLogEntriesSlowModes(t *testing.T) {
 		t.Fatalf("LogEntries(BeforeOrAt) = %v, want h2 1행(tel 커밋은 1.1s 뒤라 제외)", bs)
 	}
 
-	// ── Earliest — 첫 커밋 시각(commit_hash 열 없음 — 원문 쿼리 승계). ──
+	// ── Earliest — the first commit time (no commit_hash column —
+	// inheriting the original query). ──
 	ee, err := r.LogEntries(ctx, wire.LogQuery{Earliest: true})
 	if err != nil {
 		t.Fatalf("LogEntries(Earliest): %v", err)
@@ -126,7 +136,7 @@ func TestLogEntriesSlowModes(t *testing.T) {
 		t.Fatalf("LogEntries(Earliest) date %v > 첫 데모 커밋 %v", ee[0].Date, e1[0].Date)
 	}
 
-	// ── LatestN + MessageNotLike — DESC·LIMIT·telemetry 제외. ──
+	// ── LatestN + MessageNotLike — DESC·LIMIT·telemetry excluded. ──
 	ls, err := r.LogEntries(ctx, wire.LogQuery{LatestN: 2, MessageNotLike: "telemetry: %"})
 	if err != nil {
 		t.Fatalf("LogEntries(LatestN+NotLike): %v", err)
@@ -139,7 +149,8 @@ func TestLogEntriesSlowModes(t *testing.T) {
 			t.Fatalf("LogEntries(LatestN) telemetry 커밋 누출: %+v", e)
 		}
 	}
-	// 필터 없는 LatestN — 최신 커밋은 telemetry 마커 커밋.
+	// LatestN without the filter — the newest commit is the telemetry
+	// marker commit.
 	l1, err := r.LogEntries(ctx, wire.LogQuery{LatestN: 1})
 	if err != nil {
 		t.Fatalf("LogEntries(LatestN 필터 없음): %v", err)
@@ -148,7 +159,8 @@ func TestLogEntriesSlowModes(t *testing.T) {
 		t.Fatalf("LogEntries(LatestN 1 무필터) = %v, want tel 커밋", l1)
 	}
 
-	// ── LatestN + MessageLike — 포함 필터 단독(audit --session 이관용). ──
+	// ── LatestN + MessageLike — the inclusion filter alone (for the
+	// audit --session transfer). ──
 	ms, err := r.LogEntries(ctx, wire.LogQuery{LatestN: 10, MessageLike: "%v0180 t3 demo%"})
 	if err != nil {
 		t.Fatalf("LogEntries(LatestN+Like): %v", err)
@@ -164,7 +176,8 @@ func TestLogEntriesSlowModes(t *testing.T) {
 		t.Fatalf("LogEntries(Like) 데모 커밋 3종 미포함: %v", ms)
 	}
 
-	// ── LatestN + MessageNotLike + MessageLike — AND 결합(telemetry 제외+포함). ──
+	// ── LatestN + MessageNotLike + MessageLike — AND-joined (telemetry
+	// excluded + inclusion). ──
 	cs, err := r.LogEntries(ctx, wire.LogQuery{
 		LatestN:        10,
 		MessageNotLike: "telemetry: %",
@@ -187,7 +200,7 @@ func TestLogEntriesSlowModes(t *testing.T) {
 		t.Fatalf("LogEntries(결합) = h1·h2만 포함해야 함(htel 제외): %v", cs)
 	}
 
-	// ── 빈 질의 — 모드 미지정은 오류. ──
+	// ── Empty query — no mode specified is an error. ──
 	if _, err := r.LogEntries(ctx, wire.LogQuery{}); err == nil {
 		t.Fatal("LogEntries(빈 질의) 오류 없음, want 오류")
 	}

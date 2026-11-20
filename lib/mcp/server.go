@@ -34,9 +34,9 @@ func Serve(r io.Reader, w io.Writer, handle func(method string, params map[strin
 	bw := bufio.NewWriter(w)
 	defer bw.Flush()
 	sc := bufio.NewScanner(r)
-	// 상한 초과 줄은 스킵 생존 — ErrTooLong이 Serve 반환값이 되면
-	// 서버 프로세스가 사망(4MB 초과 flint_write 한 번으로 세션 전체
-	// 상실)한다. 상한은 유지(메모리 방어).
+	// Lines over the limit skip-and-survive — if ErrTooLong became Serve's
+	// return value, the server process would die (one flint_write over 4MB
+	// loses the whole session). The limit stays (memory defense).
 	sc.Buffer(make([]byte, 0, 64*1024), 4*1024*1024) // write payloads can exceed the 64KB default
 	for sc.Scan() {
 		line := bytes.TrimSpace(sc.Bytes())
@@ -53,18 +53,20 @@ func Serve(r io.Reader, w io.Writer, handle func(method string, params map[strin
 		if err := writeResponse(bw, req, handle); err != nil {
 			return err
 		}
-		// v1.7.2 T5: 응답 write 직후 즉시 flush — EOF 전 대기 폐지.
+		// v1.7.2 T5: flush immediately after writing the response — no waiting until EOF.
 		if err := bw.Flush(); err != nil {
 			return err
 		}
 	}
 	if err := sc.Err(); errors.Is(err, bufio.ErrTooLong) {
-		// 초과 줄 1개를 읽는 도중의 에러 — 해당 줄만 버리고 계속
-		// 살아남는다(주석 계약 이행). 재귀 아님: 남은 입력은 다음 Scan.
-		// 무응답으로 버리면 id로 응답을 기다리는
-		// 클라이언트가 타임아웃한다 — 초과 줄은 id를 복원할 수 없으므로
-		// id:null -32600(Invalid Request) 1줄만 돌려준 뒤 생존한다.
-		// 재귀 Serve는 새 bufio.Writer를 싸므로 응답은 먼저 flush한다.
+		// The error fires mid-read of one oversized line — only that line is
+		// discarded and the server survives (fulfilling the comment
+		// contract). Not a recursion hazard: the remaining input goes through
+		// the next Scan. Dropping the line without a reply would time out
+		// clients waiting on the id for a response — the oversized line's id
+		// cannot be recovered, so it returns just one id:null -32600
+		// (Invalid Request) line and survives. The recursive Serve wraps a
+		// new bufio.Writer, so the response is flushed first.
 		resp := response{JSONRPC: "2.0", Error: &rpcError{
 			Code:    -32600,
 			Message: "invalid request: line exceeds 4MB limit",

@@ -1,9 +1,9 @@
-// report_parity_test.go — read_stats blob 폐지
-// 전환의 지표 동등성. 같은 픽스처(read 10회 중 zero 3·near 1·폴백 경유 2)에서
-// 기존 blob 경로 산식(누적 read_stats calls·daily 카운터 합산·구 fallback_pct
-// 정의)으로 계산한 기준선과 파생 경로(read_events·daily 병합 산출)의 report·
-// doctor 출력이 동일한지 비교한다. 전환 전 기준선은 구 경로의 순수 산출
-// 함수들(ReadZeroPct·PctOf·FallbackPct)로 스냅숏한다.
+// report_parity_test.go — the metric equivalence of the
+// read_stats-blob abolition. From the same fixture (10 reads: 3 zero, 1 near, 2 via
+// fallback), it compares the report and doctor outputs of the baseline computed with the
+// old blob-path formulas (cumulative read_stats calls, daily counter sums, the old
+// fallback_pct definition) and the derived path (read_events, the daily merge). The
+// pre-migration baseline is snapshotted with the old path's pure computation functions (ReadZeroPct, PctOf, FallbackPct).
 package ops
 
 import (
@@ -14,8 +14,8 @@ import (
 	"time"
 )
 
-// parityFake — 파생 경로 fake: daily:* 는 신규 데이터처럼 공란, read_events
-// 만 반환(픽스처: read 10·zero 3·near 1·fallback 2 — 전부 오늘).
+// parityFake — the derived-path fake: daily:* is blank like new data; only read_events
+// is returned (fixture: read 10, zero 3, near 1, fallback 2 — all today).
 func parityFake(n int, zeroN, nearN, fbN int) *fakeStore {
 	now := time.Now().UTC()
 	mergeRows := [][]any{}
@@ -27,35 +27,35 @@ func parityFake(n int, zeroN, nearN, fbN int) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "LIKE 'daily:%'"):
-			return nil, nil // 신규 데이터 — daily read 필드 부재
+			return nil, nil // new data — no daily read fields
 		case strings.Contains(sql, "near FROM read_events"):
-			return mergeRows, nil // WindowedDaily 파생 병합
+			return mergeRows, nil // the WindowedDaily derived merge
 		case strings.Contains(sql, "fallback, ids"):
 			return effectRows, nil // CollectEffect(G4)
 		case strings.Contains(sql, "FROM meta"):
-			return nil, nil // hot_stats·thresholds 부재 — 기본값
+			return nil, nil // no hot_stats or thresholds — defaults
 		case strings.Contains(sql, "hot_events"),
 			strings.Contains(sql, "session_starts"),
 			strings.Contains(sql, "ingested_at >="),
 			strings.Contains(sql, "id, topic FROM knowledge"):
 			return nil, nil
 		}
-		return [][]any{{int64(0), int64(0), int64(0)}}, nil // 집계 0
+		return [][]any{{int64(0), int64(0), int64(0)}}, nil // tallies 0
 	}}
 }
 
-// TestEffectParity — 픽스처 read 10회 중 zero 3·near 1에서
-// blob 경로 기준선(구 산식) == 파생 경로 report 출력.
+// TestEffectParity — from the fixture of 10 reads with 3 zero and 1 near, the
+// blob-path baseline (old formulas) == the derived path's report output.
 func TestEffectParity(t *testing.T) {
 	const reads, zeros, nears, fallbacks = 10, 3, 1, 2
-	// ── 전환 전 기준선 스냅숏(구 blob 경로 산식) ──
-	// zero_pct·zero_near_pct: daily 합산 버림 정수%.
+	// ── pre-migration baseline snapshot (old blob-path formulas) ──
+	// zero_pct and zero_near_pct: daily sums, floored integer %.
 	legacyZeroPct := ReadZeroPct(reads, zeros)
 	legacyNearPct := ReadZeroPct(reads, nears)
-	// effect hit·near: 동일 합산에서 유도.
+	// effect hit and near: derived from the same sums.
 	legacyHitPct := PctOf(reads-zeros, reads)
 	legacyEffectNear := PctOf(nears, reads)
-	// fallback_pct: 구 정의 read_fallback_calls/read_stats calls(누적).
+	// fallback_pct: the old definition read_fallback_calls/read_stats calls (cumulative).
 	legacyFallbackPct := FallbackPct(fallbacks, reads)
 
 	var out strings.Builder
@@ -94,7 +94,7 @@ func TestEffectParity(t *testing.T) {
 	if rep.Effect.ReadEventsN != reads {
 		t.Errorf("read_events_n=%d, want %d", rep.Effect.ReadEventsN, reads)
 	}
-	// 일별 행도 파생 값(마지막 행 = 오늘).
+	// the daily rows also carry derived values (the last row = today).
 	if len(rep.Days) != 1 {
 		t.Fatalf("days 길이=%d, want 1", len(rep.Days))
 	}
@@ -105,14 +105,14 @@ func TestEffectParity(t *testing.T) {
 	}
 }
 
-// TestZeroNearParity — doctor zero-near 판정 동등성: 같은 픽스처에서 구
-// 산식(near*100/read, 표본 하한)과 WindowedDaily 파생 경로의 판정이 동일.
+// TestZeroNearParity — the doctor zero-near verdict's equivalence: from the same
+// fixture, the old formula (near*100/read, sample floor) and the WindowedDaily derived path agree.
 func TestZeroNearParity(t *testing.T) {
 	const reads, nears = 10, 1
-	// 구 blob 경로 산식 기준선 — 표본 10 ≥ min 10, 10% < warn 30 → ok.
+	// the old blob-path formula baseline — sample 10 >= min 10, 10% < warn 30 -> ok.
 	legacyPct := nears * 100 / reads
 	legacyStatus := "ok"
-	legacyDetail := "zero_near_pct 10% (7d read 10)" // 구 포맷 그대로
+	legacyDetail := "zero_near_pct 10% (7d read 10)" // the old format verbatim
 	if reads < 10 || legacyPct >= 30 {
 		t.Fatalf("픽스처가 기준선과 불일치(pct=%d)", legacyPct)
 	}
@@ -126,10 +126,10 @@ func TestZeroNearParity(t *testing.T) {
 	}
 }
 
-// TestDerivedWindowBoundary — 파생 병합
-// 컷오프는 창 첫 날의 UTC 자정 "정각 포함"(ts >= cutoff)이어야 한다.
-// 자정 1초 전 이벤트는 창 밖(첫 행 미집계), 자정 정각 이벤트는 첫 행에
-// 집계된다. 컷오프 인자와 일별 버킷 배치를 함께 단언한다.
+// TestDerivedWindowBoundary — the derived merge cutoff must include the exact
+// UTC midnight of the window's first day (ts >= cutoff). An event 1 second before
+// midnight is outside the window (not counted in the first row); an event at exactly
+// midnight is counted in the first row. Asserts the cutoff argument and the daily bucket placement together.
 func TestDerivedWindowBoundary(t *testing.T) {
 	now := time.Now().UTC()
 	const window = 7
@@ -138,14 +138,14 @@ func TestDerivedWindowBoundary(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "LIKE 'daily:%'"):
-			return nil, nil // 신규 데이터 — daily read 필드 부재
+			return nil, nil // new data — no daily read fields
 		case strings.Contains(sql, "near FROM read_events"):
 			if len(args) > 0 {
 				if ts, ok := args[0].(time.Time); ok {
 					gotCutoff = ts
 				}
 			}
-			// 자정 정각(포함)·직전 1초(배제)·오늘 near 1건.
+			// exactly midnight (included), 1 second before (excluded), and today's 1 near.
 			return [][]any{
 				{oldestMidnight, false, false},
 				{oldestMidnight.Add(-time.Second), false, false},
@@ -167,7 +167,7 @@ func TestDerivedWindowBoundary(t *testing.T) {
 	if code := RunReport(context.Background(), f, []string{"--days", "7"}, nil, &out); code != 0 {
 		t.Fatalf("report exit=%d: %s", code, out.String())
 	}
-	// 1. 컷오프 인자 = 창 첫 날 자정 정각(포함 경계 — off-by-one 가드).
+	// 1. the cutoff argument = the exact midnight of the window's first day (inclusive boundary — an off-by-one guard).
 	if !gotCutoff.Equal(oldestMidnight) {
 		t.Errorf("파생 컷오프=%v, want %v(창 첫 날 UTC 자정)", gotCutoff, oldestMidnight)
 	}
@@ -180,13 +180,13 @@ func TestDerivedWindowBoundary(t *testing.T) {
 	if len(rep.Days) != window {
 		t.Fatalf("days 길이=%d, want %d", len(rep.Days), window)
 	}
-	// 2. 첫 행: 자정 정각 이벤트 1건만(1초 전 이벤트는 창 밖).
+	// 2. the first row: only the exactly-midnight event (the 1-second-earlier event is outside the window).
 	first, last := rep.Days[0], rep.Days[len(rep.Days)-1]
 	if first.Read != 1 || first.ReadZero != 0 || first.ReadNear != 0 {
 		t.Errorf("days[0] read/zero/near = %d/%d/%d, want 1/0/0(자정 1초 전 배제)",
 			first.Read, first.ReadZero, first.ReadNear)
 	}
-	// 3. 마지막 행(오늘): near 1건 포함.
+	// 3. the last row (today): includes the 1 near.
 	if last.Read != 1 || last.ReadNear != 1 {
 		t.Errorf("days[last] read/near = %d/%d, want 1/1", last.Read, last.ReadNear)
 	}

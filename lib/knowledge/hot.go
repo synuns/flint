@@ -1,8 +1,9 @@
-// hot.go — flint hot: 주입용 요약. 형식 고정 + 상한은 meta hot_budget(기본 2,000).
-// 세션 라벨 파서·
-// 노출 프로파일 판독·hot 통계 로드/persist·출력 길이 기록은 cli 잔류
-// 소유라 주입 seam(*Fn var) 경유 — cli init(knowledge_alias.go)이 실구현을
-// 주입한다(사이클 방지: knowledge는 cli 임포트 불가).
+// hot.go — flint hot: the injection summary. Fixed format + a cap from meta
+// hot_budget (default 2,000). The session label parser·exposure profile
+// read·hot stats load/persist·output length recording are cli-residual
+// ownerships, wired through injection seams (*Fn vars) — cli init
+// (knowledge_alias.go) injects the real implementations (cycle prevention:
+// knowledge cannot import cli).
 package knowledge
 
 import (
@@ -21,30 +22,34 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// DefaultHotBudget — meta hot_budget 미설정 시 기본 상한(TUNING.md §1).
+// DefaultHotBudget — the default cap when meta hot_budget is unset (TUNING.md §1).
 const DefaultHotBudget = 2000
 
-// SessionLabelFn — 인자에서 --session 값을 추출하는 공유 파서 주입 점
-// (cli sessionhook.go sessionLabel). cli init이 실구현을 주입한다.
+// SessionLabelFn — the injection point for the shared parser that extracts
+// the --session value from args (cli sessionhook.go sessionLabel). cli init
+// injects the real implementation.
 var SessionLabelFn func(args []string) string
 
-// ExposureProfileFn — 노출 프로파일 판독 주입 점(cli profile.go
-// ExposureProfile). cli init이 실구현을 주입한다.
+// ExposureProfileFn — the injection point for the exposure profile read
+// (cli profile.go ExposureProfile). cli init injects the real
+// implementation.
 var ExposureProfileFn func(getKV func(string) (string, error)) string
 
-// RecordHotLenFn — hot 출력 글자수 기록 주입 점(cli metrics.go
-// RecordHotLen). cli init이 실구현을 주입한다.
+// RecordHotLenFn — the injection point for recording the hot output
+// character count (cli metrics.go RecordHotLen). cli init injects the real
+// implementation.
 var RecordHotLenFn func(n int)
 
-// LoadHotStatsFromMetaFn — hot_stats 누적 로드 주입 점(cli metrics.go).
-// cli init이 실구현을 주입한다.
+// LoadHotStatsFromMetaFn — the injection point for loading the hot_stats
+// accumulator (cli metrics.go). cli init injects the real implementation.
 var LoadHotStatsFromMetaFn func(ctx context.Context, st wire.Store)
 
-// PersistHotStatsToMetaFn — hot_stats 누적 persist 주입 점(cli metrics.go).
-// cli init이 실구현을 주입한다.
+// PersistHotStatsToMetaFn — the injection point for persisting the hot_stats
+// accumulator (cli metrics.go). cli init injects the real implementation.
 var PersistHotStatsToMetaFn func(ctx context.Context, st wire.Store)
 
-// HotBudget — meta hot_budget 우선, 미설정·무효 값은 기본 2,000(에러 아님).
+// HotBudget — meta hot_budget takes precedence; unset or invalid values
+// fall back to the default 2,000 (not an error).
 func HotBudget(getKV func(string, string) (string, error)) int {
 	v, err := getKV("hot_budget", "")
 	if err != nil || v == "" {
@@ -57,8 +62,9 @@ func HotBudget(getKV func(string, string) (string, error)) int {
 	return n
 }
 
-// MetaGetKV — meta 키 조회를 getKV 형태로 감싼다(미설정·오류는 def).
-// v0.34.3 T2: 질의 본체는 meta_kv 단일 진입(wire.GetMetaKVErr)에 위임.
+// MetaGetKV — wraps a meta key lookup into the getKV shape (unset·error
+// yield def). v0.34.3 T2: the query body is delegated to the meta_kv single
+// entry point (wire.GetMetaKVErr).
 func MetaGetKV(ctx context.Context, st wire.Store) func(string, string) (string, error) {
 	return func(key, def string) (string, error) {
 		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
@@ -69,54 +75,62 @@ func MetaGetKV(ctx context.Context, st wire.Store) func(string, string) (string,
 	}
 }
 
-// HotFields — hot 출력 컬럼(포맷·예산 생존 판정이 공유하는 고정 순서).
-// HotSQL SELECT의 앞 4컬럼과 대응한다 — FormatRows는 kind·ts를 위치
-// fallback, topic·summary를 readColumns 매핑(위치 1·2)으로 읽으므로
-// 말미의 id·valid_at·ingested_at 증분 컬럼이 출력에 끼지 않는다.
+// HotFields — the hot output columns (the fixed order shared by the format·
+// budget survival decision). Corresponds to the first 4 columns of the
+// HotSQL SELECT — FormatRows reads kind·ts as positional fallbacks and
+// topic·summary via the readColumns mapping (positions 1·2), so the trailing
+// id·valid_at·ingested_at incremental columns never leak into the output.
 const HotFields = "kind,topic,summary,ts"
 
-// HotSQL SELECT 말미의 증분·접미 소비 컬럼 인덱스(단일 정의 —
-// hot_view가 노출하는 id·valid_at·ingested_at을 본질의에서 직접 읽는다).
+// Indexes of the incremental·suffix-consumption columns at the tail of the
+// HotSQL SELECT (single definition — reads id·valid_at·ingested_at exposed
+// by hot_view directly from the base query).
 const (
 	hotViewIDIdx         = 4
 	hotViewValidAtIdx    = 5
-	hotViewIngestedAtIdx = 6 // 팔별 확인용(현재 미소비 — 뷰 노출과 쌍)
+	hotViewIngestedAtIdx = 6 // for provenance checks (currently unconsumed — paired with the view exposure)
 )
 
-// ── hot·brief 선정 순위에 감쇠 후 유효 회상 점수 반영 ──
+// ── Reflecting the decay-adjusted effective recall score in hot·brief selection ranking ──
 
-// hotViewRecallScoreIdx·hotViewLastRecalledIdx — hotRankedSQL이 hot_view
-// 본질의 SELECT 말미에 병합하는 랭킹 열 인덱스(단일 정의 — v1.9.0 T4부터
-// 열은 recall_events 파생 집계 re.cnt·re.last_at, 인덱스는 불변).
+// hotViewRecallScoreIdx·hotViewLastRecalledIdx — the ranking column indexes
+// that hotRankedSQL appends to the tail of the hot_view base SELECT (single
+// definition — since v1.9.0 T4 the columns are the recall_events derived
+// aggregates re.cnt·re.last_at; the indexes are unchanged).
 const (
 	hotViewRecallScoreIdx  = 7
 	hotViewLastRecalledIdx = 8
 )
 
-// hotHeadlineRecallScoreIdx·hotHeadlineRecallLastIdx — 헤드라인 질의
-// (HotHeadlineSQL: id까지만 노출, 5열)에 hotRankedSQL이 병합한 랭킹 열
-// 인덱스(5·6 — --full 인덱스 7·8을 그대로 쓰면 7열
-// 행 전체가 0점 취급돼 헤드라인 랭킹이 조용히 무효가 된다).
+// hotHeadlineRecallScoreIdx·hotHeadlineRecallLastIdx — the ranking column
+// indexes that hotRankedSQL appends to the headline query (HotHeadlineSQL:
+// exposes through id only, 5 columns) — indexes 5·6 (reusing the --full
+// indexes 7·8 would make the whole 7-column rows count as zero, silently
+// nullifying headline ranking).
 const (
 	hotHeadlineRecallScoreIdx = 5
 	hotHeadlineRecallLastIdx  = 6
 )
 
-// RecallAggregateSQL — recall_events 파생 집계 서브질의(v1.9.0 T4 단일
-// 정의): 지식별 이벤트 수(cnt)·최종 회상 시각(last_at). 랭킹 질의
-// (hotRankedSQL)와 ops(maintain decay-audit)가 LEFT JOIN으로 병합한다 —
-// v11 knowledge.recall_score·last_recalled_at 직접 열(스키마 v12 폐기)의
-// 파생 대체. 공개 상수가 단일 정의다(ops측 사본 폐지).
+// RecallAggregateSQL — the recall_events derived aggregate subquery (v1.9.0
+// T4 single definition): per-knowledge event count (cnt)·last recall time
+// (last_at). The ranking query (hotRankedSQL) and ops (maintain
+// decay-audit) merge it with a LEFT JOIN — the derived replacement of the
+// v11 knowledge.recall_score·last_recalled_at direct columns (dropped in
+// schema v12). The exported constant is the single definition (the ops-side
+// copy is abolished).
 const RecallAggregateSQL = "SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at FROM recall_events GROUP BY knowledge_id"
 
-// EventEffectiveScore — 이벤트 카운트 기반 유효 점수 순수 함수
-// (v1.9.0 T1 — recall append-only 스키마 v12): max(0, count −
-// rate×경과일수). 미회상(count 0)은 0. days는 24h 단위 정수 경과
-// (23h59m = 0일), 결과 소수는 0 방향 내림(int 변환). 미래
-// last_recalled·rate 0 이하는 역성장·부풀림 방어로 count 그대로,
-// count<=0은 0(음수 카운트 방어). v1.9.0 T4: 구 EffectiveRecallScore
-// (v11 실열 산식)는 폐지 — 산식 단일 정의는 본 함수다(소비자: hot·brief
-// 랭킹, ops decay-audit 위임).
+// EventEffectiveScore — the pure function for the event-count-based
+// effective score (v1.9.0 T1 — recall append-only schema v12):
+// max(0, count − rate×elapsed days). Never-recalled (count 0) is 0. days is
+// integer elapsed time in 24h units (23h59m = 0 days); a fractional result
+// floors toward 0 (int conversion). A future last_recalled·rate 0 or below
+// keeps count as-is (reverse-growth·inflation defense), and count<=0 is 0
+// (negative-count defense). v1.9.0 T4: the old EffectiveRecallScore
+// (the v11 physical-column formula) is abolished — this function is the
+// single formula definition (consumers: hot·brief ranking, ops decay-audit
+// delegation).
 func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64) int {
 	if eventCount <= 0 {
 		return 0
@@ -135,9 +149,11 @@ func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, 
 	return int(eff)
 }
 
-// loadDecayRate — 감쇠 계수는 meta 오버라이드 우선(소비자 폴백 승계:
-// 로드 실패·미설정·0 이하는 기본값). 계측값이 아니라 순위 재료라 실패는
-// 폴백으로 흡수(출력·exit에 영향 금지 — §13과 같은 방향).
+// loadDecayRate — the decay coefficient prefers the meta override
+// (inheriting the consumer fallback: load failure·unset·0 or below yield
+// the default). It is ranking material, not a metered value, so failure is
+// absorbed by the fallback (no effect on output·exit — same direction as
+// §13).
 func loadDecayRate(ctx context.Context, st wire.Store) float64 {
 	rate := store.DefaultThresholds().DecayRate
 	if th, err := wire.LoadThresholds(ctx, st); err == nil && th.DecayRate > 0 {
@@ -146,13 +162,15 @@ func loadDecayRate(ctx context.Context, st wire.Store) float64 {
 	return rate
 }
 
-// rankRowsByEffectiveScore — 조회 행을 감쇠 후 유효 점수 내림 안정 정렬
-// (v1.9.0 T4 — 산식은 EventEffectiveScore 단일 정의: 유효 점수 =
-// max(0, cnt − rate×경과일수)). scoreIdx·lastIdx 열이 없는 행(구형 뷰
-// 모양·fake)·cnt 셀 변환 불가(NULL — 프로젝트 팔·미회상 이벤트 0건)은
-// 0점 취급이다. 안정 정렬이 기존 SQL 순서(hot: ts DESC, id DESC /
-// brief: RankOrder)를 동점 순서로 승계 — 0점 전원·랭킹 열 부재 환경은
-// 기존 출력과 바이트 동일이다.
+// rankRowsByEffectiveScore — stable-sorts query rows by decay-adjusted
+// effective score, descending (v1.9.0 T4 — the formula has the single
+// EventEffectiveScore definition: effective score =
+// max(0, cnt − rate×elapsed days)). Rows without the scoreIdx·lastIdx
+// columns (old view shape·fakes)·rows whose cnt cell cannot convert (NULL —
+// project entries·zero recall events) count as zero. The stable sort
+// inherits the existing SQL order (hot: ts DESC, id DESC / brief:
+// RankOrder) as the tie order — an all-zero·ranking-column-free
+// environment is byte-identical to the existing output.
 func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64, now time.Time) [][]any {
 	eff := make([]int, len(rows))
 	for i, r := range rows {
@@ -161,15 +179,15 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64,
 		}
 		score, ok := render.CellToInt(r[scoreIdx])
 		if !ok {
-			continue // cnt 셀 부재·NULL → 0점
+			continue // cnt cell absent·NULL → zero score
 		}
-		last, _ := wire.CellToTime(r[lastIdx]) // last NULL+cnt>0(fake 형태)은 cnt 유지(T1 계약)
+		last, _ := wire.CellToTime(r[lastIdx]) // last NULL+cnt>0 (fake shape) keeps cnt (T1 contract)
 		eff[i] = EventEffectiveScore(score, last, now, rate)
 	}
-	// sort.SliceStable은 idx 슬라이스만 swap하므로 사전 계산 eff 배열은
-	// 제자리에 남는다 — less 클로저는 eff[idx[a]]·eff[idx[b]]로 현재
-	// 순위의 값을 읽고, idx 재조립(out)이 최종 행 순서를 확정한다
-	// (부분 정렬 폐지).
+	// sort.SliceStable swaps only the idx slice, so the precomputed eff
+	// array stays in place — the less closure reads the current ranking's
+	// values via eff[idx[a]]·eff[idx[b]], and the idx reassembly (out)
+	// fixes the final row order (partial sorting abolished).
 	idx := make([]int, len(rows))
 	for i := range idx {
 		idx[i] = i
@@ -182,18 +200,20 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64,
 	return out
 }
 
-// hotRankJoinPivot — query.HotSQL·HotHeadlineSQL의 고정형 FROM/ORDER BY
-// 절(랭킹 조인 치환의 기준점 — 단일 정의 파생).
+// hotRankJoinPivot — the fixed FROM/ORDER BY clause of query.HotSQL·
+// HotHeadlineSQL (the pivot for the ranking join substitution — single
+// definition derived).
 const hotRankJoinPivot = " FROM hot_view ORDER BY ts DESC, id DESC"
 
-// hotRankedSQL — hot_view 단일 질의(단일 정의 = query.HotSQL·
-// HotHeadlineSQL)에 recall_events 파생 집계 조인으로 cnt·last_at를
-// SELECT 말미에 병합한다(v1.9.0 T4 — v11 knowledge 직접 열 폐지에
-// 따른 전환. 회상 원천이 append-only 이벤트로 이동해도 주입 질의는
-// 단일 질의 계약을 유지한다). 열은 h. 한정(조인 후 모호성 제거),
-// ORDER BY·LIMIT은 원본 정의를 그대로 승계한다 — 치환점 미발견
-// 형태(미래 SQL 변경)는 원본을 반환해 랭킹을 조용히 생략, 기존 동작을
-// 승계한다.
+// hotRankedSQL — appends cnt·last_at to the SELECT tail of the single
+// hot_view query (single definition = query.HotSQL·HotHeadlineSQL) via a
+// recall_events derived aggregate join (v1.9.0 T4 — the switch following
+// the removal of the v11 knowledge direct columns. Even with the recall
+// source moved to append-only events, the injection query keeps the
+// single-query contract). Columns are h.-qualified (post-join ambiguity
+// removed); ORDER BY·LIMIT inherit the original definition verbatim — if
+// the pivot is not found (a future SQL change) the original is returned,
+// ranking is silently skipped, and existing behavior is inherited.
 func hotRankedSQL(base string) string {
 	i := strings.Index(base, hotRankJoinPivot)
 	if i <= 0 || !strings.HasPrefix(base, "SELECT ") {
@@ -210,16 +230,18 @@ func hotRankedSQL(base string) string {
 		base[i+len(hotRankJoinPivot):]
 }
 
-// hotLineSurvivorCount — 행별 '표시 문자열' 기준 생존 수(N4). --full 접미
-// (·+N일)가 붙은 최종 텍스트로 잰다: k행 시작 오프셋은 lines[:k]의 rune
-// 수(행 구분 줄바꿈 포함)와 같고, 그 오프셋이 budget 미만인 행만 살아남는다.
-// ClampHot이 절단하는 실출력과 같은 문자열을 재므로, 접미가 밀어낸 행이
-// 실출력에서 잘렸는데도 생존으로 세어 증분되는 부정합이 없다.
+// hotLineSurvivorCount — the per-line survival count against the 'displayed
+// string' (N4). Measured on the final text including the --full suffix
+// (·+Nd): the start offset of line k equals the rune count of lines[:k]
+// (including the separating newlines), and only lines whose offset is under
+// budget survive. It reproduces the same string that ClampHot truncates, so
+// there is no inconsistency where a line pushed out by its suffix gets cut
+// from the actual output yet still counted as surviving and incremented.
 func hotLineSurvivorCount(lines []string, budget int) int {
 	n, off := 0, 0
 	for i, ln := range lines {
 		if i > 0 {
-			off++ // 행 구분 줄바꿈
+			off++ // separating newline
 		}
 		if off >= budget {
 			break
@@ -230,13 +252,15 @@ func hotLineSurvivorCount(lines []string, budget int) int {
 	return n
 }
 
-// injectedIDsForSurvivors — 실제 주입된 지식 id를 hot_view 본질의 행에서
-// 직접 모은다(단일 정의): 생존 survivors행 중 project 팔(id NULL)을
-// 제외한 행의 id 셀(hotViewIDIdx)을 취한다. 주입 출력과 증분 원천이 같은
-// 조회·같은 순서(ORDER BY ts DESC, id DESC tie-break)라 주입 집합=증분
-// 집합이 구조적으로 성립한다 — 세 팔 조건을 다시 모은 동반 질의와의
-// 정합 계약을 폐지하고도 동등하다. id 셀 부재(구형 뷰·fake)·변환 불가는
-// 조용히 건너뛴다(잘린 행의 id는 증분하지 않는다).
+// injectedIDsForSurvivors — collects the actually injected knowledge ids
+// directly from the hot_view base rows (single definition): takes the id
+// cell (hotViewIDIdx) of the surviving survivor rows excluding project
+// entries (id NULL). The injection output and the increment source are the
+// same query·same order (ORDER BY ts DESC, id DESC tie-break), so
+// injected set = increment set holds structurally — equivalent even after
+// abolishing the alignment contract with a companion query that re-gathered
+// the three-entry conditions. A missing id cell (old view·fake)·unconvertible
+// values are silently skipped (a cut line's id is not incremented).
 func injectedIDsForSurvivors(rows [][]any, survivors int) []int {
 	injected := make([]int, 0, survivors)
 	for i := 0; i < survivors && i < len(rows); i++ {
@@ -251,8 +275,9 @@ func injectedIDsForSurvivors(rows [][]any, survivors int) []int {
 	return injected
 }
 
-// PendingAgeSuffix — pending 팔 대기일수 접미(v0.12.1 R2): valid_at 경과
-// 24시간 미만은 빈 문자열, 이상은 내림 일수 "·+N일".
+// PendingAgeSuffix — the pending-entry wait-days suffix (v0.12.1 R2): empty
+// string when valid_at elapsed is under 24 hours, otherwise floored days as
+// "·+Nd".
 func PendingAgeSuffix(validAt time.Time, now time.Time) string {
 	if days := int64(now.Sub(validAt) / (24 * time.Hour)); days > 0 {
 		return fmt.Sprintf("·+%dd", days)
@@ -260,14 +285,16 @@ func PendingAgeSuffix(validAt time.Time, now time.Time) string {
 	return ""
 }
 
-// hotSuffixedLines — --full 전체 출력의 행별 표시 문자열(접미 포함, N4).
-// ClampHot 절단 대상이 되는 실출력 텍스트와 증분 생존 판정
-// (hotLineSurvivorCount)이 같은 문자열을 기준으로 정합하도록 출력 조립과
-// 생존 산정이 공유한다. pending 행 끝에만 대기일수 접미를 붙인다 —
-// valid_at은 hot_view 본질의 컬럼(hotViewValidAtIdx, 단일 정의)에서
-// 직접 읽는다(동반 질의 폐지). 셀 부재·time.Time 아닌 값·줄바꿈 포함
-// (안전 가드)은 접미 생략해 기본 포맷 라인을 반환한다(기존 출력 불변
-// 승계). rows가 비면 nil. now는 UTC.
+// hotSuffixedLines — the per-line display strings of the full --full output
+// (suffix included, N4). Output assembly and survival accounting share this
+// string so that the ClampHot truncation target — the actual output text —
+// and the increment survival decision (hotLineSurvivorCount) stay aligned.
+// Only pending line endings get the wait-days suffix — valid_at is read
+// directly from the hot_view base column (hotViewValidAtIdx, single
+// definition) (companion query abolished). A missing cell·non-time.Time
+// value·embedded newlines (safety guard) skip the suffix and return the
+// base-format line (existing output inherited unchanged). Empty rows yield
+// nil. now is UTC.
 func hotSuffixedLines(rows [][]any, now time.Time) []string {
 	base := query.FormatRows(rows, HotFields, false)
 	if base == "" {
@@ -284,9 +311,10 @@ func hotSuffixedLines(rows [][]any, now time.Time) []string {
 	if !hasPending {
 		return lines
 	}
-	// 안전 가드: 필드 값에 줄바꿈이 포함되면 FormatRows 한 행이 여러 line으로
-	// 쪼개져 lines[i]↔rows[i] 대응이 어긋난다 — 접미가 잘못된 행에 붙지 않도록
-	// 행 수가 다르면 접미 전체를 생략한다(기존 출력 불변 승계).
+	// Safety guard: if a field value embeds a newline, one FormatRows row
+	// splits into several lines and the lines[i]↔rows[i] correspondence
+	// breaks — skip the suffix entirely when the counts differ so no suffix
+	// lands on the wrong line (existing output inherited unchanged).
 	if len(lines) != len(rows) {
 		return lines
 	}
@@ -304,8 +332,9 @@ func hotSuffixedLines(rows [][]any, now time.Time) []string {
 	return lines
 }
 
-// hotFullOutput — 행별 표시 문자열(접미 포함)을 --full 전체 출력 텍스트로
-// 조립한다. nil(빈 rows)은 기존 빈 출력("") 승계.
+// hotFullOutput — assembles the per-line display strings (suffix included)
+// into the full --full output text. nil (empty rows) inherits the existing
+// empty output ("").
 func hotFullOutput(lines []string) string {
 	if lines == nil {
 		return ""
@@ -313,12 +342,14 @@ func hotFullOutput(lines []string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// HotHeadline — hot 요약 헤드라인 1줄(R2). minimal은 활성·대기 카운트만,
-// 그 외 프로파일(미설정·파손 포함)은 normal 문구.
-// v0.18.0 R2: normal은 최근 결정 주제 K개 + 회상 힌트 — 주입이 카운트만
-// 주면 다음 세션이 뭘 검색할지 몰라 read가 굶는다(관측: read:write 불균형).
-// 주제 없는 세션은 기존 카운트+펼치기 문구로 폴백(문구 열거는 데이터 —
-// 펼치기 안내와 같은 클래스, §13 경계 준수).
+// HotHeadline — the one-line hot summary headline (R2). minimal gets only
+// the active·pending counts; every other profile (unset·corrupt included)
+// gets the normal wording. v0.18.0 R2: normal carries the K most recent
+// decision topics + a recall hint — if injection carried only counts, the
+// next session would not know what to search and read would starve
+// (observed: read:write imbalance). A session without topics falls back to
+// the existing count+expand wording (the wording enumeration is data — the
+// same class as the expand guidance, §13 boundary respected).
 func HotHeadline(profile string, active int, pending int, recent int, topics []string) string {
 	if profile == "minimal" {
 		return fmt.Sprintf("[flint] active %d · pending %d", active, pending)
@@ -331,15 +362,17 @@ func HotHeadline(profile string, active int, pending int, recent int, topics []s
 		active, pending, recent)
 }
 
-// hotHeadlineTopicMax — 헤드라인 주제 rune 상한(절산 시 … 접미).
+// hotHeadlineTopicMax — the headline topic rune cap (… suffix when
+// truncated).
 const hotHeadlineTopicMax = 16
 
-// hotHeadlineTopicCount — 헤드라인에 나열할 주제 수(상위 K).
+// hotHeadlineTopicCount — how many topics to list in the headline (top K).
 const hotHeadlineTopicCount = 3
 
-// HotTopics — hot_view 조회 행(최신순)에서 decision 주제 상위 K를 뽑는다.
-// 동일 주제 중복 제거(최신 1건만)·rune 절산. 주제는 검색 큐리로 쓰이므로
-// 원문 접두를 보존한다(16 rune + …).
+// HotTopics — picks the top K decision topics from hot_view query rows
+// (newest first). Same-topic dedup (only the newest kept)·rune truncation.
+// Topics serve as search queries, so the original prefix is preserved (16
+// runes + …).
 func HotTopics(rows [][]any, k int) []string {
 	if k <= 0 {
 		return nil
@@ -363,7 +396,8 @@ func HotTopics(rows [][]any, k int) []string {
 	return topics
 }
 
-// clampHeadlineTopic — 주제 rune 상한 절산(초과 시 … 접미).
+// clampHeadlineTopic — truncates a topic to the rune cap (… suffix when
+// over).
 func clampHeadlineTopic(s string) string {
 	runes := []rune(s)
 	if len(runes) <= hotHeadlineTopicMax {
@@ -372,8 +406,9 @@ func clampHeadlineTopic(s string) string {
 	return string(runes[:hotHeadlineTopicMax]) + "…"
 }
 
-// hotCounts — hot_view 조회 행(전체 출력과 동일 데이터 소스)에서
-// 헤드라인 카운트를 뽑는다: 활성=projects 팔, 대기=pending, 최근 결정=7일.
+// hotCounts — extracts the headline counts from hot_view query rows (the
+// same data source as the full output): active = project entries, pending =
+// pending, recent decisions = 7 days.
 func hotCounts(rows [][]any) (active, pending, recent int) {
 	for _, r := range rows {
 		if len(r) == 0 {
@@ -391,19 +426,23 @@ func hotCounts(rows [][]any) (active, pending, recent int) {
 	return active, pending, recent
 }
 
-// RunHot — hot_view 조회 후 --full이면 기존 전체 출력(바이트 불변),
-// 아니면 프로파일별 헤드라인 1줄만 출력한다(카운트는 동일 조회에서 추출,
-// 전체 조립은 생략). 계측·exit·--session은 양 경로 공통 불변.
-// T38 배선(F-T56-1): 시작 시 meta hot_stats 누적을 로드하고 종료 직전
-// persist한다(단발 CLI 프로세스 분리 보존). 둘 다 계측이므로 실패는
-// 조용히 무시된다(§13 — hot 출력·exit에 영향 금지).
+// RunHot — queries hot_view, then: with --full prints the existing full
+// output (byte-invariant); otherwise prints only the profile-specific
+// one-line headline (counts extracted from the same query; full assembly
+// skipped). Metering·exit·--session are invariant across both paths.
+// T38 wiring (F-T56-1): loads the meta hot_stats accumulator at start and
+// persists it just before exit (preserving single-shot CLI process
+// separation). Both are metering, so failures are quietly ignored (§13 —
+// no effect on hot output·exit).
 func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 세션 라벨은 공유 파서(SessionLabelFn — cli sessionLabel 주입)로 —
-	// session-start 경계 기록과 단일 소스. --full 판별은
-	// 세션 값으로 소비된 토큰을 플래그로 재판독하지 않는다(변칙 입력
-	// `--session --full`의 기존 full=true 부작용 제거 — read의 플래그형 값
-	// 방어와 같은 방향). --session 라벨은 read와 같은 공용 가드
-	// (validateSessionLabel)로 검증 — 빈 값·'-' 접두 오타는 무효 인자 exit 3.
+	// The session label goes through the shared parser (SessionLabelFn —
+	// injected cli sessionLabel) — a single source with the session-start
+	// boundary record. The --full check does not re-read as a flag the token
+	// consumed as the session value (removing the existing full=true side
+	// effect of the contrived input `--session --full` — the same direction
+	// as read's flag-shaped-value defense). The --session label is validated
+	// by the same shared guard as read (validateSessionLabel) — empty
+	// values·'-'-prefixed typos get the invalid-arg exit 3.
 	session := SessionLabelFn(args)
 	sessionGiven := false
 	full := false
@@ -419,8 +458,9 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 			full = true
 			continue
 		}
-		// unknown `-` 접두 인자는 무효 인자 exit 3 — 기존
-		// 조용한 무시(exit 0) 폐지. 조용한 성공은 오타 플래그를 감춘다.
+		// Unknown `-`-prefixed args get the invalid-arg exit 3 — abolishing
+		// the existing quiet ignore (exit 0). A quiet success hides mistyped
+		// flags.
 		if strings.HasPrefix(args[i], "-") {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint hot [--session ID] [--full]", args[i])))
 			return 3
@@ -432,50 +472,58 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	}
 	sql := query.HotSQL(session)
 	if !full {
-		// 헤드라인 경로는 카운트 왜곡 방지 상한(50) —
-		// 주입(--full)은 예산 상한 계약 불변.
+		// The headline path uses the count-distortion-prevention cap (50) —
+		// injection (--full) keeps the budget-cap contract unchanged.
 		sql = query.HotHeadlineSQL(session)
 	}
-	// 단일 질의에 랭킹 열(파생 cnt·last_at — recall_events 집계)을
-	// 병합한다 — 동반 질의 없이(주문=증분 구조 승계).
+	// Merge the ranking columns (derived cnt·last_at — recall_events
+	// aggregates) into the single query — no companion query (order =
+	// increment structure inherited).
 	sql = hotRankedSQL(sql)
 	rows, err := wire.QueryOnce(ctx, st, sql, nil)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// 출력 재살균(ADR-0006): read와 동일
-	// 방어 — 저장 후 유입(restore·직접 SQL·살균 이전 데이터)된 [flint]
-	// 마커·제어 문자가 세션 시작 주입 경계를 위조하지 않게 한다. hot은
-	// 훅으로 프롬프트에 직접 주입되는 최우선 출력 경로다. 살균은
-	// read와 같은 render 조크포인트(render.Cells)로 수렴.
+	// Output re-sanitization (ADR-0006): the same defense as read — so
+	// [flint] markers·control characters introduced after storage
+	// (restore·direct SQL·pre-sanitization data) cannot forge the
+	// session-start injection boundary. hot is the foremost output path
+	// injected directly into the prompt by hooks. Sanitization converges on
+	// the same render choke point as read (render.Cells).
 	rows = render.Cells(rows)
-	// 선정 순위에 감쇠 후 유효 회상 점수 반영 — effective DESC
-	// 안정 정렬(동점·0점은 기존 SQL 순서 ts DESC, id DESC 승계). 랭킹 열이
-	// 없는 행(구형 뷰·fake)·미회상(cnt NULL)은 0점 취급돼 기존 순서·출력이
-	// 그대로 살아남는다. 포맷·예산·증분은 하류가 이 rows를 소비해 주문=증분
-	// 계약이 불변이다. 랭킹 열 인덱스는 경로별 질의 형태(--full 9열·헤드라인
-	// 7열)를 따른다.
+	// Reflect the decay-adjusted effective recall score in selection
+	// ranking — effective DESC stable sort (ties·zero scores inherit the
+	// existing SQL order ts DESC, id DESC). Rows without ranking columns
+	// (old view·fake)·never-recalled (cnt NULL) count as zero, so existing
+	// order·output survive as-is. Format·budget·increments are downstream
+	// consumers of these rows, keeping the order = increment contract
+	// unchanged. The ranking column indexes follow the per-path query shape
+	// (--full 9 columns·headline 7 columns).
 	scoreIdx, lastIdx := hotViewRecallScoreIdx, hotViewLastRecalledIdx
 	if !full {
 		scoreIdx, lastIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx
 	}
 	rows = rankRowsByEffectiveScore(rows, scoreIdx, lastIdx,
 		loadDecayRate(ctx, st), time.Now().UTC())
-	// 조회 성공 후 기록 직전에 baseline 로드(쿼리 실패 경로는 계측 생략).
+	// Load the baseline just before recording, after a successful query
+	// (the query-failure path skips metering).
 	LoadHotStatsFromMetaFn(ctx, st)
-	// 예산은 양 경로 공통 산출: --full 절단 규칙과 증분 생존 판정이 같은
-	// 예산을 공유한다(계측 불변).
+	// The budget is computed commonly for both paths: --full truncation
+	// rules and the increment survival decision share the same budget
+	// (metering invariant).
 	budget := HotBudget(MetaGetKV(ctx, st))
-	// 접미 포함 행별 텍스트(N4) — --full 출력과 증분 생존 판정이 공유한다.
+	// Per-line text including suffixes (N4) — shared by the --full output
+	// and the increment survival decision.
 	var lines []string
 	if full {
 		lines = hotSuffixedLines(rows, time.Now().UTC())
 		clamped := query.ClampHot(hotFullOutput(lines), budget)
 		fmt.Fprint(stdout, clamped)
 		RecordHotLenFn(len([]rune(clamped)))
-		// G5 바이트 계측: ClampHot 절단 '후' 최종 출력 길이
-		// (예산 준수 실측 — 절단 전 아님, spec §1). 조용히(§13).
+		// G5 byte metering: the final output length 'after' ClampHot
+		// truncation (budget-compliance measurement — not pre-truncation,
+		// spec §1). Quiet (§13).
 		recordBytes(ctx, st, "hot", len(clamped))
 	} else {
 		kv := MetaGetKV(ctx, st)
@@ -484,47 +532,56 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		line := HotHeadline(profile, active, pending, recent, HotTopics(rows, hotHeadlineTopicCount))
 		fmt.Fprintln(stdout, line)
 		RecordHotLenFn(len([]rune(line)))
-		// G5 바이트 계측: 헤드라인 1줄+개행 — 쓴 총량(분모 정합). 조용히(§13).
+		// G5 byte metering: one headline line + newline — the total written
+		// (denominator consistency). Quiet (§13).
 		recordBytes(ctx, st, "hot", len(line)+1)
 	}
 	PersistHotStatsToMetaFn(ctx, st)
-	// 계측: 실제 주입된(예산 절단 후 출력에 남은) 지식 id만 참조 증분
-	// + hot 유입 1회. 조용히(§13). 지식 주입은 --full 전체 출력 경로에서만
-	// 일어난다(N3) — 헤드라인 경로는 카운트만 노출하므로 실제 주입 없는
-	// 증분(read_count·last_read_at 왜곡으로 stale 판정 동결) 없이 유입 1회만
-	// 기록한다. 생존 판정은 접미 포함 텍스트 기준(N4): 접미가 밀어낸 행이
-	// 실출력에서 잘렸으면 증분하지 않는다. 증분 id는 본질의 hot_view 조회의
-	// id 컬럼에서 직접 뽑는다(단일 정의).
+	// Metering: increment references only for knowledge ids actually
+	// injected (left in the post-budget-truncation output) + one hot
+	// intake. Quiet (§13). Knowledge injection happens only on the --full
+	// full-output path (N3) — the headline path exposes counts only, so it
+	// records just one intake without increments that would distort
+	// read_count·last_read_at and freeze stale decisions. Survival is
+	// decided against the suffix-included text (N4): if a suffix pushed a
+	// line out and it was cut from the actual output, it is not
+	// incremented. The incremented ids are picked directly from the id
+	// column of the base hot_view query (single definition).
 	if !full {
 		RecordUsage(ctx, st, "hot", "")
-		// 헤드라인(비 --full) 노출 id 전수도 회상 이력에
-		// kind=hot로 남긴다(spec §2.1 — 주입은 --full 경로뿐이지만 헤드라인
-		// 도 회상을 유도하는 노출 표면이라 G4 계정에 포함). id는 헤드라인
-		// 질의의 id 컬럼에서 회수한다(HotSQL 단일 정의 관례 — 프로젝트 팔
-		// id NULL 제외, 셀 부재·변환 불가는 조용히 건너뛴다). read_count
-		// 캐시(BumpReads)는 헤드라인 경로에서 계속 불볕한다.
+		// The headline (non --full) exposed-id set is also left in recall
+		// history with kind=hot (spec §2.1 — only the --full path injects,
+		// but the headline is also an exposure surface that induces recall,
+		// so it belongs in the G4 account). Ids are recovered from the
+		// headline query's id column (the HotSQL single-definition
+		// convention — project entries with id NULL excluded; a missing
+		// cell·unconvertible values are silently skipped). The read_count
+		// cache (BumpReads) stays untouched on the headline path.
 		recordKnowledgeReads(ctx, st, injectedIDsForSurvivors(rows, len(rows)), session, "hot")
 	} else {
 		injected := injectedIDsForSurvivors(rows, hotLineSurvivorCount(lines, budget))
 		InstrumentReads(ctx, st, "hot", injected, false, false)
-		// 주입 id 전수도 회상 이력에 kind=hot로(주입=증분=기록
-		// 집합 — 같은 조회·같은 순서 원천). 조용히(§13).
+		// The injected-id set is also left in recall history with kind=hot
+		// (injected = incremented = recorded set — same query·same order
+		// source). Quiet (§13).
 		recordKnowledgeReads(ctx, st, injected, session, "hot")
-		// 실제 주입된 지식 id를 hot_events에 노출 기록 —
-		// dead_pct의 hot 노출 보정 원천. 실패는 조용히(§13 계측 원칙).
+		// Record the actually injected knowledge ids in hot_events as an
+		// exposure record — the source for hot-exposure correction of
+		// dead_pct. Failure is quiet (§13 metering principle).
 		if rec, ok := st.(HotEventRecorder); ok {
 			_ = rec.RecordHotEvent(ctx, idsCSV(injected))
 		}
 	}
-	// 계측 테이블 별도 커밋(hot 완료 경로 1회 — 헤드라인·--full
-	// 공통). 실패는 조용히(§13 — 스테이징은 유지돼 다음 호출이 회수).
+	// A separate commit for the metering table (once on the hot completion
+	// path — common to headline·--full). Failure is quiet (§13 — staging
+	// survives, so the next call recovers it).
 	commitTelemetry(ctx, st, "hot")
 	return 0
 }
 
-// HotEventRecorder — hot --full 주입 노출 기록 접합면(v0.20.0).
-// realStore는 db.Repo.RecordHotEvent로 구현(cli/realstore_read.go),
-// 미구현 Store(fake)는 건너뛴다.
+// HotEventRecorder — the hot --full injection exposure recording interface
+// (v0.20.0). realStore implements it via db.Repo.RecordHotEvent
+// (cli/realstore_read.go); a non-implementing Store (fake) skips it.
 type HotEventRecorder interface {
 	RecordHotEvent(ctx context.Context, ids string) error
 }

@@ -15,17 +15,17 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// fakeStore — Store 인터페이스 fake. stub 필드(exists·*Err)는 지정 시 우선되고,
-// rows·queryFn 미지정 시 영(零) 동작을 반환한다. 히스토리 5메서드는
-// LogEntries 캡처 계층(아래)·HistoryStubs 기본구현(나머지 4종)으로
-// 승계한다.
+// fakeStore — a Store interface fake. The stub fields (exists, *Err) take precedence when set;
+// without rows or queryFn it returns zero behavior. The 5 history methods are
+// inherited via the LogEntries capture layer (below) and the HistoryStubs default
+// implementations (the other 4).
 type fakeStore struct {
-	wire.HistoryStubs // LogEntries 오버라이드·나머지 4종 기본구현 승계
+	wire.HistoryStubs // inherits the LogEntries override and default implementations for the other 4
 
-	// stub 조건
+	// stub conditions
 	exists        bool
 	existsErr     error
-	existsProject map[string]bool // name별 존재 판정(nil이면 전부 false)
+	existsProject map[string]bool // existence per name (nil means all false)
 	insertErr     error
 	commitErr     error
 	pingErr       error
@@ -33,10 +33,10 @@ type fakeStore struct {
 	rows          [][]any
 	queryFn       func(sql string, args []any) ([][]any, error)
 
-	// 기록 — report 병렬 수집(v1.9.3 T2)이 Query를 동시 호출하므로
-	// 기록 계열 필드 접근은 전부 mu로 직렬화한다(doctor_test 선례 계열).
-	// Query는 queryFn 호출까지 락 내에서 실행 — queryFn 클로저의 테스트
-	// 로컬 기록(queries·argsBySQL append 등)도 같이 직렬화된다.
+	// recording — report's parallel collection (v1.9.3 T2) calls Query concurrently, so
+	// every recording-field access is serialized with mu (the doctor_test lineage).
+	// Query runs inside the lock up to and including the queryFn call — test-local recording in
+	// queryFn closures (queries, argsBySQL appends, etc.) is serialized along with it.
 	mu       sync.Mutex
 	inserted []map[string]any
 	commits  []string
@@ -61,7 +61,7 @@ func (f *fakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return f.exists, f.existsErr
 }
 func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
-	return f.existsProject[name], nil // nil map 조회는 false(영 동작)
+	return f.existsProject[name], nil // a nil map lookup is false (zero behavior)
 }
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	f.mu.Lock()
@@ -87,13 +87,13 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return f.rows, nil
 }
 
-// 히스토리 5메서드 — wire.Store 계약 충족용 캡처 계층. db 실SQL(방언)은
-// lib/db 소유 — 여기선 LogQuery 모드 식별자와 인자를 Query seam(queryFn·
-// queries 캡처)으로 내려보내 소비 테스트가 "어떤 로그 조회에 어떤 인자가
-// 갔는가"를 단언하게 한다. 모드 식별자는 방언 아닌 조각(LIKE·date <= $1·
-// commit_order 정렬·message NOT LIKE)로 구분된다(asof_test·audit_test 등
-// queryFn 소비자 호환). DiffRows·DiffStat·DiffCommits·QueryAsOf는 소비자가
-// 계약 오버라이드 fake를 쓰므로 HistoryStubs 기본구현으로 승계.
+// the 5 history methods — a capture layer satisfying the wire.Store contract. The real db SQL (dialect)
+// is owned by lib/db — here we pass the LogQuery mode identifiers and arguments down through the Query seam
+// (queryFn and the queries capture) so consuming tests can assert "which arguments went to which log
+// lookup". The mode identifiers are distinguished by non-dialect fragments (LIKE, date <= $1,
+// commit_order sort, message NOT LIKE) (compatible with queryFn consumers like
+// asof_test and audit_test). DiffRows, DiffStat, DiffCommits, and QueryAsOf use consumer
+// contract-override fakes, so they inherit the HistoryStubs defaults.
 func (f *fakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	var (
 		sql  string
@@ -112,8 +112,8 @@ func (f *fakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.Log
 		sql = `SELECT commit_hash FROM commit_log WHERE date <= $1 ORDER BY commit_order DESC LIMIT 1`
 		args = []any{q.BeforeOrAt}
 	case q.LatestN > 0:
-		// 조립 순서 승계: NOT LIKE→LIKE, $2부터 순차 부여, AND 결합,
-		// LIMIT $1은 문미(인자 전달 검증용).
+		// assembly order inherited: NOT LIKE -> LIKE, assigned sequentially from $2, joined with AND,
+		// LIMIT $1 at the end (for argument-passthrough verification).
 		sql = `SELECT commit_hash, committer, date, message FROM commit_log`
 		args = []any{q.LatestN}
 		var conds []string
@@ -141,9 +141,9 @@ func (f *fakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.Log
 	return fakeLogEntryRows(rows), nil
 }
 
-// fakeLogEntryRows — 로그 조회 행 → LogEntry 관용 매핑. 열 폭 관례 승계:
-// 4열(hash·committer·date·message), 2열(hash·date), 1열은 값이 시각
-// 파싱되면 date(Hash 모드 date 단독 픽스처), 아니면 hash.
+// fakeLogEntryRows — log query rows -> idiomatic LogEntry mapping. Column-width conventions inherited:
+// 4 columns (hash, committer, date, message), 2 columns (hash, date), 1 column is date if the
+// value parses as a time (the Hash mode date-only fixture), else hash.
 func fakeLogEntryRows(rows [][]any) []wire.LogEntry {
 	var out []wire.LogEntry
 	for _, r := range rows {
@@ -171,8 +171,8 @@ func fakeLogEntryRows(rows [][]any) []wire.LogEntry {
 	return out
 }
 
-// fakeLogDate — parseLogDate(db)와 동등: time.Time 그대로, 문자열은
-// 레이아웃 3종 파싱.
+// fakeLogDate — equivalent to parseLogDate(db): time.Time as-is; strings parsed
+// with 3 layouts.
 func fakeLogDate(v any) (time.Time, bool) {
 	switch x := v.(type) {
 	case time.Time:
@@ -191,10 +191,10 @@ func fakeLogDate(v any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// seamRealDSN — SUPERLITE_REAL=1 실구현 seam의 DSN 해결: FLINT_TEST_DSN
-// 설정 시만 실DB 접속을 허용한다. 미설정이면 dsnFromEnv 기본값(운영
-// 5434/flint)으로 폴백하지 않고 ("", false) — 호출원 seam은 fake 경로로
-// 내려가 운영 지표 오염을 원천 차단한다.
+// seamRealDSN — DSN resolution for the SUPERLITE_REAL=1 real-implementation seam: a real DB
+// connection is allowed only when FLINT_TEST_DSN is set. When unset, it does not fall back to the
+// dsnFromEnv default (production 5434/flint) but returns ("", false) — the calling seam takes
+// the fake path, blocking production-metric pollution at the source.
 func seamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -206,9 +206,9 @@ func seamRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// withFake — newStore seam 교체. 기본 fake, FLINT_TEST_DSN 설정 +
-// SUPERLITE_REAL=1이면 실구현 위임 fake(미설정 stub만 위임). 실DB 미기동 시
-// 스킵. FLINT_TEST_DSN 미설정 시에는 실구현으로 폴백하지 않는다.
+// withFake — swaps the newStore seam. Default fake; with FLINT_TEST_DSN set +
+// SUPERLITE_REAL=1, a real-implementation-delegating fake (delegating only unstubbped operations). Skips
+// without a running real DB. Without FLINT_TEST_DSN, never falls back to the real implementation.
 func withFake(t *testing.T, f *fakeStore) {
 	t.Helper()
 	prev := newStore
@@ -230,10 +230,10 @@ func withFake(t *testing.T, f *fakeStore) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// cleanupRealResidue — SUPERLITE_REAL seam에서 공유 실DB의 잔재를 정리한다
-// (best-effort — 미설정/접속 실패/쿼리 실패는 조용히 넘긴다). 해시 dedup·
-// 빈도 상한 meta·PK가 공유 DB에 남아 실DB seam 테스트의 멱등성을 깨는 것을
-// 시작 경계에서 지운다(TestImportMigrateJSONLRealSlow 정리 관례의 배선 버전).
+// cleanupRealResidue — cleans residue on the shared real DB for SUPERLITE_REAL seams
+// (best-effort — unset, connection failure, or query failure pass silently). The hash dedup,
+// frequency-cap meta, and PK left on the shared DB would break the idempotence of real-DB seam
+// tests, so they are wiped at the start boundary (the wiring version of the TestImportMigrateJSONLRealSlow cleanup convention).
 func cleanupRealResidue(queries ...string) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -249,7 +249,7 @@ func cleanupRealResidue(queries ...string) {
 	}
 }
 
-// delegatingFake — stub 미지정 연산은 실구현에 위임해 seam 검증이 실코드를 통과하게 한다.
+// delegatingFake — unstubbped operations delegate to the real implementation so seam checks pass through real code.
 type delegatingFake struct {
 	fake *fakeStore
 	real Store
@@ -257,7 +257,7 @@ type delegatingFake struct {
 
 func (d *delegatingFake) Migrate(ctx context.Context) error { return d.real.Migrate(ctx) }
 
-// 히스토리 5메서드 — 위임 패턴 승계(실구현 seam 그대로 통과).
+// the 5 history methods — inheriting the delegation pattern (passing through the real-implementation seam as-is).
 func (d *delegatingFake) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	return d.real.LogEntries(ctx, q)
 }
@@ -306,11 +306,16 @@ func (d *delegatingFake) Ping(ctx context.Context) error {
 	return d.real.Ping(ctx)
 }
 
-// Close — no-op: Run의 `defer st.Close()`(wire/run.go)가 커맨드마다 호출하는데,
-// real 스토어는 테스트 간 공유 풀이므로 여기서 닫으면 이후 커맨드가 closed
-// pool 에러로 실패한다. 실 스토어 종결 소유권은 withFake의 t.Cleanup에 있다.
+// Close — no-op: Run's `defer st.Close()` (wire/run.go) is called per command, but
+// the real store is a pool shared across tests, so closing here would make later commands
+// fail with closed-pool errors. Ownership of the real store's teardown belongs to withFake's t.Cleanup.
 func (d *delegatingFake) Close() {}
 func (d *delegatingFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	// the recording append is serialized with the same mu as fakeStore.Query (unified) — report's
+	// parallel collection calls Query concurrently on the delegatingFake path too.
+	// The queryFn call also runs inside the lock (inheriting the test-local recording closure serialization).
+	d.fake.mu.Lock()
+	defer d.fake.mu.Unlock()
 	d.fake.queries = append(d.fake.queries, sql)
 	if d.fake.queryErr != nil {
 		return nil, d.fake.queryErr
@@ -324,7 +329,33 @@ func (d *delegatingFake) Query(ctx context.Context, sql string, args ...any) ([]
 	return d.real.Query(ctx, sql, args...)
 }
 
-// mustRun — Run 실행 + exit code assert.
+// TestDelegatingFakeQueryRecordsSerialized — report's parallel collection (v1.9.3 T2) calls
+// Query concurrently on the delegatingFake path too. Verifies under -race that the queries
+// append is serialized by fakeStore.mu (the R46 unification regression guard).
+// With rows set, the real-delegation branch is not reached (only the recording serialization is under test).
+func TestDelegatingFakeQueryRecordsSerialized(t *testing.T) {
+	f := &fakeStore{rows: [][]any{{"x"}}}
+	d := &delegatingFake{fake: f, real: f}
+	const n = 16
+	var wg sync.WaitGroup
+	for i := 0; i < n; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			if _, err := d.Query(context.Background(), "select 1"); err != nil {
+				t.Errorf("Query err: %v", err)
+			}
+		}()
+	}
+	wg.Wait()
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if len(f.queries) != n {
+		t.Fatalf("queries=%d, want %d", len(f.queries), n)
+	}
+}
+
+// mustRun — runs Run + asserts the exit code.
 func mustRun(t *testing.T, args []string, stdin string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -344,8 +375,8 @@ func decode(t *testing.T, line string) map[string]any {
 func TestWriteCommitted(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// write는 content_hash dedup(공유 실DB)를 통과한다 — 실행마다
-	// 고유 topic으로 잔재 해시 충돌을 회피해야 committed가 멱등하다.
+	// write passes content_hash dedup (shared real DB) — each run must use a unique
+	// topic to avoid residue-hash collisions for committed to stay idempotent.
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"topic":"`+topic+`","summary":"s","confidence":0.9,"tags":["b","a"]}`)
@@ -381,7 +412,7 @@ func TestWriteCommitted(t *testing.T) {
 func TestWritePendingBoundary(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// 잔재 해시 충돌 회피(TestWriteCommitted 주석 참조).
+	// avoid residue-hash collisions (see the TestWriteCommitted comment).
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"topic":"`+topic+`","summary":"s","confidence":0.79}`)
@@ -431,7 +462,7 @@ func TestWriteJSONLSingleCommit(t *testing.T) {
 func TestWriteStripsNonColumnKeys(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// 공유 실DB의 프로젝트명 잔재 충돌 회피 — 실행마다 고유 name.
+	// avoiding project-name residue collisions on the shared real DB — a unique name per run.
 	name := fmt.Sprintf("p1-%s-%d", t.Name(), time.Now().UnixNano())
 	_, code := mustRun(t, []string{"write", "project"},
 		`{"name":"`+name+`","status":"active","note":"메타데이터"}`)
@@ -439,14 +470,14 @@ func TestWriteStripsNonColumnKeys(t *testing.T) {
 		t.Fatalf("exit=%d, want 0", code)
 	}
 	rec := f.inserted[0]
-	// note는 project 컬럼으로 등록돼 저장된다(kindColumns).
+	// the note is registered into the project column (kindColumns).
 	if rec["note"] != "메타데이터" {
 		t.Fatalf("note 컬럼 미저장: %v", rec)
 	}
 	if rec["name"] != name || rec["status"] != "active" {
 		t.Fatalf("컬럼 유실: %v", rec)
 	}
-	// 미등록 키는 여전히 무경고 삭제 금지: warnings에 있어야 한다(다른 키로 검증).
+	// unregistered keys are still protected from unwarned deletion: they must appear in warnings (verified with a different key).
 	out2, code2 := mustRun(t, []string{"write", "project"},
 		`{"name":"`+name+`x","status":"active","bogus_key":"v"}`)
 	if code2 != 0 {
@@ -499,14 +530,14 @@ func TestWriteBadJSONExit3(t *testing.T) {
 	if code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out)
 	}
-	decode(t, out) // 한 줄 JSON 에러여야 한다
+	decode(t, out) // must be a one-line JSON error
 }
 
 func TestRetriesExhaustedExit1(t *testing.T) {
 	f := &fakeStore{commitErr: store.ErrRetriesExhausted}
 	withFake(t, f)
-	// 잔재 해시 충돌 회피(TestWriteCommitted 주석 참조) — duplicate로
-	// commit 경로 도달 전 스킵되면 exit 1 재현 자체가 불가능하다.
+	// avoiding residue-hash collisions (see the TestWriteCommitted comment) — if skipped as
+	// duplicate before reaching the commit path, exit 1 itself cannot be reproduced.
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"topic":"`+topic+`","summary":"s","confidence":0.9}`)
@@ -538,8 +569,8 @@ func TestReadLimitClampAndJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
-	// --json에서 요청 limit이 상한(50) 초과면 additive clamp
-	// 라인(limit_requested·limit_applied)이 행 뒤에 따른다(기존 키 불변).
+	// in --json, when the requested limit exceeds the cap (50), additive clamp lines
+	// (limit_requested, limit_applied) follow the row (existing keys unchanged).
 	want := "{\"id\":\"1\",\"topic\":\"t\"}\n" +
 		`{"limit_requested":999,"limit_applied":50}`
 	if strings.TrimSpace(out) != want {

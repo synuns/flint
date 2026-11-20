@@ -1,6 +1,6 @@
-// Package backup 은 ADR-0002에 따른 flint 자체 SQL 덤프 생성·재생을 담당한다.
-// pg_dump는 Doltgres에서 동작하지 않으므로(ADR-0002), 스키마 DDL과
-// BEGIN; DELETE; INSERT 재생 스크립트를 직접 생성한다.
+// Package backup owns flint's own SQL dump generation and replay per
+// ADR-0002. pg_dump does not work on Doltgres (ADR-0002), so this package
+// generates the schema DDL and a BEGIN; DELETE; INSERT replay script itself.
 package backup
 
 import (
@@ -21,8 +21,8 @@ var (
 	dollarRe  = regexp.MustCompile(`^\$[A-Za-z_]*\$`)
 )
 
-// Dump 는 dsn 데이터베이스의 public 스키마(사용자 테이블) 전체를
-// 스키마 DDL + 데이터 재생 SQL 스크립트로 w에 기록한다.
+// Dump writes the entire public schema (user tables) of the dsn database to
+// w as a schema DDL + data replay SQL script.
 func Dump(ctx context.Context, dsn string, w io.Writer) error {
 	pool, err := db.Connect(ctx, dsn)
 	if err != nil {
@@ -34,7 +34,7 @@ func Dump(ctx context.Context, dsn string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	order := topoInsert(tables, fks) // 부모 우선(FK 참조 대상 먼저)
+	order := topoInsert(tables, fks) // parents first (FK targets before referrers)
 
 	fmt.Fprintf(w, "-- flint backup (ADR-0002) generated %s\n", time.Now().UTC().Format(time.RFC3339))
 
@@ -57,7 +57,7 @@ func Dump(ctx context.Context, dsn string, w io.Writer) error {
 	}
 
 	fmt.Fprintln(w, "BEGIN;")
-	for i := len(order) - 1; i >= 0; i-- { // 자식 먼저 삭제(FK 충돌 회피)
+	for i := len(order) - 1; i >= 0; i-- { // delete children first (avoids FK conflicts)
 		fmt.Fprintf(w, "DELETE FROM %s;\n", quoteIdent(order[i]))
 	}
 	for _, t := range order {
@@ -72,10 +72,11 @@ func Dump(ctx context.Context, dsn string, w io.Writer) error {
 	return nil
 }
 
-// Restore 는 덤프 스크립트를 단일 트랜잭션으로 순차 실행한다.
-// 자체 풀(db.Connect)은 의도된 설계 —
-// 트랜잭션+Exec가 필요한데 wire.Store는 쓰기-repo-전용 계약상 그 표면이
-// 없다. 단발 CLI 호출·defer Close로 누수 없음. 재배선하지 않는다.
+// Restore executes the dump script sequentially in a single transaction.
+// Using its own pool (db.Connect) is intentional design — it needs
+// transaction+Exec, a surface wire.Store lacks under its write-repo-only
+// contract. A one-shot CLI call with defer Close leaks nothing. Do not
+// rewire.
 func Restore(ctx context.Context, dsn string, r io.Reader) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -108,7 +109,7 @@ type column struct {
 	notNull        bool
 }
 
-// loadTables 는 public 스키마의 사용자 테이블 목록과 FK 관계(child→parents)를 읽는다.
+// loadTables reads the public schema's user table list and FK relations (child -> parents).
 func loadTables(ctx context.Context, pool *pgxpool.Pool) ([]string, map[string][]string, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT c.relname FROM pg_class c
@@ -151,7 +152,7 @@ func loadTables(ctx context.Context, pool *pgxpool.Pool) ([]string, map[string][
 	return tables, fks, fkRows.Err()
 }
 
-// topoInsert 는 FK 부모가 먼저 오도록 정렬한다(사이클이면 잔여를 원순으로).
+// topoInsert orders tables so FK parents come first (on a cycle, the remainder keeps its original order).
 func topoInsert(tables []string, fks map[string][]string) []string {
 	inDump := map[string]bool{}
 	for _, t := range tables {
@@ -190,8 +191,9 @@ func topoInsert(tables []string, fks map[string][]string) []string {
 	return ordered
 }
 
-// tableDef 는 컬럼 정의와 PK/UNIQUE/FOREIGN KEY 제약을 카탈로그에서 읽는다.
-// Doltgres는 pg_attrdef을 비워두므로 컬럼 기본값은 information_schema에서 얻는다.
+// tableDef reads column definitions and PK/UNIQUE/FOREIGN KEY constraints
+// from the catalog. Doltgres leaves pg_attrdef empty, so column defaults
+// come from information_schema.
 func tableDef(ctx context.Context, pool *pgxpool.Pool, table string) ([]column, [][2]string, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT column_name, data_type, udt_name, udt_schema,
@@ -244,11 +246,11 @@ func tableDef(ctx context.Context, pool *pgxpool.Pool, table string) ([]column, 
 	return cols, cons, consRows.Err()
 }
 
-// columnType 는 information_schema 정보로 컬럼 타입 문자열을 조립한다.
-// 길이·정밀도가 있는 타입만 괄호 표기를 붙인다.
+// columnType assembles the column type string from information_schema data.
+// Only types with length or precision get parenthesized notation.
 func columnType(dataType, udtName, udtSchema string, charLen, numPrec, numScale *int) string {
 	if dataType == "ARRAY" {
-		return udtName // udt_name이 elem_type[] 형태로 온다
+		return udtName // udt_name arrives as elem_type[]
 	}
 	if udtSchema != "pg_catalog" {
 		return udtSchema + "." + udtName
@@ -288,7 +290,7 @@ func writeCreateTable(w io.Writer, table string, cols []column, cons [][2]string
 		quoteIdent(table), strings.Join(parts, ",\n  "))
 }
 
-// dumpRows 는 테이블 전체 행을 INSERT 문으로 기록한다.
+// dumpRows writes every row of the table as INSERT statements.
 func dumpRows(ctx context.Context, pool *pgxpool.Pool, w io.Writer, table string) error {
 	rows, err := pool.Query(ctx, `SELECT * FROM `+quoteIdent(table))
 	if err != nil {
@@ -316,7 +318,7 @@ func dumpRows(ctx context.Context, pool *pgxpool.Pool, w io.Writer, table string
 	return rows.Err()
 }
 
-// sqlLit 는 Go 값을 SQL 리터럴로 변환한다(작은따옴표 ” 이스케이프).
+// sqlLit converts a Go value to an SQL literal (doubling single quotes).
 func sqlLit(v any) string {
 	switch x := v.(type) {
 	case nil:
@@ -341,9 +343,9 @@ func quoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-// splitStatements 는 SQL 스크립트를 문장 단위로 쪼갠다.
-// 작은따옴표 문자열(” 이스케이프), -- 한 줄 주석, 블록 주석,
-// 달러 인용($tag$...$tag$) 안의 세미콜론은 분리자로 취급하지 않는다.
+// splitStatements splits an SQL script into statements. Semicolons inside
+// single-quoted strings (doubled quotes), -- line comments, block comments,
+// and dollar quoting ($tag$...$tag$) are not treated as separators.
 func splitStatements(script string) []string {
 	var stmts []string
 	var cur strings.Builder
@@ -356,7 +358,7 @@ func splitStatements(script string) []string {
 			for j < len(script) {
 				if script[j] == '\'' {
 					if j+1 < len(script) && script[j+1] == '\'' {
-						j += 2 // '' 이스케이프
+						j += 2 // '' escape
 						continue
 					}
 					break
@@ -406,7 +408,7 @@ func splitStatements(script string) []string {
 	return stmts
 }
 
-// stripComments 는 선행 주석을 걷어낸다(주석뿐인 문장 건너뛰기용).
+// stripComments strips leading comments (to skip comment-only statements).
 func stripComments(stmt string) string {
 	s := stmt
 	for {

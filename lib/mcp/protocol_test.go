@@ -1,6 +1,7 @@
-// protocol_test.go — 통합 시퀀스(현대 클라이언트 협상·
-// 알림 무응답·ping·tools/list). 협상 코드를 RunMCPServer 전체 경로로
-// 검증한다(알림 제외 응답 3줄).
+// protocol_test.go — integration sequences (modern-client negotiation,
+// notification silence, ping, tools/list). Verifies the negotiation code
+// through the full RunMCPServer path (3 response lines excluding
+// notifications).
 package mcp
 
 import (
@@ -9,9 +10,10 @@ import (
 	"testing"
 )
 
-// TestProtocolSequenceModernClient — 2025-06-18 클라이언트 시퀀스:
-// initialize(echo·instructions) → notifications/initialized(무응답) →
-// ping(빈 result) → tools/list(3종). 알림을 제외한 응답은 정확히 3줄.
+// TestProtocolSequenceModernClient — a 2025-06-18 client sequence:
+// initialize (echo + instructions) -> notifications/initialized (no reply)
+// -> ping (empty result) -> tools/list. Exactly 3 responses excluding
+// notifications.
 func TestProtocolSequenceModernClient(t *testing.T) {
 	var in, out bytes.Buffer
 	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}` + "\n")

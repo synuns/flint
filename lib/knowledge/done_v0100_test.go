@@ -1,4 +1,5 @@
-// done_v0100_test.go — lazyDumpFile(자동 백업 지연 writer) 계약.
+// done_v0100_test.go — the lazyDumpFile (the automatic backup lazy
+// writer) contract.
 package knowledge
 
 import (
@@ -40,8 +41,9 @@ func TestLazyDumpNoopNoSidecar(t *testing.T) {
 	}
 }
 
-// 덤프 close 실패 시 사이드카를 남기지 않는다(불완전 파일을 검증
-// 통과로 위장하지 않는다) — 이중 close로 실패 경로를 유도한다.
+// On dump close failure no sidecar is left (an incomplete file is not
+// disguised as verification-passing) — the failure path is induced with a
+// double close.
 func TestLazyDumpCloseFailNoSidecar(t *testing.T) {
 	dir := t.TempDir()
 	name := filepath.Join(dir, "flint-closefail.sql")
@@ -64,16 +66,17 @@ func TestLazyDumpCloseFailNoSidecar(t *testing.T) {
 	}
 }
 
-// TestLazyDumpPartialWriteDiscards — 본문 기록 실패 시
-// 부분 파일이 정상 사이드카를 받지 않고 폐기된다(체크섬 통과 오탐
-// 백업 슬롯 방어).
+// TestLazyDumpPartialWriteDiscards — on a body-write failure, the partial
+// file receives no normal sidecar and is discarded (defense against a
+// false-positive backup slot that passes the checksum).
 func TestLazyDumpPartialWriteDiscards(t *testing.T) {
 	dir := t.TempDir()
 	lf := &lazyDumpFile{dir: dir}
 	if _, err := lf.Write([]byte("BEGIN;\n")); err != nil {
 		t.Fatal(err)
 	}
-	// 파일을 닫아버려 후속 Write 실패 유도 → failed 마킹.
+	// Close the file to induce a subsequent Write failure → failed
+	// marking.
 	lf.f.Close()
 	if _, err := lf.Write([]byte("more")); err == nil {
 		t.Fatal("닫힌 파일 Write 성공 — 픽스처 결함")
@@ -81,7 +84,8 @@ func TestLazyDumpPartialWriteDiscards(t *testing.T) {
 	if err := lf.close(); err == nil {
 		t.Fatal("failed 상태 close가 에러 아님")
 	}
-	// 부분 파일 폐기 확인 — dir에 .sql/.sha256 잔존 없음.
+	// Confirm the partial file was discarded — no .sql/.sha256 residue in
+	// dir.
 	ents, _ := os.ReadDir(dir)
 	for _, e := range ents {
 		if strings.HasSuffix(e.Name(), ".sql") || strings.HasSuffix(e.Name(), ".sha256") {

@@ -1,5 +1,6 @@
-// rotate.go — 백업 로테이션. .sql 덤프를 mtime 최신순으로 keep-N 유지,
-// 나머지와 짝이루는 .sha256 사이드카를 함께 삭제한다(ADR-0006 사이드카 규약).
+// rotate.go — backup rotation. Keeps the newest N .sql dumps by mtime and
+// deletes the rest together with their paired .sha256 sidecars (the
+// ADR-0006 sidecar convention).
 package backup
 
 import (
@@ -14,26 +15,27 @@ import (
 	"time"
 )
 
-// BackupKeepKey — 로테이션 유지 수를 저장하는 meta 키다.
+// BackupKeepKey is the meta key storing the rotation retention count.
 const BackupKeepKey = "backup_keep"
 
-// DefaultBackupKeep — backup_keep 미설정·무효 시 유지 수 기본값.
+// DefaultBackupKeep — the default retention count when backup_keep is unset or invalid.
 const DefaultBackupKeep = 14
 
-// BackupKeep 은 meta backup_keep 값을 읽어 유지 수를 반환한다.
-// getKV는 키→값 조회 함수(auto.RunIfNeeded의 metaKV와 동일 형태).
-// 에러·미설정·무효 값(비정수·1 미만)은 기본값 14로 폴백한다(에러 아님).
-// 미설정(빈 값·조회 에러 — fresh DB의 "meta backup_keep
-// not set")은 정상 기본값 상태라 조용히 폴백한다(경고 폐지). 설정됐으나
-// 무효한 값의 경고만 유지된다.
-// e.g. BackupKeep(getKV) with backup_keep="3" -> 3, "0"/"x"/에러 -> 14
+// BackupKeep reads the meta backup_keep value and returns the retention
+// count. getKV is a key -> value lookup function (same shape as the metaKV
+// of auto.RunIfNeeded). Errors, unset, or invalid values (non-integer,
+// below 1) fall back to the default 14 (not an error). Unset (blank value
+// or lookup error — the fresh-DB "meta backup_keep not set") is a normal
+// default state and falls back quietly (warning removed). Only the warning
+// for a set-but-invalid value remains.
+// e.g. BackupKeep(getKV) with backup_keep="3" -> 3; "0"/"x"/error -> 14
 func BackupKeep(getKV func(string) (string, error)) int {
 	if getKV == nil {
 		return DefaultBackupKeep
 	}
 	v, err := getKV(BackupKeepKey)
 	if err != nil || strings.TrimSpace(v) == "" {
-		return DefaultBackupKeep // 미설정=정상 기본 — 조용히(§13 비간섭)
+		return DefaultBackupKeep // unset = normal default — quiet (§13 non-interference)
 	}
 	n, perr := strconv.Atoi(strings.TrimSpace(v))
 	if perr != nil || n < 1 {
@@ -43,20 +45,21 @@ func BackupKeep(getKV func(string) (string, error)) int {
 	return n
 }
 
-// flintDumpName — flint 생성 덤프 파일명(flint-YYYYMMDD-HHMMSS-PID.sql
-// 및 암호화 .sql.age, lazyDumpFile 조립 형식 그대로 — done.go ext 참조.
-// bare .age 포함). 로테이션은 이 패턴에
-// 일치하는 파일만 대상으로 삼는다 — 사용자가 같은 디렉터리에 둔
-// .sql/.age는 삭제도 keep 집계도 제외한다.
+// flintDumpName — flint-generated dump file names (flint-YYYYMMDD-HHMMSS-PID.sql
+// and encrypted .sql.age, exactly as lazyDumpFile assembles them — see the
+// done.go ext; includes bare .age). Rotation only targets files matching
+// this pattern — user-placed .sql/.age in the same directory are excluded
+// from both deletion and the keep count.
 var flintDumpName = regexp.MustCompile(`^flint-\d{8}-\d{6}-\d+\.(sql|sql\.age|age)$`)
 
-// Rotate 는 dir 안의 flint 생성 덤프(파일명 패턴은 flintDumpName)를
-// mtime 최신순으로 keep개 유지하고 나머지를 삭제한다. 패턴 외 .sql/.age는
-// 사용자 파일로 간주해 keep 집계에서도 제외한다. 삭제 대상 각각에 대해
-// 짝이루는 <name>.sha256 사이드카가 있으면 함께 삭제하고(누락 시 단독),
-// removed에 삭제한 basename을 기록한다(오래된 것부터: 원본 직후 사이드카).
-// keep<1은 최소 1로 보정(전체 삭제 금지). dir 읽기 실패는 에러,
-// 삭제 실패는 부분 목록+에러.
+// Rotate keeps the keep newest flint-generated dumps in dir (name pattern
+// flintDumpName) by mtime and deletes the rest. Off-pattern .sql/.age are
+// treated as user files and excluded from the keep count too. For each
+// deletion target, a paired <name>.sha256 sidecar is deleted alongside if
+// present (alone when missing); removed records the deleted basenames
+// (oldest first: the original immediately followed by its sidecar).
+// keep < 1 is clamped to at least 1 (no deleting everything). A dir read
+// failure is an error; a delete failure is a partial list + error.
 // e.g. Rotate(dir,1) with a.sql(new)·b.sql(old) -> removed=[b.sql b.sql.sha256]
 func Rotate(dir string, keep int) ([]string, error) {
 	if keep < 1 {
@@ -73,8 +76,8 @@ func Rotate(dir string, keep int) ([]string, error) {
 	}
 	var dumps []dump
 	for _, e := range entries {
-		// 암호화 백업(.sql.age)도 로테이션 대상 — ext는 .age.
-		// flint 생성 패턴만 대상 — 사용자 .sql/.age는 집계 제외.
+		// Encrypted backups (.sql.age) rotate too — ext is .age.
+		// Only the flint-generated pattern — user .sql/.age are excluded from the count.
 		if e.IsDir() || !isDumpExt(filepath.Ext(e.Name())) || !flintDumpName.MatchString(e.Name()) {
 			continue
 		}
@@ -90,7 +93,7 @@ func Rotate(dir string, keep int) ([]string, error) {
 	}
 
 	var removed []string
-	for _, d := range dumps[keep:] { // 정렬 상 이후분은 오래된 순
+	for _, d := range dumps[keep:] { // given the sort, the tail is oldest-first
 		if rerr := os.Remove(filepath.Join(dir, d.name)); rerr != nil {
 			return removed, fmt.Errorf("backup rotate: %w", rerr)
 		}
@@ -106,7 +109,7 @@ func Rotate(dir string, keep int) ([]string, error) {
 	return removed, nil
 }
 
-// isDumpExt — 로테이션 대상 덤프 확장자(.sql 평문·.age 암호문).
+// isDumpExt — dump extensions eligible for rotation (.sql plaintext, .age ciphertext).
 func isDumpExt(ext string) bool {
 	return ext == ".sql" || ext == ".age"
 }

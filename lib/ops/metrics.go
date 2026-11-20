@@ -1,5 +1,5 @@
-// metrics.go — hot 출력 길이 계측(프로세스 내 통계 + meta hot_stats 영속 누적).
-// 단발 CLI가 매 실행 값을 보존하도록 종료 시 persist, 시작 시 load한다.
+// metrics.go — hot output-length metering (in-process stats + persistent meta hot_stats accumulation).
+// A one-shot CLI persists at exit and loads at start, preserving values across runs.
 package ops
 
 import (
@@ -15,26 +15,26 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// hotMaxSamples — 보관 샘플 상한. 초과 시 오래된 샘플부터 버린다.
+// hotMaxSamples — the cap on kept samples. When exceeded, the oldest are dropped first.
 const hotMaxSamples = 500
 
-// hotMu — hotLens 동시 접근 보호(MCP 다중 세션 포함).
+// hotMu — protects hotLens against concurrent access (including multiple MCP sessions).
 var hotMu sync.Mutex
 
-// hotLens — hot 출력 길이(rune 수) 샘플 슬라이스.
+// hotLens — the slice of hot output-length (rune count) samples.
 var hotLens []int
 
-// RecordHotLen — hot 출력 직후 글자수를 기록한다.
+// RecordHotLen — records the character count right after hot output.
 func RecordHotLen(n int) {
 	hotMu.Lock()
 	defer hotMu.Unlock()
 	hotLens = append(hotLens, n)
 	if over := len(hotLens) - hotMaxSamples; over > 0 {
 		hotLens = hotLens[over:]
-		// 절단분이 persisted 선두를 깎으면 오프셋도 함께 줄인다 —
-		// 그대로 두면 절단 수만큼 pending이 누락되어 과소 보고된다
-		// 절단이 persisted 경계를
-		// 넘으면 남은 보관 샘플은 전량 미저장 → 오프셋 0.
+		// if a truncation shaves the front of persisted, the offset shrinks too —
+		// left as-is, as many pending samples as were truncated go missing and are under-reported.
+		// if the truncation crosses the persisted boundary,
+		// all remaining kept samples become unrecorded -> offset 0.
 		if over >= hotPersisted {
 			hotPersisted = 0
 		} else {
@@ -43,8 +43,8 @@ func RecordHotLen(n int) {
 	}
 }
 
-// HotStats — calls(baseline+보관 샘플 수)·p95(근사: 오름차순 정렬 인덱스
-// ceil(0.95*n)-1)·max. baseline은 LoadHotStats가 로드한 직전 실행 누적분.
+// HotStats — calls (baseline + kept sample count), p95 (approximation: ascending-sorted index
+// ceil(0.95*n)-1), and max. The baseline is the previous run's cumulative loaded by LoadHotStats.
 func HotStats() (calls int, p95 int, max int) {
 	hotMu.Lock()
 	defer hotMu.Unlock()
@@ -60,8 +60,8 @@ func HotStats() (calls int, p95 int, max int) {
 	return calls, HotP95(lens), lens[len(lens)-1]
 }
 
-// hotPending — 아직 baseline에 합산되지 않은(미저장) in-memory 샘플.
-// 호출부는 hotMu를 잡고 있어야 한다.
+// hotPending — the in-memory samples not yet added to the baseline (unrecorded).
+// The caller must hold hotMu.
 func hotPending() []int {
 	if hotPersisted <= 0 {
 		return hotLens
@@ -72,8 +72,8 @@ func hotPending() []int {
 	return hotLens[hotPersisted:]
 }
 
-// HotP95 — 정렬된 샘플에서 p95 근사값(인덱스 ceil(0.95*n)-1).
-// 내보내기: cli report.go 효과 지표 산출이 소비.
+// HotP95 — the approximate p95 from sorted samples (index ceil(0.95*n)-1).
+// Exported: the cli report.go effect-metric computation consumes it.
 func HotP95(sorted []int) int {
 	n := len(sorted)
 	if n == 0 {
@@ -86,24 +86,24 @@ func HotP95(sorted []int) int {
 	return sorted[idx-1]
 }
 
-// hotStatsJSON — meta hot_stats 영속 포맷(calls·sum·p95 대표 lens).
+// hotStatsJSON — the persistent meta hot_stats format (calls, sum, p95 representative lens).
 type hotStatsJSON struct {
 	Calls int   `json:"calls"`
 	Sum   int   `json:"sum"`
 	Lens  []int `json:"lens"`
 }
 
-// hotBase — 시작 시 로드한 직전 실행까지의 누적값(미로드·파손 시 0).
+// hotBase — the cumulative value up to the previous run, loaded at start (0 when unloaded or corrupt).
 var hotBase hotStatsJSON
 
-// hotPersisted — hotLens 선두에서 이미 baseline에 합산된(저장된) 샘플 수.
-// persist 후에도 in-memory 샘플은 남기되 이중 계산에서는 제외한다.
+// hotPersisted — the number of samples at the front of hotLens already added to the baseline (saved).
+// Even after persist, the in-memory samples remain but are excluded from double counting.
 var hotPersisted int
 
-// LoadHotStats — 시작 시 meta hot_stats 로드. 누적 calls·p95 반환,
-// 키 부재·오류·JSON 파손 시 기본값 폴백(ok=false, baseline 초기화).
-// hotPersisted는 건드리지 않는다 — 이미 저장된 in-memory 샘플의 이중
-// 계산 제외는 유지된다(프로세스 분리 실행에서는 어차피 0).
+// LoadHotStats — loads meta hot_stats at start. Returns cumulative calls and p95;
+// on missing key, error, or corrupt JSON it falls back to defaults (ok=false, baseline reset).
+// It does not touch hotPersisted — the exclusion of already-saved in-memory samples from
+// double counting is preserved (it is 0 anyway in separate-process runs).
 func LoadHotStats(getKV func(string) (string, error)) (calls int, p95 int, ok bool) {
 	v, err := getKV("hot_stats")
 	hotMu.Lock()
@@ -114,7 +114,7 @@ func LoadHotStats(getKV func(string) (string, error)) (calls int, p95 int, ok bo
 	}
 	var st hotStatsJSON
 	if json.Unmarshal([]byte(v), &st) != nil {
-		return 0, 0, false // 파손 → 기본값 폴백
+		return 0, 0, false // corrupt -> default fallback
 	}
 	hotBase = st
 	lens := make([]int, len(st.Lens))
@@ -123,11 +123,11 @@ func LoadHotStats(getKV func(string) (string, error)) (calls int, p95 int, ok bo
 	return st.Calls, HotP95(lens), true
 }
 
-// PersistHotStats — 종료 시 meta hot_stats 누적 저장.
-// 직전 실행 baseline(LoadHotStats 로드분) + 미저장 in-memory 샘플 합산.
-// lens는 p95 대표값 용도로 상한 hotMaxSamples까지 최근 샘플 보관.
-// 저장 성공 시 합산분을 baseline으로 이관해도 in-memory 샘플은 남긴다
-// (이중 계산은 hotPersisted 오프셋으로 제외 — RecordHotLen 직후 조회 대응).
+// PersistHotStats — stores the cumulative meta hot_stats at exit.
+// The previous run's baseline (loaded by LoadHotStats) + unsaved in-memory samples.
+// lens keeps the most recent samples up to hotMaxSamples for p95-representative purposes.
+// On a successful save, the summed portion moves to the baseline but the in-memory samples stay
+// (double counting is excluded via the hotPersisted offset — supporting a query right after RecordHotLen).
 func PersistHotStats(setKV func(string, string) error) error {
 	hotMu.Lock()
 	cur := append([]int(nil), hotPending()...)
@@ -156,8 +156,8 @@ func PersistHotStats(setKV func(string, string) error) error {
 	return nil
 }
 
-// ResetMetrics — 프로세스 내 통계 초기화(테스트 격리 지원 — cli metrics_test
-// resetMetrics 관례 승계). 영속 baseline도 함께 지운다.
+// ResetMetrics — resets the in-process stats (supporting test isolation — inheriting the cli
+// metrics_test resetMetrics convention). Also clears the persistent baseline.
 func ResetMetrics() {
 	hotMu.Lock()
 	defer hotMu.Unlock()
@@ -166,15 +166,15 @@ func ResetMetrics() {
 	hotPersisted = 0
 }
 
-// HotLensSnapshot — 보관 샘플 스냅샷(테스트 단언 지원 — cli metrics_test
-// TestHotRecordsRuneLen 관례 승계). 복사본 반환 — 직접 참조 없이 읽는다.
+// HotLensSnapshot — a snapshot of the kept samples (supporting test assertions — the cli
+// metrics_test TestHotRecordsRuneLen convention). Returns a copy — read without a direct reference.
 func HotLensSnapshot() []int {
 	hotMu.Lock()
 	defer hotMu.Unlock()
 	return append([]int(nil), hotLens...)
 }
 
-// hotSum — 샘플 길이 합.
+// hotSum — the sum of the sample lengths.
 func hotSum(lens []int) int {
 	s := 0
 	for _, n := range lens {
@@ -183,12 +183,12 @@ func hotSum(lens []int) int {
 	return s
 }
 
-// MetaKV — meta 테이블 getKV/setKV 클로저 쌍 조립. hot·read 계측 wiring
-// 4곳에 복제되던 인라인 쿼리를 통일한다. getKV는 키 부재 시 ("", nil),
-// 전송 오류는 err 그대로(호출부 폴백·와이프 방지 판단에 쓰인다).
-// 질의 본체는 meta_kv 단일 진입(wire.GetMetaKVErr·wire.SetMetaKV)
-// 에 위임 — 이 클로저는 오류 구분 계약만 유지한다. knowledge가 자체
-// 동일 조립을 두는 것과 같은 패턴(cli는 별칭 경유).
+// MetaKV — assembles the meta-table getKV/setKV closure pair. Unifies the inline queries
+// that were duplicated across the 4 hot/read metering wiring sites. getKV returns ("", nil) for
+// a missing key; transport errors pass through as err (used by callers for fallback and
+// (wire.GetMetaKVErr, wire.SetMetaKV) is delegated to — these closures keep only the
+// error-distinction contract. The same pattern as knowledge's own identical assembly
+// (cli goes via an alias).
 func MetaKV(ctx context.Context, st wire.Store) (func(string) (string, error), func(string, string) error) {
 	getKV := func(key string) (string, error) {
 		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
@@ -203,16 +203,16 @@ func MetaKV(ctx context.Context, st wire.Store) (func(string) (string, error), f
 	return getKV, setKV
 }
 
-// LoadHotStatsFromMeta — 명령 시작 시 meta hot_stats 로드(wiring).
-// 조회 실패·부재는 LoadHotStats 폴백과 동일(경고 없이 baseline 0).
+// LoadHotStatsFromMeta — loads meta hot_stats at command start (wiring).
+// A lookup failure or absence matches the LoadHotStats fallback (baseline 0, no warning).
 func LoadHotStatsFromMeta(ctx context.Context, st wire.Store) {
 	getKV, _ := MetaKV(ctx, st)
 	LoadHotStats(getKV)
 }
 
-// PctOfFn — 정수 백분율(버림) 단일 소스 seam. 기본값은 cli report.go pctOf와
-// 등가 공식(ops 단독 실행 결함 방지), cli init이 pctOf를 주입해 운영은
-// 단일 소스를 유지한다(QuoteJSONFn 관례).
+// PctOfFn — the single-source seam for the integer percentage (floored). The default is a
+// formula equivalent to cli report.go's pctOf (preventing a standalone-ops defect); the cli init
+// injects pctOf so production keeps a single source (the QuoteJSONFn convention).
 var PctOfFn = func(n, total int) int {
 	if total <= 0 {
 		return 0
@@ -220,17 +220,17 @@ var PctOfFn = func(n, total int) int {
 	return n * 100 / total
 }
 
-// ReadZeroPct — zero 비율(정수 백분율). calls 0이면 0(나눗셈 가드).
-// 반올림 본체는 pctOf(단일 소스 — effect 지표와 버림 방식
-// 일관)에 위임한다(PctOfFn seam 경유).
+// ReadZeroPct — the zero ratio (integer percent). calls 0 is 0 (the division guard).
+// The rounding body delegates to pctOf (the single source — consistent flooring with the
+// effect metrics) via the PctOfFn seam.
 func ReadZeroPct(calls, zero int) int {
 	return PctOfFn(zero, calls)
 }
 
-// LoadReadStatsFromMeta — status 노출용 read 계측 로드(wiring).
-// meta read_stats blob 폐지 — read_events 파생 산출로 전환했다
-// (함수명은 cli 별칭 호환 유지). 누적 범위는 events_retention_days 보존창.
-// 조회 실패·테이블 부재·빈 창은 0/0(status를 깨지 않는다 — 구 폴백과 동일).
+// LoadReadStatsFromMeta — loads the read metering for status exposure (wiring).
+// The meta read_stats blob is abolished — switched to a read_events-derived computation
+// (the function name is kept for cli alias compatibility). The cumulative range is the
+// events_retention_days retention window. Lookup failure, missing table, or an empty window is 0/0 (it must not break status — same as the old fallback).
 func LoadReadStatsFromMeta(ctx context.Context, st wire.Store) (calls int, zero int) {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT count(*), count(CASE WHEN zero THEN 1 END) FROM read_events`, nil)
@@ -243,8 +243,8 @@ func LoadReadStatsFromMeta(ctx context.Context, st wire.Store) (calls int, zero 
 	return calls, zero
 }
 
-// PersistHotStatsToMeta — 명령 종료 직전 meta hot_stats 누적 저장(wiring).
-// 실패는 stderr 1행 이하로 조용히 무시(비간섭 §13 — 계측이 본말을 바꾸지 않는다).
+// PersistHotStatsToMeta — stores the cumulative meta hot_stats just before command exit (wiring).
+// Failure is silently ignored, at most one stderr line (non-interference §13 — metering must never change the outcome).
 func PersistHotStatsToMeta(ctx context.Context, st wire.Store) {
 	_, setKV := MetaKV(ctx, st)
 	if err := PersistHotStats(setKV); err != nil {
@@ -252,10 +252,10 @@ func PersistHotStatsToMeta(ctx context.Context, st wire.Store) {
 	}
 }
 
-// KnowledgeSummaryLens — knowledge 전체의 id→요약 길이(바이트) 맵.
-// 토큰 회계의 평균 기록/요약 바이트(cost savings 하한·hit 주입 원가)와
-// hot 주입 바이트 파생(DerivedHotStats)의 공용 원천. 조회 실패·매핑 불가
-// 칸은 조용히 스킵(§13 — 계측 강등).
+// KnowledgeSummaryLens — the id -> summary length (bytes) map over all knowledge.
+// The shared source of the mean write/summary bytes for token accounting (the cost savings
+// lower bound and the hit injection cost) and of the hot injection byte derivation
+// (DerivedHotStats). Lookup failures and unmappable cells are silently skipped (§13 — metering demotion).
 func KnowledgeSummaryLens(ctx context.Context, st wire.Store) map[int]int {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT id, length(summary) FROM knowledge`, nil)
@@ -278,14 +278,14 @@ func KnowledgeSummaryLens(ctx context.Context, st wire.Store) map[int]int {
 	return out
 }
 
-// DerivedHotStats — hot 계측 파생 산출(spec §1.3 hot_stats blob
-// 폐지의 소비 전환). 호출 수는 knowledge_reads kind='hot'의 호출 그룹 수
-// (한 호출의 id 전수가 같은 ts·session으로 남는다 — DISTINCT ts, session),
-// p95는 hot_events 주입 ids × knowledge 요약 길이의 사건별 합 분포
-// (nearest-rank — HotP95와 동일 공식, 보존창은 PruneReadEvents가 관리).
-// kreads·hot_events 어느 쪽도 데이터가 없는(업그레이드 직후) 동안은 구
-// hot_stats blob을 승계 읽기 폴백으로 보고한다(전환 전 값 연속성 —
-// 플랫 키 폴백과 같은 마이그레이션 관례). 조회 실패·파손은 0(§13).
+// DerivedHotStats — the derived computation of hot metering (the consumption-side switch
+// from the spec §1.3 hot_stats blob). The call count is the number of distinct call groups
+// of knowledge_reads kind='hot' (a single call's full set of ids remains under one ts and
+// session — DISTINCT ts, session); p95 is the per-event sum distribution of hot_events
+// injected ids x knowledge summary lengths (nearest-rank — the same formula as HotP95;
+// the retention window is managed by PruneReadEvents). While neither kreads nor hot_events
+// has data (right after an upgrade), it reports the old hot_stats blob via the legacy-read
+// fallback (continuity with pre-migration values — the same migration convention as the flat-key fallback). Lookup failures and corruption are 0 (§13).
 func DerivedHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
 	invocations := 0
 	if rows, err := wire.QueryOnce(ctx, st,
@@ -324,8 +324,8 @@ func DerivedHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
 	return invocations, HotP95(samples)
 }
 
-// legacyHotStats — 구 hot_stats blob 승계 읽기(DerivedHotStats 폴백).
-// 구 collectStats와 동일 질의·동일 산출 — 부재·파손은 0.
+// legacyHotStats — legacy-reads the old hot_stats blob (the DerivedHotStats fallback).
+// The same query and computation as the old collectStats — absent or corrupt is 0.
 func legacyHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('hot_stats')`, nil)
@@ -334,14 +334,14 @@ func legacyHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
 	}
 	for _, r := range rows {
 		if len(r) < 2 || fmt.Sprint(r[0]) != "hot_stats" {
-			continue // 동일 질의에 섞여 온 다른 관측 키 무시(구 collectStats 계약)
+			continue // ignore other observation keys mixed into the same query (the old collectStats contract)
 		}
 		var hs struct {
 			Calls int   `json:"calls"`
 			Lens  []int `json:"lens"`
 		}
 		if json.Unmarshal([]byte(fmt.Sprint(r[1])), &hs) != nil {
-			continue // 파손 → 0 유지(구 경로 계약 승계)
+			continue // corrupt -> stays 0 (inheriting the old-path contract)
 		}
 		lens := append([]int(nil), hs.Lens...)
 		sort.Ints(lens)
@@ -350,9 +350,9 @@ func legacyHotStats(ctx context.Context, st wire.Store) (calls, p95 int) {
 	return 0, 0
 }
 
-// ReadBytesP95Of — read 표면 출력 바이트 p95(nearest-rank·표본<5는 0 —
-// spec §2.3). 표본은 read_events bytes 컬럼의 기록 행(bytes>0 — 미확장
-// legacy 행 0 제외), 보존창 전체(PruneReadEvents가 관리). 조회 실패는 0.
+// ReadBytesP95Of — the read surface's output-byte p95 (nearest-rank; <5 samples is 0 —
+// spec §2.3). The samples are the recorded rows of the read_events bytes column (bytes>0 —
+// excluding the 0 of unextended legacy rows), over the whole retention window (managed by PruneReadEvents). A lookup failure is 0.
 func ReadBytesP95Of(ctx context.Context, st wire.Store) int {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT bytes FROM read_events WHERE bytes > 0`, nil)

@@ -1,7 +1,7 @@
-// care_test.go — 행위 검증: maintain·nudge·
-// session-start·session-end 등록(ops.go init)·WriteTypedMarker 종류 분리
-// (knowledge seam 호환)·expire-pending dry-run·supersede 후견사(경합
-// 미반영 감지). fakeStore는 doctor_test.go 관례(동반 이동분)를 재사용한다.
+// care_test.go — behavioral verification: the maintain, nudge,
+// session-start, and session-end registrations (ops.go init), the WriteTypedMarker kind
+// separation (knowledge seam compatibility), expire-pending dry-run, and the supersede
+// stewardship (detecting unreflected updates). The fakeStore reuses the doctor_test.go conventions (the companion move).
 package ops
 
 import (
@@ -17,17 +17,17 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// fakeMaintStore — fakeStore + MaintStore 갱신 메서드(조회는 queryFn 경유).
-// 전이 갱신은 Repo 위임 메서드(Invalidate 배치·Supersede).
+// fakeMaintStore — fakeStore + the MaintStore update methods (lookups go via queryFn).
+// The transition updates are the Repo delegation methods (batch Invalidate, Supersede).
 type fakeMaintStore struct {
 	*fakeStore
 	invalidatedIDs [][]int
 	merged         [][2]int
 	supersedeErr   error
 	superseded     [][2]int
-	prunedAt       []time.Time // PruneInvalidated 위임 캡처
-	recallPrunedAt []time.Time // PruneRecallEvents 위임 캡처
-	recallPruneN   int64       // PruneRecallEvents 반환(기본 0)
+	prunedAt       []time.Time // PruneInvalidated delegation capture
+	recallPrunedAt []time.Time // PruneRecallEvents delegation capture
+	recallPruneN   int64       // the PruneRecallEvents return (default 0)
 }
 
 func (f *fakeMaintStore) Counts(ctx context.Context) (db.Counts, error) {
@@ -52,14 +52,14 @@ func (f *fakeMaintStore) Merge(ctx context.Context, fromID, toID int) error {
 	return nil
 }
 
-// PruneInvalidated — Repo 위임 메서드 캡처(반환 = 대상 2행
-// 관례 — maintain_v0330 prune 계약과 동일).
+// PruneInvalidated — Repo delegation-method capture (return = the 2-target-row
+// convention — same as the maintain_v0330 prune contract).
 func (f *fakeMaintStore) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
 	f.prunedAt = append(f.prunedAt, before)
 	return 2, nil
 }
 
-// PruneRecallEvents — Repo 위임 메서드 캡처(반환 = recallPruneN 설정값).
+// PruneRecallEvents — Repo delegation-method capture (return = the recallPruneN setting).
 func (f *fakeMaintStore) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
 	f.recallPrunedAt = append(f.recallPrunedAt, before)
 	return f.recallPruneN, nil
@@ -68,7 +68,7 @@ func (f *fakeMaintStore) ConflictGroups(ctx context.Context, limit int) ([]db.Co
 	return nil, nil
 }
 
-// shortRetry — Retry 재시도 즉시 실행(maintain_v08_test 관례 승계).
+// shortRetry — Retry retries run immediately (inheriting the maintain_v08_test convention).
 func shortRetry(t *testing.T) {
 	t.Helper()
 	prev := MaintainRetryDelays
@@ -76,7 +76,7 @@ func shortRetry(t *testing.T) {
 	t.Cleanup(func() { MaintainRetryDelays = prev })
 }
 
-// runMaintainArgs — fake store으로 RunMaintain 실행. 출력·exit 반환.
+// runMaintainArgs — runs RunMaintain with a fake store. Returns output and exit.
 func runMaintainArgs(t *testing.T, f *fakeMaintStore, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -84,7 +84,7 @@ func runMaintainArgs(t *testing.T, f *fakeMaintStore, args ...string) (string, i
 	return out.String(), code
 }
 
-// TestCareCommandsRegistered — 2탄 커맨드 4종 등록(ops.go init — wire.Register).
+// TestCareCommandsRegistered — the 4 wave-2 commands registered (ops.go init — wire.Register).
 func TestCareCommandsRegistered(t *testing.T) {
 	for _, name := range []string{"maintain", "nudge", "session-start", "session-end"} {
 		if _, ok := wire.Lookup(name); !ok {
@@ -93,8 +93,8 @@ func TestCareCommandsRegistered(t *testing.T) {
 	}
 }
 
-// TestWriteTypedMarkerKindSeparation — 종류별 파일 분리(distill·recall 동시
-// 존재·독립 소멸). knowledge WriteTypedMarkerFn seam 주입 계약과 동일 표면.
+// TestWriteTypedMarkerKindSeparation — per-kind file separation (distill and recall
+// coexist and expire independently). The same surface as the knowledge WriteTypedMarkerFn seam injection contract.
 func TestWriteTypedMarkerKindSeparation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -123,7 +123,7 @@ func TestWriteTypedMarkerKindSeparation(t *testing.T) {
 	}
 }
 
-// TestMaintainExpirePendingDryRun — dry-run 기본: 대상 나열만·exit 0·갱신 없음.
+// TestMaintainExpirePendingDryRun — dry-run by default: only lists targets, exit 0, no updates.
 func TestMaintainExpirePendingDryRun(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -144,11 +144,11 @@ func TestMaintainExpirePendingDryRun(t *testing.T) {
 	}
 }
 
-// TestMaintainPruneInvalidatedAlsoPrunesRecallEvents — R42-D 배선 회귀:
-// --prune-invalidated은 회상 이벤트 보존기한(recall_event_retention_days
-// 기본 90) 만료분도 같이 정리한다. dry-run은 보고만(would_prune_recall_
-// events)·--commit은 PruneRecallEvents 위임+감사 커밋. 대상 소멸 후
-// 재실행은 "no targets" 멱등(위임 재호출 없음).
+// TestMaintainPruneInvalidatedAlsoPrunesRecallEvents — the R42-D wiring regression:
+// --prune-invalidated also cleans the recall-event retention (recall_event_retention_days,
+// default 90) expiries. Dry-run only reports (would_prune_recall_events); --commit does
+// the PruneRecallEvents delegation + the audit commit. Re-running after the targets
+// vanish is idempotently "no targets" (no delegation re-called).
 func TestMaintainPruneInvalidatedAlsoPrunesRecallEvents(t *testing.T) {
 	shortRetry(t)
 	f := &fakeMaintStore{fakeStore: &fakeStore{}, recallPruneN: 7}
@@ -187,7 +187,7 @@ func TestMaintainPruneInvalidatedAlsoPrunesRecallEvents(t *testing.T) {
 	if !strings.Contains(strings.Join(f.commits, ";"), "prune-recall-events") {
 		t.Errorf("감사 커밋 메시지에 이벤트 정리 귀속 없음: %v", f.commits)
 	}
-	// 멱등 — 대상 소멸(나열 0·만료 0) 후 재실행은 no targets·위임 없음.
+	// idempotent — after the targets vanish (0 listed, 0 expired), a re-run is no targets with no delegation.
 	f2 := &fakeMaintStore{fakeStore: &fakeStore{}}
 	f2.queryFn = func(sql string, args []any) ([][]any, error) { return nil, nil }
 	out, code = runMaintainArgs(t, f2, "--prune-invalidated", "30", "--commit")
@@ -202,10 +202,10 @@ func TestMaintainPruneInvalidatedAlsoPrunesRecallEvents(t *testing.T) {
 	}
 }
 
-// TestMaintainSupersedeGuardian — 후견사: 갱신 미반영(경합 — Supersede 0행)은
-// 무음 성공이 아니라 에러로 종결(재시도 후에도 미반영이면 실패 exit).
-// 후견사는 rows-affected로 db.Repo.Supersede에 내장 — 여기선
-// 위임이 ErrNotFound 랩 오류를 돌려주는 것으로 시뮬레이션한다.
+// TestMaintainSupersedeGuardian — the stewardship: an unreflected update (a race —
+// Supersede hitting 0 rows) ends as an error, not a silent success (still unreflected
+// after retries means a failed exit). The stewardship is built into db.Repo.Supersede
+// via rows-affected — simulated here by the delegation returning a wrapped ErrNotFound error.
 func TestMaintainSupersedeGuardian(t *testing.T) {
 	shortRetry(t)
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
@@ -220,7 +220,7 @@ func TestMaintainSupersedeGuardian(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("경합 미반영이 exit 0 — 후견사 부재; out=%s", out)
 	}
-	// Retry 재시도 소진은 갱신 경로 에러로 종결(에러 1줄 출력 — 무음 성공 아님).
+	// exhausted Retry retries end the update path as an error (a 1-line error output — not a silent success).
 	if !strings.Contains(out, `"error"`) {
 		t.Fatalf("에러 출력 부재: %s", out)
 	}
@@ -229,7 +229,7 @@ func TestMaintainSupersedeGuardian(t *testing.T) {
 	}
 }
 
-// TestMarkerFileUnderConfigDir — 마커 경로는 FLINT_CONFIG_DIR 격리 준수.
+// TestMarkerFileUnderConfigDir — the marker path respects FLINT_CONFIG_DIR isolation.
 func TestMarkerFileUnderConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

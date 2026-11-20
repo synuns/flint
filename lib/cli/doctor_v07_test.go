@@ -1,6 +1,6 @@
-// doctor_v07_test.go — port 검사. composePsFn 시임으로
-// JSONL·배열 양쪽 파싱·flint 실행/정지·타 컨테이너 점유·docker 부재 skip를
-// 검증한다. 기존 검사 5종은 doctor_test.go 담당.
+// doctor_v07_test.go — the port check. Verifies both JSONL and array parsing, flint
+// running/stopped, foreign-container occupation, and docker-absent skip via the composePsFn
+// seam. The existing 5 checks are covered by doctor_test.go.
 package cli
 
 import (
@@ -12,7 +12,7 @@ import (
 	"testing"
 )
 
-// withComposePs — composePsFn 시임 교체(테스트 후 원복).
+// withComposePs — swaps the composePsFn seam (restored after the test).
 func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Helper()
 	old := composePsFn
@@ -20,8 +20,8 @@ func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Cleanup(func() { composePsFn = old })
 }
 
-// doctorPortCheck — portCheck 단독 출력(단일 객체)과 runDoctor --check port
-// 출력({checks:[...]}) 양쪽을 파싱해 port 검사 행 반환.
+// doctorPortCheck — parses both the standalone portCheck output (a single object) and the runDoctor --check port
+// output ({checks:[...]}) and returns the port check row.
 func doctorPortCheck(t *testing.T, out string) map[string]any {
 	t.Helper()
 	var m struct {
@@ -41,8 +41,8 @@ func doctorPortCheck(t *testing.T, out string) map[string]any {
 	return single
 }
 
-// pass — flint 컨테이너 실행 중 + 5434 매핑(JSONL 연속 객체) → ok·exit 0.
-// portCheck 자체는 한 줄 JSON을 out에 쓰고 0 반환.
+// pass — the flint container is running + 5434 mapped (consecutive JSONL objects) -> ok, exit 0.
+// portCheck itself writes one-line JSON to out and returns 0.
 func TestPortPass(t *testing.T) {
 	line := `{"Name":"flint-doltgres-1","State":"running",` +
 		`"Publishers":[{"URL":"","TargetPort":5432,"PublishedPort":5434,"Protocol":"tcp"}]}`
@@ -59,8 +59,8 @@ func TestPortPass(t *testing.T) {
 	}
 }
 
-// foreign — 타 컨테이너(branding)가 5434 점유 → fail + 점유자 이름 +
-// 포트 이동 fix. exit 1.
+// foreign — another container (branding) holds 5434 -> fail + the occupant's name +
+// a port-move fix. exit 1.
 func TestPortForeign(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"branding-web-1","State":"running",` +
@@ -84,7 +84,7 @@ func TestPortForeign(t *testing.T) {
 	}
 }
 
-// docker missing — composePsFn 오류(docker 부재 포함) → skip·exit 영향 없음.
+// docker missing — a composePsFn error (including docker absent) -> skip, no exit impact.
 func TestPortDockerMissing(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("exec: docker: executable file not found")
@@ -102,7 +102,7 @@ func TestPortDockerMissing(t *testing.T) {
 	}
 }
 
-// stopped — flint 컨테이너 있으나 정지(Exited, Publishers null) → fail +
+// stopped — the flint container exists but is stopped (Exited, Publishers null) -> fail +
 // "docker compose up -d" fix.
 func TestPortStopped(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
@@ -122,7 +122,7 @@ func TestPortStopped(t *testing.T) {
 	}
 }
 
-// flint 없음 — 어떤 컨테이너도 flint가 아니면 같은 up -d fail.
+// no flint — if no container is flint, the same up -d fail.
 func TestPortNoFlintContainer(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"other-app-1","State":"running","Publishers":[]}`), nil
@@ -136,8 +136,8 @@ func TestPortNoFlintContainer(t *testing.T) {
 	}
 }
 
-// 배열 형식 — 구버전 docker compose ps --format json 배열 출력도 통과.
-// JSONL pass·배열 pass 양쪽 계약.
+// array format — the older docker compose ps --format json array output also passes.
+// Both contracts: JSONL pass and array pass.
 func TestPortJSONArray(t *testing.T) {
 	arr := `[{"Name":"flint-doltgres-1","State":"running",` +
 		`"Publishers":[{"PublishedPort":5434}]}]`
@@ -150,7 +150,7 @@ func TestPortJSONArray(t *testing.T) {
 		t.Errorf("배열 status=%v, want ok: %q", pc["status"], out)
 	}
 
-	// 배열 + 타 컨테이너 점유도 점유자 보고.
+	// array + foreign-container occupation also reports the occupant.
 	foreign := `[{"Name":"flint-doltgres-1","State":"running","Publishers":[]},` +
 		`{"Name":"branding-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`
 	withComposePs(t, func(ctx context.Context) ([]byte, error) { return []byte(foreign), nil })
@@ -163,7 +163,7 @@ func TestPortJSONArray(t *testing.T) {
 	}
 }
 
-// DoctorChecks — "port" 포함(기존 5종 뒤 추가).
+// DoctorChecks — includes "port" (appended after the existing 5).
 func TestDoctorChecksIncludesPort(t *testing.T) {
 	got := DoctorChecks()
 	if len(got) == 0 || got[len(got)-1] != "port" {
@@ -171,8 +171,8 @@ func TestDoctorChecksIncludesPort(t *testing.T) {
 	}
 }
 
-// prefix — 이름에 flint가 포함되나 접두가 아닌 컨테이너('conflint')는
-// flint 컨테이너가 아니다. 5434을 게시해도 ok가 아니라 점유자 fail.
+// prefix — a container whose name contains flint but not as a prefix ('conflint') is not a
+// flint container. Even publishing 5434, it is an occupant fail, not ok.
 func TestPortFlintSubstringNotPrefix(t *testing.T) {
 	if isFlintContainer("conflint-web-1") {
 		t.Errorf("isFlintContainer(conflint-web-1) = true, want false(접두 아님)")
@@ -198,10 +198,10 @@ func TestPortFlintSubstringNotPrefix(t *testing.T) {
 	}
 }
 
-// timeout — docker 무응답(컨텍스트 대기) 시 2초 상한으로 skip에 떨어진다.
+// timeout — when docker does not answer (context wait), a 2-second cap falls through to skip.
 func TestPortDockerHangTimeout(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		<-ctx.Done() // docker가 응답하지 않는 무기한 대기 시뮬레이션
+		<-ctx.Done() // simulate an indefinite wait where docker never answers
 		return nil, ctx.Err()
 	})
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")

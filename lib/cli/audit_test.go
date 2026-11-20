@@ -1,4 +1,4 @@
-// audit_test.go — 감사 커맨드: 커밋 로그 최근 N 조회(limit 경계·session 필터).
+// audit_test.go — the audit command: the most recent N commit log (limit boundaries, session filter).
 package cli
 
 import (
@@ -10,7 +10,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// auditRows — dolt_log 2행 픽스처(session 태그 서로 다름).
+// auditRows — 2 dolt_log fixture rows (different session tags).
 func auditRows() [][]any {
 	return [][]any{
 		{"hash2", "committer-b", "2026-10-22 10:00:00", "knowledge: s [session:S2]"},
@@ -18,7 +18,7 @@ func auditRows() [][]any {
 	}
 }
 
-// auditFake — SQL LIMIT·LIKE를 흉내 내는 queryFn. 전달된 limit 인자를 기록.
+// auditFake — a queryFn mimicking SQL LIMIT and LIKE. Records the passed limit argument.
 func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 	t.Helper()
 	limits := &[]int{}
@@ -33,7 +33,7 @@ func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 		if len(out) > limit {
 			out = out[:limit]
 		}
-		// v1.7.2 T2: 기본 쿼리 NOT LIKE 'telemetry: %' 제외 + --session LIKE.
+		// v1.7.2 T2: the default query excludes NOT LIKE 'telemetry: %' + --session LIKE.
 		if strings.Contains(sql, "message NOT LIKE ") && len(args) > 1 {
 			pat, _ := args[1].(string)
 			pat = strings.Trim(pat, "%")
@@ -61,12 +61,12 @@ func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 	return f, limits
 }
 
-// TestAuditLimitAndSessionFilter — limit 경계·session 필터.
+// TestAuditLimitAndSessionFilter — limit boundaries and the session filter.
 func TestAuditLimitAndSessionFilter(t *testing.T) {
 	f, _ := auditFake(t, auditRows())
 	withFake(t, f)
 
-	// 기본: 2행 → log 2행 exit 0.
+	// default: 2 rows -> a 2-row log, exit 0.
 	out, code := mustRun(t, []string{"audit"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
@@ -76,13 +76,13 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 		t.Fatalf("log=%v, want 2행", m["log"])
 	}
 	first := m["log"].([]any)[0].(map[string]any)
-	// date는 LogEntry.Date(time.Time) 포맷 승계(구현 fmt.Sprint — 시간대 포함).
+	// date follows the LogEntry.Date (time.Time) format (the implementation's fmt.Sprint — timezone included).
 	if first["commit_hash"] != "hash2" || first["committer"] != "committer-b" ||
 		first["date"] != "2026-10-22 10:00:00 +0000 UTC" || first["message"] != "knowledge: s [session:S2]" {
 		t.Fatalf("컬럼 4종 불일치: %v", first)
 	}
 
-	// --limit 1 → 1행.
+	// --limit 1 -> 1 row.
 	out, code = mustRun(t, []string{"audit", "--limit", "1"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
@@ -91,7 +91,7 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 		t.Fatalf("log=%d행, want 1", len(lg))
 	}
 
-	// --session S1 → 매칭 1행.
+	// --session S1 -> 1 matching row.
 	out, code = mustRun(t, []string{"audit", "--session", "S1"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
@@ -101,7 +101,7 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 		t.Fatalf("session 필터 결과=%v, want 1행(S1)", lg)
 	}
 
-	// 무효 session → 0행 exit 0.
+	// invalid session -> 0 rows, exit 0.
 	out, code = mustRun(t, []string{"audit", "--session", "nope"}, "")
 	if code != 0 {
 		t.Fatalf("무효 session exit=%d, want 0", code)
@@ -111,7 +111,7 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 	}
 }
 
-// TestAuditLimitBoundary — 0·음수 → 기본 20, 상한 100 clamp.
+// TestAuditLimitBoundary — 0 or negative -> default 20; capped at 100.
 func TestAuditLimitBoundary(t *testing.T) {
 	cases := []struct {
 		arg  string
@@ -131,7 +131,7 @@ func TestAuditLimitBoundary(t *testing.T) {
 	}
 }
 
-// TestAuditServerDownExit2 — 쿼리 실패(서버 다운)는 조용히 exit 2.
+// TestAuditServerDownExit2 — a query failure (server down) is silent exit 2.
 func TestAuditServerDownExit2(t *testing.T) {
 	f := &fakeStore{queryErr: store.ErrServerDown}
 	withFake(t, f)
@@ -144,7 +144,7 @@ func TestAuditServerDownExit2(t *testing.T) {
 	}
 }
 
-// TestAuditBadFlagExit3 — 알 수 없는 플래그는 무효 인자 exit 3 한 줄 JSON.
+// TestAuditBadFlagExit3 — an unknown flag is invalid-arg exit 3 one-line JSON.
 func TestAuditBadFlagExit3(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
@@ -155,9 +155,9 @@ func TestAuditBadFlagExit3(t *testing.T) {
 	decode(t, out)
 }
 
-// TestAuditSanitizesStringColumns — 커밋 로그(LogEntries)·테이블별 변경
-// 요약(DiffStat)의 문자열 열(commit_hash·committer·table)이 render.Text
-// 재살균을 통과한다 — 미살균이면 [flint] 마커·제어문자가 원문 그대로 노출된다.
+// TestAuditSanitizesStringColumns — the string columns of the commit log (LogEntries) and the
+// per-table change summary (DiffStat) (commit_hash, committer, table) pass through the render.Text
+// re-sanitization — unsanitized, the [flint] marker and control characters would leak verbatim.
 func TestAuditSanitizesStringColumns(t *testing.T) {
 	f := &auditSanitizeFake{fakeStore: &fakeStore{}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -186,8 +186,8 @@ func TestAuditSanitizesStringColumns(t *testing.T) {
 	}
 }
 
-// auditSanitizeFake — 살균 회귀용: 로그는 queryFn(원시 오염 행), 테이블
-// 요약은 DiffStat canned(오염 원시 값 — 살균은 구현측 render.Text).
+// auditSanitizeFake — for the sanitization regression: the log via queryFn (raw polluted rows); the
+// table summary via DiffStat canned (polluted raw values — sanitization is the implementation's render.Text).
 type auditSanitizeFake struct {
 	*fakeStore
 }

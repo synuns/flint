@@ -1,7 +1,8 @@
-// pattern.go — 패턴 탐지 내부 유틸. 유의:
-// `maintain --distill` 플래그는 존재하지 않는다 — 이 함수들은 어떤 CLI
-// 경로에서도 소비되지 않는 내부 유틸이다(향후 증류 자동화 마일스톤 G
-// 후보의 원천). 테스트는 유틸 자체 계약을 검증한다.
+// pattern.go — internal pattern-detection utilities. Note: the
+// `maintain --distill` flag does not exist — these functions are
+// internal utilities consumed by no CLI path (the source of a future
+// distillation-automation milestone G candidate). The tests verify the
+// utilities' own contract.
 package db
 
 import (
@@ -10,22 +11,26 @@ import (
 	"strings"
 )
 
-// Pattern — 플레이북 후보 제안용 패턴. Evidence는 기여 레코드의
-// "id=<id>: <summary>" 문자열이다(사람/에이전트 승인용 관측 근거).
+// Pattern — a pattern for playbook-candidate suggestions. Evidence is
+// the contributing record's "id=<id>: <summary>" string (observable
+// grounds for human/agent approval).
 type Pattern struct {
 	Topic    string
 	Kind     string // "repeat-success" | "fail-then-success"
 	Evidence []string
 }
 
-// 패턴 후보 상한 — maintain 제안 노이즈 방지(spec §자가발전 루프).
-// SQL이 LIKE '%:...%' 와일드카드를 쓰므로 상한은 쿼리 리터럴(20)과
-// TestPatternCapTwenty이 함께 지킨다.
+// The pattern-candidate cap — preventing maintain-suggestion noise (spec
+// §self-growth loop). The SQL uses a '%:...%' wildcard LIKE, so the cap
+// is upheld together by the query literal (20) and
+// TestPatternCapTwenty.
 
-// patternSQL — topic별 성공/실행 집계에서 후보를 뽑고 증거를 묶는다.
-// kind 우선순위: 실패 뒤 성공 전환(fail-then-success)이 반복 성공보다
-// 강한 신호라 우선하고, 마지막 실패보다 나중에 성공이 있어야 전환이다.
-// Doltgres 호환을 위해 FILTER 대신 CASE 집계를 쓴다.
+// patternSQL — picks candidates from per-topic success/execution
+// aggregates and bundles the evidence. Kind priority:
+// fail-then-success is prioritized over repeat-success as the stronger
+// signal, and a transition requires a success later than the last
+// failure. Uses CASE aggregation instead of FILTER for Doltgres
+// compatibility.
 const patternSQL = `
 WITH agg AS (
     SELECT topic,
@@ -55,7 +60,8 @@ SELECT c.topic, c.kind,
  ORDER BY c.topic
  LIMIT 20`
 
-// PatternCandidates는 플레이북 증류 후보를 돌려준다(상한 20건).
+// PatternCandidates returns playbook distillation candidates (capped at
+// 20).
 func (r *Repo) PatternCandidates(ctx context.Context) ([]Pattern, error) {
 	rows, err := r.pool.Query(ctx, patternSQL)
 	if err != nil {

@@ -1,9 +1,10 @@
-// encrypt.go — 백업 at-rest 암호화(age, ADR 계열 — PLAN F).
-// X25519 identity 파일(설정 디렉터리 backup.key, 0600) 기반 — 자동
-// 백업이 비대화형으로 돌아야 하므로 passphrase 프롬프트가 아닌 키 파일
-// 방식(룰링 ②). 위협 모델: 백업 파일이 기기를 벗어나는 유출(동기화·
-// 복사·업로드 사고) 방지 — 키 파일까지 함께 탈취되는 기기 전체 침해는
-// 방어 대상이 아니다(RUNBOOK).
+// encrypt.go — at-rest backup encryption (age, ADR lineage — PLAN F).
+// Based on an X25519 identity file (backup.key in the config directory,
+// 0600) — a key file rather than a passphrase prompt because automatic
+// backups must run non-interactively (ruling ②). Threat model: preventing
+// backup files from leaking off the device (sync, copy, or upload
+// accidents) — full device compromise that steals the key file too is out
+// of scope (RUNBOOK).
 package backup
 
 import (
@@ -19,19 +20,20 @@ import (
 	"filippo.io/age"
 )
 
-// ageHeader — age 바이너리 형식 고정 접두(형식 감지).
+// ageHeader — the fixed prefix of the age binary format (format detection).
 const ageHeader = "age-encryption.org/"
 
-// ErrEncryptKeyMissing — identity 파일 부재(첫 사용 등).
+// ErrEncryptKeyMissing — identity file absent (first use, etc.).
 var ErrEncryptKeyMissing = errors.New("backup encrypt: identity key file missing — see RUNBOOK 'backup encryption'")
 
-// ErrEncryptKeyCorrupt — identity 파일 존재하나 해석 불가(덮어쓰기 금지 —
-// 기존 키 암호문의 영구 복호 불가 확정 방지).
+// ErrEncryptKeyCorrupt — the identity file exists but cannot be parsed (no
+// overwriting — prevents silently making existing key ciphertext permanently
+// undecryptable).
 var ErrEncryptKeyCorrupt = errors.New("backup encrypt: identity key file corrupt — generating a new key would make existing ciphertext undecryptable (manual check: RUNBOOK)")
 
-// LoadIdentity — path에서 age X25519 identity 로드(부재 → ErrEncryptKeyMissing,
-// 불량 → ErrEncryptKeyCorrupt — 구분해 EnsureIdentity가 불량 키를
-// 조용히 덮어쓰지 않게 한다).
+// LoadIdentity — loads an age X25519 identity from path (absent ->
+// ErrEncryptKeyMissing, corrupt -> ErrEncryptKeyCorrupt — the distinction
+// keeps EnsureIdentity from silently overwriting a corrupt key).
 func LoadIdentity(path string) (*age.X25519Identity, error) {
 	b, err := os.ReadFile(path)
 	if err != nil {
@@ -44,17 +46,19 @@ func LoadIdentity(path string) (*age.X25519Identity, error) {
 	return id, nil
 }
 
-// EnsureIdentity — identity 로드, 부재 시에만 생성·저장. 불량 기존 키는
-// 에러(기존 키로 암호화된 백업의 영구 복호 불가가 조용히 확정되는 것을
-// 방지 — 감사 발견). 생성은 O_EXCL 선행 클레임(병렬 첫 암호화가
-// 서로 다른 키를 만들어 패자 키 암호문을 영구 잃는 경합 방지 — 클레임
-// 승자의 키 파일이 유일 원본이 된다). 첫 생성 중 크래시로 불량 파일이
-// 남면 재생성은 거부된다(수동 확인 — RUNBOOK).
+// EnsureIdentity — loads the identity, creating and storing it only when
+// absent. A corrupt existing key is an error (preventing a silent, permanent
+// loss of decryptability for backups encrypted with the old key — audit
+// finding). Creation claims first with O_EXCL (avoiding a race where parallel
+// first-time encryptions each make different keys and the loser's ciphertext
+// is lost forever — the claim winner's key file becomes the single
+// original). If a crash during first creation leaves a corrupt file behind,
+// regeneration is refused (manual inspection — RUNBOOK).
 func EnsureIdentity(path string) (*age.X25519Identity, error) {
 	if id, err := LoadIdentity(path); err == nil {
 		return id, nil
 	} else if !errors.Is(err, ErrEncryptKeyMissing) {
-		return nil, err // 불량 키 — 덮어쓰지 않는다
+		return nil, err // corrupt key — do not overwrite
 	}
 	id, err := age.GenerateX25519Identity()
 	if err != nil {
@@ -63,7 +67,7 @@ func EnsureIdentity(path string) (*age.X25519Identity, error) {
 	if err := os.MkdirAll(dirOf(path), 0o700); err != nil {
 		return nil, fmt.Errorf("backup encrypt: key directory: %w", err)
 	}
-	// O_EXCL 선행 클레임 — 이미 있으면(병렬 승자) 그 키를 재로드해 쓴다.
+	// O_EXCL claims first — if it already exists (a parallel winner), reload and use that key.
 	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
 	if err != nil {
 		if os.IsExist(err) {
@@ -71,9 +75,9 @@ func EnsureIdentity(path string) (*age.X25519Identity, error) {
 		}
 		return nil, fmt.Errorf("backup encrypt: claim key creation: %w", err)
 	}
-	if _, err := f.WriteString(id.String() + "\n"); err != nil { // 단일 small write
+	if _, err := f.WriteString(id.String() + "\n"); err != nil { // a single small write
 		f.Close()
-		os.Remove(path) // 클레임 실패 — 다음 시도 재생성 허용
+		os.Remove(path) // claim failed — allow regeneration on the next attempt
 		return nil, fmt.Errorf("backup encrypt: write key: %w", err)
 	}
 	if err := f.Close(); err != nil {
@@ -83,8 +87,8 @@ func EnsureIdentity(path string) (*age.X25519Identity, error) {
 	return id, nil
 }
 
-// reloadIdentityRetry — 병렬 승자의 키 재로드(기록 직후 일독 실패 대비
-// 짧게 2회 재시도).
+// reloadIdentityRetry — reloads the parallel winner's key (two brief retries
+// in case the first read right after writing fails).
 func reloadIdentityRetry(path string) (*age.X25519Identity, error) {
 	var lastErr error
 	for i := 0; i < 3; i++ {
@@ -98,12 +102,12 @@ func reloadIdentityRetry(path string) (*age.X25519Identity, error) {
 	return nil, lastErr
 }
 
-// dirOf — 경로의 디렉터리(빈 값 → ".").
+// dirOf — the directory of a path (empty -> ".").
 func dirOf(path string) string {
 	return filepath.Dir(path)
 }
 
-// EncryptTo — plaintext를 recipient용 age 암호문으로 dst에 기록.
+// EncryptTo — writes plaintext to dst as age ciphertext for the recipient.
 func EncryptTo(dst io.Writer, plaintext []byte, recipient *age.X25519Recipient) error {
 	w, err := age.Encrypt(dst, recipient)
 	if err != nil {
@@ -115,7 +119,7 @@ func EncryptTo(dst io.Writer, plaintext []byte, recipient *age.X25519Recipient) 
 	return w.Close()
 }
 
-// DecryptFrom — age 암호문을 identity로 복호해 평문 반환.
+// DecryptFrom — decrypts age ciphertext with the identity and returns the plaintext.
 func DecryptFrom(src io.Reader, identity *age.X25519Identity) ([]byte, error) {
 	r, err := age.Decrypt(src, identity)
 	if err != nil {
@@ -128,7 +132,7 @@ func DecryptFrom(src io.Reader, identity *age.X25519Identity) ([]byte, error) {
 	return b, nil
 }
 
-// IsEncrypted — 시작 바이트로 age 형식 감지. 선두 17바이트를 소비한다
+// IsEncrypted — detects the age format from the leading bytes. Consumes the first 17 bytes.
 func IsEncrypted(r io.Reader) (bool, error) {
 	head := make([]byte, len(ageHeader))
 	n, err := io.ReadFull(r, head)
@@ -138,7 +142,7 @@ func IsEncrypted(r io.Reader) (bool, error) {
 	return n == len(ageHeader) && bytes.Equal(head, []byte(ageHeader)), nil
 }
 
-// IsEncryptedFile — 파일 경로의 age 형식 감지(부재 파일은 false).
+// IsEncryptedFile — detects the age format of a file path (absent file -> false).
 func IsEncryptedFile(path string) bool {
 	f, err := os.Open(path)
 	if err != nil {

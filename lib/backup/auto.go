@@ -1,7 +1,8 @@
-// auto.go 는 하루 1회 자동 백업 트리거를 담당한다(PLAN v0.2 §8).
-// 24h 경과 판정은 순수 함수로 분리하고, DB 접근은 meta 접근 함수를
-// 주입받아 테스트 가능하게 한다. 실패는 에러 반환뿐 — 세션 종료를
-// 막지 않는 비차단 처리는 호출부 책임이다.
+// auto.go owns the once-daily automatic backup trigger (PLAN v0.2 §8).
+// The 24h-elapsed check is split into a pure function, and DB access is
+// injected as meta accessor functions for testability. Failures only return
+// an error — non-blocking handling that keeps the session alive is the
+// caller's responsibility.
 package backup
 
 import (
@@ -14,24 +15,24 @@ import (
 	"time"
 )
 
-// DefaultBackupIntervalH — 자동 백업 최소 주기 기본(시간). meta
-// backup_interval_h 오버라이드(backup_keep과 한 세트).
+// DefaultBackupIntervalH — the default minimum automatic backup interval, in
+// hours. Overridable via the meta backup_interval_h (paired with backup_keep).
 const DefaultBackupIntervalH = 24
 
-// BackupIntervalKey — 주기 meta 키.
+// BackupIntervalKey — the interval meta key.
 const BackupIntervalKey = "backup_interval_h"
 
-// LastBackupKey 는 마지막 백업 시각을 저장하는 meta 키다.
+// LastBackupKey is the meta key storing the last backup time.
 const LastBackupKey = "last_backup"
 
-// dumpFn 은 Dump 호출 seam이다(테스트에서 fake로 교체).
+// dumpFn is the Dump call seam (swapped with a fake in tests).
 var dumpFn = Dump
 
 func realDumpEnabled() bool { return os.Getenv("SUPERLITE_REAL") == "1" }
 
-// ShouldBackup 은 마지막 백업(lastISO, RFC3339)으로부터 intervalH 시간이
-// 경과했는지 판정한다. 비었거나 해석 불가능한 값은 첫 백업으로 보고
-// true다. intervalH ≤ 0은 기본 24h 폴백.
+// ShouldBackup reports whether intervalH hours have elapsed since the last
+// backup (lastISO, RFC3339). An empty or unparseable value counts as a first
+// backup and yields true. intervalH <= 0 falls back to the default 24h.
 func ShouldBackup(lastISO string, now time.Time, intervalH int) bool {
 	if intervalH <= 0 {
 		intervalH = DefaultBackupIntervalH
@@ -46,17 +47,18 @@ func ShouldBackup(lastISO string, now time.Time, intervalH int) bool {
 	return now.Sub(last) >= time.Duration(intervalH)*time.Hour
 }
 
-// Auto 는 DSN 대상 자동 백업 실행기다.
+// Auto is the automatic backup runner for a target DSN.
 type Auto struct {
 	DSN string
 }
 
-// RunIfNeeded 는 last_backup 메타가 24h 이상 경과했을 때만 덤프를 dump에
-// 기록하고 메타를 갱신한다. 비경과면 no-op, 실패면 에러를 반환한다.
-// 원자 선점(CAS) — claim(old→now)에 성공한
-// 세션만 덤프한다. claim 값 자체가
-// 타임스탬프라 최종 스탬프 별도 없음. 트레이드오프: 덤프 실패 시 당일
-// 재시도가 다음 날로 미뤄진다(일 1회 백업 계약 정합, 실패는 조용히 §13).
+// RunIfNeeded writes a dump to dump only when the last_backup meta shows 24h
+// or more have elapsed, then updates the meta. No-op when not elapsed; on
+// failure it returns an error. Atomic claiming (CAS) — only the session that
+// wins claim(old -> now) dumps. The claim value itself is the timestamp, so
+// no separate final stamp is kept. Trade-off: if the dump fails, the same-day
+// retry is postponed to the next day (consistent with the once-daily backup
+// contract; failures stay quiet, §13).
 func (a *Auto) RunIfNeeded(ctx context.Context,
 	metaKV func(string) (string, error),
 	claim func(oldVal, newVal string) (bool, error),
@@ -76,17 +78,18 @@ func (a *Auto) RunIfNeeded(ctx context.Context,
 	if !ShouldBackup(last, now, intervalH) {
 		return nil
 	}
-	// RFC3339Nano — 초 단위 타임스탬프는 동일 초 병렬
-	// 세션이 같은 newVal을 쓰는 순간 CAS의 단일 승자 보장이 붕괴한다
-	// (실DB 8-way 실증: 동일값은 WHERE 스냅샷 평가 후 전원 승리).
-	// 나노초로 값 유일성을 확보한다. ShouldBackup은 RFC3339 파싱으로
-	// 나노초도 그대로 읽는다(time.Parse 호환).
+	// RFC3339Nano — with second-granularity timestamps, parallel sessions
+	// within the same second write the same newVal, which breaks CAS's
+	// single-winner guarantee (verified on a real DB, 8-way: identical values
+	// all win after the WHERE snapshot evaluation). Nanoseconds give the
+	// value uniqueness. ShouldBackup parses RFC3339 and reads nanoseconds
+	// as-is (time.Parse compatible).
 	won, err := claim(last, now.Format(time.RFC3339Nano))
 	if err != nil {
 		return fmt.Errorf("backup auto: claim (CAS): %w", err)
 	}
 	if !won {
-		return nil // 병렬 세션이 선점 — 이 세션은 no-op
+		return nil // a parallel session claimed it — this one is a no-op
 	}
 	if err := dumpFn(ctx, a.DSN, dump); err != nil {
 		return fmt.Errorf("backup auto: dump: %w", err)

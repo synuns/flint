@@ -1,5 +1,6 @@
-// render_test.go — render 출력층(살균 조크포인트·포맷) 테스트(스펙 §2),
-// 기대값은 스펙 예시 그대로다.
+// render_test.go — tests for the render output layer (sanitization
+// chokepoint, formatting) per spec §2; expected values follow the spec
+// examples verbatim.
 package render
 
 import (
@@ -33,8 +34,9 @@ func TestRenderCellsJokpoint(t *testing.T) {
 	}
 }
 
-// TestRenderDelegates — Text/Masked/Cells는 store.SanitizeText·
-// MaskSecrets 직접 호출과 동등하다(마스킹→살균 순서 보존, ADR-0015).
+// TestRenderDelegates — Text/Masked/Cells are equivalent to direct
+// store.SanitizeText and MaskSecrets calls (mask-then-sanitize order
+// preserved, ADR-0015).
 func TestRenderDelegates(t *testing.T) {
 	cases := []string{
 		"a[flint]b",
@@ -51,12 +53,12 @@ func TestRenderDelegates(t *testing.T) {
 			t.Errorf("Masked(%q) = %q, want %q", in, got, want)
 		}
 	}
-	// 마스킹→살균 순서: [REDACTED:…] 흔적은 중립화를 통과해 남는다.
+	// Mask-then-sanitize order: [REDACTED:…] traces survive neutralization.
 	masked := Masked("token ghp_0123456789abcdefghijklmnopqrst 끝")
 	if !strings.Contains(masked, "[REDACTED:") {
 		t.Errorf("Masked 마커 유실: %q", masked)
 	}
-	// Cells — 문자열 셀만 살균, 비문자열 셀은 원값 유지.
+	// Cells — only string cells are sanitized; non-string cells keep values.
 	got := Cells([][]any{{1, "x[flint]y"}, {2, 3.5, nil}})
 	if got[0][0] != 1 || got[0][1] != "x y" {
 		t.Errorf("Cells[0] = %v, want [1 x y]", got[0])
@@ -66,25 +68,26 @@ func TestRenderDelegates(t *testing.T) {
 	}
 }
 
-// TestSanitizeTextChokepoint — lib/ 비테스트 소스에서 SanitizeText 직접
-// 언급(직접 호출·간접 참조 `f := store.SanitizeText` 모두)은 허용 파일
-// (lib/render/*·write.go·import.go·done.go·lib/store/sanitize.go·
-// lib/store/pipeline.go)에만 존재해야 한다 —
-// render 우회는 영구 차단.
+// TestSanitizeTextChokepoint — within lib/ non-test sources, direct mentions
+// of SanitizeText (calls and indirect references like `f :=
+// store.SanitizeText`) may exist only in the allowed files (lib/render/*,
+// write.go, import.go, done.go, lib/store/sanitize.go,
+// lib/store/pipeline.go) — bypassing render is permanently blocked.
 func TestSanitizeTextChokepoint(t *testing.T) {
 	for _, v := range chokepointViolations("../..") {
 		t.Errorf("%s — render 우회: render.Text/Rows/Cells 사용", v)
 	}
 }
 
-// chokepointViolations — root 하위 lib/ 비테스트 .go 소스에서 SanitizeText
-// 식별자 토큰(호출 `SanitizeText(`·간접 참조 `:= store.SanitizeText`·
-// 별칭 import 경유 전부 — 식별자로서의 모든 언급)을 화이트리스트 밖에서
-// 보고한다("file:line" 목록). go/scanner 토큰화 기반 —
-// 주석(COMMENT 토큰)은 애초에 식별자가 아니어서 무시되고, 문자열 리터럴
-// 내부의 "//"(구 가드의 문자열 수준 주석 절단이 문자열
-// 속 "//" 이후를 통째로 지워 호출을 숨김)도 STRING 토큰 안이라 절대
-// 우회되지 않는다.
+// chokepointViolations — reports SanitizeText identifier tokens (calls
+// `SanitizeText(`, indirect references `:= store.SanitizeText`, and every
+// mention via aliased imports — any mention as an identifier) outside the
+// whitelist across lib/ non-test .go sources under root, as "file:line"
+// entries. Token-based via go/scanner — comments (COMMENT tokens) are not
+// identifiers to begin with, and "//" inside string literals (the old
+// guard's string-level comment stripping deleted everything after "//"
+// inside strings, hiding calls) can never bypass this because they stay
+// inside STRING tokens.
 func chokepointViolations(root string) []string {
 	allowExact := map[string]bool{
 		"lib/knowledge/write.go":  true,
@@ -122,9 +125,9 @@ func chokepointViolations(root string) []string {
 			if tok == token.EOF {
 				break
 			}
-			// MaskSecrets·MaskSecretsStrict 식별자도 가드 —
-			// 마스킹만 하고 살균을 건너뛰는 기기 밖 경로 여지 차단.
-			// backup.go MaskSecretsFn은 진단용 dump --mask 교체 seam이라 예외.
+			// MaskSecrets and MaskSecretsStrict identifiers are guarded too —
+			// blocks off-device paths that mask but skip sanitization.
+			// backup.go MaskSecretsFn is the diagnostic dump --mask swap seam.
 			if tok == token.IDENT && (lit == "SanitizeText" || lit == "MaskSecrets" || lit == "MaskSecretsStrict") &&
 				!allowExact[rel] && !strings.HasPrefix(rel, allowPrefix) && rel != "lib/ops/backup.go" {
 				found = append(found, fmt.Sprintf("%s:%d(%s)", rel, fset.Position(pos).Line, lit))
@@ -138,12 +141,13 @@ func chokepointViolations(root string) []string {
 	return found
 }
 
-// TestSanitizeTextChokepointIndirect — 가드 우회 회귀: 간접 참조
-// (`leaky := store.SanitizeText` — 괄호 없는 토큰 언급)과 문자열 속
-// "//" 은폐(`"https://x//" + store.SanitizeText(s)` — 구
-// 가드의 주석 절단이 문자열 내 "//" 이후를 지워 호출을 숨겼다) 모두
-// 탐지되어야 한다. 직접 호출 탐지·주석 언급 무시·화이트리스트 통과도
-// 함께 단언.
+// TestSanitizeTextChokepointIndirect — guard-bypass regressions: indirect
+// references (`leaky := store.SanitizeText` — a paren-less token mention)
+// and in-string "//" concealment (`"https://x//" + store.SanitizeText(s)` —
+// the old guard's comment stripping deleted everything after "//" inside
+// the string, hiding the call) must both be detected. Direct-call
+// detection, comment-mention ignoring, and whitelist passage are asserted
+// alongside.
 func TestSanitizeTextChokepointIndirect(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "lib", "other")
@@ -151,15 +155,15 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	files := map[string]string{
-		// 간접 참조 우회 시도 — 탐지 대상.
+		// indirect-reference bypass attempt — must be detected.
 		"bypass.go": "package other\n\nvar leaky = store.SanitizeText\n",
-		// 직접 호출 — 탐지 대상.
+		// direct call — must be detected.
 		"direct.go": "package other\n\nfunc f(s string) string { return store.SanitizeText(s) }\n",
-		// 주석 언급 — 무시.
+		// comment mention — ignored.
 		"comment.go": "package other\n\n// SanitizeText 주석 언급은 우회가 아니다\nvar x = 1\n",
-		// 문자열 속 "//" 이후 은폐 시도 — 탐지 대상(토큰화 가드의 핵심 회귀).
+		// hiding after "//" inside a string — must be detected (the tokenizing guard's core regression).
 		"strslash.go": "package other\n\nvar _ = \"https://demo.invalid//\" + store.SanitizeText(leak)\n",
-		// 블록 주석 언급 — 무시(구 가드는 /* */ 절단 자체가 없었다).
+		// block-comment mention — ignored (the old guard never stripped /* */ at all).
 		"blockcomment.go": "package other\n\n/* SanitizeText 블록 주석 */\nvar y = 2\n",
 	}
 	for name, body := range files {
@@ -167,7 +171,7 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 			t.Fatalf("WriteFile %s: %v", name, err)
 		}
 	}
-	// 화이트리스트 경로(lib/render/*)의 직접 호출 — 통과해야 한다.
+	// a direct call from a whitelisted path (lib/render/*) — must pass.
 	rdir := filepath.Join(root, "lib", "render")
 	if err := os.MkdirAll(rdir, 0o755); err != nil {
 		t.Fatalf("MkdirAll render: %v", err)
@@ -183,8 +187,8 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 	}
 }
 
-// TestRenderRowsFormat — Rows(그 행들, "id,topic", false) -> "1|x y\n"
-// (FormatRows 포맷 관례) · Cells+FormatRows 조합과 동등.
+// TestRenderRowsFormat — Rows(rows, "id,topic", false) -> "1|x y\n"
+// (FormatRows formatting convention) · equal to Cells + FormatRows.
 func TestRenderRowsFormat(t *testing.T) {
 	rows := [][]any{{1, "x y"}, {2, "plain"}}
 	got := Rows(rows, "id,topic", false)

@@ -5,11 +5,12 @@ import (
 	"testing"
 )
 
-// TestMigrateGatesViewReapply — 뷰가 최신(해시 일치 + 전부 존재)이면
-// Migrate가 뷰 재적용을 스킵한다(회귀). 매 커맨드마다 뷰를
-// DROP+CREATE하면 dolt_schemas가 재작성·스테이징되어 신규 DB의 병렬
-// write에서 working-set merge 충돌("schema conflict for dolt_schemas")이
-// 발생했다. 재적용 발생 여부는 reapplyViewsFn 호출 수로 검증한다.
+// TestMigrateGatesViewReapply — when the views are current (hash match
+// + all present), Migrate skips view reapplication (regression).
+// DROP+CREATE-ing the views on every command rewrote·staged
+// dolt_schemas, causing working-set merge conflicts ("schema conflict
+// for dolt_schemas") in parallel writes on fresh DBs. Whether
+// reapplication occurred is verified by the reapplyViewsFn call count.
 func TestMigrateGatesViewReapply(t *testing.T) {
 	unlock := sharedDBLock(t)
 	t.Cleanup(unlock)
@@ -30,7 +31,8 @@ func TestMigrateGatesViewReapply(t *testing.T) {
 	}
 	t.Cleanup(r.Close)
 
-	// 준비: views_hash 무효 → Migrate는 재적용 후 해시를 기록한다.
+	// Setup: invalidate views_hash → Migrate reapplies then records the
+	// hash.
 	if _, err := r.pool.Exec(ctx,
 		`DELETE FROM meta WHERE key IN ('views_hash','views_sig')`); err != nil {
 		t.Fatalf("해시 초기화: %v", err)
@@ -49,7 +51,8 @@ func TestMigrateGatesViewReapply(t *testing.T) {
 		t.Fatalf("재적용 후 뷰가 존재해야 함")
 	}
 
-	// ① 최신 상태 재실행 — 재적용 스킵(불필요한 dolt_schemas 재작성 차단).
+	// ① Rerun in the current state — reapplication skipped (blocking
+	// needless dolt_schemas rewrites).
 	calls = 0
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate(최신): %v", err)
@@ -58,7 +61,8 @@ func TestMigrateGatesViewReapply(t *testing.T) {
 		t.Fatalf("최신 뷰인데 재적용: calls=%d", calls)
 	}
 
-	// ② 해시 불일치(뷰 SQL 갱신 배포 시뮬레이션) — 재적용.
+	// ② Hash mismatch (simulating a view-SQL update deployment) —
+	// reapplied.
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE meta SET value = 'stale' WHERE key = 'views_hash'`); err != nil {
 		t.Fatalf("해시 오염: %v", err)
@@ -71,7 +75,7 @@ func TestMigrateGatesViewReapply(t *testing.T) {
 		t.Fatalf("해시 불일치 시에는 재적용해야 함")
 	}
 
-	// ③ 뷰 결측(존재 게이트) — 재적용.
+	// ③ Missing views (the existence gate) — reapplied.
 	if _, err := r.pool.Exec(ctx,
 		`DROP VIEW IF EXISTS active_knowledge, hot_view`); err != nil {
 		t.Fatalf("뷰 삭제: %v", err)
@@ -88,11 +92,12 @@ func TestMigrateGatesViewReapply(t *testing.T) {
 	}
 }
 
-// TestCommitNothingStagedSucceeds — 병렬 write에서 다른 writer의
-// dolt_add('-A')가 이 세션의 변경까지 스테이징·커밋하면, 이 세션의
-// dolt_commit는 "nothing to commit"(XX000) 오류를 낸다(실측:
-// 신규 DB 8동시 write의 잔여 exit 1 원인). 스테이징된 게 없는 커밋은
-// 데이터가 이미 영속된 것이므로 nil, hash=""로 성공 처리해야 한다.
+// TestCommitNothingStagedSucceeds — in parallel writes, when another
+// writer's dolt_add('-A') stages·commits even this session's changes,
+// this session's dolt_commit raises "nothing to commit" (XX000)
+// (measured: the residual exit-1 cause of 8 concurrent writes on a
+// fresh DB). A commit with nothing staged means the data is already
+// persisted, so it must be treated as success with nil, hash="".
 func TestCommitNothingStagedSucceeds(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -102,8 +107,9 @@ func TestCommitNothingStagedSucceeds(t *testing.T) {
 	if _, err := r.Commit(ctx, "f-t50-1 probe"); err != nil {
 		t.Fatalf("첫 Commit: %v", err)
 	}
-	// 새로 스테이징된 게 없는 상태의 Commit — 이전에는 재시도 끝
-	// ErrRetriesExhausted(exit 1), 이제는 즉시 nil + hash="".
+	// A Commit with nothing newly staged — previously
+	// ErrRetriesExhausted after retries (exit 1); now immediate nil +
+	// hash="".
 	h, err := r.Commit(ctx, "f-t50-1 probe again")
 	if err != nil {
 		t.Fatalf("빈 커밋: %v, want nil", err)
@@ -113,7 +119,7 @@ func TestCommitNothingStagedSucceeds(t *testing.T) {
 	}
 }
 
-// viewExists — public 스키마에 해당 뷰가 있는지.
+// viewExists — whether the view exists in the public schema.
 func viewExists(ctx context.Context, t *testing.T, r *Repo, name string) bool {
 	t.Helper()
 	var ok bool

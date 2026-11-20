@@ -1,5 +1,6 @@
-// admin_v0200_test.go — schema v7(EnsureSchemaV7) 슬로우 테스트(실DB).
-// ids 컬럼 승격·session_starts·hot_events 생성·멱등·수치 비교 게이트 회귀.
+// admin_v0200_test.go — schema v7 (EnsureSchemaV7) slow tests (real
+// DB). The ids-column promotion·session_starts·hot_events creation·
+// idempotence·the numeric-comparison gate regression.
 package db
 
 import (
@@ -7,14 +8,15 @@ import (
 	"testing"
 )
 
-// TestV7PromoteIdempotent — v6
-// 게이트를 경유한 DB에서 EnsureSchemaV7 → 버전 7·read_events.ids 컬럼
-// 존재(기록 동작 증명)·session_starts·hot_events 생성. 재호출 멱등.
-func TestV7PromoteIdempotent(t *testing.T) {
-	r := newTestRepo(t)
+// TestV7PromoteIdempotent — on a DB that passed the v6 gates,
+// EnsureSchemaV7 → version 7·the read_events.ids column present
+// (recording behavior proven)·session_starts·hot_events created. A
+// second call is idempotent.
+func slowV7PromoteIdempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
-	// 기존 배포 경로 재현: v1 → v6 게이트 순차 통과.
+	// Reproducing the existing deployment path: v1 → passing the v6 gates
+	// in order.
 	for _, gate := range []func(context.Context) error{
 		r.EnsureSchemaV2, r.EnsureSchemaV3, r.EnsureSchemaV4,
 		r.EnsureSchemaV5, r.EnsureSchemaV6,
@@ -23,7 +25,8 @@ func TestV7PromoteIdempotent(t *testing.T) {
 			t.Fatalf("상위 게이트: %v", err)
 		}
 	}
-	// v6 행 1건 — 승격 후 ids 기본값 ''로 읽힌다(additive 기본값).
+	// One v6 row — after promotion it reads with the ids default ''
+	// (an additive default).
 	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 1, Session: "v7-probe"}); err != nil {
 		t.Fatalf("pre-v7 RecordReadEvent: %v", err)
 	}
@@ -42,7 +45,8 @@ func TestV7PromoteIdempotent(t *testing.T) {
 	if v := readVersion(t, r); v != "7" {
 		t.Fatalf("schema_version = %q, want 7", v)
 	}
-	// ids 컬럼 동작 증명 — 기존 행은 ''(기본), 신규 기록은 CSV 가독.
+	// ids-column behavior proof — the existing row is '' (default); new
+	// records read back the CSV.
 	var ids string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT ids FROM read_events WHERE session = $1`, "v7-probe").Scan(&ids); err != nil {
@@ -61,14 +65,14 @@ func TestV7PromoteIdempotent(t *testing.T) {
 	if ids != "7,9" {
 		t.Errorf("ids = %q, want 7,9", ids)
 	}
-	// 신규 테이블 동작 증명.
+	// New-table behavior proof.
 	if err := r.RecordSessionStart(ctx, "v7-probe"); err != nil {
 		t.Fatalf("RecordSessionStart: %v", err)
 	}
 	if err := r.RecordHotEvent(ctx, "v7-probe"); err != nil {
 		t.Fatalf("RecordHotEvent: %v", err)
 	}
-	// 2회째 호출은 멱등 no-op.
+	// The 2nd call is an idempotent no-op.
 	if err := r.EnsureSchemaV7(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV7 (want idempotent): %v", err)
 	}
@@ -77,9 +81,9 @@ func TestV7PromoteIdempotent(t *testing.T) {
 	}
 }
 
-// TestV7GateNumeric — 게이트 수치 비교 회귀(V5·V6과 동일 계약).
-func TestV7GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+// TestV7GateNumeric — the gate numeric-comparison regression (the same
+// contract as V5·V6).
+func slowV7GateNumeric(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	setVersion(t, r, "10")

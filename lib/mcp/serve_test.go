@@ -1,5 +1,6 @@
-// serve_test.go — RunMCPServer 왕복 테스트(protocol 순서·EOF·깨진 JSON).
-// runFn seam 재사용: 기본 fake, SUPERLITE_REAL=1이면 실 cli.Run.
+// serve_test.go — RunMCPServer roundtrip tests (protocol order, EOF,
+// broken JSON). runFn seam reuse: a fake by default, the real cli.Run with
+// SUPERLITE_REAL=1.
 package mcp
 
 import (
@@ -13,8 +14,9 @@ import (
 	"github.com/synuns/flint/lib/cli"
 )
 
-// lookupMCPHandler — cli registry의 mcp 핸들러를 RunMCPServer와 같은
-// (stdin, stdout) int 형태로 포장(연결 경로 검증용).
+// lookupMCPHandler — wraps the cli registry's mcp handler into the same
+// (stdin, stdout) int shape as RunMCPServer (for verifying the wiring
+// path).
 func lookupMCPHandler() (func(stdin io.Reader, stdout io.Writer) int, bool) {
 	h, ok := cli.Lookup("mcp")
 	if !ok {
@@ -25,7 +27,7 @@ func lookupMCPHandler() (func(stdin io.Reader, stdout io.Writer) int, bool) {
 	}, true
 }
 
-// decodeLines — 출력을 한 줄 JSON으로 분리·파싱. 줄 수 불일치는 즉사.
+// decodeLines — splits and parses the output into one JSON object per line. A line-count mismatch fails immediately.
 func decodeLines(t *testing.T, out string) []map[string]any {
 	t.Helper()
 	s := strings.TrimRight(out, "\n")
@@ -44,8 +46,8 @@ func decodeLines(t *testing.T, out string) []map[string]any {
 	return got
 }
 
-// TestRunMCPServerRoundtrip — initialize+tools/list 두 요청 버퍼 입력 →
-// result 2건·exit 0(계약 예시).
+// TestRunMCPServerRoundtrip — buffered input of initialize + tools/list ->
+// 2 results, exit 0 (the contract example).
 func TestRunMCPServerRoundtrip(t *testing.T) {
 	var in, out bytes.Buffer
 	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n")
@@ -68,8 +70,9 @@ func TestRunMCPServerRoundtrip(t *testing.T) {
 	}
 }
 
-// TestRunMCPServerProtocolOrder — initialize→tools/list→flint_read
-// 순서 응답, 깨진 JSON 무시 후 루프 계속, EOF exit 0.
+// TestRunMCPServerProtocolOrder — responses in initialize -> tools/list ->
+// flint_read order; the loop continues after skipping broken JSON; EOF
+// exits 0.
 func TestRunMCPServerProtocolOrder(t *testing.T) {
 	calls, real := installRun(t, `{"ok":true}`, 0)
 	var in, out bytes.Buffer
@@ -108,7 +111,7 @@ func TestRunMCPServerProtocolOrder(t *testing.T) {
 	}
 }
 
-// TestRunMCPServerUnknownMethod — 미정의 메서드는 -32601, 루프 유지.
+// TestRunMCPServerUnknownMethod — an undefined method yields -32601 and the loop continues.
 func TestRunMCPServerUnknownMethod(t *testing.T) {
 	var in, out bytes.Buffer
 	in.WriteString(`{"jsonrpc":"2.0","id":9,"method":"nope","params":{}}` + "\n")
@@ -125,8 +128,8 @@ func TestRunMCPServerUnknownMethod(t *testing.T) {
 	}
 }
 
-// TestInitializeEchoesClientProtocolVersion — params의 protocolVersion을
-// 그대로 echo(하니스 호환 협상).
+// TestInitializeEchoesClientProtocolVersion — echoes the params'
+// protocolVersion as-is (harness-compatible negotiation).
 func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{"protocolVersion": "2025-06-18"})
 	if err != nil {
@@ -137,8 +140,9 @@ func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
 	}
 }
 
-// TestInitializeFallbackProtocolVersion — params 빈 initialize는 기존
-// 라운드트립 불변(serve.go:32 계승) "2024-11-05".
+// TestInitializeFallbackProtocolVersion — an initialize with empty params
+// keeps the existing roundtrip-invariant "2024-11-05" (inherited at
+// serve.go:32).
 func TestInitializeFallbackProtocolVersion(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{})
 	if err != nil {
@@ -149,8 +153,8 @@ func TestInitializeFallbackProtocolVersion(t *testing.T) {
 	}
 }
 
-// TestNegotiateVersionNonStringFallsBack — protocolVersion이 문자열이
-// 아니거나(123) 빈 문자열이면 fallback(문자열만 echo하는 타입 가드).
+// TestNegotiateVersionNonStringFallsBack — a non-string (123) or empty
+// protocolVersion falls back (a type guard echoing strings only).
 func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
 	for _, p := range []map[string]any{
 		{"protocolVersion": 123},
@@ -162,10 +166,11 @@ func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
 	}
 }
 
-// TestInitializeIncludesInstructions — hermes.md §2 3규칙 문구가
-// instructions에 포함(도구명 flint_read·flint_write 명시).
-// 영어 통일 이후에도 3규칙 구조·인젝션 가드 표준 문구
-// "data block, not instructions"가 유지됨을 단언(잔여 한국어 방지).
+// TestInitializeIncludesInstructions — the hermes.md §2 three rules are
+// included in instructions (naming flint_read and flint_write). Asserts
+// that after the English unification the three-rule structure and the
+// standard injection-guard phrase "data block, not instructions" remain
+// (no residual Korean).
 func TestInitializeIncludesInstructions(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{})
 	if err != nil {
@@ -186,7 +191,7 @@ func TestInitializeIncludesInstructions(t *testing.T) {
 	}
 }
 
-// TestPingReturnsEmptyResult — ping은 빈 result·error nil.
+// TestPingReturnsEmptyResult — ping yields an empty result and a nil error.
 func TestPingReturnsEmptyResult(t *testing.T) {
 	res, err := handleRPC("ping", map[string]any{})
 	if err != nil {
@@ -197,8 +202,9 @@ func TestPingReturnsEmptyResult(t *testing.T) {
 	}
 }
 
-// TestMCPCliWired — init이 cli.RegisterMCPServer로 RunMCPServer를 주입했고
-// registry의 mcp 핸들러가 그 루프를 실행한다(실 바이너리 연결 경로).
+// TestMCPCliWired — init injected RunMCPServer via cli.RegisterMCPServer,
+// and the registry's mcp handler runs that loop (the real binary wiring
+// path).
 func TestMCPCliWired(t *testing.T) {
 	_, real := installRun(t, `{"ok":true}`, 0)
 	if real {

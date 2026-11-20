@@ -7,10 +7,12 @@ import (
 	"testing"
 )
 
-// testDSN은 slow 테스트용 DSN을 반환한다. testDSNFromEnv 가드가 거짓이면
-// 스킵한다(운영 FLINT_DSN 환경에서 slow 테스트가 운영 DB에
-// 실행되는 격리 사각 차단).
-// (플랜 표기 TestDSN — go test가 Test* 이름에 func(t *testing.T)를 강제하므로 비내보내기로 둔다.)
+// testDSN returns the DSN for slow tests. When the testDSNFromEnv guard
+// is false, it skips (blocking the isolation blind spot of slow tests
+// running against the operational DB under an operational FLINT_DSN
+// environment).
+// (Plan spelling TestDSN — kept unexported because go test forces
+// func(t *testing.T) on Test* names.)
 func testDSN(tb testing.TB) string {
 	dsn, ok := testDSNFromEnv(os.Getenv("FLINT_TEST_DSN"), os.Getenv("FLINT_DSN"))
 	if !ok {
@@ -19,11 +21,12 @@ func testDSN(tb testing.TB) string {
 	return dsn
 }
 
-// testDSNFromEnv — slow 테스트 DSN 결정(가드 순수 함수 — 단위 테스트 대상).
-// FLINT_TEST_DSN 비빈이면 그 값을 그대로 쓴다. 폴백 FLINT_DSN은 운영 DSN일
-// 수 있어 DB명(url.Path)에 "test" 부문자열이 없으면 거짓을 돌려 스킵시킨다
-// — 잘못된 환경에서 조용한 스킵이 운영 DB 오염보다 안전하다. 파싱 불가
-// DSN도 거짓(스킵) 처리한다.
+// testDSNFromEnv — resolves the slow-test DSN (a guard pure function —
+// unit-test target). A non-empty FLINT_TEST_DSN is used as-is. The
+// fallback FLINT_DSN can be an operational DSN, so unless the DB name
+// (url.Path) contains the substring "test" it returns false and skips —
+// a quiet skip in a wrong environment is safer than operational-DB
+// pollution. An unparsable DSN is also treated as false (skip).
 func testDSNFromEnv(testDsn, flintDsn string) (dsn string, ok bool) {
 	if testDsn != "" {
 		return testDsn, true
@@ -41,7 +44,8 @@ func testDSNFromEnv(testDsn, flintDsn string) (dsn string, ok bool) {
 	return flintDsn, true
 }
 
-// TestDSNReturnsEnv — FLINT_TEST_DSN 설정 시 해당 값을 그대로 반환한다.
+// TestDSNReturnsEnv — with FLINT_TEST_DSN set, returns that value
+// as-is.
 func TestDSNReturnsEnv(t *testing.T) {
 	want := "postgresql://flint:flint-dev@localhost:5435/flint-test"
 	t.Setenv("FLINT_TEST_DSN", want)
@@ -51,8 +55,9 @@ func TestDSNReturnsEnv(t *testing.T) {
 	}
 }
 
-// TestDSNFromEnvGuard — 폴백 FLINT_DSN 가드 단위 테스트(결함 회귀):
-// 운영 DB명(flint, "test" 부문자열 없음)은 스킵, 테스트 DB명은 통과.
+// TestDSNFromEnvGuard — the fallback FLINT_DSN guard unit tests (a
+// defect regression): an operational DB name (flint, no "test"
+// substring) skips; a test DB name passes.
 func TestDSNFromEnvGuard(t *testing.T) {
 	cases := []struct {
 		name              string

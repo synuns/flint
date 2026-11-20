@@ -1,5 +1,5 @@
-// tuning_test.go — tuning 커맨드 계약 — list/get/set/reset·
-// 실경로 값 검증(폴백 값 거부)·알려지지 않은 키 exit 3.
+// tuning_test.go — the tuning command contracts — list/get/set/reset,
+// real-path value validation (rejecting fallback values), and unknown keys exiting 3.
 package cli
 
 import (
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// tuningFake — meta IN 조회·upsert·delete를 기록하는 fake.
+// tuningFake — a fake recording meta IN lookups, upserts, and deletes.
 type tuningFake struct {
 	*fakeStore
 	meta map[string]string
@@ -40,8 +40,8 @@ func (f *tuningFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 		f.meta[fmt.Sprint(args[0])] = fmt.Sprint(args[1])
 		return nil, nil
 	}
-	// loadThresholds의 meta IN 조회는 위 key IN 케이스가 담당 — 여기
-	// 도달하면 fixture 라우팅 계약 위반(Fatalf 불가 — 에러로 식별).
+	// the loadThresholds meta IN lookup is handled by the key IN case above — reaching here
+	// means a fixture-routing contract violation (Fatalf unavailable — identified via an error).
 	return nil, fmt.Errorf("tuningFake 미매칭: %s", sql)
 }
 
@@ -54,8 +54,8 @@ func containsKey(args []any, k string) bool {
 	return false
 }
 
-// MetaDelete — reset은 db.Repo.MetaDelete 위임(쓰기 가드) —
-// fake는 삭제 키를 기록·반영.
+// MetaDelete — reset delegates to db.Repo.MetaDelete (write guard) —
+// the fake records and applies the deleted keys.
 func (f *tuningFake) MetaDelete(ctx context.Context, keys []string) (int64, error) {
 	for _, k := range keys {
 		f.dels = append(f.dels, k)
@@ -67,14 +67,14 @@ func (f *tuningFake) MetaDelete(ctx context.Context, keys []string) (int64, erro
 func TestTuningSetValidatesThroughRealParse(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
-	// 유효 값 — 저장.
+	// valid value — stored.
 	if code := runTuning(context.Background(), f, []string{"set", "dead_days", "45"}, nil, &out); code != 0 {
 		t.Fatalf("set exit=%d: %s", code, out.String())
 	}
 	if len(f.sets) != 1 || f.meta["dead_days"] != "45" {
 		t.Fatalf("sets=%v meta=%v", f.sets, f.meta)
 	}
-	// 무효 값 — 파싱 폴백 감지·거부(exit 3, 미기록).
+	// invalid value — parse-fallback detected and rejected (exit 3, not recorded).
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"set", "dead_days", "many"}, nil, &out); code != 3 {
 		t.Fatalf("무효 값 exit=%d, want 3: %s", code, out.String())
@@ -97,7 +97,7 @@ func TestTuningUnknownKeyAndList(t *testing.T) {
 	if !strings.Contains(out.String(), `"key":"dead_days"`) || !strings.Contains(out.String(), `"override":false`) {
 		t.Errorf("list 출력 계약 위반: %s", out.String())
 	}
-	// reset — 오버라이드 set 후 삭제.
+	// reset — deletes after setting the override.
 	runTuning(context.Background(), f, []string{"set", "stale_days", "60"}, nil, &out)
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"reset", "stale_days"}, nil, &out); code != 0 {
@@ -108,8 +108,8 @@ func TestTuningUnknownKeyAndList(t *testing.T) {
 	}
 }
 
-// TestTuningKeysMatchRegistry — tuningKeys와
-// thresholdsKeys(공유 소스)의 동질성 — 새 키 추가 시 3중 유지 드리프트 방어.
+// TestTuningKeysMatchRegistry — the homogeneity of tuningKeys and
+// thresholdsKeys (shared source) — defending against 3-way drift when adding new keys.
 func TestTuningKeysMatchRegistry(t *testing.T) {
 	reg := map[string]bool{}
 	for _, k := range thresholdsKeys() {
@@ -126,8 +126,8 @@ func TestTuningKeysMatchRegistry(t *testing.T) {
 	}
 }
 
-// TestTuningSetRejectsZero — 폴백 키의 0은 "미설정" 의미라
-// 표현 불가 — 거부되어야 한다(4키 제외).
+// TestTuningSetRejectsZero — a 0 on a fallback key means "unset" and is thus
+// unrepresentable — it must be rejected (4 keys excluded).
 func TestTuningSetRejectsZero(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
@@ -143,12 +143,12 @@ func TestTuningSetRejectsZero(t *testing.T) {
 	}
 }
 
-// TestTuningMetaKeysSetReset — thresholds 밖 meta 키의
-// set 검증(열거·정수·목록)과 reset --all.
+// TestTuningMetaKeysSetReset — set validation for meta keys outside thresholds
+// (enumeration, integer, list) and reset --all.
 func TestTuningMetaKeysSetReset(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
-	// exposure_profile 열거 검증.
+	// exposure_profile enumeration validation.
 	if code := runTuning(context.Background(), f, []string{"set", "exposure_profile", "loud"}, nil, &out); code != 3 {
 		t.Fatalf("무효 열거 exit=%d: %s", code, out.String())
 	}
@@ -156,7 +156,7 @@ func TestTuningMetaKeysSetReset(t *testing.T) {
 	if code := runTuning(context.Background(), f, []string{"set", "exposure_profile", "minimal"}, nil, &out); code != 0 {
 		t.Fatalf("minimal set exit=%d: %s", code, out.String())
 	}
-	// vocab 목록 검증 — 빈 원소 거부·정상 목록 허용.
+	// vocab list validation — empty elements rejected, valid lists allowed.
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"set", "vocab_tags", "a,,b"}, nil, &out); code != 3 {
 		t.Fatalf("빈 원소 exit=%d: %s", code, out.String())
@@ -165,7 +165,7 @@ func TestTuningMetaKeysSetReset(t *testing.T) {
 	if code := runTuning(context.Background(), f, []string{"set", "vocab_tags", "ops,k8s"}, nil, &out); code != 0 {
 		t.Fatalf("정상 목록 exit=%d: %s", code, out.String())
 	}
-	// reset --all — 전체 삭제.
+	// reset --all — deletes everything.
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"reset", "--all"}, nil, &out); code != 0 {
 		t.Fatalf("reset --all exit=%d: %s", code, out.String())
@@ -176,8 +176,8 @@ func TestTuningMetaKeysSetReset(t *testing.T) {
 }
 
 // TestTuningSetEquivalentFloatNotation —
-// '0.30'처럼 수치는 유효하되 포맷이 다른 표기가 문자열 비교로 거부되던
-// 것을 수치 비교로 수용.
+// Notations like '0.30' that are numerically valid but differently formatted, previously rejected by
+// string comparison, are now accepted by numeric comparison.
 func TestTuningSetEquivalentFloatNotation(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder

@@ -1,7 +1,8 @@
-// reads_v1200_test.go — 기록 배선 slow 테스트(실DB). 계약:
-// RecordReadEvent의 bytes·zero_reason·source 3열 값이 read_events 1행에
-// 그대로 기록되고, RecordKnowledgeReads가 ids 전수를 knowledge_reads에
-// session·kind와 함께 남긴다(kind 화이트리스트 위반은 에러).
+// reads_v1200_test.go — the recording-wiring slow tests (real DB).
+// Contract: RecordReadEvent's bytes·zero_reason·source 3-column values
+// are recorded as-is in one read_events row, and RecordKnowledgeReads
+// leaves the full id set in knowledge_reads together with session·kind
+// (a kind-whitelist violation is an error).
 package db
 
 import (
@@ -10,8 +11,9 @@ import (
 	"testing"
 )
 
-// ensureV1200Schema — 게이트 체인(v2→v10)을 돌려 v10 산출물(3열·
-// knowledge_reads)을 멱등 확보(공유 DB 잔여 상태와 무관).
+// ensureV1200Schema — runs the gate chain (v2→v10) to idempotently
+// secure the v10 outputs (3 columns·knowledge_reads), regardless of the
+// shared DB's residual state.
 func ensureV1200Schema(t *testing.T, r *Repo) {
 	t.Helper()
 	ctx := context.Background()
@@ -23,10 +25,9 @@ func ensureV1200Schema(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordReadEventColumns — ReadEvent 확장
-// 3열(bytes·zero_reason·source)의 값이 그대로 저장된다.
-func TestRecordReadEventColumns(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordReadEventColumns — the ReadEvent extension 3 columns
+// (bytes·zero_reason·source) store their values as-is.
+func slowRecordReadEventColumns(t *testing.T, r *Repo) {
 	ensureV1200Schema(t, r)
 	ctx := context.Background()
 	t.Cleanup(func() {
@@ -73,11 +74,10 @@ func TestRecordReadEventColumns(t *testing.T) {
 	}
 }
 
-// TestRecordKnowledgeReads — ids 전수가
-// knowledge_reads에 session·kind와 함께 1행씩 기록된다. 빈 ids는 no-op,
-// 무효 kind는 에러.
-func TestRecordKnowledgeReads(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecordKnowledgeReads — the full id set is recorded in
+// knowledge_reads one row each, together with session·kind. Empty ids
+// is a no-op; an invalid kind is an error.
+func slowRecordKnowledgeReads(t *testing.T, r *Repo) {
 	ensureV1200Schema(t, r)
 	ctx := context.Background()
 	t.Cleanup(func() {

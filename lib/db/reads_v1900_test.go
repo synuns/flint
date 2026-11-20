@@ -1,7 +1,8 @@
-// reads_v1900_test.go — 회상 강화 INSERT 전환 slow 테스트(실DB,
-// schema v12). BumpRecallScores가 UPDATE knowledge 대신 recall_events에
-// 이벤트를 적립한다: read 히트 후 ① ids만큼 이벤트 적립 ② knowledge 행
-// 데이터 무변경(UPDATE 부재 실측) ③ 빈 ids no-op ④ 중복 id 행 기준 1회.
+// reads_v1900_test.go — the recall-reinforcement INSERT switch slow
+// tests (real DB, schema v12). BumpRecallScores accrues events into
+// recall_events instead of UPDATE knowledge: after a read hit ① events
+// accrue per id ② knowledge row data unchanged (UPDATE-absence
+// measured) ③ empty ids no-op ④ duplicate ids once per row.
 package db
 
 import (
@@ -10,13 +11,13 @@ import (
 	"time"
 )
 
-// TestBumpRecallScoresInsertsEvents — 히트 ids의 회상 이벤트 적립·
-// knowledge 행 무변경·빈 슬라이스 no-op·중복 id 1회(DISTINCT — 구 UPDATE
-// id=ANY 계약 승계).
-func TestBumpRecallScoresInsertsEvents(t *testing.T) {
-	r := newTestRepo(t)
+// TestBumpRecallScoresInsertsEvents — recall-event accrual for hit ids·
+// knowledge rows unchanged·empty slice no-op·duplicate id once per row
+// (DISTINCT — inheriting the old UPDATE id=ANY contract).
+func slowBumpRecallScoresInsertsEvents(t *testing.T, r *Repo) {
 	ctx := context.Background()
-	// v12 상태 보증 — recall_events 존재·knowledge 2열 폐기(멱등).
+	// v12 state guarantee — recall_events present·the 2 knowledge
+	// columns dropped (idempotent).
 	if err := r.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV12: %v", err)
 	}
@@ -30,9 +31,10 @@ func TestBumpRecallScoresInsertsEvents(t *testing.T) {
 		t.Fatalf("InsertBatch: %v", err)
 	}
 
-	// 기준선 스냅샷 — UPDATE 부재 증명(값 비교. knowledge에는 수정 시각
-	// 열이 없어 전 열 값을 비교한다. NULL 가능한 last_read_at은 zero값으로
-	// 정규화해 포인터 주소가 아닌 값으로 비교한다).
+	// Baseline snapshot — the UPDATE-absence proof (value comparison.
+	// knowledge has no modification-time column, so all column values are
+	// compared. The nullable last_read_at is normalized to the zero value
+	// so the comparison is by value, not pointer address).
 	normT := func(t *time.Time) time.Time {
 		if t == nil {
 			return time.Time{}
@@ -64,7 +66,8 @@ func TestBumpRecallScoresInsertsEvents(t *testing.T) {
 		t.Fatalf("BumpRecallScores: %v", err)
 	}
 
-	// ① recall_events 적립 — ids 각 1행, recalled_at은 적립 시각.
+	// ① recall_events accrual — 1 row per id, recalled_at is the accrual
+	// time.
 	rows, err := r.pool.Query(ctx,
 		`SELECT knowledge_id, recalled_at FROM recall_events ORDER BY knowledge_id`)
 	if err != nil {
@@ -93,16 +96,17 @@ func TestBumpRecallScoresInsertsEvents(t *testing.T) {
 		if e.id != ids[0] && e.id != ids[1] {
 			t.Fatalf("예상 밖 지식 id 이벤트: %d", e.id)
 		}
-		// 허용 오차 1초 — now()는 서버 시각, start는 클라이언트 시각이라
-		// 같은 머신에서도 수 ms 클록 drift가 난다(실측 2ms 오탐). 단언
-		// 의미(적립 시점의 DEFAULT now() 적용 — 과거 시각 허용 안 함)는
-		// 유지된다.
+		// 1-second tolerance — now() is the server clock and start the
+		// client clock, so even on the same machine a few ms of clock
+		// drift occurs (a measured 2ms false positive). The assertion's
+		// meaning (the accrual-time DEFAULT now() applies — no past times
+		// allowed) is preserved.
 		if e.at.Before(start.Add(-time.Second)) {
 			t.Fatalf("recalled_at %v < 적립 시각 %v — DEFAULT now() 미적용", e.at, start)
 		}
 	}
 
-	// ② knowledge 행 데이터 무변경 — UPDATE 부재 실측.
+	// ② knowledge row data unchanged — UPDATE-absence measured.
 	afterA, afterB := snap(ids[0]), snap(ids[1])
 	if afterA != beforeA {
 		t.Errorf("히트 행 A 무변경 위반: %+v → %+v", beforeA, afterA)
@@ -111,7 +115,7 @@ func TestBumpRecallScoresInsertsEvents(t *testing.T) {
 		t.Errorf("히트 행 B 무변경 위반: %+v → %+v", beforeB, afterB)
 	}
 
-	// ③ 빈 ids no-op — 에러 없이 이벤트 무변화.
+	// ③ Empty ids no-op — no error, events unchanged.
 	if err := r.BumpRecallScores(ctx, nil); err != nil {
 		t.Fatalf("BumpRecallScores(nil): %v", err)
 	}
@@ -124,7 +128,8 @@ func TestBumpRecallScoresInsertsEvents(t *testing.T) {
 		t.Fatalf("빈 ids 호출 후 recall_events %d건, want 2(no-op)", n)
 	}
 
-	// ④ 중복 id — 행 기준 1회(DISTINCT — 구 id=ANY 계약 승계).
+	// ④ Duplicate id — once per row (DISTINCT — inheriting the old
+	// id=ANY contract).
 	if err := r.BumpRecallScores(ctx, []int{ids[0], ids[0], ids[0]}); err != nil {
 		t.Fatalf("BumpRecallScores(dup): %v", err)
 	}
@@ -138,13 +143,14 @@ func TestBumpRecallScoresInsertsEvents(t *testing.T) {
 	}
 }
 
-// TestRecallEventsAuditStaged — 회상 이벤트는 감사 커밋에 흡수된다
-// (v1.9.0 T3 룰링 — auditStageTables에 recall_events 포함): 적립 직후
-// unstaged 잔여가 생기고, 감사 커밋("read: recall bump") 후 잔여 0 —
-// 전역 -A 스윕 폐지 하 이 테이블을 스테이징하지 않으면 기기 간
-// push/pull로 회상 이벤트가 전파되지 않는다(T6 전제).
-func TestRecallEventsAuditStaged(t *testing.T) {
-	r := newTestRepo(t)
+// TestRecallEventsAuditStaged — recall events are absorbed by the audit
+// commit (the v1.9.0 T3 ruling — recall_events included in
+// auditStageTables): an unstaged residue appears right after accrual,
+// and after the audit commit ("read: recall bump") the residue is 0 —
+// with the global -A sweep abolished, not staging this table would stop
+// recall events propagating across devices via push/pull (the T6
+// premise).
+func slowRecallEventsAuditStaged(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV12: %v", err)
@@ -179,14 +185,16 @@ func TestRecallEventsAuditStaged(t *testing.T) {
 	}
 }
 
-// TestReplayRecallEventsSynthesizesEvents — 이식 스코어 재생 산식(R42-A):
-// score수만큼 합성 이벤트 적립·recalled_at은 COALESCE(last, now())로
-// EnsureSchemaV12 백필과 동일(지정 시각 승계·미회상 now 폴백)·score 0과
-// 빈 슬라이스는 no-op. 감사 커밋 흡수(recall_events 스테이징)도 함께.
-func TestReplayRecallEventsSynthesizesEvents(t *testing.T) {
-	r := newTestRepo(t)
+// TestReplayRecallEventsSynthesizesEvents — the migration score-replay
+// formula (R42-A): synthetic events accrue per score count·recalled_at
+// is COALESCE(last, now()), the same as the EnsureSchemaV12 backfill
+// (a given time inherited·never-recalled falls back to now)·score 0 and
+// empty slices are no-ops. Audit-commit absorption (recall_events
+// staging) checked along the way.
+func slowReplayRecallEventsSynthesizesEvents(t *testing.T, r *Repo) {
 	ctx := context.Background()
-	// v12 상태 보증 — recall_events 존재·knowledge 2열 폐기(멱등).
+	// v12 state guarantee — recall_events present·the 2 knowledge
+	// columns dropped (idempotent).
 	if err := r.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV12: %v", err)
 	}
@@ -202,9 +210,9 @@ func TestReplayRecallEventsSynthesizesEvents(t *testing.T) {
 	last := time.Date(2026, 11, 19, 9, 30, 0, 123456000, time.UTC)
 	before := time.Now().UTC().Add(-time.Second)
 	if err := r.ReplayRecallEvents(ctx, []RecallReplay{
-		{ID: ids[0], Score: 3, LastRecalled: last}, // 지정 시각 승계
-		{ID: ids[1], Score: 2},                     // 미회상 — now 폴백
-		{ID: ids[2], Score: 0},                     // score 0 — 재생 생략
+		{ID: ids[0], Score: 3, LastRecalled: last}, // given time inherited
+		{ID: ids[1], Score: 2},                     // never recalled — now fallback
+		{ID: ids[2], Score: 0},                     // score 0 — replay skipped
 	}); err != nil {
 		t.Fatalf("ReplayRecallEvents: %v", err)
 	}
@@ -231,7 +239,7 @@ func TestReplayRecallEventsSynthesizesEvents(t *testing.T) {
 	if n, _ := agg(ids[2]); n != 0 {
 		t.Fatalf("score 0 재생: cnt=%d, want 0", n)
 	}
-	// 빈 슬라이스·전부 무효(0) — no-op(오류·적립 없음).
+	// Empty slice·all invalid (0) — no-op (no error·no accrual).
 	if err := r.ReplayRecallEvents(ctx, nil); err != nil {
 		t.Fatalf("빈 슬라이스: %v", err)
 	}
@@ -241,7 +249,8 @@ func TestReplayRecallEventsSynthesizesEvents(t *testing.T) {
 	if n, _ := agg(ids[2]); n != 0 {
 		t.Fatalf("무효 재생 후 cnt=%d, want 0", n)
 	}
-	// 감사 커밋 흡수 — 재생 이벤트도 recall_events 스테이징에 흡수된다.
+	// Audit-commit absorption — the replayed events are also absorbed by
+	// recall_events staging.
 	if _, err := r.Commit(ctx, "import: recall replay (test staging)"); err != nil {
 		t.Fatalf("감사 커밋: %v", err)
 	}

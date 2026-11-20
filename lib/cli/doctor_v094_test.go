@@ -1,5 +1,5 @@
-// doctor_v094_test.go — doctor --fix 자가수복(applyHookFix).
-// 픽스처는 FLINT_CLAUDE_HOME 임시 디렉터리로 실사용 ~/.claude 미접촉.
+// doctor_v094_test.go — doctor --fix self-repair (applyHookFix).
+// Fixtures use a FLINT_CLAUDE_HOME temp directory; the real ~/.claude is untouched.
 package cli
 
 import (
@@ -55,8 +55,8 @@ func TestApplyHookFixAddsFlintHooks(t *testing.T) {
 	}
 }
 
-// file — hooks 외 최상위 키(env·permissions 등)와 기존 이벤트 배열
-// 엔트리는 병합 후에도 무손실이어야 한다(스펙 R1 "다른 키 전부 불변").
+// file — top-level keys besides hooks (env, permissions, etc.) and existing event-array
+// entries must be lossless after the merge (spec R1, "all other keys unchanged").
 func TestApplyHookFixPreservesOtherKeys(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "settings.json")
@@ -78,7 +78,7 @@ func TestApplyHookFixPreservesOtherKeys(t *testing.T) {
 	if env, ok := got["env"].(map[string]any); !ok || env["FOO"] != "bar" {
 		t.Errorf("env 키 무손실 아님: %v", got["env"])
 	}
-	// 기존 Stop 엔트리는 배열 앞쪽 그대로(교체·append 후 orca 1 + flint 1).
+	// the existing Stop entries stay at the front of the array (after replace/append: orca 1 + flint 1).
 	stop, _ := got["hooks"].(map[string]any)["Stop"].([]any)
 	if len(stop) != 2 {
 		t.Fatalf("Stop 배열 길이=%d, want 2", len(stop))
@@ -107,7 +107,7 @@ func TestApplyHookFixIdempotent(t *testing.T) {
 	}
 }
 
-// file — 백업 파일은 원본 바이트와 동일해야 한다(원본 보존 계약).
+// file — the backup file must be byte-identical to the original (the original-preservation contract).
 func TestApplyHookFixBackupCreated(t *testing.T) {
 	p := writeFixture(t, map[string]any{
 		"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "orca"}}}},
@@ -126,7 +126,7 @@ func TestApplyHookFixBackupCreated(t *testing.T) {
 	}
 }
 
-// file — 파손 JSON은 복구 중단: err·파일 무변경·백업 없음.
+// file — corrupt JSON aborts the repair: err, file unchanged, no backup.
 func TestApplyHookFixBrokenJSON(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "settings.json")
@@ -151,7 +151,7 @@ func TestApplyHookFixBrokenJSON(t *testing.T) {
 	}
 }
 
-// protocol — --fix 리포트 한 줄 JSON 형식·무 --fix 출력 불변.
+// protocol — the one-line JSON shape of the --fix report; unchanged output without --fix.
 func TestDoctorFixReportFormat(t *testing.T) {
 	r := doctorFixReport([]doctorCheck{{Name: "hook-file", Status: "ok"}})
 	var m map[string]string
@@ -165,9 +165,9 @@ func TestDoctorFixReportFormat(t *testing.T) {
 		t.Errorf("hook-file=%q, want ok (%q)", m["hook-file"], r)
 	}
 
-	// 무 --fix 경로는 기존 doctor 출력 그대로 — fixed 리포트 미출력.
+	// the path without --fix keeps the existing doctor output — no fixed report printed.
 	home := t.TempDir()
-	t.Setenv("FLINT_CLAUDE_HOME", home) // settings.json 부재 → hook-file fail
+	t.Setenv("FLINT_CLAUDE_HOME", home) // no settings.json -> hook-file fail
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f)
 	if code != 1 {
@@ -178,10 +178,10 @@ func TestDoctorFixReportFormat(t *testing.T) {
 	}
 }
 
-// state — doctor --fix: hook-file fail을 자동 복구해 ok로 재평가.
+// state — doctor --fix: auto-repairs the hook-file fail and re-evaluates it as ok.
 func TestDoctorFixFlagAppliesHookFix(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
+		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
 	})
 	dir := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", dir)
@@ -193,7 +193,7 @@ func TestDoctorFixFlagAppliesHookFix(t *testing.T) {
 
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	oldBin := flintBinPathFn
-	flintBinPathFn = func() string { return "/x/flint" } // 테스트 바이너리 경로 주입
+	flintBinPathFn = func() string { return "/x/flint" } // inject a test binary path
 	t.Cleanup(func() { flintBinPathFn = oldBin })
 	out, code := runDoctorArgs(t, f, "--fix")
 	if code != 0 {

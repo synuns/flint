@@ -1,10 +1,10 @@
-// tuning.go — `flint tuning --tui` 진입 분기. 옵트인만(적응형 전환
-// 없음 — 무인자 list JSON은 에이전트·스크립트 계약이라 불변): --tui
-// 단독만 TUI(tui.RunTuningTUI)로, 조합은 무효 인자 exit 3(maintain 관례
-// 승계 — tuning도 위치 서브커맨드 set/get/reset을 받아 유령 인자 조합
-// 방지). FLINT_NO_TUI는 3층 방어 1층 — 명시 --tui도 차단 후 기존 경로
-// 안내. 그 외 전부 ops.RunTuning에 바이트 불변 위임한다(파이프·CI
-// 무영향). TUI 런처·ops 위임은 seam var(테스트 fake 주입).
+// tuning.go — entry branching for `flint tuning --tui`. Opt-in only (no adaptive
+// switching — the no-arg list JSON is an agent/script contract, so it stays unchanged): --tui
+// standalone only goes to the TUI (tui.RunTuningTUI); combinations are invalid-arg exit 3 (carrying over the maintain
+// convention — tuning also takes the positional subcommands set/get/reset, preventing ghost-argument
+// combinations). FLINT_NO_TUI is layer 1 of the 3-layer guard — even an explicit --tui is blocked, then the existing path is
+// announced. Everything else delegates byte-for-byte unchanged to ops.RunTuning (pipes and CI
+// unaffected). The TUI launcher and ops delegation are seam vars (test fake injection).
 package cli
 
 import (
@@ -17,25 +17,25 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// tuningTuiFn — TUI 진입 seam. 기본 실구현, 테스트 fake 교체.
+// tuningTuiFn — TUI entry seam. Real implementation by default; tests swap in a fake.
 var tuningTuiFn = tui.RunTuningTUI
 
-// tuningOpsRun — 기존 tuning 경로 위임 seam(ops.RunTuning — 중복
-// 구현 금지). 기본 실구현, 진입 분기 테스트 fake 교체.
+// tuningOpsRun — delegation seam for the existing tuning path (ops.RunTuning — no duplicate
+// implementation). Real implementation by default; entry-branching tests swap in a fake.
 var tuningOpsRun = ops.RunTuning
 
 func init() {
-	// ops.init 등록(RunTuning)을 덮어쓴다 — wire.Register 최신값 승계
-	// (같은 이름 재등록 규약, pending·maintain·report 관례). 기본 경로는
-	// 아래 위임으로 불변(--tui 분기만 이 파일 소유).
+	// overwrites the ops.init registration (RunTuning) — inherits the latest wire.Register value
+	// (same-name re-registration convention, the pending/maintain/report precedent). The default path
+	// is unchanged via the delegation below (this file owns only the --tui branch).
 	Register("tuning", runTuningEntry)
 }
 
-// runTuningEntry — tuning 핸들러. 진입 규칙: ① --tui 단독 → TUI(조합은
-// 무효 인자 exit 3·FLINT_NO_TUI 설정 시 차단 exit 3·비터미널은 TUI
-// 런처 폴백 exit 3 불변) ② 그 외(무인자·서브커맨드 전부) →
-// ops.RunTuning 현행 경로 — 옵트인만이라 무인자 + 터미널 적응형 전환은
-// 없다(무인자 = list JSON 불변).
+// runTuningEntry — tuning handler. Entry rules: (1) --tui standalone -> TUI (combinations are
+// invalid-arg exit 3, blocked with exit 3 when FLINT_NO_TUI is set, non-terminal keeps the TUI
+// launcher fallback exit 3 unchanged) (2) everything else (no args, all subcommands) ->
+// the current ops.RunTuning path — opt-in only, so there is no no-arg + terminal adaptive switching
+// (no args = list JSON unchanged).
 func runTuningEntry(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	for i, a := range args {
 		if a != "--tui" {
@@ -48,8 +48,8 @@ func runTuningEntry(ctx context.Context, st Store, args []string, stdin io.Reade
 				return 3
 			}
 		}
-		// 3층 방어 1층 — FLINT_NO_TUI 설정 시 TTY 여부와 무관하게 차단
-		// (에이전트·CI 명시 탈출구 우선).
+		// layer 1 of the 3-layer guard — with FLINT_NO_TUI set, blocked regardless of TTY
+		// (the explicit agent/CI escape hatch takes precedence).
 		if tui.NoTUIForced() {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
 				"tuning: --tui is blocked by FLINT_NO_TUI — use tuning flag-mode subcommands")))

@@ -1,16 +1,16 @@
-// threshold_meta.go — thresholds 키 등록표(단일 소스).
-// 키 추가는 이 등록표 1곳 + store.Thresholds 필드 정의로 수렴한다 —
-// ThresholdsKeys(thresholdsKeySQL IN·maintain meta 감사)와 ops
-// TuningKeys(TUNING §2 표 행: Default·Consumer·Get)가 전부 등록표에서
-// 파생된다. DefaultThresholds·ParseThresholds 값·인식 집합은
-// threshold_meta_test.go가 등록표와의 동질성을 가드한다(한쪽만 고치면
-// FAIL — 스펙 §2 가드 계약). store는 구조체(필드명)만 공유한다.
+// threshold_meta.go — the thresholds key registry (the single source).
+// Adding a key converges to this 1 registry spot + the store.Thresholds field
+// definition — ThresholdsKeys (the thresholdsKeySQL IN and the maintain meta
+// audit) and ops TuningKeys (the TUNING §2 table rows: Default, Consumer, Get)
+// all derive from the registry. The DefaultThresholds values and the
+// ParseThresholds recognition set are guarded for homogeneity with the registry
+// by threshold_meta_test.go (fixing only one side FAILs — the spec §2 guard contract). store shares only the struct (the field names).
 package wire
 
-// ThresholdMeta — 등록표 항목. Field는 store.Thresholds 필드명(파생 Get의
-// 리플렉션 소스), Key는 meta 오버라이드 키, Default는 기본값(int|float64
-// — store 기본 상수와 동질 가드 대상), Desc는 소비 경로(TUNING §2 표의
-// consumer 열).
+// ThresholdMeta — one registry entry. Field is the store.Thresholds field name
+// (the reflection source of the derived Get), Key is the meta override key,
+// Default is the default value (int|float64 — subject to the homogeneity guard
+// against the store default constants), and Desc is the consumption path (the consumer column of the TUNING §2 table).
 type ThresholdMeta struct {
 	Field   string
 	Key     string
@@ -18,8 +18,8 @@ type ThresholdMeta struct {
 	Desc    string
 }
 
-// thresholdMetas — 등록표 원본. 순서는 기존 ThresholdsKeys·TuningKeys
-// 선언 순서를 그대로 보존한다(결정적 순서 — SQL IN·표 출력 불변).
+// thresholdMetas — the registry original. The order preserves the existing
+// ThresholdsKeys and TuningKeys declaration order as-is (a deterministic order — the SQL IN and table output unchanged).
 var thresholdMetas = []ThresholdMeta{
 	{"PendingMax", "pending_max", 50, "maintain --check"},
 	{"DupSuspMax", "dup_susp_max", 20, "maintain --check"},
@@ -51,8 +51,8 @@ var thresholdMetas = []ThresholdMeta{
 	{"SecretsScanRows", "secrets_scan_row_limit", 10000, "doctor secrets row limit"},
 	{"SessionKnowledgeDays", "session_knowledge_days", 1, "session knowledge minimum interval"},
 
-	// 진단 엔진(diagnosis.go)·knowledge_reads 보존 — meta
-	// 오버라이드 실로드를 위한 등록표 항목.
+	// the diagnostics engine (diagnosis.go) and the knowledge_reads retention — a
+	// registry entry for the real meta-override load.
 	{"DiagHotBudgetHigh", "diag_hot_budget_high", 0.8, "report diagnostics"},
 	{"DiagHotBudgetLow", "diag_hot_budget_low", 0.2, "report diagnostics"},
 	{"DiagTrendPct", "diag_trend_pct", 50, "report diagnostics"},
@@ -60,29 +60,29 @@ var thresholdMetas = []ThresholdMeta{
 	{"DiagDeadWarn", "diag_dead_warn", 10, "report diagnostics"},
 	{"KreadsRetentionD", "knowledge_reads_retention_days", 14, "db retention"},
 
-	// import 행 수 상한(대량 문서 메모리 방어 — 소비 경로
+	// the import row cap (a large-document memory defense — the consumption path knowledge/import_jsonl.go).
 	// knowledge/import_jsonl.go).
 	{"ExportImportMaxRows", "export_import_max_rows", 100000, "import row limit"},
 
-	// decay 감쇠 계수·archive 제안 임계값(소비 경로 ops
+	// the decay coefficient and archive-recommendation thresholds (the consumption path ops maintain --decay-audit — schema v11 recall_score, last_recalled_at).
 	// maintain --decay-audit — schema v11 recall_score·last_recalled_at).
 	{"DecayRate", "decay_rate", 1.0, "maintain --decay-audit"},
 	{"ArchiveBelow", "archive_below", 0.0, "maintain --decay-audit"},
 
-	// recall_events 보존기한(schema v12 append-only 회상 원천의 성장
-	// 상한 — 소비 경로 maintain --prune-invalidated 이벤트 정리).
+	// the recall_events retention (the growth cap of the schema v12 append-only
+	// recall source — the consumption path: maintain --prune-invalidated event cleanup).
 	{"RecallEventRetentionD", "recall_event_retention_days", 90, "maintain --prune-invalidated (recall events retention)"},
 }
 
-// ThresholdMetas — 등록표 결정적 복사본(39항목 — 키 집합은 기존
-// ThresholdsKeys와 동일, 가드 테스트가 단언).
+// ThresholdMetas — the registry's deterministic copy (39 entries — the key set
+// identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)
 }
 
-// ThresholdMetasAppendForTest — 가드 테스트 전용 일시 등록 seam
-// (TestNewKeyPropagates: 가상 키 1건 등록 → 파생 4경로 동시 반영 실증).
-// 반환된 restore로 원본 등록표를 복원한다. 프로덕션 경로 사용 금지.
+// ThresholdMetasAppendForTest — a temporary-registration seam exclusively for the guard
+// tests (TestNewKeyPropagates: registering 1 virtual key -> demonstrating simultaneous
+// reflection in the 4 derived paths). The returned restore recovers the original registry. Never use on production paths.
 func ThresholdMetasAppendForTest(m ThresholdMeta) (restore func()) {
 	saved := thresholdMetas
 	next := append([]ThresholdMeta(nil), saved...)

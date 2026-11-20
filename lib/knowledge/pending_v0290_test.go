@@ -1,5 +1,6 @@
-// pending_v0290_test.go — 증류 2막 계약: pending 심사 뷰·approve
-// 병합·세션 지식 topic 품질·session_id 연결.
+// pending_v0290_test.go — the distillation act-2 contracts: the pending
+// review view·approve merging·session-knowledge topic quality·session_id
+// linkage.
 package knowledge
 
 import (
@@ -9,9 +10,10 @@ import (
 	"time"
 )
 
-// knFake — 빈도 상한·meta 경로 stub(queryFn이 session_knowledge_last
-// 조회에 값을 반환 — 키는 $1 파라미터로 전달되므로 args도 검사).
-// 나머지는 기본 fake(nil = 키 부재 → 빈도 통과).
+// knFake — a stub for the frequency-cap·meta paths (the queryFn returns
+// a value for the session_knowledge_last lookup — the key arrives as a
+// $1 parameter, so args are inspected too). Everything else is the base
+// fake (nil = key absent → frequency passes).
 func knFake(last string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		for _, a := range args {
@@ -23,11 +25,12 @@ func knFake(last string) *fakeStore {
 	}}
 }
 
-// TestSummaryKeyword — topic 키워드 추출(첫 구분자·20룬 상한).
+// TestSummaryKeyword — topic keyword extraction (the first delimiter·the
+// 20-rune cap).
 func TestSummaryKeyword(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"v0.27.2 패치: 세션 지식화를 PostCompact 표준 경로로 활성화했다", "v0.27.2 패치: 세션 지식화를"}, // 20룬 상한
-		{"짧", "짧"}, // 상한 없음·짧은 그대로
+		{"v0.27.2 패치: 세션 지식화를 PostCompact 표준 경로로 활성화했다", "v0.27.2 패치: 세션 지식화를"}, // 20-rune cap
+		{"짧", "짧"}, // no cap·short passes through
 		{"아주 긴 문장인데 구분자가 없어서 20룬 상한에 걸린다 여기까지가 딱 맞음", "아주 긴 문장인데 구분자가 없어서 2"},
 	}
 	for _, c := range cases {
@@ -37,7 +40,8 @@ func TestSummaryKeyword(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeTopicQuality — topic에 요약 키워드 반영.
+// TestMaybeSessionKnowledgeTopicQuality — the topic reflects summary
+// keywords.
 func TestMaybeSessionKnowledgeTopicQuality(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
@@ -51,7 +55,8 @@ func TestMaybeSessionKnowledgeTopicQuality(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeSessionID — agent의 최신 sessions.id 연결.
+// TestMaybeSessionKnowledgeSessionID — linkage to the agent's latest
+// sessions.id.
 func TestMaybeSessionKnowledgeSessionID(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -75,13 +80,14 @@ func TestMaybeSessionKnowledgeSessionID(t *testing.T) {
 	}
 }
 
-// TestRunPendingVerdicts — 삼단 추천(승격·병합·만료·보류) 분류.
+// TestRunPendingVerdicts — the three-stage recommendation (promote·merge·
+// expire·hold) classification.
 func TestRunPendingVerdicts(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	old, recent := time.Now().UTC().Add(-20*24*time.Hour), time.Now().UTC().Add(-24*time.Hour)
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
-			return nil, nil // 기본 임계(PendingAgeDays 7)
+			return nil, nil // default thresholds (PendingAgeDays 7)
 		}
 		if strings.Contains(sql, "status = 'pending'") {
 			return [][]any{
@@ -91,7 +97,7 @@ func TestRunPendingVerdicts(t *testing.T) {
 			}, nil
 		}
 		if strings.Contains(sql, "status = 'active'") {
-			return nil, nil // 유사 active 없음
+			return nil, nil // no similar actives
 		}
 		return nil, nil
 	}}
@@ -111,7 +117,8 @@ func TestRunPendingVerdicts(t *testing.T) {
 	}
 }
 
-// TestRunPendingMergeHint — 유사 active 존재 시 병합 추천.
+// TestRunPendingMergeHint — a merge recommendation when a similar active
+// exists.
 func TestRunPendingMergeHint(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	recent := time.Now().UTC().Add(-24 * time.Hour)
@@ -120,7 +127,8 @@ func TestRunPendingMergeHint(t *testing.T) {
 			return [][]any{{int32(9), "표 파이프 이스케이프 규칙(합성 데모)", "유사 active가 있는 최신 항목 — 병합 추천 대상", "agent", recent}}, nil
 		}
 		if strings.Contains(sql, "status = 'active'") {
-			// 유사 판정은 (id, topic) 2열 — 접두 일치.
+			// The similarity verdict takes (id, topic) 2 columns — prefix
+			// match.
 			return [][]any{{int32(4), "표 파이프 이스케이프 규칙(합성 데모) 기존 활성"}}, nil
 		}
 		return nil, nil
@@ -134,11 +142,13 @@ func TestRunPendingMergeHint(t *testing.T) {
 	}
 }
 
-// TestRunPendingJSONCountsConsistency — valid_at 파싱
-// 불가 행의 counts·items 모순 수선 — 양쪽 다 hold로 일치.
+// TestRunPendingJSONCountsConsistency — the fix for the counts·items
+// contradiction on rows whose valid_at cannot be parsed — both sides now
+// agree on hold.
 func TestRunPendingJSONCountsConsistency(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	// valid_at 셀에 time.Time 아닌 값 → cellToTime 실패 → zero ValidAt.
+	// A non-time.Time value in the valid_at cell → cellToTime fails →
+	// zero ValidAt.
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "status = 'pending'") {
 			return [][]any{{int32(11), "파손 시각 행", "본문이 충분히 긴 합성 요약 행입니다", "agent", "not-a-time"}}, nil
@@ -156,7 +166,7 @@ func TestRunPendingJSONCountsConsistency(t *testing.T) {
 	if !strings.Contains(s, `"hold":1`) || !strings.Contains(s, `"verdict":"hold"`) {
 		t.Errorf("양쪽 hold 일치 없음: %s", s)
 	}
-	// age_days도 0 — 292년치 표기 회귀 봉쇄.
+	// age_days is also 0 — sealing off the 292-years notation regression.
 	if !strings.Contains(s, `"age_days":0`) {
 		t.Errorf("zero valid_at의 age_days 비정상: %s", s)
 	}

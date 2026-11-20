@@ -1,6 +1,7 @@
-// brief_mask_order_test.go — brief 셀 살균은 render 조크포인트
-// (render.Masked — MaskSecrets→SanitizeText 순서 보존, ADR-0015)를
-// 경유한다. [REDACTED:…] 흔적은 중립화를 통과해 생존한다.
+// brief_mask_order_test.go — brief cell sanitization goes through the
+// render choke point (render.Masked — MaskSecrets→SanitizeText order
+// preserved, ADR-0015). The [REDACTED:…] residue survives
+// neutralization.
 package knowledge
 
 import (
@@ -9,9 +10,10 @@ import (
 	"testing"
 )
 
-// TestBriefMaskOrder — 마스킹→살균 순서 계약: 비밀은 먼저 치환되고 그
-// 흔적([REDACTED:github-token])은 이후 살균을 통과해 남는다. 마커·제어
-// 문자는 여전히 중립화된다.
+// TestBriefMaskOrder — the masking→sanitization order contract: secrets
+// are replaced first, and their residue ([REDACTED:github-token]) then
+// survives sanitization. Markers·control characters are still
+// neutralized.
 func TestBriefMaskOrder(t *testing.T) {
 	ctx := context.Background()
 	secret := "ghp_" + strings.Repeat("b", 24)

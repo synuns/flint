@@ -1,6 +1,6 @@
-// setupUX — setup 진행 표시. stdlib fmt+ANSI 이스케이프만
-// 사용(ADR-0003 외부 의존성 금지). TTY면 스텝 인디케이터(◯… → ✓/✗)와
-// 색상으로, non-TTY면 색상 코드 없는 plain 한 줄 결과로 렌더한다.
+// setupUX — setup progress display. Uses only stdlib fmt and ANSI escapes
+// (ADR-0003 forbids external dependencies). On a TTY it renders step indicators (◯... -> ✓/✗) with
+// color; on non-TTY it renders plain single-line results without color codes.
 package cli
 
 import (
@@ -9,7 +9,7 @@ import (
 	"os"
 )
 
-// ANSI 색상 상수 — ✓ 그린 · ✗ 레드 · 세부 딤 · 제목 볼드.
+// ANSI color constants — ✓ green, ✗ red, details dim, headings bold.
 const (
 	ansiGreen = "\033[32m✓\033[0m"
 	ansiRed   = "\033[31m✗\033[0m"
@@ -17,17 +17,17 @@ const (
 	ansiBold  = "\033[1m%s\033[0m"
 )
 
-// setupUX — 진행 표시기. lastStep은 Step으로 지정한 최근 스텝 이름으로,
-// Success/Fail이 그 줄을 \r로 덮어 완성한다.
+// setupUX — progress indicator. lastStep is the name of the most recent step set via Step;
+// Success/Fail overwrites that line with \r to complete it.
 type setupUX struct {
 	w        io.Writer
 	isTTY    bool
 	lastStep string
 }
 
-// newSetupUX — w로 출력한다. forceColor가 true면 TTY로 취급(테스트 주입),
-// 아니면 *os.File의 Stat(mode & ModeCharDevice)으로 감지한다. 버퍼·파이프
-// 등 *os.File이 아닌 writer는 non-TTY다.
+// newSetupUX — writes to w. If forceColor is true, treat as TTY (test injection);
+// otherwise detect via *os.File Stat (mode & ModeCharDevice). Buffers, pipes,
+// and writers that are not *os.File are non-TTY.
 func newSetupUX(w io.Writer, forceColor bool) *setupUX {
 	isTTY := forceColor
 	if !isTTY {
@@ -40,8 +40,8 @@ func newSetupUX(w io.Writer, forceColor bool) *setupUX {
 	return &setupUX{w: w, isTTY: isTTY}
 }
 
-// Step — 진행 중 스텝 표시("  ◯ name…"). TTY는 줄바꿈 없이 찍어 완료
-// 표시가 같은 줄을 덮어쓰게 하고, non-TTY는 결과 한 줄만 남기도록 찍지 않는다.
+// Step — shows an in-progress step ("  ◯ name…"). On a TTY it prints without a newline so the
+// completion mark overwrites the same line; on non-TTY it prints nothing, leaving only the one result line.
 func (u *setupUX) Step(name string) {
 	u.lastStep = name
 	if u.isTTY {
@@ -49,7 +49,7 @@ func (u *setupUX) Step(name string) {
 	}
 }
 
-// Success — 스텝 성공. TTY: "\r  ✓ name — detail"(그린+딤 세부),
+// Success — step succeeded. TTY: "\r  ✓ name — detail" (green + dim detail),
 // non-TTY: "name: ok (detail)".
 func (u *setupUX) Success(detail string) {
 	if u.isTTY {
@@ -59,7 +59,7 @@ func (u *setupUX) Success(detail string) {
 	fmt.Fprintf(u.w, "%s: ok (%s)\n", u.lastStep, detail)
 }
 
-// Fail — 스텝 실패. TTY: "\r  ✗ name — err"(레드), non-TTY: "name: failed (err)".
+// Fail — step failed. TTY: "\r  ✗ name — err" (red), non-TTY: "name: failed (err)".
 func (u *setupUX) Fail(err error) {
 	if u.isTTY {
 		fmt.Fprintf(u.w, "\r  %s %s — %s\n", ansiRed, u.lastStep, err)
@@ -68,7 +68,7 @@ func (u *setupUX) Fail(err error) {
 	fmt.Fprintf(u.w, "%s: failed (%v)\n", u.lastStep, err)
 }
 
-// Summary — 완료 후 다음 단계 안내(③seed ④플러그인 — 실행이 아닌 안내).
+// Summary — next-step guidance after completion (③seed ④plugins — guidance only, not execution).
 func (u *setupUX) Summary(next []string) {
 	if len(next) == 0 {
 		return

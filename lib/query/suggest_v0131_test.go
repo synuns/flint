@@ -1,13 +1,13 @@
-// suggest_v0131_test.go — Dice 계수 공개 래퍼 2종(집합·
-// 다중집합) 계약. cli(maintain 모순 분류) 재사용 전용 — suggest 동작 불변.
+// suggest_v0131_test.go — the contracts of the 2 public Dice-coefficient wrappers
+// (set and multiset). Exclusively for cli reuse (the maintain contradiction classification) — suggestion behavior unchanged.
 package query
 
 import "testing"
 
-// TestBigramDicePublicVariants — 집합판 BigramDice는 내부 bigramDice 위임,
-// 다중집합판 BigramDiceMultiset는 반복 bigram을 출현 수로 센다. 두 측정이
-// 갈리는 입력("아아아아"/"아아" — 집합 1·다중집합 0.5)으로 의미 차이를
-// 고정한다(한쪽으로 통합되면 기존 분류·제안 중 하나가 깨진다).
+// TestBigramDicePublicVariants — the set version BigramDice delegates to the internal
+// bigramDice; the multiset version BigramDiceMultiset counts repeated bigrams by
+// occurrence. Pinned with the repeated-syllable fixture pair (set 1,
+// multiset 0.5) — merging into one would break either the existing classification or the suggestions.
 func TestBigramDicePublicVariants(t *testing.T) {
 	if got := BigramDice("백업복구", "백업복구"); got != 1 {
 		t.Errorf("집합판 동일 문자열 = %v, want 1", got)

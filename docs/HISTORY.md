@@ -6,7 +6,36 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v1.9.4 patch (2026-11-19) — r45-hardening: test race hygiene · tuning --tui docs
+### v1.10.0 minor (2026-11-20) — hygiene: comments in English across 394 files · slow suite 34.5% faster · test race fixes
+
+- [x] T1 — R46 precision fixes: HISTORY date ordering, README highlight
+  ordering, delegatingFake mutex unification (+ regression), 4 vet unkeyed
+  fields.
+- [x] T2–T7 — comment translation to English across lib/ (394 files):
+  cli 149, knowledge 57, ops 45, db+sqlfs 56, wire+query+store 67,
+  render 4, tui, backup 17, mcp 13. Meaning-preserving only — string
+  literals, test data, t.Errorf messages, identifiers, and SQL untouched;
+  diffs are comment-line symmetric with zero code deletions.
+- [x] T8 — lib/db slow suite 34.5% faster: 72 test bodies hoisted, shared
+  seeding, inheritance gates; dual_device flock leak fixed.
+- [x] T9 ruling (sequence cleanup, deferred): the 143 leftover suffixed
+  sequences in flint_verify are orphaned and harmless (R42 audit — no
+  derived LEFT JOIN exposure); Doltgres lacks cascading sequence drops, so
+  recovery is upstream-dependent (backlog; new leakage already blocked by
+  v1.9.x scratch-DB isolation).
+- [x] T10 ruling (dialect-gate scope, deferred): the gate keeps its
+  history-query dialect scope (dolt_log, dolt_diff,
+  dolt_commit_diff_knowledge, AS OF); write dialects are already
+  lib/db-owned (R40-A) with zero violations today — future write-dialect
+  leaks would need a gate re-check (backlog).
+- [x] T11 — comment-language sealing gate
+  (lib/wire/comment_language_gate_test.go): go/scanner inspects COMMENT
+  tokens only, so Hangul inside string literals cannot trip it; any
+  residual Hangul comment in lib/**.go fails with file:line. First run
+  surfaced 155 leftovers outside the T2–T7 directories (export_pam_test
+  115 et al.) — all translated, gate green.
+
+### v1.9.4 patch (2026-11-20) — r45-hardening: test race hygiene · tuning --tui docs
 
 - [x] pty test buffer race (R45): TestTuningTUIPtyRealRun shared one
   bytes.Buffer between the exec copy goroutines (Write) and the main

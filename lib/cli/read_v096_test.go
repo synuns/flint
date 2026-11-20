@@ -1,5 +1,5 @@
-// read_v096_test.go — read 제로히트 토큰 폴백(fake Store 질의
-// 캡처). SUPERLITE_REAL=1이면 delegatingFake로 실구현 경유(read_v08 관례).
+// read_v096_test.go — the read zero-hit token fallback (fake Store query
+// capture). With SUPERLITE_REAL=1, a delegatingFake goes through the real implementation (the read_v08 convention).
 package cli
 
 import (
@@ -9,24 +9,24 @@ import (
 	"testing"
 )
 
-// fallbackRow — active_knowledge 행 픽스처(readColumns 순서).
+// fallbackRow — an active_knowledge row fixture (readColumns order).
 func fallbackRow(id int, topic, summary string) []any {
 	return []any{int32(id), topic, summary, ":a:", nil, "main", 0.9, "active"}
 }
 
-// fallbackQueryFn — 구문 질의는 제로히트, 폴백 OR 질의는 2행(정합수 역순
-// 반환 — 재랭킹이 순서를 바로잡는지 검증). meta 읽기/쓰기 키를 기록한다.
+// fallbackQueryFn — the phrase query zero-hits; the fallback OR query returns 2 rows (in ascending
+// match-count order — verifying that reranking fixes the order). Records meta read/write keys.
 func fallbackQueryFn(metaKeys *[]string) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM active_knowledge"):
-			if strings.Contains(sql, " OR ") { // 폴백 OR 재쿼리
+			if strings.Contains(sql, " OR ") { // the fallback OR re-query
 				return [][]any{
-					fallbackRow(1, "백업 절차", "정기 절차"),            // 정합수 1
-					fallbackRow(2, "flint 백업", "복구는 저장소 정지 조건"), // 정합수 2
+					fallbackRow(1, "백업 절차", "정기 절차"),            // 1 exact match
+					fallbackRow(2, "flint 백업", "복구는 저장소 정지 조건"), // 2 exact matches
 				}, nil
 			}
-			return nil, nil // 구문 매칭 제로히트
+			return nil, nil // the phrase match zero-hits
 		case strings.Contains(sql, "SELECT value FROM meta"):
 			if len(args) > 0 {
 				*metaKeys = append(*metaKeys, "get:"+argKey(args[0]))
@@ -42,7 +42,7 @@ func fallbackQueryFn(metaKeys *[]string) func(string, []any) ([][]any, error) {
 	}
 }
 
-// argKey — meta 키 인자를 문자열로(테스트 국소).
+// argKey — the meta key argument as a string (test-local).
 func argKey(v any) string {
 	if s, ok := v.(string); ok {
 		return s
@@ -50,8 +50,8 @@ func argKey(v any) string {
 	return ""
 }
 
-// TestReadFallbackOnZeroPhrase — 구문 제로히트 → 토큰 OR
-// 재쿼리·정합수 내림 재랭킹·read_fallback_calls 증분.
+// TestReadFallbackOnZeroPhrase — phrase zero-hit -> the token OR
+// re-query, descending match-count reranking, and a read_fallback_calls increment.
 func TestReadFallbackOnZeroPhrase(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
@@ -60,7 +60,7 @@ func TestReadFallbackOnZeroPhrase(t *testing.T) {
 	if code := runRead(ctx, asofFakeOrReal(t, f), []string{"백업 복구"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runRead exit = %d, want 0 (출력 %q)", code, out.String())
 	}
-	// 폴백 OR 질의 발행.
+	// the fallback OR query issued.
 	var orIssued bool
 	for _, q := range f.queries {
 		if strings.Contains(q, "FROM active_knowledge") && strings.Contains(q, " OR ") {
@@ -70,12 +70,12 @@ func TestReadFallbackOnZeroPhrase(t *testing.T) {
 	if !orIssued {
 		t.Errorf("폴백 OR 질의 미발행: %v", f.queries)
 	}
-	// 재랭킹 — 정합수 2행(정합수 2)이 정합수 1행보다 먼저.
+	// reranking — the 2-match row (match count 2) precedes the 1-match row.
 	got := out.String()
 	if !strings.HasPrefix(got, "2|flint 백업|복구는 저장소 정지 조건\n1|백업 절차|정기 절차\n") {
 		t.Errorf("정합수 내림 재랭킹 실패: %q", got)
 	}
-	// 계측 — 폴백 시도 1회 증분.
+	// metering — one fallback attempt incremented.
 	var bumped bool
 	for _, k := range metaKeys {
 		if k == "set:read_fallback_calls" {
@@ -87,15 +87,15 @@ func TestReadFallbackOnZeroPhrase(t *testing.T) {
 	}
 }
 
-// TestReadPhraseHitUnchanged — 구문 히트 시 폴백 미발생
-// (OR 질의·계측 없이 기존 출력 그대로).
+// TestReadPhraseHitUnchanged — on a phrase hit, no fallback occurs
+// (no OR query or metering; the existing output as-is).
 func TestReadPhraseHitUnchanged(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
 	fn := func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM active_knowledge"):
-			return [][]any{fallbackRow(3, "백업 복구 절차", "요약")}, nil // 구문 히트
+			return [][]any{fallbackRow(3, "백업 복구 절차", "요약")}, nil // phrase hit
 		}
 		return nil, nil
 	}
@@ -113,12 +113,12 @@ func TestReadPhraseHitUnchanged(t *testing.T) {
 	}
 }
 
-// TestReadFallbackSkippedOnAsOf — --as-of 질의는 현재 시점 폴백이 시점
-// 정합성을 깨므로 제로히트여도 폴백 미발생(룰링).
+// TestReadFallbackSkippedOnAsOf — an --as-of query must not run the current-time fallback, since it
+// would break point-in-time consistency, so even a zero-hit does not fall back (ruling).
 func TestReadFallbackSkippedOnAsOf(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
-	f := &readAsofFake{fakeStore: &fakeStore{}, zeroHit: true} // 과거 시점 제로히트
+	f := &readAsofFake{fakeStore: &fakeStore{}, zeroHit: true} // past-snapshot zero hit
 	if code := runRead(ctx, readAsofStoreOrReal(t, f), []string{"--as-of", "7d", "백업 복구"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("runRead exit = %d, want 0 (출력 %q)", code, out.String())
 	}
@@ -132,8 +132,8 @@ func TestReadFallbackSkippedOnAsOf(t *testing.T) {
 	}
 }
 
-// TestReadFallbackSkippedOnSingleToken — 1-토큰 질의 제로히트는 구문
-// 매칭과 동질이라 폴백 없이 기존 제로히트 출력(계측 증분도 없음).
+// TestReadFallbackSkippedOnSingleToken — a 1-token zero-hit query is identical to phrase
+// matching, so no fallback; the existing zero-hit output (and no metering increment).
 func TestReadFallbackSkippedOnSingleToken(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer

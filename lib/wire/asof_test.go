@@ -1,8 +1,8 @@
-// asof_test.go — as-of 정규화
-// (상대 Nh/Nd·ISO·해시 접두어 → 커밋 해시)를 wire 패키지 직접 표면로
-// 검증한다. dolt_log 접근은 LogEntries fake으로 세운다(실DB 회귀는
-// cli/asof_test.go TestParseAsOfSpecRealPrefix가 담당 — realStore 인프라
-// 잔류). 픽스처·문구 단정은 cli 원본과 동일 값.
+// asof_test.go — verifies as-of normalization (relative Nh/Nd,
+// ISO, hash prefix -> commit hash) on the wire package's direct surface.
+// dolt_log access is stubbed with a LogEntries fake (the real-DB regression is
+// cli/asof_test.go TestParseAsOfSpecRealPrefix — realStore infrastructure
+// resides there). The fixture and wording assertions match the cli original's values.
 package wire
 
 import (
@@ -13,9 +13,9 @@ import (
 	"time"
 )
 
-// asofLogEntries — LogEntry 픽스처(인덱스 0이 최신). 첫 두 해시는 "abc"
-// 접두어 공유(모호성 케이스), 셋째는 base32계(Doltgres 실측 — [0-9a-z]
-// 전범위) 해시로 완화 검증 회귀.
+// asofLogEntries — the LogEntry fixtures (index 0 is the newest). The first two
+// hashes share the "abc" prefix (the ambiguity case); the third is a base32-like
+// hash (a Doltgres observation — the full [0-9a-z] range) for the relaxed-validation regression.
 func asofLogEntries() []LogEntry {
 	return []LogEntry{
 		{Hash: "abc12f00000000000000000000000000", Date: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)},
@@ -24,8 +24,8 @@ func asofLogEntries() []LogEntry {
 	}
 }
 
-// asofFakeStore — 접두 일치·date≤ 최신 1건·첫 커밋 3종 LogQuery를
-// 픽스처로 응답하는 fake Store. calls로 호출된 쿼리를 기록한다.
+// asofFakeStore — a fake Store answering the 3 LogQuery kinds (prefix match,
+// date <= newest 1, first commit) from the fixtures. Records the queries in calls.
 type asofFakeStore struct {
 	entries []LogEntry
 	calls   []LogQuery
@@ -62,9 +62,9 @@ func (f *asofFakeStore) DiffStat(ctx context.Context, hashes []string) ([]TableD
 	return nil, nil
 }
 
-// LogEntries — Prefix(접두 일치 전체)·BeforeOrAt(date≤ 최신 1건)·
-// Earliest(첫 커밋) 시맨틱를 픽스처(entries는 Date 내림차순 가정)로
-// 흉내 낸다.
+// LogEntries — mimics the Prefix (all prefix matches), BeforeOrAt (the newest 1
+// with date <= t), and Earliest (the first commit) semantics from the fixtures
+// (entries assumed descending by Date).
 func (f *asofFakeStore) LogEntries(ctx context.Context, q LogQuery) ([]LogEntry, error) {
 	f.calls = append(f.calls, q)
 	switch {
@@ -92,7 +92,7 @@ func (f *asofFakeStore) LogEntries(ctx context.Context, q LogQuery) ([]LogEntry,
 	return nil, errors.New("예상 밖 LogQuery")
 }
 
-// TestWireRelativeDh — 상대 Nh/Nd 확장·무효 형식(2.5h·"2 days ago") 배제.
+// TestWireRelativeDh — relative Nh/Nd expansion and the exclusion of invalid forms (2.5h, "2 days ago").
 func TestWireRelativeDh(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -120,7 +120,7 @@ func TestWireRelativeDh(t *testing.T) {
 	}
 }
 
-// TestWirePrefixUniqueAmbiguousZero — 접두어 1건 확정·모호·0건·LogQuery{Prefix} 사용.
+// TestWirePrefixUniqueAmbiguousZero — prefix: 1 hit resolved, ambiguous, 0 hits, and LogQuery{Prefix} usage.
 func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
 	ctx := context.Background()
@@ -133,7 +133,7 @@ func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 		t.Fatalf("calls=%+v, want LogQuery{Prefix:%q}", f.calls, "abc12")
 	}
 
-	// base32계 해시 회귀 — 소문자 영숫자 접두어 "he0" 수용.
+	// the base32-like hash regression — accepts the lowercase-alphanumeric prefix "he0".
 	hash, err = ParseAsOfSpec(ctx, f, "he0")
 	if err != nil || hash != "he08irluq000000000000000000000z" {
 		t.Fatalf("base32 prefix he0 → (%q,%v), want 전체 해시", hash, err)
@@ -146,7 +146,7 @@ func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	if _, err := ParseAsOfSpec(ctx, f, "abcd"); !errors.Is(err, ErrInvalidAsOf) {
 		t.Fatalf("zero-match err=%v, want ErrInvalidAsOf", err)
 	}
-	// 3자 미만·대문자·특수문자 — 질의 없이 즉시 err.
+	// under 3 chars, uppercase, special characters — an immediate err without a query.
 	f2 := &asofFakeStore{entries: asofLogEntries()}
 	for _, bad := range []string{"ab", "ABC12", "abc12!", "zzz!"} {
 		if _, err := ParseAsOfSpec(ctx, f2, bad); !errors.Is(err, ErrInvalidAsOf) {
@@ -158,7 +158,7 @@ func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	}
 }
 
-// TestWireIsoBeforeFirst — 첫 커밋 이전 ISO 시각 → err(문구에 첫 커밋 시각).
+// TestWireIsoBeforeFirst — an ISO time before the first commit -> err (the message includes the first commit time).
 func TestWireIsoBeforeFirst(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
 	ctx := context.Background()
@@ -186,13 +186,13 @@ func TestWireIsoBeforeFirst(t *testing.T) {
 	}
 }
 
-// TestWireRelativeBoundary — 상대 스펙이 commitAtOrBefore(date≤)로
-// 연결되는 경계. 커밋 시각과 정확히 같은 t는 채택(≤), 커밋 없는 저장소는
-// no-commits 문구.
+// TestWireRelativeBoundary — the boundary where a relative spec connects to
+// commitAtOrBefore (date <=). A t exactly equal to a commit time is adopted
+// (<=); a repository with no commits gets the no-commits wording.
 func TestWireRelativeBoundary(t *testing.T) {
 	ctx := context.Background()
 
-	// now 기반이라 픽스처 전체가 과거 — 최신 커밋 확정.
+	// being now-based, the whole fixture is in the past — the newest commit is adopted.
 	f := &asofFakeStore{entries: asofLogEntries()}
 	hash, err := ParseAsOfSpec(ctx, f, "1h")
 	if err != nil || hash != "abc12f00000000000000000000000000" {
@@ -202,13 +202,13 @@ func TestWireRelativeBoundary(t *testing.T) {
 		t.Fatalf("calls=%+v, want LogQuery{BeforeOrAt}", f.calls)
 	}
 
-	// 경계 — ISO 시각이 최신 커밋 시각과 정확히 같으면 그 커밋 채택(≤).
+	// boundary — an ISO time exactly equal to the newest commit time adopts that commit (<=).
 	hash, err = ParseAsOfSpec(ctx, f, "2026-10-24T12:00:00Z")
 	if err != nil || hash != "abc12f00000000000000000000000000" {
 		t.Fatalf("ISO == 커밋 시각 → (%q,%v), want 경계 포함", hash, err)
 	}
 
-	// 커밋 없는 저장소 — date≤도 첫 커밋도 0건.
+	// a repository with no commits — both date<= and the first commit yield 0 rows.
 	empty := &asofFakeStore{}
 	_, err = ParseAsOfSpec(ctx, empty, "1h")
 	if !errors.Is(err, ErrInvalidAsOf) || !strings.Contains(err.Error(), "no commits") {
@@ -216,7 +216,7 @@ func TestWireRelativeBoundary(t *testing.T) {
 	}
 }
 
-// TestWireAsOfSpecNaturalLanguageRejected — 자연어·빈 스펙은 ErrInvalidAsOf.
+// TestWireAsOfSpecNaturalLanguageRejected — natural language and empty specs are ErrInvalidAsOf.
 func TestWireAsOfSpecNaturalLanguageRejected(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
 	for _, bad := range []string{"2 days ago", "yesterday", "  "} {

@@ -1,8 +1,8 @@
-// read_fix_v0131_test.go — --status 스펙 검증 강화.
-// ①값 없는 trailing --status(단독·--as-of 병용 모두)는 값 없는 --as-of
-// 가드와 동일 규칙으로 exit 3 — 조용히 무시 금지. ②무효 status 값 검증은
-// --as-of 지정 여부와 무관하게 항상 수행(병용 시 as-of 우선 룰링은 유효한
-// 값에만 적용).
+// read_fix_v0131_test.go — strengthened --status spec validation.
+// (1) A trailing --status without a value (standalone or combined with --as-of) exits 3 under the same rule as the valueless --as-of
+// guard — no silent ignoring. (2) Invalid status values are always validated
+// regardless of --as-of (the as-of-precedence ruling for combinations applies only to valid
+// values).
 package cli
 
 import (
@@ -12,9 +12,9 @@ import (
 	"testing"
 )
 
-// TestReadStatusTrailingExits3 — trailing --status(값 없음)가 조용히 무시되지
-// 않고 exit 3. --as-of 병용에서 무시가 조용히 성공하는 것이 본 결함이므로
-// 두 변형 모두 커버한다. 검증은 질의 발행 전에 끝나야 한다.
+// TestReadStatusTrailingExits3 — a trailing --status (no value) is not silently ignored
+// but exits 3. Since silently ignoring it under --as-of combination was the defect itself,
+// both variants are covered. Validation must finish before any query is issued.
 func TestReadStatusTrailingExits3(t *testing.T) {
 	for _, args := range [][]string{
 		{"--status"},
@@ -34,8 +34,8 @@ func TestReadStatusTrailingExits3(t *testing.T) {
 	}
 }
 
-// TestReadStatusInvalidWithAsOf — --as-of 병용 시에도 무효 status 값은
-// exit 3으로 거부된다(기존에는 as-of 경로가 선행해 조용히 무시됨).
+// TestReadStatusInvalidWithAsOf — even combined with --as-of, an invalid status value is
+// rejected with exit 3 (previously the as-of path ran first and silently ignored it).
 func TestReadStatusInvalidWithAsOf(t *testing.T) {
 	var out bytes.Buffer
 	f := &readAsofFake{fakeStore: &fakeStore{queryFn: statusQueryFn()}}

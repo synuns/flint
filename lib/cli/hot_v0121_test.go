@@ -1,5 +1,5 @@
-// hot_v0121_test.go — pending 팔 대기일수: 24h 미만 빈 문자열,
-// 경과 일수 내림 "·+N일" 접미. --full pending 행 끝에만 붙는다.
+// hot_v0121_test.go — pending-arm waiting days: an empty string under 24h,
+// otherwise the elapsed days floored, as a "·+Nd" suffix. Appended only to --full pending rows.
 package cli
 
 import (
@@ -25,8 +25,8 @@ func TestPendingAgeSuffix(t *testing.T) {
 	}
 }
 
-// pendingAgeQueryFn — hot_view 본질의는 hotRows(말미에 id·valid_at·
-// ingested_at 컬럼 포함 — 단일 정의), 그 외 질의는 빈 결과.
+// pendingAgeQueryFn — the hot_view essential query returns hotRows (with id, valid_at, and
+// ingested_at columns at the end — a single definition); other queries return empty results.
 func pendingAgeQueryFn(hotRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -37,9 +37,9 @@ func pendingAgeQueryFn(hotRows [][]any) func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestHotFullPendingAgeAppended — --full pending 행 끝에 대기일수 접미.
-// valid_at은 본질의 컬럼에서 직접 읽는다. 49h 경과(내림 2일)는 now 캡처
-// 오차 여유를 둔 값이다.
+// TestHotFullPendingAgeAppended — the waiting-days suffix at the end of --full pending rows.
+// valid_at is read directly from the essential columns. 49h elapsed (floored to 2 days) leaves
+// a margin for now-capture error.
 func TestHotFullPendingAgeAppended(t *testing.T) {
 	ctx := context.Background()
 	validAt := time.Now().UTC().Add(-49 * time.Hour)
@@ -57,7 +57,7 @@ func TestHotFullPendingAgeAppended(t *testing.T) {
 	if len(gotLines) != len(wantLines) {
 		t.Fatalf("행 수 = %d, want %d: %q", len(gotLines), len(wantLines), out.String())
 	}
-	// pending 행은 기존 포맷 + 대기일수 접미(49h → 내림 2일).
+	// pending rows are the existing format + the waiting-days suffix (49h -> floored 2 days).
 	if gotLines[0] != wantLines[0]+"·+2d" {
 		t.Errorf("pending 행 = %q, want %q+·+2d", gotLines[0], wantLines[0])
 	}
@@ -66,9 +66,9 @@ func TestHotFullPendingAgeAppended(t *testing.T) {
 	}
 }
 
-// TestHotFullPendingAgeOmittedWithoutValidAt — 본질의 valid_at 셀 부재
-// (구형 뷰 모양 4열 행)·time.Time 아닌 값 모두 접미 생략, 기존 전체 출력
-// 승계(출력·exit 불변 — 동반 질의 0행·오류 승계 계약의 단일 정의 판본).
+// TestHotFullPendingAgeOmittedWithoutValidAt — a missing essential valid_at cell
+// (an old-view-style 4-column row) and non-time.Time values both omit the suffix, inheriting the
+// existing full output (output and exit unchanged — the single-definition version of the 0-row companion-query and error-inheritance contract).
 func TestHotFullPendingAgeOmittedWithoutValidAt(t *testing.T) {
 	ctx := context.Background()
 	noCell := [][]any{{"pending", "토픽", "요약", "2026-10-22"}}

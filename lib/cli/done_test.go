@@ -1,4 +1,4 @@
-// done_test.go — done의 dispatch·realStore 위임 경로(등록 활성·seam).
+// done_test.go — the done dispatch and realStore delegation paths (registration activation and seams).
 package cli
 
 import (
@@ -10,16 +10,16 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// doneFake — fakeStore에 StaleSessionRuns 스텁을 얹은 fake.
-// stub(stubbed) 미지정 시 영(零) 동작, SUPERLITE_REAL=1이면 실구현 위임.
+// doneFake — a fakeStore with a StaleSessionRuns stub layered on.
+// Without a stub it behaves as zero; with SUPERLITE_REAL=1 it delegates to the real implementation.
 type doneFake struct {
 	*fakeStore
 
-	stubbed bool // runs·runsErr 중 하나라도 지정됐는가
+	stubbed bool // whether runs or runsErr was specified
 	runs    int
 	runsErr error
 
-	// 기록
+	// recording
 	gotAgent string
 }
 
@@ -31,15 +31,15 @@ func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, err
 	return d.runs, nil
 }
 
-// UpdateSessionSummary — 종료 요약 갱신 위임(쓰기 가드).
-// fake는 no-op 성공(단위 경로 — 갱신 계약은 knowledge done_test가 단언).
+// UpdateSessionSummary — closing-summary update delegation (write guard).
+// The fake is a no-op success (unit path — the update contract is asserted by the knowledge done_test).
 func (d *doneFake) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	return 1, nil
 }
 
-// withDoneFake — Run 경로 seam. 기본 fake, FLINT_TEST_DSN 설정 +
-// SUPERLITE_REAL=1이면 stub 미지정 연산을 실구현에 위임(실DB 미기동 시
-// 스킵). FLINT_TEST_DSN 미설정 시 실구현 폴백 금지(seamRealDSN).
+// withDoneFake — the Run-path seam. Default fake; with FLINT_TEST_DSN set +
+// SUPERLITE_REAL=1, unstubbed operations delegate to the real implementation (skips
+// without a real DB). Without FLINT_TEST_DSN, no real-implementation fallback (seamRealDSN).
 func withDoneFake(t *testing.T, d *doneFake) {
 	t.Helper()
 	prev := newStore
@@ -61,7 +61,7 @@ func withDoneFake(t *testing.T, d *doneFake) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// delegatingDone — stub 지정 연산은 fake, 미지정은 실구현 위임.
+// delegatingDone — stubbed operations use the fake; unstubbed ones delegate to the real implementation.
 type delegatingDone struct {
 	done *doneFake
 	real *realStore
@@ -69,7 +69,7 @@ type delegatingDone struct {
 
 func (d *delegatingDone) Migrate(ctx context.Context) error { return d.real.Migrate(ctx) }
 
-// 히스토리 5메서드 — 위임 패턴 승계(실구현 seam 그대로 통과).
+// the 5 history methods — inheriting the delegation pattern (passing through the real-implementation seam as-is).
 func (d *delegatingDone) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	return d.real.LogEntries(ctx, q)
 }
@@ -112,21 +112,21 @@ func (d *delegatingDone) StaleSessionRuns(ctx context.Context, agent string) (in
 	return d.real.StaleSessionRuns(ctx, agent)
 }
 
-// UpdateSessionSummary — 쓰기 가드 전환분 — 실구현 위임.
+// UpdateSessionSummary — the write-guard transition — real-implementation delegation.
 func (d *delegatingDone) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	return d.real.UpdateSessionSummary(ctx, id, summary, tasks)
 }
 
-// mustDoneRun — Run 전체 경로(등록·seam 포함).
+// mustDoneRun — the full Run path (including registration and seams).
 func mustDoneRun(t *testing.T, args []string) (string, int) {
 	t.Helper()
 	stubAutoBackup(t)
 	return mustRun(t, args, "")
 }
 
-// stubAutoBackup — knowledge.AutoBackupFn seam 교체(단위 테스트 무부작용
-// 보장). seam var는 구현 소유 패키지(knowledge)에 있으므로
-// 직접 스텁한다.
+// stubAutoBackup — swaps the knowledge.AutoBackupFn seam (guaranteeing side-effect-free unit tests).
+// The seam var lives in the owning package (knowledge), so it is
+// stubbed directly.
 func stubAutoBackup(t *testing.T) {
 	t.Helper()
 	prev := knowledge.AutoBackupFn
@@ -134,7 +134,7 @@ func stubAutoBackup(t *testing.T) {
 	t.Cleanup(func() { knowledge.AutoBackupFn = prev })
 }
 
-// 등록·Run 전체 경로 — Lookup 성공 + exit 0.
+// registration + full Run path — Lookup success + exit 0.
 func TestDoneRegisteredAndRun(t *testing.T) {
 	if _, ok := Lookup("done"); !ok {
 		t.Fatal("done 미등록")
@@ -150,7 +150,7 @@ func TestDoneRegisteredAndRun(t *testing.T) {
 	}
 }
 
-// seam 검증 — stub 미지정 시 실구현 위임(SUPERLITE_REAL=1 실DB, 아니면 fake).
+// seam check — unstubbed operations delegate to the real implementation (SUPERLITE_REAL=1 real DB, else fake).
 func TestDoneDelegatingRun(t *testing.T) {
 	f := &fakeStore{}
 	d := &doneFake{fakeStore: f}
@@ -162,18 +162,18 @@ func TestDoneDelegatingRun(t *testing.T) {
 	decode(t, out)
 }
 
-// stubAutoBackup이 knowledge 소유 seam을 실제로 끄는지(위임 누락 방지).
+// that stubAutoBackup actually disables the knowledge-owned seam (preventing a missing delegation).
 func TestStubAutoBackupTargetsKnowledgeSeam(t *testing.T) {
 	stubAutoBackup(t)
 	var out strings.Builder
-	// 직접 핸들러 호출 — knowledge.RunDone 경유.
+	// call the handler directly — via knowledge.RunDone.
 	code := runDoneForSeamCheck(&out)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
 	}
 }
 
-// runDoneForSeamCheck — 등록된 done 핸들러 경유 실행(최소 세션).
+// runDoneForSeamCheck — runs via the registered done handler (minimal session).
 func runDoneForSeamCheck(out *strings.Builder) int {
 	h, ok := Lookup("done")
 	if !ok {

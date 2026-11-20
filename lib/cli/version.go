@@ -1,4 +1,4 @@
-// version.go — flint version: 빌드 메타데이터 한 줄 JSON(ldflags 주입, 기본 dev).
+// version.go — flint version: one-line build metadata JSON (ldflags injection, default dev).
 package cli
 
 import (
@@ -10,14 +10,14 @@ import (
 	"strings"
 )
 
-// version·commit — Makefile build의 -ldflags -X 주입 지점(미주입 시 dev 폴백).
+// version and commit — -ldflags -X injection points from the Makefile build (dev fallback when not injected).
 var version = "dev"
 var commit = "dev"
 
-// CurrentVersion — 유효 버전 문자열 반환. ldflags 미주입
-// 빌드(`go install github.com/synuns/flint/cmd/flint@vX.Y.Z`)는
-// debug.ReadBuildInfo의 모듈 버전으로 폴백한다 — go install 배포 경로의
-// 버전 자가 보고. 해석 불가면 "dev".
+// CurrentVersion — returns the effective version string. Builds without ldflags
+// injection (`go install github.com/synuns/flint/cmd/flint@vX.Y.Z`)
+// fall back to the module version from debug.ReadBuildInfo — self-reported
+// versioning on the go install distribution path. Returns "dev" if unresolvable.
 func CurrentVersion() string {
 	if validVersion(version) {
 		return version
@@ -30,16 +30,16 @@ func CurrentVersion() string {
 	return version
 }
 
-// VersionString — {"version":...,"commit":...} 한 줄 JSON.
+// VersionString — one-line {"version":...,"commit":...} JSON.
 func VersionString() string {
 	b, err := json.Marshal(map[string]string{"version": CurrentVersion(), "commit": commit})
-	if err != nil { // map[string]string은 사실상 실패 불가 — 예비 경로
+	if err != nil { // map[string]string is effectively infallible — precautionary path
 		return `{"version":"dev","commit":"dev"}`
 	}
 	return string(b)
 }
 
-// runVersion — 버전 출력. store 불필요(순수 로컬 연산).
+// runVersion — prints the version. No store needed (pure local computation).
 func runVersion(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	fmt.Fprintln(stdout, VersionString())
 	return 0

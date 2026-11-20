@@ -1,7 +1,7 @@
-// doctor.go — flint doctor. brew doctor 준용 — 검사 5종을 돌아
-// fail만 exit 1, warn은 0, fail마다 수정 명령 한 줄(fix)을 제시한다.
-// 무효 인자(unknown flag·--check 값 누락·무효 검사명)는 exit 3(전역 계약).
-// 유지보수 경로(오프라인 CLI)라 핫패스에 간섭하지 않는다(§2).
+// doctor.go — flint doctor. Following the brew doctor convention — it runs the checks
+// and only fail exits 1 while warn exits 0, presenting a one-line fix command for each fail.
+// Invalid arguments (unknown flag, missing --check value, invalid check name) exit 3 (the global contract).
+// It is a maintenance path (offline CLI) and does not interfere with the hot path (§2).
 package ops
 
 import (
@@ -28,59 +28,59 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// cli 소유 구현 주입 seam — ops→cli 임포트 금지 회피(knowledge
-// ParseAsOfSpecFn 관례). 버전·업데이트(version.go·update.go — cli 잔류)도
-// 여기 걸린다.
-// 실구현은 cli/root.go composition root init이 주입한다.
+// injection seams for cli-owned implementations — avoiding the ops->cli import ban (the knowledge
+// ParseAsOfSpecFn convention). Version and update (version.go, update.go — cli-resident) also
+// hang here.
+// The real implementations are injected by the cli/root.go composition root init.
 var (
-	// CurrentVersionFn 등 — checkUpdate(버전 지연 경고).
+	// CurrentVersionFn etc. — checkUpdate (the version-lag warning).
 	CurrentVersionFn     func() string
 	FetchLatestVersionFn func() (string, error)
 	ValidVersionFn       func(v string) bool
 	CompareVersionsFn    func(a, b string) int
-	// KnownMetaKeyFn — checkMetaHygiene의 미지 키 판정(maintain.go).
+	// KnownMetaKeyFn — the unknown-key determination of checkMetaHygiene (maintain.go).
 	KnownMetaKeyFn func(k string) bool
-	// AnyToTimeFn — checkPendingAge의 valid_at 파싱(maintain.go).
+	// AnyToTimeFn — the valid_at parsing of checkPendingAge (maintain.go).
 	AnyToTimeFn func(v any) (time.Time, bool)
-	// IsConflictGroupFn·ConflictDupThresholdFn — checkConflicts의 모순
-	// 분류(maintain.go). ThresholdFn은 var라 호출 시점 읽기 래퍼로 주입.
+	// IsConflictGroupFn and ConflictDupThresholdFn — the contradiction classification of
+	// checkConflicts (maintain.go). ThresholdFn is a var, so it is injected via a read-at-call-time wrapper.
 	IsConflictGroupFn      func(g db.ConflictGroup, dupThreshold float64) bool
 	ConflictDupThresholdFn func() float64
 	// BackupEncryptOnFn·BackupKeyPathFn — checkBackupKey(backup.go).
 	BackupEncryptOnFn func(v string) bool
 	BackupKeyPathFn   func() string
-	// SkillSrcDirFn·CheckSkillFileFn — skill-file 검사(rules_sync.go).
+	// SkillSrcDirFn and CheckSkillFileFn — the skill-file check (rules_sync.go).
 	SkillSrcDirFn    func(binPath string) string
 	CheckSkillFileFn func(srcDir, destDir string) (DoctorCheck, bool)
 )
 
-// CheckSpec — doctor 검사 1종의 등록 표현.
-// Name·Fn·Chain("core"|"tail")·OnStoreNil("fail"|"warn"|""=st 미사용)이
-// 단일 등록표에 모여 있고, 전체 실행 체인·runDoctorCheck 디스패치·
-// --check 허용 목록·--list-checks가 전부 여기서 파생한다.
+// CheckSpec — the registry representation of one doctor check.
+// Name, Fn, Chain ("core"|"tail"), and OnStoreNil ("fail"|"warn"|"" = st unused)
+// live in a single registry, from which the full run chain, the runDoctorCheck dispatch,
+// the --check allow list, and --list-checks are all derived.
 type CheckSpec struct {
 	Name string
 	Fn   func(ctx context.Context, st wire.Store) DoctorCheck
-	// ThFn — thresholds 소비 검사의 주입판: 실행 스코프 1회
-	// 로드 값(doctorThresholds)을 받는다. 디스패치(runCheckSpec)는
-	// ThFn이 있으면 우선, 없으면 Fn. thresholds를 쓰지 않는 검사는
-	// Fn만 세운다.
+	// ThFn — the injected variant for thresholds-consuming checks: receives the
+	// once-per-run loaded value (doctorThresholds). The dispatch (runCheckSpec)
+	// prefers ThFn when present, else Fn. Checks that do not use thresholds
+	// set only Fn.
 	ThFn func(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck
-	// Chain — "core"는 DoctorChecks 이름 공간(6종·port 마지막 계약),
-	// "tail"은 전체 실행 체인 말미의 tail 체인(10종).
+	// Chain — "core" is the DoctorChecks namespace (6 kinds, port-last contract);
+	// "tail" is the tail chain at the end of the full run chain (10 kinds).
 	Chain string
-	// OnStoreNil — st==nil일 때의 판정("fail"|"warn"). 검사가 st를 쓰지
-	// 않으면 ""(hook-file·port·update). 코어 4종(db·schema·integrity·
-	// last-seen) fail·tail warn의 기존 행동을 속성으로 명문화한다.
+	// OnStoreNil — the verdict when st==nil ("fail"|"warn"). If the check does not
+	// use st, "" (hook-file, port, update). The existing behavior of the core 4 (db, schema,
+	// integrity, last-seen) failing and the tail warning is now codified as attributes.
 	OnStoreNil string
 }
 
-// doctorChecks — 체크 등록표(코어6+tail10 = 16종). harness-* 14종·
-// skill-file은 파일 존재 감지(동적 하네스/스킬 감지)라 등록표 밖 별도
-// 체인 — 통합 대상 아니다(룰링). 새 검사 추가는 이 표에 1행만.
-// thresholds 소비 검사 7종(last-seen·backup-age·zero-near·
-// pending-age·event-volume·meta-hygiene·secrets)은 ThFn 주입판으로
-// 등록 — 실행 스코프 1회 로드(doctorThresholds)를 공유한다(secrets 포함).
+// doctorChecks — the check registry (core 6 + tail 10 = 16 kinds). The 14 harness-* kinds and
+// skill-file rely on file-existence detection (dynamic harness/skill detection), so they are a separate
+// chain outside the registry — not an integration target (ruling). Adding a new check is 1 row in this table.
+// The 7 thresholds-consuming checks (last-seen, backup-age, zero-near,
+// pending-age, event-volume, meta-hygiene, secrets) are registered in the ThFn injected
+// form — sharing the once-per-run load (doctorThresholds), secrets included.
 func doctorChecks() []CheckSpec {
 	return []CheckSpec{
 		{Name: "hook-file", Chain: "core", OnStoreNil: "",
@@ -104,11 +104,11 @@ func doctorChecks() []CheckSpec {
 	}
 }
 
-// doctorThresholds — doctor 실행 스코프 thresholds 로더(지연
-// 1회·메모). 검사 6종이 각자 meta IN 쿼리를 날리던 것(전체 실행에서
-// 최대 6회)을 실행당 1회 공유로 — 로드 실패 기본값 폴백은 WriteThresholds
-// 관례 불변. st==nil은 로드 없이 기본값(검사별 nil 가드가 판정을 소유 —
-// 로드 시점 nil 인터페이스 호출 방지).
+// doctorThresholds — the doctor run-scoped thresholds loader (lazy,
+// once, memoized). The 6 checks each issuing their own meta IN query (up to 6 per full
+// run) become 1 shared load per run; the load-failure default fallback keeps the
+// WriteThresholds convention. st==nil means defaults without loading (each check's nil guard
+// owns the verdict — avoiding a nil interface call at load time).
 func doctorThresholds(ctx context.Context, st wire.Store) func() store.Thresholds {
 	var (
 		th     store.Thresholds
@@ -127,8 +127,8 @@ func doctorThresholds(ctx context.Context, st wire.Store) func() store.Threshold
 	}
 }
 
-// runCheckSpec — 등록표 검사 디스패치: ThFn 검사는 실행 스코프
-// thresholds(th)를 주입받고, 그 외는 Fn을 그대로 실행한다.
+// runCheckSpec — registry check dispatch: ThFn checks receive the run-scoped
+// thresholds (th); the rest run Fn as-is.
 func runCheckSpec(ctx context.Context, st wire.Store, th func() store.Thresholds, s CheckSpec) DoctorCheck {
 	if s.ThFn != nil {
 		return s.ThFn(ctx, st, th())
@@ -136,7 +136,7 @@ func runCheckSpec(ctx context.Context, st wire.Store, th func() store.Thresholds
 	return s.Fn(ctx, st)
 }
 
-// doctorSpec — 등록표에서 이름으로 검색.
+// doctorSpec — looks up a name in the registry.
 func doctorSpec(name string) (CheckSpec, bool) {
 	for _, s := range doctorChecks() {
 		if s.Name == name {
@@ -146,7 +146,7 @@ func doctorSpec(name string) (CheckSpec, bool) {
 	return CheckSpec{}, false
 }
 
-// doctorChainNames — 등록표에서 특정 체인("core"|"tail")의 이름 순서.
+// doctorChainNames — the name order of a given chain ("core"|"tail") from the registry.
 func doctorChainNames(chain string) []string {
 	var names []string
 	for _, s := range doctorChecks() {
@@ -157,20 +157,20 @@ func doctorChainNames(chain string) []string {
 	return names
 }
 
-// DoctorChecks — 코어 체인 이름 순서(스펙 §1 5종 + port). 등록표
-// (doctorChecks) chain=="core" 필터 파생 — 공개 표면 유지.
+// DoctorChecks — the core chain name order (spec §1's 5 kinds + port). Derived from
+// the registry (doctorChecks) chain=="core" filter — keeping the public surface.
 func DoctorChecks() []string {
 	return doctorChainNames("core")
 }
 
-// doctorTailChecks — tail 체인 이름 순서(DoctorChecks() 이름 공간 밖,
-// 전체 실행 체인 말미). 등록표 chain=="tail" 필터 파생 — --check 단독
-// 실행 허용 목록도 이 목록과 정합. harness-*·skill-file은 미확장(별도 체인).
+// doctorTailChecks — the tail chain name order (outside the DoctorChecks() namespace,
+// at the end of the full run chain). Derived from the registry chain=="tail" filter — the --check
+// standalone allow list also matches this list. harness-* and skill-file are not expanded (a separate chain).
 func doctorTailChecks() []string {
 	return doctorChainNames("tail")
 }
 
-// DoctorCheck — 개별 검사 결과. status = ok|warn|fail.
+// DoctorCheck — an individual check result. status = ok|warn|fail.
 type DoctorCheck struct {
 	Name   string `json:"name"`
 	Status string `json:"status"`
@@ -178,26 +178,26 @@ type DoctorCheck struct {
 	Fix    string `json:"fix,omitempty"`
 }
 
-// doctorOutput — 한 줄 JSON 출력 모양. status는 결과 최악값.
+// doctorOutput — the one-line JSON output shape. status is the worst result.
 type doctorOutput struct {
 	Status string        `json:"status"`
 	Checks []DoctorCheck `json:"checks"`
 }
 
-// RunDoctor — --list-checks·--check NAME 서브셋·--fix 자가수복
-// (hook-file에만 적용)·기본 전체 검사. 무효 인자(unknown flag·--check 값
-// 누락·무효 --check명)는 exit 3(전역 계약: 무효 인자 3). fail 있으면 1,
-// warn은 0. 무 --fix 경로의 출력·exit은 완전 불변.
+// RunDoctor — --list-checks, --check NAME subsets, --fix self-repair
+// (applied to hook-file only), and the default full check. Invalid arguments (unknown flag, missing
+// --check value, invalid --check name) exit 3 (the global contract: invalid arg 3). Any fail exits 1;
+// warn exits 0. The output and exit of the no---fix path are fully unchanged.
 func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// 위치 인자 불허(wire.ParseArgs 사양 테이블 — 무접두 토큰도
-	// unknown flag exit 3, 기존 계약). 값 검증은 호출부에 그대로.
-	// --json 플래그 동반.
+	// positional args not allowed (the wire.ParseArgs spec table — prefix-less tokens are also
+	// unknown-flag exit 3, the existing contract). Value validation stays with the caller.
+	// with the --json flag.
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--list-checks"},
 			{Name: "--fix"},
-			// 기계 판독 명시 채널 — DoctorCheck 필드 구조의
-			// 한 줄 JSON을 고정한다(기본 텍스트 출력은 불변).
+			// the explicit machine-readable channel — pins the one-line JSON of the
+			// DoctorCheck field structure (the default text output is unchanged).
 			{Name: "--json"},
 			{Name: "--check", Value: true},
 		},
@@ -208,7 +208,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	if res.Given("--list-checks") {
-		// 등록표 전량(코어6+tail10).
+		// the whole registry (core 6 + tail 10).
 		names := make([]string, 0, len(doctorChecks()))
 		for _, s := range doctorChecks() {
 			names = append(names, s.Name)
@@ -223,11 +223,11 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	if subset != "" {
-		// --check 허용 목록은 등록표 전량에서 파생 — 코어
-		// 6종·tail 10종 전부 단독 실행 가능.
-		// 전체 리포트가 보여주는 체크명을 --check로 실행할
-		// 수 있어야 한다 — skill-file·harness-*는 등록표 밖 별도 체인
-		// 이지만 단독 실행을 허용한다.
+		// the --check allow list derives from the whole registry — all 6 core kinds
+		// and 10 tail kinds are standalone-executable.
+		// Every check name the full report shows must be runnable via --check —
+		// skill-file and harness-* are a separate chain outside the registry
+		// but standalone execution is allowed.
 		_, ok := doctorSpec(subset)
 		if subset == "skill-file" || strings.HasPrefix(subset, "harness-") {
 			ok = true
@@ -237,14 +237,14 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			return 3
 		}
 		checks := []DoctorCheck{runDoctorCheck(ctx, st, subset)}
-		bumpDoctorWarnCounters(ctx, st, checks) // 발화 카운터
+		bumpDoctorWarnCounters(ctx, st, checks) // fired counters
 		return doctorReport(checks, fix, jsonOut, stdout)
 	}
 
-	// 전체 실행 체인 — 등록표 파생(코어 6종, 하니스·스킬 별도 체인,
-	// tail 10종 순서는 기존 append 순서와 동일하게 유지).
-	// F6(성능): thresholds는 실행 스코프 1회 로드(doctorThresholds 지연
-	// 메모)를 ThFn 검사 6종이 공유 — 검사 각자의 meta IN 쿼리 폐지.
+	// the full run chain — registry-derived (core 6; harness and skill are separate chains,
+	// the tail 10 keep the existing append order).
+	// F6 (performance): thresholds are loaded once per run (the doctorThresholds lazy
+	// memo) and shared by the 6 ThFn checks — each check's own meta IN query is gone.
 	th := doctorThresholds(ctx, st)
 	checks := make([]DoctorCheck, 0, len(doctorChecks())+len(HarnessRegistry))
 	for _, s := range doctorChecks() {
@@ -252,14 +252,14 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			checks = append(checks, runCheckSpec(ctx, st, th, s))
 		}
 	}
-	// 하니스 검진(v0.9 §4)은 코어 체인 뒤에 추가 — 파일이 있는 하니스만
-	// 결과를 생성한다(동적 감지라 등록표 밖 별도 체인).
+	// the harness checks (v0.9 §4) are appended after the core chain — only harnesses with files
+	// produce results (dynamic detection, hence a separate chain outside the registry).
 	checks = append(checks, harnessChecks()...)
-	// skill-file도 harness와 같은 별도 체인 — 소스가
-	// 탐지되는 경우에만 결과를 생성하고 warn은 exit를 깨지 않는다
-	// (룰링: 스킬 없어도 훅은 동작 — fail은 과잉). home 미탐지 시
-	// 검사를 생략한다(checkHookFile와 같은 처리 — Join("",…)은
-	// 상대경로가 돼 cwd 오탐).
+	// skill-file is also a separate chain like harness — it produces a result only when
+	// the source is detected, and a warn does not break the exit
+	// (ruling: hooks work without skills — fail would be excessive). When home is undetected,
+	// the check is skipped (same handling as checkHookFile — Join("",...)
+	// becomes a relative path and misdetects in cwd).
 	if home := ClaudeHome(); home != "" {
 		if c, ok := CheckSkillFileFn(SkillSrcDirFn(FlintBinPathFn()), filepath.Join(home, "skills", "flint")); ok {
 			checks = append(checks, c)
@@ -270,16 +270,16 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			checks = append(checks, runCheckSpec(ctx, st, th, s))
 		}
 	}
-	bumpDoctorWarnCounters(ctx, st, checks) // 발화 카운터
+	bumpDoctorWarnCounters(ctx, st, checks) // fired counters
 	return doctorReport(checks, fix, jsonOut, stdout)
 }
 
-// bumpDoctorWarnCounters — 발화 카운터: warn 판정 검사별
-// `fired_doctor_<check>` meta 누적 증분(spec §2.5 — 진단 D 원천, 횟수만
-// 기록·개인정보 무관). 실행당 각 검사 종류 최대 1증분. 종류 수 상한은
-// 검사 이름 공간 그대로 — 등록표 16종 + harness-* 14종 + skill-file 1종
-// = 31종. fail·ok·skip은 경고 발화가 아니므로 미계상, 최종 checks 슬라이스
-// 기준이라 --fix 재평가 전 판정의 이중 계상도 없다. 실패는 조용히(§13).
+// bumpDoctorWarnCounters — fired counters: per check that verdicts warn,
+// increments the `fired_doctor_<check>` meta cumulative counter (spec §2.5 — the diagnostic-D source;
+// counts only, no personal data). At most 1 increment per check kind per run. The kind cap
+// is the check namespace as-is — 16 registry kinds + 14 harness-* kinds + 1 skill-file
+// = 31 kinds. fail, ok, and skip are not warning firings, so not counted; since it is based on the
+// final checks slice, the pre---fix-re-evaluation verdicts are not double-counted either. Failures are silent (§13).
 func bumpDoctorWarnCounters(ctx context.Context, st wire.Store, checks []DoctorCheck) {
 	if st == nil {
 		return
@@ -291,14 +291,14 @@ func bumpDoctorWarnCounters(ctx context.Context, st wire.Store, checks []DoctorC
 	}
 }
 
-// doctorReport — 검사 결과 취합·--fix 자가수복·출력·exit. 등록표 파생
-// 재구성에서 서브셋·전체 경로가 공유하는 후반부. jsonOut은
-// --json — DoctorCheck 필드 구조의 한 줄 JSON을 고정한다
-// (--fix 적용 보고도 doctorOutput 구조로; 기본 --fix 보고는 불변).
+// doctorReport — aggregates check results, applies --fix self-repair, and produces output and exit.
+// The shared tail of the subset and full paths after the registry-derived recomposition. jsonOut is
+// --json — pinning the one-line JSON of the DoctorCheck field structure
+// (the --fix application report also uses the doctorOutput shape; the default --fix report is unchanged).
 func doctorReport(checks []DoctorCheck, fix bool, jsonOut bool, stdout io.Writer) int {
-	// --fix: hook-file fail에만 자가수복 적용(다른 검사는 사용자
-	// 설정·외부 파일이라 자동화 범위 밖 — 코디네이터 ruling). 적용 성공 시
-	// 해당 검사만 재평가하고 doctorFixReport 한 줄로 보고한다.
+	// --fix: self-repair applies only to hook-file fails (the other checks involve user settings
+	// and external files, outside automation scope — coordinator ruling). On success,
+	// only that check is re-evaluated and reported in one doctorFixReport line.
 	fixed := false
 	if fix {
 		for i, c := range checks {
@@ -313,7 +313,7 @@ func doctorReport(checks []DoctorCheck, fix bool, jsonOut bool, stdout io.Writer
 				return 1
 			}
 			if applied {
-				checks[i] = checkHookFile() // 재평가
+				checks[i] = checkHookFile() // re-evaluated
 				fixed = true
 			}
 		}
@@ -348,18 +348,18 @@ func doctorReport(checks []DoctorCheck, fix bool, jsonOut bool, stdout io.Writer
 	return 0
 }
 
-// runDoctorCheck — 검사명 디스패치. 등록표(doctorChecks) 조회가 1차
-// 소스, 등록표 밖 별도 체인
-// (skill-file·harness-*)만 여기 사례로 남는다. ThFn 검사는 실행 스코프
-// thresholds(doctorThresholds — 단독 실행 1회 로드)를 주입받는다(F6).
+// runDoctorCheck — check-name dispatch. The registry (doctorChecks) lookup is the primary
+// source; only the separate chains outside the registry
+// (skill-file, harness-*) remain as cases here. ThFn checks receive the run-scoped
+// thresholds (doctorThresholds — 1 load per standalone run) (F6).
 func runDoctorCheck(ctx context.Context, st wire.Store, name string) DoctorCheck {
 	if s, ok := doctorSpec(name); ok {
 		return runCheckSpec(ctx, st, doctorThresholds(ctx, st), s)
 	}
 	switch name {
 	case "skill-file":
-		// 전체 리포트 체크명과 --check 이름 공간 정합.
-		// home 미탐지·소스 미탐지는 skip 판정(전체 체인과 동일 규칙).
+		// the full-report check names and the --check namespace stay consistent.
+		// home undetected and source undetected are skip verdicts (the same rule as the full chain).
 		if home := ClaudeHome(); home != "" {
 			if c, ok := CheckSkillFileFn(SkillSrcDirFn(FlintBinPathFn()), filepath.Join(home, "skills", "flint")); ok {
 				return c
@@ -368,8 +368,8 @@ func runDoctorCheck(ctx context.Context, st wire.Store, name string) DoctorCheck
 		return DoctorCheck{Name: name, Status: "ok", Detail: "skill source not found — check skipped"}
 	}
 	if strings.HasPrefix(name, "harness-") {
-		// harness-<name> 단독 실행 — 등록 레지스트리에서
-		// 해당 하니스만 판정. 미설치(파일 부재)는 skip, 미등록 하니스명은
+		// harness-<name> standalone run — judges only that harness from the
+		// registry. Not installed (file absent) is skip; an unregistered harness name is
 		// unknown.
 		for _, h := range HarnessRegistry {
 			if "harness-"+h.Name == name {
@@ -383,7 +383,7 @@ func runDoctorCheck(ctx context.Context, st wire.Store, name string) DoctorCheck
 	return DoctorCheck{Name: name, Status: "fail", Detail: "unknown check"}
 }
 
-// ClaudeHome — 훅 설정 디렉터리. FLINT_CLAUDE_HOME 오버라이드 우선.
+// ClaudeHome — the hook settings directory. The FLINT_CLAUDE_HOME override takes precedence.
 func ClaudeHome() string {
 	if h := os.Getenv("FLINT_CLAUDE_HOME"); h != "" {
 		return h
@@ -395,8 +395,8 @@ func ClaudeHome() string {
 	return filepath.Join(base, ".claude")
 }
 
-// checkHookFile — 훅 설정(settings.json)에 flint 등록 여부.
-// 미등록은 적립 계측(write --source hook)이 누락되는 fail.
+// checkHookFile — whether flint is registered in the hook settings (settings.json).
+// Not registered is a fail: the accrual metering (write --source hook) would be missing.
 func checkHookFile() DoctorCheck {
 	c := DoctorCheck{Name: "hook-file"}
 	home := ClaudeHome()
@@ -423,14 +423,14 @@ func checkHookFile() DoctorCheck {
 	return c
 }
 
-// flintWordRe — command 문자열에서 flint 실행 파일을 단어 경계로 매칭
-// ('myflint'·'flintx' 같은 접두·접미 우연 일치 배제).
+// flintWordRe — matches the flint executable in a command string on word boundaries
+// (excluding accidental prefix/suffix matches like 'myflint' and 'flintx').
 var flintWordRe = regexp.MustCompile(`(?:^|[^A-Za-z0-9_-])flint(?:[^A-Za-z0-9_-]|$)`)
 
-// containsFlintHook — settings.json의 hooks 객체 안 command 필드에 flint
-// 실행이 등록됐는지. 본문 전문 포함 검사('flint' 5글자)는 주석·다른 도구
-// 설정의 우연 일치가 과다해 JSON 구조(hooks → SessionStart·PostToolUse 등
-// 배열 → hooks[].command)로 정밀 매칭한다. 파싱 불가 본문은 미등록 취급.
+// containsFlintHook — whether a flint invocation is registered in the command fields inside
+// the hooks object of settings.json. A full-text containment check (the 5 letters 'flint') over-matched
+// comments and other tools' settings, so it matches precisely against the JSON structure (hooks -> the
+// SessionStart/PostToolUse etc. arrays -> hooks[].command). An unparsable body is treated as unregistered.
 func containsFlintHook(body string) bool {
 	var doc map[string]json.RawMessage
 	if json.Unmarshal([]byte(body), &doc) != nil {
@@ -447,9 +447,9 @@ func containsFlintHook(body string) bool {
 	return valueHasFlintCommand(hooks)
 }
 
-// valueHasFlintCommand — hooks 값 트리 안 모든 객체의 command 필드 검사.
-// hooks.json 실체는 이벤트 배열 → {matcher, hooks:[{type,command}]} 2중
-// 중첩이지만, 단순 평 배열({command:...})도 통과시킨다(등록 형태 다양성).
+// valueHasFlintCommand — checks the command field of every object in the hooks value tree.
+// The real hooks.json shape is a 2-level nesting of event arrays -> {matcher, hooks:[{type,command}]},
+// but a plain array ({command:...}) is also accepted (registration-shape variety).
 func valueHasFlintCommand(v any) bool {
 	switch t := v.(type) {
 	case map[string]any:
@@ -471,11 +471,11 @@ func valueHasFlintCommand(v any) bool {
 	return false
 }
 
-// FlintBinPathFn — 훅 명령에 쓸 flint 바이너리 절대경로 seam(var).
-// PATH에 flint가 없으면 bare 명령이 조용히 죽는다 —
-// os.Executable로 직접 해석한다. 해석 실패 시 빈 문자열. cli 테스트
-// 교체 관례(doctor_v094_test)는 cli 측 var 별칭 경유로 전파된다
-// (ops_alias_1.go init 읽기 래퍼).
+// FlintBinPathFn — the seam (var) for the absolute flint binary path used in hook commands.
+// Without flint on PATH, a bare command would die silently — so it
+// resolves directly via os.Executable. On failure, the empty string. The cli test
+// swap convention (doctor_v094_test) propagates via the cli-side var alias
+// (the ops_alias_1.go init read wrapper).
 var FlintBinPathFn = func() string {
 	p, err := os.Executable()
 	if err != nil {
@@ -484,31 +484,31 @@ var FlintBinPathFn = func() string {
 	return p
 }
 
-// flintHookCmd — hooks.json 명령의 bare `flint`를 binPath 절대경로로
-// 치환한 훅 명령 1개. 2>/dev/null || true — 훅 실패가 세션을 흔들지
-// 않게 한다(원본 flint-plugin/hooks/hooks.json 승계). timeout 10은
-// DB 지연 시 2초 안에 주입이 통째로 소실되던 것을 흡수.
-// eval 래핑 — jq @sh의 홑따옴표 인용을 셸이 인용으로
-// 파싱해 단일 인자로 전달(따옴표 리터럴 잔류 방지). eval 입력은 고정
-// 리터럴(binPath·sub)과 @sh 인용값뿐이라 임의 코드 경로가 없다.
-// binPath 홑따옴표 인용 — 설치 경로의 공백이 eval
-// 안에서 단어 분할되어 훅을 무음 소실시키던 것 폐쇄(shQuote).
+// flintHookCmd — a hook command with the bare `flint` of the hooks.json command replaced by
+// binPath's absolute path. 2>/dev/null || true — so a hook failure does not shake
+// the session (inherited from the original flint-plugin/hooks/hooks.json). The timeout 10
+// absorbs cases where DB latency used to swallow the whole injection within 2s.
+// eval wrapping — the shell parses jq @sh's single-quoting as quoting
+// and passes it as a single argument (preventing leftover quote literals). The eval input is only fixed
+// literals (binPath, sub) and @sh-quoted values, so there is no arbitrary-code path.
+// binPath single-quoted — closes the case where a space in the install path
+// word-split inside eval and silently dropped the hook (shQuote).
 func flintHookCmd(binPath, sub string) map[string]any {
 	cmd := `eval "` + shQuote(binPath) + " " + sub + `" 2>/dev/null || true`
 	return map[string]any{"type": "command", "command": cmd, "timeout": 10}
 }
 
-// shQuote — POSIX 홑따옴표 인용: 내부 홑따옴표는 닫기-이스케이프-여는
-// 3단 시퀀스로 끊어 이스케이프한다(백슬래시+홑따옴표 조합 — gofmt 안정)
-// (공백·메타 문자 무관 단일 인자 — eval 이중 인용 안에서도 안전).
+// shQuote — POSIX single-quoting: an inner single quote is escaped with the
+// close-escape-open 3-step sequence (backslash + single quote — gofmt-stable)
+// (a single argument regardless of spaces or metacharacters — safe even inside eval double-quoting).
 func shQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// flintHookDefs — flint 훅 3개(통합: 이벤트 → 추가 엔트리
-// 목록). 세션 시작·종료 시퀀스는 session-start·session-end 1커맨드가
-// 내부에서 실행하고, matcher·jq session_id 파싱·타임아웃·리다이렉션
-// 패턴은 flint-plugin/hooks/hooks.json 그대로 승계한다.
+// flintHookDefs — the 3 flint hooks (unified: event -> added-entry
+// list). The session start/end sequences are run internally by the 1 command each of session-start
+// and session-end; the matcher, jq session_id parsing, timeout, and redirection patterns are
+// inherited as-is from flint-plugin/hooks/hooks.json.
 func flintHookDefs(binPath string) map[string][]map[string]any {
 	session := "startup|resume|clear|compact"
 	withSession := func(sub string) map[string]any {
@@ -522,13 +522,13 @@ func flintHookDefs(binPath string) map[string][]map[string]any {
 	}
 	return map[string][]map[string]any{
 		"SessionStart": {
-			// jq @sh가 홑따옴표 셸 인용을 만들고 eval이
-			// 이를 올바르게 파싱해 단일 인자로 전달한다. 구 이중 인용 치환도
-			// 결과가 재해석되지는 않았으나 인용 계층이 암묵적이었다 — 명시
-			// 인용(@sh)+eval 파싱으로 원문 보존을 구조적으로 보장한다.
-			// jq 폴백은 "" 대신 empty — session_id 부재 시
-			// 빈 라벨을 흘려보내지 않고 플래그 자체를 생략한다(훅 진입점의
-			// 무효=부재 취급과 동일 방향). hooks.json과 동일 패턴.
+			// jq @sh produces single-quoted shell quoting and eval
+			// parses it correctly and passes a single argument. The old double-quoted substitution
+			// was never re-interpreted either, but its quoting layer was implicit — explicit
+			// quoting (@sh) + eval parsing structurally guarantees the raw value is preserved.
+			// the jq fallback is empty rather than "" — when session_id is absent,
+			// it does not pass an empty label but omits the flag itself (the same direction as the hook
+			// entry point treating invalid as absent). The same pattern as hooks.json.
 			withSession(`session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`),
 		},
 		"Stop": {
@@ -538,17 +538,17 @@ func flintHookDefs(binPath string) map[string][]map[string]any {
 	}
 }
 
-// flintHookSubRe — flint 훅 커맨드 1개 식별(실행 파일 경로 무관). flint
-// 실행 뒤 훅 서브커맨드(hot·done·nudge·compact·session-start·
-// session-end)가 오는 명령 — 구형 5엔트리 직접 실행과 신형 통합 커맨드
-// 모두 잡는다. 'myflint'·'flintx' 같은 접두·접미 우연 일치는 경계 클래스
-// 로 배제(flintWordRe와 같은 규칙 + 경로 접두 허용). 홑따옴표
-// 인용된 경로의 닫는 ' 수용(shQuote 형식 — 구 무인용 형식도 계속 매칭).
+// flintHookSubRe — identifies one flint hook command (regardless of the executable path). A command
+// with a flint invocation followed by a hook subcommand (hot, done, nudge, compact, session-start,
+// session-end) — catches both the legacy 5-entry direct runs and the new unified commands.
+// Accidental prefix/suffix matches like 'myflint' and 'flintx' are excluded by the boundary class
+// (the same rule as flintWordRe + path-prefix allowed). It accepts the closing ' of
+// single-quoted paths (the shQuote form — the old unquoted form keeps matching too).
 var flintHookSubRe = regexp.MustCompile(
 	`(?:^|[^A-Za-z0-9_-])(?:\S*/)?flint(?:\.\S+)?'?\s+"?(session-start|session-end|hot|done|nudge|compact)(?:[\s"]|$)`)
 
-// anyHookCommand — hooks 값 트리 안 command 필드 중 pred를 만족하는
-// 것이 하나라도 있는지(valueHasFlintCommand와 같은 순회).
+// anyHookCommand — whether any command field in the hooks value tree satisfies pred
+// (the same traversal as valueHasFlintCommand).
 func anyHookCommand(v any, pred func(string) bool) bool {
 	switch t := v.(type) {
 	case map[string]any:
@@ -570,7 +570,7 @@ func anyHookCommand(v any, pred func(string) bool) bool {
 	return false
 }
 
-// hasFlintSub — 트리 안에 flint <sub> 커맨드 존재 여부.
+// hasFlintSub — whether a flint <sub> command exists in the tree.
 func hasFlintSub(v any, sub string) bool {
 	return anyHookCommand(v, func(cmd string) bool {
 		m := flintHookSubRe.FindStringSubmatch(cmd)
@@ -578,9 +578,9 @@ func hasFlintSub(v any, sub string) bool {
 	})
 }
 
-// stripFlintHookEntry — 훅 그룹 1개에서 flint 훅 커맨드를 걷어낸다
-// (교체 대상 식별 — 플러그인이 등록한 엔트리만, 타 도구 커맨드는 불변).
-// 남는 커맨드가 없으면 그룹 자체를 삭제한다(false).
+// stripFlintHookEntry — strips flint hook commands from one hook group
+// (identifying replacement targets — only entries the plugin registered; other tools' commands are unchanged).
+// If no commands remain, the group itself is removed (false).
 func stripFlintHookEntry(g map[string]any) bool {
 	hs, ok := g["hooks"].([]any)
 	if !ok {
@@ -603,16 +603,16 @@ func stripFlintHookEntry(g map[string]any) bool {
 	return true
 }
 
-// ApplyHookFix — settings.json에 flint 훅 3개 등록·교체(자가수복,
-// 통합 3엔트리). 읽기→파싱→신형 존재 검사(멱등)→타임스탬프
-// 백업→구형 flint 엔트리 걷어내고 신형 append→MarshalIndent 쓰기.
-// 기존 구형 5엔트리(hot·nudge/done·nudge 직접 실행)는 교체 대상 —
-// flint 커맨드가 섞인 그룹만 정리하고 타 도구 훅·다른 키는 전부 불변.
-// 신형(session-start·session-end)이 이미 있으면 (false, "", nil) skip.
-// 파싱 실패는 파일·백업 모두 무변경 채로 err. 파일 부재 시
-// 최소 뼈대 {"hooks":{}}를 새로 생성한다 — 원본이 없으니 백업은
-// 생략(backup=""), 부모 디렉터리도 함께 생성. 이후 merge 경로(멱등·
-// 절대경로·timeout 계약)를 그대로 재사용한다.
+// ApplyHookFix — registers/replaces the 3 flint hooks in settings.json (self-repair,
+// the unified 3 entries). Read -> parse -> new-form existence check (idempotent) -> timestamp
+// backup -> strip legacy flint entries and append the new form -> MarshalIndent write.
+// The existing legacy 5 entries (hot, nudge/done, nudge direct runs) are replacement targets —
+// only groups containing flint commands are cleaned; other tools' hooks and all other keys are unchanged.
+// If the new form (session-start, session-end) already exists, it skips with (false, "", nil).
+// A parse failure returns err with both file and backup unchanged. If the file is absent,
+// a minimal {"hooks":{}} skeleton is created — there is no original, so the backup is
+// omitted (backup="") and the parent directory is created too. Afterward the merge path (idempotent,
+// absolute-path, timeout contracts) is reused as-is.
 func ApplyHookFix(path string, binPath string) (applied bool, backupPath string, err error) {
 	b, rerr := os.ReadFile(path)
 	if rerr != nil && !errors.Is(rerr, os.ErrNotExist) {
@@ -634,12 +634,12 @@ func ApplyHookFix(path string, binPath string) (applied bool, backupPath string,
 		hooks = map[string]any{}
 	}
 	if hasFlintSub(hooks, "session-start") && hasFlintSub(hooks, "session-end") {
-		return false, "", nil // 멱등 — 신형 3엔트리 이미 등록됨
+		return false, "", nil // idempotent — the new 3 entries are already registered
 	}
-	if existed { // 백업은 원본이 있을 때만
+	if existed { // backup only when an original exists
 		backupPath = path + ".flint-bak-" + time.Now().Format("20060102-150405")
-		// v0.28.0(H③): 백업 사본은 원본 권한을 승계 — WriteFile 고정
-		// 퍼모드(0644)가 0600으로 관리되던 원본의 사본을 강등하던 결함.
+		// v0.28.0 (H3): the backup copy inherits the original's permissions — the defect where
+		// WriteFile's fixed mode (0644) demoted a copy of a 0600-managed original.
 		mode := os.FileMode(0o600)
 		if fi, serr := os.Stat(path); serr == nil {
 			mode = fi.Mode().Perm()
@@ -648,8 +648,8 @@ func ApplyHookFix(path string, binPath string) (applied bool, backupPath string,
 			return false, "", err
 		}
 	}
-	// 구형 flint 직접 실행 훅(hot·done·nudge·compact) 교체 — flint
-	// 커맨드만 걷어내고 빈 그룹은 삭제. 타 도구 그룹은 그대로 앞쪽에 남는다.
+	// replacing the legacy flint direct-run hooks (hot, done, nudge, compact) — strip only the flint
+	// commands and delete empty groups. Other tools' groups stay at the front as-is.
 	for ev, prev := range hooks {
 		list, ok := prev.([]any)
 		if !ok {
@@ -658,14 +658,14 @@ func ApplyHookFix(path string, binPath string) (applied bool, backupPath string,
 		merged := make([]any, 0, len(list))
 		for _, g := range list {
 			if gm, ok := g.(map[string]any); ok && !stripFlintHookEntry(gm) {
-				continue // flint 커맨드만 있던 그룹 — 통합 엔트리로 대체
+				continue // a group with only flint commands — replaced by the unified entries
 			}
 			merged = append(merged, g)
 		}
 		hooks[ev] = merged
 	}
 	for ev, add := range flintHookDefs(binPath) {
-		entries := add // []map[string]any → []any 변환해 append
+		entries := add // convert []map[string]any to []any and append
 		merged := make([]any, 0, len(add)+2)
 		if prev, ok := hooks[ev].([]any); ok {
 			merged = append(merged, prev...)
@@ -686,8 +686,8 @@ func ApplyHookFix(path string, binPath string) (applied bool, backupPath string,
 	return true, backupPath, nil
 }
 
-// DoctorFixReport — --fix 적용 후 결과 보고 한 줄 JSON. status "fixed" +
-// 검사별 name:status. 다른 fail 검사도 이름:상태로 그대로 노출된다.
+// DoctorFixReport — the one-line JSON report after applying --fix. status "fixed" +
+// name:status per check. Other failed checks are also exposed as name:status as-is.
 func DoctorFixReport(checks []DoctorCheck) string {
 	m := map[string]any{"status": "fixed"}
 	for _, c := range checks {
@@ -700,26 +700,26 @@ func DoctorFixReport(checks []DoctorCheck) string {
 	return string(b)
 }
 
-// HarnessSpec — 하니스 검진 대상 1종(스펙 C1~C5). Name은 체크명
-// 접미·문서 파일명과 일치. Rel은 홈 기준 상대 경로(cursor만 프로젝트
-// 루트=워킹디렉터리 기준). EnvOverride는 해당 디렉터리 자체를 교체
-// (ClaudeHome·FLINT_CLAUDE_HOME 패턴 승계 — 테스트 주입용).
+// HarnessSpec — one harness check target (spec C1-C5). Name matches the check-name
+// suffix and the documentation file name. Rel is home-relative (only cursor is relative
+// to the project root = working directory). EnvOverride replaces that directory itself
+// (inheriting the ClaudeHome/FLINT_CLAUDE_HOME pattern — for test injection).
 type HarnessSpec struct {
 	Name        string
 	Rel         string
 	EnvOverride string
-	Project     bool // true면 Rel의 기준이 홈이 아닌 워킹디렉터리(cursor·vscode·trae)
-	// MCPAdd — 네이티브 CLI 자동 등록 인자. nil이면 파일 설정형(B급)
-	// — setup --mcp 대상 아님(doctor 의사체크·문서 안내만).
+	Project     bool // true means Rel is relative to the working directory, not home (cursor, vscode, trae)
+	// MCPAdd — the native CLI auto-registration argument. nil means file-config style (tier B)
+	// — not a setup --mcp target (doctor pseudo-check + doc guidance only).
 	MCPAdd []string
 }
 
-// HarnessRegistry — 하니스 14종. C6: 전 하니스
-// MCP stdio JSON-RPC. A급(자동 등록, 공식 문서로 CLI 검증) 8종 +
-// B급(파일 설정형 — doctor 의사체크만) 6종. continue는 설정 경로가
-// 파일 단위로 확정되지 않아 문서 전용(룰링).
+// HarnessRegistry — the 14 harnesses. C6: every harness uses
+// MCP stdio JSON-RPC. Tier A (auto-registration, CLI verified against official docs) 8 kinds +
+// tier B (file-config style — doctor pseudo-check only) 6 kinds. The remaining ones have
+// no file-granular settings path decided, so docs only (ruling).
 var HarnessRegistry = []HarnessSpec{
-	// A급 — 자동 감지·등록.
+	// tier A — auto-detection and registration.
 	{Name: "codex", Rel: ".codex/config.toml", EnvOverride: "FLINT_CODEX_HOME",
 		MCPAdd: []string{"mcp", "add", "flint", "--", "flint", "mcp"}},
 	{Name: "gemini", Rel: ".gemini/settings.json", EnvOverride: "FLINT_GEMINI_HOME",
@@ -736,7 +736,7 @@ var HarnessRegistry = []HarnessSpec{
 		MCPAdd: []string{"mcp", "add", "flint", "--", "flint", "mcp"}},
 	{Name: "cline", Rel: ".cline/data/settings/cline_mcp_settings.json", EnvOverride: "FLINT_CLINE_HOME",
 		MCPAdd: []string{"mcp", "add", "flint", "--yes", "--", "flint", "mcp"}},
-	// B급 — 파일 설정형(등록 CLI 없음).
+	// tier B — file-config style (no registration CLI).
 	{Name: "windsurf", Rel: ".codeium/windsurf/mcp_config.json", EnvOverride: "FLINT_WINDSURF_HOME"},
 	{Name: "zed", Rel: ".config/zed/settings.json", EnvOverride: "FLINT_ZED_HOME"},
 	{Name: "amp", Rel: ".config/amp/settings.json", EnvOverride: "FLINT_AMP_HOME"},
@@ -745,9 +745,9 @@ var HarnessRegistry = []HarnessSpec{
 	{Name: "trae", Rel: ".trae/mcp.json", EnvOverride: "FLINT_TRAE_DIR", Project: true},
 }
 
-// path — 검사 대상 설정 파일 절대 경로. 오버라이드 env는 Rel이 붙던
-// 기존 디렉터리(cursor는 프로젝트 루트) 자체를 교체한다. 홈·wd 조회
-// 불능은 빈 문자열(부재 취급 — 미설치 하니스는 경고가 아님).
+// path — the absolute path of the settings file under check. The override env replaces
+// the directory that Rel used to attach to (for cursor, the project root) itself. If home/wd lookup
+// fails, the empty string (treated as absent — an uninstalled harness is not a warning).
 func (h HarnessSpec) path() string {
 	if h.Project {
 		root := ""
@@ -771,8 +771,8 @@ func (h HarnessSpec) path() string {
 	return filepath.Join(home, h.Rel)
 }
 
-// harnessChecks — 등록 하니스 검진(§4, 14종). 설정 파일이 있는 하니스만
-// 결과를 생성한다(부재 → 빈 슬라이스). 읽기 전용(비간섭).
+// harnessChecks — the registered harness checks (§4, 14 kinds). Only harnesses with settings files
+// produce results (absent -> empty slice). Read-only (non-interference).
 func harnessChecks() []DoctorCheck {
 	var out []DoctorCheck
 	for _, h := range HarnessRegistry {
@@ -783,9 +783,9 @@ func harnessChecks() []DoctorCheck {
 	return out
 }
 
-// checkHarnessFile — 하니스 1종 판정. (a) 파일 부재 → 검사 생략(ok=false),
-// (b) 본문에 "flint" 없음 → fail + 문서 경로 fix, (c) 포함 → ok.
-// 등록 판정은 문자열 포함(포맷 무관 — C6. 주석만 있어도 ok).
+// checkHarnessFile — the verdict for one harness. (a) file absent -> check skipped (ok=false),
+// (b) no "flint" in the body -> fail + the doc-path fix, (c) present -> ok.
+// The registration check is a string containment (format-agnostic — C6; ok even if only a comment).
 func checkHarnessFile(h HarnessSpec) (DoctorCheck, bool) {
 	path := h.path()
 	if path == "" {
@@ -793,7 +793,7 @@ func checkHarnessFile(h HarnessSpec) (DoctorCheck, bool) {
 	}
 	b, err := os.ReadFile(path)
 	if err != nil {
-		return DoctorCheck{}, false // 미설치 하니스 — 검사 생략
+		return DoctorCheck{}, false // harness not installed — check skipped
 	}
 	c := DoctorCheck{Name: "harness-" + h.Name}
 	if strings.Contains(string(b), "flint") {
@@ -823,8 +823,8 @@ func checkDB(ctx context.Context, st wire.Store) DoctorCheck {
 	return c
 }
 
-// checkSchema — meta schema_version >= 4(수치 비교 — 계측 컬럼 승격
-// 확인. 향후 v5 DB를 정상으로 수용, 미달·비수 값만 실패).
+// checkSchema — meta schema_version >= 4 (numeric comparison — verifying the metering-column
+// promotion. A future v5 DB is accepted as normal; only below-minimum and non-numeric values fail).
 func checkSchema(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "schema"}
 	if st == nil {
@@ -852,7 +852,7 @@ func checkSchema(ctx context.Context, st wire.Store) DoctorCheck {
 	return c
 }
 
-// checkIntegrity — flint_knowledge_* 인덱스 3행(v3 필터 인덱스).
+// checkIntegrity — the 3 flint_knowledge_* index rows (the v3 filter indexes).
 func checkIntegrity(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "integrity"}
 	if st == nil {
@@ -881,11 +881,11 @@ func checkIntegrity(ctx context.Context, st wire.Store) DoctorCheck {
 	return c
 }
 
-// checkLastSeenTh — 3경로 last_* 경과 + grace(nodata 패턴). grace는
-// maintain --check와 같은 loadThresholds 체계(stall_hot_h·stall_write_h
-// 메타 오버라이드, 기본 48/72h)를 쓴다 — 임계값 소스가 둘이면 결론이
-// 상충한다. 초과 또는 기록 부재(never)는 warn — exit를 깨지 않는다.
-// thresholds는 주입(doctor 체인이 실행 스코프 1회 로드 공유).
+// checkLastSeenTh — the 3-path last_* elapsed + grace (the nodata pattern). grace uses
+// the same loadThresholds system as maintain --check (the stall_hot_h and stall_write_h
+// meta overrides, defaults 48/72h) — with two threshold sources the conclusions would
+// conflict. Exceeding or no record (never) is warn — it does not break the exit.
+// thresholds are injected (the doctor chain shares the once-per-run load).
 func checkLastSeenTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: "last-seen"}
 	if st == nil {
@@ -895,7 +895,7 @@ func checkLastSeenTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('last_write_at','last_hot_at','last_read_at')`, nil)
 	if err != nil {
-		c.Status = "warn" // 접속 불량은 stall 오탐 방지를 위해 warn(조용히)
+		c.Status = "warn" // connection trouble is warn (silent) to avoid stall false positives
 		c.Detail = "last_* query failed: " + err.Error()
 		return c
 	}
@@ -906,12 +906,12 @@ func checkLastSeenTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 		}
 		ts, err := time.Parse(time.RFC3339, fmt.Sprint(r[1]))
 		if err != nil {
-			continue // 파손 값은 없는 취급(무효 값 폴백)
+			continue // a corrupt value is treated as absent (the invalid-value fallback)
 		}
 		seen[fmt.Sprint(r[0])] = ts
 	}
-	// read 경로가 meta last_read_at을 더 쓰지 않는다 — 회상 최근성은 read_events 최대 시각에서 파생해 병합한다
-	// (잔존 meta 값과 더 최근 쪽. 조회 실패는 기존 값 유지 — 조용히).
+	// the read path no longer uses meta last_read_at — recall recency is derived from the max read_events
+	// time and merged (the more recent of the two vs the residual meta value; a lookup failure keeps the existing value — silent).
 	if rows, rerr := wire.QueryOnce(ctx, st,
 		`SELECT max(ts) FROM read_events`, nil); rerr == nil &&
 		len(rows) > 0 && len(rows[0]) > 0 && rows[0][0] != nil {
@@ -921,8 +921,8 @@ func checkLastSeenTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 			}
 		}
 	}
-	// 임계값은 maintain와 공유 체계 — 주입 th(F6: 실행 스코프 1회 로드,
-	// 실패 기본값 폴백은 WriteThresholds가 적용)에서 grace를 읽는다.
+	// the threshold shares the system with maintain — grace is read from the injected th
+	// (F6: once-per-run load; on failure the WriteThresholds fallback applies).
 	warns := 0
 	if detail := stallDetail(seen, "last_hot_at", th.StallHotH, &warns); detail != "" {
 		c.Detail = detail
@@ -941,10 +941,10 @@ func checkLastSeenTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 	return c
 }
 
-// checkMetaHygiene — meta 키 위생. 미지 키(사용 중단 후보)·
-// 보존 창(daily_retention_days)+7일 유예 초과 daily 카운터 경고.
-// 실체는 thresholds 주입판(checkMetaHygieneTh) — doctor 체인은
-// 실행 스코프 1회 로드 값을, 이 래퍼는 직접 호출자용 자체 로드.
+// checkMetaHygiene — meta key hygiene. Warns on unknown keys (deprecation candidates) and
+// daily counters past the retention window (daily_retention_days) + a 7-day grace.
+// The body is the thresholds-injected variant (checkMetaHygieneTh) — the doctor chain uses
+// the once-per-run loaded value; this wrapper loads its own for direct callers.
 func checkMetaHygiene(ctx context.Context, st wire.Store) DoctorCheck {
 	return checkMetaHygieneTh(ctx, st, doctorThresholds(ctx, st)())
 }
@@ -980,14 +980,14 @@ func checkMetaHygieneTh(ctx context.Context, st wire.Store, th store.Thresholds)
 		k := fmt.Sprint(r[0])
 		switch {
 		case strings.HasPrefix(k, "daily:"):
-			// 플랫 키(daily:<kind>:<date>) 지원 — 마지막
-			// 세그먼트 날짜로 판정(maintain.go dailyKeyDate 공유).
+			// flat keys (daily:<kind>:<date>) supported — determined by the
+			// last segment's date (shared with dailyKeyDate in maintain.go).
 			if d, ok := dailyKeyDate(k); ok && d < cutoff {
 				staleDaily++
 			}
-		case KnownMetaKeyFn(k) || thKeys[k]: // pb_ 등 접두 포함
+		case KnownMetaKeyFn(k) || thKeys[k]: // including pb_ and similar prefixes
 		default:
-			// tuning meta 키도 허용.
+			// tuning meta keys are also allowed.
 			known := false
 			for _, mk := range TuningMetaKeys() {
 				if mk.Key == k {
@@ -998,8 +998,8 @@ func checkMetaHygieneTh(ctx context.Context, st wire.Store, th store.Thresholds)
 			if !known {
 				unknown++
 				if len(samples) < 5 {
-					// 미지 키 원문도 detail에 노출되는
-					// 출력이라 살균 출구를 통과시킨다.
+					// the output exposes the unknown key's raw value too, so it
+					// passes through the sanitization outlet.
 					samples = append(samples, render.Text(k))
 				}
 			}
@@ -1026,12 +1026,12 @@ func checkMetaHygieneTh(ctx context.Context, st wire.Store, th store.Thresholds)
 	return c
 }
 
-// checkBackupKey — 암호화 백업 키 상태. meta
-// backup_encrypt=true일 때만 실검사 — 키 부재면 다음 자동 백업이 새
-// 키를 만들어 기존 암호문과 호환되지 않는 혼재가 생긴다(사전 경고가
-// 존재 이유). 권한은 0600 기준(다른 로컬 계정·프로세스로부터 보호).
-// 조회 오류는 '미사용 ok'가 아니라 warn(거짓 ok 금지, secrets와
-// 같은 계약).
+// checkBackupKey — the encryption backup key state. The real check runs only when meta
+// backup_encrypt=true — without a key, the next automatic backup would create a new key,
+// producing a mix incompatible with existing ciphertexts (the advance warning is the reason
+// this exists). Permissions are checked against 0600 (protection from other local accounts/processes).
+// A lookup error is warn, not 'unused ok' (no false ok — the same contract
+// as secrets).
 func checkBackupKey(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "backup-key"}
 	if st == nil {
@@ -1074,13 +1074,13 @@ func checkBackupKey(ctx context.Context, st wire.Store) DoctorCheck {
 	return c
 }
 
-// CheckBackupAge — meta last_backup 경과 판정. 경과
-// thresholds 레지스트리(meta backup_age_warn_h, 기본 72h — TUNING §2).
-// 이상 경과·미설정·파손 값·
-// 조회 실패·st nil 전부 warn — 백업 부재가 flint 동작을 막지 않으므로
-// fail 아니다(룰링). checkLastSeen과 같은 queryOnce·RFC3339 패턴을 승계한다.
-// 실체는 thresholds 주입판(checkBackupAgeTh) — doctor 체인은
-// 실행 스코프 1회 로드 값을, 이 공개 래퍼는 직접 호출자용 자체 로드.
+// CheckBackupAge — the elapsed-time verdict on meta last_backup. Elapsed uses the
+// thresholds registry (meta backup_age_warn_h, default 72h — TUNING §2).
+// Exceeded, unset, corrupt value,
+// lookup failure, and st nil are all warn — a missing backup does not block flint, so it is not
+// a fail (ruling). Inherits the same queryOnce + RFC3339 pattern as checkLastSeen.
+// The body is the thresholds-injected variant (checkBackupAgeTh) — the doctor chain uses
+// the once-per-run loaded value; this public wrapper loads its own for direct callers.
 func CheckBackupAge(ctx context.Context, st wire.Store) DoctorCheck {
 	return checkBackupAgeTh(ctx, st, doctorThresholds(ctx, st)())
 }
@@ -1104,15 +1104,15 @@ func checkBackupAgeTh(ctx context.Context, st wire.Store, th store.Thresholds) D
 	}
 	ts, perr := time.Parse(time.RFC3339, last)
 	if perr != nil {
-		ts = time.Time{} // 파손 값은 미설정 취급(무효 값 폴백)
+		ts = time.Time{} // a corrupt value is treated as unset (the invalid-value fallback)
 	}
 	if ts.IsZero() {
 		c.Status = "warn"
 		c.Detail = "last_backup not set — check the flint done hook or run backup manually"
 		return c
 	}
-	// 임계값은 meta 오버라이드 우선(주입 th) — 조회 실패 폴백은 상단
-	// 로더가 적용, 값 폴백(<=0 → 전체 기본값)은 여기서 유지한다.
+	// the threshold prefers the meta override (injected th) — the lookup-failure fallback is applied
+	// by the loader above; the value fallback (<=0 -> full defaults) is kept here.
 	if th.BackupAgeWarnH <= 0 {
 		th = store.DefaultThresholds()
 	}
@@ -1125,28 +1125,28 @@ func checkBackupAgeTh(ctx context.Context, st wire.Store, th store.Thresholds) D
 	return c
 }
 
-// DoctorConflictLimit — doctor conflicts 조회 상한.
-// maintain 기본(10)보다 넉넉히 — 상위 10그룹만 세면 초과 모순이
-// 미보고로 누락된다. 여전히 상한이 있어 무제한 스캔은 없다.
+// DoctorConflictLimit — the cap on the doctor conflicts lookup.
+// More generous than maintain's default (10) — counting only the top 10 groups would miss
+// excess contradictions as unreported. There is still a cap, so no unbounded scan.
 const DoctorConflictLimit = 50
 
-// conflictStore — 모순 후보 보고에 필요한 추가 조회(요약 포함 그룹).
-// maintain.go 정의와 동일 메서드 집합(구조적 타입이라 단언 행동 불변).
+// conflictStore — the extra lookup needed for contradiction-candidate reporting (groups with summaries).
+// The same method set as the maintain.go definition (structural typing, so the assertion behavior is unchanged).
 type conflictStore interface {
 	ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error)
 }
 
-// CheckConflicts — 모순 후보 그룹 수 판정. active 동일
-// topic 2건+ 그룹(maintain --conflict-suspects와 같은 GROUP BY 조건)을
-// 요약 유사도로 분류해(isConflictGroup — 동일 기준) 모순 후보만
-// 세어 1+면 warn, 0이면 ok. 순수 중복 그룹(유사 요약)은 세지 않는다 —
-// 목록 출력과 동치여야 안내받은 --conflict-suspects가 결과를 보장한다.
-// 조회는 maintain와 같은 ConflictStore seam(ConflictGroups)으로만 —
-// GROUP BY SQL을 여기 다시 쓰지 않는다. 상한은 doctor
-// 전용 DoctorConflictLimit(50) — 결과가 상한에 도달하면 detail에
-// 초과 가능을 밝혀 미보고로 오인하지 않게 한다.
-// seam 미지원·조회 실패·st nil도 warn — fail 아니다(모순 의심은
-// 동작을 막지 않는다).
+// CheckConflicts — the count of contradiction-candidate groups. Classifies same-topic active
+// 2+-row groups (the same GROUP BY conditions as maintain --conflict-suspects) by summary
+// similarity (isConflictGroup — the same criterion) and counts only contradiction
+// candidates: 1+ is warn, 0 is ok. Purely duplicate groups (similar summaries) are not counted —
+// equivalence with the listing is required so the recommended --conflict-suspects guarantees its result.
+// The lookup goes only through the same ConflictStore seam (ConflictGroups) as maintain —
+// the GROUP BY SQL is not rewritten here. The cap is the doctor-only
+// DoctorConflictLimit (50) — when the result reaches the cap, the detail states the possible
+// excess so it is not mistaken for complete.
+// An unsupported seam, lookup failure, and st nil are also warn — not fail (suspected
+// contradictions do not block operation).
 func CheckConflicts(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "conflicts"}
 	cs, ok := st.(conflictStore)
@@ -1161,10 +1161,10 @@ func CheckConflicts(ctx context.Context, st wire.Store) DoctorCheck {
 		c.Detail = "conflict candidate query failed: " + err.Error() + " — check maintain --conflict-suspects"
 		return c
 	}
-	// 분류 임계값은 thresholds 레지스트리 기본값(conflictDupThreshold).
-	// meta 오버라이드 적용 경로는 maintain
-	// --conflict-suspects — doctor 검사는 계약상 ConflictGroups
-	// seam 외 조회(임계값 읽기를 포함)를 하지 않는다.
+	// the classification threshold is the thresholds-registry default (conflictDupThreshold).
+	// The meta-override path is maintain --conflict-suspects — by contract
+	// the doctor check performs no lookup outside the ConflictGroups seam
+	// (including reading the threshold).
 	n := 0
 	for _, g := range groups {
 		if IsConflictGroupFn(g, ConflictDupThresholdFn()) {
@@ -1183,20 +1183,20 @@ func CheckConflicts(ctx context.Context, st wire.Store) DoctorCheck {
 	return c
 }
 
-// doctorZeroNearWindow — zero_near 검사 aggregation 창(일).
-// 오늘 포함 최근 7일 — report --days 기본창과 같은 규모. 표본 하한·경고
-// 비율은 thresholds 레지스트리(zero_near_min_read 기본 10·
-// zero_near_warn_pct 기본 30 — TUNING §10).
+// doctorZeroNearWindow — the zero_near check aggregation window (days).
+// The last 7 days including today — the same scale as the report --days default window. The sample floor and warning
+// ratio are thresholds-registry values (zero_near_min_read default 10 and
+// zero_near_warn_pct default 30 — TUNING §10).
 const doctorZeroNearWindow = 7
 
-// CheckZeroNear — 최근 7일 일별 read 계측 합산에서 근접 제로히트 비율
-// 판정. read_stats blob·daily read 카운터 폐지로
-// 산출 원천은 WindowedDaily(daily:* 잔존값 + read_events 파생 병합 — report
-// 와 단일 소스)로 이전. 판정 식(read ≥ 표본 하한 && read_zero_near*100/
-// read ≥ 경고 비율 → warn)·출력 문구는 전환 전과 동등하다. 조회 실패·st
-// nil은 warn. 검색 품질 의심은 동작을 막지 않으므로 fail 아니다(룰링).
-// 실체는 thresholds 주입판(checkZeroNearTh) — doctor 체인은
-// 실행 스코프 1회 로드 값을, 이 공개 래퍼는 직접 호출자용 자체 로드.
+// CheckZeroNear — the near-zero-hit ratio verdict from the summed daily read metering of the
+// last 7 days. With the read_stats blob and daily read counters abolished, the computation
+// source moved to WindowedDaily (residual daily:* values + the read_events-derived merge — a single
+// source with report). The decision expression (read >= sample floor && read_zero_near*100/
+// read >= warning ratio -> warn) and the output wording are equivalent to before the migration. Lookup
+// failure and st nil are warn. Suspected search-quality issues do not block operation, so not fail (ruling).
+// The body is the thresholds-injected variant (checkZeroNearTh) — the doctor chain uses
+// the once-per-run loaded value; this public wrapper loads its own for direct callers.
 func CheckZeroNear(ctx context.Context, st wire.Store) DoctorCheck {
 	return checkZeroNearTh(ctx, st, doctorThresholds(ctx, st)())
 }
@@ -1208,8 +1208,8 @@ func checkZeroNearTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 		c.Detail = "cannot query daily metrics — check read_zero_near via flint report"
 		return c
 	}
-	// 임계값 2종은 meta 오버라이드 우선(주입 th) — 조회 실패 폴백(기본값)은
-	// 상단 로더가 적용.
+	// the 2 thresholds prefer the meta overrides (injected th) — the lookup-failure fallback (defaults)
+	// is applied by the loader above.
 	days, err := WindowedDaily(ctx, st, doctorZeroNearWindow)
 	if err != nil {
 		c.Status = "warn"
@@ -1237,14 +1237,14 @@ func checkZeroNearTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 	return c
 }
 
-// CheckPendingAge — pending 최고령 valid_at 경과 판정. 경과
-// 임계는 thresholds 레지스트리(meta pending_age_days, 기본 7일 — TUNING).
-// 임계 이상 경과·조회 실패·st nil은
-// warn(방치가 동작을 막지 않는다 — backup-age 룰링 승계), 임계 이내·
-// pending 부재는 ok. detail에 만료 명령(maintain --expire-pending N) 안내를
-// 붙인다. 정리 자체는 dry-run 기본 명령에 맡긴다(자동 전환 아님).
-// 실체는 thresholds 주입판(checkPendingAgeTh) — doctor 체인은
-// 실행 스코프 1회 로드 값을, 이 공개 래퍼는 직접 호출자용 자체 로드.
+// CheckPendingAge — the elapsed verdict on the oldest pending's valid_at. The threshold
+// is the thresholds registry (meta pending_age_days, default 7 days — TUNING).
+// Elapsed at or above the threshold, lookup failure, and st nil are
+// warn (neglect does not block operation — inheriting the backup-age ruling); within the threshold
+// and no pending are ok. The detail carries the expiry-command guidance (maintain --expire-pending N).
+// Cleanup itself is left to the dry-run-default command (no automatic transition).
+// The body is the thresholds-injected variant (checkPendingAgeTh) — the doctor chain uses
+// the once-per-run loaded value; this public wrapper loads its own for direct callers.
 func CheckPendingAge(ctx context.Context, st wire.Store) DoctorCheck {
 	return checkPendingAgeTh(ctx, st, doctorThresholds(ctx, st)())
 }
@@ -1271,11 +1271,11 @@ func checkPendingAgeTh(ctx context.Context, st wire.Store, th store.Thresholds) 
 	}
 	va, ok := AnyToTimeFn(rows[0][0])
 	if !ok {
-		c.Status = "ok" // 파손 값은 pending 부재 취급(무효 값 폴백)
+		c.Status = "ok" // a corrupt value is treated as no pending (the invalid-value fallback)
 		return c
 	}
-	// 임계값은 meta 오버라이드 우선(주입 th) — 조회 실패 폴백은 상단
-	// 로더가 적용, 값 폴백(<=0 → 전체 기본값)은 여기서 유지한다.
+	// the threshold prefers the meta override (injected th) — the lookup-failure fallback is applied
+	// by the loader above; the value fallback (<=0 -> full defaults) is kept here.
 	if th.PendingAgeDays <= 0 {
 		th = store.DefaultThresholds()
 	}
@@ -1289,7 +1289,7 @@ func checkPendingAgeTh(ctx context.Context, st wire.Store, th store.Thresholds) 
 	return c
 }
 
-// stallDetail — 키의 경과가 grace를 넘으면 경고 문구 반환(부재=never).
+// stallDetail — returns the warning wording when the key's elapsed exceeds grace (absent = never).
 func stallDetail(seen map[string]time.Time, key string, graceH int, warns *int) string {
 	ts, ok := seen[key]
 	if !ok {
@@ -1303,39 +1303,39 @@ func stallDetail(seen map[string]time.Time, key string, graceH int, warns *int) 
 	return ""
 }
 
-// doctorPort — flint 기대 호스트 게시 포트(compose 오버라이드 전 기본값).
-// v0.9.7 ADR-0010: 외부 컨테이너의 5433 점유로 5434로 이전.
+// doctorPort — the host port flint expects to be published (the default before the compose override).
+// v0.9.7 ADR-0010: moved to 5434 due to an external container occupying 5433.
 const doctorPort = 5434
 
-// ComposePsFn — docker compose ps seam(var). docker 부재·compose 프로젝트
-// 부재 등 모든 오류는 checkPort가 skip으로 처리한다(비간섭). cli 측
-// 테스트 교체(doctor_v07_test)는 ops_alias_1.go init의 읽기 래퍼로
-// 실행 경로에 전파된다.
+// ComposePsFn — the docker compose ps seam (var). All errors, including docker absent and a missing
+// compose project, are handled by checkPort as skip (non-interference). The cli-side test
+// swap (doctor_v07_test) propagates to the execution path via the ops_alias_1.go init read
+// wrapper.
 var ComposePsFn = func(ctx context.Context) ([]byte, error) {
 	return exec.CommandContext(ctx, "docker", "compose", "ps", "--format", "json").Output()
 }
 
-// composePsPublisher — ps 각 포트 매핑. docker 공식 스키마(B6):
-// PublishedPort = 호스트 게시 포트. Exited 컨테이너는 Publishers null.
+// composePsPublisher — one port mapping of ps. The official docker schema (B6):
+// PublishedPort = the host-published port. Exited containers have Publishers null.
 type composePsPublisher struct {
 	PublishedPort int `json:"PublishedPort"`
 }
 
-// composePsEntry — ps 컨테이너 1행.
+// composePsEntry — one ps container row.
 type composePsEntry struct {
 	Name       string               `json:"Name"`
 	State      string               `json:"State"`
 	Publishers []composePsPublisher `json:"Publishers"`
 }
 
-// checkPort — 5434 게시 상태 판정. ① flint 실행+5434 → ok
-// ② flint 부재/정지 → fail + up -d 안내 ③ 타 컨테이너 점유 → fail +
-// 점유자 이름 + 포트 이동 안내. ComposePsFn 오류는 skip(docker 미설치
-// 환경에서 doctor 나머지 검사를 덮지 않는다).
+// checkPort — the 5434 publication verdict. (1) flint running + 5434 -> ok;
+// (2) flint absent/stopped -> fail + up -d guidance; (3) another container occupying -> fail +
+// the occupant's name + port-move guidance. ComposePsFn errors are skip (they must not drown
+// doctor's other checks in a docker-less environment).
 func checkPort(ctx context.Context) DoctorCheck {
 	c := DoctorCheck{Name: "port"}
-	// docker 무응답 시 무기한 블록 방지 — 2초 상한. 만료는 ComposePsFn
-	// 오류로 떨어져 기존 skip 경로를 따른다(비간섭).
+	// preventing an indefinite block when docker is unresponsive — a 2s cap. On expiry it falls
+	// through as a ComposePsFn error and follows the existing skip path (non-interference).
 	tctx, cancel := context.WithTimeout(ctx, 2*time.Second)
 	defer cancel()
 	b, err := ComposePsFn(tctx)
@@ -1350,7 +1350,7 @@ func checkPort(ctx context.Context) DoctorCheck {
 		c.Detail = "cannot parse compose ps output: " + perr.Error()
 		return c
 	}
-	// ① flint 컨테이너 실행 중 + 5434 게시.
+	// (1) the flint container running + 5434 published.
 	for _, e := range entries {
 		if IsFlintContainer(e.Name) && e.State == "running" && publishesPort(e, doctorPort) {
 			c.Status = "ok"
@@ -1358,7 +1358,7 @@ func checkPort(ctx context.Context) DoctorCheck {
 			return c
 		}
 	}
-	// ③ 타 컨테이너가 5434 점유 — 점유자를 지목한다.
+	// (3) another container occupies 5434 — names the occupant.
 	for _, e := range entries {
 		if publishesPort(e, doctorPort) {
 			c.Status = "fail"
@@ -1367,22 +1367,22 @@ func checkPort(ctx context.Context) DoctorCheck {
 			return c
 		}
 	}
-	// ② flint 없음/정지.
+	// (2) flint absent/stopped.
 	c.Status = "fail"
 	c.Detail = fmt.Sprintf("flint container does not publish %d", doctorPort)
 	c.Fix = "fix: docker compose up -d (flint repository)"
 	return c
 }
 
-// parseComposePs — ps --format json 출력 파싱. 최신 docker는 연속 객체
-// (JSONL), 구버전은 배열을 내보내므로 json.Decoder 스트리밍으로 양쪽을
-// 처리한다.
+// parseComposePs — parses the ps --format json output. Recent docker emits consecutive objects
+// (JSONL) while older versions emit an array, so a json.Decoder stream handles
+// both.
 func parseComposePs(b []byte) ([]composePsEntry, error) {
 	trimmed := bytes.TrimSpace(b)
 	dec := json.NewDecoder(bytes.NewReader(trimmed))
 	var out []composePsEntry
 	if len(trimmed) > 0 && trimmed[0] == '[' {
-		tok, err := dec.Token() // '[' 소비
+		tok, err := dec.Token() // consume the '[' token
 		if err != nil {
 			return nil, err
 		}
@@ -1411,14 +1411,14 @@ func parseComposePs(b []byte) ([]composePsEntry, error) {
 	}
 }
 
-// IsFlintContainer — 컨테이너 이름이 flint 서비스임(flint-doltgres-1 등).
-// 접두 매칭 — 'conflint'처럼 flint를 포함하나 접두가 아닌 이름의 오탐 배제.
+// IsFlintContainer — whether the container name is the flint service (e.g. flint-doltgres-1).
+// Prefix matching — excludes false positives like 'conflint', which contains flint but not as a prefix.
 func IsFlintContainer(name string) bool {
 	return strings.HasPrefix(strings.ToLower(name), "flint")
 }
 
-// publishesPort — 엔트리의 Publishers 중 호스트 게시 포트 일치 여부.
-// Exited 컨테이너의 Publishers null은 빈 슬라이스로 디코딩된다.
+// publishesPort — whether any of the entry's Publishers matches the host-published port.
+// An Exited container's null Publishers decodes as an empty slice.
 func publishesPort(e composePsEntry, port int) bool {
 	for _, p := range e.Publishers {
 		if p.PublishedPort == port {
@@ -1428,13 +1428,13 @@ func publishesPort(e composePsEntry, port int) bool {
 	return false
 }
 
-// checkEventVolume — 효과 계측
-// 테이블 용량 점검. 3테이블 합계 행 수가 events_volume_warn(기본
-// 50000, meta 오버라이드)을 넘으면 warn — 보존일(events_retention_days)
-// 단축 또는 PruneReadEvents 정상 작동 여부 점검 안내. 성장은 정상
-// 동작의 결과이므로 fail 아니다(비간섭 원칙 — warn 안내만).
-// 실체는 thresholds 주입판(checkEventVolumeTh) — doctor 체인은
-// 실행 스코프 1회 로드 값을, 이 래퍼는 직접 호출자용 자체 로드.
+// checkEventVolume — the effect-metering tables' volume check.
+// If the 3-table total row count exceeds events_volume_warn (default
+// 50000, meta override), warn — guidance to shorten the retention days (events_retention_days)
+// or to check that PruneReadEvents is working. Growth is the result of normal
+// operation, so not a fail (the non-interference principle — warn guidance only).
+// The body is the thresholds-injected variant (checkEventVolumeTh) — the doctor chain uses
+// the once-per-run loaded value; this wrapper loads its own for direct callers.
 func checkEventVolume(ctx context.Context, st wire.Store) DoctorCheck {
 	return checkEventVolumeTh(ctx, st, doctorThresholds(ctx, st)())
 }
@@ -1466,9 +1466,9 @@ func checkEventVolumeTh(ctx context.Context, st wire.Store, th store.Thresholds)
 	return c
 }
 
-// checkUpdate — 현재 빌드 대비 최신 릴리스 지연
-// 경고. doctor는 사용자 실행 경로라 네트워크 확인을 직접 수행한다(5초
-// 타임아웃). 지연은 warn 안내만(fail 아님 — 업데이트는 명시적 실행 계약).
+// checkUpdate — a lag warning versus the latest release for the current build.
+// doctor is a user-run path, so it performs the network check directly (a 5s
+// timeout). Lag is a warn guidance only (not fail — updating follows the explicit-invocation contract).
 func checkUpdate(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "update"}
 	if !ValidVersionFn(CurrentVersionFn()) {
@@ -1494,11 +1494,11 @@ func checkUpdate(ctx context.Context, st wire.Store) DoctorCheck {
 	return c
 }
 
-// checkRecallStarved — 누적 회상 부재 카운터 관측. minimal
-// 프로파일이 마커를 자동 종결해도 이 카운터는 프로파일 무관 —
-// doctor가 피드백 루프의 최후 관측 창구가 된다. 카운터 자체는 안내
-// (warn), 리셋 안내는 flint tuning reset 개념이 없는 비레지스트리
-// 키라 삭제 안내로.
+// checkRecallStarved — observation of the cumulative missing-recall counter. Even if the minimal
+// profile auto-concludes the marker, this counter is profile-independent —
+// doctor becomes the feedback loop's final observation window. The counter itself is a notice
+// (warn); since the reset guidance key is a non-registry key with no flint tuning reset concept,
+// it becomes a deletion guidance.
 func checkRecallStarved(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "recall-starved"}
 	if st == nil {
@@ -1509,7 +1509,7 @@ func checkRecallStarved(ctx context.Context, st wire.Store) DoctorCheck {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT value FROM meta WHERE key = $1`, []any{"recall_starved_count"})
 	if err != nil {
-		c.Status = "warn" // 조회 실패를 깨끗한 소견으로 위장하지 않는다(리뷰 ③).
+		c.Status = "warn" // does not disguise a lookup failure as a clean finding (review 3).
 		c.Detail = "recall counter query failed"
 		return c
 	}
@@ -1528,13 +1528,13 @@ func checkRecallStarved(ctx context.Context, st wire.Store) DoctorCheck {
 	return c
 }
 
-// checkSecrets — 보유 지식 사후 비밀 스캔.
-// 저장 시점 스캔(write ScanSecrets)은 회피·이후 유입을 못 잡는다 —
-// doctor가 knowledge 전수를 재스캔해 발견 시 warn(본문 아닌 패턴명+id만
-// 출력 — CLAUDE.md 개인 데이터 원칙). 세션 summary도 포함(PII 최다).
-// 실체는 thresholds 주입판(checkSecretsTh) — doctor
-// 체인은 실행 스코프 1회 로드 값(doctorThresholds)을 공유하고, 이 래퍼는
-// 직접 호출자용 자체 로드(checkMetaHygiene F6 패턴 승계).
+// checkSecrets — a post-hoc secret scan of held knowledge.
+// The write-time scan (write ScanSecrets) misses evasion and later intake —
+// doctor re-scans all knowledge and warns on findings (outputting the pattern name + id, not the
+// body — the CLAUDE.md personal-data principle). Session summaries are included (the most PII).
+// The body is the thresholds-injected variant (checkSecretsTh) — the doctor chain
+// shares the once-per-run loaded value (doctorThresholds), and this wrapper loads its own
+// for direct callers (inheriting the checkMetaHygiene F6 pattern).
 func checkSecrets(ctx context.Context, st wire.Store) DoctorCheck {
 	return checkSecretsTh(ctx, st, doctorThresholds(ctx, st)())
 }
@@ -1546,12 +1546,12 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 		c.Detail = "cannot query for the secrets scan"
 		return c
 	}
-	// 리뷰 ①②⑥: 무효화(soft) 행은 제외(무효화 자체가 이 체크의 해소
-	// 경로)·스캔 열은 쓰기 시점과 동일 전열(topic·summary·tags·entity·
-	// domain·origin — sanitizePayload 참조)·메모리는 행 단위 스트리밍
-	// (Store.Query 커서 — 전체 테이블 구체화 회피).
-	// 임계값은 주입 th(실행 스코프 1회 로드,
-	// 실패 기본값 폴백은 WriteThresholds가 적용)에서 읽는다.
+	// reviews 1/2/6: (soft-)invalidated rows are excluded (invalidation itself is this check's
+	// resolution path); the scanned columns are the same set as at write time (topic, summary, tags,
+	// entity, domain, origin — see sanitizePayload); memory is row-by-row streaming
+	// (the Store.Query cursor — avoiding full-table materialization).
+	// The threshold is read from the injected th (once-per-run load;
+	// on failure the WriteThresholds fallback applies).
 	rows, err := wire.QueryOnce(ctx, st, `
 		SELECT id, topic, summary, tags, entity, domain, origin
 		FROM knowledge WHERE invalid_at IS NULL
@@ -1562,19 +1562,19 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 		return c
 	}
 	if len(rows) >= th.SecretsScanRows {
-		// 상한 도달 — 부분 스캔임을 명시(오탐
-		// 아닌 미도달 오탐 방지 — '미발견'으로 거짓 보고하지 않는다).
+		// cap reached — stating explicitly that the scan is partial (preventing a false
+		// 'not found' — never falsely reporting 'nothing detected').
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("row limit %d reached — scan not run (large DB)", th.SecretsScanRows)
 		c.Fix = "fix: fall back to write-time warnings — adjust the limit via the secrets_scan_row_limit key"
 		return c
 	}
-	// 리뷰 ⑥ 룰링: Store.Query는 [][]any(전체 구체화)라 진짜 스트리밍은
-	// 인터페이스 확장이 필요 — 개인 규모(수천 행)에서 과잉. 전열 확장·
-	// 중복 방지·무효화 제외만으로 취지(사각 폐쇄)를 달성하고 메모리는
-	// doctor의 다른 전수 쿼리(checkRecallStarved 등)와 동일 수준.
+	// review-6 ruling: Store.Query is [][]any (full materialization), so true streaming would need
+	// an interface extension — excessive at personal scale (thousands of rows). The column-set
+	// extension, duplicate prevention, and invalidation exclusion achieve the intent (closing the
+	// blind spot), and memory stays at the same level as doctor's other full-table queries
 	found := 0
-	seen := map[string]bool{} // 리뷰 ③: id+패턴 중복 계수 방지
+	seen := map[string]bool{} // review 3: prevent double-counting id+pattern
 	for _, r := range rows {
 		if len(r) < 7 {
 			continue
@@ -1590,15 +1590,15 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 			found++
 		}
 	}
-	// sessions 테이블 사후 스캔 — summary가 PII
-	// 최다 필드라 주석 의도가 코드에 없던 것을 회수.
-	// 조회 실패·상한 도달은 이미 잡은 지식 발견을 버리지 않고
-	// 격차만 명시 — '세션까지 스캔했고 미발견'이라는 거짓 ok도
-	// 내지 않는다. LIMIT는 지식 경로와 동일 상한(메모리 무한 증식 방지).
+	// a post-hoc scan of the sessions table — summary is the most PII-dense
+	// field, recovering an intent the comment had but the code did not.
+	// On lookup failure or reaching the cap, it does not discard already-found knowledge findings
+	// and only states the gap — and never issues a false 'scanned sessions too,
+	// nothing found' ok. LIMIT uses the same cap as the knowledge path (preventing unbounded memory growth).
 	srows, serr := wire.QueryOnce(ctx, st, `
 		SELECT id, agent, summary FROM sessions
 		LIMIT $1`, []any{th.SecretsScanRows})
-	gap := "" // 스캔 격차 주석(발견이 있으면 함께 보고)
+	gap := "" // the scan-gap annotation (reported alongside findings when any)
 	switch {
 	case serr != nil:
 		gap = "· session query failed (sessions unscanned)"
@@ -1622,9 +1622,9 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 			}
 		}
 	}
-	// projects.name 사후 스캔 — restore·레거시 유입은
-	// 쓰기 시점 스캔을 거치지 않는다(세션 경로와 같은 사각). 발견 key는
-	// 패턴명#project:id로 본문 미출력 계약 유지.
+	// a post-hoc scan of projects.name — restore and legacy intake do not
+	// pass the write-time scan (the same blind spot as the session path). A finding key is
+	// pattern#project:id, keeping the no-body-output contract.
 	prows, perr := wire.QueryOnce(ctx, st, `
 		SELECT id, name FROM projects
 		LIMIT $1`, []any{th.SecretsScanRows})
@@ -1669,10 +1669,10 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 		}
 		disp = append(disp, k)
 	}
-	// allowlist 적용 상태 노출 — 오타·무단 등록 감지 수단.
-	// 세션 유래 발견(session:N)의 해소는 knowledge 무효화가
-	// 아니다 — 세션 요약은 재종료(done) 갱신·운영 DB 정리 경로만 존재.
-	// 안내가 무관 지식 행 무효화를 유도하지 않게 분기한다.
+	// exposing the allowlist application state — a means to detect typos and unauthorized
+	// registrations. Resolving a session-origin finding (session:N) is not knowledge
+	// invalidation — session summaries only have the re-close (done) update and the operational-DB
+	// cleanup path. The branch prevents the guidance from inducing invalidation of unrelated knowledge rows.
 	c.Detail = fmt.Sprintf("%d secret candidates (%s) %s· allowlist %d entries",
 		found, strings.Join(disp, ", "), gapSuffix(gap), store.SecretsAllowlistCount())
 	if sessionFound || projectFound {
@@ -1683,7 +1683,7 @@ func checkSecretsTh(ctx context.Context, st wire.Store, th store.Thresholds) Doc
 	return c
 }
 
-// sortedKeys — map 키 정렬(결정적 출력).
+// sortedKeys — sorts map keys (deterministic output).
 func sortedKeys(m map[string]bool) []string {
 	out := make([]string, 0, len(m))
 	for k := range m {
@@ -1693,7 +1693,7 @@ func sortedKeys(m map[string]bool) []string {
 	return out
 }
 
-// gapSuffix — 스캔 격차 주석의 detail 접미 정규화(빈 값은 "— ... " 유지).
+// gapSuffix — normalizes the detail suffix for the scan-gap annotation (empty keeps "— ...").
 func gapSuffix(gap string) string {
 	if gap == "" {
 		return "— clears after invalidating the targets "

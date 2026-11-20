@@ -1,5 +1,5 @@
-// read_v0100_test.go — 제로히트 did-you-mean 제안 라인·
-// 구문 히트 경로 회귀(스펙 §3 R1).
+// read_v0100_test.go — the zero-hit did-you-mean suggestion line and
+// the phrase-hit path regression (spec §3 R1).
 package cli
 
 import (
@@ -9,7 +9,7 @@ import (
 	"testing"
 )
 
-// suggestQueryFn — 구문·폴백 모두 제로히트, 제안 스캔은 3행.
+// suggestQueryFn — both phrase and fallback zero-hit; the suggestion scan returns 3 rows.
 func suggestQueryFn() func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "id, topic, summary FROM active_knowledge") {
@@ -19,13 +19,13 @@ func suggestQueryFn() func(string, []any) ([][]any, error) {
 				{int32(9), "포트 점유 사고", "5433"},
 			}, nil
 		}
-		return nil, nil // 구문·폴백·meta 전부 제로/빈
+		return nil, nil // phrase, fallback, and meta all zero/empty
 	}
 }
 
-// TestReadZeroHitSuggests — 재작성(룰링): 제안 라인 폐지 —
-// 구문·폴백 모두 제로히트면 완전 무출력·exit 1. 스캔 후보가 있어도
-// 에이전트에게 보이지 않는다(내부 분류는 zero_near 계측으로만).
+// TestReadZeroHitSuggests — rewritten (ruling): the suggestion line is gone —
+// if both phrase and fallback zero-hit, fully no output, exit 1. Even with scan candidates,
+// they stay invisible to the agent (internal classification only via zero_near metering).
 func TestReadZeroHitSuggests(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
@@ -38,13 +38,13 @@ func TestReadZeroHitSuggests(t *testing.T) {
 	}
 }
 
-// TestReadPhraseHitNoSuggest — 구문 히트 시 suggestions
-// 미발생(히트 경로 완전 불변 — 룰링).
+// TestReadPhraseHitNoSuggest — on a phrase hit, no suggestions
+// (the hit path fully unchanged — ruling).
 func TestReadPhraseHitNoSuggest(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer
 	fn := func(sql string, args []any) ([][]any, error) {
-		// 구문 질의는 readColumns(tags 포함)를 선택 — 제안 스캔과 구분.
+		// the phrase query selects readColumns (including tags) — distinguishing it from the suggestion scan.
 		if strings.Contains(sql, "tags") {
 			return [][]any{fallbackRow(3, "백업 복구", "요약")}, nil
 		}

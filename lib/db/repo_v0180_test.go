@@ -1,5 +1,6 @@
-// repo_v0180_test.go — 회귀: DupRowByHash(해시 중복 시 기존 행
-// id·topic·status 노출). 시드 행 해시는 메타 일치, 미등록 해시는 (0,"",false).
+// repo_v0180_test.go — regression: DupRowByHash (exposing the existing
+// row's id·topic·status on a hash duplicate). A seeded row's hash
+// matches its metadata; an unregistered hash yields (0,"",false).
 package db
 
 import (
@@ -7,8 +8,9 @@ import (
 	"testing"
 )
 
-// TestDupRowByHashSeededRow — 시드 행 메타 조회. slow · 실DB(newTestRepo —
-// FLINT_DSN 미설정 시 스킵). status는 InsertBatch 기본 active.
+// TestDupRowByHashSeededRow — the seeded row's metadata lookup. Slow ·
+// real DB (newTestRepo — skipped without FLINT_DSN). status is
+// InsertBatch's default active.
 func TestDupRowByHashSeededRow(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

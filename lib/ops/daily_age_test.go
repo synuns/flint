@@ -1,7 +1,7 @@
-// daily_age_test.go — daily 카운터 나이 판정의 플랫
-// 키(daily:<kind>:<date>) 지원. 기존 TrimPrefix 문자열 비교는 'w'>'2'라
-// 플랫 키 전체를 미탐 — maintain oldest-daily·doctor staleDaily 모두
-// 마지막 세그먼트 날짜로 판정하는지 검증. 예시는 합성 데모 날짜.
+// daily_age_test.go — flat-key (daily:<kind>:<date>) support in the daily counter
+// age determination. The old TrimPrefix string comparison missed the whole flat-key
+// range ('w' > '2') — verifies that both maintain oldest-daily and doctor staleDaily
+// judge by the last segment's date. The examples are synthetic demo dates.
 package ops
 
 import (
@@ -13,7 +13,7 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// metaRowsFn — maintain --meta-audit용 meta (key,value) 조회 fake.
+// metaRowsFn — a fake for the maintain --meta-audit meta (key,value) lookup.
 func metaRowsFn(keys map[string]string) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		if !strings.Contains(sql, "FROM meta") {
@@ -27,8 +27,8 @@ func metaRowsFn(keys map[string]string) func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestOldestDailyFlatKey — 플랫 키 혼재 시 oldest-daily가 날짜 기준으로
-// 산출되는지(출력 형식은 기존 그대로 — 키 원문).
+// TestOldestDailyFlatKey — with flat keys mixed in, oldest-daily is derived by date
+// (the output format unchanged — the raw key).
 func TestOldestDailyFlatKey(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: metaRowsFn(map[string]string{
 		"daily:write:2026-01-01": "7",
@@ -48,9 +48,9 @@ func TestOldestDailyFlatKey(t *testing.T) {
 	}
 }
 
-// TestOldestDailyFlatKeyOldest — 날짜 비교가 키 문자열 비교가 아닌지:
-// lexicographic로는 daily:hot:…가 먼저지만 날짜상 daily:write:2025-11-15가
-// oldest. 무효 날짜 세그먼트(daily:write:notadate)는 나이 판정에서 제외.
+// TestOldestDailyFlatKeyOldest — that the comparison is by date, not key string:
+// lexicographically daily:hot:... comes first, but by date daily:write:2025-11-15 is
+// the oldest. An invalid date segment (daily:write:notadate) is excluded from the age determination.
 func TestOldestDailyFlatKeyOldest(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: metaRowsFn(map[string]string{
 		"daily:write:2025-11-15": "2",
@@ -69,8 +69,8 @@ func TestOldestDailyFlatKeyOldest(t *testing.T) {
 	}
 }
 
-// TestStaleDailyDetectsFlatKeys — doctor meta-hygiene의 stale 판정이
-// 플랫 키의 마지막 세그먼트 날짜로 동작하는지. 컷오프 2026-06-01.
+// TestStaleDailyDetectsFlatKeys — that doctor meta-hygiene's stale determination
+// works on the flat keys' last segment date. Cutoff 2026-06-01.
 func TestStaleDailyDetectsFlatKeys(t *testing.T) {
 	days := int(time.Since(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)).Hours() / 24)
 	if days <= 7 {
@@ -87,8 +87,8 @@ func TestStaleDailyDetectsFlatKeys(t *testing.T) {
 			{"last_write_at"},
 		}, nil
 	}}
-	// doctor_test.go seam이 항상 false로 고정되어 있어 실제 판정으로 교체
-	// (반환 후 원복) — 비-daily 키 제외 로직 불변 확인용.
+	// the doctor_test.go seam is pinned to always-false, so it is swapped for the real
+	// determination (restored after returning) — to confirm the non-daily-key exclusion logic is unchanged.
 	prevFn := KnownMetaKeyFn
 	KnownMetaKeyFn = KnownMetaKey
 	t.Cleanup(func() { KnownMetaKeyFn = prevFn })

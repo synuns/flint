@@ -1,7 +1,7 @@
-// write_v06_test.go — write --source: 소스 파싱·유입 계측 배선(fake fast).
-// 계약: ParseSourceFlag(무효 ErrInvalidSource→exit 3·미지정 manual)·
-// recordUsage(UsageStore 단언, 미구현 no-op·실패 조용히)·
-// duplicate 시 write 1 + dup 1(이중 계수 금지).
+// write_v06_test.go — write --source: source parsing and inbound-metering wiring (fake fast).
+// Contracts: ParseSourceFlag (invalid ErrInvalidSource -> exit 3; unspecified = manual),
+// recordUsage (UsageStore assertion; unimplemented is a no-op, failure silent), and
+// on duplicate, write 1 + dup 1 (no double counting).
 package cli
 
 import (
@@ -11,10 +11,10 @@ import (
 	"testing"
 )
 
-// usageCall — RecordUsage 호출 기록(kind, source).
+// usageCall — RecordUsage call record (kind, source).
 type usageCall struct{ kind, source string }
 
-// writeUsageRecorder — Store 위에 RecordUsage를 녹음하는 fake(seam 주입용).
+// writeUsageRecorder — a fake recording RecordUsage on top of a Store (for seam injection).
 type writeUsageRecorder struct {
 	Store
 	calls []usageCall
@@ -26,7 +26,7 @@ func (u *writeUsageRecorder) RecordUsage(ctx context.Context, kind, source strin
 	return u.err
 }
 
-// withRecorder — newStore seam을 writeUsageRecorder로 교체(기본 fake, 계측 전용).
+// withRecorder — swaps the newStore seam to writeUsageRecorder (default fake, metering only).
 func withRecorder(t *testing.T, f *fakeStore) *writeUsageRecorder {
 	t.Helper()
 	rec := &writeUsageRecorder{Store: f}
@@ -36,7 +36,7 @@ func withRecorder(t *testing.T, f *fakeStore) *writeUsageRecorder {
 	return rec
 }
 
-// TestParseSourceFlag — 미지정 manual·무효값/값 부재 ErrInvalidSource.
+// TestParseSourceFlag — unspecified = manual; invalid value or missing value = ErrInvalidSource.
 func TestParseSourceFlag(t *testing.T) {
 	cases := []struct {
 		name string
@@ -62,7 +62,7 @@ func TestParseSourceFlag(t *testing.T) {
 	}
 }
 
-// TestWriteSourceInvalidExit3 — 무효 --source는 exit 3·삽입 없음(Review protocol).
+// TestWriteSourceInvalidExit3 — an invalid --source exits 3 with no insert (Review protocol).
 func TestWriteSourceInvalidExit3(t *testing.T) {
 	f := &fakeStore{}
 	withRecorder(t, f)
@@ -79,8 +79,8 @@ func TestWriteSourceInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestWriteRecordsUsage — 신규 커밋 후 recordUsage("write",source) 1회.
-// 미지정 manual·--source hook·계측 실패 조용히(exit 0 유지).
+// TestWriteRecordsUsage — after a new commit, recordUsage("write",source) exactly once.
+// Unspecified = manual; --source hook; metering failure silent (exit 0 kept).
 func TestWriteRecordsUsage(t *testing.T) {
 	t.Run("default-manual", func(t *testing.T) {
 		rec := withRecorder(t, &fakeStore{})
@@ -115,13 +115,13 @@ func TestWriteRecordsUsage(t *testing.T) {
 	})
 }
 
-// TestWriteDupCountsOnceEach — duplicate 시 write 1 + dup 각 키 1회(이중 계수
-// 금지, 호출 순서 [write,source]→[dup,""]→[dup_<source>,""] —
-// additive). dedup 이중 경로(ExistsHash·InsertBatch ErrDuplicate)
-// 모두 동일.
+// TestWriteDupCountsOnceEach — on duplicate, write 1 + dup once per key (no double counting,
+// call order [write,source] -> [dup,""] -> [dup_<source>,""] —
+// additive). Both dedup paths (ExistsHash and InsertBatch ErrDuplicate)
+// behave the same.
 func TestWriteDupCountsOnceEach(t *testing.T) {
-	// tags 없는 페이로드: 어휘 경고가 없어 duplicate 한 줄 exact-match가
-	// 유지된다(#6 이후 dup 출력에도 경고가 병행되므로).
+	// a payload without tags: with no vocabulary warnings, the single duplicate exact-match line is
+	// kept (after #6, warnings accompany the dup output anyway).
 	payload := `{"topic":"t","summary":"s","confidence":0.9}`
 	t.Run("exists-hash", func(t *testing.T) {
 		rec := withRecorder(t, &fakeStore{exists: true})
@@ -135,9 +135,9 @@ func TestWriteDupCountsOnceEach(t *testing.T) {
 		}
 	})
 	t.Run("insert-batch-dup", func(t *testing.T) {
-		// 레이스(사전 확인 통과 후 배치에서 ErrDuplicate): 재확인에서 존재로
-		// 판명되면 유실 없이 duplicate — write 1 + dup 1 계약은 불변.
-		// (재시도까지 ErrDuplicate인 실제 충돌은 write_test.go가 다룬다.)
+		// race (passes the pre-check, then ErrDuplicate in the batch): if the recheck finds it exists,
+		// it is a lossless duplicate — the write 1 + dup 1 contract is unchanged.
+		// (Real collisions that stay ErrDuplicate through retries are covered by write_test.go.)
 		rs := &raceDupStore{fakeStore: &fakeStore{}, racedDups: 1}
 		rec := &writeUsageRecorder{Store: rs}
 		prev := newStore
@@ -158,10 +158,10 @@ func TestWriteDupCountsOnceEach(t *testing.T) {
 	})
 }
 
-// TestWriteNoUsageStoreNoop — RecordUsage 미구현 Store는 no-op(정상 동작).
+// TestWriteNoUsageStoreNoop — a Store without RecordUsage is a no-op (normal behavior).
 func TestWriteNoUsageStoreNoop(t *testing.T) {
 	f := &fakeStore{}
-	withFake(t, f) // fakeStore는 UsageStore 아님
+	withFake(t, f) // fakeStore is not a UsageStore
 	out, code := mustRun(t, []string{"write", "knowledge", "--source", "hook"},
 		`{"topic":"t","summary":"s","confidence":0.9}`)
 	if code != 0 {

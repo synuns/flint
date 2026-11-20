@@ -1,10 +1,11 @@
-// write_source_test.go — MCP write 도구는 cli.Run 조립에
-// --source mcp를 전달해 유입이 source=mcp로 계측되어야 한다(미전달 시 manual).
+// write_source_test.go — the MCP write tool must pass --source mcp in the
+// cli.Run assembly so the intake is metered as source=mcp (omission
+// defaults to manual).
 package mcp
 
 import "testing"
 
-// TestDispatchWriteSourceMCP — flint_write 조립 인자에 --source mcp 존재.
+// TestDispatchWriteSourceMCP — the flint_write assembled args contain --source mcp.
 func TestDispatchWriteSourceMCP(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"committed","id":1}`, 0)
 	DispatchTool("flint_write", map[string]any{
@@ -25,7 +26,7 @@ func TestDispatchWriteSourceMCP(t *testing.T) {
 	t.Errorf("args = %v, want --source mcp (T61: MCP 유입 manual 계측 방지)", (*calls)[0].args)
 }
 
-// TestDispatchPendingJSONMode — flint_pending은 pending --json 조립.
+// TestDispatchPendingJSONMode — flint_pending assembles pending --json.
 func TestDispatchPendingJSONMode(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"ok","items":[]}`, 0)
 	DispatchTool("flint_pending", map[string]any{})
@@ -38,7 +39,7 @@ func TestDispatchPendingJSONMode(t *testing.T) {
 	}
 }
 
-// TestDispatchApproveAssembly — id/supersede 검증·조립.
+// TestDispatchApproveAssembly — id/supersede validation and assembly.
 func TestDispatchApproveAssembly(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"approved","id":7}`, 0)
 	if _, code := DispatchTool("flint_approve", map[string]any{"id": 7}); code != 0 {
@@ -49,7 +50,7 @@ func TestDispatchApproveAssembly(t *testing.T) {
 	if !equal(got, want) {
 		t.Errorf("조립 = %v, want %v", got, want)
 	}
-	// supersede 동반.
+	// With supersede.
 	calls, _ = installRun(t, `{"status":"approved","id":7,"superseded":3}`, 0)
 	DispatchTool("flint_approve", map[string]any{"id": 7, "supersede": 3})
 	got = (*calls)[0].args
@@ -57,7 +58,7 @@ func TestDispatchApproveAssembly(t *testing.T) {
 	if !equal(got, want) {
 		t.Errorf("supersede 조립 = %v, want %v", got, want)
 	}
-	// 검증 실패 3종 — 실행 안 함.
+	// Three validation failures — never executed.
 	for _, bad := range []map[string]any{
 		{"id": 0}, {"id": -1}, {"id": 7, "supersede": 7},
 	} {

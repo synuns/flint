@@ -1,8 +1,8 @@
-// supply_test.go — ops 이동분(report·report_html·
-// backup·sigverify·rules_sync)의 행위 불변. report 효과 지표 산출 불변·
-// backup 3층 방어(0600 강제·사이드카·로테이션)·restore 가드(체크섬·사이드카·
-// 마스킹)·sigverify 임베드 키 계약·dumpStore 위임(realstore_supply 경로)을
-// ops 패키지 단독(fakeStore — doctor_test 관례)으로 담보한다.
+// supply_test.go — behavioral invariants of the ops-moved files (report,
+// report_html, backup, sigverify, rules_sync). The report effect-metric computation
+// unchanged, backup's 3-layer defense (0600 enforcement, sidecar, rotation), restore
+// guards (checksum, sidecar, masking), the sigverify embedded-key contract, and the
+// dumpStore delegation (the realstore_supply path) — all guaranteed by the ops package alone (fakeStore — the doctor_test convention).
 package ops
 
 import (
@@ -25,8 +25,8 @@ import (
 	"github.com/synuns/flint/lib/backup"
 )
 
-// supplyFake — report 조회 전 경로 fake(창 밖 키 배제·파손 스킵 등 기존
-// report_test.go 관례의 최소판). daily만 값, 나머지 집계는 영(零) 동작.
+// supplyFake — a minimal fake for the report query paths (out-of-window key exclusion,
+// corrupt skip, etc. — a minimal version of the existing report_test.go conventions). Only daily has values; the other tallies are zero behavior.
 func supplyFake(daily map[string]string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -45,13 +45,13 @@ func supplyFake(daily map[string]string) *fakeStore {
 	}}
 }
 
-// TestSupplyReportEffectUnchanged — report 효과 지표 산출 불변: daily 합산
-// 단일 유도 사슬(zero_pct·hit_pct·near_pct·dup_prevented·dup_pct)이 이동
-// 전과 동일하게 산출된다(버림 정수%·제로 분모 0).
+// TestSupplyReportEffectUnchanged — the report effect-metric computation unchanged:
+// the daily-sum single derivation chain (zero_pct, hit_pct, near_pct, dup_prevented,
+// dup_pct) computes the same as before the move (floored integer %; zero denominator 0).
 func TestSupplyReportEffectUnchanged(t *testing.T) {
 	now := time.Now().UTC()
 	d := func(daysAgo int) string { return now.AddDate(0, 0, -daysAgo).Format("2006-01-02") }
-	// 2일 창: 일별 read 10·zero 2·near 1·write 10·dup 5 (2일 동일).
+	// 2-day window: daily read 10, zero 2, near 1, write 10, dup 5 (both days identical).
 	row := `{"write":10,"dup":5,"read":10,"read_zero":2,"read_zero_near":1}`
 	f := supplyFake(map[string]string{"daily:" + d(0): row, "daily:" + d(1): row})
 	var out strings.Builder
@@ -95,7 +95,7 @@ func TestSupplyReportEffectUnchanged(t *testing.T) {
 	}
 }
 
-// withBackupSeams — DumpFn·RestoreFn·RotateFn·KeepFn seam 교체(테스트 후 원복).
+// withBackupSeams — swaps the DumpFn/RestoreFn/RotateFn/KeepFn seams (restored after the test).
 func withBackupSeams(t *testing.T, dump string, dumpErr error, restored *string) {
 	t.Helper()
 	prevDump, prevRestore, prevRotate, prevKeep := DumpFn, RestoreFn, RotateFn, KeepFn
@@ -118,8 +118,8 @@ func withBackupSeams(t *testing.T, dump string, dumpErr error, restored *string)
 	t.Cleanup(func() { DumpFn, RestoreFn, RotateFn, KeepFn = prevDump, prevRestore, prevRotate, prevKeep })
 }
 
-// TestSupplyBackupDefenseLayers — backup 3층 방어: ① 민감 덤프 0600 강제
-// ② 원본+.sha256 사이드카(ADR-0006) ③ 성공 출력은 유효 한 줄 JSON(+로테이션 요약).
+// TestSupplyBackupDefenseLayers — backup's 3-layer defense: (1) 0600 enforcement for
+// sensitive dumps, (2) the original + .sha256 sidecar (ADR-0006), (3) a valid one-line JSON success output (+ the rotation summary).
 func TestSupplyBackupDefenseLayers(t *testing.T) {
 	withBackupSeams(t, "-- flint dump\nBEGIN;\nCOMMIT;\n", nil, nil)
 	path := filepath.Join(t.TempDir(), "b.sql")
@@ -132,10 +132,10 @@ func TestSupplyBackupDefenseLayers(t *testing.T) {
 	if err != nil {
 		t.Fatalf("파일 미생성: %v", err)
 	}
-	if fi.Mode().Perm() != 0o600 { // ① 평문 덤프 퍼모드 강제
+	if fi.Mode().Perm() != 0o600 { // (1) plaintext dump permission enforcement
 		t.Errorf("퍼모드=%v, want 0600", fi.Mode().Perm())
 	}
-	side, rerr := os.ReadFile(path + ".sha256") // ② 사이드카
+	side, rerr := os.ReadFile(path + ".sha256") // (2) sidecar
 	if rerr != nil {
 		t.Fatalf("사이드카 미생성: %v", rerr)
 	}
@@ -143,7 +143,7 @@ func TestSupplyBackupDefenseLayers(t *testing.T) {
 	if !strings.HasPrefix(string(side), hex.EncodeToString(h[:])) {
 		t.Errorf("사이드카 체크섬 불일치: %q", side)
 	}
-	var m map[string]any // ③ 한 줄 JSON 계약
+	var m map[string]any // (3) the one-line JSON contract
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &m); err != nil {
 		t.Fatalf("성공 출력이 JSON 아님: %v (%s)", err, out.String())
 	}
@@ -152,9 +152,9 @@ func TestSupplyBackupDefenseLayers(t *testing.T) {
 	}
 }
 
-// TestSupplyBackupOutDashStdout — `--out -`는 POSIX 관례(경로 "-" = stdout)
-// 로 out 미지정과 완전히 동일: 덤프 본문 stdout·평문 경고 유지·cwd에
-// `-`·`-.sha256` 파일 미생성.
+// TestSupplyBackupOutDashStdout — `--out -` follows the POSIX convention (path "-" =
+// stdout), fully identical to omitting --out: the dump body to stdout, the plaintext
+// warning kept, and no `-` or `-.sha256` files created in cwd.
 func TestSupplyBackupOutDashStdout(t *testing.T) {
 	t.Chdir(t.TempDir())
 	dump := "-- flint dump\nBEGIN;\nCOMMIT;\n"
@@ -174,20 +174,20 @@ func TestSupplyBackupOutDashStdout(t *testing.T) {
 	}
 }
 
-// TestSupplyRestoreGuards — restore 가드: 체크섬 불일치·사이드카 부재는
-// 재생 전 차단(RestoreFn 미호출), 마스킹 덤프는 복원 거부.
+// TestSupplyRestoreGuards — restore guards: a checksum mismatch or missing sidecar is
+// blocked before replay (RestoreFn not called); a masked dump is refused for restore.
 func TestSupplyRestoreGuards(t *testing.T) {
 	dir := t.TempDir()
 	plain := []byte("BEGIN;\nCOMMIT;\n")
 
-	// ① 체크섬 불일치 — 임의 SQL 실행 차단.
+	// (1) checksum mismatch — blocking arbitrary SQL execution.
 	p1 := filepath.Join(dir, "mismatch.sql")
 	os.WriteFile(p1, plain, 0o600)
 	os.WriteFile(p1+".sha256", []byte("0000000000000000000000000000000000000000000000000000000000000000  mismatch.sql\n"), 0o600)
-	// ② 사이드카 부재 — 무검증 재생 차단.
+	// (2) missing sidecar — blocking unverified replay.
 	p2 := filepath.Join(dir, "noside.sql")
 	os.WriteFile(p2, plain, 0o600)
-	// ③ 마스킹 덤프 — 진단 전용, 복원 거부(사이드카는 유효).
+	// (3) masked dump — diagnostics-only, restore refused (the sidecar is valid).
 	p3 := filepath.Join(dir, "masked.sql")
 	masked := []byte(backup.MaskDumpHeader + "\n-- masked\n")
 	os.WriteFile(p3, masked, 0o600)
@@ -217,8 +217,8 @@ func TestSupplyRestoreGuards(t *testing.T) {
 	}
 }
 
-// TestSupplySigVerifyEmbeddedKey — sigverify 임베드 키 계약: PublicPEM
-// 주입 검증기의 스킴 분기·변조 거부·미구성 전환 모드.
+// TestSupplySigVerifyEmbeddedKey — the sigverify embedded-key contract: a verifier
+// injected with PublicPEM's scheme branching, tamper rejection, and the unconfigured transition mode.
 func TestSupplySigVerifyEmbeddedKey(t *testing.T) {
 	pub, priv, _ := ed25519.GenerateKey(rand.Reader)
 	der, _ := x509.MarshalPKIXPublicKey(pub)
@@ -235,7 +235,7 @@ func TestSupplySigVerifyEmbeddedKey(t *testing.T) {
 	if err := v.Verify([]byte("tampered"), sig); err == nil {
 		t.Fatal("변조 데이터 통과")
 	}
-	bad := ReleaseVerifier{} // 미구성 전환 모드 — 경로 통과·검증 거부
+	bad := ReleaseVerifier{} // unconfigured transition mode — the path passes, verification refuses
 	if bad.Configured() {
 		t.Fatal("빈 키인데 Configured")
 	}
@@ -244,8 +244,8 @@ func TestSupplySigVerifyEmbeddedKey(t *testing.T) {
 	}
 }
 
-// dumpDelegFake — dumpStore 위임 경로 fake: Dump 메서드 보유(realStore
-// realstore_supply.go 위임과 동일 계약).
+// dumpDelegFake — the dumpStore delegation-path fake: has the Dump method (the same
+// contract as the realStore delegation in realstore_supply.go).
 type dumpDelegFake struct {
 	*fakeStore
 	dump   string
@@ -258,8 +258,8 @@ func (d *dumpDelegFake) Dump(ctx context.Context, w io.Writer) error {
 	return err
 }
 
-// TestSupplyDumpDelegation — 주입 st가 Dump를 구현하면
-// dumpFn seam 폴백이 아니라 위임 경로가 우선한다(realstore_supply 소유).
+// TestSupplyDumpDelegation — when the injected st implements Dump, the delegation
+// path takes precedence over the dumpFn seam fallback (owned by realstore_supply).
 func TestSupplyDumpDelegation(t *testing.T) {
 	withBackupSeams(t, "SEAM-FALLBACK-NEVER", nil, nil)
 	st := &dumpDelegFake{fakeStore: &fakeStore{}, dump: "DELEGATED-DUMP\n"}

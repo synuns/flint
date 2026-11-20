@@ -1,13 +1,13 @@
-// maintain.go — maintain 검토 TUI(`flint maintain --tui` —
-// 옵트인만). dup-suspects/conflict-suspects/stale 3소스 탭 목록(bubbles
-// list) → 상세(양쪽 본문 + "무엇이 보존되는지" 미리보기 — merge UX 원칙)
-// → 키 액션: m(merge — maintain --merge 위임)·k(keep — 무시)·i(invalidate
-// --ids N --yes 위임·되돌림 경로 안내)·q. TUI 자체는 쓰지 않고 전부
-// 기존 maintain 서브커맨드(ops.RunMaintain)에 위임한다(서브커맨드 인자가
-// 복잡하므로 중복 구현 금지). pending TUI 패턴 승계: GlobalIndex(필터
-// 회귀)·sink 원인 파싱(actionFailureCause 재사용)·지연 본문 로드·
-// nonInteractiveHint. 데이터 조회는 로더 seam(pending 수리와 결합도
-// 분리 — 조회 구현 교체가 모델에 스며들지 않는다).
+// maintain.go — the maintain review TUI (`flint maintain --tui` — opt-in
+// only). A 3-source tabbed list of dup-suspects/conflict-suspects/stale (bubbles
+// list) -> detail (both bodies + a "what will be preserved" preview — the merge UX
+// principle) -> key actions: m (merge — delegates to maintain --merge), k (keep —
+// ignore), i (invalidate --ids N --yes delegation with recovery-path guidance), q.
+// The TUI itself performs no writes; everything delegates to the existing maintain
+// subcommands (ops.RunMaintain) (the subcommand arguments are complex, so no
+// duplicate implementation). Inherits the pending TUI patterns: GlobalIndex (the
+// filter regression), sink cause parsing (reusing actionFailureCause), lazy body
+// loading, nonInteractiveHint. Data queries go through loader seams (decoupled from the pending repair — swapping the query implementation does not seep into the model).
 package tui
 
 import (
@@ -29,7 +29,7 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// MaintainSource — 검토 소스 3종(탭 순서).
+// MaintainSource — the 3 review sources (tab order).
 type MaintainSource int
 
 const (
@@ -38,7 +38,7 @@ const (
 	MaintainStale
 )
 
-// label — 소스 탭 라벨(maintain 서브커맨드명과 동일 표기).
+// label — the source tab label (the same notation as the maintain subcommand name).
 func (s MaintainSource) label() string {
 	switch s {
 	case MaintainConflict:
@@ -50,55 +50,55 @@ func (s MaintainSource) label() string {
 	}
 }
 
-// MaintainSuspect — 검토 목록 1행. dup/conflict는 동일 topic 그룹(ids
-// 2개+·conflict는 ids 대응 요약 접두), stale는 단일 항목(사유·경과일).
+// MaintainSuspect — one review-list row. dup/conflict are same-topic groups (2+
+// ids; conflict carries id-corresponding summary prefixes); stale is a single item (reason, elapsed days).
 type MaintainSuspect struct {
 	Source    MaintainSource
 	Topic     string
 	IDs       []int
-	Summaries []string // conflict: ids 대응 요약 접두(보고 출력 승계)
+	Summaries []string // conflict: id-corresponding summary prefixes (inheriting the report output)
 	Reason    string   // stale: never_read | stale
 	StaleDays int
 }
 
-// MaintainBody — 상세·선택 화면용 지식 본문(id 배치 조회 산물).
+// MaintainBody — the knowledge bodies for the detail and pick screens (the id batch query result).
 type MaintainBody struct {
 	ID              int
 	Topic, Summary  string
 	Origin, ValidAt string
 }
 
-// MaintainData — 3소스 검토 대상 스냅샷(진입 시 1회 로드).
+// MaintainData — the snapshot of the 3 sources' review targets (loaded once at entry).
 type MaintainData struct {
 	Dup, Conflict, Stale []MaintainSuspect
 }
 
-// Empty — 3소스 전부 비었는지(진입 안내 판정).
+// Empty — whether all 3 sources are empty (the entry-notice verdict).
 func (d MaintainData) Empty() bool {
 	return len(d.Dup) == 0 && len(d.Conflict) == 0 && len(d.Stale) == 0
 }
 
-// MaintainActions — 액션 위임 seam(테스트 fake 주입). 반환은 (위임 경로
-// exit code, 실패 원인) — 원인은 sink JSON 파싱 산물(계약 5 승계).
+// MaintainActions — the action-delegation seam (test fake injection). Returns (the
+// delegated path's exit code, the failure cause) — the cause is a sink JSON parse product (inheriting contract 5).
 type MaintainActions struct {
 	Merge      func(ctx context.Context, from, to int) (int, string)
 	Invalidate func(ctx context.Context, id int) (int, string)
 }
 
-// MaintainLoaders — 데이터 로더 seam. Suspects는 진입 시 1회, Bodies는
-// 상세·선택 진입 시점 지연 로드(대량 본문을 첫 렌더에서 제외).
+// MaintainLoaders — the data-loader seams. Suspects loads once at entry; Bodies
+// lazy-loads at detail/pick entry (keeping large bodies out of the first render).
 type MaintainLoaders struct {
 	Suspects func(ctx context.Context) (MaintainData, error)
 	Bodies   func(ctx context.Context, ids []int) (map[int]MaintainBody, error)
 }
 
-// maintainRunner — ops.RunMaintain 주입 seam. 기본 실구현(중복 구현
-// 금지 — 보고 SQL·쓰기 경로 전부 maintain 서브커맨드 소유), 테스트 fake.
+// maintainRunner — the ops.RunMaintain injection seam. Real implementation by default
+// (no duplicate implementation — the report SQL and write paths are all owned by the maintain subcommands); tests use a fake.
 var maintainRunner = ops.RunMaintain
 
-// defaultMaintainActions — 실구현 액션. RunMaintain의 JSON 출력은 버퍼로
-// 흡수(TUI 화면 오염 방지 — pending defaultPendingActions 관례). 실패 시
-// 흡수 출력에서 원인을 파싱해 함께 돌려준다.
+// defaultMaintainActions — the real actions. RunMaintain's JSON output is
+// absorbed into a buffer (keeping the TUI screen clean — the pending
+// defaultPendingActions convention). On failure, it parses the cause from the absorbed output and returns it alongside.
 func defaultMaintainActions(st wire.Store) MaintainActions {
 	run := func(ctx context.Context, args []string) (int, string) {
 		var sink bytes.Buffer
@@ -118,9 +118,9 @@ func defaultMaintainActions(st wire.Store) MaintainActions {
 	}
 }
 
-// defaultMaintainLoaders — 실구현 로더. Suspects는 maintain 보고
-// 서브커맨드 3종의 JSON 출력을 파싱한다(SQL·분류 단일 소스 — ops 관례
-// 재사용). Bodies는 id 배치 조회(재살귑 render.Text 경유 — pending 관례).
+// defaultMaintainLoaders — the real loaders. Suspects parses the JSON output of the
+// 3 maintain report subcommands (a single SQL and classification source — reusing the ops
+// conventions). Bodies is an id batch query (re-sanitized via render.Text — the pending convention).
 func defaultMaintainLoaders(st wire.Store) MaintainLoaders {
 	return MaintainLoaders{
 		Suspects: func(ctx context.Context) (MaintainData, error) {
@@ -132,8 +132,8 @@ func defaultMaintainLoaders(st wire.Store) MaintainLoaders {
 	}
 }
 
-// maintainReportJSON — 위임 보고 1회 실행 + 첫 JSON 라인 추출. exit != 0
-// 이면 원인(sink 파싱·없으면 exit code)을 오류로 돌린다.
+// maintainReportJSON — runs the delegated report once + extracts the first JSON
+// line. If exit != 0, returns the cause (sink-parsed, else the exit code) as an error.
 func maintainReportJSON(ctx context.Context, st wire.Store, args []string) ([]byte, error) {
 	var sink bytes.Buffer
 	code := maintainRunner(ctx, st, args, strings.NewReader(""), &sink)
@@ -157,14 +157,14 @@ func maintainReportJSON(ctx context.Context, st wire.Store, args []string) ([]by
 	return []byte(line), nil
 }
 
-// loadMaintainSuspects — 3소스 보고 파싱. 그룹 산식·모순 분류·stale
-// 경계는 maintain 서브커맨드가 이미 소유한다(여기서 재구현하지 않는다).
+// loadMaintainSuspects — parses the 3 sources' reports. The grouping formula, contradiction
+// classification, and stale boundaries are already owned by the maintain subcommands (not reimplemented here).
 func loadMaintainSuspects(ctx context.Context, st wire.Store) (MaintainData, error) {
 	var data MaintainData
 
-	// 보고 3종은 상한을 명시한다(ops.MaintainTUILoadLimit
-	// 단일 소스) — 기본 10/20으로 잘려도 TUI 화면에는 잘림이 표시되지
-	// 않는다(잘림 무표시 폐지). 인자 순서는 파서 표 기반이라 무관하다.
+	// the 3 reports state their caps explicitly (the single source
+	// ops.MaintainTUILoadLimit) — even when truncated at the defaults 10/20, the TUI screen
+	// shows no truncation (abolishing invisible truncation). The argument order is parser-table-driven and irrelevant.
 	dupRaw, err := maintainReportJSON(ctx, st,
 		[]string{"--limit", strconv.Itoa(ops.MaintainTUILoadLimit), "--dup-suspects"})
 	if err != nil {
@@ -236,8 +236,8 @@ func loadMaintainSuspects(ctx context.Context, st wire.Store) (MaintainData, err
 	return data, nil
 }
 
-// loadMaintainBodies — id 배치 본문 조회(상세·선택 화면). 저장값은 재살귑
-// (render.Text — pending loadPendingItems 관례).
+// loadMaintainBodies — the id batch body query (detail and pick screens).
+// Stored values are re-sanitized (render.Text — the pending loadPendingItems convention).
 func loadMaintainBodies(ctx context.Context, st wire.Store, ids []int) (map[int]MaintainBody, error) {
 	rows, err := wire.QueryOnce(ctx, st, `
 		SELECT id, topic, summary, origin, valid_at
@@ -268,8 +268,8 @@ func loadMaintainBodies(ctx context.Context, st wire.Store, ids []int) (map[int]
 	return out, nil
 }
 
-// RunMaintainTUI — `flint maintain --tui` 진입. 검토 대상 0건은 TUI 없이
-// 안내 exit 0, 비터미널은 Run 래퍼 폴백 exit 3.
+// RunMaintainTUI — the `flint maintain --tui` entry. 0 review targets shows
+// guidance without the TUI, exit 0; non-terminal falls back to the Run wrapper, exit 3.
 func RunMaintainTUI(ctx context.Context, st wire.Store, stdout io.Writer) int {
 	ld := defaultMaintainLoaders(st)
 	data, err := ld.Suspects(ctx)
@@ -288,7 +288,7 @@ func RunMaintainTUI(ctx context.Context, st wire.Store, stdout io.Writer) int {
 	return 0
 }
 
-// maintainMode — 화면 상태(list → detail / list → pick).
+// maintainMode — the screen state (list -> detail / list -> pick).
 type maintainMode int
 
 const (
@@ -297,17 +297,17 @@ const (
 	maintainPick
 )
 
-// maintainBodiesMsg — 지연 본문 로드 완료. err != nil이면 bodies 무시.
-// want는 대기 중 진입("detail" | "merge" | "invalidate").
+// maintainBodiesMsg — the lazy body load finished. If err != nil, bodies are ignored.
+// want is the pending entry ("detail" | "merge" | "invalidate").
 type maintainBodiesMsg struct {
 	bodies map[int]MaintainBody
 	err    error
 	want   string
 }
 
-// MaintainModel — maintain 검토 화면 모델. 로더·액션은 생성 시 주입
-// (seam) — Update는 상태 전이와 위임 호출만 담당한다. 본문은 상세·선택
-// 진입 시점 지연 로드 후 모델 캐시(m.bodies)에 적립한다.
+// MaintainModel — the maintain review screen model. The loaders and actions are injected
+// at construction (seams) — Update handles only state transitions and delegation calls.
+// Bodies lazy-load at detail/pick entry and accumulate in the model cache (m.bodies).
 type MaintainModel struct {
 	ctx        context.Context
 	tabs       [3][]MaintainSuspect
@@ -318,14 +318,14 @@ type MaintainModel struct {
 	acts       MaintainActions
 	mode       maintainMode
 	status     string
-	width      int // 마지막 WindowSizeMsg 폭(wordwrap 기준)
-	height     int // 마지막 WindowSizeMsg 높이(선택 list 재조립용)
+	width      int // the latest WindowSizeMsg width (the wordwrap basis)
+	height     int // the latest WindowSizeMsg height (for pick list reassembly)
 	pick       list.Model
 	pickIDs    []int
 	pickWhat   string // "merge" | "invalidate"
 }
 
-// suspectRow / pickRow — bubbles list 행.
+// suspectRow / pickRow — bubbles list rows.
 type suspectRow struct{ s MaintainSuspect }
 
 func (r suspectRow) Title() string { return r.s.Topic }
@@ -347,19 +347,19 @@ func (r suspectRow) FilterValue() string {
 	return strings.Join(ids, " ") + " " + r.s.Topic
 }
 
-// pickRow — 선택 화면 행(생존자/무효화 대상 후보).
+// pickRow — a pick-screen row (survivor / invalidation-target candidates).
 type pickRow struct{ b MaintainBody }
 
 func (r pickRow) Title() string       { return fmt.Sprintf("#%d  %s", r.b.ID, r.b.Summary) }
 func (r pickRow) Description() string { return r.b.Origin }
 func (r pickRow) FilterValue() string { return fmt.Sprintf("#%d %s", r.b.ID, r.b.Summary) }
 
-// suspectRows — 검토 목록 전량 재조립. 필터 중 제거는
-// bubbles RemoveItem을 쓰지 않는다: RemoveItem은 items는 전역 인덱스로,
-// filteredItems는 필터 위치 기준으로 지워 filteredItem.index가 어긋난다
-// (두 번째 액션이 다른 그룹을 지목). 모델 원본 슬라이스에서 행을 다시
-// 만들어 SetItems로 반영한다(활성 필터는 SetItems가 재적용 — 반환 cmd를
-// 상위로 돌려야 FilterMatchesMsg가 반영된다).
+// suspectRows — the full review-list reassembly. Removal during filtering does
+// not use bubbles RemoveItem: RemoveItem deletes items by global index but
+// filteredItems by filter position, so filteredItem.index goes out of sync (a
+// second action would target a different group). Rows are rebuilt from the
+// model's original slice and reflected via SetItems (an active filter is
+// reapplied by SetItems — the returned cmd must be bubbled up for FilterMatchesMsg to apply).
 func suspectRows(suspects []MaintainSuspect) []list.Item {
 	rows := make([]list.Item, len(suspects))
 	for i, s := range suspects {
@@ -368,12 +368,12 @@ func suspectRows(suspects []MaintainSuspect) []list.Item {
 	return rows
 }
 
-// maintainListHeight — 목록에 배분할 높이: View의 비목록
-// 라인을 제외한 나머지. 최소 1.
-//   - 높이 ≥ 12: 크롬 7행(소스 탭 헤더 + 키 안내·status·비대화 안내와
-//     구분 공백).
-//   - 저화면(< 12): 크롬 2행(소스 탭 헤더 + 키 안내만 — 비대화 안내·구분
-//     여백·status는 View에서 생략, q/ESC 탈출 안내 유지).
+// maintainListHeight — the height to allocate to the list: everything except
+// View's non-list lines. Minimum 1.
+//   - height >= 12: 7 chrome lines (the source tab header + key hints, status,
+//     the non-interactive notice, and separating blanks).
+//   - low screen (< 12): 2 chrome lines (source tab header + key hints only —
+//     the non-interactive notice, separator blanks, and status are omitted in View; the q/ESC exit hint is kept).
 func maintainListHeight(height int) int {
 	chrome := 7
 	if lowHeight(height) {
@@ -386,9 +386,9 @@ func maintainListHeight(height int) int {
 	return h
 }
 
-// NewMaintainModel — 모델 조립(목록 크기 0x0 — WindowSizeMsg로 설정).
-// 초기 탭은 첫 비어 있지 않은 소스. 본문 요약이 없는 dup/stale도 선택
-// 화면 행 표기용 최소 본문(ID·topic)으로 채운다(로드 전 픽스처 대비).
+// NewMaintainModel — assembles the model (list size 0x0 — set via WindowSizeMsg).
+// The initial tab is the first non-empty source. dup/stale without body summaries get a
+// minimal body (ID, topic) for pick-screen row display (in case of pre-load fixtures).
 func NewMaintainModel(ctx context.Context, data MaintainData, ld MaintainLoaders, acts MaintainActions) MaintainModel {
 	m := MaintainModel{
 		ctx:        ctx,
@@ -410,17 +410,17 @@ func NewMaintainModel(ctx context.Context, data MaintainData, ld MaintainLoaders
 	return m
 }
 
-// Init — 시작 커맨드 없음.
+// Init — no startup commands.
 func (m MaintainModel) Init() tea.Cmd { return nil }
 
-// Update — 창 크기 전이와 키 입력 상태 전이.
+// Update — window-size transitions and key-input state transitions.
 func (m MaintainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width, m.height = msg.Width, msg.Height
-		h := maintainListHeight(msg.Height) // B2: 비목록 라인 제외(저화면 크롬 2행)
-		// 저화면(< 12)에서는 bubbles 내장 help를 끈다(내장 help 1행이
-		// 목록 최소 높이를 넘긴다 — 자체 힌트가 q/ESC 탈출 안내를 유지).
+		h := maintainListHeight(msg.Height) // B2: excluding non-list lines (low-screen chrome is 2 lines)
+		// on low screens (< 12), bubbles' built-in help is turned off (the built-in
+		// help's 1 line exceeds the list's minimum height — our own hint keeps the q/ESC exit guidance).
 		showHelp := msg.Width > 40 && !lowHeight(msg.Height)
 		for i := range m.lists {
 			m.lists[i].SetSize(msg.Width, h)
@@ -441,13 +441,13 @@ func (m MaintainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case maintainBodiesMsg:
 		return m.applyBodies(msg)
 	case list.FilterMatchesMsg:
-		// 필터 결과 회신 라우팅: 선택 화면은 pick, 그 외 활성 탭 list.
+		// filter-result reply routing: the pick screen uses pick; otherwise the active tab's list.
 		var cmd tea.Cmd
 		if m.mode == maintainPick {
 			m.pick, cmd = m.pick.Update(msg)
 		} else {
 			m.lists[m.tab], cmd = m.lists[m.tab].Update(msg)
-			resetEmptyFilter(&m.lists[m.tab]) // B1: 빈 재필터 해제
+			resetEmptyFilter(&m.lists[m.tab]) // B1: clearing an empty refilter
 		}
 		return m, cmd
 	default:
@@ -455,8 +455,8 @@ func (m MaintainModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// current — 활성 탭 선택 항목(GlobalIndex — 필터 적용 시 visible 인덱스를
-// 전체 인덱스로 환산. list.Index는 필터 기준이라 tabs와 어긋난다).
+// current — the active tab's selected item (GlobalIndex — with a filter applied,
+// converts the visible index to the full index. list.Index is filter-relative and would diverge from tabs).
 func (m MaintainModel) current() (MaintainSuspect, bool) {
 	idx := m.lists[m.tab].GlobalIndex()
 	if idx >= len(m.tabs[m.tab]) {
@@ -465,9 +465,9 @@ func (m MaintainModel) current() (MaintainSuspect, bool) {
 	return m.tabs[m.tab][idx], true
 }
 
-// updateList — 목록 화면: tab 소스 전환·enter 상세·m/i/k 액션. 필터 입력
-// 중(list.Filtering)에는 모든 키를 list에 위임한다(액션 키가 필터
-// 텍스트로 소비돼야 한다).
+// updateList — the list screen: tab source switching, enter for detail, m/i/k
+// actions. During filter input (list.Filtering), all keys are delegated to the
+// list (action keys must be consumed as filter text).
 func (m MaintainModel) updateList(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.lists[m.tab].FilterState() == list.Filtering {
 		var cmd tea.Cmd
@@ -494,7 +494,7 @@ func (m MaintainModel) updateList(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// cycleTab — 다음 비어 있지 않은 소스 탭으로 전환(빈 탭 스킵).
+// cycleTab — switches to the next non-empty source tab (skipping empty tabs).
 func (m MaintainModel) cycleTab() MaintainModel {
 	for i := 1; i < 3; i++ {
 		next := (m.tab + i) % 3
@@ -507,7 +507,7 @@ func (m MaintainModel) cycleTab() MaintainModel {
 	return m
 }
 
-// updateDetail — 상세 화면: esc 복귀, m/i/k는 목록과 동일 위임.
+// updateDetail — the detail screen: esc returns; m/i/k delegate as in the list.
 func (m MaintainModel) updateDetail(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	switch key.String() {
 	case "q", "ctrl+c":
@@ -527,9 +527,9 @@ func (m MaintainModel) updateDetail(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// updatePick — 선택 화면: enter 확정·esc 취소. 선택 인덱스는
-// GlobalIndex(필터 적용 시 visible → 전체 환산 — pending 관례 승계).
-// 필터 입력 중(pick.Filtering) 키는 pick에 위임.
+// updatePick — the pick screen: enter confirms, esc cancels. The selection index uses
+// GlobalIndex (with a filter applied, visible -> full conversion — inheriting the pending
+// convention). During filter input (pick.Filtering), keys are delegated to pick.
 func (m MaintainModel) updatePick(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.pick.FilterState() == list.Filtering {
 		var cmd tea.Cmd
@@ -552,8 +552,8 @@ func (m MaintainModel) updatePick(key tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 }
 
-// startMerge — m 진입: dup/conflict 그룹만(stale은 안내). 본문 미캐시면
-// 지연 로드 후 선택 화면 전환.
+// startMerge — entering m: dup/conflict groups only (stale gets a notice). If
+// the bodies are uncached, lazy-loads and then switches to the pick screen.
 func (m MaintainModel) startMerge() (tea.Model, tea.Cmd) {
 	cur, ok := m.current()
 	if !ok {
@@ -566,8 +566,8 @@ func (m MaintainModel) startMerge() (tea.Model, tea.Cmd) {
 	return m.requestBodies("merge")
 }
 
-// startInvalidate — i 진입: stale은 본문 로드·선택 없이 즉시 위임,
-// 그룹은 무효화할 id 선택 화면(본문 지연 로드 후).
+// startInvalidate — entering i: stale delegates immediately without body
+// loading or picking; groups get an id pick screen (after lazy body loading).
 func (m MaintainModel) startInvalidate() (tea.Model, tea.Cmd) {
 	cur, ok := m.current()
 	if !ok {
@@ -579,8 +579,8 @@ func (m MaintainModel) startInvalidate() (tea.Model, tea.Cmd) {
 	return m.requestBodies("invalidate")
 }
 
-// requestBodies — 상세·선택 진입의 본문 확보. 미캐시 id가 있으면 로드
-// cmd를 예약(status "loading items..."), 전부 캐시되면 즉시 전환.
+// requestBodies — securing bodies for detail/pick entry. If uncached ids exist,
+// schedules the load command (status "loading items..."); if all cached, switches immediately.
 func (m MaintainModel) requestBodies(want string) (tea.Model, tea.Cmd) {
 	cur, ok := m.current()
 	if !ok {
@@ -606,8 +606,8 @@ func (m MaintainModel) requestBodies(want string) (tea.Model, tea.Cmd) {
 	}
 }
 
-// applyBodies — 지연 로드 완료 적용: 실패는 원인 안내(현 화면 유지 —
-// 재시도 가능), 성공은 캐시 적립 후 대기 중 진입으로 전환.
+// applyBodies — applying the lazy-load result: failure shows the cause (staying
+// on the current screen — retry possible); success caches and switches to the pending entry.
 func (m MaintainModel) applyBodies(msg maintainBodiesMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
 		m.status = fmt.Sprintf("load items failed: %v", msg.err)
@@ -619,7 +619,7 @@ func (m MaintainModel) applyBodies(msg maintainBodiesMsg) (tea.Model, tea.Cmd) {
 	return m.transitionLoaded(msg.want)
 }
 
-// transitionLoaded — 본문 확보 후 진입 전환.
+// transitionLoaded — the entry transition after securing bodies.
 func (m MaintainModel) transitionLoaded(want string) (tea.Model, tea.Cmd) {
 	switch want {
 	case "merge", "invalidate":
@@ -631,8 +631,8 @@ func (m MaintainModel) transitionLoaded(want string) (tea.Model, tea.Cmd) {
 	}
 }
 
-// buildPick — 선택 화면 조립(merge: 생존자 선택 · invalidate: 무효화
-// 대상 선택). 행 본문은 캐시에서(미캐시 id는 topic 폴백 표기).
+// buildPick — assembles the pick screen (merge: pick the survivor; invalidate:
+// pick the invalidation target). Row bodies come from the cache (uncached ids fall back to topic display).
 func (m MaintainModel) buildPick(what string) MaintainModel {
 	cur, ok := m.current()
 	if !ok {
@@ -653,7 +653,7 @@ func (m MaintainModel) buildPick(what string) MaintainModel {
 	}
 	m.pick = list.New(rows, list.NewDefaultDelegate(), 0, 0)
 	if m.width > 0 {
-		// 창 크기 재적용(새 list는 0x0에서 조립된다).
+		// reapply the window size (a new list is assembled at 0x0).
 		h := maintainListHeight(m.height)
 		m.pick.SetSize(m.width, h)
 		m.pick.SetShowHelp(m.width > 40 && !lowHeight(m.height))
@@ -671,9 +671,9 @@ func (m MaintainModel) buildPick(what string) MaintainModel {
 	return m
 }
 
-// confirmPick — 선택 확정. merge: from=첫 비선택 id → to=선택(생존자).
-// invalidate: 선택 id. 성공 후 그룹에 3건+ 남으면 id만 갱신(재검토), 그
-// 외는 검토 목록에서 제거한다.
+// confirmPick — the pick confirmation. merge: from = the first unselected id -> to = the
+// selected (survivor). invalidate: the selected id. On success, a group with 3+ remaining
+// updates only the ids (for re-review); otherwise it is removed from the review list.
 func (m MaintainModel) confirmPick() (tea.Model, tea.Cmd) {
 	pidx := m.pick.GlobalIndex()
 	if pidx >= len(m.pickIDs) {
@@ -709,9 +709,9 @@ func (m MaintainModel) confirmPick() (tea.Model, tea.Cmd) {
 	return m.invalidateID(picked)
 }
 
-// invalidateID — 무효화 위임(--invalidate --ids N --yes 등가). 성공 status는
-// 되돌림 경로를 안내한다(행은 삭제되지 않고 이력 보존 — prune 전 복구
-// 가능). 위임 실패 시 현 항목 유지(재시도 가능).
+// invalidateID — the invalidation delegation (equivalent to --invalidate --ids N --yes).
+// The success status explains the recovery path (the row is not deleted; history is
+// preserved — recoverable before prune). On delegation failure, the item stays (retry possible).
 func (m MaintainModel) invalidateID(id int) (tea.Model, tea.Cmd) {
 	code, cause := m.acts.Invalidate(m.ctx, id)
 	m.mode = maintainList
@@ -724,7 +724,7 @@ func (m MaintainModel) invalidateID(id int) (tea.Model, tea.Cmd) {
 	return m.shrinkOrRemove(id)
 }
 
-// keepSelected — k: 쓰기 없이 검토 목록에서 제거("무시" 판정 기록).
+// keepSelected — k: removes from the review list without writing (recording the "ignored" verdict).
 func (m MaintainModel) keepSelected() (tea.Model, tea.Cmd) {
 	idx := m.lists[m.tab].GlobalIndex()
 	if idx >= len(m.tabs[m.tab]) {
@@ -734,8 +734,8 @@ func (m MaintainModel) keepSelected() (tea.Model, tea.Cmd) {
 	return m.removeSuspect(m.tab, idx)
 }
 
-// shrinkOrRemove — 처리된 id를 그룹에서 뺀다. 3건+ 그룹은 id만 갱신(다음
-// 판단 대기), 2건 그룹은 남은 1건이면 검토 완료로 제거.
+// shrinkOrRemove — removes the processed id from the group. A 3+ group updates
+// only the ids (awaiting the next judgment); a 2-item group with 1 remaining is removed as review-complete.
 func (m MaintainModel) shrinkOrRemove(id int) (tea.Model, tea.Cmd) {
 	idx := m.lists[m.tab].GlobalIndex()
 	if idx >= len(m.tabs[m.tab]) {
@@ -751,14 +751,14 @@ func (m MaintainModel) shrinkOrRemove(id int) (tea.Model, tea.Cmd) {
 	if len(remaining) > 1 {
 		cur.IDs = remaining
 		m.tabs[m.tab][idx] = cur
-		return m, m.lists[m.tab].SetItems(suspectRows(m.tabs[m.tab])) // B1: 전량 재조립
+		return m, m.lists[m.tab].SetItems(suspectRows(m.tabs[m.tab])) // B1: full reassembly
 	}
 	return m.removeSuspect(m.tab, idx)
 }
 
-// removeSuspect — 검토 목록에서 항목 제거. 전소스 비면 종료. 제거는
-// SetItems 전량 재조립(B1): 반환 cmd(재필터 FilterMatchesMsg)을 호출부가
-// 상위로 돌려야 활성 필터가 다시 적용된다.
+// removeSuspect — removes an item from the review list. Exits when all sources are
+// empty. Removal uses the full SetItems reassembly (B1): the caller must bubble the
+// returned cmd (the refilter FilterMatchesMsg) up for the active filter to reapply.
 func (m MaintainModel) removeSuspect(tab, idx int) (tea.Model, tea.Cmd) {
 	if idx < 0 || idx >= len(m.tabs[tab]) {
 		return m, nil
@@ -773,25 +773,25 @@ func (m MaintainModel) removeSuspect(tab, idx int) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmd, tea.Quit)
 }
 
-// maintainGroupPreview — 그룹(dup/conflict) 상세의 보존 미리보기(merge
-// UX 원칙 — 무엇이 보존되는지 행위 전에 명시).
+// maintainGroupPreview — the preservation preview of a (dup/conflict) group
+// detail (the merge UX principle — stating what is preserved before the act).
 const maintainGroupPreview = "merge preview (m): pick a survivor — the survivor is preserved as-is; the other item is invalidated (kept in history) and a [merged:from=N] marker is appended to the survivor's summary"
 
-// maintainStalePreviewFmt — stale 상세의 무효화 미리보기(되돌림 경로 포함).
+// maintainStalePreviewFmt — the invalidation preview of a stale detail (including the recovery path).
 const maintainStalePreviewFmt = "invalidate preview (i): #%d is marked invalidated — the row is preserved in history, not deleted; undo: restore via dolt history (flint asof) before prune-invalidated"
 
-// maintainPickHint — 선택 화면 보존 미리보기.
+// maintainPickHint — the pick screen's preservation preview.
 const maintainMergePickHint = "survivor stays active · others invalidated (kept in history) · [merged:from=N] marker appended"
 
-// View — 화면 렌더. 키 안내는 영어 고정(플러그인 룰). 저화면(높이
-// < 12)에서는 선택 크롬(비대화 안내·구분 여백·status)을 생략하고 소스
-// 탭 헤더·키 안내(q/ESC 탈출)만 유지한다 — 임계 이상 레이아웃은 바이트
-// 불변.
+// View — renders the screen. The key hints are fixed English (plugin rule). On
+// low screens (height < 12), the optional chrome (non-interactive notice,
+// separator blanks, status) is omitted, keeping only the source tab header and
+// key hints (q/ESC exit) — the above-threshold layout is byte-identical.
 func (m MaintainModel) View() string {
 	low := lowHeight(m.height)
 	var b strings.Builder
-	// writeHint — 키 안내 라인. lead는 모드 구분(목록 계열은 list.View가
-	// 개행 없이 끝나므로 "\n", 상세는 ""). 저화면은 접미 개행만 생략.
+	// writeHint — the key-hint line. lead distinguishes the mode (the list family's
+	// list.View ends without a newline, so "\n"; detail uses ""). Low screens omit only the trailing newline.
 	writeHint := func(lead, full, short string) {
 		suffix := "\n"
 		if low {
@@ -837,7 +837,7 @@ func (m MaintainModel) View() string {
 			writeHint("\n", "enter confirm · esc back · q quit", "enter/esc · q quit")
 		}
 	default:
-		// 소스 탭 헤더: 활성 탭 대괄호 강조 + 건수.
+		// the source tab header: the active tab bracketed + counts.
 		parts := make([]string, 3)
 		for i := 0; i < 3; i++ {
 			label := fmt.Sprintf("%s %d", MaintainSource(i).label(), len(m.tabs[i]))
@@ -855,8 +855,8 @@ func (m MaintainModel) View() string {
 		fmt.Fprintf(&b, "\n%s\n", Theme.Accent.Render(m.status))
 	}
 	if !low {
-		// trailing newline 제거 — 마지막 개행이 렌더 라인 수를
-		// 1줄 늘린다.
+		// the trailing newline is removed — a final newline adds 1 render
+		// line.
 		fmt.Fprintf(&b, "\n%s", Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
 	}
 	return b.String()

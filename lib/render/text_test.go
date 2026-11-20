@@ -1,4 +1,5 @@
-// text_test.go — TruncateRunes·CellToInt 테스트. 단일 구현 관례(스펙 §2).
+// text_test.go — tests for TruncateRunes and CellToInt. Single-implementation
+// convention (spec §2).
 package render
 
 import (
@@ -6,10 +7,11 @@ import (
 	"testing"
 )
 
-// TestTruncateRunesSingleSource — rune 절단(멀티바이트 안전) 단일 구현.
-// 상한 이하·빈 문자열 불변, 혼합 문자열 룬 단위 절단.
+// TestTruncateRunesSingleSource — single implementation of rune-bound
+// truncation (multibyte-safe). Under-bound and empty strings unchanged;
+// mixed strings truncated by rune count.
 func TestTruncateRunesSingleSource(t *testing.T) {
-	long := strings.Repeat("한", 60) // 60룬(180바이트) — 바이트 절단이면 파손
+	long := strings.Repeat("한", 60) // 60 runes (180 bytes) — byte truncation would corrupt
 	if got := TruncateRunes(long, 40); len([]rune(got)) != 40 || got != strings.Repeat("한", 40) {
 		t.Errorf("룬 절단 위반: %d룬", len([]rune(got)))
 	}
@@ -27,10 +29,10 @@ func TestTruncateRunesSingleSource(t *testing.T) {
 	}
 }
 
-// TestCellToIntSingleSource — 셀(any)→int 단일
-// 강제 변환 구현이 render에만 존재한다. pgx 숫자형·float64·10진 문자열
-// 수용, nil·비수는 (0, false) — read rowIDs·maintain stale·report 집계가
-// 공유하는 계약.
+// TestCellToIntSingleSource — the single cell(any)->int coercion lives only
+// in render. Accepts pgx numeric types, float64, and decimal strings; nil
+// and non-numerics yield (0, false) — the contract shared by read rowIDs,
+// maintain stale, and report aggregation.
 func TestCellToIntSingleSource(t *testing.T) {
 	cases := []struct {
 		in   any
@@ -44,7 +46,7 @@ func TestCellToIntSingleSource(t *testing.T) {
 		{"7", 7, true},
 		{nil, 0, false},
 		{"x", 0, false},
-		{7.9, 7, true}, // float64는 버림 강제 — 기존 계약 불변
+		{7.9, 7, true}, // float64 truncates toward zero — existing contract unchanged
 	}
 	for _, tc := range cases {
 		got, ok := CellToInt(tc.in)

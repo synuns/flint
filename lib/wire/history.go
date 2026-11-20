@@ -1,7 +1,7 @@
-// history.go — Store 히스토리 계약(5메서드)의 타입·에러·기본구현.
-// 방언(Dolt/Doltgres) 구현은 lib/db가 소유하고, 이 층은 계약만 정의한다.
-// HistoryStubs는 테스트 fake가 임베딩해 5메서드를 기본구현으로
-// 흡수하는 용도(미지원 시 ErrHistoryUnsupported 반환).
+// history.go — the types, errors, and default implementations of the Store history
+// contract (5 methods). The dialect (Dolt/Doltgres) implementation is owned by lib/db;
+// this layer defines only the contract. HistoryStubs is for test fakes to embed,
+// absorbing the 5 methods as default implementations (returning ErrHistoryUnsupported when unsupported).
 package wire
 
 import (
@@ -10,14 +10,14 @@ import (
 	"time"
 )
 
-// ErrHistoryUnsupported — Store 구현이 히스토리 계약을 지원하지
-// 않을 때 반환. fake 기본구현과 미지원 방언이 공용으로 사용한다.
+// ErrHistoryUnsupported — returned when a Store implementation does not support
+// the history contract. Shared by the fake defaults and unsupported dialects.
 var ErrHistoryUnsupported error = errors.New("flint: history queries unsupported by this store")
 
-// LogQuery — LogEntries 조회 조건. Hash·Prefix는 커밋 해시 선택,
-// BeforeOrAt·Earliest·LatestN·MessageNotLike·MessageLike는 범위·필터링.
-// MessageLike·MessageNotLike 모두 빈 값이면 조건 없음(예: 세션
-// 태그 message LIKE '%[session:ID]%' 표현).
+// LogQuery — the LogEntries lookup conditions. Hash and Prefix select the commit
+// hash; BeforeOrAt, Earliest, LatestN, MessageNotLike, and MessageLike are range
+// and filtering. Both MessageLike and MessageNotLike are no-conditions when
+// empty (e.g. expressing the session-tag message LIKE '%[session:ID]%').
 type LogQuery struct {
 	Hash           string
 	Prefix         string
@@ -28,7 +28,7 @@ type LogQuery struct {
 	MessageLike    string
 }
 
-// LogEntry — 커밋 로그 1건.
+// LogEntry — one commit-log entry.
 type LogEntry struct {
 	Hash      string
 	Committer string
@@ -36,9 +36,9 @@ type LogEntry struct {
 	Date      time.Time
 }
 
-// AsOfQuery — 시점 조회. Where는 raw 꼬리 절(WHERE...ORDER BY
-// 포함) 또는 조건-only(접두 WHERE 자동 부여) 양형식 — 내부 산출물만
-// 전달한다(사용자 raw 유입 금지).
+// AsOfQuery — a point-in-time query. Where is either a raw trailing clause
+// (including WHERE...ORDER BY) or conditions-only (the WHERE prefix is added
+// automatically) — only internal products are passed (no user raw input).
 type AsOfQuery struct {
 	Hash    string
 	Table   string
@@ -48,14 +48,14 @@ type AsOfQuery struct {
 	Limit   int
 }
 
-// KnowledgeDiffRow — 두 커밋 간 knowledge 행 diff 1건.
+// KnowledgeDiffRow — one knowledge row diff between two commits.
 type KnowledgeDiffRow struct {
 	DiffType string
 	ID       string
 	Topic    string
 }
 
-// TableDiffStat — 커밋 1건의 테이블별 변경 통계.
+// TableDiffStat — the per-table change statistics of one commit.
 type TableDiffStat struct {
 	CommitHash   string
 	Table        string
@@ -63,7 +63,7 @@ type TableDiffStat struct {
 	SchemaChange bool
 }
 
-// DiffCommitSummary — 두 커밋 사이 커밋 요약(diff 대상).
+// DiffCommitSummary — the commit summary between two commits (the diff targets).
 type DiffCommitSummary struct {
 	Hash         string
 	Message      string
@@ -72,31 +72,31 @@ type DiffCommitSummary struct {
 	SchemaChange bool
 }
 
-// HistoryStubs — 히스토리 5메서드 기본구현. fake에 임베딩하면
-// 미지원 반환으로 Store 인터페이스를 충족시킨다.
+// HistoryStubs — the default implementations of the 5 history methods. Embedding
+// in a fake satisfies the Store interface by returning unsupported.
 type HistoryStubs struct{}
 
-// LogEntries — 기본구현: 미지원.
+// LogEntries — the default implementation: unsupported.
 func (HistoryStubs) LogEntries(ctx context.Context, q LogQuery) ([]LogEntry, error) {
 	return nil, ErrHistoryUnsupported
 }
 
-// QueryAsOf — 기본구현: 미지원.
+// QueryAsOf — the default implementation: unsupported.
 func (HistoryStubs) QueryAsOf(ctx context.Context, q AsOfQuery) ([][]any, error) {
 	return nil, ErrHistoryUnsupported
 }
 
-// DiffRows — 기본구현: 미지원.
+// DiffRows — the default implementation: unsupported.
 func (HistoryStubs) DiffRows(ctx context.Context, fromHash, toHash string) ([]KnowledgeDiffRow, error) {
 	return nil, ErrHistoryUnsupported
 }
 
-// DiffStat — 기본구현: 미지원.
+// DiffStat — the default implementation: unsupported.
 func (HistoryStubs) DiffStat(ctx context.Context, hashes []string) ([]TableDiffStat, error) {
 	return nil, ErrHistoryUnsupported
 }
 
-// DiffCommits — 기본구현: 미지원.
+// DiffCommits — the default implementation: unsupported.
 func (HistoryStubs) DiffCommits(ctx context.Context, fromHash, toHash string) ([]DiffCommitSummary, error) {
 	return nil, ErrHistoryUnsupported
 }

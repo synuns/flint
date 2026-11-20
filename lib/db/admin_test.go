@@ -1,4 +1,5 @@
-// admin_test.go — 갱신·집계(승인·무효화·병합·카운트·연속 미기록) slow 테스트.
+// admin_test.go — updates·aggregations (approval·invalidation·merging·
+// counts·consecutive unrecorded) slow tests.
 package db
 
 import (
@@ -10,22 +11,24 @@ import (
 	"time"
 )
 
-// pendingRec은 status=pending knowledge 레코드(검수 게이트 통과 전 상태).
+// pendingRec is a status=pending knowledge record (the pre-review-gate
+// state).
 func pendingRec(hash string) map[string]any {
 	rec := knowledgeRec(hash)
 	rec["status"] = "pending"
 	return rec
 }
 
-// sessionAt은 ts를 명시한 세션 레코드(StaleSessionRuns 순서 검증용 —
-// Doltgres now()가 트랜잭션 시각이라 자동값으론 순서가 섞인다).
+// sessionAt is a session record with an explicit ts (for
+// StaleSessionRuns ordering verification — Doltgres now() is the
+// transaction time, so automatic values shuffle the order).
 func sessionAt(agent string, ts time.Time) map[string]any {
 	return map[string]any{"kind": "session", "agent": agent, "summary": "세션", "ts": ts}
 }
 
-// TestApproveIdempotent — 2회 approve → 동일 상태·2번째도 에러 없음.
-func TestApproveIdempotent(t *testing.T) {
-	r := newTestRepo(t)
+// TestApproveIdempotent — 2 approves → the same state·the 2nd also
+// without error.
+func slowApproveIdempotent(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{pendingRec("appr-1")})
 	if err != nil {
@@ -48,17 +51,15 @@ func TestApproveIdempotent(t *testing.T) {
 	}
 }
 
-// TestApproveMissing — 없는 id는 ErrNotFound.
-func TestApproveMissing(t *testing.T) {
-	r := newTestRepo(t)
+// TestApproveMissing — a missing id is ErrNotFound.
+func slowApproveMissing(t *testing.T, r *Repo) {
 	if err := r.Approve(context.Background(), 99999); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
 
 // TestInvalidateSetsInvalidAt — invalid_at NULL→NOT NULL.
-func TestInvalidateSetsInvalidAt(t *testing.T) {
-	r := newTestRepo(t)
+func slowInvalidateSetsInvalidAt(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("inv-1")})
 	if err != nil {
@@ -75,15 +76,15 @@ func TestInvalidateSetsInvalidAt(t *testing.T) {
 	if invalidAt == nil {
 		t.Fatal("invalid_at still NULL after Invalidate")
 	}
-	// 없는 id는 ErrNotFound.
+	// A missing id is ErrNotFound.
 	if _, err := r.Invalidate(ctx, []int{99999}, "사유"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound for missing id, got %v", err)
 	}
 }
 
-// TestMergeMarksAndInvalidates — from 무효화 + to summary에 병합 표시.
-func TestMergeMarksAndInvalidates(t *testing.T) {
-	r := newTestRepo(t)
+// TestMergeMarksAndInvalidates — from invalidated + the merge marker on
+// to's summary.
+func slowMergeMarksAndInvalidates(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("merge-from"),
@@ -113,7 +114,7 @@ func TestMergeMarksAndInvalidates(t *testing.T) {
 	if !containsMarker(summary, from) {
 		t.Fatalf("to.summary lacks merge marker for from=%d: %q", from, summary)
 	}
-	// 없는 id는 ErrNotFound.
+	// Missing ids are ErrNotFound.
 	if err := r.Merge(ctx, 99999, to); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound for missing from, got %v", err)
 	}
@@ -126,9 +127,9 @@ func containsMarker(summary string, fromID int) bool {
 	return strings.Contains(summary, fmt.Sprintf("[merged:from=%d]", fromID))
 }
 
-// TestCounts — pending 수 + 중복 의심(같은 topic에 active 2건 이상) 수.
-func TestCounts(t *testing.T) {
-	r := newTestRepo(t)
+// TestCounts — the pending count + the duplicate-suspect count (2+
+// active rows sharing a topic).
+func slowCounts(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	dupA := knowledgeRec("cnt-dup-a")
 	dupA["topic"] = "dup-topic"
@@ -139,7 +140,7 @@ func TestCounts(t *testing.T) {
 		pendingRec("cnt-p2"),
 		dupA,
 		dupB,
-		knowledgeRec("cnt-solo"), // 유일 topic — 중복 의심 아님
+		knowledgeRec("cnt-solo"), // unique topic — not a duplicate suspect
 	}); err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
@@ -155,13 +156,13 @@ func TestCounts(t *testing.T) {
 	}
 }
 
-// TestStaleSessionRuns — 최근 세션부터 knowledge write 없는 연속 수.
-// 기록 있는 세션을 만나면 집계가 멈춰야 한다(전체 미기록 수가 아님).
-func TestStaleSessionRuns(t *testing.T) {
-	r := newTestRepo(t)
+// TestStaleSessionRuns — the consecutive count of sessions without a
+// knowledge write, from the most recent. The aggregation must stop at
+// the first session with a record (not the total unrecorded count).
+func slowStaleSessionRuns(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	base := time.Now().Add(-10 * time.Hour)
-	recs := []map[string]any{sessionAt("stale-a", base)} // 가장 오래: 기록 있음
+	recs := []map[string]any{sessionAt("stale-a", base)} // oldest: has a record
 	ids, err := r.InsertBatch(ctx, recs)
 	if err != nil {
 		t.Fatalf("InsertBatch base: %v", err)
@@ -171,7 +172,7 @@ func TestStaleSessionRuns(t *testing.T) {
 	if _, err := r.InsertBatch(ctx, []map[string]any{kn}); err != nil {
 		t.Fatalf("InsertBatch knowledge: %v", err)
 	}
-	// 이후 3세션은 미기록 → 연속 3.
+	// The 3 subsequent sessions are unrecorded → consecutive 3.
 	if _, err := r.InsertBatch(ctx, []map[string]any{
 		sessionAt("stale-a", base.Add(1*time.Hour)),
 		sessionAt("stale-a", base.Add(2*time.Hour)),
@@ -186,7 +187,7 @@ func TestStaleSessionRuns(t *testing.T) {
 	if got != 3 {
 		t.Errorf("StaleSessionRuns = %d, want 3 (stops at recorded session)", got)
 	}
-	// 최근 세션에 기록이 있으면 0.
+	// 0 when the most recent session has a record.
 	fresh := knowledgeRec("stale-k2")
 	freshIDs, err := r.InsertBatch(ctx, []map[string]any{sessionAt("fresh-a", base.Add(4*time.Hour))})
 	if err != nil {
@@ -205,13 +206,16 @@ func TestStaleSessionRuns(t *testing.T) {
 	}
 }
 
-// resetVersionToV1은 승격 게이트 테스트의 v1 출발 전제를 성립시킨다.
-// 호출 시점에 '1'을 실제로 기록한다 — 공유 DB가 타 패키지(lib/cli·data의
-// newRealStore 연쇄)로 인해 이미 상위 버전일 때, 게이트의 수치 비교 단락
-// (n>=N이면 no-op) 때문에 EnsureSchemaV2가 '2'를 기록하지 않아 테스트의
-// "meta='2' 상태" 전제가 깨진다(CI 39717583172 계기). 문자열 동등 검사
-// 시절에는 상위 버전에서도 되돌려 '2'를 기록해 전제가 우연히 성립했다.
-// 종료 후에도 '1'로 되돌려 다른 테스트의 newTestRepo가 영향받지 않게 한다.
+// resetVersionToV1 establishes the v1-starting premise of the
+// promotion-gate tests. It actually records '1' at call time — when the
+// shared DB is already at a higher version (via other packages' —
+// lib/cli·data's newRealStore chains), the gate's numeric-comparison
+// short circuit (n>=N → no-op) means EnsureSchemaV2 never records '2',
+// breaking the test's "meta='2' state" premise (the CI 39717583172
+// occasion). In the string-equality-check era it rolled back even from
+// higher versions and recorded '2', so the premise held by accident.
+// After the test it rolls back to '1' again so other tests' newTestRepo
+// are unaffected.
 func resetVersionToV1(t *testing.T, r *Repo) {
 	t.Helper()
 	if _, err := r.pool.Exec(context.Background(),
@@ -224,11 +228,10 @@ func resetVersionToV1(t *testing.T, r *Repo) {
 	})
 }
 
-// TestMigrateAcceptsV2 — 회귀: meta='2' 상태에서 Migrate는
-// err=nil로 통과하고 버전을 '1'로 되돌리지 않는다. 게이트가 '1'만
-// 상정해 nil wrap 실패("%!w(<nil>)")를 냈다.
-func TestMigrateAcceptsV2(t *testing.T) {
-	r := newTestRepo(t)
+// TestMigrateAcceptsV2 — regression: with meta='2', Migrate passes with
+// err=nil and does not roll the version back to '1'. The gate assumed
+// only '1' and produced a nil wrap failure ("%!w(<nil>)").
+func slowMigrateAcceptsV2(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 	if err := r.EnsureSchemaV2(ctx); err != nil {
@@ -247,10 +250,10 @@ func TestMigrateAcceptsV2(t *testing.T) {
 	}
 }
 
-// dropV3Indexes는 EnsureSchemaV3 테스트가 flint 인덱스를 남기지 않게
-// 되돌린다(다른 테스트의 newTestRepo가 영향받지 않도록).
-// v9 flint_knowledge_pending_idx도 함께 정리 — 헬퍼 계약은
-// 게이트별 flint knowledge 인덱스 전부 리셋.
+// dropV3Indexes rolls back so the EnsureSchemaV3 tests leave no flint
+// indexes behind (so other tests' newTestRepo are unaffected). Also
+// cleans the v9 flint_knowledge_pending_idx — the helper's contract is
+// resetting all gate-specific flint knowledge indexes.
 func dropV3Indexes(t *testing.T, r *Repo) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -265,10 +268,10 @@ func dropV3Indexes(t *testing.T, r *Repo) {
 	})
 }
 
-// flintIndexCount는 v3 게이트 인덱스 3종(entity·domain·status)만 명시
-// 카운트한다. LIKE 'flint_knowledge_%' 전수 카운트는
-// 스키마 v9 flint_knowledge_pending_idx까지 세어 4로 실패 —
-// 검증 대상(이 게이트의 인덱스)만 센다.
+// flintIndexCount explicitly counts only the 3 v3 gate indexes
+// (entity·domain·status). A bulk count of LIKE 'flint_knowledge_%'
+// would also count schema v9's flint_knowledge_pending_idx and fail at
+// 4 — it counts only the verification target (this gate's indexes).
 func flintIndexCount(t *testing.T, r *Repo) int {
 	t.Helper()
 	var n int
@@ -284,14 +287,14 @@ func flintIndexCount(t *testing.T, r *Repo) int {
 	return n
 }
 
-// TestEnsureSchemaV3Idempotent — 2회 호출 → 인덱스 3행·
-// 버전 3, 2회째는 무변화. protocol: v2 게이트를 경유한 DB(기존 배포 경로)도 승격.
-func TestEnsureSchemaV3Idempotent(t *testing.T) {
-	r := newTestRepo(t)
+// TestEnsureSchemaV3Idempotent — 2 calls → 3 indexes·version 3, the 2nd
+// unchanged. Protocol: a DB that passed the v2 gate (the existing
+// deployment path) also promotes.
+func slowEnsureSchemaV3Idempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	dropV3Indexes(t, r)
 	ctx := context.Background()
-	// 기존 배포 경로: v1 → v2 게이트 경유 DB.
+	// The existing deployment path: a DB that passed v1 → the v2 gate.
 	if err := r.EnsureSchemaV2(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV2: %v", err)
 	}
@@ -325,7 +328,8 @@ func TestEnsureSchemaV3Idempotent(t *testing.T) {
 	if version != "3" {
 		t.Fatalf("schema_version = %q, want 3", version)
 	}
-	// 2회째 호출은 멱등 no-op — 인덱스 3행·버전 3 무변화.
+	// The 2nd call is an idempotent no-op — 3 indexes·version 3
+	// unchanged.
 	if err := r.EnsureSchemaV3(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV3 (want idempotent): %v", err)
 	}
@@ -341,10 +345,10 @@ func TestEnsureSchemaV3Idempotent(t *testing.T) {
 	}
 }
 
-// TestEnsureSchemaV3FromV1 — v2를 건너뛴 v1 DB도 v3 게이트 하나로 승격된다
-// (게이트는 버전만 갱신하고 인덱스는 IF NOT EXISTS로 멱등 적용).
-func TestEnsureSchemaV3FromV1(t *testing.T) {
-	r := newTestRepo(t)
+// TestEnsureSchemaV3FromV1 — a v1 DB that skipped v2 also promotes with
+// the single v3 gate (the gate only updates the version; the indexes
+// apply idempotently via IF NOT EXISTS).
+func slowEnsureSchemaV3FromV1(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	dropV3Indexes(t, r)
 	if err := r.EnsureSchemaV3(context.Background()); err != nil {
@@ -355,12 +359,12 @@ func TestEnsureSchemaV3FromV1(t *testing.T) {
 	}
 }
 
-// TestEnsureSchemaV2 — v1 DB(fake DDL) 무손실 승격: ALTER 컬럼 추가+버전 2+기존 데이터 유지+멱등.
-func TestEnsureSchemaV2(t *testing.T) {
-	r := newTestRepo(t)
+// TestEnsureSchemaV2 — a v1 DB's (fake DDL) lossless promotion: ALTER
+// column additions + version 2 + existing data kept + idempotent.
+func slowEnsureSchemaV2(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
-	// v1 시절 데이터 — 승격 후에도 살아 있어야 한다.
+	// v1-era data — must survive the promotion.
 	oldIDs, err := r.InsertBatch(ctx, []map[string]any{
 		{"kind": "session", "agent": "v1", "summary": "구세션"},
 	})
@@ -378,7 +382,7 @@ func TestEnsureSchemaV2(t *testing.T) {
 	if version != "2" {
 		t.Fatalf("schema_version = %q, want 2", version)
 	}
-	// v2 컬럼으로 쓰기 가능(컬럼 존재의 동작 증명).
+	// Writable via the v2 columns (a behavior proof of their presence).
 	if _, err := r.InsertBatch(ctx, []map[string]any{
 		{"kind": "session", "agent": "v2", "summary": "신세션", "tasks": "v2 작업"},
 		{"kind": "project", "name": "v2-proj", "note": "v2 메모"},
@@ -393,18 +397,19 @@ func TestEnsureSchemaV2(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("v1 데이터 유실: old session count = %d, want 1", n)
 	}
-	// 재호출은 멱등 no-op.
+	// The rerun is an idempotent no-op.
 	if err := r.EnsureSchemaV2(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV2 (want idempotent): %v", err)
 	}
 }
 
-// TestAllGatesArtifacts — 게이트 v2~v7이 각자
-// 약속한 산출물(컬럼·인덱스·테이블)을 실제로 만드는지 표 기반 단언.
-// 이전엔 최신 게이트(v6·v7)만 내용 검증되고 v2~v5는 체인 '순차 통과'
-// 사실만 봤다 — 게이트 하나가 조용히 no-op으로 변해도 잡히지 않았다.
-func TestAllGatesArtifacts(t *testing.T) {
-	r := newTestRepo(t)
+// TestAllGatesArtifacts — table-driven assertion that gates v2~v7 each
+// actually create their promised artifacts (columns·indexes·tables).
+// Previously only the newest gates (v6·v7) had their contents verified
+// while v2~v5 were checked only for 'sequential passage' through the
+// chain — a gate quietly turning into a no-op would not have been
+// caught.
+func slowAllGatesArtifacts(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
 
@@ -443,10 +448,11 @@ func TestAllGatesArtifacts(t *testing.T) {
 			}
 		}},
 		{"v11", func(ctx context.Context) error {
-			// v10 DB 재현 충실화(R43 직행 단락 이후) — v10에는
-			// recall_events가 없다(v12 게이트가 처음 만든다). 신규 DB에
-			// 남아 있는 recall_events를 내려 승격 산출물(2열 add) 경로를
-			// 실측한다(신규 DB 직행 경로는 TestV11GateFreshDirectToV12).
+			// Faithful v10-DB reproduction (after the R43 direct-run short
+			// circuit) — v10 has no recall_events (the v12 gate creates it
+			// first). Dropping any recall_events left on the fresh DB
+			// measures the promotion-artifact (2-column add) path (the
+			// fresh-DB direct path is TestV11GateFreshDirectToV12).
 			if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS recall_events`); err != nil {
 				return err
 			}
@@ -464,7 +470,7 @@ func TestAllGatesArtifacts(t *testing.T) {
 	}
 }
 
-// assertColumn — 테이블 컬럼 존재 단언(information_schema).
+// assertColumn — asserts a table column exists (information_schema).
 func assertColumn(t *testing.T, r *Repo, ctx context.Context, table, column string) {
 	t.Helper()
 	var n int
@@ -478,7 +484,7 @@ func assertColumn(t *testing.T, r *Repo, ctx context.Context, table, column stri
 	}
 }
 
-// assertObject — 테이블·인덱스 존재 단언(to_regclass).
+// assertObject — asserts a table·index exists (to_regclass).
 func assertObject(t *testing.T, r *Repo, ctx context.Context, name string) {
 	t.Helper()
 	var exists bool
@@ -491,9 +497,10 @@ func assertObject(t *testing.T, r *Repo, ctx context.Context, name string) {
 	}
 }
 
-// dropV11ScoreColumns — v11 게이트 테스트가 v10 DB를 재현할 때 knowledge의
-// 스코어 열 2종을 되돌린다(Doltgres는 DROP COLUMN IF EXISTS 미지원 —
-// columnExists 확인 후 DROP. admin_v10_test.go 관례 승계).
+// dropV11ScoreColumns — when the v11 gate tests reproduce a v10 DB,
+// rolls back knowledge's 2 score columns (Doltgres lacks DROP COLUMN
+// IF EXISTS — check columnExists then DROP. Inheriting the
+// admin_v10_test.go convention).
 func dropV11ScoreColumns(t *testing.T, r *Repo) {
 	t.Helper()
 	for _, col := range []string{"recall_score", "last_recalled_at"} {
@@ -506,25 +513,27 @@ func dropV11ScoreColumns(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV11GateAdditive — v10 DB 재현 →
-// EnsureSchemaV11 승격이 recall_score(int 기본 0)·last_recalled_at
-// (timestamptz NULL) 2열을 additive 추가하고 기존 행은 무손상·기본값
-// (0·NULL)·재호출 멱등. 역방향(이전 바이너리가 v11 DB를 읽는 호환)은
-// 열 additive default 전제로 현 바이너리의 v11 값 삽입·판독 스팟으로
-// 갈음한다(스코어 값 경로의 동작 증명).
-func TestV11GateAdditive(t *testing.T) {
-	r := newTestRepo(t)
+// TestV11GateAdditive — reproducing a v10 DB → the EnsureSchemaV11
+// promotion additively adds the recall_score (int, default 0)·
+// last_recalled_at (timestamptz NULL) columns, with existing rows
+// intact·defaults (0·NULL)·the rerun idempotent. The reverse direction
+// (an older binary reading a v11 DB) is covered by a spot of the
+// current binary inserting·reading v11 values under the columns'
+// additive-default premise (a behavior proof of the score-value path).
+func slowV11GateAdditive(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	dropV11ScoreColumns(t, r)
-	// v10 재현 충실화(R43 직행 단락 이후) — v10에는 recall_events가
-	// 없다(v12 게이트가 처음 만든다). 남아 있으면 v11 게이트가 신규 DB
-	// 직행 판별로 2열 add를 스킵한다(그 경로는 TestV11GateFreshDirectToV12).
+	// Faithful v10-DB reproduction (after the R43 direct-run short
+	// circuit) — v10 has no recall_events (the v12 gate creates it
+	// first). If it remains, the v11 gate's fresh-DB direct-run verdict
+	// skips the 2-column add (that path is
+	// TestV11GateFreshDirectToV12).
 	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS recall_events`); err != nil {
 		t.Fatalf("v10 재현 recall_events 삭제: %v", err)
 	}
 	setVersion(t, r, "10")
 
-	// 승격 전 기존 데이터 — 무손상 증명의 기준선.
+	// Pre-promotion existing data — the intactness-proof baseline.
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v11-old")})
 	if err != nil {
 		t.Fatalf("InsertBatch pre-v11: %v", err)
@@ -542,7 +551,7 @@ func TestV11GateAdditive(t *testing.T) {
 		}
 	}
 
-	// 기존 행은 기본값(0·NULL)·본문 무손상.
+	// Existing rows keep the defaults (0·NULL)·body intact.
 	var score int
 	var last *time.Time
 	var topic string
@@ -558,7 +567,8 @@ func TestV11GateAdditive(t *testing.T) {
 		t.Fatalf("기존 knowledge 행 유실 — 무손상 계약 위반")
 	}
 
-	// v11 값 삽입·판독 스팟(역방향 갈음 — 현 바이너리가 스코어 생성·판독).
+	// The v11 value insert·read spot (covering the reverse direction —
+	// the current binary generating·reading scores).
 	wantLast := time.Date(2026, 11, 15, 3, 0, 0, 0, time.UTC)
 	rec := knowledgeRec("v11-score")
 	rec["recall_score"] = 7
@@ -581,7 +591,7 @@ func TestV11GateAdditive(t *testing.T) {
 		t.Fatalf("last_recalled_at = %v, want %v", gotLast, wantLast)
 	}
 
-	// 멱등 — 재호출은 no-op(버전 11 유지·에러 없음).
+	// Idempotent — the rerun is a no-op (version 11 kept·no error).
 	if err := r.EnsureSchemaV11(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV11 (want idempotent): %v", err)
 	}
@@ -590,10 +600,10 @@ func TestV11GateAdditive(t *testing.T) {
 	}
 }
 
-// TestV11GateNumeric — 상위 버전 DB는 수치 비교로 no-op(다운그레이드 방지
-// 회귀 — TestV10GateNumeric 관례 승계).
-func TestV11GateNumeric(t *testing.T) {
-	r := newTestRepo(t)
+// TestV11GateNumeric — a higher-version DB no-ops via numeric
+// comparison (a downgrade-prevention regression — inheriting the
+// TestV10GateNumeric convention).
+func slowV11GateNumeric(t *testing.T, r *Repo) {
 	setVersion(t, r, "99")
 	if err := r.EnsureSchemaV11(context.Background()); err != nil {
 		t.Fatalf("EnsureSchemaV11(상위 버전 DB): %v", err)

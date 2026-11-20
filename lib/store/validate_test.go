@@ -2,7 +2,7 @@ package store
 
 import "testing"
 
-// TestValidate — 예제 4종 + 경계/거부 케이스.
+// TestValidate — 4 examples + boundary and rejection cases.
 func TestValidate(t *testing.T) {
 	validKnowledge := map[string]any{"topic": "x", "summary": "y", "confidence": 0.9}
 	cases := []struct {

@@ -1,7 +1,7 @@
-// config.go — 설정 파일:
-// configDir()/config.json의 DSN을 읽어 FLINT_DSN > config.json >
-// DefaultDSN 우선순위로 해결한다(스펙 §2). 파손·부재는 조용히 폴백 —
-// 설정 파일 문제로 커맨드가 죽지 않게.
+// config.go — the settings file: reads configDir()/config.json's DSN and
+// resolves it with the priority FLINT_DSN > config.json > DefaultDSN (spec §2).
+// Corrupt or absent falls back silently — a settings-file problem must not kill
+// the command.
 package wire
 
 import (
@@ -10,15 +10,15 @@ import (
 	"path/filepath"
 )
 
-// DefaultDSN — FLINT_DSN 미지정 시 기본 접속 문자열(ADR-0010: 포트 5434).
+// DefaultDSN — the default connection string when FLINT_DSN is unset (ADR-0010: port 5434).
 const DefaultDSN = "postgresql://flint:flint-dev@localhost:5434/flint"
 
-// ConfigDir — 설정 디렉터리 해결 주입점. 계약층은 파일시스템 위치 규칙을
-// 소유하지 않으므로 커맨드 패키지(lib/cli marker.go configDir)가 init에서
-// 주입한다. 미주입 시 설정 파일 경로는 ""(env/기본값 폴백만 동작).
+// ConfigDir — the settings-directory resolution injection point. The contract
+// layer does not own filesystem location rules, so the command package (lib/cli
+// marker.go configDir) injects it at init. When not injected, the settings-file path is "" (only the env/default fallbacks operate).
 var ConfigDir func() string
 
-// configDirOrEmpty — 주입된 해결기 호출(미주입 시 "").
+// configDirOrEmpty — calls the injected resolver ("" when not injected).
 func configDirOrEmpty() string {
 	if ConfigDir == nil {
 		return ""
@@ -26,7 +26,7 @@ func configDirOrEmpty() string {
 	return ConfigDir()
 }
 
-// ConfigPath — configDir()/config.json. configDir이 ""면 "".
+// ConfigPath — configDir()/config.json. "" when configDir is "".
 func ConfigPath() string {
 	d := configDirOrEmpty()
 	if d == "" {
@@ -35,7 +35,7 @@ func ConfigPath() string {
 	return filepath.Join(d, "config.json")
 }
 
-// LoadConfigDSN — {"dsn":string} 파싱. 부재·파손·빈값·비문자열 → "".
+// LoadConfigDSN — parses {"dsn":string}. Absent, corrupt, empty, or non-string -> "".
 func LoadConfigDSN() string {
 	p := ConfigPath()
 	if p == "" {

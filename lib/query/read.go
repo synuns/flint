@@ -1,5 +1,5 @@
-// Package query — flint read/hot 조회 조립. 읽기는 기본 active_knowledge 뷰,
-// --status 지정 시에만 base 테이블 knowledge를 직접 조회한다.
+// Package query — the flint read/hot query assembly. Reads use the active_knowledge view by default;
+// only with --status does it query the base table knowledge directly.
 package query
 
 import (
@@ -10,15 +10,15 @@ import (
 	"unicode"
 )
 
-// Filters — flint read 필터(--tag --entity --domain --limit --status).
+// Filters — the flint read filters (--tag --entity --domain --limit --status).
 type Filters struct {
 	Tag    string
 	Entity string
 	Domain string
 	Limit  int
-	// Status — --status pending|active|invalidated. 지정 시
-	// BuildRead 대신 BuildReadStatus이 base 테이블을 조회한다. BuildRead의
-	// 미지정 경로는 이 값을 무시한다(뷰 경로 완전 불변 — 룰링).
+	// Status — --status pending|active|invalidated. When specified,
+	// BuildReadStatus queries the base table instead of BuildRead. BuildRead's
+	// unspecified path ignores this value (the view path fully unchanged — ruling).
 	Status string
 }
 
@@ -27,13 +27,13 @@ const (
 	maxLimit     = 50
 	summaryMax   = 80
 
-	// ReadFallbackCountKey — 제로히트 폴백 시도 횟수 meta 계측 키.
+	// ReadFallbackCountKey — the meta metering key for zero-hit fallback attempts.
 	ReadFallbackCountKey = "read_fallback_calls"
-	// maxQueryTokens — 폴백 OR 스캔 비용 가드(룰링): 초과 토큰은 버린다.
+	// maxQueryTokens — the fallback OR-scan cost guard (ruling): excess tokens are dropped.
 	maxQueryTokens = 8
 )
 
-// ClampLimit — limit 기본 10, 상한 50 (토큰 예산 박제).
+// ClampLimit — limit defaults to 10, capped at 50 (the token budget is baked in).
 func ClampLimit(n int) int {
 	if n <= 0 {
 		return defaultLimit
@@ -44,16 +44,16 @@ func ClampLimit(n int) int {
 	return n
 }
 
-// readColumns — BuildRead이 SELECT하는 컬럼(고정 순서). FormatRows의
-// fields 이름→위치 매핑 기준이 된다.
+// readColumns — the columns BuildRead SELECTs (fixed order). The basis of
+// FormatRows's field-name -> position mapping.
 var readColumns = []string{
 	"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status",
 	"read_count",
 }
 
-// tokenizeQuery — 무료 텍스트 q를 검색 토큰으로 쪼갠다(폴백용).
-// strings.Fields 분리 후 각 토큰의 선행/후행 구두점(unicode.IsPunct)을
-// 제거하고 빈 토큰은 버린다. 상한 8 — 초과 토큰은 조용히 버림(에러 아님).
+// tokenizeQuery — splits the free-text q into search tokens (for the fallback).
+// After strings.Fields splits, leading/trailing punctuation (unicode.IsPunct) of each
+// token is removed and empty tokens are dropped. The cap is 8 — excess tokens are silently dropped (not an error).
 func tokenizeQuery(q string) []string {
 	fields := strings.Fields(q)
 	tokens := make([]string, 0, len(fields))
@@ -69,10 +69,10 @@ func tokenizeQuery(q string) []string {
 	return tokens
 }
 
-// TokenizeQuery — tokenizeQuery 내보내기(폴백 재랭킹 호출부·lib/cli용).
+// TokenizeQuery — the export of tokenizeQuery (for the fallback-rerank call sites and lib/cli).
 func TokenizeQuery(q string) []string { return tokenizeQuery(q) }
 
-// trimPunct — 토큰 양끝 구두점 제거(내부 구두점은 유지 — 'a-b' 등).
+// trimPunct — strips punctuation from both ends of a token (inner punctuation kept — 'a-b' etc.).
 func trimPunct(s string) string {
 	r := []rune(s)
 	for len(r) > 0 && unicode.IsPunct(r[0]) {
@@ -84,9 +84,9 @@ func trimPunct(s string) string {
 	return string(r)
 }
 
-// fallbackMatchCount — 토큰이 topic·summary에 포함되는 개수(재랭킹 점수).
-// 대소문자 무시 lower 부분문자열 매칭. 비교 문자열 양측에 NFKC 정규화
-// 적용(NFC/NFD 표기 차이 미스 차단. 원문·SQL 불변).
+// fallbackMatchCount — the number of tokens contained in the topic or summary (the rerank
+// score). Case-insensitive lower substring matching. NFKC normalization is applied to both
+// sides of the comparison (blocking misses from NFC/NFD notation differences. The originals and SQL are unchanged).
 func fallbackMatchCount(tokens []string, topic string, summary string) int {
 	t, s := nfkc(strings.ToLower(topic)), nfkc(strings.ToLower(summary))
 	n := 0
@@ -99,33 +99,33 @@ func fallbackMatchCount(tokens []string, topic string, summary string) int {
 	return n
 }
 
-// likeEscape — LIKE 패턴에서 \, %, _ 를 리터럴로 이스케이프.
-// 작은따옴표는 placeholder 파라미터로 전달되므로 별도 이스케이프 불필요.
+// likeEscape — escapes \, %, and _ as literals in a LIKE pattern.
+// Single quotes are passed as placeholder parameters, so they need no separate escaping.
 var likeEscaper = strings.NewReplacer(`\`, `\\`, `%`, `\%`, `_`, `\_`)
 
-// EscapeLike — LIKE 패턴에 인라인될 리터럴 값(\, %, _)의 메타문자
-// 이스케이프. read 조립기 내부용과 동일 규칙을 audit --session 등
-// 다른 호출부도 재사용한다(백슬래시 기본 ESCAPE — 방언 SQL과 계약 일치).
+// EscapeLike — escapes the metacharacters (\, %, _) of a literal value inlined into a
+// LIKE pattern. Other call sites such as audit --session reuse the same rule as the read
+// assembler's internal one (backslash as the default ESCAPE — matching the dialect SQL contract).
 func EscapeLike(s string) string { return likeEscaper.Replace(s) }
 
-// RankOrder — 검색 랭킹 정렬 절: 주제어 정확 일치 우선 → confidence →
-// 최신 수집 순.
-// 동률에서만 최근 참조 우선 — 말미에 last_read_at DESC NULLS LAST
-// 추가(조회시 파생·저장값 불변). NULLS LAST로 미참조 항목은 동률 꼴찌.
-// 채택 재랭킹 — last_read_at 뒤 최종 타이브레이크로 read_count
-// DESC 추가(많이 읽힌 항목 우선). 상위 순위 요소는 불변.
-// q는 인라인 리터럴이 아니라 파라미터 — 호출부가 args에
-// append한 뒤 그 인덱스를 받는다(같은 쿼리의 LIKE 절과 계약 일치,
-// standard_conforming_strings 의존 제거).
+// RankOrder — the search-ranking sort clause: exact topic match first -> confidence ->
+// newest ingested.
+// Only on ties does recent reference win — a trailing last_read_at DESC NULLS LAST is
+// added (derived at query time; stored values unchanged). With NULLS LAST, unreferenced
+// items rank last among ties. Adoption rerank — after last_read_at, a final tiebreak of
+// read_count DESC is added (more-read items first). The upper ranking elements are unchanged.
+// q is a parameter, not an inline literal — the caller appends it to args and
+// receives its index (matching the LIKE clause contract of the same query,
+// removing the standard_conforming_strings dependency).
 func RankOrder(placeholder int) string {
 	return fmt.Sprintf("ORDER BY (lower(topic)=lower($%d)) DESC, confidence DESC, ingested_at DESC, last_read_at DESC NULLS LAST, read_count DESC",
 		placeholder)
 }
 
-// appendReadFilters — q·tag·entity·domain 필터의 where절·placeholder 인자
-// 조립 공유체: BuildRead·BuildReadStatus 양쪽이 호출해 두 조립기의 필터
-// 해석이 항상 동일하다(복붙 분열 방지). append 순서 = where 절 순서 =
-// placeholder 번호 — 호출부의 선행 조건(status 등) 뒤에 이어 붙인다.
+// appendReadFilters — the shared body assembling the q/tag/entity/domain filters'
+// where-clauses and placeholder arguments: both BuildRead and BuildReadStatus call it, so
+// the two assemblers' filter interpretation is always identical (preventing copy-paste
+// divergence). The append order = the where-clause order = the placeholder numbers — appended after the caller's preceding conditions (status, etc.).
 func appendReadFilters(where []string, args []any, q string, f Filters) ([]string, []any) {
 	if q != "" {
 		args = append(args, "%"+likeEscaper.Replace(q)+"%")
@@ -133,7 +133,7 @@ func appendReadFilters(where []string, args []any, q string, f Filters) ([]strin
 	}
 	if f.Tag != "" {
 		args = append(args, f.Tag)
-		// tags 저장 형태 ':a:b:' — 부분 문자열 오탐 방지를 위해 ':tag:' 정확 매칭.
+		// the tags storage form ':a:b:' — exact ':tag:' matching to prevent substring false positives.
 		where = append(where, fmt.Sprintf("strpos(tags, ':' || $%d || ':') > 0", len(args)))
 	}
 	if f.Entity != "" {
@@ -147,8 +147,8 @@ func appendReadFilters(where []string, args []any, q string, f Filters) ([]strin
 	return where, args
 }
 
-// BuildRead — active_knowledge 뷰 조회 SQL과 placeholder 인자를 조립한다.
-// 무료 텍스트 q는 lower(topic||' '||summary) LIKE lower('%q%') 매칭(ILIKE 대체).
+// BuildRead — assembles the active_knowledge view query SQL and placeholder arguments.
+// The free-text q matches via lower(topic||' '||summary) LIKE lower('%q%') (an ILIKE substitute).
 func BuildRead(q string, f Filters) (string, []any) {
 	var where []string
 	var args []any
@@ -159,24 +159,24 @@ func BuildRead(q string, f Filters) (string, []any) {
 	if len(where) > 0 {
 		sql += " WHERE " + strings.Join(where, " AND ")
 	}
-	args = append(args, q) // 랭킹 정합값 파라미터화
+	args = append(args, q) // the ranking-consistency value, parameterized
 	sql += " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
 	sql += fmt.Sprintf(" LIMIT $%d", len(args))
 	return sql, args
 }
 
-// BuildReadStatus — --status 지정 경로 조회 SQL 조립. 뷰가
-// invalid_at IS NULL 행만 노출하므로 pending·invalidated 행을 보려면 base
-// 테이블 knowledge에서 직접 걸러야 한다. status 조건을 첫 파라미터로 두고
-// q·tag·entity·domain 필터는 appendReadFilters 공유 조립, RankOrder·LIMIT·
-// likeEscape는 BuildRead 조립을 승계한다. 컬럼·순서는 readColumns 그대로
-// (뷰와 동일 원본 테이블).
-// status='active'는 뷰의 노출 규칙(invalid_at IS NULL)과 동치로 걸러
-// 뷰에 없는 행이 --status active에만 보이는 정의 분열을 막는다.
-// pending·invalidated에는 이 조건을 붙이지 않는다 — invalidated는
-// invalid_at 설정이 그 상태의 본질(부착 시 영(零)히트), pending은 승격 전
-// 상태로 invalid_at 규약이 다르다(룰링).
+// BuildReadStatus — assembles the query SQL for the --status path. Since the view
+// exposes only rows with invalid_at IS NULL, viewing pending or invalidated rows requires
+// filtering the base table knowledge directly. The status condition goes first as a
+// parameter; the q/tag/entity/domain filters use the shared appendReadFilters assembly;
+// RankOrder, LIMIT, and likeEscape inherit the BuildRead assembly. The columns and order
+// stay readColumns as-is (the view and the base table share the same source table).
+// status='active' filters by the view's exposure rule (invalid_at IS NULL) equivalently,
+// preventing a definitional split where rows absent from the view appear only under
+// --status active. pending and invalidated do not get this condition — for invalidated,
+// having invalid_at set is the essence of the state (attaching it would yield zero hits);
+// pending is a pre-promotion state with a different invalid_at convention (ruling).
 func BuildReadStatus(q string, f Filters) (string, []any) {
 	var where []string
 	var args []any
@@ -188,7 +188,7 @@ func BuildReadStatus(q string, f Filters) (string, []any) {
 	}
 	where, args = appendReadFilters(where, args, q, f)
 
-	args = append(args, q) // 랭킹 정합값 파라미터화
+	args = append(args, q) // the ranking-consistency value, parameterized
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM knowledge WHERE " +
 		strings.Join(where, " AND ") + " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
@@ -196,10 +196,10 @@ func BuildReadStatus(q string, f Filters) (string, []any) {
 	return sql, args
 }
 
-// BuildReadFallback — 제로히트 폴백 조회 SQL 조립. 토큰별
-// OR LIKE + 기존 필터(tag·entity·domain)·active_knowledge 뷰·likeEscape·
-// RankOrder·LIMIT 승계. 토큰 2개 미만은 구문 매칭과 동질이라 ok=false
-// (폴백 생략 — 룰링).
+// BuildReadFallback — assembles the zero-hit fallback query SQL. Per-token
+// OR LIKE + the existing filters (tag, entity, domain), the active_knowledge view,
+// likeEscape, RankOrder, and LIMIT are inherited. Fewer than 2 tokens is identical to
+// phrase matching, so ok=false (fallback skipped — ruling).
 func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 	tokens := tokenizeQuery(q)
 	if len(tokens) < 2 {
@@ -209,9 +209,9 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 	var args []any
 	for _, tok := range tokens {
 		args = append(args, "%"+likeEscaper.Replace(tok)+"%")
-		// 폴백 접합면에 tags 포함 — 태그로만 분류된 지식도
-		// 단어 폴백에서 회수된다(tags 저장형 ':a:b:'의 부분 문자열 매칭).
-		// 구문(phrase) 쿼리의 접합면은 불변(tags는 --tag 필터 영역).
+		// the fallback's matched surface includes tags — knowledge classified only by tags is
+		// also recovered by the word fallback (substring matching against the ':a:b:' tags
+		// storage form). The phrase query's matched surface is unchanged (tags belong to the --tag filter domain).
 		conds = append(conds, fmt.Sprintf("lower(topic || ' ' || summary || ' ' || tags) LIKE lower($%d)", len(args)))
 	}
 	where := []string{"(" + strings.Join(conds, " OR ") + ")"}
@@ -227,7 +227,7 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 		args = append(args, f.Domain)
 		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
 	}
-	args = append(args, q) // 랭킹 정합값 파라미터화
+	args = append(args, q) // the ranking-consistency value, parameterized
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge WHERE " +
 		strings.Join(where, " AND ") + " " + RankOrder(len(args))
 	args = append(args, ClampLimit(f.Limit))
@@ -235,24 +235,24 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 	return sql, args, true
 }
 
-// rrfK — RRF 순위 완화 계수(원 논문 표준 60). 런타임 오버라이드는
-// SetRRFK(thresholds rrf_k 키 — 튜닝값 단일 소스).
+// rrfK — the RRF rank-softening coefficient (the original paper's standard 60). The
+// runtime override is SetRRFK (the thresholds rrf_k key — a single tuning source).
 var rrfK = 60.0
 
-// SetRRFK — thresholds 레지스트리 → query 주입(SetSuggestThresholds 승계).
+// SetRRFK — the thresholds registry -> query injection (inheriting SetSuggestThresholds).
 func SetRRFK(k float64) {
 	if k > 0 {
 		rrfK = k
 	}
 }
 
-// ReorderByFallbackCount — 폴백 결과 앱 재랭킹. RRF 융합 —
-// 정합수·read_count·자모 유사도·topic 정합(구문 경로
-// RankOrder의 topic 정확 일치 우선이 폴백 융합에서 소실되는 것을
-// 회수) 4신호를 각자 내림 순위에서
-// 1/(k+rank) 합산. 다중 신호 기여가 단일 신호 우위를 이길 수 있다
-// (정합수 우선·순차 타이브레이크와 계약이 다르다).
-// 동률은 기존 조회 순(SQL RankOrder)을 유지한다.
+// ReorderByFallbackCount — the app-side rerank of fallback results. RRF fusion —
+// match count, read_count, jamo similarity, and topic match (recovering the phrase path's
+// RankOrder exact-topic-first priority that would otherwise be lost in fallback fusion)
+// — 4 signals each ranked descending, summed as 1/(k+rank).
+// Multiple signal contributions can beat a single-signal advantage (a contract different
+// from match-count-first with sequential tiebreaks).
+// Ties keep the existing query order (the SQL RankOrder).
 func ReorderByFallbackCount(rows [][]any, tokens []string) {
 	if len(rows) < 2 {
 		return
@@ -267,14 +267,14 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 		if idx := readColumnIndexOf("summary"); idx >= 0 && idx < len(row) {
 			summary, _ = row[idx].(string)
 		}
-		// 정규화 사전 적용 — 스코어러 내부 재적용은 멱등(결과 동일).
+		// normalization applied up front — reapplying it inside the scorer is idempotent (the result is identical).
 		t := nfkc(strings.ToLower(topic))
 		sm := nfkc(strings.ToLower(summary))
 		values[i] = []int{
 			fallbackMatchCount(tokens, t, sm),
 			readCountOf(row),
 			jamoOverlap(tokenJamo, t, sm),
-			topicMatchCount(tokens, t), // topic 정합 신호
+			topicMatchCount(tokens, t), // the topic-match signal
 		}
 	}
 	scores := rrfFuse(values)
@@ -286,7 +286,7 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 		if scores[idx[a]] != scores[idx[b]] {
 			return scores[idx[a]] > scores[idx[b]]
 		}
-		return idx[a] < idx[b] // 동률은 기존 순서(SQL RankOrder) 유지
+		return idx[a] < idx[b] // ties keep the existing order (the SQL RankOrder)
 	})
 	out := make([][]any, len(rows))
 	for pos, src := range idx {
@@ -295,9 +295,9 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 	copy(rows, out)
 }
 
-// rrfFuse — 행별 신호값 → RRF 스코어: 각 신호 내림 순위(1=최상, 동률
-// 동순위)에서 1/(k+rank) 합산. 값 자체를 rank에 대입하면 부호가 뒤집혀
-// 최솟값이 이긴다(구현 초판 결함 — 회귀 테스트로 봉쇄).
+// rrfFuse — per-row signal values -> the RRF score: summed as 1/(k+rank) from each
+// signal's descending rank (1 = top; ties share a rank). Substituting the raw value for
+// the rank flips the sign so the minimum wins (a first-draft defect — sealed off by a regression test).
 func rrfFuse(values [][]int) []float64 {
 	n := len(values)
 	if n == 0 {
@@ -317,7 +317,7 @@ func rrfFuse(values [][]int) []float64 {
 			if pos > 0 && values[row][sig] != values[order[pos-1]][sig] {
 				rank = pos + 1
 			}
-			if values[row][sig] > 0 { // 0값은 신호 미기여
+			if values[row][sig] > 0 { // a 0 value means the signal contributes nothing
 				scores[row] += 1.0 / (rrfK + float64(rank))
 			}
 		}
@@ -325,10 +325,10 @@ func rrfFuse(values [][]int) []float64 {
 	return scores
 }
 
-// topicMatchCount — topic에 출현하는 토큰 수(RRF 제4신호 —
-// topic 정합이 summary 정합보다 강하다는 RankOrder 관례의 융합 반영.
-// 설계 특성: matchCount의 부분집합이라 토큰당 이중 가중 —
-// RankOrder topic 우선 회수라는 의도적 가중이다.)
+// topicMatchCount — the number of tokens appearing in the topic (the 4th RRF signal —
+// reflecting in the fusion the RankOrder convention that a topic match is stronger than a
+// summary match. Design note: it is a subset of matchCount, so it double-weights per token —
+// an intentional weighting to recover topic-first RankOrder).
 func topicMatchCount(tokens []string, t string) int {
 	n := 0
 	for _, tok := range tokens {
@@ -339,10 +339,10 @@ func topicMatchCount(tokens []string, t string) int {
 	return n
 }
 
-// jamoOverlap — 자모 bigram: 한글 토큰의 자모 분해 bigram
-// 중첩으로 근사 유사도(오타·어미 변형 흡수). 한글 없는 토큰은 0(신호
-// 미기여 — 부분 문자열 신호와의 이중 계상 방지). tokenSets는
-// 행 루프 밖 사전 계산.
+// jamoOverlap — jamo bigrams: an approximate similarity from the overlap of the jamo-
+// decomposition bigrams of Korean tokens (absorbing typos and inflection). Tokens without
+// Korean are 0 (no signal contribution — preventing double counting with the substring
+// signal). tokenSets are precomputed outside the row loop.
 func jamoOverlap(tokenSets []map[string]struct{}, t, s string) int {
 	if len(tokenSets) == 0 {
 		return 0
@@ -353,19 +353,19 @@ func jamoOverlap(tokenSets []map[string]struct{}, t, s string) int {
 		for bg := range set {
 			if _, ok := hay[bg]; ok {
 				n++
-				break // 토큰당 1점
+				break // 1 point per token
 			}
 		}
 	}
 	return n
 }
 
-// jamoTokenSets — 한글 포함 토큰만 자모 bigram 집합으로.
+// jamoTokenSets — only Korean-containing tokens, as jamo-bigram sets.
 func jamoTokenSets(tokens []string) []map[string]struct{} {
 	var out []map[string]struct{}
 	for _, tok := range tokens {
-		// 정규화 '후' 검사 — NFD 분해형 토큰(macOS
-		// 붙여넣기 경로)의 자모 신호가 조용히 누락되던 것을 회수.
+		// checked 'after' normalization — recovering the case where NFD-decomposed tokens (the
+		// macOS paste path) silently missed the jamo signal.
 		n := nfkc(strings.ToLower(tok))
 		if containsHangul(n) {
 			out = append(out, jamoBigramSet(n))
@@ -374,7 +374,7 @@ func jamoTokenSets(tokens []string) []map[string]struct{} {
 	return out
 }
 
-// containsHangul — 한글 음절 포함 여부.
+// containsHangul — whether a Korean syllable is present.
 func containsHangul(s string) bool {
 	for _, r := range s {
 		if r >= 0xAC00 && r <= 0xD7A3 {
@@ -384,14 +384,14 @@ func containsHangul(s string) bool {
 	return false
 }
 
-// jamoBigramSet — 자모 분해 rune열의 bigram 집합(집합화는 bigramSet
-// 위임 — 구현 단일화, 리뷰 ④). 음절은 초·중·종성 분해.
+// jamoBigramSet — the bigram set of the jamo-decomposed rune sequence (set-building
+// delegates to bigramSet — a single implementation, review 4). Syllables decompose into cho/jung/jong.
 func jamoBigramSet(s string) map[string]struct{} {
 	const (
 		syllableBase = 0xAC00
 		leadBase     = 0x1100 // ㄱ
 		vowelBase    = 0x1161 // ㅏ
-		trailBase    = 0x11A7 // 없음+1
+		trailBase    = 0x11A7 // none + 1
 	)
 	var jamo []rune
 	for _, r := range s {
@@ -408,8 +408,8 @@ func jamoBigramSet(s string) map[string]struct{} {
 	return bigramSet(jamo)
 }
 
-// readColumnIndexOf — readColumns 내 컬럼 위치(-1=부재). query 패키지
-// 내 재랭킹 신호 추출용(cli.columnIndexOf와 동일 규약).
+// readColumnIndexOf — a column's position within readColumns (-1 = absent). For the
+// rerank signal extraction inside the query package (the same convention as cli's columnIndexOf).
 func readColumnIndexOf(name string) int {
 	for i, c := range readColumns {
 		if c == name {
@@ -419,8 +419,8 @@ func readColumnIndexOf(name string) int {
 	return -1
 }
 
-// readCountOf — 행에서 read_count 값(readColumns 인덱스 기준). pgx 숫자형을
-// 수용하고 칼럼 부재·비수·nil은 0(동률 취급 — 정렬 불변).
+// readCountOf — the read_count value from a row (by readColumns index). Accepts pgx
+// numerics; a missing column, non-numeric, or nil is 0 (treated as a tie — the sort is unchanged).
 func readCountOf(row []any) int {
 	i := readColumnIndexOf("read_count")
 	if i < 0 || i >= len(row) {
@@ -439,10 +439,10 @@ func readCountOf(row []any) int {
 	return 0
 }
 
-// columnIndexOf — fields 이름 → readColumns 인덱스. 없으면 -1.
-// ReadFieldKnown — --fields 이름이 read 결과의 알려진 컬럼인지 판별
-// (오타 필드가 FormatRows의 위치 fallback으로
-// 조용히 다른 컬럼 값을 채우던 왜곡 방지 — read 경로 사전 검증용).
+// columnIndexOf — fields name -> readColumns index. -1 when absent.
+// ReadFieldKnown — whether a --fields name is a known column of the read result
+// (preventing the distortion where a typo'd field silently filled another column's value
+// via FormatRows's positional fallback — for up-front validation on the read path).
 func ReadFieldKnown(name string) bool {
 	for _, c := range readColumns {
 		if c == name {
@@ -452,12 +452,12 @@ func ReadFieldKnown(name string) bool {
 	return false
 }
 
-// ReadColumnsHint — 검증 오류 안내용 알려진 컬럼 목록(단일 소스).
+// ReadColumnsHint — the known-column list for validation-error guidance (a single source).
 func ReadColumnsHint() string {
 	return strings.Join(readColumns, ",")
 }
 
-// truncateRunes — rune 기반 절단(한글 등 멀티바이트 안전).
+// truncateRunes — rune-based truncation (multibyte-safe, e.g. for Korean).
 func truncateRunes(s string, max int) string {
 	r := []rune(s)
 	if len(r) <= max {
@@ -466,11 +466,11 @@ func truncateRunes(s string, max int) string {
 	return string(r[:max])
 }
 
-// FormatRows — 조회 결과 출력 포맷.
-// 기본: fields 순서의 컬럼을 '|'로 조인, summary는 80자 rune 절단.
-// jsonMode: 행별 한 줄 JSON, 선택 fields 키만 포함.
-// fields 이름은 readColumns 기준으로 매핑하고, 매핑에 없는 이름(hot_view의
-// kind·ts 등)은 행 내 위치순으로 해석한다.
+// FormatRows — the query-result output format.
+// Default: columns in fields order joined by '|'; the summary truncated to 80 runes.
+// jsonMode: one line of JSON per row, containing only the selected fields keys.
+// Field names are mapped against readColumns; names outside the mapping (hot_view's
+// kind, ts, etc.) are interpreted by their position in the row.
 func FormatRows(rows [][]any, fields string, jsonMode bool) string {
 	if fields == "" {
 		fields = "id,topic,summary"
@@ -486,7 +486,7 @@ func FormatRows(rows [][]any, fields string, jsonMode bool) string {
 					raw = row[idx]
 				}
 			} else if i < len(row) {
-				raw = row[i] // 매핑 밖 필드는 위치 fallback
+				raw = row[i] // fields outside the mapping use the positional fallback
 			}
 			v := ""
 			if raw != nil {
@@ -502,7 +502,7 @@ func FormatRows(rows [][]any, fields string, jsonMode bool) string {
 			for i, name := range names {
 				m[name] = vals[i]
 			}
-			// encoding/json은 map 키를 정렬해 직렬화하므로 출력이 안정적이다.
+			// encoding/json serializes map keys sorted, so the output is stable.
 			b, err := json.Marshal(m)
 			if err != nil {
 				continue

@@ -1,6 +1,7 @@
-// import_pam_test.go — PAM(Portable AI Memory) v1.0 파서
-// 테스트. 전부 합성 데모 데이터(개인 데이터 금지 — CLAUDE.md 최상위 원칙).
-// ParsePAM은 순수 변환(스토어 무접촉): pending 적립·write는 import_jsonl.go 소유.
+// import_pam_test.go — PAM (Portable AI Memory) v1.0 parser tests. All
+// synthetic demo data (personal data forbidden — the CLAUDE.md
+// top-level principle). ParsePAM is a pure conversion (no store
+// contact): pending accrual·write belong to import_jsonl.go.
 package knowledge
 
 import (
@@ -15,7 +16,7 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// pamSample — 스펙 예시 형식의 최소 문서(합성).
+// pamSample — a minimal document in the spec-example shape (synthetic).
 const pamSample = `{
  "schema": "portable-ai-memory",
  "memories": [
@@ -34,8 +35,8 @@ const pamSample = `{
  "relations": []
 }`
 
-// TestParsePAMMinimal — 최소 문서 1건 변환: kind·content·tags·source·
-// created_at·confidence 매핑.
+// TestParsePAMMinimal — converting the 1-row minimal document: the
+// kind·content·tags·source·created_at·confidence mappings.
 func TestParsePAMMinimal(t *testing.T) {
 	res, err := ParsePAM([]byte(pamSample))
 	if err != nil {
@@ -71,8 +72,8 @@ func TestParsePAMMinimal(t *testing.T) {
 	}
 }
 
-// TestParsePAMTypeMapping — type→kind 매핑 6종: 표준 knowledge형 4종·
-// project·custom(원 custom_type 보존).
+// TestParsePAMTypeMapping — 6 type→kind mappings: 4 standard knowledge
+// shapes·project·custom (the original custom_type preserved).
 func TestParsePAMTypeMapping(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -101,19 +102,21 @@ func TestParsePAMTypeMapping(t *testing.T) {
 			t.Errorf("%s Kind = %q, want %q", c.ID, c.Kind, wantKinds[c.ID])
 		}
 	}
-	// custom → Metadata에 원 custom_type 보존
+	// custom → the original custom_type preserved in Metadata
 	custom := res.Candidates[5]
 	if got, _ := custom.Metadata["custom_type"].(string); got != "demo-custom-type" {
 		t.Errorf("custom_type metadata = %v, want demo-custom-type", custom.Metadata["custom_type"])
 	}
-	// 표준형에는 custom_type 보존 불필요(없어도 무방하나 있으면 안 됨)
+	// Standard shapes need no custom_type preservation (absent is fine;
+	// present must not happen)
 	if _, ok := res.Candidates[4].Metadata["custom_type"]; ok {
 		t.Errorf("project에 custom_type 보존됨 — 표준형은 불필요")
 	}
 }
 
-// TestParsePAMStatusSkips — 비-active status 4종은 후보에서 제외되고
-// Skipped 목록에 원 status로 남는다(보고용).
+// TestParsePAMStatusSkips — the 4 non-active statuses are excluded from
+// candidates and remain in the Skipped list with their original status
+// (for reporting).
 func TestParsePAMStatusSkips(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -143,8 +146,9 @@ func TestParsePAMStatusSkips(t *testing.T) {
 	}
 }
 
-// TestParsePAMSupersedes — relations 중 type=="supersedes"만 (from,to)
-// 쌍으로 추출 — 후처리 계보 갱신용. 다른 relation type은 무시.
+// TestParsePAMSupersedes — only type=="supersedes" among relations is
+// extracted as (from,to) pairs — for the post-pass lineage renewal.
+// Other relation types are ignored.
 func TestParsePAMSupersedes(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -169,10 +173,10 @@ func TestParsePAMSupersedes(t *testing.T) {
 	}
 }
 
-// TestParsePAMSupersedesDirection — PAM §13.2 "supersedes: Source replaces
-// target": relation from=신규(대체하는 쪽), to=구(피대체). SupersedePair는
-// 이 방향을 그대로 확정한다(From=신규, To=구 — 소비측 importPAM은 이
-// 의미만 정합 소비).
+// TestParsePAMSupersedesDirection — PAM §13.2 "supersedes: Source
+// replaces target": relation from=new (the replacing side), to=old (the
+// replaced). SupersedePair fixes this direction as-is (From=new, To=old
+// — the consumer importPAM invokes exactly this meaning).
 func TestParsePAMSupersedesDirection(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -196,10 +200,11 @@ func TestParsePAMSupersedesDirection(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMSupersedesLineage — 방향 회귀(엔드투엔드):
-// relation from=pn2(신규) to=po1(구)일 때 계보 갱신은 "신규가 구를
-// 대체" — Supersede(oldID=po1의 적립 id, newID=pn2의 적립 id) 호출.
-// 반전 시 oldID/newID가 뒤바뀐 호출로 잡힌다.
+// TestRunImportMigratePAMSupersedesLineage — a direction regression
+// (end-to-end): with relation from=pn2 (new) to=po1 (old), the lineage
+// renewal is "new replaces old" — a Supersede(oldID=po1's accrued id,
+// newID=pn2's accrued id) call. A reversal shows up as a call with
+// swapped oldID/newID.
 func TestRunImportMigratePAMSupersedesLineage(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -221,15 +226,16 @@ func TestRunImportMigratePAMSupersedesLineage(t *testing.T) {
 	if len(m.superseded) != 1 {
 		t.Fatalf("Supersede 호출 = %d회, want 1", len(m.superseded))
 	}
-	// 후보 순서대로 적립: po1=1행째(id 1), pn2=2행째(id 2).
+	// Accrued in candidate order: po1=1st row (id 1), pn2=2nd row (id
+	// 2).
 	if m.superseded[0].oldID != 1 || m.superseded[0].newID != 2 {
 		t.Fatalf("Supersede(oldID=%d, newID=%d), want (oldID=1 po1구, newID=2 pn2신규) — 방향 반전",
 			m.superseded[0].oldID, m.superseded[0].newID)
 	}
 }
 
-// TestParsePAMConfidenceClamp — confidence.current 클램프 0-1. 생략 시
-// import 경로 기본 0.5.
+// TestParsePAMConfidenceClamp — confidence.current clamped to 0-1. When
+// omitted, the import-path default 0.5.
 func TestParsePAMConfidenceClamp(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -258,7 +264,7 @@ func TestParsePAMConfidenceClamp(t *testing.T) {
 	}
 }
 
-// TestParsePAMContentOverSummary — content 우선·summary는 무시.
+// TestParsePAMContentOverSummary — content wins·summary is ignored.
 func TestParsePAMContentOverSummary(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -275,8 +281,8 @@ func TestParsePAMContentOverSummary(t *testing.T) {
 	}
 }
 
-// TestParsePAMSchemaMismatch — 루트 schema가 "portable-ai-memory"가
-// 아니면(빠짐 포함) 오류.
+// TestParsePAMSchemaMismatch — if the root schema is not
+// "portable-ai-memory" (including missing), an error.
 func TestParsePAMSchemaMismatch(t *testing.T) {
 	cases := map[string]string{
 		"다른 값": `{"schema":"something-else","memories":[],"relations":[]}`,
@@ -289,7 +295,8 @@ func TestParsePAMSchemaMismatch(t *testing.T) {
 	}
 }
 
-// TestParsePAMCorruptJSON — 파손 json은 위치(offset)를 포함한 상세 오류.
+// TestParsePAMCorruptJSON — corrupt json gets a detailed error carrying
+// the position (offset).
 func TestParsePAMCorruptJSON(t *testing.T) {
 	bad := []byte(`{"schema":"portable-ai-memory","memories":[{"id":`)
 	_, err := ParsePAM(bad)
@@ -301,7 +308,8 @@ func TestParsePAMCorruptJSON(t *testing.T) {
 	}
 }
 
-// TestParsePAMFnSeam — 연결 seam 변수가 ParsePAM과 동일 동작.
+// TestParsePAMFnSeam — the wiring seam variable behaves identically to
+// ParsePAM.
 func TestParsePAMFnSeam(t *testing.T) {
 	res, err := ParsePAMFn([]byte(pamSample))
 	if err != nil {
@@ -312,9 +320,10 @@ func TestParsePAMFnSeam(t *testing.T) {
 	}
 }
 
-// --- integrity.checksum 수입 검증·§18 서명 검증 ---
+// --- integrity.checksum import verification·§18 signature verification ---
 
-// pamSwapImportStderr — pamImportStderr seam 교체(경고 캡처).
+// pamSwapImportStderr — swaps the pamImportStderr seam (warning
+// capture).
 func pamSwapImportStderr(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
@@ -324,7 +333,8 @@ func pamSwapImportStderr(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// pamSignedDoc — 고정 키로 서명한 합성 문서(왕복·변조 검증 공통 원천).
+// pamSignedDoc — a synthetic document signed with a fixed key (the
+// common source for round-trip·tamper checks).
 func pamSignedDoc(t *testing.T) []byte {
 	t.Helper()
 	sup := 12
@@ -348,9 +358,9 @@ func pamSignedDoc(t *testing.T) []byte {
 	return out
 }
 
-// TestParsePAMVerifiesChecksumOwnExport — flint가 발행한 문서(무서명·
-// 서명 양쪽)의 integrity.checksum은 수입측 재계산과 일치 — 조용 통과가
-// 아니라 검증 후 통과다.
+// TestParsePAMVerifiesChecksumOwnExport — the integrity.checksum of
+// documents flint issued (unsigned·signed alike) matches the import
+// side's recomputation — passing after verification, not a quiet pass.
 func TestParsePAMVerifiesChecksumOwnExport(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	unsigned, err := FormatPAM(pamFixtureRows(), "flint-test")
@@ -368,8 +378,8 @@ func TestParsePAMVerifiesChecksumOwnExport(t *testing.T) {
 	}
 }
 
-// TestParsePAMChecksumMismatch — 내용 변조(체크섬 불일치)는 오류 —
-// 조용한 통과 금지.
+// TestParsePAMChecksumMismatch — content tampering (checksum mismatch)
+// is an error — no quiet pass.
 func TestParsePAMChecksumMismatch(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -388,8 +398,8 @@ func TestParsePAMChecksumMismatch(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMChecksumMismatchExit3 — 체크섬 불일치 문서
-// 수입은 exit 3(엔드투엔드).
+// TestRunImportMigratePAMChecksumMismatchExit3 — importing a
+// checksum-mismatched document is exit 3 (end-to-end).
 func TestRunImportMigratePAMChecksumMismatchExit3(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -406,8 +416,9 @@ func TestRunImportMigratePAMChecksumMismatchExit3(t *testing.T) {
 	}
 }
 
-// TestParsePAMSignatureRoundtripNoWarning — §18 서명 왕복: --sign 발행
-// 문서는 수입 검증에서 오류·경고 없이 통과.
+// TestParsePAMSignatureRoundtripNoWarning — the §18 signature round
+// trip: a --sign-issued document passes import verification without
+// errors·warnings.
 func TestParsePAMSignatureRoundtripNoWarning(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	res, err := ParsePAM(pamSignedDoc(t))
@@ -422,9 +433,10 @@ func TestParsePAMSignatureRoundtripNoWarning(t *testing.T) {
 	}
 }
 
-// TestParsePAMSignatureTamperWarnsContinues — §21.4 SHOULD: 서명 검증
-// 실패(payload 변조 — 체크섬은 memories만 덮으므로 통과)는 stderr 경고
-// 1행 후 계속한다(거부 아님).
+// TestParsePAMSignatureTamperWarnsContinues — §21.4 SHOULD: a signature
+// verification failure (payload tampering — the checksum covers only
+// memories, so it still passes) warns once on stderr then continues
+// (not a rejection).
 func TestParsePAMSignatureTamperWarnsContinues(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	doc := pamSignedDoc(t)
@@ -449,8 +461,8 @@ func TestParsePAMSignatureTamperWarnsContinues(t *testing.T) {
 	}
 }
 
-// TestParsePAMUnsignedNoWarning — 무서명 문서(§18 미사용)는 서명 검증
-// 경고 없이 통과.
+// TestParsePAMUnsignedNoWarning — an unsigned document (§18 unused)
+// passes without a signature-verification warning.
 func TestParsePAMUnsignedNoWarning(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	if _, err := ParsePAM([]byte(pamSample)); err != nil {
@@ -461,11 +473,12 @@ func TestParsePAMUnsignedNoWarning(t *testing.T) {
 	}
 }
 
-// --- 저장 content_hash 승계·수입 dedup 멱등 ---
+// --- stored content_hash inheritance·import dedup idempotence ---
 
-// TestParsePAMInheritsStoredContentHash — A2: memory metadata.content_hash
-// (64 hex)는 ImportCandidate.Metadata로 승계된다(jsonl A9 isHex64 대칭).
-// 비hex 값·미기재는 승계하지 않는다.
+// TestParsePAMInheritsStoredContentHash — A2: a memory metadata.
+// content_hash (64 hex) is inherited into ImportCandidate.Metadata
+// (jsonl A9 isHex64 symmetry). Non-hex values·absence are not
+// inherited.
 func TestParsePAMInheritsStoredContentHash(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -494,8 +507,9 @@ func TestParsePAMInheritsStoredContentHash(t *testing.T) {
 	}
 }
 
-// TestParsePAMRoundtripOwnExportStoredHash — 발행→수입 왕복: FormatPAM이
-// 발행한 metadata.content_hash가 ParsePAM 후보에 그대로 승계된다.
+// TestParsePAMRoundtripOwnExportStoredHash — the issue→import round
+// trip: the metadata.content_hash FormatPAM emitted is inherited
+// as-is into the ParsePAM candidates.
 func TestParsePAMRoundtripOwnExportStoredHash(t *testing.T) {
 	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
 	if err != nil {
@@ -516,10 +530,12 @@ func TestParsePAMRoundtripOwnExportStoredHash(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMStoredHashDedupFast — A2 와이어링(패스트 fake):
-// 후보 metadata.content_hash는 적립 ExportRow.ContentHash로 승계되어
-// dedup 조회 해시로 쓰인다 — 기존 행 멱등(duplicated=전량·imported=0,
-// jsonl A9 대칭). 승계 누락 시 재계산 해시로 조회해 imported로 적립된다.
+// TestRunImportMigratePAMStoredHashDedupFast — the A2 wiring (fast
+// fake): a candidate's metadata.content_hash is inherited into the
+// accrual ExportRow.ContentHash and used as the dedup lookup hash —
+// idempotent against existing rows (duplicated=all·imported=0, jsonl A9
+// symmetry). Without the inheritance, the lookup uses the recomputed
+// hash and the row accrues as imported.
 func TestRunImportMigratePAMStoredHashDedupFast(t *testing.T) {
 	const stored = "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
 	doc := fmt.Sprintf(`{
@@ -550,11 +566,12 @@ func TestRunImportMigratePAMStoredHashDedupFast(t *testing.T) {
 	}
 }
 
-// TestImportPAMRoundtripIdempotentRealSlow — A2 실DB 왕복(slow): 적립
-// (저장 content_hash 64 hex 보유)→export pam→import pam은 전량 중복
-// (duplicated=전량·imported=0 — 왕복 멱등)이고, 재export 본문은 첫
-// export와 동일하다(휘발 필드 export_id·export_date 제외). SUPERLITE_REAL=1
-// + FLINT_TEST_DSN 설정 시만.
+// TestImportPAMRoundtripIdempotentRealSlow — the A2 real-DB round trip
+// (slow): accrual (rows holding a stored content_hash 64 hex) → export
+// pam → import pam is all duplicates (duplicated=all·imported=0 —
+// round-trip idempotence), and the re-export body is identical to the
+// first export (excluding the volatile fields export_id·export_date).
+// Only with SUPERLITE_REAL=1 + FLINT_TEST_DSN set.
 func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 	dsn, ok := importRealDSN()
 	if !ok {
@@ -579,7 +596,8 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 	cleanup()
 	t.Cleanup(cleanup)
 
-	// 1. 적립 — jsonl A9 경로로 저장 content_hash(64 hex)를 보유한 행 확보.
+	// 1. Accrual — secure rows holding a stored content_hash (64 hex)
+	// via the jsonl A9 path.
 	t0 := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
 	rows := []ExportRow{
 		{ID: 910101, Topic: "demo pam idem alpha", Content: "합성 데모 pam 멱등 본문 alpha.",
@@ -600,8 +618,9 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 		t.Fatalf("적립 exit=%d; out=%s", code, seedOut.String())
 	}
 
-	// 2. export pam — 저장 해시가 metadata로 발행된 문서. 공유 실DB
-	// 잔재 행과 격리하기 위해 마커 origin 행만 대상으로 한다.
+	// 2. export pam — a document emitting the stored hashes as
+	// metadata. To isolate from residual rows of the shared real DB,
+	// only the marker-origin rows are targeted.
 	all, err := ExportRows(ctx, st, ExportFilter{})
 	if err != nil {
 		t.Fatalf("ExportRows: %v", err)
@@ -620,7 +639,8 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 3. import pam — 전량 중복(멱등): duplicated=2·imported=0.
+	// 3. import pam — all duplicates (idempotent): duplicated=2·
+	// imported=0.
 	var out strings.Builder
 	if code := RunImportMigrate(ctx, st, []string{"--format", "pam"}, strings.NewReader(string(doc1)), &out); code != 0 {
 		t.Fatalf("pam 수입 exit=%d; out=%s", code, out.String())
@@ -629,7 +649,8 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 		t.Fatalf("왕복 멱등 미충족 — imported=0·duplicated=2 필요: %s", out.String())
 	}
 
-	// 4. 재export 동일 — 본문(휘발 필드 제외)은 첫 export와 바이트 동일.
+	// 4. Re-export identity — the body (excluding volatile fields) is
+	// byte-identical to the first export.
 	all2, err := ExportRows(ctx, st, ExportFilter{})
 	if err != nil {
 		t.Fatal(err)

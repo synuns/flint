@@ -1,7 +1,7 @@
-// approve.go — approve 커맨드 — 검수 게이트 통과(§8: 승인 = 대화로 →
-// 에이전트가 실행). `flint approve --id N` — pending→active 승격.
-// 성공 {"status":"approved","id":N} exit 0, 없는 id는 not_found 한 줄
-// JSON exit 1.
+// approve.go — the approve command — passing the review gate (§8: approval
+// = via conversation → the agent runs it). `flint approve --id N` —
+// pending→active promotion. Success: {"status":"approved","id":N} exit 0;
+// a missing id gets a one-line not_found JSON, exit 1.
 package knowledge
 
 import (
@@ -17,45 +17,52 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// approveStore — Approve 승격 접근. wire.Store 인터페이스는 v0.1 소유라
-// 확장 대신 타입 단언으로 소비한다(root.go 수정 금지 — done.go
-// staleSessionStore 관례). 실경로(root·mcp)가 넘기는
-// realStore는 항상 구현한다.
+// approveStore — the promotion access for Approve. The wire.Store interface
+// is v0.1-owned, so it is consumed via type assertion instead of extension
+// (root.go modifications forbidden — the done.go staleSessionStore
+// convention). The realStore passed on real paths (root·mcp) always
+// implements it.
 type approveStore interface {
 	Approve(ctx context.Context, id int) error
 }
 
-// ApproveFn — 레거시 폴백 seam. st가 Approve를 구현하지 않는(주입 없는
-// 테스트 harness) 경우에만 쓰인다 — 기본은 에러(실경로 st 위임 전제).
-// 테스트는 fake 교체(approve_test.go).
+// ApproveFn — the legacy fallback seam. Used only when st does not
+// implement Approve (a test harness without injection) — the default is an
+// error (delegation to the real-path st is the premise). Tests swap the
+// fake (approve_test.go).
 var ApproveFn = func(ctx context.Context, id int) error {
 	return errors.New("approve: injected store does not implement Approve")
 }
 
-// quoteJSON — 경로 등 문자열을 JSON 문자열 리터럴로 감싼다.
+// quoteJSON — wraps strings such as paths into a JSON string literal.
 var quoteJSON = wire.QuoteJSON
 
-// curationCounterKinds — 검수(curation) daily 카운터 kind
-// 화이트리스트(spec §2.4 갭1). 키 종류는 이 8종으로 상한(오타 kind의
-// 무한 키 증식 방지 — 진단·report curation 객체가 같은 이름 공간을
-// 소비한다). 기존 유입 계측(RecordUsageCount kind)과 구분된 전용 키다
-// (승격·무효화 결과는 유입이 아니라 검수 결과).
+// curationCounterKinds — the daily counter kind whitelist for review
+// (curation) (spec §2.4 gap 1). Key kinds are capped at these eight
+// (preventing infinite key proliferation from typo'd kinds — the
+// diagnostics·report curation objects consume the same namespace). A
+// dedicated key space, distinct from the existing intake metering
+// (RecordUsageCount kind) — promotion·invalidation outcomes are review
+// results, not intake.
 var curationCounterKinds = map[string]bool{
 	"approve_done": true, "approve_not_found": true, "approve_supersede_err": true,
 	"maintain_supersede": true, "maintain_expire": true, "maintain_prune_rows": true,
 	"import_added": true, "import_skipped": true,
 }
 
-// BumpCurationCounter — 검수 결과 daily 플랫 키 1종 증분(v1.2.0 T4).
-// `daily:<kind>:<date>`(UTC) 정수 값을 단일 UPSERT로 올린다 — 쿼리 본체는
-// db.BumpDailyFlatKey 단일 소유(쓰기 SQL 리터럴의 db 패키지 소유 원칙 —
-// writes_through_repo 가드 스코프)를 st가 구조적으로 만족하는 db.Querier
-// 경유로 실행한다(wire.Store·fake 전부 해당). 증분은 비멱등이라 재시도
-// 없이 단발 실행(BumpMetaKV 계약 승계 — 모호 실패 이중 계상 방지),
-// n<=0·무효 kind·실패는 조용히(§13 계측 원칙 — 카운터 유실이 호출 실패보다
-// 낫다). 정리는 PruneDaily의 daily:* 정규식이 양쪽 형식(구 JSON·플랫)을
-// 함께 정리한다. kind 화이트리스트에 없는 호출은 계측되지 않는다(상한
-// 원칙 — 오타 kind의 메타 키 증식 방지).
+// BumpCurationCounter — increments one daily flat-key review counter (v1.2.0
+// T4). Raises the `daily:<kind>:<date>` (UTC) integer value with a single
+// UPSERT — the query body is singly owned by db.BumpDailyFlatKey (the
+// db-package ownership principle for write SQL literals — writes_through_repo
+// guard scope) and runs through db.Querier, which st structurally satisfies
+// (covers wire.Store·fakes alike). The increment is non-idempotent, so it
+// fires exactly once without retry (inheriting the BumpMetaKV contract —
+// preventing double-counting on ambiguous failure); n<=0·invalid kind·
+// failure are quiet (§13 metering principle — a lost counter beats a failed
+// call). Cleanup comes from PruneDaily's daily:* regex, which clears both
+// formats (legacy JSON·flat) together. Calls with kinds outside the
+// whitelist are not metered (the cap principle — preventing meta key
+// proliferation from typo'd kinds).
 func BumpCurationCounter(ctx context.Context, st wire.Store, kind string, n int) {
 	if st == nil || n <= 0 || !curationCounterKinds[kind] {
 		return
@@ -63,18 +70,21 @@ func BumpCurationCounter(ctx context.Context, st wire.Store, kind string, n int)
 	_ = db.BumpDailyFlatKey(ctx, st, kind, time.Now().UTC().Format("2006-01-02"), n)
 }
 
-// approveUsageErr — approve 인자 검증 오류 조립: wire.UsageError
-// 분류(error:"usage") + message에 사용법 안내 `--id N [--supersede OLD]`
-// 포함 — 오타 플래그를 안내로 바로잡는다.
+// approveUsageErr — assembles the approve argument validation error:
+// wire.UsageError classification (error:"usage") + a usage hint
+// `--id N [--supersede OLD]` in the message — turning a mistyped flag into
+// the correct guidance.
 func approveUsageErr(format string, a ...any) error {
 	return wire.UsageErrorf(format+" — usage: flint approve --id N [--supersede OLD]", a...)
 }
 
-// RunApprove — 승인 실행. 승격은 주어진 st 경유(R14 재배선 — 이전엔 st를
-// 무시하고 자체 Repo를 열었다). v1.0.1(F3): 인자 검증 경로(unknown flag·
-// 값 누락·무효 id·--id 부재·supersede==id)는 무효 인자 exit 3으로 통일 —
-// mcp dispatchApprove 검증 실패 계약과 정합. v1.5.3(P2): 이 경로의
-// ErrLine error 값은 "usage"(기존 internal).
+// RunApprove — runs the approval. The promotion goes through the given st
+// (R14 rewiring — previously it ignored st and opened its own Repo).
+// v1.0.1 (F3): argument-validation paths (unknown flag·missing value·
+// invalid id·missing --id·supersede==id) are unified to the invalid-arg
+// exit 3 — matching the mcp dispatchApprove validation-failure contract.
+// v1.5.3 (P2): the ErrLine error value on these paths is "usage"
+// (previously internal).
 func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	id := -1
 	supersede := -1
@@ -111,8 +121,9 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return 3
 	}
 
-	// 주입 st 우선 — realStore는 Approve를 위임한다. 미구현
-	// st(nil 포함)만 레거시 ApproveFn seam으로 폴백.
+	// Injected st first — realStore delegates Approve. Only a
+	// non-implementing st (incl. nil) falls back to the legacy ApproveFn
+	// seam.
 	var err error
 	if as, ok := st.(approveStore); ok {
 		err = as.Approve(ctx, id)
@@ -121,24 +132,25 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	}
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			BumpCurationCounter(ctx, st, "approve_not_found", 1) // 검수 카운터
+			BumpCurationCounter(ctx, st, "approve_not_found", 1) // review counter
 			fmt.Fprintln(stdout, `{"error":"not_found","id":`+strconv.Itoa(id)+`}`)
 			return 1
 		}
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	BumpCurationCounter(ctx, st, "approve_done", 1) // 검수 카운터 — 승격 성공 1회
-	// 승격과 동시 대체 — approve --id N --supersede OLD는
-	// OLD(구 활성 지식)를 N으로 무효화·선수 관계 기록까지 한 번에
-	// (maintain --supersede 갱신 경로와 동일 UPDATE).
+	BumpCurationCounter(ctx, st, "approve_done", 1) // review counter — one successful promotion
+	// Supersede at promotion time — approve --id N --supersede OLD
+	// invalidates OLD (the old active knowledge) in favor of N and records
+	// the precedence, all at once (the same UPDATE as the maintain
+	// --supersede renewal path).
 	if supersede > 0 {
 		if st == nil {
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--supersede requires store")))
 			return 1
 		}
 		if serr := supersedeAfterApprove(ctx, st, supersede, id); serr != nil {
-			BumpCurationCounter(ctx, st, "approve_supersede_err", 1) // 검수 카운터
+			BumpCurationCounter(ctx, st, "approve_supersede_err", 1) // review counter
 			fmt.Fprintln(stdout, `{"status":"approved","id":`+strconv.Itoa(id)+
 				`,"supersede_error":`+quoteJSON(serr.Error())+`}`)
 			return 1
@@ -147,9 +159,10 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			`,"superseded":`+strconv.Itoa(supersede)+`}`)
 		return 0
 	}
-	// 유사 active 안내 — 같은 topic(또는 접두 일치)의 기존
-	// active가 있으면 병합 후보로 노출(승격은 이미 완료 — 안내만).
-	// st nil(테스트 harness)은 안내 생략 — 승격 계약 불변.
+	// Similar-active notice — if an existing active shares the topic (or a
+	// prefix match), surface it as a merge candidate (the promotion is
+	// already complete — this is only a notice). nil st (test harness)
+	// skips the notice — the promotion contract is unchanged.
 	var sim []int
 	if st != nil {
 		sim = similarActiveIDs(ctx, st, id)
@@ -173,17 +186,19 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 
 func init() { wire.Register("approve", RunApprove) }
 
-// supersedeStore — 대체 전이 capability. realStore가 구현하며
-// 갱신 UPDATE는 db.Repo.Supersede 단일 경로다(rows-affected 후견사 내장 —
-// approveStore 관례: wire.Store는 v0.1 소유라 타입 단언으로 소비).
+// supersedeStore — the supersede-transition capability. realStore implements
+// it; the renewal UPDATE has the single path db.Repo.Supersede (rows-affected
+// stewardship built in — the approveStore convention: wire.Store is v0.1-owned,
+// so it is consumed via type assertion).
 type supersedeStore interface {
 	Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error)
 }
 
-// supersedeAfterApprove — 승격 직후 OLD를 NEW로 대체 무효화.
-// 커밋은 Store.Commit(dolt_add -A +
-// dolt_commit — dolt_commit은 테이블이 아닌 내장 함수). OLD active
-// 사전 확인·0행 경합 후견사는 Repo.Supersede rows-affected로 승계.
+// supersedeAfterApprove — supersedes OLD with NEW right after promotion.
+// The commit goes through Store.Commit (dolt_add -A +
+// dolt_commit — dolt_commit is a built-in function, not a table). The
+// pre-check that OLD is active·the zero-row race stewardship are inherited
+// from Repo.Supersede's rows-affected count.
 func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int) error {
 	ss, ok := st.(supersedeStore)
 	if !ok {
@@ -197,7 +212,7 @@ func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int)
 	if len(rows) == 0 || rows[0][0] == nil || fmt.Sprint(rows[0][0]) != "active" {
 		return fmt.Errorf("supersede: id=%d is not active", oldID)
 	}
-	// invalid_at=NEW의 valid_at 병기 값(Zep t_invalid=t_valid 준거).
+	// invalid_at = NEW's valid_at, carried over (per Zep t_invalid=t_valid).
 	vrows, verr := wire.QueryOnce(ctx, st,
 		`SELECT valid_at FROM knowledge WHERE id = $1`, []any{newID})
 	if verr != nil {
@@ -218,10 +233,10 @@ func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int)
 	return err
 }
 
-// similarActiveIDs — 승격된 지식과 유사한 active id들.
-// 유사 근사는 topicSimilarityKey(세션 공통 접두 제거 후 12룬
-// 접두)의 단일 Go 구현으로 pending 판정과 공유 — SQL 이중 구현 드리프트
-// 방지.
+// similarActiveIDs — the active ids similar to the promoted knowledge. The
+// similarity approximation is topicSimilarityKey (12-rune prefix after
+// stripping the common session prefix), a single Go implementation shared
+// with the pending decision — preventing SQL dual-implementation drift.
 func similarActiveIDs(ctx context.Context, st wire.Store, id int) []int {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT topic FROM knowledge WHERE id = $1`, []any{id})

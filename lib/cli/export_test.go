@@ -1,7 +1,7 @@
-// export_test.go — flint export CLI 배선 계약 테스트.
-// 포맷터·원천 조회는 seam var로 fake 주입 — RunExport 자체
-// 계약(플래그 파싱·stdout/--out·경고·요약 stderr·exit 0/2/3)이 검증
-// 대상이다. 실구현 연결은 seam 기본값 대입 시점(컴파일 시점)에 활성화.
+// export_test.go — contract tests for the flint export CLI wiring.
+// The formatters and source query are faked via seam vars — the RunExport contract
+// itself (flag parsing, stdout/--out, warnings, summary on stderr, exit 0/2/3) is the
+// verification target. The real implementations are wired at the seam default assignment (compile time).
 package cli
 
 import (
@@ -25,9 +25,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// installExportFakes — export seam 일괄 fake 설치 + stderr 캡처.
-// rowsFn이 nil이면 기본 rows fake(2행)를, formatter는 포맷명을 그대로
-// 돌려주는 최소 fake를 설치한다. 반환값은 캡처된 stderr 버퍼.
+// installExportFakes — installs export-seam fakes in bulk + captures stderr.
+// If rowsFn is nil, installs the default rows fake (2 rows); the formatter is a minimal fake that
+// returns the format name as-is. The return value is the captured stderr buffer.
 func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error)) *bytes.Buffer {
 	t.Helper()
 	if rowsFn == nil {
@@ -35,8 +35,8 @@ func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.S
 			return []knowledge.ExportRow{{ID: 1, Topic: "demo-a", Status: "active"}, {ID: 2, Topic: "demo-b", Status: "active"}}, nil
 		}
 	}
-	// 포맷터 seam은 (본문, 요약 보고 행수, 오류) 3값 — fake는
-	// 전행 수(len(rows))를 보고한다(pam 실구현만 발행 수 반환).
+	// the formatter seam is a 3-tuple (body, summary-reported row count, error) — the fake
+	// reports the total row count (len(rows)) (only the real pam returns the published count).
 	mk := func(name string) func([]knowledge.ExportRow) ([]byte, int, error) {
 		return func(rows []knowledge.ExportRow) ([]byte, int, error) {
 			return []byte(fmt.Sprintf("<%s of %d rows>\n", name, len(rows))), len(rows), nil
@@ -54,7 +54,7 @@ func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.S
 	return &stderr
 }
 
-// RF1 — 기본값: jsonl 포맷·stdout 출력·exit 0·요약 stderr.
+// RF1 — defaults: jsonl format, stdout output, exit 0, summary on stderr.
 func TestRunExportDefaultJSONLToStdout(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -70,7 +70,7 @@ func TestRunExportDefaultJSONLToStdout(t *testing.T) {
 	}
 }
 
-// RF2 — --out: 기존 파일 덮어씀 경고 1행을 파일 기록보다 먼저 stderr에.
+// RF2 — --out: the one-line overwrite warning for an existing file goes to stderr before the file write.
 func TestRunExportOutFileOverwriteWarning(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	dir := t.TempDir()
@@ -99,7 +99,7 @@ func TestRunExportOutFileOverwriteWarning(t *testing.T) {
 	}
 }
 
-// RF2b — --out 신규 파일: 경고 없이 기록.
+// RF2b — --out new file: written with no warning.
 func TestRunExportOutNewFileNoWarning(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "new.jsonl")
@@ -115,7 +115,7 @@ func TestRunExportOutNewFileNoWarning(t *testing.T) {
 	}
 }
 
-// RF3 — 각 format 스위치: 대응 포맷터 결과가 stdout으로, 요약에 포맷명.
+// RF3 — each format switch: the corresponding formatter result to stdout, format name in the summary.
 func TestRunExportFormatSwitches(t *testing.T) {
 	for _, format := range []string{"jsonl", "md", "txt", "csv"} {
 		stderr := installExportFakes(t, nil)
@@ -133,7 +133,7 @@ func TestRunExportFormatSwitches(t *testing.T) {
 	}
 }
 
-// RF4 — --since: RFC3339 파싱값이 원천 필터로 전달(컷오프).
+// RF4 — --since: the parsed RFC3339 value is passed to the source filter (cutoff).
 func TestRunExportSinceCutoff(t *testing.T) {
 	var got *knowledge.ExportFilter
 	stderr := installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
@@ -150,13 +150,13 @@ func TestRunExportSinceCutoff(t *testing.T) {
 	}
 }
 
-// RF5 — 무효 format·status·since·unknown flag는 exit 3.
+// RF5 — invalid format, status, since, or unknown flag exits 3.
 func TestRunExportInvalidValuesExit3(t *testing.T) {
 	cases := [][]string{
 		{"--format", "xml"},
 		{"--status", "bogus"},
 		{"--since", "not-a-date"},
-		{"--format"}, // 값 없는 trailing 플래그
+		{"--format"}, // trailing flag without a value
 		{"--bogus-flag"},
 	}
 	for _, args := range cases {
@@ -172,7 +172,7 @@ func TestRunExportInvalidValuesExit3(t *testing.T) {
 	}
 }
 
-// RF6 — 서버다운: Ping ErrServerDown → MapExit exit 2.
+// RF6 — server-down: Ping ErrServerDown -> MapExit exit 2.
 func TestRunExportServerDownExit2(t *testing.T) {
 	installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -182,7 +182,7 @@ func TestRunExportServerDownExit2(t *testing.T) {
 	}
 }
 
-// RF6b — 스토어 nil → exit 2(계약: 스토어 nil·서버다운 exit 2).
+// RF6b — nil store -> exit 2 (contract: nil store and server-down exit 2).
 func TestRunExportNilStoreExit2(t *testing.T) {
 	installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -192,21 +192,21 @@ func TestRunExportNilStoreExit2(t *testing.T) {
 	}
 }
 
-// RF7 — 요약 stderr 정확 형식: exported N rows (format, M bytes).
+// RF7 — exact summary stderr format: exported N rows (format, M bytes).
 func TestRunExportSummaryStderrFormat(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	var stdout bytes.Buffer
 	if code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	// fake jsonl 출력 "<jsonl of 2 rows>\n" = 18 bytes.
+	// the fake jsonl output "<jsonl of 2 rows>\n" = 18 bytes.
 	want := "exported 2 rows (jsonl, 18 bytes)\n"
 	if got := stderr.String(); got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 
-// RF8 --status/--tag: 파싱값이 원천 필터로 전달(기본 active).
+// RF8 --status/--tag: parsed values passed to the source filter (default active).
 func TestRunExportStatusAndTagFilter(t *testing.T) {
 	var got *knowledge.ExportFilter
 	stderr := installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
@@ -220,7 +220,7 @@ func TestRunExportStatusAndTagFilter(t *testing.T) {
 	if got == nil || got.Status != "all" || got.Tag != "demo" {
 		t.Fatalf("filters not passed: %+v", got)
 	}
-	// 기본값: status active.
+	// default: status active.
 	got = nil
 	code = runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &bytes.Buffer{})
 	if code != 0 || got == nil || got.Status != "active" {
@@ -228,15 +228,15 @@ func TestRunExportStatusAndTagFilter(t *testing.T) {
 	}
 }
 
-// exportSidecarHex — data의 sha256 hex(테스트 기대값 산출용).
+// exportSidecarHex — sha256 hex of data (for computing test expectations).
 func exportSidecarHex(t *testing.T, data []byte) string {
 	t.Helper()
 	d := sha256.Sum256(data)
 	return hex.EncodeToString(d[:])
 }
 
-// RF9 — --out 성공 시 <FILE>.sha256 사이드카: sha256sum -c 호환 형식
-// "<hex>  <basename>\n"(backup --out 관례와 동일 — ADR-0006).
+// RF9 — on --out success a <FILE>.sha256 sidecar: sha256sum -c compatible format
+// "<hex>  <basename>\n" (same as the backup --out convention — ADR-0006).
 func TestRunExportOutSidecarChecksum(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "export.jsonl")
@@ -258,7 +258,7 @@ func TestRunExportOutSidecarChecksum(t *testing.T) {
 	}
 }
 
-// RF10 — 재실행(내용 변화) 시 사이드카 갱신: 낡은 해시 잔존 없음.
+// RF10 — on re-run (content change) the sidecar refreshes: no stale hash left behind.
 func TestRunExportOutSidecarRefreshedOnRerun(t *testing.T) {
 	installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "export.jsonl")
@@ -269,7 +269,7 @@ func TestRunExportOutSidecarRefreshedOnRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// 두 번째 런: rows가 늘어 출력 바이트가 달라진다.
+	// second run: rows grow, so the output bytes differ.
 	old := exportRowsFn
 	exportRowsFn = func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
 		return []knowledge.ExportRow{{ID: 1, Topic: "demo-a"}, {ID: 2, Topic: "demo-b"}, {ID: 3, Topic: "demo-c"}}, nil
@@ -294,9 +294,9 @@ func TestRunExportOutSidecarRefreshedOnRerun(t *testing.T) {
 	}
 }
 
-// RF11 — stdout 모드·--out 기록 실패 시 사이드카 미생성.
+// RF11 — stdout mode or a failed --out write creates no sidecar.
 func TestRunExportNoSidecarOnStdoutOrOutFailure(t *testing.T) {
-	// stdout 모드: cwd에 어떤 .sha256도 남기지 않는다.
+	// stdout mode: leaves no .sha256 in cwd.
 	dir := t.TempDir()
 	oldWD, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -311,7 +311,7 @@ func TestRunExportNoSidecarOnStdoutOrOutFailure(t *testing.T) {
 	if _, err := os.Stat("out.jsonl.sha256"); err == nil {
 		t.Fatal("stdout mode must not create a sidecar")
 	}
-	// --out 실패(경로가 디렉터리 → WriteFile 실패, exit 1): 사이드카 없음.
+	// --out failure (path is a directory -> WriteFile fails, exit 1): no sidecar.
 	installExportFakes(t, nil)
 	d := t.TempDir()
 	if code := runExport(context.Background(), &fakeStore{}, []string{"--out", d}, strings.NewReader(""), &bytes.Buffer{}); code != 1 {
@@ -322,8 +322,8 @@ func TestRunExportNoSidecarOnStdoutOrOutFailure(t *testing.T) {
 	}
 }
 
-// RF18 — `--out -`: POSIX 관례(경로 "-" = stdout) — --out 생략과 완전히
-// 동일하다. 본문은 stdout으로, cwd에 `-`·`-.sha256` 파일을 남기지 않는다.
+// RF18 — `--out -`: POSIX convention (path "-" = stdout) — exactly the same as
+// omitting --out. The body goes to stdout; no `-` or `-.sha256` files are left in cwd.
 func TestRunExportOutDashIsStdout(t *testing.T) {
 	t.Chdir(t.TempDir())
 	stderr := installExportFakes(t, nil)
@@ -345,9 +345,9 @@ func TestRunExportOutDashIsStdout(t *testing.T) {
 	}
 }
 
-// RF12 — 사이드카 기록 실패(사이드카 경로가 디렉터리): stderr 경고 +
-// exit 0 유지(backup 관례 — 본문 기록 성공을 사이드카 실패가 해치지
-// 않는다).
+// RF12 — sidecar write failure (sidecar path is a directory): stderr warning +
+// exit 0 kept (the backup convention — a sidecar failure must not harm the successful
+// body write).
 func TestRunExportSidecarFailureWarnsButExits0(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	dir := t.TempDir()
@@ -370,8 +370,8 @@ func TestRunExportSidecarFailureWarnsButExits0(t *testing.T) {
 	}
 }
 
-// RF13 — --format pam: 파싱 통과(exit 0), pam 포맷터 결과가 stdout로,
-// 요약에 포맷명. PAM(Portable AI Memory) v1.0 교환 문서.
+// RF13 — --format pam: parses fine (exit 0), the pam formatter result to stdout,
+// format name in the summary. A PAM (Portable AI Memory) v1.0 exchange document.
 func TestRunExportFormatPAM(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -387,10 +387,10 @@ func TestRunExportFormatPAM(t *testing.T) {
 	}
 }
 
-// RF13b — formatPAMFn seam 기본값은 실 FormatPAM에 "flint/"+버전으로
-// 연결: 단일 JSON 문서·schema 필드·exported_by 계약.
+// RF13b — the formatPAMFn seam default connects to the real FormatPAM with "flint/"+version:
+// a single JSON document, schema field, and exported_by contract.
 func TestRunExportPAMSeamDefaultRealDoc(t *testing.T) {
-	realPAM := formatPAMFn // installExportFakes가 fake를 깔기 전 기본 실구현
+	realPAM := formatPAMFn // the default real implementation before installExportFakes lays down its fake
 	if realPAM == nil {
 		t.Fatal("formatPAMFn default must be the real FormatPAM wiring")
 	}
@@ -424,7 +424,7 @@ func TestRunExportPAMSeamDefaultRealDoc(t *testing.T) {
 	}
 }
 
-// RF13c — pam도 --out 사이드카 공통 적용(구현이 전 형식 공통).
+// RF13c — pam also gets the --out sidecar (the implementation is common to all formats).
 func TestRunExportPAMOutSidecar(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "export.pam.json")
@@ -436,11 +436,11 @@ func TestRunExportPAMOutSidecar(t *testing.T) {
 	}
 }
 
-// RF16 — --format pam 요약 행수는 pam 문서 발행 수
-// (total_memories — pending은 pam 설계 제외)로 보고한다. 조회 전행이
-// 3(1건 pending)이어도 요약은 "exported 2 rows".
+// RF16 — the --format pam summary row count is reported as the pam published-document count
+// (total_memories — pending excluded by pam design). Even with 3 total query rows
+// (1 pending), the summary is "exported 2 rows".
 func TestRunExportPAMSummaryCountsIssuedRows(t *testing.T) {
-	realPAM := formatPAMFn // installExportFakes가 fake를 깔기 전 기본 실구현
+	realPAM := formatPAMFn // the default real implementation before installExportFakes lays down its fake
 	stderr := installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
 		return []knowledge.ExportRow{
 			{ID: 1, Topic: "demo-a", Status: "active"},
@@ -459,8 +459,8 @@ func TestRunExportPAMSummaryCountsIssuedRows(t *testing.T) {
 	}
 }
 
-// RF16b — 포맷터가 보고한 발행 수가 요약에 그대로 쓰인다(전행 2·발행 1
-// fake — 요약이 len(rows)가 아님을 증명).
+// RF16b — the published count reported by the formatter is used as-is in the summary (2 total rows, 1 published
+// fake — proves the summary is not len(rows)).
 func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	old := formatPAMFn
@@ -478,12 +478,12 @@ func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
 	}
 }
 
-// --- §18 `--sign` 진입(--format pam 전용) ---
+// --- §18 `--sign` entry (pam-only via --format pam) ---
 
-// installPAMSignFakes — exportSignKeyFn·formatPAMSignedFn 교체(호출
-// 기록 래퍼). 기본은 고정 합성 키·최소 fake 본문, SUPERLITE_REAL=1이면
-// 실구현(임시 경로 키 실생성·실 FormatPAMSigned 배선)으로 같은 테스트를
-// 재검증한다(seam check). 반환: (호출 수, 전달된 키).
+// installPAMSignFakes — swaps exportSignKeyFn and formatPAMSignedFn (call-recording
+// wrappers). Defaults are a fixed synthetic key and a minimal fake body; with SUPERLITE_REAL=1,
+// the same tests are re-verified against the real implementation (real key creation in a
+// temp path, real FormatPAMSigned wiring) (seam check). Returns: (call count, passed key).
 func installPAMSignFakes(t *testing.T) (*int, *ed25519.PrivateKey) {
 	t.Helper()
 	var keyFn func() (ed25519.PrivateKey, error)
@@ -530,8 +530,8 @@ func installPAMSignFakes(t *testing.T) (*int, *ed25519.PrivateKey) {
 	return &calls, &gotKey
 }
 
-// RF17 — `--format pam --sign`: 키 로더 → 서명 포맷터 진입·exit 0.
-// SUPERLITE_REAL=1에서는 실 FormatPAMSigned 문서가 stdout으로 나간다.
+// RF17 — `--format pam --sign`: key loader -> signed-formatter entry, exit 0.
+// With SUPERLITE_REAL=1, the real FormatPAMSigned document goes to stdout.
 func TestRunExportPAMSignEntry(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	calls, gotKey := installPAMSignFakes(t)
@@ -562,7 +562,7 @@ func TestRunExportPAMSignEntry(t *testing.T) {
 	}
 }
 
-// RF17b — --sign는 pam 전용: 다른 포맷 조합은 사용법 오류 exit 3.
+// RF17b — --sign is pam-only: combining with other formats is a usage error, exit 3.
 func TestRunExportSignRequiresPAM(t *testing.T) {
 	installExportFakes(t, nil)
 	calls, _ := installPAMSignFakes(t)
@@ -579,7 +579,7 @@ func TestRunExportSignRequiresPAM(t *testing.T) {
 	}
 }
 
-// RF17c — 키 로드 실패는 오류 exit 1(문서 발행 없음).
+// RF17c — key load failure is an error exit 1 (no document published).
 func TestRunExportSignKeyFailureExit1(t *testing.T) {
 	installExportFakes(t, nil)
 	calls, _ := installPAMSignFakes(t)
@@ -599,8 +599,8 @@ func TestRunExportSignKeyFailureExit1(t *testing.T) {
 	}
 }
 
-// maxRowsExportFake — thresholds IN 조회에 export_import_max_rows 오버라이드만
-// 읽는 fake(나머지 조회는 0행). import maxRowsFake와 동일 응답 계약.
+// maxRowsExportFake — a fake that reads only the export_import_max_rows override from
+// thresholds IN lookups (0 rows for the rest). Same response contract as the import maxRowsFake.
 func maxRowsExportFake(max string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key IN") {
@@ -610,10 +610,10 @@ func maxRowsExportFake(max string) *fakeStore {
 	}}
 }
 
-// RF14 — 조회 결과 행 수 == max(경계)는 통과. 상한 키는
-// export_import_max_rows(import와 동일 키 — meta 오버라이드로 max=2).
+// RF14 — query result rows == max (boundary) passes. The cap key is
+// export_import_max_rows (shared with import — meta override sets max=2).
 func TestRunExportMaxRowsBoundary(t *testing.T) {
-	stderr := installExportFakes(t, nil) // 기본 rows fake: 2행
+	stderr := installExportFakes(t, nil) // default rows fake: 2 rows
 	var stdout bytes.Buffer
 	code := runExport(context.Background(), maxRowsExportFake("2"), nil, strings.NewReader(""), &stdout)
 	if code != 0 {
@@ -627,8 +627,8 @@ func TestRunExportMaxRowsBoundary(t *testing.T) {
 	}
 }
 
-// RF15 — 조회 결과 행 수 > max면 exit 3·오류 JSON {max,count}
-// (import enforceImportMaxRows 형식 준용). 포맷터·출력은 실행되지 않는다.
+// RF15 — query result rows > max exits 3 with the error JSON {max,count}
+// (following the import enforceImportMaxRows format). Formatters and output never run.
 func TestRunExportMaxRowsExceeded(t *testing.T) {
 	installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
 		return []knowledge.ExportRow{
@@ -650,8 +650,8 @@ func TestRunExportMaxRowsExceeded(t *testing.T) {
 	}
 }
 
-// installExportTTY — 적응형 진입 TTY 판정 seam 교체(기본
-// 실구현 tui.IsTerminalStdout).
+// installExportTTY — swaps the adaptive-entry TTY-check seam (default real
+// implementation tui.IsTerminalStdout).
 func installExportTTY(t *testing.T, tty bool) {
 	t.Helper()
 	orig := exportTTYFn
@@ -659,7 +659,7 @@ func installExportTTY(t *testing.T, tty bool) {
 	t.Cleanup(func() { exportTTYFn = orig })
 }
 
-// installExportTUIFake — exportTUIFn seam 교체(호출 기록 + 지정 코드 반환).
+// installExportTUIFake — swaps the exportTUIFn seam (records calls + returns the given code).
 func installExportTUIFake(t *testing.T, code int) *int {
 	t.Helper()
 	called := 0
@@ -672,7 +672,7 @@ func installExportTUIFake(t *testing.T, code int) *int {
 	return &called
 }
 
-// RF-adaptive-② — 무인자·무플래그 + 터미널: TUI 흐름 위임·exit 통과.
+// RF-adaptive-2 — no args or flags + terminal: delegates to the TUI flow, exit passes through.
 func TestRunExportAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	installExportFakes(t, nil)
 	called := installExportTUIFake(t, 7)
@@ -687,10 +687,10 @@ func TestRunExportAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	}
 }
 
-// RF-adaptive-③ — 무인자 + 비터미널(파이프): 기본 jsonl stdout 계약 불변.
+// RF-adaptive-3 — no args + non-terminal (pipe): the default jsonl stdout contract is unchanged.
 func TestRunExportAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	stderr := installExportFakes(t, nil)
-	installExportTUIFake(t, 9) // 호출되면 9 — 파이프 경로가 우회하는지 검출
+	installExportTUIFake(t, 9) // would return 9 — detects whether the pipe path bypasses it
 	installExportTTY(t, false)
 	var stdout bytes.Buffer
 	code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout)
@@ -705,8 +705,8 @@ func TestRunExportAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	}
 }
 
-// RF-adaptive-① — --tui 명시 + 비터미널: 기존 폴백 exit 3 불변
-// (exportTUIFn 기본 실구현 = tui.RunExport — 폼 시작 전 즉시 오류).
+// RF-adaptive-1 — explicit --tui + non-terminal: the existing fallback exit 3 unchanged
+// (exportTUIFn default = tui.RunExport — immediate error before the form starts).
 func TestRunExportExplicitTUINonTerminalFallback(t *testing.T) {
 	installExportFakes(t, nil)
 	installExportTTY(t, false)
@@ -723,7 +723,7 @@ func TestRunExportExplicitTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// RF-adaptive-④ — 플래그 존재 + 터미널: 현행 플래그 경로 유지(TUI 미진입).
+// RF-adaptive-4 — flags present + terminal: the current flag path is kept (no TUI entry).
 func TestRunExportAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	installExportTUIFake(t, 9)
@@ -741,11 +741,11 @@ func TestRunExportAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	}
 }
 
-// RF-noenv — FLINT_NO_TUI=1 + 터미널이어도 현행 jsonl 경로 강제(탈출구).
+// RF-noenv — FLINT_NO_TUI=1 forces the current jsonl path even on a terminal (escape hatch).
 func TestRunExportNoTUIEnvForcesFlagPath(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	stderr := installExportFakes(t, nil)
-	called := installExportTUIFake(t, 9) // 호출되면 9로 즉시 검출
+	called := installExportTUIFake(t, 9) // would return 9 for instant detection
 	installExportTTY(t, true)
 	var stdout bytes.Buffer
 	code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout)

@@ -1,6 +1,6 @@
 // import_migrate_test.go — flint import --format jsonl|pam CLI
-// 배선 테스트(합성 데모 데이터만). 계약: --format 유무 라우팅(기존 규칙
-// import 불변)·cli 진입 시그니처(st, args, stdin, stdout)·실DB slow 왕복.
+// wiring tests (synthetic demo data only). Contracts: --format routing (the existing rules
+// import unchanged), the cli entry signature (st, args, stdin, stdout), and a real-DB slow round trip.
 package cli
 
 import (
@@ -13,8 +13,8 @@ import (
 	"github.com/synuns/flint/lib/knowledge"
 )
 
-// TestImportMigrateCLISignature — cli.RunImportMigrate 계약 시그니처
-// (st, args, stdin, stdout) int 위임.
+// TestImportMigrateCLISignature — the cli.RunImportMigrate contract signature
+// (st, args, stdin, stdout) int delegation.
 func TestImportMigrateCLISignature(t *testing.T) {
 	f := &fakeStore{}
 	var out strings.Builder
@@ -24,14 +24,14 @@ func TestImportMigrateCLISignature(t *testing.T) {
 	}
 }
 
-// TestImportFormatRoutingDispatch — 배선 레지스트리 경로: --format jsonl은
-// migrate로, --verbose는 기존 경로 exit 3 불변.
+// TestImportFormatRoutingDispatch — the wiring registry path: --format jsonl goes to
+// migrate; --verbose keeps the existing path's exit 3.
 func TestImportFormatRoutingDispatch(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// 적립은 content_hash dedup·PK(공유 실DB 잔재 ID 31)를 통과한다 —
-	// 시작 경계에서 topic 잔재를 정리하고, 실행마다 고유 Content(테스트명+
-	// 시각)로 잔재 해시 충돌을 회피해야 imported:1이 멱등하다.
+	// the accrual passes content_hash dedup and the PK (the shared real-DB residue ID 31) —
+	// so the topic residue is cleaned at the start boundary, and each run uses unique Content (test name +
+	// timestamp) to avoid residue-hash collisions, keeping imported:1 idempotent.
 	cleanupRealResidue(`DELETE FROM knowledge WHERE topic = 'demo dispatch alpha'`)
 	rows := []knowledge.ExportRow{{
 		ID: 31, Topic: "demo dispatch alpha",
@@ -53,15 +53,15 @@ func TestImportFormatRoutingDispatch(t *testing.T) {
 	if !strings.Contains(out, `"status":"ok"`) || !strings.Contains(out, `"imported":1`) {
 		t.Fatalf("dispatch 요약: %s", out)
 	}
-	// 기존 규칙 import 회귀 — 미확인 플래그 exit 3 불변.
+	// existing rules import regression — an unrecognized flag keeps exit 3.
 	out, code = mustRun(t, []string{"import", "--verbose"}, "")
 	if code != 3 {
 		t.Fatalf("기존 경로 회귀 exit=%d, want 3; out=%s", code, out)
 	}
 }
 
-// TestImportMigrateJSONLRealSlow — 실DB 왕복(slow): 적립→멱등 2회
-// duplicate→계보 갱신 검증. SUPERLITE_REAL=1 + FLINT_TEST_DSN 설정 시만.
+// TestImportMigrateJSONLRealSlow — a real-DB round trip (slow): accrual -> a 2nd idempotent
+// duplicate -> lineage update verification. Only when SUPERLITE_REAL=1 + FLINT_TEST_DSN are set.
 func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -72,7 +72,7 @@ func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	if err != nil {
 		t.Skipf("real store unavailable: %v", err)
 	}
-	t.Cleanup(st.Close) // LIFO — 행 정리가 close보다 먼저
+	t.Cleanup(st.Close) // LIFO — row cleanup runs before close
 	const marker = "demo-import-migrate-slow"
 	cleanup := func() {
 		if _, err := st.Query(ctx, `DELETE FROM knowledge WHERE origin = $1`, marker); err != nil {
@@ -103,7 +103,7 @@ func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	if !strings.Contains(out.String(), `"imported":2`) || !strings.Contains(out.String(), `"superseded":1`) {
 		t.Fatalf("1회차 요약: %s", out.String())
 	}
-	// 계보 검증 — beta가 alpha를 가리킨다.
+	// lineage check — beta points at alpha.
 	got, err := st.Query(ctx, `SELECT superseded_by FROM knowledge WHERE id = 910022`)
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	if fmtInt(got[0][0]) != 910011 {
 		t.Fatalf("superseded_by=%v, want 910011", got[0][0])
 	}
-	// 멱등 — 2회차 전 행 duplicate.
+	// idempotent — the 2nd run duplicates every row.
 	out.Reset()
 	if code := RunImportMigrate(st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out); code != 0 {
 		t.Fatalf("2회차 exit=%d; out=%s", code, out.String())
@@ -124,7 +124,7 @@ func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	}
 }
 
-// fmtInt — pg 셀 값(int16/int32/int64) 정수 변환.
+// fmtInt — integer conversion of pg cell values (int16/int32/int64).
 func fmtInt(v any) int {
 	switch n := v.(type) {
 	case int16:

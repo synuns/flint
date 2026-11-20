@@ -1,8 +1,8 @@
-// diff_test.go — diff usage 오류 타입 계약 + fake 기반 요약·필터·행 상세.
-// usage 오류가 error:"usage"(wire.UsageErrorf → ErrLine)로 분류되는지
-// 검증하고, wire.Store DiffRows·DiffCommits fake으로 요약 범위(빈 범위
-// 포함)·--data/--schema 필터·행 상세 매핑을 검증한다. SQL 방언은
-// db 구현측 소유 — 여기선 매핑·출력 계약만.
+// diff_test.go — the diff usage-error type contract + fake-based summary, filters, and row details.
+// Verifies that usage errors are classified as error:"usage" (wire.UsageErrorf -> ErrLine)
+// and, with wire.Store DiffRows/DiffCommits fakes, verifies the summary scope (including
+// the empty range), the --data/--schema filters, and the row-detail mapping. The SQL
+// dialect is owned by the db implementation — here only the mapping and output contracts.
 package ops
 
 import (
@@ -16,9 +16,9 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// TestRunDiffUsageErrorType — protocol: 인자 수 위반(0·1·3개)
-// 은 exit 3 + error:"usage" + message에 usage: flint diff 안내. 레거시 원시
-// 문자열("usage: ..." 전체가 error 값)이 아니어야 한다.
+// TestRunDiffUsageErrorType — protocol: an argument-count violation (0, 1, or 3
+// args) is exit 3 + error:"usage" + a message containing the usage: flint diff guidance.
+// It must not be the legacy raw string (the whole "usage: ..." as the error value).
 func TestRunDiffUsageErrorType(t *testing.T) {
 	for _, args := range [][]string{nil, {"aaaa1"}, {"aaaa1", "bbbb2", "extra"}} {
 		var out bytes.Buffer
@@ -40,15 +40,15 @@ func TestRunDiffUsageErrorType(t *testing.T) {
 	}
 }
 
-// fakeDiffStore — fakeStore(HistoryStubs 흡수분) + DiffRows·DiffCommits
-// canned 오버라이드. from/to 인수 기록으로 시맨틱(인자 순서) 검증에도 쓴다.
+// fakeDiffStore — fakeStore (with the absorbed HistoryStubs) + canned DiffRows and
+// DiffCommits overrides. The from/to argument recording also serves semantic (argument-order) verification.
 type fakeDiffStore struct {
 	*fakeStore
 	diffRows    []wire.KnowledgeDiffRow
 	diffRowsErr error
 	commits     []wire.DiffCommitSummary
 	commitsErr  error
-	gotFromTo   [][2]string // DiffRows·DiffCommits 공유 기록
+	gotFromTo   [][2]string // shared DiffRows/DiffCommits recording
 }
 
 func (f *fakeDiffStore) DiffRows(ctx context.Context, from, to string) ([]wire.KnowledgeDiffRow, error) {
@@ -60,7 +60,7 @@ func (f *fakeDiffStore) DiffCommits(ctx context.Context, from, to string) ([]wir
 	return f.commits, f.commitsErr
 }
 
-// diffTestSetup — ParseAsOfSpecFn identity 주입(스펙=해시) + 원복.
+// diffTestSetup — injects the ParseAsOfSpecFn identity (spec = hash) + restores.
 func diffTestSetup(t *testing.T) {
 	t.Helper()
 	prev := ParseAsOfSpecFn
@@ -70,7 +70,7 @@ func diffTestSetup(t *testing.T) {
 	t.Cleanup(func() { ParseAsOfSpecFn = prev })
 }
 
-// decodeDiff — 한 줄 JSON 출력 디코드 + exit 0 단언.
+// decodeDiff — decodes the one-line JSON output + asserts exit 0.
 func decodeDiff(t *testing.T, args []string, f *fakeDiffStore) map[string]any {
 	t.Helper()
 	var out bytes.Buffer
@@ -88,8 +88,8 @@ func decodeDiff(t *testing.T, args []string, f *fakeDiffStore) map[string]any {
 	return m
 }
 
-// TestRunDiffSummaryCommits — --summary: DiffCommits 요약 매핑(hash·date·
-// message·data_change·schema_change)과 빈 범위(commits:[] — null 아님).
+// TestRunDiffSummaryCommits — --summary: the DiffCommits summary mapping (hash,
+// date, message, data_change, schema_change) and the empty range (commits:[] — not null).
 func TestRunDiffSummaryCommits(t *testing.T) {
 	diffTestSetup(t)
 	d := time.Date(2026, 11, 18, 0, 0, 1, 0, time.UTC)
@@ -116,13 +116,13 @@ func TestRunDiffSummaryCommits(t *testing.T) {
 	if _, ok := first["date"].(string); !ok {
 		t.Fatalf("date=%v, want 문자열", first["date"])
 	}
-	// 인자 순서 계약: DiffRows(from=aaaa1, to=bbbb2).
+	// the argument-order contract: DiffRows(from=aaaa1, to=bbbb2).
 	if len(f.gotFromTo) != 1 || f.gotFromTo[0] != [2]string{"aaaa1", "bbbb2"} {
 		t.Fatalf("DiffRows 인수=%v, want [aaaa1 bbbb2]", f.gotFromTo)
 	}
 }
 
-// TestRunDiffSummaryEmptyRange — 빈 범위: 커밋 0건도 "commits":[].
+// TestRunDiffSummaryEmptyRange — empty range: 0 commits is still "commits":[].
 func TestRunDiffSummaryEmptyRange(t *testing.T) {
 	diffTestSetup(t)
 	f := &fakeDiffStore{fakeStore: &fakeStore{}}
@@ -135,8 +135,8 @@ func TestRunDiffSummaryEmptyRange(t *testing.T) {
 	}
 }
 
-// TestRunDiffDataSchemaFilter — --data는 data_change true 커밋만, --schema는
-// schema_change true 커밋만 상위 집계(요약)에 남긴다.
+// TestRunDiffDataSchemaFilter — --data keeps only commits with data_change true;
+// --schema keeps only commits with schema_change true in the upper summary.
 func TestRunDiffDataSchemaFilter(t *testing.T) {
 	diffTestSetup(t)
 	d := time.Date(2026, 11, 18, 0, 0, 1, 0, time.UTC)
@@ -168,8 +168,8 @@ func TestRunDiffDataSchemaFilter(t *testing.T) {
 	}
 }
 
-// TestRunDiffRowDetail — 기본 모드: DiffRows 행 상세 매핑(diff_type·id·
-// topic)과 added/modified/removed 집계, rows·commits 동시 출력.
+// TestRunDiffRowDetail — default mode: the DiffRows row-detail mapping (diff_type,
+// id, topic) and the added/modified/removed tallies, with rows and commits output together.
 func TestRunDiffRowDetail(t *testing.T) {
 	diffTestSetup(t)
 	d := time.Date(2026, 11, 18, 0, 0, 1, 0, time.UTC)

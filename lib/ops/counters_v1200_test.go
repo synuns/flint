@@ -1,8 +1,8 @@
-// counters_v1200_test.go — 검수(curation) 카운터
-// (maintain supersede 성공·expire-pending 확정 행수·prune 삭제 행수 daily
-// 플랫 키 증분 — dry-run 미계상)·발화(fired) 카운터(nudge distill·recall·
-// sessionhook 갱신 안내 update 3종·doctor warn 종류별 fired_doctor_<check>
-// — ok·skip은 미계상). 카운터 UPSERT는 st.Query 경로라 인자 캡처로 검증.
+// counters_v1200_test.go — the curation counters
+// (maintain supersede success, expire-pending confirmed row counts, and prune deleted
+// rows as daily flat-key increments — not counted in dry-run) and the fired counters
+// (the 3 nudge kinds distill, recall, and the sessionhook update notice, plus per-doctor-warn-kind
+// fired_doctor_<check> — ok and skip not counted). The counter UPSERT goes through the st.Query path, so it is verified by argument capture.
 package ops
 
 import (
@@ -15,24 +15,24 @@ import (
 	"time"
 )
 
-// capturedQueryV — fakeStore.Query가 본 (sql, args) 1건.
+// the one (sql, args) the fakeStore.Query saw.
 type capturedQueryV struct {
 	sql  string
 	args []any
 }
 
-// counterCaptureV — 카운터 UPSERT 인자 수집기(queryFn 경유).
+// counterCaptureV — the collector for counter UPSERT arguments (via queryFn).
 type counterCaptureV struct {
 	queries []capturedQueryV
 }
 
-// fn — 인자 기록 후 영(零) 응답(조회 응답이 필요한 서브테스트는 wrap).
+// fn — records arguments then answers zero (subtests needing query responses use wrap).
 func (c *counterCaptureV) fn(sql string, args []any) ([][]any, error) {
 	c.queries = append(c.queries, capturedQueryV{sql, args})
 	return nil, nil
 }
 
-// wrap — 인자 기록 + 서브테스트 응답 주입.
+// wrap — records arguments + injects the subtest's responses.
 func (c *counterCaptureV) wrap(answer func(sql string, args []any) ([][]any, error)) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		c.queries = append(c.queries, capturedQueryV{sql, args})
@@ -43,7 +43,7 @@ func (c *counterCaptureV) wrap(answer func(sql string, args []any) ([][]any, err
 	}
 }
 
-// sum — 접두 매칭 카운터 키의 증분 합(daily 2인자·fired 1인자 공통).
+// sum — the increment sum of prefix-matched counter keys (common to daily's 2 args and fired's 1).
 func (c *counterCaptureV) sum(prefix string) int {
 	n := 0
 	for _, q := range c.queries {
@@ -67,9 +67,9 @@ func (c *counterCaptureV) sum(prefix string) int {
 
 func counterToday() string { return time.Now().UTC().Format("2006-01-02") }
 
-// TestCurationCounters — maintain 검수 경로 → daily 카운터.
-// supersede 성공 1·expire-pending 확정 행수·prune 삭제 행수(Repo 위임
-// 반환값). dry-run은 갱신이 없으므로 미계상.
+// TestCurationCounters — the maintain curation paths -> daily counters.
+// supersede success 1, expire-pending confirmed row counts, and prune deleted rows (the
+// Repo delegation return values). Dry-run performs no updates, so nothing is counted.
 func TestCurationCounters(t *testing.T) {
 	today := counterToday()
 
@@ -144,16 +144,16 @@ func TestCurationCounters(t *testing.T) {
 		if code != 0 {
 			t.Fatalf("exit=%d, want 0; out=%s", code, out)
 		}
-		// fakeMaintStore.PruneInvalidated 반환 = 2행(관례) — 삭제 행수 계상.
+		// the fakeMaintStore.PruneInvalidated return = 2 rows (convention) — the deleted rows counted.
 		if got := cap.sum("daily:maintain_prune_rows:" + today); got != 2 {
 			t.Errorf("maintain_prune_rows 증분=%d, want 2", got)
 		}
 	})
 }
 
-// TestFiredCounters — 발화 카운터. nudge distill(Stop 넛지)·
-// recall(SessionStart 회상 안내)·update(sessionhook 갱신 안내) 3종·doctor
-// warn 종류별(fired_doctor_<check>). 미발화(마커 부재·ok 판정)는 0.
+// TestFiredCounters — the fired counters. The 3 nudge kinds (distill — the Stop nudge —
+// recall — the SessionStart recall notice — and update — the sessionhook update notice)
+// plus per-doctor-warn-kind (fired_doctor_<check>). Not fired (no marker, ok verdict) is 0.
 func TestFiredCounters(t *testing.T) {
 	t.Run("nudge distill 발화", func(t *testing.T) {
 		dir := t.TempDir()
@@ -205,7 +205,7 @@ func TestFiredCounters(t *testing.T) {
 
 	t.Run("nudge 미발화 0", func(t *testing.T) {
 		dir := t.TempDir()
-		t.Setenv("FLINT_CONFIG_DIR", dir) // 마커 없음
+		t.Setenv("FLINT_CONFIG_DIR", dir) // no marker
 		cap := &counterCaptureV{}
 		f := &fakeStore{queryFn: cap.fn}
 		var out bytes.Buffer
@@ -221,8 +221,8 @@ func TestFiredCounters(t *testing.T) {
 	})
 
 	t.Run("sessionhook 갱신 안내 발화", func(t *testing.T) {
-		t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // 라벨·캐시 파일 격리
-		injectSessionLabelFn(t)                   // hot 계측 seam no-op 배선(ops 단독 실행)
+		t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // isolate the label and cache files
+		injectSessionLabelFn(t)                   // hot metering seams wired to no-ops (standalone ops run)
 		prev := MaybeUpdateNoticeFn
 		MaybeUpdateNoticeFn = func() string { return "[flint] v1.1.0 → v1.2.0 갱신 가능" }
 		t.Cleanup(func() { MaybeUpdateNoticeFn = prev })
@@ -261,7 +261,7 @@ func TestFiredCounters(t *testing.T) {
 
 	t.Run("doctor warn 종류별 발화", func(t *testing.T) {
 		cap := &counterCaptureV{}
-		f := &fakeStore{queryFn: cap.fn} // meta 무응답 → last_backup 미설정 warn
+		f := &fakeStore{queryFn: cap.fn} // meta unanswered -> last_backup unset warn
 		out, code := runDoctorArgs(t, f, "--check", "backup-age")
 		if code != 0 {
 			t.Fatalf("exit=%d, want 0(warn은 0); out=%s", code, out)
@@ -276,7 +276,7 @@ func TestFiredCounters(t *testing.T) {
 
 	t.Run("doctor ok 미발화 0", func(t *testing.T) {
 		cap := &counterCaptureV{}
-		f := &fakeStore{queryFn: cap.fn} // Ping 성공 → db ok
+		f := &fakeStore{queryFn: cap.fn} // Ping succeeds -> db ok
 		out, code := runDoctorArgs(t, f, "--check", "db")
 		if code != 0 {
 			t.Fatalf("exit=%d, want 0; out=%s", code, out)

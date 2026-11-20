@@ -1,7 +1,7 @@
-// read_v0150_test.go — read 와이어링 계약(스펙 R1·R2의 개정판).
-// read_stats blob 폐지 후 계측 왕복 예산 축소(쓰기 4→2: BumpReads·
-// RecordReadEvent만)·분류(zero·near)는 read_events 인자로만 전달된다.
-// fakeStore 질의 캡처 패턴은 read_v0140_test.go 승계.
+// read_v0150_test.go — the read wiring contracts (a revision of spec R1 and R2).
+// After the read_stats blob abolition, the metering round-trip budget shrank (writes 4->2: only
+// BumpReads and RecordReadEvent); classification (zero, near) is passed only as read_events arguments.
+// The fakeStore query-capture pattern is inherited from read_v0140_test.go.
 package cli
 
 import (
@@ -12,8 +12,8 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// readClassRecorder — RecordReadEvent·RecordReadUsage 호출을 녹음하는 fake
-// (readEventRecorder 관례 — 쓰기 축소 단언에 유입 경로 녹음을 추가).
+// readClassRecorder — a fake recording RecordReadEvent and RecordReadUsage calls
+// (the readEventRecorder convention — adding inbound-path recording for the write-reduction assertions).
 type readClassRecorder struct {
 	*fakeStore
 	events []db.ReadEvent
@@ -30,9 +30,9 @@ func (r *readClassRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent
 	return nil
 }
 
-// TestReadInstrumentationQueryBudget — eligible 히트 read
-// 1회의 쿼리 왕복 ≤ 6(본 쿼리 1 + 계측 ≤ 5). read_stats
-// 읽기-쓰기·daily 유입 기록이 빠져 왕복은 더 줄어야 한다(상한은 유지).
+// TestReadInstrumentationQueryBudget — an eligible hit read's
+// query round trips <= 6 (1 main query + <= 5 metering). With the read_stats
+// read-write and the daily inbound record gone, round trips shrink further (the cap is kept).
 func TestReadInstrumentationQueryBudget(t *testing.T) {
 	count := 0
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -47,29 +47,29 @@ func TestReadInstrumentationQueryBudget(t *testing.T) {
 	if code := runRead(context.Background(), st, []string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("exit %d: %s", code, out.String())
 	}
-	if count > 6 { // 본 쿼리 1 + 계측 ≤ 5
+	if count > 6 { // 1 main query + <= 5 metering
 		t.Errorf("쿼리 왕복 %d회, 본 쿼리 포함 ≤ 6 초과", count)
 	}
 }
 
-// TestReadClassifiesZeroNear — 제로히트+근접
-// read의 분류 (zero=true, near=true)는 read_events 1행(RecordReadEvent)에만
-// 반영된다 — read_stats blob 쓰기·RecordReadUsage 유입 기록은 폐지(0회).
-// 히트 read는 (false,false) 1행.
+// TestReadClassifiesZeroNear — the classification of a zero-hit + near read
+// (zero=true, near=true) is reflected only in the 1 read_events row (RecordReadEvent) — the
+// read_stats blob write and RecordReadUsage inbound record are abolished (0 calls).
+// A hit read is 1 row with (false,false).
 func TestReadClassifiesZeroNear(t *testing.T) {
 	t.Run("zero-near", func(t *testing.T) {
 		var inserts []string
 		st := &readClassRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 			switch {
 			case strings.Contains(sql, "id, topic, summary FROM active_knowledge"):
-				return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil // 제안 스캔 후보
+				return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil // suggestion-scan candidate
 			case strings.Contains(sql, "INSERT INTO meta"):
 				if len(args) > 1 {
 					inserts = append(inserts, args[0].(string)+"="+args[1].(string))
 				}
 				return nil, nil
 			}
-			return nil, nil // 구문·폴백 제로히트
+			return nil, nil // phrase and fallback zero hit
 		}}}
 		var out strings.Builder
 		if code := runRead(context.Background(), st, []string{"백업 복구 절차"}, strings.NewReader(""), &out); code != 0 {

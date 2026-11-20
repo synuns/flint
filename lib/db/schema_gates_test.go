@@ -1,6 +1,6 @@
-// schema_gates_test.go — 승격 게이트 등록표 가드.
-// 순수 테스트(DB 불필요): 등록표 연속성·admin.go 게이트 전량 등록·
-// cli ensureSchemas의 등록표 파생을 단언한다.
+// schema_gates_test.go — the promotion-gate registry guards. Pure tests
+// (no DB needed): asserting the registry's contiguity·full registration
+// of admin.go's gates·the registry derivation of cli's ensureSchemas.
 package db
 
 import (
@@ -15,9 +15,10 @@ import (
 	"testing"
 )
 
-// TestSchemaGatesContiguous — 등록표 버전은
-// 2..LatestSchemaVersion 연속·중복 없음. 게이트가 빠지거나 순서가
-// 흐트러지면 연속 단언이 즉시 깨진다(무경고 스킵 방지).
+// TestSchemaGatesContiguous — the registry versions are contiguous
+// 2..LatestSchemaVersion with no duplicates. A missing gate or a
+// disordered sequence breaks the contiguity assertion immediately
+// (preventing silent skips).
 func TestSchemaGatesContiguous(t *testing.T) {
 	gates := SchemaGates()
 	if len(gates) == 0 {
@@ -40,10 +41,11 @@ func TestSchemaGatesContiguous(t *testing.T) {
 	}
 }
 
-// ensureSchemaDefs — dir의 비테스트 .go 전체에서 `func (r *Repo)
-// EnsureSchemaV#(` 정의를 버전→파일명 맵으로 수집한다.
-// admin.go 한 정 파일 읽기는 다른 파일의 신규 게이트 정의(등록 누락
-// 시나리오)를 못 봤다 — 패키지 전체 소스가 스캔 대상이다.
+// ensureSchemaDefs — collects `func (r *Repo) EnsureSchemaV#(` definitions
+// from all non-test .go files in dir into a version→filename map.
+// Reading admin.go alone missed new gate definitions in other files
+// (the missing-registration scenario) — the whole package's sources are
+// the scan target.
 func ensureSchemaDefs(t *testing.T, dir string) map[int]string {
 	t.Helper()
 	defs := map[int]string{}
@@ -75,9 +77,10 @@ func ensureSchemaDefs(t *testing.T, dir string) map[int]string {
 	return defs
 }
 
-// TestSchemaGatesCoverAdmin — lib/db 비테스트 소스 전체에서 정의된
-// EnsureSchemaV* 전부가 등록표에 등록돼야 한다(정의만 추가하고 등록을
-// 잊으면 호출 누락 — 정의 파일이 admin.go가 아니어도 같이 잡는다).
+// TestSchemaGatesCoverAdmin — every EnsureSchemaV* defined anywhere in
+// lib/db's non-test sources must be registered in the registry (adding
+// only the definition and forgetting the registration means a missing
+// call — caught even when the defining file is not admin.go).
 func TestSchemaGatesCoverAdmin(t *testing.T) {
 	defined := ensureSchemaDefs(t, ".")
 	if len(defined) == 0 {
@@ -95,8 +98,9 @@ func TestSchemaGatesCoverAdmin(t *testing.T) {
 	}
 }
 
-// TestSchemaGateDefsSpanAllFiles — 회귀: admin.go 밖 파일에 정의된
-// 게이트(등록 누락 시나리오)도 정의 수집이 본다(파일 한정 읽기 폐쇄).
+// TestSchemaGateDefsSpanAllFiles — regression: a gate defined in a file
+// outside admin.go (the missing-registration scenario) is also seen by
+// the definition collection (closing the single-file read).
 func TestSchemaGateDefsSpanAllFiles(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
@@ -116,10 +120,10 @@ func TestSchemaGateDefsSpanAllFiles(t *testing.T) {
 	}
 }
 
-// cliGateAudit — dir(lib/cli 등)의 비테스트 .go 전체(재귀, testdata
-// 제외)를 검사해 (등록표 파생 range 존재 여부, 직접 게이트 호출
-// "path:line: match" 목록)를 반환한다. root.go 한 정 읽기는
-// 다른 cli 파일의 직접 호출을 못 봤다.
+// cliGateAudit — inspects all non-test .go files under dir (recursive,
+// testdata excluded) and returns (whether a registry-derived range
+// exists, the list of direct gate calls as "path:line: match").
+// Reading root.go alone missed direct calls in other cli files.
 func cliGateAudit(t *testing.T, dir string) (bool, []string) {
 	t.Helper()
 	derivation := regexp.MustCompile(`for\s+_,\s*\w+\s*:?=\s*range\s+db\.SchemaGates\(\)`)
@@ -159,10 +163,11 @@ func cliGateAudit(t *testing.T, dir string) (bool, []string) {
 	return found, calls
 }
 
-// TestEnsureSchemasUsesGates — lib/cli ensureSchemas는
-// 등록표(db.SchemaGates) 순차 파생이어야 하고 게이트 메서드를 직접
-// 호출해서는 안 된다(수동 호출 목록 잔여 = 등록표 우회 회귀). 검사
-// 대상은 root.go가 아니라 lib/cli 비테스트 소스 전체다.
+// TestEnsureSchemasUsesGates — lib/cli's ensureSchemas must derive its
+// sequence from the registry (db.SchemaGates) and never call gate
+// methods directly (a residual manual-call list = a registry-bypass
+// regression). The inspection target is all of lib/cli's non-test
+// sources, not just root.go.
 func TestEnsureSchemasUsesGates(t *testing.T) {
 	found, calls := cliGateAudit(t, "../cli")
 	if !found {
@@ -173,13 +178,15 @@ func TestEnsureSchemasUsesGates(t *testing.T) {
 	}
 }
 
-// TestCliGateAuditSpansAllFiles — 회귀: root.go 밖 cli 파일의 직접
-// 게이트 호출(repo.EnsureSchemaV#() 등)도 감지된다(파일 한정 폐쇄).
+// TestCliGateAuditSpansAllFiles — regression: direct gate calls
+// (repo.EnsureSchemaV3() etc.) in cli files outside root.go are also
+// detected (closing the single-file blind spot).
 func TestCliGateAuditSpansAllFiles(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
 		"root.go": "package cli\n\nfunc ensureSchemas() error {\n	for _, g := range db.SchemaGates() {\n		_ = g\n	}\n	return nil\n}\n",
-		// 구 가드 사각: root.go 밖 파일의 직접 호출.
+		// The old guard's blind spot: a direct call in a file outside
+		// root.go.
 		"probe_call.go": "package cli\n\nfunc legacy(ctx context.Context, repo *db.Repo) error { return repo.EnsureSchemaV3(ctx) }\n",
 	}
 	for name, body := range files {

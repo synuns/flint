@@ -1,9 +1,9 @@
-// realstore_read.go — read.go·hot.go가 lib/knowledge로 이동
-// 하며 realStore 어댑터 메서드(BumpReads·RecordReadEvent·RecordHotEvent)만
-// cli에 추출. knowledge.readBumper·ReadEventStore·HotEventRecorder 확장의
-// 실구현 — realStore는 cli 소유 타입이라 knowledge에 둘 수 없다(사이클).
-// RecordReadUsage 어댑터는 폐지(read_stats blob·daily read
-// 쓰기 폐지 — read 계측 원천은 read_events 단일).
+// realstore_read.go — as read.go and hot.go moved to lib/knowledge,
+// only the realStore adapter methods (BumpReads, RecordReadEvent, RecordHotEvent) were
+// extracted into cli. Real implementations of the knowledge.readBumper, ReadEventStore, and HotEventRecorder
+// extensions — realStore is a cli-owned type, so it cannot live in knowledge (cycle).
+// The RecordReadUsage adapter is gone (read_stats blob and daily read
+// writes abolished — read_events is the single source of read metering).
 package cli
 
 import (
@@ -12,45 +12,45 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// realStore.BumpReads — knowledge.readBumper 확장의 실구현
-// (db.Repo.BumpReads 위임, 참조 계측).
+// realStore.BumpReads — real implementation of the knowledge.readBumper extension
+// (delegates to db.Repo.BumpReads; reference metering).
 func (s *realStore) BumpReads(ctx context.Context, ids []int) error {
 	return s.repo.BumpReads(ctx, ids)
 }
 
-// realStore.RecordReadEvent — knowledge.ReadEventStore 확장의 실구현
-// (db.Repo.RecordReadEvent 위임, 효과 계측).
-// db.ReadEvent 구조체 1값 전달로 수렴.
+// realStore.RecordReadEvent — real implementation of the knowledge.ReadEventStore extension
+// (delegates to db.Repo.RecordReadEvent; effect metering).
+// Converged to passing a single db.ReadEvent struct value.
 func (s *realStore) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
 	return s.repo.RecordReadEvent(ctx, ev)
 }
 
-// realStore.RecordHotEvent — knowledge.HotEventRecorder 확장의 실구현
-// (db.Repo.RecordHotEvent 위임).
+// realStore.RecordHotEvent — real implementation of the knowledge.HotEventRecorder extension
+// (delegates to db.Repo.RecordHotEvent).
 func (s *realStore) RecordHotEvent(ctx context.Context, ids string) error {
 	return s.repo.RecordHotEvent(ctx, ids)
 }
 
-// realStore.RecordBytes — knowledge.BytesRecorder 확장의 실구현
-// (db.Repo.RecordBytes 위임, 바이트 계측).
+// realStore.RecordBytes — real implementation of the knowledge.BytesRecorder extension
+// (delegates to db.Repo.RecordBytes; byte metering).
 func (s *realStore) RecordBytes(ctx context.Context, kind string, n int) error {
 	return s.repo.RecordBytes(ctx, kind, n)
 }
 
-// realStore.RecordKnowledgeReads — knowledge.KnowledgeReadRecorder 확장의
-// 실구현(db.Repo.RecordKnowledgeReads 위임, 항목별 회상 이력).
+// realStore.RecordKnowledgeReads — real implementation of the knowledge.KnowledgeReadRecorder
+// extension (delegates to db.Repo.RecordKnowledgeReads; per-item recall history).
 func (s *realStore) RecordKnowledgeReads(ctx context.Context, ids []int, session, kind string) error {
 	return s.repo.RecordKnowledgeReads(ctx, ids, session, kind)
 }
 
-// realStore.CommitTelemetry — knowledge.TelemetryCommitter 확장의 실구현
-// (db.Repo.CommitTelemetry 위임, 계측 테이블 별도 커밋).
+// realStore.CommitTelemetry — real implementation of the knowledge.TelemetryCommitter extension
+// (delegates to db.Repo.CommitTelemetry; separate telemetry-table commit).
 func (s *realStore) CommitTelemetry(ctx context.Context, cmd string) error {
 	return s.repo.CommitTelemetry(ctx, cmd)
 }
 
-// realStore.BumpRecallScores — knowledge.RecallBumper 확장의 실구현
-// (db.Repo.BumpRecallScores 위임, 회상 강화 recall_score+1·
+// realStore.BumpRecallScores — real implementation of the knowledge.RecallBumper extension
+// (delegates to db.Repo.BumpRecallScores; recall reinforcement with recall_score+1 and
 // last_recalled_at=now).
 func (s *realStore) BumpRecallScores(ctx context.Context, ids []int) error {
 	return s.repo.BumpRecallScores(ctx, ids)

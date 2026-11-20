@@ -1,7 +1,7 @@
-// maintain_fix_v06_test.go — 회귀: `maintain --stale`의 SQL interval
-// 파라미터 곱(`$1 * interval '1 day'`)이 실 Doltgres에서 $1을 interval
-// (OID 1186)로 추론해 pgx int 인코딩 실패 → exit 1이던 결함(인시던트:
-// lib/cli/maintain.go:165). 컷오프는 Go 계산 timestamptz 파라미터여야 한다.
+// maintain_fix_v06_test.go — regression: the SQL interval parameter multiplication in `maintain --stale`
+// (`$1 * interval '1 day'`) made real Doltgres infer $1 as interval
+// (OID 1186), failing pgx int encoding -> exit 1 (incident:
+// lib/cli/maintain.go:165). The cutoff must be a Go-computed timestamptz parameter.
 package cli
 
 import (
@@ -10,15 +10,15 @@ import (
 	"time"
 )
 
-// TestStaleCutoffTimestamptzParam — stale 조회는 interval 연산 없이 컷오프
-// 시각을 첫 인자로 받고, --days N이 컷오프에 반영된다.
+// TestStaleCutoffTimestamptzParam — the stale query takes the cutoff time as the first
+// argument with no interval arithmetic, and --days N is reflected in the cutoff.
 func TestStaleCutoffTimestamptzParam(t *testing.T) {
 	var staleSQL string
 	var staleArgs []any
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta") {
-			return nil, nil // 임계값 부재 → 기본 90 폴백
+			return nil, nil // no thresholds -> default 90 fallback
 		}
 		staleSQL, staleArgs = sql, args
 		return nil, nil

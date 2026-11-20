@@ -1,8 +1,11 @@
-// admin.go — 갱신·집계. approve·invalidate·merge는 갱신 전용 허용
-// 경로다(전역 제약: write INSERT 전용, projects 제외 UPDATE 금지 —
-// 승인/무효화/병합은 spec §8 큐레이션 경로, 사유를 dolt 커밋 메시지에 남긴다).
-// 승격 게이트 EnsureSchemaV*의 호출 순서·최신 버전은 schema_gates.go
-// 등록표가 단일 소스다(여기에 함수만 추가하면 CoverAdmin 가드가 등록을 요구).
+// admin.go — updates·aggregations. approve·invalidate·merge are the
+// only update-permitted paths (the global constraint: write is
+// INSERT-only, no UPDATE except via curation — approval/invalidation/
+// merging are spec §8 curation paths, leaving the reason in the dolt
+// commit message). The call order·latest version of the promotion gates
+// EnsureSchemaV* are owned by the schema_gates.go registry as a single
+// source (adding only a function here makes the CoverAdmin guard demand
+// its registration).
 package db
 
 import (
@@ -15,29 +18,33 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// ErrNotFound — 대상 id가 존재하지 않을 때(CLI exit 1 매핑).
+// ErrNotFound — the target id does not exist (CLI exit 1 mapping).
 var ErrNotFound = errors.New("flint: not found")
 
-// Counts — maintain --check 보고용 집계.
+// Counts — aggregates for the maintain --check report.
 type Counts struct {
-	Pending    int // status=pending 지식 수
-	DupSuspect int // 같은 topic에 active 2건 이상인 중복 의심 항목 수
+	Pending    int // count of status=pending knowledge
+	DupSuspect int // count of duplicate-suspect items with 2+ active rows sharing a topic
 }
 
-// gateRetryBackoff — 승격 커밋의 40001(직렬화 실패) 재시도 간격. 병렬
-// 기동(예: e2e 8동시 writer)에서는 다른 writer의 승격 커밋과 충돌날 수
-// 있어, views 재적용(repo.go Migrate)과 동일한 백오프로 회복한다.
-// 재시도 도중 다른 writer가 승격을 완료하면 각 게이트의 수치 비교
-// 단락으로 즉시 no-op가 된다(CI run 39717583172).
+// gateRetryBackoff — the 40001 (serialization failure) retry spacing
+// for promotion commits. Under parallel startup (e.g. e2e with 8
+// concurrent writers), a promotion commit can conflict with another
+// writer's, so recovery uses the same backoff as views reapplication
+// (repo.go Migrate). When another writer completes the promotion during
+// a retry, each gate's numeric-comparison short circuit becomes an
+// immediate no-op (CI run 39717583172).
 var gateRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second, 5 * time.Second, 9 * time.Second}
 
-// EnsureSchemaV2는 meta.schema_version<2인 DB를 v2로 무손실 승격한다:
-// sessions.tasks·projects.note 컬럼을 ADD COLUMN IF NOT EXISTS로 추가하고
-// 버전 2를 기록한다(repo.go Migrate는 v1 소유라 건드리지 않는다).
-// 이미 v2 이상이면 트랜잭션·커밋 시도 자체를 하지 않는다(수치 비교
-// 단락 — 문자열 동등 검사였을 때는 상위 버전 DB에서도 승격 트랜잭션을
-// 열어 버전을 되돌리며 병렬 기동의 40001 창을 넓혔다). 신규 DB(schema.sql
-// v2로 생성)에서도 멱등하다.
+// EnsureSchemaV2 losslessly promotes a DB with meta.schema_version<2 to
+// v2: adds the sessions.tasks·projects.note columns with ADD COLUMN IF
+// NOT EXISTS and records version 2 (repo.go Migrate is v1-owned and
+// does not touch this). Already v2+ skips even opening the
+// promotion transaction (the numeric-comparison short circuit — when it
+// was a string-equality check, higher-version DBs still opened the
+// promotion transaction, rolling the version back and widening the 40001
+// window under parallel startup). Idempotent on fresh DBs too (created
+// by schema.sql at v2).
 func (r *Repo) EnsureSchemaV2(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV2(ctx) }, gateRetryBackoff)
 }
@@ -50,8 +57,8 @@ func (r *Repo) ensureSchemaV2(ctx context.Context) error {
 		return fmt.Errorf("schema v2: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		// meta 테이블 자체가 없다(신규 DB) — 게이트는 스킵하고 Migrate가
-		// 스키마를 만들면 2차 게이트(newRealStore)가 승격한다.
+		// No meta table at all (a fresh DB) — the gate skips; once Migrate
+		// creates the schema, the second gate (newRealStore) promotes.
 		return nil
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 2 {
@@ -81,12 +88,13 @@ func (r *Repo) ensureSchemaV2(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV3는 meta.schema_version<3인 DB를 v3로 무손실 승격한다:
-// knowledge 필터 경로(entity·domain·status) B-tree 인덱스 3종을
-// CREATE INDEX IF NOT EXISTS로 만들고 버전 3을 기록한다(ADR-0008:
-// %q% 무료텍스트는 B-tree가 불가해 시퀀셜 스캔을 수용한다).
-// 이미 v3 이상이면 트랜잭션·커밋 없이 no-op(수치 비교 단락)이며,
-// v1·v2 게이트를 경유한 어느 DB에서도 멱등하다.
+// EnsureSchemaV3 losslessly promotes a DB with meta.schema_version<3 to
+// v3: creates the 3 knowledge filter-path (entity·domain·status)
+// B-tree indexes with CREATE INDEX IF NOT EXISTS and records version 3
+// (ADR-0008: %q% free text cannot use a B-tree, so a sequential scan is
+// accepted). Already v3+ is a transaction-free·commit-free no-op (the
+// numeric-comparison short circuit), idempotent on any DB that passed
+// the v1·v2 gates.
 func (r *Repo) EnsureSchemaV3(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV3(ctx) }, gateRetryBackoff)
 }
@@ -99,7 +107,7 @@ func (r *Repo) ensureSchemaV3(ctx context.Context) error {
 		return fmt.Errorf("schema v3: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 3 {
 		return nil
@@ -129,12 +137,14 @@ func (r *Repo) ensureSchemaV3(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV4는 meta.schema_version<4인 DB를 v4로 무손실 승격한다:
-// knowledge 참조 계측 컬럼(read_count·last_read_at)을 ADD COLUMN IF NOT EXISTS로
-// 추가하고 버전 4를 기록한다(spec §2: 신규 인덱스 없음 — status 인덱스 재사용,
-// 개인 규모 시퀀셜 수용). 승격 전 기존 행은 기본값 0/null을 받는다.
-// 이미 v4면 트랜잭션·커밋 없이 no-op(수치 비교 단락)이며, v1~v3 게이트를
-// 경유한 어느 DB에서도 멱등하다.
+// EnsureSchemaV4 losslessly promotes a DB with meta.schema_version<4 to
+// v4: adds the knowledge reference-metering columns (read_count·
+// last_read_at) with ADD COLUMN IF NOT EXISTS and records version 4
+// (spec §2: no new indexes — reuses the status index; sequential scan
+// accepted at personal scale). Pre-existing rows get the defaults 0/
+// null. Already v4 is a transaction-free·commit-free no-op (the
+// numeric-comparison short circuit), idempotent on any DB that passed
+// the v1~v3 gates.
 func (r *Repo) EnsureSchemaV4(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV4(ctx) }, gateRetryBackoff)
 }
@@ -147,7 +157,7 @@ func (r *Repo) ensureSchemaV4(ctx context.Context) error {
 		return fmt.Errorf("schema v4: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 4 {
 		return nil
@@ -176,13 +186,16 @@ func (r *Repo) ensureSchemaV4(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV5는 meta.schema_version<5인 DB를 v5로 무손실 승격한다:
-// knowledge 계보 컬럼(superseded_by)을 ADD COLUMN IF NOT EXISTS로 추가하고
-// 버전 5를 기록한다(spec v0.8 §2: 배치 무효화가 대체 지식 id를 새긴다.
-// views 무변경 — 컬럼은 기존 뷰 정의에 영향 없다). 승격 전 기존 행은
-// 기본값 null을 받는다. 이미 v5 이상이면 트랜잭션·커밋 없이 no-op
-// (수치 비교 단락 — 문자열 비교 금지, 다운그레이드 사고 재발 방지)이며,
-// v1~v4 게이트를 경유한 어느 DB에서도 멱등하다.
+// EnsureSchemaV5 losslessly promotes a DB with meta.schema_version<5 to
+// v5: adds the knowledge lineage column (superseded_by) with ADD COLUMN
+// IF NOT EXISTS and records version 5 (spec v0.8 §2: batch
+// invalidation stamps the replacing knowledge id. Views unchanged —
+// the column does not affect the existing view definitions).
+// Pre-existing rows get the default null. Already v5+ is a
+// transaction-free·commit-free no-op (the numeric-comparison short
+// circuit — string comparison forbidden, preventing a recurrence of the
+// downgrade incident), idempotent on any DB that passed the v1~v4
+// gates.
 func (r *Repo) EnsureSchemaV5(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV5(ctx) }, gateRetryBackoff)
 }
@@ -195,7 +208,7 @@ func (r *Repo) ensureSchemaV5(ctx context.Context) error {
 		return fmt.Errorf("schema v5: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 5 {
 		return nil
@@ -220,12 +233,13 @@ func (r *Repo) ensureSchemaV5(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV6는 meta.schema_version<6인 DB를 v6로 무손실 승격한다:
-// 효과 계측 이벤트 로그 테이블 read_events를 CREATE TABLE IF NOT EXISTS로
-// 추가한다(docs/METRICS.md — 기존 테이블·views 무변경, additive).
-// 승격 전 DB는 빈 로그를 받는다. 이미 v6 이상이면 트랜잭션·커밋 없이
-// no-op(수치 비교 단락 — 다운그레이드 사고 재발 방지)이며, v1~v5
-// 게이트를 경유한 어느 DB에서도 멱등하다.
+// EnsureSchemaV6 losslessly promotes a DB with meta.schema_version<6 to
+// v6: adds the effectiveness-metering event-log table read_events with
+// CREATE TABLE IF NOT EXISTS (docs/METRICS.md — existing tables·views
+// unchanged, additive). Pre-promotion DBs get an empty log. Already v6+
+// is a transaction-free·commit-free no-op (the numeric-comparison short
+// circuit — preventing a recurrence of the downgrade incident),
+// idempotent on any DB that passed the v1~v5 gates.
 func (r *Repo) EnsureSchemaV6(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV6(ctx) }, gateRetryBackoff)
 }
@@ -238,7 +252,7 @@ func (r *Repo) ensureSchemaV6(ctx context.Context) error {
 		return fmt.Errorf("schema v6: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 6 {
 		return nil
@@ -271,10 +285,11 @@ func (r *Repo) ensureSchemaV6(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV8는 meta.schema_version<8인 DB를 v8로 무손실 승격한다:
-// hit 품질 근사(METRICS §2) — read_events에 first_rank 컬럼
-// 추가(ALTER, additive). 기존 테이블·views 무변경. 이미 v8 이상이면
-// no-op이며 어느 하위 버전 DB에서도 멱등한다.
+// EnsureSchemaV8 losslessly promotes a DB with meta.schema_version<8 to
+// v8: hit-quality approximation (METRICS §2) — adds the first_rank
+// column to read_events (ALTER, additive). Existing tables·views
+// unchanged. Already v8+ is a no-op, idempotent on any lower-version
+// DB.
 func (r *Repo) EnsureSchemaV8(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV8(ctx) }, gateRetryBackoff)
 }
@@ -287,7 +302,7 @@ func (r *Repo) ensureSchemaV8(ctx context.Context) error {
 		return fmt.Errorf("schema v8: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB — 신규 생성 경로가 v8 컬럼 포함
+		return nil // fresh DB — the fresh-creation path includes the v8 column
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 8 {
 		return nil
@@ -312,11 +327,12 @@ func (r *Repo) ensureSchemaV8(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV7는 meta.schema_version<7인 DB를 v7로 무손실 승격한다:
-// 효과 계측 정밀화(docs/METRICS.md §4) — read_events에 ids 컬럼
-// 추가(ALTER)·session_starts·hot_events 테이블 생성(CREATE IF NOT EXISTS).
-// 기존 테이블·views 무변경(additive). 이미 v7 이상이면 no-op(수치 비교
-// 단락)이며 v1~v6 게이트를 경유한 어느 DB에서도 멱등하다.
+// EnsureSchemaV7 losslessly promotes a DB with meta.schema_version<7 to
+// v7: metering refinement (docs/METRICS.md §4) — adds the ids column
+// to read_events (ALTER)·creates the session_starts·hot_events tables
+// (CREATE IF NOT EXISTS). Existing tables·views unchanged (additive).
+// Already v7+ is a no-op (the numeric-comparison short circuit),
+// idempotent on any DB that passed the v1~v6 gates.
 func (r *Repo) EnsureSchemaV7(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV7(ctx) }, gateRetryBackoff)
 }
@@ -329,7 +345,7 @@ func (r *Repo) ensureSchemaV7(ctx context.Context) error {
 		return fmt.Errorf("schema v7: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 7 {
 		return nil
@@ -370,13 +386,15 @@ func (r *Repo) ensureSchemaV7(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV9는 meta.schema_version<9인 DB를 v9로 무손실 승격한다:
-// 계측·파생 산출 쿼리 경로 인덱스 4종 — read_events(ts)·
-// hot_events(ts)·session_starts(ts) 시간 창 스캔 3종과 knowledge pending
-// partial(status WHERE status='pending' AND invalid_at IS NULL — Counts
-// pending 집계 경로) 1종을 CREATE INDEX IF NOT EXISTS로 만들고 버전 9를
-// 기록한다. 기존 테이블·views·데이터 무변경(additive). 이미 v9 이상이면
-// no-op(수치 비교 단락)이며 v1~v8 게이트를 경유한 어느 DB에서도 멱등한다.
+// EnsureSchemaV9 losslessly promotes a DB with meta.schema_version<9 to
+// v9: 4 metering·derived-output query-path indexes — 3 time-window
+// scan indexes read_events(ts)·hot_events(ts)·session_starts(ts) and 1
+// knowledge pending partial (status WHERE status='pending' AND
+// invalid_at IS NULL — the Counts pending aggregation path) — created
+// with CREATE INDEX IF NOT EXISTS, recording version 9. Existing
+// tables·views·data unchanged (additive). Already v9+ is a no-op (the
+// numeric-comparison short circuit), idempotent on any DB that passed
+// the v1~v8 gates.
 func (r *Repo) EnsureSchemaV9(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV9(ctx) }, gateRetryBackoff)
 }
@@ -389,7 +407,7 @@ func (r *Repo) ensureSchemaV9(ctx context.Context) error {
 		return fmt.Errorf("schema v9: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 9 {
 		return nil
@@ -421,15 +439,16 @@ func (r *Repo) ensureSchemaV9(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV10는 meta.schema_version<10인 DB를 v10으로 무손실 승격한다
-// (spec §1.2 — 관측 고도화 저장 기반, additive): read_events에
-// bytes(출력 바이트)·zero_reason('unowned'|'owned_miss'|”)·source
-// ('hook'|'cli'|'mcp') 3열을 ADD COLUMN IF NOT EXISTS로 추가하고 항목별
-// 회상 이력 테이블 knowledge_reads(knowledge_id·ts·session·kind)를 CREATE
-// TABLE IF NOT EXISTS로 만들며 ts 인덱스를 건다. 승격 전 read_events 행은
-// 기본값 0·”·”을 받는다. 기존 테이블·views·데이터 무변경. 이미 v10
-// 이상이면 no-op(수치 비교 단락)이며 v1~v9 게이트를 경유한 어느 DB에서도
-// 멱등하다.
+// EnsureSchemaV10 losslessly promotes a DB with meta.schema_version<10
+// to v10 (spec §1.2 — the observability-upgrade storage base,
+// additive): adds the 3 read_events columns bytes (output bytes)·
+// zero_reason ('unowned'|'owned_miss'|”)·source ('hook'|'cli'|'mcp')
+// with ADD COLUMN IF NOT EXISTS, creates the per-item recall-history
+// table knowledge_reads (knowledge_id·ts·session·kind) with CREATE
+// TABLE IF NOT EXISTS, and adds the ts index. Pre-promotion read_events
+// rows get the defaults 0·”·”. Existing tables·views·data unchanged.
+// Already v10+ is a no-op (the numeric-comparison short circuit),
+// idempotent on any DB that passed the v1~v9 gates.
 func (r *Repo) EnsureSchemaV10(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV10(ctx) }, gateRetryBackoff)
 }
@@ -442,7 +461,7 @@ func (r *Repo) ensureSchemaV10(ctx context.Context) error {
 		return fmt.Errorf("schema v10: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 10 {
 		return nil
@@ -480,16 +499,18 @@ func (r *Repo) ensureSchemaV10(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV11는 meta.schema_version<11인 DB를 v11로 무손실 승격한다
-// (decay/강화 스코어 원천, additive): knowledge에
-// recall_score(integer 기본 0)·last_recalled_at(timestamptz NULL) 2열을
-// ADD COLUMN IF NOT EXISTS로 추가한다. 승격 전 기존 행은 기본값 0·NULL을
-// 받는다. 열이 모두 default를 가지므로 이전 바이너리(v10)도 v11 DB를
-// 그대로 읽는다(역방향 호환). 기존 테이블·views·데이터 무변경. 이미
-// v11 이상이면 no-op(수치 비교 단락)이며 v1~v10 게이트를 경유한 어느
-// DB에서도 멱등하다. recall_events 테이블이 이미 있는 DB(schema.sql v12
-// 종착로 생성된 신규 DB)는 열 추가를 스킵해 v12 게이트로 직행한다 —
-// add 후 v12가 곧바로 drop하는 DDL 왕복 방지(R43).
+// EnsureSchemaV11 losslessly promotes a DB with
+// meta.schema_version<11 to v11 (the decay/reinforcement score source,
+// additive): adds the 2 knowledge columns recall_score (integer,
+// default 0)·last_recalled_at (timestamptz NULL) with ADD COLUMN IF
+// NOT EXISTS. Pre-existing rows get the defaults 0·NULL. Since both
+// columns carry defaults, older binaries (v10) read a v11 DB as-is
+// (backward compatible). Existing tables·views·data unchanged. Already
+// v11+ is a no-op (the numeric-comparison short circuit), idempotent
+// on any DB that passed the v1~v10 gates. A DB that already has the
+// recall_events table (a fresh DB created at the schema.sql v12
+// terminus) skips the column additions and heads straight for the v12
+// gate — avoiding the add-then-immediately-drop DDL round trip (R43).
 func (r *Repo) EnsureSchemaV11(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV11(ctx) }, gateRetryBackoff)
 }
@@ -502,7 +523,7 @@ func (r *Repo) ensureSchemaV11(ctx context.Context) error {
 		return fmt.Errorf("schema v11: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 11 {
 		return nil
@@ -512,11 +533,14 @@ func (r *Repo) ensureSchemaV11(ctx context.Context) error {
 		return fmt.Errorf("schema v11: begin: %w", err)
 	}
 	defer tx.Rollback(ctx)
-	// 신규 DB 직행 단락(R43) — recall_events 테이블이 이미 있으면 이 DB는
-	// schema.sql v12 종착로 생성된 신규 DB다(버전은 아직 3 — 체인이 v4부터
-	// 승격 중): v11 2열을 add했다가 v12 게이트가 곧바로 drop하는 DDL 왕복
-	// 을 하지 않는다. 기존 v11 DB는 recall_events가 없으므로(v12 게이트가
-	// 처음 만든다) 종전대로 열 추가 — v12 승격의 백필 원천이 된다.
+	// The fresh-DB direct short circuit (R43) — if the recall_events
+	// table already exists, this DB is a fresh one created at the
+	// schema.sql v12 terminus (version still 3 — the chain is promoting
+	// from v4): it skips the DDL round trip of adding the 2 v11 columns
+	// only for the v12 gate to drop them. An existing v11 DB has no
+	// recall_events (the v12 gate creates it first), so the column
+	// additions proceed as before — becoming the backfill source of the
+	// v12 promotion.
 	var hasRecallEvents int
 	if err := tx.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.tables
@@ -544,16 +568,18 @@ func (r *Repo) ensureSchemaV11(ctx context.Context) error {
 	return nil
 }
 
-// EnsureSchemaV12는 meta.schema_version<12인 DB를 v12로 무손실 승격한다
-// (다중 기기 안정화 — recall append-only 원천 전환): 회상 이력 전용
-// recall_events(knowledge_id·recalled_at) 테이블+인덱스를 만들고
-// knowledge의 recall_score·last_recalled_at 2열을 폐기한다(읽기 경로는
-// 이벤트 파생 조인으로 전환 — v1.9.0). 승격 전 점수는 score수만큼의
-// 합성 이벤트(recalled_at=COALESCE(last_recalled_at, now()))로 백핍한다 —
-// 스코어 연속성 보존용 합성이지 실제 이벤트 이력이 아니다(이벤트 원천은
-// v12부터 정확). Doltgres는 DROP COLUMN IF EXISTS를 지원하지 않아(R40
-// 실측) information_schema.columns 사전 확인 후 DROP한다. 이미 v12
-// 이상이면 no-op(수치 비교 단락)이며 멱등하다.
+// EnsureSchemaV12 losslessly promotes a DB with
+// meta.schema_version<12 to v12 (multi-device stabilization — the
+// recall append-only source switch): creates the recall-history-only
+// recall_events (knowledge_id·recalled_at) table+index and drops the
+// knowledge recall_score·last_recalled_at columns (the read path moved
+// to the event-derived join — v1.9.0). Pre-promotion scores are
+// backfilled as synthetic events, one per score count (recalled_at =
+// COALESCE(last_recalled_at, now())) — synthetics preserving score
+// continuity, not actual event history (the event source is exact from
+// v12 on). Doltgres lacks DROP COLUMN IF EXISTS (measured in R40), so
+// it checks information_schema.columns before dropping. Already v12+
+// is a no-op (the numeric-comparison short circuit) and idempotent.
 func (r *Repo) EnsureSchemaV12(ctx context.Context) error {
 	return Retry(ctx, func() error { return r.ensureSchemaV12(ctx) }, gateRetryBackoff)
 }
@@ -566,7 +592,7 @@ func (r *Repo) ensureSchemaV12(ctx context.Context) error {
 		return fmt.Errorf("schema v12: check version: %w", err)
 	}
 	if isPgCode(err, "42P01") {
-		return nil // 신규 DB(테이블 부재) — ensureSchemaV2 42P01 주석 참조
+		return nil // fresh DB (tables absent) — see the ensureSchemaV2 42P01 comment
 	}
 	if n, perr := strconv.Atoi(version); perr == nil && n >= 12 {
 		return nil
@@ -588,8 +614,9 @@ func (r *Repo) ensureSchemaV12(ctx context.Context) error {
 			return fmt.Errorf("schema v12: create: %w", err)
 		}
 	}
-	// 백필·컬럼 폐기 — recall_score 존재 시에만(부분 승격 상태 등 컬럼이
-	// 이미 없으면 백필을 건너뛴다 — SELECT가 42703으로 실패하기 때문).
+	// Backfill·column drop — only when recall_score exists (under
+	// partial promotion etc., if the column is already absent, the
+	// backfill is skipped — because the SELECT fails with 42703).
 	var hasScore int
 	if err := tx.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.columns
@@ -597,8 +624,9 @@ func (r *Repo) ensureSchemaV12(ctx context.Context) error {
 		return fmt.Errorf("schema v12: check recall_score: %w", err)
 	}
 	if hasScore == 1 {
-		// 합성 이벤트 백필 — score수만큼 1행씩(스코어 연속성 보존.
-		// 실제 회상 이력이 아님 — 위 주석 참조).
+		// Synthetic-event backfill — one row per score count (score
+		// continuity preserved. Not actual recall history — see the
+		// comment above).
 		if _, err := tx.Exec(ctx,
 			`INSERT INTO recall_events (knowledge_id, recalled_at)
 			 SELECT k.id, COALESCE(k.last_recalled_at, now())
@@ -606,8 +634,9 @@ func (r *Repo) ensureSchemaV12(ctx context.Context) error {
 			 WHERE k.recall_score > 0`); err != nil {
 			return fmt.Errorf("schema v12: backfill: %w", err)
 		}
-		// 컬럼 폐기 — Doltgres는 DROP COLUMN IF EXISTS 미지원(R40 실측)이라
-		// information_schema 사전 확인 후 실행한다(위 hasScore와 동일 패턴).
+		// Column drop — Doltgres lacks DROP COLUMN IF EXISTS (measured in
+		// R40), so it checks information_schema first (the same pattern
+		// as hasScore above).
 		for _, col := range []string{"recall_score", "last_recalled_at"} {
 			var n int
 			if err := tx.QueryRow(ctx,
@@ -635,11 +664,12 @@ func (r *Repo) ensureSchemaV12(ctx context.Context) error {
 	return nil
 }
 
-// Approve는 pending 지식을 active로 승격한다(spec §8: 승인 = flint approve).
-// 승인은 유효 확정이므로 잔존 invalid_at을 함께 청소한다 —
-// 무효화된 pending을 승인하면 active+invalid_at 좀비(뷰·--status 어디에도
-// 안 보이는 행)가 되던 결함 방어.
-// 이미 active면 멱등 no-op, 없는 id는 ErrNotFound.
+// Approve promotes pending knowledge to active (spec §8: approval =
+// flint approve). Approval is a valid confirmation, so it also clears
+// any residual invalid_at — defense against the defect where
+// approving an invalidated pending produced an active+invalid_at zombie
+// (a row visible neither in the view nor --status). Already active is
+// an idempotent no-op; a missing id is ErrNotFound.
 func (r *Repo) Approve(ctx context.Context, id int) error {
 	ct, err := r.pool.Exec(ctx,
 		`UPDATE knowledge SET status = 'active', invalid_at = NULL
@@ -655,7 +685,8 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 		}
 		return nil
 	}
-	// 갱신 0행: 멱대상 확인 — active면 멱등 no-op, 없으면 ErrNotFound.
+	// Updated 0 rows: check the idempotence target — active is an
+	// idempotent no-op; absent is ErrNotFound.
 	var status string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT status FROM knowledge WHERE id = $1`, id).Scan(&status); err != nil {
@@ -670,13 +701,15 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 	return fmt.Errorf("approve: id=%d unexpected status %q", id, status)
 }
 
-// Merge는 from을 무효화하고(status·superseded_by·invalid_at 병기 —
-// Supersede와 동일한 열·갱신 형식) to summary에 병합 표시를
-// 남긴다(중복 정리). 계보는 superseded_by 단일 모델 — 마커 suffix 관례는
-// 유지하되 계보 질의가 유실되지 않게 두 갱신을 한 트랜잭션 블록으로 묶는다
-// (부분 갱신 — 마커만 남고 superseded_by 누락 — 차단). 이미 invalidated된
-// from의 재병합은 0행 후견사로 거부(Supersede 관례 계승 — 마커 재부착
-// 방지).
+// Merge invalidates from (status·superseded_by·invalid_at written
+// together — the same columns·update shape as Supersede) and leaves a
+// merge marker on to's summary (duplicate cleanup). The lineage is the
+// single superseded_by model — the marker-suffix convention is kept,
+// but the two updates are bound in one transaction block so lineage
+// queries never lose it (blocking partial updates — marker only,
+// superseded_by missing). Re-merging an already-invalidated from is
+// refused by the 0-rows steward (inheriting the Supersede convention —
+// preventing marker re-attachment).
 func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
@@ -693,9 +726,11 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 		return fmt.Errorf("merge: invalidate from: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		// 후견사 1회 조회로 존재 확인과 상태 구분을 함께 한다(approve의
-		// 0행 멱대상 조회와 동일 패턴 — 쿼리 수 기존과 동일). invalidated는
-		// 이미 처리된 재병합, 그 외 active 외 상태는 병합 불가로 안내한다.
+		// One steward lookup distinguishes existence and status together
+		// (the same pattern as approve's 0-rows idempotence-target lookup
+		// — the query count unchanged). invalidated means an
+		// already-processed re-merge; statuses other than active are
+		// reported unmergeable.
 		var status string
 		err := r.pool.QueryRow(ctx,
 			`SELECT status FROM knowledge WHERE id = $1`, fromID).Scan(&status)
@@ -710,9 +745,10 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 				ErrNotFound, fromID)
 		}
 		if status == "active" {
-			// WHERE는 status='active' AND invalid_at IS NULL — status가
-			// active여도 0행이면 invalid_at가 이미 설정된 것(손상 상태).
-			// "active 아님 — status: active" 자기모순 문구 대신 원인 명시.
+			// The WHERE is status='active' AND invalid_at IS NULL — if the
+			// status is active yet 0 rows updated, invalid_at was already
+			// set (a corrupted state). Name the cause instead of the
+			// self-contradictory "not active — status: active".
 			return fmt.Errorf("%w: merge: id=%d update not applied (active but invalid_at already set — cannot merge)",
 				ErrNotFound, fromID)
 		}
@@ -727,7 +763,8 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 		return fmt.Errorf("merge: mark to: %w", err)
 	}
 	if ct.RowsAffected() == 0 {
-		// 마커가 이미 suffix면 재부착하지 않는다(멱등 통과).
+		// When the marker is already a suffix, it is not re-attached
+		// (idempotent pass).
 		if err := r.ensureExists(ctx, toID, "merge to"); err != nil {
 			return err
 		}
@@ -743,7 +780,8 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 	return nil
 }
 
-// Counts는 pending 수와 중복 의심 수를 센다(maintain --check 입력).
+// Counts counts the pending count and the duplicate-suspect count
+// (maintain --check input).
 func (r *Repo) Counts(ctx context.Context) (Counts, error) {
 	var c Counts
 	if err := r.pool.QueryRow(ctx,
@@ -762,15 +800,16 @@ func (r *Repo) Counts(ctx context.Context) (Counts, error) {
 	return c, nil
 }
 
-// DupGroup — maintain --dup-suspects 보고용 중복 그룹(active 동일 topic 묶음).
+// DupGroup — a duplicate group for the maintain --dup-suspects report
+// (active rows sharing a topic).
 type DupGroup struct {
 	Topic string
 	IDs   []int
 }
 
-// DupGroups는 active 중 동일 topic 2건 이상 그룹을 반환한다(보고 전용).
-// 산식은 Counts의 dup_suspect와 동일한 GROUP BY이며, ids는 오름차순,
-// 그룹은 topic 오름차순·limit 상한이다.
+// DupGroups returns groups of 2+ active rows sharing a topic (report
+// only). The formula is the same GROUP BY as Counts' dup_suspect; ids
+// ascending, groups topic-ascending with a limit cap.
 func (r *Repo) DupGroups(ctx context.Context, limit int) ([]DupGroup, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT topic, array_agg(id ORDER BY id) FROM knowledge
@@ -796,18 +835,20 @@ func (r *Repo) DupGroups(ctx context.Context, limit int) ([]DupGroup, error) {
 	return groups, nil
 }
 
-// ConflictGroup — maintain --conflict-suspects 보고용 그룹(DupGroup에
-// 행별 요약을 더한 것. summaries는 ids와 동일한 id 오름차순).
+// ConflictGroup — a group for the maintain --conflict-suspects report
+// (DupGroup plus per-row summaries. summaries follow the same id-
+// ascending order as ids).
 type ConflictGroup struct {
 	Topic     string
 	IDs       []int
 	Summaries []string
 }
 
-// ConflictGroups는 active 중 동일 topic 2건 이상 그룹을 요약과 함께
-// 반환한다(보고 전용). 그룹핑 산식은 DupGroups와 동일하되 요약 유사도
-// 분류(conflict-suspects)에 필요한 summary를 같이 실어 올린다 — 기존
-// DupGroups 시그니처·출력은 불변(병행 신규 조회).
+// ConflictGroups returns groups of 2+ active rows sharing a topic
+// together with summaries (report only). The grouping formula is the
+// same as DupGroups, but it also fetches the summary needed for the
+// summary-similarity classification (conflict-suspects) — the existing
+// DupGroups signature·output unchanged (a parallel new query).
 func (r *Repo) ConflictGroups(ctx context.Context, limit int) ([]ConflictGroup, error) {
 	rows, err := r.pool.Query(ctx, `
 		SELECT topic, array_agg(id ORDER BY id), array_agg(summary ORDER BY id)
@@ -834,8 +875,9 @@ func (r *Repo) ConflictGroups(ctx context.Context, limit int) ([]ConflictGroup, 
 	return groups, nil
 }
 
-// StaleSessionRuns는 agent의 최근 세션부터 knowledge write 없이 이어진
-// 연속 수다(done 경고 판정). 기록 있는 세션을 만나면 집계가 멈춘다.
+// StaleSessionRuns counts the consecutive sessions from the agent's
+// most recent with no knowledge write (the done warning verdict). The
+// aggregation stops at the first session with a record.
 func (r *Repo) StaleSessionRuns(ctx context.Context, agent string) (int, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT s.id,
@@ -864,7 +906,8 @@ func (r *Repo) StaleSessionRuns(ctx context.Context, agent string) (int, error) 
 	return stale, nil
 }
 
-// ensureExists는 id가 knowledge에 있는지 확인하고 없으면 ErrNotFound를 돌려준다.
+// ensureExists checks that the id exists in knowledge and returns
+// ErrNotFound otherwise.
 func (r *Repo) ensureExists(ctx context.Context, id int, op string) error {
 	var one int
 	err := r.pool.QueryRow(ctx,

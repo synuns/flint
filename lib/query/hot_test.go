@@ -6,7 +6,7 @@ import (
 	"unicode/utf8"
 )
 
-// TestHotSQLQueriesView — HotSQL은 hot_view를 최신순 조회하고 토큰 예산 LIMIT을 박아야 한다.
+// TestHotSQLQueriesView — HotSQL must query hot_view newest-first with the token-budget LIMIT baked in.
 func TestHotSQLQueriesView(t *testing.T) {
 	sql := HotSQL("")
 	if !strings.Contains(sql, "FROM hot_view") {
@@ -18,15 +18,15 @@ func TestHotSQLQueriesView(t *testing.T) {
 	if !strings.Contains(strings.ToUpper(sql), "LIMIT") {
 		t.Errorf("HotSQL()에 LIMIT(토큰 예산) 누락: %s", sql)
 	}
-	// 동률 tie-break(CI 39713526850): ts 동률에서 플래너 임의 순서로는
-	// 주입 집합과 증분 집합(hot.go hotKnowledgeIDsSQL)이 어긋난다 —
-	// hot_view 말미의 id로 완전 순서를 만들어야 한다.
+	// the tie-break for ties (CI 39713526850): with planner-arbitrary order among tied ts,
+	// the injection set and the increment set (hot.go hotKnowledgeIDsSQL) diverge —
+	// hot_view's trailing id must create a total order.
 	if !strings.Contains(sql, "ORDER BY ts DESC, id DESC LIMIT ") {
 		t.Errorf("HotSQL()에 동률 tie-break(id DESC) 누락: %s", sql)
 	}
 }
 
-// TestClampHotBoundaries — 1999/2000/2001 경계: 상한 이하 그대로, 초과는 절단+접미.
+// TestClampHotBoundaries — the 1999/2000/2001 boundaries: at or below the cap as-is; above, truncation + suffix.
 func TestClampHotBoundaries(t *testing.T) {
 	const suffix = "…[truncated]"
 	mk := func(n int) string { return strings.Repeat("가", n) }
@@ -52,7 +52,7 @@ func TestClampHotBoundaries(t *testing.T) {
 	}
 }
 
-// TestClampHotRuneSafe — 절단은 rune 경계에서 일어나야 한다(멀티바이트 깨짐 방지).
+// TestClampHotRuneSafe — truncation must happen on rune boundaries (preventing multibyte breakage).
 func TestClampHotRuneSafe(t *testing.T) {
 	got := ClampHot(strings.Repeat("한", 11), 5)
 	want := strings.Repeat("한", 5) + "…[truncated]"

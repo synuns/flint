@@ -1,8 +1,8 @@
-// diff.go — flint diff <from> <to>: 두 as-of 지점 간 지식 변경 비교.
-// 행 상세·요약 커밋 목록은 wire.Store DiffRows·DiffCommits(db 구현측
-// 소유)에서 typed 값으로 받는다. 출력은 한 줄 JSON, 무효 as-of 스펙은
-// exit 3. as-of 정규화는 cli 소유 asof.go — ParseAsOfSpecFn
-// seam으로 주입받는다.
+// diff.go — flint diff <from> <to>: compares knowledge changes between two as-of points.
+// Row details and the summary commit list come as typed values from wire.Store's DiffRows
+// and DiffCommits (owned by the db implementation). The output is one-line JSON; invalid
+// as-of specs exit 3. as-of normalization is cli-owned asof.go — injected via the
+// ParseAsOfSpecFn seam.
 package ops
 
 import (
@@ -18,25 +18,25 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ParseAsOfSpecFn — as-of 스펙 정규화 seam. 실구현 wire.ParseAsOfSpec을
-// cli/root.go composition root init이 주입한다.
+// ParseAsOfSpecFn — the as-of spec normalization seam. The real implementation,
+// wire.ParseAsOfSpec, is injected by the cli/root.go composition root init.
 var ParseAsOfSpecFn func(ctx context.Context, st wire.Store, spec string) (string, error)
 
-// ErrInvalidAsOf — 무효 as-of 스펙(형식 오류·접두어 모호/미발견·첫 커밋
-// 이전). 커맨드 계층에서 exit 3으로 매핑한다. wire.ErrInvalidAsOf와 동일
-// 값(root.go composition root 주입) — errors.Is 판정 불변.
+// ErrInvalidAsOf — an invalid as-of spec (format error, prefix ambiguity/not found, or
+// before the first commit). Mapped to exit 3 at the command layer. The same value as
+// wire.ErrInvalidAsOf (injected by the root.go composition root) — errors.Is checks unchanged.
 var ErrInvalidAsOf error
 
-// diffRow — 행 상세 1건. id·topic은 added·modified는 to_*, removed는
-// from_* 값(실측: removed 행은 to_* NULL → COALESCE).
+// diffRow — one row detail. id and topic use the to_* values for added and modified,
+// from_* for removed (observed: removed rows have to_* NULL -> COALESCE).
 type diffRow struct {
 	DiffType string `json:"diff_type"`
 	ID       any    `json:"id"`
 	Topic    any    `json:"topic"`
 }
 
-// diffCommit — 요약 커밋 1건. data_change·schema_change은 해당 커밋의
-// 테이블 전체 OR(dolt_diff 테이블별 플래그 집계).
+// diffCommit — one summary commit. data_change and schema_change are the OR over all
+// that commit's tables (dolt_diff's per-table flag aggregation).
 type diffCommit struct {
 	Hash         string    `json:"hash"`
 	Date         time.Time `json:"date"`
@@ -45,7 +45,7 @@ type diffCommit struct {
 	SchemaChange bool      `json:"schema_change"`
 }
 
-// diffCounts — 요약 수치(--summary 출력 그대로).
+// diffCounts — the summary counts (exactly the --summary output).
 type diffCounts struct {
 	From     string       `json:"from"`
 	To       string       `json:"to"`
@@ -55,7 +55,7 @@ type diffCounts struct {
 	Commits  []diffCommit `json:"commits"`
 }
 
-// diffDetail — 기본 모드 출력(수치 + 행 상세).
+// diffDetail — the default-mode output (counts + row details).
 type diffDetail struct {
 	From     string       `json:"from"`
 	To       string       `json:"to"`
@@ -67,8 +67,8 @@ type diffDetail struct {
 }
 
 // RunDiff — `flint diff <from> <to> [--summary] [--data|--schema]`.
-// from·to는 as-of 스펙(각각 ParseAsOfSpec으로 커밋 해시 정규화). --data·
-// --schema는 커밋 요약을 해당 변경 커밋으로 한정하는 필터.
+// from and to are as-of specs (each normalized to a commit hash via ParseAsOfSpec). --data
+// and --schema filter the commit summary to commits with those changes.
 func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	summary, dataOnly, schemaOnly := false, false, false
 	var pos []string
@@ -85,8 +85,8 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		}
 	}
 	if len(pos) != 2 {
-		// 원시 문자열 JSON이 아니라 wire.UsageErrorf → ErrLine
-		// 경로(error:"usage").
+		// not a raw string JSON but wire.UsageErrorf -> the ErrLine
+		// path (error:"usage").
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
 			"usage: flint diff <from> <to> [--summary] [--data|--schema]")))
 		return 3
@@ -100,8 +100,8 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		return diffFail(stdout, err)
 	}
 
-	// 행 상세 — DiffRows가 added(to_*)·removed(from_*) COALESCE 표현을
-	// typed 값으로 반환(db 구현측 소유).
+	// row details — DiffRows returns the added(to_*)/removed(from_*) COALESCE expression as
+	// typed values (owned by the db implementation).
 	rows, err := st.DiffRows(ctx, from, to)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -121,11 +121,11 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		detail = append(detail, diffRow{
 			DiffType: r.DiffType,
 			ID:       r.ID,
-			Topic:    render.Text(r.Topic), // render.Text 경유(출력 재살균 승계)
+			Topic:    render.Text(r.Topic), // via render.Text (inheriting output re-sanitization)
 		})
 	}
 
-	// 요약 커밋 목록 — 최신순(상한은 구현측). --data·--schema는 여기서 한정.
+	// the summary commit list — newest first (the cap is on the implementation side). --data and --schema narrow it here.
 	commits, err := st.DiffCommits(ctx, from, to)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -135,7 +135,7 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		c := diffCommit{
 			Hash:         s.Hash,
 			Date:         s.Date,
-			Message:      render.Text(s.Message), // render.Text 경유
+			Message:      render.Text(s.Message), // via render.Text
 			DataChange:   s.DataChange,
 			SchemaChange: s.SchemaChange,
 		}
@@ -165,8 +165,8 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	return 0
 }
 
-// diffFail — as-of 정규화 실패 출력. ErrInvalidAsOf는 invalid_as_of 한 줄
-// JSON + exit 3, 그 외 질의 오류는 기존 errLine·MapExit 경로.
+// diffFail — the as-of normalization failure output. ErrInvalidAsOf is an invalid_as_of
+// one-line JSON + exit 3; other query errors keep the existing errLine/MapExit path.
 func diffFail(stdout io.Writer, err error) int {
 	if errors.Is(err, ErrInvalidAsOf) {
 		b, _ := json.Marshal(map[string]string{"error": "invalid_as_of", "message": err.Error()})

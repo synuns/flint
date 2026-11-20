@@ -1,6 +1,7 @@
-// compact.go — flint compact: PostCompact 훅 진입. 훅 JSON의 compaction
-// 요약을 session 1행으로 자동 적립(--source hook 고정)하고 증류 대기
-// 마커를 남긴다. 어떤 실패에도 exit 0·stdout 빈 줄(§13 비간섭).
+// compact.go — flint compact: the PostCompact hook entry. Accrues the hook
+// JSON's compaction summary automatically as a session row (fixed --source
+// hook) and leaves a distillation-pending marker. On any failure: exit 0 and
+// an empty stdout line (§13 non-interference).
 package knowledge
 
 import (
@@ -15,26 +16,29 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// compactMaxBytes — stdin 훅 JSON 상한. update 메타 8MiB
-// (lib/cli/update.go) 관례와 정합 — mcp 라인 상한 4MB과 같은 방향의
-// 비간섭 방어. 초과 입력은 에러 대신 조용히 무동작(§13).
+// compactMaxBytes — the stdin hook JSON cap. Matches the update metadata 8MiB
+// convention (lib/cli/update.go) — non-interference defense in the same
+// direction as the mcp 4MB line cap. Oversized input is a silent no-op, not
+// an error (§13).
 const compactMaxBytes = 8 << 20 // 8MiB
 
-// compactHook — PostCompact 훅이 stdin으로 넘기는 JSON 스키마.
+// compactHook — the JSON schema the PostCompact hook passes on stdin.
 type compactHook struct {
 	HookEventName  string `json:"hook_event_name"`
 	SessionID      string `json:"session_id"`
 	CompactSummary string `json:"compact_summary"`
 }
 
-// RunCompact — stdin 훅 JSON 파싱 → 요약 비빈이면 RunWrite(session,
-// --source hook)로 적립 → 성공+session_id 비빈이면 WriteMarker. 파싱 실패·
-// 빈 요약·st nil은 무동작이며 반환은 언제나 0, stdout에는 쓰지 않는다
-// (예외: unknown `-` 접두 인자만 무효 인자 exit 3 — 훅은
-// 무인자 호출이라 정상 훅 경로는 불변).
+// RunCompact — parse the stdin hook JSON → if the summary is non-empty,
+// accrue via RunWrite (session, --source hook) → on success + non-empty
+// session_id, WriteMarker. Parse failure, empty summary, or nil st are
+// no-ops; the return is always 0 and nothing is written to stdout (sole
+// exception: unknown `-`-prefixed args get the invalid-arg exit 3 — hooks
+// invoke with no args, so the normal hook path is unchanged).
 func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// unknown `-` 접두 인자는 무효 인자 exit 3(조용한 성공 금지). 훅은
-	// 무인자로 호출하므로 정상 훅 경로(§13 비간섭)는 불변.
+	// Unknown `-`-prefixed args get the invalid-arg exit 3 (no silent
+	// success). Hooks are invoked with no args, so the normal hook path
+	// (§13 non-interference) is unchanged.
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint compact (hook entry — no flags)", a)))
@@ -44,8 +48,9 @@ func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	if st == nil {
 		return 0
 	}
-	// 무상한 io.ReadAll 대신 상한+1만 읽는다. 초과분은
-	// 파싱 전에 무동작 exit 0(비간섭 — update 8MiB·mcp 4MB 상한 정합).
+	// Read at most cap+1 bytes instead of an unbounded io.ReadAll. Anything
+	// over is a no-op exit 0 before parsing (non-interference — aligned with
+	// the update 8MiB and mcp 4MB caps).
 	b, err := io.ReadAll(io.LimitReader(stdin, compactMaxBytes+1))
 	if err != nil {
 		return 0
@@ -60,9 +65,10 @@ func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	if strings.TrimSpace(h.CompactSummary) == "" {
 		return 0
 	}
-	// 적립 payload: 요약 1건을 세션 행으로 정규화해 전달.
-	// RunWrite(readPayloads)는 줄 단위 JSON 객체(JSONL)만 받으므로 배열이
-	// 아니라 객체 1행으로 직렬화한다(배열 전달 시 파싱 실패로 무동작).
+	// Accrual payload: the single summary normalized into a session row.
+	// RunWrite (readPayloads) accepts only line-delimited JSON objects
+	// (JSONL), so serialize as one object, not an array (an array would fail
+	// parsing and no-op).
 	payload, err := json.Marshal(map[string]any{
 		"summary": h.CompactSummary,
 		"agent":   "claude",
@@ -76,23 +82,26 @@ func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	if code != 0 {
 		return 0
 	}
-	// 적립 성공 + 세션 식별 가능 → Stop 훅 nudge용 마커. 실패는 stderr
-	// 1행 경고로 조용히(done 패턴, 비간섭 §13). 세션
-	// 지식화 마커보다 먼저 — maybeSessionKnowledge가 적립하면 그 마커가
-	// 이 파일을 덮어쓰고(같은 markerKindDistill), 스킵(짧음·중복·빈도)
-	// 시 이 compact 마커가 남는다. 어느 쪽이든 증류 nudge는 유지된다.
+	// Accrual succeeded + session identifiable → marker for the Stop hook
+	// nudge. Failure is quiet as a one-line stderr warning (done pattern,
+	// non-interference §13). This comes before session knowledgization:
+	// if maybeSessionKnowledge accrues, its marker overwrites this file
+	// (same markerKindDistill), and on skip (length·dup·frequency) this
+	// compact marker survives. Either way the distillation nudge persists.
 	if h.SessionID != "" {
-		// WriteMarker(cli marker.go)는 seam 경유 — distill
-		// 종류·reason "compact"는 cli WriteMarker 위임 계약과 동일.
+		// WriteMarker (cli marker.go) goes through the seam — the distill
+		// kind and reason "compact" match the cli WriteMarker delegation
+		// contract.
 		if err := writeTypedMarker(markerKindDistill, h.SessionID, "compact"); err != nil {
 			fmt.Fprintf(os.Stderr, "[flint] compact marker: %v\n", err)
 		}
 	}
-	// 세션 지식화의 표준 경로 — Claude Code 규격상
-	// compact_summary를 실제로 전달하는 훅은 PostCompact뿐(Stop stdin에는
-	// 이 필드가 없다). 세션 행(계측 원천)과 별개로 pending 지식 후보를
-	// 적립한다 — 빈도 상한·dedup는 maybeSessionKnowledge가 지닌다.
-	maybeSessionKnowledge(ctx, st, h.CompactSummary, "claude", h.SessionID, 0) // 0=폴백 조회(done과 달리 세션 행 id를 이미 알지 못함)
+	// The standard path for session knowledgization — per the Claude Code
+	// spec, PostCompact is the only hook that actually delivers
+	// compact_summary (Stop stdin has no such field). Besides the session
+	// row (the metering source), accrue a pending knowledge candidate —
+	// frequency caps and dedup stay with maybeSessionKnowledge.
+	maybeSessionKnowledge(ctx, st, h.CompactSummary, "claude", h.SessionID, 0) // 0=fall-back lookup (unlike done, the session row id is not yet known)
 	return 0
 }
 

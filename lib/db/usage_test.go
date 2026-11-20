@@ -1,4 +1,4 @@
-// usage_test.go — 플레이북 사용 로그·성공률(실DB slow 테스트).
+// usage_test.go — playbook use logs·success rate (real-DB slow tests).
 package db
 
 import (
@@ -6,8 +6,8 @@ import (
 	"testing"
 )
 
-// cleanPBKeys — pb_% meta 키를 지워 테스트끼리 격리한다.
-// LIKE의 '_'는 임의 문자이므로 백슬래시 이스케이프로 리터럴 취급.
+// cleanPBKeys — wipes the pb_% meta keys to isolate tests. LIKE's '_'
+// is any character, so it is escaped with a backslash to be literal.
 func cleanPBKeys(t *testing.T, r *Repo) {
 	t.Helper()
 	if _, err := r.pool.Exec(context.Background(),
@@ -16,9 +16,8 @@ func cleanPBKeys(t *testing.T, r *Repo) {
 	}
 }
 
-// TestPlaybookStats — 3회 중 2회 성공 → Uses 3·OK 2·Rate 0.667.
-func TestPlaybookStats(t *testing.T) {
-	r := newTestRepo(t)
+// TestPlaybookStats — 2 successes out of 3 → Uses 3·OK 2·Rate 0.667.
+func slowPlaybookStats(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanPBKeys(t, r)
 	for _, ok := range []bool{true, false, true} {
@@ -26,7 +25,8 @@ func TestPlaybookStats(t *testing.T) {
 			t.Fatalf("LogPlaybookUse(ok=%v): %v", ok, err)
 		}
 	}
-	// meta 키 직접 검증 — 증분이 정확히 3/2(비멱등은 의도적 로그 계약).
+	// Direct meta-key verification — increments exactly 3/2
+	// (non-idempotence is the intentional log contract).
 	var uses, oks string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'pb_42_uses'`).Scan(&uses); err != nil {
@@ -55,9 +55,9 @@ func TestPlaybookStats(t *testing.T) {
 	}
 }
 
-// TestPlaybookStatsMultiple — 플레이북 2건이 id 오름차순으로, 성공만 ok 증가.
-func TestPlaybookStatsMultiple(t *testing.T) {
-	r := newTestRepo(t)
+// TestPlaybookStatsMultiple — 2 playbooks, id-ascending; only successes
+// increment ok.
+func slowPlaybookStatsMultiple(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanPBKeys(t, r)
 	if err := r.LogPlaybookUse(ctx, 7, true); err != nil {
@@ -76,7 +76,7 @@ func TestPlaybookStatsMultiple(t *testing.T) {
 	if len(stats) != 2 {
 		t.Fatalf("stats len=%d, want 2 (%v)", len(stats), stats)
 	}
-	// id 오름차순 정렬 계약.
+	// The id-ascending sort contract.
 	if stats[0].ID != 3 || stats[0].Uses != 1 || stats[0].OK != 0 || stats[0].Rate != 0 {
 		t.Fatalf("stats[0] = %+v, want {3 1 0 0}", stats[0])
 	}
@@ -85,9 +85,8 @@ func TestPlaybookStatsMultiple(t *testing.T) {
 	}
 }
 
-// TestPlaybookStatsEmpty — 로그 없으면 빈 슬라이스·nil 에러.
-func TestPlaybookStatsEmpty(t *testing.T) {
-	r := newTestRepo(t)
+// TestPlaybookStatsEmpty — no logs yields an empty slice·nil error.
+func slowPlaybookStatsEmpty(t *testing.T, r *Repo) {
 	cleanPBKeys(t, r)
 	stats, err := r.PlaybookStats(context.Background())
 	if err != nil {

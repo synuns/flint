@@ -1,5 +1,5 @@
-// admin_v0201_test.go — 무효화·병합의 status
-// 병기와 승격 좀비 방어 회귀. 실DB 슬로우 테스트.
+// admin_v0201_test.go — regressions for the status co-writing of
+// invalidation·merge and promotion-zombie defense. Real-DB slow tests.
 package db
 
 import (
@@ -7,11 +7,10 @@ import (
 	"testing"
 )
 
-// TestInvalidateSetsStatus — 단일
-// 무효화·Merge(from)이 status='invalidated'까지 병기 — 배치 경로와 단일
-// 법칙. read --status invalidated 노출·report counts 정합의 근거.
-func TestInvalidateSetsStatus(t *testing.T) {
-	r := newTestRepo(t)
+// TestInvalidateSetsStatus — single invalidation·Merge(from) also write
+// status='invalidated' — the same law as the batch path. The basis for
+// read --status invalidated exposure·report count consistency.
+func slowInvalidateSetsStatus(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("inv-status-a"), knowledgeRec("inv-status-b"),
@@ -47,11 +46,10 @@ func TestInvalidateSetsStatus(t *testing.T) {
 	}
 }
 
-// TestApproveClearsInvalidAt — 무효화된
-// pending을 승인하면 invalid_at까지 청소 — active+invalid_at 좀비(뷰·
-// --status 어디에도 안 보이는 행) 방어.
-func TestApproveClearsInvalidAt(t *testing.T) {
-	r := newTestRepo(t)
+// TestApproveClearsInvalidAt — approving an invalidated pending clears
+// invalid_at too — defense against the active+invalid_at zombie (a row
+// visible neither in the view nor --status).
+func slowApproveClearsInvalidAt(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	rec := knowledgeRec("approve-zombie")
 	rec["status"] = "pending"
@@ -60,7 +58,8 @@ func TestApproveClearsInvalidAt(t *testing.T) {
 		t.Fatalf("InsertBatch: %v", err)
 	}
 	id := ids[0]
-	// pending 행을 배치 법칙과 동일하게 무효화(승격 전 무효화 시나리오).
+	// Invalidate the pending row the same way as the batch law (a
+	// pre-promotion invalidation scenario).
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE knowledge SET status = 'invalidated', invalid_at = now() WHERE id = $1`, id); err != nil {
 		t.Fatalf("사전 무효화: %v", err)
@@ -83,7 +82,8 @@ func TestApproveClearsInvalidAt(t *testing.T) {
 	if status != "active" || invalidAt != nil {
 		t.Fatalf("승인 후 = {%s %v}, want {active <nil>} — 잔존 invalid_at 좀비", status, invalidAt)
 	}
-	// 승격 결과는 active 뷰(invalid_at IS NULL)에 보여야 한다.
+	// The promotion result must be visible in the active view
+	// (invalid_at IS NULL).
 	var n int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM active_knowledge WHERE id = $1`, id).Scan(&n); err != nil {

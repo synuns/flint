@@ -1,11 +1,12 @@
-// store_reuse_real_test.go — 실스토어 slow 회귀:
-// MCP 도구 호출이 서버 수명 store(injectedStore 래퍼)를 통과해 실DB에서
-// ① 저신뢰 write → pending 적립 ② flint_approve 승격(active 전이)
-// ③ 동일 payload 재전송 duplicate {id,topic,state} 에코
-// ④ flint_read read_events source='mcp' 계측까지 완결되는지 검증한다.
-// 기존 fake seam 테스트(tools_test.go)는 래퍼 자체 단언이라 이 결함을
-// 놓쳤다 — 래퍼 통과 실경로만 잡는다. FLINT_TEST_DSN(격리 테스트 DB)
-// 미설정 시 스킵.
+// store_reuse_real_test.go — real-store slow regression: verifies that MCP
+// tool calls, through the server-lifetime store (the injectedStore
+// wrapper) and against a real DB, complete (1) a low-confidence write ->
+// pending accrual, (2) flint_approve promotion (active transition),
+// (3) a re-sent identical payload echoing duplicate {id,topic,state}, and
+// (4) flint_read metering read_events source='mcp'. The existing fake-seam
+// tests (tools_test.go) assert the wrapper itself and missed this defect —
+// only the real path through the wrapper catches it. Skipped when
+// FLINT_TEST_DSN (an isolated test DB) is unset.
 package mcp
 
 import (
@@ -22,12 +23,13 @@ import (
 	"github.com/synuns/flint/lib/cli"
 )
 
-// realDBLock — 공유 Doltgres 테스트 DB를 쓰는 slow 테스트의 상호 배제
-// (파일 잠금). go test는 패키지 바이너리를 병렬로 띄우므로
-// 잠금 없는 이 테스트의 라운드트립 행이 lib/db newTestRepo의
-// `DELETE FROM knowledge` 전체 삭제(repo_test.go)와 겹치면 approve
-// not_found 간헐 실패한다. 잠금 파일 경로는 lib/db sharedDBLock·
-// lib/backup drillLock과 동일해야 상호 배제가 성립한다.
+// realDBLock — mutual exclusion (file lock) for slow tests using the
+// shared Doltgres test DB. go test runs package binaries in parallel, so
+// without the lock this test's roundtrip rows can overlap with the
+// `DELETE FROM knowledge` full wipe of lib/db newTestRepo (repo_test.go)
+// and intermittently fail approve with not_found. The lock file path must
+// match lib/db sharedDBLock and lib/backup drillLock for the exclusion to
+// hold.
 func realDBLock(t *testing.T) {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -45,8 +47,8 @@ func realDBLock(t *testing.T) {
 	})
 }
 
-// realTestDSN — 격리 테스트 DB DSN(FLINT_TEST_DSN만 수용 — 운영
-// FLINT_DSN 폴백 없음, lib/db testutil 관례).
+// realTestDSN — the isolated test DB DSN (accepts FLINT_TEST_DSN only —
+// no production FLINT_DSN fallback, per lib/db testutil convention).
 func realTestDSN(t *testing.T) string {
 	t.Helper()
 	dsn := os.Getenv("FLINT_TEST_DSN")
@@ -56,13 +58,14 @@ func realTestDSN(t *testing.T) string {
 	return dsn
 }
 
-// TestMCPCapabilityRoundtripRealSlow — 래퍼 통과 실스토어 왕복(slow).
-// 합성 데모 데이터만 사용(개인 데이터 금지 — 저장소 최상위 원칙).
+// TestMCPCapabilityRoundtripRealSlow — a real-store roundtrip through the
+// wrapper (slow). Uses synthetic demo data only (no personal data — the
+// repository's top-level principle).
 func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 	dsn := realTestDSN(t)
-	realDBLock(t) // 공유 테스트 DB 전체 사용 구간 직렬화(전체 삭제 경합 차단)
+	realDBLock(t) // serializes the whole shared-test-DB usage window (blocks full-wipe races)
 	t.Setenv("FLINT_DSN", dsn)
-	resetStoreCache(t) // 기본 seam(storeSupply=cli.OpenServerStore) 경로
+	resetStoreCache(t) // the default seam path (storeSupply = cli.OpenServerStore)
 
 	ctx := context.Background()
 	st, err := cli.OpenServerStore()
@@ -82,7 +85,7 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 		"topic": uniq, "summary": "합성 데모 slow 본문 — 래퍼 실경로 회귀", "confidence": 0.1,
 	}
 
-	// ① 저신뢰(0.1 < conf_floor 0.8) write → pending 적립.
+	// (1) Low-confidence (0.1 < conf_floor 0.8) write -> pending accrual.
 	out, code := DispatchTool("flint_write", map[string]any{"kind": "knowledge", "payload": payload})
 	if code != 0 || !strings.Contains(out, `"status":"committed"`) || !strings.Contains(out, `"state":"pending"`) {
 		t.Fatalf("① write code=%d out=%q, want committed/pending", code, out)
@@ -95,7 +98,7 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 	}
 	id := committed.ID
 
-	// ② flint_approve 승격 — 래퍼가 approveStore를 차단하면 exit 1.
+	// (2) flint_approve promotion — if the wrapper blocked approveStore, exit 1.
 	out, code = DispatchTool("flint_approve", map[string]any{"id": id})
 	if code != 0 || !strings.Contains(out, `"status":"approved"`) || !strings.Contains(out, fmt.Sprintf(`"id":%d`, id)) {
 		t.Fatalf("② approve code=%d out=%q, want approved id=%d", code, out, id)
@@ -105,7 +108,7 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 		t.Fatalf("② 승격 미반영: %v (%v)", rows, err)
 	}
 
-	// ③ 동일 payload 재전송 → duplicate {id,topic,state} 에코.
+	// (3) Re-send of the identical payload -> duplicate {id,topic,state} echo.
 	out, code = DispatchTool("flint_write", map[string]any{"kind": "knowledge", "payload": payload})
 	if code != 0 {
 		t.Fatalf("③ 재전송 code=%d out=%q, want 0", code, out)
@@ -116,7 +119,7 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 		}
 	}
 
-	// ④ flint_read → read_events source='mcp' 계측 부활(래퍼 차단 시 증가 없음).
+	// (4) flint_read -> read_events source='mcp' metering restored (no increase if the wrapper blocks it).
 	before := countReadEvents(t, st, ctx)
 	out, code = DispatchTool("flint_read", map[string]any{"query": uniq})
 	if code != 0 {
@@ -128,7 +131,7 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 	}
 }
 
-// countReadEvents — source='mcp' read_events 행 수.
+// countReadEvents — the number of read_events rows with source='mcp'.
 func countReadEvents(t *testing.T, st interface {
 	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
 }, ctx context.Context) int {
@@ -144,7 +147,7 @@ func countReadEvents(t *testing.T, st interface {
 	return n
 }
 
-// jsonStr — 단정용 JSON 문자열 리터럴.
+// jsonStr — a JSON string literal for assertions.
 func jsonStr(t *testing.T, s string) string {
 	t.Helper()
 	b, err := json.Marshal(s)

@@ -1,17 +1,17 @@
-// usage_wire.go — realStore 위임으로 db.Repo.RecordUsage를 cli
-// 계측(recordUsage의 UsageStore 단언)에 연결한다. 메서드 정의만 여기 둔다
-// (maintain.go의 MaintStore 위임 패턴과 동일).
+// usage_wire.go — connects db.Repo.RecordUsage to the cli
+// instrumentation (the UsageStore assertion in recordUsage) via realStore delegation. Only the
+// method definition lives here (same as the MaintStore delegation pattern in maintain.go).
 package cli
 
 import "context"
 
-// RecordUsage — realStore 위임: 유입 계측 1회 기록(kind·source 계약).
+// RecordUsage — realStore delegation: records one inbound usage event (kind/source contract).
 func (s *realStore) RecordUsage(ctx context.Context, kind, source string) error {
 	return s.repo.RecordUsage(ctx, kind, source)
 }
 
-// RecordUsageCount — realStore 위임: 유입 계측 count회 일괄 증분
-// (write.go recordDups의 UsageCountStore 세임 — dup N을 1회 호출로).
+// RecordUsageCount — realStore delegation: increments inbound usage count in one batch call
+// (same seam as the UsageCountStore in write.go recordDups — dup N as a single call).
 func (s *realStore) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	return s.repo.RecordUsageCount(ctx, kind, source, count)
 }

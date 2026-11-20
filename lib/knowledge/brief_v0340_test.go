@@ -1,6 +1,7 @@
-// brief_v0340_test.go — flint brief: 외부 AI 전달용 마스킹 브리프.
-// 브리지(B) 계약 — 읽기 전용·active 뷰만(pending은 기기 밖으로 나가지
-// 않음)·MaskSecrets 유출 방어·SanitizeText 경계 방어·예산 절단.
+// brief_v0340_test.go — flint brief: the masked brief for handing to an
+// external AI. The bridge (B) contract — read-only·the active view only
+// (pending never leaves the device)·MaskSecrets leak defense·
+// SanitizeText boundary defense·budget truncation.
 package knowledge
 
 import (
@@ -12,18 +13,21 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// fakeGetKV — HotBudget/BriefBudget 조회 fake(cli/hot_test.go 관례 이동분).
+// fakeGetKV — a HotBudget/BriefBudget lookup fake (moved from the
+// cli/hot_test.go convention).
 func fakeGetKV(v string, err error) func(string, string) (string, error) {
 	return func(key, def string) (string, error) { return v, err }
 }
 
-// errFake — 조회 오류 전달용 최소 에러(cli/hot_test.go 관례 이동분).
+// errFake — a minimal error for delivering lookup errors (moved from the
+// cli/hot_test.go convention).
 type errFake struct{}
 
 func (errFake) Error() string { return "fake query error" }
 
-// TestBriefBudgetDefault — meta brief_budget 미설정 기본 3,000·설정값
-// 우선·무효값 폴백(HotBudget 계약 승계).
+// TestBriefBudgetDefault — unset meta brief_budget defaults to 3,000·a
+// set value wins·invalid values fall back (inheriting the HotBudget
+// contract).
 func TestBriefBudgetDefault(t *testing.T) {
 	cases := []struct {
 		name string
@@ -46,8 +50,8 @@ func TestBriefBudgetDefault(t *testing.T) {
 	}
 }
 
-// briefRows — readColumns 순서(id,topic,summary,tags,entity,domain,
-// confidence,status,read_count) 9칸 행 조립 헬퍼.
+// briefRows — a helper assembling 9-cell rows in readColumns order
+// (id,topic,summary,tags,entity,domain,confidence,status,read_count).
 func briefRows(n int, summary string) [][]any {
 	rows := make([][]any, 0, n)
 	for i := 0; i < n; i++ {
@@ -56,13 +60,13 @@ func briefRows(n int, summary string) [][]any {
 	return rows
 }
 
-// briefQueryFn — meta brief_budget 조회(미설정=빈)·knowledge(status 필터)
-// 조회 응답.
+// briefQueryFn — answers the meta brief_budget lookup (unset=empty)·the
+// knowledge (status-filter) query.
 func briefQueryFn(rows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
-		// 조회 원천이 base 테이블 knowledge + status 필터로
-		// 이동(뷰는 pending을 노출 — TestBriefExcludesPending 참조).
+		// The query source moved to the base table knowledge + the status
+		// filter (the view exposes pending — see TestBriefExcludesPending).
 		case strings.Contains(sql, "FROM knowledge"):
 			return rows, nil
 		case strings.Contains(sql, "FROM meta"):
@@ -72,8 +76,9 @@ func briefQueryFn(rows [][]any) func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestBriefOutputContract — exit 0·[flint] 헤더 1줄·topic|summary|tags 행·
-// 조회 원천은 status='active' 한정 지식(pending·invalidated는 기기 밖 금지).
+// TestBriefOutputContract — exit 0·a one-line [flint] header·
+// topic|summary|tags rows·the query source limited to status='active'
+// knowledge (pending·invalidated are forbidden off-device).
 func TestBriefOutputContract(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(2, "요약 본문")
@@ -95,7 +100,8 @@ func TestBriefOutputContract(t *testing.T) {
 	}
 }
 
-// TestBriefMasksSecrets — 기기 밖 경로의 비밀은 MaskSecrets로 마스킹된다.
+// TestBriefMasksSecrets — secrets on the off-device path are masked by
+// MaskSecrets.
 func TestBriefMasksSecrets(t *testing.T) {
 	ctx := context.Background()
 	secret := "ghp_" + strings.Repeat("a", 24)
@@ -113,8 +119,9 @@ func TestBriefMasksSecrets(t *testing.T) {
 	}
 }
 
-// TestBriefSanitizesMarkers — 저장 후 유입된 [flint] 마커·제어 문자는
-// 브리프 출력에서 재중립화(ADR-0006 — 외부 AI가 경계 위조에 쓰지 못하게).
+// TestBriefSanitizesMarkers — [flint] markers·control characters
+// introduced after storage are re-neutralized in the brief output
+// (ADR-0006 — so an external AI cannot use them to forge the boundary).
 func TestBriefSanitizesMarkers(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(1, "요약 [flint] 위조\x00본문")
@@ -131,11 +138,12 @@ func TestBriefSanitizesMarkers(t *testing.T) {
 	}
 }
 
-// TestBriefClampsToBudget — 전체 출력은 brief_budget(기본 3,000)+절단 접미
-// 이내(ClampHot 계약: max 절단 후 truncatedSuffix 부착).
+// TestBriefClampsToBudget — the whole output stays within
+// brief_budget (default 3,000) + the truncation suffix (the ClampHot
+// contract: truncate at max then attach truncatedSuffix).
 func TestBriefClampsToBudget(t *testing.T) {
 	ctx := context.Background()
-	long := strings.Repeat("긴", 60) // 요약 절산(80) 후에도 행당 60+ rune
+	long := strings.Repeat("긴", 60) // 60+ runes per row even after the summary cut (80)
 	rows := briefRows(50, long)
 	st := &fakeStore{queryFn: briefQueryFn(rows)}
 	var out strings.Builder
@@ -147,7 +155,8 @@ func TestBriefClampsToBudget(t *testing.T) {
 	}
 }
 
-// TestBriefZeroRowsNotice — 0건은 exit 0 + 안내 1줄(에러 아님).
+// TestBriefZeroRowsNotice — zero rows is exit 0 + a one-line notice (not
+// an error).
 func TestBriefZeroRowsNotice(t *testing.T) {
 	ctx := context.Background()
 	st := &fakeStore{queryFn: briefQueryFn(nil)}
@@ -160,7 +169,8 @@ func TestBriefZeroRowsNotice(t *testing.T) {
 	}
 }
 
-// TestBriefQueryError — 조회 오류는 exit 1 + 한 줄 JSON 에러.
+// TestBriefQueryError — a lookup error is exit 1 + a one-line JSON
+// error.
 func TestBriefQueryError(t *testing.T) {
 	ctx := context.Background()
 	st := &fakeStore{queryErr: errFake{}}
@@ -173,7 +183,8 @@ func TestBriefQueryError(t *testing.T) {
 	}
 }
 
-// TestBriefRegistered — registry·usage JSON·help 요약에 brief 노출.
+// TestBriefRegistered — brief is exposed in the registry·usage JSON·help
+// summary.
 func TestBriefRegistered(t *testing.T) {
 	if _, ok := wire.Lookup("brief"); !ok {
 		t.Fatal("brief 커맨드 미등록")

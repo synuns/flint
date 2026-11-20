@@ -1,4 +1,4 @@
-// read_v0120_test.go — BuildReadStatus base 테이블 status 필터.
+// read_v0120_test.go — BuildReadStatus's base-table status filter.
 package query
 
 import (

@@ -5,8 +5,8 @@ import (
 	"testing"
 )
 
-// TestStrictMaskPrefixResidue — 등록값이 실제 비밀의
-// 접두사여도 strict은 접미를 평문 유출하지 않는다(패턴 마스킹 우선).
+// TestStrictMaskPrefixResidue — even when a registered value is a prefix of a
+// real secret, strict does not leak the suffix in plaintext (pattern masking first).
 func TestStrictMaskPrefixResidue(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"ghp_" + strings.Repeat("a", 20)})
 	defer ResetSecretsAllowlistForTest(nil)
@@ -20,7 +20,7 @@ func TestStrictMaskPrefixResidue(t *testing.T) {
 	}
 }
 
-// TestStrictMaskAllowlistedEntry — 등록값 단독은 [ALLOWED](B2 계약 유지).
+// TestStrictMaskAllowlistedEntry — a standalone registered value becomes [ALLOWED] (keeping the B2 contract).
 func TestStrictMaskAllowlistedEntry(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"doc-token-abc"})
 	defer ResetSecretsAllowlistForTest(nil)
@@ -33,8 +33,8 @@ func TestStrictMaskAllowlistedEntry(t *testing.T) {
 	}
 }
 
-// TestMarkerNotMutatedByAllowlist — 패턴명 부분문자열
-// 등록으로 REDACTED 마커가 개조되지 않는다.
+// TestMarkerNotMutatedByAllowlist — registering a pattern-name substring
+// does not mutate the REDACTED markers.
 func TestMarkerNotMutatedByAllowlist(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"token"})
 	defer ResetSecretsAllowlistForTest(nil)
@@ -48,7 +48,7 @@ func TestMarkerNotMutatedByAllowlist(t *testing.T) {
 	}
 }
 
-// TestMaskSecretsPreservesAllowlist — 진단용 MaskSecrets 원문 보존 불변.
+// TestMaskSecretsPreservesAllowlist — the diagnostic MaskSecrets' original-text preservation unchanged.
 func TestMaskSecretsPreservesAllowlist(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"doc-token-abc"})
 	defer ResetSecretsAllowlistForTest(nil)
@@ -58,8 +58,8 @@ func TestMaskSecretsPreservesAllowlist(t *testing.T) {
 	}
 }
 
-// TestNestedAllowlistLongestFirst — 중첩 등록은 긴 항목
-// 우선 — {"doc","doc-token-abc"}에서 잔여 평문 없이 전부 [ALLOWED].
+// TestNestedAllowlistLongestFirst — nested registrations prefer the longer
+// entry — {"doc", "doc-token-abc"} becomes all [ALLOWED] with no residual plaintext.
 func TestNestedAllowlistLongestFirst(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"doc", "doc-token-abc"})
 	defer ResetSecretsAllowlistForTest(nil)
