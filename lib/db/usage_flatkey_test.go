@@ -11,6 +11,7 @@ package db
 import (
 	"context"
 	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -183,12 +184,19 @@ func slowPruneDailyBothKeyForms(t *testing.T, r *Repo) {
 		return time.Now().UTC().AddDate(0, 0, -age).Format("2006-01-02")
 	}
 	// Both forms 15 days old (deletion targets) + a yesterday flat key
-	// (retained).
+	// (retained). The gapq rows demonstrate the v1.12.0 gap-counter key
+	// pruning: daily:gapq:<sha256>:<date> (three segments — the
+	// BumpGapQuery counter form) both expires beyond retention and is
+	// retained inside it (the date-rollover daily reset).
+	gapqOld := "daily:gapq:" + strings.Repeat("ab", 32) + ":" + day(15)
+	gapqNew := "daily:gapq:" + strings.Repeat("cd", 32) + ":" + day(1)
 	for _, stmt := range []struct{ key, val string }{
 		{"daily:" + day(15), `{"write":9}`},
 		{"daily:write:" + day(15), "9"},
 		{"daily:hot_bytes:" + day(14), "100"},
 		{"daily:write:" + day(1), "3"},
+		{gapqOld, "3"},
+		{gapqNew, "1"},
 	} {
 		if _, err := r.pool.Exec(ctx,
 			`INSERT INTO meta (key, value) VALUES ($1, $2)`, stmt.key, stmt.val); err != nil {
@@ -199,7 +207,7 @@ func slowPruneDailyBothKeyForms(t *testing.T, r *Repo) {
 		t.Fatalf("PruneDaily: %v", err)
 	}
 	var n int
-	for _, gone := range []string{"daily:" + day(15), "daily:write:" + day(15), "daily:hot_bytes:" + day(14)} {
+	for _, gone := range []string{"daily:" + day(15), "daily:write:" + day(15), "daily:hot_bytes:" + day(14), gapqOld} {
 		if err := r.pool.QueryRow(ctx,
 			`SELECT count(*) FROM meta WHERE key = $1`, gone).Scan(&n); err != nil {
 			t.Fatal(err)
@@ -207,6 +215,15 @@ func slowPruneDailyBothKeyForms(t *testing.T, r *Repo) {
 		if n != 0 {
 			t.Fatalf("14일 초과 키 %s 잔존 — 양쪽 형식 정리 계약 위반", gone)
 		}
+	}
+	// The in-retention gapq key survives (the same-day counter must not
+	// be pruned while the day is live).
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM meta WHERE key = $1`, gapqNew).Scan(&n); err != nil {
+		t.Fatal(err)
+	}
+	if n != 1 {
+		t.Fatalf("보존 범위(어제) gapq 키 삭제됨 — 일일 리셋 카운터 조기 프루닝")
 	}
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM meta WHERE key = $1`, "daily:write:"+day(1)).Scan(&n); err != nil {

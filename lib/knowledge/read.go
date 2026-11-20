@@ -175,23 +175,28 @@ func ZeroReason(zero bool, active, floor int) string {
 }
 
 // gapQueryMaxRunes — the query-body truncation bound of the gap signal
-// (v1.12.0 T2). Only a truncated·sanitized·normalized digest is ever
-// stored — the raw query body is never persisted (the query
-// non-persistence principle).
+// (v1.12.0 T2; v1.12.1 — the bound is 80 runes of the NFKC-normalized
+// form, applied after normalization). Only a truncated·sanitized·
+// normalized digest is ever stored — the raw query body is never
+// persisted (the query non-persistence principle).
 const gapQueryMaxRunes = 80
 
-// NormalizeGapQuery — the gap-signal normalization pipeline (v1.12.0 T2):
-// TruncateRunes(80) → render.Text sanitization (control characters·[flint]
-// markers neutralized — the sanitization chokepoint) → NFKC (the
-// lib/query/suggest.go normalization basis, applied here directly —
-// composed·decomposed spellings converge) → lowercase (locale-invariant
+// NormalizeGapQuery — the gap-signal normalization pipeline (v1.12.0 T2,
+// truncation order corrected v1.12.1): NFKC (the lib/query/suggest.go
+// normalization basis, applied here directly — composed·decomposed
+// spellings converge) → TruncateRunes(80) (v1.12.1: the bound is 80 runes
+// of the *normalized* form — truncating before NFKC split a decomposed
+// spelling mid-sequence and hashed it apart from its composed twin, so
+// the pre-normalization truncation branch is abolished) → render.Text
+// sanitization (control characters·[flint] markers neutralized — the
+// sanitization chokepoint) → lowercase (locale-invariant
 // strings.ToLower) → whitespace fold (runs collapse to one space, edges
 // trimmed). The same recall failure then hashes to one key regardless of
 // representation noise. T3 reuses this helper for the candidate topic.
 func NormalizeGapQuery(query string) string {
-	s := render.TruncateRunes(query, gapQueryMaxRunes)
+	s := norm.NFKC.String(query)
+	s = render.TruncateRunes(s, gapQueryMaxRunes)
 	s = render.Text(s)
-	s = norm.NFKC.String(s)
 	s = strings.ToLower(s)
 	return strings.Join(strings.Fields(s), " ")
 }
