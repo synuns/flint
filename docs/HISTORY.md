@@ -6,6 +6,36 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.13.0 minor (2026-11-21) — age-audit: stale-knowledge scoring (2 weighted signals) · volatility tiers (`:vol:immutable:` decay exemption)
+
+Knowledge lifecycle management (spec: docs/plans/2026-11-21-flint-v1130.spec.md).
+`flint maintain --age-audit` scores active knowledge for staleness — disposition
+stays approval-gated (the no-SQL-auto-verdict principle).
+
+- Score formula (weights are code constants, part of the formula): `round(100 ×
+  (0.7 × min(1, ttl_days / stale_ttl_days) + 0.3 × min(1, same-topic
+  :correction: count / 3)))`. Gate ruling ① — the spec's 5 signals shrink to 2
+  weighted ones (TTL elapsed days since `COALESCE(last recall, ingested_at)` ·
+  same-topic correction-tag count) to prevent structural zeros on active
+  candidates; bad-recall (invalidated/superseded after recall) and same-topic
+  supersede history ride along as non-weighted reference columns. `:vol:immutable:`
+  rows are excluded server-side (strpos).
+- Gate ruling ② — no new execution flag: the report is read-only (dry-run by
+  default) and its summary delegates disposition to the existing
+  `maintain --invalidate` approval system. Gate ruling ③ — signal ⑤ (source
+  change, origin-document hash) stays a non-goal (no source URL/path field).
+- Volatility tier tags (CONTENT §4): `vol:immutable` (decay exemption —
+  effective = count maintained)·`vol:conditional`·`vol:volatile` (existing
+  decay). The colon format is dictionary-registered only — a user tag token
+  containing a colon is refused at write (exit 3, the schema-error channel);
+  near-misses like `vol:immutable2` are not exempted (no coincidental
+  exemption). Decay consumers (hot·brief ranking, maintain decay-audit) go
+  through `EffectiveScoreFor` — the pure `EventEffectiveScore` formula is
+  unchanged.
+- Thresholds 2 keys (TUNING §2): `stale_score_threshold` (default 70 —
+  over-threshold marking)·`stale_ttl_days` (default 180 — TTL saturation).
+  Code defaults + meta override.
+
 ### v1.12.0 minor (2026-11-21) — gap-candidates: recall-failure gap candidates enter long-term memory as pending rows (knowledge pipeline step 2)
 
 Spec requirements 1·2 merged into one mechanism (planning ruling) — recall

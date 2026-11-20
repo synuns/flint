@@ -460,3 +460,35 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
   요약 N만 갱신(UPDATE), active 행은 NOOP.
 - **후속**: 검증된 성공 케이스(survived) 강화·교정 전환율 관측은
   계량 키 설계 주석만(실측 인용 금지).
+
+## 지식 수명주기 — age-audit·변동성 계층 (v1.13.0 age-audit)
+
+스테일 관리(§6)의 점수 기반 확장: 낡은 지식을 관측 신호로 **점수화해
+보고만** 하고, 처분은 기존 승인제를 그대로 따른다.
+
+- **사용법** — `flint maintain --age-audit [--limit M]`: 상위 목록 JSON
+  리포트(status·threshold·count·items·summary). 읽기 전용·dry-run 기본
+  (exit 0) — 물리 삭제·자동 무효화 없음. `--limit` 기본 20(decay-audit
+  관례). 토픽은 40룬 절단·살균(ADR-0006) 후 출력된다.
+- **점수 산식** — `round(100 × (0.7 × min(1, ttl_days / stale_ttl_days)
+  + 0.3 × min(1, 동일 topic :correction: 태그 수 / 3)))`. 가중치 0.7/0.3·
+  포화 `min(1,·)`·교정 포화 3은 코드 상수(산식 일부 — 튜닝 아님).
+  `ttl_days`는 `COALESCE(최근 회상, ingested_at)` 경과일(§6 listStale
+  관례). 참조열(비가중) — 회상 후 무효화 이력(bad_recall)·동일 topic
+  supersede 이력은 리포트 정보로만 제공된다.
+- **임계값 2키** — TUNING §2: `stale_score_threshold`(기본 70 — 이상
+  인 항목에 `over_threshold` 마킹)·`stale_ttl_days`(기본 180 — TTL
+  포화일). 코드 기본값 + meta 오버라이드.
+- **처분 — `--invalidate` 승인 위임**: 신규 실행 플래그(`--commit` 등)는
+  없다. 리포트의 id로 `flint maintain --invalidate --ids "1,2,3" --yes`
+  (또는 단일 `--id N --reason S`)로 승인 처분한다(§6 3단계 id 스냅샷
+  관례 승계).
+- **변동성 계층 태그 3종** — CONTENT §4: `vol:immutable`(감쇠 면제 —
+  effective=점수 유지)·`vol:conditional`(기존 감쇠 승계, 문서화 마커)·
+  `vol:volatile`(기존 감쇠 배율 승계). 태그 없음=일반(기존 동작).
+  콜론 포맷은 **사전 등록 태그 전용** — 콜론이 든 사용자 태그 토큰은
+  write에서 거부된다(exit 3).
+- **immutable 감쇠 면제** — `:vol:immutable:` 지식은 hot·brief 랭킹과
+  decay-audit·age-audit 후보에서 감쇠가 면제된다(`EffectiveScoreFor` 단일
+  정의 — 순수 식 `EventEffectiveScore` 불변). age-audit 모집단에서는
+  서버측 strpos로 처음부터 제외된다.
