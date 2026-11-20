@@ -34,6 +34,16 @@ write 실행 전 아래 순서를 따른다:
 근거: 관측된 중복 재제출 다발 사례(중복 대응이 지배 경로)·Mem0/Anthropic
 보수 쓰기 패턴(기존 기억 갱신 우선·추가 최소) 준용.
 
+## 사용자 교정 — `--source correction` (v1.11.0)
+
+사용자가 기존 지식·결정을 교정하는 발언을 인지하면 즉시
+`flint write knowledge --source correction`(stdin JSON)으로 적립한다.
+
+- 교정 내용만 최소로 추출한다 — 추측 금지, 사용자 발언 전량 캡처 금지.
+- payload에 confidence를 지정하지 않으면 기본 0.7이 적용되고 태그
+  `correction`이 자동 부착된다(기존 태그 보존 병합). 다른 write와
+  같이 pending으로 시작해 `flint approve`로 승격한다.
+
 ## MCP 세션
 
 MCP 클라이언트로 참여하는 세션에서는 셸 CLI 대신 MCP 도구를 사용한다:
@@ -83,8 +93,9 @@ Claude Code 표준 경로는 PostCompact이며 Stop 훅 stdin에
 ## 명령 요약
 
 - `flint read [query] [--tag --entity --domain --limit] --json --fields`
-- `flint write knowledge --source hook` — stdin JSON/JSONL
-  (confidence<0.8 → pending · 소스 미지정 시 manual 취급)
+- `flint write knowledge --source hook|manual|mcp|correction` — stdin
+  JSON/JSONL (confidence<0.8 → pending · 소스 미지정 시 manual 취급 ·
+  correction은 payload 미지정 시 기본 confidence 0.7)
 - `flint hot` — 활성 프로젝트+pending+최근 결정 7일 (2,000자 상한),
   전체 펼침은 `flint hot --full`
   (pending 열람 — `flint read --status pending`, --as-of 병용 시 as-of 우선)

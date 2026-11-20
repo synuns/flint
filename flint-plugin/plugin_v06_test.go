@@ -78,8 +78,11 @@ func TestHooksPassSourceFlag(t *testing.T) {
 }
 
 // TestPluginDocsPassSourceHook — 커맨드·스킬 문서의 flint write 예시
-// 전수에 --source hook 포함, write 예시 자체가 존재해야 한다.
+// 전수에 등록된 --source(명시 소스) 포함, write 예시 자체가 존재해야 한다.
+// 소스 등록표는 lib/knowledge/write.go sourceRegistry — 여기서는
+// 미러 목록(플러그인 모듈 경계)로 동질 유지, 신규 채널 추가 시 갱신.
 func TestPluginDocsPassSourceHook(t *testing.T) {
+	sources := []string{"hook", "manual", "mcp", "correction"}
 	for _, path := range []string{
 		"commands/flint.md",
 		"skills/flint/SKILL.md",
@@ -94,8 +97,15 @@ func TestPluginDocsPassSourceHook(t *testing.T) {
 				continue
 			}
 			writeLines++
-			if !strings.Contains(line, "--source hook") {
-				t.Errorf("%s: write 호출에 --source hook 없음: %q", path, line)
+			ok := false
+			for _, src := range sources {
+				if strings.Contains(line, "--source "+src) {
+					ok = true
+					break
+				}
+			}
+			if !ok {
+				t.Errorf("%s: write 호출에 등록된 --source 없음: %q", path, line)
 			}
 		}
 		if writeLines == 0 {

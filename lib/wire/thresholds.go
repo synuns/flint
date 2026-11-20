@@ -65,6 +65,7 @@ func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 		{&th.SessionKnowledgeDays, def.SessionKnowledgeDays, true}, // the -1 = off sentinel allowed
 		{&th.DailyRetentionD, def.DailyRetentionD, false},
 		{&th.RecallEventRetentionD, def.RecallEventRetentionD, false},
+		{&th.CorrectionDailyMax, def.CorrectionDailyMax, false},
 	} {
 		if *f.cur == 0 || (!f.allow && *f.cur < 0) {
 			*f.cur = f.def
@@ -72,6 +73,11 @@ func ApplyThresholdsFallback(th store.Thresholds) store.Thresholds {
 	}
 	if th.SuggestMinScore <= 0 {
 		th.SuggestMinScore = def.SuggestMinScore
+	}
+	// the correction write default confidence (v1.11.0) — unset (0)/invalid
+	// falls back to the default (0 confidence is meaningless as a default).
+	if th.CorrectionConfidence <= 0 {
+		th.CorrectionConfidence = def.CorrectionConfidence
 	}
 	if th.ConflictDupThreshold <= 0 {
 		th.ConflictDupThreshold = def.ConflictDupThreshold

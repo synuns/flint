@@ -380,3 +380,25 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
 - Go 워크트리에서 sl run_tests(pytest 기반)는 부적합 — `go test ./...
   -count=1` 직접 실행이 표준(v1.0.1 룰링 승계, 여기에 문서화).
 - CI `make ci`는 `-count=1` 고정 — 로컬과 동일 경로 보장.
+
+## 지식화 파이프라인 1단계 — 사용자 교정 채널 (v1.11.0)
+
+케이스 매트릭스 최우선(사용자 직접 교정)만 실증한 단계다
+(원 제안 — docs/plans/2026-11-19-flint-knowledge-pipelines.md).
+
+- **채널 계약**: `flint write knowledge --source correction` — 사용자
+  교정을 인지한 에이전트가 즉시 적립한다(스킬 지침 유도). payload에
+  confidence 미지정 시 기본 0.7(사람 신호 — hook 0.5·수동 명시 0.8
+  사이)·태그 `correction` 자동 부착(기존 태그 보존 병합). 4연산·
+  content_hash dedup·pending→approve 승격 회로는 기존 write 회로
+  재사용(변경 없음 — 교정 계열도 pending 유지, 자동 active 승격 없음).
+- **감지 경로 룰링 — B안(에이전트 계약 유도)**: 하네스 무관·구현 최소로
+  plugin 스킬 지침(flint-plugin/skills/flint/SKILL.md)으로 순응을 유도
+  한다. 품질 상한은 에이전트 순응도다. **A안(하네스 훅 자동 감지)**은
+  프라이버시 표면 문제로 후속 조사 과제(비목표).
+- **임계값 2키** — 코드 기본값+meta 오버라이드(TUNING §2):
+  `correction_confidence`(기본 0.7)·`correction_daily_max`(기본 20 —
+  일일 상한 초과 시 조용히 skip·경고 1행).
+- **후속**: A안 조사·나머지 케이스(회상 실패 소구·반복 패턴 등)는
+  2단계 이상 과제. 교정 적립→승격 전환율 관측은 계량 키 설계
+  주석만(실측 인용 금지).

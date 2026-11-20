@@ -12,6 +12,7 @@ package knowledge
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -985,6 +986,376 @@ func TestWriteParallelRaceRealSlow(t *testing.T) {
 			inserted += int(m["inserted"].(float64))
 		}
 		t.Logf("라운드 %d: 경과=%v inserted 합=%d", round, elapsed.Round(time.Millisecond), inserted)
+	}
+}
+
+// ── v1.11.0 T1 — the source registry (correction added) is the single
+// source: usage·ErrInvalidSource are derived from it (no duplicate
+// hardcoded lists). ──
+
+// TestParseSourceCorrectionValid — "correction" is a registered source:
+// ParseSourceFlag accepts it, and RunWrite with --source correction
+// commits exit 0 (metered under correction — the registry admission
+// contract).
+func TestParseSourceCorrectionValid(t *testing.T) {
+	src, err := ParseSourceFlag([]string{"--source", "correction"})
+	if err != nil || src != "correction" {
+		t.Fatalf("ParseSourceFlag=%q,%v — want correction,nil(등록표 통과)", src, err)
+	}
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
+		`{"topic":"v1110-t1-correction","summary":"합성 데모 교정 줄","confidence":0.9}`+"\n")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(--source correction 유효); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"status":"committed"`) {
+		t.Fatalf("출력=%q, want committed", out)
+	}
+}
+
+// TestParseSourceUnregisteredRejectedExit3 — an unregistered value is
+// rejected: ParseSourceFlag → ErrInvalidSource·RunWrite exit 3 with no
+// insert (the inherited invalid-source contract).
+func TestParseSourceUnregisteredRejectedExit3(t *testing.T) {
+	if _, err := ParseSourceFlag([]string{"--source", "nope"}); !errors.Is(err, ErrInvalidSource) {
+		t.Fatalf("미등록 값 오류=%v, want ErrInvalidSource", err)
+	}
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge", "--source", "nope"},
+		`{"topic":"v1110-t1-bad","summary":"합성 데모","confidence":0.9}`+"\n")
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(미등록 source); out=%s", code, out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("미등록 source 적립 발생: %d건", len(f.inserted))
+	}
+}
+
+// TestSourceRegistryDerivationGuard — the homogeneous guard: the usage
+// hint (--help)·the ErrInvalidSource message·the validSources membership
+// all stay in sync with the sourceRegistry (a hardcoded list drifting
+// from the registry fails here — dual maintenance abolished).
+func TestSourceRegistryDerivationGuard(t *testing.T) {
+	want := strings.Join(sourceRegistry, "|")
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"--help"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(--help)", code)
+	}
+	if !strings.Contains(out, "--source "+want) {
+		t.Fatalf("usage 문자열이 등록표와 불일치: want %q 포함, got %q", want, out)
+	}
+	if !strings.Contains(ErrInvalidSource.Error(), "("+want+")") {
+		t.Fatalf("ErrInvalidSource 메시지가 등록표와 불일치: want (%s), got %q", want, ErrInvalidSource)
+	}
+	if len(sourceRegistry) == 0 {
+		t.Fatal("sourceRegistry 비어 있음")
+	}
+	for _, s := range sourceRegistry {
+		if !validSources[s] {
+			t.Fatalf("등록표 항목 %q가 validSources에 없음(등록표↔멤버십 불일치)", s)
+		}
+	}
+	if len(validSources) != len(sourceRegistry) {
+		t.Fatalf("validSources 크기=%d, want %d(등록표와 1:1)", len(validSources), len(sourceRegistry))
+	}
+}
+
+// ── v1.11.0 T2 — the --source correction path: only two defaults are
+// added (missing confidence → the correction_confidence threshold·the
+// "correction" tag merged); validate→hash dedup→classify→approve are the
+// existing circuits reused unchanged. ──
+
+// TestWriteCorrectionDefaults — a correction write without confidence·tags:
+// confidence defaults to the threshold 0.7 (below the 0.8 floor → pending),
+// tags become ["correction"], single-line output state=pending.
+func TestWriteCorrectionDefaults(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
+		`{"topic":"t2-correction-defaults","summary":"합성 데모 교정 줄"}`+"\n")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["state"] != "pending" {
+		t.Fatalf("state=%v, want pending(기본 0.7 < conf_floor 0.8)", m["state"])
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("삽입=%d건, want 1", len(f.inserted))
+	}
+	if conf, _ := f.inserted[0]["confidence"].(float64); conf != 0.7 {
+		t.Fatalf("confidence=%v, want 0.7(threshold 기본)", f.inserted[0]["confidence"])
+	}
+	if f.inserted[0]["status"] != "pending" {
+		t.Fatalf("status=%v, want pending", f.inserted[0]["status"])
+	}
+	if f.inserted[0]["tags"] != ":correction:" {
+		t.Fatalf("tags=%v, want :correction: 자동 부착", f.inserted[0]["tags"])
+	}
+}
+
+// TestWriteCorrectionRespectsExplicitConfidence — an explicitly given
+// confidence is respected (the manual contract unchanged): 0.95 → active
+// with confidence 0.95; the correction tag is still merged.
+func TestWriteCorrectionRespectsExplicitConfidence(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
+		`{"topic":"t2-correction-explicit","summary":"합성 데모","confidence":0.95}`+"\n")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if m := decode(t, out); m["state"] != "active" {
+		t.Fatalf("state=%v, want active(지정 0.95 존중)", m["state"])
+	}
+	if conf, _ := f.inserted[0]["confidence"].(float64); conf != 0.95 {
+		t.Fatalf("confidence=%v, want 0.95(지정값 존중)", f.inserted[0]["confidence"])
+	}
+	if f.inserted[0]["status"] != "active" {
+		t.Fatalf("status=%v, want active", f.inserted[0]["status"])
+	}
+}
+
+// TestWriteCorrectionTagMerge — the correction tag merges with existing
+// tags (order preserved, appended last)·is idempotent (no duplicates when
+// already present).
+func TestWriteCorrectionTagMerge(t *testing.T) {
+	t.Run("기존 태그 병합", func(t *testing.T) {
+		f := &fakeStore{}
+		out, code := run(t, f, []string{"knowledge", "--source", "correction"},
+			`{"topic":"t2-tag-merge","summary":"합성 데모","confidence":0.9,"tags":["demo","fix"]}`+"\n")
+		if code != 0 {
+			t.Fatalf("exit=%d, want 0; out=%s", code, out)
+		}
+		if f.inserted[0]["tags"] != ":correction:demo:fix:" {
+			t.Fatalf("tags=%v, want :correction:demo:fix: 병합(정렬 저장 형식)", f.inserted[0]["tags"])
+		}
+	})
+	t.Run("이미 있으면 중복 부착 없음", func(t *testing.T) {
+		f := &fakeStore{}
+		out, code := run(t, f, []string{"knowledge", "--source", "correction"},
+			`{"topic":"t2-tag-idem","summary":"합성 데모","confidence":0.9,"tags":["correction"]}`+"\n")
+		if code != 0 {
+			t.Fatalf("exit=%d, want 0; out=%s", code, out)
+		}
+		if f.inserted[0]["tags"] != ":correction:" {
+			t.Fatalf("tags=%v, want :correction:(멱등 — 중복 부착 없음)", f.inserted[0]["tags"])
+		}
+	})
+}
+
+// hashMatchStore — a fakeStore whose ExistsHash answers existing only for
+// the one given hash (single-line dedup: a hash-accurate existing-row
+// response without implementing DupIDStore/DupMetaStore — the ExistsHash
+// fallback path).
+type hashMatchStore struct {
+	*fakeStore
+	hash string
+}
+
+func (h *hashMatchStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
+	return hash == h.hash, nil
+}
+
+// TestWriteCorrectionDedupCircuitReused — the correction path reuses the
+// content_hash dedup circuit unchanged (no separate branch): the same
+// correction payload resent after the hash exists is a bare duplicate
+// (exit 0 {"status":"duplicate"} — the existing idempotence contract).
+func TestWriteCorrectionDedupCircuitReused(t *testing.T) {
+	f1 := &fakeStore{}
+	out, code := run(t, f1, []string{"knowledge", "--source", "correction"},
+		`{"topic":"t2-dedup-reuse","summary":"합성 데모","confidence":0.9,"tags":["demo"]}`+"\n")
+	if code != 0 {
+		t.Fatalf("1차 exit=%d, want 0; out=%s", code, out)
+	}
+	hash, _ := f1.inserted[0]["content_hash"].(string)
+	if hash == "" {
+		t.Fatal("1차 적립 content_hash 없음")
+	}
+	// 2nd: the exact hash of the merged-tag payload is judged existing —
+	// the same single-line ExistsHash lookup circuit (no correction-specific
+	// dedup). hashMatchStore answers existing only for that hash.
+	f2 := &hashMatchStore{fakeStore: &fakeStore{}, hash: hash}
+	out2, code2 := run(t, f2, []string{"knowledge", "--source", "correction"},
+		`{"topic":"t2-dedup-reuse","summary":"합성 데모","confidence":0.9,"tags":["demo"]}`+"\n")
+	if code2 != 0 {
+		t.Fatalf("2차 exit=%d, want 0; out=%s", code2, out2)
+	}
+	if !strings.Contains(out2, `"status":"duplicate"`) {
+		t.Fatalf("2차 출력=%q, want duplicate(회로 승계)", out2)
+	}
+	if len(f2.inserted) != 0 {
+		t.Fatalf("2차 적립 발생: %d건", len(f2.inserted))
+	}
+}
+
+// TestWriteCorrectionConfidenceThresholdOverride — the default confidence
+// comes from the thresholds registry (meta correction_confidence), not a
+// code constant: an override 0.5 lands as the default·pending.
+func TestWriteCorrectionConfidenceThresholdOverride(t *testing.T) {
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM meta WHERE key IN") &&
+			strings.Contains(sql, "correction_confidence") {
+			return [][]any{{"correction_confidence", "0.5"}}, nil
+		}
+		return nil, nil
+	}}
+	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
+		`{"topic":"t2-threshold-override","summary":"합성 데모"}`+"\n")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if conf, _ := f.inserted[0]["confidence"].(float64); conf != 0.5 {
+		t.Fatalf("confidence=%v, want 0.5(meta 오버라이드)", f.inserted[0]["confidence"])
+	}
+	if f.inserted[0]["status"] != "pending" {
+		t.Fatalf("status=%v, want pending", f.inserted[0]["status"])
+	}
+}
+
+// TestWriteManualMissingConfidenceStillRejected — without correction, the
+// existing manual contract is unchanged: a missing confidence is a
+// Validate error (exit 3), no default injection.
+func TestWriteManualMissingConfidenceStillRejected(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge"},
+		`{"topic":"t2-manual-noconf","summary":"합성 데모"}`+"\n")
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(manual은 confidence 필수 불변); out=%s", code, out)
+	}
+	if !strings.Contains(out, `"confidence"`) {
+		t.Fatalf("출력=%q, want confidence 오류", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("적립 발생: %d건", len(f.inserted))
+	}
+}
+
+// ── v1.11.0 T3 — the correction daily cap (correction_daily_max): lines
+// past the day's committed-correction quota are quietly skipped with one
+// warning line (exit 0 — independent of the dup mechanism; the count
+// source is the daily:correction_write:<date> flat key). ──
+
+// correctionCapFake — a fakeStore answering the two meta lookups of the
+// cap path: the thresholds IN query (a correction_daily_max override when
+// set) and today's daily:correction_write:<date> count (empty = 0). The
+// daily:correction_write UPSERT bumps are counted into bumps (the key
+// rides as a query arg, so the SQL-recording path cannot see it).
+func correctionCapFake(maxOverride, todayCount string, bumps *int) *fakeStore {
+	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.HasPrefix(sql, "INSERT INTO meta") {
+			if key, _ := args[0].(string); strings.HasPrefix(key, "daily:correction_write:") && bumps != nil {
+				*bumps++
+			}
+			return nil, nil
+		}
+		if strings.Contains(sql, "FROM meta WHERE key IN") {
+			if maxOverride != "" {
+				return [][]any{{"correction_daily_max", maxOverride}}, nil
+			}
+			return nil, nil
+		}
+		if strings.Contains(sql, "SELECT value FROM meta WHERE key = $1") {
+			if key, _ := args[0].(string); strings.HasPrefix(key, "daily:correction_write:") && todayCount != "" {
+				return [][]any{{todayCount}}, nil
+			}
+		}
+		return nil, nil
+	}}
+}
+
+// TestWriteCorrectionDailyCapReachedSkips — the quota exhausted: the line
+// is quietly skipped (no insert·no commit) with one warning line, exit 0.
+func TestWriteCorrectionDailyCapReachedSkips(t *testing.T) {
+	var bumps int
+	f := correctionCapFake("", "20", &bumps) // the default cap 20 already committed today
+	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
+		`{"topic":"t3-cap-reached","summary":"합성 데모"}`+"\n")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(조용한 skip); out=%s", code, out)
+	}
+	if len(f.inserted) != 0 || len(f.commits) != 0 {
+		t.Fatalf("상한 도달 적립 발생: 삽입 %d·커밋 %d", len(f.inserted), len(f.commits))
+	}
+	if !strings.Contains(out, "correction daily max") {
+		t.Fatalf("경고 1행 없음: %q", out)
+	}
+	if bumps != 0 {
+		t.Fatalf("skip 시 bump 발생: %d회", bumps)
+	}
+}
+
+// TestWriteCorrectionDailyCapPartial — quota 1 left with 2 lines: only
+// the first accrues·commits (partial commit), the second is skipped with
+// one warning line; the committed count is bumped once.
+func TestWriteCorrectionDailyCapPartial(t *testing.T) {
+	var bumps int
+	f := correctionCapFake("", "19", &bumps)
+	jsonl := `{"topic":"t3-cap-a","summary":"합성 데모","confidence":0.9}` + "\n" +
+		`{"topic":"t3-cap-b","summary":"합성 데모","confidence":0.9}`
+	out, code := run(t, f, []string{"knowledge", "--source", "correction"}, jsonl)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["inserted"] != float64(1) {
+		t.Fatalf("inserted=%v, want 1(부분 적립)", m["inserted"])
+	}
+	if len(f.inserted) != 1 || f.inserted[0]["topic"] != "t3-cap-a" {
+		t.Fatalf("적립=%v, want t3-cap-a만", f.inserted)
+	}
+	w, _ := m["warnings"].([]any)
+	capWarns := 0
+	for _, x := range w {
+		if strings.Contains(fmt.Sprint(x), "correction daily max") {
+			capWarns++
+		}
+	}
+	if capWarns != 1 {
+		t.Fatalf("상한 경고=%d행, want 1", capWarns)
+	}
+	if bumps != 1 {
+		t.Fatalf("bump=%d회, want 1(적립 1건)", bumps)
+	}
+}
+
+// TestWriteCorrectionDailyCapOverride — the cap comes from the thresholds
+// registry (meta correction_daily_max), not a code constant: an override
+// 1 with 2 fresh lines accrues only the first.
+func TestWriteCorrectionDailyCapOverride(t *testing.T) {
+	f := correctionCapFake("1", "", nil)
+	jsonl := `{"topic":"t3-ovr-a","summary":"합성 데모","confidence":0.9}` + "\n" +
+		`{"topic":"t3-ovr-b","summary":"합성 데모","confidence":0.9}`
+	out, code := run(t, f, []string{"knowledge", "--source", "correction"}, jsonl)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if m := decode(t, out); m["inserted"] != float64(1) {
+		t.Fatalf("inserted=%v, want 1(오버라이드 1)", m["inserted"])
+	}
+	if len(f.inserted) != 1 || f.inserted[0]["topic"] != "t3-ovr-a" {
+		t.Fatalf("적립=%v, want t3-ovr-a만", f.inserted)
+	}
+}
+
+// TestWriteCorrectionDailyCapUnderPasses — quota remaining: lines pass
+// untouched (no warning·normal commit·bump by the committed count) — the
+// cap interferes only at the boundary.
+func TestWriteCorrectionDailyCapUnderPasses(t *testing.T) {
+	var bumps int
+	f := correctionCapFake("", "0", &bumps)
+	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
+		`{"topic":"t3-under","summary":"합성 데모"}`+"\n")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if strings.Contains(out, "correction daily max") {
+		t.Fatalf("미달 경고 발생: %q", out)
+	}
+	if !strings.Contains(out, `"status":"committed"`) {
+		t.Fatalf("출력=%q, want committed", out)
+	}
+	if bumps != 1 {
+		t.Fatalf("bump=%d회, want 1", bumps)
 	}
 }
 

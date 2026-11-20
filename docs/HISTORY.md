@@ -6,6 +6,30 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.11.0 minor (2026-11-20) — correction-channel: user corrections enter long-term memory (`--source correction`)
+
+Knowledge pipeline step 1 (draft: docs/plans/2026-11-19-flint-knowledge-pipelines.md)
+— the top-priority matrix case (direct user correction) only.
+
+- [x] T1 — source registry adds `correction` (single registry in
+  lib/knowledge/write.go; usage hint·ErrInvalidSource message derived —
+  no duplicate hardcoded lists).
+- [x] T2 — `flint write knowledge --source correction`: payload without
+  confidence defaults to 0.7 (human signal — between hook 0.5 and
+  explicit manual 0.8); the `correction` tag is auto-attached (existing
+  tags preserved). The 4 ops·content_hash dedup·pending→approve circuit
+  are reused unchanged — corrections also start pending (no auto-active).
+- [x] T3 — thresholds 2 keys: `correction_confidence` (default 0.7)·
+  `correction_daily_max` (default 20 — over-limit quietly skips with a
+  one-line warning). Code defaults + meta override.
+- [x] T4 — plugin skill guidance (immediate deposit on noticing a
+  correction — minimal extraction, no guessing, no full-utterance
+  capture)·RUNBOOK pipeline step 1 section.
+- Detection-path ruling: Plan B (agent contract guidance via the skill)
+  — harness-agnostic·minimal implementation; quality ceiling is agent
+  compliance. Plan A (harness-hook auto-detection) is a follow-up
+  investigation item (privacy surface).
+
 ### v1.10.2 patch (2026-11-20) — r48-notes: remove duplicated v1.10.1 heading · highlight order · count footnote
 
 ### v1.10.1 patch (2026-11-20) — r47-counts: fix file counts in v1.10.0 notes (424, not 394; per-package counts corrected)
