@@ -6,14 +6,14 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v1.10.0 minor (2026-11-20) — hygiene: comments in English across 394 files · slow suite 34.5% faster · test race fixes
+### v1.10.0 minor (2026-11-20) — hygiene: comments in English across 424 files · slow suite 34.5% faster · test race fixes
 
 - [x] T1 — R46 precision fixes: HISTORY date ordering, README highlight
   ordering, delegatingFake mutex unification (+ regression), 4 vet unkeyed
   fields.
-- [x] T2–T7 — comment translation to English across lib/ (394 files):
-  cli 149, knowledge 57, ops 45, db+sqlfs 56, wire+query+store 67,
-  render 4, tui, backup 17, mcp 13. Meaning-preserving only — string
+- [x] T2–T7 — comment translation to English across lib/ (424 files):
+  cli 149, knowledge 58, ops 45, db+sqlfs 56, wire+query+store 68,
+  render 4, tui 16, backup 17, mcp 13. Meaning-preserving only — string
   literals, test data, t.Errorf messages, identifiers, and SQL untouched;
   diffs are comment-line symmetric with zero code deletions.
 - [x] T8 — lib/db slow suite 34.5% faster: 72 test bodies hoisted, shared
