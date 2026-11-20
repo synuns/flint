@@ -355,6 +355,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01100Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.10.0", "hygiene",
 	}},
+	// v1.10.1: R47 수치 정정 — v1.10.0 기록의 파일 수·패키지별 카운트.
+	{name: "TestVersion01101Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.10.1", "r47-counts",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
