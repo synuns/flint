@@ -369,6 +369,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01111Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.11.1", "r50-metering",
 	}},
+	// v1.11.2: R52 패치 — dup_correction report 노출·헤딩 복원·위생 3.
+	{name: "TestVersion01112Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.11.2", "r52-reporting",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
