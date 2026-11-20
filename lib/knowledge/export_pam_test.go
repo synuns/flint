@@ -1,6 +1,7 @@
-// export_pam_test.go — FormatPAM 계약 테스트.
-// PAM v1.0(portable-ai-memory.org/spec/v1.0) §4 문서 형식·§6 content_hash
-// 정규화·status 매핑·§13.2 relations 방향·§15 체크섬 결정성.
+// export_pam_test.go — FormatPAM contract tests. PAM v1.0
+// (portable-ai-memory.org/spec/v1.0): §4 document shape, §6 content_hash
+// normalization, status mapping, §13.2 relations direction, §15 checksum
+// determinism.
 package knowledge
 
 import (
@@ -22,7 +23,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// pamFixtureRows — 합성 데모 2행(활성 + 무효/대체됨).
+// pamFixtureRows — 2 synthetic demo rows (active + invalidated/superseded).
 func pamFixtureRows() []ExportRow {
 	sup := 12
 	return []ExportRow{
@@ -46,7 +47,8 @@ func pamFixtureRows() []ExportRow {
 	}
 }
 
-// pamWantHash — 계약 독립 재현: trim→lower→NFC→연속 공백 collapse→SHA-256.
+// pamWantHash — contract-independent reproduction: trim -> lower -> NFC ->
+// whitespace collapse -> SHA-256.
 func pamWantHash(t *testing.T, content string) string {
 	t.Helper()
 	s := strings.TrimSpace(strings.ToLower(content))
@@ -56,7 +58,7 @@ func pamWantHash(t *testing.T, content string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// pamParseDoc — 출력을 map으로 역직렬화(공통 헬퍼).
+// pamParseDoc — deserializes output into a map (shared helper).
 func pamParseDoc(t *testing.T, out []byte) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -79,7 +81,8 @@ func pamMem(t *testing.T, doc map[string]any, i int) map[string]any {
 	return m
 }
 
-// TestFormatPAMDocShape — §4 루트 필드·§4 memory 매핑 전수 검증.
+// TestFormatPAMDocShape — exhaustive check of §4 root fields and §4 memory
+// mapping.
 func TestFormatPAMDocShape(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -111,7 +114,7 @@ func TestFormatPAMDocShape(t *testing.T) {
 		t.Fatalf("relations 누락")
 	}
 
-	// memory[0] — 활성 행 매핑.
+	// memory[0] — the active-row mapping.
 	m0 := pamMem(t, doc, 0)
 	if m0["id"] != "flint:7" {
 		t.Errorf("id = %v, want flint:7", m0["id"])
@@ -161,7 +164,8 @@ func TestFormatPAMDocShape(t *testing.T) {
 	}
 }
 
-// TestFormatPAMExportIDUUIDv4 — export_id가 매 호출마다 갱신되는 UUIDv4.
+// TestFormatPAMExportIDUUIDv4 — export_id is a UUIDv4 refreshed on every
+// call.
 func TestFormatPAMExportIDUUIDv4(t *testing.T) {
 	re := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	seen := map[string]bool{}
@@ -181,8 +185,9 @@ func TestFormatPAMExportIDUUIDv4(t *testing.T) {
 	}
 }
 
-// TestFormatPAMContentHashNormalization — §6 정규화 3케이스:
-// 공백(연속·선후방), 대소문자, NFC 정규화 — 모두 동일 해시로 수렴.
+// TestFormatPAMContentHashNormalization — the 3 §6 normalization cases:
+// whitespace (runs, leading/trailing), case, and NFC — all converge to one
+// hash.
 func TestFormatPAMContentHashNormalization(t *testing.T) {
 	cases := []struct {
 		name string
@@ -190,7 +195,8 @@ func TestFormatPAMContentHashNormalization(t *testing.T) {
 	}{
 		{"whitespace", "Hello   World  ", "hello world"},
 		{"case", "HELLO WORLD", "hello world"},
-		// a는 NFD(A+결합 분음 부호), b는 NFC(조합 문자) — NFC 정규화 수렴 검증.
+		// a is NFD (A + combining diacritic), b is NFC (precomposed) — verifies
+		// NFC-normalization convergence.
 		{"nfc", " Decomposed A\u0301ccent ", "decomposed \u00c1ccent"},
 	}
 	for _, c := range cases {
@@ -217,8 +223,9 @@ func TestFormatPAMContentHashNormalization(t *testing.T) {
 	}
 }
 
-// TestFormatPAMStatusMapping — active→active·invalidated→superseded,
-// SupersededBy≠nil이면 temporal.superseded_by="flint:<N>"(nil이면 부재).
+// TestFormatPAMStatusMapping — active -> active, invalidated -> superseded;
+// SupersededBy != nil yields temporal.superseded_by = "flint:<N>" (absent
+// when nil).
 func TestFormatPAMStatusMapping(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -246,9 +253,9 @@ func TestFormatPAMStatusMapping(t *testing.T) {
 }
 
 // TestFormatPAMRelationsDirection — §13.2 "Source replaces target":
-// from=신규(대체하는 행 SupersededBy), to=구(대체되는 행 자신).
-// 양쪽 엔드포인트(8·12)가 모두 memories에 실리는 합성 2행으로 검증
-// (한쪽이라도 미포함이면 relation 자체를 발행하지 않는다).
+// from = the new row (the SupersededBy target), to = the old row itself.
+// Verified with 2 synthetic rows where both endpoints (8 and 12) land in
+// memories (if either is missing, the relation itself is not emitted).
 func TestFormatPAMRelationsDirection(t *testing.T) {
 	sup := 12
 	t0 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
@@ -284,11 +291,12 @@ func TestFormatPAMRelationsDirection(t *testing.T) {
 	}
 }
 
-// TestFormatPAMRelationsDroppedWhenEndpointMissing — 회귀:
-// relations는 From·To 양쪽 모두 memories에 실린 "flint:N"인 경우만
-// 발행한다. pending superseder(미승인 대체 원천 — 문서에서 제외)·조회
-// 범위 밖 superseder를 가리키는 relation은 허참조가 되므로 발행하지
-// 않는다(손작성 jsonl 수입 계보 파괴 방어).
+// TestFormatPAMRelationsDroppedWhenEndpointMissing — regression: relations
+// are emitted only when both From and To are "flint:N" ids present in
+// memories. A relation pointing at a pending superseder (an unapproved
+// supersession source — excluded from the document) or one outside the
+// query scope would be a dangling reference, so it is not emitted (defense
+// against breaking the lineage of hand-written jsonl imports).
 func TestFormatPAMRelationsDroppedWhenEndpointMissing(t *testing.T) {
 	pendSup, absentSup := 12, 999
 	t0 := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
@@ -310,13 +318,13 @@ func TestFormatPAMRelationsDroppedWhenEndpointMissing(t *testing.T) {
 		name string
 		rows []ExportRow
 	}{
-		// superseder(12)가 pending — memories에서 제외되므로 From 허참조.
+		// superseder (12) is pending — excluded from memories, so From dangles.
 		{"pending superseder", append(base(pendSup), ExportRow{
 			ID: pendSup, Topic: "demo-pending-superseder", Content: "미승인 대체 원천 행",
 			Kind: "note", Status: "pending", Confidence: 0.5,
 			CreatedAt: t0.Add(time.Hour), UpdatedAt: t0.Add(time.Hour),
 		})},
-		// superseder(999)가 조회 결과에 없음 — From 허참조.
+		// superseder (999) is not in the query result — From dangles.
 		{"absent superseder", base(absentSup)},
 	}
 	for _, c := range cases {
@@ -338,7 +346,8 @@ func TestFormatPAMRelationsDroppedWhenEndpointMissing(t *testing.T) {
 	}
 }
 
-// pamMaskedBody — export_id·export_date 제거 후 정규 직렬화(결정성 비교용).
+// pamMaskedBody — regular serialization after removing export_id and
+// export_date (for determinism comparisons).
 func pamMaskedBody(t *testing.T, out []byte) string {
 	t.Helper()
 	m := pamParseDoc(t, out)
@@ -351,8 +360,9 @@ func pamMaskedBody(t *testing.T, out []byte) string {
 	return string(b)
 }
 
-// TestFormatPAMChecksumDeterminism — 결정성 2종:
-// (a) 동일 rows 2회 호출 — 본문·체크섬 동일, (b) rows 셔플 입력 — 동일.
+// TestFormatPAMChecksumDeterminism — two determinism kinds: (a) the same
+// rows called twice — identical body and checksum; (b) shuffled row input —
+// identical.
 func TestFormatPAMChecksumDeterminism(t *testing.T) {
 	rows := pamFixtureRows()
 
@@ -373,7 +383,7 @@ func TestFormatPAMChecksumDeterminism(t *testing.T) {
 		t.Errorf("동일 rows 체크섬 불일치: %v vs %v", c1, c2)
 	}
 
-	// 셔플 — 행 순서를 뒤집어도 본문·체크섬 불변.
+	// Shuffle — reversing the row order leaves body and checksum unchanged.
 	shuffled := []ExportRow{rows[1], rows[0]}
 	out3, err := FormatPAM(shuffled, "flint-test")
 	if err != nil {
@@ -388,8 +398,9 @@ func TestFormatPAMChecksumDeterminism(t *testing.T) {
 	}
 }
 
-// TestFormatPAMChecksumRecomputable — §15: memories를 id 오름차순 정렬 →
-// JCS 직렬화 → SHA-256이 integrity.checksum과 정확히 일치(독립 재현).
+// TestFormatPAMChecksumRecomputable — §15: sorting memories by ascending
+// id -> JCS serialization -> SHA-256 exactly matches integrity.checksum
+// (independent reproduction).
 func TestFormatPAMChecksumRecomputable(t *testing.T) {
 	rows := pamFixtureRows()
 	out, err := FormatPAM(rows, "flint-test")
@@ -413,7 +424,7 @@ func TestFormatPAMChecksumRecomputable(t *testing.T) {
 		t.Errorf("checksum = %q, want %q(JCS+SHA-256 재현)", got, want)
 	}
 
-	// memories가 id 오름차순(flint:7, flint:8)인지도 확인.
+	// Also checks that memories are in ascending id order (flint:7, flint:8).
 	mems := doc["memories"].([]any)
 	if mems[0].(map[string]any)["id"] != "flint:7" || mems[1].(map[string]any)["id"] != "flint:8" {
 		t.Errorf("memories 정렬 불일치: %v, %v",
@@ -421,10 +432,11 @@ func TestFormatPAMChecksumRecomputable(t *testing.T) {
 	}
 }
 
-// TestFormatPAMChecksumIDStringOrder — §15 id 정렬은 id **문자열**
-// 오름차순: 자릿수 경계(9/10/100)에서 "flint:10" < "flint:100" < "flint:9".
-// 수치 정렬이면 외부 검증자(문자열 정렬 재현)와 체크섬이 어긋난다
-// (리뷰 회귀 — 수치 정렬 시 이 테스트는 실패).
+// TestFormatPAMChecksumIDStringOrder — §15 sorts ids as **strings** in
+// ascending order: at digit boundaries (9/10/100), "flint:10" <
+// "flint:100" < "flint:9". Numeric sorting would diverge from external
+// verifiers (which reproduce string sorting) in the checksum (review
+// regression — with numeric sorting this test fails).
 func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 	t0 := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
 	rows := []ExportRow{
@@ -438,7 +450,7 @@ func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 	}
 	doc := pamParseDoc(t, out)
 
-	// 문서 배열 순서 — 문자열 오름차순.
+	// Document array order — ascending as strings.
 	mems, _ := doc["memories"].([]any)
 	wantOrder := []string{"flint:10", "flint:100", "flint:9"}
 	if len(mems) != len(wantOrder) {
@@ -450,7 +462,8 @@ func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 		}
 	}
 
-	// 체크섬 — 검증자 재현 경로: id 문자열 정렬 → JCS → SHA-256.
+	// Checksum — the verifier reproduction path: sort by id string -> JCS ->
+	// SHA-256.
 	sorted := append([]any(nil), mems...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return sorted[i].(map[string]any)["id"].(string) < sorted[j].(map[string]any)["id"].(string)
@@ -471,7 +484,8 @@ func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 	}
 }
 
-// TestFormatPAMEmpty — 빈 rows: memories·relations 빈 배열, total 0, 체크섬 존재.
+// TestFormatPAMEmpty — empty rows: memories and relations as empty arrays,
+// total 0, checksum present.
 func TestFormatPAMEmpty(t *testing.T) {
 	out, err := FormatPAM([]ExportRow{}, "flint-test")
 	if err != nil {
@@ -496,12 +510,13 @@ func TestFormatPAMEmpty(t *testing.T) {
 	}
 }
 
-// TestFormatPAMSkipsPendingRows — pending 행은 PAM 문서에서 제외
-// (PAM 폐쇄 분류에 미승인 후보 개념 부재 — 표준 교환
-// 문서에 내부 미승인 후보를 싣지 않는다). memories·relations·
-// total_memories·체크섬 전부 미포함.
+// TestFormatPAMSkipsPendingRows — pending rows are excluded from the PAM
+// document (PAM's closed taxonomy has no notion of unapproved candidates —
+// internal unapproved candidates are not put on a standard interchange
+// document). memories, relations, total_memories, and the checksum all
+// exclude them.
 func TestFormatPAMSkipsPendingRows(t *testing.T) {
-	pendSup := 99 // pending 행의 superseded_by도 relations에 남으면 안 됨
+	pendSup := 99 // the pending row's superseded_by must not survive in relations either
 	rows := append(pamFixtureRows(), ExportRow{
 		ID: 9, Topic: "demo-pending", Content: "미승인 내부 후보 행",
 		Kind: "note", Status: "pending", Confidence: 0.5,
@@ -528,7 +543,8 @@ func TestFormatPAMSkipsPendingRows(t *testing.T) {
 	if ig["total_memories"] != float64(2) {
 		t.Errorf("total_memories = %v, want 2", ig["total_memories"])
 	}
-	// 체크섬도 pending 미포함 본문 기준 — 결정성 재현과 동일 산출인지 확인.
+	// The checksum is also over the pending-free body — check it matches the
+	// determinism reproduction.
 	memBytes, err := json.Marshal(doc["memories"])
 	if err != nil {
 		t.Fatalf("memories Marshal 실패: %v", err)
@@ -543,8 +559,9 @@ func TestFormatPAMSkipsPendingRows(t *testing.T) {
 	}
 }
 
-// TestFormatPAMFlintHashIndependent — PAM content_hash는 flint 저장 해시
-// (row.ContentHash)와 별도 산출 — 원천 해시와 달라야 한다.
+// TestFormatPAMFlintHashIndependent — the PAM content_hash is computed
+// independently of the flint storage hash (row.ContentHash) — it must
+// differ from the source hash.
 func TestFormatPAMFlintHashIndependent(t *testing.T) {
 	rows := []ExportRow{{
 		ID: 1, Kind: "knowledge", Status: "active", Content: "demo",
@@ -564,14 +581,15 @@ func TestFormatPAMFlintHashIndependent(t *testing.T) {
 	}
 }
 
-// --- §13.1 relations 필수필드·§18 서명·키 관리 ---
+// --- §13.1 relations required fields, §18 signing, key management ---
 
-// pamUUIDRe — relation id(UUID) 형식.
+// pamUUIDRe — the relation id (UUID) format.
 var pamUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// TestFormatPAMRelationRequiredFields — §13.1: relations 각 항목은
-// {id, from, to, type, created_at} 전부 발행. id는 ULID/UUID(여기선
-// 결정적 UUIDv5), created_at은 대체 원천(신규 행)의 생성 시각.
+// TestFormatPAMRelationRequiredFields — §13.1: every relations entry emits
+// all of {id, from, to, type, created_at}. id is a ULID/UUID (a
+// deterministic UUIDv5 here); created_at is the supersession source's (new
+// row's) creation time.
 func TestFormatPAMRelationRequiredFields(t *testing.T) {
 	sup := 12
 	t0 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
@@ -608,7 +626,8 @@ func TestFormatPAMRelationRequiredFields(t *testing.T) {
 		t.Errorf("relation.created_at = %v, want 신규 행 생성 시각 %v",
 			r["created_at"], newAt.UTC().Format(time.RFC3339))
 	}
-	// relation id는 결정적 — 동일 rows 재발행 시 동일 id(외부 검증 재현성).
+	// The relation id is deterministic — re-emitting the same rows yields
+	// the same id (external-verifier reproducibility).
 	out2, err := FormatPAM(rows, "flint-test")
 	if err != nil {
 		t.Fatalf("2차 FormatPAM error: %v", err)
@@ -619,9 +638,9 @@ func TestFormatPAMRelationRequiredFields(t *testing.T) {
 	}
 }
 
-// TestFormatPAMUnsignedNoOwnerOrSignature — 무서명 기본 경로는 owner·
-// signature 블록을 발행하지 않는다(서명 없는 기본 경로 불변 — 바이트
-// 동일성 기준선).
+// TestFormatPAMUnsignedNoOwnerOrSignature — the unsigned default path
+// emits no owner or signature blocks (the unsigned default path is
+// invariant — the byte-identity baseline).
 func TestFormatPAMUnsignedNoOwnerOrSignature(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -636,9 +655,10 @@ func TestFormatPAMUnsignedNoOwnerOrSignature(t *testing.T) {
 	}
 }
 
-// TestFormatPAMUnsignedBodyGolden — 무서명 기본 경로 본문 골든(마스킹:
-// export_id·export_date 제외). 메모리 최적화의 출력 바이트 동일성
-// 회귀 기준 — 이 골든이 바뀌면 체크섬 상호운용이 깨진 것이다.
+// TestFormatPAMUnsignedBodyGolden — the golden body of the unsigned default
+// path (masked: export_id and export_date excluded). The regression
+// baseline for output byte-identity across the memory optimization — if
+// this golden changes, checksum interoperability has broken.
 func TestFormatPAMUnsignedBodyGolden(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -651,7 +671,8 @@ func TestFormatPAMUnsignedBodyGolden(t *testing.T) {
 	}
 }
 
-// pamTestKey — 테스트 고정 Ed25519 키(합성 — 32바이트 시드에서 유도).
+// pamTestKey — a fixed test Ed25519 key (synthetic — derived from a
+// 32-byte seed).
 func pamTestKey(t *testing.T) ed25519.PrivateKey {
 	t.Helper()
 	seed := sha256.Sum256([]byte("flint-pam-demo-seed"))
@@ -659,10 +680,11 @@ func pamTestKey(t *testing.T) ed25519.PrivateKey {
 	return key
 }
 
-// TestFormatPAMSignedOwnerAndSignature — §18: --sign 경로는 루트 owner
-// {id: did:key:ed25519 공개키}·signature{algorithm, signed_by, value}를
-// 발행. 서명은 payload{checksum, export_id, export_date, owner_id} JCS
-// → Ed25519 — 문서 외부에서 did:key 공개키로 재검증된다.
+// TestFormatPAMSignedOwnerAndSignature — §18: the --sign path emits the
+// root owner {id: did:key:ed25519 public key} and signature{algorithm,
+// signed_by, value}. The signature is payload{checksum, export_id,
+// export_date, owner_id} JCS -> Ed25519 — re-verified outside the document
+// with the did:key public key.
 func TestFormatPAMSignedOwnerAndSignature(t *testing.T) {
 	key := pamTestKey(t)
 	out, err := FormatPAMSigned(pamFixtureRows(), "flint-test", key)
@@ -700,7 +722,8 @@ func TestFormatPAMSignedOwnerAndSignature(t *testing.T) {
 		t.Fatalf("signature.value = %q, want base64 64바이트 서명", value)
 	}
 
-	// 문서 외부 독립 재검증: did:key → 공개키 → payload JCS → Verify.
+	// Independent re-verification outside the document: did:key -> public
+	// key -> payload JCS -> Verify.
 	pub, err := PAMDIDKeyPubkey(did)
 	if err != nil {
 		t.Fatalf("did:key 공개키 복호 실패: %v", err)
@@ -717,15 +740,17 @@ func TestFormatPAMSignedOwnerAndSignature(t *testing.T) {
 	}
 }
 
-// TestFormatPAMSignedInvalidKey — 잘못된 길이 키는 오류(문서 발행 금지).
+// TestFormatPAMSignedInvalidKey — a wrong-length key is an error (no
+// document emitted).
 func TestFormatPAMSignedInvalidKey(t *testing.T) {
 	if _, err := FormatPAMSigned(pamFixtureRows(), "flint-test", ed25519.PrivateKey(make([]byte, 10))); err == nil {
 		t.Errorf("잘못된 키 길이(10) 오류 없음 — 오류 필요")
 	}
 }
 
-// TestFormatPAMSignedUnsignedBodySame — 서명 경로의 memories·relations·
-// integrity는 무서명 경로와 동일(서명 블록만 추가 — 재직렬화 회피 조립).
+// TestFormatPAMSignedUnsignedBodySame — the signed path's memories,
+// relations, and integrity are identical to the unsigned path (only the
+// signature blocks are added — assembly that avoids re-serialization).
 func TestFormatPAMSignedUnsignedBodySame(t *testing.T) {
 	plain, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -745,11 +770,13 @@ func TestFormatPAMSignedUnsignedBodySame(t *testing.T) {
 	}
 }
 
-// TestPAMSigningKeyLifecycle — sign.go 키 관리: 경로 seam 주입 시 신규
-// 생성(0600·부모 디렉터리 0700)·재로드 동일 키·파손 키 오류.
+// TestPAMSigningKeyLifecycle — sign.go key management: with the path seam
+// injected, fresh creation (0600, parent directory 0700), reload yields the
+// same key, and a corrupt key is an error.
 func TestPAMSigningKeyLifecycle(t *testing.T) {
-	// 미존재 하위 디렉터리 — MkdirAll 0700 생성 경로 검증(t.TempDir
-	// 자체 디렉터리는 이미 존재해 권한 단언 대상이 아니다).
+	// A not-yet-existing subdirectory — verifies the MkdirAll 0700 creation
+	// path (the t.TempDir directory itself already exists, so it is not the
+	// permission-assertion target).
 	sub := filepath.Join(t.TempDir(), "flint-config")
 	path := filepath.Join(sub, "pam-signing-key")
 	pamSwapKeyPath(t, path)
@@ -779,7 +806,8 @@ func TestPAMSigningKeyLifecycle(t *testing.T) {
 	if !bytes.Equal(k1, k2) {
 		t.Errorf("재로드 키 불일치 — 생성 시 키가 안정적으로 저장되지 않음")
 	}
-	// 파손 키 — 조용 재생성이 아니라 오류(신뢰 사슬 보존).
+	// Corrupt key — an error, not a silent regeneration (preserving the
+	// chain of trust).
 	if werr := os.WriteFile(path, []byte("zz-not-hex"), 0o600); werr != nil {
 		t.Fatal(werr)
 	}
@@ -788,7 +816,8 @@ func TestPAMSigningKeyLifecycle(t *testing.T) {
 	}
 }
 
-// pamSwapKeyPath — PAMSigningKeyPathFn seam 임시 교체(테스트 격리).
+// pamSwapKeyPath — temporarily swaps the PAMSigningKeyPathFn seam (test
+// isolation).
 func pamSwapKeyPath(t *testing.T, path string) func() {
 	t.Helper()
 	old := PAMSigningKeyPathFn
@@ -797,8 +826,8 @@ func pamSwapKeyPath(t *testing.T, path string) func() {
 	return func() {}
 }
 
-// TestDefaultPAMSigningKeyPathConfigDir — 기본 경로는 FLINT_CONFIG_DIR
-// 승계(configDir()/pam-signing-key).
+// TestDefaultPAMSigningKeyPathConfigDir — the default path inherits
+// FLINT_CONFIG_DIR (configDir()/pam-signing-key).
 func TestDefaultPAMSigningKeyPathConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -807,13 +836,15 @@ func TestDefaultPAMSigningKeyPathConfigDir(t *testing.T) {
 	}
 }
 
-// --- PAM 메모리 최적화(등가성·발행 수 반환·골든·벤치) ---
+// --- PAM memory optimization (equivalence, issued-count return, golden,
+// benchmarks) ---
 
-// TestPAMChecksumStreamEquivalence — JCS 체크섬 스트리밍
-// 산출(재파싱 회피)이 라이브러리 경로(json.Marshal →
-// jsoncanonicalizer.Transform)와 **모든 입력에서 동일한 체크섬**을 내는지
-// 검증한다. 이스케이프 경계값 전부(HTML·제어문자·U+2028/9·invalid
-// UTF-8·비-BMP)·부동소수점 경계값(지수형·최단표현)·빈 값·relations 포함.
+// TestPAMChecksumStreamEquivalence — verifies that the streaming JCS
+// checksum computation (avoiding re-parsing) yields the **same checksum as
+// the library path** (json.Marshal -> jsoncanonicalizer.Transform) on all
+// inputs. Includes every escape boundary value (HTML, control characters,
+// U+2028/9, invalid UTF-8, non-BMP), floating-point boundary values
+// (exponent form, shortest representation), empty values, and relations.
 func TestPAMChecksumStreamEquivalence(t *testing.T) {
 	contents := []string{
 		"plain ascii demo",
@@ -837,7 +868,7 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 				tags = []string{"demo", "go"}
 			} else if i%3 == 1 {
 				tags = []string{}
-			} // i%3==2 → nil(빈 배열 발행 경로)
+			} // i%3==2 -> nil (the empty-array emission path)
 			rows = append(rows, ExportRow{
 				ID: i, Topic: "demo-topic", Content: c, Kind: "lesson",
 				Status: "active", Confidence: cf, Tags: tags,
@@ -845,7 +876,8 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 			})
 		}
 	}
-	// invalidated + relation(양쪽 발행 — from=900001 신규 행도 추가).
+	// invalidated + relation (both sides emitted — the from=900001 new row is
+	// added too).
 	rows = append(rows,
 		ExportRow{ID: 900000, Content: "대체된 데모 행", Kind: "note", Status: "invalidated",
 			Confidence: 0.5, Tags: []string{"demo"}, CreatedAt: t0, SupersededBy: &sup},
@@ -859,7 +891,8 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 	}
 	doc := pamParseDoc(t, out)
 
-	// 라이브러리 독립 재현(구현 방식과 무관한 체크섬 계약).
+	// Library-independent reproduction (a checksum contract agnostic to the
+	// implementation).
 	memBytes, err := json.Marshal(doc["memories"])
 	if err != nil {
 		t.Fatal(err)
@@ -880,9 +913,10 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 	}
 }
 
-// TestFormatPAMWithCount — 발행 수(total_memories)를
-// 문서 재파싱 없이 함께 반환한다(cli 44MB 재 Unmarshal 제거 seam).
-// pending은 발행 수에서 제외(기존 계약 승계).
+// TestFormatPAMWithCount — returns the issued count (total_memories)
+// alongside the document, without re-parsing it (the seam removing the
+// cli-side 44MB re-Unmarshal). Pending rows are excluded from the count
+// (inheriting the existing contract).
 func TestFormatPAMWithCount(t *testing.T) {
 	rows := append(pamFixtureRows(), ExportRow{
 		ID: 9, Content: "미승인 내부 후보 행", Kind: "note", Status: "pending",
@@ -913,11 +947,12 @@ func TestFormatPAMWithCount(t *testing.T) {
 	}
 }
 
-// TestFormatPAMRawBytesMatchEncoder — 문서 인코딩을 스트리밍 기록기로
-// 바꿔도 출력 바이트는 json.Encoder(SetEscapeHTML(false)+SetIndent)와
-// 전체 문서 수준에서 동일해야 한다(무서명 본문 바이트 불변 — 인덴트·
-// 개행·이스케이프 전부). 휘발 필드(export_id·export_date)는 파싱 후
-// 재조립해 동일값 기준으로 비교한다.
+// TestFormatPAMRawBytesMatchEncoder — even with the document encoding moved
+// to a streaming writer, the output bytes must match json.Encoder
+// (SetEscapeHTML(false) + SetIndent) at the whole-document level (unsigned
+// body bytes invariant — indentation, newlines, and escaping alike). The
+// volatile fields (export_id, export_date) are reassembled after parsing
+// and compared on equal values.
 func TestFormatPAMRawBytesMatchEncoder(t *testing.T) {
 	run := func(t *testing.T, out []byte) {
 		t.Helper()
@@ -946,8 +981,8 @@ func TestFormatPAMRawBytesMatchEncoder(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(t, signed)
-	// relations 1건 발행 케이스(비어 있지 않은 배열의 인덴트 경로)·
-	// 빈 rows 케이스(memories·relations 모두 빈 배열).
+	// The one-relation-emitted case (the non-empty-array indentation path)
+	// and the empty-rows case (memories and relations both empty arrays).
 	relRows := []ExportRow{
 		{ID: 8, Content: "대체되는 데모 행", Kind: "note", Status: "invalidated",
 			Confidence: 0.5, Tags: []string{"demo"}, CreatedAt: time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)},
@@ -967,8 +1002,9 @@ func TestFormatPAMRawBytesMatchEncoder(t *testing.T) {
 	run(t, empty)
 }
 
-// pamBenchRows — 합성 벤치 입력(결정적 — 고정 시드). 내용 길이·상태·
-// 태그를 섞고 일부 행에 supersedes relation을 만든다.
+// pamBenchRows — synthetic benchmark input (deterministic — fixed seed).
+// Mixes content lengths, statuses, and tags, and gives some rows a
+// supersedes relation.
 func pamBenchRows(n int) []ExportRow {
 	t0 := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
 	rows := make([]ExportRow, n)
@@ -981,7 +1017,7 @@ func pamBenchRows(n int) []ExportRow {
 		r.Confidence = 0.5 + float64(i%50)/100
 		r.CreatedAt = t0.Add(time.Duration(i) * time.Second)
 		r.UpdatedAt = r.CreatedAt
-		// 내용 — 가변 길이(40~240바이트), 일부 유니코드.
+		// Content — variable length (40-240 bytes), some Unicode.
 		base := "합성 데모 지식 행 synthetic demo knowledge row with some length "
 		for len(base) < 40+(i%200) {
 			base += "x"
@@ -1002,8 +1038,9 @@ func pamBenchRows(n int) []ExportRow {
 	return rows
 }
 
-// BenchmarkFormatPAM — 실측 재현: 50k행 churn 876MB(출력 8.6배)의
-// 20k 합성 환산. 최적화 전후 totalAlloc(B/op) 비교 보고가 목적.
+// BenchmarkFormatPAM — a real-measurement reproduction: the 20k synthetic
+// equivalent of the 50k-row 876MB churn (8.6x output). The goal is a
+// before/after totalAlloc (B/op) comparison report.
 func BenchmarkFormatPAM(b *testing.B) {
 	rows := pamBenchRows(20000)
 	b.ReportAllocs()
@@ -1015,7 +1052,8 @@ func BenchmarkFormatPAM(b *testing.B) {
 	}
 }
 
-// BenchmarkFormatPAMSigned — 서명 경로 포함 전후 측정(§18).
+// BenchmarkFormatPAMSigned — measures with the signing path included
+// (§18).
 func BenchmarkFormatPAMSigned(b *testing.B) {
 	rows := pamBenchRows(20000)
 	seed := sha256.Sum256([]byte("flint-pam-demo-seed"))
@@ -1029,8 +1067,8 @@ func BenchmarkFormatPAMSigned(b *testing.B) {
 	}
 }
 
-// TestPAMOwnerDIDRoundtrip — did:key 인코딩 왕복: 공개키 → z6Mk 접두
-// did → 복호 시 원 공개키.
+// TestPAMOwnerDIDRoundtrip — did:key encoding roundtrip: public key -> a
+// z6Mk-prefixed did -> decoding yields the original public key.
 func TestPAMOwnerDIDRoundtrip(t *testing.T) {
 	key := pamTestKey(t)
 	did := PAMOwnerDID(key.Public().(ed25519.PublicKey))
@@ -1049,10 +1087,11 @@ func TestPAMOwnerDIDRoundtrip(t *testing.T) {
 	}
 }
 
-// --- flint 저장 content_hash §10 metadata 발행 ---
+// --- flint storage content_hash §10 metadata emission ---
 
-// pamStoredHashRows — A2 발행 픽스처: 64 hex 저장 해시 보유 행 1·미보유
-// 행 1·비hex(저장 해시 형식 아님) 행 1(합성 데모).
+// pamStoredHashRows — the A2 emission fixture: one row with a 64-hex
+// storage hash, one without, and one non-hex (not a storage-hash format) —
+// all synthetic demo rows.
 func pamStoredHashRows() []ExportRow {
 	t0 := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
 	return []ExportRow{
@@ -1070,16 +1109,17 @@ func pamStoredHashRows() []ExportRow {
 		{
 			ID: 23, Topic: "demo-nonhex-hash", Content: "비hex 해시 데모 행",
 			Kind: "lesson", Status: "active", Confidence: 0.6, Tags: []string{"demo"},
-			ContentHash: "flint-hash-23", // jsonl A9 isHex64 대칭 — 승계 대상 아님
+			ContentHash: "flint-hash-23", // jsonl A9 isHex64 symmetry — not eligible for inheritance
 			CreatedAt:   t0, UpdatedAt: t0,
 		},
 	}
 }
 
-// TestFormatPAMStoredHashMetadata — A2: flint 저장 content_hash(64 hex)
-// 보유 행만 §10 metadata.content_hash로 additive 발행된다. §6 content_hash
-// (스펙 정규화 산출)은 별도 필드로 무관하게 유지 — metadata는 왕복 dedup
-// 멱등(jsonl A9 대칭) 전용 확장이다.
+// TestFormatPAMStoredHashMetadata — A2: only rows carrying a flint storage
+// content_hash (64 hex) get the additive §10 metadata.content_hash. The §6
+// content_hash (the spec-normalized computation) stays a separate,
+// unaffected field — metadata is an extension solely for round-trip dedup
+// idempotence (jsonl A9 symmetry).
 func TestFormatPAMStoredHashMetadata(t *testing.T) {
 	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
 	if err != nil {
@@ -1087,7 +1127,7 @@ func TestFormatPAMStoredHashMetadata(t *testing.T) {
 	}
 	doc := pamParseDoc(t, out)
 
-	// 보유 행 — metadata.content_hash 승계 발행.
+	// The hash-bearing row — metadata.content_hash emitted by inheritance.
 	m0 := pamMem(t, doc, 0)
 	meta, _ := m0["metadata"].(map[string]any)
 	if meta == nil {
@@ -1096,12 +1136,14 @@ func TestFormatPAMStoredHashMetadata(t *testing.T) {
 	if got, _ := meta["content_hash"].(string); got != "abababababababababababababababababababababababababababababababab" {
 		t.Errorf("metadata.content_hash = %v, want 저장 해시 승계", meta["content_hash"])
 	}
-	// §6 content_hash는 스펙 산출 유지(저장 해시와 다른 값).
+	// The §6 content_hash keeps the spec computation (a different value from
+	// the storage hash).
 	if got, _ := m0["content_hash"].(string); got != pamWantHash(t, "저장 해시 보유 데모 행") {
 		t.Errorf("§6 content_hash = %q, want 스펙 정규화 산출(저장 해시 비사용)", got)
 	}
 
-	// 미보유·비hex 행 — metadata 미발행(무서명 골든 바이트 불변).
+	// Hash-less and non-hex rows — no metadata emitted (unsigned golden bytes
+	// invariant).
 	for _, i := range []int{1, 2} {
 		m := pamMem(t, doc, i)
 		if _, ok := m["metadata"]; ok {
@@ -1110,9 +1152,10 @@ func TestFormatPAMStoredHashMetadata(t *testing.T) {
 	}
 }
 
-// TestFormatPAMStoredHashChecksumVerified — metadata 블록은 §15 체크섬
-// 대상 본문에 포함된다(스트리밍 jcsBuf 산출 = 수입측 jsoncanonicalizer
-// 재계산 — 메타데이터 이스케이프·키 정렬 상호운용).
+// TestFormatPAMStoredHashChecksumVerified — the metadata block is included
+// in the §15 checksummed body (the streaming jcsBuf output = the importing
+// side's jsoncanonicalizer recomputation — metadata escaping and key
+// ordering interoperate).
 func TestFormatPAMStoredHashChecksumVerified(t *testing.T) {
 	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
 	if err != nil {

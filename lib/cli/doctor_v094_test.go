@@ -181,7 +181,7 @@ func TestDoctorFixReportFormat(t *testing.T) {
 // state — doctor --fix: auto-repairs the hook-file fail and re-evaluates it as ok.
 func TestDoctorFixFlagAppliesHookFix(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
+		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
 	})
 	dir := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", dir)

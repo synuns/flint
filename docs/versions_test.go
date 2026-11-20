@@ -350,6 +350,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion0194Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.9.4", "r45-hardening",
 	}},
+	// v1.10.0: B플랜 하이진 — lib 전체 주석 영어화(언어 씰 게이트)·
+	// slow 통합 단축·레이스 수정.
+	{name: "TestVersion01100Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.10.0", "hygiene",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

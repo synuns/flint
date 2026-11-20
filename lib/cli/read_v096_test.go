@@ -22,8 +22,8 @@ func fallbackQueryFn(metaKeys *[]string) func(string, []any) ([][]any, error) {
 		case strings.Contains(sql, "FROM active_knowledge"):
 			if strings.Contains(sql, " OR ") { // the fallback OR re-query
 				return [][]any{
-					fallbackRow(1, "백업 절차", "정기 절차"),            // 정합수 1
-					fallbackRow(2, "flint 백업", "복구는 저장소 정지 조건"), // 정합수 2
+					fallbackRow(1, "백업 절차", "정기 절차"),            // 1 exact match
+					fallbackRow(2, "flint 백업", "복구는 저장소 정지 조건"), // 2 exact matches
 				}, nil
 			}
 			return nil, nil // the phrase match zero-hits
@@ -95,7 +95,7 @@ func TestReadPhraseHitUnchanged(t *testing.T) {
 	fn := func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM active_knowledge"):
-			return [][]any{fallbackRow(3, "백업 복구 절차", "요약")}, nil // 구문 히트
+			return [][]any{fallbackRow(3, "백업 복구 절차", "요약")}, nil // phrase hit
 		}
 		return nil, nil
 	}

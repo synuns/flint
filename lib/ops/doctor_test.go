@@ -280,7 +280,7 @@ func TestDoctorHookFileFailWithFix(t *testing.T) {
 // file — a temp environment with the hook registered (settings.json contains flint) -> hook-file ok.
 func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
+		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -303,7 +303,7 @@ func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
 // state — last-seen past grace is warn, exit 0. write over 72h and hot over 48h warn.
 func TestDoctorWarnVsFailExit(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
+		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -334,7 +334,7 @@ func TestDoctorWarnVsFailExit(t *testing.T) {
 // state — within grace everything is ok, exit 0.
 func TestDoctorAllOk(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — 환경 의존 제거
+		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)

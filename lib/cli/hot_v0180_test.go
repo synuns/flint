@@ -37,9 +37,9 @@ func TestHotTopicsFromRows(t *testing.T) {
 	rows := [][]any{
 		{"project", "p1", "s", "2026-11-06"},
 		{"decision", "최신 결정", "s", "2026-11-06"},
-		{"decision", "최신 결정", "s2", "2026-11-05"}, // 동일 주제 중복 제거
+		{"decision", "최신 결정", "s2", "2026-11-05"}, // same-topic duplicate removed
 		{"decision", long, "s", "2026-11-04"},
-		{"decision", "네번째", "s", "2026-11-03"}, // K=3 초과 → 탈락
+		{"decision", "네번째", "s", "2026-11-03"}, // over K=3 -> dropped
 		{"pending", "p2", "s", "2026-11-02"},
 	}
 	got := hotTopics(rows, 3)

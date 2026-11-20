@@ -16,7 +16,7 @@ import (
 
 // TestFenceCloseRequiresOpenLength — only a fence at least as long as the
 // opener closes. If a document trying to close 4 fences with 3 were
-// treated as closed, the "## 가짜 헤딩" after it would split into a
+// treated as closed, the "## fake heading" after it would split into a
 // section (3 sections) — a CommonMark violation. After the fix it is
 // absorbed as in-fence content (2 sections).
 func TestFenceCloseRequiresOpenLength(t *testing.T) {

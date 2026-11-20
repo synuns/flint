@@ -300,7 +300,7 @@ func TestRecallLedHotIncluded(t *testing.T) {
 		daily:    map[string]string{"daily:read:" + today: "0"},
 		sessions: [][]any{{t0}},
 		kreads:   [][]any{{7, t0.Add(time.Minute), "hot"}},    // the hot exposure is the first recall
-		writes:   [][]any{{t0.Add(5 * time.Minute), "배포 절차"}}, // 이후 기록
+		writes:   [][]any{{t0.Add(5 * time.Minute), "배포 절차"}}, // recorded later
 	}
 	m := runReportV1200(t, s, "--days", "1")
 	numEq(t, "recall_led_pct", effectOf(t, m)["recall_led_pct"], 100)

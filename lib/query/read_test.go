@@ -231,9 +231,9 @@ func TestFormatRowsUnknownFieldPositional(t *testing.T) {
 // count, a larger read_count + jamo signal sum ranks higher).
 func TestReorderByFallbackCountRRF(t *testing.T) {
 	rows := [][]any{
-		{int32(1), "백업 정책", "매일 자동", "", "", "", 0.9, "active", 0},     // 정합 2·read 0
-		{int32(2), "백업 절차", "주간 수동 점검", "", "", "", 0.8, "active", 30}, // 정합 1·read 30·자모 2
-		{int32(3), "포트", "5433", "", "", "", 0.7, "active", 100},       // 정합 0·read 100
+		{int32(1), "백업 정책", "매일 자동", "", "", "", 0.9, "active", 0},     // 2 exact, read 0
+		{int32(2), "백업 절차", "주간 수동 점검", "", "", "", 0.8, "active", 30}, // 1 exact, read 30, jamo 2
+		{int32(3), "포트", "5433", "", "", "", 0.7, "active", 100},       // 0 exact, read 100
 	}
 	ReorderByFallbackCount(rows, []string{"백업", "자동"})
 	if rows[0][0] != int32(2) {

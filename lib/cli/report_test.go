@@ -281,7 +281,7 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		}
 		if strings.Contains(q.sql, "invalid_at >=") {
 			sawPeriod = true
-			assertCutoffArg(t, "기간", q.args, 7*24*time.Hour) // 기본 --days
+			assertCutoffArg(t, "기간", q.args, 7*24*time.Hour) // default --days
 		}
 	}
 	if !sawStale || !sawPeriod {

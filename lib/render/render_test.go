@@ -155,15 +155,15 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	files := map[string]string{
-		// 간접 참조 우회 시도 — 탐지 대상.
+		// indirect-reference bypass attempt — must be detected.
 		"bypass.go": "package other\n\nvar leaky = store.SanitizeText\n",
-		// 직접 호출 — 탐지 대상.
+		// direct call — must be detected.
 		"direct.go": "package other\n\nfunc f(s string) string { return store.SanitizeText(s) }\n",
-		// 주석 언급 — 무시.
+		// comment mention — ignored.
 		"comment.go": "package other\n\n// SanitizeText 주석 언급은 우회가 아니다\nvar x = 1\n",
-		// 문자열 속 "//" 이후 은폐 시도 — 탐지 대상(토큰화 가드의 핵심 회귀).
+		// hiding after "//" inside a string — must be detected (the tokenizing guard's core regression).
 		"strslash.go": "package other\n\nvar _ = \"https://demo.invalid//\" + store.SanitizeText(leak)\n",
-		// 블록 주석 언급 — 무시(구 가드는 /* */ 절단 자체가 없었다).
+		// block-comment mention — ignored (the old guard never stripped /* */ at all).
 		"blockcomment.go": "package other\n\n/* SanitizeText 블록 주석 */\nvar y = 2\n",
 	}
 	for name, body := range files {
@@ -171,7 +171,7 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 			t.Fatalf("WriteFile %s: %v", name, err)
 		}
 	}
-	// 화이트리스트 경로(lib/render/*)의 직접 호출 — 통과해야 한다.
+	// a direct call from a whitelisted path (lib/render/*) — must pass.
 	rdir := filepath.Join(root, "lib", "render")
 	if err := os.MkdirAll(rdir, 0o755); err != nil {
 		t.Fatalf("MkdirAll render: %v", err)

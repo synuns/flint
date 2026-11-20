@@ -246,7 +246,7 @@ func TestReadWritesNoReadStats(t *testing.T) {
 func TestHotStatsWiringAccumulates(t *testing.T) {
 	meta := map[string]string{}
 	f := &fakeStore{}
-	f.rows = [][]any{{"decision", "요약", "active", "2026-10-22"}} // hot_view용
+	f.rows = [][]any{{"decision", "요약", "active", "2026-10-22"}} // for hot_view
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "INSERT INTO meta"):

@@ -86,9 +86,10 @@ func (f exportFixtureRow) cells() []any {
 	}
 }
 
-// exportFixture — 3 synthetic rows: 2 active (배포 관례·회고 형식) + 1
-// invalidated (구 배포 정책 — invalid_at=tNew·superseded_by=88). Only the
-// 배포 관례 row carries a score (3·the recall time) — the non-zero row
+// exportFixture — 3 synthetic rows: 2 active (deploy convention + retro
+// format) + 1 invalidated (the old deploy policy — invalid_at=tNew,
+// superseded_by=88). Only the deploy-convention row carries a score (3,
+// the recall time) — the non-zero row
 // for mapping·round-trip checks.
 var exportFixture = []exportFixtureRow{
 	{1, "배포 관례", "main 브랜치는 항상 green이어야 한다", ":deploy:ops:",

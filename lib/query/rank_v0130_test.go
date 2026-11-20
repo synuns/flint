@@ -23,7 +23,7 @@ func TestFallbackReorderByAdoption(t *testing.T) {
 		{int32(1), "flint 백업", "복구 절차", ":a:", nil, "main", 0.9, "active", int32(0)}, // match2·rc0·jamo2
 		{int32(2), "flint 백업", "복구 절차", ":a:", nil, "main", 0.8, "active", int32(5)}, // match2·rc5·jamo2
 		{int32(3), "복구", "요약", ":a:", nil, "main", 0.7, "active", int32(2)},          // match1·rc2·jamo1
-		{int32(4), "복구", "요약", ":a:", nil, "main", 0.6, "active", int32(2)},          // 동률 — 기존 3→4 순서
+		{int32(4), "복구", "요약", ":a:", nil, "main", 0.6, "active", int32(2)},          // tie — existing 3->4 order
 	}
 	ReorderByFallbackCount(rows, []string{"백업", "복구"})
 	if rows[0][0] != int32(2) {

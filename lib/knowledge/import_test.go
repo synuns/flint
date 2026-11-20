@@ -126,7 +126,7 @@ func TestStripImportNoiseInline(t *testing.T) {
 }
 
 // TestParseMarkdownTildeFence — prevents heading misjudgment inside a
-// ~~~ fence (CommonMark) — blocking spurious-knowledge ("규칙[가짜]")
+// ~~~ fence (CommonMark) — blocking spurious-knowledge ("rule[fake]")
 // accrual.
 func TestParseMarkdownTildeFence(t *testing.T) {
 	body := "## 실제 섹션\n본문 충분합니다.\n\n~~~python\n## 물결 펜스 내부 헤딩\ncode\n~~~\n"

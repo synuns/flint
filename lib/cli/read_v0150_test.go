@@ -62,7 +62,7 @@ func TestReadClassifiesZeroNear(t *testing.T) {
 		st := &readClassRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 			switch {
 			case strings.Contains(sql, "id, topic, summary FROM active_knowledge"):
-				return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil // 제안 스캔 후보
+				return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil // suggestion-scan candidate
 			case strings.Contains(sql, "INSERT INTO meta"):
 				if len(args) > 1 {
 					inserts = append(inserts, args[0].(string)+"="+args[1].(string))

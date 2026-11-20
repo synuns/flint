@@ -39,8 +39,9 @@ func (f *fakeStore) ConflictGroups(ctx context.Context, limit int) ([]db.Conflic
 }
 
 // TestConflictDiceDelegatesToQuery — F6 regression: conflictDice delegates to lib/query
-// BigramDiceMultiset. "아아아아"/"아아" is the point where the set version (1) and the multiset
-// version (0.5) diverge — also pinning that the existing classification measure (multiset) has not
+// BigramDiceMultiset. A repeated-2-gram pair (a 4-char run vs a 2-char
+// run) is the point where the set version (1) and the multiset version
+// (0.5) diverge — also pinning that the existing classification measure (multiset) has not
 // changed to the set version.
 func TestConflictDiceDelegatesToQuery(t *testing.T) {
 	pairs := [][2]string{

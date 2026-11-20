@@ -29,7 +29,7 @@ func knFake(last string) *fakeStore {
 // 20-rune cap).
 func TestSummaryKeyword(t *testing.T) {
 	cases := []struct{ in, want string }{
-		{"v0.27.2 패치: 세션 지식화를 PostCompact 표준 경로로 활성화했다", "v0.27.2 패치: 세션 지식화를"}, // 20룬 상한
+		{"v0.27.2 패치: 세션 지식화를 PostCompact 표준 경로로 활성화했다", "v0.27.2 패치: 세션 지식화를"}, // 20-rune cap
 		{"짧", "짧"}, // no cap·short passes through
 		{"아주 긴 문장인데 구분자가 없어서 20룬 상한에 걸린다 여기까지가 딱 맞음", "아주 긴 문장인데 구분자가 없어서 2"},
 	}

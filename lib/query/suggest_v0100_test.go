@@ -8,7 +8,7 @@ import (
 )
 
 func TestNfkcComposesNFD(t *testing.T) {
-	decomposed := "한" // "한" NFD(자모 3)
+	decomposed := "한" // its NFD form (3 jamo runes)
 	if got := nfkc(decomposed); got != "한" {
 		t.Errorf("nfkc(NFD 한) = %q, want 한", got)
 	}

@@ -13,7 +13,7 @@ import (
 // truncateRunes truncates by runes (multibyte-safe) and each convention wrapper
 // delegates with the result unchanged.
 func TestTruncateRunesSingleSource(t *testing.T) {
-	long := strings.Repeat("한", 60) // 60룬(180바이트) — 바이트 절단이면 파손
+	long := strings.Repeat("한", 60) // 60 runes (180 bytes) — byte truncation would corrupt
 	if got := truncateRunes(long, 40); len([]rune(got)) != 40 || got != strings.Repeat("한", 40) {
 		t.Errorf("룬 절단 위반: %d룬", len([]rune(got)))
 	}
