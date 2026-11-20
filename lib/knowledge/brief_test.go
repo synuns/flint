@@ -144,5 +144,31 @@ func TestBriefRankedSQLShape(t *testing.T) {
 	}
 }
 
+// TestBriefVolImmutableExempt — the v1.13.0 T2 ranking switch on the brief
+// path: the tags column is already exposed by BuildReadStatus (readColumns
+// idx 3 — no SQL change), so a decay-exhausted row tagged :vol:immutable:
+// keeps its count (10) and tops the body, while vol:conditional decays
+// verbatim (0). Without the exemption the order would be 고점미회상 first.
+func TestBriefVolImmutableExempt(t *testing.T) {
+	ctx := context.Background()
+	now := time.Now().UTC()
+	rows := [][]any{
+		{id(9), "면제고점", "요약9", ":adr::vol:immutable:", nil, "main", 0.9, "active", int32(1), int32(10), now.Add(-10 * 24 * time.Hour)}, // exempt → 10
+		{id(4), "조건부감쇠", "요약4", ":vol:conditional:", nil, "main", 0.9, "active", int32(1), int32(10), now.Add(-10 * 24 * time.Hour)},   // 10-10=0
+		{id(3), "고점미회상", "요약3", ":b:", nil, "main", 0.9, "active", int32(1), int32(8), nil},                                            // 8
+	}
+	var out bytes.Buffer
+	if code := RunBrief(ctx, briefRankedStore(rows), nil, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunBrief exit = %d: %s", code, out.String())
+	}
+	wantOrder := []string{"면제고점", "고점미회상", "조건부감쇠"} // 10 > 8 > 0
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	for i, want := range wantOrder {
+		if i+1 >= len(lines) || !strings.Contains(lines[i+1], want) { // +1: skip the header line
+			t.Errorf("본문 행 %d = %v, want %q 포함(면제 10·8·감쇠 0 순)", i, lines, want)
+		}
+	}
+}
+
 // id — a fixture helper (the fake-cell int32 convention).
 func id(n int) any { return int32(n) }

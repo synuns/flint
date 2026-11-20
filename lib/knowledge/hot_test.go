@@ -62,21 +62,55 @@ func TestEventEffectiveScore(t *testing.T) {
 	}
 }
 
-// hotRankedFixture — a 9-column synthetic fixture of the hot_view base
-// query, including the ranking columns (derived cnt·last_at — the shape
-// the recall_events aggregate join merged). Fake return order = the
-// existing SQL order (ts DESC, id DESC) — ts is identical across rows
-// (equal recency) so only the score differentiates. v1.9.0 T4:
+// TestEffectiveScoreForVolExemption — the v1.13.0 T2 volatility wrapper:
+// :vol:immutable: keeps the event count (decay exemption); every other tag
+// set — including vol:conditional·vol:volatile (boundary: no exemption) —
+// is equivalent to the pure EventEffectiveScore, which stays unchanged.
+func TestEffectiveScoreForVolExemption(t *testing.T) {
+	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
+	last := now.Add(-100 * 24 * time.Hour)
+	// Contract examples: immutable keeps 3; the same conditions without
+	// the tag decay to 0.
+	if got := EffectiveScoreFor(3, last, now, 1.0, ":vol:immutable:"); got != 3 {
+		t.Errorf("immutable 면제 = %d, want 3(계약 예)", got)
+	}
+	if got := EffectiveScoreFor(3, last, now, 1.0, ""); got != 0 {
+		t.Errorf("태그 없음 = %d, want 0(계약 예)", got)
+	}
+	// Equivalence: non-immutable tag sets take the pure path verbatim.
+	for _, tags := range []string{"", ":adr:", ":vol:conditional:", ":vol:volatile:", ":vol:immutable2:"} {
+		want := EventEffectiveScore(3, last, now, 1.0)
+		if got := EffectiveScoreFor(3, last, now, 1.0, tags); got != want {
+			t.Errorf("tags %q = %d, want %d(순수 식 동치)", tags, got, want)
+		}
+	}
+	// strpos form inside a multi-tag string + count defenses.
+	if got := EffectiveScoreFor(5, last, now, 1.0, ":adr::vol:immutable:"); got != 5 {
+		t.Errorf("다중 태그 내 immutable = %d, want 5", got)
+	}
+	if got := EffectiveScoreFor(0, last, now, 1.0, ":vol:immutable:"); got != 0 {
+		t.Errorf("count 0 면제 = %d, want 0", got)
+	}
+	if got := EffectiveScoreFor(-1, last, now, 1.0, ":vol:immutable:"); got != 0 {
+		t.Errorf("음수 count 면제 = %d, want 0", got)
+	}
+}
+
+// hotRankedFixture — a 10-column synthetic fixture of the hot_view base
+// query, including the ranking columns (derived cnt·last_at·the knowledge
+// join tags — the shape the v1.13.0 aggregate join merged). Fake return
+// order = the existing SQL order (ts DESC, id DESC) — ts is identical
+// across rows (equal recency) so only the score differentiates. v1.9.0 T4:
 // never-recalled (no events) has cnt NULL → zero score, bottom.
 func hotRankedFixture(now time.Time) [][]any {
 	ts := now.Truncate(time.Second)
 	return [][]any{
 		// id=9: 10 events·last recall 10 days ago → effective 0 (10−10)
-		{"decision", "감쇠후보", "요약9", ts, int32(9), ts, ts, int32(10), now.Add(-10 * 24 * time.Hour)},
+		{"decision", "감쇠후보", "요약9", ts, int32(9), ts, ts, int32(10), now.Add(-10 * 24 * time.Hour), ":adr:"},
 		// id=7: never recalled (cnt NULL) → 0
-		{"decision", "중간점수", "요약7", ts, int32(7), ts, ts, nil, nil},
+		{"decision", "중간점수", "요약7", ts, int32(7), ts, ts, nil, nil, ":adr:"},
 		// id=3: 9 events·recalled 1 hour ago → 9 kept (under 24h, no decay)
-		{"decision", "최고점수", "요약3", ts, int32(3), ts, ts, int32(9), now.Add(-time.Hour)},
+		{"decision", "최고점수", "요약3", ts, int32(3), ts, ts, int32(9), now.Add(-time.Hour), ":adr:"},
 	}
 }
 
@@ -126,21 +160,21 @@ func TestHotFullRanksByEffectiveScore(t *testing.T) {
 	}
 }
 
-// hotHeadlineFixture — a fixture in the actual 7-column shape the
+// hotHeadlineFixture — a fixture in the actual 8-column shape the
 // headline query (HotHeadlineSQL: exposes through id only) gets after
-// hotRankedSQL's merge (kind,topic,summary,ts,id,cnt,last_at — reusing
-// the --full 9-column fixture would hide the headline ranking-index
-// mismatch). v1.9.0 T4: never-recalled (no events) has cnt NULL → zero
-// score.
+// hotRankedSQL's merge (kind,topic,summary,ts,id,cnt,last_at,tags —
+// reusing the --full 10-column fixture would hide the headline
+// ranking-index mismatch). v1.9.0 T4: never-recalled (no events) has cnt
+// NULL → zero score.
 func hotHeadlineFixture(now time.Time) [][]any {
 	ts := now.Truncate(time.Second)
 	return [][]any{
 		// id=9: 10 events·last recall 10 days ago → effective 0 (10−10)
-		{"decision", "감쇠후보", "요약9", ts, int32(9), int32(10), now.Add(-10 * 24 * time.Hour)},
+		{"decision", "감쇠후보", "요약9", ts, int32(9), int32(10), now.Add(-10 * 24 * time.Hour), ":adr:"},
 		// id=7: never recalled (cnt NULL) → 0
-		{"decision", "중간점수", "요약7", ts, int32(7), nil, nil},
+		{"decision", "중간점수", "요약7", ts, int32(7), nil, nil, ":adr:"},
 		// id=3: 9 events·recalled 1 hour ago → 9 kept (under 24h, no decay)
-		{"decision", "최고점수", "요약3", ts, int32(3), int32(9), now.Add(-time.Hour)},
+		{"decision", "최고점수", "요약3", ts, int32(3), int32(9), now.Add(-time.Hour), ":adr:"},
 	}
 }
 
@@ -248,10 +282,13 @@ func TestHotRankedSQLShape(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := hotRankedSQL(tc.base)
+			// v1.13.0 T2: the tags tail column (vtag.tags — the knowledge
+			// join supplies it; hot_view exposes no tags) rides after the
+			// ranking pair.
 			for _, frag := range []string{
 				"h.kind, h.topic, h.summary, h.ts, h.id",
-				"re.cnt, re.last_at",
-				"FROM hot_view h " + derived,
+				"re.cnt, re.last_at, vtag.tags",
+				"FROM hot_view h LEFT JOIN knowledge vtag ON vtag.id = h.id " + derived,
 				"ORDER BY h.ts DESC, h.id DESC",
 			} {
 				if !strings.Contains(got, frag) {
@@ -316,9 +353,77 @@ func TestHotRankRowsEffectiveOrderNotAccidental(t *testing.T) {
 		{"alpha", 1, mustTime(t, "2026-11-10T00:00:00Z")}, // eff 0 (score 1 - 2 days)
 		{"beta", 3, mustTime(t, "2026-11-15T00:00:00Z")},  // eff 2 (score 3 - 0 days)
 	}
-	got := rankRowsByEffectiveScore(rows, 1, 2, 1.0, mustTime(t, "2026-11-17T00:00:00Z"))
+	got := rankRowsByEffectiveScore(rows, 1, 2, 3, 1.0, mustTime(t, "2026-11-17T00:00:00Z"))
 	if got[0][0] != "beta" || got[1][0] != "gamma" || got[2][0] != "alpha" {
 		t.Fatalf("rank order = %v %v %v, want beta gamma alpha(effective DESC·동점 안정)", got[0][0], got[1][0], got[2][0])
+	}
+}
+
+// TestHotVolImmutableExemptFromDecay — the v1.13.0 T2 ranking switch,
+// measured on the --full path: a decay-exhausted row tagged
+// :vol:immutable: keeps its event count (10) and outranks both a
+// freshly-recalled row (9) and a vol:conditional row that decays verbatim
+// (10 events·10 days → 0). Without the exemption the order would be
+// 최고점수 > (ties).
+func TestHotVolImmutableExemptFromDecay(t *testing.T) {
+	injectHotSeams(t)
+	ctx := context.Background()
+	now := time.Now().UTC()
+	ts := now.Truncate(time.Second)
+	rows := [][]any{
+		// id=9: 10 events·10 days ago·immutable → exempt, effective 10
+		{"decision", "면제고점", "요약9", ts, int32(9), ts, ts, int32(10), now.Add(-10 * 24 * time.Hour), ":adr::vol:immutable:"},
+		// id=4: 10 events·10 days ago·conditional → decays verbatim, 0
+		{"decision", "조건부감쇠", "요약4", ts, int32(4), ts, ts, int32(10), now.Add(-10 * 24 * time.Hour), ":vol:conditional:"},
+		// id=3: 9 events·1 hour ago → 9 (no decay yet)
+		{"decision", "최고점수", "요약3", ts, int32(3), ts, ts, int32(9), now.Add(-time.Hour), ":adr:"},
+	}
+	f := hotRankedStore(t, rows)
+	var out bytes.Buffer
+	if code := RunHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("RunHot --full exit = %d: %s", code, out.String())
+	}
+	wantOrder := []string{"면제고점", "최고점수", "조건부감쇠"} // 10 > 9 > 0
+	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
+	for i, want := range wantOrder {
+		if i >= len(lines) || !strings.Contains(lines[i], want) {
+			t.Errorf("행 %d = %v, want %q 포함(면제 10·9·감쇠 0 순)", i, lines, want)
+		}
+	}
+}
+
+// ── v1.13.0 T2: the write.go vocabulary guard wiring (the colon-token
+// hard block — tested here because the write pipeline contract is
+// package-shared). ──
+
+// TestWriteColonTokenHardBlock — an unregistered colon tag token
+// ("foo:bar") is refused at exit 3 (the schema-error channel), while a
+// colon-free unknown tag keeps the plain warning (exit 0) and the
+// dictionary-registered vol:immutable passes clean (exit 0, no warnings).
+func TestWriteColonTokenHardBlock(t *testing.T) {
+	out, code := run(t, &fakeStore{}, []string{"knowledge"},
+		`{"topic":"t2-guard-a","summary":"합성","tags":["foo:bar"],"confidence":0.9}`)
+	if code != 3 {
+		t.Fatalf("콜론 미등록 태그 exit = %d, want 3: %s", code, out)
+	}
+	if !strings.Contains(out, "rejected tag: foo:bar") {
+		t.Errorf("거부 메시지 누락: %s", out)
+	}
+	out, code = run(t, &fakeStore{}, []string{"knowledge"},
+		`{"topic":"t2-guard-b","summary":"합성","tags":["xxx"],"confidence":0.9}`)
+	if code != 0 {
+		t.Fatalf("무콜론 미등록 태그 exit = %d, want 0(경고 유지): %s", code, out)
+	}
+	if !strings.Contains(out, "unknown tag: xxx") {
+		t.Errorf("경고 메시지 누락: %s", out)
+	}
+	out, code = run(t, &fakeStore{}, []string{"knowledge"},
+		`{"topic":"t2-guard-c","summary":"합성","tags":["vol:immutable"],"confidence":0.9}`)
+	if code != 0 {
+		t.Fatalf("사전 등록 vol 태그 exit = %d, want 0: %s", code, out)
+	}
+	if strings.Contains(out, "unknown tag") || strings.Contains(out, "rejected tag") {
+		t.Errorf("사전 등록 태그에 경고·거부 잔존: %s", out)
 	}
 }
 
