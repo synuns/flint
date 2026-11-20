@@ -7,6 +7,8 @@ package knowledge
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -16,6 +18,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"golang.org/x/text/unicode/norm"
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/query"
@@ -168,6 +172,62 @@ func ZeroReason(zero bool, active, floor int) string {
 		return "unowned"
 	}
 	return "owned_miss"
+}
+
+// gapQueryMaxRunes — the query-body truncation bound of the gap signal
+// (v1.12.0 T2). Only a truncated·sanitized·normalized digest is ever
+// stored — the raw query body is never persisted (the query
+// non-persistence principle).
+const gapQueryMaxRunes = 80
+
+// NormalizeGapQuery — the gap-signal normalization pipeline (v1.12.0 T2):
+// TruncateRunes(80) → render.Text sanitization (control characters·[flint]
+// markers neutralized — the sanitization chokepoint) → NFKC (the
+// lib/query/suggest.go normalization basis, applied here directly —
+// composed·decomposed spellings converge) → lowercase (locale-invariant
+// strings.ToLower) → whitespace fold (runs collapse to one space, edges
+// trimmed). The same recall failure then hashes to one key regardless of
+// representation noise. T3 reuses this helper for the candidate topic.
+func NormalizeGapQuery(query string) string {
+	s := render.TruncateRunes(query, gapQueryMaxRunes)
+	s = render.Text(s)
+	s = norm.NFKC.String(s)
+	s = strings.ToLower(s)
+	return strings.Join(strings.Fields(s), " ")
+}
+
+// GapQueryHash — the sha256 lowercase-hex digest of a normalized query
+// (the meta key fragment — 64 chars, [0-9a-f]).
+func GapQueryHash(normalized string) string {
+	sum := sha256.Sum256([]byte(normalized))
+	return hex.EncodeToString(sum[:])
+}
+
+// BumpGapQuery — increments the daily gap counter of the normalized query
+// and returns the new count (the T3 threshold input). The key
+// daily:gapq:<sha256>:<UTC date> is a meta flat counter (the
+// BumpDailyFlatKey convention): PruneDaily expires it at the date
+// rollover, so only same-day repetition accumulates (a same-day N-fold
+// failure is the strong signal — cross-day spread is weak by design,
+// gate review ruling). The bump·readback pair is non-atomic under
+// parallel sessions (the plan-accepted risk — the T3 content_hash dedup
+// is the final defense). Any failure is quiet (§13): (0, false).
+func BumpGapQuery(ctx context.Context, st wire.Store, sanitizedQuery string) (count int64, ok bool) {
+	day := time.Now().UTC().Format("2006-01-02")
+	hash := GapQueryHash(NormalizeGapQuery(sanitizedQuery))
+	if err := db.BumpDailyFlatKey(ctx, st, "gapq:"+hash, day, 1); err != nil {
+		return 0, false
+	}
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT value FROM meta WHERE key = $1`, []any{"daily:gapq:" + hash + ":" + day})
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0, false
+	}
+	n, perr := strconv.ParseInt(strings.TrimSpace(fmt.Sprint(rows[0][0])), 10, 64)
+	if perr != nil {
+		return 0, false
+	}
+	return n, true
 }
 
 // recordBytes — records len (final output) as kind bytes right after the
@@ -629,6 +689,15 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			ZeroReason: zeroReason,
 			Source:     source,
 		})
+		// v1.12.0 T2 — the recall-gap signal: a zero-hit on owned ground
+		// (owned_miss) bumps the normalized-query daily counter (the T3
+		// gap-candidate threshold input). unowned is DB-void noise
+		// (research ruling) — not counted. The hot path is out of scope by
+		// the same convention. Quiet (§13 — the counter never breaks the
+		// read·exit).
+		if zeroReason == "owned_miss" {
+			_, _ = BumpGapQuery(ctx, st, q)
+		}
 	}
 	// The read completion-path audit commit — so the recall bump (INSERT
 	// into recall_events)·meta increments are not absorbed into the

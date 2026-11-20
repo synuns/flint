@@ -3,8 +3,38 @@ package db
 
 import (
 	"context"
+	"regexp"
+	"strings"
 	"testing"
 )
+
+// TestPruneDailyKeyPatternCoversGapQueryKeys — the gapq counter key
+// (daily:gapq:<sha256>:<date>, v1.12.0 T2) falls inside the PruneDaily
+// retention-window regex (auto-expiry with the date rollover), while the
+// legacy shapes stay matched and dateless·non-daily keys stay out.
+func TestPruneDailyKeyPatternCoversGapQueryKeys(t *testing.T) {
+	re := regexp.MustCompile(pruneDailyKeyPattern)
+	hash := strings.Repeat("a1", 32)
+	for _, k := range []string{
+		"daily:gapq:" + hash + ":2026-11-21",
+		"daily:write:2026-11-21",
+		"daily:read_bytes:2026-11-21",
+		"daily:2026-11-21",
+	} {
+		if !re.MatchString(k) {
+			t.Errorf("%s 미매치 — PruneDaily 만료 누락", k)
+		}
+	}
+	for _, k := range []string{
+		"daily:gapq:" + hash,
+		"daily:gapq:" + hash + ":not-a-date",
+		"last_write_at",
+	} {
+		if re.MatchString(k) {
+			t.Errorf("%s 매치 — 의도 외 만료", k)
+		}
+	}
+}
 
 // cleanPBKeys — wipes the pb_% meta keys to isolate tests. LIKE's '_'
 // is any character, so it is escaped with a backslash to be literal.
