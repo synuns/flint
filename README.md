@@ -58,7 +58,6 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 > v1.10.2 · R48 — notes hygiene (dup heading · order) · [full changelog](docs/HISTORY.md)
 > v1.11.0 · knowledge pipeline step 1 — user-correction channel (`--source correction`) · [full changelog](docs/HISTORY.md)
 > v1.11.1 · R50 — dup_correction metering fix · [full changelog](docs/HISTORY.md)
-
 ---
 
 ## Quick Start

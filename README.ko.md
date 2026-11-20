@@ -58,7 +58,6 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 > v1.10.2 · R48 — 기록 위생(중복 헤딩·순서) · [전체 변경 이력](docs/HISTORY.md)
 > v1.11.0 · 지식화 파이프라인 1단계 — 사용자 교정 채널(`--source correction`) · [전체 변경 이력](docs/HISTORY.md)
 > v1.11.1 · R50 — dup_correction 계량 수리 · [전체 변경 이력](docs/HISTORY.md)
-
 ---
 
 ## 빠른 시작

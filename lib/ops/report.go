@@ -31,20 +31,21 @@ import (
 const reportDaysDefault = 7
 
 // ReportDay — one day's intake row. Source (hook/manual/mcp) and dup are incremented separately from write.
-// The 3 dup_* fields are per-source metering (unrecorded days 0 — a missing daily JSON key
+// The 4 dup_* fields are per-source metering (unrecorded days 0 — a missing daily JSON key
 // decodes as the zero value).
 type ReportDay struct {
-	Date      string `json:"date"`
-	Write     int    `json:"write"`
-	Hook      int    `json:"hook"`
-	Manual    int    `json:"manual"`
-	Mcp       int    `json:"mcp"`
-	Dup       int    `json:"dup"`
-	DupHook   int    `json:"dup_hook"`
-	DupManual int    `json:"dup_manual"`
-	DupMcp    int    `json:"dup_mcp"`
-	Hot       int    `json:"hot"`
-	Read      int    `json:"read"`
+	Date          string `json:"date"`
+	Write         int    `json:"write"`
+	Hook          int    `json:"hook"`
+	Manual        int    `json:"manual"`
+	Mcp           int    `json:"mcp"`
+	Dup           int    `json:"dup"`
+	DupHook       int    `json:"dup_hook"`
+	DupManual     int    `json:"dup_manual"`
+	DupMcp        int    `json:"dup_mcp"`
+	DupCorrection int    `json:"dup_correction"`
+	Hot           int    `json:"hot"`
+	Read          int    `json:"read"`
 	// daily zero and near counts (unrecorded days decode
 	// as the zero value; old daily JSON compatible).
 	ReadZero int `json:"read_zero"`
@@ -552,6 +553,7 @@ var dailyFlatFields = map[string]func(*ReportDay, int){
 	"dup_hook":       func(d *ReportDay, n int) { d.DupHook = n },
 	"dup_manual":     func(d *ReportDay, n int) { d.DupManual = n },
 	"dup_mcp":        func(d *ReportDay, n int) { d.DupMcp = n },
+	"dup_correction": func(d *ReportDay, n int) { d.DupCorrection = n },
 	"hot":            func(d *ReportDay, n int) { d.Hot = n },
 	"read":           func(d *ReportDay, n int) { d.Read = n },
 	"brief":          func(d *ReportDay, n int) { d.Brief = n },

@@ -621,7 +621,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 
 // RecordDups — meters dup intake by the number of skipped duplicate lines
 // (0 is a no-op). The total "dup" key is invariant (ruling); per-source
-// "dup_"+source (hook·manual·mcp) is additionally incremented (additive —
+// "dup_"+source (hook·manual·mcp·correction) is additionally incremented (additive —
 // v0.10.2 R2). A UsageCountStore (the real implementation) increments each
 // key in bulk with one count call; a non-implementing Store does it one at
 // a time.
