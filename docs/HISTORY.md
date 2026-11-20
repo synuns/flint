@@ -6,6 +6,34 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.12.0 minor (2026-11-21) — gap-candidates: recall-failure gap candidates enter long-term memory as pending rows (knowledge pipeline step 2)
+
+Spec requirements 1·2 merged into one mechanism (planning ruling) — recall
+failures and repeated queries are the same gap signal, so the two thresholds
+collapse into one (`gap_query_threshold`, default 3): a normalized-query
+recall-failure count reaching the threshold accrues a pending gap candidate
+(confidence 0.4, tag `gap-candidate`, source `gap` — T1–T3).
+
+- Trigger limited to `zero_reason='owned_miss'` — unowned hits are DB-void
+  noise, not a knowledge gap (research ruling).
+- The counter is the `daily:gapq:<hash>:<date>` meta flat key — reset daily
+  (3 same-day failures = a strong signal; spread-out failures stay below)
+  and expired automatically by PruneDaily. Normalization: NFKC via
+  lib/query/suggest.go, sanitized·truncated — the raw query body is never
+  persisted (bump-time truncation only).
+- Dedup by content_hash: existing pending rows get the failure count updated
+  (no supersede); active rows are never touched (promoted knowledge stays
+  intact). `gap_daily_max` (default 10) caps new ADDs per UTC day — updates
+  don't consume the cap (the correction convention). As-of reads (past-snapshot
+  inspection) are not a present gap — excluded from the count.
+- Research basis (v112-research 2026-11-20): no external precedent found
+  (clustering simplified to a normalized-query count at personal scale);
+  the pending→approve promotion gate is mandatory (the Letta self-reinforcing
+  trap).
+- Plan A investigation (hook-based correction auto-detection — no
+  implementation): recorded as the pipeline appendix in docs/RUNBOOK.md
+  (v1.14 decision material).
+
 ### v1.11.2 patch (2026-11-21) — r52-reporting: dup_correction daily counter exposed on report days (dailyFlatFields·ReportDay dup_* pattern) · RUNBOOK pipeline heading restored · channel-addition checklist 4th item (report fields) · hygiene 3 (RecordDups comment·meta value=1 test assertion·README blank lines)
 
 ### v1.11.1 patch (2026-11-20) — r50-metering: register dup_correction usage kind (per-source counter was silently dropped) · channel-addition checklist

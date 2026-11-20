@@ -373,6 +373,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01112Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.11.2", "r52-reporting",
 	}},
+	// v1.12.0: 지식화 파이프라인 2단계 — 회상 실패 격차 후보.
+	{name: "TestVersion01120Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.12.0", "gap-candidates",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
