@@ -492,3 +492,51 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
   decay-audit·age-audit 후보에서 감쇠가 면제된다(`EffectiveScoreFor` 단일
   정의 — 순수 식 `EventEffectiveScore` 불변). age-audit 모집단에서는
   서버측 strpos로 처음부터 제외된다.
+
+## 지식화 파이프라인 3단계 — 자동 교정 감지·survived 완화·케이스 등록표 (v1.14.0)
+
+1·2단계(사용자 교정 채널·회상 실패 격차 후보)에 이어, 파이프라인의
+남은 케이스 2종(A안 훅 감지·검증된 성공 강화)과 전체 입구의 단일
+등록표를 완결한다(원 제안 — docs/plans/2026-11-19-flint-knowledge-pipelines.md·
+스펙 docs/plans/2026-11-21-flint-v1140.md).
+
+- **A안 훅 감지 — go 판정(구현)**: v1.12.0 부록의 판정 기준을 합성
+  데모 세션으로 실측해 **go**로 확정했다 — 재현율 10/10(교정 프롬프트
+  전부 매칭)·오탐 0. `UserPromptSubmit` 훅(hooks.json →
+  `flint-plugin/hooks/correction_filter.sh`)이 로컬 필터로 교정 마커
+  최소 집합(한국어 "그게 아니라/틀렸어/아니야/다시"·영어
+  "actually/no, /that's wrong/correction:")을 매칭하고, 매칭 조각만
+  (마커 ± 80 코드포인트) `flint write knowledge --source correction`
+  confidence 0.4로 적립한다(conf_floor 미만 — 항상 pending, B안
+  기본 0.7과 동일 승격 회로). 훅 계약 테스트는 `make ci` 상시 실행.
+- **프라이버시 원칙(전체 발언 캡처 금지 승계)**: stdin에 프롬프트
+  전문이 오지만 스크립트가 매칭에 실패하면 flint 호출 자체를 하지
+  않는다(DB 쓰기 0)·flint는 매칭 조각만 수신한다(전문 미수신)·
+  비매칭·실패 전부 exit 0 무출력(훅 non-blocking — 프롬프트 진행
+  불변). 훅 디버그 로그에 전문 잔류 없음.
+- **온/오프 스위치**: 환경변수 `FLINT_CORRECTION_HOOK=off` 즉시
+  exit 0(파싱·호출 전 차단). 기본 on.
+- **survived 완화 — 옵트인**: 관측 정의는 동일 (knowledge_id,
+  session)의 재회상 2회 이상(knowledge_reads 파생 — 종류 불문 read·
+  hot 전부 카운트, `SurvivedCounts` 일괄 조회). 감쇠 유효 점수 산식은
+  `count − max(0, rate×days − survived × relief)` — 완화는 감쇠 상쇄만
+  가능(내부 클램프·성장 아님), 외부 max(0,·) 바닥 유지. 튜닝 키
+  `survived_decay_relief` **기본 0 = 비활성**(발행 시점 동작 불변
+  룰링 — 완화는 opt-in, meta 오버라이드로만 켠다). 0이면 survived
+  조회 자체를 생략해 출력이 바이트 단위 동일. 소비자: hot·brief
+  랭킹·maintain --decay-audit. `:vol:immutable:` 면제가 우선(면제행은
+  감쇠 자체가 없으므로 survived 무의미).
+- **케이스 등록표 7종(단일 원천)**: 입구 케이스 전부가 Go 등록표
+  (lib/knowledge/pipeline.go)에 존재하고 아래 매트릭스는 그 파생
+  렌더링이다(문서-코드 어긋남은 계약 테스트가 차단). source 보유
+  케이스는 sourceRegistry와 정합.
+
+| 케이스 | 입구 신호 | source | 태그 | confidence | 구현 |
+| --- | --- | --- | --- | --- | --- |
+| 교정 B안(에이전트 계약) | 사용자 교정을 에이전트가 인지해 즉시 적립(스킬 지침) | correction | correction | 0.7 | v1.11.0 |
+| 교정 A안(훅 감지) | UserPromptSubmit 훅 — 로컬 필터가 교정 마커 매칭 | correction | correction | 0.4 | v1.14.0 |
+| 회상 실패·반복 | owned_miss 당일 누적이 gap_query_threshold 도달 | gap | gap-candidate | 0.4 | v1.12.0 |
+| MCP 도구 호출 | flint MCP 서버 경로 관측 | mcp | — | 관측 | v0.2.6 |
+| 세션 증류 | PostCompact 훅 — 압축 요약의 세션 행 적립 | hook | — | 0.5 | v0.27 |
+| 수동 | 사람 명시 적립(confidence·태그 지정) | manual | — | 지정 | v0.1 |
+| 검증된 성공 | 동일 (knowledge_id, session) 재회상 관측 | — | — | 관측 | v1.14.0 |

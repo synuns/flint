@@ -385,6 +385,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01130Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.13.0", "age-audit",
 	}},
+	// v1.14.0: 지식화 파이프라인 3단계 — A안 훅 교정 감지·survived 완화·
+	// 케이스 등록표 7종.
+	{name: "TestVersion01140Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.14.0", "pipeline-complete",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
