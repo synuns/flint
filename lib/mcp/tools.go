@@ -36,7 +36,7 @@ type ToolDef struct {
 // zero-hit stays the {hits:0} object), and hot is non-JSON text (minimal
 // meta only — no structuredContent for hot).
 const (
-	readOutputSchema    = `{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"topic":{"type":"string"},"summary":{"type":"string"}}}}`
+	readOutputSchema    = `{"type":"object","properties":{"results":{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"topic":{"type":"string"},"summary":{"type":"string"}}}},"hits":{"type":"number"},"error":{"type":"string"}}}`
 	writeOutputSchema   = `{"type":"object","properties":{"status":{"type":"string"},"hash":{"type":"string"},"state":{"type":"string"},"id":{"type":"integer"}}}`
 	hotOutputSchema     = `{"type":"object","properties":{}}`
 	pendingOutputSchema = `{"type":"object","properties":{"status":{"type":"string"},"items":{"type":"array"},"counts":{"type":"object"},"next":{"type":"string"}}}`

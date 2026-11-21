@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.18.0-blue" alt="v1.18.0">
+  <img src="https://img.shields.io/badge/release-v1.18.1-blue" alt="v1.18.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,7 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v1.18.0 · mcp-structured — structured tool outputs · output schemas · [full changelog](docs/HISTORY.md)
+> v1.18.1 · R67 — flint_read outputSchema object wrapper fix · [full changelog](docs/HISTORY.md)
 > v1.17.2 · r65-dedup — correction hash origin exclusion · [full changelog](docs/HISTORY.md)
 > v1.17.1 · r64-observability — origin tracking fix · [full changelog](docs/HISTORY.md)
 > v1.17.0 · echo — write-time contradiction detection · observability keys · [full changelog](docs/HISTORY.md)

@@ -282,18 +282,22 @@ func TestToolsManifestOutputSchemas(t *testing.T) {
 			t.Errorf("%s outputSchema에 type 없음: %s", td.Name, td.OutputSchema)
 		}
 		if td.Name == "flint_read" {
-			// The read output is an array of row objects (JSONL lines).
-			if s["type"] != "array" {
-				t.Errorf("flint_read outputSchema.type = %v, want array", s["type"])
+			// The read structuredContent is an object wrapping {results:[...]} (R67).
+			if s["type"] != "object" {
+				t.Errorf("flint_read outputSchema.type = %v, want object (results wrapper)", s["type"])
 			}
-			items, ok := s["items"].(map[string]any)
+			props, ok := s["properties"].(map[string]any)
 			if !ok {
-				t.Fatalf("flint_read outputSchema.items 없음: %s", td.OutputSchema)
+				t.Fatalf("flint_read outputSchema.properties 없음: %s", td.OutputSchema)
 			}
-			props, _ := items["properties"].(map[string]any)
+			results, ok := props["results"].(map[string]any)
+			if !ok {
+				t.Fatalf("flint_read outputSchema.properties.results 없음: %s", td.OutputSchema)
+			}
+			rowProps, _ := results["items"].(map[string]any)["properties"].(map[string]any)
 			for _, k := range []string{"id", "topic", "summary"} {
-				if _, ok := props[k]; !ok {
-					t.Errorf("flint_read items.properties에 %s 누락: %s", k, td.OutputSchema)
+				if _, ok := rowProps[k]; !ok {
+					t.Errorf("flint_read results.items.properties에 %s 누락: %s", k, td.OutputSchema)
 				}
 			}
 			continue
