@@ -201,15 +201,20 @@ func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 }
 
 // TestReadAsOfPreFlintScratchRealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN):
-// the v1.19.5 R81 real-DB regression on a dedicated scratch DB (created and
-// dropped here — never a shared DB). newRealStore applies the schema without
-// making a dolt commit, so before the first flint write the only commits are
-// the Doltgres auto-initial pair — read --as-of (0h, the initial-commit
-// prefix, an ISO just after the initial commits) must reject exit 3 with the
-// pre-flint diagnostic (pre-fix: the resolved hash reached the as-of view
-// query and failed with a raw "references invalid table(s)" error, exit 1).
-// After one seeded flint write the same spec kinds resolve normally (0h, the
-// flint-commit prefix, an ISO at the first flint commit).
+// the v1.19.5 R81 real-DB regression (verdict re-based in v1.19.6 R82) on a
+// dedicated scratch DB (created and dropped here — never a shared DB).
+// newRealStore applies the schema without making a dolt commit, so before
+// the first flint write the only commits are the Doltgres auto-initial pair
+// — read --as-of (0h, the initial-commit prefix, an ISO just after the
+// initial commits) must reject exit 3 with the pre-flint diagnostic
+// (pre-fix: the resolved hash reached the as-of view query and failed with
+// a raw "references invalid table(s)" error, exit 1). After one seeded
+// flint write the same spec kinds resolve normally (0h, the flint-commit
+// prefix, an ISO at the first flint commit). Then the v1.19.6 R82 case: a
+// MANUAL dolt_commit reusing the "CREATE DATABASE" label after the flint
+// write (the schema exists at that commit; its committer is the connecting
+// user — the same value as the auto commit, measured) must resolve
+// normally too (pre-fix: the label match alone rejected it, exit 3).
 func TestReadAsOfPreFlintScratchRealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {
@@ -223,7 +228,7 @@ func TestReadAsOfPreFlintScratchRealSlow(t *testing.T) {
 	// Close via t.Cleanup registered BEFORE the DROP below — Cleanup is LIFO
 	// (the DROP needs the pool still open).
 	t.Cleanup(base.Close)
-	name := fmt.Sprintf("flint_v1195_r81_%d", time.Now().UnixNano()%1e9)
+	name := fmt.Sprintf("flint_v1196_r82_%d", time.Now().UnixNano()%1e9)
 	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
 		t.Fatalf("CREATE DATABASE: %v", err)
 	}
@@ -297,6 +302,49 @@ func TestReadAsOfPreFlintScratchRealSlow(t *testing.T) {
 		code := runRead(ctx, st, []string{"--as-of", spec, uniq}, strings.NewReader(""), &out)
 		if code != 0 {
 			t.Fatalf("시드 후 read --as-of %q exit=%d, want 0; out=%s", spec, code, out.String())
+		}
+	}
+
+	// C. v1.19.6 R82 — a MANUAL dolt commit reusing the auto-initial
+	// "CREATE DATABASE" label after the flint write: the flint schema exists
+	// at that commit, so every spec resolving to it must adopt normally
+	// (pre-fix: the label match alone rejected it, exit 3). Made on a second
+	// raw connection — flint's Commit only makes flint-label messages.
+	uniq2 := fmt.Sprintf("asof-r82-%d", time.Now().UnixNano())
+	recs2 := []map[string]any{{
+		"kind": "knowledge", "topic": uniq2, "summary": "as-of r82 회귀",
+		"tags": ":asof:", "confidence": 0.9, "content_hash": uniq2,
+		"status": "pending", "ingested_at": time.Now(),
+	}}
+	if _, err := st.InsertBatch(ctx, recs2); err != nil {
+		t.Fatalf("InsertBatch(r82): %v", err)
+	}
+	scr, err := db.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatalf("스크래치 원시 연결: %v", err)
+	}
+	t.Cleanup(scr.Close)
+	if _, err := scr.Exec(ctx, "SELECT dolt_add('knowledge')"); err != nil {
+		t.Fatalf("dolt_add(knowledge): %v", err)
+	}
+	var manualHash string
+	if err := scr.QueryRow(ctx, `SELECT dolt_commit('-m', $1)`, "CREATE DATABASE").Scan(&manualHash); err != nil {
+		t.Fatalf("수동 CREATE DATABASE 라벨 커밋: %v", err)
+	}
+	me, err := st.LogEntries(ctx, wire.LogQuery{Hash: manualHash})
+	if err != nil || len(me) != 1 {
+		t.Fatalf("수동 라벨 커밋 조회 → (%d행, %v), want 1행", len(me), err)
+	}
+	if me[0].Message != "CREATE DATABASE" {
+		t.Fatalf("수동 라벨 커밋 메시지=%q, want CREATE DATABASE", me[0].Message)
+	}
+	manualPrefix := nonRelativeWindow(t, manualHash)
+	manualISO := me[0].Date.Add(time.Second).Format(time.RFC3339)
+	for _, spec := range []string{"0h", manualPrefix, manualISO} {
+		var out strings.Builder
+		code := runRead(ctx, st, []string{"--as-of", spec, uniq2}, strings.NewReader(""), &out)
+		if code != 0 {
+			t.Fatalf("수동 라벨 커밋 read --as-of %q exit=%d, want 0; out=%s", spec, code, out.String())
 		}
 	}
 }
