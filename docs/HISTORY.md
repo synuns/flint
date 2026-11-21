@@ -6,6 +6,26 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.19.5 patch (2026-11-22) — r81: as-of pre-flint commit diagnostic (exit 3)
+
+The patch-loop closeout finding (R81 [minor]) — a fresh-DB as-of resolved to
+a Doltgres auto-initial commit:
+
+- as-of pre-flint commit diagnostic (R81 [minor]): on a fresh DB (before
+  the first flint write) the only commits are the 2 Doltgres automatic
+  initial ones ("Initialize data repository"·"CREATE DATABASE"), and an
+  as-of spec resolving to them (0h, an initial-commit prefix, or an ISO
+  after them) reached the as-of view query at a point where no flint
+  schema/views exist — the raw `View 'DB.active_knowledge' references
+  invalid table(s)` error exited 1. Both normalization paths (time and
+  prefix) now reject a resolved auto-initial commit up front with the
+  pre-flint diagnostic (ErrInvalidAsOf, exit 3 — "use an as-of at or after
+  the first flint write"). The check reads the message of rows LogEntries
+  already returns: the Prefix·BeforeOrAt dolt_log queries widened from
+  hash-only to the 4 columns — no extra round-trip. Exact-match on the 2
+  observed labels only (an unrecognized manual commit keeps the normal
+  path — no new false rejections).
+
 ### v1.19.4 patch (2026-11-22) — r79-r80: asof day pre-multiply guard · ceiling hint reachability · gate meta key registration
 
 The v1.19.3 re-audit (R79·R80) closeout — the last asof wrap hole, the

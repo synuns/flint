@@ -286,6 +286,73 @@ func TestWireRelativeBoundary(t *testing.T) {
 	}
 }
 
+// TestWirePreFlintCommitRejected — the v1.19.5 R81 regression: on a fresh DB
+// (no flint write yet) the only commits are the 2 Doltgres automatic initial
+// ones, and an as-of resolving to them (0h, an ISO after them, or their hash
+// prefix) must reject with the pre-flint diagnostic (exit 3 convention) —
+// pre-fix the resolved hash reached QueryAsOf and failed with a raw
+// "references invalid table(s)" error (exit 1). With a flint commit present,
+// the same spec kinds resolve normally (a flint commit is never mistaken for
+// an auto one).
+func TestWirePreFlintCommitRejected(t *testing.T) {
+	ctx := context.Background()
+	// now-anchored fixture dates (the relative specs resolve against time.Now
+	// — a fixed date drifts in/out of the future as the wall clock moves).
+	// Truncated to whole seconds so an ISO spec formatted from them re-parses
+	// to the exact same instant (no sub-second rounding mismatch).
+	now := time.Now()
+	initNew := now.Add(-2 * time.Hour).Truncate(time.Second) // CREATE DATABASE commit
+	initOld := initNew.Add(-time.Second)                     // Initialize data repository
+	flintAt := now.Add(-time.Hour).Truncate(time.Second)     // the first flint write
+	// fresh-DB fixture — only the 2 auto-initial commits (newest first).
+	fresh := &asofFakeStore{entries: []LogEntry{
+		{Hash: "cr8ate000000000000000000000000db", Message: "CREATE DATABASE", Date: initNew},
+		{Hash: "in1t000000000000000000000000000r", Message: "Initialize data repository", Date: initOld},
+	}}
+	for _, spec := range []string{
+		"0h", // relative — resolves to the newest (CREATE DATABASE)
+		initNew.Add(time.Minute).Format(time.RFC3339), // ISO after both initial commits
+		"cr8",                        // prefix of the CREATE DATABASE commit
+		"in1",                        // prefix of the Initialize commit
+		initNew.Format(time.RFC3339), // ISO exactly at the CREATE DATABASE commit
+	} {
+		_, err := ParseAsOfSpec(ctx, fresh, spec)
+		if !errors.Is(err, ErrInvalidAsOf) {
+			t.Fatalf("fresh %q err=%v, want ErrInvalidAsOf", spec, err)
+		}
+		if !strings.Contains(err.Error(), "pre-flint") {
+			t.Fatalf("fresh %q 문구에 pre-flint 없음: %v", spec, err)
+		}
+	}
+
+	// seeded fixture — one flint commit on top of the initial pair: all 3 spec
+	// kinds resolve normally (the pre-flint guard only fires on auto commits).
+	seeded := &asofFakeStore{entries: append([]LogEntry{{
+		Hash: "kn0w0000000000000000000000000abc", Message: "knowledge: seed write [session:0]",
+		Date: flintAt,
+	}}, fresh.entries...)}
+	rejected := "<rejected>" // marker — a time before the first flint write
+	for spec, want := range map[string]string{
+		"0h":                         "kn0w0000000000000000000000000abc", // newest = the flint commit
+		"kn0":                        "kn0w0000000000000000000000000abc", // flint commit prefix
+		flintAt.Format(time.RFC3339): "kn0w0000000000000000000000000abc", // ISO at the first flint commit
+		initNew.Add(30 * time.Minute).Format(time.RFC3339): rejected, // between: initial commit adopted → rejected
+	} {
+		hash, err := ParseAsOfSpec(ctx, seeded, spec)
+		if want == rejected {
+			// a time pointing before the first flint write resolves to the
+			// CREATE DATABASE commit → the pre-flint rejection, not a hash.
+			if !errors.Is(err, ErrInvalidAsOf) || !strings.Contains(err.Error(), "pre-flint") {
+				t.Fatalf("seeded %q → (%q,%v), want pre-flint 거부", spec, hash, err)
+			}
+			continue
+		}
+		if err != nil || hash != want {
+			t.Fatalf("seeded %q → (%q,%v), want %q", spec, hash, err, want)
+		}
+	}
+}
+
 // TestWireAsOfSpecNaturalLanguageRejected — natural language and empty specs are ErrInvalidAsOf.
 func TestWireAsOfSpecNaturalLanguageRejected(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}

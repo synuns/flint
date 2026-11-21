@@ -5,7 +5,9 @@
 // principle). Column-filling scope — LatestN inherits the original 4
 // columns (commit_hash·committer·date·message), Hash is a new 4-column
 // assembly (replacing the old date 1-column query), Prefix·BeforeOrAt
-// fill commit_hash only, Earliest fills date only.
+// were hash-only and now also carry the 4 columns (v1.19.5 R81 — the
+// pre-flint diagnostic in wire.ParseAsOfSpec reads Message from the same
+// rows: no extra round-trip), Earliest fills date only.
 package db
 
 import (
@@ -32,9 +34,10 @@ func (r *Repo) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry
 		return r.logEarliest(ctx)
 	case q.Prefix != "":
 		// Original: the asof.go prefix-resolution query (the full match
-		// list).
-		return r.logHashRows(ctx,
-			`SELECT commit_hash FROM dolt_log WHERE commit_hash LIKE $1||'%' ORDER BY commit_order DESC`,
+		// list). v1.19.5 R81 — the SELECT widened from commit_hash to the
+		// 4 columns (same round-trip; Message feeds the pre-flint check).
+		return r.logFullRows(ctx,
+			`SELECT commit_hash, committer, date, message FROM dolt_log WHERE commit_hash LIKE $1||'%' ORDER BY commit_order DESC`,
 			q.Prefix)
 	case q.Hash != "":
 		// Hash mode is a new 4-column (commit_hash·committer·date·
@@ -46,32 +49,15 @@ func (r *Repo) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry
 		// Original: the asof.go at-or-before adoption query. The date
 		// comparison passes a Go-computed time.Time as a timestamptz
 		// parameter (inheriting the no-SQL-interval principle).
-		return r.logHashRows(ctx,
-			`SELECT commit_hash FROM dolt_log WHERE date <= $1 ORDER BY commit_order DESC LIMIT 1`,
+		// v1.19.5 R81 — the SELECT widened from commit_hash to the 4
+		// columns (same round-trip; Message feeds the pre-flint check).
+		return r.logFullRows(ctx,
+			`SELECT commit_hash, committer, date, message FROM dolt_log WHERE date <= $1 ORDER BY commit_order DESC LIMIT 1`,
 			q.BeforeOrAt)
 	case q.LatestN > 0:
 		return r.logLatestN(ctx, q)
 	}
 	return nil, fmt.Errorf("log entries: empty query")
-}
-
-// logHashRows — a commit_hash single-column query (Prefix·BeforeOrAt
-// original inheritance).
-func (r *Repo) logHashRows(ctx context.Context, sql string, arg any) ([]wire.LogEntry, error) {
-	rows, err := r.queryRetry(ctx, sql, arg)
-	if err != nil {
-		return nil, fmt.Errorf("log entries: %w", err)
-	}
-	defer rows.Close()
-	var out []wire.LogEntry
-	for rows.Next() {
-		var h string
-		if err := rows.Scan(&h); err != nil {
-			return nil, fmt.Errorf("log entries: scan: %w", err)
-		}
-		out = append(out, wire.LogEntry{Hash: h})
-	}
-	return out, rows.Err()
 }
 
 // logFullRows — a 4-column (commit_hash·committer·date·message) query

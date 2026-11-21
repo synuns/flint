@@ -466,6 +466,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01194Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.4", "r79-r80",
 	}},
+	// v1.19.5 patch: R81 청산 — 신규 DB as-of의 pre-flint 커밋 진단(exit 3).
+	{name: "TestVersion01195Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.19.5", "r81",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

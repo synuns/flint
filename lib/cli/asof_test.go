@@ -7,10 +7,14 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // asofLogRows — dolt_log fixtures (index 0 is the newest by commit_order DESC).
@@ -194,6 +198,122 @@ func TestAsOfSpecNaturalLanguageRejected(t *testing.T) {
 	if len(f.queries) != 1 {
 		t.Fatalf("질의 수=%d, want 1(yesterday 접두어 질의만): %v", len(f.queries), f.queries)
 	}
+}
+
+// TestReadAsOfPreFlintScratchRealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN):
+// the v1.19.5 R81 real-DB regression on a dedicated scratch DB (created and
+// dropped here — never a shared DB). newRealStore applies the schema without
+// making a dolt commit, so before the first flint write the only commits are
+// the Doltgres auto-initial pair — read --as-of (0h, the initial-commit
+// prefix, an ISO just after the initial commits) must reject exit 3 with the
+// pre-flint diagnostic (pre-fix: the resolved hash reached the as-of view
+// query and failed with a raw "references invalid table(s)" error, exit 1).
+// After one seeded flint write the same spec kinds resolve normally (0h, the
+// flint-commit prefix, an ISO at the first flint commit).
+func TestReadAsOfPreFlintScratchRealSlow(t *testing.T) {
+	dsn, real := seamRealDSN()
+	if !real {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	// Close via t.Cleanup registered BEFORE the DROP below — Cleanup is LIFO
+	// (the DROP needs the pool still open).
+	t.Cleanup(base.Close)
+	name := fmt.Sprintf("flint_v1195_r81_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() {
+		// Best-effort DROP with a short retry — right after the store Close,
+		// Doltgres may still hold the session and reject the drop.
+		var last error
+		for i := 0; i < 3; i++ {
+			if _, last = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name); last == nil {
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		t.Logf("스크래치 DB 잔존(%q): %v", name, last)
+	})
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	u.Path = "/" + name
+	st, err := newRealStore(ctx, u.String())
+	if err != nil {
+		t.Fatalf("newRealStore(scratch): %v", err)
+	}
+	t.Cleanup(st.Close)
+
+	// A. Fresh (no flint write) — the newest commit is the auto-initial pair.
+	entries, err := st.LogEntries(ctx, wire.LogQuery{BeforeOrAt: time.Now()})
+	if err != nil || len(entries) != 1 {
+		t.Fatalf("초기 커밋 조회 → (%d행, %v), want 1행", len(entries), err)
+	}
+	if entries[0].Message != "CREATE DATABASE" {
+		t.Fatalf("신규 DB 최신 커밋 메시지=%q, want CREATE DATABASE(자동 초기 커밋)", entries[0].Message)
+	}
+	initHash, initDate := entries[0].Hash, entries[0].Date
+	initPrefix := nonRelativeWindow(t, initHash)
+	initISO := initDate.Add(time.Second).Format(time.RFC3339)
+	for _, spec := range []string{"0h", initPrefix, initISO} {
+		var out strings.Builder
+		code := runRead(ctx, st, []string{"--as-of", spec, "v1195-r81-합성"}, strings.NewReader(""), &out)
+		if code != 3 {
+			t.Fatalf("신규 DB read --as-of %q exit=%d, want 3; out=%s", spec, code, out.String())
+		}
+		if !strings.Contains(out.String(), "pre-flint") {
+			t.Fatalf("신규 DB %q 진단에 pre-flint 없음: %s", spec, out.String())
+		}
+	}
+
+	// B. Seeded — one flint write commits; the same spec kinds resolve normally.
+	uniq := fmt.Sprintf("asof-r81-%d", time.Now().UnixNano())
+	recs := []map[string]any{{
+		"kind": "knowledge", "topic": uniq, "summary": "as-of r81 회귀",
+		"tags": ":asof:", "confidence": 0.9, "content_hash": uniq,
+		"status": "pending", "ingested_at": time.Now(),
+	}}
+	if _, err := st.InsertBatch(ctx, recs); err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	flintHash, err := st.Commit(ctx, "knowledge: asof r81 seed [session:0]")
+	if err != nil || len(flintHash) < asofMinPrefix {
+		t.Fatalf("첫 flint 커밋 실패(%q,%v)", flintHash, err)
+	}
+	fe, err := st.LogEntries(ctx, wire.LogQuery{Hash: flintHash})
+	if err != nil || len(fe) != 1 {
+		t.Fatalf("flint 커밋 조회 → (%d행, %v), want 1행", len(fe), err)
+	}
+	flintPrefix := nonRelativeWindow(t, flintHash)
+	flintISO := fe[0].Date.Add(time.Second).Format(time.RFC3339)
+	for _, spec := range []string{"0h", flintPrefix, flintISO} {
+		var out strings.Builder
+		code := runRead(ctx, st, []string{"--as-of", spec, uniq}, strings.NewReader(""), &out)
+		if code != 0 {
+			t.Fatalf("시드 후 read --as-of %q exit=%d, want 0; out=%s", spec, code, out.String())
+		}
+	}
+}
+
+// nonRelativeWindow — a 3-char prefix window of the hash that does not parse
+// as the relative form (the relative syntax takes precedence — the
+// TestParseAsOfSpecRealPrefix convention).
+func nonRelativeWindow(t *testing.T, hash string) string {
+	t.Helper()
+	for i := 0; i+asofMinPrefix <= len(hash); i++ {
+		w := hash[i : i+asofMinPrefix]
+		if _, err := ParseRelative(w); err != nil {
+			return w
+		}
+	}
+	t.Fatalf("상대 문법과 충돌하지 않는 접두어 창을 못 찾음: %q", hash)
+	return ""
 }
 
 // TestParseAsOfSpecRealPrefix — real-DB regression (only when FLINT_DSN is set): after committing one write,
