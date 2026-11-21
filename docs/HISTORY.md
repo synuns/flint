@@ -6,6 +6,8 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.18.1 patch (2026-11-21) — r67-schema: flint_read outputSchema object wrapper (results) fix
+
 ### v1.18.0 minor (2026-11-21) — mcp-structured: structured tool outputs · output schemas
 
 (spec: docs/plans/2026-11-21-flint-v1180.md). The MCP server speaks the
