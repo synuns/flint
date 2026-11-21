@@ -137,8 +137,14 @@ const RecallAggregateSQL = "SELECT knowledge_id, count(*)::int AS cnt, max(recal
 // (negative-count defense). v1.9.0 T4: the old EffectiveRecallScore
 // (the v11 physical-column formula) is abolished — this function is the
 // single formula definition (consumers: hot·brief ranking, ops decay-audit
-// delegation).
-func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64) int {
+// delegation). v1.14.0 T4: the survived decay relief — the formula is
+// count − max(0, rate×days − survived×relief), keeping the outer max(0,·)
+// clamp; survived is the number of sessions with 2+ recalls of the item
+// (SurvivedCounts), relief the survived_decay_relief tuning (default 0 =
+// inactive: relief 0 makes the formula fully equivalent to the previous
+// one for any survived — the release-time invariance ruling). The inner
+// max(0,·) means an overshooting relief grants no bonus above count.
+func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64, survived int, relief float64) int {
 	if eventCount <= 0 {
 		return 0
 	}
@@ -149,7 +155,11 @@ func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, 
 	if days <= 0 {
 		return eventCount
 	}
-	eff := float64(eventCount) - decayPerDay*float64(days)
+	decay := decayPerDay*float64(days) - float64(survived)*relief
+	if decay < 0 {
+		decay = 0 // the inner clamp: relief never adds growth beyond offsetting decay
+	}
+	eff := float64(eventCount) - decay
 	if eff < 0 {
 		return 0
 	}
@@ -167,17 +177,20 @@ const volImmutableMarker = ":vol:immutable:"
 // effective=score maintained). Every other tag set — including
 // vol:conditional·vol:volatile, which inherit the existing decay — takes
 // the pure EventEffectiveScore path verbatim (the single formula stays
-// unchanged). Exported for the ops decay-audit consumer (T3).
+// unchanged). Exported for the ops decay-audit consumer (T3). v1.14.0 T4:
+// survived·relief pass through to the pure formula; the exemption takes
+// precedence (an exempt row never decays, so survived is meaningless
+// there — the exemption is independent of the relief multiplication).
 // e.g. (3, 100 days ago, now, 1.0, ":vol:immutable:") -> 3; the same with
 // tags "" -> 0.
-func EffectiveScoreFor(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64, tags string) int {
+func EffectiveScoreFor(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64, tags string, survived int, relief float64) int {
 	if strings.Contains(tags, volImmutableMarker) {
 		if eventCount <= 0 {
 			return 0
 		}
 		return eventCount
 	}
-	return EventEffectiveScore(eventCount, lastRecalled, now, decayPerDay)
+	return EventEffectiveScore(eventCount, lastRecalled, now, decayPerDay, survived, relief)
 }
 
 // loadDecayRate — the decay coefficient prefers the meta override
@@ -193,6 +206,20 @@ func loadDecayRate(ctx context.Context, st wire.Store) float64 {
 	return rate
 }
 
+// loadSurvivedRelief — the survived decay-relief coefficient prefers the
+// meta override; failure·unset yield the default 0 (inactive). Relief is
+// opt-in: at 0 the consumers skip the SurvivedCounts lookup entirely (no
+// extra query, byte-identical output — the release-time invariance
+// ruling). Same direction as loadDecayRate: ranking material, failures
+// absorbed by the fallback (§13).
+func loadSurvivedRelief(ctx context.Context, st wire.Store) float64 {
+	relief := store.DefaultThresholds().SurvivedDecayRelief
+	if th, err := wire.LoadThresholds(ctx, st); err == nil && th.SurvivedDecayRelief > 0 {
+		relief = th.SurvivedDecayRelief
+	}
+	return relief
+}
+
 // rankRowsByEffectiveScore — stable-sorts query rows by decay-adjusted
 // effective score, descending (v1.9.0 T4 — the formula has the single
 // EventEffectiveScore definition: effective score =
@@ -204,7 +231,30 @@ func loadDecayRate(ctx context.Context, st wire.Store) float64 {
 // zero. The stable sort inherits the existing SQL order (hot: ts DESC,
 // id DESC / brief: RankOrder) as the tie order — an all-zero·ranking-
 // column-free environment is byte-identical to the existing output.
-func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx, tagsIdx int, rate float64, now time.Time) [][]any {
+// v1.14.0 T4: idIdx keys the survived decay relief — with relief > 0
+// (opt-in) one batched SurvivedCounts lookup precedes the sort; relief 0
+// issues no lookup at all.
+func rankRowsByEffectiveScore(ctx context.Context, st wire.Store, rows [][]any, idIdx, scoreIdx, lastIdx, tagsIdx int, rate, relief float64, now time.Time) [][]any {
+	// v1.14.0 T4: with relief active (> 0 — opt-in), one batched
+	// SurvivedCounts lookup covers the whole id set at ranking time
+	// (latency-bounded: a single query). Failures are quietly ignored —
+	// a missing signal degrades to no relief (§13). Relief 0 skips the
+	// lookup entirely (zero extra queries, byte-identical output).
+	var survived map[int]int
+	if relief > 0 {
+		ids := make([]int, 0, len(rows))
+		seen := map[int]bool{}
+		for _, r := range rows {
+			if len(r) <= idIdx {
+				continue
+			}
+			if id, ok := render.CellToInt(r[idIdx]); ok && !seen[id] {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+		survived, _ = SurvivedCounts(ctx, st, ids) // quiet failure → nil map → relief 0 per row
+	}
 	eff := make([]int, len(rows))
 	for i, r := range rows {
 		if len(r) <= lastIdx {
@@ -221,7 +271,13 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx, tagsIdx int, rate
 				tags = s
 			}
 		}
-		eff[i] = EffectiveScoreFor(score, last, now, rate, tags)
+		var sv int
+		if len(r) > idIdx {
+			if id, ok := render.CellToInt(r[idIdx]); ok {
+				sv = survived[id]
+			}
+		}
+		eff[i] = EffectiveScoreFor(score, last, now, rate, tags, sv, relief)
 	}
 	// sort.SliceStable swaps only the idx slice, so the precomputed eff
 	// array stays in place — the less closure reads the current ranking's
@@ -549,8 +605,8 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	if !full {
 		scoreIdx, lastIdx, tagsIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx, hotHeadlineTagsIdx
 	}
-	rows = rankRowsByEffectiveScore(rows, scoreIdx, lastIdx, tagsIdx,
-		loadDecayRate(ctx, st), time.Now().UTC())
+	rows = rankRowsByEffectiveScore(ctx, st, rows, hotViewIDIdx, scoreIdx, lastIdx, tagsIdx,
+		loadDecayRate(ctx, st), loadSurvivedRelief(ctx, st), time.Now().UTC())
 	// Load the baseline just before recording, after a successful query
 	// (the query-failure path skips metering).
 	LoadHotStatsFromMetaFn(ctx, st)

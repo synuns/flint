@@ -6,6 +6,47 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.14.0 minor (2026-11-21) — pipeline-complete: knowledge pipeline step 3 (A-plan hook-detected corrections · survived decay relief · the seven-case registry)
+
+(spec: docs/plans/2026-11-21-flint-v1140.md). The A-plan go/no-go ruling
+landed on **go**: on the synthetic reproduction suite the local filter matched
+10/10 correction prompts with 0 false positives — the v1.12.0 appendix
+precision criterion is met, so the hook path ships (the v1.11.0 B-plan
+agent-contract path stays untouched at 0.7).
+
+- A-plan correction hook (T2): `UserPromptSubmit` →
+  `flint-plugin/hooks/correction_filter.sh` — a local filter matches the
+  minimal correction-marker set (Korean·English) and accrues only the matched
+  fragment (marker ± 80 codepoints, codepoint-safe slicing) via `flint write
+  knowledge --source correction` at an explicit 0.4 (below conf_floor — always
+  pending, same approve gate as the 0.7 path). Non-interference: a non-matching
+  prompt never calls flint (zero DB writes)·any failure exits 0 silently (the
+  prompt always proceeds). Kill switch `FLINT_CORRECTION_HOOK=off` (default
+  on, checked before any parsing). The hook's shell contract test runs in
+  `make ci` (Makefile line).
+- survived signal (T3): `SurvivedCounts(ctx, st, ids)` — per-knowledge count
+  of sessions with 2+ recalls of the same knowledge_id (knowledge_reads
+  derivation, kind-agnostic: read·hot both count — recall exposure is the
+  signal).
+- survived decay relief (T4): the pure `EventEffectiveScore` extends to
+  `count − max(0, rate×days − survived×relief)` (the inner clamp means relief
+  only offsets decay, never adds growth; the outer max(0,·) floor stays).
+  Threshold key `survived_decay_relief` (TUNING §2, thresholds 45→46) —
+  **default 0 = disabled** (release-time invariance ruling; opt-in via meta
+  override). At 0 the consumers skip the survived lookup entirely
+  (byte-identical output); with it > 0, hot·brief ranking and
+  `maintain --decay-audit` do one batched SurvivedCounts lookup per run.
+  `:vol:immutable:` exemption takes precedence (an exempt row never decays,
+  so survived is meaningless there).
+- case registry (T1): the seven intake cases live as a single Go registry
+  (lib/knowledge/pipeline.go — case·signal·source·tag·confidence·version);
+  the RUNBOOK matrix is its derived rendering (doc-code drift is
+  test-blocked) and source-bearing cases stay 1:1-covered against the
+  sourceRegistry.
+- R56 absorbed: the decay-audit row-length guard is now `len(r) < 4` — the
+  v1.13.0 tags tail made column 3 load-bearing, and a 3-cell row (old-shape
+  or fake row) panicked on the r[3] index under the old `len(r) < 3` guard
+  (regression: TestDecayAuditShortRowGuard).
 ### v1.13.0 minor (2026-11-21) — age-audit: stale-knowledge scoring (2 weighted signals) · volatility tiers (`:vol:immutable:` decay exemption)
 
 Knowledge lifecycle management (spec: docs/plans/2026-11-21-flint-v1130.spec.md).

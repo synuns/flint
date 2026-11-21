@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v1.13.0-blue" alt="v1.13.0">
+  <img src="https://img.shields.io/badge/release-v1.14.0-blue" alt="v1.14.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -62,6 +62,7 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 > v1.12.0 · knowledge pipeline step 2 — recall-failure gap candidates · [full changelog](docs/HISTORY.md)
 > v1.12.1 · r54-docs — RUNBOOK pipeline step 2 notes · NFKC truncation fix · [full changelog](docs/HISTORY.md)
 > v1.13.0 · knowledge lifecycle — staleness scoring · volatility tiers · [full changelog](docs/HISTORY.md)
+> v1.14.0 · knowledge pipeline step 3 — auto-detected corrections (A-plan hook) · survived decay relief · [full changelog](docs/HISTORY.md)
 ---
 
 ## Quick Start

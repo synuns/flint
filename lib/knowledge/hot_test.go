@@ -54,7 +54,7 @@ func TestEventEffectiveScore(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			if got := EventEffectiveScore(tc.count, tc.last, now, tc.rate); got != tc.want {
+			if got := EventEffectiveScore(tc.count, tc.last, now, tc.rate, 0, 0); got != tc.want {
 				t.Fatalf("EventEffectiveScore(%d, %v, rate %v) = %d, want %d",
 					tc.count, tc.last, tc.rate, got, tc.want)
 			}
@@ -71,27 +71,27 @@ func TestEffectiveScoreForVolExemption(t *testing.T) {
 	last := now.Add(-100 * 24 * time.Hour)
 	// Contract examples: immutable keeps 3; the same conditions without
 	// the tag decay to 0.
-	if got := EffectiveScoreFor(3, last, now, 1.0, ":vol:immutable:"); got != 3 {
+	if got := EffectiveScoreFor(3, last, now, 1.0, ":vol:immutable:", 0, 0); got != 3 {
 		t.Errorf("immutable 면제 = %d, want 3(계약 예)", got)
 	}
-	if got := EffectiveScoreFor(3, last, now, 1.0, ""); got != 0 {
+	if got := EffectiveScoreFor(3, last, now, 1.0, "", 0, 0); got != 0 {
 		t.Errorf("태그 없음 = %d, want 0(계약 예)", got)
 	}
 	// Equivalence: non-immutable tag sets take the pure path verbatim.
 	for _, tags := range []string{"", ":adr:", ":vol:conditional:", ":vol:volatile:", ":vol:immutable2:"} {
-		want := EventEffectiveScore(3, last, now, 1.0)
-		if got := EffectiveScoreFor(3, last, now, 1.0, tags); got != want {
+		want := EventEffectiveScore(3, last, now, 1.0, 0, 0)
+		if got := EffectiveScoreFor(3, last, now, 1.0, tags, 0, 0); got != want {
 			t.Errorf("tags %q = %d, want %d(순수 식 동치)", tags, got, want)
 		}
 	}
 	// strpos form inside a multi-tag string + count defenses.
-	if got := EffectiveScoreFor(5, last, now, 1.0, ":adr::vol:immutable:"); got != 5 {
+	if got := EffectiveScoreFor(5, last, now, 1.0, ":adr::vol:immutable:", 0, 0); got != 5 {
 		t.Errorf("다중 태그 내 immutable = %d, want 5", got)
 	}
-	if got := EffectiveScoreFor(0, last, now, 1.0, ":vol:immutable:"); got != 0 {
+	if got := EffectiveScoreFor(0, last, now, 1.0, ":vol:immutable:", 0, 0); got != 0 {
 		t.Errorf("count 0 면제 = %d, want 0", got)
 	}
-	if got := EffectiveScoreFor(-1, last, now, 1.0, ":vol:immutable:"); got != 0 {
+	if got := EffectiveScoreFor(-1, last, now, 1.0, ":vol:immutable:", 0, 0); got != 0 {
 		t.Errorf("음수 count 면제 = %d, want 0", got)
 	}
 }
@@ -353,7 +353,7 @@ func TestHotRankRowsEffectiveOrderNotAccidental(t *testing.T) {
 		{"alpha", 1, mustTime(t, "2026-11-10T00:00:00Z")}, // eff 0 (score 1 - 2 days)
 		{"beta", 3, mustTime(t, "2026-11-15T00:00:00Z")},  // eff 2 (score 3 - 0 days)
 	}
-	got := rankRowsByEffectiveScore(rows, 1, 2, 3, 1.0, mustTime(t, "2026-11-17T00:00:00Z"))
+	got := rankRowsByEffectiveScore(context.Background(), nil, rows, 0, 1, 2, 3, 1.0, 0, mustTime(t, "2026-11-17T00:00:00Z"))
 	if got[0][0] != "beta" || got[1][0] != "gamma" || got[2][0] != "alpha" {
 		t.Fatalf("rank order = %v %v %v, want beta gamma alpha(effective DESC·동점 안정)", got[0][0], got[1][0], got[2][0])
 	}
@@ -849,5 +849,118 @@ func TestHotDerivedRankingAfterPruneBenchRealSlow(t *testing.T) {
 		preDerived, derivedMed, v11Med, derivedMed/v11Med, seeded-int(n), seeded)
 	if ratio := derivedMed / v11Med; ratio >= 2 {
 		t.Errorf("prune 후 파생 랭킹 p95 비율 = %.2fx, want < 2x(R42-D 회복 계약)", ratio)
+	}
+}
+
+// ── v1.14.0 T4: the survived decay relief ──
+
+// TestEventEffectiveScoreSurvivedRelief — the extended pure formula
+// count − max(0, rate×days − survived×relief), outer clamp at 0. relief 0
+// is fully equivalent to the legacy formula for any survived (the
+// release-time invariance ruling); the relief is weakly monotone in
+// survived; an overshooting relief grants no bonus (the inner max(0,·)
+// clamp); the outer 0 floor is unchanged.
+func TestEventEffectiveScoreSurvivedRelief(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	last := now.Add(-10 * 24 * time.Hour) // 10 elapsed days, rate 1 → decay 10
+	for _, c := range []struct {
+		name     string
+		count    int
+		survived int
+		relief   float64
+		want     int
+	}{
+		{"relief 0 동치 — 감쇠 하한 0", 8, 0, 0, 0},
+		{"relief 0 동치 — survived 있어도 무시", 8, 5, 0, 0},
+		{"완화: 8−max(0,10−2×3)=4", 8, 2, 3, 4},
+		{"완화: survived 0 → 0", 8, 0, 3, 0},
+		{"단조: survived 4 → 8(내부 클램프)", 8, 4, 3, 8},
+		{"내부 클램프: 초과 완화 무보너스", 8, 100, 3, 8},
+		{"외부 클램프: 0 하한 유지", 1, 0, 0.5, 0},
+		{"부분 완화: 12−max(0,10−4)=6", 12, 4, 1, 6},
+	} {
+		if got := EventEffectiveScore(c.count, last, now, 1.0, c.survived, c.relief); got != c.want {
+			t.Errorf("%s: = %d, want %d", c.name, got, c.want)
+		}
+	}
+}
+
+// TestEffectiveScoreForSurvivedExemptIgnored — the volatility exemption
+// takes precedence: an exempt row keeps its count regardless of survived
+// (the exemption is independent of the relief multiplication — when
+// exempt, survived is meaningless).
+func TestEffectiveScoreForSurvivedExemptIgnored(t *testing.T) {
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	last := now.Add(-100 * 24 * time.Hour) // 100 days, rate 1
+	if got := EffectiveScoreFor(8, last, now, 1.0, ":vol:immutable:", 5, 3); got != 8 {
+		t.Errorf("면제+survived = %d, want 8(survived 무시·면제 우선)", got)
+	}
+	// Non-exempt passes survived·relief through to the pure formula.
+	if got := EffectiveScoreFor(8, last, now, 1.0, "", 50, 3); got != 8 {
+		t.Errorf("비면제 초과 완화 = %d, want 8", got)
+	}
+	if got := EffectiveScoreFor(8, now.Add(-10*24*time.Hour), now, 1.0, "", 2, 3); got != 4 {
+		t.Errorf("비면제 완화 = %d, want 4(8−max(0,10−6))", got)
+	}
+}
+
+// rankRowsSurvivedStore — a fake answering the survived lookup for one id
+// set (mirrors the SurvivedCounts SQL shape) and counting the queries.
+type rankRowsSurvivedStore struct {
+	*fakeStore
+	survived    map[int]int
+	kreadsCalls int
+}
+
+func (s *rankRowsSurvivedStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	if strings.Contains(sql, "knowledge_reads") {
+		s.kreadsCalls++
+		var rows [][]any
+		if ids, ok := args[0].([]int); ok {
+			for _, id := range ids {
+				if n, has := s.survived[id]; has {
+					rows = append(rows, []any{int32(id), int64(n)})
+				}
+			}
+		}
+		return rows, nil
+	}
+	return s.fakeStore.Query(ctx, sql, args...)
+}
+
+// TestRankRowsSurvivedRelief — the ranking consumer connection: with
+// relief > 0 the survived counts (one batched knowledge_reads lookup)
+// lift an otherwise-decayed row above a fresher one; with relief 0 no
+// survived lookup is issued at all (equivalence + zero extra query —
+// the opt-in ruling).
+func TestRankRowsSurvivedRelief(t *testing.T) {
+	ctx := context.Background()
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	ts := now.Add(-time.Hour)
+	// 10-column --full shape: id idx 4, cnt 7, last 8, tags 9.
+	// id 3: cnt 12, 10 days old (decay 12−10=2 without relief).
+	// id 7: cnt 4, fresh (eff 4). Survived 4 × relief 1 → id 3 eff 6 → above id 7.
+	rows := [][]any{
+		{"pending", "t3", "s3", ts, int32(3), ts, ts, int32(12), now.Add(-10 * 24 * time.Hour), ":adr:"},
+		{"decision", "t7", "s7", ts, int32(7), ts, ts, int32(4), now.Add(-time.Hour), ":adr:"},
+	}
+	st := &rankRowsSurvivedStore{fakeStore: &fakeStore{}, survived: map[int]int{3: 4}}
+	got := rankRowsByEffectiveScore(ctx, st, rows, hotViewIDIdx, hotViewRecallScoreIdx,
+		hotViewLastRecalledIdx, hotViewTagsIdx, 1.0, 1.0, now)
+	if id := got[0][hotViewIDIdx]; id != int32(3) {
+		t.Errorf("완화 랭킹 선두 id = %v, want 3(survived 완화로 역전)", id)
+	}
+	if st.kreadsCalls != 1 {
+		t.Errorf("knowledge_reads 조회 %d회, want 1(일괄 1회)", st.kreadsCalls)
+	}
+	// relief 0 (default inactive): no survived lookup, ranking unchanged.
+	st2 := &rankRowsSurvivedStore{fakeStore: &fakeStore{}, survived: map[int]int{3: 4}}
+	got2 := rankRowsByEffectiveScore(ctx, st2, rows, hotViewIDIdx, hotViewRecallScoreIdx,
+		hotViewLastRecalledIdx, hotViewTagsIdx, 1.0, 0, now)
+	if id := got2[0][hotViewIDIdx]; id != int32(7) {
+		t.Errorf("relief 0 랭킹 선두 id = %v, want 7(기존 순서 불변)", id)
+	}
+	if st2.kreadsCalls != 0 {
+		t.Errorf("relief 0에서 knowledge_reads 조회 %d회, want 0", st2.kreadsCalls)
 	}
 }

@@ -120,7 +120,7 @@ func TestEventEffectiveScoreBoundaries(t *testing.T) {
 		{"rate 2 — 가속 하한 0", 3, now.Add(-2 * 24 * time.Hour), 2, 0},
 	}
 	for _, c := range cases {
-		if got := knowledge.EventEffectiveScore(c.count, c.last, now, c.rate); got != c.want {
+		if got := knowledge.EventEffectiveScore(c.count, c.last, now, c.rate, 0, 0); got != c.want {
 			t.Errorf("%s: EventEffectiveScore(%d, %v, rate %v) = %d, want %d",
 				c.name, c.count, c.last, c.rate, got, c.want)
 		}

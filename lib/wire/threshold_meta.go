@@ -87,9 +87,13 @@ var thresholdMetas = []ThresholdMeta{
 	// the consumption path ops maintain --age-audit·StaleScore).
 	{"StaleScoreThreshold", "stale_score_threshold", 70, "maintain --age-audit over-threshold marking"},
 	{"StaleTTLDays", "stale_ttl_days", 180, "maintain --age-audit score TTL saturation"},
+
+	// the survived decay relief (v1.14.0 — the verified-success weighting in the
+	// effective-score formula; the consumption path hot·brief ranking·maintain --decay-audit).
+	{"SurvivedDecayRelief", "survived_decay_relief", 0.0, "survived decay relief (hot·brief·decay-audit)"},
 }
 
-// ThresholdMetas — the registry's deterministic copy (45 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (46 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)
