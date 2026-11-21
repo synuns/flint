@@ -390,6 +390,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01140Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.14.0", "pipeline-complete",
 	}},
+	// v1.15.0: distribution — install.sh 원라인 설치·attest 증명·문서 군
+	// (SECURITY·CONTRIBUTING·이슈 템플릿·README 4경로)·룰링 2건(cask 교정·
+	// cosign 키 서명 유지).
+	{name: "TestVersion01150Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.15.0", "distribution",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

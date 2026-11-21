@@ -6,6 +6,36 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.15.0 minor (2026-11-21) — distribution: one-line installer · provenance attestation · security policy
+
+(spec: docs/plans/2026-11-21-flint-v1150.md). Distribution and trust
+foundations — how flint reaches users and how users verify what they got.
+
+- One-line installer (T1): `scripts/install.sh` follows the zoxide
+  pattern — `uname -s/-m` platform detection (darwin/linux × arm64/amd64),
+  asset selection from `releases/latest` (tar.gz archive only — .mcpb and
+  plugin zip share the name prefix), `checksums.txt` companion download,
+  sha256 verification of the single downloaded asset's line (shasum
+  preferred, sha256sum fallback on exit 127 only — mismatch, missing
+  line, or missing tooling is fatal, no bypass path), `~/.local/bin`
+  default with `--bin-dir` override, PATH guidance. Offline shell
+  contract suite (fake curl/uname/shasum seam) runs in `make ci`.
+- Provenance attestation (T2): `actions/attest-build-provenance` on the
+  deploy job binaries (`attestations: write` permission added) with the
+  existing key-signing regime kept (ADR-0014) — verification guide:
+  `gh attestation verify <file> --repo synuns/flint`.
+- Docs set (T3): SECURITY.md (advisory reporting path · latest-minor
+  support · non-interference and data-ownership posture) ·
+  CONTRIBUTING.md (setup · `make ci` local gates · docs/plans
+  convention) · issue templates (bug/feature) · README install section
+  rebuilt around four paths (one-liner · go install · manual checksum
+  verification · Homebrew cask guide) with a text architecture diagram
+  and a "why it's safe" section (EN/KO) · RUNBOOK install link.
+- Rulings: Homebrew ships as **cask, not formula** (goreleaser 2026
+  formula deprecation for binary releases — same sha256 trust chain as
+  the manual path; tap in preparation); cosign keyless dual-signing
+  rejected as redundant — the existing key signing stays.
+
 ### v1.14.0 minor (2026-11-21) — pipeline-complete: knowledge pipeline step 3 (A-plan hook-detected corrections · survived decay relief · the seven-case registry)
 
 (spec: docs/plans/2026-11-21-flint-v1140.md). The A-plan go/no-go ruling
