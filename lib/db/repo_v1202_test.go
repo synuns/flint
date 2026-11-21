@@ -32,12 +32,15 @@ func TestSupersedeExecutesOnLockHeldConnV1202(t *testing.T) {
 	}
 	var lockExec, poolExec []transitionCall
 	prevLock, prevTrans := supersedeLockFn, transitionExecFn
-	supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, func(), error) {
+	supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, supersedeQueryFn, func(), error) {
 		exec := func(ctx context.Context, query string, args ...any) (int64, error) {
 			lockExec = append(lockExec, transitionCall{sql: query, args: args})
 			return 1, nil
 		}
-		return exec, func() {}, nil
+		query := func(ctx context.Context, q string, args ...any) pgx.Row {
+			return fakeSupersedeRow{}
+		}
+		return exec, query, func() {}, nil
 	}
 	transitionExecFn = func(ctx context.Context, r *Repo, query string, args ...any) (int64, error) {
 		poolExec = append(poolExec, transitionCall{sql: query, args: args})

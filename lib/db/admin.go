@@ -893,44 +893,78 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 }
 
 // Merge invalidates from (status·superseded_by·invalid_at written
-// together — the same columns·update shape as Supersede) and leaves a
-// merge marker on to's summary (duplicate cleanup). The lineage is the
-// single superseded_by model — the marker-suffix convention is kept,
-// but the two updates are bound in one transaction block so lineage
-// queries never lose it (blocking partial updates — marker only,
-// superseded_by missing). Re-merging an already-invalidated from is
-// refused by the 0-rows steward (inheriting the Supersede convention —
-// preventing marker re-attachment). The supersede cycle guard applies
-// too (Merge writes from.superseded_by=to): a reverse merge whose to
-// chain already reaches from is rejected with the cycle diagnostic.
+// together — the same columns·update shape as Supersede, the same
+// guarded UPDATE) and leaves a merge marker on to's summary (duplicate
+// cleanup). The lineage is the single superseded_by model — the
+// marker-suffix convention is kept, but the two updates are bound in
+// one transaction block so lineage queries never lose it (blocking
+// partial updates — marker only, superseded_by missing). Re-merging an
+// already-invalidated from is refused by the 0-rows steward
+// (inheriting the Supersede convention — preventing marker
+// re-attachment). The supersede cycle guard applies too (Merge writes
+// from.superseded_by=to): a reverse merge whose to chain already
+// reaches from is rejected with the cycle diagnostic. v1.20.3 (r89):
+// the whole precheck-then-write joins the supersede lock domain — the
+// old pool-based precheck·tx sat OUTSIDE the serialization, so
+// Supersede(A,B) ∥ Merge(B,A) both passed their guards and both
+// landed, planting a 2-cycle (deterministically reproducible, 20/20).
 func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
-	if cyc, err := r.WouldCreateCycle(ctx, fromID, toID); err != nil {
+	exec, query, unlock, err := supersedeLockFn(ctx, r)
+	if err != nil {
+		return err
+	}
+	err = r.mergeUnderSupersedeLock(ctx, exec, query, fromID, toID)
+	// The dolt commit is pool-based: it runs AFTER the lock release —
+	// under the lock, a pool of MaxConns lock waiters leaves no slot to
+	// acquire and the commit would block (the r88 deadlock shape). The
+	// unlock is idempotent, so the callers' deferred release is a no-op.
+	unlock()
+	if err != nil {
+		return err
+	}
+	if _, err := r.Commit(ctx, fmt.Sprintf(
+		"merge: from=%d into=%d (dedup merge update path) [session:0]", fromID, toID)); err != nil {
+		return fmt.Errorf("merge: commit: %w", err)
+	}
+	return nil
+}
+
+// mergeUnderSupersedeLock — Merge's body while holding the supersede
+// advisory lock: every statement (the cycle precheck, the guarded
+// from-UPDATE, the steward lookup, the marker UPDATE, the tx
+// BEGIN/COMMIT) runs on the lock-held connection — a pool hop under
+// the lock is the r88 deadlock shape. The two updates stay bound in
+// one transaction block (BEGIN/COMMIT through the same connection's
+// exec; the rollback rides the background ctx so a canceled write
+// still closes the tx).
+func (r *Repo) mergeUnderSupersedeLock(ctx context.Context, exec supersedeExecFn, query supersedeQueryFn, fromID, toID int) error {
+	if cyc, err := wouldCreateCycle(ctx, query, fromID, toID); err != nil {
 		return fmt.Errorf("merge: %w", err)
 	} else if cyc {
 		return fmt.Errorf("merge: id=%d -> id=%d would create a supersede cycle", fromID, toID)
 	}
-	tx, err := r.pool.Begin(ctx)
-	if err != nil {
+	if _, err := exec(ctx, "BEGIN"); err != nil {
 		return fmt.Errorf("merge: begin: %w", err)
 	}
-	defer tx.Rollback(ctx)
-	ct, err := tx.Exec(ctx, `
-		UPDATE knowledge
-		SET status = 'invalidated',
-		    superseded_by = $2,
-		    invalid_at = now()
-		WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`, fromID, toID)
+	committed := false
+	defer func() {
+		if !committed {
+			_, _ = exec(context.Background(), "ROLLBACK")
+		}
+	}()
+	n, err := exec(ctx, supersedeGuardedSQL,
+		fromID, toID, time.Now().UTC(), SupersedeCycleDepthLimit)
 	if err != nil {
 		return fmt.Errorf("merge: invalidate from: %w", err)
 	}
-	if ct.RowsAffected() == 0 {
+	if n == 0 {
 		// One steward lookup distinguishes existence and status together
 		// (the same pattern as approve's 0-rows idempotence-target lookup
 		// — the query count unchanged). invalidated means an
 		// already-processed re-merge; statuses other than active are
 		// reported unmergeable.
 		var status string
-		err := r.pool.QueryRow(ctx,
+		err := query(ctx,
 			`SELECT status FROM knowledge WHERE id = $1`, fromID).Scan(&status)
 		if errors.Is(err, pgx.ErrNoRows) {
 			return ErrNotFound
@@ -954,27 +988,30 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 			ErrNotFound, fromID, status)
 	}
 	marker := fmt.Sprintf(" [merged:from=%d]", fromID)
-	ct, err = tx.Exec(ctx,
+	n, err = exec(ctx,
 		`UPDATE knowledge SET summary = summary || $2
 		 WHERE id = $1 AND summary NOT LIKE '%' || $2`, toID, marker)
 	if err != nil {
 		return fmt.Errorf("merge: mark to: %w", err)
 	}
-	if ct.RowsAffected() == 0 {
+	if n == 0 {
 		// When the marker is already a suffix, it is not re-attached
-		// (idempotent pass).
-		if err := r.ensureExists(ctx, toID, "merge to"); err != nil {
-			return err
+		// (idempotent pass) — the same existence check as ensureExists,
+		// on the lock-held connection.
+		var one int
+		err := query(ctx,
+			`SELECT 1 FROM knowledge WHERE id = $1`, toID).Scan(&one)
+		if errors.Is(err, pgx.ErrNoRows) {
+			return ErrNotFound
+		}
+		if err != nil {
+			return fmt.Errorf("merge to: lookup: %w", err)
 		}
 	}
-	if err := tx.Commit(ctx); err != nil {
+	if _, err := exec(ctx, "COMMIT"); err != nil {
 		return fmt.Errorf("merge: tx commit: %w", err)
 	}
-	_, err = r.Commit(ctx, fmt.Sprintf(
-		"merge: from=%d into=%d (dedup merge update path) [session:0]", fromID, toID))
-	if err != nil {
-		return fmt.Errorf("merge: commit: %w", err)
-	}
+	committed = true
 	return nil
 }
 
@@ -1102,19 +1139,4 @@ func (r *Repo) StaleSessionRuns(ctx context.Context, agent string) (int, error) 
 		return 0, fmt.Errorf("stale runs: rows: %w", err)
 	}
 	return stale, nil
-}
-
-// ensureExists checks that the id exists in knowledge and returns
-// ErrNotFound otherwise.
-func (r *Repo) ensureExists(ctx context.Context, id int, op string) error {
-	var one int
-	err := r.pool.QueryRow(ctx,
-		`SELECT 1 FROM knowledge WHERE id = $1`, id).Scan(&one)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("%s: lookup: %w", op, err)
-	}
-	return nil
 }

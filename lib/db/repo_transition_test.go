@@ -14,6 +14,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 // transitionRecorder — the fake execution-seam recording (per-call
@@ -48,12 +50,15 @@ func useFakeTransitionExec(t *testing.T) *transitionRecorder {
 		return rec.n, nil
 	}
 	prevLock := supersedeLockFn
-	supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, func(), error) {
+	supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, supersedeQueryFn, func(), error) {
 		exec := func(ctx context.Context, query string, args ...any) (int64, error) {
 			rec.calls = append(rec.calls, transitionCall{sql: query, args: args})
 			return rec.n, nil
 		}
-		return exec, func() {}, nil
+		query := func(ctx context.Context, q string, args ...any) pgx.Row {
+			return fakeSupersedeRow{}
+		}
+		return exec, query, func() {}, nil
 	}
 	t.Cleanup(func() {
 		transitionExecFn = prev

@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.20.2-blue" alt="v1.20.2">
+  <img src="https://img.shields.io/badge/release-v1.20.3-blue" alt="v1.20.3">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.20.3 · r89 패치 — merge·import 계보 복원의 supersede 락 도메인 편입(사이클 봉쇄) · [전체 변경 이력](docs/HISTORY.md)
 > v1.20.2 · r88 패치 — advisory-lock 단일 커넥션 supersede·PAM 자기참조 링크 skip·절단 방어 테스트 · [전체 변경 이력](docs/HISTORY.md)
 > v1.20.1 · r84-r87 패치 — 링크 적립 완전성(혼합 배치·PAM 왕복)·supersede 경합 강화·스키마 v15 링크 유니크 인덱스 · [전체 변경 이력](docs/HISTORY.md)
 > v1.20.0 · 지식 스키마·검색 — 스키마 v14 지식 링크(refines·supports·contradicts·duplicates)·read `--min-confidence`/`--origin` 필터·supersede 사이클 가드·체인 뷰 · [전체 변경 이력](docs/HISTORY.md)

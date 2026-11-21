@@ -6,6 +6,31 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.20.3 patch (2026-11-22) — r89: merge/setref join the supersede lock domain
+
+The v1.20.2 follow-up audit (r89) fix — 1 finding:
+
+- **Merge·SetSupersededRef outside the supersede lock domain (r89,
+  high)**: v1.20.2 serialized Supersede under one advisory lock, but
+  the two other superseded_by writers stayed outside the domain —
+  `Merge` (maintain --merge) ran its WouldCreateCycle precheck and a
+  bare UPDATE through the pool, and `SetSupersededRef` (import
+  --format jsonl lineage restore) did the same. A crossed pair
+  `Supersede(A,B) ∥ Merge(B,A)` therefore let BOTH sides pass their
+  guards and BOTH land, planting a 2-cycle in the lineage
+  (deterministically reproducible, 20/20 rounds). Both now acquire the
+  same supersede advisory lock (the whole supersede family is ONE
+  serialization domain), execute every statement — precheck, guarded
+  UPDATE, steward lookup, Merge's marker transaction — on the
+  lock-holding connection itself (the r88 one-connection rule; a pool
+  hop under the lock is the exhaustion deadlock), and carry the same
+  NOT EXISTS cycle predicate embedded in the UPDATE as
+  supersedeGuardedSQL (defense in depth). Regressions: Supersede∥Merge
+  crossed 20 rounds exactly 1 winner·0 cycles, Merge↔Merge crossed,
+  SetSupersededRef∥SetSupersededRef crossed, and the r87/r88 suites
+  (cross-race·14-parallel-beyond-pool·500-hop depth cap) re-measured
+  green on a real DB.
+
 ### v1.20.2 patch (2026-11-22) — r88: advisory-lock single-connection supersede · pam self-link skip · truncation test
 
 The v1.20.1 follow-up audit (r88) fix batch — 3 findings:
