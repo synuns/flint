@@ -25,7 +25,8 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
-  <img src="https://img.shields.io/badge/release-v1.14.1-blue" alt="v1.14.1">
+  <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
+  <img src="https://img.shields.io/badge/release-v1.15.0-blue" alt="v1.15.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -34,6 +35,7 @@
 <p align="center">
   <a href="#quick-start">Quick Start</a> ·
   <a href="#how-it-works">How It Works</a> ·
+  <a href="#why-its-safe">Safety</a> ·
   <a href="#commands">Commands</a> ·
   <a href="#agents--adapters">Agents</a>
 </p>
@@ -46,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.15.0 · distribution — one-line installer · provenance attestation · security policy · [full changelog](docs/HISTORY.md)
 > v0.43.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/HISTORY.md)
 > v0.44.0 · PLAN rearm · surface contracts · command-table guard · [full changelog](docs/HISTORY.md)
 > v1.7.2 · telemetry attribution · sync mitigation · probe heal (R38) · [full changelog](docs/HISTORY.md)
@@ -63,24 +66,58 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 > v1.12.1 · r54-docs — RUNBOOK pipeline step 2 notes · NFKC truncation fix · [full changelog](docs/HISTORY.md)
 > v1.13.0 · knowledge lifecycle — staleness scoring · volatility tiers · [full changelog](docs/HISTORY.md)
 > v1.14.0 · knowledge pipeline step 3 — auto-detected corrections (A-plan hook) · survived decay relief · [full changelog](docs/HISTORY.md)
-> v1.14.1 · r57-hookfix — correction hook precision (conditional 다시 marker · first-match snippet contract) · [full changelog](docs/HISTORY.md)
 ---
 
 ## Quick Start
 
 ```bash
-# Install (builds flint into GOPATH/bin)
-git clone https://github.com/synuns/flint.git && cd flint
-make install
+# Install the prebuilt binary (sha256-verified) to ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/synuns/flint/main/scripts/install.sh | bash
 
 # Start Doltgres, migrate the schema
 flint setup
 
-# Load demo data (seed target must be explicit)
-make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
+# Record your first memory
+echo "The API gateway retries idempotent POSTs twice" | flint write knowledge
 ```
 
-Or [download a release binary](https://github.com/synuns/flint/releases) — binaries, checksums, and the plugin zip are attached automatically.
+Optional, from a checkout: load the synthetic demo dataset — `make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint`.
+
+> Every release artifact ships with SLSA build provenance — verify a downloaded file with `gh attestation verify <file> --repo synuns/flint`.
+
+### Installing the binary
+
+Four paths — pick one. `flint setup` (Doltgres on port 5434) is the common next step for all of them.
+
+**1 · One-line installer** — prebuilt binary, checksum-verified:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/synuns/flint/main/scripts/install.sh | bash
+```
+
+Detects your platform (darwin/linux on arm64/amd64), downloads the matching release archive plus the release `checksums.txt`, verifies the sha256 of that one asset, and installs to `~/.local/bin` — override with `--bin-dir DIR`. Needs only `curl`, `tar`, and `shasum` or `sha256sum`; no Go toolchain. If the target directory is not on your `PATH`, the script prints the exact line to add.
+
+**2 · go install**:
+
+```sh
+go install github.com/synuns/flint/cmd/flint@latest
+```
+
+Module path `github.com/synuns/flint` (v0.22.0+) — version comes from build info; `flint update` covers binary refresh afterwards.
+
+**3 · Manual download + checksum verification** — the [releases page](https://github.com/synuns/flint/releases) attaches binaries, checksums, and the plugin zip automatically:
+
+```bash
+ver=$(curl -fsSL https://api.github.com/repos/synuns/flint/releases/latest \
+	| sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
+asset="flint_${ver#v}_darwin_arm64.tar.gz"          # adjust: darwin|linux _ arm64|amd64
+base="https://github.com/synuns/flint/releases/download/$ver"
+curl -fsSLO "$base/checksums.txt" "$base/$asset"
+grep " $asset\$" checksums.txt | shasum -a 256 -c -  # no shasum? pipe to: sha256sum -c -
+tar -xzf "$asset" && install flint ~/.local/bin
+```
+
+**4 · Homebrew (cask — tap in preparation)**: flint ships prebuilt binaries only, so the Homebrew path is a **cask, not a formula** — goreleaser deprecated formula-based distribution for binary releases (2026), and a cask installs the exact release artifact with sha256 verification, the same trust chain as the manual path. Once the tap is live the command will be `brew install --cask synuns/tap/flint`; preparing it means a `homebrew-tap` repository with one Cask per release (`url` = the release asset, `sha256` from `checksums.txt`). Until then, use path 1 or 2.
 
 ### Claude Code
 
@@ -90,14 +127,6 @@ Or [download a release binary](https://github.com/synuns/flint/releases) — bin
 ```
 
 The plugin needs the `flint` binary on your `PATH`. Hooks and the MCP server both call it.
-
-### Install via go install
-
-```sh
-go install github.com/synuns/flint/cmd/flint@latest
-```
-
-Module path `github.com/synuns/flint` (v0.22.0+) — version comes from build info; `flint update` covers binary refresh afterwards.
 
 ### Other agents (Codex, Gemini, Cursor, OpenCode)
 
@@ -140,6 +169,18 @@ Each session cycles through four phases:
 | **Record** | `flint write` appends JSONL with hash dedup |
 | **Verify** | `flint audit` inspects `dolt_log`; `flint restore --drill` rehearses recovery |
 
+In one picture:
+
+```
+session start ──hook──► flint hot ──budgeted [flint] block──► agent context
+     │
+     ├── flint write ──hash dedup──► Doltgres (every change is a commit)
+     │                                    │
+     └── flint read / MCP tools ◄── RRF search over the active view
+                                          ▼
+                            audit · backup · restore · report
+```
+
 <p align="center">
   <img src="assets/flint-lifecycle-en.svg" width="880" alt="flint session lifecycle: memory compounds">
 </p>
@@ -155,6 +196,16 @@ flint brief [query]        # masked, read-only context block — paste it into a
 ```
 
 `brief` searches active knowledge only (pending never leaves the machine), masks secret patterns (`[REDACTED:…]`), and carries the `[flint]` data-block marker so the receiving AI treats it as data, not instructions ([ADR-0015](docs/adr/0015-bridge-surface.md)). To bring an assistant's answer back, feed it to `flint write knowledge` with a confidence below `conf_floor` (low-confidence writes are classified pending), or use `flint import` (always pending) — it lands in the same review queue as any unreviewed writer, and `flint approve` promotes it. Remote live writes are off the table by design.
+
+---
+
+## Why it's safe
+
+flint sits inside your coding sessions, so its constraints are part of the product, not fine print ([ADR-0013 threat model](docs/adr/ADR-0013-threat-model.md)):
+
+- **Local and offline.** flint, your harness, and Doltgres all run on your machine — no cloud service, no account, no telemetry. The maintenance paths (`doctor`, `report`, `maintain`) are offline CLIs.
+- **Non-interference — five principles.** (1) Minimal injection, full search: flint never speaks first. (2) Hooks are non-blocking with timeouts — session end is never blocked. (3) A flint failure is a silent skip (exit 2) — your session is never delayed. (4) Warnings fire only on threshold breach. (5) flint data is data: the `[flint]` block is a data boundary that can never become an instruction.
+- **You own the data.** Everything lives in your Doltgres and `~/.flint` — export any time (`flint export`, PAM with optional Ed25519 signature), backups with `age` encryption, secrets scanned on write and backup, remote live writes disabled by design ([ADR-0015](docs/adr/0015-bridge-surface.md)).
 
 ---
 

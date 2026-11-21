@@ -100,6 +100,9 @@ jobs:
     permissions: # deploy만 write(릴리스·OIDC) — 루트는 박탈(v0.28.0 H④)
       contents: write
       id-token: write
+      # v1.15.0 T2: attestations: write is required for build-provenance
+      # upload — contents+id-token alone returns 403 on the attestation API.
+      attestations: write
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -229,6 +232,20 @@ jobs:
               -e "s|{{VERSION}}|${VER}|g" \
               mcp-registry/server.json.template > /tmp/server.json
           /tmp/mcp-publisher publish /tmp/server.json
+
+      # ── Build provenance attestation (v1.15.0 T2) ──
+      # SLSA provenance for the release artifacts via GitHub attestations
+      # (successor to the deprecated slsa-generator). Placed after publishing
+      # (goreleaser + MCP) so an attest failure never blocks the release
+      # itself; the job still goes red — no continue-on-error. Skipped when
+      # the release already existed (goreleaser skipped, dist/ is empty).
+      - uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        if: steps.version.outputs.deploy == 'true' && steps.relcheck.outputs.skip_goreleaser != 'true'
+        with:
+          subject-path: |
+            dist/*.tar.gz
+            dist/*.zip
+            dist/checksums.txt
 
       - name: 배포 요약
         if: steps.version.outputs.deploy == 'true'
