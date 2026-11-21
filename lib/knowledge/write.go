@@ -356,6 +356,60 @@ func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 	return th
 }
 
+// ── v1.17.0 T2 — the echo scan of the write pipeline (dedup passed,
+// classify pending): the incoming line's near rows come back in the
+// committed response so the writer can review its own consistency. Echo
+// is suggestion only — verdicts stay with the agent via the approval
+// circuit (no auto-supersede). ──
+
+// scanEcho — the write-path echo seam: injects the loaded echo thresholds
+// (the LoadThresholds values — T3 keys echo_top_k·echo_min_score·
+// echo_topic_match; a <=0 unset value keeps the default inside the seam)
+// and runs EchoScan quietly. A scan failure returns nil — the echo field
+// is omitted and the write completes normally (§13).
+func scanEcho(ctx context.Context, st wire.Store, n map[string]any, th store.Thresholds) []EchoCandidate {
+	SetEchoThresholds(th.EchoTopK, th.EchoMinScore, th.EchoTopicMatch)
+	topic, _ := n["topic"].(string)
+	summary, _ := n["summary"].(string)
+	cands, err := EchoScan(ctx, st, topic, summary)
+	if err != nil {
+		return nil
+	}
+	return cands
+}
+
+// withEcho — appends the echo candidates array to the one-line committed
+// output JSON (the withWarnings convention: unmarshal, add, remarshal —
+// the legacy fields stay verbatim, old readers ignore the new field).
+// An empty list keeps the line unchanged (no empty array).
+func withEcho(line string, cands []EchoCandidate) string {
+	if len(cands) == 0 {
+		return line
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(line), &m); err != nil {
+		return line // the unechoed line survives a parse failure (§13)
+	}
+	arr := make([]any, 0, len(cands))
+	for _, c := range cands {
+		b, err := json.Marshal(c)
+		if err != nil {
+			return line
+		}
+		var cm map[string]any
+		if err := json.Unmarshal(b, &cm); err != nil {
+			return line
+		}
+		arr = append(arr, cm)
+	}
+	m["echo"] = arr
+	b, err := json.Marshal(m)
+	if err != nil {
+		return line
+	}
+	return string(b)
+}
+
 // RunWrite — processes multiple stdin JSON/JSONL entries. The commit is one
 // per batch; dedup skips duplicate lines·partially commits the new lines
 // (all-duplicate means a zero-row commit). Since v1.6.0 T3, the
@@ -469,6 +523,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	dupID := 0     // the existing row id for a single-line duplicate (R3) — stays 0 for unsupported Stores·multi-line
 	dupTopic := "" // the existing row's topic·state — resender feedback
 	dupState := ""
+	// echoCands — the echo candidates of the new single-line knowledge
+	// write (nil on every other path: exact-hash duplicates answer with
+	// DuplicateMeta — no double report; the multi-line aggregate keeps its
+	// shape). Attached to the committed output only.
+	var echoCands []EchoCandidate
 	// Same-key lines within a batch (knowledge content_hash·project name):
 	// prevents a whole InsertBatch failure
 	seen := map[string]bool{}
@@ -592,6 +651,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
+			// v1.17.0 T2 — the echo scan sits right after the dedup passed
+			// and before the classification: the line is new, so its near
+			// active rows are the agent's consistency review material. A
+			// failure quietly omits the field (scanEcho, §13).
+			echoCands = scanEcho(ctx, st, n, th)
 			state = store.Classify(kind, conf, floor)
 			n["content_hash"] = h
 			n["status"] = state
@@ -761,6 +825,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			id = ids[0]
 		}
 		out = store.OutputJSON("committed", hash, state, id)
+		out = withEcho(out, echoCands)
 	} else {
 		// Multi-line: an aggregate single commit hash instead of mixing the
 		// last line's hash·state + the first line's id.

@@ -10,6 +10,7 @@
 package knowledge
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -1618,5 +1619,139 @@ func TestGapCandidateHashInvariantToN(t *testing.T) {
 	}
 	if h == gapCandidateHash(NormalizeGapQuery("다른 쿼리")) {
 		t.Fatal("상이 쿼리 해시 충돌")
+	}
+}
+
+// ── v1.17.0 T2 — the echo field of the single-line committed output. ──
+
+// echoWTestTopic — the shared synthetic topic of the echo write fixtures
+// (the echo_test.go convention).
+const (
+	echoWTestTopic   = "데모 프로젝트 운영 기록"
+	echoWDupSummary  = "회의록 오늘 확정된 마일스톤은 3개다"
+	echoWContraSum   = "회의록 다음 주는 전체 휴가 기간이다"
+	echoWOtherTopic  = "개인 독서 목록 정리"
+	echoWOtherSummar = "올해 읽은 책 다섯 권 감상"
+)
+
+// runWriteEcho — runs RunWrite with one knowledge JSON line (confidence
+// 0.9 — active) and returns the decoded output map.
+func runWriteEcho(t *testing.T, st wire.Store, topic, summary string, conf float64) (map[string]any, int) {
+	t.Helper()
+	var out bytes.Buffer
+	line := fmt.Sprintf(`{"topic":%q,"summary":%q,"confidence":%f}`+"\n", topic, summary, conf)
+	code := RunWrite(context.Background(), st, []string{"knowledge"}, strings.NewReader(line), &out)
+	if code != 0 {
+		t.Fatalf("RunWrite exit=%d out=%s", code, out.String())
+	}
+	return decode(t, out.String()), code
+}
+
+// TestWriteEchoFieldOnNewKnowledge — a new single-line knowledge write
+// reports the matching active row as an echo candidate: the committed
+// output gains "echo":[{id,topic,score,relation}] (the field name is
+// score, not similarity) while the legacy status/hash/state/id fields
+// survive verbatim (backward compatibility — old readers ignore the new
+// field).
+func TestWriteEchoFieldOnNewKnowledge(t *testing.T) {
+	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
+	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if m["status"] != "committed" {
+		t.Fatalf("status=%v, want committed", m["status"])
+	}
+	for _, k := range []string{"hash", "state", "id"} {
+		if _, ok := m[k]; !ok {
+			t.Errorf("기존 필드 %q 소실 (하위 호환 위반): %v", k, m)
+		}
+	}
+	echo, ok := m["echo"].([]any)
+	if !ok || len(echo) != 1 {
+		t.Fatalf("echo=%v, want 1건 배열", m["echo"])
+	}
+	c, _ := echo[0].(map[string]any)
+	if c["id"] != float64(7) || c["relation"] != "duplicates" {
+		t.Errorf("echo 후보=%v, want id=7 duplicates", c)
+	}
+	if _, ok := c["score"]; !ok {
+		t.Errorf("echo 후보에 score 필드 부재: %v", c)
+	}
+	if _, ok := c["similarity"]; ok {
+		t.Errorf("echo 후보에 similarity 필드는 부재해야 함: %v", c)
+	}
+	if c["topic"] != echoWTestTopic {
+		t.Errorf("echo topic=%v, want %q", c["topic"], echoWTestTopic)
+	}
+}
+
+// TestWriteEchoOmittedOnExactDup — an exact-hash duplicate line answers
+// with the DuplicateMeta shape and no echo field (the response already
+// names the existing row — the double-report ruling).
+func TestWriteEchoOmittedOnExactDup(t *testing.T) {
+	st := &fakeStore{exists: true, rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
+	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if m["status"] != "duplicate" {
+		t.Fatalf("status=%v, want duplicate", m["status"])
+	}
+	if _, ok := m["echo"]; ok {
+		t.Errorf("정확-hash 중복 응답에 echo 부재해야 함: %v", m)
+	}
+}
+
+// TestWriteEchoOmittedOnScanFailure — an echo scan failure quietly omits
+// the field: the write still commits, exit 0 (§13).
+func TestWriteEchoOmittedOnScanFailure(t *testing.T) {
+	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}, queryErr: errors.New("scan down")}
+	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if m["status"] != "committed" {
+		t.Fatalf("스캔 실패에도 status=%v, want committed", m["status"])
+	}
+	if _, ok := m["echo"]; ok {
+		t.Errorf("스캔 실패 시 echo 부재해야 함: %v", m)
+	}
+}
+
+// TestWriteEchoOmittedWhenNoCandidates — zero qualifying rows omit the
+// field (no empty array).
+func TestWriteEchoOmittedWhenNoCandidates(t *testing.T) {
+	st := &fakeStore{rows: [][]any{{int64(9), echoWOtherTopic, echoWOtherSummar}}}
+	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if _, ok := m["echo"]; ok {
+		t.Errorf("후보 0건에 echo 부재해야 함: %v", m)
+	}
+}
+
+// TestWriteEchoMultiLineOmitted — the multi-line aggregate output keeps
+// its shape (no echo field — the response is a batch aggregate, not a
+// per-line verdict).
+func TestWriteEchoMultiLineOmitted(t *testing.T) {
+	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
+	var out bytes.Buffer
+	lines := fmt.Sprintf(`{"topic":%q,"summary":%q,"confidence":0.9}`+"\n", echoWTestTopic, echoWDupSummary) +
+		fmt.Sprintf(`{"topic":%q,"summary":%q,"confidence":0.9}`+"\n", echoWTestTopic+" 복", echoWDupSummary)
+	code := RunWrite(context.Background(), st, []string{"knowledge"}, strings.NewReader(lines), &out)
+	if code != 0 {
+		t.Fatalf("RunWrite exit=%d out=%s", code, out.String())
+	}
+	m := decode(t, out.String())
+	if _, ok := m["echo"]; ok {
+		t.Errorf("다중 행 응답에 echo 부재해야 함: %v", m)
+	}
+}
+
+// TestWriteEchoThresholdSeam — the loaded thresholds flow into the scan:
+// an echo_min_score of 0.99 excludes the contradicts candidate that the
+// default (0.3) admits.
+func TestWriteEchoThresholdSeam(t *testing.T) {
+	t.Cleanup(func() { SetEchoThresholds(5, 0.3, 0.4) })
+	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWContraSum}}}
+	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	echo, ok := m["echo"].([]any)
+	if !ok || len(echo) != 1 || echo[0].(map[string]any)["relation"] != "contradicts" {
+		t.Fatalf("기본 임계 echo=%v, want 1건 contradicts", m["echo"])
+	}
+	SetEchoThresholds(5, 0.99, 0.4)
+	m, _ = runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if _, ok := m["echo"]; ok {
+		t.Errorf("min_score 0.99에서 echo 부재해야 함: %v", m)
 	}
 }
