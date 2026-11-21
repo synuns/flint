@@ -800,6 +800,61 @@ func (r *Repo) ensureSchemaV14(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV15 losslessly promotes a DB with
+// meta.schema_version<15 to 15: the knowledge_links uniqueness seal —
+// a unique index on (from_id, to_id, relation) making the idempotent
+// link accrual race-proof (v1.20.0 shipped only the NOT EXISTS guard,
+// which leaves a check-then-insert window under parallel writers).
+// Residual duplicate rows (accrued before the seal) are collapsed to
+// the lowest id first — DELETE ... USING is unimplemented in Doltgres
+// (measured), so the dedup is the NOT IN (MIN(id) GROUP BY triple)
+// form. Additive: one index, no table changes.
+func (r *Repo) EnsureSchemaV15(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV15(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV15(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v15: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // fresh DB (tables absent) — the fresh-creation path carries the v15 terminus
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 15 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v15: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		// Collapse pre-seal duplicates to the lowest id per triple before
+		// the unique index (a duplicate row would fail the CREATE).
+		`DELETE FROM knowledge_links WHERE id NOT IN (
+		    SELECT MIN(id) FROM knowledge_links
+		    GROUP BY from_id, to_id, relation)`,
+		`CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_links_triple
+		 ON knowledge_links (from_id, to_id, relation)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v15: create: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '15')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v15: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v15: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve promotes pending knowledge to active (spec §8: approval =
 // flint approve). Approval is a valid confirmation, so it also clears
 // any residual invalid_at — defense against the defect where

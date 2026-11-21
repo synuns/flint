@@ -96,8 +96,11 @@ func slowCyclePredicateWalks(t *testing.T, r *Repo) {
 
 // slowCyclePredicateDepthCap — the recursive walk stops at the depth
 // cap (double safety against runaway recursion): a closing edge whose
-// loop path stays within the cap is still detected, while one beyond
-// the cap gets the safe no-cycle verdict — allowed, not an error.
+// loop path stays within the cap is still detected; since v1.20.1
+// (r87) one beyond the cap is a CONSERVATIVE REFUSAL — the walk's
+// evidence window ended before the chain did, and the old "safe
+// no-cycle" verdict (an absence claim beyond the evidence) is
+// abolished.
 func slowCyclePredicateDepthCap(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	// Within cap: chain of 64 rows — OLD=#64 is reached at walk depth
@@ -114,8 +117,8 @@ func slowCyclePredicateDepthCap(t *testing.T, r *Repo) {
 	}
 
 	// Beyond cap: 70 rows — the walk from NEW=#1 tops out before
-	// reaching OLD=#70: safe no-cycle verdict (the cap is a recursion
-	// guard, not a verdict about deep data).
+	// reaching OLD=#70: the conservative depth-cap refusal (an error,
+	// not a no-cycle verdict).
 	deep := seedCycleRows(t, r, "cyc-cap70", 70)
 	for i := 0; i+1 < len(deep); i++ {
 		if _, err := r.SetSupersededRef(ctx, deep[i], deep[i+1]); err != nil {
@@ -123,16 +126,16 @@ func slowCyclePredicateDepthCap(t *testing.T, r *Repo) {
 		}
 	}
 	got, err = r.WouldCreateCycle(ctx, deep[69], deep[0])
-	if err != nil || got != false {
-		t.Fatalf("cap70 closing edge: (%v, %v), want (false, nil)", got, err)
+	if err == nil || !strings.Contains(err.Error(), "depth cap") {
+		t.Fatalf("cap70 closing edge: (%v, %v), want the conservative depth-cap refusal", got, err)
 	}
-	// The beyond-cap write itself is allowed (not an error) — the
-	// SetSupersededRef guard defers to the predicate's safe verdict.
-	if _, err := r.SetSupersededRef(ctx, deep[69], deep[0]); err != nil {
-		t.Fatalf("cap70 closing write: want safe allow, got %v", err)
+	// The beyond-cap write is refused too — the SetSupersededRef guard
+	// propagates the refusal; no loop planting through the truncation.
+	if _, err := r.SetSupersededRef(ctx, deep[69], deep[0]); err == nil {
+		t.Fatal("cap70 closing write: want conservative refusal, got nil")
 	}
-	if _, sup := lineageOf(t, r, deep[69]); sup == nil || *sup != deep[0] {
-		t.Fatalf("cap70 closing write: superseded_by=%v, want %d", sup, deep[0])
+	if _, sup := lineageOf(t, r, deep[69]); sup != nil {
+		t.Fatalf("cap70 closing write: superseded_by=%v, want unset (refused)", sup)
 	}
 }
 

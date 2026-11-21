@@ -1220,11 +1220,12 @@ func (m *memMigrateFake) Query(ctx context.Context, sql string, args ...any) ([]
 		}
 		return out, nil
 	}
-	if strings.Contains(sql, "id = ANY($1)") && strings.Contains(sql, "FROM knowledge") {
+	if strings.Contains(sql, "id = ANY($1") && strings.Contains(sql, "FROM knowledge") { // cast-tolerant since v1.20.1
 		m.fakeStore.queries = append(m.fakeStore.queries, sql)
-		want, _ := args[0].([]int)
+		want, _ := args[0].([]int64) // []int64 since v1.20.1 (pgx int8[] encoding)
 		var out [][]any
-		for _, id := range want {
+		for _, id64 := range want {
+			id := int(id64)
 			if m.ids[id] {
 				out = append(out, []any{int32(id)})
 			}

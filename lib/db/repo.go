@@ -428,9 +428,10 @@ func (r *Repo) Invalidate(ctx context.Context, ids []int, reason string) (int64,
 
 // SupersedeCycleDepthLimit — the depth cap of the recursive lineage
 // walk (double safety: the walk terminates even on pathological data —
-// a loop longer than the cap gets the safe no-cycle verdict instead of
-// runaway recursion; the write-path guards keep intermediate supersedes
-// from building loops that deep in the first place).
+// and since v1.20.1 a chain reaching the cap is a conservative
+// REFUSAL (an error), not the old "safe no-cycle" verdict: a verdict
+// of absence beyond the evidence bound could plant a loop the walk
+// could not see).
 const SupersedeCycleDepthLimit = 64
 
 // SupersedeCycleSQL — the one-round-trip lineage-cycle predicate,
@@ -438,7 +439,10 @@ const SupersedeCycleDepthLimit = 64
 // --supersede precheck (via the store Query seam), Repo.WouldCreateCycle,
 // and the superseded_by write-path guards. Walks superseded_by from NEW
 // ($2); OLD ($1) reachable within the depth cap ($3) means the pending
-// write would close a lineage loop.
+// write would close a lineage loop. Returns two columns: (cycle,
+// truncated) — truncated is true when the walk produced a row at the
+// depth cap, i.e. the chain may extend beyond the evidence window;
+// consumers treat that as a conservative refusal (v1.20.1, r87).
 const SupersedeCycleSQL = `
 	WITH RECURSIVE lineage AS (
 		SELECT id, superseded_by, 1 AS depth
@@ -449,38 +453,121 @@ const SupersedeCycleSQL = `
 		JOIN lineage l ON k.id = l.superseded_by
 		WHERE l.depth < $3
 	)
-	SELECT EXISTS (SELECT 1 FROM lineage WHERE id = $1)`
+	SELECT EXISTS (SELECT 1 FROM lineage WHERE id = $1),
+	       EXISTS (SELECT 1 FROM lineage WHERE depth >= $3)`
 
 // WouldCreateCycle reports whether setting old.superseded_by = new
 // would close a lineage loop: NEW's superseded_by chain already reaches
-// OLD (a 1-hop cycle when NEW == OLD). One round trip; the depth cap
-// bounds the walk (beyond it the safe no-cycle verdict — not an error).
+// OLD (a 1-hop cycle when NEW == OLD). One round trip. A chain reaching
+// the depth cap returns an error (the conservative refusal — v1.20.1
+// abolished the old beyond-cap "safe no-cycle" verdict) — but a cycle
+// FOUND within the walk stays a definite true even when the walk also
+// truncated (a discovered loop is proven; only an absence claim needs
+// the evidence bound).
 func (r *Repo) WouldCreateCycle(ctx context.Context, oldID, newID int) (bool, error) {
-	var cyc bool
+	var cyc, truncated bool
 	if err := r.pool.QueryRow(ctx, SupersedeCycleSQL,
-		oldID, newID, SupersedeCycleDepthLimit).Scan(&cyc); err != nil {
+		oldID, newID, SupersedeCycleDepthLimit).Scan(&cyc, &truncated); err != nil {
 		return false, fmt.Errorf("supersede_cycle: %w", err)
 	}
-	return cyc, nil
+	if cyc {
+		return true, nil
+	}
+	if truncated {
+		return false, fmt.Errorf(
+			"supersede_cycle: lineage walk hit the depth cap (%d) — refusing conservatively",
+			SupersedeCycleDepthLimit)
+	}
+	return false, nil
 }
+
+// supersedeLockKey — the fixed advisory-lock key serializing supersede
+// writes (one global lock: the cross-supersede race A→B ∥ B→A needs a
+// guard·update pair to be atomic ACROSS rows, and Doltgres implements
+// neither SELECT FOR UPDATE nor optimistic commit conflicts here —
+// measured v1.20.1: parallel guarded UPDATEs both succeeded without
+// serialization). The value is arbitrary; it must only be distinct
+// from every other pg_advisory_* user.
+const supersedeLockKey = 0x666c696e74537570 // "flintSup"
+
+// supersedeLockFn — the advisory-lock acquisition seam (tests swap in a
+// no-op; SUPERLITE_REAL=1 keeps the real implementation). The returned
+// unlock releases BOTH the session lock and the pooled connection. The
+// key is inlined as a literal (measured: a $1 parameter arrives with
+// OID 705/unknown — Doltgres does not resolve the function signature —
+// and the int64 encode fails; the doltAddSQL literal convention).
+var supersedeLockFn = func(ctx context.Context, r *Repo) (func(), error) {
+	conn, err := r.pool.Acquire(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("supersede: lock: %w", err)
+	}
+	if _, err := conn.Exec(ctx, fmt.Sprintf(
+		`SELECT pg_advisory_lock(%d)`, supersedeLockKey)); err != nil {
+		conn.Release()
+		return nil, fmt.Errorf("supersede: lock: %w", err)
+	}
+	return func() {
+		// Background ctx: the unlock must run even after a canceled
+		// write — otherwise the lock rides a pooled connection. An
+		// unlock failure still drops the lock: the connection close on
+		// pool teardown releases session locks.
+		_, _ = conn.Exec(context.Background(), fmt.Sprintf(
+			`SELECT pg_advisory_unlock(%d)`, supersedeLockKey))
+		conn.Release()
+	}, nil
+}
+
+// supersedeGuardedSQL — the cycle-guarded supersede UPDATE: the same
+// recursive predicate as SupersedeCycleSQL embedded in the statement
+// itself, so the check-then-set window cannot reopen between a
+// separate precheck and the write (the v1.20.0 shape — precheck round
+// trip, then a bare UPDATE — let two parallel cross supersedes A→B and
+// B→A both pass their prechecks and both land, planting a 2-cycle).
+// The refusal disjunct covers BOTH a visible cycle (id = $1 within the
+// cap) AND a depth-cap truncation (depth >= $4 — the walk's evidence
+// window ended before the chain did; the conservative r87 ruling: no
+// no-cycle verdict beyond the evidence).
+// 0 rows now covers the OLD-not-active race, a cycle-shaped refusal,
+// and the truncated-walk refusal (the steward keeps the ErrNotFound
+// race contract; the deterministic diagnostics belong to the callers'
+// prechecks).
+const supersedeGuardedSQL = `
+		UPDATE knowledge
+		SET status = 'invalidated',
+		    superseded_by = $2,
+		    invalid_at = $3
+		WHERE id = $1 AND status = 'active' AND invalid_at IS NULL
+		AND NOT EXISTS (
+			WITH RECURSIVE lineage AS (
+				SELECT id, superseded_by, 1 AS depth
+				FROM knowledge WHERE id = $2
+				UNION ALL
+				SELECT k.id, k.superseded_by, l.depth + 1
+				FROM knowledge k
+				JOIN lineage l ON k.id = l.superseded_by
+				WHERE l.depth < $4
+			)
+			SELECT 1 FROM lineage WHERE id = $1 OR depth >= $4)`
 
 // Supersede is the single update path of the knowledge supersede
 // transition: status='invalidated'·superseded_by=newID·invalid_at=at
 // (NEW's valid_at — per Zep t_invalid=t_valid) written together. The
 // lineage is the single superseded_by model — a rows-affected steward
 // is built in: 0 rows (a race after the precheck — OLD is no longer
-// active) becomes an ErrNotFound-wrapped error. Cycle safety is the
-// caller's precheck (maintain --supersede runs db.SupersedeCycleSQL
-// before the write; NEW's status is not restricted — chain extension
-// stays allowed).
+// active, or the embedded guard refused a cycle) becomes an
+// ErrNotFound-wrapped error. v1.20.1 (r87): the whole check-then-set
+// is serialized under one advisory lock and the cycle predicate rides
+// the UPDATE itself — a separate precheck round trip cannot close the
+// concurrent cross-supersede window. NEW's status is not restricted —
+// chain extension stays allowed.
 func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
-	n, err := transitionExecFn(ctx, r, `
-		UPDATE knowledge
-		SET status = 'invalidated',
-		    superseded_by = $2,
-		    invalid_at = $3
-		WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`,
-		oldID, newID, at)
+	unlock, err := supersedeLockFn(ctx, r)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
+	n, err := transitionExecFn(ctx, r, supersedeGuardedSQL,
+		oldID, newID, at, SupersedeCycleDepthLimit)
 	if err != nil {
 		return 0, fmt.Errorf("supersede: %w", err)
 	}

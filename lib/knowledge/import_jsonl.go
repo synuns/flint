@@ -49,7 +49,9 @@ func ParseJSONLRows(data []byte) ([]ExportRow, error) {
 // contract: status·imported·duplicated·superseded. Id reassignments are
 // remapped; PAM skips (rows whose status is not accrual-eligible·non-
 // knowledge candidates) are conditionally reported as skipped).
-func importMigrateSummary(imported, duplicated, superseded, remapped, skipped int) string {
+// v1.20.1 (r84): PAM relation links re-accrued by the import are
+// conditionally reported as links.
+func importMigrateSummary(imported, duplicated, superseded, remapped, skipped, links int) string {
 	m := map[string]any{
 		"status":     "ok",
 		"imported":   imported,
@@ -61,6 +63,9 @@ func importMigrateSummary(imported, duplicated, superseded, remapped, skipped in
 	}
 	if skipped > 0 {
 		m["skipped"] = skipped
+	}
+	if links > 0 {
+		m["links"] = links
 	}
 	b, err := json.Marshal(m)
 	if err != nil {
@@ -115,6 +120,7 @@ func parseImportMigrateArgs(args []string) (format, file string, err error) {
 // importMigrateOutcome — the aggregate result of one run.
 type importMigrateOutcome struct {
 	imported, duplicated, superseded, remapped, skipped int
+	links                                               int         // PAM relations re-accrued into knowledge_links (v1.20.1)
 	idmap                                               map[int]int // export id → accrued id
 	byIndex                                             []int       // input row index → accrued id (0=unresolved)
 	validAt                                             map[int]time.Time
@@ -278,14 +284,22 @@ func lookupHashBatch(ctx context.Context, st wire.Store, hashes []string) (map[s
 // existing ids (an explicit id of a row that passed hash dedup already
 // being in the DB means different content — a PK conflict). Errors
 // propagate (same as the dedup lookup — no silent reassignment verdict,
-// preserving the server-down exit 2 chain).
+// preserving the server-down exit 2 chain). v1.20.1 (r86): the array is
+// sent as []int64 with an explicit ::bigint[] cast — pgx infers a Go
+// []int as int4[], and Doltgres describes the bare $1 of ANY($1) as
+// _int4 even against the bigint id column (measured), so ids ≥ 2^31
+// (legal bigserial range) failed the array encoding.
 func lookupExistingIDs(ctx context.Context, st wire.Store, ids []int) (map[int]bool, error) {
 	existing := make(map[int]bool, len(ids))
 	for start := 0; start < len(ids); start += importDedupChunk {
 		end := min(start+importDedupChunk, len(ids))
+		i64 := make([]int64, 0, end-start)
+		for _, id := range ids[start:end] {
+			i64 = append(i64, int64(id))
+		}
 		rows, err := wire.QueryOnce(ctx, st,
-			`SELECT id FROM knowledge WHERE id = ANY($1)`,
-			[]any{ids[start:end]})
+			`SELECT id FROM knowledge WHERE id = ANY($1::bigint[])`,
+			[]any{i64})
 		if err != nil {
 			return nil, fmt.Errorf("import: id conflict lookup failed: %w", err)
 		}
@@ -672,6 +686,25 @@ func restoreSupersede(ctx context.Context, st wire.Store, oc *importMigrateOutco
 		}
 		done := false
 		if ss, ok := st.(supersedeStore); ok {
+			// v1.20.1 (r86) — the same cycle precheck as maintain
+			// --supersede before the write: the embedded Supersede guard
+			// turns a cycle into a bare 0-rows ErrNotFound, which would
+			// fall through to the SetSupersededRef fallback below and
+			// plant the loop-shaped reference anyway. A cycle (or a
+			// depth-cap truncation) is a hard import error here; an empty
+			// answer (fakes that do not model the walk) proceeds — the
+			// write-side guard under the advisory lock is the backstop.
+			if cycRows, cerr := wire.QueryOnce(ctx, st, db.SupersedeCycleSQL,
+				[]any{oldID, newID, db.SupersedeCycleDepthLimit}); cerr == nil && len(cycRows) > 0 {
+				if cyc, _ := cycRows[0][0].(bool); cyc {
+					return n, fmt.Errorf(
+						"import: id=%d -> id=%d would create a supersede cycle", oldID, newID)
+				}
+				if truncated, _ := cycRows[0][1].(bool); truncated {
+					return n, fmt.Errorf(
+						"import: id=%d -> id=%d lineage walk hit the depth cap — refusing conservatively", oldID, newID)
+				}
+			}
 			_, err := ss.Supersede(ctx, oldID, newID, at)
 			if err != nil {
 				if !errors.Is(err, db.ErrNotFound) {
@@ -788,6 +821,16 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 			Tags:       c.Tags,
 			Source:     c.Source,
 		}
+		// v1.20.1 (r87) — created_at preservation: the PAM temporal
+		// created_at (RFC3339, the export format) feeds the accrual rec's
+		// ingested_at, symmetric with the jsonl path (rowHashRec). A
+		// parse failure keeps the zero time (the accrual default) — a
+		// partial document must not fail the import.
+		if c.CreatedAt != "" {
+			if t, perr := time.Parse(time.RFC3339Nano, c.CreatedAt); perr == nil {
+				row.CreatedAt = t
+			}
+		}
 		// Round-trip idempotence: a stored content_hash carried by a
 		// flint-issued document (inherited by ParsePAM — 64 hex only) is
 		// inherited as the accrual hash so dedup is symmetric with the
@@ -845,6 +888,21 @@ func importPAM(ctx context.Context, st wire.Store, res *PAMResult) (*importMigra
 			return nil, err
 		}
 		oc.superseded = k
+	}
+	// v1.20.1 (r84) — the 4-vocabulary relations re-accrual (the write
+	// side of the PAM round trip): ParsePAM collected the pairs; the
+	// accrual-side map reconnects them onto the fresh row ids. The link
+	// INSERTs ride the caller's import commit; the applied count is
+	// reported in the summary JSON (links).
+	if len(res.Links) > 0 {
+		applied, err := RestorePAMLinks(ctx, st, func(pid string) (int, bool) {
+			id, ok := pamID[pid]
+			return id, ok && id > 0
+		}, res.Links)
+		if err != nil {
+			return nil, err
+		}
+		oc.links = applied
 	}
 	return oc, nil
 }
@@ -988,6 +1046,6 @@ func RunImportMigrate(ctx context.Context, st wire.Store, args []string, stdin i
 			return store.MapExit(cerr)
 		}
 	}
-	fmt.Fprintln(stdout, importMigrateSummary(oc.imported, oc.duplicated, oc.superseded, oc.remapped, oc.skipped))
+	fmt.Fprintln(stdout, importMigrateSummary(oc.imported, oc.duplicated, oc.superseded, oc.remapped, oc.skipped, oc.links))
 	return 0
 }

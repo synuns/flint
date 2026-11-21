@@ -13,6 +13,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"regexp"
 	"strconv"
@@ -407,7 +408,10 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// unfiltered results).
 	if res.Given("--min-confidence") {
 		v, err := strconv.ParseFloat(res.Value("--min-confidence"), 64)
-		if err != nil || v < 0 || v > 1 {
+		// v1.20.1 (r86): NaN/Inf refusal — ParseFloat accepts "NaN"·"Inf",
+		// and every comparison against NaN is false, so a NaN floor passed
+		// this range gate and reached the SQL comparison unfiltered.
+		if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 1 {
 			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "min-confidence", Expect: "0..1 float"}))
 			return 3
 		}

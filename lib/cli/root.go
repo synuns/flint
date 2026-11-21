@@ -259,16 +259,17 @@ func (s *realStore) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
 // InsertKnowledgeLink — the knowledge.LinkAccrualStore extension
 // (v1.20.0 T5): the idempotent knowledge_links INSERT — a resend of the
-// same (from,to,relation) skips (NOT EXISTS — the seeding idempotence
-// convention). The write SQL literal lives in this store layer (the
+// same (from,to,relation) skips (the seeding idempotence convention).
+// v1.20.1 (r86): the guard is ON CONFLICT DO NOTHING over the schema v15
+// unique index uq_knowledge_links_triple — the former NOT EXISTS form
+// left a check-then-insert window that let parallel writers accrue the
+// same link twice. The write SQL literal lives in this store layer (the
 // lib/{ops,knowledge} write-guard scope owns write verbs here).
 func (s *realStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO knowledge_links (from_id, to_id, relation)
-		 SELECT $1, $2, $3
-		 WHERE NOT EXISTS (
-		   SELECT 1 FROM knowledge_links
-		   WHERE from_id = $1 AND to_id = $2 AND relation = $3)`,
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (from_id, to_id, relation) DO NOTHING`,
 		fromID, toID, relation)
 	return err
 }

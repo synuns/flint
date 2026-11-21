@@ -347,9 +347,22 @@ func parseLinkSpecs(p map[string]any) ([]linkSpec, *store.SchemaError) {
 		if !ok || toF != math.Trunc(toF) || toF <= 0 {
 			return nil, &store.SchemaError{Field: "relations", Expect: "to: positive integer row id"}
 		}
+		// v1.20.1 (r86): the int64-overflow refusal — a to at or beyond
+		// 2^63 cannot be a knowledge id (bigserial = int64 range), and an
+		// int() conversion here previously let it flow into the ANY($1)
+		// batched lookup where the array encoding fails opaquely.
+		if toF >= 9223372036854775808.0 { // 2^63
+			return nil, &store.SchemaError{Field: "relations", Expect: "to: row id below 2^63"}
+		}
 		rel, ok := m["relation"].(string)
 		if !ok {
 			return nil, &store.SchemaError{Field: "relations", Expect: "relation: string"}
+		}
+		// v1.20.1 (r87): the relation length cap — the longest registered
+		// vocabulary value is 12 bytes; 64 is generous headroom, and the
+		// cap keeps an unbounded string from riding the rejection echo.
+		if len(rel) > 64 {
+			return nil, &store.SchemaError{Field: "relations", Expect: "relation: at most 64 bytes"}
 		}
 		n := strings.ToLower(strings.TrimSpace(rel))
 		specs = append(specs, linkSpec{To: int(toF), Relation: n})
@@ -365,8 +378,11 @@ func parseLinkSpecs(p map[string]any) ([]linkSpec, *store.SchemaError) {
 // relations array: one lookupExistingIDs query over the distinct target
 // ids, a missing target → the exit-3 SchemaError class. Called BEFORE
 // InsertBatch (the v14 no-FK write-path check) — a refusal must leave no
-// staged rows behind.
-func precheckLinkTargets(ctx context.Context, st wire.Store, specs []linkSpec) *store.SchemaError {
+// staged rows behind. v1.20.1 (r86): a lookup failure now propagates
+// (error return) instead of passing as a quiet non-refusal — a silently
+// swallowed encoding/lookup error made every target read as present
+// while the later accrual failed anyway.
+func precheckLinkTargets(ctx context.Context, st wire.Store, specs []linkSpec) (*store.SchemaError, error) {
 	seen := map[int]bool{}
 	var tos []int
 	for _, s := range specs {
@@ -376,20 +392,20 @@ func precheckLinkTargets(ctx context.Context, st wire.Store, specs []linkSpec) *
 		}
 	}
 	if len(tos) == 0 {
-		return nil
+		return nil, nil
 	}
 	existing, err := lookupExistingIDs(ctx, st, tos)
 	if err != nil {
-		return nil // a lookup failure is not a refusal — the insert path reports it
+		return nil, err
 	}
 	sort.Ints(tos)
 	for _, to := range tos {
 		if !existing[to] {
 			return &store.SchemaError{Field: "relations",
-				Expect: fmt.Sprintf("target row %d missing", to)}
+				Expect: fmt.Sprintf("target row %d missing", to)}, nil
 		}
 	}
-	return nil
+	return nil, nil
 }
 
 // LinkAccrualStore — the knowledge_links INSERT extension (v1.20.0 T5):
@@ -407,7 +423,10 @@ type LinkAccrualStore interface {
 // idempotent seeding convention — a resend of the same
 // (from,to,relation) skips inside the store implementation). Target
 // existence was refused up front by precheckLinkTargets (before any row
-// staging).
+// staging). v1.20.1 (r86): a self-referencing spec (to == fromID) is
+// refused here too — the last-line defense covering the fresh-row path,
+// where the from id only exists after InsertBatch (the duplicate path
+// is refused earlier, at the pendLinks self-reference precheck).
 func insertKnowledgeLinks(ctx context.Context, st wire.Store, fromID int, specs []linkSpec) error {
 	if fromID <= 0 || len(specs) == 0 {
 		return nil
@@ -415,6 +434,13 @@ func insertKnowledgeLinks(ctx context.Context, st wire.Store, fromID int, specs 
 	ls, ok := st.(LinkAccrualStore)
 	if !ok {
 		return fmt.Errorf("write: relations accrual unsupported by store")
+	}
+	// Pre-scan the whole spec list — a refusal must not leave a partial
+	// accrual behind.
+	for _, s := range specs {
+		if s.To == fromID {
+			return fmt.Errorf("write: relations accrual refused: self-referencing link (id=%d)", fromID)
+		}
 	}
 	for _, s := range specs {
 		if err := ls.InsertKnowledgeLink(ctx, fromID, s.To, s.Relation); err != nil {
@@ -941,7 +967,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// duplicate-path links are accrued first (their own commit — a link
 	// insert is not a zero-row commit), and the single-line response
 	// reflects the landed relations.
-	flushDupLinks := func() int {
+	// v1.20.1 (r84): flushDupLinks(ownCommit) — the all-duplicate paths
+	// keep the standalone "relations accrual" commit; the mixed batch
+	// calls it with ownCommit=false after the fresh-row accrual so the
+	// duplicate-path links ride the same batch commit instead of being
+	// dropped (the mixed-batch link-loss finding).
+	flushDupLinks := func(ownCommit bool) int {
 		accrued := false
 		for _, pl := range pendLinks {
 			if err := insertKnowledgeLinks(ctx, st, pl.from, pl.spec); err != nil {
@@ -950,7 +981,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 			accrued = true
 		}
-		if accrued {
+		if accrued && ownCommit {
 			if _, err := st.Commit(ctx, "knowledge: relations accrual (duplicate resend)"); err != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(err))
 				return store.MapExit(err)
@@ -959,7 +990,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		return 0
 	}
 	emitDuplicate := func() int {
-		if code := flushDupLinks(); code != 0 {
+		if code := flushDupLinks(true); code != 0 {
 			return code
 		}
 		RecordUsage(ctx, st, "write", source)
@@ -981,12 +1012,28 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	for _, s := range recLinks {
 		allSpecs = append(allSpecs, s...)
 	}
+	// v1.20.1 (r86) — the duplicate-path self-reference refusal: the
+	// duplicate resend's from id (DupMeta.ID) is known here, so to==from
+	// is refused up front (exit 3 — the fresh-row path cannot know its
+	// future id and is guarded inside insertKnowledgeLinks instead).
 	for _, pl := range pendLinks {
+		for _, s := range pl.spec {
+			if s.To == pl.from {
+				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "relations",
+					Expect: fmt.Sprintf("self-referencing link refused (id=%d)", pl.from)}))
+				return 3
+			}
+		}
 		allSpecs = append(allSpecs, pl.spec...)
 	}
-	if se := precheckLinkTargets(ctx, st, allSpecs); se != nil {
+	se, perr := precheckLinkTargets(ctx, st, allSpecs)
+	if se != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(se))
 		return 3
+	}
+	if perr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(perr))
+		return store.MapExit(perr)
 	}
 
 	if len(recs) == 0 {
@@ -1087,6 +1134,15 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return store.MapExit(err)
 			}
 		}
+	}
+	// v1.20.1 (r84) — the mixed-batch duplicate-path links: a batch with
+	// both new lines and duplicate resends previously accrued only the
+	// new rows' relations here and silently dropped every pendLinks
+	// entry (flushDupLinks ran only on the all-duplicate paths). Flush
+	// without a standalone commit so they ride the same batch commit as
+	// the fresh rows and their links.
+	if code := flushDupLinks(false); code != 0 {
+		return code
 	}
 	// D4 (R33): the commit title — project prefers name (knowledge lacks
 	// name, so summary). If both are absent, the "%v" <nil> fallback (the

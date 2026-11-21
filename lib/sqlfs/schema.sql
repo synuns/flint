@@ -194,5 +194,11 @@ CREATE TABLE IF NOT EXISTS knowledge_links (
 CREATE INDEX IF NOT EXISTS idx_knowledge_links_from_id ON knowledge_links (from_id);
 CREATE INDEX IF NOT EXISTS idx_knowledge_links_to_id ON knowledge_links (to_id);
 
+-- v15(v1.20.1): 링크 유일성 봉인 — (from_id, to_id, relation) 유니크
+-- 인덱스. v1.20.0의 NOT EXISTS 가드는 검사-삽입 창을 남겨 병렬 적립에서
+-- 같은 링크가 2행씩 적립될 수 있었다. INSERT는 ON CONFLICT DO NOTHING.
+CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_links_triple
+    ON knowledge_links (from_id, to_id, relation);
+
 -- v14: supersede 체인(재귀 뷰·사이클 CTE) 탐색 축 인덱스.
 CREATE INDEX IF NOT EXISTS idx_knowledge_superseded_by ON knowledge (superseded_by);

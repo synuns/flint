@@ -55,7 +55,9 @@ func TestPlansIndexInSync(t *testing.T) {
 
 // TestActivePlansHaveStatusHeader — 활성 플랜 머리의 상태 필드.
 func TestActivePlansHaveStatusHeader(t *testing.T) {
-	statusRe := regexp.MustCompile(`(?m)^상태: *(draft|active|blocked) *$`)
+	// v1.20.1: approved 허용 — G2 승인·발행 완료 스펙의 종착 상태
+	// (approved 뒤에 승인 각도·일자 괄호가 붙는다).
+	statusRe := regexp.MustCompile(`(?m)^상태: *(draft|active|blocked|approved.*) *$`)
 	for _, p := range activePlans(t) {
 		b, err := os.ReadFile(filepath.Join("../../docs/plans", p))
 		if err != nil {

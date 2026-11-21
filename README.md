@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.20.0-blue" alt="v1.20.0">
+  <img src="https://img.shields.io/badge/release-v1.20.1-blue" alt="v1.20.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.20.1 · r84-r87 patches — link accrual completeness (mixed batch · PAM round trip) · supersede race hardening · schema v15 unique link index · [full changelog](docs/HISTORY.md)
 > v1.20.0 · knowledge-schema-search — schema v14 knowledge links (refines · supports · contradicts · duplicates) · read `--min-confidence` / `--origin` filters · supersede cycle guard & chain view · [full changelog](docs/HISTORY.md)
 > v1.19.6 · observability-foundation patches — schema v13 (near_score · threshold snapshots · weekly rollups) · metering freshness & coverage · [full changelog](docs/HISTORY.md)
 > v1.18.3 · R69 — grammar fix · [full changelog](docs/HISTORY.md)
