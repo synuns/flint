@@ -13,7 +13,7 @@ Sources: `lib/mcp/tools.go` · `lib/mcp/serve.go` · ADR-0015.
 
 | tool | behavior |
 |---|---|
-| `flint_read` | search active knowledge (query/tag filters, limit cap 50) |
+| `flint_read` | search active knowledge (query/tag/origin filters, confidence floor, limit cap 50) |
 | `flint_write` | record kind(knowledge/session/project)+payload; identical payloads are duplicate (idempotent) |
 | `flint_hot` | hot summary for injection (2,000-char cap). All recent items (no session filter) |
 | `flint_pending` | pending knowledge list + rule-based recommendations (verdict: promote/merge/expire/hold) |

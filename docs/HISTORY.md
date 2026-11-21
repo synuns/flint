@@ -6,6 +6,58 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.20.1 patch (2026-11-22) — r84-r87: link accrual completeness · pam roundtrip · cycle race hardening · schema v15 unique link index
+
+The v1.20.0 four-angle audit (r84–r87) fix batch — 13 findings
+(deduped), link-accrual completeness first:
+
+- **mixed-batch duplicate-link loss (r84)**: a write batch holding both
+  new lines and duplicate resends accrued only the new rows'
+  relations — the duplicate-path links were silently dropped (the
+  flush ran only on the all-duplicate paths). Both families now ride
+  the same batch commit.
+- **PAM round trip (r84)**: `import --format pam` parsed the
+  4-vocabulary relations but never accrued them — RestorePAMLinks now
+  runs over the accrual id map, and the summary JSON carries the
+  applied count (`links`). PAM temporal `created_at` (RFC3339) is also
+  preserved into `ingested_at` (the jsonl-path symmetry).
+- **int4 overflow·precheck silence (r86)**: a relation target id ≥ 2^31
+  (legal bigserial range) died inside the `ANY($1)` array encoding —
+  Doltgres describes the bare `$1` as `_int4` even against the bigint
+  id column (measured) — and the failed lookup was silently treated as
+  "every target exists". The lookup now sends `[]int64` with an
+  explicit `::bigint[]` cast, a lookup failure propagates (no quiet
+  pass), and a `to` ≥ 2^63 is refused at parse time (exit 3).
+- **supersede race·depth (r87)**: the precheck→UPDATE window let two
+  parallel cross supersedes (A→B ∥ B→A) both land, planting a 2-cycle
+  (measured — Doltgres has no SELECT FOR UPDATE, and same-row
+  transaction serialization did not conflict). Supersede is now
+  serialized under one `pg_advisory_lock` with the cycle predicate
+  embedded in the UPDATE itself (20-round cross race: exactly one
+  winner per round). A lineage walk reaching the depth cap is a
+  conservative refusal (error) — the old "safe no-cycle" verdict is
+  abolished (500-hop chain tail→head: refused). `import --format
+  jsonl` lineage restoration runs the same precheck (a loop-shaped
+  document no longer plants its cycle through the ErrNotFound
+  fallback).
+- **schema v15 (additive — one index)**: `uq_knowledge_links_triple`
+  on (from_id, to_id, relation) — the NOT EXISTS insert guard left a
+  check-then-insert window that accrued the same link twice under
+  parallel writers. v15 promotion collapses pre-seal duplicates (the
+  NOT IN / MIN(id) form — Doltgres has no DELETE ... USING) and the
+  INSERT is `ON CONFLICT DO NOTHING` (5 parallel writers → 1 row).
+  Self-referencing links (`to == from`) and relation values over 64
+  bytes are refused (exit 3), `--min-confidence NaN/Inf` is exit 3,
+  and the MCP contract doc's flint_read row now names the
+  query/tag/origin filters and the confidence floor it already
+  shipped.
+- parallel duplicate supersede double-report (r87-5): informational
+  only — the data stays correct; recorded here, no code change.
+
+(spec: docs/plans/2026-11-22-flint-v1200.spec.md — approved). Schema
+v14 DBs promote to v15 on the first command (additive index, migration
+0 for everything read-side).
+
 ### v1.20.0 minor (2026-11-22) — knowledge-schema-search: schema v14 knowledge links · read filters · supersede cycle guard
 
 (spec: docs/plans/2026-11-22-flint-v1200.md). The knowledge schema and

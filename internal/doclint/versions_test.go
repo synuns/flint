@@ -482,6 +482,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01200Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.20.0", "knowledge-schema-search",
 	}},
+	// v1.20.1 patch: r84-r87 청산 — 혼합 배치 링크 적립 완전성·PAM
+	// links 왕복·supersede 경합 직렬화(pg_advisory_lock·가드 내장)·
+	// 깊이 상한 보수 거부·스키마 v15 유니크 링크 인덱스(ON CONFLICT).
+	{name: "TestVersion01201Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.20.1", "r84-r87",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

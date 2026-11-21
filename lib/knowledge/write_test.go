@@ -693,14 +693,13 @@ func (s *writeRealStore) Query(ctx context.Context, sql string, args ...any) ([]
 // adapter (v1.20.0 T5): the idempotent knowledge_links INSERT over the
 // pool (the same statement the production realStore carries in
 // cli/root.go — the write-guard scope keeps the literal in store
-// implementations).
+// implementations). v1.20.1: ON CONFLICT over the schema v15 unique
+// index, tracking the production change.
 func (s *writeRealStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO knowledge_links (from_id, to_id, relation)
-		 SELECT $1, $2, $3
-		 WHERE NOT EXISTS (
-		   SELECT 1 FROM knowledge_links
-		   WHERE from_id = $1 AND to_id = $2 AND relation = $3)`,
+		 VALUES ($1, $2, $3)
+		 ON CONFLICT (from_id, to_id, relation) DO NOTHING`,
 		fromID, toID, relation)
 	return err
 }

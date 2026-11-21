@@ -30,7 +30,9 @@ type transitionCall struct {
 
 // useFakeTransitionExec — swaps the transitionExecFn seam. With
 // SUPERLITE_REAL=1, leaves the real implementation as-is (a test-seam
-// check — in that case the caller goes to the slow line).
+// check — in that case the caller goes to the slow line). v1.20.1: the
+// supersede advisory-lock seam is swapped together (fake Supersede
+// callers run against a nil pool — the lock is a real-DB concern).
 func useFakeTransitionExec(t *testing.T) *transitionRecorder {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") == "1" {
@@ -42,7 +44,14 @@ func useFakeTransitionExec(t *testing.T) *transitionRecorder {
 		rec.calls = append(rec.calls, transitionCall{sql: query, args: args})
 		return rec.n, nil
 	}
-	t.Cleanup(func() { transitionExecFn = prev })
+	prevLock := supersedeLockFn
+	supersedeLockFn = func(ctx context.Context, r *Repo) (func(), error) {
+		return func() {}, nil
+	}
+	t.Cleanup(func() {
+		transitionExecFn = prev
+		supersedeLockFn = prevLock
+	})
 	return rec
 }
 
@@ -113,11 +122,12 @@ func TestInvalidateSupersedeSingleSource(t *testing.T) {
 	if supSQL := rec.calls[1].sql; !strings.Contains(supSQL, "status = 'invalidated'") ||
 		!strings.Contains(supSQL, "superseded_by = $2") ||
 		!strings.Contains(supSQL, "invalid_at = $3") ||
-		!strings.Contains(supSQL, "WHERE id = $1 AND status = 'active' AND invalid_at IS NULL") {
+		!strings.Contains(supSQL, "WHERE id = $1 AND status = 'active' AND invalid_at IS NULL") ||
+		!strings.Contains(supSQL, "NOT EXISTS") {
 		t.Errorf("Supersede SQL 병기 미충족: %q", supSQL)
 	}
-	if !reflect.DeepEqual(rec.calls[1].args, []any{3, 7, at}) {
-		t.Errorf("Supersede 파라미터=%v, want [3 7 %v]", rec.calls[1].args, at)
+	if !reflect.DeepEqual(rec.calls[1].args, []any{3, 7, at, SupersedeCycleDepthLimit}) {
+		t.Errorf("Supersede 파라미터=%v, want [3 7 %v %d]", rec.calls[1].args, at, SupersedeCycleDepthLimit)
 	}
 
 	// The 0-rows steward — no silent race success (ErrNotFound wrap:

@@ -193,7 +193,8 @@ func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 			return [][]any{row}, nil
 		}
 		if strings.Contains(sql, "WITH RECURSIVE") {
-			return [][]any{{false}}, nil
+			// two columns since v1.20.1: (cycle, depth-cap truncated)
+			return [][]any{{false, false}}, nil
 		}
 		return nil, errors.New("unexpected query: " + sql)
 	}

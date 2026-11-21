@@ -940,9 +940,10 @@ func TestV14GateUpgradeFromV13(t *testing.T) {
 }
 
 // TestV14FreshSchemaDirect — the fresh-install path: recreating with the
-// real schema.sql + running the gate chain v2→v14 in order reaches the
-// v14 terminus (knowledge_links + its indexes + the superseded_by index
-// present without any gate DDL — the fresh-creation terminus contract).
+// real schema.sql + running the gate chain v2→LatestSchemaVersion in
+// order reaches the v15 terminus (knowledge_links + its indexes + the
+// superseded_by index + the v15 unique triple seal present without any
+// gate DDL — the fresh-creation terminus contract).
 func TestV14FreshSchemaDirect(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
@@ -967,8 +968,26 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "14" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 14", v)
+	if v := readVersion(t, r); v != "15" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 15 (v1.20.1 상향)", v)
 	}
 	v14GateArtifacts(t, r, ctx)
+	// v1.20.1: the fresh terminus carries the unique triple seal — a
+	// duplicate (from,to,relation) INSERT is refused.
+	ids, err := r.InsertBatch(ctx, []map[string]any{
+		knowledgeRec("v1201-fresh-seal-a"), knowledgeRec("v1201-fresh-seal-b"),
+	})
+	if err != nil {
+		t.Fatalf("InsertBatch: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO knowledge_links (from_id, to_id, relation) VALUES ($1, $2, 'refines')`,
+		ids[0], ids[1]); err != nil {
+		t.Fatalf("fresh seal 링크 적립: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO knowledge_links (from_id, to_id, relation) VALUES ($1, $2, 'refines')`,
+		ids[0], ids[1]); err == nil {
+		t.Fatal("fresh seal 중복 triple INSERT 허용 — 유니크 봉인 부재")
+	}
 }

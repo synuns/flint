@@ -921,7 +921,10 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 	// (db.SupersedeCycleSQL — the same predicate the Merge·
 	// SetSupersededRef write-path guards run); an empty answer (fakes
 	// that do not model the walk) reads as no cycle and lets the write
-	// proceed.
+	// proceed. v1.20.1 (r87): the predicate's second column reports a
+	// depth-cap truncation — a chain reaching the cap is a conservative
+	// refusal (exit 1), not the old safe no-cycle verdict; the write
+	// side's embedded guard is the last line under the advisory lock.
 	cycRows, err := wire.QueryOnce(ctx, ms, db.SupersedeCycleSQL,
 		[]any{oldID, newID, db.SupersedeCycleDepthLimit})
 	if err != nil {
@@ -932,6 +935,12 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 		if cyc, _ := cycRows[0][0].(bool); cyc {
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
 				"maintain: --supersede: id=%d -> id=%d would create a supersede cycle", oldID, newID)))
+			return 1
+		}
+		if truncated, _ := cycRows[0][1].(bool); truncated {
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
+				"maintain: --supersede: id=%d -> id=%d lineage walk hit the depth cap (%d) — refusing conservatively",
+				oldID, newID, db.SupersedeCycleDepthLimit)))
 			return 1
 		}
 	}

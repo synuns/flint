@@ -126,13 +126,18 @@ func ValidRelation(rel string) bool {
 // passes — the optional-field convention). The distinct
 // "rejected relation:" class follows the colon-token rejection
 // precedent (policy.go): an out-of-vocabulary value is refused, not
-// merely warned — the write path maps this class to exit 3.
+// merely warned — the write path maps this class to exit 3. v1.20.1
+// (r87): the echoed value is capped at 200 runes — a rejection echo
+// must never re-print an unbounded input string in full.
 func CheckRelations(rels []string) []string {
 	var out []string
 	for _, rel := range rels {
 		n := normalizeVocab(rel)
 		if knowledgeRelations[n] {
 			continue
+		}
+		if r := []rune(n); len(r) > 200 {
+			n = string(r[:200]) + "…"
 		}
 		out = append(out, fmt.Sprintf(
 			"rejected relation: %s (relations vocabulary: %s)",
