@@ -29,11 +29,29 @@ var serverInfoMeta = func() map[string]any {
 // protocolVersion (existing roundtrips unchanged, inherited by serve.go).
 const fallbackProtocolVersion = "2024-11-05"
 
-// negotiateVersion — echoes back the client's protocolVersion, falling back
-// to 2024-11-05 when absent. Absorbs per-harness negotiation differences.
+// latestProtocolVersion — the newest version this server supports; the
+// answer for requests outside the supported set (spec MUST).
+const latestProtocolVersion = "2025-11-25"
+
+// supportedProtocolVersions — the protocol revisions this server speaks.
+// A request inside the set is echoed back; outside it the server responds
+// with its latest supported version (never an echo of an unknown version).
+var supportedProtocolVersions = map[string]bool{
+	"2024-11-05": true,
+	"2025-06-18": true,
+	"2025-11-25": true,
+}
+
+// negotiateVersion — a supported protocolVersion is echoed back; an
+// unsupported one gets latestProtocolVersion (spec MUST); an absent or
+// non-string value keeps the legacy 2024-11-05 fallback (backward
+// compatibility — a separate rule from the out-of-set response).
 func negotiateVersion(params map[string]any) string {
 	if v, ok := params["protocolVersion"].(string); ok && v != "" {
-		return v
+		if supportedProtocolVersions[v] {
+			return v
+		}
+		return latestProtocolVersion
 	}
 	return fallbackProtocolVersion
 }
@@ -70,13 +88,20 @@ func handleRPC(method string, params map[string]any) (any, error) {
 		name, _ := params["name"].(string)
 		args, _ := params["arguments"].(map[string]any)
 		out, code := DispatchTool(name, args)
-		return map[string]any{
+		result := map[string]any{
 			"content": []map[string]any{{"type": "text", "text": out}},
 			// An exit 1 with empty output is the normal outcome of the
 			// zero-hit silence contract. Every flint error prints one
 			// errLine, so only an exit 1 with output propagates as isError.
 			"isError": code != 0 && strings.TrimSpace(out) != "",
-		}, nil
+		}
+		// v1.18.0 T2: structuredContent rides alongside the content text
+		// (spec SHOULD keeps the text for old clients). Non-JSON outputs
+		// (flint_hot) omit the field — content text alone.
+		if sc := structuredContent(name, out); sc != nil {
+			result["structuredContent"] = sc
+		}
+		return result, nil
 	default:
 		return nil, ErrUnknownMethod
 	}

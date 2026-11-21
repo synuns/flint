@@ -19,12 +19,29 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// ToolDef — one MCP tools/list entry. InputSchema is a JSON Schema object.
+// ToolDef — one MCP tools/list entry. InputSchema is a JSON Schema object;
+// OutputSchema (v1.18.0, JSON Schema 2020-12) declares the actual output
+// shape so modern clients can validate structuredContent.
 type ToolDef struct {
-	Name        string         `json:"name"`
-	Description string         `json:"description"`
-	InputSchema map[string]any `json:"inputSchema"`
+	Name         string          `json:"name"`
+	Description  string          `json:"description"`
+	InputSchema  map[string]any  `json:"inputSchema"`
+	OutputSchema json.RawMessage `json:"outputSchema,omitempty"`
 }
+
+// Output schemas (v1.18.0 T1) — declared against the ACTUAL tool outputs,
+// not the aspirational ones: write echoes {status,hash,state,id} (duplicate
+// responses reuse the status value), pending is {status,items,counts,next},
+// approve is {status,id}, read is an array of row objects (JSONL lines;
+// zero-hit stays the {hits:0} object), and hot is non-JSON text (minimal
+// meta only — no structuredContent for hot).
+const (
+	readOutputSchema    = `{"type":"array","items":{"type":"object","properties":{"id":{"type":"string"},"topic":{"type":"string"},"summary":{"type":"string"}}}}`
+	writeOutputSchema   = `{"type":"object","properties":{"status":{"type":"string"},"hash":{"type":"string"},"state":{"type":"string"},"id":{"type":"integer"}}}`
+	hotOutputSchema     = `{"type":"object","properties":{}}`
+	pendingOutputSchema = `{"type":"object","properties":{"status":{"type":"string"},"items":{"type":"array"},"counts":{"type":"object"},"next":{"type":"string"}}}`
+	approveOutputSchema = `{"type":"object","properties":{"status":{"type":"string"},"id":{"type":"integer"}}}`
+)
 
 // runFn — a seam. The default is the server-lifetime store-reusing runner:
 // it injects the cached store (or nil when supply fails) into
@@ -84,6 +101,7 @@ func ToolsManifest() []ToolDef {
 					"limit": map[string]any{"type": "integer", "maximum": 50},
 				},
 			},
+			OutputSchema: json.RawMessage(readOutputSchema),
 		},
 		{
 			Name:        "flint_write",
@@ -96,6 +114,7 @@ func ToolsManifest() []ToolDef {
 					"payload": map[string]any{"type": "object"},
 				},
 			},
+			OutputSchema: json.RawMessage(writeOutputSchema),
 		},
 		{
 			// No session_id parameter — real-session filtering is excluded.
@@ -105,12 +124,14 @@ func ToolsManifest() []ToolDef {
 				"type":       "object",
 				"properties": map[string]any{},
 			},
+			OutputSchema: json.RawMessage(hotOutputSchema),
 		},
 		{
 			// Review loop — inspect and promote waiting knowledge within the session.
-			Name:        "flint_pending",
-			Description: "Pending knowledge list + rule-based suggestions. verdict is promote|merge|expire|hold. Returns JSON.",
-			InputSchema: map[string]any{"type": "object", "properties": map[string]any{}},
+			Name:         "flint_pending",
+			Description:  "Pending knowledge list + rule-based suggestions. verdict is promote|merge|expire|hold. Returns JSON.",
+			InputSchema:  map[string]any{"type": "object", "properties": map[string]any{}},
+			OutputSchema: json.RawMessage(pendingOutputSchema),
 		},
 		{
 			Name:        "flint_approve",
@@ -123,6 +144,7 @@ func ToolsManifest() []ToolDef {
 				},
 				"required": []string{"id"},
 			},
+			OutputSchema: json.RawMessage(approveOutputSchema),
 		},
 	}
 }
@@ -151,10 +173,13 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 	}
 }
 
-// dispatchRead — assembles flint read [query] --tag --limit. The limit bakes
-// the token budget (ClampLimit cap of 50) into the tool path too. query is
-// external input, so it goes after "--" to keep it from being parsed as a
-// flag (runRead's end-of-options rule).
+// dispatchRead — assembles flint read [query] --json --tag --limit. The
+// limit bakes the token budget (ClampLimit cap of 50) into the tool path
+// too. v1.18.0 T3: --json is assembled internally so the MCP read path
+// always returns machine-readable rows (JSONL), which structuredContent then
+// parses into {results:[...]}. query is external input, so it goes after
+// "--" to keep it from being parsed as a flag (runRead's end-of-options
+// rule).
 func dispatchRead(args map[string]any) (string, int) {
 	// MCP path label — metering read_events.source='mcp'.
 	cliArgs := []string{"--source", "mcp"}
@@ -167,7 +192,77 @@ func dispatchRead(args map[string]any) (string, int) {
 	if q := strArg(args, "query"); q != "" {
 		cliArgs = append(cliArgs, "--", q)
 	}
-	return runCall(append([]string{"read"}, cliArgs...), strings.NewReader(""))
+	return runCall(append([]string{"read", "--json"}, cliArgs...), strings.NewReader(""))
+}
+
+// structuredContent — derives the MCP structuredContent payload (2025-06-18+)
+// from a tool's text output; nil means "content text only". The rules:
+//   - one line that parses as a JSON object → that object as-is (the
+//     write/approve/pending responses and the read zero-hit {"hits":0});
+//   - multiple lines that each parse as a JSON object → per-line parsing
+//     assembled into an array and wrapped as {results:[...]} (read's JSONL
+//     rows — the spec MUSTs structuredContent to be an object, hence the
+//     wrap);
+//   - flint_read wraps even a single row (the read outputSchema advertises
+//     an array of rows), except the zero-hit line and error lines which
+//     stay as-is;
+//   - anything else (non-JSON text such as flint_hot, arrays, scalars,
+//     parse failures, empty output) → nil.
+func structuredContent(tool, out string) map[string]any {
+	lines := nonEmptyLines(out)
+	if len(lines) == 0 {
+		return nil
+	}
+	if len(lines) == 1 {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(lines[0]), &m); err != nil || m == nil {
+			return nil
+		}
+		if tool == "flint_read" && !isZeroHitLine(m) && !isErrorLine(m) {
+			return map[string]any{"results": []any{m}}
+		}
+		return m
+	}
+	results := make([]any, 0, len(lines))
+	for _, l := range lines {
+		var m map[string]any
+		if err := json.Unmarshal([]byte(l), &m); err != nil || m == nil {
+			return nil // one non-object line: no structured content, text only
+		}
+		results = append(results, m)
+	}
+	return map[string]any{"results": results}
+}
+
+// isZeroHitLine — the read --json zero-hit line {"hits":0} (exactly one
+// "hits" key). Kept as its own object rather than wrapped in results.
+func isZeroHitLine(m map[string]any) bool {
+	if len(m) != 1 {
+		return false
+	}
+	_, has := m["hits"]
+	return has
+}
+
+// isErrorLine — a one-line {error:...} response (every flint error prints
+// one errLine). Surfaced as-is, not wrapped in results — error responses
+// stay uniform across tools.
+func isErrorLine(m map[string]any) bool {
+	_, has := m["error"]
+	return has
+}
+
+// nonEmptyLines — splits an output into its non-empty lines (runCall already
+// trims trailing newlines; JSONL rows are one object per line).
+func nonEmptyLines(out string) []string {
+	raw := strings.Split(strings.TrimSpace(out), "\n")
+	lines := make([]string, 0, len(raw))
+	for _, l := range raw {
+		if l = strings.TrimSpace(l); l != "" {
+			lines = append(lines, l)
+		}
+	}
+	return lines
 }
 
 // dispatchApprove — flint approve --id N [--supersede OLD]. Review loop:

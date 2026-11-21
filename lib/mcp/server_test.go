@@ -9,6 +9,72 @@ import (
 	"time"
 )
 
+// v1.18.0 T1 — protocol version negotiation over the supported set
+// {"2024-11-05","2025-06-18","2025-11-25"}: a request inside the set is
+// echoed back, outside it the server answers with its latest (spec MUST),
+// and an absent/non-string value keeps the legacy 2024-11-05 fallback.
+
+// TestNegotiateVersionSupportedSetEcho — a protocolVersion inside the
+// supported set is echoed back unchanged.
+func TestNegotiateVersionSupportedSetEcho(t *testing.T) {
+	for _, v := range []string{"2024-11-05", "2025-06-18", "2025-11-25"} {
+		if got := negotiateVersion(map[string]any{"protocolVersion": v}); got != v {
+			t.Errorf("negotiateVersion(%q) = %q, want echo", v, got)
+		}
+	}
+}
+
+// TestNegotiateVersionUnsupportedAnswersLatest — a protocolVersion outside
+// the supported set gets the server's latest supported version (2025-11-25),
+// never an echo of an unknown version.
+func TestNegotiateVersionUnsupportedAnswersLatest(t *testing.T) {
+	for _, v := range []string{"2025-06-17", "2026-01-01", "2024-11-04", "2020-01-01"} {
+		if got := negotiateVersion(map[string]any{"protocolVersion": v}); got != "2025-11-25" {
+			t.Errorf("negotiateVersion(%q) = %q, want latest 2025-11-25", v, got)
+		}
+	}
+}
+
+// TestNegotiateVersionAbsentKeepsFallback — an absent or non-string
+// protocolVersion keeps the pre-v1.18.0 fallback (backward compatibility —
+// a separate rule from the out-of-set latest response).
+func TestNegotiateVersionAbsentKeepsFallback(t *testing.T) {
+	for _, p := range []map[string]any{nil, {}, {"protocolVersion": ""}, {"protocolVersion": 123}} {
+		if got := negotiateVersion(p); got != "2024-11-05" {
+			t.Errorf("negotiateVersion(%v) = %q, want fallback 2024-11-05", p, got)
+		}
+	}
+}
+
+// TestToolsListExposesOutputSchema — every tools/list entry carries an
+// outputSchema object (JSON Schema 2020-12) alongside inputSchema. Verified
+// through the serialized Serve path (the wire format clients parse).
+func TestToolsListExposesOutputSchema(t *testing.T) {
+	var in, out bytes.Buffer
+	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n")
+	if code := RunMCPServer(&in, &out); code != 0 {
+		t.Fatalf("exit = %d, want 0", code)
+	}
+	lines := decodeLines(t, out.String())
+	tools, ok := lines[0]["result"].(map[string]any)["tools"].([]any)
+	if !ok || len(tools) != 5 {
+		t.Fatalf("tools = %v, want 5건", lines[0]["result"])
+	}
+	for _, entry := range tools {
+		m, ok := entry.(map[string]any)
+		if !ok {
+			t.Fatalf("tools 항목이 맵 아님: %#v", entry)
+		}
+		sc, ok := m["outputSchema"].(map[string]any)
+		if !ok || len(sc) == 0 {
+			t.Errorf("%s outputSchema 누락/빈 객체: %#v", m["name"], m["outputSchema"])
+		}
+		if _, hasType := sc["type"]; !hasType {
+			t.Errorf("%s outputSchema에 type 없음: %#v", m["name"], sc)
+		}
+	}
+}
+
 func TestPingRoundtrip(t *testing.T) {
 	var in, out bytes.Buffer
 	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"ping","params":{}}` + "\n")
