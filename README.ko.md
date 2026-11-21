@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.19.1-blue" alt="v1.19.1">
+  <img src="https://img.shields.io/badge/release-v1.19.2-blue" alt="v1.19.2">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,7 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v1.19.1 · observability-foundation — 스키마 v13(near_score·임계값 스냅숏·주간 롤업)·계측 신선도·커버리지 · [전체 변경 이력](docs/HISTORY.md)
+> v1.19.2 · observability-foundation 패치 — 스키마 v13(near_score·임계값 스냅숏·주간 롤업)·계측 신선도·커버리지 · [전체 변경 이력](docs/HISTORY.md)
 > v1.18.3 · R69 — grammar fix · [full changelog](docs/HISTORY.md)
 > v1.17.2 · r65-dedup — correction 해시 origin 제외 · [전체 변경 이력](docs/HISTORY.md)
 > v1.17.1 · r64-observability — origin 추적 수정 · [전체 변경 이력](docs/HISTORY.md)

@@ -449,6 +449,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01191Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.1", "r71-r74",
 	}},
+	// v1.19.2 patch: R75-R76 재감사 수정 — 읽기측 cutoff 오버플로
+	// 전면 청산(DaysCutoff/DaysSpan 공용 클램프)·스냅숏 키별 최신
+	// GROUP BY JOIN·doctor corrupt 표기.
+	{name: "TestVersion01192Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.19.2", "r75-r76",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

@@ -1280,7 +1280,10 @@ func checkPendingAgeTh(ctx context.Context, st wire.Store, th store.Thresholds) 
 	if th.PendingAgeDays <= 0 {
 		th = store.DefaultThresholds()
 	}
-	if d := time.Since(va); d >= time.Duration(th.PendingAgeDays)*24*time.Hour {
+	// DaysSpan clamps the threshold days (the v1.19.2 overflow sweep) — a
+	// pending_age_days override past the Duration ceiling used to wrap the
+	// comparison span negative (every pending instantly over-age).
+	if d := time.Since(va); d >= db.DaysSpan(th.PendingAgeDays, time.Now()) {
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("oldest pending %dd past — clean up with maintain --expire-pending N",
 			int(d.Hours()/24))
@@ -1616,12 +1619,19 @@ func checkMeteringFreshnessTh(ctx context.Context, st wire.Store, th store.Thres
 	if rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('last_threshold_snapshot_at','last_rollup_at')`, nil); err == nil {
 		stamps := map[string]time.Time{}
+		// a present-but-unparseable value (a leftover claim token, a corrupted
+		// stamp) is a distinct verdict from never-recorded (v1.19.2): an
+		// observation exists, it just cannot be judged — shown as (corrupt),
+		// never silently folded into (never).
+		corrupt := map[string]bool{}
 		for _, r := range rows {
 			if len(r) != 2 || r[0] == nil || r[1] == nil {
 				continue
 			}
 			if ts, perr := time.Parse(time.RFC3339, fmt.Sprint(r[1])); perr == nil {
 				stamps[fmt.Sprint(r[0])] = ts
+			} else {
+				corrupt[fmt.Sprint(r[0])] = true
 			}
 		}
 		for _, k := range meteringFreshnessGateKeys {
@@ -1630,6 +1640,10 @@ func checkMeteringFreshnessTh(ctx context.Context, st wire.Store, th store.Thres
 				continue
 			}
 			judged++
+			if corrupt[k] {
+				stale = append(stale, k+" (corrupt)")
+				continue
+			}
 			stale = append(stale, k+" (never)")
 		}
 	}
@@ -1640,13 +1654,15 @@ func checkMeteringFreshnessTh(ctx context.Context, st wire.Store, th store.Thres
 	}
 	if len(stale) > 0 {
 		c.Status = "warn"
+		// the detail reports the clamped warnH (v1.19.2) — the pre-clamp override
+		// value printed a limit the check never actually applied.
 		c.Detail = fmt.Sprintf("%d of %d sources over %dh: %s",
-			len(stale), judged, th.MeteringFreshnessWarnH, strings.Join(stale, ", "))
+			len(stale), judged, warnH, strings.Join(stale, ", "))
 		c.Fix = "fix: run a flint read (the metering path) — the stale sources then refresh"
 		return c
 	}
 	c.Status = "ok"
-	c.Detail = fmt.Sprintf("%d sources within %dh", judged, th.MeteringFreshnessWarnH)
+	c.Detail = fmt.Sprintf("%d sources within %dh", judged, warnH)
 	return c
 }
 

@@ -113,17 +113,20 @@ func (r *Repo) currentThresholdValues(ctx context.Context) (map[string]string, e
 }
 
 // lastThresholdSnapshots — each key's latest new_value (one SELECT; the
-// per-key max-ts subquery keeps the winner selection in the DB — the
-// former ts-ascending full read scaled with the append-only history's
-// whole size, not the live key count; the (key, ts DESC) index serves
-// the subquery path. Doltgres lacks DISTINCT ON — the correlated max
-// subquery is the portable form). An empty table yields an empty map
-// (the first-expiry seeding premise).
+// winner selection stays in the DB). The v1.19.2 form is a single
+// GROUP BY + JOIN: the R75-R76 audit measured the former correlated
+// max(ts) subquery missing the (key, ts) index path on Doltgres —
+// 5,003 rows at 7.1s (2,800x the old full read it replaced), because
+// every row re-ran the per-key max. The grouped max is computed once
+// per key and joined back (measured linear — the same data at 3.2ms).
+// Doltgres lacks DISTINCT ON — the GROUP BY join is the portable form.
+// An empty table yields an empty map (the first-expiry seeding premise).
 func (r *Repo) lastThresholdSnapshots(ctx context.Context) (map[string]string, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT key, new_value FROM threshold_snapshots t
-		 WHERE ts = (SELECT max(ts) FROM threshold_snapshots t2 WHERE t2.key = t.key)
-		 ORDER BY ts ASC`)
+		`SELECT t.key, t.new_value FROM threshold_snapshots t
+		 JOIN (SELECT key, max(ts) AS mts FROM threshold_snapshots GROUP BY key) m
+		   ON m.key = t.key AND m.mts = t.ts
+		 ORDER BY t.ts ASC`)
 	if err != nil {
 		return nil, err
 	}

@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -180,7 +181,11 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 //     decide)
 func verdictFor(it pendingItem, th store.Thresholds, now time.Time, idx topicPrefixIndex) pendingVerdict {
 	age := now.Sub(it.ValidAt)
-	if d := th.PendingAgeDays; d > 0 && age > time.Duration(d)*24*time.Hour {
+	// the day spans share the DaysSpan clamp (the v1.19.2 overflow sweep) — a
+	// pending_age_days·pending_promote_days override past the Duration ceiling
+	// used to wrap the span negative (expire verdict on every row / promote
+	// verdict on none).
+	if d := th.PendingAgeDays; d > 0 && age > db.DaysSpan(d, now) {
 		return pendingVerdict{"expire", fmt.Sprintf("%dd elapsed (threshold %dd) — expire review: maintain --invalidate --id %d --reason review", int(age.Hours()/24), d, it.ID)}
 	}
 	// Merge candidate — find similar actives (a lookup into the prebuilt
@@ -189,7 +194,7 @@ func verdictFor(it pendingItem, th store.Thresholds, now time.Time, idx topicPre
 		return pendingVerdict{"merge", fmt.Sprintf("similar active %d (id %s) — review approve --id %d --supersede OLD",
 			len(sims), joinInts(sims), it.ID)}
 	}
-	if age <= time.Duration(th.PendingPromoteDays)*24*time.Hour && len([]rune(it.Summary)) >= th.PendingPromoteMinRunes {
+	if age <= db.DaysSpan(th.PendingPromoteDays, now) && len([]rune(it.Summary)) >= th.PendingPromoteMinRunes {
 		return pendingVerdict{"promote", "recent write with sufficient body — approve --id " + fmt.Sprint(it.ID)}
 	}
 	return pendingVerdict{"hold", "short body or under observation — hold until next review"}

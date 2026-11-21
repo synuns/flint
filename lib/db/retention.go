@@ -22,15 +22,20 @@ import (
 // cutoff clamps to the ceiling rather than the override's literal span.
 const maxRetentionDays = 106751
 
-// retentionCutoffDays — the retention cutoff for days against now:
-// days <= 0 falls back to def (the thresholdsForPrune convention kept
-// at the single choke point), then days clamps to [0, maxRetentionDays]
-// and the cutoff is derived via AddDate (calendar arithmetic — no
-// Duration multiplication, so no int64 wrap at any day count).
-func retentionCutoffDays(days, def int, now time.Time) time.Time {
-	if days <= 0 {
-		days = def
-	}
+// MaxRetentionDays — the exported view of maxRetentionDays: the CLI
+// value-flag guards and the read-side span filters share the single
+// ceiling source.
+const MaxRetentionDays = maxRetentionDays
+
+// DaysCutoff — the exported read-side days→cutoff clamp (v1.19.2): the
+// stale·dead·window·pending filters whose days are already
+// default-resolved (thresholds loader or the flag-parse fallback) share
+// the retention-cutoff arithmetic — days clamps to
+// [0, maxRetentionDays] and subtracts via AddDate, so a days override
+// past the ceiling can no longer wrap time.Duration(days)*24h negative
+// into a FUTURE cutoff (the full-table sweep measured by the R75
+// audit).
+func DaysCutoff(days int, now time.Time) time.Time {
 	if days > maxRetentionDays {
 		days = maxRetentionDays
 	}
@@ -38,6 +43,28 @@ func retentionCutoffDays(days, def int, now time.Time) time.Time {
 		days = 0
 	}
 	return now.AddDate(0, 0, -days)
+}
+
+// DaysSpan — the exported days→span clamp (v1.19.2): the elapsed
+// Duration from the DaysCutoff back to now. Days past the ceiling clamp
+// to the ceiling — the largest day count whose *24h Duration stays
+// inside int64 — so an elapsed-vs-span comparison (the pending verdicts,
+// session gates, drill staleness) never runs against a wrapped-negative
+// span.
+func DaysSpan(days int, now time.Time) time.Duration {
+	return now.Sub(DaysCutoff(days, now))
+}
+
+// retentionCutoffDays — the retention cutoff for days against now:
+// days <= 0 falls back to def (the thresholdsForPrune convention kept
+// at the single choke point), then the clamp and calendar arithmetic
+// delegate to DaysCutoff (no Duration multiplication, so no int64 wrap
+// at any day count).
+func retentionCutoffDays(days, def int, now time.Time) time.Time {
+	if days <= 0 {
+		days = def
+	}
+	return DaysCutoff(days, now)
 }
 
 // defForRetention — the DefaultThresholds retention span of one event

@@ -6,6 +6,39 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.19.2 patch (2026-11-22) — r75-r76: cutoff overflow sweep (12 sites) · snapshot latest-per-key join · doctor corrupt display
+
+The v1.19.1 re-audit (R75·R76) hardening — the same overflow class
+cleared from every remaining read-side site, plus the measured
+snapshot-query regression (no schema change, all override-space
+defenses):
+
+- cutoff overflow sweep, read side (R75 [high]): the v1.19.1 clamp
+  covered the 3 prune circuits only; the same naive
+  `time.Duration(days)*24h` arithmetic survived at 12 read-side
+  sites (stale listing·invalidation, expire-pending listing, report
+  stale·dead·window filters, drill staleness, doctor pending age,
+  pending verdicts, session-label max-age, session-knowledge gate) —
+  a days override past the ceiling wrapped the cutoff into the
+  future (a full active-knowledge sweep). All now share the exported
+  `db.DaysCutoff`/`DaysSpan` (the retention-cutoff clamp —
+  [0, 106751], AddDate calendar arithmetic), and the CLI value flags
+  (--days·--expire-pending N·--prune-invalidated N) reject
+  past-ceiling values up front (usage-class exits).
+- snapshot latest-per-key JOIN (R76 [med]): the v1.19.1 correlated
+  max(ts) subquery missed the (key, ts) index path on Doltgres — the
+  5,000-row history ran at seconds (2,800x the full read it had
+  replaced; every row re-ran the per-key max). One GROUP BY max +
+  join-back per key — measured linear (milliseconds at 5,000 rows).
+- doctor gate-key parse failure (R76 [low]): a present-but-unparseable
+  gate value (a leftover claim token, a corrupted stamp) reports
+  `(corrupt)` — distinct from `(never)`, which claimed an observation
+  gap where an observation exists.
+- doctor detail clamped value (R76 [low]): the metering-freshness
+  ok/warn detail reports the clamped warnH (87600h), not the
+  pre-clamp override — the printed limit is the limit applied.
+- TUNING §2 documents the 106751-day retention ceiling.
+
 ### v1.19.1 patch (2026-11-22) — r71-r74: retention overflow clamp · future-stamp guard · seeding pre-claim · snapshot latest-per-key
 
 The v1.19.0 four-angle audit (R71·R73·R74) hardening — 7 fixes, no
@@ -29,12 +62,15 @@ guidance untouched):
 - concurrent first-seeding pre-claim (R73 [med]): the stamp-last
   design let N processes passing an open gate together each seed the
   empty table's baseline — a doubled full key set. The gate stamp now
-  runs BEFORE the pass as a conditional claim (`INSERT ... DO
-  NOTHING` on the absent row — the single-winner primitive Doltgres
-  honors; the present-row path is a value-pinned UPDATE, single-winner
-  on PostgreSQL, best-effort narrowing under Doltgres's LWW concurrent
-  UPDATEs — measured). A failed pass rolls the claim back so the
-  retry stays open (stamp-only-on-success kept).
+  runs BEFORE the pass as a commit-then-verify claim: each passer
+  writes a unique claim token, settles briefly (the once-a-day path),
+  then a token-survival SELECT admits only the burst's last committer
+  — Doltgres commits same-row concurrent claims LWW and reports
+  RowsAffected=1 to every passer (`INSERT ... DO NOTHING` included),
+  so an affected-row check is not a verdict. The winner finalizes
+  token→stamp; a failed pass rolls back so the retry stays open
+  (stamp-only-on-success kept); a leftover token self-heals
+  (unparseable → due).
 - snapshot latest-per-key read (R73 [low]): lastThresholdSnapshots
   now selects each key's max-ts row in the DB (a correlated max
   subquery — Doltgres lacks DISTINCT ON; the (key, ts DESC) index

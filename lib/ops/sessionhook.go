@@ -15,6 +15,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -57,12 +58,14 @@ func sanitizeHookSession(args []string) ([]string, string) {
 // events_retention_days — aligned with the retention window of the read_events rows the label
 // points at (a label whose rows were cleaned is stale). No new tuning value; the meta override
 // is inherited, and a lookup failure or non-value falls back to the default 14 days (the threshold_meta registered value).
+// DaysSpan clamps the days (the v1.19.2 overflow sweep) — a retention override past the
+// Duration ceiling used to wrap the max-age negative (every label instantly stale).
 func sessionLabelMaxAge(ctx context.Context, st wire.Store) time.Duration {
 	d := knowledge.WriteThresholds(ctx, st).EventsRetentionD
 	if d <= 0 {
 		d = 14
 	}
-	return time.Duration(d) * 24 * time.Hour
+	return db.DaysSpan(d, time.Now())
 }
 
 // RunSessionStart — one SessionStart hook: records the session boundary, then hot injection and nudge.

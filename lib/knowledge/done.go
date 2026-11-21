@@ -26,6 +26,7 @@ import (
 	"filippo.io/age"
 
 	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -339,8 +340,12 @@ func maybeSessionKnowledge(ctx context.Context, st wire.Store, summary, agent, s
 	// (preventing consecutive-session spam).
 	getKV, _ := metaKV(ctx, st)
 	if v, err := getKV("session_knowledge_last"); err == nil && v != "" {
+		// DaysSpan clamps the threshold days (the v1.19.2 overflow sweep) — a
+		// session_knowledge_days override past the Duration ceiling used to wrap
+		// the gate span negative (the once-per-N-days cap defeated — every
+		// session accrued).
 		if last, perr := time.Parse(time.RFC3339, v); perr == nil &&
-			time.Since(last) < time.Duration(th.SessionKnowledgeDays)*24*time.Hour {
+			time.Since(last) < db.DaysSpan(th.SessionKnowledgeDays, time.Now()) {
 			return
 		}
 	}

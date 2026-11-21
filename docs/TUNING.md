@@ -67,6 +67,12 @@ Override management is `flint tuning` (v0.23.0) — `list`, `get <key>`,
 path (rejects invalid values and 0 on fallback keys); personal tuning values
 live only in the operational DB via this route.
 
+Day-count overrides clamp at the 106751-day ceiling (≈292 years — the
+largest day count a time.Duration holds): a value past it is treated as
+effectively indefinite retention, not an error (the CLI value flags
+--days·--expire-pending N·--prune-invalidated N reject past-ceiling
+values up front instead).
+
 `flint tuning --tui` (v1.9.3) is an opt-in interactive form (key list →
 value edit → set/reset confirm) for humans. It must run alone (combining
 it with other arguments exits 3) and it is the only TUI entry — the
