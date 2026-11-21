@@ -204,7 +204,7 @@ func dispatchRead(args map[string]any) (string, int) {
 //     rows — the spec MUSTs structuredContent to be an object, hence the
 //     wrap);
 //   - flint_read wraps even a single row (the read outputSchema advertises
-//     an results object wrapping rows), except the zero-hit line and error lines which
+//     a results object wrapping rows), except the zero-hit line and error lines which
 //     stay as-is;
 //   - anything else (non-JSON text such as flint_hot, arrays, scalars,
 //     parse failures, empty output) → nil.
