@@ -17,6 +17,7 @@ import (
 	"math"
 	"os"
 	"regexp"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1189,4 +1190,153 @@ func TestRunReadNearScoreScanMax(t *testing.T) {
 			t.Fatalf("빈 스캔 near_score = %v, want 0", ev.nearScore)
 		}
 	})
+}
+
+// TestRunReadMinConfidence — the --min-confidence boundary contract: 0/0.5/1
+// pass the value into the query as a placeholder; 1.1, a negative, a
+// non-numeric, and a valueless trailing flag are invalid-value exit 3.
+func TestRunReadMinConfidence(t *testing.T) {
+	valid := func(t *testing.T, spec string, want float64) {
+		t.Helper()
+		var gotSQL string
+		var gotArgs []any
+		st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			gotSQL, gotArgs = sql, args
+			if strings.Contains(sql, "FROM active_knowledge") {
+				return hitRowsFixture, nil
+			}
+			return nil, nil
+		}}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st,
+			[]string{"--min-confidence", spec, "백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d, want 0(경계값 %q): %s", code, spec, out.String())
+		}
+		if !strings.Contains(gotSQL, "confidence >= $") {
+			t.Errorf("confidence >= $n 절 누락: %s", gotSQL)
+		}
+		found := false
+		for _, a := range gotArgs {
+			if fv, ok := a.(float64); ok && fv == want {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("값 %v가 args에 없음: %v", want, gotArgs)
+		}
+	}
+	t.Run("경계 0·0.5·1 — 통과", func(t *testing.T) {
+		valid(t, "0", 0)
+		valid(t, "0.5", 0.5)
+		valid(t, "1", 1)
+	})
+	for _, spec := range []string{"1.1", "-0.1", "abc", ""} {
+		t.Run("거부 "+strconv.Quote(spec), func(t *testing.T) {
+			var out strings.Builder
+			if code := RunRead(context.Background(), &fakeStore{},
+				[]string{"--min-confidence", spec, "q"}, strings.NewReader(""), &out); code != 3 {
+				t.Fatalf("exit = %d, want 3(무효 min-confidence %q)", code, spec)
+			}
+		})
+	}
+}
+
+// TestRunReadOrigin — --origin accepts agent|human (the value reaches the
+// query as a placeholder); an unregistered value and a valueless trailing
+// flag are invalid-value exit 3.
+func TestRunReadOrigin(t *testing.T) {
+	for _, v := range []string{"agent", "human"} {
+		t.Run("통과 "+v, func(t *testing.T) {
+			var gotSQL string
+			var gotArgs []any
+			st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+				gotSQL, gotArgs = sql, args
+				if strings.Contains(sql, "FROM active_knowledge") {
+					return hitRowsFixture, nil
+				}
+				return nil, nil
+			}}
+			var out strings.Builder
+			if code := RunRead(context.Background(), st,
+				[]string{"--origin", v, "백업 정책"}, strings.NewReader(""), &out); code != 0 {
+				t.Fatalf("exit = %d, want 0: %s", code, out.String())
+			}
+			if !strings.Contains(gotSQL, "origin = $") {
+				t.Errorf("origin = $n 절 누락: %s", gotSQL)
+			}
+			found := false
+			for _, a := range gotArgs {
+				if s, ok := a.(string); ok && s == v {
+					found = true
+				}
+			}
+			if !found {
+				t.Errorf("값 %q가 args에 없음: %v", v, gotArgs)
+			}
+		})
+	}
+	for _, spec := range []string{"bogus", ""} {
+		t.Run("거부 "+strconv.Quote(spec), func(t *testing.T) {
+			var out strings.Builder
+			if code := RunRead(context.Background(), &fakeStore{},
+				[]string{"--origin", spec, "q"}, strings.NewReader(""), &out); code != 3 {
+				t.Fatalf("exit = %d, want 3(무효 origin %q)", code, spec)
+			}
+		})
+	}
+}
+
+// TestRunReadNewFiltersCombined — the new filters compose with the existing
+// tag/entity/domain/status set: the --status path (base table) carries all
+// six filter clauses in one query, exit 0.
+func TestRunReadNewFiltersCombined(t *testing.T) {
+	var gotSQL string
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		gotSQL = sql
+		if strings.Contains(sql, "FROM knowledge") {
+			return hitRowsFixture, nil
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--tag", "b", "--entity", "user", "--domain", "game",
+			"--min-confidence", "0.5", "--origin", "human",
+			"--status", "active", "백업"},
+		strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, out.String())
+	}
+	for _, frag := range []string{
+		"FROM knowledge",
+		"status = $1",
+		"strpos(tags, ':' || $3 || ':') > 0",
+		"entity = $4",
+		"domain = $5",
+		"confidence >= $6",
+		"origin = $7",
+	} {
+		if !strings.Contains(gotSQL, frag) {
+			t.Errorf("조합 필터 조각 %q 누락: %s", frag, gotSQL)
+		}
+	}
+}
+
+// TestRunReadNewFiltersZeroHit — a filtered zero-hit keeps the v1.5.3
+// contract: silent text, exit 0 (the new filters are stateless, so the
+// fallback/suggestion path stays eligible).
+func TestRunReadNewFiltersZeroHit(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		return nil, nil // zero-hit — fallback·suggestion scan also all 0 rows
+	}}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--min-confidence", "0.9", "--origin", "agent", "없는토픽"},
+		strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0(제로히트 exit 0)", code)
+	}
+	if out.String() != "" {
+		t.Errorf("제로히트 텍스트 침묵 위반: %q", out.String())
+	}
 }

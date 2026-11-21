@@ -475,6 +475,13 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01196Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.6", "r82",
 	}},
+	// v1.20.0 T6: knowledge-schema-search 마일스톤 계약행 — 스키마 v14
+	// (knowledge_links·어휘 4종·superseded_by 인덱스·hashVolatile relations)·
+	// read --min-confidence/--origin·supersede 사이클 가드·supersede_chains
+	// 뷰·export_md 체인 표기·PAM links 왕복.
+	{name: "TestVersion01200Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.20.0", "knowledge-schema-search",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

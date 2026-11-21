@@ -37,6 +37,11 @@
 -- threshold_snapshots(튜닝값 변경 이력 append-only)·weekly_rollups(주간
 -- 분자·분모 카운터 — 파생 비율 금지) 테이블. 기존 v12 DB는
 -- EnsureSchemaV13 게이트가 적용(additive — DEFAULT 포함 ALTER).
+-- v14(v1.20.0): 지식 링크 — knowledge_links 테이블(INSERT 전용·relation
+-- 어휘 4종 refines|supports|contradicts|duplicates는 코드 상수로 검증)+
+-- (from_id)·(to_id) 인덱스, knowledge (superseded_by) 인덱스(재귀 뷰·
+-- 사이클 CTE 탐색 축). 기존 v13 DB는 EnsureSchemaV14 게이트가 적용
+-- (additive — FK 미사용, from/to 존재 검사는 쓰기 경로).
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -173,3 +178,21 @@ CREATE TABLE IF NOT EXISTS weekly_rollups (
 CREATE INDEX IF NOT EXISTS flint_knowledge_entity_idx ON knowledge (entity);
 CREATE INDEX IF NOT EXISTS flint_knowledge_domain_idx ON knowledge (domain);
 CREATE INDEX IF NOT EXISTS flint_knowledge_status_idx ON knowledge (status);
+
+-- v14(v1.20.0): 지식 링크 1행(INSERT 전용 — 갱신·삭제 경로 부재).
+-- relation 어휘는 코드 상수(refines|supports|contradicts|duplicates)로
+-- 쓰기 경로에서 검증(FK 미사용 — from/to 존재 검사도 쓰기 경로).
+CREATE TABLE IF NOT EXISTS knowledge_links (
+    id         bigserial PRIMARY KEY,
+    from_id    bigint NOT NULL,
+    to_id      bigint NOT NULL,
+    relation   text NOT NULL,
+    created_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- v14: 링크 양방향 탐색 경로 인덱스.
+CREATE INDEX IF NOT EXISTS idx_knowledge_links_from_id ON knowledge_links (from_id);
+CREATE INDEX IF NOT EXISTS idx_knowledge_links_to_id ON knowledge_links (to_id);
+
+-- v14: supersede 체인(재귀 뷰·사이클 CTE) 탐색 축 인덱스.
+CREATE INDEX IF NOT EXISTS idx_knowledge_superseded_by ON knowledge (superseded_by);

@@ -28,6 +28,11 @@ import (
 // real-implementation path is itself the live-connection verification.
 var (
 	exportRowsFn = knowledge.ExportRows
+	// exportLinksFn — the knowledge_links source of the PAM format
+	// (v1.20.0 T5): the queried rows ride the FormatPAM links variadic
+	// (absent links = the legacy supersedes-derived document,
+	// byte-identical).
+	exportLinksFn = knowledge.ExportLinkRows
 	// formatter seams return (body, summary-reported row count, error).
 	// jsonl, md, txt, and csv report the total row count (len(rows)); pam reports the number of published documents
 	// (total_memories — pending excluded by pam design).
@@ -35,7 +40,13 @@ var (
 		b, err := knowledge.FormatJSONL(rows)
 		return b, len(rows), err
 	}
-	formatMDFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+	// v1.20.0 T5 wiring (T4 consumer): the chains variadic carries the
+	// supersede_chains view rows (empty = the legacy document,
+	// byte-identical).
+	formatMDFn = func(rows []knowledge.ExportRow, chains ...map[int][]int) ([]byte, int, error) {
+		if len(chains) > 0 {
+			return knowledge.FormatMD(rows, chains[0]), len(rows), nil
+		}
 		return knowledge.FormatMD(rows), len(rows), nil
 	}
 	formatTXTFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
@@ -48,14 +59,16 @@ var (
 	// PAM v1.0 exchange document — exported_by is "flint/"+version
 	// (the CurrentVersion convention: ldflags -> buildinfo -> dev fallback).
 	// The published count (total_memories) comes straight from the formatter.
-	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
-		return knowledge.FormatPAMWithCount(rows, "flint/"+CurrentVersion())
+	// v1.20.0 T5: the links variadic carries the knowledge_links rows
+	// (empty = the legacy document, byte-identical).
+	formatPAMFn = func(rows []knowledge.ExportRow, links ...knowledge.PAMLinkRow) ([]byte, int, error) {
+		return knowledge.FormatPAMWithCount(rows, "flint/"+CurrentVersion(), links...)
 	}
 	// §18: the `--format pam --sign` signing path — the key is
 	// knowledge.LoadOrCreatePAMSigningKey(configDir()/pam-signing-key).
 	// returning the published count via the same route as formatPAMFn.
-	formatPAMSignedFn = func(rows []knowledge.ExportRow, key ed25519.PrivateKey) ([]byte, int, error) {
-		return knowledge.FormatPAMSignedWithCount(rows, "flint/"+CurrentVersion(), key)
+	formatPAMSignedFn = func(rows []knowledge.ExportRow, key ed25519.PrivateKey, links ...knowledge.PAMLinkRow) ([]byte, int, error) {
+		return knowledge.FormatPAMSignedWithCount(rows, "flint/"+CurrentVersion(), key, links...)
 	}
 )
 
@@ -79,10 +92,10 @@ var exportTTYFn = tui.IsTerminalStdout
 func exportFormatters() map[string]func([]knowledge.ExportRow) ([]byte, int, error) {
 	return map[string]func([]knowledge.ExportRow) ([]byte, int, error){
 		"jsonl": formatJSONLFn,
-		"md":    formatMDFn,
+		"md":    func(rows []knowledge.ExportRow) ([]byte, int, error) { return formatMDFn(rows) },
 		"txt":   formatTXTFn,
 		"csv":   formatCSVFn,
-		"pam":   formatPAMFn,
+		"pam":   func(rows []knowledge.ExportRow) ([]byte, int, error) { return formatPAMFn(rows) },
 	}
 }
 
@@ -212,6 +225,38 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("export: formatter %s not linked", format)))
 		return 1
 	}
+	// v1.20.0 T5 wiring (T4 consumer) — the md format additionally
+	// carries the supersede chain notation (the supersede_chains view
+	// via SupersedeChains; an empty/absent map keeps the document
+	// byte-identical to the legacy one).
+	if format == "md" {
+		chains, cerr := knowledge.SupersedeChains(ctx, st)
+		if cerr != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(cerr))
+			return store.MapExit(cerr)
+		}
+		mfn := formatMDFn
+		fn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+			return mfn(rows, chains)
+		}
+	}
+	// v1.20.0 T5 — the pam format additionally carries the
+	// knowledge_links relations (queried here once; the formatter's
+	// links variadic keeps an absent/empty list byte-identical to the
+	// legacy supersedes-derived document).
+	var pamLinks []knowledge.PAMLinkRow
+	if format == "pam" {
+		var lerr error
+		pamLinks, lerr = exportLinksFn(ctx, st)
+		if lerr != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(lerr))
+			return store.MapExit(lerr)
+		}
+		pfn := formatPAMFn
+		fn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+			return pfn(rows, pamLinks...)
+		}
+	}
 	if sign {
 		// §18: load the signing key (creating it if absent — 0600), then swap in the signing formatter.
 		key, kerr := exportSignKeyFn()
@@ -220,7 +265,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 			return 1
 		}
 		sfn := formatPAMSignedFn
-		fn = func(rows []knowledge.ExportRow) ([]byte, int, error) { return sfn(rows, key) }
+		fn = func(rows []knowledge.ExportRow) ([]byte, int, error) { return sfn(rows, key, pamLinks...) }
 	}
 	data, summaryRows, err := fn(rows)
 	if err != nil {

@@ -150,6 +150,29 @@ The diagnose `metering_silent` judgment window (30 days, v1.19.0) is a
 (the curation·maintain paths fire at most once a day, so a shorter
 overridable window would invite false positives).
 
+### v1.20.0 read filters — no thresholds involvement
+
+The v1.20.0 read filters `--min-confidence N` and `--origin agent|human`
+take explicit values only — no thresholds-registry key feeds them (a
+fixed floor here would silently hide rows an agent explicitly asked to
+see). They are not in the table above and no meta key will ever be
+consulted for them.
+
+### v1.20.0 knowledge_links relation vocabulary (code constants)
+
+The schema v14 `knowledge_links.relation` column accepts exactly 4
+values — code constants, not tunable via meta (an unregistered value is
+rejected exit 3 at every write site; `supersedes` is excluded on
+purpose: the `knowledge.superseded_by` column stays the single source
+for supersession):
+
+| relation | meaning |
+|---|---|
+| `refines` | the target narrows or sharpens the source |
+| `supports` | the target corroborates the source |
+| `contradicts` | the target conflicts with the source (echo review candidate) |
+| `duplicates` | the target restates the source (merge candidate) |
+
 Update (unset keys use the default, reapplied immediately — no restart needed):
 
 ```sh

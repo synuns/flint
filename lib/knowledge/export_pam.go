@@ -34,6 +34,7 @@ package knowledge
 
 import (
 	"bytes"
+	"context"
 	"crypto/ed25519"
 	"crypto/rand"
 	"crypto/sha256"
@@ -50,6 +51,9 @@ import (
 
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
 	"golang.org/x/text/unicode/norm"
+
+	"github.com/synuns/flint/lib/render"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // pamSpecURI — the PAM v1.0 spec identifier (the root spec_uri).
@@ -132,6 +136,47 @@ type pamExportRelation struct {
 	To        string `json:"to"`
 	Type      string `json:"type"`
 	CreatedAt string `json:"created_at"`
+}
+
+// PAMLinkRow — one knowledge_links row carried into the PAM export
+// (v1.20.0 T5): the 4-vocabulary relations ride alongside the derived
+// supersedes relations (supersedes stays derived from
+// knowledge.superseded_by — the dual-source-of-truth avoidance). The
+// caller (the cli export wiring) supplies the queried rows; FormatPAM
+// stays a pure function with no store contact.
+type PAMLinkRow struct {
+	FromID    int
+	ToID      int
+	Relation  string
+	CreatedAt time.Time
+}
+
+// ExportLinkRows — queries the knowledge_links rows for the export
+// wiring (v1.20.0 T5). Unfiltered: pending·out-of-range endpoints are
+// dropped at format time by the both-endpoints-emitted guard (encoding
+// the filter in SQL would duplicate that guard). A read-family query —
+// the reader retry convention applies (wire.QueryOnce).
+func ExportLinkRows(ctx context.Context, st wire.Store) ([]PAMLinkRow, error) {
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT from_id, to_id, relation, created_at FROM knowledge_links`, nil)
+	if err != nil {
+		return nil, fmt.Errorf("export: links query failed: %w", err)
+	}
+	out := make([]PAMLinkRow, 0, len(rows))
+	for _, r := range rows {
+		if len(r) < 4 {
+			continue
+		}
+		f, okF := render.CellToInt(r[0])
+		o, okT := render.CellToInt(r[1])
+		rel, _ := r[2].(string)
+		at, _ := r[3].(time.Time)
+		if !okF || !okT || rel == "" {
+			continue
+		}
+		out = append(out, PAMLinkRow{FromID: f, ToID: o, Relation: rel, CreatedAt: at})
+	}
+	return out, nil
 }
 
 // pamExportIntegrity — the §15 checksum + totals.
@@ -539,9 +584,11 @@ func pamDocEstimate(memories []pamExportMemory, relations []pamExportRelation) i
 // Deterministic: the same rows always yield an identical body and
 // integrity.checksum excluding export_id (a per-call UUIDv4)·export_date
 // (the current time) (input order irrelevant — derived after id-order
-// sorting).
-func FormatPAM(rows []ExportRow, exportedBy string) ([]byte, error) {
-	data, _, err := FormatPAMWithCount(rows, exportedBy)
+// sorting). v1.20.0 T5: the optional links variadic carries
+// knowledge_links rows into the relations array (absent = the legacy
+// supersedes-derived document, byte-identical).
+func FormatPAM(rows []ExportRow, exportedBy string, links ...PAMLinkRow) ([]byte, error) {
+	data, _, err := FormatPAMWithCount(rows, exportedBy, links...)
 	return data, err
 }
 
@@ -551,8 +598,8 @@ func FormatPAM(rows []ExportRow, exportedBy string) ([]byte, error) {
 // re-Unmarshal of the entire serialized document (tens of MB on large
 // exports) just to read the emitted count — the formatter is the single
 // source of the summary row count.
-func FormatPAMWithCount(rows []ExportRow, exportedBy string) ([]byte, int, error) {
-	return formatPAMDoc(rows, exportedBy, nil)
+func FormatPAMWithCount(rows []ExportRow, exportedBy string, links ...PAMLinkRow) ([]byte, int, error) {
+	return formatPAMDoc(rows, exportedBy, nil, links)
 }
 
 // FormatPAMSigned — §18: the FormatPAM body + the root owner{did:key}·
@@ -560,25 +607,25 @@ func FormatPAMWithCount(rows []ExportRow, exportedBy string) ([]byte, int, error
 // unsigned path (avoiding re-serialization — one document assembly; the
 // signature is derived from the pre-assembly payload). key is an Ed25519
 // private key (64 bytes — the product of LoadOrCreatePAMSigningKey).
-func FormatPAMSigned(rows []ExportRow, exportedBy string, key ed25519.PrivateKey) ([]byte, error) {
-	data, _, err := FormatPAMSignedWithCount(rows, exportedBy, key)
+func FormatPAMSigned(rows []ExportRow, exportedBy string, key ed25519.PrivateKey, links ...PAMLinkRow) ([]byte, error) {
+	data, _, err := FormatPAMSignedWithCount(rows, exportedBy, key, links...)
 	return data, err
 }
 
 // FormatPAMSignedWithCount — the emitted-count variant of FormatPAMSigned
 // (P6 — see FormatPAMWithCount).
-func FormatPAMSignedWithCount(rows []ExportRow, exportedBy string, key ed25519.PrivateKey) ([]byte, int, error) {
+func FormatPAMSignedWithCount(rows []ExportRow, exportedBy string, key ed25519.PrivateKey, links ...PAMLinkRow) ([]byte, int, error) {
 	if len(key) != ed25519.PrivateKeySize {
 		return nil, 0, fmt.Errorf("pam signing key invalid (want %d bytes, got %d)",
 			ed25519.PrivateKeySize, len(key))
 	}
-	return formatPAMDoc(rows, exportedBy, key)
+	return formatPAMDoc(rows, exportedBy, key, links)
 }
 
 // formatPAMDoc — the shared assembly body. key==nil means unsigned (the
 // default path stays byte-invariant); otherwise the owner·signature
 // blocks are added. The returned int is the emitted count.
-func formatPAMDoc(rows []ExportRow, exportedBy string, key ed25519.PrivateKey) ([]byte, int, error) {
+func formatPAMDoc(rows []ExportRow, exportedBy string, key ed25519.PrivateKey, links []PAMLinkRow) ([]byte, int, error) {
 	// §15 ascending id = ascending id string (code point). A numeric sort
 	// would give "flint:9" < "flint:10", but external PAM verifiers know
 	// ids only as strings, so they reproduce it sorted "flint:10" <
@@ -649,6 +696,44 @@ func formatPAMDoc(rows []ExportRow, exportedBy string, key ed25519.PrivateKey) (
 			From:      from, // new (replacing source)
 			To:        to,   // old (replaced target)
 			Type:      "supersedes",
+			CreatedAt: at.UTC().Format(time.RFC3339),
+		})
+	}
+	// v1.20.0 T5 — the knowledge_links relations (the 4-word vocabulary)
+	// ride after the derived supersedes relations, in a stable
+	// (from,to,type) order (the same rows always yield the identical
+	// document). The same both-endpoints-emitted guard: a link to a row
+	// absent from the document (pending·out of range) would dangle on the
+	// import side — not emitted. created_at falls back to the source
+	// row's time for hand-built links without one (the supersedes
+	// convention).
+	sortedLinks := make([]PAMLinkRow, len(links))
+	copy(sortedLinks, links)
+	sort.SliceStable(sortedLinks, func(a, b int) bool {
+		x, y := sortedLinks[a], sortedLinks[b]
+		if x.FromID != y.FromID {
+			return x.FromID < y.FromID
+		}
+		if x.ToID != y.ToID {
+			return x.ToID < y.ToID
+		}
+		return x.Relation < y.Relation
+	})
+	for _, l := range sortedLinks {
+		from := "flint:" + strconv.Itoa(l.FromID)
+		to := "flint:" + strconv.Itoa(l.ToID)
+		if !emitted[from] || !emitted[to] {
+			continue // a dangling link is not emitted (the guard above)
+		}
+		at := l.CreatedAt
+		if at.IsZero() {
+			at = emittedAt[from]
+		}
+		relations = append(relations, pamExportRelation{
+			ID:        pamRelationID(from, to, l.Relation),
+			From:      from,
+			To:        to,
+			Type:      l.Relation,
 			CreatedAt: at.UTC().Format(time.RFC3339),
 		})
 	}

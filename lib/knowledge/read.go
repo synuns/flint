@@ -334,7 +334,8 @@ func InstrumentReads(ctx context.Context, st wire.Store, kind string, ids []int,
 	RecordUsage(ctx, st, kind, "")
 }
 
-// RunRead — a free-text query with --tag --entity --domain --limit filters.
+// RunRead — a free-text query with --tag --entity --domain --limit
+// --min-confidence --origin filters.
 // --kind is not accepted because active_knowledge is a single-kind
 // knowledge view, making it meaningless. --status
 // pending|active|invalidated (v0.12.0 R1) — when given, queries the base
@@ -355,6 +356,11 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			{Name: "--status", Value: true},
 			{Name: "--as-of", Value: true},
 			{Name: "--fields", Value: true},
+			// v1.20.0 T2 — the confidence floor (0..1 float) and the origin
+			// (agent|human) filters: both are plain SQL filters with no
+			// thresholds registry involvement (TUNING §2).
+			{Name: "--min-confidence", Value: true},
+			{Name: "--origin", Value: true},
 			// Session label for --session effectiveness metering (optional —
 			// METRICS §4). --source channel label (read_events.source
 			// metering — MCP-path distinction is passed by the caller,
@@ -362,7 +368,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			{Name: "--session", Value: true},
 			{Name: "--source", Value: true},
 		},
-		Usage: "usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D]",
+		Usage: "usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D] [--min-confidence N] [--origin agent|human]",
 		// N9: everything after "--" is positional — even if a query from
 		// external input such as MCP looks like "--json", it is not parsed
 		// as a flag.
@@ -394,6 +400,29 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			return 3
 		}
 		f.Limit = n
+	}
+	// --min-confidence N — a 0..1 float (inclusive boundaries). Out-of-range,
+	// non-numeric, and valueless trailing flags are invalid-value exit 3
+	// (the N10 empty-value convention — a quietly ignored floor would return
+	// unfiltered results).
+	if res.Given("--min-confidence") {
+		v, err := strconv.ParseFloat(res.Value("--min-confidence"), 64)
+		if err != nil || v < 0 || v > 1 {
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "min-confidence", Expect: "0..1 float"}))
+			return 3
+		}
+		f.MinConfidence = &v
+	}
+	// --origin agent|human — an unregistered value (and a valueless trailing
+	// flag) is invalid-value exit 3 (the status enum convention).
+	if res.Given("--origin") {
+		switch res.Value("--origin") {
+		case "agent", "human":
+			f.Origin = res.Value("--origin")
+		default:
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "origin", Expect: "agent|human"}))
+			return 3
+		}
 	}
 	q := strings.Join(res.Positional(), " ")
 	// A valueless trailing --tag/--entity/--domain/--fields (N10) also gets

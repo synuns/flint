@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"sort"
 	"strings"
@@ -303,6 +304,149 @@ func ParseSourceFlag(args []string) (string, error) {
 	return "manual", nil
 }
 
+// ── v1.20.0 T5 — the optional stdin relations array (schema v14
+// knowledge_links). The payload key "relations" holds
+// [{"to": <row id>, "relation": "refines"}] entries: from is the accrued
+// row's id. Validation chain: shape (exit 3) → vocabulary
+// (store.CheckRelations — the colon-token rejection class → exit 3) →
+// target-row existence (exit 3 — no FK, the write-path check
+// convention). Accrual is idempotent per (from,to,relation), and the
+// duplicate path lands the resent relations on the existing DupMeta.ID
+// row (link-loss prevention) — possible because relations stay out of
+// the hash input (T1 hashVolatile). ──
+
+// linkSpec — one normalized stdin relations entry (the relation value
+// lowercased·trimmed — the store normalizeVocab convention).
+type linkSpec struct {
+	To       int
+	Relation string
+}
+
+// parseLinkSpecs — extracts·validates the optional relations array of a
+// payload. nil return = absent (the optional-field convention). The key
+// is consumed here (metadata, not a storage column — it must never ride
+// the record or the dropped-keys report).
+func parseLinkSpecs(p map[string]any) ([]linkSpec, *store.SchemaError) {
+	raw, ok := p["relations"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	delete(p, "relations")
+	arr, ok := raw.([]any)
+	if !ok {
+		return nil, &store.SchemaError{Field: "relations", Expect: "array of {to,relation}"}
+	}
+	specs := make([]linkSpec, 0, len(arr))
+	rels := make([]string, 0, len(arr))
+	for _, e := range arr {
+		m, ok := e.(map[string]any)
+		if !ok {
+			return nil, &store.SchemaError{Field: "relations", Expect: "array of {to,relation}"}
+		}
+		toF, ok := m["to"].(float64)
+		if !ok || toF != math.Trunc(toF) || toF <= 0 {
+			return nil, &store.SchemaError{Field: "relations", Expect: "to: positive integer row id"}
+		}
+		rel, ok := m["relation"].(string)
+		if !ok {
+			return nil, &store.SchemaError{Field: "relations", Expect: "relation: string"}
+		}
+		n := strings.ToLower(strings.TrimSpace(rel))
+		specs = append(specs, linkSpec{To: int(toF), Relation: n})
+		rels = append(rels, n)
+	}
+	for _, w := range store.CheckRelations(rels) {
+		return nil, &store.SchemaError{Field: "relations", Expect: w}
+	}
+	return specs, nil
+}
+
+// precheckLinkTargets — the batched target-existence refusal of the
+// relations array: one lookupExistingIDs query over the distinct target
+// ids, a missing target → the exit-3 SchemaError class. Called BEFORE
+// InsertBatch (the v14 no-FK write-path check) — a refusal must leave no
+// staged rows behind.
+func precheckLinkTargets(ctx context.Context, st wire.Store, specs []linkSpec) *store.SchemaError {
+	seen := map[int]bool{}
+	var tos []int
+	for _, s := range specs {
+		if !seen[s.To] {
+			seen[s.To] = true
+			tos = append(tos, s.To)
+		}
+	}
+	if len(tos) == 0 {
+		return nil
+	}
+	existing, err := lookupExistingIDs(ctx, st, tos)
+	if err != nil {
+		return nil // a lookup failure is not a refusal — the insert path reports it
+	}
+	sort.Ints(tos)
+	for _, to := range tos {
+		if !existing[to] {
+			return &store.SchemaError{Field: "relations",
+				Expect: fmt.Sprintf("target row %d missing", to)}
+		}
+	}
+	return nil
+}
+
+// LinkAccrualStore — the knowledge_links INSERT extension (v1.20.0 T5):
+// the idempotent INSERT ... SELECT WHERE NOT EXISTS per (from,to,
+// relation) — write SQL literals live in the store layer only (the
+// lib/{ops,knowledge} write-guard scope: write verbs are owned by the
+// db/cli store paths). realStore implements it over the db pool; test
+// adapters implement it in their own files.
+type LinkAccrualStore interface {
+	InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error
+}
+
+// insertKnowledgeLinks — accrues specs onto fromID in knowledge_links:
+// per-spec delegation to LinkAccrualStore.InsertKnowledgeLink (the
+// idempotent seeding convention — a resend of the same
+// (from,to,relation) skips inside the store implementation). Target
+// existence was refused up front by precheckLinkTargets (before any row
+// staging).
+func insertKnowledgeLinks(ctx context.Context, st wire.Store, fromID int, specs []linkSpec) error {
+	if fromID <= 0 || len(specs) == 0 {
+		return nil
+	}
+	ls, ok := st.(LinkAccrualStore)
+	if !ok {
+		return fmt.Errorf("write: relations accrual unsupported by store")
+	}
+	for _, s := range specs {
+		if err := ls.InsertKnowledgeLink(ctx, fromID, s.To, s.Relation); err != nil {
+			return fmt.Errorf("write: relations accrual failed: %w", err)
+		}
+	}
+	return nil
+}
+
+// withRelations — appends the accrued relations array to the one-line
+// duplicate output (the resent links landed on the existing row — the
+// feedback parallel of DuplicateMetaJSON; the withWarnings convention).
+func withRelations(line string, specs []linkSpec) string {
+	if len(specs) == 0 {
+		return line
+	}
+	var m map[string]any
+	if err := json.Unmarshal([]byte(line), &m); err != nil {
+		return line
+	}
+	arr := make([]any, 0, len(specs))
+	for _, s := range specs {
+		arr = append(arr, map[string]any{"to": s.To, "relation": s.Relation})
+	}
+	m["relations"] = arr
+	b, err := json.Marshal(m)
+	if err != nil {
+		return line
+	}
+	return string(b)
+}
+
 // UsageStore — a store capable of intake metering (RecordUsage, T60) (the
 // same assertion pattern as maintain's MaintStore). A non-implementing
 // Store has RecordUsage skipped as a no-op.
@@ -570,12 +714,26 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	batched := len(payloads) > 1
 	var stagedN []map[string]any // knowledge lines awaiting the batch query (order preserved)
 	var stagedH []string         // content_hash at the same index as stagedN
+	var stagedL [][]linkSpec     // the line's relations specs at the same index (v1.20.0 T5)
+	// recLinks — the relations specs at the same index as recs (the
+	// accrual side pairs each committed row id with its links).
+	var recLinks [][]linkSpec
+	// pendLinks — duplicate-path link accruals: the resent body's
+	// relations land on the existing row (DupMeta.ID — link-loss
+	// prevention; the dedup verdict itself is hash-invariant to
+	// relations, the T1 hashVolatile seal).
+	type pendLink struct {
+		from int
+		spec []linkSpec
+	}
+	var pendLinks []pendLink
+	dupLinkSpecs := []linkSpec{} // the single-line duplicate response's relations (feedback)
 	// finalizeRec — finalizes a line that passed classification: kind
 	// tagging·non-column key cleanup·recs accrual. The correction daily
 	// cap gates here (single choke point covering the single-shot·batched
 	// accrual paths alike): a line past the quota is quietly skipped with
 	// one warning line (exit 0 — independent of the dup mechanism).
-	finalizeRec := func(n map[string]any) {
+	finalizeRec := func(n map[string]any, specs []linkSpec) {
 		if correctionQuota == 0 {
 			if !capWarned {
 				warnings = append(warnings, fmt.Sprintf(
@@ -595,6 +753,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 		}
 		recs = append(recs, n)
+		recLinks = append(recLinks, specs)
 	}
 	for _, p := range payloads {
 		// v1.11.0 T2 — the --source correction defaults (knowledge only —
@@ -617,6 +776,19 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		if se := store.Validate(kind, p); se != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(se))
 			return 3
+		}
+		// v1.20.0 T5 — the optional relations array (knowledge only): a
+		// consumed-here metadata key; shape·vocabulary refusals are exit 3
+		// (the rejected-relation class hard-blocks, the colon-token
+		// precedent).
+		var specs []linkSpec
+		if kind == "knowledge" {
+			var lse *store.SchemaError
+			specs, lse = parseLinkSpecs(p)
+			if lse != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(lse))
+				return 3
+			}
 		}
 		// Sanitization (ADR-0006): neutralize control characters·[flint]
 		// markers before storage + secret scanning. This stage precedes
@@ -670,6 +842,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				n["content_hash"] = h
 				stagedN = append(stagedN, n)
 				stagedH = append(stagedH, h)
+				stagedL = append(stagedL, specs)
 				continue
 			}
 			existsMeta, exists, err := lookupHash(ctx, st, h)
@@ -682,6 +855,15 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				if len(payloads) == 1 {
 					dupID = existsMeta.ID // single-line resend: expose the existing row metadata (R3·R1)
 					dupTopic, dupState = existsMeta.Topic, existsMeta.State
+				}
+				// v1.20.0 T5 — the duplicate path still accrues the
+				// resent relations onto the existing row (link-loss
+				// prevention).
+				if len(specs) > 0 {
+					pendLinks = append(pendLinks, pendLink{from: existsMeta.ID, spec: specs})
+					if len(payloads) == 1 {
+						dupLinkSpecs = append(dupLinkSpecs, specs...)
+					}
 				}
 				continue
 			}
@@ -717,7 +899,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 		}
 		n["kind"] = kind
-		finalizeRec(n)
+		finalizeRec(n, specs)
 	}
 
 	// Multi-line knowledge finalize — one batch query over the collected
@@ -733,15 +915,21 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return store.MapExit(err)
 		}
 		for i, n := range stagedN {
-			if _, dup := existing[stagedH[i]]; dup {
+			if meta, dup := existing[stagedH[i]]; dup {
 				dups++ // batched dedup detection identical: only this line is skipped; the rest commit
+				if len(stagedL[i]) > 0 {
+					// v1.20.0 T5 — duplicate-path link accrual (the
+					// batched variant): the existing row id comes from the
+					// batch lookup's DupMeta.
+					pendLinks = append(pendLinks, pendLink{from: meta.ID, spec: stagedL[i]})
+				}
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
 			state = store.Classify(kind, conf, floor)
 			n["status"] = state
 			hash = stagedH[i]
-			finalizeRec(n)
+			finalizeRec(n, stagedL[i])
 		}
 	}
 
@@ -749,20 +937,60 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// recheck): zero-row commit·exit 0 "duplicate" (seeding idempotence).
 	// Intake metering is write × 1 + the actual skipped-line count (no
 	// double counting); warnings are not discarded (the dup line's
-	// sanitization·secret warnings survive).
-	emitDuplicate := func() {
+	// sanitization·secret warnings survive). v1.20.0 T5: the pending
+	// duplicate-path links are accrued first (their own commit — a link
+	// insert is not a zero-row commit), and the single-line response
+	// reflects the landed relations.
+	flushDupLinks := func() int {
+		accrued := false
+		for _, pl := range pendLinks {
+			if err := insertKnowledgeLinks(ctx, st, pl.from, pl.spec); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
+				return store.MapExit(err)
+			}
+			accrued = true
+		}
+		if accrued {
+			if _, err := st.Commit(ctx, "knowledge: relations accrual (duplicate resend)"); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
+				return store.MapExit(err)
+			}
+		}
+		return 0
+	}
+	emitDuplicate := func() int {
+		if code := flushDupLinks(); code != 0 {
+			return code
+		}
 		RecordUsage(ctx, st, "write", source)
 		RecordDups(ctx, st, source, dups)
 		out := store.DuplicateMetaJSON(dupID, dupTopic, dupState)
+		out = withRelations(out, dupLinkSpecs)
 		if len(dropped) > 0 || len(warnings) > 0 {
 			out = withWarnings(out, dropped, warnings)
 		}
 		fmt.Fprintln(stdout, out)
+		return 0
+	}
+
+	// v1.20.0 T5 — the target-existence refusal of every relations entry
+	// of this write (new rows·duplicate resends alike), BEFORE any row
+	// staging: a refusal leaves no staged knowledge rows or links
+	// behind (exit 3 — the no-FK write-path check convention).
+	var allSpecs []linkSpec
+	for _, s := range recLinks {
+		allSpecs = append(allSpecs, s...)
+	}
+	for _, pl := range pendLinks {
+		allSpecs = append(allSpecs, pl.spec...)
+	}
+	if se := precheckLinkTargets(ctx, st, allSpecs); se != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(se))
+		return 3
 	}
 
 	if len(recs) == 0 {
-		emitDuplicate()
-		return 0
+		return emitDuplicate()
 	}
 	ids, err := st.InsertBatch(ctx, recs)
 	if err != nil {
@@ -777,7 +1005,9 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		// everything then exiting 0 "duplicate" would lose new lines and is
 		// forbidden.
 		survive := make([]map[string]any, 0, len(recs))
-		for _, r := range recs {
+		surviveLinks := make([][]linkSpec, 0, len(recLinks))
+		for i, r := range recs {
+			specs := recLinks[i]
 			if r["kind"] == "project" {
 				// Project lines recheck the natural key name (they have no
 				// content_hash, so deciding by retry would collide again and
@@ -793,11 +1023,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 					continue
 				}
 				survive = append(survive, r)
+				surviveLinks = append(surviveLinks, specs)
 				continue
 			}
 			h, _ := r["content_hash"].(string)
 			if h == "" {
 				survive = append(survive, r) // kinds without a hash cannot be rechecked — decided by retry
+				surviveLinks = append(surviveLinks, specs)
 				continue
 			}
 			existsMeta, exists, err2 := lookupHash(ctx, st, h)
@@ -811,15 +1043,20 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 					dupID = existsMeta.ID // the race-recheck path also exposes the existing row metadata (R3·R1)
 					dupTopic, dupState = existsMeta.Topic, existsMeta.State
 				}
+				if len(specs) > 0 {
+					// v1.20.0 T5 — the race-recheck duplicate also lands its
+					// relations on the concurrent row.
+					pendLinks = append(pendLinks, pendLink{from: existsMeta.ID, spec: specs})
+				}
 				continue
 			}
 			survive = append(survive, r)
+			surviveLinks = append(surviveLinks, specs)
 		}
 		if len(survive) == 0 {
 			// Everything exists on recheck: the path with no new-line loss —
 			// exit 0 "duplicate".
-			emitDuplicate()
-			return 0
+			return emitDuplicate()
 		}
 		ids, err = st.InsertBatch(ctx, survive)
 		if err != nil {
@@ -834,6 +1071,22 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return store.MapExit(err)
 		}
 		recs = survive
+		recLinks = surviveLinks
+	}
+	// v1.20.0 T5 — new-row link accrual: each committed row's relations
+	// land on its fresh id (before the commit, so links and rows ride one
+	// dolt commit). Target existence was already refused up front
+	// (precheckLinkTargets — the ids come back with InsertBatch).
+	if len(recLinks) > 0 {
+		for i, specs := range recLinks {
+			if i >= len(ids) {
+				break
+			}
+			if err := insertKnowledgeLinks(ctx, st, ids[i], specs); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
+				return store.MapExit(err)
+			}
+		}
 	}
 	// D4 (R33): the commit title — project prefers name (knowledge lacks
 	// name, so summary). If both are absent, the "%v" <nil> fallback (the

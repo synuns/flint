@@ -61,6 +61,7 @@ var (
 	_ HotEventRecorder    = (*hotBumpRecorder)(nil)
 	_ UsageStore          = (*countRecorder)(nil)
 	_ UsageCountStore     = (*countRecorder)(nil)
+	_ LinkAccrualStore    = (*fakeStore)(nil)
 	_ BytesRecorder       = (*bytesRecorder)(nil)
 )
 

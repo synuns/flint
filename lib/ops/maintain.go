@@ -912,6 +912,29 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 			"maintain: --supersede: cannot read NEW valid_at id=%d", newID)))
 		return 1
 	}
+	// Cycle precheck (the v1.20.0 supersede chain guard): setting
+	// OLD.superseded_by=NEW closes a loop when NEW's superseded_by chain
+	// already reaches OLD. Checked BEFORE the Retry-wrapped write — a
+	// deterministic rejection must not burn the retry backoff, and the
+	// Retry wrapper would bury the diagnostic in a context-free
+	// retries_exhausted. The predicate SQL is single-sourced in lib/db
+	// (db.SupersedeCycleSQL — the same predicate the Merge·
+	// SetSupersededRef write-path guards run); an empty answer (fakes
+	// that do not model the walk) reads as no cycle and lets the write
+	// proceed.
+	cycRows, err := wire.QueryOnce(ctx, ms, db.SupersedeCycleSQL,
+		[]any{oldID, newID, db.SupersedeCycleDepthLimit})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	if len(cycRows) > 0 {
+		if cyc, _ := cycRows[0][0].(bool); cyc {
+			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
+				"maintain: --supersede: id=%d -> id=%d would create a supersede cycle", oldID, newID)))
+			return 1
+		}
+	}
 	// The update UPDATE and the 0-row race stewardship stay on the single db.Repo.Supersede
 	// path (rows-affected stewardship built in — inheriting the result-verification stewardship).
 	if err := retryWrite(ctx, func() error {
