@@ -25,7 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
-  <img src="https://img.shields.io/badge/release-v1.14.1-blue" alt="v1.14.1">
+  <img src="https://img.shields.io/badge/release-v1.16.0-blue" alt="v1.16.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -64,6 +64,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 > v1.13.0 · 지식 수명주기 — 낡음 점수·변동성 계층 · [전체 변경 이력](docs/HISTORY.md)
 > v1.14.0 · 지식화 파이프라인 3단계 — 자동 교정 감지(A안 훅)·survived 감쇠 완화 · [전체 변경 이력](docs/HISTORY.md)
 > v1.14.1 · r57-hookfix — 교정 훅 정밀도(조건부 다시 마커·첫 매치 1조각 계약) · [전체 변경 이력](docs/HISTORY.md)
+> v1.16.0 · search-perf — read 토큰 스코어링 회상 순위(접두>포함 계층·NFKC 정규화·윈도우 내 재배치) · profile 병렬 수집 · [전체 변경 이력](docs/HISTORY.md)
 ---
 
 ## 빠른 시작
