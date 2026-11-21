@@ -42,7 +42,8 @@ const rollupGateCacheTTL = time.Hour
 
 // rollupGateDue — the gate-decision pure function (the pruneGateDue
 // twin): false if last parses as RFC3339 and is within 24h; otherwise
-// true.
+// true (a future-dated stamp is immediately due — the gateStampDue
+// guard, v1.19.1).
 func rollupGateDue(last string, now time.Time) bool {
 	if last == "" {
 		return true
@@ -51,7 +52,7 @@ func rollupGateDue(last string, now time.Time) bool {
 	if err != nil {
 		return true
 	}
-	return now.Sub(t) >= 24*time.Hour
+	return gateStampDue(t, now)
 }
 
 // rollupGateProbe — the gate-cache verdict (the pruneGateProbe twin).
@@ -141,11 +142,8 @@ func (r *Repo) rollupLastWeek(ctx context.Context) error {
 // Monday boundary minus the retention span).
 func (r *Repo) pruneWeeklyRollups(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "weekly_rollups_retention_days")
-	days := th.WeeklyRollupsRetentionD
-	if days <= 0 {
-		days = store.DefaultThresholds().WeeklyRollupsRetentionD
-	}
-	cutoff := time.Now().UTC().Add(-time.Duration(days) * 24 * time.Hour)
+	cutoff := retentionCutoffDays(th.WeeklyRollupsRetentionD,
+		store.DefaultThresholds().WeeklyRollupsRetentionD, time.Now().UTC())
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM weekly_rollups WHERE week_start < $1`, cutoff)
 	return err

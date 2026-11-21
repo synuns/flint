@@ -153,6 +153,13 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 	if count < 1 {
 		return fmt.Errorf("record usage: invalid count %d", count)
 	}
+	// A count past 2^31 is a corrupted bulk argument, not metering: the
+	// daily bigint would absorb it but the ratio baselines would not.
+	// Quietly ignored (no error propagation — the callers' quiet path),
+	// leaving the counter untouched for subsequent normal increments.
+	if count > 1<<31 {
+		return nil
+	}
 	delta := map[string]int{kind: count}
 	if kind == "write" && source != "" {
 		delta[source] = count
@@ -292,11 +299,12 @@ type ReadEvent struct {
 // cleanup must happen even in the structure where read bypasses
 // RecordUsage (see the hook comment below).
 func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
+	score := clampNearScore(ev.NearScore)
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank, bytes, zero_reason, source, near_score)
 		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		ev.Hits, ev.Zero, ev.Near, ev.Fallback, ev.Session, ev.IDs, ev.FirstRank,
-		ev.Bytes, ev.ZeroReason, ev.Source, ev.NearScore)
+		ev.Bytes, ev.ZeroReason, ev.Source, score)
 	if err != nil {
 		return fmt.Errorf("record read event: %w", err)
 	}
@@ -306,6 +314,25 @@ func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	return nil
 }
 
+// clampNearScore — the near_score [0,1] domain guard (v1.19.1): NaN·
+// ±Inf → 0, negatives → 0, >1 → 1. A stray score (an upstream division
+// slip) must never poison the min_score boundary analysis; PostgreSQL
+// would store NaN itself and float8 the infinities, corrupting every
+// aggregate over the column. The bigramDice score is by construction
+// [0,1] — this is defense in depth on the write boundary.
+func clampNearScore(v float64) float64 {
+	if math.IsNaN(v) || math.IsInf(v, 0) {
+		return 0
+	}
+	if v < 0 {
+		return 0
+	}
+	if v > 1 {
+		return 1
+	}
+	return v
+}
+
 // pruneReadGateKey — the 24h-gate meta key of the read-path cleanup
 // hook (following the last_*_at RFC3339 convention). A key separate
 // from last_read_at (not the intake-metering time).
@@ -313,7 +340,8 @@ const pruneReadGateKey = "last_events_prune_at"
 
 // pruneGateDue — the gate-decision pure function (unit-test target):
 // false if last parses as RFC3339 and is within 24h (cleanup skipped);
-// otherwise (absent·blank·corrupt·24h elapsed) true.
+// otherwise (absent·blank·corrupt·24h elapsed·future-dated) true — the
+// future case is the gateStampDue guard (v1.19.1).
 func pruneGateDue(last string, now time.Time) bool {
 	if last == "" {
 		return true
@@ -322,7 +350,7 @@ func pruneGateDue(last string, now time.Time) bool {
 	if err != nil {
 		return true
 	}
-	return now.Sub(t) >= 24*time.Hour
+	return gateStampDue(t, now)
 }
 
 // pruneGateCheckedAt — the in-process gate-recheck cache (performance):
@@ -486,9 +514,11 @@ func (r *Repo) PruneReadEvents(ctx context.Context) error {
 		"knowledge_reads": th.KreadsRetentionD,
 	}
 	now := time.Now().UTC()
+	def := store.DefaultThresholds()
 	for table, days := range retention {
+		cutoff := retentionCutoffDays(days, defForRetention(def, table), now)
 		if _, err := r.pool.Exec(ctx,
-			`DELETE FROM `+table+` WHERE ts < $1`, now.Add(-time.Duration(days)*24*time.Hour)); err != nil {
+			`DELETE FROM `+table+` WHERE ts < $1`, cutoff); err != nil {
 			return err
 		}
 	}

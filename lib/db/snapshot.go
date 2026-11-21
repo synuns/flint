@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -38,7 +40,8 @@ const snapshotGateCacheTTL = time.Hour
 
 // snapshotGateDue — the gate-decision pure function (the pruneGateDue
 // twin): false if last parses as RFC3339 and is within 24h; otherwise
-// (absent·blank·corrupt·24h elapsed) true.
+// (absent·blank·corrupt·24h elapsed·future-dated) true — the future
+// case is the gateStampDue guard (v1.19.1).
 func snapshotGateDue(last string, now time.Time) bool {
 	if last == "" {
 		return true
@@ -47,7 +50,7 @@ func snapshotGateDue(last string, now time.Time) bool {
 	if err != nil {
 		return true
 	}
-	return now.Sub(t) >= 24*time.Hour
+	return gateStampDue(t, now)
 }
 
 // snapshotGateProbe — the gate-cache verdict (the pruneGateProbe twin):
@@ -109,13 +112,18 @@ func (r *Repo) currentThresholdValues(ctx context.Context) (map[string]string, e
 	return out, nil
 }
 
-// lastThresholdSnapshots — each key's latest new_value (one SELECT over
-// the append-only history, ts-ascending — the last row per key wins;
-// the (key, ts DESC) index keeps the per-key scan path). An empty table
-// yields an empty map (the first-expiry seeding premise).
+// lastThresholdSnapshots — each key's latest new_value (one SELECT; the
+// per-key max-ts subquery keeps the winner selection in the DB — the
+// former ts-ascending full read scaled with the append-only history's
+// whole size, not the live key count; the (key, ts DESC) index serves
+// the subquery path. Doltgres lacks DISTINCT ON — the correlated max
+// subquery is the portable form). An empty table yields an empty map
+// (the first-expiry seeding premise).
 func (r *Repo) lastThresholdSnapshots(ctx context.Context) (map[string]string, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT key, new_value FROM threshold_snapshots ORDER BY ts ASC`)
+		`SELECT key, new_value FROM threshold_snapshots t
+		 WHERE ts = (SELECT max(ts) FROM threshold_snapshots t2 WHERE t2.key = t.key)
+		 ORDER BY ts ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -165,22 +173,89 @@ func (r *Repo) snapshotThresholds(ctx context.Context) error {
 // thresholdsForPrune convention).
 func (r *Repo) pruneThresholdSnapshots(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "threshold_snapshots_retention_days")
-	days := th.ThresholdSnapshotsRetentionD
-	if days <= 0 {
-		days = store.DefaultThresholds().ThresholdSnapshotsRetentionD
-	}
+	cutoff := retentionCutoffDays(th.ThresholdSnapshotsRetentionD,
+		store.DefaultThresholds().ThresholdSnapshotsRetentionD, time.Now().UTC())
 	_, err := r.pool.Exec(ctx,
-		`DELETE FROM threshold_snapshots WHERE ts < $1`,
-		time.Now().UTC().Add(-time.Duration(days)*24*time.Hour))
+		`DELETE FROM threshold_snapshots WHERE ts < $1`, cutoff)
 	return err
+}
+
+// claimSettleDelay — the post-claim wait before the survival check
+// (v1.19.1 CI round 2). Doltgres commits same-row concurrent claims
+// LAST-WRITE-WINS without conflict and reports RowsAffected=1 to every
+// passer (measured: PR-216 CI — 4 hard-synchronized first-expiry
+// passes each saw the claim land and each seeded the baseline, 4×52
+// rows; the same race reproduced locally at GOMAXPROCS=4). RowsAffected
+// alone is therefore NOT a single-winner verdict on Doltgres. The
+// settle window lets every concurrently fired claim COMMIT first; the
+// survival SELECT then observes the final value and admits exactly the
+// last committer. Once-a-day path — the delay is free. A claim fired
+// later than the window would still win over the earlier survivor —
+// but it also re-closes the gate for its own pass, so the invariant
+// that holds is: at most the LAST claimant of any overlapping burst
+// seeds, and non-overlapping claims are serialized by the gate itself.
+const claimSettleDelay = 200 * time.Millisecond
+
+// newClaimToken — a unique claim value. The gate value carries the
+// claim TOKEN until the pass succeeds and the final RFC3339 stamp
+// replaces it — a freshness reader inside the sub-second claim window
+// sees an unparseable value, treated as "never stamped" (warn-only,
+// self-healing: a leftover token fails snapshotGateDue and the next
+// pass retries).
+func newClaimToken() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return "claim-" + hex.EncodeToString(b[:])
+}
+
+// claimThresholdSnapshotGate — the conditional pre-claim of the 24h
+// gate (v1.19.1): commit a unique token onto the gate row (absent row:
+// INSERT ... DO NOTHING; present row: an UPDATE pinned to the
+// previously-read value), let any concurrent burst settle, then admit
+// the pass only if the token SURVIVED as the row's final value (the
+// last committer wins the LWW burst; every earlier claimant sees its
+// token gone and skips). Returns the surviving token, "" when another
+// process holds the pass. Errors claim nothing ("" — the quiet path).
+func (r *Repo) claimThresholdSnapshotGate(ctx context.Context, last string) string {
+	token := newClaimToken()
+	if last == "" {
+		tag, err := r.pool.Exec(ctx,
+			`INSERT INTO meta (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO NOTHING`, thresholdSnapshotGateKey, token)
+		if err != nil || tag.RowsAffected() != 1 {
+			return ""
+		}
+	} else {
+		tag, err := r.pool.Exec(ctx,
+			`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
+			token, thresholdSnapshotGateKey, last)
+		if err != nil || tag.RowsAffected() != 1 {
+			return ""
+		}
+	}
+	if sleepCtx(ctx, claimSettleDelay) != nil {
+		return ""
+	}
+	var n int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM meta WHERE key = $1 AND value = $2`,
+		thresholdSnapshotGateKey, token).Scan(&n); err != nil || n != 1 {
+		return ""
+	}
+	return token
 }
 
 // maybeSnapshotThresholds — the read-path hook (the RecordReadEvent
 // tail, one line). Gate-checked per hour in-process, gated per day in
-// the DB (stamped only on success — a failed pass keeps the retry
-// open). Parallel passes are harmless: the append is idempotent by the
-// value comparison, and a duplicate baseline row is self-correcting on
-// the next pass. Failures pass quietly (the metering principle).
+// the DB. Concurrency contract (v1.19.1): the stamp write runs BEFORE
+// the pass as a commit-then-verify claim (claimThresholdSnapshotGate)
+// — of N processes passing an open gate together, only the one whose
+// token survives the settle seeds, so the empty-table first expiry
+// writes the full key set exactly once. A failed pass rolls the claim
+// back to the pre-claim value (the stamp-only-on-success contract
+// keeps the retry open); a rollback failure passes quietly — a
+// leftover token self-heals (unparseable → due on the next pass). All
+// failures pass quietly (the metering principle).
 func (r *Repo) maybeSnapshotThresholds(ctx context.Context) {
 	if !snapshotGateProbe(time.Now().UTC()) {
 		return
@@ -191,11 +266,29 @@ func (r *Repo) maybeSnapshotThresholds(ctx context.Context) {
 	if !snapshotGateDue(last, time.Now().UTC()) {
 		return
 	}
+	token := r.claimThresholdSnapshotGate(ctx, last)
+	if token == "" {
+		return // another process's claim survived the settle — its pass runs
+	}
 	if err := r.snapshotThresholds(ctx); err != nil {
+		// Roll the claim back to the pre-claim state so the failed pass
+		// keeps the retry open (stamp-only-on-success). Guarded by the
+		// claim token — a later legitimate stamp is never clobbered by
+		// this stale rollback.
+		if last == "" {
+			_, _ = r.pool.Exec(ctx,
+				`DELETE FROM meta WHERE key = $1 AND value = $2`,
+				thresholdSnapshotGateKey, token)
+		} else {
+			_, _ = r.pool.Exec(ctx,
+				`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
+				last, thresholdSnapshotGateKey, token)
+		}
 		return
 	}
+	// Finalize the surviving claim to the RFC3339 stamp (guarded by the
+	// token; a failure leaves the token, which self-heals as due).
 	_, _ = r.pool.Exec(ctx,
-		`INSERT INTO meta (key, value) VALUES ($1, $2)
-		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
-		thresholdSnapshotGateKey, time.Now().UTC().Format(time.RFC3339))
+		`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
+		time.Now().UTC().Format(time.RFC3339), thresholdSnapshotGateKey, token)
 }

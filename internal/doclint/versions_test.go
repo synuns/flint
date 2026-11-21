@@ -443,6 +443,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01190Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.0", "observability-foundation",
 	}},
+	// v1.19.1 patch: R71-R74 4각도 감사 수정 7건 — retention 오버플로
+	// 클램프·미래 스탬프 가드·첫 시딩 선점·키별 최신 판독·warn_h 클램프·
+	// count 상한·near_score 클램프.
+	{name: "TestVersion01191Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.19.1", "r71-r74",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

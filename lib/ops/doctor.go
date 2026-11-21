@@ -1571,12 +1571,29 @@ func checkMeteringFreshnessTh(ctx context.Context, st wire.Store, th store.Thres
 	if th.MeteringFreshnessWarnH <= 0 {
 		th = store.DefaultThresholds()
 	}
-	limit := time.Duration(th.MeteringFreshnessWarnH) * time.Hour
+	// The warn-hours clamp (v1.19.1): a warn_h override past the Duration
+	// ceiling (~2562047h) wraps time.Duration(warnH)*time.Hour negative —
+	// every source would report stale (or none, by sign) off a corrupted
+	// limit. 87600h = 10 years is the ceiling (far past any meaningful
+	// freshness horizon, exactly representable).
+	warnH := th.MeteringFreshnessWarnH
+	if warnH > 87600 {
+		warnH = 87600
+	}
+	limit := time.Duration(warnH) * time.Hour
 	var stale []string
 	judged := 0
+	now := time.Now()
 	over := func(label string, ts time.Time) {
 		judged++
-		if d := time.Since(ts); d > limit {
+		// A future-dated source counts as stale (v1.19.1): its negative
+		// since-span would otherwise mask the check for the whole forward
+		// span — a future stamp is not freshness, it is a clock defect.
+		if ts.After(now) {
+			stale = append(stale, fmt.Sprintf("%s future", label))
+			return
+		}
+		if d := now.Sub(ts); d > limit {
 			stale = append(stale, fmt.Sprintf("%s %dh", label, int(d.Hours())))
 		}
 	}
