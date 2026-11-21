@@ -1,5 +1,5 @@
 // pipeline.go — v1.14.0 T1: the knowledge-pipeline case registry. The
-// seven intake cases (who/what feeds long-term memory, with which
+// eight intake cases (who/what feeds long-term memory, with which
 // metering source, tag, confidence, and implementing version) live here
 // as the single enumeration; the RUNBOOK case matrix is derived from it
 // (no hand-maintained doc table drifting from the code). The
@@ -29,8 +29,9 @@ type PipelineCase struct {
 	Since      string // implementing version
 }
 
-// pipelineCases — the seven knowledge-pipeline intake cases in plan
-// enumeration order (docs/plans/2026-11-21-flint-v1140.md T1):
+// pipelineCases — the eight knowledge-pipeline intake cases in plan
+// enumeration order (docs/plans/2026-11-21-flint-v1140.md T1 seven +
+// the v1.17.0 echo case):
 //
 //  1. correction-b — the v1.11.0 agent-contract correction (plan B):
 //     an agent noticing a user correction writes it on the correction
@@ -52,6 +53,11 @@ type PipelineCase struct {
 //  7. survived — the v1.14.0 verified-success observation: a re-recall
 //     of the same (knowledge_id, session) is an observation signal, not
 //     a write — no metering source (decay relief consumes it, T3/T4).
+//  8. echo — the v1.17.0 write-time consistency observation: the
+//     committed write response reports the near active rows
+//     (duplicates/contradicts) as review material for the writing
+//     agent — observation·judgment support only, no separate metering
+//     source (the write itself is metered on its own source).
 var pipelineCases = []PipelineCase{
 	{
 		ID:         "correction-b",
@@ -115,6 +121,15 @@ var pipelineCases = []PipelineCase{
 		Tag:        "",
 		Confidence: "관측",
 		Since:      "v1.14.0",
+	},
+	{
+		ID:         "echo",
+		Name:       "에코 검토",
+		Signal:     "write 응답 echo 필드 — 근접 활성 행 duplicates/contradicts 보고",
+		Source:     "",
+		Tag:        "",
+		Confidence: "관측",
+		Since:      "v1.17.0",
 	},
 }
 

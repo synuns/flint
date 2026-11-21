@@ -407,6 +407,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01162Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.16.2", "r62-guard",
 	}},
+	// v1.17.0 T5: echo 마일스톤 계약행 — 단일 헤딩·write 시점 모순 감지·
+	// 관측 키.
+	{name: "TestVersion01170Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.17.0", "echo",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

@@ -530,10 +530,11 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
   조회 자체를 생략해 출력이 바이트 단위 동일. 소비자: hot·brief
   랭킹·maintain --decay-audit. `:vol:immutable:` 면제가 우선(면제행은
   감쇠 자체가 없으므로 survived 무의미).
-- **케이스 등록표 7종(단일 원천)**: 입구 케이스 전부가 Go 등록표
+- **케이스 등록표 8종(단일 원천)**: 입구 케이스 전부가 Go 등록표
   (lib/knowledge/pipeline.go)에 존재하고 아래 매트릭스는 그 파생
   렌더링이다(문서-코드 어긋남은 계약 테스트가 차단). source 보유
-  케이스는 sourceRegistry와 정합.
+  케이스는 sourceRegistry와 정합. v1.17.0 에코 케이스 추가(관측·
+  판정 지원 — source 없음).
 
 | 케이스 | 입구 신호 | source | 태그 | confidence | 구현 |
 | --- | --- | --- | --- | --- | --- |
@@ -544,3 +545,42 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
 | 세션 증류 | PostCompact 훅 — 압축 요약의 세션 행 적립 | hook | — | 0.5 | v0.27 |
 | 수동 | 사람 명시 적립(confidence·태그 지정) | manual | — | 지정 | v0.1 |
 | 검증된 성공 | 동일 (knowledge_id, session) 재회상 관측 | — | — | 관측 | v1.14.0 |
+| 에코 검토 | write 응답 echo 필드 — 근접 활성 행 duplicates/contradicts 보고 | — | — | 관측 | v1.17.0 |
+
+## 지식화 파이프라인 4단계 — 에코(write 시점 모순 감지)·관측 키 (v1.17.0)
+
+(spec — docs/plans/2026-11-21-flint-v1170.md). 쓰기 시점 자기검토:
+새 적립이 기존 활성 지식과 충돌하는지를 쓰기 응답에 보고한다.
+
+- **개념**: `flint write knowledge`가 새 행을 커밋할 때, dedup 통과
+  직후·분류 전에 활성 지식(invalid_at IS NULL, suggest_scan_cap 상한)
+  을 스캔해 입력(topic+summary, 4096 룬 상한)과 근접한 행을 찾는다
+  (`EchoScan` — bigramDice·BigramDiceMultiset 재조합, 신규 유사도
+  없음). 정확-hash 중복은 이미 DuplicateMeta 응답이 존재하므로
+  에코를 생략한다(중복 보고 방지).
+- **echo 필드 해석**: 단일 행 커밋 응답에
+  `"echo":[{id,topic,score,relation}]`가 추가된다(기존 필드 불변·
+  하위 호환). `relation` 두 값 — `duplicates`: multiset 유사도 ≥
+  conflict_dup_threshold(0.6, 기존 판정 승계) = 같은 내용 재적립
+  후보. `contradicts`: 0.6 미만이면서 집합 유사도 ≥
+  echo_min_score(0.3)·토픽 유사도 ≥ echo_topic_match(0.4) = 같은
+  주제의 상이 주장. `score`는 multiset 유사도(정렬 척도·duplicates는
+  ≥0.6 보장). 상위 echo_top_k(기본 5)건·미달 행은 제외, 스캔 실패 시
+  필드 부재·쓰기는 정상 완료(§13).
+- **판정 가이드**: 에코는 제안만 — **판정은 에이전트**가 기존 승인
+  회로로 수행한다(자동 supersede 금지·§5 승계). duplicates → 기존
+  행으로 회상(read) 전환 또는 새 행 철회(재적립 불필요).
+  contradicts → 어느 쪽이 최신인지 맥락으로 판정해 저신뢰 행
+  적립 후 `approve --id N --supersede OLD`, 또는 기존 행
+  `maintain --supersede OLD --by NEW`·`--invalidate`. 저신뢰(기본
+  0.4) pending 행은 승격 게이트를 거친다.
+- **관측 키 3종(소스별 전환 카운터)**: `correction_approved`
+  (origin=correction 승격)·`gap_approved`(origin=gap 승격)·
+  `survived_sessions`(아래). 승격 경로(approve)에서 소스별로
+  카운트된다(일일 meta 플랫 키, PruneDaily 정리 — 관측이 판정을
+  대신하지 않는다).
+- **maintain survived 스냅숏**: `flint maintain --decay-audit` 실행 시
+  랭킹 시점 SurvivedCounts 결과에서 survived≥1인 id 수를 일일
+  `survived_sessions` 카운터로 스냅숏한다(완화 비활성
+  survived_decay_relief=0이면 조회 자체를 생략 — 스냅숏도 no-op).
+  관측 상실은 조용(§13).
