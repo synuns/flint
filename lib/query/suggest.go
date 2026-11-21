@@ -133,13 +133,30 @@ func SetSuggestThresholds(minScore float64, scanCap int) {
 // SuggestSimilar — the top-N suggestions by NFKC-normalized bigram Dice similarity
 // between the query q and the scanned rows ([0]=id, [1]=topic, [2]=summary).
 // Rows below suggestMinScore (including 0) are excluded; descending, ties by ascending id. Fewer than topN are returned as-is.
+// Delegates to SuggestSimilarWithScanMax (suggestions only) — the legacy
+// signature and call sites are unchanged.
 func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
+	sug, _ := SuggestSimilarWithScanMax(q, rows, topN)
+	return sug
+}
+
+// SuggestSimilarWithScanMax — SuggestSimilar plus the scan max: the
+// highest bigramDice score over ALL scanned candidate rows, computed
+// BEFORE the suggestMinScore filter and independent of the top-N
+// selection (schema v13 read_events.near_score source). A below-min
+// zero row therefore still carries its best scan score — masking
+// near=false rows to 0 would erase the min_score-boundary distribution
+// (the counterfactual-analysis core). An empty scan yields 0 (nothing
+// was scanned — distinct from a masked score); malformed rows (short·
+// unparseable id) are not candidates and never feed the max.
+func SuggestSimilarWithScanMax(q string, rows [][]any, topN int) ([]Suggestion, float64) {
 	nq := nfkc(q)
 	type scored struct {
 		sug   Suggestion
 		score float64
 	}
 	var cs []scored
+	scanMax := 0.0
 	for _, row := range rows {
 		if len(row) < 3 {
 			continue
@@ -151,6 +168,9 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 		topic, _ := row[1].(string)
 		summary, _ := row[2].(string)
 		score := bigramDice(nq, nfkc(topic+summary))
+		if score > scanMax {
+			scanMax = score
+		}
 		if score < suggestMinScore {
 			continue
 		}
@@ -166,13 +186,13 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 		cs = cs[:topN]
 	}
 	if len(cs) == 0 {
-		return nil
+		return nil, scanMax
 	}
 	out := make([]Suggestion, len(cs))
 	for i, c := range cs {
 		out[i] = c.sug
 	}
-	return out
+	return out, scanMax
 }
 
 // suggestScanCap — the suggestion scan row cap (N13). Corrects spec §3 R1's 'no scan cap':

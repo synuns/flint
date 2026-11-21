@@ -6,6 +6,49 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.19.0 minor (2026-11-22) — observability-foundation: schema v13 metering layer
+
+(spec: docs/plans/2026-11-22-flint-v1190.md). The observation-based
+metering layer — additive schema v13, three independent circuits, and
+two health surfaces. Metric definitions live in METRICS.md (the single
+documentation source); tuning keys in TUNING.md §2.
+
+- schema v13 (additive — v12 DBs promote on the first command): the
+  read_events.near_score column (the scan-best bigramDice over ALL
+  zero-hit-path candidates, recorded before the min_score filter — hit
+  rows stay 0, scan failure keeps 0), the threshold_snapshots table
+  (append-only threshold-change history: ts·key·old_value·new_value,
+  a (key, ts DESC) index, changed keys only), and the weekly_rollups
+  table (weekly num/den counter pairs, PK (week_start, metric), metrics
+  zero_pct·fallback_pct·pair_pct — no derived ratios stored, computed
+  at consumption).
+- independent rollover circuits (both once-a-day: a 24h meta gate +
+  1h in-process cache, stamped only on success): the threshold
+  snapshot pass (the first expiry on an empty table seeds the full key
+  set as the baseline, old_value empty) and the weekly rollup pass
+  (the fully-elapsed UTC Monday week only, never backfilled; an empty
+  week writes no row; re-aggregation is an idempotent UPSERT; runs
+  BEFORE the event prune so a week's raw events are never cleaned
+  first).
+- doctor metering-freshness (7 sources): 5 event-table recency maxes
+  (read_events·recall_events[recalled_at]·hot_events·knowledge_reads·
+  session_starts) + the 2 rollover gate stamps
+  (last_threshold_snapshot_at·last_rollup_at), each judged against
+  metering_freshness_warn_h (default 336h = 14 days, aligned with the
+  events retention horizon; never-recorded counts as stale; a failed
+  probe skips quietly — warn only).
+- diagnose metering_silent (coverage): the unified observation-kind
+  registry (24 keys, 3 groups — usage 10·curation 11·bytes 3) minus
+  the report window sums; registered kinds with a zero total over the
+  30d window (a code constant, no thresholds key) are dead-wiring
+  candidates — informational, group-qualified names.
+- thresholds registry +3 keys: weekly_rollups_retention_days (90) ·
+  threshold_snapshots_retention_days (90) · metering_freshness_warn_h
+  (336). Interdependency: an events_*_retention_days override below
+  8 days prunes a week's raw events before the once-a-day rollup pass
+  can aggregate them — weekly rollup completeness is then not
+  guaranteed (TUNING §2).
+
 ### v1.18.3 patch (2026-11-21) — r69-grammar: comment article fix
 
 ### v1.18.2 patch (2026-11-21) — r68-hygiene: stale comments · HISTORY body · test panic guard

@@ -14,6 +14,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math"
 	"os"
 	"regexp"
 	"strings"
@@ -23,6 +24,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -37,12 +39,13 @@ type readEventRecorder struct {
 
 // readEventRecord — recorded RecordReadEvent call arguments.
 type readEventRecord struct {
-	hits     int
-	zero     bool
-	near     bool
-	fallback bool
-	session  string
-	ids      string
+	hits      int
+	zero      bool
+	near      bool
+	fallback  bool
+	session   string
+	ids       string
+	nearScore float64
 }
 
 func (r *readEventRecorder) RecordReadUsage(ctx context.Context, zero, near bool) error {
@@ -50,7 +53,7 @@ func (r *readEventRecorder) RecordReadUsage(ctx context.Context, zero, near bool
 }
 
 func (r *readEventRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
-	r.events = append(r.events, readEventRecord{ev.Hits, ev.Zero, ev.Near, ev.Fallback, ev.Session, ev.IDs})
+	r.events = append(r.events, readEventRecord{ev.Hits, ev.Zero, ev.Near, ev.Fallback, ev.Session, ev.IDs, ev.NearScore})
 	return nil
 }
 
@@ -1082,4 +1085,108 @@ func (g *gapAsOfStore) Query(ctx context.Context, sql string, args ...any) ([][]
 		return [][]any{{fmt.Sprint(g.active)}}, nil
 	}
 	return g.fakeStore.Query(ctx, sql, args...)
+}
+
+// nearScoreRows — the suggestion-scan fake rows for the near_score
+// accrual test (ASCII — NFKC identity, hand-computable Dice): against
+// q="abxy" the candidates score 2/3·1/3·0 (see lib/query/suggest_test.go
+// for the arithmetic).
+var nearScoreRows = [][]any{
+	{int32(1), "abxx", ""},
+	{int32(2), "abqz", ""},
+	{int32(3), "zzzz", ""},
+}
+
+// TestRunReadNearScoreScanMax — the schema v13 A1 accrual: a zero-hit
+// read stores the suggestion scan's best bigramDice score in the
+// read_events record (near_score) even when every candidate sits below
+// min_score (near=false stays false — the flag's meaning is unchanged;
+// the score is not masked to 0). A hit read stores 0 (no scan ran)·an
+// empty scan stores 0. The record carries numbers only — no query body
+// (the structural no-personal-wording principle: db.ReadEvent has no
+// such field).
+func TestRunReadNearScoreScanMax(t *testing.T) {
+	def := store.DefaultThresholds()
+	query.SetSuggestThresholds(def.SuggestMinScore, def.SuggestScanCap)
+	t.Cleanup(func() { query.SetSuggestThresholds(def.SuggestMinScore, def.SuggestScanCap) })
+
+	readWith := func(t *testing.T, minOverride string, scanRows [][]any) *readEventRecorder {
+		t.Helper()
+		st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			// The thresholds meta load — the read path re-injects
+			// SetSuggestThresholds from this result, so the min_score
+			// override rides the realistic meta path (not a package-global
+			// clobber that the read itself would overwrite).
+			if minOverride != "" && strings.Contains(sql, "FROM meta WHERE key IN") {
+				return [][]any{{"suggest_min_score", minOverride}}, nil
+			}
+			if scanRows != nil && strings.Contains(sql, "SELECT id, topic, summary FROM active_knowledge") {
+				return scanRows, nil // suggestion scan rows present
+			}
+			return nil, nil // body phrase·fallback zero-hit
+		}}}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st, []string{"abxy"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		return st
+	}
+
+	t.Run("제로히트·min 미만 — 스캔 최고치 적립(near=false 불변)", func(t *testing.T) {
+		st := readWith(t, "0.9", nearScoreRows) // every candidate (max 2/3) below min
+		if len(st.events) != 1 {
+			t.Fatalf("read_events 기록 = %d건, want 1건", len(st.events))
+		}
+		ev := st.events[0]
+		if !ev.zero || ev.near {
+			t.Fatalf("zero=%v near=%v, want true·false(min 0.9 — near 플래그 의미 불변)", ev.zero, ev.near)
+		}
+		if math.Abs(ev.nearScore-2.0/3.0) > 1e-9 {
+			t.Fatalf("near_score = %v, want 2/3(min 미만 zero 행의 스캔 최고치 — 0 마스킹 금지)", ev.nearScore)
+		}
+	})
+	t.Run("제로히트·min 초과 — 동일 스캔 최고치", func(t *testing.T) {
+		st := readWith(t, "0.2", nearScoreRows)
+		ev := st.events[0]
+		if !ev.near {
+			t.Fatalf("near=%v, want true(min 0.2 — 후보 생존)", ev.near)
+		}
+		if math.Abs(ev.nearScore-2.0/3.0) > 1e-9 {
+			t.Fatalf("near_score = %v, want 2/3", ev.nearScore)
+		}
+	})
+	t.Run("히트 — 스캔 미실행 0", func(t *testing.T) {
+		// The hit path — the main phrase query returns rows; the suggest
+		// scan never runs (scanMax stays 0).
+		st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "FROM active_knowledge") {
+				return hitRowsFixture, nil
+			}
+			return nil, nil
+		}}}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st, []string{"abxy"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		if len(st.events) != 1 {
+			t.Fatalf("read_events 기록 = %d건, want 1건", len(st.events))
+		}
+		ev := st.events[0]
+		if ev.zero {
+			t.Fatal("zero=true — 히트 행 전제 위반")
+		}
+		if ev.nearScore != 0 {
+			t.Fatalf("히트 행 near_score = %v, want 0(스캔 미실행)", ev.nearScore)
+		}
+	})
+	t.Run("제로히트·빈 스캔 — 0", func(t *testing.T) {
+		st := readWith(t, "", nil) // zero-hit — scan also 0 rows
+		ev := st.events[0]
+		if !ev.zero || ev.near {
+			t.Fatalf("zero=%v near=%v, want true·false(빈 스캔)", ev.zero, ev.near)
+		}
+		if ev.nearScore != 0 {
+			t.Fatalf("빈 스캔 near_score = %v, want 0", ev.nearScore)
+		}
+	})
 }

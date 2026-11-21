@@ -664,6 +664,79 @@ func (r *Repo) ensureSchemaV12(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV13 losslessly promotes a DB with
+// meta.schema_version<13 to v13 (v1.19.0 observability foundation —
+// additive): adds the read_events column near_score (double precision,
+// NOT NULL DEFAULT 0 — the scan-max bigramDice score of zero rows
+// regardless of the near flag; near=false rows are not masked to 0, the
+// min_score-boundary distribution being the counterfactual-analysis
+// core) with ADD COLUMN IF NOT EXISTS (the v10 column-extension
+// precedent), and creates the 2 metering tables with CREATE TABLE IF
+// NOT EXISTS (the v12 precedent): threshold_snapshots (the append-only
+// threshold-change history — ts·key·old_value·new_value; the fired
+// motivation column is deferred to the v1.23.0 registry) with its
+// (key, ts DESC) index, and weekly_rollups (the long-baseline weekly
+// num/den counters — no derived ratios, PK (week_start, metric)).
+// Neither table adopts a serial id column, so no sequence staging is
+// needed. Pre-promotion read_events rows get the default 0. Existing
+// tables·views·data unchanged (no existing column is altered). Already
+// v13+ is a no-op (the numeric-comparison short circuit), idempotent on
+// any DB that passed the v1~v12 gates.
+func (r *Repo) EnsureSchemaV13(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV13(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV13(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v13: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // fresh DB (tables absent) — the fresh-creation path carries the v13 terminus
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 13 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v13: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`ALTER TABLE read_events ADD COLUMN IF NOT EXISTS near_score double precision NOT NULL DEFAULT 0`,
+		`CREATE TABLE IF NOT EXISTS threshold_snapshots (
+		    ts        timestamptz NOT NULL DEFAULT now(),
+		    key       text NOT NULL,
+		    old_value text NOT NULL,
+		    new_value text NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_threshold_snapshots_key_time
+		 ON threshold_snapshots (key, ts DESC)`,
+		`CREATE TABLE IF NOT EXISTS weekly_rollups (
+		    week_start date   NOT NULL,
+		    metric     text   NOT NULL,
+		    num        bigint NOT NULL,
+		    den        bigint NOT NULL,
+		    PRIMARY KEY (week_start, metric)
+		)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v13: create: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '13')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v13: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v13: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve promotes pending knowledge to active (spec §8: approval =
 // flint approve). Approval is a valid confirmation, so it also clears
 // any residual invalid_at — defense against the defect where

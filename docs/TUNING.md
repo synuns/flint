@@ -130,11 +130,19 @@ line through the existing set/reset standard path above.
 | `echo_top_k` | 5 | max echo candidates in a `write` response (v1.17.0) — the echo scan surfaces semantically near existing knowledge as a suggestion-only `echo` field; the cap bounds response size (the per-write scan cost is bounded by `suggest_scan_cap`, not by this key). Echo is suggestion-only — disposition is always delegated to review (no auto-supersede) | write echo top-k cap |
 | `echo_min_score` | 0.3 | admission score floor of an echo candidate (v1.17.0) — deliberately above `suggest_min_score` 0.15: the write path pays a per-write scan cost, so the bar is raised to admit only strong near-matches and keep weak candidates out of every write response | write echo admission floor |
 | `echo_topic_match` | 0.4 | topic-overlap floor of an echo candidate (v1.17.0) — a candidate must share at least this much topic overlap with the new write in addition to clearing `echo_min_score`, preventing cross-topic noise in the echo field | write echo topic-overlap floor |
+| `weekly_rollups_retention_days` | 90 | retention days for `weekly_rollups` (schema v13, v1.19.0 — the weekly num/den counters that extend the zero_pct·fallback_pct·pair_pct baseline past the 14d daily-counter window; whole-week delete at the Monday boundary). **Interdependency**: the rollup pass aggregates the fully-elapsed week from raw `read_events` once a day (up to 1 day after the week closes, so events up to 8 days old), and it runs before the prune — an `events_*_retention_days` override below **8 days** can delete a week's raw events before the pass aggregates them, and weekly rollup completeness is then not guaranteed | rollup retention prune |
+| `threshold_snapshots_retention_days` | 90 | retention days for `threshold_snapshots` (schema v13, v1.19.0 — append-only threshold-change history, changed keys only; the first expiry on an empty table seeds the full key set as the baseline, old_value empty) | snapshot retention prune |
+| `metering_freshness_warn_h` | 336 | metering-health freshness warning hours (doctor metering-freshness, v1.19.0) — each of the 7 sources (5 event-table recency maxes + the 2 rollover gate stamps `last_threshold_snapshot_at`·`last_rollup_at`) older than this warns; never-recorded counts as stale, a failed probe skips quietly. 336h = 14 days, aligned with the events retention horizon (default) — a source older than the horizon means its history rolled over without one new event. Warn only, never blocks | doctor metering-freshness |
 
 Diagnostics layer-B rules inherit reads from existing doctor keys (avoiding
 duplicate keys — see the `zero_near_warn_pct` · `pending_age_days` rows).
 Diagnostics only produce items when something is wrong (healthy silence —
 empty array).
+
+The diagnose `metering_silent` judgment window (30 days, v1.19.0) is a
+**code constant** — no thresholds-registry key was registered for it
+(the curation·maintain paths fire at most once a day, so a shorter
+overridable window would invite false positives).
 
 Update (unset keys use the default, reapplied immediately — no restart needed):
 

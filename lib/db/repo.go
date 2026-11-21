@@ -560,8 +560,12 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events"}
 
 // telemetryStageTables — the staging targets of the metering-only
-// commit (CommitTelemetry).
-var telemetryStageTables = []string{"read_events", "hot_events", "knowledge_reads", "session_starts"}
+// commit (CommitTelemetry). The schema v13 observability tables
+// (threshold_snapshots·weekly_rollups) join the explicit list — neither
+// adopts a serial id column, so no *_id_seq entry is needed (the no-
+// global-dolt_add principle: an unstaged metering table never reaches
+// the telemetry commit).
+var telemetryStageTables = []string{"read_events", "hot_events", "knowledge_reads", "session_starts", "threshold_snapshots", "weekly_rollups"}
 
 // telemetryStageSeqs — the metering sequences CommitTelemetry stages
 // along (v1.7.2 T1, R38-C1). Each is the serial id source of a metering
@@ -627,9 +631,9 @@ func (r *Repo) Commit(ctx context.Context, msg string) (string, error) {
 	return hash, nil
 }
 
-// CommitTelemetry stages only the metering tables (read_events·
-// hot_events·knowledge_reads·session_starts) and the 4 metering
-// sequences (telemetryStageSeqs) and makes the 'telemetry: <cmd>'
+// CommitTelemetry stages only the metering tables (telemetryStageTables
+// — the 4 event tables plus the schema v13 observability pair) and the
+// 4 metering sequences (telemetryStageSeqs) and makes the 'telemetry: <cmd>'
 // commit. Independent of the audit commit (Commit) — the read/hot/done
 // completion paths call it once. The global dolt_add('-A') sweep is
 // abolished — the sweep absorbed not just sequence residue but also

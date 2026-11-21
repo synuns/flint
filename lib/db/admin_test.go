@@ -9,6 +9,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/synuns/flint/lib/sqlfs"
+	"github.com/synuns/flint/lib/store"
 )
 
 // pendingRec is a status=pending knowledge record (the pre-review-gate
@@ -611,4 +614,202 @@ func slowV11GateNumeric(t *testing.T, r *Repo) {
 	if v := readVersion(t, r); v != "99" {
 		t.Fatalf("게이트 하강 기록: schema_version=%q, want 99(수치 비교 no-op)", v)
 	}
+}
+
+// TestTelemetryStageTablesV13 — the schema v13 metering tables
+// (threshold_snapshots·weekly_rollups) must be explicit
+// telemetryStageTables members (the no-global-dolt_add principle: an
+// unstaged metering table never reaches the telemetry commit). The v13
+// tables carry no serial id column, so telemetryStageSeqs stays at the
+// existing 4 (Seqs would grow only with a serial-adopting table).
+func TestTelemetryStageTablesV13(t *testing.T) {
+	for _, tbl := range []string{"threshold_snapshots", "weekly_rollups"} {
+		found := false
+		for _, cur := range telemetryStageTables {
+			if cur == tbl {
+				found = true
+				break
+			}
+		}
+		if !found {
+			t.Errorf("telemetryStageTables에 %s 부재 — v13 계측 테이블 미스테이징(전역 dolt_add 금지 위반 소지)", tbl)
+		}
+	}
+	if len(telemetryStageSeqs) != 4 {
+		t.Errorf("telemetryStageSeqs = %d건, want 4(v13 테이블은 serial 부재 — Seqs 불변)", len(telemetryStageSeqs))
+	}
+}
+
+// TestV13ThresholdKeys — the schema v13 threshold keys: defaults
+// (90·90·336), meta override reflection, and the unset-keeps-0
+// convention (the consumer fallback basis — the correction 2-key
+// convention). 336h = 14 days, aligned with the events retention
+// default (metering freshness lags beyond the retention window are the
+// doctor warning target).
+func TestV13ThresholdKeys(t *testing.T) {
+	def := store.DefaultThresholds()
+	if def.WeeklyRollupsRetentionD != 90 {
+		t.Errorf("WeeklyRollupsRetentionD 기본값=%d, want 90(현행 *_retention_days 관례)", def.WeeklyRollupsRetentionD)
+	}
+	if def.ThresholdSnapshotsRetentionD != 90 {
+		t.Errorf("ThresholdSnapshotsRetentionD 기본값=%d, want 90(현행 *_retention_days 관례)", def.ThresholdSnapshotsRetentionD)
+	}
+	if def.MeteringFreshnessWarnH != 336 {
+		t.Errorf("MeteringFreshnessWarnH 기본값=%d, want 336(14일 — 이벤트 보존 기본과 정렬)", def.MeteringFreshnessWarnH)
+	}
+	th, err := store.ParseThresholds([][2]any{
+		{"weekly_rollups_retention_days", "180"},
+		{"threshold_snapshots_retention_days", "365"},
+		{"metering_freshness_warn_h", "48"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.WeeklyRollupsRetentionD != 180 || th.ThresholdSnapshotsRetentionD != 365 || th.MeteringFreshnessWarnH != 48 {
+		t.Errorf("오버라이드 반영 실패: rollup=%d snapshot=%d freshness=%d, want 180·365·48",
+			th.WeeklyRollupsRetentionD, th.ThresholdSnapshotsRetentionD, th.MeteringFreshnessWarnH)
+	}
+	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.WeeklyRollupsRetentionD != 0 || unset.ThresholdSnapshotsRetentionD != 0 || unset.MeteringFreshnessWarnH != 0 {
+		t.Errorf("unset 폴백: rollup=%d snapshot=%d freshness=%d, want 0·0·0",
+			unset.WeeklyRollupsRetentionD, unset.ThresholdSnapshotsRetentionD, unset.MeteringFreshnessWarnH)
+	}
+}
+
+// v13GateArtifacts — the schema v13 artifact assertions shared by the
+// upgrade (v12→v13) and fresh-direct paths: the read_events.near_score
+// column (double precision), the threshold_snapshots table + its
+// (key, ts DESC) index, and the weekly_rollups table with the
+// (week_start, metric) primary key enforced.
+func v13GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
+	t.Helper()
+	// ① read_events.near_score — double precision (the scan-max score
+	// storage; NOT NULL DEFAULT 0 — pre-v13 rows read 0).
+	var dataType string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT data_type FROM information_schema.columns
+		 WHERE table_name = 'read_events' AND column_name = 'near_score'`).
+		Scan(&dataType); err != nil {
+		t.Fatalf("read_events.near_score 조회: %v", err)
+	}
+	if dataType != "double precision" {
+		t.Fatalf("read_events.near_score 타입=%q, want double precision", dataType)
+	}
+	// ② threshold_snapshots + the (key, ts DESC) index.
+	assertObject(t, r, ctx, "threshold_snapshots")
+	var idx int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM information_schema.statistics
+		 WHERE table_name = 'threshold_snapshots' AND index_name = 'idx_threshold_snapshots_key_time'`).
+		Scan(&idx); err != nil {
+		t.Fatalf("threshold_snapshots 인덱스 조회: %v", err)
+	}
+	if idx < 1 {
+		t.Fatalf("idx_threshold_snapshots_key_time 부재 — (key, ts DESC) 인덱스 계약 위반")
+	}
+	// ③ weekly_rollups — the composite PK enforced on duplicates.
+	assertObject(t, r, ctx, "weekly_rollups")
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO weekly_rollups (week_start, metric, num, den)
+		 VALUES (DATE '2026-11-16', 'zero_pct', 3, 9)`); err != nil {
+		t.Fatalf("weekly_rollups 적립: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO weekly_rollups (week_start, metric, num, den)
+		 VALUES (DATE '2026-11-16', 'zero_pct', 1, 1)`); err == nil {
+		t.Fatal("weekly_rollups (week_start, metric) 중복 적립 허용 — PK 계약 위반")
+	}
+}
+
+// TestV13GateUpgradeFromV12 — promotes a reproduced v12 DB to v13: the
+// near_score column added with DEFAULT 0 (pre-promotion rows read 0)·
+// the 2 metering tables + index created·version 13·the rerun
+// idempotent (the additive protocol — existing columns unchanged).
+func TestV13GateUpgradeFromV12(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	// Reproduce a faithful v12 DB — remove the v13 artifacts the fresh
+	// schema.sql terminus already carries (DROP COLUMN has no IF EXISTS
+	// on Doltgres — the dropV11ScoreColumns convention).
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS threshold_snapshots`,
+		`DROP TABLE IF EXISTS weekly_rollups`,
+	} {
+		if _, err := r.pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("v12 재현 %q: %v", stmt, err)
+		}
+	}
+	if columnExists(t, r, "read_events", "near_score") {
+		if _, err := r.pool.Exec(ctx, `ALTER TABLE read_events DROP COLUMN near_score`); err != nil {
+			t.Fatalf("v12 재현 near_score 삭제: %v", err)
+		}
+	}
+	setVersion(t, r, "12")
+	// A pre-promotion read_events row — the DEFAULT 0 backfill target.
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (0, true, false, false)`); err != nil {
+		t.Fatalf("v12 시대 read_events 적립: %v", err)
+	}
+
+	if err := r.EnsureSchemaV13(ctx); err != nil {
+		t.Fatalf("first EnsureSchemaV13: %v", err)
+	}
+	if v := readVersion(t, r); v != "13" {
+		t.Fatalf("schema_version = %q, want 13", v)
+	}
+	v13GateArtifacts(t, r, ctx)
+	// The pre-promotion row keeps the default 0 (additive DEFAULT ALTER).
+	var nearScore float64
+	if err := r.pool.QueryRow(ctx, `SELECT near_score FROM read_events`).
+		Scan(&nearScore); err != nil {
+		t.Fatalf("기존 read_events 행 near_score 조회: %v", err)
+	}
+	if nearScore != 0 {
+		t.Fatalf("기존 행 near_score = %v, want 0(컬럼 기본값)", nearScore)
+	}
+	// The rerun is idempotent — version 13 kept·no error·no duplicate PK
+	// rejection of the rerun's CREATE IF NOT EXISTS path.
+	if err := r.EnsureSchemaV13(ctx); err != nil {
+		t.Fatalf("second EnsureSchemaV13 (want idempotent): %v", err)
+	}
+	if v := readVersion(t, r); v != "13" {
+		t.Fatalf("재호출 후 schema_version = %q, want 13", v)
+	}
+}
+
+// TestV13FreshSchemaDirect — the fresh-install path: recreating with the
+// real schema.sql + running the gate chain v2→v13 in order reaches the
+// v13 terminus (near_score·threshold_snapshots·weekly_rollups present
+// without any gate DDL — the fresh-creation terminus contract).
+func TestV13FreshSchemaDirect(t *testing.T) {
+	r := newTestRepo(t)
+	resetVersionToV1(t, r)
+	saved := schemaSQLFn
+	schemaSQLFn = sqlfs.SchemaSQL
+	t.Cleanup(func() { schemaSQLFn = saved })
+	ctx := context.Background()
+	for _, stmt := range []string{
+		`DROP VIEW IF EXISTS active_knowledge, hot_view`,
+		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events, threshold_snapshots, weekly_rollups`,
+		`DELETE FROM meta WHERE key = 'schema_version'`,
+	} {
+		if _, err := r.pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("신규 DB 재현 %q: %v", stmt, err)
+		}
+	}
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(신규 생성): %v", err)
+	}
+	for _, gate := range SchemaGates() {
+		if err := gate.Ensure(ctx, r); err != nil {
+			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
+		}
+	}
+	if v := readVersion(t, r); v != "13" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 13", v)
+	}
+	v13GateArtifacts(t, r, ctx)
 }

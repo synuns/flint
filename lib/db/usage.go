@@ -69,10 +69,60 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 	return r.RecordUsageCount(ctx, kind, source, 1)
 }
 
+// MeteringKindGroup — one key-space group of the unified observation-
+// kind registry (schema v13 A5, v1.19.0). The 3 pre-unification
+// whitelists (RecordUsageCount's intake kinds·knowledge's curation
+// kinds·RecordBytes' surface kinds) live here as group-distinct kinds —
+// a flat merge is forbidden: curation is a dedicated key space
+// (approve.go — promotion·invalidation outcomes are review results, not
+// intake), and the bytes kinds share names with usage kinds but are a
+// separate space (daily:<kind>_bytes:*). The same kind name in 2 groups
+// is legal; each consumer checks only its own group.
+type MeteringKindGroup struct {
+	Name  string
+	Kinds []string
+}
+
+// MeteringKindRegistry — the registry original (24 keys — usage 10·
+// curation 11·bytes 3). Order is deterministic (the homogeneity guard
+// pins the exact sets).
+var MeteringKindRegistry = []MeteringKindGroup{
+	{"usage", []string{"write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "dup_gap", "brief"}},
+	{"curation", []string{"approve_done", "approve_not_found", "approve_supersede_err",
+		"maintain_supersede", "maintain_expire", "maintain_prune_rows",
+		"import_added", "import_skipped", "correction_approved", "gap_approved", "survived_sessions"}},
+	{"bytes", []string{"read", "hot", "brief"}},
+}
+
+// MeteringKinds — the kind list of one group (nil = unknown group). A
+// copy — callers cannot mutate the registry through it.
+func MeteringKinds(group string) []string {
+	for _, g := range MeteringKindRegistry {
+		if g.Name == group {
+			return append([]string(nil), g.Kinds...)
+		}
+	}
+	return nil
+}
+
+// meteringKindAllowed — membership within one group only (the group
+// distinction is the whitelist).
+func meteringKindAllowed(group, kind string) bool {
+	for _, k := range MeteringKinds(group) {
+		if k == kind {
+			return true
+		}
+	}
+	return false
+}
+
 // RecordUsageCount — bulk-increments count rounds of intake metering
 // into daily counters (avoiding the O(N) read-writes of dup N
-// accounting). kind = write|hot|read|dup + dup_hook|dup_manual|dup_mcp|dup_correction|dup_gap
-// (per-source dup, additive — v1.12.0 gap added) + brief (brief intake metering, additive).
+// accounting). kind = the registry's usage group (write|hot|read|dup +
+// per-source dup_hook|dup_manual|dup_mcp|dup_correction|dup_gap — v1.12.0
+// gap added) + brief (brief intake metering, additive). The whitelist is
+// the unified observation-kind registry's usage group (schema v13 A5 —
+// set-invariant with the pre-unification switch).
 // Upserts last_<kind>_at as RFC3339 (dup carries no time key — the
 // write time is reused) and increments the `daily:<kind>:YYYY-MM-DD`
 // integer flat key (the legacy `daily:YYYY-MM-DD` JSON counter
@@ -97,9 +147,7 @@ func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 // follows the metering principle already applied by the callers
 // (write·read·hot) discarding errors.
 func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
-	switch kind {
-	case "write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "dup_gap", "brief":
-	default:
+	if !meteringKindAllowed("usage", kind) {
 		return fmt.Errorf("record usage: invalid kind %q", kind)
 	}
 	if count < 1 {
@@ -148,9 +196,9 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 // exhaustion pass quietly (the §13 metering principle — the same
 // recordWithRetry path as RecordUsageCount).
 func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
-	switch kind {
-	case "read", "hot", "brief":
-	default:
+	// The whitelist is the registry's bytes group (schema v13 A5 — the
+	// name space shared with usage kinds is group-distinct).
+	if !meteringKindAllowed("bytes", kind) {
 		return fmt.Errorf("record bytes: invalid kind %q", kind)
 	}
 	if n < 0 {
@@ -211,6 +259,12 @@ func BumpDailyFlatKey(ctx context.Context, q Querier, kind, day string, n int) e
 // zero=1 rows — the spec §2.2 zero-hit decomposition)·Source (the
 // 'hook'|'cli'|'mcp' channel label — hook/cli by session-label
 // presence; the MCP path is passed by the caller).
+// NearScore (schema v13): the suggestion scan's best bigramDice score
+// over ALL scanned candidates — recorded on zero rows regardless of the
+// Near flag (below-min zero rows are not masked to 0; the min_score
+// boundary distribution is the counterfactual-analysis core). Hit rows
+// are 0 (the suggest scan runs on the zero-hit path only). The query
+// body itself is never stored (the no-personal-wording principle).
 type ReadEvent struct {
 	Hits       int
 	Zero       bool
@@ -222,6 +276,7 @@ type ReadEvent struct {
 	Bytes      int
 	ZeroReason string
 	Source     string
+	NearScore  float64
 }
 
 // RecordReadEvent — records one effectiveness-metering event row
@@ -238,14 +293,16 @@ type ReadEvent struct {
 // RecordUsage (see the hook comment below).
 func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	_, err := r.pool.Exec(ctx,
-		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank, bytes, zero_reason, source)
-		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank, bytes, zero_reason, source, near_score)
+		 VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
 		ev.Hits, ev.Zero, ev.Near, ev.Fallback, ev.Session, ev.IDs, ev.FirstRank,
-		ev.Bytes, ev.ZeroReason, ev.Source)
+		ev.Bytes, ev.ZeroReason, ev.Source, ev.NearScore)
 	if err != nil {
 		return fmt.Errorf("record read event: %w", err)
 	}
+	r.maybeRollupWeekly(ctx) // the 24h-gated weekly rollup hook (schema v13 A3 — rollup.go) — precedes the prune (aggregate then clean)
 	r.maybePruneAfterRead(ctx)
+	r.maybeSnapshotThresholds(ctx) // the 24h-gated threshold-change accounting hook (schema v13 A2 — snapshot.go)
 	return nil
 }
 

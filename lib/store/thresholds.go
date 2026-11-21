@@ -89,6 +89,12 @@ type Thresholds struct {
 	EchoTopK       int     // default 5 — the max echo candidates in a write response
 	EchoMinScore   float64 // default 0.3 — the echo candidate admission floor (above suggest 0.15 — write-path scan cost)
 	EchoTopicMatch float64 // default 0.4 — the topic-overlap floor of an echo candidate
+	// the schema v13 observability keys (v1.19.0): the weekly_rollups·
+	// threshold_snapshots retention and the metering-freshness warning
+	// hours (doctor metering-freshness).
+	WeeklyRollupsRetentionD      int // default 90 — the weekly_rollups retention (days, the *_retention_days convention)
+	ThresholdSnapshotsRetentionD int // default 90 — the threshold_snapshots retention (days)
+	MeteringFreshnessWarnH       int // default 336 — the metering-freshness warning hours (14 days, aligned with the events retention default)
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -162,6 +168,14 @@ const (
 	defaultEchoTopK       = 5
 	defaultEchoMinScore   = 0.3
 	defaultEchoTopicMatch = 0.4
+	// the schema v13 observability defaults (v1.19.0): the retention pair
+	// follows the *_retention_days convention (90 — the recall_event family);
+	// the freshness window is 14 days in hours, aligned with the events
+	// retention default (a lag past the retention horizon is the warning
+	// target).
+	defaultWeeklyRollupsRetentionD      = 90
+	defaultThresholdSnapshotsRetentionD = 90
+	defaultMeteringFreshnessWarnH       = 336
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -228,6 +242,10 @@ func DefaultThresholds() Thresholds {
 		EchoTopK:       defaultEchoTopK,
 		EchoMinScore:   defaultEchoMinScore,
 		EchoTopicMatch: defaultEchoTopicMatch,
+		// the schema v13 observability keys (the consumer fallback basis).
+		WeeklyRollupsRetentionD:      defaultWeeklyRollupsRetentionD,
+		ThresholdSnapshotsRetentionD: defaultThresholdSnapshotsRetentionD,
+		MeteringFreshnessWarnH:       defaultMeteringFreshnessWarnH,
 	}
 }
 
@@ -385,6 +403,18 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 		case "echo_topic_match":
 			// unset keeps 0 (the convention — the 0..1 clamp parser).
 			th.EchoTopicMatch = parseFloatOrDefault(val, defaultEchoTopicMatch, ks)
+		case "weekly_rollups_retention_days":
+			// unset keeps 0 (the convention — the consumer, the rollup
+			// retention prune, falls back via the DefaultThresholds basis).
+			th.WeeklyRollupsRetentionD = parseIntOrDefault(val, defaultWeeklyRollupsRetentionD, ks)
+		case "threshold_snapshots_retention_days":
+			// unset keeps 0 (the convention — the consumer, the snapshot
+			// retention prune, falls back via the DefaultThresholds basis).
+			th.ThresholdSnapshotsRetentionD = parseIntOrDefault(val, defaultThresholdSnapshotsRetentionD, ks)
+		case "metering_freshness_warn_h":
+			// unset keeps 0 (the convention — the consumer, doctor
+			// metering-freshness, falls back via the DefaultThresholds basis).
+			th.MeteringFreshnessWarnH = parseIntOrDefault(val, defaultMeteringFreshnessWarnH, ks)
 		}
 	}
 	return th, nil

@@ -328,6 +328,78 @@ the §4 signal→metric mapping):
 Layer B inherits reads of existing doctor keys (avoiding duplicate new diag
 keys). The full list and defaults of `diag_*` tuning keys: docs/TUNING.md §2.
 
+## 4.9 Long-baseline observability (schema v13, v1.19.0)
+
+The observation-based metering layer. This section is the single
+documentation source for the three rollup metrics, the freshness check,
+and the coverage check; the num/den definitions follow the §4 report
+definitions (ops/report.go EffectOutput) — the report stays the precise
+computation, the rollup is the long baseline past the daily-counter
+window.
+
+### read_events.near_score (A1)
+
+One column added to read_events: the scan-best bigramDice over ALL
+scanned candidates on the zero-hit path, recorded **before** the
+`suggest_min_score` filter — near=false rows are not masked to 0, so the
+min_score-boundary distribution survives (the counterfactual-analysis
+core of the C1 what-if). Hit rows stay 0 (the scan runs on the zero-hit
+path only); scan failure keeps 0 (quiet, §13). The query body is never
+stored.
+
+### weekly_rollups (A2 gate · A3) — metric 3종
+
+Once a day (a 24h meta gate, stamped only on success), the
+**fully-elapsed** UTC Monday week is aggregated from raw read_events
+into num/den counter pairs — no derived ratios stored (computed at
+consumption). Missing weeks are not backfilled; an empty week (den = 0)
+writes no row (the absent row is the "no reads this week" record);
+re-aggregation is an idempotent UPSERT by (week_start, metric). The
+pass runs **before** the event prune (a week's raw events are never
+cleaned before the rollup confirms).
+
+| metric | numerator (num) | denominator (den) |
+|---|---|---|
+| `zero_pct` | zero-hit rows in the week | in-window read_events count |
+| `fallback_pct` | fallback rows in the week (read_events `fallback` flag) | same den |
+| `pair_pct` | reads followed within `pair_window_minutes` (default 30) by a knowledge write (`ingested_at` in (0, window] after the read) | same den |
+
+**pair_pct approximation note** — the rollup's pairing is the
+**time-window approximation** of the report-precise formula: report
+refines pairs by session interval (v0.20.0 — writes of other sessions
+that merely overlap in time are excluded), while the rollup counts any
+knowledge write inside the window (session boundaries are not
+reconstructed in the weekly pass). Flagged at v1.19.0 T4 — the B3/B4
+consumption points must re-examine which formula they need before
+relying on the rollup pair_pct.
+
+### doctor metering-freshness (A4)
+
+7 sources, each judged against `metering_freshness_warn_h` (default
+336h = 14 days — TUNING §2): the 5 event-table recency maxes
+(read_events·recall_events[time column `recalled_at`]·hot_events·
+knowledge_reads·session_starts) plus the 2 rollover gate stamps
+(`last_threshold_snapshot_at`·`last_rollup_at` — a stale stamp means
+the snapshot·rollup circuits have not confirmed for that long).
+Never-recorded sources count as infinitely stale (an empty table and an
+unstamped gate are the same warning); a per-source lookup failure skips
+only that source quietly (a failed probe is not evidence of staleness);
+when every source fails, the verdict defers. Warn only — stale metering
+never blocks operation.
+
+### diagnose metering_silent — coverage (A5)
+
+The registry-vs-observed set difference (the Prometheus `absent()`
+convention): the unified observation-kind registry (24 keys — usage 10 ·
+curation 11 · bytes 3) minus the report window sums. Registered kinds
+with a zero total over the 30-day window (a code constant — no
+thresholds key, TUNING §2) are dead-wiring candidates, reported
+group-qualified ("usage:dup_mcp"). Informational guidance only — a
+legitimately unused surface is also silent; windows shorter than 30
+days defer (the curation·maintain paths fire at most once a day). The
+3 curation kinds report does not carry (correction_approved·
+gap_approved·survived_sessions) are excluded as unjudgeable here.
+
 ## 5. Prohibitions
 
 1. Never report read/write volumes as effect (principle 2).

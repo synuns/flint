@@ -32,6 +32,11 @@
 -- 정의에 v11 2열이 부재하는 이유). 게이트 체인 재유입 시에도
 -- EnsureSchemaV11이 recall_events 존재 판별로 v11 2열 추가를 스킵해
 -- add→drop 왕복이 없다(R43 직행 단락 — 게이트 ALTER는 기존 DB 승격 전용).
+-- v13(v1.19.0): 관측 기반 계층 기반 — read_events에 near_score(스캔 최고
+-- bigramDice, zero 행 전체·near 무관 — near=false 0 마스킹 금지 Ruling),
+-- threshold_snapshots(튜닝값 변경 이력 append-only)·weekly_rollups(주간
+-- 분자·분모 카운터 — 파생 비율 금지) 테이블. 기존 v12 DB는
+-- EnsureSchemaV13 게이트가 적용(additive — DEFAULT 포함 ALTER).
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -98,7 +103,8 @@ CREATE TABLE IF NOT EXISTS read_events (
     first_rank integer NOT NULL DEFAULT 0,  -- 첫 topic 정합 순위(v0.30.0, 0=정합 없음/폴백)
     bytes     integer NOT NULL DEFAULT 0,   -- 출력 바이트(v1.2.0 G5 — 표면별 cost 산출)
     zero_reason text NOT NULL DEFAULT '',   -- 'unowned'|'owned_miss'|''(v1.2.0 — zero=1 행만)
-    source    text NOT NULL DEFAULT ''      -- 'hook'|'cli'|'mcp'(v1.2.0 — 채널 믹스)
+    source    text NOT NULL DEFAULT '',     -- 'hook'|'cli'|'mcp'(v1.2.0 — 채널 믹스)
+    near_score double precision NOT NULL DEFAULT 0 -- 스캔 최고 bigramDice(v1.19.0 — zero 행 전체, near 무관·쿼리 본문 비저장)
 );
 
 -- v10: 항목별 회상 이력 1행(hot 헤드라인 포함 — G4 계상 원천).
@@ -139,6 +145,29 @@ CREATE TABLE IF NOT EXISTS recall_events (
 -- v12: 파생 랭킹 조인(count·max(recalled_at)) 경로 인덱스.
 CREATE INDEX IF NOT EXISTS idx_recall_events_id_time
     ON recall_events (knowledge_id, recalled_at DESC);
+
+-- v13: 튜닝값 변경 이력 1행(append-only — 변경 행만 기록, 동기(fired) 캡처는
+-- B3 등록표 시점 이월). 개인 문구 부재 원칙 승계(키·값만).
+CREATE TABLE IF NOT EXISTS threshold_snapshots (
+    ts        timestamptz NOT NULL DEFAULT now(),
+    key       text NOT NULL,               -- thresholds 메타 키
+    old_value text NOT NULL,               -- 변경 전 값
+    new_value text NOT NULL                -- 변경 후 값
+);
+
+-- v13: 키별 최근 스냅숏 조회 경로 인덱스.
+CREATE INDEX IF NOT EXISTS idx_threshold_snapshots_key_time
+    ON threshold_snapshots (key, ts DESC);
+
+-- v13: 주간 롤업 분자·분모 카운터(파생 비율 금지 — 소비 시점 계산.
+-- metric: zero_pct·fallback_pct·pair_pct, 정의는 METRICS.md가 단일 소스).
+CREATE TABLE IF NOT EXISTS weekly_rollups (
+    week_start date   NOT NULL,            -- ISO 주 시작(UTC 월요일)
+    metric     text   NOT NULL,
+    num        bigint NOT NULL,            -- 분자 카운터
+    den        bigint NOT NULL,            -- 분모 카운터
+    PRIMARY KEY (week_start, metric)
+);
 
 -- v3(ADR-0008): 검색 필터 경로 인덱스 — 신규 DB 생성 시점에 포함.
 CREATE INDEX IF NOT EXISTS flint_knowledge_entity_idx ON knowledge (entity);

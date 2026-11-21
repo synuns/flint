@@ -1,5 +1,5 @@
 // runbook_test.go — RUNBOOK.md에 운영 절차들과 doctor 검사 표 계약이
-// 존재하는지 검증한다(T53·v0.34.2 T5 — 검사 16종 표·스키마 버전 표기).
+// 존재하는지 검증한다(T53·v0.34.2 T5 — 검사 17종 표·스키마 버전 표기).
 package doclint
 
 import (
@@ -20,21 +20,21 @@ func TestRunbookSections(t *testing.T) {
 }
 
 // doctorCheckChain — lib/cli/doctor.go 실행 체인 순서(코어 6종 →
-// tail-chain 10종). 표 순서 계약의 원천이다.
+// tail-chain 11종). 표 순서 계약의 원천이다.
 var doctorCheckChain = []string{
 	"hook-file", "db", "schema", "integrity", "last-seen", "port",
 	"backup-age", "conflicts", "zero-near", "pending-age",
 	"event-volume", "backup-key", "meta-hygiene", "update",
-	"recall-starved", "secrets",
+	"recall-starved", "metering-freshness", "secrets",
 }
 
-// TestRunbookDoctorCheckTable — 검사 표가 16종 전부를 체인 순서대로
+// TestRunbookDoctorCheckTable — 검사 표가 17종 전부를 체인 순서대로
 // 각 1행(이름·내용·수정 명령·warn/fail)으로 담는지 검증(v0.34.2 T5).
 func TestRunbookDoctorCheckTable(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 
-	if !strings.Contains(doc, "검사 16종") {
-		t.Error("RUNBOOK.md에 '검사 16종' 없음 — 체인 총계(코어 6 + tail 10) 불일치")
+	if !strings.Contains(doc, "검사 17종") {
+		t.Error("RUNBOOK.md에 '검사 17종' 없음 — 체인 총계(코어 6 + tail 11) 불일치")
 	}
 	last := -1
 	for _, name := range doctorCheckChain {
