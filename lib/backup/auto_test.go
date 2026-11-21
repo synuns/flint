@@ -198,3 +198,22 @@ func TestShouldBackupIntervalOverride(t *testing.T) {
 		t.Error("12h 경과에 6h 오버라이드 — 백업해야 함")
 	}
 }
+
+// TestShouldBackupIntervalOverflow — a backup_interval_h override past the
+// Duration ceiling (v1.19.3) clamps to the 87600h ceiling: a 1h-old backup is
+// not due (the pre-fix wrapped-negative interval made every check instantly
+// due — a dump every session).
+func TestShouldBackupIntervalOverflow(t *testing.T) {
+	now := time.Now().UTC()
+	last := now.Add(-time.Hour).Format(time.RFC3339)
+	if ShouldBackup(last, now, 3000000) {
+		t.Error("3000000h 오버라이드·1h 경과 — 백업하면 안 됨(클램프)")
+	}
+	if ShouldBackup(last, now, 87600) {
+		t.Error("87600h 상한 그대로·1h 경과 — 백업하면 안 됨")
+	}
+	old := now.Add(-25 * time.Hour).Format(time.RFC3339)
+	if !ShouldBackup(old, now, DefaultBackupIntervalH) {
+		t.Error("25h 경과에 통상 24h — 백업해야 함(통상 동작 불변)")
+	}
+}

@@ -810,8 +810,11 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 	windowStart := db.DaysCutoff(days, now)
 	// decision-window thresholds — caller-injected (th, the once-per-command-scope
 	// shared load — the load-failure fallback is already applied by WriteThresholds).
-	pairWindow := time.Duration(th.PairWindowMin) * time.Minute
-	chainWindow := time.Duration(th.ChainWindowH) * time.Hour
+	// The spans share the db.MinutesSpan/HoursSpan clamps (v1.19.3, the R77-R78
+	// sweep): a pair_window_min/chain_window_h override past the Duration ceiling
+	// wraps the window negative (no pair would ever hit, no chain would ever count).
+	pairWindow := db.MinutesSpan(th.PairWindowMin, store.DefaultThresholds().PairWindowMin)
+	chainWindow := db.HoursSpan(th.ChainWindowH, store.DefaultThresholds().ChainWindowH)
 
 	// ── G3 (+ exposure-consistency guard) ──
 	deadCutoff := db.DaysCutoff(th.DeadDays, now)

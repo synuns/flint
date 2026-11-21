@@ -1112,12 +1112,12 @@ func checkBackupAgeTh(ctx context.Context, st wire.Store, th store.Thresholds) D
 		c.Detail = "last_backup not set — check the flint done hook or run backup manually"
 		return c
 	}
-	// the threshold prefers the meta override (injected th) — the lookup-failure fallback is applied
-	// by the loader above; the value fallback (<=0 -> full defaults) is kept here.
-	if th.BackupAgeWarnH <= 0 {
-		th = store.DefaultThresholds()
-	}
-	if d := time.Since(ts); d >= time.Duration(th.BackupAgeWarnH)*time.Hour {
+	// the threshold prefers the meta override (injected th) — the lookup-failure
+	// fallback is applied by the loader above; the value fallback (<=0 -> default)
+	// and the overflow clamp share db.HoursSpan (v1.19.3): a backup_age_warn_h
+	// override past the Duration ceiling used to wrap the warn span negative
+	// (every backup instantly over-age).
+	if d := time.Since(ts); d >= db.HoursSpan(th.BackupAgeWarnH, store.DefaultThresholds().BackupAgeWarnH) {
 		c.Status = "warn"
 		c.Detail = fmt.Sprintf("last backup %dh ago — check the flint done hook or run backup manually", int(d.Hours()))
 		return c
@@ -1300,9 +1300,14 @@ func stallDetail(seen map[string]time.Time, key string, graceH int, warns *int) 
 		*warns++
 		return key + " never recorded"
 	}
-	if d := time.Since(ts); d > time.Duration(graceH)*time.Hour {
+	// The grace shares the db.HoursSpan clamp (v1.19.3): a grace_h override
+	// past the Duration ceiling wraps time.Duration(h)*time.Hour negative —
+	// every key instantly over-grace. def 0 keeps a non-positive grace at 0
+	// (the pre-clamp semantics — the callers inject fallback-applied th).
+	grace := db.HoursSpan(graceH, 0)
+	if d := time.Since(ts); d > grace {
 		*warns++
-		return fmt.Sprintf("%s elapsed %s (over %dh grace)", key, d.Round(time.Hour), graceH)
+		return fmt.Sprintf("%s elapsed %s (over %dh grace)", key, d.Round(time.Hour), int(grace.Hours()))
 	}
 	return ""
 }
@@ -1571,19 +1576,14 @@ func checkMeteringFreshnessTh(ctx context.Context, st wire.Store, th store.Thres
 		c.Detail = "cannot query metering freshness"
 		return c
 	}
-	if th.MeteringFreshnessWarnH <= 0 {
-		th = store.DefaultThresholds()
-	}
-	// The warn-hours clamp (v1.19.1): a warn_h override past the Duration
-	// ceiling (~2562047h) wraps time.Duration(warnH)*time.Hour negative —
-	// every source would report stale (or none, by sign) off a corrupted
-	// limit. 87600h = 10 years is the ceiling (far past any meaningful
-	// freshness horizon, exactly representable).
-	warnH := th.MeteringFreshnessWarnH
-	if warnH > 87600 {
-		warnH = 87600
-	}
-	limit := time.Duration(warnH) * time.Hour
+	// The warn-hours clamp (v1.19.1) now shares the db.HoursSpan choke point
+	// (v1.19.3): a warn_h override past the Duration ceiling (~2562047h)
+	// wraps time.Duration(warnH)*time.Hour negative — every source would
+	// report stale (or none, by sign) off a corrupted limit. HoursSpan applies
+	// the 87600h = 10 years ceiling (far past any meaningful freshness
+	// horizon, exactly representable) plus the <=0 default fallback.
+	limit := db.HoursSpan(th.MeteringFreshnessWarnH, store.DefaultThresholds().MeteringFreshnessWarnH)
+	warnH := int(limit.Hours())
 	var stale []string
 	judged := 0
 	now := time.Now()

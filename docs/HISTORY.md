@@ -6,24 +6,54 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v1.19.2 patch (2026-11-22) — r75-r76: cutoff overflow sweep (12 sites) · snapshot latest-per-key join · doctor corrupt display
+### v1.19.3 patch (2026-11-22) — r77-r78: asof ceiling rejection · hour/minute span clamp (6 sites) · history precision
+
+The v1.19.2 re-audit (R77·R78) closeout — the overflow class cleared
+from the remaining hour/minute-unit sites, asof included (no schema
+change, override-space defenses only):
+
+- asof relative-spec ceiling rejection (R77-1=R78-1 [med]): `--as-of
+  Nh/Nd` past the Duration ceiling (2,562,047h) wrapped
+  `time.Duration(v)*time.Hour` negative → a FUTURE as-of time, which
+  commitAtOrBefore silently resolved to the newest commit (exit 0
+  with a meaningless verdict). ParseRelative now rejects past-ceiling
+  values as ErrInvalidAsof (exit 3 — the asof error convention);
+  106751d is the largest day form that still fits.
+- hour/minute span clamp — db.HoursSpan/MinutesSpan (R78 [low]): the
+  6 hour/minute override keys (stall_hot_h·stall_write_h — maintain's
+  stall warnings and doctor's stall grace, backup_age_warn_h,
+  chain_window_h·pair_window_min, backup_interval_h) carried the same
+  wrap risk — an override past the ceiling flipped every elapsed
+  verdict (always-stall, always-due, never-chain). All now share
+  db.HoursSpan/MinutesSpan (lib/db/retention.go — [0, 87600h] clamp,
+  the v1.19.1 metering_freshness_warn_h precedent, whose inline clamp
+  is unified here too).
+- TUNING §2 precision (R77-2 [low]): the past-ceiling rejection list
+  is maintain's --days·--expire-pending N·--prune-invalidated N —
+  report --days clamps (the safe-cutoff path).
+- HISTORY precision (R77-3·R77-4 [low]): the v1.19.2 sweep cleared
+  every remaining day-count site (13, not 12 — recounted); the
+  v1.19.1 latest-per-key read is footnoted as superseded by the
+  v1.19.2 JOIN (the index path was missed).
+
+### v1.19.2 patch (2026-11-22) — r75-r76: cutoff overflow sweep (13 sites) · snapshot latest-per-key join · doctor corrupt display
 
 The v1.19.1 re-audit (R75·R76) hardening — the same overflow class
-cleared from every remaining read-side site, plus the measured
+cleared from every remaining day-count site, plus the measured
 snapshot-query regression (no schema change, all override-space
 defenses):
 
 - cutoff overflow sweep, read side (R75 [high]): the v1.19.1 clamp
   covered the 3 prune circuits only; the same naive
-  `time.Duration(days)*24h` arithmetic survived at 12 read-side
+  `time.Duration(days)*24h` arithmetic survived at 13 day-count
   sites (stale listing·invalidation, expire-pending listing, report
   stale·dead·window filters, drill staleness, doctor pending age,
   pending verdicts, session-label max-age, session-knowledge gate) —
   a days override past the ceiling wrapped the cutoff into the
   future (a full active-knowledge sweep). All now share the exported
   `db.DaysCutoff`/`DaysSpan` (the retention-cutoff clamp —
-  [0, 106751], AddDate calendar arithmetic), and the CLI value flags
-  (--days·--expire-pending N·--prune-invalidated N) reject
+  [0, 106751], AddDate calendar arithmetic), and maintain's value
+  flags (--days·--expire-pending N·--prune-invalidated N) reject
   past-ceiling values up front (usage-class exits).
 - snapshot latest-per-key JOIN (R76 [med]): the v1.19.1 correlated
   max(ts) subquery missed the (key, ts) index path on Doltgres — the
@@ -75,7 +105,8 @@ guidance untouched):
   now selects each key's max-ts row in the DB (a correlated max
   subquery — Doltgres lacks DISTINCT ON; the (key, ts DESC) index
   serves the path) instead of reading the whole append-only history
-  ts-ascending into the map.
+  ts-ascending into the map (superseded by the v1.19.2 JOIN — the
+  index path was missed).
 - metering_freshness_warn_h clamp (R74 [low]): a warn_h override past
   the Duration ceiling (~2562047h) wrapped the limit negative and
   flagged every source stale; it now clamps to 87600h (10 years).

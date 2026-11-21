@@ -69,9 +69,9 @@ live only in the operational DB via this route.
 
 Day-count overrides clamp at the 106751-day ceiling (≈292 years — the
 largest day count a time.Duration holds): a value past it is treated as
-effectively indefinite retention, not an error (the CLI value flags
+effectively indefinite retention, not an error (maintain's
 --days·--expire-pending N·--prune-invalidated N reject past-ceiling
-values up front instead).
+values up front instead; report --days clamps — the safe-cutoff path).
 
 `flint tuning --tui` (v1.9.3) is an opt-in interactive form (key list →
 value edit → set/reset confirm) for humans. It must run alone (combining

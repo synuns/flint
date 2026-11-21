@@ -13,6 +13,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/synuns/flint/lib/db"
 )
 
 // DefaultBackupIntervalH — the default minimum automatic backup interval, in
@@ -32,11 +34,11 @@ func realDumpEnabled() bool { return os.Getenv("SUPERLITE_REAL") == "1" }
 
 // ShouldBackup reports whether intervalH hours have elapsed since the last
 // backup (lastISO, RFC3339). An empty or unparseable value counts as a first
-// backup and yields true. intervalH <= 0 falls back to the default 24h.
+// backup and yields true. intervalH <= 0 falls back to the default 24h, and the
+// span shares the db.HoursSpan clamp (v1.19.3): a backup_interval_h override
+// past the Duration ceiling wraps the interval negative — every check instantly
+// due (a dump every session).
 func ShouldBackup(lastISO string, now time.Time, intervalH int) bool {
-	if intervalH <= 0 {
-		intervalH = DefaultBackupIntervalH
-	}
 	if lastISO == "" {
 		return true
 	}
@@ -44,7 +46,7 @@ func ShouldBackup(lastISO string, now time.Time, intervalH int) bool {
 	if err != nil {
 		return true
 	}
-	return now.Sub(last) >= time.Duration(intervalH)*time.Hour
+	return now.Sub(last) >= db.HoursSpan(intervalH, DefaultBackupIntervalH)
 }
 
 // Auto is the automatic backup runner for a target DSN.

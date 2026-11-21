@@ -1376,16 +1376,22 @@ func stallWarnings(ctx context.Context, st wire.Store, th store.Thresholds) []st
 	}
 	var warns []string
 	now := time.Now()
+	// The grace spans share the db.HoursSpan clamp (v1.19.3, the R77-R78 sweep):
+	// a stall_hot_h/stall_write_h override past the Duration ceiling wraps
+	// time.Duration(h)*time.Hour negative — every heartbeat instantly "stalled".
+	// The message reports the clamped grace (the limit actually applied).
+	graceHot := db.HoursSpan(th.StallHotH, store.DefaultThresholds().StallHotH)
+	graceWrite := db.HoursSpan(th.StallWriteH, store.DefaultThresholds().StallWriteH)
 	if ts, ok := AnyToTime(kv["last_hot_at"]); ok {
-		if el := now.Sub(ts); el > time.Duration(th.StallHotH)*time.Hour {
+		if el := now.Sub(ts); el > graceHot {
 			warns = append(warns, fmt.Sprintf(
-				"hot stall: %dh since last_hot_at (grace %dh)", int(el.Hours()), th.StallHotH))
+				"hot stall: %dh since last_hot_at (grace %dh)", int(el.Hours()), int(graceHot.Hours())))
 		}
 	}
 	if ts, ok := AnyToTime(kv["last_write_at"]); ok {
-		if el := now.Sub(ts); el > time.Duration(th.StallWriteH)*time.Hour {
+		if el := now.Sub(ts); el > graceWrite {
 			warns = append(warns, fmt.Sprintf(
-				"write stall: %dh since last_write_at (grace %dh)", int(el.Hours()), th.StallWriteH))
+				"write stall: %dh since last_write_at (grace %dh)", int(el.Hours()), int(graceWrite.Hours())))
 		}
 	}
 	return warns

@@ -81,6 +81,48 @@ func defForRetention(def store.Thresholds, table string) int {
 	}
 }
 
+// maxSpanHours — the hour-unit span clamp ceiling (v1.19.3): 87600h =
+// 10 years, the v1.19.1 metering_freshness_warn_h precedent — far past
+// any meaningful grace/window horizon, and far below the ~2562047h
+// Duration ceiling, so an hours override clamped here can never wrap
+// time.Duration(h)*time.Hour negative (a wrapped-negative grace/window
+// flips every elapsed comparison — always-stall, always-due).
+const maxSpanHours = 87600
+
+// HoursSpan — the exported hour-unit span clamp (v1.19.3, the R77-R78
+// sweep): h <= 0 falls back to def (the ApplyThresholdsFallback
+// convention, kept at the single choke point), then the value clamps to
+// [0, maxSpanHours]. The stall graces, the backup age/interval, the
+// metering-freshness limit, and the usage-chain window share this — the
+// hour-count twin of DaysSpan.
+func HoursSpan(h, def int) time.Duration {
+	if h <= 0 {
+		h = def
+	}
+	if h > maxSpanHours {
+		h = maxSpanHours
+	}
+	if h < 0 {
+		h = 0
+	}
+	return time.Duration(h) * time.Hour
+}
+
+// MinutesSpan — the minute-unit form of HoursSpan (the same ceiling
+// expressed in minutes, 87600*60): the pair_window_min-class spans.
+func MinutesSpan(m, def int) time.Duration {
+	if m <= 0 {
+		m = def
+	}
+	if max := maxSpanHours * 60; m > max {
+		m = max
+	}
+	if m < 0 {
+		m = 0
+	}
+	return time.Duration(m) * time.Minute
+}
+
 // gateStampDue — the 24h-gate expiry verdict for a parsed gate stamp:
 // a stamp dated in the FUTURE is immediately due (its whole forward
 // span would otherwise hold the gate closed — now.Sub(t) negative);

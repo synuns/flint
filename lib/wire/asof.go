@@ -9,6 +9,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -21,8 +22,18 @@ var ErrInvalidAsOf = errors.New("invalid as-of spec")
 // AsofMinPrefix — the minimum hash-prefix length (3 chars). Below is a format error.
 const AsofMinPrefix = 3
 
+// maxRelativeAsOfHours — the largest hour count whose time.Duration(v)*time.Hour
+// stays inside int64 (the floor of the Duration ceiling, ~2562047h). A relative
+// spec past it (e.g. 4000000h, or 106752d whose *24 exceeds the ceiling) wraps
+// the Duration negative → a FUTURE as-of time, which commitAtOrBefore would
+// silently resolve to the newest commit (exit 0 with a meaningless verdict).
+// Past-ceiling values are rejected up front as an invalid spec (exit 3, the
+// asof error convention); 106751d is the largest day count that still fits.
+const maxRelativeAsOfHours = int(math.MaxInt64 / int64(time.Hour))
+
 // ParseRelative — expands the relative specs "Nh" and "Nd" to a past time from now
-// (Go-computed). d expands as h*24; a non-integer (2.5h, "2 days ago") is ErrInvalidAsOf.
+// (Go-computed). d expands as h*24; a non-integer (2.5h, "2 days ago") is ErrInvalidAsOf,
+// and so is an hour count past the Duration ceiling (v1.19.3 R77-1/R78-1).
 func ParseRelative(spec string) (time.Time, error) {
 	fail := fmt.Errorf("invalid relative as-of spec %q (only integer Nh·Nd form allowed): %w", spec, ErrInvalidAsOf)
 	if len(spec) < 2 {
@@ -38,6 +49,11 @@ func ParseRelative(spec string) (time.Time, error) {
 	}
 	if unit == 'd' {
 		v *= 24
+	}
+	if v > maxRelativeAsOfHours {
+		return time.Time{}, fmt.Errorf(
+			"relative as-of spec %q exceeds the %dh Duration ceiling (largest day form: 106751d): %w",
+			spec, maxRelativeAsOfHours, ErrInvalidAsOf)
 	}
 	return time.Now().Add(-time.Duration(v) * time.Hour), nil
 }
