@@ -8,14 +8,13 @@
 
 | 플랜 | 상태 | 요약 | 다음 액션 | 갱신 |
 |---|---|---|---|---|
-| `2026-11-19-flint-knowledge-pipelines.md` | active | 지식 관리 계열 로드맵 — K원칙·교정 채널·변동성 계층·만남 판정·관측·자율 튜닝(§12·ADR-0017) | §12 자율 튜닝 회로·기반 계측 착수(릴리스 편성 미정 — todo) — 병합·환류는 계측 동반 분해(모순 감지·만남 판정은 v1.17.0 이행) | 2026-11-21 |
-| `2026-11-21-flint-v1180.md` | active | v1.18.0 MCP structuredContent·outputSchema — 버전 협상·outputSchema 5개·structuredContent·read --json 전환 | T4 문서·버전·release-gate | 2026-11-21 |
-| `2026-11-21-flint-v1180.spec.md` | draft | v1.18.0 MCP structuredContent·outputSchema 스펙 | 리서치(v118-mcp-research) 결과 반영·플랜 승격 | 2026-11-21 |
-| `2026-11-21-flint-vault-bridge.md` | active | 볼트 브리지 — 옵시디언 스냅숏-디프 인덱싱·포인터 저장(원문 비복사)·인사이트 증류 출력(ADR-0018) | 착수 대기 — M1 색인 스냅숏부터(릴리스 편성 미정 — todo) | 2026-11-21 |
-| `2026-11-21-flint-engine-ops.md` | active | 엔진 운영 — maintain --gc(접속 단절 계약)·doctor 경고 2종(로그 깊이·db 크기)·컨테이너 footprint 표시·버전업 절차 | 착수 대기 — M1 GC·경고부터(릴리스 편성 미정 — todo) | 2026-11-21 |
-| `2026-11-21-flint-surface-trust.md` | active | 표면 신뢰 — 업데이트 캐시 3원칙(ETag 조건부 재검증·모순 검출기)·doctor 버전 정합 표시·`flint seed --demo` 격리 데모 | 착수 대기 — M1 캐시 3원칙부터(릴리스 편성 미정 — todo) | 2026-11-21 |
+| `2026-11-21-flint-release-scope.md` | active | 전체 릴리스 스코프 v1.19.0~v2.0.0 — 10 릴리스 편성·완료 루프 계약(§4)·상태 표(§5) | 루프 실행 중 — 최초 non-done 버전 G2부터 순환(완료 시점까지 무인, 사용자 2026-11-21 지시) | 2026-11-21 |
+| `2026-11-19-flint-knowledge-pipelines.md` | active | 지식 관리 계열 로드맵 — K원칙·교정 채널·변동성 계층·만남 판정·관측·자율 튜닝(§12·ADR-0017) | §12 편성 확정 — 계측 v1.19.0·자율 shadow v1.23.0·적용 v1.24.0·잔여 v1.25.0(스코프 문서 §2) — 병합·환류는 계측 동반 분해 | 2026-11-21 |
+| `2026-11-21-flint-vault-bridge.md` | active | 볼트 브리지 — 옵시디언 스냅숏-디프 인덱싱·포인터 저장(원문 비복사)·인사이트 증류 출력(ADR-0018) | v1.21.0(M1 색인·M2 read 통합)·v1.22.0(M3 낡음·M4 distill) 편성 확정 | 2026-11-21 |
+| `2026-11-21-flint-engine-ops.md` | active | 엔진 운영 — maintain --gc(접속 단절 계약)·doctor 경고 2종(로그 깊이·db 크기)·컨테이너 footprint 표시·버전업 절차 | v1.26.0 편성 확정 — M1 GC·경고부터 | 2026-11-21 |
+| `2026-11-21-flint-surface-trust.md` | active | 표면 신뢰 — 업데이트 캐시 3원칙(ETag 조건부 재검증·모순 검출기)·doctor 버전 정합 표시·`flint seed --demo` 격리 데모 | v1.27.0 편성 확정 — M1 캐시 3원칙부터 | 2026-11-21 |
 
-> v1.12.0~v1.17.0(2026-11-21 릴리스)의 플랜·스펙은
+> v1.12.0~v1.18.3(2026-11-21 릴리스)의 플랜·스펙은
 > `archive/2026-11/`로 이동 완료 — 이력은 HISTORY.md 해당 버전 행 참조.
 
 ## 수명주기
