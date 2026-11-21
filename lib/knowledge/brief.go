@@ -29,6 +29,11 @@ const defaultBriefBudget = 3000
 const (
 	briefRecallScoreIdx = 9 // right after the 9 readColumns (id..read_count)
 	briefRecallLastIdx  = 10
+	// briefTagsIdx — the tags column position in the BuildReadStatus SELECT
+	// (readColumns: id,topic,summary,tags,...). v1.13.0 T2: the exemption
+	// material is already exposed by the base query — no SQL change, unlike
+	// hot's knowledge join.
+	briefTagsIdx = 3
 )
 
 // briefRankedSQL — appends the cnt·last_at produced by the recall_events
@@ -138,7 +143,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	rows = rankRowsByEffectiveScore(rows, briefRecallScoreIdx, briefRecallLastIdx,
+	rows = rankRowsByEffectiveScore(rows, briefRecallScoreIdx, briefRecallLastIdx, briefTagsIdx,
 		loadDecayRate(ctx, st), time.Now().UTC())
 	for _, row := range rows {
 		for i, cell := range row {

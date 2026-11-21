@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -69,6 +70,9 @@ var maintainModeFlags = map[string]map[string]bool{
 	"--expire-pending": {},
 	// decay decay-candidate report (read-only — execution is delegated to --invalidate).
 	"--decay-audit": {"--limit": true},
+	// v1.13.0 T4: the stale-score report (read-only, dry-run by default —
+	// disposition is delegated to --invalidate; no new execution flags).
+	"--age-audit": {"--limit": true},
 }
 
 // maintainYesModes — the modes where --yes (execution confirmation) is meaningful. In the
@@ -95,7 +99,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 
 // maintainUsageLine — the allowed-flags guidance (the common suffix of the invalid-arg
 // error message — for agent self-correction, alongside the error:"usage" transition).
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --tui (opt-in, run alone)"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --tui (opt-in, run alone)"
 
 // maintainUsageErrf — assembles the invalid-arg error (the approve.approveUsageErr
 // convention — a UsageError type + the allowed-flags suffix. The exit code stays with the caller).
@@ -121,6 +125,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			{Name: "--check"}, {Name: "--dup-suspects"}, {Name: "--conflict-suspects"},
 			{Name: "--merge"}, {Name: "--stale"}, {Name: "--invalidate"},
 			{Name: "--invalidate-stale"}, {Name: "--meta-audit"}, {Name: "--decay-audit"},
+			{Name: "--age-audit"},
 			// --expire-pending and --prune-invalidated are mode + value (N days).
 			{Name: "--expire-pending", Value: true}, {Name: "--prune-invalidated", Value: true},
 			{Name: "--days", Value: true}, {Name: "--limit", Value: true},
@@ -151,7 +156,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		switch name {
 		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
 			"--invalidate", "--invalidate-stale", "--meta-audit", "--expire-pending",
-			"--prune-invalidated", "--supersede", "--decay-audit":
+			"--prune-invalidated", "--supersede", "--decay-audit", "--age-audit":
 			mode = name
 		}
 	}
@@ -284,6 +289,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainMetaAudit(ctx, ms, stdout)
 	case "--decay-audit":
 		return maintainDecayAudit(ctx, ms, stdout, limit)
+	case "--age-audit":
+		return maintainAgeAudit(ctx, ms, stdout, limit)
 	case "--prune-invalidated":
 		return maintainPruneInvalidated(ctx, ms, stdout, expireDays, commit)
 	case "--dup-suspects":
@@ -942,9 +949,11 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 	}
 	// inheriting the Go-computed cutoff + parameter-passing convention. The sort is last recall
 	// time ASC — the least recently recalled (= most decayed) rows come first. last_at IS NOT
-	// NULL excludes history-less rows (LEFT JOIN misses) on the server side.
+	// NULL excludes history-less rows (LEFT JOIN misses) on the server side. v1.13.0 T2/T3:
+	// k.tags rides along so the effective score goes through EffectiveScoreFor — a
+	// :vol:immutable: row keeps its count (eff == cnt) and drops out below.
 	rows, err := wire.QueryOnce(ctx, ms, `
-		SELECT k.id, re.cnt, re.last_at
+		SELECT k.id, re.cnt, re.last_at, k.tags
 		FROM knowledge k
 		LEFT JOIN (`+knowledge.RecallAggregateSQL+`) re ON re.knowledge_id = k.id
 		WHERE k.status = 'active' AND k.invalid_at IS NULL AND re.last_at IS NOT NULL
@@ -969,9 +978,10 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 		if !ok || last.IsZero() {
 			continue
 		}
-		eff := knowledge.EventEffectiveScore(score, last, now, th.DecayRate)
+		tags, _ := r[3].(string) // missing/NULL tags — no exemption (the pure path)
+		eff := knowledge.EffectiveScoreFor(score, last, now, th.DecayRate, tags)
 		if eff >= score {
-			continue // no decay (elapsed under 24h, etc.) — not a candidate
+			continue // no decay (elapsed under 24h, exempt, etc.) — not a candidate
 		}
 		rec := ""
 		if th.ArchiveBelow > 0 && float64(eff) < th.ArchiveBelow {
@@ -1003,6 +1013,234 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 		return 1
 	}
 	fmt.Fprintln(stdout, string(out))
+	return 0
+}
+
+// ── v1.13.0 T3: the stale score (2 weighted signals — the --age-audit scoring source) ──
+
+// The stale score formula (the gate ruling — weights are code constants,
+// part of the formula, NOT tuning values; only the report marking threshold
+// is a thresholds.go key, T5):
+//
+//	score = round(100 × (0.7 × min(1, ttl_days / 180)
+//	                     + 0.3 × min(1, corr_count / 3)))
+//
+// ttl_days   — signal ①: integer days since COALESCE(last recall
+//
+//	(recall_events re.last_at), ingested_at) — the listStale
+//	convention (never-recalled rows age from ingestion; 23h59m
+//	= 0 days, the EventEffectiveScore unit).
+//
+// corr_count — signal ②: same-topic knowledge rows carrying the
+//
+//	:correction: tag (user correction frequency — strpos
+//	':correction:', excluding the candidate itself).
+//
+// ttlSatDays — the TTL saturation days: the stale_ttl_days threshold
+//
+//	(T5 wiring — meta-overrideable, default 180). At/above it the
+//	TTL component is fully lit; a non-positive value falls back to
+//	the default (the unset-keeps-0 parse convention defense).
+//
+// 3          — correction saturation: 3+ same-topic corrections fully lit.
+//
+//	A code constant, part of the formula — not a tuning key.
+const (
+	staleScoreWeightTTL  = 0.7
+	staleScoreWeightCorr = 0.3
+	staleCorrSat         = 3.0
+)
+
+// StaleScore — the pure weighted-sum formula, 0..100, monotone in each
+// signal, saturated at the caps above (the scoring single definition).
+func StaleScore(ttlDays, corrCount, ttlSatDays int) int {
+	if ttlSatDays <= 0 {
+		ttlSatDays = store.DefaultThresholds().StaleTTLDays // unset-0 parse convention defense
+	}
+	clamp01 := func(v float64) float64 {
+		if v < 0 {
+			return 0
+		}
+		if v > 1 {
+			return 1
+		}
+		return v
+	}
+	v := 100 * (staleScoreWeightTTL*clamp01(float64(ttlDays)/float64(ttlSatDays)) +
+		staleScoreWeightCorr*clamp01(float64(corrCount)/staleCorrSat))
+	return int(v + 0.5)
+}
+
+// staleScoredItem — one scored stale candidate (the --age-audit listing
+// item material, T4). Score carries only the 2 weighted signals; bad_recall
+// (same-topic knowledge invalidated/superseded after recall — the report.go
+// bad-recall derivation) and supersede (same-topic superseded_by lineage)
+// are REFERENCE columns — report information only, no weight.
+type staleScoredItem struct {
+	ID        int    `json:"id"`
+	Topic     string `json:"topic"`
+	Score     int    `json:"score"`
+	TTLDays   int    `json:"ttl_days"`
+	CorrCount int    `json:"correction_count"`
+	BadRecall int    `json:"bad_recall"`
+	Supersede int    `json:"supersede_count"`
+}
+
+// listStaleScored — the stale-candidate population with the 2-signal score
+// (read-only). Exclusions are server-side: :vol:immutable: rows (strpos —
+// NULL tags safe via the IS NULL arm) never enter the population (the
+// volatility tier contract), and only active·non-invalidated rows do. The
+// population cap is LIMIT $1 (the decay-audit convention — the SQL pre-order
+// COALESCE(re.last_at, k.ingested_at) ASC is the monotone proxy of the
+// dominant TTL signal; the final order is the Go-side score DESC stable
+// sort). Disposition is NOT performed here — the report (T4) delegates to
+// the existing --invalidate approval system.
+func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScoredItem, error) {
+	if limit <= 0 {
+		limit = 20
+	}
+	// The TTL saturation prefers the stale_ttl_days meta override (T5
+	// wiring — the decay-audit threshold convention: unset·load failure·
+	// non-positive all fall back to the DefaultThresholds basis).
+	ttlSat := store.DefaultThresholds().StaleTTLDays
+	if th, err := wire.LoadThresholds(ctx, ms); err == nil && th.StaleTTLDays > 0 {
+		ttlSat = th.StaleTTLDays
+	}
+	rows, err := wire.QueryOnce(ctx, ms, `
+		SELECT k.id, k.topic, COALESCE(re.last_at, k.ingested_at),
+		       (SELECT count(*) FROM knowledge c
+		         WHERE c.topic = k.topic AND c.id <> k.id
+		           AND strpos(c.tags, ':correction:') > 0),
+		       (SELECT count(*) FROM knowledge b
+		         WHERE b.topic = k.topic AND b.id <> k.id
+		           AND (b.invalid_at IS NOT NULL OR b.superseded_by IS NOT NULL)
+		           AND EXISTS (SELECT 1 FROM recall_events rb WHERE rb.knowledge_id = b.id)),
+		       (SELECT count(*) FROM knowledge s
+		         WHERE s.topic = k.topic AND s.id <> k.id AND s.superseded_by IS NOT NULL)
+		FROM knowledge k
+		LEFT JOIN (`+knowledge.RecallAggregateSQL+`) re ON re.knowledge_id = k.id
+		WHERE k.status = 'active' AND k.invalid_at IS NULL
+		  AND (k.tags IS NULL OR strpos(k.tags, ':vol:immutable:') = 0)
+		ORDER BY COALESCE(re.last_at, k.ingested_at) ASC
+		LIMIT $1`, []any{limit})
+	if err != nil {
+		return nil, err
+	}
+	now := decayNow()
+	items := []staleScoredItem{}
+	for _, r := range rows {
+		if len(r) < 6 {
+			continue
+		}
+		id, ok := render.CellToInt(r[0])
+		if !ok {
+			continue
+		}
+		topic, _ := r[1].(string)
+		ref, ok := AnyToTime(r[2])
+		if !ok || ref.IsZero() {
+			continue
+		}
+		corr, _ := render.CellToInt(r[3])
+		bad, _ := render.CellToInt(r[4])
+		sup, _ := render.CellToInt(r[5])
+		items = append(items, staleScoredItem{
+			ID:        id,
+			Topic:     render.Text(topic), // via render.Text (the output re-sanitization convention)
+			TTLDays:   int(now.Sub(ref).Hours() / 24),
+			CorrCount: corr,
+			BadRecall: bad,
+			Supersede: sup,
+		})
+	}
+	for i := range items {
+		items[i].Score = StaleScore(items[i].TTLDays, items[i].CorrCount, ttlSat)
+	}
+	sort.SliceStable(items, func(i, j int) bool { return items[i].Score > items[j].Score })
+	return items, nil
+}
+
+// ageAuditTopicMax — the rune cap of the report topic (the hotHeadline
+// truncation convention — … suffix when over; the full topic stays
+// addressable via --invalidate --id N).
+const ageAuditTopicMax = 40
+
+// ageAuditItem — one --age-audit listing item (the decay-audit formatting
+// inherited): the scored signals plus the 2 non-weighted reference columns,
+// with the threshold marking. Disposition is NOT performed — the summary
+// delegates to the existing --invalidate approval system.
+type ageAuditItem struct {
+	ID            int    `json:"id"`
+	Topic         string `json:"topic"`
+	Score         int    `json:"score"`
+	TTLDays       int    `json:"ttl_days"`
+	CorrCount     int    `json:"correction_count"`
+	BadRecall     int    `json:"bad_recall"`
+	SupersedeCnt  int    `json:"supersede_count"`
+	OverThreshold bool   `json:"over_threshold"`
+}
+
+// clampAgeTopic — truncates a report topic to the rune cap (… suffix when over).
+func clampAgeTopic(s string) string {
+	r := []rune(s)
+	if len(r) <= ageAuditTopicMax {
+		return s
+	}
+	return string(r[:ageAuditTopicMax]) + "…"
+}
+
+// maintainAgeAudit — the v1.13.0 stale-score report (read-only, dry-run by
+// default — no execution flag exists; disposition goes through the existing
+// --invalidate approval system). The listing is listStaleScored (T3: the 2
+// weighted signals, the :vol:immutable: server-side exclusion, and the
+// score DESC order); this report adds the threshold marking and the topic
+// clamp (--limit inherited, default 20 — the decay-audit convention).
+func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limit int) int {
+	// The marking line prefers the stale_score_threshold meta override (T5
+	// wiring — the decay-audit threshold convention: unset·load failure·
+	// non-positive all fall back to the default 70; the at-or-above
+	// convention: score >= threshold is marked).
+	threshold := store.DefaultThresholds().StaleScoreThreshold
+	if th, err := wire.LoadThresholds(ctx, ms); err == nil && th.StaleScoreThreshold > 0 {
+		threshold = th.StaleScoreThreshold
+	}
+	items, err := listStaleScored(ctx, ms, limit)
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	out := make([]ageAuditItem, 0, len(items))
+	over := 0
+	for _, it := range items {
+		marked := it.Score >= threshold
+		if marked {
+			over++
+		}
+		out = append(out, ageAuditItem{
+			ID:            it.ID,
+			Topic:         clampAgeTopic(it.Topic), // already render.Text-sanitized in listStaleScored
+			Score:         it.Score,
+			TTLDays:       it.TTLDays,
+			CorrCount:     it.CorrCount,
+			BadRecall:     it.BadRecall,
+			SupersedeCnt:  it.Supersede,
+			OverThreshold: marked,
+		})
+	}
+	b, mErr := json.Marshal(struct {
+		Status    string         `json:"status"`
+		Threshold int            `json:"threshold"`
+		Count     int            `json:"count"`
+		Items     []ageAuditItem `json:"items"`
+		Summary   string         `json:"summary"`
+	}{Status: "age-audit", Threshold: threshold, Count: len(out), Items: out,
+		Summary: fmt.Sprintf("%d stale candidates (%d over threshold %d) — dispose via maintain --invalidate (approval required)",
+			len(out), over, threshold)})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(b))
 	return 0
 }
 

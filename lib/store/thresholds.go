@@ -74,6 +74,10 @@ type Thresholds struct {
 	// bounds new ADDs per UTC day (knowledge/write.go gap source).
 	GapQueryThreshold int // default 3 — same-normalized-query recall-failure count triggering a candidate
 	GapDailyMax       int // default 10 — only new ADDs consume the cap (updates don't, the correction convention)
+	// the stale-score report thresholds (v1.13.0 — ops maintain --age-audit:
+	// the over-threshold marking line and the StaleScore TTL saturation days).
+	StaleScoreThreshold int // default 70 — at or above, an age-audit item is marked over_threshold
+	StaleTTLDays        int // default 180 — the TTL saturation of the stale score formula
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -135,6 +139,10 @@ const (
 	// the gap-candidate accrual trigger and daily cap (v1.12.0).
 	defaultGapQueryThreshold = 3
 	defaultGapDailyMax       = 10
+	// the stale-score report thresholds (v1.13.0 — the consumer fallback basis,
+	// the correction 2-key convention).
+	defaultStaleScoreThreshold = 70
+	defaultStaleTTLDays        = 180
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -192,6 +200,9 @@ func DefaultThresholds() Thresholds {
 		// the gap-candidate trigger and cap (the consumer fallback basis).
 		GapQueryThreshold: defaultGapQueryThreshold,
 		GapDailyMax:       defaultGapDailyMax,
+		// the stale-score report thresholds (the consumer fallback basis).
+		StaleScoreThreshold: defaultStaleScoreThreshold,
+		StaleTTLDays:        defaultStaleTTLDays,
 	}
 }
 
@@ -326,6 +337,14 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// unset keeps 0 (the convention — the consumer, write's gap
 			// daily cap, falls back via ApplyThresholdsFallback).
 			th.GapDailyMax = parseIntOrDefault(val, defaultGapDailyMax, ks)
+		case "stale_score_threshold":
+			// unset keeps 0 (the convention — the consumer, ops --age-audit
+			// marking, falls back via the DefaultThresholds basis).
+			th.StaleScoreThreshold = parseIntOrDefault(val, defaultStaleScoreThreshold, ks)
+		case "stale_ttl_days":
+			// unset keeps 0 (the convention — the consumer, ops StaleScore's
+			// TTL saturation, falls back via the DefaultThresholds basis).
+			th.StaleTTLDays = parseIntOrDefault(val, defaultStaleTTLDays, ks)
 		}
 	}
 	return th, nil

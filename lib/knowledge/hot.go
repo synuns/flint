@@ -100,6 +100,10 @@ const (
 const (
 	hotViewRecallScoreIdx  = 7
 	hotViewLastRecalledIdx = 8
+	// v1.13.0 T2: the tags tail column (vtag.tags — the knowledge join
+	// below supplies it; hot_view exposes no tags) rides after the ranking
+	// pair — the :vol:immutable: exemption material.
+	hotViewTagsIdx = 9
 )
 
 // hotHeadlineRecallScoreIdx·hotHeadlineRecallLastIdx — the ranking column
@@ -110,6 +114,9 @@ const (
 const (
 	hotHeadlineRecallScoreIdx = 5
 	hotHeadlineRecallLastIdx  = 6
+	// v1.13.0 T2: the tags tail column index on the headline shape (5 base
+	// columns + the ranking pair + tags).
+	hotHeadlineTagsIdx = 7
 )
 
 // RecallAggregateSQL — the recall_events derived aggregate subquery (v1.9.0
@@ -149,6 +156,30 @@ func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, 
 	return int(eff)
 }
 
+// volImmutableMarker — the :tags: storage-format marker of the immutable
+// volatility tier (CONTENT.md §4 — the same strpos convention as the tag
+// filters; the dictionary registration is lib/store policy.go).
+const volImmutableMarker = ":vol:immutable:"
+
+// EffectiveScoreFor — EventEffectiveScore wrapped with the v1.13.0 T2
+// volatility-tier exemption: a row whose tags contain :vol:immutable: is
+// exempt from decay (the event count is kept as-is — the tier contract:
+// effective=score maintained). Every other tag set — including
+// vol:conditional·vol:volatile, which inherit the existing decay — takes
+// the pure EventEffectiveScore path verbatim (the single formula stays
+// unchanged). Exported for the ops decay-audit consumer (T3).
+// e.g. (3, 100 days ago, now, 1.0, ":vol:immutable:") -> 3; the same with
+// tags "" -> 0.
+func EffectiveScoreFor(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64, tags string) int {
+	if strings.Contains(tags, volImmutableMarker) {
+		if eventCount <= 0 {
+			return 0
+		}
+		return eventCount
+	}
+	return EventEffectiveScore(eventCount, lastRecalled, now, decayPerDay)
+}
+
 // loadDecayRate — the decay coefficient prefers the meta override
 // (inheriting the consumer fallback: load failure·unset·0 or below yield
 // the default). It is ranking material, not a metered value, so failure is
@@ -165,13 +196,15 @@ func loadDecayRate(ctx context.Context, st wire.Store) float64 {
 // rankRowsByEffectiveScore — stable-sorts query rows by decay-adjusted
 // effective score, descending (v1.9.0 T4 — the formula has the single
 // EventEffectiveScore definition: effective score =
-// max(0, cnt − rate×elapsed days)). Rows without the scoreIdx·lastIdx
-// columns (old view shape·fakes)·rows whose cnt cell cannot convert (NULL —
-// project entries·zero recall events) count as zero. The stable sort
-// inherits the existing SQL order (hot: ts DESC, id DESC / brief:
-// RankOrder) as the tie order — an all-zero·ranking-column-free
-// environment is byte-identical to the existing output.
-func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64, now time.Time) [][]any {
+// max(0, cnt − rate×elapsed days)). v1.13.0 T2: the sort key is
+// EffectiveScoreFor — a row tagged :vol:immutable: (the tagsIdx cell,
+// missing/NULL = no exemption) keeps its count. Rows without the
+// scoreIdx·lastIdx columns (old view shape·fakes)·rows whose cnt cell
+// cannot convert (NULL — project entries·zero recall events) count as
+// zero. The stable sort inherits the existing SQL order (hot: ts DESC,
+// id DESC / brief: RankOrder) as the tie order — an all-zero·ranking-
+// column-free environment is byte-identical to the existing output.
+func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx, tagsIdx int, rate float64, now time.Time) [][]any {
 	eff := make([]int, len(rows))
 	for i, r := range rows {
 		if len(r) <= lastIdx {
@@ -182,7 +215,13 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64,
 			continue // cnt cell absent·NULL → zero score
 		}
 		last, _ := wire.CellToTime(r[lastIdx]) // last NULL+cnt>0 (fake shape) keeps cnt (T1 contract)
-		eff[i] = EventEffectiveScore(score, last, now, rate)
+		var tags string
+		if len(r) > tagsIdx {
+			if s, ok := r[tagsIdx].(string); ok {
+				tags = s
+			}
+		}
+		eff[i] = EffectiveScoreFor(score, last, now, rate, tags)
 	}
 	// sort.SliceStable swaps only the idx slice, so the precomputed eff
 	// array stays in place — the less closure reads the current ranking's
@@ -205,28 +244,32 @@ func rankRowsByEffectiveScore(rows [][]any, scoreIdx, lastIdx int, rate float64,
 // definition derived).
 const hotRankJoinPivot = " FROM hot_view ORDER BY ts DESC, id DESC"
 
-// hotRankedSQL — appends cnt·last_at to the SELECT tail of the single
+// hotRankedSQL — appends cnt·last_at·tags to the SELECT tail of the single
 // hot_view query (single definition = query.HotSQL·HotHeadlineSQL) via a
 // recall_events derived aggregate join (v1.9.0 T4 — the switch following
 // the removal of the v11 knowledge direct columns. Even with the recall
 // source moved to append-only events, the injection query keeps the
-// single-query contract). Columns are h.-qualified (post-join ambiguity
-// removed); ORDER BY·LIMIT inherit the original definition verbatim — if
-// the pivot is not found (a future SQL change) the original is returned,
-// ranking is silently skipped, and existing behavior is inherited.
+// single-query contract). v1.13.0 T2: hot_view exposes no tags, so a
+// knowledge base-table join (vtag — project rows have id NULL → tags
+// NULL → no exemption) supplies the :vol:immutable: exemption material.
+// Columns are h.-qualified (post-join ambiguity removed); ORDER BY·LIMIT
+// inherit the original definition verbatim — if the pivot is not found
+// (a future SQL change) the original is returned, ranking is silently
+// skipped, and existing behavior is inherited.
 func hotRankedSQL(base string) string {
 	i := strings.Index(base, hotRankJoinPivot)
 	if i <= 0 || !strings.HasPrefix(base, "SELECT ") {
 		return base
 	}
 	cols := strings.Split(strings.TrimPrefix(base[:i], "SELECT "), ", ")
-	q := make([]string, 0, len(cols)+2)
+	q := make([]string, 0, len(cols)+3)
 	for _, c := range cols {
 		q = append(q, "h."+c)
 	}
-	q = append(q, "re.cnt", "re.last_at")
+	q = append(q, "re.cnt", "re.last_at", "vtag.tags")
 	return "SELECT " + strings.Join(q, ", ") +
-		" FROM hot_view h LEFT JOIN (" + RecallAggregateSQL + ") re ON re.knowledge_id = h.id ORDER BY h.ts DESC, h.id DESC" +
+		" FROM hot_view h LEFT JOIN knowledge vtag ON vtag.id = h.id" +
+		" LEFT JOIN (" + RecallAggregateSQL + ") re ON re.knowledge_id = h.id ORDER BY h.ts DESC, h.id DESC" +
 		base[i+len(hotRankJoinPivot):]
 }
 
@@ -494,17 +537,19 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	rows = render.Cells(rows)
 	// Reflect the decay-adjusted effective recall score in selection
 	// ranking — effective DESC stable sort (ties·zero scores inherit the
-	// existing SQL order ts DESC, id DESC). Rows without ranking columns
-	// (old view·fake)·never-recalled (cnt NULL) count as zero, so existing
-	// order·output survive as-is. Format·budget·increments are downstream
-	// consumers of these rows, keeping the order = increment contract
-	// unchanged. The ranking column indexes follow the per-path query shape
-	// (--full 9 columns·headline 7 columns).
-	scoreIdx, lastIdx := hotViewRecallScoreIdx, hotViewLastRecalledIdx
+	// existing SQL order ts DESC, id DESC). v1.13.0 T2: the sort key is
+	// EffectiveScoreFor — :vol:immutable: rows (tags tail column) keep
+	// their count. Rows without ranking columns (old view·fake)·never-
+	// recalled (cnt NULL) count as zero, so existing order·output survive
+	// as-is. Format·budget·increments are downstream consumers of these
+	// rows, keeping the order = increment contract unchanged. The ranking
+	// column indexes follow the per-path query shape (--full 10 columns·
+	// headline 8 columns).
+	scoreIdx, lastIdx, tagsIdx := hotViewRecallScoreIdx, hotViewLastRecalledIdx, hotViewTagsIdx
 	if !full {
-		scoreIdx, lastIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx
+		scoreIdx, lastIdx, tagsIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx, hotHeadlineTagsIdx
 	}
-	rows = rankRowsByEffectiveScore(rows, scoreIdx, lastIdx,
+	rows = rankRowsByEffectiveScore(rows, scoreIdx, lastIdx, tagsIdx,
 		loadDecayRate(ctx, st), time.Now().UTC())
 	// Load the baseline just before recording, after a successful query
 	// (the query-failure path skips metering).

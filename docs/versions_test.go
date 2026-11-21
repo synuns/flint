@@ -381,6 +381,10 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01121Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.12.1", "r54-docs",
 	}},
+	// v1.13.0: 지식 수명주기 — 낡음 점수 age-audit·변동성 계층.
+	{name: "TestVersion01130Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.13.0", "age-audit",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

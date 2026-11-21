@@ -36,6 +36,13 @@ var kindColumns = map[string]map[string]bool{
 	"project": {"name": true, "status": true, "updated": true, "note": true},
 }
 
+// rejectedTagPrefix — the store.CheckVocabulary rejection message prefix
+// (the policy.go colon guard: vol:* exists only as dictionary-registered
+// tags, so a user token containing ':' is refused). Matched by prefix —
+// the store package owns the exact wording; the plain unknown-tag warning
+// class has no prefix check (stays non-blocking).
+const rejectedTagPrefix = "rejected tag: "
+
 // sourceRegistry — the single source of truth of the allowed metering
 // sources (spec §1: hook via hook · human/default manual · MCP mcp ·
 // v1.11.0 correction · v1.12.0 gap — recall-failure gap candidates, a
@@ -533,6 +540,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			// Vocabulary validation: merge warnings based on the Normalized
 			// domain and tags — warnings only (no storage block·exit
 			// unchanged). Order preserved after the sanitization warnings.
+			// v1.13.0 T2 guard wiring: the colon-token rejection class
+			// (store.CheckVocabulary "rejected tag:" — vol:* is
+			// dictionary-registered only) hard-blocks the write at exit 3
+			// (the schema-error channel); the plain "unknown tag:" warning
+			// class stays non-blocking.
 			if raw, ok := p["tags"].([]any); ok {
 				tags := make([]string, 0, len(raw))
 				for _, tag := range raw {
@@ -541,7 +553,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 					}
 				}
 				domain, _ := n["domain"].(string)
-				warnings = append(warnings, store.CheckVocabulary(tags, domain)...)
+				for _, w := range store.CheckVocabulary(tags, domain) {
+					if strings.HasPrefix(w, rejectedTagPrefix) {
+						fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "tags", Expect: w}))
+						return 3
+					}
+					warnings = append(warnings, w)
+				}
 			}
 			// The hash input must be the volatile-field-excluded path
 			// (HashCanonical — valid_at etc.) so resending the same payload

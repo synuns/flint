@@ -141,3 +141,24 @@ func TestMaintainEntrySeamDefaults(t *testing.T) {
 		t.Fatal("maintainOpsRun seam must default to ops.RunMaintain")
 	}
 }
+
+// RF-protocol — v1.13.0 T4: --age-audit (a report mode like --stale)
+// delegates to ops with the args as-is (no TUI interception, no ghost
+// argument) — the entry-branch regression for the new mode.
+func TestMaintainEntryAgeAuditDelegates(t *testing.T) {
+	calls := installMaintainTuiFake(t)
+	opsCalls := installMaintainOpsFake(t)
+	var out bytes.Buffer
+	code := runMaintainEntry(context.Background(), &fakeStore{}, []string{"--age-audit"},
+		strings.NewReader(""), &out)
+	if code != 7 {
+		t.Fatalf("--age-audit exit = %d, want ops-returned 7", code)
+	}
+	want := []string{"--age-audit"}
+	if len(*opsCalls) != 1 || strings.Join((*opsCalls)[0], " ") != strings.Join(want, " ") {
+		t.Fatalf("ops args = %v, want %v", *opsCalls, want)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("--age-audit must not reach TUI seam, calls = %d", len(*calls))
+	}
+}

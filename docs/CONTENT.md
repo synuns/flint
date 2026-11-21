@@ -59,6 +59,10 @@ session(episodic 기록) → maintain 세션에서 패턴 탐지
 - **결정 기록의 정준 경로는 `tag='adr'`**(v0.24.2 — hot_view '최근 결정' 팔은 tag 기준으로 판정한다. domain='decision'은 실사용 0건으로 레거시).
 - **tags** 소관(필요시 확장하되 본 표에 먼저 추가):
   `adr`(결정 기록)·`correction`(교정)·`failure`(실패 학습)·`env`(환경)·`process`(작업 방식)·`contract`(계약·인터페이스)·`playbook`(증류된 절차)
+- **변동성 3계층 태그**(v1.13.0 — 감쇠 차등 적용, 태그 없음=일반 기존 동작):
+  `vol:immutable`(감쇠 면제 — effective=score 유지·last_recalled만 갱신)·
+  `vol:conditional`(기존 감쇠 승계 — 조건부 지식임을 문서화로만 표시, 면제는 immutable만)·
+  `vol:volatile`(기존 감쇠 배율 승계). 콜론 포맷은 사전 등록 전용 — 콜론이 든 사용자 태그 토큰은 거부된다(vol:*는 본 표 등록 태그로만 존재).
 
 ## 5. confidence 의미론
 
