@@ -34,6 +34,9 @@ const (
 	// material is already exposed by the base query — no SQL change, unlike
 	// hot's knowledge join.
 	briefTagsIdx = 3
+	// briefIDIdx — the knowledge id position in the same SELECT (readColumns
+	// lead with id). v1.14.0 T4: the survived-relief lookup key.
+	briefIDIdx = 0
 )
 
 // briefRankedSQL — appends the cnt·last_at produced by the recall_events
@@ -143,8 +146,8 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	rows = rankRowsByEffectiveScore(rows, briefRecallScoreIdx, briefRecallLastIdx, briefTagsIdx,
-		loadDecayRate(ctx, st), time.Now().UTC())
+	rows = rankRowsByEffectiveScore(ctx, st, rows, briefIDIdx, briefRecallScoreIdx, briefRecallLastIdx, briefTagsIdx,
+		loadDecayRate(ctx, st), loadSurvivedRelief(ctx, st), time.Now().UTC())
 	for _, row := range rows {
 		for i, cell := range row {
 			if cs, ok := cell.(string); ok {

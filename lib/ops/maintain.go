@@ -964,9 +964,28 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 		return store.MapExit(err)
 	}
 	now := decayNow()
+	// v1.14.0 T4: the survived decay relief — when survived_decay_relief is
+	// active (> 0 — opt-in), one batched SurvivedCounts lookup covers the
+	// listed ids (a single query, latency-bounded). Failures are quietly
+	// ignored: a missing signal degrades to no relief (§13).
+	var survived map[int]int
+	if th.SurvivedDecayRelief > 0 {
+		ids := make([]int, 0, len(rows))
+		for _, r := range rows {
+			if len(r) < 4 {
+				continue
+			}
+			if id, ok := render.CellToInt(r[0]); ok {
+				ids = append(ids, id)
+			}
+		}
+		survived, _ = knowledge.SurvivedCounts(ctx, ms, ids)
+	}
 	items := []decayAuditItem{}
 	for _, r := range rows {
-		if len(r) < 3 {
+		// R56: the v1.13.0 T2 tags tail made column 3 load-bearing — the
+		// guard must be len(r) < 4 (a 3-cell row panicked on r[3] indexing).
+		if len(r) < 4 {
 			continue
 		}
 		id, ok := render.CellToInt(r[0])
@@ -979,7 +998,8 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 			continue
 		}
 		tags, _ := r[3].(string) // missing/NULL tags — no exemption (the pure path)
-		eff := knowledge.EffectiveScoreFor(score, last, now, th.DecayRate, tags)
+		eff := knowledge.EffectiveScoreFor(score, last, now, th.DecayRate, tags,
+			survived[id], th.SurvivedDecayRelief)
 		if eff >= score {
 			continue // no decay (elapsed under 24h, exempt, etc.) — not a candidate
 		}

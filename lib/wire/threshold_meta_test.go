@@ -42,6 +42,8 @@ var frozenThresholdKeys = []string{
 	"gap_query_threshold", "gap_daily_max",
 	// the stale-score report marking threshold and the TTL saturation days (v1.13.0 — ops maintain --age-audit)
 	"stale_score_threshold", "stale_ttl_days",
+	// the survived decay relief (v1.14.0 — hot·brief ranking·maintain --decay-audit)
+	"survived_decay_relief",
 }
 
 // TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults
@@ -113,6 +115,46 @@ func TestGapThresholdDefaultsOverride(t *testing.T) {
 	}
 	if unset.GapQueryThreshold != 0 || unset.GapDailyMax != 0 {
 		t.Errorf("unset 폴백: gap_query_threshold=%d gap_daily_max=%d, want 0·0", unset.GapQueryThreshold, unset.GapDailyMax)
+	}
+}
+
+// TestSurvivedReliefThresholdDefaultsOverride — the v1.14.0 T4 survived
+// decay-relief key: default 0 (inactive — the release-time invariance
+// ruling), meta override reflection, negative rejection, and the
+// unset-keeps-0 convention (the consumer falls back to DefaultThresholds).
+func TestSurvivedReliefThresholdDefaultsOverride(t *testing.T) {
+	// defaults — 0 = inactive (survived relief is opt-in only).
+	def := store.DefaultThresholds()
+	if def.SurvivedDecayRelief != 0 {
+		t.Errorf("SurvivedDecayRelief 기본값=%v, want 0(비활성)", def.SurvivedDecayRelief)
+	}
+	// override.
+	th, err := store.ParseThresholds([][2]any{
+		{"survived_decay_relief", "1.5"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.SurvivedDecayRelief != 1.5 {
+		t.Errorf("survived_decay_relief 오버라이드=%v, want 1.5", th.SurvivedDecayRelief)
+	}
+	// negative rejected — falls back to the default 0 (non-negative parser).
+	neg, err := store.ParseThresholds([][2]any{
+		{"survived_decay_relief", "-0.5"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if neg.SurvivedDecayRelief != 0 {
+		t.Errorf("음수 거부=%v, want 0(폴백)", neg.SurvivedDecayRelief)
+	}
+	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.SurvivedDecayRelief != 0 {
+		t.Errorf("unset 폴백: survived_decay_relief=%v, want 0", unset.SurvivedDecayRelief)
 	}
 }
 

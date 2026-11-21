@@ -78,6 +78,11 @@ type Thresholds struct {
 	// the over-threshold marking line and the StaleScore TTL saturation days).
 	StaleScoreThreshold int // default 70 — at or above, an age-audit item is marked over_threshold
 	StaleTTLDays        int // default 180 — the TTL saturation of the stale score formula
+	// the survived decay relief (v1.14.0 — the verified-success weighting):
+	// points of decay offset per survived session in the effective-score
+	// formula count − max(0, rate×days − survived×relief). Default 0 =
+	// inactive (the release-time invariance ruling — relief is opt-in only).
+	SurvivedDecayRelief float64 // default 0
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -143,6 +148,8 @@ const (
 	// the correction 2-key convention).
 	defaultStaleScoreThreshold = 70
 	defaultStaleTTLDays        = 180
+	// the survived decay relief default (0 = inactive — the opt-in ruling).
+	defaultSurvivedDecayRelief = 0.0
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -203,6 +210,8 @@ func DefaultThresholds() Thresholds {
 		// the stale-score report thresholds (the consumer fallback basis).
 		StaleScoreThreshold: defaultStaleScoreThreshold,
 		StaleTTLDays:        defaultStaleTTLDays,
+		// the survived decay relief (the consumer fallback basis — 0 = inactive).
+		SurvivedDecayRelief: defaultSurvivedDecayRelief,
 	}
 }
 
@@ -345,6 +354,10 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// unset keeps 0 (the convention — the consumer, ops StaleScore's
 			// TTL saturation, falls back via the DefaultThresholds basis).
 			th.StaleTTLDays = parseIntOrDefault(val, defaultStaleTTLDays, ks)
+		case "survived_decay_relief":
+			// 0 = inactive is a normal value (the v1.14.0 opt-in ruling), so
+			// only negatives are rejected (the archive_below convention).
+			th.SurvivedDecayRelief = parseFloatNonNegative(val, defaultSurvivedDecayRelief, ks)
 		}
 	}
 	return th, nil
