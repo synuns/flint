@@ -311,7 +311,7 @@ func silentDaysFixture(n int) []ReportDay {
 	days := make([]ReportDay, n)
 	for i := range days {
 		days[i] = ReportDay{
-			Date: fmt.Sprintf("2026-10-%02d", i+1),
+			Date:  fmt.Sprintf("2026-10-%02d", i+1),
 			Write: 2, Hook: 1, Manual: 1, Mcp: 0, Dup: 1,
 			DupHook: 1, DupManual: 1, DupMcp: 1, DupCorrection: 1, DupGap: 1,
 			Hot: 2, Read: 5, Brief: 1,
