@@ -1443,14 +1443,30 @@ func adminErrLine(stdout io.Writer, err error) int {
 // ── knowledge hygiene and history management ──
 
 // metaKnownKeys — the known meta keys (namespaces and fixed keys). The classification
-// basis of the hygiene audit — keys not here are reported as unknown.
-var metaKnownKeys = map[string]bool{
-	"schema_version": true, "views_hash": true, "views_sig": true,
-	"exposure_profile": true, "last_backup": true, "last_drill": true,
-	"last_hot_at": true, "last_read_at": true, "last_write_at": true,
-	"read_stats": true, "read_fallback_calls": true, "hot_stats": true,
-	"session_knowledge_last": true, "recall_starved_count": true,
-	"last_brief_at": true, // instant (spec §1.3 — resolving the brief time-key unknown false positive)
+// basis of the hygiene audit — keys not here are reported as unknown. Built by
+// buildMetaKnownKeys so the ops-side 24h-gate stamps come from a single source.
+var metaKnownKeys = buildMetaKnownKeys()
+
+// buildMetaKnownKeys — the fixed keys plus last_events_prune_at (the db-side
+// read-cleanup 24h gate — lib/db usage.go pruneReadGateKey, unexported there so
+// kept in sync by name; a pre-existing hygiene false positive) and the ops-side
+// gate stamps derived from meteringFreshnessGateKeys (doctor.go — one list, two
+// consumers, no duplicate to drift). Resolves doctor warning about its own gate
+// stamps as unknown keys (v1.19.4 R80-1).
+func buildMetaKnownKeys() map[string]bool {
+	m := map[string]bool{
+		"schema_version": true, "views_hash": true, "views_sig": true,
+		"exposure_profile": true, "last_backup": true, "last_drill": true,
+		"last_hot_at": true, "last_read_at": true, "last_write_at": true,
+		"read_stats": true, "read_fallback_calls": true, "hot_stats": true,
+		"session_knowledge_last": true, "recall_starved_count": true,
+		"last_brief_at":        true, // instant (spec §1.3 — resolving the brief time-key unknown false positive)
+		"last_events_prune_at": true, // db read-cleanup gate stamp (usage.go pruneReadGateKey)
+	}
+	for _, k := range meteringFreshnessGateKeys {
+		m[k] = true
+	}
+	return m
 }
 
 // metaKnownPrefixes — the known prefixes (daily: date counters; pb_: playbook

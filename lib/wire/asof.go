@@ -33,7 +33,8 @@ const maxRelativeAsOfHours = int(math.MaxInt64 / int64(time.Hour))
 
 // ParseRelative — expands the relative specs "Nh" and "Nd" to a past time from now
 // (Go-computed). d expands as h*24; a non-integer (2.5h, "2 days ago") is ErrInvalidAsOf,
-// and so is an hour count past the Duration ceiling (v1.19.3 R77-1/R78-1).
+// and so is an hour count past the Duration ceiling (v1.19.3 R77-1/R78-1) or a day count
+// whose *24 would wrap int64 (v1.19.4 R79-1 — the guard sits BEFORE the multiply).
 func ParseRelative(spec string) (time.Time, error) {
 	fail := fmt.Errorf("invalid relative as-of spec %q (only integer Nh·Nd form allowed): %w", spec, ErrInvalidAsOf)
 	if len(spec) < 2 {
@@ -48,14 +49,27 @@ func ParseRelative(spec string) (time.Time, error) {
 		return time.Time{}, fail
 	}
 	if unit == 'd' {
+		// Pre-multiply guard (v1.19.4 R79-1): v*24 can wrap int64, and the
+		// wrapped value slips past every later check (negative → not > ceiling)
+		// — MaxInt64 days wraps to −24h (a FUTURE time → newest commit, exit 0)
+		// and (2^64+8)/24 days wraps to +8h. maxRelativeAsOfHours/24 = 106751:
+		// the same largest-fitting day form the ceiling error names.
+		if v > maxRelativeAsOfHours/24 {
+			return time.Time{}, asofCeilingErr(spec)
+		}
 		v *= 24
 	}
 	if v > maxRelativeAsOfHours {
-		return time.Time{}, fmt.Errorf(
-			"relative as-of spec %q exceeds the %dh Duration ceiling (largest day form: 106751d): %w",
-			spec, maxRelativeAsOfHours, ErrInvalidAsOf)
+		return time.Time{}, asofCeilingErr(spec)
 	}
 	return time.Now().Add(-time.Duration(v) * time.Hour), nil
+}
+
+// asofCeilingErr — the past-ceiling rejection shared by the hour and day paths.
+func asofCeilingErr(spec string) error {
+	return fmt.Errorf(
+		"relative as-of spec %q exceeds the %dh Duration ceiling (largest day form: 106751d): %w",
+		spec, maxRelativeAsOfHours, ErrInvalidAsOf)
 }
 
 // ParseAsOfSpec — normalizes a spec to a commit hash. Verdict order: (1) relative
@@ -69,8 +83,18 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 		return "", fmt.Errorf("empty as-of spec: %w", ErrInvalidAsOf)
 	}
 	// (1) relative spec — if not the form, move on to the next candidate.
-	if t, err := ParseRelative(spec); err == nil {
+	t, relErr := ParseRelative(spec)
+	if relErr == nil {
 		return commitAtOrBefore(ctx, st, spec, t)
+	}
+	// A spec SHAPED like the relative form that still failed (past the ceiling,
+	// or a digit count past Atoi's own range) is a genuine relative error, not a
+	// prefix candidate: returning it here keeps the ceiling wording reachable —
+	// the prefix fallback would otherwise misreport it as "no commit matches
+	// prefix" (v1.19.4 R79-2/R80-2). Unshaped failures (2.5h, "2 days ago")
+	// keep falling through.
+	if relativeShaped(spec) {
+		return "", relErr
 	}
 	// (2) ISO time.
 	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04"} {
@@ -95,6 +119,25 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 		}
 	}
 	return "", fmt.Errorf("invalid as-of spec %q (ISO datetime, Nh/Nd, or hash prefix 3+ chars): %w", spec, ErrInvalidAsOf)
+}
+
+// relativeShaped — whether the spec is exactly the documented relative form
+// [0-9]+[hd] (the shape alone — no range judgment; ParseRelative owns that).
+// Used to give shaped specs the relative verdict even on failure instead of a
+// misleading prefix lookup.
+func relativeShaped(spec string) bool {
+	if len(spec) < 2 {
+		return false
+	}
+	if u := spec[len(spec)-1]; u != 'h' && u != 'd' {
+		return false
+	}
+	for i := 0; i < len(spec)-1; i++ {
+		if spec[i] < '0' || spec[i] > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 // commitAtOrBefore — adopts the latest commit at or before the time

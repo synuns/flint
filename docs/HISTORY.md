@@ -6,7 +6,38 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v1.19.3 patch (2026-11-22) — r77-r78: asof ceiling rejection · hour/minute span clamp (6 sites) · history precision
+### v1.19.4 patch (2026-11-22) — r79-r80: asof day pre-multiply guard · ceiling hint reachability · gate meta key registration
+
+The v1.19.3 re-audit (R79·R80) closeout — the last asof wrap hole, the
+ceiling hint's reachability, and a doctor self-reference (no schema
+change):
+
+- asof day pre-multiply guard (R79-1 [med]): ParseRelative's `v *= 24`
+  could wrap int64, and the wrapped value slipped past every later check
+  (a wrapped negative is not > ceiling) — `--as-of
+  9223372036854775807d` wrapped to a −24h FUTURE time (exit 0, newest
+  commit) and `768614336404564651d` to +8h. A day count past
+  maxRelativeAsOfHours/24 (106751d) is now rejected BEFORE the multiply
+  (ErrInvalidAsOf, exit 3).
+- ceiling hint reachability (R79-2=R80-2 [low]): a past-ceiling Nh spec
+  (4000000h) that failed relative parsing fell through to the hash-prefix
+  step (lowercase-alphanumeric) and misreported the ceiling rejection as
+  "no commit matches prefix". A [0-9]+[hd]-shaped spec now returns the
+  relative error itself — the ceiling wording reaches the CLI (exit 3).
+- gate meta key registration (R80-1 [minor]): doctor's meta-hygiene
+  warned its own gate stamps as unknown keys. last_events_prune_at (the
+  db read-cleanup 24h gate — a pre-existing false positive) is
+  registered, and last_threshold_snapshot_at·last_rollup_at are derived
+  from meteringFreshnessGateKeys (one list, two consumers — no duplicate
+  to drift).
+- HISTORY precision (R79-3 [info]): the v1.19.3 hour/minute span clamp
+  covered 7 sites across 6 keys (the unification site included — not
+  "6 sites").
+- RUNBOOK rollback constraint (R80-4 [info]): a pre-v1.19.0 binary
+  rejects `status` on a v13 schema DB (read/write work) — the schema
+  upper-bound check; a downgrade needs a schema-matched binary.
+
+### v1.19.3 patch (2026-11-22) — r77-r78: asof ceiling rejection · hour/minute span clamp (7 sites, 6 keys) · history precision
 
 The v1.19.2 re-audit (R77·R78) closeout — the overflow class cleared
 from the remaining hour/minute-unit sites, asof included (no schema
