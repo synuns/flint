@@ -152,7 +152,7 @@ func TestDispatchReadRoundtrip(t *testing.T) {
 	out, code := DispatchTool("flint_read", map[string]any{
 		"query": "인코딩 테스트", "tag": "go", "limit": 3,
 	})
-	wantArgs(t, calls, []string{"read", "--source", "mcp", "--tag", "go", "--limit", "3", "--", "인코딩 테스트"})
+	wantArgs(t, calls, []string{"read", "--json", "--source", "mcp", "--tag", "go", "--limit", "3", "--", "인코딩 테스트"})
 	if code != 0 {
 		t.Errorf("code = %d, want 0", code)
 	}
@@ -256,6 +256,244 @@ func TestDispatchUnknownTool(t *testing.T) {
 	}
 	if !strings.Contains(out, "unknown tool") {
 		t.Errorf("out = %q, want unknown tool error", out)
+	}
+}
+
+// v1.18.0 T1 — ToolDef.OutputSchema: all five tools declare an outputSchema
+// describing the ACTUAL output shape (not the aspirational one).
+func TestToolsManifestOutputSchemas(t *testing.T) {
+	// Per-tool property keys each schema must declare (hot advertises only
+	// the minimal meta — its output is non-JSON text).
+	wantProps := map[string][]string{
+		"flint_write":   {"status", "hash", "state", "id"},
+		"flint_hot":     {},
+		"flint_pending": {"status", "items", "counts", "next"},
+		"flint_approve": {"status", "id"},
+	}
+	for _, td := range ToolsManifest() {
+		if len(td.OutputSchema) == 0 {
+			t.Fatalf("%s OutputSchema 없음", td.Name)
+		}
+		var s map[string]any
+		if err := json.Unmarshal(td.OutputSchema, &s); err != nil {
+			t.Fatalf("%s outputSchema not valid JSON: %v — %s", td.Name, err, td.OutputSchema)
+		}
+		if _, hasType := s["type"]; !hasType {
+			t.Errorf("%s outputSchema에 type 없음: %s", td.Name, td.OutputSchema)
+		}
+		if td.Name == "flint_read" {
+			// The read output is an array of row objects (JSONL lines).
+			if s["type"] != "array" {
+				t.Errorf("flint_read outputSchema.type = %v, want array", s["type"])
+			}
+			items, ok := s["items"].(map[string]any)
+			if !ok {
+				t.Fatalf("flint_read outputSchema.items 없음: %s", td.OutputSchema)
+			}
+			props, _ := items["properties"].(map[string]any)
+			for _, k := range []string{"id", "topic", "summary"} {
+				if _, ok := props[k]; !ok {
+					t.Errorf("flint_read items.properties에 %s 누락: %s", k, td.OutputSchema)
+				}
+			}
+			continue
+		}
+		props, _ := s["properties"].(map[string]any)
+		for _, k := range wantProps[td.Name] {
+			if _, ok := props[k]; !ok {
+				t.Errorf("%s outputSchema.properties에 %s 누락: %s", td.Name, k, td.OutputSchema)
+			}
+		}
+	}
+}
+
+// v1.18.0 T2 — a single-line JSON object output (write/approve/pending
+// shape) is attached as structuredContent with the content text kept as-is.
+func TestToolsCallStructuredContentJSONObject(t *testing.T) {
+	raw := `{"status":"committed","hash":"abc123","state":"active","id":1}`
+	_, real := installRun(t, raw, 0)
+	if real {
+		t.Skip("real runFn: 실DB 출력값 의존 단언은 fake 경로 담당")
+	}
+	res, err := handleRPC("tools/call", map[string]any{
+		"name":      "flint_write",
+		"arguments": map[string]any{"kind": "knowledge", "payload": map[string]any{"topic": "t", "summary": "s"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := res.(map[string]any)
+	sc, ok := m["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent 누락: %#v", m)
+	}
+	if sc["status"] != "committed" || sc["hash"] != "abc123" || sc["id"] != float64(1) {
+		t.Errorf("structuredContent = %v, want committed 객체", sc)
+	}
+	content, _ := m["content"].([]map[string]any)
+	if len(content) != 1 || content[0]["text"] != raw {
+		t.Errorf("content text 원문 유지 위반: %#v", m["content"])
+	}
+	if m["isError"] != false {
+		t.Errorf("isError = %v, want false", m["isError"])
+	}
+}
+
+// v1.18.0 T2 — a multi-line JSONL output is parsed per line, assembled into
+// an array, and wrapped as {results:[...]} (the read rows shape).
+func TestToolsCallStructuredContentJSONLWrapped(t *testing.T) {
+	raw := `{"id":"1","topic":"demo one","summary":"s1"}` + "\n" +
+		`{"id":"2","topic":"demo two","summary":"s2"}`
+	_, real := installRun(t, raw, 0)
+	if real {
+		t.Skip("real runFn: 실DB 검색 결과 의존 단언은 fake 경로 담당")
+	}
+	res, err := handleRPC("tools/call", map[string]any{
+		"name":      "flint_read",
+		"arguments": map[string]any{"query": "demo"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := res.(map[string]any)
+	sc, ok := m["structuredContent"].(map[string]any)
+	if !ok {
+		t.Fatalf("structuredContent 누락: %#v", m)
+	}
+	results, ok := sc["results"].([]any)
+	if !ok || len(results) != 2 {
+		t.Fatalf("results = %v, want 2행 배열", sc["results"])
+	}
+	if row := results[0].(map[string]any); row["topic"] != "demo one" {
+		t.Errorf("results[0].topic = %v, want demo one", row["topic"])
+	}
+	content, _ := m["content"].([]map[string]any)
+	if len(content) != 1 || content[0]["text"] != raw {
+		t.Errorf("content text 원문(JSONL) 유지 위반: %#v", m["content"])
+	}
+}
+
+// v1.18.0 T2 — a non-JSON output (flint_hot text) omits structuredContent;
+// the content text alone is returned (spec SHOULD compatibility).
+func TestToolsCallStructuredContentOmittedForNonJSON(t *testing.T) {
+	installRun(t, "hot 요약 데모 (비JSON 텍스트)", 0)
+	res, err := handleRPC("tools/call", map[string]any{
+		"name":      "flint_hot",
+		"arguments": map[string]any{},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := res.(map[string]any)
+	if _, has := m["structuredContent"]; has {
+		t.Errorf("비JSON 출력에 structuredContent 존재: %v", m["structuredContent"])
+	}
+	if m["isError"] != false {
+		t.Errorf("isError = %v, want false", m["isError"])
+	}
+}
+
+// v1.18.0 T2 — parse failures and non-object JSON (arrays, scalars) omit
+// structuredContent (the spec requires an object; content text alone).
+func TestStructuredContentNonObjectOmitted(t *testing.T) {
+	for _, tc := range []struct {
+		tool string
+		out  string
+	}{
+		{"flint_hot", "[1,2]"},                           // single-line array
+		{"flint_hot", `"scalar"`},                        // single-line scalar
+		{"flint_read", `{"id":"1"}` + "\n" + "not-json"}, // one broken line
+		{"flint_read", ""},                               // empty (zero-hit silence)
+	} {
+		if sc := structuredContent(tc.tool, tc.out); sc != nil {
+			t.Errorf("structuredContent(%q, %q) = %v, want nil", tc.tool, tc.out, sc)
+		}
+	}
+}
+
+// v1.18.0 T2 — the isError mapping is unchanged by structuredContent: an
+// error output (exit 3 + one JSON error line) is still isError:true.
+func TestToolsCallIsErrorInvariant(t *testing.T) {
+	raw := `{"error":"schema","field":"id","expect":"positive integer"}`
+	_, real := installRun(t, raw, 3)
+	if real {
+		t.Skip("real runFn: 실DB 종료코드 의존 단언은 fake 경로 담당")
+	}
+	res, err := handleRPC("tools/call", map[string]any{
+		"name":      "flint_read",
+		"arguments": map[string]any{"query": "demo"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := res.(map[string]any)
+	if m["isError"] != true {
+		t.Errorf("isError = %v, want true(exit 3 + 출력)", m["isError"])
+	}
+	if sc, ok := m["structuredContent"].(map[string]any); !ok || sc["field"] != "id" {
+		t.Errorf("structuredContent = %v, want 파싱된 에러 객체", m["structuredContent"])
+	}
+}
+
+// v1.18.0 T3 — dispatchRead assembles --json internally (the MCP read path
+// always returns machine-readable rows).
+func TestDispatchReadAssemblesJSONFlag(t *testing.T) {
+	calls, _ := installRun(t, `{"hits":0}`, 0)
+	DispatchTool("flint_read", map[string]any{"query": "데모"})
+	wantArgs(t, calls, []string{"read", "--json", "--source", "mcp", "--", "데모"})
+}
+
+// v1.18.0 T3 — the read roundtrip keeps the content text as the raw JSONL
+// and structuredContent assembles {results:[rows]}.
+func TestDispatchReadStructuredRoundtrip(t *testing.T) {
+	raw := `{"id":"1","topic":"데모 주제","summary":"합성 요약"}` + "\n" +
+		`{"id":"2","topic":"데모 두번째","summary":"합성 요약2"}`
+	_, real := installRun(t, raw, 0)
+	if real {
+		t.Skip("real runFn: 실DB 검색 결과 의존 단언은 fake 경로 담당")
+	}
+	out, code := DispatchTool("flint_read", map[string]any{"query": "데모"})
+	if code != 0 {
+		t.Fatalf("code = %d, want 0", code)
+	}
+	if out != raw {
+		t.Errorf("content(JSONL 원문) 불변 위반: %q", out)
+	}
+	sc := structuredContent("flint_read", out)
+	if sc == nil {
+		t.Fatal("structuredContent nil")
+	}
+	results, ok := sc["results"].([]any)
+	if !ok || len(results) != 2 {
+		t.Fatalf("results = %v, want 2행", sc["results"])
+	}
+	if row := results[1].(map[string]any); row["topic"] != "데모 두번째" {
+		t.Errorf("results[1].topic = %v, want 데모 두번째", row["topic"])
+	}
+}
+
+// v1.18.0 T3 — a one-row read output still wraps into {results:[row]} (the
+// read outputSchema advertises an array of rows).
+func TestStructuredContentReadSingleRowWrapped(t *testing.T) {
+	sc := structuredContent("flint_read", `{"id":"9","topic":"데모 유일행","summary":"s"}`)
+	results, ok := sc["results"].([]any)
+	if !ok || len(results) != 1 {
+		t.Fatalf("results = %v, want 1행 래핑", sc)
+	}
+	if row := results[0].(map[string]any); row["id"] != "9" {
+		t.Errorf("results[0].id = %v, want 9", row["id"])
+	}
+}
+
+// v1.18.0 T3 — the zero-hit line {"hits":0} stays an object as-is (no
+// results wrapping).
+func TestStructuredContentReadZeroHitStaysObject(t *testing.T) {
+	sc := structuredContent("flint_read", `{"hits":0}`)
+	if sc == nil || sc["hits"] != float64(0) {
+		t.Errorf("zero-hit structuredContent = %v, want {hits:0} 그대로", sc)
+	}
+	if _, has := sc["results"]; has {
+		t.Errorf("zero-hit에 results 래핑 잘못 적용: %v", sc)
 	}
 }
 

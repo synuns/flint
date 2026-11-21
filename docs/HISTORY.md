@@ -6,6 +6,37 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.18.0 minor (2026-11-21) — mcp-structured: structured tool outputs · output schemas
+
+(spec: docs/plans/2026-11-21-flint-v1180.md). The MCP server speaks the
+2025-06-18+ structured result convention while keeping the plain-text
+content for old clients.
+
+- protocol version negotiation: the supported set is
+  {2024-11-05, 2025-06-18, 2025-11-25} — a request inside the set is
+  echoed back, outside it the server answers with its latest
+  (2025-11-25, spec MUST). An absent or non-string protocolVersion keeps
+  the legacy 2024-11-05 fallback (backward compatibility).
+- outputSchema (T1): all five tools declare an output schema (JSON
+  Schema 2020-12) against the ACTUAL outputs — write
+  {status,hash,state,id}, approve {status,id}, pending
+  {status,items,counts,next}, read an array of row objects
+  {id,topic,summary}, hot minimal meta only (non-JSON text).
+- structuredContent (T2): tools/call keeps the content text (spec
+  SHOULD) and adds a structuredContent object when the output parses as
+  a single JSON object (write/approve/pending responses, the read
+  zero-hit {"hits":0}); JSONL outputs are parsed per line and wrapped as
+  {results:[...]}. Non-JSON outputs (hot) and parse failures omit the
+  field; the isError mapping is unchanged.
+- read --json (T3): the flint_read tool assembles --json internally —
+  the MCP read path always returns machine-readable rows, structured as
+  {results:[rows]} (a single row is wrapped too; error lines stay
+  bare objects).
+- rulings: elicitation excluded (single local user, no user-query flow
+  inside tools/call — revisit when a use case appears); Doltgres read
+  LIKE stays (pg_trgm still unsupported in the 1.0 release, confirmed
+  2026-11 — PERF.md §3).
+
 ### v1.17.2 patch (2026-11-21) — r65-dedup: correction resend dedup restored
 
 (R65 audit finding). The v1.17.1 origin default injected "correction"

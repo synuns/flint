@@ -584,3 +584,28 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
   `survived_sessions` 카운터로 스냅숏한다(완화 비활성
   survived_decay_relief=0이면 조회 자체를 생략 — 스냅숏도 no-op).
   관측 상실은 조용(§13).
+
+## MCP 서버 — structuredContent·outputSchema·버전 협상 (v1.18.0)
+
+(spec — docs/plans/2026-11-21-flint-v1180.md). `flint mcp` stdio 서버의
+프로토콜 계약. 최신 클라이언트는 구조화 소비·스키마 검증이 가능하고,
+구 클라이언트는 기존 content 텍스트 경로 그대로(하위 호환).
+
+- **버전 협상**: 지원 집합 {2024-11-05, 2025-06-18, 2025-11-25} —
+  initialize의 protocolVersion이 집합 내면 동일 버전 응답(echo),
+  밖이면 서버 최신(2025-11-25)으로 응답(사양 MUST). absent·비문자열은
+  기존 fallback 2024-11-05 유지(별도 규정).
+- **outputSchema**: tools/list의 5개 도구가 실출력 기준 출력 스키마를
+  함께 선언한다 — write{status,hash,state,id}·approve{status,id}·
+  pending{status,items,counts,next}·read{type:array, items:{id,topic,
+  summary}}(JSONL 행 배열)·hot{type:object} 최소 메타(비JSON 텍스트).
+- **structuredContent**: tools/call 응답은 content 텍스트를 유지한 채,
+  출력이 단일 JSON 객체면 그 객체를 structuredContent로 추가하고
+  (write·approve·pending 응답, read zero-hit {"hits":0})·JSONL 다중
+  행이면 행별 파싱→{results:[...]} 래핑. 비JSON(hot)·파싱 실패·
+  배열/스칼라는 생략. isError 매핑은 v1.17 이전과 불변(exit 3·exit 1+
+  출력 → true, zero-hit exit 1+빈 출력 → false).
+- **read 구조화**: flint_read는 내부적으로 `--json`을 조립한다 — MCP
+  경로의 read는 항상 기계 판독 JSONL 행(content 텍스트는 원문 유지),
+  1행도 {results:[행]} 래핑, {error:...}행은 그대로 노출. 클라이언트는
+  structuredContent.results 또는 content 텍스트 중 편한 쪽을 소비한다.
