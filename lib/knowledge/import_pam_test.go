@@ -884,3 +884,85 @@ func idOfTopic(t *testing.T, st *writeRealStore, topic string) int {
 	id, _ := render.CellToInt(rows[0][0])
 	return id
 }
+
+// ── v1.20.2 (r88) — a self-referential PAM relation is a skip+warning,
+// never a whole-document failure. ──
+
+// TestImportPAMSelfLinkSkippedV1202 — r88: a from==to pair in the
+// 4-vocabulary links must not reach insertKnowledgeLinks (whose
+// self-link refusal is a hard error): the pair is skipped with one
+// stderr warning, the remaining relations accrue normally, and nothing
+// stays staged for the self pair.
+func TestImportPAMSelfLinkSkippedV1202(t *testing.T) {
+	stderr := pamSwapImportStderr(t)
+	res := &PAMResult{
+		Candidates: []ImportCandidate{
+			{ID: "mem-a", Kind: "knowledge", Content: "alpha", Confidence: 0.8, Source: "import:pam:demo"},
+			{ID: "mem-b", Kind: "knowledge", Content: "beta", Confidence: 0.8, Source: "import:pam:demo"},
+		},
+		Links: []PAMLinkPair{
+			{From: "mem-a", To: "mem-a", Relation: "refines"}, // self — skipped
+			{From: "mem-b", To: "mem-a", Relation: "supports"},
+		},
+	}
+	st := &fakeStore{}
+	oc, err := importPAM(context.Background(), st, res)
+	if err != nil {
+		t.Fatalf("importPAM: %v — 자기참조 1건이 문서 전체를 실패시킴(부분 문서 계약 위반)", err)
+	}
+	if oc.links != 1 {
+		t.Fatalf("oc.links=%d want 1 (self skipped, supports applied)", oc.links)
+	}
+	if len(st.linkInserts) != 1 || st.linkInserts[0] != [3]any{2, 1, "supports"} {
+		t.Fatalf("linkInserts=%v want [[2 1 supports]] — 자기참조 스테이징 잔여", st.linkInserts)
+	}
+	if !strings.Contains(stderr.String(), "self-referencing") {
+		t.Errorf("경고에 self-referencing 원인 없음: %q", stderr.String())
+	}
+}
+
+// TestPAMSelfLinkDocImportRealSlow — r88 end-to-end (real scratch DB):
+// importing a document holding a self-referential relation exits 0,
+// accrues the normal relation (links:1), and leaves no from_id=to_id
+// row behind.
+func TestPAMSelfLinkDocImportRealSlow(t *testing.T) {
+	stderr := pamSwapImportStderr(t)
+	st := t5ScratchStore(t)
+	doc := `{
+ "schema": "portable-ai-memory",
+ "memories": [
+  {"id":"self-a","type":"fact","content":"자기참조 문서 수입 데모 a","status":"active","confidence":{"current":0.8},"provenance":{"platform":"demo"}},
+  {"id":"self-b","type":"fact","content":"자기참조 문서 수입 데모 b","status":"active","confidence":{"current":0.8},"provenance":{"platform":"demo"}}
+ ],
+ "relations": [
+  {"type": "refines", "from": "self-a", "to": "self-a"},
+  {"type": "supports", "from": "self-b", "to": "self-a"}
+ ]}`
+	out, code := runMigrate(t, st, []string{"--format", "pam"}, doc)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 — 자기참조 1건이 문서 전체를 실패시킴; out=%s", code, out)
+	}
+	if !strings.Contains(out, `"links":1`) {
+		t.Fatalf("정상 relation 적립 미충족(links:1 필요): %s", out)
+	}
+	if !strings.Contains(stderr.String(), "self-referencing") {
+		t.Errorf("경고에 self-referencing 원인 없음: %q", stderr.String())
+	}
+	ctx := context.Background()
+	rows, err := st.Query(ctx, `SELECT from_id, to_id, relation FROM knowledge_links`)
+	if err != nil {
+		t.Fatalf("links 조회 실패: %v", err)
+	}
+	if len(rows) != 1 {
+		t.Fatalf("적립 링크=%d건, want 1 (자기참조 잔류 포함 가능): %v", len(rows), rows)
+	}
+	f, _ := render.CellToInt(rows[0][0])
+	o, _ := render.CellToInt(rows[0][1])
+	if f == o {
+		t.Fatalf("자기참조 링크 잔류: from=%d to=%d", f, o)
+	}
+	rel, _ := rows[0][2].(string)
+	if rel != "supports" {
+		t.Fatalf("적립 relation=%q want supports", rel)
+	}
+}

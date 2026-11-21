@@ -363,8 +363,12 @@ func ParsePAM(data []byte) (*PAMResult, error) {
 // seam the import path composes with it. A pair whose endpoint row is
 // absent is skipped with one stderr warning (the SupersedePair
 // target-missing convention: a partial document must not fail the whole
-// import). Idempotence rides insertKnowledgeLinks (the NOT EXISTS
-// guard).
+// import). v1.20.2 (r88): a self-referential pair (from == to) gets the
+// same skip+warning treatment — the write path's self-link refusal
+// (insertKnowledgeLinks) is a hard error, and letting it fire here
+// failed the WHOLE document over one malformed relation, violating
+// that same partial-document contract. Idempotence rides
+// insertKnowledgeLinks (the NOT EXISTS guard).
 func RestorePAMLinks(ctx context.Context, st wire.Store, rowIDOf func(pamID string) (int, bool), pairs []PAMLinkPair) (int, error) {
 	applied := 0
 	for _, p := range pairs {
@@ -373,6 +377,12 @@ func RestorePAMLinks(ctx context.Context, st wire.Store, rowIDOf func(pamID stri
 		if !okFrom || fromID <= 0 || !okTo || toID <= 0 {
 			fmt.Fprintf(pamImportStderr,
 				"[flint] import pam: relation(%s %s→%s) target missing — link skipped\n",
+				p.Relation, p.From, p.To)
+			continue
+		}
+		if fromID == toID {
+			fmt.Fprintf(pamImportStderr,
+				"[flint] import pam: relation(%s %s→%s) self-referencing — link skipped\n",
 				p.Relation, p.From, p.To)
 			continue
 		}
