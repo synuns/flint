@@ -586,6 +586,19 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			}
 		}
 	}
+	// Phrase-hit token rerank (v1.16.0 T1): the phrase-hit rows are reranked
+	// in-memory by per-token tier scores (topic prefix > summary prefix >
+	// contains, + a cover bonus per matched token — both sides NFKC·lower·
+	// whitespace normalized) before the output. The SQL LIKE gives no
+	// within-window similarity signal, so the window (the SQL LIMIT stays —
+	// reorder happens inside it only) is reordered app-side. Gated on
+	// !fallbackTried: fallback rows already carry ReorderByFallbackCount's
+	// RRF fusion order and are never re-reordered (the double-reorder
+	// prohibition). Ties keep the SQL RankOrder order. hot/brief are out of
+	// scope by the research ruling; a tokenless q (full listing) is a no-op.
+	if !fallbackTried {
+		rows = query.ReorderByTokenScore(rows, q, query.ReadColumnIndexMap())
+	}
 	// zero_near classification: only when both phrase·fallback are zero-hit
 	// && at the present point, a full scan of active_knowledge (filter-free)
 	// computes near candidates. The suggestion scan is inherited without

@@ -295,6 +295,122 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 	copy(rows, out)
 }
 
+// ── v1.16.0 T1 — the phrase-hit token rerank. ──
+
+// The per-token tier scores of ReorderByTokenScore: a topic prefix is the
+// strongest signal (carrying RankOrder's exact-topic-first convention into
+// the window), then a summary prefix, then containment in either field.
+const (
+	tokenTopicPrefixScore    = 4
+	tokenSummaryPrefixScore  = 3
+	tokenTopicContainScore   = 2
+	tokenSummaryContainScore = 1
+)
+
+// normalizeTokenText — the token scorer's shared normalization: NFKC
+// (composed/decomposed spellings converge) + lower + whitespace fold (runs
+// collapse to one space, edges trimmed). Applied to both the query tokens
+// and the row fields — the originals and the SQL are unchanged.
+func normalizeTokenText(s string) string {
+	return strings.Join(strings.Fields(nfkc(strings.ToLower(s))), " ")
+}
+
+// cellString — a row cell as a string by column index (an out-of-range
+// index or a non-string cell is ""). The robustness helper of the token
+// scorer (short rows never panic).
+func cellString(row []any, idx int) string {
+	if idx < 0 || idx >= len(row) {
+		return ""
+	}
+	if s, ok := row[idx].(string); ok {
+		return s
+	}
+	return ""
+}
+
+// tokenTierScore — one token's tier score against a row's normalized
+// topic/summary (topic prefix > summary prefix > topic contains > summary
+// contains; no match 0).
+func tokenTierScore(tok, topic, summary string) int {
+	switch {
+	case strings.HasPrefix(topic, tok):
+		return tokenTopicPrefixScore
+	case strings.HasPrefix(summary, tok):
+		return tokenSummaryPrefixScore
+	case strings.Contains(topic, tok):
+		return tokenTopicContainScore
+	case strings.Contains(summary, tok):
+		return tokenSummaryContainScore
+	}
+	return 0
+}
+
+// ReorderByTokenScore — the app-side rerank of phrase-hit read rows
+// (v1.16.0 T1): per-token tier scores are summed per row — each matched
+// token adds its tier plus a +1 cover bonus, so covering more tokens beats
+// a single lower-tier match. Both sides are normalized (NFKC·lower·
+// whitespace fold — normalizeTokenText). Ties keep the incoming (SQL
+// RankOrder) order (sort.SliceStable). colIdx maps the topic/summary
+// column names to row positions (ReadColumnIndexMap is the single source);
+// absent keys or short rows score 0 without panic. The SQL LIMIT stays —
+// this reorders within the returned window only. The caller gates on
+// !fallbackTried: rows already reranked by ReorderByFallbackCount are not
+// re-reordered.
+func ReorderByTokenScore(rows [][]any, q string, colIdx map[string]int) [][]any {
+	tokens := tokenizeQuery(q)
+	if len(tokens) == 0 || len(rows) < 2 {
+		return rows
+	}
+	normTokens := make([]string, len(tokens))
+	for i, tok := range tokens {
+		normTokens[i] = normalizeTokenText(tok)
+	}
+	// absent colIdx keys fall to -1 (a missing map key would read as 0 —
+	// the id column — so the comma-ok form is load-bearing here).
+	topicIdx, summaryIdx := -1, -1
+	if v, ok := colIdx["topic"]; ok {
+		topicIdx = v
+	}
+	if v, ok := colIdx["summary"]; ok {
+		summaryIdx = v
+	}
+	scores := make([]int, len(rows))
+	for i, row := range rows {
+		t := normalizeTokenText(cellString(row, topicIdx))
+		s := normalizeTokenText(cellString(row, summaryIdx))
+		for _, tok := range normTokens {
+			if tok == "" {
+				continue
+			}
+			if tier := tokenTierScore(tok, t, s); tier > 0 {
+				scores[i] += tier + 1 // the tier + the cover-token bonus
+			}
+		}
+	}
+	idx := make([]int, len(rows))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		return scores[idx[a]] > scores[idx[b]]
+	})
+	out := make([][]any, len(rows))
+	for pos, src := range idx {
+		out[pos] = rows[src]
+	}
+	return out
+}
+
+// ReadColumnIndexMap — the readColumns name→position map (the caller-side
+// colIdx input of ReorderByTokenScore — the single source).
+func ReadColumnIndexMap() map[string]int {
+	m := make(map[string]int, len(readColumns))
+	for i, c := range readColumns {
+		m[c] = i
+	}
+	return m
+}
+
 // rrfFuse — per-row signal values -> the RRF score: summed as 1/(k+rank) from each
 // signal's descending rank (1 = top; ties share a rank). Substituting the raw value for
 // the rank flips the sign so the minimum wins (a first-draft defect — sealed off by a regression test).
