@@ -35,6 +35,7 @@ stays approval-gated (the no-SQL-auto-verdict principle).
 - Thresholds 2 keys (TUNING §2): `stale_score_threshold` (default 70 —
   over-threshold marking)·`stale_ttl_days` (default 180 — TTL saturation).
   Code defaults + meta override.
+### v1.12.1 patch (2026-11-21) — r54-docs: RUNBOOK knowledge pipeline step 2 section (owned_miss-only trigger·normalized-hash daily counter·thresholds·pending→approve promotion) · pipeline follow-up freshness fix (recall-failure accrual shipped in v1.12.0) · NormalizeGapQuery truncation moved after NFKC (the 80-rune bound is defined on the normalized form — a decomposed spelling no longer truncates mid-sequence and hashes apart from its composed twin) · gapq flat-key PruneDaily pruning demonstrated on the real DB (15-day-old key expired·yesterday's retained)
 
 ### v1.12.0 minor (2026-11-21) — gap-candidates: recall-failure gap candidates enter long-term memory as pending rows (knowledge pipeline step 2)
 

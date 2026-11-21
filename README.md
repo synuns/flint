@@ -60,6 +60,7 @@ Humans take notes in Obsidian. Agents take notes in flint — the stone you stri
 > v1.11.1 · R50 — dup_correction metering fix · [full changelog](docs/HISTORY.md)
 > v1.11.2 · r52-reporting — dup_correction report exposure · [full changelog](docs/HISTORY.md)
 > v1.12.0 · knowledge pipeline step 2 — recall-failure gap candidates · [full changelog](docs/HISTORY.md)
+> v1.12.1 · r54-docs — RUNBOOK pipeline step 2 notes · NFKC truncation fix · [full changelog](docs/HISTORY.md)
 > v1.13.0 · knowledge lifecycle — staleness scoring · volatility tiers · [full changelog](docs/HISTORY.md)
 ---
 

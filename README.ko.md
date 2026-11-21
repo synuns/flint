@@ -60,6 +60,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 > v1.11.1 · R50 — dup_correction 계량 수리 · [전체 변경 이력](docs/HISTORY.md)
 > v1.11.2 · r52-reporting — dup_correction report 노출 · [전체 변경 이력](docs/HISTORY.md)
 > v1.12.0 · 지식화 파이프라인 2단계 — 회상 실패 격차 후보 · [전체 변경 이력](docs/HISTORY.md)
+> v1.12.1 · r54-docs — RUNBOOK 파이프라인 2단계 기록·NFKC 절단 수리 · [전체 변경 이력](docs/HISTORY.md)
 > v1.13.0 · 지식 수명주기 — 낡음 점수·변동성 계층 · [전체 변경 이력](docs/HISTORY.md)
 ---
 
