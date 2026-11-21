@@ -8,7 +8,7 @@
 
 | 플랜 | 상태 | 요약 | 다음 액션 | 갱신 |
 |---|---|---|---|---|
-| `2026-11-19-flint-knowledge-pipelines.md` | active | 지식 관리 계열 로드맵 — K원칙·교정 채널·변동성 계층·만남 판정·관측 고도화(§12 피드백 개정) | §12 관측 인프라(T0 스코어 열·T3 튜닝 이력·U1 rollup·O1 신선도) 기획·착수 — 병합·환류는 계측 동반 분해(모순 감지·만남 판정은 v1.17.0 이행) | 2026-11-21 |
+| `2026-11-19-flint-knowledge-pipelines.md` | active | 지식 관리 계열 로드맵 — K원칙·교정 채널·변동성 계층·만남 판정·관측 고도화·제안 회로(§12) | §12 관측 인프라·제안 회로 착수(릴리스 편성 미정 — todo) — 병합·환류는 계측 동반 분해(모순 감지·만남 판정은 v1.17.0 이행) | 2026-11-21 |
 | `2026-11-21-flint-v1180.md` | active | v1.18.0 MCP structuredContent·outputSchema — 버전 협상·outputSchema 5개·structuredContent·read --json 전환 | T4 문서·버전·release-gate | 2026-11-21 |
 | `2026-11-21-flint-v1180.spec.md` | draft | v1.18.0 MCP structuredContent·outputSchema 스펙 | 리서치(v118-mcp-research) 결과 반영·플랜 승격 | 2026-11-21 |
 
