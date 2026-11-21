@@ -137,6 +137,26 @@ func TestDiffInvalidExit3(t *testing.T) {
 	}
 }
 
+// TestDiffCeilingHintExit3 — the v1.19.4 R79-2/R80-2 CLI integration regression:
+// a past-ceiling relative spec (4000000h) exits 3 with the ceiling wording itself.
+// Pre-fix it fell through to the prefix path and reported "no commit matches
+// prefix" — the ceiling hint was unreachable at the CLI.
+func TestDiffCeilingHintExit3(t *testing.T) {
+	f := &diffCliFake{fakeStore: &fakeStore{}}
+	withFakeStore(t, f)
+	out, code := mustRun(t, []string{"diff", "4000000h", "bbbb2"}, "")
+	if code != 3 {
+		t.Fatalf("exit=%d want 3 out=%s", code, out)
+	}
+	m := decode(t, out)
+	if errKind, _ := m["error"].(string); errKind != "invalid_as_of" {
+		t.Fatalf("error=%v, want invalid_as_of", m["error"])
+	}
+	if msg, _ := m["message"].(string); !strings.Contains(msg, "exceeds") || !strings.Contains(msg, "ceiling") {
+		t.Fatalf("message에 상한 문구 없음: %q", msg)
+	}
+}
+
 // TestDiffPrefixParameterized — hash prefixes are passed as LogQuery{Prefix} values
 // (capture proof that the prefix flows as a query argument and contract field — not SQL splicing).
 func TestDiffPrefixParameterized(t *testing.T) {

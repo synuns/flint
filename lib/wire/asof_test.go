@@ -149,6 +149,47 @@ func TestWireRelativeCeiling(t *testing.T) {
 	}
 }
 
+// TestWireRelativeDayWrapGuard — the v1.19.4 R79-1 regression: a day count whose
+// v*24 wraps int64 slipped past both post-checks (a wrapped negative is not > ceiling)
+// and resolved a meaningless as-of time — MaxInt64 days wrapped to −24h (a FUTURE
+// time → newest commit, exit 0) and (2^64+8)/24 days to +8h. Both now reject BEFORE
+// the multiply; through ParseAsOfSpec they never reach the store.
+func TestWireRelativeDayWrapGuard(t *testing.T) {
+	for _, bad := range []string{"9223372036854775807d", "768614336404564651d"} {
+		if _, err := ParseRelative(bad); !errors.Is(err, ErrInvalidAsOf) {
+			t.Fatalf("ParseRelative(%q) err=%v, want ErrInvalidAsOf(곱셈 전 가드)", bad, err)
+		}
+	}
+	f := &asofFakeStore{entries: asofLogEntries()}
+	for _, bad := range []string{"9223372036854775807d", "768614336404564651d"} {
+		if _, err := ParseAsOfSpec(context.Background(), f, bad); !errors.Is(err, ErrInvalidAsOf) {
+			t.Fatalf("ParseAsOfSpec(%q) err=%v, want ErrInvalidAsOf", bad, err)
+		}
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("래프 스펙이 저장소 질의까지 감(무의미 해석 여지): %+v", f.calls)
+	}
+}
+
+// TestWireCeilingHintReachable — the v1.19.4 R79-2/R80-2 regression: a past-ceiling
+// Nh spec (4000000h) failed relative parsing, fell through to the hash-prefix step
+// (lowercase-alphanumeric) and misreported the ceiling rejection as "no commit
+// matches prefix" — the hint could never reach the user. The shaped-failure path now
+// returns the ceiling wording itself.
+func TestWireCeilingHintReachable(t *testing.T) {
+	f := &asofFakeStore{entries: asofLogEntries()}
+	_, err := ParseAsOfSpec(context.Background(), f, "4000000h")
+	if !errors.Is(err, ErrInvalidAsOf) {
+		t.Fatalf("err=%v, want ErrInvalidAsOf", err)
+	}
+	if !strings.Contains(err.Error(), "exceeds") || !strings.Contains(err.Error(), "ceiling") {
+		t.Fatalf("상한 문구 도달 안 함: %v", err)
+	}
+	if len(f.calls) != 0 {
+		t.Fatalf("접두어 폴백 질의함(오안내 경로): %+v", f.calls)
+	}
+}
+
 // TestWirePrefixUniqueAmbiguousZero — prefix: 1 hit resolved, ambiguous, 0 hits, and LogQuery{Prefix} usage.
 func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}

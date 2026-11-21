@@ -461,6 +461,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01193Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.3", "r77-r78",
 	}},
+	// v1.19.4 patch: R79-R80 재감사 청산 — asof day 곱셈 전 가드·
+	// ceiling 안내 도달성·게이트 meta 키 등록.
+	{name: "TestVersion01194Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.19.4", "r79-r80",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
