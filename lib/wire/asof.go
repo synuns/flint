@@ -72,6 +72,29 @@ func asofCeilingErr(spec string) error {
 		spec, maxRelativeAsOfHours, ErrInvalidAsOf)
 }
 
+// doltAutoCommitMsgs — the Doltgres automatic initial commit messages on a
+// fresh database (observed: "Initialize data repository" by Dolt System
+// Account, "CREATE DATABASE" at creation). No flint schema or views exist at
+// those commits, so an as-of resolving to one fails the as-of view query with
+// a raw SQL error (exit 1). v1.19.5 R81 — both normalization paths reject a
+// resolved auto-commit up front as a usage error (exit 3) with a diagnostic;
+// the check reads the Message of rows LogEntries already returned (no extra
+// round-trip — the Prefix/BeforeOrAt queries widened to carry message).
+// Exact-match only: a flint audit/telemetry commit message never collides
+// ("knowledge: ...", "telemetry: ..."), and an unrecognized manual commit is
+// left to the normal path (no new false rejections).
+var doltAutoCommitMsgs = map[string]bool{
+	"Initialize data repository": true,
+	"CREATE DATABASE":            true,
+}
+
+// asofPreFlintErr — the pre-flint rejection shared by the time and prefix paths.
+func asofPreFlintErr(spec string) error {
+	return fmt.Errorf(
+		"as-of spec %q resolves to a pre-flint commit (no flint schema exists there) — use an as-of at or after the first flint write: %w",
+		spec, ErrInvalidAsOf)
+}
+
 // ParseAsOfSpec — normalizes a spec to a commit hash. Verdict order: (1) relative
 // (\\d+[hd] takes precedence as the documented relative form) (2) ISO (RFC3339,
 // 2006-01-02T15:04) (3) hash prefix (lowercase alphanumeric, 3+ chars — Doltgres
@@ -111,6 +134,9 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 		}
 		switch len(entries) {
 		case 1:
+			if doltAutoCommitMsgs[entries[0].Message] {
+				return "", asofPreFlintErr(spec)
+			}
 			return entries[0].Hash, nil
 		case 0:
 			return "", fmt.Errorf("no commit matches prefix %q: %w", spec, ErrInvalidAsOf)
@@ -148,6 +174,11 @@ func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (
 		return "", err
 	}
 	if len(entries) == 1 {
+		// v1.19.5 R81 — the newest row at or before t is a Doltgres
+		// auto-initial commit → no flint schema exists at that point.
+		if doltAutoCommitMsgs[entries[0].Message] {
+			return "", asofPreFlintErr(spec)
+		}
 		return entries[0].Hash, nil
 	}
 	// 0 rows — a time before the first commit. The message includes the first commit time (following C11 Snowflake).
