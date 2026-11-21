@@ -85,6 +85,7 @@ func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 }
 func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
 func (f *fakeStore) Close()                         {}
+
 // InsertKnowledgeLink — the LinkAccrualStore extension (v1.20.0 T5):
 // the fakeStore side records the idempotent link inserts.
 func (f *fakeStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error {
