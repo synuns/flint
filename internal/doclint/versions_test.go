@@ -455,6 +455,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01192Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.2", "r75-r76",
 	}},
+	// v1.19.3 patch: R77-R78 재감사 청산 — asof 상한 거부(exit 3)·
+	// 시간/분 단위 스팬 클램프(HoursSpan/MinutesSpan 87600h)·
+	// TUNING/HISTORY 정밀화.
+	{name: "TestVersion01193Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.19.3", "r77-r78",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

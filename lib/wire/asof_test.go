@@ -120,6 +120,35 @@ func TestWireRelativeDh(t *testing.T) {
 	}
 }
 
+// TestWireRelativeCeiling — a relative spec past the Duration ceiling
+// (2,562,047h) is rejected up front (v1.19.3 R77-1/R78-1): the pre-fix
+// time.Duration(v)*time.Hour wrapped negative → a FUTURE as-of time, which
+// commitAtOrBefore silently resolved to the newest commit (exit 0 with a
+// meaningless verdict). 106751d (2,562,024h) is the largest day form that
+// still fits — finite, not clamped-to-infinity.
+func TestWireRelativeCeiling(t *testing.T) {
+	for _, bad := range []string{"4000000h", "2562048h", "999999999d", "106752d"} {
+		if _, err := ParseRelative(bad); !errors.Is(err, ErrInvalidAsOf) {
+			t.Fatalf("ParseRelative(%q) err=%v, want ErrInvalidAsOf(상한 초과 거부)", bad, err)
+		}
+	}
+	for _, ok := range []string{"24h", "7d", "2562047h", "106751d"} {
+		got, err := ParseRelative(ok)
+		if err != nil {
+			t.Fatalf("ParseRelative(%q) err=%v, want 통과(상한 내)", ok, err)
+		}
+		if !got.Before(time.Now()) {
+			t.Fatalf("ParseRelative(%q)=%v — 과거 시각 아님(래프 의심)", ok, got)
+		}
+	}
+	// 106751d resolves to a finite past time (≈ now − 2,562,024h), not a
+	// wrapped/instant value — the boundary is a real span, not a rejection wall.
+	got, _ := ParseRelative("106751d")
+	if want := time.Now().Add(-106751 * 24 * time.Hour); got.Sub(want) > 2*time.Second || got.Sub(want) < -2*time.Second {
+		t.Fatalf("ParseRelative(106751d)=%v, want ≈%v(유한 최대 스팬)", got, want)
+	}
+}
+
 // TestWirePrefixUniqueAmbiguousZero — prefix: 1 hit resolved, ambiguous, 0 hits, and LogQuery{Prefix} usage.
 func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
