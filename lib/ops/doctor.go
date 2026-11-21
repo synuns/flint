@@ -75,11 +75,11 @@ type CheckSpec struct {
 	OnStoreNil string
 }
 
-// doctorChecks — the check registry (core 6 + tail 10 = 16 kinds). The 14 harness-* kinds and
+// doctorChecks — the check registry (core 6 + tail 11 = 17 kinds). The 14 harness-* kinds and
 // skill-file rely on file-existence detection (dynamic harness/skill detection), so they are a separate
 // chain outside the registry — not an integration target (ruling). Adding a new check is 1 row in this table.
-// The 7 thresholds-consuming checks (last-seen, backup-age, zero-near,
-// pending-age, event-volume, meta-hygiene, secrets) are registered in the ThFn injected
+// The 8 thresholds-consuming checks (last-seen, backup-age, zero-near,
+// pending-age, event-volume, meta-hygiene, secrets, metering-freshness) are registered in the ThFn injected
 // form — sharing the once-per-run load (doctorThresholds), secrets included.
 func doctorChecks() []CheckSpec {
 	return []CheckSpec{
@@ -100,6 +100,7 @@ func doctorChecks() []CheckSpec {
 		{Name: "meta-hygiene", Chain: "tail", OnStoreNil: "warn", ThFn: checkMetaHygieneTh},
 		{Name: "update", Chain: "tail", OnStoreNil: "", Fn: checkUpdate},
 		{Name: "recall-starved", Chain: "tail", OnStoreNil: "warn", Fn: checkRecallStarved},
+		{Name: "metering-freshness", Chain: "tail", OnStoreNil: "warn", ThFn: checkMeteringFreshnessTh},
 		{Name: "secrets", Chain: "tail", OnStoreNil: "warn", ThFn: checkSecretsTh},
 	}
 }
@@ -208,7 +209,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	if res.Given("--list-checks") {
-		// the whole registry (core 6 + tail 10).
+		// the whole registry (core 6 + tail 11).
 		names := make([]string, 0, len(doctorChecks()))
 		for _, s := range doctorChecks() {
 			names = append(names, s.Name)
@@ -242,7 +243,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 
 	// the full run chain — registry-derived (core 6; harness and skill are separate chains,
-	// the tail 10 keep the existing append order).
+	// the tail 11 keep the existing append order).
 	// F6 (performance): thresholds are loaded once per run (the doctorThresholds lazy
 	// memo) and shared by the 6 ThFn checks — each check's own meta IN query is gone.
 	th := doctorThresholds(ctx, st)
@@ -277,8 +278,8 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 // bumpDoctorWarnCounters — fired counters: per check that verdicts warn,
 // increments the `fired_doctor_<check>` meta cumulative counter (spec §2.5 — the diagnostic-D source;
 // counts only, no personal data). At most 1 increment per check kind per run. The kind cap
-// is the check namespace as-is — 16 registry kinds + 14 harness-* kinds + 1 skill-file
-// = 31 kinds. fail, ok, and skip are not warning firings, so not counted; since it is based on the
+// is the check namespace as-is — 17 registry kinds + 14 harness-* kinds + 1 skill-file
+// = 32 kinds. fail, ok, and skip are not warning firings, so not counted; since it is based on the
 // final checks slice, the pre---fix-re-evaluation verdicts are not double-counted either. Failures are silent (§13).
 func bumpDoctorWarnCounters(ctx context.Context, st wire.Store, checks []DoctorCheck) {
 	if st == nil {
@@ -1525,6 +1526,110 @@ func checkRecallStarved(ctx context.Context, st wire.Store) DoctorCheck {
 		return c
 	}
 	c.Status = "ok"
+	return c
+}
+
+// meteringFreshnessSources — the 5 event-table recency sources of the
+// metering-freshness check (schema v13 A4). recall_events carries no ts
+// column — its time column is recalled_at (measured against the schema
+// v12 definition; a ts query on that table errors and would be skipped,
+// silently blinding the source — hence the explicit column here).
+var meteringFreshnessSources = []struct {
+	label string
+	sql   string
+}{
+	{"read_events", `SELECT max(ts) FROM read_events`},
+	{"recall_events", `SELECT max(recalled_at) FROM recall_events`},
+	{"hot_events", `SELECT max(ts) FROM hot_events`},
+	{"knowledge_reads", `SELECT max(ts) FROM knowledge_reads`},
+	{"session_starts", `SELECT max(ts) FROM session_starts`},
+}
+
+// meteringFreshnessGateKeys — the 2 gate-stamp meta keys joining the 7
+// judgment sources (the T3/T4 24h-gate stamps — a stale stamp means the
+// snapshot·rollup circuits have not confirmed for that long).
+var meteringFreshnessGateKeys = []string{"last_threshold_snapshot_at", "last_rollup_at"}
+
+// checkMeteringFreshnessTh — the metering-health freshness verdict
+// (schema v13 A4): each of the 7 sources (5 table maxes + 2 gate stamps)
+// judged against metering_freshness_warn_h (default 336h = 14 days,
+// aligned with the events retention horizon — a source older than the
+// horizon means its history has fully rolled over without one new
+// event). Never-recorded sources count as infinitely stale (an empty
+// table or an unstamped gate is the same warning — the stallDetail
+// convention). A per-source lookup failure skips only that source
+// quietly (PLAN §4 principle 3 — a failed probe is not evidence of
+// staleness); when every source fails, the verdict defers (ok). Stale
+// metering does not block operation — warn only.
+func checkMeteringFreshnessTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
+	c := DoctorCheck{Name: "metering-freshness"}
+	if st == nil {
+		c.Status = "warn"
+		c.Detail = "cannot query metering freshness"
+		return c
+	}
+	if th.MeteringFreshnessWarnH <= 0 {
+		th = store.DefaultThresholds()
+	}
+	limit := time.Duration(th.MeteringFreshnessWarnH) * time.Hour
+	var stale []string
+	judged := 0
+	over := func(label string, ts time.Time) {
+		judged++
+		if d := time.Since(ts); d > limit {
+			stale = append(stale, fmt.Sprintf("%s %dh", label, int(d.Hours())))
+		}
+	}
+	for _, s := range meteringFreshnessSources {
+		rows, err := wire.QueryOnce(ctx, st, s.sql, nil)
+		if err != nil {
+			continue // the failed probe skips quietly — not stale evidence
+		}
+		if len(rows) == 0 || len(rows[0]) == 0 || rows[0][0] == nil {
+			judged++
+			stale = append(stale, s.label+" (never)")
+			continue
+		}
+		if t, ok := CellToTime(rows[0][0]); ok {
+			over(s.label, t)
+		}
+	}
+	// The gate keys travel as an IN literal (the checkLastSeenTh
+	// convention — the key set is a fixed package constant, no parameters).
+	if rows, err := wire.QueryOnce(ctx, st,
+		`SELECT key, value FROM meta WHERE key IN ('last_threshold_snapshot_at','last_rollup_at')`, nil); err == nil {
+		stamps := map[string]time.Time{}
+		for _, r := range rows {
+			if len(r) != 2 || r[0] == nil || r[1] == nil {
+				continue
+			}
+			if ts, perr := time.Parse(time.RFC3339, fmt.Sprint(r[1])); perr == nil {
+				stamps[fmt.Sprint(r[0])] = ts
+			}
+		}
+		for _, k := range meteringFreshnessGateKeys {
+			if ts, ok := stamps[k]; ok {
+				over(k, ts)
+				continue
+			}
+			judged++
+			stale = append(stale, k+" (never)")
+		}
+	}
+	if judged == 0 {
+		c.Status = "ok"
+		c.Detail = "metering freshness unavailable — verdict deferred"
+		return c
+	}
+	if len(stale) > 0 {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("%d of %d sources over %dh: %s",
+			len(stale), judged, th.MeteringFreshnessWarnH, strings.Join(stale, ", "))
+		c.Fix = "fix: run a flint read (the metering path) — the stale sources then refresh"
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("%d sources within %dh", judged, th.MeteringFreshnessWarnH)
 	return c
 }
 

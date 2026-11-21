@@ -97,9 +97,15 @@ var thresholdMetas = []ThresholdMeta{
 	{"EchoTopK", "echo_top_k", 5, "write echo top-k cap"},
 	{"EchoMinScore", "echo_min_score", 0.3, "write echo admission floor"},
 	{"EchoTopicMatch", "echo_topic_match", 0.4, "write echo topic-overlap floor"},
+
+	// the schema v13 observability keys (v1.19.0 — the consumption paths: the
+	// rollup·snapshot retention prunes and the doctor metering-freshness check).
+	{"WeeklyRollupsRetentionD", "weekly_rollups_retention_days", 90, "rollup retention"},
+	{"ThresholdSnapshotsRetentionD", "threshold_snapshots_retention_days", 90, "snapshot retention"},
+	{"MeteringFreshnessWarnH", "metering_freshness_warn_h", 336, "doctor metering-freshness"},
 }
 
-// ThresholdMetas — the registry's deterministic copy (49 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (52 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

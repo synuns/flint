@@ -82,8 +82,8 @@ func TestDoctorThresholdsSharedAcrossChecks(t *testing.T) {
 		runCheckSpec(ctx, f, th, s)
 		n++
 	}
-	if n != 7 {
-		t.Fatalf("ThFn 검사 %d종, want 7종(last-seen·backup-age·zero-near·pending-age·event-volume·meta-hygiene·secrets)", n)
+	if n != 8 {
+		t.Fatalf("ThFn 검사 %d종, want 8종(last-seen·backup-age·zero-near·pending-age·event-volume·meta-hygiene·secrets·metering-freshness)", n)
 	}
 	if got := thresholdsLoads(f); got != 1 {
 		t.Fatalf("thresholds IN 쿼리 %d회, want 1회(실행 스코프 공유)", got)

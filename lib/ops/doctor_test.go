@@ -144,6 +144,8 @@ func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 
 // doctorQueryFn — a shared queryFn injecting per-check meta/pg_indexes responses.
 // Returns schema=4, 3 index rows, and 3 last-seen keys (with adjustable elapsed).
+// The metering-freshness sources (5 table maxes + the 2 gate keys — schema v13
+// A4) all report lastRead (fresh by construction in freshDoctorFn).
 func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -156,6 +158,18 @@ func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) (
 				{"last_write_at", lastWrite.UTC().Format(time.RFC3339)},
 				{"last_hot_at", lastHot.UTC().Format(time.RFC3339)},
 				{"last_read_at", lastRead.UTC().Format(time.RFC3339)},
+			}, nil
+		case strings.Contains(sql, "max(recalled_at) FROM recall_events"):
+			return [][]any{{lastRead}}, nil
+		case strings.Contains(sql, "max(ts) FROM read_events"),
+			strings.Contains(sql, "max(ts) FROM hot_events"),
+			strings.Contains(sql, "max(ts) FROM knowledge_reads"),
+			strings.Contains(sql, "max(ts) FROM session_starts"):
+			return [][]any{{lastRead}}, nil
+		case strings.Contains(sql, "last_threshold_snapshot_at"):
+			return [][]any{
+				{"last_threshold_snapshot_at", lastRead.UTC().Format(time.RFC3339)},
+				{"last_rollup_at", lastRead.UTC().Format(time.RFC3339)},
 			}, nil
 		}
 		return nil, nil
@@ -189,7 +203,7 @@ func TestDoctorRegistered(t *testing.T) {
 	}
 }
 
-// --list-checks — one-line JSON with all 16 registry kinds.
+// --list-checks — one-line JSON with all 17 registry kinds.
 // The core 6 keep the existing order (hook-file... port) at the front.
 func TestDoctorListChecks(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
@@ -203,12 +217,178 @@ func TestDoctorListChecks(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
 		t.Fatalf("JSON 아님: %q", out)
 	}
-	if len(m.Checks) != 16 {
-		t.Errorf("checks %d종, want 16종(코어6+tail10): %v", len(m.Checks), m.Checks)
+	if len(m.Checks) != 17 {
+		t.Errorf("checks %d종, want 17종(코어6+tail11): %v", len(m.Checks), m.Checks)
 	}
 	if m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
 		t.Errorf("코어 6종 순서 회귀: %v", m.Checks)
 	}
+}
+
+// TestDoctorMeteringFreshnessSpec — the schema v13 A4 registration guard:
+// exactly 1 registry row "metering-freshness" in the tail chain, ThFn
+// (threshold-injected — metering_freshness_warn_h), warn on st==nil.
+func TestDoctorMeteringFreshnessSpec(t *testing.T) {
+	s, ok := doctorSpec("metering-freshness")
+	if !ok {
+		t.Fatal("등록표에 metering-freshness 부재 — A4 계약 위반")
+	}
+	if s.Chain != "tail" {
+		t.Errorf("chain=%q, want tail", s.Chain)
+	}
+	if s.ThFn == nil {
+		t.Error("ThFn nil — 임계 주입형(metering_freshness_warn_h)이어야 함")
+	}
+	if s.OnStoreNil != "warn" {
+		t.Errorf("OnStoreNil=%q, want warn", s.OnStoreNil)
+	}
+}
+
+// meteringFreshnessFn — the 7-source freshness fixture: every source at
+// 1h ago unless overridden (a zero time = NULL max — never recorded).
+// Errors lists source labels whose lookup fails (the quiet-skip path).
+func meteringFreshnessFn(overrides map[string]time.Time, errs []string) func(string, []any) ([][]any, error) {
+	fresh := time.Now().Add(-time.Hour)
+	times := map[string]time.Time{
+		"read_events": fresh, "recall_events": fresh, "hot_events": fresh,
+		"knowledge_reads": fresh, "session_starts": fresh,
+		"last_threshold_snapshot_at": fresh, "last_rollup_at": fresh,
+	}
+	for k, v := range overrides {
+		times[k] = v
+	}
+	failed := map[string]bool{}
+	for _, k := range errs {
+		failed[k] = true
+	}
+	return func(sql string, args []any) ([][]any, error) {
+		src := ""
+		switch {
+		case strings.Contains(sql, "max(recalled_at) FROM recall_events"):
+			src = "recall_events"
+		case strings.Contains(sql, "max(ts) FROM read_events"):
+			src = "read_events"
+		case strings.Contains(sql, "max(ts) FROM hot_events"):
+			src = "hot_events"
+		case strings.Contains(sql, "max(ts) FROM knowledge_reads"):
+			src = "knowledge_reads"
+		case strings.Contains(sql, "max(ts) FROM session_starts"):
+			src = "session_starts"
+		case strings.Contains(sql, "last_threshold_snapshot_at"):
+			// the 2 gate keys travel in one IN query — a per-key failure is
+			// simulated by erroring the whole query for either label.
+			if failed["last_threshold_snapshot_at"] || failed["last_rollup_at"] {
+				return nil, errors.New("gate lookup boom")
+			}
+			return [][]any{
+				{"last_threshold_snapshot_at", times["last_threshold_snapshot_at"].UTC().Format(time.RFC3339)},
+				{"last_rollup_at", times["last_rollup_at"].UTC().Format(time.RFC3339)},
+			}, nil
+		default:
+			return nil, nil
+		}
+		if failed[src] {
+			return nil, errors.New("lookup boom: " + src)
+		}
+		if times[src].IsZero() {
+			return [][]any{{nil}}, nil // NULL max — the table is empty
+		}
+		return [][]any{{times[src]}}, nil
+	}
+}
+
+// TestMeteringFreshnessVerdicts — the freshness verdicts: all sources
+// within the threshold → ok; one over → warn naming it; the threshold is
+// read from the injected th (protocol: an override changes the verdict);
+// never-recorded sources warn; a per-source lookup failure is skipped
+// quietly and a total lookup failure defers (ok); recall_events uses
+// recalled_at (not ts); the gate meta keys are judgment sources.
+func TestMeteringFreshnessVerdicts(t *testing.T) {
+	ctx := context.Background()
+	old := time.Now().Add(-400 * time.Hour) // over the 336h default
+	th := store.DefaultThresholds()
+
+	run := func(fn func(string, []any) ([][]any, error), t store.Thresholds) DoctorCheck {
+		return checkMeteringFreshnessTh(ctx, &fakeStore{queryFn: fn}, t)
+	}
+
+	t.Run("전 소스 신선 — ok", func(t *testing.T) {
+		c := run(meteringFreshnessFn(nil, nil), th)
+		if c.Status != "ok" {
+			t.Fatalf("status=%q detail=%q, want ok", c.Status, c.Detail)
+		}
+	})
+	t.Run("테이블 소스 경과 — 경고에 소스명", func(t *testing.T) {
+		c := run(meteringFreshnessFn(map[string]time.Time{"hot_events": old}, nil), th)
+		if c.Status != "warn" {
+			t.Fatalf("status=%q, want warn", c.Status)
+		}
+		if !strings.Contains(c.Detail, "hot_events") {
+			t.Fatalf("detail %q — 초과 소스명 미포함", c.Detail)
+		}
+	})
+	t.Run("recall_events — recalled_at 열 사용", func(t *testing.T) {
+		var sawRecalled bool
+		fn := func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "max(recalled_at) FROM recall_events") {
+				sawRecalled = true
+				return [][]any{{time.Now().Add(-time.Hour)}}, nil
+			}
+			return meteringFreshnessFn(nil, nil)(sql, args)
+		}
+		c := run(fn, th)
+		if !sawRecalled {
+			t.Fatal("max(recalled_at) 조회 미관측 — ts 열 사용 의심(계약 위반)")
+		}
+		if c.Status != "ok" {
+			t.Fatalf("status=%q detail=%q, want ok", c.Status, c.Detail)
+		}
+	})
+	t.Run("게이트 meta 키 소스 포함", func(t *testing.T) {
+		c := run(meteringFreshnessFn(map[string]time.Time{"last_rollup_at": old}, nil), th)
+		if c.Status != "warn" || !strings.Contains(c.Detail, "last_rollup_at") {
+			t.Fatalf("status=%q detail=%q, want warn+last_rollup_at", c.Status, c.Detail)
+		}
+	})
+	t.Run("미기록(빈 테이블) — 경고", func(t *testing.T) {
+		c := run(meteringFreshnessFn(map[string]time.Time{"read_events": {}}, nil), th)
+		if c.Status != "warn" || !strings.Contains(c.Detail, "read_events") {
+			t.Fatalf("status=%q detail=%q, want warn+read_events(never)", c.Status, c.Detail)
+		}
+	})
+	t.Run("임계 오버라이드 — 판정 변화", func(t *testing.T) {
+		// All sources 100h old: within the 336h default (ok), over a 48h
+		// override (warn) — the verdict follows the injected threshold.
+		over100h := time.Now().Add(-100 * time.Hour)
+		overrides := map[string]time.Time{
+			"read_events": over100h, "recall_events": over100h, "hot_events": over100h,
+			"knowledge_reads": over100h, "session_starts": over100h,
+			"last_threshold_snapshot_at": over100h, "last_rollup_at": over100h,
+		}
+		if c := run(meteringFreshnessFn(overrides, nil), th); c.Status != "ok" {
+			t.Fatalf("336h 기본 임계에서 100h 경과가 warn(status=%q)", c.Status)
+		}
+		narrow := th
+		narrow.MeteringFreshnessWarnH = 48
+		if c := run(meteringFreshnessFn(overrides, nil), narrow); c.Status != "warn" {
+			t.Fatalf("48h 임계에서 100h 경과가 ok — 임계 미주입 의심(status=%q)", c.Status)
+		}
+	})
+	t.Run("일부 조회 실패 — 해당 소스만 스킵(조용히)", func(t *testing.T) {
+		c := run(meteringFreshnessFn(nil, []string{"hot_events", "knowledge_reads"}), th)
+		if c.Status != "ok" {
+			t.Fatalf("status=%q detail=%q, want ok(실패 소스 스킵 — 원칙 3)", c.Status, c.Detail)
+		}
+	})
+	t.Run("전체 조회 실패 — 판정 보류(ok)", func(t *testing.T) {
+		c := run(meteringFreshnessFn(nil, []string{
+			"read_events", "recall_events", "hot_events", "knowledge_reads",
+			"session_starts", "last_rollup_at",
+		}), th)
+		if c.Status != "ok" {
+			t.Fatalf("status=%q, want ok(전체 실패 — 판정 보류)", c.Status)
+		}
+	})
 }
 
 // protocol — --check with an invalid name exits 3; a valid name runs only the subset.

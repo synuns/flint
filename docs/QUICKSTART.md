@@ -48,7 +48,7 @@ is deliberate (a guard against polluting production databases). Verify:
 flint read dump        # search: active_knowledge view only
 flint hot --session x  # inject at session start (hot_budget default 2,000 chars)
 flint audit --limit 5  # audit: last 5 entries of dolt_log
-flint doctor --check db   # diagnostics: db subset of the 16 checks (fail → exit 1)
+flint doctor --check db   # diagnostics: db subset of the 17 checks (fail → exit 1)
 flint report --days 7     # report: daily intake · zero_pct · p95 · stale (default 7 days)
 flint restore --file <dump> --drill  # recovery drill (source untouched, row-count compare only)
 ```

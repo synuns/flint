@@ -173,6 +173,11 @@ func slowV12FreshSchemaHasRecallEvents(t *testing.T, r *Repo) {
 		t.Fatalf("Migrate(신규 생성): %v", err)
 	}
 	for _, gate := range SchemaGates() {
+		if gate.Version > 12 {
+			// The v12-terminus measurement — later gates (v13~) belong to
+			// their own fresh-path tests (TestV13FreshSchemaDirect).
+			break
+		}
 		if err := gate.Ensure(ctx, r); err != nil {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}

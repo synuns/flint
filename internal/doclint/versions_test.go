@@ -436,6 +436,13 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01183Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.18.3", "r69-grammar",
 	}},
+	// v1.19.0 T6: observability-foundation 마일스톤 계약행 — 스키마 v13
+	// (read_events.near_score·threshold_snapshots·weekly_rollups)·독립
+	// 롤오버 회로 2종(24h 게이트·시딩)·doctor metering-freshness 7소스·
+	// diagnose metering_silent(등록표 24키)·thresholds 3키(90·90·336).
+	{name: "TestVersion01190Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.19.0", "observability-foundation",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

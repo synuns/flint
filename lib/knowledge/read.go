@@ -606,6 +606,14 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// (zero_near metering) invisible to the agent. Scan failure·zero
 	// candidates are quiet (§13).
 	var suggestions []query.Suggestion
+	// scanMax — the suggestion scan's best bigramDice score over ALL
+	// scanned candidates, computed before the min_score filter (schema
+	// v13 read_events.near_score). Zero rows keep their scan best even
+	// when every candidate sits below min_score (near=false rows are not
+	// masked to 0 — the min_score-boundary distribution is the
+	// counterfactual-analysis core); hit rows stay 0 (the scan runs on
+	// the zero-hit path only). Scan failure keeps 0 — quiet (§13).
+	scanMax := 0.0
 	if ReadSuggestEligible(len(rows), asOfSpec, f.Status) {
 		// Suggestion thresholds (min_score·scan_cap) prefer the thresholds
 		// registry (meta override → SetSuggestThresholds injection). Lookup
@@ -618,7 +626,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		}
 		ssql, sargs := query.BuildSuggestScan()
 		if srows, serr := wire.QueryOnce(ctx, st, ssql, sargs); serr == nil {
-			suggestions = query.SuggestSimilar(suggestQuery(q), srows, 3)
+			suggestions, scanMax = query.SuggestSimilarWithScanMax(suggestQuery(q), srows, 3)
 		}
 	}
 	// Output neutralization (ADR-0006): re-applies the storage-stage
@@ -708,6 +716,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 			Bytes:      byteLen,
 			ZeroReason: zeroReason,
 			Source:     source,
+			NearScore:  scanMax,
 		})
 		// v1.12.0 T2·T3 — the recall-gap signal: a zero-hit on owned
 		// ground (owned_miss) bumps the normalized-query daily counter;

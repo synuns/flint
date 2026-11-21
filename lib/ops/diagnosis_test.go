@@ -7,9 +7,12 @@ package ops
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
 	"strings"
 	"testing"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -265,5 +268,113 @@ func TestDiagnosisReportExposure(t *testing.T) {
 	}
 	if strings.Contains(quiet.String(), "진단") {
 		t.Error("정상(빈 진단) HTML에 진단 섹션 렌더 — 정상 침묵 위반")
+	}
+}
+
+// frozenMeteringKindGroups — the observation-key registry baseline (A5):
+// the 3 groups' kind sets, order included, byte-invariant (24 keys —
+// 10 intake usage + 11 curation + 3 byte surfaces). Group separation is
+// the contract: a flat merge is forbidden (the curation key space is
+// dedicated — approve.go's review-outcome namespace).
+var frozenMeteringKindGroups = map[string][]string{
+	"usage": {"write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "dup_gap", "brief"},
+	"curation": {"approve_done", "approve_not_found", "approve_supersede_err",
+		"maintain_supersede", "maintain_expire", "maintain_prune_rows",
+		"import_added", "import_skipped", "correction_approved", "gap_approved", "survived_sessions"},
+	"bytes": {"read", "hot", "brief"},
+}
+
+// TestMeteringKindRegistryHomogeneity — the unified registry keeps the 3
+// groups' exact kind sets (byte-invariant vs the pre-unification
+// whitelists) and the union at 24 keys. The same kind name in 2 groups
+// (bytes "read"/"hot"/"brief") is legal — the group is the key space.
+func TestMeteringKindRegistryHomogeneity(t *testing.T) {
+	total := 0
+	for group, want := range frozenMeteringKindGroups {
+		got := db.MeteringKinds(group)
+		if !reflect.DeepEqual(got, want) {
+			t.Errorf("그룹 %s 종류 = %v, want %v(집합·순서 불변)", group, got, want)
+		}
+		total += len(want)
+	}
+	if total != 24 {
+		t.Errorf("합집합 %d키, want 24키", total)
+	}
+	if db.MeteringKinds("bogus") != nil {
+		t.Error("미지 그룹에 비nil 반환 — 그룹 구분 붕괴 소지")
+	}
+}
+
+// silentDaysFixture — a 30-day window with every registry-observable
+// kind fired (nonzero) — the healthy baseline (no silent item).
+func silentDaysFixture(n int) []ReportDay {
+	days := make([]ReportDay, n)
+	for i := range days {
+		days[i] = ReportDay{
+			Date: fmt.Sprintf("2026-10-%02d", i+1),
+			Write: 2, Hook: 1, Manual: 1, Mcp: 0, Dup: 1,
+			DupHook: 1, DupManual: 1, DupMcp: 1, DupCorrection: 1, DupGap: 1,
+			Hot: 2, Read: 5, Brief: 1,
+			ReadBytes: 100, HotBytes: 100, BriefBytes: 50,
+		}
+	}
+	return days
+}
+
+// TestDiagnoseMeteringSilent — the long-window never-fired set-difference rule:
+// over a 30d+ window, registered kinds with zero total fire a
+// metering_silent item naming them (group-qualified); a short window
+// defers (no item — the once-a-day paths need the long horizon); an
+// all-fired window stays silent.
+func TestDiagnoseMeteringSilent(t *testing.T) {
+	th := store.DefaultThresholds()
+
+	hasSilent := func(items []DiagnosisItem) *DiagnosisItem {
+		for i := range items {
+			if items[i].Signal == "metering_silent" {
+				return &items[i]
+			}
+		}
+		return nil
+	}
+
+	// Healthy 30d window — no item (the Curation sums are the report-
+	// carried observation source of the curation group).
+	curationFired := CurationCounters{
+		ApproveDone: 1, ApproveNotFound: 1, ApproveSupersedeErr: 1,
+		MaintainSupersede: 1, MaintainExpire: 1, MaintainPruneRows: 1,
+		ImportAdded: 1, ImportSkipped: 1,
+	}
+	out := diagFixture()
+	out.Days = silentDaysFixture(30)
+	out.Curation = curationFired
+	if it := hasSilent(Diagnose(out, th, 2000)); it != nil {
+		t.Fatalf("전 종 발화 창에서 silent 항목: %+v", it)
+	}
+
+	// 2 silent kinds (a usage kind·a bytes kind) over 30d — named in the value.
+	out = diagFixture()
+	out.Days = silentDaysFixture(30)
+	out.Curation = curationFired
+	for i := range out.Days {
+		out.Days[i].DupMcp = 0
+		out.Days[i].ReadBytes = 0
+	}
+	it := hasSilent(Diagnose(out, th, 2000))
+	if it == nil {
+		t.Fatal("미발화 2종인데 silent 항목 부재")
+	}
+	if !strings.Contains(it.Value, "usage:dup_mcp") || !strings.Contains(it.Value, "bytes:read") {
+		t.Fatalf("silent 값 %q — 그룹 한정 종료명 미포함", it.Value)
+	}
+
+	// Short window (7d) — deferred (no item even with silent kinds).
+	out = diagFixture()
+	out.Days = silentDaysFixture(7)
+	for i := range out.Days {
+		out.Days[i].DupMcp = 0
+	}
+	if it := hasSilent(Diagnose(out, th, 2000)); it != nil {
+		t.Fatalf("7일 창에서 silent 항목 — 장기 임계(30일) 미적용: %+v", it)
 	}
 }

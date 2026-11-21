@@ -15,7 +15,9 @@ package ops
 
 import (
 	"fmt"
+	"strings"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -151,7 +153,104 @@ func Diagnose(out ReportOutput, th store.Thresholds, hotBudget int) []DiagnosisI
 			TuningKey: "diag_recall_led_goal",
 		})
 	}
+
+	// ── schema v13 A5: the observation-kind registry never-fired subset ──
+	// Over a long window (diagSilentMinDays), registered kinds with a zero
+	// total are dead wiring candidates — the registry-vs-observed set
+	// difference. Informational guidance (a legitimately unused surface is
+	// also silent) — the diagnosis-table pattern, normal silence on the
+	// healthy and short-window cases.
+	if silent := silentMeteringKinds(out); len(silent) > 0 {
+		disp := silent
+		if len(disp) > 5 {
+			disp = disp[:5]
+		}
+		items = append(items, DiagnosisItem{
+			Signal: "metering_silent",
+			Value: fmt.Sprintf("%d registry kinds never fired over the %dd window: %s",
+				len(silent), diagSilentMinDays, strings.Join(disp, ", ")),
+			Basis: fmt.Sprintf("observation-kind registry (%d keys, 3 groups) vs report window sums — silent window %dd",
+				meteringRegistryTotal(), diagSilentMinDays),
+			Action: "check the metering wiring of the silent kinds (or retire the registration) — informational, not breakage",
+		})
+	}
 	return items
+}
+
+// diagSilentMinDays — the minimum window before a registered kind's zero
+// total is judged never-fired. The curation·maintain paths fire at most
+// once a day, so a short window would false-positive; 30d is the
+// long-class horizon (a code constant — no thresholds-registry key was
+// registered for it in v1.19.0).
+const diagSilentMinDays = 30
+
+// meteringRegistryTotal — the unified observation-kind registry's key
+// count (the basis wording source).
+func meteringRegistryTotal() int {
+	n := 0
+	for _, g := range db.MeteringKindRegistry {
+		n += len(g.Kinds)
+	}
+	return n
+}
+
+// silentMeteringKinds — the registry kinds with a zero window total,
+// group-qualified ("usage:dup_mcp" — the bytes kinds share names with
+// usage kinds, so the group is part of the identity). Only the
+// report-observable kinds are judged: the usage group via the Days count
+// sums, the bytes group via the Days byte sums, and the 8 curation kinds
+// ReportOutput.Curation carries; the 3 curation kinds report does not
+// carry (correction_approved·gap_approved·survived_sessions) have no
+// observation source in ReportOutput and are excluded (unjudgeable
+// here). A window shorter than diagSilentMinDays defers (nil).
+func silentMeteringKinds(out ReportOutput) []string {
+	if len(out.Days) < diagSilentMinDays {
+		return nil
+	}
+	counts := map[string]int{}
+	bytes := map[string]int{}
+	for _, d := range out.Days {
+		counts["write"] += d.Write
+		counts["hot"] += d.Hot
+		counts["read"] += d.Read
+		counts["dup"] += d.Dup
+		counts["dup_hook"] += d.DupHook
+		counts["dup_manual"] += d.DupManual
+		counts["dup_mcp"] += d.DupMcp
+		counts["dup_correction"] += d.DupCorrection
+		counts["dup_gap"] += d.DupGap
+		counts["brief"] += d.Brief
+		bytes["read"] += d.ReadBytes
+		bytes["hot"] += d.HotBytes
+		bytes["brief"] += d.BriefBytes
+	}
+	curation := map[string]int{
+		"approve_done":          out.Curation.ApproveDone,
+		"approve_not_found":     out.Curation.ApproveNotFound,
+		"approve_supersede_err": out.Curation.ApproveSupersedeErr,
+		"maintain_supersede":    out.Curation.MaintainSupersede,
+		"maintain_expire":       out.Curation.MaintainExpire,
+		"maintain_prune_rows":   out.Curation.MaintainPruneRows,
+		"import_added":          out.Curation.ImportAdded,
+		"import_skipped":        out.Curation.ImportSkipped,
+	}
+	var silent []string
+	for _, k := range db.MeteringKinds("usage") {
+		if counts[k] == 0 {
+			silent = append(silent, "usage:"+k)
+		}
+	}
+	for _, k := range db.MeteringKinds("curation") {
+		if v, ok := curation[k]; ok && v == 0 {
+			silent = append(silent, "curation:"+k)
+		}
+	}
+	for _, k := range db.MeteringKinds("bytes") {
+		if bytes[k] == 0 {
+			silent = append(silent, "bytes:"+k)
+		}
+	}
+	return silent
 }
 
 // diagThresholds — the default fallback for unset (0, invalid) diagnostic keys (the

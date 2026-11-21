@@ -67,8 +67,8 @@ go install·수동+체크섬 검증·Homebrew cask 가이드):
 
 ## 5. 진단 — `flint doctor` (v0.6 → v0.16.2 확장)
 
-검사 16종 + 설치 환경 조건부 하니스·스킬 검사(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
-서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 10종 — 표 순서는 doctor 실행 체인 순서:
+검사 17종 + 설치 환경 조건부 하니스·스킬 검사(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
+서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 11종 — 표 순서는 doctor 실행 체인 순서:
 
 | 검사 | 내용 | 수정 명령 | fail/warn |
 |---|---|---|---|
@@ -87,6 +87,7 @@ go install·수동+체크섬 검증·Homebrew cask 가이드):
 | meta-hygiene | 미지 meta 키(사용 중단 후보)·보존 창(daily_retention_days)+7일 유예 초과 daily 카운터 | `flint maintain --meta-audit` 확인 — 낡은 키·daily 수동 정리 | warn |
 | update | 최신 릴리스 대비 현재 빌드 지연(5초 타임아웃 네트워크 확인, 오프라인은 판정 보류) | `flint update` | warn |
 | recall-starved | 회상 부재 세션 누적 카운터(recall_starved_count, 프로파일 무관 — 최후 관측 창구) | 다음 세션 시작 전 `flint read` 1회 — 해소 후 psql로 meta 키 삭제 | warn |
+| metering-freshness | 계측 신선도 — 이벤트 테이블 5종 최신 시점(recall_events는 recalled_at)·게이트 스탬프 2종(last_threshold_snapshot_at·last_rollup_at)이 metering_freshness_warn_h(기본 336h) 초과 시 경고(조회 실패 소스는 조용히 스킵) | 세션에서 `flint read` 1회 실행(계측 경로 활성) | warn |
 | secrets | 보유 지식·세션 사후 비밀 스캔(무효화 행 제외, 행 상한 secrets_scan_row_limit — 도달 시 부분 스캔 명시) | 지식: `flint maintain --invalidate --id N --reason secret` · 세션: 해당 agent 재종료(done) | warn |
 
 - **fail만 exit 1**, warn은 exit 0. fail마다 수정 명령 한 줄이 함께 출력된다.

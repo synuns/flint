@@ -40,19 +40,22 @@ var quoteJSON = wire.QuoteJSON
 // curationCounterKinds — the daily counter kind whitelist covering both
 // intake and review (curation) outcomes (spec §2.4 gap 1; principle
 // widened v1.17.0 — the funnel observation spans ingestion sources and
-// review results). Key kinds are capped at these eleven
+// review results). Key kinds are capped at the registry's curation group
 // (preventing infinite key proliferation from typo'd kinds — the
 // diagnostics·report curation objects consume the same namespace). A
 // dedicated key space, distinct from the existing intake metering
 // (RecordUsageCount kind) — promotion·invalidation outcomes are review
-// results, not intake.
-var curationCounterKinds = map[string]bool{
-	"approve_done": true, "approve_not_found": true, "approve_supersede_err": true,
-	"maintain_supersede": true, "maintain_expire": true, "maintain_prune_rows": true,
-	"import_added": true, "import_skipped": true,
-	"correction_approved": true, "gap_approved": true, // v1.17.0 T4 — promotion per write source (review funnel)
-	"survived_sessions": true, // v1.17.0 T4 — the decay-audit survived snapshot (observability)
-}
+// results, not intake. Derived from the unified observation-kind
+// registry's curation group (schema v13 A5 — the group structure keeps
+// the key-space separation; the kind set is set-invariant with the
+// former literal).
+var curationCounterKinds = func() map[string]bool {
+	m := map[string]bool{}
+	for _, k := range db.MeteringKinds("curation") {
+		m[k] = true
+	}
+	return m
+}()
 
 // BumpCurationCounter — increments one daily flat-key review counter (v1.2.0
 // T4). Raises the `daily:<kind>:<date>` (UTC) integer value with a single

@@ -46,6 +46,8 @@ var frozenThresholdKeys = []string{
 	"survived_decay_relief",
 	// the echo-scan keys (v1.17.0 — knowledge write echo response, the correction convention)
 	"echo_top_k", "echo_min_score", "echo_topic_match",
+	// the schema v13 observability keys (v1.19.0 — rollup·snapshot retention, metering freshness)
+	"weekly_rollups_retention_days", "threshold_snapshots_retention_days", "metering_freshness_warn_h",
 }
 
 // TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults
