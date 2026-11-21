@@ -42,6 +42,37 @@ reorders within the SQL LIMIT window only — window widening is a
 non-goal (an extreme case can still miss a top row outside the
 window).
 
+### v1.15.0 minor (2026-11-21) — distribution: one-line installer · provenance attestation · security policy
+
+(spec: docs/plans/2026-11-21-flint-v1150.md). Distribution and trust
+foundations — how flint reaches users and how users verify what they got.
+
+- One-line installer (T1): `scripts/install.sh` follows the zoxide
+  pattern — `uname -s/-m` platform detection (darwin/linux × arm64/amd64),
+  asset selection from `releases/latest` (tar.gz archive only — .mcpb and
+  plugin zip share the name prefix), `checksums.txt` companion download,
+  sha256 verification of the single downloaded asset's line (shasum
+  preferred, sha256sum fallback on exit 127 only — mismatch, missing
+  line, or missing tooling is fatal, no bypass path), `~/.local/bin`
+  default with `--bin-dir` override, PATH guidance. Offline shell
+  contract suite (fake curl/uname/shasum seam) runs in `make ci`.
+- Provenance attestation (T2): `actions/attest-build-provenance` on the
+  deploy job binaries (`attestations: write` permission added) with the
+  existing key-signing regime kept (ADR-0014) — verification guide:
+  `gh attestation verify <file> --repo synuns/flint`.
+- Docs set (T3): SECURITY.md (advisory reporting path · latest-minor
+  support · non-interference and data-ownership posture) ·
+  CONTRIBUTING.md (setup · `make ci` local gates · docs/plans
+  convention) · issue templates (bug/feature) · README install section
+  rebuilt around four paths (one-liner · go install · manual checksum
+  verification · Homebrew cask guide) with a text architecture diagram
+  and a "why it's safe" section (EN/KO) · RUNBOOK install link.
+- Rulings: Homebrew ships as **cask, not formula** (goreleaser 2026
+  formula deprecation for binary releases — same sha256 trust chain as
+  the manual path; tap in preparation); cosign keyless dual-signing
+  rejected as redundant — the existing key signing stays.
+
+
 ### v1.14.1 patch (2026-11-21) — r57-hookfix: correction hook precision — the bare "다시" marker fired on casual reuse ("내일 다시 얘기하자"), so it now requires a follow-up verb (해/줘/보자/알려, optional space) · the snippet jq pass switched from per-line `-R` to whole-input `-Rs`, restoring the first-match-only fragment contract on multi-line prompts (two matched lines no longer accrue both) with the ±80-codepoint context now spanning newlines (the topic slice took the same fix)
 
 ### v1.14.0 minor (2026-11-21) — pipeline-complete: knowledge pipeline step 3 (A-plan hook-detected corrections · survived decay relief · the seven-case registry)

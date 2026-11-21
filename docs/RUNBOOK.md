@@ -3,6 +3,10 @@
 감사·오염 대응·복구 훈련·백업 보존·진단·스테일 관리·유지보수 주기의
 8절 구성. 모든 절차는 각 커맨드 계약(exit 0/1/2/3, 한 줄 JSON)을 따른다.
 
+설치·설정은 README 설치 절을 따른다(4경로 — install.sh 원라인·
+go install·수동+체크섬 검증·Homebrew cask 가이드):
+[README.md — Installing the binary](../README.md#installing-the-binary)
+
 ## 1. 감사 — `flint audit`
 
 - `flint audit [--limit N] [--session ID]` — dolt_log 최근 커밋을

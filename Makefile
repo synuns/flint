@@ -35,6 +35,8 @@ ci:
 	@test -z "$$(gofmt -l lib cmd)" || { echo 'gofmt 미적용 파일:'; gofmt -l lib cmd; exit 1; }
 # v1.14.0 T2: correction filter hook contract tests (shell, fake flint seam).
 	bash flint-plugin/hooks/correction_filter_test.sh
+# v1.15.0 T1: install.sh contract tests (offline — fake curl/uname/shasum).
+	bash scripts/install_test.sh
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test $(GO_TEST_FLAGS) -count=1 ./...
 
 # v1.2.0(사용자 지시): 배포 전 문서 정합 게이트 — 문서 계약 테스트는

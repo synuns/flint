@@ -100,3 +100,26 @@ func TestReadmeBadgeIsPlannedVersion(t *testing.T) {
 		seen = badge
 	}
 }
+
+// dynamicCIBadgeRe — the live CI status badge served by GitHub Actions
+// (v1.15.0 T2 ruling (c): static release badge stays, dynamic CI badge
+// is added next to it; both READMEs must link the workflow badge image).
+var dynamicCIBadgeRe = regexp.MustCompile(`https://github\.com/synuns/flint/actions/workflows/ci\.yml/badge\.svg`)
+
+// TestReadmeDynamicCIBadge — README(EN/KO) must embed the dynamic CI
+// workflow badge image, and it must link to the workflow page.
+func TestReadmeDynamicCIBadge(t *testing.T) {
+	for _, p := range []string{"../README.md", "../README.ko.md"} {
+		b, err := os.ReadFile(p)
+		if err != nil {
+			t.Fatal(err)
+		}
+		s := string(b)
+		if !dynamicCIBadgeRe.MatchString(s) {
+			t.Errorf("%s 동적 CI 배지(img src=actions/workflows/ci.yml/badge.svg) 없음", p)
+		}
+		if !strings.Contains(s, "https://github.com/synuns/flint/actions/workflows/ci.yml\"") {
+			t.Errorf("%s CI 배지가 워크플로 페이지로 링크되지 않음", p)
+		}
+	}
+}

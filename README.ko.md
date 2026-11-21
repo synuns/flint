@@ -25,6 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
+  <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
   <img src="https://img.shields.io/badge/release-v1.16.0-blue" alt="v1.16.0">
 </p>
 <p align="center">
@@ -34,6 +35,7 @@
 <p align="center">
   <a href="#빠른-시작">빠른 시작</a> ·
   <a href="#동작-원리">동작 원리</a> ·
+  <a href="#왜-안전한가">안전성</a> ·
   <a href="#커맨드">커맨드</a> ·
   <a href="#에이전트--어댑터">에이전트</a>
 </p>
@@ -46,6 +48,8 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.15.0 · distribution — 원라인 설치 스크립트 · 증명(attestation) · 보안 정책 · [전체 변경 이력](docs/HISTORY.md)
+> v1.16.0 · search-perf — read 토큰 스코어링 회상 순위(접두>포함 계층·NFKC 정규화·윈도우 내 재배치) · profile 병렬 수집 · [전체 변경 이력](docs/HISTORY.md)
 > v0.43.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/HISTORY.md)
 > v0.44.0 · PLAN 재무장 · 표면 계약 6종 · [전체 변경 이력](docs/HISTORY.md)
 > v1.7.2 · 계측 귀속·sync 완화·probe heal(R38) · [전체 변경 이력](docs/HISTORY.md)
@@ -63,25 +67,58 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 > v1.12.1 · r54-docs — RUNBOOK 파이프라인 2단계 기록·NFKC 절단 수리 · [전체 변경 이력](docs/HISTORY.md)
 > v1.13.0 · 지식 수명주기 — 낡음 점수·변동성 계층 · [전체 변경 이력](docs/HISTORY.md)
 > v1.14.0 · 지식화 파이프라인 3단계 — 자동 교정 감지(A안 훅)·survived 감쇠 완화 · [전체 변경 이력](docs/HISTORY.md)
-> v1.14.1 · r57-hookfix — 교정 훅 정밀도(조건부 다시 마커·첫 매치 1조각 계약) · [전체 변경 이력](docs/HISTORY.md)
-> v1.16.0 · search-perf — read 토큰 스코어링 회상 순위(접두>포함 계층·NFKC 정규화·윈도우 내 재배치) · profile 병렬 수집 · [전체 변경 이력](docs/HISTORY.md)
 ---
 
 ## 빠른 시작
 
 ```bash
-# 설치 (GOPATH/bin에 flint 설치)
-git clone https://github.com/synuns/flint.git && cd flint
-make install
+# 사전 빌드된 바이너리 설치 (sha256 검증 포함) → ~/.local/bin
+curl -fsSL https://raw.githubusercontent.com/synuns/flint/main/scripts/install.sh | bash
 
 # Doltgres 기동 · 스키마 마이그레이션
 flint setup
 
-# 데모 데이터 적재 (시드 대상은 명시적으로)
-make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
+# 첫 기억 기록
+echo "API 게이트웨이는 멱등 POST를 2회 재시도한다" | flint write knowledge
 ```
 
-[릴리스 바이너리](https://github.com/synuns/flint/releases)를 받아도 됩니다 — 바이너리, 체크섬, 플러그인 zip이 자동으로 첨부됩니다.
+선택: 체크아웃한 저장소에서 합성 데모 데이터 적재 — `make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint`.
+
+> 모든 릴리스 자산에는 SLSA 빌드 증명(build provenance)이 첨부됩니다 — 내려받은 파일은 `gh attestation verify <파일> --repo synuns/flint`로 검증할 수 있습니다.
+
+### 바이너리 설치
+
+네 가지 경로 — 하나만 고르면 됩니다. 어떤 경로든 다음 단계는 `flint setup`(Doltgres, 포트 5434)입니다.
+
+**1 · 원라인 설치 스크립트** — 사전 빌드 바이너리, 체크섬 검증 포함:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/synuns/flint/main/scripts/install.sh | bash
+```
+
+플랫폼(darwin/linux × arm64/amd64)을 감지해 대응 릴리스 아카이브와 릴리스 `checksums.txt`를 함께 내려받고, 해당 자산 한 개의 sha256을 검증한 뒤 `~/.local/bin`에 설치합니다 — `--bin-dir DIR`로 재정의 가능. 필요한 건 `curl`·`tar`·`shasum`(또는 `sha256sum`)뿐, Go 툴체인 불필요. 대상 디렉터리가 `PATH`에 없으면 추가할 줄을 그대로 출력해 줍니다.
+
+**2 · go install**:
+
+```sh
+go install github.com/synuns/flint/cmd/flint@latest
+```
+
+모듈 경로는 `github.com/synuns/flint`(v0.22.0+) — 버전은 빌드 정보(debug.ReadBuildInfo)에서 옵니다. 이후 바이너리 갱신은 `flint update`가 담당합니다.
+
+**3 · 수동 다운로드 + 체크섬 검증** — [릴리스 페이지](https://github.com/synuns/flint/releases)에는 바이너리, 체크섬, 플러그인 zip이 자동 첨부됩니다:
+
+```bash
+ver=$(curl -fsSL https://api.github.com/repos/synuns/flint/releases/latest \
+	| sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p')
+asset="flint_${ver#v}_darwin_arm64.tar.gz"          # 조정: darwin|linux _ arm64|amd64
+base="https://github.com/synuns/flint/releases/download/$ver"
+curl -fsSLO "$base/checksums.txt" "$base/$asset"
+grep " $asset\$" checksums.txt | shasum -a 256 -c -  # shasum 없으면: sha256sum -c -
+tar -xzf "$asset" && install flint ~/.local/bin
+```
+
+**4 · Homebrew(cask — tap 준비 중)**: flint는 사전 빌드 바이너리만 배포하므로 Homebrew 경로는 **formula가 아니라 cask**입니다 — goreleaser가 바이너리 릴리스의 formula 기반 배포를 폐기(deprecation, 2026)했고, cask는 릴리스 자산 그대로를 sha256 검증과 함께 설치하므로 수동 경로와 동일한 신뢰 사슬이 됩니다. tap이 열리면 `brew install --cask synuns/tap/flint` 형태가 되고, 준비는 릴리스마다 Cask 하나(`url` = 릴리스 자산, `sha256` = `checksums.txt`의 값)를 담은 `homebrew-tap` 저장소로 이뤄집니다. 그 전까지는 1·2번 경로를 이용하세요.
 
 ### Claude Code
 
@@ -91,14 +128,6 @@ make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
 ```
 
 플러그인은 `flint` 바이너리가 `PATH`에 있어야 합니다. 훅과 MCP 서버가 모두 이 바이너리를 호출합니다.
-
-### go install로 설치
-
-```sh
-go install github.com/synuns/flint/cmd/flint@latest
-```
-
-모듈 경로는 `github.com/synuns/flint`(v0.22.0+) — 버전은 빌드 정보(debug.ReadBuildInfo)에서 옵니다. 이후 바이너리 갱신은 `flint update`가 담당합니다.
 
 ### 다른 에이전트 (Codex, Gemini, Cursor, OpenCode)
 
@@ -141,6 +170,18 @@ Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션�
 | **기록** | `flint write`가 해시 dedup으로 JSONL 추가 |
 | **검증** | `flint audit`로 이력 확인 · `flint restore --drill`로 복구 훈련 |
 
+한 장으로 보면:
+
+```
+세션 시작 ──훅──► flint hot ──예산 내 [flint] 블록──► 에이전트 맥락
+   │
+   ├── flint write ──해시 dedup──► Doltgres (모든 변경이 커밋)
+   │                                    │
+   └── flint read / MCP 도구 ◄── 활성 뷰 RRF 검색
+                                        ▼
+                          audit · backup · restore · report
+```
+
 <p align="center">
   <img src="assets/flint-lifecycle.svg" width="880" alt="flint 세션 라이프사이클 — 기억이 축적되는 순환">
 </p>
@@ -164,6 +205,17 @@ flint brief [query]        # 마스킹된 읽기 전용 블록 — 아무 채팅
 `conf_floor` 미만으로 넣어 회수한다(저신뢰 기록은 pending으로 분류),
 또는 `flint import`(항상 pending) — 미검수 필자와 같은 검수 대기열에
 떨어지고 `flint approve`로 승격된다. 원격 라이브 쓰기는 설계상 금지다.
+
+---
+
+## 왜 안전한가
+
+flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 부록이 아니라 제품
+자체입니다([ADR-0013 위협 모델](docs/adr/ADR-0013-threat-model.md)):
+
+- **로컬·오프라인.** flint·하네스·Doltgres 전부 내 기기에서 실행됩니다 — 클라우드 서비스도, 계정도, 텔레메트리도 없습니다. 유지보수 경로(`doctor`·`report`·`maintain`)는 오프라인 CLI입니다.
+- **비간섭 5원칙.** (1) 주입은 최소, 검색은 풀 — flint가 먼저 말 걸지 않는다. (2) 훅은 비차단·타임아웃 — 세션 종료를 절대 막지 않는다. (3) flint 장애는 조용한 skip(exit 2) — 세션 시작·작업·종료를 지연시키지 않는다. (4) 경고는 임계값 기반 — 초과할 때만 말한다. (5) flint 데이터는 데이터 — `[flint]` 블록은 경계 밖에서 지시문이 될 수 없다.
+- **데이터 소유는 사용자.** 모든 데이터는 여러분의 Doltgres와 `~/.flint`에 있습니다 — 언제든 export(`flint export`, Ed25519 서명 가능한 PAM), `age` 암호화 백업, 기록·백업 시 비밀 스캔, 원격 라이브 쓰기는 설계상 금지([ADR-0015](docs/adr/0015-bridge-surface.md)).
 
 ---
 
