@@ -7,6 +7,7 @@ package knowledge
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"regexp"
 	"strings"
@@ -14,6 +15,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/render"
 )
 
 // pamSample — a minimal document in the spec-example shape (synthetic).
@@ -668,4 +670,217 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 	if pamMaskedBody(t, doc1) != pamMaskedBody(t, doc2) {
 		t.Errorf("재export 본문 불일치 — 수입이 원천을 변경함")
 	}
+}
+
+// ── v1.20.0 T5 — the 4-vocabulary relations round trip: FormatPAM
+// carries knowledge_links alongside the derived supersedes relations
+// (both co-existing), ParsePAM splits them (supersedes → SupersedePairs
+// unchanged, the 4 vocabulary → Links), RestorePAMLinks re-accrues them
+// onto flint row ids (real-DB slow). All synthetic demo data. ──
+
+// TestParsePAMRelationsVocabulary — the relations split: supersedes
+// stays in SupersedePairs (the existing consumer), the 4 registered
+// values land in Links, an unregistered type is neither (ignored, the
+// non-consumed relation convention).
+func TestParsePAMRelationsVocabulary(t *testing.T) {
+	doc := `{
+ "schema": "portable-ai-memory",
+ "memories": [
+  {"id": "mem-a", "type": "fact", "content": "demo a", "temporal": {"created_at": "2026-01-02T03:04:05Z"}, "status": "active", "confidence": {"current": 0.8}, "tags": [], "provenance": {"platform": "claude"}},
+  {"id": "mem-b", "type": "fact", "content": "demo b", "temporal": {"created_at": "2026-01-02T03:04:05Z"}, "status": "active", "confidence": {"current": 0.8}, "tags": [], "provenance": {"platform": "claude"}}
+ ],
+ "relations": [
+  {"id": "r1", "from": "mem-b", "to": "mem-a", "type": "refines", "created_at": "2026-01-02T03:04:05Z"},
+  {"id": "r2", "from": "mem-b", "to": "mem-a", "type": "supersedes", "created_at": "2026-01-02T03:04:05Z"},
+  {"id": "r3", "from": "mem-a", "to": "mem-b", "type": "unregistered-kind", "created_at": "2026-01-02T03:04:05Z"}
+ ]}`
+	res, err := ParsePAM([]byte(doc))
+	if err != nil {
+		t.Fatalf("ParsePAM 실패: %v", err)
+	}
+	if len(res.SupersedePairs) != 1 || res.SupersedePairs[0].From != "mem-b" || res.SupersedePairs[0].To != "mem-a" {
+		t.Fatalf("SupersedePairs=%v, want 1 pair mem-b→mem-a", res.SupersedePairs)
+	}
+	if len(res.Links) != 1 {
+		t.Fatalf("Links=%v, want 1 (4-vocabulary only)", res.Links)
+	}
+	l := res.Links[0]
+	if l.From != "mem-b" || l.To != "mem-a" || l.Relation != "refines" {
+		t.Fatalf("Links[0]=%v, want mem-b→mem-a refines", l)
+	}
+}
+
+// TestFormatPAMLinksEmission — the exported relations carry the
+// knowledge_links entries (type = the relation value, deterministic
+// UUIDv5 id) with the both-endpoints-emitted guard; a relation to a row
+// outside the document is not emitted (dangling prevention).
+func TestFormatPAMLinksEmission(t *testing.T) {
+	rows := []ExportRow{
+		{ID: 1, Kind: "knowledge", Content: "합성 수출 1", Status: "active", Confidence: 0.9, CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
+		{ID: 2, Kind: "knowledge", Content: "합성 수출 2", Status: "active", Confidence: 0.9, CreatedAt: time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC)},
+	}
+	links := []PAMLinkRow{
+		{FromID: 2, ToID: 1, Relation: "refines", CreatedAt: time.Date(2026, 1, 2, 3, 4, 7, 0, time.UTC)},
+		{FromID: 2, ToID: 77, Relation: "supports", CreatedAt: time.Date(2026, 1, 2, 3, 4, 8, 0, time.UTC)}, // dangling to
+	}
+	data, err := FormatPAM(rows, "flint/test", links...)
+	if err != nil {
+		t.Fatalf("FormatPAM 실패: %v", err)
+	}
+	var doc struct {
+		Relations []pamExportRelation `json:"relations"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("문서 파싱 실패: %v", err)
+	}
+	if len(doc.Relations) != 1 {
+		t.Fatalf("relations=%v, want 1 (dangling excluded)", doc.Relations)
+	}
+	r := doc.Relations[0]
+	if r.From != "flint:2" || r.To != "flint:1" || r.Type != "refines" {
+		t.Fatalf("relation=%v, want flint:2→flint:1 refines", r)
+	}
+	if r.ID != pamRelationID("flint:2", "flint:1", "refines") {
+		t.Fatalf("relation id=%q, want deterministic UUIDv5", r.ID)
+	}
+	if r.CreatedAt != "2026-01-02T03:04:07Z" {
+		t.Fatalf("relation created_at=%q", r.CreatedAt)
+	}
+}
+
+// TestFormatPAMSupersedesCoExists — a superseded row plus a
+// knowledge_link on the same document: both relation families are
+// emitted side by side (supersedes derived from superseded_by — the
+// dual-source avoidance keeps them separate).
+func TestFormatPAMSupersedesCoExists(t *testing.T) {
+	newID := 2
+	rows := []ExportRow{
+		{ID: 1, Kind: "knowledge", Content: "합성 이전 1", Status: "invalidated", Confidence: 0.9, CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC), SupersededBy: &newID},
+		{ID: 2, Kind: "knowledge", Content: "합성 신규 2", Status: "active", Confidence: 0.9, CreatedAt: time.Date(2026, 1, 2, 3, 4, 6, 0, time.UTC)},
+	}
+	links := []PAMLinkRow{{FromID: 2, ToID: 1, Relation: "contradicts", CreatedAt: time.Date(2026, 1, 2, 3, 4, 7, 0, time.UTC)}}
+	data, err := FormatPAM(rows, "flint/test", links...)
+	if err != nil {
+		t.Fatalf("FormatPAM 실패: %v", err)
+	}
+	var doc struct {
+		Relations []pamExportRelation `json:"relations"`
+	}
+	if err := json.Unmarshal(data, &doc); err != nil {
+		t.Fatalf("문서 파싱 실패: %v", err)
+	}
+	types := map[string]bool{}
+	for _, r := range doc.Relations {
+		types[r.Type] = true
+	}
+	if !types["supersedes"] || !types["contradicts"] {
+		t.Fatalf("relations 병기 실패: %v (want supersedes+contradicts)", doc.Relations)
+	}
+}
+
+// TestPAMRoundTripLinksRealSlow — the real-DB round trip on the
+// dedicated scratch database: rows+links accrued via RunWrite →
+// FormatPAM (links carried) → ParsePAM → links deleted →
+// RestorePAMLinks re-accrues the identical (from,to,relation) rows.
+func TestPAMRoundTripLinksRealSlow(t *testing.T) {
+	st := t5ScratchStore(t)
+	ctx := context.Background()
+	// Two synthetic rows with one refines link between them, plus a
+	// superseded_by lineage set directly (test fixture SQL — the
+	// maintain path is T3's contract).
+	for _, top := range []string{"합성 왕복 A", "합성 왕복 B"} {
+		out, code := run(t, st, []string{"knowledge"},
+			fmt.Sprintf(`{"topic":%q,"summary":"왕복 시나리오 합성 본문","confidence":0.9}`, top))
+		if code != 0 {
+			t.Fatalf("적립 %s exit=%d out=%s", top, code, out)
+		}
+	}
+	rels := fmt.Sprintf(`{"to":%d,"relation":"refines"}`, idOfTopic(t, st, "합성 왕복 A"))
+	out, code := run(t, st, []string{"knowledge"},
+		relPayload("합성 왕복 C", "왕복 시나리오 합성 본문 C", rels))
+	if code != 0 {
+		t.Fatalf("링크 적립 exit=%d out=%s", code, out)
+	}
+	bID, aID := idOfTopic(t, st, "합성 왕복 B"), idOfTopic(t, st, "합성 왕복 A")
+	if _, err := st.Query(ctx, `UPDATE knowledge SET superseded_by = $1 WHERE id = $2`, bID, aID); err != nil {
+		t.Fatalf("superseded_by 설정 실패: %v", err)
+	}
+	cID := idOfTopic(t, st, "합성 왕복 C")
+
+	// Export with links.
+	rows, err := ExportRows(ctx, st, ExportFilter{})
+	if err != nil {
+		t.Fatalf("ExportRows 실패: %v", err)
+	}
+	lrows, err := st.Query(ctx, `SELECT from_id, to_id, relation, created_at FROM knowledge_links ORDER BY from_id, to_id, relation`)
+	if err != nil {
+		t.Fatalf("links 조회 실패: %v", err)
+	}
+	var links []PAMLinkRow
+	for _, r := range lrows {
+		f, _ := render.CellToInt(r[0])
+		o, _ := render.CellToInt(r[1])
+		rel, _ := r[2].(string)
+		at, _ := r[3].(time.Time)
+		links = append(links, PAMLinkRow{FromID: f, ToID: o, Relation: rel, CreatedAt: at})
+	}
+	if len(links) != 1 {
+		t.Fatalf("수출 대상 링크=%d, want 1", len(links))
+	}
+	data, err := FormatPAM(rows, "flint/test", links...)
+	if err != nil {
+		t.Fatalf("FormatPAM 실패: %v", err)
+	}
+	res, err := ParsePAM(data)
+	if err != nil {
+		t.Fatalf("ParsePAM 실패: %v", err)
+	}
+	// both families parsed: supersedes (a superseded by b) + refines
+	// (c→a).
+	if len(res.SupersedePairs) != 1 || res.SupersedePairs[0].From != fmt.Sprintf("flint:%d", bID) {
+		t.Fatalf("SupersedePairs=%v", res.SupersedePairs)
+	}
+	if len(res.Links) != 1 || res.Links[0].Relation != "refines" {
+		t.Fatalf("Links=%v, want 1 refines", res.Links)
+	}
+	// Restore after wiping the source rows' links (the same scratch —
+	// the round trip must reproduce the identical link).
+	if _, err := st.Query(ctx, `DELETE FROM knowledge_links`); err != nil {
+		t.Fatalf("links 정리 실패: %v", err)
+	}
+	rowID := map[string]int{fmt.Sprintf("flint:%d", cID): cID, fmt.Sprintf("flint:%d", aID): aID}
+	n, err := RestorePAMLinks(ctx, st, func(pamID string) (int, bool) {
+		id, ok := rowID[pamID]
+		return id, ok
+	}, res.Links)
+	if err != nil {
+		t.Fatalf("RestorePAMLinks 실패: %v", err)
+	}
+	if n != 1 {
+		t.Fatalf("재적립 수=%d, want 1", n)
+	}
+	got, err := st.Query(ctx, `SELECT from_id, to_id, relation FROM knowledge_links`)
+	if err != nil {
+		t.Fatalf("links 재조회 실패: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("재적립 링크 수=%d, want 1", len(got))
+	}
+	f, _ := render.CellToInt(got[0][0])
+	o, _ := render.CellToInt(got[0][1])
+	rel, _ := got[0][2].(string)
+	if f != cID || o != aID || rel != "refines" {
+		t.Fatalf("재적립 링크=(%d,%d,%q), want (%d,%d,refines)", f, o, rel, cID, aID)
+	}
+}
+
+// idOfTopic — the scratch knowledge row id of a topic (test helper).
+func idOfTopic(t *testing.T, st *writeRealStore, topic string) int {
+	t.Helper()
+	rows, err := st.Query(context.Background(), `SELECT id FROM knowledge WHERE topic = $1`, topic)
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("행 조회 실패 topic=%s err=%v rows=%d", topic, err, len(rows))
+	}
+	id, _ := render.CellToInt(rows[0][0])
+	return id
 }

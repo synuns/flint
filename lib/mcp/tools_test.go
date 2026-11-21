@@ -637,3 +637,55 @@ func TestDispatchReadRecordsReadEventSourceMCP(t *testing.T) {
 		t.Fatalf("read_events.source = %q, want mcp", got)
 	}
 }
+
+// TestReadManifestNewFilters — flint_read advertises min_confidence (a
+// number bounded 0..1) and origin (the agent|human enum) in its input
+// schema (v1.20.0 T2).
+func TestReadManifestNewFilters(t *testing.T) {
+	for _, td := range ToolsManifest() {
+		if td.Name != "flint_read" {
+			continue
+		}
+		props, ok := td.InputSchema["properties"].(map[string]any)
+		if !ok {
+			t.Fatalf("flint_read InputSchema.properties가 맵 아님: %#v", td.InputSchema["properties"])
+		}
+		mc, ok := props["min_confidence"].(map[string]any)
+		if !ok {
+			t.Fatalf("min_confidence property 누락: %#v", props)
+		}
+		if mc["type"] != "number" {
+			t.Errorf("min_confidence type = %v, want number", mc["type"])
+		}
+		if mc["minimum"] != float64(0) || mc["maximum"] != float64(1) {
+			t.Errorf("min_confidence bounds = %v..%v, want 0..1", mc["minimum"], mc["maximum"])
+		}
+		origin, ok := props["origin"].(map[string]any)
+		if !ok {
+			t.Fatalf("origin property 누락: %#v", props)
+		}
+		if origin["type"] != "string" {
+			t.Errorf("origin type = %v, want string", origin["type"])
+		}
+		enum, ok := origin["enum"].([]string)
+		if !ok || len(enum) != 2 || enum[0] != "agent" || enum[1] != "human" {
+			t.Errorf("origin enum = %#v, want [agent human]", origin["enum"])
+		}
+		return
+	}
+	t.Fatal("flint_read 도구 정의 없음")
+}
+
+// TestDispatchReadNewFilters — flint_read{min_confidence, origin} assembles
+// the cli --min-confidence/--origin flags (value passthrough — the CLI-side
+// validation stays the single source).
+func TestDispatchReadNewFilters(t *testing.T) {
+	calls, _ := installRun(t, `{"rows":[]}`, 0)
+	DispatchTool("flint_read", map[string]any{
+		"query": "demo", "min_confidence": 0.5, "origin": "human",
+	})
+	wantArgs(t, calls, []string{
+		"read", "--json", "--source", "mcp",
+		"--min-confidence", "0.5", "--origin", "human", "--", "demo",
+	})
+}

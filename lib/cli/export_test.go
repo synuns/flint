@@ -42,11 +42,23 @@ func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.S
 			return []byte(fmt.Sprintf("<%s of %d rows>\n", name, len(rows))), len(rows), nil
 		}
 	}
+	// the pam seam is variadic since v1.20.0 T5 (the links carrier).
+	mkPAM := func() func([]knowledge.ExportRow, ...knowledge.PAMLinkRow) ([]byte, int, error) {
+		return func(rows []knowledge.ExportRow, links ...knowledge.PAMLinkRow) ([]byte, int, error) {
+			return []byte(fmt.Sprintf("<pam of %d rows>\n", len(rows))), len(rows), nil
+		}
+	}
+	// the md seam is variadic since v1.20.0 T5 wiring (the chains carrier).
+	mkMD := func() func([]knowledge.ExportRow, ...map[int][]int) ([]byte, int, error) {
+		return func(rows []knowledge.ExportRow, chains ...map[int][]int) ([]byte, int, error) {
+			return []byte(fmt.Sprintf("<md of %d rows>\n", len(rows))), len(rows), nil
+		}
+	}
 	var stderr bytes.Buffer
 	oldRows, oldJ, oldM, oldT, oldC, oldP, oldErr :=
 		exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, formatPAMFn, exportStderr
 	exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, formatPAMFn, exportStderr =
-		rowsFn, mk("jsonl"), mk("md"), mk("txt"), mk("csv"), mk("pam"), &stderr
+		rowsFn, mk("jsonl"), mkMD(), mk("txt"), mk("csv"), mkPAM(), &stderr
 	t.Cleanup(func() {
 		exportRowsFn, formatJSONLFn, formatMDFn, formatTXTFn, formatCSVFn, formatPAMFn, exportStderr =
 			oldRows, oldJ, oldM, oldT, oldC, oldP, oldErr
@@ -464,7 +476,7 @@ func TestRunExportPAMSummaryCountsIssuedRows(t *testing.T) {
 func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	old := formatPAMFn
-	formatPAMFn = func(rows []knowledge.ExportRow) ([]byte, int, error) {
+	formatPAMFn = func(rows []knowledge.ExportRow, links ...knowledge.PAMLinkRow) ([]byte, int, error) {
 		return []byte("<pam issued 1>\n"), 1, nil
 	}
 	defer func() { formatPAMFn = old }()
@@ -487,12 +499,12 @@ func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
 func installPAMSignFakes(t *testing.T) (*int, *ed25519.PrivateKey) {
 	t.Helper()
 	var keyFn func() (ed25519.PrivateKey, error)
-	var inner func([]knowledge.ExportRow, ed25519.PrivateKey) ([]byte, int, error)
+	var inner func([]knowledge.ExportRow, ed25519.PrivateKey, ...knowledge.PAMLinkRow) ([]byte, int, error)
 	if os.Getenv("SUPERLITE_REAL") == "1" {
 		path := filepath.Join(t.TempDir(), "pam-signing-key")
 		knowledge.PAMSigningKeyPathFn = func() string { return path }
 		keyFn = knowledge.LoadOrCreatePAMSigningKey
-		inner = func(rows []knowledge.ExportRow, k ed25519.PrivateKey) ([]byte, int, error) {
+		inner = func(rows []knowledge.ExportRow, k ed25519.PrivateKey, links ...knowledge.PAMLinkRow) ([]byte, int, error) {
 			data, err := knowledge.FormatPAMSigned(rows, "flint/"+CurrentVersion(), k)
 			if err != nil {
 				return nil, 0, err
@@ -511,7 +523,7 @@ func installPAMSignFakes(t *testing.T) (*int, *ed25519.PrivateKey) {
 		seed := sha256.Sum256([]byte("flint-cli-pam-sign-demo-seed"))
 		key := ed25519.NewKeyFromSeed(seed[:])
 		keyFn = func() (ed25519.PrivateKey, error) { return key, nil }
-		inner = func(rows []knowledge.ExportRow, k ed25519.PrivateKey) ([]byte, int, error) {
+		inner = func(rows []knowledge.ExportRow, k ed25519.PrivateKey, links ...knowledge.PAMLinkRow) ([]byte, int, error) {
 			return []byte("<pam signed>\n"), 2, nil
 		}
 	}
@@ -519,7 +531,7 @@ func installPAMSignFakes(t *testing.T) (*int, *ed25519.PrivateKey) {
 	var gotKey ed25519.PrivateKey
 	oldKey, oldFn, oldPath := exportSignKeyFn, formatPAMSignedFn, knowledge.PAMSigningKeyPathFn
 	exportSignKeyFn = keyFn
-	formatPAMSignedFn = func(rows []knowledge.ExportRow, k ed25519.PrivateKey) ([]byte, int, error) {
+	formatPAMSignedFn = func(rows []knowledge.ExportRow, k ed25519.PrivateKey, links ...knowledge.PAMLinkRow) ([]byte, int, error) {
 		calls++
 		gotKey = k
 		return inner(rows, k)

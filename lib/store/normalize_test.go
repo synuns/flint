@@ -1,6 +1,7 @@
 package store
 
 import (
+	"strings"
 	"testing"
 	"time"
 )
@@ -66,5 +67,56 @@ func TestCanonicalJSONStable(t *testing.T) {
 	a, b := CanonicalJSON(p), CanonicalJSON(p) // comparing 2 calls (detecting non-determinism)
 	if a != b {
 		t.Error("CanonicalJSON 비결정적 출력")
+	}
+}
+
+// TestRelationVocabularyRegistered — the schema v14 (v1.20.0) relation
+// vocabulary: exactly the 4 registered values pass ValidRelation
+// (case-insensitive — the normalizeVocab convention).
+func TestRelationVocabularyRegistered(t *testing.T) {
+	for _, rel := range []string{"refines", "supports", "contradicts", "duplicates"} {
+		if !ValidRelation(rel) {
+			t.Errorf("ValidRelation(%q) = false, want true(등록 어휘)", rel)
+		}
+	}
+	if !ValidRelation("Refines") || !ValidRelation(" SUPPORTS ") {
+		t.Error("대소문자·공백 정규화 실패 — normalizeVocab 관례 위반")
+	}
+}
+
+// TestRelationVocabularyRejectsUnknown — an unregistered value yields the
+// distinct "rejected relation:" class (the colon-token rejection
+// precedent — the write path maps this class to exit 3, not a warning).
+// supersedes is deliberately rejected: lineage stays in
+// knowledge.superseded_by (the dual-source-of-truth avoidance).
+func TestRelationVocabularyRejectsUnknown(t *testing.T) {
+	got := CheckRelations([]string{"refines", "supersedes", "blocks"})
+	if len(got) != 2 {
+		t.Fatalf("CheckRelations = %v, want 2 거부(등록 1통과·미등록 2거부)", got)
+	}
+	for _, m := range got {
+		if !strings.HasPrefix(m, "rejected relation: ") {
+			t.Errorf("거부 클래스 아님: %q (want 'rejected relation: ' prefix)", m)
+		}
+	}
+	if !strings.Contains(got[0], "supersedes") {
+		t.Errorf("supersedes 거부 메시지 부재: %v", got)
+	}
+	if len(CheckRelations(nil)) != 0 {
+		t.Error("nil 입력은 통과 — 선택 필드 관례 위반")
+	}
+}
+
+// TestHashCanonicalExcludesRelations — relations joined the hashVolatile
+// exclusion (v1.20.0 schema v14): the same body with·without a relations
+// array hashes identically (dedup preservation — links are metadata, not
+// content).
+func TestHashCanonicalExcludesRelations(t *testing.T) {
+	base := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9}
+	withRel := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
+		"relations": []any{map[string]any{"to": 2, "relation": "refines"}}}
+	if HashCanonical(base) != HashCanonical(withRel) {
+		t.Errorf("relations 유무로 해시 변동 — hashVolatile 계약 위반: %q vs %q",
+			HashCanonical(base), HashCanonical(withRel))
 	}
 }

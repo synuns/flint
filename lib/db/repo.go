@@ -222,7 +222,7 @@ func (r *Repo) reapplyViews(ctx context.Context) error {
 	}
 	defer conn.Close(ctx)
 	if _, err := conn.Exec(ctx,
-		`DROP VIEW IF EXISTS active_knowledge, hot_view`); err != nil {
+		`DROP VIEW IF EXISTS active_knowledge, hot_view, supersede_chains`); err != nil {
 		return fmt.Errorf("views: drop: %w", err)
 	}
 	for _, stmt := range splitStatements(viewsSQLFn()) {
@@ -426,12 +426,53 @@ func (r *Repo) Invalidate(ctx context.Context, ids []int, reason string) (int64,
 	return n, nil
 }
 
+// SupersedeCycleDepthLimit — the depth cap of the recursive lineage
+// walk (double safety: the walk terminates even on pathological data —
+// a loop longer than the cap gets the safe no-cycle verdict instead of
+// runaway recursion; the write-path guards keep intermediate supersedes
+// from building loops that deep in the first place).
+const SupersedeCycleDepthLimit = 64
+
+// SupersedeCycleSQL — the one-round-trip lineage-cycle predicate,
+// single-sourced here and shared by every guard consumer: the maintain
+// --supersede precheck (via the store Query seam), Repo.WouldCreateCycle,
+// and the superseded_by write-path guards. Walks superseded_by from NEW
+// ($2); OLD ($1) reachable within the depth cap ($3) means the pending
+// write would close a lineage loop.
+const SupersedeCycleSQL = `
+	WITH RECURSIVE lineage AS (
+		SELECT id, superseded_by, 1 AS depth
+		FROM knowledge WHERE id = $2
+		UNION ALL
+		SELECT k.id, k.superseded_by, l.depth + 1
+		FROM knowledge k
+		JOIN lineage l ON k.id = l.superseded_by
+		WHERE l.depth < $3
+	)
+	SELECT EXISTS (SELECT 1 FROM lineage WHERE id = $1)`
+
+// WouldCreateCycle reports whether setting old.superseded_by = new
+// would close a lineage loop: NEW's superseded_by chain already reaches
+// OLD (a 1-hop cycle when NEW == OLD). One round trip; the depth cap
+// bounds the walk (beyond it the safe no-cycle verdict — not an error).
+func (r *Repo) WouldCreateCycle(ctx context.Context, oldID, newID int) (bool, error) {
+	var cyc bool
+	if err := r.pool.QueryRow(ctx, SupersedeCycleSQL,
+		oldID, newID, SupersedeCycleDepthLimit).Scan(&cyc); err != nil {
+		return false, fmt.Errorf("supersede_cycle: %w", err)
+	}
+	return cyc, nil
+}
+
 // Supersede is the single update path of the knowledge supersede
 // transition: status='invalidated'·superseded_by=newID·invalid_at=at
 // (NEW's valid_at — per Zep t_invalid=t_valid) written together. The
 // lineage is the single superseded_by model — a rows-affected steward
 // is built in: 0 rows (a race after the precheck — OLD is no longer
-// active) becomes an ErrNotFound-wrapped error.
+// active) becomes an ErrNotFound-wrapped error. Cycle safety is the
+// caller's precheck (maintain --supersede runs db.SupersedeCycleSQL
+// before the write; NEW's status is not restricted — chain extension
+// stays allowed).
 func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
 	n, err := transitionExecFn(ctx, r, `
 		UPDATE knowledge
@@ -454,8 +495,15 @@ func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (i
 // state transition — it only fills the superseded_by reference
 // (transitions are Supersede's exclusive domain). Updates only
 // unreferenced rows (NULL), keeping rerun idempotence; 0 rows
-// (reference already present·row absent) is not an error.
+// (reference already present·row absent) is not an error. The same
+// cycle guard as Supersede applies (the import path must not be able to
+// restore a loop-shaped lineage).
 func (r *Repo) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error) {
+	if cyc, err := r.WouldCreateCycle(ctx, oldID, newID); err != nil {
+		return 0, fmt.Errorf("superseded_ref: %w", err)
+	} else if cyc {
+		return 0, fmt.Errorf("superseded_ref: id=%d -> id=%d would create a supersede cycle", oldID, newID)
+	}
 	n, err := transitionExecFn(ctx, r, `
 		UPDATE knowledge
 		SET superseded_by = $2
@@ -556,8 +604,11 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 // by table staging — audit-sequence residue stays in the working set.
 // v1.7.2 T1: with the global sweep abolished, the recovery owner is
 // gone·harmless (a dolt_status residue display only; metering·lookups
-// unchanged)).
-var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events"}
+// unchanged)). Ruling including knowledge_links (v1.20.0 schema v14):
+// links are audit data (knowledge lineage metadata — the recall_events
+// precedent), table-only staging; the bigserial's knowledge_links_id_seq
+// stays unstaged by the same harmless-residue ruling above.
+var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events", "knowledge_links"}
 
 // telemetryStageTables — the staging targets of the metering-only
 // commit (CommitTelemetry). The schema v13 observability tables

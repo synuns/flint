@@ -433,3 +433,122 @@ func TestRRFFuseDirect(t *testing.T) {
 		t.Errorf("k 축소가 격차를 확대하지 않음: k1=%v k60=%v", tight, loose)
 	}
 }
+
+// TestBuildReadMinConfidenceFilter — --min-confidence assembles a
+// `confidence >= $n` placeholder clause (the boundaries 0 and 1 are valid
+// floors; RankOrder's confidence DESC sort is unchanged).
+func TestBuildReadMinConfidenceFilter(t *testing.T) {
+	for _, v := range []float64{0, 0.5, 1} {
+		f := Filters{MinConfidence: &v}
+		sql, args := BuildRead("", f)
+		if !strings.Contains(sql, "confidence >= $") {
+			t.Errorf("min-confidence %v: confidence >= $n 절 누락: %s", v, sql)
+		}
+		found := false
+		for _, a := range args {
+			if fv, ok := a.(float64); ok && fv == v {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("min-confidence %v: 값이 args에 없음: %v", v, args)
+		}
+	}
+}
+
+// TestBuildReadMinConfidenceAbsent — a nil MinConfidence emits no clause
+// (the default is no floor — the filter-free SQL is byte-identical).
+func TestBuildReadMinConfidenceAbsent(t *testing.T) {
+	sql, _ := BuildRead("", Filters{})
+	if strings.Contains(sql, "confidence >=") {
+		t.Errorf("미지정 min-confidence가 절을 추가함: %s", sql)
+	}
+}
+
+// TestBuildReadOriginFilter — --origin assembles an `origin = $n` placeholder clause.
+func TestBuildReadOriginFilter(t *testing.T) {
+	for _, v := range []string{"agent", "human"} {
+		sql, args := BuildRead("", Filters{Origin: v})
+		if !strings.Contains(sql, "origin = $") {
+			t.Errorf("origin %q: origin = $n 절 누락: %s", v, sql)
+		}
+		found := false
+		for _, a := range args {
+			if s, ok := a.(string); ok && s == v {
+				found = true
+			}
+		}
+		if !found {
+			t.Errorf("origin %q: 값이 args에 없음: %v", v, args)
+		}
+	}
+}
+
+// TestBuildReadNewFiltersCombined — the new filters compose with the
+// existing tag/entity/domain set: the clause order (q, tag, entity,
+// domain, confidence, origin) fixes the placeholder numbers 1..6.
+func TestBuildReadNewFiltersCombined(t *testing.T) {
+	mc := 0.7
+	f := Filters{Tag: "a", Entity: "user", Domain: "game", MinConfidence: &mc, Origin: "agent"}
+	sql, args := BuildRead("q", f)
+	for _, frag := range []string{
+		"LIKE lower($1)",
+		"strpos(tags, ':' || $2 || ':') > 0",
+		"entity = $3",
+		"domain = $4",
+		"confidence >= $5",
+		"origin = $6",
+	} {
+		if !strings.Contains(sql, frag) {
+			t.Errorf("조합 필터 조각 %q 누락: %s", frag, sql)
+		}
+	}
+	if len(args) < 6 || args[4] != 0.7 || args[5] != "agent" {
+		t.Errorf("조합 args = %v, want [q a user game 0.7 agent ...]", args)
+	}
+}
+
+// TestBuildReadStatusNewFilters — the --status path shares appendReadFilters,
+// so the new filters appear after the status condition (status=$1,
+// confidence=$2, origin=$3).
+func TestBuildReadStatusNewFilters(t *testing.T) {
+	mc := 0.5
+	sql, args := BuildReadStatus("", Filters{Status: "active", MinConfidence: &mc, Origin: "human"})
+	for _, frag := range []string{"status = $1", "confidence >= $2", "origin = $3"} {
+		if !strings.Contains(sql, frag) {
+			t.Errorf("status 경로 필터 조각 %q 누락: %s", frag, sql)
+		}
+	}
+	if len(args) < 3 || args[0] != "active" || args[1] != 0.5 || args[2] != "human" {
+		t.Errorf("status 경로 args = %v", args)
+	}
+}
+
+// TestBuildReadFallbackNewFilters — the zero-hit fallback inherits the new
+// filters (a confidence floor must hold on the retry too — otherwise the
+// fallback would resurface the rows the phrase query just excluded).
+func TestBuildReadFallbackNewFilters(t *testing.T) {
+	mc := 0.8
+	sql, args, ok := BuildReadFallback("alpha beta", Filters{MinConfidence: &mc, Origin: "agent"})
+	if !ok {
+		t.Fatal("fallback 미조립(토큰 2개)")
+	}
+	if !strings.Contains(sql, "confidence >= $") {
+		t.Errorf("fallback에 confidence 절 누락: %s", sql)
+	}
+	if !strings.Contains(sql, "origin = $") {
+		t.Errorf("fallback에 origin 절 누락: %s", sql)
+	}
+	foundC, foundO := false, false
+	for _, a := range args {
+		if fv, ok := a.(float64); ok && fv == 0.8 {
+			foundC = true
+		}
+		if s, ok := a.(string); ok && s == "agent" {
+			foundO = true
+		}
+	}
+	if !foundC || !foundO {
+		t.Errorf("fallback args에 confidence/origin 값 없음: %v", args)
+	}
+}

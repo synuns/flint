@@ -5,9 +5,19 @@ package knowledge
 
 import (
 	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"os"
+	"reflect"
 	"regexp"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/jackc/pgx/v5/pgxpool"
+
+	"github.com/synuns/flint/lib/db"
 )
 
 func mdSampleRows() []ExportRow {
@@ -117,6 +127,265 @@ func TestFormatMDContentVerbatim(t *testing.T) {
 	}
 	if !bytes.Contains([]byte(out), []byte("1줄\n2줄\n\n4줄")) {
 		t.Errorf("content 개행 원문 미보존:\n%q", out)
+	}
+}
+
+// --- v1.20.0 T4: supersede chain notation (supersede_chains view) ---
+
+// The chain map (SupersedeChains — the supersede_chains view) upgrades
+// the 1-hop lineage link to the full root→terminal chain with the
+// max-depth annotation; rows absent from the map keep the legacy 1-hop
+// notation.
+func TestFormatMDChainNotation(t *testing.T) {
+	out := string(FormatMD(mdSampleRows(), map[int][]int{88: {90, 91}}))
+	want := "superseded_by: → #90 → #91 (depth 2)"
+	if !strings.Contains(out, want) {
+		t.Errorf("체인 표기 %q 누락:\n%s", want, out)
+	}
+	if n := strings.Count(out, "superseded_by:"); n != 1 {
+		t.Errorf("superseded_by 프래그먼트 수 = %d, want 1(무체인 행 미노출):\n%s", n, out)
+	}
+}
+
+// A chain whose terminal is the 1-hop target renders the single hop
+// with its depth.
+func TestFormatMDChainTerminalOneHop(t *testing.T) {
+	out := string(FormatMD(mdSampleRows(), map[int][]int{88: {90}}))
+	want := "superseded_by: → #90 (depth 1)"
+	if !strings.Contains(out, want) {
+		t.Errorf("1홉 종착 표기 %q 불일치:\n%s", want, out)
+	}
+}
+
+// A row without a map entry (view miss·older data) falls back to the
+// legacy 1-hop notation — no depth annotation.
+func TestFormatMDChainFallbackNoEntry(t *testing.T) {
+	out := string(FormatMD(mdSampleRows(), map[int][]int{91: {99}}))
+	want := "superseded_by: → #90"
+	if !strings.Contains(out, want) {
+		t.Errorf("폴백 1홉 표기 %q 불일치:\n%s", want, out)
+	}
+	if strings.Contains(out, "(depth") {
+		t.Errorf("폴백 표기에 depth 주석 누출:\n%s", out)
+	}
+}
+
+// The view loader maps root_id → descendant ids in depth order
+// (terminal last); depth-0 self rows are excluded by the SQL.
+func TestSupersedeChainsBuildsMap(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if !strings.Contains(sql, "FROM supersede_chains") {
+			t.Errorf("뷰 미소비(SQL): %s", sql)
+		}
+		if !strings.Contains(sql, "depth > 0") {
+			t.Errorf("depth 0(루트 자신) 미제외: %s", sql)
+		}
+		// Mixed cell types mirror the pgx-measured shapes (int32/int64).
+		return [][]any{
+			{int32(7), int64(8), int32(1)},
+			{int32(7), int64(9), int32(2)},
+			{int64(9), int64(10), int64(1)},
+		}, nil
+	}}
+	m, err := SupersedeChains(context.Background(), st)
+	if err != nil {
+		t.Fatalf("SupersedeChains: %v", err)
+	}
+	want := map[int][]int{7: {8, 9}, 9: {10}}
+	if !reflect.DeepEqual(m, want) {
+		t.Errorf("체인 맵 = %v, want %v", m, want)
+	}
+}
+
+// A query failure propagates unchanged (MapExit maps it at the caller).
+func TestSupersedeChainsQueryError(t *testing.T) {
+	boom := errors.New("boom")
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		return nil, boom
+	}}
+	if _, err := SupersedeChains(context.Background(), st); err != boom {
+		t.Errorf("오류 전파 불일치: %v", err)
+	}
+}
+
+// --- v1.20.0 T4 slow (real DB): view termination·expansion·
+// reapply idempotence·export_md end-to-end. ---
+
+// mdSlowDSN — SUPERLITE_REAL=1 + FLINT_TEST_DSN (dedicated scratch DB —
+// shared·personal DBs forbidden). Skips otherwise.
+func mdSlowDSN(t *testing.T) string {
+	t.Helper()
+	if os.Getenv("SUPERLITE_REAL") != "1" || os.Getenv("FLINT_TEST_DSN") == "" {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	return os.Getenv("FLINT_TEST_DSN")
+}
+
+// mdChainHashPrefix — the content_hash prefix scoping the seeded rows
+// (leading DELETE also absorbs prior-run residue).
+const mdChainHashPrefix = "mdchain-"
+
+// seedMDChainRows — n synthetic demo rows; returns the inserted ids.
+func seedMDChainRows(t *testing.T, pool *pgxpool.Pool, n int) []int {
+	t.Helper()
+	ctx := context.Background()
+	del := func() {
+		_, _ = pool.Exec(ctx, `DELETE FROM knowledge WHERE content_hash LIKE $1`, mdChainHashPrefix+"%")
+	}
+	del()
+	t.Cleanup(del)
+	ids := make([]int, n)
+	for i := range ids {
+		hash := fmt.Sprintf("%s%02d-%d", mdChainHashPrefix, i, time.Now().UnixNano())
+		var id int
+		if err := pool.QueryRow(ctx, `INSERT INTO knowledge
+			(topic, summary, tags, confidence, origin, status, content_hash)
+			VALUES ($1, $2, ':demo:', 0.9, 'agent', 'active', $3) RETURNING id`,
+			fmt.Sprintf("체인 데모 %02d", i), "합성 요약", hash).Scan(&id); err != nil {
+			t.Skipf("fixture 시딩 실패(스키마 미구비 의심): %v", err)
+		}
+		ids[i] = id
+	}
+	return ids
+}
+
+// mdHop — one supersede_chains row (member id, hops from the root).
+type mdHop struct {
+	id    int
+	depth int
+}
+
+// mdChainRows — the view unfold of one root, depth-ascending.
+func mdChainRows(t *testing.T, pool *pgxpool.Pool, root int) []mdHop {
+	t.Helper()
+	rows, err := pool.Query(context.Background(),
+		`SELECT id, depth FROM supersede_chains WHERE root_id = $1 ORDER BY depth`, root)
+	if err != nil {
+		t.Fatalf("뷰 질의 root=%d: %v", root, err)
+	}
+	defer rows.Close()
+	var out []mdHop
+	for rows.Next() {
+		var h mdHop
+		if err := rows.Scan(&h.id, &h.depth); err != nil {
+			t.Fatalf("뷰 스캔: %v", err)
+		}
+		out = append(out, h)
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("뷰 순회: %v", err)
+	}
+	return out
+}
+
+func mdHopsEqual(got []mdHop, want []mdHop) bool {
+	if len(got) != len(want) {
+		return false
+	}
+	for i := range got {
+		if got[i] != want[i] {
+			return false
+		}
+	}
+	return true
+}
+
+// TestSlowSupersedeChainsView — the supersede_chains view: a 3-row
+// lineage unfolds at depths 0·1·2, a standalone row stays at depth 0,
+// cyclic data terminates (path-array guard), a second Migrate leaves
+// views_hash unchanged (reapply idempotence), and export_md renders the
+// chain end-to-end off the view.
+func TestSlowSupersedeChainsView(t *testing.T) {
+	dsn := mdSlowDSN(t)
+	ctx := context.Background()
+	repo, err := db.NewRepo(ctx, dsn)
+	if err != nil {
+		t.Skipf("real db unavailable: %v", err)
+	}
+	t.Cleanup(repo.Close)
+	if err := repo.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	pool, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("pool unavailable: %v", err)
+	}
+	t.Cleanup(pool.Close)
+
+	ids := seedMDChainRows(t, pool, 6)
+	root, mid, end, solo, c1, c2 := ids[0], ids[1], ids[2], ids[3], ids[4], ids[5]
+	setRef := func(from, to int) {
+		if _, err := pool.Exec(ctx,
+			`UPDATE knowledge SET superseded_by = $2 WHERE id = $1`, from, to); err != nil {
+			t.Fatalf("참조 설정 %d→%d: %v", from, to, err)
+		}
+	}
+	setRef(root, mid)
+	setRef(mid, end)
+	// Cyclic data — written directly at the data level (the write-path
+	// guards of T3 are bypassed on purpose: the view must terminate even
+	// on pre-guard residue).
+	setRef(c1, c2)
+	setRef(c2, c1)
+
+	if got := mdChainRows(t, pool, root); !mdHopsEqual(got, []mdHop{{root, 0}, {mid, 1}, {end, 2}}) {
+		t.Errorf("3홉 전개 = %v, want [%d 0 · %d 1 · %d 2]", got, root, mid, end)
+	}
+	if got := mdChainRows(t, pool, solo); !mdHopsEqual(got, []mdHop{{solo, 0}}) {
+		t.Errorf("단독 행 전개 = %v, want [%d 0]", got, solo)
+	}
+	// The path-array guard ends each cyclic walk at the first repeat —
+	// one hop past the root, not an iteration-limit error.
+	if got := mdChainRows(t, pool, c1); !mdHopsEqual(got, []mdHop{{c1, 0}, {c2, 1}}) {
+		t.Errorf("사이클 c1 전개 = %v, want [%d 0 · %d 1]", got, c1, c2)
+	}
+	if got := mdChainRows(t, pool, c2); !mdHopsEqual(got, []mdHop{{c2, 0}, {c1, 1}}) {
+		t.Errorf("사이클 c2 전개 = %v, want [%d 0 · %d 1]", got, c2, c1)
+	}
+
+	// Reapply idempotence — a second Migrate finds the views current and
+	// leaves the recorded digest unchanged (no dolt_schemas rewrite).
+	metaVal := func(key string) string {
+		var v string
+		if err := pool.QueryRow(ctx, `SELECT value FROM meta WHERE key = $1`, key).Scan(&v); err != nil {
+			t.Fatalf("meta %s: %v", key, err)
+		}
+		return v
+	}
+	hash1 := metaVal("views_hash")
+	if hash1 == "" {
+		t.Fatal("views_hash 미기록")
+	}
+	if err := repo.Migrate(ctx); err != nil {
+		t.Fatalf("두 번째 Migrate: %v", err)
+	}
+	if hash2 := metaVal("views_hash"); hash2 != hash1 {
+		t.Errorf("재적용 멱등 위반: views_hash %q → %q", hash1, hash2)
+	}
+	// views_sig carries the new view's column signature (the regexp
+	// auto-inclusion — root_id,id,depth).
+	if sig := metaVal("views_sig"); !strings.Contains(sig, "supersede_chains:root_id,id,depth") {
+		t.Errorf("views_sig에 supersede_chains 시그니처 부재:\n%s", sig)
+	}
+
+	// export_md end-to-end: the loader consumes the view, FormatMD
+	// renders the full chain with the max-depth annotation.
+	chains, err := SupersedeChains(ctx, &exportPoolStore{pool: pool})
+	if err != nil {
+		t.Fatalf("SupersedeChains(실DB): %v", err)
+	}
+	row := []ExportRow{{
+		ID:           root,
+		Topic:        "체인 데모",
+		Status:       "invalidated",
+		Source:       "agent",
+		CreatedAt:    time.Date(2026, 11, 22, 1, 2, 3, 0, time.UTC),
+		SupersededBy: &mid,
+	}}
+	out := string(FormatMD(row, chains))
+	want := fmt.Sprintf("superseded_by: → #%d → #%d (depth 2)", mid, end)
+	if !strings.Contains(out, want) {
+		t.Errorf("실DB 체인 표기 %q 누락:\n%s", want, out)
 	}
 }
 

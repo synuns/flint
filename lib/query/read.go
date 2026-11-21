@@ -10,7 +10,8 @@ import (
 	"unicode"
 )
 
-// Filters — the flint read filters (--tag --entity --domain --limit --status).
+// Filters — the flint read filters (--tag --entity --domain --limit --status
+// --min-confidence --origin).
 type Filters struct {
 	Tag    string
 	Entity string
@@ -20,6 +21,12 @@ type Filters struct {
 	// BuildReadStatus queries the base table instead of BuildRead. BuildRead's
 	// unspecified path ignores this value (the view path fully unchanged — ruling).
 	Status string
+	// MinConfidence — --min-confidence N (a 0..1 float). nil = the filter is
+	// absent (no floor — the default). Assembled as `confidence >= $n` by
+	// appendReadFilters; no thresholds registry involvement (TUNING §2).
+	MinConfidence *float64
+	// Origin — --origin agent|human. "" = the filter is absent.
+	Origin string
 }
 
 const (
@@ -144,6 +151,14 @@ func appendReadFilters(where []string, args []any, q string, f Filters) ([]strin
 		args = append(args, f.Domain)
 		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
 	}
+	if f.MinConfidence != nil {
+		args = append(args, *f.MinConfidence)
+		where = append(where, fmt.Sprintf("confidence >= $%d", len(args)))
+	}
+	if f.Origin != "" {
+		args = append(args, f.Origin)
+		where = append(where, fmt.Sprintf("origin = $%d", len(args)))
+	}
 	return where, args
 }
 
@@ -226,6 +241,17 @@ func BuildReadFallback(q string, f Filters) (string, []any, bool) {
 	if f.Domain != "" {
 		args = append(args, f.Domain)
 		where = append(where, fmt.Sprintf("domain = $%d", len(args)))
+	}
+	// the new filters (min-confidence·origin) inherit the same floor on the
+	// retry — otherwise the fallback would resurface the rows the phrase
+	// query just excluded (the tag/entity/domain convention extended).
+	if f.MinConfidence != nil {
+		args = append(args, *f.MinConfidence)
+		where = append(where, fmt.Sprintf("confidence >= $%d", len(args)))
+	}
+	if f.Origin != "" {
+		args = append(args, f.Origin)
+		where = append(where, fmt.Sprintf("origin = $%d", len(args)))
 	}
 	args = append(args, q) // the ranking-consistency value, parameterized
 	sql := "SELECT " + strings.Join(readColumns, ", ") + " FROM active_knowledge WHERE " +

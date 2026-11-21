@@ -2,6 +2,7 @@ package store
 
 import (
 	"encoding/json"
+	"fmt"
 	"sort"
 	"strings"
 	"time"
@@ -85,10 +86,63 @@ func CanonicalJSON(p map[string]any) string {
 // hashVolatile — the volatile fields excluded from hash computation. valid_at is
 // injected as now by Normalize when unspecified, and ts is the time itself;
 // including them in the hash would keep a resend of the same payload (seeding idempotence) from being judged duplicate.
-var hashVolatile = map[string]bool{"valid_at": true, "ts": true}
+// v1.20.0 (schema v14): relations joined the exclusion — links are metadata,
+// not content, so the same body with·without a relations array hashes
+// identically (dedup preservation; the write path accrues relations onto the
+// duplicate row's id).
+var hashVolatile = map[string]bool{"valid_at": true, "ts": true, "relations": true}
+
+// knowledgeRelations — the schema v14 (v1.20.0) relation vocabulary: the
+// 4 registered knowledge_links.relation values. supersedes is NOT a member —
+// lineage stays in knowledge.superseded_by (the dual-source-of-truth
+// avoidance; PAM export derives supersedes separately).
+var knowledgeRelations = map[string]bool{
+	"refines":     true,
+	"supports":    true,
+	"contradicts": true,
+	"duplicates":  true,
+}
+
+// RelationVocabulary — the registered relation values in sorted order
+// (rejection messages·consumer docs — a stable display form).
+func RelationVocabulary() []string {
+	out := make([]string, 0, len(knowledgeRelations))
+	for k := range knowledgeRelations {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
+}
+
+// ValidRelation — whether the value is in the registered relation
+// vocabulary (case-insensitive·whitespace-trimmed — the normalizeVocab
+// convention).
+func ValidRelation(rel string) bool {
+	return knowledgeRelations[normalizeVocab(rel)]
+}
+
+// CheckRelations — validates relation values, returning 1 rejection
+// message per unregistered value (empty slice = pass; nil·empty input
+// passes — the optional-field convention). The distinct
+// "rejected relation:" class follows the colon-token rejection
+// precedent (policy.go): an out-of-vocabulary value is refused, not
+// merely warned — the write path maps this class to exit 3.
+func CheckRelations(rels []string) []string {
+	var out []string
+	for _, rel := range rels {
+		n := normalizeVocab(rel)
+		if knowledgeRelations[n] {
+			continue
+		}
+		out = append(out, fmt.Sprintf(
+			"rejected relation: %s (relations vocabulary: %s)",
+			n, strings.Join(RelationVocabulary(), ", ")))
+	}
+	return out
+}
 
 // HashCanonical returns the canonical JSON excluding the volatile fields
-// (valid_at, ts). ContentHash input must always go through this path.
+// (valid_at, ts, relations). ContentHash input must always go through this path.
 func HashCanonical(p map[string]any) string {
 	m := make(map[string]any, len(p))
 	for k, v := range p {

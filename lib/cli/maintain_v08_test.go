@@ -181,7 +181,9 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 	}
 }
 
-// supersedeFixture — responses for the OLD state and NEW valid_at lookups. The update is a
+// supersedeFixture — responses for the OLD state and NEW valid_at lookups plus the
+// lineage-cycle precheck (v1.20.0 — no cycle by default; the cycle-true path is covered by
+// TestMaintainSupersedeCycleErrorExit). The update is a
 // Repo.Supersede delegation (captured by fakeMaint) — the 0-row race stewardship is built into
 // the db layer via rows-affected.
 func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
@@ -189,6 +191,9 @@ func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "SELECT (SELECT status") {
 			return [][]any{row}, nil
+		}
+		if strings.Contains(sql, "WITH RECURSIVE") {
+			return [][]any{{false}}, nil
 		}
 		return nil, errors.New("unexpected query: " + sql)
 	}

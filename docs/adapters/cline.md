@@ -44,7 +44,7 @@ flint 규칙:
 
 | 도구 | 인자 | 용도 |
 |---|---|---|
-| `flint_read` | `query?`, `tag?`, `limit?` (상한 50) | 결정·지식 검색 (CLI `flint read` 동일 계약) |
+| `flint_read` | `query?`, `tag?`, `limit?` (상한 50), `min_confidence?` (0–1), `origin?` (agent|human) | 결정·지식 검색 (CLI `flint read` 동일 계약) |
 | `flint_write` | `kind`, `payload` | 결정·지식 기록+커밋 (CLI `flint write` 동일 계약, 멱등) |
 | `flint_hot` | — | 활성 프로젝트+pending+최근 결정 요약 (2,000자 상한) |
 | `flint_pending` | — | 대기 지식 목록+추천(verdict: promote\|merge\|expire\|hold) JSON |

@@ -257,6 +257,22 @@ func (s *realStore) Commit(ctx context.Context, msg string) (string, error) {
 
 func (s *realStore) Ping(ctx context.Context) error { return s.pool.Ping(ctx) }
 
+// InsertKnowledgeLink — the knowledge.LinkAccrualStore extension
+// (v1.20.0 T5): the idempotent knowledge_links INSERT — a resend of the
+// same (from,to,relation) skips (NOT EXISTS — the seeding idempotence
+// convention). The write SQL literal lives in this store layer (the
+// lib/{ops,knowledge} write-guard scope owns write verbs here).
+func (s *realStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO knowledge_links (from_id, to_id, relation)
+		 SELECT $1, $2, $3
+		 WHERE NOT EXISTS (
+		   SELECT 1 FROM knowledge_links
+		   WHERE from_id = $1 AND to_id = $2 AND relation = $3)`,
+		fromID, toID, relation)
+	return err
+}
+
 func (s *realStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	rows, err := s.pool.Query(ctx, sql, args...)
 	if err != nil {

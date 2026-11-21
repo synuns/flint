@@ -23,6 +23,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 
@@ -51,9 +52,10 @@ type fakeStore struct {
 	hashExistsFn func(hash string) (DupMeta, bool)
 
 	// recording
-	inserted []map[string]any
-	commits  []string
-	queries  []string
+	inserted    []map[string]any
+	commits     []string
+	queries     []string
+	linkInserts [][3]any
 }
 
 func (f *fakeStore) Migrate(ctx context.Context) error { return nil }
@@ -83,6 +85,14 @@ func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 }
 func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
 func (f *fakeStore) Close()                         {}
+
+// InsertKnowledgeLink — the LinkAccrualStore extension (v1.20.0 T5):
+// the fakeStore side records the idempotent link inserts.
+func (f *fakeStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error {
+	f.linkInserts = append(f.linkInserts, [3]any{fromID, toID, relation})
+	return nil
+}
+
 func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	f.queries = append(f.queries, sql)
 	if f.queryErr != nil {
@@ -677,6 +687,22 @@ func (s *writeRealStore) Query(ctx context.Context, sql string, args ...any) ([]
 		out = append(out, vals)
 	}
 	return out, rows.Err()
+}
+
+// InsertKnowledgeLink — the LinkAccrualStore extension of the slow-test
+// adapter (v1.20.0 T5): the idempotent knowledge_links INSERT over the
+// pool (the same statement the production realStore carries in
+// cli/root.go — the write-guard scope keeps the literal in store
+// implementations).
+func (s *writeRealStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error {
+	_, err := s.pool.Exec(ctx,
+		`INSERT INTO knowledge_links (from_id, to_id, relation)
+		 SELECT $1, $2, $3
+		 WHERE NOT EXISTS (
+		   SELECT 1 FROM knowledge_links
+		   WHERE from_id = $1 AND to_id = $2 AND relation = $3)`,
+		fromID, toID, relation)
+	return err
 }
 
 func (s *writeRealStore) Close() {
@@ -1753,5 +1779,240 @@ func TestWriteEchoThresholdSeam(t *testing.T) {
 	m, _ = runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
 	if _, ok := m["echo"]; ok {
 		t.Errorf("min_score 0.99에서 echo 부재해야 함: %v", m)
+	}
+}
+
+// ── v1.20.0 T5 — the optional stdin relations array (schema v14
+// knowledge_links): vocabulary validation (exit 3), shape validation
+// (exit 3), target-row-existence refusal (exit 3), idempotent accrual,
+// the duplicate-path accrual onto DupMeta.ID, and hash invariance (the
+// same body with·without relations dedups — the T1 hashVolatile seal).
+// All synthetic demo data. ──
+
+// relPayload — one synthetic relations write payload line.
+func relPayload(topic, summary string, relations string) string {
+	if relations == "" {
+		return fmt.Sprintf(`{"topic":%q,"summary":%q,"confidence":0.9}`, topic, summary)
+	}
+	return fmt.Sprintf(`{"topic":%q,"summary":%q,"confidence":0.9,"relations":[%s]}`, topic, summary, relations)
+}
+
+// TestWriteRelationsVocabularyReject — an out-of-vocabulary relation is
+// refused at exit 3 with the "rejected relation:" class (the
+// colon-token rejection precedent — refused, not warned).
+func TestWriteRelationsVocabularyReject(t *testing.T) {
+	out, code := run(t, &fakeStore{}, []string{"knowledge"},
+		relPayload("합성 관계 어휘", "관계 어휘 거부 합성", `{"to":1,"relation":"bogus"}`))
+	if code != 3 {
+		t.Fatalf("exit=%d out=%s, want 3", code, out)
+	}
+	if !strings.Contains(out, "rejected relation") {
+		t.Fatalf("출력에 rejected relation 클래스 부재: %s", out)
+	}
+	if !strings.Contains(out, "refines") {
+		t.Fatalf("출력에 어휘 목록 부재: %s", out)
+	}
+}
+
+// TestWriteRelationsShapeReject — a malformed relations entry (a
+// non-integer to·a missing relation) is a validation failure (exit 3).
+func TestWriteRelationsShapeReject(t *testing.T) {
+	cases := []string{
+		`{"to":"one","relation":"refines"}`,
+		`{"relation":"refines"}`,
+		`{"to":1}`,
+		`{"to":0,"relation":"refines"}`,
+	}
+	for i, rel := range cases {
+		out, code := run(t, &fakeStore{}, []string{"knowledge"},
+			relPayload(fmt.Sprintf("합성 형식 %d", i), "관계 형식 거부 합성", rel))
+		if code != 3 {
+			t.Fatalf("case %d exit=%d out=%s, want 3", i, code, out)
+		}
+	}
+	// a non-array relations value is the same class
+	out, code := run(t, &fakeStore{}, []string{"knowledge"},
+		`{"topic":"합성 형식 비배열","summary":"관계 비배열 거부 합성","confidence":0.9,"relations":{"to":1}}`)
+	if code != 3 {
+		t.Fatalf("non-array exit=%d out=%s, want 3", code, out)
+	}
+}
+
+// TestWriteRelationsTargetMissingFast — the target-existence SELECT
+// answering no rows (fake default: f.rows=nil) makes the write refuse
+// at exit 3 (the write-path existence check — no FK, the v14
+// convention).
+func TestWriteRelationsTargetMissingFast(t *testing.T) {
+	out, code := run(t, &fakeStore{}, []string{"knowledge"},
+		relPayload("합성 대상 부재", "관계 대상 부재 거부 합성", `{"to":999,"relation":"refines"}`))
+	if code != 3 {
+		t.Fatalf("exit=%d out=%s, want 3", code, out)
+	}
+	if !strings.Contains(out, "999") {
+		t.Fatalf("출력에 대상 id 부재: %s", out)
+	}
+}
+
+// t5ScratchStore — the dedicated T5 scratch database: created before·
+// dropped after the scenario (never the shared flint_test — the slow
+// isolation ruling). Requires SUPERLITE_REAL=1 + FLINT_TEST_DSN.
+func t5ScratchStore(t *testing.T) *writeRealStore {
+	t.Helper()
+	dsn, ok := writeRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	slash := strings.LastIndex(dsn, "/")
+	if slash < 0 {
+		t.Skipf("DSN 경로 없음: %s", dsn)
+	}
+	name := fmt.Sprintf("flint_t5links_%d", time.Now().UnixNano())
+	admin, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("admin pool unavailable: %v", err)
+	}
+	if _, err := admin.Exec(ctx, `CREATE DATABASE `+name); err != nil {
+		admin.Close()
+		t.Skipf("scratch create failed: %v", err)
+	}
+	admin.Close()
+	repo, err := db.NewRepo(ctx, dsn[:slash+1]+name)
+	if err != nil {
+		t.Skipf("repo unavailable: %v", err)
+	}
+	pool, err := db.Connect(ctx, dsn[:slash+1]+name)
+	if err != nil {
+		repo.Close()
+		t.Skipf("pool unavailable: %v", err)
+	}
+	st := &writeRealStore{Repo: repo, pool: pool}
+	t.Cleanup(func() {
+		st.Close()
+		adm, err := db.Connect(ctx, dsn)
+		if err == nil {
+			_, _ = adm.Exec(ctx, `DROP DATABASE `+name)
+			adm.Close()
+		}
+	})
+	if err := st.Migrate(ctx); err != nil {
+		t.Fatalf("migrate 실패: %v", err)
+	}
+	return st
+}
+
+// t5LinkRows — the scratch knowledge_links rows (from_id,to_id,relation).
+func t5LinkRows(t *testing.T, st *writeRealStore) [][3]int {
+	t.Helper()
+	rows, err := st.Query(context.Background(),
+		`SELECT from_id, to_id, relation FROM knowledge_links ORDER BY from_id, to_id, relation`)
+	if err != nil {
+		t.Fatalf("links 조회 실패: %v", err)
+	}
+	out := [][3]int{}
+	for _, r := range rows {
+		f, _ := render.CellToInt(r[0])
+		o, _ := render.CellToInt(r[1])
+		rel, _ := r[2].(string)
+		out = append(out, [3]int{f, o, len(rel)})
+	}
+	return out
+}
+
+// TestWriteLinksRealSlow — the real-DB relations scenarios on the
+// dedicated scratch database: accrual, idempotent resend, the
+// duplicate-path link accrual (DupMeta.ID — hash invariance sealed by
+// the same-body duplicate verdict), and the target-missing refusal.
+func TestWriteLinksRealSlow(t *testing.T) {
+	st := t5ScratchStore(t)
+	ctx := context.Background()
+	// Row A·B accrual — ids parsed from the committed output.
+	ids := map[string]int{}
+	for _, top := range []string{"합성 링크 A", "합성 링크 B"} {
+		out, code := run(t, st, []string{"knowledge"},
+			relPayload(top, "링크 시나리오 합성 본문 "+top, ""))
+		if code != 0 {
+			t.Fatalf("적립 %s exit=%d out=%s", top, code, out)
+		}
+		m := decode(t, out)
+		idf, _ := m["id"].(float64)
+		ids[top] = int(idf)
+	}
+	if ids["합성 링크 A"] <= 0 || ids["합성 링크 B"] <= 0 {
+		t.Fatalf("적립 id 파싱 실패: %v", ids)
+	}
+	a, b := ids["합성 링크 A"], ids["합성 링크 B"]
+
+	// 1) new-row accrual: C carries relations onto A·B.
+	rels := fmt.Sprintf(`{"to":%d,"relation":"refines"},{"to":%d,"relation":"supports"}`, a, b)
+	out, code := run(t, st, []string{"knowledge"}, relPayload("합성 링크 C", "링크 시나리오 합성 본문 C", rels))
+	if code != 0 {
+		t.Fatalf("링크 적립 exit=%d out=%s", code, out)
+	}
+	rows, err := st.Query(ctx,
+		`SELECT to_id, relation FROM knowledge_links WHERE from_id = (SELECT id FROM knowledge WHERE topic = '합성 링크 C') ORDER BY to_id`)
+	if err != nil {
+		t.Fatalf("links 조회 실패: %v", err)
+	}
+	if len(rows) != 2 {
+		t.Fatalf("적립 링크 수=%d, want 2 (rows=%v)", len(rows), rows)
+	}
+	gotRel := map[int]string{}
+	for _, r := range rows {
+		to, _ := render.CellToInt(r[0])
+		rel, _ := r[1].(string)
+		gotRel[to] = rel
+	}
+	if gotRel[a] != "refines" || gotRel[b] != "supports" {
+		t.Fatalf("링크 관계 오류: %v", gotRel)
+	}
+	nLinks := len(t5LinkRows(t, st))
+
+	// 2) idempotent resend: the identical line is a duplicate — no new
+	// link rows (the NOT EXISTS guard).
+	out2, code2 := run(t, st, []string{"knowledge"}, relPayload("합성 링크 C", "링크 시나리오 합성 본문 C", rels))
+	if code2 != 0 || !strings.Contains(out2, `"duplicate"`) {
+		t.Fatalf("재전송 exit=%d out=%s, want duplicate", code2, out2)
+	}
+	if got := len(t5LinkRows(t, st)); got != nLinks {
+		t.Fatalf("재전송 후 링크 수=%d, want %d (멱등)", got, nLinks)
+	}
+
+	// 3) duplicate-path accrual: D was accrued without relations; the
+	// same body resent WITH relations must land them on the existing
+	// DupMeta.ID row (hash invariance — relations excluded from the
+	// hash — is what makes this a duplicate at all).
+	if out3, c3 := run(t, st, []string{"knowledge"}, relPayload("합성 링크 D", "링크 시나리오 합성 본문 D", "")); c3 != 0 {
+		t.Fatalf("D 적립 exit=%d out=%s", c3, out3)
+	}
+	relsD := fmt.Sprintf(`{"to":%d,"relation":"duplicates"}`, a)
+	out4, c4 := run(t, st, []string{"knowledge"}, relPayload("합성 링크 D", "링크 시나리오 합성 본문 D", relsD))
+	if c4 != 0 || !strings.Contains(out4, `"duplicate"`) {
+		t.Fatalf("D 재전송 exit=%d out=%s, want duplicate", c4, out4)
+	}
+	if !strings.Contains(out4, `"relations"`) {
+		t.Fatalf("duplicate 응답에 relations 반영 부재: %s", out4)
+	}
+	dRows, err := st.Query(ctx,
+		`SELECT l.relation FROM knowledge_links l JOIN knowledge k ON k.id = l.from_id WHERE k.topic = '합성 링크 D'`)
+	if err != nil {
+		t.Fatalf("D 링크 조회 실패: %v", err)
+	}
+	if len(dRows) != 1 {
+		t.Fatalf("D duplicate 경로 링크 수=%d, want 1", len(dRows))
+	}
+	if rel, _ := dRows[0][0].(string); rel != "duplicates" {
+		t.Fatalf("D 링크 관계=%q, want duplicates", rel)
+	}
+
+	// 4) target missing: a relation to a nonexistent row refuses at
+	// exit 3 (nothing partially accrued — the body itself is refused).
+	out5, c5 := run(t, st, []string{"knowledge"},
+		relPayload("합성 링크 E", "링크 시나리오 합성 본문 E", `{"to":99999999,"relation":"refines"}`))
+	if c5 != 3 {
+		t.Fatalf("대상 부재 exit=%d out=%s, want 3", c5, out5)
+	}
+	if n, _ := st.Query(ctx, `SELECT id FROM knowledge WHERE topic = '합성 링크 E'`); len(n) != 0 {
+		t.Fatalf("대상 부재 거부 시 본문 적립되면 안 됨")
 	}
 }

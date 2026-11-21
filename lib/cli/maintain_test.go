@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -298,6 +299,117 @@ func TestMaintainRegistered(t *testing.T) {
 var _ MaintStore = (*realStore)(nil)
 
 var _ = store.DefaultThresholds // keep the import (for future extension)
+
+// TestMaintainSupersedeCycleErrorExit — the cycle precheck rejection
+// surfaces as exit 1 with the diagnostic wording, and the write is
+// never attempted (the guard itself — db.SupersedeCycleSQL — is
+// verified against a real DB in the slow test below; this pins the cli
+// wiring: precheck answer → rejection before the Retry-wrapped write).
+func TestMaintainSupersedeCycleErrorExit(t *testing.T) {
+	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
+		if strings.Contains(sql, "WITH RECURSIVE") {
+			return [][]any{{true}}, nil // cycle detected by the lineage walk
+		}
+		if strings.Contains(sql, "SELECT status FROM knowledge") {
+			// precheck: OLD active, NEW exists (valid_at non-nil).
+			return [][]any{{"active", time.Now()}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--supersede", "3", "--by", "7")
+	if code != 1 {
+		t.Errorf("exit=%d, want 1 (출력 %q)", code, out)
+	}
+	if !strings.Contains(out, "would create a supersede cycle") {
+		t.Errorf("진단 문구 미전파: %q", out)
+	}
+	if len(f.supersedeCalls) != 0 {
+		t.Errorf("사이클 거부 후 Supersede 호출됨: %v", f.supersedeCalls)
+	}
+}
+
+// TestMaintainSupersedeCycleRealSlow — real-DB round trip of the guard
+// at the cli boundary: A→B succeeds, the reverse B→A and the reverse
+// merge are rejected (exit 1 + diagnostic), self keeps its invalid-arg
+// exit 3. Only when SUPERLITE_REAL=1 + FLINT_TEST_DSN are set.
+func TestMaintainSupersedeCycleRealSlow(t *testing.T) {
+	dsn, ok := seamRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	st, err := newRealStore(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	t.Cleanup(st.Close)
+	const marker = "demo-supersede-cycle-slow"
+	cleanup := func() {
+		if _, err := st.Query(ctx, `DELETE FROM knowledge WHERE origin = $1`, marker); err != nil {
+			t.Fatalf("정리 실패: %v", err)
+		}
+	}
+	cleanup()
+	t.Cleanup(cleanup)
+
+	t0 := time.Date(2026, 11, 22, 10, 0, 0, 0, time.UTC)
+	rows := []knowledge.ExportRow{
+		{ID: 910101, Topic: "demo cycle alpha", Content: "합성 데모 사이클 alpha — 실DB 가드 검증용.",
+			Kind: "knowledge", Status: "active", Confidence: 0.9, Tags: []string{"demo"},
+			Domain: "main", Source: marker, CreatedAt: t0, UpdatedAt: t0},
+		{ID: 910102, Topic: "demo cycle beta", Content: "합성 데모 사이클 beta — 실DB 가드 검증용.",
+			Kind: "knowledge", Status: "active", Confidence: 0.8, Tags: []string{"demo"},
+			Domain: "main", Source: marker, CreatedAt: t0, UpdatedAt: t0},
+		{ID: 910103, Topic: "demo cycle gamma", Content: "합성 데모 사이클 gamma — 실DB 가드 검증용.",
+			Kind: "knowledge", Status: "active", Confidence: 0.7, Tags: []string{"demo"},
+			Domain: "main", Source: marker, CreatedAt: t0, UpdatedAt: t0},
+	}
+	data, err := knowledge.FormatJSONL(rows)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var seed bytes.Buffer
+	if code := RunImportMigrate(st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &seed); code != 0 {
+		t.Fatalf("seed exit=%d; out=%s", code, seed.String())
+	}
+
+	run := func(args ...string) (string, int) {
+		t.Helper()
+		var out bytes.Buffer
+		code := runMaintain(ctx, st, args, strings.NewReader(""), &out)
+		return out.String(), code
+	}
+	// A→B→C — a normal 3-hop chain extends (NEW's status unrestricted:
+	// B is mid-chain when C supersedes it).
+	for _, step := range [][2]string{
+		{"910101", "910102"}, {"910102", "910103"},
+	} {
+		if out, code := run("--supersede", step[0], "--by", step[1]); code != 0 {
+			t.Fatalf("체인 %s→%s exit=%d, want 0; out=%s", step[0], step[1], code, out)
+		}
+	}
+	// Closing the loop C→A is rejected: exit 1 + diagnostic.
+	out, code := run("--supersede", "910103", "--by", "910101")
+	if code != 1 {
+		t.Fatalf("C→A exit=%d, want 1; out=%s", code, out)
+	}
+	if !strings.Contains(out, "would create a supersede cycle") {
+		t.Fatalf("C→A 진단 문구 없음: %s", out)
+	}
+	// The reverse merge hits the same guard inside db.Repo.Merge.
+	out, code = run("--merge", "--from", "910103", "--to", "910101")
+	if code != 1 {
+		t.Fatalf("역방향 merge exit=%d, want 1; out=%s", code, out)
+	}
+	if !strings.Contains(out, "would create a supersede cycle") {
+		t.Fatalf("역방향 merge 진단 문구 없음: %s", out)
+	}
+	// self keeps the preexisting invalid-arg exit 3 (checked before any
+	// guard query).
+	if out, code = run("--supersede", "910101", "--by", "910101"); code != 3 {
+		t.Fatalf("self exit=%d, want 3; out=%s", code, out)
+	}
+}
 
 // TestMaintainCheckDrillReport — last_drill elapsed reporting: no record -> never,
 // over 30 days -> stale, within -> field absent (a fast regression pending the table-commit decision).

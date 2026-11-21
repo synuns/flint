@@ -13,7 +13,7 @@ import "context"
 // LatestSchemaVersion — the latest schema version this CLI knows (the
 // ceiling of the status·doctor schema compatibility check. Must equal
 // the registry's last element).
-const LatestSchemaVersion = 13
+const LatestSchemaVersion = 14
 
 // SchemaGate — one version-promotion gate. Version is the target
 // schema_version; Ensure is the admin.go gate promoting losslessly to
@@ -42,5 +42,6 @@ func SchemaGates() []SchemaGate {
 		{11, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV11(ctx) }}, // decay/reinforcement scores: knowledge recall_score·last_recalled_at
 		{12, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV12(ctx) }}, // recall append-only: recall_events table + 2 knowledge columns dropped (derived switch)
 		{13, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV13(ctx) }}, // observability foundation: read_events.near_score·threshold_snapshots·weekly_rollups
+		{14, func(ctx context.Context, r *Repo) error { return r.EnsureSchemaV14(ctx) }}, // knowledge links: knowledge_links table + 2 link indexes + knowledge (superseded_by) index
 	}
 }

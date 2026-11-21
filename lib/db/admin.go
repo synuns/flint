@@ -737,6 +737,69 @@ func (r *Repo) ensureSchemaV13(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV14 losslessly promotes a DB with
+// meta.schema_version<14 to v14 (v1.20.0 knowledge links — additive):
+// creates the knowledge_links table (INSERT-only write principle — no
+// UPDATE/DELETE path; from/to existence is checked on the write path,
+// not by FK, the existing knowledge convention) with CREATE TABLE IF
+// NOT EXISTS (the v12·v13 precedent), its (from_id)·(to_id) indexes,
+// and the knowledge (superseded_by) index — the traversal axis of the
+// recursive chain view·cycle CTE (existing indexes cover only
+// entity·domain·status). Existing tables·views·data unchanged. Already
+// v14+ is a no-op (the numeric-comparison short circuit), idempotent on
+// any DB that passed the v1~v13 gates.
+func (r *Repo) EnsureSchemaV14(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV14(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV14(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v14: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // fresh DB (tables absent) — the fresh-creation path carries the v14 terminus
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 14 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v14: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS knowledge_links (
+		    id         bigserial PRIMARY KEY,
+		    from_id    bigint NOT NULL,
+		    to_id      bigint NOT NULL,
+		    relation   text NOT NULL,
+		    created_at timestamptz NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_knowledge_links_from_id
+		 ON knowledge_links (from_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_knowledge_links_to_id
+		 ON knowledge_links (to_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_knowledge_superseded_by
+		 ON knowledge (superseded_by)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v14: create: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '14')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v14: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v14: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve promotes pending knowledge to active (spec §8: approval =
 // flint approve). Approval is a valid confirmation, so it also clears
 // any residual invalid_at — defense against the defect where
@@ -782,8 +845,15 @@ func (r *Repo) Approve(ctx context.Context, id int) error {
 // queries never lose it (blocking partial updates — marker only,
 // superseded_by missing). Re-merging an already-invalidated from is
 // refused by the 0-rows steward (inheriting the Supersede convention —
-// preventing marker re-attachment).
+// preventing marker re-attachment). The supersede cycle guard applies
+// too (Merge writes from.superseded_by=to): a reverse merge whose to
+// chain already reaches from is rejected with the cycle diagnostic.
 func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
+	if cyc, err := r.WouldCreateCycle(ctx, fromID, toID); err != nil {
+		return fmt.Errorf("merge: %w", err)
+	} else if cyc {
+		return fmt.Errorf("merge: id=%d -> id=%d would create a supersede cycle", fromID, toID)
+	}
 	tx, err := r.pool.Begin(ctx)
 	if err != nil {
 		return fmt.Errorf("merge: begin: %w", err)

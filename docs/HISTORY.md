@@ -6,6 +6,52 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.20.0 minor (2026-11-22) — knowledge-schema-search: schema v14 knowledge links · read filters · supersede cycle guard
+
+(spec: docs/plans/2026-11-22-flint-v1200.md). The knowledge schema and
+search milestone — additive schema v14, two read filters, a supersede
+cycle guard, and link portability:
+
+- schema v14 (additive — v13 DBs promote on the first command, migration
+  0 for everything read-side): the `knowledge_links` table (id·from_id·
+  to_id·relation·created_at, (from_id)·(to_id) indexes) with a fixed
+  4-value relation vocabulary — `refines`·`supports`·`contradicts`·
+  `duplicates` (an unregistered value is exit 3; `supersedes` is
+  deliberately excluded — the `superseded_by` column stays the single
+  source for supersession, no dual origin) — plus a `superseded_by`
+  index (CREATE IF NOT EXISTS) and `relations` registered hashVolatile
+  so a links-only change never rewrites the content hash (dedup
+  survives).
+- read filters (migration 0): `--min-confidence N` (0..1 inclusive,
+  `confidence >= N`) and `--origin agent|human` (`origin = v`) — explicit
+  values only, composable with the existing filters, exposed on the CLI
+  command table·usage and as MCP flint_read properties. **No thresholds
+  key is consulted** (TUNING §2).
+- supersede cycle guard: `maintain --supersede OLD --by NEW`·
+  `--merge` and the import path (`SetSupersededRef`) trace NEW's
+  superseded_by chain recursively (one WITH RECURSIVE round-trip, depth
+  cap 64) and reject a supersession that would reach OLD (exit 1 with a
+  diagnostic) — A→B→A is now impossible at every write site.
+- `supersede_chains` view (root_id·id·depth): the supersede lineage
+  unfolded per root with a path-array guard terminating the UNION ALL
+  recursion (Doltgres recursion terminates on the guard, not an
+  iteration-limit error); reapplyViews drops and recreates it
+  (views_hash idempotence). Not exposed as-of (asOfTables unchanged).
+- export_md chain notation: the 1-hop "superseded by" note now shows
+  the terminal depth via the chain view (consumes the view — no
+  consumer-less schema).
+- PAM links portability: export carries the 4 relation kinds alongside
+  the derived `supersedes`; import re-deposits them — write stdin JSON
+  accepts an optional `relations` array (vocabulary-validated, missing
+  target exit 3, same from·to·relation idempotent-skip, and the
+  duplicate path deposits links onto the existing DupMeta.ID row so
+  they are never lost).
+
+Ruling: the `kind` column is deferred to v1.25.0 — no consumer yet, a
+3-way column-name clash (rec["kind"] selector·hot_view.kind·read
+--kind), and a hash change; the release-scope table is updated to
+carry it forward (release-scope §2).
+
 ### v1.19.6 patch (2026-11-22) — r82: pre-flint detection schema probe · real-mode test skip
 
 The v1.19.5 patch re-audit (R82) — a false rejection in the new pre-flint

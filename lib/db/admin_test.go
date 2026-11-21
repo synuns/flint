@@ -803,7 +803,13 @@ func TestV13FreshSchemaDirect(t *testing.T) {
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate(신규 생성): %v", err)
 	}
+	// The registry now extends past 13 (schema v14) — this test pins the
+	// v13-era terminus, so the walk stops at 13 (the fresh v13 assertion
+	// would otherwise see the v14 ceiling).
 	for _, gate := range SchemaGates() {
+		if gate.Version > 13 {
+			break
+		}
 		if err := gate.Ensure(ctx, r); err != nil {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
@@ -812,4 +818,157 @@ func TestV13FreshSchemaDirect(t *testing.T) {
 		t.Fatalf("게이트 체인 후 schema_version = %q, want 13", v)
 	}
 	v13GateArtifacts(t, r, ctx)
+}
+
+// TestAuditStageTablesV14 — knowledge_links joins the audit staging list
+// (audit data, not metering — links are audit-visible knowledge lineage
+// metadata; the recall_events ruling precedent). Table-only ruling: the
+// bigserial's knowledge_links_id_seq stays unstaged everywhere — the
+// measured *_id_seq working-set residue is display-only·harmless (the
+// auditStageTables sequence ruling).
+func TestAuditStageTablesV14(t *testing.T) {
+	found := false
+	for _, cur := range auditStageTables {
+		if cur == "knowledge_links" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("auditStageTables에 knowledge_links 부재 — v14 감사 테이블 미스테이징")
+	}
+	for _, cur := range telemetryStageTables {
+		if cur == "knowledge_links" {
+			t.Error("knowledge_links가 telemetry 스테이징에 포함 — 계측 테이블 아님")
+		}
+	}
+	for _, cur := range telemetryStageSeqs {
+		if cur == "knowledge_links_id_seq" {
+			t.Error("knowledge_links_id_seq가 telemetry 스테이징에 포함 — 잔류-무해 룰링 위반")
+		}
+	}
+}
+
+// v14GateArtifacts — the schema v14 artifact assertions shared by the
+// upgrade (v13→v14) and fresh-direct paths: the knowledge_links table
+// (from_id·to_id·relation NOT NULL·created_at default now) with its
+// (from_id)·(to_id) indexes and the knowledge (superseded_by) index; a
+// functional link insert between 2 knowledge rows reads back, and
+// relation NOT NULL is enforced (no FK — from/to existence is the write
+// path's job, the existing knowledge convention).
+func v14GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
+	t.Helper()
+	assertObject(t, r, ctx, "knowledge_links")
+	assertObject(t, r, ctx, "idx_knowledge_links_from_id")
+	assertObject(t, r, ctx, "idx_knowledge_links_to_id")
+	assertObject(t, r, ctx, "idx_knowledge_superseded_by")
+	// NOT NULL contract of the 3 payload columns.
+	for _, col := range []string{"from_id", "to_id", "relation"} {
+		var nullable string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT is_nullable FROM information_schema.columns
+			 WHERE table_name = 'knowledge_links' AND column_name = $1`, col).
+			Scan(&nullable); err != nil {
+			t.Fatalf("knowledge_links.%s 조회: %v", col, err)
+		}
+		if nullable != "NO" {
+			t.Fatalf("knowledge_links.%s is_nullable=%q, want NO", col, nullable)
+		}
+	}
+	// Functional spot — a link between 2 knowledge rows reads back.
+	ids, err := r.InsertBatch(ctx, []map[string]any{
+		knowledgeRec("v14-a"), knowledgeRec("v14-b"),
+	})
+	if err != nil {
+		t.Fatalf("InsertBatch pre-v14 spot: %v", err)
+	}
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO knowledge_links (from_id, to_id, relation) VALUES ($1, $2, 'refines')`,
+		ids[0], ids[1]); err != nil {
+		t.Fatalf("knowledge_links 적립: %v", err)
+	}
+	var rel string
+	var createdAt time.Time
+	if err := r.pool.QueryRow(ctx,
+		`SELECT relation, created_at FROM knowledge_links WHERE from_id = $1`, ids[0]).
+		Scan(&rel, &createdAt); err != nil {
+		t.Fatalf("knowledge_links 조회: %v", err)
+	}
+	if rel != "refines" || createdAt.IsZero() {
+		t.Fatalf("링크 행 = (%q,%v), want (refines, created_at DEFAULT now)", rel, createdAt)
+	}
+	// relation NOT NULL enforced.
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO knowledge_links (from_id, to_id) VALUES ($1, $2)`, ids[0], ids[1]); err == nil {
+		t.Fatal("relation NULL 적립 허용 — NOT NULL 계약 위반")
+	}
+}
+
+// TestV14GateUpgradeFromV13 — promotes a reproduced v13 DB to v14: the
+// knowledge_links table + the 2 link indexes + the knowledge
+// (superseded_by) index created·version 14·the rerun idempotent (the
+// additive protocol — existing tables·data unchanged).
+func TestV14GateUpgradeFromV13(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	// Reproduce a faithful v13 DB — remove the v14 artifacts the fresh
+	// schema.sql terminus already carries.
+	for _, stmt := range []string{
+		`DROP TABLE IF EXISTS knowledge_links`,
+		`DROP INDEX IF EXISTS idx_knowledge_superseded_by`,
+	} {
+		if _, err := r.pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("v13 재현 %q: %v", stmt, err)
+		}
+	}
+	setVersion(t, r, "13")
+
+	if err := r.EnsureSchemaV14(ctx); err != nil {
+		t.Fatalf("first EnsureSchemaV14: %v", err)
+	}
+	if v := readVersion(t, r); v != "14" {
+		t.Fatalf("schema_version = %q, want 14", v)
+	}
+	v14GateArtifacts(t, r, ctx)
+	// The rerun is idempotent — version 14 kept·no error.
+	if err := r.EnsureSchemaV14(ctx); err != nil {
+		t.Fatalf("second EnsureSchemaV14 (want idempotent): %v", err)
+	}
+	if v := readVersion(t, r); v != "14" {
+		t.Fatalf("재호출 후 schema_version = %q, want 14", v)
+	}
+}
+
+// TestV14FreshSchemaDirect — the fresh-install path: recreating with the
+// real schema.sql + running the gate chain v2→v14 in order reaches the
+// v14 terminus (knowledge_links + its indexes + the superseded_by index
+// present without any gate DDL — the fresh-creation terminus contract).
+func TestV14FreshSchemaDirect(t *testing.T) {
+	r := newTestRepo(t)
+	resetVersionToV1(t, r)
+	saved := schemaSQLFn
+	schemaSQLFn = sqlfs.SchemaSQL
+	t.Cleanup(func() { schemaSQLFn = saved })
+	ctx := context.Background()
+	for _, stmt := range []string{
+		`DROP VIEW IF EXISTS active_knowledge, hot_view`,
+		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events, threshold_snapshots, weekly_rollups, knowledge_links`,
+		`DELETE FROM meta WHERE key = 'schema_version'`,
+	} {
+		if _, err := r.pool.Exec(ctx, stmt); err != nil {
+			t.Fatalf("신규 DB 재현 %q: %v", stmt, err)
+		}
+	}
+	if err := r.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate(신규 생성): %v", err)
+	}
+	for _, gate := range SchemaGates() {
+		if err := gate.Ensure(ctx, r); err != nil {
+			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
+		}
+	}
+	if v := readVersion(t, r); v != "14" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 14", v)
+	}
+	v14GateArtifacts(t, r, ctx)
 }

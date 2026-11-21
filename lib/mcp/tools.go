@@ -92,13 +92,18 @@ func ToolsManifest() []ToolDef {
 	return []ToolDef{
 		{
 			Name:        "flint_read",
-			Description: "Search active knowledge (pool mode). Filter by query/tag, limit up to 50.",
+			Description: "Search active knowledge (pool mode). Filter by query/tag/origin, confidence floor, limit up to 50.",
 			InputSchema: map[string]any{
 				"type": "object",
 				"properties": map[string]any{
 					"query": map[string]any{"type": "string"},
 					"tag":   map[string]any{"type": "string"},
 					"limit": map[string]any{"type": "integer", "maximum": 50},
+					// v1.20.0 T2 — the confidence floor and origin filters
+					// (value passthrough: the CLI-side validation is the
+					// single source).
+					"min_confidence": map[string]any{"type": "number", "minimum": float64(0), "maximum": float64(1)},
+					"origin":         map[string]any{"type": "string", "enum": []string{"agent", "human"}},
 				},
 			},
 			OutputSchema: json.RawMessage(readOutputSchema),
@@ -173,13 +178,15 @@ func DispatchTool(name string, args map[string]any) (string, int) {
 	}
 }
 
-// dispatchRead — assembles flint read [query] --json --tag --limit. The
-// limit bakes the token budget (ClampLimit cap of 50) into the tool path
-// too. v1.18.0 T3: --json is assembled internally so the MCP read path
-// always returns machine-readable rows (JSONL), which structuredContent then
-// parses into {results:[...]}. query is external input, so it goes after
-// "--" to keep it from being parsed as a flag (runRead's end-of-options
-// rule).
+// dispatchRead — assembles flint read [query] --json --tag --limit
+// --min-confidence --origin. The limit bakes the token budget (ClampLimit
+// cap of 50) into the tool path too. v1.18.0 T3: --json is assembled
+// internally so the MCP read path always returns machine-readable rows
+// (JSONL), which structuredContent then parses into {results:[...]}.
+// v1.20.0 T2: min_confidence·origin pass through as cli flags (the
+// CLI-side validation stays the single source). query is external input,
+// so it goes after "--" to keep it from being parsed as a flag (runRead's
+// end-of-options rule).
 func dispatchRead(args map[string]any) (string, int) {
 	// MCP path label — metering read_events.source='mcp'.
 	cliArgs := []string{"--source", "mcp"}
@@ -188,6 +195,12 @@ func dispatchRead(args map[string]any) (string, int) {
 	}
 	if n, ok := intArg(args, "limit"); ok {
 		cliArgs = append(cliArgs, "--limit", strconv.Itoa(query.ClampLimit(n)))
+	}
+	if v, ok := args["min_confidence"].(float64); ok {
+		cliArgs = append(cliArgs, "--min-confidence", strconv.FormatFloat(v, 'f', -1, 64))
+	}
+	if o := strArg(args, "origin"); o != "" {
+		cliArgs = append(cliArgs, "--origin", o)
 	}
 	if q := strArg(args, "query"); q != "" {
 		cliArgs = append(cliArgs, "--", q)

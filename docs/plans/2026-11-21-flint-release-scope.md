@@ -19,7 +19,7 @@ surface-trust) · knowledge-pipelines §5·§12 · 사용자 루프 실행 지�
 | 계열 | 출처 | 잔여(실적 제외) | 상태 |
 |---|---|---|---|
 | 관측·자율 튜닝 | knowledge-pipelines §12(ADR-0017) | A1~A6 계측·B1~B6 회로·C1~C6 가시성·D1~D6 동반 계측 | 방향 확정·계측 미착수 |
-| 지식 스키마 발전 | 2026-11-21 세션 리서치(repo 원천 부재) | read 필터 확장·supersede 재귀 뷰·kind 열·knowledge_links — **v1.20.0 G2에서 리서치 재수행·repo 스펙으로 승격** | 후보(재검 대상) |
+| 지식 스키마 발전 | 2026-11-21 세션 리서치(repo 원천 부재) | read 필터 확장·supersede 재귀 뷰·knowledge_links는 **v1.20.0 스펙 승격(v1.20.0 플랜)** — 잔여 kind 열은 v1.25.0 이월(§2) | 승격 완료·잔여 이월 |
 | 볼트 브리지 | vault-bridge 플랜(기획 리뷰 1차 통과) | M1 색인·M2 read 통합·M3 낡음 연계·M4 distill | 착수 대기 |
 | 낡음·변동성 잔여 | knowledge-pipelines §5 — v1.13.0(age-audit·vol 태그·감쇠 면제)·v1.14.0(survived decay relief) 실적 제외 | 신호 ⑤ 근원 변화(vault_files 근거 — v1.13.0 non-goal 룰링 해제)·변동성 출처·주제 기본값 자동 분류·조건 태그·재점검 큐·재확신 처분(유효기간 리셋) | 잔여만 |
 | 지식 관리 잔여 | knowledge-pipelines §5·§6 | merge-audit·환류 일반화(bad_recall→처분)·read --related·--why + D1·D2·D4 계측 동반 | 후보 |
@@ -41,18 +41,18 @@ v1.23.0 G2 등록표에서) 미달 시 **v1.25.0(독립 계열)과 순서 교환
 | 버전 | 계열·카테고리 | 내용 | 스키마 | 사이즈 |
 |---|---|---|---|---|
 | v1.19.0 | 관측 기반 (Observability) | §12.7 M1 — A1 read_events 스코어 열·A2 임계값 스냅숏 diff-on-write·A3 주간 rollup(분자·분모 카운터)·A4 계측 신선도·A5 커버리지 경고 | v13 additive | M |
-| v1.20.0 | 지식 스키마·검색 (Schema) | read 필터 확장·supersede 체인 재귀 뷰(둘 다 migration 0)·kind 열·knowledge_links 테이블 — **G2에서 리서치 재수행·repo 스펙 승격 후 확정** | v14 additive | M |
+| v1.20.0 | 지식 스키마·검색 (Schema) | read 필터 확장(`--min-confidence`·`--origin` — migration 0)·supersede 사이클 가드(maintain --supersede/--merge·import·깊이 상한 64)·`supersede_chains` 재귀 뷰(경로배열 가드)·`knowledge_links` 테이블(어휘 4종 refines/supports/contradicts/duplicates)·PAM links 왕복 — G2 승격 확정(2026-11-22-flint-v1200)·kind 열은 v1.25.0 이월(룰링) | v14 additive | M |
 | v1.21.0 | 볼트 브리지 I (Integration) | vault-bridge M1 색인 스냅숏-디프(vault_files·배치 1커밋)·M2 read RRF 통합 + A6 스캔 p95 계측 동반 | v15 additive | M-L |
 | v1.22.0 | 볼트 브리지 II·낡음 잔여 (Curation) | M3 낡음 신호 ⑤(v1.13.0 non-goal 룰링 해제 — vault_files content_hash 근거)·재점검 큐·M4 distill(ADR-0018 작성) + 변동성 출처·주제 기본값 자동 분류·조건 태그·**재확신 처분(유효기간 리셋 — §5 세 처분 중 미실현 잔여)**. 재점검 큐 저장이 신규 스키마를 요구하면 G2에서 v1.21.0 선행 편입 또는 차기 스키마로 이월 | — (요구 시 G2 확정) | M-L |
 | v1.23.0 | 자율 튜닝 I (Autonomy-shadow) | B1 정책(화이트리스트·킬스위치)·B3 등록표(관측 축적 조건 확정 포함)·B6 tuning log·B2 shadow 단 + C1 what-if·C2 분포·C6 정합 카드 | — | M |
 | v1.24.0 | 자율 튜닝 II (Autonomy-apply) | B2 신뢰 사다리 적용·B4 자동 복원·B5 센티넬 + C3 추세·C4 밴드·C5 분절 뷰 — **착수 조건 §2 원칙 ③** | — | L |
-| v1.25.0 | 지식 관리 잔여 (Curation II) | merge-audit·환류 일반화(bad_recall→처분)·read --related·--why·survived_decay_relief 활성화 판정(기본 0 — 관측 근거 확보 시) + D1·D2·D4 계측 동반 | — | L |
+| v1.25.0 | 지식 관리 잔여 (Curation II) | merge-audit·환류 일반화(bad_recall→처분)·read --related·--why·**kind 열 이월(v1.20.0 룰링 — 소비처 확정 후 additive 스키마 동반)**·survived_decay_relief 활성화 판정(기본 0 — 관측 근거 확보 시) + D1·D2·D4 계측 동반 | additive (버전은 G2 확정) | L |
 | v1.26.0 | 엔진 운영 (Ops) | engine-ops M1 maintain --gc·doctor 경고 2종·RUNBOOK 2절·meta 이력 / M2 footprint 표시·M3 ANALYZE spike(L0) | — | M |
 | v1.27.0 | 표면 신뢰 (Trust) | surface-trust M1 캐시 3원칙(ETag·모순 검출기·checked_at)·M2 seed --demo(격리·--reset)·M3 doctor checkVersions(자가 보고) | — | M |
 | v1.28.0 | 표면 확장·품질 청산 (Cleanup) | read TUI·tuning TUI 기본 승격 검토·i18n KO 카탈로그·brew 검토·테스트 폭발 정리·이름 재스윹·서명 재실증·관측 이월 재판정 + 로컬 원천 3건 G2 재검(시퀀스 회수·R68 정보·Doltgres 업스트림) | — | M |
 | v2.0.0 | 플랫폼 전환 (Platform) | DB 선택 — PG Store 지원·audit_log 리플레이 감사 보존·스코프 C 재정의(--all-domains — PLAN §7 "다중 에이전트 domain 스코프 트리거 대기"의 해소 경로)·이행 가이드·문서 대개정 | 상속 | XL |
 
-의존 메모: v1.20.0→v1.25.0(knowledge_links 기반 --related)·v1.19.0→
+의존 메모: v1.20.0→v1.25.0(knowledge_links 기반 --related·kind 열 이월)·v1.19.0→
 v1.23.0(C1 what-if가 A1 스코어 소비)·v1.21.0→v1.22.0(디프→낡음 신호 ⑤)
 ·v1.23.0→v1.24.0(원칙 ③ 조건 게이트 — 관측 축적)·v1.28.0은 v2.0.0 직전
 채무 청산.
@@ -113,7 +113,7 @@ G6 정리: §3.5 → 다음 버전 G2
 | 버전 | 상태 | 비고 |
 |---|---|---|
 | v1.19.0 | done | 관측 기반 — v1.19.0~.6 발행(2026-11-22)·감사 R71~R83 13회차·**R83 발견 0으로 패치 루프 종결**. 발견 총 high 2·med 5·low/기록 다수 — 전 수정. 잔여 백로그: lib/cli real 모드 위임 테스트 선행 실패 6건(테스트 인프라 — v1.28.0 청산 편입) |
-| v1.20.0 | todo | 지식 스키마 — G2 리서치 재승격 |
+| v1.20.0 | building | 지식 스키마 — G2 승인(v1.20.0 스펙·플랜)·빌드 중 |
 | v1.21.0 | todo | 볼트 I |
 | v1.22.0 | todo | 볼트 II·낡음 잔여 |
 | v1.23.0 | todo | 자율 shadow |

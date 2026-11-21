@@ -10,6 +10,30 @@ SELECT id, topic, summary, tags, entity, domain, confidence, origin,
 FROM knowledge
 WHERE invalid_at IS NULL;
 
+-- supersede_chains: the supersede lineage unfolded per root — each row
+-- is (chain root, a lineage member, hops from the root). Consumer:
+-- export --format md chain notation (v1.20.0 T4 — SupersedeChains in
+-- lib/knowledge). Termination on cyclic data: UNION ALL recursion with a
+-- path-array guard (NOT id = ANY(path)) — UNION dedup does not terminate
+-- once depth is part of the working row, and Doltgres errors at its
+-- iteration limit (v120 research). The path guard ends the walk at the
+-- first repeated id instead. Depth 0 is the root itself (every row is a
+-- chain root — consumers filter depth > 0). Column order is the
+-- views_sig contract: root_id, id, depth. Defined before hot_view so
+-- hot_view stays the file's last definition (the single-definition gate
+-- counts UNION ALL arms from hot_view to end-of-file).
+CREATE OR REPLACE VIEW supersede_chains AS
+WITH RECURSIVE walk AS (
+    SELECT id AS root_id, id, superseded_by, ARRAY[id] AS path, 0 AS depth
+    FROM knowledge
+    UNION ALL
+    SELECT w.root_id, k.id, k.superseded_by, w.path || k.id, w.depth + 1
+    FROM walk w
+    JOIN knowledge k ON k.id = w.superseded_by
+    WHERE NOT k.id = ANY(w.path)
+)
+SELECT root_id, id, depth FROM walk;
+
 -- hot_view: 주입용 — 활성 프로젝트 + pending 지식 + 최근 결정 7일.
 -- v0.41.0 T5(단일 정의): 말미에 valid_at·ingested_at 추가 노출(프로젝트
 -- 팔은 NULL) — 증분 id·pending 대기일수 접미를 이 뷰 조회 하나로 소비하고,

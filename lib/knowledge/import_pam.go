@@ -9,6 +9,7 @@
 package knowledge
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
@@ -17,8 +18,11 @@ import (
 	"io"
 	"os"
 	"sort"
+	"strings"
 
 	"github.com/cyberphone/json-canonicalization/go/src/webpki.org/jsoncanonicalizer"
+	"github.com/synuns/flint/lib/store"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // ImportCandidate — the flint conversion of one PAM memory. Field names are
@@ -53,11 +57,23 @@ type SupersedePair struct {
 	To   string `json:"to"`   // old — the replaced memory (target)
 }
 
+// PAMLinkPair — a relations entry of the 4-word vocabulary (v1.20.0 T5):
+// the import side of the knowledge_links round trip (from = the link's
+// source row, to = its target — the same direction the export wrote).
+// supersedes is NOT here — it stays in SupersedePairs
+// (knowledge.superseded_by, the dual-source-of-truth avoidance).
+type PAMLinkPair struct {
+	From     string `json:"from"`
+	To       string `json:"to"`
+	Relation string `json:"relation"`
+}
+
 // PAMResult — the ParsePAM return bundle.
 type PAMResult struct {
 	Candidates     []ImportCandidate
 	Skipped        []PAMSkipped
 	SupersedePairs []SupersedePair
+	Links          []PAMLinkPair
 }
 
 // ParsePAMFn — the consumer seam (test-swappable).
@@ -323,9 +339,49 @@ func ParsePAM(data []byte) (*PAMResult, error) {
 			// relation direction is fixed as-is (see the SupersedePair
 			// comment).
 			res.SupersedePairs = append(res.SupersedePairs, SupersedePair{From: r.From, To: r.To})
+			continue
+		}
+		// v1.20.0 T5 — the 4-vocabulary knowledge_links relations (the
+		// export side of the round trip). Unregistered types stay
+		// unconsumed (neither family — a foreign document's custom
+		// relation is not flint's to store).
+		if store.ValidRelation(r.Type) {
+			res.Links = append(res.Links, PAMLinkPair{
+				From:     r.From,
+				To:       r.To,
+				Relation: strings.ToLower(strings.TrimSpace(r.Type)),
+			})
 		}
 	}
 	return res, nil
+}
+
+// RestorePAMLinks — re-accrues the parsed 4-vocabulary PAM relations
+// onto the flint row ids (the write side of the round trip; the import
+// caller supplies the PAM-id→row-id map from the accrual outcome).
+// Store-contacting on purpose — ParsePAM stays pure, this helper is the
+// seam the import path composes with it. A pair whose endpoint row is
+// absent is skipped with one stderr warning (the SupersedePair
+// target-missing convention: a partial document must not fail the whole
+// import). Idempotence rides insertKnowledgeLinks (the NOT EXISTS
+// guard).
+func RestorePAMLinks(ctx context.Context, st wire.Store, rowIDOf func(pamID string) (int, bool), pairs []PAMLinkPair) (int, error) {
+	applied := 0
+	for _, p := range pairs {
+		fromID, okFrom := rowIDOf(p.From)
+		toID, okTo := rowIDOf(p.To)
+		if !okFrom || fromID <= 0 || !okTo || toID <= 0 {
+			fmt.Fprintf(pamImportStderr,
+				"[flint] import pam: relation(%s %s→%s) target missing — link skipped\n",
+				p.Relation, p.From, p.To)
+			continue
+		}
+		if err := insertKnowledgeLinks(ctx, st, fromID, []linkSpec{{To: toID, Relation: p.Relation}}); err != nil {
+			return applied, err
+		}
+		applied++
+	}
+	return applied, nil
 }
 
 // clampUnit — clamp to [0,1] (confidence.current).
