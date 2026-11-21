@@ -25,10 +25,13 @@ func asofLogEntries() []LogEntry {
 }
 
 // asofFakeStore — a fake Store answering the 3 LogQuery kinds (prefix match,
-// date <= newest 1, first commit) from the fixtures. Records the queries in calls.
+// date <= newest 1, first commit) from the fixtures. Records the queries in
+// calls. QueryAsOf simulates the v1.19.6 R82 schema probe: hashes in noSchema
+// answer the measured base-table absence error, everything else succeeds.
 type asofFakeStore struct {
-	entries []LogEntry
-	calls   []LogQuery
+	entries  []LogEntry
+	calls    []LogQuery
+	noSchema map[string]bool
 }
 
 func (f *asofFakeStore) Migrate(ctx context.Context) error { return nil }
@@ -53,6 +56,10 @@ func (f *asofFakeStore) DiffCommits(ctx context.Context, fromHash, toHash string
 	return nil, nil
 }
 func (f *asofFakeStore) QueryAsOf(ctx context.Context, q AsOfQuery) ([][]any, error) {
+	if f.noSchema[q.Hash] {
+		// the measured Doltgres shape — a table absent at the probed commit
+		return nil, errors.New("table not found: knowledge")
+	}
 	return nil, nil
 }
 func (f *asofFakeStore) DiffRows(ctx context.Context, fromHash, toHash string) ([]KnowledgeDiffRow, error) {
@@ -286,14 +293,19 @@ func TestWireRelativeBoundary(t *testing.T) {
 	}
 }
 
-// TestWirePreFlintCommitRejected — the v1.19.5 R81 regression: on a fresh DB
-// (no flint write yet) the only commits are the 2 Doltgres automatic initial
-// ones, and an as-of resolving to them (0h, an ISO after them, or their hash
-// prefix) must reject with the pre-flint diagnostic (exit 3 convention) —
-// pre-fix the resolved hash reached QueryAsOf and failed with a raw
-// "references invalid table(s)" error (exit 1). With a flint commit present,
-// the same spec kinds resolve normally (a flint commit is never mistaken for
-// an auto one).
+// TestWirePreFlintCommitRejected — the v1.19.5 R81 regression (verdict
+// re-based in v1.19.6 R82): on a fresh DB (no flint write yet) the only
+// commits are the 2 Doltgres automatic initial ones, and an as-of resolving
+// to them (0h, an ISO after them, or their hash prefix) must reject with the
+// pre-flint diagnostic (exit 3 convention) — pre-fix the resolved hash
+// reached the as-of view query and failed with a raw "references invalid
+// table(s)" error (exit 1). The verdict is the schema probe, not the message
+// alone: with a flint write present, a MANUAL commit reusing the
+// "CREATE DATABASE" label (the schema exists at that commit) resolves
+// normally on both paths — the v1.19.6 R82 false-rejection regression
+// (pre-fix: exit 3 despite the schema existing there). The committer is
+// deliberately not a discriminator (measured: the auto CREATE DATABASE
+// commit carries the connecting user, the same value as a manual commit).
 func TestWirePreFlintCommitRejected(t *testing.T) {
 	ctx := context.Background()
 	// now-anchored fixture dates (the relative specs resolve against time.Now
@@ -304,11 +316,19 @@ func TestWirePreFlintCommitRejected(t *testing.T) {
 	initNew := now.Add(-2 * time.Hour).Truncate(time.Second) // CREATE DATABASE commit
 	initOld := initNew.Add(-time.Second)                     // Initialize data repository
 	flintAt := now.Add(-time.Hour).Truncate(time.Second)     // the first flint write
-	// fresh-DB fixture — only the 2 auto-initial commits (newest first).
-	fresh := &asofFakeStore{entries: []LogEntry{
-		{Hash: "cr8ate000000000000000000000000db", Message: "CREATE DATABASE", Date: initNew},
-		{Hash: "in1t000000000000000000000000000r", Message: "Initialize data repository", Date: initOld},
-	}}
+	manualAt := now.Add(-30 * time.Minute).Truncate(time.Second)
+	// fresh-DB fixture — only the 2 auto-initial commits (newest first);
+	// the probe answers "absent" for both (no flint schema at them).
+	fresh := &asofFakeStore{
+		entries: []LogEntry{
+			{Hash: "cr8ate000000000000000000000000db", Message: "CREATE DATABASE", Date: initNew},
+			{Hash: "in1t000000000000000000000000000r", Message: "Initialize data repository", Date: initOld},
+		},
+		noSchema: map[string]bool{
+			"cr8ate000000000000000000000000db": true,
+			"in1t000000000000000000000000000r": true,
+		},
+	}
 	for _, spec := range []string{
 		"0h", // relative — resolves to the newest (CREATE DATABASE)
 		initNew.Add(time.Minute).Format(time.RFC3339), // ISO after both initial commits
@@ -325,23 +345,34 @@ func TestWirePreFlintCommitRejected(t *testing.T) {
 		}
 	}
 
-	// seeded fixture — one flint commit on top of the initial pair: all 3 spec
-	// kinds resolve normally (the pre-flint guard only fires on auto commits).
-	seeded := &asofFakeStore{entries: append([]LogEntry{{
-		Hash: "kn0w0000000000000000000000000abc", Message: "knowledge: seed write [session:0]",
-		Date: flintAt,
-	}}, fresh.entries...)}
-	rejected := "<rejected>" // marker — a time before the first flint write
+	// seeded fixture — initial pair + one flint commit + a MANUAL commit
+	// reusing the "CREATE DATABASE" label AFTER the flint write (the R82
+	// scenario). The manual label commit is NOT in noSchema — the schema
+	// exists at it — so every spec resolving to it adopts normally; specs
+	// resolving to the genuine initial commits still reject.
+	const flintH = "kn0w0000000000000000000000000abc"
+	const manualH = "man0ua100000000000000000000000cd"
+	seeded := &asofFakeStore{
+		entries: []LogEntry{
+			{Hash: manualH, Message: "CREATE DATABASE", Date: manualAt}, // manual, schema present
+			{Hash: flintH, Message: "knowledge: seed write [session:0]", Date: flintAt},
+		},
+		noSchema: fresh.noSchema, // only the genuine initial commits
+	}
+	seeded.entries = append(seeded.entries, fresh.entries...)
+	rejected := "<rejected>" // marker — a time resolving to a genuine initial commit
 	for spec, want := range map[string]string{
-		"0h":                         "kn0w0000000000000000000000000abc", // newest = the flint commit
-		"kn0":                        "kn0w0000000000000000000000000abc", // flint commit prefix
-		flintAt.Format(time.RFC3339): "kn0w0000000000000000000000000abc", // ISO at the first flint commit
+		"0h":                          manualH, // newest = the manual label commit → adopt (R82)
+		"man":                         manualH, // manual label commit prefix → adopt (R82)
+		manualAt.Format(time.RFC3339): manualH, // ISO exactly at the manual label commit
+		"kn0":                         flintH,  // flint commit prefix
+		flintAt.Format(time.RFC3339):  flintH,  // ISO at the first flint commit
 		initNew.Add(30 * time.Minute).Format(time.RFC3339): rejected, // between: initial commit adopted → rejected
 	} {
 		hash, err := ParseAsOfSpec(ctx, seeded, spec)
 		if want == rejected {
 			// a time pointing before the first flint write resolves to the
-			// CREATE DATABASE commit → the pre-flint rejection, not a hash.
+			// CREATE DATABASE auto commit → the probe says absent → rejected.
 			if !errors.Is(err, ErrInvalidAsOf) || !strings.Contains(err.Error(), "pre-flint") {
 				t.Fatalf("seeded %q → (%q,%v), want pre-flint 거부", spec, hash, err)
 			}

@@ -6,6 +6,33 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.19.6 patch (2026-11-22) — r82: pre-flint detection schema probe · real-mode test skip
+
+The v1.19.5 patch re-audit (R82) — a false rejection in the new pre-flint
+diagnostic, and a test-infrastructure defect:
+
+- pre-flint detection schema probe (R82-1 [mid]): v1.19.5 rejected on the
+  commit-message match alone, so a user's manual dolt_commit reusing the
+  "CREATE DATABASE" label after flint writes (the flint schema existing at
+  that commit) was falsely rejected exit 3 — the diagnostic claimed "no
+  flint schema exists there" while the schema existed. Binding the
+  committer was measured infeasible: the auto "Initialize data repository"
+  commit carries "Dolt System Account", but the auto "CREATE DATABASE"
+  commit carries the CONNECTING USER — the same value a manual commit
+  gets. The verdict is now a 1-round-trip schema-existence probe
+  (knowledge AS OF the resolved hash): the 2-label exact match stays as
+  the probe trigger only, the measured absence shapes ("table not found"
+  base shape · the view "references invalid table(s)" shape) map to the
+  exit 3 diagnostic, a probe success adopts normally (the manual
+  same-label case), and any other probe error propagates as-is. The as-of
+  path is user-explicit and label commits are rare — a normal flint commit
+  never probes (the no-extra-round-trip claim survives for them).
+- real-mode test skip (R82-2 [low]): wire thresholds_test's thresholdsStore
+  swapped the fake for the real store under SUPERLITE_REAL=1, silently
+  discarding the fixture's meta overrides — TestLoadThresholdsFallback was
+  permanently red in real mode. The fake-meta-map + injected-failure
+  fixtures are fake-only; the test now skips in real mode.
+
 ### v1.19.5 patch (2026-11-22) — r81: as-of pre-flint commit diagnostic (exit 3)
 
 The patch-loop closeout finding (R81 [minor]) — a fresh-DB as-of resolved to
@@ -24,7 +51,9 @@ a Doltgres auto-initial commit:
   already returns: the Prefix·BeforeOrAt dolt_log queries widened from
   hash-only to the 4 columns — no extra round-trip. Exact-match on the 2
   observed labels only (an unrecognized manual commit keeps the normal
-  path — no new false rejections).
+  path — no new false rejections). [Superseded in v1.19.6 R82: the label
+  match alone falsely rejected a manual commit reusing a label — the
+  verdict now requires the schema-existence probe.]
 
 ### v1.19.4 patch (2026-11-22) — r79-r80: asof day pre-multiply guard · ceiling hint reachability · gate meta key registration
 

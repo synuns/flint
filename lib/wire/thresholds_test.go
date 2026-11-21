@@ -1,9 +1,10 @@
-// thresholds_test.go — shared-helper verification. Default fake; with
-// SUPERLITE_REAL=1 + FLINT_TEST_DSN set, goes through the real DB via poolStore
-// (inheriting the meta_kv_test.go seam helpers). TestLoadThresholdsFallback
-// (unset and lookup failure fall back to DefaultThresholds — the same result as the
-// existing cli convention). An external wire_test package — after T3, when wire
-// imports lib/db, internal tests cannot build due to the import cycle.
+// thresholds_test.go — shared-helper verification on the fake only
+// (v1.19.6 R82: the fixtures — a fake meta map and an injected query
+// failure — are fake-only; under SUPERLITE_REAL=1 the old thresholdsStore
+// swapped the fake for the real store, silently discarding the fixture's
+// overrides, so the test was permanently red in real mode. It now skips
+// in real mode instead). An external wire_test package — after T3, when
+// wire imports lib/db, internal tests cannot build due to the import cycle.
 package wire_test
 
 import (
@@ -12,7 +13,6 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -50,34 +50,23 @@ func (f *thresholdsFake) Query(ctx context.Context, sql string, args ...any) ([]
 	return f.metaKVFake.Query(ctx, sql, args...)
 }
 
-// thresholdsStore — the default thresholdsFake; with SUPERLITE_REAL=1, poolStore.
-func thresholdsStore(t *testing.T, f *thresholdsFake) wire.Store {
-	t.Helper()
-	if dsn, real := seamRealDSN(); real {
-		pool, err := db.Connect(context.Background(), dsn)
-		if err != nil {
-			t.Skipf("real store unavailable: %v", err)
-		}
-		s := &poolStore{pool: pool}
-		t.Cleanup(s.Close)
-		return s
-	}
-	return f
-}
-
 // TestLoadThresholdsFallback — 3 contracts: (1) empty meta means every key at
 // DefaultThresholds (the unset fallback — inheriting the ParseThresholds
 // convention); (2) stored keys override, and a stored '0' also falls back to
 // the default (treated as unset); (3) a lookup failure propagates the err —
 // verbatim inheritance of the existing convention where the caller (cli doctor,
-// etc.) falls back to DefaultThresholds.
+// etc.) falls back to DefaultThresholds. Fake-only (v1.19.6 R82): the meta-map
+// fixtures and the injected query failure are not expressible on a real store.
 func TestLoadThresholdsFallback(t *testing.T) {
+	if _, real := seamRealDSN(); real {
+		t.Skip("fake-only fixture: fake meta map + injected query failure (v1.19.6 R82)")
+	}
 	ctx := context.Background()
 	def := store.DefaultThresholds()
 
 	// 1. unset — every key at its default.
 	f := &thresholdsFake{metaKVFake: metaKVFake{meta: map[string]string{}}}
-	th, err := wire.LoadThresholds(ctx, thresholdsStore(t, f))
+	th, err := wire.LoadThresholds(ctx, f)
 	if err != nil {
 		t.Fatalf("빈 meta 로드 err: %v", err)
 	}
@@ -90,9 +79,7 @@ func TestLoadThresholdsFallback(t *testing.T) {
 		"stall_hot_h": "24",
 		"stale_days":  "0",
 	}}}
-	st := thresholdsStore(t, f2)
-	metaKVCleanup(t, st, "stall_hot_h", "stale_days")
-	th2, err := wire.LoadThresholds(ctx, st)
+	th2, err := wire.LoadThresholds(ctx, f2)
 	if err != nil {
 		t.Fatalf("오버라이드 로드 err: %v", err)
 	}
@@ -105,7 +92,7 @@ func TestLoadThresholdsFallback(t *testing.T) {
 
 	// 3. lookup failure — err propagates (inheriting the caller-default-fallback convention).
 	f3 := &thresholdsFake{metaKVFake: metaKVFake{meta: map[string]string{}}, failQuery: true}
-	if _, err := wire.LoadThresholds(ctx, thresholdsStore(t, f3)); err == nil {
+	if _, err := wire.LoadThresholds(ctx, f3); err == nil {
 		t.Fatal("조회 실패 err 미전파 — 호출부 폴백 관례 깨짐")
 	}
 }

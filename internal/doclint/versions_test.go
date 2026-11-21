@@ -470,6 +470,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01195Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.5", "r81",
 	}},
+	// v1.19.6 patch: R82 청산 — pre-flint 판정 스키마 probe 재기반·
+	// real 모드 테스트 skip.
+	{name: "TestVersion01196Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.19.6", "r82",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

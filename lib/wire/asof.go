@@ -72,20 +72,60 @@ func asofCeilingErr(spec string) error {
 		spec, maxRelativeAsOfHours, ErrInvalidAsOf)
 }
 
-// doltAutoCommitMsgs — the Doltgres automatic initial commit messages on a
-// fresh database (observed: "Initialize data repository" by Dolt System
-// Account, "CREATE DATABASE" at creation). No flint schema or views exist at
-// those commits, so an as-of resolving to one fails the as-of view query with
-// a raw SQL error (exit 1). v1.19.5 R81 — both normalization paths reject a
-// resolved auto-commit up front as a usage error (exit 3) with a diagnostic;
-// the check reads the Message of rows LogEntries already returned (no extra
-// round-trip — the Prefix/BeforeOrAt queries widened to carry message).
-// Exact-match only: a flint audit/telemetry commit message never collides
-// ("knowledge: ...", "telemetry: ..."), and an unrecognized manual commit is
-// left to the normal path (no new false rejections).
+// doltAutoCommitMsgs — the 2 Doltgres automatic initial commit labels on a
+// fresh database. The label match is a PROBE TRIGGER, never the verdict
+// (v1.19.6 R82): v1.19.5 rejected on the message alone and falsely rejected
+// a user's manual dolt_commit reusing the "CREATE DATABASE" label while the
+// flint schema existed at that commit. The committer cannot discriminate
+// either (measured: "Initialize data repository" is committed by "Dolt
+// System Account", but "CREATE DATABASE" carries the CONNECTING USER as its
+// committer — the same value a manual commit gets). So a resolved commit
+// carrying a label gets a 1-round-trip schema-existence probe (adoptOrPreFlint
+// — knowledge AS OF the resolved hash); the verdict is the probe's, making
+// the diagnostic's "no flint schema exists there" claim literally verified.
+// The as-of path is a user-explicit invocation, and a label is rare — a
+// normal flint commit ("knowledge: ...", "telemetry: ...") never probes.
 var doltAutoCommitMsgs = map[string]bool{
 	"Initialize data repository": true,
 	"CREATE DATABASE":            true,
+}
+
+// adoptOrPreFlint — the shared adoption step of the time and prefix paths.
+// e is the single resolved commit. A non-label message adopts directly (no
+// extra round-trip); a label message adopts only when the probe finds the
+// flint schema at the commit. A probe failure of another shape propagates
+// as-is — never guessed into a pre-flint verdict.
+func adoptOrPreFlint(ctx context.Context, st Store, spec string, e LogEntry) (string, error) {
+	if !doltAutoCommitMsgs[e.Message] {
+		return e.Hash, nil
+	}
+	_, err := st.QueryAsOf(ctx, AsOfQuery{
+		Hash:    e.Hash,
+		Table:   "knowledge",
+		Columns: []string{"1"},
+		Limit:   1,
+	})
+	if err == nil {
+		// The flint schema exists at that commit — a manual commit reusing
+		// an auto-initial label (the v1.19.6 R82 false rejection): adopt.
+		return e.Hash, nil
+	}
+	if isTableAbsentAtCommit(err) {
+		return "", asofPreFlintErr(spec)
+	}
+	return "", err
+}
+
+// isTableAbsentAtCommit — whether a QueryAsOf error says the table does not
+// exist at the probed commit. The 2 measured Doltgres shapes: the base-table
+// "table not found: <t>" (measured for a table absent at the commit — present
+// working-set tables included) and the view "references invalid table(s) or
+// column(s)" (the v1.19.5 R81 observation; lib/db isViewColumnMismatch
+// classifies the same pair).
+func isTableAbsentAtCommit(err error) bool {
+	msg := err.Error()
+	return strings.Contains(msg, "table not found") ||
+		strings.Contains(msg, "references invalid table(s)")
 }
 
 // asofPreFlintErr — the pre-flint rejection shared by the time and prefix paths.
@@ -134,10 +174,7 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 		}
 		switch len(entries) {
 		case 1:
-			if doltAutoCommitMsgs[entries[0].Message] {
-				return "", asofPreFlintErr(spec)
-			}
-			return entries[0].Hash, nil
+			return adoptOrPreFlint(ctx, st, spec, entries[0])
 		case 0:
 			return "", fmt.Errorf("no commit matches prefix %q: %w", spec, ErrInvalidAsOf)
 		default:
@@ -174,12 +211,10 @@ func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (
 		return "", err
 	}
 	if len(entries) == 1 {
-		// v1.19.5 R81 — the newest row at or before t is a Doltgres
-		// auto-initial commit → no flint schema exists at that point.
-		if doltAutoCommitMsgs[entries[0].Message] {
-			return "", asofPreFlintErr(spec)
-		}
-		return entries[0].Hash, nil
+		// v1.19.5 R81 (verdict re-based in v1.19.6 R82) — the newest row at
+		// or before t carries a Doltgres auto-initial label: adoptOrPreFlint
+		// probes the flint schema at that commit before adopting.
+		return adoptOrPreFlint(ctx, st, spec, entries[0])
 	}
 	// 0 rows — a time before the first commit. The message includes the first commit time (following C11 Snowflake).
 	first, err := st.LogEntries(ctx, LogQuery{Earliest: true})
