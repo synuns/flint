@@ -72,6 +72,28 @@ func SetEchoThresholds(topK int, minScore, topicMatch float64) {
 	}
 }
 
+// The scan-bound seam vars (v1.17.1): the write path injects its already
+// loaded SuggestScanCap·ConflictDupThreshold here so EchoScan does not
+// re-query the meta thresholds (one write, one threshold load — the
+// per-write duplicate LoadThresholds is abolished). <= 0 keeps the
+// in-scan derivation (defaults + best-effort meta override) for callers
+// that load nothing.
+var (
+	echoScanCap      int
+	echoDupThreshold float64
+)
+
+// SetEchoScanBounds — the scan-bound injection seam (the SetEchoThresholds
+// convention). Values <= 0 are ignored.
+func SetEchoScanBounds(scanCap int, dupThreshold float64) {
+	if scanCap > 0 {
+		echoScanCap = scanCap
+	}
+	if dupThreshold > 0 {
+		echoDupThreshold = dupThreshold
+	}
+}
+
 // EchoScan — scans the active knowledge (invalid_at IS NULL, bounded by
 // the suggest_scan_cap row cap) and returns the top echoTopK echo
 // candidates for the incoming topic+summary:
@@ -88,17 +110,26 @@ func SetEchoThresholds(topK int, minScore, topicMatch float64) {
 // descending, ties by ascending id. A scan failure returns (nil, err) —
 // the caller omits the echo field quietly (§13).
 func EchoScan(ctx context.Context, st wire.Store, topic, summary string) ([]EchoCandidate, error) {
-	def := store.DefaultThresholds()
-	scanCap := def.SuggestScanCap
-	dupThreshold := def.ConflictDupThreshold
-	// Runtime overrides via the meta table (best effort — a lookup failure
-	// falls back to the defaults, the maintain convention).
-	if th, err := wire.LoadThresholds(ctx, st); err == nil {
-		if th.SuggestScanCap > 0 {
-			scanCap = th.SuggestScanCap
+	// Scan bounds — the injected seam first (the write path passes its
+	// already-loaded values, v1.17.1); a bound left unset (<=0) derives
+	// from the meta table best effort, then the defaults (a lookup
+	// failure falls back to the defaults, the maintain convention).
+	scanCap, dupThreshold := echoScanCap, echoDupThreshold
+	if scanCap <= 0 || dupThreshold <= 0 {
+		def := store.DefaultThresholds()
+		if th, err := wire.LoadThresholds(ctx, st); err == nil {
+			if scanCap <= 0 && th.SuggestScanCap > 0 {
+				scanCap = th.SuggestScanCap
+			}
+			if dupThreshold <= 0 && th.ConflictDupThreshold > 0 {
+				dupThreshold = th.ConflictDupThreshold
+			}
 		}
-		if th.ConflictDupThreshold > 0 {
-			dupThreshold = th.ConflictDupThreshold
+		if scanCap <= 0 {
+			scanCap = def.SuggestScanCap
+		}
+		if dupThreshold <= 0 {
+			dupThreshold = def.ConflictDupThreshold
 		}
 	}
 	combined := render.TruncateRunes(topic+" "+summary, echoInputMaxRunes)

@@ -95,9 +95,16 @@ func correctionTodayCount(ctx context.Context, st wire.Store) int {
 // (an absent tags becomes ["correction"]; an existing list is appended
 // unless already present — idempotent). An explicitly given confidence
 // (including 0) is respected — the manual contract unchanged.
+// v1.17.1: a missing/empty origin also defaults to "correction" — the
+// Normalize fallback "agent" would deaden the approve-time promotion
+// counter (correction_approved keys on the stored origin). An explicitly
+// given origin is respected (the confidence convention).
 func applyCorrectionDefaults(p map[string]any, def float64) {
 	if _, ok := p["confidence"]; !ok {
 		p["confidence"] = def
+	}
+	if s, _ := p["origin"].(string); s == "" {
+		p["origin"] = "correction"
 	}
 	switch tags := p["tags"].(type) {
 	case []any:
@@ -239,11 +246,16 @@ func maybeAccrueGapCandidate(ctx context.Context, st wire.Store, sanitizedQuery 
 		fmt.Fprintf(os.Stderr, "[flint] gap daily max reached (gap_daily_max=%d) — candidate skipped\n", max)
 		return
 	}
+	// origin "gap" (v1.17.1) — not the Normalize "agent" fallback: the
+	// approve-time promotion counter (gap_approved) keys on the stored
+	// origin. The hash input (gapCandidateHash) deliberately stays
+	// origin-free, so existing pending rows keep succeeding unchanged.
 	rec := store.Normalize("knowledge", map[string]any{
 		"topic":      topic,
 		"summary":    summary,
 		"tags":       []any{gapCandidateTag},
 		"confidence": gapCandidateConfidence,
+		"origin":     "gap",
 	})
 	rec["kind"] = "knowledge"
 	rec["content_hash"] = hash
@@ -365,10 +377,14 @@ func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 // scanEcho — the write-path echo seam: injects the loaded echo thresholds
 // (the LoadThresholds values — T3 keys echo_top_k·echo_min_score·
 // echo_topic_match; a <=0 unset value keeps the default inside the seam)
-// and runs EchoScan quietly. A scan failure returns nil — the echo field
-// is omitted and the write completes normally (§13).
+// and runs EchoScan quietly. The scan bounds (SuggestScanCap·
+// ConflictDupThreshold) ride the same already-loaded th (v1.17.1) — the
+// echo scan no longer re-queries the meta thresholds (one write, one
+// threshold load). A scan failure returns nil — the echo field is omitted
+// and the write completes normally (§13).
 func scanEcho(ctx context.Context, st wire.Store, n map[string]any, th store.Thresholds) []EchoCandidate {
 	SetEchoThresholds(th.EchoTopK, th.EchoMinScore, th.EchoTopicMatch)
+	SetEchoScanBounds(th.SuggestScanCap, th.ConflictDupThreshold)
 	topic, _ := n["topic"].(string)
 	summary, _ := n["summary"].(string)
 	cands, err := EchoScan(ctx, st, topic, summary)

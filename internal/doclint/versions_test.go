@@ -412,6 +412,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.17.0", "echo",
 	}},
+	// v1.17.1: R64 패치 — 쓰기 소스 origin 추적 수정(correction·gap 적립
+	// origin → approve 관측 키 활성화)·에코 비용/문서 정리.
+	{name: "TestVersion01171Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.17.1", "r64-observability",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
