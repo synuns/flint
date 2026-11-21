@@ -294,7 +294,11 @@ func TestToolsManifestOutputSchemas(t *testing.T) {
 			if !ok {
 				t.Fatalf("flint_read outputSchema.properties.results 없음: %s", td.OutputSchema)
 			}
-			rowProps, _ := results["items"].(map[string]any)["properties"].(map[string]any)
+			items, ok := results["items"].(map[string]any)
+			if !ok {
+				t.Fatalf("flint_read results.items 없음: %s", td.OutputSchema)
+			}
+			rowProps, _ := items["properties"].(map[string]any)
 			for _, k := range []string{"id", "topic", "summary"} {
 				if _, ok := rowProps[k]; !ok {
 					t.Errorf("flint_read results.items.properties에 %s 누락: %s", k, td.OutputSchema)

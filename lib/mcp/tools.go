@@ -32,7 +32,7 @@ type ToolDef struct {
 // Output schemas (v1.18.0 T1) — declared against the ACTUAL tool outputs,
 // not the aspirational ones: write echoes {status,hash,state,id} (duplicate
 // responses reuse the status value), pending is {status,items,counts,next},
-// approve is {status,id}, read is an array of row objects (JSONL lines;
+// approve is {status,id}, read wraps rows in a results object (R67);
 // zero-hit stays the {hits:0} object), and hot is non-JSON text (minimal
 // meta only — no structuredContent for hot).
 const (
@@ -204,7 +204,7 @@ func dispatchRead(args map[string]any) (string, int) {
 //     rows — the spec MUSTs structuredContent to be an object, hence the
 //     wrap);
 //   - flint_read wraps even a single row (the read outputSchema advertises
-//     an array of rows), except the zero-hit line and error lines which
+//     an results object wrapping rows), except the zero-hit line and error lines which
 //     stay as-is;
 //   - anything else (non-JSON text such as flint_hot, arrays, scalars,
 //     parse failures, empty output) → nil.
