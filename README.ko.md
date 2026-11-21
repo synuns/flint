@@ -25,6 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
+  <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
   <img src="https://img.shields.io/badge/release-v1.14.0-blue" alt="v1.14.0">
 </p>
 <p align="center">
@@ -78,6 +79,8 @@ flint setup
 # 데모 데이터 적재 (시드 대상은 명시적으로)
 make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
 ```
+
+> 모든 릴리스 자산에는 SLSA 빌드 증명(build provenance)이 첨부됩니다 — 내려받은 파일은 `gh attestation verify <파일> --repo synuns/flint`로 검증할 수 있습니다.
 
 [릴리스 바이너리](https://github.com/synuns/flint/releases)를 받아도 됩니다 — 바이너리, 체크섬, 플러그인 zip이 자동으로 첨부됩니다.
 

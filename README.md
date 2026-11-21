@@ -25,6 +25,7 @@
   <img src="https://img.shields.io/badge/DoltgreSQL-versioned_data-2f7d6f" alt="DoltgreSQL">
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
+  <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
   <img src="https://img.shields.io/badge/release-v1.14.0-blue" alt="v1.14.0">
 </p>
 <p align="center">
@@ -78,6 +79,8 @@ flint setup
 # Load demo data (seed target must be explicit)
 make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint
 ```
+
+> Every release artifact ships with SLSA build provenance — verify a downloaded file with `gh attestation verify <file> --repo synuns/flint`.
 
 Or [download a release binary](https://github.com/synuns/flint/releases) — binaries, checksums, and the plugin zip are attached automatically.
 
