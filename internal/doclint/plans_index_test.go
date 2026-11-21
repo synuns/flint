@@ -13,8 +13,9 @@ import (
 	"testing"
 )
 
-// activePlans — docs/plans 루트의 활성 플랜(.md; README.md·archive/·
-// closed/ 제외 — 색인은 활성만 담는다).
+// activePlans — docs/plans 루트의 활성 플랜(.md; README.md·*.report.md
+// (빌드 리포트 — superlite finish 산물)·archive/·closed/ 제외 — 색인은
+// 활성만 담는다).
 func activePlans(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir("../../docs/plans")
@@ -24,7 +25,7 @@ func activePlans(t *testing.T) []string {
 	var plans []string
 	for _, e := range entries {
 		name := e.Name()
-		if e.IsDir() || !strings.HasSuffix(name, ".md") || name == "README.md" {
+		if e.IsDir() || !strings.HasSuffix(name, ".md") || name == "README.md" || strings.HasSuffix(name, ".report.md") {
 			continue
 		}
 		plans = append(plans, name)
