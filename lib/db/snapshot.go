@@ -13,6 +13,8 @@ package db
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"strconv"
 	"sync/atomic"
 	"time"
@@ -178,44 +180,82 @@ func (r *Repo) pruneThresholdSnapshots(ctx context.Context) error {
 	return err
 }
 
+// claimSettleDelay — the post-claim wait before the survival check
+// (v1.19.1 CI round 2). Doltgres commits same-row concurrent claims
+// LAST-WRITE-WINS without conflict and reports RowsAffected=1 to every
+// passer (measured: PR-216 CI — 4 hard-synchronized first-expiry
+// passes each saw the claim land and each seeded the baseline, 4×52
+// rows; the same race reproduced locally at GOMAXPROCS=4). RowsAffected
+// alone is therefore NOT a single-winner verdict on Doltgres. The
+// settle window lets every concurrently fired claim COMMIT first; the
+// survival SELECT then observes the final value and admits exactly the
+// last committer. Once-a-day path — the delay is free. A claim fired
+// later than the window would still win over the earlier survivor —
+// but it also re-closes the gate for its own pass, so the invariant
+// that holds is: at most the LAST claimant of any overlapping burst
+// seeds, and non-overlapping claims are serialized by the gate itself.
+const claimSettleDelay = 200 * time.Millisecond
+
+// newClaimToken — a unique claim value. The gate value carries the
+// claim TOKEN until the pass succeeds and the final RFC3339 stamp
+// replaces it — a freshness reader inside the sub-second claim window
+// sees an unparseable value, treated as "never stamped" (warn-only,
+// self-healing: a leftover token fails snapshotGateDue and the next
+// pass retries).
+func newClaimToken() string {
+	var b [8]byte
+	_, _ = rand.Read(b[:])
+	return "claim-" + hex.EncodeToString(b[:])
+}
+
 // claimThresholdSnapshotGate — the conditional pre-claim of the 24h
-// gate (v1.19.1): the single-winner primitive on the FIRST-EXPIRY
-// path (the absent row — INSERT ... DO NOTHING; 1 affected row = the
-// winner, the sole claim Doltgres honors under concurrency: its
-// same-row concurrent UPDATEs commit last-write-wins with 1 affected
-// row each — measured, the bumpDailyFlat LWW note). The present-row
-// path claims via an UPDATE pinned to the previously-read value — a
-// true single winner on PostgreSQL, a best-effort narrowing on
-// Doltgres (a pre-seeded table's concurrent change pass can still
-// double-append one changed row; the full-baseline double seeding is
-// what the absent-row claim closes). Errors claim nothing (false —
-// the quiet path).
-func (r *Repo) claimThresholdSnapshotGate(ctx context.Context, last, stamp string) bool {
+// gate (v1.19.1): commit a unique token onto the gate row (absent row:
+// INSERT ... DO NOTHING; present row: an UPDATE pinned to the
+// previously-read value), let any concurrent burst settle, then admit
+// the pass only if the token SURVIVED as the row's final value (the
+// last committer wins the LWW burst; every earlier claimant sees its
+// token gone and skips). Returns the surviving token, "" when another
+// process holds the pass. Errors claim nothing ("" — the quiet path).
+func (r *Repo) claimThresholdSnapshotGate(ctx context.Context, last string) string {
+	token := newClaimToken()
 	if last == "" {
 		tag, err := r.pool.Exec(ctx,
 			`INSERT INTO meta (key, value) VALUES ($1, $2)
-			 ON CONFLICT (key) DO NOTHING`, thresholdSnapshotGateKey, stamp)
-		return err == nil && tag.RowsAffected() == 1
+			 ON CONFLICT (key) DO NOTHING`, thresholdSnapshotGateKey, token)
+		if err != nil || tag.RowsAffected() != 1 {
+			return ""
+		}
+	} else {
+		tag, err := r.pool.Exec(ctx,
+			`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
+			token, thresholdSnapshotGateKey, last)
+		if err != nil || tag.RowsAffected() != 1 {
+			return ""
+		}
 	}
-	tag, err := r.pool.Exec(ctx,
-		`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
-		stamp, thresholdSnapshotGateKey, last)
-	return err == nil && tag.RowsAffected() == 1
+	if sleepCtx(ctx, claimSettleDelay) != nil {
+		return ""
+	}
+	var n int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM meta WHERE key = $1 AND value = $2`,
+		thresholdSnapshotGateKey, token).Scan(&n); err != nil || n != 1 {
+		return ""
+	}
+	return token
 }
 
 // maybeSnapshotThresholds — the read-path hook (the RecordReadEvent
 // tail, one line). Gate-checked per hour in-process, gated per day in
 // the DB. Concurrency contract (v1.19.1): the stamp write runs BEFORE
-// the pass as a CONDITIONAL CLAIM (claimThresholdSnapshotGate). On the
-// empty-table first expiry — the doubled-baseline defect — the
-// absent-row INSERT ... DO NOTHING admits exactly one passer of N, so
-// the full key set seeds exactly once; the present-row path narrows
-// best-effort under Doltgres's last-write-wins concurrent UPDATEs (see
-// the claim comment). A failed pass rolls the claim back to the
-// pre-claim value (the stamp-only-on-success contract keeps the retry
-// open); a rollback failure passes quietly — worst case the next
-// attempt waits out the stamp. All failures pass quietly (the metering
-// principle).
+// the pass as a commit-then-verify claim (claimThresholdSnapshotGate)
+// — of N processes passing an open gate together, only the one whose
+// token survives the settle seeds, so the empty-table first expiry
+// writes the full key set exactly once. A failed pass rolls the claim
+// back to the pre-claim value (the stamp-only-on-success contract
+// keeps the retry open); a rollback failure passes quietly — a
+// leftover token self-heals (unparseable → due on the next pass). All
+// failures pass quietly (the metering principle).
 func (r *Repo) maybeSnapshotThresholds(ctx context.Context) {
 	if !snapshotGateProbe(time.Now().UTC()) {
 		return
@@ -226,23 +266,29 @@ func (r *Repo) maybeSnapshotThresholds(ctx context.Context) {
 	if !snapshotGateDue(last, time.Now().UTC()) {
 		return
 	}
-	stamp := time.Now().UTC().Format(time.RFC3339)
-	if !r.claimThresholdSnapshotGate(ctx, last, stamp) {
-		return // another process claimed the pass — its stamp closed the gate
+	token := r.claimThresholdSnapshotGate(ctx, last)
+	if token == "" {
+		return // another process's claim survived the settle — its pass runs
 	}
 	if err := r.snapshotThresholds(ctx); err != nil {
 		// Roll the claim back to the pre-claim state so the failed pass
 		// keeps the retry open (stamp-only-on-success). Guarded by the
-		// claimed stamp value — a later legitimate stamp is never
-		// clobbered by this stale rollback.
+		// claim token — a later legitimate stamp is never clobbered by
+		// this stale rollback.
 		if last == "" {
 			_, _ = r.pool.Exec(ctx,
 				`DELETE FROM meta WHERE key = $1 AND value = $2`,
-				thresholdSnapshotGateKey, stamp)
+				thresholdSnapshotGateKey, token)
 		} else {
 			_, _ = r.pool.Exec(ctx,
 				`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
-				last, thresholdSnapshotGateKey, stamp)
+				last, thresholdSnapshotGateKey, token)
 		}
+		return
 	}
+	// Finalize the surviving claim to the RFC3339 stamp (guarded by the
+	// token; a failure leaves the token, which self-heals as due).
+	_, _ = r.pool.Exec(ctx,
+		`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
+		time.Now().UTC().Format(time.RFC3339), thresholdSnapshotGateKey, token)
 }

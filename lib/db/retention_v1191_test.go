@@ -155,84 +155,114 @@ func TestPruneReadEventsOverflowOverride(t *testing.T) {
 }
 
 // TestClaimThresholdSnapshotGateSingleWinner — R73 regression (slow):
-// the absent-row claim (the FIRST-EXPIRY path — the baseline-seeding
-// double-write defect) admits exactly one winner of N concurrent
-// passers via INSERT ... DO NOTHING. The present-row conditional
-// UPDATE path is deliberately NOT single-winner-asserted: Doltgres
-// commits same-row concurrent UPDATEs last-write-wins with 1 affected
-// row each (measured — the bumpDailyFlat LWW note), so only the
-// absent-row primitive is a portable claim.
+// the commit-then-verify claim admits exactly one winner of N
+// hard-synchronized concurrent passers on BOTH paths — absent-row
+// (the FIRST-EXPIRY baseline-seeding defect) and present-row. RowsAffected
+// alone cannot decide (Doltgres commits same-row concurrent claims
+// last-write-wins and reports 1 affected row to every passer — the
+// PR-216 CI race, 4×52 rows); the settle + token-survival check
+// narrows the burst to its last committer.
 func TestClaimThresholdSnapshotGateSingleWinner(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	stamp := time.Now().UTC().Format(time.RFC3339)
-	const n = 8
+	const n = 4 // the PR-216 CI shape
 
-	if _, err := r.pool.Exec(ctx,
-		`DELETE FROM meta WHERE key = $1`, thresholdSnapshotGateKey); err != nil {
-		t.Fatalf("게이트 키 삭제: %v", err)
+	claimBurst := func(last string) int32 {
+		var winners atomic.Int32
+		var ready, done sync.WaitGroup
+		start := make(chan struct{})
+		ready.Add(n)
+		done.Add(n)
+		for i := 0; i < n; i++ {
+			go func() {
+				defer done.Done()
+				ready.Done()
+				<-start
+				if r.claimThresholdSnapshotGate(ctx, last) != "" {
+					winners.Add(1)
+				}
+			}()
+		}
+		ready.Wait() // all parked — a hard-synchronized release
+		close(start)
+		done.Wait()
+		return winners.Load()
 	}
-	var winners atomic.Int32
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			<-start
-			if r.claimThresholdSnapshotGate(ctx, "", stamp) {
-				winners.Add(1)
-			}
-		}()
-	}
-	close(start)
-	wg.Wait()
-	if got := winners.Load(); got != 1 {
-		t.Fatalf("부재 행 선점 승자 %d명, want 1", got)
-	}
+
+	t.Run("부재 행 INSERT 경로", func(t *testing.T) {
+		if _, err := r.pool.Exec(ctx,
+			`DELETE FROM meta WHERE key = $1`, thresholdSnapshotGateKey); err != nil {
+			t.Fatalf("게이트 키 삭제: %v", err)
+		}
+		if got := claimBurst(""); got != 1 {
+			t.Fatalf("부재 행 선점 승자 %d명, want 1", got)
+		}
+	})
+
+	t.Run("존재 행 UPDATE 경로", func(t *testing.T) {
+		old := time.Now().UTC().Add(-25 * time.Hour).Format(time.RFC3339)
+		if _, err := r.pool.Exec(ctx,
+			`INSERT INTO meta (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
+			thresholdSnapshotGateKey, old); err != nil {
+			t.Fatalf("게이트 키 설정: %v", err)
+		}
+		if got := claimBurst(old); got != 1 {
+			t.Fatalf("존재 행 선점 승자 %d명, want 1", got)
+		}
+	})
 }
 
 // TestSnapshotSeedingSinglePassUnderConcurrency — R73 regression
-// (slow): N concurrent first-expiry passes (fresh-process simulation —
-// each goroutine zeroes the shared in-process gate cache, then a
-// barrier releases them together) seed the full key set EXACTLY once:
-// the row total equals the registry key count, not a multiple of it.
+// (slow): N hard-synchronized concurrent first-expiry passes
+// (fresh-process simulation — each goroutine zeroes the shared
+// in-process gate cache, a ready barrier parks them all, then one
+// release; the exact PR-216 CI shape, repeated because the race is
+// probabilistic — RowsAffected alone lied under Doltgres LWW) seed the
+// full key set EXACTLY once per round: the row total equals the
+// registry key count, never a multiple of it.
 func TestSnapshotSeedingSinglePassUnderConcurrency(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	saved := snapshotGateCheckedAt.Load()
 	t.Cleanup(func() { snapshotGateCheckedAt.Store(saved) })
-	if _, err := r.pool.Exec(ctx,
-		`DELETE FROM meta WHERE key = $1`, thresholdSnapshotGateKey); err != nil {
-		t.Fatalf("게이트 키 삭제: %v", err)
-	}
-	if _, err := r.pool.Exec(ctx, `DELETE FROM threshold_snapshots`); err != nil {
-		t.Fatalf("스냅숏 초기화: %v", err)
-	}
 
-	const n = 8
-	var wg sync.WaitGroup
-	start := make(chan struct{})
-	for i := 0; i < n; i++ {
-		wg.Add(1)
-		go func() {
-			defer wg.Done()
-			snapshotGateCheckedAt.Store(0) // fresh-process simulation
-			<-start
-			r.maybeSnapshotThresholds(ctx)
-		}()
-	}
-	close(start)
-	wg.Wait()
-
+	const n = 4      // the PR-216 CI shape
+	const rounds = 5 // probabilistic race — repeat the burst
 	want := len(wire.ThresholdsKeys())
-	var got int
-	if err := r.pool.QueryRow(ctx,
-		`SELECT count(*) FROM threshold_snapshots`).Scan(&got); err != nil {
-		t.Fatalf("시딩 행 카운트: %v", err)
-	}
-	if got != want {
-		t.Fatalf("병렬 첫 시딩 %d행, want %d(전체 키 1세트 — 이중 시딩 결함 재현)", got, want)
+	for round := 0; round < rounds; round++ {
+		if _, err := r.pool.Exec(ctx,
+			`DELETE FROM meta WHERE key = $1`, thresholdSnapshotGateKey); err != nil {
+			t.Fatalf("게이트 키 삭제: %v", err)
+		}
+		if _, err := r.pool.Exec(ctx, `DELETE FROM threshold_snapshots`); err != nil {
+			t.Fatalf("스냅숏 초기화: %v", err)
+		}
+		var ready, done sync.WaitGroup
+		start := make(chan struct{})
+		ready.Add(n)
+		done.Add(n)
+		for i := 0; i < n; i++ {
+			go func() {
+				defer done.Done()
+				snapshotGateCheckedAt.Store(0) // fresh-process simulation
+				ready.Done()
+				<-start
+				r.maybeSnapshotThresholds(ctx)
+			}()
+		}
+		ready.Wait() // all parked — a hard-synchronized release
+		close(start)
+		done.Wait()
+
+		var got int
+		if err := r.pool.QueryRow(ctx,
+			`SELECT count(*) FROM threshold_snapshots`).Scan(&got); err != nil {
+			t.Fatalf("시딩 행 카운트: %v", err)
+		}
+		if got != want {
+			t.Fatalf("round %d: 병렬 첫 시딩 %d행, want %d(전체 키 1세트 — 이중 시딩 결함 재현)", round, got, want)
+		}
 	}
 }
 
