@@ -431,3 +431,104 @@ func TestApproveUsesInjectedStore(t *testing.T) {
 		t.Fatalf("out=%q, want approved JSON", out.String())
 	}
 }
+
+// originCounterFakeV — answers the promotion-path origin lookup with a
+// canned origin while collecting every counter UPSERT (the
+// counterCaptureV convention — the same queryFn surface).
+type originCounterFakeV struct {
+	origin string
+	cap    *counterCaptureV
+}
+
+func (o *originCounterFakeV) fn(sql string, args []any) ([][]any, error) {
+	o.cap.queries = append(o.cap.queries, capturedQueryV{sql, args})
+	if strings.Contains(sql, "SELECT origin FROM knowledge") {
+		return [][]any{{o.origin}}, nil
+	}
+	return nil, nil
+}
+
+// TestApproveOriginCounters — v1.17.0 T4: a successful promotion counts
+// per write source — origin=correction bumps daily:correction_approved,
+// origin=gap bumps daily:gap_approved, and other origins (agent) count
+// nothing. The general approve_done still fires in parallel. The bumped
+// key is the daily flat form `daily:<kind>:<UTC date>` — exactly the
+// PruneDaily daily:* cleanup surface (the retention boundary).
+func TestApproveOriginCounters(t *testing.T) {
+	today := counterToday()
+	cases := []struct {
+		name     string
+		origin   string
+		wantKind string
+	}{
+		{"correction 소스", "correction", "daily:correction_approved:" + today},
+		{"gap 소스", "gap", "daily:gap_approved:" + today},
+		{"비대상 소스(agent)", "agent", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cap := &counterCaptureV{}
+			o := &originCounterFakeV{origin: tc.origin, cap: cap}
+			f := &approveStoreFake{fakeStore: &fakeStore{queryFn: o.fn}}
+			var out bytes.Buffer
+			if code := RunApprove(context.Background(), f, []string{"--id", "7"},
+				strings.NewReader(""), &out); code != 0 {
+				t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
+			}
+			if got := cap.sum("daily:approve_done:" + today); got != 1 {
+				t.Errorf("approve_done 증분=%d, want 1(병행 발화)", got)
+			}
+			if tc.wantKind != "" {
+				if got := cap.sum(tc.wantKind); got != 1 {
+					t.Errorf("%s 증분=%d, want 1", tc.wantKind, got)
+				}
+			}
+			other := "daily:correction_approved:" + today
+			if tc.wantKind == other {
+				other = "daily:gap_approved:" + today
+			}
+			if got := cap.sum(other); got != 0 {
+				t.Errorf("비발화 키 %s 증분=%d, want 0", other, got)
+			}
+		})
+	}
+}
+
+// TestApproveOriginCounterQuietOnLookupFailure — an origin-lookup failure
+// (query error·row absence) skips the origin counter quietly — the
+// promotion output and exit are unaffected (§13 non-interference).
+func TestApproveOriginCounterQuietOnLookupFailure(t *testing.T) {
+	for name, st := range map[string]wire.Store{
+		"쿼리 실패": &approveStoreFake{fakeStore: &fakeStore{queryErr: fmt.Errorf("db down")}},
+		"행 부재":  &approveStoreFake{fakeStore: &fakeStore{}},
+	} {
+		t.Run(name, func(t *testing.T) {
+			var out bytes.Buffer
+			if code := RunApprove(context.Background(), st, []string{"--id", "7"},
+				strings.NewReader(""), &out); code != 0 {
+				t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
+			}
+			if !strings.Contains(out.String(), `"status":"approved"`) {
+				t.Fatalf("out=%q, want approved JSON", out.String())
+			}
+		})
+	}
+}
+
+// TestCurationCounterKindsV1170 — the whitelist covers the three v1.17.0
+// kinds (correction_approved·gap_approved·survived_sessions — 8→11, the
+// intake + review principle) and still rejects unknown kinds (the cap
+// principle).
+func TestCurationCounterKindsV1170(t *testing.T) {
+	if len(curationCounterKinds) != 11 {
+		t.Fatalf("curationCounterKinds 수=%d, want 11", len(curationCounterKinds))
+	}
+	for _, k := range []string{"correction_approved", "gap_approved", "survived_sessions"} {
+		if !curationCounterKinds[k] {
+			t.Errorf("curationCounterKinds에 %q 미등록", k)
+		}
+	}
+	if curationCounterKinds["typo_kind"] {
+		t.Error("미지원 종류가 등록된 것으로 집계됨")
+	}
+}

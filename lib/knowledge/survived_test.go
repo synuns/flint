@@ -224,3 +224,58 @@ func TestSurvivedCountsQueryError(t *testing.T) {
 		t.Errorf("쿼리 실패 에러 전파 없음")
 	}
 }
+
+// TestSnapshotSurvivedSessions — v1.17.0 T4: the decay-audit observation
+// snapshot — the count of ids with survived >= 1 in a SurvivedCounts
+// result is bumped once as `daily:survived_sessions:<UTC date>` (the
+// maintain --decay-audit consumption). Zero surviving ids issue no query
+// at all (n<=0 quiet); the key is the daily flat form PruneDaily's
+// daily:* regex cleans.
+func TestSnapshotSurvivedSessions(t *testing.T) {
+	today := time.Now().UTC().Format("2006-01-02")
+
+	t.Run("survived≥1 id 수 스냅숏", func(t *testing.T) {
+		kreads := []survivedKreadsRow{
+			{1, "sn-s1", "read"}, {1, "sn-s1", "hot"}, // id 1 → 1 session
+			{2, "sn-s2", "read"}, {2, "sn-s2", "read"}, // id 2 → 1 session
+			{3, "sn-s3", "read"}, // single read → absent
+		}
+		cap := &counterCaptureV{}
+		st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "knowledge_reads") {
+				return survivedFakeEngine(kreads)(sql, args)
+			}
+			cap.queries = append(cap.queries, capturedQueryV{sql, args})
+			return nil, nil
+		}}
+		counts, err := SurvivedCounts(context.Background(), st, []int{1, 2, 3})
+		if err != nil {
+			t.Fatalf("SurvivedCounts 에러: %v", err)
+		}
+		SnapshotSurvivedSessions(context.Background(), st, counts)
+		if got := cap.sum("daily:survived_sessions:" + today); got != 2 {
+			t.Errorf("survived_sessions 증분=%d, want 2(id 1·2)", got)
+		}
+	})
+
+	t.Run("전원 0이면 미발화", func(t *testing.T) {
+		cap := &counterCaptureV{}
+		st := &fakeStore{queryFn: cap.fn}
+		SnapshotSurvivedSessions(context.Background(), st, map[int]int{1: 0, 2: 0})
+		if got := cap.sum("daily:survived_sessions:"); got != 0 {
+			t.Errorf("0 인원 증분=%d, want 0", got)
+		}
+		if len(cap.queries) != 0 {
+			t.Errorf("n<=0인데 쿼리 %d건, want 0", len(cap.queries))
+		}
+	})
+
+	t.Run("빈 map 미발화", func(t *testing.T) {
+		cap := &counterCaptureV{}
+		st := &fakeStore{queryFn: cap.fn}
+		SnapshotSurvivedSessions(context.Background(), st, nil)
+		if len(cap.queries) != 0 {
+			t.Errorf("빈 map 쿼리 %d건, want 0", len(cap.queries))
+		}
+	})
+}

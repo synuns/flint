@@ -37,8 +37,10 @@ var ApproveFn = func(ctx context.Context, id int) error {
 // quoteJSON — wraps strings such as paths into a JSON string literal.
 var quoteJSON = wire.QuoteJSON
 
-// curationCounterKinds — the daily counter kind whitelist for review
-// (curation) (spec §2.4 gap 1). Key kinds are capped at these eight
+// curationCounterKinds — the daily counter kind whitelist covering both
+// intake and review (curation) outcomes (spec §2.4 gap 1; principle
+// widened v1.17.0 — the funnel observation spans ingestion sources and
+// review results). Key kinds are capped at these eleven
 // (preventing infinite key proliferation from typo'd kinds — the
 // diagnostics·report curation objects consume the same namespace). A
 // dedicated key space, distinct from the existing intake metering
@@ -48,6 +50,8 @@ var curationCounterKinds = map[string]bool{
 	"approve_done": true, "approve_not_found": true, "approve_supersede_err": true,
 	"maintain_supersede": true, "maintain_expire": true, "maintain_prune_rows": true,
 	"import_added": true, "import_skipped": true,
+	"correction_approved": true, "gap_approved": true, // v1.17.0 T4 — promotion per write source (review funnel)
+	"survived_sessions": true, // v1.17.0 T4 — the decay-audit survived snapshot (observability)
 }
 
 // BumpCurationCounter — increments one daily flat-key review counter (v1.2.0
@@ -140,6 +144,11 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return store.MapExit(err)
 	}
 	BumpCurationCounter(ctx, st, "approve_done", 1) // review counter — one successful promotion
+	// Origin-based promotion counter (v1.17.0 T4) — which write source the
+	// promoted row came from (correction·gap) is the review-funnel
+	// observation. Quiet on lookup failure (§13 — a lost counter beats a
+	// failed call).
+	bumpApproveOriginCounter(ctx, st, id)
 	// Supersede at promotion time — approve --id N --supersede OLD
 	// invalidates OLD (the old active knowledge) in favor of N and records
 	// the precedence, all at once (the same UPDATE as the maintain
@@ -185,6 +194,40 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 }
 
 func init() { wire.Register("approve", RunApprove) }
+
+// approveOriginCounterKind — maps a knowledge origin to its promotion
+// counter kind (v1.17.0 T4). Only the agent-fed write sources with a
+// review funnel are counted; other origins (agent·session) return false.
+func approveOriginCounterKind(origin string) (string, bool) {
+	switch origin {
+	case "correction":
+		return "correction_approved", true
+	case "gap":
+		return "gap_approved", true
+	}
+	return "", false
+}
+
+// bumpApproveOriginCounter — after a successful promotion, looks up the
+// promoted row's origin and increments the per-source review counter
+// (correction_approved·gap_approved). Every failure path (nil st·query
+// error·row absence·non-funnel origin) is quiet — the promotion itself
+// is already complete (§13 non-interference).
+func bumpApproveOriginCounter(ctx context.Context, st wire.Store, id int) {
+	if st == nil {
+		return
+	}
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT origin FROM knowledge WHERE id = $1`, []any{id})
+	if err != nil || len(rows) == 0 || rows[0][0] == nil {
+		return
+	}
+	kind, ok := approveOriginCounterKind(fmt.Sprint(rows[0][0]))
+	if !ok {
+		return
+	}
+	BumpCurationCounter(ctx, st, kind, 1)
+}
 
 // supersedeStore — the supersede-transition capability. realStore implements
 // it; the renewal UPDATE has the single path db.Repo.Supersede (rows-affected
