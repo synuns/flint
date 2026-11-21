@@ -1140,18 +1140,3 @@ func (r *Repo) StaleSessionRuns(ctx context.Context, agent string) (int, error) 
 	}
 	return stale, nil
 }
-
-// ensureExists checks that the id exists in knowledge and returns
-// ErrNotFound otherwise.
-func (r *Repo) ensureExists(ctx context.Context, id int, op string) error {
-	var one int
-	err := r.pool.QueryRow(ctx,
-		`SELECT 1 FROM knowledge WHERE id = $1`, id).Scan(&one)
-	if errors.Is(err, pgx.ErrNoRows) {
-		return ErrNotFound
-	}
-	if err != nil {
-		return fmt.Errorf("%s: lookup: %w", op, err)
-	}
-	return nil
-}
