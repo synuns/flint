@@ -396,6 +396,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01150Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.15.0", "distribution",
 	}},
+	// v1.16.0: 검색·성능 — read 토큰 스코어링 재순위·profile 2상 병렬
+	// 수집·scratch DROP self-check.
+	{name: "TestVersion01160Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.16.0", "search-perf",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

@@ -6,6 +6,42 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.16.0 minor (2026-11-21) — search-perf: token-scored read ranking · parallel profile collection
+
+(spec: docs/plans/2026-11-21-flint-v1160.md). Two performance-shaped
+changes on one spine: `read` results improve (not byte-identical —
+spec-mandated) while `profile` output stays byte-identical to the
+sequential oracle.
+
+- read token rerank (T1): the phrase-hit rows are reranked in-memory
+  before rendering by per-token tier scores — topic prefix 4 > summary
+  prefix 3 > topic contains 2 > summary contains 1, plus a +1 cover
+  bonus per matched token (covering more tokens beats one lower-tier
+  hit); both sides are NFKC·lower·whitespace normalized. Ties keep the
+  SQL order (`sort.SliceStable`). The SQL LIMIT is untouched — the
+  reorder happens inside the returned window only, and the fallback
+  path (`ReorderByFallbackCount`) is never re-reordered
+  (double-reorder prohibition; FirstExactRank eligibility unchanged).
+- parallel profile collection (T2): `collectEffect` runs in two
+  errgroup phases — phase 1 issues the 5 non-dependent SELECTs
+  concurrently (exposed set·active/reused count·dead ids·read
+  events·kreads), phase 2 runs the post-join collectors with disjoint
+  out-field ownership (cost vs recall-fate vs the two query locals);
+  phase 3 (recall lead·hint·pairing·chaining) stays sequential. Error
+  priority stays deterministic (count > dead > read-events) and the
+  JSON output is byte-identical to the sequential oracle (regression
+  test in the owning package); `-race` green.
+- scratch self-check (T3): `lib/db` gains a `TestMain` that collects
+  scratch DB names whose cleanup DROP failed and prints one stderr
+  warning after the run — a server-residue alert, never a failure
+  (exit code unchanged; the no-DSN skip contract is untouched).
+
+Rulings: token scoring applies to `read` only — hot/brief keep their
+decay-rank + budget contracts (improvement deferred). The rerank
+reorders within the SQL LIMIT window only — window widening is a
+non-goal (an extreme case can still miss a top row outside the
+window).
+
 ### v1.15.0 minor (2026-11-21) — distribution: one-line installer · provenance attestation · security policy
 
 (spec: docs/plans/2026-11-21-flint-v1150.md). Distribution and trust
@@ -35,6 +71,9 @@ foundations — how flint reaches users and how users verify what they got.
   formula deprecation for binary releases — same sha256 trust chain as
   the manual path; tap in preparation); cosign keyless dual-signing
   rejected as redundant — the existing key signing stays.
+
+
+### v1.14.1 patch (2026-11-21) — r57-hookfix: correction hook precision — the bare "다시" marker fired on casual reuse ("내일 다시 얘기하자"), so it now requires a follow-up verb (해/줘/보자/알려, optional space) · the snippet jq pass switched from per-line `-R` to whole-input `-Rs`, restoring the first-match-only fragment contract on multi-line prompts (two matched lines no longer accrue both) with the ±80-codepoint context now spanning newlines (the topic slice took the same fix)
 
 ### v1.14.0 minor (2026-11-21) — pipeline-complete: knowledge pipeline step 3 (A-plan hook-detected corrections · survived decay relief · the seven-case registry)
 

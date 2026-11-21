@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.15.0-blue" alt="v1.15.0">
+  <img src="https://img.shields.io/badge/release-v1.16.0-blue" alt="v1.16.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -49,6 +49,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
 > v1.15.0 · distribution — one-line installer · provenance attestation · security policy · [full changelog](docs/HISTORY.md)
+> v1.16.0 · search-perf — token-scored recall ranking for `read` (prefix > contains tiers · NFKC normalization · window-only reorder) · parallel profile collection · [full changelog](docs/HISTORY.md)
 > v0.43.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/HISTORY.md)
 > v0.44.0 · PLAN rearm · surface contracts · command-table guard · [full changelog](docs/HISTORY.md)
 > v1.7.2 · telemetry attribution · sync mitigation · probe heal (R38) · [full changelog](docs/HISTORY.md)
@@ -113,7 +114,7 @@ ver=$(curl -fsSL https://api.github.com/repos/synuns/flint/releases/latest \
 asset="flint_${ver#v}_darwin_arm64.tar.gz"          # adjust: darwin|linux _ arm64|amd64
 base="https://github.com/synuns/flint/releases/download/$ver"
 curl -fsSLO "$base/checksums.txt" "$base/$asset"
-grep " $asset\$" checksums.txt | shasum -a 256 -c -  # no shasum? pipe to: sha256sum -c -
+line=$(grep " $asset\$" checksums.txt) && [ -n "$line" ] && echo "$line" | shasum -a 256 -c -  # no shasum? pipe to: sha256sum -c -
 tar -xzf "$asset" && install flint ~/.local/bin
 ```
 

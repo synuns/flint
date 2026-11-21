@@ -971,6 +971,85 @@ func TestRunReadAsOfSkipsGapCount(t *testing.T) {
 	}
 }
 
+// ── v1.16.0 T1 — the phrase-hit token rerank (before render.Cells, gated
+// on !fallbackTried). ──
+
+// TestRunReadPhraseHitTokenRerank — the phrase-hit rows are reranked
+// in-memory by token tier scores before the output: the topic-prefix row
+// (token score 5+5) overtakes the SQL-order fixture head (summary
+// containment 2+2). The SQL LIMIT and the hot/brief paths are unchanged.
+func TestRunReadPhraseHitTokenRerank(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM active_knowledge") {
+			return [][]any{
+				{"1", "설정 가이드", "백업 정책 안내 포함", ":b:", "", "", "0.95", "active", "0"},
+				{"2", "백업 정책", "매일 실행", ":b:", "", "", "0.8", "active", "0"},
+			}, nil
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("출력 라인 수 = %d, want 2: %q", len(lines), out.String())
+	}
+	if !strings.HasPrefix(lines[0], "2|백업 정책|") {
+		t.Errorf("토큰 재배치 미적용 — 상위=%q, want 2|백업 정책(topic 접두 2토큰)", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "1|설정 가이드|") {
+		t.Errorf("후순위=%q, want 1|설정 가이드(summary 포함)", lines[1])
+	}
+	// FirstExactRank interplay — after the rerank the exact topic match is
+	// still rank 1 (the eligibility gate !fallbackTried is untouched).
+	if rank := FirstExactRank(
+		[][]any{{"2", "백업 정책", "매일 실행"}, {"1", "설정 가이드", "백업 정책 안내 포함"}},
+		"백업 정책"); rank != 1 {
+		t.Errorf("재배치 후 FirstExactRank = %d, want 1", rank)
+	}
+}
+
+// TestRunReadFallbackOrderNotRerankedByTokenScore — the fallback path's
+// RRF order survives: rows already reranked by ReorderByFallbackCount are
+// NOT re-reordered by the token scores (the !fallbackTried gate). The
+// fixture is adversarial — a token rerank would flip the head (topic
+// prefix 5 > summary contains 4).
+func TestRunReadFallbackOrderNotRerankedByTokenScore(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM active_knowledge"):
+			if strings.Contains(sql, " OR ") { // the fallback OR re-query
+				return [][]any{
+					{"1", "설정", "백업 절차 안내", ":d:", "", "", "0.9", "active", int32(100)},
+					{"2", "백업", "메모 없음", ":d:", "", "", "0.8", "active", int32(0)},
+				}, nil
+			}
+			return nil, nil // the phrase query is zero-hit
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 절차"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
+	if len(lines) != 2 {
+		t.Fatalf("출력 라인 수 = %d, want 2: %q", len(lines), out.String())
+	}
+	// RRF fusion: row 1 wins on matchCount 2 + read 100 + jamo 2 (the
+	// token-score order would head with row 2 — a flip means the gate broke).
+	if !strings.HasPrefix(lines[0], "1|설정|") {
+		t.Errorf("폴백 RRF 순서 침해 — 상위=%q, want 1|설정(이중 재배치 의심)", lines[0])
+	}
+	if !strings.HasPrefix(lines[1], "2|백업|") {
+		t.Errorf("폴백 후순위=%q, want 2|백업", lines[1])
+	}
+}
+
 // gapAsOfStore — the asOfStore fake layered with the gapq meta
 // interception (an as-of zero-hit on owned ground still must not bump).
 type gapAsOfStore struct {

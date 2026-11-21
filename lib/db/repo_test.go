@@ -195,6 +195,7 @@ func newScratchTestRepo(t *testing.T, ctx context.Context) *Repo {
 	t.Cleanup(func() {
 		if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name); err != nil {
 			t.Logf("scratch DROP %s 실패(서버 잔존 가능): %v", name, err)
+			recordScratchDropFailure(name)
 		}
 	})
 	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {

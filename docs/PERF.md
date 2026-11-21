@@ -66,6 +66,27 @@ Equivalence is part of every performance claim: each fix ships with
 verdict/output equivalence regressions (identical results, byte-identical
 output where applicable — the PAM checksum reproduction is first priority).
 
+## 2b. v1.16.0 search-perf results (synthetic)
+
+Fixture: an isolated scratch DB on the compose Doltgres instance
+(`flint_perf_v1160`, dropped after the run) — 2,000 synthetic knowledge
+rows (seed-1160 generator), 40k `read_events` / 60k `knowledge_reads` /
+2k `hot_events` / 100 `session_starts` spread over 7 days. The
+"before" binary is the v1.14.1 source (`git archive` of the release
+merge) built and run against the identical fixture; the "after" binary
+is the v1.16.0 worktree build. Each figure is the median of 3 runs
+(read: p95 over 40 CLI invocations per run, rounds interleaved across
+binaries; profile: single-invocation wall-clock, interleaved).
+
+| Operation | Scale (synthetic) | Before (v1.14.1, median of 3) | After (v1.16.0, median of 3) |
+|---|---|---|---|
+| `read` 3-token phrase query (`--limit 50`) with the in-window token rerank (T1) | 2k knowledge rows | 184.3ms p95 | 167.4ms p95 — round ranges overlap (before 181–219ms, after 154–199ms): within run-to-run noise, i.e. **no measurable rerank cost** (the rerank is O(window) in-memory; the SQL LIMIT and scan are untouched) |
+| `profile` wall-clock — `collectEffect` 2-phase parallel collection (T2) | 2k knowledge / 40k read_events / 60k knowledge_reads / 2k hot_events | 7.952s | 7.735s (−2.7%) — ranges overlap (before 7.46–8.14s, after 7.51–8.07s): the win is structurally bounded — the 5 non-dependent SELECTs now overlap their round-trips, while app-side row processing dominates at this scale |
+
+Read quality is the actual T1 deliverable and is not a PERF number:
+the rerank changes the within-window order (spec-mandated improvement,
+not byte-identical), guarded by the owning-package regression tests.
+
 ## 3. Known limitations
 
 - **Doltgres does not support pg_trgm**, so `read`'s LIKE matching cannot
