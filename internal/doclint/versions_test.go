@@ -417,6 +417,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01171Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.17.1", "r64-observability",
 	}},
+	// v1.17.2: R65 패치 — v1.17.1의 correction origin 기본값이 해시 입력을
+	// 바꿔 재전송 dedup를 파괴한 결함 수정(origin 스탬프를 해시 이후로).
+	{name: "TestVersion01172Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.17.2", "r65-dedup",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
