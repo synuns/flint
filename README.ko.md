@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.17.1-blue" alt="v1.17.1">
+  <img src="https://img.shields.io/badge/release-v1.17.2-blue" alt="v1.17.2">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.17.2 · r65-dedup — correction 해시 origin 제외 · [전체 변경 이력](docs/HISTORY.md)
 > v1.17.1 · r64-observability — origin 추적 수정 · [전체 변경 이력](docs/HISTORY.md)
 > v1.17.0 · echo — 쓰기 시점 모순 감지 · 관측 키 3종 · [전체 변경 이력](docs/HISTORY.md)
 > v1.16.2 · R62 — highlight order contract tests (latest-first + EN/KO parity) · [full changelog](docs/HISTORY.md)
@@ -57,7 +58,6 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 > v1.9.1 · R42 하드닝 — 다중 기기 이식(jsonl 회상 재생)·회상 이벤트 수명 관리 · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.2 · R43 회복성 — import 회상 이관 회복성·신규 DB 스키마 직행·문서 정합 · [전체 변경 이력](docs/HISTORY.md)
 > v1.9.3 · TUI·성능 — 저화면 TUI 크롬 최소화·report 병렬 수집·tuning --tui 옵트인 · [전체 변경 이력](docs/HISTORY.md)
-> v1.9.4 · R45 하드닝 — 테스트 레이스 위생·tuning --tui 문서 · [전체 변경 이력](docs/HISTORY.md)
 > v1.10.0 · 위생(hygiene) — 424개 파일 주석 영어화·slow 스위트 34.5% 단축·테스트 레이스 수정 · [전체 변경 이력](docs/HISTORY.md)
 > v1.10.1 · R47 — v1.10.0 수치 정정 · [전체 변경 이력](docs/HISTORY.md)
 > v1.10.2 · R48 — 기록 위생(중복 헤딩·순서) · [전체 변경 이력](docs/HISTORY.md)

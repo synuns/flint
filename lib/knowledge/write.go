@@ -95,16 +95,14 @@ func correctionTodayCount(ctx context.Context, st wire.Store) int {
 // (an absent tags becomes ["correction"]; an existing list is appended
 // unless already present — idempotent). An explicitly given confidence
 // (including 0) is respected — the manual contract unchanged.
-// v1.17.1: a missing/empty origin also defaults to "correction" — the
-// Normalize fallback "agent" would deaden the approve-time promotion
-// counter (correction_approved keys on the stored origin). An explicitly
-// given origin is respected (the confidence convention).
+// v1.17.2 (r65): the origin default moved OUT of here — mutating the
+// payload before HashCanonical changed the hash input, so a resend of
+// the same correction payload against a pre-v1.17.1 row (whose hash
+// carries the Normalize "agent" fallback) was judged new, not duplicate.
+// The origin stamp now sits after the hash (applyCorrectionOrigin).
 func applyCorrectionDefaults(p map[string]any, def float64) {
 	if _, ok := p["confidence"]; !ok {
 		p["confidence"] = def
-	}
-	if s, _ := p["origin"].(string); s == "" {
-		p["origin"] = "correction"
 	}
 	switch tags := p["tags"].(type) {
 	case []any:
@@ -123,6 +121,21 @@ func applyCorrectionDefaults(p map[string]any, def float64) {
 		p["tags"] = append(tags, "correction")
 	default:
 		p["tags"] = []any{"correction"}
+	}
+}
+
+// applyCorrectionOrigin — the post-hash origin stamp (v1.17.1 origin
+// tracking, v1.17.2 placement): the stored origin "correction" (the
+// approve-time promotion counter correction_approved keys on it) is set
+// on the normalized record AFTER the content hash is computed, the
+// gapCandidateHash convention — the hash input keeps the Normalize
+// fallback shape ("agent" for a payload without origin), so an identical
+// correction payload resend — including against rows stored before
+// v1.17.1 — still succeeds the duplicate ruling (r65). An explicitly
+// given origin is respected (the confidence convention).
+func applyCorrectionOrigin(p, n map[string]any) {
+	if s, _ := p["origin"].(string); s == "" {
+		n["origin"] = "correction"
 	}
 }
 
@@ -640,6 +653,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			// (HashCanonical — valid_at etc.) so resending the same payload
 			// is judged duplicate (seeding idempotence).
 			h := store.ContentHash(store.HashCanonical(n))
+			// v1.17.2 (r65): the correction origin stamps the record only
+			// AFTER the hash — the injected origin must never enter the
+			// hash input (the dedup break of v1.17.1).
+			if source == "correction" {
+				applyCorrectionOrigin(p, n)
+			}
 			if seen[h] { // a duplicate line within the same batch is also skipped
 				dups++
 				continue

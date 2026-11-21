@@ -6,6 +6,23 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.17.2 patch (2026-11-21) — r65-dedup: correction resend dedup restored
+
+(R65 audit finding). The v1.17.1 origin default injected "correction"
+into the payload BEFORE HashCanonical — the changed hash input made an
+identical correction payload resend (against a row stored before
+v1.17.1, whose hash carries the Normalize "agent" fallback) judge new
+(ADD) instead of duplicate.
+
+- the correction origin stamp moved AFTER the content-hash computation
+  (applyCorrectionOrigin — the gapCandidateHash convention): the hash
+  input keeps the pre-v1.17.1 shape while the stored origin stays
+  "correction" (the approve promotion counter key). An explicitly given
+  origin is respected.
+- slow e2e additions: the correction resend duplicate ruling (against a
+  pre-v1.17.1-shaped row) and the gap accrue → approve → gap_approved
+  counter funnel.
+
 ### v1.17.1 patch (2026-11-21) — r64-observability: write-source origin tracking fix · echo doc/cost cleanup
 
 (R64 audit findings). The v1.17.0 promotion counters were dead on their
