@@ -338,9 +338,13 @@ keys). The full list and defaults of `diag_*` tuning keys: docs/TUNING.md §2.
 4. Never cite operational measured numbers as "evidence" in this document ·
    specs · commit messages — evidence stays general prose (top-level
    repository principle).
-5. Never use effect metrics as triggers for automatic behavior changes
-   (blocking · injection boosts) — observation and reporting only (keeping
-   §13 non-interference).
+5. Never use effect metrics as triggers for automatic behavior changes on
+   the agent surface (blocking · injection boosts) — observation and
+   reporting only (keeping §13 non-interference). Exception (ADR-0017,
+   2026-11-21): policy-delegated autonomous tuning of flint's own
+   thresholds — bounded ranges, trust ladder, independent-metric
+   verification and auto-revert — is self-management, not agent
+   interference.
 6. Never report byte metrics converted into tokens — conversion-coefficient
    estimates breed error and overconfidence. Bytes as-is (v1.1.0 G5).
 
