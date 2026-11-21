@@ -175,6 +175,15 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
 				return 3
 			}
+			if o.Name == "--days" && n > db.MaxRetentionDays {
+				// the day-count ceiling guard (v1.19.2): a value past the largest
+				// day count a time.Duration holds cannot be honored (it would wrap)
+				// — rejected up front instead of silently clamped, the usage-error
+				// exit 3 convention.
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf(
+					"maintain: --days %s over the %d-day ceiling", o.Value, db.MaxRetentionDays)))
+				return 3
+			}
 			if o.Name == "--days" {
 				days = n
 			} else {
@@ -188,6 +197,13 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			n, err := strconv.Atoi(o.Value)
 			if err != nil || n <= 0 {
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
+				return 1
+			}
+			if n > db.MaxRetentionDays {
+				// the day-count ceiling guard (v1.19.2) — the expire-family exit 1
+				// convention (a value past the Duration ceiling cannot be honored).
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf(
+					"maintain: %s %s over the %d-day ceiling", o.Name, o.Value, db.MaxRetentionDays)))
 				return 1
 			}
 			expireDays = n
@@ -587,8 +603,10 @@ func listStale(ctx context.Context, ms MaintStore, daysOverride, limit int) ([]s
 	// The cutoff is computed in Go and passed as a timestamptz parameter. An SQL
 	// ($1 * interval) product makes Doltgres infer $1 as interval (OID 1186) and pgx fails the
 	// int encoding (maintain --stale exit 1). The SQL and Go filters use the same cutoff,
-	// so the boundaries match too.
-	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	// so the boundaries match too. DaysCutoff clamps the days (the v1.19.2 overflow sweep —
+	// a stale_days override past the Duration ceiling used to wrap the cutoff into the
+	// future, sweeping every active row into the stale list).
+	cutoff := db.DaysCutoff(days, time.Now())
 	rows, err := wire.QueryOnce(ctx, ms, `
 		SELECT id, topic, last_read_at, ingested_at, read_count
 		FROM knowledge
@@ -753,7 +771,10 @@ type expireItem struct {
 const expireListLimit = 20
 
 func listExpiredPending(ctx context.Context, ms MaintStore, days int) ([]expireItem, time.Time, error) {
-	cutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	// DaysCutoff clamps the days (the v1.19.2 overflow sweep) — an N past
+	// the Duration ceiling used to wrap the cutoff into the future (every
+	// pending row an expiry target).
+	cutoff := db.DaysCutoff(days, time.Now())
 	// the dry-run listing cap — the same LIMIT convention as listStale
 	// (default 20), preventing an unbounded JSON listing.
 	rows, err := wire.QueryOnce(ctx, ms, `
@@ -1398,7 +1419,7 @@ func drillReport(ctx context.Context, st wire.Store) string {
 	if err != nil {
 		return `,"drill":"never"`
 	}
-	if time.Since(last) > time.Duration(maxDays)*24*time.Hour {
+	if time.Since(last) > db.DaysSpan(maxDays, time.Now()) {
 		return `,"drill":"stale"`
 	}
 	return ""

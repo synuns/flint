@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -726,7 +727,10 @@ func collectCounts(ctx context.Context, st wire.Store, days int, th store.Thresh
 	if len(rows) > 0 {
 		ReadCounters(rows[0], &out.Counts.Pending, &out.Counts.Active, &out.Counts.Invalidated)
 	}
-	staleCutoff := time.Now().Add(-time.Duration(th.StaleDays) * 24 * time.Hour)
+	// DaysCutoff clamps the days (the v1.19.2 overflow sweep) — a stale_days
+	// override past the Duration ceiling used to wrap the cutoff into the
+	// future, counting every active row stale.
+	staleCutoff := db.DaysCutoff(th.StaleDays, time.Now())
 	rows, err = wire.QueryOnce(ctx, st, `
 		/* stale */ SELECT count(CASE WHEN (last_read_at IS NOT NULL AND last_read_at < $1)
 		                         OR (read_count = 0 AND ingested_at < $1) THEN 1 END),
@@ -740,7 +744,7 @@ func collectCounts(ctx context.Context, st wire.Store, days int, th store.Thresh
 	if len(rows) > 0 {
 		ReadCounters(rows[0], &out.Stale.Days90, &out.Stale.NeverRead)
 	}
-	periodCutoff := time.Now().Add(-time.Duration(days) * 24 * time.Hour)
+	periodCutoff := db.DaysCutoff(days, time.Now())
 	rows, err = wire.QueryOnce(ctx, st, `
 		SELECT count(*) FROM knowledge WHERE invalid_at >= $1`,
 		[]any{periodCutoff})
@@ -801,14 +805,16 @@ func CollectEffect(ctx context.Context, st wire.Store, days int, out *ReportOutp
 
 func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresholds, out *ReportOutput) error {
 	now := time.Now()
-	windowStart := now.Add(-time.Duration(days) * 24 * time.Hour)
+	// windowStart shares the DaysCutoff clamp (the v1.19.2 overflow sweep) — a
+	// huge --days value clamps to the ceiling span instead of wrapping negative.
+	windowStart := db.DaysCutoff(days, now)
 	// decision-window thresholds — caller-injected (th, the once-per-command-scope
 	// shared load — the load-failure fallback is already applied by WriteThresholds).
 	pairWindow := time.Duration(th.PairWindowMin) * time.Minute
 	chainWindow := time.Duration(th.ChainWindowH) * time.Hour
 
 	// ── G3 (+ exposure-consistency guard) ──
-	deadCutoff := now.Add(-time.Duration(th.DeadDays) * 24 * time.Hour)
+	deadCutoff := db.DaysCutoff(th.DeadDays, now)
 	// The fetch window is max(days, 14 days) — fixing the defect where the trend's prev
 	// window (the prior 7 days) was cut off by the reporting-window cutoff and trend stayed
 	// permanently blank at the default --days 7. The tallies keep each metric's own window (Σ is after windowStart).
@@ -1479,7 +1485,7 @@ func collectRecallFate(ctx context.Context, st wire.Store, out *ReportOutput, re
 			first[r.KnowledgeID] = r.Ts
 		}
 	}
-	cutoff := now.Add(-recallFateDays * 24 * time.Hour)
+	cutoff := db.DaysCutoff(recallFateDays, now)
 	judged := map[int]bool{}
 	for id, ts := range first {
 		if !ts.After(cutoff) {
