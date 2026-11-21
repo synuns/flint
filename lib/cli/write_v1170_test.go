@@ -1,0 +1,179 @@
+// write_v1170_test.go — v1.17.0 T2: the --source-independent echo field
+// end-to-end (real-DB slow, an isolated scratch database — the
+// write_v1110_test.go convention). Contract: a new single-line knowledge
+// write answers with "echo":[{id,topic,score,relation}] naming the near
+// active rows; an exact-hash duplicate answer keeps the DuplicateMeta
+// shape (echo omitted); the supersede verdict is the agent's via approve
+// --supersede (echo is suggestion only).
+package cli
+
+import (
+	"context"
+	"encoding/json"
+	"fmt"
+	"net/url"
+	"strings"
+	"testing"
+	"time"
+
+	"github.com/synuns/flint/lib/db"
+)
+
+// echoE2ETopic — the shared synthetic fixtures (the knowledge echo_test.go
+// convention strings: identical rows are duplicates, the divergent summary
+// is a contradicts band 0.3<=set<0.6 with topic dice 1.0).
+const (
+	echoE2ETopic     = "데모 프로젝트 운영 기록"
+	echoE2EDupSum    = "회의록 오늘 확정된 마일스톤은 3개다"
+	echoE2EContraSum = "회의록 다음 주는 전체 휴가 기간이다"
+	echoE2EOtherSum  = "텔레비전 편성표 조정 작업 기록과 성수기 특별 편성 반영시 검토해야 할 광고 단가 구간표 초안 내용을 함께 기록한다"
+)
+
+// TestWriteEchoE2ERealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN): on
+// a fresh scratch DB, write #1 (active seed, no echo — empty store) →
+// write #2 identical (duplicate, echo omitted — the exact-hash ruling) →
+// write #3 same topic·divergent claim (committed with an echo contradicts
+// candidate naming write #1's row) → write #4 a fully-disjoint summary
+// (committed, echo omitted — below the floor) → approve --supersede on a
+// low-confidence line lands pending with the echo, then the agent's
+// supersede verdict promotes it and invalidates the old row.
+func TestWriteEchoE2ERealSlow(t *testing.T) {
+	dsn, real := seamRealDSN()
+	if !real {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	// Close via t.Cleanup registered BEFORE the DROP below — Cleanup is
+	// LIFO, so the DROP runs while the pool is still open.
+	t.Cleanup(base.Close)
+
+	name := fmt.Sprintf("flint_v1170_t2_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() {
+		var last error
+		for i := 0; i < 3; i++ {
+			if _, last = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name); last == nil {
+				return
+			}
+			time.Sleep(500 * time.Millisecond)
+		}
+		t.Logf("스크래치 DB 잔존(%q): %v", name, last)
+	})
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	u.Path = "/" + name
+	freshDSN := u.String()
+
+	prev := newStore
+	newStore = func(ctx context.Context, dsn string) (Store, error) {
+		return newRealStore(ctx, freshDSN)
+	}
+	t.Cleanup(func() { newStore = prev })
+
+	// run — one cli write round; returns the decoded single-line output.
+	run := func(topic, summary string, conf float64) map[string]any {
+		t.Helper()
+		var out strings.Builder
+		line := fmt.Sprintf(`{"topic":%q,"summary":%q,"confidence":%f}`+"\n", topic, summary, conf)
+		code := Run([]string{"write", "knowledge"}, strings.NewReader(line), &out)
+		if code != 0 {
+			t.Fatalf("write exit=%d out=%s", code, out.String())
+		}
+		var m map[string]any
+		if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &m); err != nil {
+			t.Fatalf("출력 파싱: %v — %s", err, out.String())
+		}
+		return m
+	}
+
+	// 1. Seed — the first write of this topic: an empty store has no echo
+	// candidates, so the field is absent.
+	m := run(echoE2ETopic, echoE2EDupSum, 0.9)
+	if m["status"] != "committed" || m["state"] != "active" {
+		t.Fatalf("적립 #1=%v, want committed/active", m)
+	}
+	seedID, _ := m["id"].(float64)
+	if seedID < 1 {
+		t.Fatalf("적립 #1 id=%v, want 1 이상", m["id"])
+	}
+	if _, ok := m["echo"]; ok {
+		t.Errorf("빈 저장소 첫 쓰기에 echo 부재해야 함: %v", m)
+	}
+
+	// 2. Exact-hash resend — DuplicateMeta, echo omitted (the ruling).
+	m = run(echoE2ETopic, echoE2EDupSum, 0.9)
+	if m["status"] != "duplicate" {
+		t.Fatalf("재전송=%v, want duplicate", m)
+	}
+	if _, ok := m["echo"]; ok {
+		t.Errorf("정확-hash 중복 응답에 echo 부재해야 함: %v", m)
+	}
+
+	// 3. Divergent claim on the same topic — the echo names the seed row
+	// as a contradicts candidate with the score field.
+	m = run(echoE2ETopic, echoE2EContraSum, 0.9)
+	if m["status"] != "committed" {
+		t.Fatalf("상이 주장 적립=%v, want committed", m)
+	}
+	echo, ok := m["echo"].([]any)
+	if !ok || len(echo) < 1 {
+		t.Fatalf("echo=%v, want 1건 이상", m["echo"])
+	}
+	c, _ := echo[0].(map[string]any)
+	if c["id"] != seedID {
+		t.Errorf("echo 후보 id=%v, want 시드 %v", c["id"], seedID)
+	}
+	if c["relation"] != "contradicts" {
+		t.Errorf("echo relation=%v, want contradicts", c["relation"])
+	}
+	if _, ok := c["score"]; !ok {
+		t.Errorf("echo 후보 score 필드 부재: %v", c)
+	}
+	if _, ok := c["similarity"]; ok {
+		t.Errorf("echo 후보에 similarity 필드는 부재해야 함: %v", c)
+	}
+
+	// 4. A fully-disjoint summary stays below the floor — no echo field.
+	m = run(echoE2ETopic, echoE2EOtherSum, 0.9)
+	if m["status"] != "committed" {
+		t.Fatalf("이질 요약 적립=%v, want committed", m)
+	}
+	if _, ok := m["echo"]; ok {
+		t.Errorf("임계 미달 쓰기에 echo 부재해야 함: %v", m)
+	}
+
+	// 5. The agent's verdict circuit: a low-confidence line lands pending
+	// (echo still reported), then approve --supersede promotes it and
+	// invalidates the old row.
+	m = run(echoE2ETopic, echoE2EContraSum+" (개정안)", 0.4)
+	if m["status"] != "committed" || m["state"] != "pending" {
+		t.Fatalf("저신뢰 적립=%v, want committed/pending", m)
+	}
+	pendID, _ := m["id"].(float64)
+	var out strings.Builder
+	code := Run([]string{"approve", "--id", fmt.Sprint(int(pendID)), "--supersede", fmt.Sprint(int(seedID))},
+		strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("approve --supersede exit=%d out=%s", code, out.String())
+	}
+	// The superseded seed row is gone from the active view; the promoted
+	// line remains.
+	var ro strings.Builder
+	if code := Run([]string{"read", echoE2ETopic, "--json"}, strings.NewReader(""), &ro); code != 0 {
+		t.Fatalf("read exit=%d out=%s", code, ro.String())
+	}
+	if strings.Contains(ro.String(), fmt.Sprintf(`"id":%q`, fmt.Sprint(int(seedID)))) {
+		t.Errorf("슈퍼시드된 시드 행이 여전히 활성: %s", ro.String())
+	}
+	if !strings.Contains(ro.String(), fmt.Sprintf(`"id":%q`, fmt.Sprint(int(pendID)))) {
+		t.Errorf("승격 행이 활성 뷰에 부재: %s", ro.String())
+	}
+}

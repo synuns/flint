@@ -83,6 +83,12 @@ type Thresholds struct {
 	// formula count − max(0, rate×days − survived×relief). Default 0 =
 	// inactive (the release-time invariance ruling — relief is opt-in only).
 	SurvivedDecayRelief float64 // default 0
+	// the echo-scan keys (v1.17.0 — knowledge write echo response): the top-k
+	// candidate cap, the admission score floor, and the topic-overlap floor
+	// (knowledge/echo.go EchoScan — the correction convention).
+	EchoTopK       int     // default 5 — the max echo candidates in a write response
+	EchoMinScore   float64 // default 0.3 — the echo candidate admission floor (above suggest 0.15 — write-path scan cost)
+	EchoTopicMatch float64 // default 0.4 — the topic-overlap floor of an echo candidate
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -150,6 +156,12 @@ const (
 	defaultStaleTTLDays        = 180
 	// the survived decay relief default (0 = inactive — the opt-in ruling).
 	defaultSurvivedDecayRelief = 0.0
+	// the echo-scan defaults (v1.17.0): min_score 0.3 sits above
+	// suggest_min_score 0.15 — the write path pays a per-write scan cost, so
+	// the admission bar is raised (scan-cost control).
+	defaultEchoTopK       = 5
+	defaultEchoMinScore   = 0.3
+	defaultEchoTopicMatch = 0.4
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -212,6 +224,10 @@ func DefaultThresholds() Thresholds {
 		StaleTTLDays:        defaultStaleTTLDays,
 		// the survived decay relief (the consumer fallback basis — 0 = inactive).
 		SurvivedDecayRelief: defaultSurvivedDecayRelief,
+		// the echo-scan keys (the consumer fallback basis).
+		EchoTopK:       defaultEchoTopK,
+		EchoMinScore:   defaultEchoMinScore,
+		EchoTopicMatch: defaultEchoTopicMatch,
 	}
 }
 
@@ -358,6 +374,17 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// 0 = inactive is a normal value (the v1.14.0 opt-in ruling), so
 			// only negatives are rejected (the archive_below convention).
 			th.SurvivedDecayRelief = parseFloatNonNegative(val, defaultSurvivedDecayRelief, ks)
+		case "echo_top_k":
+			// unset keeps 0 (the convention — the consumer, write's echo scan,
+			// falls back via the DefaultThresholds basis).
+			th.EchoTopK = parseIntOrDefault(val, defaultEchoTopK, ks)
+		case "echo_min_score":
+			// unset keeps 0 (the convention — the 0..1 clamp parser, the
+			// suggest_min_score family).
+			th.EchoMinScore = parseFloatOrDefault(val, defaultEchoMinScore, ks)
+		case "echo_topic_match":
+			// unset keeps 0 (the convention — the 0..1 clamp parser).
+			th.EchoTopicMatch = parseFloatOrDefault(val, defaultEchoTopicMatch, ks)
 		}
 	}
 	return th, nil

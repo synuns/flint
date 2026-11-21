@@ -981,6 +981,11 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 		}
 		survived, _ = knowledge.SurvivedCounts(ctx, ms, ids)
 	}
+	// v1.17.0 T4/T5 — the survived observation snapshot: the
+	// ranking-time SurvivedCounts result feeds the daily
+	// survived_sessions counter (quiet §13 — a lost observation beats a
+	// failed audit; n<=0 and the relief-inactive skip are no-ops).
+	knowledge.SnapshotSurvivedSessions(ctx, ms, survived)
 	items := []decayAuditItem{}
 	for _, r := range rows {
 		// R56: the v1.13.0 T2 tags tail made column 3 load-bearing — the

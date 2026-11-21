@@ -11,9 +11,9 @@ import (
 	"testing"
 )
 
-// wantPipelineCaseIDs — the plan's seven cases in enumeration order
-// (docs/plans/2026-11-21-flint-v1140.md T1, gate-adjusted: 7 cases,
-// survived carries no source).
+// wantPipelineCaseIDs — the plan's eight cases in enumeration order
+// (docs/plans/2026-11-21-flint-v1140.md T1 seven + the v1.17.0 echo case,
+// gate-adjusted: survived·echo carry no source).
 var wantPipelineCaseIDs = []string{
 	"correction-b", // correction 0.7 (v1.11.0)
 	"correction-a", // correction 0.4 (v1.14.0)
@@ -22,18 +22,19 @@ var wantPipelineCaseIDs = []string{
 	"session-distill",
 	"manual",
 	"survived", // observation-only, no source (v1.14.0)
+	"echo",     // observation/judgment support, no source (v1.17.0)
 }
 
-// TestPipelineCaseRegistryComplete — the registry holds exactly the seven
+// TestPipelineCaseRegistryComplete — the registry holds exactly the eight
 // plan cases (unique IDs, plan order) and every descriptive field is
 // populated: ID·Name·Signal·Confidence·Since are always non-empty; Source
-// is empty only for the observation-only case. The fixed confidences stay
+// is empty only for the observation-only cases. The fixed confidences stay
 // in sync with the write.go payload constants (gap derives from
 // gapCandidateConfidence — editing the constant without the registry, or
 // vice versa, fails here).
 func TestPipelineCaseRegistryComplete(t *testing.T) {
 	if len(pipelineCases) != len(wantPipelineCaseIDs) {
-		t.Fatalf("등록표 크기=%d, want %d(7케이스)", len(pipelineCases), len(wantPipelineCaseIDs))
+		t.Fatalf("등록표 크기=%d, want %d(8케이스)", len(pipelineCases), len(wantPipelineCaseIDs))
 	}
 	seen := make(map[string]bool, len(pipelineCases))
 	for i, c := range pipelineCases {
@@ -63,12 +64,13 @@ func TestPipelineCaseRegistryComplete(t *testing.T) {
 		strconv.FormatFloat(gapCandidateConfidence, 'f', -1, 64); got != want {
 		t.Errorf("gap confidence=%q, want %q(gapCandidateConfidence와 동치)", got, want)
 	}
-	// Plan-fixed values: correction lineages and the observation-only case.
+	// Plan-fixed values: correction lineages and the observation-only cases.
 	fixed := map[string][3]string{ // Confidence, Tag, Since
 		"correction-b": {"0.7", "correction", "v1.11.0"},
 		"correction-a": {"0.4", "correction", "v1.14.0"},
 		"gap":          {"0.4", "gap-candidate", "v1.12.0"},
 		"survived":     {"관측", "", "v1.14.0"},
+		"echo":         {"관측", "", "v1.17.0"},
 	}
 	for id, want := range fixed {
 		c, ok := byID[id]
@@ -88,8 +90,8 @@ func TestPipelineCaseRegistryComplete(t *testing.T) {
 // TestPipelineCaseSourceRegistrySync — every source-bearing case maps to
 // a registered metering source (write.go sourceRegistry), and each of the
 // five registry sources is covered by at least one case (the registry is
-// the complete intake map, not a subset). Exactly one case is
-// observation-only (survived — no write, so no source).
+// the complete intake map, not a subset). Exactly two cases are
+// observation-only (survived·echo — no separate metering source).
 func TestPipelineCaseSourceRegistrySync(t *testing.T) {
 	covered := make(map[string]bool, len(sourceRegistry))
 	emptySource := 0
@@ -103,8 +105,8 @@ func TestPipelineCaseSourceRegistrySync(t *testing.T) {
 		}
 		covered[c.Source] = true
 	}
-	if emptySource != 1 {
-		t.Errorf("source 없는 케이스 수=%d, want 1(survived 관측 전용)", emptySource)
+	if emptySource != 2 {
+		t.Errorf("source 없는 케이스 수=%d, want 2(survived·echo 관측 전용)", emptySource)
 	}
 	for _, s := range sourceRegistry {
 		if !covered[s] {
@@ -125,6 +127,7 @@ const wantPipelineCaseMatrix = `| 케이스 | 입구 신호 | source | 태그 | 
 | 세션 증류 | PostCompact 훅 — 압축 요약의 세션 행 적립 | hook | — | 0.5 | v0.27 |
 | 수동 | 사람 명시 적립(confidence·태그 지정) | manual | — | 지정 | v0.1 |
 | 검증된 성공 | 동일 (knowledge_id, session) 재회상 관측 | — | — | 관측 | v1.14.0 |
+| 에코 검토 | write 응답 echo 필드 — 근접 활성 행 duplicates/contradicts 보고 | — | — | 관측 | v1.17.0 |
 `
 
 // TestPipelineCaseMatrixSnapshot — the derived RUNBOOK matrix equals the

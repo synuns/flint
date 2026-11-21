@@ -44,6 +44,8 @@ var frozenThresholdKeys = []string{
 	"stale_score_threshold", "stale_ttl_days",
 	// the survived decay relief (v1.14.0 — hot·brief ranking·maintain --decay-audit)
 	"survived_decay_relief",
+	// the echo-scan keys (v1.17.0 — knowledge write echo response, the correction convention)
+	"echo_top_k", "echo_min_score", "echo_topic_match",
 }
 
 // TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults
@@ -155,6 +157,66 @@ func TestSurvivedReliefThresholdDefaultsOverride(t *testing.T) {
 	}
 	if unset.SurvivedDecayRelief != 0 {
 		t.Errorf("unset 폴백: survived_decay_relief=%v, want 0", unset.SurvivedDecayRelief)
+	}
+}
+
+// TestEchoThresholdDefaultsOverride — the v1.17.0 echo keys: defaults
+// (5 · 0.3 · 0.4), meta override reflection, and the unset-keeps-0 convention
+// (the consumer falls back to DefaultThresholds — the correction convention).
+// echo_min_score 0.3 is above suggest_min_score 0.15: the write-path scan pays
+// per-write cost, so the admission bar is raised (scan-cost control).
+func TestEchoThresholdDefaultsOverride(t *testing.T) {
+	// defaults.
+	def := store.DefaultThresholds()
+	if def.EchoTopK != 5 {
+		t.Errorf("EchoTopK 기본값=%d, want 5", def.EchoTopK)
+	}
+	if def.EchoMinScore != 0.3 {
+		t.Errorf("EchoMinScore 기본값=%v, want 0.3", def.EchoMinScore)
+	}
+	if def.EchoTopicMatch != 0.4 {
+		t.Errorf("EchoTopicMatch 기본값=%v, want 0.4", def.EchoTopicMatch)
+	}
+	// override.
+	th, err := store.ParseThresholds([][2]any{
+		{"echo_top_k", "3"},
+		{"echo_min_score", "0.5"},
+		{"echo_topic_match", "0.6"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.EchoTopK != 3 {
+		t.Errorf("echo_top_k 오버라이드=%d, want 3", th.EchoTopK)
+	}
+	if th.EchoMinScore != 0.5 {
+		t.Errorf("echo_min_score 오버라이드=%v, want 0.5", th.EchoMinScore)
+	}
+	if th.EchoTopicMatch != 0.6 {
+		t.Errorf("echo_topic_match 오버라이드=%v, want 0.6", th.EchoTopicMatch)
+	}
+	// out-of-range rejection — the 0..1 clamp parser (negative falls back).
+	neg, err := store.ParseThresholds([][2]any{
+		{"echo_min_score", "-0.1"},
+		{"echo_topic_match", "1.5"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if neg.EchoMinScore != 0.3 {
+		t.Errorf("echo_min_score 음수 거부=%v, want 0.3(폴백)", neg.EchoMinScore)
+	}
+	if neg.EchoTopicMatch != 0.4 {
+		t.Errorf("echo_topic_match 범위 초과 거부=%v, want 0.4(폴백)", neg.EchoTopicMatch)
+	}
+	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.EchoTopK != 0 || unset.EchoMinScore != 0 || unset.EchoTopicMatch != 0 {
+		t.Errorf("unset 폴백: echo_top_k=%d echo_min_score=%v echo_topic_match=%v, want 0·0·0",
+			unset.EchoTopK, unset.EchoMinScore, unset.EchoTopicMatch)
 	}
 }
 

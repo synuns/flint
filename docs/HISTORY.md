@@ -6,6 +6,39 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.17.0 minor (2026-11-21) — echo: write-time contradiction detection · observability keys
+
+(spec: docs/plans/2026-11-21-flint-v1170.md). Pipeline step 4 — the
+write path reviews its own consistency: every new knowledge write
+reports the near active rows back to the writing agent.
+
+- echo scan engine (T1): `EchoScan` scores the incoming topic+summary
+  (4096-rune cap) against the active knowledge (invalid_at IS NULL,
+  suggest_scan_cap row cap) with the existing measures — multiset Dice
+  (BigramDiceMultiset) for the duplicates band (>=
+  conflict_dup_threshold 0.6), set Dice (BigramDice) plus topic Dice
+  for the contradicts band (>= echo_min_score 0.3 and >=
+  echo_topic_match 0.4). Top echo_top_k (5), descending, ties by id.
+- write response integration (T2): the single-line committed output
+  gains `"echo":[{id,topic,score,relation}]` (legacy fields verbatim —
+  additive, agents ignoring it are unaffected). Exact-hash duplicates
+  keep the DuplicateMeta response (no double report); the multi-line
+  aggregate keeps its shape; a scan failure quietly omits the field
+  (§13 — the write never breaks). The verdict stays with the agent:
+  no auto-supersede (§5 approval circuit).
+- threshold keys (T3): echo_top_k 5 · echo_min_score 0.3 ·
+  echo_topic_match 0.4 registered (46→49 rows, TUNING §2) —
+  echo_min_score sits above suggest_min_score 0.15 (the write path
+  tightens the gate to save scan cost).
+- observability keys (T4): correction_approved · gap_approved
+  (approve-time promotion counters by origin) · survived_sessions (the
+  maintain --decay-audit snapshot of ids with a survived recall —
+  rides the relief-active SurvivedCounts lookup).
+- registry & docs (T5): the pipeline case registry grows to 8 cases
+  (echo — observation/judgment support, no metering source); the
+  RUNBOOK gains the pipeline-4 echo section and the derived matrix;
+  version sync VERSION·plugin.json·README EN/KO·contract row.
+
 ### v1.16.2 patch (2026-11-21) — r62-guard: highlight latest-first + EN/KO parity contract tests
 
 ### v1.16.1 patch (2026-11-21) — r61-parity: README.ko checksum guard parity · highlight latest-first order · version sync
