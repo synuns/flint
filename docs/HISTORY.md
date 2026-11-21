@@ -6,6 +6,8 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.14.1 patch (2026-11-21) — r57-hookfix: correction hook precision — the bare "다시" marker fired on casual reuse ("내일 다시 얘기하자"), so it now requires a follow-up verb (해/줘/보자/알려, optional space) · the snippet jq pass switched from per-line `-R` to whole-input `-Rs`, restoring the first-match-only fragment contract on multi-line prompts (two matched lines no longer accrue both) with the ±80-codepoint context now spanning newlines (the topic slice took the same fix)
+
 ### v1.14.0 minor (2026-11-21) — pipeline-complete: knowledge pipeline step 3 (A-plan hook-detected corrections · survived decay relief · the seven-case registry)
 
 (spec: docs/plans/2026-11-21-flint-v1140.md). The A-plan go/no-go ruling
