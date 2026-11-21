@@ -383,10 +383,11 @@ func (r *Repo) ExistsProject(ctx context.Context, name string) (bool, error) {
 }
 
 // transitionExecFn — the state-transition UPDATE execution seam (the
-// pool-based transitions: Invalidate·SetSupersededRef·MetaDelete —
-// Supersede executes on its lock-held connection instead, v1.20.2
-// r88). Tests (fakes) intercept the SQL·parameters and rows affected;
-// the real implementation is pool.Exec (with SUPERLITE_REAL=1 the real
+// pool-based transitions: Invalidate·MetaDelete — the supersede family
+// Supersede·SetSupersededRef·Merge executes on its lock-held
+// connection instead, v1.20.2 r88·v1.20.3 r89). Tests (fakes)
+// intercept the SQL·parameters and rows affected; the real
+// implementation is pool.Exec (with SUPERLITE_REAL=1 the real
 // implementation runs unswapped — see repo_transition_test).
 var transitionExecFn = func(ctx context.Context, r *Repo, query string, args ...any) (int64, error) {
 	ct, err := r.pool.Exec(ctx, query, args...)
@@ -467,8 +468,17 @@ const SupersedeCycleSQL = `
 // truncated (a discovered loop is proven; only an absence claim needs
 // the evidence bound).
 func (r *Repo) WouldCreateCycle(ctx context.Context, oldID, newID int) (bool, error) {
+	return wouldCreateCycle(ctx, r.pool.QueryRow, oldID, newID)
+}
+
+// wouldCreateCycle — WouldCreateCycle's body on an injectable
+// single-row query: the pool path (the exported precheck) and the
+// lock-held-connection path (the in-domain prechecks of Merge·
+// SetSupersededRef, v1.20.3 r89 — reads under the lock must not hop
+// the pool; see supersedeQueryFn).
+func wouldCreateCycle(ctx context.Context, row supersedeQueryFn, oldID, newID int) (bool, error) {
 	var cyc, truncated bool
-	if err := r.pool.QueryRow(ctx, SupersedeCycleSQL,
+	if err := row(ctx, SupersedeCycleSQL,
 		oldID, newID, SupersedeCycleDepthLimit).Scan(&cyc, &truncated); err != nil {
 		return false, fmt.Errorf("supersede_cycle: %w", err)
 	}
@@ -497,28 +507,43 @@ const supersedeLockKey = 0x666c696e74537570 // "flintSup"
 // transitionExecFn minus the pool hop).
 type supersedeExecFn = func(ctx context.Context, query string, args ...any) (int64, error)
 
+// supersedeQueryFn — a conn-scoped single-row query on the same
+// lock-held connection (the pgx.Row Scan surface). Reads inside the
+// lock domain (the cycle prechecks·steward lookups, r89) must never
+// hop the pool: under the lock, a pool of MaxConns lock waiters leaves
+// no slot to acquire — the read blocks exactly like the r88 UPDATE
+// deadlock shape. The alias keeps the pool's own QueryRow method value
+// assignable (WouldCreateCycle's pool path).
+type supersedeQueryFn = func(ctx context.Context, query string, args ...any) pgx.Row
+
 // supersedeLockFn — the advisory-lock acquisition seam (tests swap in a
 // no-op; SUPERLITE_REAL=1 keeps the real implementation). Returns
-// (exec, unlock): exec runs UPDATEs on the SAME pooled connection that
+// (exec, query, unlock): both run on the SAME pooled connection that
 // holds the session lock. v1.20.2 (r88): the old shape — lock on one
 // acquired connection, UPDATE via pool.Exec on a SECOND connection —
 // consumed 2 pool slots per supersede, so N parallel supersedes at
 // N >= pool MaxConns deadlocked (every connection held by a lock
 // waiter, every UPDATE blocked on Acquire — all timed out). One
-// connection per supersede is the whole fix. The returned unlock
-// releases BOTH the session lock and the pooled connection. The key is
-// inlined as a literal (measured: a $1 parameter arrives with OID
-// 705/unknown — Doltgres does not resolve the function signature —
-// and the int64 encode fails; the doltAddSQL literal convention).
-var supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, func(), error) {
+// connection per supersede is the whole fix. v1.20.3 (r89): Merge and
+// SetSupersededRef join the same lock — the supersede family (every
+// superseded_by writer) is ONE serialization domain, so the cross
+// races Supersede(A,B) ∥ Merge(B,A) can no longer interleave their
+// prechecks with each other's writes. The returned unlock releases
+// BOTH the session lock and the pooled connection (idempotent — Merge
+// drops the lock before its pool-based dolt commit and the deferred
+// release is a no-op then). The key is inlined as a literal (measured:
+// a $1 parameter arrives with OID 705/unknown — Doltgres does not
+// resolve the function signature — and the int64 encode fails; the
+// doltAddSQL literal convention).
+var supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, supersedeQueryFn, func(), error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
-		return nil, nil, fmt.Errorf("supersede: lock: %w", err)
+		return nil, nil, nil, fmt.Errorf("supersede: lock: %w", err)
 	}
 	if _, err := conn.Exec(ctx, fmt.Sprintf(
 		`SELECT pg_advisory_lock(%d)`, supersedeLockKey)); err != nil {
 		conn.Release()
-		return nil, nil, fmt.Errorf("supersede: lock: %w", err)
+		return nil, nil, nil, fmt.Errorf("supersede: lock: %w", err)
 	}
 	exec := func(ctx context.Context, query string, args ...any) (int64, error) {
 		ct, err := conn.Exec(ctx, query, args...)
@@ -527,7 +552,15 @@ var supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, func(
 		}
 		return ct.RowsAffected(), nil
 	}
+	query := func(ctx context.Context, q string, args ...any) pgx.Row {
+		return conn.QueryRow(ctx, q, args...)
+	}
+	released := false
 	unlock := func() {
+		if released {
+			return
+		}
+		released = true
 		// Background ctx: the unlock must run even after a canceled
 		// write — otherwise the lock rides a pooled connection. An
 		// unlock failure still drops the lock: the connection close on
@@ -536,7 +569,7 @@ var supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, func(
 			`SELECT pg_advisory_unlock(%d)`, supersedeLockKey))
 		conn.Release()
 	}
-	return exec, unlock, nil
+	return exec, query, unlock, nil
 }
 
 // supersedeGuardedSQL — the cycle-guarded supersede UPDATE: the same
@@ -552,7 +585,10 @@ var supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, func(
 // 0 rows now covers the OLD-not-active race, a cycle-shaped refusal,
 // and the truncated-walk refusal (the steward keeps the ErrNotFound
 // race contract; the deterministic diagnostics belong to the callers'
-// prechecks).
+// prechecks). Single-sourced: Supersede and Merge ride the same
+// guarded UPDATE (both write the full invalidated+superseded_by+
+// invalid_at transition; Merge joins the statement and the lock domain
+// in v1.20.3, r89).
 const supersedeGuardedSQL = `
 		UPDATE knowledge
 		SET status = 'invalidated',
@@ -585,7 +621,7 @@ const supersedeGuardedSQL = `
 // exec) — never a second pool slot. NEW's status is not restricted —
 // chain extension stays allowed.
 func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
-	exec, unlock, err := supersedeLockFn(ctx, r)
+	exec, _, unlock, err := supersedeLockFn(ctx, r)
 	if err != nil {
 		return 0, err
 	}
@@ -601,6 +637,29 @@ func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (i
 	return n, nil
 }
 
+// supersededRefGuardedSQL — the ref-only lineage write carrying the
+// same embedded cycle predicate as supersedeGuardedSQL: the in-domain
+// precheck (under the advisory lock) is the deterministic gate; the
+// embedded predicate is the second layer — any writer that ever
+// bypasses the lock still cannot plant a loop (defense in depth,
+// v1.20.3 r89). 0 rows keeps the not-an-error contract (reference
+// already present·row absent·guard-refused).
+const supersededRefGuardedSQL = `
+		UPDATE knowledge
+		SET superseded_by = $2
+		WHERE id = $1 AND superseded_by IS NULL
+		AND NOT EXISTS (
+			WITH RECURSIVE lineage AS (
+				SELECT id, superseded_by, 1 AS depth
+				FROM knowledge WHERE id = $2
+				UNION ALL
+				SELECT k.id, k.superseded_by, l.depth + 1
+				FROM knowledge k
+				JOIN lineage l ON k.id = l.superseded_by
+				WHERE l.depth < $3
+			)
+			SELECT 1 FROM lineage WHERE id = $1 OR depth >= $3)`
+
 // SetSupersededRef is the single path restoring the lineage reference
 // of an already-invalidated snapshot row (import --format jsonl): not a
 // state transition — it only fills the superseded_by reference
@@ -608,18 +667,24 @@ func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (i
 // unreferenced rows (NULL), keeping rerun idempotence; 0 rows
 // (reference already present·row absent) is not an error. The same
 // cycle guard as Supersede applies (the import path must not be able to
-// restore a loop-shaped lineage).
+// restore a loop-shaped lineage). v1.20.3 (r89): the whole
+// precheck-then-write joins the supersede lock domain — executed on
+// the lock-held connection (the old pool-based precheck+UPDATE sat
+// OUTSIDE the domain, so SetSupersededRef(A,B) ∥ SetSupersededRef(B,A)
+// both passed their prechecks and both landed, planting a 2-cycle).
 func (r *Repo) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error) {
-	if cyc, err := r.WouldCreateCycle(ctx, oldID, newID); err != nil {
+	exec, query, unlock, err := supersedeLockFn(ctx, r)
+	if err != nil {
+		return 0, err
+	}
+	defer unlock()
+	if cyc, err := wouldCreateCycle(ctx, query, oldID, newID); err != nil {
 		return 0, fmt.Errorf("superseded_ref: %w", err)
 	} else if cyc {
 		return 0, fmt.Errorf("superseded_ref: id=%d -> id=%d would create a supersede cycle", oldID, newID)
 	}
-	n, err := transitionExecFn(ctx, r, `
-		UPDATE knowledge
-		SET superseded_by = $2
-		WHERE id = $1 AND superseded_by IS NULL`,
-		oldID, newID)
+	n, err := exec(ctx, supersededRefGuardedSQL,
+		oldID, newID, SupersedeCycleDepthLimit)
 	if err != nil {
 		return 0, fmt.Errorf("superseded_ref: %w", err)
 	}
