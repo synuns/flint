@@ -809,44 +809,89 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 
 	// ── G3 (+ exposure-consistency guard) ──
 	deadCutoff := now.Add(-time.Duration(th.DeadDays) * 24 * time.Hour)
+	// The fetch window is max(days, 14 days) — fixing the defect where the trend's prev
+	// window (the prior 7 days) was cut off by the reporting-window cutoff and trend stayed
+	// permanently blank at the default --days 7. The tallies keep each metric's own window (Σ is after windowStart).
+	fetchStart := windowStart
+	if min14 := now.Add(-14 * 24 * time.Hour); min14.Before(fetchStart) {
+		fetchStart = min14
+	}
+
+	// v1.16.0 T2 — phase 1: the 5 non-dependent SELECTs run concurrently (exposed, the
+	// active/reused count, dead ids, read events, kreads). They write only their own local
+	// slots; every out write happens after the join. Error selection stays deterministic —
+	// after the join, the original sequential priority count > deadIDs (both propagate)
+	// > read events (whole-effect demotion -> nil) picks the first failure. In the old
+	// sequential chain a count/dead failure skipped the later lookups; here they may have
+	// issued anyway — lookups only, no out writes, so the output is byte-identical.
+	var (
+		exposedRows [][]any
+		countRows   [][]any
+		deadIDs     [][]any
+		evs         []ReadEventRow
+		recalls     []RecallRow
+		countErr    error
+		deadErr     error
+		evsErr      error
+	)
+	var g errgroup.Group
 	// the recent hot exposure set — hot --full raises the injected ids' read_count via BumpReads,
 	// so on the normal path exposed knowledge is outside the read_count=0 candidate set
 	// to begin with. This guard patches the mismatch that arises when the reference increment and
 	// the exposure record go through separate paths and only the increment fails
 	// (metering loss). A lookup failure is the empty set (guard skipped, demoted).
+	g.Go(func() error {
+		exposedRows, _ = wire.QueryOnce(ctx, st,
+			`SELECT ids FROM hot_events WHERE ts >= $1`, []any{deadCutoff})
+		return nil
+	})
+	g.Go(func() error {
+		countRows, countErr = wire.QueryOnce(ctx, st, `
+			SELECT count(*),
+			       count(CASE WHEN read_count > 0 THEN 1 END)
+			  FROM knowledge
+			 WHERE status = 'active' AND invalid_at IS NULL`, nil)
+		return nil
+	})
+	g.Go(func() error {
+		deadIDs, deadErr = wire.QueryOnce(ctx, st, `
+			/* dead */ SELECT id FROM knowledge
+			 WHERE status = 'active' AND invalid_at IS NULL
+			   AND read_count = 0 AND ingested_at < $1`, []any{deadCutoff})
+		return nil
+	})
+	// ── G4 ── event logs — on failure, all of G4 demotes to 0 (evsErr -> nil below).
+	g.Go(func() error {
+		evs, evsErr = queryReadEvents(ctx, st, fetchStart)
+		return nil
+	})
+	// the G4-consistent recall source (kreads) — lookup failures demote to blank inside the helper.
+	g.Go(func() error {
+		recalls = queryKnowledgeReads(ctx, st, windowStart.Add(-reportSessionLookback))
+		return nil
+	})
+	g.Wait()
+	if countErr != nil {
+		return countErr
+	}
+	if deadErr != nil {
+		return deadErr
+	}
 	exposed := map[int]bool{}
-	if rows, err := wire.QueryOnce(ctx, st,
-		`SELECT ids FROM hot_events WHERE ts >= $1`, []any{deadCutoff}); err == nil {
-		for _, r := range rows {
-			if len(r) > 0 {
-				if s, ok := r[0].(string); ok {
-					for _, id := range knowledge.ParseIDsCSV(s) {
-						exposed[id] = true
-					}
+	for _, r := range exposedRows {
+		if len(r) > 0 {
+			if s, ok := r[0].(string); ok {
+				for _, id := range knowledge.ParseIDsCSV(s) {
+					exposed[id] = true
 				}
 			}
 		}
 	}
-	rows, err := wire.QueryOnce(ctx, st, `
-		SELECT count(*),
-		       count(CASE WHEN read_count > 0 THEN 1 END)
-		  FROM knowledge
-		 WHERE status = 'active' AND invalid_at IS NULL`, nil)
-	if err != nil {
-		return err
-	}
 	var active, reused int
-	if len(rows) > 0 {
-		ReadCounters(rows[0], &active, &reused)
+	if len(countRows) > 0 {
+		ReadCounters(countRows[0], &active, &reused)
 	}
 	out.Effect.ReusePct = PctOf(reused, active)
-	deadIDs, err := wire.QueryOnce(ctx, st, `
-		/* dead */ SELECT id FROM knowledge
-		 WHERE status = 'active' AND invalid_at IS NULL
-		   AND read_count = 0 AND ingested_at < $1`, []any{deadCutoff})
-	if err != nil {
-		return err
-	}
 	dead := 0
 	for _, r := range deadIDs {
 		if len(r) == 0 {
@@ -857,19 +902,12 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 		}
 	}
 	out.Effect.DeadPct = PctOf(dead, active)
-
-	// ── G4 ── event logs — on failure, all of G4 demotes to 0.
-	// The fetch window is max(days, 14 days) — fixing the defect where the trend's prev
-	// window (the prior 7 days) was cut off by the reporting-window cutoff and trend stayed
-	// permanently blank at the default --days 7. The tallies keep each metric's own window (Σ is after windowStart).
-	fetchStart := windowStart
-	if min14 := now.Add(-14 * 24 * time.Hour); min14.Before(fetchStart) {
-		fetchStart = min14
-	}
-	evs, err := queryReadEvents(ctx, st, fetchStart)
-	if err != nil {
+	// the G3 products above are set before the read-events demotion (the original
+	// sequential order — reuse_pct/dead_pct survive an event-log failure).
+	if evsErr != nil {
 		return nil
 	}
+
 	// only in-reporting-window events enter the G4 metric denominators (the fetch spans 14 days for the trend — above).
 	inWin := make([]ReadEventRow, 0, len(evs))
 	for _, e := range evs {
@@ -904,32 +942,47 @@ func collectEffect(ctx context.Context, st wire.Store, days int, th store.Thresh
 	// recall fate (§2.6), hot->read chaining (§2.1), and the G4-consistent source (kreads). Each lookup
 	// failure demotes only that metric to 0 (the §13 metering principle — reporting unchanged).
 	collectZeroDecompose(out, inWin)
-	collectCost(ctx, st, out, inWin)
-	recalls := queryKnowledgeReads(ctx, st, windowStart.Add(-reportSessionLookback))
-	collectRecallFate(ctx, st, out, recalls, now)
-	collectHotReadChain(out, recalls, windowStart, pairWindow)
 
+	// v1.16.0 T2 — phase 2: the post-join collectors run concurrently. The writes/session
+	// gate (at least one source exists) is evaluated after the phase-1 join, as before.
+	// Field exclusivity: collectCost writes only out.Effect.Cost (its out.Effect.Bytes /
+	// DupPrevented reads are collectDaily products — already complete before the parallel
+	// report section), collectRecallFate only SurvivedPct/BadRecallPct, and the two queries
+	// write only their own locals — no overlap. Both queries demote by contract (werr/serr),
+	// so no error priority is needed here. Phase 3 (the recall lead, ProfileHint, pairing,
+	// chaining) stays sequential below.
+	var (
+		writes []WriteRow
+		werr   error
+		starts []time.Time
+		serr   error
+	)
 	// the recall lead (kreads) needs writes even without read events — the existing contract
 	// of skipping the pairing writes lookup when the events are empty or the lookup fails
 	// (the zero guard) is opened as an exception only when the kreads source exists.
-	var writes []WriteRow
-	var werr error
-	if len(inWin) > 0 || len(recalls) > 0 {
-		writes, werr = queryWrites(ctx, st, windowStart)
-	}
-
+	gated := len(inWin) > 0 || len(recalls) > 0
+	g.Go(func() error { collectCost(ctx, st, out, inWin); return nil })
+	g.Go(func() error { collectRecallFate(ctx, st, out, recalls, now); return nil })
+	g.Go(func() error {
+		if gated {
+			writes, werr = queryWrites(ctx, st, windowStart)
+		}
+		return nil
+	})
 	// session boundaries (D) — on lookup failure or absence, the time-window fallback (old
 	// environments, early days). The same gate as the writes condition above — the lookup runs only
 	// when at least one source exists (inheriting the zero-guard contract).
-	var starts []time.Time
-	var serr error
-	hasSessions := false
-	if len(inWin) > 0 || len(recalls) > 0 {
-		starts, serr = queryTimes(ctx, st,
-			`SELECT ts FROM session_starts WHERE ts >= $1 ORDER BY ts`,
-			windowStart.Add(-reportSessionLookback))
-		hasSessions = serr == nil && len(starts) > 0
-	}
+	g.Go(func() error {
+		if gated {
+			starts, serr = queryTimes(ctx, st,
+				`SELECT ts FROM session_starts WHERE ts >= $1 ORDER BY ts`,
+				windowStart.Add(-reportSessionLookback))
+		}
+		return nil
+	})
+	g.Wait()
+	hasSessions := serr == nil && len(starts) > 0
+	collectHotReadChain(out, recalls, windowStart, pairWindow)
 
 	// the recall-lead session ratio (D, consistent with spec §2.1 G4) — recomputed from the
 	// knowledge_reads source (regardless of kind — including hot injection and headline exposure)
