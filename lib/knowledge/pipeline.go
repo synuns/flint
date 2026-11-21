@@ -16,8 +16,8 @@ import (
 // the metering source of the write; "" marks an observation-only case
 // (no write, so no source). Tag is the automatic row-level tag ("" =
 // none or caller-specified). Confidence is the payload's confidence in
-// RUNBOOK display form: a fixed decimal literal ("0.7"), "관측"
-// (observed, no fixed value), or "지정" (caller-specified). Since is the
+// RUNBOOK display form: a fixed decimal literal ("0.7"), the observed
+// marker (no fixed value), or the caller-specified marker. Since is the
 // version that implemented the case.
 type PipelineCase struct {
 	ID         string // stable short identifier (doc anchor, test order)
@@ -25,17 +25,17 @@ type PipelineCase struct {
 	Signal     string // entry signal — what triggers the intake
 	Source     string // metering source; "" = observation-only
 	Tag        string // automatic row tag; "" = none/caller-specified
-	Confidence string // fixed decimal, "관측", or "지정"
+	Confidence string // fixed decimal, observed marker, or caller-specified
 	Since      string // implementing version
 }
 
 // pipelineCases — the seven knowledge-pipeline intake cases in plan
 // enumeration order (docs/plans/2026-11-21-flint-v1140.md T1):
 //
-//  1. correction-b — the v1.11.0 agent-contract correction (B안): an
-//     agent noticing a user correction writes it on the correction
+//  1. correction-b — the v1.11.0 agent-contract correction (plan B):
+//     an agent noticing a user correction writes it on the correction
 //     channel (skill-guided; default 0.7 via correction_confidence).
-//  2. correction-a — the v1.14.0 hook-detected correction (A안): the
+//  2. correction-a — the v1.14.0 hook-detected correction (plan A): the
 //     UserPromptSubmit local filter writes only matched correction
 //     fragments at the attenuated 0.4 (machine signal, pending gate).
 //  3. gap — the v1.12.0 recall-failure/repeat candidate: an owned_miss
