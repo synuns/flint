@@ -91,9 +91,15 @@ var thresholdMetas = []ThresholdMeta{
 	// the survived decay relief (v1.14.0 — the verified-success weighting in the
 	// effective-score formula; the consumption path hot·brief ranking·maintain --decay-audit).
 	{"SurvivedDecayRelief", "survived_decay_relief", 0.0, "survived decay relief (hot·brief·decay-audit)"},
+
+	// the echo-scan keys (v1.17.0 — the consumption path knowledge write's echo
+	// response: the top-k cap, the admission floor, and the topic-overlap floor).
+	{"EchoTopK", "echo_top_k", 5, "write echo top-k cap"},
+	{"EchoMinScore", "echo_min_score", 0.3, "write echo admission floor"},
+	{"EchoTopicMatch", "echo_topic_match", 0.4, "write echo topic-overlap floor"},
 }
 
-// ThresholdMetas — the registry's deterministic copy (46 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (49 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)
