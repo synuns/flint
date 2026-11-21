@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.16.0-blue" alt="v1.16.0">
+  <img src="https://img.shields.io/badge/release-v1.16.1-blue" alt="v1.16.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,8 +48,8 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.16.1 · R61 — README parity (KO checksum guard · highlight order) · [full changelog](docs/HISTORY.md)
 > v1.15.0 · distribution — 원라인 설치 스크립트 · 증명(attestation) · 보안 정책 · [전체 변경 이력](docs/HISTORY.md)
-> v1.16.0 · search-perf — read 토큰 스코어링 회상 순위(접두>포함 계층·NFKC 정규화·윈도우 내 재배치) · profile 병렬 수집 · [전체 변경 이력](docs/HISTORY.md)
 > v0.43.0 · 자동 업데이트 · go install · 전체 배포 폐회 · [전체 변경 이력](docs/HISTORY.md)
 > v0.44.0 · PLAN 재무장 · 표면 계약 6종 · [전체 변경 이력](docs/HISTORY.md)
 > v1.7.2 · 계측 귀속·sync 완화·probe heal(R38) · [전체 변경 이력](docs/HISTORY.md)
@@ -114,7 +114,7 @@ ver=$(curl -fsSL https://api.github.com/repos/synuns/flint/releases/latest \
 asset="flint_${ver#v}_darwin_arm64.tar.gz"          # 조정: darwin|linux _ arm64|amd64
 base="https://github.com/synuns/flint/releases/download/$ver"
 curl -fsSLO "$base/checksums.txt" "$base/$asset"
-grep " $asset\$" checksums.txt | shasum -a 256 -c -  # shasum 없으면: sha256sum -c -
+line=$(grep " $asset\$" checksums.txt) && [ -n "$line" ] && echo "$line" | shasum -a 256 -c -  # no shasum? pipe to: sha256sum -c -
 tar -xzf "$asset" && install flint ~/.local/bin
 ```
 

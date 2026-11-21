@@ -6,6 +6,8 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.16.1 patch (2026-11-21) — r61-parity: README.ko checksum guard parity · highlight latest-first order · version sync
+
 ### v1.16.0 minor (2026-11-21) — search-perf: token-scored read ranking · parallel profile collection
 
 (spec: docs/plans/2026-11-21-flint-v1160.md). Two performance-shaped
