@@ -6,6 +6,50 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.19.1 patch (2026-11-22) — r71-r74: retention overflow clamp · future-stamp guard · seeding pre-claim · snapshot latest-per-key
+
+The v1.19.0 four-angle audit (R71·R73·R74) hardening — 7 fixes, no
+schema change, all override-space defenses (defaults and tuning
+guidance untouched):
+
+- retention-days overflow clamp (R71 [high]): a retention-days meta
+  override past the int64 Duration ceiling (106751 days) wrapped the
+  naive `time.Duration(days)*24h` cutoff into the FUTURE — deleting
+  the whole table on the next pass. All three circuits (snapshot·
+  rollup·event prune) now share `retentionCutoffDays` (lib/db/
+  retention.go): days clamped to [0, 106751] (0·negative → default),
+  cutoff via `AddDate` — calendar arithmetic, no Duration wrap.
+- future-dated gate stamp guard (R71 [med]): a future-dated
+  last_*_at stamp (a clock defect) held the 24h gate closed for its
+  whole forward span (`now.Sub(t)` ran negative). All three gate
+  circuits (snapshot·rollup·event prune) treat a future stamp as
+  immediately due (`gateStampDue`), and doctor's metering-freshness
+  reports a future source as stale (`<label> future`) instead of
+  masking it.
+- concurrent first-seeding pre-claim (R73 [med]): the stamp-last
+  design let N processes passing an open gate together each seed the
+  empty table's baseline — a doubled full key set. The gate stamp now
+  runs BEFORE the pass as a conditional claim (`INSERT ... DO
+  NOTHING` on the absent row — the single-winner primitive Doltgres
+  honors; the present-row path is a value-pinned UPDATE, single-winner
+  on PostgreSQL, best-effort narrowing under Doltgres's LWW concurrent
+  UPDATEs — measured). A failed pass rolls the claim back so the
+  retry stays open (stamp-only-on-success kept).
+- snapshot latest-per-key read (R73 [low]): lastThresholdSnapshots
+  now selects each key's max-ts row in the DB (a correlated max
+  subquery — Doltgres lacks DISTINCT ON; the (key, ts DESC) index
+  serves the path) instead of reading the whole append-only history
+  ts-ascending into the map.
+- metering_freshness_warn_h clamp (R74 [low]): a warn_h override past
+  the Duration ceiling (~2562047h) wrapped the limit negative and
+  flagged every source stale; it now clamps to 87600h (10 years).
+- RecordUsageCount bulk cap (R74 [low]): a count past 2^31 is quietly
+  ignored (no error propagation, counter untouched — the quiet path).
+- near_score clamp (R74 [low]): RecordReadEvent clamps the score into
+  [0,1] on the write boundary (NaN·±Inf → 0, negative → 0, >1 → 1) —
+  PostgreSQL would otherwise store NaN and the infinities, poisoning
+  the min_score boundary analysis.
+
 ### v1.19.0 minor (2026-11-22) — observability-foundation: schema v13 metering layer
 
 (spec: docs/plans/2026-11-22-flint-v1190.md). The observation-based

@@ -38,7 +38,8 @@ const snapshotGateCacheTTL = time.Hour
 
 // snapshotGateDue — the gate-decision pure function (the pruneGateDue
 // twin): false if last parses as RFC3339 and is within 24h; otherwise
-// (absent·blank·corrupt·24h elapsed) true.
+// (absent·blank·corrupt·24h elapsed·future-dated) true — the future
+// case is the gateStampDue guard (v1.19.1).
 func snapshotGateDue(last string, now time.Time) bool {
 	if last == "" {
 		return true
@@ -47,7 +48,7 @@ func snapshotGateDue(last string, now time.Time) bool {
 	if err != nil {
 		return true
 	}
-	return now.Sub(t) >= 24*time.Hour
+	return gateStampDue(t, now)
 }
 
 // snapshotGateProbe — the gate-cache verdict (the pruneGateProbe twin):
@@ -109,13 +110,18 @@ func (r *Repo) currentThresholdValues(ctx context.Context) (map[string]string, e
 	return out, nil
 }
 
-// lastThresholdSnapshots — each key's latest new_value (one SELECT over
-// the append-only history, ts-ascending — the last row per key wins;
-// the (key, ts DESC) index keeps the per-key scan path). An empty table
-// yields an empty map (the first-expiry seeding premise).
+// lastThresholdSnapshots — each key's latest new_value (one SELECT; the
+// per-key max-ts subquery keeps the winner selection in the DB — the
+// former ts-ascending full read scaled with the append-only history's
+// whole size, not the live key count; the (key, ts DESC) index serves
+// the subquery path. Doltgres lacks DISTINCT ON — the correlated max
+// subquery is the portable form). An empty table yields an empty map
+// (the first-expiry seeding premise).
 func (r *Repo) lastThresholdSnapshots(ctx context.Context) (map[string]string, error) {
 	rows, err := r.pool.Query(ctx,
-		`SELECT key, new_value FROM threshold_snapshots ORDER BY ts ASC`)
+		`SELECT key, new_value FROM threshold_snapshots t
+		 WHERE ts = (SELECT max(ts) FROM threshold_snapshots t2 WHERE t2.key = t.key)
+		 ORDER BY ts ASC`)
 	if err != nil {
 		return nil, err
 	}
@@ -165,22 +171,51 @@ func (r *Repo) snapshotThresholds(ctx context.Context) error {
 // thresholdsForPrune convention).
 func (r *Repo) pruneThresholdSnapshots(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "threshold_snapshots_retention_days")
-	days := th.ThresholdSnapshotsRetentionD
-	if days <= 0 {
-		days = store.DefaultThresholds().ThresholdSnapshotsRetentionD
-	}
+	cutoff := retentionCutoffDays(th.ThresholdSnapshotsRetentionD,
+		store.DefaultThresholds().ThresholdSnapshotsRetentionD, time.Now().UTC())
 	_, err := r.pool.Exec(ctx,
-		`DELETE FROM threshold_snapshots WHERE ts < $1`,
-		time.Now().UTC().Add(-time.Duration(days)*24*time.Hour))
+		`DELETE FROM threshold_snapshots WHERE ts < $1`, cutoff)
 	return err
+}
+
+// claimThresholdSnapshotGate — the conditional pre-claim of the 24h
+// gate (v1.19.1): the single-winner primitive on the FIRST-EXPIRY
+// path (the absent row — INSERT ... DO NOTHING; 1 affected row = the
+// winner, the sole claim Doltgres honors under concurrency: its
+// same-row concurrent UPDATEs commit last-write-wins with 1 affected
+// row each — measured, the bumpDailyFlat LWW note). The present-row
+// path claims via an UPDATE pinned to the previously-read value — a
+// true single winner on PostgreSQL, a best-effort narrowing on
+// Doltgres (a pre-seeded table's concurrent change pass can still
+// double-append one changed row; the full-baseline double seeding is
+// what the absent-row claim closes). Errors claim nothing (false —
+// the quiet path).
+func (r *Repo) claimThresholdSnapshotGate(ctx context.Context, last, stamp string) bool {
+	if last == "" {
+		tag, err := r.pool.Exec(ctx,
+			`INSERT INTO meta (key, value) VALUES ($1, $2)
+			 ON CONFLICT (key) DO NOTHING`, thresholdSnapshotGateKey, stamp)
+		return err == nil && tag.RowsAffected() == 1
+	}
+	tag, err := r.pool.Exec(ctx,
+		`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
+		stamp, thresholdSnapshotGateKey, last)
+	return err == nil && tag.RowsAffected() == 1
 }
 
 // maybeSnapshotThresholds — the read-path hook (the RecordReadEvent
 // tail, one line). Gate-checked per hour in-process, gated per day in
-// the DB (stamped only on success — a failed pass keeps the retry
-// open). Parallel passes are harmless: the append is idempotent by the
-// value comparison, and a duplicate baseline row is self-correcting on
-// the next pass. Failures pass quietly (the metering principle).
+// the DB. Concurrency contract (v1.19.1): the stamp write runs BEFORE
+// the pass as a CONDITIONAL CLAIM (claimThresholdSnapshotGate). On the
+// empty-table first expiry — the doubled-baseline defect — the
+// absent-row INSERT ... DO NOTHING admits exactly one passer of N, so
+// the full key set seeds exactly once; the present-row path narrows
+// best-effort under Doltgres's last-write-wins concurrent UPDATEs (see
+// the claim comment). A failed pass rolls the claim back to the
+// pre-claim value (the stamp-only-on-success contract keeps the retry
+// open); a rollback failure passes quietly — worst case the next
+// attempt waits out the stamp. All failures pass quietly (the metering
+// principle).
 func (r *Repo) maybeSnapshotThresholds(ctx context.Context) {
 	if !snapshotGateProbe(time.Now().UTC()) {
 		return
@@ -191,11 +226,23 @@ func (r *Repo) maybeSnapshotThresholds(ctx context.Context) {
 	if !snapshotGateDue(last, time.Now().UTC()) {
 		return
 	}
-	if err := r.snapshotThresholds(ctx); err != nil {
-		return
+	stamp := time.Now().UTC().Format(time.RFC3339)
+	if !r.claimThresholdSnapshotGate(ctx, last, stamp) {
+		return // another process claimed the pass — its stamp closed the gate
 	}
-	_, _ = r.pool.Exec(ctx,
-		`INSERT INTO meta (key, value) VALUES ($1, $2)
-		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
-		thresholdSnapshotGateKey, time.Now().UTC().Format(time.RFC3339))
+	if err := r.snapshotThresholds(ctx); err != nil {
+		// Roll the claim back to the pre-claim state so the failed pass
+		// keeps the retry open (stamp-only-on-success). Guarded by the
+		// claimed stamp value — a later legitimate stamp is never
+		// clobbered by this stale rollback.
+		if last == "" {
+			_, _ = r.pool.Exec(ctx,
+				`DELETE FROM meta WHERE key = $1 AND value = $2`,
+				thresholdSnapshotGateKey, stamp)
+		} else {
+			_, _ = r.pool.Exec(ctx,
+				`UPDATE meta SET value = $1 WHERE key = $2 AND value = $3`,
+				last, thresholdSnapshotGateKey, stamp)
+		}
+	}
 }
