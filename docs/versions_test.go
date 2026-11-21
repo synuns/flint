@@ -390,6 +390,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01140Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.14.0", "pipeline-complete",
 	}},
+	// v1.14.1: R57 패치 — 교정 훅 정밀도(조건부 "다시" 마커·첫 매치
+	// 1조각 스니펫 계약).
+	{name: "TestVersion01141Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.14.1", "r57-hookfix",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
