@@ -6,6 +6,29 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.17.1 patch (2026-11-21) — r64-observability: write-source origin tracking fix · echo doc/cost cleanup
+
+(R64 audit findings). The v1.17.0 promotion counters were dead on their
+primary path: correction·gap accruals never set `origin`, so the
+Normalize "agent" default won and approve keyed nothing.
+
+- origin tracking fix: `write --source correction` defaults a
+  missing/empty origin to "correction" (an explicit origin is
+  respected — the confidence convention) and the gap-candidate accrual
+  stores origin "gap". The approve-time correction_approved·
+  gap_approved promotion counters now fire on the live flow
+  (write → pending → approve → daily counter). The gap candidate hash
+  input stays origin-free — existing pending rows keep succeeding
+  (content_hash unchanged).
+- echo scan cost: the write-path echo scan rides the already-loaded
+  thresholds via a scan-bound seam (SuggestScanCap·
+  ConflictDupThreshold) — the per-write duplicate meta LoadThresholds
+  is abolished; standalone EchoScan callers keep the meta→default
+  derivation.
+- docs: TUNING §2 echo_top_k rationale corrected — the key bounds
+  response size; the per-write scan cost is bounded by
+  suggest_scan_cap.
+
 ### v1.17.0 minor (2026-11-21) — echo: write-time contradiction detection · observability keys
 
 (spec: docs/plans/2026-11-21-flint-v1170.md). Pipeline step 4 — the
