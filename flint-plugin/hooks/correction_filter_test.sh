@@ -213,6 +213,54 @@ else
 	bad "go/no-go gate" "recall=$recall/10 FP=$false_pos/10, want >=8 and 0"
 fi
 
+# ── 12. bare "다시" false positive (R57): casual reuse must not match ──
+rm -f "$FLINT_LOG"
+st=$(run_hook '{"prompt":"내일 다시 얘기하자 — 오늘은 여기까지 하자"}')
+n=$(call_count)
+if [ "$st" = 0 ] && [ "$n" = 0 ]; then
+	ok "bare 다시: casual reuse, no flint call"
+else
+	bad "bare 다시" "exit=$st calls=$n, want 0/0"
+fi
+
+# ── 13. contextualized "다시" still matches (recall kept) ──
+rm -f "$FLINT_LOG"
+st=$(run_hook '{"prompt":"다시 알려줘, 올바른 포트는 5434야"}')
+n=$(call_count)
+if [ "$st" = 0 ] && [ "$n" = 1 ]; then
+	ok "다시 + follow-up verb: still matches"
+else
+	bad "다시 + follow-up verb" "exit=$st calls=$n, want 0/1"
+fi
+
+# ── 14. two matched lines accrue ONE fragment (first-match contract) ──
+rm -f "$FLINT_LOG"
+fill_a=$(printf '가%.0s' $(seq 1 100))
+fill_b=$(printf '나%.0s' $(seq 1 100))
+p14=$(printf '%s\n%s' "${fill_a}그게 아니라 값은 5야${fill_b}" '아니야 둘째 줄에도 마커가 있다')
+st=$(run_hook "$(jq -cn --arg p "$p14" '{prompt:$p}')")
+n=$(call_count)
+payload=$(payload_of)
+has_first=$(printf '%s' "$payload" | jq -r '.summary | contains("그게 아니라")' 2>/dev/null)
+has_second=$(printf '%s' "$payload" | jq -r '.summary | contains("아니야")' 2>/dev/null)
+if [ "$st" = 0 ] && [ "$n" = 1 ] && [ "$has_first" = "true" ] && [ "$has_second" = "false" ]; then
+	ok "two matched lines: 1 call, first fragment only"
+else
+	bad "two matched lines" "exit=$st n=$n first=$has_first second=$has_second, want 0/1/true/false"
+fi
+
+# ── 15. newline-spanning context: +/-80 window crosses line breaks ──
+rm -f "$FLINT_LOG"
+p15=$(printf '%s\n%s' '짧은 서론. 그게 아니라 포트는 5434야' '둘째 줄 내용도 맥락에 포함된다')
+st=$(run_hook "$(jq -cn --arg p "$p15" '{prompt:$p}')")
+payload=$(payload_of)
+spans=$(printf '%s' "$payload" | jq -r '.summary | contains("둘째 줄")' 2>/dev/null)
+if [ "$st" = 0 ] && [ "$spans" = "true" ]; then
+	ok "newline-spanning context: second line inside snippet"
+else
+	bad "newline-spanning context" "exit=$st spans=$spans, want 0/true"
+fi
+
 # ── real-producer pass (SUPERLITE_REAL=1): the same hook runs against
 # the built CLI on the real write path. Skipped without a DSN. ──
 if [ "${SUPERLITE_REAL:-0}" = "1" ]; then
