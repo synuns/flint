@@ -93,6 +93,8 @@ not byte-identical), guarded by the owning-package regression tests.
   use a trigram index — the scan stays O(rows). This is a known, accepted
   limitation (R30 finding), not a defect; revisit if the engine gains
   pg_trgm. Deferred with the v1.7 candidates (see docs/PLAN.md).
+  Rechecked 2026-11 (v1.18.0): the Doltgres 1.0 release still ships no
+  pg_trgm — the LIKE scan stays.
 
 ## 4. Reproducing the benchmarks
 

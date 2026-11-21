@@ -422,6 +422,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01172Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.17.2", "r65-dedup",
 	}},
+	// v1.18.0 T4: mcp-structured 마일스톤 계약행 — 단일 헤딩·버전 협상·
+	// outputSchema 5개·structuredContent·read --json 전환·룰링 2건.
+	{name: "TestVersion01180Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.18.0", "mcp-structured",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
