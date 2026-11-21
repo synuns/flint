@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.16.1-blue" alt="v1.16.1">
+  <img src="https://img.shields.io/badge/release-v1.16.2-blue" alt="v1.16.2">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,7 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v1.16.1 · R61 — README parity (KO checksum guard · highlight order) · [full changelog](docs/HISTORY.md)
+> v1.16.2 · R62 — highlight order contract tests (latest-first + EN/KO parity) · [full changelog](docs/HISTORY.md)
 > v1.15.0 · distribution — one-line installer · provenance attestation · security policy · [full changelog](docs/HISTORY.md)
 > v0.43.0 · auto-update · go install · end-to-end release pipeline · [full changelog](docs/HISTORY.md)
 > v0.44.0 · PLAN rearm · surface contracts · command-table guard · [full changelog](docs/HISTORY.md)
