@@ -488,6 +488,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01201Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.20.1", "r84-r87",
 	}},
+	// v1.20.2 patch: r88 청산 — advisory-lock 단일 커넥션 supersede(풀
+	// 고갈 제거)·PAM 자기참조 링크 skip(부분 문서 계약)·절단 방어
+	// 직접 호출 유닛 테스트.
+	{name: "TestVersion01202Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.20.2", "r88",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

@@ -120,3 +120,34 @@ func TestHashCanonicalExcludesRelations(t *testing.T) {
 			HashCanonical(base), HashCanonical(withRel))
 	}
 }
+
+// TestCheckRelationsEchoTruncation — v1.20.2 (r88): the rejection echo
+// caps the echoed value at 200 runes. The write path's 64-byte
+// parseLinkSpecs cap keeps values that long unreachable from there, so
+// this direct call is what keeps the defense layer verified for other
+// CheckRelations callers: an echo must never re-print an unbounded
+// input string in full. Multibyte input proves the cap counts runes,
+// not bytes.
+func TestCheckRelationsEchoTruncation(t *testing.T) {
+	const prefix = "rejected relation: "
+	long := strings.Repeat("거", 250) // 250 runes, 750 bytes
+	got := CheckRelations([]string{long})
+	if len(got) != 1 {
+		t.Fatalf("CheckRelations = %d messages, want 1", len(got))
+	}
+	msg := got[0]
+	if !strings.HasPrefix(msg, prefix) {
+		t.Fatalf("거부 클래스 아님: %q", msg)
+	}
+	echo := strings.TrimPrefix(msg, prefix)
+	if i := strings.Index(echo, " (relations vocabulary: "); i >= 0 {
+		echo = echo[:i]
+	}
+	r := []rune(echo)
+	if len(r) != 201 { // 200 runes + the ellipsis
+		t.Fatalf("echo rune 수=%d, want 201 (200 절단+생략부호) — echo=%q…", len(r), string(r[:min(20, len(r))]))
+	}
+	if !strings.HasSuffix(echo, "…") {
+		t.Fatalf("echo 미생략부호 종결: %q 마지막 3rune=%q", echo, string(r[len(r)-3:]))
+	}
+}

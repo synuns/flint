@@ -382,9 +382,11 @@ func (r *Repo) ExistsProject(ctx context.Context, name string) (bool, error) {
 	return exists, nil
 }
 
-// transitionExecFn — the state-transition UPDATE execution seam. Tests
-// (fakes) intercept the SQL·parameters and rows affected; the real
-// implementation is pool.Exec (with SUPERLITE_REAL=1 the real
+// transitionExecFn — the state-transition UPDATE execution seam (the
+// pool-based transitions: Invalidate·SetSupersededRef·MetaDelete —
+// Supersede executes on its lock-held connection instead, v1.20.2
+// r88). Tests (fakes) intercept the SQL·parameters and rows affected;
+// the real implementation is pool.Exec (with SUPERLITE_REAL=1 the real
 // implementation runs unswapped — see repo_transition_test).
 var transitionExecFn = func(ctx context.Context, r *Repo, query string, args ...any) (int64, error) {
 	ct, err := r.pool.Exec(ctx, query, args...)
@@ -490,23 +492,42 @@ func (r *Repo) WouldCreateCycle(ctx context.Context, oldID, newID int) (bool, er
 // from every other pg_advisory_* user.
 const supersedeLockKey = 0x666c696e74537570 // "flintSup"
 
+// supersedeExecFn — a conn-scoped state-transition execution: the SQL
+// runs on the lock-holding pooled connection itself (same shape as
+// transitionExecFn minus the pool hop).
+type supersedeExecFn = func(ctx context.Context, query string, args ...any) (int64, error)
+
 // supersedeLockFn — the advisory-lock acquisition seam (tests swap in a
-// no-op; SUPERLITE_REAL=1 keeps the real implementation). The returned
-// unlock releases BOTH the session lock and the pooled connection. The
-// key is inlined as a literal (measured: a $1 parameter arrives with
-// OID 705/unknown — Doltgres does not resolve the function signature —
+// no-op; SUPERLITE_REAL=1 keeps the real implementation). Returns
+// (exec, unlock): exec runs UPDATEs on the SAME pooled connection that
+// holds the session lock. v1.20.2 (r88): the old shape — lock on one
+// acquired connection, UPDATE via pool.Exec on a SECOND connection —
+// consumed 2 pool slots per supersede, so N parallel supersedes at
+// N >= pool MaxConns deadlocked (every connection held by a lock
+// waiter, every UPDATE blocked on Acquire — all timed out). One
+// connection per supersede is the whole fix. The returned unlock
+// releases BOTH the session lock and the pooled connection. The key is
+// inlined as a literal (measured: a $1 parameter arrives with OID
+// 705/unknown — Doltgres does not resolve the function signature —
 // and the int64 encode fails; the doltAddSQL literal convention).
-var supersedeLockFn = func(ctx context.Context, r *Repo) (func(), error) {
+var supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, func(), error) {
 	conn, err := r.pool.Acquire(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("supersede: lock: %w", err)
+		return nil, nil, fmt.Errorf("supersede: lock: %w", err)
 	}
 	if _, err := conn.Exec(ctx, fmt.Sprintf(
 		`SELECT pg_advisory_lock(%d)`, supersedeLockKey)); err != nil {
 		conn.Release()
-		return nil, fmt.Errorf("supersede: lock: %w", err)
+		return nil, nil, fmt.Errorf("supersede: lock: %w", err)
 	}
-	return func() {
+	exec := func(ctx context.Context, query string, args ...any) (int64, error) {
+		ct, err := conn.Exec(ctx, query, args...)
+		if err != nil {
+			return 0, err
+		}
+		return ct.RowsAffected(), nil
+	}
+	unlock := func() {
 		// Background ctx: the unlock must run even after a canceled
 		// write — otherwise the lock rides a pooled connection. An
 		// unlock failure still drops the lock: the connection close on
@@ -514,7 +535,8 @@ var supersedeLockFn = func(ctx context.Context, r *Repo) (func(), error) {
 		_, _ = conn.Exec(context.Background(), fmt.Sprintf(
 			`SELECT pg_advisory_unlock(%d)`, supersedeLockKey))
 		conn.Release()
-	}, nil
+	}
+	return exec, unlock, nil
 }
 
 // supersedeGuardedSQL — the cycle-guarded supersede UPDATE: the same
@@ -558,15 +580,17 @@ const supersedeGuardedSQL = `
 // ErrNotFound-wrapped error. v1.20.1 (r87): the whole check-then-set
 // is serialized under one advisory lock and the cycle predicate rides
 // the UPDATE itself — a separate precheck round trip cannot close the
-// concurrent cross-supersede window. NEW's status is not restricted —
+// concurrent cross-supersede window. v1.20.2 (r88): the guarded UPDATE
+// executes on the lock-holding connection itself (supersedeLockFn's
+// exec) — never a second pool slot. NEW's status is not restricted —
 // chain extension stays allowed.
 func (r *Repo) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
-	unlock, err := supersedeLockFn(ctx, r)
+	exec, unlock, err := supersedeLockFn(ctx, r)
 	if err != nil {
 		return 0, err
 	}
 	defer unlock()
-	n, err := transitionExecFn(ctx, r, supersedeGuardedSQL,
+	n, err := exec(ctx, supersedeGuardedSQL,
 		oldID, newID, at, SupersedeCycleDepthLimit)
 	if err != nil {
 		return 0, fmt.Errorf("supersede: %w", err)

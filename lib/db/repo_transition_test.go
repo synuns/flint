@@ -33,6 +33,9 @@ type transitionCall struct {
 // check — in that case the caller goes to the slow line). v1.20.1: the
 // supersede advisory-lock seam is swapped together (fake Supersede
 // callers run against a nil pool — the lock is a real-DB concern).
+// v1.20.2 (r88): the lock seam returns a conn-scoped exec — the fake
+// exec records into the SAME recorder (Supersede's guarded UPDATE
+// stays interceptable exactly as before).
 func useFakeTransitionExec(t *testing.T) *transitionRecorder {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") == "1" {
@@ -45,8 +48,12 @@ func useFakeTransitionExec(t *testing.T) *transitionRecorder {
 		return rec.n, nil
 	}
 	prevLock := supersedeLockFn
-	supersedeLockFn = func(ctx context.Context, r *Repo) (func(), error) {
-		return func() {}, nil
+	supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, func(), error) {
+		exec := func(ctx context.Context, query string, args ...any) (int64, error) {
+			rec.calls = append(rec.calls, transitionCall{sql: query, args: args})
+			return rec.n, nil
+		}
+		return exec, func() {}, nil
 	}
 	t.Cleanup(func() {
 		transitionExecFn = prev

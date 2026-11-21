@@ -6,6 +6,32 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.20.2 patch (2026-11-22) — r88: advisory-lock single-connection supersede · pam self-link skip · truncation test
+
+The v1.20.1 follow-up audit (r88) fix batch — 3 findings:
+
+- **advisory-lock pool exhaustion (r88, high)**: the v1.20.1 supersede
+  serialization held one pooled connection for the advisory lock while
+  the guarded UPDATE demanded a SECOND pool slot — N parallel
+  supersedes at N ≥ pool size deadlocked (every connection held by a
+  lock waiter, every UPDATE blocked on Acquire; all timed out). The
+  guarded UPDATE now executes on the lock-holding connection itself
+  (supersedeLockFn returns a conn-scoped exec): one connection per
+  supersede, regression-verified with 14 parallel supersedes against a
+  4-connection pool (all complete, zero timeouts; the cross-race and
+  depth-cap contracts unchanged).
+- **PAM self-referential relation (r88, med)**: a from==to pair in the
+  4-vocabulary relations hit the write path's hard self-link refusal
+  and failed the WHOLE `import --format pam` document (exit 1) —
+  violating the partial-document contract. RestorePAMLinks now skips
+  the pair with one stderr warning (the endpoint-missing convention);
+  the remaining relations accrue, exit stays 0, no residual staging.
+- **dead truncation defense (r88, low)**: CheckRelations' 200-rune
+  rejection-echo cap was unreachable from the write path (the 64-byte
+  parseLinkSpecs cap fires first). Kept as a defense layer for other
+  callers and pinned by a direct-call unit test (multibyte input
+  proves rune-based truncation).
+
 ### v1.20.1 patch (2026-11-22) — r84-r87: link accrual completeness · pam roundtrip · cycle race hardening · schema v15 unique link index
 
 The v1.20.0 four-angle audit (r84–r87) fix batch — 13 findings
