@@ -12,7 +12,7 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 
 ### v1.16.0 minor (2026-11-21) — search-perf: token-scored read ranking · parallel profile collection
 
-(spec: docs/plans/2026-11-21-flint-v1160.md). Two performance-shaped
+(spec: docs/plans/archive/2026-11/2026-11-21-flint-v1160.md). Two performance-shaped
 changes on one spine: `read` results improve (not byte-identical —
 spec-mandated) while `profile` output stays byte-identical to the
 sequential oracle.
@@ -48,7 +48,7 @@ window).
 
 ### v1.15.0 minor (2026-11-21) — distribution: one-line installer · provenance attestation · security policy
 
-(spec: docs/plans/2026-11-21-flint-v1150.md). Distribution and trust
+(spec: docs/plans/archive/2026-11/2026-11-21-flint-v1150.md). Distribution and trust
 foundations — how flint reaches users and how users verify what they got.
 
 - One-line installer (T1): `scripts/install.sh` follows the zoxide
@@ -81,7 +81,7 @@ foundations — how flint reaches users and how users verify what they got.
 
 ### v1.14.0 minor (2026-11-21) — pipeline-complete: knowledge pipeline step 3 (A-plan hook-detected corrections · survived decay relief · the seven-case registry)
 
-(spec: docs/plans/2026-11-21-flint-v1140.md). The A-plan go/no-go ruling
+(spec: docs/plans/archive/2026-11/2026-11-21-flint-v1140.md). The A-plan go/no-go ruling
 landed on **go**: on the synthetic reproduction suite the local filter matched
 10/10 correction prompts with 0 false positives — the v1.12.0 appendix
 precision criterion is met, so the hook path ships (the v1.11.0 B-plan
@@ -122,7 +122,7 @@ agent-contract path stays untouched at 0.7).
   (regression: TestDecayAuditShortRowGuard).
 ### v1.13.0 minor (2026-11-21) — age-audit: stale-knowledge scoring (2 weighted signals) · volatility tiers (`:vol:immutable:` decay exemption)
 
-Knowledge lifecycle management (spec: docs/plans/2026-11-21-flint-v1130.spec.md).
+Knowledge lifecycle management (spec: docs/plans/archive/2026-11/2026-11-21-flint-v1130.spec.md).
 `flint maintain --age-audit` scores active knowledge for staleness — disposition
 stays approval-gated (the no-SQL-auto-verdict principle).
 

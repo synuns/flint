@@ -110,7 +110,7 @@ var dynamicCIBadgeRe = regexp.MustCompile(`https://github\.com/synuns/flint/acti
 // workflow badge image, and it must link to the workflow page.
 func TestReadmeDynamicCIBadge(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
-		b, err := os.ReadFile(p)
+		b, err := os.ReadFile(docPath(p))
 		if err != nil {
 			t.Fatal(err)
 		}

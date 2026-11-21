@@ -2,7 +2,7 @@
 // 훅(구현·킬 스위치·프라이버시 원칙·판정 근거)·survived 감쇠 완화(기본 0
 // opt-in)·케이스 매트릭스(T1 PipelineCaseMatrix 파생 — 골든 스냅숏과
 // 정합: 문서 표가 lib 등록표 렌더링과 어긋나면 여기서 실패).
-package docs
+package doclint
 
 import (
 	"strings"

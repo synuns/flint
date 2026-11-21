@@ -1,4 +1,4 @@
-package docs
+package doclint
 
 import (
 	"os"
@@ -10,13 +10,13 @@ import (
 // be the FIRST "> v" line in both READMEs (latest-first convention since
 // v1.15.0, R61 ruling). Guard against mid-list insertion regression.
 func TestReadmeHighlightLatestFirst(t *testing.T) {
-	raw, err := os.ReadFile("../VERSION")
+	raw, err := os.ReadFile(docPath("../VERSION"))
 	if err != nil {
 		t.Skipf("VERSION unreadable: %v", err)
 	}
 	ver := string(regexp.MustCompile(`[0-9]+\.[0-9]+\.[0-9]+`).Find(raw))
 	for _, path := range []string{"../README.md", "../README.ko.md"} {
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(docPath(path))
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}
@@ -37,7 +37,7 @@ func TestReadmeHighlightLatestFirst(t *testing.T) {
 func TestReadmeHighlightParityENKO(t *testing.T) {
 	hl := regexp.MustCompile(`(?m)^> v([0-9]+\.[0-9]+\.[0-9]+) `)
 	ext := func(path string) []string {
-		raw, err := os.ReadFile(path)
+		raw, err := os.ReadFile(docPath(path))
 		if err != nil {
 			t.Fatalf("%s: %v", path, err)
 		}

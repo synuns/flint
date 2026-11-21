@@ -502,7 +502,7 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
 1·2단계(사용자 교정 채널·회상 실패 격차 후보)에 이어, 파이프라인의
 남은 케이스 2종(A안 훅 감지·검증된 성공 강화)과 전체 입구의 단일
 등록표를 완결한다(원 제안 — docs/plans/2026-11-19-flint-knowledge-pipelines.md·
-스펙 docs/plans/2026-11-21-flint-v1140.md).
+스펙 docs/plans/archive/2026-11/2026-11-21-flint-v1140.md).
 
 - **A안 훅 감지 — go 판정(구현)**: v1.12.0 부록의 판정 기준을 합성
   데모 세션으로 실측해 **go**로 확정했다 — 재현율 10/10(교정 프롬프트
