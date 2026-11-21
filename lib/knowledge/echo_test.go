@@ -164,7 +164,7 @@ type echoPoolStore struct {
 	wire.HistoryStubs
 }
 
-func (s *echoPoolStore) Migrate(ctx context.Context) error            { return nil }
+func (s *echoPoolStore) Migrate(ctx context.Context) error { return nil }
 func (s *echoPoolStore) InsertBatch(ctx context.Context, r []map[string]any) ([]int, error) {
 	return nil, nil
 }
