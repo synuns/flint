@@ -971,13 +971,13 @@ func TestRunReadAsOfSkipsGapCount(t *testing.T) {
 	}
 }
 
-// ── v1.16.0 T1 — the phrase-hit token rerank (render.Cells 전·
-// !fallbackTried 게이트). ──
+// ── v1.16.0 T1 — the phrase-hit token rerank (before render.Cells, gated
+// on !fallbackTried). ──
 
 // TestRunReadPhraseHitTokenRerank — the phrase-hit rows are reranked
 // in-memory by token tier scores before the output: the topic-prefix row
 // (token score 5+5) overtakes the SQL-order fixture head (summary
-// containment 2+2). The SQL LIMIT·hot/brief 경로는 불변.
+// containment 2+2). The SQL LIMIT and the hot/brief paths are unchanged.
 func TestRunReadPhraseHitTokenRerank(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM active_knowledge") {

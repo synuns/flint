@@ -1,10 +1,11 @@
 // report_parallel_test.go — v1.16.0 T2: collectEffect intra-collection parallelization regressions.
-// 1) Concurrency proof (a 5-slot barrier over the phase-1 SELECTs — under sequential
-//    execution it fails by timeout)
-// 2) Byte-identical JSON against a sequential oracle that reproduces the pre-parallel
-//    collectEffect body order as-is (the machine channel unchanged)
-// 3) On injected errors, the same exit/ErrLine as sequential (the original priority
-//    count > deadIDs > read-events-demotion preserved)
+//  1. Concurrency proof (a 5-slot barrier over the phase-1 SELECTs — under sequential
+//     execution it fails by timeout)
+//  2. Byte-identical JSON against a sequential oracle that reproduces the pre-parallel
+//     collectEffect body order as-is (the machine channel unchanged)
+//  3. On injected errors, the same exit/ErrLine as sequential (the original priority
+//     count > deadIDs > read-events-demotion preserved)
+//
 // All fixtures are synthetic demo data (the no-personal-data principle).
 package ops
 

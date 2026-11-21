@@ -295,9 +295,9 @@ func TestReorderByTokenScoreTiers(t *testing.T) {
 	rows := [][]any{
 		{"5", "복구", "정책", "", "", "", "", "", ""},          // no match — 0
 		{"4", "메모", "매일 백업 절차 안내", "", "", "", "", "", ""}, // summary contains — 2
-		{"3", "우리 백업 절차", "기타", "", "", "", "", "", ""}, // topic contains — 3
-		{"2", "메모", "백업 절차", "", "", "", "", "", ""},     // summary prefix — 4
-		{"1", "백업 절차", "기타", "", "", "", "", "", ""},     // topic prefix — 5
+		{"3", "우리 백업 절차", "기타", "", "", "", "", "", ""},    // topic contains — 3
+		{"2", "메모", "백업 절차", "", "", "", "", "", ""},       // summary prefix — 4
+		{"1", "백업 절차", "기타", "", "", "", "", "", ""},       // topic prefix — 5
 	}
 	got := ReorderByTokenScore(rows, "백업", tokenScoreColIdx)
 	want := []string{"1", "2", "3", "4", "5"}
@@ -313,9 +313,9 @@ func TestReorderByTokenScoreTiers(t *testing.T) {
 // (2+1=3), while a single topic prefix (4+1=5) still tops both.
 func TestReorderByTokenScoreMultiTokenCover(t *testing.T) {
 	rows := [][]any{
-		{"2", "우리 백업 수칙", "메모", "", "", "", "", "", ""},           // 백업 topic contains — 3
-		{"1", "가이드", "매일 백업과 자동 점검 안내", "", "", "", "", "", ""}, // 2×summary contains — 4
-		{"3", "자동 점검", "기타", "", "", "", "", "", ""},              // 자동 topic prefix — 5
+		{"2", "우리 백업 수칙", "메모", "", "", "", "", "", ""},         // first token — topic contains — 3
+		{"1", "가이드", "매일 백업과 자동 점검 안내", "", "", "", "", "", ""}, // both tokens summary contains — 4
+		{"3", "자동 점검", "기타", "", "", "", "", "", ""},            // second token — topic prefix — 5
 	}
 	got := ReorderByTokenScore(rows, "백업 자동", tokenScoreColIdx)
 	want := []string{"3", "1", "2"}
@@ -368,7 +368,7 @@ func TestReorderByTokenScoreNFKCCaseWhitespace(t *testing.T) {
 	// case + inner whitespace runs: "flint  release" folds onto "Flint Release".
 	rows2 := [][]any{
 		{"2", "기타", "메모 flint release", "", "", "", "", "", ""}, // 2×summary contains — 4+2=6
-		{"1", "flint  release 노트", "x", "", "", "", "", "", ""},  // prefix+contains — 5+3=8
+		{"1", "flint  release 노트", "x", "", "", "", "", "", ""}, // prefix+contains — 5+3=8
 	}
 	got2 := ReorderByTokenScore(rows2, "Flint Release", tokenScoreColIdx)
 	if g := fmt.Sprint(got2[0][0]); g != "1" {
