@@ -400,6 +400,48 @@ days defer (the curation·maintain paths fire at most once a day). The
 3 curation kinds report does not carry (correction_approved·
 gap_approved·survived_sessions) are excluded as unjudgeable here.
 
+## 4.10 Autonomous tuning shadow (schema v18, v1.23.0)
+
+The observation source for the autonomous-tuning shadow circuit
+(ADR-0017; TUNING §2 v1.23.0). Shadow only — predictions are recorded,
+nothing is applied.
+
+### tuning_predictions (B2)
+
+Append-only, one row per fired shadow round (a 24h gate on
+RecordReadEvent's tail): ts · trigger · key · cur · new ·
+`pred_zero_near_pct` · `pred_reclass_n` · `sample_n` · rationale. The
+prediction re-runs the classification as a pure function over the
+stored `read_events.near_score` (§4.9 A1) at the proposed bound — the
+reclass pool is the zero rows with near_score above it. The rationale
+column carries the registry's basis sentence (thresholds and values
+made explicit — the shadow circuit logs nothing, so the verdict text
+is the audit trail).
+
+### Tier notation (§3 · knowledge-pipelines §12.2 inheritance)
+
+The what-if reclassification itself is **exact causality** — the
+stored score column lets the old and the new bound be applied
+simultaneously to the same distribution with zero error (the §12.2
+top layer; the reason the initial whitelist is `suggest_min_score`
+only). The **hit/streak accumulation is not**: a hit is
+round-over-round stability of the reclassification direction at the
+minimum sample — a stability observation, never a causal claim about
+tuning outcome. The v1.24.0 apply gate consumes the accumulation as
+gate progress, not as proof.
+
+### near_score p50/p90 (zero-row distribution)
+
+`flint tuning what-if` reports the p50/p90 (nearest-rank, the §4
+convention) of the zero rows' near_score over the rule's 14d window —
+the min_score-boundary distribution that decides how much of the
+zero-hit silence a bound move would reclassify as near. The sample
+count rides the output beside the ranks (a small-window rank stays
+descriptive instead of hidden). Tier 1 proxy data — a distribution
+snapshot, not an effect metric; the success pair (zero_near_pct down
+with hit_pct and the read count unchanged) is judged at the apply
+phase with the independent-metric pair, not here.
+
 ## 5. Prohibitions
 
 1. Never report read/write volumes as effect (principle 2).

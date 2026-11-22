@@ -954,7 +954,7 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 	ctx := context.Background()
 	for _, stmt := range []string{
 		`DROP VIEW IF EXISTS active_knowledge, hot_view`,
-		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events, threshold_snapshots, weekly_rollups, knowledge_links, vault_files`,
+		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events, threshold_snapshots, weekly_rollups, knowledge_links, vault_files, tuning_predictions`,
 		`DELETE FROM meta WHERE key = 'schema_version'`,
 	} {
 		if _, err := r.pool.Exec(ctx, stmt); err != nil {
@@ -969,8 +969,8 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "17" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 17 (v1.22.0 상향)", v)
+	if v := readVersion(t, r); v != "18" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 18 (v1.23.0 상향)", v)
 	}
 	v14GateArtifacts(t, r, ctx)
 	// v1.20.1: the fresh terminus carries the unique triple seal — a
@@ -998,6 +998,9 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 	// v1.22.0: the fresh terminus carries the v17 staleness/distill
 	// columns without any gate DDL.
 	v17GateArtifacts(t, r, ctx)
+	// v1.23.0: the fresh terminus carries tuning_predictions + the 3
+	// threshold_snapshots columns without any gate DDL.
+	v18GateArtifacts(t, r, ctx)
 }
 
 // TestAuditStageTablesV16 — vault_files joins the audit staging list
@@ -1186,6 +1189,171 @@ func TestV17GateUpgradeFromV16(t *testing.T) {
 	}
 	if v := readVersion(t, r); v != "17" {
 		t.Fatalf("재호출 후 schema_version = %q, want 17", v)
+	}
+}
+
+// v18GateArtifacts — the schema v18 artifact assertions shared by the
+// upgrade (v17→v18) and fresh-direct paths: the tuning_predictions table
+// (all 9 non-id columns NOT NULL — ts via DEFAULT now(), not NULLability)
+// with its (ts) index, and the 3 nullable threshold_snapshots columns
+// (origin·trigger·rationale — the snapshot.go "deferred to v1.23.0"
+// delivery).
+func v18GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
+	t.Helper()
+	assertObject(t, r, ctx, "tuning_predictions")
+	// the (ts) index — the shadow-round time-window scan axis.
+	var idx int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM pg_indexes
+		 WHERE tablename = 'tuning_predictions' AND indexname = 'idx_tuning_predictions_ts'`).
+		Scan(&idx); err != nil {
+		t.Fatalf("tuning_predictions 인덱스 조회: %v", err)
+	}
+	if idx < 1 {
+		t.Fatalf("idx_tuning_predictions_ts 부재 — (ts) 인덱스 계약 위반")
+	}
+	// every declared column except the bigserial id PK is NOT NULL.
+	for _, col := range []string{"ts", "trigger", "key", "cur", "new",
+		"pred_zero_near_pct", "pred_reclass_n", "sample_n", "rationale"} {
+		var nullable string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT is_nullable FROM information_schema.columns
+			 WHERE table_name = 'tuning_predictions' AND column_name = $1`, col).
+			Scan(&nullable); err != nil {
+			t.Fatalf("tuning_predictions.%s 조회: %v", col, err)
+		}
+		if nullable != "NO" {
+			t.Fatalf("tuning_predictions.%s is_nullable=%q, want NO", col, nullable)
+		}
+	}
+	// Functional spot — a synthetic demo prediction row reading back with
+	// the DEFAULT ts surfacing (the shadow circuit's own rows are numbers
+	// and a composed rationale only — no personal data).
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO tuning_predictions
+		 (trigger, key, cur, new, pred_zero_near_pct, pred_reclass_n, sample_n, rationale)
+		 VALUES ('auto_zero_near_high', 'suggest_min_score', '0.15', '0.12',
+		         4.2, 3, 40, 'demo shadow prediction rationale')`); err != nil {
+		t.Fatalf("tuning_predictions 적립: %v", err)
+	}
+	var ts time.Time
+	var trigger, key, cur, newVal, rationale string
+	var predPct float64
+	var reclassN, sampleN int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT ts, trigger, key, cur, new, pred_zero_near_pct, pred_reclass_n, sample_n, rationale
+		 FROM tuning_predictions WHERE key = 'suggest_min_score'`).
+		Scan(&ts, &trigger, &key, &cur, &newVal, &predPct, &reclassN, &sampleN, &rationale); err != nil {
+		t.Fatalf("tuning_predictions 조회: %v", err)
+	}
+	if ts.IsZero() || trigger != "auto_zero_near_high" || key != "suggest_min_score" ||
+		cur != "0.15" || newVal != "0.12" || predPct != 4.2 || reclassN != 3 || sampleN != 40 ||
+		rationale != "demo shadow prediction rationale" {
+		t.Fatalf("tuning_predictions 행 = (%v,%q,%q,%q,%q,%v,%d,%d,%q), want DEFAULT ts·적립값 그대로",
+			ts, trigger, key, cur, newVal, predPct, reclassN, sampleN, rationale)
+	}
+	// the 3 v18 threshold_snapshots columns are NULL-able (v1.23.0 has 0
+	// applies — no origin=auto rows yet; schema·stamp paths only).
+	for _, col := range []string{"origin", "trigger", "rationale"} {
+		var nullable string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT is_nullable FROM information_schema.columns
+			 WHERE table_name = 'threshold_snapshots' AND column_name = $1`, col).
+			Scan(&nullable); err != nil {
+			t.Fatalf("threshold_snapshots.%s 조회: %v", col, err)
+		}
+		if nullable != "YES" {
+			t.Fatalf("threshold_snapshots.%s is_nullable=%q, want YES", col, nullable)
+		}
+	}
+}
+
+// TestV18GateUpgradeFromV17 — promotes a reproduced v17 DB to v18: the
+// tuning_predictions table + its (ts) index created·the 3
+// threshold_snapshots columns added (NULL-able — pre-promotion rows read
+// NULL)·version 18·the rerun idempotent (the additive protocol — existing
+// tables·data unchanged).
+func TestV18GateUpgradeFromV17(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	// Reproduce a faithful v17 DB — remove the v18 artifacts the fresh
+	// schema.sql terminus already carries (DROP COLUMN has no IF EXISTS
+	// on Doltgres — the columnExists guard convention).
+	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS tuning_predictions`); err != nil {
+		t.Fatalf("v17 재현 tuning_predictions 삭제: %v", err)
+	}
+	for _, col := range []string{"origin", "trigger", "rationale"} {
+		if columnExists(t, r, "threshold_snapshots", col) {
+			if _, err := r.pool.Exec(ctx,
+				`ALTER TABLE threshold_snapshots DROP COLUMN `+col); err != nil {
+				t.Fatalf("v17 재현 threshold_snapshots.%s 삭제: %v", col, err)
+			}
+		}
+	}
+	setVersion(t, r, "17")
+	// Pre-promotion snapshot row — the NULL backfill target (synthetic
+	// demo fixture only).
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO threshold_snapshots (key, old_value, new_value)
+		 VALUES ('suggest_min_score', '0.2', '0.15')`); err != nil {
+		t.Fatalf("v17 시대 threshold_snapshots 적립: %v", err)
+	}
+
+	if err := r.EnsureSchemaV18(ctx); err != nil {
+		t.Fatalf("first EnsureSchemaV18: %v", err)
+	}
+	if v := readVersion(t, r); v != "18" {
+		t.Fatalf("schema_version = %q, want 18", v)
+	}
+	v18GateArtifacts(t, r, ctx)
+	// The pre-promotion snapshot row reads NULL on the 3 new columns —
+	// the v1.23.0 additive premise (0 applies — no origin=auto stamps).
+	var origin, trigger, rationale *string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT origin, trigger, rationale FROM threshold_snapshots
+		 WHERE key = 'suggest_min_score'`).
+		Scan(&origin, &trigger, &rationale); err != nil {
+		t.Fatalf("기존 threshold_snapshots 행 v18 열 조회: %v", err)
+	}
+	if origin != nil || trigger != nil || rationale != nil {
+		t.Fatalf("기존 threshold_snapshots 행 origin=%v trigger=%v rationale=%v, want NULL×3",
+			origin, trigger, rationale)
+	}
+	// The rerun is idempotent — version 18 kept·no error.
+	if err := r.EnsureSchemaV18(ctx); err != nil {
+		t.Fatalf("second EnsureSchemaV18 (want idempotent): %v", err)
+	}
+	if v := readVersion(t, r); v != "18" {
+		t.Fatalf("재호출 후 schema_version = %q, want 18", v)
+	}
+}
+
+// TestAuditStageTablesV18 — tuning_predictions joins the audit staging
+// list (shadow predictions are audit data — the recall_events ruling
+// precedent: they must propagate across devices via push/pull). Table-only
+// ruling: the bigserial's tuning_predictions_id_seq stays unstaged
+// everywhere (the auditStageTables sequence ruling — display-only·
+// harmless residue).
+func TestAuditStageTablesV18(t *testing.T) {
+	found := false
+	for _, cur := range auditStageTables {
+		if cur == "tuning_predictions" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("auditStageTables에 tuning_predictions 부재 — v18 감사 테이블 미스테이징")
+	}
+	for _, cur := range telemetryStageTables {
+		if cur == "tuning_predictions" {
+			t.Error("tuning_predictions가 telemetry 스테이징에 포함 — 감사 테이블 아님")
+		}
+	}
+	for _, cur := range telemetryStageSeqs {
+		if cur == "tuning_predictions_id_seq" {
+			t.Error("tuning_predictions_id_seq가 telemetry 스테이징에 포함 — 잔류-무해 룰링 위반")
+		}
 	}
 }
 

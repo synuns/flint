@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.22.1-blue" alt="v1.22.1">
+  <img src="https://img.shields.io/badge/release-v1.23.0-blue" alt="v1.23.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.23.0 · autotune shadow — schema v18 `tuning_predictions` (predictions recorded, nothing applied) · `auto_mode` policy switch (default off, whitelist: `suggest_min_score`) · shadow rounds on the read tail (24h gate, streak rules) · `flint tuning what-if` / `status` (reclassification · p50/p90 · drift card) · [full changelog](docs/HISTORY.md)
 > v1.22.1 · r96-r98 patch — rematch stamp preservation (`content_changed_at` kept on hash-identical re-applies) · `maintain --recheck --conditions` backfill · `flint distill` file cap (`distill_max_runes`) + no same-minute overwrite · id/min-score input guards · [full changelog](docs/HISTORY.md)
 > v1.21.1 · r91-r94 patch — path redaction on scan errors · vault root guard (persist after success) · tuning-key wiring · scan hardening (retry · touch refresh · symlink skip · 60k+ delete) · [full changelog](docs/HISTORY.md)
 > v1.21.0 · vault-bridge-index — schema v16 `vault_files` · `flint index` (snapshot-diff, one batch commit) · `read` vault fusion (`source:"vault"`, cap 5) · scan p95 metering · [full changelog](docs/HISTORY.md)

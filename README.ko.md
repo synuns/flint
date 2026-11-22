@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.22.1-blue" alt="v1.22.1">
+  <img src="https://img.shields.io/badge/release-v1.23.0-blue" alt="v1.23.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.23.0 · 자율 튜닝 shadow — 스키마 v18 `tuning_predictions`(예측 기록만, 적용 0건)·`auto_mode` 정책 스위치(기본 off, 화이트리스트: `suggest_min_score`)·read 꼬리 shadow 라운드(24h 게이트·streak 규칙)·`flint tuning what-if`/`status`(재분류·p50/p90·드리프트 카드) · [전체 변경 이력](docs/HISTORY.md)
 > v1.22.1 · r96-r98 패치 — 병렬 재매치 스탬프 보존(해시 동일 재적용 시 유지)·maintain --recheck --conditions 갱신·flint distill 파일 상한(distill_max_runes)·동분 덮어쓰기 금지·id/min-score 입력 가드 · [전체 변경 이력](docs/HISTORY.md)
 > v1.21.1 · r91-r94 패치 — 스캔 오류 경로 무관화·볼트 루트 가드(성공 후 영속)·튜닝 키 접속·스캔 경화(재시도·터치 갱신·심볼릭 링크 스킵·60k+ 삭제) · [전체 변경 이력](docs/HISTORY.md)
 > v1.21.0 · 볼트 브리지 I — 스키마 v16 `vault_files`·`flint index`(스냅숏-디프, 디프마다 배치 1커밋)·`read` 볼트 통합(`source:"vault"`, 상한 5)·스캔 p95 계측 · [전체 변경 이력](docs/HISTORY.md)

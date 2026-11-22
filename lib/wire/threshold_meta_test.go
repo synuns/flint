@@ -411,6 +411,42 @@ func TestNewKeyPropagates(t *testing.T) {
 	}
 }
 
+// TestThresholdAutoWhitelist — the v1.23.0 auto field: every registry entry
+// carries an Auto grade from the closed set {"" (manual-only), "shadow"}, the
+// initial whitelist is exactly {suggest_min_score: "shadow"} (the §12.2 exact
+// causal-layer classification key), and the grade is exposed through
+// ThresholdAutoGrade/ThresholdAutoWhitelist derived from the registry — adding a
+// key to only the registry or only the accessor side FAILs (the homogeneity
+// guard extended over the auto field).
+func TestThresholdAutoWhitelist(t *testing.T) {
+	grades := map[string]bool{"": true, "shadow": true}
+	want := map[string]string{"suggest_min_score": "shadow"}
+	got := map[string]string{}
+	for _, m := range wire.ThresholdMetas() {
+		if !grades[m.Auto] {
+			t.Errorf("%q: 미지원 auto 등급 %q (폐쇄 집합 \"\"|shadow)", m.Key, m.Auto)
+		}
+		if m.Auto != "" {
+			got[m.Key] = m.Auto
+		}
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("auto 화이트리스트 드리프트:\n got=%v\nwant=%v", got, want)
+	}
+	if g := wire.ThresholdAutoGrade("suggest_min_score"); g != "shadow" {
+		t.Errorf("ThresholdAutoGrade(suggest_min_score)=%q, want shadow", g)
+	}
+	if g := wire.ThresholdAutoGrade("pending_max"); g != "" {
+		t.Errorf("ThresholdAutoGrade(pending_max)=%q, want \"\"(수동 전용)", g)
+	}
+	if g := wire.ThresholdAutoGrade("zz_unknown_key"); g != "" {
+		t.Errorf("ThresholdAutoGrade(미지정 키)=%q, want \"\"", g)
+	}
+	if w := wire.ThresholdAutoWhitelist(); !reflect.DeepEqual(w, want) {
+		t.Fatalf("ThresholdAutoWhitelist:\n got=%v\nwant=%v", w, want)
+	}
+}
+
 // fmtInt/fmtFloat — the registry-default notation (the same rules as the ops derivation).
 func fmtInt(v int) string       { return strconv.Itoa(v) }
 func fmtFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }

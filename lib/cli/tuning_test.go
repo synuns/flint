@@ -35,6 +35,13 @@ func (f *tuningFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 			}
 		}
 		return rows, nil
+	case strings.Contains(sql, "COUNT(CASE WHEN zero") && strings.Contains(sql, "read_events"):
+		// the what-if synthetic window aggregate (sample/zero/reclass).
+		return [][]any{{12, 5, 4}}, nil
+	case strings.Contains(sql, "SELECT near_score FROM read_events"):
+		return [][]any{{0.01}, {0.2}, {0.42}, {0.45}, {0.5}}, nil
+	case strings.Contains(sql, "FROM tuning_predictions"):
+		return [][]any{{0}}, nil
 	case strings.Contains(sql, "INSERT INTO meta"):
 		f.sets = append(f.sets, fmt.Sprint(args[0], "=", args[1]))
 		f.meta[fmt.Sprint(args[0])] = fmt.Sprint(args[1])
@@ -190,5 +197,31 @@ func TestTuningSetEquivalentFloatNotation(t *testing.T) {
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"set", "conf_floor", "1.5"}, nil, &out); code != 3 {
 		t.Fatalf("범위 밖 1.5 exit=%d, want 3: %s", code, out.String())
+	}
+}
+
+// TestTuningWhatIfAndStatusDelegation — the v1.23.0 what-if/status
+// subcommands pass through the entry branch byte-for-byte to
+// ops.RunTuning (the no --tui path — no cli-side re-implementation).
+func TestTuningWhatIfAndStatusDelegation(t *testing.T) {
+	f := newTuningFake()
+	var out strings.Builder
+	if code := runTuning(context.Background(), f, []string{"what-if", "suggest_min_score", "0.1"}, nil, &out); code != 0 {
+		t.Fatalf("what-if exit=%d, want 0: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"reclass_n":4`) || !strings.Contains(out.String(), `"auto":"shadow"`) {
+		t.Fatalf("what-if 위임 출력 계약 위반: %s", out.String())
+	}
+	// a manual-only key stays exit 3 through the same delegation.
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"what-if", "pending_max", "10"}, nil, &out); code != 3 {
+		t.Fatalf("what-if manual 키 exit=%d, want 3", code)
+	}
+	out.Reset()
+	if code := runTuning(context.Background(), f, []string{"status"}, nil, &out); code != 0 {
+		t.Fatalf("status exit=%d, want 0: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), `"mode":"off"`) || !strings.Contains(out.String(), `"accumulation"`) {
+		t.Fatalf("status 위임 출력 계약 위반: %s", out.String())
 	}
 }

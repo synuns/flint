@@ -530,6 +530,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01221Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.22.1", "r96-r98",
 	}},
+	// v1.23.0 T6: autotune-shadow 마일스톤 계약행 — 스키마 v18
+	// (tuning_predictions·스냅숏 3열)·B1 정책(auto_mode)·B3 등록표·
+	// B2 shadow 회로·tuning what-if/status.
+	{name: "TestVersion01230Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.23.0", "autotune-shadow",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
