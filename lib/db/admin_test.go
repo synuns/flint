@@ -1093,7 +1093,7 @@ func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 // v17GateArtifacts — the schema v17 artifact assertions shared by the
 // upgrade (v16→v17) and fresh-direct paths: the 3 additive columns —
 // vault_files.content_changed_at (timestamptz NULL), knowledge.distilled_at
-// (timestamptz NULL), knowledge.conditions (text NOT NULL DEFAULT '').
+// (timestamptz NULL), knowledge.conditions (text NOT NULL DEFAULT ”).
 func v17GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	t.Helper()
 	// column presence + nullability (the two timestamp columns are NULL —
@@ -1119,7 +1119,7 @@ func v17GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 
 // TestV17GateUpgradeFromV16 — promotes a reproduced v16 DB to v17: the 3
 // additive columns added (the two timestamps NULL-able, conditions with
-// DEFAULT '' so pre-promotion rows read the empty string)·version 17·the
+// DEFAULT ” so pre-promotion rows read the empty string)·version 17·the
 // rerun idempotent (the additive protocol — existing tables·data unchanged).
 func TestV17GateUpgradeFromV16(t *testing.T) {
 	r := newTestRepo(t)
@@ -1134,7 +1134,7 @@ func TestV17GateUpgradeFromV16(t *testing.T) {
 	}
 	for _, col := range []string{"distilled_at", "conditions"} {
 		if columnExists(t, r, "knowledge", col) {
-			if _, err := r.pool.Exec(ctx, `ALTER TABLE knowledge DROP COLUMN ` + col); err != nil {
+			if _, err := r.pool.Exec(ctx, `ALTER TABLE knowledge DROP COLUMN `+col); err != nil {
 				t.Fatalf("v16 재현 knowledge.%s 삭제: %v", col, err)
 			}
 		}

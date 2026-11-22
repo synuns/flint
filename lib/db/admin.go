@@ -926,7 +926,7 @@ func (r *Repo) ensureSchemaV16(ctx context.Context) error {
 // cleared only on hash restoration), knowledge.distilled_at (timestamptz
 // NULL — the distill output idempotence stamp: emitted rows are stamped
 // and never re-emitted), and knowledge.conditions (text NOT NULL DEFAULT
-// '' — the manual recheck tag, excluded from the content hash via
+// ” — the manual recheck tag, excluded from the content hash via
 // hashVolatile). All three are plain ALTER ADDs (the v11/v13
 // DEFAULT-ALTER precedent — the two timestamps backfill NULL, conditions
 // backfills the empty string). Existing tables·views·data unchanged.

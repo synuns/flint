@@ -2064,7 +2064,7 @@ func TestWriteConditionsEmptyStringPasses(t *testing.T) {
 }
 
 // TestWriteConditionsAbsentOmitted — a payload without the key stores no
-// conditions key at all (the column default '' applies at the DB — the
+// conditions key at all (the column default ” applies at the DB — the
 // record must not carry an injected value that would shift other kinds).
 func TestWriteConditionsAbsentOmitted(t *testing.T) {
 	f := &fakeStore{}
