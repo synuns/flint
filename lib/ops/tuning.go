@@ -799,7 +799,7 @@ func TuningStatus(ctx context.Context, st wire.Store, stdout io.Writer) int {
 		cards = append(cards, tuningAutoCard{
 			Signal: r.Signal, Key: r.Key, Grade: wire.ThresholdAutoGrade(r.Key),
 			Fired: fired, Streak: streak, Rounds: rounds,
-			Accumulation: tuningAccumulation{Eligible: gate.Eligible, Detail: gate.Detail},
+			Accumulation: tuningAccumulation(gate),
 		})
 	}
 	mode := "off"
