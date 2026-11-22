@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -597,6 +598,85 @@ func ReadFieldKnown(name string) bool {
 // ReadColumnsHint — the known-column list for validation-error guidance (a single source).
 func ReadColumnsHint() string {
 	return strings.Join(readColumns, ",")
+}
+
+// ── v1.21.0 T4 — the vault bridge read fusion. ──
+
+// VaultMaxRows — the vault row cap of the read fusion (the plan contract
+// constant). Vault rows are appended AFTER the knowledge rows and never
+// reorder them; the cap bounds the additive token budget.
+const VaultMaxRows = 5
+
+// vaultColumns — the columns BuildVaultRead SELECTs (fixed order). The
+// FormatVaultRows field-name -> position basis.
+var vaultColumns = []string{"title", "summary", "tags", "path"}
+
+// BuildVaultRead — assembles the separate vault_files query (the read
+// fusion source, spec M2): the free-text q matches via lower(title ||
+// ' ' || summary || ' ' || tags) LIKE lower('%q%') — the fallback's
+// matched-surface convention. The knowledge Filters do NOT apply: the
+// vault query is q-based only (Filters are the knowledge domain's shape
+// and stay unchanged). ORDER BY path is deterministic; LIMIT is the
+// VaultMaxRows constant (the caller caps app-side as well).
+func BuildVaultRead(q string) (string, []any) {
+	args := []any{"%" + likeEscaper.Replace(q) + "%"}
+	sql := "SELECT " + strings.Join(vaultColumns, ", ") + " FROM vault_files" +
+		fmt.Sprintf(" WHERE lower(title || ' ' || summary || ' ' || tags) LIKE lower($%d)", len(args)) +
+		" ORDER BY path LIMIT " + strconv.Itoa(VaultMaxRows)
+	return sql, args
+}
+
+// VaultLine — one vault row's --json shape: identified by path (no id) +
+// the source:"vault" marker (the spec M2 row contract).
+type VaultLine struct {
+	Source  string `json:"source"`
+	Path    string `json:"path"`
+	Title   string `json:"title"`
+	Summary string `json:"summary"`
+}
+
+// FormatVaultRows — the vault row output: one line per row, appended
+// AFTER the knowledge rows (never interleaved — the knowledge-result
+// invariance contract). Text mode "vault|path|title|summary"; json mode
+// a VaultLine per row. The summary is truncated to summaryMax — the read
+// output token budget (the index-time vault_summary_max_runes cap alone
+// does not bound the output surface).
+func FormatVaultRows(rows [][]any, jsonMode bool) string {
+	// vaultColumns is a fixed order: title=0, summary=1, tags=2, path=3.
+	const (
+		vaultTitleIdx   = 0
+		vaultSummaryIdx = 1
+		vaultPathIdx    = 3
+	)
+	var lines []string
+	for _, row := range rows {
+		val := func(i int) string {
+			if i < 0 || i >= len(row) || row[i] == nil {
+				return ""
+			}
+			return fmt.Sprint(row[i])
+		}
+		if jsonMode {
+			b, err := json.Marshal(VaultLine{
+				Source:  "vault",
+				Path:    val(vaultPathIdx),
+				Title:   val(vaultTitleIdx),
+				Summary: truncateRunes(val(vaultSummaryIdx), summaryMax),
+			})
+			if err != nil {
+				continue
+			}
+			lines = append(lines, string(b))
+		} else {
+			lines = append(lines, strings.Join([]string{
+				"vault", val(vaultPathIdx), val(vaultTitleIdx), truncateRunes(val(vaultSummaryIdx), summaryMax),
+			}, "|"))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
 }
 
 // truncateRunes — rune-based truncation (multibyte-safe, e.g. for Korean).

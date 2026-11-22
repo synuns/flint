@@ -10,6 +10,7 @@ import (
 	"context"
 	"sort"
 	"strconv"
+	"time"
 
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
@@ -94,6 +95,12 @@ func SetEchoScanBounds(scanCap int, dupThreshold float64) {
 	}
 }
 
+// RecordEchoScanFn — the scan-duration recording seam (v1.21.0 A6 scan p95).
+// ops wires its in-memory accumulator here (knowledge cannot import ops —
+// the import-cycle-free seam var convention); nil (unwired) keeps the path
+// metering-free and quiet (§13 — metering never changes the outcome).
+var RecordEchoScanFn func(time.Duration)
+
 // EchoScan — scans the active knowledge (invalid_at IS NULL, bounded by
 // the suggest_scan_cap row cap) and returns the top echoTopK echo
 // candidates for the incoming topic+summary:
@@ -110,6 +117,13 @@ func SetEchoScanBounds(scanCap int, dupThreshold float64) {
 // descending, ties by ascending id. A scan failure returns (nil, err) —
 // the caller omits the echo field quietly (§13).
 func EchoScan(ctx context.Context, st wire.Store, topic, summary string) ([]EchoCandidate, error) {
+	// v1.21.0 A6: entry-to-return duration sample — in-memory only (zero
+	// added queries; merged into meta scan_stats at the existing hot_stats
+	// persist point). Recorded on every return path, error included.
+	start := time.Now()
+	if RecordEchoScanFn != nil {
+		defer func() { RecordEchoScanFn(time.Since(start)) }()
+	}
 	// Scan bounds — the injected seam first (the write path passes its
 	// already-loaded values, v1.17.1); a bound left unset (<=0) derives
 	// from the meta table best effort, then the defaults (a lookup

@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.20.3-blue" alt="v1.20.3">
+  <img src="https://img.shields.io/badge/release-v1.21.0-blue" alt="v1.21.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.21.0 · 볼트 브리지 I — 스키마 v16 `vault_files`·`flint index`(스냅숏-디프, 디프마다 배치 1커밋)·`read` 볼트 통합(`source:"vault"`, 상한 5)·스캔 p95 계측 · [전체 변경 이력](docs/HISTORY.md)
 > v1.20.3 · r89 패치 — merge·import 계보 복원의 supersede 락 도메인 편입(사이클 봉쇄) · [전체 변경 이력](docs/HISTORY.md)
 > v1.20.2 · r88 패치 — advisory-lock 단일 커넥션 supersede·PAM 자기참조 링크 skip·절단 방어 테스트 · [전체 변경 이력](docs/HISTORY.md)
 > v1.20.1 · r84-r87 패치 — 링크 적립 완전성(혼합 배치·PAM 왕복)·supersede 경합 강화·스키마 v15 링크 유니크 인덱스 · [전체 변경 이력](docs/HISTORY.md)
@@ -236,7 +237,8 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint write <kind>` | 표준 입력에서 지식 기록 (멱등) |
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
 | `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카, PAM `--sign` Ed25519 서명 — 스펙 §18) |
-| `flint read <query>` | 활성 지식 검색 |
+| `flint index [--vault p]` | 마크다운 볼트를 `vault_files`에 색인(스냅숏-디프, 디프마다 배치 1커밋; `--vault` 경로 저장, `--limit` 스캔 상한) |
+| `flint read <query>` | 활성 지식 검색 (색인된 볼트 행은 지식 블록 뒤에 추가) |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |
 | `flint brief [query]` | 외부 AI에 붙여넣는 마스킹 브리프(읽기 전용) |
 | `flint done --session <id>` | 세션 마무리 기록 |

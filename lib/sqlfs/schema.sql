@@ -202,3 +202,24 @@ CREATE UNIQUE INDEX IF NOT EXISTS uq_knowledge_links_triple
 
 -- v14: supersede 체인(재귀 뷰·사이클 CTE) 탐색 축 인덱스.
 CREATE INDEX IF NOT EXISTS idx_knowledge_superseded_by ON knowledge (superseded_by);
+
+-- v16 (v1.21.0): vault bridge pointer snapshot — one vault_files row per
+-- vault .md file. The original text is never copied, path UNIQUE is the
+-- scan-diff UPSERT axis, and content_hash = sha256 of the raw bytes —
+-- deliberately distinct from the knowledge normalized hash. Existing v15
+-- DBs are promoted by the EnsureSchemaV16 gate (additive). An audit
+-- staging target (auditStageTables).
+CREATE TABLE IF NOT EXISTS vault_files (
+    id              bigserial PRIMARY KEY,
+    path            text NOT NULL UNIQUE,
+    title           text NOT NULL,
+    tags            text NOT NULL DEFAULT '',
+    mtime           timestamptz NOT NULL,
+    size            bigint NOT NULL,
+    content_hash    text NOT NULL,
+    summary         text NOT NULL DEFAULT '',
+    last_indexed_at timestamptz NOT NULL DEFAULT now()
+);
+
+-- v16: duplicate-note detection axis (identical content under different paths).
+CREATE INDEX IF NOT EXISTS idx_vault_files_content_hash ON vault_files (content_hash);

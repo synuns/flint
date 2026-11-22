@@ -103,9 +103,16 @@ var thresholdMetas = []ThresholdMeta{
 	{"WeeklyRollupsRetentionD", "weekly_rollups_retention_days", 90, "rollup retention"},
 	{"ThresholdSnapshotsRetentionD", "threshold_snapshots_retention_days", 90, "snapshot retention"},
 	{"MeteringFreshnessWarnH", "metering_freshness_warn_h", 336, "doctor metering-freshness"},
+
+	// the vault-bridge keys (v1.21.0 — the schema v16 vault_files index:
+	// the per-scan file cap, the summary truncation runes, and the
+	// comma-separated skip-dir list — the first string-valued key).
+	{"VaultScanMaxFiles", "vault_scan_max_files", 10000, "index vault scan file cap"},
+	{"VaultSummaryMaxRunes", "vault_summary_max_runes", 200, "index vault summary truncation runes"},
+	{"VaultSkipDirs", "vault_skip_dirs", ".obsidian,.trash", "index vault skip dirs (comma list)"},
 }
 
-// ThresholdMetas — the registry's deterministic copy (52 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (55 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

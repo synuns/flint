@@ -348,3 +348,63 @@ func TestSlowSetSupersededRefCrossRaceV1203(t *testing.T) {
 		}
 	}
 }
+
+// TestMergePanicReleasesSupersedeLockV1210 — R90 (v1.21.0): a panic in
+// Merge's lock-held body must not leak the supersede advisory lock. The
+// deferred release (acquired right after supersedeLockFn) runs on the
+// panic unwind too — the immediate unlock call on the success path is
+// skipped by the unwinding, so without the defer the lock stays held.
+// Verified at the supersedeLockFn swap seam: the first acquisition's
+// query panics (the cycle precheck), the unlock counter must still
+// advance, and a subsequent supersede-family write (SetSupersededRef)
+// acquires the lock again and succeeds.
+func TestMergePanicReleasesSupersedeLockV1210(t *testing.T) {
+	ctx := context.Background()
+	unlockCalls := 0
+	acquires := 0
+	prevLock := supersedeLockFn
+	supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, supersedeQueryFn, func(), error) {
+		acquires++
+		panicking := acquires == 1 // the probe acquisition panics in the precheck
+		exec := func(ctx context.Context, query string, args ...any) (int64, error) {
+			if panicking {
+				panic("v1210 probe: injected panic under the supersede lock")
+			}
+			return 1, nil
+		}
+		query := func(ctx context.Context, q string, args ...any) pgx.Row {
+			if panicking {
+				panic("v1210 probe: injected panic in the cycle precheck")
+			}
+			return fakeSupersedeRow{} // no cycle — the inert default
+		}
+		return exec, query, func() { unlockCalls++ }, nil
+	}
+	t.Cleanup(func() { supersedeLockFn = prevLock })
+
+	// First Merge — the panic propagates AND the deferred release runs
+	// (the leak shape: unlockCalls 0 after the recover).
+	func() {
+		defer func() {
+			if recover() == nil {
+				t.Fatal("주입 panic 미전파 — 테스트 전제 붕괴(주입 경로 확인 필요)")
+			}
+		}()
+		_ = (&Repo{}).Merge(ctx, 1, 2)
+	}()
+	if unlockCalls == 0 {
+		t.Fatal("panic 경로에서 락 미해제 — 어드바이저리 락 누출(R90 회귀)")
+	}
+
+	// A subsequent supersede-family write acquires the lock again and
+	// succeeds — the released lock is re-acquirable (SetSupersededRef
+	// rides the same seam without a pool-based commit, so the zero-Repo
+	// probe stays pure).
+	n, err := (&Repo{}).SetSupersededRef(ctx, 5, 9)
+	if err != nil || n != 1 {
+		t.Fatalf("후속 SetSupersededRef = (%d, %v), want (1, nil)(락 재획득 후 성공)", n, err)
+	}
+	if acquires != 2 {
+		t.Fatalf("락 획득 %d회, want 2(panic 1회 + 후속 성공 1회)", acquires)
+	}
+}

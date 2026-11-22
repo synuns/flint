@@ -26,10 +26,12 @@ func TestLookupDiff(t *testing.T) {
 // and the added brief and pending — the essential accompanying updates of adding commands).
 // Reflects the UsageLine error-key abolition (guidance-style — informational content unchanged).
 // sync added (right after backup and restore — remote registration, push/pull).
+// index added (v1.21.0, before the audit tail — the vault bridge snapshot diff).
 func TestUsageRestInvariant(t *testing.T) {
 	want := `{"usage":"flint <write|read|hot|brief|status|backup|restore|sync|approve|pending|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit> [args]"}`
 	got := strings.Replace(usageLine(), "|profile", "", 1) // remove insertions
 	got = strings.Replace(got, "|export", "", 1)           // remove insertions
+	got = strings.Replace(got, "|index", "", 1)            // remove insertions (v1.21.0)
 	got = strings.Replace(got, "audit|diff|update|tuning|import", "audit", 1)
 	if got != want {
 		t.Fatalf("usage 나머지 불변 위반:\n got=%s\nwant=%s", got, want)

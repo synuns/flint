@@ -50,3 +50,47 @@ func TestMetaHygieneGateStampsKnown(t *testing.T) {
 		t.Fatalf("last_events_prune_at 미등록(db 게이트 스탬프)")
 	}
 }
+
+// TestMetaHygieneVaultKeysKnown — the v1.21.0 vault-bridge meta keys
+// (vault_path·vault_last_scan from `flint index`, scan_stats from the A6
+// scan p95 metering) audit clean — doctor must not warn its own surfaces
+// (the R80-1 self-contradiction class). A genuinely unknown key still warns.
+func TestMetaHygieneVaultKeysKnown(t *testing.T) {
+	prevFn := KnownMetaKeyFn
+	KnownMetaKeyFn = KnownMetaKey
+	t.Cleanup(func() { KnownMetaKeyFn = prevFn })
+
+	known := [][]any{
+		{"schema_version"},
+		{"vault_path"},
+		{"vault_last_scan"},
+		{"scan_stats"},
+	}
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "ORDER BY key") {
+			return known, nil
+		}
+		return nil, nil
+	}}
+	c := checkMetaHygiene(context.Background(), f)
+	if c.Status != "ok" || strings.Contains(c.Detail, "unknown") {
+		t.Fatalf("볼트 키 무경고 아님: status=%q detail=%q", c.Status, c.Detail)
+	}
+	for _, k := range []string{"vault_path", "vault_last_scan", "scan_stats"} {
+		if !KnownMetaKey(k) {
+			t.Fatalf("%q 미등록(v1.21.0 볼트/A6 메타 키)", k)
+		}
+	}
+
+	// a genuinely unknown key still warns (the hygiene purpose is intact).
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "ORDER BY key") {
+			return append(known, []any{"mystery_deprecated_key"}), nil
+		}
+		return nil, nil
+	}
+	c = checkMetaHygiene(context.Background(), f)
+	if c.Status == "ok" || !strings.Contains(c.Detail, "mystery_deprecated_key") {
+		t.Fatalf("진짜 unknown 키 경고 안 함: status=%q detail=%q", c.Status, c.Detail)
+	}
+}

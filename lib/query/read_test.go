@@ -524,6 +524,80 @@ func TestBuildReadStatusNewFilters(t *testing.T) {
 	}
 }
 
+// ── v1.21.0 T4 — the vault bridge read fusion. ──
+
+// TestVaultMaxRowsConstant — the vault row cap is the plan contract
+// constant 5 (a regression seal — a silent bump would break the token
+// budget).
+func TestVaultMaxRowsConstant(t *testing.T) {
+	if VaultMaxRows != 5 {
+		t.Fatalf("VaultMaxRows = %d, want 5(플랜 계약 상수)", VaultMaxRows)
+	}
+}
+
+// TestBuildVaultReadShape — the separate vault_files query: q matches
+// lower(title||' '||summary||' '||tags) LIKE (the fallback's matched
+// surface extended with title), a deterministic ORDER BY path, and the
+// LIMIT is the VaultMaxRows constant.
+func TestBuildVaultReadShape(t *testing.T) {
+	sql, args := BuildVaultRead("데모 노트")
+	for _, frag := range []string{
+		"FROM vault_files",
+		"lower(title || ' ' || summary || ' ' || tags) LIKE lower($1)",
+		"ORDER BY path",
+		"LIMIT 5",
+	} {
+		if !strings.Contains(sql, frag) {
+			t.Errorf("vault 쿼리 조각 %q 누락: %s", frag, sql)
+		}
+	}
+	if pat, ok := args[0].(string); !ok || pat != "%데모 노트%" {
+		t.Errorf("LIKE 패턴 인자 = %v, want %%데모 노트%%", args)
+	}
+}
+
+// TestBuildVaultReadEscapesLike — q's % and _ are escaped (the read
+// assembler's placeholder convention — no wildcard injection).
+func TestBuildVaultReadEscapesLike(t *testing.T) {
+	_, args := BuildVaultRead("100%_drop'")
+	if pat, ok := args[0].(string); !ok || pat != `%100\%\_drop'%` {
+		t.Errorf("이스케이프 패턴 = %v, want %%100\\%%\\_drop'%%", args)
+	}
+}
+
+// TestFormatVaultRows — one line per vault row: text mode
+// "vault|path|title|summary" (path identification + the source marker),
+// json mode {"source":"vault","path":...,"title":...,"summary":...}.
+// The summary is truncated to summaryMax (the token budget — the
+// index-time cap alone does not bound the read output surface).
+func TestFormatVaultRows(t *testing.T) {
+	rows := [][]any{{"데모 제목", strings.Repeat("요", 100), ":demo:", "/tmp/demo-vault/note.md"}}
+	out := FormatVaultRows(rows, false)
+	want := "vault|/tmp/demo-vault/note.md|데모 제목|" + strings.Repeat("요", summaryMax) + "\n"
+	if out != want {
+		t.Errorf("FormatVaultRows(text) = %q, want %q", out, want)
+	}
+	jout := FormatVaultRows(rows, true)
+	var m map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimRight(jout, "\n")), &m); err != nil {
+		t.Fatalf("json 파싱: %v: %q", err, jout)
+	}
+	if m["source"] != "vault" || m["path"] != "/tmp/demo-vault/note.md" || m["title"] != "데모 제목" {
+		t.Errorf("json 식별 필드 = %v", m)
+	}
+	if got := len([]rune(m["summary"])); got != summaryMax {
+		t.Errorf("json summary 길이 = %d, want %d(토큰 예산)", got, summaryMax)
+	}
+}
+
+// TestFormatVaultRowsEmpty — no vault rows, no output (the eligible
+// zero-hit text silence is preserved).
+func TestFormatVaultRowsEmpty(t *testing.T) {
+	if out := FormatVaultRows(nil, false); out != "" {
+		t.Errorf("빈 vault 출력 = %q, want \"\"", out)
+	}
+}
+
 // TestBuildReadFallbackNewFilters — the zero-hit fallback inherits the new
 // filters (a confidence floor must hold on the retry too — otherwise the
 // fallback would resurface the rows the phrase query just excluded).

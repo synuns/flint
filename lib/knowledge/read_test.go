@@ -1201,7 +1201,11 @@ func TestRunReadMinConfidence(t *testing.T) {
 		var gotSQL string
 		var gotArgs []any
 		st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			gotSQL, gotArgs = sql, args
+			// the knowledge query only (the later vault bridge query is a
+			// separate source — v1.21.0 T4)
+			if !strings.Contains(sql, "FROM vault_files") {
+				gotSQL, gotArgs = sql, args
+			}
 			if strings.Contains(sql, "FROM active_knowledge") {
 				return hitRowsFixture, nil
 			}
@@ -1250,7 +1254,11 @@ func TestRunReadOrigin(t *testing.T) {
 			var gotSQL string
 			var gotArgs []any
 			st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-				gotSQL, gotArgs = sql, args
+				// the knowledge query only (the later vault bridge query is a
+				// separate source — v1.21.0 T4)
+				if !strings.Contains(sql, "FROM vault_files") {
+					gotSQL, gotArgs = sql, args
+				}
 				if strings.Contains(sql, "FROM active_knowledge") {
 					return hitRowsFixture, nil
 				}
@@ -1292,7 +1300,11 @@ func TestRunReadOrigin(t *testing.T) {
 func TestRunReadNewFiltersCombined(t *testing.T) {
 	var gotSQL string
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		gotSQL = sql
+		// the knowledge --status query only (the later vault bridge query is
+		// a separate source — v1.21.0 T4)
+		if !strings.Contains(sql, "FROM vault_files") {
+			gotSQL = sql
+		}
 		if strings.Contains(sql, "FROM knowledge") {
 			return hitRowsFixture, nil
 		}
@@ -1338,5 +1350,303 @@ func TestRunReadNewFiltersZeroHit(t *testing.T) {
 	}
 	if out.String() != "" {
 		t.Errorf("제로히트 텍스트 침묵 위반: %q", out.String())
+	}
+}
+
+// ── v1.21.0 T4 — the vault bridge read fusion. ──
+
+// vaultFixtureRows — vault_files rows in the BuildVaultRead column order
+// (title, summary, tags, path). Synthetic demo data only.
+var vaultFixtureRows = [][]any{
+	{"데모 노트 하나", "합성 데모 요약 하나", ":demo:", "/tmp/demo-vault/note-a.md"},
+	{"데모 노트 둘", "합성 데모 요약 둘", ":demo:", "/tmp/demo-vault/note-b.md"},
+}
+
+// vaultQueryFn — the fake routing: the vault query answers vault, the
+// knowledge phrase query answers knowledge, the zero-hit active count
+// answers 0 (unowned); everything else (fallback·suggestion scan) is nil.
+func vaultQueryFn(knowledge, vault [][]any, vaultErr error) func(string, []any) ([][]any, error) {
+	return func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM vault_files"):
+			if vaultErr != nil {
+				return nil, vaultErr
+			}
+			return vault, nil
+		case strings.Contains(sql, "count(*) FROM knowledge"):
+			return [][]any{{"0"}}, nil
+		case strings.Contains(sql, "FROM active_knowledge"):
+			return knowledge, nil
+		}
+		return nil, nil
+	}
+}
+
+// TestRunReadVaultRowsAppendedAfterKnowledge — the invariance seal: the
+// knowledge row set·order·serialization are identical with and without
+// vault data; vault rows appear only AFTER the knowledge block
+// (path-identified, source-marked).
+func TestRunReadVaultRowsAppendedAfterKnowledge(t *testing.T) {
+	run := func(vault [][]any) string {
+		st := &fakeStore{queryFn: vaultQueryFn(hitRowsFixture, vault, nil)}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st,
+			[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		return out.String()
+	}
+	without, with := run(nil), run(vaultFixtureRows)
+	if !strings.HasPrefix(with, without) {
+		t.Fatalf("지식 직렬화 불변 위반:\n없을 때=%q\n있을 때=%q", without, with)
+	}
+	if !strings.Contains(with, "vault|/tmp/demo-vault/note-a.md|데모 노트 하나|합성 데모 요약 하나") {
+		t.Errorf("vault 행(path 식별·source 표기) 부재: %q", with)
+	}
+}
+
+// TestRunReadVaultCapFive — the app-side cap: 7 matching vault rows
+// yield at most VaultMaxRows(5) lines (the SQL LIMIT's defense in depth).
+func TestRunReadVaultCapFive(t *testing.T) {
+	var seven [][]any
+	for i := 0; i < 7; i++ {
+		seven = append(seven, []any{
+			fmt.Sprintf("데모 노트 %d", i), "합성 요약", ":demo:", fmt.Sprintf("/tmp/demo-vault/n%d.md", i)})
+	}
+	st := &fakeStore{queryFn: vaultQueryFn(hitRowsFixture, seven, nil)}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	n := 0
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if strings.HasPrefix(line, "vault|") {
+			n++
+		}
+	}
+	if n != query.VaultMaxRows {
+		t.Errorf("vault 행 = %d, want %d(상한 상수): %q", n, query.VaultMaxRows, out.String())
+	}
+}
+
+// TestRunReadVaultZeroHitKnowledgeDomain — a knowledge zero-hit with a
+// vault hit: the --json output discloses the counts separately
+// ({"hits":0} then {"vault_hits":N} — the vault count is never folded
+// into hits) while read_events stays on the knowledge domain
+// (hits=0·zero=true — ZeroReason's knowledge domain is unchanged).
+func TestRunReadVaultZeroHitKnowledgeDomain(t *testing.T) {
+	st := &readEventRecorder{fakeStore: &fakeStore{
+		queryFn: vaultQueryFn(nil, vaultFixtureRows[:1], nil)}}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--json", "없는토픽"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, `"hits":0`) {
+		t.Errorf("지식 hits=0 라인 누락: %q", got)
+	}
+	if !strings.Contains(got, `"vault_hits":1`) {
+		t.Errorf("vault_hits 라인 누락: %q", got)
+	}
+	if !strings.Contains(got, `"source":"vault"`) {
+		t.Errorf("vault json 행 source 표기 부재: %q", got)
+	}
+	if ev := st.events[0]; ev.hits != 0 || !ev.zero {
+		t.Errorf("read_event = %+v, want hits=0·zero=true(지식 도메인 불변)", ev)
+	}
+}
+
+// TestRunReadVaultAsOfCurrentState — under --as-of the knowledge rows
+// time travel (QueryAsOf) but the vault rows reflect the CURRENT
+// vault_files state (vault point-in-time travel is unsupported — spec
+// M2): the vault query goes through the present-point Query path.
+func TestRunReadVaultAsOfCurrentState(t *testing.T) {
+	const asOfHash = "he08irluqn3v2m1k9x7c4jw5z6b8d0f"
+	injectAsOfSeams(t, asOfHash)
+	st := &asOfStore{
+		fakeStore: &fakeStore{queryFn: vaultQueryFn(nil, vaultFixtureRows[:1], nil)},
+		asOfRows:  [][]any{{"3", "과거 토픽", "과거 요약", ":t:", "", "", "0.9", "active", "0"}},
+	}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--as-of", "7d", "토픽"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, out.String())
+	}
+	got := out.String()
+	if !strings.HasPrefix(got, "3|과거 토픽|과거 요약\n") {
+		t.Errorf("지식(as-of) 행 변형: %q", got)
+	}
+	if !strings.Contains(got, "vault|/tmp/demo-vault/note-a.md") {
+		t.Errorf("vault 현재 상태 행 부재: %q", got)
+	}
+	if len(st.asOfCalls) != 1 || st.asOfCalls[0].Table != "active_knowledge" {
+		t.Errorf("QueryAsOf = %v, want 1회 active_knowledge(시점여행은 지식만)", st.asOfCalls)
+	}
+}
+
+// TestRunReadVaultSanitized — the vault rows reach the output only
+// through the render chokepoint: a [flint] marker planted in a vault
+// summary is neutralized (ADR-0006 output neutralization).
+func TestRunReadVaultSanitized(t *testing.T) {
+	dirty := [][]any{{"데모 제목", "합성[flint]요약", ":demo:", "/tmp/demo-vault/x.md"}}
+	st := &fakeStore{queryFn: vaultQueryFn(hitRowsFixture, dirty, nil)}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	if strings.Contains(out.String(), "[flint]") {
+		t.Errorf("vault 출력 살균 위반: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "합성 요약") {
+		t.Errorf("살균 후 요약 잔존 확인 불가: %q", out.String())
+	}
+}
+
+// TestRunReadVaultFiltersDoNotApply — the knowledge filters
+// (--min-confidence·--origin) shape the knowledge query only: the vault
+// query stays q-based (no confidence/origin fragments) and its rows are
+// still appended.
+func TestRunReadVaultFiltersDoNotApply(t *testing.T) {
+	var knowledgeSQL, vaultSQL string
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM vault_files") {
+			vaultSQL = sql
+			return vaultFixtureRows[:1], nil
+		}
+		if strings.Contains(sql, "count(*) FROM knowledge") {
+			return [][]any{{"0"}}, nil
+		}
+		if (strings.Contains(sql, "FROM active_knowledge") || strings.Contains(sql, "FROM knowledge")) &&
+			strings.Contains(sql, "WHERE") {
+			knowledgeSQL = sql // the phrase/status query only (the filterless suggestion scan has no WHERE)
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--min-confidence", "0.9", "--origin", "agent", "백업"},
+		strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	if !strings.Contains(knowledgeSQL, "confidence >= $") || !strings.Contains(knowledgeSQL, "origin = $") {
+		t.Errorf("지식 쿼리 필터 누락: %s", knowledgeSQL)
+	}
+	if strings.Contains(vaultSQL, "confidence") || strings.Contains(vaultSQL, "origin") {
+		t.Errorf("vault 쿼리에 지식 필터 침투: %s", vaultSQL)
+	}
+	if !strings.Contains(out.String(), "vault|/tmp/demo-vault/note-a.md") {
+		t.Errorf("필터 조합 시 vault 행 부재: %q", out.String())
+	}
+}
+
+// TestRunReadVaultQueryErrorQuiet — a vault query failure is quiet
+// (§13): the knowledge output·exit code are exactly the no-vault ones
+// (the bridge never breaks the knowledge result).
+func TestRunReadVaultQueryErrorQuiet(t *testing.T) {
+	st := &fakeStore{queryFn: vaultQueryFn(hitRowsFixture, nil, errors.New("vault boom"))}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"백업 정책"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, out.String())
+	}
+	if want := "1|백업 정책|매일\n2|백업 절차|매일\n"; out.String() != want {
+		t.Errorf("vault 실패 시 출력 = %q, want %q(지식 결과 무왜곡)", out.String(), want)
+	}
+}
+
+// seedSlowVaultRows — synthetic demo vault_files rows on the scratch
+// store (the T2 scan-equivalent shape; real scan coverage belongs to the
+// lib/vault slow suite).
+func seedSlowVaultRows(t *testing.T, st *writeRealStore, n int, term string) {
+	t.Helper()
+	ctx := context.Background()
+	for i := 0; i < n; i++ {
+		path := fmt.Sprintf("/tmp/demo-vault/slow-%d.md", i)
+		_, err := st.pool.Exec(ctx,
+			`INSERT INTO vault_files (path, title, tags, mtime, size, content_hash, summary)
+			 VALUES ($1, $2, $3, now(), $4, $5, $6)`,
+			path, fmt.Sprintf("%s 데모 노트 %d", term, i), ":demo:", 100+i,
+			fmt.Sprintf("slowhash%d-%064d", i, i), fmt.Sprintf("%s 합성 데모 요약 %d", term, i))
+		if err != nil {
+			t.Fatalf("vault_files 적립 %d: %v", i, err)
+		}
+	}
+}
+
+// TestSlowReadVaultFusionV1210 — real-DB (dedicated scratch): the
+// invariance seal on a real vault_files table — the knowledge block is
+// byte-identical before/after vault rows exist; 7 matching vault rows
+// yield exactly VaultMaxRows(5) appended lines (SQL LIMIT + the app-side
+// cap), each path-identified.
+func TestSlowReadVaultFusionV1210(t *testing.T) {
+	st := t5ScratchStore(t)
+	ctx := context.Background()
+	var wout strings.Builder
+	if code := RunWrite(ctx, st, []string{"knowledge"}, strings.NewReader(
+		`{"topic":"v1210 데모 백업 정책","summary":"합성 데모 요약","confidence":0.9}`+"\n"+
+			`{"topic":"v1210 데모 백업 절차","summary":"합성 데모 요약","confidence":0.9}`+"\n"), &wout); code != 0 {
+		t.Fatalf("지식 적립 exit=%d: %s", code, wout.String())
+	}
+	var before strings.Builder
+	if code := RunRead(ctx, st, []string{"v1210 데모 백업"}, strings.NewReader(""), &before); code != 0 {
+		t.Fatalf("vault 적립 전 read exit=%d: %s", code, before.String())
+	}
+	if !strings.Contains(before.String(), "v1210 데모 백업 정책") {
+		t.Fatalf("지식 히트 없음: %q", before.String())
+	}
+
+	seedSlowVaultRows(t, st, 7, "v1210 데모 백업")
+
+	var after strings.Builder
+	if code := RunRead(ctx, st, []string{"v1210 데모 백업"}, strings.NewReader(""), &after); code != 0 {
+		t.Fatalf("vault 적립 후 read exit=%d: %s", code, after.String())
+	}
+	got := after.String()
+	if !strings.HasPrefix(got, before.String()) {
+		t.Fatalf("지식 직렬화 불변 위반(실DB):\n전=%q\n후=%q", before.String(), got)
+	}
+	vaultN := 0
+	for _, line := range strings.Split(strings.TrimRight(got, "\n"), "\n") {
+		if strings.HasPrefix(line, "vault|") {
+			vaultN++
+		}
+	}
+	if vaultN != query.VaultMaxRows {
+		t.Errorf("vault 행 = %d, want %d(7행 중 상한): %q", vaultN, query.VaultMaxRows, got)
+	}
+	if !strings.Contains(got, "vault|/tmp/demo-vault/slow-0.md|v1210 데모 백업 데모 노트 0|") {
+		t.Errorf("vault 행 path 식별 부재: %q", got)
+	}
+}
+
+// TestSlowReadVaultZeroHitV1210 — real-DB: a knowledge zero-hit with a
+// vault hit keeps the knowledge domain untouched — --json prints
+// {"hits":0} then {"vault_hits":N} and the vault rows, exit 0.
+func TestSlowReadVaultZeroHitV1210(t *testing.T) {
+	st := t5ScratchStore(t)
+	ctx := context.Background()
+	seedSlowVaultRows(t, st, 2, "v1210 데모 회고")
+
+	var out strings.Builder
+	code := RunRead(ctx, st, []string{"--json", "v1210 데모 회고"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0: %s", code, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, `"hits":0`) {
+		t.Errorf("지식 hits=0 라인 누락: %q", got)
+	}
+	if !strings.Contains(got, `"vault_hits":2`) {
+		t.Errorf("vault_hits=2 라인 누락: %q", got)
+	}
+	if !strings.Contains(got, `"source":"vault"`) {
+		t.Errorf("vault json 행 source 표기 부재: %q", got)
 	}
 }

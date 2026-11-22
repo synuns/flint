@@ -121,3 +121,72 @@ func TestThresholdsUnknownKeyIgnored(t *testing.T) {
 		t.Errorf("unknown 키가 폴백 영향: %+v", got)
 	}
 }
+
+// TestVaultThresholdKeys — the v1.21.0 vault-bridge keys: defaults
+// (10000 · 200 · ".obsidian,.trash"), meta override reflection, invalid
+// value fallback (the parseIntOrDefault family), the non-string type
+// fallback of the new parseStringOrDefault helper (vault_skip_dirs is
+// the first string-valued key), and the unset-keeps-zero convention
+// ("" for the string field — the consumer falls back to
+// DefaultThresholds, the unset-keeps-0 analog).
+func TestVaultThresholdKeys(t *testing.T) {
+	// defaults.
+	def := DefaultThresholds()
+	if def.VaultScanMaxFiles != 10000 {
+		t.Errorf("VaultScanMaxFiles 기본값=%d, want 10000", def.VaultScanMaxFiles)
+	}
+	if def.VaultSummaryMaxRunes != 200 {
+		t.Errorf("VaultSummaryMaxRunes 기본값=%d, want 200", def.VaultSummaryMaxRunes)
+	}
+	if def.VaultSkipDirs != ".obsidian,.trash" {
+		t.Errorf("VaultSkipDirs 기본값=%q, want \".obsidian,.trash\"", def.VaultSkipDirs)
+	}
+	// override.
+	th, err := ParseThresholds([][2]any{
+		{"vault_scan_max_files", "500"},
+		{"vault_summary_max_runes", "80"},
+		{"vault_skip_dirs", ".git,node_modules"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.VaultScanMaxFiles != 500 {
+		t.Errorf("vault_scan_max_files 오버라이드=%d, want 500", th.VaultScanMaxFiles)
+	}
+	if th.VaultSummaryMaxRunes != 80 {
+		t.Errorf("vault_summary_max_runes 오버라이드=%d, want 80", th.VaultSummaryMaxRunes)
+	}
+	if th.VaultSkipDirs != ".git,node_modules" {
+		t.Errorf("vault_skip_dirs 오버라이드=%q, want \".git,node_modules\"", th.VaultSkipDirs)
+	}
+	// invalid numeric values fall back (the parseIntOrDefault family).
+	bad, err := ParseThresholds([][2]any{
+		{"vault_scan_max_files", "abc"},
+		{"vault_summary_max_runes", "-1"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if bad.VaultScanMaxFiles != 10000 || bad.VaultSummaryMaxRunes != 200 {
+		t.Errorf("무효값 폴백: scan=%d runes=%d, want 10000·200",
+			bad.VaultScanMaxFiles, bad.VaultSummaryMaxRunes)
+	}
+	// a non-string value type (toString-unsupported) falls back — the
+	// parseStringOrDefault contract.
+	mism, err := ParseThresholds([][2]any{{"vault_skip_dirs", true}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if mism.VaultSkipDirs != ".obsidian,.trash" {
+		t.Errorf("타입 불일치 폴백=%q, want \".obsidian,.trash\"", mism.VaultSkipDirs)
+	}
+	// unset keeps the zero value (0·0·"" — the consumer fallback basis).
+	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.VaultScanMaxFiles != 0 || unset.VaultSummaryMaxRunes != 0 || unset.VaultSkipDirs != "" {
+		t.Errorf("unset 폴백: scan=%d runes=%d skip=%q, want 0·0·\"\"",
+			unset.VaultScanMaxFiles, unset.VaultSummaryMaxRunes, unset.VaultSkipDirs)
+	}
+}

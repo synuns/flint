@@ -9,11 +9,21 @@ import (
 	"os"
 	"sort"
 	"sync"
+	"time"
 
 	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/wire"
 )
+
+// init — wires the v1.21.0 A6 scan-duration record seams. ops owns the
+// accumulator, but knowledge/query cannot import ops (import cycle), so the
+// seams are fn vars wired here (the mcp Register convention).
+func init() {
+	knowledge.RecordEchoScanFn = RecordEchoScan
+	query.RecordSuggestScanFn = RecordSuggestScan
+}
 
 // hotMaxSamples — the cap on kept samples. When exceeded, the oldest are dropped first.
 const hotMaxSamples = 500
@@ -160,10 +170,14 @@ func PersistHotStats(setKV func(string, string) error) error {
 // metrics_test resetMetrics convention). Also clears the persistent baseline.
 func ResetMetrics() {
 	hotMu.Lock()
-	defer hotMu.Unlock()
 	hotLens = hotLens[:0]
 	hotBase = hotStatsJSON{}
 	hotPersisted = 0
+	hotMu.Unlock()
+	scanMu.Lock()
+	scanEcho, scanSuggest = scanAcc{}, scanAcc{}
+	scanLoaded = false
+	scanMu.Unlock()
 }
 
 // HotLensSnapshot — a snapshot of the kept samples (supporting test assertions — the cli
@@ -245,10 +259,201 @@ func LoadReadStatsFromMeta(ctx context.Context, st wire.Store) (calls int, zero 
 
 // PersistHotStatsToMeta — stores the cumulative meta hot_stats just before command exit (wiring).
 // Failure is silently ignored, at most one stderr line (non-interference §13 — metering must never change the outcome).
+// v1.21.0 A6: the scan_stats commit rides this same existing persist point
+// (spec A6 — the audit commit path; CommitTelemetry does not stage meta).
 func PersistHotStatsToMeta(ctx context.Context, st wire.Store) {
-	_, setKV := MetaKV(ctx, st)
+	getKV, setKV := MetaKV(ctx, st)
 	if err := PersistHotStats(setKV); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] hot stats persist: %v\n", err)
+	}
+	persistScanStatsToMeta(getKV, setKV)
+}
+
+// scanMaxSamples — the per-kind cap on kept scan-duration samples (the
+// hotMaxSamples convention). When exceeded, the oldest are dropped first.
+const scanMaxSamples = 500
+
+// ScanKindStats — one scan kind's cumulative metering (v1.21.0 A6): calls
+// and the duration p95 in microseconds.
+type ScanKindStats struct {
+	Calls int
+	P95   int
+}
+
+// scanKindJSON — one kind's persistent form: cumulative calls plus the most
+// recent samples kept for p95-representative purposes (the hotStatsJSON convention).
+type scanKindJSON struct {
+	Calls   int   `json:"calls"`
+	Samples []int `json:"samples"`
+}
+
+// scanStatsJSON — the persistent meta scan_stats format: {echo,suggest}{calls,samples}.
+// p95 is derived on read (ceil(0.95n)-1, HotP95) — never stored stale.
+type scanStatsJSON struct {
+	Echo    scanKindJSON `json:"echo"`
+	Suggest scanKindJSON `json:"suggest"`
+}
+
+// scanAcc — the in-process accumulator of one kind: the previous run's
+// baseline, the kept samples, and the already-persisted front offset
+// (the hotBase/hotLens/hotPersisted convention).
+type scanAcc struct {
+	base      scanKindJSON
+	samples   []int
+	persisted int
+}
+
+// scanMu — protects the scan accumulators and the lazy-load flag.
+var scanMu sync.Mutex
+
+// scanEcho·scanSuggest — the per-kind accumulators (the scan_stats JSON keys).
+var (
+	scanEcho    scanAcc
+	scanSuggest scanAcc
+	scanLoaded  bool // the baseline lazy-load-once flag (loaded at the first persist point)
+)
+
+// RecordEchoScan — records one EchoScan entry-to-return duration sample.
+func RecordEchoScan(d time.Duration) { recordScan(&scanEcho, d) }
+
+// RecordSuggestScan — records one SuggestSimilarWithScanMax entry-to-return duration sample.
+func RecordSuggestScan(d time.Duration) { recordScan(&scanSuggest, d) }
+
+// recordScan — appends the sample in microseconds, trimming the front at the
+// cap while shrinking the persisted offset with it (the RecordHotLen convention).
+func recordScan(acc *scanAcc, d time.Duration) {
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	acc.samples = append(acc.samples, int(d.Microseconds()))
+	if over := len(acc.samples) - scanMaxSamples; over > 0 {
+		acc.samples = acc.samples[over:]
+		if over >= acc.persisted {
+			acc.persisted = 0
+		} else {
+			acc.persisted -= over
+		}
+	}
+}
+
+// ScanStats — the cumulative scan metering per kind: calls (baseline + unsaved
+// samples) and the p95 over baseline+pending samples (nearest-rank, HotP95).
+// Quiet zeros when a kind is empty.
+func ScanStats() (echo, suggest ScanKindStats) {
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	return scanKindStatsOf(&scanEcho), scanKindStatsOf(&scanSuggest)
+}
+
+// scanKindStatsOf — the per-kind cumulative view. The caller must hold scanMu.
+func scanKindStatsOf(acc *scanAcc) ScanKindStats {
+	pend := scanPending(acc)
+	calls := acc.base.Calls + len(pend)
+	if calls == 0 {
+		return ScanKindStats{}
+	}
+	all := append(append([]int(nil), acc.base.Samples...), pend...)
+	sort.Ints(all)
+	return ScanKindStats{Calls: calls, P95: HotP95(all)}
+}
+
+// scanPending — the in-memory samples not yet added to the baseline.
+// The caller must hold scanMu (the hotPending convention).
+func scanPending(acc *scanAcc) []int {
+	if acc.persisted <= 0 {
+		return acc.samples
+	}
+	if acc.persisted >= len(acc.samples) {
+		return nil
+	}
+	return acc.samples[acc.persisted:]
+}
+
+// LoadScanStats — loads the meta scan_stats baseline at the persist point.
+// Missing key, error, or corrupt JSON falls back to defaults (ok=false,
+// baseline reset — the LoadHotStats convention). In-memory pending samples
+// are untouched, so a mid-session load merges instead of dropping.
+func LoadScanStats(getKV func(string) (string, error)) bool {
+	v, err := getKV("scan_stats")
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	scanEcho.base, scanSuggest.base = scanKindJSON{}, scanKindJSON{}
+	if err != nil || v == "" {
+		return false
+	}
+	var st scanStatsJSON
+	if json.Unmarshal([]byte(v), &st) != nil {
+		return false // corrupt -> default fallback
+	}
+	scanEcho.base, scanSuggest.base = st.Echo, st.Suggest
+	return true
+}
+
+// PersistScanStats — stores the cumulative meta scan_stats: the previous
+// baseline + unsaved in-memory samples (the most recent scanMaxSamples kept
+// per kind — the PersistHotStats convention). On success the summed portion
+// moves to the baseline while the in-memory samples stay (double counting is
+// excluded via the persisted offset).
+func PersistScanStats(setKV func(string, string) error) error {
+	scanMu.Lock()
+	echo := scanPersistKind(&scanEcho)
+	suggest := scanPersistKind(&scanSuggest)
+	scanMu.Unlock()
+
+	st := scanStatsJSON{Echo: echo.st, Suggest: suggest.st}
+	b, err := json.Marshal(st)
+	if err != nil {
+		return err
+	}
+	if err := setKV("scan_stats", string(b)); err != nil {
+		return err
+	}
+	scanMu.Lock()
+	if echo.snapLen > scanEcho.persisted {
+		scanEcho.persisted = echo.snapLen
+	}
+	if suggest.snapLen > scanSuggest.persisted {
+		scanSuggest.persisted = suggest.snapLen
+	}
+	scanEcho.base, scanSuggest.base = echo.st, suggest.st
+	scanMu.Unlock()
+	return nil
+}
+
+// scanSnapshot — one kind's cumulative snapshot for persist: merged calls and
+// capped samples, plus the kept-sample length for the offset update.
+type scanSnapshot struct {
+	st      scanKindJSON
+	snapLen int
+}
+
+// scanPersistKind — builds one kind's cumulative snapshot.
+// The caller must hold scanMu.
+func scanPersistKind(acc *scanAcc) scanSnapshot {
+	cur := append([]int(nil), scanPending(acc)...)
+	out := scanSnapshot{snapLen: len(acc.samples)}
+	out.st = scanKindJSON{Calls: acc.base.Calls + len(cur)}
+	out.st.Samples = append(append([]int(nil), acc.base.Samples...), cur...)
+	if over := len(out.st.Samples) - scanMaxSamples; over > 0 {
+		out.st.Samples = out.st.Samples[over:]
+	}
+	return out
+}
+
+// persistScanStatsToMeta — the scan_stats commit riding the existing hot_stats
+// persist point (wiring). The stored baseline is lazily loaded exactly once
+// here (the first commit of the process) so cross-run accumulation holds with
+// zero added queries on the echo/suggest paths. Failure is silent, at most one
+// stderr line (§13).
+func persistScanStatsToMeta(getKV func(string) (string, error), setKV func(string, string) error) {
+	scanMu.Lock()
+	loaded := scanLoaded
+	scanLoaded = true
+	scanMu.Unlock()
+	if !loaded {
+		LoadScanStats(getKV)
+	}
+	if err := PersistScanStats(setKV); err != nil {
+		fmt.Fprintf(os.Stderr, "[flint] scan stats persist: %v\n", err)
 	}
 }
 

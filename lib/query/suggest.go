@@ -5,6 +5,7 @@ package query
 import (
 	"sort"
 	"strconv"
+	"time"
 
 	"golang.org/x/text/unicode/norm"
 
@@ -140,6 +141,13 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 	return sug
 }
 
+// RecordSuggestScanFn — the scan-duration recording seam (v1.21.0 A6 scan
+// p95). ops wires its in-memory accumulator here (query cannot import ops —
+// the import-cycle-free seam var convention); nil (unwired) keeps the path
+// metering-free and quiet (§13). Recorded inside SuggestSimilarWithScanMax
+// only, so the legacy SuggestSimilar delegation records exactly once.
+var RecordSuggestScanFn func(time.Duration)
+
 // SuggestSimilarWithScanMax — SuggestSimilar plus the scan max: the
 // highest bigramDice score over ALL scanned candidate rows, computed
 // BEFORE the suggestMinScore filter and independent of the top-N
@@ -150,6 +158,13 @@ func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 // was scanned — distinct from a masked score); malformed rows (short·
 // unparseable id) are not candidates and never feed the max.
 func SuggestSimilarWithScanMax(q string, rows [][]any, topN int) ([]Suggestion, float64) {
+	// v1.21.0 A6: entry-to-return duration sample — in-memory only (zero
+	// added queries; merged into meta scan_stats at the existing hot_stats
+	// persist point).
+	start := time.Now()
+	if RecordSuggestScanFn != nil {
+		defer func() { RecordSuggestScanFn(time.Since(start)) }()
+	}
 	nq := nfkc(q)
 	type scored struct {
 		sug   Suggestion

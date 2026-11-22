@@ -9,6 +9,7 @@ import (
 	"math"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
@@ -269,6 +270,52 @@ func TestEchoScanRealSlow(t *testing.T) {
 	for _, c := range got {
 		if c.Topic == echoUnrelatedTopic {
 			t.Errorf("무관 시딩이 후보로 등장: %+v", c)
+		}
+	}
+}
+
+// TestEchoScanRecordsDurationQuietly — v1.21.0 A6: the wired
+// RecordEchoScanFn seam records exactly one non-negative duration per scan
+// (entry to return, error path included) and the candidates stay identical
+// with the seam on vs off — instrumentation never enters the outcome path (§13).
+func TestEchoScanRecordsDurationQuietly(t *testing.T) {
+	var got []time.Duration
+	RecordEchoScanFn = func(d time.Duration) { got = append(got, d) }
+	t.Cleanup(func() { RecordEchoScanFn = nil })
+
+	st := &fakeStore{rows: echoFixtures()}
+	withSeam, err := EchoScan(context.Background(), st, echoTestTopic, echoDupSummary)
+	if err != nil {
+		t.Fatalf("EchoScan 에러: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("기록 샘플 %d건, want 1(스캔 1회)", len(got))
+	}
+	if got[0] < 0 {
+		t.Fatalf("기록 음수 duration: %v", got[0])
+	}
+
+	// Query failure also returns through the defer — recorded, error intact.
+	failSt := &fakeStore{queryErr: errors.New("boom")}
+	if _, err := EchoScan(context.Background(), failSt, echoTestTopic, echoDupSummary); err == nil {
+		t.Fatalf("쿼리 실패 에러 부재")
+	}
+	if len(got) != 2 {
+		t.Fatalf("기록 샘플 %d건, want 2(진입~반환 — 에러 경로 포함)", len(got))
+	}
+
+	// Seam off -> identical candidates (the metering-free path is unchanged).
+	RecordEchoScanFn = nil
+	without, err := EchoScan(context.Background(), &fakeStore{rows: echoFixtures()}, echoTestTopic, echoDupSummary)
+	if err != nil {
+		t.Fatalf("EchoScan 에러(seam off): %v", err)
+	}
+	if len(without) != len(withSeam) {
+		t.Fatalf("후보 수 변동: %d vs %d", len(without), len(withSeam))
+	}
+	for i := range withSeam {
+		if withSeam[i] != without[i] {
+			t.Fatalf("후보[%d] 변동: %+v vs %+v(계측이 결과에 끼면 안 됨)", i, withSeam[i], without[i])
 		}
 	}
 }

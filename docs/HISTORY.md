@@ -6,6 +6,57 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.21.0 minor (2026-11-23) — vault-bridge-index: schema v16 vault_files · `flint index` · read vault fusion · scan p95 metering
+
+(spec: docs/plans/2026-11-22-flint-v1210.md). The vault bridge I
+milestone — additive schema v16, the index command, the read fusion,
+and the scan-latency metering:
+
+- schema v16 (additive — v15 DBs promote on the first command,
+  migration 0 for everything read-side): the `vault_files` pointer-
+  snapshot table (one row per vault .md file — the original text is
+  never copied; `path` UNIQUE is the scan-diff UPSERT axis;
+  `content_hash` is the sha256 of the raw bytes, deliberately distinct
+  from the knowledge normalized hash) with its (content_hash) index —
+  the duplicate-note detection axis. An audit staging target (the
+  recall_events ruling precedent — the vault index is a recall-domain
+  source).
+- `flint index [--vault PATH] [--limit N]`: one snapshot-diff scan of
+  a markdown vault and ONE batch dolt commit per diff (a diff-free
+  rerun commits nothing). The vault path is user-declared (no auto
+  detection): an explicit `--vault` persists to meta `vault_path`;
+  without the flag the stored path is reused, and its absence is usage
+  exit 3 guidance. Scan stats round-trip through meta `vault_last_scan`
+  JSON for the status vault row (`vault_indexed_at`·`vault_files`·
+  `vault_changed`, appended to the non-as-of output). The vault root
+  path never appears in output, commit messages, or error lines.
+- read vault fusion: `flint read` appends vault rows AFTER the
+  knowledge block (never interleaved — the knowledge result stays
+  byte-identical with and without vault data; `hits` and the zero-hit
+  `{"hits":0}` line stay on the knowledge domain). Cap 5 (SQL LIMIT +
+  app-side defense in depth), `source:"vault"` + `path` identify a row
+  (text mode `vault|path|title|summary`), and `--json` discloses the
+  count as a separate additive `{"vault_hits":n}` line. The knowledge
+  filters do not apply — the vault query is q-based only. A zero-hit
+  WITH vault hits is no longer silent (the knowledge silence itself is
+  unchanged). The MCP `flint_read` tool is unchanged — the fusion
+  rides the existing tool.
+- A6 scan p95 metering: EchoScan·SuggestSimilarWithScanMax
+  entry-to-return duration samples accumulate in meta `scan_stats`
+  JSON {echo,suggest}{calls,samples} (cap 500 samples per kind, p95
+  derived on read — nearest-rank ceil(0.95n)-1, the HotStats pattern),
+  committed at the existing hot_stats persist point (zero added
+  queries on the echo/suggest paths). PERF §2b carries the synthetic
+  2k-row figures.
+- three threshold keys (TUNING §2): `vault_scan_max_files` 10000 (per-scan
+  .md file cap), `vault_summary_max_runes` 200 (summary truncation),
+  `vault_skip_dirs` `".obsidian,.trash"` (comma-separated skip-dir
+  list — the first string-valued key family; unset keeps "" and the
+  consumer falls back to DefaultThresholds).
+- R90 (v1.20.0 carry-over): `Merge` now defers its advisory-lock
+  release — a panic in the lock-held body would have leaked the lock
+  (1 line; the SetSupersededRef convention; the unlock is idempotent).
+
 ### v1.20.3 patch (2026-11-22) — r89: merge/setref join the supersede lock domain
 
 The v1.20.2 follow-up audit (r89) fix — 1 finding:
