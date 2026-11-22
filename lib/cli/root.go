@@ -66,6 +66,8 @@ func init() {
 	knowledge.RecordHotLenFn = RecordHotLen
 	knowledge.LoadHotStatsFromMetaFn = loadHotStatsFromMeta
 	knowledge.PersistHotStatsToMetaFn = persistHotStatsToMeta
+	// v1.21.1 A6 — the write/read exit scan_stats flush (one-shot processes).
+	knowledge.PersistScanStatsFn = ops.PersistScanStatsToMeta
 	knowledge.WriteTypedMarkerFn = WriteTypedMarker
 	knowledge.BackupKeyPathFn = BackupKeyPath
 

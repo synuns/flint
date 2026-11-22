@@ -110,6 +110,13 @@ multiset + topic-only), while the suggestion scan is one pass with a
 top-N cut. Both are bounded by `suggest_scan_cap` (5000 rows) and are
 suggestion-only (never block the write/read outcome).
 
+Exposure (v1.21.1): the samples persist at the existing hot_stats
+commit point AND at the write/read command exits (a one-shot CLI
+process otherwise dropped them), and `flint status` surfaces the
+cumulative per-kind view (`scan_echo_calls` · `scan_echo_p95_us` ·
+`scan_suggest_calls` · `scan_suggest_p95_us`) — every surface, not a
+single channel.
+
 ## 3. Known limitations
 
 - **Doltgres does not support pg_trgm**, so `read`'s LIKE matching cannot

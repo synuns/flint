@@ -1498,7 +1498,7 @@ func buildMetaKnownKeys() map[string]bool {
 		"last_events_prune_at": true, // db read-cleanup gate stamp (usage.go pruneReadGateKey)
 		"vault_path":           true, // v1.21.0 T3 — the persisted `flint index --vault` root
 		"vault_last_scan":      true, // v1.21.0 T3 — the index stats snapshot (the status vault row source)
-		"scan_stats":           true, // v1.21.0 A6 — the {echo,suggest}{calls,p95} metering baseline
+		"scan_stats":           true, // v1.21.0 A6 — the {echo,suggest}{calls,samples} metering baseline (p95 derived on read)
 	}
 	for _, k := range meteringFreshnessGateKeys {
 		m[k] = true

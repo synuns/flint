@@ -1186,6 +1186,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		_ = db.BumpDailyFlatKey(ctx, st, "correction_write", time.Now().UTC().Format("2006-01-02"), len(recs))
 	}
 	fmt.Fprintln(stdout, out)
+	// The scan_stats flush (v1.21.1 A6): an echo scan on this path
+	// accumulated in-memory samples — persist them before the one-shot
+	// process exits (quiet §13; a no-op when no scan ran).
+	if PersistScanStatsFn != nil {
+		PersistScanStatsFn(ctx, st)
+	}
 	return 0
 }
 

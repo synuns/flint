@@ -1,11 +1,12 @@
 // scan.go — the vault diff scan (v1.21.0 vault bridge I). Walks a vault
-// root (.md files only, skip dirs per the vault_skip_dirs threshold),
-// diffs against the vault_files pointer snapshot with a two-stage filter —
-// (mtime, size) mismatch triggers a sha256 recomputation over the RAW
-// bytes (deliberately distinct from the knowledge normalized hash) — and
-// applies the whole diff in ONE transaction: new rows INSERT, changed rows
-// path-UNIQUE UPSERT, vanished paths DELETE (the NOT IN minimal form —
-// Doltgres has no DELETE ... USING).
+// root (.md files only, skip dirs per the vault_skip_dirs threshold,
+// symlinks never followed), diffs against the vault_files pointer snapshot
+// with a two-stage filter — (mtime, size) mismatch triggers a sha256
+// recomputation over the RAW bytes (deliberately distinct from the
+// knowledge normalized hash) — and applies the whole diff in ONE
+// transaction: new rows INSERT, changed rows path-UNIQUE UPSERT, touch-only
+// rows mtime/size UPDATE, vanished paths DELETE (`NOT IN (SELECT
+// unnest($1))` — no placeholder ceiling; Doltgres has no DELETE ... USING).
 //
 // Write-ownership note: this package owns its diff SQL on a pool from
 // db.Connect — the same one-shot-transaction precedent as backup.Restore
@@ -19,13 +20,17 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io/fs"
 	"os"
+	"path"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/synuns/flint/lib/db"
@@ -55,12 +60,13 @@ type Existing struct {
 }
 
 // Store — the scan's DB surface. Existing feeds the first filter;
-// ApplyDiff applies the whole diff in one transaction and returns the
+// ApplyDiff applies the whole diff in one transaction (content upserts,
+// touch-only mtime/size refreshes, then the vanish delete) and returns the
 // removed-row count; Rows exposes the snapshot (the diff's read side and
 // the test seam).
 type Store interface {
 	Existing(ctx context.Context) (map[string]Existing, error)
-	ApplyDiff(ctx context.Context, upserts []File, keepPaths []string) (int64, error)
+	ApplyDiff(ctx context.Context, upserts, touches []File, keepPaths []string) (int64, error)
 	Rows(ctx context.Context) (map[string]File, error)
 }
 
@@ -73,20 +79,35 @@ type Options struct {
 	SkipDirs        []string // vault_skip_dirs (default .obsidian, .trash)
 }
 
-// Stats — one scan result (the `flint index` JSON payload basis).
+// titleMaxRunes — the title truncation cap at index time (the
+// vault_summary_max_runes analog for the title column; a fixed cap, not a
+// threshold key — an unbounded first heading would blow the read-side
+// output budget the summary cap already guards).
+const titleMaxRunes = 200
+
+// Stats — one scan result (the `flint index` JSON payload basis). Skipped
+// counts ONLY the limit overflow; files vanished between the walk and the
+// read are Vanished (v1.21.1 — the two were one counter, so a vanished file
+// misfired the "rerun with a higher --limit" note). Touch counts the
+// touch-only mtime/size refreshes (excluded from Changed — content is
+// identical, but the pointer update deserves its own meter).
 type Stats struct {
 	Scanned  int
 	New      int
 	Changed  int
 	Removed  int
 	Skipped  int
+	Vanished int
+	Touch    int
 	Duration time.Duration
 }
 
 // Scan — walks root and applies the diff to st. Files beyond the effective
-// limit are counted Skipped and are NOT deleted from the snapshot (the
-// removal set is the walked set, scanned + skipped — a partial scan must
-// not purge what it did not look at).
+// limit are counted Skipped (the limit overflow alone) and are NOT deleted
+// from the snapshot (the removal set is the walked set, scanned + skipped —
+// a partial scan must not purge what it did not look at). Files that
+// vanish between the walk and the read are Vanished — a different counter
+// than the limit overflow, so the "raise --limit" note never misfires.
 func Scan(ctx context.Context, st Store, root string, opts Options) (Stats, error) {
 	start := time.Now()
 	def := store.DefaultThresholds()
@@ -121,22 +142,32 @@ func Scan(ctx context.Context, st Store, root string, opts Options) (Stats, erro
 
 	// Walk (lexical order — deterministic limit splits).
 	var walked []walkedFile
-	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
-		if err != nil {
-			return err
+	err := filepath.WalkDir(root, func(p string, d fs.DirEntry, werr error) error {
+		if werr != nil {
+			return pathFreeErr(werr)
 		}
 		if d.IsDir() {
-			if path != root && skip[d.Name()] {
+			if p != root && skip[d.Name()] {
 				return fs.SkipDir
 			}
 			return nil
 		}
-		if !strings.EqualFold(filepath.Ext(path), ".md") {
+		// Symlinks are never indexed (v1.21.1): a .md symlink could point
+		// outside the vault root (an escape the dir-skip rule never sees) or
+		// dangle (a read failure) — skipped symmetrically with directories,
+		// which WalkDir never follows either.
+		if d.Type()&fs.ModeSymlink != 0 {
 			return nil
 		}
-		rel, rerr := filepath.Rel(root, path)
+		// filepath.Ext on the OS-native walk path (the separator-aware
+		// form); the rel path below uses path.* — it is always
+		// forward-slashed (v1.21.1 r91).
+		if !strings.EqualFold(filepath.Ext(p), ".md") {
+			return nil
+		}
+		rel, rerr := filepath.Rel(root, p)
 		if rerr != nil {
-			return rerr
+			return pathFreeErr(rerr) // the message names both paths — never surfaced
 		}
 		info, ierr := d.Info()
 		if ierr != nil {
@@ -144,14 +175,14 @@ func Scan(ctx context.Context, st Store, root string, opts Options) (Stats, erro
 		}
 		walked = append(walked, walkedFile{
 			rel:   filepath.ToSlash(rel),
-			full:  path,
+			full:  p,
 			mtime: info.ModTime().Truncate(time.Microsecond), // Postgres timestamptz precision
 			size:  info.Size(),
 		})
 		return nil
 	})
 	if err != nil {
-		return Stats{}, fmt.Errorf("vault scan: walk %s: %w", root, err)
+		return Stats{}, fmt.Errorf("vault scan: walk: %w", err)
 	}
 
 	scanned := walked
@@ -166,7 +197,7 @@ func Scan(ctx context.Context, st Store, root string, opts Options) (Stats, erro
 		return Stats{}, fmt.Errorf("vault scan: existing rows: %w", err)
 	}
 
-	var upserts []File
+	var upserts, touches []File
 	stats := Stats{Scanned: len(scanned), Skipped: skipped}
 	for _, wf := range scanned {
 		ex, known := existing[wf.rel]
@@ -176,14 +207,18 @@ func Scan(ctx context.Context, st Store, root string, opts Options) (Stats, erro
 		f, perr := buildFile(wf, summaryRunes)
 		if perr != nil {
 			if os.IsNotExist(perr) {
-				stats.Skipped++ // vanished between walk and read
+				stats.Vanished++ // vanished between walk and read (not a limit skip)
 				continue
 			}
-			return Stats{}, fmt.Errorf("vault scan: read %s: %w", wf.rel, perr)
+			return Stats{}, fmt.Errorf("vault scan: read: %w", pathFreeErr(perr))
 		}
 		if known && ex.ContentHash == f.ContentHash {
 			// First filter mismatch but content identical (a touch-only
-			// change) — unchanged; the stored mtime stays as-is.
+			// change) — not Changed, but the stored pointer must refresh or
+			// EVERY later rescan re-reads and re-hashes the file (the
+			// first filter never turns clean again).
+			touches = append(touches, f)
+			stats.Touch++
 			continue
 		}
 		if known {
@@ -206,8 +241,8 @@ func Scan(ctx context.Context, st Store, root string, opts Options) (Stats, erro
 			stats.Removed++
 		}
 	}
-	if len(upserts) > 0 || stats.Removed > 0 {
-		removed, aerr := st.ApplyDiff(ctx, upserts, keep)
+	if len(upserts) > 0 || stats.Removed > 0 || len(touches) > 0 {
+		removed, aerr := st.ApplyDiff(ctx, upserts, touches, keep)
 		if aerr != nil {
 			return Stats{}, fmt.Errorf("vault scan: apply diff: %w", aerr)
 		}
@@ -224,10 +259,37 @@ type walkedFile struct {
 	size      int64
 }
 
+// pathFreeErr — a classification-preserving, path-free stand-in for an OS
+// error whose message names machine paths (fs.PathError prints
+// "lstat /abs/vault/root: ..."; filepath.Rel names both sides). The §3
+// privacy contract reaches error lines too — index prints the chain
+// verbatim via ErrLine — so the errno class is kept as the sentinel
+// (fs.ErrNotExist / fs.ErrPermission carry no path) and everything
+// unmappable collapses to a generic verdict (v1.21.1 r91/r92/r93).
+func pathFreeErr(err error) error {
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		return fs.ErrNotExist
+	case errors.Is(err, fs.ErrPermission):
+		return fs.ErrPermission
+	}
+	var errno syscall.Errno
+	if errors.As(err, &errno) {
+		return errno // e.g. "no space left on device" — a verdict, no path
+	}
+	return errVaultPath
+}
+
+// errVaultPath — the path-free fallback sentinel (the message never names
+// the vault root or a note path).
+var errVaultPath = errors.New("path resolution failed")
+
 // buildFile — reads the raw bytes and derives the pointer snapshot:
 // hash (raw sha256), title (first `# ` heading outside code fences, else
-// the file-name stem), tags (frontmatter), summary (first non-empty body
-// paragraph outside fences, TruncateRunes-capped).
+// the file-name stem; titleMaxRunes-capped), tags (frontmatter), summary
+// (first non-empty body paragraph outside fences, TruncateRunes-capped).
+// The stem derivation uses path (not filepath) — rel is always
+// forward-slashed (ToSlash), and filepath's Windows separator would miscut.
 func buildFile(wf walkedFile, summaryRunes int) (File, error) {
 	raw, err := os.ReadFile(wf.full)
 	if err != nil {
@@ -237,11 +299,11 @@ func buildFile(wf walkedFile, summaryRunes int) (File, error) {
 	fm, body := ParseFrontmatter(string(raw))
 	title := firstHeading(body)
 	if title == "" {
-		title = strings.TrimSuffix(filepath.Base(wf.rel), filepath.Ext(wf.rel))
+		title = strings.TrimSuffix(path.Base(wf.rel), path.Ext(wf.rel))
 	}
 	return File{
 		Path:        wf.rel,
-		Title:       title,
+		Title:       render.TruncateRunes(title, titleMaxRunes),
 		Tags:        strings.Join(fm.Tags, ","),
 		Mtime:       wf.mtime,
 		Size:        wf.size,
@@ -442,16 +504,67 @@ func (s *PoolStore) Rows(ctx context.Context) (map[string]File, error) {
 	return out, rows.Err()
 }
 
-// notInLimit — the placeholder ceiling of one NOT IN statement (the
-// Postgres protocol caps at 65535 bind parameters — 60000 keeps a margin
-// far above the 10000 vault_scan_max_files default).
-const notInLimit = 60000
+// applyRetryBackoff — the retry spacing for ApplyDiff under parallel index
+// runs (the db gateRetryBackoff convention; a shorter ladder — the diff is
+// one transaction, and one rematch usually settles it).
+var applyRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second}
+
+// retryableApplyErr — the verdict for ApplyDiff retries (v1.21.1 r94):
+// 40001 (serialization failure) and the Doltgres commit-time constraint
+// rollback (XX000, classified by message — the mapInsertErr convention).
+// Under parallel `flint index` runs the losing transaction aborts with one
+// of these; a single retry wins because the winner's rows are already
+// committed and ON CONFLICT (path) absorbs the rematch.
+func retryableApplyErr(err error) bool {
+	var pgErr *pgconn.PgError
+	if !errors.As(err, &pgErr) {
+		return false
+	}
+	if pgErr.Code == "40001" {
+		return true
+	}
+	return pgErr.Code == "XX000" &&
+		strings.Contains(pgErr.Message, "constraint violations, transaction rolled back")
+}
 
 // ApplyDiff — the whole diff in ONE transaction: batched multi-row
-// upserts, then the NOT IN minimal delete (Doltgres has no DELETE ...
-// USING). keepPaths is the complete walked set — a row is removed only if
-// its path is in neither the scanned nor the skipped set.
-func (s *PoolStore) ApplyDiff(ctx context.Context, upserts []File, keepPaths []string) (int64, error) {
+// upserts, touch-only mtime/size refreshes, then the vanish delete
+// (`NOT IN (SELECT unnest($1::text[]))` — one array bind parameter, so no
+// walked-set ceiling; the placeholder form capped at 60,000 paths,
+// v1.21.1 r93). keepPaths is the complete walked set — a row is removed
+// only if its path is in neither the scanned nor the skipped set.
+// Serializable-conflict losers retry per applyRetryBackoff.
+func (s *PoolStore) ApplyDiff(ctx context.Context, upserts, touches []File, keepPaths []string) (int64, error) {
+	var last error
+	for i, wait := range applyRetryBackoff {
+		if i > 0 {
+			select {
+			case <-ctx.Done():
+				return 0, ctx.Err()
+			case <-time.After(wait):
+			}
+		}
+		removed, err := applyDiffOnceFn(s, ctx, upserts, touches, keepPaths)
+		if err == nil {
+			return removed, nil
+		}
+		last = err
+		if !retryableApplyErr(err) {
+			return 0, err
+		}
+	}
+	return 0, fmt.Errorf("vault apply: retries exhausted: %w", last)
+}
+
+// applyDiffOnceFn — the ApplyDiff transaction seam (the supersedeLockFn
+// convention): the retry wrapper composes over this; tests inject
+// sequencing failures.
+var applyDiffOnceFn = func(s *PoolStore, ctx context.Context, upserts, touches []File, keepPaths []string) (int64, error) {
+	return s.applyDiffOnce(ctx, upserts, touches, keepPaths)
+}
+
+// applyDiffOnce — one full diff transaction (the retried unit).
+func (s *PoolStore) applyDiffOnce(ctx context.Context, upserts, touches []File, keepPaths []string) (int64, error) {
 	tx, err := s.pool.Begin(ctx)
 	if err != nil {
 		return 0, fmt.Errorf("vault apply: begin: %w", err)
@@ -493,6 +606,44 @@ func (s *PoolStore) ApplyDiff(ctx context.Context, upserts []File, keepPaths []s
 			return 0, fmt.Errorf("vault apply: upsert batch: %w", err)
 		}
 	}
+	// Touch-only refreshes (v1.21.1 r91/r94): mtime/size alone — content is
+	// hash-identical, so derived columns and last_indexed_at stay put.
+	// Batched the same 50-row way: mtime/size as CASE arms keyed by path
+	// (150 distinct parameters; the path binds are reused three times).
+	for start := 0; start < len(touches); start += batch {
+		end := start + batch
+		if end > len(touches) {
+			end = len(touches)
+		}
+		chunk := touches[start:end]
+		var mtimeArms, sizeArms strings.Builder
+		args := make([]any, 0, len(chunk)*3)
+		for i, f := range chunk {
+			if i > 0 {
+				mtimeArms.WriteByte(' ')
+				sizeArms.WriteByte(' ')
+			}
+			fmt.Fprintf(&mtimeArms, "WHEN $%d THEN $%d::timestamptz", i*3+1, i*3+2)
+			fmt.Fprintf(&sizeArms, "WHEN $%d THEN $%d::bigint", i*3+1, i*3+3)
+			args = append(args, f.Path, f.Mtime, f.Size)
+		}
+		var b strings.Builder
+		b.WriteString(`UPDATE vault_files SET mtime = CASE path `)
+		b.WriteString(mtimeArms.String())
+		b.WriteString(` END, size = CASE path `)
+		b.WriteString(sizeArms.String())
+		b.WriteString(` END WHERE path IN (`)
+		for i := range chunk {
+			if i > 0 {
+				b.WriteByte(',')
+			}
+			fmt.Fprintf(&b, "$%d", i*3+1)
+		}
+		b.WriteByte(')')
+		if _, err := tx.Exec(ctx, b.String(), args...); err != nil {
+			return 0, fmt.Errorf("vault apply: touch batch: %w", err)
+		}
+	}
 	var removed int64
 	if len(keepPaths) == 0 {
 		ct, err := tx.Exec(ctx, `DELETE FROM vault_files`)
@@ -500,21 +651,10 @@ func (s *PoolStore) ApplyDiff(ctx context.Context, upserts []File, keepPaths []s
 			return 0, fmt.Errorf("vault apply: delete all: %w", err)
 		}
 		removed = ct.RowsAffected()
-	} else if len(keepPaths) > notInLimit {
-		return 0, fmt.Errorf("vault apply: walked set %d exceeds the NOT IN parameter ceiling %d", len(keepPaths), notInLimit)
 	} else {
-		var b strings.Builder
-		b.WriteString(`DELETE FROM vault_files WHERE path NOT IN (`)
-		args := make([]any, 0, len(keepPaths))
-		for i, p := range keepPaths {
-			if i > 0 {
-				b.WriteByte(',')
-			}
-			fmt.Fprintf(&b, "$%d", i+1)
-			args = append(args, p)
-		}
-		b.WriteByte(')')
-		ct, err := tx.Exec(ctx, b.String(), args...)
+		ct, err := tx.Exec(ctx,
+			`DELETE FROM vault_files WHERE path NOT IN (SELECT unnest($1::text[]))`,
+			keepPaths)
 		if err != nil {
 			return 0, fmt.Errorf("vault apply: delete not-in: %w", err)
 		}

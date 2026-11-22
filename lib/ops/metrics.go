@@ -5,6 +5,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
+	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -261,6 +263,8 @@ func LoadReadStatsFromMeta(ctx context.Context, st wire.Store) (calls int, zero 
 // Failure is silently ignored, at most one stderr line (non-interference §13 — metering must never change the outcome).
 // v1.21.0 A6: the scan_stats commit rides this same existing persist point
 // (spec A6 — the audit commit path; CommitTelemetry does not stage meta).
+// v1.21.1: the write/read command exits flush their own samples through
+// PersistScanStatsToMeta (the one-shot process otherwise loses them).
 func PersistHotStatsToMeta(ctx context.Context, st wire.Store) {
 	getKV, setKV := MetaKV(ctx, st)
 	if err := PersistHotStats(setKV); err != nil {
@@ -372,6 +376,9 @@ func scanPending(acc *scanAcc) []int {
 // Missing key, error, or corrupt JSON falls back to defaults (ok=false,
 // baseline reset — the LoadHotStats convention). In-memory pending samples
 // are untouched, so a mid-session load merges instead of dropping.
+// v1.21.1 (r91/r93/r94): the loaded payload is sanitized first — negative
+// calls clamp to 0 and negative samples drop (a hand-edited or corrupted
+// meta row must not poison the p95).
 func LoadScanStats(getKV func(string) (string, error)) bool {
 	v, err := getKV("scan_stats")
 	scanMu.Lock()
@@ -384,8 +391,27 @@ func LoadScanStats(getKV func(string) (string, error)) bool {
 	if json.Unmarshal([]byte(v), &st) != nil {
 		return false // corrupt -> default fallback
 	}
-	scanEcho.base, scanSuggest.base = st.Echo, st.Suggest
+	scanEcho.base, scanSuggest.base = sanitizeScanKind(st.Echo), sanitizeScanKind(st.Suggest)
 	return true
+}
+
+// sanitizeScanKind — clamps a loaded kind to sane values: negative calls
+// become 0, negative samples are dropped outright (a duration sample can
+// never be negative; keeping one would skew the nearest-rank p95 floor).
+func sanitizeScanKind(k scanKindJSON) scanKindJSON {
+	if k.Calls < 0 {
+		k.Calls = 0
+	}
+	if len(k.Samples) > 0 {
+		kept := k.Samples[:0]
+		for _, s := range k.Samples {
+			if s >= 0 {
+				kept = append(kept, s)
+			}
+		}
+		k.Samples = kept
+	}
+	return k
 }
 
 // PersistScanStats — stores the cumulative meta scan_stats: the previous
@@ -455,6 +481,73 @@ func persistScanStatsToMeta(getKV func(string) (string, error), setKV func(strin
 	if err := PersistScanStats(setKV); err != nil {
 		fmt.Fprintf(os.Stderr, "[flint] scan stats persist: %v\n", err)
 	}
+}
+
+// ScanStatsDirty — whether either kind has unsaved in-memory samples. The
+// write/read exit persist is gated on this (v1.21.1 A6 completion): a
+// command that produced no scan costs zero added round trips.
+func ScanStatsDirty() bool {
+	scanMu.Lock()
+	defer scanMu.Unlock()
+	return len(scanPending(&scanEcho)) > 0 || len(scanPending(&scanSuggest)) > 0
+}
+
+// scanFlushBackoff — the retry spacing of the exit flush under parallel
+// writers: every writer's exit upserts the SAME meta scan_stats row, so a
+// Doltgres 40001 against another writer's just-committed transaction is
+// the expected loser path (the CompareSetMetaKV race-loser principle).
+// Short — the process is at its exit.
+var scanFlushBackoff = []time.Duration{25 * time.Millisecond, 100 * time.Millisecond, 400 * time.Millisecond}
+
+// PersistScanStatsToMeta — the scan_stats commit at the write/read command
+// exits (v1.21.1 A6 completion): a CLI one-shot process that ran an echo
+// or suggestion scan would otherwise lose its samples at exit. No-op
+// without pending samples (the round-trip minimum). Under parallel writes
+// the exit upsert can lose the shared-row race (40001): retried briefly,
+// then given up SILENTLY — no stderr line at all, unlike the hot persist
+// point: the e2e parallel harness reads the command's combined output as
+// ONE JSON line, so even a diagnostic line corrupts the result (§13
+// non-interference — measured on the v1.21.1 CI, run 45048320543). The
+// next command's flush merges over the surviving baseline, so a lost
+// round only trims metering samples, never the write/read outcome.
+func PersistScanStatsToMeta(ctx context.Context, st wire.Store) {
+	if !ScanStatsDirty() {
+		return
+	}
+	getKV, setKV := MetaKV(ctx, st)
+	scanMu.Lock()
+	loaded := scanLoaded
+	scanLoaded = true
+	scanMu.Unlock()
+	if !loaded {
+		LoadScanStats(getKV)
+	}
+	for i := 0; ; i++ {
+		if err := PersistScanStats(setKV); err == nil {
+			return
+		} else if errors.Is(err, store.ErrServerDown) || i >= len(scanFlushBackoff) {
+			return // quiet §13 — the next command's flush recovers
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(scanFlushBackoff[i]):
+		}
+	}
+}
+
+// ScanStatsFromMetaFn — the status-display seam over the meta scan_stats
+// baseline (the HotStatsFn convention; tests swap the loader).
+var ScanStatsFromMetaFn = ScanStatsFromMeta
+
+// ScanStatsFromMeta — loads the meta scan_stats baseline and returns the
+// cumulative per-kind view for the status scan row (v1.21.1 A6). A fresh
+// load every call — status is its own process, so the in-memory samples
+// are empty and the previous run's cumulative is the truth (the
+// LoadHotStatsFromMeta principle). Quiet zeros on any failure.
+func ScanStatsFromMeta(getKV func(string) (string, error)) (echo, suggest ScanKindStats) {
+	LoadScanStats(getKV)
+	return ScanStats()
 }
 
 // KnowledgeSummaryLens — the id -> summary length (bytes) map over all knowledge.

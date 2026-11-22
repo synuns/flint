@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.21.0-blue" alt="v1.21.0">
+  <img src="https://img.shields.io/badge/release-v1.21.1-blue" alt="v1.21.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.21.1 · r91-r94 patch — path redaction on scan errors · vault root guard (persist after success) · tuning-key wiring · scan hardening (retry · touch refresh · symlink skip · 60k+ delete) · [full changelog](docs/HISTORY.md)
 > v1.21.0 · vault-bridge-index — schema v16 `vault_files` · `flint index` (snapshot-diff, one batch commit) · `read` vault fusion (`source:"vault"`, cap 5) · scan p95 metering · [full changelog](docs/HISTORY.md)
 > v1.20.3 · r89 patch — merge & import-ref join the supersede lock domain (cycle-proof) · [full changelog](docs/HISTORY.md)
 > v1.20.2 · r88 patch — advisory-lock single-connection supersede · PAM self-link skip · truncation test · [full changelog](docs/HISTORY.md)

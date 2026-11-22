@@ -819,6 +819,12 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// Zero-hit is exit 0 — text silence·--json {"hits":0} is a normal
 	// response, not an error, so the agent's error-abort loop is not broken
 	// (exit 0 regardless of eligibility on all paths).
+	// The scan_stats flush (v1.21.1 A6): a zero-hit suggestion scan on this
+	// path accumulated in-memory samples — persist them before the one-shot
+	// process exits (quiet §13; a no-op when no scan ran).
+	if PersistScanStatsFn != nil {
+		PersistScanStatsFn(ctx, st)
+	}
 	return 0
 }
 

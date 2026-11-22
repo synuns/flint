@@ -6,6 +6,71 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.21.1 patch (2026-11-23) — r91-r94: path redaction · vault root guard · tuning wiring · scan hardening
+
+The v1.21.0 four-angle audit (R91~R94) fixes — 15 findings
+(deduplicated), no schema change:
+
+- **scan error paths leaked the vault root (r91/r92/r93, high)**: the
+  walk/read error lines embedded the absolute root and note rel paths
+  (`vault scan: walk <root>` · `read <rel>`), and the underlying
+  `fs.PathError` messages carried the full paths through `ErrLine`.
+  Both sites now wrap path-free sentinels (`vault scan: walk: %w` /
+  `read: %w` with `fs.ErrNotExist`/`fs.ErrPermission` classification
+  preserved — the §3 contract restored: no absolute path in stdout,
+  logs, or error lines).
+- **`--vault` file/typo paths and failure persistence (r91/r93/r94,
+  high)**: a pre-scan `Stat`+`IsDir` guard rejects a file (or
+  nonexistent path) as usage exit 3, and the meta `vault_path` persist
+  moved AFTER a successful scan — a failed or mistyped run no longer
+  poisons the stored root.
+- **threshold overrides were never wired (r93, med)**: `flint index`
+  now loads the three v1.21.0 keys (`vault_scan_max_files` ·
+  `vault_summary_max_runes` · `vault_skip_dirs`) through
+  `LoadThresholds` into `vault.Options` (unset/failed loads keep the
+  code-default fallback — the TUNING §2 contract).
+- **NOT IN 60,000-placeholder ceiling (r93, med)**: the vanish delete
+  is now `DELETE ... WHERE path NOT IN (SELECT unnest($1::text[]))` —
+  one array bind parameter, no walked-set ceiling (60,001-file vaults
+  previously failed the whole diff).
+- **symlink escapes/dangling links indexed (r93, med)**: the walk
+  skips entries with the `ModeSymlink` bit (symmetric with directories,
+  which WalkDir never follows).
+- **parallel index losers exited 1 (r94, med)**: `ApplyDiff` retries
+  40001 serialization failures and the Doltgres XX000 constraint
+  rollback (the `gateRetryBackoff` convention) — the rematch wins via
+  ON CONFLICT idempotency.
+- **A6 instrumentation completion (r91/r93/r94, med)**: the
+  write/read exits persist `scan_stats` (a one-shot CLI process
+  previously lost its samples; gated on pending samples — zero added
+  round trips without a scan), the load path sanitizes negative
+  calls/samples, `status` surfaces the cumulative scan row
+  (`scan_echo_calls`/`scan_echo_p95_us`/`scan_suggest_calls`/
+  `scan_suggest_p95_us`, appended after the vault row), and the
+  `scan_stats` meta comment names the real `{calls,samples}` shape.
+- **touch-only mtime refresh (r91/r94, low)**: a same-hash touch now
+  updates the stored mtime/size (a dedicated touch UPDATE — excluded
+  from `changed`), so rescans stop re-hashing untouched files.
+- **`path.Base`/`path.Ext` on the rel path (r91, low)**: the title
+  stem derivation uses the forward-slash `path` package (rel is always
+  slash-normalized; `filepath` would miscut on Windows).
+- **skipped counter split (r91, low)**: limit overflow (`skipped`) and
+  walk→read vanish (`vanished`, a new internal counter) are separate —
+  the "rerun with a higher --limit" note fires only on a real limit
+  overflow.
+- **title truncation (r93, low)**: the index caps the title at 200
+  runes and the read output truncates identically (json and text).
+- **text-mode pipe escape (r93, low)**: vault line cells replace `|`
+  with a space (the 4-field `vault|path|title|summary` protocol cannot
+  be forged by cell content; the SanitizeText convention).
+- **vault_path change notice (r94, low)**: an explicit `--vault`
+  differing from the stored root emits a path-free
+  `notice` ("vault path changed — the previous snapshot is replaced")
+  in the output JSON (guidance only).
+- **release-scope §5 (r92, minor)**: the v1.21.0 row is
+  `released` (2026-11-23) with the R91~R94 audit noted; PERF §2b A6
+  records the exposure surface (status + both persist points).
+
 ### v1.21.0 minor (2026-11-23) — vault-bridge-index: schema v16 vault_files · `flint index` · read vault fusion · scan p95 metering
 
 (spec: docs/plans/2026-11-22-flint-v1210.md). The vault bridge I

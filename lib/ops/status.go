@@ -135,6 +135,18 @@ type statusV1210Output struct {
 	VaultChanged   int     `json:"vault_changed"`
 }
 
+// statusV1211Output — the scan metering row (v1.21.1 A6 completion): the
+// cumulative scan_stats view per kind (calls + p95 microseconds), appended
+// after the vault row (the additive-append precedent). Quiet zeros when no
+// scan has run yet (a metering indication — it must not break status).
+type statusV1211Output struct {
+	statusV1210Output
+	ScanEchoCalls    int `json:"scan_echo_calls"`
+	ScanEchoP95Us    int `json:"scan_echo_p95_us"`
+	ScanSuggestCalls int `json:"scan_suggest_calls"`
+	ScanSuggestP95Us int `json:"scan_suggest_p95_us"`
+}
+
 // vaultLastScanRow — reads meta 'vault_last_scan' into the status vault row.
 // Missing, corrupt (non-JSON), or failing lookups degrade to nil/0/0 (the
 // same principle as lastSeenOrNull). The RFC3339 'at' is surfaced as-is; a
@@ -353,11 +365,17 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	} else {
 		// the vault index row — current-state meta, appended after the existing keys.
 		vAt, vFiles, vChanged := vaultLastScanRow(getKV)
-		b, _ = json.Marshal(statusV1210Output{statusV0180Output: statusV0180Output{statusV096Output: base,
+		// the scan metering row (v1.21.1 A6) — the meta baseline's
+		// cumulative view, appended after the vault row (the one-arg
+		// loader adapter over the two-arg getKV).
+		sEcho, sSuggest := ScanStatsFromMetaFn(func(k string) (string, error) { return getKV(k, "") })
+		b, _ = json.Marshal(statusV1211Output{statusV1210Output: statusV1210Output{statusV0180Output: statusV0180Output{statusV096Output: base,
 			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays,
 			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes,
 			ReadBytesP95: readBytesP95, HotBytesP95: hotBytesP95},
-			VaultIndexedAt: vAt, VaultFiles: vFiles, VaultChanged: vChanged})
+			VaultIndexedAt: vAt, VaultFiles: vFiles, VaultChanged: vChanged},
+			ScanEchoCalls: sEcho.Calls, ScanEchoP95Us: sEcho.P95,
+			ScanSuggestCalls: sSuggest.Calls, ScanSuggestP95Us: sSuggest.P95})
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 0
