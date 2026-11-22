@@ -6,6 +6,7 @@ package ops
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
@@ -47,6 +48,58 @@ func TestPersistScanStatsToMetaFlushesDirtySamples(t *testing.T) {
 	}
 	if !strings.Contains(setVal, `"echo"`) || !strings.Contains(setVal, "1500") {
 		t.Fatalf("scan_stats 페이로드 불완전: %q", setVal)
+	}
+}
+
+// TestPersistScanStatsToMetaQuietUnderConflict — under parallel writers the
+// exit upsert loses the shared scan_stats row race (Doltgres 40001): the
+// flush retries and, when the race never clears, gives up SILENTLY — the
+// e2e parallel harness reads combined output as one JSON line, so even a
+// stderr diagnostic corrupts it (§13; CI run 45048320543 regression).
+func TestPersistScanStatsToMetaQuietUnderConflict(t *testing.T) {
+	prevBackoff := scanFlushBackoff
+	scanFlushBackoff = []time.Duration{0, 0, 0}
+	t.Cleanup(func() { scanFlushBackoff = prevBackoff })
+
+	// 40001 twice, then success — the retried flush lands.
+	ResetMetrics()
+	conflict := errors.New("serialization failure: this transaction conflicts with a committed transaction (SQLSTATE 40001)")
+	inserts := 0
+	var setVal string
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "INSERT INTO meta") {
+			inserts++
+			if inserts <= 2 {
+				return nil, conflict
+			}
+			setVal = args[1].(string)
+			return nil, nil
+		}
+		return nil, nil
+	}}
+	RecordSuggestScan(900 * time.Microsecond)
+	PersistScanStatsToMeta(context.Background(), st)
+	if inserts < 3 || !strings.Contains(setVal, "900") {
+		t.Fatalf("40001 재시도 후 미착신: inserts=%d val=%q", inserts, setVal)
+	}
+
+	// never clears — the flush returns quietly (no error path out; the
+	// samples simply wait for the next command's flush).
+	ResetMetrics()
+	inserts = 0
+	st2 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "INSERT INTO meta") {
+			inserts++
+			return nil, conflict
+		}
+		return nil, nil
+	}}
+	RecordEchoScan(time.Millisecond)
+	PersistScanStatsToMeta(context.Background(), st2)
+	// 4 flush attempts (1 + len(scanFlushBackoff)) x 2 queries each
+	// (QueryOnce's immediate rerun on error) = 8, then the quiet give-up.
+	if inserts != 8 {
+		t.Fatalf("재시도 횟수=%d, want 8 (4 플러시 시도 x QueryOnce 즉시 재수행 — 최종 조용한 포기)", inserts)
 	}
 }
 

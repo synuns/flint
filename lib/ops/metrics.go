@@ -5,6 +5,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"sort"
@@ -14,6 +15,7 @@ import (
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
+	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -490,19 +492,48 @@ func ScanStatsDirty() bool {
 	return len(scanPending(&scanEcho)) > 0 || len(scanPending(&scanSuggest)) > 0
 }
 
+// scanFlushBackoff — the retry spacing of the exit flush under parallel
+// writers: every writer's exit upserts the SAME meta scan_stats row, so a
+// Doltgres 40001 against another writer's just-committed transaction is
+// the expected loser path (the CompareSetMetaKV race-loser principle).
+// Short — the process is at its exit.
+var scanFlushBackoff = []time.Duration{25 * time.Millisecond, 100 * time.Millisecond, 400 * time.Millisecond}
+
 // PersistScanStatsToMeta — the scan_stats commit at the write/read command
-// exits (v1.21.1 A6 completion, r91/r93/r94): a CLI one-shot process that
-// ran an echo or suggestion scan would otherwise lose its samples at exit
-// (the hot path already persists via PersistHotStatsToMeta; write/read had
-// no persist point of their own). A no-op without pending samples (the
-// round-trip minimum); failure is silent, at most one stderr line (§13 —
-// metering never changes the outcome).
+// exits (v1.21.1 A6 completion): a CLI one-shot process that ran an echo
+// or suggestion scan would otherwise lose its samples at exit. No-op
+// without pending samples (the round-trip minimum). Under parallel writes
+// the exit upsert can lose the shared-row race (40001): retried briefly,
+// then given up SILENTLY — no stderr line at all, unlike the hot persist
+// point: the e2e parallel harness reads the command's combined output as
+// ONE JSON line, so even a diagnostic line corrupts the result (§13
+// non-interference — measured on the v1.21.1 CI, run 45048320543). The
+// next command's flush merges over the surviving baseline, so a lost
+// round only trims metering samples, never the write/read outcome.
 func PersistScanStatsToMeta(ctx context.Context, st wire.Store) {
 	if !ScanStatsDirty() {
 		return
 	}
 	getKV, setKV := MetaKV(ctx, st)
-	persistScanStatsToMeta(getKV, setKV)
+	scanMu.Lock()
+	loaded := scanLoaded
+	scanLoaded = true
+	scanMu.Unlock()
+	if !loaded {
+		LoadScanStats(getKV)
+	}
+	for i := 0; ; i++ {
+		if err := PersistScanStats(setKV); err == nil {
+			return
+		} else if errors.Is(err, store.ErrServerDown) || i >= len(scanFlushBackoff) {
+			return // quiet §13 — the next command's flush recovers
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(scanFlushBackoff[i]):
+		}
+	}
 }
 
 // ScanStatsFromMetaFn — the status-display seam over the meta scan_stats
