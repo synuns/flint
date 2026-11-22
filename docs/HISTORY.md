@@ -6,6 +6,23 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.23.2 patch (2026-11-23) — r102: counter digit bound · spec alignment · what-if domain filter
+
+The v1.23.0 audit (R102) follow-ups — 3 small findings, no schema change:
+
+- **counter digit bound (r102-1, low)**: the guarded counter upsert's
+  numeric test is now `^[0-9]{1,18}$` — an oversized numeric meta text
+  (26 digits, beyond int8) is the same pollution class as non-numeric
+  text: it resets to '1' inside the CASE instead of overflowing
+  `::bigint`, failing the batch, and unstamping the 24h gate.
+- **spec alignment (r102-2, info)**: the v1.23.0 spec's two stale lines
+  — a boundary fire bumps the fired counter only (prediction rows stay
+  proposal-only), and the off-mode cost reads "0 queries steady-state,
+  1 batched gate read per hour cold".
+- **what-if p50/p90 domain filter (r102-3, info)**: the distribution
+  collection skips out-of-domain `near_score` cells (outside [0,1])
+  alongside NaN/Inf — a stored 5.0 no longer rides into p50/p90.
+
 ### v1.23.1 patch (2026-11-23) — r100-r101: round counter split · boundary fire bump · near_score domain guard
 
 The v1.23.0 audit (R100·R101) fixes — 10 findings, no schema change:

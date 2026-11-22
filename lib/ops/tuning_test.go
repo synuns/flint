@@ -485,6 +485,32 @@ func TestTuningWhatIfNaNDefense(t *testing.T) {
 	}
 }
 
+// TestTuningWhatIfDomainGuard — the r102-3 domain filter: near_score is
+// a [0,1] score, so an out-of-domain stored cell (5.0) is skipped at
+// collection like NaN/Inf — p50/p90 rank over the in-domain remainder
+// and the outlier never reaches the output.
+func TestTuningWhatIfDomainGuard(t *testing.T) {
+	withQuoteJSON(t)
+	ctx := context.Background()
+	// 3 zero rows, one out-of-domain: the ranking sees [0.2, 0.5] —
+	// p50 ceil(0.5*2)-1 = idx0 → 0.2, p90 ceil(0.9*2)-1 = idx1 → 0.5.
+	dist := &shadowDist{sampleN: 3, zeroN: 3, reclassN: 2,
+		zeroScores: []float64{0.2, 5.0, 0.5}}
+	var out bytes.Buffer
+	if code := RunTuning(ctx, newWhatIfFake(map[string]string{}, dist),
+		[]string{"what-if", "suggest_min_score", "0.1"}, nil, &out); code != 0 {
+		t.Fatalf("도메인 이탈 혼입 what-if exit=%d, want 0: %s", code, out.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("도메인 이탈 혼입 출력 JSON 아님: %q (%v)", out.String(), err)
+	}
+	if got["near_score_p50"] != 0.2 || got["near_score_p90"] != 0.5 {
+		t.Fatalf("도메인 내 분포 p50/p90=%v/%v, want 0.2/0.5 (5.0 미반영)",
+			got["near_score_p50"], got["near_score_p90"])
+	}
+}
+
 // TestTuningStatusCard — the status card contract: the list skeleton rows
 // extended with the auto grade and drift (current − default), the per-rule
 // accumulation card (fired counter, streak, rounds = the meta

@@ -201,16 +201,17 @@ func shadowValueText(v float64) string {
 
 // shadowBumpCase — the ON CONFLICT CASE expression for the guarded
 // counter increments (fired_auto_ · auto_rounds_): for each bumped key
-// placeholder a numeric meta.value increments, and a corrupt, empty, or
-// non-numeric text resets to '1' instead of failing the cast (r101-3 —
-// a polluted counter must never fail the whole batch, which would
-// unstamp the 24h gate and permanently block every later round). Keys
-// outside the bump list take EXCLUDED.value (the plain set).
+// placeholder a numeric meta.value increments, and a corrupt, empty,
+// non-numeric, or oversized (19+ digits — beyond int8, r102-1) text
+// resets to '1' instead of failing the cast (r101-3 — a polluted
+// counter must never fail the whole batch, which would unstamp the 24h
+// gate and permanently block every later round). Keys outside the bump
+// list take EXCLUDED.value (the plain set).
 func shadowBumpCase(keys ...string) string {
 	branches := make([]string, 0, len(keys)*2)
 	for _, k := range keys {
 		branches = append(branches,
-			fmt.Sprintf("WHEN meta.key = %s AND meta.value ~ '^[0-9]+$' THEN (meta.value::bigint + 1)::text", k),
+			fmt.Sprintf("WHEN meta.key = %s AND meta.value ~ '^[0-9]{1,18}$' THEN (meta.value::bigint + 1)::text", k),
 			fmt.Sprintf("WHEN meta.key = %s THEN '1'", k))
 	}
 	return "CASE " + strings.Join(branches, " ") + " ELSE EXCLUDED.value END"

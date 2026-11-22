@@ -541,6 +541,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01231Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.23.1", "r100-r101",
 	}},
+	// v1.23.2 패치 계약행 — r102: 카운터 자릿수 상한·스펙 정렬·
+	// what-if p50/p90 도메인 필터.
+	{name: "TestVersion01232Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.23.2", "r102",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
