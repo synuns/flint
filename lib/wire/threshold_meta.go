@@ -110,9 +110,13 @@ var thresholdMetas = []ThresholdMeta{
 	{"VaultScanMaxFiles", "vault_scan_max_files", 10000, "index vault scan file cap"},
 	{"VaultSummaryMaxRunes", "vault_summary_max_runes", 200, "index vault summary truncation runes"},
 	{"VaultSkipDirs", "vault_skip_dirs", ".obsidian,.trash", "index vault skip dirs (comma list)"},
+
+	// the distill output floor (v1.22.0 — the schema v17 distill command:
+	// the minimum effective recall score of an emitted insight row).
+	{"DistillMinScore", "distill_min_score", 1.0, "distill output minimum recall score"},
 }
 
-// ThresholdMetas — the registry's deterministic copy (55 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (56 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

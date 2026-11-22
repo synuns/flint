@@ -2015,3 +2015,200 @@ func TestWriteLinksRealSlow(t *testing.T) {
 		t.Fatalf("대상 부재 거부 시 본문 적립되면 안 됨")
 	}
 }
+
+// ── v1.22.0 T5 — the optional stdin conditions string (schema v17
+// knowledge.conditions): storage roundtrip (the kindColumns registration),
+// the 500-rune cap (exit 3), the empty string pass, and the hash
+// invariance making a same-body resend a duplicate (the relations
+// precedent — hashVolatile). All synthetic demo data. ──
+
+// condPayload — one synthetic conditions write payload line.
+func condPayload(topic, conditions string) string {
+	return fmt.Sprintf(`{"topic":%q,"summary":"조건 태그 시나리오 합성 본문","confidence":0.9,"conditions":%q}`, topic, conditions)
+}
+
+// TestWriteConditionsStoredRoundtrip — a conditions value rides the record
+// to the knowledge.conditions column (the kindColumns registration — the
+// record keys become the INSERT columns), and the committed output stays
+// the plain single-line shape.
+func TestWriteConditionsStoredRoundtrip(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge"}, condPayload("합성 조건 A", "호환 버전 2 미만에서만"))
+	if code != 0 {
+		t.Fatalf("exit=%d out=%s, want 0", code, out)
+	}
+	m := decode(t, out)
+	if m["status"] != "committed" {
+		t.Fatalf("status=%v, want committed", m["status"])
+	}
+	if len(f.inserted) != 1 || f.inserted[0]["conditions"] != "호환 버전 2 미만에서만" {
+		t.Fatalf("conditions 열 저장 부재: %v", f.inserted)
+	}
+	if f.inserted[0]["topic"] != "합성 조건 A" {
+		t.Fatalf("본문 필드 유실: %v", f.inserted[0])
+	}
+}
+
+// TestWriteConditionsEmptyStringPasses — an explicitly empty conditions is
+// allowed (the optional-field convention — "" is a value, not an absence)
+// and stored verbatim.
+func TestWriteConditionsEmptyStringPasses(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge"}, condPayload("합성 조건 빈값", ""))
+	if code != 0 {
+		t.Fatalf("exit=%d out=%s, want 0", code, out)
+	}
+	if len(f.inserted) != 1 || f.inserted[0]["conditions"] != "" {
+		t.Fatalf("빈 문자열 conditions 거부 또는 미저장: %v", f.inserted)
+	}
+}
+
+// TestWriteConditionsAbsentOmitted — a payload without the key stores no
+// conditions key at all (the column default '' applies at the DB — the
+// record must not carry an injected value that would shift other kinds).
+func TestWriteConditionsAbsentOmitted(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge"},
+		`{"topic":"합성 조건 없음","summary":"조건 태그 시나리오 합성 본문","confidence":0.9}`)
+	if code != 0 {
+		t.Fatalf("exit=%d out=%s, want 0", code, out)
+	}
+	if len(f.inserted) != 1 {
+		t.Fatalf("삽입=%d, want 1", len(f.inserted))
+	}
+	if _, ok := f.inserted[0]["conditions"]; ok {
+		t.Fatalf("미지정 conditions 주입 금지: %v", f.inserted[0])
+	}
+}
+
+// TestWriteConditionsLengthCap — a conditions over 500 runes is refused at
+// exit 3 (the write-path validation stage). Multibyte input proves the cap
+// counts runes, not bytes.
+func TestWriteConditionsLengthCap(t *testing.T) {
+	long := strings.Repeat("조", 501) // 501 runes, 1503 bytes
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge"}, condPayload("합성 조건 초과", long))
+	if code != 3 {
+		t.Fatalf("exit=%d out=%s, want 3", code, out)
+	}
+	if !strings.Contains(out, "conditions") {
+		t.Fatalf("거부 메시지에 필드명 부재: %s", out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("거부 시 적립 금지: %v", f.inserted)
+	}
+	// the boundary itself passes (excess only is blocked)
+	bound := strings.Repeat("조", 500)
+	if out, code := run(t, &fakeStore{}, []string{"knowledge"}, condPayload("합성 조건 경계", bound)); code != 0 {
+		t.Fatalf("500루네 경계 exit=%d out=%s, want 0", code, out)
+	}
+}
+
+// TestWriteConditionsNonStringReject — a non-string conditions value is a
+// shape refusal (exit 3, the relations convention).
+func TestWriteConditionsNonStringReject(t *testing.T) {
+	f := &fakeStore{}
+	out, code := run(t, f, []string{"knowledge"},
+		`{"topic":"합성 조건 비문자열","summary":"조건 태그 시나리오 합성 본문","confidence":0.9,"conditions":123}`)
+	if code != 3 {
+		t.Fatalf("exit=%d out=%s, want 3", code, out)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("거부 시 적립 금지: %v", f.inserted)
+	}
+}
+
+// TestWriteConditionsHashInvariantDuplicate — hash invariance: the same
+// body first written WITHOUT conditions, then resent WITH a conditions tag
+// computes the SAME content_hash (verified directly on the staged record —
+// a single-line fakeStore lookup falls back to the uniform ExistsHash, so
+// the hash itself is the assertion surface). With the row then present
+// (exists), the identical resend is a duplicate (seeding idempotence).
+func TestWriteConditionsHashInvariantDuplicate(t *testing.T) {
+	f := &fakeStore{}
+	base := `{"topic":"합성 조건 B","summary":"조건 태그 시나리오 합성 본문","confidence":0.9}`
+	out, code := run(t, f, []string{"knowledge"}, base)
+	if code != 0 {
+		t.Fatalf("최초 적립 exit=%d out=%s", code, out)
+	}
+	firstHash, _ := decode(t, out)["hash"].(string)
+	if firstHash == "" {
+		t.Fatalf("최초 해시 파싱 실패: %s", out)
+	}
+	// the same body WITH a conditions tag: committed (row not yet present
+	// in the fake), but its staged content_hash must equal the first
+	// write's — the dedup identity is one hash (hashVolatile seal).
+	out2, code2 := run(t, f, []string{"knowledge"}, condPayload("합성 조건 B", "재검토 조건 합성"))
+	if code2 != 0 {
+		t.Fatalf("conditions 재전송 exit=%d out=%s, want 0", code2, out2)
+	}
+	if len(f.inserted) != 2 {
+		t.Fatalf("삽입=%d, want 2 (fake 미존재 시 커밋)", len(f.inserted))
+	}
+	if h, _ := f.inserted[1]["content_hash"].(string); h != firstHash {
+		t.Fatalf("±conditions 해시 불일치: %q vs %q — hashVolatile 계약 위반", h, firstHash)
+	}
+	// with the row existing, the identical resend is a duplicate: 0-row
+	// commit, no third insert (seeding idempotence).
+	f.exists = true
+	out3, code3 := run(t, f, []string{"knowledge"}, condPayload("합성 조건 B", "재검토 조건 합성"))
+	if code3 != 0 || !strings.Contains(out3, `"duplicate"`) {
+		t.Fatalf("동일 재전송 exit=%d out=%s, want duplicate", code3, out3)
+	}
+	if len(f.inserted) != 2 || len(f.commits) != 2 {
+		t.Fatalf("재전송 후 삽입=%d·커밋=%d, want 2·2 (0행 커밋)", len(f.inserted), len(f.commits))
+	}
+}
+
+// TestWriteConditionsRealSlow — the real-DB conditions scenarios on the
+// dedicated scratch database: the storage roundtrip (SELECT of the
+// knowledge.conditions column) and the duplicate resends (±conditions —
+// the hash invariance held against the real content_hash unique index).
+// Requires SUPERLITE_REAL=1 + FLINT_TEST_DSN.
+func TestWriteConditionsRealSlow(t *testing.T) {
+	st := t5ScratchStore(t)
+	ctx := context.Background()
+	// 1) roundtrip: the stored column equals the stdin value verbatim.
+	out, code := run(t, st, []string{"knowledge"}, condPayload("합성 조건 실DB A", "프로토콜 v9 배포 전까지"))
+	if code != 0 {
+		t.Fatalf("적립 exit=%d out=%s", code, out)
+	}
+	rows, err := st.Query(ctx,
+		`SELECT conditions FROM knowledge WHERE topic = '합성 조건 실DB A'`)
+	if err != nil {
+		t.Fatalf("conditions 조회 실패: %v", err)
+	}
+	if len(rows) != 1 || rows[0][0] != "프로토콜 v9 배포 전까지" {
+		t.Fatalf("conditions 왕복 불일치: %v", rows)
+	}
+	// 2) resend WITH conditions → duplicate; the column stays the first
+	// write's value (a duplicate never rewrites the row).
+	out2, code2 := run(t, st, []string{"knowledge"}, condPayload("합성 조건 실DB A", "다른 조건값 합성"))
+	if code2 != 0 || !strings.Contains(out2, `"duplicate"`) {
+		t.Fatalf("conditions 재전송 exit=%d out=%s, want duplicate", code2, out2)
+	}
+	rows2, _ := st.Query(ctx,
+		`SELECT conditions FROM knowledge WHERE topic = '합성 조건 실DB A'`)
+	if len(rows2) != 1 || rows2[0][0] != "프로토콜 v9 배포 전까지" {
+		t.Fatalf("duplicate 재전송이 행을 바꾸면 안 됨: %v", rows2)
+	}
+	// 3) a body first written WITH conditions, resent WITHOUT → duplicate.
+	out3, c3 := run(t, st, []string{"knowledge"}, condPayload("합성 조건 실DB B", "조건 명시 합성"))
+	if c3 != 0 {
+		t.Fatalf("B 적립 exit=%d out=%s", c3, out3)
+	}
+	out4, c4 := run(t, st, []string{"knowledge"},
+		`{"topic":"합성 조건 실DB B","summary":"조건 태그 시나리오 합성 본문","confidence":0.9}`)
+	if c4 != 0 || !strings.Contains(out4, `"duplicate"`) {
+		t.Fatalf("B 무조건 재전송 exit=%d out=%s, want duplicate", c4, out4)
+	}
+	// 4) the length cap refuses before any row staging.
+	long := strings.Repeat("조", 501)
+	out5, c5 := run(t, st, []string{"knowledge"}, condPayload("합성 조건 실DB 초과", long))
+	if c5 != 3 {
+		t.Fatalf("길이 초과 exit=%d out=%s, want 3", c5, out5)
+	}
+	if n, _ := st.Query(ctx, `SELECT id FROM knowledge WHERE topic = '합성 조건 실DB 초과'`); len(n) != 0 {
+		t.Fatalf("거부 시 적립되면 안 됨")
+	}
+}

@@ -90,7 +90,11 @@ func CanonicalJSON(p map[string]any) string {
 // not content, so the same body with·without a relations array hashes
 // identically (dedup preservation; the write path accrues relations onto the
 // duplicate row's id).
-var hashVolatile = map[string]bool{"valid_at": true, "ts": true, "relations": true}
+// v1.22.0 (schema v17): conditions joined the exclusion — the manual recheck
+// tag is metadata about review scope, not content, so the same body
+// with·without (or with a changed) conditions string hashes identically (the
+// relations precedent; a duplicate resend never rewrites the stored column).
+var hashVolatile = map[string]bool{"valid_at": true, "ts": true, "relations": true, "conditions": true}
 
 // knowledgeRelations — the schema v14 (v1.20.0) relation vocabulary: the
 // 4 registered knowledge_links.relation values. supersedes is NOT a member —
@@ -147,7 +151,8 @@ func CheckRelations(rels []string) []string {
 }
 
 // HashCanonical returns the canonical JSON excluding the volatile fields
-// (valid_at, ts, relations). ContentHash input must always go through this path.
+// (valid_at, ts, relations, conditions). ContentHash input must always go
+// through this path.
 func HashCanonical(p map[string]any) string {
 	m := make(map[string]any, len(p))
 	for k, v := range p {

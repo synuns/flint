@@ -941,10 +941,10 @@ func TestV14GateUpgradeFromV13(t *testing.T) {
 
 // TestV14FreshSchemaDirect — the fresh-install path: recreating with the
 // real schema.sql + running the gate chain v2→LatestSchemaVersion in
-// order reaches the v16 terminus (knowledge_links + its indexes + the
+// order reaches the latest terminus (knowledge_links + its indexes + the
 // superseded_by index + the v15 unique triple seal + the v16 vault_files
-// table present without any gate DDL — the fresh-creation terminus
-// contract).
+// table + the v17 staleness/distill columns present without any gate
+// DDL — the fresh-creation terminus contract).
 func TestV14FreshSchemaDirect(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
@@ -969,8 +969,8 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "16" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 16 (v1.21.0 상향)", v)
+	if v := readVersion(t, r); v != "17" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 17 (v1.22.0 상향)", v)
 	}
 	v14GateArtifacts(t, r, ctx)
 	// v1.20.1: the fresh terminus carries the unique triple seal — a
@@ -995,6 +995,9 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 	// artifacts (table·NOT NULL columns·defaults·UNIQUE path·(content_hash)
 	// index) present without any gate DDL.
 	v16GateArtifacts(t, r, ctx)
+	// v1.22.0: the fresh terminus carries the v17 staleness/distill
+	// columns without any gate DDL.
+	v17GateArtifacts(t, r, ctx)
 }
 
 // TestAuditStageTablesV16 — vault_files joins the audit staging list
@@ -1084,6 +1087,105 @@ func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 		`INSERT INTO vault_files (path, title, mtime, size, content_hash)
 		 VALUES ('demo/notes/first.md', 'Demo Dup', $1, 64, 'sha256-v16-b')`, mtime); err == nil {
 		t.Fatal("vault_files 중복 path INSERT 허용 — UNIQUE 계약 위반")
+	}
+}
+
+// v17GateArtifacts — the schema v17 artifact assertions shared by the
+// upgrade (v16→v17) and fresh-direct paths: the 3 additive columns —
+// vault_files.content_changed_at (timestamptz NULL), knowledge.distilled_at
+// (timestamptz NULL), knowledge.conditions (text NOT NULL DEFAULT '').
+func v17GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
+	t.Helper()
+	// column presence + nullability (the two timestamp columns are NULL —
+	// the staleness recheck queue·distill idempotence stamps; conditions
+	// carries NOT NULL DEFAULT '' — the v11/v13 DEFAULT-ALTER precedent).
+	for _, tc := range []struct{ table, col, wantNullable string }{
+		{"vault_files", "content_changed_at", "YES"},
+		{"knowledge", "distilled_at", "YES"},
+		{"knowledge", "conditions", "NO"},
+	} {
+		var nullable string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT is_nullable FROM information_schema.columns
+			 WHERE table_name = $1 AND column_name = $2`, tc.table, tc.col).
+			Scan(&nullable); err != nil {
+			t.Fatalf("%s.%s 조회: %v", tc.table, tc.col, err)
+		}
+		if nullable != tc.wantNullable {
+			t.Fatalf("%s.%s is_nullable=%q, want %q", tc.table, tc.col, nullable, tc.wantNullable)
+		}
+	}
+}
+
+// TestV17GateUpgradeFromV16 — promotes a reproduced v16 DB to v17: the 3
+// additive columns added (the two timestamps NULL-able, conditions with
+// DEFAULT '' so pre-promotion rows read the empty string)·version 17·the
+// rerun idempotent (the additive protocol — existing tables·data unchanged).
+func TestV17GateUpgradeFromV16(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	// Reproduce a faithful v16 DB — remove the v17 artifacts the fresh
+	// schema.sql terminus already carries (DROP COLUMN has no IF EXISTS
+	// on Doltgres — the columnExists guard convention).
+	if columnExists(t, r, "vault_files", "content_changed_at") {
+		if _, err := r.pool.Exec(ctx, `ALTER TABLE vault_files DROP COLUMN content_changed_at`); err != nil {
+			t.Fatalf("v16 재현 content_changed_at 삭제: %v", err)
+		}
+	}
+	for _, col := range []string{"distilled_at", "conditions"} {
+		if columnExists(t, r, "knowledge", col) {
+			if _, err := r.pool.Exec(ctx, `ALTER TABLE knowledge DROP COLUMN ` + col); err != nil {
+				t.Fatalf("v16 재현 knowledge.%s 삭제: %v", col, err)
+			}
+		}
+	}
+	setVersion(t, r, "16")
+	// Pre-promotion rows — the DEFAULT/NULL backfill targets (synthetic
+	// demo fixtures only).
+	mtime := time.Date(2026, 11, 23, 4, 5, 6, 0, time.UTC)
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO vault_files (path, title, mtime, size, content_hash)
+		 VALUES ('demo/notes/stale-demo.md', 'Demo Stale', $1, 256, 'sha256-v17-a')`, mtime); err != nil {
+		t.Fatalf("v16 시대 vault_files 적립: %v", err)
+	}
+	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v17-pre")})
+	if err != nil {
+		t.Fatalf("v16 시대 knowledge 적립: %v", err)
+	}
+
+	if err := r.EnsureSchemaV17(ctx); err != nil {
+		t.Fatalf("first EnsureSchemaV17: %v", err)
+	}
+	if v := readVersion(t, r); v != "17" {
+		t.Fatalf("schema_version = %q, want 17", v)
+	}
+	v17GateArtifacts(t, r, ctx)
+	// The pre-promotion rows read the column defaults — content_changed_at
+	// and distilled_at NULL (no change·no distill yet), conditions ''.
+	var changedAt, distilledAt *time.Time
+	var conditions string
+	if err := r.pool.QueryRow(ctx,
+		`SELECT content_changed_at FROM vault_files WHERE path = 'demo/notes/stale-demo.md'`).
+		Scan(&changedAt); err != nil {
+		t.Fatalf("기존 vault_files 행 content_changed_at 조회: %v", err)
+	}
+	if changedAt != nil {
+		t.Fatalf("기존 vault_files 행 content_changed_at = %v, want NULL", changedAt)
+	}
+	if err := r.pool.QueryRow(ctx,
+		`SELECT distilled_at, conditions FROM knowledge WHERE id = $1`, ids[0]).
+		Scan(&distilledAt, &conditions); err != nil {
+		t.Fatalf("기존 knowledge 행 v17 열 조회: %v", err)
+	}
+	if distilledAt != nil || conditions != "" {
+		t.Fatalf("기존 knowledge 행 distilled_at=%v conditions=%q, want NULL·\"\"", distilledAt, conditions)
+	}
+	// The rerun is idempotent — version 17 kept·no error.
+	if err := r.EnsureSchemaV17(ctx); err != nil {
+		t.Fatalf("second EnsureSchemaV17 (want idempotent): %v", err)
+	}
+	if v := readVersion(t, r); v != "17" {
+		t.Fatalf("재호출 후 schema_version = %q, want 17", v)
 	}
 }
 

@@ -919,6 +919,61 @@ func (r *Repo) ensureSchemaV16(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV17 losslessly promotes a DB with
+// meta.schema_version<17 to 17 (v1.22.0 vault staleness II — additive):
+// three columns — vault_files.content_changed_at (timestamptz NULL — the
+// scan-diff recheck queue stamp, set by ApplyDiff on a changed row and
+// cleared only on hash restoration), knowledge.distilled_at (timestamptz
+// NULL — the distill output idempotence stamp: emitted rows are stamped
+// and never re-emitted), and knowledge.conditions (text NOT NULL DEFAULT
+// '' — the manual recheck tag, excluded from the content hash via
+// hashVolatile). All three are plain ALTER ADDs (the v11/v13
+// DEFAULT-ALTER precedent — the two timestamps backfill NULL, conditions
+// backfills the empty string). Existing tables·views·data unchanged.
+// Already v17+ is a no-op (the numeric-comparison short circuit),
+// idempotent on any DB that passed the v1~v16 gates.
+func (r *Repo) EnsureSchemaV17(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV17(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV17(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v17: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // fresh DB (tables absent) — the fresh-creation path carries the v17 terminus
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 17 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v17: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`ALTER TABLE vault_files ADD COLUMN IF NOT EXISTS content_changed_at timestamptz`,
+		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS distilled_at timestamptz`,
+		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS conditions text NOT NULL DEFAULT ''`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v17: alter: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '17')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v17: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v17: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve promotes pending knowledge to active (spec §8: approval =
 // flint approve). Approval is a valid confirmation, so it also clears
 // any residual invalid_at — defense against the defect where

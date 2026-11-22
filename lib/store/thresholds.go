@@ -102,6 +102,10 @@ type Thresholds struct {
 	VaultScanMaxFiles    int    // default 10000 — the per-scan vault .md file cap
 	VaultSummaryMaxRunes int    // default 200 — the summary truncation (TruncateRunes)
 	VaultSkipDirs        string // default ".obsidian,.trash" — comma-separated skip dirs
+	// the distill output floor (v1.22.0 — cli distill): the minimum
+	// effective recall score of an emitted insight row (count-scale, so
+	// values above 1 are normal — the archive_below parser convention).
+	DistillMinScore float64 // default 1.0 — at least one effective recall
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -189,6 +193,9 @@ const (
 	defaultVaultScanMaxFiles    = 10000
 	defaultVaultSummaryMaxRunes = 200
 	defaultVaultSkipDirs        = ".obsidian,.trash"
+	// the distill output floor default (v1.22.0): an effective recall
+	// score of at least 1 (one surviving recall — the count-scale basis).
+	defaultDistillMinScore = 1.0
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -264,6 +271,8 @@ func DefaultThresholds() Thresholds {
 		VaultScanMaxFiles:    defaultVaultScanMaxFiles,
 		VaultSummaryMaxRunes: defaultVaultSummaryMaxRunes,
 		VaultSkipDirs:        defaultVaultSkipDirs,
+		// the distill output floor (the consumer fallback basis).
+		DistillMinScore: defaultDistillMinScore,
 	}
 }
 
@@ -446,6 +455,13 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// convention — the consumer falls back to DefaultThresholds; any
 			// string value, empty included, passes through verbatim).
 			th.VaultSkipDirs = parseStringOrDefault(val, defaultVaultSkipDirs, ks)
+		case "distill_min_score":
+			// unset keeps 0 (the convention — the consumer, cli distill,
+			// falls back via the DefaultThresholds basis). 0 = no score
+			// floor is a normal value and the effective score is count-scale
+			// (values above 1 normal), so only negatives are rejected (the
+			// archive_below convention).
+			th.DistillMinScore = parseFloatNonNegative(val, defaultDistillMinScore, ks)
 		}
 	}
 	return th, nil

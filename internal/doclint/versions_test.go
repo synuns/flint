@@ -514,6 +514,13 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01211Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.21.1", "r91-r94",
 	}},
+	// v1.22.0 T7: vault-staleness 마일스톤 계약행 — 스키마 v17
+	// (content_changed_at·distilled_at·conditions)·age-audit source_changed
+	// 참조열(스코어 불변)·maintain --reaffirm/--recheck·변동성 자동 분류
+	// 제안(승인제)·distill(ADR-0018).
+	{name: "TestVersion01220Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.22.0", "vault-staleness",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

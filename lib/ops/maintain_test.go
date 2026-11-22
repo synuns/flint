@@ -363,12 +363,13 @@ func TestStaleScoreFormula(t *testing.T) {
 
 // staleScoredRowsFixture — the listStaleScored query shape (synthetic): id,
 // topic, ttl reference (COALESCE(re.last_at, ingested_at)), same-topic
-// correction count, bad-recall count, supersede count.
+// correction count, bad-recall count, supersede count, tags cell (the v1.22.0
+// T4 suggestion input column).
 func staleScoredRowsFixture(now time.Time) [][]any {
 	return [][]any{
-		{int32(11), "t3-오래미회상", now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0)},
-		{int32(12), "t3-교정다발", now.Add(-10 * 24 * time.Hour), int32(3), int32(0), int32(0)},
-		{int32(13), "t3-참조열", now.Add(-100 * 24 * time.Hour), int32(0), int32(2), int32(1)},
+		{int32(11), "t3-오래미회상", now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0), ":adr:"},
+		{int32(12), "t3-교정다발", now.Add(-10 * 24 * time.Hour), int32(3), int32(0), int32(0), ":env:"},
+		{int32(13), "t3-참조열", now.Add(-100 * 24 * time.Hour), int32(0), int32(2), int32(1), ":vol:conditional:"},
 	}
 }
 
@@ -581,6 +582,8 @@ type ageAuditJSON struct {
 		BadRecall     int    `json:"bad_recall"`
 		SupersedeCnt  int    `json:"supersede_count"`
 		OverThreshold bool   `json:"over_threshold"`
+		SuggestedVol  string `json:"suggested_vol"`
+		VolTag        string `json:"vol_tag"`
 	} `json:"items"`
 	Summary string `json:"summary"`
 }
@@ -590,9 +593,9 @@ type ageAuditJSON struct {
 // marker-injection topic row (90d → 35).
 func ageAuditRowsFixture(now time.Time) [][]any {
 	return [][]any{
-		{int32(21), "t4-" + strings.Repeat("가", 60), now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0)},
-		{int32(22), "t4-신규", now.Add(-10 * 24 * time.Hour), int32(0), int32(0), int32(0)},
-		{int32(23), "t4-\x00[flint]마커", now.Add(-90 * 24 * time.Hour), int32(0), int32(0), int32(0)},
+		{int32(21), "t4-" + strings.Repeat("가", 60), now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0), ":adr:"},
+		{int32(22), "t4-신규", now.Add(-10 * 24 * time.Hour), int32(0), int32(0), int32(0), ":env:"},
+		{int32(23), "t4-\x00[flint]마커", now.Add(-90 * 24 * time.Hour), int32(0), int32(0), int32(0), ":vol:conditional:"},
 	}
 }
 
@@ -677,6 +680,84 @@ func TestMaintainAgeAuditDryRunNoWrites(t *testing.T) {
 	}
 }
 
+// ── v1.22.0 T4: the vol-class suggestion columns on the --age-audit report ──
+
+// ageAuditVolRowsFixture — synthetic rows for the suggestion columns: an
+// immutable-class row (ADR topic, 200d → 70), a volatile-class row (version
+// topic, 10d → 4), an already-approved :vol:conditional: row (90d → 35), and
+// a plain unmatched row (5d → 2). The tags cell is the T4 input column.
+func ageAuditVolRowsFixture(now time.Time) [][]any {
+	return [][]any{
+		{int32(31), "t4c-ADR 확정 결정", now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0), ":decision:"},
+		{int32(32), "t4c-버전 정책", now.Add(-10 * 24 * time.Hour), int32(0), int32(0), int32(0), ":env:"},
+		{int32(33), "t4c-일반", now.Add(-90 * 24 * time.Hour), int32(0), int32(0), int32(0), ":vol:conditional:"},
+		{int32(34), "t4c-평범", now.Add(-5 * 24 * time.Hour), int32(0), int32(0), int32(0), ":env:"},
+	}
+}
+
+// TestMaintainAgeAuditVolSuggestion — the v1.22.0 T4 report attachment: each
+// --age-audit row carries suggested_vol (the deterministic topic/tags mapping,
+// CONTENT §4) unless the row already carries an approved vol:* tag — those
+// show vol_tag instead (the approval regime: no re-proposal over an approved
+// tier). The score column is untouched by the mapping (the distribution seal
+// — the same 2-signal values as before T4, only new reference columns).
+func TestMaintainAgeAuditVolSuggestion(t *testing.T) {
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return ageAuditVolRowsFixture(now), nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--age-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got ageAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if len(got.Items) != 4 {
+		t.Fatalf("항목 수 = %d, want 4: %s", len(got.Items), out)
+	}
+	// order score DESC: 31(70) > 33(35) > 32(4) > 34(2) — unchanged by T4.
+	wantScore := []int{70, 35, 4, 2}
+	for i, w := range wantScore {
+		if got.Items[i].Score != w {
+			t.Errorf("items[%d].score = %d, want %d(스코어 불변 — 매핑 비가중)", i, got.Items[i].Score, w)
+		}
+	}
+	byID := map[int]struct{ sug, tag string }{}
+	for _, it := range got.Items {
+		byID[it.ID] = struct{ sug, tag string }{it.SuggestedVol, it.VolTag}
+	}
+	if r := byID[31]; r.sug != "vol:immutable" || r.tag != "" {
+		t.Errorf("id31 제안 = %+v, want suggested vol:immutable(ADR·decision 매칭)", r)
+	}
+	if r := byID[32]; r.sug != "vol:volatile" || r.tag != "" {
+		t.Errorf("id32 제안 = %+v, want suggested vol:volatile(버전 매칭)", r)
+	}
+	// an already-approved vol:* row shows the EXISTING tag — no re-proposal.
+	if r := byID[33]; r.tag != "vol:conditional" || r.sug != "" {
+		t.Errorf("id33 = %+v, want vol_tag vol:conditional·제안 없음(승인제)", r)
+	}
+	if r := byID[34]; r.sug != "vol:conditional" || r.tag != "" {
+		t.Errorf("id34 제안 = %+v, want suggested vol:conditional(미매칭 기본)", r)
+	}
+	// the full suggestion vocabulary stays inside the 3-tag dictionary.
+	for _, it := range got.Items {
+		switch it.SuggestedVol {
+		case "", "vol:immutable", "vol:volatile", "vol:conditional":
+		default:
+			t.Errorf("사전 밖 제안 %q (id %d)", it.SuggestedVol, it.ID)
+		}
+	}
+}
+
 // TestMaintainAgeAuditParserNoPrefixCollision — the --stale family is
 // exact-match: --age-audit elects its own mode (never --stale's ok report),
 // a bare --age prefix is an unknown flag (exit 3), --age-audit rejects the
@@ -758,6 +839,427 @@ func TestStaleScoredTTLOverride(t *testing.T) {
 	}
 	if s := byID[12]; s.Score != 38 {
 		t.Errorf("id12 = %d, want 38(TTL 성분만 재조정: 10/90·corr 30)", s.Score)
+	}
+}
+
+// ── v1.22.0 T3: age-audit "source changed" reference · --reaffirm · --recheck ──
+
+// reaffirmFakeStore — fakeMaintStore + the ReaffirmStore write extension
+// (the UPDATE literal lives in the store layer — captured here, the ops
+// flow asserts the delegation, commit, and output).
+type reaffirmFakeStore struct {
+	*fakeMaintStore
+	reaffirmCalls [][]int
+	reaffirmErr   error
+}
+
+func (f *reaffirmFakeStore) Reaffirm(ctx context.Context, ids []int) (int64, error) {
+	f.reaffirmCalls = append(f.reaffirmCalls, ids)
+	if f.reaffirmErr != nil {
+		return 0, f.reaffirmErr
+	}
+	return int64(len(ids)), nil
+}
+
+// runReaffirmArgs — runMaintainArgs is fixed to *fakeMaintStore, so a local
+// helper for the extension wrapper (the limitCapturingStore convention).
+func runReaffirmArgs(t *testing.T, f *reaffirmFakeStore, args ...string) (string, int) {
+	t.Helper()
+	var out strings.Builder
+	code := RunMaintain(context.Background(), f, args, nil, &out)
+	return out.String(), code
+}
+
+// TestMaintainAgeAuditSourceChanged — the signal-⑤ reference column: with
+// stamped vault rows (content_changed_at NOT NULL) the report carries the
+// "source changed" count phrase; without stamps the field is 0 and the
+// phrase absent. The score distribution is SEALED — the items bytes are
+// identical whether or not vault sources changed (the G2 ruling: the
+// reference column carries no weight).
+func TestMaintainAgeAuditSourceChanged(t *testing.T) {
+	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+	saved := decayNow
+	decayNow = func() time.Time { return now }
+	t.Cleanup(func() { decayNow = saved })
+
+	newStore := func(changed int) *fakeMaintStore {
+		return &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			switch {
+			case strings.Contains(sql, "FROM knowledge"):
+				return ageAuditRowsFixture(now), nil
+			case strings.Contains(sql, "FROM vault_files"):
+				return [][]any{{int32(changed)}}, nil
+			}
+			return nil, nil
+		}}}
+	}
+	itemsOf := func(out string) string {
+		start := strings.Index(out, `"items":`)
+		end := strings.LastIndex(out, `,"summary":`)
+		if start < 0 || end < 0 || end <= start {
+			t.Fatalf("items 절출 실패: %s", out)
+		}
+		return out[start:end]
+	}
+	// with stamps — the phrase and the count surface.
+	f := newStore(2)
+	out, code := runMaintainArgs(t, f, "--age-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if !strings.Contains(out, `"source_changed":2`) {
+		t.Fatalf("source_changed 카운트 부재: %s", out)
+	}
+	if !strings.Contains(out, "source changed") {
+		t.Fatalf("source changed 문구 부재: %s", out)
+	}
+	sealed := itemsOf(out)
+
+	// without stamps — 0 and no phrase; the items bytes identical (seal).
+	out0, code := runMaintainArgs(t, newStore(0), "--age-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out0)
+	}
+	if !strings.Contains(out0, `"source_changed":0`) {
+		t.Fatalf("source_changed 0 부재: %s", out0)
+	}
+	if strings.Contains(out0, "source changed") {
+		t.Fatalf("스탬프 없는데 문구 존재: %s", out0)
+	}
+	if itemsOf(out0) != sealed {
+		t.Fatalf("스코어 분포 봉인 위반:\n무변경=%s\n변경=%s", itemsOf(out0), sealed)
+	}
+	// the seal material itself — the 2-signal scores (70/35/4, order 21,23,22).
+	if !strings.Contains(sealed, `"score":70`) || !strings.Contains(sealed, `"score":35`) || !strings.Contains(sealed, `"score":4`) {
+		t.Fatalf("기존 점수 산출 변경 의심: %s", sealed)
+	}
+	// a vault-count read failure degrades quietly to 0 (§13 — a lost
+	// observation must not fail the audit).
+	fErr := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM knowledge"):
+			return ageAuditRowsFixture(now), nil
+		case strings.Contains(sql, "FROM vault_files"):
+			return nil, fmt.Errorf("vault lookup unavailable")
+		}
+		return nil, nil
+	}}}
+	out, code = runMaintainArgs(t, fErr, "--age-audit")
+	if code != 0 || !strings.Contains(out, `"status":"age-audit"`) || !strings.Contains(out, `"source_changed":0`) {
+		t.Fatalf("조회 실패 조용 강등 위반 exit=%d: %s", code, out)
+	}
+}
+
+// TestMaintainReaffirmResetsValidity — the happy path: active targets get
+// the Reaffirm delegation (valid_at=now() is the store layer's), the audit
+// commit records the reaffirm attribution, and the output is the reaffirmed
+// JSON. Both --id and --ids forms.
+func TestMaintainReaffirmResetsValidity(t *testing.T) {
+	shortRetry(t)
+	newFake := func() *reaffirmFakeStore {
+		return &reaffirmFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "status") {
+				return [][]any{{int32(7), "active"}, {int32(8), "active"}}, nil
+			}
+			return nil, nil
+		}}}}
+	}
+	f := newFake()
+	out, code := runReaffirmArgs(t, f, "--reaffirm", "--id", "7", "--yes")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if len(f.reaffirmCalls) != 1 || len(f.reaffirmCalls[0]) != 1 || f.reaffirmCalls[0][0] != 7 {
+		t.Fatalf("Reaffirm 호출 = %v, want [[7]]", f.reaffirmCalls)
+	}
+	if !strings.Contains(out, `"status":"reaffirmed"`) || !strings.Contains(out, `"count":1`) {
+		t.Fatalf("출력 = %s", out)
+	}
+	if len(f.commits) != 1 || !strings.Contains(f.commits[0], "reaffirm") {
+		t.Fatalf("감사 커밋 부재: %v", f.commits)
+	}
+	if len(f.invalidatedIDs) != 0 {
+		t.Fatalf("무효화 경로 오염: %v", f.invalidatedIDs)
+	}
+
+	f = newFake()
+	out, code = runReaffirmArgs(t, f, "--reaffirm", "--ids", "7,8", "--yes")
+	if code != 0 {
+		t.Fatalf("--ids exit = %d: %s", code, out)
+	}
+	if len(f.reaffirmCalls) != 1 || len(f.reaffirmCalls[0]) != 2 {
+		t.Fatalf("--ids Reaffirm 호출 = %v, want [[7 8]]", f.reaffirmCalls)
+	}
+	if !strings.Contains(out, `"count":2`) {
+		t.Fatalf("--ids 출력 = %s", out)
+	}
+}
+
+// TestMaintainReaffirmGuards — the confirmation and target guards:
+// without --yes a guidance error (exit 1, no write); without --id/--ids a
+// usage error; both together rejected; a foreign value flag (--days)
+// rejected by mode ownership; --yes alone under --recheck rejected.
+func TestMaintainReaffirmGuards(t *testing.T) {
+	base := func() *reaffirmFakeStore {
+		return &reaffirmFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			return nil, nil
+		}}}}
+	}
+	// missing --yes — the confirmation guidance, no delegation, no commit.
+	f := base()
+	out, code := runReaffirmArgs(t, f, "--reaffirm", "--id", "7")
+	if code != 1 || !strings.Contains(out, "--yes") {
+		t.Fatalf("--yes 부재 exit=%d out=%s, want 1+안내", code, out)
+	}
+	if len(f.reaffirmCalls) != 0 || len(f.commits) != 0 {
+		t.Fatalf("가드 전 쓰기 발생: %v %v", f.reaffirmCalls, f.commits)
+	}
+	// no target at all.
+	if out, code = runReaffirmArgs(t, base(), "--reaffirm", "--yes"); code != 1 || !strings.Contains(out, "--id") {
+		t.Fatalf("대상 부재 exit=%d out=%s", code, out)
+	}
+	// both --id and --ids — the spec's alternation is exclusive.
+	if out, code = runReaffirmArgs(t, base(), "--reaffirm", "--id", "7", "--ids", "8", "--yes"); code != 1 {
+		t.Fatalf("--id·--ids 병용 exit=%d out=%s, want 1", code, out)
+	}
+	// a foreign value flag is mode-ownership rejected (exit 1).
+	if out, code = runReaffirmArgs(t, base(), "--reaffirm", "--id", "7", "--days", "5", "--yes"); code != 1 {
+		t.Fatalf("무관 플래그 exit=%d out=%s, want 1", code, out)
+	}
+	// --yes is not valid under --recheck (read-only).
+	if out, code = runReaffirmArgs(t, base(), "--recheck", "5", "--yes"); code != 1 {
+		t.Fatalf("--recheck --yes exit=%d out=%s, want 1", code, out)
+	}
+	// an unknown flag stays exit 3 (the invalid-arg contract).
+	if out, code = runReaffirmArgs(t, base(), "--reaffirm", "--wat"); code != 3 {
+		t.Fatalf("unknown flag exit=%d out=%s, want 3", code, out)
+	}
+}
+
+// TestMaintainReaffirmMissingTarget — a nonexistent or non-active id is
+// exit 1 with the diagnostic, and no write fires (the target set is the
+// active knowledge rows only).
+func TestMaintainReaffirmMissingTarget(t *testing.T) {
+	shortRetry(t)
+	f := &reaffirmFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			// 7 active, 8 invalidated, 99 absent.
+			return [][]any{{int32(7), "active"}, {int32(8), "invalidated"}}, nil
+		}
+		return nil, nil
+	}}}}
+	out, code := runReaffirmArgs(t, f, "--reaffirm", "--ids", "7,8,99", "--yes")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1(대상 부재): %s", code, out)
+	}
+	if !strings.Contains(out, "99") || !strings.Contains(out, "8") {
+		t.Fatalf("진단에 누락 대상 미포함: %s", out)
+	}
+	if len(f.reaffirmCalls) != 0 || len(f.commits) != 0 {
+		t.Fatalf("부재 경로에서 쓰기: %v %v", f.reaffirmCalls, f.commits)
+	}
+}
+
+// TestMaintainRecheckReport — the read-only recheck report: the conditions
+// value, the vol dictionary tags, and the valid_at age ride along; a row
+// without conditions gets the no-conditions guidance (conditions absent —
+// T5 wires the write-side field).
+func TestMaintainRecheckReport(t *testing.T) {
+	validAt := time.Now().Add(-40 * 24 * time.Hour).UTC()
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return [][]any{{"t3-재점검-데모", ":adr::vol:immutable:", "requires flint >= 1.22 (demo)", validAt}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--recheck", "5")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got struct {
+		Status          string   `json:"status"`
+		ID              int      `json:"id"`
+		Topic           string   `json:"topic"`
+		Conditions      string   `json:"conditions"`
+		ConditionsEmpty bool     `json:"conditions_empty"`
+		VolTags         []string `json:"vol_tags"`
+		ValidAt         string   `json:"valid_at"`
+		AgeDays         int      `json:"age_days"`
+		Summary         string   `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Status != "recheck" || got.ID != 5 {
+		t.Fatalf("status/id = %q/%d — %s", got.Status, got.ID, out)
+	}
+	if got.Conditions != "requires flint >= 1.22 (demo)" || got.ConditionsEmpty {
+		t.Fatalf("conditions = %q(empty=%v)", got.Conditions, got.ConditionsEmpty)
+	}
+	if len(got.VolTags) != 1 || got.VolTags[0] != "vol:immutable" {
+		t.Fatalf("vol_tags = %v, want [vol:immutable]", got.VolTags)
+	}
+	if got.AgeDays != 40 {
+		t.Fatalf("age_days = %d, want 40", got.AgeDays)
+	}
+	if !strings.Contains(got.Summary, "conditions") {
+		t.Fatalf("summary 안내 부재: %q", got.Summary)
+	}
+
+	// a conditions-less row — the guidance variant.
+	f2 := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return [][]any{{"t3-무조건-데모", ":adr:", "", validAt}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code = runMaintainArgs(t, f2, "--recheck", "6")
+	if code != 0 {
+		t.Fatalf("무조건 행 exit = %d: %s", code, out)
+	}
+	if !strings.Contains(out, `"conditions_empty":true`) || !strings.Contains(out, "no conditions") {
+		t.Fatalf("conditions 부재 안내 부재: %s", out)
+	}
+}
+
+// TestMaintainRecheckGuards — --recheck takes the id as its own value
+// (the --expire-pending convention): a missing, non-numeric, or non-positive
+// value is exit 1; a foreign value flag is mode-ownership rejected; a
+// missing id is ErrNotFound exit 1.
+func TestMaintainRecheckGuards(t *testing.T) {
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		return nil, nil // no rows — not found
+	}}}
+	for _, args := range [][]string{
+		{"--recheck"},
+		{"--recheck", "abc"},
+		{"--recheck", "0"},
+		{"--recheck", "-3"},
+		{"--recheck", "5", "--limit", "3"},
+	} {
+		out, code := runMaintainArgs(t, f, args...)
+		if code != 1 {
+			t.Errorf("%v: exit=%d, want 1 — %s", args, code, out)
+		}
+	}
+	// a missing knowledge row — exit 1 with the not-found diagnostic.
+	out, code := runMaintainArgs(t, f, "--recheck", "99")
+	if code != 1 || !strings.Contains(out, "not found") {
+		t.Fatalf("부재 exit=%d out=%s, want 1+not found", code, out)
+	}
+}
+
+// TestMaintainUsageLineMentionsReaffirm — the bare-usage guidance carries
+// the two new entries (agent self-correction discovery path).
+func TestMaintainUsageLineMentionsReaffirm(t *testing.T) {
+	f := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out, code := runMaintainArgs(t, f)
+	if code != 3 {
+		t.Fatalf("bare exit = %d, want 3", code)
+	}
+	for _, want := range []string{"--reaffirm", "--recheck"} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("usage에 %s 부재: %s", want, out)
+		}
+	}
+}
+
+// TestMaintainRecheckAgeAuditRealSlow — slow (FLINT_TEST_DSN — the verify
+// gate): on an isolated scratch DB, --recheck reads the real conditions
+// column (set/empty), and --age-audit reports the real content_changed_at
+// stamps (present→count+phrase, cleared→0) with the score bytes sealed
+// across the stamp flip. Synthetic demo rows only.
+func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
+	if os.Getenv("FLINT_TEST_DSN") == "" {
+		t.Skip("FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	defer base.Close()
+	name := fmt.Sprintf("flint_t3recheck_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	u.Path = "/" + name
+	repo, err := db.NewRepo(ctx, u.String())
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	pool, err := db.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	ms := &slowMaintStore{reportSlowStore: &reportSlowStore{repo: repo, pool: pool}, repo: repo}
+	defer ms.Close()
+	if err := ms.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	const prefix = "t3-rck-"
+	ids, err := ms.InsertBatch(ctx, []map[string]any{
+		staleSeedRec(prefix+"cond", "t3-rck-a", "active", ":adr:"),
+		staleSeedRec(prefix+"plain", "t3-rck-b", "active", ":adr:"),
+	})
+	if err != nil {
+		t.Fatalf("시드: %v", err)
+	}
+	// one row carries conditions (T5 wires the write path — the column is
+	// seeded directly here); both age 100d so they surface in age-audit.
+	if _, err := ms.Query(ctx,
+		`UPDATE knowledge SET conditions = $1, ingested_at = now() - interval '100 days' WHERE id = $2`,
+		"demo condition: needs flint 1.22+ (synthetic)", ids[0]); err != nil {
+		t.Fatalf("conditions 시드: %v", err)
+	}
+	if _, err := ms.Query(ctx,
+		`UPDATE knowledge SET ingested_at = now() - interval '100 days' WHERE id = $1`, ids[1]); err != nil {
+		t.Fatalf("경과 시드: %v", err)
+	}
+	// a stamped vault row (the T2 scan-diff stamp — seeded directly).
+	if _, err := ms.Query(ctx,
+		`INSERT INTO vault_files (path, title, tags, mtime, size, content_hash, content_changed_at)
+		 VALUES ('demo/notes/t3-recheck-demo.md', 't3 demo', '', now(), 10, 't3-hash-demo', now())`); err != nil {
+		t.Fatalf("vault 시드: %v", err)
+	}
+	run := func(args ...string) (string, int) {
+		t.Helper()
+		var out strings.Builder
+		code := RunMaintain(ctx, ms, args, nil, &out)
+		return out.String(), code
+	}
+	// --recheck: the conditions value surfaces; the empty row gets the guidance.
+	out, code := run("--recheck", fmt.Sprint(ids[0]))
+	if code != 0 || !strings.Contains(out, "demo condition: needs flint 1.22+ (synthetic)") {
+		t.Fatalf("recheck(conditions) exit=%d out=%s", code, out)
+	}
+	out, code = run("--recheck", fmt.Sprint(ids[1]))
+	if code != 0 || !strings.Contains(out, `"conditions_empty":true`) {
+		t.Fatalf("recheck(무조건) exit=%d out=%s", code, out)
+	}
+	// --age-audit with the stamp — count 1 + phrase; items sealed.
+	out, code = run("--age-audit")
+	if code != 0 || !strings.Contains(out, `"source_changed":1`) || !strings.Contains(out, "source changed") {
+		t.Fatalf("age-audit(스탬프) exit=%d out=%s", code, out)
+	}
+	sealed := out[strings.Index(out, `"items":`):strings.LastIndex(out, `,"summary":`)]
+	// clear the stamp (the hash-restored NULL) — 0, no phrase, same items bytes.
+	if _, err := ms.Query(ctx,
+		`UPDATE vault_files SET content_changed_at = NULL WHERE path = 'demo/notes/t3-recheck-demo.md'`); err != nil {
+		t.Fatalf("스탬프 소거: %v", err)
+	}
+	out, code = run("--age-audit")
+	if code != 0 || !strings.Contains(out, `"source_changed":0`) || strings.Contains(out, "source changed") {
+		t.Fatalf("age-audit(소거) exit=%d out=%s", code, out)
+	}
+	if got := out[strings.Index(out, `"items":`):strings.LastIndex(out, `,"summary":`)]; got != sealed {
+		t.Fatalf("스코어 분포 봉인 위반(실DB):\n소거=%s\n스탬프=%s", got, sealed)
 	}
 }
 

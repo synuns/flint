@@ -30,7 +30,11 @@ import (
 var kindColumns = map[string]map[string]bool{
 	"knowledge": {"topic": true, "summary": true, "tags": true, "entity": true,
 		"domain": true, "confidence": true, "origin": true, "status": true,
-		"content_hash": true, "session_id": true, "valid_at": true},
+		"content_hash": true, "session_id": true, "valid_at": true,
+		// v1.22.0 (schema v17): the manual recheck conditions tag rides the
+		// record to the knowledge.conditions column (hash-excluded — the
+		// hashVolatile registration, the relations precedent).
+		"conditions": true},
 	"session": {"ts": true, "agent": true, "summary": true},
 	// note is a SchemaV2 column (projects.note), so the drop-as-metadata
 	// treatment is abolished — registered as a storage column.
@@ -372,6 +376,40 @@ func parseLinkSpecs(p map[string]any) ([]linkSpec, *store.SchemaError) {
 		return nil, &store.SchemaError{Field: "relations", Expect: w}
 	}
 	return specs, nil
+}
+
+// ── v1.22.0 T5 — the optional stdin conditions string (schema v17
+// knowledge.conditions): a manual recheck tag stored verbatim on the row
+// and excluded from the content hash (the T1 hashVolatile registration —
+// the same body ±conditions stays one dedup identity). Validation is the
+// write-path shape check (the relations convention): non-string·over-cap
+// values refuse at exit 3; the empty string is a value, not an absence
+// (the optional-field convention). ──
+
+// maxConditionsRunes — the conditions length cap. 500 runes is generous
+// headroom over any plausible recheck clause while keeping an unbounded
+// string off the stored column and the duplicate echo path.
+const maxConditionsRunes = 500
+
+// validateConditions — the shape·length check of the optional conditions
+// field (knowledge only). nil return = pass (absent·nil input passes — the
+// optional-field convention). The field is a storage column: unlike
+// relations it is NOT consumed here — it stays on the payload and rides
+// the record into knowledge.conditions.
+func validateConditions(p map[string]any) *store.SchemaError {
+	v, ok := p["conditions"]
+	if !ok || v == nil {
+		return nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return &store.SchemaError{Field: "conditions", Expect: "string"}
+	}
+	if r := []rune(s); len(r) > maxConditionsRunes {
+		return &store.SchemaError{Field: "conditions",
+			Expect: fmt.Sprintf("at most %d runes", maxConditionsRunes)}
+	}
+	return nil
 }
 
 // precheckLinkTargets — the batched target-existence refusal of the
@@ -815,6 +853,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				fmt.Fprintln(stdout, wire.ErrLine(lse))
 				return 3
 			}
+			// v1.22.0 T5 — the optional conditions string: a storage
+			// column, so the check is shape·length only (no consumption).
+			if cse := validateConditions(p); cse != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(cse))
+				return 3
+			}
 		}
 		// Sanitization (ADR-0006): neutralize control characters·[flint]
 		// markers before storage + secret scanning. This stage precedes
@@ -1217,8 +1261,9 @@ func RecordDups(ctx context.Context, st wire.Store, source string, n int) {
 }
 
 // sanitizeFields — the text columns to sanitize (the kind-common minimal
-// set).
-var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id"} // session_id added (defense against arbitrary unsanitized strings)
+// set). v1.22.0 T5: conditions added — it stays verbatim through storage
+// (the ADR-0006 blind-spot rule that pulled domain·origin in).
+var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id", "conditions"} // session_id added (defense against arbitrary unsanitized strings)
 
 // SanitizePayload — sanitizes the text fields, updates the original map,
 // and returns secret-candidate warnings ("possible secret: pattern-name").
