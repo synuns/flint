@@ -2,7 +2,7 @@
 // shadow circuit). The policy single source for autonomous tuning: which
 // signal may tune which key, in which direction, inside which safe range, at
 // which auto grade. v1.23.0 is shadow-only — predictions are recorded, no
-// value is ever applied (the apply path is the v1.24.0 gate).
+// value is ever applied (the apply path is the v1.25.0 gate).
 //
 // The registry is deliberately NOT the diagnosis engine (spec ruling:
 // Diagnose reuse is forbidden — its input is the whole ReportOutput). Each
