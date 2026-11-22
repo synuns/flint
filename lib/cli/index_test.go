@@ -161,9 +161,9 @@ func runIndexFake(t *testing.T, args ...string) (int, map[string]any, string, *i
 // exactly one commit "index: vault files=N changed=M".
 func TestIndexNewScanCommitsOnce(t *testing.T) {
 	root := demoVault(t, map[string]string{
-		"a.md":              "# 데모 노트 A\n첫 문단이다.\n",
-		"sub/b.md":          "---\ntags: [demo]\n---\n# 데모 노트 B\n서브 폴더 노트.\n",
-		".obsidian/c.md":    "# 스킵 대상\n",
+		"a.md":           "# 데모 노트 A\n첫 문단이다.\n",
+		"sub/b.md":       "---\ntags: [demo]\n---\n# 데모 노트 B\n서브 폴더 노트.\n",
+		".obsidian/c.md": "# 스킵 대상\n",
 	})
 	code, m, _, fx := runIndexFake(t, "--vault", root)
 	if code != 0 {
@@ -398,9 +398,9 @@ func TestIndexE2ERealSlow(t *testing.T) {
 	t.Setenv("FLINT_DSN", freshDSN)
 
 	root := demoVault(t, map[string]string{
-		"alpha.md":        "# 데모 알파\n첫 번째 데모 노트 본문.\n",
-		"notes/beta.md":   "---\ntags: [demo, vault]\n---\n# 데모 베타\n두 번째 데모 노트.\n",
-		".obsidian/x.md":  "# 스킵\n",
+		"alpha.md":       "# 데모 알파\n첫 번째 데모 노트 본문.\n",
+		"notes/beta.md":  "---\ntags: [demo, vault]\n---\n# 데모 베타\n두 번째 데모 노트.\n",
+		".obsidian/x.md": "# 스킵\n",
 	})
 
 	run := func(args ...string) map[string]any {

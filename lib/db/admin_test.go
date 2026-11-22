@@ -1030,7 +1030,7 @@ func TestAuditStageTablesV16(t *testing.T) {
 // 8 declared columns NOT NULL — tags·summary·last_indexed_at via
 // DEFAULT), the (content_hash) index, the path UNIQUE constraint
 // enforced, and a functional pointer row reading back with the DEFAULTs
-// surfacing (tags ''·summary ''·last_indexed_at now).
+// surfacing (tags ”·summary ”·last_indexed_at now).
 func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	t.Helper()
 	assertObject(t, r, ctx, "vault_files")
