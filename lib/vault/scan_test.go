@@ -23,8 +23,9 @@ import (
 // fakeStore — the in-memory Store: keeps rows in a map, counts ApplyDiff
 // calls (the idempotence assertion — a no-change rescan must not write)
 // and the touch refreshes handed to it (the v1.21.1 touch-only axis).
-// changedAt emulates the v17 content_changed_at column: stamped on a
-// content-hash change, NULL on a hash-restore upsert, absent for new rows.
+// changedAt emulates the v17 content_changed_at column (v1.22.1 r96 rule):
+// stamped on a content-hash change, PRESERVED on a hash-identical
+// re-apply, absent for new rows.
 type fakeStore struct {
 	rows      map[string]File
 	changedAt map[string]time.Time
@@ -76,13 +77,12 @@ func (f *fakeStore) ApplyDiff(ctx context.Context, upserts, touches []File, keep
 	}
 	for _, u := range upserts {
 		if r, ok := f.rows[u.Path]; ok {
-			// The v17 stamp rule, mirroring applyDiffOnce's CASE: a hash
-			// change stamps now(); a hash-restore upsert (the new hash
-			// equals the stored one) returns the stamp to NULL; a new row
-			// (no prior row) is not a content change — never stamped.
-			if r.ContentHash == u.ContentHash {
-				delete(f.changedAt, u.Path)
-			} else {
+			// The v17 stamp rule (v1.22.1 r96), mirroring applyDiffOnce's
+			// CASE: a hash change stamps now(); a hash-identical re-apply
+			// (a parallel index loser's retry) KEEPS the existing stamp;
+			// a new row (no prior row) is not a content change — never
+			// stamped.
+			if r.ContentHash != u.ContentHash {
 				f.changedAt[u.Path] = time.Now()
 			}
 		}
@@ -640,14 +640,15 @@ func TestScanChangedStampLifecycle(t *testing.T) {
 	}
 }
 
-// TestScanHashRestoreClearsStamp — the ONLY stamp-erase path: an upsert
-// whose content hash equals the stored row's hash (the content is back to
-// what the snapshot records) returns content_changed_at to NULL. Restoring
-// the FILE to pre-change content is a different thing: it differs from the
-// stored snapshot hash, so it is an ordinary change and re-stamps — one
-// column, no resident part, so the row keeps no memory of the pre-change
-// hash.
-func TestScanHashRestoreClearsStamp(t *testing.T) {
+// TestScanHashReapplyPreservesStamp — the v1.22.1 r96 rule: a hash-identical
+// re-apply upsert (the parallel-index-loser scenario — the loser's retry
+// re-applies the hash the winner already stored) KEEPS the existing stamp.
+// Restoring the FILE to pre-change content is a different thing: it differs
+// from the stored snapshot hash, so it is an ordinary change and re-stamps —
+// one column, no resident part, so the row keeps no memory of the
+// pre-change hash (A→B→A re-stamps; clearing is deferred to the v1.25.0
+// knowledge↔vault link).
+func TestScanHashReapplyPreservesStamp(t *testing.T) {
 	st := testStore(t)
 	dir := t.TempDir()
 	v1 := "# Demo\n\nParagraph.\n"
@@ -659,16 +660,31 @@ func TestScanHashRestoreClearsStamp(t *testing.T) {
 	if !isStamped(t, st, "a.md") {
 		t.Fatal("precondition: changed row stamped")
 	}
-	// Hash-restore upsert (direct ApplyDiff — Scan itself routes
-	// hash-identical files to the touch path, never an upsert).
+	// Hash-identical re-apply (direct ApplyDiff — Scan itself routes
+	// hash-identical files to the touch path, never an upsert): the
+	// parallel loser's retry after the winner applied the same hash. The
+	// winner's stamp must survive (pre-fix: THEN NULL erased it).
 	row := mustRows(t, st)["a.md"]
-	restored := row
-	restored.Mtime = row.Mtime.Add(time.Hour)
-	if _, err := st.ApplyDiff(context.Background(), []File{restored}, nil, []string{"a.md"}); err != nil {
-		t.Fatalf("ApplyDiff restore: %v", err)
+	reapply := row
+	reapply.Mtime = row.Mtime.Add(time.Hour)
+	if _, err := st.ApplyDiff(context.Background(), []File{reapply}, nil, []string{"a.md"}); err != nil {
+		t.Fatalf("ApplyDiff re-apply: %v", err)
 	}
-	if isStamped(t, st, "a.md") {
-		t.Fatal("hash-restore upsert kept the stamp (must return to NULL)")
+	if !isStamped(t, st, "a.md") {
+		t.Fatal("hash-identical re-apply erased the stamp (must be preserved)")
+	}
+	// A no-stamp row stays no-stamp through a hash-identical re-apply
+	// (the normal flow: an unchanged file never gains a stamp).
+	writeNote(t, dir, "b.md", v1, demoMtime)
+	mustScan(t, st, dir, Options{})
+	rowB := mustRows(t, st)["b.md"]
+	reapplyB := rowB
+	reapplyB.Mtime = rowB.Mtime.Add(time.Hour)
+	if _, err := st.ApplyDiff(context.Background(), []File{reapplyB}, nil, []string{"a.md", "b.md"}); err != nil {
+		t.Fatalf("ApplyDiff re-apply b: %v", err)
+	}
+	if isStamped(t, st, "b.md") {
+		t.Fatal("hash-identical re-apply stamped a never-changed row")
 	}
 	// File restored to the PRE-change content: differs from the stored v2
 	// hash — an ordinary change, re-stamped.
@@ -762,8 +778,8 @@ func TestScanChangedFilesListScope(t *testing.T) {
 
 // TestScanStampLifecycleRealSlow — the full stamp lifecycle against the
 // real column on an isolated scratch database: new NULL -> changed stamped
-// -> no-change rescan preserved -> hash-restore upsert NULL -> removal
-// gone.
+// -> no-change rescan preserved -> hash-identical re-apply preserved (the
+// v1.22.1 r96 parallel-loser rule) -> removal gone.
 func TestScanStampLifecycleRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -789,13 +805,13 @@ func TestScanStampLifecycleRealSlow(t *testing.T) {
 		t.Fatal("no-change rescan cleared the stamp")
 	}
 	row := mustRows(t, st)["demo.md"]
-	restored := row
-	restored.Mtime = row.Mtime.Add(2 * time.Hour)
-	if _, err := st.ApplyDiff(ctx, []File{restored}, nil, []string{"demo.md"}); err != nil {
-		t.Fatalf("ApplyDiff restore: %v", err)
+	reapply := row
+	reapply.Mtime = row.Mtime.Add(2 * time.Hour)
+	if _, err := st.ApplyDiff(ctx, []File{reapply}, nil, []string{"demo.md"}); err != nil {
+		t.Fatalf("ApplyDiff re-apply: %v", err)
 	}
-	if isStamped(t, st, "demo.md") {
-		t.Fatal("hash-restore upsert did not clear the stamp")
+	if !isStamped(t, st, "demo.md") {
+		t.Fatal("hash-identical re-apply erased the stamp (v1.22.1 r96: preserved)")
 	}
 	if err := os.Remove(filepath.Join(dir, "demo.md")); err != nil {
 		t.Fatalf("Remove: %v", err)

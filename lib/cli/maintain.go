@@ -17,8 +17,12 @@ import (
 )
 
 // compile-time guarantee — realStore carries the reaffirm write extension
-// (ops.ReaffirmStore — v1.22.0 T3).
-var _ ops.ReaffirmStore = (*realStore)(nil)
+// (ops.ReaffirmStore — v1.22.0 T3) and the recheck conditions write
+// extension (ops.RecheckConditionsStore — v1.22.1 r96).
+var (
+	_ ops.ReaffirmStore          = (*realStore)(nil)
+	_ ops.RecheckConditionsStore = (*realStore)(nil)
+)
 
 // maintainTuiFn — TUI entry seam. Real implementation by default; tests swap in a fake.
 var maintainTuiFn = tui.RunMaintainTUI
@@ -83,6 +87,31 @@ func (s *realStore) Reaffirm(ctx context.Context, ids []int) (int64, error) {
 			`INSERT INTO maintenance_runs (kind, details) VALUES ('reaffirm', $1)`,
 			fmt.Sprintf("reaffirmed ids=%v", ids)); err != nil {
 			return n, fmt.Errorf("reaffirm: maintenance_runs: %w", err)
+		}
+	}
+	return n, nil
+}
+
+// realStore.SetRecheckConditions — real implementation of the
+// ops.RecheckConditionsStore extension (v1.22.1 r96): the single
+// knowledge.conditions UPDATE of one target active row plus the
+// maintenance_runs record (kind=recheck — the drill record convention).
+// conditions is hash-excluded (hashVolatile — the T5 registration), so the
+// row's content_hash never moves. The dolt commit is the caller's (ops)
+// responsibility — the Invalidate-class convention.
+func (s *realStore) SetRecheckConditions(ctx context.Context, id int, conditions string) (int64, error) {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE knowledge SET conditions = $2
+		 WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`, id, conditions)
+	if err != nil {
+		return 0, fmt.Errorf("recheck conditions: %w", err)
+	}
+	n := ct.RowsAffected()
+	if n > 0 {
+		if _, err := s.pool.Exec(ctx,
+			`INSERT INTO maintenance_runs (kind, details) VALUES ('recheck', $1)`,
+			fmt.Sprintf("conditions set id=%d (%d runes)", id, len([]rune(conditions)))); err != nil {
+			return n, fmt.Errorf("recheck conditions: maintenance_runs: %w", err)
 		}
 	}
 	return n, nil

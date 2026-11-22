@@ -4,12 +4,18 @@
 // file per run — insights-<YYYYMMDD-HHMM>.md in the --out dir, row
 // sections in stable id order. Output contract: the body goes only to
 // the specified folder (never vault notes, never remote — ADR-0015);
-// the summary and overwrite warning are one stderr line each.
+// the summary and collision notice are one stderr line each. v1.22.1
+// r98: a same-minute rerun NEVER overwrites — it writes
+// insights-<ts>-2.md instead (stamped rows cannot be re-emitted, so an
+// overwrite would lose the earlier file's content permanently).
 // Atomicity: rows are stamped distilled_at=now() only AFTER a
 // successful file write (a failed write leaves everything unstamped, so
-// the re-run re-emits them). The default clock/seam vars follow the
-// export convention (test fake injection; SUPERLITE_REAL=1 on the seam
-// defaults is the live-connection verification).
+// the re-run re-emits them). v1.22.1 r97: the file is capped at
+// distill_max_runes (default 20000) — rows past the cap stay unstamped
+// and defer to the next run (a "N rows deferred" stderr notice). The
+// default clock/seam vars follow the export convention (test fake
+// injection; SUPERLITE_REAL=1 on the seam defaults is the
+// live-connection verification).
 package cli
 
 import (
@@ -65,9 +71,31 @@ func (s *realStore) MarkDistilled(ctx context.Context, ids []int) (int64, error)
 
 // distillFileNameFor — the per-run aggregate file name
 // insights-<YYYYMMDD-HHMM>.md (UTC — one file per run minute; a re-run
-// within the same minute overwrites with a warning).
+// within the same minute never overwrites — see distillResolvePath).
 func distillFileNameFor(now time.Time) string {
 	return "insights-" + now.UTC().Format("20060102-1504") + ".md"
+}
+
+// distillResolvePath — the run's file path with collision resolution
+// (v1.22.1 r98): the plain minute name when free, else
+// insights-<ts>-2.md, -3, ... — NEVER an overwrite. A same-minute rerun
+// emits different rows (the first run's are stamped), so overwriting
+// would destroy the earlier file's content permanently — stamped rows
+// cannot be re-emitted. A notice line names both files.
+func distillResolvePath(dir, baseName string) (string, error) {
+	first := filepath.Join(dir, baseName)
+	if _, err := os.Stat(first); os.IsNotExist(err) {
+		return first, nil
+	}
+	ext := filepath.Ext(baseName)
+	stem := baseName[:len(baseName)-len(ext)]
+	for i := 2; i < 1000; i++ {
+		p := filepath.Join(dir, fmt.Sprintf("%s-%d%s", stem, i, ext))
+		if _, err := os.Stat(p); os.IsNotExist(err) {
+			return p, nil
+		}
+	}
+	return "", fmt.Errorf("distill: file collision limit reached for %s", baseName)
 }
 
 func init() { Register("distill", runDistill) }
@@ -103,8 +131,12 @@ func runDistill(ctx context.Context, st Store, args []string, stdin io.Reader, s
 			outDir = o.Value
 		case "--min-score":
 			v, err := strconv.ParseFloat(o.Value, 64)
-			if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 {
-				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "min-score", Expect: ">=0 float"}))
+			// the 1e9 ceiling (v1.22.1 r98): the floor rides into
+			// `COALESCE(re.cnt, 0) >= $1` against an integer count — a
+			// MaxFloat-scale value breaks the parameter encoding as an
+			// internal error, so refuse up front (usage exit 3).
+			if err != nil || math.IsNaN(v) || math.IsInf(v, 0) || v < 0 || v > 1e9 {
+				fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "min-score", Expect: "0..1e9 float"}))
 				return 3
 			}
 			minFlag, minGiven = v, true
@@ -125,10 +157,20 @@ func runDistill(ctx context.Context, st Store, args []string, stdin io.Reader, s
 	}
 	// effective floor: --min-score > meta override > DefaultThresholds
 	// (the unset-0 consumer-fallback convention — ApplyThresholdsFallback
-	// does not complete float keys).
+	// does not complete float keys). 0 on the meta key is the UNSET
+	// sentinel — only the --min-score 0 flag means "no floor".
 	minScore := store.DefaultThresholds().DistillMinScore
-	if th, err := wire.LoadThresholdsFn(ctx, st); err == nil && th.DistillMinScore > 0 {
-		minScore = th.DistillMinScore
+	// effective file cap (v1.22.1 r97): meta distill_max_runes >
+	// DefaultThresholds (unset-keeps-0 consumer fallback — 0 cannot be a
+	// meaningful cap, so there is no 0-sentinel question here).
+	maxRunes := store.DefaultThresholds().DistillMaxRunes
+	if th, err := wire.LoadThresholdsFn(ctx, st); err == nil {
+		if th.DistillMinScore > 0 {
+			minScore = th.DistillMinScore
+		}
+		if th.DistillMaxRunes > 0 {
+			maxRunes = th.DistillMaxRunes
+		}
 	}
 	if minGiven {
 		minScore = minFlag
@@ -152,19 +194,28 @@ func runDistill(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		return 0
 	}
 	now := distillNowFn()
-	path := filepath.Join(outDir, distillFileNameFor(now))
-	if _, serr := os.Stat(path); serr == nil {
-		fmt.Fprintf(distillStderr, "distill: overwriting existing file: %s\n", path)
+	path, rerr := distillResolvePath(outDir, distillFileNameFor(now))
+	if rerr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(rerr))
+		return 1
 	}
-	data := knowledge.FormatInsights(rows, now)
+	if suffix := filepath.Base(path); suffix != distillFileNameFor(now) {
+		// the same-minute collision notice (never an overwrite — the
+		// stamped rows of the earlier run cannot be re-emitted).
+		fmt.Fprintf(distillStderr, "distill: file exists: %s — writing %s instead (no overwrite)\n",
+			distillFileNameFor(now), suffix)
+	}
+	data, emitted := knowledge.FormatInsights(rows, now, maxRunes)
 	// atomicity: stamp only after a successful file write (ADR-0018) — a
 	// failed write leaves every row unstamped, so the re-run re-emits them.
 	if werr := distillWriteFileFn(path, data, 0o644); werr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(werr))
 		return 1
 	}
-	ids := make([]int, len(rows))
-	for i, r := range rows {
+	// only the EMITTED rows stamp (v1.22.1 r97 file cap): the rows past
+	// the cap stay distilled_at IS NULL and defer to the next run.
+	ids := make([]int, emitted)
+	for i, r := range rows[:emitted] {
 		ids[i] = r.ID
 	}
 	if ms, ok := st.(distillStamper); ok {
@@ -183,6 +234,11 @@ func runDistill(ctx context.Context, st Store, args []string, stdin io.Reader, s
 			}
 		}
 	}
-	fmt.Fprintf(distillStderr, "distilled %d insights (%s, %d bytes)\n", len(rows), filepath.Base(path), len(data))
+	fmt.Fprintf(distillStderr, "distilled %d insights (%s, %d bytes)\n", emitted, filepath.Base(path), len(data))
+	if deferred := len(rows) - emitted; deferred > 0 {
+		// the file-cap carry-over (v1.22.1 r97): unstamped rows wait for
+		// the next run — one notice line, never a silent drop.
+		fmt.Fprintf(distillStderr, "distill: %d rows deferred (file cap %d runes) — the next run emits them\n", deferred, maxRunes)
+	}
 	return 0
 }

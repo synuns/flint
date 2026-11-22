@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -57,11 +58,19 @@ type ReaffirmStore interface {
 	Reaffirm(ctx context.Context, ids []int) (int64, error)
 }
 
+// RecheckConditionsStore — the recheck conditions write extension (v1.22.1
+// r96): the single knowledge.conditions UPDATE of one target row plus the
+// maintenance_runs record (kind=recheck). Same layering as ReaffirmStore —
+// the write SQL literal lives in the store layer.
+type RecheckConditionsStore interface {
+	SetRecheckConditions(ctx context.Context, id int, conditions string) (int64, error)
+}
+
 // maintainValueFlags — all value-taking flags (mode-ownership validation targets).
 // --recheck is absent: like --expire-pending, it is mode + value in one flag
 // (its own value is the target id, not a foreign value flag).
 var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to", "--reason",
-	"--ids", "--supersede", "--by"}
+	"--ids", "--supersede", "--by", "--conditions"}
 
 // maintainModeFlags — the value flags allowed per mode. Unrelated flags are not silently
 // ignored but rejected with an error (e.g. --days or --limit flowing under a non-stale mode).
@@ -88,9 +97,11 @@ var maintainModeFlags = map[string]map[string]bool{
 	// v1.22.0 T3: reaffirm — the valid_at reset of active targets (the
 	// confirmation is --yes; the targets are --id/--ids, exclusive alternation).
 	"--reaffirm": {"--id": true, "--ids": true},
-	// v1.22.0 T3: recheck — the conditions/vol re-review report (read-only;
-	// the id is the mode's value, the --expire-pending convention).
-	"--recheck": {},
+	// v1.22.0 T3: recheck — the conditions/vol re-review report (read-only
+	// by default; the id is the mode's value, the --expire-pending
+	// convention). v1.22.1 r96: --conditions turns it into the conditions
+	// backfill write (--yes-gated).
+	"--recheck": {"--conditions": true},
 }
 
 // maintainYesModes — the modes where --yes (execution confirmation) is meaningful. In the
@@ -117,7 +128,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 
 // maintainUsageLine — the allowed-flags guidance (the common suffix of the invalid-arg
 // error message — for agent self-correction, alongside the error:"usage" transition).
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N | --tui (opt-in, run alone)"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N [--conditions S --yes] | --tui (opt-in, run alone)"
 
 // maintainUsageErrf — assembles the invalid-arg error (the approve.approveUsageErr
 // convention — a UsageError type + the allowed-flags suffix. The exit code stays with the caller).
@@ -151,7 +162,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			{Name: "--days", Value: true}, {Name: "--limit", Value: true},
 			{Name: "--id", Value: true}, {Name: "--from", Value: true}, {Name: "--to", Value: true},
 			{Name: "--reason", Value: true}, {Name: "--supersede", Value: true}, {Name: "--by", Value: true},
-			{Name: "--ids", Value: true},
+			{Name: "--ids", Value: true}, {Name: "--conditions", Value: true},
 			{Name: "--commit"}, {Name: "--yes"},
 		},
 		Usage: maintainUsageLine,
@@ -169,6 +180,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 	dupLimit := SuspectsDefaultLimit // the --dup-suspects default (spec R4: --limit M defaults to 10)
 	expireDays := 0                  // --expire-pending N — no default (preventing accidental deletion)
 	recheckID := 0                   // --recheck N — the re-review target knowledge id
+	conditionsVal := ""              // --conditions S — the v1.22.1 r96 backfill value
+	conditionsGiven := false
 	reason := ""
 	yes, commit := res.Given("--yes"), res.Given("--commit")
 	var idList []int // the --ids parse result (a snapshot — no reevaluation)
@@ -239,7 +252,32 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
 				return 1
 			}
+			if n > maxKnowledgeID { // the int4 ceiling guard (v1.22.1 r98)
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf(
+					"maintain: --recheck %d over the int4 ceiling %d", n, maxKnowledgeID)))
+				return 1
+			}
 			recheckID = n
+		case "--conditions":
+			// v1.22.1 r96: the recheck conditions backfill value (empty is
+			// a value — clearing the tag is legal; the optional-field
+			// convention).
+			if !o.HasValue {
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --conditions requires a value")))
+				return 1
+			}
+			// a value that absorbed a following flag is a typo (the --reason
+			// convention — invalid-arg exit 3 via the shared guard).
+			if err := knowledge.ValidateFlagValue("conditions", o.Value); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
+				return 3
+			}
+			// the write-path cap, one definition (MaxConditionsRunes).
+			if serr := knowledge.ValidateConditionsString(o.Value); serr != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(serr))
+				return 3
+			}
+			conditionsVal, conditionsGiven = o.Value, true
 		case "--id", "--from", "--to":
 			if !o.HasValue {
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", o.Name)))
@@ -248,6 +286,11 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			n, err := strconv.Atoi(o.Value)
 			if err != nil || n <= 0 {
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
+				return 1
+			}
+			if n > maxKnowledgeID { // the int4 ceiling guard (v1.22.1 r98)
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf(
+					"maintain: %s %d over the int4 ceiling %d", o.Name, n, maxKnowledgeID)))
 				return 1
 			}
 			switch o.Name {
@@ -321,7 +364,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		}
 	}
 	// --yes is the execution-confirmation marker — flowing into a mode without it is an error (the same principle).
-	if yes && !maintainYesModes[mode] {
+	// v1.22.1 r96 exception: --recheck earns --yes only alongside --conditions (the write form) — a bare --recheck stays read-only, so --yes alone under it is still rejected.
+	if yes && !maintainYesModes[mode] && !(mode == "--recheck" && conditionsGiven) {
 		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: --yes is not valid with %s", mode)))
 		return 1
 	}
@@ -346,6 +390,9 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		if recheckID == 0 {
 			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --recheck requires a knowledge id"))))
 			return 1
+		}
+		if conditionsGiven {
+			return maintainRecheckConditions(ctx, ms, stdout, recheckID, conditionsVal, yes)
 		}
 		return maintainRecheck(ctx, ms, stdout, recheckID)
 	case "--prune-invalidated":
@@ -427,16 +474,33 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 	}
 }
 
-// parseIDList — parses a "1,2,3"-style id snapshot (rejecting empty tokens, non-positive, and non-numeric).
+// maxKnowledgeID — the int4 ceiling of knowledge ids: a value above
+// MaxInt32 cannot be an int4 serial id, and pgx fails encoding it as one
+// with an internal error — refuse at parse time (v1.22.1 r98).
+const maxKnowledgeID = math.MaxInt32
+
+// parseIDList — parses a "1,2,3"-style id snapshot (rejecting empty
+// tokens, non-positive, non-numeric, over-int4, and DUPLICATE tokens —
+// v1.22.1 r98: a duplicate degenerated the write paths into a
+// rows-affected race (the SQL ANY() dedups, the Go slice does not),
+// re-applying and re-recording through every retry).
 func parseIDList(s string) ([]int, error) {
 	parts := strings.Split(s, ",")
 	out := make([]int, 0, len(parts))
+	seen := make(map[int]bool, len(parts))
 	for _, p := range parts {
 		p = strings.TrimSpace(p)
 		n, err := strconv.Atoi(p)
 		if err != nil || n <= 0 {
 			return nil, fmt.Errorf("maintain: --ids invalid id %q", p)
 		}
+		if n > maxKnowledgeID {
+			return nil, fmt.Errorf("maintain: --ids id %d over the int4 ceiling %d", n, maxKnowledgeID)
+		}
+		if seen[n] {
+			return nil, fmt.Errorf("maintain: --ids duplicate id %d", n)
+		}
+		seen[n] = true
 		out = append(out, n)
 	}
 	return out, nil
@@ -1446,10 +1510,14 @@ func maintainReaffirm(ctx context.Context, ms MaintStore, stdout io.Writer, id i
 		return 1
 	}
 	// target check — only active knowledge rows are reaffirm targets; a
-	// nonexistent id and a non-active one are both exit 1 up front (the
-	// ensureExists convention — no partial writes).
+	// nonexistent id, a non-active one, and an invalidated one (invalid_at
+	// set — the single definition of active is status AND invalid_at IS
+	// NULL, v1.22.1 r96) are all exit 1 up front (the ensureExists
+	// convention — no partial writes; the UPDATE guard already enforced
+	// it, the precheck now names it accurately instead of reporting a
+	// rows-affected race).
 	rows, err := wire.QueryOnce(ctx, ms,
-		`SELECT id, status FROM knowledge WHERE id = ANY($1)`, []any{ids})
+		`SELECT id, status FROM knowledge WHERE id = ANY($1) AND invalid_at IS NULL`, []any{ids})
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
@@ -1523,12 +1591,13 @@ func recheckVolTags(tags string) []string {
 	return out
 }
 
-// maintainRecheck — `maintain --recheck N` (read-only): reports the
-// re-review target — the conditions value (the staleness recheck material,
-// T1's column), the vol tier tags, and the valid_at age. Consuming the
-// recheck queue is NOT performed here (the manual trigger ruling — external
-// state is P1); disposition stays with the existing --invalidate/--reaffirm
-// approvals. A missing id is ErrNotFound exit 1.
+// maintainRecheck — `maintain --recheck N` (read-only without
+// --conditions): reports the re-review target — the conditions value (the
+// staleness recheck material, T1's column), the vol tier tags, and the
+// valid_at age. Consuming the recheck queue is NOT performed here (the
+// manual trigger ruling — external state is P1); disposition stays with
+// the existing --invalidate/--reaffirm approvals. A missing id is
+// ErrNotFound exit 1.
 func maintainRecheck(ctx context.Context, ms wire.Store, stdout io.Writer, id int) int {
 	rows, err := wire.QueryOnce(ctx, ms,
 		`SELECT topic, tags, conditions, valid_at FROM knowledge WHERE id = $1`, []any{id})
@@ -1552,7 +1621,7 @@ func maintainRecheck(ctx context.Context, ms wire.Store, stdout io.Writer, id in
 	}
 	summary := fmt.Sprintf("recheck target id=%d — valid %dd ago", id, ageDays)
 	if empty {
-		summary += " · no conditions recorded (set the write conditions field)"
+		summary += " · no conditions recorded (set via maintain --recheck --conditions)"
 	} else {
 		summary += " · conditions recorded — re-verify them against the source"
 	}
@@ -1569,6 +1638,68 @@ func maintainRecheck(ctx context.Context, ms wire.Store, stdout io.Writer, id in
 	}{Status: "recheck", ID: id, Topic: clampAgeTopic(render.Text(topic)),
 		Conditions: render.Text(conditions), ConditionsEmpty: empty, VolTags: volTags,
 		ValidAt: validAt, AgeDays: ageDays, Summary: summary})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
+	return 0
+}
+
+// maintainRecheckConditions — `maintain --recheck N --conditions S --yes`
+// (v1.22.1 r96): backfills/overwrites the target row's knowledge.conditions
+// (the re-review material recorded at review time — rows written before the
+// v1.22.0 column, or whose clause changed on re-review). The value shares
+// the write-path cap (MaxConditionsRunes — one definition; the empty string
+// clears the tag, the optional-field convention) and is hash-excluded
+// (hashVolatile — the row's content_hash never moves). The UPDATE and the
+// maintenance_runs record (kind=recheck) are the single
+// RecheckConditionsStore path; the audit Commit rides the Retry-wrapped
+// write (the Reaffirm convention). A missing/non-active target is exit 1
+// BEFORE any write; without --yes the confirmation guidance (no write).
+func maintainRecheckConditions(ctx context.Context, ms MaintStore, stdout io.Writer, id int, conditions string, yes bool) int {
+	if !yes { // the execution-confirmation marker (the --reaffirm convention)
+		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --recheck --conditions requires --yes (confirmation)"))))
+		return 1
+	}
+	rs, ok := ms.(RecheckConditionsStore)
+	if !ok {
+		fmt.Fprintln(stdout, `{"error":"maintain: unsupported store"}`)
+		return 1
+	}
+	// target check — the same active-row set as the report's queue (the
+	// reaffirm precheck convention): nonexistent/not-active/invalidated are
+	// exit 1 up front, no partial writes.
+	chk, err := wire.QueryOnce(ctx, ms,
+		`SELECT id FROM knowledge WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`, []any{id})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	if len(chk) == 0 {
+		return adminErrLine(stdout, fmt.Errorf("%w: recheck: id=%d not found or not active", db.ErrNotFound, id))
+	}
+	if err := retryWrite(ctx, func() error {
+		n, err := rs.SetRecheckConditions(ctx, id, conditions)
+		if err != nil {
+			return err
+		}
+		if n != 1 { // rows-affected stewardship (the Supersede convention)
+			return fmt.Errorf("recheck conditions: updated %d rows for id=%d (race — retry)", n, id)
+		}
+		_, err = ms.Commit(ctx, fmt.Sprintf(
+			"recheck: conditions set id=%d (recheck conditions path) [session:0]", id))
+		return err
+	}); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	shown := render.Text(conditions)
+	out, mErr := json.Marshal(struct {
+		Status     string `json:"status"`
+		ID         int    `json:"id"`
+		Conditions string `json:"conditions"`
+	}{Status: "recheck_conditions", ID: id, Conditions: shown})
 	if mErr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(mErr))
 		return 1

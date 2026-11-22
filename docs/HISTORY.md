@@ -6,6 +6,67 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.22.1 patch (2026-11-23) — r96-r98: rematch stamp preservation · conditions backfill · distill file cap · input guards
+
+The v1.22.0 three-angle audit (R96·R97·R98) fixes — 12 findings, no
+schema change:
+
+- **concurrent rematch stamp erasure (r96-1, med)**: the apply's
+  hash-equal CASE arm returned `content_changed_at` to NULL, so a
+  parallel index loser's retry erased the winner's stamp on any
+  hash-identical re-apply. The arm now keeps the stored stamp
+  (`THEN vault_files.content_changed_at`); the normal flow (a
+  hash-identical no-change rescan writes nothing) is unchanged.
+- **"hash revert restores NULL" corrected (r96-2, med)**: A→B→A
+  re-stamps — the single-column design keeps no pre-change-hash memory
+  (the v1.22.0 spec contradicted itself); the recheck queue is
+  append-only until the v1.25.0 link, where stamp clearing (disposition
+  erase) lands. HISTORY v1.22.0 and the v1220 spec corrected in place.
+- **`maintain --recheck N --conditions S --yes` (r96-3, med)**: the
+  conditions backfill write path — updates the target active row's
+  `knowledge.conditions` (the write-path 500-rune cap, one definition;
+  empty clears the tag), records `maintenance_runs` (kind=recheck), and
+  commits. conditions stays hash-excluded (hashVolatile): the row's
+  content_hash never moves. Without `--conditions` the read-only report
+  is unchanged, and the empty-conditions guidance now names the flag
+  (`--recheck --conditions`). `--yes` is valid under `--recheck` only
+  alongside `--conditions`.
+- **distill file rune cap (r97-1, med)**: the aggregate insights file
+  is bounded by threshold `distill_max_runes` (default 20000,
+  registered in the 5 threshold spots + TUNING §2). Rows past the cap
+  stay unstamped and defer to the next run ("N rows deferred" stderr
+  notice); only the emitted rows stamp. ADR-0018 updated (the spec's
+  파일당 rune 상한, finally wired).
+- **reaffirm precheck `invalid_at IS NULL` (r96-4, low)**: the target
+  precheck SELECT now carries the active single definition, so an
+  active-status row with invalid_at set is named "nonexistent or not
+  active" up front instead of surfacing as a rows-affected race (the
+  UPDATE guard already enforced it — this is diagnostic accuracy).
+- **wording corrections (r96-5/r97-2, low)**: `distill_min_score`
+  comments name a raw recall count (ADR-0018 decision 3 — not an
+  "effective recall score"), and 0 on the meta key is the unset
+  sentinel — no-floor exists only through the `--min-score 0` flag.
+- **scope carry-over noted (r97-3, low)**: release-scope §2's v1.25.0
+  row now carries the v1.22.0 rulings (source_path revisit · survived
+  score revisit · stamp clearing link) with a v1.22.0→v1.25.0
+  dependency memo.
+- **input parse guards (r98, med/low)**: `--ids` rejects duplicate
+  tokens (a duplicate degenerated the reaffirm/invalidate writes into a
+  rows-affected race — SQL ANY() dedups, the Go slice does not —
+  re-applying and re-recording through every retry); `--id`·`--ids`·
+  `--recheck` reject values past the int4 ceiling 2147483647 (pgx
+  encoding of an over-range id surfaced as an internal error);
+  `--min-score` rejects values above 1e9 (a MaxFloat-scale floor broke
+  the count comparison's parameter encoding).
+- **distill same-minute files never overwritten (r98, low)**: a rerun
+  within the same minute writes `insights-<ts>-2.md`, `-3`, ... instead
+  of overwriting — the first run's rows are already stamped and cannot
+  be re-emitted, so the overwrite destroyed the earlier file's content
+  permanently. One collision notice names both files (ADR-0018
+  decision 2 updated).
+- **typos (r97-4/r97-5, nit)**: ADR-0018 "쓰는 일는"→"쓰는 일은" ·
+  CONTENT "≤500런"→"≤500 룬".
+
 ### v1.22.0 minor (2026-11-23) — vault-staleness: schema v17 staleness columns · age-audit source reference · reaffirm/recheck · volatility suggestions · distill
 
 (spec: docs/plans/2026-11-23-flint-v1220.md). The vault bridge II ·
@@ -24,7 +85,9 @@ insight extraction ([ADR-0018](adr/0018-distill-output.md)):
   lifted — reference-only, **the score itself is unchanged**: the
   distribution-seal test guards byte-identical scoring): the scan
   diff stamps changed vault rows `content_changed_at = now()` (a hash
-  revert restores NULL), and `maintain --age-audit` reports the
+  revert re-stamps — corrected v1.22.1 r96: the single column cannot
+  detect A→B→A, and stamp clearing is deferred to the v1.25.0 link),
+  and `maintain --age-audit` reports the
   stamped-row count as a `source_changed` reference column with the
   "vault source changed (recheck advised)" guidance line. The direct
   knowledge↔vault path link is deferred to v1.25.0 (no accrual

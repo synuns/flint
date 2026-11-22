@@ -77,7 +77,7 @@ session(episodic 기록) → maintain 세션에서 패턴 탐지
   자료일 뿐 — `vol:immutable` 감쇠 면제의 자동 부여는 승인제 원칙과 충돌하므로
   채택은 기존 write 승인 경로를 거친다(사전 3종 자체는 무변경).
 - **conditions 조건 태그**(v1.22.0 — 스키마 v17 `knowledge.conditions`):
-  `flint write` stdin의 선택 `conditions` 문자열(≤500런, 스키마 검증)이 행에
+  `flint write` stdin의 선택 `conditions` 문자열(≤500 룬, 스키마 검증)이 행에
   그대로 저장된다. 조건부 지식의 재검토 조건("Go 1.26 한정" 등)을 적어두는
   칸으로, `maintain --recheck N`이 vol:* 계층과 함께 이 값을 보고한다.
   conditions는 `hashVolatile` 제외 대상이다(valid_at·ts·relations 선례) —

@@ -191,8 +191,8 @@ func TestVaultThresholdKeys(t *testing.T) {
 	}
 }
 
-// TestDistillThresholdKeys — the v1.22.0 distill key: default 1.0 (an
-// effective recall score of at least 1 — the unbounded count-scale score,
+// TestDistillThresholdKeys — the v1.22.0 distill key: default 1.0 (a
+// raw recall count of at least 1 — the unbounded count-scale score,
 // so values above 1 are normal), meta override reflection, negative
 // rejection (the non-negative parser — the archive_below convention),
 // and the unset-keeps-0 convention (the consumer falls back to
@@ -214,8 +214,9 @@ func TestDistillThresholdKeys(t *testing.T) {
 	if th.DistillMinScore != 5.5 {
 		t.Errorf("distill_min_score 오버라이드=%v, want 5.5", th.DistillMinScore)
 	}
-	// zero is a legal value (0 = no score floor — every undistilled row
-	// is eligible); negatives are rejected and fall back.
+	// zero is a stored-legal value but the UNSET sentinel on the consumer
+	// side (only --min-score 0 means "no floor" — the v1.22.1 r97-2
+	// correction); negatives are rejected and fall back.
 	neg, err := ParseThresholds([][2]any{
 		{"distill_min_score", "-0.5"},
 	})
@@ -232,5 +233,45 @@ func TestDistillThresholdKeys(t *testing.T) {
 	}
 	if unset.DistillMinScore != 0 {
 		t.Errorf("unset 폴백: distill_min_score=%v, want 0", unset.DistillMinScore)
+	}
+}
+
+// TestDistillMaxRunesKeys — the v1.22.1 r97 distill file-cap key:
+// default 20000, meta override reflection, negative rejection, and the
+// unset-keeps-0 convention (the consumer falls back to DefaultThresholds
+// — 0 cannot be a meaningful cap, so only values > 0 apply).
+func TestDistillMaxRunesKeys(t *testing.T) {
+	// default.
+	def := DefaultThresholds()
+	if def.DistillMaxRunes != 20000 {
+		t.Errorf("DistillMaxRunes 기본값=%d, want 20000", def.DistillMaxRunes)
+	}
+	// override.
+	th, err := ParseThresholds([][2]any{
+		{"distill_max_runes", "1500"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.DistillMaxRunes != 1500 {
+		t.Errorf("distill_max_runes 오버라이드=%d, want 1500", th.DistillMaxRunes)
+	}
+	// negatives are rejected and fall back (the parseInt lower-bound 0).
+	neg, err := ParseThresholds([][2]any{
+		{"distill_max_runes", "-5"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if neg.DistillMaxRunes != 20000 {
+		t.Errorf("음수 거부=%d, want 20000(폴백)", neg.DistillMaxRunes)
+	}
+	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.DistillMaxRunes != 0 {
+		t.Errorf("unset 폴백: distill_max_runes=%d, want 0", unset.DistillMaxRunes)
 	}
 }

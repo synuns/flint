@@ -46,7 +46,7 @@ v1.23.0 G2 등록표에서) 미달 시 **v1.25.0(독립 계열)과 순서 교환
 | v1.22.0 | 볼트 브리지 II·낡음 잔여 (Curation) | M3 낡음 신호 ⑤(v1.13.0 non-goal 룰링 해제 — vault_files content_hash 근거)·재점검 큐·M4 distill(ADR-0018 작성) + 변동성 출처·주제 기본값 자동 분류·조건 태그·**재확신 처분(유효기간 리셋 — §5 세 처분 중 미실현 잔여)**. 재점검 큐 저장이 신규 스키마를 요구하면 G2에서 v1.21.0 선행 편입 또는 차기 스키마로 이월 | — (요구 시 G2 확정) | M-L |
 | v1.23.0 | 자율 튜닝 I (Autonomy-shadow) | B1 정책(화이트리스트·킬스위치)·B3 등록표(관측 축적 조건 확정 포함)·B6 tuning log·B2 shadow 단 + C1 what-if·C2 분포·C6 정합 카드 | — | M |
 | v1.24.0 | 자율 튜닝 II (Autonomy-apply) | B2 신뢰 사다리 적용·B4 자동 복원·B5 센티넬 + C3 추세·C4 밴드·C5 분절 뷰 — **착수 조건 §2 원칙 ③** | — | L |
-| v1.25.0 | 지식 관리 잔여 (Curation II) | merge-audit·환류 일반화(bad_recall→처분)·read --related·--why·**kind 열 이월(v1.20.0 룰링 — 소비처 확정 후 additive 스키마 동반)**·survived_decay_relief 활성화 판정(기본 0 — 관측 근거 확보 시) + D1·D2·D4 계측 동반 | additive (버전은 G2 확정) | L |
+| v1.25.0 | 지식 관리 잔여 (Curation II) | merge-audit·환류 일반화(bad_recall→처분)·read --related·--why·**kind 열 이월(v1.20.0 룰링 — 소비처 확정 후 additive 스키마 동반)**·survived_decay_relief 활성화 판정(기본 0 — 관측 근거 확보 시) + D1·D2·D4 계측 동반·**v1.22.0 룰링 이월: source_path(knowledge↔vault 연결) 재검토·survived 스코어 재검토·content_changed_at 스탬프 소거 연결(큐는 그때까지 append-only — v1.22.1 r96 정정)** | additive (버전은 G2 확정) | L |
 | v1.26.0 | 엔진 운영 (Ops) | engine-ops M1 maintain --gc·doctor 경고 2종·RUNBOOK 2절·meta 이력 / M2 footprint 표시·M3 ANALYZE spike(L0) | — | M |
 | v1.27.0 | 표면 신뢰 (Trust) | surface-trust M1 캐시 3원칙(ETag·모순 검출기·checked_at)·M2 seed --demo(격리·--reset)·M3 doctor checkVersions(자가 보고) | — | M |
 | v1.28.0 | 표면 확장·품질 청산 (Cleanup) | read TUI·tuning TUI 기본 승격 검토·i18n KO 카탈로그·brew 검토·테스트 폭발 정리·이름 재스윹·서명 재실증·관측 이월 재판정 + 로컬 원천 3건 G2 재검(시퀀스 회수·R68 정보·Doltgres 업스트림) | — | M |
@@ -54,6 +54,7 @@ v1.23.0 G2 등록표에서) 미달 시 **v1.25.0(독립 계열)과 순서 교환
 
 의존 메모: v1.20.0→v1.25.0(knowledge_links 기반 --related·kind 열 이월)·v1.19.0→
 v1.23.0(C1 what-if가 A1 스코어 소비)·v1.21.0→v1.22.0(디프→낡음 신호 ⑤)
+·v1.22.0→v1.25.0(source_path 연결·survived 스코어·스탬프 소거 룰링 이월)
 ·v1.23.0→v1.24.0(원칙 ③ 조건 게이트 — 관측 축적)·v1.28.0은 v2.0.0 직전
 채무 청산.
 

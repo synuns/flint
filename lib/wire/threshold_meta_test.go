@@ -50,8 +50,8 @@ var frozenThresholdKeys = []string{
 	"weekly_rollups_retention_days", "threshold_snapshots_retention_days", "metering_freshness_warn_h",
 	// the vault-bridge keys (v1.21.0 — schema v16 vault_files: scan cap, summary runes, skip dirs)
 	"vault_scan_max_files", "vault_summary_max_runes", "vault_skip_dirs",
-	// the distill output floor (v1.22.0 — schema v17 distill command's recall_score lower bound)
-	"distill_min_score",
+	// the distill output floor and file cap (v1.22.0·v1.22.1 r97 — schema v17 distill command)
+	"distill_min_score", "distill_max_runes",
 }
 
 // TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults

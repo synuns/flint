@@ -112,8 +112,11 @@ var thresholdMetas = []ThresholdMeta{
 	{"VaultSkipDirs", "vault_skip_dirs", ".obsidian,.trash", "index vault skip dirs (comma list)"},
 
 	// the distill output floor (v1.22.0 — the schema v17 distill command:
-	// the minimum effective recall score of an emitted insight row).
-	{"DistillMinScore", "distill_min_score", 1.0, "distill output minimum recall score"},
+	// the minimum raw recall count of an emitted insight row) and the
+	// per-run file cap (v1.22.1 r97 — rows past the cap defer to the next
+	// run).
+	{"DistillMinScore", "distill_min_score", 1.0, "distill output minimum recall count"},
+	{"DistillMaxRunes", "distill_max_runes", 20000, "distill output file rune cap"},
 }
 
 // ThresholdMetas — the registry's deterministic copy (56 entries — the key set
