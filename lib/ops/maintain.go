@@ -1885,6 +1885,8 @@ func buildMetaKnownKeys() map[string]bool {
 		"vault_path":           true, // v1.21.0 T3 — the persisted `flint index --vault` root
 		"vault_last_scan":      true, // v1.21.0 T3 — the index stats snapshot (the status vault row source)
 		"scan_stats":           true, // v1.21.0 A6 — the {echo,suggest}{calls,samples} metering baseline (p95 derived on read)
+		"auto_mode":            true, // v1.23.0 — `tuning auto off|shadow` (the shadow-circuit master switch)
+		"last_shadow_at":       true, // v1.23.0 — the shadow-circuit 24h gate stamp (usage.go, the rollup/snapshot pattern)
 	}
 	for _, k := range meteringFreshnessGateKeys {
 		m[k] = true
@@ -1897,9 +1899,12 @@ func buildMetaKnownKeys() map[string]bool {
 // statistics. fired_: the fired-counter cumulative keys (the 3 fired_nudge_{distill,recall,
 // update} kinds, the 1 fired_done_stale kind, and fired_doctor_<check> — the check
 // registry's 16 + harness 14 + skill-file 1 = 31 kind cap). Preventing doctor from warning
-// about its own counters as unknown keys (a self-reference false positive). The threshold override
+// about its own counters as unknown keys (a self-reference false positive). auto_streak_:
+// the v1.23.0 consecutive-hit counters (meta auto_streak_<key>, one per whitelisted
+// auto key — the same self-reference class, not an arbitrary auto_* pass-through).
+// The threshold override
 // keys are handled by thresholdsKeys — a dynamic lookup).
-var metaKnownPrefixes = []string{"daily:", "pb_", "fired_"}
+var metaKnownPrefixes = []string{"daily:", "pb_", "fired_", "auto_streak_"}
 
 // KnownMetaKey — the single classification source (prefixes included — preventing hardcoded splits).
 func KnownMetaKey(k string) bool {

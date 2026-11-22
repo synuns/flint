@@ -131,6 +131,18 @@ func TestHelpSummaryEnglish(t *testing.T) {
 	}
 }
 
+// TestHelpSummaryDocumentsAutoMode — the tuning summary entry must mention
+// the v1.23.0 auto mode subcommand (`tuning auto off|shadow` — a subcommand
+// row extension, the usageOrder and seedCommands sets unchanged).
+func TestHelpSummaryDocumentsAutoMode(t *testing.T) {
+	s := HelpSummary()
+	for _, want := range []string{"auto", "off|shadow"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("helpSummary에 %q 누락: %s", want, s)
+		}
+	}
+}
+
 // TestUsageLineAssembledFromOrder — usageLine is assembled exactly in
 // usageOrder order (no literals, a Produces contract). The error key is
 // abolished — the `{"usage":...}` guidance form (informational content unchanged).

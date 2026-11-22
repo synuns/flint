@@ -974,6 +974,77 @@ func (r *Repo) ensureSchemaV17(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV18 losslessly promotes a DB with
+// meta.schema_version<18 to 18 (v1.23.0 autotune shadow — additive):
+// creates the shadow-prediction log tuning_predictions (append-only —
+// one row per fired shadow round; trigger·key·cur·new·predicted
+// zero_near_pct·reclass count·sample size·composed rationale, numbers
+// and the registry vocabulary only — no personal data) with CREATE
+// TABLE IF NOT EXISTS (the v12·v13 precedent) and its (ts) index, and
+// adds the 3 threshold_snapshots columns origin·trigger·rationale with
+// ADD COLUMN IF NOT EXISTS (the snapshot.go "deferred to v1.23.0"
+// delivery — all NULL-able: v1.23.0 has 0 applies, so no origin=auto
+// rows exist yet; pre-promotion rows backfill NULL). An audit staging
+// target (auditStageTables — the recall_events ruling precedent: shadow
+// predictions must propagate across devices). Existing tables·views·
+// data unchanged. Already v18+ is a no-op (the numeric-comparison short
+// circuit), idempotent on any DB that passed the v1~v17 gates.
+func (r *Repo) EnsureSchemaV18(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV18(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV18(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v18: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // fresh DB (tables absent) — the fresh-creation path carries the v18 terminus
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 18 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v18: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS tuning_predictions (
+		    id                   bigserial PRIMARY KEY,
+		    ts                   timestamptz NOT NULL DEFAULT now(),
+		    trigger              text NOT NULL,
+		    key                  text NOT NULL,
+		    cur                  text NOT NULL,
+		    new                  text NOT NULL,
+		    pred_zero_near_pct   double precision NOT NULL,
+		    pred_reclass_n       int NOT NULL,
+		    sample_n             int NOT NULL,
+		    rationale            text NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_tuning_predictions_ts
+		 ON tuning_predictions (ts)`,
+		`ALTER TABLE threshold_snapshots ADD COLUMN IF NOT EXISTS origin text`,
+		`ALTER TABLE threshold_snapshots ADD COLUMN IF NOT EXISTS trigger text`,
+		`ALTER TABLE threshold_snapshots ADD COLUMN IF NOT EXISTS rationale text`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v18: create: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '18')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v18: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v18: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve promotes pending knowledge to active (spec §8: approval =
 // flint approve). Approval is a valid confirmation, so it also clears
 // any residual invalid_at — defense against the defect where

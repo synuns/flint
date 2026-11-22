@@ -51,6 +51,51 @@ func TestMetaHygieneGateStampsKnown(t *testing.T) {
 	}
 }
 
+// TestMetaHygieneAutoKeysKnown — the v1.23.0 auto-tuning meta keys
+// (auto_mode from `tuning auto off|shadow`, last_shadow_at the shadow-circuit
+// 24h gate stamp, auto_streak_<key> the consecutive-hit counters) audit clean
+// — doctor must not warn flint's own tuning surfaces (the R80-1
+// self-contradiction class regression extension).
+func TestMetaHygieneAutoKeysKnown(t *testing.T) {
+	prevFn := KnownMetaKeyFn
+	KnownMetaKeyFn = KnownMetaKey
+	t.Cleanup(func() { KnownMetaKeyFn = prevFn })
+
+	known := [][]any{
+		{"schema_version"},
+		{"auto_mode"},
+		{"last_shadow_at"},
+		{"auto_streak_suggest_min_score"},
+	}
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "ORDER BY key") {
+			return known, nil
+		}
+		return nil, nil
+	}}
+	c := checkMetaHygiene(context.Background(), f)
+	if c.Status != "ok" || strings.Contains(c.Detail, "unknown") {
+		t.Fatalf("auto 키 무경고 아님: status=%q detail=%q", c.Status, c.Detail)
+	}
+	for _, k := range []string{"auto_mode", "last_shadow_at", "auto_streak_suggest_min_score"} {
+		if !KnownMetaKey(k) {
+			t.Fatalf("%q 미등록(v1.23.0 auto 튜닝 메타 키)", k)
+		}
+	}
+	// an unknown key with the auto prefix shape but off the registry still warns
+	// (the prefix covers auto_streak_ only — not arbitrary auto_* keys).
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "ORDER BY key") {
+			return append(known, []any{"auto_bogus_key"}), nil
+		}
+		return nil, nil
+	}
+	c = checkMetaHygiene(context.Background(), f)
+	if c.Status == "ok" || !strings.Contains(c.Detail, "auto_bogus_key") {
+		t.Fatalf("auto_* 임의 키 경고 안 함: status=%q detail=%q", c.Status, c.Detail)
+	}
+}
+
 // TestMetaHygieneVaultKeysKnown — the v1.21.0 vault-bridge meta keys
 // (vault_path·vault_last_scan from `flint index`, scan_stats from the A6
 // scan p95 metering) audit clean — doctor must not warn its own surfaces

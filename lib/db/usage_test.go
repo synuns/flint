@@ -126,3 +126,36 @@ func slowPlaybookStatsEmpty(t *testing.T, r *Repo) {
 		t.Fatalf("stats = %v, want empty", stats)
 	}
 }
+
+// TestShadowHookOnReadPath — the v1.23.0 4th read-tail hook through the
+// REAL RecordReadEvent path (not the direct maybeShadowRound call): with
+// the circuit registered and fire-shaped data seeded, the unconfigured
+// off default suppresses the round (the single batched gate+mode read,
+// no writes), and the warm steady state adds 0 shadow round trips.
+func TestShadowHookOnReadPath(t *testing.T) {
+	registerFakeShadow(t)
+	rowTrips, execTrips := countShadowTrips(t)
+	r := newTestRepo(t)
+	seedShadowReads(t, r, 11, 1, 5) // fire-shaped — off must suppress it
+
+	// Cold — the hook runs the batched gate+mode read exactly once.
+	resetShadowGateCache(t)
+	if err := r.RecordReadEvent(context.Background(), ReadEvent{Hits: 1}); err != nil {
+		t.Fatalf("RecordReadEvent: %v", err)
+	}
+	if got := rowTrips() + execTrips(); got != 1 {
+		t.Fatalf("off 읽기 경로 shadow 왕복 %d, want 1(게이트+모드 배치)", got)
+	}
+	if n := len(shadowPredictions(t, r, "suggest_min_score")); n != 0 {
+		t.Fatalf("off 읽기 경로 예측 행 %d건, want 0", n)
+	}
+
+	// Warm — 0 shadow round trips on the hot read path.
+	warmShadowGateCache()
+	if err := r.RecordReadEvent(context.Background(), ReadEvent{Hits: 1}); err != nil {
+		t.Fatalf("RecordReadEvent(2): %v", err)
+	}
+	if got := rowTrips() + execTrips(); got != 1 {
+		t.Fatalf("steady-state 읽기 경로 shadow 왕복 누적 %d, want 1(추가 0)", got)
+	}
+}

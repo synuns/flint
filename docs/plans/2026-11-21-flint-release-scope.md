@@ -44,7 +44,7 @@ v1.23.0 G2 등록표에서) 미달 시 **v1.25.0(독립 계열)과 순서 교환
 | v1.20.0 | 지식 스키마·검색 (Schema) | read 필터 확장(`--min-confidence`·`--origin` — migration 0)·supersede 사이클 가드(maintain --supersede/--merge·import·깊이 상한 64)·`supersede_chains` 재귀 뷰(경로배열 가드)·`knowledge_links` 테이블(어휘 4종 refines/supports/contradicts/duplicates)·PAM links 왕복 — G2 승격 확정(2026-11-22-flint-v1200)·kind 열은 v1.25.0 이월(룰링) | v14 additive | M |
 | v1.21.0 | 볼트 브리지 I (Integration) | vault-bridge M1 색인 스냅숏-디프(vault_files·배치 1커밋)·M2 read RRF 통합 + A6 스캔 p95 계측 동반 | v16 additive | M-L |
 | v1.22.0 | 볼트 브리지 II·낡음 잔여 (Curation) | M3 낡음 신호 ⑤(v1.13.0 non-goal 룰링 해제 — vault_files content_hash 근거)·재점검 큐·M4 distill(ADR-0018 작성) + 변동성 출처·주제 기본값 자동 분류·조건 태그·**재확신 처분(유효기간 리셋 — §5 세 처분 중 미실현 잔여)**. 재점검 큐 저장이 신규 스키마를 요구하면 G2에서 v1.21.0 선행 편입 또는 차기 스키마로 이월 | — (요구 시 G2 확정) | M-L |
-| v1.23.0 | 자율 튜닝 I (Autonomy-shadow) | B1 정책(화이트리스트·킬스위치)·B3 등록표(관측 축적 조건 확정 포함)·B6 tuning log·B2 shadow 단 + C1 what-if·C2 분포·C6 정합 카드 | — | M |
+| v1.23.0 | 자율 튜닝 I (Autonomy-shadow) | B1 정책(화이트리스트·킬스위치)·B3 등록표(관측 축적 조건 확정 포함)·B6 tuning log·B2 shadow 단 + C1 what-if·C2 분포·C6 정합 카드 | v18 additive (G2 룰링) | M |
 | v1.24.0 | 자율 튜닝 II (Autonomy-apply) | B2 신뢰 사다리 적용·B4 자동 복원·B5 센티넬 + C3 추세·C4 밴드·C5 분절 뷰 — **착수 조건 §2 원칙 ③** | — | L |
 | v1.25.0 | 지식 관리 잔여 (Curation II) | merge-audit·환류 일반화(bad_recall→처분)·read --related·--why·**kind 열 이월(v1.20.0 룰링 — 소비처 확정 후 additive 스키마 동반)**·survived_decay_relief 활성화 판정(기본 0 — 관측 근거 확보 시) + D1·D2·D4 계측 동반·**v1.22.0 룰링 이월: source_path(knowledge↔vault 연결) 재검토·survived 스코어 재검토·content_changed_at 스탬프 소거 연결(큐는 그때까지 append-only — v1.22.1 r96 정정)** | additive (버전은 G2 확정) | L |
 | v1.26.0 | 엔진 운영 (Ops) | engine-ops M1 maintain --gc·doctor 경고 2종·RUNBOOK 2절·meta 이력 / M2 footprint 표시·M3 ANALYZE spike(L0) | — | M |
@@ -117,7 +117,7 @@ G6 정리: §3.5 → 다음 버전 G2
 | v1.20.0 | done | 지식 스키마 — v1.20.0~.3 발행(2026-11-22)·감사 R84~R90 7회차·**R90 종결 판정 성립**(유일 발견 low 비블로커 — Merge 패닉 경로 defer 경화 1행 → v1.21.0 빌드 편입) |
 | v1.21.0 | done | 볼트 I — v1.21.0~.1 발행(2026-11-23)·감사 R91~R95 5회차·**R95 발견 0으로 패치 루프 종결**(15건 전 수정 — 경로 유출 차단·루트 가드·튜닝 접속·스캔 경화·A6 완결) |
 | v1.22.0 | done | 볼트 II·낡음 — v1.22.0~.1 발행(2026-11-23)·감사 R96~R99 4회차·**R99 발견 0으로 패치 루프 종결**(12건 전 수정 — 재매치 스탬프 보존·conditions 갱신·distill 상한·입력 경화) |
-| v1.23.0 | todo | 자율 shadow |
+| v1.23.0 | building | 자율 shadow — T1~T5 완료(스키마 v18·auto_mode·등록표·shadow 회로·what-if/status)·T6 문서·버전 진행 중 |
 | v1.24.0 | todo | 자율 적용 — 원칙 ③ 조건 게이트 |
 | v1.25.0 | todo | 지식 잔여 |
 | v1.26.0 | todo | 엔진 운영 |

@@ -311,6 +311,7 @@ func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	r.maybeRollupWeekly(ctx) // the 24h-gated weekly rollup hook (schema v13 A3 — rollup.go) — precedes the prune (aggregate then clean)
 	r.maybePruneAfterRead(ctx)
 	r.maybeSnapshotThresholds(ctx) // the 24h-gated threshold-change accounting hook (schema v13 A2 — snapshot.go)
+	r.maybeShadowRound(ctx)        // the 24h-gated autotune shadow hook (schema v18 — autotune_shadow.go) — last: predictions observe the post-cleanup state
 	return nil
 }
 

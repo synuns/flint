@@ -47,6 +47,11 @@
 -- 2열(NULL 허용)과 knowledge.conditions(수동 재검토 태그, NOT NULL
 -- DEFAULT ''). 기존 v16 DB는 EnsureSchemaV17 게이트가 적용(additive —
 -- DEFAULT 포함 ALTER, v11/v13 선례).
+-- v18(v1.23.0): 자율 튜닝 I shadow — tuning_predictions 테이블(shadow
+-- 라운드 예측 append-only)+ (ts) 인덱스, threshold_snapshots에 origin·
+-- trigger·rationale 3열(NULL 허용 — v1.23.0은 적용 0건이라 origin=auto
+-- 행 없음, 스키마·스탬프 경로만). 기존 v17 DB는 EnsureSchemaV18 게이트가
+-- 적용(additive — DEFAULT 없는 ALTER·CREATE, v11/v13 선례).
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -160,11 +165,16 @@ CREATE INDEX IF NOT EXISTS idx_recall_events_id_time
 
 -- v13: 튜닝값 변경 이력 1행(append-only — 변경 행만 기록, 동기(fired) 캡처는
 -- B3 등록표 시점 이월). 개인 문구 부재 원칙 승계(키·값만).
+-- v18: origin·trigger·rationale 3열 추가(변경 경로·발화 신호·사유 —
+-- 자율 튜닝 스탬프 경로. NULL 허용: 기존 수동 변경 행은 셋 다 NULL).
 CREATE TABLE IF NOT EXISTS threshold_snapshots (
     ts        timestamptz NOT NULL DEFAULT now(),
     key       text NOT NULL,               -- thresholds 메타 키
     old_value text NOT NULL,               -- 변경 전 값
-    new_value text NOT NULL                -- 변경 후 값
+    new_value text NOT NULL,               -- 변경 후 값
+    origin    text,                        -- v18: 변경 경로('auto'|NULL=수동)
+    trigger   text,                        -- v18: 발화 신호(등록표 Signal·수동 NULL)
+    rationale text                         -- v18: 변경 사유(합성 문장)
 );
 
 -- v13: 키별 최근 스냅숏 조회 경로 인덱스.
@@ -231,3 +241,23 @@ CREATE TABLE IF NOT EXISTS vault_files (
 
 -- v16: duplicate-note detection axis (identical content under different paths).
 CREATE INDEX IF NOT EXISTS idx_vault_files_content_hash ON vault_files (content_hash);
+
+-- v18 (v1.23.0): autotune shadow prediction — one append-only row per fired
+-- shadow round (numbers and the registry vocabulary only — no personal
+-- data). An audit staging target (auditStageTables — the recall_events
+-- precedent: predictions must propagate across devices).
+CREATE TABLE IF NOT EXISTS tuning_predictions (
+    id                 bigserial PRIMARY KEY,
+    ts                 timestamptz NOT NULL DEFAULT now(),
+    trigger            text NOT NULL,          -- firing signal (registry Signal)
+    key                text NOT NULL,          -- thresholds meta key
+    cur                text NOT NULL,          -- current value
+    new                text NOT NULL,          -- proposed value (shadow — never applied)
+    pred_zero_near_pct double precision NOT NULL, -- predicted zero_near_pct under new
+    pred_reclass_n     int NOT NULL,           -- zero→near reclassification count
+    sample_n           int NOT NULL,           -- 14-day window sample size
+    rationale          text NOT NULL           -- composed rationale sentence
+);
+
+-- v18: shadow-round time-window scan axis.
+CREATE INDEX IF NOT EXISTS idx_tuning_predictions_ts ON tuning_predictions (ts);

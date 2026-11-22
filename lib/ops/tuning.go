@@ -10,6 +10,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"math"
 	"reflect"
 	"sort"
 	"strconv"
@@ -120,6 +121,15 @@ func TuningMetaKeys() []TuningMetaKey {
 			}
 			return nil
 		}},
+		// the autonomous-tuning mode (v1.23.0 — the shadow-circuit master switch).
+		// Default off: an unconfigured deployment pays zero shadow cost (the
+		// opt-in ruling). shadow = predict-only rounds, never an applied override.
+		{Key: "auto_mode", Default: "off", Validate: func(v string) error {
+			if v != "off" && v != "shadow" {
+				return fmt.Errorf("auto_mode: must be off|shadow")
+			}
+			return nil
+		}},
 	}
 }
 
@@ -209,8 +219,70 @@ func RunTuning(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			return tuningUsage(stdout, "reset <key> | reset --all")
 		}
 		return tuningReset(ctx, st, args[1], stdout)
+	case "auto":
+		if len(args) != 2 {
+			return tuningUsage(stdout, "auto off|shadow")
+		}
+		return tuningAuto(ctx, st, args[1], stdout)
+	case "what-if":
+		if len(args) != 3 {
+			return tuningUsage(stdout, "what-if <key> <value>")
+		}
+		return tuningWhatIf(ctx, st, args[1], args[2], stdout)
+	case "status":
+		if len(args) != 1 {
+			return tuningUsage(stdout, "status")
+		}
+		return TuningStatus(ctx, st, stdout)
 	}
-	return tuningUsage(stdout, "list | get <key> | set <key> <value> | reset <key> | reset --all")
+	return tuningUsage(stdout, "list | get <key> | set <key> <value> | reset <key> | reset --all | auto off|shadow | what-if <key> <value> | status")
+}
+
+// tuningAuto — `tuning auto off|shadow`: sets meta auto_mode (the shadow-circuit
+// master switch). Validation is the TuningMetaKeys enum (the single source —
+// the same rule as `tuning set auto_mode`), the write is the SetMetaKV
+// idempotent upsert, and switching to off keeps the streak/fired/gate stamps
+// (a re-switch resumes — documented in TUNING).
+func tuningAuto(ctx context.Context, st wire.Store, mode string, stdout io.Writer) int {
+	for _, mk := range TuningMetaKeys() {
+		if mk.Key != "auto_mode" {
+			continue
+		}
+		if err := mk.Validate(mode); err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "auto_mode", Expect: "off|shadow"}))
+			return 3
+		}
+		return tuningMetaUpsert(ctx, st, "auto_mode", mode, stdout)
+	}
+	// unreachable — the auto_mode entry is part of TuningMetaKeys (guarded by tests).
+	fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "auto_mode", Expect: "off|shadow"}))
+	return 3
+}
+
+// TuningAutoKeyGate — the auto-surface key gate: a threshold key outside the
+// registry auto whitelist on an auto path (what-if, the shadow trigger table)
+// is an invalid-argument exit 3 — a key error, never a silent no-op. The
+// whitelist is the registry Auto field (the single source).
+func TuningAutoKeyGate(stdout io.Writer, key string) int {
+	if wire.ThresholdAutoGrade(key) != "" {
+		return 0
+	}
+	fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
+		Field:  key,
+		Expect: "not an auto-tuning key — whitelist: " + strings.Join(autoWhitelistKeys(), ", "),
+	}))
+	return 3
+}
+
+// autoWhitelistKeys — the sorted whitelist key list (the gate message).
+func autoWhitelistKeys() []string {
+	w := wire.ThresholdAutoWhitelist()
+	out := make([]string, 0, len(w))
+	for k := range w {
+		out = append(out, k)
+	}
+	sort.Strings(out)
+	return out
 }
 
 func tuningUsage(stdout io.Writer, usage string) int {
@@ -342,22 +414,9 @@ func tuningSet(ctx context.Context, st wire.Store, key, val string, stdout io.Wr
 	if !ok {
 		return tuningUnknownKey(stdout, key)
 	}
-	// validation 1: parse the candidate value and confirm it is reflected in the field as-is (no
-	// fallback). Compared numerically — accepting equivalent notations like '0.30',
-	// '60.0', and '.5' that string comparison used to reject (a format difference is not an invalid value).
-	cand, err := store.ParseThresholds([][2]any{{key, val}})
-	reflected := err == nil && info.Get(cand) == val
-	if !reflected && err == nil {
-		if got, perr := strconv.ParseFloat(info.Get(cand), 64); perr == nil {
-			if want, werr := strconv.ParseFloat(strings.TrimSpace(val), 64); werr == nil {
-				reflected = got == want
-			}
-		}
-	}
-	if err == nil && !reflected {
-		err = fmt.Errorf("parse fallback — invalid value")
-	}
-	if err != nil || !reflected {
+	// validation 1: the real-path parse-and-reflect check (shared with
+	// what-if — tuningValueAccepted, the single value-validity source).
+	if !tuningValueAccepted(info, val) {
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
 			Field:  key,
 			Expect: "a valid value (default " + info.Default + ", see TUNING §2)",
@@ -456,5 +515,302 @@ func TuningResetAll(ctx context.Context, st wire.Store, stdout io.Writer) int {
 		return store.MapExit(err)
 	}
 	fmt.Fprintln(stdout, `{"status":"reset-all","keys":`+strconv.Itoa(len(all))+"}")
+	return 0
+}
+
+// tuningValueAccepted — the real-path value-validity check (validation 1
+// of tuningSet, shared with what-if): the candidate parses through
+// ParseThresholds and is reflected in the key's field as-is (no fallback).
+// Compared numerically — accepting equivalent notations like '0.30',
+// '60.0', and '.5' that string comparison used to reject (a format
+// difference is not an invalid value).
+func tuningValueAccepted(info TuningKeyInfo, val string) bool {
+	cand, err := store.ParseThresholds([][2]any{{info.Key, val}})
+	reflected := err == nil && info.Get(cand) == val
+	if !reflected && err == nil {
+		if got, perr := strconv.ParseFloat(info.Get(cand), 64); perr == nil {
+			if want, werr := strconv.ParseFloat(strings.TrimSpace(val), 64); werr == nil {
+				reflected = got == want
+			}
+		}
+	}
+	return reflected
+}
+
+// autoRuleForKey — the autotune code-registry rule adjusting key (the T3
+// registry as the what-if query source — never a re-derived second query
+// definition; the diagnosis engine stays untouched per the ruling).
+func autoRuleForKey(key string) (AutoRule, bool) {
+	for _, r := range AutoRules() {
+		if r.Key == key {
+			return r, true
+		}
+	}
+	return AutoRule{}, false
+}
+
+// tuningCellInt — a scanned count cell as int (0 on a non-numeric — the
+// aggregate row is the registry query's own contract shape).
+func tuningCellInt(v any) int {
+	if f, ok := tuningCellFloat(v); ok {
+		return int(f)
+	}
+	return 0
+}
+
+// tuningCellFloat — a scanned numeric cell as float64.
+func tuningCellFloat(v any) (float64, bool) {
+	switch x := v.(type) {
+	case float64:
+		return x, true
+	case int64:
+		return float64(x), true
+	case int:
+		return float64(x), true
+	case string:
+		f, err := strconv.ParseFloat(x, 64)
+		return f, err == nil
+	}
+	return 0, false
+}
+
+// percentileNearestRank — nearest-rank percentile over ascending samples
+// (ceil(p*n)-1 — the report.go p95 formula precedent). n=0 is 0 (the
+// zero-denominator guard convention). Unlike the p95 reporting floor
+// (min 5 samples), what-if prints the sample count beside the rank — a
+// small-window rank stays descriptive instead of hidden.
+func percentileNearestRank(sorted []float64, p float64) float64 {
+	n := len(sorted)
+	if n == 0 {
+		return 0
+	}
+	idx := int(math.Ceil(p*float64(n))) - 1
+	if idx < 0 {
+		idx = 0
+	}
+	if idx >= n {
+		idx = n - 1
+	}
+	return sorted[idx]
+}
+
+// tuningWhatIf — `tuning what-if <key> <value>`: the C1 counterfactual
+// policy-analysis surface (a human surface — the agent report surface
+// stays single-JSON unexpanded). Reuses, in order: the auto key gate
+// (TuningAutoKeyGate — a manual-only key is exit 3), the tuningSet value
+// validation (tuningValueAccepted — the real-path parse), and the T3
+// registry verdict query re-executed at the hypothetical bound (1-2
+// queries: the aggregate + the zero-row near_score distribution — no
+// second query definition to drift). Output is numbers and registry
+// constants only (nothing user-derived — the sanitization principle holds
+// by construction); the note states the shadow ruling: never applied.
+func tuningWhatIf(ctx context.Context, st wire.Store, key, val string, stdout io.Writer) int {
+	if code := TuningAutoKeyGate(stdout, key); code != 0 {
+		return code
+	}
+	info, ok := TuningKeyMap()[key]
+	if !ok {
+		return tuningUnknownKey(stdout, key)
+	}
+	if !tuningValueAccepted(info, val) || (val == "0" && zeroMeansUnset(key)) {
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
+			Field:  key,
+			Expect: "a valid value (default " + info.Default + ", see TUNING §2)",
+		}))
+		return 3
+	}
+	rule, ok := autoRuleForKey(key)
+	if !ok {
+		// whitelist/registry drift — the meta Auto field and the T3 registry
+		// are guarded homogenous; reaching here is a build inconsistency.
+		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{
+			Field:  key,
+			Expect: "no auto rule registered for this key (registry drift — see docs/TUNING.md)",
+		}))
+		return 3
+	}
+	bound, err := strconv.ParseFloat(strings.TrimSpace(val), 64)
+	if err != nil {
+		return tuningUsage(stdout, "what-if <key> <value>")
+	}
+	// query 1 — the registry verdict query at the hypothetical bound: the
+	// reclass pool is the zero rows with near_score >= the bound (the same
+	// definition the shadow round predicts with — one source).
+	rows, err := wire.QueryOnce(ctx, st, AutoVerdictQuery(rule), []any{bound})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	if len(rows) != 1 || len(rows[0]) != 3 {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("what-if: unexpected aggregate row")))
+		return 1
+	}
+	sampleN := tuningCellInt(rows[0][0])
+	zeroN := tuningCellInt(rows[0][1])
+	reclassN := tuningCellInt(rows[0][2])
+	// query 2 — the zero rows' near_score distribution (the p50/p90 input —
+	// the min_score-boundary distribution is the counterfactual core).
+	drows, err := wire.QueryOnce(ctx, st, fmt.Sprintf(
+		`SELECT near_score FROM read_events WHERE zero AND ts >= now() - interval '%d days' ORDER BY near_score`,
+		rule.ObsWindowD), nil)
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	scores := make([]float64, 0, len(drows))
+	for _, r := range drows {
+		if len(r) == 1 {
+			if s, ok := tuningCellFloat(r[0]); ok {
+				scores = append(scores, s)
+			}
+		}
+	}
+	b, err := json.Marshal(map[string]any{
+		"key": key, "value": val, "auto": wire.ThresholdAutoGrade(key),
+		"sample_n": sampleN, "zero_n": zeroN, "reclass_n": reclassN,
+		"near_pct":       ReadZeroPct(sampleN, reclassN),
+		"near_score_p50": percentileNearestRank(scores, 0.50),
+		"near_score_p90": percentileNearestRank(scores, 0.90),
+		"note":           "what-if — counterfactual analysis only, nothing is applied",
+	})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(b))
+	return 0
+}
+
+// tuningStatusRow — one key row of `tuning status`: the TuningList
+// skeleton (key/value/default/consumer/override — unchanged order and
+// semantics) extended with the auto grade (registry Auto field, manual
+// keys omit) and drift = current − default (numeric keys only, rounded to
+// 6 decimals — a display guard against float noise).
+type tuningStatusRow struct {
+	Key      string   `json:"key"`
+	Value    string   `json:"value"`
+	Default  string   `json:"default"`
+	Consumer string   `json:"consumer,omitempty"`
+	Override bool     `json:"override"`
+	Auto     string   `json:"auto,omitempty"`
+	Drift    *float64 `json:"drift,omitempty"`
+}
+
+// tuningAccumulation — the JSON projection of the AccumulationGate
+// verdict (AccumulationState itself is the T3 pure function's type — the
+// lower-case wire tags live here, on the surface that owns the output).
+type tuningAccumulation struct {
+	Eligible bool   `json:"eligible"`
+	Detail   string `json:"detail"`
+}
+
+// tuningAutoCard — the per-rule accumulation card: the fired counter
+// (meta fired_auto_<signal>), the consecutive-hit streak (meta
+// auto_streak_<key>), the shadow rounds observed (tuning_predictions
+// count for the key), and the AccumulationGate verdict (the v1.24.0
+// apply-gate progress — "a hit is stability, not causality").
+type tuningAutoCard struct {
+	Signal       string             `json:"signal"`
+	Key          string             `json:"key"`
+	Grade        string             `json:"grade"`
+	Fired        int                `json:"fired"`
+	Streak       int                `json:"streak"`
+	Rounds       int                `json:"rounds"`
+	Accumulation tuningAccumulation `json:"accumulation"`
+}
+
+// TuningStatus — `tuning status`: the C2/C6 visibility surface — the list
+// skeleton plus drift, and per auto rule the fired/streak/rounds counters
+// with the observation-accumulation progress (the AccumulationGate reuse —
+// rounds are the tuning_predictions count, fires the fired counter). A
+// counter surface: no read_events observation query runs (that is
+// what-if's job); three queries total (TuningCurrent + the counter read +
+// the rounds count).
+func TuningStatus(ctx context.Context, st wire.Store, stdout io.Writer) int {
+	th, raw, err := TuningCurrent(ctx, st)
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	km := TuningKeyMap()
+	outRows := make([]tuningStatusRow, 0, 22)
+	for _, k := range tuningKeyList() {
+		info := km[k]
+		row := tuningStatusRow{
+			Key: k, Value: info.Get(th), Default: info.Default,
+			Consumer: info.Consumer, Override: raw[k] != "",
+		}
+		row.Auto = wire.ThresholdAutoGrade(k)
+		if cur, e1 := strconv.ParseFloat(row.Value, 64); e1 == nil {
+			if def, e2 := strconv.ParseFloat(row.Default, 64); e2 == nil {
+				d := math.Round((cur-def)*1e6) / 1e6
+				row.Drift = &d
+			}
+		}
+		outRows = append(outRows, row)
+	}
+	for _, mk := range TuningMetaKeys() {
+		value, overridden := mk.Default, false
+		if v, ok := raw[mk.Key]; ok {
+			value, overridden = v, true
+		}
+		outRows = append(outRows, tuningStatusRow{
+			Key: mk.Key, Value: value, Default: mk.Default, Override: overridden,
+		})
+	}
+	// the per-rule counters (query 2): fired_auto_* + auto_streak_* read in
+	// one IN lookup — the values pass the render outlet like every meta text.
+	rules := AutoRules()
+	counters := map[string]string{}
+	if len(rules) > 0 {
+		keys := make([]string, 0, len(rules)*2)
+		for _, r := range rules {
+			keys = append(keys, "fired_auto_"+r.Signal, "auto_streak_"+r.Key)
+		}
+		rows, err := wire.QueryOnce(ctx, st,
+			`SELECT key, value FROM meta WHERE key IN ('`+strings.Join(keys, "','")+`')`, nil)
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
+		}
+		for _, r := range rows {
+			if len(r) == 2 {
+				counters[fmt.Sprint(r[0])] = render.Text(fmt.Sprint(r[1]))
+			}
+		}
+	}
+	cards := make([]tuningAutoCard, 0, len(rules))
+	for _, r := range rules {
+		// query 3 — the rounds count per rule key (the spec: rounds are the
+		// tuning_predictions COUNT).
+		rounds := 0
+		rows, err := wire.QueryOnce(ctx, st,
+			`SELECT COUNT(*) FROM tuning_predictions WHERE key = $1`, []any{r.Key})
+		if err != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(err))
+			return store.MapExit(err)
+		}
+		if len(rows) == 1 && len(rows[0]) == 1 {
+			rounds = tuningCellInt(rows[0][0])
+		}
+		fired, _ := strconv.Atoi(counters["fired_auto_"+r.Signal])
+		streak, _ := strconv.Atoi(counters["auto_streak_"+r.Key])
+		gate := AccumulationGate(AccumulationProgress{Rounds: rounds, Fires: fired, Streak: streak})
+		cards = append(cards, tuningAutoCard{
+			Signal: r.Signal, Key: r.Key, Grade: wire.ThresholdAutoGrade(r.Key),
+			Fired: fired, Streak: streak, Rounds: rounds,
+			Accumulation: tuningAccumulation(gate),
+		})
+	}
+	mode := "off"
+	if v, ok := raw["auto_mode"]; ok {
+		mode = v
+	}
+	b, err := json.Marshal(map[string]any{"mode": mode, "keys": outRows, "auto": cards})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(b))
 	return 0
 }

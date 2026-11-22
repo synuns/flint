@@ -6,6 +6,61 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.23.0 minor (2026-11-23) — autotune-shadow: schema v18 tuning_predictions · auto_mode policy · shadow rounds · tuning what-if/status
+
+(spec: docs/plans/2026-11-23-flint-v1230.md). The autonomous-tuning I
+milestone — **shadow only: predictions are recorded, no value is ever
+applied** (the apply phase is the v1.24.0 gate). Additive schema v18:
+
+- schema v18 (additive — v17 DBs promote on the first command): the
+  `tuning_predictions` table (append-only: ts · trigger · key · cur ·
+  new · pred_zero_near_pct · pred_reclass_n · sample_n · rationale,
+  indexed on (ts)) plus the three `threshold_snapshots` columns
+  `origin`·`trigger`·`rationale` (the B6 tuning-log follow-through —
+  v1.23.0 records zero auto applies, so no origin=auto snapshot row
+  exists yet; the schema and stamp path are what landed).
+- B1 policy: the master switch is meta `auto_mode` (enum `off|shadow`,
+  **default off** — an unconfigured deployment pays zero shadow cost;
+  set via `flint tuning auto off|shadow`, the SetMetaKV idempotent
+  upsert). The whitelist is the threshold-registry Auto grade
+  (register-in-1-place + guard test): the initial whitelist is
+  **`suggest_min_score` only** — the one classification key with an
+  exact-causality source (`read_events.near_score`, schema v13); echo ·
+  conflict scores are not stored, diagnostic keys are a masking vector,
+  behavioral keys are a later phase — all manual.
+- B3 registry (`lib/ops/autotune.go` — a code registry, deliberately
+  NOT the diagnosis engine): initial row `auto_zero_near_high`
+  (the auto_ prefix keeps it distinct from the diagnosis signal) →
+  lowers `suggest_min_score`, safe range [0.05, 0.30], success pair
+  "zero_near_pct decreases with hit_pct and the read count unchanged",
+  observation window 14d. The weekly cap is carried but not executed
+  (the v1.24.0 apply phase reads it).
+- B2 shadow circuit (`lib/db/autotune_shadow.go`): the 4th
+  RecordReadEvent tail hook (order rollup → prune → snapshot → shadow).
+  Per 24h (meta `last_shadow_at`, the same gate pattern — a failure is
+  silent and leaves the gate unstamped): trigger verdict (sample floor
+  `zero_near_min_read`, warn ratio `zero_near_warn_pct` — thresholds
+  single source) → fired counter bump (`fired_auto_<signal>`) →
+  reclassification count → `tuning_predictions` INSERT → streak update
+  (`auto_streak_<key>`), batched into 5 round trips on a fired round.
+  Streak rules: first fire = 1; a proposal value change still hits
+  while the direction holds; a non-fired round with an adequate sample
+  maintains; reset only on a direction reversal or a sample-floor miss.
+  Switching `auto_mode` off **keeps** streaks, fired counters and the
+  gate stamp (resuming continues — nothing is discarded).
+- tuning surfaces: `flint tuning what-if <key> <value>` (the
+  counterfactual: reclassification count, new near_pct, p50/p90 of the
+  zero rows' near_score distribution, sample count — a manual-only key
+  exits 3) and `flint tuning status` (the list skeleton plus drift =
+  current − default, the auto grade, and the per-rule fired · streak ·
+  rounds accumulation card — the v1.24.0 apply-gate progress).
+- observation-accumulation gate (the v1.24.0 start condition,
+  release-scope §2 principle 3): shadow rounds ≥ 14 AND trigger fires ≥ 5 AND
+  consecutive-hit streak ≥ 3 — unmet swaps the v1.24.0 order with
+  v1.25.0. **A hit is round-over-round stability of the
+  reclassification direction at the minimum sample — not causality**
+  (the mandatory footnote; TUNING §2 · METRICS §4.10).
+
 ### v1.22.1 patch (2026-11-23) — r96-r98: rematch stamp preservation · conditions backfill · distill file cap · input guards
 
 The v1.22.0 three-angle audit (R96·R97·R98) fixes — 12 findings, no

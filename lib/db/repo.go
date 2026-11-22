@@ -788,7 +788,12 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 // audit data (a recall-domain source snapshot — the same recall_events
 // precedent; one scan batch = one audit commit), table-only staging;
 // vault_files_id_seq stays unstaged by the same harmless-residue ruling.
-var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events", "knowledge_links", "vault_files"}
+// Ruling including tuning_predictions (v1.23.0 schema v18): shadow
+// predictions are audit data (the tuning decision record — the
+// recall_events precedent: they must propagate across devices via
+// push/pull), table-only staging; tuning_predictions_id_seq stays
+// unstaged by the same harmless-residue ruling.
+var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events", "knowledge_links", "vault_files", "tuning_predictions"}
 
 // telemetryStageTables — the staging targets of the metering-only
 // commit (CommitTelemetry). The schema v13 observability tables
