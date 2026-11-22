@@ -29,6 +29,7 @@ type fakeVaultStore struct {
 	rows    map[string]vault.File
 	applies int
 	upserts []vault.File
+	touched []vault.File
 	keeps   []string
 }
 
@@ -42,11 +43,12 @@ func (f *fakeVaultStore) Existing(ctx context.Context) (map[string]vault.Existin
 	return out, nil
 }
 
-func (f *fakeVaultStore) ApplyDiff(ctx context.Context, upserts []vault.File, keepPaths []string) (int64, error) {
+func (f *fakeVaultStore) ApplyDiff(ctx context.Context, upserts, touches []vault.File, keepPaths []string) (int64, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.applies++
 	f.upserts = append(f.upserts, upserts...)
+	f.touched = append(f.touched, touches...)
 	f.keeps = keepPaths
 	keep := make(map[string]bool, len(keepPaths))
 	for _, p := range keepPaths {
@@ -61,6 +63,12 @@ func (f *fakeVaultStore) ApplyDiff(ctx context.Context, upserts []vault.File, ke
 	}
 	for _, u := range upserts {
 		f.rows[u.Path] = u
+	}
+	for _, tc := range touches {
+		if r, ok := f.rows[tc.Path]; ok {
+			r.Mtime, r.Size = tc.Mtime, tc.Size
+			f.rows[tc.Path] = r
+		}
 	}
 	return removed, nil
 }

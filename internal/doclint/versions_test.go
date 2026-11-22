@@ -506,6 +506,14 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01210Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.21.0", "vault-bridge-index",
 	}},
+	// v1.21.1 patch: r91-r94 청산 — 스캔 에러 경로 무관화·볼트 루트
+	// 가드(성공 후 영속)·튜닝 키 접속·unnest 삭제·심볼릭 링크 스킵·
+	// ApplyDiff 재시도·A6 완결(write/read 플러시·새니타이즈·status 행)·
+	// touch 갱신·skipped/vanished 분리·title 절단·파이프 이스케이프·
+	// 교체 예고.
+	{name: "TestVersion01211Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.21.1", "r91-r94",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

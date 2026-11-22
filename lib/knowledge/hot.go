@@ -48,6 +48,13 @@ var LoadHotStatsFromMetaFn func(ctx context.Context, st wire.Store)
 // accumulator (cli metrics.go). cli init injects the real implementation.
 var PersistHotStatsToMetaFn func(ctx context.Context, st wire.Store)
 
+// PersistScanStatsFn — the injection point for the scan_stats flush at the
+// write/read command exits (v1.21.1 A6 completion — a one-shot CLI process
+// accumulating echo/suggestion scan samples had no persist point of its
+// own, so the samples were lost at exit). cli init injects the real
+// implementation; nil keeps a no-op (knowledge tests without a store).
+var PersistScanStatsFn func(ctx context.Context, st wire.Store)
+
 // HotBudget — meta hot_budget takes precedence; unset or invalid values
 // fall back to the default 2,000 (not an error).
 func HotBudget(getKV func(string, string) (string, error)) int {

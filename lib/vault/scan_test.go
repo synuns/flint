@@ -21,10 +21,12 @@ import (
 )
 
 // fakeStore — the in-memory Store: keeps rows in a map, counts ApplyDiff
-// calls (the idempotence assertion — a no-change rescan must not write).
+// calls (the idempotence assertion — a no-change rescan must not write)
+// and the touch refreshes handed to it (the v1.21.1 touch-only axis).
 type fakeStore struct {
 	rows    map[string]File
 	applies int
+	touched []File
 }
 
 func newFakeStore() *fakeStore { return &fakeStore{rows: map[string]File{}} }
@@ -45,8 +47,9 @@ func (f *fakeStore) Rows(ctx context.Context) (map[string]File, error) {
 	return out, nil
 }
 
-func (f *fakeStore) ApplyDiff(ctx context.Context, upserts []File, keep []string) (int64, error) {
+func (f *fakeStore) ApplyDiff(ctx context.Context, upserts, touches []File, keep []string) (int64, error) {
 	f.applies++
+	f.touched = append(f.touched, touches...)
 	keepSet := make(map[string]bool, len(keep))
 	for _, p := range keep {
 		keepSet[p] = true
@@ -60,6 +63,12 @@ func (f *fakeStore) ApplyDiff(ctx context.Context, upserts []File, keep []string
 	}
 	for _, u := range upserts {
 		f.rows[u.Path] = u
+	}
+	for _, tc := range touches {
+		if r, ok := f.rows[tc.Path]; ok {
+			r.Mtime, r.Size = tc.Mtime, tc.Size
+			f.rows[tc.Path] = r
+		}
 	}
 	return removed, nil
 }
@@ -238,16 +247,22 @@ func TestScanUnchangedOnTouchOnly(t *testing.T) {
 	writeNote(t, dir, "a.md", content, demoMtime)
 	mustScan(t, st, dir, Options{})
 	before := mustRows(t, st)["a.md"]
-	// mtime-only change: the first filter mismatches, the recomputed hash
-	// matches, so the row must NOT be rewritten.
-	writeNote(t, dir, "a.md", content, demoMtime.Add(2*time.Hour))
+	// mtime-only change (v1.21.1 r91/r94): the first filter mismatches, the
+	// recomputed hash matches — not Changed, but the stored mtime/size
+	// pointer REFRESHES so the next scan's first filter turns clean (the
+	// repeated sha256 cost was the finding).
+	touched := demoMtime.Add(2 * time.Hour)
+	writeNote(t, dir, "a.md", content, touched)
 	stats := mustScan(t, st, dir, Options{})
 	if stats.New != 0 || stats.Changed != 0 || stats.Removed != 0 {
 		t.Fatalf("stats = %+v, want all deltas 0 on a touch-only change", stats)
 	}
 	after := mustRows(t, st)["a.md"]
-	if after.Mtime.UnixNano() != before.Mtime.UnixNano() {
-		t.Fatalf("touch-only change rewrote the row: %v -> %v", before.Mtime, after.Mtime)
+	if !after.Mtime.Equal(touched.Truncate(time.Microsecond)) {
+		t.Fatalf("touch-only pointer not refreshed: %v -> %v", before.Mtime, after.Mtime)
+	}
+	if after.ContentHash != before.ContentHash || after.Title != before.Title {
+		t.Fatalf("touch-only refresh touched content columns: %+v", after)
 	}
 }
 

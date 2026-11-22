@@ -607,6 +607,11 @@ func ReadColumnsHint() string {
 // reorder them; the cap bounds the additive token budget.
 const VaultMaxRows = 5
 
+// vaultTitleMax — the title truncation of the vault output lines: the same
+// 200-rune cap the index applies (vault.titleMaxRunes) — the read output
+// budget guard for the title column (v1.21.1 r93).
+const vaultTitleMax = 200
+
 // vaultColumns — the columns BuildVaultRead SELECTs (fixed order). The
 // FormatVaultRows field-name -> position basis.
 var vaultColumns = []string{"title", "summary", "tags", "path"}
@@ -637,10 +642,13 @@ type VaultLine struct {
 
 // FormatVaultRows — the vault row output: one line per row, appended
 // AFTER the knowledge rows (never interleaved — the knowledge-result
-// invariance contract). Text mode "vault|path|title|summary"; json mode
-// a VaultLine per row. The summary is truncated to summaryMax — the read
-// output token budget (the index-time vault_summary_max_runes cap alone
-// does not bound the output surface).
+// invariance contract). Text mode "vault|path|title|summary" with '|'
+// stripped from the cells (a cell-internal pipe would forge a fifth field
+// and break the 4-field protocol — v1.21.1 r93; the SanitizeText
+// replace-with-space convention); json mode a VaultLine per row. The
+// summary is truncated to summaryMax and the title to vaultTitleMax — the
+// read output token budget (the index-time caps alone do not bound the
+// output surface).
 func FormatVaultRows(rows [][]any, jsonMode bool) string {
 	// vaultColumns is a fixed order: title=0, summary=1, tags=2, path=3.
 	const (
@@ -660,7 +668,7 @@ func FormatVaultRows(rows [][]any, jsonMode bool) string {
 			b, err := json.Marshal(VaultLine{
 				Source:  "vault",
 				Path:    val(vaultPathIdx),
-				Title:   val(vaultTitleIdx),
+				Title:   truncateRunes(val(vaultTitleIdx), vaultTitleMax),
 				Summary: truncateRunes(val(vaultSummaryIdx), summaryMax),
 			})
 			if err != nil {
@@ -669,7 +677,10 @@ func FormatVaultRows(rows [][]any, jsonMode bool) string {
 			lines = append(lines, string(b))
 		} else {
 			lines = append(lines, strings.Join([]string{
-				"vault", val(vaultPathIdx), val(vaultTitleIdx), truncateRunes(val(vaultSummaryIdx), summaryMax),
+				"vault",
+				truncateRunes(noPipe(val(vaultPathIdx)), vaultTitleMax),
+				truncateRunes(noPipe(val(vaultTitleIdx)), vaultTitleMax),
+				truncateRunes(noPipe(val(vaultSummaryIdx)), summaryMax),
 			}, "|"))
 		}
 	}
@@ -677,6 +688,12 @@ func FormatVaultRows(rows [][]any, jsonMode bool) string {
 		return ""
 	}
 	return strings.Join(lines, "\n") + "\n"
+}
+
+// noPipe — replaces cell-internal '|' with a space (the text-mode
+// 4-field protocol guard — the SanitizeText marker-replacement convention).
+func noPipe(s string) string {
+	return strings.ReplaceAll(s, "|", " ")
 }
 
 // truncateRunes — rune-based truncation (multibyte-safe, e.g. for Korean).
