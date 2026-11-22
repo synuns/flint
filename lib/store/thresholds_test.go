@@ -190,3 +190,47 @@ func TestVaultThresholdKeys(t *testing.T) {
 			unset.VaultScanMaxFiles, unset.VaultSummaryMaxRunes, unset.VaultSkipDirs)
 	}
 }
+
+// TestDistillThresholdKeys — the v1.22.0 distill key: default 1.0 (an
+// effective recall score of at least 1 — the unbounded count-scale score,
+// so values above 1 are normal), meta override reflection, negative
+// rejection (the non-negative parser — the archive_below convention),
+// and the unset-keeps-0 convention (the consumer falls back to
+// DefaultThresholds).
+func TestDistillThresholdKeys(t *testing.T) {
+	// default.
+	def := DefaultThresholds()
+	if def.DistillMinScore != 1.0 {
+		t.Errorf("DistillMinScore 기본값=%v, want 1.0", def.DistillMinScore)
+	}
+	// override — above 1 is normal (the effective score is a count-scale
+	// score, not a 0..1 ratio).
+	th, err := ParseThresholds([][2]any{
+		{"distill_min_score", "5.5"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.DistillMinScore != 5.5 {
+		t.Errorf("distill_min_score 오버라이드=%v, want 5.5", th.DistillMinScore)
+	}
+	// zero is a legal value (0 = no score floor — every undistilled row
+	// is eligible); negatives are rejected and fall back.
+	neg, err := ParseThresholds([][2]any{
+		{"distill_min_score", "-0.5"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if neg.DistillMinScore != 1.0 {
+		t.Errorf("음수 거부=%v, want 1.0(폴백)", neg.DistillMinScore)
+	}
+	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.DistillMinScore != 0 {
+		t.Errorf("unset 폴백: distill_min_score=%v, want 0", unset.DistillMinScore)
+	}
+}

@@ -23,13 +23,25 @@ import (
 // fakeStore — the in-memory Store: keeps rows in a map, counts ApplyDiff
 // calls (the idempotence assertion — a no-change rescan must not write)
 // and the touch refreshes handed to it (the v1.21.1 touch-only axis).
+// changedAt emulates the v17 content_changed_at column: stamped on a
+// content-hash change, NULL on a hash-restore upsert, absent for new rows.
 type fakeStore struct {
-	rows    map[string]File
-	applies int
-	touched []File
+	rows      map[string]File
+	changedAt map[string]time.Time
+	applies   int
+	touched   []File
 }
 
-func newFakeStore() *fakeStore { return &fakeStore{rows: map[string]File{}} }
+func newFakeStore() *fakeStore {
+	return &fakeStore{rows: map[string]File{}, changedAt: map[string]time.Time{}}
+}
+
+// stampOf — the fake's content_changed_at emulation (zero time = NULL);
+// promoted through embedding so wrapped fakes answer isStamped too.
+func (f *fakeStore) stampOf(path string) (time.Time, bool) {
+	ts, ok := f.changedAt[path]
+	return ts, ok
+}
 
 func (f *fakeStore) Existing(ctx context.Context) (map[string]Existing, error) {
 	out := make(map[string]Existing, len(f.rows))
@@ -58,10 +70,22 @@ func (f *fakeStore) ApplyDiff(ctx context.Context, upserts, touches []File, keep
 	for p := range f.rows {
 		if !keepSet[p] {
 			delete(f.rows, p)
+			delete(f.changedAt, p) // the stamp vanishes with the row
 			removed++
 		}
 	}
 	for _, u := range upserts {
+		if r, ok := f.rows[u.Path]; ok {
+			// The v17 stamp rule, mirroring applyDiffOnce's CASE: a hash
+			// change stamps now(); a hash-restore upsert (the new hash
+			// equals the stored one) returns the stamp to NULL; a new row
+			// (no prior row) is not a content change — never stamped.
+			if r.ContentHash == u.ContentHash {
+				delete(f.changedAt, u.Path)
+			} else {
+				f.changedAt[u.Path] = time.Now()
+			}
+		}
 		f.rows[u.Path] = u
 	}
 	for _, tc := range touches {
@@ -73,7 +97,7 @@ func (f *fakeStore) ApplyDiff(ctx context.Context, upserts, touches []File, keep
 	return removed, nil
 }
 
-// vaultFilesDDL — the schema v16 vault_files DDL (mirrors lib/sqlfs
+// vaultFilesDDL — the schema v17 vault_files DDL (mirrors lib/sqlfs
 // schema.sql; synthetic scratch databases only).
 const vaultFilesDDL = `CREATE TABLE IF NOT EXISTS vault_files (
     id              bigserial PRIMARY KEY,
@@ -84,7 +108,8 @@ const vaultFilesDDL = `CREATE TABLE IF NOT EXISTS vault_files (
     size            bigint NOT NULL,
     content_hash    text NOT NULL,
     summary         text NOT NULL DEFAULT '',
-    last_indexed_at timestamptz NOT NULL DEFAULT now()
+    last_indexed_at timestamptz NOT NULL DEFAULT now(),
+    content_changed_at timestamptz
 )`
 
 const vaultHashIdxDDL = `CREATE INDEX IF NOT EXISTS idx_vault_files_content_hash ON vault_files (content_hash)`
@@ -184,6 +209,31 @@ func mustRows(t *testing.T, st Store) map[string]File {
 		t.Fatalf("Rows: %v", err)
 	}
 	return rows
+}
+
+// isStamped — whether the path's vault_files row carries a non-NULL
+// content_changed_at: the fake's emulation (stampOf) or the real column
+// via EXISTS (a removed row is trivially unstamped — the stamp vanished
+// with the row).
+func isStamped(t *testing.T, st Store, path string) bool {
+	t.Helper()
+	if f, ok := st.(interface {
+		stampOf(string) (time.Time, bool)
+	}); ok {
+		_, set := f.stampOf(path)
+		return set
+	}
+	ps, ok := st.(*PoolStore)
+	if !ok {
+		t.Fatalf("isStamped: unsupported store %T", st)
+	}
+	var set bool
+	if err := ps.pool.QueryRow(context.Background(),
+		`SELECT EXISTS(SELECT 1 FROM vault_files WHERE path=$1 AND content_changed_at IS NOT NULL)`,
+		path).Scan(&set); err != nil {
+		t.Fatalf("stamp query: %v", err)
+	}
+	return set
 }
 
 func TestScanNewInsert(t *testing.T) {
@@ -549,5 +599,208 @@ func TestScanVaultDiffRealSlow(t *testing.T) {
 	}
 	if n != 0 {
 		t.Fatalf("vault_files rows = %d, want 0 after removal", n)
+	}
+}
+
+// ---- v1.22.0: the content_changed_at re-review queue + the Stats list ----
+
+// TestScanChangedStampLifecycle — the core stamp lifecycle: a new row is
+// NEVER stamped (a new file is not a content change), a changed row is
+// stamped now() and lands in Stats.ChangedFiles (path + old/new hash),
+// and a no-change rescan writes nothing so the stamp is preserved.
+func TestScanChangedStampLifecycle(t *testing.T) {
+	st := testStore(t)
+	dir := t.TempDir()
+	v1 := "# Demo\n\nParagraph.\n"
+	writeNote(t, dir, "a.md", v1, demoMtime)
+	mustScan(t, st, dir, Options{})
+	if isStamped(t, st, "a.md") {
+		t.Fatal("new row stamped — a new file is not a content change (NULL)")
+	}
+	v2 := "# Demo v2\n\nParagraph v2.\n"
+	writeNote(t, dir, "a.md", v2, demoMtime.Add(time.Hour))
+	stats := mustScan(t, st, dir, Options{})
+	if stats.Changed != 1 || len(stats.ChangedFiles) != 1 {
+		t.Fatalf("stats=%+v changedFiles=%v, want changed=1 with one entry", stats, stats.ChangedFiles)
+	}
+	cf := stats.ChangedFiles[0]
+	if cf.RelPath != "a.md" || cf.OldHash != hashOf(v1) || cf.NewHash != hashOf(v2) {
+		t.Fatalf("ChangedFiles entry=%+v, want a.md old=%q new=%q", cf, hashOf(v1), hashOf(v2))
+	}
+	if !isStamped(t, st, "a.md") {
+		t.Fatal("changed row not stamped")
+	}
+	// No-change rescan: no write at all — the stamp survives untouched.
+	stats = mustScan(t, st, dir, Options{})
+	if stats.Changed != 0 || len(stats.ChangedFiles) != 0 {
+		t.Fatalf("rescan stats=%+v, want no changes", stats)
+	}
+	if !isStamped(t, st, "a.md") {
+		t.Fatal("no-change rescan cleared the stamp (must be preserved)")
+	}
+}
+
+// TestScanHashRestoreClearsStamp — the ONLY stamp-erase path: an upsert
+// whose content hash equals the stored row's hash (the content is back to
+// what the snapshot records) returns content_changed_at to NULL. Restoring
+// the FILE to pre-change content is a different thing: it differs from the
+// stored snapshot hash, so it is an ordinary change and re-stamps — one
+// column, no resident part, so the row keeps no memory of the pre-change
+// hash.
+func TestScanHashRestoreClearsStamp(t *testing.T) {
+	st := testStore(t)
+	dir := t.TempDir()
+	v1 := "# Demo\n\nParagraph.\n"
+	writeNote(t, dir, "a.md", v1, demoMtime)
+	mustScan(t, st, dir, Options{})
+	v2 := "# Demo v2\n\nParagraph v2.\n"
+	writeNote(t, dir, "a.md", v2, demoMtime.Add(time.Hour))
+	mustScan(t, st, dir, Options{})
+	if !isStamped(t, st, "a.md") {
+		t.Fatal("precondition: changed row stamped")
+	}
+	// Hash-restore upsert (direct ApplyDiff — Scan itself routes
+	// hash-identical files to the touch path, never an upsert).
+	row := mustRows(t, st)["a.md"]
+	restored := row
+	restored.Mtime = row.Mtime.Add(time.Hour)
+	if _, err := st.ApplyDiff(context.Background(), []File{restored}, nil, []string{"a.md"}); err != nil {
+		t.Fatalf("ApplyDiff restore: %v", err)
+	}
+	if isStamped(t, st, "a.md") {
+		t.Fatal("hash-restore upsert kept the stamp (must return to NULL)")
+	}
+	// File restored to the PRE-change content: differs from the stored v2
+	// hash — an ordinary change, re-stamped.
+	writeNote(t, dir, "a.md", v1, demoMtime.Add(2*time.Hour))
+	stats := mustScan(t, st, dir, Options{})
+	if stats.Changed != 1 || len(stats.ChangedFiles) != 1 {
+		t.Fatalf("stats=%+v, want changed=1 (restore-to-old-content is a change vs the snapshot)", stats)
+	}
+	if !isStamped(t, st, "a.md") {
+		t.Fatal("restore-to-old-content must re-stamp (no pre-change-hash memory)")
+	}
+}
+
+// TestScanTouchOnlyNoStamp — the v1.21.1 touch-only path (mtime/size
+// refresh, content hash identical) never stamps: content_changed_at
+// tracks CONTENT changes alone.
+func TestScanTouchOnlyNoStamp(t *testing.T) {
+	st := testStore(t)
+	dir := t.TempDir()
+	content := "# Demo\n\nParagraph.\n"
+	writeNote(t, dir, "a.md", content, demoMtime)
+	mustScan(t, st, dir, Options{})
+	writeNote(t, dir, "a.md", content, demoMtime.Add(time.Hour))
+	stats := mustScan(t, st, dir, Options{})
+	if stats.Touch != 1 || stats.Changed != 0 || len(stats.ChangedFiles) != 0 {
+		t.Fatalf("touch-only stats=%+v changedFiles=%v, want touch=1 and no changed entries", stats, stats.ChangedFiles)
+	}
+	if isStamped(t, st, "a.md") {
+		t.Fatal("touch-only refresh stamped content_changed_at (content identical)")
+	}
+}
+
+// TestScanRemovedStampVanishes — deleting the note removes the row, so its
+// stamp vanishes with it (no orphaned queue entry).
+func TestScanRemovedStampVanishes(t *testing.T) {
+	st := testStore(t)
+	dir := t.TempDir()
+	writeNote(t, dir, "a.md", "# A\n\nPara a.\n", demoMtime)
+	mustScan(t, st, dir, Options{})
+	writeNote(t, dir, "a.md", "# A v2\n\nPara a v2.\n", demoMtime.Add(time.Hour))
+	mustScan(t, st, dir, Options{})
+	if !isStamped(t, st, "a.md") {
+		t.Fatal("precondition: changed row stamped")
+	}
+	if err := os.Remove(filepath.Join(dir, "a.md")); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	stats := mustScan(t, st, dir, Options{})
+	if stats.Removed != 1 || len(stats.ChangedFiles) != 0 {
+		t.Fatalf("stats=%+v changedFiles=%v, want removed=1 no changed entries", stats, stats.ChangedFiles)
+	}
+	if _, ok := mustRows(t, st)["a.md"]; ok {
+		t.Fatal("removed row still present — the stamp must vanish with the row")
+	}
+	if isStamped(t, st, "a.md") {
+		t.Fatal("stamp survived its row's removal")
+	}
+}
+
+// TestScanChangedFilesListScope — duplicate notes (identical content)
+// changed identically both appear in the list with the same old/new hash
+// pair (the duplicate-note axis), and a new file NEVER enters the list.
+func TestScanChangedFilesListScope(t *testing.T) {
+	st := testStore(t)
+	dir := t.TempDir()
+	v1 := "# Same\n\nSame paragraph.\n"
+	writeNote(t, dir, "a.md", v1, demoMtime)
+	writeNote(t, dir, "copy.md", v1, demoMtime)
+	mustScan(t, st, dir, Options{})
+	v2 := "# Same v2\n\nSame paragraph v2.\n"
+	later := demoMtime.Add(time.Hour)
+	writeNote(t, dir, "a.md", v2, later)
+	writeNote(t, dir, "copy.md", v2, later)
+	writeNote(t, dir, "fresh.md", "# Fresh\n\nFresh note.\n", demoMtime)
+	stats := mustScan(t, st, dir, Options{})
+	if stats.Changed != 2 || stats.New != 1 || len(stats.ChangedFiles) != 2 {
+		t.Fatalf("stats=%+v changedFiles=%v, want changed=2 new=1 list=2", stats, stats.ChangedFiles)
+	}
+	got := map[string]bool{}
+	sameHashes := true
+	for _, cf := range stats.ChangedFiles {
+		got[cf.RelPath] = true
+		if cf.OldHash != hashOf(v1) || cf.NewHash != hashOf(v2) {
+			sameHashes = false
+		}
+	}
+	if !got["a.md"] || !got["copy.md"] || got["fresh.md"] || !sameHashes {
+		t.Fatalf("ChangedFiles=%+v, want a.md+copy.md (shared hashes) and fresh.md excluded", stats.ChangedFiles)
+	}
+}
+
+// TestScanStampLifecycleRealSlow — the full stamp lifecycle against the
+// real column on an isolated scratch database: new NULL -> changed stamped
+// -> no-change rescan preserved -> hash-restore upsert NULL -> removal
+// gone.
+func TestScanStampLifecycleRealSlow(t *testing.T) {
+	if os.Getenv("FLINT_TEST_DSN") == "" {
+		t.Skip("FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	t.Setenv("SUPERLITE_REAL", "1")
+	st := realStore(t)
+	dir := t.TempDir()
+	v1 := "# Demo\n\nDemo paragraph.\n"
+	writeNote(t, dir, "demo.md", v1, demoMtime)
+	mustScan(t, st, dir, Options{})
+	if isStamped(t, st, "demo.md") {
+		t.Fatal("new row stamped")
+	}
+	v2 := "# Demo v2\n\nDemo paragraph v2.\n"
+	writeNote(t, dir, "demo.md", v2, demoMtime.Add(time.Hour))
+	stats := mustScan(t, st, dir, Options{})
+	if stats.Changed != 1 || len(stats.ChangedFiles) != 1 || !isStamped(t, st, "demo.md") {
+		t.Fatalf("stats=%+v stamped=%v, want changed=1 stamped", stats, isStamped(t, st, "demo.md"))
+	}
+	mustScan(t, st, dir, Options{})
+	if !isStamped(t, st, "demo.md") {
+		t.Fatal("no-change rescan cleared the stamp")
+	}
+	row := mustRows(t, st)["demo.md"]
+	restored := row
+	restored.Mtime = row.Mtime.Add(2 * time.Hour)
+	if _, err := st.ApplyDiff(ctx, []File{restored}, nil, []string{"demo.md"}); err != nil {
+		t.Fatalf("ApplyDiff restore: %v", err)
+	}
+	if isStamped(t, st, "demo.md") {
+		t.Fatal("hash-restore upsert did not clear the stamp")
+	}
+	if err := os.Remove(filepath.Join(dir, "demo.md")); err != nil {
+		t.Fatalf("Remove: %v", err)
+	}
+	if stats := mustScan(t, st, dir, Options{}); stats.Removed != 1 || isStamped(t, st, "demo.md") {
+		t.Fatalf("removal stats=%+v stamped=%v, want removed=1 stamp gone", stats, isStamped(t, st, "demo.md"))
 	}
 }

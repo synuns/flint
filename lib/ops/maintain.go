@@ -47,7 +47,19 @@ type ConflictStore interface {
 	ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error)
 }
 
+// ReaffirmStore — the reaffirm write extension (v1.22.0 T3): the single
+// valid_at=now() UPDATE of the target active rows plus the maintenance_runs
+// record (kind=reaffirm). A conditional interface separate from MaintStore
+// (the ConflictStore precedent — existing fakes stay as-is); the write SQL
+// literal lives in the store layer (the writes_through_repo guard scope —
+// write verbs never appear in lib/ops).
+type ReaffirmStore interface {
+	Reaffirm(ctx context.Context, ids []int) (int64, error)
+}
+
 // maintainValueFlags — all value-taking flags (mode-ownership validation targets).
+// --recheck is absent: like --expire-pending, it is mode + value in one flag
+// (its own value is the target id, not a foreign value flag).
 var maintainValueFlags = []string{"--days", "--limit", "--id", "--from", "--to", "--reason",
 	"--ids", "--supersede", "--by"}
 
@@ -73,11 +85,17 @@ var maintainModeFlags = map[string]map[string]bool{
 	// v1.13.0 T4: the stale-score report (read-only, dry-run by default —
 	// disposition is delegated to --invalidate; no new execution flags).
 	"--age-audit": {"--limit": true},
+	// v1.22.0 T3: reaffirm — the valid_at reset of active targets (the
+	// confirmation is --yes; the targets are --id/--ids, exclusive alternation).
+	"--reaffirm": {"--id": true, "--ids": true},
+	// v1.22.0 T3: recheck — the conditions/vol re-review report (read-only;
+	// the id is the mode's value, the --expire-pending convention).
+	"--recheck": {},
 }
 
 // maintainYesModes — the modes where --yes (execution confirmation) is meaningful. In the
 // other modes, --yes is also rejected with an error instead of silent ignoring.
-var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true}
+var maintainYesModes = map[string]bool{"--invalidate": true, "--invalidate-stale": true, "--reaffirm": true}
 
 // maintainCommitModes — the modes where --commit (transition confirmation) is meaningful. In the
 // other modes, --commit is rejected with an error by the same principle as --yes.
@@ -99,7 +117,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 
 // maintainUsageLine — the allowed-flags guidance (the common suffix of the invalid-arg
 // error message — for agent self-correction, alongside the error:"usage" transition).
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --tui (opt-in, run alone)"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N | --tui (opt-in, run alone)"
 
 // maintainUsageErrf — assembles the invalid-arg error (the approve.approveUsageErr
 // convention — a UsageError type + the allowed-flags suffix. The exit code stays with the caller).
@@ -125,9 +143,11 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			{Name: "--check"}, {Name: "--dup-suspects"}, {Name: "--conflict-suspects"},
 			{Name: "--merge"}, {Name: "--stale"}, {Name: "--invalidate"},
 			{Name: "--invalidate-stale"}, {Name: "--meta-audit"}, {Name: "--decay-audit"},
-			{Name: "--age-audit"},
-			// --expire-pending and --prune-invalidated are mode + value (N days).
+			{Name: "--age-audit"}, {Name: "--reaffirm"},
+			// --expire-pending and --prune-invalidated are mode + value (N days);
+			// --recheck is mode + value too (the target knowledge id).
 			{Name: "--expire-pending", Value: true}, {Name: "--prune-invalidated", Value: true},
+			{Name: "--recheck", Value: true},
 			{Name: "--days", Value: true}, {Name: "--limit", Value: true},
 			{Name: "--id", Value: true}, {Name: "--from", Value: true}, {Name: "--to", Value: true},
 			{Name: "--reason", Value: true}, {Name: "--supersede", Value: true}, {Name: "--by", Value: true},
@@ -148,6 +168,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 	days, limit := 0, 20             // --stale: days=0 -> the meta stale_days (default 90) fallback
 	dupLimit := SuspectsDefaultLimit // the --dup-suspects default (spec R4: --limit M defaults to 10)
 	expireDays := 0                  // --expire-pending N — no default (preventing accidental deletion)
+	recheckID := 0                   // --recheck N — the re-review target knowledge id
 	reason := ""
 	yes, commit := res.Given("--yes"), res.Given("--commit")
 	var idList []int // the --ids parse result (a snapshot — no reevaluation)
@@ -156,7 +177,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		switch name {
 		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
 			"--invalidate", "--invalidate-stale", "--meta-audit", "--expire-pending",
-			"--prune-invalidated", "--supersede", "--decay-audit", "--age-audit":
+			"--prune-invalidated", "--supersede", "--decay-audit", "--age-audit",
+			"--reaffirm", "--recheck":
 			mode = name
 		}
 	}
@@ -207,6 +229,17 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 				return 1
 			}
 			expireDays = n
+		case "--recheck": // the mode's own value — the target knowledge id
+			if !o.HasValue {
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a knowledge id", o.Name)))
+				return 1
+			}
+			n, err := strconv.Atoi(o.Value)
+			if err != nil || n <= 0 {
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: invalid number %q", o.Value)))
+				return 1
+			}
+			recheckID = n
 		case "--id", "--from", "--to":
 			if !o.HasValue {
 				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("maintain: %s requires a number", o.Name)))
@@ -307,6 +340,14 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainDecayAudit(ctx, ms, stdout, limit)
 	case "--age-audit":
 		return maintainAgeAudit(ctx, ms, stdout, limit)
+	case "--reaffirm":
+		return maintainReaffirm(ctx, ms, stdout, id, idList, yes)
+	case "--recheck":
+		if recheckID == 0 {
+			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --recheck requires a knowledge id"))))
+			return 1
+		}
+		return maintainRecheck(ctx, ms, stdout, recheckID)
 	case "--prune-invalidated":
 		return maintainPruneInvalidated(ctx, ms, stdout, expireDays, commit)
 	case "--dup-suspects":
@@ -1162,6 +1203,10 @@ type staleScoredItem struct {
 	CorrCount int    `json:"correction_count"`
 	BadRecall int    `json:"bad_recall"`
 	Supersede int    `json:"supersede_count"`
+	// Tags — the raw tags cell (NULL-safe ""), the v1.22.0 T4 suggestion
+	// input (topic·tags only — origin is not a mapping input). Report
+	// material via SuggestVolClass; never a score signal.
+	Tags string `json:"-"`
 }
 
 // listStaleScored — the stale-candidate population with the 2-signal score
@@ -1194,7 +1239,8 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 		           AND (b.invalid_at IS NOT NULL OR b.superseded_by IS NOT NULL)
 		           AND EXISTS (SELECT 1 FROM recall_events rb WHERE rb.knowledge_id = b.id)),
 		       (SELECT count(*) FROM knowledge s
-		         WHERE s.topic = k.topic AND s.id <> k.id AND s.superseded_by IS NOT NULL)
+		         WHERE s.topic = k.topic AND s.id <> k.id AND s.superseded_by IS NOT NULL),
+		       COALESCE(k.tags, '')
 		FROM knowledge k
 		LEFT JOIN (`+knowledge.RecallAggregateSQL+`) re ON re.knowledge_id = k.id
 		WHERE k.status = 'active' AND k.invalid_at IS NULL
@@ -1207,7 +1253,7 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 	now := decayNow()
 	items := []staleScoredItem{}
 	for _, r := range rows {
-		if len(r) < 6 {
+		if len(r) < 7 {
 			continue
 		}
 		id, ok := render.CellToInt(r[0])
@@ -1222,6 +1268,7 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 		corr, _ := render.CellToInt(r[3])
 		bad, _ := render.CellToInt(r[4])
 		sup, _ := render.CellToInt(r[5])
+		tags, _ := r[6].(string) // COALESCE'd — NULL-safe
 		items = append(items, staleScoredItem{
 			ID:        id,
 			Topic:     render.Text(topic), // via render.Text (the output re-sanitization convention)
@@ -1229,6 +1276,7 @@ func listStaleScored(ctx context.Context, ms wire.Store, limit int) ([]staleScor
 			CorrCount: corr,
 			BadRecall: bad,
 			Supersede: sup,
+			Tags:      tags,
 		})
 	}
 	for i := range items {
@@ -1256,6 +1304,13 @@ type ageAuditItem struct {
 	BadRecall     int    `json:"bad_recall"`
 	SupersedeCnt  int    `json:"supersede_count"`
 	OverThreshold bool   `json:"over_threshold"`
+	// v1.22.0 T4 — the volatility suggestion columns (report-only, no
+	// weight·no write): suggested_vol is the deterministic topic/tags
+	// mapping proposal (SuggestVolClass); a row already carrying an
+	// approved vol:* tag shows vol_tag instead — no re-proposal over an
+	// approved tier (the approval-regime ruling).
+	SuggestedVol string `json:"suggested_vol,omitempty"`
+	VolTag       string `json:"vol_tag,omitempty"`
 }
 
 // clampAgeTopic — truncates a report topic to the rune cap (… suffix when over).
@@ -1287,12 +1342,28 @@ func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limi
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	// v1.22.0 T3 — the signal-⑤ reference column ("source changed"): vault
+	// rows stamped by the scan diff (content_changed_at NOT NULL — the T2
+	// recheck queue). A report-level count only: the knowledge↔vault row
+	// linkage is deferred to v1.25.0 (the G2 ruling), and the score stays
+	// untouched (the distribution seal — bad_recall/supersede-grade
+	// information, no weight). A read failure degrades quietly to 0 (§13 —
+	// a lost observation must not fail the audit).
+	srcChanged := vaultSourceChanged(ctx, ms)
 	out := make([]ageAuditItem, 0, len(items))
 	over := 0
 	for _, it := range items {
 		marked := it.Score >= threshold
 		if marked {
 			over++
+		}
+		// v1.22.0 T4 — the volatility suggestion (proposal-only): the full
+		// topic (pre-clamp) plus the tags cell are the mapping inputs; an
+		// approved vol:* tag suppresses the proposal (ExistingVolTag). No
+		// score signal — the 2-signal distribution stays sealed.
+		sug, existing := "", ExistingVolTag(it.Tags)
+		if existing == "" {
+			sug = SuggestVolClass(it.Topic, it.Tags)
 		}
 		out = append(out, ageAuditItem{
 			ID:            it.ID,
@@ -1303,22 +1374,206 @@ func maintainAgeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limi
 			BadRecall:     it.BadRecall,
 			SupersedeCnt:  it.Supersede,
 			OverThreshold: marked,
+			SuggestedVol:  sug,
+			VolTag:        existing,
 		})
 	}
+	summary := fmt.Sprintf("%d stale candidates (%d over threshold %d) — dispose via maintain --invalidate (approval required)",
+		len(out), over, threshold)
+	if srcChanged > 0 {
+		summary += fmt.Sprintf(" · %d vault source changed (recheck advised)", srcChanged)
+	}
 	b, mErr := json.Marshal(struct {
-		Status    string         `json:"status"`
-		Threshold int            `json:"threshold"`
-		Count     int            `json:"count"`
-		Items     []ageAuditItem `json:"items"`
-		Summary   string         `json:"summary"`
-	}{Status: "age-audit", Threshold: threshold, Count: len(out), Items: out,
-		Summary: fmt.Sprintf("%d stale candidates (%d over threshold %d) — dispose via maintain --invalidate (approval required)",
-			len(out), over, threshold)})
+		Status       string         `json:"status"`
+		Threshold    int            `json:"threshold"`
+		Count        int            `json:"count"`
+		SourceChange int            `json:"source_changed"`
+		Items        []ageAuditItem `json:"items"`
+		Summary      string         `json:"summary"`
+	}{Status: "age-audit", Threshold: threshold, Count: len(out), SourceChange: srcChanged,
+		Items: out, Summary: summary})
 	if mErr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(mErr))
 		return 1
 	}
 	fmt.Fprintln(stdout, string(b))
+	return 0
+}
+
+// vaultSourceChanged — the count of vault rows whose content changed since
+// the last scan (content_changed_at NOT NULL — the T2 stamp). Read failures
+// and empty answers degrade to 0 (the metering principle — reporting only).
+func vaultSourceChanged(ctx context.Context, st wire.Store) int {
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT count(*) FROM vault_files WHERE content_changed_at IS NOT NULL`, nil)
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return 0
+	}
+	n, _ := render.CellToInt(rows[0][0])
+	return n
+}
+
+// ── v1.22.0 T3: --reaffirm (the validity reset) and --recheck (the conditions report) ──
+
+// maintainReaffirm — `maintain --reaffirm (--id N | --ids a,b) --yes`: resets
+// valid_at=now() on the target ACTIVE knowledge rows (a human/agent validity
+// re-confirmation — the opposite disposition of --invalidate, both approval-
+// gated). The UPDATE itself and the maintenance_runs record (kind=reaffirm)
+// are the single ReaffirmStore path (the store layer owns the write literal);
+// the audit Commit rides the Retry-wrapped write (the Invalidate convention).
+// Missing/non-active targets are exit 1 BEFORE any write; without --yes the
+// confirmation guidance (no write).
+func maintainReaffirm(ctx context.Context, ms MaintStore, stdout io.Writer, id int, idList []int, yes bool) int {
+	if !yes { // the execution-confirmation marker (the --invalidate --ids convention)
+		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --reaffirm requires --yes (confirmation)"))))
+		return 1
+	}
+	if len(idList) > 0 && id != 0 { // the spec's alternation is exclusive
+		fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --reaffirm takes --id or --ids, not both"))))
+		return 1
+	}
+	ids := idList
+	if len(ids) == 0 {
+		if id == 0 {
+			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --reaffirm requires --id or --ids"))))
+			return 1
+		}
+		ids = []int{id}
+	}
+	rs, ok := ms.(ReaffirmStore)
+	if !ok {
+		fmt.Fprintln(stdout, `{"error":"maintain: unsupported store"}`)
+		return 1
+	}
+	// target check — only active knowledge rows are reaffirm targets; a
+	// nonexistent id and a non-active one are both exit 1 up front (the
+	// ensureExists convention — no partial writes).
+	rows, err := wire.QueryOnce(ctx, ms,
+		`SELECT id, status FROM knowledge WHERE id = ANY($1)`, []any{ids})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	active := map[int]bool{}
+	for _, r := range rows {
+		if len(r) < 2 {
+			continue
+		}
+		if rid, ok := render.CellToInt(r[0]); ok {
+			if status, _ := r[1].(string); status == "active" {
+				active[rid] = true
+			}
+		}
+	}
+	var missing []int
+	for _, i := range ids {
+		if !active[i] {
+			missing = append(missing, i)
+		}
+	}
+	if len(missing) > 0 {
+		fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf(
+			"maintain: --reaffirm: nonexistent or not active ids %v", missing)))
+		return 1
+	}
+	if err := retryWrite(ctx, func() error {
+		n, err := rs.Reaffirm(ctx, ids)
+		if err != nil {
+			return err
+		}
+		if int(n) != len(ids) { // rows-affected stewardship (the Supersede convention)
+			return fmt.Errorf("reaffirm: updated %d of %d rows (race — retry)", n, len(ids))
+		}
+		_, err = ms.Commit(ctx, fmt.Sprintf(
+			"reaffirm: %d rows valid_at reset (reaffirm path) [session:0]", len(ids)))
+		return err
+	}); err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	out, mErr := json.Marshal(struct {
+		Status string `json:"status"`
+		Count  int    `json:"count"`
+		IDs    []int  `json:"ids"`
+	}{Status: "reaffirmed", Count: len(ids), IDs: ids})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
+	return 0
+}
+
+// recheckVolDict — the vol dictionary (CONTENT §4): the three volatility
+// tier tags a recheck report can surface.
+var recheckVolDict = []string{"vol:immutable", "vol:volatile", "vol:conditional"}
+
+// recheckVolTags — the vol dictionary tags present in a tags cell
+// (":adr::vol:immutable:" → ["vol:immutable"]).
+func recheckVolTags(tags string) []string {
+	var out []string
+	for _, v := range recheckVolDict {
+		if strings.Contains(tags, ":"+v+":") {
+			out = append(out, v)
+		}
+	}
+	if out == nil {
+		out = []string{}
+	}
+	return out
+}
+
+// maintainRecheck — `maintain --recheck N` (read-only): reports the
+// re-review target — the conditions value (the staleness recheck material,
+// T1's column), the vol tier tags, and the valid_at age. Consuming the
+// recheck queue is NOT performed here (the manual trigger ruling — external
+// state is P1); disposition stays with the existing --invalidate/--reaffirm
+// approvals. A missing id is ErrNotFound exit 1.
+func maintainRecheck(ctx context.Context, ms wire.Store, stdout io.Writer, id int) int {
+	rows, err := wire.QueryOnce(ctx, ms,
+		`SELECT topic, tags, conditions, valid_at FROM knowledge WHERE id = $1`, []any{id})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	if len(rows) == 0 || len(rows[0]) < 4 {
+		return adminErrLine(stdout, fmt.Errorf("%w: recheck: id=%d not found", db.ErrNotFound, id))
+	}
+	topic, _ := rows[0][0].(string)
+	tags, _ := rows[0][1].(string)
+	conditions, _ := rows[0][2].(string)
+	empty := strings.TrimSpace(conditions) == ""
+	volTags := recheckVolTags(tags)
+	ageDays := 0
+	validAt := ""
+	if va, ok := AnyToTime(rows[0][3]); ok && !va.IsZero() {
+		validAt = va.UTC().Format(time.RFC3339)
+		ageDays = int(time.Since(va).Hours() / 24)
+	}
+	summary := fmt.Sprintf("recheck target id=%d — valid %dd ago", id, ageDays)
+	if empty {
+		summary += " · no conditions recorded (set the write conditions field)"
+	} else {
+		summary += " · conditions recorded — re-verify them against the source"
+	}
+	out, mErr := json.Marshal(struct {
+		Status          string   `json:"status"`
+		ID              int      `json:"id"`
+		Topic           string   `json:"topic"`
+		Conditions      string   `json:"conditions"`
+		ConditionsEmpty bool     `json:"conditions_empty"`
+		VolTags         []string `json:"vol_tags"`
+		ValidAt         string   `json:"valid_at"`
+		AgeDays         int      `json:"age_days"`
+		Summary         string   `json:"summary"`
+	}{Status: "recheck", ID: id, Topic: clampAgeTopic(render.Text(topic)),
+		Conditions: render.Text(conditions), ConditionsEmpty: empty, VolTags: volTags,
+		ValidAt: validAt, AgeDays: ageDays, Summary: summary})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
 	return 0
 }
 

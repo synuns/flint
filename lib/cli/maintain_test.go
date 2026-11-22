@@ -5,6 +5,8 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
+	"net/url"
 	"strings"
 	"testing"
 	"time"
@@ -39,6 +41,7 @@ type fakeMaint struct {
 	mergeCalls       [][2]int
 	pruneCalls       []time.Time // PruneInvalidated delegation capture
 	recallPruneCalls []time.Time // PruneRecallEvents delegation capture
+	reaffirmCalls    [][]int     // Reaffirm delegation capture (v1.22.0 T3)
 }
 
 // supersedeCall — Supersede delegation capture (old, new, and invalid_at values).
@@ -97,6 +100,13 @@ func (f *fakeMaint) PruneInvalidated(ctx context.Context, before time.Time) (int
 func (f *fakeMaint) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
 	f.recallPruneCalls = append(f.recallPruneCalls, before)
 	return 0, nil
+}
+
+// Reaffirm — the ops.ReaffirmStore extension capture (v1.22.0 T3): the
+// valid_at=now() UPDATE literal lives in the real store layer (realStore).
+func (f *fakeMaint) Reaffirm(ctx context.Context, ids []int) (int64, error) {
+	f.reaffirmCalls = append(f.reaffirmCalls, ids)
+	return int64(len(ids)), nil
 }
 
 func runMaintainArgs(t *testing.T, f *fakeMaint, args ...string) (string, int) {
@@ -409,6 +419,169 @@ func TestMaintainSupersedeCycleRealSlow(t *testing.T) {
 	if out, code = run("--supersede", "910101", "--by", "910101"); code != 3 {
 		t.Fatalf("self exit=%d, want 3; out=%s", code, out)
 	}
+}
+
+// TestMaintainReaffirmDelegation — v1.22.0 T3 wiring: --reaffirm --id N --yes
+// delegates to the ReaffirmStore extension (the valid_at=now() UPDATE lives in
+// the store layer), records the audit commit, and never touches the
+// invalidation path. Without --yes it is a guidance error with no write.
+func TestMaintainReaffirmDelegation(t *testing.T) {
+	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge") {
+			return [][]any{{int32(5), "active"}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--reaffirm", "--id", "5", "--yes")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (출력 %q)", code, out)
+	}
+	if len(f.reaffirmCalls) != 1 || len(f.reaffirmCalls[0]) != 1 || f.reaffirmCalls[0][0] != 5 {
+		t.Errorf("Reaffirm 호출 = %v, want [[5]]", f.reaffirmCalls)
+	}
+	if len(f.invalidateCalls) != 0 {
+		t.Errorf("무효화 경로 오염: %v", f.invalidateCalls)
+	}
+	if len(f.commits) != 1 || !strings.Contains(f.commits[0], "reaffirm") {
+		t.Errorf("감사 커밋 = %v", f.commits)
+	}
+	if !strings.Contains(out, `"status":"reaffirmed"`) {
+		t.Errorf("출력 %q", out)
+	}
+
+	f2 := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
+		return nil, nil
+	}}}
+	out, code = runMaintainArgs(t, f2, "--reaffirm", "--id", "5")
+	if code != 1 || !strings.Contains(out, "--yes") {
+		t.Fatalf("--yes 부재 exit=%d out=%q, want 1+안내", code, out)
+	}
+	if len(f2.reaffirmCalls) != 0 || len(f2.commits) != 0 {
+		t.Errorf("가드 전 쓰기: %v %v", f2.reaffirmCalls, f2.commits)
+	}
+}
+
+// TestMaintainReaffirmRealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN, an
+// isolated scratch DB dropped at the end): the real store-layer reaffirm
+// path — valid_at reset to now(), one maintenance_runs row per run, the
+// missing-id exit 1, and the --recheck read on the real conditions column.
+// Synthetic demo rows only.
+func TestMaintainReaffirmRealSlow(t *testing.T) {
+	dsn, ok := seamRealDSN()
+	if !ok {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	name := fmt.Sprintf("flint_t3raf_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
+	base.Close()
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	u.Path = "/" + name
+	st, err := newRealStore(ctx, u.String())
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	t.Cleanup(st.Close)
+
+	seed := func(hash string) map[string]any {
+		return map[string]any{
+			"kind":         "knowledge",
+			"topic":        "t3-reaffirm-demo-" + hash,
+			"summary":      "합성 데모 재확신 행-" + hash,
+			"tags":         ":adr:",
+			"confidence":   0.9,
+			"content_hash": hash,
+			"status":       "active",
+		}
+	}
+	ids, err := st.InsertBatch(ctx, []map[string]any{seed("t3-raf-a"), seed("t3-raf-b")})
+	if err != nil {
+		t.Fatalf("시드: %v", err)
+	}
+	// age the validity 100d so the reset is measurable.
+	for _, id := range ids {
+		if _, err := st.Query(ctx,
+			`UPDATE knowledge SET valid_at = now() - interval '100 days' WHERE id = $1`, id); err != nil {
+			t.Fatalf("valid_at 시드 id=%d: %v", id, err)
+		}
+	}
+	run := func(args ...string) (string, int) {
+		t.Helper()
+		var out bytes.Buffer
+		code := runMaintain(ctx, st, args, strings.NewReader(""), &out)
+		return out.String(), code
+	}
+	// the single-id reaffirm — valid_at reset to now().
+	out, code := run("--reaffirm", "--id", fmt.Sprint(ids[0]), "--yes")
+	if code != 0 {
+		t.Fatalf("reaffirm exit=%d out=%s", code, out)
+	}
+	rows, err := st.Query(ctx, `SELECT valid_at FROM knowledge WHERE id = $1`, ids[0])
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("valid_at 조회: %v", err)
+	}
+	va, ok2 := rows[0][0].(time.Time)
+	if !ok2 || time.Since(va) > 2*time.Minute {
+		t.Fatalf("valid_at 리셋 실패: %v", rows[0][0])
+	}
+	var runs int
+	if err := scanCount(ctx, st, `SELECT count(*) FROM maintenance_runs WHERE kind = 'reaffirm'`, &runs); err != nil {
+		t.Fatalf("maintenance_runs 조회: %v", err)
+	}
+	if runs != 1 {
+		t.Fatalf("maintenance_runs(reaffirm) = %d, want 1", runs)
+	}
+	// the batch reaffirm — both ids, a second run record.
+	out, code = run("--reaffirm", "--ids", fmt.Sprintf("%d,%d", ids[0], ids[1]), "--yes")
+	if code != 0 || !strings.Contains(out, `"count":2`) {
+		t.Fatalf("--ids reaffirm exit=%d out=%s", code, out)
+	}
+	if err := scanCount(ctx, st, `SELECT count(*) FROM maintenance_runs WHERE kind = 'reaffirm'`, &runs); err != nil || runs != 2 {
+		t.Fatalf("maintenance_runs 누적 = %d, want 2 (err %v)", runs, err)
+	}
+	// a missing target — exit 1, no new run record.
+	out, code = run("--reaffirm", "--id", "999999", "--yes")
+	if code != 1 {
+		t.Fatalf("부재 exit=%d, want 1 — %s", code, out)
+	}
+	if err := scanCount(ctx, st, `SELECT count(*) FROM maintenance_runs WHERE kind = 'reaffirm'`, &runs); err != nil || runs != 2 {
+		t.Fatalf("부재 후 maintenance_runs = %d, want 2 (err %v)", runs, err)
+	}
+	// --recheck on the real conditions column (empty → the guidance).
+	out, code = run("--recheck", fmt.Sprint(ids[1]))
+	if code != 0 || !strings.Contains(out, `"conditions_empty":true`) {
+		t.Fatalf("recheck exit=%d out=%s", code, out)
+	}
+}
+
+// scanCount — a single-cell count lookup helper (the slow reaffirm test).
+func scanCount(ctx context.Context, st Store, sql string, dst *int) error {
+	rows, err := st.Query(ctx, sql)
+	if err != nil {
+		return err
+	}
+	if len(rows) == 0 || len(rows[0]) == 0 {
+		return fmt.Errorf("count 행 부재: %s", sql)
+	}
+	switch v := rows[0][0].(type) {
+	case int64:
+		*dst = int(v)
+	case int32:
+		*dst = int(v)
+	default:
+		return fmt.Errorf("count 파싱 실패: %T %v", rows[0][0], rows[0][0])
+	}
+	return nil
 }
 
 // TestMaintainCheckDrillReport — last_drill elapsed reporting: no record -> never,

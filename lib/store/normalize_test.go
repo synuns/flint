@@ -121,6 +121,28 @@ func TestHashCanonicalExcludesRelations(t *testing.T) {
 	}
 }
 
+// TestHashCanonicalExcludesConditions — conditions joined the hashVolatile
+// exclusion (v1.22.0 schema v17): the same body with·without a conditions
+// string hashes identically (dedup preservation — the recheck tag is
+// metadata, not content, the relations precedent).
+func TestHashCanonicalExcludesConditions(t *testing.T) {
+	base := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9}
+	withCond := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
+		"conditions": "when clause A expires"}
+	if HashCanonical(base) != HashCanonical(withCond) {
+		t.Errorf("conditions 유무로 해시 변동 — hashVolatile 계약 위반: %q vs %q",
+			HashCanonical(base), HashCanonical(withCond))
+	}
+	// a differing conditions value also keeps the hash — the tag never
+	// enters the content identity.
+	other := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
+		"conditions": "different"}
+	if HashCanonical(base) != HashCanonical(other) {
+		t.Errorf("conditions 값 차이로 해시 변동 — hashVolatile 계약 위반: %q vs %q",
+			HashCanonical(base), HashCanonical(other))
+	}
+}
+
 // TestCheckRelationsEchoTruncation — v1.20.2 (r88): the rejection echo
 // caps the echoed value at 200 runes. The write path's 64-byte
 // parseLinkSpecs cap keeps values that long unreachable from there, so

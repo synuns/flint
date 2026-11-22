@@ -6,6 +6,63 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.22.0 minor (2026-11-23) — vault-staleness: schema v17 staleness columns · age-audit source reference · reaffirm/recheck · volatility suggestions · distill
+
+(spec: docs/plans/2026-11-23-flint-v1220.md). The vault bridge II ·
+staleness-remainder milestone — additive schema v17, the age-audit
+source-change reference, the reaffirm/recheck dispositions, the
+volatility auto-class suggestion, the conditions tag, and the distill
+insight extraction ([ADR-0018](adr/0018-distill-output.md)):
+
+- schema v17 (additive — v16 DBs promote on the first command): three
+  nullable columns, no index, no default-data change —
+  `vault_files.content_changed_at` (the scan-diff change stamp), and
+  `knowledge.distilled_at` + `knowledge.conditions` (the distill stamp
+  and the manual recheck tag). One threshold key registers alongside
+  (TUNING §2): `distill_min_score` 1.0.
+- age-audit source reference (signal ⑤, v1.13.0 non-goal ruling
+  lifted — reference-only, **the score itself is unchanged**: the
+  distribution-seal test guards byte-identical scoring): the scan
+  diff stamps changed vault rows `content_changed_at = now()` (a hash
+  revert restores NULL), and `maintain --age-audit` reports the
+  stamped-row count as a `source_changed` reference column with the
+  "vault source changed (recheck advised)" guidance line. The direct
+  knowledge↔vault path link is deferred to v1.25.0 (no accrual
+  source).
+- `maintain --reaffirm (--id N | --ids 1,2) --yes`: resets
+  `valid_at = now()` on the target active rows and records a
+  `maintenance_runs` entry (kind=reaffirm) — the previously
+  unrealized third disposition of the release-scope §5 set (approval
+  regime: `--yes` required).
+- `maintain --recheck N`: a read-only re-review report of one
+  knowledge row — its `conditions` string and vol:* tier together,
+  the disposition queue entry for conditional knowledge.
+- volatility auto-class suggestion (T4): a deterministic
+  topic/tags keyword mapping proposes one of the 3 dictionary tiers —
+  immutable keywords (adr · decision · history — Korean 결정 · 역사
+  too) → `vol:immutable`, else volatile keywords (version · path ·
+  command · tool) → `vol:volatile`, else `vol:conditional`;
+  multi-match resolves by the fixed priority immutable > volatile >
+  conditional. `--age-audit` rows carry it as `suggested_vol`.
+  Proposal-only by ruling — granting the immutable decay exemption
+  automatically would collide with the approval regime, so adoption
+  goes through the existing write approval path (the 3-entry
+  dictionary itself is unchanged).
+- conditions tag (T5): `flint write` stdin accepts an optional
+  `conditions` string (≤500 runes, schema-validated) stored verbatim
+  in `knowledge.conditions`. It joins `hashVolatile` (the relations
+  precedent) — the same body ±conditions hashes identically, so
+  duplicate resubmission stays idempotent.
+- `flint distill --out DIR [--min-score N]` (T6, ADR-0018): emits
+  never-distilled active rows with `recall_score >= distill_min_score`
+  as ONE aggregate markdown file per run (`insights-<timestamp>.md`,
+  id-sorted; `--out` is mandatory — missing/empty is exit 3). Only
+  rows whose output succeeded are stamped `distilled_at = now()`
+  (write-then-stamp, single-direction atomicity), so a rerun yields
+  only the remainder. All emitted strings pass render sanitization
+  ([flint] marker neutralized); output stays local-folder-only
+  (ADR-0015 remote-write prohibition intact).
+
 ### v1.21.1 patch (2026-11-23) — r91-r94: path redaction · vault root guard · tuning wiring · scan hardening
 
 The v1.21.0 four-angle audit (R91~R94) fixes — 15 findings

@@ -19,6 +19,7 @@ var seedCommands = []string{
 	"write", "read", "hot", "brief", "status", "profile", "backup", "restore",
 	"sync",
 	"approve", "pending", "maintain", "doctor", "report", "export",
+	"distill",
 	"done", "compact", "nudge", "setup", "teardown", "version", "mcp",
 	"index",
 	"audit", "diff", "update", "tuning", "import",
@@ -103,6 +104,18 @@ func TestHelpSummaryCoversUsageOrder(t *testing.T) {
 	for _, name := range usageOrder {
 		if !strings.Contains(s, name) {
 			t.Errorf("HelpSummary에 usageOrder 항목 %q 누락: %s", name, s)
+		}
+	}
+}
+
+// TestHelpSummaryDocumentsReaffirm — the maintain summary entry must
+// mention the v1.22.0 reaffirm/recheck upkeep flags (subflag rows — the
+// usageOrder and seedCommands sets are unchanged).
+func TestHelpSummaryDocumentsReaffirm(t *testing.T) {
+	s := HelpSummary()
+	for _, want := range []string{"reaffirm", "recheck"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("helpSummary에 %q 누락: %s", want, s)
 		}
 	}
 }

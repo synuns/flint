@@ -16,6 +16,10 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
+// compile-time guarantee — realStore carries the reaffirm write extension
+// (ops.ReaffirmStore — v1.22.0 T3).
+var _ ops.ReaffirmStore = (*realStore)(nil)
+
 // maintainTuiFn — TUI entry seam. Real implementation by default; tests swap in a fake.
 var maintainTuiFn = tui.RunMaintainTUI
 
@@ -57,4 +61,29 @@ func runMaintainEntry(ctx context.Context, st Store, args []string, stdin io.Rea
 		return maintainTuiFn(ctx, st, stdout)
 	}
 	return maintainOpsRun(ctx, st, args, stdin, stdout)
+}
+
+// realStore.Reaffirm — real implementation of the ops.ReaffirmStore
+// extension (v1.22.0 T3): the single valid_at=now() UPDATE of the target
+// active knowledge rows, plus the maintenance_runs record (kind=reaffirm —
+// the drill record convention). The write SQL literal lives in this store
+// layer (the lib/{ops,knowledge} write-guard scope owns write verbs here —
+// the InsertKnowledgeLink convention). The dolt commit is the caller's
+// (ops) responsibility — the Invalidate-class convention.
+func (s *realStore) Reaffirm(ctx context.Context, ids []int) (int64, error) {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE knowledge SET valid_at = now()
+		 WHERE id = ANY($1) AND status = 'active' AND invalid_at IS NULL`, ids)
+	if err != nil {
+		return 0, fmt.Errorf("reaffirm: %w", err)
+	}
+	n := ct.RowsAffected()
+	if n > 0 {
+		if _, err := s.pool.Exec(ctx,
+			`INSERT INTO maintenance_runs (kind, details) VALUES ('reaffirm', $1)`,
+			fmt.Sprintf("reaffirmed ids=%v", ids)); err != nil {
+			return n, fmt.Errorf("reaffirm: maintenance_runs: %w", err)
+		}
+	}
+	return n, nil
 }

@@ -4,7 +4,8 @@
 // with a two-stage filter — (mtime, size) mismatch triggers a sha256
 // recomputation over the RAW bytes (deliberately distinct from the
 // knowledge normalized hash) — and applies the whole diff in ONE
-// transaction: new rows INSERT, changed rows path-UNIQUE UPSERT, touch-only
+// transaction: new rows INSERT, changed rows path-UNIQUE UPSERT (stamping
+// content_changed_at — the v1.22.0 re-review queue), touch-only
 // rows mtime/size UPDATE, vanished paths DELETE (`NOT IN (SELECT
 // unnest($1))` — no placeholder ceiling; Doltgres has no DELETE ... USING).
 //
@@ -85,21 +86,35 @@ type Options struct {
 // output budget the summary cap already guards).
 const titleMaxRunes = 200
 
+// ChangedFile — one changed row of a scan's diff: the vault-relative path
+// with the content hash before and after (v1.22.0 — the Stats exposure the
+// staleness circuit records; paths here are the same root-relative form the
+// snapshot stores, and the index CLI output stays count-only — no path
+// ever prints).
+type ChangedFile struct {
+	RelPath string
+	OldHash string
+	NewHash string
+}
+
 // Stats — one scan result (the `flint index` JSON payload basis). Skipped
 // counts ONLY the limit overflow; files vanished between the walk and the
 // read are Vanished (v1.21.1 — the two were one counter, so a vanished file
 // misfired the "rerun with a higher --limit" note). Touch counts the
 // touch-only mtime/size refreshes (excluded from Changed — content is
-// identical, but the pointer update deserves its own meter).
+// identical, but the pointer update deserves its own meter). ChangedFiles
+// lists the changed rows for DB-side recording (the re-review queue input);
+// new and touch-only rows never appear in it.
 type Stats struct {
-	Scanned  int
-	New      int
-	Changed  int
-	Removed  int
-	Skipped  int
-	Vanished int
-	Touch    int
-	Duration time.Duration
+	Scanned      int
+	New          int
+	Changed      int
+	Removed      int
+	Skipped      int
+	Vanished     int
+	Touch        int
+	ChangedFiles []ChangedFile
+	Duration     time.Duration
 }
 
 // Scan — walks root and applies the diff to st. Files beyond the effective
@@ -223,6 +238,11 @@ func Scan(ctx context.Context, st Store, root string, opts Options) (Stats, erro
 		}
 		if known {
 			stats.Changed++
+			stats.ChangedFiles = append(stats.ChangedFiles, ChangedFile{
+				RelPath: wf.rel,
+				OldHash: ex.ContentHash,
+				NewHash: f.ContentHash,
+			})
 		} else {
 			stats.New++
 		}
@@ -534,6 +554,18 @@ func retryableApplyErr(err error) bool {
 // v1.21.1 r93). keepPaths is the complete walked set — a row is removed
 // only if its path is in neither the scanned nor the skipped set.
 // Serializable-conflict losers retry per applyRetryBackoff.
+//
+// v1.22.0 stamp rule (the re-review queue): an upsert whose content hash
+// differs from the stored row stamps content_changed_at = now(); an
+// upsert restoring the stored hash (a hash-identical re-apply) returns it
+// to NULL — the ONLY erase path. New-row INSERTs stay NULL (a new file is
+// not a content change), touch-only refreshes never touch the column, a
+// no-change rescan writes nothing (stamp preserved), and a removed row
+// takes its stamp with it. The CASE reads the row's PRE-update hash, so it
+// must precede the content_hash assignment: Doltgres (unlike Postgres)
+// evaluates SET arms sequentially against the partially updated row —
+// with the assignment first, the comparison always sees the new hash and
+// the stamp never lands.
 func (s *PoolStore) ApplyDiff(ctx context.Context, upserts, touches []File, keepPaths []string) (int64, error) {
 	var last error
 	for i, wait := range applyRetryBackoff {
@@ -599,6 +631,8 @@ func (s *PoolStore) applyDiffOnce(ctx context.Context, upserts, touches []File, 
         tags = excluded.tags,
         mtime = excluded.mtime,
         size = excluded.size,
+        content_changed_at = CASE WHEN vault_files.content_hash = excluded.content_hash
+                                   THEN NULL ELSE now() END,
         content_hash = excluded.content_hash,
         summary = excluded.summary,
         last_indexed_at = now()`)

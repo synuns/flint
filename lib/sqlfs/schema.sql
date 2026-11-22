@@ -42,6 +42,11 @@
 -- (from_id)·(to_id) 인덱스, knowledge (superseded_by) 인덱스(재귀 뷰·
 -- 사이클 CTE 탐색 축). 기존 v13 DB는 EnsureSchemaV14 게이트가 적용
 -- (additive — FK 미사용, from/to 존재 검사는 쓰기 경로).
+-- v17(v1.22.0): 낡음 잔여 — vault_files.content_changed_at(스캔 디프
+-- 재점검 큐 스탬프)·knowledge.distilled_at(distill 출력 멱등 스탬프)
+-- 2열(NULL 허용)과 knowledge.conditions(수동 재검토 태그, NOT NULL
+-- DEFAULT ''). 기존 v16 DB는 EnsureSchemaV17 게이트가 적용(additive —
+-- DEFAULT 포함 ALTER, v11/v13 선례).
 -- 포트 5433 Doltgres 전용(ADR-0001). write는 INSERT 전용(projects 제외 UPDATE 금지).
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -77,7 +82,9 @@ CREATE TABLE IF NOT EXISTS knowledge (
     ingested_at  timestamptz NOT NULL DEFAULT now(),
     read_count   integer NOT NULL DEFAULT 0,  -- v4: 참조 횟수(신규 인덱스 없음)
     last_read_at timestamptz,                 -- v4: 최근 참조 시각
-    superseded_by int                         -- v5: 대체 지식 id(기본 NULL)
+    superseded_by int,                        -- v5: 대체 지식 id(기본 NULL)
+    distilled_at  timestamptz,                -- v17: distill 출력 완료 스탬프(기본 NULL — 미출력)
+    conditions    text NOT NULL DEFAULT ''    -- v17: 수동 재검토 조건 태그(해시 제외 — hashVolatile)
 );
 
 CREATE TABLE IF NOT EXISTS maintenance_runs (
@@ -218,7 +225,8 @@ CREATE TABLE IF NOT EXISTS vault_files (
     size            bigint NOT NULL,
     content_hash    text NOT NULL,
     summary         text NOT NULL DEFAULT '',
-    last_indexed_at timestamptz NOT NULL DEFAULT now()
+    last_indexed_at timestamptz NOT NULL DEFAULT now(),
+    content_changed_at timestamptz           -- v17: 스캔 디프 변경 스탬프(기본 NULL — 재점검 큐)
 );
 
 -- v16: duplicate-note detection axis (identical content under different paths).

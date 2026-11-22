@@ -63,6 +63,30 @@ session(episodic 기록) → maintain 세션에서 패턴 탐지
   `vol:immutable`(감쇠 면제 — effective=score 유지·last_recalled만 갱신)·
   `vol:conditional`(기존 감쇠 승계 — 조건부 지식임을 문서화로만 표시, 면제는 immutable만)·
   `vol:volatile`(기존 감쇠 배율 승계). 콜론 포맷은 사전 등록 전용 — 콜론이 든 사용자 태그 토큰은 거부된다(vol:*는 본 표 등록 태그로만 존재).
+- **변동성 자동 분류 제안**(v1.22.0 — `maintain --age-audit` 행의 `suggested_vol`,
+  제안 전용): topic·tags 키워드의 결정론 매핑으로 3계층 중 하나를 제안한다.
+
+  | 매칭 순서 | 키워드(topic+tags, 대소문자 무시 부분 일치) | 제안 |
+  |---|---|---|
+  | 1 | adr · decision · decided · history · immutable · 결정 · 역사 | `vol:immutable` |
+  | 2 | version · path · command · tool · 버전 · 경로 · 명령 · 도구 | `vol:volatile` |
+  | 3 | (미매칭 기본값) | `vol:conditional` |
+
+  다중 매칭은 **immutable > volatile > conditional** 고정 우선순위로 확정한다
+  (immutable급 행이 우연한 volatile 키워드로 강등되지 않는다). 제안은 보고
+  자료일 뿐 — `vol:immutable` 감쇠 면제의 자동 부여는 승인제 원칙과 충돌하므로
+  채택은 기존 write 승인 경로를 거친다(사전 3종 자체는 무변경).
+- **conditions 조건 태그**(v1.22.0 — 스키마 v17 `knowledge.conditions`):
+  `flint write` stdin의 선택 `conditions` 문자열(≤500런, 스키마 검증)이 행에
+  그대로 저장된다. 조건부 지식의 재검토 조건("Go 1.26 한정" 등)을 적어두는
+  칸으로, `maintain --recheck N`이 vol:* 계층과 함께 이 값을 보고한다.
+  conditions는 `hashVolatile` 제외 대상이다(valid_at·ts·relations 선례) —
+  같은 본문 ±conditions는 동일 해시로 중복 재전송 멱등이 유지된다.
+- **재확신(reaffirm) 처분**(v1.22.0): 여전히 참인 조건부 지식을 재검토했음을
+  기록하는 처분 — `maintain --reaffirm (--id N | --ids 1,2) --yes`가
+  `valid_at`을 now()로 리셋하고 `maintenance_runs`(kind=reaffirm)에 이력을
+  남긴다. 무효화(--invalidate)·병합(--merge)과 나란히 하는 세 번째 처분으로,
+  승인(`--yes`) 없이는 실행되지 않는다.
 
 ## 5. confidence 의미론
 

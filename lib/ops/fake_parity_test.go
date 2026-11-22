@@ -24,6 +24,7 @@ var _ MaintStore = (*fakeMaintStore)(nil)
 var _ ConflictStore = (*fakeMaintStore)(nil)
 var _ conflictStore = (*fakeMaintStore)(nil)
 var _ metaDeleteStore = (*fakeStore)(nil)
+var _ ReaffirmStore = (*reaffirmFakeStore)(nil) // v1.22.0 T3 — the reaffirm write extension (maintain_test.go)
 
 // fakeParityExcluded — the optional hook seams excluded from the discovered list.
 // SessionStartRecorder is designed so an unimplemented fake silently skips (only the
