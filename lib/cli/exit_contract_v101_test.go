@@ -43,6 +43,7 @@ var exitContractProbes = []exitProbe{
 	{"tuning", []string{"--bogus"}, 3, "서브커맨드 아님 → usage 3"},
 	{"diff", []string{"--bogus"}, 3, "위치 인자 흡수 → 인자 수 usage 3"},
 	{"export", []string{"--bogus"}, 3, "v1.3.0 T7 unknown flag"},
+	{"index", []string{"--bogus"}, 3, "v1.21.0 T3 unknown flag"},
 	// missing flag value — invalid-arg exit 3
 	{"approve", []string{"--id"}, 3, "F3 값 누락"},
 	{"audit", []string{"--limit"}, 3, "F3 값 누락"},

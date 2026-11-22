@@ -87,6 +87,29 @@ Read quality is the actual T1 deliverable and is not a PERF number:
 the rerank changes the within-window order (spec-mandated improvement,
 not byte-identical), guarded by the owning-package regression tests.
 
+### v1.21.0 A6 scan p95 (synthetic)
+
+Fixture: an isolated scratch DB on the compose Doltgres instance
+(`flint_perf_v1210`, dropped after the run) — 2,000 synthetic
+knowledge rows (md5-hashed unique bodies). The
+measured operations are the two A6-metered scans themselves
+(entry-to-return, the same spans `scan_stats` samples): the write-path
+echo scan (`EchoScan`) and the zero-hit read suggestion scan
+(`SuggestSimilarWithScanMax` over the `BuildSuggestScan` candidate
+set). 40 calls per kind per run, p95 nearest-rank ceil(0.95n)-1
+(HotP95), median of 3 runs:
+
+| Scan (synthetic 2k rows) | p95 (median of 3 runs) |
+|---|---|
+| `EchoScan` (write path) | 45.9ms (runs 43.6–49.3ms) |
+| `SuggestSimilarWithScanMax` (zero-hit read) | 9.1ms (runs 7.5–12.1ms) |
+
+The echo scan is the costlier path by construction — it scores all
+scanned rows against the incoming topic+summary on both gates (Dice
+multiset + topic-only), while the suggestion scan is one pass with a
+top-N cut. Both are bounded by `suggest_scan_cap` (5000 rows) and are
+suggestion-only (never block the write/read outcome).
+
 ## 3. Known limitations
 
 - **Doltgres does not support pg_trgm**, so `read`'s LIKE matching cannot

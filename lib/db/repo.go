@@ -784,7 +784,11 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 // links are audit data (knowledge lineage metadata — the recall_events
 // precedent), table-only staging; the bigserial's knowledge_links_id_seq
 // stays unstaged by the same harmless-residue ruling above.
-var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events", "knowledge_links"}
+// Ruling including vault_files (v1.21.0 schema v16): the vault index is
+// audit data (a recall-domain source snapshot — the same recall_events
+// precedent; one scan batch = one audit commit), table-only staging;
+// vault_files_id_seq stays unstaged by the same harmless-residue ruling.
+var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events", "knowledge_links", "vault_files"}
 
 // telemetryStageTables — the staging targets of the metering-only
 // commit (CommitTelemetry). The schema v13 observability tables

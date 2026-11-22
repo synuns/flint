@@ -1484,7 +1484,9 @@ var metaKnownKeys = buildMetaKnownKeys()
 // kept in sync by name; a pre-existing hygiene false positive) and the ops-side
 // gate stamps derived from meteringFreshnessGateKeys (doctor.go — one list, two
 // consumers, no duplicate to drift). Resolves doctor warning about its own gate
-// stamps as unknown keys (v1.19.4 R80-1).
+// stamps as unknown keys (v1.19.4 R80-1). The v1.21.0 vault-bridge keys
+// (vault_path·vault_last_scan from `flint index`, scan_stats from the A6 scan
+// p95 metering) are flint-owned meta surfaces — same self-contradiction class.
 func buildMetaKnownKeys() map[string]bool {
 	m := map[string]bool{
 		"schema_version": true, "views_hash": true, "views_sig": true,
@@ -1494,6 +1496,9 @@ func buildMetaKnownKeys() map[string]bool {
 		"session_knowledge_last": true, "recall_starved_count": true,
 		"last_brief_at":        true, // instant (spec §1.3 — resolving the brief time-key unknown false positive)
 		"last_events_prune_at": true, // db read-cleanup gate stamp (usage.go pruneReadGateKey)
+		"vault_path":           true, // v1.21.0 T3 — the persisted `flint index --vault` root
+		"vault_last_scan":      true, // v1.21.0 T3 — the index stats snapshot (the status vault row source)
+		"scan_stats":           true, // v1.21.0 A6 — the {echo,suggest}{calls,p95} metering baseline
 	}
 	for _, k := range meteringFreshnessGateKeys {
 		m[k] = true

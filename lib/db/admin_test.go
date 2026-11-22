@@ -941,9 +941,10 @@ func TestV14GateUpgradeFromV13(t *testing.T) {
 
 // TestV14FreshSchemaDirect — the fresh-install path: recreating with the
 // real schema.sql + running the gate chain v2→LatestSchemaVersion in
-// order reaches the v15 terminus (knowledge_links + its indexes + the
-// superseded_by index + the v15 unique triple seal present without any
-// gate DDL — the fresh-creation terminus contract).
+// order reaches the v16 terminus (knowledge_links + its indexes + the
+// superseded_by index + the v15 unique triple seal + the v16 vault_files
+// table present without any gate DDL — the fresh-creation terminus
+// contract).
 func TestV14FreshSchemaDirect(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
@@ -953,7 +954,7 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 	ctx := context.Background()
 	for _, stmt := range []string{
 		`DROP VIEW IF EXISTS active_knowledge, hot_view`,
-		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events, threshold_snapshots, weekly_rollups, knowledge_links`,
+		`DROP TABLE IF EXISTS read_events, session_starts, hot_events, knowledge_reads, recall_events, threshold_snapshots, weekly_rollups, knowledge_links, vault_files`,
 		`DELETE FROM meta WHERE key = 'schema_version'`,
 	} {
 		if _, err := r.pool.Exec(ctx, stmt); err != nil {
@@ -968,8 +969,8 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 			t.Fatalf("게이트 체인 v%d: %v", gate.Version, err)
 		}
 	}
-	if v := readVersion(t, r); v != "15" {
-		t.Fatalf("게이트 체인 후 schema_version = %q, want 15 (v1.20.1 상향)", v)
+	if v := readVersion(t, r); v != "16" {
+		t.Fatalf("게이트 체인 후 schema_version = %q, want 16 (v1.21.0 상향)", v)
 	}
 	v14GateArtifacts(t, r, ctx)
 	// v1.20.1: the fresh terminus carries the unique triple seal — a
@@ -989,5 +990,130 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 		`INSERT INTO knowledge_links (from_id, to_id, relation) VALUES ($1, $2, 'refines')`,
 		ids[0], ids[1]); err == nil {
 		t.Fatal("fresh seal 중복 triple INSERT 허용 — 유니크 봉인 부재")
+	}
+	// v1.21.0: the fresh terminus carries vault_files — the v16 gate's
+	// artifacts (table·NOT NULL columns·defaults·UNIQUE path·(content_hash)
+	// index) present without any gate DDL.
+	v16GateArtifacts(t, r, ctx)
+}
+
+// TestAuditStageTablesV16 — vault_files joins the audit staging list
+// (audit data, not metering — the vault index is a recall-domain source
+// snapshot, the recall_events ruling precedent). Table-only ruling: the
+// bigserial's vault_files_id_seq stays unstaged everywhere (the
+// auditStageTables sequence ruling — display-only·harmless residue).
+func TestAuditStageTablesV16(t *testing.T) {
+	found := false
+	for _, cur := range auditStageTables {
+		if cur == "vault_files" {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Error("auditStageTables에 vault_files 부재 — v16 감사 테이블 미스테이징")
+	}
+	for _, cur := range telemetryStageTables {
+		if cur == "vault_files" {
+			t.Error("vault_files가 telemetry 스테이징에 포함 — 계측 테이블 아님")
+		}
+	}
+	for _, cur := range telemetryStageSeqs {
+		if cur == "vault_files_id_seq" {
+			t.Error("vault_files_id_seq가 telemetry 스테이징에 포함 — 잔류-무해 룰링 위반")
+		}
+	}
+}
+
+// v16GateArtifacts — the schema v16 artifact assertions shared by the
+// upgrade (v15→v16) and fresh-direct paths: the vault_files table (all
+// 8 declared columns NOT NULL — tags·summary·last_indexed_at via
+// DEFAULT), the (content_hash) index, the path UNIQUE constraint
+// enforced, and a functional pointer row reading back with the DEFAULTs
+// surfacing (tags ''·summary ''·last_indexed_at now).
+func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
+	t.Helper()
+	assertObject(t, r, ctx, "vault_files")
+	// the (content_hash) index — the duplicate-note detection axis.
+	var idx int
+	if err := r.pool.QueryRow(ctx,
+		`SELECT count(*) FROM pg_indexes
+		 WHERE tablename = 'vault_files' AND indexname = 'idx_vault_files_content_hash'`).
+		Scan(&idx); err != nil {
+		t.Fatalf("vault_files 인덱스 조회: %v", err)
+	}
+	if idx < 1 {
+		t.Fatalf("idx_vault_files_content_hash 부재 — (content_hash) 인덱스 계약 위반")
+	}
+	// every declared column is NOT NULL (the three DEFAULT columns carry
+	// their values, not NULLability).
+	for _, col := range []string{"path", "title", "tags", "mtime", "size", "content_hash", "summary", "last_indexed_at"} {
+		var nullable string
+		if err := r.pool.QueryRow(ctx,
+			`SELECT is_nullable FROM information_schema.columns
+			 WHERE table_name = 'vault_files' AND column_name = $1`, col).
+			Scan(&nullable); err != nil {
+			t.Fatalf("vault_files.%s 조회: %v", col, err)
+		}
+		if nullable != "NO" {
+			t.Fatalf("vault_files.%s is_nullable=%q, want NO", col, nullable)
+		}
+	}
+	// Functional spot — a synthetic demo pointer row with the DEFAULTs
+	// surfacing (no personal vault paths — the synthetic-fixture rule).
+	mtime := time.Date(2026, 11, 23, 1, 2, 3, 0, time.UTC)
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO vault_files (path, title, mtime, size, content_hash)
+		 VALUES ('demo/notes/first.md', 'Demo First', $1, 128, 'sha256-v16-a')`, mtime); err != nil {
+		t.Fatalf("vault_files 적립: %v", err)
+	}
+	var tags, summary, contentHash string
+	var lastIndexed time.Time
+	if err := r.pool.QueryRow(ctx,
+		`SELECT tags, summary, content_hash, last_indexed_at FROM vault_files
+		 WHERE path = 'demo/notes/first.md'`).
+		Scan(&tags, &summary, &contentHash, &lastIndexed); err != nil {
+		t.Fatalf("vault_files 조회: %v", err)
+	}
+	if tags != "" || summary != "" || contentHash != "sha256-v16-a" || lastIndexed.IsZero() {
+		t.Fatalf("vault_files 행 = (%q,%q,%q,%v), want DEFAULT ''·''·now 계약",
+			tags, summary, contentHash, lastIndexed)
+	}
+	// path UNIQUE enforced — the scan-diff UPSERT axis.
+	if _, err := r.pool.Exec(ctx,
+		`INSERT INTO vault_files (path, title, mtime, size, content_hash)
+		 VALUES ('demo/notes/first.md', 'Demo Dup', $1, 64, 'sha256-v16-b')`, mtime); err == nil {
+		t.Fatal("vault_files 중복 path INSERT 허용 — UNIQUE 계약 위반")
+	}
+}
+
+// TestV16GateUpgradeFromV15 — promotes a reproduced v15 DB to v16: the
+// vault_files table + its (content_hash) index created·version 16·the
+// rerun idempotent (the additive protocol — existing tables·data
+// unchanged).
+func TestV16GateUpgradeFromV15(t *testing.T) {
+	r := newTestRepo(t)
+	ctx := context.Background()
+	// Reproduce a faithful v15 DB — remove the v16 artifacts the fresh
+	// schema.sql terminus already carries (dropping the table removes its
+	// indexes too).
+	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS vault_files`); err != nil {
+		t.Fatalf("v15 재현 vault_files 삭제: %v", err)
+	}
+	setVersion(t, r, "15")
+
+	if err := r.EnsureSchemaV16(ctx); err != nil {
+		t.Fatalf("first EnsureSchemaV16: %v", err)
+	}
+	if v := readVersion(t, r); v != "16" {
+		t.Fatalf("schema_version = %q, want 16", v)
+	}
+	v16GateArtifacts(t, r, ctx)
+	// The rerun is idempotent — version 16 kept·no error.
+	if err := r.EnsureSchemaV16(ctx); err != nil {
+		t.Fatalf("second EnsureSchemaV16 (want idempotent): %v", err)
+	}
+	if v := readVersion(t, r); v != "16" {
+		t.Fatalf("재호출 후 schema_version = %q, want 16", v)
 	}
 }

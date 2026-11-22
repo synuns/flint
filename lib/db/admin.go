@@ -855,6 +855,70 @@ func (r *Repo) ensureSchemaV15(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV16 losslessly promotes a DB with
+// meta.schema_version<16 to 16 (v1.21.0 vault bridge — additive): the
+// vault_files pointer-snapshot table (one row per vault .md file — the
+// original text is never copied; path UNIQUE is the scan-diff UPSERT
+// axis; content_hash is the sha256 of the raw bytes, deliberately
+// distinct from the knowledge normalized hash) with its (content_hash)
+// index — the duplicate-note detection axis (identical content under
+// different paths). An audit staging target (auditStageTables — the
+// recall_events ruling precedent: the vault index is a recall-domain
+// source). Existing tables·views·data unchanged. Already v16+ is a
+// no-op (the numeric-comparison short circuit), idempotent on any DB
+// that passed the v1~v15 gates.
+func (r *Repo) EnsureSchemaV16(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV16(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV16(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v16: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // fresh DB (tables absent) — the fresh-creation path carries the v16 terminus
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 16 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v16: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`CREATE TABLE IF NOT EXISTS vault_files (
+		    id              bigserial PRIMARY KEY,
+		    path            text NOT NULL UNIQUE,
+		    title           text NOT NULL,
+		    tags            text NOT NULL DEFAULT '',
+		    mtime           timestamptz NOT NULL,
+		    size            bigint NOT NULL,
+		    content_hash    text NOT NULL,
+		    summary         text NOT NULL DEFAULT '',
+		    last_indexed_at timestamptz NOT NULL DEFAULT now()
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_vault_files_content_hash
+		 ON vault_files (content_hash)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v16: create: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '16')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v16: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v16: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve promotes pending knowledge to active (spec §8: approval =
 // flint approve). Approval is a valid confirmation, so it also clears
 // any residual invalid_at — defense against the defect where
@@ -913,6 +977,12 @@ func (r *Repo) Merge(ctx context.Context, fromID, toID int) error {
 	if err != nil {
 		return err
 	}
+	// R90 (v1.21.0): a panic in the lock-held body (or anywhere below)
+	// would leak the advisory lock — the deferred release runs on the
+	// unwind too (the SetSupersededRef convention). The unlock is
+	// idempotent, so coexisting with the explicit release below (and the
+	// callers' deferred release) is a no-op.
+	defer unlock()
 	err = r.mergeUnderSupersedeLock(ctx, exec, query, fromID, toID)
 	// The dolt commit is pool-based: it runs AFTER the lock release —
 	// under the lock, a pool of MaxConns lock waiters leaves no slot to

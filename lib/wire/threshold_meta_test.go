@@ -48,6 +48,8 @@ var frozenThresholdKeys = []string{
 	"echo_top_k", "echo_min_score", "echo_topic_match",
 	// the schema v13 observability keys (v1.19.0 — rollup·snapshot retention, metering freshness)
 	"weekly_rollups_retention_days", "threshold_snapshots_retention_days", "metering_freshness_warn_h",
+	// the vault-bridge keys (v1.21.0 — schema v16 vault_files: scan cap, summary runes, skip dirs)
+	"vault_scan_max_files", "vault_summary_max_runes", "vault_skip_dirs",
 }
 
 // TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults
@@ -265,6 +267,12 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 				t.Errorf("%q: 등록표 기본값 %v != store 기본값 %v", m.Key, m.Default, fv.Float())
 			}
 			sentinel = "0.5"
+		case reflect.String:
+			// v1.21.0 vault_skip_dirs — the first string-valued key family.
+			if d, ok := m.Default.(string); !ok || d != fv.String() {
+				t.Errorf("%q: 등록표 기본값 %v != store 기본값 %q", m.Key, m.Default, fv.String())
+			}
+			sentinel = "zz-sentinel-probe"
 		default:
 			t.Errorf("%q: 미지원 필드 타입 %v", m.Key, fv.Kind())
 			continue
@@ -283,6 +291,10 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 		case reflect.Float64:
 			if pv.Float() != 0.5 {
 				t.Errorf("%q: Parse 미인식(반영값 %v)", m.Key, pv.Float())
+			}
+		case reflect.String:
+			if pv.String() != "zz-sentinel-probe" {
+				t.Errorf("%q: Parse 미인식(반영값 %q)", m.Key, pv.String())
 			}
 		}
 	}
@@ -309,6 +321,8 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 			want = fmtInt(d)
 		case float64:
 			want = fmtFloat(d)
+		case string:
+			want = d
 		}
 		if info.Default != want {
 			t.Errorf("%q: Default=%q, want 등록표 기본값 표기 %q", m.Key, info.Default, want)

@@ -123,10 +123,53 @@ func StatusWindowedBytes(ctx context.Context, st wire.Store, days int) (hotBytes
 	return hotBytes, readBytes
 }
 
+// statusV1210Output — the vault index row (v1.21.0). The last index time,
+// file count, and changed count ride on meta 'vault_last_scan' (JSON written
+// by `flint index`). Existing keys and order unchanged (additive append —
+// the statusV0180Output precedent). Absent/corrupt payloads are null/0/0 (a
+// metering indication — it must not break status).
+type statusV1210Output struct {
+	statusV0180Output
+	VaultIndexedAt *string `json:"vault_indexed_at"`
+	VaultFiles     int     `json:"vault_files"`
+	VaultChanged   int     `json:"vault_changed"`
+}
+
+// vaultLastScanRow — reads meta 'vault_last_scan' into the status vault row.
+// Missing, corrupt (non-JSON), or failing lookups degrade to nil/0/0 (the
+// same principle as lastSeenOrNull). The RFC3339 'at' is surfaced as-is; a
+// non-RFC3339 value is dropped to null (the last_* parsing rule).
+func vaultLastScanRow(getKV func(string, string) (string, error)) (*string, int, int) {
+	v, err := getKV("vault_last_scan", "")
+	if err != nil || v == "" {
+		return nil, 0, 0
+	}
+	var ls struct {
+		At      string `json:"at"`
+		Files   int    `json:"files"`
+		Changed int    `json:"changed"`
+	}
+	if json.Unmarshal([]byte(v), &ls) != nil {
+		return nil, 0, 0
+	}
+	if _, perr := time.Parse(time.RFC3339, strings.TrimSpace(ls.At)); perr != nil {
+		ls.At = ""
+	}
+	if ls.At == "" {
+		return nil, ls.Files, ls.Changed
+	}
+	at := strings.TrimSpace(ls.At)
+	return &at, ls.Files, ls.Changed
+}
+
 // statusAsOfOutput — the output when --as-of is given. Embeds the existing StatusOutput
 // fields, keeping the key order and appending as_of{hash,commit_date} at the end.
 // From v0.9.6 it embeds statusV096Output (ending in read_fallback_calls); from v0.18.0,
 // statusV0180Output (ending in the windowed read metrics).
+// From v1.21.0 the non-as-of output embeds statusV1210Output (ending in the vault
+// row); the as-of output keeps statusV0180Output — the vault row is a CURRENT-state
+// meta indication, so it is not mixed into a past-snapshot report (the current-state
+// metering principle — as-of counts snapshot, meta stays current).
 // The as_of shape is identical to read --as-of (asOfInfo) — consumers parse one form
 // (spec §1 "as_of hash/time", consistent with the e2e asOfHash). StatusOutput itself is unchanged
 // (unspecified means the output is unchanged — inheriting the last_* principle).
@@ -308,10 +351,13 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			ReadBytesP95: readBytesP95, HotBytesP95: hotBytesP95},
 			AsOf: knowledge.AsOfInfo{Hash: asOfHash, CommitDate: asOfDate}})
 	} else {
-		b, _ = json.Marshal(statusV0180Output{statusV096Output: base,
+		// the vault index row — current-state meta, appended after the existing keys.
+		vAt, vFiles, vChanged := vaultLastScanRow(getKV)
+		b, _ = json.Marshal(statusV1210Output{statusV0180Output: statusV0180Output{statusV096Output: base,
 			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays,
 			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes,
-			ReadBytesP95: readBytesP95, HotBytesP95: hotBytesP95})
+			ReadBytesP95: readBytesP95, HotBytesP95: hotBytesP95},
+			VaultIndexedAt: vAt, VaultFiles: vFiles, VaultChanged: vChanged})
 	}
 	fmt.Fprintln(stdout, string(b))
 	return 0

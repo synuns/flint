@@ -54,13 +54,16 @@ func TuningKeys() []TuningKeyInfo {
 }
 
 // thresholdFormatValue — the notation convention for registry defaults (any) (int, float64 —
-// inheriting the i()/f() format of the previous TuningKeys).
+// inheriting the i()/f() format of the previous TuningKeys; string since v1.21.0 — the
+// vault_skip_dirs string-key family, passed through verbatim).
 func thresholdFormatValue(v any) string {
 	switch x := v.(type) {
 	case int:
 		return strconv.Itoa(x)
 	case float64:
 		return strconv.FormatFloat(x, 'f', -1, 64)
+	case string:
+		return x
 	}
 	return ""
 }

@@ -497,6 +497,15 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01203Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.20.3", "r89",
 	}},
+	// v1.21.0 T6: vault-bridge-index 마일스톤 계약행 — 스키마 v16
+	// (vault_files 포인터 스냅숏·인덱스)·`flint index`(스냅숏-디프·배치
+	// 1커밋·meta vault_path/vault_last_scan)·read vault 통합(지식 결과
+	// 불변·상한 5·source:"vault"·vault_hits)·A6 스캔 p95(scan_stats)·
+	// thresholds 3종(vault_scan_max_files·vault_summary_max_runes·
+	// vault_skip_dirs)·R90 Merge defer 경화.
+	{name: "TestVersion01210Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.21.0", "vault-bridge-index",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

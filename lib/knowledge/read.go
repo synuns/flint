@@ -668,15 +668,43 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	// boundary. Sanitization converges on the render choke point
 	// (render.Cells).
 	rows = render.Cells(rows)
+	// v1.21.0 T4 — the vault bridge fusion: a separate q-based vault_files
+	// query appends up to VaultMaxRows vault rows AFTER the knowledge rows
+	// (a pure append — the knowledge row set·mutual ranking·serialization
+	// are fully unchanged; vault rows never reorder or replace knowledge
+	// output). Every metering below (read_events hits·zero·ZeroReason·
+	// BumpReads·recall·gap) stays on the knowledge domain — a vault hit
+	// never flips the zero verdict. Under --as-of the knowledge rows time
+	// travel but the vault rows reflect the CURRENT vault_files state
+	// (vault point-in-time travel is unsupported — spec M2). Query failure
+	// is quiet (§13): the knowledge result never depends on the bridge.
+	var vaultRows [][]any
+	if q != "" {
+		vsql, vargs := query.BuildVaultRead(q)
+		if vrows, verr := wire.QueryOnce(ctx, st, vsql, vargs); verr == nil {
+			vaultRows = render.Cells(vrows)
+			// App-side cap — defense in depth over the SQL LIMIT (the token budget).
+			if len(vaultRows) > query.VaultMaxRows {
+				vaultRows = vaultRows[:query.VaultMaxRows]
+			}
+		}
+	}
 	// Silence contract: an eligible (present-point·stateless-filter)
 	// zero-hit is fully silent — FormatRows returns "" for empty rows
 	// anyway, so no separate branch is needed. Suggestion lines are
-	// abolished (zero hit rows 0 + silent scan).
+	// abolished (zero hit rows 0 + silent scan). v1.21.0 T4 exception: a
+	// zero-hit WITH vault hits is no longer silent — the appended vault
+	// rows are the bridge's purpose (the knowledge silence itself is
+	// unchanged: no knowledge row is ever printed for a zero-hit).
 	out := query.FormatRows(rows, fields, jsonMode)
-	fmt.Fprint(stdout, out)
+	// Vault rows are appended strictly after the knowledge block (the
+	// invariance contract — the knowledge serialization stays
+	// byte-identical with and without vault data).
+	vaultOut := query.FormatVaultRows(vaultRows, jsonMode)
+	fmt.Fprint(stdout, out+vaultOut)
 	// With --as-of, append a one-line as_of{hash,commit_date} (JSON) after
 	// the results. Without it, only the existing fields.
-	byteLen := len(out) // G5: total written to io.Writer (UTF-8 bytes)
+	byteLen := len(out) + len(vaultOut) // G5: total written to io.Writer (UTF-8 bytes)
 	// A --json zero-hit is a one-line {"hits":0} — the caller
 	// machine-reads the hit count (text mode keeps the existing full
 	// silence). Byte metering inherits the as_of line convention (included
@@ -685,6 +713,16 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 		b, _ := json.Marshal(ZeroHitLine{Hits: 0})
 		fmt.Fprintln(stdout, string(b))
 		byteLen += len(b) + 1 // the hits line (+newline) is also part of the total written
+	}
+	// v1.21.0 T4 — the vault row count disclosure (--json): the knowledge
+	// hits invariance principle keeps hits (and the zero-hit {"hits":0}
+	// line) on the knowledge domain, so the vault count is a separate
+	// additive field — never folded into hits (inheriting the additive
+	// one-line attachment convention). Text mode keeps the row lines only.
+	if jsonMode && len(vaultRows) > 0 {
+		b, _ := json.Marshal(VaultHitsLine{VaultHits: len(vaultRows)})
+		fmt.Fprintln(stdout, string(b))
+		byteLen += len(b) + 1 // the vault_hits line (+newline) is also part of the total written
 	}
 	// --limit cap clamp notice — when the request exceeds ClampLimit (50),
 	// disclose it as one additive-field line (limit_requested·
@@ -872,6 +910,14 @@ type ZeroHitLine struct {
 type LimitClampLine struct {
 	LimitRequested int `json:"limit_requested"`
 	LimitApplied   int `json:"limit_applied"`
+}
+
+// VaultHitsLine — the one-line --json vault row count (v1.21.0 T4): the
+// knowledge hits invariance principle keeps hits on the knowledge domain,
+// so the appended vault row count is disclosed as a separate additive
+// field (printed only when vault rows exist).
+type VaultHitsLine struct {
+	VaultHits int `json:"vault_hits"`
 }
 
 // asOfErrLine — assembles the one-line {error,message} JSON (a local

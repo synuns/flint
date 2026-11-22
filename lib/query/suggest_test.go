@@ -11,6 +11,7 @@ package query
 import (
 	"math"
 	"testing"
+	"time"
 
 	"github.com/synuns/flint/lib/store"
 )
@@ -98,6 +99,46 @@ func TestSuggestSimilarCompatDelegates(t *testing.T) {
 	for i := range got {
 		if got[i] != withMax[i] {
 			t.Fatalf("SuggestSimilar[%d] = %v, want %v(위임 결과 동일)", i, got[i], withMax[i])
+		}
+	}
+}
+
+// TestSuggestSimilarRecordsScanDuration — v1.21.0 A6: the wired
+// RecordSuggestScanFn seam records exactly one non-negative duration per
+// scan (SuggestSimilar's delegation records once — not twice), and the
+// suggestions/scanMax stay identical with the seam on vs off (§13).
+func TestSuggestSimilarRecordsScanDuration(t *testing.T) {
+	resetSuggestThresholds(t)
+	SetSuggestThresholds(0.2, 5000)
+
+	var got []time.Duration
+	RecordSuggestScanFn = func(d time.Duration) { got = append(got, d) }
+	t.Cleanup(func() { RecordSuggestScanFn = nil })
+
+	sugOn, maxOn := SuggestSimilarWithScanMax("abxy", scanMaxRows(), 3)
+	if len(got) != 1 {
+		t.Fatalf("기록 샘플 %d건, want 1(스캔 1회)", len(got))
+	}
+	if got[0] < 0 {
+		t.Fatalf("기록 음수 duration: %v", got[0])
+	}
+
+	got = nil
+	if legacy := SuggestSimilar("abxy", scanMaxRows(), 3); len(legacy) != 2 {
+		t.Fatalf("legacy 위임 결과 %d건, want 2", len(legacy))
+	}
+	if len(got) != 1 {
+		t.Fatalf("위임 경로 기록 %d건, want 1(이중 계측 금지)", len(got))
+	}
+
+	RecordSuggestScanFn = nil
+	sugOff, maxOff := SuggestSimilarWithScanMax("abxy", scanMaxRows(), 3)
+	if math.Abs(maxOn-maxOff) > 1e-9 || len(sugOn) != len(sugOff) {
+		t.Fatalf("결과 변동: (%v, %d) vs (%v, %d)(계측이 결과에 끼면 안 됨)", maxOn, len(sugOn), maxOff, len(sugOff))
+	}
+	for i := range sugOn {
+		if sugOn[i] != sugOff[i] {
+			t.Fatalf("suggestion[%d] 변동: %v vs %v", i, sugOn[i], sugOff[i])
 		}
 	}
 }

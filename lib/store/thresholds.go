@@ -95,6 +95,13 @@ type Thresholds struct {
 	WeeklyRollupsRetentionD      int // default 90 — the weekly_rollups retention (days, the *_retention_days convention)
 	ThresholdSnapshotsRetentionD int // default 90 — the threshold_snapshots retention (days)
 	MeteringFreshnessWarnH       int // default 336 — the metering-freshness warning hours (14 days, aligned with the events retention default)
+	// the vault-bridge keys (v1.21.0 — the schema v16 vault_files index):
+	// the per-scan .md file cap, the summary truncation runes, and the
+	// comma-separated skip-dir list (the first string-valued key family —
+	// unset keeps "" and the consumer falls back to DefaultThresholds).
+	VaultScanMaxFiles    int    // default 10000 — the per-scan vault .md file cap
+	VaultSummaryMaxRunes int    // default 200 — the summary truncation (TruncateRunes)
+	VaultSkipDirs        string // default ".obsidian,.trash" — comma-separated skip dirs
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -176,6 +183,12 @@ const (
 	defaultWeeklyRollupsRetentionD      = 90
 	defaultThresholdSnapshotsRetentionD = 90
 	defaultMeteringFreshnessWarnH       = 336
+	// the vault-bridge defaults (v1.21.0): the skip dirs follow the
+	// Obsidian default hidden dir + the trash folder (synthetic defaults —
+	// personal vault layouts live only in meta overrides).
+	defaultVaultScanMaxFiles    = 10000
+	defaultVaultSummaryMaxRunes = 200
+	defaultVaultSkipDirs        = ".obsidian,.trash"
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -246,6 +259,11 @@ func DefaultThresholds() Thresholds {
 		WeeklyRollupsRetentionD:      defaultWeeklyRollupsRetentionD,
 		ThresholdSnapshotsRetentionD: defaultThresholdSnapshotsRetentionD,
 		MeteringFreshnessWarnH:       defaultMeteringFreshnessWarnH,
+		// the vault-bridge keys (the consumer fallback basis — the string
+		// key's unset sentinel is "" and falls back here too).
+		VaultScanMaxFiles:    defaultVaultScanMaxFiles,
+		VaultSummaryMaxRunes: defaultVaultSummaryMaxRunes,
+		VaultSkipDirs:        defaultVaultSkipDirs,
 	}
 }
 
@@ -415,6 +433,19 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// unset keeps 0 (the convention — the consumer, doctor
 			// metering-freshness, falls back via the DefaultThresholds basis).
 			th.MeteringFreshnessWarnH = parseIntOrDefault(val, defaultMeteringFreshnessWarnH, ks)
+		case "vault_scan_max_files":
+			// unset keeps 0 (the convention — the consumer, the vault scan,
+			// falls back via the DefaultThresholds basis).
+			th.VaultScanMaxFiles = parseIntOrDefault(val, defaultVaultScanMaxFiles, ks)
+		case "vault_summary_max_runes":
+			// unset keeps 0 (the convention — the consumer, the vault summary
+			// truncation, falls back via the DefaultThresholds basis).
+			th.VaultSummaryMaxRunes = parseIntOrDefault(val, defaultVaultSummaryMaxRunes, ks)
+		case "vault_skip_dirs":
+			// unset keeps "" (the string analog of the unset-keeps-0
+			// convention — the consumer falls back to DefaultThresholds; any
+			// string value, empty included, passes through verbatim).
+			th.VaultSkipDirs = parseStringOrDefault(val, defaultVaultSkipDirs, ks)
 		}
 	}
 	return th, nil
@@ -472,6 +503,21 @@ func parseFloatPositive(val any, def float64, key string) float64 {
 		return def
 	}
 	return f
+}
+
+// parseStringOrDefault — string parsing (v1.21.0 vault_skip_dirs — the
+// first string-valued key family): a toString-unsupported value type
+// gives the default + a warning; any string value (empty included — the
+// legal "no skip dirs" override) passes through verbatim. The unset
+// sentinel is "" and the consumer falls back to DefaultThresholds (the
+// unset-keeps-0 convention's string analog).
+func parseStringOrDefault(val any, def string, key string) string {
+	s, ok := toString(val)
+	if !ok {
+		log.Printf("[flint] thresholds: %s value type mismatch (%v) — default %s", key, val, def)
+		return def
+	}
+	return s
 }
 
 func parseFloatOrDefault(val any, def float64, key string) float64 {
