@@ -660,10 +660,12 @@ func tuningWhatIf(ctx context.Context, st wire.Store, key, val string, stdout io
 	scores := make([]float64, 0, len(drows))
 	for _, r := range drows {
 		if len(r) == 1 {
-			// NaN/Inf cells skip (r101-1): a stored numeric NaN would
-			// otherwise ride the slice into json.Marshal and fail the whole
-			// output — the remaining finite distribution still ranks.
-			if s, ok := tuningCellFloat(r[0]); ok && !math.IsNaN(s) && !math.IsInf(s, 0) {
+			// NaN/Inf and out-of-domain cells skip (r101-1, r102-3): a
+			// stored numeric NaN would otherwise ride the slice into
+			// json.Marshal and fail the whole output, and near_score is a
+			// [0,1] score — a cell outside the domain never ranks into
+			// p50/p90; the remaining in-domain distribution still ranks.
+			if s, ok := tuningCellFloat(r[0]); ok && !math.IsNaN(s) && !math.IsInf(s, 0) && s >= 0 && s <= 1 {
 				scores = append(scores, s)
 			}
 		}

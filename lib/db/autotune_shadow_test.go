@@ -807,4 +807,30 @@ func TestShadowCounterCorruptReset(t *testing.T) {
 	if n := len(shadowPredictions(t, r, "suggest_min_score")); n != 1 {
 		t.Fatalf("오염 경과 예측 행 %d건, want 1", n)
 	}
+
+	// r102-1 — the digit bound: an oversized numeric counter text (26
+	// nines — far beyond int8) is the same pollution class as non-numeric
+	// text. The old guard '^[0-9]+$' matched it, the ::bigint cast
+	// overflowed, and the failed batch left the gate unstamped; the bound
+	// '^[0-9]{1,18}$' routes it to the reset branch like any other
+	// corrupt text.
+	big := strings.Repeat("9", 26)
+	setShadowMeta(t, r, "fired_auto_auto_zero_near_high", big)
+	setShadowMeta(t, r, "auto_rounds_suggest_min_score", big)
+	fireRound(t, r)
+	if got := shadowMetaVal(t, r, "fired_auto_auto_zero_near_high"); got != "1" {
+		t.Fatalf("26자리 fired 카운터 = %q, want \"1\"(자릿수 상한 리셋)", got)
+	}
+	if got := shadowMetaVal(t, r, "auto_rounds_suggest_min_score"); got != "1" {
+		t.Fatalf("26자리 auto_rounds 카운터 = %q, want \"1\"(자릿수 상한 리셋)", got)
+	}
+	stamp, err := time.Parse(time.RFC3339, shadowMetaVal(t, r, "last_shadow_at"))
+	if err != nil {
+		t.Fatalf("26자리 경과 게이트 스탬프 미기록: %q", shadowMetaVal(t, r, "last_shadow_at"))
+	}
+	// the round restamped the gate (not the 25h-backdated reopen value a
+	// failed batch would leave behind).
+	if time.Since(stamp) > 10*time.Minute {
+		t.Fatalf("26자리 경과 게이트 스탬프 미갱신(배치 실패 잔존): %s", stamp)
+	}
 }
