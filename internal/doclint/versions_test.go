@@ -536,6 +536,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01230Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.23.0", "autotune-shadow",
 	}},
+	// v1.23.1 패치 계약행 — r100-r101: 라운드 계수 분리(auto_rounds_)·
+	// 경계 발화 fired bump·near_score 도메인 가드.
+	{name: "TestVersion01231Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.23.1", "r100-r101",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

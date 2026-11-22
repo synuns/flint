@@ -144,7 +144,7 @@ line through the existing set/reset standard path above.
 | `vault_skip_dirs` | ".obsidian,.trash" | vault scan skip-dir list (v1.21.0) — a **string key** (the first string-valued key family; the value is a **comma-separated dir-name list**, e.g. `.obsidian,.trash,drafts`), matched by path segment during the scan. Unset keeps "" and the consumer falls back to DefaultThresholds (the unset-keeps-0 string analogue). Personal vault layouts live only in meta overrides | `flint index` scan skip |
 | `distill_min_score` | 1.0 | recall-score floor of `flint distill` (v1.22.0, ADR-0018) — only never-distilled active rows with `recall_score >= distill_min_score` are emitted; the `--min-score N` flag takes precedence over this key, which in turn replaces the code default. The score is a **raw recall count** (ADR-0018 decision 3 — values above 1 are normal), and the default 1.0 means "at least one surviving recall" — distill is for curated, recall-proven knowledge, so freshly written rows stay out until recalled. A stored 0 is the **unset sentinel**, not "no floor" — no-floor exists only through the `--min-score 0` flag (v1.22.1 r97-2 correction). Raising it tightens the insight bar; lowering it admits unrecalled rows (not recommended) | `flint distill` score floor |
 | `distill_max_runes` | 20000 | per-run insights file rune cap of `flint distill` (v1.22.1 r97, ADR-0018) — the whole file (header included) is bounded; rows are appended whole, the first row past the cap and everything after it stay unstamped and defer to the next run (a "N rows deferred" stderr notice — no silent drop). 0 cannot be a meaningful cap, so the consumer applies values > 0 only (the unset-keeps-0 convention) | `flint distill` file cap |
-| `auto_mode` | `off` | the autonomous-tuning master switch (v1.23.0): `off` = zero shadow cost (the default — an unconfigured deployment never runs a round), `shadow` = predict-and-record rounds, **never an applied override** (the apply phase is the v1.24.0 gate). Set via `flint tuning auto off\|shadow`; switching back to off **keeps** the streaks · fired counters · gate stamp (resuming continues) | shadow rounds (see the v1.23.0 subsection) |
+| `auto_mode` | `off` | the autonomous-tuning master switch (v1.23.0): `off` = steady-state 0 queries with a cold start of 1 batched gate read per hour (the r100-2 correction — the default never runs a round), `shadow` = predict-and-record rounds, **never an applied override** (the apply phase is the v1.24.0 gate). Set via `flint tuning auto off\|shadow`; switching back to off **keeps** the streaks · fired/rounds counters · gate stamp (resuming continues) | shadow rounds (see the v1.23.0 subsection) |
 
 Diagnostics layer-B rules inherit reads from existing doctor keys (avoiding
 duplicate keys — see the `zero_near_warn_pct` · `pending_age_days` rows).
@@ -161,7 +161,9 @@ overridable window would invite false positives).
 The autonomous-tuning shadow circuit (v1.23.0, ADR-0017): predictions
 are recorded, **nothing is applied** — the apply phase is the v1.24.0
 gate. Opt-in is `flint tuning auto shadow` (`auto_mode` above); the
-`off` default pays zero shadow cost.
+`off` default costs nothing at steady state and 1 batched gate read per
+hour at cold start (the r100-2 correction of the v1.23.0 "zero shadow
+cost" wording — only an unregistered circuit is literally 0 queries).
 
 **Whitelist (auto grade)** — the threshold registry's Auto field (the
 register-in-1-place + guard-test pattern; a manual-only key on an auto
@@ -170,6 +172,11 @@ surface exits 3):
 | key | auto grade | rule | direction | safe range | weekly max | window |
 |---|---|---|---|---|---|---|
 | `suggest_min_score` | shadow | `auto_zero_near_high` | down | 0.05–0.30 | 1 (enforced from v1.24.0) | 14d |
+
+A transient `near_pct` rise immediately after a downward apply is
+expected — the decrease is measured from the events arriving after the
+change (the success-pair measurement definition is a v1.24.0 design
+item).
 
 The initial whitelist is one key: `suggest_min_score` is the only
 classification key whose verdict source is exact causality — the stored
@@ -191,10 +198,17 @@ change still hits while the direction holds; a non-fired round with an
 adequate sample maintains the streak; a reset happens only on a
 direction reversal or a sample-floor miss.
 
+Every stamped round — fired or not — bumps the round counter
+`auto_rounds_<key>` (v1.23.1): a fire whose current value already sits
+at the directional bound proposes no move and appends no prediction
+row, yet still counts as both a round and a fire (the fired counter
+follows the trigger verdict; prediction rows stay proposal-only).
+
 **Observation-accumulation gate (the v1.24.0 start condition)** —
-shadow rounds ≥ 14 AND trigger fires ≥ 5 AND consecutive-hit streak ≥
-3; unmet swaps the v1.24.0 order with v1.25.0 (release-scope §2
-principle 3). **A hit is round-over-round stability of the
+shadow rounds ≥ 14 (meta `auto_rounds_<key>`, every stamped round) AND
+trigger fires ≥ 5 AND consecutive-hit streak ≥ 3; unmet swaps the
+v1.24.0 order with v1.25.0 (release-scope §2 principle 3). **A hit is
+round-over-round stability of the
 reclassification direction at the minimum sample — not causality**
 (the knowledge-pipelines §12.2 tier wording; METRICS §4.10).
 

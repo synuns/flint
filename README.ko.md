@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.23.0-blue" alt="v1.23.0">
+  <img src="https://img.shields.io/badge/release-v1.23.1-blue" alt="v1.23.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.23.1 · r100-r101 패치 — 라운드/발화 계수 분리(meta `auto_rounds_` — 미발화 라운드도 라운드로 집계)·경계 발화 fired bump·판정 쿼리 near_score 도메인 가드·what-if NaN 방어·`flint tuning` 명령표 auto/what-if/status 반영 · [전체 변경 이력](docs/HISTORY.md)
 > v1.23.0 · 자율 튜닝 shadow — 스키마 v18 `tuning_predictions`(예측 기록만, 적용 0건)·`auto_mode` 정책 스위치(기본 off, 화이트리스트: `suggest_min_score`)·read 꼬리 shadow 라운드(24h 게이트·streak 규칙)·`flint tuning what-if`/`status`(재분류·p50/p90·드리프트 카드) · [전체 변경 이력](docs/HISTORY.md)
 > v1.22.1 · r96-r98 패치 — 병렬 재매치 스탬프 보존(해시 동일 재적용 시 유지)·maintain --recheck --conditions 갱신·flint distill 파일 상한(distill_max_runes)·동분 덮어쓰기 금지·id/min-score 입력 가드 · [전체 변경 이력](docs/HISTORY.md)
 > v1.21.1 · r91-r94 패치 — 스캔 오류 경로 무관화·볼트 루트 가드(성공 후 영속)·튜닝 키 접속·스캔 경화(재시도·터치 갱신·심볼릭 링크 스킵·60k+ 삭제) · [전체 변경 이력](docs/HISTORY.md)
@@ -236,7 +237,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | :--- | :--- |
 | `flint setup` | Doltgres 기동 · 마이그레이션 · 시드/플러그인 다음 단계 안내 |
 | `flint update` | 최신 릴리스 자가 업데이트(체크섬 검증·`--check` 드라이런) |
-| `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`; 옵트인 `--tui` 폼) |
+| `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`; 자율 튜닝 표면 `auto off\|shadow`·`what-if`·`status`; 옵트인 `--tui` 폼) |
 | `flint write <kind>` | 표준 입력에서 지식 기록 (멱등) |
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
 | `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카, PAM `--sign` Ed25519 서명 — 스펙 §18) |

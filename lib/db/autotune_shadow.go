@@ -7,6 +7,10 @@
 // prediction row into tuning_predictions (append-only — nothing is ever
 // applied; the apply path is the v1.24.0 gate) and updates the
 // accumulation counters (meta auto_streak_<key>, fired_auto_<signal>).
+// Every stamped round — fired or not — also bumps the round counter
+// (meta auto_rounds_<key>, r100-1): rounds and fires are independent
+// accumulation inputs, so a round must count even when the trigger does
+// not fire (rounds ≥ 14 AND fires ≥ 5 are separate gate conditions).
 // All failures pass quietly (the metering principle) and the DB gate is
 // stamped only by a completed round, keeping the retry open.
 //
@@ -16,15 +20,17 @@
 // via RegisterShadowCircuit at startup (the cmd/flint blank-import
 // injection precedent). Until registered — or while auto_mode sits at
 // its off default, or while the whitelist is empty — the hook costs a
-// nil/mode check and at most the single batched gate read (the
-// unconfigured-deployment zero-cost ruling). With the circuit
-// unregistered the cost is literally zero round trips.
+// nil/mode check and at most the single batched gate read — off costs
+// 0 queries at steady state and 1 batched gate read per hour at cold
+// start (the r100-2 correction of the v1.23.0 zero-cost wording: only
+// an unregistered circuit is literally zero round trips).
 package db
 
 import (
 	"context"
 	"fmt"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"time"
 
@@ -191,6 +197,23 @@ func shadowStreakNext(prevStreak, prevDir, thisDir int, fired, sampleOk bool) in
 // the same notation the TUNING table shows).
 func shadowValueText(v float64) string {
 	return strconv.FormatFloat(v, 'f', -1, 64)
+}
+
+// shadowBumpCase — the ON CONFLICT CASE expression for the guarded
+// counter increments (fired_auto_ · auto_rounds_): for each bumped key
+// placeholder a numeric meta.value increments, and a corrupt, empty, or
+// non-numeric text resets to '1' instead of failing the cast (r101-3 —
+// a polluted counter must never fail the whole batch, which would
+// unstamp the 24h gate and permanently block every later round). Keys
+// outside the bump list take EXCLUDED.value (the plain set).
+func shadowBumpCase(keys ...string) string {
+	branches := make([]string, 0, len(keys)*2)
+	for _, k := range keys {
+		branches = append(branches,
+			fmt.Sprintf("WHEN meta.key = %s AND meta.value ~ '^[0-9]+$' THEN (meta.value::bigint + 1)::text", k),
+			fmt.Sprintf("WHEN meta.key = %s THEN '1'", k))
+	}
+	return "CASE " + strings.Join(branches, " ") + " ELSE EXCLUDED.value END"
 }
 
 // shadowRuleState — one rule's batched gate-read slice (trip 1): the
@@ -364,6 +387,8 @@ func (r *Repo) shadowRoundRule(ctx context.Context, rule ShadowRule, rs shadowRu
 	v := verdict(rule, obs, th)
 
 	streakKey := "auto_streak_" + rule.Key
+	roundsKey := "auto_rounds_" + rule.Key
+	firedKey := "fired_auto_" + rule.Signal
 	prevStreak := 0
 	if n, err := strconv.Atoi(rs.streakText); err == nil {
 		prevStreak = n
@@ -377,29 +402,37 @@ func (r *Repo) shadowRoundRule(ctx context.Context, rule ShadowRule, rs shadowRu
 
 	if !v.Fired {
 		// A sample-floor miss resets the streak (written only on an actual
-		// change — a maintained round writes nothing but the stamp); a
-		// sample-ok non-fire maintains it (spec rule c).
+		// change — a maintained round writes nothing but the streak); a
+		// sample-ok non-fire maintains it (spec rule c). Either way the
+		// round ran: bump the round counter and stamp the gate (r100-1 —
+		// a non-fired round still counts toward the rounds ≥ 14 gate).
 		next := shadowStreakNext(prevStreak, prevDir, 0, false, v.SampleOk)
 		if !v.SampleOk && next != prevStreak {
 			_ = shadowExecFn(ctx, r,
-				`INSERT INTO meta (key, value) VALUES ($1, $2), ($3, $4)
-				 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`,
-				streakKey, strconv.Itoa(next), shadowGateKey, stamp)
+				`INSERT INTO meta (key, value) VALUES ($1, $2), ($3, '1'), ($4, $5)
+				 ON CONFLICT (key) DO UPDATE SET value = `+shadowBumpCase("$3"),
+				streakKey, strconv.Itoa(next), roundsKey, shadowGateKey, stamp)
 			return
 		}
 		_ = shadowExecFn(ctx, r,
-			`INSERT INTO meta (key, value) VALUES ($1, $2)
-			 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, shadowGateKey, stamp)
+			`INSERT INTO meta (key, value) VALUES ($1, '1'), ($2, $3)
+			 ON CONFLICT (key) DO UPDATE SET value = `+shadowBumpCase("$1"),
+			roundsKey, shadowGateKey, stamp)
 		return
 	}
 
 	new, ok := shadowProposal(rule, cur)
 	if !ok {
 		// cur sits exactly at the directional bound — no strict move to
-		// predict. The round still ran: stamp the gate, maintain the streak.
+		// predict. The trigger still FIRED (the fired counter counts
+		// trigger-verdict fires, whether or not a proposal exists — the
+		// r100-3 alignment; prediction rows stay proposal-only per the
+		// spec). The round also bumps the round counter and stamps the
+		// gate; the streak is maintained (no directional move to judge).
 		_ = shadowExecFn(ctx, r,
-			`INSERT INTO meta (key, value) VALUES ($1, $2)
-			 ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value`, shadowGateKey, stamp)
+			`INSERT INTO meta (key, value) VALUES ($1, '1'), ($2, '1'), ($3, $4)
+			 ON CONFLICT (key) DO UPDATE SET value = `+shadowBumpCase("$1", "$2"),
+			firedKey, roundsKey, shadowGateKey, stamp)
 		return
 	}
 	thisDir := shadowMoveDir(cur, new)
@@ -434,15 +467,13 @@ func (r *Repo) shadowRoundRule(ctx context.Context, rule ShadowRule, rs shadowRu
 	}
 
 	// Trip 5 — ONE batched statement: the streak (set), the fired counter
-	// (increment), and the gate stamp. Only the fired key increments
-	// (the CASE branch); a corrupt existing counter text fails the cast
-	// and the whole batch quietly — the retry-open contract keeps the
-	// round reproducible.
+	// and the round counter (guarded increments), and the gate stamp. A
+	// corrupt existing counter text resets to '1' inside the CASE instead
+	// of failing the cast and the whole batch (r101-3 — the retry-open
+	// contract keeps the round reproducible without a pollution deadlock).
 	next := shadowStreakNext(prevStreak, prevDir, thisDir, true, true)
 	_ = shadowExecFn(ctx, r,
-		`INSERT INTO meta (key, value) VALUES ($1, $2), ($3, '1'), ($4, $5)
-		 ON CONFLICT (key) DO UPDATE SET value =
-		   CASE WHEN meta.key = $3 THEN (meta.value::bigint + 1)::text
-		        ELSE EXCLUDED.value END`,
-		streakKey, strconv.Itoa(next), "fired_auto_"+rule.Signal, shadowGateKey, stamp)
+		`INSERT INTO meta (key, value) VALUES ($1, $2), ($3, '1'), ($4, '1'), ($5, $6)
+		 ON CONFLICT (key) DO UPDATE SET value = `+shadowBumpCase("$3", "$4"),
+		streakKey, strconv.Itoa(next), firedKey, roundsKey, shadowGateKey, stamp)
 }
