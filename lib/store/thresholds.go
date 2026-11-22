@@ -103,9 +103,14 @@ type Thresholds struct {
 	VaultSummaryMaxRunes int    // default 200 — the summary truncation (TruncateRunes)
 	VaultSkipDirs        string // default ".obsidian,.trash" — comma-separated skip dirs
 	// the distill output floor (v1.22.0 — cli distill): the minimum
-	// effective recall score of an emitted insight row (count-scale, so
-	// values above 1 are normal — the archive_below parser convention).
-	DistillMinScore float64 // default 1.0 — at least one effective recall
+	// raw recall count of an emitted insight row (recall_events derived
+	// count-scale, so values above 1 are normal — the archive_below
+	// parser convention).
+	DistillMinScore float64 // default 1.0 — at least one raw recall
+	// the distill output file cap (v1.22.1 r97 — cli distill): the
+	// per-run insights file rune ceiling. Rows past the cap stay
+	// unstamped and defer to the next run (ADR-0018).
+	DistillMaxRunes int // default 20000
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -193,9 +198,12 @@ const (
 	defaultVaultScanMaxFiles    = 10000
 	defaultVaultSummaryMaxRunes = 200
 	defaultVaultSkipDirs        = ".obsidian,.trash"
-	// the distill output floor default (v1.22.0): an effective recall
-	// score of at least 1 (one surviving recall — the count-scale basis).
+	// the distill output floor default (v1.22.0): a raw recall count of
+	// at least 1 (one surviving recall — the count-scale basis).
 	defaultDistillMinScore = 1.0
+	// the distill output file cap default (v1.22.1 r97): 20000 runes per
+	// insights file — the remainder defers to the next run.
+	defaultDistillMaxRunes = 20000
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -273,6 +281,8 @@ func DefaultThresholds() Thresholds {
 		VaultSkipDirs:        defaultVaultSkipDirs,
 		// the distill output floor (the consumer fallback basis).
 		DistillMinScore: defaultDistillMinScore,
+		// the distill output file cap (the consumer fallback basis).
+		DistillMaxRunes: defaultDistillMaxRunes,
 	}
 }
 
@@ -457,11 +467,18 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			th.VaultSkipDirs = parseStringOrDefault(val, defaultVaultSkipDirs, ks)
 		case "distill_min_score":
 			// unset keeps 0 (the convention — the consumer, cli distill,
-			// falls back via the DefaultThresholds basis). 0 = no score
-			// floor is a normal value and the effective score is count-scale
-			// (values above 1 normal), so only negatives are rejected (the
-			// archive_below convention).
+			// falls back via the DefaultThresholds basis). A stored 0 is
+			// the UNSET sentinel, not "no floor" — the consumer only
+			// applies values > 0, so no-floor exists solely through the
+			// --min-score 0 flag (v1.22.1 r97-2 correction). The score is
+			// a raw recall count (values above 1 normal), so only
+			// negatives are rejected (the archive_below convention).
 			th.DistillMinScore = parseFloatNonNegative(val, defaultDistillMinScore, ks)
+		case "distill_max_runes":
+			// unset keeps 0 (the convention — the consumer, cli distill,
+			// falls back via the DefaultThresholds basis; 0 cannot be a
+			// meaningful cap, so the consumer applies values > 0 only).
+			th.DistillMaxRunes = parseIntOrDefault(val, defaultDistillMaxRunes, ks)
 		}
 	}
 	return th, nil

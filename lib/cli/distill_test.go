@@ -107,11 +107,14 @@ func TestRunDistillRequiresOut(t *testing.T) {
 	}
 }
 
-// RF2 — an unparsable or negative --min-score is a usage error (exit 3).
+// RF2 — an unparsable, negative, or over-1e9 --min-score is a usage
+// error (exit 3; the 1e9 ceiling is the v1.22.1 r98 guard — a
+// MaxFloat-scale floor broke the count comparison's parameter encoding
+// as an internal error).
 func TestRunDistillInvalidMinScore(t *testing.T) {
 	installDistillFakes(t, nil)
 	dir := t.TempDir()
-	for _, v := range []string{"abc", "-1"} {
+	for _, v := range []string{"abc", "-1", "1e309", "1000000001"} {
 		out, code := runDistillOnce(&distillFakeStore{fakeStore: &fakeStore{}},
 			[]string{"--out", dir, "--min-score", v})
 		if code != 3 {
@@ -120,6 +123,11 @@ func TestRunDistillInvalidMinScore(t *testing.T) {
 		if !strings.Contains(out, `"field":"min-score"`) {
 			t.Errorf("--min-score %s: schema error missing min-score field: %s", v, out)
 		}
+	}
+	// the ceiling itself passes (1e9 is legal — only above it refuses).
+	if out, code := runDistillOnce(&distillFakeStore{fakeStore: &fakeStore{}},
+		[]string{"--out", dir, "--min-score", "1000000000"}); code != 0 {
+		t.Fatalf("--min-score 1e9: exit = %d, want 0 (out=%s)", code, out)
 	}
 }
 
@@ -185,9 +193,12 @@ func TestRunDistillZeroRowsNoFile(t *testing.T) {
 	}
 }
 
-// RF5 — overwriting an existing same-name file: one warning line to
-// stderr before the write (the export --out convention).
-func TestRunDistillOverwriteWarning(t *testing.T) {
+// RF5 — a pre-existing same-name file is NEVER overwritten (v1.22.1
+// r98): the run writes insights-<ts>-2.md instead, one collision notice
+// line names both files, and the earlier file's bytes survive (pre-fix:
+// the run overwrote it — stamped rows cannot be re-emitted, so the
+// content was lost permanently).
+func TestRunDistillSameMinuteNoOverwrite(t *testing.T) {
 	stderr, _ := installDistillFakes(t, nil)
 	dir := t.TempDir()
 	path := filepath.Join(dir, distillFileName)
@@ -198,12 +209,29 @@ func TestRunDistillOverwriteWarning(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit = %d, want 0 (out=%s)", code, out)
 	}
-	lines := strings.Split(strings.TrimRight(stderr.String(), "\n"), "\n")
-	if len(lines) < 1 || !strings.Contains(lines[0], "overwriting existing file") || !strings.Contains(lines[0], path) {
-		t.Fatalf("overwrite warning must be first stderr line, got %q", stderr.String())
+	second := filepath.Join(dir, "insights-20261123-0941-2.md")
+	if body, err := os.ReadFile(path); err != nil || string(body) != "OLD" {
+		t.Fatalf("earlier file must survive byte-identical: %v %q", err, string(body))
 	}
-	if body, err := os.ReadFile(path); err != nil || string(body) == "OLD" {
-		t.Errorf("existing file not overwritten: %v %q", err, string(body))
+	if body, err := os.ReadFile(second); err != nil || len(body) == 0 {
+		t.Fatalf("collision file not written: %v", err)
+	}
+	if !strings.Contains(stderr.String(), "no overwrite") ||
+		!strings.Contains(stderr.String(), distillFileName) ||
+		!strings.Contains(stderr.String(), "insights-20261123-0941-2.md") {
+		t.Fatalf("collision notice must name both files: %q", stderr.String())
+	}
+	// a third same-minute run continues the suffix sequence.
+	out, code = runDistillOnce(&distillFakeStore{fakeStore: &fakeStore{}}, []string{"--out", dir})
+	if code != 0 {
+		t.Fatalf("third run exit = %d, want 0 (out=%s)", code, out)
+	}
+	third := filepath.Join(dir, "insights-20261123-0941-3.md")
+	if _, err := os.Stat(third); err != nil {
+		t.Fatalf("third collision file missing: %v", err)
+	}
+	if body, err := os.ReadFile(path); err != nil || string(body) != "OLD" {
+		t.Fatalf("earlier file must still survive: %v %q", err, string(body))
 	}
 }
 
@@ -304,6 +332,54 @@ func TestRunDistillServerDownExit2(t *testing.T) {
 	}
 	if called {
 		t.Error("source query ran on a down store")
+	}
+}
+
+// RF11 — the v1.22.1 r97 file cap carry-over: with a small
+// distill_max_runes meta override only the rows that fit are emitted and
+// stamped; the remainder stays unstamped (defers to the next run) and a
+// "N rows deferred" stderr notice names it (pre-fix: every selected row
+// stamped regardless of file size).
+func TestRunDistillFileCapDefers(t *testing.T) {
+	rows := []knowledge.DistillRow{
+		{ID: 1, Topic: "demo-c1", Summary: strings.Repeat("c1 body ", 40), Tags: []string{"demo"}, RecallScore: 2},
+		{ID: 2, Topic: "demo-c2", Summary: strings.Repeat("c2 body ", 40), Tags: []string{"demo"}, RecallScore: 2},
+		{ID: 3, Topic: "demo-c3", Summary: strings.Repeat("c3 body ", 40), Tags: []string{"demo"}, RecallScore: 2},
+	}
+	stderr, _ := installDistillFakes(t, rows)
+	dir := t.TempDir()
+	fst := &distillFakeStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM meta") {
+			// a 600-rune cap: only row 1 fits (each section ~350 runes).
+			return [][]any{{"distill_max_runes", "600"}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runDistillOnce(fst, []string{"--out", dir})
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0 (out=%s)", code, out)
+	}
+	if len(fst.stampedIDs) != 1 || fst.stampedIDs[0] != 1 {
+		t.Fatalf("stamped ids = %v, want [1] (rows 2-3 defer)", fst.stampedIDs)
+	}
+	body, err := os.ReadFile(filepath.Join(dir, distillFileName))
+	if err != nil {
+		t.Fatalf("aggregate file not written: %v", err)
+	}
+	s := string(body)
+	if !strings.Contains(s, "## #1 demo-c1") || strings.Contains(s, "## #2") || strings.Contains(s, "## #3") {
+		t.Fatalf("file sections mismatch (want only #1):\n%s", s)
+	}
+	if !strings.Contains(s, "rows: 1") {
+		t.Fatalf("header rows line must name the emitted count:\n%s", s)
+	}
+	if !strings.Contains(stderr.String(), "2 rows deferred") {
+		t.Fatalf("deferred notice missing: %q", stderr.String())
+	}
+	// the deferred rows are the next run's input: unstamped in the stamp
+	// call is asserted above; the notice names the count exactly.
+	if n := strings.Count(stderr.String(), "rows deferred"); n != 1 {
+		t.Fatalf("deferred notice lines = %d, want 1: %q", n, stderr.String())
 	}
 }
 

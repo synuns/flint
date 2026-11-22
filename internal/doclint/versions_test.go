@@ -521,6 +521,15 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01220Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.22.0", "vault-staleness",
 	}},
+	// v1.22.1 patch: r96-r98 청산 — 병렬 재매치 스탬프 보존·"해시 원복
+	// NULL" 정정(큐 append-only — 소거는 v1.25.0 연결 이월)·--recheck
+	// --conditions 갱신 경로·distill 파일 rune 상한(distill_max_runes)·
+	// reaffirm 사전검사 invalid_at·문면 정정·스코프 이월 기재·입력
+	// 파싱 가드(--ids 중복·int4 상한·--min-score 상한)·distill 동분
+	// 덮어쓰기 금지(-2 suffix).
+	{name: "TestVersion01221Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.22.1", "r96-r98",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

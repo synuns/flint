@@ -555,17 +555,22 @@ func retryableApplyErr(err error) bool {
 // only if its path is in neither the scanned nor the skipped set.
 // Serializable-conflict losers retry per applyRetryBackoff.
 //
-// v1.22.0 stamp rule (the re-review queue): an upsert whose content hash
-// differs from the stored row stamps content_changed_at = now(); an
-// upsert restoring the stored hash (a hash-identical re-apply) returns it
-// to NULL — the ONLY erase path. New-row INSERTs stay NULL (a new file is
+// v1.22.0 stamp rule (the re-review queue), corrected v1.22.1 (r96): an
+// upsert whose content hash differs from the stored row stamps
+// content_changed_at = now(); a hash-identical re-apply KEEPS the
+// existing stamp (a parallel index loser's retry re-applies the winner's
+// hash — clearing there would erase the winner's stamp). There is no
+// erase path in the apply: a file restored to pre-change content differs
+// from the stored hash, so it re-stamps (one column, no pre-change-hash
+// memory — A→B→A is indetectable); stamp clearing is deferred to the
+// v1.25.0 knowledge↔vault link. New-row INSERTs stay NULL (a new file is
 // not a content change), touch-only refreshes never touch the column, a
 // no-change rescan writes nothing (stamp preserved), and a removed row
-// takes its stamp with it. The CASE reads the row's PRE-update hash, so it
-// must precede the content_hash assignment: Doltgres (unlike Postgres)
-// evaluates SET arms sequentially against the partially updated row —
-// with the assignment first, the comparison always sees the new hash and
-// the stamp never lands.
+// takes its stamp with it. The CASE reads the row's PRE-update hash, so
+// it must precede the content_hash assignment: Doltgres (unlike
+// Postgres) evaluates SET arms sequentially against the partially
+// updated row — with the assignment first, the comparison always sees
+// the new hash and the stamp never lands.
 func (s *PoolStore) ApplyDiff(ctx context.Context, upserts, touches []File, keepPaths []string) (int64, error) {
 	var last error
 	for i, wait := range applyRetryBackoff {
@@ -632,7 +637,7 @@ func (s *PoolStore) applyDiffOnce(ctx context.Context, upserts, touches []File, 
         mtime = excluded.mtime,
         size = excluded.size,
         content_changed_at = CASE WHEN vault_files.content_hash = excluded.content_hash
-                                   THEN NULL ELSE now() END,
+                                   THEN vault_files.content_changed_at ELSE now() END,
         content_hash = excluded.content_hash,
         summary = excluded.summary,
         last_indexed_at = now()`)

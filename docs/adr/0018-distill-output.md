@@ -23,8 +23,14 @@ ADR-0015의 원격 쓰기 금지·ADR-0006의 오염 방어와 충돌한다.
    knowledge 행)을 건드리지 않는다는 승인제 원칙의 출력면 확장.
 2. **런당 집계 파일 1개** — 행마다 파일을 만들지 않는다. 런당
    `insights-<YYYYMMDD-HHMM>.md` 1개, 행 섹션은 id 안정 정렬.
-   동일 이름 파일이 이미 있으면 덮어쓰기 전 stderr 경고 1줄
-   (export `--out` 관례 승계).
+   동일 분 재실행은 **덮어쓰지 않는다**(v1.22.1 r98 정정 — 이전
+   런의 행은 이미 스탬프되어 재발행 불가이므로 덮어쓰기는 이전
+   내용을 영구 유실한다): 이름이 있으면 `insights-<ts>-2.md`,
+   `-3`, … 순으로 쓰고 충돌 안내를 1줄 낸다. 파일 전체에 rune
+   상한을 둔다 — threshold `distill_max_runes`(기본 20000,
+   v1.22.1 r97 구현). 행은 통째로 포함된다(부분 행 없음);
+   상한을 넘는 첫 행부터는 미스탬프로 남고 다음 런으로 이월되며,
+   런은 "N rows deferred" 안내를 1줄 낸다(잠복 드롭 금지).
 3. **행 단위 멱등 = distilled_at 스탬프** — 선택 조건은
    `recall_score >= distill_min_score AND distilled_at IS NULL AND
    status='active'`(스코어는 recall_events 파생 count — G2 ruling,
@@ -54,5 +60,5 @@ ADR-0015의 원격 쓰기 금지·ADR-0006의 오염 방어와 충돌한다.
 - 스탬프는 schema v17 knowledge.distilled_at(단일 원천) — 별도
   이력 테이블 없음(additive 원칙).
 - 볼트 스캔(vault_files)과 distill 출력은 서로 독립 — distill이
-  스캔 대상 폴더에 쓰는 일는 계약상 없다(사용자가 --out으로 볼트
+  스캔 대상 폴더에 쓰는 일은 계약상 없다(사용자가 --out으로 볼트
   밖 폴더를 지정하는 것이 전제).

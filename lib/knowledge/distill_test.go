@@ -79,8 +79,13 @@ func TestFormatInsightsFieldsAndOrder(t *testing.T) {
 		{ID: 1, Topic: "demo-a", Summary: "alpha body", Conditions: "when demo holds", Tags: []string{"demo", "a"}, RecallScore: 3},
 	}
 	// the caller sorts by id (the stable-order contract) — FormatInsights
-	// preserves the input order verbatim.
-	got := string(FormatInsights(rows, time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC)))
+	// preserves the input order verbatim. maxRunes 0 disables the cap
+	// (every row fits).
+	got, emitted := FormatInsights(rows, time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC), 0)
+	if emitted != 2 {
+		t.Fatalf("emitted = %d, want 2 (uncapped)", emitted)
+	}
+	s := string(got)
 	for _, want := range []string{
 		"# flint distill insights",
 		"created: 2026-11-23T09:41:00Z",
@@ -94,13 +99,13 @@ func TestFormatInsightsFieldsAndOrder(t *testing.T) {
 		"alpha body",
 		"beta body",
 	} {
-		if !strings.Contains(got, want) {
-			t.Errorf("insights markdown missing %q:\n%s", want, got)
+		if !strings.Contains(s, want) {
+			t.Errorf("insights markdown missing %q:\n%s", want, s)
 		}
 	}
 	// preserved input order: the #2 section (input row 0) precedes #1.
-	if strings.Index(got, "## #2") > strings.Index(got, "## #1") {
-		t.Errorf("input order not preserved (id sections reordered):\n%s", got)
+	if strings.Index(s, "## #2") > strings.Index(s, "## #1") {
+		t.Errorf("input order not preserved (id sections reordered):\n%s", s)
 	}
 }
 
@@ -116,18 +121,66 @@ func TestFormatInsightsSanitizes(t *testing.T) {
 		Tags:        []string{"de[flint]mo"},
 		RecallScore: 2,
 	}}
-	got := string(FormatInsights(rows, time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC)))
-	if strings.Contains(got, "[flint]") || strings.Contains(got, "[FLINT]") {
-		t.Errorf("[flint] marker survived sanitization:\n%q", got)
+	got, _ := FormatInsights(rows, time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC), 0)
+	s := string(got)
+	if strings.Contains(s, "[flint]") || strings.Contains(s, "[FLINT]") {
+		t.Errorf("[flint] marker survived sanitization:\n%q", s)
 	}
-	if strings.ContainsAny(got, "\x00\x1b") {
-		t.Errorf("control character survived sanitization:\n%q", got)
+	if strings.ContainsAny(s, "\x00\x1b") {
+		t.Errorf("control character survived sanitization:\n%q", s)
 	}
-	if !strings.Contains(got, "demotop ic") {
-		t.Errorf("sanitized topic missing: %q", got)
+	if !strings.Contains(s, "demotop ic") {
+		t.Errorf("sanitized topic missing: %q", s)
 	}
-	if !strings.Contains(got, "de mo") {
-		t.Errorf("sanitized tag missing: %q", got)
+	if !strings.Contains(s, "de mo") {
+		t.Errorf("sanitized tag missing: %q", s)
+	}
+}
+
+// RF3b — the v1.22.1 r97 file cap: rows are appended WHOLE while the
+// total (header included) stays within maxRunes runes; the first row
+// that would cross the cap and everything after it stay out, the
+// returned emitted count names the rows in the file, and the header's
+// rows: line matches it (the deferred remainder is the caller's to
+// stamp-defer).
+func TestFormatInsightsFileCap(t *testing.T) {
+	mk := func(id int, body string) DistillRow {
+		return DistillRow{ID: id, Topic: "demo-cap", Summary: body, Tags: []string{"demo"}, RecallScore: 1}
+	}
+	rows := []DistillRow{mk(1, "one"), mk(2, "two"), mk(3, "three"), mk(4, "four")}
+	// measure one uncapped run to confirm all rows fit without a cap.
+	_, all := FormatInsights(rows, time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC), 0)
+	if all != 4 {
+		t.Fatalf("uncapped emitted = %d, want 4", all)
+	}
+	twoOnly, _ := FormatInsights(rows[:2], time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC), 0)
+	cap2 := len([]rune(string(twoOnly)))
+	got, emitted := FormatInsights(rows, time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC), cap2)
+	if emitted != 2 {
+		t.Fatalf("capped emitted = %d, want 2 (cap fits exactly rows 1-2)", emitted)
+	}
+	s := string(got)
+	if !strings.Contains(s, "rows: 2") {
+		t.Errorf("header rows line must name the emitted count:\n%s", s)
+	}
+	for _, want := range []string{"## #1 demo-cap", "## #2 demo-cap"} {
+		if !strings.Contains(s, want) {
+			t.Errorf("emitted section missing %q:\n%s", want, s)
+		}
+	}
+	for _, absent := range []string{"## #3", "## #4"} {
+		if strings.Contains(s, absent) {
+			t.Errorf("deferred section leaked into the file: %q:\n%s", absent, s)
+		}
+	}
+	if rn := len([]rune(s)); rn > cap2 {
+		t.Errorf("file runes = %d, want <= cap %d", rn, cap2)
+	}
+	// a cap too small for even the first row: header-only file, 0
+	// emitted (everything defers — the caller writes no stamps).
+	tiny, emitted0 := FormatInsights(rows, time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC), 10)
+	if emitted0 != 0 || !strings.Contains(string(tiny), "rows: 0") || strings.Contains(string(tiny), "## #") {
+		t.Fatalf("tiny cap: emitted=%d file=%q, want header-only rows: 0", emitted0, string(tiny))
 	}
 }
 

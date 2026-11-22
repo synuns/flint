@@ -16,6 +16,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/wire"
@@ -86,17 +87,30 @@ func mapDistillRow(r []any) DistillRow {
 
 // FormatInsights — serializes the selected rows into the per-run
 // aggregate markdown (pure function — no source query, no file write).
-// Header (title, created UTC, row count) + a section per row
+// Header (title, created UTC, emitted row count) + a section per row
 // (`## #<id> <topic>` + meta line + summary). Input order is preserved
 // verbatim (the caller passes the id-sorted selection). Every string
 // field passes render.Text — [flint] markers and control characters are
 // neutralized before the file reaches disk (ADR-0018 sanitization).
-func FormatInsights(rows []DistillRow, generatedAt time.Time) []byte {
-	var b bytes.Buffer
-	b.WriteString("# flint distill insights\n\n")
-	b.WriteString("created: " + generatedAt.UTC().Format(time.RFC3339) + "\n")
-	b.WriteString("rows: " + strconv.Itoa(len(rows)) + "\n")
+//
+// v1.22.1 r97 file cap: maxRunes > 0 bounds the WHOLE file (header
+// included, runes not bytes). Rows are appended whole while they fit; the
+// first row that would cross the cap and everything after it are left
+// out and the emitted count is returned so the caller stamps only the
+// emitted ids (the remainder defers to the next run — ADR-0018). A
+// maxRunes <= 0 disables the cap (every row fits — the defensive
+// no-threshold shape).
+func FormatInsights(rows []DistillRow, generatedAt time.Time, maxRunes int) ([]byte, int) {
+	var head, body bytes.Buffer
+	head.WriteString("# flint distill insights\n\n")
+	head.WriteString("created: " + generatedAt.UTC().Format(time.RFC3339) + "\n")
+	// placeholder upper bound: emitted <= len(rows), so the final count
+	// line never grows past the budget the cap check already approved.
+	place := "rows: " + strconv.Itoa(len(rows)) + "\n"
+	head.WriteString(place)
+	emitted := 0
 	for _, r := range rows {
+		var sec bytes.Buffer
 		tags := make([]string, len(r.Tags))
 		for i, t := range r.Tags {
 			tags[i] = render.Text(t)
@@ -109,12 +123,21 @@ func FormatInsights(rows []DistillRow, generatedAt time.Time) []byte {
 		if conditions == "" {
 			conditions = "-"
 		}
-		b.WriteString("\n## #" + strconv.Itoa(r.ID) + " " + render.Text(r.Topic) + "\n\n")
-		b.WriteString("recall_score: " + strconv.Itoa(r.RecallScore) +
+		sec.WriteString("\n## #" + strconv.Itoa(r.ID) + " " + render.Text(r.Topic) + "\n\n")
+		sec.WriteString("recall_score: " + strconv.Itoa(r.RecallScore) +
 			" · tags: " + joined +
 			" · conditions: " + conditions + "\n\n")
-		b.WriteString(render.Text(r.Summary))
-		b.WriteString("\n")
+		sec.WriteString(render.Text(r.Summary))
+		sec.WriteString("\n")
+		if maxRunes > 0 && utf8.RuneCount(head.Bytes())+utf8.RuneCount(body.Bytes())+utf8.RuneCount(sec.Bytes()) > maxRunes {
+			break
+		}
+		body.Write(sec.Bytes())
+		emitted++
 	}
-	return b.Bytes()
+	out := append(head.Bytes(), body.Bytes()...)
+	// the header's row count names the emitted rows (never longer than
+	// the placeholder the cap check budgeted for).
+	out = bytes.Replace(out, []byte(place), []byte("rows: "+strconv.Itoa(emitted)+"\n"), 1)
+	return out, emitted
 }

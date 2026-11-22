@@ -386,10 +386,12 @@ func parseLinkSpecs(p map[string]any) ([]linkSpec, *store.SchemaError) {
 // values refuse at exit 3; the empty string is a value, not an absence
 // (the optional-field convention). ──
 
-// maxConditionsRunes — the conditions length cap. 500 runes is generous
-// headroom over any plausible recheck clause while keeping an unbounded
-// string off the stored column and the duplicate echo path.
-const maxConditionsRunes = 500
+// MaxConditionsRunes — the conditions length cap (exported for the
+// maintain --recheck --conditions backfill, v1.22.1 r96 — one
+// definition shared by the write path and the backfill). 500 runes is
+// generous headroom over any plausible recheck clause while keeping an
+// unbounded string off the stored column and the duplicate echo path.
+const MaxConditionsRunes = 500
 
 // validateConditions — the shape·length check of the optional conditions
 // field (knowledge only). nil return = pass (absent·nil input passes — the
@@ -405,9 +407,18 @@ func validateConditions(p map[string]any) *store.SchemaError {
 	if !ok {
 		return &store.SchemaError{Field: "conditions", Expect: "string"}
 	}
-	if r := []rune(s); len(r) > maxConditionsRunes {
+	return ValidateConditionsString(s)
+}
+
+// ValidateConditionsString — the exported length check of a conditions
+// string (one definition of MaxConditionsRunes): the maintain --recheck
+// --conditions backfill (v1.22.1 r96) shares the write-path cap. The
+// empty string is a value, not an absence (the optional-field
+// convention); nil return = pass.
+func ValidateConditionsString(s string) *store.SchemaError {
+	if r := []rune(s); len(r) > MaxConditionsRunes {
 		return &store.SchemaError{Field: "conditions",
-			Expect: fmt.Sprintf("at most %d runes", maxConditionsRunes)}
+			Expect: fmt.Sprintf("at most %d runes", MaxConditionsRunes)}
 	}
 	return nil
 }
