@@ -80,10 +80,13 @@ var autoRules = []AutoRule{
 		// The portable aggregate form — Doltgres rejects COUNT(*) FILTER
 		// ("function filters are not yet supported", SQLSTATE XX000,
 		// measured on the first real-DB execution in T4 — the COUNT(CASE)
-		// shape is semantically identical).
+		// shape is semantically identical). The reclass arm carries the
+		// near_score domain guard (BETWEEN 0 AND 1, r101-2): a manually
+		// injected out-of-domain score never enters the verdict or the
+		// reclassification pool.
 		Query: `SELECT COUNT(*) AS sample_n,
        COUNT(CASE WHEN zero THEN 1 END) AS zero_n,
-       COUNT(CASE WHEN zero AND near_score >= $1 THEN 1 END) AS reclass_n
+       COUNT(CASE WHEN zero AND near_score BETWEEN 0 AND 1 AND near_score >= $1 THEN 1 END) AS reclass_n
   FROM read_events
  WHERE ts >= now() - interval '%d days'`,
 		Key:       "suggest_min_score",
@@ -156,8 +159,13 @@ func AutoTrigger(rule AutoRule, obs AutoTriggerObs, th store.Thresholds) AutoTri
 }
 
 // AccumulationProgress — the observation-accumulation counters (the
-// v1.24.0 apply gate inputs): shadow rounds observed, trigger fires, and
-// the current consecutive-hit streak (meta auto_streak_<key>).
+// v1.24.0 apply gate inputs): shadow rounds observed (meta
+// auto_rounds_<key> — every stamped round, fired or not; r100-1), the
+// trigger fires (meta fired_auto_<signal> — trigger-verdict fires,
+// whether or not a proposal exists), and the current consecutive-hit
+// streak (meta auto_streak_<key>). Rounds and fires are independent
+// conditions: a non-fired round counts as a round, and a boundary fire
+// (no strict move to propose) counts as a fire.
 type AccumulationProgress struct {
 	Rounds int
 	Fires  int

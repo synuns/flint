@@ -187,4 +187,7 @@ func TestShadowRealRegistryConformance(t *testing.T) {
 	if v := realString(t, scratch, `SELECT value FROM meta WHERE key = 'auto_streak_suggest_min_score'`); v != "1" {
 		t.Fatalf("첫 발화 streak = %q, want 1", v)
 	}
+	if v := realString(t, scratch, `SELECT value FROM meta WHERE key = 'auto_rounds_suggest_min_score'`); v != "1" {
+		t.Fatalf("라운드 카운터 = %q, want 1(r100-1 — 발화 라운드도 라운드로 집계)", v)
+	}
 }

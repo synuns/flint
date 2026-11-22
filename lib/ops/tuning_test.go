@@ -9,6 +9,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"net/url"
 	"os"
 	"strconv"
@@ -304,9 +305,10 @@ type shadowDist struct {
 
 // newWhatIfFake — a fake store routing the what-if/status SQL shapes:
 // the registry verdict aggregate (executed at the hypothetical bound),
-// the zero-row near_score distribution, the meta IN lookup (TuningCurrent
-// + the counter read), and the tuning_predictions round count.
-func newWhatIfFake(meta map[string]string, dist *shadowDist, rounds int) *fakeStore {
+// the zero-row near_score distribution, and the meta IN lookup
+// (TuningCurrent + the counter read — fired/streak/rounds all ride meta
+// since the r100-1 split; no tuning_predictions query runs).
+func newWhatIfFake(meta map[string]string, dist *shadowDist) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "COUNT(CASE WHEN zero") && strings.Contains(sql, "read_events"):
@@ -317,8 +319,6 @@ func newWhatIfFake(meta map[string]string, dist *shadowDist, rounds int) *fakeSt
 				rows = append(rows, []any{s})
 			}
 			return rows, nil
-		case strings.Contains(sql, "FROM tuning_predictions"):
-			return [][]any{{rounds}}, nil
 		case strings.Contains(sql, "SELECT key, value FROM meta"):
 			rows := make([][]any, 0, len(meta))
 			for k, v := range meta {
@@ -340,7 +340,7 @@ func TestTuningWhatIfReclass(t *testing.T) {
 	// 12 reads, 5 zero rows; at 0.1 the reclass pool is 4 (0.5,0.45,0.42,0.2
 	// pass, 0.01 does not) — near_pct 4*100/12 = 33.
 	dist := &shadowDist{sampleN: 12, zeroN: 5, reclassN: 4, zeroScores: []float64{0.01, 0.2, 0.42, 0.45, 0.5}}
-	st := newWhatIfFake(map[string]string{}, dist, 0)
+	st := newWhatIfFake(map[string]string{}, dist)
 	var out bytes.Buffer
 	if code := RunTuning(ctx, st, []string{"what-if", "suggest_min_score", "0.1"}, nil, &out); code != 0 {
 		t.Fatalf("what-if exit=%d, want 0: %s", code, out.String())
@@ -386,7 +386,7 @@ func TestTuningWhatIfPercentileBoundaries(t *testing.T) {
 	}
 	for _, tc := range cases {
 		var out bytes.Buffer
-		st := newWhatIfFake(map[string]string{}, tc.dist, 0)
+		st := newWhatIfFake(map[string]string{}, tc.dist)
 		if code := RunTuning(ctx, st, []string{"what-if", "suggest_min_score", "0.1"}, nil, &out); code != 0 {
 			t.Fatalf("%s: exit=%d, want 0: %s", tc.name, code, out.String())
 		}
@@ -414,7 +414,7 @@ func TestTuningWhatIfNonAutoKey(t *testing.T) {
 	ctx := context.Background()
 	for _, key := range []string{"pending_max", "echo_min_score", "zz_not_a_key"} {
 		dist := &shadowDist{sampleN: 9, zeroN: 9, reclassN: 9, zeroScores: []float64{0.5}}
-		fake := newWhatIfFake(map[string]string{}, dist, 0)
+		fake := newWhatIfFake(map[string]string{}, dist)
 		var out bytes.Buffer
 		if code := RunTuning(ctx, fake, []string{"what-if", key, "0.1"}, nil, &out); code != 3 {
 			t.Fatalf("%q what-if exit=%d, want 3", key, code)
@@ -439,7 +439,7 @@ func TestTuningWhatIfValueValidation(t *testing.T) {
 	ctx := context.Background()
 	dist := &shadowDist{sampleN: 5, zeroN: 5, reclassN: 5, zeroScores: []float64{0.5}}
 	for _, val := range []string{"many", "0", "-1"} {
-		fake := newWhatIfFake(map[string]string{}, dist, 0)
+		fake := newWhatIfFake(map[string]string{}, dist)
 		var out bytes.Buffer
 		if code := RunTuning(ctx, fake, []string{"what-if", "suggest_min_score", val}, nil, &out); code != 3 {
 			t.Fatalf("무효값 %q exit=%d, want 3: %s", val, code, out.String())
@@ -451,7 +451,7 @@ func TestTuningWhatIfValueValidation(t *testing.T) {
 		}
 	}
 	var out bytes.Buffer
-	if code := RunTuning(ctx, newWhatIfFake(map[string]string{}, dist, 0), []string{"what-if", "suggest_min_score", "0.10"}, nil, &out); code != 0 {
+	if code := RunTuning(ctx, newWhatIfFake(map[string]string{}, dist), []string{"what-if", "suggest_min_score", "0.10"}, nil, &out); code != 0 {
 		t.Fatalf("동등 표기 0.10 exit=%d, want 0: %s", code, out.String())
 	}
 	if !strings.Contains(out.String(), `"value":"0.10"`) {
@@ -459,12 +459,40 @@ func TestTuningWhatIfValueValidation(t *testing.T) {
 	}
 }
 
+// TestTuningWhatIfNaNDefense — the r101-1 NaN/Inf guard: a stored
+// numeric NaN (or an Inf) in the zero rows' near_score distribution is
+// skipped at collection, so json.Marshal never sees it (an unguarded NaN
+// fails the whole output) and p50/p90 rank over the remaining finite
+// scores.
+func TestTuningWhatIfNaNDefense(t *testing.T) {
+	withQuoteJSON(t)
+	ctx := context.Background()
+	// 4 zero rows, 2 of them non-finite: the ranking sees [0.2, 0.5] —
+	// p50 ceil(0.5*2)-1 = idx0 → 0.2, p90 ceil(0.9*2)-1 = idx1 → 0.5.
+	dist := &shadowDist{sampleN: 4, zeroN: 4, reclassN: 2,
+		zeroScores: []float64{0.2, math.NaN(), math.Inf(1), 0.5}}
+	var out bytes.Buffer
+	if code := RunTuning(ctx, newWhatIfFake(map[string]string{}, dist),
+		[]string{"what-if", "suggest_min_score", "0.1"}, nil, &out); code != 0 {
+		t.Fatalf("NaN 혼입 what-if exit=%d, want 0: %s", code, out.String())
+	}
+	var got map[string]any
+	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
+		t.Fatalf("NaN 혼입 출력 JSON 아님(마샬 붕괴): %q (%v)", out.String(), err)
+	}
+	if got["near_score_p50"] != 0.2 || got["near_score_p90"] != 0.5 {
+		t.Fatalf("유한 분포 p50/p90=%v/%v, want 0.2/0.5", got["near_score_p50"], got["near_score_p90"])
+	}
+}
+
 // TestTuningStatusCard — the status card contract: the list skeleton rows
 // extended with the auto grade and drift (current − default), the per-rule
-// accumulation card (fired counter, streak, rounds = tuning_predictions
-// count, the AccumulationGate verdict with per-condition progress), and
-// the mode line. Every number comes from meta/tuning_predictions — no
-// observation query runs (status is a counter surface, not a what-if).
+// accumulation card (fired counter, streak, rounds = the meta
+// auto_rounds_<key> every-stamped-round counter — the r100-1 split: a
+// non-fired round counts as a round, independently of the fires), the
+// AccumulationGate verdict with per-condition progress, and the mode
+// line. Every number comes from meta — no observation query runs (status
+// is a counter surface, not a what-if).
 func TestTuningStatusCard(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
@@ -473,8 +501,9 @@ func TestTuningStatusCard(t *testing.T) {
 		"auto_mode":                      "shadow",
 		"fired_auto_auto_zero_near_high": "2",
 		"auto_streak_suggest_min_score":  "1",
+		"auto_rounds_suggest_min_score":  "3",
 	}
-	st := newWhatIfFake(meta, &shadowDist{}, 3)
+	st := newWhatIfFake(meta, &shadowDist{})
 	var out bytes.Buffer
 	if code := RunTuning(ctx, st, []string{"status"}, nil, &out); code != 0 {
 		t.Fatalf("status exit=%d, want 0: %s", code, out.String())
@@ -540,7 +569,7 @@ func TestTuningStatusCard(t *testing.T) {
 
 // TestTuningStatusArgGuard — status takes no arguments (exit 3).
 func TestTuningStatusArgGuard(t *testing.T) {
-	st := newWhatIfFake(map[string]string{}, &shadowDist{}, 0)
+	st := newWhatIfFake(map[string]string{}, &shadowDist{})
 	var out bytes.Buffer
 	if code := RunTuning(context.Background(), st, []string{"status", "now"}, nil, &out); code != 3 {
 		t.Fatalf("status 인자 과잉 exit=%d, want 3", code)

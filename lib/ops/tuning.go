@@ -660,7 +660,10 @@ func tuningWhatIf(ctx context.Context, st wire.Store, key, val string, stdout io
 	scores := make([]float64, 0, len(drows))
 	for _, r := range drows {
 		if len(r) == 1 {
-			if s, ok := tuningCellFloat(r[0]); ok {
+			// NaN/Inf cells skip (r101-1): a stored numeric NaN would
+			// otherwise ride the slice into json.Marshal and fail the whole
+			// output — the remaining finite distribution still ranks.
+			if s, ok := tuningCellFloat(r[0]); ok && !math.IsNaN(s) && !math.IsInf(s, 0) {
 				scores = append(scores, s)
 			}
 		}
@@ -706,9 +709,11 @@ type tuningAccumulation struct {
 
 // tuningAutoCard — the per-rule accumulation card: the fired counter
 // (meta fired_auto_<signal>), the consecutive-hit streak (meta
-// auto_streak_<key>), the shadow rounds observed (tuning_predictions
-// count for the key), and the AccumulationGate verdict (the v1.24.0
-// apply-gate progress — "a hit is stability, not causality").
+// auto_streak_<key>), the shadow rounds observed (meta auto_rounds_<key>
+// — every stamped round, fired or not; r100-1 split from the
+// tuning_predictions count, which only sees fired rounds with a
+// proposal), and the AccumulationGate verdict (the v1.24.0 apply-gate
+// progress — "a hit is stability, not causality").
 type tuningAutoCard struct {
 	Signal       string             `json:"signal"`
 	Key          string             `json:"key"`
@@ -722,10 +727,10 @@ type tuningAutoCard struct {
 // TuningStatus — `tuning status`: the C2/C6 visibility surface — the list
 // skeleton plus drift, and per auto rule the fired/streak/rounds counters
 // with the observation-accumulation progress (the AccumulationGate reuse —
-// rounds are the tuning_predictions count, fires the fired counter). A
-// counter surface: no read_events observation query runs (that is
-// what-if's job); three queries total (TuningCurrent + the counter read +
-// the rounds count).
+// rounds read meta auto_rounds_<key>, the every-stamped-round counter;
+// fires the fired counter). A counter surface: no read_events observation
+// query runs (that is what-if's job); two queries total (TuningCurrent +
+// the counter read).
 func TuningStatus(ctx context.Context, st wire.Store, stdout io.Writer) int {
 	th, raw, err := TuningCurrent(ctx, st)
 	if err != nil {
@@ -758,14 +763,15 @@ func TuningStatus(ctx context.Context, st wire.Store, stdout io.Writer) int {
 			Key: mk.Key, Value: value, Default: mk.Default, Override: overridden,
 		})
 	}
-	// the per-rule counters (query 2): fired_auto_* + auto_streak_* read in
-	// one IN lookup — the values pass the render outlet like every meta text.
+	// the per-rule counters (query 2): fired_auto_* + auto_streak_* +
+	// auto_rounds_* read in one IN lookup — the values pass the render
+	// outlet like every meta text.
 	rules := AutoRules()
 	counters := map[string]string{}
 	if len(rules) > 0 {
-		keys := make([]string, 0, len(rules)*2)
+		keys := make([]string, 0, len(rules)*3)
 		for _, r := range rules {
-			keys = append(keys, "fired_auto_"+r.Signal, "auto_streak_"+r.Key)
+			keys = append(keys, "fired_auto_"+r.Signal, "auto_streak_"+r.Key, "auto_rounds_"+r.Key)
 		}
 		rows, err := wire.QueryOnce(ctx, st,
 			`SELECT key, value FROM meta WHERE key IN ('`+strings.Join(keys, "','")+`')`, nil)
@@ -781,18 +787,11 @@ func TuningStatus(ctx context.Context, st wire.Store, stdout io.Writer) int {
 	}
 	cards := make([]tuningAutoCard, 0, len(rules))
 	for _, r := range rules {
-		// query 3 — the rounds count per rule key (the spec: rounds are the
-		// tuning_predictions COUNT).
-		rounds := 0
-		rows, err := wire.QueryOnce(ctx, st,
-			`SELECT COUNT(*) FROM tuning_predictions WHERE key = $1`, []any{r.Key})
-		if err != nil {
-			fmt.Fprintln(stdout, wire.ErrLine(err))
-			return store.MapExit(err)
-		}
-		if len(rows) == 1 && len(rows[0]) == 1 {
-			rounds = tuningCellInt(rows[0][0])
-		}
+		// rounds read the every-stamped-round counter (r100-1): a
+		// non-fired round still counts toward the rounds ≥ 14 condition —
+		// the old tuning_predictions count only saw fired rounds with a
+		// proposal, conflating the two independent gate inputs.
+		rounds, _ := strconv.Atoi(counters["auto_rounds_"+r.Key])
 		fired, _ := strconv.Atoi(counters["fired_auto_"+r.Signal])
 		streak, _ := strconv.Atoi(counters["auto_streak_"+r.Key])
 		gate := AccumulationGate(AccumulationProgress{Rounds: rounds, Fires: fired, Streak: streak})

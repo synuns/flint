@@ -31,10 +31,12 @@ func fakeShadowRule() ShadowRule {
 		Signal: "auto_zero_near_high",
 		// The portable aggregate form — Doltgres rejects COUNT(*) FILTER
 		// ("function filters are not yet supported", SQLSTATE XX000 —
-		// measured on the first real-DB execution; incident logged).
+		// measured on the first real-DB execution; incident logged). The
+		// reclass arm carries the near_score domain guard (r101-2), mirroring
+		// the registry shape.
 		Query: `SELECT COUNT(*) AS sample_n,
        COUNT(CASE WHEN zero THEN 1 END) AS zero_n,
-       COUNT(CASE WHEN zero AND near_score >= $1 THEN 1 END) AS reclass_n
+       COUNT(CASE WHEN zero AND near_score BETWEEN 0 AND 1 AND near_score >= $1 THEN 1 END) AS reclass_n
   FROM read_events
  WHERE ts >= now() - interval '14 days'`,
 		Key:       "suggest_min_score",
@@ -351,7 +353,7 @@ func TestShadowOffZeroCost(t *testing.T) {
 	if p := shadowPredictions(t, r, "suggest_min_score"); len(p) != 0 {
 		t.Fatalf("off 상태 예측 행 %d건, want 0", len(p))
 	}
-	for _, key := range []string{"last_shadow_at", "fired_auto_auto_zero_near_high", "auto_streak_suggest_min_score"} {
+	for _, key := range []string{"last_shadow_at", "fired_auto_auto_zero_near_high", "auto_streak_suggest_min_score", "auto_rounds_suggest_min_score"} {
 		if v := shadowMetaVal(t, r, key); v != "" {
 			t.Fatalf("off 상태 meta %s = %q, want 미기록", key, v)
 		}
@@ -465,8 +467,9 @@ func TestShadowRoundFires(t *testing.T) {
 }
 
 // TestShadowRoundNoFire — a sample-ok round below the warn ratio inserts
-// nothing, bumps nothing, keeps no streak key, but stamps the gate (the
-// round ran) — 3 round trips (gate 1 + verdict 1 + stamp 1).
+// nothing, keeps no streak or fired key, but bumps the round counter and
+// stamps the gate (the round ran — r100-1) — 3 round trips (gate 1 +
+// verdict 1 + the rounds+stamp batch 1).
 func TestShadowRoundNoFire(t *testing.T) {
 	registerFakeShadow(t)
 	rowTrips, execTrips := countShadowTrips(t)
@@ -673,5 +676,135 @@ func TestShadowSilentFailure(t *testing.T) {
 	r.maybeShadowRound(context.Background()) // must return quietly
 	if v := shadowMetaVal(t, r, "last_shadow_at"); v != "" {
 		t.Fatalf("실패 라운드 게이트 스탬프 %q, want 미기록(재시도 열림)", v)
+	}
+}
+
+// TestShadowRoundsCounterSplit — the r100-1 round counter: meta
+// auto_rounds_<key> bumps on EVERY stamped round — fired, non-fired,
+// and boundary — so "rounds ≥ 14" and "fires ≥ 5" stay independent
+// gate inputs (the pre-fix tuning_predictions count only saw fired
+// rounds with a proposal, starving the rounds condition).
+func TestShadowRoundsCounterSplit(t *testing.T) {
+	registerFakeShadow(t)
+	r := newTestRepo(t)
+	setShadowMeta(t, r, "auto_mode", "shadow")
+	seedShadowReads(t, r, 7, 0, 5) // sample 12, ratio 100% — fires
+
+	// Round 1 — fired with a proposal: rounds 1, fired 1.
+	fireRound(t, r)
+	if got := shadowMetaVal(t, r, "auto_rounds_suggest_min_score"); got != "1" {
+		t.Fatalf("(1) 발화 라운드 auto_rounds = %q, want \"1\"", got)
+	}
+
+	// Round 2 — non-fired (diluted below the warn ratio): rounds 2, fired
+	// unchanged at 1 — the non-fired round still counts as a round.
+	seedShadowReads(t, r, 40, 30, 2) // sample 92, ratio 6% < 30%
+	fireRound(t, r)
+	if got := shadowMetaVal(t, r, "auto_rounds_suggest_min_score"); got != "2" {
+		t.Fatalf("(2) 미발화 라운드 auto_rounds = %q, want \"2\"", got)
+	}
+	if got := shadowMetaVal(t, r, "fired_auto_auto_zero_near_high"); got != "1" {
+		t.Fatalf("(2) 미발화 라운드 fired = %q, want \"1\"(불변)", got)
+	}
+
+	// Round 3 — a boundary fire (cur at the down bound, no proposal):
+	// rounds 3, fired 2 — the round and the fire each count once more.
+	setShadowMeta(t, r, "suggest_min_score", "0.05")
+	seedShadowReads(t, r, 0, 0, 30) // ratio 100% — fires again
+	fireRound(t, r)
+	if got := shadowMetaVal(t, r, "auto_rounds_suggest_min_score"); got != "3" {
+		t.Fatalf("(3) 경계 발화 라운드 auto_rounds = %q, want \"3\"", got)
+	}
+	if got := shadowMetaVal(t, r, "fired_auto_auto_zero_near_high"); got != "2" {
+		t.Fatalf("(3) 경계 발화 라운드 fired = %q, want \"2\"", got)
+	}
+}
+
+// TestShadowBoundaryFireBumpsFired — the r100-3 boundary-fire contract:
+// the trigger fired (ratio at or above the warn line) but cur sits
+// exactly at the directional bound, so no strict move exists and no
+// prediction row is appended (rows stay proposal-only per the spec) —
+// yet the fired counter bumps (fired counts trigger-verdict fires) and
+// the round stamps the gate and bumps the round counter.
+func TestShadowBoundaryFireBumpsFired(t *testing.T) {
+	registerFakeShadow(t)
+	r := newTestRepo(t)
+	setShadowMeta(t, r, "auto_mode", "shadow")
+	setShadowMeta(t, r, "suggest_min_score", "0.05") // the down bound itself
+	seedShadowReads(t, r, 7, 0, 5)                   // sample 12, ratio 100% — fires
+
+	fireRound(t, r)
+
+	if n := len(shadowPredictions(t, r, "suggest_min_score")); n != 0 {
+		t.Fatalf("경계 발화 예측 행 %d건, want 0(제안 없음 — 행은 제안 있는 경우만)", n)
+	}
+	if got := shadowMetaVal(t, r, "fired_auto_auto_zero_near_high"); got != "1" {
+		t.Fatalf("경계 발화 fired = %q, want \"1\"(트리거 판정 기준)", got)
+	}
+	if got := shadowMetaVal(t, r, "auto_rounds_suggest_min_score"); got != "1" {
+		t.Fatalf("경계 발화 auto_rounds = %q, want \"1\"", got)
+	}
+	if _, err := time.Parse(time.RFC3339, shadowMetaVal(t, r, "last_shadow_at")); err != nil {
+		t.Fatalf("경계 발화 게이트 스탬프 미기록 또는 비RFC3339: %q", shadowMetaVal(t, r, "last_shadow_at"))
+	}
+}
+
+// TestShadowNearScoreDomainGuard — the r101-2 domain guard: a zero row
+// whose near_score sits outside the [0,1] score domain (a manual
+// injection) never enters the reclassification pool — with the out-of-
+// domain rows excluded the ratio stays below the warn line and the
+// round does not fire (unguarded, 2 of 3 zero rows would read as
+// reclass → 66% ≥ 30% and fire).
+func TestShadowNearScoreDomainGuard(t *testing.T) {
+	registerFakeShadow(t)
+	r := newTestRepo(t)
+	setShadowMeta(t, r, "auto_mode", "shadow")
+	seedShadowReads(t, r, 9, 1, 0) // sample 10 (the floor), zero 1 in-domain
+	ctx := context.Background()
+	for i := 0; i < 2; i++ {
+		if _, err := r.pool.Exec(ctx,
+			`INSERT INTO read_events (hits, zero, near, fallback, near_score) VALUES (0, true, false, false, 5.0)`); err != nil {
+			t.Fatalf("시딩 도메인 밖 행: %v", err)
+		}
+	}
+
+	fireRound(t, r)
+
+	if n := len(shadowPredictions(t, r, "suggest_min_score")); n != 0 {
+		t.Fatalf("도메인 밖 행 포함 시 예측 행 %d건, want 0(가드 제외 — 미발화)", n)
+	}
+	if v := shadowMetaVal(t, r, "fired_auto_auto_zero_near_high"); v != "" {
+		t.Fatalf("도메인 밖 행 발화 카운터 = %q, want 미기록", v)
+	}
+	if got := shadowMetaVal(t, r, "auto_rounds_suggest_min_score"); got != "1" {
+		t.Fatalf("미발화 라운드 auto_rounds = %q, want \"1\"", got)
+	}
+}
+
+// TestShadowCounterCorruptReset — the r101-3 guarded increment: a
+// non-numeric existing counter text (meta pollution) resets to '1'
+// inside the CASE instead of failing the cast, the batch, and the gate
+// stamp — a polluted counter must not permanently block the round.
+func TestShadowCounterCorruptReset(t *testing.T) {
+	registerFakeShadow(t)
+	r := newTestRepo(t)
+	setShadowMeta(t, r, "auto_mode", "shadow")
+	setShadowMeta(t, r, "fired_auto_auto_zero_near_high", "x")   // non-numeric pollution
+	setShadowMeta(t, r, "auto_rounds_suggest_min_score", "junk") // non-numeric pollution
+	seedShadowReads(t, r, 7, 0, 5)                               // fires
+
+	fireRound(t, r)
+
+	if got := shadowMetaVal(t, r, "fired_auto_auto_zero_near_high"); got != "1" {
+		t.Fatalf("오염 fired 카운터 = %q, want \"1\"(리셋)", got)
+	}
+	if got := shadowMetaVal(t, r, "auto_rounds_suggest_min_score"); got != "1" {
+		t.Fatalf("오염 auto_rounds 카운터 = %q, want \"1\"(리셋)", got)
+	}
+	if _, err := time.Parse(time.RFC3339, shadowMetaVal(t, r, "last_shadow_at")); err != nil {
+		t.Fatalf("오염 경과 게이트 스탬프 미기록: %q", shadowMetaVal(t, r, "last_shadow_at"))
+	}
+	if n := len(shadowPredictions(t, r, "suggest_min_score")); n != 1 {
+		t.Fatalf("오염 경과 예측 행 %d건, want 1", n)
 	}
 }

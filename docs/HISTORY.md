@@ -6,6 +6,55 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.23.1 patch (2026-11-23) — r100-r101: round counter split · boundary fire bump · near_score domain guard
+
+The v1.23.0 audit (R100·R101) fixes — 10 findings, no schema change:
+
+- **rounds/fires counter split (r100-1, med)**: new meta
+  `auto_rounds_<key>` bumps on every stamped round — fired or not —
+  and `tuning status` / the accumulation-gate input read it (the old
+  rounds source was the tuning_predictions count, which only sees
+  fired rounds carrying a proposal — starving the rounds ≥ 14
+  condition whenever fires ran ahead of proposals). Rounds ≥ 14 AND
+  fires ≥ 5 are now independent inputs, as the gate intends;
+  `auto_rounds_` joins metaKnownPrefixes (doctor self-reference
+  hygiene).
+- **boundary fire bumps fired (r100-3, low)**: a trigger fire whose
+  current value already sits at the directional bound proposes no move
+  and appends no prediction row (rows stay proposal-only per the
+  spec), yet now bumps `fired_auto_<signal>` — the fired counter is
+  defined by the trigger verdict, not by the proposal.
+- **what-if NaN defense (r101-1, low-med)**: `tuning what-if` skips
+  NaN/Inf cells when collecting the zero rows' near_score
+  distribution, so a stored numeric NaN can no longer fail the whole
+  JSON output.
+- **near_score domain guard (r101-2, low)**: the registry verdict
+  query's reclassification arm requires `near_score BETWEEN 0 AND 1` —
+  a manually injected out-of-domain score never enters the trigger
+  verdict or the reclass pool.
+- **counter cast guard (r101-3, low)**: the fired/rounds bumps reset
+  a non-numeric existing counter to '1' inside the upsert CASE instead
+  of failing the cast, the batch, and the 24h gate stamp (a polluted
+  counter previously blocked every later round permanently).
+- **off-cost wording corrected (r100-2, low)**: TUNING now states off
+  = steady-state 0 queries + 1 batched gate read per hour at cold
+  start (the v1.23.0 "zero shadow cost" claim held only for an
+  unregistered circuit); the code comment matches.
+- **spec cache wording corrected (r100-4, info)**: the v1230 spec's
+  "no process cache" becomes the actual 1h in-process gate cache (the
+  existing hook convention).
+- **success-pair directionality noted (r100-5, info)**: the TUNING
+  whitelist notes a transient near_pct rise right after a downward
+  apply is expected (the decrease reads from post-change events); the
+  success-pair measurement definition is a v1.24.0 design item.
+- **README tuning rows (r101-4, low)**: the EN/KO `flint tuning`
+  command rows now list the autotune surfaces (`auto` · `what-if` ·
+  `status`).
+- **scope status (r101-5, low)**: release-scope §5 marks v1.23.0
+  released with the R100-R101 audit in progress.
+- version sync: VERSION · plugin.json · README EN/KO badges · doclint
+  01231.
+
 ### v1.23.0 minor (2026-11-23) — autotune-shadow: schema v18 tuning_predictions · auto_mode policy · shadow rounds · tuning what-if/status
 
 (spec: docs/plans/2026-11-23-flint-v1230.md). The autonomous-tuning I

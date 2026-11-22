@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.23.0-blue" alt="v1.23.0">
+  <img src="https://img.shields.io/badge/release-v1.23.1-blue" alt="v1.23.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.23.1 · r100-r101 patch — rounds/fires counter split (meta `auto_rounds_`, every stamped round counts) · boundary-fire `fired` bump · `near_score` domain guard on the verdict query · what-if NaN defense · `tuning` command rows cover `auto`/`what-if`/`status` · [full changelog](docs/HISTORY.md)
 > v1.23.0 · autotune shadow — schema v18 `tuning_predictions` (predictions recorded, nothing applied) · `auto_mode` policy switch (default off, whitelist: `suggest_min_score`) · shadow rounds on the read tail (24h gate, streak rules) · `flint tuning what-if` / `status` (reclassification · p50/p90 · drift card) · [full changelog](docs/HISTORY.md)
 > v1.22.1 · r96-r98 patch — rematch stamp preservation (`content_changed_at` kept on hash-identical re-applies) · `maintain --recheck --conditions` backfill · `flint distill` file cap (`distill_max_runes`) + no same-minute overwrite · id/min-score input guards · [full changelog](docs/HISTORY.md)
 > v1.21.1 · r91-r94 patch — path redaction on scan errors · vault root guard (persist after success) · tuning-key wiring · scan hardening (retry · touch refresh · symlink skip · 60k+ delete) · [full changelog](docs/HISTORY.md)
@@ -227,7 +228,7 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | :--- | :--- |
 | `flint setup` | Start Doltgres, migrate, print seed/plugin next steps |
 | `flint update` | Self-update to the latest release (checksum-verified, `--check` dry-run) |
-| `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`; opt-in `--tui` form) |
+| `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`; autotune surfaces `auto off\|shadow` · `what-if` · `status`; opt-in `--tui` form) |
 | `flint write <kind>` | Record knowledge from stdin (idempotent) |
 | `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`); `--format jsonl\|pam` migrates knowledge back in (round-trip re-import · PAM v1.0 intake) |
 | `flint export [--format f]` | Export knowledge as jsonl·md·txt·csv·pam (PAM v1.0 portable memory-store; `--status`·`--tag`·`--since` filters, `--out` file with `.sha256` sidecar; PAM `--sign` Ed25519 signature, spec §18) |
