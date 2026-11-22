@@ -624,3 +624,74 @@ func TestMaintainCheckDrillReport(t *testing.T) {
 		}
 	}
 }
+
+// TestMaintainMergeAuditDelegation — v1.24.0 T3: --merge-audit flows
+// through the cli entry to the ops report unchanged (no --tui branch):
+// the duplicate pair lists and the run stays read-only at this layer too
+// (no admin write method, no dolt commit — disposition is the approval
+// circuit's).
+func TestMaintainMergeAuditDelegation(t *testing.T) {
+	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
+		if strings.Contains(sql, "invalid_at IS NULL LIMIT") {
+			return [][]any{
+				{int32(7), "데모 배포 절차", "매주 화요일 배포 프리즈와 롤백 점검을 함께 기록한다"},
+				{int32(8), "데모 배포 절차", "매주 화요일 배포 프리즈와 롤백 점검을 함께 기록한다"},
+			}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--merge-audit")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (출력 %q)", code, out)
+	}
+	if !strings.Contains(out, `"status":"merge-audit"`) || !strings.Contains(out, `"a":7,"b":8`) {
+		t.Errorf("출력 %q", out)
+	}
+	if !strings.Contains(out, "dispose via maintain --merge/--supersede (approval required)") {
+		t.Errorf("처분 안내 부재: %q", out)
+	}
+	if len(f.invalidateCalls) != 0 || len(f.mergeCalls) != 0 || len(f.supersedeCalls) != 0 || len(f.commits) != 0 {
+		t.Errorf("읽기 전용 위반: invalidate=%v merge=%v supersede=%v commits=%v",
+			f.invalidateCalls, f.mergeCalls, f.supersedeCalls, f.commits)
+	}
+	// --limit rides the mode (the mode-ownership table admits it).
+	out, code = runMaintainArgs(t, f, "--merge-audit", "--limit", "5")
+	if code != 0 || !strings.Contains(out, `"status":"merge-audit"`) {
+		t.Fatalf("--limit 결합 exit=%d out=%q", code, out)
+	}
+}
+
+// TestMaintainRecallAuditDelegation — v1.24.0 T4: --recall-audit flows
+// through the cli entry to the ops report unchanged (no --tui branch): the
+// bad-recall candidate lists and the run stays read-only at this layer too
+// (no admin write method, no dolt commit — disposition is the approval
+// circuit's).
+func TestMaintainRecallAuditDelegation(t *testing.T) {
+	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
+		if strings.Contains(sql, "AS bad_recall") {
+			return [][]any{
+				{int32(9), "t4-recall-audit 데모 배포 절차", int64(2)},
+			}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--recall-audit")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0 (출력 %q)", code, out)
+	}
+	if !strings.Contains(out, `"status":"recall-audit"`) || !strings.Contains(out, `"id":9`) {
+		t.Errorf("출력 %q", out)
+	}
+	if !strings.Contains(out, "dispose via maintain --invalidate/--supersede/--reaffirm (approval required)") {
+		t.Errorf("처분 안내 부재: %q", out)
+	}
+	if len(f.invalidateCalls) != 0 || len(f.mergeCalls) != 0 || len(f.supersedeCalls) != 0 || len(f.commits) != 0 {
+		t.Errorf("읽기 전용 위반: invalidate=%v merge=%v supersede=%v commits=%v",
+			f.invalidateCalls, f.mergeCalls, f.supersedeCalls, f.commits)
+	}
+	// --limit rides the mode (the mode-ownership table admits it).
+	out, code = runMaintainArgs(t, f, "--recall-audit", "--limit", "5")
+	if code != 0 || !strings.Contains(out, `"status":"recall-audit"`) {
+		t.Fatalf("--limit 결합 exit=%d out=%q", code, out)
+	}
+}

@@ -1045,6 +1045,76 @@ func (r *Repo) ensureSchemaV18(ctx context.Context) error {
 	return nil
 }
 
+// EnsureSchemaV19 losslessly promotes a DB with
+// meta.schema_version<19 to 19 (v1.24.0 curation residual — additive):
+// adds the 2 knowledge columns kind (text NULL — the classification
+// preference|fact, write-path validated; unclassified NULL allowed) and
+// source_path (text NULL — the optional write input, the --recheck
+// vault-connection axis) with ADD COLUMN IF NOT EXISTS, and creates the
+// echo_candidates table (the D1 echo-candidate persistence base — one
+// row per write-echo candidate: echo_id = the new write row,
+// candidate_id = the approximate neighbor row, the same direction as
+// the echo response top-k; the D1 retrospective query itself is deferred
+// until observation data accrues — this version only persists) with
+// CREATE TABLE IF NOT EXISTS (the v12·v13 precedent) and its
+// (candidate_id)·(ts) indexes. An audit staging target
+// (auditStageTables — the recall_events ruling precedent: candidates
+// must propagate across devices). Existing tables·views·data unchanged.
+// Already v19+ is a no-op (the numeric-comparison short circuit),
+// idempotent on any DB that passed the v1~v18 gates.
+func (r *Repo) EnsureSchemaV19(ctx context.Context) error {
+	return Retry(ctx, func() error { return r.ensureSchemaV19(ctx) }, gateRetryBackoff)
+}
+
+func (r *Repo) ensureSchemaV19(ctx context.Context) error {
+	var version string
+	err := r.pool.QueryRow(ctx,
+		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version)
+	if err != nil && !errors.Is(err, pgx.ErrNoRows) && !isPgCode(err, "42P01") {
+		return fmt.Errorf("schema v19: check version: %w", err)
+	}
+	if isPgCode(err, "42P01") {
+		return nil // fresh DB (tables absent) — the fresh-creation path carries the v19 terminus
+	}
+	if n, perr := strconv.Atoi(version); perr == nil && n >= 19 {
+		return nil
+	}
+	tx, err := r.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("schema v19: begin: %w", err)
+	}
+	defer tx.Rollback(ctx)
+	for _, stmt := range []string{
+		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS kind text`,
+		`ALTER TABLE knowledge ADD COLUMN IF NOT EXISTS source_path text`,
+		`CREATE TABLE IF NOT EXISTS echo_candidates (
+		    id           bigserial PRIMARY KEY,
+		    ts           timestamptz NOT NULL DEFAULT now(),
+		    candidate_id int NOT NULL,
+		    echo_id      int NOT NULL,
+		    relation     text NOT NULL,
+		    score        double precision NOT NULL
+		)`,
+		`CREATE INDEX IF NOT EXISTS idx_echo_candidates_candidate_id
+		 ON echo_candidates (candidate_id)`,
+		`CREATE INDEX IF NOT EXISTS idx_echo_candidates_ts
+		 ON echo_candidates (ts)`,
+	} {
+		if _, err := tx.Exec(ctx, stmt); err != nil {
+			return fmt.Errorf("schema v19: create: %w", err)
+		}
+	}
+	if _, err := tx.Exec(ctx,
+		`INSERT INTO meta (key, value) VALUES ('schema_version', '19')
+		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
+		return fmt.Errorf("schema v19: meta: %w", err)
+	}
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("schema v19: commit: %w", err)
+	}
+	return nil
+}
+
 // Approve promotes pending knowledge to active (spec §8: approval =
 // flint approve). Approval is a valid confirmation, so it also clears
 // any residual invalid_at — defense against the defect where

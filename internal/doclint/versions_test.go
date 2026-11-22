@@ -546,6 +546,12 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01232Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.23.2", "r102",
 	}},
+	// v1.24.0 T7: curation-residual 마일스톤 계약행 — 스키마 v19
+	// (kind·source_path·echo_candidates)·merge-audit·recall-audit·
+	// read --related/--why·D2/D4 카운터.
+	{name: "TestVersion01240Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.24.0", "curation-residual",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

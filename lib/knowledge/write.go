@@ -34,7 +34,14 @@ var kindColumns = map[string]map[string]bool{
 		// v1.22.0 (schema v17): the manual recheck conditions tag rides the
 		// record to the knowledge.conditions column (hash-excluded — the
 		// hashVolatile registration, the relations precedent).
-		"conditions": true},
+		"conditions": true,
+		// v1.24.0 (schema v19): the vault provenance path rides the record
+		// to the knowledge.source_path column (hash-excluded — the
+		// conditions precedent). knowledge_kind is NOT here: it is a
+		// consumed-here input key (the relations convention) stamped onto
+		// the knowledge.kind column post-insert — the discriminator
+		// rec["kind"] occupies that record key (the key-separation rule).
+		"source_path": true},
 	"session": {"ts": true, "agent": true, "summary": true},
 	// note is a SchemaV2 column (projects.note), so the drop-as-metadata
 	// treatment is abolished — registered as a storage column.
@@ -423,6 +430,87 @@ func ValidateConditionsString(s string) *store.SchemaError {
 	return nil
 }
 
+// ── v1.24.0 T2 — the optional stdin knowledge_kind·source_path inputs
+// (schema v19). Key-separation rule: the record discriminator
+// rec["kind"]="knowledge" is immutable — the classification input rides
+// its own input key (knowledge_kind) and is consumed here (the relations
+// convention: never a record key, never in the dropped-keys report),
+// then stamped onto the knowledge.kind column post-insert via
+// db.StampKnowledgeKind (the discriminator occupies the "kind" record
+// key, so the column cannot ride the INSERT column list). Both fields
+// are hash-excluded (hashVolatile v19) — the same body ±either field is
+// one dedup identity, and a duplicate resend never rewrites the stored
+// columns (the conditions precedent). ──
+
+// knowledgeKindVocabulary — the registered classification values (the
+// G2 ruling: 2 values fixed, extension deferred). Order is the display
+// form (error messages·docs).
+var knowledgeKindVocabulary = []string{"preference", "fact"}
+
+// validKnowledgeKinds — the membership view of the vocabulary.
+var validKnowledgeKinds = map[string]bool{"preference": true, "fact": true}
+
+// KnowledgeKindVocabulary — the registered classification values in
+// display order (rejection messages·consumer docs).
+func KnowledgeKindVocabulary() []string {
+	return append([]string(nil), knowledgeKindVocabulary...)
+}
+
+// MaxSourcePathRunes — the source_path length cap (the
+// MaxConditionsRunes convention: an unbounded string stays off the
+// stored column and the duplicate echo path). 1024 runes is generous
+// headroom over any plausible vault-relative path (PATH_MAX scale).
+const MaxSourcePathRunes = 1024
+
+// parseKnowledgeKind — extracts·validates the optional classification
+// input (knowledge only). nil return = unspecified (absent·null·blank —
+// the column stays NULL). The key is consumed here (metadata, not a
+// storage column). The value is whitespace-trimmed·lowercased before the
+// vocabulary check (the normalizeVocab convention); an unregistered
+// value·a non-string refuse at exit 3 (the colon-token rejection class —
+// vocabulary drift must hard-block, not warn).
+func parseKnowledgeKind(p map[string]any) (string, *store.SchemaError) {
+	raw, ok := p["knowledge_kind"]
+	if !ok || raw == nil {
+		return "", nil
+	}
+	delete(p, "knowledge_kind")
+	s, ok := raw.(string)
+	if !ok {
+		return "", &store.SchemaError{Field: "knowledge_kind", Expect: "string"}
+	}
+	n := strings.ToLower(strings.TrimSpace(s))
+	if n == "" {
+		return "", nil // blank = unspecified (NULL)
+	}
+	if !validKnowledgeKinds[n] {
+		return "", &store.SchemaError{Field: "knowledge_kind",
+			Expect: strings.Join(knowledgeKindVocabulary, "|")}
+	}
+	return n, nil
+}
+
+// validateSourcePath — the shape·length check of the optional vault
+// provenance path (knowledge only; a storage column, so the check is
+// shape·length only — the conditions convention). nil return = pass
+// (absent·nil input passes). The empty check is left to the caller: a
+// blank path is normalized to absence (an empty string is not a path).
+func validateSourcePath(p map[string]any) *store.SchemaError {
+	v, ok := p["source_path"]
+	if !ok || v == nil {
+		return nil
+	}
+	s, ok := v.(string)
+	if !ok {
+		return &store.SchemaError{Field: "source_path", Expect: "string"}
+	}
+	if r := []rune(s); len(r) > MaxSourcePathRunes {
+		return &store.SchemaError{Field: "source_path",
+			Expect: fmt.Sprintf("at most %d runes", MaxSourcePathRunes)}
+	}
+	return nil
+}
+
 // precheckLinkTargets — the batched target-existence refusal of the
 // relations array: one lookupExistingIDs query over the distinct target
 // ids, a missing target → the exit-3 SchemaError class. Called BEFORE
@@ -790,9 +878,14 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	var stagedN []map[string]any // knowledge lines awaiting the batch query (order preserved)
 	var stagedH []string         // content_hash at the same index as stagedN
 	var stagedL [][]linkSpec     // the line's relations specs at the same index (v1.20.0 T5)
+	var stagedK []string         // the line's classification input at the same index (v1.24.0 T2)
 	// recLinks — the relations specs at the same index as recs (the
 	// accrual side pairs each committed row id with its links).
 	var recLinks [][]linkSpec
+	// recKinds — the classification input at the same index as recs (the
+	// stamp side pairs each committed row id with its knowledge.kind
+	// value; "" = unspecified NULL, no stamp).
+	var recKinds []string
 	// pendLinks — duplicate-path link accruals: the resent body's
 	// relations land on the existing row (DupMeta.ID — link-loss
 	// prevention; the dedup verdict itself is hash-invariant to
@@ -808,7 +901,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// cap gates here (single choke point covering the single-shot·batched
 	// accrual paths alike): a line past the quota is quietly skipped with
 	// one warning line (exit 0 — independent of the dup mechanism).
-	finalizeRec := func(n map[string]any, specs []linkSpec) {
+	finalizeRec := func(n map[string]any, specs []linkSpec, kval string) {
 		if correctionQuota == 0 {
 			if !capWarned {
 				warnings = append(warnings, fmt.Sprintf(
@@ -829,6 +922,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		recs = append(recs, n)
 		recLinks = append(recLinks, specs)
+		recKinds = append(recKinds, kval)
 	}
 	for _, p := range payloads {
 		// v1.11.0 T2 — the --source correction defaults (knowledge only —
@@ -857,6 +951,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		// (the rejected-relation class hard-blocks, the colon-token
 		// precedent).
 		var specs []linkSpec
+		// kval — this line's classification input (knowledge only; "" =
+		// unspecified NULL, v1.24.0 T2). Consumed at parse, held aside,
+		// stamped post-insert — never a record key (the key-separation
+		// rule: the discriminator rec["kind"] is immutable).
+		kval := ""
 		if kind == "knowledge" {
 			var lse *store.SchemaError
 			specs, lse = parseLinkSpecs(p)
@@ -870,12 +969,32 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				fmt.Fprintln(stdout, wire.ErrLine(cse))
 				return 3
 			}
+			// v1.24.0 T2 — the optional classification·provenance inputs:
+			// vocabulary·shape·length refusals are exit 3 (the relations
+			// precedent — before any row staging).
+			var kse *store.SchemaError
+			kval, kse = parseKnowledgeKind(p)
+			if kse != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(kse))
+				return 3
+			}
+			if sse := validateSourcePath(p); sse != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(sse))
+				return 3
+			}
 		}
 		// Sanitization (ADR-0006): neutralize control characters·[flint]
 		// markers before storage + secret scanning. This stage precedes
 		// hash computation, so the sanitized result becomes the stored·
 		// hashed body.
 		warnings = append(warnings, SanitizePayload(p)...)
+		// v1.24.0 T2 — a blank sanitized source_path is an absence, not a
+		// value (an empty string is not a path; the column stays NULL).
+		if kind == "knowledge" {
+			if sp, ok := p["source_path"].(string); ok && strings.TrimSpace(sp) == "" {
+				delete(p, "source_path")
+			}
+		}
 		n := store.Normalize(kind, p)
 		if kind == "knowledge" {
 			// Vocabulary validation: merge warnings based on the Normalized
@@ -924,6 +1043,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				stagedN = append(stagedN, n)
 				stagedH = append(stagedH, h)
 				stagedL = append(stagedL, specs)
+				stagedK = append(stagedK, kval)
 				continue
 			}
 			existsMeta, exists, err := lookupHash(ctx, st, h)
@@ -980,7 +1100,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 		}
 		n["kind"] = kind
-		finalizeRec(n, specs)
+		finalizeRec(n, specs, kval)
 	}
 
 	// Multi-line knowledge finalize — one batch query over the collected
@@ -1010,7 +1130,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			state = store.Classify(kind, conf, floor)
 			n["status"] = state
 			hash = stagedH[i]
-			finalizeRec(n, stagedL[i])
+			finalizeRec(n, stagedL[i], stagedK[i])
 		}
 	}
 
@@ -1108,8 +1228,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		// forbidden.
 		survive := make([]map[string]any, 0, len(recs))
 		surviveLinks := make([][]linkSpec, 0, len(recLinks))
+		surviveKinds := make([]string, 0, len(recKinds))
 		for i, r := range recs {
 			specs := recLinks[i]
+			kval := "" // the race-recheck realignment keeps recKinds indexed with recs
+			if i < len(recKinds) {
+				kval = recKinds[i]
+			}
 			if r["kind"] == "project" {
 				// Project lines recheck the natural key name (they have no
 				// content_hash, so deciding by retry would collide again and
@@ -1126,12 +1251,14 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				}
 				survive = append(survive, r)
 				surviveLinks = append(surviveLinks, specs)
+				surviveKinds = append(surviveKinds, kval)
 				continue
 			}
 			h, _ := r["content_hash"].(string)
 			if h == "" {
 				survive = append(survive, r) // kinds without a hash cannot be rechecked — decided by retry
 				surviveLinks = append(surviveLinks, specs)
+				surviveKinds = append(surviveKinds, kval)
 				continue
 			}
 			existsMeta, exists, err2 := lookupHash(ctx, st, h)
@@ -1154,6 +1281,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 			survive = append(survive, r)
 			surviveLinks = append(surviveLinks, specs)
+			surviveKinds = append(surviveKinds, kval)
 		}
 		if len(survive) == 0 {
 			// Everything exists on recheck: the path with no new-line loss —
@@ -1174,6 +1302,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		recs = survive
 		recLinks = surviveLinks
+		recKinds = surviveKinds
 	}
 	// v1.20.0 T5 — new-row link accrual: each committed row's relations
 	// land on its fresh id (before the commit, so links and rows ride one
@@ -1198,6 +1327,36 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// the fresh rows and their links.
 	if code := flushDupLinks(false); code != 0 {
 		return code
+	}
+	// v1.24.0 T2 — the knowledge.kind column stamp: the discriminator
+	// rec["kind"] occupies the "kind" record key, so the classification
+	// column cannot ride the INSERT column list — the consumed input
+	// (parseKnowledgeKind) is stamped post-insert, grouped per distinct
+	// value in vocabulary order (one batched UPDATE per value). The stamp
+	// runs BEFORE the commit so rows·links·stamps ride one dolt commit
+	// (the insertKnowledgeLinks convention). Unspecified (""/NULL) lines
+	// get no stamp — the column stays NULL.
+	if kind == "knowledge" && len(ids) > 0 {
+		byKind := map[string][]int{}
+		for i := range recs {
+			if i >= len(ids) || i >= len(recKinds) {
+				break
+			}
+			if recKinds[i] == "" {
+				continue
+			}
+			byKind[recKinds[i]] = append(byKind[recKinds[i]], ids[i])
+		}
+		for _, kv := range knowledgeKindVocabulary {
+			group := byKind[kv]
+			if len(group) == 0 {
+				continue
+			}
+			if err := db.StampKnowledgeKind(ctx, st, group, kv); err != nil {
+				fmt.Fprintln(stdout, wire.ErrLine(err))
+				return store.MapExit(err)
+			}
+		}
 	}
 	// D4 (R33): the commit title — project prefers name (knowledge lacks
 	// name, so summary). If both are absent, the "%v" <nil> fallback (the
@@ -1239,6 +1398,27 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	// committed (the cap's count source, independent of the dup metering).
 	if source == "correction" && kind == "knowledge" && len(recs) > 0 {
 		_ = db.BumpDailyFlatKey(ctx, st, "correction_write", time.Now().UTC().Format("2006-01-02"), len(recs))
+		// v1.24.0 D2 — the correction-classification funnel counters: on a
+		// --source correction write, the committed lines are branched by
+		// their knowledge_kind values (correction_preference·
+		// correction_fact, the curation group — BumpCurationCounter's
+		// whitelist derives from the registry). The branch axis is the
+		// per-line kind value, not the whole write: kindless lines count
+		// nowhere, and a manual-channel write never accrues either.
+		nPref, nFact := 0, 0
+		for i := range recs {
+			if i >= len(recKinds) {
+				break
+			}
+			switch recKinds[i] {
+			case "preference":
+				nPref++
+			case "fact":
+				nFact++
+			}
+		}
+		BumpCurationCounter(ctx, st, "correction_preference", nPref)
+		BumpCurationCounter(ctx, st, "correction_fact", nFact)
 	}
 	fmt.Fprintln(stdout, out)
 	// The scan_stats flush (v1.21.1 A6): an echo scan on this path
@@ -1273,8 +1453,10 @@ func RecordDups(ctx context.Context, st wire.Store, source string, n int) {
 
 // sanitizeFields — the text columns to sanitize (the kind-common minimal
 // set). v1.22.0 T5: conditions added — it stays verbatim through storage
-// (the ADR-0006 blind-spot rule that pulled domain·origin in).
-var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id", "conditions"} // session_id added (defense against arbitrary unsanitized strings)
+// (the ADR-0006 blind-spot rule that pulled domain·origin in). v1.24.0
+// T2: source_path added — the provenance path is an unsanitized-string
+// blind spot of the same class.
+var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id", "conditions", "source_path"} // session_id added (defense against arbitrary unsanitized strings)
 
 // SanitizePayload — sanitizes the text fields, updates the original map,
 // and returns secret-candidate warnings ("possible secret: pattern-name").

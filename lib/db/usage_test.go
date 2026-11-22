@@ -159,3 +159,73 @@ func TestShadowHookOnReadPath(t *testing.T) {
 		t.Fatalf("steady-state 읽기 경로 shadow 왕복 누적 %d, want 1(추가 0)", got)
 	}
 }
+
+// ── v1.24.0 T2 — the knowledge.kind column stamp (StampKnowledgeKind) ──
+
+// stampQuerier — a Querier fake recording the stamp call (SQL·args).
+type stampQuerier struct {
+	calls []stampCall
+}
+
+type stampCall struct {
+	SQL  string
+	Args []any
+}
+
+func (q *stampQuerier) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
+	q.calls = append(q.calls, stampCall{SQL: sql, Args: args})
+	return nil, nil
+}
+
+// TestStampKnowledgeKindContract — the classification stamp: one batched
+// UPDATE over the id list with the vocabulary value as $1; an empty id
+// list·an empty kind are no-ops (no query at all — the unspecified-NULL
+// contract never reaches the DB).
+func TestStampKnowledgeKindContract(t *testing.T) {
+	q := &stampQuerier{}
+	if err := StampKnowledgeKind(context.Background(), q, []int{1, 2}, "preference"); err != nil {
+		t.Fatalf("stamp err: %v", err)
+	}
+	if len(q.calls) != 1 {
+		t.Fatalf("stamp 질의=%d회, want 1", len(q.calls))
+	}
+	if !strings.Contains(q.calls[0].SQL, "UPDATE knowledge SET kind = $1 WHERE id = ANY($2)") {
+		t.Fatalf("stamp SQL 형태 불일치: %q", q.calls[0].SQL)
+	}
+	if q.calls[0].Args[0] != "preference" {
+		t.Fatalf("스탬프 값=%v, want preference", q.calls[0].Args[0])
+	}
+	// no-ops: empty ids·empty kind issue no query.
+	for _, tc := range []struct {
+		ids  []int
+		kind string
+	}{
+		{nil, "fact"},
+		{[]int{1}, ""},
+	} {
+		qq := &stampQuerier{}
+		if err := StampKnowledgeKind(context.Background(), qq, tc.ids, tc.kind); err != nil {
+			t.Fatalf("no-op err: %v", err)
+		}
+		if len(qq.calls) != 0 {
+			t.Fatalf("no-op(%v,%q)이 질의 발생: %+v", tc.ids, tc.kind, qq.calls)
+		}
+	}
+}
+
+// TestMeteringRegistryCurationV1240 — the D2 funnel pair is registered in
+// the curation group (the write path's BumpCurationCounter whitelist
+// derives from this registry — an unregistered kind would be silently
+// unmetered).
+func TestMeteringRegistryCurationV1240(t *testing.T) {
+	kinds := MeteringKinds("curation")
+	seen := map[string]bool{}
+	for _, k := range kinds {
+		seen[k] = true
+	}
+	for _, want := range []string{"correction_preference", "correction_fact"} {
+		if !seen[want] {
+			t.Errorf("curation 그룹에 %s 미등록 — D2 적립 불가", want)
+		}
+	}
+}

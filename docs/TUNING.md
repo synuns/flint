@@ -144,7 +144,8 @@ line through the existing set/reset standard path above.
 | `vault_skip_dirs` | ".obsidian,.trash" | vault scan skip-dir list (v1.21.0) — a **string key** (the first string-valued key family; the value is a **comma-separated dir-name list**, e.g. `.obsidian,.trash,drafts`), matched by path segment during the scan. Unset keeps "" and the consumer falls back to DefaultThresholds (the unset-keeps-0 string analogue). Personal vault layouts live only in meta overrides | `flint index` scan skip |
 | `distill_min_score` | 1.0 | recall-score floor of `flint distill` (v1.22.0, ADR-0018) — only never-distilled active rows with `recall_score >= distill_min_score` are emitted; the `--min-score N` flag takes precedence over this key, which in turn replaces the code default. The score is a **raw recall count** (ADR-0018 decision 3 — values above 1 are normal), and the default 1.0 means "at least one surviving recall" — distill is for curated, recall-proven knowledge, so freshly written rows stay out until recalled. A stored 0 is the **unset sentinel**, not "no floor" — no-floor exists only through the `--min-score 0` flag (v1.22.1 r97-2 correction). Raising it tightens the insight bar; lowering it admits unrecalled rows (not recommended) | `flint distill` score floor |
 | `distill_max_runes` | 20000 | per-run insights file rune cap of `flint distill` (v1.22.1 r97, ADR-0018) — the whole file (header included) is bounded; rows are appended whole, the first row past the cap and everything after it stay unstamped and defer to the next run (a "N rows deferred" stderr notice — no silent drop). 0 cannot be a meaningful cap, so the consumer applies values > 0 only (the unset-keeps-0 convention) | `flint distill` file cap |
-| `auto_mode` | `off` | the autonomous-tuning master switch (v1.23.0): `off` = steady-state 0 queries with a cold start of 1 batched gate read per hour (the r100-2 correction — the default never runs a round), `shadow` = predict-and-record rounds, **never an applied override** (the apply phase is the v1.24.0 gate). Set via `flint tuning auto off\|shadow`; switching back to off **keeps** the streaks · fired/rounds counters · gate stamp (resuming continues) | shadow rounds (see the v1.23.0 subsection) |
+| `auto_mode` | `off` | the autonomous-tuning master switch (v1.23.0): `off` = steady-state 0 queries with a cold start of 1 batched gate read per hour (the r100-2 correction — the default never runs a round), `shadow` = predict-and-record rounds, **never an applied override** (the apply phase is the v1.25.0 gate). Set via `flint tuning auto off\|shadow`; switching back to off **keeps** the streaks · fired/rounds counters · gate stamp (resuming continues) | shadow rounds (see the v1.23.0 subsection) |
+| `recall_audit_min_bad` | 2 | bad-recall listing floor of `maintain --recall-audit` (v1.24.0) — an active row lists when its same-topic bad-recall count (invalidated·superseded rows that have recall history, the `recall_events` EXISTS precedent) is at or above this. Listing only — disposition stays with the approval-required subcommands; 0 cannot be a meaningful floor, so the consumer applies values > 0 only (the `distill_max_runes` convention) | `maintain --recall-audit` listing floor |
 
 Diagnostics layer-B rules inherit reads from existing doctor keys (avoiding
 duplicate keys — see the `zero_near_warn_pct` · `pending_age_days` rows).
@@ -155,6 +156,18 @@ The diagnose `metering_silent` judgment window (30 days, v1.19.0) is a
 **code constant** — no thresholds-registry key was registered for it
 (the curation·maintain paths fire at most once a day, so a shorter
 overridable window would invite false positives).
+
+### v1.24.0 `survived_decay_relief` activation ruling
+
+The v1.24.0 curation-residual review kept `survived_decay_relief` at
+its **default 0 — activation is a meta override only**, never a code
+or doc default (the personal-values-in-meta principle). Before raising
+it, record the observational evidence in the docs (the decay-audit
+archive-candidate volume that relief would actually offset); with no
+recorded evidence the override does not happen. The code path is
+unchanged from v1.14.0 — 0 disables the relief entirely (byte-identical
+output), and any value > 0 turns on one batched survived lookup per
+ranking run.
 
 ### v1.23.0 autonomous tuning — shadow (auto_mode · whitelist · accumulation)
 

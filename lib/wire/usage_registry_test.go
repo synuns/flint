@@ -152,3 +152,23 @@ func TestUsageLineAssembledFromOrder(t *testing.T) {
 		t.Fatalf("usageLine이 usageOrder 조립과 불일치:\n got=%s\nwant=%s", UsageLine(), want)
 	}
 }
+
+// TestHelpSummaryDocumentsMergeAudit — the maintain summary entry must
+// mention the v1.24.0 merge-audit report (a subflag row extension — the
+// usageOrder and seedCommands sets are unchanged).
+func TestHelpSummaryDocumentsMergeAudit(t *testing.T) {
+	s := HelpSummary()
+	if !strings.Contains(s, "merge-audit") {
+		t.Errorf("helpSummary에 merge-audit 누락: %s", s)
+	}
+}
+
+// TestHelpSummaryDocumentsRecallAudit — the maintain summary entry must
+// mention the v1.24.0 recall-audit report (a subflag row extension — the
+// usageOrder and seedCommands sets are unchanged).
+func TestHelpSummaryDocumentsRecallAudit(t *testing.T) {
+	s := HelpSummary()
+	if !strings.Contains(s, "recall-audit") {
+		t.Errorf("helpSummary에 recall-audit 누락: %s", s)
+	}
+}

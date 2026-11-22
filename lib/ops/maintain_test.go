@@ -1068,7 +1068,7 @@ func TestMaintainRecheckReport(t *testing.T) {
 	validAt := time.Now().Add(-40 * 24 * time.Hour).UTC()
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge") {
-			return [][]any{{"t3-재점검-데모", ":adr::vol:immutable:", "requires flint >= 1.22 (demo)", validAt}}, nil
+			return [][]any{{"t3-재점검-데모", ":adr::vol:immutable:", "requires flint >= 1.22 (demo)", validAt, "demo/notes/t3-recheck.md"}}, nil
 		}
 		return nil, nil
 	}}}
@@ -1085,6 +1085,8 @@ func TestMaintainRecheckReport(t *testing.T) {
 		VolTags         []string `json:"vol_tags"`
 		ValidAt         string   `json:"valid_at"`
 		AgeDays         int      `json:"age_days"`
+		SourcePath      string   `json:"source_path"`
+		SourceCleared   int      `json:"source_cleared"`
 		Summary         string   `json:"summary"`
 	}
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
@@ -1104,6 +1106,15 @@ func TestMaintainRecheckReport(t *testing.T) {
 	}
 	if !strings.Contains(got.Summary, "conditions") {
 		t.Fatalf("summary 안내 부재: %q", got.Summary)
+	}
+	// v1.24.0 T2 — the provenance fields ride along: the row's
+	// source_path verbatim; source_cleared stays 0 on a store without
+	// the clear extension (the report-only contract).
+	if got.SourcePath != "demo/notes/t3-recheck.md" {
+		t.Fatalf("source_path = %q, want 데모 경로", got.SourcePath)
+	}
+	if got.SourceCleared != 0 {
+		t.Fatalf("source_cleared = %d, want 0(미구현 스토어 조용한 생략)", got.SourceCleared)
 	}
 
 	// a conditions-less row — the guidance variant.
@@ -1301,5 +1312,948 @@ func TestMaintainAgeAuditThresholdOverride(t *testing.T) {
 	}
 	if !marked[21] || !marked[23] || marked[22] {
 		t.Errorf("마킹(임계 30) = %v — want 21·23 마킹, 22 미마킹(점수 %v)", marked, byID)
+	}
+}
+
+// ── v1.24.0 T2 — --recheck automatically clears the matched vault
+// source-change stamps (the content_changed_at clearing of vault_files
+// rows whose path equals the knowledge row's source_path). ──
+
+// recheckClearStore — a fakeMaintStore wrapper implementing the two
+// recheck write extensions (the clear recorder + the conditions
+// backfill), so the report·backfill paths exercise the clear.
+type recheckClearStore struct {
+	*fakeMaintStore
+	cleared    []string // the paths passed to ClearVaultSourceChanged
+	clearN     int64    // the rows-affected answer
+	setCondN   int64    // SetRecheckConditions rows-affected answer
+	conditions []string
+}
+
+func (s *recheckClearStore) ClearVaultSourceChanged(ctx context.Context, path string) (int64, error) {
+	s.cleared = append(s.cleared, path)
+	return s.clearN, nil
+}
+
+func (s *recheckClearStore) SetRecheckConditions(ctx context.Context, id int, conditions string) (int64, error) {
+	s.conditions = append(s.conditions, conditions)
+	return s.setCondN, nil
+}
+
+// runRecheckClear — runMaintainArgs is fixed to *fakeMaintStore, so a
+// local runner for the wrapper (the TUI-test precedent).
+func runRecheckClear(t *testing.T, s *recheckClearStore, args ...string) (string, int) {
+	t.Helper()
+	var out strings.Builder
+	code := RunMaintain(context.Background(), s, args, nil, &out)
+	return out.String(), code
+}
+
+// TestMaintainRecheckClearsVaultSource — every --recheck invocation
+// (report form·--conditions form alike — the --conditions argument is
+// optional for the clear) clears the vault rows whose path equals the
+// target row's source_path. Multi-share implication: the clear is keyed
+// on the vault path, so every knowledge row sharing that source_path has
+// its recheck queue consumed by the one call — the report surfaces the
+// cleared count.
+func TestMaintainRecheckClearsVaultSource(t *testing.T) {
+	validAt := time.Now().Add(-10 * 24 * time.Hour).UTC()
+	// mk — the report row (5 cells, source_path at index 4) + the clear
+	// helper's own source_path lookup, served per scenario path.
+	mk := func(path any, report bool) *fakeStore {
+		return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+			switch {
+			case strings.Contains(sql, "topic, tags, conditions, valid_at"):
+				if !report {
+					return nil, nil
+				}
+				return [][]any{{"t2-소거-데모", ":demo:", "requires demo", validAt, path}}, nil
+			case strings.Contains(sql, "SELECT source_path FROM knowledge"):
+				if path == nil {
+					return nil, nil
+				}
+				return [][]any{{path}}, nil
+			case strings.Contains(sql, "SELECT id FROM knowledge"):
+				return [][]any{{int32(8)}}, nil // the backfill precheck target
+			}
+			return nil, nil
+		}}
+	}
+	// the report form: a row carrying source_path → one clear call keyed
+	// on the path, the count rides the report, and the clear gets its own
+	// commit (a write happened — the zero-row commit avoidance).
+	s := &recheckClearStore{fakeMaintStore: &fakeMaintStore{fakeStore: mk("demo/notes/v124-t2.md", true)}, clearN: 2}
+	out, code := runRecheckClear(t, s, "--recheck", "7")
+	if code != 0 {
+		t.Fatalf("report exit=%d out=%s", code, out)
+	}
+	if len(s.cleared) != 1 || s.cleared[0] != "demo/notes/v124-t2.md" {
+		t.Fatalf("clear 호출=%v, want [demo/notes/v124-t2.md] 1회", s.cleared)
+	}
+	if !strings.Contains(out, `"source_cleared":2`) || !strings.Contains(out, `"source_path":"demo/notes/v124-t2.md"`) {
+		t.Fatalf("보고 필드 부재: %s", out)
+	}
+	if n := len(s.fakeStore.commits); n != 1 {
+		t.Fatalf("clear 커밋=%d회, want 1", n)
+	}
+	// the --conditions form also clears (the same invocation contract).
+	c := &recheckClearStore{fakeMaintStore: &fakeMaintStore{fakeStore: mk("demo/notes/v124-t2-b.md", false)}, clearN: 1, setCondN: 1}
+	out, code = runRecheckClear(t, c, "--recheck", "8", "--conditions", "demo 조건 (합성)", "--yes")
+	if code != 0 {
+		t.Fatalf("backfill exit=%d out=%s", code, out)
+	}
+	if len(c.cleared) != 1 || c.cleared[0] != "demo/notes/v124-t2-b.md" {
+		t.Fatalf("backfill clear 호출=%v", c.cleared)
+	}
+	if !strings.Contains(out, `"source_cleared":1`) {
+		t.Fatalf("backfill 보고에 source_cleared 부재: %s", out)
+	}
+	// a row without source_path (NULL) clears nothing — no provenance
+	// link, no write, no commit.
+	n := &recheckClearStore{fakeMaintStore: &fakeMaintStore{fakeStore: mk(nil, true)}, clearN: 5}
+	out, code = runRecheckClear(t, n, "--recheck", "9")
+	if code != 0 {
+		t.Fatalf("무경로 exit=%d out=%s", code, out)
+	}
+	if len(n.cleared) != 0 || len(n.fakeStore.commits) != 0 {
+		t.Fatalf("무경로 소거/커밋 발생: cleared=%v commits=%d", n.cleared, len(n.fakeStore.commits))
+	}
+	if !strings.Contains(out, `"source_cleared":0`) {
+		t.Fatalf("무경로 보고 필드 부재: %s", out)
+	}
+}
+
+// ── v1.24.0 T2 slow — the --recheck vault source-change clear on the
+// real Doltgres path (dedicated scratch DB created and dropped here —
+// never a shared or production DB). ──
+
+// slowMaintStore extensions for the recheck clear scenario: the clear
+// UPDATE (the RecheckSourceClearStore extension — the same statement the
+// production realStore carries in cli/maintain.go) and the conditions
+// backfill (RecheckConditionsStore — the SetRecheckConditions
+// convention). Test adapters: the literals mirror the store layer.
+func (s *slowMaintStore) ClearVaultSourceChanged(ctx context.Context, path string) (int64, error) {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE vault_files SET content_changed_at = NULL
+		 WHERE path = $1 AND content_changed_at IS NOT NULL`, path)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+func (s *slowMaintStore) SetRecheckConditions(ctx context.Context, id int, conditions string) (int64, error) {
+	ct, err := s.pool.Exec(ctx,
+		`UPDATE knowledge SET conditions = $2
+		 WHERE id = $1 AND status = 'active' AND invalid_at IS NULL`, id, conditions)
+	if err != nil {
+		return 0, err
+	}
+	return ct.RowsAffected(), nil
+}
+
+// TestMaintainRecheckSourceClearRealSlow — on an isolated scratch DB:
+// `--recheck N` (report form and --conditions form alike) clears the
+// content_changed_at stamps of the vault_files rows whose path equals
+// the target's source_path; the multi-share implication holds (a second
+// knowledge row on the same path finds the queue already consumed), and
+// an unrelated path's stamp survives.
+func TestMaintainRecheckSourceClearRealSlow(t *testing.T) {
+	if os.Getenv("FLINT_TEST_DSN") == "" {
+		t.Skip("FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	defer base.Close()
+	name := fmt.Sprintf("flint_v1240t2_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN parse: %v", err)
+	}
+	u.Path = "/" + name
+	repo, err := db.NewRepo(ctx, u.String())
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	pool, err := db.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	ms := &slowMaintStore{reportSlowStore: &reportSlowStore{repo: repo, pool: pool}, repo: repo}
+	defer ms.Close()
+	if err := ms.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	const (
+		pathA = "demo/notes/v124-t2-a.md"
+		pathB = "demo/notes/v124-t2-b.md"
+	)
+	ids, err := ms.InsertBatch(ctx, []map[string]any{
+		staleSeedRec("v124-t2-공유-a", "v124-t2-ha", "active", ":demo:"),
+		staleSeedRec("v124-t2-공유-b", "v124-t2-hb", "active", ":demo:"),
+		staleSeedRec("v124-t2-단독-c", "v124-t2-hc", "active", ":demo:"),
+	})
+	if err != nil {
+		t.Fatalf("seed: %v", err)
+	}
+	for _, id := range ids {
+		if _, err := ms.Query(ctx, `UPDATE knowledge SET valid_at = now() WHERE id = $1`, id); err != nil {
+			t.Fatalf("valid_at seed: %v", err)
+		}
+	}
+	// A·B share pathA; C carries pathB. Both vault rows are stamped.
+	seedPath := func(id int, path string) {
+		t.Helper()
+		if _, err := ms.Query(ctx,
+			`UPDATE knowledge SET source_path = $2 WHERE id = $1`, id, path); err != nil {
+			t.Fatalf("source_path seed(%d): %v", id, err)
+		}
+	}
+	seedPath(ids[0], pathA)
+	seedPath(ids[1], pathA)
+	seedPath(ids[2], pathB)
+	seedVault := func(path string) {
+		t.Helper()
+		if _, err := ms.Query(ctx,
+			`INSERT INTO vault_files (path, title, tags, mtime, size, content_hash, content_changed_at)
+			 VALUES ($1, 'v124 t2 demo', '', now(), 10, $2, now())`, path, "v124-hash-"+path); err != nil {
+			t.Fatalf("vault seed(%s): %v", path, err)
+		}
+	}
+	seedVault(pathA)
+	seedVault(pathB)
+	stamped := func(path string) bool {
+		rows, err := ms.Query(ctx,
+			`SELECT content_changed_at IS NOT NULL FROM vault_files WHERE path = $1`, path)
+		if err != nil || len(rows) != 1 {
+			t.Fatalf("stamp lookup(%s): %v %v", path, rows, err)
+		}
+		return fmt.Sprint(rows[0][0]) == "true"
+	}
+	run := func(args ...string) (string, int) {
+		t.Helper()
+		var out strings.Builder
+		code := RunMaintain(ctx, ms, args, nil, &out)
+		return out.String(), code
+	}
+	// the report form clears the matched path only.
+	out, code := run("--recheck", fmt.Sprint(ids[0]))
+	if code != 0 || !strings.Contains(out, `"source_cleared":1`) || !strings.Contains(out, pathA) {
+		t.Fatalf("report 소거 exit=%d out=%s", code, out)
+	}
+	if stamped(pathA) {
+		t.Fatalf("pathA 스탬프 미소거")
+	}
+	if !stamped(pathB) {
+		t.Fatalf("무관 경로 pathB 스탬프가 소거됨 — 연결 축 위반")
+	}
+	// the multi-share implication: the sibling row on the same path finds
+	// the queue consumed (source_cleared 0, no error).
+	out, code = run("--recheck", fmt.Sprint(ids[1]))
+	if code != 0 || !strings.Contains(out, `"source_cleared":0`) {
+		t.Fatalf("공유 재점검 exit=%d out=%s", code, out)
+	}
+	// re-stamp pathB, then the --conditions form clears it too (every
+	// --recheck invocation clears — the --conditions argument is
+	// optional).
+	if _, err := ms.Query(ctx,
+		`UPDATE vault_files SET content_changed_at = now() WHERE path = $1`, pathB); err != nil {
+		t.Fatalf("pathB 재스탬프: %v", err)
+	}
+	out, code = run("--recheck", fmt.Sprint(ids[2]), "--conditions", "v124 t2 demo condition", "--yes")
+	if code != 0 || !strings.Contains(out, `"source_cleared":1`) {
+		t.Fatalf("backfill 소거 exit=%d out=%s", code, out)
+	}
+	if stamped(pathB) {
+		t.Fatalf("pathB 스탬프 미소거(backfill 형태)")
+	}
+	// the conditions write itself round-tripped (the r96 contract kept).
+	rows, err := ms.Query(ctx, `SELECT conditions FROM knowledge WHERE id = $1`, ids[2])
+	if err != nil || len(rows) != 1 || fmt.Sprint(rows[0][0]) != "v124 t2 demo condition" {
+		t.Fatalf("conditions 왕복: %v %v", rows, err)
+	}
+}
+
+// ── v1.24.0 T3: --merge-audit (the duplicate-pair report — listing only) ──
+
+// mergeAuditScanRowsFixture — the --merge-audit scan source rows
+// (synthetic demo): an identical pair (1.0), the exact-0.6 boundary pair
+// (the knowledge-package fixture strings), and a below-threshold row.
+func mergeAuditScanRowsFixture() [][]any {
+	return [][]any{
+		{int32(1), "데모 배포 절차", "매주 화요일 배포 프리즈와 롤백 점검을 함께 기록한다"},
+		{int32(2), "데모 배포 절차", "매주 화요일 배포 프리즈와 롤백 점검을 함께 기록한다"},
+		{int32(3), "a", "aabc"},
+		{int32(4), "a", "aaxy"},
+		{int32(5), "a", "zzzz"},
+	}
+}
+
+// mergeAuditJSON — for parsing the --merge-audit output.
+type mergeAuditJSON struct {
+	Status        string `json:"status"`
+	Threshold     float64 `json:"threshold"`
+	ScanCap       int    `json:"scan_cap"`
+	Scanned       int    `json:"scanned"`
+	ScanTruncated bool   `json:"scan_truncated"`
+	Cost          struct {
+		PairsTotal      int    `json:"pairs_total"`
+		MicrosPerPair   int    `json:"micros_per_pair"`
+		EstimatedMicros int    `json:"estimated_micros"`
+		BudgetMicros    int    `json:"budget_micros"`
+		OverBudget      bool   `json:"over_budget"`
+		AdvisedCap      int    `json:"advised_cap"`
+		EffectiveRows   int    `json:"effective_rows"`
+		Advice          string `json:"advice"`
+	} `json:"cost"`
+	EchoP95US int `json:"echo_scan_p95_us"`
+	Count     int `json:"count"`
+	Items     []struct {
+		A        int     `json:"a"`
+		B        int     `json:"b"`
+		TopicA   string  `json:"topic_a"`
+		TopicB   string  `json:"topic_b"`
+		Score    float64 `json:"score"`
+		Relation string  `json:"relation"`
+	} `json:"items"`
+	Summary string `json:"summary"`
+}
+
+// mergeAuditFake — the standard --merge-audit fake: the scan rows ride
+// queryFn (the active-scan SQL), everything else (meta loads, the
+// counter upsert) returns empty and records its args.
+func mergeAuditFake(t *testing.T) (*fakeMaintStore, *[]string) {
+	t.Helper()
+	var metaWrites []string
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "invalid_at IS NULL LIMIT") {
+			return mergeAuditScanRowsFixture(), nil
+		}
+		if strings.Contains(sql, "INSERT INTO meta") {
+			if len(args) > 0 {
+				if k, ok := args[0].(string); ok {
+					metaWrites = append(metaWrites, k)
+				}
+			}
+			return nil, nil
+		}
+		return nil, nil // meta reads (thresholds, scan_stats) — defaults
+	}}}
+	return f, &metaWrites
+}
+
+// TestMaintainMergeAuditList — the report contract: the synthetic similar
+// pair (1.0) and the exact-0.6 boundary pair list at the default
+// conflict_dup_threshold, sorted score-descending; the threshold, scan
+// cap (suggest_scan_cap), scanned count, and the measured pre-cost
+// estimate are all published; the disposition guidance names the
+// approval circuit.
+func TestMaintainMergeAuditList(t *testing.T) {
+	f, _ := mergeAuditFake(t)
+	out, code := runMaintainArgs(t, f, "--merge-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got mergeAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Status != "merge-audit" || got.Count != 2 || len(got.Items) != 2 {
+		t.Fatalf("status/count/items = %q/%d/%d — %s", got.Status, got.Count, len(got.Items), out)
+	}
+	if got.Items[0].A != 1 || got.Items[0].B != 2 || got.Items[0].Score < 0.999 {
+		t.Errorf("items[0] = %+v, want (1,2) 동일 행 1.0", got.Items[0])
+	}
+	if got.Items[1].A != 3 || got.Items[1].B != 4 {
+		t.Errorf("items[1] = %+v, want (3,4) 경계 0.6", got.Items[1])
+	}
+	if got.Items[1].Relation != "duplicates" {
+		t.Errorf("relation = %q, want duplicates(EchoScan 분류 준용)", got.Items[1].Relation)
+	}
+	if got.ScanCap != 5000 || got.Scanned != 5 || got.ScanTruncated {
+		t.Errorf("scan_cap/scanned/truncated = %d/%d/%v, want 5000/5/false", got.ScanCap, got.Scanned, got.ScanTruncated)
+	}
+	if got.Cost.PairsTotal != 10 || got.Cost.MicrosPerPair <= 0 {
+		t.Errorf("cost = %+v, want pairs_total 10·실측 µs/쌍 > 0", got.Cost)
+	}
+	if got.Cost.EstimatedMicros != got.Cost.MicrosPerPair*got.Cost.PairsTotal {
+		t.Errorf("estimated_micros = %d, want per×total", got.Cost.EstimatedMicros)
+	}
+	if !strings.Contains(got.Summary, "dispose via maintain --merge/--supersede (approval required)") {
+		t.Errorf("요약에 처분 안내 부재: %q", got.Summary)
+	}
+	joined := strings.Join(f.queries, ";")
+	if !strings.Contains(joined, "invalid_at IS NULL LIMIT 5001") {
+		t.Errorf("스캔 SQL에 상한 5000+1 부재: %q", joined)
+	}
+}
+
+// TestMaintainMergeAuditListingOnly — the report never disposes: no
+// state-transition method fires, no knowledge write SQL runs, no dolt
+// commit is made (the decay-audit convention — disposition is delegated
+// to --merge/--supersede with approval).
+func TestMaintainMergeAuditListingOnly(t *testing.T) {
+	f, _ := mergeAuditFake(t)
+	out, code := runMaintainArgs(t, f, "--merge-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if len(f.invalidatedIDs) > 0 || len(f.merged) > 0 || len(f.superseded) > 0 {
+		t.Errorf("처분 메서드 발화: invalidate=%v merge=%v supersede=%v",
+			f.invalidatedIDs, f.merged, f.superseded)
+	}
+	if len(f.commits) > 0 {
+		t.Errorf("dolt commit 발화: %v", f.commits)
+	}
+	joined := strings.Join(f.queries, ";")
+	for _, write := range []string{"UPDATE knowledge", "DELETE FROM knowledge", "maintenance_runs"} {
+		if strings.Contains(joined, write) {
+			t.Errorf("쓰기 SQL %q 발화(리스팅만 위반): %q", write, joined)
+		}
+	}
+}
+
+// TestMaintainMergeAuditLimit — --limit caps the listing (the top-scored
+// pair survives, the decay-audit convention).
+func TestMaintainMergeAuditLimit(t *testing.T) {
+	f, _ := mergeAuditFake(t)
+	out, code := runMaintainArgs(t, f, "--merge-audit", "--limit", "1")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got mergeAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Count != 1 || len(got.Items) != 1 || got.Items[0].A != 1 {
+		t.Fatalf("상한 적용 결과 = %d건 %+v, want 1건 (1,2)", got.Count, got.Items)
+	}
+}
+
+// TestMaintainMergeAuditCounter — the merge_audit_pairs curation counter
+// fires once per run with the listed count (the D-series metering
+// convention — the counter key derives from the registry's curation
+// group).
+func TestMaintainMergeAuditCounter(t *testing.T) {
+	f, writes := mergeAuditFake(t)
+	out, code := runMaintainArgs(t, f, "--merge-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	hit := 0
+	for _, k := range *writes {
+		if strings.HasPrefix(k, "daily:merge_audit_pairs:") {
+			hit++
+		}
+	}
+	if hit != 1 {
+		t.Fatalf("merge_audit_pairs 카운터 적립 %d회, want 1(리스팅 2건 1회 적립): %v", hit, *writes)
+	}
+}
+
+// TestMaintainMergeAuditScanCapOverride — the scan bound prefers the
+// meta suggest_scan_cap override (LIMIT cap+1 follows it).
+func TestMaintainMergeAuditScanCapOverride(t *testing.T) {
+	var gotSQL string
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "invalid_at IS NULL LIMIT") {
+			gotSQL = sql
+			return nil, nil
+		}
+		if strings.Contains(sql, "FROM meta") && strings.Contains(sql, "SELECT") {
+			return [][]any{{"suggest_scan_cap", "7"}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--merge-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if !strings.Contains(gotSQL, "LIMIT 8") {
+		t.Fatalf("오버라이드 스캔 SQL = %q, want LIMIT 8(7+1)", gotSQL)
+	}
+}
+
+// TestMaintainMergeAuditRejectsForeignFlags — mode-ownership validation:
+// the read-only report rejects unrelated value flags (--days) with exit 1.
+func TestMaintainMergeAuditRejectsForeignFlags(t *testing.T) {
+	f := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out, code := runMaintainArgs(t, f, "--merge-audit", "--days", "5")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1(무관 플래그 거부): %s", code, out)
+	}
+}
+
+// TestMaintainMergeAuditRealSlow — slow (FLINT_TEST_DSN — the verify-gate
+// DB): synthetic seeds on an isolated scratch DB, the real path lists the
+// seeded duplicate pair with the published cost estimate, and the run
+// leaves every row active (listing only — no disposition, no commit).
+func TestMaintainMergeAuditRealSlow(t *testing.T) {
+	if os.Getenv("FLINT_TEST_DSN") == "" {
+		t.Skip("FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	defer base.Close()
+	name := fmt.Sprintf("flint_t3merge_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	u.Path = "/" + name
+	repo, err := db.NewRepo(ctx, u.String())
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	pool, err := db.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	ms := &slowMaintStore{reportSlowStore: &reportSlowStore{repo: repo, pool: pool}, repo: repo}
+	defer ms.Close()
+	if err := ms.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	topic := "t3-merge-audit 데모 배포 절차"
+	summary := "매주 화요일 배포 프리즈와 롤백 점검을 함께 기록한다"
+	seed := func(hash, t, s string) map[string]any {
+		return map[string]any{
+			"kind": "knowledge", "topic": t, "summary": s, "tags": ":adr:",
+			"confidence": 0.9, "content_hash": hash, "status": "active",
+		}
+	}
+	if _, err := ms.InsertBatch(ctx, []map[string]any{
+		seed("t3-ma-a", topic, summary),
+		seed("t3-ma-b", topic, summary), // identical text -> Dice 1.0
+		// a genuinely dissimilar row (the staleSeedRec hash-summary shape
+		// scores high on short strings — measured on the real path), so
+		// exactly one pair lists.
+		seed("t3-ma-c", "t3-merge-audit 무관 주제",
+			"지난 분기 독서 목록 정리와 서평 작성 회고를 남긴다"),
+	}); err != nil {
+		t.Fatalf("시드: %v", err)
+	}
+	var out strings.Builder
+	if code := RunMaintain(ctx, ms, []string{"--merge-audit"}, nil, &out); code != 0 {
+		t.Fatalf("--merge-audit exit = %d: %s", code, out.String())
+	}
+	var got mergeAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out.String())
+	}
+	if got.Status != "merge-audit" || got.Count != 1 || len(got.Items) != 1 {
+		t.Fatalf("status/count = %q/%d — %s", got.Status, got.Count, out.String())
+	}
+	if got.Items[0].Score < 0.999 || got.Items[0].TopicA != topic {
+		t.Errorf("쌍 = %+v, want 동일 행 1.0", got.Items[0])
+	}
+	if got.Cost.PairsTotal != 3 || got.Cost.MicrosPerPair <= 0 {
+		t.Errorf("cost = %+v, want pairs_total 3(3행)·실측 µs/쌍", got.Cost)
+	}
+	// listing only: every seeded row stays active, nothing invalidated.
+	rows, err := ms.Query(ctx, `SELECT count(*) FROM knowledge WHERE invalid_at IS NULL`)
+	if err != nil || len(rows) == 0 {
+		t.Fatalf("활성 카운트 조회: %v", err)
+	}
+	if n, _ := rows[0][0].(int64); n != 3 {
+		t.Fatalf("활성 행 = %d, want 3(처분 미수행)", n)
+	}
+	// the curation counter landed in meta (the registry whitelist admits
+	// merge_audit_pairs on the real path too).
+	metaRows, err := ms.Query(ctx,
+		`SELECT value FROM meta WHERE key LIKE 'daily:merge_audit_pairs:%'`)
+	if err != nil {
+		t.Fatalf("카운터 조회: %v", err)
+	}
+	if len(metaRows) == 0 {
+		t.Fatalf("merge_audit_pairs 카운터 미적립: %s", out.String())
+	}
+}
+
+// ── v1.24.0 T4: --recall-audit (the bad-recall feedback report — listing only) ──
+
+// recallAuditJSON — for parsing the --recall-audit output.
+type recallAuditJSON struct {
+	Status string `json:"status"`
+	MinBad int    `json:"min_bad"`
+	Count  int    `json:"count"`
+	Items  []struct {
+		ID        int    `json:"id"`
+		Topic     string `json:"topic"`
+		BadRecall int    `json:"bad_recall"`
+	} `json:"items"`
+	Summary string `json:"summary"`
+}
+
+// recallAuditRowsFixture — the --recall-audit listing rows (synthetic demo):
+// a 3-bad-recall row, the exact-2 boundary row (>= recall_audit_min_bad
+// default 2), and a below-threshold 1 row (server-side filtered in reality —
+// carried here only as the parse-shape reference).
+func recallAuditRowsFixture() [][]any {
+	return [][]any{
+		{int32(11), "t4-recall-audit 데모 배포 절차", int64(3)},
+		{int32(12), "t4-recall-audit 회고 리듬", int64(2)},
+	}
+}
+
+// recallAuditFake — the standard --recall-audit fake: the listing rows ride
+// queryFn (the bad-recall listing SQL), everything else (meta loads, the
+// counter upsert) returns empty and records its meta-write keys.
+func recallAuditFake(t *testing.T, rows [][]any) (*fakeMaintStore, *[]string) {
+	t.Helper()
+	var metaWrites []string
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "AS bad_recall") && strings.Contains(sql, "ORDER BY") {
+			return rows, nil
+		}
+		if strings.Contains(sql, "INSERT INTO meta") {
+			if len(args) > 0 {
+				if k, ok := args[0].(string); ok {
+					metaWrites = append(metaWrites, k)
+				}
+			}
+			return nil, nil
+		}
+		return nil, nil // meta reads (thresholds) — defaults
+	}}}
+	return f, &metaWrites
+}
+
+// TestMaintainRecallAuditList — the report contract: the synthetic
+// bad-recall rows list score-descending (bad_recall DESC, id ASC) with the
+// threshold published as min_bad (default 2); the listing SQL carries the
+// server-side floor (>= $1) on the same bad-recall subquery the age-audit
+// reference column uses; the summary names the approval circuit.
+func TestMaintainRecallAuditList(t *testing.T) {
+	f, _ := recallAuditFake(t, recallAuditRowsFixture())
+	var gotArgs []any
+	orig := f.queryFn
+	f.queryFn = func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "AS bad_recall") && strings.Contains(sql, "ORDER BY") {
+			gotArgs = args
+		}
+		return orig(sql, args)
+	}
+	out, code := runMaintainArgs(t, f, "--recall-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got recallAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Status != "recall-audit" || got.MinBad != 2 || got.Count != 2 || len(got.Items) != 2 {
+		t.Fatalf("status/min_bad/count/items = %q/%d/%d/%d — %s", got.Status, got.MinBad, got.Count, len(got.Items), out)
+	}
+	if got.Items[0].ID != 11 || got.Items[0].BadRecall != 3 {
+		t.Errorf("items[0] = %+v, want (11, bad 3) 점수 내림차순", got.Items[0])
+	}
+	if got.Items[1].ID != 12 || got.Items[1].BadRecall != 2 {
+		t.Errorf("items[1] = %+v, want (12, bad 2) 경계 포함(>= 2)", got.Items[1])
+	}
+	if !strings.Contains(got.Summary, "dispose via maintain --invalidate/--supersede/--reaffirm (approval required)") {
+		t.Errorf("요약에 처분 안내 부재: %q", got.Summary)
+	}
+	joined := strings.Join(f.queries, ";")
+	for _, want := range []string{"AS bad_recall", ">= $1", "recall_events"} {
+		if !strings.Contains(joined, want) {
+			t.Errorf("리스팅 SQL에 %q 부재: %q", want, joined)
+		}
+	}
+	if len(gotArgs) != 2 {
+		t.Fatalf("리스팅 파라미터 %v, want [min_bad, limit] 2개", gotArgs)
+	}
+	if minBad, ok := gotArgs[0].(int); !ok || minBad != 2 {
+		t.Errorf("임계 파라미터 = %v, want 2(기본 recall_audit_min_bad)", gotArgs[0])
+	}
+}
+
+// TestMaintainRecallAuditLimit — --limit caps the listing (the decay-audit
+// convention; the Go-side truncation is the defense over the server LIMIT).
+func TestMaintainRecallAuditLimit(t *testing.T) {
+	f, _ := recallAuditFake(t, recallAuditRowsFixture())
+	out, code := runMaintainArgs(t, f, "--recall-audit", "--limit", "1")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	var got recallAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out)
+	}
+	if got.Count != 1 || len(got.Items) != 1 || got.Items[0].ID != 11 {
+		t.Fatalf("상한 적용 결과 = %d건 %+v, want 1건 (11)", got.Count, got.Items)
+	}
+}
+
+// TestMaintainRecallAuditListingOnly — the report never disposes: no
+// state-transition method fires, no knowledge write SQL runs, no dolt
+// commit is made (the decay-audit convention — disposition is delegated to
+// the approval circuit).
+func TestMaintainRecallAuditListingOnly(t *testing.T) {
+	f, _ := recallAuditFake(t, recallAuditRowsFixture())
+	out, code := runMaintainArgs(t, f, "--recall-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if len(f.invalidatedIDs) > 0 || len(f.merged) > 0 || len(f.superseded) > 0 {
+		t.Errorf("처분 메서드 발화: invalidate=%v merge=%v supersede=%v",
+			f.invalidatedIDs, f.merged, f.superseded)
+	}
+	if len(f.commits) > 0 {
+		t.Errorf("dolt commit 발화: %v", f.commits)
+	}
+	joined := strings.Join(f.queries, ";")
+	for _, write := range []string{"UPDATE knowledge", "DELETE FROM knowledge", "maintenance_runs"} {
+		if strings.Contains(joined, write) {
+			t.Errorf("쓰기 SQL %q 발화(리스팅만 위반): %q", write, joined)
+		}
+	}
+}
+
+// TestMaintainRecallAuditCounter — the recall_audit_listed curation counter
+// fires once per run with the listed count (the D-series metering
+// convention — the counter key derives from the registry's curation group).
+func TestMaintainRecallAuditCounter(t *testing.T) {
+	f, writes := recallAuditFake(t, recallAuditRowsFixture())
+	out, code := runMaintainArgs(t, f, "--recall-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	hit := 0
+	for _, k := range *writes {
+		if strings.HasPrefix(k, "daily:recall_audit_listed:") {
+			hit++
+		}
+	}
+	if hit != 1 {
+		t.Fatalf("recall_audit_listed 카운터 적립 %d회, want 1(리스팅 1회 적립): %v", hit, *writes)
+	}
+}
+
+// TestMaintainRecallAuditThresholdOverride — the listing floor prefers the
+// meta recall_audit_min_bad override (the $1 parameter follows it).
+func TestMaintainRecallAuditThresholdOverride(t *testing.T) {
+	var gotArgs []any
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "AS bad_recall") && strings.Contains(sql, "ORDER BY") {
+			gotArgs = args
+			return nil, nil
+		}
+		if strings.Contains(sql, "FROM meta") && strings.Contains(sql, "SELECT") {
+			return [][]any{{"recall_audit_min_bad", "3"}}, nil
+		}
+		return nil, nil
+	}}}
+	out, code := runMaintainArgs(t, f, "--recall-audit")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if len(gotArgs) == 0 {
+		t.Fatalf("리스팅 쿼리 미발화: %s", out)
+	}
+	if minBad, ok := gotArgs[0].(int); !ok || minBad != 3 {
+		t.Errorf("임계 파라미터 = %v, want 3(오버라이드)", gotArgs[0])
+	}
+}
+
+// TestMaintainRecallAuditRejectsForeignFlags — mode-ownership validation:
+// the read-only report rejects unrelated value flags (--days) with exit 1.
+func TestMaintainRecallAuditRejectsForeignFlags(t *testing.T) {
+	f := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out, code := runMaintainArgs(t, f, "--recall-audit", "--days", "5")
+	if code != 1 {
+		t.Fatalf("exit = %d, want 1(무관 플래그 거부): %s", code, out)
+	}
+}
+
+// recallAuditDisposedFake — the --invalidate --ids approval-path fake: the
+// existence check admits id 30, the qualify query returns the target's
+// bad-recall count, and the counter upsert records its meta-write keys.
+func recallAuditDisposedFake(t *testing.T, bad int64) (*fakeMaintStore, *[]string) {
+	t.Helper()
+	var metaWrites []string
+	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "WHERE id = ANY($1)") && !strings.Contains(sql, "AS bad_recall") {
+			return [][]any{{int32(30)}}, nil
+		}
+		if strings.Contains(sql, "AS bad_recall") {
+			return [][]any{{int32(30), bad}}, nil
+		}
+		if strings.Contains(sql, "INSERT INTO meta") {
+			if len(args) > 0 {
+				if k, ok := args[0].(string); ok {
+					metaWrites = append(metaWrites, k)
+				}
+			}
+			return nil, nil
+		}
+		return nil, nil
+	}}}
+	return f, &metaWrites
+}
+
+// TestMaintainRecallAuditDisposedCounter — the D4 disposed counter rides the
+// approval path: --invalidate --ids of a listing-qualified target (bad 3 >=
+// min 2) accrues recall_audit_disposed; a below-threshold target (bad 1)
+// does not (the disposition still succeeds either way — the observation is
+// quiet §13).
+func TestMaintainRecallAuditDisposedCounter(t *testing.T) {
+	f, writes := recallAuditDisposedFake(t, 3)
+	out, code := runMaintainArgs(t, f, "--invalidate", "--ids", "30", "--yes")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	hit := 0
+	for _, k := range *writes {
+		if strings.HasPrefix(k, "daily:recall_audit_disposed:") {
+			hit++
+		}
+	}
+	if hit != 1 {
+		t.Fatalf("recall_audit_disposed 카운터 적립 %d회, want 1(적격 처분 1건): %v", hit, *writes)
+	}
+
+	f2, writes2 := recallAuditDisposedFake(t, 1)
+	out2, code2 := runMaintainArgs(t, f2, "--invalidate", "--ids", "30", "--yes")
+	if code2 != 0 {
+		t.Fatalf("비적격 exit = %d: %s", code2, out2)
+	}
+	for _, k := range *writes2 {
+		if strings.HasPrefix(k, "daily:recall_audit_disposed:") {
+			t.Errorf("비적격(1 < 2) 처분에 disposed 카운터 적립: %v", *writes2)
+		}
+	}
+}
+
+// TestMaintainRecallAuditRealSlow — slow (FLINT_TEST_DSN — the verify-gate
+// DB): synthetic seeds on an isolated scratch DB — a topic with two
+// recalled-then-invalidated rows plus one active row (the candidate), and a
+// boundary topic with only one bad row (not listed). The real path lists
+// exactly the candidate, stays read-only, accrues the listed counter, and
+// the approval path (--invalidate --id with --reason) then accrues the
+// disposed counter.
+func TestMaintainRecallAuditRealSlow(t *testing.T) {
+	if os.Getenv("FLINT_TEST_DSN") == "" {
+		t.Skip("FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	dsn := os.Getenv("FLINT_TEST_DSN")
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	defer base.Close()
+	name := fmt.Sprintf("flint_t4recall_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN 파싱: %v", err)
+	}
+	u.Path = "/" + name
+	repo, err := db.NewRepo(ctx, u.String())
+	if err != nil {
+		t.Fatalf("NewRepo: %v", err)
+	}
+	pool, err := db.Connect(ctx, u.String())
+	if err != nil {
+		t.Fatalf("Connect: %v", err)
+	}
+	ms := &slowMaintStore{reportSlowStore: &reportSlowStore{repo: repo, pool: pool}, repo: repo}
+	defer ms.Close()
+	if err := ms.Migrate(ctx); err != nil {
+		t.Fatalf("Migrate: %v", err)
+	}
+	seed := func(hash, topic, summary string) map[string]any {
+		return map[string]any{
+			"kind": "knowledge", "topic": topic, "summary": summary, "tags": ":adr:",
+			"confidence": 0.9, "content_hash": hash, "status": "active",
+		}
+	}
+	topic := "t4-recall-audit 데모 배포 절차"
+	border := "t4-recall-audit 회고 리듬"
+	added, err := ms.InsertBatch(ctx, []map[string]any{
+		seed("t4-ra-a", topic, "첫째 회상 후 무효화된 행의 요약"),
+		seed("t4-ra-b", topic, "둘째 회상 후 무효화된 행의 요약"),
+		seed("t4-ra-c", topic, "활성 후보 행의 요약"),
+		seed("t4-ra-d", border, "경계 주제의 나쁜 행"),
+		seed("t4-ra-e", border, "경계 주제의 활성 행"),
+	})
+	if err != nil {
+		t.Fatalf("시드: %v", err)
+	}
+	// recall history on the bad rows, then invalidate them: topic earns
+	// bad_recall 2 (>= min), the border topic only 1 (excluded).
+	for _, id := range added[:2] {
+		if _, err := ms.Query(ctx,
+			`INSERT INTO recall_events (knowledge_id) VALUES ($1)`, id); err != nil {
+			t.Fatalf("recall_events 시드: %v", err)
+		}
+	}
+	if _, err := ms.Query(ctx,
+		`INSERT INTO recall_events (knowledge_id) VALUES ($1)`, added[3]); err != nil {
+		t.Fatalf("경계 recall_events 시드: %v", err)
+	}
+	if _, err := ms.Invalidate(ctx, added[:2], "t4 recall-audit demo invalidation"); err != nil {
+		t.Fatalf("무효화: %v", err)
+	}
+	if _, err := ms.Invalidate(ctx, []int{added[3]}, "t4 recall-audit boundary invalidation"); err != nil {
+		t.Fatalf("경계 무효화: %v", err)
+	}
+	var out strings.Builder
+	if code := RunMaintain(ctx, ms, []string{"--recall-audit"}, nil, &out); code != 0 {
+		t.Fatalf("--recall-audit exit = %d: %s", code, out.String())
+	}
+	var got recallAuditJSON
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &got); err != nil {
+		t.Fatalf("JSON 파싱: %v — %s", err, out.String())
+	}
+	if got.Status != "recall-audit" || got.MinBad != 2 || got.Count != 1 || len(got.Items) != 1 {
+		t.Fatalf("status/min_bad/count = %q/%d/%d — %s", got.Status, got.MinBad, got.Count, out.String())
+	}
+	if got.Items[0].ID != added[2] || got.Items[0].BadRecall != 2 {
+		t.Errorf("후보 = %+v, want 활성 행 bad_recall 2(경계 주제 1 제외)", got.Items[0])
+	}
+	// listing only: the candidate stays active.
+	rows, err := ms.Query(ctx,
+		`SELECT invalid_at FROM knowledge WHERE id = $1`, added[2])
+	if err != nil || len(rows) != 1 || rows[0][0] != nil {
+		t.Fatalf("후보 활성 유지 확인: %v %v", rows, err)
+	}
+	// the listed counter landed in meta.
+	metaRows, err := ms.Query(ctx,
+		`SELECT value FROM meta WHERE key LIKE 'daily:recall_audit_listed:%'`)
+	if err != nil || len(metaRows) == 0 {
+		t.Fatalf("recall_audit_listed 카운터 미적립: %v %s", err, out.String())
+	}
+	// the approval path: disposing the qualified candidate accrues the
+	// disposed counter (D4).
+	var disp strings.Builder
+	if code := RunMaintain(ctx, ms, []string{"--invalidate", "--id", fmt.Sprint(added[2]),
+		"--reason", "t4 recall-audit demo disposition"}, nil, &disp); code != 0 {
+		t.Fatalf("--invalidate exit = %d: %s", code, disp.String())
+	}
+	dispRows, err := ms.Query(ctx,
+		`SELECT value FROM meta WHERE key LIKE 'daily:recall_audit_disposed:%'`)
+	if err != nil || len(dispRows) == 0 {
+		t.Fatalf("recall_audit_disposed 카운터 미적립: %v %s", err, disp.String())
 	}
 }

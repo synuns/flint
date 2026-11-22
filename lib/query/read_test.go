@@ -3,6 +3,7 @@ package query
 import (
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -598,6 +599,87 @@ func TestFormatVaultRowsEmpty(t *testing.T) {
 	}
 }
 
+// ── v1.24.0 T5 — the neighbor link read fusion (--related). ──
+
+// TestRelatedMaxRowsConstant — the related row cap is the plan contract
+// constant 5 (the same budget as the vault fusion cap — a regression seal).
+func TestRelatedMaxRowsConstant(t *testing.T) {
+	if RelatedMaxRows != 5 {
+		t.Fatalf("RelatedMaxRows = %d, want 5(플랜 계약 상한)", RelatedMaxRows)
+	}
+}
+
+// TestBuildRelatedReadShape — the bidirectional knowledge_links UNION:
+// the forward arm joins from_id = $1 → to_id neighbors, the reverse arm
+// to_id = $1 → from_id neighbors (both indexes get a traversal path),
+// each arm labels its direction, deterministic ORDER BY id, LIMIT the
+// RelatedMaxRows constant.
+func TestBuildRelatedReadShape(t *testing.T) {
+	sql, args := BuildRelatedRead(7)
+	for _, frag := range []string{
+		"FROM knowledge_links",
+		"l.from_id = $1",
+		"l.to_id = $1",
+		"k.id = l.to_id::int",
+		"k.id = l.from_id::int",
+		"'forward'",
+		"'reverse'",
+		"UNION ALL",
+		"ORDER BY id",
+		"LIMIT 5",
+	} {
+		if !strings.Contains(sql, frag) {
+			t.Errorf("related 쿼리 조각 %q 누락: %s", frag, sql)
+		}
+	}
+	if len(args) != 1 || args[0].(int) != 7 {
+		t.Errorf("related args = %v, want [7]", args)
+	}
+}
+
+// TestFormatRelatedRows — one line per neighbor row: text mode
+// "related|id|relation|direction|topic|summary" (the source marker +
+// relation label + direction display), json mode
+// {"source":"related","id":...,"relation":...,"direction":...}. The
+// summary is truncated to summaryMax (the read token budget).
+func TestFormatRelatedRows(t *testing.T) {
+	rows := [][]any{{"3", "데모 이웃 토픽", strings.Repeat("요", 100), "refines", "reverse"}}
+	out := FormatRelatedRows(rows, false)
+	want := "related|3|refines|reverse|데모 이웃 토픽|" + strings.Repeat("요", summaryMax) + "\n"
+	if out != want {
+		t.Errorf("FormatRelatedRows(text) = %q, want %q", out, want)
+	}
+	jout := FormatRelatedRows(rows, true)
+	var m map[string]string
+	if err := json.Unmarshal([]byte(strings.TrimRight(jout, "\n")), &m); err != nil {
+		t.Fatalf("json 파싱: %v: %q", err, jout)
+	}
+	if m["source"] != "related" || m["id"] != "3" || m["relation"] != "refines" || m["direction"] != "reverse" {
+		t.Errorf("json 식별 필드 = %v", m)
+	}
+	if got := len([]rune(m["summary"])); got != summaryMax {
+		t.Errorf("json summary 길이 = %d, want %d(토큰 예산)", got, summaryMax)
+	}
+}
+
+// TestFormatRelatedRowsNoPipe — a cell-internal '|' is replaced (the
+// text-mode field-protocol guard, the FormatVaultRows convention).
+func TestFormatRelatedRowsNoPipe(t *testing.T) {
+	rows := [][]any{{"3", "a|b", "s", "re|fines", "forward"}}
+	out := FormatRelatedRows(rows, false)
+	if strings.Count(out, "|") != 5 {
+		t.Errorf("파이프 폭발 방지 위반: %q", out)
+	}
+}
+
+// TestFormatRelatedRowsEmpty — no neighbor rows, no output (the pure
+// append contract — an empty fusion adds nothing).
+func TestFormatRelatedRowsEmpty(t *testing.T) {
+	if out := FormatRelatedRows(nil, false); out != "" {
+		t.Errorf("빈 related 출력 = %q, want \"\"", out)
+	}
+}
+
 // TestBuildReadFallbackNewFilters — the zero-hit fallback inherits the new
 // filters (a confidence floor must hold on the retry too — otherwise the
 // fallback would resurface the rows the phrase query just excluded).
@@ -624,5 +706,136 @@ func TestBuildReadFallbackNewFilters(t *testing.T) {
 	}
 	if !foundC || !foundO {
 		t.Errorf("fallback args에 confidence/origin 값 없음: %v", args)
+	}
+}
+
+// ── v1.24.0 T6 — the read --why evidence appendix. ──
+
+// TestTokenWhyEvidenceDirectComparison — the token-tier evidence recomputed
+// by hand against synthetic rows: each matched token lists its tier name ×
+// tier score, one cover×N aggregate, and a total equal to
+// ReorderByTokenScore's internal accumulation (tier+1 per matched token);
+// the evidence row order follows the reranked row order.
+func TestTokenWhyEvidenceDirectComparison(t *testing.T) {
+	rows := [][]any{
+		{"1", "백업 정책", "기타", "", "", "", "", "", ""},            // topic prefix — 4
+		{"2", "가이드", "매일 백업과 자동 점검 안내", "", "", "", "", "", ""}, // both summary contains — 4
+		{"3", "우리 백업 수칙", "메모", "", "", "", "", "", ""},         // topic contains — 3
+	}
+	ev := TokenWhyEvidence(rows, "백업 자동", tokenScoreColIdx)
+	want := []struct {
+		id, tokens string
+		score      int
+	}{
+		{"1", "topic_prefix×4+cover×1", 5},
+		{"2", "summary_contain×1+summary_contain×1+cover×2", 4},
+		{"3", "topic_contain×2+cover×1", 3},
+	}
+	if len(ev) != len(want) {
+		t.Fatalf("근거 행 수 = %d, want %d", len(ev), len(want))
+	}
+	for i, w := range want {
+		if ev[i].ID != w.id || ev[i].Tokens != w.tokens || ev[i].TokenScore != w.score {
+			t.Errorf("근거[%d] = {id:%s tokens:%s score:%d}, want {%s %s %d}",
+				i, ev[i].ID, ev[i].Tokens, ev[i].TokenScore, w.id, w.tokens, w.score)
+		}
+	}
+	// The evidence order must follow ReorderByTokenScore's output order
+	// (both are the same internal accumulation — scores 5,4,3 keep 1,2,3).
+	reranked := ReorderByTokenScore(rows, "백업 자동", tokenScoreColIdx)
+	for i := range ev {
+		if ev[i].ID != rowIDsOf(reranked)[i] {
+			t.Fatalf("근거 순서[%d]=%s, want rerank 순서 %v", i, ev[i].ID, rowIDsOf(reranked))
+		}
+	}
+}
+
+// TestRRFWhyEvidenceDirectComparison — the fallback-row evidence recomputed
+// by hand: per row the 4 signal values, 1-based descending ranks (0 = no
+// contribution), the contribution 1/(k+rank), and the fused score — the
+// same sources ReorderByFallbackCount fuses (English tokens keep the jamo
+// signal at a predictable 0).
+func TestRRFWhyEvidenceDirectComparison(t *testing.T) {
+	SetRRFK(60)
+	t.Cleanup(func() { SetRRFK(60) })
+	rows := [][]any{
+		{"1", "backup policy demo", "synthetic note", "", "", "", "", "active", int32(5)},
+		{"2", "demo subject", "backup method synthetic", "", "", "", "", "active", int32(2)},
+	}
+	ev := RRFWhyEvidence(rows, []string{"backup", "policy"})
+	if len(ev) != 2 {
+		t.Fatalf("근거 행 수 = %d, want 2", len(ev))
+	}
+	c1 := 1.0 / (60 + 1)
+	c2 := 1.0 / (60 + 2)
+	// row 1: match=2·read_count=5·jamo=0·topic=2 — ranks 1,1,0,1.
+	want1 := []RRFSignalEvidence{
+		{"match", 2, 1, c1}, {"read_count", 5, 1, c1}, {"jamo", 0, 0, 0}, {"topic", 2, 1, c1},
+	}
+	score1 := c1 + c1 + c1
+	// row 2: match=1·read_count=2·jamo=0·topic=0 — ranks 2,2,0,0.
+	want2 := []RRFSignalEvidence{
+		{"match", 1, 2, c2}, {"read_count", 2, 2, c2}, {"jamo", 0, 0, 0}, {"topic", 0, 0, 0},
+	}
+	score2 := c2 + c2
+	for i, want := range [][]RRFSignalEvidence{want1, want2} {
+		if len(ev[i].RRF) != len(want) {
+			t.Fatalf("행 %d 신호 수 = %d, want %d", i+1, len(ev[i].RRF), len(want))
+		}
+		for s := range want {
+			if ev[i].RRF[s] != want[s] {
+				t.Errorf("행 %d 신호[%d] = %+v, want %+v", i+1, s, ev[i].RRF[s], want[s])
+			}
+		}
+	}
+	if ev[0].RRFScore != score1 {
+		t.Errorf("행 1 rrf_score = %v, want %v", ev[0].RRFScore, score1)
+	}
+	if ev[1].RRFScore != score2 {
+		t.Errorf("행 2 rrf_score = %v, want %v", ev[1].RRFScore, score2)
+	}
+}
+
+// TestFormatWhyRowsCap — the appendix total cap: 12 evidence rows yield
+// exactly WhyMaxRows lines (one line per row, the additive token budget).
+func TestFormatWhyRowsCap(t *testing.T) {
+	ev := make([]WhyEvidence, 12)
+	for i := range ev {
+		ev[i] = WhyEvidence{ID: strconv.Itoa(i + 1), Tokens: "topic_prefix×4+cover×1", TokenScore: 5}
+	}
+	if n := strings.Count(FormatWhyRows(ev, false), "\n"); n != WhyMaxRows {
+		t.Errorf("부록 행 = %d, want %d(총 상한)", n, WhyMaxRows)
+	}
+}
+
+// TestFormatWhyRowsNoPipe — text-mode field-protocol guard: '|' inside the
+// id and the listing is replaced with a space (the FormatRelatedRows
+// convention — a cell-internal pipe cannot forge a fifth field).
+func TestFormatWhyRowsNoPipe(t *testing.T) {
+	got := FormatWhyRows([]WhyEvidence{{ID: "a|b", Tokens: "x|y", TokenScore: 5}}, false)
+	if want := "why|id=a b|x y|score=5\n"; got != want {
+		t.Errorf("noPipe 인코딩 = %q, want %q", got, want)
+	}
+}
+
+// TestFormatWhyRowsJSON — json mode: one {"why":{...}} line per row (the
+// additive one-line attachment convention).
+func TestFormatWhyRowsJSON(t *testing.T) {
+	got := FormatWhyRows([]WhyEvidence{{ID: "1", Tokens: "topic_prefix×4+cover×1", TokenScore: 5}}, true)
+	want := `{"why":{"id":"1","tokens":"topic_prefix×4+cover×1","token_score":5}}` + "\n"
+	if got != want {
+		t.Errorf("json 인코딩 = %q, want %q", got, want)
+	}
+}
+
+// TestFormatWhyZeroLine — the zero-hit evidence line: zero_reason +
+// near_score, text and json encodings.
+func TestFormatWhyZeroLine(t *testing.T) {
+	if got := FormatWhyZero("owned_miss", 0.5, false); got != "why|zero_reason=owned_miss|near_score=0.5\n" {
+		t.Errorf("zero 텍스트 인코딩 = %q", got)
+	}
+	want := `{"why":{"zero_reason":"unowned","near_score":0}}` + "\n"
+	if got := FormatWhyZero("unowned", 0, true); got != want {
+		t.Errorf("zero json 인코딩 = %q, want %q", got, want)
 	}
 }

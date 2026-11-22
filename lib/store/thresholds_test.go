@@ -275,3 +275,44 @@ func TestDistillMaxRunesKeys(t *testing.T) {
 		t.Errorf("unset 폴백: distill_max_runes=%d, want 0", unset.DistillMaxRunes)
 	}
 }
+
+// TestRecallAuditThresholdKeys — the v1.24.0 recall-audit listing floor
+// key: default 2 (the bad-recall history count at or above which an
+// active row is listed by maintain --recall-audit), meta override
+// reflection, negative rejection, and the unset-keeps-0 convention (the
+// consumer falls back to DefaultThresholds — the correction convention).
+func TestRecallAuditThresholdKeys(t *testing.T) {
+	// default.
+	def := DefaultThresholds()
+	if def.RecallAuditMinBad != 2 {
+		t.Errorf("RecallAuditMinBad 기본값=%d, want 2", def.RecallAuditMinBad)
+	}
+	// override.
+	th, err := ParseThresholds([][2]any{
+		{"recall_audit_min_bad", "4"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if th.RecallAuditMinBad != 4 {
+		t.Errorf("recall_audit_min_bad 오버라이드=%d, want 4", th.RecallAuditMinBad)
+	}
+	// negatives are rejected and fall back (the parseInt lower-bound 0).
+	neg, err := ParseThresholds([][2]any{
+		{"recall_audit_min_bad", "-1"},
+	})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if neg.RecallAuditMinBad != 2 {
+		t.Errorf("음수 거부=%d, want 2(폴백)", neg.RecallAuditMinBad)
+	}
+	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
+	if err != nil {
+		t.Fatalf("ParseThresholds err: %v", err)
+	}
+	if unset.RecallAuditMinBad != 0 {
+		t.Errorf("unset 폴백: recall_audit_min_bad=%d, want 0", unset.RecallAuditMinBad)
+	}
+}

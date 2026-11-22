@@ -284,6 +284,30 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 	if len(rows) < 2 {
 		return
 	}
+	values := rrfSignalValues(rows, tokens)
+	scores := rrfFuse(values)
+	idx := make([]int, len(rows))
+	for i := range idx {
+		idx[i] = i
+	}
+	sort.SliceStable(idx, func(a, b int) bool {
+		if scores[idx[a]] != scores[idx[b]] {
+			return scores[idx[a]] > scores[idx[b]]
+		}
+		return idx[a] < idx[b] // ties keep the existing order (the SQL RankOrder)
+	})
+	out := make([][]any, len(rows))
+	for pos, src := range idx {
+		out[pos] = rows[src]
+	}
+	copy(rows, out)
+}
+
+// rrfSignalValues — per row the 4 RRF signal values (match count,
+// read_count, jamo overlap, topic match) in the fixed display order —
+// the shared extraction of ReorderByFallbackCount and the --why evidence
+// (v1.24.0 T6, the single source).
+func rrfSignalValues(rows [][]any, tokens []string) [][]int {
 	tokenJamo := jamoTokenSets(tokens)
 	values := make([][]int, len(rows))
 	for i, row := range rows {
@@ -304,22 +328,7 @@ func ReorderByFallbackCount(rows [][]any, tokens []string) {
 			topicMatchCount(tokens, t), // the topic-match signal
 		}
 	}
-	scores := rrfFuse(values)
-	idx := make([]int, len(rows))
-	for i := range idx {
-		idx[i] = i
-	}
-	sort.SliceStable(idx, func(a, b int) bool {
-		if scores[idx[a]] != scores[idx[b]] {
-			return scores[idx[a]] > scores[idx[b]]
-		}
-		return idx[a] < idx[b] // ties keep the existing order (the SQL RankOrder)
-	})
-	out := make([][]any, len(rows))
-	for pos, src := range idx {
-		out[pos] = rows[src]
-	}
-	copy(rows, out)
+	return values
 }
 
 // ── v1.16.0 T1 — the phrase-hit token rerank. ──
@@ -372,6 +381,40 @@ func tokenTierScore(tok, topic, summary string) int {
 	return 0
 }
 
+// tokenTierName — the tier label of a tier score (the --why listing
+// encoding source, v1.24.0 T6).
+func tokenTierName(tier int) string {
+	switch tier {
+	case tokenTopicPrefixScore:
+		return "topic_prefix"
+	case tokenSummaryPrefixScore:
+		return "summary_prefix"
+	case tokenTopicContainScore:
+		return "topic_contain"
+	case tokenSummaryContainScore:
+		return "summary_contain"
+	}
+	return ""
+}
+
+// tokenRowBreakdown — per matched token its "tier_name×tier_score" part,
+// the cover count, and the row total (tier + 1 per matched token) — the
+// shared scoring source of ReorderByTokenScore and the --why evidence
+// (the internal accumulated values exposed from a single implementation).
+func tokenRowBreakdown(normTokens []string, topic, summary string) (parts []string, cover, total int) {
+	for _, tok := range normTokens {
+		if tok == "" {
+			continue
+		}
+		if tier := tokenTierScore(tok, topic, summary); tier > 0 {
+			parts = append(parts, tokenTierName(tier)+"×"+strconv.Itoa(tier))
+			cover++
+			total += tier + 1 // the tier + the cover-token bonus
+		}
+	}
+	return parts, cover, total
+}
+
 // ReorderByTokenScore — the app-side rerank of phrase-hit read rows
 // (v1.16.0 T1): per-token tier scores are summed per row — each matched
 // token adds its tier plus a +1 cover bonus, so covering more tokens beats
@@ -405,14 +448,8 @@ func ReorderByTokenScore(rows [][]any, q string, colIdx map[string]int) [][]any 
 	for i, row := range rows {
 		t := normalizeTokenText(cellString(row, topicIdx))
 		s := normalizeTokenText(cellString(row, summaryIdx))
-		for _, tok := range normTokens {
-			if tok == "" {
-				continue
-			}
-			if tier := tokenTierScore(tok, t, s); tier > 0 {
-				scores[i] += tier + 1 // the tier + the cover-token bonus
-			}
-		}
+		_, _, total := tokenRowBreakdown(normTokens, t, s)
+		scores[i] = total
 	}
 	idx := make([]int, len(rows))
 	for i := range idx {
@@ -438,15 +475,19 @@ func ReadColumnIndexMap() map[string]int {
 	return m
 }
 
-// rrfFuse — per-row signal values -> the RRF score: summed as 1/(k+rank) from each
-// signal's descending rank (1 = top; ties share a rank). Substituting the raw value for
-// the rank flips the sign so the minimum wins (a first-draft defect — sealed off by a regression test).
-func rrfFuse(values [][]int) []float64 {
+// rrfRanks — per row, per signal, the 1-based descending rank (1 = top;
+// ties share a rank); a 0 value (the signal contributes nothing) is rank
+// 0. The single rank source of rrfFuse and the --why evidence (v1.24.0
+// T6 — the internal accumulated values exposed).
+func rrfRanks(values [][]int) [][]int {
 	n := len(values)
 	if n == 0 {
 		return nil
 	}
-	scores := make([]float64, n)
+	ranks := make([][]int, n)
+	for i := range ranks {
+		ranks[i] = make([]int, len(values[0]))
+	}
 	for sig := range values[0] {
 		order := make([]int, n)
 		for i := range order {
@@ -461,7 +502,28 @@ func rrfFuse(values [][]int) []float64 {
 				rank = pos + 1
 			}
 			if values[row][sig] > 0 { // a 0 value means the signal contributes nothing
-				scores[row] += 1.0 / (rrfK + float64(rank))
+				ranks[row][sig] = rank
+			}
+		}
+	}
+	return ranks
+}
+
+// rrfFuse — per-row signal values -> the RRF score: summed as 1/(k+rank)
+// from each signal's descending rank (rrfRanks — the single rank source).
+// Substituting the raw value for the rank flips the sign so the minimum
+// wins (a first-draft defect — sealed off by a regression test).
+func rrfFuse(values [][]int) []float64 {
+	n := len(values)
+	if n == 0 {
+		return nil
+	}
+	ranks := rrfRanks(values)
+	scores := make([]float64, n)
+	for row := range scores {
+		for sig := range ranks[row] {
+			if ranks[row][sig] > 0 {
+				scores[row] += 1.0 / (rrfK + float64(ranks[row][sig]))
 			}
 		}
 	}
@@ -703,6 +765,298 @@ func truncateRunes(s string, max int) string {
 		return s
 	}
 	return string(r[:max])
+}
+
+// ── v1.24.0 T5 — the neighbor link read fusion (--related). ──
+
+// RelatedMaxRows — the related row cap of the read fusion (the plan
+// contract constant): the same 5-row additive budget as the vault fusion
+// (VaultMaxRows). Related rows are appended AFTER the knowledge rows and
+// never reorder them.
+const RelatedMaxRows = VaultMaxRows
+
+// relatedColumns — the columns BuildRelatedRead SELECTs (fixed order).
+// The FormatRelatedRows field-name -> position basis: the neighbor's
+// id·topic·summary plus the link's relation label and the traversal
+// direction (forward = N → neighbor, reverse = neighbor → N).
+var relatedColumns = []string{"id", "topic", "summary", "relation", "direction"}
+
+// BuildRelatedRead — assembles the bidirectional knowledge_links neighbor
+// query (v1.24.0 T5): the forward arm (from_id = $1, neighbor = to_id)
+// UNION ALL the reverse arm (to_id = $1, neighbor = from_id) — the
+// neighbor recall is undirected (ruling) while the direction is preserved
+// as a label on each row. Both arms join active_knowledge (the read
+// exposure rule — invalidated neighbors stay hidden), each rides its own
+// index (idx_knowledge_links_from_id / _to_id), ORDER BY id is
+// deterministic, and LIMIT is the RelatedMaxRows constant (the caller
+// caps app-side as well — the vault convention). The join casts the link
+// side to int — knowledge.id is serial (int32) while knowledge_links
+// from_id/to_id are bigint, and the mixed-type join breaks the engine
+// (the lookupExistingIDs ::bigint[] cast precedent, import_jsonl.go).
+func BuildRelatedRead(id int) (string, []any) {
+	sql := "SELECT k.id, k.topic, k.summary, l.relation, 'forward' AS direction" +
+		" FROM knowledge_links l JOIN active_knowledge k ON k.id = l.to_id::int" +
+		" WHERE l.from_id = $1" +
+		" UNION ALL " +
+		"SELECT k.id, k.topic, k.summary, l.relation, 'reverse' AS direction" +
+		" FROM knowledge_links l JOIN active_knowledge k ON k.id = l.from_id::int" +
+		" WHERE l.to_id = $1" +
+		" ORDER BY id LIMIT " + strconv.Itoa(RelatedMaxRows)
+	return sql, []any{id}
+}
+
+// RelatedLine — one neighbor row's --json shape: the source:"related"
+// marker (the vault row contract) + the neighbor id + the relation label
+// and direction display (the spec M row contract).
+type RelatedLine struct {
+	Source    string `json:"source"`
+	ID        string `json:"id"`
+	Relation  string `json:"relation"`
+	Direction string `json:"direction"`
+	Topic     string `json:"topic"`
+	Summary   string `json:"summary"`
+}
+
+// FormatRelatedRows — the neighbor row output: one line per row,
+// appended AFTER the knowledge rows (never interleaved — the knowledge
+// invariance contract, the FormatVaultRows convention). Text mode
+// "related|id|relation|direction|topic|summary" with '|' stripped from
+// the cells (the field-protocol guard); json mode a RelatedLine per row.
+// The summary is truncated to summaryMax and the topic to vaultTitleMax
+// (the read output token budget).
+func FormatRelatedRows(rows [][]any, jsonMode bool) string {
+	// relatedColumns is a fixed order: id=0, topic=1, summary=2,
+	// relation=3, direction=4.
+	const (
+		relatedIDIdx    = 0
+		relatedTopicIdx = 1
+		relatedSumIdx   = 2
+		relatedRelIdx   = 3
+		relatedDirIdx   = 4
+	)
+	var lines []string
+	for _, row := range rows {
+		val := func(i int) string {
+			if i < 0 || i >= len(row) || row[i] == nil {
+				return ""
+			}
+			return fmt.Sprint(row[i])
+		}
+		if jsonMode {
+			b, err := json.Marshal(RelatedLine{
+				Source:    "related",
+				ID:        val(relatedIDIdx),
+				Relation:  truncateRunes(noPipe(val(relatedRelIdx)), 64),
+				Direction: truncateRunes(noPipe(val(relatedDirIdx)), 16),
+				Topic:     truncateRunes(val(relatedTopicIdx), vaultTitleMax),
+				Summary:   truncateRunes(val(relatedSumIdx), summaryMax),
+			})
+			if err != nil {
+				continue
+			}
+			lines = append(lines, string(b))
+		} else {
+			lines = append(lines, strings.Join([]string{
+				"related",
+				truncateRunes(noPipe(val(relatedIDIdx)), 32),
+				truncateRunes(noPipe(val(relatedRelIdx)), 64),
+				truncateRunes(noPipe(val(relatedDirIdx)), 16),
+				truncateRunes(noPipe(val(relatedTopicIdx)), vaultTitleMax),
+				truncateRunes(noPipe(val(relatedSumIdx)), summaryMax),
+			}, "|"))
+		}
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// ── v1.24.0 T6 — the read --why evidence appendix. ──
+
+// WhyMaxRows — the --why appendix row cap (the plan contract "appendix
+// total cap"): one evidence line per result row, bounded at the
+// defaultLimit window — the additive token budget of the opt-in appendix
+// (the VaultMaxRows/RelatedMaxRows convention).
+const WhyMaxRows = defaultLimit
+
+// RRFSignalEvidence — one RRF signal's --why evidence: the raw value, the
+// 1-based descending rank (0 = the signal contributed nothing), and the
+// contribution 1/(k+rank) as fused.
+type RRFSignalEvidence struct {
+	Name    string  `json:"signal"`
+	Value   int     `json:"value"`
+	Rank    int     `json:"rank"`
+	Contrib float64 `json:"contrib"`
+}
+
+// WhyEvidence — one row's --why evidence: the row id plus (mutually
+// exclusive per run) the token-tier listing and total (the phrase path)
+// or the 4-signal RRF breakdown and fused score (the fallback path) —
+// the rerank internals exposed.
+type WhyEvidence struct {
+	ID         string              `json:"id"`
+	Tokens     string              `json:"tokens,omitempty"`
+	TokenScore int                 `json:"token_score,omitempty"`
+	RRF        []RRFSignalEvidence `json:"rrf,omitempty"`
+	RRFScore   float64             `json:"rrf_score,omitempty"`
+}
+
+// rrfSignalNames — the 4 signal display names, in rrfSignalValues order.
+var rrfSignalNames = []string{"match", "read_count", "jamo", "topic"}
+
+// whyRowID — the row's id cell as a string ("" when absent — the display
+// identity of an evidence line).
+func whyRowID(row []any) string {
+	i := readColumnIndexOf("id")
+	if i < 0 || i >= len(row) || row[i] == nil {
+		return ""
+	}
+	return fmt.Sprint(row[i])
+}
+
+// TokenWhyEvidence — per phrase-hit row the token-tier evidence: the
+// "name×weight" listing (each matched token's tier name and tier score,
+// plus one cover×N aggregate — the total equals ReorderByTokenScore's
+// internal accumulation) and that total. Recomputed from the same
+// sources as the rerank (tokenRowBreakdown — the single implementation),
+// so the appendix is always consistent with the delivered row order.
+func TokenWhyEvidence(rows [][]any, q string, colIdx map[string]int) []WhyEvidence {
+	tokens := tokenizeQuery(q)
+	if len(tokens) == 0 || len(rows) == 0 {
+		return nil
+	}
+	normTokens := make([]string, len(tokens))
+	for i, tok := range tokens {
+		normTokens[i] = normalizeTokenText(tok)
+	}
+	topicIdx, summaryIdx := -1, -1
+	if v, ok := colIdx["topic"]; ok {
+		topicIdx = v
+	}
+	if v, ok := colIdx["summary"]; ok {
+		summaryIdx = v
+	}
+	out := make([]WhyEvidence, len(rows))
+	for i, row := range rows {
+		t := normalizeTokenText(cellString(row, topicIdx))
+		s := normalizeTokenText(cellString(row, summaryIdx))
+		parts, cover, total := tokenRowBreakdown(normTokens, t, s)
+		listing := "none"
+		if len(parts) > 0 {
+			listing = strings.Join(parts, "+") + "+cover×" + strconv.Itoa(cover)
+		}
+		out[i] = WhyEvidence{ID: whyRowID(row), Tokens: listing, TokenScore: total}
+	}
+	return out
+}
+
+// RRFWhyEvidence — per fallback row the 4-signal evidence (value·rank·
+// contribution 1/(k+rank)) and the fused RRF score, recomputed from the
+// same sources as ReorderByFallbackCount (rrfSignalValues·rrfRanks — the
+// internal accumulated values exposed, always consistent with the
+// delivered row order).
+func RRFWhyEvidence(rows [][]any, tokens []string) []WhyEvidence {
+	if len(rows) == 0 {
+		return nil
+	}
+	values := rrfSignalValues(rows, tokens)
+	ranks := rrfRanks(values)
+	scores := rrfFuse(values)
+	out := make([]WhyEvidence, len(rows))
+	for i, row := range rows {
+		sigs := make([]RRFSignalEvidence, len(rrfSignalNames))
+		for s, name := range rrfSignalNames {
+			contrib := 0.0
+			if ranks[i][s] > 0 {
+				contrib = 1.0 / (rrfK + float64(ranks[i][s]))
+			}
+			sigs[s] = RRFSignalEvidence{Name: name, Value: values[i][s], Rank: ranks[i][s], Contrib: contrib}
+		}
+		out[i] = WhyEvidence{ID: whyRowID(row), RRF: sigs, RRFScore: scores[i]}
+	}
+	return out
+}
+
+// WhyRowLine — the per-row --json evidence line {"why":{...}} (the
+// additive one-line attachment convention — never folded into hits).
+type WhyRowLine struct {
+	Why WhyEvidence `json:"why"`
+}
+
+// WhyZero — the zero-hit evidence payload: the ZeroReason decomposition
+// (unowned/owned_miss) and near_score (the suggestion scan's best
+// bigramDice over all scanned candidates, pre-min_score — 0 when no scan
+// ran).
+type WhyZero struct {
+	ZeroReason string  `json:"zero_reason"`
+	NearScore  float64 `json:"near_score"`
+}
+
+// WhyZeroLine — the zero-hit --json evidence line.
+type WhyZeroLine struct {
+	Why WhyZero `json:"why"`
+}
+
+// FormatWhyRows — the hit-row evidence appendix: one line per row (the
+// row cap WhyMaxRows — defense in depth; the caller caps app-side as
+// well, the vault convention), appended AFTER the knowledge/vault/
+// related blocks (never interleaved — the invariance contract). Text
+// mode "why|id=N|<listing>|score=N" with '|' stripped from the fields
+// (the field-protocol guard); the RRF rows render the signals as
+// "name=value/rank/contrib" joined with ';'. json mode a WhyRowLine per
+// row.
+func FormatWhyRows(ev []WhyEvidence, jsonMode bool) string {
+	if len(ev) > WhyMaxRows {
+		ev = ev[:WhyMaxRows]
+	}
+	var lines []string
+	for _, e := range ev {
+		if jsonMode {
+			b, err := json.Marshal(WhyRowLine{Why: e})
+			if err != nil {
+				continue
+			}
+			lines = append(lines, string(b))
+			continue
+		}
+		if len(e.RRF) > 0 {
+			sigs := make([]string, 0, len(e.RRF))
+			for _, s := range e.RRF {
+				sigs = append(sigs, fmt.Sprintf("%s=%d/r%d/%s",
+					s.Name, s.Value, s.Rank, strconv.FormatFloat(s.Contrib, 'g', -1, 64)))
+			}
+			lines = append(lines, strings.Join([]string{
+				"why",
+				"id=" + noPipe(e.ID),
+				strings.Join(sigs, ";"),
+				"score=" + strconv.FormatFloat(e.RRFScore, 'g', -1, 64),
+			}, "|"))
+			continue
+		}
+		lines = append(lines, strings.Join([]string{
+			"why",
+			"id=" + noPipe(e.ID),
+			noPipe(e.Tokens),
+			"score=" + strconv.Itoa(e.TokenScore),
+		}, "|"))
+	}
+	if len(lines) == 0 {
+		return ""
+	}
+	return strings.Join(lines, "\n") + "\n"
+}
+
+// FormatWhyZero — the zero-hit evidence line: zero_reason (the ZeroReason
+// decomposition) + near_score. The single line of the appendix on a
+// zero-hit (no per-row evidence exists).
+func FormatWhyZero(zeroReason string, nearScore float64, jsonMode bool) string {
+	if jsonMode {
+		b, _ := json.Marshal(WhyZeroLine{Why: WhyZero{ZeroReason: zeroReason, NearScore: nearScore}})
+		return string(b) + "\n"
+	}
+	return "why|zero_reason=" + zeroReason +
+		"|near_score=" + strconv.FormatFloat(nearScore, 'g', -1, 64) + "\n"
 }
 
 // FormatRows — the query-result output format.

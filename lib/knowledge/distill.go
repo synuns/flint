@@ -24,7 +24,12 @@ import (
 
 // DistillRow — one insight row of the distill output (see the package
 // comment for the selection basis). RecallScore is the derived
-// recall_events count (never-recalled is NULL → 0).
+// recall_events count (never-recalled is NULL → 0). SurvivedSessions
+// (v1.24.0 T2 — the v1.22.0 survived-score carry-over, minimum
+// fulfillment) is the SurvivedCounts signal merged into the listing: the
+// number of distinct sessions with 2+ knowledge_reads of the row
+// (absence = 0; a lookup failure degrades quietly — the score switchover
+// itself is deferred until observation, the G2 ruling).
 type DistillRow struct {
 	ID          int
 	Topic       string
@@ -32,6 +37,9 @@ type DistillRow struct {
 	Conditions  string
 	Tags        []string
 	RecallScore int
+	// SurvivedSessions — merged per row via SurvivedCounts (reused
+	// verbatim — no new metering surface).
+	SurvivedSessions int
 }
 
 // DistillRowsSQL — the insight-candidate selection. The floor rides as
@@ -48,15 +56,26 @@ ORDER BY id`
 // DistillRows — the distill source query (the ExportRows convention:
 // direct base-table query — the active_knowledge view does not expose
 // distilled_at). Query failure propagates unchanged (MapExit maps to
-// exit 2).
+// exit 2). v1.24.0 T2: the selected rows get their SurvivedCounts merged
+// (one batched lookup — a failure degrades quietly to 0s, §13).
 func DistillRows(ctx context.Context, st wire.Store, minScore float64) ([]DistillRow, error) {
 	rows, err := wire.QueryOnce(ctx, st, DistillRowsSQL, []any{minScore})
 	if err != nil {
 		return nil, err
 	}
 	out := make([]DistillRow, 0, len(rows))
+	ids := make([]int, 0, len(rows))
 	for _, r := range rows {
-		out = append(out, mapDistillRow(r))
+		row := mapDistillRow(r)
+		out = append(out, row)
+		ids = append(ids, row.ID)
+	}
+	if counts, serr := SurvivedCounts(ctx, st, ids); serr == nil {
+		for i := range out {
+			if c, ok := counts[out[i].ID]; ok {
+				out[i].SurvivedSessions = c
+			}
+		}
 	}
 	return out, nil
 }
@@ -124,9 +143,14 @@ func FormatInsights(rows []DistillRow, generatedAt time.Time, maxRunes int) ([]b
 			conditions = "-"
 		}
 		sec.WriteString("\n## #" + strconv.Itoa(r.ID) + " " + render.Text(r.Topic) + "\n\n")
+		// v1.24.0 T2 — survived_sessions rides the meta line after
+		// conditions (the v1.22.0 line shape stays a prefix; the count is
+		// the SurvivedCounts signal, the minimum fulfillment of the
+		// survived-score carry-over).
 		sec.WriteString("recall_score: " + strconv.Itoa(r.RecallScore) +
 			" · tags: " + joined +
-			" · conditions: " + conditions + "\n\n")
+			" · conditions: " + conditions +
+			" · survived_sessions: " + strconv.Itoa(r.SurvivedSessions) + "\n\n")
 		sec.WriteString(render.Text(r.Summary))
 		sec.WriteString("\n")
 		if maxRunes > 0 && utf8.RuneCount(head.Bytes())+utf8.RuneCount(body.Bytes())+utf8.RuneCount(sec.Bytes()) > maxRunes {

@@ -121,9 +121,14 @@ var thresholdMetas = []ThresholdMeta{
 	// run).
 	{"DistillMinScore", "distill_min_score", 1.0, "distill output minimum recall count", ""},
 	{"DistillMaxRunes", "distill_max_runes", 20000, "distill output file rune cap", ""},
+
+	// the recall-audit listing floor (v1.24.0 — the schema v19 curation
+	// residual: the minimum bad-recall history count at or above which
+	// maintain --recall-audit lists an active row).
+	{"RecallAuditMinBad", "recall_audit_min_bad", 2, "maintain --recall-audit listing floor", ""},
 }
 
-// ThresholdMetas — the registry's deterministic copy (56 entries — the key set
+// ThresholdMetas — the registry's deterministic copy (57 entries — the key set
 // identical to the existing ThresholdsKeys, asserted by the guard tests).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)

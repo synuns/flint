@@ -87,6 +87,29 @@ session(episodic 기록) → maintain 세션에서 패턴 탐지
   `valid_at`을 now()로 리셋하고 `maintenance_runs`(kind=reaffirm)에 이력을
   남긴다. 무효화(--invalidate)·병합(--merge)과 나란히 하는 세 번째 처분으로,
   승인(`--yes`) 없이는 실행되지 않는다.
+- **knowledge 행의 kind 열 값 집합**(v1.24.0 — 스키마 v19): `preference`
+  (사용자 선호·교정 규칙) 또는 `fact`(그 외의 검증된 사실), 미지정 NULL
+  (미분류 허용). `flint write` stdin의 선택 입력 키 **`knowledge_kind`**로
+  받아 열에 매핑한다 — 레코드 판별자 rec["kind"]="knowledge"와는 별개
+  키다(키 분리 규칙). 어휘 밖 값은 스키마 검증으로 거부되며, 값 집합 확장은
+  차기 버전에서만 이뤄진다(v1.24.0 룰링 — 2종 확정). 교정 출처
+  (source=="correction") write는 kind값별로 `correction_preference`·
+  `correction_fact` 카운터에 분기 적립된다(D2).
+- **source_path 관례**(v1.24.0): 지식의 근거 문서 경로(vault 파일 등)를
+  `flint write` stdin의 선택 `source_path` 문자열로 남긴다. 개인 절대경로
+  대신 저장소 상대경로·합성 경로 관례를 따르고, 값은 저장 전 살균된다.
+  `maintain --recheck N` 실행 시 source_path가 일치하는 vault_files 행의
+  `content_changed_at` 소거가 자동 수반된다(행 연결 승격). conditions와
+  같이 content_hash 제외 대상 — 같은 본문 ±source_path는 중복 재전송
+  멱등이 유지된다.
+- **병합·환류 감사 사용법**(v1.24.0): `maintain --merge-audit`는 활성 행
+  상호 multiset Dice ≥ `conflict_dup_threshold`인 중복 쌍을 점수순으로
+  리스팅한다(비용 추정 동반 — 스캔 상한 `suggest_scan_cap`). `maintain
+  --recall-audit`는 같은 topic의 무효화·대체 행 중 회상 이력
+  (`recall_events`)이 `recall_audit_min_bad`(기본 2) 이상인 활성 행을
+  나쁜 회상 수 내림차순으로 리스팅한다. 둘 다 **리스팅만** — 처분은 기존
+  승인제 서브커맨드(--merge·--supersede·--invalidate·--reaffirm)로
+  위임된다(decay-audit 관례).
 
 ## 5. confidence 의미론
 

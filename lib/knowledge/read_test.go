@@ -1650,3 +1650,546 @@ func TestSlowReadVaultZeroHitV1210(t *testing.T) {
 		t.Errorf("vault json 행 source 표기 부재: %q", got)
 	}
 }
+
+// ── v1.24.0 T5 — the neighbor link read fusion (--related). ──
+
+// relatedFixtureRows — knowledge_links neighbor rows in the
+// BuildRelatedRead column order (id, topic, summary, relation,
+// direction). Synthetic demo data only.
+var relatedFixtureRows = [][]any{
+	{"2", "데모 이웃 정방향", "합성 데모 요약 정방향", "refines", "forward"},
+	{"3", "데모 이웃 역방향", "합성 데모 요약 역방향", "supports", "reverse"},
+}
+
+// relatedQueryFn — the fake routing: the related UNION query answers
+// related, the target-existence probe answers 1 row (exists), the
+// knowledge phrase query answers knowledge, the zero-hit active count
+// answers 0 (unowned); everything else (fallback·suggestion scan) is nil.
+func relatedQueryFn(knowledge, related [][]any) func(string, []any) ([][]any, error) {
+	return func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "FROM knowledge_links"):
+			return related, nil
+		case strings.Contains(sql, "FROM knowledge WHERE id = $1"):
+			return [][]any{{args[0]}}, nil
+		case strings.Contains(sql, "count(*) FROM knowledge"):
+			return [][]any{{"0"}}, nil
+		case strings.Contains(sql, "FROM active_knowledge"):
+			return knowledge, nil
+		}
+		return nil, nil
+	}
+}
+
+// TestRunReadRelatedAppendedAfterKnowledge — the invariance seal: the
+// knowledge row set·order·serialization are identical with and without
+// the related fusion; neighbor rows appear only AFTER the knowledge
+// block (relation label + direction display, source-marked).
+func TestRunReadRelatedAppendedAfterKnowledge(t *testing.T) {
+	run := func(flag bool) string {
+		args := []string{"백업 정책"}
+		if flag {
+			args = append(args, "--related", "1")
+		}
+		st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, relatedFixtureRows)}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st, args, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		return out.String()
+	}
+	without, with := run(false), run(true)
+	if !strings.HasPrefix(with, without) {
+		t.Fatalf("지식 직렬화 불변 위반:\n없을 때=%q\n있을 때=%q", without, with)
+	}
+	if !strings.Contains(with, "related|2|refines|forward|데모 이웃 정방향|합성 데모 요약 정방향") {
+		t.Errorf("정방향 이웃 행(라벨·방향 표기) 부재: %q", with)
+	}
+	if !strings.Contains(with, "related|3|supports|reverse|데모 이웃 역방향|합성 데모 요약 역방향") {
+		t.Errorf("역방향 이웃 행(라벨·역방향 표기) 부재: %q", with)
+	}
+}
+
+// TestRunReadRelatedDefaultSeal — the byte-immutability seal: without
+// --related the output is byte-identical to the pre-fusion read AND no
+// knowledge_links query is issued at all (the opt-in contract — the
+// vault T4 precedent).
+func TestRunReadRelatedDefaultSeal(t *testing.T) {
+	st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, relatedFixtureRows)}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 정책"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	if want := "1|백업 정책|매일\n2|백업 절차|매일\n"; out.String() != want {
+		t.Errorf("기본 read 출력 = %q, want %q(바이트 불변 봉인)", out.String(), want)
+	}
+	for _, sql := range st.queries {
+		if strings.Contains(sql, "knowledge_links") {
+			t.Errorf("플래그 부재 시 knowledge_links 쿼리 발화: %s", sql)
+		}
+	}
+}
+
+// TestRunReadRelatedCapFive — the app-side cap: 7 linked neighbors yield
+// at most RelatedMaxRows(5) lines (the SQL LIMIT's defense in depth).
+func TestRunReadRelatedCapFive(t *testing.T) {
+	var seven [][]any
+	for i := 0; i < 7; i++ {
+		seven = append(seven, []any{
+			fmt.Sprintf("%d", 10+i), fmt.Sprintf("데모 이웃 %d", i), "합성 요약", "refines", "forward"})
+	}
+	st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, seven)}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 정책", "--related", "1"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	n := 0
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if strings.HasPrefix(line, "related|") {
+			n++
+		}
+	}
+	if n != query.RelatedMaxRows {
+		t.Errorf("related 행 = %d, want %d(상한 상수): %q", n, query.RelatedMaxRows, out.String())
+	}
+}
+
+// TestRunReadRelatedTargetMissingExit3 — a --related id with no knowledge
+// row (the existence probe answers nothing) is the invalid-arg exit 3
+// with no knowledge output printed (fail-fast before any result rows).
+func TestRunReadRelatedTargetMissingExit3(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge WHERE id = $1") {
+			return nil, nil // the target does not exist
+		}
+		return relatedQueryFn(hitRowsFixture, nil)(sql, args)
+	}}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"백업 정책", "--related", "999"}, strings.NewReader(""), &out)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3: %s", code, out.String())
+	}
+	if strings.Contains(out.String(), "백업 정책|") {
+		t.Errorf("부재 exit 3에 지식 결과 출력 혼입: %q", out.String())
+	}
+	if !strings.Contains(out.String(), "999") {
+		t.Errorf("출력에 대상 id 부재: %q", out.String())
+	}
+}
+
+// TestRunReadRelatedZeroLinksEmpty — an existing target with zero links:
+// the related fusion adds nothing — the output is byte-identical to the
+// no-flag read (the 0-link empty response) and the exit stays 0.
+func TestRunReadRelatedZeroLinksEmpty(t *testing.T) {
+	run := func(flag bool) string {
+		args := []string{"백업 정책"}
+		if flag {
+			args = append(args, "--related", "1")
+		}
+		st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, nil)}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st, args, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		return out.String()
+	}
+	if without, with := run(false), run(true); without != with {
+		t.Errorf("0건 링크 출력 = %q, want %q(빈 응답 — 바이트 동일)", with, without)
+	}
+}
+
+// TestRunReadRelatedJSONStructure — --json: the knowledge rows keep their
+// serialization, neighbor rows carry the source:"related" marker, and the
+// appended count is the separate additive {"related_hits":N} field (the
+// vault_hits precedent — never folded into hits).
+func TestRunReadRelatedJSONStructure(t *testing.T) {
+	st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, relatedFixtureRows)}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"--json", "백업 정책", "--related", "1"}, strings.NewReader(""), &out)
+	if code != 0 {
+		t.Fatalf("exit = %d, want 0: %s", code, out.String())
+	}
+	got := out.String()
+	if !strings.Contains(got, `"source":"related"`) {
+		t.Errorf("related json 행 source 표기 부재: %q", got)
+	}
+	if !strings.Contains(got, `"relation":"refines"`) || !strings.Contains(got, `"direction":"reverse"`) {
+		t.Errorf("related json 행 라벨·방향 부재: %q", got)
+	}
+	if !strings.Contains(got, `"related_hits":2`) {
+		t.Errorf("related_hits 라인 부재: %q", got)
+	}
+	if strings.Contains(got, `"hits":`) {
+		t.Errorf("related 카운트의 hits 접힘(지식 도메인 불변): %q", got)
+	}
+}
+
+// TestRunReadRelatedInvalidValue — a non-integer --related value and a
+// valueless trailing --related are invalid-value exit 3 (the --limit
+// convention).
+func TestRunReadRelatedInvalidValue(t *testing.T) {
+	for _, args := range [][]string{
+		{"백업 정책", "--related", "abc"},
+		{"백업 정책", "--related"},
+	} {
+		st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, nil)}
+		var out strings.Builder
+		code := RunRead(context.Background(), st, args, strings.NewReader(""), &out)
+		if code != 3 {
+			t.Fatalf("args %v exit = %d, want 3: %s", args, code, out.String())
+		}
+	}
+}
+
+// ── v1.24.0 T6 — the read --why evidence appendix. ──
+
+// whyQueryFn — the fake routing of the --why tests: the phrase query
+// answers knowledge, the fallback word query (marked by its OR chain)
+// answers fallback, the zero-hit active count answers count, everything
+// else (vault·suggestion scan) is nil.
+func whyQueryFn(knowledge, fallback [][]any, count string) func(string, []any) ([][]any, error) {
+	return func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, " OR "):
+			return fallback, nil
+		case strings.Contains(sql, "count(*) FROM knowledge"):
+			if count == "" {
+				return nil, nil
+			}
+			return [][]any{{count}}, nil
+		case strings.Contains(sql, "FROM active_knowledge"):
+			return knowledge, nil
+		}
+		return nil, nil
+	}
+}
+
+// TestRunReadWhyTokenEvidenceAppendix — a phrase-hit read with --why: the
+// appendix lists one evidence line per row AFTER the knowledge block, the
+// token-tier listing and total recomputed by hand (the direct-comparison
+// contract) against the synthetic hitRowsFixture.
+func TestRunReadWhyTokenEvidenceAppendix(t *testing.T) {
+	st := &fakeStore{queryFn: whyQueryFn(hitRowsFixture, nil, "")}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 정책", "--why"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	want := "1|백업 정책|매일\n2|백업 절차|매일\n" +
+		"why|id=1|topic_prefix×4+topic_contain×2+cover×2|score=8\n" +
+		"why|id=2|topic_prefix×4+cover×1|score=5\n"
+	if out.String() != want {
+		t.Errorf("--why 출력 = %q, want %q(근거 직접 대조)", out.String(), want)
+	}
+}
+
+// TestRunReadWhyDefaultSeal — the byte-immutability seal: without --why the
+// read output is byte-identical to the pre-T6 read (no why line at all);
+// with --why the knowledge serialization stays the unchanged prefix (the
+// opt-in appendix only — the vault/related precedent).
+func TestRunReadWhyDefaultSeal(t *testing.T) {
+	run := func(flag bool) string {
+		args := []string{"백업 정책"}
+		if flag {
+			args = append(args, "--why")
+		}
+		st := &fakeStore{queryFn: whyQueryFn(hitRowsFixture, nil, "")}
+		var out strings.Builder
+		if code := RunRead(context.Background(), st, args, strings.NewReader(""), &out); code != 0 {
+			t.Fatalf("exit = %d: %s", code, out.String())
+		}
+		return out.String()
+	}
+	without, with := run(false), run(true)
+	if want := "1|백업 정책|매일\n2|백업 절차|매일\n"; without != want {
+		t.Errorf("기본 read 출력 = %q, want %q(바이트 불변 봉인)", without, want)
+	}
+	if !strings.HasPrefix(with, without) {
+		t.Errorf("지식 직렬화 불변 위반:\n없을 때=%q\n있을 때=%q", without, with)
+	}
+}
+
+// TestRunReadWhyFallbackRRFEvidence — the fallback path: the appendix
+// carries the 4 RRF signals per row as value/rank/contribution; the fused
+// score equals the sum of the listed contributions (the parse-and-sum
+// direct check — k-invariant), and the per-signal value/rank pairs are the
+// hand-computed ones (English tokens keep jamo at 0).
+func TestRunReadWhyFallbackRRFEvidence(t *testing.T) {
+	fallbackRows := [][]any{
+		{"1", "backup policy demo", "synthetic note", "", "", "", "0.9", "active", int32(5)},
+		{"2", "demo subject", "backup method synthetic", "", "", "", "0.8", "active", int32(2)},
+	}
+	st := &fakeStore{queryFn: whyQueryFn(nil, fallbackRows, "0")}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"backup", "policy", "--why"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	wantPairs := map[string]string{
+		"why|id=1|": "match=2/r1/", "why|id=2|": "match=1/r2/",
+	}
+	whyLines := 0
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if !strings.HasPrefix(line, "why|") {
+			continue
+		}
+		whyLines++
+		fields := strings.Split(line, "|")
+		if len(fields) != 4 {
+			t.Fatalf("why 행 필드 수 = %d: %q", len(fields), line)
+		}
+		sigStrs := strings.Split(fields[2], ";")
+		if len(sigStrs) != 4 {
+			t.Fatalf("신호 수 = %d, want 4: %q", len(sigStrs), line)
+		}
+		sum := 0.0
+		for _, s := range sigStrs {
+			parts := strings.Split(s, "=")
+			sig := parts[0]
+			vr := strings.Split(parts[1], "/")
+			rank := vr[1]
+			// value/rank pairs — hand-computed per row (contributions vary with k).
+			prefixOK := false
+			for _, w := range []string{"match=2/r1/", "read_count=5/r1/", "jamo=0/r0/", "topic=2/r1/",
+				"match=1/r2/", "read_count=2/r2/", "topic=0/r0/"} {
+				if strings.HasPrefix(s, w) {
+					prefixOK = true
+				}
+			}
+			if !prefixOK {
+				t.Errorf("신호 %q 값/rank 불일치: %q", sig, s)
+			}
+			if len(vr) != 3 {
+				t.Fatalf("신호 인코딩 = %q: %q", s, line)
+			}
+			c, err := strconv.ParseFloat(vr[2], 64)
+			if err != nil {
+				t.Fatalf("기여 파싱 %q: %v", s, err)
+			}
+			if rank == "r0" && c != 0 {
+				t.Errorf("무기여 신호의 기여 = %v: %q", c, s)
+			}
+			sum += c
+		}
+		score, err := strconv.ParseFloat(strings.TrimPrefix(fields[3], "score="), 64)
+		if err != nil {
+			t.Fatalf("score 파싱 %q: %v", fields[3], err)
+		}
+		if math.Abs(sum-score) > 1e-12 {
+			t.Errorf("기여 합 %v ≠ score %v: %q", sum, score, line)
+		}
+		if _, ok := wantPairs[fields[0]+"|"+fields[1]+"|"]; !ok {
+			t.Errorf("예상 밖 why 행: %q", line)
+		}
+	}
+	if whyLines != 2 {
+		t.Errorf("why 행 = %d, want 2: %q", whyLines, out.String())
+	}
+}
+
+// TestRunReadWhyZeroHitEvidence — a zero-hit with --why: the appendix is
+// the zero decomposition line (zero_reason=owned_miss — the active count
+// 3 ≥ floor 1 — plus near_score=0, the empty suggestion scan), and the
+// --json variant keeps {"hits":0} and appends the why line.
+func TestRunReadWhyZeroHitEvidence(t *testing.T) {
+	st := &fakeStore{queryFn: whyQueryFn(nil, nil, "3")}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"없는 토픽 데모", "--why"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	if want := "why|zero_reason=owned_miss|near_score=0\n"; out.String() != want {
+		t.Errorf("zero 근거 = %q, want %q", out.String(), want)
+	}
+
+	var jout strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"--json", "없는 토픽 데모", "--why"}, strings.NewReader(""), &jout); code != 0 {
+		t.Fatalf("json exit = %d: %s", code, jout.String())
+	}
+	got := jout.String()
+	if !strings.Contains(got, `{"hits":0}`) || !strings.Contains(got, `{"why":{"zero_reason":"owned_miss","near_score":0}}`) {
+		t.Errorf("json zero 근거 누락: %q", got)
+	}
+}
+
+// TestRunReadWhyRelatedCombination — --why combines with --related: the
+// knowledge serialization keeps its invariance, the related rows appear
+// after the knowledge block, and the why appendix closes after the related
+// block (pure append, never interleaved).
+func TestRunReadWhyRelatedCombination(t *testing.T) {
+	st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, relatedFixtureRows)}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업 정책", "--related", "1", "--why"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	got := out.String()
+	if !strings.HasPrefix(got, "1|백업 정책|매일\n2|백업 절차|매일\n") {
+		t.Errorf("지식 직렬화 불변 위반: %q", got)
+	}
+	relatedIdx := strings.Index(got, "related|2|refines|forward|")
+	whyIdx := strings.Index(got, "why|id=1|topic_prefix×4+topic_contain×2+cover×2|score=8")
+	if relatedIdx < 0 {
+		t.Fatalf("related 행 부재: %q", got)
+	}
+	if whyIdx < 0 {
+		t.Fatalf("why 행 부재: %q", got)
+	}
+	if whyIdx < relatedIdx {
+		t.Errorf("why 부록이 related 블록 앞에 위치: %q", got)
+	}
+}
+
+// TestRunReadWhyAppendixCap — the appendix total cap: 12 hit rows yield at
+// most WhyMaxRows evidence lines (the additive token budget — defense in
+// depth over the formatter's own cap).
+func TestRunReadWhyAppendixCap(t *testing.T) {
+	var twelve [][]any
+	for i := 0; i < 12; i++ {
+		twelve = append(twelve, []any{
+			fmt.Sprintf("%d", i+1), fmt.Sprintf("백업 데모 주제 %d", i), "합성 요약",
+			":d:", "", "", "0.9", "active", "0"})
+	}
+	st := &fakeStore{queryFn: whyQueryFn(twelve, nil, "")}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업", "--why"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	n := 0
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if strings.HasPrefix(line, "why|") {
+			n++
+		}
+	}
+	if n != query.WhyMaxRows {
+		t.Errorf("why 행 = %d, want %d(부록 총 상한): %q", n, query.WhyMaxRows, out.String())
+	}
+}
+
+// TestRunReadWhyIDNoPipe — text-mode sanitization: a '|' inside the id cell
+// is replaced with a space in the why line (the 4-field protocol guard).
+func TestRunReadWhyIDNoPipe(t *testing.T) {
+	rows := [][]any{{"a|b", "백업 데모", "합성", "", "", "", "0.9", "active", "0"}}
+	st := &fakeStore{queryFn: whyQueryFn(rows, nil, "")}
+	var out strings.Builder
+	if code := RunRead(context.Background(), st,
+		[]string{"백업", "--why"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit = %d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "why|id=a b|topic_prefix×4+cover×1|score=5") {
+		t.Errorf("noPipe 인코딩 위반: %q", out.String())
+	}
+}
+
+// slowWriteKnowledge — one synthetic demo knowledge write via RunWrite;
+// returns the accrued row's id (looked up by topic — write output id
+// extraction stays out of scope here).
+func slowWriteKnowledge(t *testing.T, st *writeRealStore, topic, relations string) int {
+	t.Helper()
+	ctx := context.Background()
+	var wout strings.Builder
+	if code := RunWrite(ctx, st, []string{"knowledge"}, strings.NewReader(
+		relPayload(topic, "합성 데모 요약", relations)+"\n"), &wout); code != 0 {
+		t.Fatalf("적립 exit=%d(%s): %s", code, topic, wout.String())
+	}
+	var id int
+	if err := st.pool.QueryRow(ctx, `SELECT id FROM knowledge WHERE topic = $1`, topic).Scan(&id); err != nil {
+		t.Fatalf("id 조회(%s): %v", topic, err)
+	}
+	return id
+}
+
+// TestSlowReadRelatedRoundtripV1240 — real-DB (dedicated scratch): the
+// bidirectional link roundtrip — the hub's write carries the forward
+// relations (from = the accrued hub row), a later row links hub-ward
+// (reverse) — read --related hub lists both arms with their relation
+// labels·direction display, appended after the knowledge block; the
+// no-flag read is byte-identical (the invariance seal on a real
+// knowledge_links table).
+func TestSlowReadRelatedRoundtripV1240(t *testing.T) {
+	st := t5ScratchStore(t)
+	ctx := context.Background()
+	const term = "v1240 데모 이웃"
+	idB := slowWriteKnowledge(t, st, term+" 정방향 B", "")
+	idC := slowWriteKnowledge(t, st, term+" 정방향 C", "")
+	rels := fmt.Sprintf(`{"to":%d,"relation":"refines"},{"to":%d,"relation":"supports"}`, idB, idC)
+	hubID := slowWriteKnowledge(t, st, term+" 허브", rels)
+	slowWriteKnowledge(t, st, term+" 역방향 D", fmt.Sprintf(`{"to":%d,"relation":"duplicates"}`, hubID))
+
+	var before, after strings.Builder
+	if code := RunRead(ctx, st, []string{term}, strings.NewReader(""), &before); code != 0 {
+		t.Fatalf("링크 조회 전 read exit=%d: %s", code, before.String())
+	}
+	if code := RunRead(ctx, st, []string{term, "--related", strconv.Itoa(hubID)}, strings.NewReader(""), &after); code != 0 {
+		t.Fatalf("read --related exit=%d: %s", code, after.String())
+	}
+	got := after.String()
+	if !strings.HasPrefix(got, before.String()) {
+		t.Fatalf("지식 직렬화 불변 위반(실DB):\n전=%q\n후=%q", before.String(), got)
+	}
+	for _, frag := range []string{
+		fmt.Sprintf("related|%d|refines|forward|%s 정방향 B|", idB, term),
+		fmt.Sprintf("related|%d|supports|forward|%s 정방향 C|", idC, term),
+		fmt.Sprintf("|duplicates|reverse|%s 역방향 D|", term),
+	} {
+		if !strings.Contains(got, frag) {
+			t.Errorf("이웃 행 %q 부재: %q", frag, got)
+		}
+	}
+
+	var jout strings.Builder
+	if code := RunRead(ctx, st, []string{"--json", term, "--related", strconv.Itoa(hubID)}, strings.NewReader(""), &jout); code != 0 {
+		t.Fatalf("read --related --json exit=%d: %s", code, jout.String())
+	}
+	if !strings.Contains(jout.String(), `"related_hits":3`) {
+		t.Errorf("related_hits=3 라인 누락: %q", jout.String())
+	}
+}
+
+// TestSlowReadRelatedCapAndMissingV1240 — real-DB: 7 reverse neighbors
+// (each later row links hub-ward) yield exactly RelatedMaxRows(5) appended
+// lines (SQL LIMIT + the app-side cap); a --related id absent from
+// knowledge is exit 3; an existing hub with no links adds nothing.
+func TestSlowReadRelatedCapAndMissingV1240(t *testing.T) {
+	st := t5ScratchStore(t)
+	ctx := context.Background()
+	const term = "v1240 데모 상한"
+	hubID := slowWriteKnowledge(t, st, term+" 허브", "")
+	for i := 0; i < 7; i++ {
+		slowWriteKnowledge(t, st, fmt.Sprintf("%s 이웃 %d", term, i),
+			fmt.Sprintf(`{"to":%d,"relation":"refines"}`, hubID))
+	}
+	var out strings.Builder
+	if code := RunRead(ctx, st, []string{term, "--related", strconv.Itoa(hubID)}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("read --related exit=%d: %s", code, out.String())
+	}
+	n := 0
+	for _, line := range strings.Split(strings.TrimRight(out.String(), "\n"), "\n") {
+		if strings.HasPrefix(line, "related|") {
+			n++
+		}
+	}
+	if n != query.RelatedMaxRows {
+		t.Errorf("related 행 = %d, want %d(7행 중 상한): %q", n, query.RelatedMaxRows, out.String())
+	}
+
+	var mout strings.Builder
+	if code := RunRead(ctx, st, []string{term, "--related", "999999"}, strings.NewReader(""), &mout); code != 3 {
+		t.Fatalf("부재 대상 exit = %d, want 3: %s", code, mout.String())
+	}
+
+	lonelyID := slowWriteKnowledge(t, st, term+" 고립 행", "")
+	var lout strings.Builder
+	if code := RunRead(ctx, st, []string{term, "--related", strconv.Itoa(lonelyID)}, strings.NewReader(""), &lout); code != 0 {
+		t.Fatalf("0건 링크 exit = %d, want 0: %s", code, lout.String())
+	}
+	if strings.Contains(lout.String(), "related|") {
+		t.Errorf("0건 링크에 related 행 출력: %q", lout.String())
+	}
+}

@@ -111,6 +111,11 @@ type Thresholds struct {
 	// per-run insights file rune ceiling. Rows past the cap stay
 	// unstamped and defer to the next run (ADR-0018).
 	DistillMaxRunes int // default 20000
+	// the recall-audit listing floor (v1.24.0 — ops maintain --recall-audit):
+	// the minimum bad-recall history count (recall_events rows under the
+	// same topic's invalidated·superseded rows) at or above which an
+	// active row is listed (the correction convention).
+	RecallAuditMinBad int // default 2
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -204,6 +209,9 @@ const (
 	// the distill output file cap default (v1.22.1 r97): 20000 runes per
 	// insights file — the remainder defers to the next run.
 	defaultDistillMaxRunes = 20000
+	// the recall-audit listing floor default (v1.24.0): 2 bad recalls —
+	// a single bad recall is noise, two is a pattern worth listing.
+	defaultRecallAuditMinBad = 2
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -283,6 +291,8 @@ func DefaultThresholds() Thresholds {
 		DistillMinScore: defaultDistillMinScore,
 		// the distill output file cap (the consumer fallback basis).
 		DistillMaxRunes: defaultDistillMaxRunes,
+		// the recall-audit listing floor (the consumer fallback basis).
+		RecallAuditMinBad: defaultRecallAuditMinBad,
 	}
 }
 
@@ -479,6 +489,12 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// falls back via the DefaultThresholds basis; 0 cannot be a
 			// meaningful cap, so the consumer applies values > 0 only).
 			th.DistillMaxRunes = parseIntOrDefault(val, defaultDistillMaxRunes, ks)
+		case "recall_audit_min_bad":
+			// unset keeps 0 (the convention — the consumer, ops
+			// --recall-audit listing, falls back to the DefaultThresholds
+			// basis; 0 cannot be a meaningful floor, so the consumer
+			// applies values > 0 only — the distill_max_runes convention).
+			th.RecallAuditMinBad = parseIntOrDefault(val, defaultRecallAuditMinBad, ks)
 		}
 	}
 	return th, nil

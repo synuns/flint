@@ -94,6 +94,14 @@ var maintainModeFlags = map[string]map[string]bool{
 	// v1.13.0 T4: the stale-score report (read-only, dry-run by default —
 	// disposition is delegated to --invalidate; no new execution flags).
 	"--age-audit": {"--limit": true},
+	// v1.24.0 T3: the duplicate-pair report (read-only — disposition is
+	// delegated to --merge/--supersede with approval, the decay-audit
+	// convention).
+	"--merge-audit": {"--limit": true},
+	// v1.24.0 T4: the bad-recall feedback report (read-only — disposition
+	// is delegated to --invalidate/--supersede/--reaffirm with approval,
+	// the decay-audit listing convention).
+	"--recall-audit": {"--limit": true},
 	// v1.22.0 T3: reaffirm — the valid_at reset of active targets (the
 	// confirmation is --yes; the targets are --id/--ids, exclusive alternation).
 	"--reaffirm": {"--id": true, "--ids": true},
@@ -128,7 +136,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 
 // maintainUsageLine — the allowed-flags guidance (the common suffix of the invalid-arg
 // error message — for agent self-correction, alongside the error:"usage" transition).
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N [--conditions S --yes] | --tui (opt-in, run alone)"
+const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --merge-audit [--limit M] | --recall-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N [--conditions S --yes] | --tui (opt-in, run alone)"
 
 // maintainUsageErrf — assembles the invalid-arg error (the approve.approveUsageErr
 // convention — a UsageError type + the allowed-flags suffix. The exit code stays with the caller).
@@ -154,7 +162,8 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			{Name: "--check"}, {Name: "--dup-suspects"}, {Name: "--conflict-suspects"},
 			{Name: "--merge"}, {Name: "--stale"}, {Name: "--invalidate"},
 			{Name: "--invalidate-stale"}, {Name: "--meta-audit"}, {Name: "--decay-audit"},
-			{Name: "--age-audit"}, {Name: "--reaffirm"},
+			{Name: "--age-audit"}, {Name: "--reaffirm"}, {Name: "--merge-audit"},
+			{Name: "--recall-audit"},
 			// --expire-pending and --prune-invalidated are mode + value (N days);
 			// --recheck is mode + value too (the target knowledge id).
 			{Name: "--expire-pending", Value: true}, {Name: "--prune-invalidated", Value: true},
@@ -191,7 +200,7 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		case "--check", "--dup-suspects", "--conflict-suspects", "--merge", "--stale",
 			"--invalidate", "--invalidate-stale", "--meta-audit", "--expire-pending",
 			"--prune-invalidated", "--supersede", "--decay-audit", "--age-audit",
-			"--reaffirm", "--recheck":
+			"--merge-audit", "--recall-audit", "--reaffirm", "--recheck":
 			mode = name
 		}
 	}
@@ -384,6 +393,10 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 		return maintainDecayAudit(ctx, ms, stdout, limit)
 	case "--age-audit":
 		return maintainAgeAudit(ctx, ms, stdout, limit)
+	case "--merge-audit":
+		return maintainMergeAudit(ctx, ms, stdout, limit)
+	case "--recall-audit":
+		return maintainRecallAudit(ctx, ms, stdout, limit)
 	case "--reaffirm":
 		return maintainReaffirm(ctx, ms, stdout, id, idList, yes)
 	case "--recheck":
@@ -442,6 +455,9 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			return adminErrLine(stdout, fmt.Errorf("%w: invalidate: id=%d not found", db.ErrNotFound, id))
 		}
 		if chk[0][0] == nil {
+			// v1.24.0 T4 — the D4 disposed observation rides the approval
+			// write: evaluated while the target is still active (quiet §13).
+			recallAuditDisposed(ctx, ms, []int{id})
 			if _, err := ms.Invalidate(ctx, []int{id}, reason); err != nil {
 				return adminErrLine(stdout, err)
 			}
@@ -835,6 +851,9 @@ func invalidateIDs(ctx context.Context, ms MaintStore, stdout io.Writer, ids []i
 			"maintain: %s: nonexistent ids %v", op, missing)))
 		return 1
 	}
+	// v1.24.0 T4 — the D4 disposed observation rides the approval write
+	// (before the transition — the targets are still active; quiet §13).
+	recallAuditDisposed(ctx, ms, ids)
 	if err := retryWrite(ctx, func() error {
 		if _, err := ms.Invalidate(ctx, ids, op); err != nil {
 			return err
@@ -1051,6 +1070,9 @@ func maintainSupersede(ctx context.Context, ms MaintStore, stdout io.Writer, old
 	}
 	// The update UPDATE and the 0-row race stewardship stay on the single db.Repo.Supersede
 	// path (rows-affected stewardship built in — inheriting the result-verification stewardship).
+	// v1.24.0 T4 — the D4 disposed observation rides the approval write
+	// (OLD is still active here; quiet §13).
+	recallAuditDisposed(ctx, ms, []int{oldID})
 	if err := retryWrite(ctx, func() error {
 		if _, err := ms.Supersede(ctx, oldID, newID, at); err != nil {
 			return err
@@ -1197,6 +1219,204 @@ func maintainDecayAudit(ctx context.Context, ms MaintStore, stdout io.Writer, li
 	}
 	fmt.Fprintln(stdout, string(out))
 	return 0
+}
+
+// ── v1.24.0 T3: the --merge-audit duplicate-pair report ──
+
+// maintainMergeAudit — `maintain --merge-audit [--limit M]` (read-only,
+// exit 0): lists active-row PAIRS whose combined-text multiset Dice is at
+// or above conflict_dup_threshold (the EchoScan duplicate ruling, applied
+// row-to-row by knowledge.ClassifyMergeAuditPairs), sorted
+// score-descending. The scan bound is suggest_scan_cap and the pre-cost
+// estimate is published alongside (the pair-count formula, the measured
+// µs/pair, and the cap-reduction advice when over budget — the O(n²)
+// defense), with the A6 echo-scan p95 as the observed scan-latency
+// context. Disposition is NOT performed — the summary delegates to
+// maintain --merge/--supersede with approval (the decay-audit listing
+// convention). The listed count feeds the merge_audit_pairs curation
+// counter (quiet §13). --limit defaults to 20 (the decay-audit
+// convention).
+func maintainMergeAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limit int) int {
+	th := store.DefaultThresholds()
+	if loaded, lErr := wire.LoadThresholds(ctx, ms); lErr == nil {
+		th = loaded
+	}
+	if th.SuggestScanCap <= 0 {
+		th.SuggestScanCap = store.DefaultThresholds().SuggestScanCap
+	}
+	if th.ConflictDupThreshold <= 0 {
+		th.ConflictDupThreshold = store.DefaultThresholds().ConflictDupThreshold
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, truncated, err := knowledge.FetchMergeAuditRows(ctx, ms, th.SuggestScanCap)
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	pairs, cost := knowledge.ClassifyMergeAuditPairs(rows, th.ConflictDupThreshold)
+	if len(pairs) > limit {
+		pairs = pairs[:limit]
+	}
+	// the merge_audit_pairs curation counter (quiet §13 — a lost counter
+	// beats a failed report).
+	knowledge.BumpCurationCounter(ctx, ms, "merge_audit_pairs", len(pairs))
+	// the A6 p95 observation rides along (quiet zeros — the meta
+	// scan_stats baseline of the echo scans, the observed write-path
+	// scan-latency context of the estimate).
+	getKV, _ := MetaKV(ctx, ms)
+	echoStats, _ := ScanStatsFromMetaFn(getKV)
+	out, mErr := json.Marshal(struct {
+		Status        string                     `json:"status"`
+		Threshold     float64                    `json:"threshold"`
+		ScanCap       int                        `json:"scan_cap"`
+		Scanned       int                        `json:"scanned"`
+		ScanTruncated bool                       `json:"scan_truncated"`
+		Cost          knowledge.MergeAuditCost   `json:"cost"`
+		EchoP95US     int                        `json:"echo_scan_p95_us"`
+		Count         int                        `json:"count"`
+		Items         []knowledge.MergeAuditPair `json:"items"`
+		Summary       string                     `json:"summary"`
+	}{Status: "merge-audit", Threshold: th.ConflictDupThreshold, ScanCap: th.SuggestScanCap,
+		Scanned: len(rows), ScanTruncated: truncated, Cost: cost, EchoP95US: echoStats.P95,
+		Count: len(pairs), Items: pairs,
+		Summary: fmt.Sprintf("%d duplicate pair(s) — dispose via maintain --merge/--supersede (approval required)",
+			len(pairs))})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
+	return 0
+}
+
+// ── v1.24.0 T4: the --recall-audit bad-recall feedback report ──
+
+// recallAuditBadSQL — the single bad-recall subquery definition: the count
+// of same-topic knowledge rows invalidated or superseded that carry recall
+// history (each has at least one recall_events row — the EXISTS arm, the
+// age-audit reference column's subquery, listStaleScored). The count is the
+// listing score of --recall-audit and the qualification basis of the
+// recall_audit_disposed observation.
+const recallAuditBadSQL = `(SELECT count(*) FROM knowledge b
+			 WHERE b.topic = k.topic AND b.id <> k.id
+			   AND (b.invalid_at IS NOT NULL OR b.superseded_by IS NOT NULL)
+			   AND EXISTS (SELECT 1 FROM recall_events rb WHERE rb.knowledge_id = b.id))`
+
+// recallAuditItem — one --recall-audit listing item (the decay-audit
+// formatting inherited: id, rune-clamped topic, and the bad-recall count).
+// Reporting only — disposition is delegated to the approval circuit.
+type recallAuditItem struct {
+	ID        int    `json:"id"`
+	Topic     string `json:"topic"`
+	BadRecall int    `json:"bad_recall"`
+}
+
+// maintainRecallAudit — `maintain --recall-audit [--limit M]` (read-only,
+// exit 0): the bad-recall feedback report (D4). An ACTIVE row lists when
+// its same-topic bad-recall count (recallAuditBadSQL) is at or above
+// recall_audit_min_bad (threshold, default 2 — unset·load failure·
+// non-positive fall back to the DefaultThresholds basis, the decay-audit
+// convention), ordered bad-recall-descending (the listing score) then
+// id-ascending. Disposition is NOT performed — the summary delegates to
+// maintain --invalidate/--supersede/--reaffirm with approval (the
+// decay-audit listing convention); disposing a qualified row feeds the
+// recall_audit_disposed counter at write time (recallAuditDisposed). The
+// listed count feeds the recall_audit_listed curation counter (quiet §13).
+// --limit defaults to 20 (the decay-audit convention).
+func maintainRecallAudit(ctx context.Context, ms wire.Store, stdout io.Writer, limit int) int {
+	minBad := store.DefaultThresholds().RecallAuditMinBad
+	if th, err := wire.LoadThresholds(ctx, ms); err == nil && th.RecallAuditMinBad > 0 {
+		minBad = th.RecallAuditMinBad
+	}
+	if limit <= 0 {
+		limit = 20
+	}
+	rows, err := wire.QueryOnce(ctx, ms, `
+		SELECT k.id, k.topic, `+recallAuditBadSQL+` AS bad_recall
+		FROM knowledge k
+		WHERE k.status = 'active' AND k.invalid_at IS NULL
+		  AND `+recallAuditBadSQL+` >= $1
+		ORDER BY bad_recall DESC, k.id ASC
+		LIMIT $2`, []any{minBad, limit})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return store.MapExit(err)
+	}
+	items := []recallAuditItem{}
+	for _, r := range rows {
+		if len(r) < 3 {
+			continue
+		}
+		id, ok := render.CellToInt(r[0])
+		if !ok {
+			continue
+		}
+		topic, _ := r[1].(string)
+		bad, _ := render.CellToInt(r[2])
+		items = append(items, recallAuditItem{
+			ID:        id,
+			Topic:     clampAgeTopic(render.Text(topic)), // the age-audit topic cap + output re-sanitization
+			BadRecall: bad,
+		})
+	}
+	if len(items) > limit { // the Go-side cap — the defense over the server LIMIT
+		items = items[:limit]
+	}
+	// the recall_audit_listed curation counter (quiet §13 — a lost counter
+	// beats a failed report).
+	knowledge.BumpCurationCounter(ctx, ms, "recall_audit_listed", len(items))
+	out, mErr := json.Marshal(struct {
+		Status  string            `json:"status"`
+		MinBad  int               `json:"min_bad"`
+		Count   int               `json:"count"`
+		Items   []recallAuditItem `json:"items"`
+		Summary string            `json:"summary"`
+	}{Status: "recall-audit", MinBad: minBad, Count: len(items), Items: items,
+		Summary: fmt.Sprintf("%d bad-recall row(s) (min %d) — dispose via maintain --invalidate/--supersede/--reaffirm (approval required)",
+			len(items), minBad)})
+	if mErr != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(mErr))
+		return 1
+	}
+	fmt.Fprintln(stdout, string(out))
+	return 0
+}
+
+// recallAuditDisposed — the D4 disposition observation: when an approval
+// path (--invalidate/--supersede/--reaffirm) writes a target that meets the
+// listing criterion at write time (the same recallAuditBadSQL count >=
+// recall_audit_min_bad, evaluated while the row is still active), the
+// recall_audit_disposed curation counter accrues the qualified count
+// (quiet §13 — a lost observation never fails the disposition; no new queue
+// — the criterion is query-time, the spec's no-new-state ruling).
+func recallAuditDisposed(ctx context.Context, ms wire.Store, ids []int) {
+	if len(ids) == 0 {
+		return
+	}
+	minBad := store.DefaultThresholds().RecallAuditMinBad
+	if th, err := wire.LoadThresholds(ctx, ms); err == nil && th.RecallAuditMinBad > 0 {
+		minBad = th.RecallAuditMinBad
+	}
+	rows, err := wire.QueryOnce(ctx, ms, `
+		SELECT k.id, `+recallAuditBadSQL+` AS bad_recall
+		FROM knowledge k
+		WHERE k.id = ANY($1) AND k.status = 'active' AND k.invalid_at IS NULL`,
+		[]any{ids})
+	if err != nil {
+		return
+	}
+	n := 0
+	for _, r := range rows {
+		if len(r) < 2 {
+			continue
+		}
+		if bad, ok := render.CellToInt(r[1]); ok && bad >= minBad {
+			n++
+		}
+	}
+	knowledge.BumpCurationCounter(ctx, ms, "recall_audit_disposed", n)
 }
 
 // ── v1.13.0 T3: the stale score (2 weighted signals — the --age-audit scoring source) ──
@@ -1544,6 +1764,9 @@ func maintainReaffirm(ctx context.Context, ms MaintStore, stdout io.Writer, id i
 			"maintain: --reaffirm: nonexistent or not active ids %v", missing)))
 		return 1
 	}
+	// v1.24.0 T4 — the D4 disposed observation rides the approval write
+	// (the targets are still active here; quiet §13).
+	recallAuditDisposed(ctx, ms, ids)
 	if err := retryWrite(ctx, func() error {
 		n, err := rs.Reaffirm(ctx, ids)
 		if err != nil {
@@ -1591,39 +1814,111 @@ func recheckVolTags(tags string) []string {
 	return out
 }
 
-// maintainRecheck — `maintain --recheck N` (read-only without
-// --conditions): reports the re-review target — the conditions value (the
-// staleness recheck material, T1's column), the vol tier tags, and the
-// valid_at age. Consuming the recheck queue is NOT performed here (the
-// manual trigger ruling — external state is P1); disposition stays with
-// the existing --invalidate/--reaffirm approvals. A missing id is
-// ErrNotFound exit 1.
+// RecheckSourceClearStore — the vault content_changed_at clear extension
+// (v1.24.0 T2, schema v19): consuming the target row's source_path-matched
+// vault change stamps (one UPDATE — the write SQL literal lives in the
+// store layer, the SetRecheckConditions convention).
+type RecheckSourceClearStore interface {
+	ClearVaultSourceChanged(ctx context.Context, path string) (int64, error)
+}
+
+// clearRecheckVaultSource — the automatic source-change clear that
+// accompanies every --recheck invocation (v1.24.0 T2 contract: the clear
+// always rides the call — the --conditions argument is optional). The
+// target row's source_path is looked up here (only when the store
+// carries the clear extension — a store without it, e.g. a legacy fake,
+// skips with zero extra queries); a row without source_path (NULL)
+// clears nothing. Returns (cleared rows, exit code — 0 = continue).
+//
+// Multi-share implication: the clear is keyed on the vault path, not the
+// knowledge row — one --recheck call consumes the change queue of EVERY
+// knowledge row carrying the same source_path (shared-source rows are
+// recheck-satisfied together; the A→B→A re-stamp heals naturally under
+// the single-column linkage, the G2 ruling).
+func clearRecheckVaultSource(ctx context.Context, ms wire.Store, stdout io.Writer, id int) (int64, int) {
+	cs, ok := ms.(RecheckSourceClearStore)
+	if !ok {
+		return 0, 0 // store without the extension — quietly skipped
+	}
+	rows, err := wire.QueryOnce(ctx, ms,
+		`SELECT source_path FROM knowledge WHERE id = $1`, []any{id})
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 0, store.MapExit(err)
+	}
+	sourcePath := ""
+	if len(rows) > 0 && len(rows[0]) > 0 {
+		sourcePath, _ = rows[0][0].(string)
+	}
+	if strings.TrimSpace(sourcePath) == "" {
+		return 0, 0 // no provenance link — nothing to clear
+	}
+	n, err := cs.ClearVaultSourceChanged(ctx, sourcePath)
+	if err != nil {
+		fmt.Fprintln(stdout, wire.ErrLine(err))
+		return 0, store.MapExit(err)
+	}
+	if n > 0 {
+		if _, cerr := ms.Commit(ctx, fmt.Sprintf(
+			"recheck: vault source changed cleared path=%s (%d file(s)) [session:0]",
+			render.Text(sourcePath), n)); cerr != nil {
+			fmt.Fprintln(stdout, wire.ErrLine(cerr))
+			return 0, store.MapExit(cerr)
+		}
+	}
+	return n, 0
+}
+
+// maintainRecheck — `maintain --recheck N`: reports the re-review target
+// — the conditions value (the staleness recheck material, T1's column),
+// the vol tier tags, and the valid_at age — and (v1.24.0 T2) the call
+// automatically clears the vault content_changed_at stamps of the rows
+// whose path equals the target's source_path (the queue consumption on
+// the vault axis; knowledge-row disposition stays with the existing
+// --invalidate/--reaffirm approvals). A missing id is ErrNotFound exit 1.
 func maintainRecheck(ctx context.Context, ms wire.Store, stdout io.Writer, id int) int {
 	rows, err := wire.QueryOnce(ctx, ms,
-		`SELECT topic, tags, conditions, valid_at FROM knowledge WHERE id = $1`, []any{id})
+		`SELECT topic, tags, conditions, valid_at, source_path FROM knowledge WHERE id = $1`, []any{id})
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	if len(rows) == 0 || len(rows[0]) < 4 {
+	if len(rows) == 0 {
 		return adminErrLine(stdout, fmt.Errorf("%w: recheck: id=%d not found", db.ErrNotFound, id))
 	}
-	topic, _ := rows[0][0].(string)
-	tags, _ := rows[0][1].(string)
-	conditions, _ := rows[0][2].(string)
+	cell := func(i int) any {
+		if i < len(rows[0]) {
+			return rows[0][i]
+		}
+		return nil
+	}
+	topic, _ := cell(0).(string)
+	tags, _ := cell(1).(string)
+	conditions, _ := cell(2).(string)
 	empty := strings.TrimSpace(conditions) == ""
 	volTags := recheckVolTags(tags)
 	ageDays := 0
 	validAt := ""
-	if va, ok := AnyToTime(rows[0][3]); ok && !va.IsZero() {
+	if va, ok := AnyToTime(cell(3)); ok && !va.IsZero() {
 		validAt = va.UTC().Format(time.RFC3339)
 		ageDays = int(time.Since(va).Hours() / 24)
+	}
+	sourcePath, _ := cell(4).(string)
+	// the automatic vault source-change clear (v1.24.0 T2 — every
+	// invocation; see clearRecheckVaultSource for the multi-share
+	// implication).
+	cleared, code := clearRecheckVaultSource(ctx, ms, stdout, id)
+	if code != 0 {
+		return code
 	}
 	summary := fmt.Sprintf("recheck target id=%d — valid %dd ago", id, ageDays)
 	if empty {
 		summary += " · no conditions recorded (set via maintain --recheck --conditions)"
 	} else {
 		summary += " · conditions recorded — re-verify them against the source"
+	}
+	if cleared > 0 {
+		summary += fmt.Sprintf(" · %d vault source change(s) cleared", cleared)
 	}
 	out, mErr := json.Marshal(struct {
 		Status          string   `json:"status"`
@@ -1634,10 +1929,13 @@ func maintainRecheck(ctx context.Context, ms wire.Store, stdout io.Writer, id in
 		VolTags         []string `json:"vol_tags"`
 		ValidAt         string   `json:"valid_at"`
 		AgeDays         int      `json:"age_days"`
+		SourcePath      string   `json:"source_path"`
+		SourceCleared   int      `json:"source_cleared"`
 		Summary         string   `json:"summary"`
 	}{Status: "recheck", ID: id, Topic: clampAgeTopic(render.Text(topic)),
 		Conditions: render.Text(conditions), ConditionsEmpty: empty, VolTags: volTags,
-		ValidAt: validAt, AgeDays: ageDays, Summary: summary})
+		ValidAt: validAt, AgeDays: ageDays, SourcePath: render.Text(sourcePath),
+		SourceCleared: int(cleared), Summary: summary})
 	if mErr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(mErr))
 		return 1
@@ -1694,12 +1992,20 @@ func maintainRecheckConditions(ctx context.Context, ms MaintStore, stdout io.Wri
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
+	// the automatic vault source-change clear (v1.24.0 T2 — the report
+	// form's twin, every --recheck invocation clears; see
+	// clearRecheckVaultSource for the multi-share implication).
+	cleared, code := clearRecheckVaultSource(ctx, ms, stdout, id)
+	if code != 0 {
+		return code
+	}
 	shown := render.Text(conditions)
 	out, mErr := json.Marshal(struct {
-		Status     string `json:"status"`
-		ID         int    `json:"id"`
-		Conditions string `json:"conditions"`
-	}{Status: "recheck_conditions", ID: id, Conditions: shown})
+		Status        string `json:"status"`
+		ID            int    `json:"id"`
+		Conditions    string `json:"conditions"`
+		SourceCleared int    `json:"source_cleared"`
+	}{Status: "recheck_conditions", ID: id, Conditions: shown, SourceCleared: int(cleared)})
 	if mErr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(mErr))
 		return 1

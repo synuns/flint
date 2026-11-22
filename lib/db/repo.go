@@ -793,7 +793,12 @@ func (r *Repo) UpdateSessionSummary(ctx context.Context, id int, summary, tasks 
 // recall_events precedent: they must propagate across devices via
 // push/pull), table-only staging; tuning_predictions_id_seq stays
 // unstaged by the same harmless-residue ruling.
-var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events", "knowledge_links", "vault_files", "tuning_predictions"}
+// Ruling including echo_candidates (v1.24.0 schema v19): the write-time
+// echo candidates are audit data (the D1 retrospective measurement
+// premise — the recall_events precedent: they must propagate across
+// devices via push/pull), table-only staging; echo_candidates_id_seq
+// stays unstaged by the same harmless-residue ruling.
+var auditStageTables = []string{"knowledge", "projects", "sessions", "meta", "maintenance_runs", "recall_events", "knowledge_links", "vault_files", "tuning_predictions", "echo_candidates"}
 
 // telemetryStageTables — the staging targets of the metering-only
 // commit (CommitTelemetry). The schema v13 observability tables
