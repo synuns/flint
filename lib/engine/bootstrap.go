@@ -98,7 +98,10 @@ func BootstrapCredentials(ctx context.Context) error {
 }
 
 var grantFn = func(ctx context.Context) error {
-	dsn := strings.Replace(bootstrapSuperuserDSN, "/postgres", "/"+bootstrapDatabaseName, 1)
+	dsn := bootstrapSuperuserDSN
+	if i := strings.LastIndex(dsn, "/"); i >= 0 {
+		dsn = dsn[:i+1] + bootstrapDatabaseName
+	}
 	pool, err := poolOpenFn(ctx, dsn)
 	if err != nil {
 		return err

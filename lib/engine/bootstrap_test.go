@@ -92,6 +92,7 @@ func kindsWithText(events []fakeEvent) []string {
 }
 
 func TestBootstrapOrderCreatesWhenMissing(t *testing.T) {
+	withGrantNoop(t)
 	super := &fakePool{roleRow: fakeRow{exists: false}}
 	def := &fakePool{}
 	events := installFakePools(t, []*fakePool{super, def})
@@ -134,6 +135,7 @@ func TestBootstrapOrderCreatesWhenMissing(t *testing.T) {
 }
 
 func TestBootstrapExistingRoleAltersOnly(t *testing.T) {
+	withGrantNoop(t)
 	super := &fakePool{roleRow: fakeRow{exists: true}}
 	def := &fakePool{}
 	events := installFakePools(t, []*fakePool{super, def})
@@ -174,6 +176,7 @@ func eventsText(events []fakeEvent, prefix string) string {
 }
 
 func TestBootstrapSuperuserConnectFailure(t *testing.T) {
+	withGrantNoop(t)
 	orig := poolOpenFn
 	poolOpenFn = func(ctx context.Context, dsn string) (dbPool, error) {
 		return nil, errors.New("dial fail")
@@ -190,6 +193,7 @@ func TestBootstrapSuperuserConnectFailure(t *testing.T) {
 }
 
 func TestBootstrapRoleExecFailure(t *testing.T) {
+	withGrantNoop(t)
 	super := &fakePool{
 		roleRow: fakeRow{exists: false},
 		execErr: errors.New("permission denied"),
@@ -211,6 +215,7 @@ func TestBootstrapRoleExecFailure(t *testing.T) {
 }
 
 func TestBootstrapDefaultDSNConnectFailure(t *testing.T) {
+	withGrantNoop(t)
 	super := &fakePool{roleRow: fakeRow{exists: true}}
 	installFakePools(t, []*fakePool{super})
 
@@ -231,4 +236,12 @@ func TestBootstrapDefaultDSNConnectFailure(t *testing.T) {
 	if !strings.Contains(err.Error(), "flint:pw") && !strings.Contains(err.Error(), "default") {
 		t.Errorf("error = %v, want default dsn context", err)
 	}
+}
+
+
+func withGrantNoop(t *testing.T) {
+	t.Helper()
+	prev := grantFn
+	grantFn = func(ctx context.Context) error { return nil }
+	t.Cleanup(func() { grantFn = prev })
 }
