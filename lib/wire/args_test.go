@@ -1,7 +1,3 @@
-// args_test.go — the spec-table mini-parser's unit contracts (Review Focus:
-// the N9 "--" rule, value consumption, repeated flags, and the unknown ->
-// UsageErrorf semantics preserved). The migrated commands' (read, write,
-// maintain, etc.) existing version tests are the final proof; this file holds the parser's own table.
 package wire
 
 import (
@@ -9,8 +5,6 @@ import (
 	"testing"
 )
 
-// demoSpec — the shared spec for table verification (inheriting the read family:
-// N9, positional allowed, '-'-prefixed unrecognized is an error).
 func demoSpec() ArgSpec {
 	return ArgSpec{
 		Flags: []FlagSpec{
@@ -24,8 +18,6 @@ func demoSpec() ArgSpec {
 	}
 }
 
-// TestParseArgsN9DashDash — N9: everything after "--" is positional (even
-// flag-shaped tokens are not parsed as flags).
 func TestParseArgsN9DashDash(t *testing.T) {
 	res, err := ParseArgs([]string{"--json", "--", "--tag", "x"}, demoSpec())
 	if err != nil {
@@ -41,7 +33,6 @@ func TestParseArgsN9DashDash(t *testing.T) {
 		t.Errorf("positional = %v, want [--tag x]", got)
 	}
 
-	// a leading "--" — everything becomes positional.
 	res, err = ParseArgs([]string{"--", "--json"}, demoSpec())
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
@@ -54,9 +45,6 @@ func TestParseArgsN9DashDash(t *testing.T) {
 	}
 }
 
-// TestParseArgsValueConsumption — a value flag unconditionally consumes the next
-// token (a flag-shaped token is a value too — the read --tag --json family's
-// existing behavior). A trailing value flag only records its occurrence (no value — the caller's empty-value validation owns it).
 func TestParseArgsValueConsumption(t *testing.T) {
 	res, err := ParseArgs([]string{"--tag", "--json"}, demoSpec())
 	if err != nil {
@@ -69,7 +57,6 @@ func TestParseArgsValueConsumption(t *testing.T) {
 		t.Errorf("--json이 값이 아니라 플래그로 파싱됨")
 	}
 
-	// trailing — no value token.
 	res, err = ParseArgs([]string{"x", "--tag"}, demoSpec())
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
@@ -81,7 +68,6 @@ func TestParseArgsValueConsumption(t *testing.T) {
 		t.Errorf("trailing --tag = (%q, HasValue=%v), want 빈 값·HasValue false", res.Value("--tag"), res.HasValue("--tag"))
 	}
 
-	// a bool flag consumes nothing — the next token is positional.
 	res, err = ParseArgs([]string{"--json", "x"}, demoSpec())
 	if err != nil {
 		t.Fatalf("err = %v, want nil", err)
@@ -91,8 +77,6 @@ func TestParseArgsValueConsumption(t *testing.T) {
 	}
 }
 
-// TestParseArgsRepeat — on repeated specification the last value wins (the
-// existing semantics of every command). Occs preserves the full occurrence order (for repeatable-flag consumers).
 func TestParseArgsRepeat(t *testing.T) {
 	res, err := ParseArgs([]string{"--tag", "a", "--tag", "b"}, demoSpec())
 	if err != nil {
@@ -110,10 +94,8 @@ func TestParseArgsRepeat(t *testing.T) {
 	}
 }
 
-// TestParseArgsUnknown — unrecognized tokens get UsageErrorf (unknown flag).
-// Includes the Usage suffix; whether positional is allowed is decided by the spec.
 func TestParseArgsUnknown(t *testing.T) {
-	// the read family: a '-'-prefixed unrecognized token is an error; prefix-less is positional.
+
 	res, err := ParseArgs([]string{"query", "-x"}, demoSpec())
 	if err == nil {
 		t.Fatalf("err = nil, want unknown flag 오류(res=%+v)", res)
@@ -134,14 +116,12 @@ func TestParseArgsUnknown(t *testing.T) {
 		t.Errorf("positional = %v, want [query]", got)
 	}
 
-	// strict (the doctor/report family): even prefix-less tokens are unknown flags.
 	strict := demoSpec()
 	strict.AllowPositional = false
 	if _, err := ParseArgs([]string{"foo"}, strict); err == nil {
 		t.Errorf("엄격 스펙에서 무접두 토큰이 통과됨")
 	}
 
-	// the write family: a '-'-prefixed unrecognized token is also absorbed as positional.
 	absorb := demoSpec()
 	absorb.DashPositional = true
 	res, err = ParseArgs([]string{"-x", "--y"}, absorb)
@@ -153,8 +133,6 @@ func TestParseArgsUnknown(t *testing.T) {
 	}
 }
 
-// TestParseArgsDashDashOff — with DashDash=false, "--" is not a special token
-// (write: absorbed as positional / strict commands: unknown flag — the existing behavior).
 func TestParseArgsDashDashOff(t *testing.T) {
 	absorb := demoSpec()
 	absorb.DashDash = false
@@ -175,8 +153,6 @@ func TestParseArgsDashDashOff(t *testing.T) {
 	}
 }
 
-// TestParseArgsOrderAndIndex — occurrence order and args index preserved (for
-// mode-election, error-order-reproduction, and profile positional-merge consumers).
 func TestParseArgsOrderAndIndex(t *testing.T) {
 	res, err := ParseArgs([]string{"q", "--json", "--tag", "a", "z", "--entity", "e"}, demoSpec())
 	if err != nil {

@@ -26,10 +26,6 @@ func TestReadmeBadgeIsLatest(t *testing.T) {
 	}
 }
 
-// TestReadmeKoCopilotAutoRegister — v0.21.0부터 Copilot도 네이티브 CLI
-// 자동 등록 대상(setup.go runSetupMCP의 A급 하니스). KO README의
-// "검증된 네이티브 CLI가 없어 수동 설정" 서술은 부정홫하므로 금지하고,
-// Copilot이 자동 감지 목록에 열거되어야 한다(EN README 문단과 정합).
 func TestReadmeKoCopilotAutoRegister(t *testing.T) {
 	b, err := os.ReadFile(docPath("../README.ko.md"))
 	if err != nil {
@@ -50,8 +46,6 @@ func TestReadmeKoCopilotAutoRegister(t *testing.T) {
 	}
 }
 
-// TestReadmeKoGoInstallSection — EN README의 "Install via go install" 절의
-// KO 대응 절: 모듈 경로·빌드 정보 버전·flint update 안내까지 번역 정합.
 func TestReadmeKoGoInstallSection(t *testing.T) {
 	b, err := os.ReadFile(docPath("../README.ko.md"))
 	if err != nil {
@@ -70,8 +64,6 @@ func TestReadmeKoGoInstallSection(t *testing.T) {
 	}
 }
 
-// TestReadmeKoHarnessBadgeNote — harnesses-8 배지 직후, 8종이 A급 자동
-// 등록 하니스 기준이며 전체 목록은 어댑터 표에 있다는 1줄 주석 존재.
 func TestReadmeKoHarnessBadgeNote(t *testing.T) {
 	b, err := os.ReadFile(docPath("../README.ko.md"))
 	if err != nil {
@@ -92,10 +84,6 @@ func TestReadmeKoHarnessBadgeNote(t *testing.T) {
 	}
 }
 
-// TestReadmeBadgeMatchesLatestTag — 배지 문자열이 git 최신 태그 또는
-// 다음 예정 버전(최신 태그의 +패치/+마이너, plannedBadgeVersions)과
-// 일치("release-"+버전). 태그 부재 환경(일부 CI·shallow clone)은 스킵.
-// v0.13.2 N2 갱신: 릴리스 준비 커밋→태그 사이 창의 일시 레드 해소.
 func TestReadmeBadgeMatchesLatestTag(t *testing.T) {
 	tag := latestTag(t)
 	allowed := plannedBadgeVersions(tag)

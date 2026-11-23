@@ -1,8 +1,3 @@
-// pipeline_test.go — v1.14.0 T1: the knowledge-pipeline case registry
-// contract tests. The registry enumerates every intake case (who/what
-// feeds the pipeline), and the derived RUNBOOK matrix plus the
-// sourceRegistry sync are guarded here — a drifting registry, source, or
-// doc table fails these tests.
 package knowledge
 
 import (
@@ -11,27 +6,17 @@ import (
 	"testing"
 )
 
-// wantPipelineCaseIDs — the plan's eight cases in enumeration order
-// (docs/plans/2026-11-21-flint-v1140.md T1 seven + the v1.17.0 echo case,
-// gate-adjusted: survived·echo carry no source).
 var wantPipelineCaseIDs = []string{
-	"correction-b", // correction 0.7 (v1.11.0)
-	"correction-a", // correction 0.4 (v1.14.0)
-	"gap",          // recall-failure/repeat (v1.12.0)
-	"mcp",          // MCP tool observation (v0.2.6 lineage)
+	"correction-b",
+	"correction-a",
+	"gap",
+	"mcp",
 	"session-distill",
 	"manual",
-	"survived", // observation-only, no source (v1.14.0)
-	"echo",     // observation/judgment support, no source (v1.17.0)
+	"survived",
+	"echo",
 }
 
-// TestPipelineCaseRegistryComplete — the registry holds exactly the eight
-// plan cases (unique IDs, plan order) and every descriptive field is
-// populated: ID·Name·Signal·Confidence·Since are always non-empty; Source
-// is empty only for the observation-only cases. The fixed confidences stay
-// in sync with the write.go payload constants (gap derives from
-// gapCandidateConfidence — editing the constant without the registry, or
-// vice versa, fails here).
 func TestPipelineCaseRegistryComplete(t *testing.T) {
 	if len(pipelineCases) != len(wantPipelineCaseIDs) {
 		t.Fatalf("등록표 크기=%d, want %d(8케이스)", len(pipelineCases), len(wantPipelineCaseIDs))
@@ -58,14 +43,13 @@ func TestPipelineCaseRegistryComplete(t *testing.T) {
 	for _, c := range pipelineCases {
 		byID[c.ID] = c
 	}
-	// The gap case's fixed confidence must equal the write.go payload
-	// constant (single source — no duplicate literals drifting).
+
 	if got, want := byID["gap"].Confidence,
 		strconv.FormatFloat(gapCandidateConfidence, 'f', -1, 64); got != want {
 		t.Errorf("gap confidence=%q, want %q(gapCandidateConfidence와 동치)", got, want)
 	}
-	// Plan-fixed values: correction lineages and the observation-only cases.
-	fixed := map[string][3]string{ // Confidence, Tag, Since
+
+	fixed := map[string][3]string{
 		"correction-b": {"0.7", "correction", "v1.11.0"},
 		"correction-a": {"0.4", "correction", "v1.14.0"},
 		"gap":          {"0.4", "gap-candidate", "v1.12.0"},
@@ -87,11 +71,6 @@ func TestPipelineCaseRegistryComplete(t *testing.T) {
 	}
 }
 
-// TestPipelineCaseSourceRegistrySync — every source-bearing case maps to
-// a registered metering source (write.go sourceRegistry), and each of the
-// five registry sources is covered by at least one case (the registry is
-// the complete intake map, not a subset). Exactly two cases are
-// observation-only (survived·echo — no separate metering source).
 func TestPipelineCaseSourceRegistrySync(t *testing.T) {
 	covered := make(map[string]bool, len(sourceRegistry))
 	emptySource := 0
@@ -115,9 +94,6 @@ func TestPipelineCaseSourceRegistrySync(t *testing.T) {
 	}
 }
 
-// wantPipelineCaseMatrix — the golden RUNBOOK-shaped snapshot of the
-// derived case matrix (T5 embeds this table; the derivation and the
-// snapshot change together or not at all).
 const wantPipelineCaseMatrix = `| 케이스 | 입구 신호 | source | 태그 | confidence | 구현 |
 | --- | --- | --- | --- | --- | --- |
 | 교정 B안(에이전트 계약) | 사용자 교정을 에이전트가 인지해 즉시 적립(스킬 지침) | correction | correction | 0.7 | v1.11.0 |
@@ -130,9 +106,6 @@ const wantPipelineCaseMatrix = `| 케이스 | 입구 신호 | source | 태그 | 
 | 에코 검토 | write 응답 echo 필드 — 근접 활성 행 duplicates/contradicts 보고 | — | — | 관측 | v1.17.0 |
 `
 
-// TestPipelineCaseMatrixSnapshot — the derived RUNBOOK matrix equals the
-// golden snapshot (a registry edit without a snapshot update fails), and
-// the derivation guard holds: every registry case renders its own row.
 func TestPipelineCaseMatrixSnapshot(t *testing.T) {
 	got := PipelineCaseMatrix()
 	if got != wantPipelineCaseMatrix {

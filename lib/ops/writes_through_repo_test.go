@@ -1,100 +1,3 @@
-// writes_through_repo_test.go — the write guard. If any non-test source in lib/{ops,knowledge}
-// has an UPDATE|DELETE|INSERT token at a Query/queryOnce call site, it FAILs — within this
-// guard's scope (lib/{ops,knowledge}), write SQL literals are owned only by the db.Repo paths (Invalidate,
-// Supersede, PruneInvalidated,
-// MetaDelete, UpdateSessionSummary). "the single db.Repo path" is a claim limited to this
-// scope — outside it (e.g. the meta INSERT in lib/wire/meta.go) is separate ownership this guard
-// does not see.
-//
-// two bypasses blocked (closed after being demonstrated):
-//   - via an alias (q := wire.QueryOnce; q(..., "UPDATE ...")) — aliases holding Query/QueryOnce
-//     in a variable are tracked and judged the same way.
-//   - assembled into a variable (sql := "DELETE ..."; wire.QueryOnce(..., sql)) — SQL string
-//     literals starting with a write verb are forbidden regardless of file position.
-//
-// two demonstrated bypasses closed:
-//   - piece assembly and Sprintf arguments ("SELECT 1; "+"DELETE", including fmt.Sprintf) —
-//     write-verb tokens are a violation anywhere in a string literal body, with no call-site or
-//     literal-start position conditions (reported with location and path).
-//   - split verb assembly ("UP"+"DATE ...") — write verbs that exist only in the result of
-//     concatenating (+) operand literals in order are also caught.
-//   - traversal blind spot — recursive WalkDir instead of non-recursive os.ReadDir (all
-//     subdirectories, excluding testdata per the Go convention).
-//
-// two demonstrated bypasses closed:
-//   - exemption x assembly crossing ("update"+" knowledge ...") — the whitelist exemption applies
-//     only to the standalone-literal judgment; in the assembly (+) and Sprintf combination
-//     judgments, the exempt operand bodies participate too. If the entire assembled/combined
-//     result exactly matches a whitelist body, it is exempt (extending the exact-match principle
-//   - Sprintf verb splitting (Sprintf("DEL%s...","ETE")) — write verbs that exist only in the
-//     result of substituting string-literal arguments into the %s/%v verbs of the format literal
-//     are also caught (sprintfCombined).
-//
-// three demonstrated bypasses closed (after re-probing confirmed the bypass):
-//   - nested Sprintf (Sprintf("DEL%s...", Sprintf("%s","ETE"))) — if an argument is itself an
-//     Sprintf result, it is combined recursively one level and judged (stringOperand).
-//   - constant folding (const p = "DEL"; ... p+q) — the file package-block const string table
-//     is folded so that Idents participate in the combination judgments (2-4) as values.
-//     (constStringTable).
-//   - strings.Join combination (strings.Join([]string{"DEL","ETE..."}, "")) — write verbs that
-//     exist only in the result of joining literal elements with the separator are also caught (4).
-//
-// three demonstrated bypasses closed (after re-probing confirmed the bypass):
-//   - fmt.Sprint/Sprintln combination (fmt.Sprint("DEL","ETE ...")) — not limited to Sprintf
-//     format substitution; Sprint (no separator) and Sprintln (space separator) operand
-//     combinations are extended into the common judgment (fmtCombined).
-//   - var slice folding (var parts = []string{"DEL","ETE..."} + Join) — the package-block var
-//     []string literal table is folded to resolve the Join first argument Ident
-//     (varStringSliceTable).
-//   - strings.Builder combination (b.WriteString("DEL"); b.WriteString("ETE ...")) — write
-//     verbs that exist only in the result of concatenating, on the same Ident receiver,
-//     consecutive WriteString arguments are also caught (5).
-//
-// four demonstrated bypasses closed (after re-probing confirmed the bypass):
-//   - escape decoding — unquoteLiteral is replaced with strconv.Unquote so that \\xNN and
-//     octal \\NNN verb notations ("\\x44\\x45\\x4C..." = "DEL") are decoded and judged in
-//     the common path before the foldings.
-//   - string accumulation (+=) combination (s := "DEL"; s += "ETE ...") — judged by merging,
-//     in order, the same-Ident assignment and accumulation operands (6).
-//   - fmt.Errorf and fmt.Fprintf combination — Errorf is the same as Sprintf; Fprintf is a
-//     format-substitution combination excluding the writer argument (fmtCombined).
-//   - slices.Concat combination — judged by concatenating all elements of the slice arguments
-//     with no separator (4).
-//
-// three demonstrated bypasses closed (after re-probing confirmed the bypass):
-//   - format assembly — if the format operand of a fmt combination call is a concatenation (+)
-//     expression, the same assembly folding as 2 is applied (formatOperand, foldAddString —
-//     closing Errorf("DEL"+"%s...") and Fprintf(w,"%s"+"ETE...")).
-//   - self-referencing reassignment accumulation — `s = s + operand` reassignment is chained
-//     into the accumulation as equivalent to += (6, splitSelfAdd).
-//
-// two demonstrated bypasses closed (after re-probing confirmed the bypass):
-//   - const format — even when the format operand of a fmt combination call is a package-block
-//     const Ident, it is judged by the folded value (the formatOperand Ident case).
-//   - nested Join/Concat — the combination body of 4 is extracted as sliceCombined so that
-//     stringOperand folds recursively within a depth limit (closing the bypass where an inner,
-//     harmless combination was substituted as blank in the outer judgment).
-//
-// three demonstrated bypass variants closed (after re-probing confirmed the bypass):
-//   - block-local value table — 6 keeps same-block local string values (locals). Seed `x :=
-//     folded-expr` assignments are recorded, and `y := x`, `y := x+lit`, `y += x` substitutions
-//     are propagated (closing head+lit and copy-seed +=). If a folded value itself forms a
-//     verb, it is reported at the value level.
-//   - local slice Join — sliceCombined's Ident resolution merges function-local slice
-//     literals (`parts := []string{...}`) (localSliceTable — name redefinitions are excluded
-//     from registration, cutting false positives at the source).
-//
-// six demonstrated bypass variants closed (after re-probing confirmed the bypass):
-//   - local-value propagation — localStringTable, which folds function-local string value
-//     assignments, is merged into consts and propagated into the 2-5 Ident resolutions
-//     (stringOperand, combineParts, formatOperand, and 2's BinaryExpr). Local-value x
-//     Sprintf/Errorf arguments, format Ident x local, local value x Builder, x Join/Concat
-//     elements, and x return assemblies are closed. The same pattern as localSliceTable
-//     (excluding multi-assignment names), so false positives from other scopes' values are cut
-//
-// False positives (non-SQL "update" words in guidance texts and check names) are exempted only
-// by exact matches in the writeLiteralAllow whitelist — every new exemption must be an explicit
-// declaration in that table.
 package ops
 
 import (
@@ -111,48 +14,31 @@ import (
 	"testing"
 )
 
-// writeTokenRe — the SQL write verbs (word boundaries — "deleted", "updated_at",
-// "would_delete" and other column/alias names do not match).
 var writeTokenRe = regexp.MustCompile(`(?i)\b(UPDATE|DELETE|INSERT)\b`)
 
-// writeLiteralAllow — the false-positive whitelist: exact body matches of guidance texts and
-// check-name literals that contain write-verb words but are not SQL (a token anywhere is a
-// violation). For legitimate sources to pass, declaration in this table is the only exemption
-// path — update it together with any body edit (no automatic exemption).
 var writeLiteralAllow = map[string]bool{
-	// doctor check names and prescription wordings (human-facing guidance, non-SQL).
+
 	"update":            true,
 	"fix: flint update": true,
-	// the v1.26.0 doctor versions stale-cache guidance (names the update check
-	// — the check name itself, not SQL).
+
 	"fix: flint doctor --check update (refresh the version cache)": true,
-	// the report --text update-check freshness line (v1.26.0 T3 — display only).
+
 	"update check: %s\n": true,
-	// the static-combination approximation of the Fprintf line above (the result of blank-
-	// substituting the %s verb) — the fmtCombined body.
+
 	"update check: \n": true,
 	"fix: flint setup --update-rules — skill sync": true,
-	// rules_sync error guidance texts.
+
 	"update-rules: source flint-plugin/skills/flint not found — specify it with --src": true,
 	"update-rules: set FLINT_CLAUDE_HOME or HOME to locate the sync destination":       true,
 	"update-rules sync failed: %w": true,
-	// the static-combination approximation of the Errorf guidance above (the result of blank-
-	// substituting the %w verb) — the fmtCombined body of fmt.Errorf("update-rules sync failed: %w", err).
+
 	"update-rules sync failed: ": true,
-	// the maintain unknown-key hint: wording a human runs manually (not an execution).
+
 	`{"hint":"unknown keys are deprecation candidates — verify then clean up manually: DELETE FROM meta WHERE key = '...'"}`: true,
 }
 
-// writeGuardDirs — the package roots under guard (lib/ops and lib/knowledge). Traversed
-// recursively down to subdirectories (closing the subdirectory blind spot of non-recursive
-// ReadDir).
 var writeGuardDirs = []string{".", "../knowledge"}
 
-// unquoteLiteral — removes the quotes from a BasicLit.Value and returns the body with escapes (\\xNN,
-// octal \\NNN, \\uNNNN, etc.) decoded (replacing strconv.Unquote —
-// closing the escape-notation decoding bypass of "\\x44\\x45\\x4C..." forms). A common path before the 1-5 and const/var
-// foldings. On decode failure (malformed forms the parser would not produce), stripping the surrounding quotes
-// approximates it.
 func unquoteLiteral(v string) string {
 	if s, err := strconv.Unquote(v); err == nil {
 		return s
@@ -163,9 +49,6 @@ func unquoteLiteral(v string) string {
 	return v
 }
 
-// writeGuardScan — recursively walks (WalkDir) the dir root and collects guard violations across all non-test .go
-// files (violation strings are self-identifying in the "path:line:col: reason" form,
-// disclosing their own path).
 func writeGuardScan(dir string) []string {
 	var out []string
 	err := filepath.WalkDir(dir, func(path string, d fs.DirEntry, err error) error {
@@ -196,9 +79,6 @@ func writeGuardScan(dir string) []string {
 	return out
 }
 
-// TestWritesThroughRepoOnly — zero guard violations (all sources, subdirectories
-// included). A write-verb token appearing in a string literal (including pieces and Sprintf arguments,
-// regardless of position) or in a concatenation result FAILs with its location.
 func TestWritesThroughRepoOnly(t *testing.T) {
 	for _, dir := range writeGuardDirs {
 		for _, v := range writeGuardScan(dir) {
@@ -207,17 +87,12 @@ func TestWritesThroughRepoOnly(t *testing.T) {
 	}
 }
 
-// writeGuardViolations — the guard violation list for one parsed file (location-bearing
-// strings). The TestWritesThroughRepoOnly body and the bypass regression tests share this
-// judgment logic.
 func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	var violations []string
 	report := func(pos token.Pos, why string) {
 		violations = append(violations, fmt.Sprintf("%s: %s", fset.Position(pos), why))
 	}
-	// 1. all string literals — a write-verb word token anywhere in the body is a violation
-	//    (no distinction between call arguments, variable assembly, or Sprintf arguments). Only exact
-	//    whitelist body matches are exempt.
+
 	flagged := map[token.Pos]bool{}
 	ast.Inspect(f, func(n ast.Node) bool {
 		lit, ok := n.(*ast.BasicLit)
@@ -234,11 +109,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		return true
 	})
-	//    common assets for the combination judgments (2-6) after pass 1 — the package-block const string
-	//    table (constant folding) and the var []string literal table (slice
-	//    folding), with function-local slice literals merged in. Folded values are
-	//    the Ident-resolution basis in the combination judgments, and source-literal positions remove
-	//    duplicate reports.
+
 	consts := constStringTable(f)
 	slices := varStringSliceTable(f, consts)
 	for name, si := range localSliceTable(f, consts) {
@@ -246,22 +117,13 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 			slices[name] = si
 		}
 	}
-	// function-local string values are merged into consts and propagated into the 2-5 Ident resolutions
-	// (closing local-value x fmt arguments/formats/Builder/Join elements/return assemblies).
+
 	for name, ci := range localStringTable(f, consts, flagged) {
 		if _, taken := consts[name]; !taken {
 			consts[name] = ci
 		}
 	}
-	// 2. concatenation piece assembly — even if the individual literals carry no verb, write verbs that exist
-	//    only in the + concatenation (the "UP"+"DATE ..." split bypass) are caught. Closure:
-	//    the whitelist exemption applies only to the standalone-literal judgment (1) — for the assembly
-	//    judgment, the exempt operand bodies also join parts (blocking the "update"+
-	//    " knowledge ..." crossing). Constant folding: if an operand Ident is a
-	//    package-block const, its folded value joins the assembly (blocking the p+"ETE ..." form
-	//    of bypass). Operands already reported in 1 (both direct and const-sourced) mixed
-	//    into an assembly are skipped (avoiding duplicate reports). If the whole assembled result
-	//    exactly matches a whitelist body, it is exempt (the same exact-match principle as 1).
+
 	ast.Inspect(f, func(n ast.Node) bool {
 		bin, ok := n.(*ast.BinaryExpr)
 		if !ok || bin.Op != token.ADD {
@@ -300,24 +162,14 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		if joinable && len(parts) >= 2 && !writeLiteralAllow[joined] &&
 			writeTokenRe.MatchString(joined) {
 			report(bin.Pos(), "이어붙이기 조립 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
-			// the literals that participated in this assembly (direct and const-sourced) are marked as
-			// handled (avoiding duplicate reports).
+
 			for _, p := range marked {
 				flagged[p] = true
 			}
 		}
 		return true
 	})
-	// 3. fmt combination calls — Sprintf catches write verbs that exist only in the result of
-	//    substituting arguments into the %s/%v verbs of the format literal (the Sprintf("DEL%s...","ETE") split
-	//    bypass). Closure: Sprint (no separator when all operands are strings — blank
-	//    approximation) and Sprintln (space separator) are extended into the same combination
-	//    judgment (fmtCombined). Errorf (the same format substitution as Sprintf) and
-	//    Fprintf (format substitution excluding the writer argument) are included. Nested fmt combination
-	//    arguments are recursively combined up to depth 8; other non-literal arguments and other verbs are
-	//    blank-substituted (conservatively treating verb boundaries as combinable). The exemption principle is the same as 2:
-	//    identical — a standalone format literal's exemption does not apply to the combination judgment, and only an
-	//    exact whitelist match of the whole combination result is exempt.
+
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok || len(call.Args) == 0 {
@@ -330,13 +182,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		report(call.Pos(), "fmt 결합 호출 쓰기 동사(분할 우회) — db.Repo 단일 경로 위반")
 		return true
 	})
-	// 4. slice combinations (strings.Join, slices.Concat) — write verbs that exist only in the result of joining slice
-	//    elements (the strings.Join([]string{"DEL","ETE..."},
-	//    "") split bypass, R3) are caught. The combination body is sliceCombined (element and separator
-	//    folding), and 4 is the reporting gate for element counts >= 2 — a 1-element
-	//    Join has no standalone combination and is not reported, but in the stringOperand recursion
-	//    it still folds as a value (closing harmless inner combinations of nested Joins). The exemption and duplicate-report
-	//    principles are the same as 2.
+
 	ast.Inspect(f, func(n ast.Node) bool {
 		call, ok := n.(*ast.CallExpr)
 		if !ok {
@@ -365,13 +211,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		return true
 	})
-	// 5. strings.Builder consecutive WriteString combination — on the same Ident receiver, write verbs that exist
-	//    only in the result of concatenating consecutive WriteString call arguments in order (the
-	//    b.WriteString("DEL"); b.WriteString("ETE ...") split bypass) are also
-	//    caught (R5). Only consecutive runs (ExprStmt) in the block statement list are considered — a different
-	//    statement or a different receiver breaks the run unit (preventing over-combination of
-	//    mutually exclusive writes across branches). Arguments are folded with combineParts. The exemption and
-	//    duplicate-report principles are the same as 2.
+
 	ast.Inspect(f, func(n ast.Node) bool {
 		blk, ok := n.(*ast.BlockStmt)
 		if !ok {
@@ -406,17 +246,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 		}
 		return true
 	})
-	// 6. string accumulation and block-local value combination — write verbs that exist, for the same Ident in the
-	//    block statement list, only in the result of merging in order the assignment (=/:=) seeds and the += and self-referencing reassignment (R7) operands
-	//    (the s := "DEL"; s +=
-	//    "ETE ..." split bypass) are caught. The block-local string value
-	//    table (locals) records `x := folded-expr` seeds and propagates `y := x`,
-	//    `y := x+lit`, `y += x` substitutions (closing head+lit and copy-seed +=)
-	//    — if a folded value itself forms a verb, it is reported at the value level. The scope
-	//    inherits the existing same-block conservative boundary (nested blocks are traversed
-	//    separately — preventing over-combination of harmless real-source assemblies). Non-folded operands are
-	//    blank (conservative); reassignment finishes the accumulation and starts over. The exemption and duplicate-report
-	//    principles are the same as 2.
+
 	ast.Inspect(f, func(n ast.Node) bool {
 		blk, ok := n.(*ast.BlockStmt)
 		if !ok {
@@ -442,8 +272,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 				}
 			}
 		}
-		// value-level combination judgment — assemblies whose folded value itself forms a write verb
-		// (variants completing within one expression, like head+lit).
+
 		reportValue := func(pos token.Pos, val string, lits []token.Pos) {
 			if anyFlagged(lits, flagged) || writeLiteralAllow[val] || !writeTokenRe.MatchString(val) {
 				return
@@ -464,10 +293,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 			}
 			switch as.Tok {
 			case token.ASSIGN, token.DEFINE:
-				// a `s = s + operand` self-referencing reassignment is chained into the accumulation as
-				// equivalent to += (the self-reference does not contribute to the combination —
-				// the chain seed already holds that value). Operands are
-				// folded via locals substitution, and folded values are reflected into locals.
+
 				if rest, self := splitSelfAdd(as.Rhs[0], id.Name); self {
 					var vals []string
 					var lits []token.Pos
@@ -515,8 +341,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 				}
 				flush(chain[id.Name])
 				delete(chain, id.Name)
-				// seed folding — records the value into the table and runs the value-level combination
-				// judgment. If it does not fold, value tracking ends (conservative).
+
 				if val, lits, ok := foldLocalExpr(as.Rhs[0], locals, consts, flagged); ok {
 					reportValue(as.Pos(), val, lits)
 					locals[id.Name] = localInfo{val: val, lits: lits}
@@ -540,8 +365,7 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 					chain[id.Name] = c
 					order = append(order, c)
 				}
-				// when an accumulation operand folds via locals, it is reflected in both the value and
-				// the chain (copy-seed += propagation).
+
 				if val, lits, ok := foldLocalExpr(as.Rhs[0], locals, consts, flagged); ok {
 					c.parts = append(c.parts, val)
 					c.marked = append(c.marked, lits...)
@@ -569,12 +393,6 @@ func writeGuardViolations(fset *token.FileSet, f *ast.File) []string {
 	return violations
 }
 
-// sprintfCombined — the static combination string of Sprintf(format, args...) (verb
-// splitting and nested-Sprintf judgment). The %s and %v verbs receive the argument values folded by stringOperand, in
-// order; other verbs and non-folded arguments are blank-substituted (flags,
-// width, and precision are skipped). The blank substitution conservatively catches even
-// the possibility of adjacent characters combining at runtime — a judgment-only approximation, not meant to match actual format
-// output.
 func sprintfCombined(format string, args []ast.Expr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) string {
 	var b strings.Builder
 	ai := 0
@@ -605,7 +423,7 @@ func sprintfCombined(format string, args []ast.Expr, consts map[string]constInfo
 			}
 		}
 		if j >= len(format) {
-			b.WriteByte(format[i]) // an unfinished '%' — leave the rest as-is
+			b.WriteByte(format[i])
 			continue
 		}
 		verb := format[j]
@@ -616,20 +434,12 @@ func sprintfCombined(format string, args []ast.Expr, consts map[string]constInfo
 		case verb == 's' || verb == 'v':
 			b.WriteString(nextArg())
 		default:
-			nextArg() // a non-string verb — consume the argument only (blank substitution)
+			nextArg()
 		}
 	}
 	return b.String()
 }
 
-// stringOperand — a static string approximation for the combination judgments (3's arguments, 4's elements): a string
-// literal gives the body; a package-block const Ident gives the folded value (with the source literal already
-// stringOperand — a static string approximation for the combination judgments (3's arguments, 4's elements, 5's arguments):
-// string literals give the body; package-block const Idents give the folded value (with the source literal
-// already reported — avoiding duplicates); fmt combination calls (Sprintf, Sprint,
-// Sprintln) are recursively combined up to depth 8 (blank if the format or operand sources were already reported
-// — that call is caught separately by 3); everything else is blank (the conservative substitution of
-// combinable verb boundaries).
 func stringOperand(e ast.Expr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) string {
 	switch v := e.(type) {
 	case *ast.BasicLit:
@@ -641,12 +451,11 @@ func stringOperand(e ast.Expr, consts map[string]constInfo, slices map[string]sl
 			return ci.val
 		}
 	case *ast.CallExpr:
-		if depth < 8 { // closing 2+-level nested Sprintf bypasses
+		if depth < 8 {
 			if combined, ok := fmtCombined(v, consts, slices, flagged, depth+1); ok {
 				return combined
 			}
-			// nested Join/Concat — even when the inner combination is harmless, it folds into the
-			// operand value of the outer judgment (closing the blank-substitution bypass).
+
 			if joined, _, _, ok := sliceCombined(v, consts, slices, flagged, depth+1); ok {
 				return joined
 			}
@@ -655,19 +464,13 @@ func stringOperand(e ast.Expr, consts map[string]constInfo, slices map[string]sl
 	return ""
 }
 
-// fmtCombined — the static combination approximation of fmt combination calls. Sprintf and Errorf substitute arguments into the format
-// literal's %s and %v (Fprintf excludes the writer argument,
-// R6); Sprint concatenates the operands with no separator, Sprintln with a space separator
-// (the Sprint/Sprintln extension). If the call is combinable, it returns (the combination string, true);
-// otherwise ("", false) — a non-string format, a single Sprint/Sprintln operand (no new combination
-// possible), or an already-reported source is false.
 func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) (string, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
 		return "", false
 	}
 	switch sel.Sel.Name {
-	case "Sprintf", "Errorf": // Errorf is the same format-substitution combination as Sprintf
+	case "Sprintf", "Errorf":
 		if len(call.Args) == 0 {
 			return "", false
 		}
@@ -676,7 +479,7 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 			return "", false
 		}
 		return sprintfCombined(format, call.Args[1:], consts, slices, flagged, depth), true
-	case "Fprintf": // args[0] is the writer — excluded from the combination
+	case "Fprintf":
 		if len(call.Args) < 2 {
 			return "", false
 		}
@@ -702,14 +505,6 @@ func fmtCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[str
 	return "", false
 }
 
-// sliceCombined — the static combination approximation of Join/Concat calls (the 4 judgment body,
-// shared by the stringOperand recursion). Join joins the first argument's elements with the separator (literal body, non-literal
-// approximated as blank); Concat joins all argument elements with no separator.
-// The slice argument must be a slice literal ([]string{...}) or a package-block var
-// slice-table Ident, and the elements are folded with combineParts (literals,
-// const Idents, nested fmt/Join/Concat combinations; everything else blank, conservatively). If combinable
-// it returns (the combination string, source-literal positions, element count, true); non-foldable arguments or
-// already-reported sources are false.
 func sliceCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) (string, []token.Pos, int, bool) {
 	sel, ok := call.Fun.(*ast.SelectorExpr)
 	if !ok {
@@ -759,12 +554,6 @@ func sliceCombined(call *ast.CallExpr, consts map[string]constInfo, slices map[s
 	return strings.Join(parts, sep), marked, len(parts), true
 }
 
-// formatOperand — folds the format operand of a fmt combination call: a string literal gives
-// the body; a concatenation (+) expression gets the same assembly folding as 2 (foldAddString —
-// closing the Errorf("DEL"+"%s...") and Fprintf(w,"%s"+"ETE...") forms); a package-block
-// const Ident gives the folded value (closing the Errorf(constFmt, ...) form — the same pattern as
-// foldAddString); everything else fails. marked is the format source literal's position (already reported
-// means failure).
 func formatOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool) (string, []token.Pos, bool) {
 	switch v := e.(type) {
 	case *ast.BasicLit:
@@ -781,10 +570,6 @@ func formatOperand(e ast.Expr, consts map[string]constInfo, flagged map[token.Po
 	return "", nil, false
 }
 
-// foldAddString — the style-2 assembly folding of a concatenation (+) expression: string literals and
-// package-block const Ident operands are merged in order. Any other operand mixed
-// in, or an already-reported source, fails — approximate blank substitution must not distort the format's verb
-// placement.
 func foldAddString(e ast.Expr, consts map[string]constInfo, flagged map[token.Pos]bool) (string, []token.Pos, bool) {
 	switch v := e.(type) {
 	case *ast.BasicLit:
@@ -813,11 +598,6 @@ func foldAddString(e ast.Expr, consts map[string]constInfo, flagged map[token.Po
 	return "", nil, false
 }
 
-// combineParts — the static folding of a list of combination operand expressions: string literals give the body,
-// package-block const Idents give the folded value, everything else goes through stringOperand (nested fmt combination
-// recursion, conservative blank substitution). If an operand whose source literal was already reported is mixed in,
-// it returns (nil, nil, false) — the combination is skipped, removing duplicate reports. marked is the
-// participating source-literal positions (for marking handled after reporting).
 func combineParts(exprs []ast.Expr, consts map[string]constInfo, slices map[string]sliceInfo, flagged map[token.Pos]bool, depth int) ([]string, []token.Pos, bool) {
 	var parts []string
 	var marked []token.Pos
@@ -850,17 +630,11 @@ func combineParts(exprs []ast.Expr, consts map[string]constInfo, slices map[stri
 	return parts, marked, true
 }
 
-// constInfo — one package-block const's folded string and the string literals that sourced it
-// (used for duplicate prevention and handled marking).
 type constInfo struct {
 	val  string
 	lits []token.Pos
 }
 
-// constStringTable — scans a file's package-block const declarations and builds a table of names foldable to
-// strings (constant folding). Values are string literals, concatenations
-// (+), and references to already-folded const Idents — folded iteratively regardless of
-// definition order (cycles, non-strings, and multi-name specs are not registered).
 func constStringTable(f *ast.File) map[string]constInfo {
 	type pending struct {
 		name string
@@ -896,8 +670,6 @@ func constStringTable(f *ast.File) map[string]constInfo {
 	return table
 }
 
-// foldConstExpr — folds a const value expression to a string. Only literals, ADD, and in-table Ident
-// references fold; the rest (function calls, arithmetic, not-yet-folded references) return failure.
 func foldConstExpr(e ast.Expr, table map[string]constInfo) (constInfo, bool) {
 	switch v := e.(type) {
 	case *ast.BasicLit:
@@ -920,7 +692,6 @@ func foldConstExpr(e ast.Expr, table map[string]constInfo) (constInfo, bool) {
 	return constInfo{}, false
 }
 
-// anyFlagged — whether any of the literal positions is already reported or marked handled.
 func anyFlagged(lits []token.Pos, flagged map[token.Pos]bool) bool {
 	for _, p := range lits {
 		if flagged[p] {
@@ -930,24 +701,16 @@ func anyFlagged(lits []token.Pos, flagged map[token.Pos]bool) bool {
 	return false
 }
 
-// sliceInfo — one package-block var []string's folded element values and the string literals that became
-// their sources (used for duplicate prevention and handled marking).
 type sliceInfo struct {
 	vals []string
 	lits []token.Pos
 }
 
-// localInfo — one block-local string value and its source-literal positions (a value
-// table — used for seed recording, substitution propagation, and duplicate prevention).
 type localInfo struct {
 	val  string
 	lits []token.Pos
 }
 
-// foldLocalExpr — the string folding of an expression reflecting the 6 block-local value table
-// locals: string literals, locals/consts Idents, and concatenations (+) fold recursively; everything
-// else (function calls, arithmetic, etc.) fails. If a source literal was already reported, it fails
-// (duplicate prevention).
 func foldLocalExpr(e ast.Expr, locals map[string]localInfo, consts map[string]constInfo, flagged map[token.Pos]bool) (string, []token.Pos, bool) {
 	switch v := e.(type) {
 	case *ast.BasicLit:
@@ -982,10 +745,6 @@ func foldLocalExpr(e ast.Expr, locals map[string]localInfo, consts map[string]co
 	return "", nil, false
 }
 
-// varStringSliceTable — folds the []string literal
-// slice var declarations of a file's package block into a table (slice folding). Registered only when every element folds to a string
-// (literals, constStringTable const Idents) — if even one does not fold,
-// the name itself is not registered (avoiding blank misreads).
 func varStringSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceInfo {
 	table := map[string]sliceInfo{}
 	for _, d := range f.Decls {
@@ -1011,8 +770,6 @@ func varStringSliceTable(f *ast.File, consts map[string]constInfo) map[string]sl
 	return table
 }
 
-// foldSliceElements — folds slice literal elements: every element must be a string
-// literal or const Ident to return (values, source positions, true).
 func foldSliceElements(elts []ast.Expr, consts map[string]constInfo) ([]string, []token.Pos, bool) {
 	vals := make([]string, 0, len(elts))
 	var lits []token.Pos
@@ -1034,11 +791,6 @@ func foldSliceElements(elts []ast.Expr, consts map[string]constInfo) ([]string, 
 	return vals, lits, true
 }
 
-// localSliceTable — folds function-local slice literals (`parts := []string{...}`, in-function
-// vars) into a table (closing local-slice Joins). If the same name is assigned
-// more than once in a file (per-scope reuse or reassignment), that name is not registered —
-// cutting at the source the false positives of another block's Join combining wrongly on a name collision (tolerating conservative
-// misses).
 func localSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceInfo {
 	table := map[string]sliceInfo{}
 	seen := map[string]bool{}
@@ -1089,12 +841,6 @@ func localSliceTable(f *ast.File, consts map[string]constInfo) map[string]sliceI
 	return table
 }
 
-// localStringTable — a file-wide table folding function-local string value assignments (`x := "lit"`, `x := "a"+
-// "b"`, `x := constIdent`) for propagating into the 2-5 Ident resolutions
-// (the same pattern as localSliceTable: names assigned more than once (per-scope
-// reuse, reassignment, accumulation) are excluded from registration, cutting at the source the false positives of wrongly combining another scope's values
-// (tolerating conservative misses). Assignments that fail to fold (function call results, etc.) also count as
-// uses of the name — preventing collisions with later folded assignments.
 func localStringTable(f *ast.File, consts map[string]constInfo, flagged map[token.Pos]bool) map[string]constInfo {
 	table := map[string]constInfo{}
 	seen := map[string]bool{}
@@ -1126,9 +872,6 @@ func localStringTable(f *ast.File, consts map[string]constInfo, flagged map[toke
 	return table
 }
 
-// splitSelfAdd — from a concatenation (+) reassignment expression, the assigned Ident's (name) self-
-// references are stripped, leaving the remaining operand list (the accumulation decomposition of `s = s + operand`).
-// If name does not appear in the expression, (nil, false) — it is treated as an ordinary assignment seed.
 func splitSelfAdd(e ast.Expr, name string) ([]ast.Expr, bool) {
 	found := false
 	var rest []ast.Expr
@@ -1149,8 +892,6 @@ func splitSelfAdd(e ast.Expr, name string) ([]ast.Expr, bool) {
 	return rest, found
 }
 
-// isStringSliceType — whether the expression is a []string type notation (array without length, string
-// element).
 func isStringSliceType(e ast.Expr) bool {
 	at, ok := e.(*ast.ArrayType)
 	if !ok || at.Len != nil {
@@ -1160,8 +901,6 @@ func isStringSliceType(e ast.Expr) bool {
 	return ok && id.Name == "string"
 }
 
-// writeStringStmt — if a statement is the ExprStmt of a <receiver Ident>.WriteString(1 argument) call,
-// it returns the receiver name and the call (for the 5 consecutive-run judgment).
 func writeStringStmt(s ast.Stmt) (string, *ast.CallExpr, bool) {
 	es, ok := s.(*ast.ExprStmt)
 	if !ok {
@@ -1182,10 +921,6 @@ func writeStringStmt(s ast.Stmt) (string, *ast.CallExpr, bool) {
 	return recv.Name, call, true
 }
 
-// TestWriteGuardBlocksBypasses — a full regression of demonstrated bypass techniques (aliases, variable
-// assembly, multi-statement literals, Sprintf arguments, split-verb assembly, exempt-literal assembly,
-// Sprintf verb splitting, nested Sprintf, const-table assembly, strings.Join combination) —
-// asserted with synthetic sources that the guard catches them (permanizing the hole closures).
 func TestWriteGuardBlocksBypasses(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -1565,9 +1300,6 @@ func f() string { return "fix: flint up" + "date" }`,
 	}
 }
 
-// TestWriteGuardScansSubdirectories — non-test .go files in subdirectories under the guard
-// roots are also traversal targets (non-recursive ReadDir missed subdirectories
-// entirely).
 func TestWriteGuardScansSubdirectories(t *testing.T) {
 	root := t.TempDir()
 	sub := filepath.Join(root, "sub", "deep")
@@ -1583,7 +1315,7 @@ func TestWriteGuardScansSubdirectories(t *testing.T) {
 	} else if !strings.Contains(strings.Join(got, "\n"), filepath.Join("sub", "deep", "probe.go")) {
 		t.Fatalf("위반 보고가 하위 파일 경로를 밝히지 않음: %v", got)
 	}
-	// testdata is exempt per the Go convention (not shipped source).
+
 	td := filepath.Join(root, "testdata")
 	if err := os.MkdirAll(td, 0o755); err != nil {
 		t.Fatalf("MkdirAll testdata: %v", err)

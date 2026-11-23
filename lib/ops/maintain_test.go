@@ -1,9 +1,3 @@
-// maintain_test.go — small maintain contracts. (1) The --limit 500 call pattern the TUI
-// loader uses for the 3 reports passes mode-ownership validation and the cap is reflected
-// as-is in the store lookup (the ops-side half of abolishing invisible truncation — the
-// TUI-side argument assembly uses ops.MaintainTUILoadLimit as the single source). (2) The
-// usage line guides toward --tui entry. fakeMaintStore and runMaintainArgs reuse the
-// care_test.go conventions.
 package ops
 
 import (
@@ -22,8 +16,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// limitCapturingStore — a fake capturing the DupGroups/ConflictGroups caps
-// (fakeMaintStore does not record the limit — a thin wrapper needed only here).
 type limitCapturingStore struct {
 	*fakeMaintStore
 	dupLimit      int
@@ -39,8 +31,6 @@ func (f *limitCapturingStore) ConflictGroups(ctx context.Context, limit int) ([]
 	return nil, nil
 }
 
-// runLimitArgs — a run helper that passes the wrapper store straight into RunMaintain
-// (runMaintainArgs is fixed to *fakeMaintStore, so a local version here).
 func runLimitArgs(t *testing.T, f *limitCapturingStore, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -48,18 +38,12 @@ func runLimitArgs(t *testing.T, f *limitCapturingStore, args ...string) (string,
 	return out.String(), code
 }
 
-// TestMaintainTUILoadLimitContract — B3: the TUI suspects loader's call pattern
-// (--limit 500 + mode) is not rejected as an invalid argument (exit 1/3) in any of the 3
-// report modes, and the 500 cap flows as-is into the scan. The default caps
-// (dup/conflict 10, stale 20) are for human interactivity — the TUI replaces them with an
-// explicit cap, since truncation is not visible on its screen.
 func TestMaintainTUILoadLimitContract(t *testing.T) {
 	if MaintainTUILoadLimit != 500 {
 		t.Fatalf("MaintainTUILoadLimit = %d, want 500(스펙 v1.6.1 B3)", MaintainTUILoadLimit)
 	}
 	f := &limitCapturingStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{}}}
 
-	// dup-suspects — exactly the argument pattern the TUI assembles.
 	out, code := runLimitArgs(t, f, "--limit", "500", "--dup-suspects")
 	if code != 0 || !strings.Contains(out, `"status":"dup-suspects"`) {
 		t.Fatalf("dup-suspects exit=%d out=%s", code, out)
@@ -82,9 +66,6 @@ func TestMaintainTUILoadLimitContract(t *testing.T) {
 	}
 }
 
-// TestMaintainUsageLineMentionsTUI — B4: the bare-usage guidance (no mode, exit 3)
-// includes the --tui opt-in entry (agent self-correction — for cases where the error
-// message's common suffix is the only discovery path).
 func TestMaintainUsageLineMentionsTUI(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f)
@@ -99,12 +80,6 @@ func TestMaintainUsageLineMentionsTUI(t *testing.T) {
 	}
 }
 
-// ── decay formulas and --decay-audit (the recall-reinforcement regression is in the knowledge package) ──
-
-// TestEventEffectiveScoreBoundaries — the decay formula boundaries (v1.9.0 — consumed via
-// the single definition knowledge.EventEffectiveScore. The old ops.EffectiveRecallScore
-// wrapper was abolished with the derived-source switch). 1 day (linear -1), 100 days
-// (floor 0), never recalled (count 0 = 0), and the rate override.
 func TestEventEffectiveScoreBoundaries(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -129,9 +104,6 @@ func TestEventEffectiveScoreBoundaries(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditDerivedSource — the v1.9.0 derived-source regression: the query
-// source must be the recall_events aggregate join (cnt, last_at) and must not reference
-// the dropped v11 physical columns (knowledge.recall_score, last_recalled_at).
 func TestMaintainDecayAuditDerivedSource(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -160,23 +132,16 @@ func TestMaintainDecayAuditDerivedSource(t *testing.T) {
 	}
 }
 
-// decayAuditRowsFixture — the --decay-audit query source rows (synthetic demo — after the
-// v1.9.0 derived switch and the v1.13.0 T2 tags tail, the 4 columns id, cnt (event count),
-// last_at (last recall time), and tags). Also verifies that never-recalled (NULL —
-// reproducing the Go defense for the server-side WHERE exclusion) and 0-day-elapsed rows
-// are excluded by the candidate filter, and that a :vol:immutable: row keeps its count
-// (exempt — not a decay candidate).
 func decayAuditRowsFixture(now time.Time) [][]any {
 	return [][]any{
-		{int32(3), int32(5), now.Add(-100 * 24 * time.Hour), ":adr:"},           // fully decayed (floor 0)
-		{int32(1), int32(5), now.Add(-25 * time.Hour), ":adr:"},                 // 1-day decay
-		{int32(2), int32(7), nil, ":adr:"},                                      // never recalled — excluded
-		{int32(4), int32(9), now.Add(-1 * time.Hour), ":adr:"},                  // 0 days — excluded
-		{int32(6), int32(8), now.Add(-100 * 24 * time.Hour), ":vol:immutable:"}, // exempt — eff==cnt, excluded
+		{int32(3), int32(5), now.Add(-100 * 24 * time.Hour), ":adr:"},
+		{int32(1), int32(5), now.Add(-25 * time.Hour), ":adr:"},
+		{int32(2), int32(7), nil, ":adr:"},
+		{int32(4), int32(9), now.Add(-1 * time.Hour), ":adr:"},
+		{int32(6), int32(8), now.Add(-100 * 24 * time.Hour), ":vol:immutable:"},
 	}
 }
 
-// decayAuditJSON — for parsing the --decay-audit output.
 type decayAuditJSON struct {
 	Status       string  `json:"status"`
 	DecayRate    float64 `json:"decay_rate"`
@@ -191,9 +156,6 @@ type decayAuditJSON struct {
 	} `json:"items"`
 }
 
-// TestMaintainDecayAuditList — the decay-candidate listing — lists only
-// decay-progressed rows (never-recalled and 0-day excluded); the default decay_rate=1
-// and archive_below=0 (inactive — all recommends empty).
 func TestMaintainDecayAuditList(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -204,7 +166,7 @@ func TestMaintainDecayAuditList(t *testing.T) {
 		if strings.Contains(sql, "FROM knowledge") {
 			return decayAuditRowsFixture(now), nil
 		}
-		return nil, nil // meta (thresholds) empty — defaults
+		return nil, nil
 	}}}
 	out, code := runMaintainArgs(t, f, "--decay-audit")
 	if code != 0 {
@@ -232,7 +194,6 @@ func TestMaintainDecayAuditList(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditLimit — the --limit cap is reflected in the listing (the stale convention).
 func TestMaintainDecayAuditLimit(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -258,9 +219,6 @@ func TestMaintainDecayAuditLimit(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditThresholdOverride — the meta-override decay_rate and
-// archive_below are reflected in the formula and recommendation (effective < archive_below -> archive).
-// → recommend "archive").
 func TestMaintainDecayAuditThresholdOverride(t *testing.T) {
 	now := time.Date(2026, 11, 17, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -271,8 +229,8 @@ func TestMaintainDecayAuditThresholdOverride(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "FROM knowledge"):
 			return [][]any{
-				{int32(1), int32(5), now.Add(-6 * 24 * time.Hour), ":adr:"},  // 5-0.5*6=2 → archive
-				{int32(2), int32(10), now.Add(-4 * 24 * time.Hour), ":adr:"}, // 10-0.5*4=8 -> kept
+				{int32(1), int32(5), now.Add(-6 * 24 * time.Hour), ":adr:"},
+				{int32(2), int32(10), now.Add(-4 * 24 * time.Hour), ":adr:"},
 			}, nil
 		case strings.Contains(sql, "FROM meta"):
 			return [][]any{{"decay_rate", "0.5"}, {"archive_below", "3"}}, nil
@@ -298,8 +256,6 @@ func TestMaintainDecayAuditThresholdOverride(t *testing.T) {
 	}
 }
 
-// TestMaintainDecayAuditRejectsForeignFlags — mode-ownership validation: --decay-audit
-// is a read-only report — unrelated value flags like --days are rejected with an error (exit 1).
 func TestMaintainDecayAuditRejectsForeignFlags(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--decay-audit", "--days", "5")
@@ -308,11 +264,6 @@ func TestMaintainDecayAuditRejectsForeignFlags(t *testing.T) {
 	}
 }
 
-// ── v1.13.0 T3: the stale score (2 weighted signals — the --age-audit scoring source) ──
-
-// TestStaleScoreFormula — the pure weighted-sum formula: 0-100 normalized,
-// monotone in each signal, saturated at ttl 180d·corr 3 (weights 0.7/0.3 —
-// code constants, part of the formula, not tuning values).
 func TestStaleScoreFormula(t *testing.T) {
 	cases := []struct {
 		name string
@@ -334,8 +285,7 @@ func TestStaleScoreFormula(t *testing.T) {
 			t.Errorf("%s: StaleScore(%d, %d) = %d, want %d", c.name, c.ttl, c.corr, got, c.want)
 		}
 	}
-	// Monotonicity in each signal (the other held fixed) — the scoring
-	// contract: more elapsed TTL·more corrections never lower the score.
+
 	for ttl := 0; ttl <= 360; ttl += 20 {
 		if StaleScore(ttl+20, 1, 180) < StaleScore(ttl, 1, 180) {
 			t.Fatalf("TTL 단조성 위반: %d→%d", ttl, ttl+20)
@@ -346,15 +296,13 @@ func TestStaleScoreFormula(t *testing.T) {
 			t.Fatalf("corr 단조성 위반: %d→%d", corr, corr+1)
 		}
 	}
-	// Independence: the correction signal moves the score at every TTL level.
+
 	for ttl := 0; ttl <= 180; ttl += 45 {
 		if StaleScore(ttl, 3, 180) <= StaleScore(ttl, 0, 180) {
 			t.Fatalf("신호 독립 위반: ttl %d에서 corr 0→3 무효", ttl)
 		}
 	}
-	// The TTL saturation is the stale_ttl_days threshold (T5): moving it to
-	// 90 re-lights the TTL component earlier (90d → 70, not 35)·the
-	// non-positive defense falls back to the default 180.
+
 	if got := StaleScore(90, 0, 90); got != 70 {
 		t.Errorf("TTL 포화 이동(90일 임계): StaleScore(90,0,90) = %d, want 70", got)
 	}
@@ -363,10 +311,6 @@ func TestStaleScoreFormula(t *testing.T) {
 	}
 }
 
-// staleScoredRowsFixture — the listStaleScored query shape (synthetic): id,
-// topic, ttl reference (COALESCE(re.last_at, ingested_at)), same-topic
-// correction count, bad-recall count, supersede count, tags cell (the v1.22.0
-// T4 suggestion input column).
 func staleScoredRowsFixture(now time.Time) [][]any {
 	return [][]any{
 		{int32(11), "t3-오래미회상", now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0), ":adr:"},
@@ -375,11 +319,6 @@ func staleScoredRowsFixture(now time.Time) [][]any {
 	}
 }
 
-// TestListStaleScoredFake — the listing contract on a fake: the SQL excludes
-// :vol:immutable: server-side (strpos, NULL-tags safe), counts same-topic
-// :correction: rows via strpos, joins the recall_events aggregate, and caps
-// the population with LIMIT $1; the items carry the 2 signal values + the 2
-// non-weighted reference columns, and the output order is score DESC.
 func TestListStaleScoredFake(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -416,9 +355,7 @@ func TestListStaleScoredFake(t *testing.T) {
 	if len(items) != 3 {
 		t.Fatalf("항목 수 = %d, want 3: %+v", len(items), items)
 	}
-	// Scores: the 200d row ttl200·corr0 → 70; the corrected row ttl10·corr3 →
-	// 34; the reference row ttl100·corr0 → 39 (reference columns carry no
-	// weight — 39, not 100+).
+
 	byID := map[int]staleScoredItem{}
 	for _, it := range items {
 		byID[it.ID] = it
@@ -432,14 +369,12 @@ func TestListStaleScoredFake(t *testing.T) {
 	if s := byID[13]; s.Score != 39 || s.BadRecall != 2 || s.Supersede != 1 {
 		t.Errorf("id13 = %+v, want score39(참조열 비가중) bad2 sup1", s)
 	}
-	// Output order: score DESC (70 > 39 > 34).
+
 	if items[0].ID != 11 || items[1].ID != 13 || items[2].ID != 12 {
 		t.Errorf("순서 = %d,%d,%d, want 11,13,12(점수 내림)", items[0].ID, items[1].ID, items[2].ID)
 	}
 }
 
-// staleSeedRec — a synthetic knowledge record for the slow stale-score seed
-// (the knowledge-package hotRec convention — no personal data).
 func staleSeedRec(topic, hash, status, tags string) map[string]any {
 	return map[string]any{
 		"kind":         "knowledge",
@@ -452,11 +387,6 @@ func staleSeedRec(topic, hash, status, tags string) map[string]any {
 	}
 }
 
-// TestStaleScoreRealSlow — slow (FLINT_TEST_DSN — the verify-gate DB):
-// synthetic seed on an isolated scratch DB, then the measured contracts:
-// TTL monotonicity (older reference → higher score), the correction signal
-// moving a fresh row above an uncorrected fresh row, the server-side
-// :vol:immutable: exclusion, and the 2 non-weighted reference columns.
 func TestStaleScoreRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -486,8 +416,7 @@ func TestStaleScoreRealSlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}
-	// reportSlowStore (the package's shared real-DB wire.Store — repo+pool).
-	// UPDATE seeding goes through Query (pool.Query executes any statement).
+
 	st := &reportSlowStore{repo: repo, pool: pool}
 	defer st.Close()
 	if err := st.Migrate(ctx); err != nil {
@@ -495,9 +424,7 @@ func TestStaleScoreRealSlow(t *testing.T) {
 	}
 
 	const prefix = "t3-stale-"
-	// The correction·reference rows SHARE the candidate's topic (the
-	// signals are same-topic counts): the corr topic carries 3 correction-
-	// tagged rows, the ref topic a superseded-after-recall row.
+
 	ids, err := st.InsertBatch(ctx, []map[string]any{
 		staleSeedRec(prefix+"old", "t3-old", "active", ":adr:"),
 		staleSeedRec(prefix+"corr", "t3-corr", "active", ":adr:"),
@@ -511,16 +438,13 @@ func TestStaleScoreRealSlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
-	// TTL aging: the old row 200d, the corr·ref rows 10d, immutable 300d
-	// (ingested_at is set directly — the listStale convention's fallback).
+
 	for id, d := range map[int]int{ids[0]: 200, ids[1]: 10, ids[5]: 10, ids[7]: 300} {
 		if _, err := st.Query(ctx, `UPDATE knowledge SET ingested_at = now() - ($1 || ' days')::interval WHERE id = $2`, fmt.Sprint(d), id); err != nil {
 			t.Fatalf("시드 경과일 적용 id=%d: %v", id, err)
 		}
 	}
-	// The ref row's reference history: a same-topic superseded row that had
-	// been recalled before supersession (bad_recall = invalidated/superseded
-	// after recall).
+
 	if _, err := st.Query(ctx,
 		`UPDATE knowledge SET superseded_by = $1 WHERE id = $2`, ids[5], ids[6]); err != nil {
 		t.Fatalf("supersede 시드: %v", err)
@@ -549,17 +473,15 @@ func TestStaleScoreRealSlow(t *testing.T) {
 	if hasImm {
 		t.Fatalf("immutable 행이 후보에 존재: %+v(서버측 strpos 제외 위반)", imm)
 	}
-	// TTL monotonicity measured: old (200d·corr 0 → 70) above corr (10d·3 → 34).
+
 	if old.Score <= corr.Score {
 		t.Errorf("TTL 단조성: old %d ≤ corr %d — %+v / %+v", old.Score, corr.Score, old, corr)
 	}
-	// Correction independence measured: the fresh corrected row (34) is
-	// scored·listed (a fresh uncorrected row would be ~4).
+
 	if corr.CorrCount != 3 || corr.Score < 30 || corr.Score > 38 {
 		t.Errorf("corr 신호 = %+v, want corr3·점수 34±4", corr)
 	}
-	// Reference columns (non-weighted): the ref row carries bad_recall 1·
-	// supersede 1 without any score inflation (ttl 10 → ≤ 10).
+
 	if ref.BadRecall != 1 || ref.Supersede != 1 {
 		t.Errorf("참조열 = %+v, want bad1·sup1", ref)
 	}
@@ -568,9 +490,6 @@ func TestStaleScoreRealSlow(t *testing.T) {
 	}
 }
 
-// ── v1.13.0 T4: maintain --age-audit (the stale-score report) ──
-
-// ageAuditJSON — for parsing the --age-audit output.
 type ageAuditJSON struct {
 	Status    string `json:"status"`
 	Threshold int    `json:"threshold"`
@@ -590,9 +509,6 @@ type ageAuditJSON struct {
 	Summary string `json:"summary"`
 }
 
-// ageAuditRowsFixture — synthetic listStaleScored source rows: an
-// over-threshold long-topic row (200d → 70), a fresh row (10d → 4), and a
-// marker-injection topic row (90d → 35).
 func ageAuditRowsFixture(now time.Time) [][]any {
 	return [][]any{
 		{int32(21), "t4-" + strings.Repeat("가", 60), now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0), ":adr:"},
@@ -601,11 +517,6 @@ func ageAuditRowsFixture(now time.Time) [][]any {
 	}
 }
 
-// TestMaintainAgeAuditReport — the report schema (decay-audit formatting
-// inherited): status/threshold/count/items/summary; the items carry the 2
-// signals + 2 reference columns; the threshold marking lights at score 70
-// (at-or-above, the default 70 — T5 wires the meta override); the summary
-// delegates disposition to --invalidate (no new flags).
 func TestMaintainAgeAuditReport(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -632,7 +543,7 @@ func TestMaintainAgeAuditReport(t *testing.T) {
 	if !strings.Contains(got.Summary, "--invalidate") {
 		t.Errorf("summary 처분 위임 안내 부재: %q", got.Summary)
 	}
-	// order score DESC: 70 > 35 > 4.
+
 	if got.Items[0].ID != 21 || got.Items[1].ID != 23 || got.Items[2].ID != 22 {
 		t.Fatalf("순서 = %d,%d,%d, want 21,23,22(점수 내림)", got.Items[0].ID, got.Items[1].ID, got.Items[2].ID)
 	}
@@ -649,18 +560,15 @@ func TestMaintainAgeAuditReport(t *testing.T) {
 	if got.Items[2].OverThreshold || got.Items[2].Score != 4 {
 		t.Errorf("items[2] = %+v, want score4 미마킹", got.Items[2])
 	}
-	// JSON sanitization (ADR-0006): the control character is stripped and
-	// the [flint] marker neutralized — no raw marker inside the output.
+
 	if strings.Contains(out, "[flint]") || strings.Contains(out, "\x00") {
 		t.Errorf("살균 위반 — 마커/제어문자 잔존: %q", out)
 	}
-	if !strings.Contains(out, "t4- 마커") { // "[flint]" → a space (SanitizeText)
+	if !strings.Contains(out, "t4- 마커") {
 		t.Errorf("살균 후 토픽 잔존 위반: %q", out)
 	}
 }
 
-// TestMaintainAgeAuditDryRunNoWrites — the report is read-only: no
-// Invalidate/Commit calls (disposition is delegated to --invalidate).
 func TestMaintainAgeAuditDryRunNoWrites(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -682,12 +590,6 @@ func TestMaintainAgeAuditDryRunNoWrites(t *testing.T) {
 	}
 }
 
-// ── v1.22.0 T4: the vol-class suggestion columns on the --age-audit report ──
-
-// ageAuditVolRowsFixture — synthetic rows for the suggestion columns: an
-// immutable-class row (ADR topic, 200d → 70), a volatile-class row (version
-// topic, 10d → 4), an already-approved :vol:conditional: row (90d → 35), and
-// a plain unmatched row (5d → 2). The tags cell is the T4 input column.
 func ageAuditVolRowsFixture(now time.Time) [][]any {
 	return [][]any{
 		{int32(31), "t4c-ADR 확정 결정", now.Add(-200 * 24 * time.Hour), int32(0), int32(0), int32(0), ":decision:"},
@@ -697,12 +599,6 @@ func ageAuditVolRowsFixture(now time.Time) [][]any {
 	}
 }
 
-// TestMaintainAgeAuditVolSuggestion — the v1.22.0 T4 report attachment: each
-// --age-audit row carries suggested_vol (the deterministic topic/tags mapping,
-// CONTENT §4) unless the row already carries an approved vol:* tag — those
-// show vol_tag instead (the approval regime: no re-proposal over an approved
-// tier). The score column is untouched by the mapping (the distribution seal
-// — the same 2-signal values as before T4, only new reference columns).
 func TestMaintainAgeAuditVolSuggestion(t *testing.T) {
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -726,7 +622,7 @@ func TestMaintainAgeAuditVolSuggestion(t *testing.T) {
 	if len(got.Items) != 4 {
 		t.Fatalf("항목 수 = %d, want 4: %s", len(got.Items), out)
 	}
-	// order score DESC: 31(70) > 33(35) > 32(4) > 34(2) — unchanged by T4.
+
 	wantScore := []int{70, 35, 4, 2}
 	for i, w := range wantScore {
 		if got.Items[i].Score != w {
@@ -743,14 +639,14 @@ func TestMaintainAgeAuditVolSuggestion(t *testing.T) {
 	if r := byID[32]; r.sug != "vol:volatile" || r.tag != "" {
 		t.Errorf("id32 제안 = %+v, want suggested vol:volatile(버전 매칭)", r)
 	}
-	// an already-approved vol:* row shows the EXISTING tag — no re-proposal.
+
 	if r := byID[33]; r.tag != "vol:conditional" || r.sug != "" {
 		t.Errorf("id33 = %+v, want vol_tag vol:conditional·제안 없음(승인제)", r)
 	}
 	if r := byID[34]; r.sug != "vol:conditional" || r.tag != "" {
 		t.Errorf("id34 제안 = %+v, want suggested vol:conditional(미매칭 기본)", r)
 	}
-	// the full suggestion vocabulary stays inside the 3-tag dictionary.
+
 	for _, it := range got.Items {
 		switch it.SuggestedVol {
 		case "", "vol:immutable", "vol:volatile", "vol:conditional":
@@ -760,11 +656,6 @@ func TestMaintainAgeAuditVolSuggestion(t *testing.T) {
 	}
 }
 
-// TestMaintainAgeAuditParserNoPrefixCollision — the --stale family is
-// exact-match: --age-audit elects its own mode (never --stale's ok report),
-// a bare --age prefix is an unknown flag (exit 3), --age-audit rejects the
-// foreign --days flag (mode ownership), and the existing --stale /
-// --invalidate-stale modes keep working after the addition.
 func TestMaintainAgeAuditParserNoPrefixCollision(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -779,22 +670,22 @@ func TestMaintainAgeAuditParserNoPrefixCollision(t *testing.T) {
 			return nil, nil
 		}}}
 	}
-	// --age-audit runs its own mode (the age-audit JSON, not the stale ok).
+
 	out, code := runMaintainArgs(t, newStore(), "--age-audit")
 	if code != 0 || !strings.Contains(out, `"status":"age-audit"`) || strings.Contains(out, `"status":"ok"`) {
 		t.Fatalf("--age-audit exit=%d out=%s, want age-audit 리포트", code, out)
 	}
-	// a bare prefix is an unknown flag (ParseArgs exact matching).
+
 	out, code = runMaintainArgs(t, newStore(), "--age")
 	if code != 3 {
 		t.Fatalf("--age exit = %d, want 3(정확 일치 — 미등록 플래그): %s", code, out)
 	}
-	// --age-audit rejects the foreign --days (mode ownership, the decay-audit convention).
+
 	out, code = runMaintainArgs(t, newStore(), "--age-audit", "--days", "5")
 	if code != 1 {
 		t.Fatalf("--age-audit --days exit = %d, want 1(무관 플래그 거부): %s", code, out)
 	}
-	// the existing --stale family is unchanged (no ghost-mode regression).
+
 	out, code = runMaintainArgs(t, newStore(), "--stale")
 	if code != 0 || !strings.Contains(out, `"status":"ok"`) {
 		t.Fatalf("--stale exit=%d out=%s, want 기존 ok 리포트", code, out)
@@ -805,9 +696,6 @@ func TestMaintainAgeAuditParserNoPrefixCollision(t *testing.T) {
 	}
 }
 
-// TestStaleScoredTTLOverride — the stale_ttl_days meta override re-scales
-// the TTL component (T5 wiring): with 90, a 100-day-old row saturates
-// (score 70, not 39) and the listing order follows.
 func TestStaleScoredTTLOverride(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -831,8 +719,7 @@ func TestStaleScoredTTLOverride(t *testing.T) {
 	for _, it := range items {
 		byID[it.ID] = it
 	}
-	// ttl 100 ≥ 90 → saturated TTL (70); ttl 200 also saturated (70·stable
-	// ties keep the SQL order); the fresh 10d·corr3 row stays 34.
+
 	if s := byID[13]; s.Score != 70 {
 		t.Errorf("id13(TTL 100·포화 90) = %d, want 70(포화 조기 점등)", s.Score)
 	}
@@ -844,11 +731,6 @@ func TestStaleScoredTTLOverride(t *testing.T) {
 	}
 }
 
-// ── v1.22.0 T3: age-audit "source changed" reference · --reaffirm · --recheck ──
-
-// reaffirmFakeStore — fakeMaintStore + the ReaffirmStore write extension
-// (the UPDATE literal lives in the store layer — captured here, the ops
-// flow asserts the delegation, commit, and output).
 type reaffirmFakeStore struct {
 	*fakeMaintStore
 	reaffirmCalls [][]int
@@ -863,8 +745,6 @@ func (f *reaffirmFakeStore) Reaffirm(ctx context.Context, ids []int) (int64, err
 	return int64(len(ids)), nil
 }
 
-// runReaffirmArgs — runMaintainArgs is fixed to *fakeMaintStore, so a local
-// helper for the extension wrapper (the limitCapturingStore convention).
 func runReaffirmArgs(t *testing.T, f *reaffirmFakeStore, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -872,12 +752,6 @@ func runReaffirmArgs(t *testing.T, f *reaffirmFakeStore, args ...string) (string
 	return out.String(), code
 }
 
-// TestMaintainAgeAuditSourceChanged — the signal-⑤ reference column: with
-// stamped vault rows (content_changed_at NOT NULL) the report carries the
-// "source changed" count phrase; without stamps the field is 0 and the
-// phrase absent. The score distribution is SEALED — the items bytes are
-// identical whether or not vault sources changed (the G2 ruling: the
-// reference column carries no weight).
 func TestMaintainAgeAuditSourceChanged(t *testing.T) {
 	now := time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -903,7 +777,7 @@ func TestMaintainAgeAuditSourceChanged(t *testing.T) {
 		}
 		return out[start:end]
 	}
-	// with stamps — the phrase and the count surface.
+
 	f := newStore(2)
 	out, code := runMaintainArgs(t, f, "--age-audit")
 	if code != 0 {
@@ -917,7 +791,6 @@ func TestMaintainAgeAuditSourceChanged(t *testing.T) {
 	}
 	sealed := itemsOf(out)
 
-	// without stamps — 0 and no phrase; the items bytes identical (seal).
 	out0, code := runMaintainArgs(t, newStore(0), "--age-audit")
 	if code != 0 {
 		t.Fatalf("exit = %d: %s", code, out0)
@@ -931,12 +804,11 @@ func TestMaintainAgeAuditSourceChanged(t *testing.T) {
 	if itemsOf(out0) != sealed {
 		t.Fatalf("스코어 분포 봉인 위반:\n무변경=%s\n변경=%s", itemsOf(out0), sealed)
 	}
-	// the seal material itself — the 2-signal scores (70/35/4, order 21,23,22).
+
 	if !strings.Contains(sealed, `"score":70`) || !strings.Contains(sealed, `"score":35`) || !strings.Contains(sealed, `"score":4`) {
 		t.Fatalf("기존 점수 산출 변경 의심: %s", sealed)
 	}
-	// a vault-count read failure degrades quietly to 0 (§13 — a lost
-	// observation must not fail the audit).
+
 	fErr := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM knowledge"):
@@ -952,10 +824,6 @@ func TestMaintainAgeAuditSourceChanged(t *testing.T) {
 	}
 }
 
-// TestMaintainReaffirmResetsValidity — the happy path: active targets get
-// the Reaffirm delegation (valid_at=now() is the store layer's), the audit
-// commit records the reaffirm attribution, and the output is the reaffirmed
-// JSON. Both --id and --ids forms.
 func TestMaintainReaffirmResetsValidity(t *testing.T) {
 	shortRetry(t)
 	newFake := func() *reaffirmFakeStore {
@@ -997,17 +865,13 @@ func TestMaintainReaffirmResetsValidity(t *testing.T) {
 	}
 }
 
-// TestMaintainReaffirmGuards — the confirmation and target guards:
-// without --yes a guidance error (exit 1, no write); without --id/--ids a
-// usage error; both together rejected; a foreign value flag (--days)
-// rejected by mode ownership; --yes alone under --recheck rejected.
 func TestMaintainReaffirmGuards(t *testing.T) {
 	base := func() *reaffirmFakeStore {
 		return &reaffirmFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 			return nil, nil
 		}}}}
 	}
-	// missing --yes — the confirmation guidance, no delegation, no commit.
+
 	f := base()
 	out, code := runReaffirmArgs(t, f, "--reaffirm", "--id", "7")
 	if code != 1 || !strings.Contains(out, "--yes") {
@@ -1016,36 +880,33 @@ func TestMaintainReaffirmGuards(t *testing.T) {
 	if len(f.reaffirmCalls) != 0 || len(f.commits) != 0 {
 		t.Fatalf("가드 전 쓰기 발생: %v %v", f.reaffirmCalls, f.commits)
 	}
-	// no target at all.
+
 	if out, code = runReaffirmArgs(t, base(), "--reaffirm", "--yes"); code != 1 || !strings.Contains(out, "--id") {
 		t.Fatalf("대상 부재 exit=%d out=%s", code, out)
 	}
-	// both --id and --ids — the spec's alternation is exclusive.
+
 	if out, code = runReaffirmArgs(t, base(), "--reaffirm", "--id", "7", "--ids", "8", "--yes"); code != 1 {
 		t.Fatalf("--id·--ids 병용 exit=%d out=%s, want 1", code, out)
 	}
-	// a foreign value flag is mode-ownership rejected (exit 1).
+
 	if out, code = runReaffirmArgs(t, base(), "--reaffirm", "--id", "7", "--days", "5", "--yes"); code != 1 {
 		t.Fatalf("무관 플래그 exit=%d out=%s, want 1", code, out)
 	}
-	// --yes is not valid under --recheck (read-only).
+
 	if out, code = runReaffirmArgs(t, base(), "--recheck", "5", "--yes"); code != 1 {
 		t.Fatalf("--recheck --yes exit=%d out=%s, want 1", code, out)
 	}
-	// an unknown flag stays exit 3 (the invalid-arg contract).
+
 	if out, code = runReaffirmArgs(t, base(), "--reaffirm", "--wat"); code != 3 {
 		t.Fatalf("unknown flag exit=%d out=%s, want 3", code, out)
 	}
 }
 
-// TestMaintainReaffirmMissingTarget — a nonexistent or non-active id is
-// exit 1 with the diagnostic, and no write fires (the target set is the
-// active knowledge rows only).
 func TestMaintainReaffirmMissingTarget(t *testing.T) {
 	shortRetry(t)
 	f := &reaffirmFakeStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge") {
-			// 7 active, 8 invalidated, 99 absent.
+
 			return [][]any{{int32(7), "active"}, {int32(8), "invalidated"}}, nil
 		}
 		return nil, nil
@@ -1062,10 +923,6 @@ func TestMaintainReaffirmMissingTarget(t *testing.T) {
 	}
 }
 
-// TestMaintainRecheckReport — the read-only recheck report: the conditions
-// value, the vol dictionary tags, and the valid_at age ride along; a row
-// without conditions gets the no-conditions guidance (conditions absent —
-// T5 wires the write-side field).
 func TestMaintainRecheckReport(t *testing.T) {
 	validAt := time.Now().Add(-40 * 24 * time.Hour).UTC()
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -1109,9 +966,7 @@ func TestMaintainRecheckReport(t *testing.T) {
 	if !strings.Contains(got.Summary, "conditions") {
 		t.Fatalf("summary 안내 부재: %q", got.Summary)
 	}
-	// v1.24.0 T2 — the provenance fields ride along: the row's
-	// source_path verbatim; source_cleared stays 0 on a store without
-	// the clear extension (the report-only contract).
+
 	if got.SourcePath != "demo/notes/t3-recheck.md" {
 		t.Fatalf("source_path = %q, want 데모 경로", got.SourcePath)
 	}
@@ -1119,7 +974,6 @@ func TestMaintainRecheckReport(t *testing.T) {
 		t.Fatalf("source_cleared = %d, want 0(미구현 스토어 조용한 생략)", got.SourceCleared)
 	}
 
-	// a conditions-less row — the guidance variant.
 	f2 := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge") {
 			return [][]any{{"t3-무조건-데모", ":adr:", "", validAt}}, nil
@@ -1135,13 +989,9 @@ func TestMaintainRecheckReport(t *testing.T) {
 	}
 }
 
-// TestMaintainRecheckGuards — --recheck takes the id as its own value
-// (the --expire-pending convention): a missing, non-numeric, or non-positive
-// value is exit 1; a foreign value flag is mode-ownership rejected; a
-// missing id is ErrNotFound exit 1.
 func TestMaintainRecheckGuards(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // no rows — not found
+		return nil, nil
 	}}}
 	for _, args := range [][]string{
 		{"--recheck"},
@@ -1155,15 +1005,13 @@ func TestMaintainRecheckGuards(t *testing.T) {
 			t.Errorf("%v: exit=%d, want 1 — %s", args, code, out)
 		}
 	}
-	// a missing knowledge row — exit 1 with the not-found diagnostic.
+
 	out, code := runMaintainArgs(t, f, "--recheck", "99")
 	if code != 1 || !strings.Contains(out, "not found") {
 		t.Fatalf("부재 exit=%d out=%s, want 1+not found", code, out)
 	}
 }
 
-// TestMaintainUsageLineMentionsReaffirm — the bare-usage guidance carries
-// the two new entries (agent self-correction discovery path).
 func TestMaintainUsageLineMentionsReaffirm(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f)
@@ -1177,11 +1025,6 @@ func TestMaintainUsageLineMentionsReaffirm(t *testing.T) {
 	}
 }
 
-// TestMaintainRecheckAgeAuditRealSlow — slow (FLINT_TEST_DSN — the verify
-// gate): on an isolated scratch DB, --recheck reads the real conditions
-// column (set/empty), and --age-audit reports the real content_changed_at
-// stamps (present→count+phrase, cleared→0) with the score bytes sealed
-// across the stamp flip. Synthetic demo rows only.
 func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -1224,8 +1067,7 @@ func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("시드: %v", err)
 	}
-	// one row carries conditions (T5 wires the write path — the column is
-	// seeded directly here); both age 100d so they surface in age-audit.
+
 	if _, err := ms.Query(ctx,
 		`UPDATE knowledge SET conditions = $1, ingested_at = now() - interval '100 days' WHERE id = $2`,
 		"demo condition: needs flint 1.22+ (synthetic)", ids[0]); err != nil {
@@ -1235,7 +1077,7 @@ func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
 		`UPDATE knowledge SET ingested_at = now() - interval '100 days' WHERE id = $1`, ids[1]); err != nil {
 		t.Fatalf("경과 시드: %v", err)
 	}
-	// a stamped vault row (the T2 scan-diff stamp — seeded directly).
+
 	if _, err := ms.Query(ctx,
 		`INSERT INTO vault_files (path, title, tags, mtime, size, content_hash, content_changed_at)
 		 VALUES ('demo/notes/t3-recheck-demo.md', 't3 demo', '', now(), 10, 't3-hash-demo', now())`); err != nil {
@@ -1247,7 +1089,7 @@ func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
 		code := RunMaintain(ctx, ms, args, nil, &out)
 		return out.String(), code
 	}
-	// --recheck: the conditions value surfaces; the empty row gets the guidance.
+
 	out, code := run("--recheck", fmt.Sprint(ids[0]))
 	if code != 0 || !strings.Contains(out, "demo condition: needs flint 1.22+ (synthetic)") {
 		t.Fatalf("recheck(conditions) exit=%d out=%s", code, out)
@@ -1256,13 +1098,13 @@ func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"conditions_empty":true`) {
 		t.Fatalf("recheck(무조건) exit=%d out=%s", code, out)
 	}
-	// --age-audit with the stamp — count 1 + phrase; items sealed.
+
 	out, code = run("--age-audit")
 	if code != 0 || !strings.Contains(out, `"source_changed":1`) || !strings.Contains(out, "source changed") {
 		t.Fatalf("age-audit(스탬프) exit=%d out=%s", code, out)
 	}
 	sealed := out[strings.Index(out, `"items":`):strings.LastIndex(out, `,"summary":`)]
-	// clear the stamp (the hash-restored NULL) — 0, no phrase, same items bytes.
+
 	if _, err := ms.Query(ctx,
 		`UPDATE vault_files SET content_changed_at = NULL WHERE path = 'demo/notes/t3-recheck-demo.md'`); err != nil {
 		t.Fatalf("스탬프 소거: %v", err)
@@ -1276,10 +1118,6 @@ func TestMaintainRecheckAgeAuditRealSlow(t *testing.T) {
 	}
 }
 
-// TestMaintainAgeAuditThresholdOverride — the stale_score_threshold meta
-// override is reflected in the report threshold field and the marking
-// (with 30, the score-35 row flips to marked; the score-4 row stays
-// unmarked — the default 70 would leave it unmarked).
 func TestMaintainAgeAuditThresholdOverride(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	saved := decayNow
@@ -1317,18 +1155,11 @@ func TestMaintainAgeAuditThresholdOverride(t *testing.T) {
 	}
 }
 
-// ── v1.24.0 T2 — --recheck automatically clears the matched vault
-// source-change stamps (the content_changed_at clearing of vault_files
-// rows whose path equals the knowledge row's source_path). ──
-
-// recheckClearStore — a fakeMaintStore wrapper implementing the two
-// recheck write extensions (the clear recorder + the conditions
-// backfill), so the report·backfill paths exercise the clear.
 type recheckClearStore struct {
 	*fakeMaintStore
-	cleared    []string // the paths passed to ClearVaultSourceChanged
-	clearN     int64    // the rows-affected answer
-	setCondN   int64    // SetRecheckConditions rows-affected answer
+	cleared    []string
+	clearN     int64
+	setCondN   int64
 	conditions []string
 }
 
@@ -1342,8 +1173,6 @@ func (s *recheckClearStore) SetRecheckConditions(ctx context.Context, id int, co
 	return s.setCondN, nil
 }
 
-// runRecheckClear — runMaintainArgs is fixed to *fakeMaintStore, so a
-// local runner for the wrapper (the TUI-test precedent).
 func runRecheckClear(t *testing.T, s *recheckClearStore, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -1351,17 +1180,9 @@ func runRecheckClear(t *testing.T, s *recheckClearStore, args ...string) (string
 	return out.String(), code
 }
 
-// TestMaintainRecheckClearsVaultSource — every --recheck invocation
-// (report form·--conditions form alike — the --conditions argument is
-// optional for the clear) clears the vault rows whose path equals the
-// target row's source_path. Multi-share implication: the clear is keyed
-// on the vault path, so every knowledge row sharing that source_path has
-// its recheck queue consumed by the one call — the report surfaces the
-// cleared count.
 func TestMaintainRecheckClearsVaultSource(t *testing.T) {
 	validAt := time.Now().Add(-10 * 24 * time.Hour).UTC()
-	// mk — the report row (5 cells, source_path at index 4) + the clear
-	// helper's own source_path lookup, served per scenario path.
+
 	mk := func(path any, report bool) *fakeStore {
 		return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 			switch {
@@ -1376,14 +1197,12 @@ func TestMaintainRecheckClearsVaultSource(t *testing.T) {
 				}
 				return [][]any{{path}}, nil
 			case strings.Contains(sql, "SELECT id FROM knowledge"):
-				return [][]any{{int32(8)}}, nil // the backfill precheck target
+				return [][]any{{int32(8)}}, nil
 			}
 			return nil, nil
 		}}
 	}
-	// the report form: a row carrying source_path → one clear call keyed
-	// on the path, the count rides the report, and the clear gets its own
-	// commit (a write happened — the zero-row commit avoidance).
+
 	s := &recheckClearStore{fakeMaintStore: &fakeMaintStore{fakeStore: mk("demo/notes/v124-t2.md", true)}, clearN: 2}
 	out, code := runRecheckClear(t, s, "--recheck", "7")
 	if code != 0 {
@@ -1398,7 +1217,7 @@ func TestMaintainRecheckClearsVaultSource(t *testing.T) {
 	if n := len(s.fakeStore.commits); n != 1 {
 		t.Fatalf("clear 커밋=%d회, want 1", n)
 	}
-	// the --conditions form also clears (the same invocation contract).
+
 	c := &recheckClearStore{fakeMaintStore: &fakeMaintStore{fakeStore: mk("demo/notes/v124-t2-b.md", false)}, clearN: 1, setCondN: 1}
 	out, code = runRecheckClear(t, c, "--recheck", "8", "--conditions", "demo 조건 (합성)", "--yes")
 	if code != 0 {
@@ -1410,8 +1229,7 @@ func TestMaintainRecheckClearsVaultSource(t *testing.T) {
 	if !strings.Contains(out, `"source_cleared":1`) {
 		t.Fatalf("backfill 보고에 source_cleared 부재: %s", out)
 	}
-	// a row without source_path (NULL) clears nothing — no provenance
-	// link, no write, no commit.
+
 	n := &recheckClearStore{fakeMaintStore: &fakeMaintStore{fakeStore: mk(nil, true)}, clearN: 5}
 	out, code = runRecheckClear(t, n, "--recheck", "9")
 	if code != 0 {
@@ -1425,15 +1243,6 @@ func TestMaintainRecheckClearsVaultSource(t *testing.T) {
 	}
 }
 
-// ── v1.24.0 T2 slow — the --recheck vault source-change clear on the
-// real Doltgres path (dedicated scratch DB created and dropped here —
-// never a shared or production DB). ──
-
-// slowMaintStore extensions for the recheck clear scenario: the clear
-// UPDATE (the RecheckSourceClearStore extension — the same statement the
-// production realStore carries in cli/maintain.go) and the conditions
-// backfill (RecheckConditionsStore — the SetRecheckConditions
-// convention). Test adapters: the literals mirror the store layer.
 func (s *slowMaintStore) ClearVaultSourceChanged(ctx context.Context, path string) (int64, error) {
 	ct, err := s.pool.Exec(ctx,
 		`UPDATE vault_files SET content_changed_at = NULL
@@ -1454,12 +1263,6 @@ func (s *slowMaintStore) SetRecheckConditions(ctx context.Context, id int, condi
 	return ct.RowsAffected(), nil
 }
 
-// TestMaintainRecheckSourceClearRealSlow — on an isolated scratch DB:
-// `--recheck N` (report form and --conditions form alike) clears the
-// content_changed_at stamps of the vault_files rows whose path equals
-// the target's source_path; the multi-share implication holds (a second
-// knowledge row on the same path finds the queue already consumed), and
-// an unrelated path's stamp survives.
 func TestMaintainRecheckSourceClearRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -1511,7 +1314,7 @@ func TestMaintainRecheckSourceClearRealSlow(t *testing.T) {
 			t.Fatalf("valid_at seed: %v", err)
 		}
 	}
-	// A·B share pathA; C carries pathB. Both vault rows are stamped.
+
 	seedPath := func(id int, path string) {
 		t.Helper()
 		if _, err := ms.Query(ctx,
@@ -1546,7 +1349,7 @@ func TestMaintainRecheckSourceClearRealSlow(t *testing.T) {
 		code := RunMaintain(ctx, ms, args, nil, &out)
 		return out.String(), code
 	}
-	// the report form clears the matched path only.
+
 	out, code := run("--recheck", fmt.Sprint(ids[0]))
 	if code != 0 || !strings.Contains(out, `"source_cleared":1`) || !strings.Contains(out, pathA) {
 		t.Fatalf("report 소거 exit=%d out=%s", code, out)
@@ -1557,15 +1360,12 @@ func TestMaintainRecheckSourceClearRealSlow(t *testing.T) {
 	if !stamped(pathB) {
 		t.Fatalf("무관 경로 pathB 스탬프가 소거됨 — 연결 축 위반")
 	}
-	// the multi-share implication: the sibling row on the same path finds
-	// the queue consumed (source_cleared 0, no error).
+
 	out, code = run("--recheck", fmt.Sprint(ids[1]))
 	if code != 0 || !strings.Contains(out, `"source_cleared":0`) {
 		t.Fatalf("공유 재점검 exit=%d out=%s", code, out)
 	}
-	// re-stamp pathB, then the --conditions form clears it too (every
-	// --recheck invocation clears — the --conditions argument is
-	// optional).
+
 	if _, err := ms.Query(ctx,
 		`UPDATE vault_files SET content_changed_at = now() WHERE path = $1`, pathB); err != nil {
 		t.Fatalf("pathB 재스탬프: %v", err)
@@ -1577,18 +1377,13 @@ func TestMaintainRecheckSourceClearRealSlow(t *testing.T) {
 	if stamped(pathB) {
 		t.Fatalf("pathB 스탬프 미소거(backfill 형태)")
 	}
-	// the conditions write itself round-tripped (the r96 contract kept).
+
 	rows, err := ms.Query(ctx, `SELECT conditions FROM knowledge WHERE id = $1`, ids[2])
 	if err != nil || len(rows) != 1 || fmt.Sprint(rows[0][0]) != "v124 t2 demo condition" {
 		t.Fatalf("conditions 왕복: %v %v", rows, err)
 	}
 }
 
-// ── v1.24.0 T3: --merge-audit (the duplicate-pair report — listing only) ──
-
-// mergeAuditScanRowsFixture — the --merge-audit scan source rows
-// (synthetic demo): an identical pair (1.0), the exact-0.6 boundary pair
-// (the knowledge-package fixture strings), and a below-threshold row.
 func mergeAuditScanRowsFixture() [][]any {
 	return [][]any{
 		{int32(1), "데모 배포 절차", "매주 화요일 배포 프리즈와 롤백 점검을 함께 기록한다"},
@@ -1599,7 +1394,6 @@ func mergeAuditScanRowsFixture() [][]any {
 	}
 }
 
-// mergeAuditJSON — for parsing the --merge-audit output.
 type mergeAuditJSON struct {
 	Status        string  `json:"status"`
 	Threshold     float64 `json:"threshold"`
@@ -1629,10 +1423,6 @@ type mergeAuditJSON struct {
 	Summary string `json:"summary"`
 }
 
-// mergeAuditFake — the standard --merge-audit fake: the scan rows ride
-// queryFn (the active-scan SQL — status='active' AND invalid_at IS
-// NULL, the v1.24.1 strict active fetch), everything else (meta loads,
-// the counter upsert) returns empty and records its args.
 func mergeAuditFake(t *testing.T) (*fakeMaintStore, *[]string) {
 	t.Helper()
 	var metaWrites []string
@@ -1648,17 +1438,11 @@ func mergeAuditFake(t *testing.T) (*fakeMaintStore, *[]string) {
 			}
 			return nil, nil
 		}
-		return nil, nil // meta reads (thresholds, scan_stats) — defaults
+		return nil, nil
 	}}}
 	return f, &metaWrites
 }
 
-// TestMaintainMergeAuditList — the report contract: the synthetic similar
-// pair (1.0) and the exact-0.6 boundary pair list at the default
-// conflict_dup_threshold, sorted score-descending; the threshold, scan
-// cap (suggest_scan_cap), scanned count, and the measured pre-cost
-// estimate are all published; the disposition guidance names the
-// approval circuit.
 func TestMaintainMergeAuditList(t *testing.T) {
 	f, _ := mergeAuditFake(t)
 	out, code := runMaintainArgs(t, f, "--merge-audit")
@@ -1699,10 +1483,6 @@ func TestMaintainMergeAuditList(t *testing.T) {
 	}
 }
 
-// TestMaintainMergeAuditListingOnly — the report never disposes: no
-// state-transition method fires, no knowledge write SQL runs, no dolt
-// commit is made (the decay-audit convention — disposition is delegated
-// to --merge/--supersede with approval).
 func TestMaintainMergeAuditListingOnly(t *testing.T) {
 	f, _ := mergeAuditFake(t)
 	out, code := runMaintainArgs(t, f, "--merge-audit")
@@ -1724,8 +1504,6 @@ func TestMaintainMergeAuditListingOnly(t *testing.T) {
 	}
 }
 
-// TestMaintainMergeAuditLimit — --limit caps the listing (the top-scored
-// pair survives, the decay-audit convention).
 func TestMaintainMergeAuditLimit(t *testing.T) {
 	f, _ := mergeAuditFake(t)
 	out, code := runMaintainArgs(t, f, "--merge-audit", "--limit", "1")
@@ -1741,10 +1519,6 @@ func TestMaintainMergeAuditLimit(t *testing.T) {
 	}
 }
 
-// TestMaintainMergeAuditCounter — the merge_audit_pairs curation counter
-// fires once per run with the listed count (the D-series metering
-// convention — the counter key derives from the registry's curation
-// group).
 func TestMaintainMergeAuditCounter(t *testing.T) {
 	f, writes := mergeAuditFake(t)
 	out, code := runMaintainArgs(t, f, "--merge-audit")
@@ -1762,8 +1536,6 @@ func TestMaintainMergeAuditCounter(t *testing.T) {
 	}
 }
 
-// TestMaintainMergeAuditScanCapOverride — the scan bound prefers the
-// meta suggest_scan_cap override (LIMIT cap+1 follows it).
 func TestMaintainMergeAuditScanCapOverride(t *testing.T) {
 	var gotSQL string
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -1785,8 +1557,6 @@ func TestMaintainMergeAuditScanCapOverride(t *testing.T) {
 	}
 }
 
-// TestMaintainMergeAuditRejectsForeignFlags — mode-ownership validation:
-// the read-only report rejects unrelated value flags (--days) with exit 1.
 func TestMaintainMergeAuditRejectsForeignFlags(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--merge-audit", "--days", "5")
@@ -1795,10 +1565,6 @@ func TestMaintainMergeAuditRejectsForeignFlags(t *testing.T) {
 	}
 }
 
-// TestMaintainMergeAuditRealSlow — slow (FLINT_TEST_DSN — the verify-gate
-// DB): synthetic seeds on an isolated scratch DB, the real path lists the
-// seeded duplicate pair with the published cost estimate, and the run
-// leaves every row active (listing only — no disposition, no commit).
 func TestMaintainMergeAuditRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -1843,10 +1609,8 @@ func TestMaintainMergeAuditRealSlow(t *testing.T) {
 	}
 	if _, err := ms.InsertBatch(ctx, []map[string]any{
 		seed("t3-ma-a", topic, summary),
-		seed("t3-ma-b", topic, summary), // identical text -> Dice 1.0
-		// a genuinely dissimilar row (the staleSeedRec hash-summary shape
-		// scores high on short strings — measured on the real path), so
-		// exactly one pair lists.
+		seed("t3-ma-b", topic, summary),
+
 		seed("t3-ma-c", "t3-merge-audit 무관 주제",
 			"지난 분기 독서 목록 정리와 서평 작성 회고를 남긴다"),
 	}); err != nil {
@@ -1869,7 +1633,7 @@ func TestMaintainMergeAuditRealSlow(t *testing.T) {
 	if got.Cost.PairsTotal != 3 || got.Cost.MicrosPerPair <= 0 {
 		t.Errorf("cost = %+v, want pairs_total 3(3행)·실측 µs/쌍", got.Cost)
 	}
-	// listing only: every seeded row stays active, nothing invalidated.
+
 	rows, err := ms.Query(ctx, `SELECT count(*) FROM knowledge WHERE invalid_at IS NULL`)
 	if err != nil || len(rows) == 0 {
 		t.Fatalf("활성 카운트 조회: %v", err)
@@ -1877,8 +1641,7 @@ func TestMaintainMergeAuditRealSlow(t *testing.T) {
 	if n, _ := rows[0][0].(int64); n != 3 {
 		t.Fatalf("활성 행 = %d, want 3(처분 미수행)", n)
 	}
-	// the curation counter landed in meta (the registry whitelist admits
-	// merge_audit_pairs on the real path too).
+
 	metaRows, err := ms.Query(ctx,
 		`SELECT value FROM meta WHERE key LIKE 'daily:merge_audit_pairs:%'`)
 	if err != nil {
@@ -1889,9 +1652,6 @@ func TestMaintainMergeAuditRealSlow(t *testing.T) {
 	}
 }
 
-// ── v1.24.0 T4: --recall-audit (the bad-recall feedback report — listing only) ──
-
-// recallAuditJSON — for parsing the --recall-audit output.
 type recallAuditJSON struct {
 	Status string `json:"status"`
 	MinBad int    `json:"min_bad"`
@@ -1904,10 +1664,6 @@ type recallAuditJSON struct {
 	Summary string `json:"summary"`
 }
 
-// recallAuditRowsFixture — the --recall-audit listing rows (synthetic demo):
-// a 3-bad-recall row, the exact-2 boundary row (>= recall_audit_min_bad
-// default 2), and a below-threshold 1 row (server-side filtered in reality —
-// carried here only as the parse-shape reference).
 func recallAuditRowsFixture() [][]any {
 	return [][]any{
 		{int32(11), "t4-recall-audit 데모 배포 절차", int64(3)},
@@ -1915,9 +1671,6 @@ func recallAuditRowsFixture() [][]any {
 	}
 }
 
-// recallAuditFake — the standard --recall-audit fake: the listing rows ride
-// queryFn (the bad-recall listing SQL), everything else (meta loads, the
-// counter upsert) returns empty and records its meta-write keys.
 func recallAuditFake(t *testing.T, rows [][]any) (*fakeMaintStore, *[]string) {
 	t.Helper()
 	var metaWrites []string
@@ -1933,16 +1686,11 @@ func recallAuditFake(t *testing.T, rows [][]any) (*fakeMaintStore, *[]string) {
 			}
 			return nil, nil
 		}
-		return nil, nil // meta reads (thresholds) — defaults
+		return nil, nil
 	}}}
 	return f, &metaWrites
 }
 
-// TestMaintainRecallAuditList — the report contract: the synthetic
-// bad-recall rows list score-descending (bad_recall DESC, id ASC) with the
-// threshold published as min_bad (default 2); the listing SQL carries the
-// server-side floor (>= $1) on the same bad-recall subquery the age-audit
-// reference column uses; the summary names the approval circuit.
 func TestMaintainRecallAuditList(t *testing.T) {
 	f, _ := recallAuditFake(t, recallAuditRowsFixture())
 	var gotArgs []any
@@ -1987,8 +1735,6 @@ func TestMaintainRecallAuditList(t *testing.T) {
 	}
 }
 
-// TestMaintainRecallAuditLimit — --limit caps the listing (the decay-audit
-// convention; the Go-side truncation is the defense over the server LIMIT).
 func TestMaintainRecallAuditLimit(t *testing.T) {
 	f, _ := recallAuditFake(t, recallAuditRowsFixture())
 	out, code := runMaintainArgs(t, f, "--recall-audit", "--limit", "1")
@@ -2004,10 +1750,6 @@ func TestMaintainRecallAuditLimit(t *testing.T) {
 	}
 }
 
-// TestMaintainRecallAuditListingOnly — the report never disposes: no
-// state-transition method fires, no knowledge write SQL runs, no dolt
-// commit is made (the decay-audit convention — disposition is delegated to
-// the approval circuit).
 func TestMaintainRecallAuditListingOnly(t *testing.T) {
 	f, _ := recallAuditFake(t, recallAuditRowsFixture())
 	out, code := runMaintainArgs(t, f, "--recall-audit")
@@ -2029,9 +1771,6 @@ func TestMaintainRecallAuditListingOnly(t *testing.T) {
 	}
 }
 
-// TestMaintainRecallAuditCounter — the recall_audit_listed curation counter
-// fires once per run with the listed count (the D-series metering
-// convention — the counter key derives from the registry's curation group).
 func TestMaintainRecallAuditCounter(t *testing.T) {
 	f, writes := recallAuditFake(t, recallAuditRowsFixture())
 	out, code := runMaintainArgs(t, f, "--recall-audit")
@@ -2049,8 +1788,6 @@ func TestMaintainRecallAuditCounter(t *testing.T) {
 	}
 }
 
-// TestMaintainRecallAuditThresholdOverride — the listing floor prefers the
-// meta recall_audit_min_bad override (the $1 parameter follows it).
 func TestMaintainRecallAuditThresholdOverride(t *testing.T) {
 	var gotArgs []any
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -2075,8 +1812,6 @@ func TestMaintainRecallAuditThresholdOverride(t *testing.T) {
 	}
 }
 
-// TestMaintainRecallAuditRejectsForeignFlags — mode-ownership validation:
-// the read-only report rejects unrelated value flags (--days) with exit 1.
 func TestMaintainRecallAuditRejectsForeignFlags(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--recall-audit", "--days", "5")
@@ -2085,9 +1820,6 @@ func TestMaintainRecallAuditRejectsForeignFlags(t *testing.T) {
 	}
 }
 
-// recallAuditDisposedFake — the --invalidate --ids approval-path fake: the
-// existence check admits id 30, the qualify query returns the target's
-// bad-recall count, and the counter upsert records its meta-write keys.
 func recallAuditDisposedFake(t *testing.T, bad int64) (*fakeMaintStore, *[]string) {
 	t.Helper()
 	var metaWrites []string
@@ -2111,11 +1843,6 @@ func recallAuditDisposedFake(t *testing.T, bad int64) (*fakeMaintStore, *[]strin
 	return f, &metaWrites
 }
 
-// TestMaintainRecallAuditDisposedCounter — the D4 disposed counter rides the
-// approval path: --invalidate --ids of a listing-qualified target (bad 3 >=
-// min 2) accrues recall_audit_disposed; a below-threshold target (bad 1)
-// does not (the disposition still succeeds either way — the observation is
-// quiet §13).
 func TestMaintainRecallAuditDisposedCounter(t *testing.T) {
 	f, writes := recallAuditDisposedFake(t, 3)
 	out, code := runMaintainArgs(t, f, "--invalidate", "--ids", "30", "--yes")
@@ -2144,10 +1871,6 @@ func TestMaintainRecallAuditDisposedCounter(t *testing.T) {
 	}
 }
 
-// TestMaintainMergeDisposedCounterV1241 — v1.24.1 (r104): the --merge
-// path accrues the disposed counter for a listing-qualified FROM (the
-// merge-audit summary delegates disposal to --merge/--supersede alike —
-// the D4 alignment; the pre-patch --merge never accrued).
 func TestMaintainMergeDisposedCounterV1241(t *testing.T) {
 	f, writes := recallAuditDisposedFake(t, 3)
 	out, code := runMaintainArgs(t, f, "--merge", "--from", "30", "--to", "31")
@@ -2168,13 +1891,6 @@ func TestMaintainMergeDisposedCounterV1241(t *testing.T) {
 	}
 }
 
-// TestMaintainRecallAuditLimitInt4CeilingV1241 — v1.24.1 (r105-2): a
-// --limit past the int4 range is refused at parse (exit 3, the --days
-// ceiling convention) before any audit query fires — the pre-patch path
-// flowed the value into the audit LIMIT $2 parameter, where the encoding
-// fails opaquely at query time. The boundary 2147483647 (MaxInt32, the
-// last legal int4) parses through — the guard is a ceiling, not a
-// tightening.
 func TestMaintainRecallAuditLimitInt4CeilingV1241(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--recall-audit", "--limit", "2147483648")
@@ -2190,7 +1906,6 @@ func TestMaintainRecallAuditLimitInt4CeilingV1241(t *testing.T) {
 		}
 	}
 
-	// The boundary value parses through and the report runs (exit 0).
 	f2 := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out2, code2 := runMaintainArgs(t, f2, "--recall-audit", "--limit", "2147483647")
 	if code2 != 0 {
@@ -2201,13 +1916,6 @@ func TestMaintainRecallAuditLimitInt4CeilingV1241(t *testing.T) {
 	}
 }
 
-// TestMaintainRecallAuditRealSlow — slow (FLINT_TEST_DSN — the verify-gate
-// DB): synthetic seeds on an isolated scratch DB — a topic with two
-// recalled-then-invalidated rows plus one active row (the candidate), and a
-// boundary topic with only one bad row (not listed). The real path lists
-// exactly the candidate, stays read-only, accrues the listed counter, and
-// the approval path (--invalidate --id with --reason) then accrues the
-// disposed counter.
 func TestMaintainRecallAuditRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -2260,8 +1968,7 @@ func TestMaintainRecallAuditRealSlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("시드: %v", err)
 	}
-	// recall history on the bad rows, then invalidate them: topic earns
-	// bad_recall 2 (>= min), the border topic only 1 (excluded).
+
 	for _, id := range added[:2] {
 		if _, err := ms.Query(ctx,
 			`INSERT INTO recall_events (knowledge_id) VALUES ($1)`, id); err != nil {
@@ -2292,20 +1999,19 @@ func TestMaintainRecallAuditRealSlow(t *testing.T) {
 	if got.Items[0].ID != added[2] || got.Items[0].BadRecall != 2 {
 		t.Errorf("후보 = %+v, want 활성 행 bad_recall 2(경계 주제 1 제외)", got.Items[0])
 	}
-	// listing only: the candidate stays active.
+
 	rows, err := ms.Query(ctx,
 		`SELECT invalid_at FROM knowledge WHERE id = $1`, added[2])
 	if err != nil || len(rows) != 1 || rows[0][0] != nil {
 		t.Fatalf("후보 활성 유지 확인: %v %v", rows, err)
 	}
-	// the listed counter landed in meta.
+
 	metaRows, err := ms.Query(ctx,
 		`SELECT value FROM meta WHERE key LIKE 'daily:recall_audit_listed:%'`)
 	if err != nil || len(metaRows) == 0 {
 		t.Fatalf("recall_audit_listed 카운터 미적립: %v %s", err, out.String())
 	}
-	// the approval path: disposing the qualified candidate accrues the
-	// disposed counter (D4).
+
 	var disp strings.Builder
 	if code := RunMaintain(ctx, ms, []string{"--invalidate", "--id", fmt.Sprint(added[2]),
 		"--reason", "t4 recall-audit demo disposition"}, nil, &disp); code != 0 {
@@ -2318,11 +2024,6 @@ func TestMaintainRecallAuditRealSlow(t *testing.T) {
 	}
 }
 
-// ── v1.25.0 T1: maintain --gc (the dolt garbage-collection wrapper) ──
-
-// gcPingSeqStore — a fakeMaintStore whose Ping fails the first failPings
-// times before succeeding (the GC reconnect retry sequence — fakeStore's
-// static pingErr cannot express "fails twice, then reconnects").
 type gcPingSeqStore struct {
 	*fakeMaintStore
 	failPings int
@@ -2338,8 +2039,6 @@ func (f *gcPingSeqStore) Ping(ctx context.Context) error {
 	return nil
 }
 
-// withGCSeams — swaps the GC execution seam and the ping-interval seam
-// (restored after the test). The interval is 0 so the retry loop stays fast.
 func withGCSeams(t *testing.T, gc func(ctx context.Context, st wire.Store, shallow bool) error) {
 	t.Helper()
 	oldFn, oldDelay := maintainGCFn, maintainGCPingDelay
@@ -2347,7 +2046,6 @@ func withGCSeams(t *testing.T, gc func(ctx context.Context, st wire.Store, shall
 	t.Cleanup(func() { maintainGCFn, maintainGCPingDelay = oldFn, oldDelay })
 }
 
-// gcQueryFn — answers the schema recheck and records the meta upserts.
 func gcQueryFn(metaWrites map[string]string) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -2363,8 +2061,6 @@ func gcQueryFn(metaWrites map[string]string) func(string, []any) ([][]any, error
 	}
 }
 
-// metaUpsertCount — the number of recorded meta INSERT queries (the
-// "meta not recorded on failure" assertions).
 func metaUpsertCount(f *fakeStore) int {
 	n := 0
 	for _, q := range f.queries {
@@ -2375,8 +2071,6 @@ func metaUpsertCount(f *fakeStore) int {
 	return n
 }
 
-// runGCMaintainArgs — runMaintainArgs is fixed to *fakeMaintStore, so the
-// Ping-sequence wrapper gets a local runner (the runLimitArgs convention).
 func runGCMaintainArgs(t *testing.T, f *gcPingSeqStore, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -2384,8 +2078,6 @@ func runGCMaintainArgs(t *testing.T, f *gcPingSeqStore, args ...string) (string,
 	return out.String(), code
 }
 
-// TestMaintainGCYesGuard — --gc without --yes is exit 1 (the mode-combination
-// error convention) and --shallow under a foreign mode is rejected the same way.
 func TestMaintainGCYesGuard(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--gc")
@@ -2402,8 +2094,7 @@ func TestMaintainGCYesGuard(t *testing.T) {
 	if !strings.Contains(out, "--shallow is not valid with --check") {
 		t.Errorf("--shallow 소유권 오류 문구 없음: %s", out)
 	}
-	// the r109-8 regression: a bare --shallow (no mode elected) names the
-	// missing scope — it must not print an empty mode name.
+
 	out, code = runMaintainArgs(t, f, "--shallow")
 	if code != 1 {
 		t.Fatalf("--shallow (단독) exit=%d, want 1: %s", code, out)
@@ -2413,9 +2104,6 @@ func TestMaintainGCYesGuard(t *testing.T) {
 	}
 }
 
-// TestMaintainGCRunContract — the happy path: the disconnect notice line,
-// --gc execution via the seam (full mode), schema recheck, the meta pair,
-// and the JSON result exit 0.
 func TestMaintainGCRunContract(t *testing.T) {
 	metaWrites := map[string]string{}
 	f := &gcPingSeqStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
@@ -2450,10 +2138,6 @@ func TestMaintainGCRunContract(t *testing.T) {
 	}
 }
 
-// TestMaintainGCPendingNoticeJSON — the r108-1 regression: the pre-run
-// gc-pending notice line is valid JSON (it used to end at ` pings)` — the
-// closing quote and brace were missing, so a JSON-lines consumer failed on
-// every GC run). The line is located by its status key and unmarshaled.
 func TestMaintainGCPendingNoticeJSON(t *testing.T) {
 	f := &gcPingSeqStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
 		queryFn: gcQueryFn(map[string]string{}),
@@ -2487,8 +2171,6 @@ func TestMaintainGCPendingNoticeJSON(t *testing.T) {
 	}
 }
 
-// TestMaintainGCShallowMode — --shallow rides the seam flag and lands in
-// last_gc_mode as "shallow".
 func TestMaintainGCShallowMode(t *testing.T) {
 	metaWrites := map[string]string{}
 	f := &gcPingSeqStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
@@ -2511,8 +2193,6 @@ func TestMaintainGCShallowMode(t *testing.T) {
 	}
 }
 
-// TestMaintainGCReconnectRetryCap — a Ping that fails twice then succeeds
-// recovers within the 5-attempt cap (3 pings total).
 func TestMaintainGCReconnectRetryCap(t *testing.T) {
 	f := &gcPingSeqStore{failPings: 2,
 		fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
@@ -2528,9 +2208,6 @@ func TestMaintainGCReconnectRetryCap(t *testing.T) {
 	}
 }
 
-// TestMaintainGCReconnectFailed — 5 ping failures end exit 1 with the
-// "reconnect failed" JSON, and NO meta write happens (the GC ran but the
-// completion is unverified).
 func TestMaintainGCReconnectFailed(t *testing.T) {
 	f := &gcPingSeqStore{failPings: 100,
 		fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
@@ -2559,9 +2236,6 @@ func TestMaintainGCReconnectFailed(t *testing.T) {
 	}
 }
 
-// TestMaintainGCSchemaRecheckGate — a successful reconnect followed by a
-// schema_version lookup failure is exit 1 with no meta write (the schema
-// gate precedes the record).
 func TestMaintainGCSchemaRecheckGate(t *testing.T) {
 	f := &gcPingSeqStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
 		queryFn: func(sql string, args []any) ([][]any, error) {
@@ -2584,8 +2258,6 @@ func TestMaintainGCSchemaRecheckGate(t *testing.T) {
 	}
 }
 
-// TestMetaKnownKeysGC — the GC history pair joins the known meta keys (no
-// meta-audit unknown false positive — the R80-1 self-contradiction class).
 func TestMetaKnownKeysGC(t *testing.T) {
 	if !KnownMetaKey("last_gc_at") || !KnownMetaKey("last_gc_mode") {
 		t.Fatal("last_gc_at·last_gc_mode가 known 키에 없음")

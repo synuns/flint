@@ -1,5 +1,3 @@
-// hot_v0121_test.go — pending-arm waiting days: an empty string under 24h,
-// otherwise the elapsed days floored, as a "·+Nd" suffix. Appended only to --full pending rows.
 package cli
 
 import (
@@ -25,8 +23,6 @@ func TestPendingAgeSuffix(t *testing.T) {
 	}
 }
 
-// pendingAgeQueryFn — the hot_view essential query returns hotRows (with id, valid_at, and
-// ingested_at columns at the end — a single definition); other queries return empty results.
 func pendingAgeQueryFn(hotRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -37,9 +33,6 @@ func pendingAgeQueryFn(hotRows [][]any) func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestHotFullPendingAgeAppended — the waiting-days suffix at the end of --full pending rows.
-// valid_at is read directly from the essential columns. 49h elapsed (floored to 2 days) leaves
-// a margin for now-capture error.
 func TestHotFullPendingAgeAppended(t *testing.T) {
 	ctx := context.Background()
 	validAt := time.Now().UTC().Add(-49 * time.Hour)
@@ -57,7 +50,7 @@ func TestHotFullPendingAgeAppended(t *testing.T) {
 	if len(gotLines) != len(wantLines) {
 		t.Fatalf("행 수 = %d, want %d: %q", len(gotLines), len(wantLines), out.String())
 	}
-	// pending rows are the existing format + the waiting-days suffix (49h -> floored 2 days).
+
 	if gotLines[0] != wantLines[0]+"·+2d" {
 		t.Errorf("pending 행 = %q, want %q+·+2d", gotLines[0], wantLines[0])
 	}
@@ -66,9 +59,6 @@ func TestHotFullPendingAgeAppended(t *testing.T) {
 	}
 }
 
-// TestHotFullPendingAgeOmittedWithoutValidAt — a missing essential valid_at cell
-// (an old-view-style 4-column row) and non-time.Time values both omit the suffix, inheriting the
-// existing full output (output and exit unchanged — the single-definition version of the 0-row companion-query and error-inheritance contract).
 func TestHotFullPendingAgeOmittedWithoutValidAt(t *testing.T) {
 	ctx := context.Background()
 	noCell := [][]any{{"pending", "토픽", "요약", "2026-10-22"}}

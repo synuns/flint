@@ -1,9 +1,3 @@
-// span_v1193_test.go — the v1.19.3 hour/minute-unit span clamp regressions
-// (R77-R78) at the ops seams: a stall_hot_h/stall_write_h/backup_age_warn_h/
-// chain_window_h override past the Duration ceiling (e.g. 3000000) clamps to
-// the 87600h ceiling via db.HoursSpan — the pre-fix
-// time.Duration(h)*time.Hour wrapped negative, so a 1h-old heartbeat read as
-// stalled, a 1h-old backup as over-age, and no chain could ever count.
 package ops
 
 import (
@@ -15,9 +9,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// TestStallDetailGraceOverflow — doctor's stall grace: a 3000000h override
-// with a 1h-old stamp stays silent (clamped to 10 years); the normal 48h
-// grace still warns at 100h elapsed.
 func TestStallDetailGraceOverflow(t *testing.T) {
 	seen := map[string]time.Time{"last_hot_at": time.Now().Add(-time.Hour)}
 	warns := 0
@@ -30,8 +21,6 @@ func TestStallDetailGraceOverflow(t *testing.T) {
 	}
 }
 
-// TestStallWarningsGraceOverflow — maintain's stall warnings under the same
-// override: a 1h-old last_hot_at/last_write_at yields no warnings.
 func TestStallWarningsGraceOverflow(t *testing.T) {
 	th := store.DefaultThresholds()
 	th.StallHotH = 3000000
@@ -50,8 +39,6 @@ func TestStallWarningsGraceOverflow(t *testing.T) {
 	}
 }
 
-// TestBackupAgeWarnHOverflow — doctor backup-age: a 3000000h
-// backup_age_warn_h override keeps a 1h-old backup ok.
 func TestBackupAgeWarnHOverflow(t *testing.T) {
 	th := store.DefaultThresholds()
 	th.BackupAgeWarnH = 3000000
@@ -67,15 +54,9 @@ func TestBackupAgeWarnHOverflow(t *testing.T) {
 	}
 }
 
-// TestChainWindowOverflow — the report chain verdict under a chain_window_h
-// override past the ceiling, at the collectEffect site itself: the
-// db.HoursSpan-clamped window still counts chains (the wrapped-negative
-// window broke out of both the re-return and the write scan immediately —
-// ChainPct 0, no usage chain could ever register).
 func TestChainWindowOverflow(t *testing.T) {
 	now := time.Now().UTC()
-	// the dispatch fixture with id-bearing reads 2h and 1h old (a 1h-later
-	// re-return of the same ids — a chain under any sane window).
+
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "fallback, ids") {
 			return [][]any{

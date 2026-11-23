@@ -1,11 +1,3 @@
-// tuning_tui_v1910_test.go — v1.9.3 T3 contract tests for the `flint tuning --tui` opt-in.
-// Entry branching: no-arg and existing subcommands delegate byte-for-byte unchanged to ops.RunTuning
-// (no adaptive entry — the no-arg list JSON is an agent contract),
-// --tui standalone only goes to the TUI, combinations are invalid-arg exit 3, and FLINT_NO_TUI is the layer-1
-// block of the 3-layer guard. The TUI flow (tui.RunTuningTUI): non-terminal exit 3
-// (the ErrTerminalRequired convention); form confirmation delegates to the existing set/reset standard path
-// (fake seam; real delegation on the default path); ctrl+c cancel hygiene. One real pty run
-// (terminal entry, form render, exit hygiene).
 package cli
 
 import (
@@ -30,7 +22,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// installTuningTuiFake — swaps the tuningTuiFn seam (call-recording fake).
 func installTuningTuiFake(t *testing.T) *int {
 	t.Helper()
 	calls := 0
@@ -43,7 +34,6 @@ func installTuningTuiFake(t *testing.T) *int {
 	return &calls
 }
 
-// installTuningOpsFake — swaps the tuningOpsRun seam (fake recording call args).
 func installTuningOpsFake(t *testing.T) *[][]string {
 	t.Helper()
 	var calls [][]string
@@ -56,7 +46,6 @@ func installTuningOpsFake(t *testing.T) *[][]string {
 	return &calls
 }
 
-// RF-protocol — --tui standalone: TUI seam called, exit propagates.
 func TestTuningEntryTUIBranch(t *testing.T) {
 	calls := installTuningTuiFake(t)
 	opsCalls := installTuningOpsFake(t)
@@ -74,8 +63,6 @@ func TestTuningEntryTUIBranch(t *testing.T) {
 	}
 }
 
-// RF-protocol — --tui + other args: invalid-arg exit 3 (standalone only —
-// prevents ghost-argument combinations with the positional subcommands set/get/reset).
 func TestTuningEntryTUIRejectsExtraArgs(t *testing.T) {
 	calls := installTuningTuiFake(t)
 	var out bytes.Buffer
@@ -92,7 +79,6 @@ func TestTuningEntryTUIRejectsExtraArgs(t *testing.T) {
 	}
 }
 
-// RF-protocol — FLINT_NO_TUI (layer 1 of the 3-layer guard): even an explicit --tui is blocked, exit 3.
 func TestTuningEntryNoTUIEnvBlocksExplicitTUI(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	calls := installTuningTuiFake(t)
@@ -107,8 +93,6 @@ func TestTuningEntryNoTUIEnvBlocksExplicitTUI(t *testing.T) {
 	}
 }
 
-// RF-protocol — opt-in only: no-arg keeps the ops delegation without adaptive TUI
-// (no-arg = list JSON — the existing agent/script path is absolutely guaranteed).
 func TestTuningEntryNoAdaptiveBareRun(t *testing.T) {
 	calls := installTuningTuiFake(t)
 	opsCalls := installTuningOpsFake(t)
@@ -126,8 +110,6 @@ func TestTuningEntryNoAdaptiveBareRun(t *testing.T) {
 	}
 }
 
-// RF-protocol — existing subcommand regression: set/get/reset/list etc. keep their args and
-// delegate to ops.
 func TestTuningEntrySubcommandsDelegateUnchanged(t *testing.T) {
 	calls := installTuningTuiFake(t)
 	opsCalls := installTuningOpsFake(t)
@@ -146,8 +128,6 @@ func TestTuningEntrySubcommandsDelegateUnchanged(t *testing.T) {
 	}
 }
 
-// RF-protocol — seam defaults: TUI launcher = tui.RunTuningTUI, ops delegation =
-// ops.RunTuning (no duplicate implementation — this file owns only the opt-in entry).
 func TestTuningEntrySeamDefaults(t *testing.T) {
 	if reflect.ValueOf(tuningTuiFn).Pointer() != reflect.ValueOf(tui.RunTuningTUI).Pointer() {
 		t.Fatal("tuningTuiFn seam must default to tui.RunTuningTUI")
@@ -157,9 +137,6 @@ func TestTuningEntrySeamDefaults(t *testing.T) {
 	}
 }
 
-// RF-protocol — byte equivalence: every no-arg and existing-subcommand path is byte-for-byte
-// identical in output and exit to calling ops.RunTuning directly (proving it is a delegation,
-// not a reimplementation).
 func TestTuningEntryByteParityWithOps(t *testing.T) {
 	cases := [][]string{
 		nil,
@@ -188,10 +165,6 @@ func TestTuningEntryByteParityWithOps(t *testing.T) {
 	}
 }
 
-// RF-protocol — non-terminal --tui: on the real wiring (tui.RunTuningTUI default) it exits 3
-// immediately before the form starts (the ErrTerminalRequired convention — go test stdout is
-// not a terminal). No store lookup happens either (blocked right after entry even with a nil
-// store).
 func TestTuningEntryTUIRequiresTerminalRealPath(t *testing.T) {
 	var out bytes.Buffer
 	code := runTuningEntry(context.Background(), nil, []string{"--tui"},
@@ -204,9 +177,6 @@ func TestTuningEntryTUIRequiresTerminalRealPath(t *testing.T) {
 	}
 }
 
-// RF-state — form confirmation -> delegates to the existing set path (fake seam): the Form-filled
-// selection (key, value, set) is passed to deps.Run as ["set", key, value] and the exit code
-// propagates as-is.
 func TestRunTuningTUIFormConfirmDelegatesSet(t *testing.T) {
 	var gotArgs []string
 	var out bytes.Buffer
@@ -233,7 +203,6 @@ func TestRunTuningTUIFormConfirmDelegatesSet(t *testing.T) {
 	}
 }
 
-// RF-state — reset confirmation: only ["reset", key] is passed, without a value.
 func TestRunTuningTUIFormConfirmDelegatesReset(t *testing.T) {
 	var gotArgs []string
 	var out bytes.Buffer
@@ -260,9 +229,6 @@ func TestRunTuningTUIFormConfirmDelegatesReset(t *testing.T) {
 	}
 }
 
-// RF-state — default Run delegation (deps.Run nil): the real ops.RunTuning set standard path is
-// reused — the one-line JSON output ({"status":"set",...}), real-path value
-// validation, and the meta write all belong to the existing path (proving no duplicate implementation).
 func TestRunTuningTUIDefaultRunReusesStandardSetPath(t *testing.T) {
 	f := newTuningFake()
 	var out bytes.Buffer
@@ -285,7 +251,7 @@ func TestRunTuningTUIDefaultRunReusesStandardSetPath(t *testing.T) {
 	if len(f.sets) != 1 || f.meta["dead_days"] != "45" {
 		t.Fatalf("meta not written through standard path: sets=%v meta=%v", f.sets, f.meta)
 	}
-	// invalid values also exit 3 via standard-path validation (real-path parse-fallback rejection and guidance).
+
 	out.Reset()
 	code = tui.RunTuningTUI(context.Background(), newTuningFake(), &out, tui.TuningDeps{
 		IsTerminal: func() bool { return true },
@@ -305,8 +271,6 @@ func TestRunTuningTUIDefaultRunReusesStandardSetPath(t *testing.T) {
 	}
 }
 
-// RF-protocol — ctrl+c cancel (huh.ErrUserAborted): after the one-line "tuning cancelled"
-// notice, exit 0 with no run delegation — a clean cancel.
 func TestRunTuningTUIUserAbortExitsCleanly(t *testing.T) {
 	var out bytes.Buffer
 	ran := false
@@ -334,8 +298,6 @@ func TestRunTuningTUIUserAbortExitsCleanly(t *testing.T) {
 	}
 }
 
-// RF-protocol — key-row load failure: ends via the standard error path (ErrLine + MapExit)
-// without the form.
 func TestRunTuningTUIRowsFailureUsesStandardExit(t *testing.T) {
 	var out bytes.Buffer
 	dbErr := errors.New("db unreachable")
@@ -357,15 +319,8 @@ func TestRunTuningTUIRowsFailureUsesStandardExit(t *testing.T) {
 	}
 }
 
-// TestTuningTUIPtyRealRun — one real pty run: in a real terminal the default huh form
-// renders (terminal entry passes) and the ctrl+c exit is hygienically handled with the "tuning cancelled"
-// notice and exit 0. The child process (FLINT_TUNING_TUI_PTY_CHILD=1)
-// runs tui.RunTuningTUI with the real form and faked Rows/Run; the parent drives it via
-// `script` (a BSD pty wrapper) and verifies the output and exit status. Environments without
-// script skip (the real pty run is limited to this one).
 func TestTuningTUIPtyRealRun(t *testing.T) {
-	// the real pty run is the local pre-release TUI standard check — CI headless runners'
-	// terminal-emulation timing differences make regression verdicts flaky, so CI skips it.
+
 	if os.Getenv("CI") == "true" {
 		t.Skip("pty 실구동: CI 환경 제외(로컬 TUI 표준 검증)")
 	}
@@ -383,9 +338,7 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 	if err != nil {
 		t.Skip("script(pty wrapper) not available — pty real-run skipped")
 	}
-	// script's pty size is inherited from the parent tty, but go test stdout is a pipe, so it becomes
-	// 0x0 (width-0 render -> empty fields). Use sh -c to set the pty size and then run the child,
-	// creating the same conditions as a real terminal.
+
 	cmd := exec.Command(script, "-q", "/dev/null", "/bin/sh", "-c",
 		`stty rows 40 cols 120 2>/dev/null; exec "$0" -test.run=^TestTuningTUIPtyRealRun$`,
 		os.Args[0])
@@ -402,10 +355,7 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 	if err := cmd.Start(); err != nil {
 		t.Fatalf("start pty child: %v", err)
 	}
-	// wait for render — poll until the form title ("Tuning") and the key row ("dead_days") are visible.
-	// bubbletea sends terminal queries before the first paint (OSC 11 background color, DSR cursor
-	// position) and waits for replies — script's pty has no responder, so the parent replies
-	// like a real terminal (minimal emulator behavior).
+
 	deadline := time.Now().Add(20 * time.Second)
 	rendered, answeredBG, answeredCPR := false, false, false
 	for time.Now().Before(deadline) {
@@ -428,7 +378,7 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 		cmd.Process.Kill()
 		t.Fatalf("form did not render in pty output: %q", out.String())
 	}
-	// ctrl+c (0x03) -> huh abort -> notice and exit 0 hygiene.
+
 	if _, err := stdin.Write([]byte{3}); err != nil {
 		cmd.Process.Kill()
 		t.Fatalf("send ctrl+c: %v", err)
@@ -451,10 +401,6 @@ func TestTuningTUIPtyRealRun(t *testing.T) {
 	}
 }
 
-// lockedBuffer — a mutex-protected buffer for collecting pty output, accessed concurrently by the
-// exec copy goroutine (Write) and the main polling loop (String). bytes.Buffer does not define
-// concurrent Write/Read (a real race under go test -race — both shared-buffer Write and String
-// are serialized with Lock).
 type lockedBuffer struct {
 	mu  sync.Mutex
 	buf bytes.Buffer
@@ -472,7 +418,6 @@ func (b *lockedBuffer) String() string {
 	return b.buf.String()
 }
 
-// tailFor — the output tail for diagnostics (last n bytes).
 func tailFor(s string, n int) string {
 	if len(s) <= n {
 		return s

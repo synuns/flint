@@ -1,6 +1,3 @@
-// admin_v0200_test.go — schema v7 (EnsureSchemaV7) slow tests (real
-// DB). The ids-column promotion·session_starts·hot_events creation·
-// idempotence·the numeric-comparison gate regression.
 package db
 
 import (
@@ -8,15 +5,10 @@ import (
 	"testing"
 )
 
-// TestV7PromoteIdempotent — on a DB that passed the v6 gates,
-// EnsureSchemaV7 → version 7·the read_events.ids column present
-// (recording behavior proven)·session_starts·hot_events created. A
-// second call is idempotent.
 func slowV7PromoteIdempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
-	// Reproducing the existing deployment path: v1 → passing the v6 gates
-	// in order.
+
 	for _, gate := range []func(context.Context) error{
 		r.EnsureSchemaV2, r.EnsureSchemaV3, r.EnsureSchemaV4,
 		r.EnsureSchemaV5, r.EnsureSchemaV6,
@@ -25,8 +17,7 @@ func slowV7PromoteIdempotent(t *testing.T, r *Repo) {
 			t.Fatalf("상위 게이트: %v", err)
 		}
 	}
-	// One v6 row — after promotion it reads with the ids default ''
-	// (an additive default).
+
 	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 1, Session: "v7-probe"}); err != nil {
 		t.Fatalf("pre-v7 RecordReadEvent: %v", err)
 	}
@@ -45,8 +36,7 @@ func slowV7PromoteIdempotent(t *testing.T, r *Repo) {
 	if v := readVersion(t, r); v != "7" {
 		t.Fatalf("schema_version = %q, want 7", v)
 	}
-	// ids-column behavior proof — the existing row is '' (default); new
-	// records read back the CSV.
+
 	var ids string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT ids FROM read_events WHERE session = $1`, "v7-probe").Scan(&ids); err != nil {
@@ -65,14 +55,14 @@ func slowV7PromoteIdempotent(t *testing.T, r *Repo) {
 	if ids != "7,9" {
 		t.Errorf("ids = %q, want 7,9", ids)
 	}
-	// New-table behavior proof.
+
 	if err := r.RecordSessionStart(ctx, "v7-probe"); err != nil {
 		t.Fatalf("RecordSessionStart: %v", err)
 	}
 	if err := r.RecordHotEvent(ctx, "v7-probe"); err != nil {
 		t.Fatalf("RecordHotEvent: %v", err)
 	}
-	// The 2nd call is an idempotent no-op.
+
 	if err := r.EnsureSchemaV7(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV7 (want idempotent): %v", err)
 	}
@@ -81,8 +71,6 @@ func slowV7PromoteIdempotent(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV7GateNumeric — the gate numeric-comparison regression (the same
-// contract as V5·V6).
 func slowV7GateNumeric(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()

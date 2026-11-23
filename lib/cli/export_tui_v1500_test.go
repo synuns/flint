@@ -1,7 +1,3 @@
-// export_tui_v1500_test.go — contract for the `flint export --tui` entry branch.
-// The runExport body (flag parsing, output, sidecar, cap) is owned by the existing export_test.go —
-// here we only verify (1) the --tui entry branch delegates to the TUI-flow seam, (2) without
-// --tui the flag path is unchanged, and (3) the default wiring's non-terminal fallback.
 package cli
 
 import (
@@ -13,8 +9,6 @@ import (
 	"github.com/synuns/flint/lib/tui"
 )
 
-// RF1 — entry branch: `flint export --tui` delegates to exportTUIFn (tui.RunExport) instead of
-// runExport flag parsing, passing the exit code through.
 func TestRunExportTUIEntryBranch(t *testing.T) {
 	installExportFakes(t, nil)
 	called := 0
@@ -37,8 +31,6 @@ func TestRunExportTUIEntryBranch(t *testing.T) {
 	}
 }
 
-// RF2 — flag-path regression: without --tui, the existing behavior is unchanged — the TUI seam is
-// not called and the jsonl stdout + summary stderr contract is kept as-is.
 func TestRunExportFlagPathUnchangedWithoutTUI(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	old := exportTUIFn
@@ -60,8 +52,6 @@ func TestRunExportFlagPathUnchangedWithoutTUI(t *testing.T) {
 	}
 }
 
-// RF3 — default-wiring non-terminal fallback: in a pipe/test environment (not a terminal),
-// --tui exits 3 + one line of the "TUI requires a terminal" error JSON.
 func TestRunExportTUIDefaultWiringNonTerminalFallback(t *testing.T) {
 	installExportFakes(t, nil)
 	var stdout bytes.Buffer

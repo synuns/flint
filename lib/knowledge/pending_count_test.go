@@ -1,6 +1,3 @@
-// pending_count_test.go — the CountPending single-lookup contract (empty
-// response·unparseable value are a quiet 0; a lookup failure propagates as
-// an error — the existing cli.countPending convention unchanged).
 package knowledge
 
 import (
@@ -11,10 +8,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// fakeCountStore — the minimal wire.Store double for CountPending
-// verification. Only Query works; the rest are unused (fail immediately
-// if called). The HistoryStubs embedding absorbs the five history methods
-// with unsupported default implementations.
 type fakeCountStore struct {
 	wire.HistoryStubs
 	queryFn func(sql string, args []any) ([][]any, error)
@@ -46,10 +39,6 @@ func (f *fakeCountStore) Ping(ctx context.Context) error { return errors.New("un
 
 func (f *fakeCountStore) Close() {}
 
-// TestCountPendingSingleLookup — single lookup of the pending count
-// (empty response·unparseable value are a quiet 0; a lookup failure
-// propagates as an error — the existing cli.countPending convention
-// unchanged).
 func TestCountPendingSingleLookup(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {

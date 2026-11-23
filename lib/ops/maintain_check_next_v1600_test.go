@@ -1,6 +1,3 @@
-// maintain_check_next_v1600_test.go — the next key of the maintain --check
-// response (recommended actions — the pending import dry-run convention). Verifies
-// that the per-state recommended-command guidance is attached as an additive field. fakeMaintStore reuses the care_test.go conventions.
 package ops
 
 import (
@@ -12,7 +9,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// countsFake — injects fixed Counts into fakeMaintStore (for boundary cases).
 type countsFake struct {
 	*fakeMaintStore
 	counts db.Counts
@@ -22,9 +18,6 @@ func (f *countsFake) Counts(ctx context.Context) (db.Counts, error) {
 	return f.counts, nil
 }
 
-// TestMaintainCheckNextKey — protocol: the next key carries the per-state
-// recommended action (none within thresholds; pending over -> pending review + expiry;
-// dup over -> dup-suspects). The existing status and numeric fields are unchanged.
 func TestMaintainCheckNextKey(t *testing.T) {
 	cases := []struct {
 		name       string

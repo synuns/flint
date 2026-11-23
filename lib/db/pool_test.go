@@ -75,7 +75,7 @@ func TestRetryServerDownImmediate(t *testing.T) {
 func TestConnectServerDown(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
-	// Port 5439 is unused — inducing a server-down
+
 	_, err := Connect(ctx, "postgresql://flint:flint-dev@localhost:5439/flint")
 	if !errors.Is(err, ErrServerDown) {
 		t.Fatalf("want ErrServerDown, got %v", err)
@@ -83,8 +83,7 @@ func TestConnectServerDown(t *testing.T) {
 }
 
 func TestConnectReal(t *testing.T) {
-	// Without FLINT_DSN, skip instead of the 5433 fallback — see
-	// testutil_test.go.
+
 	dsn := testDSN(t)
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -98,10 +97,6 @@ func TestConnectReal(t *testing.T) {
 	}
 }
 
-// TestPoolConfigConnectTimeout — the pool config's connection timeout
-// defaults to 5s (failing remote unreachability early — exit 2 within
-// the hooks' 10s budget). A shorter DSN-specified value is kept; a
-// longer one is capped at 5s.
 func TestPoolConfigConnectTimeout(t *testing.T) {
 	cfg, err := PoolConfig("postgresql://flint:flint-dev@localhost:5434/flint")
 	if err != nil {

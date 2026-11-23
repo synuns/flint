@@ -1,10 +1,3 @@
-// import_jsonl_test.go — the import --format jsonl round-trip re-plant
-// tests. All synthetic demo data (personal data forbidden — the CLAUDE.md
-// top-level principle). Verification order: round trip (export→import→
-// imported=N)·idempotent 2nd run (duplicated=N)·lineage restoration
-// (superseded_by renewal)·corrupt row exit 3·invalid format exit 3·
-// server-down exit 2·the pam seam. The real-DB round trip belongs to
-// cli/import_migrate_test.go slow.
 package knowledge
 
 import (
@@ -25,13 +18,10 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// migrateFixtureRows — a 2-row synthetic export snapshot (1 new active·1
-// lineage invalidated — pointing at the active row via superseded_by).
 func migrateFixtureRows() []ExportRow {
 	t0 := time.Date(2026, 11, 14, 10, 0, 0, 0, time.UTC)
 	sup := 11
-	// ContentHash uses distinct 64-hex values for the stored-hash
-	// inheritance (A9) check.
+
 	return []ExportRow{
 		{
 			ID: 11, Topic: "demo migrate alpha", Content: "합성 데모 지식 본문 alpha — 왕복 검증용.",
@@ -52,15 +42,12 @@ func migrateFixtureRows() []ExportRow {
 	}
 }
 
-// migrateFake — a fakeStore with the Supersede·SetSupersededRef
-// capabilities added (the base fake implements only wire.Store —
-// verifying the transition·reference-restoration paths).
 type migrateFake struct {
 	*fakeStore
 	supersedeErr   error
 	superseded     []supersedeCall
 	refCalls       [][2]int
-	replayedRecall []db.RecallReplay // ReplayRecallEvents call records (R42-A)
+	replayedRecall []db.RecallReplay
 }
 
 func (m *migrateFake) Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error) {
@@ -76,10 +63,6 @@ func (m *migrateFake) SetSupersededRef(ctx context.Context, oldID, newID int) (i
 	return 1, nil
 }
 
-// InsertBatch — returns the explicit id when the rec carries one
-// (aligned with the real implementation's RETURNING id — verifying the
-// id-preservation path). Unspecified rows follow the fake's sequential
-// convention.
 func (m *migrateFake) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	m.fakeStore.inserted = append(m.fakeStore.inserted, recs...)
 	if m.fakeStore.insertErr != nil {
@@ -96,15 +79,11 @@ func (m *migrateFake) InsertBatch(ctx context.Context, recs []map[string]any) ([
 	return ids, nil
 }
 
-// ReplayRecallEvents — records the R42-A score-transfer replay calls
-// (the formula belongs to the db.Repo real implementation — here only
-// the round-trip contract calls are inherited).
 func (m *migrateFake) ReplayRecallEvents(ctx context.Context, items []db.RecallReplay) error {
 	m.replayedRecall = append(m.replayedRecall, items...)
 	return nil
 }
 
-// runMigrate — runs RunImportMigrate directly + returns the output.
 func runMigrate(t *testing.T, st wire.Store, args []string, stdin string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -112,9 +91,6 @@ func runMigrate(t *testing.T, st wire.Store, args []string, stdin string) (strin
 	return out.String(), code
 }
 
-// TestParseJSONLRowsRoundtrip — ParseJSONLRows turns the FormatJSONL
-// output back with every field preserved (the round-trip parsing
-// contract).
 func TestParseJSONLRowsRoundtrip(t *testing.T) {
 	rows := migrateFixtureRows()
 	data, err := FormatJSONL(rows)
@@ -144,8 +120,6 @@ func TestParseJSONLRowsRoundtrip(t *testing.T) {
 	}
 }
 
-// TestParseJSONLRowsCorruptLine — a corrupt row is an error carrying the
-// row number.
 func TestParseJSONLRowsCorruptLine(t *testing.T) {
 	data := []byte(`{"id":1,"topic":"ok"}
 {"id":not-json}
@@ -159,8 +133,6 @@ func TestParseJSONLRowsCorruptLine(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateJSONLRoundtrip — re-planting: imported=2·id
-// preserved·normalized recs accrued. The summary is one stdout line.
 func TestRunImportMigrateJSONLRoundtrip(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows())
 	if err != nil {
@@ -194,8 +166,6 @@ func TestRunImportMigrateJSONLRoundtrip(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateJSONLFileArg — the FILE positional path (instead
-// of stdin).
 func TestRunImportMigrateJSONLFileArg(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows()[:1])
 	if err != nil {
@@ -212,10 +182,6 @@ func TestRunImportMigrateJSONLFileArg(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateJSONLIdempotent — two runs: the rerun skips every
-// row as a duplicate·exit 0 (idempotent). Dedup takes the ANY($1) bulk
-// lookup path — memMigrateFake simulates the accrue→duplicate-verdict
-// round trip.
 func TestRunImportMigrateJSONLIdempotent(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows())
 	if err != nil {
@@ -233,16 +199,11 @@ func TestRunImportMigrateJSONLIdempotent(t *testing.T) {
 	if !strings.Contains(out, `"imported":0`) || !strings.Contains(out, `"duplicated":2`) {
 		t.Fatalf("멱등 위반: %s", out)
 	}
-	if len(m.inserted) != 2 { // only the 2 first-run rows — no second-run accrual
+	if len(m.inserted) != 2 {
 		t.Fatalf("2회차 재적립: %d", len(m.inserted))
 	}
 }
 
-// TestRunImportMigrateJSONLLineage — lineage restoration: rows with
-// superseded_by references are renewed in a post-pass. The transition
-// path (Supersede reuse)·the reference-restoration path
-// (SetSupersededRef — the ErrNotFound fallback·stores without the
-// transition)·the no-capability skip.
 func TestRunImportMigrateJSONLLineage(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows())
 	if err != nil {
@@ -283,7 +244,7 @@ func TestRunImportMigrateJSONLLineage(t *testing.T) {
 		}
 	})
 	t.Run("no capability skips", func(t *testing.T) {
-		f := &fakeStore{} // no transition·reference restoration — warn then skip
+		f := &fakeStore{}
 		out, code := runMigrate(t, f, []string{"--format", "jsonl"}, string(data))
 		if code != 0 || !strings.Contains(out, `"superseded":0`) {
 			t.Fatalf("exit=%d out=%s", code, out)
@@ -294,9 +255,6 @@ func TestRunImportMigrateJSONLLineage(t *testing.T) {
 	})
 }
 
-// refFake — a fake implementing only SetSupersededRef (the
-// store-without-transition path). With zeroRows=true it returns 0 rows
-// (the reference already exists).
 type refFake struct {
 	*fakeStore
 	zeroRows bool
@@ -311,8 +269,6 @@ func (r *refFake) SetSupersededRef(ctx context.Context, oldID, newID int) (int64
 	return 1, nil
 }
 
-// InsertBatch — returns the explicit id when the rec carries one (same
-// as migrateFake — aligned with the real RETURNING id).
 func (r *refFake) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	r.fakeStore.inserted = append(r.fakeStore.inserted, recs...)
 	if r.fakeStore.insertErr != nil {
@@ -329,9 +285,6 @@ func (r *refFake) InsertBatch(ctx context.Context, recs []map[string]any) ([]int
 	return ids, nil
 }
 
-// TestRunImportMigrateInvalidArgs — invalid format·missing value·
-// unrecognized flag·unreadable FILE are all exit 3 (the invalid-argument
-// contract).
 func TestRunImportMigrateInvalidArgs(t *testing.T) {
 	cases := [][]string{
 		{"--format", "bogus"},
@@ -349,8 +302,6 @@ func TestRunImportMigrateInvalidArgs(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateServerDown — server-down exit 2 (reusing
-// MapExit).
 func TestRunImportMigrateServerDown(t *testing.T) {
 	f := &fakeStore{pingErr: store.ErrServerDown}
 	out, code := runMigrate(t, f, []string{"--format", "jsonl"}, "")
@@ -359,8 +310,6 @@ func TestRunImportMigrateServerDown(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMUnsupported — when the ParsePAM seam is not
-// ready (nil), an unsupported error exit 3.
 func TestRunImportMigratePAMUnsupported(t *testing.T) {
 	prev := ParsePAMFn
 	ParsePAMFn = nil
@@ -375,8 +324,6 @@ func TestRunImportMigratePAMUnsupported(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMImport — with the seam ready, PAM candidates
-// accrue as pending + idempotent (the rerun is duplicate).
 func TestRunImportMigratePAMImport(t *testing.T) {
 	f := &fakeStore{}
 	out, code := runMigrate(t, f, []string{"--format", "pam"}, pamSample)
@@ -399,9 +346,7 @@ func TestRunImportMigratePAMImport(t *testing.T) {
 	if topic, _ := rec["topic"].(string); !strings.Contains(topic, "mem-demo-1") {
 		t.Fatalf("pam topic 파생: %q", topic)
 	}
-	// The second-run dedup takes the ANY($1) bulk lookup — verified with
-	// memMigrateFake that the accrued hashes are visible to the lookup
-	// (the ExistsHash stub abolished).
+
 	m := newMemMigrateFake()
 	if out2, code2 := runMigrate(t, m, []string{"--format", "pam"}, pamSample); code2 != 0 || !strings.Contains(out2, `"imported":1`) {
 		t.Fatalf("mem 1회차 exit=%d out=%s", code2, out2)
@@ -412,9 +357,6 @@ func TestRunImportMigratePAMImport(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMSkippedSummary — skipped candidates (statuses
-// not accrual-eligible) are reported as skipped in the summary (the
-// wiring contract — including Skipped in the summary).
 func TestRunImportMigratePAMSkippedSummary(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -434,11 +376,6 @@ func TestRunImportMigratePAMSkippedSummary(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateJSONLSanitizes — external-file source
-// sanitization (ADR-0006): summary control characters·"[flint]"
-// markers·tags element control characters are neutralized in the accrual
-// recs (same as the write pipeline — the sanitized result is the stored
-// body).
 func TestRunImportMigrateJSONLSanitizes(t *testing.T) {
 	rows := []ExportRow{{
 		ID: 31, Topic: "demo sanitize", Kind: "knowledge", Status: "active",
@@ -468,10 +405,6 @@ func TestRunImportMigrateJSONLSanitizes(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateJSONLOriginPreserved — the jsonl source (origin)
-// is not overwritten with the Normalize default ("agent") (round-trip
-// dedup hash symmetry — the duplicate-verdict source for re-planting
-// rows accrued by the done hook with origin="hook").
 func TestRunImportMigrateJSONLOriginPreserved(t *testing.T) {
 	rows := []ExportRow{{
 		ID: 41, Topic: "demo origin hook", Kind: "knowledge", Status: "active",
@@ -492,19 +425,15 @@ func TestRunImportMigrateJSONLOriginPreserved(t *testing.T) {
 	}
 }
 
-// TestRunImportRoutedDelegates — routing: without --format, the existing
-// RunImport rule-conversion path is unchanged; with --format, the
-// migrate path.
 func TestRunImportRoutedDelegates(t *testing.T) {
 	f := &fakeStore{}
 	var out strings.Builder
-	// The existing path — an unrecognized flag exits 3 (convention
-	// unchanged).
+
 	code := RunImportRouted(context.Background(), f, []string{"--verbose"}, strings.NewReader(""), &out)
 	if code != 3 {
 		t.Fatalf("기존 경로 exit=%d, want 3", code)
 	}
-	// The migrate path.
+
 	out.Reset()
 	data, _ := FormatJSONL(migrateFixtureRows()[:1])
 	code = RunImportRouted(context.Background(), f, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
@@ -513,14 +442,6 @@ func TestRunImportRoutedDelegates(t *testing.T) {
 	}
 }
 
-// ── Audit regressions — all synthetic demo data. ──
-
-// TestRunImportMigrateBatchConflictExitOne — A1[critical]: a batch
-// InsertBatch failure (the real mapInsertErr wraps the unique violation
-// 23505 as ErrDuplicate, and MapExit(ErrDuplicate)=0) must be exit 1 —
-// no "error JSON + exit 0 + zero-row commit" phantom success (inheriting
-// write.go's principle forbidding 'discard everything then exit 0
-// duplicate'). The error cause string is preserved in the output.
 func TestRunImportMigrateBatchConflictExitOne(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows()[:1])
 	if err != nil {
@@ -536,12 +457,8 @@ func TestRunImportMigrateBatchConflictExitOne(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateSyncsIDSequence — A2[medium]: after the explicit-id
-// accrual completes, the id sequence setval(max(id)+1) is issued
-// (preventing a nextval PK collision for flint write right after the
-// migration).
 func TestRunImportMigrateSyncsIDSequence(t *testing.T) {
-	data, err := FormatJSONL(migrateFixtureRows()) // explicit ids 11·22
+	data, err := FormatJSONL(migrateFixtureRows())
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -561,10 +478,6 @@ func TestRunImportMigrateSyncsIDSequence(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateInvalidatedTimestampsPreserved — A4[medium]: an
-// invalidated re-plant preserves invalid_at=UpdatedAt, ingested_at·
-// valid_at=CreatedAt (the old valid_at←UpdatedAt substitution overwrote
-// the invalidation time — an invariant break).
 func TestRunImportMigrateInvalidatedTimestampsPreserved(t *testing.T) {
 	created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	updated := time.Date(2026, 11, 13, 11, 30, 0, 0, time.UTC)
@@ -602,9 +515,6 @@ func TestRunImportMigrateInvalidatedTimestampsPreserved(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateFileErrorIncludesCause — A7[minor]: a FILE read
-// error includes the cause (path·ENOENT/EACCES) in the SchemaError
-// expect (no uniform discarding).
 func TestRunImportMigrateFileErrorIncludesCause(t *testing.T) {
 	f := &fakeStore{}
 	out, code := runMigrate(t, f, []string{"--format", "jsonl", "/nonexistent/r19-demo.jsonl"}, "")
@@ -616,10 +526,6 @@ func TestRunImportMigrateFileErrorIncludesCause(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateSupersededRefZeroRowsNotCounted — A8[minor]: a
-// SetSupersededRef returning 0 rows (the reference already exists — an
-// idempotent rerun) is excluded from the superseded count. The call
-// itself is still made.
 func TestRunImportMigrateSupersededRefZeroRowsNotCounted(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows())
 	if err != nil {
@@ -638,12 +544,6 @@ func TestRunImportMigrateSupersededRefZeroRowsNotCounted(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateStoredHashDedup — A9[minor]: rows stored with a
-// content_hash write derived including payload extra keys (here: memo,
-// not carried in the jsonl) cannot be reproduced by recomputation — the
-// stored hash the export carried (content_hash 64 hex) must be inherited
-// for dedup to avoid double accrual. The existing-row verdict takes the
-// ANY($1) bulk lookup — verified with memMigrateFake's pre-accrual map.
 func TestRunImportMigrateStoredHashDedup(t *testing.T) {
 	h := store.ContentHash(store.HashCanonical(map[string]any{
 		"topic": "demo r19 extra key", "summary": "합성 데모 — 부가 키 write 행 dedup.",
@@ -672,10 +572,6 @@ func TestRunImportMigrateStoredHashDedup(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateHashSymmetricWithWrite — the A9 premise guard: a
-// row without a stored hash has its recomputed hash identical to the
-// write-path formula (ContentHash(HashCanonical(n)) full key) (symmetric
-// for payloads without extra keys).
 func TestRunImportMigrateHashSymmetricWithWrite(t *testing.T) {
 	payload := `{"topic":"demo r19 symmetric","summary":"합성 데모 — write 해시 대칭.","tags":["demo"],"domain":"main","confidence":0.9,"origin":"agent"}` + "\n"
 	wf := &fakeStore{}
@@ -705,11 +601,6 @@ func TestRunImportMigrateHashSymmetricWithWrite(t *testing.T) {
 	}
 }
 
-// ── The import row cap (the export_import_max_rows registry key). ──
-
-// maxRowsFake — a fake reading only the export_import_max_rows override
-// from meta (answering the LoadThresholds IN lookup — every other query
-// gets 0 rows).
 func maxRowsFake(max string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key IN") {
@@ -719,8 +610,6 @@ func maxRowsFake(max string) *fakeStore {
 	}}
 }
 
-// maxRowsFixtureRows — N synthetic rows for the cap checks (simple rows
-// without hash collisions).
 func maxRowsFixtureRows(n int) []ExportRow {
 	t0 := time.Date(2026, 11, 14, 12, 0, 0, 0, time.UTC)
 	rows := make([]ExportRow, 0, n)
@@ -736,9 +625,6 @@ func maxRowsFixtureRows(n int) []ExportRow {
 	return rows
 }
 
-// TestRunImportMigrateMaxRowsExceeded — when the row count exceeds the
-// cap, exit 3·the error JSON includes max·count, and no accrual happens
-// (large-document memory defense — the pipeline blocked before accrual).
 func TestRunImportMigrateMaxRowsExceeded(t *testing.T) {
 	data, err := FormatJSONL(maxRowsFixtureRows(3))
 	if err != nil {
@@ -757,8 +643,6 @@ func TestRunImportMigrateMaxRowsExceeded(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateMaxRowsBoundary — a row count equal to the cap
-// passes (count == max allowed — only the excess is blocked).
 func TestRunImportMigrateMaxRowsBoundary(t *testing.T) {
 	data, err := FormatJSONL(maxRowsFixtureRows(2))
 	if err != nil {
@@ -771,8 +655,6 @@ func TestRunImportMigrateMaxRowsBoundary(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateMaxRowsPAMExceeded — the same cap on the pam path:
-// exceeding the candidate+skip total row count is exit 3·no accrual.
 func TestRunImportMigrateMaxRowsPAMExceeded(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -795,9 +677,6 @@ func TestRunImportMigrateMaxRowsPAMExceeded(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateValidAtPreserved — valid_at is preserved and
-// accrued as the raw value. On rows whose validation time ≠ collection
-// time, the source valid_at is accrued as-is.
 func TestRunImportMigrateValidAtPreserved(t *testing.T) {
 	created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 	valid := time.Date(2026, 11, 12, 23, 15, 0, 0, time.UTC)
@@ -828,11 +707,6 @@ func TestRunImportMigrateValidAtPreserved(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMProjectKind — PAM project-shaped candidates are
-// not skipped but accrued as pending (following the promotion model).
-// The source kind is preserved by appending the tag "pam:project"
-// (ExportRow.Kind is the storage-router constant, so the distinction is
-// by tag only).
 func TestRunImportMigratePAMProjectKind(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -870,12 +744,6 @@ func TestRunImportMigratePAMProjectKind(t *testing.T) {
 	}
 }
 
-// ── The slow real-DB seam (only with SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN set). ──
-
-// importRealDSN — real-DB connection allowed only with SUPERLITE_REAL=1
-// + FLINT_TEST_DSN set (inheriting the cli seamRealDSN contract —
-// operational fallback blocked).
 func importRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -887,17 +755,11 @@ func importRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// importRealStore — the db.Repo write + pool read adapter (the cli
-// realStore convention. Supersede·SetSupersededRef are *db.Repo promoted
-// methods).
 type importRealStore struct {
 	*db.Repo
 	pool *pgxpool.Pool
 }
 
-// Of the history contract, the 4 methods db.Repo does not implement
-// return unsupported (LogEntries is inherited via the *db.Repo embedding
-// — an explicit absorption with the same meaning as wire.HistoryStubs).
 func (s *importRealStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
 	return nil, wire.ErrHistoryUnsupported
 }
@@ -938,11 +800,6 @@ func (s *importRealStore) Close() {
 	s.pool.Close()
 }
 
-// TestImportMaxRowsRealSlow — the real-DB regression (slow): the meta
-// override export_import_max_rows is reflected through the real
-// LoadThresholds path (IN lookup) — an excess document is exit 3·error
-// JSON max·count; a boundary document accrues normally. Uses synthetic
-// demo data only and cleans rows by tag.
 func TestImportMaxRowsRealSlow(t *testing.T) {
 	dsn, ok := importRealDSN()
 	if !ok {
@@ -960,10 +817,9 @@ func TestImportMaxRowsRealSlow(t *testing.T) {
 	}
 	st := &importRealStore{Repo: repo, pool: pool}
 	t.Cleanup(st.Close)
-	const tag = "maxrows" // same cleanup tag maxRowsFixtureRows applies
+	const tag = "maxrows"
 	const key = "export_import_max_rows"
-	// Row·meta cleanup (leading+trailing — absorbing prior-run residue·
-	// this run's override).
+
 	cleanup := func() {
 		_, _ = st.Query(ctx, `DELETE FROM knowledge WHERE strpos(tags, ':' || $1 || ':') > 0`, tag)
 		_, _ = st.Query(ctx, `DELETE FROM meta WHERE key = $1`, key)
@@ -1003,10 +859,6 @@ func TestImportMaxRowsRealSlow(t *testing.T) {
 	})
 }
 
-// TestImportMigrateR19RealSlow — the real-DB regression (slow): the A9
-// extra-key row dedup·the A2 sequence sync (write succeeds right after
-// the migration)·the A4 re-export timestamp identity·the A1 PK-collision
-// exit 1. Uses synthetic demo data only and cleans rows by tag.
 func TestImportMigrateR19RealSlow(t *testing.T) {
 	dsn, ok := importRealDSN()
 	if !ok {
@@ -1031,7 +883,7 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 	t.Cleanup(cleanup)
 	cleanup()
 
-	t.Run("extra-key write row dedups", func(t *testing.T) { // A9
+	t.Run("extra-key write row dedups", func(t *testing.T) {
 		payload := `{"topic":"demo r19 slow extra","summary":"합성 데모 slow — 부가 키 write 행.","tags":["` + tag + `"],"domain":"main","confidence":0.9,"origin":"agent","memo":"write 전용 부가 키"}` + "\n"
 		if wout, code := run(t, st, []string{"knowledge"}, payload); code != 0 {
 			t.Fatalf("사전 write exit=%d out=%s", code, wout)
@@ -1064,18 +916,15 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 		cleanup()
 	})
 
-	t.Run("sequence synced for explicit ids", func(t *testing.T) { // A2
-		// The top-level aggregate COALESCE(MAX(id),0) returns 0 rows on
-		// an empty table under the Doltgres extended protocol (the
-		// simple protocol psql returns 1 row — an engine asymmetry). A
-		// scalar subquery always returns 1 row.
+	t.Run("sequence synced for explicit ids", func(t *testing.T) {
+
 		maxRows, err := wire.QueryOnce(ctx, st, `SELECT COALESCE((SELECT MAX(id) FROM knowledge), 0)`, nil)
 		if err != nil || len(maxRows) == 0 {
 			t.Fatalf("max(id) 조회 실패: %v", err)
 		}
 		base, _ := render.CellToInt(maxRows[0][0])
 		var rows []ExportRow
-		for i := 1; i <= 30; i++ { // consecutive explicit ids — so nextval collides with the first id
+		for i := 1; i <= 30; i++ {
 			rows = append(rows, ExportRow{
 				ID: base + i, Topic: fmt.Sprintf("demo r19 slow seq %02d", i),
 				Content: fmt.Sprintf("합성 데모 slow — 시퀀스 동기 행 %02d.", i),
@@ -1102,10 +951,10 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 		cleanup()
 	})
 
-	t.Run("invalidated timestamps roundtrip", func(t *testing.T) { // valid_at
+	t.Run("invalidated timestamps roundtrip", func(t *testing.T) {
 		created := time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
 		updated := time.Date(2026, 11, 13, 11, 30, 0, 0, time.UTC)
-		valid := time.Date(2026, 11, 13, 8, 0, 0, 0, time.UTC) // validation time ≠ collection time
+		valid := time.Date(2026, 11, 13, 8, 0, 0, 0, time.UTC)
 		sup := 919106
 		rows := []ExportRow{
 			{ID: 919106, Topic: "demo r19 slow ts active", Content: "합성 데모 slow — 시각 active.",
@@ -1149,7 +998,7 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 		cleanup()
 	})
 
-	t.Run("pk conflict exits 1", func(t *testing.T) { // A1
+	t.Run("pk conflict exits 1", func(t *testing.T) {
 		if _, err := wire.QueryOnce(ctx, st,
 			`INSERT INTO knowledge (id, topic, summary, tags, confidence, origin, status, content_hash)
 			 VALUES (919108, 'demo r19 slow occupied', '합성 데모 slow — 선점 행.', ':importr19:', 0.9, 'agent', 'active', 'r19-slow-occupied')`, nil); err != nil {
@@ -1170,28 +1019,16 @@ func TestImportMigrateR19RealSlow(t *testing.T) {
 	})
 }
 
-// ── import batch+chunk transactions. ──
-// All synthetic demo data. The dedup ANY($1) bulk lookup·chunked INSERT
-// commits·the early line-scan cap contract.
-
-// memMigrateFake — a fake where the dedup ANY($1) lookup and InsertBatch
-// operate on one in-memory hash map (simulating the real-DB
-// "accrue→rerun duplicate verdict" round trip — dedup takes the Query
-// bulk-lookup path). insertErrs are per-InsertBatch-call-index (0-based)
-// errors — only that index's chunk fails (simulating earlier chunks as
-// already committed).
 type memMigrateFake struct {
 	*migrateFake
 	dup        map[string]DupMeta
-	ids        map[int]bool // the set of existing·accrued knowledge ids (id-collision verdicts)
+	ids        map[int]bool
 	nextID     int
 	insertErrs map[int]error
 	batchSizes []int
 	calls      int
 }
 
-// newMemMigrateFake — base initialization (dup·id maps·the error table
-// ready).
 func newMemMigrateFake() *memMigrateFake {
 	return &memMigrateFake{
 		migrateFake: &migrateFake{fakeStore: &fakeStore{}},
@@ -1201,9 +1038,6 @@ func newMemMigrateFake() *memMigrateFake {
 	}
 }
 
-// Query — answers the content_hash = ANY($1) bulk lookup from the dup
-// map and the id = ANY($1) collision lookup from the ids map (everything
-// else delegates to fakeStore).
 func (m *memMigrateFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	if strings.Contains(sql, "content_hash = ANY($1)") {
 		m.fakeStore.queries = append(m.fakeStore.queries, sql)
@@ -1220,9 +1054,9 @@ func (m *memMigrateFake) Query(ctx context.Context, sql string, args ...any) ([]
 		}
 		return out, nil
 	}
-	if strings.Contains(sql, "id = ANY($1") && strings.Contains(sql, "FROM knowledge") { // cast-tolerant since v1.20.1
+	if strings.Contains(sql, "id = ANY($1") && strings.Contains(sql, "FROM knowledge") {
 		m.fakeStore.queries = append(m.fakeStore.queries, sql)
-		want, _ := args[0].([]int64) // []int64 since v1.20.1 (pgx int8[] encoding)
+		want, _ := args[0].([]int64)
 		var out [][]any
 		for _, id64 := range want {
 			id := int(id64)
@@ -1235,9 +1069,6 @@ func (m *memMigrateFake) Query(ctx context.Context, sql string, args ...any) ([]
 	return m.fakeStore.Query(ctx, sql, args...)
 }
 
-// InsertBatch — on success, registers the content_hash in the dup map
-// (the rerun dedup source). Error chunks are unrecorded·unregistered,
-// consistent with the rollback (earlier chunk commits survive).
 func (m *memMigrateFake) InsertBatch(ctx context.Context, recs []map[string]any) ([]int, error) {
 	m.batchSizes = append(m.batchSizes, len(recs))
 	call := m.calls
@@ -1251,13 +1082,13 @@ func (m *memMigrateFake) InsertBatch(ctx context.Context, recs []map[string]any)
 		m.nextID++
 		id := m.nextID
 		if v, ok := r["id"].(int); ok && v > 0 {
-			id = v // aligned with the real RETURNING id (explicit-id preservation)
+			id = v
 			if v >= m.nextID {
 				m.nextID = v
 			}
 		}
 		ids[i] = id
-		m.ids[id] = true // register the accrued id (G5 — the re-plant collision-verdict source)
+		m.ids[id] = true
 		if h, ok := r["content_hash"].(string); ok && h != "" {
 			m.dup[h] = DupMeta{ID: id}
 		}
@@ -1265,8 +1096,6 @@ func (m *memMigrateFake) InsertBatch(ctx context.Context, recs []map[string]any)
 	return ids, nil
 }
 
-// overrideImportChunks — shrinks the chunk sizes (restored when the test
-// ends).
 func overrideImportChunks(t *testing.T, dedup, insert int) {
 	t.Helper()
 	savedD, savedI := importDedupChunk, importInsertChunk
@@ -1274,9 +1103,6 @@ func overrideImportChunks(t *testing.T, dedup, insert int) {
 	t.Cleanup(func() { importDedupChunk, importInsertChunk = savedD, savedI })
 }
 
-// TestCountJSONLRows — the line-scan count (P5): the line count
-// excluding blank lines equals the ParseJSONLRows row criterion (empty
-// input 0·trailing newline·blank-only lines).
 func TestCountJSONLRows(t *testing.T) {
 	cases := []struct {
 		name string
@@ -1296,10 +1122,6 @@ func TestCountJSONLRows(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateMaxRowsEarlyScan — the over-cap verdict fires
-// early via a line scan before full parsing — even with a corrupt row
-// mixed in, the cap error takes precedence (the parse-memory defense
-// precedes the parse error). No accrual.
 func TestRunImportMigrateMaxRowsEarlyScan(t *testing.T) {
 	f := maxRowsFake("2")
 	doc := "{\"id\":1,\"topic\":\"demo early a\"}\n" +
@@ -1320,16 +1142,10 @@ func TestRunImportMigrateMaxRowsEarlyScan(t *testing.T) {
 	}
 }
 
-// TestImportRowsBatchDedupBatchLookup — the dedup verdict comes from one
-// content_hash = ANY($1) chunked pre-query (only the chunk-overflow goes
-// to the next round trip), not per-row lookupHash. In-file duplicates
-// still skip with the first row winning; existing-row ids are inherited
-// into the idmap for lineage-reference resolution.
 func TestImportRowsBatchDedupBatchLookup(t *testing.T) {
 	overrideImportChunks(t, 2, 100)
 	m := newMemMigrateFake()
-	// Rows 1·2 are existing DB rows (hashes pre-registered); rows 3·4 are
-	// new.
+
 	rows := maxRowsFixtureRows(4)
 	var data []byte
 	data, err := FormatJSONL(rows)
@@ -1363,8 +1179,7 @@ func TestImportRowsBatchDedupBatchLookup(t *testing.T) {
 			anyQueries++
 		}
 	}
-	// 4 hashes in chunks of 2 → 2 round trips (per-row lookups would be
-	// 4).
+
 	if anyQueries != 2 {
 		t.Fatalf("ANY($1) 왕복=%d회, want 2(청크 2)", anyQueries)
 	}
@@ -1376,9 +1191,6 @@ func TestImportRowsBatchDedupBatchLookup(t *testing.T) {
 	}
 }
 
-// TestImportRowsBatchChunkBoundary — the accrual splits into chunked
-// INSERTs (the last chunk is the remainder size). The id mapping·
-// imported counts stay aligned with the row order.
 func TestImportRowsBatchChunkBoundary(t *testing.T) {
 	overrideImportChunks(t, 100, 2)
 	m := newMemMigrateFake()
@@ -1400,11 +1212,6 @@ func TestImportRowsBatchChunkBoundary(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePartialFailureResume — the chunk-commit regression:
-// when chunk 2's INSERT fails (23505 cause preserved·exit 1), chunk 1's
-// commit survives, and a rerun has dedup recover the already-accrued
-// chunk and accrue only the remainder (partial-success imported counts
-// preserved·idempotent resumption).
 func TestRunImportMigratePartialFailureResume(t *testing.T) {
 	overrideImportChunks(t, 100, 2)
 	rows := maxRowsFixtureRows(6)
@@ -1424,7 +1231,7 @@ func TestRunImportMigratePartialFailureResume(t *testing.T) {
 	if len(m.batchSizes) != 2 || m.batchSizes[0] != 2 || m.batchSizes[1] != 2 {
 		t.Fatalf("1회차 청크=%v, want [2 2](첫 청크 커밋 후 실패)", m.batchSizes)
 	}
-	if len(m.inserted) != 2 { // only chunk 1 accrued — partial success preserved
+	if len(m.inserted) != 2 {
 		t.Fatalf("부분 성공 적립=%d, want 2(첫 청크)", len(m.inserted))
 	}
 	delete(m.insertErrs, 1)
@@ -1440,16 +1247,12 @@ func TestRunImportMigratePartialFailureResume(t *testing.T) {
 	}
 }
 
-// TestImportChunkedRealSlow — the real-DB regression (slow): under
-// shrunk chunks — round trip·idempotence·lineage·partial-failure
-// resumption. Uses synthetic demo data only and cleans by tag. Only
-// with SUPERLITE_REAL=1 + FLINT_TEST_DSN set.
 func TestImportChunkedRealSlow(t *testing.T) {
 	dsn, ok := importRealDSN()
 	if !ok {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
-	overrideImportChunks(t, 5, 7) // force boundaries with dedup 5-hash·INSERT 7-row chunks
+	overrideImportChunks(t, 5, 7)
 	ctx := context.Background()
 	repo, err := db.NewRepo(ctx, dsn)
 	if err != nil {
@@ -1480,14 +1283,14 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		var rows []ExportRow
 		for i := 1; i <= 17; i++ {
 			r := ExportRow{
-				ID:      base + i, // explicit id for lineage-reference resolution (idmap inheritance)
+				ID:      base + i,
 				Topic:   fmt.Sprintf("demo t2 chunk %02d", i),
 				Content: fmt.Sprintf("합성 데모 slow — 청크 왕복 행 %02d.", i),
 				Kind:    "knowledge", Status: "active", Confidence: 0.9,
 				Tags: []string{tag}, Domain: "main", Source: "agent",
 				CreatedAt: t0, UpdatedAt: t0,
 			}
-			if i == 16 { // lineage: a last-chunk row supersedes a previous-chunk row
+			if i == 16 {
 				r.Status = "invalidated"
 				sup := base + i - 1
 				r.SupersededBy = &sup
@@ -1518,11 +1321,7 @@ func TestImportChunkedRealSlow(t *testing.T) {
 	})
 
 	t.Run("id collision reassign keeps import alive", func(t *testing.T) {
-		// Even with an occupied id (different content), the outcome is a
-		// full accrual exit 0 via automatic reassignment, not a batch PK
-		// collision exit 1 — the round-trip-recovery regression of the
-		// former partial-failure-resume scenario (chunk-failure resumption
-		// is inherited from the unit insertErrs).
+
 		maxRows, err := wire.QueryOnce(ctx, st, `SELECT COALESCE((SELECT MAX(id) FROM knowledge), 0)`, nil)
 		if err != nil || len(maxRows) == 0 {
 			t.Fatalf("max(id) 조회 실패: %v", err)
@@ -1530,7 +1329,7 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		base, _ := render.CellToInt(maxRows[0][0])
 		t0 := time.Date(2026, 11, 15, 10, 0, 0, 0, time.UTC)
 		var rows []ExportRow
-		for i := 1; i <= 12; i++ { // chunk 7: [1..7][8..12] — 2 chunks
+		for i := 1; i <= 12; i++ {
 			rows = append(rows, ExportRow{
 				ID:      base + i,
 				Topic:   fmt.Sprintf("demo t2 resume %02d", i),
@@ -1544,8 +1343,7 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		// Occupy the chunk-2 position (id base+9) with different content →
-		// a G5 reassignment target.
+
 		if _, err := wire.QueryOnce(ctx, st, fmt.Sprintf(
 			`INSERT INTO knowledge (id, topic, summary, tags, confidence, origin, status, content_hash)
 			 VALUES (%d, 'demo t2 squatter', '합성 데모 slow — 선점 행.', ':%s:', 0.9, 'agent', 'active', 't2-squatter-%d')`,
@@ -1560,8 +1358,7 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		if !strings.Contains(out.String(), `"imported":12`) || !strings.Contains(out.String(), `"remapped":1`) {
 			t.Fatalf("재할당 요약(전량 적립): %s", out.String())
 		}
-		// The squatter row is untouched — the reassignment does not
-		// overwrite it.
+
 		var squatter string
 		if err := st.pool.QueryRow(ctx, `SELECT topic FROM knowledge WHERE id = $1`, base+9).Scan(&squatter); err != nil {
 			t.Fatalf("선점 행 조회: %v", err)
@@ -1569,8 +1366,7 @@ func TestImportChunkedRealSlow(t *testing.T) {
 		if squatter != "demo t2 squatter" {
 			t.Fatalf("선점 행 변형: %q", squatter)
 		}
-		// write succeeds after the migration — setval synced (the
-		// explicit-id path).
+
 		payload := `{"topic":"demo t2 after resume","summary":"합성 데모 slow — 재개 직후 write.","tags":["` + tag + `"],"domain":"main","confidence":0.9,"origin":"agent"}` + "\n"
 		wout, code := run(t, st, []string{"knowledge"}, payload)
 		if code != 0 {
@@ -1580,10 +1376,6 @@ func TestImportChunkedRealSlow(t *testing.T) {
 	})
 }
 
-// TestImportBatchBenchRealSlow — bench (slow): a 5.6k-row synthetic
-// re-plant lands in the multiple-seconds target band. The elapsed time
-// is logged and the ceiling is a lenient 20s (absorbing environment
-// variance — the measured value goes to t.Log).
 func TestImportBatchBenchRealSlow(t *testing.T) {
 	dsn, ok := importRealDSN()
 	if !ok {
@@ -1609,7 +1401,7 @@ func TestImportBatchBenchRealSlow(t *testing.T) {
 	cleanup()
 
 	rows := maxRowsFixtureRows(5600)
-	for i := range rows { // attach the bench tag (for cleanup identification)
+	for i := range rows {
 		rows[i].Tags = []string{tag, "bench"}
 	}
 	data, err := FormatJSONL(rows)
@@ -1630,8 +1422,7 @@ func TestImportBatchBenchRealSlow(t *testing.T) {
 	if elapsed > 20*time.Second {
 		t.Fatalf("bench 5.6k import %s — 목표(수 초) 미달, 상한 20s 초과", elapsed)
 	}
-	// The rerun — a benchmark of the bulk dedup (ANY($1)) path: 5.6k
-	// duplicate verdicts.
+
 	start = time.Now()
 	out.Reset()
 	code = RunImportMigrate(ctx, st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
@@ -1645,12 +1436,6 @@ func TestImportBatchBenchRealSlow(t *testing.T) {
 	}
 }
 
-// ── The import file-size cap·automatic id-collision reassignment·
-// project note storage (F5). All synthetic demo data. ──
-
-// overrideImportMaxFileBytes — shrinks the file-size cap (restored when
-// the test ends — verifying only the stat boundary without creating a
-// real 512MB file).
 func overrideImportMaxFileBytes(t *testing.T, max int64) {
 	t.Helper()
 	saved := importMaxFileBytes
@@ -1658,10 +1443,6 @@ func overrideImportMaxFileBytes(t *testing.T, max int64) {
 	t.Cleanup(func() { importMaxFileBytes = saved })
 }
 
-// TestRunImportMigrateFileSizeLimitExceeded — when the FILE size exceeds
-// the cap (512MB default), the stat check before os.ReadFile yields
-// exit 3 — the error JSON includes max·size, and no accrual·parsing
-// happens (blocked before slab loading).
 func TestRunImportMigrateFileSizeLimitExceeded(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows()[:1])
 	if err != nil {
@@ -1671,7 +1452,7 @@ func TestRunImportMigrateFileSizeLimitExceeded(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	overrideImportMaxFileBytes(t, int64(len(data)-1)) // size > cap
+	overrideImportMaxFileBytes(t, int64(len(data)-1))
 	f := &fakeStore{}
 	out, code := runMigrate(t, f, []string{"--format=jsonl", path}, "")
 	if code != 3 {
@@ -1688,8 +1469,6 @@ func TestRunImportMigrateFileSizeLimitExceeded(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateFileSizeBoundary — the G3 boundary: size == cap
-// passes (the excess verdict fires only when there is an excess).
 func TestRunImportMigrateFileSizeBoundary(t *testing.T) {
 	data, err := FormatJSONL(migrateFixtureRows()[:1])
 	if err != nil {
@@ -1699,7 +1478,7 @@ func TestRunImportMigrateFileSizeBoundary(t *testing.T) {
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
-	overrideImportMaxFileBytes(t, int64(len(data))) // boundary — passes
+	overrideImportMaxFileBytes(t, int64(len(data)))
 	f := &fakeStore{}
 	out, code := runMigrate(t, f, []string{"--format=jsonl", path}, "")
 	if code != 0 || !strings.Contains(out, `"imported":1`) {
@@ -1707,8 +1486,6 @@ func TestRunImportMigrateFileSizeBoundary(t *testing.T) {
 	}
 }
 
-// g5Row — one synthetic row for the G5 checks (explicit id — salt varies
-// the body·stored hash).
 func g5Row(id, salt int, t0 time.Time) ExportRow {
 	return ExportRow{
 		ID: id, Topic: fmt.Sprintf("demo g5 row %d.%d", id, salt),
@@ -1720,15 +1497,10 @@ func g5Row(id, salt int, t0 time.Time) ExportRow {
 	}
 }
 
-// TestImportRowsBatchIDCollisionExistingReassigned — a row with an
-// existing-DB identical id but different content (it did not pass hash
-// dedup — identical content would have been skipped) is accrued via
-// automatic reassignment (explicit id removed → serial) and counted as
-// remapped. Non-colliding explicit ids are preserved as-is.
 func TestImportRowsBatchIDCollisionExistingReassigned(t *testing.T) {
 	t0 := time.Date(2026, 11, 16, 9, 0, 0, 0, time.UTC)
 	m := newMemMigrateFake()
-	m.ids[9] = true // an existing DB row id=9 (different content — hash unregistered)
+	m.ids[9] = true
 	rows := []ExportRow{g5Row(9, 1, t0), g5Row(10, 1, t0)}
 	oc, err := importRowsBatch(context.Background(), m, rows)
 	if err != nil {
@@ -1751,10 +1523,6 @@ func TestImportRowsBatchIDCollisionExistingReassigned(t *testing.T) {
 	}
 }
 
-// TestImportRowsBatchInFileDuplicateIDReassigned — G5: an in-file
-// duplicate id (different content) keeps the id on the first row and
-// auto-reassigns later rows — abolishing the path that used to fail
-// wholesale (exit 1) on a batch PK collision.
 func TestImportRowsBatchInFileDuplicateIDReassigned(t *testing.T) {
 	t0 := time.Date(2026, 11, 16, 10, 0, 0, 0, time.UTC)
 	m := newMemMigrateFake()
@@ -1777,11 +1545,6 @@ func TestImportRowsBatchInFileDuplicateIDReassigned(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateSameDBReassignRoundtrip — the G5 round-trip
-// regression: re-planting the same id with different content into the
-// same DB accrues everything via id reassignment with exit 0 — the
-// summary reports remapped (recovering the main scenario where the
-// round trip used to break on a collision exit 1).
 func TestRunImportMigrateSameDBReassignRoundtrip(t *testing.T) {
 	t0 := time.Date(2026, 11, 16, 11, 0, 0, 0, time.UTC)
 	m := newMemMigrateFake()
@@ -1793,8 +1556,7 @@ func TestRunImportMigrateSameDBReassignRoundtrip(t *testing.T) {
 	if code != 0 || !strings.Contains(out, `"imported":2`) {
 		t.Fatalf("1회차 exit=%d out=%s", code, out)
 	}
-	// Second run — the same ids with different content (hash·body
-	// varied) re-planted.
+
 	data2, err := FormatJSONL([]ExportRow{g5Row(11, 2, t0), g5Row(22, 2, t0)})
 	if err != nil {
 		t.Fatal(err)
@@ -1808,9 +1570,6 @@ func TestRunImportMigrateSameDBReassignRoundtrip(t *testing.T) {
 	}
 }
 
-// TestWriteProjectNoteStored — a project payload's note is stored as a
-// kindColumns-registered column (SchemaV2 projects.note — abolishing
-// the former drop as non-column metadata).
 func TestWriteProjectNoteStored(t *testing.T) {
 	f := &fakeStore{}
 	payload := `{"name":"데모 노트 프로젝트","status":"active","note":"합성 데모 노트 — 저장 검증."}` + "\n"
@@ -1826,12 +1585,6 @@ func TestWriteProjectNoteStored(t *testing.T) {
 	}
 }
 
-// TestRunImportMigrateJSONLRecallReplay — the R42-A fast round trip:
-// even scored rows drop the 2 keys from the INSERT rec (defense against
-// the dropped-column 42703 — the final real-DB check is the slow round
-// trip) and are inherited as replay items after the InsertBatch commit
-// (only rows with score>0·last inherited·score 0·never-recalled rows
-// skipped).
 func TestRunImportMigrateJSONLRecallReplay(t *testing.T) {
 	m := &migrateFake{fakeStore: &fakeStore{}}
 	t0 := time.Date(2026, 11, 19, 9, 0, 0, 0, time.UTC)
@@ -1842,7 +1595,7 @@ func TestRunImportMigrateJSONLRecallReplay(t *testing.T) {
 			RecallScore: 4, LastRecalledAt: &t0},
 		{ID: 2, Topic: "demo r42a replay b", Content: "합성 데모 — R42-A 재생 생략 b.",
 			Kind: "knowledge", Status: "active", Confidence: 0.9, Domain: "demo",
-			Source: "agent", ContentHash: fmt.Sprintf("%064x", 420002)}, // score 0 — replay skipped
+			Source: "agent", ContentHash: fmt.Sprintf("%064x", 420002)},
 	}
 	data, err := FormatJSONL(rows)
 	if err != nil {
@@ -1868,12 +1621,6 @@ func TestRunImportMigrateJSONLRecallReplay(t *testing.T) {
 	}
 }
 
-// r42aScratchStore — a scratch v12 DB for the R42-A round-trip
-// regression (inheriting the dual_device_test scratch convention):
-// CREATE·trailing DROP on the FLINT_TEST_DSN server; cleanup LIFO is
-// st.Close → DROP → base.Close (if DROP races a live pool, the scratch
-// survives — the T6 lesson). The store adapter inherits importRealStore
-// (write Repo·read pool). Uses synthetic demo data only.
 func r42aScratchStore(t *testing.T, ctx context.Context, label, dsn string) *importRealStore {
 	t.Helper()
 	base, err := db.Connect(ctx, dsn)
@@ -1906,20 +1653,13 @@ func r42aScratchStore(t *testing.T, ctx context.Context, label, dsn string) *imp
 	if err := repo.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate %s: %v", name, err)
 	}
-	// v12 state guarantee (idempotent — the reads_v1900_test convention.
-	// On an un-upgraded-v12 DB the round-trip check itself collapses with
-	// 42703 from the 2 dropped columns).
+
 	if err := repo.EnsureSchemaV12(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV12 %s: %v", name, err)
 	}
 	return st
 }
 
-// r42aRankSnapshot — a derived-ranking snapshot (an aggregate join of
-// the same definition as recallAggregateSQL): sorts the scope-tag rows
-// by id·cnt·last_at (µs-serialized) for the two-side equality verdict
-// (the R43 replay-replenishment regression reuses it with a different
-// tag only).
 func r42aRankSnapshot(t *testing.T, st *importRealStore, tag string) string {
 	t.Helper()
 	rows, err := st.Query(context.Background(), `SELECT k.id, re.cnt::int,
@@ -1938,17 +1678,6 @@ func r42aRankSnapshot(t *testing.T, st *importRealStore, tag string) string {
 	return b.String()
 }
 
-// TestImportMigrateR42ARecallReplayRealSlow — the R42-A critical
-// regression (real-DB slow, scratch A·B isolated): the v12 jsonl
-// round-trip migration. ① export knowledge with recall history (the
-// derived recall_score·last_recalled_at carried in the jsonl — output
-// schema kept) ② import into a fresh v12 DB B — the old defect
-// assembled the 2 dropped columns as INSERT columns, hitting 42703·a
-// batch rollback (every row with recall history failed to migrate — the
-// v1.9.0 multi-device main feature paralyzed) ③ after the score-transfer
-// replay, B's derived ranking (cnt·last_at) equals A's ④ absorbed by the
-// audit commit (recall_events) ⑤ read again from the migrated B →
-// additional event accrual. Uses synthetic demo data only.
 func TestImportMigrateR42ARecallReplayRealSlow(t *testing.T) {
 	dsn, ok := importRealDSN()
 	if !ok {
@@ -1958,8 +1687,6 @@ func TestImportMigrateR42ARecallReplayRealSlow(t *testing.T) {
 	stA := r42aScratchStore(t, ctx, "a", dsn)
 	stB := r42aScratchStore(t, ctx, "b", dsn)
 
-	// A — accrue 3 synthetic knowledge rows + discriminating recall
-	// history seeding (cnt 2·1·0).
 	nano := time.Now().UnixNano() % 1e9
 	recs := make([]map[string]any, 0, 3)
 	for i := 0; i < 3; i++ {
@@ -1984,8 +1711,6 @@ func TestImportMigrateR42ARecallReplayRealSlow(t *testing.T) {
 		t.Fatalf("A BumpRecallScores 2회차: %v", err)
 	}
 
-	// ① export — whether the derived scores ride the jsonl (the
-	// reproduction premise·output schema kept).
 	rows, err := ExportRows(ctx, stA, ExportFilter{Status: "all", Tag: "r42ademo"})
 	if err != nil {
 		t.Fatalf("A ExportRows: %v", err)
@@ -2001,23 +1726,16 @@ func TestImportMigrateR42ARecallReplayRealSlow(t *testing.T) {
 		t.Fatalf("jsonl에 recall_score=2 미포함(재현 전제 — export 파생 스코어): %s", data)
 	}
 
-	// ② B import — the old-defect reproduction point (42703 → exit 1).
-	// After the fix: exit 0·3 rows.
 	var out strings.Builder
 	code := RunImportMigrate(ctx, stB, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out)
 	if code != 0 || !strings.Contains(out.String(), `"imported":3`) {
 		t.Fatalf("B import exit=%d out=%s — R42-A: 회상 이력 있는 행 이식 실패(42703)", code, out.String())
 	}
 
-	// ③ Derived-ranking equality — A·B identical aggregates (cnt·last_at;
-	// equal values means equal order too).
 	if aSnap, bSnap := r42aRankSnapshot(t, stA, "r42ademo"), r42aRankSnapshot(t, stB, "r42ademo"); aSnap != bSnap {
 		t.Fatalf("파생 랭킹 불일치(A vs B):\nA:\n%s\nB:\n%s", aSnap, bSnap)
 	}
 
-	// ④ Audit-commit absorption — RunImportMigrate's Commit staged
-	// recall_events, so there must be no unstaged remainder (the
-	// auditStageTables ruling).
 	if rs, qerr := stB.Query(ctx,
 		`SELECT count(*)::int FROM dolt_status WHERE table_name = 'public.recall_events' AND staged = false`); qerr != nil {
 		t.Fatalf("dolt_status 잔여 조회: %v", qerr)
@@ -2029,8 +1747,6 @@ func TestImportMigrateR42ARecallReplayRealSlow(t *testing.T) {
 		t.Fatalf("dolt_status 잔여 조회 행수=%d, want 1", len(rs))
 	}
 
-	// ⑤ Read again from the migrated B — additional event accrual (cnt
-	// 2→3, everything else unchanged).
 	if err := stB.BumpRecallScores(ctx, []int{ids[0]}); err != nil {
 		t.Fatalf("B BumpRecallScores(재read): %v", err)
 	}
@@ -2042,11 +1758,6 @@ func TestImportMigrateR42ARecallReplayRealSlow(t *testing.T) {
 	}
 }
 
-// r43ReplayFailStore — a wrapper failing only the first
-// ReplayRecallEvents call (the R43 regression): builds the state where
-// the InsertBatch commit succeeded but only the replay failed
-// (reproducing the immediately-prior run's failure). Subsequent calls
-// inherit the real implementation.
 type r43ReplayFailStore struct {
 	*importRealStore
 	failFirst bool
@@ -2061,14 +1772,6 @@ func (s *r43ReplayFailStore) ReplayRecallEvents(ctx context.Context, items []db.
 	return s.importRealStore.ReplayRecallEvents(ctx, items)
 }
 
-// TestImportMigrateR43ReplayRestoreRealSlow — the R43 regression
-// (real-DB slow, scratch A·B isolated): when a previous run exits 1 on
-// a replay failure after the chunk commit, this rerun's dedup skip drops
-// that row from replay collection, permanently losing the score
-// transfer — the defect. ① a replay-failure-injected import → exit 1
-// (accrual commit preserved·0 events) ② rerun → the skipped rows'
-// events replenished ③ derived ranking A·B equal ④ a 3rd-run recheck —
-// no double replay (snapshot unchanged). Uses synthetic demo data only.
 func TestImportMigrateR43ReplayRestoreRealSlow(t *testing.T) {
 	dsn, ok := importRealDSN()
 	if !ok {
@@ -2078,8 +1781,6 @@ func TestImportMigrateR43ReplayRestoreRealSlow(t *testing.T) {
 	stA := r42aScratchStore(t, ctx, "a43", dsn)
 	stB := r42aScratchStore(t, ctx, "b43", dsn)
 
-	// A — accrue 2 synthetic knowledge rows + discriminating recall
-	// history seeding (cnt 2·0).
 	nano := time.Now().UnixNano() % 1e9
 	recs := make([]map[string]any, 0, 2)
 	for i := 0; i < 2; i++ {
@@ -2115,8 +1816,6 @@ func TestImportMigrateR43ReplayRestoreRealSlow(t *testing.T) {
 		t.Fatalf("FormatJSONL: %v", err)
 	}
 
-	// ① The replay-failure-injected import — exit 1, only the accrual
-	// commit preserved (the replay-missing state).
 	wrap := &r43ReplayFailStore{importRealStore: stB, failFirst: true}
 	var out strings.Builder
 	if code := RunImportMigrate(ctx, wrap, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out); code != 1 {
@@ -2135,7 +1834,6 @@ func TestImportMigrateR43ReplayRestoreRealSlow(t *testing.T) {
 		t.Fatalf("① B 이벤트=%v, want 0(재생만 누락): %v", rs[0][0], rs)
 	}
 
-	// ② The rerun (normal) — the dedup-skipped rows' events replenished.
 	out.Reset()
 	if code := RunImportMigrate(ctx, stB, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out); code != 0 ||
 		!strings.Contains(out.String(), `"duplicated":2`) || !strings.Contains(out.String(), `"imported":0`) {
@@ -2143,14 +1841,10 @@ func TestImportMigrateR43ReplayRestoreRealSlow(t *testing.T) {
 	}
 	want := r42aRankSnapshot(t, stA, "r43demo")
 
-	// ③ Derived-ranking equality — the replenishing replay yields A·B
-	// identical aggregates (cnt·last_at).
 	if got := r42aRankSnapshot(t, stB, "r43demo"); got != want {
 		t.Fatalf("③ 파생 랭킹 불일치(A vs B):\nA:\n%s\nB:\n%s", want, got)
 	}
 
-	// ④ Idempotent recheck — even on a 3rd run, no double replay
-	// (snapshot unchanged).
 	out.Reset()
 	if code := RunImportMigrate(ctx, stB, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out); code != 0 {
 		t.Fatalf("④ 3회 실행 exit=%d, want 0; out=%s", code, out.String())

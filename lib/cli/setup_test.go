@@ -12,7 +12,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// composeRecorder — swaps and records the composeUpFn/composeDownFn seams (pure phase test, no exec).
 type composeRecorder struct {
 	upCalls int
 	upErr   error
@@ -39,7 +38,6 @@ func withFakeCompose(t *testing.T) *composeRecorder {
 	return rec
 }
 
-// TestSetupSteps — the fixed 4-step order ((1)compose (2)migrate (3)seed (4)plugins).
 func TestSetupSteps(t *testing.T) {
 	steps := SetupSteps()
 	if len(steps) != 4 {
@@ -53,7 +51,6 @@ func TestSetupSteps(t *testing.T) {
 	}
 }
 
-// TestSetupAllGreen — fake ping/migrate success -> one-line JSON summary, exit 0.
 func TestSetupAllGreen(t *testing.T) {
 	rec := withFakeCompose(t)
 	migrateCalled := false
@@ -85,7 +82,6 @@ func TestSetupAllGreen(t *testing.T) {
 	}
 }
 
-// TestSetupPingFailKeepsGuidance — even on ping failure the next-step guidance is kept (protocol).
 func TestSetupPingFailKeepsGuidance(t *testing.T) {
 	withFakeCompose(t)
 	migrateCalled := false
@@ -110,7 +106,6 @@ func TestSetupPingFailKeepsGuidance(t *testing.T) {
 	}
 }
 
-// TestSetupComposeFailNotFatal — docker not installed etc. is a warning (continue after guidance, exit 0).
 func TestSetupComposeFailNotFatal(t *testing.T) {
 	rec := withFakeCompose(t)
 	rec.upErr = context.Canceled
@@ -126,7 +121,6 @@ func TestSetupComposeFailNotFatal(t *testing.T) {
 	}
 }
 
-// TestSetupDry — --dry prints the steps only; no exec or store operations.
 func TestSetupDry(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
@@ -148,8 +142,6 @@ func TestSetupDry(t *testing.T) {
 	}
 }
 
-// TestSetupUnknownFlag — an unknown flag is a one-line JSON error + invalid-arg
-// exit 3.
 func TestSetupUnknownFlag(t *testing.T) {
 	withFake(t, &fakeStore{})
 	out, code := mustRun(t, []string{"setup", "--bogus"}, "")
@@ -159,7 +151,6 @@ func TestSetupUnknownFlag(t *testing.T) {
 	decode(t, out)
 }
 
-// TestSetupRegistered — verifies the init() Register.
 func TestSetupRegistered(t *testing.T) {
 	if _, ok := Lookup("setup"); !ok {
 		t.Fatal("Lookup(\"setup\") 실패 — 미등록 커맨드")
@@ -169,8 +160,6 @@ func TestSetupRegistered(t *testing.T) {
 	}
 }
 
-// TestTeardownDown — no args is a dry-run (plan notice only, no exec,
-// exit 0). Only --yes executes the stop (see TestTeardownYes below).
 func TestTeardownDown(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -190,7 +179,6 @@ func TestTeardownDown(t *testing.T) {
 	}
 }
 
-// TestTeardownDryRunPurgePlan — --purge alone is also a dry-run: only the -v plan, no execution.
 func TestTeardownDryRunPurgePlan(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -206,7 +194,6 @@ func TestTeardownDryRunPurgePlan(t *testing.T) {
 	}
 }
 
-// TestTeardownYes — only with --yes: stop guidance + exec delegation, exit 0 on success.
 func TestTeardownYes(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -223,7 +210,6 @@ func TestTeardownYes(t *testing.T) {
 	}
 }
 
-// TestTeardownPurge — with --yes --purge, the volume deletion (down -v) exec.
 func TestTeardownPurge(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -236,7 +222,6 @@ func TestTeardownPurge(t *testing.T) {
 	}
 }
 
-// TestTeardownFailGuidance — on stop failure, manual guidance is kept + exit 1.
 func TestTeardownFailGuidance(t *testing.T) {
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
@@ -252,7 +237,6 @@ func TestTeardownFailGuidance(t *testing.T) {
 	}
 }
 
-// storeDown — a seam where newStore always fails (DB fully down = the main setup scenario).
 func storeDown(t *testing.T) {
 	t.Helper()
 	prev := newStore
@@ -262,7 +246,6 @@ func storeDown(t *testing.T) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// TestSetupDryStoreFree — even with the DB down (invalid DSN), setup --dry exits 0 (§13 consistency).
 func TestSetupDryStoreFree(t *testing.T) {
 	storeDown(t)
 	rec := withFakeCompose(t)
@@ -278,8 +261,6 @@ func TestSetupDryStoreFree(t *testing.T) {
 	}
 }
 
-// TestSetupNilStoreDegraded — running setup without a store (first run): no panic,
-// degraded + guidance with exit 1 (the compose step still runs).
 func TestSetupNilStoreDegraded(t *testing.T) {
 	storeDown(t)
 	rec := withFakeCompose(t)
@@ -299,7 +280,6 @@ func TestSetupNilStoreDegraded(t *testing.T) {
 	}
 }
 
-// TestTeardownStoreFree — even with the DB down, teardown does guidance and (--yes) exec.
 func TestTeardownStoreFree(t *testing.T) {
 	storeDown(t)
 	rec := withFakeCompose(t)
@@ -312,8 +292,6 @@ func TestTeardownStoreFree(t *testing.T) {
 	}
 }
 
-// withSetupPortProbe — swaps the 5434-occupancy detection seam + captures
-// stderr. inUse=true means occupied.
 func withSetupPortProbe(t *testing.T, inUse bool) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
@@ -324,8 +302,6 @@ func withSetupPortProbe(t *testing.T, inUse bool) *bytes.Buffer {
 	return &buf
 }
 
-// TestSetupPortInUseWarnsAndContinues — 5434 occupancy detected before compose start ->
-// one warning line on stderr, progress continues (compose and migrate run on, exit 0).
 func TestSetupPortInUseWarnsAndContinues(t *testing.T) {
 	rec := withFakeCompose(t)
 	errs := withSetupPortProbe(t, true)
@@ -347,7 +323,6 @@ func TestSetupPortInUseWarnsAndContinues(t *testing.T) {
 	}
 }
 
-// TestSetupPortFreeNoWarning — when free, no stderr warning (progress identical).
 func TestSetupPortFreeNoWarning(t *testing.T) {
 	rec := withFakeCompose(t)
 	errs := withSetupPortProbe(t, false)
@@ -365,8 +340,6 @@ func TestSetupPortFreeNoWarning(t *testing.T) {
 	}
 }
 
-// TestSyncRulesSkipsSymlinks — symbolic links in the source are
-// not copied (blocking exposure of sensitive files at link targets).
 func TestSyncRulesSkipsSymlinks(t *testing.T) {
 	src := t.TempDir()
 	dest := t.TempDir()

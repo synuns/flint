@@ -1,7 +1,3 @@
-// usage_v092_test.go — RecordUsageCount: bulk dup N increments (real-DB
-// slow). Contract: one count call adds N to the daily counter
-// (replacing recordDups' O(N) read-writes); dup carries no last_ time
-// key; count<1 is an error.
 package db
 
 import (
@@ -10,9 +6,6 @@ import (
 	"time"
 )
 
-// TestRecordUsageCountBatches — RecordUsageCount("dup","",3)+
-// ("write","hook",2) are bulk-reflected into daily with one upsert each
-// (regression: an N-iteration RecordUsage loop).
 func slowRecordUsageCountBatches(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")

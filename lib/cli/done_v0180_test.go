@@ -1,6 +1,3 @@
-// done_v0180_test.go — done's recall warning. If today's recalls (read) are 0 while
-// writes are at or above the threshold, one warning line appears at session close (the same
-// pattern as the stale warning — threshold-based, non-blocking, per §13 principle 4).
 package cli
 
 import (
@@ -13,15 +10,10 @@ import (
 	"time"
 )
 
-// recallFake — source updates: a doneFake where write returns the flat key
-// daily:write:<today> as int and read returns today's read_events COUNT (the real
-// producer sources — the contract after the RecordUsage flat-key and read_events unification).
 func recallFake(t *testing.T, read, write int) *doneFake {
 	t.Helper()
 	today := time.Now().UTC().Format("2006-01-02")
-	// stubbed=true — the stale tally is also pinned to fake zero.
-	// If unspecified, in real-DB mode StaleSessionRuns delegates over shared-DB residue, so the
-	// stale warning crowds out the recall warning and idempotence breaks (the determination source is queryFn).
+
 	d := &doneFake{fakeStore: &fakeStore{}, stubbed: true}
 	d.queryFn = func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -29,7 +21,7 @@ func recallFake(t *testing.T, read, write int) *doneFake {
 			if len(args) > 0 && fmt.Sprint(args[0]) == "daily:write:"+today {
 				return [][]any{{strconv.Itoa(write)}}, nil
 			}
-			return nil, nil // thresholds unset -> defaults
+			return nil, nil
 		case strings.Contains(sql, "FROM read_events"):
 			return [][]any{{int64(read)}}, nil
 		}
@@ -38,9 +30,8 @@ func recallFake(t *testing.T, read, write int) *doneFake {
 	return d
 }
 
-// TestDoneRecallWarn — recalls 0 + writes 3 (the default threshold) -> a recall warning line and a marker written.
 func TestDoneRecallWarn(t *testing.T) {
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // so the marker does not land in the real user's config
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	d := recallFake(t, 0, 3)
 	withDoneFake(t, d)
 	out, code := mustRun(t, []string{"done", "--session", "s1"}, "")
@@ -52,7 +43,6 @@ func TestDoneRecallWarn(t *testing.T) {
 	}
 }
 
-// TestDoneRecallQuiet — 1 recall means no warning (even if writes are at or above the threshold).
 func TestDoneRecallQuiet(t *testing.T) {
 	d := recallFake(t, 1, 10)
 	withDoneFake(t, d)
@@ -65,7 +55,6 @@ func TestDoneRecallQuiet(t *testing.T) {
 	}
 }
 
-// TestDoneRecallBelowThreshold — writes below the threshold (3) mean no warning.
 func TestDoneRecallBelowThreshold(t *testing.T) {
 	d := recallFake(t, 0, 2)
 	withDoneFake(t, d)
@@ -78,8 +67,6 @@ func TestDoneRecallBelowThreshold(t *testing.T) {
 	}
 }
 
-// TestDoneRecallMarkerWritten — with no recalls, a recall marker remains (connecting to the next
-// SessionStart nudge consumption). A separate file (recall-hint.json).
 func TestDoneRecallMarkerWritten(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

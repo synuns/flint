@@ -1,16 +1,3 @@
-// status_audit_test.go — two regressions.
-// (1) The schema_version allowed range derives from db.LatestSchemaVersion — a hardcoded
-//
-//	list ("1"~"8") misjudged a v9 DB as exit 3. Guard upgraded: the derived-comparison
-//	behavior + a source scan (FAIL if a string-literal version comparison reappears).
-//
-// (2) Before splicing the --as-of count queries, the asOfHashRe charset is revalidated
-//
-//	(the same rule as read --as-of): a tainted hash (containing a single quote) is
-//	rejected and never spliced into a query. v1.8.0 T8 — the counts moved to
-//	QueryAsOf(AsOfQuery{Hash,Table,Columns,Where}); the splice assertions were swapped
-//
-// for passed-condition assertions (keeping the residual charset-revalidation contract).
 package ops
 
 import (
@@ -27,8 +14,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// statusSeams — swaps the ops seams RunStatus references with test default
-// implementations, then restores them (the same composition as the cli root.go init — only the parser is per-test).
 func statusSeams(t *testing.T, parse func(context.Context, wire.Store, string) (string, error)) {
 	t.Helper()
 	prevParse, prevWD := ParseAsOfSpecFn, WindowedDailyFn
@@ -47,16 +32,13 @@ func statusSeams(t *testing.T, parse func(context.Context, wire.Store, string) (
 	})
 }
 
-// statusStore — meta (schema_version) via the promoted *fakeStore Query; the history
-// paths (LogEntries{Hash}, QueryAsOf) via explicit override hooks. The received
-// conditions are recorded in gotLog/gotAsOf for the pass-through assertions.
 type statusStore struct {
 	*fakeStore
-	wire.HistoryStubs // default implementations for the non-overridden ones (DiffRows, DiffCommits, DiffStat)
-	gotLog            []wire.LogQuery
-	gotAsOf           []wire.AsOfQuery
-	logRows           []wire.LogEntry
-	asOfRows          [][]any
+	wire.HistoryStubs
+	gotLog   []wire.LogQuery
+	gotAsOf  []wire.AsOfQuery
+	logRows  []wire.LogEntry
+	asOfRows [][]any
 }
 
 func (s *statusStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
@@ -69,7 +51,6 @@ func (s *statusStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any,
 	return s.asOfRows, nil
 }
 
-// statusFake — a fake answering only meta schema_version and the AS OF count (7).
 func statusFake(schemaVersion string) *statusStore {
 	return &statusStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key = 'schema_version'") {
@@ -79,8 +60,6 @@ func statusFake(schemaVersion string) *statusStore {
 	}}, asOfRows: [][]any{{int64(7)}}}
 }
 
-// TestStatusAcceptsLatestSchemaVersion — a latest-schema-version DB exits 0.
-// With a hardcoded list ("1"~"8"), v9 would exit 3 (the audit F1 original incident).
 func TestStatusAcceptsLatestSchemaVersion(t *testing.T) {
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return "", nil })
 	want := strconv.Itoa(db.LatestSchemaVersion)
@@ -97,8 +76,6 @@ func TestStatusAcceptsLatestSchemaVersion(t *testing.T) {
 	}
 }
 
-// TestStatusSchemaVersionBoundsStillRejected — outside the derived range (0, above,
-// non-integer, empty) still exits 3, and the guidance states the derived range (1..latest).
 func TestStatusSchemaVersionBoundsStillRejected(t *testing.T) {
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return "", nil })
 	wantMsg := "1~" + strconv.Itoa(db.LatestSchemaVersion)
@@ -113,9 +90,6 @@ func TestStatusSchemaVersionBoundsStillRejected(t *testing.T) {
 	}
 }
 
-// TestStatusSchemaAllowlistNotHardcoded — guard: if a string-literal version
-// comparison (`version != "8"` and the like) reappears in status.go, FAIL. The allowed
-// range must derive from db.LatestSchemaVersion (preventing an audit-F1 recurrence).
 func TestStatusSchemaAllowlistNotHardcoded(t *testing.T) {
 	src, err := os.ReadFile("status.go")
 	if err != nil {
@@ -126,9 +100,6 @@ func TestStatusSchemaAllowlistNotHardcoded(t *testing.T) {
 	}
 }
 
-// TestStatusAsOfPollutedHashRejected — when the parser returns a tainted hash
-// (containing a single quote), it is rejected before the count queries (exit 1,
-// charset-violation wording) — the tainted value never reaches QueryAsOf in any form (inheriting the inline-injection-blocking contract).
 func TestStatusAsOfPollutedHashRejected(t *testing.T) {
 	bad := "ab12'; DROP TABLE knowledge;--"
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return bad, nil })
@@ -151,9 +122,6 @@ func TestStatusAsOfPollutedHashRejected(t *testing.T) {
 	}
 }
 
-// TestStatusAsOfValidHashCountedFromSnapshot — a valid hash issues the QueryAsOf
-// count query against the knowledge table with count(*) and the pending condition, and
-// reports pending (the snapshot count) and as_of.hash (the revalidation must not block the normal path).
 func TestStatusAsOfValidHashCountedFromSnapshot(t *testing.T) {
 	hash := "abc123def"
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return hash, nil })
@@ -192,8 +160,6 @@ func TestStatusAsOfValidHashCountedFromSnapshot(t *testing.T) {
 	}
 }
 
-// TestStatusAsOfCommitDateFromLogEntries — the as_of date attachment derives from
-// LogEntries{Hash} (RFC3339 — equivalent to the existing FmtAsOfDate(time.Time)).
 func TestStatusAsOfCommitDateFromLogEntries(t *testing.T) {
 	hash := "abc123def"
 	at := time.Date(2026, 11, 17, 5, 4, 3, 0, time.UTC)

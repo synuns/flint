@@ -1,5 +1,3 @@
-// update_test.go — auto-update contracts: version comparison, checksums, extraction,
-// the full flow (httptest injection), and the update-notice cache.
 package cli
 
 import (
@@ -26,8 +24,6 @@ func sha256Hex(b []byte) string {
 	return hex.EncodeToString(d[:])
 }
 
-// withFakeVersion — injects the version package vars (the test binary is "dev"
-// without ldflags injection).
 func withFakeVersion(t *testing.T, v string) {
 	t.Helper()
 	prev := version
@@ -66,7 +62,6 @@ func TestChecksumFor(t *testing.T) {
 	}
 }
 
-// buildTarGz — a tar.gz fixture containing a single flint binary.
 func buildTarGz(t *testing.T, bin []byte) []byte {
 	t.Helper()
 	var buf bytes.Buffer
@@ -94,12 +89,9 @@ func TestExtractBinary(t *testing.T) {
 	}
 }
 
-// TestApplyUpdateRejectsBadSignature — signature-gate wiring —
-// with the public key embedded, a .sig mismatch is a hard reject and a missing .sig is rejected too
-// (fail-closed). Transition mode (empty key) passes.
 func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	newBin := []byte("#!/bin/sh\necho '{\"version\":\"9.9.9\"}'\n")
-	// includes verifier behavior with real key fixtures (mismatch induced: a stranger's key).
+
 	pub, err := os.ReadFile("testdata/cosign-ecdsa.pub")
 	if err != nil {
 		t.Fatal(err)
@@ -108,15 +100,14 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	t.Cleanup(func() { releasePubPEM = prevPub; updateSkipSignature = false })
 	updateSkipSignature = false
 
-	// (a) .sig present + public key embedded + garbage signature -> rejected.
 	releasePubPEM = pub
-	updateTestSigAsset = "bm90LWEtc2ln" // base64-decodes but the signature mismatches
+	updateTestSigAsset = "bm90LWEtc2ln"
 	t.Cleanup(func() { updateTestSigAsset = "" })
 	withUpdateServer(t, "9.9.9", newBin)
 	if _, err := applyUpdate("9.9.9"); err == nil || !strings.Contains(err.Error(), "refus") {
 		t.Fatalf("garbage signature = %v, want refused", err)
 	}
-	// (a-2) same state + --insecure-skip-signature -> passes.
+
 	updateSkipSignature = true
 	withUpdateServer(t, "9.9.8", newBin)
 	_, err2 := applyUpdate("9.9.8")
@@ -126,14 +117,12 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	}
 	updateTestSigAsset = ""
 
-	// (b) .sig missing + Configured -> rejected.
 	releasePubPEM = pub
 	withUpdateServer(t, "9.8.0", newBin)
 	if _, err := applyUpdate("9.8.0"); err == nil || !strings.Contains(err.Error(), "missing") {
 		t.Fatalf(".sig missing = %v, want refused", err)
 	}
 
-	// (c) transition mode (empty public key) + no .sig -> passes (existing compatibility).
 	releasePubPEM = nil
 	withUpdateServer(t, "9.7.0", newBin)
 	if _, err := applyUpdate("9.7.0"); err != nil {
@@ -141,18 +130,13 @@ func TestApplyUpdateRejectsBadSignature(t *testing.T) {
 	}
 }
 
-// updateTestSigAsset — injects a served .sig asset (empty = not provided). The server handler
-// reflects it in both the listing and the content.
 var updateTestSigAsset string
 
-// newUpdateServer — a fake releases API + asset server. newBin is the new binary's
-// content (must be a shell script printing the version JSON when run, to pass verification).
 func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Server {
 	t.Helper()
 	mux := http.NewServeMux()
 	srv := httptest.NewTLSServer(mux)
-	// client factory injection — srv.Client() trusts the self-signed cert (no
-	// InsecureSkipVerify in production binaries).
+
 	prevClient := updateClientFn
 	updateClientFn = func(timeout time.Duration) *http.Client {
 		c := srv.Client()
@@ -164,8 +148,7 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	assetName := fmt.Sprintf("flint_%s_%s_%s.tar.gz", latest, runtime.GOOS, runtime.GOARCH)
 	archive := buildTarGz(t, newBin)
 	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
-		// when updateTestSigAsset (test injection) is non-empty, the .sig asset is
-		// included in the listing and served too (for verifying the signature-gate wiring).
+
 		sigAsset := ""
 		if updateTestSigAsset != "" {
 			sigAsset = fmt.Sprintf(`,{"name":"checksums.txt.sig","browser_download_url":%q}`, srv.URL+"/dl/checksums.txt.sig")
@@ -179,7 +162,7 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	mux.HandleFunc("/dl/"+assetName, func(w http.ResponseWriter, r *http.Request) {
 		w.Write(archive)
 	})
-	// sha256 is over the archive bytes — a closure so it can be computed inside the handler.
+
 	sum := sha256Hex(archive)
 	mux.HandleFunc("/dl/checksums.txt", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, "%s  %s\n", sum, assetName)
@@ -187,7 +170,6 @@ func newUpdateServer(t *testing.T, latest string, newBin []byte) *httptest.Serve
 	return srv
 }
 
-// withUpdateServer — the common API-base injection procedure.
 func withUpdateServer(t *testing.T, latest string, newBin []byte) {
 	t.Helper()
 	srv := newUpdateServer(t, latest, newBin)
@@ -196,12 +178,8 @@ func withUpdateServer(t *testing.T, latest string, newBin []byte) {
 	t.Cleanup(func() { updateAPIBase = prev })
 }
 
-// TestUpdateFlowReplacesBinary — the full flow: check -> download -> verify -> replace.
-// Injects a temp 'current binary' via executablePathFn to verify a real file
-// replacement (the new binary that passes verification is a shell script printing version).
 func TestUpdateFlowReplacesBinary(t *testing.T) {
-	// the real public key is embedded, so default hard verification is on — this test
-	// verifies the replacement flow, so it pins transition mode (empty key).
+
 	prevPub := releasePubPEM
 	releasePubPEM = nil
 	t.Cleanup(func() { releasePubPEM = prevPub })
@@ -231,11 +209,8 @@ func TestUpdateFlowReplacesBinary(t *testing.T) {
 	}
 }
 
-// TestUpdateFlowChecksumMismatch — on checksum mismatch the original is untouched (immediate abort).
-// A single TLS server serves metadata, assets (valid), and the poisoned checksum together.
 func TestUpdateFlowChecksumMismatch(t *testing.T) {
-	// the real public key is embedded, so default hard verification is on — this test
-	// verifies the replacement flow, so it pins transition mode (empty key).
+
 	prevPub := releasePubPEM
 	releasePubPEM = nil
 	t.Cleanup(func() { releasePubPEM = prevPub })
@@ -252,7 +227,7 @@ func TestUpdateFlowChecksumMismatch(t *testing.T) {
 	archive := buildTarGz(t, newBin)
 	assetName := fmt.Sprintf("flint_9.9.9_%s_%s.tar.gz", runtime.GOOS, runtime.GOARCH)
 	mux := http.NewServeMux()
-	srv := httptest.NewTLSServer(mux) // create first — the URL must be known
+	srv := httptest.NewTLSServer(mux)
 	t.Cleanup(srv.Close)
 	mux.HandleFunc("/repos/synuns/flint/releases/latest", func(w http.ResponseWriter, r *http.Request) {
 		fmt.Fprintf(w, `{"tag_name":"v9.9.9","assets":[{"name":%q,"browser_download_url":%q},{"name":"checksums.txt","browser_download_url":%q}]}`,
@@ -284,22 +259,19 @@ func TestUpdateFlowChecksumMismatch(t *testing.T) {
 	}
 }
 
-// TestMaybeUpdateNoticeCache — within the cache TTL the check is decided without network
-// (a cache equal to the running version is self-consistent — no contradiction refetch);
-// on expiry it re-checks and refreshes the cache.
 func TestMaybeUpdateNoticeCache(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	// fresh cache: latest == current -> self-consistent, no output, no network call.
+
 	c := updateCache{Latest: "0.1.0", CheckedAt: time.Now().UTC().Format(time.RFC3339)}
 	b, _ := json.Marshal(c)
 	os.WriteFile(updateCacheFile(), b, 0o600)
-	// live server — within the TTL there must be no call at all.
+
 	withUpdateServer(t, "9.9.9", nil)
 	if got := maybeUpdateNotice(); got != "" {
 		t.Errorf("캐시 무시·무출력 위반: %q", got)
 	}
-	// expired cache + latest 9.9.9 -> one notice line + cache refresh.
+
 	c.CheckedAt = time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339)
 	b, _ = json.Marshal(c)
 	os.WriteFile(updateCacheFile(), b, 0o600)
@@ -314,19 +286,12 @@ func TestMaybeUpdateNoticeCache(t *testing.T) {
 	}
 }
 
-// TestDownloadRejectsNonHTTPS — plaintext-scheme URLs are rejected for
-// download (defense against response tampering and downgrade).
 func TestDownloadRejectsNonHTTPS(t *testing.T) {
 	if _, err := download("http://example.com/asset"); err == nil {
 		t.Error("http:// URL 거부 안 됨")
 	}
 }
 
-// --- v1.26.0 T1 cache 3 principles: ETag round trip, contradiction detector,
-// old-cache compat, silent network failure, checked_at in noticeLine. ---
-
-// newETagServer — a fake releases API honoring If-None-Match (304 on exact match)
-// and counting requests. An empty etag never matches, so it always serves 200.
 func newETagServer(t *testing.T, latest, etag string) *int32 {
 	t.Helper()
 	var hits int32
@@ -379,9 +344,6 @@ func readUpdateCache(t *testing.T) updateCache {
 	return c
 }
 
-// TestUpdateCacheETagRoundTrip — expired cache + ETag: the refresh sends
-// If-None-Match, the 304 keeps the cached latest, and checked_at is refreshed
-// to now. A follow-up call within the TTL makes no further request.
 func TestUpdateCacheETagRoundTrip(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -406,19 +368,13 @@ func TestUpdateCacheETagRoundTrip(t *testing.T) {
 	if err != nil || time.Since(checked) > time.Minute {
 		t.Errorf("checked_at 미갱신: %q %v", after.CheckedAt, err)
 	}
-	// within the refreshed TTL there must be no further request.
+
 	maybeUpdateNotice()
 	if n := atomic.LoadInt32(hits); n != 1 {
 		t.Errorf("TTL 내 재요청: %d", n)
 	}
 }
 
-// TestFetchLatestVersionRefreshesCache — v1.26.1: an explicit check
-// (`flint update [--check]`, doctor --check update) refreshes the update-check
-// cache — latest, ETag, and checked_at=now — so the doctor Fix guidance
-// "flint doctor --check update (refresh the version cache)" is true. The
-// refreshed cache then satisfies the session-start notice without another
-// network call.
 func TestFetchLatestVersionRefreshesCache(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -444,7 +400,7 @@ func TestFetchLatestVersionRefreshesCache(t *testing.T) {
 	if err != nil || time.Since(checked) > time.Minute {
 		t.Errorf("checked_at 미갱신: %q %v", after.CheckedAt, err)
 	}
-	// the refreshed cache serves the notice path with no further request.
+
 	if got := maybeUpdateNotice(); !strings.Contains(got, "flint update") {
 		t.Fatalf("갱신된 캐시로 안내 없음: %q", got)
 	}
@@ -453,9 +409,6 @@ func TestFetchLatestVersionRefreshesCache(t *testing.T) {
 	}
 }
 
-// TestMaybeUpdateNoticeContradictionRefetch — a fresh cache whose latest is
-// OLDER than the running version is a contradiction: the cache is ignored and
-// an immediate re-fetch happens (here the server's 9.9.9 yields a notice).
 func TestMaybeUpdateNoticeContradictionRefetch(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -472,8 +425,6 @@ func TestMaybeUpdateNoticeContradictionRefetch(t *testing.T) {
 	}
 }
 
-// TestMaybeUpdateNoticeEqualNoFetch — a fresh cache equal to the running
-// version is self-consistent: no re-fetch, no notice.
 func TestMaybeUpdateNoticeEqualNoFetch(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -487,9 +438,6 @@ func TestMaybeUpdateNoticeEqualNoFetch(t *testing.T) {
 	}
 }
 
-// TestMaybeUpdateNoticeOldCacheFullFetch — a cache written before the ETag
-// field existed (etag absent = "") gets a full fetch: no If-None-Match sent,
-// and the refreshed cache gains the response ETag.
 func TestMaybeUpdateNoticeOldCacheFullFetch(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -511,7 +459,7 @@ func TestMaybeUpdateNoticeOldCacheFullFetch(t *testing.T) {
 	updateAPIBase = srv.URL
 	t.Cleanup(func() { updateAPIBase = prev; updateClientFn = prevClient })
 	t.Cleanup(srv.Close)
-	// old-format cache: no etag key at all, expired.
+
 	old := `{"latest":"0.0.1","checked_at":"` + time.Now().UTC().Add(-48*time.Hour).Format(time.RFC3339) + `"}`
 	if err := os.WriteFile(updateCacheFile(), []byte(old), 0o600); err != nil {
 		t.Fatal(err)
@@ -527,18 +475,16 @@ func TestMaybeUpdateNoticeOldCacheFullFetch(t *testing.T) {
 	}
 }
 
-// TestMaybeUpdateNoticeNetFailSilent — a dead endpoint is silent on both the
-// expiry path and the contradiction path, and the cache is left untouched.
 func TestMaybeUpdateNoticeNetFailSilent(t *testing.T) {
 	withFakeVersion(t, "0.1.0")
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	srv := httptest.NewServer(http.NotFoundHandler())
 	dead := srv.URL
-	srv.Close() // refused endpoint
+	srv.Close()
 	prev := updateAPIBase
 	updateAPIBase = dead
 	t.Cleanup(func() { updateAPIBase = prev })
-	// (a) expired cache -> silent, cache untouched.
+
 	stale := time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339)
 	writeUpdateCache(t, updateCache{Latest: "0.0.1", CheckedAt: stale})
 	if got := maybeUpdateNotice(); got != "" {
@@ -547,15 +493,13 @@ func TestMaybeUpdateNoticeNetFailSilent(t *testing.T) {
 	if after := readUpdateCache(t); after.CheckedAt != stale {
 		t.Errorf("실패 시 캐시 침범: %+v", after)
 	}
-	// (b) contradiction (fresh cache, latest behind) + failure -> still silent.
+
 	writeUpdateCache(t, updateCache{Latest: "0.0.1", CheckedAt: time.Now().UTC().Format(time.RFC3339)})
 	if got := maybeUpdateNotice(); got != "" {
 		t.Errorf("모순+네트워크 실패 조용히 위반: %q", got)
 	}
 }
 
-// TestNoticeLineCheckedAt — the notice line exposes checked_at when known;
-// no notice when the running version is not behind.
 func TestNoticeLineCheckedAt(t *testing.T) {
 	ts := "2026-11-23T00:00:00Z"
 	got := noticeLine("9.9.9", "0.1.0", ts)
@@ -567,11 +511,6 @@ func TestNoticeLineCheckedAt(t *testing.T) {
 	}
 }
 
-// ── v1.26.0 T3 — the mcp-registry published-version fetch (doctor versions)
-// and the updateCacheInfo read for the doctor/report display. ──
-
-// withRegistryServer — a fake raw.githubusercontent plugin.json endpoint
-// honoring If-None-Match (304 on exact match) and counting requests.
 func withRegistryServer(t *testing.T, version, etag string) *int32 {
 	t.Helper()
 	var hits int32
@@ -600,9 +539,6 @@ func withRegistryServer(t *testing.T, version, etag string) *int32 {
 	return &hits
 }
 
-// TestFetchRegistryVersionETagRoundTrip — the first call gets the published
-// version (cached with the ETag); the second sends If-None-Match, and the 304
-// keeps the cached version (checked_at refreshed).
 func TestFetchRegistryVersionETagRoundTrip(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	const etag = `"plug1"`
@@ -617,7 +553,7 @@ func TestFetchRegistryVersionETagRoundTrip(t *testing.T) {
 	if c.Version != "1.26.0" || c.ETag != etag {
 		t.Errorf("레지스트리 캐시 저장 실패: %+v", c)
 	}
-	// 304 — the cached version carries over, checked_at refreshed.
+
 	v2, err := fetchRegistryVersion()
 	if err != nil || v2 != "1.26.0" {
 		t.Fatalf("304 승계 = %q %v, want 1.26.0", v2, err)
@@ -634,8 +570,6 @@ func TestFetchRegistryVersionETagRoundTrip(t *testing.T) {
 	}
 }
 
-// TestFetchRegistryVersionOffline — a refused endpoint is an error (the
-// doctor caller renders "unverified (offline)" — a note, not a warning).
 func TestFetchRegistryVersionOffline(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	dead := httptest.NewServer(http.NotFoundHandler())
@@ -649,8 +583,6 @@ func TestFetchRegistryVersionOffline(t *testing.T) {
 	}
 }
 
-// TestUpdateCacheInfo — the doctor-facing cache read round-trips the update
-// cache (latest + checked_at); no cache yields empty strings.
 func TestUpdateCacheInfo(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if latest, checked := updateCacheInfo(); latest != "" || checked != "" {

@@ -1,8 +1,3 @@
-// export_test.go — contract tests for the `flint export --tui` flow.
-// The huh form, confirm stage, and terminal check are faked via seam vars — the
-// verification targets are (1) the form result -> flag-argument assembly, (2) the
-// preview row-count and byte delegation, (3) the over-cap error, and (4) the
-// delegation, (3) the over-cap error, and (4) the execution delegation (reusing RunExport — no duplicate implementation). The real form wiring activates at the seam defaults (compile time).
 package tui
 
 import (
@@ -14,8 +9,6 @@ import (
 	"github.com/charmbracelet/huh"
 )
 
-// overrideExportTUISeams — bulk-swaps the export TUI seams (terminal check, form, confirm).
-// If form or confirm is nil, the default seam is kept (only the terminal check is swapped).
 func overrideExportTUISeams(t *testing.T, term bool, form func(*ExportSelection) error, confirm func(ExportPreview) (bool, error)) {
 	t.Helper()
 	oldTerm, oldForm, oldConfirm := isTerminal, exportFormFn, exportConfirmFn
@@ -29,8 +22,6 @@ func overrideExportTUISeams(t *testing.T, term bool, form func(*ExportSelection)
 	t.Cleanup(func() { isTerminal, exportFormFn, exportConfirmFn = oldTerm, oldForm, oldConfirm })
 }
 
-// RF1 — the form result -> argument assembly: --format/--status/--out assembled
-// in the format, status, out order. An empty Out (stdout) omits --out.
 func TestExportArgsAssemblesFormSelection(t *testing.T) {
 	got := ExportArgs(ExportSelection{Format: "md", Status: "all", Out: "/tmp/export.md"})
 	want := []string{"--format", "md", "--status", "all", "--out", "/tmp/export.md"}
@@ -42,7 +33,7 @@ func TestExportArgsAssemblesFormSelection(t *testing.T) {
 			t.Fatalf("args = %v, want %v", got, want)
 		}
 	}
-	// stdout mode (no Out): --out not included.
+
 	got = ExportArgs(ExportSelection{Format: "jsonl", Status: "active"})
 	for _, a := range got {
 		if a == "--out" {
@@ -54,9 +45,6 @@ func TestExportArgsAssemblesFormSelection(t *testing.T) {
 	}
 }
 
-// RF2 — the form selection passes identically to the preview and execution:
-// Preview returns the row count and bytes for the selected filter, and Run
-// re-runs the existing flag path (runExport) with the assembled arguments (the exit code passes through).
 func TestRunExportFormSelectionFlowsToPreviewAndRun(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error {
@@ -100,8 +88,6 @@ func TestRunExportFormSelectionFlowsToPreviewAndRun(t *testing.T) {
 	}
 }
 
-// Non-terminal (pipe, CI): falls back immediately to (3, error) before the form
-// starts — the convention "TUI requires a terminal". The form never opens.
 func TestRunExportRequiresTerminal(t *testing.T) {
 	overrideExportTUISeams(t, false,
 		func(sel *ExportSelection) error { t.Fatal("form must not open without a terminal"); return nil },
@@ -116,8 +102,6 @@ func TestRunExportRequiresTerminal(t *testing.T) {
 	}
 }
 
-// RF4 — a user abort (ctrl+c, huh.ErrUserAborted): after the "export cancelled"
-// notice, (0, nil) without executing — a clean cancel is not an error (the notice is RF4a).
 func TestRunExportUserAbortExitsCleanly(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { return huh.ErrUserAborted },
@@ -135,8 +119,6 @@ func TestRunExportUserAbortExitsCleanly(t *testing.T) {
 	}
 }
 
-// RF4a — A3: both a form abort and a confirmation decline produce not a silent
-// 0 bytes but a 1-line "export cancelled" notice (CancelNote — default os.Stdout) and exit 0.
 func TestRunExportCancelPrintsNotice(t *testing.T) {
 	t.Run("form abort", func(t *testing.T) {
 		var out bytes.Buffer
@@ -178,8 +160,6 @@ func TestRunExportCancelPrintsNotice(t *testing.T) {
 	})
 }
 
-// RF5 — over-cap TUI error: if the preview row count > export_import_max_rows,
-// it becomes (3, err) instead of the confirm stage — Run is never called.
 func TestRunExportOverLimitShowsTUIError(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { sel.Format, sel.Status = "jsonl", "all"; return nil },
@@ -204,7 +184,6 @@ func TestRunExportOverLimitShowsTUIError(t *testing.T) {
 	}
 }
 
-// RF6 — declining the preview confirmation: (0, nil) without executing.
 func TestRunExportDeclineSkipsRun(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { sel.Format, sel.Status = "md", "active"; return nil },
@@ -227,7 +206,6 @@ func TestRunExportDeclineSkipsRun(t *testing.T) {
 	}
 }
 
-// RF7 — a preview query failure: (3, err), no execution.
 func TestRunExportPreviewFailureExits3(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { return nil },
@@ -244,7 +222,6 @@ func TestRunExportPreviewFailureExits3(t *testing.T) {
 	}
 }
 
-// RF8 — the boundary (row count == max): not over — proceeds to the confirm stage.
 func TestRunExportBoundaryEqualMaxProceeds(t *testing.T) {
 	overrideExportTUISeams(t, true,
 		func(sel *ExportSelection) error { sel.Format, sel.Status = "jsonl", "active"; return nil },

@@ -1,11 +1,3 @@
-// repo_v1203_test.go — v1.20.3 (r89) regressions: Merge·
-// SetSupersededRef join the supersede advisory-lock domain. The fast
-// test pins the seam contract (the precheck·guarded UPDATE·steward
-// lookup all ride the lock-held connection — zero pool hops, the same
-// one-connection rule as r88); the slow tests drive the patched race
-// itself (Supersede(A,B) ∥ Merge(B,A), Merge↔Merge, SetSupersededRef∥
-// SetSupersededRef — the pre-patch shape let both sides pass their
-// out-of-domain prechecks and both land, planting a 2-cycle).
 package db
 
 import (
@@ -20,15 +12,11 @@ import (
 	"github.com/jackc/pgx/v5"
 )
 
-// fakeSupersedeRow — the fake pgx.Row behind the lock seam's query
-// return: the zero value scans the cycle-check shape as
-// no-cycle/no-truncation (the inert default the shared fakes use);
-// the v1203 tests script cycle·steward-status·ErrNoRows via fields.
 type fakeSupersedeRow struct {
 	cyc, truncated bool
-	scanStatus     bool   // route Scan to the single-string steward shape
-	status         string // the steward status when scanStatus
-	err            error  // returned from Scan verbatim (ErrNoRows etc.)
+	scanStatus     bool
+	status         string
+	err            error
 }
 
 func (f fakeSupersedeRow) Scan(dest ...any) error {
@@ -62,11 +50,6 @@ func (f fakeSupersedeRow) Scan(dest ...any) error {
 	return nil
 }
 
-// v1203LockFake — the lock-seam swap recording exec·query calls (FIFO
-// scripted rows-affected·query rows; both fall back to 1/the inert row
-// once a script runs dry) plus the pool-based transitionExecFn
-// recorder (must stay EMPTY — a pool hop under the lock is the r88
-// deadlock shape).
 type v1203LockFake struct {
 	execCalls  []transitionCall
 	queryCalls []transitionCall
@@ -109,18 +92,9 @@ func (f *v1203LockFake) install(t *testing.T) {
 	})
 }
 
-// TestSetRefMergeJoinSupersedeLockDomainV1203 — the fast seam contract:
-// inside the lock domain, the cycle precheck runs via the lock-held
-// connection's query, the guarded UPDATE rides the same connection's
-// exec (with the NOT EXISTS cycle predicate embedded), the steward
-// lookup never hops the pool, and the pool-based transitionExecFn
-// records ZERO calls (the one-connection rule of r88 extended to the
-// whole supersede family).
 func TestSetRefMergeJoinSupersedeLockDomainV1203(t *testing.T) {
 	ctx := context.Background()
 
-	// SetSupersededRef — precheck query + guarded ref UPDATE, both on
-	// the lock connection.
 	f := &v1203LockFake{}
 	f.install(t)
 	if n, err := (&Repo{}).SetSupersededRef(ctx, 5, 9); err != nil || n != 1 {
@@ -143,14 +117,13 @@ func TestSetRefMergeJoinSupersedeLockDomainV1203(t *testing.T) {
 	if len(f.poolExec) != 0 {
 		t.Fatalf("pool 경유 실행 %d건 — 락 도메인 내 풀 홉은 r88 교착 형상: %v", len(f.poolExec), f.poolExec)
 	}
-	// 0 rows keeps the not-an-error contract (already referenced·absent).
+
 	f2 := &v1203LockFake{execN: []int64{0}}
 	f2.install(t)
 	if n, err := (&Repo{}).SetSupersededRef(ctx, 5, 9); err != nil || n != 0 {
 		t.Fatalf("SetSupersededRef 0행 = (%d, %v), want (0, nil)", n, err)
 	}
 
-	// Merge — the cycle precheck refused: no tx starts, nothing hops the pool.
 	f3 := &v1203LockFake{rows: []fakeSupersedeRow{{cyc: true}}}
 	f3.install(t)
 	err := (&Repo{}).Merge(ctx, 1, 2)
@@ -164,14 +137,11 @@ func TestSetRefMergeJoinSupersedeLockDomainV1203(t *testing.T) {
 		t.Fatalf("pool 경유 실행 잔여 %d건: %v", len(f3.poolExec), f3.poolExec)
 	}
 
-	// Merge — the guarded UPDATE lands 0 rows (not active): the steward
-	// lookup rides the lock conn's query, the tx rolls back on the same
-	// conn, and Merge returns before any pool use.
 	f4 := &v1203LockFake{
-		execN: []int64{1, 0}, // BEGIN, guarded UPDATE (0 rows)
+		execN: []int64{1, 0},
 		rows: []fakeSupersedeRow{
-			{},                                    // precheck: no cycle
-			{scanStatus: true, status: "pending"}, // steward: pending from
+			{},
+			{scanStatus: true, status: "pending"},
 		},
 	}
 	f4.install(t)
@@ -194,11 +164,6 @@ func TestSetRefMergeJoinSupersedeLockDomainV1203(t *testing.T) {
 	}
 }
 
-// TestSlowSupersedeMergeCrossRaceV1203 — the patched defect itself: 20
-// rounds of Supersede(A,B) ∥ Merge(B,A) on fresh active rows. The
-// single lock domain must yield EXACTLY ONE landed write per round
-// (the loser: the cycle diagnostic or the 0-rows ErrNotFound steward)
-// — both landing is a planted 2-cycle, the pre-patch shape.
 func TestSlowSupersedeMergeCrossRaceV1203(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -251,9 +216,6 @@ func TestSlowSupersedeMergeCrossRaceV1203(t *testing.T) {
 	}
 }
 
-// TestSlowMergeMergeCrossRaceV1203 — the same crossed shape inside
-// Merge itself: Merge(A,B) ∥ Merge(B,A), 20 rounds, exactly one winner
-// (the loser reads the winner's lineage under the lock and is refused).
 func TestSlowMergeMergeCrossRaceV1203(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -285,7 +247,7 @@ func TestSlowMergeMergeCrossRaceV1203(t *testing.T) {
 		if refA != nil && refB != nil && *refA == b && *refB == a {
 			t.Fatalf("round %d: 2-cycle 적립 (a→b && b→a)", round)
 		}
-		// Exactly one nil error — the refused side reports why.
+
 		nils := 0
 		for _, err := range res {
 			if err == nil {
@@ -298,10 +260,6 @@ func TestSlowMergeMergeCrossRaceV1203(t *testing.T) {
 	}
 }
 
-// TestSlowSetSupersededRefCrossRaceV1203 — the ref-only writer joins
-// the same domain: SetSupersededRef(A,B) ∥ SetSupersededRef(B,A), 20
-// rounds, exactly one ref lands; the loser gets the deterministic
-// cycle diagnostic (its precheck now runs inside the lock).
 func TestSlowSetSupersededRefCrossRaceV1203(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -349,15 +307,6 @@ func TestSlowSetSupersededRefCrossRaceV1203(t *testing.T) {
 	}
 }
 
-// TestMergePanicReleasesSupersedeLockV1210 — R90 (v1.21.0): a panic in
-// Merge's lock-held body must not leak the supersede advisory lock. The
-// deferred release (acquired right after supersedeLockFn) runs on the
-// panic unwind too — the immediate unlock call on the success path is
-// skipped by the unwinding, so without the defer the lock stays held.
-// Verified at the supersedeLockFn swap seam: the first acquisition's
-// query panics (the cycle precheck), the unlock counter must still
-// advance, and a subsequent supersede-family write (SetSupersededRef)
-// acquires the lock again and succeeds.
 func TestMergePanicReleasesSupersedeLockV1210(t *testing.T) {
 	ctx := context.Background()
 	unlockCalls := 0
@@ -365,7 +314,7 @@ func TestMergePanicReleasesSupersedeLockV1210(t *testing.T) {
 	prevLock := supersedeLockFn
 	supersedeLockFn = func(ctx context.Context, r *Repo) (supersedeExecFn, supersedeQueryFn, func(), error) {
 		acquires++
-		panicking := acquires == 1 // the probe acquisition panics in the precheck
+		panicking := acquires == 1
 		exec := func(ctx context.Context, query string, args ...any) (int64, error) {
 			if panicking {
 				panic("v1210 probe: injected panic under the supersede lock")
@@ -376,14 +325,12 @@ func TestMergePanicReleasesSupersedeLockV1210(t *testing.T) {
 			if panicking {
 				panic("v1210 probe: injected panic in the cycle precheck")
 			}
-			return fakeSupersedeRow{} // no cycle — the inert default
+			return fakeSupersedeRow{}
 		}
 		return exec, query, func() { unlockCalls++ }, nil
 	}
 	t.Cleanup(func() { supersedeLockFn = prevLock })
 
-	// First Merge — the panic propagates AND the deferred release runs
-	// (the leak shape: unlockCalls 0 after the recover).
 	func() {
 		defer func() {
 			if recover() == nil {
@@ -396,10 +343,6 @@ func TestMergePanicReleasesSupersedeLockV1210(t *testing.T) {
 		t.Fatal("panic 경로에서 락 미해제 — 어드바이저리 락 누출(R90 회귀)")
 	}
 
-	// A subsequent supersede-family write acquires the lock again and
-	// succeeds — the released lock is re-acquirable (SetSupersededRef
-	// rides the same seam without a pool-based commit, so the zero-Repo
-	// probe stays pure).
 	n, err := (&Repo{}).SetSupersededRef(ctx, 5, 9)
 	if err != nil || n != 1 {
 		t.Fatalf("후속 SetSupersededRef = (%d, %v), want (1, nil)(락 재획득 후 성공)", n, err)

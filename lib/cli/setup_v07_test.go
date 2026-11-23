@@ -8,10 +8,6 @@ import (
 	"testing"
 )
 
-// setup hardening: compose up --wait argument consistency and a distinct docker-missing guidance.
-
-// TestSetupWaitArgs — the default composeUpFn passes
-// ["up","-d","--wait","--wait-timeout","60"] to composeRunFn (spec §2 wait).
 func TestSetupWaitArgs(t *testing.T) {
 	var gotArgs []string
 	prevUp, prevRun := composeUpFn, composeRunFn
@@ -35,8 +31,6 @@ func TestSetupWaitArgs(t *testing.T) {
 	}
 }
 
-// TestSetupDockerMissingHint — exec not found (docker not installed) gets its own dedicated
-// guidance; other failures (timeout etc.) keep the existing warning path.
 func TestSetupDockerMissingHint(t *testing.T) {
 	withFakeCompose(t)
 	rec := withDockerMissing(t)
@@ -62,7 +56,6 @@ func TestSetupDockerMissingHint(t *testing.T) {
 	}
 }
 
-// withDockerMissing — a seam where composeUpFn returns exec not found.
 func withDockerMissing(t *testing.T) *composeRecorder {
 	t.Helper()
 	rec := &composeRecorder{}

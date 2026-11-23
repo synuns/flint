@@ -1,9 +1,3 @@
-// maintain_recheck_v1221_test.go — the v1.22.1 r96/r97 real-DB scratch
-// regressions (SUPERLITE_REAL=1 + FLINT_TEST_DSN, synthetic demo rows
-// only, dedicated scratch DB created and dropped here — never a shared
-// or production DB): the --recheck --conditions backfill round-trip with
-// content_hash invariance (conditions is hashVolatile-excluded) and the
-// distill file-cap carry-over (partial stamp + deferred rows).
 package cli
 
 import (
@@ -20,16 +14,6 @@ import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// TestRecheckConditionsAndDistillCapRealSlow — one scratch database, two
-// regressions:
-//
-//  1. r96-3: `maintain --recheck N --conditions S --yes` updates the
-//     row's knowledge.conditions (round-trips into the read-only report),
-//     records maintenance_runs kind='recheck', and leaves content_hash
-//     byte-identical (conditions never joins the hash).
-//  2. r97-1: with a small distill_max_runes meta override, distill emits
-//     only the rows that fit, stamps exactly those (distilled_at NOT
-//     NULL), and the deferred remainder stays unstamped for the next run.
 func TestRecheckConditionsAndDistillCapRealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {
@@ -58,7 +42,7 @@ func TestRecheckConditionsAndDistillCapRealSlow(t *testing.T) {
 		t.Fatalf("newRealStore: %v", err)
 	}
 	t.Cleanup(st.Close)
-	rs := st.(*realStore) // same-package pool access for the seed writes
+	rs := st.(*realStore)
 
 	seed := `INSERT INTO knowledge (topic, summary, tags, confidence, status, content_hash)
 	         VALUES ($1, $2, ':demo:', 0.9, 'active', $3)`
@@ -71,7 +55,6 @@ func TestRecheckConditionsAndDistillCapRealSlow(t *testing.T) {
 	}
 	origHash := fmt.Sprint(idRow[0][1])
 
-	// 1. the conditions backfill round-trip.
 	var out strings.Builder
 	if code := ops.RunMaintain(ctx, st, []string{"--recheck", fmt.Sprint(idRow[0][0]), "--conditions", "when demo holds (r96 real)", "--yes"}, nil, &out); code != 0 {
 		t.Fatalf("backfill exit=%d out=%s", code, out.String())
@@ -90,16 +73,12 @@ func TestRecheckConditionsAndDistillCapRealSlow(t *testing.T) {
 	if err != nil || len(runs) != 1 || fmt.Sprint(runs[0][0]) != "1" {
 		t.Fatalf("maintenance_runs kind=recheck: %v %v", runs, err)
 	}
-	// the read-only report serves the written value.
+
 	out.Reset()
 	if code := ops.RunMaintain(ctx, st, []string{"--recheck", fmt.Sprint(idRow[0][0])}, nil, &out); code != 0 || !strings.Contains(out.String(), "when demo holds (r96 real)") {
 		t.Fatalf("report round-trip exit code/값 불일치: %d %s", code, out.String())
 	}
 
-	// 2. the distill file-cap carry-over: 2 more unstamped rows, a tiny
-	// cap, --min-score 0 so every row qualifies. A FIXED clock makes the
-	// two runs same-minute — the second run must take a -2 suffix file,
-	// never overwrite the first (r98).
 	for _, s := range []string{"s2", "s3"} {
 		if _, err := rs.pool.Exec(ctx, seed, "r96-realslow-"+s, strings.Repeat("body ", 80), "hash-r96-real-"+s); err != nil {
 			t.Fatalf("seed %s: %v", s, err)
@@ -138,8 +117,7 @@ func TestRecheckConditionsAndDistillCapRealSlow(t *testing.T) {
 	if err != nil || strings.Count(string(first), "\n## #") == 0 {
 		t.Fatalf("insights body empty: %v", err)
 	}
-	// same-minute rerun (same fixed clock): the deferred rows emit into a
-	// -2 file; the first file survives byte-identical; everything stamps.
+
 	stdout.Reset()
 	if code := runDistill(ctx, st, []string{"--out", dir, "--min-score", "0"}, strings.NewReader(""), &stdout); code != 0 {
 		t.Fatalf("distill rerun exit=%d out=%s stderr=%s", code, stdout.String(), stderr.String())
@@ -152,8 +130,7 @@ func TestRecheckConditionsAndDistillCapRealSlow(t *testing.T) {
 	if len(entries) != 2 {
 		t.Fatalf("rerun files = %d, want 2 (the -2 suffix): %v", len(entries), entries)
 	}
-	// the deferred carry-over: the rerun stamped MORE rows (the cap keeps
-	// binding — the remainder defers again, by design).
+
 	stamped, err = st.Query(ctx, `SELECT count(*) FROM knowledge WHERE distilled_at IS NOT NULL`)
 	if err != nil || len(stamped) != 1 {
 		t.Fatalf("post-rerun stamped lookup: %v", err)
@@ -163,8 +140,6 @@ func TestRecheckConditionsAndDistillCapRealSlow(t *testing.T) {
 	}
 }
 
-// cellInt — a count cell as int (pgx-measured int32/int64/uint32 and
-// string cells all accepted).
 func cellInt(t *testing.T, v any) int {
 	t.Helper()
 	switch n := v.(type) {

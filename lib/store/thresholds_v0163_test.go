@@ -1,10 +1,7 @@
-// thresholds_v0163_test.go — the Thresholds registry tests
-// for the 7 tuning constants (defaults and meta-override parsing).
 package store
 
 import "testing"
 
-// the 7 new keys' defaults — a single code source (DefaultThresholds).
 func TestThresholdsV0163Defaults(t *testing.T) {
 	th := DefaultThresholds()
 	want := []struct {
@@ -27,7 +24,6 @@ func TestThresholdsV0163Defaults(t *testing.T) {
 	}
 }
 
-// meta overrides — every key's set value reflected.
 func TestThresholdsV0163ParseOverride(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"suggest_min_score", "0.4"},
@@ -50,7 +46,6 @@ func TestThresholdsV0163ParseOverride(t *testing.T) {
 	}
 }
 
-// invalid values (non-numeric, negative, out of range) fall back to defaults (inheriting the global constraint).
 func TestThresholdsV0163InvalidFallback(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"suggest_min_score", "abc"},
@@ -73,8 +68,6 @@ func TestThresholdsV0163InvalidFallback(t *testing.T) {
 	}
 }
 
-// unset new keys stay 0 (unset) — the consumer (loadThresholds) falls back to
-// the default (the convention: compatibility with the existing whole-struct comparison tests).
 func TestThresholdsV0163UnsetStaysZero(t *testing.T) {
 	th, err := ParseThresholds(nil)
 	if err != nil {

@@ -1,10 +1,3 @@
-// tuning.go — the `flint tuning --tui` interactive form (huh). Key selection ->
-// value editing -> set/reset confirmation. The key list comes from the TuningKeys
-// single source (the ops registry); value validation (loadThresholds ->
-// ParseThresholds real path — rejecting fallback values with guidance) and the
-// 1-line JSON output delegate as-is to the existing ops.RunTuning set/reset
-// standard path (no duplicate implementation). Non-terminal --tui exits 3 immediately
-// before the form starts (the ErrTerminalRequired convention). The entry branching (opt-in only, FLINT_NO_TUI blocking) is owned by lib/cli/tuning.go — here only the TUI flow.
 package tui
 
 import (
@@ -22,8 +15,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// TuningKeyRow — a form key-selection row (current and default values shown).
-// Derived from the TuningKeys single source.
 type TuningKeyRow struct {
 	Key      string
 	Value    string
@@ -31,39 +22,26 @@ type TuningKeyRow struct {
 	Consumer string
 }
 
-// TuningSelection — the huh form confirmation result. Action "set" uses
-// Value; "reset" restores the default (Value unused).
 type TuningSelection struct {
 	Key    string
 	Value  string
 	Action string
 }
 
-// TuningDeps — the dependencies injected by the entry branch (cli) and tests (the
-// export ExportDeps convention). nil fields resolve to the default real implementations.
 type TuningDeps struct {
-	// Rows — loads the key rows. Default: the ops.TuningKeys x ops.TuningCurrent real paths.
 	Rows func(ctx context.Context) ([]TuningKeyRow, error)
-	// Form — the huh form. Default: key selection -> value editing -> a single set/reset-choice group.
+
 	Form func(sel *TuningSelection, rows []TuningKeyRow) error
-	// IsTerminal — the terminal check. Default: the tui-internal check (the isTerminal seam).
-	// The FLINT_NO_TUI check is already owned by cli's 3-layer defense layer 1 (uses the raw check).
+
 	IsTerminal func() bool
-	// Run — delegates to the existing set/reset standard path (default ops.RunTuning
-	// — the 1-line JSON output, real-path value validation, and exit codes all reuse the standard path).
+
 	Run func(args []string) int
-	// CancelNote — where to write the user-cancel (ctrl+c) 1-line notice. Default:
-	// the caller's stdout (the post-TUI channel — same as os.Stdout in the real implementation).
+
 	CancelNote io.Writer
 }
 
-// tuningRunner — the seam sourcing the default Run delegation (ops.RunTuning — no
-// duplicate implementation). When deps.Run is nil, calls it with st and stdout.
 var tuningRunner = ops.RunTuning
 
-// tuningKeyRows — the default key-row load: combines the TuningKeys single source
-// with the current values (TuningCurrent — the loadThresholds -> ParseThresholds
-// real-path product), deterministically sorted (the same convention as the list display).
 func tuningKeyRows(ctx context.Context, st wire.Store) ([]TuningKeyRow, error) {
 	th, _, err := ops.TuningCurrent(ctx, st)
 	if err != nil {
@@ -80,18 +58,13 @@ func tuningKeyRows(ctx context.Context, st wire.Store) ([]TuningKeyRow, error) {
 	return rows, nil
 }
 
-// tuningFormFn — the default huh form: key selection (row labels show current and
-// default) -> value editing (prefilled with the selected key's current value) ->
-// set/reset choice. Value validation is owned not by the form but by the standard
-// path at confirmation (the tuningSet real-path parse) — no dual maintenance of form validation rules (no duplicate implementation). ctrl+c is huh.ErrUserAborted.
-// huh.ErrUserAborted.
 var tuningFormFn = func(sel *TuningSelection, rows []TuningKeyRow) error {
 	opts := make([]huh.Option[string], 0, len(rows))
 	for _, r := range rows {
 		opts = append(opts, huh.NewOption(
 			fmt.Sprintf("%s — now %s (default %s)", r.Key, r.Value, r.Default), r.Key))
 	}
-	// prefill: the first key's current value and default action (the value updates via editing when the selection changes).
+
 	if sel.Key == "" && len(rows) > 0 {
 		sel.Key, sel.Value = rows[0].Key, rows[0].Value
 	}
@@ -108,13 +81,6 @@ var tuningFormFn = func(sel *TuningSelection, rows []TuningKeyRow) error {
 	).Run()
 }
 
-// RunTuningTUI — the `flint tuning --tui` entry. Non-terminal immediately
-// returns ErrLine(ErrTerminalRequired) + exit 3 before the form starts (the Run
-// wrapper convention — the error classification error:"usage"). A key-row load
-// failure also takes the standard error path (ErrLine + MapExit). Form
-// confirmation delegates to deps.Run (default: ops.RunTuning set/reset) — the JSON
-// 1-line output, real-path value validation (rejecting and guiding on fallback), and
-// exit codes all reuse the standard path. A user abort (ctrl+c, huh.ErrUserAborted) shows the 1-line
 func RunTuningTUI(ctx context.Context, st wire.Store, stdout io.Writer, deps TuningDeps) int {
 	term := isTerminal
 	if deps.IsTerminal != nil {

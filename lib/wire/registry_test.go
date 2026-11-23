@@ -1,6 +1,3 @@
-// registry_test.go — unit verification of the contract-layer registry read accessors.
-// The bridge homogeneity guard (the real cli registrations vs usageOrder) is owned
-// by lib/cli usage_bridge_test.go — here only the accessors' own contracts.
 package wire
 
 import (
@@ -10,8 +7,6 @@ import (
 	"testing"
 )
 
-// TestRegisteredEnumerates — Registered faithfully enumerates the registered
-// surface: included after Register, excluded after Unregister (sorted order).
 func TestRegisteredEnumerates(t *testing.T) {
 	before := map[string]bool{}
 	for _, n := range Registered() {
@@ -23,7 +18,7 @@ func TestRegisteredEnumerates(t *testing.T) {
 	if sort.SearchStrings(got, "probe-accessor") >= len(got) || got[sort.SearchStrings(got, "probe-accessor")] != "probe-accessor" {
 		t.Fatalf("Registered에 등록 항목 없음: %v", got)
 	}
-	// the sorting contract — caller comparison stability.
+
 	if !sort.StringsAreSorted(got) {
 		t.Fatalf("Registered 미정렬: %v", got)
 	}
@@ -35,8 +30,6 @@ func TestRegisteredEnumerates(t *testing.T) {
 	}
 }
 
-// TestUsageOrderCopyNotAlias — UsageOrder returns a copy — caller mutations do
-// not pollute the internal usageOrder.
 func TestUsageOrderCopyNotAlias(t *testing.T) {
 	got := UsageOrder()
 	if len(got) == 0 {
@@ -48,7 +41,6 @@ func TestUsageOrderCopyNotAlias(t *testing.T) {
 	}
 }
 
-// TestHiddenFromUsagePublic — only the 2 hook-only kinds are true.
 func TestHiddenFromUsagePublic(t *testing.T) {
 	for _, name := range []string{"session-start", "session-end"} {
 		if !HiddenFromUsage(name) {

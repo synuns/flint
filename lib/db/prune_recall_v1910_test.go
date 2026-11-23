@@ -1,11 +1,3 @@
-// prune_recall_v1910_test.go — R42-C·D regressions (slow real-DB —
-// newTestRepo isolates a scratch DB per test, synthetic demo data
-// only):
-// ① PruneInvalidated orphan cleanup — deleting knowledge also removes
-// residual recall_events·knowledge_reads rows, and after the audit·
-// metering commits dolt_status shows no unstaged residue for the three
-// tables. ② PruneRecallEvents retention — deletes only expired events
-// (retained events kept)·the rerun is idempotent (0 rows on the 2nd).
 package db
 
 import (
@@ -14,14 +6,9 @@ import (
 	"time"
 )
 
-// TestPruneInvalidatedCleansRecallOrphans — R42-C: invalidation pruning
-// leaves no recall-history orphans (blocking multiplicative growth).
-// Non-orphan retention targets (an active knowledge's events·history)
-// are unchanged.
 func slowPruneInvalidatedCleansRecallOrphans(t *testing.T, r *Repo) {
 	ctx := context.Background()
-	// Synthetic seed — 3 knowledge rows: 2 invalidated+expired (deletion
-	// targets), 1 active.
+
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("r42c-old-a"), knowledgeRec("r42c-old-b"), knowledgeRec("r42c-keep"),
 	})
@@ -34,8 +21,7 @@ func slowPruneInvalidatedCleansRecallOrphans(t *testing.T, r *Repo) {
 		 WHERE id = ANY($1)`, []int{old1, old2}); err != nil {
 		t.Fatalf("무효화 시드: %v", err)
 	}
-	// Recall events·per-item history — on both deletion targets and the
-	// retained row.
+
 	for _, id := range []int{old1, old2, keep} {
 		if _, err := r.pool.Exec(ctx,
 			`INSERT INTO recall_events (knowledge_id, recalled_at)
@@ -54,8 +40,7 @@ func slowPruneInvalidatedCleansRecallOrphans(t *testing.T, r *Repo) {
 	if n != 2 {
 		t.Fatalf("삭제 지식 행 = %d, want 2", n)
 	}
-	// Orphan assertions — the deleted ids' events·history leave 0
-	// residue; the retained row keeps 3·1.
+
 	var orphanEv, keepEv int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM recall_events WHERE knowledge_id = ANY($1)`, []int{old1, old2}).
@@ -81,9 +66,7 @@ func slowPruneInvalidatedCleansRecallOrphans(t *testing.T, r *Repo) {
 	if keepEv != 3 {
 		t.Errorf("보존 지식 이벤트 = %d, want 3(active 행 불변)", keepEv)
 	}
-	// After the audit·metering commits, dolt_status — no unstaged residue
-	// for the three tables (recall_events absorbed by audit staging,
-	// knowledge_reads recovered by the metering commit).
+
 	if _, err := r.Commit(ctx, "test: prune orphans (knowledge hygiene path)"); err != nil {
 		t.Fatalf("감사 커밋: %v", err)
 	}
@@ -103,10 +86,6 @@ func slowPruneInvalidatedCleansRecallOrphans(t *testing.T, r *Repo) {
 	}
 }
 
-// TestPruneRecallEventsRetentionOnlyExpired — R42-D: the
-// retention-horizon prune deletes only expired events (retained events
-// kept — the ranking source's invariant window)·the rerun is idempotent
-// (0 rows on the 2nd·residual count unchanged).
 func slowPruneRecallEventsRetentionOnlyExpired(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
@@ -116,10 +95,7 @@ func slowPruneRecallEventsRetentionOnlyExpired(t *testing.T, r *Repo) {
 		t.Fatalf("InsertBatch: %v", err)
 	}
 	expiredID, freshID := ids[0], ids[1]
-	// 4 expired events (120 days ago)·2 retained events (5 days ago)·1
-	// retention-boundary event (89 days ago — the cutoff now()-90d is
-	// computed later than the INSERT's now(), so an exact-90-day seed
-	// crosses the boundary; 89 days is the safety margin).
+
 	for _, e := range []struct {
 		id  int
 		n   int
@@ -159,7 +135,7 @@ func slowPruneRecallEventsRetentionOnlyExpired(t *testing.T, r *Repo) {
 	if leftFresh != 3 {
 		t.Errorf("보존 지식 이벤트 = %d, want 3(5일 2건+89일 경계 1건)", leftFresh)
 	}
-	// Idempotent — the 2nd run yields 0 rows·unchanged residue.
+
 	n2, err := r.PruneRecallEvents(ctx, before)
 	if err != nil {
 		t.Fatalf("PruneRecallEvents 재실행: %v", err)

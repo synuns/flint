@@ -1,7 +1,3 @@
-// sessionhook_test.go — the v1.26.0 T3 session-start self-report contracts:
-// RunSessionStart stamps the running version into
-// self_version_last:session-start (value "version|RFC3339", silent failure),
-// and the meta-hygiene classification accepts the new key prefix.
 package ops
 
 import (
@@ -13,9 +9,6 @@ import (
 	"time"
 )
 
-// withSelfVersion — pins the version seams to a final build (the standalone
-// ops test init keeps them dev/empty, which skips the self-report) and wires
-// the hot-path seams (injectSessionLabelFn — the sessionlabel_v102 convention).
 func withSelfVersion(t *testing.T, v string) {
 	t.Helper()
 	prevCur, prevVal := CurrentVersionFn, ValidVersionFn
@@ -25,7 +18,6 @@ func withSelfVersion(t *testing.T, v string) {
 	injectSessionLabelFn(t)
 }
 
-// selfReportStore — a fakeStore recording the meta upsert args.
 type selfReportStore struct {
 	fakeStore
 	mu   sync.Mutex
@@ -48,22 +40,17 @@ func (s *selfReportStore) Query(ctx context.Context, sql string, args ...any) ([
 	return s.fakeStore.Query(ctx, sql, args...)
 }
 
-// fmtString — an any arg to a string without fmt.Sprint nil quirks.
 func fmtString(v any) string {
 	s, _ := v.(string)
 	return s
 }
 
-// errSelfReportFail — the injected upsert failure (the silent contract).
 var errSelfReportFail = &selfReportError{}
 
 type selfReportError struct{}
 
 func (*selfReportError) Error() string { return "self-report upsert failed" }
 
-// TestSessionStartSelfVersionReport — one meta upsert per session start:
-// key self_version_last:session-start, value "version|RFC3339" (parseable
-// timestamp), and a dev build (unfinalized version) skips the write.
 func TestSessionStartSelfVersionReport(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir())
@@ -90,8 +77,6 @@ func TestSessionStartSelfVersionReport(t *testing.T) {
 	}
 }
 
-// TestSessionStartSelfVersionReportSilentFailure — an upsert failure is
-// silent: the hook still exits 0 and injects as usual (§13).
 func TestSessionStartSelfVersionReportSilentFailure(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir())
@@ -107,8 +92,6 @@ func TestSessionStartSelfVersionReportSilentFailure(t *testing.T) {
 	}
 }
 
-// TestSelfVersionKnownMetaKey — the new prefix is classified known, so
-// meta-hygiene does not flag doctor's own self-report key.
 func TestSelfVersionKnownMetaKey(t *testing.T) {
 	if !KnownMetaKey("self_version_last:session-start") {
 		t.Error("KnownMetaKey(self_version_last:session-start) = false, want true")

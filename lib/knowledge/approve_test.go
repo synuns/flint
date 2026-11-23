@@ -1,5 +1,3 @@
-// approve_test.go — the approve command contract (exit mapping·injected
-// st rewiring).
 package knowledge
 
 import (
@@ -17,9 +15,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// seamRealDSN — the DSN resolution of the SUPERLITE_REAL=1 real
-// implementation seam (moved from the cli/cli_test.go convention, N1):
-// real-DB connections are allowed only when FLINT_TEST_DSN is set.
 func seamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -31,65 +26,49 @@ func seamRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// fakeApprove — the admin Approve fake. Success when err is unset; with
-// SUPERLITE_REAL=1 it delegates to the real Repo (skipped when the real
-// DB is down). (fake-equivalence guard): also serves as the parity fake
-// for all the knowledge capability interfaces — unimplemented methods
-// get the canned implementations below (call-recording slices·optional
-// capErr injection); fake_parity_test.go carries the assertions.
 type fakeApprove struct {
 	err     error
 	gotID   int
 	calledN int
 
-	// canned common errors (a no-op when unset — success·0 rows·absence).
 	capErr           error
-	approveIDs       []int // Approve
+	approveIDs       []int
 	superseded       []supersedeCall
-	bumped           [][]int        // BumpReads
-	readEvents       []db.ReadEvent // RecordReadEvent
-	hotEvents        []string       // RecordHotEvent
-	recordedUses     []countCall    // RecordUsage
-	dupIDQueries     []string       // DupIDByHash query hashes
-	dupRowQueries    []string       // DupRowByHash query hashes
-	countedUses      []countCall    // RecordUsageCount
-	staleAgents      []string       // StaleSessionRuns
-	playbookUses     []playbookUse  // LogPlaybookUse
+	bumped           [][]int
+	readEvents       []db.ReadEvent
+	hotEvents        []string
+	recordedUses     []countCall
+	dupIDQueries     []string
+	dupRowQueries    []string
+	countedUses      []countCall
+	staleAgents      []string
+	playbookUses     []playbookUse
 	sessionUpdates   []sessionUpdate
-	recordedBytes    []bytesCall       // RecordBytes (G5 byte metering)
-	kreads           []kreadsCallV     // RecordKnowledgeReads (recall history)
-	telemetryCmds    []string          // CommitTelemetry (the separated metering commit)
-	replayedRecall   []db.RecallReplay // ReplayRecallEvents (R42-A score-transfer replay)
-	pendingSummaries []string          // UpdatePendingSummary (v1.12.0 T3 gap-candidate refresh)
+	recordedBytes    []bytesCall
+	kreads           []kreadsCallV
+	telemetryCmds    []string
+	replayedRecall   []db.RecallReplay
+	pendingSummaries []string
 }
 
-// kreadsCallV — a canned RecordKnowledgeReads call record (the same shape
-// as kreadsCall — a fake-owned local definition).
 type kreadsCallV struct {
 	ids     []int
 	session string
 	kind    string
 }
 
-// supersedeCall — a canned Supersede call record.
 type supersedeCall struct{ oldID, newID int }
 
-// playbookUse — a canned LogPlaybookUse call record.
 type playbookUse struct {
 	id int
 	ok bool
 }
 
-// sessionUpdate — a canned UpdateSessionSummary call record.
 type sessionUpdate struct {
 	id             int
 	summary, tasks string
 }
 
-// Parity canned implementations — all record the call then return capErr
-// (nil when unset); value returns are no-ops (rows 0·exists false·runs
-// 0). The capability path — not a fallback — is guaranteed at compile
-// time (spec §1).
 func (f *fakeApprove) Approve(ctx context.Context, id int) error {
 	f.approveIDs = append(f.approveIDs, id)
 	return f.capErr
@@ -100,9 +79,6 @@ func (f *fakeApprove) Supersede(ctx context.Context, oldID, newID int, at time.T
 	return 0, f.capErr
 }
 
-// SetSupersededRef — a canned lineage-reference-restoration
-// implementation (parity — reuses the superseded slice, records the
-// call).
 func (f *fakeApprove) SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error) {
 	f.superseded = append(f.superseded, supersedeCall{oldID, newID})
 	return 1, f.capErr
@@ -113,14 +89,10 @@ func (f *fakeApprove) BumpReads(ctx context.Context, ids []int) error {
 	return f.capErr
 }
 
-// BumpRecallScores — a parity canned (for the RecallBumper assertions).
 func (f *fakeApprove) BumpRecallScores(ctx context.Context, ids []int) error {
 	return f.capErr
 }
 
-// ReplayRecallEvents — a parity canned (for the recallReplayStore
-// assertions — the R42-A migration score replay. Leaves a call record so
-// the round-trip unit tests can consume the replay contract).
 func (f *fakeApprove) ReplayRecallEvents(ctx context.Context, items []db.RecallReplay) error {
 	f.replayedRecall = append(f.replayedRecall, items...)
 	return f.capErr
@@ -186,8 +158,6 @@ func (f *fakeApprove) CommitTelemetry(ctx context.Context, cmd string) error {
 	return f.capErr
 }
 
-// UpdatePendingSummary — canned pending-row summary refresh recording
-// (v1.12.0 T3 — the gap-candidate N update seam).
 func (f *fakeApprove) UpdatePendingSummary(ctx context.Context, id int, summary string) (int64, error) {
 	f.pendingSummaries = append(f.pendingSummaries, fmt.Sprintf("%d:%s", id, summary))
 	if f.capErr != nil {
@@ -196,11 +166,6 @@ func (f *fakeApprove) UpdatePendingSummary(ctx context.Context, id int, summary 
 	return 1, nil
 }
 
-// withApproveFake — swaps the ApproveFn seam. Base fake; with
-// FLINT_TEST_DSN set + SUPERLITE_REAL=1, delegates unset stubs to the
-// real implementation (the delegation DSN is also FLINT_TEST_DSN).
-// Without FLINT_TEST_DSN, no real-implementation fallback
-// (seamRealDSN).
 func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Helper()
 	prev := ApproveFn
@@ -231,8 +196,6 @@ func withApproveFake(t *testing.T, f *fakeApprove) {
 	t.Cleanup(func() { ApproveFn = prev })
 }
 
-// mustApprove — runs via the wire.Lookup("approve") path (verifying
-// registration·dispatch together).
 func mustApprove(t *testing.T, args []string) (string, int) {
 	t.Helper()
 	h, ok := wire.Lookup("approve")
@@ -244,13 +207,6 @@ func mustApprove(t *testing.T, args []string) (string, int) {
 	return out.String(), code
 }
 
-// TestApproveOK — on success {"status":"approved","id":N} exit 0 (exit
-// mapping). The real-DB path (SUPERLITE_REAL=1) self-seeds — accrues one
-// synthetic demo pending row (a unique content_hash) via InsertBatch and
-// asserts the promotion with the returned id. Defense against the defect
-// where, depending on state, not_found occurred due to the implicit
-// dependence on other tests' seeding (id=7) on the shared DB. The seeded
-// row is deleted at the end (preventing shared-DB pollution).
 func TestApproveOK(t *testing.T) {
 	f := &fakeApprove{}
 	withApproveFake(t, f)
@@ -295,7 +251,6 @@ func TestApproveOK(t *testing.T) {
 	}
 }
 
-// TestApproveMissing — ErrNotFound → a one-line JSON error, exit 1.
 func TestApproveMissing(t *testing.T) {
 	withApproveFake(t, &fakeApprove{err: db.ErrNotFound})
 	out, code := mustApprove(t, []string{"--id", "999"})
@@ -311,10 +266,6 @@ func TestApproveMissing(t *testing.T) {
 	}
 }
 
-// TestApproveUsage — missing --id·non-integer·unknown flag → exit 1.
-// The argument-validation paths get the invalid-arg exit 3 (unknown
-// flag·missing value·invalid id·missing --id — aligned with mcp
-// dispatchApprove).
 func TestApproveUsage(t *testing.T) {
 	cases := []struct {
 		name string
@@ -332,9 +283,7 @@ func TestApproveUsage(t *testing.T) {
 			if code != 3 {
 				t.Fatalf("exit = %d, want 3 (out: %s)", code, out)
 			}
-			// An argument-validation (usage) error carries error:"usage"
-			// (only the value replaced from the previous internal —
-			// structure unchanged).
+
 			if !strings.Contains(out, `"error":"usage"`) {
 				t.Errorf("out = %q, want error:usage", out)
 			}
@@ -342,9 +291,6 @@ func TestApproveUsage(t *testing.T) {
 	}
 }
 
-// TestApproveUsageHint — the argument-validation error message includes
-// the usage hint `--id N [--supersede OLD]` — a mistyped flag can be
-// corrected from the guidance.
 func TestApproveUsageHint(t *testing.T) {
 	withApproveFake(t, &fakeApprove{})
 	out, code := mustApprove(t, []string{"--wat", "1"})
@@ -359,8 +305,6 @@ func TestApproveUsageHint(t *testing.T) {
 	}
 }
 
-// TestApproveOtherError — ordinary errors delegate to errLine·MapExit
-// exit 1.
 func TestApproveOtherError(t *testing.T) {
 	withApproveFake(t, &fakeApprove{err: errors.New("boom")})
 	out, code := mustApprove(t, []string{"--id", "3"})
@@ -372,10 +316,6 @@ func TestApproveOtherError(t *testing.T) {
 	}
 }
 
-// approveStoreFake — a fakeStore with the Approve promotion stub layered
-// on. The promotion action (the real-DB UPDATE) belongs to the ApproveFn
-// real seam — only the wiring (uses the injected st·never opens its own
-// connection) is the contract here.
 type approveStoreFake struct {
 	*fakeStore
 
@@ -390,23 +330,15 @@ func (a *approveStoreFake) Approve(ctx context.Context, id int) error {
 	return a.approveErr
 }
 
-// errSelfConnectDisabled — a sentinel-only error (a path unreachable
-// after the rewiring).
 var errSelfConnectDisabled = &selfConnectError{}
 
 type selfConnectError struct{}
 
 func (*selfConnectError) Error() string { return "self-connect path must not run" }
 
-// TestApproveUsesInjectedStore — with a fake st injected, the
-// self-connection path (db.NewRepo of the ApproveFn default real
-// implementation) is never called·the promotion goes through the injected
-// st.
 func TestApproveUsesInjectedStore(t *testing.T) {
 	f := &approveStoreFake{fakeStore: &fakeStore{}}
-	// sentinel — before the rewiring, RunApprove ignored st and called
-	// this seam, so the call itself is a failure signal (safely via a
-	// call counter instead of the default real implementation).
+
 	prev := ApproveFn
 	selfConn := 0
 	ApproveFn = func(ctx context.Context, id int) error {
@@ -432,9 +364,6 @@ func TestApproveUsesInjectedStore(t *testing.T) {
 	}
 }
 
-// originCounterFakeV — answers the promotion-path origin lookup with a
-// canned origin while collecting every counter UPSERT (the
-// counterCaptureV convention — the same queryFn surface).
 type originCounterFakeV struct {
 	origin string
 	cap    *counterCaptureV
@@ -448,12 +377,6 @@ func (o *originCounterFakeV) fn(sql string, args []any) ([][]any, error) {
 	return nil, nil
 }
 
-// TestApproveOriginCounters — v1.17.0 T4: a successful promotion counts
-// per write source — origin=correction bumps daily:correction_approved,
-// origin=gap bumps daily:gap_approved, and other origins (agent) count
-// nothing. The general approve_done still fires in parallel. The bumped
-// key is the daily flat form `daily:<kind>:<UTC date>` — exactly the
-// PruneDaily daily:* cleanup surface (the retention boundary).
 func TestApproveOriginCounters(t *testing.T) {
 	today := counterToday()
 	cases := []struct {
@@ -494,9 +417,6 @@ func TestApproveOriginCounters(t *testing.T) {
 	}
 }
 
-// TestApproveOriginCounterQuietOnLookupFailure — an origin-lookup failure
-// (query error·row absence) skips the origin counter quietly — the
-// promotion output and exit are unaffected (§13 non-interference).
 func TestApproveOriginCounterQuietOnLookupFailure(t *testing.T) {
 	for name, st := range map[string]wire.Store{
 		"쿼리 실패": &approveStoreFake{fakeStore: &fakeStore{queryErr: fmt.Errorf("db down")}},
@@ -515,14 +435,8 @@ func TestApproveOriginCounterQuietOnLookupFailure(t *testing.T) {
 	}
 }
 
-// TestCurationCounterKindsV1170 — the whitelist covers the three v1.17.0
-// kinds (correction_approved·gap_approved·survived_sessions — 8→11, the
-// intake + review principle) and still rejects unknown kinds (the cap
-// principle).
 func TestCurationCounterKindsV1170(t *testing.T) {
-	// v1.24.0 D2: the correction classification funnel pair widened the
-	// registry-derived whitelist 11 → 13 (correction_preference·
-	// correction_fact — write-time accrual, the diagnosis frozen-set twin).
+
 	if len(curationCounterKinds) != 16 {
 		t.Fatalf("curationCounterKinds count=%d, want 16", len(curationCounterKinds))
 	}

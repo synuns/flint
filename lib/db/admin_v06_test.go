@@ -1,4 +1,3 @@
-// admin_v06_test.go — schema v4 (EnsureSchemaV4) slow tests (real DB).
 package db
 
 import (
@@ -7,20 +6,14 @@ import (
 	"time"
 )
 
-// TestEnsureSchemaV4Idempotent — 2 calls → the 2 columns·version 4·
-// existing row values unchanged. Protocol: a DB that passed the v3
-// gates (the existing deployment path) also promotes, and pre-promotion
-// existing rows get the defaults read_count=0·last_read_at=null.
 func slowEnsureSchemaV4Idempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
-	// Reproducing the existing deployment path: a DB that passed v1 →
-	// the v3 gates.
+
 	if err := r.EnsureSchemaV3(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV3: %v", err)
 	}
-	// A pre-promotion existing row — the v4 columns must be filled with
-	// defaults.
+
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v4-old")})
 	if err != nil {
 		t.Fatalf("InsertBatch pre-v4 row: %v", err)
@@ -50,8 +43,7 @@ func slowEnsureSchemaV4Idempotent(t *testing.T, r *Repo) {
 	if version != "4" {
 		t.Fatalf("schema_version = %q, want 4", version)
 	}
-	// The 2nd call is an idempotent no-op — version 4·existing row values
-	// unchanged.
+
 	if err := r.EnsureSchemaV4(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV4 (want idempotent): %v", err)
 	}
@@ -72,9 +64,6 @@ func slowEnsureSchemaV4Idempotent(t *testing.T, r *Repo) {
 	}
 }
 
-// TestEnsureSchemaV4FromV1 — a v1 DB that skipped v3 also promotes with
-// the single v4 gate (the gate only updates the version; the columns
-// apply idempotently via IF NOT EXISTS).
 func slowEnsureSchemaV4FromV1(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
@@ -95,8 +84,7 @@ func slowEnsureSchemaV4FromV1(t *testing.T, r *Repo) {
 	if readCount != 0 || lastRead != nil {
 		t.Errorf("v1 승격 행 read_count=%d last_read_at=%v, want 0/null", readCount, lastRead)
 	}
-	// Updatable via the new columns (a behavior proof of the columns'
-	// presence).
+
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE knowledge SET read_count = read_count + 1, last_read_at = now()
 		 WHERE id = $1`, ids[0]); err != nil {
@@ -111,12 +99,6 @@ func slowEnsureSchemaV4FromV1(t *testing.T, r *Repo) {
 	}
 }
 
-// TestEnsureSchemaGatesShortCircuitAbove — on a higher-version DB,
-// lower gates skip even opening the transaction·commit (the
-// numeric-comparison short circuit). When it was a string-equality
-// check, EnsureSchemaV2 on a v3 DB opened the promotion transaction and
-// rolled the version back to '2' (a downgrade record + widening the
-// 40001 window under parallel startup — CI run 39717583172).
 func slowEnsureSchemaGatesShortCircuitAbove(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if _, err := r.pool.Exec(ctx,

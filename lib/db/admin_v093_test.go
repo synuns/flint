@@ -1,4 +1,3 @@
-// admin_v093_test.go — DupGroups slow tests (real DB).
 package db
 
 import (
@@ -7,10 +6,6 @@ import (
 	"testing"
 )
 
-// TestDupGroupsSameTopic — produces groups of 2+ active rows sharing a
-// topic (ids ascending); solo topics·invalidated rows excluded. The
-// formula is the same GROUP BY as Counts' dup_suspect (invalid_at IS
-// NULL AND status='active' GROUP BY topic HAVING count(*)>1).
 func slowDupGroupsSameTopic(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	a := knowledgeRec("dup-a")
@@ -31,7 +26,7 @@ func slowDupGroupsSameTopic(t *testing.T, r *Repo) {
 	if !reflect.DeepEqual(groups, want) {
 		t.Fatalf("DupGroups = %+v, want %+v", groups, want)
 	}
-	// Invalidating drops it from the group (active-only targets).
+
 	if _, err := r.Invalidate(ctx, []int{ids[0]}, "테스트 무효화"); err != nil {
 		t.Fatalf("Invalidate: %v", err)
 	}

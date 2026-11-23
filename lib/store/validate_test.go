@@ -2,7 +2,6 @@ package store
 
 import "testing"
 
-// TestValidate — 4 examples + boundary and rejection cases.
 func TestValidate(t *testing.T) {
 	validKnowledge := map[string]any{"topic": "x", "summary": "y", "confidence": 0.9}
 	cases := []struct {

@@ -1,7 +1,3 @@
-// commands_table_test.go — v0.44.0 T3 커맨드 표 동기 가드. README EN/KO
-// 커맨드 표와 SKILL 도구 목록이 코드 원천(wire.Registered · mcp
-// ToolsManifest)과 드리프트 없는지 검증한다. 신규 커맨드·도구는 Register와
-// 함께 README 양어 표에 행을 추가해야 통과한다(코드가 원천 — 문서가 아님).
 package doclint
 
 import (
@@ -10,16 +6,13 @@ import (
 	"strings"
 	"testing"
 
-	_ "github.com/synuns/flint/lib/cli" // init Register 부작용(실등록 표면)
+	_ "github.com/synuns/flint/lib/cli"
 	"github.com/synuns/flint/lib/mcp"
 	"github.com/synuns/flint/lib/wire"
 )
 
-// tableCmdRe — 커맨드 표 행 첫 열 패턴 `| `flint <name>`. 행 시작 앵커로
-// 본문 인라인 언급(`flint hot` 산문 등)은 제외한다.
 var tableCmdRe = regexp.MustCompile("(?m)^\\| `flint ([a-z][a-z-]*)")
 
-// readmeTableCommands — README 커맨드 표에서 뽑은 커맨드명 집합.
 func readmeTableCommands(t *testing.T, path string) map[string]bool {
 	t.Helper()
 	rows := tableCmdRe.FindAllStringSubmatch(docStr(t, path), -1)
@@ -36,7 +29,6 @@ func readmeTableCommands(t *testing.T, path string) map[string]bool {
 	return set
 }
 
-// diffNames — 양방향 집합 차를 정렬된 메시지로 보고(불일치 전량 노출).
 func diffNames(t *testing.T, label string, got, want map[string]bool) {
 	t.Helper()
 	var missing, extra []string
@@ -60,9 +52,6 @@ func diffNames(t *testing.T, label string, got, want map[string]bool) {
 	}
 }
 
-// TestCommandTableMatchesRegistry — Review Focus: README EN/KO 커맨드 표 ==
-// wire.Registered 집합(HiddenFromUsage 제외 — 훅 전용 진입점은 사람 대상
-// 표에 없다). 신규 커맨드를 Register만 하면 FAIL — 영구 드리프트 가드.
 func TestCommandTableMatchesRegistry(t *testing.T) {
 	want := map[string]bool{}
 	for _, name := range wire.Registered() {
@@ -78,11 +67,8 @@ func TestCommandTableMatchesRegistry(t *testing.T) {
 	diffNames(t, "README.ko.md", readmeTableCommands(t, "../README.ko.md"), want)
 }
 
-// skillToolRe — SKILL.md에 등장하는 flint_* 도구명 패턴.
 var skillToolRe = regexp.MustCompile("flint_[a-z_]+")
 
-// TestSkillToolListMatchesMCP — SKILL MCP 세션 도구 나열 == mcp
-// ToolsManifest 5종. 도구 추가·개명 시 SKILL.md 갱신 없으면 FAIL.
 func TestSkillToolListMatchesMCP(t *testing.T) {
 	want := map[string]bool{}
 	for _, td := range mcp.ToolsManifest() {

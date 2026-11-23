@@ -1,7 +1,3 @@
-// embed_test.go — the go:embed source contract (fast): SeedJSONL must return
-// the exact bytes of seed.jsonl on disk (the Makefile seed target reads the
-// same file — the two sources must never drift), and every line must stay
-// parseable JSON (the cli seed --demo path groups by kind per line).
 package data
 
 import (
@@ -11,9 +7,6 @@ import (
 	"testing"
 )
 
-// TestSeedJSONLMatchesDisk — the embedded bytes == the on-disk seed.jsonl.
-// The embedding is resolved at build time, so a stale binary silently serving
-// old demo data is caught by this byte-for-byte comparison.
 func TestSeedJSONLMatchesDisk(t *testing.T) {
 	want, err := os.ReadFile("seed.jsonl")
 	if err != nil {
@@ -25,8 +18,6 @@ func TestSeedJSONLMatchesDisk(t *testing.T) {
 	}
 }
 
-// TestSeedJSONLEveryLineJSON — each non-empty line unmarshals as a JSON
-// object with a kind field (the seed --demo per-line grouping precondition).
 func TestSeedJSONLEveryLineJSON(t *testing.T) {
 	for i, line := range strings.Split(string(SeedJSONL()), "\n") {
 		line = strings.TrimSpace(line)

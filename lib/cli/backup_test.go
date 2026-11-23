@@ -17,21 +17,14 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// fakeBackup — a lib/backup fake. Without stubs (dumpErr, dumpText, restoreErr)
-// it behaves as a zero dump / success. With SUPERLITE_REAL=1, unstubbed operations delegate to the real implementation.
 type fakeBackup struct {
 	dumpErr    error
 	dumpText   string
 	restoreErr error
 
-	// recording
 	gotRestore string
 }
 
-// withBackupFake — swaps the dumpFn/restoreFn seams. Default fake; with FLINT_TEST_DSN set
-// + SUPERLITE_REAL=1, unstubbed operations delegate to real Dump/Restore (the delegated DSN is also
-// FLINT_TEST_DSN — taking precedence over the dsnFromEnv result the production code passed). Skips when
-// no real DB is running. Without FLINT_TEST_DSN, no real-implementation fallback (N1 — seamRealDSN).
 func withBackupFake(t *testing.T, f *fakeBackup) {
 	t.Helper()
 	prevDump, prevRestore := dumpFn, restoreFn
@@ -70,7 +63,6 @@ func withBackupFake(t *testing.T, f *fakeBackup) {
 	t.Cleanup(func() { dumpFn, restoreFn = prevDump, prevRestore })
 }
 
-// mustBackup — runs runBackup/runRestore directly (the pre-root.go-registration test path).
 func mustBackup(t *testing.T, args []string) (string, int) {
 	t.Helper()
 	return runCmd(t, "backup", args)
@@ -97,7 +89,6 @@ func runCmd(t *testing.T, cmd string, args []string) (string, int) {
 	return out.String(), code
 }
 
-// creates the file via the fake Dump.
 func TestBackupWritesFile(t *testing.T) {
 	f := &fakeBackup{dumpText: "-- flint backup probe\n"}
 	withBackupFake(t, f)
@@ -138,7 +129,7 @@ func TestBackupDumpErrorExit1(t *testing.T) {
 	if code != 1 {
 		t.Fatalf("exit=%d, want 1; out=%s", code, out)
 	}
-	decode(t, out) // one-line JSON error
+	decode(t, out)
 }
 
 func TestBackupServerDownExit2(t *testing.T) {
@@ -153,8 +144,6 @@ func TestBackupServerDownExit2(t *testing.T) {
 	}
 }
 
-// path errors — missing --out path value (invalid-arg exit 3) and
-// an unwritable path (file error exit 1).
 func TestBackupBadPathExit1(t *testing.T) {
 	f := &fakeBackup{dumpText: "x"}
 	withBackupFake(t, f)
@@ -188,8 +177,7 @@ func TestRestoreFromFile(t *testing.T) {
 	if err := os.WriteFile(path, []byte("BEGIN;\nCOMMIT;\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// sidecar required — the normal path takes the integrity-verified branch.
-	// the checksum is computed with the same algorithm as VerifyFile (sha256 hex) and written.
+
 	digest := sha256.Sum256([]byte("BEGIN;\nCOMMIT;\n"))
 	if err := backup.WriteSidecar(path, hex.EncodeToString(digest[:])); err != nil {
 		t.Fatal(err)
@@ -206,7 +194,6 @@ func TestRestoreFromFile(t *testing.T) {
 	}
 }
 
-// path errors — missing --file (invalid-arg exit 3) and a nonexistent file (exit 1).
 func TestRestoreMissingFileFlagExit3(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)
@@ -241,8 +228,6 @@ func TestRestoreErrorExit1(t *testing.T) {
 	decode(t, out)
 }
 
-// real Doltgres round trip — dump -> delete-all -> restore, verifying row preservation (SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN set only — N1; deletes everything, so never the default production DSN).
 func TestBackupRestoreRealRoundtrip(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -255,7 +240,6 @@ func TestBackupRestoreRealRoundtrip(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// fixed-hash probe — only 1 row exists even across re-runs (idempotent).
 	probe := `INSERT INTO knowledge (topic, summary, tags, domain, confidence, content_hash)
 		VALUES ('backup rt', 't13 roundtrip probe', ':t13:', 'main', 0.9, 't13-roundtrip-probe')
 		ON CONFLICT (content_hash) DO NOTHING`
@@ -292,9 +276,6 @@ func TestBackupRestoreRealRoundtrip(t *testing.T) {
 	}
 }
 
-// TestBackupOutJSONWithRotate — the --out success output must be valid one-line
-// JSON (no corruption from doubled quotes after quoteJSON). Rotated deletions go into the
-// "removed":N summary and coexist with the sha256 on sidecar success.
 func TestBackupOutJSONWithRotate(t *testing.T) {
 	f := &fakeBackup{dumpText: "-- flint backup probe\n"}
 	withBackupFake(t, f)
@@ -310,7 +291,7 @@ func TestBackupOutJSONWithRotate(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
-	m := decode(t, out) // doubled quotes would fail parsing here
+	m := decode(t, out)
 	if m["status"] != "ok" || m["path"] != path {
 		t.Fatalf("성공 JSON=%v, want ok/path", m)
 	}
@@ -322,8 +303,6 @@ func TestBackupOutJSONWithRotate(t *testing.T) {
 	}
 }
 
-// TestBackupRotateFailureQuiet — a rotation failure does not harm the successful backup
-// (no removed field, exit 0 — §13 non-interference).
 func TestBackupRotateFailureQuiet(t *testing.T) {
 	f := &fakeBackup{dumpText: "-- dump\n"}
 	withBackupFake(t, f)
@@ -343,8 +322,6 @@ func TestBackupRotateFailureQuiet(t *testing.T) {
 	}
 }
 
-// TestBackupEncryptWritesAgeFile — --encrypt produces an age ciphertext
-// file + sidecar (of the ciphertext) and encrypted:true in the output.
 func TestBackupEncryptWritesAgeFile(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	withBackupFake(t, &fakeBackup{dumpText: "-- flint dump\nINSERT INTO knowledge VALUES (1,'평문 본문');"})
@@ -366,7 +343,7 @@ func TestBackupEncryptWritesAgeFile(t *testing.T) {
 	if bytes.Contains(b, []byte("평문 본문")) {
 		t.Error("평문 노출")
 	}
-	// the sidecar is the checksum of the ciphertext.
+
 	sum, verr := backup.VerifyFile(out)
 	if verr != nil {
 		t.Fatalf("사이드카 검증: %v", verr)
@@ -377,8 +354,6 @@ func TestBackupEncryptWritesAgeFile(t *testing.T) {
 	}
 }
 
-// TestBackupMaskDump — --mask does marker-prefix and pattern substitution, no sidecar
-// (non-restorable artifact), and refuses restore.
 func TestBackupMaskDump(t *testing.T) {
 	withBackupFake(t, &fakeBackup{dumpText: "-- flint dump\nINSERT INTO knowledge VALUES (1,'토큰 ghp_0123456789abcdefghijklmnopqrst');"})
 	out := filepath.Join(t.TempDir(), "m.sql")
@@ -399,15 +374,13 @@ func TestBackupMaskDump(t *testing.T) {
 	if _, serr := os.Stat(out + ".sha256"); serr == nil {
 		t.Error("마스킹 덤프에 사이드카 부여 — 비복원 계약 위반")
 	}
-	// restore refused (the missing-sidecar guard fires first — double defense with the marker guard).
+
 	rgot, rcode := mustRestore(t, []string{"--file", out})
 	if rcode != 1 || !strings.Contains(rgot, "sidecar") {
 		t.Fatalf("마스킹 restore = exit %d %s, want 사이드카 차단", rcode, rgot)
 	}
 }
 
-// TestRestoreDecryptsEncrypted — the decrypt path of restoring an encrypted backup
-// (restoreFn receives plaintext) + a clear error when there is no key.
 func TestRestoreDecryptsEncrypted(t *testing.T) {
 	cfg := t.TempDir()
 	key := filepath.Join(cfg, "backup.key")
@@ -426,15 +399,10 @@ func TestRestoreDecryptsEncrypted(t *testing.T) {
 	h := sha256.Sum256(ct.Bytes())
 	backup.WriteSidecar(f, hex.EncodeToString(h[:]))
 
-	// config with a key — decrypted and reaches restoreFn.
 	t.Setenv("FLINT_CONFIG_DIR", cfg)
 	fb := &fakeBackup{}
 	withBackupFake(t, fb)
-	// this test's purpose is verifying the decrypt path (restoreFn receives plaintext), not
-	// running real restore SQL — so even in real mode the stub is redefined not to call real backup.Restore
-	// (the 2-column synthetic dump mismatches the real 14+-column knowledge schema
-	// and fails with SQLSTATE 42601). Cleanup: withBackupFake's cleanup
-	// restores the original restoreFn.
+
 	restoreFn = func(ctx context.Context, dsn string, r io.Reader) error {
 		data, err := io.ReadAll(r)
 		if err != nil {
@@ -451,7 +419,6 @@ func TestRestoreDecryptsEncrypted(t *testing.T) {
 		t.Errorf("restoreFn 평문 미수신: %q", fb.gotRestore)
 	}
 
-	// config without a key — a clear error (prevents arbitrary replay of the ciphertext).
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	withBackupFake(t, &fakeBackup{})
 	got2, code2 := mustRestore(t, []string{"--file", f})
@@ -460,8 +427,6 @@ func TestRestoreDecryptsEncrypted(t *testing.T) {
 	}
 }
 
-// TestOutInsideGitRepo — the inside-git-repo detection for --out (.git
-// directory and subdirectory traversal).
 func TestOutInsideGitRepo(t *testing.T) {
 	dir := t.TempDir()
 	repo := filepath.Join(dir, "repo")
@@ -479,13 +444,10 @@ func TestOutInsideGitRepo(t *testing.T) {
 	}
 }
 
-// TestFlintHomeOverrideAndMigration — the FLINT_HOME override and
-// automatic migration of legacy (configDir) artifacts — when the backup key moves from the config space to the infrastructure
-// data space (~/.flint), the existing key comes along.
 func TestFlintHomeOverrideAndMigration(t *testing.T) {
 	legacy := t.TempDir()
 	home := t.TempDir()
-	t.Setenv("FLINT_CONFIG_DIR", legacy) // flintHome fallback and legacy original
+	t.Setenv("FLINT_CONFIG_DIR", legacy)
 	t.Setenv("FLINT_HOME", home)
 	os.WriteFile(filepath.Join(legacy, "backup.key"), []byte("AGE-SECRET-KEY-1SAMPLE"), 0o600)
 	got := BackupKeyPath()
@@ -499,7 +461,7 @@ func TestFlintHomeOverrideAndMigration(t *testing.T) {
 	if _, err := os.Stat(filepath.Join(legacy, "backup.key")); !os.IsNotExist(err) {
 		t.Error("레거시 잔존 — 이전 후 제거 계약 위반")
 	}
-	// if the new one already exists, the legacy is not overwritten (both -> new wins).
+
 	os.WriteFile(filepath.Join(legacy, "backup.key"), []byte("OLD-SHOULD-NOT-WIN"), 0o600)
 	b2, _ := os.ReadFile(BackupKeyPath())
 	if string(b2) != "AGE-SECRET-KEY-1SAMPLE" {

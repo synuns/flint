@@ -1,9 +1,3 @@
-// seed_test.go — 시딩 데이터 검증(fast)과 make seed 멱등(slow, 실 Doltgres).
-// 멱등 계약: 해시는 휘발성 필드(valid_at·ts)를 제외한 HashCanonical 경로라
-// 동일 payload 재전송은 duplicate·exit 0이어야 한다(spec §7 쓰기 2단계).
-// v1.26.0 T2 — 외부 테스트 패키지(data_test)로 이동: lib/cli seed.go가
-// data(Embedded seed)를 임포트하면서 내부 테스트의 cli 임포트가 순환이 됐다.
-// 파일 읽기(seed.jsonl)만 쓰므로 내부 패키지 식별자는 필요 없다.
 package data_test
 
 import (
@@ -23,7 +17,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// loadSeed — seed.jsonl을 줄 단위 JSON으로 읽는다(원본 텍스트도 함께).
 func loadSeed(t *testing.T) ([]map[string]any, []string) {
 	t.Helper()
 	f, err := os.Open("seed.jsonl")
@@ -52,8 +45,6 @@ func loadSeed(t *testing.T) ([]map[string]any, []string) {
 	return maps, lines
 }
 
-// TestSeedLinesValid — 모든 줄이 계약 payload 스키마를 준수하고
-// 구성(프로젝트 3·결정 5·pending 1·선호 1·플레이북 2)이 플랜 T15·T45와 일치한다.
 func TestSeedLinesValid(t *testing.T) {
 	maps, _ := loadSeed(t)
 	if len(maps) == 0 {
@@ -120,8 +111,6 @@ func TestSeedLinesValid(t *testing.T) {
 	}
 }
 
-// TestSeedIdempotentV4 — v0.4 플레이북 시딩 2건(절차 지식, CONTENT.md §1a·§4).
-// 계약: summary는 조건→단계→완료조건 3단, 어휘표 경고 0, confidence 0.9.
 func TestSeedIdempotentV4(t *testing.T) {
 	maps, _ := loadSeed(t)
 	playbooks := map[string]map[string]any{}
@@ -157,7 +146,6 @@ func TestSeedIdempotentV4(t *testing.T) {
 	}
 }
 
-// seedDSN — FLINT_DSN 우선, 없으면 기본(ADR-0001).
 func seedDSN() string {
 	if d := os.Getenv("FLINT_DSN"); d != "" {
 		return d
@@ -165,14 +153,6 @@ func seedDSN() string {
 	return "postgresql://flint:flint-dev@localhost:5433/flint"
 }
 
-// seedSharedDBLock — 공유 Doltgres DB를 쓰는 패키지 간 상호 배제(파일
-// 잠금). go test ./...는 패키지 바이너리를 병렬로 띄우므로 잠금 없이는
-// lib/db newTestRepo의 knowledge 전체 DELETE가 이 테스트의 1차 시딩과
-// 2차 시딩(멱등 계약 검증) 사이에 끼어, 2차가 hash 미발견 신규 insert
-// (status committed)로 멱등 계약이 깨진다(CI run 39716547383, 로컬 재현
-// ./data ./lib/db -count=3 -p 2 3/3 red). 잠금 파일 경로는 lib/db
-// sharedDBLock·lib/backup drillLock과 동일해야 상호 배제가 성립한다
-// (v0.5 선례 e1704b8).
 func seedSharedDBLock(t *testing.T) {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -190,8 +170,6 @@ func seedSharedDBLock(t *testing.T) {
 	})
 }
 
-// TestSeedIdempotent — 시딩 2회 실행 시 2회째는 전부 duplicate·exit 0.
-// 실 Doltgres 필요: 서버가 없으면 스킵(exit 2 철학 — 조용히 진행).
 func TestSeedIdempotent(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
@@ -232,12 +210,10 @@ func TestSeedIdempotent(t *testing.T) {
 		return worst, outs
 	}
 
-	// 1회째: 신규 DB면 committed, 이미 시딩된 DB면 duplicate — 둘 다 exit 0.
 	if code, outs := seedOnce(); code != 0 {
 		t.Fatalf("첫 시딩 exit=%d outputs=%v", code, outs)
 	}
-	// 2회째: 전부 duplicate·exit 0(멱등 계약). duplicate 경로도 경고를
-	// 병행 출력하므로(v0.9.2 #6) status 필드로 판정한다.
+
 	code, outs := seedOnce()
 	if code != 0 {
 		t.Fatalf("재시딩 exit=%d, want 0", code)

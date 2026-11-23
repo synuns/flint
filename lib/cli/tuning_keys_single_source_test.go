@@ -1,8 +1,3 @@
-// tuning_keys_single_source_test.go — the key-set homogeneity guard is owned by
-// TestTuningKeysMatchRegistry in tuning_test.go. Here we cover the one remaining drift point that guard
-// cannot catch: if a meta management key overlaps a thresholds key,
-// tuningList prints the same key twice (a duplicate display row —
-// tuningKeyAll's dedup serves only reset --all).
 package cli
 
 import "testing"

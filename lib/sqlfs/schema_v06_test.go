@@ -1,5 +1,3 @@
-// schema_v06_test.go — schema v4 (item reference-metering columns)
-// fast tests.
 package sqlfs
 
 import (
@@ -7,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestSchemaV4Columns — the v4 new columns knowledge.read_count·
-// last_read_at are included at fresh-DB creation (the schema SQL).
-// Existing v3 DBs get them via admin.go's EnsureSchemaV4 gate ALTER.
 func TestSchemaV4Columns(t *testing.T) {
 	knowledge := tableBlock(t, "knowledge")
 	if !regexp.MustCompile(`(?m)^\s*read_count\s+integer\s+NOT NULL DEFAULT 0\s*(,|--|$)`).

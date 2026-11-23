@@ -1,8 +1,3 @@
-// scan_test.go — the vault diff scan. Fast tests run on the in-memory
-// fakeStore by default; with SUPERLITE_REAL=1 + FLINT_TEST_DSN the same
-// tests run against the real PoolStore on an isolated scratch database
-// (created and dropped per test — shared/personal DBs are never touched).
-// TestScanVaultDiffRealSlow is the always-slow real-DB end-to-end.
 package vault
 
 import (
@@ -20,12 +15,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// fakeStore — the in-memory Store: keeps rows in a map, counts ApplyDiff
-// calls (the idempotence assertion — a no-change rescan must not write)
-// and the touch refreshes handed to it (the v1.21.1 touch-only axis).
-// changedAt emulates the v17 content_changed_at column (v1.22.1 r96 rule):
-// stamped on a content-hash change, PRESERVED on a hash-identical
-// re-apply, absent for new rows.
 type fakeStore struct {
 	rows      map[string]File
 	changedAt map[string]time.Time
@@ -37,8 +26,6 @@ func newFakeStore() *fakeStore {
 	return &fakeStore{rows: map[string]File{}, changedAt: map[string]time.Time{}}
 }
 
-// stampOf — the fake's content_changed_at emulation (zero time = NULL);
-// promoted through embedding so wrapped fakes answer isStamped too.
 func (f *fakeStore) stampOf(path string) (time.Time, bool) {
 	ts, ok := f.changedAt[path]
 	return ts, ok
@@ -71,17 +58,13 @@ func (f *fakeStore) ApplyDiff(ctx context.Context, upserts, touches []File, keep
 	for p := range f.rows {
 		if !keepSet[p] {
 			delete(f.rows, p)
-			delete(f.changedAt, p) // the stamp vanishes with the row
+			delete(f.changedAt, p)
 			removed++
 		}
 	}
 	for _, u := range upserts {
 		if r, ok := f.rows[u.Path]; ok {
-			// The v17 stamp rule (v1.22.1 r96), mirroring applyDiffOnce's
-			// CASE: a hash change stamps now(); a hash-identical re-apply
-			// (a parallel index loser's retry) KEEPS the existing stamp;
-			// a new row (no prior row) is not a content change — never
-			// stamped.
+
 			if r.ContentHash != u.ContentHash {
 				f.changedAt[u.Path] = time.Now()
 			}
@@ -97,8 +80,6 @@ func (f *fakeStore) ApplyDiff(ctx context.Context, upserts, touches []File, keep
 	return removed, nil
 }
 
-// vaultFilesDDL — the schema v17 vault_files DDL (mirrors lib/sqlfs
-// schema.sql; synthetic scratch databases only).
 const vaultFilesDDL = `CREATE TABLE IF NOT EXISTS vault_files (
     id              bigserial PRIMARY KEY,
     path            text NOT NULL UNIQUE,
@@ -114,9 +95,6 @@ const vaultFilesDDL = `CREATE TABLE IF NOT EXISTS vault_files (
 
 const vaultHashIdxDDL = `CREATE INDEX IF NOT EXISTS idx_vault_files_content_hash ON vault_files (content_hash)`
 
-// realStore — a PoolStore on an isolated scratch database under
-// FLINT_TEST_DSN (created here, dropped on cleanup). SUPERLITE_REAL=1
-// required — never a production fallback.
 func realStore(t *testing.T) *PoolStore {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") != "1" {
@@ -131,8 +109,7 @@ func realStore(t *testing.T) *PoolStore {
 	if err != nil {
 		t.Skipf("real store unavailable: %v", err)
 	}
-	// The base pool must outlive the cleanup (a defer would close it
-	// before the DROP runs — that leak was measured once).
+
 	t.Cleanup(base.Close)
 	name := fmt.Sprintf("flint_t2vault_%d", time.Now().UnixNano()%1e9)
 	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
@@ -149,7 +126,7 @@ func realStore(t *testing.T) *PoolStore {
 		t.Fatalf("vault.Open: %v", err)
 	}
 	t.Cleanup(st.Close)
-	// One statement per Exec (the Doltgres multi-statement constraint).
+
 	if _, err := st.pool.Exec(ctx, vaultFilesDDL); err != nil {
 		t.Fatalf("vault_files DDL: %v", err)
 	}
@@ -159,8 +136,6 @@ func realStore(t *testing.T) *PoolStore {
 	return st
 }
 
-// testStore — the fake by default; the real PoolStore when SUPERLITE_REAL=1
-// (the seam check reruns the same tests against real code).
 func testStore(t *testing.T) Store {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") == "1" && os.Getenv("FLINT_TEST_DSN") != "" {
@@ -171,8 +146,6 @@ func testStore(t *testing.T) Store {
 
 var demoMtime = time.Date(2026, 1, 2, 3, 4, 5, 600000000, time.UTC)
 
-// writeNote — writes a synthetic demo note under dir with an explicit mtime
-// (deterministic first-filter comparisons). Returns the full path.
 func writeNote(t *testing.T, dir, rel, content string, mtime time.Time) string {
 	t.Helper()
 	full := filepath.Join(dir, filepath.FromSlash(rel))
@@ -211,10 +184,6 @@ func mustRows(t *testing.T, st Store) map[string]File {
 	return rows
 }
 
-// isStamped — whether the path's vault_files row carries a non-NULL
-// content_changed_at: the fake's emulation (stampOf) or the real column
-// via EXISTS (a removed row is trivially unstamped — the stamp vanished
-// with the row).
 func isStamped(t *testing.T, st Store, path string) bool {
 	t.Helper()
 	if f, ok := st.(interface {
@@ -297,10 +266,7 @@ func TestScanUnchangedOnTouchOnly(t *testing.T) {
 	writeNote(t, dir, "a.md", content, demoMtime)
 	mustScan(t, st, dir, Options{})
 	before := mustRows(t, st)["a.md"]
-	// mtime-only change (v1.21.1 r91/r94): the first filter mismatches, the
-	// recomputed hash matches — not Changed, but the stored mtime/size
-	// pointer REFRESHES so the next scan's first filter turns clean (the
-	// repeated sha256 cost was the finding).
+
 	touched := demoMtime.Add(2 * time.Hour)
 	writeNote(t, dir, "a.md", content, touched)
 	stats := mustScan(t, st, dir, Options{})
@@ -344,7 +310,7 @@ func TestScanRemovalAndRename(t *testing.T) {
 	writeNote(t, dir, "a.md", "# A\n\nPara a.\n", demoMtime)
 	writeNote(t, dir, "b.md", "# B\n\nPara b.\n", demoMtime)
 	mustScan(t, st, dir, Options{})
-	// Delete a.md; rename b.md -> c.md (same content, same mtime).
+
 	if err := os.Remove(filepath.Join(dir, "a.md")); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
@@ -397,7 +363,7 @@ func TestScanSkipDirs(t *testing.T) {
 	if len(rows) != 1 || rows["notes/demo.md"].Title != "Demo" {
 		t.Fatalf("rows = %+v, want only notes/demo.md", rows)
 	}
-	// A custom override replaces the default list entirely.
+
 	st2 := testStore(t)
 	writeNote(t, dir, "private/secret.md", "# P\n\nx\n", demoMtime)
 	stats = mustScan(t, st2, dir, Options{SkipDirs: []string{"private", ".trash"}})
@@ -427,7 +393,7 @@ func TestScanLimitSkipped(t *testing.T) {
 	if len(rows) != 1 {
 		t.Fatalf("rows = %v, want 1 (limit)", rows)
 	}
-	// Skipped files must not be treated as removed on the next full scan.
+
 	stats = mustScan(t, st, dir, Options{})
 	if stats.New != 2 || stats.Removed != 0 {
 		t.Fatalf("full rescan stats = %+v, want new=2 removed=0 (skipped files survive)", stats)
@@ -447,7 +413,7 @@ func TestScanLimitDerivedFromCap(t *testing.T) {
 	if stats.Scanned != 2 || stats.Skipped != 1 {
 		t.Fatalf("stats = %+v, want scanned=2 skipped=1 (cap wins over limit)", stats)
 	}
-	// limit 0 = unlimited: the cap applies alone.
+
 	st2 := testStore(t)
 	stats = mustScan(t, st2, dir, Options{ScanMaxFiles: 2})
 	if stats.Scanned != 2 || stats.Skipped != 1 {
@@ -538,7 +504,7 @@ func TestScanFrontmatterEmptyAndCRLF(t *testing.T) {
 func TestScanSummaryTruncateRunes(t *testing.T) {
 	st := testStore(t)
 	dir := t.TempDir()
-	long := strings.Repeat("가", 300) // 300 runes > the 200-rune default cap
+	long := strings.Repeat("가", 300)
 	writeNote(t, dir, "long.md", "# Long\n\n"+long+"\n", demoMtime)
 	mustScan(t, st, dir, Options{})
 	rows := mustRows(t, st)
@@ -547,10 +513,6 @@ func TestScanSummaryTruncateRunes(t *testing.T) {
 	}
 }
 
-// TestScanVaultDiffRealSlow — the real-DB end-to-end (FLINT_TEST_DSN):
-// new -> changed -> removed on an isolated scratch database, verifying the
-// persisted rows directly (the ON CONFLICT path upsert is exercised by the
-// second scan on the same path).
 func TestScanVaultDiffRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -567,7 +529,7 @@ func TestScanVaultDiffRealSlow(t *testing.T) {
 	if stats.New != 1 {
 		t.Fatalf("stats = %+v, want new=1", stats)
 	}
-	// Rewrite with a later mtime -> changed (path UNIQUE UPSERT, not a new row).
+
 	writeNote(t, dir, "demo.md", "# Demo v2\n\nDemo paragraph v2.\n", demoMtime.Add(time.Hour))
 	stats, err = Scan(ctx, st, dir, Options{})
 	if err != nil {
@@ -583,7 +545,7 @@ func TestScanVaultDiffRealSlow(t *testing.T) {
 	if n != 1 {
 		t.Fatalf("vault_files rows = %d, want 1 (UPSERT axis)", n)
 	}
-	// Delete -> removed.
+
 	if err := os.Remove(filepath.Join(dir, "demo.md")); err != nil {
 		t.Fatalf("Remove: %v", err)
 	}
@@ -602,12 +564,6 @@ func TestScanVaultDiffRealSlow(t *testing.T) {
 	}
 }
 
-// ---- v1.22.0: the content_changed_at re-review queue + the Stats list ----
-
-// TestScanChangedStampLifecycle — the core stamp lifecycle: a new row is
-// NEVER stamped (a new file is not a content change), a changed row is
-// stamped now() and lands in Stats.ChangedFiles (path + old/new hash),
-// and a no-change rescan writes nothing so the stamp is preserved.
 func TestScanChangedStampLifecycle(t *testing.T) {
 	st := testStore(t)
 	dir := t.TempDir()
@@ -630,7 +586,7 @@ func TestScanChangedStampLifecycle(t *testing.T) {
 	if !isStamped(t, st, "a.md") {
 		t.Fatal("changed row not stamped")
 	}
-	// No-change rescan: no write at all — the stamp survives untouched.
+
 	stats = mustScan(t, st, dir, Options{})
 	if stats.Changed != 0 || len(stats.ChangedFiles) != 0 {
 		t.Fatalf("rescan stats=%+v, want no changes", stats)
@@ -640,14 +596,6 @@ func TestScanChangedStampLifecycle(t *testing.T) {
 	}
 }
 
-// TestScanHashReapplyPreservesStamp — the v1.22.1 r96 rule: a hash-identical
-// re-apply upsert (the parallel-index-loser scenario — the loser's retry
-// re-applies the hash the winner already stored) KEEPS the existing stamp.
-// Restoring the FILE to pre-change content is a different thing: it differs
-// from the stored snapshot hash, so it is an ordinary change and re-stamps —
-// one column, no resident part, so the row keeps no memory of the
-// pre-change hash (A→B→A re-stamps; clearing is deferred to the v1.25.0
-// knowledge↔vault link).
 func TestScanHashReapplyPreservesStamp(t *testing.T) {
 	st := testStore(t)
 	dir := t.TempDir()
@@ -660,10 +608,7 @@ func TestScanHashReapplyPreservesStamp(t *testing.T) {
 	if !isStamped(t, st, "a.md") {
 		t.Fatal("precondition: changed row stamped")
 	}
-	// Hash-identical re-apply (direct ApplyDiff — Scan itself routes
-	// hash-identical files to the touch path, never an upsert): the
-	// parallel loser's retry after the winner applied the same hash. The
-	// winner's stamp must survive (pre-fix: THEN NULL erased it).
+
 	row := mustRows(t, st)["a.md"]
 	reapply := row
 	reapply.Mtime = row.Mtime.Add(time.Hour)
@@ -673,8 +618,7 @@ func TestScanHashReapplyPreservesStamp(t *testing.T) {
 	if !isStamped(t, st, "a.md") {
 		t.Fatal("hash-identical re-apply erased the stamp (must be preserved)")
 	}
-	// A no-stamp row stays no-stamp through a hash-identical re-apply
-	// (the normal flow: an unchanged file never gains a stamp).
+
 	writeNote(t, dir, "b.md", v1, demoMtime)
 	mustScan(t, st, dir, Options{})
 	rowB := mustRows(t, st)["b.md"]
@@ -686,8 +630,7 @@ func TestScanHashReapplyPreservesStamp(t *testing.T) {
 	if isStamped(t, st, "b.md") {
 		t.Fatal("hash-identical re-apply stamped a never-changed row")
 	}
-	// File restored to the PRE-change content: differs from the stored v2
-	// hash — an ordinary change, re-stamped.
+
 	writeNote(t, dir, "a.md", v1, demoMtime.Add(2*time.Hour))
 	stats := mustScan(t, st, dir, Options{})
 	if stats.Changed != 1 || len(stats.ChangedFiles) != 1 {
@@ -698,9 +641,6 @@ func TestScanHashReapplyPreservesStamp(t *testing.T) {
 	}
 }
 
-// TestScanTouchOnlyNoStamp — the v1.21.1 touch-only path (mtime/size
-// refresh, content hash identical) never stamps: content_changed_at
-// tracks CONTENT changes alone.
 func TestScanTouchOnlyNoStamp(t *testing.T) {
 	st := testStore(t)
 	dir := t.TempDir()
@@ -717,8 +657,6 @@ func TestScanTouchOnlyNoStamp(t *testing.T) {
 	}
 }
 
-// TestScanRemovedStampVanishes — deleting the note removes the row, so its
-// stamp vanishes with it (no orphaned queue entry).
 func TestScanRemovedStampVanishes(t *testing.T) {
 	st := testStore(t)
 	dir := t.TempDir()
@@ -744,9 +682,6 @@ func TestScanRemovedStampVanishes(t *testing.T) {
 	}
 }
 
-// TestScanChangedFilesListScope — duplicate notes (identical content)
-// changed identically both appear in the list with the same old/new hash
-// pair (the duplicate-note axis), and a new file NEVER enters the list.
 func TestScanChangedFilesListScope(t *testing.T) {
 	st := testStore(t)
 	dir := t.TempDir()
@@ -776,10 +711,6 @@ func TestScanChangedFilesListScope(t *testing.T) {
 	}
 }
 
-// TestScanStampLifecycleRealSlow — the full stamp lifecycle against the
-// real column on an isolated scratch database: new NULL -> changed stamped
-// -> no-change rescan preserved -> hash-identical re-apply preserved (the
-// v1.22.1 r96 parallel-loser rule) -> removal gone.
 func TestScanStampLifecycleRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")

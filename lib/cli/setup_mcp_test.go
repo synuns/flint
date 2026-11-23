@@ -6,10 +6,8 @@ import (
 	"testing"
 )
 
-// seam: the lookPathFn declaration lives in setup.go (included in non-test builds) — here we only swap it.
-
 func TestSetupMcpDetectsInstalled(t *testing.T) {
-	// a fake environment with codex and gemini installed; opencode, cursor, and copilot not installed
+
 	saved := lookPathFn
 	lookPathFn = func(name string) (string, error) {
 		if name == "codex" || name == "gemini" {
@@ -27,8 +25,7 @@ func TestSetupMcpDetectsInstalled(t *testing.T) {
 	if !strings.Contains(s, `"registered":["codex","gemini"]`) {
 		t.Errorf("등록 목록: %s", s)
 	}
-	// tier-A expansion — uninstalled harnesses follow the registry order (opencode,
-	// copilot, cursor, qwen, devin, cline). Tier B (file-config style) is excluded from the list.
+
 	if !strings.Contains(s, `"skipped":["opencode","copilot","cursor","qwen","devin","cline"]`) {
 		t.Errorf("스킵 목록: %s", s)
 	}

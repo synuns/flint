@@ -1,14 +1,3 @@
-// autotune_shadow_real_test.go — the seam-check conformance run: the
-// same shadow-round contract as autotune_shadow_test.go, but with the
-// REAL lib/ops registry (ops.AutoRules + ops.AutoTrigger + the
-// ops.AutoVerdictQuery interpolation) registered through the
-// db.RegisterShadowCircuit seam. External package (db_test) because
-// lib/db can never import lib/ops (ops imports db — compile-verified);
-// the in-package default fixture is the swappable fake, this file is
-// the real implementation under SUPERLITE_REAL=1. The production
-// registration lives in lib/ops/shadow_register.go (init) — this file
-// registers explicitly so the run survives in-package tests' seam
-// restores.
 package db_test
 
 import (
@@ -25,8 +14,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// realShadowRules — the ops registry projected onto db.ShadowRule (the
-// adapter the production composition root installs).
 func realShadowRules() []db.ShadowRule {
 	out := make([]db.ShadowRule, 0, len(ops.AutoRules()))
 	for _, r := range ops.AutoRules() {
@@ -44,8 +31,6 @@ func realShadowRules() []db.ShadowRule {
 	return out
 }
 
-// realShadowVerdict — the ops.AutoTrigger adapter (the injected verdict
-// single source — db never re-implements the trigger).
 func realShadowVerdict(rule db.ShadowRule, obs db.ShadowObs, th store.Thresholds) db.ShadowVerdict {
 	v := ops.AutoTrigger(ops.AutoRule{Signal: rule.Signal, Key: rule.Key}, ops.AutoTriggerObs{
 		ReadEventsN: obs.ReadEventsN, ZeroN: obs.ZeroN, ReclassN: obs.ReclassN,
@@ -53,18 +38,12 @@ func realShadowVerdict(rule db.ShadowRule, obs db.ShadowObs, th store.Thresholds
 	return db.ShadowVerdict{Fired: v.Fired, SampleOk: v.SampleOk, Ratio: v.Ratio, Detail: v.Detail}
 }
 
-// dsnForDB — the DSN with the database path swapped.
 func dsnForDB(u *url.URL, name string) string {
 	c := *u
 	c.Path = "/" + name
 	return c.String()
 }
 
-// realScratch — a dedicated scratch DB via the exported surface only
-// (the in-package newScratchTestRepo is unreachable from db_test):
-// admin connect on the postgres catalog, CREATE DATABASE, NewRepo +
-// Migrate. Returns the repo and the scratch DSN. LIFO cleanup: repo
-// close → DROP DATABASE → admin close.
 func realScratch(t *testing.T) (*db.Repo, string) {
 	t.Helper()
 	dsn := os.Getenv("FLINT_TEST_DSN")
@@ -77,9 +56,7 @@ func realScratch(t *testing.T) (*db.Repo, string) {
 		t.Fatalf("DSN parse: %v", err)
 	}
 	name := fmt.Sprintf("flint_shreal_%d", time.Now().UnixNano())
-	// The in-package adminConnectForScratch convention: the postgres
-	// catalog first, the original path as fallback (servers without a
-	// postgres database — this Doltgres).
+
 	admin, err := db.Connect(ctx, dsnForDB(u, "postgres"))
 	if err != nil {
 		if admin, err = db.Connect(ctx, dsn); err != nil {
@@ -104,8 +81,6 @@ func realScratch(t *testing.T) (*db.Repo, string) {
 	return r, dsnForDB(u, name)
 }
 
-// realExec — raw SQL on the scratch (seeding; Repo exposes no generic
-// exec).
 func realExec(t *testing.T, scratchDsn, sql string) {
 	t.Helper()
 	pool, err := db.Connect(context.Background(), scratchDsn)
@@ -118,7 +93,6 @@ func realExec(t *testing.T, scratchDsn, sql string) {
 	}
 }
 
-// realString — one scalar text ("" when no row or NULL).
 func realString(t *testing.T, scratchDsn, sql string) string {
 	t.Helper()
 	pool, err := db.Connect(context.Background(), scratchDsn)
@@ -139,9 +113,6 @@ func realString(t *testing.T, scratchDsn, sql string) string {
 	return *val
 }
 
-// TestShadowRealRegistryConformance — SUPERLITE_REAL=1: the real
-// registry's verdict query executes on Doltgres, a fired round inserts
-// the real-signature prediction row, and the counters land.
 func TestShadowRealRegistryConformance(t *testing.T) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		t.Skip("seam check: set SUPERLITE_REAL=1")
@@ -152,8 +123,6 @@ func TestShadowRealRegistryConformance(t *testing.T) {
 	db.RegisterShadowCircuit(realShadowRules, realShadowVerdict)
 	t.Cleanup(func() { db.RegisterShadowCircuit(nil, nil) })
 
-	// Fire-shaped synthetic window: 12 reads, all 5 zero rows above the
-	// 0.05 floor → ratio 100% ≥ zero_near_warn_pct 30 (threshold defaults).
 	for i := 0; i < 7; i++ {
 		realExec(t, scratch, `INSERT INTO read_events (hits, zero, near, fallback) VALUES (2, false, false, false)`)
 	}
@@ -163,7 +132,6 @@ func TestShadowRealRegistryConformance(t *testing.T) {
 	realExec(t, scratch, `INSERT INTO meta (key, value) VALUES ('auto_mode', 'shadow')
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`)
 
-	// The real read-path hook (RecordReadEvent tail).
 	db.ResetShadowGateCacheForTest()
 	if err := r.RecordReadEvent(context.Background(), db.ReadEvent{Hits: 1}); err != nil {
 		t.Fatalf("RecordReadEvent: %v", err)

@@ -1,5 +1,3 @@
-// reads_v06_test.go — BumpReads (item reference metering, schema v4)
-// slow tests.
 package db
 
 import (
@@ -8,8 +6,6 @@ import (
 	"time"
 )
 
-// TestBumpReadsIncrements — increments·last_read_at renewal·unspecified
-// rows unchanged·no-op.
 func slowBumpReadsIncrements(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV4(ctx); err != nil {
@@ -51,7 +47,7 @@ func slowBumpReadsIncrements(t *testing.T, r *Repo) {
 	if l1 == nil || l3 == nil {
 		t.Error("last_read_at 미갱신 (want non-null for bumped rows)")
 	}
-	// An empty slice is a no-op — no error, nothing changed.
+
 	if err := r.BumpReads(ctx, nil); err != nil {
 		t.Fatalf("BumpReads(nil): %v", err)
 	}
@@ -67,9 +63,6 @@ func slowBumpReadsIncrements(t *testing.T, r *Repo) {
 	}
 }
 
-// TestBumpReadsDuplicateIDs — id=ANY duplicate immunity — even with the
-// same id twice in the slice, the row increments once (WHERE-matching
-// basis).
 func slowBumpReadsDuplicateIDs(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV4(ctx); err != nil {

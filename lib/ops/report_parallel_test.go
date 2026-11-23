@@ -1,12 +1,3 @@
-// report_parallel_test.go — v1.16.0 T2: collectEffect intra-collection parallelization regressions.
-//  1. Concurrency proof (a 5-slot barrier over the phase-1 SELECTs — under sequential
-//     execution it fails by timeout)
-//  2. Byte-identical JSON against a sequential oracle that reproduces the pre-parallel
-//     collectEffect body order as-is (the machine channel unchanged)
-//  3. On injected errors, the same exit/ErrLine as sequential (the original priority
-//     count > deadIDs > read-events-demotion preserved)
-//
-// All fixtures are synthetic demo data (the no-personal-data principle).
 package ops
 
 import (
@@ -26,10 +17,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// effectSequentialOracle — the pre-parallelization sequential collectEffect body, as-is
-// (the same package helpers in the same order). The byte-parity oracle: once collectEffect
-// itself goes parallel, this copy is the only sequential reference. Lookups go through the
-// same query functions, so injected-error wording stays identical.
 func effectSequentialOracle(ctx context.Context, st wire.Store, days int, th store.Thresholds, out *ReportOutput) error {
 	now := time.Now()
 	windowStart := now.Add(-time.Duration(days) * 24 * time.Hour)
@@ -203,8 +190,6 @@ func effectSequentialOracle(ctx context.Context, st wire.Store, days int, th sto
 	return nil
 }
 
-// effectSeqReportJSON — the full sequential report chain with the oracle effect (the same
-// composition as reportSequentialJSON above, swapping collectEffect for the sequential copy).
 func effectSeqReportJSON(ctx context.Context, st wire.Store, days int) (string, int) {
 	th := knowledge.WriteThresholds(ctx, st)
 	if max := th.DailyRetentionD; max > 0 && days > max {
@@ -237,9 +222,6 @@ func effectSeqReportJSON(ctx context.Context, st wire.Store, days int) (string, 
 	return string(b) + "\n", 0
 }
 
-// TestEffectParallelJSONByteParity — the parallel collectEffect path's one-line JSON is
-// byte-identical to the sequential oracle (field-exclusivity + deterministic error/order —
-// the machine channel unchanged).
 func TestEffectParallelJSONByteParity(t *testing.T) {
 	ctx := context.Background()
 	f := parallelReportFake(nil)
@@ -256,12 +238,8 @@ func TestEffectParallelJSONByteParity(t *testing.T) {
 	}
 }
 
-// TestEffectParallelConcurrent — barrier proof: the 5 phase-1 SELECTs of collectEffect
-// (exposed hot_events, the active/reused count, dead ids, read events, knowledge reads)
-// actually overlap in time. Under sequential execution no query passes the barrier, so a
-// timeout error surfaces (the red phase before the phase-1 parallelization).
 func TestEffectParallelConcurrent(t *testing.T) {
-	const want = 5 // exposed, count, deadIDs, readEvents, kreads — the phase-1 group
+	const want = 5
 	var mu sync.Mutex
 	joined := map[string]bool{}
 	entered := 0
@@ -285,15 +263,15 @@ func TestEffectParallelConcurrent(t *testing.T) {
 	}
 	slot := func(sql string) string {
 		switch {
-		case strings.Contains(sql, "FROM hot_events"): // exposed (stats joins the same pattern — fine, joined once)
+		case strings.Contains(sql, "FROM hot_events"):
 			return "exposed"
-		case strings.Contains(sql, "read_count > 0"): // the active/reused count
+		case strings.Contains(sql, "read_count > 0"):
 			return "count"
-		case strings.Contains(sql, "/* dead */"): // dead ids
+		case strings.Contains(sql, "/* dead */"):
 			return "dead"
-		case strings.Contains(sql, "fallback, ids"): // queryReadEvents
+		case strings.Contains(sql, "fallback, ids"):
 			return "readEvents"
-		case strings.Contains(sql, "FROM knowledge_reads"): // kreads (stats shares the table — joined once)
+		case strings.Contains(sql, "FROM knowledge_reads"):
 			return "kreads"
 		}
 		return ""
@@ -312,9 +290,6 @@ func TestEffectParallelConcurrent(t *testing.T) {
 	}
 }
 
-// TestEffectParallelErrorPriority — on injected errors, the same exit and ErrLine as the
-// sequential oracle. The original priority: count > deadIDs (both propagate) and a
-// read-events failure demotes the whole effect (exit 0); a writes failure demotes pairing.
 func TestEffectParallelErrorPriority(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {

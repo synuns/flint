@@ -7,7 +7,6 @@ import (
 	"testing"
 )
 
-// loadHooksJSON reads hooks/hooks.json into generic maps.
 func loadHooksJSON(t *testing.T) map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile("hooks/hooks.json")
@@ -21,7 +20,6 @@ func loadHooksJSON(t *testing.T) map[string]any {
 	return doc
 }
 
-// hookCommands flattens every hook command string for the given event.
 func hookCommands(t *testing.T, doc map[string]any, event string) []map[string]any {
 	t.Helper()
 	events, ok := doc["hooks"].(map[string]any)
@@ -77,11 +75,11 @@ func TestHooksJSONValid(t *testing.T) {
 	if got := stop["timeout"]; got != float64(10) {
 		t.Errorf("Stop timeout = %v, want 10", got)
 	}
-	// Stop 훅은 세션 종료를 막지 않아야 한다(비차단 원칙 §13).
+
 	if !strings.Contains(stopCmd, "|| true") {
 		t.Errorf("Stop 비차단 보장('|| true') 없음: %q", stopCmd)
 	}
-	// v0.2: no-op(true) 제거 — 실호출이어야 한다.
+
 	if strings.HasPrefix(stopCmd, "true") {
 		t.Errorf("Stop 커맨드가 여전히 no-op(true)로 시작: %q", stopCmd)
 	}
@@ -90,9 +88,6 @@ func TestHooksJSONValid(t *testing.T) {
 	}
 }
 
-// TestHookSessionIDFromStdin — Claude Code 훅에는 CLAUDE_SESSION_ID 환경변수가
-// 없다. 세션 id는 stdin JSON의 session_id 필드로 전달되므로, 훅 커맨드는
-// jq로 stdin을 파싱해야 하고 존재하지 않는 환경변수를 참조해선 안 된다.
 func TestHookSessionIDFromStdin(t *testing.T) {
 	raw, err := os.ReadFile("hooks/hooks.json")
 	if err != nil {
@@ -112,8 +107,6 @@ func TestHookSessionIDFromStdin(t *testing.T) {
 	}
 }
 
-// TestHookMatchers — SessionStart matcher는 시작 소스 정규식이며 "*"는
-// 관례가 아니다. Stop은 matcher를 사용하지 않는다.
 func TestHookMatchers(t *testing.T) {
 	doc := loadHooksJSON(t)
 

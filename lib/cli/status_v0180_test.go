@@ -1,5 +1,3 @@
-// status_v0180_test.go — status's windowed read metrics. Alongside the cumulative
-// read_zero_pct (dominated by early history), a 14-day daily-sum window value is reported.
 package cli
 
 import (
@@ -9,17 +7,15 @@ import (
 	"time"
 )
 
-// windowedReadHarness — a fake returning 3 keys for daily:* queries (today, yesterday, and 40 days ago — outside the window).
-// Excluding the outside-window sum is the core contract, so extreme values (100/100) are seeded.
 func windowedReadHarness(t *testing.T) *fakeStore {
 	t.Helper()
 	now := time.Now().UTC()
 	today := now.Format("2006-01-02")
 	yesterday := now.AddDate(0, 0, -1).Format("2006-01-02")
 	old := now.AddDate(0, 0, -40).Format("2006-01-02")
-	daily := `{"read":10,"read_zero":4,"read_zero_near":1}` // today
-	dailyY := `{"read":10,"read_zero":1}`                   // yesterday
-	dailyOld := `{"read":100,"read_zero":100}`              // outside the window
+	daily := `{"read":10,"read_zero":4,"read_zero_near":1}`
+	dailyY := `{"read":10,"read_zero":1}`
+	dailyOld := `{"read":100,"read_zero":100}`
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "LIKE 'daily:%'") {
@@ -30,7 +26,7 @@ func windowedReadHarness(t *testing.T) *fakeStore {
 			}, nil
 		}
 		if strings.Contains(sql, "FROM meta") {
-			return [][]any{{"5"}}, nil // a schema_version compatibility value — the corrupt-JSON path falls back to 0
+			return [][]any{{"5"}}, nil
 		}
 		return [][]any{{int64(0)}}, nil
 	}
@@ -38,8 +34,6 @@ func windowedReadHarness(t *testing.T) *fakeStore {
 	return f
 }
 
-// TestStatusWindowedRead — only the in-window (14-day) daily sums: read=20, zero=5 ->
-// zero_pct 25. The extreme 40-day-old values (100/100) are excluded.
 func TestStatusWindowedRead(t *testing.T) {
 	f := windowedReadHarness(t)
 	read, zeroPct, nearPct := statusWindowedRead(context.Background(), f, 14)
@@ -54,8 +48,6 @@ func TestStatusWindowedRead(t *testing.T) {
 	}
 }
 
-// TestStatusWindowedKeys — read_calls_14d and read_zero_pct_14d keys exist additively in the
-// status output with the window-sum values (existing keys unchanged).
 func TestStatusWindowedKeys(t *testing.T) {
 	windowedReadHarness(t)
 	out, code := mustRun(t, []string{"status"}, "")
@@ -76,7 +68,6 @@ func TestStatusWindowedKeys(t *testing.T) {
 	}
 }
 
-// TestStatusZeroNearKey — exposes read_zero_near_pct_14d (surfacing the near-fallback).
 func TestStatusZeroNearKey(t *testing.T) {
 	windowedReadHarness(t)
 	out, code := mustRun(t, []string{"status"}, "")

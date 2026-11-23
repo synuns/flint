@@ -1,8 +1,3 @@
-// usage_retry_test.go — the 40001 (serialization failure) retry
-// contract of the bumpDailyFlat UPSERT (fast unit tests — no real DB
-// needed). CI-demonstrated: under a parallel 8-goroutine race, the
-// deployed Doltgres returns 40001 (locally it accepts LWW — an
-// environment assumption error).
 package db
 
 import (
@@ -13,11 +8,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// pg40001 — a mock SQLSTATE 40001 error.
 func pg40001() error { return &pgconn.PgError{Code: "40001", Message: "conflict"} }
 
-// TestBumpRetrySucceedsAfterTransient — 40001 twice then success on the
-// 3rd → nil, 3 attempts total.
 func TestBumpRetrySucceedsAfterTransient(t *testing.T) {
 	attempts := 0
 	err := retryBump40001(context.Background(), func() error {
@@ -35,8 +27,6 @@ func TestBumpRetrySucceedsAfterTransient(t *testing.T) {
 	}
 }
 
-// TestBumpRetryExhausts — 3 consecutive 40001s → an error returned
-// (cause preserved), with no further attempts.
 func TestBumpRetryExhausts(t *testing.T) {
 	attempts := 0
 	err := retryBump40001(context.Background(), func() error {
@@ -55,8 +45,6 @@ func TestBumpRetryExhausts(t *testing.T) {
 	}
 }
 
-// TestBumpRetryNon40001Immediate — a non-40001 error returns
-// immediately without retry.
 func TestBumpRetryNon40001Immediate(t *testing.T) {
 	attempts := 0
 	boom := errors.New("boom-nonconflict")
@@ -72,8 +60,6 @@ func TestBumpRetryNon40001Immediate(t *testing.T) {
 	}
 }
 
-// TestBumpRetryCtxCancel — a ctx cancellation during a retry wait
-// returns ctx.Err().
 func TestBumpRetryCtxCancel(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	attempts := 0

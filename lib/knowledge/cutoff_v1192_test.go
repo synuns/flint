@@ -1,10 +1,3 @@
-// cutoff_v1192_test.go — the v1.19.2 overflow-sweep regressions (R75)
-// at the knowledge seams: a pending_age_days·pending_promote_days·
-// session_knowledge_days override past the 106751-day Duration ceiling
-// clamps (db.DaysSpan) instead of wrapping time.Duration(days)*24h
-// negative — the wrapped expire span flagged every pending row expire;
-// the wrapped promote span promoted none; the wrapped session gate
-// defeated the frequency cap (every session accrued).
 package knowledge
 
 import (
@@ -16,9 +9,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// TestVerdictForPendingAgeOverflow — a 200000-day pending_age_days
-// override with a 200-day-old pending item: NOT expire (the wrapped
-// span ran negative and expired everything); the item holds.
 func TestVerdictForPendingAgeOverflow(t *testing.T) {
 	now := time.Now()
 	th := store.DefaultThresholds()
@@ -33,9 +23,6 @@ func TestVerdictForPendingAgeOverflow(t *testing.T) {
 	}
 }
 
-// TestVerdictForPromoteOverflow — a 200000-day pending_promote_days
-// override with a fresh, sufficiently long item: promote (the wrapped
-// span ran negative and promoted nothing).
 func TestVerdictForPromoteOverflow(t *testing.T) {
 	now := time.Now()
 	th := store.DefaultThresholds()
@@ -47,9 +34,6 @@ func TestVerdictForPromoteOverflow(t *testing.T) {
 	}
 }
 
-// gateOverflowFake — the thresholds load carries the 200000-day
-// session_knowledge_days override; the session_knowledge_last lookup
-// returns the given stamp.
 func gateOverflowFake(last string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		for _, a := range args {
@@ -64,11 +48,6 @@ func gateOverflowFake(last string) *fakeStore {
 	}}
 }
 
-// TestSessionKnowledgeGateOverflow — a 200000-day frequency-cap
-// override with a 100-day-old last accrual: the cap still holds (no
-// accrual — the wrapped span ran negative and let every session
-// through); with a 200000-day-old stamp the cap releases (the clamp is
-// not an unconditional block).
 func TestSessionKnowledgeGateOverflow(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 

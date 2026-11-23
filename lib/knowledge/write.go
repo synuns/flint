@@ -1,8 +1,3 @@
-// write.go — flint write <kind>: a five-stage pipeline (validate→dedup→
-// classify→commit→output). Intake metering (RecordUsage)·decision threshold
-// loader (WriteThresholds)·sanitization (SanitizePayload) are the knowledge
-// shared surfaces — read·hot·done and residual cli consumers inherit them
-// via the cli/knowledge_alias.go aliases.
 package knowledge
 
 import (
@@ -24,56 +19,27 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// kindColumns — the storable columns per kind (spec §6). Non-column keys of
-// the payload (e.g. session's tasks) are metadata and dropped. project's
-// note is a column (F5).
 var kindColumns = map[string]map[string]bool{
 	"knowledge": {"topic": true, "summary": true, "tags": true, "entity": true,
 		"domain": true, "confidence": true, "origin": true, "status": true,
 		"content_hash": true, "session_id": true, "valid_at": true,
-		// v1.22.0 (schema v17): the manual recheck conditions tag rides the
-		// record to the knowledge.conditions column (hash-excluded — the
-		// hashVolatile registration, the relations precedent).
+
 		"conditions": true,
-		// v1.24.0 (schema v19): the vault provenance path rides the record
-		// to the knowledge.source_path column (hash-excluded — the
-		// conditions precedent). knowledge_kind is NOT here: it is a
-		// consumed-here input key (the relations convention) stamped onto
-		// the knowledge.kind column post-insert — the discriminator
-		// rec["kind"] occupies that record key (the key-separation rule).
+
 		"source_path": true},
 	"session": {"ts": true, "agent": true, "summary": true},
-	// note is a SchemaV2 column (projects.note), so the drop-as-metadata
-	// treatment is abolished — registered as a storage column.
+
 	"project": {"name": true, "status": true, "updated": true, "note": true},
 }
 
-// rejectedTagPrefix — the store.CheckVocabulary rejection message prefix
-// (the policy.go colon guard: vol:* exists only as dictionary-registered
-// tags, so a user token containing ':' is refused). Matched by prefix —
-// the store package owns the exact wording; the plain unknown-tag warning
-// class has no prefix check (stays non-blocking).
 const rejectedTagPrefix = "rejected tag: "
 
-// sourceRegistry — the single source of truth of the allowed metering
-// sources (spec §1: hook via hook · human/default manual · MCP mcp ·
-// v1.11.0 correction · v1.12.0 gap — recall-failure gap candidates, a
-// machine channel whose payload T3 accrues; no write-time defaults, the
-// gap-candidate tag is attached by the candidate payload itself). The
-// usage hint·the ErrInvalidSource message·the membership check are all
-// derived from this registry (no duplicate hardcoded lists).
 var sourceRegistry = []string{"hook", "manual", "mcp", "correction", "gap"}
 
-// sourceList — the pipe-joined display form of the registry
-// (hook|manual|mcp|correction|gap) shared by usage·error messages.
 func sourceList() string { return strings.Join(sourceRegistry, "|") }
 
-// ErrInvalidSource — an invalid --source value (exit 3). The allowed list
-// is derived from sourceRegistry (registry-drift breaks the guard test).
 var ErrInvalidSource = fmt.Errorf("write: invalid --source (%s)", sourceList())
 
-// validSources — the membership view derived from sourceRegistry
-// (1:1 — the derivation guard test enforces sync).
 var validSources = func() map[string]bool {
 	m := make(map[string]bool, len(sourceRegistry))
 	for _, s := range sourceRegistry {
@@ -82,11 +48,6 @@ var validSources = func() map[string]bool {
 	return m
 }()
 
-// correctionTodayCount — today's committed correction count (the
-// daily:correction_write:<UTC date> flat key — the BumpDailyFlatKey
-// convention; PruneDaily cleans daily:* beyond the retention window). A
-// lookup·parse failure is a quiet 0 (§13 — the cap never breaks the
-// write).
 func correctionTodayCount(ctx context.Context, st wire.Store) int {
 	key := "daily:correction_write:" + time.Now().UTC().Format("2006-01-02")
 	rows, err := wire.QueryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
@@ -100,18 +61,6 @@ func correctionTodayCount(ctx context.Context, st wire.Store) int {
 	return n
 }
 
-// applyCorrectionDefaults — the --source correction payload defaults
-// (v1.11.0 T2, knowledge only): a missing confidence gets def (the
-// correction_confidence threshold — default 0.7, below conf_floor so a
-// correction lands pending for review); the "correction" tag is merged
-// (an absent tags becomes ["correction"]; an existing list is appended
-// unless already present — idempotent). An explicitly given confidence
-// (including 0) is respected — the manual contract unchanged.
-// v1.17.2 (r65): the origin default moved OUT of here — mutating the
-// payload before HashCanonical changed the hash input, so a resend of
-// the same correction payload against a pre-v1.17.1 row (whose hash
-// carries the Normalize "agent" fallback) was judged new, not duplicate.
-// The origin stamp now sits after the hash (applyCorrectionOrigin).
 func applyCorrectionDefaults(p map[string]any, def float64) {
 	if _, ok := p["confidence"]; !ok {
 		p["confidence"] = def
@@ -136,65 +85,28 @@ func applyCorrectionDefaults(p map[string]any, def float64) {
 	}
 }
 
-// applyCorrectionOrigin — the post-hash origin stamp (v1.17.1 origin
-// tracking, v1.17.2 placement): the stored origin "correction" (the
-// approve-time promotion counter correction_approved keys on it) is set
-// on the normalized record AFTER the content hash is computed, the
-// gapCandidateHash convention — the hash input keeps the Normalize
-// fallback shape ("agent" for a payload without origin), so an identical
-// correction payload resend — including against rows stored before
-// v1.17.1 — still succeeds the duplicate ruling (r65). An explicitly
-// given origin is respected (the confidence convention).
 func applyCorrectionOrigin(p, n map[string]any) {
 	if s, _ := p["origin"].(string); s == "" {
 		n["origin"] = "correction"
 	}
 }
 
-// ── v1.12.0 T3 — the gap-candidate accrual (the knowledge pipeline
-// step 2): a recall-failure count reaching gap_query_threshold accrues
-// one pending candidate on the `gap` channel. ──
-
-// gapCandidateConfidence — the fixed payload confidence of a gap
-// candidate (spec): below conf_floor, so a candidate always lands
-// pending for review (the promotion gate — a Letta-style self-
-// reinforcement trap is blocked by the explicit approve).
 const gapCandidateConfidence = 0.4
 
-// gapCandidateTag — the candidate tag (source/channel distinction is
-// metering-only; the tag is the row-level filter surface).
 const gapCandidateTag = "gap-candidate"
 
-// gapCandidateTopicPrefix — the topic prefix of a candidate row.
 const gapCandidateTopicPrefix = "격차 후보: "
 
-// gapCandidateTopicRunes — the normalized-query truncation bound of the
-// candidate topic (the original-text exposure happens only here — the
-// truncated·sanitized·normalized form, the non-persistence principle).
 const gapCandidateTopicRunes = 60
 
-// gapCandidateSummaryFmt — the summary template (N = the same-day
-// normalized-query failure count at accrual time).
 const gapCandidateSummaryFmt = "회상 실패 %d회 — 지식 격차 후보"
 
-// gapWriteDailyKind — the daily flat-key kind counting committed
-// candidate ADDs (the gap_daily_max cap source — new ADDs only, updates
-// never consume it, the correction convention).
 const gapWriteDailyKind = "gap_write"
 
-// pendingSummaryStore — the pending-row summary refresh seam (the T3
-// UPDATE). realStore delegates to db.UpdatePendingSummary; a
-// non-implementing Store quietly skips the refresh (the NOOP fallback).
-// The returned rows count lets the caller commit only on an applied
-// update (a 0-row NOOP — an active·raced row — makes no empty commit).
 type pendingSummaryStore interface {
 	UpdatePendingSummary(ctx context.Context, id int, summary string) (int64, error)
 }
 
-// gapCandidateHash — the N-invariant content digest of a normalized
-// query's candidate: the hash input is the topic·tag·confidence shape
-// with the summary omitted (the N lives only in the stored summary — a
-// later accrual at another N must find the same row for succession).
 func gapCandidateHash(normalized string) string {
 	topic := gapCandidateTopicPrefix + render.TruncateRunes(normalized, gapCandidateTopicRunes)
 	n := store.Normalize("knowledge", map[string]any{
@@ -205,9 +117,6 @@ func gapCandidateHash(normalized string) string {
 	return store.ContentHash(store.HashCanonical(n))
 }
 
-// gapTodayCount — today's committed candidate ADD count (the
-// daily:gap_write:<UTC date> flat key — the correctionTodayCount
-// convention). A lookup·parse failure is a quiet 0 (§13).
 func gapTodayCount(ctx context.Context, st wire.Store) int {
 	key := "daily:" + gapWriteDailyKind + ":" + time.Now().UTC().Format("2006-01-02")
 	rows, err := wire.QueryOnce(ctx, st, `SELECT value FROM meta WHERE key = $1`, []any{key})
@@ -221,16 +130,6 @@ func gapTodayCount(ctx context.Context, st wire.Store) int {
 	return n
 }
 
-// maybeAccrueGapCandidate — attempts one gap-candidate accrual when the
-// count has reached gap_query_threshold (the read completion path calls
-// this quietly after BumpGapQuery — §13: an accrual failure never breaks
-// the read). Threshold·cap load via LoadThresholds (meta overrides); an
-// unset/zero value falls back to the registered defaults (the 0-fallback
-// clamp). Dedup: the N-invariant content_hash succeeds — an existing
-// pending row gets its summary N refreshed (an UPDATE, not a supersede);
-// an active row is a NOOP (the promotion-fixed integrity ruling); no
-// row ADDs one pending candidate (the gap_daily_max cap gates ADDs only
-// — a capped accrual is quietly skipped with one stderr warning line).
 func maybeAccrueGapCandidate(ctx context.Context, st wire.Store, sanitizedQuery string, count int64) {
 	th := WriteThresholds(ctx, st)
 	def := store.DefaultThresholds()
@@ -247,11 +146,10 @@ func maybeAccrueGapCandidate(ctx context.Context, st wire.Store, sanitizedQuery 
 	hash := gapCandidateHash(normalized)
 	meta, exists, err := lookupHash(ctx, st, hash)
 	if err != nil {
-		return // quiet §13 — the next bump retries
+		return
 	}
 	if exists {
-		// The pending refresh (summary N) — an UPDATE via the seam; the
-		// active·invalidated states are NOOPs (integrity ruling).
+
 		if meta.State == "pending" {
 			if ps, ok := st.(pendingSummaryStore); ok {
 				if n, err := ps.UpdatePendingSummary(ctx, meta.ID, summary); err == nil && n > 0 {
@@ -271,10 +169,7 @@ func maybeAccrueGapCandidate(ctx context.Context, st wire.Store, sanitizedQuery 
 		fmt.Fprintf(os.Stderr, "[flint] gap daily max reached (gap_daily_max=%d) — candidate skipped\n", max)
 		return
 	}
-	// origin "gap" (v1.17.1) — not the Normalize "agent" fallback: the
-	// approve-time promotion counter (gap_approved) keys on the stored
-	// origin. The hash input (gapCandidateHash) deliberately stays
-	// origin-free, so existing pending rows keep succeeding unchanged.
+
 	rec := store.Normalize("knowledge", map[string]any{
 		"topic":      topic,
 		"summary":    summary,
@@ -286,7 +181,7 @@ func maybeAccrueGapCandidate(ctx context.Context, st wire.Store, sanitizedQuery 
 	rec["content_hash"] = hash
 	rec["status"] = "pending"
 	if _, err := st.InsertBatch(ctx, []map[string]any{rec}); err != nil {
-		return // quiet — a concurrent insert (race) succeeds; the next bump refreshes
+		return
 	}
 	_ = db.BumpDailyFlatKey(ctx, st, gapWriteDailyKind, time.Now().UTC().Format("2006-01-02"), 1)
 	RecordUsage(ctx, st, "write", "gap")
@@ -295,9 +190,6 @@ func maybeAccrueGapCandidate(ctx context.Context, st wire.Store, sanitizedQuery 
 	}
 }
 
-// ParseSourceFlag — parses the --source value from args (plan T61). Unset
-// is "manual"; invalid values·a missing value are ErrInvalidSource (the CLI
-// exits 3).
 func ParseSourceFlag(args []string) (string, error) {
 	for i := 0; i < len(args); i++ {
 		if args[i] != "--source" {
@@ -315,28 +207,11 @@ func ParseSourceFlag(args []string) (string, error) {
 	return "manual", nil
 }
 
-// ── v1.20.0 T5 — the optional stdin relations array (schema v14
-// knowledge_links). The payload key "relations" holds
-// [{"to": <row id>, "relation": "refines"}] entries: from is the accrued
-// row's id. Validation chain: shape (exit 3) → vocabulary
-// (store.CheckRelations — the colon-token rejection class → exit 3) →
-// target-row existence (exit 3 — no FK, the write-path check
-// convention). Accrual is idempotent per (from,to,relation), and the
-// duplicate path lands the resent relations on the existing DupMeta.ID
-// row (link-loss prevention) — possible because relations stay out of
-// the hash input (T1 hashVolatile). ──
-
-// linkSpec — one normalized stdin relations entry (the relation value
-// lowercased·trimmed — the store normalizeVocab convention).
 type linkSpec struct {
 	To       int
 	Relation string
 }
 
-// parseLinkSpecs — extracts·validates the optional relations array of a
-// payload. nil return = absent (the optional-field convention). The key
-// is consumed here (metadata, not a storage column — it must never ride
-// the record or the dropped-keys report).
 func parseLinkSpecs(p map[string]any) ([]linkSpec, *store.SchemaError) {
 	raw, ok := p["relations"]
 	if !ok || raw == nil {
@@ -358,20 +233,15 @@ func parseLinkSpecs(p map[string]any) ([]linkSpec, *store.SchemaError) {
 		if !ok || toF != math.Trunc(toF) || toF <= 0 {
 			return nil, &store.SchemaError{Field: "relations", Expect: "to: positive integer row id"}
 		}
-		// v1.20.1 (r86): the int64-overflow refusal — a to at or beyond
-		// 2^63 cannot be a knowledge id (bigserial = int64 range), and an
-		// int() conversion here previously let it flow into the ANY($1)
-		// batched lookup where the array encoding fails opaquely.
-		if toF >= 9223372036854775808.0 { // 2^63
+
+		if toF >= 9223372036854775808.0 {
 			return nil, &store.SchemaError{Field: "relations", Expect: "to: row id below 2^63"}
 		}
 		rel, ok := m["relation"].(string)
 		if !ok {
 			return nil, &store.SchemaError{Field: "relations", Expect: "relation: string"}
 		}
-		// v1.20.1 (r87): the relation length cap — the longest registered
-		// vocabulary value is 12 bytes; 64 is generous headroom, and the
-		// cap keeps an unbounded string from riding the rejection echo.
+
 		if len(rel) > 64 {
 			return nil, &store.SchemaError{Field: "relations", Expect: "relation: at most 64 bytes"}
 		}
@@ -385,26 +255,8 @@ func parseLinkSpecs(p map[string]any) ([]linkSpec, *store.SchemaError) {
 	return specs, nil
 }
 
-// ── v1.22.0 T5 — the optional stdin conditions string (schema v17
-// knowledge.conditions): a manual recheck tag stored verbatim on the row
-// and excluded from the content hash (the T1 hashVolatile registration —
-// the same body ±conditions stays one dedup identity). Validation is the
-// write-path shape check (the relations convention): non-string·over-cap
-// values refuse at exit 3; the empty string is a value, not an absence
-// (the optional-field convention). ──
-
-// MaxConditionsRunes — the conditions length cap (exported for the
-// maintain --recheck --conditions backfill, v1.22.1 r96 — one
-// definition shared by the write path and the backfill). 500 runes is
-// generous headroom over any plausible recheck clause while keeping an
-// unbounded string off the stored column and the duplicate echo path.
 const MaxConditionsRunes = 500
 
-// validateConditions — the shape·length check of the optional conditions
-// field (knowledge only). nil return = pass (absent·nil input passes — the
-// optional-field convention). The field is a storage column: unlike
-// relations it is NOT consumed here — it stays on the payload and rides
-// the record into knowledge.conditions.
 func validateConditions(p map[string]any) *store.SchemaError {
 	v, ok := p["conditions"]
 	if !ok || v == nil {
@@ -417,11 +269,6 @@ func validateConditions(p map[string]any) *store.SchemaError {
 	return ValidateConditionsString(s)
 }
 
-// ValidateConditionsString — the exported length check of a conditions
-// string (one definition of MaxConditionsRunes): the maintain --recheck
-// --conditions backfill (v1.22.1 r96) shares the write-path cap. The
-// empty string is a value, not an absence (the optional-field
-// convention); nil return = pass.
 func ValidateConditionsString(s string) *store.SchemaError {
 	if r := []rune(s); len(r) > MaxConditionsRunes {
 		return &store.SchemaError{Field: "conditions",
@@ -430,45 +277,16 @@ func ValidateConditionsString(s string) *store.SchemaError {
 	return nil
 }
 
-// ── v1.24.0 T2 — the optional stdin knowledge_kind·source_path inputs
-// (schema v19). Key-separation rule: the record discriminator
-// rec["kind"]="knowledge" is immutable — the classification input rides
-// its own input key (knowledge_kind) and is consumed here (the relations
-// convention: never a record key, never in the dropped-keys report),
-// then stamped onto the knowledge.kind column post-insert via
-// db.StampKnowledgeKind (the discriminator occupies the "kind" record
-// key, so the column cannot ride the INSERT column list). Both fields
-// are hash-excluded (hashVolatile v19) — the same body ±either field is
-// one dedup identity, and a duplicate resend never rewrites the stored
-// columns (the conditions precedent). ──
-
-// knowledgeKindVocabulary — the registered classification values (the
-// G2 ruling: 2 values fixed, extension deferred). Order is the display
-// form (error messages·docs).
 var knowledgeKindVocabulary = []string{"preference", "fact"}
 
-// validKnowledgeKinds — the membership view of the vocabulary.
 var validKnowledgeKinds = map[string]bool{"preference": true, "fact": true}
 
-// KnowledgeKindVocabulary — the registered classification values in
-// display order (rejection messages·consumer docs).
 func KnowledgeKindVocabulary() []string {
 	return append([]string(nil), knowledgeKindVocabulary...)
 }
 
-// MaxSourcePathRunes — the source_path length cap (the
-// MaxConditionsRunes convention: an unbounded string stays off the
-// stored column and the duplicate echo path). 1024 runes is generous
-// headroom over any plausible vault-relative path (PATH_MAX scale).
 const MaxSourcePathRunes = 1024
 
-// parseKnowledgeKind — extracts·validates the optional classification
-// input (knowledge only). nil return = unspecified (absent·null·blank —
-// the column stays NULL). The key is consumed here (metadata, not a
-// storage column). The value is whitespace-trimmed·lowercased before the
-// vocabulary check (the normalizeVocab convention); an unregistered
-// value·a non-string refuse at exit 3 (the colon-token rejection class —
-// vocabulary drift must hard-block, not warn).
 func parseKnowledgeKind(p map[string]any) (string, *store.SchemaError) {
 	raw, ok := p["knowledge_kind"]
 	if !ok || raw == nil {
@@ -481,7 +299,7 @@ func parseKnowledgeKind(p map[string]any) (string, *store.SchemaError) {
 	}
 	n := strings.ToLower(strings.TrimSpace(s))
 	if n == "" {
-		return "", nil // blank = unspecified (NULL)
+		return "", nil
 	}
 	if !validKnowledgeKinds[n] {
 		return "", &store.SchemaError{Field: "knowledge_kind",
@@ -490,11 +308,6 @@ func parseKnowledgeKind(p map[string]any) (string, *store.SchemaError) {
 	return n, nil
 }
 
-// validateSourcePath — the shape·length check of the optional vault
-// provenance path (knowledge only; a storage column, so the check is
-// shape·length only — the conditions convention). nil return = pass
-// (absent·nil input passes). The empty check is left to the caller: a
-// blank path is normalized to absence (an empty string is not a path).
 func validateSourcePath(p map[string]any) *store.SchemaError {
 	v, ok := p["source_path"]
 	if !ok || v == nil {
@@ -511,14 +324,6 @@ func validateSourcePath(p map[string]any) *store.SchemaError {
 	return nil
 }
 
-// precheckLinkTargets — the batched target-existence refusal of the
-// relations array: one lookupExistingIDs query over the distinct target
-// ids, a missing target → the exit-3 SchemaError class. Called BEFORE
-// InsertBatch (the v14 no-FK write-path check) — a refusal must leave no
-// staged rows behind. v1.20.1 (r86): a lookup failure now propagates
-// (error return) instead of passing as a quiet non-refusal — a silently
-// swallowed encoding/lookup error made every target read as present
-// while the later accrual failed anyway.
 func precheckLinkTargets(ctx context.Context, st wire.Store, specs []linkSpec) (*store.SchemaError, error) {
 	seen := map[int]bool{}
 	var tos []int
@@ -545,25 +350,10 @@ func precheckLinkTargets(ctx context.Context, st wire.Store, specs []linkSpec) (
 	return nil, nil
 }
 
-// LinkAccrualStore — the knowledge_links INSERT extension (v1.20.0 T5):
-// the idempotent INSERT ... SELECT WHERE NOT EXISTS per (from,to,
-// relation) — write SQL literals live in the store layer only (the
-// lib/{ops,knowledge} write-guard scope: write verbs are owned by the
-// db/cli store paths). realStore implements it over the db pool; test
-// adapters implement it in their own files.
 type LinkAccrualStore interface {
 	InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error
 }
 
-// insertKnowledgeLinks — accrues specs onto fromID in knowledge_links:
-// per-spec delegation to LinkAccrualStore.InsertKnowledgeLink (the
-// idempotent seeding convention — a resend of the same
-// (from,to,relation) skips inside the store implementation). Target
-// existence was refused up front by precheckLinkTargets (before any row
-// staging). v1.20.1 (r86): a self-referencing spec (to == fromID) is
-// refused here too — the last-line defense covering the fresh-row path,
-// where the from id only exists after InsertBatch (the duplicate path
-// is refused earlier, at the pendLinks self-reference precheck).
 func insertKnowledgeLinks(ctx context.Context, st wire.Store, fromID int, specs []linkSpec) error {
 	if fromID <= 0 || len(specs) == 0 {
 		return nil
@@ -572,8 +362,7 @@ func insertKnowledgeLinks(ctx context.Context, st wire.Store, fromID int, specs 
 	if !ok {
 		return fmt.Errorf("write: relations accrual unsupported by store")
 	}
-	// Pre-scan the whole spec list — a refusal must not leave a partial
-	// accrual behind.
+
 	for _, s := range specs {
 		if s.To == fromID {
 			return fmt.Errorf("write: relations accrual refused: self-referencing link (id=%d)", fromID)
@@ -587,9 +376,6 @@ func insertKnowledgeLinks(ctx context.Context, st wire.Store, fromID int, specs 
 	return nil
 }
 
-// withRelations — appends the accrued relations array to the one-line
-// duplicate output (the resent links landed on the existing row — the
-// feedback parallel of DuplicateMetaJSON; the withWarnings convention).
 func withRelations(line string, specs []linkSpec) string {
 	if len(specs) == 0 {
 		return line
@@ -610,43 +396,24 @@ func withRelations(line string, specs []linkSpec) string {
 	return string(b)
 }
 
-// UsageStore — a store capable of intake metering (RecordUsage, T60) (the
-// same assertion pattern as maintain's MaintStore). A non-implementing
-// Store has RecordUsage skipped as a no-op.
 type UsageStore interface {
 	RecordUsage(ctx context.Context, kind, source string) error
 }
 
-// DupIDStore — the extension supplying the existing row id for duplicate
-// lines (R3). realStore implements it via db.Repo.DupIDByHash
-// (cli/realstore_write.go); a non-implementing Store (legacy fake) falls
-// back to ExistsHash (id 0 — a bare duplicate output, backward-compatible).
 type DupIDStore interface {
 	DupIDByHash(ctx context.Context, hash string) (int, bool, error)
 }
 
-// DupMeta — the existing-row metadata for a duplicate line (v0.18.0 R1).
-// Returns topic·state to the resending writer to induce switching to read
-// (recall)·supersede (succession)·approve (pending promotion) instead of
-// rewriting — an already-exists feedback loop.
 type DupMeta struct {
 	ID    int
 	Topic string
 	State string
 }
 
-// DupMetaStore — the metadata extension of DupIDStore (v0.18.0 R1).
-// realStore implements it via db.Repo.DupRowByHash (cli/realstore_write.go).
-// A non-implementing Store falls back DupIDStore→ExistsHash in that order
-// (id only without metadata·or a bare duplicate — backward-compatible).
 type DupMetaStore interface {
 	DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error)
 }
 
-// lookupHash — checks content_hash duplication. A DupMetaStore also returns
-// the existing row's metadata (duplicate-response topic·state exposure,
-// R1). A DupIDStore returns the id only; a non-implementing Store falls
-// back to ExistsHash.
 func lookupHash(ctx context.Context, st wire.Store, hash string) (DupMeta, bool, error) {
 	if ms, ok := st.(DupMetaStore); ok {
 		return ms.DupRowByHash(ctx, hash)
@@ -659,27 +426,16 @@ func lookupHash(ctx context.Context, st wire.Store, hash string) (DupMeta, bool,
 	return DupMeta{}, exists, err
 }
 
-// UsageCountStore — the intake metering extension that increments counts in
-// bulk. RecordDups records dup N with one call (avoiding O(N)
-// read-writes — db.Repo.RecordUsageCount). A non-implementing Store
-// (legacy fake) has RecordDups fall back to N single calls.
 type UsageCountStore interface {
 	RecordUsageCount(ctx context.Context, kind, source string, count int) error
 }
 
-// RecordUsage — records one intake if the Store is a UsageStore. A
-// non-implementation is a no-op; failures are quiet (metering never breaks
-// the write result·exit code — plan T61).
 func RecordUsage(ctx context.Context, st wire.Store, kind, source string) {
 	if us, ok := st.(UsageStore); ok {
 		_ = us.RecordUsage(ctx, kind, source)
 	}
 }
 
-// WriteThresholds — reuses wire.LoadThresholds (inheriting the
-// doneThresholds convention): decision thresholds are the write-time meta
-// values. A read failure falls back to defaults (non-interference: decision
-// loading never changes the write result·exit).
 func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 	th, err := wire.LoadThresholds(ctx, st)
 	if err != nil {
@@ -688,20 +444,6 @@ func WriteThresholds(ctx context.Context, st wire.Store) store.Thresholds {
 	return th
 }
 
-// ── v1.17.0 T2 — the echo scan of the write pipeline (dedup passed,
-// classify pending): the incoming line's near rows come back in the
-// committed response so the writer can review its own consistency. Echo
-// is suggestion only — verdicts stay with the agent via the approval
-// circuit (no auto-supersede). ──
-
-// scanEcho — the write-path echo seam: injects the loaded echo thresholds
-// (the LoadThresholds values — T3 keys echo_top_k·echo_min_score·
-// echo_topic_match; a <=0 unset value keeps the default inside the seam)
-// and runs EchoScan quietly. The scan bounds (SuggestScanCap·
-// ConflictDupThreshold) ride the same already-loaded th (v1.17.1) — the
-// echo scan no longer re-queries the meta thresholds (one write, one
-// threshold load). A scan failure returns nil — the echo field is omitted
-// and the write completes normally (§13).
 func scanEcho(ctx context.Context, st wire.Store, n map[string]any, th store.Thresholds) []EchoCandidate {
 	SetEchoThresholds(th.EchoTopK, th.EchoMinScore, th.EchoTopicMatch)
 	SetEchoScanBounds(th.SuggestScanCap, th.ConflictDupThreshold)
@@ -714,17 +456,13 @@ func scanEcho(ctx context.Context, st wire.Store, n map[string]any, th store.Thr
 	return cands
 }
 
-// withEcho — appends the echo candidates array to the one-line committed
-// output JSON (the withWarnings convention: unmarshal, add, remarshal —
-// the legacy fields stay verbatim, old readers ignore the new field).
-// An empty list keeps the line unchanged (no empty array).
 func withEcho(line string, cands []EchoCandidate) string {
 	if len(cands) == 0 {
 		return line
 	}
 	var m map[string]any
 	if err := json.Unmarshal([]byte(line), &m); err != nil {
-		return line // the unechoed line survives a parse failure (§13)
+		return line
 	}
 	arr := make([]any, 0, len(cands))
 	for _, c := range cands {
@@ -746,13 +484,6 @@ func withEcho(line string, cands []EchoCandidate) string {
 	return string(b)
 }
 
-// persistEchoCands — the D1 echo-candidate persistence seam (schema v19,
-// wired v1.24.1 r104): maps the scan candidates onto db.EchoCandRow and
-// appends them through db.InsertEchoCandidates keyed by echoID (the
-// StampKnowledgeKind convention — the write SQL literal lives in the db
-// layer; the Store satisfies db.Querier structurally). A failure is
-// quiet §13: the observation is metering-class, never a write result —
-// a lost row beats a failed write (the BumpCurationCounter convention).
 func persistEchoCands(ctx context.Context, st wire.Store, echoID int, cands []EchoCandidate) {
 	if echoID <= 0 || len(cands) == 0 {
 		return
@@ -764,31 +495,15 @@ func persistEchoCands(ctx context.Context, st wire.Store, echoID int, cands []Ec
 	_ = db.InsertEchoCandidates(ctx, st, echoID, rows)
 }
 
-// RunWrite — processes multiple stdin JSON/JSONL entries. The commit is one
-// per batch; dedup skips duplicate lines·partially commits the new lines
-// (all-duplicate means a zero-row commit). Since v1.6.0 T3, the
-// pre-duplicate check for multi-line knowledge is one batched hash-array
-// query (lookupHashBatch — abolishing per-line N round trips); the
-// single-shot (1-row hook pattern) keeps the per-line query contract
-// unchanged.
-// v1.5.5 T2 A5: --help/-h prints the usage hint exit 0 before waiting on
-// stdin.
 func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// On --help/-h detection, print the usage hint exit 0 — before waiting
-	// on stdin (abolishing the issue where write takes kind as a positional
-	// argument, so `--help` was mistaken for the kind and hung on the stdin
-	// pipe).
+
 	for _, a := range args {
 		if a == "--help" || a == "-h" {
 			fmt.Fprintf(stdout, "usage: flint write <kind> [--source %s] [--session ID] — kind: knowledge|session|project, payload: JSON/JSONL on stdin\n", sourceList())
 			return 0
 		}
 	}
-	// write follows the convention of absorbing unknown flags into
-	// positional arguments (the kind·positional family — DashPositional),
-	// so the spec is reflected as-is. --source value validation inherits
-	// the ParseSourceFlag single source (first-occurrence validation
-	// contract); the --help/-h pre-scan also stays in the loop above.
+
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
 			{Name: "--session", Value: true},
@@ -820,24 +535,14 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "payload", Expect: "non-empty JSON/JSONL on stdin"}))
 		return 3
 	}
-	// The stdin row cap (reusing the registry key export_import_max_rows —
-	// import symmetry). Blocking right after parsing·before side effects
-	// provides the memory defense against accruing a huge stdin in full
-	// (error JSON {max,count}·exit 3).
+
 	if code := enforceWriteMaxRows(ctx, st, stdout, len(payloads)); code != 0 {
 		return code
 	}
 
-	// Validate → sanitize → normalize → hash dedup (per-line skip) →
-	// classify. Only validation failure returns immediately (exit 3).
-	// Duplicate lines are skipped, not discarding the whole batch — partial
-	// commit. The classification floor is the meta conf_floor this write
-	// read (pass-by-value — no global injection).
 	th := WriteThresholds(ctx, st)
 	floor := th.ConfFloor
-	// Personal-vocabulary (vocab_tags·vocab_domains comma lists) union
-	// injection — personal vocabulary lives in the operational DB, not the
-	// repo.
+
 	if rows, err := wire.QueryOnce(ctx, st,
 		`SELECT key, value FROM meta WHERE key IN ('vocab_tags','vocab_domains')`, nil); err == nil {
 		var tags, domains []string
@@ -857,13 +562,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	recs := make([]map[string]any, 0, len(payloads))
 	dropped := map[string]bool{}
 	var warnings []string
-	// v1.11.0 T3 — the correction daily cap: correction lines still
-	// accrualable today (correction_daily_max minus the committed count in
-	// the daily:correction_write:<date> flat key). -1 = unlimited (not a
-	// correction knowledge write). The quota is consumed only by lines that
-	// reach accrual (finalizeRec) — duplicate-skipped lines never burn it;
-	// a count lookup failure is a quiet 0 (§13 — the cap never breaks the
-	// write).
+
 	correctionQuota := -1
 	if source == "correction" && kind == "knowledge" {
 		correctionQuota = th.CorrectionDailyMax - correctionTodayCount(ctx, st)
@@ -874,57 +573,33 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	capWarned := false
 	hash, state := "", "active"
 	dups := 0
-	dupID := 0     // the existing row id for a single-line duplicate (R3) — stays 0 for unsupported Stores·multi-line
-	dupTopic := "" // the existing row's topic·state — resender feedback
+	dupID := 0
+	dupTopic := ""
 	dupState := ""
-	// dupEcho — the echo candidates of a single-line duplicate resend
-	// (v1.24.1 r104, the D1 persistence): persisted keyed by the existing
-	// row (DupMeta.ID) like the resent relations, but NEVER attached to
-	// the duplicate output — the no-double-report ruling (exact-hash
-	// duplicates answer with DuplicateMeta) keeps the response shape.
+
 	var dupEcho []EchoCandidate
-	// echoCands — the echo candidates of the new single-line knowledge
-	// write (nil on every other path: exact-hash duplicates answer with
-	// DuplicateMeta — no double report; the multi-line aggregate keeps its
-	// shape). Attached to the committed output only.
+
 	var echoCands []EchoCandidate
-	// Same-key lines within a batch (knowledge content_hash·project name):
-	// prevents a whole InsertBatch failure
+
 	seen := map[string]bool{}
-	// Batched pre-dedup for multi-line knowledge — instead of per-line
-	// lookupHash (N round trips — RTT×N dominates large batches), hashes
-	// are collected and detected after the loop with one lookupHashBatch
-	// query (content_hash = ANY($1) chunks, reused from import), keeping
-	// detection identical. The single-shot (len==1, hook pattern) keeps the
-	// existing per-line query contract (DupMetaStore→DupIDStore→ExistsHash
-	// fallback) unchanged.
+
 	batched := len(payloads) > 1
-	var stagedN []map[string]any // knowledge lines awaiting the batch query (order preserved)
-	var stagedH []string         // content_hash at the same index as stagedN
-	var stagedL [][]linkSpec     // the line's relations specs at the same index (v1.20.0 T5)
-	var stagedK []string         // the line's classification input at the same index (v1.24.0 T2)
-	// recLinks — the relations specs at the same index as recs (the
-	// accrual side pairs each committed row id with its links).
+	var stagedN []map[string]any
+	var stagedH []string
+	var stagedL [][]linkSpec
+	var stagedK []string
+
 	var recLinks [][]linkSpec
-	// recKinds — the classification input at the same index as recs (the
-	// stamp side pairs each committed row id with its knowledge.kind
-	// value; "" = unspecified NULL, no stamp).
+
 	var recKinds []string
-	// pendLinks — duplicate-path link accruals: the resent body's
-	// relations land on the existing row (DupMeta.ID — link-loss
-	// prevention; the dedup verdict itself is hash-invariant to
-	// relations, the T1 hashVolatile seal).
+
 	type pendLink struct {
 		from int
 		spec []linkSpec
 	}
 	var pendLinks []pendLink
-	dupLinkSpecs := []linkSpec{} // the single-line duplicate response's relations (feedback)
-	// finalizeRec — finalizes a line that passed classification: kind
-	// tagging·non-column key cleanup·recs accrual. The correction daily
-	// cap gates here (single choke point covering the single-shot·batched
-	// accrual paths alike): a line past the quota is quietly skipped with
-	// one warning line (exit 0 — independent of the dup mechanism).
+	dupLinkSpecs := []linkSpec{}
+
 	finalizeRec := func(n map[string]any, specs []linkSpec, kval string) {
 		if correctionQuota == 0 {
 			if !capWarned {
@@ -949,19 +624,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		recKinds = append(recKinds, kval)
 	}
 	for _, p := range payloads {
-		// v1.11.0 T2 — the --source correction defaults (knowledge only —
-		// the sole kind with confidence·tags columns): a missing confidence
-		// gets the correction_confidence threshold default·the "correction"
-		// tag is merged in. These two defaults are the whole correction
-		// branch — validate→sanitize→hash dedup→classify→approve circuits
-		// are reused unchanged below.
+
 		if source == "correction" && kind == "knowledge" {
 			applyCorrectionDefaults(p, th.CorrectionConfidence)
 		}
-		// The per-payload field byte cap — rejected at the Validate stage
-		// (exit 3). Blocks the OOM path where a huge single field rides
-		// through the sanitize·hash·accrual pipeline and the stored body
-		// wholesale.
+
 		if se := validateFieldBytes(p); se != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(se))
 			return 3
@@ -970,15 +637,9 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			fmt.Fprintln(stdout, wire.ErrLine(se))
 			return 3
 		}
-		// v1.20.0 T5 — the optional relations array (knowledge only): a
-		// consumed-here metadata key; shape·vocabulary refusals are exit 3
-		// (the rejected-relation class hard-blocks, the colon-token
-		// precedent).
+
 		var specs []linkSpec
-		// kval — this line's classification input (knowledge only; "" =
-		// unspecified NULL, v1.24.0 T2). Consumed at parse, held aside,
-		// stamped post-insert — never a record key (the key-separation
-		// rule: the discriminator rec["kind"] is immutable).
+
 		kval := ""
 		if kind == "knowledge" {
 			var lse *store.SchemaError
@@ -987,15 +648,12 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				fmt.Fprintln(stdout, wire.ErrLine(lse))
 				return 3
 			}
-			// v1.22.0 T5 — the optional conditions string: a storage
-			// column, so the check is shape·length only (no consumption).
+
 			if cse := validateConditions(p); cse != nil {
 				fmt.Fprintln(stdout, wire.ErrLine(cse))
 				return 3
 			}
-			// v1.24.0 T2 — the optional classification·provenance inputs:
-			// vocabulary·shape·length refusals are exit 3 (the relations
-			// precedent — before any row staging).
+
 			var kse *store.SchemaError
 			kval, kse = parseKnowledgeKind(p)
 			if kse != nil {
@@ -1007,13 +665,9 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return 3
 			}
 		}
-		// Sanitization (ADR-0006): neutralize control characters·[flint]
-		// markers before storage + secret scanning. This stage precedes
-		// hash computation, so the sanitized result becomes the stored·
-		// hashed body.
+
 		warnings = append(warnings, SanitizePayload(p)...)
-		// v1.24.0 T2 — a blank sanitized source_path is an absence, not a
-		// value (an empty string is not a path; the column stays NULL).
+
 		if kind == "knowledge" {
 			if sp, ok := p["source_path"].(string); ok && strings.TrimSpace(sp) == "" {
 				delete(p, "source_path")
@@ -1021,14 +675,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		n := store.Normalize(kind, p)
 		if kind == "knowledge" {
-			// Vocabulary validation: merge warnings based on the Normalized
-			// domain and tags — warnings only (no storage block·exit
-			// unchanged). Order preserved after the sanitization warnings.
-			// v1.13.0 T2 guard wiring: the colon-token rejection class
-			// (store.CheckVocabulary "rejected tag:" — vol:* is
-			// dictionary-registered only) hard-blocks the write at exit 3
-			// (the schema-error channel); the plain "unknown tag:" warning
-			// class stays non-blocking.
+
 			if raw, ok := p["tags"].([]any); ok {
 				tags := make([]string, 0, len(raw))
 				for _, tag := range raw {
@@ -1045,24 +692,19 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 					warnings = append(warnings, w)
 				}
 			}
-			// The hash input must be the volatile-field-excluded path
-			// (HashCanonical — valid_at etc.) so resending the same payload
-			// is judged duplicate (seeding idempotence).
+
 			h := store.ContentHash(store.HashCanonical(n))
-			// v1.17.2 (r65): the correction origin stamps the record only
-			// AFTER the hash — the injected origin must never enter the
-			// hash input (the dedup break of v1.17.1).
+
 			if source == "correction" {
 				applyCorrectionOrigin(p, n)
 			}
-			if seen[h] { // a duplicate line within the same batch is also skipped
+			if seen[h] {
 				dups++
 				continue
 			}
 			seen[h] = true
 			if batched {
-				// Multi-line: defer the pre-query to one batch after the
-				// loop — collect hashes only.
+
 				n["content_hash"] = h
 				stagedN = append(stagedN, n)
 				stagedH = append(stagedH, h)
@@ -1076,20 +718,14 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return store.MapExit(err)
 			}
 			if exists {
-				dups++ // per-line dedup: only this line is skipped; the remaining new lines commit
+				dups++
 				if len(payloads) == 1 {
-					dupID = existsMeta.ID // single-line resend: expose the existing row metadata (R3·R1)
+					dupID = existsMeta.ID
 					dupTopic, dupState = existsMeta.Topic, existsMeta.State
-					// v1.24.1 (r104) — the duplicate path echo accrual: the
-					// resent body's near rows persist keyed by the existing
-					// row (DupMeta.ID — the same id the resent relations
-					// land on). Output shape unchanged (dupEcho never rides
-					// the duplicate line).
+
 					dupEcho = scanEcho(ctx, st, n, th)
 				}
-				// v1.20.0 T5 — the duplicate path still accrues the
-				// resent relations onto the existing row (link-loss
-				// prevention).
+
 				if len(specs) > 0 {
 					pendLinks = append(pendLinks, pendLink{from: existsMeta.ID, spec: specs})
 					if len(payloads) == 1 {
@@ -1099,10 +735,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				continue
 			}
 			conf, _ := n["confidence"].(float64)
-			// v1.17.0 T2 — the echo scan sits right after the dedup passed
-			// and before the classification: the line is new, so its near
-			// active rows are the agent's consistency review material. A
-			// failure quietly omits the field (scanEcho, §13).
+
 			echoCands = scanEcho(ctx, st, n, th)
 			state = store.Classify(kind, conf, floor)
 			n["content_hash"] = h
@@ -1110,11 +743,9 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			hash = h
 		}
 		if kind == "project" {
-			// Per-line dedup on the natural key name (the same contract as
-			// knowledge content_hash — skipping unique(name) collisions
-			// before the batch secures seeding idempotence).
+
 			name, _ := n["name"].(string)
-			if seen["project:"+name] { // a same-name line within the same batch is also skipped
+			if seen["project:"+name] {
 				dups++
 				continue
 			}
@@ -1125,7 +756,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return store.MapExit(err)
 			}
 			if exists {
-				dups++ // per-line dedup: only this line is skipped; the remaining new lines commit
+				dups++
 				continue
 			}
 		}
@@ -1133,12 +764,6 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		finalizeRec(n, specs, kval)
 	}
 
-	// Multi-line knowledge finalize — one batch query over the collected
-	// hashes (ANY($1) chunks) skips existing lines; only new lines are
-	// classified·accrued (line order preserved — partial commit·metering·
-	// warning contracts identical to the single-shot path). A query error
-	// propagates without silent new-line classification (the error contract
-	// — MapExit chain preserved).
 	if len(stagedH) > 0 {
 		existing, err := lookupHashBatch(ctx, st, stagedH)
 		if err != nil {
@@ -1147,11 +772,9 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 		for i, n := range stagedN {
 			if meta, dup := existing[stagedH[i]]; dup {
-				dups++ // batched dedup detection identical: only this line is skipped; the rest commit
+				dups++
 				if len(stagedL[i]) > 0 {
-					// v1.20.0 T5 — duplicate-path link accrual (the
-					// batched variant): the existing row id comes from the
-					// batch lookup's DupMeta.
+
 					pendLinks = append(pendLinks, pendLink{from: meta.ID, spec: stagedL[i]})
 				}
 				continue
@@ -1164,19 +787,6 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		}
 	}
 
-	// emitDuplicate — all duplicates (common to the pre-check·race
-	// recheck): zero-row commit·exit 0 "duplicate" (seeding idempotence).
-	// Intake metering is write × 1 + the actual skipped-line count (no
-	// double counting); warnings are not discarded (the dup line's
-	// sanitization·secret warnings survive). v1.20.0 T5: the pending
-	// duplicate-path links are accrued first (their own commit — a link
-	// insert is not a zero-row commit), and the single-line response
-	// reflects the landed relations.
-	// v1.20.1 (r84): flushDupLinks(ownCommit) — the all-duplicate paths
-	// keep the standalone "relations accrual" commit; the mixed batch
-	// calls it with ownCommit=false after the fresh-row accrual so the
-	// duplicate-path links ride the same batch commit instead of being
-	// dropped (the mixed-batch link-loss finding).
 	flushDupLinks := func(ownCommit bool) int {
 		accrued := false
 		for _, pl := range pendLinks {
@@ -1195,10 +805,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		return 0
 	}
 	emitDuplicate := func() int {
-		// v1.24.1 (r104) — the duplicate-path echo candidates persist
-		// first so they ride the relations commit when one follows; a bare
-		// duplicate leaves them staged for the next commit (the RecordUsage
-		// convention on this path). Quiet §13 inside.
+
 		persistEchoCands(ctx, st, dupID, dupEcho)
 		if code := flushDupLinks(true); code != 0 {
 			return code
@@ -1214,18 +821,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		return 0
 	}
 
-	// v1.20.0 T5 — the target-existence refusal of every relations entry
-	// of this write (new rows·duplicate resends alike), BEFORE any row
-	// staging: a refusal leaves no staged knowledge rows or links
-	// behind (exit 3 — the no-FK write-path check convention).
 	var allSpecs []linkSpec
 	for _, s := range recLinks {
 		allSpecs = append(allSpecs, s...)
 	}
-	// v1.20.1 (r86) — the duplicate-path self-reference refusal: the
-	// duplicate resend's from id (DupMeta.ID) is known here, so to==from
-	// is refused up front (exit 3 — the fresh-row path cannot know its
-	// future id and is guarded inside insertKnowledgeLinks instead).
+
 	for _, pl := range pendLinks {
 		for _, s := range pl.spec {
 			if s.To == pl.from {
@@ -1255,25 +855,18 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			fmt.Fprintln(stdout, wire.ErrLine(err))
 			return store.MapExit(err)
 		}
-		// The batch rolled back due to a race (concurrent insert after the
-		// pre-check passed): recheck the unique keys (knowledge
-		// content_hash·project name) of surviving recs, skip only the lines
-		// that actually exist, and retry the remainder once — discarding
-		// everything then exiting 0 "duplicate" would lose new lines and is
-		// forbidden.
+
 		survive := make([]map[string]any, 0, len(recs))
 		surviveLinks := make([][]linkSpec, 0, len(recLinks))
 		surviveKinds := make([]string, 0, len(recKinds))
 		for i, r := range recs {
 			specs := recLinks[i]
-			kval := "" // the race-recheck realignment keeps recKinds indexed with recs
+			kval := ""
 			if i < len(recKinds) {
 				kval = recKinds[i]
 			}
 			if r["kind"] == "project" {
-				// Project lines recheck the natural key name (they have no
-				// content_hash, so deciding by retry would collide again and
-				// turn into an error — the chain of first-seeding failures).
+
 				name, _ := r["name"].(string)
 				exists, err2 := st.ExistsProject(ctx, name)
 				if err2 != nil {
@@ -1281,7 +874,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 					return store.MapExit(err2)
 				}
 				if exists {
-					dups++ // concurrently inserted line: skip — metering also reflects only actual skips
+					dups++
 					continue
 				}
 				survive = append(survive, r)
@@ -1291,7 +884,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 			h, _ := r["content_hash"].(string)
 			if h == "" {
-				survive = append(survive, r) // kinds without a hash cannot be rechecked — decided by retry
+				survive = append(survive, r)
 				surviveLinks = append(surviveLinks, specs)
 				surviveKinds = append(surviveKinds, kval)
 				continue
@@ -1302,19 +895,15 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 				return store.MapExit(err2)
 			}
 			if exists {
-				dups++ // concurrently inserted line: skip — metering also reflects only actual skips
+				dups++
 				if len(payloads) == 1 {
-					dupID = existsMeta.ID // the race-recheck path also exposes the existing row metadata (R3·R1)
+					dupID = existsMeta.ID
 					dupTopic, dupState = existsMeta.Topic, existsMeta.State
-					// v1.24.1 (r104) — the race-recheck duplicate carries the
-					// echo candidates its pre-dedup scan already computed
-					// (the row was new when scanned); they persist keyed by
-					// the concurrently inserted row (DupMeta.ID).
+
 					dupEcho = echoCands
 				}
 				if len(specs) > 0 {
-					// v1.20.0 T5 — the race-recheck duplicate also lands its
-					// relations on the concurrent row.
+
 					pendLinks = append(pendLinks, pendLink{from: existsMeta.ID, spec: specs})
 				}
 				continue
@@ -1324,17 +913,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			surviveKinds = append(surviveKinds, kval)
 		}
 		if len(survive) == 0 {
-			// Everything exists on recheck: the path with no new-line loss —
-			// exit 0 "duplicate".
+
 			return emitDuplicate()
 		}
 		ids, err = st.InsertBatch(ctx, survive)
 		if err != nil {
 			if errors.Is(err, store.ErrDuplicate) {
-				// ErrDuplicate even on retry: an actual collision of a hash
-				// that passed the recheck — strip the ErrDuplicate
-				// qualification and report it as an error (only the
-				// loss-free path exits 0).
+
 				err = fmt.Errorf("write: batch conflict after dedup recheck: %v", err)
 			}
 			fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -1344,10 +929,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		recLinks = surviveLinks
 		recKinds = surviveKinds
 	}
-	// v1.20.0 T5 — new-row link accrual: each committed row's relations
-	// land on its fresh id (before the commit, so links and rows ride one
-	// dolt commit). Target existence was already refused up front
-	// (precheckLinkTargets — the ids come back with InsertBatch).
+
 	if len(recLinks) > 0 {
 		for i, specs := range recLinks {
 			if i >= len(ids) {
@@ -1359,23 +941,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 		}
 	}
-	// v1.20.1 (r84) — the mixed-batch duplicate-path links: a batch with
-	// both new lines and duplicate resends previously accrued only the
-	// new rows' relations here and silently dropped every pendLinks
-	// entry (flushDupLinks ran only on the all-duplicate paths). Flush
-	// without a standalone commit so they ride the same batch commit as
-	// the fresh rows and their links.
+
 	if code := flushDupLinks(false); code != 0 {
 		return code
 	}
-	// v1.24.0 T2 — the knowledge.kind column stamp: the discriminator
-	// rec["kind"] occupies the "kind" record key, so the classification
-	// column cannot ride the INSERT column list — the consumed input
-	// (parseKnowledgeKind) is stamped post-insert, grouped per distinct
-	// value in vocabulary order (one batched UPDATE per value). The stamp
-	// runs BEFORE the commit so rows·links·stamps ride one dolt commit
-	// (the insertKnowledgeLinks convention). Unspecified (""/NULL) lines
-	// get no stamp — the column stays NULL.
+
 	if kind == "knowledge" && len(ids) > 0 {
 		byKind := map[string][]int{}
 		for i := range recs {
@@ -1398,19 +968,11 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			}
 		}
 	}
-	// v1.24.1 (r104) — the D1 echo-candidate persistence (schema v19,
-	// wired): the single-line write's echo candidates (scanEcho at the
-	// dedup-passed point) land in echo_candidates keyed by the fresh row
-	// id, at the same pre-commit point as the kind stamp — rows·links·
-	// stamps·echo rows ride one dolt commit. Multi-line batches keep the
-	// aggregate shape (no echo scan, no accrual — the echoCands scope);
-	// a failure is quiet §13 (persistEchoCands).
+
 	if len(payloads) == 1 && kind == "knowledge" && len(ids) > 0 {
 		persistEchoCands(ctx, st, ids[0], echoCands)
 	}
-	// D4 (R33): the commit title — project prefers name (knowledge lacks
-	// name, so summary). If both are absent, the "%v" <nil> fallback (the
-	// existing contract kept).
+
 	subject := recs[0]["name"]
 	if subject == nil {
 		subject = recs[0]["summary"]
@@ -1426,8 +988,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 	}
 	var out string
 	if len(payloads) == 1 {
-		// A single line keeps the existing {status,hash,state,id}
-		// (backward-compatible).
+
 		id := 0
 		if len(ids) > 0 {
 			id = ids[0]
@@ -1435,26 +996,18 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		out = store.OutputJSON("committed", hash, state, id)
 		out = withEcho(out, echoCands)
 	} else {
-		// Multi-line: an aggregate single commit hash instead of mixing the
-		// last line's hash·state + the first line's id.
+
 		out = store.MultiCommitOutput(len(recs), dups, commitHash)
 	}
 	if len(dropped) > 0 || len(warnings) > 0 {
 		out = withWarnings(out, dropped, warnings)
 	}
-	RecordUsage(ctx, st, "write", source) // one intake after a successful new commit
-	RecordDups(ctx, st, source, dups)     // the skipped lines of a mixed batch are also dup-metered (total+source)
-	// The correction daily-cap count — bumped only by lines that actually
-	// committed (the cap's count source, independent of the dup metering).
+	RecordUsage(ctx, st, "write", source)
+	RecordDups(ctx, st, source, dups)
+
 	if source == "correction" && kind == "knowledge" && len(recs) > 0 {
 		_ = db.BumpDailyFlatKey(ctx, st, "correction_write", time.Now().UTC().Format("2006-01-02"), len(recs))
-		// v1.24.0 D2 — the correction-classification funnel counters: on a
-		// --source correction write, the committed lines are branched by
-		// their knowledge_kind values (correction_preference·
-		// correction_fact, the curation group — BumpCurationCounter's
-		// whitelist derives from the registry). The branch axis is the
-		// per-line kind value, not the whole write: kindless lines count
-		// nowhere, and a manual-channel write never accrues either.
+
 		nPref, nFact := 0, 0
 		for i := range recs {
 			if i >= len(recKinds) {
@@ -1471,21 +1024,13 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		BumpCurationCounter(ctx, st, "correction_fact", nFact)
 	}
 	fmt.Fprintln(stdout, out)
-	// The scan_stats flush (v1.21.1 A6): an echo scan on this path
-	// accumulated in-memory samples — persist them before the one-shot
-	// process exits (quiet §13; a no-op when no scan ran).
+
 	if PersistScanStatsFn != nil {
 		PersistScanStatsFn(ctx, st)
 	}
 	return 0
 }
 
-// RecordDups — meters dup intake by the number of skipped duplicate lines
-// (0 is a no-op). The total "dup" key is invariant (ruling); per-source
-// "dup_"+source (hook·manual·mcp·correction·gap) is additionally incremented (additive —
-// v0.10.2 R2). A UsageCountStore (the real implementation) increments each
-// key in bulk with one count call; a non-implementing Store does it one at
-// a time.
 func RecordDups(ctx context.Context, st wire.Store, source string, n int) {
 	if n <= 0 {
 		return
@@ -1501,22 +1046,11 @@ func RecordDups(ctx context.Context, st wire.Store, source string, n int) {
 	}
 }
 
-// sanitizeFields — the text columns to sanitize (the kind-common minimal
-// set). v1.22.0 T5: conditions added — it stays verbatim through storage
-// (the ADR-0006 blind-spot rule that pulled domain·origin in). v1.24.0
-// T2: source_path added — the provenance path is an unsanitized-string
-// blind spot of the same class.
-var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id", "conditions", "source_path"} // session_id added (defense against arbitrary unsanitized strings)
+var sanitizeFields = []string{"topic", "summary", "entity", "agent", "name", "session_id", "conditions", "source_path"}
 
-// SanitizePayload — sanitizes the text fields, updates the original map,
-// and returns secret-candidate warnings ("possible secret: pattern-name").
-// Not a storage rejection (warn + sanitize).
 func SanitizePayload(p map[string]any) []string {
 	var warns []string
-	// The sanitize·secret-scan targets were expanded from the 5 string
-	// fields to tags array elements·domain·origin — these fields remain
-	// verbatim through normalization·storage·backup dumps and were blind
-	// spots of the warning contract.
+
 	for _, f := range sanitizeFields {
 		s, ok := p[f].(string)
 		if !ok {
@@ -1569,17 +1103,13 @@ func SanitizePayload(p map[string]any) []string {
 			}
 		}
 	}
-	// []string tags (import re-planting recs — the jsonl round-trip path)
-	// get the same sanitization.
+
 	if raw, ok := p["tags"].([]string); ok {
 		sanitizeTagElems(raw)
 	}
 	return warns
 }
 
-// withWarnings — appends a warnings array (dropped keys·merged secret
-// scans) to the one-line output JSON (no silent drops·no missed
-// detections).
 func withWarnings(line string, dropped map[string]bool, secretWarns []string) string {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(line), &m); err != nil {
@@ -1602,18 +1132,8 @@ func withWarnings(line string, dropped map[string]bool, secretWarns []string) st
 	return string(b)
 }
 
-// maxPayloadFieldBytes — the byte cap of a single payload field (string
-// value). A code constant + TUNING notation, not a registry target
-// (thresholds meta override). The size matches the compact hook boundary
-// (compactMaxBytes 8MiB, §13 non-interference) — compact flows an 8MiB
-// compact_summary straight into RunWrite as one session row, so a smaller
-// cap would silently no-op normal compaction (only the boundary excess is
-// blocked).
 const maxPayloadFieldBytes = compactMaxBytes
 
-// validateFieldBytes — returns a SchemaError for the field when a payload
-// string field value exceeds the cap (the same exit 3 path as Validate —
-// excess only is blocked).
 func validateFieldBytes(p map[string]any) *store.SchemaError {
 	for k, v := range p {
 		s, ok := v.(string)
@@ -1630,11 +1150,6 @@ func validateFieldBytes(p map[string]any) *store.SchemaError {
 	return nil
 }
 
-// enforceWriteMaxRows — the write stdin row cap (reusing the registry key
-// export_import_max_rows — the same shape as import's
-// enforceImportMaxRows). On excess, prints an error JSON with max·count to
-// stdout and returns 3 (the caller returns it as-is). This stage is right
-// after parsing·before side effects.
 func enforceWriteMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, count int) int {
 	max := importMaxRowsLimit(ctx, st)
 	if count <= max {
@@ -1652,7 +1167,6 @@ func enforceWriteMaxRows(ctx context.Context, st wire.Store, stdout io.Writer, c
 	return 3
 }
 
-// readPayloads — parses stdin as line-delimited JSON (or one bulk JSON).
 func readPayloads(stdin io.Reader) ([]map[string]any, error) {
 	var buf bytes.Buffer
 	if _, err := io.Copy(&buf, stdin); err != nil {

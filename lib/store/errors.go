@@ -1,7 +1,5 @@
 package store
 
-// SchemaError represents a per-field validation failure.
-// (e.g. Validate("knowledge", {"topic":"x"}) -> &SchemaError{Field:"summary"})
 type SchemaError struct {
 	Field  string
 	Expect string

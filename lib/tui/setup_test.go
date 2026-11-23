@@ -1,6 +1,3 @@
-// setup_test.go — the setup wizard: the non-terminal fallback, the form seam,
-// the cancel contract, and the flag-equivalent verification. The form body (huh)
-// is swapped via the runSetupFormFn seam for testing (an interactive form cannot
 package tui
 
 import (
@@ -12,8 +9,6 @@ import (
 	"github.com/charmbracelet/huh"
 )
 
-// withFakeForm — swaps the runSetupFormFn seam. In the SUPERLITE_REAL=1
-// seam-check mode, the real huh form is kept (interactive — form-calling tests skip).
 func withFakeForm(t *testing.T, fn func() (SetupAnswers, error)) {
 	t.Helper()
 	prev := runSetupFormFn
@@ -21,7 +16,6 @@ func withFakeForm(t *testing.T, fn func() (SetupAnswers, error)) {
 	t.Cleanup(func() { runSetupFormFn = prev })
 }
 
-// requireFakeForm — skips form-calling tests in the seam-check (real-implementation) mode.
 func requireFakeForm(t *testing.T) {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") == "1" {
@@ -29,7 +23,6 @@ func requireFakeForm(t *testing.T) {
 	}
 }
 
-// withTerminal — swaps the isTerminal seam (inheriting the var convention).
 func withTerminal(t *testing.T, v bool) {
 	t.Helper()
 	prev := isTerminal
@@ -37,8 +30,6 @@ func withTerminal(t *testing.T, v bool) {
 	t.Cleanup(func() { isTerminal = prev })
 }
 
-// TestRunSetupWizardNonTerminal — non-terminal does not start the form and
-// immediately gives ErrWizardUnavailable (the cli caller falls back to the existing guidance path — contract).
 func TestRunSetupWizardNonTerminal(t *testing.T) {
 	withTerminal(t, false)
 	formCalled := false
@@ -58,7 +49,6 @@ func TestRunSetupWizardNonTerminal(t *testing.T) {
 	}
 }
 
-// TestRunSetupWizardReturnsAnswers — passes the completed form value (exposure) through.
 func TestRunSetupWizardReturnsAnswers(t *testing.T) {
 	requireFakeForm(t)
 	withTerminal(t, true)
@@ -74,8 +64,6 @@ func TestRunSetupWizardReturnsAnswers(t *testing.T) {
 	}
 }
 
-// TestRunSetupWizardCancel — a user cancel (huh.ErrUserAborted) is converted to
-// ErrWizardCancelled (for cli's existing-path fallback detection).
 func TestRunSetupWizardCancel(t *testing.T) {
 	requireFakeForm(t)
 	withTerminal(t, true)
@@ -88,7 +76,6 @@ func TestRunSetupWizardCancel(t *testing.T) {
 	}
 }
 
-// TestRunSetupWizardFormError — form errors other than cancel propagate as-is.
 func TestRunSetupWizardFormError(t *testing.T) {
 	requireFakeForm(t)
 	withTerminal(t, true)
@@ -103,8 +90,6 @@ func TestRunSetupWizardFormError(t *testing.T) {
 	}
 }
 
-// TestRunSetupWizardInvalidExposure — if the seam supplies a value outside the
-// flag's allowed set, it is rejected (the wizard's preemptive block, consistent with the setup --exposure invalid-value exit 3 contract).
 func TestRunSetupWizardInvalidExposure(t *testing.T) {
 	requireFakeForm(t)
 	withTerminal(t, true)
@@ -117,9 +102,6 @@ func TestRunSetupWizardInvalidExposure(t *testing.T) {
 	}
 }
 
-// TestBackupKeyNoteContent — the backup-key notice keeps the key facts of the
-// existing guidance (the RUNBOOK backup-encryption section) in English:
-// opt-in, auto-generated, undecipherable if lost.
 func TestBackupKeyNoteContent(t *testing.T) {
 	for _, want := range []string{
 		"backup_encrypt",
@@ -132,7 +114,6 @@ func TestBackupKeyNoteContent(t *testing.T) {
 	}
 }
 
-// containsFold — a case-insensitive substring check (a test-only helper).
 func containsFold(s, sub string) bool {
 	return strings.Contains(strings.ToLower(s), strings.ToLower(sub))
 }

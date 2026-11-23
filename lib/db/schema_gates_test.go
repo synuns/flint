@@ -1,6 +1,3 @@
-// schema_gates_test.go — the promotion-gate registry guards. Pure tests
-// (no DB needed): asserting the registry's contiguity·full registration
-// of admin.go's gates·the registry derivation of cli's ensureSchemas.
 package db
 
 import (
@@ -15,10 +12,6 @@ import (
 	"testing"
 )
 
-// TestSchemaGatesContiguous — the registry versions are contiguous
-// 2..LatestSchemaVersion with no duplicates. A missing gate or a
-// disordered sequence breaks the contiguity assertion immediately
-// (preventing silent skips).
 func TestSchemaGatesContiguous(t *testing.T) {
 	gates := SchemaGates()
 	if len(gates) == 0 {
@@ -41,11 +34,6 @@ func TestSchemaGatesContiguous(t *testing.T) {
 	}
 }
 
-// ensureSchemaDefs — collects `func (r *Repo) EnsureSchemaV#(` definitions
-// from all non-test .go files in dir into a version→filename map.
-// Reading admin.go alone missed new gate definitions in other files
-// (the missing-registration scenario) — the whole package's sources are
-// the scan target.
 func ensureSchemaDefs(t *testing.T, dir string) map[int]string {
 	t.Helper()
 	defs := map[int]string{}
@@ -77,10 +65,6 @@ func ensureSchemaDefs(t *testing.T, dir string) map[int]string {
 	return defs
 }
 
-// TestSchemaGatesCoverAdmin — every EnsureSchemaV* defined anywhere in
-// lib/db's non-test sources must be registered in the registry (adding
-// only the definition and forgetting the registration means a missing
-// call — caught even when the defining file is not admin.go).
 func TestSchemaGatesCoverAdmin(t *testing.T) {
 	defined := ensureSchemaDefs(t, ".")
 	if len(defined) == 0 {
@@ -98,9 +82,6 @@ func TestSchemaGatesCoverAdmin(t *testing.T) {
 	}
 }
 
-// TestSchemaGateDefsSpanAllFiles — regression: a gate defined in a file
-// outside admin.go (the missing-registration scenario) is also seen by
-// the definition collection (closing the single-file read).
 func TestSchemaGateDefsSpanAllFiles(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
@@ -120,10 +101,6 @@ func TestSchemaGateDefsSpanAllFiles(t *testing.T) {
 	}
 }
 
-// cliGateAudit — inspects all non-test .go files under dir (recursive,
-// testdata excluded) and returns (whether a registry-derived range
-// exists, the list of direct gate calls as "path:line: match").
-// Reading root.go alone missed direct calls in other cli files.
 func cliGateAudit(t *testing.T, dir string) (bool, []string) {
 	t.Helper()
 	derivation := regexp.MustCompile(`for\s+_,\s*\w+\s*:?=\s*range\s+db\.SchemaGates\(\)`)
@@ -163,11 +140,6 @@ func cliGateAudit(t *testing.T, dir string) (bool, []string) {
 	return found, calls
 }
 
-// TestEnsureSchemasUsesGates — lib/cli's ensureSchemas must derive its
-// sequence from the registry (db.SchemaGates) and never call gate
-// methods directly (a residual manual-call list = a registry-bypass
-// regression). The inspection target is all of lib/cli's non-test
-// sources, not just root.go.
 func TestEnsureSchemasUsesGates(t *testing.T) {
 	found, calls := cliGateAudit(t, "../cli")
 	if !found {
@@ -178,15 +150,11 @@ func TestEnsureSchemasUsesGates(t *testing.T) {
 	}
 }
 
-// TestCliGateAuditSpansAllFiles — regression: direct gate calls
-// (repo.EnsureSchemaV3() etc.) in cli files outside root.go are also
-// detected (closing the single-file blind spot).
 func TestCliGateAuditSpansAllFiles(t *testing.T) {
 	root := t.TempDir()
 	files := map[string]string{
 		"root.go": "package cli\n\nfunc ensureSchemas() error {\n	for _, g := range db.SchemaGates() {\n		_ = g\n	}\n	return nil\n}\n",
-		// The old guard's blind spot: a direct call in a file outside
-		// root.go.
+
 		"probe_call.go": "package cli\n\nfunc legacy(ctx context.Context, repo *db.Repo) error { return repo.EnsureSchemaV3(ctx) }\n",
 	}
 	for name, body := range files {

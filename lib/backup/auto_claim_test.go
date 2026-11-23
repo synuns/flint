@@ -9,10 +9,6 @@ import (
 	"time"
 )
 
-// TestAutoBackupClaimPreventsDuplicate — even when parallel done sessions
-// pass the expiry window simultaneously, CAS claiming keeps the dump to
-// exactly once. claim is an atomic compare-exchange (same semantics as the
-// real-DB WHERE value=old).
 func TestAutoBackupClaimPreventsDuplicate(t *testing.T) {
 	origDump := dumpFn
 	defer func() { dumpFn = origDump }()
@@ -54,7 +50,6 @@ func TestAutoBackupClaimPreventsDuplicate(t *testing.T) {
 	}
 }
 
-// TestAutoBackupClaimSkipsWhenFresh — a fresh stamp is a no-op (zero dumps).
 func TestAutoBackupClaimSkipsWhenFresh(t *testing.T) {
 	origDump := dumpFn
 	defer func() { dumpFn = origDump }()

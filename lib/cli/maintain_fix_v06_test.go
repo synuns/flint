@@ -1,7 +1,3 @@
-// maintain_fix_v06_test.go — regression: the SQL interval parameter multiplication in `maintain --stale`
-// (`$1 * interval '1 day'`) made real Doltgres infer $1 as interval
-// (OID 1186), failing pgx int encoding -> exit 1 (incident:
-// lib/cli/maintain.go:165). The cutoff must be a Go-computed timestamptz parameter.
 package cli
 
 import (
@@ -10,15 +6,13 @@ import (
 	"time"
 )
 
-// TestStaleCutoffTimestamptzParam — the stale query takes the cutoff time as the first
-// argument with no interval arithmetic, and --days N is reflected in the cutoff.
 func TestStaleCutoffTimestamptzParam(t *testing.T) {
 	var staleSQL string
 	var staleArgs []any
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta") {
-			return nil, nil // no thresholds -> default 90 fallback
+			return nil, nil
 		}
 		staleSQL, staleArgs = sql, args
 		return nil, nil

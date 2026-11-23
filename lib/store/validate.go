@@ -1,18 +1,10 @@
-// Package store provides per-kind validation, normalization, and hashing.
 package store
 
-// The allowed kind values and each kind's required fields (validation order). KindExpect is
-// the single source of the kind-value contract — the MCP layer (lib/mcp) references these constants.
 const (
 	KindExpect   = "knowledge|session|project"
 	statusExpect = "active|paused|done"
 )
 
-// Validate checks the required fields of a kind input. On violation it returns the
-// field's SchemaError; on validity, nil.
-//
-// Since the return is a concrete type (*SchemaError), callers must nil-check the
-// return value directly (checking != nil on an interface variable is the typed-nil trap).
 func Validate(kind string, p map[string]any) *SchemaError {
 	switch kind {
 	case "knowledge":
@@ -53,7 +45,6 @@ func Validate(kind string, p map[string]any) *SchemaError {
 	return nil
 }
 
-// requireText — whether the field is a non-empty string.
 func requireText(p map[string]any, field string) *SchemaError {
 	if s, ok := p[field].(string); ok && s != "" {
 		return nil
@@ -61,7 +52,6 @@ func requireText(p map[string]any, field string) *SchemaError {
 	return &SchemaError{Field: field, Expect: "required non-empty string"}
 }
 
-// inUnitRange — the confidence boundary: 0 and 1 allowed; 1.01 and -0.1 rejected.
 func inUnitRange(v any) bool {
 	switch n := v.(type) {
 	case float64:
@@ -73,7 +63,6 @@ func inUnitRange(v any) bool {
 	}
 }
 
-// isStringArray — accepts both a JSON-decoded result ([]any) and []string.
 func isStringArray(v any) bool {
 	switch t := v.(type) {
 	case []string:

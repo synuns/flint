@@ -1,6 +1,3 @@
-// read_v0180_test.go — the fallback search surface includes tags. Knowledge
-// classified only by tags (no vocabulary in topic or summary) is recovered by the
-// word fallback — removing one of the main causes of fallback intake.
 package query
 
 import (
@@ -8,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestBuildReadFallbackIncludesTags — the fallback LIKE surface expands to
-// topic || ' ' || summary || ' ' || tags (the phrase query unchanged).
 func TestBuildReadFallbackIncludesTags(t *testing.T) {
 	sql, _, ok := BuildReadFallback("doltgres 포트", Filters{})
 	if !ok {
@@ -20,8 +15,6 @@ func TestBuildReadFallbackIncludesTags(t *testing.T) {
 	}
 }
 
-// TestBuildReadPhraseSurfaceUnchanged — the phrase query's surface stays
-// topic || ' ' || summary as-is (tags belong to the --tag filter's domain — the contract unchanged).
 func TestBuildReadPhraseSurfaceUnchanged(t *testing.T) {
 	sql, _ := BuildRead("doltgres", Filters{})
 	if !strings.Contains(sql, "lower(topic || ' ' || summary) LIKE") {

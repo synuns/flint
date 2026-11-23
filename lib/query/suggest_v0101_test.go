@@ -7,8 +7,7 @@ import (
 
 func TestSuggestMinScoreFiltersMarginal(t *testing.T) {
 	q := "환경설정 초기화 방법"
-	// fixture pre-verification — computes and asserts by itself that this row's
-	// score is 0 < s < suggestMinScore (avoiding hardcoded scores).
+
 	row := [][]any{{int32(11), "flint v0.9.6 방향", "기록"}}
 	s := bigramDice(nfkc(q), nfkc("flint v0.9.6 방향"+"기록"))
 	if !(s > 0 && s < suggestMinScore) {

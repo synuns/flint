@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// TestHashStable — the same input twice gives the same hash, 64 hex chars.
 func TestHashStable(t *testing.T) {
 	h1 := ContentHash(`{"a":1}`)
 	h2 := ContentHash(`{"a":1}`)
@@ -20,14 +19,12 @@ func TestHashStable(t *testing.T) {
 	}
 }
 
-// TestHashDistinct — different inputs give different hashes.
 func TestHashDistinct(t *testing.T) {
 	if ContentHash(`{"a":1}`) == ContentHash(`{"a":2}`) {
 		t.Error("다른 입력에 동일 해시")
 	}
 }
 
-// TestHashPipelinePath — the CanonicalJSON -> ContentHash pipeline path.
 func TestHashPipelinePath(t *testing.T) {
 	n := Normalize("knowledge", map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
 		"tags": []any{"b", "a"}})
@@ -37,8 +34,6 @@ func TestHashPipelinePath(t *testing.T) {
 	}
 }
 
-// TestHashStableAcrossRuns — normalizing the same payload twice yields different
-// valid_at (now) values, but the hash must be identical (seeding idempotence, a duplicate-verdict regression).
 func TestHashStableAcrossRuns(t *testing.T) {
 	payload := func() map[string]any {
 		return map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
@@ -51,7 +46,6 @@ func TestHashStableAcrossRuns(t *testing.T) {
 	}
 }
 
-// TestHashIgnoresVolatileFields — even with different valid_at and ts values, the hash must be identical.
 func TestHashIgnoresVolatileFields(t *testing.T) {
 	base := func(validAt, ts string) map[string]any {
 		return map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
@@ -64,7 +58,6 @@ func TestHashIgnoresVolatileFields(t *testing.T) {
 	}
 }
 
-// TestHashDistinctOnContent — different content must give different hashes (preventing over-exclusion).
 func TestHashDistinctOnContent(t *testing.T) {
 	a := ContentHash(HashCanonical(map[string]any{"topic": "x", "summary": "y", "confidence": 0.9}))
 	b := ContentHash(HashCanonical(map[string]any{"topic": "z", "summary": "y", "confidence": 0.9}))

@@ -1,19 +1,5 @@
-// threshold_meta.go — the thresholds key registry (the single source).
-// Adding a key converges to this 1 registry spot + the store.Thresholds field
-// definition — ThresholdsKeys (the thresholdsKeySQL IN and the maintain meta
-// audit) and ops TuningKeys (the TUNING §2 table rows: Default, Consumer, Get)
-// all derive from the registry. The DefaultThresholds values and the
-// ParseThresholds recognition set are guarded for homogeneity with the registry
-// by threshold_meta_test.go (fixing only one side FAILs — the spec §2 guard contract). store shares only the struct (the field names).
 package wire
 
-// ThresholdMeta — one registry entry. Field is the store.Thresholds field name
-// (the reflection source of the derived Get), Key is the meta override key,
-// Default is the default value (int|float64 — subject to the homogeneity guard
-// against the store default constants), Desc is the consumption path (the consumer column of the TUNING §2 table),
-// and Auto is the autonomous-tuning grade ("" = manual-only; "shadow" = the
-// v1.23.0 shadow-circuit whitelist — the closed grade set guarded by
-// threshold_meta_test.go).
 type ThresholdMeta struct {
 	Field   string
 	Key     string
@@ -22,8 +8,6 @@ type ThresholdMeta struct {
 	Auto    string
 }
 
-// thresholdMetas — the registry original. The order preserves the existing
-// ThresholdsKeys and TuningKeys declaration order as-is (a deterministic order — the SQL IN and table output unchanged).
 var thresholdMetas = []ThresholdMeta{
 	{"PendingMax", "pending_max", 50, "maintain --check", ""},
 	{"DupSuspMax", "dup_susp_max", 20, "maintain --check", ""},
@@ -55,8 +39,6 @@ var thresholdMetas = []ThresholdMeta{
 	{"SecretsScanRows", "secrets_scan_row_limit", 10000, "doctor secrets row limit", ""},
 	{"SessionKnowledgeDays", "session_knowledge_days", 1, "session knowledge minimum interval", ""},
 
-	// the diagnostics engine (diagnosis.go) and the knowledge_reads retention — a
-	// registry entry for the real meta-override load.
 	{"DiagHotBudgetHigh", "diag_hot_budget_high", 0.8, "report diagnostics", ""},
 	{"DiagHotBudgetLow", "diag_hot_budget_low", 0.2, "report diagnostics", ""},
 	{"DiagTrendPct", "diag_trend_pct", 50, "report diagnostics", ""},
@@ -64,90 +46,52 @@ var thresholdMetas = []ThresholdMeta{
 	{"DiagDeadWarn", "diag_dead_warn", 10, "report diagnostics", ""},
 	{"KreadsRetentionD", "knowledge_reads_retention_days", 14, "db retention", ""},
 
-	// the import row cap (a large-document memory defense — the consumption path knowledge/import_jsonl.go).
-	// knowledge/import_jsonl.go).
 	{"ExportImportMaxRows", "export_import_max_rows", 100000, "import row limit", ""},
 
-	// the decay coefficient and archive-recommendation thresholds (the consumption path ops maintain --decay-audit — schema v11 recall_score, last_recalled_at).
-	// maintain --decay-audit — schema v11 recall_score·last_recalled_at).
 	{"DecayRate", "decay_rate", 1.0, "maintain --decay-audit", ""},
 	{"ArchiveBelow", "archive_below", 0.0, "maintain --decay-audit", ""},
 
-	// the recall_events retention (the growth cap of the schema v12 append-only
-	// recall source — the consumption path: maintain --prune-invalidated event cleanup).
 	{"RecallEventRetentionD", "recall_event_retention_days", 90, "maintain --prune-invalidated (recall events retention)", ""},
 
-	// the --source correction write default confidence (the consumption path knowledge/write.go applyCorrectionDefaults).
 	{"CorrectionConfidence", "correction_confidence", 0.7, "write correction source default", ""},
 
-	// the --source correction daily accrual cap (the consumption path knowledge/write.go — the daily:correction_write flat-key count).
 	{"CorrectionDailyMax", "correction_daily_max", 20, "write correction daily cap", ""},
 
-	// the gap-candidate accrual trigger and daily cap (v1.12.0 — the consumption path knowledge/write.go gap source, the daily:gapq flat-key count).
 	{"GapQueryThreshold", "gap_query_threshold", 3, "gap candidate accrual threshold", ""},
 	{"GapDailyMax", "gap_daily_max", 10, "gap candidate daily cap", ""},
 
-	// the stale-score report marking threshold and the TTL saturation days (v1.13.0 —
-	// the consumption path ops maintain --age-audit·StaleScore).
 	{"StaleScoreThreshold", "stale_score_threshold", 70, "maintain --age-audit over-threshold marking", ""},
 	{"StaleTTLDays", "stale_ttl_days", 180, "maintain --age-audit score TTL saturation", ""},
 
-	// the survived decay relief (v1.14.0 — the verified-success weighting in the
-	// effective-score formula; the consumption path hot·brief ranking·maintain --decay-audit).
 	{"SurvivedDecayRelief", "survived_decay_relief", 0.0, "survived decay relief (hot·brief·decay-audit)", ""},
 
-	// the echo-scan keys (v1.17.0 — the consumption path knowledge write's echo
-	// response: the top-k cap, the admission floor, and the topic-overlap floor).
 	{"EchoTopK", "echo_top_k", 5, "write echo top-k cap", ""},
 	{"EchoMinScore", "echo_min_score", 0.3, "write echo admission floor", ""},
 	{"EchoTopicMatch", "echo_topic_match", 0.4, "write echo topic-overlap floor", ""},
 
-	// the schema v13 observability keys (v1.19.0 — the consumption paths: the
-	// rollup·snapshot retention prunes and the doctor metering-freshness check).
 	{"WeeklyRollupsRetentionD", "weekly_rollups_retention_days", 90, "rollup retention", ""},
 	{"ThresholdSnapshotsRetentionD", "threshold_snapshots_retention_days", 90, "snapshot retention", ""},
 	{"MeteringFreshnessWarnH", "metering_freshness_warn_h", 336, "doctor metering-freshness", ""},
 
-	// the vault-bridge keys (v1.21.0 — the schema v16 vault_files index:
-	// the per-scan file cap, the summary truncation runes, and the
-	// comma-separated skip-dir list — the first string-valued key).
 	{"VaultScanMaxFiles", "vault_scan_max_files", 10000, "index vault scan file cap", ""},
 	{"VaultSummaryMaxRunes", "vault_summary_max_runes", 200, "index vault summary truncation runes", ""},
 	{"VaultSkipDirs", "vault_skip_dirs", ".obsidian,.trash", "index vault skip dirs (comma list)", ""},
 
-	// the distill output floor (v1.22.0 — the schema v17 distill command:
-	// the minimum raw recall count of an emitted insight row) and the
-	// per-run file cap (v1.22.1 r97 — rows past the cap defer to the next
-	// run).
 	{"DistillMinScore", "distill_min_score", 1.0, "distill output minimum recall count", ""},
 	{"DistillMaxRunes", "distill_max_runes", 20000, "distill output file rune cap", ""},
 
-	// the recall-audit listing floor (v1.24.0 — the schema v19 curation
-	// residual: the minimum bad-recall history count at or above which
-	// maintain --recall-audit lists an active row).
 	{"RecallAuditMinBad", "recall_audit_min_bad", 2, "maintain --recall-audit listing floor", ""},
 
-	// the engine-warning thresholds (v1.25.0 — the consumption paths: doctor
-	// dolt_log_depth · db_size, the at-or-above warn lines).
 	{"DoltLogDepthWarn", "dolt_" + "log_depth_warn", 10000, "doctor depth warning", ""},
 	{"DbSizeWarnMB", "db_size_warn_mb", 2048, "doctor db_size", ""},
 
-	// the update-check cache age warning line (v1.26.0 — the consumption path:
-	// doctor versions' stale-cache verdict).
 	{"UpdateCacheAgeH", "update_cache_age_h", 72, "doctor versions cache age", ""},
 }
 
-// ThresholdMetas — the registry's deterministic copy (the key set identical
-// to the existing ThresholdsKeys, asserted by the guard tests — the entry
-// count is asserted there, not restated here).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)
 }
 
-// ThresholdAutoGrade — the auto-eligibility grade of a registry key ("" = the
-// key is manual-only; "shadow" = the v1.23.0 shadow-circuit whitelist). The
-// single source is the registry Auto field — the auto surfaces (the what-if
-// key gate, the shadow trigger table) admit only non-"" keys.
 func ThresholdAutoGrade(key string) string {
 	for _, m := range thresholdMetas {
 		if m.Key == key {
@@ -157,9 +101,6 @@ func ThresholdAutoGrade(key string) string {
 	return ""
 }
 
-// ThresholdAutoWhitelist — {key: grade} for every entry with a non-"" Auto
-// grade (the initial whitelist is {suggest_min_score: shadow} — guarded for
-// exact equality by threshold_meta_test.go).
 func ThresholdAutoWhitelist() map[string]string {
 	out := map[string]string{}
 	for _, m := range thresholdMetas {
@@ -170,9 +111,6 @@ func ThresholdAutoWhitelist() map[string]string {
 	return out
 }
 
-// ThresholdMetasAppendForTest — a temporary-registration seam exclusively for the guard
-// tests (TestNewKeyPropagates: registering 1 virtual key -> demonstrating simultaneous
-// reflection in the 4 derived paths). The returned restore recovers the original registry. Never use on production paths.
 func ThresholdMetasAppendForTest(m ThresholdMeta) (restore func()) {
 	saved := thresholdMetas
 	next := append([]ThresholdMeta(nil), saved...)

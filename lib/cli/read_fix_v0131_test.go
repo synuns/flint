@@ -1,8 +1,3 @@
-// read_fix_v0131_test.go — strengthened --status spec validation.
-// (1) A trailing --status without a value (standalone or combined with --as-of) exits 3 under the same rule as the valueless --as-of
-// guard — no silent ignoring. (2) Invalid status values are always validated
-// regardless of --as-of (the as-of-precedence ruling for combinations applies only to valid
-// values).
 package cli
 
 import (
@@ -12,9 +7,6 @@ import (
 	"testing"
 )
 
-// TestReadStatusTrailingExits3 — a trailing --status (no value) is not silently ignored
-// but exits 3. Since silently ignoring it under --as-of combination was the defect itself,
-// both variants are covered. Validation must finish before any query is issued.
 func TestReadStatusTrailingExits3(t *testing.T) {
 	for _, args := range [][]string{
 		{"--status"},
@@ -34,8 +26,6 @@ func TestReadStatusTrailingExits3(t *testing.T) {
 	}
 }
 
-// TestReadStatusInvalidWithAsOf — even combined with --as-of, an invalid status value is
-// rejected with exit 3 (previously the as-of path ran first and silently ignored it).
 func TestReadStatusInvalidWithAsOf(t *testing.T) {
 	var out bytes.Buffer
 	f := &readAsofFake{fakeStore: &fakeStore{queryFn: statusQueryFn()}}

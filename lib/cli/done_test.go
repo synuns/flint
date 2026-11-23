@@ -1,4 +1,3 @@
-// done_test.go — the done dispatch and realStore delegation paths (registration activation and seams).
 package cli
 
 import (
@@ -10,16 +9,13 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// doneFake — a fakeStore with a StaleSessionRuns stub layered on.
-// Without a stub it behaves as zero; with SUPERLITE_REAL=1 it delegates to the real implementation.
 type doneFake struct {
 	*fakeStore
 
-	stubbed bool // whether runs or runsErr was specified
+	stubbed bool
 	runs    int
 	runsErr error
 
-	// recording
 	gotAgent string
 }
 
@@ -31,15 +27,10 @@ func (d *doneFake) StaleSessionRuns(ctx context.Context, agent string) (int, err
 	return d.runs, nil
 }
 
-// UpdateSessionSummary — closing-summary update delegation (write guard).
-// The fake is a no-op success (unit path — the update contract is asserted by the knowledge done_test).
 func (d *doneFake) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	return 1, nil
 }
 
-// withDoneFake — the Run-path seam. Default fake; with FLINT_TEST_DSN set +
-// SUPERLITE_REAL=1, unstubbed operations delegate to the real implementation (skips
-// without a real DB). Without FLINT_TEST_DSN, no real-implementation fallback (seamRealDSN).
 func withDoneFake(t *testing.T, d *doneFake) {
 	t.Helper()
 	prev := newStore
@@ -61,7 +52,6 @@ func withDoneFake(t *testing.T, d *doneFake) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// delegatingDone — stubbed operations use the fake; unstubbed ones delegate to the real implementation.
 type delegatingDone struct {
 	done *doneFake
 	real *realStore
@@ -69,7 +59,6 @@ type delegatingDone struct {
 
 func (d *delegatingDone) Migrate(ctx context.Context) error { return d.real.Migrate(ctx) }
 
-// the 5 history methods — inheriting the delegation pattern (passing through the real-implementation seam as-is).
 func (d *delegatingDone) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	return d.real.LogEntries(ctx, q)
 }
@@ -112,21 +101,16 @@ func (d *delegatingDone) StaleSessionRuns(ctx context.Context, agent string) (in
 	return d.real.StaleSessionRuns(ctx, agent)
 }
 
-// UpdateSessionSummary — the write-guard transition — real-implementation delegation.
 func (d *delegatingDone) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	return d.real.UpdateSessionSummary(ctx, id, summary, tasks)
 }
 
-// mustDoneRun — the full Run path (including registration and seams).
 func mustDoneRun(t *testing.T, args []string) (string, int) {
 	t.Helper()
 	stubAutoBackup(t)
 	return mustRun(t, args, "")
 }
 
-// stubAutoBackup — swaps the knowledge.AutoBackupFn seam (guaranteeing side-effect-free unit tests).
-// The seam var lives in the owning package (knowledge), so it is
-// stubbed directly.
 func stubAutoBackup(t *testing.T) {
 	t.Helper()
 	prev := knowledge.AutoBackupFn
@@ -134,7 +118,6 @@ func stubAutoBackup(t *testing.T) {
 	t.Cleanup(func() { knowledge.AutoBackupFn = prev })
 }
 
-// registration + full Run path — Lookup success + exit 0.
 func TestDoneRegisteredAndRun(t *testing.T) {
 	if _, ok := Lookup("done"); !ok {
 		t.Fatal("done 미등록")
@@ -150,7 +133,6 @@ func TestDoneRegisteredAndRun(t *testing.T) {
 	}
 }
 
-// seam check — unstubbed operations delegate to the real implementation (SUPERLITE_REAL=1 real DB, else fake).
 func TestDoneDelegatingRun(t *testing.T) {
 	f := &fakeStore{}
 	d := &doneFake{fakeStore: f}
@@ -162,18 +144,16 @@ func TestDoneDelegatingRun(t *testing.T) {
 	decode(t, out)
 }
 
-// that stubAutoBackup actually disables the knowledge-owned seam (preventing a missing delegation).
 func TestStubAutoBackupTargetsKnowledgeSeam(t *testing.T) {
 	stubAutoBackup(t)
 	var out strings.Builder
-	// call the handler directly — via knowledge.RunDone.
+
 	code := runDoneForSeamCheck(&out)
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
 	}
 }
 
-// runDoneForSeamCheck — runs via the registered done handler (minimal session).
 func runDoneForSeamCheck(out *strings.Builder) int {
 	h, ok := Lookup("done")
 	if !ok {

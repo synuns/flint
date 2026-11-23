@@ -1,10 +1,3 @@
-// wire_approve_store_test.go — spec §1.4/R14: verifies that approve, done, and backup use
-// the Store injected by root (their own db.NewRepo/db.Connect abolished) and the convergence of
-// in-file duplicate implementations (quoteJSON, the thresholds loader).
-// The approve and done implementations moved to lib/knowledge — the approve re-wiring
-// check (TestApproveUsesInjectedStore) and the maybeAutoBackup-via-st check
-// (TestDoneAutoBackupNoExtraPool) moved to the knowledge package tests;
-// this file covers only the cli-owned path (backup) and a source guard on the moved locations.
 package cli
 
 import (
@@ -19,16 +12,12 @@ import (
 	"testing"
 )
 
-// errSelfConnectDisabled — a sentinel-only error (an unreachable path after the re-wiring).
 var errSelfConnectDisabled = &selfConnectError{}
 
 type selfConnectError struct{}
 
 func (*selfConnectError) Error() string { return "self-connect path must not run" }
 
-// TestQuoteJSONSingle — converged to 1 quoteJSON implementation.
-// knowledge/approve.go's quoteJSONApprove is byte-identical to backup.go's quoteJSON, so it
-// must not remain in the source (behavior is verified by quoteJSON itself).
 func TestQuoteJSONSingle(t *testing.T) {
 	b, err := os.ReadFile("../knowledge/approve.go")
 	if err != nil {
@@ -48,7 +37,6 @@ func TestQuoteJSONSingle(t *testing.T) {
 	}
 }
 
-// dumpStoreFake — a fakeStore with a full-dump stub layered on (the backup path).
 type dumpStoreFake struct {
 	*fakeStore
 
@@ -61,8 +49,6 @@ func (d *dumpStoreFake) Dump(ctx context.Context, w io.Writer) error {
 	return nil
 }
 
-// TestBackupUsesInjectedStore — the dumpFn self-pool path is abolished: the injected st receives
-// the dump delegation, and dumpFn (default self-connect) is not called.
 func TestBackupUsesInjectedStore(t *testing.T) {
 	prev := dumpFn
 	selfConn := 0
@@ -91,9 +77,6 @@ func TestBackupUsesInjectedStore(t *testing.T) {
 	}
 }
 
-// TestThresholdsLoaderSingle — doneThresholds removed;
-// shared WriteThresholds (write.go). A local loader left in knowledge/done.go fails
-// (a check of done.go's moved location).
 func TestThresholdsLoaderSingle(t *testing.T) {
 	b, err := os.ReadFile("../knowledge/done.go")
 	if err != nil {

@@ -1,7 +1,3 @@
-// status_v0420_test.go — regression: the read path no longer writes meta
-// last_read_at (RecordReadUsage abolished) — status's last_read_at is the more recent
-// of the residual meta value and read_events max(ts) (the same rule as doctor checkLastSeen).
-// Reporting only the meta value would be stuck forever in the past after the migration.
 package ops
 
 import (
@@ -11,7 +7,6 @@ import (
 	"time"
 )
 
-// lastReadFake — a fake returning the meta kv map + the read_events max(ts) cell.
 func lastReadFake(kv map[string]string, evMax any, evErr bool) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "max(ts) FROM read_events") {
@@ -32,7 +27,6 @@ func lastReadFake(kv map[string]string, evMax any, evErr bool) *fakeStore {
 	}}
 }
 
-// TestLastReadAtDerivedFromEvents — with meta absent, read_events max(ts) is exposed.
 func TestLastReadAtDerivedFromEvents(t *testing.T) {
 	ev := time.Now().UTC().Add(-time.Hour).Truncate(time.Second)
 	st := lastReadFake(nil, ev, false)
@@ -45,23 +39,21 @@ func TestLastReadAtDerivedFromEvents(t *testing.T) {
 	}
 }
 
-// TestLastReadAtMergesNewerSide — the more recent of the residual meta value and the event time.
 func TestLastReadAtMergesNewerSide(t *testing.T) {
 	now := time.Now().UTC().Truncate(time.Second)
 	older := now.Add(-2 * time.Hour).Truncate(time.Second)
-	// the event is newer -> the event wins.
+
 	st := lastReadFake(map[string]string{"last_read_at": older.Format(time.RFC3339)}, now, false)
 	if got := lastReadAtOrNull(context.Background(), st, metaKVOf(st)); got == nil || *got != now.Format(time.RFC3339) {
 		t.Errorf("이벤트 최신: got %v, want %v", got, now.Format(time.RFC3339))
 	}
-	// the residual meta is newer -> meta wins (the event is ignored).
+
 	st = lastReadFake(map[string]string{"last_read_at": now.Format(time.RFC3339)}, older, false)
 	if got := lastReadAtOrNull(context.Background(), st, metaKVOf(st)); got == nil || *got != now.Format(time.RFC3339) {
 		t.Errorf("meta 최신: got %v, want %v", got, now.Format(time.RFC3339))
 	}
 }
 
-// TestLastReadAtQueryErrorKeepsMeta — on an event lookup failure, the residual meta is kept.
 func TestLastReadAtQueryErrorKeepsMeta(t *testing.T) {
 	want := time.Now().UTC().Add(-time.Minute).Truncate(time.Second).Format(time.RFC3339)
 	st := lastReadFake(map[string]string{"last_read_at": want}, nil, true)
@@ -71,7 +63,6 @@ func TestLastReadAtQueryErrorKeepsMeta(t *testing.T) {
 	}
 }
 
-// metaKVOf — a getKV that works against the fake (a wrapper with the same contract as MetaGetKV).
 func metaKVOf(st *fakeStore) func(string, string) (string, error) {
 	return func(key, def string) (string, error) {
 		rows, err := st.Query(context.Background(), `SELECT value FROM meta WHERE key = $1`, key)

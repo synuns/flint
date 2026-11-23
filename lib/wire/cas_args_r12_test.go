@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// fakeArgStore — a minimal fake capturing the actual arguments of Query calls
-// (for spread verification — wire_test.go's fakeStore focuses on SQL string capture).
 type fakeArgStore struct {
 	query func(ctx context.Context, sql string, args ...any) ([][]any, error)
 	HistoryStubs
@@ -27,9 +25,6 @@ func (f *fakeArgStore) Query(ctx context.Context, sql string, args ...any) ([][]
 }
 func (f *fakeArgStore) Close() {}
 
-// TestCompareSetMetaKVArgSpread — verifies that the 3 arguments are passed
-// spread to the variadic Query (preventing a recurrence of the defect where
-// wrapping as 1 slice broke CAS entirely — the fake Store verifies the actual argument count).
 func TestCompareSetMetaKVArgSpread(t *testing.T) {
 	var gotArgs []any
 	st := &fakeArgStore{query: func(_ context.Context, _ string, args ...any) ([][]any, error) {
@@ -48,10 +43,9 @@ func TestCompareSetMetaKVArgSpread(t *testing.T) {
 	}
 }
 
-// TestCompareSetMetaKVLost — a WHERE miss (0 rows) is lost=false.
 func TestCompareSetMetaKVLost(t *testing.T) {
 	st := &fakeArgStore{query: func(_ context.Context, _ string, _ ...any) ([][]any, error) {
-		return nil, nil // RETURNING 0 rows
+		return nil, nil
 	}}
 	won, err := CompareSetMetaKV(context.Background(), st, "k", "old", "new")
 	if err != nil {

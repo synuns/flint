@@ -1,8 +1,3 @@
-// asof_test.go — verifies as-of normalization (relative Nh/Nd,
-// ISO, hash prefix -> commit hash) on the wire package's direct surface.
-// dolt_log access is stubbed with a LogEntries fake (the real-DB regression is
-// cli/asof_test.go TestParseAsOfSpecRealPrefix — realStore infrastructure
-// resides there). The fixture and wording assertions match the cli original's values.
 package wire
 
 import (
@@ -13,9 +8,6 @@ import (
 	"time"
 )
 
-// asofLogEntries — the LogEntry fixtures (index 0 is the newest). The first two
-// hashes share the "abc" prefix (the ambiguity case); the third is a base32-like
-// hash (a Doltgres observation — the full [0-9a-z] range) for the relaxed-validation regression.
 func asofLogEntries() []LogEntry {
 	return []LogEntry{
 		{Hash: "abc12f00000000000000000000000000", Date: time.Date(2026, 10, 24, 12, 0, 0, 0, time.UTC)},
@@ -24,10 +16,6 @@ func asofLogEntries() []LogEntry {
 	}
 }
 
-// asofFakeStore — a fake Store answering the 3 LogQuery kinds (prefix match,
-// date <= newest 1, first commit) from the fixtures. Records the queries in
-// calls. QueryAsOf simulates the v1.19.6 R82 schema probe: hashes in noSchema
-// answer the measured base-table absence error, everything else succeeds.
 type asofFakeStore struct {
 	entries  []LogEntry
 	calls    []LogQuery
@@ -57,7 +45,7 @@ func (f *asofFakeStore) DiffCommits(ctx context.Context, fromHash, toHash string
 }
 func (f *asofFakeStore) QueryAsOf(ctx context.Context, q AsOfQuery) ([][]any, error) {
 	if f.noSchema[q.Hash] {
-		// the measured Doltgres shape — a table absent at the probed commit
+
 		return nil, errors.New("table not found: knowledge")
 	}
 	return nil, nil
@@ -69,9 +57,6 @@ func (f *asofFakeStore) DiffStat(ctx context.Context, hashes []string) ([]TableD
 	return nil, nil
 }
 
-// LogEntries — mimics the Prefix (all prefix matches), BeforeOrAt (the newest 1
-// with date <= t), and Earliest (the first commit) semantics from the fixtures
-// (entries assumed descending by Date).
 func (f *asofFakeStore) LogEntries(ctx context.Context, q LogQuery) ([]LogEntry, error) {
 	f.calls = append(f.calls, q)
 	switch {
@@ -99,7 +84,6 @@ func (f *asofFakeStore) LogEntries(ctx context.Context, q LogQuery) ([]LogEntry,
 	return nil, errors.New("예상 밖 LogQuery")
 }
 
-// TestWireRelativeDh — relative Nh/Nd expansion and the exclusion of invalid forms (2.5h, "2 days ago").
 func TestWireRelativeDh(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -127,12 +111,6 @@ func TestWireRelativeDh(t *testing.T) {
 	}
 }
 
-// TestWireRelativeCeiling — a relative spec past the Duration ceiling
-// (2,562,047h) is rejected up front (v1.19.3 R77-1/R78-1): the pre-fix
-// time.Duration(v)*time.Hour wrapped negative → a FUTURE as-of time, which
-// commitAtOrBefore silently resolved to the newest commit (exit 0 with a
-// meaningless verdict). 106751d (2,562,024h) is the largest day form that
-// still fits — finite, not clamped-to-infinity.
 func TestWireRelativeCeiling(t *testing.T) {
 	for _, bad := range []string{"4000000h", "2562048h", "999999999d", "106752d"} {
 		if _, err := ParseRelative(bad); !errors.Is(err, ErrInvalidAsOf) {
@@ -148,19 +126,13 @@ func TestWireRelativeCeiling(t *testing.T) {
 			t.Fatalf("ParseRelative(%q)=%v — 과거 시각 아님(래프 의심)", ok, got)
 		}
 	}
-	// 106751d resolves to a finite past time (≈ now − 2,562,024h), not a
-	// wrapped/instant value — the boundary is a real span, not a rejection wall.
+
 	got, _ := ParseRelative("106751d")
 	if want := time.Now().Add(-106751 * 24 * time.Hour); got.Sub(want) > 2*time.Second || got.Sub(want) < -2*time.Second {
 		t.Fatalf("ParseRelative(106751d)=%v, want ≈%v(유한 최대 스팬)", got, want)
 	}
 }
 
-// TestWireRelativeDayWrapGuard — the v1.19.4 R79-1 regression: a day count whose
-// v*24 wraps int64 slipped past both post-checks (a wrapped negative is not > ceiling)
-// and resolved a meaningless as-of time — MaxInt64 days wrapped to −24h (a FUTURE
-// time → newest commit, exit 0) and (2^64+8)/24 days to +8h. Both now reject BEFORE
-// the multiply; through ParseAsOfSpec they never reach the store.
 func TestWireRelativeDayWrapGuard(t *testing.T) {
 	for _, bad := range []string{"9223372036854775807d", "768614336404564651d"} {
 		if _, err := ParseRelative(bad); !errors.Is(err, ErrInvalidAsOf) {
@@ -178,11 +150,6 @@ func TestWireRelativeDayWrapGuard(t *testing.T) {
 	}
 }
 
-// TestWireCeilingHintReachable — the v1.19.4 R79-2/R80-2 regression: a past-ceiling
-// Nh spec (4000000h) failed relative parsing, fell through to the hash-prefix step
-// (lowercase-alphanumeric) and misreported the ceiling rejection as "no commit
-// matches prefix" — the hint could never reach the user. The shaped-failure path now
-// returns the ceiling wording itself.
 func TestWireCeilingHintReachable(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
 	_, err := ParseAsOfSpec(context.Background(), f, "4000000h")
@@ -197,7 +164,6 @@ func TestWireCeilingHintReachable(t *testing.T) {
 	}
 }
 
-// TestWirePrefixUniqueAmbiguousZero — prefix: 1 hit resolved, ambiguous, 0 hits, and LogQuery{Prefix} usage.
 func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
 	ctx := context.Background()
@@ -210,7 +176,6 @@ func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 		t.Fatalf("calls=%+v, want LogQuery{Prefix:%q}", f.calls, "abc12")
 	}
 
-	// the base32-like hash regression — accepts the lowercase-alphanumeric prefix "he0".
 	hash, err = ParseAsOfSpec(ctx, f, "he0")
 	if err != nil || hash != "he08irluq000000000000000000000z" {
 		t.Fatalf("base32 prefix he0 → (%q,%v), want 전체 해시", hash, err)
@@ -223,7 +188,7 @@ func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	if _, err := ParseAsOfSpec(ctx, f, "abcd"); !errors.Is(err, ErrInvalidAsOf) {
 		t.Fatalf("zero-match err=%v, want ErrInvalidAsOf", err)
 	}
-	// under 3 chars, uppercase, special characters — an immediate err without a query.
+
 	f2 := &asofFakeStore{entries: asofLogEntries()}
 	for _, bad := range []string{"ab", "ABC12", "abc12!", "zzz!"} {
 		if _, err := ParseAsOfSpec(ctx, f2, bad); !errors.Is(err, ErrInvalidAsOf) {
@@ -235,7 +200,6 @@ func TestWirePrefixUniqueAmbiguousZero(t *testing.T) {
 	}
 }
 
-// TestWireIsoBeforeFirst — an ISO time before the first commit -> err (the message includes the first commit time).
 func TestWireIsoBeforeFirst(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
 	ctx := context.Background()
@@ -263,13 +227,9 @@ func TestWireIsoBeforeFirst(t *testing.T) {
 	}
 }
 
-// TestWireRelativeBoundary — the boundary where a relative spec connects to
-// commitAtOrBefore (date <=). A t exactly equal to a commit time is adopted
-// (<=); a repository with no commits gets the no-commits wording.
 func TestWireRelativeBoundary(t *testing.T) {
 	ctx := context.Background()
 
-	// being now-based, the whole fixture is in the past — the newest commit is adopted.
 	f := &asofFakeStore{entries: asofLogEntries()}
 	hash, err := ParseAsOfSpec(ctx, f, "1h")
 	if err != nil || hash != "abc12f00000000000000000000000000" {
@@ -279,13 +239,11 @@ func TestWireRelativeBoundary(t *testing.T) {
 		t.Fatalf("calls=%+v, want LogQuery{BeforeOrAt}", f.calls)
 	}
 
-	// boundary — an ISO time exactly equal to the newest commit time adopts that commit (<=).
 	hash, err = ParseAsOfSpec(ctx, f, "2026-10-24T12:00:00Z")
 	if err != nil || hash != "abc12f00000000000000000000000000" {
 		t.Fatalf("ISO == 커밋 시각 → (%q,%v), want 경계 포함", hash, err)
 	}
 
-	// a repository with no commits — both date<= and the first commit yield 0 rows.
 	empty := &asofFakeStore{}
 	_, err = ParseAsOfSpec(ctx, empty, "1h")
 	if !errors.Is(err, ErrInvalidAsOf) || !strings.Contains(err.Error(), "no commits") {
@@ -293,32 +251,15 @@ func TestWireRelativeBoundary(t *testing.T) {
 	}
 }
 
-// TestWirePreFlintCommitRejected — the v1.19.5 R81 regression (verdict
-// re-based in v1.19.6 R82): on a fresh DB (no flint write yet) the only
-// commits are the 2 Doltgres automatic initial ones, and an as-of resolving
-// to them (0h, an ISO after them, or their hash prefix) must reject with the
-// pre-flint diagnostic (exit 3 convention) — pre-fix the resolved hash
-// reached the as-of view query and failed with a raw "references invalid
-// table(s)" error (exit 1). The verdict is the schema probe, not the message
-// alone: with a flint write present, a MANUAL commit reusing the
-// "CREATE DATABASE" label (the schema exists at that commit) resolves
-// normally on both paths — the v1.19.6 R82 false-rejection regression
-// (pre-fix: exit 3 despite the schema existing there). The committer is
-// deliberately not a discriminator (measured: the auto CREATE DATABASE
-// commit carries the connecting user, the same value as a manual commit).
 func TestWirePreFlintCommitRejected(t *testing.T) {
 	ctx := context.Background()
-	// now-anchored fixture dates (the relative specs resolve against time.Now
-	// — a fixed date drifts in/out of the future as the wall clock moves).
-	// Truncated to whole seconds so an ISO spec formatted from them re-parses
-	// to the exact same instant (no sub-second rounding mismatch).
+
 	now := time.Now()
-	initNew := now.Add(-2 * time.Hour).Truncate(time.Second) // CREATE DATABASE commit
-	initOld := initNew.Add(-time.Second)                     // Initialize data repository
-	flintAt := now.Add(-time.Hour).Truncate(time.Second)     // the first flint write
+	initNew := now.Add(-2 * time.Hour).Truncate(time.Second)
+	initOld := initNew.Add(-time.Second)
+	flintAt := now.Add(-time.Hour).Truncate(time.Second)
 	manualAt := now.Add(-30 * time.Minute).Truncate(time.Second)
-	// fresh-DB fixture — only the 2 auto-initial commits (newest first);
-	// the probe answers "absent" for both (no flint schema at them).
+
 	fresh := &asofFakeStore{
 		entries: []LogEntry{
 			{Hash: "cr8ate000000000000000000000000db", Message: "CREATE DATABASE", Date: initNew},
@@ -330,11 +271,11 @@ func TestWirePreFlintCommitRejected(t *testing.T) {
 		},
 	}
 	for _, spec := range []string{
-		"0h", // relative — resolves to the newest (CREATE DATABASE)
-		initNew.Add(time.Minute).Format(time.RFC3339), // ISO after both initial commits
-		"cr8",                        // prefix of the CREATE DATABASE commit
-		"in1",                        // prefix of the Initialize commit
-		initNew.Format(time.RFC3339), // ISO exactly at the CREATE DATABASE commit
+		"0h",
+		initNew.Add(time.Minute).Format(time.RFC3339),
+		"cr8",
+		"in1",
+		initNew.Format(time.RFC3339),
 	} {
 		_, err := ParseAsOfSpec(ctx, fresh, spec)
 		if !errors.Is(err, ErrInvalidAsOf) {
@@ -345,34 +286,28 @@ func TestWirePreFlintCommitRejected(t *testing.T) {
 		}
 	}
 
-	// seeded fixture — initial pair + one flint commit + a MANUAL commit
-	// reusing the "CREATE DATABASE" label AFTER the flint write (the R82
-	// scenario). The manual label commit is NOT in noSchema — the schema
-	// exists at it — so every spec resolving to it adopts normally; specs
-	// resolving to the genuine initial commits still reject.
 	const flintH = "kn0w0000000000000000000000000abc"
 	const manualH = "man0ua100000000000000000000000cd"
 	seeded := &asofFakeStore{
 		entries: []LogEntry{
-			{Hash: manualH, Message: "CREATE DATABASE", Date: manualAt}, // manual, schema present
+			{Hash: manualH, Message: "CREATE DATABASE", Date: manualAt},
 			{Hash: flintH, Message: "knowledge: seed write [session:0]", Date: flintAt},
 		},
-		noSchema: fresh.noSchema, // only the genuine initial commits
+		noSchema: fresh.noSchema,
 	}
 	seeded.entries = append(seeded.entries, fresh.entries...)
-	rejected := "<rejected>" // marker — a time resolving to a genuine initial commit
+	rejected := "<rejected>"
 	for spec, want := range map[string]string{
-		"0h":                          manualH, // newest = the manual label commit → adopt (R82)
-		"man":                         manualH, // manual label commit prefix → adopt (R82)
-		manualAt.Format(time.RFC3339): manualH, // ISO exactly at the manual label commit
-		"kn0":                         flintH,  // flint commit prefix
-		flintAt.Format(time.RFC3339):  flintH,  // ISO at the first flint commit
-		initNew.Add(30 * time.Minute).Format(time.RFC3339): rejected, // between: initial commit adopted → rejected
+		"0h":                          manualH,
+		"man":                         manualH,
+		manualAt.Format(time.RFC3339): manualH,
+		"kn0":                         flintH,
+		flintAt.Format(time.RFC3339):  flintH,
+		initNew.Add(30 * time.Minute).Format(time.RFC3339): rejected,
 	} {
 		hash, err := ParseAsOfSpec(ctx, seeded, spec)
 		if want == rejected {
-			// a time pointing before the first flint write resolves to the
-			// CREATE DATABASE auto commit → the probe says absent → rejected.
+
 			if !errors.Is(err, ErrInvalidAsOf) || !strings.Contains(err.Error(), "pre-flint") {
 				t.Fatalf("seeded %q → (%q,%v), want pre-flint 거부", spec, hash, err)
 			}
@@ -384,7 +319,6 @@ func TestWirePreFlintCommitRejected(t *testing.T) {
 	}
 }
 
-// TestWireAsOfSpecNaturalLanguageRejected — natural language and empty specs are ErrInvalidAsOf.
 func TestWireAsOfSpecNaturalLanguageRejected(t *testing.T) {
 	f := &asofFakeStore{entries: asofLogEntries()}
 	for _, bad := range []string{"2 days ago", "yesterday", "  "} {

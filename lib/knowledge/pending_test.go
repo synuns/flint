@@ -1,8 +1,3 @@
-// pending_test.go — contract tests for the pending similarity-verdict
-// prefix index converging to O(N+M). Asserts the verdict results are
-// 100% identical to the existing matchTopicPrefix scan implementation
-// (the naiveMatch reference below — never kept in production, a test
-// oracle). All data is synthetic demo.
 package knowledge
 
 import (
@@ -15,9 +10,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// naiveMatch — the test-oracle replica of the old scan implementation (a
-// full active rescan per row — the equivalence baseline. Not kept in
-// production code).
 func naiveMatch(key string, actives [][]any) []int {
 	prefix := render.TruncateRunes(key, 12)
 	if prefix == "" {
@@ -37,21 +29,18 @@ func naiveMatch(key string, actives [][]any) []int {
 	return out
 }
 
-// TestPendingPrefixIndexEquivalence — across varied prefix sets, the
-// index path and the old scan path are 100% identical in verdict (id
-// lists·order·duplicates included).
 func TestPendingPrefixIndexEquivalence(t *testing.T) {
 	actives := [][]any{
-		{int32(4), "표 파이프 이스케이프 규칙(합성 데모) 기존 활성"},              // matches as-is
-		{int32(5), "session[claude] 표 파이프 이스케이프 규칙(합성 데모) 신규"}, // matches after session-prefix strip
-		{int32(6), "세션[gpt] 표 파이프 이스케이프 규칙(합성 데모) 국문"},         // matches after Korean session-prefix strip
-		{int32(7), "전혀 다른 주제의 활성 지식"},                          // no match
-		{int32(8), ""},                 // empty topic — matches no key
-		{nil, "nil id 행"},              // nil id skipped
-		{"not-a-number", "id 파싱 실패 행"}, // non-numeric id skipped
-		{int32(9)},                     // insufficient columns, skipped
-		{int32(10), nil},               // nil topic — fmt.Sprint "<nil>" prefix
-		{int32(11), "session[claude]"}, // session prefix only, empty body → empty key
+		{int32(4), "표 파이프 이스케이프 규칙(합성 데모) 기존 활성"},
+		{int32(5), "session[claude] 표 파이프 이스케이프 규칙(합성 데모) 신규"},
+		{int32(6), "세션[gpt] 표 파이프 이스케이프 규칙(합성 데모) 국문"},
+		{int32(7), "전혀 다른 주제의 활성 지식"},
+		{int32(8), ""},
+		{nil, "nil id 행"},
+		{"not-a-number", "id 파싱 실패 행"},
+		{int32(9)},
+		{int32(10), nil},
+		{int32(11), "session[claude]"},
 	}
 	keys := []string{
 		"표 파이프 이스케이프 규칙(합성 데모) 신규 후보",
@@ -62,12 +51,11 @@ func TestPendingPrefixIndexEquivalence(t *testing.T) {
 		"짧",
 		"<nil>",
 		"session[claude]",
-		strings.Repeat("경계", 7), // 14 runes — the 12-rune truncation boundary (also checks an active differing only at boundary runes 13·14)
+		strings.Repeat("경계", 7),
 	}
-	// For precise truncation-boundary checks: 2 active rows identical
-	// through rune 12·differing from rune 13.
+
 	boundary := append(actives, []any{int32(12), strings.Repeat("경계", 7) + "여기서부터다름"},
-		[]any{int32(13), strings.Repeat("경계", 6) + "다른뒤"}) // differs from rune 12
+		[]any{int32(13), strings.Repeat("경계", 6) + "다른뒤"})
 	for _, tt := range []struct {
 		name    string
 		actives [][]any
@@ -93,9 +81,6 @@ func TestPendingPrefixIndexEquivalence(t *testing.T) {
 	}
 }
 
-// TestPendingVerdictIdentical — asserts verdictFor (the index path) is
-// identical to the scan-baseline implementation down to the verdict
-// kind·Why strings (100% verdict-result identity).
 func TestPendingVerdictIdentical(t *testing.T) {
 	th := store.Thresholds{PendingAgeDays: 7, PendingPromoteDays: 3, PendingPromoteMinRunes: 40}
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
@@ -122,8 +107,6 @@ func TestPendingVerdictIdentical(t *testing.T) {
 	}
 }
 
-// naiveVerdictFor — the old scan-path verdictFor (the equivalence
-// baseline).
 func naiveVerdictFor(it pendingItem, th store.Thresholds, now time.Time, actives [][]any) pendingVerdict {
 	age := now.Sub(it.ValidAt)
 	if d := th.PendingAgeDays; d > 0 && age > time.Duration(d)*24*time.Hour {
@@ -139,9 +122,6 @@ func naiveVerdictFor(it pendingItem, th store.Thresholds, now time.Time, actives
 	return pendingVerdict{"hold", "short body or under observation — hold until next review"}
 }
 
-// TestPendingPrefixIndexSpeed — on a synthetic bulk set (4k active × 400
-// pending, under 20k total — a CI-safe scale), asserts the index path is
-// faster than the scan path.
 func TestPendingPrefixIndexSpeed(t *testing.T) {
 	if testing.Short() {
 		t.Skip("short 모드 제외 — 시간 비교 벤치")
@@ -177,8 +157,6 @@ func TestPendingPrefixIndexSpeed(t *testing.T) {
 	t.Logf("합성 %d×%d: 스캔=%v 인덱스=%v (%.0fx)", nActive, nPending, naiveDur, idxDur, float64(naiveDur)/float64(idxDur))
 }
 
-// BenchmarkPendingMatchNaive / BenchmarkPendingMatchIndex — benchmarks
-// on a synthetic 5k active set (`go test -bench . -run ^$ ./lib/knowledge`).
 func BenchmarkPendingMatchNaive(b *testing.B) {
 	actives := make([][]any, 5000)
 	for i := range actives {
@@ -207,8 +185,6 @@ func BenchmarkPendingMatchIndexBuild(b *testing.B) {
 	}
 }
 
-// BenchmarkPendingMatchIndexLookup — the per-row lookup cost of a
-// prebuilt index (the real pending-loop path: 1 build + N lookups).
 func BenchmarkPendingMatchIndexLookup(b *testing.B) {
 	actives := make([][]any, 5000)
 	for i := range actives {

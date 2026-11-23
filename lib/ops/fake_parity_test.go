@@ -1,9 +1,3 @@
-// fake_parity_test.go — a fake-parity guard for the 5 ops capability seams.
-// The package's runtime type-assertion seams (st.(capability)) let the unit tests that
-// consume them verify only the delegation path, not the degraded fallback — a
-// compile-time assertion (var _ X = (*fake)(nil)) exists for every capability, and
-// TestFakeParityOps verifies the homogeneity between the discovered set (assertion-seam
-// usages in the source) and the assertion list.
 package ops
 
 import (
@@ -14,31 +8,19 @@ import (
 	"testing"
 )
 
-// compile-time fake assertions — all 5 ops capabilities (TestFakeParityOps verifies
-// homogeneity with the discovered list). fakeMaintStore, via the fakeStore embedding,
-// satisfies MaintStore, ConflictStore, and conflictStore (structurally identical);
-// dumpStore is satisfied by the delegation-path fake (supply_test.go), and
-// metaDeleteStore by the package-common fakeStore's canned implementation (doctor_test.go).
 var _ dumpStore = (*dumpDelegFake)(nil)
 var _ MaintStore = (*fakeMaintStore)(nil)
 var _ ConflictStore = (*fakeMaintStore)(nil)
 var _ conflictStore = (*fakeMaintStore)(nil)
 var _ metaDeleteStore = (*fakeStore)(nil)
-var _ ReaffirmStore = (*reaffirmFakeStore)(nil)           // v1.22.0 T3 — the reaffirm write extension (maintain_test.go)
-var _ RecheckConditionsStore = (*recheckCondStore)(nil)   // v1.22.1 r96 — the recheck conditions write extension (maintain_v1221_test.go)
-var _ RecheckSourceClearStore = (*recheckClearStore)(nil) // v1.24.0 T2 — the vault source-change clear extension (maintain_test.go)
+var _ ReaffirmStore = (*reaffirmFakeStore)(nil)
+var _ RecheckConditionsStore = (*recheckCondStore)(nil)
+var _ RecheckSourceClearStore = (*recheckClearStore)(nil)
 
-// fakeParityExcluded — the optional hook seams excluded from the discovered list.
-// SessionStartRecorder is designed so an unimplemented fake silently skips (only the
-// session metrics demote to 0 — sessionhook.go §13); it is not a degraded-fallback target.
 var fakeParityExcluded = map[string]bool{"SessionStartRecorder": true}
 
-// TestFakeParityOps — the discovered list (interfaces consumed via runtime
-// `.(X)` assertions in non-test sources) and this file's var _ assertion list must be
-// homogeneous. When a new capability seam is added, this test fails without an
-// assertion (forcing compile-time assertions for all).
 func TestFakeParityOps(t *testing.T) {
-	// ── discovery: among the interface definitions in non-test sources, those used in type assertions ──
+
 	ifaceRe := regexp.MustCompile(`(?m)^type (\w+) interface\b`)
 	allSrc, defined := "", map[string]bool{}
 	entries, err := os.ReadDir(".")
@@ -60,9 +42,7 @@ func TestFakeParityOps(t *testing.T) {
 			defined[m[1]] = true
 		}
 	}
-	// assertion usages (`.(X)`) are searched across all sources regardless of the
-	// definition file — checking only the definition file would let a new seam consumed
-	// elsewhere slip through (demonstrated with a virtual-interface probe).
+
 	discovered := map[string]bool{}
 	for iface := range defined {
 		if fakeParityExcluded[iface] {
@@ -73,7 +53,6 @@ func TestFakeParityOps(t *testing.T) {
 		}
 	}
 
-	// ── assertions: this file's var _ list ──
 	self, err := os.ReadFile("fake_parity_test.go")
 	if err != nil {
 		t.Fatalf("자기 소스 읽기: %v", err)
@@ -93,7 +72,6 @@ func TestFakeParityOps(t *testing.T) {
 	}
 }
 
-// fakeParityKeys — sorted map keys (stabilizing the comparison).
 func fakeParityKeys(m map[string]bool) []string {
 	keys := make([]string, 0, len(m))
 	for k := range m {

@@ -1,10 +1,3 @@
-// read_audit_commit_v1720_test.go — v1.7.2 T1 (R38-C1): the read
-// completion-path audit commit. Review Focus: TestReadCompletionAuditCommit
-// — RunRead performs the audit commit (st.Commit with the 'read: '
-// prefix) once on the completion path, separate from the metering commit
-// (audit attribution of the recall bump UPDATE knowledge·meta increments
-// — regression defense keeping the metering commit from absorbing audit
-// changes after the telemetry -A sweep was abolished).
 package knowledge
 
 import (
@@ -15,9 +8,6 @@ import (
 	"testing"
 )
 
-// TestReadCompletionAuditCommit — Review Focus (v1.7.2 T1): the read
-// completion-path audit commit. Failures must be quiet (§13 — a commit
-// error never breaks the read exit).
 func TestReadCompletionAuditCommit(t *testing.T) {
 	ctx := context.Background()
 	t.Run("히트 — 감사 커밋 1회 'read: ' 접두", func(t *testing.T) {

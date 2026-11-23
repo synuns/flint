@@ -1,6 +1,3 @@
-// hot_v0200_test.go — hot --full records the actually injected knowledge ids into
-// hot_events (the dead_pct correction source). The headline path performs no injection,
-// so it records nothing (inheriting the hot.go N3 contract).
 package cli
 
 import (
@@ -9,8 +6,6 @@ import (
 	"testing"
 )
 
-// hotEventRecorder — a fake recording the HotEventRecorder seam (the headline
-// fixtures reuse hotProfileQueryFn).
 type hotEventRecorder struct {
 	*fakeStore
 	events []string
@@ -21,8 +16,6 @@ func (h *hotEventRecorder) RecordHotEvent(ctx context.Context, ids string) error
 	return nil
 }
 
-// TestHotFullRecordsExposure — the --full injection path records the surviving
-// knowledge id CSV. The record comes from the same id set as instrumentReads.
 func TestHotFullRecordsExposure(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -37,8 +30,7 @@ func TestHotFullRecordsExposure(t *testing.T) {
 	if len(st.events) == 0 {
 		t.Fatal("--full 경로가 hot_events를 기록하지 않음")
 	}
-	// the recorded CSV is a parsable id list (the survivors after injection truncation — the values
-	// themselves depend on the budget and survival judgment, so only format and non-emptiness are asserted).
+
 	for _, ev := range st.events {
 		if ids := parseIDsCSV(ev); len(ids) == 0 {
 			t.Errorf("노출 기록 %q가 id로 파싱 불가", ev)
@@ -46,8 +38,6 @@ func TestHotFullRecordsExposure(t *testing.T) {
 	}
 }
 
-// TestHotHeadlineNoExposureRecord — the headline (counts-only) path performs no
-// injection, hence no exposure record.
 func TestHotHeadlineNoExposureRecord(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{{"pending", "토픽", "요약", "2026-10-22"}}
@@ -61,8 +51,6 @@ func TestHotHeadlineNoExposureRecord(t *testing.T) {
 	}
 }
 
-// TestHotHeadlineLimitWidened — the headline (counts)
-// path uses the widened 50-query cap; the --full injection path keeps the budget cap (10) contract.
 func TestHotHeadlineLimitWidened(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{{"pending", "토픽", "요약", "2026-10-22"}}

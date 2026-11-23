@@ -8,11 +8,6 @@ import (
 	"time"
 )
 
-// export_csv_test.go — FormatCSV contract tests.
-// 11 columns (content excluded — an inventory index use)·header row
-// included·LF newlines·tags joined with `|`. Source rows are synthetic
-// demo data (personal data forbidden).
-
 func csvTestTime() time.Time {
 	return time.Date(2026, 11, 14, 9, 0, 0, 0, time.UTC)
 }
@@ -58,8 +53,6 @@ func csvTestRows() []ExportRow {
 	}
 }
 
-// csvRecords — round-trip parses the output with csv.Reader (escape
-// verification included).
 func csvRecords(t *testing.T, out []byte) [][]string {
 	t.Helper()
 	recs, err := csv.NewReader(bytes.NewReader(out)).ReadAll()
@@ -108,7 +101,7 @@ func TestFormatCSVHeaderAndRows(t *testing.T) {
 	if recs[2][9] != "88" {
 		t.Errorf("행2 superseded_by = %q, want 88", recs[2][9])
 	}
-	// valid_at — the valid-at raw value (the last column, RFC3339).
+
 	if r1[10] != want {
 		t.Errorf("행1 valid_at = %q, want %q", r1[10], want)
 	}
@@ -169,10 +162,6 @@ func TestFormatCSVLFDelimiters(t *testing.T) {
 	}
 }
 
-// TestFormatCSVFormulaNeutralization — CSV formula-injection
-// neutralization: cell values starting with =,+,-,@ get a ' prefix
-// (avoiding spreadsheet formula interpretation — applied to every cell).
-// Original values outside the neutralization scope get no '.
 func TestFormatCSVFormulaNeutralization(t *testing.T) {
 	rows := []ExportRow{{
 		ID: 21, Topic: "=SUM(A1:A9)", Kind: "+cmd", Status: "-2+3+cmd|'/x",
@@ -181,27 +170,23 @@ func TestFormatCSVFormulaNeutralization(t *testing.T) {
 	}}
 	recs := csvRecords(t, mustFormatCSV(t, rows))
 	r := recs[1]
-	// Danger-prefix cells — a ' not present in the original is prefixed.
+
 	for i, want := range map[int]string{
-		1: "'=SUM(A1:A9)",  // topic
-		2: "'+cmd",         // kind
-		3: "'-2+3+cmd|'/x", // status
-		5: "'@risk|plain",  // tags (the @risk element prefixed)
+		1: "'=SUM(A1:A9)",
+		2: "'+cmd",
+		3: "'-2+3+cmd|'/x",
+		5: "'@risk|plain",
 	} {
 		if r[i] != want {
 			t.Errorf("열%d 중립화 = %q, want %q", i, r[i], want)
 		}
 	}
-	// Outside the neutralization scope — the original as-is (no
-	// unnecessary ' attachment).
+
 	if r[0] != "21" || r[4] != "0.7" || r[6] != "agent" {
 		t.Errorf("비대상 셀 변형: id=%q confidence=%q source=%q", r[0], r[4], r[6])
 	}
 }
 
-// TestFormatCSVFormulaNeutralizationPlainRows — ordinary rows (no danger
-// prefixes) keep the existing contract — no ' absent from the original
-// appears.
 func TestFormatCSVFormulaNeutralizationPlainRows(t *testing.T) {
 	recs := csvRecords(t, mustFormatCSV(t, csvTestRows()))
 	for _, rec := range recs {
@@ -213,7 +198,6 @@ func TestFormatCSVFormulaNeutralizationPlainRows(t *testing.T) {
 	}
 }
 
-// mustFormatCSV — a convenience wrapper for FormatCSV errors.
 func mustFormatCSV(t *testing.T, rows []ExportRow) []byte {
 	t.Helper()
 	out, err := FormatCSV(rows)

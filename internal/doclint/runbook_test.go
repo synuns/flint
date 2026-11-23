@@ -1,5 +1,3 @@
-// runbook_test.go — RUNBOOK.md에 운영 절차들과 doctor 검사 표 계약이
-// 존재하는지 검증한다(T53·v0.34.2 T5 — 검사 17종 표·스키마 버전 표기).
 package doclint
 
 import (
@@ -7,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestRunbookSections — RUNBOOK.md에 audit·dolt_revert·drill·backup_keep
-// 4키워드가 각 절에 포함되어 있는지 strings.Contains로 검증.
 func TestRunbookSections(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 
@@ -19,9 +15,6 @@ func TestRunbookSections(t *testing.T) {
 	}
 }
 
-// doctorCheckChain — lib/ops/doctor.go 등록표 실행 체인 순서(코어 6종 →
-// tail-chain 14종). 표 순서 계약의 원천이다(v1.25.0 — dolt_log_depth·
-// db_size·engine-footprint 3행 추가).
 var doctorCheckChain = []string{
 	"hook-file", "db", "schema", "integrity", "last-seen", "port",
 	"backup-age", "conflicts", "zero-near", "pending-age",
@@ -30,8 +23,6 @@ var doctorCheckChain = []string{
 	"dolt_log_depth", "db_size", "engine-footprint",
 }
 
-// TestRunbookDoctorCheckTable — 검사 표가 20종 전부를 체인 순서대로
-// 각 1행(이름·내용·수정 명령·warn/fail)으로 담는지 검증(v0.34.2 T5).
 func TestRunbookDoctorCheckTable(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 
@@ -53,10 +44,6 @@ func TestRunbookDoctorCheckTable(t *testing.T) {
 	}
 }
 
-// TestRunbookSchemaVersion — schema 검사 행이 현재 스키마 버전 v10을
-// 기술하는지 검증(v0.34.2 T5 — lib/db LatestSchemaVersion 기준.
-// v1.0.1 감사 F7: v8 고정 서술이 스키마 v9(v0.42.0) 이후 낡음.
-// v1.2.0 T6: 스키마 v10(read_events 열 3종·knowledge_reads) 갱신).
 func TestRunbookSchemaVersion(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 
@@ -70,11 +57,6 @@ func TestRunbookSchemaVersion(t *testing.T) {
 	}
 }
 
-// TestRunbookEngineOpsSections — the v1.25.0 engine-ops sections exist:
-// §10 garbage collection (the disconnect contract, the engine-auto-GC-first
-// principle, the quiet-hours rule, the post-run doctor/status check) and
-// §11 engine image upgrade (the fixed order backup → restore --drill →
-// image update → up -d → doctor).
 func TestRunbookEngineOpsSections(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 
@@ -92,8 +74,7 @@ func TestRunbookEngineOpsSections(t *testing.T) {
 			t.Errorf("RUNBOOK.md에 %q 없음", kw)
 		}
 	}
-	// §10 precedes §11, and within §10 the post-run verification names both
-	// doctor and status (the spec M1 §10 contract).
+
 	i10 := strings.Index(doc, "## 10. 가비지 컬렉션")
 	i11 := strings.Index(doc, "## 11. 엔진 이미지 업그레이드")
 	if i10 < 0 || i11 < 0 || i10 > i11 {
@@ -104,8 +85,7 @@ func TestRunbookEngineOpsSections(t *testing.T) {
 	} else if sec := doc[i10 : i10+end]; !strings.Contains(sec, "flint doctor") || !strings.Contains(sec, "flint status") {
 		t.Errorf("§10 실행 후 확인(doctor·status) 부재: %q", sec)
 	}
-	// §11 — the fixed order backup → drill → image update → up -d → doctor
-	// (each step precedes the next inside the section).
+
 	end11 := strings.Index(doc[i11:], "\n## ")
 	if end11 < 0 {
 		end11 = len(doc[i11:])

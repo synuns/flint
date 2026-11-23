@@ -1,8 +1,3 @@
-// session_label_hook_newline_v103_test.go — regression (hook path):
-// a --session label containing a newline is treated as absent. sanitizeHookSession
-// uses the shared knowledge.ValidateSessionLabel guard, so the guard's newline rejection
-// flows as-is into the hook entry points (the session-start/session-end fallback paths) —
-// pinning that it resolves to the arguments with the invalid pair stripped and an empty label.
 package ops
 
 import (

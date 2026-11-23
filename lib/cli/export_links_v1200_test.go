@@ -1,11 +1,3 @@
-// export_links_v1200_test.go — v1.20.0 T5 wiring regressions on the
-// dedicated scratch DB (created·dropped here — never a shared DB): the
-// production realStore.InsertKnowledgeLink path (a CLI write with a
-// relations array must accrue knowledge_links — not the "unsupported by
-// store" error), and the export CLI carrying knowledge_links into the
-// PAM document (links absent = the legacy supersedes-derived document
-// shape; links present = the 4-vocabulary relations ride the document).
-// All synthetic demo data.
 package cli
 
 import (
@@ -23,8 +15,6 @@ import (
 	"github.com/synuns/flint/lib/render"
 )
 
-// t5WiringScratch — the dedicated scratch store for the T5 wiring
-// regressions (the TestReadAsOfPreFlintScratchRealSlow convention).
 func t5WiringScratch(t *testing.T) Store {
 	t.Helper()
 	dsn, real := seamRealDSN()
@@ -64,11 +54,6 @@ func t5WiringScratch(t *testing.T) Store {
 	return st
 }
 
-// TestWriteRelationsRealStoreSlow — the production store path: a write
-// carrying relations accrues knowledge_links through
-// realStore.InsertKnowledgeLink (the LinkAccrualStore delegation — the
-// pipeline itself is write_test.go's slow contract; here the STORE side
-// is the regression target).
 func TestWriteRelationsRealStoreSlow(t *testing.T) {
 	st := t5WiringScratch(t)
 	ctx := context.Background()
@@ -90,17 +75,14 @@ func TestWriteRelationsRealStoreSlow(t *testing.T) {
 	}
 }
 
-// TestExportPAMLinksWiringRealSlow — the export CLI wiring: on a DB
-// without links the PAM document keeps the legacy relations shape; with
-// a link accrued, the 4-vocabulary relation rides the document.
 func TestExportPAMLinksWiringRealSlow(t *testing.T) {
 	st := t5WiringScratch(t)
-	// Phase 1 — no links yet: the document's relations stay empty.
+
 	body1 := t5RunExport(t, st, "--format", "pam")
 	if rels := t5PAMRelations(t, body1); len(rels) != 0 {
 		t.Fatalf("links 없는 문서 relations=%v, want empty", rels)
 	}
-	// Phase 2 — two rows + one link: the relation rides the document.
+
 	t5RunWrite(t, st, `{"topic":"합성 배선 수출 A","summary":"수출 회귀 합성 본문","confidence":0.9}`)
 	idA := t5WireIDOf(t, st, "합성 배선 수출 A")
 	t5RunWrite(t, st,
@@ -116,11 +98,6 @@ func TestExportPAMLinksWiringRealSlow(t *testing.T) {
 	}
 }
 
-// ── helpers ──
-
-// t5RunWrite — knowledge.RunWrite against the store (the production
-// STORE path is the target; the pipeline-level contract lives in
-// knowledge/write_test.go).
 func t5RunWrite(t *testing.T, st Store, stdin string) int {
 	t.Helper()
 	var out strings.Builder
@@ -128,8 +105,6 @@ func t5RunWrite(t *testing.T, st Store, stdin string) int {
 		strings.NewReader(stdin), &out)
 }
 
-// t5RunExport — the export CLI body (stdout captured; the stderr
-// summary goes to discard).
 func t5RunExport(t *testing.T, st Store, args ...string) string {
 	t.Helper()
 	saved := exportStderr
@@ -142,14 +117,12 @@ func t5RunExport(t *testing.T, st Store, args ...string) string {
 	return buf.String()
 }
 
-// t5PAMRelation — the parsed shape of one exported PAM relation.
 type t5PAMRelation struct {
 	Type string `json:"type"`
 	From string `json:"from"`
 	To   string `json:"to"`
 }
 
-// t5PAMRelations — the relations of an exported document.
 func t5PAMRelations(t *testing.T, body string) []t5PAMRelation {
 	t.Helper()
 	var doc struct {
@@ -161,7 +134,6 @@ func t5PAMRelations(t *testing.T, body string) []t5PAMRelation {
 	return doc.Relations
 }
 
-// t5WireIDOf — the scratch knowledge row id of a topic.
 func t5WireIDOf(t *testing.T, st Store, topic string) int {
 	t.Helper()
 	rows, err := st.Query(context.Background(), `SELECT id FROM knowledge WHERE topic = $1`, topic)
@@ -172,20 +144,17 @@ func t5WireIDOf(t *testing.T, st Store, topic string) int {
 	return n
 }
 
-// TestExportMDChainsWiringRealSlow — the md format wiring (the T4
-// consumer): without a chain the document keeps the legacy shape; with
-// superseded_by set, the chain notation (→ #N … depth d) rides the row.
 func TestExportMDChainsWiringRealSlow(t *testing.T) {
 	st := t5WiringScratch(t)
 	ctx := context.Background()
 	t5RunWrite(t, st, `{"topic":"합성 체인 A","summary":"체인 회귀 합성 본문","confidence":0.9}`)
 	idA := t5WireIDOf(t, st, "합성 체인 A")
-	// Phase 1 — no chain: no notation.
+
 	body1 := t5RunExport(t, st, "--format", "md")
 	if strings.Contains(body1, "→ #") || strings.Contains(body1, "(depth ") {
 		t.Fatalf("체인 없는 md에 표기 존재: %s", body1)
 	}
-	// Phase 2 — A superseded by B: the chain notation rides A's row.
+
 	t5RunWrite(t, st, `{"topic":"합성 체인 B","summary":"체인 회귀 합성 본문","confidence":0.9}`)
 	idB := t5WireIDOf(t, st, "합성 체인 B")
 	if _, err := st.Query(ctx, `UPDATE knowledge SET superseded_by = $1 WHERE id = $2`, idB, idA); err != nil {

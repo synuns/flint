@@ -1,6 +1,3 @@
-// tools_test.go — tool roundtrip tests (the five tools). runFn seam: a
-// fake by default; SUPERLITE_REAL=1 delegates to the real cli.Run
-// (argument recording is kept; skipped when the real DB is not running).
 package mcp
 
 import (
@@ -19,15 +16,11 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// call — a runFn call record (assembled CLI args + stdin).
 type call struct {
 	args  []string
 	stdin string
 }
 
-// installRun — swaps runFn. A fake by default (returns fixed output and
-// code); with SUPERLITE_REAL=1 it wraps the real cli.Run and records only
-// the arguments. The returned real reports whether output can be asserted.
 func installRun(t *testing.T, out string, code int) (*[]call, bool) {
 	t.Helper()
 	var calls []call
@@ -53,7 +46,6 @@ func installRun(t *testing.T, out string, code int) (*[]call, bool) {
 	return &calls, real
 }
 
-// wantArgs — asserts the CLI args of the first recorded call.
 func wantArgs(t *testing.T, calls *[]call, want []string) {
 	t.Helper()
 	if len(*calls) == 0 {
@@ -76,7 +68,6 @@ func equal(a, b []string) bool {
 	return true
 }
 
-// TestToolsManifest — the five tool definitions: name, description, and schema present.
 func TestToolsManifest(t *testing.T) {
 	tools := ToolsManifest()
 	if len(tools) != 5 {
@@ -96,10 +87,6 @@ func TestToolsManifest(t *testing.T) {
 	}
 }
 
-// TestHotManifestHasNoSessionID — flint_hot's session_id is a query-neutral
-// no-op (HotSQL and HotHeadlineSQL are both gone), so it is removed from
-// the manifest advertisement (advertised-but-dropped mismatch — the real
-// implementation excludes it as a new feature).
 func TestHotManifestHasNoSessionID(t *testing.T) {
 	for _, td := range ToolsManifest() {
 		if td.Name != "flint_hot" {
@@ -120,9 +107,6 @@ func TestHotManifestHasNoSessionID(t *testing.T) {
 	t.Fatal("flint_hot 도구 정의 없음")
 }
 
-// TestToolManifestEnglish — tool descriptions and parameter descriptions
-// target LLM consumers, so they are English (asserts no Hangul
-// characters).
 func TestToolManifestEnglish(t *testing.T) {
 	hangul := regexp.MustCompile(`[가-힣]`)
 	for _, td := range ToolsManifest() {
@@ -145,8 +129,6 @@ func TestToolManifestEnglish(t *testing.T) {
 	}
 }
 
-// TestDispatchReadRoundtrip — flint_read{query,tag,limit} -> cli read
-// assembly and output/code passthrough.
 func TestDispatchReadRoundtrip(t *testing.T) {
 	calls, real := installRun(t, `{"rows":[]}`, 0)
 	out, code := DispatchTool("flint_read", map[string]any{
@@ -161,7 +143,6 @@ func TestDispatchReadRoundtrip(t *testing.T) {
 	}
 }
 
-// TestDispatchReadLimitBudget — token budget: the limit cap of 50 applies to the tool too.
 func TestDispatchReadLimitBudget(t *testing.T) {
 	calls, _ := installRun(t, "", 0)
 	DispatchTool("flint_read", map[string]any{"query": "x", "limit": 100})
@@ -179,8 +160,6 @@ func TestDispatchReadLimitBudget(t *testing.T) {
 	t.Error("--limit not passed")
 }
 
-// TestDispatchWriteRoundtrip — flint_write{kind,payload} -> cli write
-// assembly and stdin JSON.
 func TestDispatchWriteRoundtrip(t *testing.T) {
 	calls, real := installRun(t, `{"status":"committed","id":1}`, 0)
 	out, code := DispatchTool("flint_write", map[string]any{
@@ -205,7 +184,6 @@ func TestDispatchWriteRoundtrip(t *testing.T) {
 	}
 }
 
-// TestDispatchWriteIdempotent — identical tool calls assemble an identical CLI invocation (idempotent delegation).
 func TestDispatchWriteIdempotent(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"duplicate"}`, 0)
 	args := map[string]any{
@@ -222,7 +200,6 @@ func TestDispatchWriteIdempotent(t *testing.T) {
 	}
 }
 
-// TestDispatchWriteMissingKind — a missing kind is a schema error (exit 3).
 func TestDispatchWriteMissingKind(t *testing.T) {
 	installRun(t, "", 0)
 	out, code := DispatchTool("flint_write", map[string]any{"payload": map[string]any{}})
@@ -234,7 +211,6 @@ func TestDispatchWriteMissingKind(t *testing.T) {
 	}
 }
 
-// TestDispatchHotRoundtrip — flint_hot -> cli hot assembly (no arguments).
 func TestDispatchHotRoundtrip(t *testing.T) {
 	calls, real := installRun(t, "hot summary", 0)
 	out, code := DispatchTool("flint_hot", nil)
@@ -247,7 +223,6 @@ func TestDispatchHotRoundtrip(t *testing.T) {
 	}
 }
 
-// TestDispatchUnknownTool — an unknown tool yields one error JSON line and exit 1.
 func TestDispatchUnknownTool(t *testing.T) {
 	installRun(t, "", 0)
 	out, code := DispatchTool("flint_nope", nil)
@@ -259,11 +234,8 @@ func TestDispatchUnknownTool(t *testing.T) {
 	}
 }
 
-// v1.18.0 T1 — ToolDef.OutputSchema: all five tools declare an outputSchema
-// describing the ACTUAL output shape (not the aspirational one).
 func TestToolsManifestOutputSchemas(t *testing.T) {
-	// Per-tool property keys each schema must declare (hot advertises only
-	// the minimal meta — its output is non-JSON text).
+
 	wantProps := map[string][]string{
 		"flint_write":   {"status", "hash", "state", "id"},
 		"flint_hot":     {},
@@ -282,7 +254,7 @@ func TestToolsManifestOutputSchemas(t *testing.T) {
 			t.Errorf("%s outputSchema에 type 없음: %s", td.Name, td.OutputSchema)
 		}
 		if td.Name == "flint_read" {
-			// The read structuredContent is an object wrapping {results:[...]} (R67).
+
 			if s["type"] != "object" {
 				t.Errorf("flint_read outputSchema.type = %v, want object (results wrapper)", s["type"])
 			}
@@ -315,8 +287,6 @@ func TestToolsManifestOutputSchemas(t *testing.T) {
 	}
 }
 
-// v1.18.0 T2 — a single-line JSON object output (write/approve/pending
-// shape) is attached as structuredContent with the content text kept as-is.
 func TestToolsCallStructuredContentJSONObject(t *testing.T) {
 	raw := `{"status":"committed","hash":"abc123","state":"active","id":1}`
 	_, real := installRun(t, raw, 0)
@@ -347,8 +317,6 @@ func TestToolsCallStructuredContentJSONObject(t *testing.T) {
 	}
 }
 
-// v1.18.0 T2 — a multi-line JSONL output is parsed per line, assembled into
-// an array, and wrapped as {results:[...]} (the read rows shape).
 func TestToolsCallStructuredContentJSONLWrapped(t *testing.T) {
 	raw := `{"id":"1","topic":"demo one","summary":"s1"}` + "\n" +
 		`{"id":"2","topic":"demo two","summary":"s2"}`
@@ -381,8 +349,6 @@ func TestToolsCallStructuredContentJSONLWrapped(t *testing.T) {
 	}
 }
 
-// v1.18.0 T2 — a non-JSON output (flint_hot text) omits structuredContent;
-// the content text alone is returned (spec SHOULD compatibility).
 func TestToolsCallStructuredContentOmittedForNonJSON(t *testing.T) {
 	installRun(t, "hot 요약 데모 (비JSON 텍스트)", 0)
 	res, err := handleRPC("tools/call", map[string]any{
@@ -401,17 +367,15 @@ func TestToolsCallStructuredContentOmittedForNonJSON(t *testing.T) {
 	}
 }
 
-// v1.18.0 T2 — parse failures and non-object JSON (arrays, scalars) omit
-// structuredContent (the spec requires an object; content text alone).
 func TestStructuredContentNonObjectOmitted(t *testing.T) {
 	for _, tc := range []struct {
 		tool string
 		out  string
 	}{
-		{"flint_hot", "[1,2]"},                           // single-line array
-		{"flint_hot", `"scalar"`},                        // single-line scalar
-		{"flint_read", `{"id":"1"}` + "\n" + "not-json"}, // one broken line
-		{"flint_read", ""},                               // empty (zero-hit silence)
+		{"flint_hot", "[1,2]"},
+		{"flint_hot", `"scalar"`},
+		{"flint_read", `{"id":"1"}` + "\n" + "not-json"},
+		{"flint_read", ""},
 	} {
 		if sc := structuredContent(tc.tool, tc.out); sc != nil {
 			t.Errorf("structuredContent(%q, %q) = %v, want nil", tc.tool, tc.out, sc)
@@ -419,8 +383,6 @@ func TestStructuredContentNonObjectOmitted(t *testing.T) {
 	}
 }
 
-// v1.18.0 T2 — the isError mapping is unchanged by structuredContent: an
-// error output (exit 3 + one JSON error line) is still isError:true.
 func TestToolsCallIsErrorInvariant(t *testing.T) {
 	raw := `{"error":"schema","field":"id","expect":"positive integer"}`
 	_, real := installRun(t, raw, 3)
@@ -443,16 +405,12 @@ func TestToolsCallIsErrorInvariant(t *testing.T) {
 	}
 }
 
-// v1.18.0 T3 — dispatchRead assembles --json internally (the MCP read path
-// always returns machine-readable rows).
 func TestDispatchReadAssemblesJSONFlag(t *testing.T) {
 	calls, _ := installRun(t, `{"hits":0}`, 0)
 	DispatchTool("flint_read", map[string]any{"query": "데모"})
 	wantArgs(t, calls, []string{"read", "--json", "--source", "mcp", "--", "데모"})
 }
 
-// v1.18.0 T3 — the read roundtrip keeps the content text as the raw JSONL
-// and structuredContent assembles {results:[rows]}.
 func TestDispatchReadStructuredRoundtrip(t *testing.T) {
 	raw := `{"id":"1","topic":"데모 주제","summary":"합성 요약"}` + "\n" +
 		`{"id":"2","topic":"데모 두번째","summary":"합성 요약2"}`
@@ -480,8 +438,6 @@ func TestDispatchReadStructuredRoundtrip(t *testing.T) {
 	}
 }
 
-// v1.18.0 T3 — a one-row read output still wraps into {results:[row]} (the
-// read outputSchema advertises an array of rows).
 func TestStructuredContentReadSingleRowWrapped(t *testing.T) {
 	sc := structuredContent("flint_read", `{"id":"9","topic":"데모 유일행","summary":"s"}`)
 	results, ok := sc["results"].([]any)
@@ -493,8 +449,6 @@ func TestStructuredContentReadSingleRowWrapped(t *testing.T) {
 	}
 }
 
-// v1.18.0 T3 — the zero-hit line {"hits":0} stays an object as-is (no
-// results wrapping).
 func TestStructuredContentReadZeroHitStaysObject(t *testing.T) {
 	sc := structuredContent("flint_read", `{"hits":0}`)
 	if sc == nil || sc["hits"] != float64(0) {
@@ -505,10 +459,6 @@ func TestStructuredContentReadZeroHitStaysObject(t *testing.T) {
 	}
 }
 
-// capStore — regression fake: a wire.Store plus all optional capabilities
-// implemented. Verifies, through the server-lifetime store (the
-// cli.RunWithStore injectedStore wrapper), that capability assertions
-// delegate to the original.
 type capStore struct {
 	wire.HistoryStubs
 	existsHash bool
@@ -535,11 +485,10 @@ func (f *capStore) Commit(ctx context.Context, msg string) (string, error) {
 }
 func (f *capStore) Ping(ctx context.Context) error { return nil }
 func (f *capStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
-	return nil, nil // empty meta rows -> default-threshold fallback
+	return nil, nil
 }
 func (f *capStore) Close() {}
 
-// Real implementations of the optional capabilities (captures for verifying delegation reaches the original).
 func (f *capStore) Approve(ctx context.Context, id int) error {
 	f.approved = append(f.approved, id)
 	return nil
@@ -561,9 +510,6 @@ func (f *capStore) RecordReadEvent(ctx context.Context, ev db.ReadEvent) error {
 
 var _ wire.Store = (*capStore)(nil)
 
-// installServerStore — swaps the server-lifetime store supply seam to a
-// capStore (runFn and runWithStoreFn stay at the real implementations —
-// the whole wrapper path is exercised).
 func installServerStore(t *testing.T, f *capStore) {
 	t.Helper()
 	resetStoreCache(t)
@@ -572,11 +518,6 @@ func installServerStore(t *testing.T, f *capStore) {
 	t.Cleanup(func() { storeSupply = prev })
 }
 
-// TestDispatchApprovePromotesViaServerStore — F1: flint_approve reaches the
-// Approve of the store injected through the wrapper and produces the
-// promotion response (the failure mode this guards: the wrapper blocked
-// the approveStore assertion and fell back to "does not implement Approve"
-// exit 1).
 func TestDispatchApprovePromotesViaServerStore(t *testing.T) {
 	f := &capStore{}
 	installServerStore(t, f)
@@ -592,10 +533,6 @@ func TestDispatchApprovePromotesViaServerStore(t *testing.T) {
 	}
 }
 
-// TestDispatchWriteDuplicateEchoesMetaViaServerStore — F2: the duplicate
-// response for a re-sent identical payload includes the existing row's
-// {id,topic,state} (if the wrapper blocked the DupMetaStore assertion, it
-// would degrade to a bare {"status":"duplicate"}).
 func TestDispatchWriteDuplicateEchoesMetaViaServerStore(t *testing.T) {
 	f := &capStore{}
 	installServerStore(t, f)
@@ -619,10 +556,6 @@ func TestDispatchWriteDuplicateEchoesMetaViaServerStore(t *testing.T) {
 	}
 }
 
-// TestDispatchReadRecordsReadEventSourceMCP — flint_read reaches the
-// read_events metering (RecordReadEvent) with source=mcp (if the wrapper
-// blocked the ReadEventStore assertion, the metering would silently
-// disappear).
 func TestDispatchReadRecordsReadEventSourceMCP(t *testing.T) {
 	f := &capStore{}
 	installServerStore(t, f)
@@ -638,9 +571,6 @@ func TestDispatchReadRecordsReadEventSourceMCP(t *testing.T) {
 	}
 }
 
-// TestReadManifestNewFilters — flint_read advertises min_confidence (a
-// number bounded 0..1) and origin (the agent|human enum) in its input
-// schema (v1.20.0 T2).
 func TestReadManifestNewFilters(t *testing.T) {
 	for _, td := range ToolsManifest() {
 		if td.Name != "flint_read" {
@@ -676,9 +606,6 @@ func TestReadManifestNewFilters(t *testing.T) {
 	t.Fatal("flint_read 도구 정의 없음")
 }
 
-// TestDispatchReadNewFilters — flint_read{min_confidence, origin} assembles
-// the cli --min-confidence/--origin flags (value passthrough — the CLI-side
-// validation stays the single source).
 func TestDispatchReadNewFilters(t *testing.T) {
 	calls, _ := installRun(t, `{"rows":[]}`, 0)
 	DispatchTool("flint_read", map[string]any{

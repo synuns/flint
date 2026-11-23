@@ -1,6 +1,3 @@
-// nudge_v095_test.go — verifies that the SessionStart notice merges the read-promotion
-// hint (nudgeReadHint), and that the fixed wordings (nudgePendingLine —
-// updated to the short wording, ruling —) are not corrupted.
 package cli
 
 import (

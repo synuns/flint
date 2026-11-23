@@ -1,6 +1,3 @@
-// doctor_check_registry_test.go — verifies that the doctor check registry
-// is the single source of the full run chain, the --check allow list, and --list-checks.
-// The 14 harness-* kinds and skill-file rely on dynamic detection in a separate chain, outside the registry (explicitly excluded).
 package ops
 
 import (
@@ -10,7 +7,6 @@ import (
 	"testing"
 )
 
-// doctorRegistryNames — the whole registry's name order (core 6 + tail 15 = 21).
 func doctorRegistryNames() []string {
 	specs := doctorChecks()
 	names := make([]string, 0, len(specs))
@@ -20,7 +16,6 @@ func doctorRegistryNames() []string {
 	return names
 }
 
-// doctorRegistryChainedNames — only the names of a given chain ("core"|"tail") from the registry.
 func doctorRegistryChainedNames(chain string) []string {
 	var names []string
 	for _, s := range doctorChecks() {
@@ -31,12 +26,9 @@ func doctorRegistryChainedNames(chain string) []string {
 	return names
 }
 
-// registry — the name set equals the full run chain's assembled set (core 6 + tail 15).
-// The harness and skill families are dynamic-detection (file-existence) separate chains
-// whose output varies by environment, so they are excluded before comparing.
 func TestDoctorRegistryCoversChain(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir()) // skill source undetected — skill-file omission guaranteed
+	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir())
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f)
 	var m struct {
@@ -51,7 +43,7 @@ func TestDoctorRegistryCoversChain(t *testing.T) {
 	chain := map[string]bool{}
 	for _, c := range m.Checks {
 		if c.Name == "skill-file" || strings.HasPrefix(c.Name, "harness-") {
-			continue // a separate chain outside the registry (dynamic detection)
+			continue
 		}
 		chain[c.Name] = true
 	}
@@ -76,8 +68,6 @@ func TestDoctorRegistryCoversChain(t *testing.T) {
 	}
 }
 
-// --list-checks — outputs all 21 registry kinds (preventing the regression of listing only the old 6).
-// The core 6 keep the existing DoctorChecks order (hook-file... port) at the front.
 func TestDoctorListChecksShowsAll(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--list-checks")
@@ -99,7 +89,7 @@ func TestDoctorListChecksShowsAll(t *testing.T) {
 			t.Errorf("checks[%d]=%q, want %q(등록표 순서)", i, m.Checks[i], name)
 		}
 	}
-	// the old-6 regression — the DoctorChecks order stays at the front as-is.
+
 	core := DoctorChecks()
 	for i, name := range core {
 		if m.Checks[i] != name {
@@ -108,9 +98,6 @@ func TestDoctorListChecksShowsAll(t *testing.T) {
 	}
 }
 
-// onStoreNil — the registry attributes match the actual st==nil behavior (core 4
-// fail, tail warn). Checks not using st (hook-file, port, update) are codified as
-// attribute "" and excluded from the verdict.
 func TestDoctorStoreNilSeverity(t *testing.T) {
 	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir())
 	fail, warn := 0, 0

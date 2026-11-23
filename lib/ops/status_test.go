@@ -1,10 +1,3 @@
-// status_test.go — v1.21.0 T3: the status vault row. The last index time,
-// file count, and changed count ride on meta 'vault_last_scan' (JSON written
-// by `flint index`); status appends vault_indexed_at/vault_files/
-// vault_changed at the end of the existing key order (the statusV0180Output
-// additive precedent — existing keys and their order unchanged). Absent or
-// corrupt payloads degrade to null/0/0 (the metering-indication principle —
-// it must not break status).
 package ops
 
 import (
@@ -17,8 +10,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// vaultStatusFake — a fake answering meta schema_version and an optional
-// meta vault_last_scan payload (the RunStatus meta lookups).
 func vaultStatusFake(schemaVersion, lastScan string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key = 'schema_version'") {
@@ -34,8 +25,6 @@ func vaultStatusFake(schemaVersion, lastScan string) *fakeStore {
 	}}
 }
 
-// runStatusJSON — one RunStatus call returning (exit code, the raw one-line
-// output, the decoded object).
 func runStatusJSON(t *testing.T, st wire.Store) (int, string, map[string]any) {
 	t.Helper()
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return "", nil })
@@ -51,9 +40,6 @@ func runStatusJSON(t *testing.T, st wire.Store) (int, string, map[string]any) {
 	return code, line, m
 }
 
-// TestStatusVaultRowRoundTripOrder — a stored vault_last_scan round-trips
-// into the appended vault row, and the existing key order is untouched: the
-// three vault keys come last, right after the previous tail (hot_bytes_p95).
 func TestStatusVaultRowRoundTripOrder(t *testing.T) {
 	payload := `{"at":"2026-11-23T01:02:03Z","files":5,"changed":2}`
 	code, line, m := runStatusJSON(t, vaultStatusFake("16", payload))
@@ -66,7 +52,7 @@ func TestStatusVaultRowRoundTripOrder(t *testing.T) {
 	if m["vault_files"].(float64) != 5 || m["vault_changed"].(float64) != 2 {
 		t.Fatalf("vault files/changed=%v/%v, want 5/2", m["vault_files"], m["vault_changed"])
 	}
-	// key order: existing keys unchanged, the vault row appended at the end.
+
 	order := []string{"status", "schema_version", "pending", "hot_bytes_p95",
 		"vault_indexed_at", "vault_files", "vault_changed"}
 	last := -1
@@ -83,8 +69,6 @@ func TestStatusVaultRowRoundTripOrder(t *testing.T) {
 	}
 }
 
-// TestStatusVaultRowAbsentNull — no vault_last_scan yet (never indexed):
-// vault_indexed_at is null and the counts are 0 — status still exits 0.
 func TestStatusVaultRowAbsentNull(t *testing.T) {
 	code, line, _ := runStatusJSON(t, vaultStatusFake("16", ""))
 	if code != 0 {
@@ -98,8 +82,6 @@ func TestStatusVaultRowAbsentNull(t *testing.T) {
 	}
 }
 
-// TestStatusVaultRowCorruptNull — a corrupt (non-JSON) payload degrades to
-// null/0/0, never an error exit.
 func TestStatusVaultRowCorruptNull(t *testing.T) {
 	code, line, _ := runStatusJSON(t, vaultStatusFake("16", "not-json"))
 	if code != 0 {
@@ -110,9 +92,6 @@ func TestStatusVaultRowCorruptNull(t *testing.T) {
 	}
 }
 
-// TestStatusEngineMemMB — the v1.25.0 engine footprint row: a successful
-// docker stats lookup appends engine_mem_mb as the new tail of the existing
-// key order (after the scan metering row — the additive-append precedent).
 func TestStatusEngineMemMB(t *testing.T) {
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
@@ -124,8 +103,7 @@ func TestStatusEngineMemMB(t *testing.T) {
 	if m["engine_mem_mb"].(float64) != 50 {
 		t.Fatalf("engine_mem_mb=%v, want 50", m["engine_mem_mb"])
 	}
-	// key order regression — engine_mem_mb comes after the previous tail
-	// (scan_suggest_p95_us) and after every pre-existing key.
+
 	prevTail := strings.Index(line, `"scan_suggest_p95_us":`)
 	got := strings.Index(line, `"engine_mem_mb":`)
 	if prevTail < 0 || got < 0 {
@@ -136,9 +114,6 @@ func TestStatusEngineMemMB(t *testing.T) {
 	}
 }
 
-// TestStatusEngineMemMBOmitted — the lookup failure omits the field
-// entirely (display-only — no null placeholder, unlike last_*), and status
-// still exits 0.
 func TestStatusEngineMemMBOmitted(t *testing.T) {
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return nil, errors.New("docker not installed")

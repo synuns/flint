@@ -2,9 +2,6 @@ package store
 
 import "testing"
 
-// TestRrfKOverrideRange — the rrf_k override allows the full positive
-// range — sharing the 0..1 clamping parser would reject the default 60 entirely,
-// making an override impossible (demonstrated: setting 30 reverted to 60).
 func TestRrfKOverrideRange(t *testing.T) {
 	rows := [][2]any{
 		{"rrf_k", "30"}, {"rrf_k", "120.5"}, {"rrf_k", "0.5"},

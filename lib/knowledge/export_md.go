@@ -1,7 +1,3 @@
-// export_md.go — the flint export --format md formatter.
-// File header (`# flint export`, created-at UTC, item count) + a section per
-// item (`## #<id> <topic>` + meta line + content verbatim). Designed for
-// note-app portability.
 package knowledge
 
 import (
@@ -15,18 +11,11 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// SupersedeChainsSQL — reads the supersede_chains view (views.sql — the
-// path-array-guarded recursive lineage unfold; v1.20.0 T4). Depth 0 is
-// the root itself and is excluded here; the (root_id, depth) ordering
-// makes each map entry the lineage in root→terminal order.
 const SupersedeChainsSQL = `
 	SELECT root_id, id FROM supersede_chains
 	WHERE depth > 0
 	ORDER BY root_id, depth`
 
-// SupersedeChains — loads the supersede lineage map consumed by
-// FormatMD's chain notation: root id → descendant ids in depth order
-// (the last entry is the chain terminal). One round trip over the view.
 func SupersedeChains(ctx context.Context, st wire.Store) (map[int][]int, error) {
 	rows, err := wire.QueryOnce(ctx, st, SupersedeChainsSQL, nil)
 	if err != nil {
@@ -47,15 +36,6 @@ func SupersedeChains(ctx context.Context, st wire.Store) (map[int][]int, error) 
 	return out, nil
 }
 
-// FormatMD — serializes rows into Markdown. Pure function: independent of
-// source queries (T2) and file writing (T7). Content is emitted verbatim
-// including newlines; heading-collision characters in topics (# etc.) are
-// printed as-is (section headings are the fixed `## ` prefix).
-// superseded_by omits the fragment entirely when nil (or unset). With a
-// chain map (SupersedeChains — the supersede_chains view) the 1-hop link
-// upgrades to the full root→terminal chain `→ #N → #M (depth d)` (the
-// annotation is the terminal's depth); without a map entry for the row
-// the legacy 1-hop `→ #N` stands.
 func FormatMD(rows []ExportRow, chains ...map[int][]int) []byte {
 	var chain map[int][]int
 	if len(chains) > 0 {

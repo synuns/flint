@@ -1,8 +1,3 @@
-// index_v1211_test.go — v1.21.1 (r91-r94) `flint index` regressions: the
-// vault-root guard (a file/typo path is exit 3 BEFORE any scan), the
-// persist-after-success ordering (a failed scan leaves meta vault_path
-// unset), threshold overrides wiring, the snapshot-replacement notice, and
-// the touch-only pointer commit. Synthetic demo vaults only (§3).
 package cli
 
 import (
@@ -17,9 +12,6 @@ import (
 	"github.com/synuns/flint/lib/vault"
 )
 
-// TestIndexVaultRootGuardExit3 — an explicit --vault pointing at a FILE
-// (or a nonexistent path) is a usage exit 3 before the scan, and nothing
-// is persisted (the typo-path persistence the finding banned).
 func TestIndexVaultRootGuardExit3(t *testing.T) {
 	tmp := t.TempDir()
 	notAVault := filepath.Join(tmp, "not-a-vault.md")
@@ -46,9 +38,6 @@ func TestIndexVaultRootGuardExit3(t *testing.T) {
 	}
 }
 
-// TestIndexScanErrorPersistsNothing — a scan failure AFTER the guard
-// (connect/scan error) still leaves meta vault_path unset: the persist
-// moved after a successful scan (the r91-2/r93-6/r94-2 shape).
 func TestIndexScanErrorPersistsNothing(t *testing.T) {
 	root := demoVault(t, map[string]string{"a.md": "# 데모\n"})
 	fx := newIndexFixture()
@@ -71,9 +60,6 @@ func TestIndexScanErrorPersistsNothing(t *testing.T) {
 	}
 }
 
-// TestIndexThresholdOverridesWired — the 3 vault threshold keys reach
-// vault.Options through LoadThresholds (meta overrides; unset falls back
-// to the code defaults — the TUNING §2 contract restored).
 func TestIndexThresholdOverridesWired(t *testing.T) {
 	notes := map[string]string{
 		"a.md":      "# A\n본문.\n",
@@ -98,8 +84,6 @@ func TestIndexThresholdOverridesWired(t *testing.T) {
 		t.Fatalf("vault_scan_max_files=2 미적용: %v", m)
 	}
 
-	// vault_skip_dirs override: "hide" replaces the default list — the
-	// default .obsidian skip must give way to the declared list.
 	root2 := demoVault(t, map[string]string{
 		"a.md":           "# A\n본문.\n",
 		"hide/h.md":      "# H\n본문.\n",
@@ -128,10 +112,6 @@ func TestIndexThresholdOverridesWired(t *testing.T) {
 	}
 }
 
-// TestIndexVaultPathChangeNotice — an explicit --vault differing from the
-// stored meta path emits the snapshot-replacement notice (guidance only,
-// path-free) and re-points meta after the successful scan; a same-path
-// rerun emits nothing.
 func TestIndexVaultPathChangeNotice(t *testing.T) {
 	rootA := demoVault(t, map[string]string{"a.md": "# A\n본문.\n"})
 	rootB := demoVault(t, map[string]string{"b.md": "# B\n본문.\n"})
@@ -156,7 +136,7 @@ func TestIndexVaultPathChangeNotice(t *testing.T) {
 	if fx.meta[metaVaultPathKey] != rootB {
 		t.Fatalf("meta vault_path=%q, want rootB", fx.meta[metaVaultPathKey])
 	}
-	// same-path explicit rerun: no notice.
+
 	code, m, _ = runIndexOn(t, fx, "--vault", rootB)
 	if code != 0 {
 		t.Fatalf("3차 exit=%d", code)
@@ -166,9 +146,6 @@ func TestIndexVaultPathChangeNotice(t *testing.T) {
 	}
 }
 
-// TestIndexTouchOnlyCommitsPointer — a pure mtime touch (same content)
-// commits the pointer refresh ("changed=0" — the touch is excluded from
-// changed) and the stats JSON stays all-zero deltas.
 func TestIndexTouchOnlyCommitsPointer(t *testing.T) {
 	root := demoVault(t, map[string]string{"a.md": "# 데모\n본문.\n"})
 	fx := newIndexFixture()

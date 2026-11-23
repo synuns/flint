@@ -1,6 +1,3 @@
-// import_migrate_test.go — flint import --format jsonl|pam CLI
-// wiring tests (synthetic demo data only). Contracts: --format routing (the existing rules
-// import unchanged), the cli entry signature (st, args, stdin, stdout), and a real-DB slow round trip.
 package cli
 
 import (
@@ -13,8 +10,6 @@ import (
 	"github.com/synuns/flint/lib/knowledge"
 )
 
-// TestImportMigrateCLISignature — the cli.RunImportMigrate contract signature
-// (st, args, stdin, stdout) int delegation.
 func TestImportMigrateCLISignature(t *testing.T) {
 	f := &fakeStore{}
 	var out strings.Builder
@@ -24,14 +19,10 @@ func TestImportMigrateCLISignature(t *testing.T) {
 	}
 }
 
-// TestImportFormatRoutingDispatch — the wiring registry path: --format jsonl goes to
-// migrate; --verbose keeps the existing path's exit 3.
 func TestImportFormatRoutingDispatch(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// the accrual passes content_hash dedup and the PK (the shared real-DB residue ID 31) —
-	// so the topic residue is cleaned at the start boundary, and each run uses unique Content (test name +
-	// timestamp) to avoid residue-hash collisions, keeping imported:1 idempotent.
+
 	cleanupRealResidue(`DELETE FROM knowledge WHERE topic = 'demo dispatch alpha'`)
 	rows := []knowledge.ExportRow{{
 		ID: 31, Topic: "demo dispatch alpha",
@@ -53,15 +44,13 @@ func TestImportFormatRoutingDispatch(t *testing.T) {
 	if !strings.Contains(out, `"status":"ok"`) || !strings.Contains(out, `"imported":1`) {
 		t.Fatalf("dispatch 요약: %s", out)
 	}
-	// existing rules import regression — an unrecognized flag keeps exit 3.
+
 	out, code = mustRun(t, []string{"import", "--verbose"}, "")
 	if code != 3 {
 		t.Fatalf("기존 경로 회귀 exit=%d, want 3; out=%s", code, out)
 	}
 }
 
-// TestImportMigrateJSONLRealSlow — a real-DB round trip (slow): accrual -> a 2nd idempotent
-// duplicate -> lineage update verification. Only when SUPERLITE_REAL=1 + FLINT_TEST_DSN are set.
 func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -72,7 +61,7 @@ func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	if err != nil {
 		t.Skipf("real store unavailable: %v", err)
 	}
-	t.Cleanup(st.Close) // LIFO — row cleanup runs before close
+	t.Cleanup(st.Close)
 	const marker = "demo-import-migrate-slow"
 	cleanup := func() {
 		if _, err := st.Query(ctx, `DELETE FROM knowledge WHERE origin = $1`, marker); err != nil {
@@ -103,7 +92,7 @@ func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	if !strings.Contains(out.String(), `"imported":2`) || !strings.Contains(out.String(), `"superseded":1`) {
 		t.Fatalf("1회차 요약: %s", out.String())
 	}
-	// lineage check — beta points at alpha.
+
 	got, err := st.Query(ctx, `SELECT superseded_by FROM knowledge WHERE id = 910022`)
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +103,7 @@ func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	if fmtInt(got[0][0]) != 910011 {
 		t.Fatalf("superseded_by=%v, want 910011", got[0][0])
 	}
-	// idempotent — the 2nd run duplicates every row.
+
 	out.Reset()
 	if code := RunImportMigrate(st, []string{"--format", "jsonl"}, strings.NewReader(string(data)), &out); code != 0 {
 		t.Fatalf("2회차 exit=%d; out=%s", code, out.String())
@@ -124,7 +113,6 @@ func TestImportMigrateJSONLRealSlow(t *testing.T) {
 	}
 }
 
-// fmtInt — integer conversion of pg cell values (int16/int32/int64).
 func fmtInt(v any) int {
 	switch n := v.(type) {
 	case int16:

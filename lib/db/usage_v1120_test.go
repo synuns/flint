@@ -1,7 +1,3 @@
-// usage_v1120_test.go — v1.12.0 T1: the dup_gap kind (the per-source
-// dup counter of the `gap` metering channel) is registered in the
-// RecordUsageCount whitelist so the "dup_"+source derivation path in
-// RecordDups records it on the real DB.
 package db
 
 import (
@@ -10,9 +6,6 @@ import (
 	"time"
 )
 
-// TestRecordUsageCountDupGapKind — one real-DB record round: the
-// daily:dup_gap:<date> flat key holds the incremented count, and the
-// unregistered spelling stays rejected (whitelist admission only).
 func TestRecordUsageCountDupGapKind(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

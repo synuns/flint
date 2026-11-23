@@ -1,7 +1,3 @@
-// doctor_alias_test.go — re-provides the test helpers of doctor_test.go, moved to
-// lib/ops (runDoctorArgs, freshDoctorFn, setHarnessEnvs), to the residual cli tests
-// (doctor_v07, doctor_v094, rules_sync_v097, etc.).
-// The real implementation goes via the ops alias (runDoctor).
 package cli
 
 import (
@@ -12,8 +8,6 @@ import (
 	"time"
 )
 
-// runDoctorArgs — runs runDoctor (=ops.RunDoctor) with a fake store.
-// Returns output and exit.
 func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -21,14 +15,11 @@ func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// freshDoctorFn — the all-checks-pass baseline response (last-seen 1h ago).
 func freshDoctorFn() func(string, []any) ([][]any, error) {
 	h := time.Now().Add(-time.Hour)
 	return doctorQueryFn(h, h, h)
 }
 
-// doctorQueryFn — a shared queryFn injecting per-check meta/pg_indexes responses.
-// Returns schema=4, 3 index rows, and 3 last-seen keys (with adjustable elapsed).
 func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -47,8 +38,6 @@ func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) (
 	}
 }
 
-// setHarnessEnvs — isolates all 5 harness envs to empty temp directories.
-// A precondition of the harnessChecks unit tests (blocking real-home settings files).
 func setHarnessEnvs(t *testing.T) {
 	t.Helper()
 	for _, e := range []string{

@@ -1,6 +1,3 @@
-// mergeaudit_test.go — v1.24.0 T3: the merge-audit pair scan contract
-// (pure scoring, threshold boundary, scan cap, pre-cost estimate — the
-// fake-store seam; the real-DB command path is the ops slow test).
 package knowledge
 
 import (
@@ -14,13 +11,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// The merge-audit fixture strings (synthetic demo). The boundary pair
-// combines to texts whose rune-bigram multiset Dice is exactly 0.6 —
-// the default conflict_dup_threshold — so it pins the >= inclusion at
-// the ruling boundary (0.60 in, anything below out):
-//   - dup: identical rows -> multiset 1.0 -> listed
-//   - boundary: topic "a", summaries "aabc"/"aaxy" -> exactly 0.6
-//   - below: topic "a", summary "zzzz" vs "aabc" -> 0.2 -> excluded
 const (
 	mergeAuditBoundaryTopic = "a"
 	mergeAuditSummaryA      = "aabc"
@@ -28,7 +18,6 @@ const (
 	mergeAuditSummaryLow    = "zzzz"
 )
 
-// mergeAuditRowsFixture — the standard fake scan rows (id, topic, summary).
 func mergeAuditRowsFixture() []MergeAuditRow {
 	return []MergeAuditRow{
 		{ID: 1, Topic: echoTestTopic, Summary: echoDupSummary},
@@ -39,10 +28,6 @@ func mergeAuditRowsFixture() []MergeAuditRow {
 	}
 }
 
-// TestMergeAuditBoundaryScoreIsExact06 — the boundary fixture really is
-// 0.6 by the single scoring definition (BigramDiceMultiset over the
-// combined topic+" "+summary texts) — the boundary test below inherits
-// its exactness from here.
 func TestMergeAuditBoundaryScoreIsExact06(t *testing.T) {
 	got := query.BigramDiceMultiset(
 		mergeAuditBoundaryTopic+" "+mergeAuditSummaryA,
@@ -58,13 +43,6 @@ func TestMergeAuditBoundaryScoreIsExact06(t *testing.T) {
 	}
 }
 
-// TestMergeAuditPairsListSimilarSynthetic — the synthetic similar pair
-// (identical rows, Dice 1.0) and the exact-0.6 boundary pair are listed
-// at the default conflict_dup_threshold (>= inclusion), the below-pair is
-// excluded, and the listing sorts score-descending with ascending (a,b)
-// tie-break. The echo duplicates classification is reused (relation
-// "duplicates" — the EchoScan ruling: at or above the threshold is the
-// duplicate class).
 func TestMergeAuditPairsListSimilarSynthetic(t *testing.T) {
 	pairs, _ := ClassifyMergeAuditPairs(mergeAuditRowsFixture(),
 		store.DefaultThresholds().ConflictDupThreshold)
@@ -88,10 +66,6 @@ func TestMergeAuditPairsListSimilarSynthetic(t *testing.T) {
 	}
 }
 
-// TestMergeAuditThresholdBoundaryExactness — the >= inclusion boundary:
-// with dupThreshold exactly equal to a pair's score the pair stays
-// listed; a hair above (the 0.59/0.60 class — anything below the
-// threshold is out) drops it.
 func TestMergeAuditThresholdBoundaryExactness(t *testing.T) {
 	rows := []MergeAuditRow{
 		{ID: 3, Topic: mergeAuditBoundaryTopic, Summary: mergeAuditSummaryA},
@@ -107,10 +81,6 @@ func TestMergeAuditThresholdBoundaryExactness(t *testing.T) {
 	}
 }
 
-// TestMergeAuditFetchScanCap — the bounded fetch: LIMIT is scan_cap+1
-// (one lookahead row names truncation), the active filter
-// (invalid_at IS NULL) rides the query, and a result longer than the cap
-// is truncated with the flag set.
 func TestMergeAuditFetchScanCap(t *testing.T) {
 	var rows [][]any
 	for i := 1; i <= 5; i++ {
@@ -131,7 +101,7 @@ func TestMergeAuditFetchScanCap(t *testing.T) {
 	if !strings.Contains(joined, "LIMIT 4") {
 		t.Errorf("스캔 SQL에 LIMIT 4(상한 3+1) 부재: %q", joined)
 	}
-	// exactly at the cap — no truncation flag.
+
 	st2 := &fakeStore{rows: rows[:3]}
 	got2, truncated2, err := FetchMergeAuditRows(context.Background(), st2, 3)
 	if err != nil {
@@ -142,8 +112,6 @@ func TestMergeAuditFetchScanCap(t *testing.T) {
 	}
 }
 
-// TestMergeAuditFetchErrorPropagates — a scan failure returns the error
-// (the caller maps the exit, the EchoScan convention).
 func TestMergeAuditFetchErrorPropagates(t *testing.T) {
 	st := &fakeStore{queryErr: errors.New("boom")}
 	if _, _, err := FetchMergeAuditRows(context.Background(), st, 5); err == nil {
@@ -151,10 +119,6 @@ func TestMergeAuditFetchErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestMergeAuditFetchActiveOnlyV1241 — v1.24.1 (r104): the fetch pins the
-// strict active definition (status='active' AND invalid_at IS NULL — the
-// distill.go·recall-audit alignment): a pending row never rides the pair
-// scan input.
 func TestMergeAuditFetchActiveOnlyV1241(t *testing.T) {
 	st := &fakeStore{rows: [][]any{{int64(1), echoTestTopic, echoDupSummary}}}
 	if _, _, err := FetchMergeAuditRows(context.Background(), st, 5); err != nil {
@@ -172,11 +136,6 @@ func TestMergeAuditFetchActiveOnlyV1241(t *testing.T) {
 	}
 }
 
-// TestMergeAuditCostEstimateFields — the pre-cost estimate publication:
-// pairs_total is min(cap,n)×(min(cap,n)−1)/2 over the scanned rows (here
-// n=5 -> 10), micros_per_pair is the measured (calibration, ceil —
-// conservative) per-pair cost, estimated_micros = per×total, and the
-// in-budget scan keeps every row (no advice).
 func TestMergeAuditCostEstimateFields(t *testing.T) {
 	rows := mergeAuditRowsFixture()
 	_, cost := ClassifyMergeAuditPairs(rows, 0.6)
@@ -198,16 +157,12 @@ func TestMergeAuditCostEstimateFields(t *testing.T) {
 	}
 }
 
-// TestMergeAuditOverBudgetCapReduction — a budget the estimate exceeds
-// truncates the scan to the largest affordable row count (the O(n²)
-// defense): the cost flags over_budget, names the advised cap, and a
-// pair spanning dropped rows never lists.
 func TestMergeAuditOverBudgetCapReduction(t *testing.T) {
 	saved := MergeAuditBudgetMicros
-	MergeAuditBudgetMicros = 1 // 1µs — any multi-row scan exceeds it
+	MergeAuditBudgetMicros = 1
 	t.Cleanup(func() { MergeAuditBudgetMicros = saved })
 
-	rows := mergeAuditRowsFixture() // the (1,2) identical pair is rows[0],[1]
+	rows := mergeAuditRowsFixture()
 	pairs, cost := ClassifyMergeAuditPairs(rows, 0.6)
 	if !cost.OverBudget {
 		t.Fatalf("over_budget = false, want true(예산 초과): %+v", cost)
@@ -225,8 +180,6 @@ func TestMergeAuditOverBudgetCapReduction(t *testing.T) {
 	}
 }
 
-// TestMergeAuditEmptyAndSingleRow — 0/1 rows cost nothing (pairs_total
-// 0, no division hazard) and list nothing.
 func TestMergeAuditEmptyAndSingleRow(t *testing.T) {
 	for _, rows := range [][]MergeAuditRow{nil, {{ID: 1, Topic: "a", Summary: "b"}}} {
 		pairs, cost := ClassifyMergeAuditPairs(rows, 0.6)

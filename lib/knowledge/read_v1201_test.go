@@ -1,7 +1,3 @@
-// read_v1201_test.go — v1.20.1 (r86) read regressions: NaN·Inf
-// --min-confidence values are invalid (exit 3) — ParseFloat accepts
-// them and every NaN comparison is false, so a NaN floor previously
-// passed the 0..1 range gate unfiltered.
 package knowledge
 
 import (

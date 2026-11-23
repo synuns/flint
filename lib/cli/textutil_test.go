@@ -8,12 +8,8 @@ import (
 	"time"
 )
 
-// TestTruncateRunesSingleSource — the 3-way duplication of rune truncation
-// (import 500 runes, maintain 40-char prefix, pending oneLine) converged to a single implementation.
-// truncateRunes truncates by runes (multibyte-safe) and each convention wrapper
-// delegates with the result unchanged.
 func TestTruncateRunesSingleSource(t *testing.T) {
-	long := strings.Repeat("한", 60) // 60 runes (180 bytes) — byte truncation would corrupt
+	long := strings.Repeat("한", 60)
 	if got := truncateRunes(long, 40); len([]rune(got)) != 40 || got != strings.Repeat("한", 40) {
 		t.Errorf("룬 절단 위반: %d룬", len([]rune(got)))
 	}
@@ -29,18 +25,16 @@ func TestTruncateRunesSingleSource(t *testing.T) {
 	if got := truncateRunes("", 40); got != "" {
 		t.Errorf("빈 문자열: %q", got)
 	}
-	// convention-delegation equivalence — the maintain 40-char prefix (compared with input without spaces/newlines).
+
 	if conflictSummaryPrefix(long) != truncateRunes(long, 40) {
 		t.Errorf("conflictSummaryPrefix 미위임")
 	}
-	// the pending oneLine cap (delegated after newline/space cleanup — compared with input needing no cleanup).
+
 	if oneLine(long, 48) != truncateRunes(long, 48) {
 		t.Errorf("oneLine 미위임")
 	}
 }
 
-// TestUnknownFlagExitContract — invalid flags on maintain and import follow the
-// invalid-arg contract exit 3 (consistent with doctor, tuning, diff).
 func TestUnknownFlagExitContract(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--check", "--bogus")
@@ -62,10 +56,6 @@ func TestUnknownFlagExitContract(t *testing.T) {
 	}
 }
 
-// TestSupersedeZeroRowsFails — if the update hits 0 rows after passing the pre-check
-// (active) due to a race, it is an error, not a silent success (exit 1, no commit).
-// The stewardship is built into db.Repo.Supersede via rows-affected — simulated here by the delegation
-// returning an error.
 func TestSupersedeZeroRowsFails(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{supersedeErr: errors.New("supersede: id=3 갱신 미반영(경합 — 재시도)")}

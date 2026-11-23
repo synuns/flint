@@ -8,7 +8,6 @@ import (
 	"testing"
 )
 
-// TestUsageIncludesCompactNudge — usageLine includes compact|nudge after done|.
 func TestUsageIncludesCompactNudge(t *testing.T) {
 	u := usageLine()
 	if !strings.Contains(u, "done|compact|nudge") {
@@ -16,7 +15,6 @@ func TestUsageIncludesCompactNudge(t *testing.T) {
 	}
 }
 
-// TestLookupCompactNudge — compact and nudge registered (init Register).
 func TestLookupCompactNudge(t *testing.T) {
 	for _, name := range []string{"compact", "nudge"} {
 		if _, ok := Lookup(name); !ok {
@@ -25,10 +23,6 @@ func TestLookupCompactNudge(t *testing.T) {
 	}
 }
 
-// TestNudgeStoreFree — Run("nudge") goes through the store:
-// it calls the newStore seam and injects the store into the handler (nudgeProfile looks up
-// exposure_profile to keep the minimal contract). The nudge handler is registered as a fake
-// (verifying the wiring itself — inheriting the original structure).
 func TestNudgeStoreFree(t *testing.T) {
 	called := false
 	orig := newStore
@@ -43,10 +37,7 @@ func TestNudgeStoreFree(t *testing.T) {
 		}
 		return 0
 	})
-	// unconditionally unregistering in cleanup would also remove the original nudge handler
-	// registered by init — init() does not re-run with -count>=2, so from the 2nd run on,
-	// Lookup("nudge") would be unregistered, polluting every nudge-family test.
-	// The original handler is captured and restored (unregister only if absent).
+
 	origNudge, hadNudge := Lookup("nudge")
 	t.Cleanup(func() {
 		if hadNudge {
@@ -64,7 +55,6 @@ func TestNudgeStoreFree(t *testing.T) {
 	}
 }
 
-// TestDsnFromEnvWiredToResolve — the dsnFromEnv body delegates to ResolveDSN.
 func TestDsnFromEnvWiredToResolve(t *testing.T) {
 	t.Run("env only", func(t *testing.T) {
 		t.Setenv("FLINT_CONFIG_DIR", t.TempDir())

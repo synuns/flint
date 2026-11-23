@@ -1,10 +1,3 @@
-// diff_store.go — the 3 Diff-family methods (the Doltgres
-// implementation of the wire history contract). Sole ownership of the
-// raw diff SQL (ported from lib/ops/diff.go·audit.go, byte-equivalent —
-// parameterization inherited). Output sanitization (render.Text) is the
-// caller's responsibility, so this layer returns raw values only. A
-// query failure retries once (spec §7 — the queryRetry shared helper,
-// asof_query.go).
 package db
 
 import (
@@ -14,13 +7,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// diffCommitsMax — the summary commit-list cap (contract: default 20).
-// Transferred from the lib/ops/diff.go original constant.
 const diffCommitsMax = 20
 
-// diffCommitsSQL — a log×table-diff summary of the commit range
-// from(exclusive)~to(inclusive). Verbatim from lib/ops/diff.go (LEFT
-// JOIN·range subqueries·GROUP BY·DESC·LIMIT constant assembly).
 var diffCommitsSQL = fmt.Sprintf(`SELECT l.commit_hash, l.date, l.message,
   COALESCE(bool_or(d.data_change), false),
   COALESCE(bool_or(d.schema_change), false)
@@ -32,11 +20,6 @@ GROUP BY l.commit_hash, l.commit_order, l.date, l.message
 ORDER BY l.commit_order DESC
 LIMIT %d`, diffCommitsMax)
 
-// DiffRows — the knowledge row diff between two commits. Original
-// (lib/ops/diff.go): one dolt_commit_diff_knowledge filter each for the
-// to/from commits (a query-planner requirement — measured), with the
-// shared COALESCE expression for added/removed. Argument order inherits
-// the original: $1=to, $2=from.
 func (r *Repo) DiffRows(ctx context.Context, fromHash, toHash string) ([]wire.KnowledgeDiffRow, error) {
 	rows, err := r.queryRetry(ctx,
 		`SELECT diff_type, COALESCE(to_id, from_id), COALESCE(to_topic, from_topic)
@@ -57,10 +40,6 @@ FROM dolt_commit_diff_knowledge WHERE to_commit = $1 AND from_commit = $2`,
 	return out, rows.Err()
 }
 
-// DiffStat — per-table change statistics for a commit-hash list.
-// Original (lib/ops/audit.go): a single ANY($1) batch query avoiding N+1
-// per commit. Sanitization serves consistency with the caller's exit,
-// so this layer returns raw values.
 func (r *Repo) DiffStat(ctx context.Context, hashes []string) ([]wire.TableDiffStat, error) {
 	if hashes == nil {
 		hashes = []string{}
@@ -83,9 +62,6 @@ FROM dolt_diff WHERE commit_hash = ANY($1)`, hashes)
 	return out, rows.Err()
 }
 
-// DiffCommits — commit summaries of the from(exclusive)~to(inclusive)
-// range, newest first, capped at 20. date is parsed by parseLogDate
-// (shared across the fake/real-DB layouts — LogEntries inheritance).
 func (r *Repo) DiffCommits(ctx context.Context, fromHash, toHash string) ([]wire.DiffCommitSummary, error) {
 	rows, err := r.queryRetry(ctx, diffCommitsSQL, fromHash, toHash)
 	if err != nil {

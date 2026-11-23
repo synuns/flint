@@ -11,5 +11,3 @@ func TestMcpUsesPathCommand(t *testing.T) {
 		t.Errorf("mcp command=%v, want flint(PATH)", srv)
 	}
 }
-
-// v0.16.2: TestPluginVersionV0161 삭제 — plugin_v0162_test.go가 대체.

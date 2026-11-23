@@ -1,8 +1,3 @@
-// reads_v1200_test.go — the recording-wiring slow tests (real DB).
-// Contract: RecordReadEvent's bytes·zero_reason·source 3-column values
-// are recorded as-is in one read_events row, and RecordKnowledgeReads
-// leaves the full id set in knowledge_reads together with session·kind
-// (a kind-whitelist violation is an error).
 package db
 
 import (
@@ -11,9 +6,6 @@ import (
 	"testing"
 )
 
-// ensureV1200Schema — runs the gate chain (v2→v10) to idempotently
-// secure the v10 outputs (3 columns·knowledge_reads), regardless of the
-// shared DB's residual state.
 func ensureV1200Schema(t *testing.T, r *Repo) {
 	t.Helper()
 	ctx := context.Background()
@@ -25,8 +17,6 @@ func ensureV1200Schema(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordReadEventColumns — the ReadEvent extension 3 columns
-// (bytes·zero_reason·source) store their values as-is.
 func slowRecordReadEventColumns(t *testing.T, r *Repo) {
 	ensureV1200Schema(t, r)
 	ctx := context.Background()
@@ -74,9 +64,6 @@ func slowRecordReadEventColumns(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordKnowledgeReads — the full id set is recorded in
-// knowledge_reads one row each, together with session·kind. Empty ids
-// is a no-op; an invalid kind is an error.
 func slowRecordKnowledgeReads(t *testing.T, r *Repo) {
 	ensureV1200Schema(t, r)
 	ctx := context.Background()

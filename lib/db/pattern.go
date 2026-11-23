@@ -1,8 +1,3 @@
-// pattern.go — internal pattern-detection utilities. Note: the
-// `maintain --distill` flag does not exist — these functions are
-// internal utilities consumed by no CLI path (the source of a future
-// distillation-automation milestone G candidate). The tests verify the
-// utilities' own contract.
 package db
 
 import (
@@ -11,26 +6,12 @@ import (
 	"strings"
 )
 
-// Pattern — a pattern for playbook-candidate suggestions. Evidence is
-// the contributing record's "id=<id>: <summary>" string (observable
-// grounds for human/agent approval).
 type Pattern struct {
 	Topic    string
-	Kind     string // "repeat-success" | "fail-then-success"
+	Kind     string
 	Evidence []string
 }
 
-// The pattern-candidate cap — preventing maintain-suggestion noise (spec
-// §self-growth loop). The SQL uses a '%:...%' wildcard LIKE, so the cap
-// is upheld together by the query literal (20) and
-// TestPatternCapTwenty.
-
-// patternSQL — picks candidates from per-topic success/execution
-// aggregates and bundles the evidence. Kind priority:
-// fail-then-success is prioritized over repeat-success as the stronger
-// signal, and a transition requires a success later than the last
-// failure. Uses CASE aggregation instead of FILTER for Doltgres
-// compatibility.
 const patternSQL = `
 WITH agg AS (
     SELECT topic,
@@ -60,8 +41,6 @@ SELECT c.topic, c.kind,
  ORDER BY c.topic
  LIMIT 20`
 
-// PatternCandidates returns playbook distillation candidates (capped at
-// 20).
 func (r *Repo) PatternCandidates(ctx context.Context) ([]Pattern, error) {
 	rows, err := r.pool.Query(ctx, patternSQL)
 	if err != nil {

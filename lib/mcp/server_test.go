@@ -9,13 +9,6 @@ import (
 	"time"
 )
 
-// v1.18.0 T1 — protocol version negotiation over the supported set
-// {"2024-11-05","2025-06-18","2025-11-25"}: a request inside the set is
-// echoed back, outside it the server answers with its latest (spec MUST),
-// and an absent/non-string value keeps the legacy 2024-11-05 fallback.
-
-// TestNegotiateVersionSupportedSetEcho — a protocolVersion inside the
-// supported set is echoed back unchanged.
 func TestNegotiateVersionSupportedSetEcho(t *testing.T) {
 	for _, v := range []string{"2024-11-05", "2025-06-18", "2025-11-25"} {
 		if got := negotiateVersion(map[string]any{"protocolVersion": v}); got != v {
@@ -24,9 +17,6 @@ func TestNegotiateVersionSupportedSetEcho(t *testing.T) {
 	}
 }
 
-// TestNegotiateVersionUnsupportedAnswersLatest — a protocolVersion outside
-// the supported set gets the server's latest supported version (2025-11-25),
-// never an echo of an unknown version.
 func TestNegotiateVersionUnsupportedAnswersLatest(t *testing.T) {
 	for _, v := range []string{"2025-06-17", "2026-01-01", "2024-11-04", "2020-01-01"} {
 		if got := negotiateVersion(map[string]any{"protocolVersion": v}); got != "2025-11-25" {
@@ -35,9 +25,6 @@ func TestNegotiateVersionUnsupportedAnswersLatest(t *testing.T) {
 	}
 }
 
-// TestNegotiateVersionAbsentKeepsFallback — an absent or non-string
-// protocolVersion keeps the pre-v1.18.0 fallback (backward compatibility —
-// a separate rule from the out-of-set latest response).
 func TestNegotiateVersionAbsentKeepsFallback(t *testing.T) {
 	for _, p := range []map[string]any{nil, {}, {"protocolVersion": ""}, {"protocolVersion": 123}} {
 		if got := negotiateVersion(p); got != "2024-11-05" {
@@ -46,9 +33,6 @@ func TestNegotiateVersionAbsentKeepsFallback(t *testing.T) {
 	}
 }
 
-// TestToolsListExposesOutputSchema — every tools/list entry carries an
-// outputSchema object (JSON Schema 2020-12) alongside inputSchema. Verified
-// through the serialized Serve path (the wire format clients parse).
 func TestToolsListExposesOutputSchema(t *testing.T) {
 	var in, out bytes.Buffer
 	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{}}` + "\n")
@@ -174,8 +158,6 @@ func TestUnknownMethod(t *testing.T) {
 	}
 }
 
-// TestServeSkipTooLongLine — requests after an over-limit line are still
-// processed (the server survives).
 func TestServeSkipTooLongLine(t *testing.T) {
 	huge := strings.Repeat("x", 5*1024*1024) + "\n"
 	normal := `{"jsonrpc":"2.0","id":1,"method":"tools/list"}` + "\n"
@@ -191,15 +173,9 @@ func TestServeSkipTooLongLine(t *testing.T) {
 	}
 }
 
-// TestServeFlushesEachResponseImmediately — each response is flushed
-// immediately after write — if it lingered in the bufio buffer until input
-// EOF, a request-response roundtrip client would deadlock. With io.Pipe
-// keeping the input open, we assert the response arrives (if EOF arrives
-// in a burst the deferred flush delivers it late, so the timeout is the
-// judge).
 func TestServeFlushesEachResponseImmediately(t *testing.T) {
-	pr, pw := io.Pipe() // input — kept open, never closed (no EOF)
-	cr, cw := io.Pipe() // output — Serve's w
+	pr, pw := io.Pipe()
+	cr, cw := io.Pipe()
 	defer pr.Close()
 
 	go func() {
@@ -219,7 +195,7 @@ func TestServeFlushesEachResponseImmediately(t *testing.T) {
 	done := make(chan lineResult, 1)
 	go func() {
 		var one [512]byte
-		n, err := cr.Read(one[:]) // for one newline-delimited line to arrive on the output pipe, it must be flushed
+		n, err := cr.Read(one[:])
 		done <- lineResult{one[:n], err}
 	}()
 	select {
@@ -236,10 +212,6 @@ func TestServeFlushesEachResponseImmediately(t *testing.T) {
 	pw.Close()
 }
 
-// TestServeTooLongLineGetsErrorResponse — dropping the over-limit line
-// without a reply would time out clients waiting for a response. The
-// oversized line gets one -32600 response line (id null, since it cannot
-// be recovered), and later requests keep being processed.
 func TestServeTooLongLineGetsErrorResponse(t *testing.T) {
 	huge := `{"jsonrpc":"2.0","id":9,"method":"tools/call","params":{"arguments":{"payload":"` +
 		strings.Repeat("x", 5*1024*1024) + `"}}` + "\n"

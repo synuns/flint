@@ -5,7 +5,6 @@ import (
 	"testing"
 )
 
-// TestThresholdsDefaults — unset keys give the defaults 50, 20, 0.8, 3.
 func TestThresholdsDefaults(t *testing.T) {
 	got, err := ParseThresholds(nil)
 	if err != nil {
@@ -17,7 +16,6 @@ func TestThresholdsDefaults(t *testing.T) {
 	}
 }
 
-// TestThresholdsPartialSet — with only some keys set, the rest get defaults.
 func TestThresholdsPartialSet(t *testing.T) {
 	got, err := ParseThresholds([][2]any{
 		{"pending_max", "50"},
@@ -32,7 +30,6 @@ func TestThresholdsPartialSet(t *testing.T) {
 	}
 }
 
-// TestThresholdsAllSet — every key's set value is reflected.
 func TestThresholdsAllSet(t *testing.T) {
 	got, err := ParseThresholds([][2]any{
 		{"pending_max", "10"},
@@ -49,7 +46,6 @@ func TestThresholdsAllSet(t *testing.T) {
 	}
 }
 
-// TestThresholdsConfFloorBoundaries — conf_floor 0, 1, and string rejection give defaults.
 func TestThresholdsConfFloorBoundaries(t *testing.T) {
 	cases := []struct {
 		name string
@@ -73,7 +69,6 @@ func TestThresholdsConfFloorBoundaries(t *testing.T) {
 	}
 }
 
-// TestThresholdsInvalidFallback — an integer key's invalid value gives defaults + a warning (not an error).
 func TestThresholdsInvalidFallback(t *testing.T) {
 	got, err := ParseThresholds([][2]any{
 		{"pending_max", "abc"},
@@ -94,7 +89,6 @@ func TestThresholdsInvalidFallback(t *testing.T) {
 	}
 }
 
-// TestThresholdsNonStringValues — values arriving as numeric types still parse.
 func TestThresholdsNonStringValues(t *testing.T) {
 	got, err := ParseThresholds([][2]any{
 		{"pending_max", 30},
@@ -111,7 +105,6 @@ func TestThresholdsNonStringValues(t *testing.T) {
 	}
 }
 
-// TestThresholdsUnknownKeyIgnored — unknown keys are ignored.
 func TestThresholdsUnknownKeyIgnored(t *testing.T) {
 	got, err := ParseThresholds([][2]any{{"unknown_key", "999"}})
 	if err != nil {
@@ -122,15 +115,8 @@ func TestThresholdsUnknownKeyIgnored(t *testing.T) {
 	}
 }
 
-// TestVaultThresholdKeys — the v1.21.0 vault-bridge keys: defaults
-// (10000 · 200 · ".obsidian,.trash"), meta override reflection, invalid
-// value fallback (the parseIntOrDefault family), the non-string type
-// fallback of the new parseStringOrDefault helper (vault_skip_dirs is
-// the first string-valued key), and the unset-keeps-zero convention
-// ("" for the string field — the consumer falls back to
-// DefaultThresholds, the unset-keeps-0 analog).
 func TestVaultThresholdKeys(t *testing.T) {
-	// defaults.
+
 	def := DefaultThresholds()
 	if def.VaultScanMaxFiles != 10000 {
 		t.Errorf("VaultScanMaxFiles 기본값=%d, want 10000", def.VaultScanMaxFiles)
@@ -141,7 +127,7 @@ func TestVaultThresholdKeys(t *testing.T) {
 	if def.VaultSkipDirs != ".obsidian,.trash" {
 		t.Errorf("VaultSkipDirs 기본값=%q, want \".obsidian,.trash\"", def.VaultSkipDirs)
 	}
-	// override.
+
 	th, err := ParseThresholds([][2]any{
 		{"vault_scan_max_files", "500"},
 		{"vault_summary_max_runes", "80"},
@@ -159,7 +145,7 @@ func TestVaultThresholdKeys(t *testing.T) {
 	if th.VaultSkipDirs != ".git,node_modules" {
 		t.Errorf("vault_skip_dirs 오버라이드=%q, want \".git,node_modules\"", th.VaultSkipDirs)
 	}
-	// invalid numeric values fall back (the parseIntOrDefault family).
+
 	bad, err := ParseThresholds([][2]any{
 		{"vault_scan_max_files", "abc"},
 		{"vault_summary_max_runes", "-1"},
@@ -171,8 +157,7 @@ func TestVaultThresholdKeys(t *testing.T) {
 		t.Errorf("무효값 폴백: scan=%d runes=%d, want 10000·200",
 			bad.VaultScanMaxFiles, bad.VaultSummaryMaxRunes)
 	}
-	// a non-string value type (toString-unsupported) falls back — the
-	// parseStringOrDefault contract.
+
 	mism, err := ParseThresholds([][2]any{{"vault_skip_dirs", true}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -180,7 +165,7 @@ func TestVaultThresholdKeys(t *testing.T) {
 	if mism.VaultSkipDirs != ".obsidian,.trash" {
 		t.Errorf("타입 불일치 폴백=%q, want \".obsidian,.trash\"", mism.VaultSkipDirs)
 	}
-	// unset keeps the zero value (0·0·"" — the consumer fallback basis).
+
 	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -191,20 +176,13 @@ func TestVaultThresholdKeys(t *testing.T) {
 	}
 }
 
-// TestDistillThresholdKeys — the v1.22.0 distill key: default 1.0 (a
-// raw recall count of at least 1 — the unbounded count-scale score,
-// so values above 1 are normal), meta override reflection, negative
-// rejection (the non-negative parser — the archive_below convention),
-// and the unset-keeps-0 convention (the consumer falls back to
-// DefaultThresholds).
 func TestDistillThresholdKeys(t *testing.T) {
-	// default.
+
 	def := DefaultThresholds()
 	if def.DistillMinScore != 1.0 {
 		t.Errorf("DistillMinScore 기본값=%v, want 1.0", def.DistillMinScore)
 	}
-	// override — above 1 is normal (the effective score is a count-scale
-	// score, not a 0..1 ratio).
+
 	th, err := ParseThresholds([][2]any{
 		{"distill_min_score", "5.5"},
 	})
@@ -214,9 +192,7 @@ func TestDistillThresholdKeys(t *testing.T) {
 	if th.DistillMinScore != 5.5 {
 		t.Errorf("distill_min_score 오버라이드=%v, want 5.5", th.DistillMinScore)
 	}
-	// zero is a stored-legal value but the UNSET sentinel on the consumer
-	// side (only --min-score 0 means "no floor" — the v1.22.1 r97-2
-	// correction); negatives are rejected and fall back.
+
 	neg, err := ParseThresholds([][2]any{
 		{"distill_min_score", "-0.5"},
 	})
@@ -226,7 +202,7 @@ func TestDistillThresholdKeys(t *testing.T) {
 	if neg.DistillMinScore != 1.0 {
 		t.Errorf("음수 거부=%v, want 1.0(폴백)", neg.DistillMinScore)
 	}
-	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+
 	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -236,17 +212,13 @@ func TestDistillThresholdKeys(t *testing.T) {
 	}
 }
 
-// TestDistillMaxRunesKeys — the v1.22.1 r97 distill file-cap key:
-// default 20000, meta override reflection, negative rejection, and the
-// unset-keeps-0 convention (the consumer falls back to DefaultThresholds
-// — 0 cannot be a meaningful cap, so only values > 0 apply).
 func TestDistillMaxRunesKeys(t *testing.T) {
-	// default.
+
 	def := DefaultThresholds()
 	if def.DistillMaxRunes != 20000 {
 		t.Errorf("DistillMaxRunes 기본값=%d, want 20000", def.DistillMaxRunes)
 	}
-	// override.
+
 	th, err := ParseThresholds([][2]any{
 		{"distill_max_runes", "1500"},
 	})
@@ -256,7 +228,7 @@ func TestDistillMaxRunesKeys(t *testing.T) {
 	if th.DistillMaxRunes != 1500 {
 		t.Errorf("distill_max_runes 오버라이드=%d, want 1500", th.DistillMaxRunes)
 	}
-	// negatives are rejected and fall back (the parseInt lower-bound 0).
+
 	neg, err := ParseThresholds([][2]any{
 		{"distill_max_runes", "-5"},
 	})
@@ -266,7 +238,7 @@ func TestDistillMaxRunesKeys(t *testing.T) {
 	if neg.DistillMaxRunes != 20000 {
 		t.Errorf("음수 거부=%d, want 20000(폴백)", neg.DistillMaxRunes)
 	}
-	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+
 	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -276,18 +248,13 @@ func TestDistillMaxRunesKeys(t *testing.T) {
 	}
 }
 
-// TestRecallAuditThresholdKeys — the v1.24.0 recall-audit listing floor
-// key: default 2 (the bad-recall history count at or above which an
-// active row is listed by maintain --recall-audit), meta override
-// reflection, negative rejection, and the unset-keeps-0 convention (the
-// consumer falls back to DefaultThresholds — the correction convention).
 func TestRecallAuditThresholdKeys(t *testing.T) {
-	// default.
+
 	def := DefaultThresholds()
 	if def.RecallAuditMinBad != 2 {
 		t.Errorf("RecallAuditMinBad 기본값=%d, want 2", def.RecallAuditMinBad)
 	}
-	// override.
+
 	th, err := ParseThresholds([][2]any{
 		{"recall_audit_min_bad", "4"},
 	})
@@ -297,7 +264,7 @@ func TestRecallAuditThresholdKeys(t *testing.T) {
 	if th.RecallAuditMinBad != 4 {
 		t.Errorf("recall_audit_min_bad 오버라이드=%d, want 4", th.RecallAuditMinBad)
 	}
-	// negatives are rejected and fall back (the parseInt lower-bound 0).
+
 	neg, err := ParseThresholds([][2]any{
 		{"recall_audit_min_bad", "-1"},
 	})
@@ -307,7 +274,7 @@ func TestRecallAuditThresholdKeys(t *testing.T) {
 	if neg.RecallAuditMinBad != 2 {
 		t.Errorf("음수 거부=%d, want 2(폴백)", neg.RecallAuditMinBad)
 	}
-	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+
 	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -317,10 +284,6 @@ func TestRecallAuditThresholdKeys(t *testing.T) {
 	}
 }
 
-// TestEngineWarnThresholdKeys — the v1.25.0 engine-warning keys
-// (dolt_log_depth_warn · db_size_warn_mb): defaults (10000 · 2048), meta
-// override reflection, and the unset-keeps-0 convention (the consumer —
-// doctor — falls back to DefaultThresholds via ApplyThresholdsFallback).
 func TestEngineWarnThresholdKeys(t *testing.T) {
 	def := DefaultThresholds()
 	if def.DoltLogDepthWarn != 10000 {
@@ -342,7 +305,7 @@ func TestEngineWarnThresholdKeys(t *testing.T) {
 	if th.DbSizeWarnMB != 1024 {
 		t.Errorf("db_size_warn_mb 오버라이드=%d, want 1024", th.DbSizeWarnMB)
 	}
-	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+
 	unset, err := ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)

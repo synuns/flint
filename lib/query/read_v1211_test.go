@@ -1,7 +1,3 @@
-// read_v1211_test.go — v1.21.1 (r93) FormatVaultRows regressions: the
-// text-mode 4-field protocol survives cell-internal pipes ('|' replaced
-// with a space), and the title is truncated to the same 200-rune cap the
-// index applies (json mode truncates too — pipes are safe there).
 package query
 
 import (
@@ -11,10 +7,6 @@ import (
 	"unicode/utf8"
 )
 
-// TestFormatVaultRowsPipeStrippedAndTitleTruncated — one vault row whose
-// path/summary contain '|' and whose title is 250 runes: the text line
-// keeps exactly 4 pipe-separated fields, the json line truncates the
-// title and leaves the pipe (structured — no field ambiguity).
 func TestFormatVaultRowsPipeStrippedAndTitleTruncated(t *testing.T) {
 	title := strings.Repeat("제", 250)
 	rows := [][]any{{title, "a|b", "", "no|te.md"}}

@@ -1,8 +1,3 @@
-// read_flag_v0132_test.go — read argument parsing.
-// Everything after "--" is positional (the standard end-of-options) — even if an external
-// input's query (MCP etc.) looks like "--json", it is not parsed as a flag. A trailing
-// --tag/--entity/--domain/--fields without a value follows the same rule as
-// --status/--as-of: exit 3.
 package cli
 
 import (
@@ -13,8 +8,6 @@ import (
 	"testing"
 )
 
-// TestReadDashDashTreatsRestAsQuery — N9: tokens after "--" are treated as the search query
-// and the output mode (text) is unchanged — "--json" is not parsed as a flag.
 func TestReadDashDashTreatsRestAsQuery(t *testing.T) {
 	var gotArgs [][]any
 	fn := func(sql string, args []any) ([][]any, error) {
@@ -29,9 +22,7 @@ func TestReadDashDashTreatsRestAsQuery(t *testing.T) {
 		strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("exit = %d, want 0 (out %q)", code, out.String())
 	}
-	// BuildRead wraps q into a LIKE pattern and parameterizes it (%q%) — if "--json" remains in the
-	// arguments, it was treated as the query (under flag parsing, q would be empty and there would be no
-	// LIKE argument at all).
+
 	if len(gotArgs) == 0 || len(gotArgs[0]) < 2 ||
 		!strings.Contains(fmt.Sprint(gotArgs[0][0]), "--json") {
 		t.Fatalf("검색어 인자 = %v, want LIKE 인자에 \"--json\" — 플래그로 파싱됨", gotArgs)
@@ -44,8 +35,6 @@ func TestReadDashDashTreatsRestAsQuery(t *testing.T) {
 	}
 }
 
-// TestReadDashDashKeepsLeadingFlags — N9: flags before "--" are parsed as-is
-// (the output mode stays as the leading --json specified; the trailing tokens are the query).
 func TestReadDashDashKeepsLeadingFlags(t *testing.T) {
 	fn := func(sql string, args []any) ([][]any, error) {
 		return [][]any{{float64(1), "t", "s"}}, nil
@@ -61,9 +50,6 @@ func TestReadDashDashKeepsLeadingFlags(t *testing.T) {
 	}
 }
 
-// TestReadTrailingFilterFlagsExit3 — N10: a trailing --tag/--entity/--domain/--fields
-// without a value is a SchemaError exit 3 — silently ignoring it would return results under
-// different filters than intended (--limit already exits 3).
 func TestReadTrailingFilterFlagsExit3(t *testing.T) {
 	for _, flag := range []string{"--tag", "--entity", "--domain", "--fields"} {
 		var out bytes.Buffer

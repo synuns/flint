@@ -1,8 +1,3 @@
-// hot_test.go — reflecting the decay-adjusted effective recall score in
-// the hot headline selection ranking. Sorting contract: effective DESC
-// stable sort — ties (and an all-zero set) inherit the existing SQL
-// order (ts DESC, id DESC), and the injection format·byte cap are
-// unchanged.
 package knowledge
 
 import (
@@ -19,11 +14,6 @@ import (
 	"github.com/synuns/flint/lib/query"
 )
 
-// TestEventEffectiveScore — the event-count-based effective score pure
-// function (v1.9.0 T1): max(0, count − rate×elapsed days),
-// never-recalled (count 0) = 0. Elapsed days is an integer in 24h units
-// (23h59m = 0 days); a fractional result floors toward 0; a future
-// last_recalled keeps count as-is (reverse-growth defense).
 func TestEventEffectiveScore(t *testing.T) {
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	day := 24 * time.Hour
@@ -34,12 +24,12 @@ func TestEventEffectiveScore(t *testing.T) {
 		rate  float64
 		want  int
 	}{
-		// 4 contract examples
+
 		{"계약: 3회 2일전 rate1", 3, now.Add(-2 * day), 1.0, 1},
 		{"계약: 1회 5일전 rate0.3 → 음수 하한 0", 1, now.Add(-5 * day), 0.3, 0},
 		{"계약: 미회상(count 0)", 0, time.Time{}, 1.0, 0},
 		{"계약: 오늘(0일) 회상", 5, now, 2.0, 5},
-		// boundaries
+
 		{"0일: 23h59m 경과는 감쇠 없음", 3, now.Add(-day + time.Minute), 1.0, 3},
 		{"0일: 정확히 24h 경과는 1일", 3, now.Add(-day), 1.0, 2},
 		{"정확히 0되는 날: 4회 4일전 rate1", 4, now.Add(-4 * day), 1.0, 0},
@@ -62,29 +52,24 @@ func TestEventEffectiveScore(t *testing.T) {
 	}
 }
 
-// TestEffectiveScoreForVolExemption — the v1.13.0 T2 volatility wrapper:
-// :vol:immutable: keeps the event count (decay exemption); every other tag
-// set — including vol:conditional·vol:volatile (boundary: no exemption) —
-// is equivalent to the pure EventEffectiveScore, which stays unchanged.
 func TestEffectiveScoreForVolExemption(t *testing.T) {
 	now := time.Date(2026, 11, 18, 12, 0, 0, 0, time.UTC)
 	last := now.Add(-100 * 24 * time.Hour)
-	// Contract examples: immutable keeps 3; the same conditions without
-	// the tag decay to 0.
+
 	if got := EffectiveScoreFor(3, last, now, 1.0, ":vol:immutable:", 0, 0); got != 3 {
 		t.Errorf("immutable 면제 = %d, want 3(계약 예)", got)
 	}
 	if got := EffectiveScoreFor(3, last, now, 1.0, "", 0, 0); got != 0 {
 		t.Errorf("태그 없음 = %d, want 0(계약 예)", got)
 	}
-	// Equivalence: non-immutable tag sets take the pure path verbatim.
+
 	for _, tags := range []string{"", ":adr:", ":vol:conditional:", ":vol:volatile:", ":vol:immutable2:"} {
 		want := EventEffectiveScore(3, last, now, 1.0, 0, 0)
 		if got := EffectiveScoreFor(3, last, now, 1.0, tags, 0, 0); got != want {
 			t.Errorf("tags %q = %d, want %d(순수 식 동치)", tags, got, want)
 		}
 	}
-	// strpos form inside a multi-tag string + count defenses.
+
 	if got := EffectiveScoreFor(5, last, now, 1.0, ":adr::vol:immutable:", 0, 0); got != 5 {
 		t.Errorf("다중 태그 내 immutable = %d, want 5", got)
 	}
@@ -96,42 +81,28 @@ func TestEffectiveScoreForVolExemption(t *testing.T) {
 	}
 }
 
-// hotRankedFixture — a 10-column synthetic fixture of the hot_view base
-// query, including the ranking columns (derived cnt·last_at·the knowledge
-// join tags — the shape the v1.13.0 aggregate join merged). Fake return
-// order = the existing SQL order (ts DESC, id DESC) — ts is identical
-// across rows (equal recency) so only the score differentiates. v1.9.0 T4:
-// never-recalled (no events) has cnt NULL → zero score, bottom.
 func hotRankedFixture(now time.Time) [][]any {
 	ts := now.Truncate(time.Second)
 	return [][]any{
-		// id=9: 10 events·last recall 10 days ago → effective 0 (10−10)
+
 		{"decision", "감쇠후보", "요약9", ts, int32(9), ts, ts, int32(10), now.Add(-10 * 24 * time.Hour), ":adr:"},
-		// id=7: never recalled (cnt NULL) → 0
+
 		{"decision", "중간점수", "요약7", ts, int32(7), ts, ts, nil, nil, ":adr:"},
-		// id=3: 9 events·recalled 1 hour ago → 9 kept (under 24h, no decay)
+
 		{"decision", "최고점수", "요약3", ts, int32(3), ts, ts, int32(9), now.Add(-time.Hour), ":adr:"},
 	}
 }
 
-// hotRankedStore — a fake returning the 9-column fixture for the
-// hot_view ranking query (meta queries unset — default decay coefficient
-// 1·default budget).
 func hotRankedStore(t *testing.T, rows [][]any) *hotBumpRecorder {
 	t.Helper()
 	return &hotBumpRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM hot_view") {
 			return rows, nil
 		}
-		return nil, nil // meta (thresholds·hot_budget·hot_stats): unset
+		return nil, nil
 	}}}
 }
 
-// TestHotFullRanksByEffectiveScore — the --full injection row order is
-// the decay-adjusted effective score, descending (9·0·0 — zero-score
-// ties inherit the SQL order), and the increment ids follow the same
-// order under the order=increment contract. v1.9.0 T4: never-recalled
-// (cnt NULL) = zero score.
 func TestHotFullRanksByEffectiveScore(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()
@@ -150,8 +121,7 @@ func TestHotFullRanksByEffectiveScore(t *testing.T) {
 			t.Errorf("행 %d = %q, want %q 포함(유효 점수 내림 9·0·0)", i, lines[i], want)
 		}
 	}
-	// Order = increment: BumpReads·RecordHotEvent follow the ranking
-	// order as-is.
+
 	if len(f.bumped) != 3 || f.bumped[0] != 3 || f.bumped[1] != 9 || f.bumped[2] != 7 {
 		t.Errorf("BumpReads ids = %v, want [3 9 7](랭킹 순서 승계)", f.bumped)
 	}
@@ -160,28 +130,18 @@ func TestHotFullRanksByEffectiveScore(t *testing.T) {
 	}
 }
 
-// hotHeadlineFixture — a fixture in the actual 8-column shape the
-// headline query (HotHeadlineSQL: exposes through id only) gets after
-// hotRankedSQL's merge (kind,topic,summary,ts,id,cnt,last_at,tags —
-// reusing the --full 10-column fixture would hide the headline
-// ranking-index mismatch). v1.9.0 T4: never-recalled (no events) has cnt
-// NULL → zero score.
 func hotHeadlineFixture(now time.Time) [][]any {
 	ts := now.Truncate(time.Second)
 	return [][]any{
-		// id=9: 10 events·last recall 10 days ago → effective 0 (10−10)
+
 		{"decision", "감쇠후보", "요약9", ts, int32(9), int32(10), now.Add(-10 * 24 * time.Hour), ":adr:"},
-		// id=7: never recalled (cnt NULL) → 0
+
 		{"decision", "중간점수", "요약7", ts, int32(7), nil, nil, ":adr:"},
-		// id=3: 9 events·recalled 1 hour ago → 9 kept (under 24h, no decay)
+
 		{"decision", "최고점수", "요약3", ts, int32(3), int32(9), now.Add(-time.Hour), ":adr:"},
 	}
 }
 
-// TestHotHeadlineRanksTopics — the headline path ranks identically: the
-// recent decisions topic listing order is the effective score,
-// descending. The fixture guards that ranking works only in the actual
-// headline query shape (7 columns — ranking column idx 5·6).
 func TestHotHeadlineRanksTopics(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()
@@ -195,10 +155,6 @@ func TestHotHeadlineRanksTopics(t *testing.T) {
 	}
 }
 
-// TestHotRankZeroScoresKeepExistingOrder — rows without ranking columns
-// (an old-view 7-column shape) and an all-zero row set: the stable sort
-// inherits the SQL order as-is and the output is byte-identical to the
-// base format.
 func TestHotRankZeroScoresKeepExistingOrder(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()
@@ -235,27 +191,22 @@ func TestHotRankZeroScoresKeepExistingOrder(t *testing.T) {
 	}
 }
 
-// TestHotRankUnrecalledSinksToZero — the v1.9.0 T4 semantics change,
-// measured: no events (cnt NULL·never recalled) is a zero score — below
-// items with decaying recall history (bottom). The two zero-score
-// never-recalled ties inherit the SQL order (ts DESC, id DESC) via the
-// stable sort.
 func TestHotRankUnrecalledSinksToZero(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
 	ts := now.Truncate(time.Second)
 	rows := [][]any{
-		{"decision", "회상있음", "요약", ts, int32(11), ts, ts, int32(9), now.Add(-5 * 24 * time.Hour)}, // 9-5=4
-		{"decision", "미회상고점", "요약", ts, int32(5), ts, ts, nil, nil},                               // no events → 0
-		{"decision", "미회상저점", "요약", ts, int32(2), ts, ts, nil, nil},                               // no events → 0
+		{"decision", "회상있음", "요약", ts, int32(11), ts, ts, int32(9), now.Add(-5 * 24 * time.Hour)},
+		{"decision", "미회상고점", "요약", ts, int32(5), ts, ts, nil, nil},
+		{"decision", "미회상저점", "요약", ts, int32(2), ts, ts, nil, nil},
 	}
 	f := hotRankedStore(t, rows)
 	var out bytes.Buffer
 	if code := RunHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("RunHot --full exit = %d: %s", code, out.String())
 	}
-	wantOrder := []string{"회상있음", "미회상고점", "미회상저점"} // 4 > 0 = 0 (ties keep the SQL order)
+	wantOrder := []string{"회상있음", "미회상고점", "미회상저점"}
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	for i, want := range wantOrder {
 		if i >= len(lines) || !strings.Contains(lines[i], want) {
@@ -264,13 +215,6 @@ func TestHotRankUnrecalledSinksToZero(t *testing.T) {
 	}
 }
 
-// TestHotRankedSQLShape — the single-definition (query.HotSQL·
-// HotHeadlineSQL) substitution contract: SELECT columns are h.-
-// qualified + the recall_events derived aggregate join (re.cnt·
-// re.last_at) merged at the tail; ORDER BY·LIMIT inherit the original
-// (v1.9.0 T4 — the v11 k.recall_score direct-column reference
-// abolished). A shape without the pivot returns the original (ranking
-// silently skipped — existing behavior inherited).
 func TestHotRankedSQLShape(t *testing.T) {
 	derived := "LEFT JOIN (SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at FROM recall_events GROUP BY knowledge_id) re ON re.knowledge_id = h.id"
 	for _, tc := range []struct {
@@ -282,9 +226,7 @@ func TestHotRankedSQLShape(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			got := hotRankedSQL(tc.base)
-			// v1.13.0 T2: the tags tail column (vtag.tags — the knowledge
-			// join supplies it; hot_view exposes no tags) rides after the
-			// ranking pair.
+
 			for _, frag := range []string{
 				"h.kind, h.topic, h.summary, h.ts, h.id",
 				"re.cnt, re.last_at, vtag.tags",
@@ -295,12 +237,11 @@ func TestHotRankedSQLShape(t *testing.T) {
 					t.Errorf("ranked SQL에 %q 누락: %s", frag, got)
 				}
 			}
-			// Defense against residual v11 direct-column references — the
-			// knowledge join·columns abolished.
+
 			if strings.Contains(got, "k.recall_score") || strings.Contains(got, "LEFT JOIN knowledge k") {
 				t.Errorf("v11 직접 열 참조 잔존: %s", got)
 			}
-			// LIMIT·the row cap inherit the original definitions.
+
 			if !strings.HasSuffix(got, tc.base[strings.LastIndex(tc.base, " LIMIT"):]) {
 				t.Errorf("LIMIT 절 미승계: %s", got)
 			}
@@ -311,10 +252,6 @@ func TestHotRankedSQLShape(t *testing.T) {
 	}
 }
 
-// TestHotRankDecayRateMetaOverride — the decay coefficient prefers the
-// meta override (thresholds contract inherited — unchanged even after
-// the derived switch): with decay_rate=0.5, 10 events·last recall 4
-// days ago yields an effective 8, above 7 events·recalled today.
 func TestHotRankDecayRateMetaOverride(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()
@@ -337,21 +274,18 @@ func TestHotRankDecayRateMetaOverride(t *testing.T) {
 	if code := RunHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("RunHot --full exit = %d: %s", code, out.String())
 	}
-	idxSlow := strings.Index(out.String(), "완만감쇠") // effective 8
-	idxLow := strings.Index(out.String(), "저점")    // effective 7
+	idxSlow := strings.Index(out.String(), "완만감쇠")
+	idxLow := strings.Index(out.String(), "저점")
 	if idxSlow < 0 || idxLow < 0 || idxSlow > idxLow {
 		t.Errorf("순서 = 완만감쇠@%d 저점@%d, want 완만감쇠 선행(0.5 계수: 8 > 7): %q", idxSlow, idxLow, out.String())
 	}
 }
 
-// A decay-ranking partial-sort regression: when the initial order
-// coincidentally matches the answer, a misaligned precomputed eff slice
-// stays hidden (an audit-reproduction case).
 func TestHotRankRowsEffectiveOrderNotAccidental(t *testing.T) {
 	rows := [][]any{
-		{"gamma", 5, mustTime(t, "2026-08-01T00:00:00Z")}, // eff 0 (score 5 - 100 days)
-		{"alpha", 1, mustTime(t, "2026-11-10T00:00:00Z")}, // eff 0 (score 1 - 2 days)
-		{"beta", 3, mustTime(t, "2026-11-15T00:00:00Z")},  // eff 2 (score 3 - 0 days)
+		{"gamma", 5, mustTime(t, "2026-08-01T00:00:00Z")},
+		{"alpha", 1, mustTime(t, "2026-11-10T00:00:00Z")},
+		{"beta", 3, mustTime(t, "2026-11-15T00:00:00Z")},
 	}
 	got := rankRowsByEffectiveScore(context.Background(), nil, rows, 0, 1, 2, 3, 1.0, 0, mustTime(t, "2026-11-17T00:00:00Z"))
 	if got[0][0] != "beta" || got[1][0] != "gamma" || got[2][0] != "alpha" {
@@ -359,23 +293,17 @@ func TestHotRankRowsEffectiveOrderNotAccidental(t *testing.T) {
 	}
 }
 
-// TestHotVolImmutableExemptFromDecay — the v1.13.0 T2 ranking switch,
-// measured on the --full path: a decay-exhausted row tagged
-// :vol:immutable: keeps its event count (10) and outranks both a
-// freshly-recalled row (9) and a vol:conditional row that decays verbatim
-// (10 events·10 days → 0). Without the exemption the order would put
-// the freshly-recalled row (9) first.
 func TestHotVolImmutableExemptFromDecay(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()
 	now := time.Now().UTC()
 	ts := now.Truncate(time.Second)
 	rows := [][]any{
-		// id=9: 10 events·10 days ago·immutable → exempt, effective 10
+
 		{"decision", "면제고점", "요약9", ts, int32(9), ts, ts, int32(10), now.Add(-10 * 24 * time.Hour), ":adr::vol:immutable:"},
-		// id=4: 10 events·10 days ago·conditional → decays verbatim, 0
+
 		{"decision", "조건부감쇠", "요약4", ts, int32(4), ts, ts, int32(10), now.Add(-10 * 24 * time.Hour), ":vol:conditional:"},
-		// id=3: 9 events·1 hour ago → 9 (no decay yet)
+
 		{"decision", "최고점수", "요약3", ts, int32(3), ts, ts, int32(9), now.Add(-time.Hour), ":adr:"},
 	}
 	f := hotRankedStore(t, rows)
@@ -383,7 +311,7 @@ func TestHotVolImmutableExemptFromDecay(t *testing.T) {
 	if code := RunHot(ctx, f, []string{"--full"}, strings.NewReader(""), &out); code != 0 {
 		t.Fatalf("RunHot --full exit = %d: %s", code, out.String())
 	}
-	wantOrder := []string{"면제고점", "최고점수", "조건부감쇠"} // 10 > 9 > 0
+	wantOrder := []string{"면제고점", "최고점수", "조건부감쇠"}
 	lines := strings.Split(strings.TrimSuffix(out.String(), "\n"), "\n")
 	for i, want := range wantOrder {
 		if i >= len(lines) || !strings.Contains(lines[i], want) {
@@ -392,14 +320,6 @@ func TestHotVolImmutableExemptFromDecay(t *testing.T) {
 	}
 }
 
-// ── v1.13.0 T2: the write.go vocabulary guard wiring (the colon-token
-// hard block — tested here because the write pipeline contract is
-// package-shared). ──
-
-// TestWriteColonTokenHardBlock — an unregistered colon tag token
-// ("foo:bar") is refused at exit 3 (the schema-error channel), while a
-// colon-free unknown tag keeps the plain warning (exit 0) and the
-// dictionary-registered vol:immutable passes clean (exit 0, no warnings).
 func TestWriteColonTokenHardBlock(t *testing.T) {
 	out, code := run(t, &fakeStore{}, []string{"knowledge"},
 		`{"topic":"t2-guard-a","summary":"합성","tags":["foo:bar"],"confidence":0.9}`)
@@ -436,12 +356,6 @@ func mustTime(t *testing.T, s string) time.Time {
 	return v
 }
 
-// ── The v1.9.0 T4 derived-ranking slow measurement (isolated DB — runs
-// only with SUPERLITE_REAL=1 + FLINT_TEST_DSN set, synthetic data
-// only). ──
-
-// hotRealStore — the real-DB adapter for running hot·read (reuses
-// writeRealStore: db.Repo metering·commits + pool Query).
 func hotRealStore(t *testing.T) *writeRealStore {
 	t.Helper()
 	dsn, ok := writeRealDSN()
@@ -466,11 +380,6 @@ func hotRealStore(t *testing.T) *writeRealStore {
 	return st
 }
 
-// hotSynthCleanup — cleans up the synthetic knowledge·recall events
-// marked by the tag prefix. A leading delete on entry (preventing
-// occasional InsertBatch failures from content_hash duplicates of rows
-// left by an interrupted prior run) + a t.Cleanup re-purge (LIFO —
-// registered before the adapter Close so it runs before closing).
 func hotSynthCleanup(t *testing.T, st *writeRealStore, prefix string) {
 	t.Helper()
 	purge := func() error {
@@ -494,10 +403,6 @@ func hotSynthCleanup(t *testing.T, st *writeRealStore, prefix string) {
 	})
 }
 
-// hotRec — a synthetic knowledge record (the db-test knowledgeRec
-// convention — no personal data). status: 'pending' for hot_view
-// exposure (the decision arm requires the :adr: tag + a 7-day
-// condition), 'active' for read queries.
 func hotRec(topic, hash, status string) map[string]any {
 	return map[string]any{
 		"kind":         "knowledge",
@@ -510,22 +415,13 @@ func hotRec(topic, hash, status string) map[string]any {
 	}
 }
 
-// TestHotDerivedRankingRealSlow — the derived-ranking switch, measured
-// (schema v12 real DB): event-accrued recall scores are reflected in
-// ranking with decay (A: 3 events·2 days ago → effective 1, top), while
-// decay-exhausted (B: 1 event·5 days ago → 0) and never-recalled (C: 0
-// events → cnt NULL) sit at the zero-score bottom (zero ties inherit
-// the SQL order). Insert order A→B→C makes the initial SQL order C,B,A —
-// also verifying that ranking flips the initial order (the real-DB
-// variant of the R36 partial-sort regression, same intent).
 func TestHotDerivedRankingRealSlow(t *testing.T) {
 	st := hotRealStore(t)
 	const prefix = "t4-v1900-rank-"
 	hotSynthCleanup(t, st, prefix)
 	injectHotSeams(t)
 	ctx := context.Background()
-	// The decay coefficient pinned to the default (1.0) — excluding meta
-	// overrides left by other tests.
+
 	if _, err := st.pool.Exec(ctx, `DELETE FROM meta WHERE key = 'decay_rate'`); err != nil {
 		t.Fatalf("decay_rate 오버라이드 초기화: %v", err)
 	}
@@ -537,7 +433,7 @@ func TestHotDerivedRankingRealSlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
-	// Recall events — A ×3 (2 days ago)·B ×1 (5 days ago)·C ×0.
+
 	for _, e := range []struct {
 		id int
 		n  int
@@ -562,20 +458,13 @@ func TestHotDerivedRankingRealSlow(t *testing.T) {
 	if idxA < 0 || idxB < 0 || idxC < 0 {
 		t.Fatalf("행 누락(A@%d B@%d C@%d): %q", idxA, idxB, idxC, out.String())
 	}
-	// Effective score descending: A (1) top; the B(0)·C(0) ties inherit
-	// the SQL order (C was ingested more recently than B — both the
-	// never-recalled C·the decay-exhausted B sit at the zero-score
-	// bottom).
+
 	if !(idxA < idxC && idxC < idxB) {
 		t.Errorf("랭킹 순서 = A@%d C@%d B@%d, want A < C < B(파생 감쇠 1·0·0 — 초기 SQL 순서 C,B,A에서 A가 최상으로 뒤집힘)",
 			idxA, idxC, idxB)
 	}
 }
 
-// TestReadJSONSchemaUnchangedRealSlow — even after the derived switch,
-// the read --json output schema is identical (a per-row {id,topic,
-// summary} string map — the FormatRows default fields). Measures the
-// machine-channel invariance in the presence of recall events.
 func TestReadJSONSchemaUnchangedRealSlow(t *testing.T) {
 	st := hotRealStore(t)
 	const prefix = "t4-v1900-json-"
@@ -616,8 +505,6 @@ func TestReadJSONSchemaUnchangedRealSlow(t *testing.T) {
 	}
 }
 
-// hotBenchP95 — the p95 of durations in milliseconds (ceiling index —
-// the PERF.md median·p95 convention).
 func hotBenchP95(ms []float64) float64 {
 	s := append([]float64(nil), ms...)
 	sort.Float64s(s)
@@ -628,24 +515,17 @@ func hotBenchP95(ms []float64) float64 {
 	return s[i-1]
 }
 
-// TestHotDerivedRankingBenchRealSlow — the derived-ranking benchmark
-// (the docs/PERF.md convention: isolated DB·100 synthetic knowledge
-// rows·10k events·3-run median). Compares the hot --full ranking query
-// p95 of the v11 direct-column shape (a synthetic comparison table
-// bench_k11 — reproducing the same distribution of the dropped
-// knowledge.recall_score·last_recalled_at columns) against the v12
-// derived aggregate join — spec requirement: under 2x vs v11.
 func TestHotDerivedRankingBenchRealSlow(t *testing.T) {
 	st := hotRealStore(t)
 	const prefix = "t4-v1900-bench-"
 	hotSynthCleanup(t, st, prefix)
-	t.Cleanup(func() { // table cleanup (LIFO — before the row cleanup)
+	t.Cleanup(func() {
 		if _, err := st.pool.Exec(context.Background(), `DROP TABLE IF EXISTS bench_k11`); err != nil {
 			t.Errorf("bench_k11 정리: %v", err)
 		}
 	})
 	ctx := context.Background()
-	// Synthetic seed — 100 knowledge rows · 100 events each (10k total).
+
 	recs := make([]map[string]any, 0, 100)
 	for i := 0; i < 100; i++ {
 		recs = append(recs, hotRec(
@@ -661,8 +541,7 @@ func TestHotDerivedRankingBenchRealSlow(t *testing.T) {
 		 WHERE k.topic LIKE $1`, prefix+"%"); err != nil {
 		t.Fatalf("이벤트 시드: %v", err)
 	}
-	// The v11 control — a table reproducing the same distribution of the
-	// dropped direct columns.
+
 	if _, err := st.pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS bench_k11 (
 		     knowledge_id integer NOT NULL,
@@ -698,7 +577,7 @@ func TestHotDerivedRankingBenchRealSlow(t *testing.T) {
 		}
 		return hotBenchP95(ms)
 	}
-	// 3-run median (the PERF.md §1 convention).
+
 	p95 := func(sql string) (float64, float64, float64) {
 		a, b, c := run(sql), run(sql), run(sql)
 		meds := []float64{a, b, c}
@@ -714,19 +593,6 @@ func TestHotDerivedRankingBenchRealSlow(t *testing.T) {
 	}
 }
 
-// TestHotDerivedRankingAfterPruneBenchRealSlow — the v1.9.1 R42-D
-// regression: the recall_events retention-prune (recall_event_
-// retention_days default 90) restores the derived ranking p95 of a
-// heavily accumulated event set back within the 2x contract. Synthetic
-// seed of 100 knowledge × 100k events (uniform 0~900 days — reproducing
-// long-term accumulation, ~10% surviving in the 90-day retention
-// window)·measures the derived ranking p95 before·after the prune (the
-// single db.Repo.PruneRecallEvents path), rebuilds the v11
-// direct-column control (bench_k11) from the surviving events, and
-// asserts the 3-run median ratio < 2x (the PERF.md convention — residual
-// scale stated). The retention-window invariance is asserted alongside —
-// rows whose every event lies inside the retention window keep identical
-// cnt·last_at before·after the prune (the ranking source unchanged).
 func TestHotDerivedRankingAfterPruneBenchRealSlow(t *testing.T) {
 	st := hotRealStore(t)
 	const prefix = "t4-v1910-prune-"
@@ -737,9 +603,7 @@ func TestHotDerivedRankingAfterPruneBenchRealSlow(t *testing.T) {
 		}
 	})
 	ctx := context.Background()
-	// Synthetic seed — 100 ranking rows (1000 events each × 0~900 days) +
-	// 1 retention-window row (3 events·2 days ago — 0 expired, the
-	// prune-invariance assertion target).
+
 	recs := make([]map[string]any, 0, 101)
 	for i := 0; i < 100; i++ {
 		recs = append(recs, hotRec(
@@ -772,7 +636,7 @@ func TestHotDerivedRankingAfterPruneBenchRealSlow(t *testing.T) {
 	if seeded != 100*1000+3 {
 		t.Fatalf("시드 이벤트 = %d, want 100003", seeded)
 	}
-	// Pre-prune snapshot of the retention row (cnt·last_at).
+
 	var preCnt int
 	var preLast time.Time
 	if err := st.pool.QueryRow(ctx,
@@ -798,16 +662,15 @@ func TestHotDerivedRankingAfterPruneBenchRealSlow(t *testing.T) {
 		}
 		return hotBenchP95(ms)
 	}
-	// 3-run median (the PERF.md §1 convention).
+
 	med := func(sql string) float64 {
 		a, b, c := run(sql), run(sql), run(sql)
 		meds := []float64{a, b, c}
 		sort.Float64s(meds)
 		return meds[1]
 	}
-	preDerived := med(derivedSQL) // the degraded p95 of the accumulated state (100k events)
-	// prune — retention 90 days (the default-value path — no meta
-	// override).
+	preDerived := med(derivedSQL)
+
 	n, err := st.PruneRecallEvents(ctx, time.Now().UTC().AddDate(0, 0, -90))
 	if err != nil {
 		t.Fatalf("PruneRecallEvents: %v", err)
@@ -825,8 +688,7 @@ func TestHotDerivedRankingAfterPruneBenchRealSlow(t *testing.T) {
 	if postCnt != preCnt || !postLast.Equal(preLast) {
 		t.Errorf("보존 구간 불변 위반: cnt %d→%d, last %v→%v", preCnt, postCnt, preLast, postLast)
 	}
-	// The v11 control — a table reproducing the same distribution of the
-	// surviving events.
+
 	if _, err := st.pool.Exec(ctx,
 		`CREATE TABLE IF NOT EXISTS bench_k11 (
 		     knowledge_id integer NOT NULL,
@@ -852,17 +714,9 @@ func TestHotDerivedRankingAfterPruneBenchRealSlow(t *testing.T) {
 	}
 }
 
-// ── v1.14.0 T4: the survived decay relief ──
-
-// TestEventEffectiveScoreSurvivedRelief — the extended pure formula
-// count − max(0, rate×days − survived×relief), outer clamp at 0. relief 0
-// is fully equivalent to the legacy formula for any survived (the
-// release-time invariance ruling); the relief is weakly monotone in
-// survived; an overshooting relief grants no bonus (the inner max(0,·)
-// clamp); the outer 0 floor is unchanged.
 func TestEventEffectiveScoreSurvivedRelief(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
-	last := now.Add(-10 * 24 * time.Hour) // 10 elapsed days, rate 1 → decay 10
+	last := now.Add(-10 * 24 * time.Hour)
 	for _, c := range []struct {
 		name     string
 		count    int
@@ -885,17 +739,13 @@ func TestEventEffectiveScoreSurvivedRelief(t *testing.T) {
 	}
 }
 
-// TestEffectiveScoreForSurvivedExemptIgnored — the volatility exemption
-// takes precedence: an exempt row keeps its count regardless of survived
-// (the exemption is independent of the relief multiplication — when
-// exempt, survived is meaningless).
 func TestEffectiveScoreForSurvivedExemptIgnored(t *testing.T) {
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
-	last := now.Add(-100 * 24 * time.Hour) // 100 days, rate 1
+	last := now.Add(-100 * 24 * time.Hour)
 	if got := EffectiveScoreFor(8, last, now, 1.0, ":vol:immutable:", 5, 3); got != 8 {
 		t.Errorf("면제+survived = %d, want 8(survived 무시·면제 우선)", got)
 	}
-	// Non-exempt passes survived·relief through to the pure formula.
+
 	if got := EffectiveScoreFor(8, last, now, 1.0, "", 50, 3); got != 8 {
 		t.Errorf("비면제 초과 완화 = %d, want 8", got)
 	}
@@ -904,8 +754,6 @@ func TestEffectiveScoreForSurvivedExemptIgnored(t *testing.T) {
 	}
 }
 
-// rankRowsSurvivedStore — a fake answering the survived lookup for one id
-// set (mirrors the SurvivedCounts SQL shape) and counting the queries.
 type rankRowsSurvivedStore struct {
 	*fakeStore
 	survived    map[int]int
@@ -928,18 +776,11 @@ func (s *rankRowsSurvivedStore) Query(ctx context.Context, sql string, args ...a
 	return s.fakeStore.Query(ctx, sql, args...)
 }
 
-// TestRankRowsSurvivedRelief — the ranking consumer connection: with
-// relief > 0 the survived counts (one batched knowledge_reads lookup)
-// lift an otherwise-decayed row above a fresher one; with relief 0 no
-// survived lookup is issued at all (equivalence + zero extra query —
-// the opt-in ruling).
 func TestRankRowsSurvivedRelief(t *testing.T) {
 	ctx := context.Background()
 	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	ts := now.Add(-time.Hour)
-	// 10-column --full shape: id idx 4, cnt 7, last 8, tags 9.
-	// id 3: cnt 12, 10 days old (decay 12−10=2 without relief).
-	// id 7: cnt 4, fresh (eff 4). Survived 4 × relief 1 → id 3 eff 6 → above id 7.
+
 	rows := [][]any{
 		{"pending", "t3", "s3", ts, int32(3), ts, ts, int32(12), now.Add(-10 * 24 * time.Hour), ":adr:"},
 		{"decision", "t7", "s7", ts, int32(7), ts, ts, int32(4), now.Add(-time.Hour), ":adr:"},
@@ -953,7 +794,7 @@ func TestRankRowsSurvivedRelief(t *testing.T) {
 	if st.kreadsCalls != 1 {
 		t.Errorf("knowledge_reads 조회 %d회, want 1(일괄 1회)", st.kreadsCalls)
 	}
-	// relief 0 (default inactive): no survived lookup, ranking unchanged.
+
 	st2 := &rankRowsSurvivedStore{fakeStore: &fakeStore{}, survived: map[int]int{3: 4}}
 	got2 := rankRowsByEffectiveScore(ctx, st2, rows, hotViewIDIdx, hotViewRecallScoreIdx,
 		hotViewLastRecalledIdx, hotViewTagsIdx, 1.0, 0, now)

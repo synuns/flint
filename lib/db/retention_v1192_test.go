@@ -1,9 +1,3 @@
-// retention_v1192_test.go — the v1.19.2 read-side cutoff/span clamp
-// regressions (R75): DaysCutoff/DaysSpan clamp a days override past the
-// 106751-day Duration ceiling instead of wrapping
-// time.Duration(days)*24h negative (a future cutoff / a negative span).
-// The pre-fix arithmetic lived inline at every read filter — the sweep
-// moved it here once.
 package db
 
 import (
@@ -33,9 +27,6 @@ func TestDaysCutoffClampsCeiling(t *testing.T) {
 	}
 }
 
-// TestDaysCutoffNeverFuture — the overflow contract: no days input
-// yields a cutoff after now (the wrapped arithmetic produced a future
-// cutoff — the whole-table sweep).
 func TestDaysCutoffNeverFuture(t *testing.T) {
 	now := time.Now()
 	for _, days := range []int{0, 1, 90, 106751, 106752, 200000, 1 << 20, -1} {
@@ -45,9 +36,6 @@ func TestDaysCutoffNeverFuture(t *testing.T) {
 	}
 }
 
-// TestDaysSpanNeverNegative — the elapsed-span form of the same clamp:
-// a huge days value yields the ceiling span (~2562024h), never a
-// wrapped-negative span (which flipped every elapsed comparison).
 func TestDaysSpanNeverNegative(t *testing.T) {
 	now := time.Now()
 	got := DaysSpan(200000, now)
@@ -63,8 +51,6 @@ func TestDaysSpanNeverNegative(t *testing.T) {
 	}
 }
 
-// TestRetentionCutoffDaysDelegates — the v1.19.1 prune-path helper
-// still resolves the days<=0 fallback then shares the clamp.
 func TestRetentionCutoffDaysDelegates(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	if got := retentionCutoffDays(0, 90, now); !got.Equal(now.AddDate(0, 0, -90)) {

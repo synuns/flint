@@ -1,11 +1,3 @@
-// usage_flatkey_test.go — the daily flat-key switch (real-DB slow —
-// skipped in fast mode without FLINT_TEST_DSN). Contract: single-UPSERT
-// atomic increments of the daily:<kind>:<date> integer values (the
-// bumpMeta pattern — abolishing read-modify-write last-write-wins)·
-// corrupted values rewritten from 0·readDailyFlat prefers the flat key +
-// inherits the legacy daily:<date> JSON fallback (preventing loss of
-// existing window statistics — read-only)·PruneDaily cleans both key
-// forms.
 package db
 
 import (
@@ -17,8 +9,6 @@ import (
 	"time"
 )
 
-// flatDailyValue — reads the daily:<kind>:<date> value as an integer
-// (a test helper).
 func flatDailyValue(t *testing.T, r *Repo, kind, date string) int {
 	t.Helper()
 	var val string
@@ -33,18 +23,11 @@ func flatDailyValue(t *testing.T, r *Repo, kind, date string) int {
 	return n
 }
 
-// TestFlatKeyAtomicIncrement — increments (consecutive additions)·
-// corrupt rewrite-from-0·parallel atomic increments (abolishing race
-// loss — the motivation of the flat switch).
-// e.g. bumpDailyFlat("2026-11-13","hot_bytes",1180) → existing+1180 in
-// one UPSERT.
 func slowFlatKeyAtomicIncrement(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// Increments — consecutive records add up (1180 + 820 = 2000, 2
-	// single UPSERTs).
 	if _, err := r.bumpDailyFlat(ctx, today, "hot_bytes", 1180); err != nil {
 		t.Fatalf("bumpDailyFlat(hot_bytes,1180): %v", err)
 	}
@@ -55,8 +38,6 @@ func slowFlatKeyAtomicIncrement(t *testing.T, r *Repo) {
 		t.Fatalf("daily:hot_bytes:%s = %d, want 2000(1180+820 증분)", today, got)
 	}
 
-	// Per-kind key separation — a different kind gets a separate key even
-	// on the same date.
 	if _, err := r.bumpDailyFlat(ctx, today, "read_bytes", 42); err != nil {
 		t.Fatalf("bumpDailyFlat(read_bytes,42): %v", err)
 	}
@@ -64,8 +45,6 @@ func slowFlatKeyAtomicIncrement(t *testing.T, r *Repo) {
 		t.Fatalf("daily:read_bytes:%s = %d, want 42(키 kind별 분리)", today, got)
 	}
 
-	// Corrupt rewrite-from-0 — a non-integer existing value recounts from
-	// 0 (5).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`,
@@ -79,12 +58,6 @@ func slowFlatKeyAtomicIncrement(t *testing.T, r *Repo) {
 		t.Fatalf("파손 재기작 후 daily:brief:%s = %d, want 5(0에서 재기작)", today, got)
 	}
 
-	// Parallel records — accepted without error, and the counter is at
-	// least 1. Doltgres quietly accepts concurrent UPSERTs of the same
-	// row as last-write-wins (demonstrated 2026-11-13 — some increments
-	// lost without error, the same level as the legacy JSON race
-	// contract. Single-statement atomicity is the Postgres baseline; on
-	// Doltgres it is the relaxed form with no error·no retry).
 	if _, err := r.pool.Exec(ctx,
 		`DELETE FROM meta WHERE key = $1`, "daily:write:"+today); err != nil {
 		t.Fatal(err)
@@ -111,17 +84,11 @@ func slowFlatKeyAtomicIncrement(t *testing.T, r *Repo) {
 	}
 }
 
-// TestReadDailyFlatLegacyFallback — flat key preferred·the legacy
-// daily:<date> JSON fallback inherited. When the flat key is absent,
-// the legacy JSON value is read (a migration-read inheritance); once
-// the flat key exists, it wins. Corrupt·absent·null fallback JSON is 0.
 func slowReadDailyFlatLegacyFallback(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// Legacy-JSON inheritance — the fallback read when the flat key is
-	// absent (no write migration).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)`,
 		"daily:"+today, `{"write":4,"hot":7}`); err != nil {
@@ -142,8 +109,6 @@ func slowReadDailyFlatLegacyFallback(t *testing.T, r *Repo) {
 		}
 	}
 
-	// Flat priority — once the flat key exists, its value regardless of
-	// the legacy JSON.
 	if _, err := r.bumpDailyFlat(ctx, today, "write", 1); err != nil {
 		t.Fatal(err)
 	}
@@ -155,8 +120,6 @@ func slowReadDailyFlatLegacyFallback(t *testing.T, r *Repo) {
 		t.Fatalf("readDailyFlat(write) = %d, want 1(플랫 키 우선 — 폴백값 4 아님)", got)
 	}
 
-	// Corrupt·null·absent-key fallback JSON — 0 (aligned with the
-	// rewrite contract, no panic).
 	for _, corrupt := range []string{"{broken", "null", `{"write":"x"}`} {
 		if _, err := r.pool.Exec(ctx,
 			`INSERT INTO meta (key, value) VALUES ($1, $2)
@@ -174,20 +137,13 @@ func slowReadDailyFlatLegacyFallback(t *testing.T, r *Repo) {
 	}
 }
 
-// TestPruneDailyBothKeyForms — PruneDaily cleans both the legacy
-// daily:<date> JSON keys and the new daily:<kind>:<date> flat keys (the
-// 14-day retention unchanged — today + the prior 13 days).
 func slowPruneDailyBothKeyForms(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	ctx := context.Background()
 	day := func(age int) string {
 		return time.Now().UTC().AddDate(0, 0, -age).Format("2006-01-02")
 	}
-	// Both forms 15 days old (deletion targets) + a yesterday flat key
-	// (retained). The gapq rows demonstrate the v1.12.0 gap-counter key
-	// pruning: daily:gapq:<sha256>:<date> (three segments — the
-	// BumpGapQuery counter form) both expires beyond retention and is
-	// retained inside it (the date-rollover daily reset).
+
 	gapqOld := "daily:gapq:" + strings.Repeat("ab", 32) + ":" + day(15)
 	gapqNew := "daily:gapq:" + strings.Repeat("cd", 32) + ":" + day(1)
 	for _, stmt := range []struct{ key, val string }{
@@ -216,8 +172,7 @@ func slowPruneDailyBothKeyForms(t *testing.T, r *Repo) {
 			t.Fatalf("14일 초과 키 %s 잔존 — 양쪽 형식 정리 계약 위반", gone)
 		}
 	}
-	// The in-retention gapq key survives (the same-day counter must not
-	// be pruned while the day is live).
+
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM meta WHERE key = $1`, gapqNew).Scan(&n); err != nil {
 		t.Fatal(err)

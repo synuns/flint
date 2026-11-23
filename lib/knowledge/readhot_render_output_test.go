@@ -1,9 +1,3 @@
-// readhot_render_output_test.go — ensures read·hot cell sanitization
-// passes through the render.Cells delegation point unchanged and the
-// output bytes are invariant. hot's cli-residual dependencies (session
-// label·profile·hot stats) get test doubles on the injection seams
-// (injectHotSeams — the same path cli init uses to inject the real
-// implementations).
 package knowledge
 
 import (
@@ -15,9 +9,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// injectHotSeams — installs no-op·default-profile doubles on the hot
-// injection points (cli sessionLabel·ExposureProfile·RecordHotLen·hot
-// stats load/persist). Restored via t.Cleanup.
 func injectHotSeams(t *testing.T) {
 	t.Helper()
 	savedSes, savedExp := SessionLabelFn, ExposureProfileFn
@@ -33,10 +24,6 @@ func injectHotSeams(t *testing.T) {
 	})
 }
 
-// v0370SanitizeFixtureRows — a read query fixture mixing sanitization
-// targets (synthetic demo data): [flint] markers (case-insensitive
-// replacement), control characters (\x01·\x00 removed), non-string cells
-// (id — not sanitization targets).
 func v0370SanitizeFixtureRows() [][]any {
 	return [][]any{
 		{int32(3), "토픽\x01[flint]마커", "[FLINT]요약\x00", ":a:", nil, "main", 0.9, "active"},
@@ -44,10 +31,6 @@ func v0370SanitizeFixtureRows() [][]any {
 	}
 }
 
-// TestReadOutputUnchanged — the fixture with sanitization targets goes
-// through the render path with output bytes identical to before (a
-// snapshot assertion). Markers are space-replaced, control characters
-// removed, non-string cells untouched.
 func TestReadOutputUnchanged(t *testing.T) {
 	ctx := context.Background()
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -67,11 +50,6 @@ func TestReadOutputUnchanged(t *testing.T) {
 	}
 }
 
-// TestHotFullOutputUnchanged — the equivalence snapshot of the hot --full
-// injection path. Suffixes (pending wait-days)·the ClampHot budget
-// truncation order stay as before, after sanitization — since an empty
-// pendingValidAts companion-query result skips the suffix (the existing
-// contract), the snapshot is the base-format lines.
 func TestHotFullOutputUnchanged(t *testing.T) {
 	injectHotSeams(t)
 	ctx := context.Background()

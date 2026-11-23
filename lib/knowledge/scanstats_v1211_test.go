@@ -1,8 +1,3 @@
-// scanstats_v1211_test.go — v1.21.1 A6 (r91/r93/r94): the write and read
-// exits flush the scan accumulator through PersistScanStatsFn (a one-shot
-// CLI process accumulating echo/suggestion samples had no persist point —
-// the samples were lost at exit). The seam is invoked exactly once per
-// successful command, after the output line.
 package knowledge
 
 import (
@@ -13,7 +8,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// TestWriteExitFlushesScanStats — RunWrite's success tail calls the seam.
 func TestWriteExitFlushesScanStats(t *testing.T) {
 	calls := 0
 	prev := PersistScanStatsFn
@@ -30,8 +24,6 @@ func TestWriteExitFlushesScanStats(t *testing.T) {
 	}
 }
 
-// TestReadExitFlushesScanStats — RunRead's success tail (zero-hit is exit
-// 0) calls the seam.
 func TestReadExitFlushesScanStats(t *testing.T) {
 	calls := 0
 	prev := PersistScanStatsFn

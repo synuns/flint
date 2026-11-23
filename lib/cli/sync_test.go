@@ -1,8 +1,3 @@
-// sync_test.go — CLI contract tests for `flint sync remote`.
-// fast stubs SQL via fakeStore.Query — the logic (the real db.RemoteAdd/List/Remove
-// implementations) runs through real code; only execution is faked (the SUPERLITE_REAL=1 seam is real DB).
-// The raw remote url and credentials never leak into any output —
-// success, error, or usage (list shows only the MaskRemoteURL result).
 package cli
 
 import (
@@ -13,9 +8,6 @@ import (
 	"testing"
 )
 
-// syncQueryFn — fakeStore.queryFn: stubs per remote query pattern.
-// Branches on SQL substrings between the existence check (WHERE name), add/remove
-// (dolt_remote), and the listing (FROM dolt_remotes ORDER BY).
 func syncQueryFn(existing map[string]bool, listRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -44,8 +36,6 @@ func str(v any) string { s, _ := v.(string); return s }
 
 func runSyncArgs(args ...string) []string { return args }
 
-// TestSyncRemoteAddOK — new registration exits 0 with one-line JSON. The output carries no raw url or
-// credentials (name and status only — the url itself is sensitive).
 func TestSyncRemoteAddOK(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
@@ -66,7 +56,6 @@ func TestSyncRemoteAddOK(t *testing.T) {
 	}
 }
 
-// TestSyncRemoteAddDuplicate — duplicate name exits 3; the error contains no raw url.
 func TestSyncRemoteAddDuplicate(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{"demo": true}, nil)}
@@ -87,20 +76,18 @@ func TestSyncRemoteAddDuplicate(t *testing.T) {
 	}
 }
 
-// TestSyncUsageErrors — all usage errors exit 3 (too few args, invalid sub,
-// empty name, empty url, scheme-less url, bare `sync`, bare `remote`, excess positional args).
 func TestSyncUsageErrors(t *testing.T) {
 	cases := [][]string{
 		{},
 		{"remote"},
-		{"push"},           // push missing remote name
-		{"pull"},           // pull missing remote name
-		{"remote", "push"}, // invalid sub of remote
+		{"push"},
+		{"pull"},
+		{"remote", "push"},
 		{"remote", "add"},
 		{"remote", "add", "only-name"},
 		{"remote", "add", "", "https://h.example/r"},
 		{"remote", "add", "demo", ""},
-		{"remote", "add", "demo", "doltremoteapi.dolthub.com/org"}, // no scheme
+		{"remote", "add", "demo", "doltremoteapi.dolthub.com/org"},
 		{"remote", "remove"},
 		{"remote", "remove", ""},
 		{"remote", "list", "extra"},
@@ -119,7 +106,6 @@ func TestSyncUsageErrors(t *testing.T) {
 	}
 }
 
-// TestSyncServerDown — server-down exits 2 (one ErrLine, the MapExit convention).
 func TestSyncServerDown(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{pingErr: context.DeadlineExceeded, queryFn: syncQueryFn(map[string]bool{}, nil)}
@@ -128,7 +114,7 @@ func TestSyncServerDown(t *testing.T) {
 	if code != 2 {
 		t.Fatalf("exit = %d, want 2, stdout = %s", code, stdout.String())
 	}
-	// st nil is treated the same as server-down (carrying over the export convention).
+
 	stdout.Reset()
 	if code := runSync(context.Background(), nil,
 		runSyncArgs("remote", "list"), strings.NewReader(""), &stdout); code != 2 {
@@ -136,8 +122,6 @@ func TestSyncServerDown(t *testing.T) {
 	}
 }
 
-// TestSyncRemoteListMasked — the listing shows only the masked url (scheme+host — no credentials,
-// path, or port). No raw component appears at all.
 func TestSyncRemoteListMasked(t *testing.T) {
 	var stdout bytes.Buffer
 	listRows := [][]any{
@@ -164,7 +148,6 @@ func TestSyncRemoteListMasked(t *testing.T) {
 	}
 }
 
-// TestSyncRemoteListEmpty — zero remotes gives {"remotes":[]} exit 0.
 func TestSyncRemoteListEmpty(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
@@ -178,7 +161,6 @@ func TestSyncRemoteListEmpty(t *testing.T) {
 	}
 }
 
-// TestSyncRemoteRemoveOK — removal exits 0 with one-line JSON (name and status only).
 func TestSyncRemoteRemoveOK(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{"demo": true}, nil)}
@@ -192,7 +174,6 @@ func TestSyncRemoteRemoveOK(t *testing.T) {
 	}
 }
 
-// TestSyncRemoteRemoveMissing — missing name exits 3.
 func TestSyncRemoteRemoveMissing(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
@@ -206,8 +187,6 @@ func TestSyncRemoteRemoveMissing(t *testing.T) {
 	}
 }
 
-// TestSyncAddQueryFailure — a dolt_remote execution error exits 1 (cause preserved,
-// no raw url leaked — the error wrapping carries no url).
 func TestSyncAddQueryFailure(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -227,15 +206,10 @@ func TestSyncAddQueryFailure(t *testing.T) {
 	}
 }
 
-// syncOpsQueryFn — fakeStore.queryFn for push/pull: a remote-name -> url dictionary
-// lookup, a head-hash queue (popped in call order), push/fetch/merge stubs, and error injection.
-// v1.7.2 T3: added a dolt_reset stub (S2); push result-row customization delegates to
-// syncOpsRowsQueryFn (S6 no-op).
 func syncOpsQueryFn(remotes map[string]string, heads []string, pushErr, fetchErr, mergeErr error) func(string, []any) ([][]any, error) {
 	return syncOpsRowsQueryFn(remotes, heads, [][]any{{"(0,\"pushed\")"}}, pushErr, fetchErr, mergeErr)
 }
 
-// syncOpsRowsQueryFn — a syncOpsQueryFn variant that specifies the push result rows.
 func syncOpsRowsQueryFn(remotes map[string]string, heads []string, pushRows [][]any, pushErr, fetchErr, mergeErr error) func(string, []any) ([][]any, error) {
 	headIdx := 0
 	return func(sql string, args []any) ([][]any, error) {
@@ -274,8 +248,6 @@ func syncOpsRowsQueryFn(remotes map[string]string, heads []string, pushRows [][]
 	}
 }
 
-// TestSyncPushOK — `sync push <remote>` exit 0·{remote,status,hash} JSON·
-// no raw url exposure (runs by remote name only — the url is not in the output).
 func TestSyncPushOK(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsQueryFn(
@@ -299,7 +271,6 @@ func TestSyncPushOK(t *testing.T) {
 	}
 }
 
-// TestSyncPullMerged — `sync pull <remote>` reports status merged when the hash changes.
 func TestSyncPullMerged(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsQueryFn(
@@ -316,7 +287,6 @@ func TestSyncPullMerged(t *testing.T) {
 	}
 }
 
-// TestSyncPullDry — `sync pull <remote> --dry` reports status fetched with no application.
 func TestSyncPullDry(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsQueryFn(
@@ -337,7 +307,6 @@ func TestSyncPullDry(t *testing.T) {
 	}
 }
 
-// TestSyncPushPullRemoteMissing — push/pull to an unregistered remote all exit 3.
 func TestSyncPushPullRemoteMissing(t *testing.T) {
 	for _, sub := range []string{"push", "pull"} {
 		var stdout bytes.Buffer
@@ -353,8 +322,6 @@ func TestSyncPushPullRemoteMissing(t *testing.T) {
 	}
 }
 
-// TestSyncPushFailureMasksURL — a push execution error exits 1 with the raw url masked
-// (unreachable — cause preserved, scheme+host only).
 func TestSyncPushFailureMasksURL(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsQueryFn(
@@ -374,8 +341,6 @@ func TestSyncPushFailureMasksURL(t *testing.T) {
 	}
 }
 
-// TestSyncPullConflict — merge conflict exits 1 + manual-resolution guidance (no auto-
-// resolution).
 func TestSyncPullConflict(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsQueryFn(
@@ -396,8 +361,6 @@ func TestSyncPullConflict(t *testing.T) {
 	}
 }
 
-// TestSyncPushPullUsageErrors — push/pull usage errors exit 3 (too few args,
-// empty name, excess, invalid flag).
 func TestSyncPushPullUsageErrors(t *testing.T) {
 	cases := [][]string{
 		{"push"},
@@ -422,10 +385,6 @@ func TestSyncPushPullUsageErrors(t *testing.T) {
 	}
 }
 
-// TestSyncRemoteAddSchemeWhitelist — v1.7.2 T3 S5: url scheme whitelist;
-// only https, http, and file are accepted. postgres:// etc. exits 3 at add time (the same usage error as a
-// scheme-less url — dolt_push has the remote url interpreted by the Doltgres server, so
-// host-local schemes are misconfiguration to register).
 func TestSyncRemoteAddSchemeWhitelist(t *testing.T) {
 	ok := []struct{ name, url string }{
 		{"demo-h", "https://h.example.invalid/org/repo"},
@@ -445,7 +404,7 @@ func TestSyncRemoteAddSchemeWhitelist(t *testing.T) {
 		"postgres://flint:pw@db.example.invalid:5433/flint",
 		"postgresql://db.example.invalid/flint",
 		"ftp://h.example.invalid/repo",
-		"file:///tmp/x y", // whitespace
+		"file:///tmp/x y",
 	}
 	for _, u := range bad {
 		var stdout bytes.Buffer
@@ -461,8 +420,6 @@ func TestSyncRemoteAddSchemeWhitelist(t *testing.T) {
 	}
 }
 
-// TestSyncRemoteAddFileNote — v1.7.2 T3 S4: the add success output carries one guidance line about the file:// path
-// interpretation authority (file:// paths are interpreted relative to the Doltgres server).
 func TestSyncRemoteAddFileNote(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncQueryFn(map[string]bool{}, nil)}
@@ -476,8 +433,6 @@ func TestSyncRemoteAddFileNote(t *testing.T) {
 	}
 }
 
-// TestSyncPushNoOpReported — v1.7.2 T3 S6: a no-op push (remote already up to date) is
-// reported as "up_to_date" — the user can distinguish success from nothing pushed.
 func TestSyncPushNoOpReported(t *testing.T) {
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsRowsQueryFn(
@@ -493,11 +448,8 @@ func TestSyncPushNoOpReported(t *testing.T) {
 	}
 }
 
-// TestSyncResetYesGate — v1.7.2 T3 S2: `sync reset --to-remote <name>` is a
-// dry-run by default (loss warning, exit 0, 0 queries); only --yes executes (the teardown convention).
-// --yes + unregistered remote exits 3.
 func TestSyncResetYesGate(t *testing.T) {
-	// 1) without --yes — dry-run, warning, no execution.
+
 	var stdout bytes.Buffer
 	f := &fakeStore{queryFn: syncOpsQueryFn(
 		map[string]string{"demo": "file:///tmp/demo-remote"}, []string{"h-remote"}, nil, nil, nil)}
@@ -518,7 +470,6 @@ func TestSyncResetYesGate(t *testing.T) {
 		}
 	}
 
-	// 2) --yes — executes, status reset.
 	stdout.Reset()
 	f = &fakeStore{queryFn: syncOpsQueryFn(
 		map[string]string{"demo": "file:///tmp/demo-remote"}, []string{"h-remote"}, nil, nil, nil)}
@@ -531,7 +482,6 @@ func TestSyncResetYesGate(t *testing.T) {
 		t.Fatalf("reset 실행 출력 계약 위반: %s", stdout.String())
 	}
 
-	// 3) --yes + unregistered — exit 3.
 	stdout.Reset()
 	f = &fakeStore{queryFn: syncOpsQueryFn(map[string]string{}, []string{"h0"}, nil, nil, nil)}
 	code = runSync(context.Background(), f,
@@ -541,8 +491,6 @@ func TestSyncResetYesGate(t *testing.T) {
 	}
 }
 
-// TestSyncResetUsageErrors — v1.7.2 T3 S2: reset usage errors exit 3
-// (missing target, missing --to-remote value, unknown arg, positional args not allowed).
 func TestSyncResetUsageErrors(t *testing.T) {
 	cases := [][]string{
 		{"reset"},
@@ -565,9 +513,6 @@ func TestSyncResetUsageErrors(t *testing.T) {
 	}
 }
 
-// TestSyncPushPullRealSeam — seam check (SUPERLITE_REAL=1 + FLINT_TEST_DSN):
-// on a real DB: push (synthetic file:// remote) -> pull up_to_date -> dry -> unregistered exit 3.
-// Real-coverage of the conflict scenario is lib/db TestSyncPushPullRoundTripRealSlow.
 func TestSyncPushPullRealSeam(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -585,14 +530,14 @@ func TestSyncPushPullRealSeam(t *testing.T) {
 		code := runSync(context.Background(), st, args, strings.NewReader(""), &out)
 		return code, out.String()
 	}
-	run("remote", "remove", name) // clean up leftovers from prior runs
+	run("remote", "remove", name)
 	t.Cleanup(func() { run("remote", "remove", name) })
 
 	rawURL := "file://" + t.TempDir() + "/seam-remote"
 	if code, out := run("remote", "add", name, rawURL); code != 0 {
 		t.Fatalf("add exit = %d, out = %s", code, out)
 	}
-	// push — no status, hash, or url exposed.
+
 	code, out := run("push", name)
 	if code != 0 {
 		t.Fatalf("push exit = %d, out = %s", code, out)
@@ -603,24 +548,20 @@ func TestSyncPushPullRealSeam(t *testing.T) {
 	if strings.Contains(out, rawURL) {
 		t.Fatalf("push 출력에 url 원문 노출: %s", out)
 	}
-	// pull — up_to_date since it is our own remote.
+
 	if code, out := run("pull", name); code != 0 || !strings.Contains(out, `"status":"up_to_date"`) {
 		t.Fatalf("pull exit = %d, out = %s", code, out)
 	}
-	// dry — fetched, no errors.
+
 	if code, out := run("pull", name, "--dry"); code != 0 || !strings.Contains(out, `"status":"fetched"`) {
 		t.Fatalf("dry pull exit = %d, out = %s", code, out)
 	}
-	// unregistered push exits 3.
+
 	if code, _ := run("push", "ghost"); code != 3 {
 		t.Fatalf("missing push exit = %d, want 3", code)
 	}
 }
 
-// TestSyncRemoteRoundTripRealSeam — seam check (SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN): round-trips the whole runSync path on a real DB (register ->
-// masked list -> duplicate exit 3 -> remove -> missing exit 3). Unset environments skip —
-// the fast fake contract tests above cover the same contract.
 func TestSyncRemoteRoundTripRealSeam(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -638,15 +579,14 @@ func TestSyncRemoteRoundTripRealSeam(t *testing.T) {
 		code := runSync(context.Background(), st, args, strings.NewReader(""), &out)
 		return code, out.String()
 	}
-	run("remote", "remove", name) // clean up leftovers from prior runs
+	run("remote", "remove", name)
 	t.Cleanup(func() { run("remote", "remove", name) })
 
-	// register (file:// synthetic remote — the raw value never appears in the list output).
 	rawURL := "file://" + t.TempDir() + "/seam-remote"
 	if code, out := run("remote", "add", name, rawURL); code != 0 {
 		t.Fatalf("add exit = %d, out = %s", code, out)
 	}
-	// list — masked url only.
+
 	code, out := run("remote", "list")
 	if code != 0 {
 		t.Fatalf("list exit = %d, out = %s", code, out)
@@ -654,11 +594,11 @@ func TestSyncRemoteRoundTripRealSeam(t *testing.T) {
 	if !strings.Contains(out, `"name":"`+name+`"`) || !strings.Contains(out, `"url":"file://"`) {
 		t.Fatalf("목록 마스킹 계약 불일치: %s", out)
 	}
-	// duplicate exits 3.
+
 	if code, out := run("remote", "add", name, rawURL); code != 3 {
 		t.Fatalf("duplicate add exit = %d, want 3, out = %s", code, out)
 	}
-	// remove -> missing exits 3.
+
 	if code, out := run("remote", "remove", name); code != 0 {
 		t.Fatalf("remove exit = %d, out = %s", code, out)
 	}

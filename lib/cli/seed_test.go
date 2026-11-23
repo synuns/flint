@@ -1,8 +1,3 @@
-// seed_test.go — `flint seed --demo [--reset] [--yes]` (v1.26.0 T2).
-// Fast tests cover the isolated-DB derivation (file contract), the --reset
-// ownership guard (state contract), and the setup wording swap; the real-DB
-// slow test covers the seeding idempotence (state contract) end to end on a
-// dedicated scratch demo database that is dropped on exit.
 package cli
 
 import (
@@ -17,9 +12,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// withSeedStoreRecorder — swaps newStore, records the DSN each call received,
-// and returns the fake store handed out (the seed command must connect to the
-// derived demo DSN, never the production one).
 func withSeedStoreRecorder(t *testing.T, f *fakeStore) *[]string {
 	t.Helper()
 	var dsns []string
@@ -32,8 +24,6 @@ func withSeedStoreRecorder(t *testing.T, f *fakeStore) *[]string {
 	return &dsns
 }
 
-// withSeedWriteRecorder — swaps seedWriteFn; each call's args and stdin are
-// recorded and the fake prints one {"status":...} JSON line per call.
 func withSeedWriteRecorder(t *testing.T, status string) *[]seedWriteCall {
 	t.Helper()
 	var calls []seedWriteCall
@@ -48,13 +38,11 @@ func withSeedWriteRecorder(t *testing.T, status string) *[]seedWriteCall {
 	return &calls
 }
 
-// seedWriteCall — one captured seedWriteFn invocation.
 type seedWriteCall struct {
 	args  []string
 	stdin string
 }
 
-// withSeedEnsureRecorder — swaps seedEnsureDBFn, recording (adminDSN, dbName).
 func withSeedEnsureRecorder(t *testing.T) *[][2]string {
 	t.Helper()
 	var got [][2]string
@@ -67,25 +55,18 @@ func withSeedEnsureRecorder(t *testing.T) *[][2]string {
 	return &got
 }
 
-// runSeedArgs — direct handler invocation (the command is store-free at the
-// dispatch layer; it opens its own demo store through the newStore seam).
 func runSeedArgs(args ...string) (string, int) {
 	var b strings.Builder
 	code := runSeed(context.Background(), nil, args, strings.NewReader(""), &b)
 	return b.String(), code
 }
 
-// TestSeedRegistered — the init() Register (the usage-surface contract).
 func TestSeedRegistered(t *testing.T) {
 	if _, ok := Lookup("seed"); !ok {
 		t.Fatal("Lookup(\"seed\") 실패 — 미등록 커맨드")
 	}
 }
 
-// TestDeriveDemoDSN — the isolated-DB derivation (file contract): the
-// production DSN's database name gets the fixed _demo suffix; query params
-// survive; a missing database name or an unparseable DSN is an error (exit 3
-// at the command layer).
 func TestDeriveDemoDSN(t *testing.T) {
 	cases := []struct {
 		name, in, want string
@@ -96,9 +77,7 @@ func TestDeriveDemoDSN(t *testing.T) {
 		{name: "db명 부재", in: "postgresql://flint:pw@localhost:5434", wantErr: true},
 		{name: "빈 db명", in: "postgresql://flint:pw@localhost:5434/", wantErr: true},
 		{name: "파싱 불가", in: "://<<", wantErr: true},
-		// v1.26.1 — a keyword-form DSN must not be silently mangled into a
-		// garbage URL (url.Parse treats it as a path); it is a derivation
-		// failure routing to the explicit FLINT_DEMO_DSN override.
+
 		{name: "키워드 형태", in: "host=localhost port=5434 dbname=flint", wantErr: true},
 	}
 	for _, c := range cases {
@@ -119,8 +98,6 @@ func TestDeriveDemoDSN(t *testing.T) {
 	}
 }
 
-// TestSeedDeriveFailExit3 — derivation failure (no db name) is invalid-arg
-// exit 3 and the message points at the FLINT_DEMO_DSN override.
 func TestSeedDeriveFailExit3(t *testing.T) {
 	t.Setenv("FLINT_DEMO_DSN", "")
 	t.Setenv("FLINT_DSN", "postgresql://flint:pw@localhost:5434")
@@ -133,10 +110,6 @@ func TestSeedDeriveFailExit3(t *testing.T) {
 	}
 }
 
-// TestSeedKeywordDSNExit3 — a keyword-form FLINT_DSN (pgx accepts
-// "host=... dbname=...") is a derivation failure, not a garbage URL: exit 3
-// with the FLINT_DEMO_DSN guidance (v1.26.1 — the exit-3 contract must not be
-// bypassed into a corrupted-DSN connection error).
 func TestSeedKeywordDSNExit3(t *testing.T) {
 	t.Setenv("FLINT_DEMO_DSN", "")
 	t.Setenv("FLINT_DSN", "host=localhost port=5434 dbname=flint")
@@ -149,10 +122,6 @@ func TestSeedKeywordDSNExit3(t *testing.T) {
 	}
 }
 
-// TestSeedOverrideSkipsEnsure — with an explicit FLINT_DEMO_DSN the
-// ensure-retry never runs: the database is the operator's to create, and
-// creating it on the base server would be a cross-server no-op at best
-// (v1.26.1). The connection error flows to the caller unchanged.
 func TestSeedOverrideSkipsEnsure(t *testing.T) {
 	t.Setenv("FLINT_DEMO_DSN", "postgresql://flint:pw@other-host:5433/other_demo")
 	t.Setenv("FLINT_DSN", "postgresql://flint:pw@localhost:5434/flint")
@@ -171,9 +140,6 @@ func TestSeedOverrideSkipsEnsure(t *testing.T) {
 	}
 }
 
-// TestSeedRequiresDemoFlag — bare `seed` (or --reset without --demo) is a
-// usage error exit 3 (the Makefile seed target keeps working; the CLI entry
-// is explicitly --demo).
 func TestSeedRequiresDemoFlag(t *testing.T) {
 	for _, args := range [][]string{{}, {"--reset"}, {"--yes"}} {
 		out, code := runSeedArgs(args...)
@@ -184,7 +150,6 @@ func TestSeedRequiresDemoFlag(t *testing.T) {
 	}
 }
 
-// TestSeedUnknownFlag — unknown flags are invalid-arg exit 3.
 func TestSeedUnknownFlag(t *testing.T) {
 	out, code := runSeedArgs("--demo", "--bogus")
 	if code != 3 {
@@ -193,11 +158,6 @@ func TestSeedUnknownFlag(t *testing.T) {
 	decode(t, out)
 }
 
-// TestSeedDemoWritesPrefixedPayloads — the happy path: the store comes from
-// the derived demo DSN, the embedded lines are seeded through the single
-// RunWrite path with the demo/ identifier prefix applied to every topic and
-// project name, and the demo_owner marker meta is written (the --reset
-// ownership guard depends on it).
 func TestSeedDemoWritesPrefixedPayloads(t *testing.T) {
 	t.Setenv("FLINT_DEMO_DSN", "")
 	t.Setenv("FLINT_DSN", "postgresql://flint:pw@localhost:5434/flint")
@@ -214,7 +174,7 @@ func TestSeedDemoWritesPrefixedPayloads(t *testing.T) {
 	if len(*calls) == 0 {
 		t.Fatal("seedWriteFn 호출 없음")
 	}
-	// every embedded line is passed down exactly once, kind-grouped, prefixed.
+
 	sent := map[string]bool{}
 	for _, c := range *calls {
 		if len(c.args) == 0 {
@@ -250,7 +210,7 @@ func TestSeedDemoWritesPrefixedPayloads(t *testing.T) {
 	if len(sent) != want {
 		t.Fatalf("전달 payload 수=%d, want %d (embed 전량)", len(sent), want)
 	}
-	// the demo_owner marker upsert went through the single meta KV entry.
+
 	found := false
 	for _, q := range f.queries {
 		if strings.Contains(q, "INSERT INTO meta") && strings.Contains(q, "ON CONFLICT") {
@@ -269,8 +229,6 @@ func TestSeedDemoWritesPrefixedPayloads(t *testing.T) {
 	}
 }
 
-// TestSeedDemoDSNOverride — FLINT_DEMO_DSN replaces the derivation verbatim
-// (the isolation ruling's escape hatch).
 func TestSeedDemoDSNOverride(t *testing.T) {
 	t.Setenv("FLINT_DSN", "postgresql://flint:pw@localhost:5434/flint")
 	t.Setenv("FLINT_DEMO_DSN", "postgresql://flint:pw@localhost:5434/other_demo")
@@ -288,9 +246,6 @@ func TestSeedDemoDSNOverride(t *testing.T) {
 	}
 }
 
-// TestSeedEnsureDBOnConnectFail — when the demo database does not exist yet,
-// the ensure seam runs against the base DSN with the derived demo database
-// name and the connection is retried once.
 func TestSeedEnsureDBOnConnectFail(t *testing.T) {
 	t.Setenv("FLINT_DEMO_DSN", "")
 	t.Setenv("FLINT_DSN", "postgresql://flint:pw@localhost:5434/flint")
@@ -315,9 +270,6 @@ func TestSeedEnsureDBOnConnectFail(t *testing.T) {
 	}
 }
 
-// seedResetFake — a fakeStore answering the demo_owner marker lookup and the
-// two target-count lookups (2 knowledge rows + 1 project row with the demo
-// prefix). DELETEs return empty rows; every query argument is recorded.
 func seedResetFake(t *testing.T) (*fakeStore, *[]any) {
 	t.Helper()
 	f := &fakeStore{}
@@ -340,9 +292,6 @@ func seedResetFake(t *testing.T) (*fakeStore, *[]any) {
 	return f, &argsSeen
 }
 
-// TestSeedResetOwnerMismatchExit3 — a database without the demo_owner marker
-// (or with a foreign value) is not ours: --reset refuses with exit 3 even
-// with --yes (the destructive guard).
 func TestSeedResetOwnerMismatchExit3(t *testing.T) {
 	for _, owner := range []string{"missing", "someone-else"} {
 		f := &fakeStore{}
@@ -367,8 +316,6 @@ func TestSeedResetOwnerMismatchExit3(t *testing.T) {
 	}
 }
 
-// TestSeedResetDryRun — --reset without --yes reports the prefix-identified
-// targets only (status dry_run, exit 0, no DELETE issued).
 func TestSeedResetDryRun(t *testing.T) {
 	f, _ := seedResetFake(t)
 	withSeedStoreRecorder(t, f)
@@ -390,9 +337,6 @@ func TestSeedResetDryRun(t *testing.T) {
 	}
 }
 
-// TestSeedResetYesDeletes — with --yes only the fixed demo identifiers are
-// deleted: knowledge topics and project names carrying the demo/ prefix, plus
-// the demo_owner marker itself. exit 0.
 func TestSeedResetYesDeletes(t *testing.T) {
 	f, argsSeen := seedResetFake(t)
 	withSeedStoreRecorder(t, f)
@@ -426,9 +370,6 @@ func TestSeedResetYesDeletes(t *testing.T) {
 	}
 }
 
-// TestSetupNextMentionsSeedDemo — the setup guidance swap: the step and
-// next-step wording point at `flint seed --demo`, not `make seed` (the
-// binary-user demo route is now the CLI itself).
 func TestSetupNextMentionsSeedDemo(t *testing.T) {
 	steps := SetupSteps()
 	found := false
@@ -450,20 +391,13 @@ func TestSetupNextMentionsSeedDemo(t *testing.T) {
 	}
 }
 
-// TestSeedDemoRealSlow — real-DB slow round trip (SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN required): a dedicated scratch demo database derived from
-// the test DSN (never the production DSN, never a shared database) is created,
-// seeded twice (the second run must be all-duplicate exit 0 — the idempotence
-// contract through the single RunWrite path), reset via the ownership guard,
-// and dropped on exit.
 func TestSeedDemoRealSlow(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
 	ctx := context.Background()
-	// the derivation base is the scratch test DSN — the production DSN is
-	// never consulted (FLINT_DSN override, FLINT_DEMO_DSN cleared).
+
 	t.Setenv("FLINT_DSN", dsn)
 	t.Setenv("FLINT_DEMO_DSN", "")
 	demoDSN, dbName, err := resolveDemoDSN()
@@ -476,12 +410,11 @@ func TestSeedDemoRealSlow(t *testing.T) {
 	}
 	t.Cleanup(admin.Close)
 	dropDemo := func() {
-		_, _ = admin.Exec(ctx, `DROP DATABASE IF EXISTS `+dbName) // dbName derived from the DSN, no separators
+		_, _ = admin.Exec(ctx, `DROP DATABASE IF EXISTS `+dbName)
 	}
-	dropDemo() // pre-clean residue from an aborted earlier run
+	dropDemo()
 	t.Cleanup(dropDemo)
 
-	// 1st run — full seed on the fresh demo database.
 	out, code := runSeedArgs("--demo")
 	if code != 0 {
 		t.Fatalf("1회차 exit=%d; out=%s", code, out)
@@ -491,7 +424,6 @@ func TestSeedDemoRealSlow(t *testing.T) {
 		t.Fatalf("1회차 요약: %s", out)
 	}
 
-	// 2nd run — idempotent: every kind reports duplicate, exit 0.
 	out, code = runSeedArgs("--demo")
 	if code != 0 {
 		t.Fatalf("2회차 exit=%d, want 0; out=%s", code, out)
@@ -507,7 +439,6 @@ func TestSeedDemoRealSlow(t *testing.T) {
 		}
 	}
 
-	// content check through a store on the demo DSN.
 	st, err := newStore(ctx, demoDSN)
 	if err != nil {
 		t.Fatalf("데모 DB 접속: %v", err)
@@ -532,17 +463,16 @@ func TestSeedDemoRealSlow(t *testing.T) {
 	}
 	st.Close()
 
-	// reset dry-run — no deletion.
 	out, code = runSeedArgs("--demo", "--reset")
 	if code != 0 || decode(t, out)["status"] != "dry_run" {
 		t.Fatalf("reset dry-run 실패: exit=%d out=%s", code, out)
 	}
-	// reset --yes — prefix-identified rows deleted, marker cleared.
+
 	out, code = runSeedArgs("--demo", "--reset", "--yes")
 	if code != 0 {
 		t.Fatalf("reset --yes exit=%d; out=%s", code, out)
 	}
-	// reset again — the marker is gone: owner mismatch exit 3.
+
 	out, code = runSeedArgs("--demo", "--reset", "--yes")
 	if code != 3 {
 		t.Fatalf("마커 소멸 후 reset exit=%d, want 3; out=%s", code, out)

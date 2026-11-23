@@ -1,8 +1,3 @@
-// asof — point-in-time spec normalization. Resolves the 3 spec kinds (ISO time,
-// relative Nh/Nd, hash prefix) to a single commit hash via Store.LogEntries.
-// Time-travel queries always normalize to a commit hash (§3 — independent of AS OF
-// SYSTEM TIME). An invalid spec is ErrInvalidAsOf (CLI exit 3).
-// A shared Store utility — consumed by the knowledge/ops seams. cli re-exports it via an alias (cli/asof.go).
 package wire
 
 import (
@@ -15,26 +10,12 @@ import (
 	"time"
 )
 
-// ErrInvalidAsOf — an invalid as-of spec (format error, prefix ambiguity/not found,
-// or before the first commit). Mapped to exit 3 at the command layer.
 var ErrInvalidAsOf = errors.New("invalid as-of spec")
 
-// AsofMinPrefix — the minimum hash-prefix length (3 chars). Below is a format error.
 const AsofMinPrefix = 3
 
-// maxRelativeAsOfHours — the largest hour count whose time.Duration(v)*time.Hour
-// stays inside int64 (the floor of the Duration ceiling, ~2562047h). A relative
-// spec past it (e.g. 4000000h, or 106752d whose *24 exceeds the ceiling) wraps
-// the Duration negative → a FUTURE as-of time, which commitAtOrBefore would
-// silently resolve to the newest commit (exit 0 with a meaningless verdict).
-// Past-ceiling values are rejected up front as an invalid spec (exit 3, the
-// asof error convention); 106751d is the largest day count that still fits.
 const maxRelativeAsOfHours = int(math.MaxInt64 / int64(time.Hour))
 
-// ParseRelative — expands the relative specs "Nh" and "Nd" to a past time from now
-// (Go-computed). d expands as h*24; a non-integer (2.5h, "2 days ago") is ErrInvalidAsOf,
-// and so is an hour count past the Duration ceiling (v1.19.3 R77-1/R78-1) or a day count
-// whose *24 would wrap int64 (v1.19.4 R79-1 — the guard sits BEFORE the multiply).
 func ParseRelative(spec string) (time.Time, error) {
 	fail := fmt.Errorf("invalid relative as-of spec %q (only integer Nh·Nd form allowed): %w", spec, ErrInvalidAsOf)
 	if len(spec) < 2 {
@@ -49,11 +30,7 @@ func ParseRelative(spec string) (time.Time, error) {
 		return time.Time{}, fail
 	}
 	if unit == 'd' {
-		// Pre-multiply guard (v1.19.4 R79-1): v*24 can wrap int64, and the
-		// wrapped value slips past every later check (negative → not > ceiling)
-		// — MaxInt64 days wraps to −24h (a FUTURE time → newest commit, exit 0)
-		// and (2^64+8)/24 days wraps to +8h. maxRelativeAsOfHours/24 = 106751:
-		// the same largest-fitting day form the ceiling error names.
+
 		if v > maxRelativeAsOfHours/24 {
 			return time.Time{}, asofCeilingErr(spec)
 		}
@@ -65,36 +42,17 @@ func ParseRelative(spec string) (time.Time, error) {
 	return time.Now().Add(-time.Duration(v) * time.Hour), nil
 }
 
-// asofCeilingErr — the past-ceiling rejection shared by the hour and day paths.
 func asofCeilingErr(spec string) error {
 	return fmt.Errorf(
 		"relative as-of spec %q exceeds the %dh Duration ceiling (largest day form: 106751d): %w",
 		spec, maxRelativeAsOfHours, ErrInvalidAsOf)
 }
 
-// doltAutoCommitMsgs — the 2 Doltgres automatic initial commit labels on a
-// fresh database. The label match is a PROBE TRIGGER, never the verdict
-// (v1.19.6 R82): v1.19.5 rejected on the message alone and falsely rejected
-// a user's manual dolt_commit reusing the "CREATE DATABASE" label while the
-// flint schema existed at that commit. The committer cannot discriminate
-// either (measured: "Initialize data repository" is committed by "Dolt
-// System Account", but "CREATE DATABASE" carries the CONNECTING USER as its
-// committer — the same value a manual commit gets). So a resolved commit
-// carrying a label gets a 1-round-trip schema-existence probe (adoptOrPreFlint
-// — knowledge AS OF the resolved hash); the verdict is the probe's, making
-// the diagnostic's "no flint schema exists there" claim literally verified.
-// The as-of path is a user-explicit invocation, and a label is rare — a
-// normal flint commit ("knowledge: ...", "telemetry: ...") never probes.
 var doltAutoCommitMsgs = map[string]bool{
 	"Initialize data repository": true,
 	"CREATE DATABASE":            true,
 }
 
-// adoptOrPreFlint — the shared adoption step of the time and prefix paths.
-// e is the single resolved commit. A non-label message adopts directly (no
-// extra round-trip); a label message adopts only when the probe finds the
-// flint schema at the commit. A probe failure of another shape propagates
-// as-is — never guessed into a pre-flint verdict.
 func adoptOrPreFlint(ctx context.Context, st Store, spec string, e LogEntry) (string, error) {
 	if !doltAutoCommitMsgs[e.Message] {
 		return e.Hash, nil
@@ -106,8 +64,7 @@ func adoptOrPreFlint(ctx context.Context, st Store, spec string, e LogEntry) (st
 		Limit:   1,
 	})
 	if err == nil {
-		// The flint schema exists at that commit — a manual commit reusing
-		// an auto-initial label (the v1.19.6 R82 false rejection): adopt.
+
 		return e.Hash, nil
 	}
 	if isTableAbsentAtCommit(err) {
@@ -116,57 +73,39 @@ func adoptOrPreFlint(ctx context.Context, st Store, spec string, e LogEntry) (st
 	return "", err
 }
 
-// isTableAbsentAtCommit — whether a QueryAsOf error says the table does not
-// exist at the probed commit. The 2 measured Doltgres shapes: the base-table
-// "table not found: <t>" (measured for a table absent at the commit — present
-// working-set tables included) and the view "references invalid table(s) or
-// column(s)" (the v1.19.5 R81 observation; lib/db isViewColumnMismatch
-// classifies the same pair).
 func isTableAbsentAtCommit(err error) bool {
 	msg := err.Error()
 	return strings.Contains(msg, "table not found") ||
 		strings.Contains(msg, "references invalid table(s)")
 }
 
-// asofPreFlintErr — the pre-flint rejection shared by the time and prefix paths.
 func asofPreFlintErr(spec string) error {
 	return fmt.Errorf(
 		"as-of spec %q resolves to a pre-flint commit (no flint schema exists there) — use an as-of at or after the first flint write: %w",
 		spec, ErrInvalidAsOf)
 }
 
-// ParseAsOfSpec — normalizes a spec to a commit hash. Verdict order: (1) relative
-// (\\d+[hd] takes precedence as the documented relative form) (2) ISO (RFC3339,
-// 2006-01-02T15:04) (3) hash prefix (lowercase alphanumeric, 3+ chars — Doltgres
-// commit hashes are base32-like [0-9a-z] in full, observed). ISO and relative
-// adopt the latest commit at or before the time; a prefix resolves only on exactly 1 match (0 or 2+ = ErrInvalidAsOf — uniqueness via a wire len check).
 func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 	spec = strings.TrimSpace(spec)
 	if spec == "" {
 		return "", fmt.Errorf("empty as-of spec: %w", ErrInvalidAsOf)
 	}
-	// (1) relative spec — if not the form, move on to the next candidate.
+
 	t, relErr := ParseRelative(spec)
 	if relErr == nil {
 		return commitAtOrBefore(ctx, st, spec, t)
 	}
-	// A spec SHAPED like the relative form that still failed (past the ceiling,
-	// or a digit count past Atoi's own range) is a genuine relative error, not a
-	// prefix candidate: returning it here keeps the ceiling wording reachable —
-	// the prefix fallback would otherwise misreport it as "no commit matches
-	// prefix" (v1.19.4 R79-2/R80-2). Unshaped failures (2.5h, "2 days ago")
-	// keep falling through.
+
 	if relativeShaped(spec) {
 		return "", relErr
 	}
-	// (2) ISO time.
+
 	for _, layout := range []string{time.RFC3339, "2006-01-02T15:04"} {
 		if t, err := time.Parse(layout, spec); err == nil {
 			return commitAtOrBefore(ctx, st, spec, t)
 		}
 	}
-	// (3) hash prefix — after the lowercase-alphanumeric check, fetches all matches
-	// via LogQuery{Prefix} (order-agnostic). Uniqueness (0 or 2+ = ErrInvalidAsOf) via a len check.
+
 	if len(spec) >= AsofMinPrefix && isLowerAlnumPrefix(spec) {
 		entries, err := st.LogEntries(ctx, LogQuery{Prefix: spec})
 		if err != nil {
@@ -184,10 +123,6 @@ func ParseAsOfSpec(ctx context.Context, st Store, spec string) (string, error) {
 	return "", fmt.Errorf("invalid as-of spec %q (ISO datetime, Nh/Nd, or hash prefix 3+ chars): %w", spec, ErrInvalidAsOf)
 }
 
-// relativeShaped — whether the spec is exactly the documented relative form
-// [0-9]+[hd] (the shape alone — no range judgment; ParseRelative owns that).
-// Used to give shaped specs the relative verdict even on failure instead of a
-// misleading prefix lookup.
 func relativeShaped(spec string) bool {
 	if len(spec) < 2 {
 		return false
@@ -203,20 +138,16 @@ func relativeShaped(spec string) bool {
 	return true
 }
 
-// commitAtOrBefore — adopts the latest commit at or before the time
-// (LogQuery{BeforeOrAt} = the 1 newest row with date <= t). The date comparison passes the Go-computed time.Time as-is.
 func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (string, error) {
 	entries, err := st.LogEntries(ctx, LogQuery{BeforeOrAt: t})
 	if err != nil {
 		return "", err
 	}
 	if len(entries) == 1 {
-		// v1.19.5 R81 (verdict re-based in v1.19.6 R82) — the newest row at
-		// or before t carries a Doltgres auto-initial label: adoptOrPreFlint
-		// probes the flint schema at that commit before adopting.
+
 		return adoptOrPreFlint(ctx, st, spec, entries[0])
 	}
-	// 0 rows — a time before the first commit. The message includes the first commit time (following C11 Snowflake).
+
 	first, err := st.LogEntries(ctx, LogQuery{Earliest: true})
 	if err != nil {
 		return "", err
@@ -228,10 +159,6 @@ func commitAtOrBefore(ctx context.Context, st Store, spec string, t time.Time) (
 	return "", fmt.Errorf("as-of cannot be used on a repository with no commits: %w", ErrInvalidAsOf)
 }
 
-// isLowerAlnumPrefix — whether it is a lowercase-alphanumeric [0-9a-z] prefix
-// (the empty string is false). Doltgres commit hashes are base32-like (the full
-// [0-9a-z] range), so a hex-only check rejected every real-DB hash (a defect
-// closed by observation). Uniqueness is handled by the len check on the LogEntries result.
 func isLowerAlnumPrefix(s string) bool {
 	if s == "" {
 		return false

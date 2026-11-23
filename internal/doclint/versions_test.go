@@ -1,7 +1,3 @@
-// versions_test.go — 버전별 문서 회귀 테스트 통합(v0.6~v0.20.0, 26파일→1).
-// 단순 키워드 계약(docStr + Contains 루프)은 versionDocContracts 표로,
-// 부정 단언·정렬·정규식·교차 검증 등 커스텀 로직은 원본 함수명 그대로
-// 이 파일에 보존한다. 기존 파일명·함수명은 표 name으로 추적 가능하다.
 package doclint
 
 import (
@@ -13,14 +9,12 @@ import (
 	"testing"
 )
 
-// versionDocContracts — 버전별 문서 키워드 계약. 행 name은 원본 테스트
-// 함수명(v0XX_docs_test.go 소속), 다중 문서 루프는 /구분자로 분할.
 var versionDocContracts = []struct {
 	name  string
 	doc   string
 	wants []string
 }{
-	// v09_docs_test.go — T3 어댑터 문서 계약(codex·gemini·copilot).
+
 	{name: "TestV09AdapterDocsCodex", doc: "adapters/codex.md", wants: []string{
 		"[mcp_servers.flint]",
 		`command = "flint"`,
@@ -40,100 +34,83 @@ var versionDocContracts = []struct {
 		"AGENTS.md",
 		"flint mcp",
 	}},
-	// v1.5.0 T10: 문서 영문화 — 단언도 영어 문구로 동반 갱신.
+
 	{name: "TestTuningGuideV0240", doc: "TUNING.md", wants: []string{
 		"Tuning guide", "Retuning triggers", "daily_retention_days", "backup_interval_h",
 		"vocab_tags", "defensive cap",
 	}},
-	// v0.44.0 T4: 릴리스 엔트리는 재무장본 PLAN의 에라 표·헤더로 기록
-	// (§14 부재 — 병인 ⑤ 해소 완결 선언).
+
 	{name: "TestVersion0440Milestone", doc: "PLAN.md", wants: []string{
 		"v0.44.0", "병인 ⑤ 해소",
 	}},
-	// v1.2.3 T10: R17 감사 수정의 버전 기록 존재 계약(HISTORY 이관분).
+
 	{name: "TestVersion0124Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.2.4", "MCP store 재사용",
 	}},
 	{name: "TestVersion0123Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.2.3", "감사 R17",
 	}},
-	// v1.3.0 T8: LICENSE(MIT)·export 4형식·import 마이그레이션 이행 기록.
-	// (v1.2.4 계약행은 v1.3.1 런 시점에 main과 병합 완료 — 위 0124 행.)
+
 	{name: "TestVersion0130Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.3.0", "export",
 	}},
-	// v1.3.1 T3: R19 감사 발견 수정(import 결함·PAM/export·배포물·문서)
-	// 의 버전 기록 존재 계약.
+
 	{name: "TestVersion0131Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.3.1", "R19",
 	}},
-	// v1.4.0 T4: PAM v1.0 내보내기·사이드카·부채 3종 이행 기록 존재 계약.
+
 	{name: "TestVersion0140Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.4.0", "PAM",
 	}},
-	// v1.4.1: R22 감사 발견 9건 수정(PAM 허참조 차단·export 행 상한·
-	// 실DB 테스트 멱등화·문서/wire 가드)의 버전 기록 존재 계약.
+
 	{name: "TestVersion0141Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.4.1", "R22",
 	}},
-	// v1.4.2: R23 발견 수정(docs-sync 게이트 exit 전파·상한 표기 정합)
-	// 의 버전 기록 존재 계약.
+
 	{name: "TestVersion0142Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.4.2", "R23",
 	}},
-	// v1.5.0 T10: 영어 통일·TUI 4화면·docs 영문화 이행 기록 존재 계약.
+
 	{name: "TestVersion0150Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.0", "TUI",
 	}},
-	// v1.5.1: R25 감사(TUI 실측·pty 검증) 수정 기록 존재 계약.
+
 	{name: "TestVersion0151Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.1", "R25",
 	}},
-	// v1.5.2: pending·export·report TUI 적응형 기본 전환 기록 존재 계약
-	// (파이프·플래그 경로 불변 — isTerminal 폴백).
+
 	{name: "TestVersion0152Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.2", "TUI default",
 	}},
-	// v1.5.3: agent CLI trust(teardown --yes·read 인자 검증·exit 통일·
-	// 제로히트 exit 0·usage 오류 타입·approve 안내)+TUI 소형 4건 기록.
+
 	{name: "TestVersion0153Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.3", "agent",
 	}},
-	// v1.5.4: usage 오류 타입 전 커맨드 확장(7종)+에이전트 P3
-	// (--version/-v·help error 키 폐지·limit clamp 표시·fresh DB 조용화).
+
 	{name: "TestVersion0154Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.4", "usage",
 	}},
-	// v1.5.5: terminal detection fix(/dev/null 리다이렉트 TTY 오판 제거)+
-	// usage 잔여 사이트 완결(hot·brief·compact·nudge)·-h/--help 별칭·
-	// write --help 안내·pam export 행수 정합·import 확장자 감지·
-	// setup 포트 경고 — R29 B2·A3.
+
 	{name: "TestVersion0155Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.5.5", "terminal",
 	}},
-	// v1.6.0 T9: 성능 3종·PAM 완결(§18 서명·체크섬 검증)·maintain TUI·
-	// 파서 통합 이행 기록 존재 계약. 벤치 수치는 합성 표기이며 상세는
-	// PERF.md 단일 소스.
+
 	{name: "TestVersion0160Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.6.0", "performance",
 	}},
-	// v1.6.0 T9: PERF.md 신설 계약 — 측정 관례(합성 시드·3회 중앙값)·
-	// pg_trgm 미지원 한계 명시·재현 안내.
+
 	{name: "TestPerfDocContractV1600", doc: "PERF.md", wants: []string{
 		"synthetic", "median of 3", "pg_trgm", "Reproducing",
 	}},
-	// v1.6.1: R31 감사 수정(maintain TUI 필터 인덱스·목록 높이·서명키
-	// 원자 생성·PAM 왕복 멱등·소형 3건) 기록 존재 계약.
+
 	{name: "TestVersion0161Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.6.1", "filter",
 	}},
-	// v1.6.2: R33 4각도 감사 수정(MCP 선택 인터페이스 위임·레이스
-	// survive·write/import/read 상한·문서 정합) 기록 존재 계약.
+
 	{name: "TestVersion0162Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.6.2", "mcp",
 	}},
-	// v0.44.0 T1: §14 전체 엔트리가 HISTORY.md로 이관됨 — 계약 의미(버전
-	// 기록 존재)는 불변, 위치만 재지정.
+
 	{name: "TestVersion0240Milestone", doc: "HISTORY.md", wants: []string{
 		"v0.24.0", "임계값 설계 완결",
 	}},
@@ -174,54 +151,42 @@ var versionDocContracts = []struct {
 		"flint_read", "flint_write", "flint mcp", "지시파일",
 	}},
 
-	// v093_docs_test.go
 	{name: "TestPlanRecordsV092AndV093", doc: "HISTORY.md", wants: []string{"v0.9.2", "v0.9.3"}},
 
-	// v096_docs_test.go
 	{name: "TestReadmeMentionsFallback/README.md", doc: "../README.md", wants: []string{"fallback"}},
 	{name: "TestReadmeMentionsFallback/README.ko.md", doc: "../README.ko.md", wants: []string{"fallback"}},
 	{name: "TestPlanRecordsV095AndV096", doc: "HISTORY.md", wants: []string{"v0.9.5", "v0.9.6"}},
 
-	// v0100_docs_test.go — "suggestions" 문자열 요구는 v0.14.0 침묵 계약으로
-	// 철회(README v0.17.0 재작성) — 백업 무결성만 단얱.
 	{name: "TestReadmeMentionsSuggest/README.md", doc: "../README.md", wants: []string{"sha256"}},
 	{name: "TestReadmeMentionsSuggest/README.ko.md", doc: "../README.ko.md", wants: []string{"sha256"}},
 
-	// v0101_docs_test.go
 	{name: "TestTuningRecordsV0101Constants", doc: "TUNING.md", wants: []string{
 		"backupAgeWarn", "72", "suggestMinScore", "0.15",
 	}},
-	// backupAgeWarn 근거 문장이 doctor의 warn 조건(age >= backupAgeWarn)과
-	// 모순되지 않는지: 2회 연속 실패는 경고 유예, 3회째부터 경고임을 명시.
+
 	{name: "TestTuningBackupAgeWarnRationaleMatchesCode", doc: "TUNING.md", wants: []string{
 		"does not warn through two consecutive failures",
 	}},
 
-	// v0102_docs_test.go
 	{name: "TestPlanRecordsV094AndV097", doc: "HISTORY.md", wants: []string{"v0.9.4", "v0.9.7"}},
 	{name: "TestSkillDocumentsReadFlags", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{
 		"--tag", "--entity", "--domain", "--limit",
 	}},
 
-	// v0110_docs_test.go
 	{name: "TestSkillMentionsHotFull", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{"hot --full"}},
 	{name: "TestReadmeMentionsExposure/README.md", doc: "../README.md", wants: []string{"exposure"}},
 	{name: "TestReadmeMentionsExposure/README.ko.md", doc: "../README.ko.md", wants: []string{"exposure"}},
 	{name: "TestPlanRecordsV0110", doc: "HISTORY.md", wants: []string{"v0.11.0"}},
 
-	// v0120_docs_test.go
 	{name: "TestSkillDocumentsReadStatus", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{"read --status pending"}},
 	{name: "TestPlanRecordsV0120", doc: "HISTORY.md", wants: []string{"v0.12.0"}},
 
-	// v0130_docs_test.go — TestReadmeMentionsAdoption은 v0.17.0 README 재작성으로 요구 철회.
 	{name: "TestPlanRecordsV0130", doc: "HISTORY.md", wants: []string{"v0.13.0"}},
 	{name: "TestTuningRecordsConflictThreshold", doc: "TUNING.md", wants: []string{"conflictDupThreshold", "0.6"}},
 
-	// v0140_docs_test.go
 	{name: "TestPlanRecordsV0140", doc: "HISTORY.md", wants: []string{"v0.14.0"}},
 	{name: "TestTuningRecordsZeroNear", doc: "TUNING.md", wants: []string{"zero_near"}},
 
-	// v0150_docs_test.go — exit 3 서술은 v0.17.1 MapExit SchemaError 전반으로 확장.
 	{name: "TestPlanRecordsV0150", doc: "HISTORY.md", wants: []string{"v0.15.0"}},
 	{name: "TestTuningRecordsWindowed", doc: "TUNING.md", wants: []string{"read_zero_near", "30"}},
 	{name: "TestReadmeExitTable/README.md", doc: "../README.md", wants: []string{
@@ -231,30 +196,24 @@ var versionDocContracts = []struct {
 		"exit 3", "잘못된 입력 (값 없는 trailing 플래그",
 	}},
 
-	// v0151_docs_test.go
 	{name: "TestPlanRecordsV0151", doc: "HISTORY.md", wants: []string{"v0.15.1"}},
 
-	// v0152_docs_test.go
 	{name: "TestPlanRecordsV0152", doc: "HISTORY.md", wants: []string{"v0.15.2"}},
 
-	// v0160_docs_test.go
 	{name: "TestPlanRecordsV0160", doc: "HISTORY.md", wants: []string{"v0.16.0"}},
 	{name: "TestCiTriggersOnVersionTags", doc: "../.github/workflows/ci.yml", wants: []string{`tags: ["v*"]`}},
 	{name: "TestReadmePluginInstall/README.md", doc: "../README.md", wants: []string{"marketplace add synuns/flint"}},
 	{name: "TestReadmePluginInstall/README.ko.md", doc: "../README.ko.md", wants: []string{"marketplace add synuns/flint"}},
 
-	// v0161_docs_test.go
 	{name: "TestPlanRecordsV0161", doc: "HISTORY.md", wants: []string{"v0.16.1"}},
 	{name: "TestReadmePathRequirement/README.md", doc: "../README.md", wants: []string{"PATH"}},
 	{name: "TestReadmePathRequirement/README.ko.md", doc: "../README.ko.md", wants: []string{"PATH"}},
 
-	// v0162_docs_test.go
 	{name: "TestSkillWriteProtocol", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{
 		"갱신 우선", "최소화", "flint read",
 	}},
 	{name: "TestPlanRecordsV0162", doc: "HISTORY.md", wants: []string{"v0.16.2"}},
 
-	// v0163_docs_test.go
 	{name: "TestPlanRecordsV0163", doc: "HISTORY.md", wants: []string{"v0.16.3"}},
 	{name: "TestTuningKeysV0163Documented", doc: "TUNING.md", wants: []string{
 		"suggest_min_score", "suggest_scan_cap", "conflict_dup_threshold",
@@ -263,141 +222,120 @@ var versionDocContracts = []struct {
 	}},
 	{name: "TestSkillRationaleNeutral", doc: "../flint-plugin/skills/flint/SKILL.md", wants: []string{"중복 재제출"}},
 
-	// v0165_docs_test.go
 	{name: "TestReadmeSetupMcp/README.md", doc: "../README.md", wants: []string{"setup --mcp"}},
 	{name: "TestReadmeSetupMcp/README.ko.md", doc: "../README.ko.md", wants: []string{"setup --mcp"}},
 
-	// v0170_docs_test.go — R1: dependabot 2 ecosystem 주간 업데이트.
 	{name: "TestDependabotConfigured", doc: "../.github/dependabot.yml", wants: []string{
 		`package-ecosystem: "gomod"`,
 		`package-ecosystem: "github-actions"`,
 		`interval: "weekly"`,
 	}},
 
-	// v0180_docs_test.go — recall_warn_writes는 thresholds 레지스트리+TUNING §2 동기 키.
 	{name: "TestVersion0180Milestone/PLAN", doc: "HISTORY.md", wants: []string{"v0.18.0", "회상 우선 메모리"}},
 	{name: "TestVersion0180Milestone/TUNING", doc: "TUNING.md", wants: []string{"recall_warn_writes"}},
 
-	// v0190_docs_test.go — METRICS.md는 GSM 목표 4종·지표명·증거 등급·금지조항의 단일 소스.
 	{name: "TestVersion0190Milestone", doc: "HISTORY.md", wants: []string{"v0.19.0", "효과 계측"}},
 	{name: "TestMetricsDocContract", doc: "METRICS.md", wants: []string{
-		"Goal→Signal→Metric", // GSM 원칙
-		"G1 recall hit",      // 목표 4종
+		"Goal→Signal→Metric",
+		"G1 recall hit",
 		"G2 rediscovery block",
 		"G3 asset health",
 		"G4 recall-first habit",
 		"hit_pct", "near_pct", "fallback_pct", "dup_prevented",
 		"reuse_pct", "dead_pct", "read_write_pairs", "pair_pct",
-		"Tier 1", "Tier 2", // 증거 등급
-		"Prohibitions", // 반론 방어
+		"Tier 1", "Tier 2",
+		"Prohibitions",
 	}},
 
-	// v0200_docs_test.go — 신지표·계측 원천 3테이블·폴백 규칙(문서-코드 정합).
 	{name: "TestVersion0200Milestone", doc: "HISTORY.md", wants: []string{
 		"v0.20.0", "효과 계측 정밀화", "기저율 셔플(C) 이연",
 	}},
 	{name: "TestMetricsDocV0200", doc: "METRICS.md", wants: []string{
 		"recall_led_pct", "chain_pct",
 		"session_starts", "hot_events",
-		"older deployments and first instrumentation days", // 시간창 폴백 조건 문서화
+		"older deployments and first instrumentation days",
 		"excluding hot exposure within the last 30 days",
 		"baseline shuffle deferred",
 	}},
 
-	// v1.7.0 T7: sync·decay·계측 분리 커밋 이행 기록 존재 계약.
 	{name: "TestVersion0171Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.1", "partial-sort",
 	}},
-	// v1.7.2 T6: R38 감사 수정(telemetry -A 스윕 폐지·audit --telemetry
-	// 필터·sync 완화·probe heal·MCP flush)의 버전 기록 존재 계약.
+
 	{name: "TestVersion0172Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.2", "telemetry",
 	}},
-	// v1.8.0 T11: Doltgres 방언 절단(Store 히스토리 인터페이스 5메서드·
-	// lib/db 폐쇄·방언 게이트·바이트 동치)의 버전 기록 존재 계약.
-	// 이름은 v0.18.0 계약행(TestVersion0180Milestone/PLAN·/TUNING)과
-	// 구분되지만 release_gate.sh 그렵(0180)은 그대로 만족한다.
+
 	{name: "TestVersion0180Milestone/DbSeverance", doc: "HISTORY.md", wants: []string{
 		"v1.8.0", "db-severance",
 	}},
-	// v1.8.1: R40 패치(QueryAsOf 뷰 폴백 제거·--session 이스케이프·
-	// 주석 정리)의 버전 기록 존재 계약.
+
 	{name: "TestVersion0181Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.8.1", "r40-hardening",
 	}},
-	// v1.9.0 T7: 다중 기기 안정화 마일스톤 — recall append-only(스키마 v12).
-	// 이름은 v0.19.0 계약행(TestVersion0190Milestone)과 구분되는 서브이름
-	// /MultiDevice — release_gate.sh 그렵(0190)은 그대로 만족한다
-	// (v1.8.0 /DbSeverance 선례와 같은 형태).
+
 	{name: "TestVersion0190Milestone/MultiDevice", doc: "HISTORY.md", wants: []string{
 		"v1.9.0", "multi-device",
 	}},
-	// v1.9.1: R42 패치 — jsonl 회상 재생·이벤트 보존기한·고아 정리·소형군.
+
 	{name: "TestVersion0191Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.9.1", "r42-hardening",
 	}},
-	// v1.9.2: R43 패치 — 재생 실패 회복·신규 DB 직행·TUNING 서술 한정.
+
 	{name: "TestVersion0192Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.9.2", "r43-recovery",
 	}},
-	// v1.9.3: TUI·성능 마일스톤 — 저화면 TUI 크롬 최소화·report 병렬화·
-	// tuning --tui 옵트인.
+
 	{name: "TestVersion0193Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.9.3", "c-tui-perf",
 	}},
-	// v1.9.4: R45 패치 — 테스트 레이스 위생(pty 버퍼·fakeStore)·
-	// tuning --tui 문서화.
+
 	{name: "TestVersion0194Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.9.4", "r45-hardening",
 	}},
-	// v1.10.0: B플랜 하이진 — lib 전체 주석 영어화(언어 씰 게이트)·
-	// slow 통합 단축·레이스 수정.
+
 	{name: "TestVersion01100Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.10.0", "hygiene",
 	}},
-	// v1.10.1: R47 수치 정정 — v1.10.0 기록의 파일 수·패키지별 카운트.
+
 	{name: "TestVersion01101Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.10.1", "r47-counts",
 	}},
 	{name: "TestVersion01102Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.10.2", "r48-notes",
 	}},
-	// v1.11.0: 지식화 파이프라인 1단계 — 사용자 교정 채널(B안 룰링).
+
 	{name: "TestVersion01110Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.11.0", "correction-channel",
 	}},
 	{name: "TestVersion01111Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.11.1", "r50-metering",
 	}},
-	// v1.11.2: R52 패치 — dup_correction report 노출·헤딩 복원·위생 3.
+
 	{name: "TestVersion01112Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.11.2", "r52-reporting",
 	}},
-	// v1.12.0: 지식화 파이프라인 2단계 — 회상 실패 격차 후보.
+
 	{name: "TestVersion01120Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.12.0", "gap-candidates",
 	}},
-	// v1.12.1: R54 패치 — RUNBOOK 2단계 절·NFKC 후 절단·실DB 프루닝.
+
 	{name: "TestVersion01121Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.12.1", "r54-docs",
 	}},
-	// v1.13.0: 지식 수명주기 — 낡음 점수 age-audit·변동성 계층.
+
 	{name: "TestVersion01130Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.13.0", "age-audit",
 	}},
-	// v1.14.0: 지식화 파이프라인 3단계 — A안 훅 교정 감지·survived 완화·
-	// 케이스 등록표 7종.
+
 	{name: "TestVersion01140Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.14.0", "pipeline-complete",
 	}},
-	// v1.15.0: distribution — install.sh 원라인 설치·attest 증명·문서 군
-	// (SECURITY·CONTRIBUTING·이슈 템플릿·README 4경로)·룰링 2건(cask 교정·
-	// cosign 키 서명 유지).
+
 	{name: "TestVersion01150Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.15.0", "distribution",
 	}},
-	// v1.16.0: 검색·성능 — read 토큰 스코어링 재순위·profile 2상 병렬
-	// 수집·scratch DROP self-check.
+
 	{name: "TestVersion01160Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.16.0", "search-perf",
 	}},
@@ -407,23 +345,19 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01162Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.16.2", "r62-guard",
 	}},
-	// v1.17.0 T5: echo 마일스톤 계약행 — 단일 헤딩·write 시점 모순 감지·
-	// 관측 키.
+
 	{name: "TestVersion01170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.17.0", "echo",
 	}},
-	// v1.17.1: R64 패치 — 쓰기 소스 origin 추적 수정(correction·gap 적립
-	// origin → approve 관측 키 활성화)·에코 비용/문서 정리.
+
 	{name: "TestVersion01171Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.17.1", "r64-observability",
 	}},
-	// v1.17.2: R65 패치 — v1.17.1의 correction origin 기본값이 해시 입력을
-	// 바꿔 재전송 dedup를 파괴한 결함 수정(origin 스탬프를 해시 이후로).
+
 	{name: "TestVersion01172Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.17.2", "r65-dedup",
 	}},
-	// v1.18.0 T4: mcp-structured 마일스톤 계약행 — 단일 헤딩·버전 협상·
-	// outputSchema 5개·structuredContent·read --json 전환·룰링 2건.
+
 	{name: "TestVersion01180Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.18.0", "mcp-structured",
 	}},
@@ -436,167 +370,115 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01183Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.18.3", "r69-grammar",
 	}},
-	// v1.19.0 T6: observability-foundation 마일스톤 계약행 — 스키마 v13
-	// (read_events.near_score·threshold_snapshots·weekly_rollups)·독립
-	// 롤오버 회로 2종(24h 게이트·시딩)·doctor metering-freshness 7소스·
-	// diagnose metering_silent(등록표 24키)·thresholds 3키(90·90·336).
+
 	{name: "TestVersion01190Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.0", "observability-foundation",
 	}},
-	// v1.19.1 patch: R71-R74 4각도 감사 수정 7건 — retention 오버플로
-	// 클램프·미래 스탬프 가드·첫 시딩 선점·키별 최신 판독·warn_h 클램프·
-	// count 상한·near_score 클램프.
+
 	{name: "TestVersion01191Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.1", "r71-r74",
 	}},
-	// v1.19.2 patch: R75-R76 재감사 수정 — 읽기측 cutoff 오버플로
-	// 전면 청산(DaysCutoff/DaysSpan 공용 클램프)·스냅숏 키별 최신
-	// GROUP BY JOIN·doctor corrupt 표기.
+
 	{name: "TestVersion01192Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.2", "r75-r76",
 	}},
-	// v1.19.3 patch: R77-R78 재감사 청산 — asof 상한 거부(exit 3)·
-	// 시간/분 단위 스팬 클램프(HoursSpan/MinutesSpan 87600h)·
-	// TUNING/HISTORY 정밀화.
+
 	{name: "TestVersion01193Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.3", "r77-r78",
 	}},
-	// v1.19.4 patch: R79-R80 재감사 청산 — asof day 곱셈 전 가드·
-	// ceiling 안내 도달성·게이트 meta 키 등록.
+
 	{name: "TestVersion01194Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.4", "r79-r80",
 	}},
-	// v1.19.5 patch: R81 청산 — 신규 DB as-of의 pre-flint 커밋 진단(exit 3).
+
 	{name: "TestVersion01195Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.5", "r81",
 	}},
-	// v1.19.6 patch: R82 청산 — pre-flint 판정 스키마 probe 재기반·
-	// real 모드 테스트 skip.
+
 	{name: "TestVersion01196Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.19.6", "r82",
 	}},
-	// v1.20.0 T6: knowledge-schema-search 마일스톤 계약행 — 스키마 v14
-	// (knowledge_links·어휘 4종·superseded_by 인덱스·hashVolatile relations)·
-	// read --min-confidence/--origin·supersede 사이클 가드·supersede_chains
-	// 뷰·export_md 체인 표기·PAM links 왕복.
+
 	{name: "TestVersion01200Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.20.0", "knowledge-schema-search",
 	}},
-	// v1.20.1 patch: r84-r87 청산 — 혼합 배치 링크 적립 완전성·PAM
-	// links 왕복·supersede 경합 직렬화(pg_advisory_lock·가드 내장)·
-	// 깊이 상한 보수 거부·스키마 v15 유니크 링크 인덱스(ON CONFLICT).
+
 	{name: "TestVersion01201Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.20.1", "r84-r87",
 	}},
-	// v1.20.2 patch: r88 청산 — advisory-lock 단일 커넥션 supersede(풀
-	// 고갈 제거)·PAM 자기참조 링크 skip(부분 문서 계약)·절단 방어
-	// 직접 호출 유닛 테스트.
+
 	{name: "TestVersion01202Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.20.2", "r88",
 	}},
 	{name: "TestVersion01203Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.20.3", "r89",
 	}},
-	// v1.21.0 T6: vault-bridge-index 마일스톤 계약행 — 스키마 v16
-	// (vault_files 포인터 스냅숏·인덱스)·`flint index`(스냅숏-디프·배치
-	// 1커밋·meta vault_path/vault_last_scan)·read vault 통합(지식 결과
-	// 불변·상한 5·source:"vault"·vault_hits)·A6 스캔 p95(scan_stats)·
-	// thresholds 3종(vault_scan_max_files·vault_summary_max_runes·
-	// vault_skip_dirs)·R90 Merge defer 경화.
+
 	{name: "TestVersion01210Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.21.0", "vault-bridge-index",
 	}},
-	// v1.21.1 patch: r91-r94 청산 — 스캔 에러 경로 무관화·볼트 루트
-	// 가드(성공 후 영속)·튜닝 키 접속·unnest 삭제·심볼릭 링크 스킵·
-	// ApplyDiff 재시도·A6 완결(write/read 플러시·새니타이즈·status 행)·
-	// touch 갱신·skipped/vanished 분리·title 절단·파이프 이스케이프·
-	// 교체 예고.
+
 	{name: "TestVersion01211Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.21.1", "r91-r94",
 	}},
-	// v1.22.0 T7: vault-staleness 마일스톤 계약행 — 스키마 v17
-	// (content_changed_at·distilled_at·conditions)·age-audit source_changed
-	// 참조열(스코어 불변)·maintain --reaffirm/--recheck·변동성 자동 분류
-	// 제안(승인제)·distill(ADR-0018).
+
 	{name: "TestVersion01220Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.22.0", "vault-staleness",
 	}},
-	// v1.22.1 patch: r96-r98 청산 — 병렬 재매치 스탬프 보존·"해시 원복
-	// NULL" 정정(큐 append-only — 소거는 v1.25.0 연결 이월)·--recheck
-	// --conditions 갱신 경로·distill 파일 rune 상한(distill_max_runes)·
-	// reaffirm 사전검사 invalid_at·문면 정정·스코프 이월 기재·입력
-	// 파싱 가드(--ids 중복·int4 상한·--min-score 상한)·distill 동분
-	// 덮어쓰기 금지(-2 suffix).
+
 	{name: "TestVersion01221Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.22.1", "r96-r98",
 	}},
-	// v1.23.0 T6: autotune-shadow 마일스톤 계약행 — 스키마 v18
-	// (tuning_predictions·스냅숏 3열)·B1 정책(auto_mode)·B3 등록표·
-	// B2 shadow 회로·tuning what-if/status.
+
 	{name: "TestVersion01230Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.23.0", "autotune-shadow",
 	}},
-	// v1.23.1 패치 계약행 — r100-r101: 라운드 계수 분리(auto_rounds_)·
-	// 경계 발화 fired bump·near_score 도메인 가드.
+
 	{name: "TestVersion01231Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.23.1", "r100-r101",
 	}},
-	// v1.23.2 패치 계약행 — r102: 카운터 자릿수 상한·스펙 정렬·
-	// what-if p50/p90 도메인 필터.
+
 	{name: "TestVersion01232Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.23.2", "r102",
 	}},
-	// v1.24.0 T7: curation-residual 마일스톤 계약행 — 스키마 v19
-	// (kind·source_path·echo_candidates)·merge-audit·recall-audit·
-	// read --related/--why·D2/D4 카운터.
+
 	{name: "TestVersion01240Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.24.0", "curation-residual",
 	}},
-	// v1.24.1 패치 계약행 — r104-r105: echo 후보 적립 회로(write 커밋
-	// 경로·dup 재전송 DupMeta.ID 기준)·merge-audit active 한정·--merge
-	// D4 계상·비교 기준 주석 정정·recall-audit --limit/read --related
-	// int4 입력 가드.
+
 	{name: "TestVersion01241Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.24.1", "r104-r105",
 	}},
 	{name: "TestVersion01242Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.24.2", "r106",
 	}},
-	// v1.25.0 T4: engine-ops 마일스톤 계약행 — maintain --gc(--yes·접속
-	// 단절·재연결·meta 이력)·doctor dolt_log_depth(O(1))+db_size+
-	// engine-footprint(20종)·RUNBOOK §10/§11·thresholds 2종(10000·2048)·
-	// ANALYZE 폐기(무연산 실증)·audit_log 리플레이 스파이크 성공(순수 PG).
+
 	{name: "TestVersion01250Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.25.0", "engine-ops",
 	}},
-	// v1.25.1 패치 계약행 — r108-r109: gc-pending JSON 마감·dolt_log_depth
-	// 프로브 SQL lib/db 이전(방언 소유 확정)·깊이 프로브 numeric 수정
-	// (commit_order::int8 + CellToInt pgtype.Numeric)·db_size 안내 정정·
-	// footprint 타임아웃 5s·단독 --shallow 문구·주석 계수.
+
 	{name: "TestVersion01251Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.25.1", "r108", "r109-1",
 	}},
-	// v1.26.0 T4: surface-trust 마일스톤 계약행 — 캐시 3원칙(ETag 304·
-	// 모순 검출기·checked_at report --text)·seed --demo(embed·격리 _demo
-	// DB·--reset)·doctor versions(자가 보고·PATH·mcp-registry — 21종)·
-	// threshold update_cache_age_h.
+
 	{name: "TestVersion01260Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.26.0", "surface-trust",
 	}},
-	// v1.26.1 패치 — 감사 수정: 명시적 검사의 캐시 갱신·키워드 DSN 가드·
-	// registry 오프라인 캐시 표시·42P04 관용·embed_test.go 편입.
+
 	{name: "TestVersion01261Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.26.1", "surface-trust audit fixes",
+	}},
+	{name: "TestVersion01262Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.26.2", "comment sweep",
 	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
-	// v1.7.0 T7: cli.md sync 절 계약 — 원격 add/list/remove·url 마스킹·
-	// --dry·충돌 시 수동 안내·decay-audit·recall_score 스키마 서술.
+
 	{name: "TestV1700CliContractSync", doc: "contracts/cli.md", wants: []string{
 		"remote add", "masked", "--dry", "decay-audit", "recall_score",
 	}},
-	// v1.7.0 T7: TUNING §2표 decay 2키(decay_rate·archive_below).
+
 	{name: "TestV1700TuningDecayKeys", doc: "TUNING.md", wants: []string{
 		"decay_rate", "archive_below",
 	}},
@@ -608,7 +490,6 @@ var versionDocContracts = []struct {
 	}},
 }
 
-// TestVersionDocContracts — 표 계약 러너: 각 문서가 wants 키워드를 전부 담는지.
 func TestVersionDocContracts(t *testing.T) {
 	for _, c := range versionDocContracts {
 		t.Run(c.name, func(t *testing.T) {
@@ -622,17 +503,8 @@ func TestVersionDocContracts(t *testing.T) {
 	}
 }
 
-// ── 커스텀 로직 보존(부정 단언·교차·정규식 — 표로 환원 불가) ──────────────
-
-// TestDocsV06 — T69 문서 계약 검증. v0.6 신규 커맨드(doctor·report)가
-// usageLine·4개 문서(PLAN·TUNING·RUNBOOK·QUICKSTART)에 누락 없이 반영됐는지
-// grep 정합 검증한다. 체크리스트 [x] 표기는 마일스톤 종료 시점이므로 여기서는
-// 섹션 존재만 확인한다.
 func TestDocsV06(t *testing.T) {
-	// ① usageLine(v0.34.2부터 usageOrder 슬라이스에서 조립 — 리터럴 한 줄
-	// grep 전제는 폐기. v0.38.0 §1부터 슬라이스는 lib/wire/registry.go에
-	// 있다)에 신규 2커맨드. 슬라이스 블록을 추출해 항목 존재를 검사한다
-	// (단언 의도 불변).
+
 	reg := read(t, "../lib/wire/registry.go")
 	order := ""
 	inOrder := false
@@ -656,7 +528,6 @@ func TestDocsV06(t *testing.T) {
 		}
 	}
 
-	// ② 이력(HISTORY.md — v0.21.2 아카이브 이전에는 PLAN §14)의 v0.6 섹션.
 	plan := read(t, "HISTORY.md")
 	if !strings.Contains(plan, "v0.6") {
 		t.Error("PLAN.md에 v0.6 섹션 없음")
@@ -667,7 +538,6 @@ func TestDocsV06(t *testing.T) {
 		}
 	}
 
-	// ③ TUNING.md §2 임계값 표에 3키(기본값 포함).
 	tuning := read(t, "TUNING.md")
 	for _, kv := range []string{"stale_days", "stall_hot_h", "stall_write_h"} {
 		if !strings.Contains(tuning, kv) {
@@ -680,7 +550,6 @@ func TestDocsV06(t *testing.T) {
 		}
 	}
 
-	// ④ RUNBOOK.md에 doctor 5검사·maintain --stale 절.
 	runbook := read(t, "RUNBOOK.md")
 	if !strings.Contains(runbook, "doctor") {
 		t.Error("RUNBOOK.md에 doctor 절 없음")
@@ -689,7 +558,6 @@ func TestDocsV06(t *testing.T) {
 		t.Error("RUNBOOK.md에 maintain --stale 절차 없음")
 	}
 
-	// ⑤ QUICKSTART.md 확인 커맨드에 doctor·report 예시.
 	quick := read(t, "QUICKSTART.md")
 	for _, cmd := range []string{"doctor", "report"} {
 		if !strings.Contains(quick, cmd) {
@@ -698,8 +566,6 @@ func TestDocsV06(t *testing.T) {
 	}
 }
 
-// TestReadmeEmbedsDiagrams — README EN/KO가 아키텍처·라이프사이클 다이어그램을
-// 각각 임베드하는지(EN/로케일 변형 허용).
 func TestReadmeEmbedsDiagrams(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		s := docStr(t, p)
@@ -711,8 +577,6 @@ func TestReadmeEmbedsDiagrams(t *testing.T) {
 	}
 }
 
-// TestReadmePortIs5434 — ADR-0010: README의 DSN·포트 안내가 5434로 전환됐는지
-// (v0.9.7 리뷰 — EN/KO 각 4곳 5433 잔존 발견의 회귀 방지).
 func TestReadmePortIs5434(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		s := docStr(t, p)
@@ -725,11 +589,9 @@ func TestReadmePortIs5434(t *testing.T) {
 	}
 }
 
-// planV0100Section — PLAN.md에서 v0.10.0 마일스톤 섹션(### v0.10.0부터
-// 다음 ## 헤더 전)까지를 잘라 반환한다.
 func planV0100Section(t *testing.T) string {
 	t.Helper()
-	s := docStr(t, "../docs/HISTORY.md") // v0.21.2 아카이브 이관
+	s := docStr(t, "../docs/HISTORY.md")
 	i := strings.Index(s, "### v0.10.0")
 	if i < 0 {
 		t.Fatal("HISTORY.md에 v0.10.0 마일스톤 없음")
@@ -741,8 +603,6 @@ func planV0100Section(t *testing.T) string {
 	return s
 }
 
-// TestPlanV0100MilestoneNumbering — 마일스톤 R번호가 스펙(§3 R1–R5)·
-// 구현 커밋(T2:R3·T3:R4·T4:R5)과 일치하는지. 압축·이동 번호 회귀 방지.
 func TestPlanV0100MilestoneNumbering(t *testing.T) {
 	sec := planV0100Section(t)
 	for _, want := range []string{
@@ -761,8 +621,6 @@ func TestPlanV0100MilestoneNumbering(t *testing.T) {
 	}
 }
 
-// TestReadmeBackupLineAttribution — sha256 사이드카 신규 적용 대상은
-// `flint done` 자동 백업(R3). `flint backup`에 오귀속한 문구 회귀 방지.
 func TestReadmeBackupLineAttribution(t *testing.T) {
 	for _, bad := range []string{
 		"`flint backup`은 자동 백업 sha256",
@@ -776,10 +634,6 @@ func TestReadmeBackupLineAttribution(t *testing.T) {
 	}
 }
 
-// TestSkillReadLineDocumentsOnlyRealFlags — read는 runRead(lib/cli/read.go)가
-// 받는 플래그만 문서화해야 한다. --kind는 파싱되지 않는 미구현 플래그라
-// read 줄에 등장하면 안 된다. --status는 v0.12.0 R1로 실구현되어
-// `read --status pending` 안내가 SKILL.md에 존재해야 한다.
 func TestSkillReadLineDocumentsOnlyRealFlags(t *testing.T) {
 	s := docStr(t, "../flint-plugin/skills/flint/SKILL.md")
 	for _, line := range strings.Split(s, "\n") {
@@ -796,9 +650,6 @@ func TestSkillReadLineDocumentsOnlyRealFlags(t *testing.T) {
 	}
 }
 
-// TestSkillHookCommandsMatchR4 — SKILL.md 훅 설명이 v0.11.0 R4 이후
-// 실제 hooks.json 커맨드(session-start·session-end)와 정합해야 한다.
-// 낡은 직접 호출 표기("Stop 훅은 `flint nudge`")가 부활하면 실패.
 func TestSkillHookCommandsMatchR4(t *testing.T) {
 	skill := docStr(t, "../flint-plugin/skills/flint/SKILL.md")
 	if !strings.Contains(skill, "session-end") {
@@ -809,8 +660,6 @@ func TestSkillHookCommandsMatchR4(t *testing.T) {
 	}
 }
 
-// TestReadmeHookEntriesUseR4Commands — README(EN/KO) 훅 3엔트리 괄호
-// 표기가 실제 설치 커맨드(session-start·compact·session-end)와 일치.
 func TestReadmeHookEntriesUseR4Commands(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		doc := docStr(t, p)
@@ -825,10 +674,8 @@ func TestReadmeHookEntriesUseR4Commands(t *testing.T) {
 	}
 }
 
-// TestPlanV0110MilestonesChecked — R1~R5 전 구현 완료 시점부터 v0.11.0
-// 마일스톤 섹션에 미완료 체크박스가 남으면 실패(관례: 완료 항목 [x]).
 func TestPlanV0110MilestonesChecked(t *testing.T) {
-	plan := docStr(t, "HISTORY.md") // v0.21.2 아카이브 이관
+	plan := docStr(t, "HISTORY.md")
 	start := strings.Index(plan, "v0.11.0")
 	end := strings.Index(plan[start:], "\n### v0.12.0")
 	if start < 0 || end < 0 {
@@ -844,8 +691,6 @@ func TestPlanV0110MilestonesChecked(t *testing.T) {
 	}
 }
 
-// TestReadmeSilenceContract — v0.14.0 침묵 계약: README에 폐지된 제안 문단이
-// 부활하면 실패.
 func TestReadmeSilenceContract(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		if strings.Contains(docStr(t, p), "still hits nothing") ||
@@ -855,8 +700,6 @@ func TestReadmeSilenceContract(t *testing.T) {
 	}
 }
 
-// TestTuningSuggestAdjustmentObservable — §8 suggestMinScore 조정 지침은
-// 폐지된 제안 출력 재확인 대신 zero_near_pct(`flint report`) 관측을 안내한다.
 func TestTuningSuggestAdjustmentObservable(t *testing.T) {
 	s := docStr(t, "TUNING.md")
 	section := s
@@ -874,9 +717,6 @@ func TestTuningSuggestAdjustmentObservable(t *testing.T) {
 	}
 }
 
-// TestExit1DisambiguationDocs — 제로히트 exit 계약(v1.5.3 P2: exit 0 —
-// 텍스트 침묵·--json `{"hits":0}` 한 줄, 오류 JSON 동반 exit 1=실패)이
-// README EN/KO·TUNING에 문서화됐다.
 func TestExit1DisambiguationDocs(t *testing.T) {
 	if !strings.Contains(docStr(t, "../README.md"), "zero-hit") || !strings.Contains(docStr(t, "../README.md"), `{"hits":0}`) {
 		t.Error("README.md 제로히트 exit 0 문구 누락")
@@ -889,9 +729,6 @@ func TestExit1DisambiguationDocs(t *testing.T) {
 	}
 }
 
-// TestReadmeExit3TrailingWording — exit 3의 trailing은 값 없는 trailing
-// 플래그(F1/N10)다. read는 위치 인자를 전부 질의로 join하므로 "질의 뒤
-// 잔여 텍스트"는 exit 3이 아니라는 오표현을 방어한다.
 func TestReadmeExit3TrailingWording(t *testing.T) {
 	cases := []struct{ path, want, stale string }{
 		{"../README.md", "valueless trailing flags", "trailing text after the query"},
@@ -905,8 +742,6 @@ func TestReadmeExit3TrailingWording(t *testing.T) {
 	}
 }
 
-// TestPluginVersionMatchesBadge — plugin.json 버전이 README 배지와 동기되는지
-// — v0.16.3 범프 누락 회귀(역대 릴리스는 항상 범프됐으나 v0.16.3에서 누락됐었다).
 func TestPluginVersionMatchesBadge(t *testing.T) {
 	m := regexp.MustCompile(`release-v(\d+\.\d+\.\d+)-blue`).FindStringSubmatch(docStr(t, "../README.md"))
 	if m == nil {
@@ -919,9 +754,6 @@ func TestPluginVersionMatchesBadge(t *testing.T) {
 	}
 }
 
-// TestServerJsonValid — mcp-registry manifest 스키마 계약(이름·설명 길이).
-// v1.2.3 R17-B2: 렌더 결과물 server.json은 repo에서 제거(발행 원천은
-// template + ci.yml 렌더) — 계약 검증도 template을 대상으로 한다.
 func TestServerJsonValid(t *testing.T) {
 	b, err := os.ReadFile(docPath("../mcp-registry/server.json.template"))
 	if err != nil {
@@ -939,8 +771,6 @@ func TestServerJsonValid(t *testing.T) {
 	}
 }
 
-// TestMcpPublisherPinned — R1: CI mcp-publisher 다운로드가 latest 부유가
-// 아닌 특정 태그로 고정됐는지(재현성).
 func TestMcpPublisherPinned(t *testing.T) {
 	ci := docStr(t, "../.github/workflows/ci.yml")
 	re := regexp.MustCompile(`registry/releases/((?:latest|download/v[0-9.]+))/mcp-publisher`)
@@ -953,10 +783,6 @@ func TestMcpPublisherPinned(t *testing.T) {
 	}
 }
 
-// TestVersionArtifactsSync — 버전 동기 가드의 범용화(v0.17.1): 단일 버전
-// 소스(VERSION)를 기준으로 VERSION = plugin.json = EN/KO 배지 4종 일치.
-// 버전별 하드코딩(TestVersion0170 등)을 폐지 — 범프마다 테스트를 고칠
-// 필요가 없어지고 누락 가드는 그대로 유지된다.
 func TestVersionArtifactsSync(t *testing.T) {
 	ver := strings.TrimSpace(docStr(t, "../VERSION"))
 	if m := regexp.MustCompile(`^\d+\.\d+\.\d+$`).FindString(ver); m == "" {
@@ -974,11 +800,6 @@ func TestVersionArtifactsSync(t *testing.T) {
 	}
 }
 
-// TestReadmeReleaseBadgeSingle — v1.0.1 감사(릴리스 동기): release 배지는
-// README당 1개뿐이어야 한다. 릴리스마다 배지를 갱신하지 않고 추가해 온
-// 드리프트가 v1.0.1에서 동일 src 3중 배지(alt만 v0.43.0·v0.44.0·v1.0.1)
-// 로 드러났다 — src 전량 동기(갱신)는 맞지만 중복 행은 남아 있다. 배지
-// 1개·alt=VERSION 동기까지 강제한다.
 func TestReadmeReleaseBadgeSingle(t *testing.T) {
 	ver := strings.TrimSpace(docStr(t, "../VERSION"))
 	badgeRe := regexp.MustCompile(`<img src="https://img\.shields\.io/badge/release-v(\d+\.\d+\.\d+)-blue" alt="v(\d+\.\d+\.\d+)">`)
@@ -994,34 +815,30 @@ func TestReadmeReleaseBadgeSingle(t *testing.T) {
 	}
 }
 
-// TestPlanRearmedTwoPageContract — v0.44.0 T1(PLAN 재무장): PLAN.md는
-// 현행 계약 2페이지(≤150줄)로 유지된다. ① 줄 수 상한 ② 현행 구조·원칙·
-// v1.0.0 마일스톤 서술 ③ 구 본문 4개 모순 지점(서브커맨드 14·MCP 도구
-// 3종·훅 2종·실현된 비목표) 부재 ④ 실측 백분율 부재(저장소 최상위 원칙).
 func TestPlanRearmedTwoPageContract(t *testing.T) {
 	s := docStr(t, "PLAN.md")
 	if n := strings.Count(s, "\n") + 1; n > 150 {
 		t.Errorf("PLAN.md %d줄 — 재무장 계약(≤150줄) 초과", n)
 	}
 	for _, want := range []string{
-		"v1.0.0",           // 다음 마일스톤 1개
-		"wire",             // 계약층
-		"knowledge",        // 지식 명령층
-		"ops",              // 진단·정리·관측층
-		"render",           // 출력층
-		"composition root", // cli 구성 루트
-		"비간섭",              // 5원칙 승계
-		"HISTORY.md",       // 이력 이관처 안내
+		"v1.0.0",
+		"wire",
+		"knowledge",
+		"ops",
+		"render",
+		"composition root",
+		"비간섭",
+		"HISTORY.md",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("PLAN.md에 %q 누락(현행 계약 요소)", want)
 		}
 	}
 	for _, stale := range []string{
-		"서브커맨드 14",               // 실제는 25+2종
-		"read/write/hot MCP",     // 실제 MCP 도구는 5종
-		"SessionStart→flint hot", // 실제 훅은 3종(session-start·session-end·PostCompact)
-		"self-update",            // v0.22.0 flint update로 실현 — 비목표 잔류 모순
+		"서브커맨드 14",
+		"read/write/hot MCP",
+		"SessionStart→flint hot",
+		"self-update",
 	} {
 		if strings.Contains(s, stale) {
 			t.Errorf("PLAN.md에 구 본문 모순 표기 %q 잔존", stale)
@@ -1032,14 +849,8 @@ func TestPlanRearmedTwoPageContract(t *testing.T) {
 	}
 }
 
-// contractsSemverRe — 고정 금지 대상 semver(단어 경계).
 var contractsSemverRe = regexp.MustCompile(`\b\d+\.\d+\.\d+\b`)
 
-// pinnedExamples — 계약 문서 본문에서 버전 숫자를 고정한 '예시' 조각을
-// 전부 반환한다. 예시 범위 v1.0.1 R1-D 확장: 펜스 코드 블록(``` ```)
-// 뿐 아니라 인라인 백틱 스팬(`flint@0.43.0` — 펜스 밖이라 구 가드가
-// 못 봤다)도 예시로 취급한다. 백틱 없는 산문의 버전 서술("v0.12.0부터"
-// 류 역사 언급)은 예시가 아니므로 대상 아니다.
 func pinnedExamples(doc string) []string {
 	var pinned []string
 	check := func(span string) {
@@ -1057,11 +868,6 @@ func pinnedExamples(doc string) []string {
 	return pinned
 }
 
-// TestContractsExamplesNotPinned — v0.44.0 리뷰: 계약 문서(docs/contracts/)
-// 예시(펜스 블록·인라인 백틱)는 버전 숫자를 고정하지 않는다. plugin.md가
-// 릴리스 직후 구버전(0.43.0) 예시로 부실화된 사례의 재발 방지 — 표면
-// 문서는 버전 동기 게이트(TestVersionArtifactsSync) 대상이 아니므로
-// 여기서 금지.
 func TestContractsExamplesNotPinned(t *testing.T) {
 	files, err := filepath.Glob("../../docs/contracts/*.md")
 	if err != nil || len(files) != 6 {
@@ -1074,9 +880,6 @@ func TestContractsExamplesNotPinned(t *testing.T) {
 	}
 }
 
-// TestPinnedExamplesCoverInlineBackticks — R1-D 회귀: 인라인 백틱 버전
-// 고정(`flint@0.43.0`)도 검출되고, 백틱 없는 산문 버전 언급은 오탐
-// 아니어야 한다(합성 문서로 단언).
 func TestPinnedExamplesCoverInlineBackticks(t *testing.T) {
 	doc := "설치는 `flint@0.43.0` 태그를 쓴다.\n\n```sh\n/plugin install flint@latest\n```\n"
 	got := pinnedExamples(doc)
@@ -1088,10 +891,6 @@ func TestPinnedExamplesCoverInlineBackticks(t *testing.T) {
 	}
 }
 
-// TestHistoryCoversAllErasChronological — v0.44.0 T1(HISTORY 이관): §14
-// 전체 엔트리(v0.19.0+)가 HISTORY.md로 이관됐고 시간순(오름차순) 배열.
-// v1.0.1 감사 F7: v0.44.0·v1.0.0 엔트리도 이관 계약상 여기 있어야
-// 한다(헤더 "v0.1~" 범위가 최신 릴리스를 포함).
 func TestHistoryCoversAllErasChronological(t *testing.T) {
 	s := docStr(t, "HISTORY.md")
 	anchors := []string{
@@ -1120,9 +919,6 @@ func TestHistoryCoversAllErasChronological(t *testing.T) {
 	}
 }
 
-// TestHistoryEntryDatesMatchMerges — v1.0.1 감사 F7(날짜 오프셋): v0.41~
-// v1.0.0 엔트리 제목 날짜는 실제 릴리스 머지일(2026-11-12)이다. 계획일
-// 오프셋(2026-11-13) 제목 회귀 방지 — 세부 링크의 plans/ 파일명은 제외.
 func TestHistoryEntryDatesMatchMerges(t *testing.T) {
 	s := docStr(t, "HISTORY.md")
 	for _, h := range []string{
@@ -1150,11 +946,6 @@ func TestHistoryEntryDatesMatchMerges(t *testing.T) {
 	}
 }
 
-// TestCliContractExitSemantics — v1.0.1 감사 F7: contracts/cli.md exit 표는
-// 코드(MapExit·read 침묵 계약·doctor fail)와 정합 — exit 3은 무효 인자·
-// 검증 실패(SchemaError)지 스키마 버전 불일치가 아니고(그건 doctor fail
-// = exit 1), exit 1 과적재와 MCP isError 출력 유무 판정·실제 read 출력
-// 형식이 명시된다.
 func TestCliContractExitSemantics(t *testing.T) {
 	s := docStr(t, "contracts/cli.md")
 	for _, want := range []string{
@@ -1177,9 +968,6 @@ func TestCliContractExitSemantics(t *testing.T) {
 	}
 }
 
-// TestReadmeHighlightMatchesVersion — v0.20.3(패치 루프 3차): README
-// 인용 하이라이트 줄은 최신 VERSION을 언급해야 한다. 이 줄은 배지·
-// plugin.json 동기 게이트 밖이라 3마이너 방치됐던 전례(패치 루프 3차).
 func TestReadmeHighlightMatchesVersion(t *testing.T) {
 	ver := strings.TrimSpace(read(t, "../VERSION"))
 	for _, name := range []string{"../README.md", "../README.ko.md"} {
@@ -1190,11 +978,6 @@ func TestReadmeHighlightMatchesVersion(t *testing.T) {
 	}
 }
 
-// TestV1700SkillOmitsSync — v1.7.0 T7: 지식 동기화는 사람 운영자 명령
-// (기기 이동·팀 공유 — 원격 접속 정보 취급)이라 SKILL.md 에이전트
-// 스킬에는 기재하지 않는다. 에이전트가 sync를 자가 실행하게 유도하는
-// 문구(`flint sync` 커맨드 안내)의 부재를 가드하고, 미기재 판정(운영자
-// 명령 — 계약은 cli.md)의 근거 문구만 존재해야 한다.
 func TestV1700SkillOmitsSync(t *testing.T) {
 	s := docStr(t, "../flint-plugin/skills/flint/SKILL.md")
 	if strings.Contains(s, "flint sync") {

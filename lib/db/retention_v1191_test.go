@@ -1,11 +1,3 @@
-// retention_v1191_test.go — the v1.19.1 audit regressions (R71-R74):
-// the retention-days overflow clamp (a days override past the Duration
-// ceiling must never produce a future cutoff — a full-table delete),
-// the future-dated gate stamp guard, the concurrent first-seeding
-// pre-claim (exactly one winner), the latest-per-key snapshot read, the
-// RecordUsageCount bulk cap, and the near_score [0,1] clamp. Slow
-// bodies run on a real DB (synthetic scratch only — the
-// no-personal-data principle).
 package db
 
 import (
@@ -20,11 +12,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// TestRetentionCutoffDaysClamp — R71 regression: every days value —
-// past the int64 Duration ceiling (200000·9999999·106752·106751), zero,
-// negative, normal — yields a cutoff at or before now (the naive
-// time.Duration(days)*24h arithmetic wrapped past 106751 into a FUTURE
-// cutoff), with the fallback and clamp boundaries exact.
 func TestRetentionCutoffDaysClamp(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	clamp := now.AddDate(0, 0, -maxRetentionDays)
@@ -55,10 +42,6 @@ func TestRetentionCutoffDaysClamp(t *testing.T) {
 	}
 }
 
-// TestGateStampDueFutureStamps — R71 regression: a future-dated stamp
-// (a clock-defect 2999 stamp) is immediately due on all three gate
-// circuits — the naive now.Sub(t)>=24h would run negative and hold the
-// gate closed for the stamp's whole forward span.
 func TestGateStampDueFutureStamps(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	future := time.Date(2999, 1, 1, 0, 0, 0, 0, time.UTC).Format(time.RFC3339)
@@ -84,8 +67,6 @@ func TestGateStampDueFutureStamps(t *testing.T) {
 	}
 }
 
-// setRetentionOverride — writes one retention-days meta override (the
-// thresholdsForPrune read path).
 func setRetentionOverride(t *testing.T, r *Repo, key string, days int) {
 	t.Helper()
 	if _, err := r.pool.Exec(context.Background(),
@@ -96,16 +77,11 @@ func setRetentionOverride(t *testing.T, r *Repo, key string, days int) {
 	}
 }
 
-// TestPruneThresholdSnapshotsOverflowOverride — R71 regression (slow):
-// a threshold_snapshots_retention_days override of 200000 must NOT
-// delete the whole table (the wrapped cutoff landed in the future); the
-// expired-by-default row stays because the override clamps to the
-// 106751-day ceiling — 200000 days back is not expired.
 func TestPruneThresholdSnapshotsOverflowOverride(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	setRetentionOverride(t, r, "threshold_snapshots_retention_days", 200000)
-	old := time.Now().UTC().AddDate(0, 0, -100) // far inside a 200000-day retention
+	old := time.Now().UTC().AddDate(0, 0, -100)
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO threshold_snapshots (ts, key, old_value, new_value)
 		 VALUES ($1, 'pending_max', '10', '20')`, old); err != nil {
@@ -125,10 +101,6 @@ func TestPruneThresholdSnapshotsOverflowOverride(t *testing.T) {
 	}
 }
 
-// TestPruneReadEventsOverflowOverride — R71 regression (slow): the
-// events_retention_days override 9999999 must not wipe read_events (the
-// wrapped future cutoff deleted everything); rows stay under the
-// clamped ceiling.
 func TestPruneReadEventsOverflowOverride(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -154,18 +126,10 @@ func TestPruneReadEventsOverflowOverride(t *testing.T) {
 	}
 }
 
-// TestClaimThresholdSnapshotGateSingleWinner — R73 regression (slow):
-// the commit-then-verify claim admits exactly one winner of N
-// hard-synchronized concurrent passers on BOTH paths — absent-row
-// (the FIRST-EXPIRY baseline-seeding defect) and present-row. RowsAffected
-// alone cannot decide (Doltgres commits same-row concurrent claims
-// last-write-wins and reports 1 affected row to every passer — the
-// PR-216 CI race, 4×52 rows); the settle + token-survival check
-// narrows the burst to its last committer.
 func TestClaimThresholdSnapshotGateSingleWinner(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	const n = 4 // the PR-216 CI shape
+	const n = 4
 
 	claimBurst := func(last string) int32 {
 		var winners atomic.Int32
@@ -183,7 +147,7 @@ func TestClaimThresholdSnapshotGateSingleWinner(t *testing.T) {
 				}
 			}()
 		}
-		ready.Wait() // all parked — a hard-synchronized release
+		ready.Wait()
 		close(start)
 		done.Wait()
 		return winners.Load()
@@ -213,22 +177,14 @@ func TestClaimThresholdSnapshotGateSingleWinner(t *testing.T) {
 	})
 }
 
-// TestSnapshotSeedingSinglePassUnderConcurrency — R73 regression
-// (slow): N hard-synchronized concurrent first-expiry passes
-// (fresh-process simulation — each goroutine zeroes the shared
-// in-process gate cache, a ready barrier parks them all, then one
-// release; the exact PR-216 CI shape, repeated because the race is
-// probabilistic — RowsAffected alone lied under Doltgres LWW) seed the
-// full key set EXACTLY once per round: the row total equals the
-// registry key count, never a multiple of it.
 func TestSnapshotSeedingSinglePassUnderConcurrency(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	saved := snapshotGateCheckedAt.Load()
 	t.Cleanup(func() { snapshotGateCheckedAt.Store(saved) })
 
-	const n = 4      // the PR-216 CI shape
-	const rounds = 5 // probabilistic race — repeat the burst
+	const n = 4
+	const rounds = 5
 	want := len(wire.ThresholdsKeys())
 	for round := 0; round < rounds; round++ {
 		if _, err := r.pool.Exec(ctx,
@@ -245,13 +201,13 @@ func TestSnapshotSeedingSinglePassUnderConcurrency(t *testing.T) {
 		for i := 0; i < n; i++ {
 			go func() {
 				defer done.Done()
-				snapshotGateCheckedAt.Store(0) // fresh-process simulation
+				snapshotGateCheckedAt.Store(0)
 				ready.Done()
 				<-start
 				r.maybeSnapshotThresholds(ctx)
 			}()
 		}
-		ready.Wait() // all parked — a hard-synchronized release
+		ready.Wait()
 		close(start)
 		done.Wait()
 
@@ -266,9 +222,6 @@ func TestSnapshotSeedingSinglePassUnderConcurrency(t *testing.T) {
 	}
 }
 
-// TestLastThresholdSnapshotsLatestPerKey — R74 regression (slow): the
-// per-key read returns each key's LATEST new_value (a key with a change
-// sequence resolves to the final value), not an order-dependent pick.
 func TestLastThresholdSnapshotsLatestPerKey(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -283,7 +236,7 @@ func TestLastThresholdSnapshotsLatestPerKey(t *testing.T) {
 	}{
 		{base, "pending_max", "10"},
 		{base, "dup_susp_max", "3"},
-		{base.Add(time.Hour), "pending_max", "20"}, // the newer value wins
+		{base.Add(time.Hour), "pending_max", "20"},
 	} {
 		if _, err := r.pool.Exec(ctx,
 			`INSERT INTO threshold_snapshots (ts, key, old_value, new_value)
@@ -303,9 +256,6 @@ func TestLastThresholdSnapshotsLatestPerKey(t *testing.T) {
 	}
 }
 
-// TestRecordUsageCountOversizedQuiet — R74 regression (slow): a count
-// past 2^31 is quietly ignored (no error, no increment) — the counter
-// stays usable for the subsequent normal increment.
 func TestRecordUsageCountOversizedQuiet(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -330,10 +280,6 @@ func TestRecordUsageCountOversizedQuiet(t *testing.T) {
 	}
 }
 
-// TestRecordReadEventNearScoreClampRoundtrip — R74 regression (slow):
-// NaN·+Inf·-0.5·1.5 round-trip as 0·0·0·1 — the stored column never
-// leaves the [0,1] domain (PostgreSQL would happily store NaN and the
-// infinities, poisoning the min_score boundary analysis).
 func TestRecordReadEventNearScoreClampRoundtrip(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -373,8 +319,7 @@ func TestRecordReadEventNearScoreClampRoundtrip(t *testing.T) {
 	if len(got) != len(cases) {
 		t.Fatalf("행 수 %d, want %d", len(got), len(cases))
 	}
-	// Multiset comparison — the ts-ordered read is not the insert order
-	// under same-microsecond ties.
+
 	wantSet := map[float64]int{}
 	for _, tc := range cases {
 		wantSet[tc.want]++

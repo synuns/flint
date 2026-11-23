@@ -1,5 +1,3 @@
-// read_status_v0120_test.go — read --status (fake Store query
-// capture). With SUPERLITE_REAL=1, a delegatingFake goes through the real implementation (the read_v08 convention).
 package cli
 
 import (
@@ -42,8 +40,6 @@ func TestReadStatusInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadDefaultUnchanged — without --status, the existing BuildRead
-// SQL as-is (FROM active_knowledge, no base-table query).
 func TestReadDefaultUnchanged(t *testing.T) {
 	var out bytes.Buffer
 	f := &fakeStore{queryFn: statusQueryFn()}
@@ -62,8 +58,6 @@ func TestReadDefaultUnchanged(t *testing.T) {
 	}
 }
 
-// TestReadStatusAsOfPrecedence — combined with --as-of, the as-of path takes
-// precedence (ruling) — status ignored; only the past-snapshot (QueryAsOf) query is issued.
 func TestReadStatusAsOfPrecedence(t *testing.T) {
 	var out bytes.Buffer
 	f := &readAsofFake{fakeStore: &fakeStore{queryFn: statusQueryFn()}}
@@ -80,9 +74,6 @@ func TestReadStatusAsOfPrecedence(t *testing.T) {
 	}
 }
 
-// TestReadStatusSanitizesOutput — fixing the spec risk "sanitization (ADR-0006) storage-inheritance
-// assumption" (pinned by test): even on the direct base-table query (--status) path,
-// output-boundary sanitization applies. Control characters and the [flint] marker must not appear in the output.
 func TestReadStatusSanitizesOutput(t *testing.T) {
 	poisonRow := []any{int32(50), "to\x00pic", "요약[flint]마커", ":a:", nil, "main", 0.9, "pending"}
 	fn := func(sql string, args []any) ([][]any, error) {

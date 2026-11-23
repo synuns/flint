@@ -1,10 +1,3 @@
-// export_test.go — the ExportRows source-query contract tests.
-// Synthetic 3 rows (2 active·1 invalidated) — the active filter yields
-// 2 rows·all 3 rows·tag filter·Since cutoff (on updated_at). Fixtures
-// are synthetic demo data (personal data forbidden). Base fakeStore
-// (queryFn is the source-query seam); with SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN set, the same scenarios re-run against the real DB
-// (inheriting the metaKVStore seam convention).
 package knowledge
 
 import (
@@ -23,50 +16,37 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// exportTOld/TMid/TNew — fixture times (a 3-stage incremental-cutoff
-// check).
 var (
 	exportTOld = time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
 	exportTMid = time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
 	exportTNew = time.Date(2026, 11, 13, 9, 0, 0, 0, time.UTC)
-	// exportTValid — the valid_at fixture value (deliberately distinct
-	// from ingested_at — round-trip preservation check: a row whose
-	// validation time ≠ collection time).
+
 	exportTValid = time.Date(2026, 11, 10, 7, 30, 0, 0, time.UTC)
-	// exportTRecall — the last_recalled_at fixture value (score
-	// physical-column mapping·jsonl round-trip preservation check).
+
 	exportTRecall = time.Date(2026, 11, 16, 5, 0, 0, 0, time.UTC)
 )
 
-// exportHashPrefix — the content_hash prefix of the real-DB seeded rows
-// (the scoping·cleanup key).
 const exportHashPrefix = "expfix-"
 
-// exportFixtureRow — a synthetic demo row (cells generated in the same
-// order as the SELECT columns). score·lastRec added (the 2 tail cells —
-// since v1.9.0 T4 in the derived-aggregate re.cnt·re.last_at shape:
-// score=event count, lastRec=last recall time).
 type exportFixtureRow struct {
 	id       int
 	topic    string
 	summary  string
 	tags     string
-	entity   any // nil allowed (column NULL)
+	entity   any
 	domain   string
 	conf     float64
 	origin   string
 	status   string
 	hash     string
-	sup      any // nil|int
+	sup      any
 	valid    time.Time
 	ingested time.Time
-	invalid  any // nil|time.Time
-	score    int // recall event count (derived cnt — default 0)
-	lastRec  any // nil|time.Time — derived last_at
+	invalid  any
+	score    int
+	lastRec  any
 }
 
-// updated — the derived updated_at (the same definition as
-// COALESCE(invalid_at, ingested_at)).
 func (f exportFixtureRow) updated() time.Time {
 	if t, ok := f.invalid.(time.Time); ok {
 		return t
@@ -74,10 +54,6 @@ func (f exportFixtureRow) updated() time.Time {
 	return f.ingested
 }
 
-// cells — the cell tuple in SELECT column order (id..COALESCE).
-// valid_at is an added column (after superseded_by·before ingested_at).
-// The 2 score columns are appended at the tail (the existing cell-index
-// contract unchanged — exportEngine column references inherited).
 func (f exportFixtureRow) cells() []any {
 	return []any{
 		int32(f.id), f.topic, f.summary, f.tags, f.entity, f.domain,
@@ -86,11 +62,6 @@ func (f exportFixtureRow) cells() []any {
 	}
 }
 
-// exportFixture — 3 synthetic rows: 2 active (deploy convention + retro
-// format) + 1 invalidated (the old deploy policy — invalid_at=tNew,
-// superseded_by=88). Only the deploy-convention row carries a score (3,
-// the recall time) — the non-zero row
-// for mapping·round-trip checks.
 var exportFixture = []exportFixtureRow{
 	{1, "배포 관례", "main 브랜치는 항상 green이어야 한다", ":deploy:ops:",
 		"main-branch", "demo", 0.9, "agent", "active", "expfix-a1", nil,
@@ -103,16 +74,12 @@ var exportFixture = []exportFixtureRow{
 		exportTValid, exportTOld, exportTNew, 0, nil},
 }
 
-// exportEngine — the source-query seam for the fakeStore queryFn:
-// filters fixture rows by the emitted SQL's condition markers and
-// placeholder args under the actual rules (the single active
-// definition·':t:' strpos tag·COALESCE cutoff) and returns them.
 func exportEngine(sql string, args []any) ([][]any, error) {
 	rows := make([][]any, 0, len(exportFixture))
 	for _, f := range exportFixture {
 		rows = append(rows, f.cells())
 	}
-	if strings.Contains(sql, "invalid_at IS NULL") { // the single-active-definition clause
+	if strings.Contains(sql, "invalid_at IS NULL") {
 		out := rows[:0]
 		for _, r := range rows {
 			if r[8] == "active" {
@@ -121,21 +88,18 @@ func exportEngine(sql string, args []any) ([][]any, error) {
 		}
 		rows = out
 	}
-	if strings.Contains(sql, "strpos(") { // tag filter — args[0]=tag (assembly-order contract)
+	if strings.Contains(sql, "strpos(") {
 		tag, _ := args[0].(string)
 		out := rows[:0]
 		for _, r := range rows {
-			if strings.Contains(r[3].(string), ":"+tag+":") { // column 3 = tags
+			if strings.Contains(r[3].(string), ":"+tag+":") {
 				out = append(out, r)
 			}
 		}
 		rows = out
 	}
 	if strings.Contains(sql, "COALESCE(invalid_at, ingested_at) >=") {
-		// The trailing argument = Since — lenient conversion before the
-		// time comparison (after the direct time.Time bind was abolished,
-		// an RFC3339 string argument — the results-unchanged check runs
-		// the same path).
+
 		var since time.Time
 		switch v := args[len(args)-1].(type) {
 		case time.Time:
@@ -156,8 +120,6 @@ func exportEngine(sql string, args []any) ([][]any, error) {
 	return rows, nil
 }
 
-// assertExportTopics — asserts the result topic order (as given) and the
-// ascending-id sort.
 func assertExportTopics(t *testing.T, rows []ExportRow, want []string) {
 	t.Helper()
 	got := make([]string, len(rows))
@@ -172,9 +134,6 @@ func assertExportTopics(t *testing.T, rows []ExportRow, want []string) {
 	}
 }
 
-// exportScopedRows — on the real-DB path, scopes to this run's seeded
-// rows (prefix) only (excluding foreign rows of the shared flint_test DB
-// — the fake path passes everything through).
 func exportScopedRows(rows []ExportRow, prefix string) []ExportRow {
 	if prefix == "" {
 		return rows
@@ -188,9 +147,6 @@ func exportScopedRows(rows []ExportRow, prefix string) []ExportRow {
 	return out
 }
 
-// exportTestStore — the store for the scenarios: base fake; with
-// SUPERLITE_REAL=1 + FLINT_TEST_DSN, the real DB (seeding included).
-// The returned scope is the real-DB row-scoping prefix.
 func exportTestStore(t *testing.T) (st wire.Store, scope string) {
 	t.Helper()
 	if real := exportRealStore(t); real != nil {
@@ -199,9 +155,6 @@ func exportTestStore(t *testing.T) (st wire.Store, scope string) {
 	return &fakeStore{queryFn: exportEngine}, ""
 }
 
-// exportPoolStore — the minimal real-DB wire.Store implementation (only
-// Query actually works — the minimum the query scenarios need,
-// inheriting the meta_kv_test poolStore convention).
 type exportPoolStore struct {
 	pool *pgxpool.Pool
 	wire.HistoryStubs
@@ -239,11 +192,6 @@ func (s *exportPoolStore) Query(ctx context.Context, sql string, args ...any) ([
 	return out, rows.Err()
 }
 
-// exportRealStore — real-DB connection allowed only with SUPERLITE_REAL=1
-// + FLINT_TEST_DSN set (operational fallback blocked — inheriting the
-// seamRealDSN N1 contract). Skipped when the DB is down. Right after
-// connecting, gates on v11 (the 2 score columns) — the ExportRows SELECT
-// references the new columns and fails with 42703 on an unmigrated DB.
 func exportRealStore(t *testing.T) wire.Store {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") != "1" {
@@ -269,11 +217,6 @@ func exportRealStore(t *testing.T) wire.Store {
 	return &exportPoolStore{pool: pool}
 }
 
-// seedExportFixture — seeds the 3 synthetic fixture rows + cleanup (the
-// prefix key — prior-run residue also absorbed by the leading DELETE).
-// v1.9.0 T4: schema v12 — instead of a recall_score physical column, the
-// score is seeded as recall events (score rows each, recalled_at=
-// lastRec) (the derived aggregate reproduces cnt·last_at).
 func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx := context.Background()
@@ -293,8 +236,7 @@ func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 			f.status, f.hash, f.sup, f.valid, f.ingested, f.invalid); err != nil {
 			t.Skipf("fixture 시딩 실패(스키마 미구비 의심): %v", err)
 		}
-		// Score events — one row each per score count (at the lastRec
-		// time).
+
 		if f.score > 0 {
 			if _, err := pool.Exec(ctx,
 				`INSERT INTO recall_events (knowledge_id, recalled_at)
@@ -306,9 +248,6 @@ func seedExportFixture(t *testing.T, pool *pgxpool.Pool) {
 	}
 }
 
-// TestExportRowsActiveFilter — the active filter yields the 2 rows
-// excluding invalidated. The Status zero value ("") is also the active
-// default.
 func TestExportRowsActiveFilter(t *testing.T) {
 	ctx := context.Background()
 	for _, status := range []string{"active", ""} {
@@ -322,8 +261,6 @@ func TestExportRowsActiveFilter(t *testing.T) {
 	}
 }
 
-// TestExportRowsAllIncludesInvalidated — Status "all" yields 3 rows
-// including invalidated.
 func TestExportRowsAllIncludesInvalidated(t *testing.T) {
 	st, scope := exportTestStore(t)
 	rows, err := ExportRows(context.Background(), st, ExportFilter{Status: "all"})
@@ -334,9 +271,6 @@ func TestExportRowsAllIncludesInvalidated(t *testing.T) {
 		[]string{"배포 관례", "회고 형식", "구 배포 정책"})
 }
 
-// TestExportRowsTagFilter — the tag filter (':t:' exact matching).
-// active default + deploy → 1 row; all + deploy → 2 rows including
-// invalidated.
 func TestExportRowsTagFilter(t *testing.T) {
 	ctx := context.Background()
 	st, scope := exportTestStore(t)
@@ -355,9 +289,6 @@ func TestExportRowsTagFilter(t *testing.T) {
 		[]string{"배포 관례", "구 배포 정책"})
 }
 
-// TestExportRowsSinceCutoff — Since is an updated_at cutoff (the
-// COALESCE(invalid_at, ingested_at) derivation — the zero value means
-// everything). The tMid cut leaves only the row with invalid_at=tNew.
 func TestExportRowsSinceCutoff(t *testing.T) {
 	ctx := context.Background()
 	st, scope := exportTestStore(t)
@@ -367,8 +298,6 @@ func TestExportRowsSinceCutoff(t *testing.T) {
 	}
 	assertExportTopics(t, exportScopedRows(rows, scope), []string{"구 배포 정책"})
 
-	// active + cutoff — the two active rows' updated_at (=ingested_at)
-	// is tOld, so 0 rows.
 	st2, scope2 := exportTestStore(t)
 	rows2, err := ExportRows(ctx, st2, ExportFilter{Since: exportTMid})
 	if err != nil {
@@ -379,12 +308,6 @@ func TestExportRowsSinceCutoff(t *testing.T) {
 	}
 }
 
-// TestExportSinceBindsRFC3339String — Since binds as an RFC3339 string,
-// not a direct time.Time bind (abolishing the codebase's only
-// time.Time parameter — the Doltgres/PG parameter type-mismatch risk.
-// The same format as the import_jsonl valid_at convention). Also
-// asserts the query results are unchanged before/after stringification
-// (the same cutoff).
 func TestExportSinceBindsRFC3339String(t *testing.T) {
 	_, args := buildExportQuery(ExportFilter{Status: "all", Since: exportTMid})
 	if len(args) != 1 {
@@ -401,8 +324,7 @@ func TestExportSinceBindsRFC3339String(t *testing.T) {
 	if !pt.Equal(exportTMid) {
 		t.Errorf("Since 문자열 = %q(%v), want %v 원시각 보존", s, pt, exportTMid)
 	}
-	// Results unchanged — the string Since yields the same cutoff (the
-	// TestExportRowsSinceCutoff baseline).
+
 	st, scope := exportTestStore(t)
 	rows, err := ExportRows(context.Background(), st, ExportFilter{Status: "all", Since: exportTMid})
 	if err != nil {
@@ -411,12 +333,6 @@ func TestExportSinceBindsRFC3339String(t *testing.T) {
 	assertExportTopics(t, exportScopedRows(rows, scope), []string{"구 배포 정책"})
 }
 
-// TestExportRowFieldMapping — the full-field mapping assertion (fake —
-// deterministic ids). content←summary·tags ':a:b:' parsing·entities←the
-// entity column·kind the source-table discriminator·source←the origin
-// column (round-trip hash symmetry — if empty, origin≠agent rows
-// double-accrue on re-import)·created_at←ingested_at·updated_at
-// derived·superseded_by nil/int.
 func TestExportRowFieldMapping(t *testing.T) {
 	rows, err := ExportRows(context.Background(),
 		&fakeStore{queryFn: exportEngine}, ExportFilter{Status: "all"})
@@ -474,10 +390,6 @@ func TestExportRowFieldMapping(t *testing.T) {
 	}
 }
 
-// TestExportRowValidAtMapping — the SELECT includes the valid_at column
-// and maps it into the ValidAt field (the source of round-trip
-// preservation — rows whose validation time differs from the collection
-// time expose the raw value without CreatedAt substitution).
 func TestExportRowValidAtMapping(t *testing.T) {
 	rows, err := ExportRows(context.Background(),
 		&fakeStore{queryFn: exportEngine}, ExportFilter{Status: "all"})
@@ -497,9 +409,6 @@ func TestExportRowValidAtMapping(t *testing.T) {
 	}
 }
 
-// TestExportRowsInvalidStatusError — Status accepts active|all only (an
-// invalid value is a SchemaError — the source of the caller's exit 3
-// mapping).
 func TestExportRowsInvalidStatusError(t *testing.T) {
 	_, err := ExportRows(context.Background(), &fakeStore{},
 		ExportFilter{Status: "pending"})
@@ -512,8 +421,6 @@ func TestExportRowsInvalidStatusError(t *testing.T) {
 	}
 }
 
-// TestExportRowsQueryErrorPropagation — a lookup error propagates as-is
-// (the source of the caller's MapExit exit 2 mapping).
 func TestExportRowsQueryErrorPropagation(t *testing.T) {
 	boom := errors.New("boom")
 	if _, err := ExportRows(context.Background(),
@@ -522,10 +429,6 @@ func TestExportRowsQueryErrorPropagation(t *testing.T) {
 	}
 }
 
-// TestExportRowScoreColumnsMapping — the SELECT includes the
-// recall_score·last_recalled_at physical columns and maps them into
-// ExportRow (not source-derived — the row with values gets 3·
-// exportTRecall; the row without gets 0·nil).
 func TestExportRowScoreColumnsMapping(t *testing.T) {
 	rows, err := ExportRows(context.Background(),
 		&fakeStore{queryFn: exportEngine}, ExportFilter{Status: "all"})
@@ -549,12 +452,8 @@ func TestExportRowScoreColumnsMapping(t *testing.T) {
 	}
 }
 
-// TestExportScoreJSONLRoundTrip — the 2 score fields survive the jsonl
-// round trip. Legacy lines (no keys) fall back to 0/NULL. Rows with
-// score 0/NULL do not emit the new keys (additive — the existing golden
-// output unchanged).
 func TestExportScoreJSONLRoundTrip(t *testing.T) {
-	// Round-trip preservation — a non-zero row (5·the recall time).
+
 	scored := []ExportRow{{
 		ID: 21, Topic: "demo score roundtrip", Content: "합성 데모 — 스코어 왕복 보존.",
 		Kind: "knowledge", Status: "active", Confidence: 0.9, Domain: "demo",
@@ -580,7 +479,6 @@ func TestExportScoreJSONLRoundTrip(t *testing.T) {
 		t.Errorf("왕복 last_recalled_at = %v, want %v", got[0].LastRecalledAt, exportTRecall)
 	}
 
-	// Fallback — legacy jsonl (no score keys) is 0/NULL.
 	legacy := `{"id":22,"topic":"legacy demo","content":"합성 데모","kind":"knowledge","status":"active","confidence":0.5,"tags":null,"entities":null,"domain":"main","source":"agent","content_hash":"legacy-h","created_at":"2026-11-01T00:00:00Z","updated_at":"2026-11-01T00:00:00Z","valid_at":"2026-11-01T00:00:00Z","superseded_by":null}` + "\n"
 	lr, err := ParseJSONLRows([]byte(legacy))
 	if err != nil {
@@ -593,8 +491,6 @@ func TestExportScoreJSONLRoundTrip(t *testing.T) {
 		t.Errorf("legacy 폴백 = (%d,%v), want (0,nil)", lr[0].RecallScore, lr[0].LastRecalledAt)
 	}
 
-	// Golden invariance — a 0/NULL row emits only the existing 15 keys
-	// (no new keys).
 	zero := scored[0]
 	zero.ID, zero.ContentHash, zero.RecallScore, zero.LastRecalledAt = 23, "score-zero", 0, nil
 	out, err := FormatJSONL([]ExportRow{zero})
@@ -615,13 +511,6 @@ func TestExportScoreJSONLRoundTrip(t *testing.T) {
 	}
 }
 
-// TestRowHashRecScoreCarry — the 2 score keys are excluded from the
-// jsonl re-plant rec (R42-A — with knowledge's recall_score·
-// last_recalled_at columns dropped in v12, INSERT column assembly would
-// hit 42703·a batch rollback. The value transfer moved to the synthetic
-// event replay path after InsertBatch). The hash-input exclusion
-// assertion is inherited (importHashSkip — recall history is not content
-// identity). No rec, regardless of value presence, may carry the keys.
 func TestRowHashRecScoreCarry(t *testing.T) {
 	scored := ExportRow{ID: 1, Topic: "demo score carry", Content: "합성 데모",
 		Kind: "knowledge", Status: "active", Confidence: 0.9, Domain: "demo",
@@ -653,10 +542,6 @@ func TestRowHashRecScoreCarry(t *testing.T) {
 	}
 }
 
-// TestExportScoreColumnsReal — slow (real DB): on a v11-gated DB, the
-// score physical-column lookup (source mapping — not derived)·jsonl
-// round-trip preservation·the unset-row fallback. Runs only with
-// SUPERLITE_REAL=1 + FLINT_TEST_DSN set (the exportRealStore seam).
 func TestExportScoreColumnsReal(t *testing.T) {
 	st := exportRealStore(t)
 	if st == nil {
@@ -690,8 +575,7 @@ func TestExportScoreColumnsReal(t *testing.T) {
 	if plain == nil || plain.RecallScore != 0 || plain.LastRecalledAt != nil {
 		t.Errorf("미설정 행 폴백 = %+v, want (0,nil)", plain)
 	}
-	// Round trip — values read from the physical columns survive via
-	// jsonl.
+
 	data, err := FormatJSONL([]ExportRow{scored})
 	if err != nil {
 		t.Fatalf("FormatJSONL: %v", err)

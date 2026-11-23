@@ -1,8 +1,3 @@
-// report_text_diag_test.go — the report --text diagnostics-wiring regression.
-// The text leg of the all-three-views-one-source contract (the diagnosis.go comment —
-// text (Sentence), the default JSON field, and --html cards): --text prints
-// ReportOutput.Diagnosis as Sentence() lines, and with 0 diagnostics it emits no section
-// (normal silence). The default (no flags) one-line JSON and the --html path are unchanged (output-contract defense).
 package ops
 
 import (
@@ -13,28 +8,24 @@ import (
 	"testing"
 )
 
-// diagFake — a fixture triggering 2 diagnostics (tier B: pending backlog + a dead warning).
-// The other queries are blank (tallies 0, no metering — the normal-silence principle).
 func diagFake() *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
-		case strings.Contains(sql, "status = 'pending'"): // the counts 3 columns
+		case strings.Contains(sql, "status = 'pending'"):
 			return [][]any{{int64(3), int64(5), int64(0)}}, nil
 		case strings.Contains(sql, "/* stale */"):
 			return [][]any{{int64(0), int64(0)}}, nil
-		case strings.Contains(sql, "invalid_at >= $1"): // period invalidations
+		case strings.Contains(sql, "invalid_at >= $1"):
 			return [][]any{{int64(0)}}, nil
-		case strings.Contains(sql, "count(CASE WHEN read_count > 0"): // the G3 denominator
+		case strings.Contains(sql, "count(CASE WHEN read_count > 0"):
 			return [][]any{{int64(5), int64(0)}}, nil
-		case strings.Contains(sql, "/* dead */"): // 5 active rows with 0 recalls
+		case strings.Contains(sql, "/* dead */"):
 			return [][]any{{int64(1)}, {int64(2)}, {int64(3)}, {int64(4)}, {int64(5)}}, nil
 		}
 		return nil, nil
 	}}
 }
 
-// TestTextReportPrintsDiagnosis — --text: the 2 Diagnose products (pending_backlog
-// and dead_knowledge) each print as a Sentence() line on stdout.
 func TestTextReportPrintsDiagnosis(t *testing.T) {
 	var out strings.Builder
 	if code := RunReport(context.Background(), diagFake(), []string{"--text"}, nil, &out); code != 0 {
@@ -51,8 +42,6 @@ func TestTextReportPrintsDiagnosis(t *testing.T) {
 	}
 }
 
-// TestTextReportSilentWhenNoDiagnosis — --text + 0 diagnostics: no diagnostics
-// section (normal silence — not even a header).
 func TestTextReportSilentWhenNoDiagnosis(t *testing.T) {
 	var out strings.Builder
 	if code := RunReport(context.Background(), &fakeStore{}, []string{"--text"}, nil, &out); code != 0 {
@@ -63,8 +52,6 @@ func TestTextReportSilentWhenNoDiagnosis(t *testing.T) {
 	}
 }
 
-// TestDefaultOutputStaysJSON — no flags: the one-line JSON unchanged (diagnosis
-// exists as a JSON field, no text sentence render — 1 line).
 func TestDefaultOutputStaysJSON(t *testing.T) {
 	var out strings.Builder
 	if code := RunReport(context.Background(), diagFake(), nil, nil, &out); code != 0 {
@@ -83,10 +70,8 @@ func TestDefaultOutputStaysJSON(t *testing.T) {
 	}
 }
 
-// TestHTMLOutputUnchanged — --html: the existing path unchanged (a one-line stdout
-// summary + the diagnostic signals rendered in the file's cards — not passing through the new --text code).
 func TestHTMLOutputUnchanged(t *testing.T) {
-	t.Chdir(t.TempDir()) // isolate the default report.html output
+	t.Chdir(t.TempDir())
 	var out strings.Builder
 	if code := RunReport(context.Background(), diagFake(), []string{"--html"}, nil, &out); code != 0 {
 		t.Fatalf("report --html exit=%d: %s", code, out.String())

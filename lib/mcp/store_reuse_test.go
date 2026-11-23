@@ -1,12 +1,3 @@
-// store_reuse_test.go — MCP server-lifetime store reuse regressions.
-// (1) cli.RunWithStore injection verification (the injected fake's Query
-// is reached and Close is never called — the server-lifetime store is not
-// closed by the first call)
-// (2) equivalence with the existing cli.Run (nil-injection fallback —
-// store-free paths and server-down exit 2)
-// (3) two DispatchTool calls with one supply (the cache), concurrent-call
-// races, and nil fallback on supply failure (quietly, per the existing
-// contract).
 package mcp
 
 import (
@@ -23,9 +14,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// reuseFake — a wire.Store fake. Records Query and Close call counts to
-// verify that the injection path is reached and the lifetime (whether
-// closed).
 type reuseFake struct {
 	wire.HistoryStubs
 	mu      sync.Mutex
@@ -63,7 +51,6 @@ func (f *reuseFake) Close() {
 
 var _ wire.Store = (*reuseFake)(nil)
 
-// resetStoreCache — resets the server-lifetime store cache (blocking cross-test contamination).
 func resetStoreCache(t *testing.T) {
 	t.Helper()
 	storeMu.Lock()
@@ -76,8 +63,6 @@ func resetStoreCache(t *testing.T) {
 	})
 }
 
-// installRunWithStore — swaps the runWithStoreFn seam (records call args
-// and the injected store; returns fixed output and code).
 func installRunWithStore(t *testing.T, out string, code int) *[]wire.Store {
 	t.Helper()
 	var got []wire.Store
@@ -94,10 +79,6 @@ func installRunWithStore(t *testing.T, out string, code int) *[]wire.Store {
 	return &got
 }
 
-// TestRunWithStoreReusesInjection — the injected store is actually used by
-// the command (Query reached) and not closed after the run (blocking
-// wire.Run's one-shot Close contract — the crux of server-lifetime
-// reuse).
 func TestRunWithStoreReusesInjection(t *testing.T) {
 	f := &reuseFake{}
 	var out bytes.Buffer
@@ -113,9 +94,6 @@ func TestRunWithStoreReusesInjection(t *testing.T) {
 	}
 }
 
-// TestRunDelegatesToRunWithStore — a nil injection is equivalent to the
-// existing cli.Run (store-free output, exit codes, and the server-down
-// exit 2 contract unchanged).
 func TestRunDelegatesToRunWithStore(t *testing.T) {
 	cases := []struct {
 		name string
@@ -139,7 +117,7 @@ func TestRunDelegatesToRunWithStore(t *testing.T) {
 		})
 	}
 	t.Run("server_down_exit2_both", func(t *testing.T) {
-		// Connection refused (port 1) hits ErrServerDown without retries — a fast hermetic simulation.
+
 		t.Setenv("FLINT_DSN", "postgres://flint:flint@127.0.0.1:1/flint?sslmode=disable")
 		var a, b bytes.Buffer
 		ca := cli.Run([]string{"hot"}, strings.NewReader(""), &a)
@@ -156,10 +134,6 @@ func TestRunDelegatesToRunWithStore(t *testing.T) {
 	})
 }
 
-// TestDispatchToolReusesServerStore — two tool calls with one supply (one
-// store open) — the server-lifetime cache. Even under a concurrent-call
-// race there is one open; a supply failure is the nil-injection fallback
-// (quietly, per the existing Run contract).
 func TestDispatchToolReusesServerStore(t *testing.T) {
 	t.Run("two_calls_one_open", func(t *testing.T) {
 		resetStoreCache(t)

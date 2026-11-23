@@ -1,9 +1,3 @@
-// distill_test.go — contract tests for the flint distill CLI wiring
-// (v1.22.0 T6, ADR-0018). The source query and the stamp write are
-// faked via seam vars / a store extension fake; the runDistill contract
-// itself (required --out, min-score resolution, aggregate file,
-// overwrite warning, write-then-stamp atomicity, exit 0/1/2/3) is the
-// verification target. Synthetic demo rows only.
 package cli
 
 import (
@@ -21,8 +15,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// distillFakeStore — fakeStore + the MarkDistilled capture layer (the
-// distillStamper extension the production realStore carries).
 type distillFakeStore struct {
 	*fakeStore
 	stampedIDs []int
@@ -37,16 +29,10 @@ func (f *distillFakeStore) MarkDistilled(ctx context.Context, ids []int) (int64,
 	return int64(len(ids)), nil
 }
 
-// distillClock — the fixed run clock (deterministic aggregate filename).
 var distillClock = time.Date(2026, 11, 23, 9, 41, 0, 0, time.UTC)
 
-// distillFileName — the expected aggregate file name for the fixed clock.
 const distillFileName = "insights-20261123-0941.md"
 
-// installDistillFakes — swaps the rows/format/clock/stderr seams and
-// captures the effective min score the source query received. rows=nil
-// means the default 2-row fake (ids 2 then 1 — order-preservation
-// input). Returns the stderr buffer and the min-score capture pointer.
 func installDistillFakes(t *testing.T, rows []knowledge.DistillRow) (*bytes.Buffer, *float64) {
 	t.Helper()
 	if rows == nil {
@@ -70,16 +56,12 @@ func installDistillFakes(t *testing.T, rows []knowledge.DistillRow) (*bytes.Buff
 	return &stderr, &minSeen
 }
 
-// runDistillOnce — the runDistill helper (nil stdin, fresh stdout).
 func runDistillOnce(st Store, args []string) (string, int) {
 	var out bytes.Buffer
 	code := runDistill(context.Background(), st, args, strings.NewReader(""), &out)
 	return out.String(), code
 }
 
-// RF1 — --out is required: absent flag, missing trailing value, and an
-// empty value are all usage errors (exit 3, one schema-error JSON line,
-// no source query).
 func TestRunDistillRequiresOut(t *testing.T) {
 	for _, args := range [][]string{
 		{},
@@ -107,10 +89,6 @@ func TestRunDistillRequiresOut(t *testing.T) {
 	}
 }
 
-// RF2 — an unparsable, negative, or over-1e9 --min-score is a usage
-// error (exit 3; the 1e9 ceiling is the v1.22.1 r98 guard — a
-// MaxFloat-scale floor broke the count comparison's parameter encoding
-// as an internal error).
 func TestRunDistillInvalidMinScore(t *testing.T) {
 	installDistillFakes(t, nil)
 	dir := t.TempDir()
@@ -124,16 +102,13 @@ func TestRunDistillInvalidMinScore(t *testing.T) {
 			t.Errorf("--min-score %s: schema error missing min-score field: %s", v, out)
 		}
 	}
-	// the ceiling itself passes (1e9 is legal — only above it refuses).
+
 	if out, code := runDistillOnce(&distillFakeStore{fakeStore: &fakeStore{}},
 		[]string{"--out", dir, "--min-score", "1000000000"}); code != 0 {
 		t.Fatalf("--min-score 1e9: exit = %d, want 0 (out=%s)", code, out)
 	}
 }
 
-// RF3 — the happy path: one aggregate insights-<YYYYMMDD-HHMM>.md in the
-// --out dir, id-sorted sections, summary line on stderr, the selected
-// ids stamped exactly once, and a dolt commit records the stamp.
 func TestRunDistillWritesAndStamps(t *testing.T) {
 	stderr, _ := installDistillFakes(t, nil)
 	dir := t.TempDir()
@@ -151,7 +126,7 @@ func TestRunDistillWritesAndStamps(t *testing.T) {
 		t.Fatalf("aggregate file not written: %v", err)
 	}
 	s := string(body)
-	// id-sorted file content: #1 section before #2, all fields present.
+
 	if strings.Index(s, "## #1 demo-a") > strings.Index(s, "## #2 demo-b") {
 		t.Errorf("sections not in id order:\n%s", s)
 	}
@@ -171,8 +146,6 @@ func TestRunDistillWritesAndStamps(t *testing.T) {
 	}
 }
 
-// RF4 — idempotence surface: 0 unstamped rows above the floor writes no
-// file, stamps nothing, and exits 0.
 func TestRunDistillZeroRowsNoFile(t *testing.T) {
 	stderr, _ := installDistillFakes(t, []knowledge.DistillRow{})
 	dir := t.TempDir()
@@ -193,11 +166,6 @@ func TestRunDistillZeroRowsNoFile(t *testing.T) {
 	}
 }
 
-// RF5 — a pre-existing same-name file is NEVER overwritten (v1.22.1
-// r98): the run writes insights-<ts>-2.md instead, one collision notice
-// line names both files, and the earlier file's bytes survive (pre-fix:
-// the run overwrote it — stamped rows cannot be re-emitted, so the
-// content was lost permanently).
 func TestRunDistillSameMinuteNoOverwrite(t *testing.T) {
 	stderr, _ := installDistillFakes(t, nil)
 	dir := t.TempDir()
@@ -221,7 +189,7 @@ func TestRunDistillSameMinuteNoOverwrite(t *testing.T) {
 		!strings.Contains(stderr.String(), "insights-20261123-0941-2.md") {
 		t.Fatalf("collision notice must name both files: %q", stderr.String())
 	}
-	// a third same-minute run continues the suffix sequence.
+
 	out, code = runDistillOnce(&distillFakeStore{fakeStore: &fakeStore{}}, []string{"--out", dir})
 	if code != 0 {
 		t.Fatalf("third run exit = %d, want 0 (out=%s)", code, out)
@@ -235,8 +203,6 @@ func TestRunDistillSameMinuteNoOverwrite(t *testing.T) {
 	}
 }
 
-// RF6 — atomicity: a file-write failure means no stamp and exit 1 (the
-// stamp only follows a successful write — ADR-0018).
 func TestRunDistillWriteFailureNoStamp(t *testing.T) {
 	installDistillFakes(t, nil)
 	dir := t.TempDir()
@@ -258,10 +224,6 @@ func TestRunDistillWriteFailureNoStamp(t *testing.T) {
 	}
 }
 
-// RF7 — min-score resolution: the threshold meta override
-// (distill_min_score) replaces the default; an explicit --min-score
-// takes precedence over the override; no meta row falls back to the
-// DefaultThresholds value.
 func TestRunDistillMinScoreResolution(t *testing.T) {
 	dir := t.TempDir()
 	metaRows := func(v string) [][]any {
@@ -269,7 +231,7 @@ func TestRunDistillMinScoreResolution(t *testing.T) {
 	}
 	cases := []struct {
 		name    string
-		meta    string // "" = no meta rows
+		meta    string
 		flag    string
 		wantMin float64
 	}{
@@ -303,8 +265,6 @@ func TestRunDistillMinScoreResolution(t *testing.T) {
 	}
 }
 
-// RF8 — nil store exits 2 (the export convention — one server_down
-// line, MapExit).
 func TestRunDistillNilStoreExit2(t *testing.T) {
 	installDistillFakes(t, nil)
 	out, code := runDistillOnce(nil, []string{"--out", t.TempDir()})
@@ -316,7 +276,6 @@ func TestRunDistillNilStoreExit2(t *testing.T) {
 	}
 }
 
-// RF9 — server-down (ping failure) exits 2 before any source query.
 func TestRunDistillServerDownExit2(t *testing.T) {
 	installDistillFakes(t, nil)
 	called := false
@@ -335,11 +294,6 @@ func TestRunDistillServerDownExit2(t *testing.T) {
 	}
 }
 
-// RF11 — the v1.22.1 r97 file cap carry-over: with a small
-// distill_max_runes meta override only the rows that fit are emitted and
-// stamped; the remainder stays unstamped (defers to the next run) and a
-// "N rows deferred" stderr notice names it (pre-fix: every selected row
-// stamped regardless of file size).
 func TestRunDistillFileCapDefers(t *testing.T) {
 	rows := []knowledge.DistillRow{
 		{ID: 1, Topic: "demo-c1", Summary: strings.Repeat("c1 body ", 40), Tags: []string{"demo"}, RecallScore: 2},
@@ -350,7 +304,7 @@ func TestRunDistillFileCapDefers(t *testing.T) {
 	dir := t.TempDir()
 	fst := &distillFakeStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta") {
-			// a 600-rune cap: only row 1 fits (each section ~350 runes).
+
 			return [][]any{{"distill_max_runes", "600"}}, nil
 		}
 		return nil, nil
@@ -376,15 +330,12 @@ func TestRunDistillFileCapDefers(t *testing.T) {
 	if !strings.Contains(stderr.String(), "2 rows deferred") {
 		t.Fatalf("deferred notice missing: %q", stderr.String())
 	}
-	// the deferred rows are the next run's input: unstamped in the stamp
-	// call is asserted above; the notice names the count exactly.
+
 	if n := strings.Count(stderr.String(), "rows deferred"); n != 1 {
 		t.Fatalf("deferred notice lines = %d, want 1: %q", n, stderr.String())
 	}
 }
 
-// RF10 — the aggregate file name shape: insights-<YYYYMMDD-HHMM>.md
-// (verified on the fixed clock; the live clock only needs the shape).
 func TestDistillFileNameShape(t *testing.T) {
 	if name := distillFileNameFor(distillClock); name != distillFileName {
 		t.Errorf("file name = %q, want %q", name, distillFileName)
@@ -399,11 +350,6 @@ func TestDistillFileNameShape(t *testing.T) {
 	}
 }
 
-// RF9 — v1.24.0 T2 (the survived minimum fulfillment): the aggregate
-// file's output rows carry the survived_sessions count verbatim from the
-// listing (the source seam delivers the merged rows; the formatter is
-// the knowledge-package contract, verified there — this pins the CLI
-// end-to-end pass-through).
 func TestRunDistillSurvivedSessionsInFile(t *testing.T) {
 	st := &distillFakeStore{fakeStore: &fakeStore{}}
 	rows := []knowledge.DistillRow{

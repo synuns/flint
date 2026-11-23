@@ -1,7 +1,3 @@
-// pending_fields_sanitized_test.go — the pending field re-sanitization
-// (audit 1) goes through the render choke point (render.Text). Output
-// bytes unchanged — spot assertions on [flint] marker·control-character
-// neutralization.
 package knowledge
 
 import (
@@ -11,9 +7,6 @@ import (
 	"time"
 )
 
-// TestPendingFieldsSanitized — [flint] markers·control characters in the
-// stored topic·summary·origin values are neutralized in the pending
-// output (text mode).
 func TestPendingFieldsSanitized(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	recent := time.Now().UTC().Add(-24 * time.Hour)

@@ -1,8 +1,3 @@
-// write_links_v1201_slow_test.go — v1.20.1 (r86) real-DB regressions on
-// the write link path: an int4-overflow target id (≥ 2^31) is refused
-// with exit 3 and zero contamination. The id-array lookup now encodes
-// as int8 (pgx []int64), so the missing-target verdict is reachable
-// instead of dying in the array encoding.
 package knowledge
 
 import (
@@ -14,9 +9,6 @@ import (
 	"github.com/synuns/flint/lib/render"
 )
 
-// TestSlowWriteLinkTargetInt4OverflowRefusedV1201 — to=2147483648 (2^31,
-// a legal int64 but no such row) exits 3 with the missing-target
-// refusal; no knowledge row·no link row lands.
 func TestSlowWriteLinkTargetInt4OverflowRefusedV1201(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()
@@ -46,8 +38,6 @@ func TestSlowWriteLinkTargetInt4OverflowRefusedV1201(t *testing.T) {
 	}
 }
 
-// linkTripleCount — the (from,to,relation) rows currently in
-// knowledge_links.
 func linkTripleCount(t *testing.T, st *writeRealStore) int {
 	t.Helper()
 	rows, err := st.Query(context.Background(), `SELECT count(*) FROM knowledge_links`)
@@ -58,15 +48,10 @@ func linkTripleCount(t *testing.T, st *writeRealStore) int {
 	return n
 }
 
-// TestSlowWriteMixedBatchLinksAccruedV1201 — r84 real-DB regression: a
-// mixed batch [duplicate resend + relations, new line + relations]
-// accrues BOTH link families (the pre-patch path dropped the
-// duplicate-side link).
 func TestSlowWriteMixedBatchLinksAccruedV1201(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()
-	// Two base rows — A supplies the duplicate payload (resent with
-	// relations), B is the duplicate line's link target.
+
 	base := `{"topic":"v1201 base %s","summary":"base %s","confidence":0.9}`
 	var out strings.Builder
 	if code := RunWrite(ctx, st, []string{"knowledge"}, strings.NewReader(
@@ -101,10 +86,6 @@ func TestSlowWriteMixedBatchLinksAccruedV1201(t *testing.T) {
 	}
 }
 
-// TestSlowPAMLinksRoundtripV1201 — r84 real-DB regression (the e2e
-// round trip): a PAM export carrying relations imports into a FRESH
-// database with the same knowledge_links row count — the pre-patch
-// import parsed the relations and dropped them.
 func TestSlowPAMLinksRoundtripV1201(t *testing.T) {
 	src := t5ScratchStore(t)
 	ctx := context.Background()
@@ -135,7 +116,7 @@ func TestSlowPAMLinksRoundtripV1201(t *testing.T) {
 		t.Fatalf("FormatPAM: %v", err)
 	}
 
-	dst := t5ScratchStore(t) // a FRESH scratch database
+	dst := t5ScratchStore(t)
 	var inOut strings.Builder
 	if code := RunImportMigrate(ctx, dst, []string{"--format", "pam"}, strings.NewReader(string(doc)), &inOut); code != 0 {
 		t.Fatalf("수입 exit=%d: %s", code, inOut.String())

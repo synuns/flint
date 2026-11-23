@@ -1,7 +1,3 @@
-// root_test.go — v1.7.2 T4: the schemaVersionFn probe 42P01 heal. When the probe
-// fails with 42P01 (missing table), run SELECT 1 once on the st pool to resynchronize the session
-// catalog (R38-B probeheal) and retry the probe — if it still fails
-// (a genuinely fresh DB), fall back to the existing sequential promotion path.
 package cli
 
 import (
@@ -19,8 +15,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// probeHealFake — a call-order-recording fake: first probe 42P01 -> SELECT 1 succeeds ->
-// the retry answers from retryRows.
 func probeHealFake(t *testing.T, retryRows [][]any, retryErr error) (*fakeStore, *[]string) {
 	t.Helper()
 	seq := &[]string{}
@@ -39,8 +33,6 @@ func probeHealFake(t *testing.T, retryRows [][]any, retryErr error) (*fakeStore,
 	return f, seq
 }
 
-// TestSchemaVersionProbeHealsUndefinedTable — Review Focus: 42P01 → SELECT 1
-// a heal-once -> probe-retry-success sequence (including query-order assertions).
 func TestSchemaVersionProbeHealsUndefinedTable(t *testing.T) {
 	f, seq := probeHealFake(t, [][]any{{fmt.Sprint(db.LatestSchemaVersion)}}, nil)
 	v, ok := schemaVersionFn(context.Background(), f)
@@ -56,8 +48,6 @@ func TestSchemaVersionProbeHealsUndefinedTable(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionProbeHealFallsBackOnFreshDB — if it is still 42P01 after the heal
-// (a genuinely fresh DB), only 3 queries are consumed and it falls back to (0,false) — delegating to the sequential promotion path.
 func TestSchemaVersionProbeHealFallsBackOnFreshDB(t *testing.T) {
 	f, seq := probeHealFake(t, nil, &pgconn.PgError{Code: "42P01", Message: `relation "meta" does not exist`})
 	v, ok := schemaVersionFn(context.Background(), f)
@@ -69,8 +59,6 @@ func TestSchemaVersionProbeHealFallsBackOnFreshDB(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionProbeNoHealOnOtherErrors — errors other than 42P01 (server down etc.)
-// fall back immediately without healing — no unnecessary round trips.
 func TestSchemaVersionProbeNoHealOnOtherErrors(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, errors.New("connection refused")
@@ -84,9 +72,6 @@ func TestSchemaVersionProbeNoHealOnOtherErrors(t *testing.T) {
 	}
 }
 
-// TestFreshDBFirstCommandExit0RealSlow — slow(FLINT_TEST_DSN + SUPERLITE_REAL=1):
-// the first command (status) right after creating a fresh DB exits 0 — the probe 42P01 -> heal ->
-// sequential promotion path demonstrated end-to-end on a real DB (L1 regression).
 func TestFreshDBFirstCommandExit0RealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {

@@ -27,8 +27,6 @@ func TestFallbackMatchCount(t *testing.T) {
 	}
 }
 
-// TestTokenizeQueryCapsAtEight — the token cap of 8 (a scan-cost guard): inputs of
-// 9+ tokens keep only the first 8.
 func TestTokenizeQueryCapsAtEight(t *testing.T) {
 	got := tokenizeQuery("a b c d e f g h i j")
 	want := []string{"a", "b", "c", "d", "e", "f", "g", "h"}
@@ -37,8 +35,6 @@ func TestTokenizeQueryCapsAtEight(t *testing.T) {
 	}
 }
 
-// TestBuildReadFallbackSkipsSingleToken — a 1-token query is identical to phrase
-// matching, so the fallback is skipped (ok=false).
 func TestBuildReadFallbackSkipsSingleToken(t *testing.T) {
 	if _, _, ok := BuildReadFallback("백업", queryDefaultFilters()); ok {
 		t.Errorf("1-토큰 질의에 폴백 조립됨")
@@ -48,8 +44,6 @@ func TestBuildReadFallbackSkipsSingleToken(t *testing.T) {
 	}
 }
 
-// TestBuildReadFallbackEscapesLike — the tokens' %, _, and \\ are escaped as
-// literals, and the filter and limit arguments follow.
 func TestBuildReadFallbackEscapesLike(t *testing.T) {
 	sql, args, ok := BuildReadFallback("a%b c_d", Filters{Tag: "t", Limit: 99})
 	if !ok {
@@ -64,19 +58,17 @@ func TestBuildReadFallbackEscapesLike(t *testing.T) {
 	if !strings.Contains(sql, " OR ") || !strings.Contains(sql, "FROM active_knowledge") {
 		t.Errorf("폴백 SQL 형태 오류: %q", sql)
 	}
-	// the last argument is the ClampLimit cap (99 -> 50).
+
 	if last, ok := args[len(args)-1].(int); !ok || last != 50 {
 		t.Errorf("limit 인자 = %v, want 50", args[len(args)-1])
 	}
 }
 
-// TestReorderByFallbackCountStableTies — ties keep the query order (the
-// RankOrder order) (the SliceStable contract).
 func TestReorderByFallbackCountStableTies(t *testing.T) {
 	rows := [][]any{
-		{int32(1), "백업", "요약1", ":a:", nil, "main", 0.9, "active"},              // 1 exact match
-		{int32(2), "flint 백업", "복구는 저장소 정지", ":a:", nil, "main", 0.8, "active"}, // 2 exact matches
-		{int32(3), "복구", "요약3", ":a:", nil, "main", 0.7, "active"},              // 1 exact match (tie — existing 1->3 order)
+		{int32(1), "백업", "요약1", ":a:", nil, "main", 0.9, "active"},
+		{int32(2), "flint 백업", "복구는 저장소 정지", ":a:", nil, "main", 0.8, "active"},
+		{int32(3), "복구", "요약3", ":a:", nil, "main", 0.7, "active"},
 	}
 	ReorderByFallbackCount(rows, []string{"백업", "복구"})
 	if rows[0][0] != int32(2) {
@@ -87,5 +79,4 @@ func TestReorderByFallbackCountStableTies(t *testing.T) {
 	}
 }
 
-// queryDefaultFilters — the default Filters (test-local).
 func queryDefaultFilters() Filters { return Filters{} }

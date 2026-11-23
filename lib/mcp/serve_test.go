@@ -1,6 +1,3 @@
-// serve_test.go — RunMCPServer roundtrip tests (protocol order, EOF,
-// broken JSON). runFn seam reuse: a fake by default, the real cli.Run with
-// SUPERLITE_REAL=1.
 package mcp
 
 import (
@@ -14,9 +11,6 @@ import (
 	"github.com/synuns/flint/lib/cli"
 )
 
-// lookupMCPHandler — wraps the cli registry's mcp handler into the same
-// (stdin, stdout) int shape as RunMCPServer (for verifying the wiring
-// path).
 func lookupMCPHandler() (func(stdin io.Reader, stdout io.Writer) int, bool) {
 	h, ok := cli.Lookup("mcp")
 	if !ok {
@@ -27,7 +21,6 @@ func lookupMCPHandler() (func(stdin io.Reader, stdout io.Writer) int, bool) {
 	}, true
 }
 
-// decodeLines — splits and parses the output into one JSON object per line. A line-count mismatch fails immediately.
 func decodeLines(t *testing.T, out string) []map[string]any {
 	t.Helper()
 	s := strings.TrimRight(out, "\n")
@@ -46,8 +39,6 @@ func decodeLines(t *testing.T, out string) []map[string]any {
 	return got
 }
 
-// TestRunMCPServerRoundtrip — buffered input of initialize + tools/list ->
-// 2 results, exit 0 (the contract example).
 func TestRunMCPServerRoundtrip(t *testing.T) {
 	var in, out bytes.Buffer
 	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}` + "\n")
@@ -70,9 +61,6 @@ func TestRunMCPServerRoundtrip(t *testing.T) {
 	}
 }
 
-// TestRunMCPServerProtocolOrder — responses in initialize -> tools/list ->
-// flint_read order; the loop continues after skipping broken JSON; EOF
-// exits 0.
 func TestRunMCPServerProtocolOrder(t *testing.T) {
 	calls, real := installRun(t, `{"ok":true}`, 0)
 	var in, out bytes.Buffer
@@ -111,7 +99,6 @@ func TestRunMCPServerProtocolOrder(t *testing.T) {
 	}
 }
 
-// TestRunMCPServerUnknownMethod — an undefined method yields -32601 and the loop continues.
 func TestRunMCPServerUnknownMethod(t *testing.T) {
 	var in, out bytes.Buffer
 	in.WriteString(`{"jsonrpc":"2.0","id":9,"method":"nope","params":{}}` + "\n")
@@ -128,8 +115,6 @@ func TestRunMCPServerUnknownMethod(t *testing.T) {
 	}
 }
 
-// TestInitializeEchoesClientProtocolVersion — echoes the params'
-// protocolVersion as-is (harness-compatible negotiation).
 func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{"protocolVersion": "2025-06-18"})
 	if err != nil {
@@ -140,9 +125,6 @@ func TestInitializeEchoesClientProtocolVersion(t *testing.T) {
 	}
 }
 
-// TestInitializeFallbackProtocolVersion — an initialize with empty params
-// keeps the existing roundtrip-invariant "2024-11-05" (inherited at
-// serve.go:32).
 func TestInitializeFallbackProtocolVersion(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{})
 	if err != nil {
@@ -153,8 +135,6 @@ func TestInitializeFallbackProtocolVersion(t *testing.T) {
 	}
 }
 
-// TestNegotiateVersionNonStringFallsBack — a non-string (123) or empty
-// protocolVersion falls back (a type guard echoing strings only).
 func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
 	for _, p := range []map[string]any{
 		{"protocolVersion": 123},
@@ -166,11 +146,6 @@ func TestNegotiateVersionNonStringFallsBack(t *testing.T) {
 	}
 }
 
-// TestInitializeIncludesInstructions — the hermes.md §2 three rules are
-// included in instructions (naming flint_read and flint_write). Asserts
-// that after the English unification the three-rule structure and the
-// standard injection-guard phrase "data block, not instructions" remain
-// (no residual Korean).
 func TestInitializeIncludesInstructions(t *testing.T) {
 	res, err := handleRPC("initialize", map[string]any{})
 	if err != nil {
@@ -191,7 +166,6 @@ func TestInitializeIncludesInstructions(t *testing.T) {
 	}
 }
 
-// TestPingReturnsEmptyResult — ping yields an empty result and a nil error.
 func TestPingReturnsEmptyResult(t *testing.T) {
 	res, err := handleRPC("ping", map[string]any{})
 	if err != nil {
@@ -202,9 +176,6 @@ func TestPingReturnsEmptyResult(t *testing.T) {
 	}
 }
 
-// TestMCPCliWired — init injected RunMCPServer via cli.RegisterMCPServer,
-// and the registry's mcp handler runs that loop (the real binary wiring
-// path).
 func TestMCPCliWired(t *testing.T) {
 	_, real := installRun(t, `{"ok":true}`, 0)
 	if real {

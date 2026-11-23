@@ -16,9 +16,6 @@ func TestMakefileDerivesVersion(t *testing.T) {
 	}
 }
 
-// TestMakefileReleaseTagNoDoubleV — 파생 VERSION(v0.9.2 등 v 접두 포함)이
-// release 안내에서 v 접두 중복(git tag vv…)으로 이어지지 않는지. 안내는
-// VERSION_NU(patsubst v%,%)를 거쳐 조립돼야 한다.
 func TestMakefileReleaseTagNoDoubleV(t *testing.T) {
 	b, err := os.ReadFile(docPath("../Makefile"))
 	if err != nil {

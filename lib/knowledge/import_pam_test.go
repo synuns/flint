@@ -1,7 +1,3 @@
-// import_pam_test.go — PAM (Portable AI Memory) v1.0 parser tests. All
-// synthetic demo data (personal data forbidden — the CLAUDE.md
-// top-level principle). ParsePAM is a pure conversion (no store
-// contact): pending accrual·write belong to import_jsonl.go.
 package knowledge
 
 import (
@@ -18,7 +14,6 @@ import (
 	"github.com/synuns/flint/lib/render"
 )
 
-// pamSample — a minimal document in the spec-example shape (synthetic).
 const pamSample = `{
  "schema": "portable-ai-memory",
  "memories": [
@@ -37,8 +32,6 @@ const pamSample = `{
  "relations": []
 }`
 
-// TestParsePAMMinimal — converting the 1-row minimal document: the
-// kind·content·tags·source·created_at·confidence mappings.
 func TestParsePAMMinimal(t *testing.T) {
 	res, err := ParsePAM([]byte(pamSample))
 	if err != nil {
@@ -74,8 +67,6 @@ func TestParsePAMMinimal(t *testing.T) {
 	}
 }
 
-// TestParsePAMTypeMapping — 6 type→kind mappings: 4 standard knowledge
-// shapes·project·custom (the original custom_type preserved).
 func TestParsePAMTypeMapping(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -104,21 +95,17 @@ func TestParsePAMTypeMapping(t *testing.T) {
 			t.Errorf("%s Kind = %q, want %q", c.ID, c.Kind, wantKinds[c.ID])
 		}
 	}
-	// custom → the original custom_type preserved in Metadata
+
 	custom := res.Candidates[5]
 	if got, _ := custom.Metadata["custom_type"].(string); got != "demo-custom-type" {
 		t.Errorf("custom_type metadata = %v, want demo-custom-type", custom.Metadata["custom_type"])
 	}
-	// Standard shapes need no custom_type preservation (absent is fine;
-	// present must not happen)
+
 	if _, ok := res.Candidates[4].Metadata["custom_type"]; ok {
 		t.Errorf("project에 custom_type 보존됨 — 표준형은 불필요")
 	}
 }
 
-// TestParsePAMStatusSkips — the 4 non-active statuses are excluded from
-// candidates and remain in the Skipped list with their original status
-// (for reporting).
 func TestParsePAMStatusSkips(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -148,9 +135,6 @@ func TestParsePAMStatusSkips(t *testing.T) {
 	}
 }
 
-// TestParsePAMSupersedes — only type=="supersedes" among relations is
-// extracted as (from,to) pairs — for the post-pass lineage renewal.
-// Other relation types are ignored.
 func TestParsePAMSupersedes(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -175,10 +159,6 @@ func TestParsePAMSupersedes(t *testing.T) {
 	}
 }
 
-// TestParsePAMSupersedesDirection — PAM §13.2 "supersedes: Source
-// replaces target": relation from=new (the replacing side), to=old (the
-// replaced). SupersedePair fixes this direction as-is (From=new, To=old
-// — the consumer importPAM invokes exactly this meaning).
 func TestParsePAMSupersedesDirection(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -202,11 +182,6 @@ func TestParsePAMSupersedesDirection(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMSupersedesLineage — a direction regression
-// (end-to-end): with relation from=pn2 (new) to=po1 (old), the lineage
-// renewal is "new replaces old" — a Supersede(oldID=po1's accrued id,
-// newID=pn2's accrued id) call. A reversal shows up as a call with
-// swapped oldID/newID.
 func TestRunImportMigratePAMSupersedesLineage(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -228,16 +203,13 @@ func TestRunImportMigratePAMSupersedesLineage(t *testing.T) {
 	if len(m.superseded) != 1 {
 		t.Fatalf("Supersede 호출 = %d회, want 1", len(m.superseded))
 	}
-	// Accrued in candidate order: po1=1st row (id 1), pn2=2nd row (id
-	// 2).
+
 	if m.superseded[0].oldID != 1 || m.superseded[0].newID != 2 {
 		t.Fatalf("Supersede(oldID=%d, newID=%d), want (oldID=1 po1구, newID=2 pn2신규) — 방향 반전",
 			m.superseded[0].oldID, m.superseded[0].newID)
 	}
 }
 
-// TestParsePAMConfidenceClamp — confidence.current clamped to 0-1. When
-// omitted, the import-path default 0.5.
 func TestParsePAMConfidenceClamp(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -266,7 +238,6 @@ func TestParsePAMConfidenceClamp(t *testing.T) {
 	}
 }
 
-// TestParsePAMContentOverSummary — content wins·summary is ignored.
 func TestParsePAMContentOverSummary(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -283,8 +254,6 @@ func TestParsePAMContentOverSummary(t *testing.T) {
 	}
 }
 
-// TestParsePAMSchemaMismatch — if the root schema is not
-// "portable-ai-memory" (including missing), an error.
 func TestParsePAMSchemaMismatch(t *testing.T) {
 	cases := map[string]string{
 		"다른 값": `{"schema":"something-else","memories":[],"relations":[]}`,
@@ -297,8 +266,6 @@ func TestParsePAMSchemaMismatch(t *testing.T) {
 	}
 }
 
-// TestParsePAMCorruptJSON — corrupt json gets a detailed error carrying
-// the position (offset).
 func TestParsePAMCorruptJSON(t *testing.T) {
 	bad := []byte(`{"schema":"portable-ai-memory","memories":[{"id":`)
 	_, err := ParsePAM(bad)
@@ -310,8 +277,6 @@ func TestParsePAMCorruptJSON(t *testing.T) {
 	}
 }
 
-// TestParsePAMFnSeam — the wiring seam variable behaves identically to
-// ParsePAM.
 func TestParsePAMFnSeam(t *testing.T) {
 	res, err := ParsePAMFn([]byte(pamSample))
 	if err != nil {
@@ -322,10 +287,6 @@ func TestParsePAMFnSeam(t *testing.T) {
 	}
 }
 
-// --- integrity.checksum import verification·§18 signature verification ---
-
-// pamSwapImportStderr — swaps the pamImportStderr seam (warning
-// capture).
 func pamSwapImportStderr(t *testing.T) *bytes.Buffer {
 	t.Helper()
 	var buf bytes.Buffer
@@ -335,8 +296,6 @@ func pamSwapImportStderr(t *testing.T) *bytes.Buffer {
 	return &buf
 }
 
-// pamSignedDoc — a synthetic document signed with a fixed key (the
-// common source for round-trip·tamper checks).
 func pamSignedDoc(t *testing.T) []byte {
 	t.Helper()
 	sup := 12
@@ -360,9 +319,6 @@ func pamSignedDoc(t *testing.T) []byte {
 	return out
 }
 
-// TestParsePAMVerifiesChecksumOwnExport — the integrity.checksum of
-// documents flint issued (unsigned·signed alike) matches the import
-// side's recomputation — passing after verification, not a quiet pass.
 func TestParsePAMVerifiesChecksumOwnExport(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	unsigned, err := FormatPAM(pamFixtureRows(), "flint-test")
@@ -380,8 +336,6 @@ func TestParsePAMVerifiesChecksumOwnExport(t *testing.T) {
 	}
 }
 
-// TestParsePAMChecksumMismatch — content tampering (checksum mismatch)
-// is an error — no quiet pass.
 func TestParsePAMChecksumMismatch(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -400,8 +354,6 @@ func TestParsePAMChecksumMismatch(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMChecksumMismatchExit3 — importing a
-// checksum-mismatched document is exit 3 (end-to-end).
 func TestRunImportMigratePAMChecksumMismatchExit3(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -418,9 +370,6 @@ func TestRunImportMigratePAMChecksumMismatchExit3(t *testing.T) {
 	}
 }
 
-// TestParsePAMSignatureRoundtripNoWarning — the §18 signature round
-// trip: a --sign-issued document passes import verification without
-// errors·warnings.
 func TestParsePAMSignatureRoundtripNoWarning(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	res, err := ParsePAM(pamSignedDoc(t))
@@ -435,10 +384,6 @@ func TestParsePAMSignatureRoundtripNoWarning(t *testing.T) {
 	}
 }
 
-// TestParsePAMSignatureTamperWarnsContinues — §21.4 SHOULD: a signature
-// verification failure (payload tampering — the checksum covers only
-// memories, so it still passes) warns once on stderr then continues
-// (not a rejection).
 func TestParsePAMSignatureTamperWarnsContinues(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	doc := pamSignedDoc(t)
@@ -463,8 +408,6 @@ func TestParsePAMSignatureTamperWarnsContinues(t *testing.T) {
 	}
 }
 
-// TestParsePAMUnsignedNoWarning — an unsigned document (§18 unused)
-// passes without a signature-verification warning.
 func TestParsePAMUnsignedNoWarning(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	if _, err := ParsePAM([]byte(pamSample)); err != nil {
@@ -475,12 +418,6 @@ func TestParsePAMUnsignedNoWarning(t *testing.T) {
 	}
 }
 
-// --- stored content_hash inheritance·import dedup idempotence ---
-
-// TestParsePAMInheritsStoredContentHash — A2: a memory metadata.
-// content_hash (64 hex) is inherited into ImportCandidate.Metadata
-// (jsonl A9 isHex64 symmetry). Non-hex values·absence are not
-// inherited.
 func TestParsePAMInheritsStoredContentHash(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -509,9 +446,6 @@ func TestParsePAMInheritsStoredContentHash(t *testing.T) {
 	}
 }
 
-// TestParsePAMRoundtripOwnExportStoredHash — the issue→import round
-// trip: the metadata.content_hash FormatPAM emitted is inherited
-// as-is into the ParsePAM candidates.
 func TestParsePAMRoundtripOwnExportStoredHash(t *testing.T) {
 	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
 	if err != nil {
@@ -532,12 +466,6 @@ func TestParsePAMRoundtripOwnExportStoredHash(t *testing.T) {
 	}
 }
 
-// TestRunImportMigratePAMStoredHashDedupFast — the A2 wiring (fast
-// fake): a candidate's metadata.content_hash is inherited into the
-// accrual ExportRow.ContentHash and used as the dedup lookup hash —
-// idempotent against existing rows (duplicated=all·imported=0, jsonl A9
-// symmetry). Without the inheritance, the lookup uses the recomputed
-// hash and the row accrues as imported.
 func TestRunImportMigratePAMStoredHashDedupFast(t *testing.T) {
 	const stored = "efefefefefefefefefefefefefefefefefefefefefefefefefefefefefefefef"
 	doc := fmt.Sprintf(`{
@@ -568,12 +496,6 @@ func TestRunImportMigratePAMStoredHashDedupFast(t *testing.T) {
 	}
 }
 
-// TestImportPAMRoundtripIdempotentRealSlow — the A2 real-DB round trip
-// (slow): accrual (rows holding a stored content_hash 64 hex) → export
-// pam → import pam is all duplicates (duplicated=all·imported=0 —
-// round-trip idempotence), and the re-export body is identical to the
-// first export (excluding the volatile fields export_id·export_date).
-// Only with SUPERLITE_REAL=1 + FLINT_TEST_DSN set.
 func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 	dsn, ok := importRealDSN()
 	if !ok {
@@ -598,8 +520,6 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 	cleanup()
 	t.Cleanup(cleanup)
 
-	// 1. Accrual — secure rows holding a stored content_hash (64 hex)
-	// via the jsonl A9 path.
 	t0 := time.Date(2026, 11, 17, 10, 0, 0, 0, time.UTC)
 	rows := []ExportRow{
 		{ID: 910101, Topic: "demo pam idem alpha", Content: "합성 데모 pam 멱등 본문 alpha.",
@@ -620,9 +540,6 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 		t.Fatalf("적립 exit=%d; out=%s", code, seedOut.String())
 	}
 
-	// 2. export pam — a document emitting the stored hashes as
-	// metadata. To isolate from residual rows of the shared real DB,
-	// only the marker-origin rows are targeted.
 	all, err := ExportRows(ctx, st, ExportFilter{})
 	if err != nil {
 		t.Fatalf("ExportRows: %v", err)
@@ -641,8 +558,6 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// 3. import pam — all duplicates (idempotent): duplicated=2·
-	// imported=0.
 	var out strings.Builder
 	if code := RunImportMigrate(ctx, st, []string{"--format", "pam"}, strings.NewReader(string(doc1)), &out); code != 0 {
 		t.Fatalf("pam 수입 exit=%d; out=%s", code, out.String())
@@ -651,8 +566,6 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 		t.Fatalf("왕복 멱등 미충족 — imported=0·duplicated=2 필요: %s", out.String())
 	}
 
-	// 4. Re-export identity — the body (excluding volatile fields) is
-	// byte-identical to the first export.
 	all2, err := ExportRows(ctx, st, ExportFilter{})
 	if err != nil {
 		t.Fatal(err)
@@ -672,16 +585,6 @@ func TestImportPAMRoundtripIdempotentRealSlow(t *testing.T) {
 	}
 }
 
-// ── v1.20.0 T5 — the 4-vocabulary relations round trip: FormatPAM
-// carries knowledge_links alongside the derived supersedes relations
-// (both co-existing), ParsePAM splits them (supersedes → SupersedePairs
-// unchanged, the 4 vocabulary → Links), RestorePAMLinks re-accrues them
-// onto flint row ids (real-DB slow). All synthetic demo data. ──
-
-// TestParsePAMRelationsVocabulary — the relations split: supersedes
-// stays in SupersedePairs (the existing consumer), the 4 registered
-// values land in Links, an unregistered type is neither (ignored, the
-// non-consumed relation convention).
 func TestParsePAMRelationsVocabulary(t *testing.T) {
 	doc := `{
  "schema": "portable-ai-memory",
@@ -710,10 +613,6 @@ func TestParsePAMRelationsVocabulary(t *testing.T) {
 	}
 }
 
-// TestFormatPAMLinksEmission — the exported relations carry the
-// knowledge_links entries (type = the relation value, deterministic
-// UUIDv5 id) with the both-endpoints-emitted guard; a relation to a row
-// outside the document is not emitted (dangling prevention).
 func TestFormatPAMLinksEmission(t *testing.T) {
 	rows := []ExportRow{
 		{ID: 1, Kind: "knowledge", Content: "합성 수출 1", Status: "active", Confidence: 0.9, CreatedAt: time.Date(2026, 1, 2, 3, 4, 5, 0, time.UTC)},
@@ -721,7 +620,7 @@ func TestFormatPAMLinksEmission(t *testing.T) {
 	}
 	links := []PAMLinkRow{
 		{FromID: 2, ToID: 1, Relation: "refines", CreatedAt: time.Date(2026, 1, 2, 3, 4, 7, 0, time.UTC)},
-		{FromID: 2, ToID: 77, Relation: "supports", CreatedAt: time.Date(2026, 1, 2, 3, 4, 8, 0, time.UTC)}, // dangling to
+		{FromID: 2, ToID: 77, Relation: "supports", CreatedAt: time.Date(2026, 1, 2, 3, 4, 8, 0, time.UTC)},
 	}
 	data, err := FormatPAM(rows, "flint/test", links...)
 	if err != nil {
@@ -748,10 +647,6 @@ func TestFormatPAMLinksEmission(t *testing.T) {
 	}
 }
 
-// TestFormatPAMSupersedesCoExists — a superseded row plus a
-// knowledge_link on the same document: both relation families are
-// emitted side by side (supersedes derived from superseded_by — the
-// dual-source avoidance keeps them separate).
 func TestFormatPAMSupersedesCoExists(t *testing.T) {
 	newID := 2
 	rows := []ExportRow{
@@ -778,16 +673,10 @@ func TestFormatPAMSupersedesCoExists(t *testing.T) {
 	}
 }
 
-// TestPAMRoundTripLinksRealSlow — the real-DB round trip on the
-// dedicated scratch database: rows+links accrued via RunWrite →
-// FormatPAM (links carried) → ParsePAM → links deleted →
-// RestorePAMLinks re-accrues the identical (from,to,relation) rows.
 func TestPAMRoundTripLinksRealSlow(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()
-	// Two synthetic rows with one refines link between them, plus a
-	// superseded_by lineage set directly (test fixture SQL — the
-	// maintain path is T3's contract).
+
 	for _, top := range []string{"합성 왕복 A", "합성 왕복 B"} {
 		out, code := run(t, st, []string{"knowledge"},
 			fmt.Sprintf(`{"topic":%q,"summary":"왕복 시나리오 합성 본문","confidence":0.9}`, top))
@@ -807,7 +696,6 @@ func TestPAMRoundTripLinksRealSlow(t *testing.T) {
 	}
 	cID := idOfTopic(t, st, "합성 왕복 C")
 
-	// Export with links.
 	rows, err := ExportRows(ctx, st, ExportFilter{})
 	if err != nil {
 		t.Fatalf("ExportRows 실패: %v", err)
@@ -835,16 +723,14 @@ func TestPAMRoundTripLinksRealSlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("ParsePAM 실패: %v", err)
 	}
-	// both families parsed: supersedes (a superseded by b) + refines
-	// (c→a).
+
 	if len(res.SupersedePairs) != 1 || res.SupersedePairs[0].From != fmt.Sprintf("flint:%d", bID) {
 		t.Fatalf("SupersedePairs=%v", res.SupersedePairs)
 	}
 	if len(res.Links) != 1 || res.Links[0].Relation != "refines" {
 		t.Fatalf("Links=%v, want 1 refines", res.Links)
 	}
-	// Restore after wiping the source rows' links (the same scratch —
-	// the round trip must reproduce the identical link).
+
 	if _, err := st.Query(ctx, `DELETE FROM knowledge_links`); err != nil {
 		t.Fatalf("links 정리 실패: %v", err)
 	}
@@ -874,7 +760,6 @@ func TestPAMRoundTripLinksRealSlow(t *testing.T) {
 	}
 }
 
-// idOfTopic — the scratch knowledge row id of a topic (test helper).
 func idOfTopic(t *testing.T, st *writeRealStore, topic string) int {
 	t.Helper()
 	rows, err := st.Query(context.Background(), `SELECT id FROM knowledge WHERE topic = $1`, topic)
@@ -885,14 +770,6 @@ func idOfTopic(t *testing.T, st *writeRealStore, topic string) int {
 	return id
 }
 
-// ── v1.20.2 (r88) — a self-referential PAM relation is a skip+warning,
-// never a whole-document failure. ──
-
-// TestImportPAMSelfLinkSkippedV1202 — r88: a from==to pair in the
-// 4-vocabulary links must not reach insertKnowledgeLinks (whose
-// self-link refusal is a hard error): the pair is skipped with one
-// stderr warning, the remaining relations accrue normally, and nothing
-// stays staged for the self pair.
 func TestImportPAMSelfLinkSkippedV1202(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	res := &PAMResult{
@@ -901,7 +778,7 @@ func TestImportPAMSelfLinkSkippedV1202(t *testing.T) {
 			{ID: "mem-b", Kind: "knowledge", Content: "beta", Confidence: 0.8, Source: "import:pam:demo"},
 		},
 		Links: []PAMLinkPair{
-			{From: "mem-a", To: "mem-a", Relation: "refines"}, // self — skipped
+			{From: "mem-a", To: "mem-a", Relation: "refines"},
 			{From: "mem-b", To: "mem-a", Relation: "supports"},
 		},
 	}
@@ -921,10 +798,6 @@ func TestImportPAMSelfLinkSkippedV1202(t *testing.T) {
 	}
 }
 
-// TestPAMSelfLinkDocImportRealSlow — r88 end-to-end (real scratch DB):
-// importing a document holding a self-referential relation exits 0,
-// accrues the normal relation (links:1), and leaves no from_id=to_id
-// row behind.
 func TestPAMSelfLinkDocImportRealSlow(t *testing.T) {
 	stderr := pamSwapImportStderr(t)
 	st := t5ScratchStore(t)

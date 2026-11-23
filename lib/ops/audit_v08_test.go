@@ -1,7 +1,3 @@
-// audit_v08_test.go — v1.8.0 T8: verifies the audit list lookup with a wire.LogQuery-based
-// fake (succeeding audit_test.go v1.7.2 T2 — swapping the raw dolt_log SQL assertions for
-// assertions on the passed LogEntries conditions). Telemetry commits are left by
-// CommitTelemetry with the 'telemetry: <cmd>' prefix (the lib/db/repo.go contract — MessageNotLike).
 package ops
 
 import (
@@ -15,7 +11,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// auditLogRows — the LogEntries fixture: 3 telemetry commits + 2 audit commits (newest first).
 func auditLogRows() []wire.LogEntry {
 	base := time.Date(2026, 11, 17, 6, 0, 0, 0, time.UTC)
 	msgs := []struct {
@@ -36,19 +31,15 @@ func auditLogRows() []wire.LogEntry {
 	return out
 }
 
-// auditFakeStore — a fake overriding the LogEntries and DiffStat hooks (explicit
-// definitions take precedence over the promoted *fakeStore — Query and the rest keep the
-// promoted behavior). logQ and diffHashes record the received conditions (pass-through
-// assertions). The LogEntries fake mimics the MessageNotLike and MessageLike filters and the LatestN clamp.
 type auditFakeStore struct {
 	*fakeStore
-	wire.HistoryStubs // default DiffRows/DiffCommits implementations (the 3 overridden ones take precedence below)
-	logQ              []wire.LogQuery
-	logEntriesErr     error
-	diffCalls         int
-	diffHashes        []string
-	diffRows          []wire.TableDiffStat
-	diffErr           error
+	wire.HistoryStubs
+	logQ          []wire.LogQuery
+	logEntriesErr error
+	diffCalls     int
+	diffHashes    []string
+	diffRows      []wire.TableDiffStat
+	diffErr       error
 }
 
 func (f *auditFakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
@@ -86,12 +77,10 @@ func (f *auditFakeStore) DiffStat(ctx context.Context, hashes []string) ([]wire.
 	return f.diffRows, nil
 }
 
-// newAuditFake — the default fakeStore zero behavior + the history hooks.
 func newAuditFake() *auditFakeStore {
 	return &auditFakeStore{fakeStore: &fakeStore{}}
 }
 
-// decodeAuditLog — parses the RunAudit output and returns only the log slice.
 func decodeAuditLog(t *testing.T, out string) []map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -109,7 +98,6 @@ func decodeAuditLog(t *testing.T, out string) []map[string]any {
 	return entries
 }
 
-// lastLogQ — the LogEntries condition the fake received (fatal if not received).
 func lastLogQ(t *testing.T, f *auditFakeStore) wire.LogQuery {
 	t.Helper()
 	if len(f.logQ) == 0 {
@@ -118,9 +106,6 @@ func lastLogQ(t *testing.T, f *auditFakeStore) wire.LogQuery {
 	return f.logQ[len(f.logQ)-1]
 }
 
-// TestAuditTelemetryExcludedByDefault — Review Focus: with many telemetry commits,
-// the default list contains 0 of them. The filter must be passed as a DB-side condition
-// (MessageNotLike — not client-side post-processing).
 func TestAuditTelemetryExcludedByDefault(t *testing.T) {
 	f := newAuditFake()
 	var out bytes.Buffer
@@ -141,8 +126,6 @@ func TestAuditTelemetryExcludedByDefault(t *testing.T) {
 	}
 }
 
-// TestAuditTelemetryFlagIncludes — Review Focus: with --telemetry, the telemetry commits
-// are included (MessageNotLike removed from the passed conditions).
 func TestAuditTelemetryFlagIncludes(t *testing.T) {
 	f := newAuditFake()
 	var out bytes.Buffer
@@ -167,8 +150,6 @@ func TestAuditTelemetryFlagIncludes(t *testing.T) {
 	}
 }
 
-// TestAuditStatAppliesTelemetryFilter — --stat uses the same filter: default is
-// MessageNotLike; combined with --telemetry, excluded.
 func TestAuditStatAppliesTelemetryFilter(t *testing.T) {
 	for _, tc := range []struct {
 		name        string
@@ -196,9 +177,6 @@ func TestAuditStatAppliesTelemetryFilter(t *testing.T) {
 	}
 }
 
-// TestAuditSessionFilterPassedAsMessageLike — Review Focus: the --session filter is
-// transferred as LogQuery.MessageLike (the '%[session:ID]%' pattern) and passed as a
-// DB-side condition (the no-client-post-processing and no-residual-SQL contract).
 func TestAuditSessionFilterPassedAsMessageLike(t *testing.T) {
 	f := newAuditFake()
 	var out bytes.Buffer
@@ -214,9 +192,6 @@ func TestAuditSessionFilterPassedAsMessageLike(t *testing.T) {
 	}
 }
 
-// TestAuditSessionEscapesLikeMeta — R40-C: a --session ID containing LIKE metacharacters
-// (% or _) is escaped and matched only literally (parameterization kept — only the
-// metacharacters are escaped with \\ when assembling the pattern).
 func TestAuditSessionEscapesLikeMeta(t *testing.T) {
 	f := newAuditFake()
 	var out bytes.Buffer
@@ -229,8 +204,6 @@ func TestAuditSessionEscapesLikeMeta(t *testing.T) {
 	}
 }
 
-// TestAuditLimitClamp — the limit clamp contract (default 20; 0/negative -> 20; cap 100)
-// is guaranteed by the LogQuery.LatestN passed value.
 func TestAuditLimitClamp(t *testing.T) {
 	for _, tc := range []struct {
 		args []string
@@ -253,9 +226,6 @@ func TestAuditLimitClamp(t *testing.T) {
 	}
 }
 
-// TestAuditStatMapsDiffStat — Review Focus: the --stat appendix is the DiffStat batch
-// lookup ([]TableDiffStat) -> the log[].stat mapping. The hash list is passed with the
-// sanitized CommitHash, and data_change, schema_change, and date_rel are attached.
 func TestAuditStatMapsDiffStat(t *testing.T) {
 	f := newAuditFake()
 	f.diffRows = []wire.TableDiffStat{
@@ -299,14 +269,12 @@ func TestAuditStatMapsDiffStat(t *testing.T) {
 	if h2["date_rel"] == "" {
 		t.Fatalf("date_rel 미기재: %v", h2)
 	}
-	// a commit without a stat received (hash1) must have no stat key at all (omitempty).
+
 	if _, has := byHash["hash1"]["stat"]; has {
 		t.Fatalf("hash1에 stat 잔류: %v", byHash["hash1"])
 	}
 }
 
-// TestAuditDiffStatErrorPropagates — a DiffStat error propagates with the same exit
-// mapping as existing query errors (store.MapExit).
 func TestAuditDiffStatErrorPropagates(t *testing.T) {
 	f := newAuditFake()
 	f.diffErr = context.DeadlineExceeded
@@ -316,13 +284,12 @@ func TestAuditDiffStatErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestAuditLogEntriesErrorPropagates — LogEntries error propagation (exit mapping).
 func TestAuditLogEntriesErrorPropagates(t *testing.T) {
 	f := newAuditFake()
 	f.fakeStore.queryErr = nil
 	f.logQ = nil
 	f.diffHashes = nil
-	// injecting a LogEntries hook error — swaps auditFakeStore.LogEntries.
+
 	prev := f.logEntriesErr
 	f.logEntriesErr = context.DeadlineExceeded
 	t.Cleanup(func() { f.logEntriesErr = prev })

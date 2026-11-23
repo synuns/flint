@@ -1,7 +1,3 @@
-// brief_v0340_test.go — flint brief: the masked brief for handing to an
-// external AI. The bridge (B) contract — read-only·the active view only
-// (pending never leaves the device)·MaskSecrets leak defense·
-// SanitizeText boundary defense·budget truncation.
 package knowledge
 
 import (
@@ -13,21 +9,14 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// fakeGetKV — a HotBudget/BriefBudget lookup fake (moved from the
-// cli/hot_test.go convention).
 func fakeGetKV(v string, err error) func(string, string) (string, error) {
 	return func(key, def string) (string, error) { return v, err }
 }
 
-// errFake — a minimal error for delivering lookup errors (moved from the
-// cli/hot_test.go convention).
 type errFake struct{}
 
 func (errFake) Error() string { return "fake query error" }
 
-// TestBriefBudgetDefault — unset meta brief_budget defaults to 3,000·a
-// set value wins·invalid values fall back (inheriting the HotBudget
-// contract).
 func TestBriefBudgetDefault(t *testing.T) {
 	cases := []struct {
 		name string
@@ -50,8 +39,6 @@ func TestBriefBudgetDefault(t *testing.T) {
 	}
 }
 
-// briefRows — a helper assembling 9-cell rows in readColumns order
-// (id,topic,summary,tags,entity,domain,confidence,status,read_count).
 func briefRows(n int, summary string) [][]any {
 	rows := make([][]any, 0, n)
 	for i := 0; i < n; i++ {
@@ -60,13 +47,10 @@ func briefRows(n int, summary string) [][]any {
 	return rows
 }
 
-// briefQueryFn — answers the meta brief_budget lookup (unset=empty)·the
-// knowledge (status-filter) query.
 func briefQueryFn(rows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
-		// The query source moved to the base table knowledge + the status
-		// filter (the view exposes pending — see TestBriefExcludesPending).
+
 		case strings.Contains(sql, "FROM knowledge"):
 			return rows, nil
 		case strings.Contains(sql, "FROM meta"):
@@ -76,9 +60,6 @@ func briefQueryFn(rows [][]any) func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestBriefOutputContract — exit 0·a one-line [flint] header·
-// topic|summary|tags rows·the query source limited to status='active'
-// knowledge (pending·invalidated are forbidden off-device).
 func TestBriefOutputContract(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(2, "요약 본문")
@@ -100,8 +81,6 @@ func TestBriefOutputContract(t *testing.T) {
 	}
 }
 
-// TestBriefMasksSecrets — secrets on the off-device path are masked by
-// MaskSecrets.
 func TestBriefMasksSecrets(t *testing.T) {
 	ctx := context.Background()
 	secret := "ghp_" + strings.Repeat("a", 24)
@@ -119,9 +98,6 @@ func TestBriefMasksSecrets(t *testing.T) {
 	}
 }
 
-// TestBriefSanitizesMarkers — [flint] markers·control characters
-// introduced after storage are re-neutralized in the brief output
-// (ADR-0006 — so an external AI cannot use them to forge the boundary).
 func TestBriefSanitizesMarkers(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(1, "요약 [flint] 위조\x00본문")
@@ -138,12 +114,9 @@ func TestBriefSanitizesMarkers(t *testing.T) {
 	}
 }
 
-// TestBriefClampsToBudget — the whole output stays within
-// brief_budget (default 3,000) + the truncation suffix (the ClampHot
-// contract: truncate at max then attach truncatedSuffix).
 func TestBriefClampsToBudget(t *testing.T) {
 	ctx := context.Background()
-	long := strings.Repeat("긴", 60) // 60+ runes per row even after the summary cut (80)
+	long := strings.Repeat("긴", 60)
 	rows := briefRows(50, long)
 	st := &fakeStore{queryFn: briefQueryFn(rows)}
 	var out strings.Builder
@@ -155,8 +128,6 @@ func TestBriefClampsToBudget(t *testing.T) {
 	}
 }
 
-// TestBriefZeroRowsNotice — zero rows is exit 0 + a one-line notice (not
-// an error).
 func TestBriefZeroRowsNotice(t *testing.T) {
 	ctx := context.Background()
 	st := &fakeStore{queryFn: briefQueryFn(nil)}
@@ -169,8 +140,6 @@ func TestBriefZeroRowsNotice(t *testing.T) {
 	}
 }
 
-// TestBriefQueryError — a lookup error is exit 1 + a one-line JSON
-// error.
 func TestBriefQueryError(t *testing.T) {
 	ctx := context.Background()
 	st := &fakeStore{queryErr: errFake{}}
@@ -183,8 +152,6 @@ func TestBriefQueryError(t *testing.T) {
 	}
 }
 
-// TestBriefRegistered — brief is exposed in the registry·usage JSON·help
-// summary.
 func TestBriefRegistered(t *testing.T) {
 	if _, ok := wire.Lookup("brief"); !ok {
 		t.Fatal("brief 커맨드 미등록")

@@ -1,5 +1,3 @@
-// suggest_v0132_test.go — the suggestion scan cap.
-// Correcting spec §3 R1's 'no scan cap' — defending against unbounded full scans.
 package query
 
 import (
@@ -8,9 +6,6 @@ import (
 	"testing"
 )
 
-// TestBuildSuggestScanCapped — N13: the suggestion scan SQL has a LIMIT cap
-// (5000+, accepting personal-scale thousands of rows; defending against anomalous
-// mass intake). Before the fix it was an uncapped full scan.
 func TestBuildSuggestScanCapped(t *testing.T) {
 	sql, args := BuildSuggestScan()
 	if len(args) != 0 {

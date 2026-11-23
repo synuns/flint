@@ -1,4 +1,3 @@
-// tui_test.go — the TUI-base wrapper tests: non-terminal fallback assertions.
 package tui
 
 import (
@@ -12,15 +11,12 @@ import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// stubModel — a minimal model for the wrapper tests (unused since Run returns before starting).
 type stubModel struct{}
 
 func (stubModel) Init() tea.Cmd                         { return nil }
 func (m stubModel) Update(tea.Msg) (tea.Model, tea.Cmd) { return m, nil }
 func (stubModel) View() string                          { return "" }
 
-// TestRunRejectsNonTerminal — go test's stdout is a pipe, so Run must return
-// an error immediately before starting (the caller falls back to exit 3).
 func TestRunRejectsNonTerminal(t *testing.T) {
 	err := Run(stubModel{})
 	if err == nil {
@@ -34,7 +30,6 @@ func TestRunRejectsNonTerminal(t *testing.T) {
 	}
 }
 
-// TestRunRejectsForcedNonTerminal — re-verifies the non-terminal path by injecting the check function.
 func TestRunRejectsForcedNonTerminal(t *testing.T) {
 	orig := isTerminal
 	isTerminal = func() bool { return false }
@@ -45,8 +40,6 @@ func TestRunRejectsForcedNonTerminal(t *testing.T) {
 	}
 }
 
-// TestIsTerminalStdoutDelegates — the public check wrapper passes through the
-// isTerminal seam as-is (the entry-branch seam's default real implementation).
 func TestIsTerminalStdoutDelegates(t *testing.T) {
 	orig := isTerminal
 	isTerminal = func() bool { return true }
@@ -60,8 +53,6 @@ func TestIsTerminalStdoutDelegates(t *testing.T) {
 	}
 }
 
-// TestNonInteractiveHintInViews — a 1-line non-interactive escape notice is
-// rendered at the bottom of the pending and report screens (for export, provided in the huh form description).
 func TestNonInteractiveHintInViews(t *testing.T) {
 	pm := NewPendingModel(context.TODO(), nil, nil, PendingActions{})
 	if v := pm.View(); !strings.Contains(v, nonInteractiveHint) {
@@ -73,10 +64,6 @@ func TestNonInteractiveHintInViews(t *testing.T) {
 	}
 }
 
-// TestIsTerminalDevNullNotTerminal — /dev/null is also a char device, so the
-// old ModeCharDevice check misdetected it as a terminal (a stdout > /dev/null
-// redirection triggered the TUI fallback exit 3). The isatty-family check
-// (charmbracelet/x/term) must judge /dev/null false.
 func TestIsTerminalDevNullNotTerminal(t *testing.T) {
 	devNull, err := os.OpenFile(os.DevNull, os.O_WRONLY, 0)
 	if err != nil {
@@ -94,12 +81,9 @@ func TestIsTerminalDevNullNotTerminal(t *testing.T) {
 	}
 }
 
-// TestIsTerminalStdoutEnvEscapeHatch — with FLINT_NO_TUI set (any value), the
-// environment check takes precedence — false even on a terminal (adaptive TUI
-// entry blocked entirely, forcing the current path). The standard pattern of the GH_PROMPT_DISABLED kind.
 func TestIsTerminalStdoutEnvEscapeHatch(t *testing.T) {
 	orig := isTerminal
-	isTerminal = func() bool { return true } // forced terminal
+	isTerminal = func() bool { return true }
 	defer func() { isTerminal = orig }()
 
 	t.Setenv("FLINT_NO_TUI", "1")
@@ -110,7 +94,7 @@ func TestIsTerminalStdoutEnvEscapeHatch(t *testing.T) {
 		t.Error("IsTerminalStdout() = true under FLINT_NO_TUI, want false (환경 체크 우선)")
 	}
 
-	t.Setenv("FLINT_NO_TUI", "") // the empty value counts as unset (the os.Getenv != "" convention)
+	t.Setenv("FLINT_NO_TUI", "")
 	if NoTUIForced() || !IsTerminalStdout() {
 		t.Error("빈 값은 미차단이어야 함(os.Getenv != \"\" 규약)")
 	}

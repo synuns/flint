@@ -1,9 +1,3 @@
-// usage_v1010_test.go — the read-path cleanup hook
-// (maybePruneAfterRead). With RecordReadUsage abolished, the read path
-// no longer passes through recordWithRetry (the rollover hook) — a
-// regression of unbounded read_events growth in read-only sessions.
-// The gate verdict is a pure-function unit (fast); the cleanup·gate
-// holding is the real-DB slow line.
 package db
 
 import (
@@ -12,9 +6,6 @@ import (
 	"time"
 )
 
-// TestPruneGateDueOpensAfter24h — the gate verdict: absent·blank·
-// corrupt·24h-elapsed opens (cleanup runs); a valid RFC3339 within 24h
-// closes (skipped — preventing cleanup on every read).
 func TestPruneGateDueOpensAfter24h(t *testing.T) {
 	now := time.Date(2026, 11, 12, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -37,11 +28,6 @@ func TestPruneGateDueOpensAfter24h(t *testing.T) {
 	}
 }
 
-// TestPruneGateProbeCachesWithinTTL — the in-process gate cache. probe
-// true = maybePruneAfterRead runs the gate meta SELECT — the first
-// check once (true), 0 rechecks within the TTL (false — defending
-// against the residual per-read SELECT regression), 1 recheck after TTL
-// expiry (true — the gate never freezes beyond 1h).
 func TestPruneGateProbeCachesWithinTTL(t *testing.T) {
 	pruneGateCheckedAt.Store(0)
 	t.Cleanup(func() { pruneGateCheckedAt.Store(0) })
@@ -60,12 +46,6 @@ func TestPruneGateProbeCachesWithinTTL(t *testing.T) {
 	}
 }
 
-// TestRecordReadEventPrunesStaleRows — even in a session doing reads
-// only (no write metering — the recordWithRetry rollover hook never
-// fires), the 24h-gated hook on the RecordReadEvent success path cleans
-// read_events rows past the retention horizon. When the gate is closed
-// (a recent successful cleanup, within 24h), the cleanup is skipped (a
-// DELETE on every read wastes the hot path).
 func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -78,16 +58,12 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 			`DELETE FROM read_events WHERE session = $1`, label)
 		_, _ = r.pool.Exec(context.Background(),
 			`DELETE FROM meta WHERE key = $1`, pruneReadGateKey)
-		// The in-process gate cache resets too — so a timestamp stamped by
-		// another test in the same package never accidentally overrides
-		// this test's DB-gate verdict.
+
 		pruneGateCheckedAt.Store(0)
 	}
 	cleanup()
 	t.Cleanup(cleanup)
 
-	// Seed a 20-day-old row directly — reproducing the residue of a
-	// read-only session without writes.
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)
 		 VALUES (1, false, false, false, $1, '', 0)`, label); err != nil {
@@ -99,8 +75,6 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 		t.Fatalf("과거화: %v", err)
 	}
 
-	// One read — gate open (key absent) → the hook cleans the
-	// out-of-14-day-window row.
 	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 2, Session: label}); err != nil {
 		t.Fatalf("RecordReadEvent: %v", err)
 	}
@@ -113,11 +87,6 @@ func TestRecordReadEventPrunesStaleRows(t *testing.T) {
 		t.Fatalf("게이트 열림 정리 실패 — 잔여 %d행, want 1(20일 전 행 삭제·신규 1행 유지)", n)
 	}
 
-	// Gate closed (a recent successful cleanup — a stamp within 24h): a
-	// re-seeded past row survives uncleaned. The cache is reset and the
-	// DB gate's (24h stamp) closure verified directly — the outcome must
-	// not be an accidental pass indistinguishable from a process-cache
-	// skip.
 	pruneGateCheckedAt.Store(0)
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session, ids, first_rank)

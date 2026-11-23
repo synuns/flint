@@ -1,5 +1,3 @@
-// setupUX render contract: with TTY forced, step and success elements are included;
-// non-TTY is a plain result without ANSI codes.
 package cli
 
 import (
@@ -11,7 +9,7 @@ import (
 
 func TestSetupUXRenders(t *testing.T) {
 	var b strings.Builder
-	ux := newSetupUX(&b, true) // forceColor for test
+	ux := newSetupUX(&b, true)
 	ux.Step("Doltgres 연결")
 	ux.Success(":5434 (12ms)")
 	ux.Step("마이그레이션")
@@ -34,10 +32,8 @@ func TestSetupUXNonTTY(t *testing.T) {
 	}
 }
 
-// TestSetupJSONMode — new contract: with a store available, ping and
-// migrate actually run, so ok. One --json line, compose called once, plain equivalence unchanged.
 func TestSetupJSONMode(t *testing.T) {
-	withFake(t, &fakeStore{}) // a Ping/Migrate-succeeding fake — the healthy DB path.
+	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
 	out, code := mustRun(t, []string{"setup", "--json"}, "")
 	if code != 0 {
@@ -53,16 +49,13 @@ func TestSetupJSONMode(t *testing.T) {
 	if rec.upCalls != 1 {
 		t.Fatalf("compose=%d회, want 1(동작 불변)", rec.upCalls)
 	}
-	// fully identical output to the plain (non-TTY) path.
+
 	plain, code2 := mustRun(t, []string{"setup"}, "")
 	if code2 != code || strings.TrimSpace(plain) != strings.TrimSpace(out) {
 		t.Fatalf("plain(--json 미지정, non-TTY) 불일치:\nplain=%q\njson =%q", plain, out)
 	}
 }
 
-// TestSetupDegradedWhenStoreDown — DB unreachable (the main scenario) proceeds
-// with st nil to degraded, exit 1, and next guidance (the nil-guard path is kept
-// even after the wiring fix).
 func TestSetupDegradedWhenStoreDown(t *testing.T) {
 	prev := newStore
 	newStore = func(ctx context.Context, dsn string) (Store, error) {

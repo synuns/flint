@@ -1,5 +1,3 @@
-// thresholds_v0181_test.go — recall_warn_writes' -1 (off) semantics.
-// The shared parser clamps negatives to the default; only this key accepts down to -1.
 package store
 
 import "testing"
@@ -9,11 +7,11 @@ func TestParseRecallWarnWritesOff(t *testing.T) {
 		val  string
 		want int
 	}{
-		{"-1", -1}, // off
-		{"5", 5},   // a normal override
-		{"0", 0},   // explicit 0 — treated the same as unset (the consumer falls back to the default)
-		{"x", 3},   // unparsable -> the default
-		{"-2", 3},  // below -1 -> the default
+		{"-1", -1},
+		{"5", 5},
+		{"0", 0},
+		{"x", 3},
+		{"-2", 3},
 	}
 	for _, tc := range cases {
 		th, err := ParseThresholds([][2]any{{"recall_warn_writes", tc.val}})
@@ -26,8 +24,6 @@ func TestParseRecallWarnWritesOff(t *testing.T) {
 	}
 }
 
-// TestParseV0204EffectWindows — the effect-metering decision
-// window and retention key parsing — valid values accepted, invalid fall back to defaults.
 func TestParseV0204EffectWindows(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"dead_days", "60"}, {"pair_window_minutes", "15"},
@@ -42,7 +38,7 @@ func TestParseV0204EffectWindows(t *testing.T) {
 		th.EventsRetentionD != 7 || th.HotRetentionD != 90 || th.EventsVolumeWarn != 1000 {
 		t.Errorf("효과 창 = %+v", th)
 	}
-	// invalid values give the defaults.
+
 	th2, _ := ParseThresholds([][2]any{{"dead_days", "many"}})
 	if th2.DeadDays != 30 {
 		t.Errorf("무효 dead_days = %d, want 기본 30", th2.DeadDays)

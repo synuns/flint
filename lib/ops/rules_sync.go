@@ -1,7 +1,3 @@
-// rules_sync.go — the skill sync. Copies all of flint-plugin/skills/flint/ to
-// $CLAUDE_HOME/skills/flint/. The last mile for rules to reach the session
-// (spec §1). Sync is copy-only — destination-only files (user manual files) are never
-// deleted, and files with identical content are skipped (idempotent).
 package ops
 
 import (
@@ -15,9 +11,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// SyncRules — syncs all files from srcDir to destDir. Identical content at the
-// destination is skipped (string comparison); different content is overwritten by
-// copying. Destination-only files are ignored (no deletion). The return is the count of newly copied files.
 func SyncRules(srcDir string, destDir string) (copied int, err error) {
 	entries, err := os.ReadDir(srcDir)
 	if err != nil {
@@ -25,11 +18,9 @@ func SyncRules(srcDir string, destDir string) (copied int, err error) {
 	}
 	for _, e := range entries {
 		if e.IsDir() {
-			continue // top-level files only — the skill directory is flat (SKILL.md + attachments)
+			continue
 		}
-		// symlinks are skipped — blocking ReadFile from following
-		// the link target (potentially a sensitive-file pointer planted in the source directory)
-		// and copying/exposing it.
+
 		if e.Type()&os.ModeSymlink != 0 {
 			continue
 		}
@@ -40,7 +31,7 @@ func SyncRules(srcDir string, destDir string) (copied int, err error) {
 		}
 		destPath := filepath.Join(destDir, e.Name())
 		if prev, rerr := os.ReadFile(destPath); rerr == nil && string(prev) == string(body) {
-			continue // idempotent skip
+			continue
 		}
 		if err := os.MkdirAll(destDir, 0o755); err != nil {
 			return copied, err
@@ -53,9 +44,6 @@ func SyncRules(srcDir string, destDir string) (copied int, err error) {
 	return copied, nil
 }
 
-// SkillSrcDir — detects the skill source path. (1) flint-plugin/skills/flint adjacent
-// to binPath (installed distribution); (2) relative to the working directory (repo
-// execution — go run ./cmd/flint). Neither present yields the empty string (the skip-check signal).
 func SkillSrcDir(binPath string) string {
 	var cands []string
 	if binPath != "" {
@@ -72,23 +60,19 @@ func SkillSrcDir(binPath string) string {
 	return ""
 }
 
-// CheckSkillFile — the doctor skill-file check (ruling: warn, exit 0). A missing
-// target SKILL.md or a mismatch with the source warns + update-rules guidance. Source
-// undetected (empty string) or a missing source SKILL.md means no verdict possible — no
-// check is produced (the same pattern as harness).
 func CheckSkillFile(srcDir, destDir string) (DoctorCheck, bool) {
 	if srcDir == "" {
 		return DoctorCheck{}, false
 	}
 	src, err := os.ReadFile(filepath.Join(srcDir, "SKILL.md"))
 	if err != nil {
-		return DoctorCheck{}, false // source SKILL.md missing — no verdict possible
+		return DoctorCheck{}, false
 	}
 	c := DoctorCheck{Name: "skill-file"}
 	destPath := filepath.Join(destDir, "SKILL.md")
 	dest, rerr := os.ReadFile(destPath)
 	if rerr != nil {
-		c.Status = "warn" // hooks work without skills — not a fail (ruling)
+		c.Status = "warn"
 		c.Detail = destPath + " not found"
 		c.Fix = "fix: flint setup --update-rules — skill sync"
 		return c, true
@@ -104,9 +88,6 @@ func CheckSkillFile(srcDir, destDir string) (DoctorCheck, bool) {
 	return c, true
 }
 
-// RunUpdateRules — runs setup --update-rules. The source is the --src override, defaulting
-// to the SkillSrcDir detection. The destination is $CLAUDE_HOME/skills/flint (inheriting
-// FLINT_CLAUDE_HOME). The report is one line of JSON {"status":"synced","copied":N,"dest":...}.
 func RunUpdateRules(stdout io.Writer, srcOverride string) int {
 	src := srcOverride
 	if src == "" {

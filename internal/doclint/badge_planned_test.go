@@ -1,6 +1,3 @@
-// badge_v0132_test.go — v0.13.2 심층 리뷰 회귀(N2): 배지 가드는 최신
-// 태그와 함께 다음 예정 버전(최신 태그의 +패치/+마이너)까지 허용한다 —
-// 릴리스 준비 커밋→태그 사이 창의 일시 레드 해소, 낡은 배지·오타 가드 유지.
 package doclint
 
 import (
@@ -12,7 +9,6 @@ import (
 	"testing"
 )
 
-// latestTag — git 최신 태그(없으면 스킵).
 func latestTag(t *testing.T) string {
 	t.Helper()
 	out, err := exec.Command("git", "describe", "--tags", "--abbrev=0").Output()
@@ -26,10 +22,8 @@ func latestTag(t *testing.T) string {
 	return tag
 }
 
-// badgeRe — README release 배지 추출용.
 var badgeRe = regexp.MustCompile(`release-v[0-9]+\.[0-9]+\.[0-9]+`)
 
-// readmeReleaseBadge — README 1개의 release 배지 문자열.
 func readmeReleaseBadge(t *testing.T, p string) string {
 	t.Helper()
 	b, err := os.ReadFile(docPath(p))
@@ -39,9 +33,6 @@ func readmeReleaseBadge(t *testing.T, p string) string {
 	return badgeRe.FindString(string(b))
 }
 
-// plannedBadgeVersions — 최신 태그 기준 허용 배지 버전 후보:
-// 최신 태그 자신 + 다음 패치 + 다음 마이너 + 다음 메이저(v1.0.0 전환 창).
-// 파싱 불가 태그는 자신만. v1.0.0: 0.x → 1.0.0 메이저 점프 허용 추가.
 func plannedBadgeVersions(tag string) []string {
 	var maj, min, pat int
 	if _, err := fmt.Sscanf(tag, "v%d.%d.%d", &maj, &min, &pat); err != nil {
@@ -55,8 +46,6 @@ func plannedBadgeVersions(tag string) []string {
 	}
 }
 
-// TestPlannedBadgeVersions — 후보 산출: v0.13.1 → v0.13.1·v0.13.2·v0.14.0.
-// 파싱 불가 태그는 자기 자신만 허용(과대 허용 방지).
 func TestPlannedBadgeVersions(t *testing.T) {
 	got := plannedBadgeVersions("v0.13.1")
 	want := []string{"v0.13.1", "v0.13.2", "v0.14.0", "v1.0.0"}
@@ -73,8 +62,6 @@ func TestPlannedBadgeVersions(t *testing.T) {
 	}
 }
 
-// TestReadmeBadgeIsPlannedVersion — README(EN/KO) 배지가 예정 버전
-// 후보 안에 있는지 정규식으로 추출해 확인(양쪽 동일 버전).
 func TestReadmeBadgeIsPlannedVersion(t *testing.T) {
 	tag := latestTag(t)
 	if tag == "" {
@@ -101,13 +88,8 @@ func TestReadmeBadgeIsPlannedVersion(t *testing.T) {
 	}
 }
 
-// dynamicCIBadgeRe — the live CI status badge served by GitHub Actions
-// (v1.15.0 T2 ruling (c): static release badge stays, dynamic CI badge
-// is added next to it; both READMEs must link the workflow badge image).
 var dynamicCIBadgeRe = regexp.MustCompile(`https://github\.com/synuns/flint/actions/workflows/ci\.yml/badge\.svg`)
 
-// TestReadmeDynamicCIBadge — README(EN/KO) must embed the dynamic CI
-// workflow badge image, and it must link to the workflow page.
 func TestReadmeDynamicCIBadge(t *testing.T) {
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		b, err := os.ReadFile(docPath(p))

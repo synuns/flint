@@ -15,15 +15,8 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// probeSeqNameRe — re-validates the identifier charset before inlining it into pg_sequences (defense).
 var probeSeqNameRe = regexp.MustCompile(`^[a-z_][a-z0-9_]*$`)
 
-// dropProbeSequences — reclaims backup_probe* serial sequences. Doltgres's
-// DROP TABLE does not delete serial-owned sequences (verified), so
-// backup_probe_id_seq lingers in dolt_status as an untracked new table, and
-// the next run's serial CREATE piles up suffixed sequences (..._seq1,
-// ..._seq2, ...) on name collisions (shared-test-DB pollution). The LIKE
-// pattern reclaims the suffixed ones too.
 func dropProbeSequences(ctx context.Context, pool *pgxpool.Pool) error {
 	rows, err := pool.Query(ctx,
 		`SELECT sequencename FROM pg_sequences WHERE sequencename LIKE 'backup_probe%'`)
@@ -46,10 +39,6 @@ func dropProbeSequences(ctx context.Context, pool *pgxpool.Pool) error {
 	return rows.Err()
 }
 
-// testDSN — FLINT_TEST_DSN first, otherwise the flint_test default (same
-// contract as tests/regression and tests/e2e). This package ignores
-// FLINT_DSN (production) — so the slowlock TestMain cross-suite
-// serialization never connects to the production DB.
 func testDSN() string {
 	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
 		return d
@@ -57,7 +46,6 @@ func testDSN() string {
 	return "postgresql://flint:flint-dev@localhost:5434/flint_test"
 }
 
-// single-quote, newline, and backslash escaping.
 func TestSQLLiteral(t *testing.T) {
 	cases := []struct {
 		in   any
@@ -79,7 +67,6 @@ func TestSQLLiteral(t *testing.T) {
 	}
 }
 
-// a semicolon inside strings, comments, or dollar quoting does not split statements.
 func TestSplitStatements(t *testing.T) {
 	script := "INSERT INTO t VALUES ('a;b');\n-- comment; here\nUPDATE t SET v='x'';y';\n/* block; */ DELETE FROM t;\nSELECT $body$; inside$body$;"
 	got := splitStatements(script)
@@ -99,12 +86,8 @@ func TestSplitStatements(t *testing.T) {
 	}
 }
 
-// roundtrip row-count match + special-character value preservation.
 func TestDumpRestoreRoundtrip(t *testing.T) {
-	// Restore rewrites every public table in one transaction — if another
-	// package's tests (tests/regression) commit to public concurrently,
-	// Doltgres optimistic conflicts (40001) cause intermittent failures.
-	// The drill lock serializes public writes.
+
 	unlock := drillLock(t)
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
@@ -134,13 +117,7 @@ func TestDumpRestoreRoundtrip(t *testing.T) {
 			t.Fatalf("setup %q: %v", q, err)
 		}
 	}
-	// Cleanup + residue assertion — table DROP (the existing defer) and
-	// sequence reclaim in one cleanup: the order is explicit in code
-	// (tables -> sequences) and quiet failures surface in the log. Leaving
-	// just the sequences would accumulate them in dolt_status as untracked
-	// new tables (see dropProbeSequences above), so after reclaiming we
-	// assert zero backup_probe* residue (regression — fails if the reclaim
-	// is missed).
+
 	defer func() {
 		for _, q := range []string{
 			`DROP TABLE IF EXISTS backup_probe_child`,
@@ -189,7 +166,6 @@ func TestDumpRestoreRoundtrip(t *testing.T) {
 		t.Fatalf("dump does not escape single quote:\n%s", dump)
 	}
 
-	// Wipe everything, then restore — including DDL re-creation.
 	for _, q := range setup[:2] {
 		if _, err := pool.Exec(ctx, q); err != nil {
 			t.Fatalf("wipe %q: %v", q, err)
@@ -220,7 +196,7 @@ func TestDumpRestoreRoundtrip(t *testing.T) {
 	if childCount != 1 {
 		t.Fatalf("child rows = %d, want 1", childCount)
 	}
-	// serial restoration check: inserting without an id must succeed without collisions.
+
 	if _, err := pool.Exec(ctx, `INSERT INTO backup_probe (val) VALUES ('post-restore')`); err != nil {
 		t.Fatalf("serial not restored, insert failed: %v", err)
 	}

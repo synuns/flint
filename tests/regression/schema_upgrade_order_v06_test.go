@@ -1,8 +1,3 @@
-// schema_upgrade_order_v06_test.go — 전체 리뷰 파인딩 #1(배포 차단) 회귀:
-// newRealStore가 Migrate(뷰 재적용, v4 컬럼 참조)를 EnsureSchemaV4(컬럼
-// 추가)보다 먼저 돌리면 레거시 v3 DB 첫 접속에서 CREATE VIEW가 42703으로
-// 실패해 재시도를 소진, 전 커맨드가 exit 1하고 뷰 DROP만 남아 구형 CLI도
-// 파손된다. 컬럼 승격 → 뷰 재적용 순서를 실bin 커맨드로 검증한다.
 package regression
 
 import (
@@ -18,9 +13,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// TestLegacyV3UpgradeColumnsBeforeViews — 레거시 v3 상태(read_count·
-// last_read_at 컬럼 부재·schema_version=3·뷰 미기록)에서 실bin read가
-// exit 0·스키마 4 승격·뷰 v4 컬럼 노출을 만족하는지.
 func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 	regSharedDBLock(t)
 	pool := regViewDB(t)
@@ -58,8 +50,6 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 	cleanup()
 	defer cleanup()
 
-	// 준비 1 — 현행 스키마 구축(실bin 1회: Migrate+게이트) 후 seed.
-	// 빈 topic 제로히트 — v1.5.3 계약상 exit 0(텍스트 무출력).
 	if out, code := runBin("read", topic); code != 0 {
 		t.Fatalf("준비 read exit=%d, want 0(제로히트 — v1.5.3): %s", code, out)
 	}
@@ -69,8 +59,6 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 		t.Fatalf("seed: %v", err)
 	}
 
-	// 준비 2 — 레거시 v3 재현: 뷰 제거(컬럼 의존 정리) → v4 컬럼 제거 →
-	// 버전 3·뷰 지문 삭제(views_hash 결측 = Migrate 재적용 트리거).
 	if _, err := pool.Exec(ctx, `DROP VIEW IF EXISTS active_knowledge, hot_view`); err != nil {
 		t.Fatalf("뷰 드롭: %v", err)
 	}
@@ -88,8 +76,6 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 		t.Fatalf("뷰 지문 삭제: %v", err)
 	}
 
-	// 본문 — 레거시 v3 첫 접속: 컬럼 승격이 뷰 재적용보다 먼저면 exit 0.
-	// 순서가 뒤집혀 있으면 CREATE VIEW 42703 → 재시도 소진 exit 1.
 	out, code := runBin("read", topic)
 	if code != 0 {
 		t.Fatalf("레거시 v3 read exit=%d, want 0; out=%s", code, out)
@@ -98,10 +84,6 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 		t.Fatalf("read 출력에 seed 행 없음: %q", out)
 	}
 
-	// 승격 단언 — 레거시 v3 DB는 게이트 체인(v3→…→최신)을 전부 승격한다.
-	// want는 lib/db.LatestSchemaVersion 파생(하드코딩은 승격 버전이 오를
-	// 때마다 확정 실패 — v12 후폭. admin_v10_test readVersion 선례와 동일
-	// 계열). 컬럼-뷰 순서 회귀 아님 — 아래 read·뷰 단언은 그대로).
 	var version string
 	if err := pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
@@ -111,7 +93,6 @@ func TestLegacyV3UpgradeColumnsBeforeViews(t *testing.T) {
 		t.Fatalf("schema_version=%q, want %s", version, want)
 	}
 
-	// 뷰 단언 — active_knowledge가 v4 컬럼 2종을 노출.
 	rows, err := pool.Query(ctx, `SELECT * FROM active_knowledge LIMIT 0`)
 	if err != nil {
 		t.Fatalf("active_knowledge 조회: %v", err)

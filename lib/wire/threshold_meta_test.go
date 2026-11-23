@@ -1,8 +1,3 @@
-// threshold_meta_test.go — the registry guard.
-// TestThresholdRegistrySingleSource (the registry key set == the existing key
-// set, Parse recognition, tuningKeys, and the TUNING-table exposure — 4-way
-// homogeneity) and TestNewKeyPropagates (registering 1 virtual key reflects in
-// all 4 paths simultaneously — registered then removed). An external wire test package — imports ops to verify the ops-derived path (TuningKeys).
 package wire_test
 
 import (
@@ -15,8 +10,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// frozenThresholdKeys — the ThresholdsKeys original (order included). The baseline
-// asserting the key set and order stay unchanged after the registry migration.
 var frozenThresholdKeys = []string{
 	"pending_max", "dup_susp_max", "conf_floor", "stale_sessions",
 	"stale_days", "stall_hot_h", "stall_write_h",
@@ -26,45 +19,42 @@ var frozenThresholdKeys = []string{
 	"dead_days", "pair_window_minutes", "chain_window_hours",
 	"events_retention_days", "hot_events_retention_days",
 	"events_volume_warn", "drill_max_days", "daily_retention_days", "rrf_k", "secrets_scan_row_limit", "session_knowledge_days",
-	// the diagnostics engine and kreads retention (diagnosis.go, TUNING §2)
+
 	"diag_hot_budget_high", "diag_hot_budget_low", "diag_trend_pct", "diag_recall_led_goal", "diag_dead_warn", "knowledge_reads_retention_days",
-	// the import row cap (knowledge/import_jsonl.go)
+
 	"export_import_max_rows",
-	// the decay coefficient and archive-recommendation thresholds (ops --decay-audit)
+
 	"decay_rate", "archive_below",
-	// the recall_events retention (maintain --prune-invalidated event cleanup)
+
 	"recall_event_retention_days",
-	// the --source correction write default (knowledge/write.go)
+
 	"correction_confidence",
-	// the --source correction daily accrual cap (knowledge/write.go)
+
 	"correction_daily_max",
-	// the gap-candidate accrual trigger and daily cap (v1.12.0 — knowledge/write.go gap source)
+
 	"gap_query_threshold", "gap_daily_max",
-	// the stale-score report marking threshold and the TTL saturation days (v1.13.0 — ops maintain --age-audit)
+
 	"stale_score_threshold", "stale_ttl_days",
-	// the survived decay relief (v1.14.0 — hot·brief ranking·maintain --decay-audit)
+
 	"survived_decay_relief",
-	// the echo-scan keys (v1.17.0 — knowledge write echo response, the correction convention)
+
 	"echo_top_k", "echo_min_score", "echo_topic_match",
-	// the schema v13 observability keys (v1.19.0 — rollup·snapshot retention, metering freshness)
+
 	"weekly_rollups_retention_days", "threshold_snapshots_retention_days", "metering_freshness_warn_h",
-	// the vault-bridge keys (v1.21.0 — schema v16 vault_files: scan cap, summary runes, skip dirs)
+
 	"vault_scan_max_files", "vault_summary_max_runes", "vault_skip_dirs",
-	// the distill output floor and file cap (v1.22.0·v1.22.1 r97 — schema v17 distill command)
+
 	"distill_min_score", "distill_max_runes",
-	// the recall-audit listing floor (v1.24.0 — schema v19 curation residual: maintain --recall-audit)
+
 	"recall_audit_min_bad",
-	// the engine-warning thresholds (v1.25.0 — doctor dolt_log_depth·db_size)
+
 	"dolt_" + "log_depth_warn", "db_size_warn_mb",
-	// the update-check cache age warning (v1.26.0 — doctor versions)
+
 	"update_cache_age_h",
 }
 
-// TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults
-// (70 · 180), meta override reflection, and the unset-keeps-0 convention
-// (the consumer falls back to DefaultThresholds — the gap 2-key convention).
 func TestStaleThresholdDefaultsOverride(t *testing.T) {
-	// defaults.
+
 	def := store.DefaultThresholds()
 	if def.StaleScoreThreshold != 70 {
 		t.Errorf("StaleScoreThreshold 기본값=%d, want 70", def.StaleScoreThreshold)
@@ -72,7 +62,7 @@ func TestStaleThresholdDefaultsOverride(t *testing.T) {
 	if def.StaleTTLDays != 180 {
 		t.Errorf("StaleTTLDays 기본값=%d, want 180", def.StaleTTLDays)
 	}
-	// override (the verify-gate ruling values: threshold 50 · TTL 90).
+
 	th, err := store.ParseThresholds([][2]any{
 		{"stale_score_threshold", "50"},
 		{"stale_ttl_days", "90"},
@@ -86,7 +76,7 @@ func TestStaleThresholdDefaultsOverride(t *testing.T) {
 	if th.StaleTTLDays != 90 {
 		t.Errorf("stale_ttl_days 오버라이드=%d, want 90", th.StaleTTLDays)
 	}
-	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+
 	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -96,11 +86,8 @@ func TestStaleThresholdDefaultsOverride(t *testing.T) {
 	}
 }
 
-// TestGapThresholdDefaultsOverride — the v1.12.0 gap keys: defaults (3 · 10),
-// meta override reflection, and the unset-keeps-0 convention (the consumer
-// falls back to DefaultThresholds — the correction 2-key convention).
 func TestGapThresholdDefaultsOverride(t *testing.T) {
-	// defaults.
+
 	def := store.DefaultThresholds()
 	if def.GapQueryThreshold != 3 {
 		t.Errorf("GapQueryThreshold 기본값=%d, want 3", def.GapQueryThreshold)
@@ -108,7 +95,7 @@ func TestGapThresholdDefaultsOverride(t *testing.T) {
 	if def.GapDailyMax != 10 {
 		t.Errorf("GapDailyMax 기본값=%d, want 10", def.GapDailyMax)
 	}
-	// override.
+
 	th, err := store.ParseThresholds([][2]any{
 		{"gap_query_threshold", "5"},
 		{"gap_daily_max", "2"},
@@ -122,7 +109,7 @@ func TestGapThresholdDefaultsOverride(t *testing.T) {
 	if th.GapDailyMax != 2 {
 		t.Errorf("gap_daily_max 오버라이드=%d, want 2", th.GapDailyMax)
 	}
-	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+
 	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -132,17 +119,13 @@ func TestGapThresholdDefaultsOverride(t *testing.T) {
 	}
 }
 
-// TestSurvivedReliefThresholdDefaultsOverride — the v1.14.0 T4 survived
-// decay-relief key: default 0 (inactive — the release-time invariance
-// ruling), meta override reflection, negative rejection, and the
-// unset-keeps-0 convention (the consumer falls back to DefaultThresholds).
 func TestSurvivedReliefThresholdDefaultsOverride(t *testing.T) {
-	// defaults — 0 = inactive (survived relief is opt-in only).
+
 	def := store.DefaultThresholds()
 	if def.SurvivedDecayRelief != 0 {
 		t.Errorf("SurvivedDecayRelief 기본값=%v, want 0(비활성)", def.SurvivedDecayRelief)
 	}
-	// override.
+
 	th, err := store.ParseThresholds([][2]any{
 		{"survived_decay_relief", "1.5"},
 	})
@@ -152,7 +135,7 @@ func TestSurvivedReliefThresholdDefaultsOverride(t *testing.T) {
 	if th.SurvivedDecayRelief != 1.5 {
 		t.Errorf("survived_decay_relief 오버라이드=%v, want 1.5", th.SurvivedDecayRelief)
 	}
-	// negative rejected — falls back to the default 0 (non-negative parser).
+
 	neg, err := store.ParseThresholds([][2]any{
 		{"survived_decay_relief", "-0.5"},
 	})
@@ -162,7 +145,7 @@ func TestSurvivedReliefThresholdDefaultsOverride(t *testing.T) {
 	if neg.SurvivedDecayRelief != 0 {
 		t.Errorf("음수 거부=%v, want 0(폴백)", neg.SurvivedDecayRelief)
 	}
-	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+
 	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -172,13 +155,8 @@ func TestSurvivedReliefThresholdDefaultsOverride(t *testing.T) {
 	}
 }
 
-// TestEchoThresholdDefaultsOverride — the v1.17.0 echo keys: defaults
-// (5 · 0.3 · 0.4), meta override reflection, and the unset-keeps-0 convention
-// (the consumer falls back to DefaultThresholds — the correction convention).
-// echo_min_score 0.3 is above suggest_min_score 0.15: the write-path scan pays
-// per-write cost, so the admission bar is raised (scan-cost control).
 func TestEchoThresholdDefaultsOverride(t *testing.T) {
-	// defaults.
+
 	def := store.DefaultThresholds()
 	if def.EchoTopK != 5 {
 		t.Errorf("EchoTopK 기본값=%d, want 5", def.EchoTopK)
@@ -189,7 +167,7 @@ func TestEchoThresholdDefaultsOverride(t *testing.T) {
 	if def.EchoTopicMatch != 0.4 {
 		t.Errorf("EchoTopicMatch 기본값=%v, want 0.4", def.EchoTopicMatch)
 	}
-	// override.
+
 	th, err := store.ParseThresholds([][2]any{
 		{"echo_top_k", "3"},
 		{"echo_min_score", "0.5"},
@@ -207,7 +185,7 @@ func TestEchoThresholdDefaultsOverride(t *testing.T) {
 	if th.EchoTopicMatch != 0.6 {
 		t.Errorf("echo_topic_match 오버라이드=%v, want 0.6", th.EchoTopicMatch)
 	}
-	// out-of-range rejection — the 0..1 clamp parser (negative falls back).
+
 	neg, err := store.ParseThresholds([][2]any{
 		{"echo_min_score", "-0.1"},
 		{"echo_topic_match", "1.5"},
@@ -221,7 +199,7 @@ func TestEchoThresholdDefaultsOverride(t *testing.T) {
 	if neg.EchoTopicMatch != 0.4 {
 		t.Errorf("echo_topic_match 범위 초과 거부=%v, want 0.4(폴백)", neg.EchoTopicMatch)
 	}
-	// unset keeps 0 (the consumer fallback basis — DefaultThresholds).
+
 	unset, err := store.ParseThresholds([][2]any{{"pending_max", "50"}})
 	if err != nil {
 		t.Fatalf("ParseThresholds err: %v", err)
@@ -232,16 +210,12 @@ func TestEchoThresholdDefaultsOverride(t *testing.T) {
 	}
 }
 
-// TestThresholdRegistrySingleSource — the registry is homogeneous with the 4 places
-// (the existing key set, Parse recognition, tuningKeys, and the TUNING-table
-// exposure) — adding a key to only the registry or only store (the struct, defaults, or the Parse switch) FAILs.
 func TestThresholdRegistrySingleSource(t *testing.T) {
 	metas := wire.ThresholdMetas()
 	if len(metas) != len(frozenThresholdKeys) {
 		t.Fatalf("등록표 항목 수: %d, want %d", len(metas), len(frozenThresholdKeys))
 	}
-	// 1. the existing key set (order included) — since ThresholdsKeys derives from
-	// the registry, two-way homogeneity is exactly the derivation contract.
+
 	if got := wire.ThresholdsKeys(); !reflect.DeepEqual(got, frozenThresholdKeys) {
 		t.Fatalf("ThresholdsKeys 드리프트:\n got=%v\nwant=%v", got, frozenThresholdKeys)
 	}
@@ -261,8 +235,7 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 			t.Errorf("%q: Thresholds 필드 무효 %q", m.Key, m.Field)
 			continue
 		}
-		// defaults homogeneity — registry Default == the DefaultThresholds field value.
-		// Parse recognition — a distinguishable sentinel value is reflected without a parse fallback.
+
 		var sentinel any
 		switch fv.Kind() {
 		case reflect.Int:
@@ -276,7 +249,7 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 			}
 			sentinel = "0.5"
 		case reflect.String:
-			// v1.21.0 vault_skip_dirs — the first string-valued key family.
+
 			if d, ok := m.Default.(string); !ok || d != fv.String() {
 				t.Errorf("%q: 등록표 기본값 %v != store 기본값 %q", m.Key, m.Default, fv.String())
 			}
@@ -306,8 +279,7 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 			}
 		}
 	}
-	// 2. tuningKeys homogeneity — TuningKeys derives from the registry (order,
-	// Default, Consumer, and Get all from the registry).
+
 	tk := ops.TuningKeys()
 	if len(tk) != len(metas) {
 		t.Fatalf("TuningKeys 수: %d, want %d(등록표)", len(tk), len(metas))
@@ -336,8 +308,7 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 			t.Errorf("%q: Default=%q, want 등록표 기본값 표기 %q", m.Key, info.Default, want)
 		}
 	}
-	// 3. TUNING-table exposure — TuningKeyAll (the source of the list,
-	// reset --all, and the TuningCurrent IN lookup) includes the whole registry.
+
 	all := map[string]bool{}
 	for _, k := range ops.TuningKeyAll() {
 		all[k] = true
@@ -355,13 +326,9 @@ func TestThresholdRegistrySingleSource(t *testing.T) {
 	}
 }
 
-// TestNewKeyPropagates — registering 1 virtual key in the registry reflects
-// simultaneously in the 4 paths (ThresholdsKeys, TuningKeyAll, the TuningKeyMap
-// row, and the TuningKeys order), and removing it makes it vanish from all —
-// demonstrating that a new key propagates with just 1 registry registration (+ a store struct field).
 func TestNewKeyPropagates(t *testing.T) {
 	probe := wire.ThresholdMeta{
-		Field:   "PendingMax", // the virtual key also binds Get to a real field (the table-row contract)
+		Field:   "PendingMax",
 		Key:     "zz_registry_probe",
 		Default: 7,
 		Desc:    "가드 테스트 가상 키",
@@ -376,15 +343,15 @@ func TestNewKeyPropagates(t *testing.T) {
 		}
 		return false
 	}
-	// path 1: ThresholdsKeys (the thresholdsKeySQL IN, the maintain audit source).
+
 	if !inKeys(wire.ThresholdsKeys()) {
 		t.Error("ThresholdsKeys에 가상 키 미반영")
 	}
-	// path 2: TuningKeyAll (the TuningCurrent IN lookup, reset --all).
+
 	if !inKeys(ops.TuningKeyAll()) {
 		t.Error("TuningKeyAll에 가상 키 미반영")
 	}
-	// path 3: the TuningKeyMap row (the TUNING-table Default, Consumer, Get).
+
 	info, ok := ops.TuningKeyMap()[probe.Key]
 	if !ok {
 		t.Fatal("TuningKeyMap에 가상 키 미반영")
@@ -395,7 +362,7 @@ func TestNewKeyPropagates(t *testing.T) {
 	if got := info.Get(store.DefaultThresholds()); got != "50" {
 		t.Errorf("가상 키 Get(실 필드 폴백)= %q, want 50", got)
 	}
-	// path 4: TuningKeys (the TUNING-table row-order source).
+
 	if !func() bool {
 		for _, k := range ops.TuningKeys() {
 			if k.Key == probe.Key {
@@ -407,7 +374,6 @@ func TestNewKeyPropagates(t *testing.T) {
 		t.Error("TuningKeys에 가상 키 미반영")
 	}
 
-	// removing the registration — asserting erasure from every path.
 	restore()
 	if inKeys(wire.ThresholdsKeys()) || inKeys(ops.TuningKeyAll()) {
 		t.Error("제거 후에도 키 잔류")
@@ -417,13 +383,6 @@ func TestNewKeyPropagates(t *testing.T) {
 	}
 }
 
-// TestThresholdAutoWhitelist — the v1.23.0 auto field: every registry entry
-// carries an Auto grade from the closed set {"" (manual-only), "shadow"}, the
-// initial whitelist is exactly {suggest_min_score: "shadow"} (the §12.2 exact
-// causal-layer classification key), and the grade is exposed through
-// ThresholdAutoGrade/ThresholdAutoWhitelist derived from the registry — adding a
-// key to only the registry or only the accessor side FAILs (the homogeneity
-// guard extended over the auto field).
 func TestThresholdAutoWhitelist(t *testing.T) {
 	grades := map[string]bool{"": true, "shadow": true}
 	want := map[string]string{"suggest_min_score": "shadow"}
@@ -453,15 +412,9 @@ func TestThresholdAutoWhitelist(t *testing.T) {
 	}
 }
 
-// fmtInt/fmtFloat — the registry-default notation (the same rules as the ops derivation).
 func fmtInt(v int) string       { return strconv.Itoa(v) }
 func fmtFloat(v float64) string { return strconv.FormatFloat(v, 'f', -1, 64) }
 
-// TestEngineWarnThresholdOverride — the v1.25.0 engine-warning 2 keys:
-// registry rows (defaults 10000 · 2048), meta override reflection, the
-// unset-keeps-0 convention, and the ApplyThresholdsFallback completion
-// (unset 0 must not read as "warn at depth 0" — the fallback place of the
-// 6-spot registration).
 func TestEngineWarnThresholdOverride(t *testing.T) {
 	def := store.DefaultThresholds()
 	if def.DoltLogDepthWarn != 10000 || def.DbSizeWarnMB != 2048 {
@@ -479,8 +432,7 @@ func TestEngineWarnThresholdOverride(t *testing.T) {
 		t.Errorf("오버라이드: depth=%d size=%d, want 5000·4096",
 			th.DoltLogDepthWarn, th.DbSizeWarnMB)
 	}
-	// unset keeps 0 and the fallback completes it to the defaults
-	// (LoadThresholds's unset-0-then-fallback convention — no depth-0 false warn).
+
 	fb := wire.ApplyThresholdsFallback(store.Thresholds{})
 	if fb.DoltLogDepthWarn != 10000 || fb.DbSizeWarnMB != 2048 {
 		t.Errorf("폴백: depth=%d size=%d, want 10000·2048",

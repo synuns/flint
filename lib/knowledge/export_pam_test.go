@@ -1,7 +1,3 @@
-// export_pam_test.go — FormatPAM contract tests. PAM v1.0
-// (portable-ai-memory.org/spec/v1.0): §4 document shape, §6 content_hash
-// normalization, status mapping, §13.2 relations direction, §15 checksum
-// determinism.
 package knowledge
 
 import (
@@ -23,7 +19,6 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// pamFixtureRows — 2 synthetic demo rows (active + invalidated/superseded).
 func pamFixtureRows() []ExportRow {
 	sup := 12
 	return []ExportRow{
@@ -47,8 +42,6 @@ func pamFixtureRows() []ExportRow {
 	}
 }
 
-// pamWantHash — contract-independent reproduction: trim -> lower -> NFC ->
-// whitespace collapse -> SHA-256.
 func pamWantHash(t *testing.T, content string) string {
 	t.Helper()
 	s := strings.TrimSpace(strings.ToLower(content))
@@ -58,7 +51,6 @@ func pamWantHash(t *testing.T, content string) string {
 	return "sha256:" + hex.EncodeToString(sum[:])
 }
 
-// pamParseDoc — deserializes output into a map (shared helper).
 func pamParseDoc(t *testing.T, out []byte) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -81,8 +73,6 @@ func pamMem(t *testing.T, doc map[string]any, i int) map[string]any {
 	return m
 }
 
-// TestFormatPAMDocShape — exhaustive check of §4 root fields and §4 memory
-// mapping.
 func TestFormatPAMDocShape(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -114,7 +104,6 @@ func TestFormatPAMDocShape(t *testing.T) {
 		t.Fatalf("relations 누락")
 	}
 
-	// memory[0] — the active-row mapping.
 	m0 := pamMem(t, doc, 0)
 	if m0["id"] != "flint:7" {
 		t.Errorf("id = %v, want flint:7", m0["id"])
@@ -154,7 +143,6 @@ func TestFormatPAMDocShape(t *testing.T) {
 		t.Errorf("provenance = %v, want {platform:flint}", m0["provenance"])
 	}
 
-	// integrity.total_memories.
 	ig, _ := doc["integrity"].(map[string]any)
 	if ig == nil {
 		t.Fatalf("integrity 누락")
@@ -164,8 +152,6 @@ func TestFormatPAMDocShape(t *testing.T) {
 	}
 }
 
-// TestFormatPAMExportIDUUIDv4 — export_id is a UUIDv4 refreshed on every
-// call.
 func TestFormatPAMExportIDUUIDv4(t *testing.T) {
 	re := regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$`)
 	seen := map[string]bool{}
@@ -185,9 +171,6 @@ func TestFormatPAMExportIDUUIDv4(t *testing.T) {
 	}
 }
 
-// TestFormatPAMContentHashNormalization — the 3 §6 normalization cases:
-// whitespace (runs, leading/trailing), case, and NFC — all converge to one
-// hash.
 func TestFormatPAMContentHashNormalization(t *testing.T) {
 	cases := []struct {
 		name string
@@ -195,8 +178,7 @@ func TestFormatPAMContentHashNormalization(t *testing.T) {
 	}{
 		{"whitespace", "Hello   World  ", "hello world"},
 		{"case", "HELLO WORLD", "hello world"},
-		// a is NFD (A + combining diacritic), b is NFC (precomposed) — verifies
-		// NFC-normalization convergence.
+
 		{"nfc", " Decomposed A\u0301ccent ", "decomposed \u00c1ccent"},
 	}
 	for _, c := range cases {
@@ -223,9 +205,6 @@ func TestFormatPAMContentHashNormalization(t *testing.T) {
 	}
 }
 
-// TestFormatPAMStatusMapping — active -> active, invalidated -> superseded;
-// SupersededBy != nil yields temporal.superseded_by = "flint:<N>" (absent
-// when nil).
 func TestFormatPAMStatusMapping(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -252,10 +231,6 @@ func TestFormatPAMStatusMapping(t *testing.T) {
 	}
 }
 
-// TestFormatPAMRelationsDirection — §13.2 "Source replaces target":
-// from = the new row (the SupersededBy target), to = the old row itself.
-// Verified with 2 synthetic rows where both endpoints (8 and 12) land in
-// memories (if either is missing, the relation itself is not emitted).
 func TestFormatPAMRelationsDirection(t *testing.T) {
 	sup := 12
 	t0 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
@@ -291,12 +266,6 @@ func TestFormatPAMRelationsDirection(t *testing.T) {
 	}
 }
 
-// TestFormatPAMRelationsDroppedWhenEndpointMissing — regression: relations
-// are emitted only when both From and To are "flint:N" ids present in
-// memories. A relation pointing at a pending superseder (an unapproved
-// supersession source — excluded from the document) or one outside the
-// query scope would be a dangling reference, so it is not emitted (defense
-// against breaking the lineage of hand-written jsonl imports).
 func TestFormatPAMRelationsDroppedWhenEndpointMissing(t *testing.T) {
 	pendSup, absentSup := 12, 999
 	t0 := time.Date(2026, 11, 5, 0, 0, 0, 0, time.UTC)
@@ -318,13 +287,13 @@ func TestFormatPAMRelationsDroppedWhenEndpointMissing(t *testing.T) {
 		name string
 		rows []ExportRow
 	}{
-		// superseder (12) is pending — excluded from memories, so From dangles.
+
 		{"pending superseder", append(base(pendSup), ExportRow{
 			ID: pendSup, Topic: "demo-pending-superseder", Content: "미승인 대체 원천 행",
 			Kind: "note", Status: "pending", Confidence: 0.5,
 			CreatedAt: t0.Add(time.Hour), UpdatedAt: t0.Add(time.Hour),
 		})},
-		// superseder (999) is not in the query result — From dangles.
+
 		{"absent superseder", base(absentSup)},
 	}
 	for _, c := range cases {
@@ -346,8 +315,6 @@ func TestFormatPAMRelationsDroppedWhenEndpointMissing(t *testing.T) {
 	}
 }
 
-// pamMaskedBody — regular serialization after removing export_id and
-// export_date (for determinism comparisons).
 func pamMaskedBody(t *testing.T, out []byte) string {
 	t.Helper()
 	m := pamParseDoc(t, out)
@@ -360,9 +327,6 @@ func pamMaskedBody(t *testing.T, out []byte) string {
 	return string(b)
 }
 
-// TestFormatPAMChecksumDeterminism — two determinism kinds: (a) the same
-// rows called twice — identical body and checksum; (b) shuffled row input —
-// identical.
 func TestFormatPAMChecksumDeterminism(t *testing.T) {
 	rows := pamFixtureRows()
 
@@ -383,7 +347,6 @@ func TestFormatPAMChecksumDeterminism(t *testing.T) {
 		t.Errorf("동일 rows 체크섬 불일치: %v vs %v", c1, c2)
 	}
 
-	// Shuffle — reversing the row order leaves body and checksum unchanged.
 	shuffled := []ExportRow{rows[1], rows[0]}
 	out3, err := FormatPAM(shuffled, "flint-test")
 	if err != nil {
@@ -398,9 +361,6 @@ func TestFormatPAMChecksumDeterminism(t *testing.T) {
 	}
 }
 
-// TestFormatPAMChecksumRecomputable — §15: sorting memories by ascending
-// id -> JCS serialization -> SHA-256 exactly matches integrity.checksum
-// (independent reproduction).
 func TestFormatPAMChecksumRecomputable(t *testing.T) {
 	rows := pamFixtureRows()
 	out, err := FormatPAM(rows, "flint-test")
@@ -424,7 +384,6 @@ func TestFormatPAMChecksumRecomputable(t *testing.T) {
 		t.Errorf("checksum = %q, want %q(JCS+SHA-256 재현)", got, want)
 	}
 
-	// Also checks that memories are in ascending id order (flint:7, flint:8).
 	mems := doc["memories"].([]any)
 	if mems[0].(map[string]any)["id"] != "flint:7" || mems[1].(map[string]any)["id"] != "flint:8" {
 		t.Errorf("memories 정렬 불일치: %v, %v",
@@ -432,11 +391,6 @@ func TestFormatPAMChecksumRecomputable(t *testing.T) {
 	}
 }
 
-// TestFormatPAMChecksumIDStringOrder — §15 sorts ids as **strings** in
-// ascending order: at digit boundaries (9/10/100), "flint:10" <
-// "flint:100" < "flint:9". Numeric sorting would diverge from external
-// verifiers (which reproduce string sorting) in the checksum (review
-// regression — with numeric sorting this test fails).
 func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 	t0 := time.Date(2026, 11, 14, 0, 0, 0, 0, time.UTC)
 	rows := []ExportRow{
@@ -450,7 +404,6 @@ func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 	}
 	doc := pamParseDoc(t, out)
 
-	// Document array order — ascending as strings.
 	mems, _ := doc["memories"].([]any)
 	wantOrder := []string{"flint:10", "flint:100", "flint:9"}
 	if len(mems) != len(wantOrder) {
@@ -462,8 +415,6 @@ func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 		}
 	}
 
-	// Checksum — the verifier reproduction path: sort by id string -> JCS ->
-	// SHA-256.
 	sorted := append([]any(nil), mems...)
 	sort.SliceStable(sorted, func(i, j int) bool {
 		return sorted[i].(map[string]any)["id"].(string) < sorted[j].(map[string]any)["id"].(string)
@@ -484,8 +435,6 @@ func TestFormatPAMChecksumIDStringOrder(t *testing.T) {
 	}
 }
 
-// TestFormatPAMEmpty — empty rows: memories and relations as empty arrays,
-// total 0, checksum present.
 func TestFormatPAMEmpty(t *testing.T) {
 	out, err := FormatPAM([]ExportRow{}, "flint-test")
 	if err != nil {
@@ -510,13 +459,8 @@ func TestFormatPAMEmpty(t *testing.T) {
 	}
 }
 
-// TestFormatPAMSkipsPendingRows — pending rows are excluded from the PAM
-// document (PAM's closed taxonomy has no notion of unapproved candidates —
-// internal unapproved candidates are not put on a standard interchange
-// document). memories, relations, total_memories, and the checksum all
-// exclude them.
 func TestFormatPAMSkipsPendingRows(t *testing.T) {
-	pendSup := 99 // the pending row's superseded_by must not survive in relations either
+	pendSup := 99
 	rows := append(pamFixtureRows(), ExportRow{
 		ID: 9, Topic: "demo-pending", Content: "미승인 내부 후보 행",
 		Kind: "note", Status: "pending", Confidence: 0.5,
@@ -543,8 +487,7 @@ func TestFormatPAMSkipsPendingRows(t *testing.T) {
 	if ig["total_memories"] != float64(2) {
 		t.Errorf("total_memories = %v, want 2", ig["total_memories"])
 	}
-	// The checksum is also over the pending-free body — check it matches the
-	// determinism reproduction.
+
 	memBytes, err := json.Marshal(doc["memories"])
 	if err != nil {
 		t.Fatalf("memories Marshal 실패: %v", err)
@@ -559,9 +502,6 @@ func TestFormatPAMSkipsPendingRows(t *testing.T) {
 	}
 }
 
-// TestFormatPAMFlintHashIndependent — the PAM content_hash is computed
-// independently of the flint storage hash (row.ContentHash) — it must
-// differ from the source hash.
 func TestFormatPAMFlintHashIndependent(t *testing.T) {
 	rows := []ExportRow{{
 		ID: 1, Kind: "knowledge", Status: "active", Content: "demo",
@@ -581,15 +521,8 @@ func TestFormatPAMFlintHashIndependent(t *testing.T) {
 	}
 }
 
-// --- §13.1 relations required fields, §18 signing, key management ---
-
-// pamUUIDRe — the relation id (UUID) format.
 var pamUUIDRe = regexp.MustCompile(`^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$`)
 
-// TestFormatPAMRelationRequiredFields — §13.1: every relations entry emits
-// all of {id, from, to, type, created_at}. id is a ULID/UUID (a
-// deterministic UUIDv5 here); created_at is the supersession source's (new
-// row's) creation time.
 func TestFormatPAMRelationRequiredFields(t *testing.T) {
 	sup := 12
 	t0 := time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)
@@ -626,8 +559,7 @@ func TestFormatPAMRelationRequiredFields(t *testing.T) {
 		t.Errorf("relation.created_at = %v, want 신규 행 생성 시각 %v",
 			r["created_at"], newAt.UTC().Format(time.RFC3339))
 	}
-	// The relation id is deterministic — re-emitting the same rows yields
-	// the same id (external-verifier reproducibility).
+
 	out2, err := FormatPAM(rows, "flint-test")
 	if err != nil {
 		t.Fatalf("2차 FormatPAM error: %v", err)
@@ -638,9 +570,6 @@ func TestFormatPAMRelationRequiredFields(t *testing.T) {
 	}
 }
 
-// TestFormatPAMUnsignedNoOwnerOrSignature — the unsigned default path
-// emits no owner or signature blocks (the unsigned default path is
-// invariant — the byte-identity baseline).
 func TestFormatPAMUnsignedNoOwnerOrSignature(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -655,10 +584,6 @@ func TestFormatPAMUnsignedNoOwnerOrSignature(t *testing.T) {
 	}
 }
 
-// TestFormatPAMUnsignedBodyGolden — the golden body of the unsigned default
-// path (masked: export_id and export_date excluded). The regression
-// baseline for output byte-identity across the memory optimization — if
-// this golden changes, checksum interoperability has broken.
 func TestFormatPAMUnsignedBodyGolden(t *testing.T) {
 	out, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -671,8 +596,6 @@ func TestFormatPAMUnsignedBodyGolden(t *testing.T) {
 	}
 }
 
-// pamTestKey — a fixed test Ed25519 key (synthetic — derived from a
-// 32-byte seed).
 func pamTestKey(t *testing.T) ed25519.PrivateKey {
 	t.Helper()
 	seed := sha256.Sum256([]byte("flint-pam-demo-seed"))
@@ -680,11 +603,6 @@ func pamTestKey(t *testing.T) ed25519.PrivateKey {
 	return key
 }
 
-// TestFormatPAMSignedOwnerAndSignature — §18: the --sign path emits the
-// root owner {id: did:key:ed25519 public key} and signature{algorithm,
-// signed_by, value}. The signature is payload{checksum, export_id,
-// export_date, owner_id} JCS -> Ed25519 — re-verified outside the document
-// with the did:key public key.
 func TestFormatPAMSignedOwnerAndSignature(t *testing.T) {
 	key := pamTestKey(t)
 	out, err := FormatPAMSigned(pamFixtureRows(), "flint-test", key)
@@ -722,8 +640,6 @@ func TestFormatPAMSignedOwnerAndSignature(t *testing.T) {
 		t.Fatalf("signature.value = %q, want base64 64바이트 서명", value)
 	}
 
-	// Independent re-verification outside the document: did:key -> public
-	// key -> payload JCS -> Verify.
 	pub, err := PAMDIDKeyPubkey(did)
 	if err != nil {
 		t.Fatalf("did:key 공개키 복호 실패: %v", err)
@@ -740,17 +656,12 @@ func TestFormatPAMSignedOwnerAndSignature(t *testing.T) {
 	}
 }
 
-// TestFormatPAMSignedInvalidKey — a wrong-length key is an error (no
-// document emitted).
 func TestFormatPAMSignedInvalidKey(t *testing.T) {
 	if _, err := FormatPAMSigned(pamFixtureRows(), "flint-test", ed25519.PrivateKey(make([]byte, 10))); err == nil {
 		t.Errorf("잘못된 키 길이(10) 오류 없음 — 오류 필요")
 	}
 }
 
-// TestFormatPAMSignedUnsignedBodySame — the signed path's memories,
-// relations, and integrity are identical to the unsigned path (only the
-// signature blocks are added — assembly that avoids re-serialization).
 func TestFormatPAMSignedUnsignedBodySame(t *testing.T) {
 	plain, err := FormatPAM(pamFixtureRows(), "flint-test")
 	if err != nil {
@@ -770,13 +681,8 @@ func TestFormatPAMSignedUnsignedBodySame(t *testing.T) {
 	}
 }
 
-// TestPAMSigningKeyLifecycle — sign.go key management: with the path seam
-// injected, fresh creation (0600, parent directory 0700), reload yields the
-// same key, and a corrupt key is an error.
 func TestPAMSigningKeyLifecycle(t *testing.T) {
-	// A not-yet-existing subdirectory — verifies the MkdirAll 0700 creation
-	// path (the t.TempDir directory itself already exists, so it is not the
-	// permission-assertion target).
+
 	sub := filepath.Join(t.TempDir(), "flint-config")
 	path := filepath.Join(sub, "pam-signing-key")
 	pamSwapKeyPath(t, path)
@@ -806,8 +712,7 @@ func TestPAMSigningKeyLifecycle(t *testing.T) {
 	if !bytes.Equal(k1, k2) {
 		t.Errorf("재로드 키 불일치 — 생성 시 키가 안정적으로 저장되지 않음")
 	}
-	// Corrupt key — an error, not a silent regeneration (preserving the
-	// chain of trust).
+
 	if werr := os.WriteFile(path, []byte("zz-not-hex"), 0o600); werr != nil {
 		t.Fatal(werr)
 	}
@@ -816,8 +721,6 @@ func TestPAMSigningKeyLifecycle(t *testing.T) {
 	}
 }
 
-// pamSwapKeyPath — temporarily swaps the PAMSigningKeyPathFn seam (test
-// isolation).
 func pamSwapKeyPath(t *testing.T, path string) func() {
 	t.Helper()
 	old := PAMSigningKeyPathFn
@@ -826,8 +729,6 @@ func pamSwapKeyPath(t *testing.T, path string) func() {
 	return func() {}
 }
 
-// TestDefaultPAMSigningKeyPathConfigDir — the default path inherits
-// FLINT_CONFIG_DIR (configDir()/pam-signing-key).
 func TestDefaultPAMSigningKeyPathConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -836,15 +737,6 @@ func TestDefaultPAMSigningKeyPathConfigDir(t *testing.T) {
 	}
 }
 
-// --- PAM memory optimization (equivalence, issued-count return, golden,
-// benchmarks) ---
-
-// TestPAMChecksumStreamEquivalence — verifies that the streaming JCS
-// checksum computation (avoiding re-parsing) yields the **same checksum as
-// the library path** (json.Marshal -> jsoncanonicalizer.Transform) on all
-// inputs. Includes every escape boundary value (HTML, control characters,
-// U+2028/9, invalid UTF-8, non-BMP), floating-point boundary values
-// (exponent form, shortest representation), empty values, and relations.
 func TestPAMChecksumStreamEquivalence(t *testing.T) {
 	contents := []string{
 		"plain ascii demo",
@@ -868,7 +760,7 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 				tags = []string{"demo", "go"}
 			} else if i%3 == 1 {
 				tags = []string{}
-			} // i%3==2 -> nil (the empty-array emission path)
+			}
 			rows = append(rows, ExportRow{
 				ID: i, Topic: "demo-topic", Content: c, Kind: "lesson",
 				Status: "active", Confidence: cf, Tags: tags,
@@ -876,8 +768,7 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 			})
 		}
 	}
-	// invalidated + relation (both sides emitted — the from=900001 new row is
-	// added too).
+
 	rows = append(rows,
 		ExportRow{ID: 900000, Content: "대체된 데모 행", Kind: "note", Status: "invalidated",
 			Confidence: 0.5, Tags: []string{"demo"}, CreatedAt: t0, SupersededBy: &sup},
@@ -891,8 +782,6 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 	}
 	doc := pamParseDoc(t, out)
 
-	// Library-independent reproduction (a checksum contract agnostic to the
-	// implementation).
 	memBytes, err := json.Marshal(doc["memories"])
 	if err != nil {
 		t.Fatal(err)
@@ -913,10 +802,6 @@ func TestPAMChecksumStreamEquivalence(t *testing.T) {
 	}
 }
 
-// TestFormatPAMWithCount — returns the issued count (total_memories)
-// alongside the document, without re-parsing it (the seam removing the
-// cli-side 44MB re-Unmarshal). Pending rows are excluded from the count
-// (inheriting the existing contract).
 func TestFormatPAMWithCount(t *testing.T) {
 	rows := append(pamFixtureRows(), ExportRow{
 		ID: 9, Content: "미승인 내부 후보 행", Kind: "note", Status: "pending",
@@ -947,12 +832,6 @@ func TestFormatPAMWithCount(t *testing.T) {
 	}
 }
 
-// TestFormatPAMRawBytesMatchEncoder — even with the document encoding moved
-// to a streaming writer, the output bytes must match json.Encoder
-// (SetEscapeHTML(false) + SetIndent) at the whole-document level (unsigned
-// body bytes invariant — indentation, newlines, and escaping alike). The
-// volatile fields (export_id, export_date) are reassembled after parsing
-// and compared on equal values.
 func TestFormatPAMRawBytesMatchEncoder(t *testing.T) {
 	run := func(t *testing.T, out []byte) {
 		t.Helper()
@@ -981,8 +860,7 @@ func TestFormatPAMRawBytesMatchEncoder(t *testing.T) {
 		t.Fatal(err)
 	}
 	run(t, signed)
-	// The one-relation-emitted case (the non-empty-array indentation path)
-	// and the empty-rows case (memories and relations both empty arrays).
+
 	relRows := []ExportRow{
 		{ID: 8, Content: "대체되는 데모 행", Kind: "note", Status: "invalidated",
 			Confidence: 0.5, Tags: []string{"demo"}, CreatedAt: time.Date(2026, 11, 2, 10, 30, 0, 0, time.UTC)},
@@ -1002,9 +880,6 @@ func TestFormatPAMRawBytesMatchEncoder(t *testing.T) {
 	run(t, empty)
 }
 
-// pamBenchRows — synthetic benchmark input (deterministic — fixed seed).
-// Mixes content lengths, statuses, and tags, and gives some rows a
-// supersedes relation.
 func pamBenchRows(n int) []ExportRow {
 	t0 := time.Date(2026, 11, 16, 0, 0, 0, 0, time.UTC)
 	rows := make([]ExportRow, n)
@@ -1017,7 +892,7 @@ func pamBenchRows(n int) []ExportRow {
 		r.Confidence = 0.5 + float64(i%50)/100
 		r.CreatedAt = t0.Add(time.Duration(i) * time.Second)
 		r.UpdatedAt = r.CreatedAt
-		// Content — variable length (40-240 bytes), some Unicode.
+
 		base := "합성 데모 지식 행 synthetic demo knowledge row with some length "
 		for len(base) < 40+(i%200) {
 			base += "x"
@@ -1038,9 +913,6 @@ func pamBenchRows(n int) []ExportRow {
 	return rows
 }
 
-// BenchmarkFormatPAM — a real-measurement reproduction: the 20k synthetic
-// equivalent of the 50k-row 876MB churn (8.6x output). The goal is a
-// before/after totalAlloc (B/op) comparison report.
 func BenchmarkFormatPAM(b *testing.B) {
 	rows := pamBenchRows(20000)
 	b.ReportAllocs()
@@ -1052,8 +924,6 @@ func BenchmarkFormatPAM(b *testing.B) {
 	}
 }
 
-// BenchmarkFormatPAMSigned — measures with the signing path included
-// (§18).
 func BenchmarkFormatPAMSigned(b *testing.B) {
 	rows := pamBenchRows(20000)
 	seed := sha256.Sum256([]byte("flint-pam-demo-seed"))
@@ -1067,8 +937,6 @@ func BenchmarkFormatPAMSigned(b *testing.B) {
 	}
 }
 
-// TestPAMOwnerDIDRoundtrip — did:key encoding roundtrip: public key -> a
-// z6Mk-prefixed did -> decoding yields the original public key.
 func TestPAMOwnerDIDRoundtrip(t *testing.T) {
 	key := pamTestKey(t)
 	did := PAMOwnerDID(key.Public().(ed25519.PublicKey))
@@ -1087,11 +955,6 @@ func TestPAMOwnerDIDRoundtrip(t *testing.T) {
 	}
 }
 
-// --- flint storage content_hash §10 metadata emission ---
-
-// pamStoredHashRows — the A2 emission fixture: one row with a 64-hex
-// storage hash, one without, and one non-hex (not a storage-hash format) —
-// all synthetic demo rows.
 func pamStoredHashRows() []ExportRow {
 	t0 := time.Date(2026, 11, 17, 9, 0, 0, 0, time.UTC)
 	return []ExportRow{
@@ -1109,17 +972,12 @@ func pamStoredHashRows() []ExportRow {
 		{
 			ID: 23, Topic: "demo-nonhex-hash", Content: "비hex 해시 데모 행",
 			Kind: "lesson", Status: "active", Confidence: 0.6, Tags: []string{"demo"},
-			ContentHash: "flint-hash-23", // jsonl A9 isHex64 symmetry — not eligible for inheritance
+			ContentHash: "flint-hash-23",
 			CreatedAt:   t0, UpdatedAt: t0,
 		},
 	}
 }
 
-// TestFormatPAMStoredHashMetadata — A2: only rows carrying a flint storage
-// content_hash (64 hex) get the additive §10 metadata.content_hash. The §6
-// content_hash (the spec-normalized computation) stays a separate,
-// unaffected field — metadata is an extension solely for round-trip dedup
-// idempotence (jsonl A9 symmetry).
 func TestFormatPAMStoredHashMetadata(t *testing.T) {
 	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
 	if err != nil {
@@ -1127,7 +985,6 @@ func TestFormatPAMStoredHashMetadata(t *testing.T) {
 	}
 	doc := pamParseDoc(t, out)
 
-	// The hash-bearing row — metadata.content_hash emitted by inheritance.
 	m0 := pamMem(t, doc, 0)
 	meta, _ := m0["metadata"].(map[string]any)
 	if meta == nil {
@@ -1136,14 +993,11 @@ func TestFormatPAMStoredHashMetadata(t *testing.T) {
 	if got, _ := meta["content_hash"].(string); got != "abababababababababababababababababababababababababababababababab" {
 		t.Errorf("metadata.content_hash = %v, want 저장 해시 승계", meta["content_hash"])
 	}
-	// The §6 content_hash keeps the spec computation (a different value from
-	// the storage hash).
+
 	if got, _ := m0["content_hash"].(string); got != pamWantHash(t, "저장 해시 보유 데모 행") {
 		t.Errorf("§6 content_hash = %q, want 스펙 정규화 산출(저장 해시 비사용)", got)
 	}
 
-	// Hash-less and non-hex rows — no metadata emitted (unsigned golden bytes
-	// invariant).
 	for _, i := range []int{1, 2} {
 		m := pamMem(t, doc, i)
 		if _, ok := m["metadata"]; ok {
@@ -1152,10 +1006,6 @@ func TestFormatPAMStoredHashMetadata(t *testing.T) {
 	}
 }
 
-// TestFormatPAMStoredHashChecksumVerified — the metadata block is included
-// in the §15 checksummed body (the streaming jcsBuf output = the importing
-// side's jsoncanonicalizer recomputation — metadata escaping and key
-// ordering interoperate).
 func TestFormatPAMStoredHashChecksumVerified(t *testing.T) {
 	out, err := FormatPAM(pamStoredHashRows(), "flint-test")
 	if err != nil {

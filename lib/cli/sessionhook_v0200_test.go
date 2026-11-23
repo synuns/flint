@@ -1,5 +1,3 @@
-// sessionhook_v0200_test.go — the session-start hook records the session-start
-// boundary (output and exit unchanged — only an internal account is added).
 package cli
 
 import (
@@ -8,7 +6,6 @@ import (
 	"testing"
 )
 
-// sessionStartRecorder — a fake recording the SessionStartRecorder seam.
 type sessionStartRecorder struct {
 	*fakeStore
 	starts []string
@@ -19,12 +16,9 @@ func (s *sessionStartRecorder) RecordSessionStart(ctx context.Context, session s
 	return nil
 }
 
-// TestSessionStartRecordsBoundary — session-start records the boundary once with the
-// --session label. Even with successful recording, the hot and nudge outputs are unchanged
-// (recording is independent of the output path).
 func TestSessionStartRecordsBoundary(t *testing.T) {
 	st := &sessionStartRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		// the hot headline path — minimal behavior with counts 0.
+
 		return nil, nil
 	}}}
 	var out strings.Builder
@@ -38,8 +32,6 @@ func TestSessionStartRecordsBoundary(t *testing.T) {
 	}
 }
 
-// TestSessionStartNoSessionLabel — a hook without a label (empty) also records with an empty label
-// (the boundary time itself is the source — the label is auxiliary).
 func TestSessionStartNoSessionLabel(t *testing.T) {
 	st := &sessionStartRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil
@@ -54,10 +46,6 @@ func TestSessionStartNoSessionLabel(t *testing.T) {
 	}
 }
 
-// TestSessionLabelLifecycle — session-start leaves the label file and
-// session-end removes it (preventing staleness). The label file is
-// per-session (session-<id>.label) — session-end removes only its own --session id's file
-// (consistent with session-end in hooks.json always passing a session_id).
 func TestSessionLabelLifecycle(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &sessionStartRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -81,8 +69,6 @@ func TestSessionLabelLifecycle(t *testing.T) {
 	}
 }
 
-// TestReadAutoSessionLabel — a read without --session adopts the current
-// session label automatically and records it into read_events.
 func TestReadAutoSessionLabel(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

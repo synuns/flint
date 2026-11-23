@@ -12,7 +12,7 @@ func TestReportZeroWindowed(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "daily:"):
-			// an in-window (today) row + an outside-window (retained excess) row — only the in-window sums.
+
 			return [][]any{
 				{"daily:" + today, `{"read":10,"read_zero":4,"read_zero_near":3}`},
 				{"daily:2001-01-01", `{"read":90,"read_zero":90,"read_zero_near":90}`},

@@ -1,7 +1,3 @@
-// setup_wizard_test.go — entry branching: no args + terminal -> wizard
-// seam call; cancel or non-terminal -> the existing no-arg path; flags (--exposure X) are
-// fully unchanged regardless of the wizard (equivalence regression). The wizard result reuses the existing
-// runSetupExposure and chain (the no-duplicate-implementation contract).
 package cli
 
 import (
@@ -12,7 +8,6 @@ import (
 	"testing"
 )
 
-// withSetupWizard — swaps the setupWizardFn seam (returns the call count).
 func withSetupWizard(t *testing.T, chosen string, ok bool) *int {
 	t.Helper()
 	calls := 0
@@ -25,7 +20,6 @@ func withSetupWizard(t *testing.T, chosen string, ok bool) *int {
 	return &calls
 }
 
-// withWizardTTY — swaps the setupWizardTTYFn seam (the wizard-entry decision).
 func withWizardTTY(t *testing.T, v bool) {
 	t.Helper()
 	prev := setupWizardTTYFn
@@ -33,7 +27,6 @@ func withWizardTTY(t *testing.T, v bool) {
 	t.Cleanup(func() { setupWizardTTYFn = prev })
 }
 
-// newExposureRecorder — a fakeStore capturing meta upserts (the exposure write).
 func newExposureRecorder() (*fakeStore, *string, *string) {
 	var key, val string
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -45,9 +38,6 @@ func newExposureRecorder() (*fakeStore, *string, *string) {
 	return st, &key, &val
 }
 
-// TestSetupWizardEntryBranch — no args + terminal: on wizard completion, the existing chain
-// runs, then the flag equivalent the wizard assembled (--exposure chosen) is recorded via the existing
-// runSetupExposure.
 func TestSetupWizardEntryBranch(t *testing.T) {
 	st, key, val := newExposureRecorder()
 	rec := withFakeCompose(t)
@@ -72,8 +62,6 @@ func TestSetupWizardEntryBranch(t *testing.T) {
 	}
 }
 
-// TestSetupWizardCancelFallsBack — wizard cancel (("", false)) keeps the existing
-// no-arg path as-is: the chain runs but no exposure write.
 func TestSetupWizardCancelFallsBack(t *testing.T) {
 	st, key, val := newExposureRecorder()
 	withFakeCompose(t)
@@ -95,12 +83,10 @@ func TestSetupWizardCancelFallsBack(t *testing.T) {
 	}
 }
 
-// TestSetupNonTTYNoWizard — on non-terminal (pipe, redirection), the wizard seam is not
-// called and the existing guidance path (one-line JSON summary) is kept.
 func TestSetupNonTTYNoWizard(t *testing.T) {
 	st, key, _ := newExposureRecorder()
 	withFakeCompose(t)
-	calls := withSetupWizard(t, "minimal", true) // even with the seam ok, no entry
+	calls := withSetupWizard(t, "minimal", true)
 	var out bytes.Buffer
 	code := runSetup(context.Background(), st, nil, strings.NewReader(""), &out)
 	if code != 0 {
@@ -117,14 +103,11 @@ func TestSetupNonTTYNoWizard(t *testing.T) {
 	}
 }
 
-// TestSetupExposureFlagSkipsWizard — the flag path is fully unchanged: even when treated as a
-// terminal, --exposure X bypasses the wizard and matches the existing standalone-mode result
-// (equivalence regression).
 func TestSetupExposureFlagSkipsWizard(t *testing.T) {
 	st, key, val := newExposureRecorder()
 	rec := withFakeCompose(t)
 	calls := withSetupWizard(t, "minimal", true)
-	withWizardTTY(t, true) // even treated as a terminal, the flag wins
+	withWizardTTY(t, true)
 	var out bytes.Buffer
 	code := runSetup(context.Background(), st, []string{"--exposure", "minimal"}, strings.NewReader(""), &out)
 	if code != 0 {
@@ -136,7 +119,7 @@ func TestSetupExposureFlagSkipsWizard(t *testing.T) {
 	if *key != ExposureKey || *val != "minimal" {
 		t.Fatalf("기록=(%q,%q), want (%q,minimal)", *key, *val, ExposureKey)
 	}
-	// equivalent to the existing standalone-mode output — only the one exposure report line, no chain run.
+
 	if got := strings.TrimSpace(out.String()); got != `{"status":"ok","exposure":"minimal"}` {
 		t.Fatalf("출력=%q, want 기존 플래그 모드와 동일", got)
 	}

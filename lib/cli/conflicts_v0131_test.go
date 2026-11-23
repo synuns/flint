@@ -1,7 +1,3 @@
-// conflicts_v0131_test.go
-// conflictDice delegates to lib/query.BigramDiceMultiset (local reimplementation abolished),
-// and checkConflicts goes through the ConflictStore.ConflictGroups seam (inline
-// GROUP BY SQL abolished; bounded lookup).
 package cli
 
 import (
@@ -12,10 +8,6 @@ import (
 	"github.com/synuns/flint/lib/query"
 )
 
-// fakeStore.ConflictGroups — a ConflictStore seam fake (F7). It mimics the real Repo's group
-// lookup via the Query path. queryFn and rows use the same row shape as the old checkConflicts
-// inline SQL ({topic, []string summaries}) —
-// differently shaped rows are skipped as unclassifiable.
 func (f *fakeStore) ConflictGroups(ctx context.Context, limit int) ([]db.ConflictGroup, error) {
 	rows, err := f.Query(ctx, `SELECT topic, array_agg(summary ORDER BY id) FROM knowledge
 		WHERE invalid_at IS NULL AND status = 'active'
@@ -38,11 +30,6 @@ func (f *fakeStore) ConflictGroups(ctx context.Context, limit int) ([]db.Conflic
 	return groups, nil
 }
 
-// TestConflictDiceDelegatesToQuery — F6 regression: conflictDice delegates to lib/query
-// BigramDiceMultiset. A repeated-2-gram pair (a 4-char run vs a 2-char
-// run) is the point where the set version (1) and the multiset version
-// (0.5) diverge — also pinning that the existing classification measure (multiset) has not
-// changed to the set version.
 func TestConflictDiceDelegatesToQuery(t *testing.T) {
 	pairs := [][2]string{
 		{"flint 백업은 매일 자동이다", "flint 백업은 매일 자동이다"},
@@ -59,9 +46,6 @@ func TestConflictDiceDelegatesToQuery(t *testing.T) {
 	}
 }
 
-// seamConflictStore — an inspection store providing only the ConflictGroups seam.
-// The embedded fakeStore's queryFn treats any call as a failure — so if checkConflicts ever
-// returns to the old behavior of running SQL directly (F7), it gets caught.
 type seamConflictStore struct {
 	*fakeStore
 	groups []db.ConflictGroup
@@ -74,10 +58,6 @@ func (s *seamConflictStore) ConflictGroups(ctx context.Context, limit int) ([]db
 	return s.groups, s.err
 }
 
-// TestConflictsUsesConflictGroupsSeam — F7/F9 regression: checkConflicts's group
-// lookup goes only through the ConflictStore.ConflictGroups seam (no direct SQL),
-// and the cap is the doctor-only doctorConflictLimit=50 (counting only the top
-// 10 groups would miss the excess contradiction as unreported).
 func TestConflictsUsesConflictGroupsSeam(t *testing.T) {
 	inner := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		t.Errorf("checkConflicts가 인라인 SQL 조회 사용: %q", sql)

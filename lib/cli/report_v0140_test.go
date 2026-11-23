@@ -13,8 +13,7 @@ func TestReportZeroNearPct(t *testing.T) {
 		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
 			return [][]any{{"read_stats", `{"calls":10,"zero":4,"zero_near":3}`}}, nil
 		case strings.Contains(sql, "daily:"):
-			// periodization — additional fixture daily rows (ruling): sums 4/10 and 3/10.
-			// Since the window filter (review fix) sums only in-window dates, use today's date.
+
 			return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":10,"read_zero":4,"read_zero_near":3}`}}, nil
 		case strings.Contains(sql, "count"):
 			return [][]any{{"1", "2", "3"}}, nil
