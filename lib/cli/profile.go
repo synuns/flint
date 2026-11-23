@@ -59,7 +59,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		}
 
 		if s.val != "normal" && s.val != "minimal" {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.profile"), s.val)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.profile"), wire.MaskToken(s.val))))
 			return 3
 		}
 		apply = s.val

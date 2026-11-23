@@ -80,6 +80,9 @@ var exitContractProbes = []exitProbe{
 
 	{"sync", []string{"remote", "add", "demo", "postgres://u:p@db.example.invalid/db"}, 3, "v1.7.2 T3 postgres 스킴 거부(S5)"},
 	{"sync", []string{"reset"}, 3, "v1.7.2 T3 reset 대상 부재(S2)"},
+
+	{"engine", []string{}, 3, "v1.31.0 T5 bare usage"},
+	{"engine", []string{"bogus"}, 3, "v1.31.0 T5 무효 서브커맨드"},
 }
 
 var quietAbsorb = map[string]string{

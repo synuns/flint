@@ -445,7 +445,7 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
   4. 실행 후 확인 — `flint doctor`·`flint status`로 건전성과 경고
      해소를 확인한다.
 
-## 11. 엔진 이미지 업그레이드·설치 전환 (v1.25.0 → v1.30.0 재작성)
+## 11. 엔진 이미지 업그레이드·설치 전환 (v1.25.0 → v1.31.0 재작성)
 
 ### 내장 compose·프로젝트명 flint (v1.30.0)
 
@@ -468,7 +468,7 @@ compose(다이제스트 핀·4방 동치 가드)가 단일 소스다. 스펙 룰
 자산이다. 워크트리 간 핀 차이가 있을 수 있어 워크트리 밖에서는
 flint 경로를 쓴다.
 
-### 업그레이드 절차 (순서 고정)
+### 관리형 컨테이너 업그레이드 절차 (순서 고정)
 
 각 단계 실패 시 다음 단계로 진행 금지. 업그레이드 판단은 사람
 운영자(릴리스 노트 확인 포함):
@@ -505,6 +505,39 @@ flint 경로를 쓴다.
    `docker compose up -d`로 기동했던 cwd 관례 프로젝트)에서
    `docker compose down -v`로 회수한다.
 5. **확인** — `flint doctor`로 경고 해소·스키마·포트를 확인한다.
+
+### 엔진 모드 공통 (v1.31.0 — ADR-0021)
+
+엔진 실행 위치는 배치 모드 3종이고 config `engine.mode`에 기록된다:
+
+| 모드 | 실행 주체 | 제어 |
+|---|---|---|
+| `managed-container` | 내장 compose(다이제스트 핀 — ADR-0020) | `flint setup`·`flint engine`이 compose 구동 |
+| `native` | flint 관리 바이너리(플랫폼 서비스 등록) | `flint engine`이 서비스 제어 |
+| `external` | 운영자 자체 엔진(루프백 한정) | 안내만 — start/stop 거부 |
+
+- `flint engine status|start|stop`은 모드×명령 행렬로 동작한다(미정의
+  조합 — 예: external의 start — 거부+안내). `status`는
+  {registered, running, version}을 분리해 보고한다.
+- `flint setup --engine <mode>`로 모드를 기록한다(멱등). **네이티브는
+  옵트인** — 새 설치 기본은 관리형 컨테이너다(기본 전환은 별도 결정).
+- 네이티브 선택 시 setup이 ① 핀 버전 다운로드(플랫폼별 해시 상수·
+  `-version` 검증 → `engine/<version>/` 원자 교체·`current` 심링크,
+  구버전 보존) ② 서비스 등록(macOS launchd plist 0600·Linux systemd
+  user — 비밀 미포함) ③ 자격증명 초기화(슈퍼유저 접속 → ALTER ROLE →
+  ADR-0010 기본 DSN 재접속 확인 → mode 기록, 실패 시 미기록·정지)를
+  순서대로 수행한다.
+- doctor `engine` 검사가 등록·실행·버전·핀 정합을 확인한다. 서비스
+  관리자가 없는 환경은 doctor fail+안내(수동 데몬화 비지원).
+- **container→native 전환**(단방향 — 역방향 미지원): 컨테이너 정지 →
+  데이터 디렉터리 복사(0700) → 네이티브 기동 → dolt_log 깊이·AS OF
+  동치 확인 → 실패 시 `engine.mode` 원복+컨테이너 재기동. 컨테이너
+  볼륨 삭제는 네이티브에서 backup+drill(§3)을 마친 뒤에만 — 사람
+  운영자 판단.
+- **네이티브 업그레이드**: 핀이 갱신된 flint 릴리스로 바이너리를 올리면
+  다운로더가 신버전 디렉터리를 추가하고 `current` 심링크를 교체한다.
+  doctor green 확인, 실패 시 구 디렉터리·구 핀으로 롤백한다(관리형
+  절차 1~2의 backup·drill이 선행된다).
 
 ## Doltgres 업스트림 주의사항 (v1.28.0 표 갱신 — 2026-11-24)
 

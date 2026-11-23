@@ -85,7 +85,7 @@ func parseImportMigrateArgs(args []string) (format, file string, err error) {
 			continue
 		}
 		if strings.HasPrefix(a, "-") {
-			return "", "", wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.import.format"), a)
+			return "", "", wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.import.format"), wire.MaskToken(a))
 		}
 		if file != "" {
 			return "", "", &store.SchemaError{Field: "file", Expect: "one positional argument (FILE) required"}

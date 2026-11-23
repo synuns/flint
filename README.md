@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.30.2-blue" alt="v1.30.2">
+  <img src="https://img.shields.io/badge/release-v1.31.0-blue" alt="v1.31.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.31.0 · native engine — `flint engine status|start|stop` service control · `setup --engine managed-container|native|external` (opt-in mode selection — native: dedicated downloader with hash + version verification, launchd/systemd-user service registration, first-boot credential bootstrap) · container→native transition with rollback · doctor `engine` check (registration · running · version · pin) · R123 carryover (local parsers mask unknown-flag echo tokens) · [full changelog](docs/HISTORY.md)
 > v1.30.2 · r122 patch — docs follow the fresh no-flag routing (port assignment on the managed path, step guide corrected) · unknown-flag echo masks `scheme://` tokens (the inline-DSN rejection no longer leaks through the parser) · `?port=` hand-edit edge declared · [full changelog](docs/HISTORY.md)
 > v1.30.1 · install-audit — docs corrected to match the shipped v1.30.0 implementation (engine thresholds are code constants pending meta registration · pull/TLS/health-timeout classifiers, connection-level handshake and external-mode purge gating are this patch's additions · compose v1 is a prescription, not a fallback · port assignment on the managed setup path (bare no-flag setup included)) · native L0 spike reworded (four spec pass criteria remain open, planned at v1.31.0 G2) · doctor count corrected to 23 · [full changelog](docs/HISTORY.md)
 > v1.30.0 · install-journey — `flint setup` ships the engine compose definition inside the binary (project name `flint` · digest-pinned image with a 4-way equivalence guard — no repository checkout; the first run pulls, starts and finishes ping + migrate in one go, with per-cause error prescriptions) · `--port` auto-assignment probes upward from 5434 (5499 reserved) · engine handshake verifies Doltgres and the pin · `--engine-url` external engine mode (loopback-only, DSN masked) · manual conversion procedure for pre-v1.30.0 installs (RUNBOOK §11) · native-engine L0 spike passed (v1.31.0 go-ahead) · [full changelog](docs/HISTORY.md)
@@ -169,7 +170,7 @@ Detects installed harnesses (Codex, Gemini, OpenCode, Copilot, Cursor, Qwen, Dev
 <details>
 <summary>What <code>flint setup</code> does</summary>
 
-Writes the embedded compose file (project name `flint`, Doltgres image pinned by digest — ADR-0020) to a temp path and starts the engine with `--project-name flint`, then migrates the schema and prints next steps — all in one run, from any directory. Host port defaults to 5434; `--port N` runs the managed path — an existing `flint`-project install is adopted, and when the requested port is taken setup probes upward for a free loopback port (5499 excluded — reserved for the dedicated test engine) and records the assignment in `config.json`. Default DSN is `postgresql://flint:flint-dev@localhost:5434/flint` — override with `FLINT_DSN`. Already run your own Doltgres? `flint setup --engine-url` records it (loopback-only; DSN via `FLINT_ENGINE_URL` or `--engine-url-file`, inline values rejected, output masked). Tear down with `flint teardown`.
+Writes the embedded compose file (project name `flint`, Doltgres image pinned by digest — ADR-0020) to a temp path and starts the engine with `--project-name flint`, then migrates the schema — all in one run, from any directory. The managed run closes with a one-line JSON status on stdout (`{"status":"ok","mode":"managed","port":N}` — progress notes go to stderr). Host port defaults to 5434; the managed path runs for `--port N` and equally for a bare first install (no recorded DSN) — an existing `flint`-project install is adopted, and when the requested port is taken setup probes upward for a free loopback port (5499 excluded — reserved for the dedicated test engine) and records the assignment in `config.json`. Default DSN is `postgresql://flint:flint-dev@localhost:5434/flint` — override with `FLINT_DSN`. Already run your own Doltgres? `flint setup --engine-url` records it (loopback-only; DSN via `FLINT_ENGINE_URL` or `--engine-url-file`, inline values rejected, output masked). Tear down with `flint teardown`.
 
 </details>
 
@@ -243,7 +244,8 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 
 | Command | What it does |
 | :--- | :--- |
-| `flint setup` | Start Doltgres (embedded compose, digest-pinned), migrate, print seed/plugin next steps — `--port N` · `--engine-url` (external engine, loopback-only) |
+| `flint setup` | Start Doltgres (embedded compose, digest-pinned), migrate, print seed/plugin next steps — `--port N` · `--engine managed-container\|native\|external` (mode selection; native downloads the pinned engine, registers the platform service and bootstraps credentials) · `--engine-url` (external engine, loopback-only) |
+| `flint engine` | Service control for the recorded engine mode — `status` · `start` · `stop` (mode × command matrix: managed-container drives the embedded compose, native drives the registered service, external advises only; undefined pairs are rejected with guidance) |
 | `flint seed --demo` | Load the embedded synthetic demo dataset into an isolated demo database (database name + `_demo`, `FLINT_DEMO_DSN` override; idempotent; `--reset --yes` deletes only `demo/` rows — mismatched owner exits 3) |
 | `flint update` | Self-update to the latest release (checksum-verified, `--check` dry-run) |
 | `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`; autotune surfaces `auto off\|shadow` · `what-if` · `status`); bare invocation on a TTY opens the interactive form (subcommands, flags, non-TTY and FLINT_NO_TUI keep the flag mode; `--tui` forces it) |
@@ -282,7 +284,7 @@ Memory that decays like memory: every `read` hit reinforces the entry (`recall_s
 
 ### Interactive TUI (v1.5.0)
 
-Four screens built on bubbletea: `flint setup` (no arguments) opens the setup wizard, and `pending`, `export`, and `report` become interactive review, preview, and diagnostics views. Interactive by default in a terminal — a bare invocation opens the TUI (since v1.5.2). Piped/non-terminal runs and any flag keep the existing output untouched — same JSON on stdout. `flint maintain --tui` (v1.6.0) adds an opt-in curation screen: suspect lists → a what-survives merge preview → merge/keep/invalidate, delegating to the existing subcommands.
+Four screens built on bubbletea: `flint setup` (no arguments, on an already-configured machine) opens the setup wizard — a bare first run with no recorded DSN takes the managed engine path instead (port assignment · engine start · migrate, closing with a one-line JSON status), and `pending`, `export`, and `report` become interactive review, preview, and diagnostics views. Interactive by default in a terminal — a bare invocation opens the TUI (since v1.5.2). Piped/non-terminal runs and any flag keep the existing output untouched — same JSON on stdout. `flint maintain --tui` (v1.6.0) adds an opt-in curation screen: suspect lists → a what-survives merge preview → merge/keep/invalidate, delegating to the existing subcommands.
 
 Operations: [docs/RUNBOOK.md](docs/RUNBOOK.md) · Tuning: [docs/TUNING.md](docs/TUNING.md) · Metrics: [docs/METRICS.md](docs/METRICS.md) · Performance: [docs/PERF.md](docs/PERF.md) · Docs index: [docs/README.md](docs/README.md)
 

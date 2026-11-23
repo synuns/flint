@@ -79,7 +79,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		default:
 
 			if strings.HasPrefix(a, "-") {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.brief"), a)))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.brief"), wire.MaskToken(a))))
 				return 3
 			}
 			pos = append(pos, a)

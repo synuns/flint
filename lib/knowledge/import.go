@@ -173,7 +173,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			commit = true
 		} else if strings.HasPrefix(a, "-") {
 
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.import"), a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.import"), wire.MaskToken(a))))
 			return 3
 		} else {
 			pos = append(pos, a)

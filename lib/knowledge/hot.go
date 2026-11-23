@@ -360,7 +360,7 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		}
 
 		if strings.HasPrefix(args[i], "-") {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.hot"), args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.hot"), wire.MaskToken(args[i]))))
 			return 3
 		}
 	}

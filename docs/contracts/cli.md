@@ -66,8 +66,9 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   (exit 1) and `setup` migration (the promotion-gate registry).
 
 - store-free fast path: `version` · `teardown` · `mcp` · `update` · `help`
-  respond immediately without starting the DB. `setup` treats a down DB as
-  its main scenario and only proceeds storeless when the connection fails.
+  · `engine` respond immediately without starting the DB. `setup` treats a
+  down DB as its main scenario and only proceeds storeless when the
+  connection fails.
 - `setup` engine surface (v1.30.0): the compose definition is embedded in
   the binary (project name `flint`, engine image pinned by digest —
   ADR-0020) and staged to a temp file under the config dir, so `flint
@@ -88,6 +89,19 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   compose project already holding the engine stops setup with a warning
   (manual conversion — RUNBOOK §11); it is never migrated or recreated
   automatically.
+- engine modes are opt-in (v1.31.0 — ADR-0021): `setup --engine
+  managed-container|native|external` records `engine.mode` in `config.json`
+  (idempotent; any other value exits 3). The native mode downloads the
+  pinned engine binary (hash + `-version` verified, atomic swap under
+  `engine/<version>/` with a `current` symlink), registers a platform
+  service (macOS launchd · Linux systemd user, no secrets in the unit) and
+  bootstraps credentials so the ADR-0010 default DSN connects — the mode is
+  recorded only after that re-connect succeeds. `flint engine
+  status|start|stop` operates on the recorded mode (managed-container
+  drives the embedded compose · native drives the registered service ·
+  external advises only; undefined pairs such as external start are
+  rejected with guidance). `engine status` separates registered · running
+  · version.
 - DB-down precedes argument validation (v1.5.5, one-line priority): for
   every store-connected command the store connection is attempted before
   the handler parses arguments, so a down DB surfaces first

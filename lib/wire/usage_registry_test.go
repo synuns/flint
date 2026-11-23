@@ -13,7 +13,7 @@ var seedCommands = []string{
 	"sync",
 	"approve", "pending", "maintain", "doctor", "report", "export",
 	"distill",
-	"done", "compact", "nudge", "seed", "setup", "teardown", "version", "mcp",
+	"done", "compact", "nudge", "seed", "engine", "setup", "teardown", "version", "mcp",
 	"index",
 	"audit", "diff", "update", "tuning", "import",
 	"session-start", "session-end",

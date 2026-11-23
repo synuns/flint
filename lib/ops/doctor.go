@@ -19,6 +19,7 @@ import (
 	"sort"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/engine"
 	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/render"
@@ -37,6 +38,7 @@ var (
 	FetchRegistryVersionFn func() (string, error)
 
 	RegistryCacheInfoFn func() (string, string)
+	EngineModeFn        func() (string, error)
 
 	KnownMetaKeyFn func(k string) bool
 
@@ -92,6 +94,8 @@ func doctorChecks() []CheckSpec {
 		{Name: "stray_dbs", Chain: "tail", OnStoreNil: "", ThFn: checkStrayDBsTh},
 
 		{Name: "engine-footprint", Chain: "tail", OnStoreNil: "", Fn: checkEngineFootprint},
+
+		{Name: "engine", Chain: "tail", OnStoreNil: "", Fn: checkEngine},
 
 		{Name: "versions", Chain: "tail", OnStoreNil: "", ThFn: checkVersionsTh},
 	}
@@ -1163,6 +1167,13 @@ func checkPort(ctx context.Context) DoctorCheck {
 		}
 	}
 
+	if EngineModeFn != nil {
+		if mode, merr := EngineModeFn(); merr == nil && mode == "native" {
+			c.Status = "skip"
+			c.Detail = "native engine mode — container port check not applicable"
+			return c
+		}
+	}
 	c.Status = "fail"
 	c.Detail = fmt.Sprintf("no flint-managed container (label %s=flint) publishes %d — unknown", flintProjectLabel, port)
 	c.Fix = "fix: flint setup (starts the pinned embedded-compose engine)"
@@ -1558,6 +1569,20 @@ func engineVersionPart(ctx context.Context, st wire.Store) (part string, warn st
 
 func checkEngineFootprint(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "engine-footprint"}
+	if engine.CurrentMode() == engine.ModeNative {
+		mb, ok, err := NativeEngineRSSFn(ctx)
+		if !ok {
+			c.Status = "skip"
+			c.Detail = "native rss unavailable — check skipped"
+			if err != nil {
+				c.Detail = "engine-footprint skipped — " + err.Error()
+			}
+			return c
+		}
+		c.Status = "ok"
+		c.Detail = fmt.Sprintf("engine working set %dMB (native)", mb)
+		return c
+	}
 	mb, ok, err := EngineMemMB(ctx)
 	if !ok {
 		c.Status = "skip"
@@ -1572,6 +1597,92 @@ func checkEngineFootprint(ctx context.Context, st wire.Store) DoctorCheck {
 	if restarts, rerr := RestartCountFn(); rerr == nil {
 		c.Detail += fmt.Sprintf(" · restarts %d", restarts)
 	}
+	return c
+}
+
+var EngineStatusFn = defaultEngineStatus
+
+func defaultEngineStatus() (engine.ServiceStatus, error) {
+	s, err := engine.Status()
+	if errors.Is(err, engine.ErrNotWired) && engine.CurrentMode() == engine.ModeNative {
+		engine.SetNativeService(engine.NewNativeService())
+		s, err = engine.Status()
+	}
+	return s, err
+}
+
+var NativeEngineRSSFn = defaultNativeEngineRSS
+
+func defaultNativeEngineRSS(ctx context.Context) (int, bool, error) {
+	if engine.CurrentMode() != engine.ModeNative {
+		return 0, false, nil
+	}
+	tctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(tctx, "ps", "-eo", "rss=,comm=").Output()
+	if err != nil {
+		return 0, false, err
+	}
+	best := 0
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(strings.TrimSpace(line))
+		if len(fields) < 2 {
+			continue
+		}
+		name := filepath.Base(fields[len(fields)-1])
+		if name != "doltgres" && !strings.Contains(name, "doltgres") {
+			continue
+		}
+		if kb, aerr := strconv.Atoi(fields[0]); aerr == nil && kb > best {
+			best = kb
+		}
+	}
+	if best == 0 {
+		return 0, false, nil
+	}
+	return best / 1024, true, nil
+}
+
+func checkEngine(ctx context.Context, st wire.Store) DoctorCheck {
+	c := DoctorCheck{Name: "engine"}
+	mode := engine.CurrentMode()
+	if mode != engine.ModeNative {
+		c.Status = "skip"
+		c.Detail = "native mode only — current mode " + mode
+		return c
+	}
+	if EngineStatusFn == nil {
+		c.Status = "skip"
+		c.Detail = "engine status unwired — check skipped"
+		return c
+	}
+	s, err := EngineStatusFn()
+	if err != nil {
+		c.Status = "fail"
+		c.Detail = "engine status unavailable: " + err.Error()
+		c.Fix = "fix: flint setup --engine native"
+		return c
+	}
+	if !s.Registered {
+		c.Status = "fail"
+		c.Detail = "native engine service not registered"
+		c.Fix = "fix: flint setup --engine native (registers the service manager entry)"
+		return c
+	}
+	if !s.Running {
+		c.Status = "fail"
+		c.Detail = "native engine registered but not running"
+		c.Fix = "fix: flint engine start"
+		return c
+	}
+	if s.Version != engine.NativePinVersion {
+		c.Status = "fail"
+		c.Detail = fmt.Sprintf("native engine %s differs from pinned %s", s.Version, engine.NativePinVersion)
+		c.Fix = "fix: flint setup --engine native (updates the engine to the pinned version)"
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("native engine %s (pinned %s) registered and running", s.Version, engine.NativePinVersion)
 	return c
 }
 

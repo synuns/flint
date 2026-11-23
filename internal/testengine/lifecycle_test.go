@@ -63,6 +63,7 @@ func captureOutput(t *testing.T, target **os.File, fn func()) string {
 }
 
 func TestEnsureEngineConcurrentSingleComposeUp(t *testing.T) {
+	withDSNUnreachable(t)
 	resetLifecycle(t)
 	unset(t, "FLINT_TEST_DSN")
 	var calls int32
@@ -91,6 +92,7 @@ func TestEnsureEngineConcurrentSingleComposeUp(t *testing.T) {
 }
 
 func TestEnsureEngineAlreadyStartedSkipsCompose(t *testing.T) {
+	withDSNUnreachable(t)
 	resetLifecycle(t)
 	var calls int32
 	fakeSeams(t, func() error {
@@ -109,6 +111,7 @@ func TestEnsureEngineAlreadyStartedSkipsCompose(t *testing.T) {
 }
 
 func TestEnsureEngineFailureLocalWarnsAndErrors(t *testing.T) {
+	withDSNUnreachable(t)
 	resetLifecycle(t)
 	unset(t, "FLINT_TEST_DSN")
 	fakeSeams(t, func() error { return fmt.Errorf("compose 부재") }, nil, nil)
@@ -123,6 +126,7 @@ func TestEnsureEngineFailureLocalWarnsAndErrors(t *testing.T) {
 }
 
 func TestEnsureEngineFailureCIRequiredNoWarning(t *testing.T) {
+	withDSNUnreachable(t)
 	resetLifecycle(t)
 	t.Setenv("FLINT_REALDB_REQUIRED", "1")
 	fakeSeams(t, func() error { return fmt.Errorf("compose 부재") }, nil, nil)
@@ -262,4 +266,11 @@ func TestLifecycleRealSlow(t *testing.T) {
 		scratch.Close(ctx)
 		t.Fatalf("정리 후 스크래치 DB 접속됨: %s", name)
 	}
+}
+
+func withDSNUnreachable(t *testing.T) {
+	t.Helper()
+	prev := dsnReachableFn
+	dsnReachableFn = func(ctx context.Context) bool { return false }
+	t.Cleanup(func() { dsnReachableFn = prev })
 }

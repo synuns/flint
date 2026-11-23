@@ -19,7 +19,7 @@ func TestLookupDiff(t *testing.T) {
 }
 
 func TestUsageRestInvariant(t *testing.T) {
-	want := `{"usage":"flint <write|read|hot|brief|status|backup|restore|sync|approve|pending|maintain|doctor|report|done|compact|nudge|setup|teardown|version|mcp|audit> [args]"}`
+	want := `{"usage":"flint <write|read|hot|brief|status|backup|restore|sync|approve|pending|maintain|doctor|report|done|compact|nudge|engine|setup|teardown|version|mcp|audit> [args]"}`
 	got := strings.Replace(usageLine(), "|profile", "", 1)
 	got = strings.Replace(got, "|export", "", 1)
 	got = strings.Replace(got, "|index", "", 1)
