@@ -413,6 +413,46 @@ func TestUpdateCacheETagRoundTrip(t *testing.T) {
 	}
 }
 
+// TestFetchLatestVersionRefreshesCache — v1.26.1: an explicit check
+// (`flint update [--check]`, doctor --check update) refreshes the update-check
+// cache — latest, ETag, and checked_at=now — so the doctor Fix guidance
+// "flint doctor --check update (refresh the version cache)" is true. The
+// refreshed cache then satisfies the session-start notice without another
+// network call.
+func TestFetchLatestVersionRefreshesCache(t *testing.T) {
+	withFakeVersion(t, "0.1.0")
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	const etag = `"feedface"`
+	hits := newETagServer(t, "9.9.7", etag)
+	writeUpdateCache(t, updateCache{
+		Latest:    "9.9.6",
+		ETag:      `"stale"`,
+		CheckedAt: time.Now().UTC().Add(-48 * time.Hour).Format(time.RFC3339),
+	})
+	latest, err := fetchLatestVersion()
+	if err != nil {
+		t.Fatalf("fetchLatestVersion: %v", err)
+	}
+	if latest != "9.9.7" {
+		t.Fatalf("latest=%q, want 9.9.7", latest)
+	}
+	after := readUpdateCache(t)
+	if after.Latest != "9.9.7" || after.ETag != etag {
+		t.Errorf("명시적 검사가 캐시를 갱신하지 않음: %+v", after)
+	}
+	checked, err := time.Parse(time.RFC3339, after.CheckedAt)
+	if err != nil || time.Since(checked) > time.Minute {
+		t.Errorf("checked_at 미갱신: %q %v", after.CheckedAt, err)
+	}
+	// the refreshed cache serves the notice path with no further request.
+	if got := maybeUpdateNotice(); !strings.Contains(got, "flint update") {
+		t.Fatalf("갱신된 캐시로 안내 없음: %q", got)
+	}
+	if n := atomic.LoadInt32(hits); n != 1 {
+		t.Errorf("요청 수 = %d, want 1 (캐시 히트)", n)
+	}
+}
+
 // TestMaybeUpdateNoticeContradictionRefetch — a fresh cache whose latest is
 // OLDER than the running version is a contradiction: the cache is ignored and
 // an immediate re-fetch happens (here the server's 9.9.9 yields a notice).

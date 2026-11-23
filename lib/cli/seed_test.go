@@ -96,6 +96,10 @@ func TestDeriveDemoDSN(t *testing.T) {
 		{name: "db명 부재", in: "postgresql://flint:pw@localhost:5434", wantErr: true},
 		{name: "빈 db명", in: "postgresql://flint:pw@localhost:5434/", wantErr: true},
 		{name: "파싱 불가", in: "://<<", wantErr: true},
+		// v1.26.1 — a keyword-form DSN must not be silently mangled into a
+		// garbage URL (url.Parse treats it as a path); it is a derivation
+		// failure routing to the explicit FLINT_DEMO_DSN override.
+		{name: "키워드 형태", in: "host=localhost port=5434 dbname=flint", wantErr: true},
 	}
 	for _, c := range cases {
 		got, err := deriveDemoDSN(c.in)
@@ -126,6 +130,44 @@ func TestSeedDeriveFailExit3(t *testing.T) {
 	}
 	if !strings.Contains(out, "FLINT_DEMO_DSN") {
 		t.Fatalf("FLINT_DEMO_DSN 안내 없음: %s", out)
+	}
+}
+
+// TestSeedKeywordDSNExit3 — a keyword-form FLINT_DSN (pgx accepts
+// "host=... dbname=...") is a derivation failure, not a garbage URL: exit 3
+// with the FLINT_DEMO_DSN guidance (v1.26.1 — the exit-3 contract must not be
+// bypassed into a corrupted-DSN connection error).
+func TestSeedKeywordDSNExit3(t *testing.T) {
+	t.Setenv("FLINT_DEMO_DSN", "")
+	t.Setenv("FLINT_DSN", "host=localhost port=5434 dbname=flint")
+	out, code := runSeedArgs("--demo")
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out)
+	}
+	if !strings.Contains(out, "FLINT_DEMO_DSN") {
+		t.Fatalf("FLINT_DEMO_DSN 안내 없음: %s", out)
+	}
+}
+
+// TestSeedOverrideSkipsEnsure — with an explicit FLINT_DEMO_DSN the
+// ensure-retry never runs: the database is the operator's to create, and
+// creating it on the base server would be a cross-server no-op at best
+// (v1.26.1). The connection error flows to the caller unchanged.
+func TestSeedOverrideSkipsEnsure(t *testing.T) {
+	t.Setenv("FLINT_DEMO_DSN", "postgresql://flint:pw@other-host:5433/other_demo")
+	t.Setenv("FLINT_DSN", "postgresql://flint:pw@localhost:5434/flint")
+	ensures := withSeedEnsureRecorder(t)
+	prev := newStore
+	newStore = func(ctx context.Context, dsn string) (Store, error) {
+		return nil, fmt.Errorf("connection refused")
+	}
+	t.Cleanup(func() { newStore = prev })
+	out, code := runSeedArgs("--demo")
+	if code == 0 {
+		t.Fatalf("연결 실패가 exit 0으로 소실: out=%s", out)
+	}
+	if len(*ensures) != 0 {
+		t.Fatalf("오버라이드 DSN에서 ensure 실행됨(해서는 안 됨): %v", *ensures)
 	}
 }
 

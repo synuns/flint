@@ -160,13 +160,25 @@ type releaseMeta struct {
 //go:embed cosign.pub
 var releasePubPEM []byte
 
-// fetchLatestVersion — looks up the latest tag (v prefix stripped). Cache refresh is the caller's job.
+// fetchLatestVersion — looks up the latest tag (v prefix stripped) and refreshes
+// the update-check cache (v1.26.1). An explicit check — `flint update [--check]`
+// and doctor's `--check update` — is a real refresh point, so the doctor Fix
+// guidance "flint doctor --check update (refresh the version cache)" does what
+// it says; session start stays the other writer. A failed fetch leaves the
+// cache untouched (retry next writer).
 func fetchLatestVersion() (string, error) {
-	meta, err := fetchReleaseMeta()
+	meta, etag, err := fetchReleaseMetaETag("")
 	if err != nil {
 		return "", err
 	}
-	return strings.TrimPrefix(meta.TagName, "v"), nil
+	latest := strings.TrimPrefix(meta.TagName, "v")
+	if path := updateCacheFile(); path != "" {
+		c := updateCache{Latest: latest, ETag: etag, CheckedAt: time.Now().UTC().Format(time.RFC3339)}
+		if b, merr := json.Marshal(c); merr == nil {
+			_ = os.WriteFile(path, b, 0o600)
+		}
+	}
+	return latest, nil
 }
 
 // fetchReleaseMeta — releases/latest lookup (official API only, unconditional).
@@ -594,6 +606,22 @@ func updateCacheInfo() (latest, checkedAt string) {
 	var c updateCache
 	if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &c) == nil {
 		return c.Latest, c.CheckedAt
+	}
+	return "", ""
+}
+
+// registryCacheInfo — the cached registry version and its checked_at ("",""
+// when no cache): the offline fallback for the doctor versions display. A
+// failed probe is not evidence (PLAN §4 principle 3), but the cache is —
+// shown with its age so the staleness stays visible (v1.26.1).
+func registryCacheInfo() (version, checkedAt string) {
+	path := registryCacheFile()
+	if path == "" {
+		return "", ""
+	}
+	var c registryCache
+	if b, err := os.ReadFile(path); err == nil && json.Unmarshal(b, &c) == nil {
+		return c.Version, c.CheckedAt
 	}
 	return "", ""
 }

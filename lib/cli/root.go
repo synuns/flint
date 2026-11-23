@@ -96,6 +96,8 @@ func init() {
 	// v1.26.0 T3 — the doctor versions display and the report --text checked_at line.
 	ops.UpdateCacheInfoFn = updateCacheInfo
 	ops.FetchRegistryVersionFn = fetchRegistryVersion
+	// v1.26.1 — the offline fallback display of the same check.
+	ops.RegistryCacheInfoFn = registryCacheInfo
 	ops.PctOfFn = pctOf
 
 	// (3)-3 swap-propagation wrappers — ops observes cli var reassignment (the composePsFn pattern).

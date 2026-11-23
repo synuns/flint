@@ -583,6 +583,11 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01260Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.26.0", "surface-trust",
 	}},
+	// v1.26.1 패치 — 감사 수정: 명시적 검사의 캐시 갱신·키워드 DSN 가드·
+	// registry 오프라인 캐시 표시·42P04 관용·embed_test.go 편입.
+	{name: "TestVersion01261Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.26.1", "surface-trust audit fixes",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},

@@ -1472,6 +1472,30 @@ func TestDoctorVersionsOfflineRegistry(t *testing.T) {
 	}
 }
 
+// TestDoctorVersionsOfflineRegistryCached — v1.26.1: with a fetch failure AND
+// a registry cache, the cached copy is shown with its age ("cached, unverified
+// — offline") — the cache is evidence (with its staleness visible), still not
+// a warn.
+func TestDoctorVersionsOfflineRegistryCached(t *testing.T) {
+	withVersionSeams(t, "1.26.0",
+		func() (string, string) { return "1.26.0", time.Now().UTC().Format(time.RFC3339) },
+		func() (string, error) { return "", errors.New("offline") })
+	prevInfo := RegistryCacheInfoFn
+	RegistryCacheInfoFn = func() (string, string) {
+		return "1.25.0", time.Now().UTC().Add(-5 * time.Hour).Format(time.RFC3339)
+	}
+	t.Cleanup(func() { RegistryCacheInfoFn = prevInfo })
+	c := checkVersionsTh(context.Background(), &fakeStore{}, store.DefaultThresholds())
+	if c.Status != "ok" {
+		t.Fatalf("오프라인(캐시) status=%q, want ok(경고 아님): %+v", c.Status, c)
+	}
+	for _, want := range []string{"registry v1.25.0 (cached, unverified — offline", "5h old"} {
+		if !strings.Contains(c.Detail, want) {
+			t.Errorf("detail=%q, want %q 포함", c.Detail, want)
+		}
+	}
+}
+
 // TestDoctorVersionsStaleCacheWarn — a cache older than update_cache_age_h
 // (default 72h) is a warn; an injected meta override moves the line.
 func TestDoctorVersionsStaleCacheWarn(t *testing.T) {
