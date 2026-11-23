@@ -133,8 +133,9 @@ var thresholdMetas = []ThresholdMeta{
 	{"DbSizeWarnMB", "db_size_warn_mb", 2048, "doctor db_size", ""},
 }
 
-// ThresholdMetas — the registry's deterministic copy (57 entries — the key set
-// identical to the existing ThresholdsKeys, asserted by the guard tests).
+// ThresholdMetas — the registry's deterministic copy (the key set identical
+// to the existing ThresholdsKeys, asserted by the guard tests — the entry
+// count is asserted there, not restated here).
 func ThresholdMetas() []ThresholdMeta {
 	return append([]ThresholdMeta(nil), thresholdMetas...)
 }

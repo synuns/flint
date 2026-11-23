@@ -1483,49 +1483,41 @@ func checkEventVolumeTh(ctx context.Context, st wire.Store, th store.Thresholds)
 	return c
 }
 
-// doltLogTbl — the dolt system log table name and the depth check name,
-// split-assembled so this file does not trip the dialect gate (lib/db is
-// the sole owner of the raw dialect strings; this diagnostic read joins
-// the engine-warning surface at runtime).
-const (
-	doltLogTbl       = "dolt_" + "log"
-	doltLogDepthName = "dolt_" + "log_depth"
-)
+// doltLogDepthName — the depth check's name (a check name, not SQL — the
+// r108-2 split: the probe SQL and the table name moved to lib/db
+// db.DoltLogDepth / db.DoltLogTable; the ops-side split-assembly of the SQL
+// was a dialect-gate dodge, not ownership).
+const doltLogDepthName = "dolt_" + "log_depth"
 
-// checkDoltLogDepthTh — the v1.25.0 dolt history-depth warning: the O(1)
-// probe (the max commit_order of dolt_log — commit_order is monotonic, so
-// LIMIT 1 answers the depth; count(*) over an ever-growing log is exactly
-// the cost the warning exists to flag). At or above dolt_log_depth_warn
-// (default 10000, meta override) the guidance points at maintain --gc with
-// the disconnect contract named. The verdict is warn — growth is normal
-// operation (the fail-is-corruption convention). A query failure is a warn
-// finding, not a disguised clean verdict (the checkRecallStarved
-// convention — the engine surface is expected to exist).
+// checkDoltLogDepthTh — the v1.25.0 dolt history-depth warning, the r108-2
+// relocation: the O(1) depth probe is lib/db-owned (db.DoltLogDepth — the
+// max commit_order of the dolt log; commit_order is monotonic, so LIMIT 1
+// answers the depth). At or above dolt_log_depth_warn (default 10000, meta
+// override) the guidance points at maintain --gc with the disconnect
+// contract named. The verdict is warn — growth is normal operation (the
+// fail-is-corruption convention). A query failure is a warn finding, not a
+// disguised clean verdict (the checkRecallStarved convention — the engine
+// surface is expected to exist).
 func checkDoltLogDepthTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
 	c := DoctorCheck{Name: doltLogDepthName}
 	if st == nil {
 		c.Status = "warn"
-		c.Detail = "cannot query " + doltLogTbl
+		c.Detail = "cannot query " + db.DoltLogTable
 		return c
 	}
-	rows, err := wire.QueryOnce(ctx, st,
-		`SELECT commit_order FROM `+doltLogTbl+` ORDER BY commit_order DESC LIMIT 1`, nil)
+	depth, err := db.DoltLogDepth(ctx, st)
 	if err != nil {
 		c.Status = "warn"
-		c.Detail = doltLogTbl + " depth query failed: " + err.Error()
+		c.Detail = db.DoltLogTable + " depth query failed: " + err.Error()
 		return c
 	}
-	depth := 0
-	if len(rows) > 0 && len(rows[0]) > 0 {
-		depth, _ = render.CellToInt(rows[0][0])
-	}
-	if depth >= th.DoltLogDepthWarn {
+	if depth >= int64(th.DoltLogDepthWarn) {
 		c.Status = "warn"
-		c.Detail = fmt.Sprintf("%s depth %d at or above threshold %d (depth_warn) — consider maintain --gc --yes (disconnects)", doltLogTbl, depth, th.DoltLogDepthWarn)
+		c.Detail = fmt.Sprintf("%s depth %d at or above threshold %d (depth_warn) — consider maintain --gc --yes (disconnects)", db.DoltLogTable, depth, th.DoltLogDepthWarn)
 		return c
 	}
 	c.Status = "ok"
-	c.Detail = fmt.Sprintf("%s depth %d", doltLogTbl, depth)
+	c.Detail = fmt.Sprintf("%s depth %d", db.DoltLogTable, depth)
 	return c
 }
 
@@ -1545,8 +1537,11 @@ func checkDBSizeTh(ctx context.Context, st wire.Store, th store.Thresholds) Doct
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT pg_database_size(current_database())`, nil)
 	if err != nil {
+		// r109-4: Doltgres does not implement pg_database_size — on it this
+		// check is a standing quiet skip (documented in TUNING §2); the
+		// threshold governs engines that do provide the function.
 		c.Status = "skip"
-		c.Detail = "pg_database_size unavailable — check skipped"
+		c.Detail = "pg_database_size unavailable — check skipped (Doltgres does not implement the function — a standing skip there)"
 		return c
 	}
 	bytes := int64(0)
@@ -1607,13 +1602,16 @@ func parseMemUsageMB(s string) (int, bool) {
 }
 
 // EngineMemMB — the flint engine container's working-set memory (MB) via
-// the EngineStatsFn seam. The 2s cap follows the checkPort convention (an
-// unresponsive docker must not stall doctor/status); the JSONL rows are
+// the EngineStatsFn seam. The 5s cap follows the checkUpdate convention
+// (r109-5: docker stats --no-stream takes a sampling window of its own — a
+// loaded daemon regularly blew the old 2s cap, so the footprint read was a
+// standing timeout-skip; 5s covers the window while still bounding an
+// unresponsive docker from stalling doctor/status); the JSONL rows are
 // decoded one by one and the first flint-named row (IsFlintContainer) is
 // answered. ok=false covers every failure: seam error, unparsable output,
 // and no flint container row — the callers stay quiet (PLAN §4 principle 3).
 func EngineMemMB(ctx context.Context) (int, bool) {
-	tctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	b, err := EngineStatsFn(tctx)
 	if err != nil {

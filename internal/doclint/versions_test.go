@@ -569,6 +569,13 @@ var versionDocContracts = []struct {
 	{name: "TestVersion01250Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.25.0", "engine-ops",
 	}},
+	// v1.25.1 패치 계약행 — r108-r109: gc-pending JSON 마감·dolt_log_depth
+	// 프로브 SQL lib/db 이전(방언 소유 확정)·깊이 프로브 numeric 수정
+	// (commit_order::int8 + CellToInt pgtype.Numeric)·db_size 안내 정정·
+	// footprint 타임아웃 5s·단독 --shallow 문구·주석 계수.
+	{name: "TestVersion01251Milestone", doc: "HISTORY.md", wants: []string{
+		"v1.25.1", "r108", "r109-1",
+	}},
 	{name: "TestVersion0170Milestone", doc: "HISTORY.md", wants: []string{
 		"v1.7.0", "sync",
 	}},
