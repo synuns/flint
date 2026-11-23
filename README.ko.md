@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.24.1-blue" alt="v1.24.1">
+  <img src="https://img.shields.io/badge/release-v1.24.2-blue" alt="v1.24.2">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.24.2 · r106 패치 — race-recheck echo 커버리지(레이스 재확인 중복의 echo 적립 fake 회귀 추가)·quiet-failure 회귀(`echo_candidates` INSERT 실패가 write를 실패시키지 않음)·echo 스캔 주석(pending 행의 기존 후보 포함 서술) · [전체 변경 이력](docs/HISTORY.md)
 > v1.24.1 · r104-r105 패치 — `echo_candidates` 적립 회로 연결(write 시점 echo 후보 저장: 신규 행 id, 중복 재전송은 기존 행 기준)·merge-audit active 한정 페치(pending 배제)·`--merge`의 D4 처분 카운터 계상·int4 입력 가드(`--recall-audit --limit`·`read --related`) · [전체 변경 이력](docs/HISTORY.md)
 > v1.24.0 · 지식 관리 잔여 — 스키마 v19(`kind`·`source_path`·`echo_candidates`)·`maintain --merge-audit`(중복 쌍 보고, 비용 추정 동반)·`--recall-audit`(나쁜 회상 환류 보고)·`read --related`(무방향 이웃 링크)/`--why`(토큰 tier·RRF 신호·제로히트 근거) · [전체 변경 이력](docs/HISTORY.md)
 > v1.23.2 · r102 패치 — 카운터 자릿수 상한(shadow 카운터 업서트 18자리 가드)·v1.23.0 스펙 정렬(경계 발화·미옵 비용)·what-if p50/p90 도메인 필터 · [전체 변경 이력](docs/HISTORY.md)

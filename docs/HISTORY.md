@@ -6,6 +6,28 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.24.2 patch (2026-11-23) — r106: race-recheck echo coverage · quiet-failure regression · echo scan comment
+
+The v1.24.1 audit follow-up (R106) — 3 low findings, no behavior
+change (tests · comment only; schema v19 stands):
+
+- **race-recheck echo coverage (r106-1)**: the r104 race-recheck echo
+  accrual (`dupEcho = echoCands` — the race branch carrying the
+  scan-computed candidates onto the concurrently inserted row,
+  `DupMeta.ID`) had no fake-store regression. The race test family now
+  asserts exactly one `echo_candidates` INSERT fires on the
+  race-recheck duplicate path.
+- **quiet-failure regression (r106-2)**: an `echo_candidates` INSERT
+  failure is quiet §13 (metering-class, never a write result) — a new
+  fake-store regression pins exit 0, the committed response shape (the
+  echo field included), and the knowledge commit surviving the
+  persistence failure.
+- **echo scan comment (r106-3)**: the EchoScan doc claimed "the active
+  knowledge"; the fetch is `invalid_at IS NULL`, so pending rows may
+  appear as candidates (pre-existing since v1.17.0). The comment now
+  states the real scan basis and notes merge-audit applies the strict
+  active filter. Behavior unchanged.
+
 ### v1.24.1 patch (2026-11-23) — r104-r105: echo candidate accrual · merge-audit active-only · d4 merge path · int4 input guards
 
 The v1.24.0 audit (R104·R105) fixes — 6 findings, no schema change

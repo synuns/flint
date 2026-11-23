@@ -1907,6 +1907,98 @@ func TestWriteEchoCandsZeroWhenNoEchoV1241(t *testing.T) {
 	}
 }
 
+// ── v1.24.2 (r106) — the race-recheck echo accrual coverage (the r104
+// dupEcho=echoCands path) and the §13 quiet-failure guard of the echo
+// persistence. All synthetic demo data. ──
+
+// raceEchoStore — the single-line race fake whose recheck answers one
+// concurrently inserted row with metadata (DupMeta id 42): the pre-check
+// passes, the first InsertBatch rolls back ErrDuplicate, the recheck
+// finds the row (the race-recheck point — lookupHash prefers the
+// DupMetaStore seam).
+type raceEchoStore struct {
+	*raceDupStore
+}
+
+func (r *raceEchoStore) DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error) {
+	if r.insertCalls == 0 {
+		return DupMeta{}, false, nil // pre-check: the row is still new
+	}
+	return DupMeta{ID: 42, Topic: echoWTestTopic, State: "active"}, true, nil // recheck: concurrently inserted
+}
+
+// TestWriteRaceRecheckEchoAccruedV1242 — the race-recheck duplicate also
+// accrues its echo candidates: the single-line write's scan (computed
+// while the row was still new) persists exactly one echo_candidates row
+// keyed by the concurrently inserted row (DupMeta.ID=42 — the
+// dupEcho=echoCands carry of the race branch), and the duplicate
+// response keeps its shape (no echo field).
+func TestWriteRaceRecheckEchoAccruedV1242(t *testing.T) {
+	f := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
+	rs := &raceEchoStore{raceDupStore: &raceDupStore{fakeStore: f, racedDups: 1}}
+	m, _ := runWriteEcho(t, rs, echoWTestTopic, echoWDupSummary, 0.9)
+	if m["status"] != "duplicate" {
+		t.Fatalf("출력=%v, want duplicate(재확인 전부 존재)", m)
+	}
+	if _, ok := m["echo"]; ok {
+		t.Errorf("중복 응답에 echo 부재해야 함(적립은 응답 불변): %v", m)
+	}
+	if len(f.inserted) != 0 {
+		t.Fatalf("레이스 재확인 전부 존재에 삽입 발생: %d건", len(f.inserted))
+	}
+	calls := echoInsertCalls(f)
+	if len(calls) != 1 {
+		t.Fatalf("echo_candidates INSERT %d회, want 1(dupEcho=echoCands 적립): %+v", len(calls), calls)
+	}
+	c := calls[0]
+	if len(c.Args) != 4 {
+		t.Fatalf("인자 %d개, want 4(후보 1건×4열): %v", len(c.Args), c.Args)
+	}
+	if got, _ := c.Args[0].(int); got != 7 {
+		t.Errorf("candidate_id=%v, want 7(근접 행)", c.Args[0])
+	}
+	if got, _ := c.Args[1].(int); got != 42 {
+		t.Errorf("echo_id=%v, want 42(동시 삽입 행 DupMeta.ID)", c.Args[1])
+	}
+	if rel, _ := c.Args[2].(string); rel != "duplicates" {
+		t.Errorf("relation=%q, want duplicates", rel)
+	}
+}
+
+// TestWriteEchoPersistFailureQuietV1242 — an echo_candidates INSERT
+// failure is quiet §13 (metering-class, never a write result): exit 0,
+// the committed response keeps its shape — the echo field included — and
+// the knowledge commit still lands (a lost echo row beats a failed
+// write).
+func TestWriteEchoPersistFailureQuietV1242(t *testing.T) {
+	st := &fakeStore{
+		rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}},
+		queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "INSERT INTO echo_candidates") {
+				return nil, errors.New("합성 echo 적립 실패")
+			}
+			return [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}, nil
+		},
+	}
+	m, code := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(§13 quiet)", code)
+	}
+	if m["status"] != "committed" {
+		t.Fatalf("status=%v, want committed", m["status"])
+	}
+	echo, ok := m["echo"].([]any)
+	if !ok || len(echo) != 1 {
+		t.Fatalf("echo 필드=%v, want 1건(응답 불변)", m["echo"])
+	}
+	if len(st.commits) != 1 {
+		t.Fatalf("커밋=%d회, want 1(적립 실패가 커밋에 영향 없음)", len(st.commits))
+	}
+	if calls := echoInsertCalls(st); len(calls) != 1 {
+		t.Fatalf("echo_candidates INSERT %d회, want 1(시도는 발화 — quiet는 결과만): %+v", len(calls), calls)
+	}
+}
+
 // ── v1.20.0 T5 — the optional stdin relations array (schema v14
 // knowledge_links): vocabulary validation (exit 3), shape validation
 // (exit 3), target-row-existence refusal (exit 3), idempotent accrual,
