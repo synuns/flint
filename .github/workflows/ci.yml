@@ -179,8 +179,6 @@ jobs:
     permissions:
       contents: read
     env:
-      FLINT_CONFIG_DIR: ${{ runner.temp }}/flint-config
-      FLINT_HOME: ${{ runner.temp }}/flint-home
       FLINT_DSN: postgresql://flint:pw@127.0.0.1:5434/flint
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -195,6 +193,9 @@ jobs:
       - name: flint 빌드
         run: go build -o bin/flint ./cmd/flint
       - name: 네이티브 설치 (setup --engine native)
+        env:
+          FLINT_CONFIG_DIR: ${{ runner.temp }}/flint-config
+          FLINT_HOME: ${{ runner.temp }}/flint-home
         run: |
           mkdir -p "$FLINT_CONFIG_DIR" "$FLINT_HOME"
           ./bin/flint setup --engine native
