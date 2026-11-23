@@ -13,6 +13,8 @@
 | `archive/2026-11/2026-11-23-flint-v1260.spec.md` | done | v1.26.0 표면 신뢰 스펙 — 리서치(v126-research) 권안 채택 | 플랜과 함께 G2 리뷰·종결 | 2026-11-23 |
 | `archive/2026-11/2026-11-23-flint-v1263.md` | done | v1.26.3 주석 금지 게이트 — commentlint·csweep·scripts 정리 | G2 APPROVED·v1.26.3 발행·R115 결함 0 종결(2026-11-23) | 2026-11-23 |
 | `archive/2026-11/2026-11-23-flint-v1263.spec.md` | done | v1.26.3 스펙 — R1~R4(git 추적 전수·doclint 패턴·역할 분리) | 플랜과 함께 G2 승인·종결 | 2026-11-23 |
+| `2026-11-23-flint-v1290.md` | active | v1.29.0 격리·점유 — testengine 물리 격리·purge-dropped·doctor 2종·메모리 스파이크 | G2 APPROVED — 빌드 대기 | 2026-11-23 |
+| `2026-11-23-flint-v1290.spec.md` | active | v1.29.0 스펙 — stray_dbs_allow 면제·Doltgres 제약·수렴 셈법 | 2차 리뷰 승인 | 2026-11-23 |
 | `2026-11-19-flint-knowledge-pipelines.md` | active | 지식 관리 계열 로드맵 — K원칙·교정 채널·변동성 계층·만남 판정·관측·자율 튜닝(§12·ADR-0017) | §12 편성 확정 — 계측 v1.19.0·자율 shadow v1.23.0·잔여 v1.24.0·적용 v1.25.0(스코프 문서 §2 — 2026-11-23 교환) — 병합·환류는 계측 동반 분해 | 2026-11-21 |
 | `2026-11-21-flint-vault-bridge.md` | active | 볼트 브리지 — 옵시디언 스냅숏-디프 인덱싱·포인터 저장(원문 비복사)·인사이트 증류 출력(ADR-0018) | v1.21.0(M1 색인·M2 read 통합)·v1.22.0(M3 낡음·M4 distill) 편성 확정 | 2026-11-21 |
 | `2026-11-21-flint-engine-ops.md` | active | 엔진 운영 — maintain --gc(접속 단절 계약)·doctor 경고 2종(로그 깊이·db 크기)·컨테이너 footprint 표시·버전업 절차 | v1.25.0 편성 확정(2026-11-23 재교환) — M1 GC·경고 구현 완료 | 2026-11-23 |
