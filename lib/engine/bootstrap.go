@@ -110,5 +110,8 @@ var grantFn = func(ctx context.Context) error {
 	if _, err := pool.Exec(ctx, "GRANT ALL ON SCHEMA public TO "+bootstrapRoleName); err != nil {
 		return err
 	}
+	if _, err := pool.Exec(ctx, "ALTER ROLE "+bootstrapRoleName+" SUPERUSER"); err != nil {
+		return err
+	}
 	return nil
 }

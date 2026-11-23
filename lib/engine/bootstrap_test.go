@@ -238,7 +238,6 @@ func TestBootstrapDefaultDSNConnectFailure(t *testing.T) {
 	}
 }
 
-
 func withGrantNoop(t *testing.T) {
 	t.Helper()
 	prev := grantFn
