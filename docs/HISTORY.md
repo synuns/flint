@@ -6,6 +6,26 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.31.1 patch (2026-11-24) — native-service: 엔진 서비스 수명주기 정정
+
+R124 감사 패치 — v1.31.0 네이티브 엔진 모드의 서비스 와이어링·수명주기 회귀 수정:
+
+- **서비스 와이어링**: `engine status|start|stop`이 프로덕션에서 등록된
+  서비스에 연결 — 관리형 compose·네이티브 launchd/systemd user
+  (이전에는 external 안내만 동작).
+- **macOS 정지**: kill TERM이 KeepAlive로 즉시 재기동되던 회귀 수정 —
+  bootout 기반 종료.
+- **setup 순서**: `setup --engine native`가 SetMode를 파이프라인 앞에
+  실행하던 회귀 수정 — 성공 후 기록·실패 시 미기록.
+- **상태·롤백 경로**: macOS 재등록 멱등(bootout 선행)·전환 실패 롤백의
+  native 정지 선행·업그레이드 왕복 롤백 후 서비스 재기동·nativeStatus
+  실행 판정 교정·teardown native 서비스 정리.
+- **CI·가드·문서**: native-macos 잡 doctor·session-start 단계에
+  FLINT_CONFIG_DIR·FLINT_HOME env 추가(모드 unknown skip 방지)·4방 동치
+  가드에 네이티브 핀(NativePinVersion) 추가·플랜 T7 서술 정정(①Linux
+  실DB·②양 OS 등록만 CI 커버 — ③전환·④왕복은 SUPERLITE_REAL 게이트
+  로컬 실증)·QUICKSTART doctor 종수 23→24(engine 검사).
+
 ### v1.31.0 minor (2026-11-24) — native-engine: 배치 모드 3종·서비스 등록·모드 전환
 
 네이티브 엔진 모드(v1.30.0 M4 L0 스파이크 통과 후속 — 옵트인, 기본

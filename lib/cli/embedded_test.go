@@ -6,6 +6,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/synuns/flint/lib/engine"
 )
 
 func extractImageLine(t *testing.T, text string) string {
@@ -38,7 +40,8 @@ func TestPinnedImageLiteral(t *testing.T) {
 
 func TestPinEquivalenceFourWays(t *testing.T) {
 	pin := PinnedImage()
-	ci := extractImageLine(t, readRepoFile(t, filepath.Join(".github", "workflows", "ci.yml")))
+	ciText := readRepoFile(t, filepath.Join(".github", "workflows", "ci.yml"))
+	ci := extractImageLine(t, ciText)
 	testCompose := extractImageLine(t, readRepoFile(t, "docker-compose.test.yml"))
 	embedded := extractImageLine(t, EmbeddedCompose())
 	if ci != pin {
@@ -49,6 +52,19 @@ func TestPinEquivalenceFourWays(t *testing.T) {
 	}
 	if embedded != pin {
 		t.Fatalf("내장 compose 이미지=%q, want PinnedImage()=%q", embedded, pin)
+	}
+}
+
+func TestNativePinEquivalenceCI(t *testing.T) {
+	ver := engine.NativePinVersion
+	for _, want := range []string{
+		"download/v" + ver + "/doltgresql-linux-amd64.tar.gz",
+		"native-engine-linux-amd64-" + ver,
+		"native-engine-macos-arm64-" + ver,
+	} {
+		if !strings.Contains(readRepoFile(t, filepath.Join(".github", "workflows", "ci.yml")), want) {
+			t.Fatalf("ci.yml 네이티브 핀 드리프트: %q 없음 (NativePinVersion=%s)", want, ver)
+		}
 	}
 }
 

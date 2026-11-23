@@ -1,11 +1,14 @@
 package cli
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -104,6 +107,98 @@ func init() {
 	ops.RestoreFn = func(ctx context.Context, dsn string, r io.Reader) error { return restoreFn(ctx, dsn, r) }
 	ops.RotateFn = func(dir string, keep int) ([]string, error) { return rotateFn(dir, keep) }
 	ops.KeepFn = func(getKV func(string) (string, error)) int { return keepFn(getKV) }
+
+	wireEngineServices()
+}
+
+type containerPsEntry struct {
+	Name   string `json:"Name"`
+	Names  string `json:"Names"`
+	State  string `json:"State"`
+	Image  string `json:"Image"`
+	Labels string `json:"Labels"`
+}
+
+func containerEntryProject(labels string) string {
+	for _, kv := range strings.Split(labels, ",") {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.TrimSpace(k) == "com.docker.compose.project" {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
+}
+
+func parseContainerStatuses(b []byte) []containerPsEntry {
+	trimmed := bytes.TrimSpace(b)
+	if len(trimmed) == 0 {
+		return nil
+	}
+	if trimmed[0] == '[' {
+		var arr []containerPsEntry
+		if err := json.Unmarshal(trimmed, &arr); err != nil {
+			return nil
+		}
+		return arr
+	}
+	var out []containerPsEntry
+	for _, line := range strings.Split(string(trimmed), "\n") {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			continue
+		}
+		var e containerPsEntry
+		if err := json.Unmarshal([]byte(line), &e); err == nil {
+			out = append(out, e)
+		}
+	}
+	return out
+}
+
+func containerEngineStatus() (engine.ServiceStatus, error) {
+	st := engine.ServiceStatus{Mode: engine.ModeManagedContainer}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	b, err := composePsFn(ctx)
+	if err != nil {
+		return st, fmt.Errorf("engine: container status unavailable: %w", err)
+	}
+	for _, e := range parseContainerStatuses(b) {
+		if containerEntryProject(e.Labels) != "flint" {
+			continue
+		}
+		st.Registered = true
+		st.Running = strings.EqualFold(e.State, "running")
+		st.Version = e.Image
+		name := e.Name
+		if name == "" {
+			name = e.Names
+		}
+		st.Detail = fmt.Sprintf("%s (image %s)", name, e.Image)
+		return st, nil
+	}
+	st.Detail = "no flint-managed container running — run flint engine start"
+	return st, nil
+}
+
+func containerEngineVersion() (string, error) {
+	st, err := containerEngineStatus()
+	if err != nil {
+		return "", err
+	}
+	if st.Version != "" {
+		return st.Version, nil
+	}
+	return PinnedImage(), nil
+}
+
+func wireEngineServices() {
+	engine.SetContainerService(engine.ContainerService{
+		Status:  containerEngineStatus,
+		Start:   func() error { return composeUpFn(context.Background()) },
+		Stop:    func() error { return composeDownFn(context.Background(), false) },
+		Version: containerEngineVersion,
+	})
+	engine.SetNativeService(engine.NewNativeService())
 }
 
 type realStore struct {

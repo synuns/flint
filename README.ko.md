@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.31.0-blue" alt="v1.31.0">
+  <img src="https://img.shields.io/badge/release-v1.31.1-blue" alt="v1.31.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.31.1 · native-service — `flint engine status|start|stop`이 프로덕션 와이어링에서 등록된 서비스에 도달(관리형 컨테이너 compose · 네이티브 launchd/systemd user) · macOS 정지는 KeepAlive 재기동 대신 서비스 종료(bootout) · `setup --engine`은 파이프라인 성공 후에만 모드 기록 · CI macOS 스모크가 doctor·session-start에도 FLINT_CONFIG_DIR/FLINT_HOME 전달 · doctor 종수 24로 정정 · [전체 변경 이력](docs/HISTORY.md)
 > v1.31.0 · 네이티브 엔진 — `flint engine status|start|stop` 서비스 제어 · `setup --engine managed-container|native|external`(옵트인 모드 선택 — 네이티브: 해시·버전 검증 다운로더·launchd/systemd user 서비스 등록·첫 기동 자격증명 초기화) · container→native 전환(실패 시 원복) · doctor `engine` 검사(등록·실행·버전·핀 정합) · R123 이월(로컬 파서 unknown-flag 에코 토큰 마스킹) · [전체 변경 이력](docs/HISTORY.md)
 > v1.30.2 · r122 패치 — 문서가 무플래그 첫 설치 라우팅 정합(관리형 경로 포트 배정·단계 안내 수정)·unknown-flag 에코 토큰 마스킹(인라인 DSN 거부의 파서 누출 차단)·?port= 수기 엣지 선언 · [전체 변경로그](docs/HISTORY.md)
 > v1.30.1 · 설치 감사 — 문서를 출시된 v1.30.0 구현에 맞게 정정(엔진 thresholds 3종은 코드 기본값·meta 등록은 후속 · pull/TLS/health-timeout 분류기·연결 수준 악수·외부 모드 purge 게이팅은 이 패치 추가 · compose v1은 처방 안내(폴백 실행 아님) · 포트 배정은 관리형 setup 경로(무플래그 첫 설치 포함)) · 네이티브 L0 스파이크 결론 정정(스펙 통과 기준 4항 잔여 — v1.31.0 G2에서 계획 수립) · doctor 종수 23으로 정정 · [전체 변경 이력](docs/HISTORY.md)

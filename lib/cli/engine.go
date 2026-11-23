@@ -33,7 +33,7 @@ type setupEngineSummary struct {
 
 func engineErrLine(stdout io.Writer, err error) int {
 	if errors.Is(err, engine.ErrNotWired) {
-		fmt.Fprintln(stdout, errLine(fmt.Errorf("%v — not wired yet; run flint setup --engine <managed-container|native|external>", err)))
+		fmt.Fprintln(stdout, errLine(fmt.Errorf("%v — %s", err, i18n.T("engine.setup"))))
 		return 1
 	}
 	fmt.Fprintln(stdout, errLine(err))
@@ -92,10 +92,6 @@ func runSetupEngineMode(ctx context.Context, stdout io.Writer, mode string) int 
 		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("setup: --engine requires managed-container|native|external, got %q", mode)))
 		return 3
 	}
-	if err := engine.SetMode(mode); err != nil {
-		fmt.Fprintln(stdout, errLine(err))
-		return 1
-	}
 	if mode == engine.ModeNative {
 		for _, fn := range []func(context.Context) error{engineNativeDownloadFn, engineNativeServiceFn, engineNativeBootstrapFn} {
 			if fn == nil {
@@ -106,6 +102,10 @@ func runSetupEngineMode(ctx context.Context, stdout io.Writer, mode string) int 
 				return 1
 			}
 		}
+	}
+	if err := engine.SetMode(mode); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return 1
 	}
 	b, err := json.Marshal(setupEngineSummary{Status: "ok", Mode: mode})
 	if err != nil {

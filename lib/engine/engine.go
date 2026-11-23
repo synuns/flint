@@ -163,6 +163,8 @@ func inferMode(c fileConfig) string {
 	switch port {
 	case managedContainerPort, testEnginePort:
 		return ModeManagedContainer
+	default:
+		return ModeManagedContainer
 	}
 	return ModeUnknown
 }

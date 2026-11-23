@@ -4,6 +4,8 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -182,5 +184,126 @@ func TestSetupEngineRequiresValue(t *testing.T) {
 	var out bytes.Buffer
 	if code := Run([]string{"setup", "--engine"}, strings.NewReader(""), &out); code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
+	}
+}
+
+func withComposePsOutput(t *testing.T, out string, err error) {
+	t.Helper()
+	prev := composePsFn
+	composePsFn = func(ctx context.Context) ([]byte, error) { return []byte(out), err }
+	t.Cleanup(func() { composePsFn = prev })
+}
+
+func TestEngineDefaultWiringContainerStatusV1311(t *testing.T) {
+	wireEngineServices()
+	withEngineMode(t, engine.ModeManagedContainer)
+	ps := `{"Name":"flint-doltgres-1","State":"running","Image":"dolthub/doltgresql@sha256:demo","Labels":"com.docker.compose.project=flint"}` + "\n"
+	withComposePsOutput(t, ps, nil)
+	var out bytes.Buffer
+	if code := Run([]string{"engine", "status"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
+	}
+	var st engine.ServiceStatus
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &st); err != nil {
+		t.Fatalf("status JSON 파싱 실패: %v — %s", err, out.String())
+	}
+	if st.Mode != engine.ModeManagedContainer || !st.Running || !st.Registered {
+		t.Fatalf("status=%+v, want managed-container running", st)
+	}
+	if st.Version != "dolthub/doltgresql@sha256:demo" {
+		t.Fatalf("version=%q, want running container image", st.Version)
+	}
+}
+
+func TestEngineDefaultWiringContainerStatusNotRunningV1311(t *testing.T) {
+	wireEngineServices()
+	withEngineMode(t, engine.ModeManagedContainer)
+	withComposePsOutput(t, "", nil)
+	var out bytes.Buffer
+	if code := Run([]string{"engine", "status"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
+	}
+	var st engine.ServiceStatus
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &st); err != nil {
+		t.Fatalf("status JSON 파싱 실패: %v — %s", err, out.String())
+	}
+	if st.Running || st.Registered {
+		t.Fatalf("status=%+v, want no flint container", st)
+	}
+}
+
+func TestEngineDefaultWiringContainerStatusIgnoresOtherProjectsV1311(t *testing.T) {
+	wireEngineServices()
+	withEngineMode(t, engine.ModeManagedContainer)
+	ps := `{"Name":"other-db-1","State":"running","Image":"postgres:16","Labels":"com.docker.compose.project=other"}` + "\n"
+	withComposePsOutput(t, ps, nil)
+	var out bytes.Buffer
+	if code := Run([]string{"engine", "status"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
+	}
+	var st engine.ServiceStatus
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &st); err != nil {
+		t.Fatalf("status JSON 파싱 실패: %v — %s", err, out.String())
+	}
+	if st.Running || st.Registered {
+		t.Fatalf("status=%+v, want other-project containers ignored", st)
+	}
+}
+
+func TestEngineDefaultWiringContainerStatusDockerErrorV1311(t *testing.T) {
+	wireEngineServices()
+	withEngineMode(t, engine.ModeManagedContainer)
+	withComposePsOutput(t, "", errors.New("docker ps boom"))
+	var out bytes.Buffer
+	if code := Run([]string{"engine", "status"}, strings.NewReader(""), &out); code != 1 {
+		t.Fatalf("exit=%d, want 1; out=%s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "docker ps boom") {
+		t.Fatalf("docker 오류 미노출: %s", out.String())
+	}
+}
+
+func TestEngineDefaultWiringContainerStartStopV1311(t *testing.T) {
+	wireEngineServices()
+	withEngineMode(t, engine.ModeManagedContainer)
+	ups := 0
+	var downs []bool
+	prevUp, prevDown := composeUpFn, composeDownFn
+	composeUpFn = func(ctx context.Context) error { ups++; return nil }
+	composeDownFn = func(ctx context.Context, purge bool) error { downs = append(downs, purge); return nil }
+	t.Cleanup(func() { composeUpFn, composeDownFn = prevUp, prevDown })
+	var out bytes.Buffer
+	if code := Run([]string{"engine", "start"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("start exit=%d, want 0; out=%s", code, out.String())
+	}
+	if ups != 1 {
+		t.Fatalf("composeUpFn calls=%d, want 1", ups)
+	}
+	out.Reset()
+	if code := Run([]string{"engine", "stop"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("stop exit=%d, want 0; out=%s", code, out.String())
+	}
+	if !reflect.DeepEqual(downs, []bool{false}) {
+		t.Fatalf("composeDownFn purge args=%v, want [false]", downs)
+	}
+}
+
+func TestEngineDefaultWiringNativeStatusV1311(t *testing.T) {
+	wireEngineServices()
+	withEngineMode(t, engine.ModeNative)
+	t.Setenv("FLINT_HOME", t.TempDir())
+	var out bytes.Buffer
+	if code := Run([]string{"engine", "status"}, strings.NewReader(""), &out); code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out.String())
+	}
+	if strings.Contains(out.String(), "not wired") {
+		t.Fatalf("native 서비스 미와이어: %s", out.String())
+	}
+	var st engine.ServiceStatus
+	if err := json.Unmarshal([]byte(strings.TrimSpace(out.String())), &st); err != nil {
+		t.Fatalf("status JSON 파싱 실패: %v — %s", err, out.String())
+	}
+	if st.Mode != engine.ModeNative {
+		t.Fatalf("mode=%q, want native", st.Mode)
 	}
 }
