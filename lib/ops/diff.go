@@ -8,6 +8,7 @@ import (
 	"io"
 	"time"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -68,7 +69,7 @@ func RunDiff(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	if len(pos) != 2 {
 
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
-			"usage: flint diff <from> <to> [--summary] [--data|--schema]")))
+			"%s", i18n.T("usage.diff"))))
 		return 3
 	}
 	from, err := ParseAsOfSpecFn(ctx, st, pos[0])

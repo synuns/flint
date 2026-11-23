@@ -1,10 +1,15 @@
 package cli
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
+
+	"github.com/synuns/flint/lib/tui"
+	"github.com/synuns/flint/lib/wire"
 )
 
 type tuningFake struct {
@@ -182,6 +187,136 @@ func TestTuningSetEquivalentFloatNotation(t *testing.T) {
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"set", "conf_floor", "1.5"}, nil, &out); code != 3 {
 		t.Fatalf("범위 밖 1.5 exit=%d, want 3: %s", code, out.String())
+	}
+}
+
+func setTuningTTY(t *testing.T, v bool) {
+	t.Helper()
+	orig := tuningTTY
+	tuningTTY = func() bool { return v }
+	t.Cleanup(func() { tuningTTY = orig })
+}
+
+func TestTuningEntryBareTTYPrefersTUI(t *testing.T) {
+	setTuningTTY(t, true)
+	opsCalls := installTuningOpsFake(t)
+	var gotSt wire.Store
+	var gotOut io.Writer
+	orig := tuningTuiFn
+	tuningTuiFn = func(ctx context.Context, st wire.Store, stdout io.Writer, deps tui.TuningDeps) int {
+		gotSt, gotOut = st, stdout
+		return 42
+	}
+	t.Cleanup(func() { tuningTuiFn = orig })
+	st := &fakeStore{}
+	var out bytes.Buffer
+	code := runTuningEntry(context.Background(), st, nil, strings.NewReader(""), &out)
+	if code != 42 {
+		t.Fatalf("bare TTY exit = %d, want TUI-returned 42", code)
+	}
+	if gotSt != st {
+		t.Fatal("TUI seam must receive the entry Store")
+	}
+	if gotOut != io.Writer(&out) {
+		t.Fatal("TUI seam must receive the entry stdout")
+	}
+	if len(*opsCalls) != 0 {
+		t.Fatalf("bare TTY must bypass ops, calls = %d", len(*opsCalls))
+	}
+}
+
+func TestTuningEntryBareNonTTYFallsBackToFlagMode(t *testing.T) {
+	setTuningTTY(t, false)
+	calls := installTuningTuiFake(t)
+	opsCalls := installTuningOpsFake(t)
+	var out bytes.Buffer
+	code := runTuningEntry(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &out)
+	if code != 7 {
+		t.Fatalf("bare non-TTY exit = %d, want ops-returned 7", code)
+	}
+	if len(*opsCalls) != 1 || len((*opsCalls)[0]) != 0 {
+		t.Fatalf("ops calls = %v, want 1 with no args", *opsCalls)
+	}
+	if *calls != 0 {
+		t.Fatalf("non-TTY must not reach TUI seam, calls = %d", *calls)
+	}
+}
+
+func TestTuningEntryBareNoTUIEnvFallsBack(t *testing.T) {
+	t.Setenv("FLINT_NO_TUI", "1")
+	calls := installTuningTuiFake(t)
+	opsCalls := installTuningOpsFake(t)
+	var out bytes.Buffer
+	code := runTuningEntry(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &out)
+	if code != 7 {
+		t.Fatalf("bare FLINT_NO_TUI exit = %d, want ops-returned 7", code)
+	}
+	if len(*opsCalls) != 1 {
+		t.Fatalf("ops calls = %v, want 1", *opsCalls)
+	}
+	if *calls != 0 {
+		t.Fatalf("FLINT_NO_TUI must block TUI seam, calls = %d", *calls)
+	}
+}
+
+func TestTuningEntrySubcommandWithTTYStaysFlagMode(t *testing.T) {
+	setTuningTTY(t, true)
+	calls := installTuningTuiFake(t)
+	opsCalls := installTuningOpsFake(t)
+	var out bytes.Buffer
+	code := runTuningEntry(context.Background(), &fakeStore{}, []string{"list"}, strings.NewReader(""), &out)
+	if code != 7 {
+		t.Fatalf("list TTY exit = %d, want ops-returned 7", code)
+	}
+	if len(*opsCalls) != 1 || strings.Join((*opsCalls)[0], " ") != "list" {
+		t.Fatalf("ops calls = %v, want [list]", *opsCalls)
+	}
+	if *calls != 0 {
+		t.Fatalf("subcommand must not reach TUI seam, calls = %d", *calls)
+	}
+}
+
+func TestTuningEntryTTYSeamDefault(t *testing.T) {
+	if tuningTTY == nil {
+		t.Fatal("tuningTTY seam must be initialized")
+	}
+}
+
+func TestTuningEntryOpsDelegationSeamPropagation(t *testing.T) {
+	setTuningTTY(t, false)
+	var gotCtx context.Context
+	var gotSt wire.Store
+	var gotArgs []string
+	var gotIn io.Reader
+	var gotOut io.Writer
+	orig := tuningOpsRun
+	tuningOpsRun = func(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		gotCtx, gotSt, gotArgs, gotIn, gotOut = ctx, st, args, stdin, stdout
+		return 9
+	}
+	t.Cleanup(func() { tuningOpsRun = orig })
+	ctx := context.Background()
+	st := &fakeStore{}
+	in := strings.NewReader("seed-in")
+	var out bytes.Buffer
+	code := runTuningEntry(ctx, st, []string{"get", "dead_days"}, in, &out)
+	if code != 9 {
+		t.Fatalf("exit = %d, want seam-returned 9 (exit-code seam)", code)
+	}
+	if gotCtx != ctx {
+		t.Fatal("ctx seam: entry context not propagated to ops delegation")
+	}
+	if gotSt != st {
+		t.Fatal("Store seam: entry store not propagated to ops delegation")
+	}
+	if strings.Join(gotArgs, " ") != "get dead_days" {
+		t.Fatalf("args seam: got %v", gotArgs)
+	}
+	if gotIn != io.Reader(in) {
+		t.Fatal("stdin seam: entry stdin not propagated to ops delegation")
+	}
+	if gotOut != io.Writer(&out) {
+		t.Fatal("stdout seam: entry stdout not propagated to ops delegation")
 	}
 }
 

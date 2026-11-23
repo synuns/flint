@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -39,7 +40,7 @@ func BumpCurationCounter(ctx context.Context, st wire.Store, kind string, n int)
 }
 
 func approveUsageErr(format string, a ...any) error {
-	return wire.UsageErrorf(format+" — usage: flint approve --id N [--supersede OLD]", a...)
+	return wire.UsageErrorf(format+" — "+i18n.T("usage.approve"), a...)
 }
 
 func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {

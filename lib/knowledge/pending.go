@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -47,7 +48,7 @@ func RunPending(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			jsonMode = true
 			continue
 		}
-		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint pending [--json]", a)))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.pending.json"), a)))
 		return 3
 	}
 	if err := st.Ping(ctx); err != nil {

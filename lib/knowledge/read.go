@@ -18,6 +18,7 @@ import (
 	"golang.org/x/text/unicode/norm"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -231,7 +232,7 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 
 			{Name: "--why"},
 		},
-		Usage: "usage: flint read [query] [--json] [--fields F] [--limit N] [--status S] [--as-of T] [--session ID] [--source X] [--tag T] [--entity E] [--domain D] [--min-confidence N] [--origin agent|human] [--related N] [--why]",
+		Usage: i18n.T("usage.read"),
 
 		DashDash:        true,
 		AllowPositional: true,

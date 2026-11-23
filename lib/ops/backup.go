@@ -13,6 +13,7 @@ import (
 	"strconv"
 
 	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -54,7 +55,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			{Name: "--encrypt"},
 			{Name: "--mask"},
 		},
-		Usage: "usage: flint backup [--out FILE] [--encrypt] [--mask]",
+		Usage: i18n.T("usage.backup"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
@@ -67,7 +68,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 	encrypt, mask := res.Given("--encrypt"), res.Given("--mask")
 	if res.Given("--out") && !res.HasValue("--out") {
-		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--out requires a path — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("err.out_requires_path")+" — "+i18n.T("usage.backup"))))
 		return 3
 	}
 
@@ -76,7 +77,7 @@ func RunBackup(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 		return 3
 	}
 	if encrypt && out == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--encrypt requires --out (ciphertext is file-only) — usage: flint backup [--out FILE] [--encrypt] [--mask]")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("err.encrypt_requires_out")+" — "+i18n.T("usage.backup"))))
 		return 3
 	}
 
@@ -200,7 +201,7 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			{Name: "--drill"},
 			{Name: "--file", Value: true},
 		},
-		Usage: "usage: flint restore --file FILE [--drill]",
+		Usage: i18n.T("usage.restore"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
@@ -209,7 +210,7 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	file := res.Value("--file")
 	drill := res.Given("--drill")
 	if res.Given("--file") && !res.HasValue("--file") {
-		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--file requires a path — usage: flint restore --file FILE [--drill]")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("err.file_requires_path")+" — "+i18n.T("usage.restore"))))
 		return 3
 	}
 
@@ -218,7 +219,7 @@ func RunRestore(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return 3
 	}
 	if file == "" {
-		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("restore requires --file — usage: flint restore --file FILE [--drill]")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("err.restore_requires_file")+" — "+i18n.T("usage.restore"))))
 		return 3
 	}
 

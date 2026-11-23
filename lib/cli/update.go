@@ -12,6 +12,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/wire"
 	"io"
 	"net/http"
@@ -71,7 +72,7 @@ func runUpdateCmd(ctx context.Context, st Store, args []string, stdin io.Reader,
 			{Name: "--check"},
 			{Name: "--insecure-skip-signature"},
 		},
-		Usage: "usage: flint update [--check] [--insecure-skip-signature]",
+		Usage: i18n.T("usage.update"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))

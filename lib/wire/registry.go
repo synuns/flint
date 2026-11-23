@@ -3,9 +3,12 @@ package wire
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"sort"
 	"strings"
+
+	"github.com/synuns/flint/lib/i18n"
 )
 
 type Handler func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int
@@ -40,13 +43,13 @@ func hiddenFromUsage(name string) bool {
 }
 
 func UsageLine() string {
-	return `{"usage":"flint <` + strings.Join(usageOrder, "|") + `> [args]"}`
+	return fmt.Sprintf(i18n.T("usage.line"), strings.Join(usageOrder, "|"))
 }
 
 func UnknownCommandLine(cmd string) string {
 	b, _ := json.Marshal(map[string]string{
-		"message": "unknown command: " + cmd,
-		"usage":   "flint <" + strings.Join(usageOrder, "|") + "> [args]",
+		"message": fmt.Sprintf(i18n.T("err.unknown_command"), cmd),
+		"usage":   fmt.Sprintf(i18n.T("usage.line.plain"), strings.Join(usageOrder, "|")),
 	})
 	return string(b)
 }

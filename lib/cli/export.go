@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/backup"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/tui"
@@ -98,7 +99,7 @@ func runExport(ctx context.Context, st Store, args []string, stdin io.Reader, st
 
 			{Name: "--sign"},
 		},
-		Usage: "usage: flint export [--format jsonl|md|txt|csv|pam] [--out FILE] [--status active|all] [--tag X] [--since RFC3339] [--sign (pam only)]",
+		Usage: i18n.T("usage.export"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))

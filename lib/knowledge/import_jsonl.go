@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -84,7 +85,7 @@ func parseImportMigrateArgs(args []string) (format, file string, err error) {
 			continue
 		}
 		if strings.HasPrefix(a, "-") {
-			return "", "", wire.UsageErrorf("unknown flag: %s — usage: flint import --format jsonl|pam [FILE]", a)
+			return "", "", wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.import.format"), a)
 		}
 		if file != "" {
 			return "", "", &store.SchemaError{Field: "file", Expect: "one positional argument (FILE) required"}

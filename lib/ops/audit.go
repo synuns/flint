@@ -8,6 +8,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -17,8 +18,9 @@ import (
 const (
 	auditDefaultLimit = 20
 	auditMaxLimit     = 100
-	auditUsage        = "usage: flint audit [--limit N] [--session ID] [--stat] [--telemetry]"
 )
+
+var auditUsage = i18n.T("usage.audit")
 
 type auditEntry struct {
 	CommitHash string                    `json:"commit_hash"`
@@ -73,7 +75,7 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 		switch o.Name {
 		case "--limit":
 			if !o.HasValue {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--limit requires a number — "+auditUsage)))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", "--limit requires a number — "+auditUsage)))
 				return 3
 			}
 			n, err := strconv.Atoi(o.Value)
@@ -87,7 +89,7 @@ func RunAudit(st wire.Store, args []string, stdout io.Writer) int {
 			limit = n
 		case "--session":
 			if !o.HasValue || o.Value == "" {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("--session requires an id — "+auditUsage)))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", "--session requires an id — "+auditUsage)))
 				return 3
 			}
 		}

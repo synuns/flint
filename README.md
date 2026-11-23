@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.29.2-blue" alt="v1.29.2">
+  <img src="https://img.shields.io/badge/release-v1.28.0-blue" alt="v1.28.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.28.0 · surface cleanup — `flint read` / `flint tuning` with no arguments on a TTY open an interactive TUI (flagged·non-TTY·FLINT_NO_TUI invocations keep the flag mode unchanged; read instrumentation preserved) · i18n KO catalog (`FLINT_LANG`, usage surface first) · test consolidation (8 domains, 56 version-suffixed files into 8, suite count unchanged at 592) · BRAND sweep · BREW tap review · signature re-verification · [full changelog](docs/HISTORY.md)
 > v1.29.2 · r117 patch — isolation polish: the doctor `engine-footprint` skip detail now names the cause (an unstarted dedicated engine — "no running container publishes 5499" — is distinguishable from docker being absent) · dedicated-engine DSN container selection pinned by test in both directions · [full changelog](docs/HISTORY.md)
 > v1.29.1 · r116 patch — isolation audit fixes: the Makefile `FLINT_TEST_DSN` default now points at the dedicated engine (5499 — the ops-port default defeated local isolation) · docker-compose.test.yml pins the CI image digest (with an equivalence guard) · engine container selection is port-based (`EngineMemMB`·`restarts` never read the wrong engine) · `FLINT_REALDB_REQUIRED=1` is honored in tests/ helpers (skip-0 sentinel on every path) · [full changelog](docs/HISTORY.md)
 > v1.29.0 · physical isolation — dedicated test engine (`docker-compose.test.yml` on 127.0.0.1:5499 · `internal/testengine` lazy ensure + scratch lifecycle + run-end purge · the ops engine is never touched by tests) · `maintain --purge-dropped` (dry-run list of restorable dropped databases → irreversible purge, loopback-only) · doctor `dropped_dbs` / `stray_dbs` warnings (thresholds `dropped_dbs_warn`·`stray_dbs_warn`, meta `stray_dbs_allow` exemption) · engine-footprint shows container restart count · [full changelog](docs/HISTORY.md)
@@ -241,12 +242,12 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | `flint setup` | Start Doltgres, migrate, print seed/plugin next steps |
 | `flint seed --demo` | Load the embedded synthetic demo dataset into an isolated demo database (database name + `_demo`, `FLINT_DEMO_DSN` override; idempotent; `--reset --yes` deletes only `demo/` rows — mismatched owner exits 3) |
 | `flint update` | Self-update to the latest release (checksum-verified, `--check` dry-run) |
-| `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`; autotune surfaces `auto off\|shadow` · `what-if` · `status`; opt-in `--tui` form) |
+| `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`; autotune surfaces `auto off\|shadow` · `what-if` · `status`); bare invocation on a TTY opens the interactive form (subcommands, flags, non-TTY and FLINT_NO_TUI keep the flag mode; `--tui` forces it) |
 | `flint write <kind>` | Record knowledge from stdin (idempotent) |
 | `flint import [path]` | Convert rule files (CLAUDE.md etc.) to pending knowledge (`--commit`); `--format jsonl\|pam` migrates knowledge back in (round-trip re-import · PAM v1.0 intake) |
 | `flint export [--format f]` | Export knowledge as jsonl·md·txt·csv·pam (PAM v1.0 portable memory-store; `--status`·`--tag`·`--since` filters, `--out` file with `.sha256` sidecar; PAM `--sign` Ed25519 signature, spec §18) |
 | `flint index [--vault p]` | Index a markdown vault into `vault_files` (snapshot-diff, one batch commit per diff; `--vault` persists the path, `--limit` caps the scan) |
-| `flint read <query>` | Search active knowledge (vault rows appended after the knowledge block when indexed); opt-in `--related N` appends undirected knowledge-link neighbors (cap 5) and `--why` appends per-row evidence (token tier · RRF signals · zero-hit rationale) — the default output is unchanged |
+| `flint read <query>` | Search active knowledge (vault rows appended after the knowledge block when indexed); bare invocation on a TTY opens the interactive browser (query input · result list · detail toggle); opt-in `--related N` appends undirected knowledge-link neighbors (cap 5) and `--why` appends per-row evidence (token tier · RRF signals · zero-hit rationale) — the flagged-mode output is unchanged |
 | `flint hot --session <id>` | Inject context at session start |
 | `flint brief [query]` | Masked, read-only brief to paste into any external AI (the bridge) |
 | `flint done --session <id>` | Wrap up a session |

@@ -14,6 +14,8 @@ var tuningTuiFn = tui.RunTuningTUI
 
 var tuningOpsRun = ops.RunTuning
 
+var tuningTTY = tui.IsTerminalStdout
+
 func init() {
 
 	Register("tuning", runTuningEntry)
@@ -37,6 +39,9 @@ func runTuningEntry(ctx context.Context, st Store, args []string, stdin io.Reade
 				"tuning: --tui is blocked by FLINT_NO_TUI — use tuning flag-mode subcommands")))
 			return 3
 		}
+		return tuningTuiFn(ctx, st, stdout, tui.TuningDeps{})
+	}
+	if len(args) == 0 && tuningTTY() {
 		return tuningTuiFn(ctx, st, stdout, tui.TuningDeps{})
 	}
 	return tuningOpsRun(ctx, st, args, stdin, stdout)

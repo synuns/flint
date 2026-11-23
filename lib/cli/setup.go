@@ -12,6 +12,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/tui"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -190,7 +191,7 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			{Name: "--src", Value: true},
 			{Name: "--exposure", Value: true},
 		},
-		Usage: "usage: flint setup [--dry] [--json] [--update-rules] [--src PATH] [--exposure normal|minimal] [--mcp]",
+		Usage: i18n.T("usage.setup"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, errLine(perr))
@@ -333,7 +334,7 @@ func runTeardown(ctx context.Context, st Store, args []string, stdin io.Reader, 
 		case "--yes":
 			confirm = true
 		default:
-			fmt.Fprintln(stdout, errLine(wire.UsageErrorf("unknown flag: %s — usage: flint teardown [--purge] [--yes]", a)))
+			fmt.Fprintln(stdout, errLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.teardown"), a)))
 			return 3
 		}
 	}

@@ -19,6 +19,7 @@ import (
 	"sort"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -170,7 +171,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			{Name: "--json"},
 			{Name: "--check", Value: true},
 		},
-		Usage: "usage: flint doctor [--list-checks] [--check NAME] [--fix] [--json]",
+		Usage: i18n.T("usage.doctor"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
@@ -188,7 +189,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 	}
 	subset, fix, jsonOut := res.Value("--check"), res.Given("--fix"), res.Given("--json")
 	if res.Given("--check") && !res.HasValue("--check") {
-		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: --check requires a name — usage: flint doctor [--list-checks] [--check NAME] [--fix] [--json]")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("err.check_requires_name")+" — "+i18n.T("usage.doctor"))))
 		return 3
 	}
 	if subset != "" {
@@ -198,7 +199,7 @@ func RunDoctor(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			ok = true
 		}
 		if !ok {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: unknown check %q — usage: flint doctor [--list-checks] [--check NAME] [--fix] [--json] (names via --list-checks)", subset)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("doctor: unknown check %q — "+i18n.T("usage.doctor")+" (names via --list-checks)", subset)))
 			return 3
 		}
 		checks := []DoctorCheck{runDoctorCheck(ctx, st, subset)}

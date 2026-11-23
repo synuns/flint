@@ -14,6 +14,7 @@ import (
 	"golang.org/x/sync/errgroup"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -208,7 +209,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			{Name: "--out", Value: true},
 			{Name: "--days", Value: true},
 		},
-		Usage: "usage: flint report [--days N] [--html] [--out FILE] [--text]",
+		Usage: i18n.T("usage.report.args"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))
@@ -223,7 +224,7 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			htmlOut = "report.html"
 		case "--out":
 			if !o.HasValue {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --out requires a path — usage: flint report [--days N] [--html] [--out FILE] [--text]")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", "report: "+i18n.T("err.out_requires_path")+" — "+i18n.T("usage.report.args"))))
 				return 3
 			}
 
@@ -237,12 +238,12 @@ func RunReport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			}
 		case "--days":
 			if !o.HasValue {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --days requires a number — usage: flint report [--days N] [--html] [--out FILE] [--text]")))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("err.days_requires_number")+" — "+i18n.T("usage.report.args"))))
 				return 3
 			}
 			n, err := strconv.Atoi(o.Value)
 			if err != nil || n < 1 {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: invalid days %q — usage: flint report [--days N] [--html] [--out FILE] [--text]", o.Value)))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: invalid days %q — "+i18n.T("usage.report.args"), o.Value)))
 				return 3
 			}
 			days = n

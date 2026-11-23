@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -24,7 +25,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		Flags: []wire.FlagSpec{
 			{Name: "--apply", Value: true},
 		},
-		Usage:           "usage: flint profile [--apply normal|minimal]",
+		Usage:           i18n.T("usage.profile"),
 		AllowPositional: true,
 	})
 	if perr != nil {
@@ -58,7 +59,7 @@ func runProfile(ctx context.Context, st Store, args []string, stdin io.Reader, s
 		}
 
 		if s.val != "normal" && s.val != "minimal" {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint profile [--apply normal|minimal]", s.val)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.profile"), s.val)))
 			return 3
 		}
 		apply = s.val

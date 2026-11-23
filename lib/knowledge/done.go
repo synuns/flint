@@ -21,6 +21,7 @@ import (
 
 	"github.com/synuns/flint/lib/backup"
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -161,7 +162,7 @@ func RunDone(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	}
 	if session == "" {
 
-		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("usage: flint done --session <id>")))
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("%s", i18n.T("usage.done"))))
 		return 3
 	}
 

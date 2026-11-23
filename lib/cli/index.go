@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/vault"
@@ -52,7 +53,7 @@ func runIndex(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			{Name: "--vault", Value: true},
 			{Name: "--limit", Value: true},
 		},
-		Usage: "usage: flint index [--vault PATH] [--limit N]",
+		Usage: i18n.T("usage.index"),
 	})
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
@@ -63,7 +64,7 @@ func runIndex(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		n, perr := strconv.Atoi(parsed.Value("--limit"))
 		if perr != nil || n < 0 {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
-				"--limit must be a non-negative integer: %q — usage: flint index [--vault PATH] [--limit N]",
+				i18n.T("err.limit_non_negative")+" — "+i18n.T("usage.index"),
 				parsed.Value("--limit"))))
 			return 3
 		}
@@ -75,7 +76,7 @@ func runIndex(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		root = parsed.Value("--vault")
 		if root == "" || !parsed.HasValue("--vault") {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
-				"--vault requires a path — usage: flint index [--vault PATH] [--limit N]")))
+				"%s", i18n.T("err.vault_requires_path")+" — "+i18n.T("usage.index"))))
 			return 3
 		}
 		explicit = true

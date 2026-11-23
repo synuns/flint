@@ -9,6 +9,133 @@ import (
 	"time"
 )
 
+func TestReportCutoffTimestamptzParam(t *testing.T) {
+	var queries []string
+	var argsBySQL []struct {
+		sql  string
+		args []any
+	}
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		queries = append(queries, sql)
+		argsBySQL = append(argsBySQL, struct {
+			sql  string
+			args []any
+		}{sql, args})
+		switch {
+		case strings.Contains(sql, "daily:"):
+			return nil, nil
+		case strings.Contains(sql, "read_stats"):
+			return [][]any{{"read_stats", `{"calls":0,"zero":0}`}, {"hot_stats", `{"lens":[]}`}}, nil
+		case strings.Contains(sql, "invalid_at IS NOT NULL"):
+			return [][]any{{int64(0), int64(0), int64(0)}}, nil
+		case strings.Contains(sql, "read_count"):
+			return [][]any{{int64(0), int64(0)}}, nil
+		case strings.Contains(sql, "invalid_at >="):
+			return [][]any{{int64(0)}}, nil
+		}
+		return nil, nil
+	}}
+	if _, code := runReportArgs(t, f, "--days", "7"); code != 0 {
+		t.Fatalf("exit=%d, want 0", code)
+	}
+	sawStale, sawPeriod, sawDead := false, false, false
+	for _, q := range argsBySQL {
+
+		isStale := strings.Contains(q.sql, "/* stale */")
+		isPeriod := strings.Contains(q.sql, "invalid_at >=")
+		isDead := strings.Contains(q.sql, "/* dead */")
+		if isStale {
+			sawStale = true
+		}
+		if isPeriod {
+			sawPeriod = true
+		}
+		if isDead {
+			sawDead = true
+		}
+		if !isStale && !isPeriod && !isDead {
+			continue
+		}
+		if strings.Contains(q.sql, "interval") {
+			t.Errorf("SQL에 interval 연산 잔존(Doltgres 결함): %q", q.sql)
+		}
+		if len(q.args) != 1 {
+			t.Fatalf("인자 수=%d, want 1(cutoff): %v", len(q.args), q.args)
+		}
+		cut, ok := q.args[0].(time.Time)
+		if !ok {
+			t.Fatalf("첫 인자가 timestamptz 컷오프가 아님: %T(%v)", q.args[0], q.args[0])
+		}
+		wantDays := 7
+		if isStale {
+			wantDays = 90
+		}
+		if isDead {
+			wantDays = 30
+		}
+		if el := time.Since(cut); el < time.Duration(wantDays-1)*24*time.Hour || el > time.Duration(wantDays+1)*24*time.Hour {
+			t.Errorf("컷오프 경과=%v, want 약 %d일", el, wantDays)
+		}
+	}
+	if !sawStale || !sawPeriod || !sawDead {
+		t.Fatalf("stale(%v)·기간(%v)·dead(%v) 조회 미관측(총 %d건)", sawStale, sawPeriod, sawDead, len(queries))
+	}
+}
+
+func TestReportZeroNearPct(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+			return [][]any{{"read_stats", `{"calls":10,"zero":4,"zero_near":3}`}}, nil
+		case strings.Contains(sql, "daily:"):
+
+			return [][]any{{"daily:" + time.Now().UTC().Format("2006-01-02"), `{"read":10,"read_zero":4,"read_zero_near":3}`}}, nil
+		case strings.Contains(sql, "count"):
+			return [][]any{{"1", "2", "3"}}, nil
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	if code := runReport(context.Background(), st, nil, nil, &out); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	s := out.String()
+	for _, want := range []string{`"zero_pct":40`, `"zero_near_pct":30`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("%s 누락: %s", want, s)
+		}
+	}
+}
+
+func TestReportZeroWindowed(t *testing.T) {
+	today := time.Now().UTC().Format("2006-01-02")
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "daily:"):
+
+			return [][]any{
+				{"daily:" + today, `{"read":10,"read_zero":4,"read_zero_near":3}`},
+				{"daily:2001-01-01", `{"read":90,"read_zero":90,"read_zero_near":90}`},
+			}, nil
+		case strings.Contains(sql, "IN ('read_stats','hot_stats')"):
+			return [][]any{{"read_stats", `{"calls":999,"zero":999}`}}, nil
+		case strings.Contains(sql, "count"):
+			return [][]any{{"1", "2", "3"}}, nil
+		}
+		return nil, nil
+	}}
+	var out strings.Builder
+	if code := runReport(context.Background(), st, []string{"--days", "1"}, nil, &out); code != 0 {
+		t.Fatalf("exit %d: %s", code, out.String())
+	}
+	s := out.String()
+	for _, want := range []string{`"zero_pct":40`, `"zero_near_pct":30`} {
+		if !strings.Contains(s, want) {
+			t.Errorf("%s 누락(창 밖 2001-01-01 행·누적 999 오염 무시되어야): %s", want, s)
+		}
+	}
+}
+
 func TestTimeWindowHit(t *testing.T) {
 	base := time.Date(2026, 11, 7, 10, 0, 0, 0, time.UTC)
 	times := []time.Time{
@@ -407,5 +534,78 @@ func TestReportProfileHintWithoutIDs(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), `"profile_hint":"insufficient sample`) {
 		t.Fatalf("ids 없는 표본에 힌트 공백: %s", out.String())
+	}
+}
+
+func TestFirstExactRank(t *testing.T) {
+	rows := [][]any{
+		{int32(1), "다른 주제", "요약"},
+		{int32(2), "검색 품질", "요약"},
+		{int32(3), "검색 품질 추가", "요약"},
+	}
+	if got := firstExactRank(rows, "검색 품질"); got != 2 {
+		t.Errorf("firstExactRank = %d, want 2(첫 정합 행)", got)
+	}
+	if got := firstExactRank(rows, "없는 주제"); got != 0 {
+		t.Errorf("정합 없음 = %d, want 0", got)
+	}
+	if got := firstExactRank(rows, ""); got != 0 {
+		t.Errorf("빈 쿼리 = %d, want 0", got)
+	}
+
+	mixed := [][]any{{int32(1), "Flint 배포"}}
+	if got := firstExactRank(mixed, "flint 배포"); got != 1 {
+		t.Errorf("대소문자 = %d, want 1", got)
+	}
+}
+
+func TestTrendOfDiff(t *testing.T) {
+	now := time.Now()
+	mk := func(daysAgo int, zero, fallback bool, rank int) readEventRow {
+		return readEventRow{Ts: now.Add(-time.Duration(daysAgo) * 24 * time.Hour),
+			Zero: zero, Fallback: fallback, FirstRank: rank}
+	}
+
+	evs := []readEventRow{
+		mk(1, false, false, 1), mk(2, false, false, 1), mk(3, false, true, 4), mk(5, true, false, 0),
+		mk(8, false, true, 0), mk(10, true, false, 0),
+	}
+	cur, prev := trendWindow(now, evs)
+	if cur.N != 4 || prev.N != 2 {
+		t.Fatalf("창 크기 cur=%d prev=%d, want 4/2", cur.N, prev.N)
+	}
+	if cur.HitPct != 75 || cur.FallbackPct != 25 || cur.Top1Pct != 66 {
+		t.Errorf("cur = %+v, want hit75/fb25/top1 66(버림 정수)", cur)
+	}
+	tr := cur.Diff(prev)
+	if tr == nil {
+		t.Fatal("추세 nil — 양창 표본 있는데 nil")
+	}
+	if tr.HitPct.Delta != 25 {
+		t.Errorf("hit delta = %d, want 25", tr.HitPct.Delta)
+	}
+
+	emptyCur, _ := trendWindow(now, nil)
+	if emptyCur.Diff(prev) != nil {
+		t.Error("빈 창 추세가 nil 아님")
+	}
+}
+
+func TestDupPctCalc(t *testing.T) {
+	days := []DailyRow{{Date: "d1", Write: 10, Dup: 30}, {Date: "d2", Write: 0, Dup: 10}}
+	if got := dupPct(days); got != 80 {
+		t.Errorf("dupPct = %d, want 80", got)
+	}
+	if got := dupPct(nil); got != 0 {
+		t.Errorf("빈 기간 = %d, want 0", got)
+	}
+}
+
+func TestFallbackPctZeroDenominator(t *testing.T) {
+	if got := fallbackPct(3, 16); got != 18 {
+		t.Errorf("fallbackPct = %d, want 18", got)
+	}
+	if got := fallbackPct(0, 0); got != 0 {
+		t.Errorf("제로 분모 = %d, want 0", got)
 	}
 }

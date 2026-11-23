@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/ops"
 	"github.com/synuns/flint/lib/tui"
 	"github.com/synuns/flint/lib/wire"
@@ -45,7 +46,7 @@ func runReportEntry(ctx context.Context, st Store, args []string, stdin io.Reade
 	for _, a := range rest {
 		switch a {
 		case "--html", "--text", "--out":
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --tui cannot combine with %s — usage: flint report [--tui] | [--days N] [--html] [--out FILE] [--text]", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("report: --tui cannot combine with %s — "+i18n.T("usage.report"), a)))
 			return 3
 		}
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/ops"
+	"github.com/synuns/flint/lib/tui"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -30,7 +31,9 @@ func init() {
 	wire.ConfigDir = configDir
 
 	Register("write", runWrite)
-	Register("read", runRead)
+	Register("read", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
+		return tui.ReadEntry(ctx, st, args, stdin, stdout, runRead, tui.ReadDeps{})
+	})
 	Register("hot", runHot)
 	Register("backup", ops.RunBackup)
 	Register("restore", ops.RunRestore)

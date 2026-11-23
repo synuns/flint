@@ -160,6 +160,34 @@ The diagnose `metering_silent` judgment window (30 days, v1.19.0) is a
 (the curation·maintain paths fire at most once a day, so a shorter
 overridable window would invite false positives).
 
+### Observation-carryover re-adjudication (v1.28.0 — criteria only, no measurement)
+
+Scope line first: this subsection fixes **when a deferred observation item
+is re-adjudicated**. It is deliberately not the apply gate — the v1.24.0
+start condition in the v1.23.0 subsection below stays the single source
+for *applying* an override; nothing here applies, proposes, or re-runs a
+prediction. Criteria documentation only (the v1.28.0 R8 ruling —
+measuring a personal DB here is out of scope).
+
+- **The deferred item** — the baseline-shuffle null model (METRICS §4
+  ruling: deferred, re-deferred at the v0.30.0 re-ruling). Its
+  re-evaluation trigger is the METRICS §4 sample condition:
+  `read_events_n ≥ 200`, confirmed with the report's `read_events_n`
+  field.
+- **Accumulation condition — same path** — once that trigger is met, the
+  re-adjudication is admitted only under the same observation
+  accumulation the shadow circuit already records: rounds ≥ 14
+  (meta `auto_rounds_<key>`) AND trigger fires ≥ 5 AND consecutive-hit
+  streak ≥ 3. The numbers are shared with the apply gate, but they gate
+  a *judgment about the deferred observation* here, not an apply — the
+  two consume one accumulation source (single source, no separate
+  counter family is introduced) and never one another's authority.
+- **Re-adjudication output** — a ruling record (docs), not a meta write:
+  either the deferral is reaffirmed (session-boundary assignment still
+  covers coincidence) or the shuffle model is scheduled as a release
+  item. No tuning key, prediction row, or override results from this
+  path.
+
 ### v1.24.0 `survived_decay_relief` activation ruling
 
 The v1.24.0 curation-residual review kept `survived_decay_relief` at

@@ -6,6 +6,47 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.28.0 minor (2026-11-24) — surface-cleanup: read·tuning bare TUI · i18n KO · test consolidation
+
+(spec: docs/plans/2026-11-24-flint-v1280.spec.md · plan:
+docs/plans/2026-11-24-flint-v1280.md · G2 APPROVED — the 4th
+order swap with v1.27.0, principle ③: shadow observation 2 weeks
+vs 1 day. Swap date 2026-11-24). The interactive surface and the
+quality debt, no schema change:
+
+- **read TUI**: `flint read` with no arguments on a TTY opens the
+  interactive browser (query input huh form · result list · detail
+  toggle · scroll). Flagged invocations, non-TTY, pipes and
+  FLINT_NO_TUI keep the flag mode byte-identical. The bare path
+  keeps RecordReadEvent instrumentation (v1.19.0 contract test).
+- **tuning TUI promotion**: `flint tuning` with no arguments on a
+  TTY now prefers the existing huh form (subcommands, flags,
+  non-TTY and FLINT_NO_TUI unchanged — script compatibility). The
+  v1.19.0 leftover backlog is cleared: the lib/cli→lib/ops
+  RunTuning delegation seam propagation (ctx·Store·args·stdin·
+  stdout·exit) is pinned by tests on all six paths.
+- **i18n**: lib/i18n minimal catalog (`T(key)`·`FLINT_LANG`, ko·en,
+  zero deps) applied to the usage surface and representative error
+  paths; the KO catalog ships first, remaining keys register
+  incrementally.
+- **test consolidation**: version-suffixed test files merged per
+  domain into single files (doctor·read·maintain·write·report·hot·
+  nudge·status — 56 files into 8), test-function names and the
+  suite count unchanged (592), function bodies moved verbatim.
+- **brand·brew·signature**: BRAND.md refreshed with the external
+  name-landscape sweep, docs/BREW.md adds the tap review (cost·
+  automation·opening gate — opening itself stays user-triggered),
+  the latest release asset re-verified once via cosign
+  verify-blob.
+- **observability re-verdict**: the carry-over re-verdict criteria
+  (rounds ≥14 · fires ≥5 · streak ≥3) are documented in TUNING.md;
+  no live-DB measurement (isolation principle).
+- **withdrawn**: the R68 information items (3) are withdrawn — the
+  source records are lost (prior archives and issues checked);
+  re-collection is user-triggered. The sequence-recall and
+  Doltgres upstream notes were re-checked and recorded in RUNBOOK
+  and the engine-ops plan.
+
 ### v1.29.2 patch (2026-11-23) — isolation-polish: footprint skip reasons · dedicated-engine selection coverage
 
 R117 audit findings, both fixed:
