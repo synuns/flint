@@ -3,10 +3,13 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"strings"
 	"testing"
+
+	"github.com/jackc/pgx/v5/pgconn"
 
 	"github.com/synuns/flint/data"
 	"github.com/synuns/flint/lib/db"
@@ -476,5 +479,37 @@ func TestSeedDemoRealSlow(t *testing.T) {
 	out, code = runSeedArgs("--demo", "--reset", "--yes")
 	if code != 3 {
 		t.Fatalf("마커 소멸 후 reset exit=%d, want 3; out=%s", code, out)
+	}
+}
+
+func TestSeedToleratedCreateErr(t *testing.T) {
+	cases := []struct {
+		name string
+		err  error
+		want bool
+	}{
+		{name: "nil", err: nil, want: true},
+		{name: "42P04", err: &pgconn.PgError{Code: "42P04"}, want: true},
+		{name: "42P05", err: &pgconn.PgError{Code: "42P05"}, want: false},
+		{name: "일반", err: errors.New("boom"), want: false},
+	}
+	for _, c := range cases {
+		if got := seedToleratedCreateErr(c.err); got != c.want {
+			t.Errorf("%s: got %v, want %v", c.name, got, c.want)
+		}
+	}
+}
+
+func TestSeedOverrideKeywordDSNName(t *testing.T) {
+	t.Setenv("FLINT_DEMO_DSN", "host=other-host port=5433 user=flint password=pw dbname=other_demo")
+	dsn, name, err := resolveDemoDSN()
+	if err != nil {
+		t.Fatalf("resolveDemoDSN: %v", err)
+	}
+	if dsn != "host=other-host port=5433 user=flint password=pw dbname=other_demo" {
+		t.Fatalf("DSN 미보존: %q", dsn)
+	}
+	if name != "other_demo" {
+		t.Fatalf("dbName=%q, want other_demo", name)
 	}
 }

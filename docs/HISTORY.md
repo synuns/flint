@@ -35,8 +35,8 @@ Patch round R111+R112 findings. No schema change.
   server would be a cross-server no-op at best; the connection error
   flows unchanged.
 - **registry offline cache display (R111-5)**: doctor versions shows
-  the cached registry copy with its age ("registry vX (cached, Nh old,
-  unverified — offline)") when the fetch fails — the cache is evidence,
+  the cached registry copy with its age ("registry v1.25.0 (cached,
+  unverified — offline, 5h old)") when the fetch fails — the cache is evidence,
   with its staleness visible; still not a warn.
 - **concurrent first-run seed (R112-2)**: seedEnsureDBFn tolerates
   42P04 duplicate_database — a parallel creator winning the

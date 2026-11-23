@@ -45,14 +45,21 @@ var seedEnsureDBFn = func(ctx context.Context, adminDSN, dbName string) error {
 		return nil
 	}
 	_, err = pool.Exec(ctx, `CREATE DATABASE `+pgx.Identifier{dbName}.Sanitize())
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "42P04" {
-			return nil
-		}
+	if seedToleratedCreateErr(err) {
+		return nil
 	}
 	return err
 }
+
+func seedToleratedCreateErr(err error) bool {
+	if err == nil {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgDuplicateDatabase
+}
+
+const pgDuplicateDatabase = "42P04"
 
 func deriveDemoDSN(base string) (string, error) {
 	u, err := url.Parse(base)
@@ -72,13 +79,9 @@ func deriveDemoDSN(base string) (string, error) {
 
 func resolveDemoDSN() (string, string, error) {
 	if d := os.Getenv(demoDSNEnv); d != "" {
-		u, err := url.Parse(d)
+		name, err := dsnDatabaseName(d)
 		if err != nil {
-			return "", "", fmt.Errorf("seed: %s parse failed: %w", demoDSNEnv, err)
-		}
-		name := strings.TrimPrefix(u.Path, "/")
-		if name == "" {
-			return "", "", fmt.Errorf("seed: %s has no database name", demoDSNEnv)
+			return "", "", fmt.Errorf("seed: %s: %w", demoDSNEnv, err)
 		}
 		return d, name, nil
 	}
@@ -87,6 +90,17 @@ func resolveDemoDSN() (string, string, error) {
 		return "", "", err
 	}
 	return demo, dsnDBName(demo), nil
+}
+
+func dsnDatabaseName(dsn string) (string, error) {
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return "", err
+	}
+	if cfg.Database == "" {
+		return "", errors.New("no database name")
+	}
+	return cfg.Database, nil
 }
 
 func dsnDBName(dsn string) string {
