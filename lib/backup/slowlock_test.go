@@ -65,6 +65,7 @@ func TestMain(m *testing.M) {
 	release := lockSlowSuite(testDSN())
 	code := m.Run()
 	release()
+	testengine.RunCleanup(context.Background())
 	os.Exit(code)
 }
 

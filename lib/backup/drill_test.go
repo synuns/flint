@@ -14,6 +14,7 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 
 	"github.com/jackc/pgx/v5"
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 )
 
@@ -265,7 +266,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	defer unlock()
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
 	defer cancel()
-	dsn := testDSN()
+	dsn := testengine.Scratch(t)
 	repo, err := db.NewRepo(ctx, dsn)
 	if err != nil {
 		t.Fatalf("connect doltgres: %v", err)
@@ -343,6 +344,27 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	if dbs != 0 {
 		t.Fatalf("%s 잔존: %d", DrillDB, dbs)
 	}
+
+	sharedRepo, err := db.NewRepo(ctx, testDSN())
+	if err != nil {
+		t.Fatalf("connect shared: %v", err)
+	}
+	defer sharedRepo.Close()
+	if err := sharedRepo.Migrate(ctx); err != nil {
+		t.Fatalf("migrate shared: %v", err)
+	}
+	sharedPool, err := db.Connect(ctx, testDSN())
+	if err != nil {
+		t.Fatalf("connect shared pool: %v", err)
+	}
+	defer sharedPool.Close()
+	if _, err := sharedPool.Exec(ctx, `INSERT INTO knowledge
+		(topic, summary, tags, confidence, content_hash)
+		VALUES ('drill', '동시 외부 쓰기 프로브', ':t55:', 0.9, 't55-foreign-drill')`); err != nil {
+		t.Fatalf("외부 쓰기 시뮬레이션: %v", err)
+	}
+	defer sharedPool.Exec(context.Background(),
+		`DELETE FROM knowledge WHERE content_hash = 't55-foreign-drill'`)
 
 	var after int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&after); err != nil {
