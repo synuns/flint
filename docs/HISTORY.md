@@ -6,6 +6,17 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.31.3 patch (2026-11-24) — native-entry-guard
+
+R126 finding (1): the v1.31.2 fix removed the call-site nil guard along
+the success path while guarding the rollback closure.
+
+- **[medium] UpgradeRoundTrip entry guard**: the function now rejects a
+  partial wiring (`Stop == nil || Start == nil → ErrNotWired`) up front
+  — the download-success path no longer panics on a nil seam. A
+  success-path nil-seam regression test is committed, and the existing
+  round-trip tests wire `Stop` alongside `Start`.
+
 ### v1.31.2 patch (2026-11-24) — native-rollback-guard
 
 R125 findings (3): the medium nil-seam panic fixed, both lows fixed.
