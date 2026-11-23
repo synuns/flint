@@ -23,19 +23,20 @@ is Docker: flint ships the engine compose definition inside the binary.
 ```sh
 flint setup           # ①embedded compose up --wait ②migrate ③seed guide ④plugin guide
 flint seed --demo     # synthetic demo data (isolated demo database)
-flint doctor          # diagnostics: verify the install (21 checks; fail → exit 1)
+flint doctor          # diagnostics: verify the install (23 checks; fail → exit 1)
 ```
 
 `setup` writes its embedded compose file — project name `flint`, engine
 image pinned by digest (ADR-0020) — to a temp path under the config dir
 and starts Doltgres with `--project-name flint`, so it works from any
 directory: no git clone, no compose file on disk. Host port defaults to
-5434 (ADR-0010); when it is taken, setup probes upward for a free
-loopback port (5499 excluded — reserved for the v1.29.0 dedicated test
-engine) and records the assigned port in `config.json`. Pass
-`--port N` to choose explicitly. The first run pulls the image before
-starting and finishes ping + migrate in the same run — a fresh machine
-needs exactly one `flint setup`.
+5434 (ADR-0010). `--port N` runs the managed path: an existing `flint`
+-project install is adopted, and when the requested port is taken setup
+probes upward for a free loopback port (5499 excluded — reserved for
+the v1.29.0 dedicated test engine), records the assigned port in
+`config.json`, retries ping (30 × 200ms code constants) and finishes
+ping + migrate in the same run. Port-occupant identification is scoped
+to this `--port` path.
 
 External engine mode (v1.30.0): `flint setup --engine-url` skips engine
 install entirely and records a Doltgres you run yourself — loopback
@@ -58,7 +59,7 @@ polluting production databases). Verify:
 flint read dump        # search: active_knowledge view only
 flint hot --session x  # inject at session start (hot_budget default 2,000 chars)
 flint audit --limit 5  # audit: last 5 entries of dolt_log
-flint doctor --check db   # diagnostics: db subset of the 21 checks (fail → exit 1)
+flint doctor --check db   # diagnostics: db subset of the 23 checks (fail → exit 1)
 flint report --days 7     # report: daily intake · zero_pct · p95 · stale (default 7 days)
 flint restore --file <dump> --drill  # recovery drill (source untouched, row-count compare only)
 ```
@@ -87,8 +88,8 @@ Hermes use documentation adapters ([adapters/](adapters/)).
 
 To avoid passing the DSN as an environment variable every time, put it in a
 config file (v0.7). Since v1.30.0 the same file also records what setup
-decided: `port` (the assigned engine port) and `engine.mode`
-(`managed-container` | `external`).
+decided: `port` (the assigned engine port, `--port` path) and
+`engine.mode: external` (external engine mode).
 
 ```sh
 # Linux: ~/.config/flint/config.json · macOS: ~/Library/Application Support/flint/config.json

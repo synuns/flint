@@ -33,6 +33,7 @@ func TestSetupUXNonTTY(t *testing.T) {
 }
 
 func TestSetupJSONMode(t *testing.T) {
+	withExistingEngineConfig(t)
 	withFake(t, &fakeStore{})
 	rec := withFakeCompose(t)
 	out, code := mustRun(t, []string{"setup", "--json"}, "")

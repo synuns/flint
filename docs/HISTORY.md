@@ -6,6 +6,35 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.30.1 patch (2026-11-24) — install-audit: R121 문서 정정·버전 승격
+
+R121 설치 여정 감사의 문서 레인(코드 정정 — 포트→DSN 체인·악수 연결·
+purge 게이팅·pull/TLS/health 분류기 등 — 은 같은 감사의 코드 레인이
+이 패치에 반영한다):
+
+- **docs-to-implementation alignment (R121-상4)**: the v1.30.0 entry
+  and the living docs (README EN/KO · QUICKSTART · contracts/cli.md)
+  no longer describe unshipped behavior — the three engine thresholds
+  (`ping_retry_count`·`ping_retry_interval_ms`·`engine_wait_seconds`)
+  are code constants with meta registration as a follow-up; the
+  pull/TLS/health-timeout classifiers, the connection-level kind+pin
+  handshake and the external-mode purge gating are v1.30.1 additions;
+  the compose v1 case is a prescription (no executed fallback);
+  port-occupant identification is scoped to the `--port` path; the
+  flagless default path kept the legacy chain in v1.30.0.
+- **native spike conclusion corrected (R121-중10)**: the L0 pass is a
+  pre-observation of the v1.31.0 start condition — the four spec pass
+  criteria (real-DB test suite · service registration on both OSes ·
+  container↔native conversion · rollback) remain open and are planned
+  at v1.31.0 G2 (docs/plans/native-spike-v1300.md 결론 정정 ·
+  release-scope v1.31.0 행 비고 정정).
+- **RUNBOOK §11 developer path (R121-하13)**: `make up`/`make down`
+  and the repository-root compose are named a developer path (unpinned
+  `:latest`) with the coexistence rationale documented — the install
+  path's embedded pinned compose stays the single source (ADR-0020).
+- **doctor check count (R121-하14)**: QUICKSTART·README now say 23
+  checks (was 21 — the count had drifted).
+
 ### v1.30.0 minor (2026-11-24) — install-journey: embedded compose · port assignment · engine handshake · external mode
 
 (spec: docs/plans/2026-11-23-flint-v1300.spec.md · plan:
@@ -22,38 +51,50 @@ six findings reflected). The install journey, no schema change:
   through flint releases only; container identity is an exact label
   match on `com.docker.compose.project=flint`.
 - **first-run single success**: after the engine starts, setup retries
-  ping (default 30 × 200ms — thresholds `ping_retry_count` /
-  `ping_retry_interval_ms`, separate from `engine_wait_seconds`) and
-  finishes ping + migrate in the same run on a fresh machine.
+  ping (30 × 200ms code constants) and finishes ping + migrate in the
+  same run — on the `--port` path; the flagless path kept the legacy
+  compose-up → ping → migrate chain. The threshold keys
+  `ping_retry_count` / `ping_retry_interval_ms` / `engine_wait_seconds`
+  are not registered in v1.30.0 — defaults live in code and meta
+  override is a follow-up registration (후속 등록).
 - **error classification**: compose failures classify into per-cause
-  prescriptions (daemon down · compose v1 with a one-shot
-  `docker-compose` fallback · permission · pull limits/TLS · port
-  bind · health-check timeout; lightweight runtimes get runtime-specific
-  wording, not a feature fork).
-- **port assignment**: `flint setup --port N`, or auto-assignment when
-  the default port is taken — an upward loopback bind probe from 5434
-  (5499 excluded, reserved for the v1.29.0 dedicated test engine; cap
-  65535) recorded in `config.json` (0600). The occupant is named via
-  lsof + `docker ps --filter publish=<port>` when available.
-- **engine handshake**: connections verify the engine kind and version
-  (Doltgres-only) right after connect — managed engines must match the
-  pin, external engines get a version warning; hard failure is limited
-  to human commands (setup · doctor), hook/MCP paths keep the quiet
-  skip contract. doctor's port check no longer needs the repository
-  (socket probe + `docker ps` label match) and checkVersions shows the
-  engine version.
+  prescriptions (docker missing · daemon down · permission · compose v1
+  — a prescription to install the compose plugin, not an executed
+  `docker-compose` fallback; lightweight runtimes get runtime-specific
+  wording, not a feature fork). Pull-limit · TLS · health-check-timeout
+  classifiers are added in v1.30.1.
+- **port assignment**: `flint setup --port N` runs the managed path —
+  an existing `flint`-project install is adopted (port reused); when
+  the requested port is taken, an upward loopback bind probe (5499
+  excluded, reserved for the v1.29.0 dedicated test engine; cap 65535)
+  picks a free port, recorded in `config.json` (0600). Port-occupant
+  identification is scoped to this `--port` path; the flagless default
+  kept the legacy chain in v1.30.0, and the connection DSN stayed on
+  5434 (the config-port → DSN chain lands in v1.30.1).
+- **engine handshake**: the `--port` setup path verifies the engine
+  kind and version right after connect (`version()` + a `dolt_log`
+  probe — Doltgres vs plain Postgres). Pin matching, the
+  `--engine-url`-path handshake and connection-level verification on
+  other paths land in v1.30.1. doctor's port check no longer needs the
+  repository (socket probe + `docker ps` label match) and checkVersions
+  shows the engine version.
 - **external engine mode**: `flint setup --engine-url` records a
   Doltgres you run yourself and skips engine install entirely —
   loopback-only (localhost · 127.0.0.1 · [::1]; unix sockets and
   remote hosts rejected), DSN masked in output, `config.json` records
-  `engine.mode: external` (0600), and purge stays managed-mode-only.
+  `engine.mode: external` (0600). In v1.30.0 the record is written
+  without a connection handshake or migrate; both, and the
+  managed-mode-only purge gating, land in v1.30.1.
 - **existing installs**: a non-`flint` compose project holding the
   engine stops setup with a warning — never migrated or recreated
   automatically. The manual conversion procedure (dump → restore →
   config.json → legacy cleanup per RUNBOOK §13) is documented in
   RUNBOOK §11.
-- **native spike (M4)**: the L0 spike passed — v1.31.0 native-engine
-  mode gets the go-ahead (conclusion note:
+- **native spike (M4)**: the L0 spike observation passed — a
+  pre-observation of the v1.31.0 start condition, not the spec's four
+  pass criteria (real-DB test suite · service registration on both
+  OSes · conversion · rollback remain open; v1.31.0 G2 plans them —
+  corrected v1.30.1, conclusion note:
   docs/plans/native-spike-v1300.md; upstream checksums absence and the
   config `user` section observation carry over as design work).
 - **memory verdict**: the v1.29.0 measurement spike is declared

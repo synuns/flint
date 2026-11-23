@@ -72,10 +72,12 @@ Sources: `lib/wire/registry.go` · `lib/wire/run.go` · `lib/store/pipeline.go` 
   the binary (project name `flint`, engine image pinned by digest —
   ADR-0020) and staged to a temp file under the config dir, so `flint
   setup` no longer depends on a repository checkout. Host port defaults
-  to 5434 (ADR-0010); when occupied, setup probes upward for a free
-  loopback port — 5499 excluded (v1.29.0 dedicated test-engine
-  reservation) — and records the assigned port in `config.json` (`port`
-  field, 0600). `setup --port N` fixes the port explicitly.
+  to 5434 (ADR-0010). `setup --port N` runs the managed path: an
+  existing `flint`-project install is adopted (port reused); when the
+  requested port is taken, setup probes upward for a free loopback
+  port — 5499 excluded (v1.29.0 dedicated test-engine reservation) —
+  and records the assigned port in `config.json` (`port` field, 0600).
+  Port-occupant identification is scoped to this `--port` path.
   `setup --engine-url DSN` switches to external engine mode: the DSN is
   accepted only from the `FLINT_ENGINE_URL` environment variable or
   `--engine-url-file PATH` (inline values are rejected — shell history ·

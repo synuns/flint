@@ -46,6 +46,12 @@ func TestClassifyEngineErrorTable(t *testing.T) {
 		{"binary_missing", errors.New("exec: docker: executable file not found in $PATH"), "binary_missing"},
 		{"binary_missing_wrapped", fmt.Errorf("up: %w: ", exec.ErrNotFound), "binary_missing"},
 		{"compose_v1", errors.New("docker: 'compose' is not a docker command."), "compose_v1"},
+		{"rate_limited_toomanyrequests", errors.New("toomanyrequests: You have reached your unauthenticated pull rate limit."), "rate_limited"},
+		{"rate_limited_phrase", errors.New("error pulling image: you have hit your rate limit"), "rate_limited"},
+		{"tls_error_x509", errors.New("tls: failed to verify certificate: x509: certificate signed by unknown authority"), "tls_error"},
+		{"tls_error_phrase", errors.New("Get \"https://registry.example/v2/: remote error: tls: bad certificate"), "tls_error"},
+		{"health_check_timeout_unhealthy", errors.New("container flint-engine-1 is unhealthy"), "health_check_timeout"},
+		{"health_check_timeout_phrase", errors.New("dependency failed to start: container flint-engine-1 is unhealthy (health check failed)"), "health_check_timeout"},
 		{"lightweight_runtime_colima", errors.New("colima daemon is not running"), "lightweight_runtime"},
 		{"lightweight_runtime_orbstack", errors.New("orbstack docker socket unavailable"), "lightweight_runtime"},
 		{"lightweight_runtime_podman", errors.New("podman machine not started"), "lightweight_runtime"},
@@ -74,6 +80,17 @@ func TestClassifyEngineErrorComposeV1RequiresFallbackBinary(t *testing.T) {
 	kind, _ := ClassifyEngineError(errors.New("docker: 'compose' is not a docker command."))
 	if kind != "unclassified" {
 		t.Fatalf("docker-compose 부재 시 compose_v1이 아니어야 한다: %q", kind)
+	}
+}
+
+func TestClassifyEngineErrorComposeV1RemedyNoFallbackClaim(t *testing.T) {
+	withClassifyLookPath(t, true)
+	_, remedy := ClassifyEngineError(errors.New("docker: 'compose' is not a docker command."))
+	if strings.Contains(strings.ToLower(remedy), "falls back") {
+		t.Fatalf("compose_v1 처방이 미구현 폴백을 주장함: %q", remedy)
+	}
+	if !strings.Contains(remedy, "compose plugin") {
+		t.Fatalf("compose_v1 처방에 플러그인 설치 안내 부재: %q", remedy)
 	}
 }
 

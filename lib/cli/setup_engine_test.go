@@ -41,6 +41,11 @@ func withEngineHandshake(t *testing.T, fn func(ctx context.Context, dsn string) 
 	t.Cleanup(func() { engineHandshakeFn = prev })
 }
 
+func withEngineHandshakeOK(t *testing.T) {
+	t.Helper()
+	withEngineHandshake(t, func(ctx context.Context, dsn string) error { return nil })
+}
+
 func TestEngineURLLoopbackAllowed(t *testing.T) {
 	dsns := []string{
 		"postgresql://flint@localhost:5434/flint",
@@ -49,7 +54,9 @@ func TestEngineURLLoopbackAllowed(t *testing.T) {
 	}
 	for _, dsn := range dsns {
 		dir := withEngineConfigDir(t)
-		out, code := mustRun(t, []string{"setup", "--engine-url", dsn}, "")
+		withEngineHandshakeOK(t)
+		t.Setenv("FLINT_ENGINE_URL", dsn)
+		out, code := mustRun(t, []string{"setup"}, "")
 		if code != 0 {
 			t.Fatalf("%s: exit=%d, want 0; out=%s", dsn, code, out)
 		}
@@ -73,7 +80,9 @@ func TestEngineURLLoopbackAllowed(t *testing.T) {
 
 func TestEngineModeRecordedExternal(t *testing.T) {
 	dir := withEngineConfigDir(t)
-	out, code := mustRun(t, []string{"setup", "--engine-url", "postgresql://flint@127.0.0.1:5599/flint"}, "")
+	withEngineHandshakeOK(t)
+	t.Setenv("FLINT_ENGINE_URL", "postgresql://flint@127.0.0.1:5599/flint")
+	out, code := mustRun(t, []string{"setup"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
@@ -89,6 +98,7 @@ func TestEngineModeRecordedExternal(t *testing.T) {
 
 func TestEngineURLMaskedInOutputOnly(t *testing.T) {
 	dir := withEngineConfigDir(t)
+	withEngineHandshakeOK(t)
 	dsn := "postgresql://flint:s3cr3tpw@127.0.0.1:5434/flint"
 	t.Setenv("FLINT_ENGINE_URL", dsn)
 	out, code := mustRun(t, []string{"setup"}, "")
@@ -116,7 +126,9 @@ func TestEngineURLRejectedNonLoopback(t *testing.T) {
 	}
 	for _, dsn := range cases {
 		dir := withEngineConfigDir(t)
-		out, code := mustRun(t, []string{"setup", "--engine-url", dsn}, "")
+		withEngineHandshakeOK(t)
+		t.Setenv("FLINT_ENGINE_URL", dsn)
+		out, code := mustRun(t, []string{"setup"}, "")
 		if code != 3 {
 			t.Fatalf("%s: exit=%d, want 3; out=%s", dsn, code, out)
 		}
@@ -142,11 +154,13 @@ func TestEngineURLRequiresValue(t *testing.T) {
 
 func TestEngineURLPreservesConfigKeys(t *testing.T) {
 	dir := withEngineConfigDir(t)
+	withEngineHandshakeOK(t)
 	prev := []byte("{\n  \"port\": 5599,\n  \"dsn\": \"postgresql://flint:x@127.0.0.1:5434/flint\"\n}\n")
 	if err := os.WriteFile(engineConfigPath(dir), prev, 0o600); err != nil {
 		t.Fatal(err)
 	}
-	out, code := mustRun(t, []string{"setup", "--engine-url", "postgresql://flint@localhost:5435/flint"}, "")
+	t.Setenv("FLINT_ENGINE_URL", "postgresql://flint@localhost:5435/flint")
+	out, code := mustRun(t, []string{"setup"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
 	}
@@ -205,6 +219,7 @@ func TestMaskEngineURL(t *testing.T) {
 		in, want string
 	}{
 		{"postgresql://flint:pw@127.0.0.1:5434/flint", "postgresql://flint:***@127.0.0.1:5434/flint"},
+		{"postgresql://flint:p@ss@127.0.0.1:5434/flint", "postgresql://flint:***@127.0.0.1:5434/flint"},
 		{"postgresql://flint@127.0.0.1:5434/flint", "postgresql://flint@127.0.0.1:5434/flint"},
 		{"postgresql://127.0.0.1:5434/flint", "postgresql://127.0.0.1:5434/flint"},
 		{"postgresql://flint:pw@[::1]:5434/flint?sslmode=disable", "postgresql://flint:***@[::1]:5434/flint?sslmode=disable"},
@@ -232,6 +247,7 @@ func TestEngineURLEnvFullDSNAcceptedV1300(t *testing.T) {
 	t.Setenv("FLINT_ENGINE_URL", "postgresql://u:secret@127.0.0.1:5434/flint")
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
+	withEngineHandshakeOK(t)
 	var b strings.Builder
 	code := runSetupEngineURL(context.Background(), &b, "postgresql://u:secret@127.0.0.1:5434/flint")
 	if code != 0 {
@@ -256,20 +272,23 @@ func TestEngineURLInlinePasswordRejected(t *testing.T) {
 	}
 }
 
-func TestEngineURLInlineNoPasswordAllowed(t *testing.T) {
+func TestEngineURLInlineValueRejectedV1301(t *testing.T) {
 	dir := withEngineConfigDir(t)
 	out, code := mustRun(t, []string{"setup", "--engine-url", "postgresql://flint@127.0.0.1:5434/flint"}, "")
-	if code != 0 {
-		t.Fatalf("exit=%d, want 0(비밀 없는 인라인 허용); out=%s", code, out)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(인라인 값 전면 거부); out=%s", code, out)
 	}
-	cfg := readEngineConfig(t, dir)
-	if cfg["engine_url"] != "postgresql://flint@127.0.0.1:5434/flint" {
-		t.Fatalf("config engine_url=%v", cfg["engine_url"])
+	if !strings.Contains(out, "FLINT_ENGINE_URL") || !strings.Contains(out, "--engine-url-file") {
+		t.Fatalf("대체 경로 안내 없음: %s", out)
+	}
+	if _, err := os.Stat(engineConfigPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("거부 시 config.json이 기록됨")
 	}
 }
 
 func TestEngineURLEnvVarFullDSNAccepted(t *testing.T) {
 	dir := withEngineConfigDir(t)
+	withEngineHandshakeOK(t)
 	t.Setenv("FLINT_ENGINE_URL", "postgresql://flint:s3cr3tpw@127.0.0.1:5434/flint")
 	out, code := mustRun(t, []string{"setup"}, "")
 	if code != 0 {
@@ -288,16 +307,16 @@ func TestEngineURLEnvVarFullDSNAccepted(t *testing.T) {
 	}
 }
 
-func TestEngineURLEnvVarFlagTakesPrecedence(t *testing.T) {
+func TestEngineURLFlagRejectedEvenWithEnvV1301(t *testing.T) {
 	dir := withEngineConfigDir(t)
+	withEngineHandshakeOK(t)
 	t.Setenv("FLINT_ENGINE_URL", "postgresql://envuser:pw@127.0.0.1:5999/flint")
 	out, code := mustRun(t, []string{"setup", "--engine-url", "postgresql://flint@127.0.0.1:5434/flint"}, "")
-	if code != 0 {
-		t.Fatalf("exit=%d, want 0(비밀 없는 인라인 인자 우선); out=%s", code, out)
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3(플래그 인라인은 환경변수가 있어도 거부); out=%s", code, out)
 	}
-	cfg := readEngineConfig(t, dir)
-	if cfg["engine_url"] != "postgresql://flint@127.0.0.1:5434/flint" {
-		t.Fatalf("config engine_url=%v, want 인자 DSN 우선", cfg["engine_url"])
+	if _, err := os.Stat(engineConfigPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("거부 시 config.json이 기록됨")
 	}
 }
 
@@ -305,6 +324,7 @@ func TestEngineURLFileFullDSNAcceptedV1300(t *testing.T) {
 	t.Setenv("FLINT_ENGINE_URL", "")
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
+	withEngineHandshakeOK(t)
 	f := filepath.Join(dir, "engine-url")
 	if err := os.WriteFile(f, []byte("postgresql://u:secret@127.0.0.1:5434/flint\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -316,5 +336,73 @@ func TestEngineURLFileFullDSNAcceptedV1300(t *testing.T) {
 	}
 	if !strings.Contains(b.String(), "***") || strings.Contains(b.String(), "secret") {
 		t.Fatalf("마스킹 위반: %s", b.String())
+	}
+}
+
+func TestEngineURLFilePermWarnsV1301(t *testing.T) {
+	t.Setenv("FLINT_ENGINE_URL", "")
+	dir := t.TempDir()
+	t.Setenv("FLINT_CONFIG_DIR", dir)
+	withEngineHandshakeOK(t)
+	f := filepath.Join(dir, "engine-url")
+	if err := os.WriteFile(f, []byte("postgresql://u:secret@127.0.0.1:5434/flint\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var errs strings.Builder
+	prevStderr := setupStderr
+	setupStderr = &errs
+	t.Cleanup(func() { setupStderr = prevStderr })
+	var b strings.Builder
+	code := runSetup(context.Background(), nil, []string{"--engine-url-file", f}, strings.NewReader(""), &b)
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(경고는 진행 방해 없음); out=%s", code, b.String())
+	}
+	warned := errs.String()
+	if !strings.Contains(warned, "0600") {
+		t.Fatalf("0600 권고 경고 없음: %q", warned)
+	}
+	if lines := strings.Split(strings.TrimRight(warned, "\n"), "\n"); len(lines) != 1 {
+		t.Fatalf("경고는 1행이어야 한다: %q", warned)
+	}
+	cfg, rerr := os.ReadFile(filepath.Join(dir, "config.json"))
+	if rerr != nil || !strings.Contains(string(cfg), "engine_url") {
+		t.Fatalf("진행 후 config 기록: %v %s", rerr, cfg)
+	}
+}
+
+func TestEngineURLHandshakeBeforeWriteV1301(t *testing.T) {
+	dir := withEngineConfigDir(t)
+	withEngineHandshake(t, func(ctx context.Context, dsn string) error {
+		return errors.New("engine not doltgres")
+	})
+	t.Setenv("FLINT_ENGINE_URL", "postgresql://flint@127.0.0.1:5434/flint")
+	out, code := mustRun(t, []string{"setup"}, "")
+	if code != 1 {
+		t.Fatalf("exit=%d, want 1(악수 실패); out=%s", code, out)
+	}
+	if _, err := os.Stat(engineConfigPath(dir)); !os.IsNotExist(err) {
+		t.Fatalf("악수 실패 전 config.json이 먼저 기록됨(순서 위반)")
+	}
+}
+
+func TestEngineHandshakeDefaultRequiresDoltgres(t *testing.T) {
+	postgresOnly := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "version()") {
+			return [][]any{{"PostgreSQL 15.5"}}, nil
+		}
+		return nil, errors.New("no dolt log")
+	}}
+	prev := newStore
+	newStore = func(ctx context.Context, dsn string) (Store, error) { return postgresOnly, nil }
+	t.Cleanup(func() { newStore = prev })
+	err := engineHandshakeDefault(context.Background(), "postgresql://flint@127.0.0.1:5434/flint")
+	if err == nil || !strings.Contains(err.Error(), "doltgres") {
+		t.Fatalf("postgres 엔진 거부 없음: %v", err)
+	}
+
+	dolt := &fakeStore{queryFn: engineHandshakeQueryFn}
+	newStore = func(ctx context.Context, dsn string) (Store, error) { return dolt, nil }
+	if err := engineHandshakeDefault(context.Background(), "postgresql://flint@127.0.0.1:5434/flint"); err != nil {
+		t.Fatalf("doltgres 엔진 오류: %v", err)
 	}
 }

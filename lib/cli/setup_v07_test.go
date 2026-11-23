@@ -10,6 +10,7 @@ import (
 
 func TestSetupWaitArgs(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
+	withDockerPS(t, "", nil)
 	var gotArgs []string
 	prevUp, prevRun := composeUpFn, composeRunFn
 	composeRunFn = func(ctx context.Context, args ...string) error {
@@ -25,7 +26,7 @@ func TestSetupWaitArgs(t *testing.T) {
 		t.Fatalf("인자=%v, want -f <path> 머리", gotArgs)
 	}
 	rest := gotArgs[2:]
-	want := []string{"--project-name", "flint", "up", "-d", "--wait"}
+	want := []string{"--project-name", "flint", "up", "-d", "--wait", "--wait-timeout", "60"}
 	if len(rest) != len(want) {
 		t.Fatalf("인자=%v, want -f <path> %v", gotArgs, want)
 	}

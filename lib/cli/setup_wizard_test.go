@@ -39,6 +39,7 @@ func newExposureRecorder() (*fakeStore, *string, *string) {
 }
 
 func TestSetupWizardEntryBranch(t *testing.T) {
+	withExistingEngineConfig(t)
 	st, key, val := newExposureRecorder()
 	rec := withFakeCompose(t)
 	calls := withSetupWizard(t, "minimal", true)
@@ -63,6 +64,7 @@ func TestSetupWizardEntryBranch(t *testing.T) {
 }
 
 func TestSetupWizardCancelFallsBack(t *testing.T) {
+	withExistingEngineConfig(t)
 	st, key, val := newExposureRecorder()
 	withFakeCompose(t)
 	withSetupWizard(t, "", false)
@@ -84,6 +86,7 @@ func TestSetupWizardCancelFallsBack(t *testing.T) {
 }
 
 func TestSetupNonTTYNoWizard(t *testing.T) {
+	withExistingEngineConfig(t)
 	st, key, _ := newExposureRecorder()
 	withFakeCompose(t)
 	calls := withSetupWizard(t, "minimal", true)

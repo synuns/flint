@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net"
-	"net/url"
 	"os"
 	"os/exec"
 	"strconv"
@@ -29,21 +28,53 @@ var composeRunFn = func(ctx context.Context, args ...string) error {
 	return nil
 }
 
+func existingEngineImage(ctx context.Context) (string, bool) {
+	out, err := dockerPSFn(ctx, "--filter", "label=com.docker.compose.project=flint", "--format", "{{.Image}}")
+	if err != nil {
+		return "", false
+	}
+	for _, line := range strings.Fields(out) {
+		return line, true
+	}
+	return "", false
+}
+
+func guardEngineImage(ctx context.Context) error {
+	img, ok := existingEngineImage(ctx)
+	if !ok || img == PinnedImage() {
+		return nil
+	}
+	return fmt.Errorf("setup: running flint container uses %s but this flint pins %s — run flint teardown --yes first (auto-recreate is disabled; see docs/RUNBOOK.md)", img, PinnedImage())
+}
+
+func composeUpDefault(ctx context.Context) error {
+	if err := guardEngineImage(ctx); err != nil {
+		return err
+	}
+	path, err := writeEmbeddedCompose()
+	if err != nil {
+		return err
+	}
+	defer os.Remove(path)
+	return composeRunFn(ctx, "-f", path, "--project-name", "flint", "up", "-d", "--wait", "--wait-timeout", "60")
+}
+
+func composeDownDefault(ctx context.Context, purge bool) error {
+	path, err := writeEmbeddedCompose()
+	if err != nil {
+		return err
+	}
+	defer os.Remove(path)
+	args := []string{"-f", path, "--project-name", "flint", "down"}
+	if purge {
+		args = append(args, "-v")
+	}
+	return composeRunFn(ctx, args...)
+}
+
 var (
-	composeUpFn = func(ctx context.Context) error {
-		path, err := writeEmbeddedCompose()
-		if err != nil {
-			return err
-		}
-		defer os.Remove(path)
-		return composeRunFn(ctx, "-f", path, "--project-name", "flint", "up", "-d", "--wait")
-	}
-	composeDownFn = func(ctx context.Context, purge bool) error {
-		if purge {
-			return composeRunFn(ctx, "down", "-v")
-		}
-		return composeRunFn(ctx, "down")
-	}
+	composeUpFn   = composeUpDefault
+	composeDownFn = composeDownDefault
 )
 
 func writeEmbeddedCompose() (string, error) {
@@ -237,18 +268,9 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		fmt.Fprintln(stdout, errLine(perr))
 		return 3
 	}
-	if engineDSN := res.Value("--engine-url"); res.Given("--engine-url") {
-		if engineDSN == "" {
-			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url requires a postgresql:// DSN")))
-			return 3
-		}
-		if pu, perr := url.Parse(engineDSN); perr == nil && pu.User != nil {
-			if _, has := pu.User.Password(); has {
-				fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url rejects an inline password — set FLINT_ENGINE_URL instead (the env path accepts the full DSN)")))
-				return 3
-			}
-		}
-		return runSetupEngineURL(ctx, stdout, engineDSN)
+	if res.Given("--engine-url") {
+		fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url does not accept an inline value — use FLINT_ENGINE_URL or --engine-url-file (see docs/QUICKSTART.md)")))
+		return 3
 	}
 	if envDSN := os.Getenv("FLINT_ENGINE_URL"); envDSN != "" {
 		return runSetupEngineURL(ctx, stdout, envDSN)
@@ -258,6 +280,9 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		if filePath == "" {
 			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url-file requires a path")))
 			return 3
+		}
+		if info, serr := os.Stat(filePath); serr == nil && info.Mode().Perm() != 0o600 {
+			fmt.Fprintf(setupStderr, "flint setup: warning: %s is mode %v — restrict it to 0600 (owner-only) to protect the engine URL\n", filePath, info.Mode().Perm())
 		}
 		fileDSN, ferr := os.ReadFile(filePath)
 		if ferr != nil {
@@ -315,6 +340,9 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		return runUpdateRules(stdout, srcOverride)
 	}
 
+	if len(args) == 0 && LoadConfigDSN() == "" {
+		return runSetupManaged(ctx, st, stdout, defaultEnginePort)
+	}
 	if len(args) == 0 && setupWizardTTYFn(stdout) {
 		if chosen, ok := setupWizardFn(); ok {
 			if code := runSetupChain(ctx, st, stdout, false); code != 0 {

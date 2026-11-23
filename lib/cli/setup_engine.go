@@ -10,9 +10,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"github.com/synuns/flint/lib/db"
 )
 
-var engineHandshakeFn func(ctx context.Context, dsn string) error
+func engineHandshakeDefault(ctx context.Context, dsn string) error {
+	st, err := newStore(ctx, dsn)
+	if err != nil {
+		return fmt.Errorf("setup: engine connect failed: %w", err)
+	}
+	defer st.Close()
+	info, err := db.Handshake(ctx, st)
+	if err != nil {
+		return err
+	}
+	if info.Kind != "doltgres" {
+		return fmt.Errorf("setup: engine kind %q — flint requires a doltgres engine", info.Kind)
+	}
+	return nil
+}
+
+var engineHandshakeFn = engineHandshakeDefault
 
 func MaskEngineURL(dsn string) string {
 	i := strings.Index(dsn, "://")
@@ -20,7 +38,7 @@ func MaskEngineURL(dsn string) string {
 		return dsn
 	}
 	rest := dsn[i+3:]
-	at := strings.Index(rest, "@")
+	at := strings.LastIndex(rest, "@")
 	if at < 0 {
 		return dsn
 	}
@@ -56,15 +74,13 @@ func runSetupEngineURL(ctx context.Context, stdout io.Writer, dsn string) int {
 		fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: --engine-url is loopback-only (localhost, 127.0.0.1, [::1]) — got host %q; see docs/QUICKSTART.md", u.Hostname())))
 		return 3
 	}
-	if err := writeEngineConfig(dsn); err != nil {
+	if err := engineHandshakeFn(ctx, dsn); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return 1
 	}
-	if engineHandshakeFn != nil {
-		if err := engineHandshakeFn(ctx, dsn); err != nil {
-			fmt.Fprintln(stdout, errLine(err))
-			return 1
-		}
+	if err := writeEngineConfig(dsn); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return 1
 	}
 	b, err := json.Marshal(engineURLSummary{Status: "ok", EngineURL: MaskEngineURL(dsn), Mode: "external"})
 	if err != nil {

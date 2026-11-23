@@ -8,6 +8,7 @@ import (
 	"io"
 	"math"
 	"net/url"
+	"os"
 	"regexp"
 	"sort"
 	"strconv"
@@ -1730,6 +1731,28 @@ var purgeDroppedSQLStateRe = regexp.MustCompile(`\(SQLSTATE [0-9A-Z]{5}\)`)
 
 var PurgeDSNFn = wire.ResolveDSN
 
+var PurgeEngineModeFn = loadEngineMode
+
+func loadEngineMode() string {
+	p := wire.ConfigPath()
+	if p == "" {
+		return ""
+	}
+	b, err := os.ReadFile(p)
+	if err != nil {
+		return ""
+	}
+	var c struct {
+		Engine struct {
+			Mode string `json:"mode"`
+		} `json:"engine"`
+	}
+	if err := json.Unmarshal(b, &c); err != nil {
+		return ""
+	}
+	return c.Engine.Mode
+}
+
 func purgeDroppedLoopback(dsn string) bool {
 	u, err := url.Parse(dsn)
 	if err != nil {
@@ -1764,6 +1787,11 @@ func listDroppedDatabases(ctx context.Context, st wire.Store) ([]string, bool) {
 }
 
 func RunPurgeDropped(ctx context.Context, st wire.Store, yes bool, stdout io.Writer) int {
+	if PurgeEngineModeFn() == "external" {
+		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
+			"maintain: --purge-dropped: managed-mode engine only — config engine.mode is \"external\"")))
+		return 3
+	}
 	if !purgeDroppedLoopback(PurgeDSNFn()) {
 		fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
 			"maintain: --purge-dropped: loopback-only — resolved DSN host is not 127.0.0.1/localhost")))

@@ -28,6 +28,7 @@ func ClassifyEngineError(err error) (kind string, remedy string) {
 		return "unclassified", ""
 	}
 	msg := err.Error()
+	l := strings.ToLower(msg)
 	switch {
 	case errors.Is(err, exec.ErrNotFound) || strings.Contains(msg, "exec: docker: executable file not found"):
 		return "binary_missing", remedyBinaryMissing()
@@ -36,7 +37,13 @@ func ClassifyEngineError(err error) (kind string, remedy string) {
 	case strings.Contains(msg, "permission denied"):
 		return "permission_denied", remedyPermission()
 	case strings.Contains(msg, "is not a docker command") && dockerComposeV1Present():
-		return "compose_v1", "docker compose plugin missing — docker-compose v1 detected; flint falls back to docker-compose once, or install the compose plugin (https://docs.docker.com/compose/install/), then re-run flint setup"
+		return "compose_v1", "docker compose plugin missing — docker-compose v1 detected; install the compose plugin (https://docs.docker.com/compose/install/), then re-run flint setup"
+	case strings.Contains(l, "toomanyrequests") || strings.Contains(l, "rate limit"):
+		return "rate_limited", "Docker Hub pull rate limit reached — wait for the quota window to reset or authenticate to Docker Hub (docker login), then re-run flint setup"
+	case strings.Contains(l, "tls") || strings.Contains(l, "x509") || strings.Contains(l, "certificate"):
+		return "tls_error", "TLS certificate failure while pulling or connecting — check registry proxy and CA trust settings, then re-run flint setup"
+	case strings.Contains(l, "unhealthy") || strings.Contains(l, "health check"):
+		return "health_check_timeout", "engine container failed its health check — inspect it with docker logs, then re-run flint setup"
 	}
 	if remedy, ok := remedyLightweightRuntime(msg); ok {
 		return "lightweight_runtime", remedy

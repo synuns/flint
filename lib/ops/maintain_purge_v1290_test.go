@@ -11,7 +11,12 @@ func withPurgeDSNV1290(t *testing.T, dsn string) {
 	t.Helper()
 	old := PurgeDSNFn
 	PurgeDSNFn = func() string { return dsn }
-	t.Cleanup(func() { PurgeDSNFn = old })
+	oldMode := PurgeEngineModeFn
+	PurgeEngineModeFn = func() string { return "" }
+	t.Cleanup(func() {
+		PurgeDSNFn = old
+		PurgeEngineModeFn = oldMode
+	})
 }
 
 func undropListErrV1290(names ...string) error {
