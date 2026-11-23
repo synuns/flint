@@ -454,10 +454,19 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
 기록한 뒤 `--project-name flint`로 기동한다. 저장소 체크아웃 없이 임의
 디렉터리에서 동작한다. 컨테이너 식별은 라벨
 `com.docker.compose.project=flint`의 **정확 일치**만 쓴다(이름 접두
-일치는 `flint-test` 등을 오탐한다 — v1.29.0 스펙 승계). 개발용
-`make up`/`make down`(cwd 관례)은 유지되지만 운영 엔진의 표준 경로는
-flint 경로(`flint setup`·`flint teardown`)다 — 워크트리 간 핀 차이가
-있을 수 있어 워크트리 밖에서는 flint 경로를 쓴다.
+일치는 `flint-test` 등을 오탐한다 — v1.29.0 스펙 승계).
+
+개발자 경로와 설치 경로의 구분(v1.30.1 명시 — R121-하13): 저장소
+루트의 `docker-compose.yml`과 `make up`/`make down`(cwd 관례)은
+**개발자 경로**다 — 이미지 핀을 고정하지 않는다
+(`dolthub/doltgresql:latest`). 존재 근거: 일상 개발에서 업스트림
+최신을 바로 추종하고, 핀 갱신 릴리스 전 검증을 수행하는 개발 수요.
+설치·운영 경로는 flint 경로(`flint setup`·`flint teardown`)의 내장
+compose(다이제스트 핀·4방 동치 가드)가 단일 소스다. 스펙 룰링
+(ADR-0020 — 설치 경로 compose 정의의 내장 단일화)과의 상충은 없다:
+루트 compose는 설치 경로가 아니며 바이너리가 읽지 않는 개발 전용
+자산이다. 워크트리 간 핀 차이가 있을 수 있어 워크트리 밖에서는
+flint 경로를 쓴다.
 
 ### 업그레이드 절차 (순서 고정)
 

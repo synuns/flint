@@ -75,6 +75,7 @@ func firstLine(s string) string {
 func TestEmbeddedSetupWritesTempCompose(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
+	withDockerPS(t, "", nil)
 	var gotArgs []string
 	var gotPath string
 	prevUp, prevRun := composeUpFn, composeRunFn
@@ -109,7 +110,7 @@ func TestEmbeddedSetupWritesTempCompose(t *testing.T) {
 	if err := composeUpFn(context.Background()); err != nil {
 		t.Fatalf("composeUpFn 오류: %v", err)
 	}
-	want := []string{"-f", gotPath, "--project-name", "flint", "up", "-d", "--wait"}
+	want := []string{"-f", gotPath, "--project-name", "flint", "up", "-d", "--wait", "--wait-timeout", "60"}
 	if len(gotArgs) != len(want) {
 		t.Fatalf("인자=%v, want %v", gotArgs, want)
 	}

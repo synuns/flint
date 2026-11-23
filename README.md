@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.30.0-blue" alt="v1.30.0">
+  <img src="https://img.shields.io/badge/release-v1.30.1-blue" alt="v1.30.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.30.1 · install-audit — docs corrected to match the shipped v1.30.0 implementation (engine thresholds are code constants pending meta registration · pull/TLS/health-timeout classifiers, connection-level handshake and external-mode purge gating are this patch's additions · compose v1 is a prescription, not a fallback · port assignment scoped to `--port`) · native L0 spike reworded (four spec pass criteria remain open, planned at v1.31.0 G2) · doctor count corrected to 23 · [full changelog](docs/HISTORY.md)
 > v1.30.0 · install-journey — `flint setup` ships the engine compose definition inside the binary (project name `flint` · digest-pinned image with a 4-way equivalence guard — no repository checkout; the first run pulls, starts and finishes ping + migrate in one go, with per-cause error prescriptions) · `--port` auto-assignment probes upward from 5434 (5499 reserved) · engine handshake verifies Doltgres and the pin · `--engine-url` external engine mode (loopback-only, DSN masked) · manual conversion procedure for pre-v1.30.0 installs (RUNBOOK §11) · native-engine L0 spike passed (v1.31.0 go-ahead) · [full changelog](docs/HISTORY.md)
 > v1.28.1 · R119 patch — T() gains an en fallback for missing ko keys — new keys no longer leak raw key strings (≤24h cache note from R119-2 declared accepted, self-resolving) · [full changelog](docs/HISTORY.md)
 > v1.28.0 · surface cleanup — `flint read` / `flint tuning` with no arguments on a TTY open an interactive TUI (flagged·non-TTY·FLINT_NO_TUI invocations keep the flag mode unchanged; read instrumentation preserved) · i18n KO catalog (`FLINT_LANG`, usage surface first) · test consolidation (8 domains, 56 version-suffixed files into 8, suite count unchanged at 592) · BRAND sweep · BREW tap review · signature re-verification · [full changelog](docs/HISTORY.md)
@@ -167,7 +168,7 @@ Detects installed harnesses (Codex, Gemini, OpenCode, Copilot, Cursor, Qwen, Dev
 <details>
 <summary>What <code>flint setup</code> does</summary>
 
-Writes the embedded compose file (project name `flint`, Doltgres image pinned by digest — ADR-0020) to a temp path and starts the engine with `--project-name flint`, then migrates the schema and prints next steps — all in one run, from any directory. Host port defaults to 5434; when it is taken, setup probes upward for a free loopback port (5499 excluded — reserved for the dedicated test engine) and records it in `config.json` — `--port N` chooses explicitly. Default DSN is `postgresql://flint:flint-dev@localhost:5434/flint` — override with `FLINT_DSN`. Already run your own Doltgres? `flint setup --engine-url` records it (loopback-only; DSN via `FLINT_ENGINE_URL` or `--engine-url-file`, inline values rejected, output masked). Tear down with `flint teardown`.
+Writes the embedded compose file (project name `flint`, Doltgres image pinned by digest — ADR-0020) to a temp path and starts the engine with `--project-name flint`, then migrates the schema and prints next steps — all in one run, from any directory. Host port defaults to 5434; `--port N` runs the managed path — an existing `flint`-project install is adopted, and when the requested port is taken setup probes upward for a free loopback port (5499 excluded — reserved for the dedicated test engine) and records the assignment in `config.json`. Default DSN is `postgresql://flint:flint-dev@localhost:5434/flint` — override with `FLINT_DSN`. Already run your own Doltgres? `flint setup --engine-url` records it (loopback-only; DSN via `FLINT_ENGINE_URL` or `--engine-url-file`, inline values rejected, output masked). Tear down with `flint teardown`.
 
 </details>
 
@@ -266,7 +267,7 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | `flint pending` | Pending review queue with verdicts (promote·merge·expire·hold, `--json`) |
 | `flint compact` | Record a compact summary as pending knowledge (PostCompact hook entry) |
 | `flint nudge` | Session-end distillation reminder for markers left by compact (`--clear` closes) |
-| `flint doctor --check c` | Health checks (21 kinds, subset via `--check`, fail → exit 1) |
+| `flint doctor --check c` | Health checks (23 kinds, subset via `--check`, fail → exit 1) |
 | `flint report --days n` | Daily intake·zero_pct·p95·stale report (`--html` static dashboard) |
 | `flint diff <from> <to>` | Compare knowledge between two as-of points |
 | `flint teardown` | Undo setup (hooks/config; `--purge` also removes data) |

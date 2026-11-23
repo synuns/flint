@@ -40,6 +40,43 @@ func withFakeCompose(t *testing.T) *composeRecorder {
 	return rec
 }
 
+// withExistingEngineConfig pins a config.json with a recorded dsn so bare
+// `flint setup` keeps the legacy wizard/chain flow when config exists.
+func withExistingEngineConfig(t *testing.T) string {
+	t.Helper()
+	dir := withEngineConfigDir(t)
+	body := "{\n  \"dsn\": \"postgresql://flint:flint-dev@127.0.0.1:5434/flint\"\n}\n"
+	if err := os.WriteFile(engineConfigPath(dir), []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
+type composeRunCall struct {
+	args    []string
+	ymlBody string
+}
+
+func withComposeRun(t *testing.T) *[]composeRunCall {
+	t.Helper()
+	var calls []composeRunCall
+	prev := composeRunFn
+	composeRunFn = func(ctx context.Context, args ...string) error {
+		body := ""
+		for i, a := range args {
+			if a == "-f" && i+1 < len(args) {
+				if b, err := os.ReadFile(args[i+1]); err == nil {
+					body = string(b)
+				}
+			}
+		}
+		calls = append(calls, composeRunCall{args: args, ymlBody: body})
+		return nil
+	}
+	t.Cleanup(func() { composeRunFn = prev })
+	return &calls
+}
+
 func TestSetupSteps(t *testing.T) {
 	steps := SetupSteps()
 	if len(steps) != 4 {
@@ -278,6 +315,7 @@ func TestSetupDryStoreFree(t *testing.T) {
 }
 
 func TestSetupNilStoreDegraded(t *testing.T) {
+	withExistingEngineConfig(t)
 	storeDown(t)
 	rec := withFakeCompose(t)
 	out, code := mustRun(t, []string{"setup"}, "")
@@ -294,6 +332,123 @@ func TestSetupNilStoreDegraded(t *testing.T) {
 	if nexts, _ := m["next"].([]any); len(nexts) == 0 {
 		t.Fatal("첫 실행 안내(next)가 유실됨")
 	}
+}
+
+func TestSetupNoFlagsFreshEnvRoutesManagedV1301(t *testing.T) {
+	dir := withEngineConfigDir(t)
+	withPortBindFn(t, func(p int) bool { return true })
+	withSetupPortProbe(t, false)
+	withDockerPS(t, "", nil)
+	withFakeCompose(t)
+	withFake(t, &fakeStore{queryFn: engineHandshakeQueryFn})
+	out, code := mustRun(t, []string{"setup"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["mode"] != "managed" || m["port"] != float64(defaultEnginePort) {
+		t.Fatalf("mode=%v port=%v, want managed/%d; out=%s", m["mode"], m["port"], defaultEnginePort, out)
+	}
+	cfg := readEngineConfig(t, dir)
+	if cfg["port"] != float64(defaultEnginePort) {
+		t.Fatalf("config port=%v, want %d", cfg["port"], defaultEnginePort)
+	}
+}
+
+func TestSetupNoFlagsExistingConfigKeepsChainV1301(t *testing.T) {
+	withExistingEngineConfig(t)
+	rec := withFakeCompose(t)
+	withFake(t, &fakeStore{})
+	out, code := mustRun(t, []string{"setup"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	if m := decode(t, out); m["mode"] != nil {
+		t.Fatalf("기존 체인 경로 침범: out=%s", out)
+	}
+	if rec.upCalls != 1 {
+		t.Fatalf("compose=%d회, want 1(기존 체인)", rec.upCalls)
+	}
+}
+
+func TestComposeUpWaitTimeoutRestoredV1301(t *testing.T) {
+	withEngineConfigDir(t)
+	withDockerPS(t, "", nil)
+	calls := withComposeRun(t)
+	if err := composeUpDefault(context.Background()); err != nil {
+		t.Fatalf("up 오류: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("compose 실행=%d회, want 1", len(*calls))
+	}
+	args := (*calls)[0].args
+	for i, a := range args {
+		if a == "--wait-timeout" && i+1 < len(args) && args[i+1] == "60" {
+			return
+		}
+	}
+	t.Fatalf("--wait-timeout 60 미명시: %v", args)
+}
+
+func TestComposeUpImageMismatchStopsV1301(t *testing.T) {
+	withEngineConfigDir(t)
+	withDockerPS(t, "dolthub/doltgresql@sha256:deadbeef\n", nil)
+	calls := withComposeRun(t)
+	err := composeUpDefault(context.Background())
+	if err == nil {
+		t.Fatal("핀 불일치인데 up 통과")
+	}
+	if !strings.Contains(err.Error(), PinnedImage()) || !strings.Contains(err.Error(), "teardown") {
+		t.Fatalf("정지 안내 없음: %v", err)
+	}
+	if len(*calls) != 0 {
+		t.Fatalf("정지 후 compose 실행: %v", *calls)
+	}
+}
+
+func TestComposeUpImageMatchProceedsV1301(t *testing.T) {
+	withEngineConfigDir(t)
+	withDockerPS(t, PinnedImage()+"\n", nil)
+	calls := withComposeRun(t)
+	if err := composeUpDefault(context.Background()); err != nil {
+		t.Fatalf("핀 일치 오류: %v", err)
+	}
+	if len(*calls) != 1 {
+		t.Fatalf("compose 실행=%d회, want 1", len(*calls))
+	}
+}
+
+func TestComposeDownUsesEmbeddedProjectV1301(t *testing.T) {
+	withEngineConfigDir(t)
+	calls := withComposeRun(t)
+	if err := composeDownDefault(context.Background(), false); err != nil {
+		t.Fatalf("down 오류: %v", err)
+	}
+	if err := composeDownDefault(context.Background(), true); err != nil {
+		t.Fatalf("down -v 오류: %v", err)
+	}
+	got := *calls
+	if len(got) != 2 {
+		t.Fatalf("down 실행=%d회, want 2", len(got))
+	}
+	check := func(c composeRunCall, wantV bool) {
+		t.Helper()
+		args := c.args
+		if args[0] != "-f" || args[2] != "--project-name" || args[3] != "flint" || args[4] != "down" {
+			t.Fatalf("down 인자=%v, want -f .. --project-name flint down", args)
+		}
+		if c.ymlBody != EmbeddedCompose() {
+			t.Fatalf("내장 compose 미사용: %d바이트", len(c.ymlBody))
+		}
+		if wantV && args[len(args)-1] != "-v" {
+			t.Fatalf("purge -v 없음: %v", args)
+		}
+		if !wantV && args[len(args)-1] == "-v" {
+			t.Fatalf("비purge에 -v 존재: %v", args)
+		}
+	}
+	check(got[0], false)
+	check(got[1], true)
 }
 
 func TestTeardownStoreFree(t *testing.T) {
