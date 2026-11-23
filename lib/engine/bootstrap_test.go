@@ -35,11 +35,11 @@ func (r fakeRow) Scan(dest ...any) error {
 func (r fakeRow) Err() error { return nil }
 
 type fakePool struct {
-	dsn       string
-	events    *[]fakeEvent
-	roleRow   fakeRow
-	execErr   error
-	closed    bool
+	dsn     string
+	events  *[]fakeEvent
+	roleRow fakeRow
+	execErr error
+	closed  bool
 }
 
 func (p *fakePool) Exec(ctx context.Context, sql string, args ...any) (pgconn.CommandTag, error) {

@@ -229,3 +229,18 @@ func TestDownloadURLAssembly(t *testing.T) {
 		t.Fatalf("downloadURL = %q, want %q", got, want)
 	}
 }
+
+func TestDownloadSelectsNestedPrefixedBinaryV1310(t *testing.T) {
+	tarball := buildTarball(t, map[string]string{
+		"doltgresql-darwin-arm64/bin/doltgres": "placeholder\n",
+		"doltgresql-darwin-arm64/licenses/x":   "lic\n",
+	})
+	setupDownload(t, tarball, "1.4.0\n")
+	dir, err := Download(context.Background(), "")
+	if err != nil {
+		t.Fatalf("중첩 접두 경로 선택 실패: %v", err)
+	}
+	if dir == "" {
+		t.Fatal("dir 공백")
+	}
+}

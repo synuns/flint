@@ -209,8 +209,11 @@ func extractBinary(tarPath, dir string) (string, error) {
 		if err := out.Close(); err != nil {
 			return "", err
 		}
-		if name == "bin/doltgres" {
+		if name == "bin/doltgres" || strings.HasSuffix(name, "/bin/doltgres") {
 			return name, nil
+		}
+		if strings.HasSuffix(name, "/doltgres") && fallback == "" {
+			fallback = name
 		}
 		if name == "doltgres" && fallback == "" {
 			fallback = name
