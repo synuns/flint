@@ -123,6 +123,14 @@ var writeLiteralAllow = map[string]bool{
 	// doctor check names and prescription wordings (human-facing guidance, non-SQL).
 	"update":            true,
 	"fix: flint update": true,
+	// the v1.26.0 doctor versions stale-cache guidance (names the update check
+	// — the check name itself, not SQL).
+	"fix: flint doctor --check update (refresh the version cache)": true,
+	// the report --text update-check freshness line (v1.26.0 T3 — display only).
+	"update check: %s\n": true,
+	// the static-combination approximation of the Fprintf line above (the result of blank-
+	// substituting the %s verb) — the fmtCombined body.
+	"update check: \n": true,
 	"fix: flint setup --update-rules — skill sync": true,
 	// rules_sync error guidance texts.
 	"update-rules: source flint-plugin/skills/flint not found — specify it with --src": true,

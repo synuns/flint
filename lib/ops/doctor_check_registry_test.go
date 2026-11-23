@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// doctorRegistryNames — the whole registry's name order (core 6 + tail 11 = 17).
+// doctorRegistryNames — the whole registry's name order (core 6 + tail 15 = 21).
 func doctorRegistryNames() []string {
 	specs := doctorChecks()
 	names := make([]string, 0, len(specs))
@@ -31,7 +31,7 @@ func doctorRegistryChainedNames(chain string) []string {
 	return names
 }
 
-// registry — the name set equals the full run chain's assembled set (core 6 + tail 11).
+// registry — the name set equals the full run chain's assembled set (core 6 + tail 15).
 // The harness and skill families are dynamic-detection (file-existence) separate chains
 // whose output varies by environment, so they are excluded before comparing.
 func TestDoctorRegistryCoversChain(t *testing.T) {
@@ -56,14 +56,14 @@ func TestDoctorRegistryCoversChain(t *testing.T) {
 		chain[c.Name] = true
 	}
 	specs := doctorChecks()
-	if len(specs) != 20 {
-		t.Errorf("등록표 %d종, want 20종(코어6+tail14)", len(specs))
+	if len(specs) != 21 {
+		t.Errorf("등록표 %d종, want 21종(코어6+tail15)", len(specs))
 	}
 	if got := doctorRegistryChainedNames("core"); len(got) != 6 {
 		t.Errorf("코어 체인 %v, want 6종", got)
 	}
-	if got := doctorRegistryChainedNames("tail"); len(got) != 14 {
-		t.Errorf("tail 체인 %v, want 14종", got)
+	if got := doctorRegistryChainedNames("tail"); len(got) != 15 {
+		t.Errorf("tail 체인 %v, want 15종", got)
 	}
 	for _, name := range doctorRegistryNames() {
 		if !chain[name] {
@@ -76,7 +76,7 @@ func TestDoctorRegistryCoversChain(t *testing.T) {
 	}
 }
 
-// --list-checks — outputs all 17 registry kinds (preventing the regression of listing only the old 6).
+// --list-checks — outputs all 21 registry kinds (preventing the regression of listing only the old 6).
 // The core 6 keep the existing DoctorChecks order (hook-file... port) at the front.
 func TestDoctorListChecksShowsAll(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}

@@ -131,6 +131,10 @@ var thresholdMetas = []ThresholdMeta{
 	// dolt_log_depth · db_size, the at-or-above warn lines).
 	{"DoltLogDepthWarn", "dolt_" + "log_depth_warn", 10000, "doctor depth warning", ""},
 	{"DbSizeWarnMB", "db_size_warn_mb", 2048, "doctor db_size", ""},
+
+	// the update-check cache age warning line (v1.26.0 — the consumption path:
+	// doctor versions' stale-cache verdict).
+	{"UpdateCacheAgeH", "update_cache_age_h", 72, "doctor versions cache age", ""},
 }
 
 // ThresholdMetas — the registry's deterministic copy (the key set identical

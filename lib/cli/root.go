@@ -93,6 +93,9 @@ func init() {
 	ops.QuoteJSONFn = quoteJSON
 	ops.MaybeUpdateNoticeFn = maybeUpdateNotice
 	ops.UpdateNoticeTTL = updateNoticeTTL
+	// v1.26.0 T3 — the doctor versions display and the report --text checked_at line.
+	ops.UpdateCacheInfoFn = updateCacheInfo
+	ops.FetchRegistryVersionFn = fetchRegistryVersion
 	ops.PctOfFn = pctOf
 
 	// (3)-3 swap-propagation wrappers — ops observes cli var reassignment (the composePsFn pattern).

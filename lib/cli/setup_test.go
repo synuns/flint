@@ -76,7 +76,7 @@ func TestSetupAllGreen(t *testing.T) {
 	nexts, _ := m["next"].([]any)
 	found := false
 	for _, n := range nexts {
-		if strings.Contains(fmt.Sprint(n), "make seed") {
+		if strings.Contains(fmt.Sprint(n), "flint seed --demo") {
 			found = true
 		}
 	}

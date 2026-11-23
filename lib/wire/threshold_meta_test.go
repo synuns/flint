@@ -56,6 +56,8 @@ var frozenThresholdKeys = []string{
 	"recall_audit_min_bad",
 	// the engine-warning thresholds (v1.25.0 — doctor dolt_log_depth·db_size)
 	"dolt_" + "log_depth_warn", "db_size_warn_mb",
+	// the update-check cache age warning (v1.26.0 — doctor versions)
+	"update_cache_age_h",
 }
 
 // TestStaleThresholdDefaultsOverride — the v1.13.0 age-audit keys: defaults

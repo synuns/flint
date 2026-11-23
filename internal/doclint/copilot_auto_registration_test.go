@@ -40,14 +40,14 @@ func TestQuickstartCopilotAuto(t *testing.T) {
 	}
 }
 
-// TestQuickstartDoctorCheckCount — 검사 17종(코어 6 + tail 11, harness-*·
+// TestQuickstartDoctorCheckCount — 검사 21종(코어 6 + tail 15, harness-*·
 // skill-file 제외 구조 수치).
 func TestQuickstartDoctorCheckCount(t *testing.T) {
 	d := docStr(t, "QUICKSTART.md")
-	if !strings.Contains(d, "17 checks") {
-		t.Error("QUICKSTART.md: '17 checks' 누락")
+	if !strings.Contains(d, "21 checks") {
+		t.Error("QUICKSTART.md: '21 checks' 누락")
 	}
-	if strings.Contains(d, "10 checks") {
-		t.Error("QUICKSTART.md: '10 checks' 잔존 — 17종(코어 6 + tail 11)이 실제")
+	if strings.Contains(d, "17 checks") {
+		t.Error("QUICKSTART.md: '17 checks' 잔존 — 21종(코어 6 + tail 15)이 실제")
 	}
 }

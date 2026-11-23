@@ -121,6 +121,9 @@ type Thresholds struct {
 	// and the database-size warning line in MB (pg_database_size based).
 	DoltLogDepthWarn int // default 10000
 	DbSizeWarnMB     int // default 2048
+	// the update-check cache age warning line (v1.26.0 — doctor versions):
+	// a cached latest older than this many hours is a stale-cache warn.
+	UpdateCacheAgeH int // default 72
 }
 
 // Defaults — pending > 50, duplicate-suspects > 20, conf < 0.8, 3 consecutive sessions, stale 90 days, stall 48/72h.
@@ -224,6 +227,9 @@ const (
 	// overrides only).
 	defaultDoltLogDepthWarn = 10000
 	defaultDbSizeWarnMB     = 2048
+	// the update-check cache age warning default (v1.26.0 — 3 days: past it
+	// the displayed cache latest may lag the release reality).
+	defaultUpdateCacheAgeH = 72
 )
 
 // DefaultThresholds is the all-keys defaults struct.
@@ -308,6 +314,8 @@ func DefaultThresholds() Thresholds {
 		// the engine-warning thresholds (the consumer fallback basis).
 		DoltLogDepthWarn: defaultDoltLogDepthWarn,
 		DbSizeWarnMB:     defaultDbSizeWarnMB,
+		// the update-check cache age warning (the consumer fallback basis).
+		UpdateCacheAgeH: defaultUpdateCacheAgeH,
 	}
 }
 
@@ -518,6 +526,10 @@ func ParseThresholds(rows [][2]any) (Thresholds, error) {
 			// unset keeps 0 (the convention — the consumer, doctor
 			// db_size, falls back via ApplyThresholdsFallback).
 			th.DbSizeWarnMB = parseIntOrDefault(val, defaultDbSizeWarnMB, ks)
+		case "update_cache_age_h":
+			// unset keeps 0 (the convention — the consumer, doctor
+			// versions, falls back via ApplyThresholdsFallback).
+			th.UpdateCacheAgeH = parseIntOrDefault(val, defaultUpdateCacheAgeH, ks)
 		}
 	}
 	return th, nil

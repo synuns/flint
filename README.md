@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.25.1-blue" alt="v1.25.1">
+  <img src="https://img.shields.io/badge/release-v1.26.0-blue" alt="v1.26.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.26.0 · surface trust — update cache three principles (ETag conditional re-fetch: a 304 keeps the cached latest · contradiction detector: a cache older than the running binary re-fetches immediately · `checked_at` surfaced in `report --text`) · `flint seed --demo` (embedded synthetic dataset into an isolated `_demo` database · `--reset --yes` deletes only demo rows) · doctor `versions` (self · cached latest · PATH · mcp-registry side by side) · threshold `update_cache_age_h` · [full changelog](docs/HISTORY.md)
 > v1.25.1 · r108-r109 patch — gc-pending JSON closing fix (the `maintain --gc` pre-run notice line now parses as JSON) · dialect probe relocation (the `dolt_log_depth` SQL is lib/db-owned — `db.DoltLogDepth`; doctor calls it) · depth probe numeric fix (`commit_order::int8` + `CellToInt` pgtype.Numeric — the depth read a silent 0 on the real engine) · `db_size` documented as a standing skip on Doltgres · engine-footprint timeout 2s→5s · bare `--shallow` wording · [full changelog](docs/HISTORY.md)
 > v1.25.0 · engine ops — `maintain --gc --yes` (dolt garbage collection: disconnect notice → reconnect loop → schema recheck → meta history) · doctor `dolt_log_depth` (O(1)) / `db_size` warnings + `engine-footprint` display · RUNBOOK §10/§11 · thresholds `dolt_log_depth_warn`·`db_size_warn_mb` · ANALYZE retired (no-op evidenced) · audit_log replay spike succeeded (pure PG) · [full changelog](docs/HISTORY.md)
 > v1.24.2 · r106 patch — race-recheck echo coverage (the race-recheck duplicate's echo accrual now has a fake-store regression) · quiet-failure regression (an `echo_candidates` INSERT failure never fails the write) · echo scan comment (pending rows documented as pre-existing candidates) · [full changelog](docs/HISTORY.md)
@@ -99,7 +100,7 @@ flint setup
 echo "The API gateway retries idempotent POSTs twice" | flint write knowledge
 ```
 
-Optional, from a checkout: load the synthetic demo dataset — `make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint`.
+Optional demo data: `flint seed --demo` loads the embedded synthetic dataset into an isolated demo database (the DSN's database name + `_demo`; idempotent, `--reset --yes` removes only the demo rows). From a checkout, `make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint` targets an explicit DSN.
 
 > Every release artifact ships with SLSA build provenance — verify a downloaded file with `gh attestation verify <file> --repo synuns/flint`.
 
@@ -232,6 +233,7 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | Command | What it does |
 | :--- | :--- |
 | `flint setup` | Start Doltgres, migrate, print seed/plugin next steps |
+| `flint seed --demo` | Load the embedded synthetic demo dataset into an isolated demo database (database name + `_demo`, `FLINT_DEMO_DSN` override; idempotent; `--reset --yes` deletes only `demo/` rows — mismatched owner exits 3) |
 | `flint update` | Self-update to the latest release (checksum-verified, `--check` dry-run) |
 | `flint tuning` | Inspect/override threshold keys (`list`/`get`/`set`/`reset`; autotune surfaces `auto off\|shadow` · `what-if` · `status`; opt-in `--tui` form) |
 | `flint write <kind>` | Record knowledge from stdin (idempotent) |
@@ -255,7 +257,7 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | `flint pending` | Pending review queue with verdicts (promote·merge·expire·hold, `--json`) |
 | `flint compact` | Record a compact summary as pending knowledge (PostCompact hook entry) |
 | `flint nudge` | Session-end distillation reminder for markers left by compact (`--clear` closes) |
-| `flint doctor --check c` | Health checks (16 kinds, subset via `--check`, fail → exit 1) |
+| `flint doctor --check c` | Health checks (21 kinds, subset via `--check`, fail → exit 1) |
 | `flint report --days n` | Daily intake·zero_pct·p95·stale report (`--html` static dashboard) |
 | `flint diff <from> <to>` | Compare knowledge between two as-of points |
 | `flint teardown` | Undo setup (hooks/config; `--purge` also removes data) |

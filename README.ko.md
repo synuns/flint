@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.25.1-blue" alt="v1.25.1">
+  <img src="https://img.shields.io/badge/release-v1.26.0-blue" alt="v1.26.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.26.0 · 표면 신뢰 — 업데이트 캐시 3원칙(ETag 조건부 재검증: 304면 캐시 latest 승계·모순 검출기: 실행 버전보다 오래된 캐시는 즉시 재 fetch·`checked_at` `report --text` 노출)·`flint seed --demo`(내장 합성 데이터셋을 격리 `_demo` DB에 적재·`--reset --yes`는 데모 행만 삭제)·doctor `versions`(자가 버전·캐시 latest·PATH·mcp-registry 나란히)·threshold `update_cache_age_h` · [전체 변경 이력](docs/HISTORY.md)
 > v1.25.1 · r108-r109 패치 — gc-pending JSON 마감 수정(`maintain --gc` 사전 안내 라인이 JSON으로 파싱됨)·방언 프로브 이전(`dolt_log_depth` SQL의 lib/db 소유 확정 — `db.DoltLogDepth`, doctor는 호출만)·깊이 프로브 numeric 수정(`commit_order::int8` + `CellToInt` pgtype.Numeric — 실엔진에서 깊이가 0으로 읽히던 결함)·`db_size` Doltgres 상시 skip 문서화·engine-footprint 타임아웃 2s→5s·단독 `--shallow` 문구 · [전체 변경 이력](docs/HISTORY.md)
 > v1.25.0 · 엔진 운영 — `maintain --gc --yes`(dolt 가비지 컬렉션: 접속 단절 안내 → 재연결 루프 → 스키마 재검증 → meta 이력)·doctor `dolt_log_depth`(O(1))·`db_size` 경고 + `engine-footprint` 표시·RUNBOOK §10/§11·thresholds `dolt_log_depth_warn`·`db_size_warn_mb`·ANALYZE 폐기(무연산 실증)·audit_log 리플레이 스파이크 성공(순수 PG) · [전체 변경 이력](docs/HISTORY.md)
 > v1.24.2 · r106 패치 — race-recheck echo 커버리지(레이스 재확인 중복의 echo 적립 fake 회귀 추가)·quiet-failure 회귀(`echo_candidates` INSERT 실패가 write를 실패시키지 않음)·echo 스캔 주석(pending 행의 기존 후보 포함 서술) · [전체 변경 이력](docs/HISTORY.md)
@@ -99,7 +100,7 @@ flint setup
 echo "API 게이트웨이는 멱등 POST를 2회 재시도한다" | flint write knowledge
 ```
 
-선택: 체크아웃한 저장소에서 합성 데모 데이터 적재 — `make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint`.
+선택 데모 데이터: `flint seed --demo` — 내장 합성 데이터셋을 격리 데모 DB(DSN의 db명 + `_demo`)에 적재합니다(멱등, `--reset --yes`는 데모 행만 삭제). 체크아웃한 저장소에서는 `make seed FLINT_SEED_DSN=postgresql://flint:flint-dev@localhost:5434/flint`로 명시적 DSN에 적재.
 
 > 모든 릴리스 자산에는 SLSA 빌드 증명(build provenance)이 첨부됩니다 — 내려받은 파일은 `gh attestation verify <파일> --repo synuns/flint`로 검증할 수 있습니다.
 
@@ -241,6 +242,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | 커맨드 | 설명 |
 | :--- | :--- |
 | `flint setup` | Doltgres 기동 · 마이그레이션 · 시드/플러그인 다음 단계 안내 |
+| `flint seed --demo` | 내장 합성 데모 데이터셋을 격리 데모 DB에 적재(db명 + `_demo`, `FLINT_DEMO_DSN` 오버라이드; 멱등; `--reset --yes`는 `demo/` 행만 삭제 — 소유자 불일치 exit 3) |
 | `flint update` | 최신 릴리스 자가 업데이트(체크섬 검증·`--check` 드라이런) |
 | `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`; 자율 튜닝 표면 `auto off\|shadow`·`what-if`·`status`; 옵트인 `--tui` 폼) |
 | `flint write <kind>` | 표준 입력에서 지식 기록 (멱등) |
@@ -264,7 +266,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint pending` | 대기 지식 검수 뷰 (승격·병합·만료·보류 판정, `--json`) |
 | `flint compact` | compact 요약을 pending 지식으로 적립 (PostCompact 훅 진입점) |
 | `flint nudge` | compact가 남긴 마커의 세션 종료 증류 리마인더 (`--clear` 종결) |
-| `flint doctor --check c` | 건강 검진 16종 (`--check` 서브셋, fail 시 exit 1) |
+| `flint doctor --check c` | 건강 검진 21종 (`--check` 서브셋, fail 시 exit 1) |
 | `flint report --days n` | 일별 유입·zero_pct·p95·stale 리포트 (`--html` 정적 대시보드) |
 | `flint diff <from> <to>` | 두 as-of 지점 간 지식 변경 비교 |
 | `flint teardown` | 설정 해제 (훅·설정, `--purge` 시 데이터도 제거) |
