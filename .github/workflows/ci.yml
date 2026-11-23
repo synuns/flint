@@ -36,6 +36,17 @@ jobs:
       fail-fast: false
       matrix:
         engine: [container, native]
+        include:
+          - engine: container
+            flint_dsn: postgresql://flint:flint-dev@localhost:5434/flint
+            flint_test_dsn: postgresql://flint:flint-dev@localhost:5434/flint_test
+          - engine: native
+            flint_dsn: postgresql://flint:pw@127.0.0.1:5499/flint
+            flint_test_dsn: postgresql://flint:pw@127.0.0.1:5499/flint_test
+    env:
+      FLINT_DSN: ${{ matrix.flint_dsn }}
+      FLINT_TEST_DSN: ${{ matrix.flint_test_dsn }}
+      FLINT_REALDB_REQUIRED: "1"
     services:
       doltgres:
         image: dolthub/doltgresql@sha256:3a119bb6726a0be283cfda2a73fa9fbdff58df06c0b850f245cd1828f57281a6
@@ -45,9 +56,6 @@ jobs:
           DOLTGRES_USER: flint
           DOLTGRES_PASSWORD: flint-dev
           DOLTGRES_DB: flint
-    env:
-      FLINT_DSN: ${{ matrix.engine == 'native' && 'postgresql://flint:pw@127.0.0.1:5499/flint' || 'postgresql://flint:flint-dev@localhost:5434/flint' }}
-      FLINT_TEST_DSN: ${{ matrix.engine == 'native' && 'postgresql://flint:pw@127.0.0.1:5499/flint_test' || 'postgresql://flint:flint-dev@localhost:5434/flint_test' }}
       FLINT_REALDB_REQUIRED: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
