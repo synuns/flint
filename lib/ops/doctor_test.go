@@ -1203,33 +1203,74 @@ func TestDoctorEngineFootprintSkip(t *testing.T) {
 	withComposePs(t, func(context.Context) ([]byte, error) {
 		return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
 	})
-	cases := map[string]func(context.Context) ([]byte, error){
-		"docker absent": func(context.Context) ([]byte, error) { return nil, errors.New("docker not installed") },
-		"no flint row": func(context.Context) ([]byte, error) {
-			return []byte("{\"Name\":\"other-db-1\",\"MemUsage\":\"1GiB / 4GiB\"}\n"), nil
+	cases := map[string]struct {
+		fn   func(context.Context) ([]byte, error)
+		want string
+	}{
+		"docker absent": {
+			fn:   func(context.Context) ([]byte, error) { return nil, errors.New("docker not installed") },
+			want: "docker not installed",
 		},
-		"unparsable body": func(context.Context) ([]byte, error) { return []byte("not-json"), nil },
+		"no flint row": {
+			fn: func(context.Context) ([]byte, error) {
+				return []byte("{\"Name\":\"other-db-1\",\"MemUsage\":\"1GiB / 4GiB\"}\n"), nil
+			},
+			want: "no row for container",
+		},
+		"unparsable body": {
+			fn:   func(context.Context) ([]byte, error) { return []byte("not-json"), nil },
+			want: "docker stats decode",
+		},
 	}
-	for name, fn := range cases {
-		withEngineStats(t, fn)
+	for name, tc := range cases {
+		withEngineStats(t, tc.fn)
 		c := checkEngineFootprint(context.Background(), nil)
 		if c.Name != "engine-footprint" || c.Status != "skip" {
 			t.Errorf("%s: status=%q, want skip: %+v", name, c.Status, c)
+		}
+		if !strings.Contains(c.Detail, tc.want) {
+			t.Errorf("%s: detail=%q, want 원인 노출 %q", name, c.Detail, tc.want)
 		}
 	}
 }
 
 func TestDoctorEngineFootprintSkipWhenSelectionFails(t *testing.T) {
-	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
-	withComposePs(t, func(context.Context) ([]byte, error) {
-		return nil, errors.New("docker compose ps failed")
-	})
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
 	})
-	c := checkEngineFootprint(context.Background(), nil)
-	if c.Status != "skip" {
-		t.Fatalf("status=%q, want skip(엔진 선택 실패): %+v", c.Status, c)
+	cases := []struct {
+		name string
+		dsn  string
+		ps   func(context.Context) ([]byte, error)
+		want string
+	}{
+		{
+			name: "compose ps failure",
+			dsn:  "postgresql://flint:flint-dev@localhost:5434/flint",
+			ps:   func(context.Context) ([]byte, error) { return nil, errors.New("docker compose ps failed") },
+			want: "engine container selection: docker compose ps failed",
+		},
+		{
+			name: "dedicated engine not running",
+			dsn:  "postgresql://flint:flint-dev@127.0.0.1:5499/flint_test",
+			ps: func(context.Context) ([]byte, error) {
+				return []byte(`[{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
+			},
+			want: "no running container publishes 5499",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("FLINT_DSN", tc.dsn)
+			withComposePs(t, tc.ps)
+			c := checkEngineFootprint(context.Background(), nil)
+			if c.Status != "skip" {
+				t.Fatalf("status=%q, want skip(엔진 선택 실패): %+v", c.Status, c)
+			}
+			if !strings.Contains(c.Detail, tc.want) {
+				t.Fatalf("detail=%q, want 선택 실패 원인 노출 — docker 부재와 구분", c.Detail)
+			}
+		})
 	}
 }
 
@@ -1264,18 +1305,29 @@ func TestEnginePortResolvesDSNPort(t *testing.T) {
 }
 
 func TestEngineContainerNameMatchesDSNPort(t *testing.T) {
-	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
-	withComposePs(t, func(context.Context) ([]byte, error) {
-		return []byte(`[{"Name":"flint-test-doltgres-1","State":"running","Publishers":[{"PublishedPort":5499}]},` +
-			`{"Name":"flint-doltgres-2","State":"exited","Publishers":[{"PublishedPort":5434}]},` +
-			`{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`), nil
-	})
-	name, err := engineContainerName(context.Background())
-	if err != nil {
-		t.Fatalf("engineContainerName: %v", err)
+	composeRows := []byte(`[{"Name":"flint-test-doltgres-1","State":"running","Publishers":[{"PublishedPort":5499}]},` +
+		`{"Name":"flint-doltgres-2","State":"exited","Publishers":[{"PublishedPort":5434}]},` +
+		`{"Name":"flint-doltgres-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`)
+	cases := []struct {
+		name string
+		dsn  string
+		want string
+	}{
+		{"ops DSN 5434", "postgresql://flint:flint-dev@localhost:5434/flint", "flint-doltgres-1"},
+		{"dedicated engine DSN 5499", "postgresql://flint:flint-dev@127.0.0.1:5499/flint_test", "flint-test-doltgres-1"},
 	}
-	if name != "flint-doltgres-1" {
-		t.Fatalf("name=%q, want flint-doltgres-1 — 접두 first-match는 전용 엔진(5499)·exited 컨테이너를 잘못 고른다", name)
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv("FLINT_DSN", tc.dsn)
+			withComposePs(t, func(context.Context) ([]byte, error) { return composeRows, nil })
+			name, err := engineContainerName(context.Background())
+			if err != nil {
+				t.Fatalf("engineContainerName: %v", err)
+			}
+			if name != tc.want {
+				t.Fatalf("name=%q, want %q — DSN 포트와 발행 포트가 일치하는 running 컨테이너 선택(%s)", name, tc.want, tc.dsn)
+			}
+		})
 	}
 }
 
@@ -1457,7 +1509,7 @@ func TestDoctorEngineStatsTimeout5s(t *testing.T) {
 		}
 		return nil, errors.New("stop")
 	})
-	if _, ok := EngineMemMB(context.Background()); ok {
+	if _, ok, _ := EngineMemMB(context.Background()); ok {
 		t.Fatal("seam 오류 경로가 ok로 나오면 안 됨")
 	}
 	if budget < 4950*time.Millisecond {

@@ -289,7 +289,7 @@ func RunStatus(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 
 		sEcho, sSuggest := ScanStatsFromMetaFn(func(k string) (string, error) { return getKV(k, "") })
 
-		engineMem, _ := EngineMemMB(ctx)
+		engineMem, _, _ := EngineMemMB(ctx)
 		b, _ = json.Marshal(statusV1250Output{statusV1211Output: statusV1211Output{statusV1210Output: statusV1210Output{statusV0180Output: statusV0180Output{statusV096Output: base,
 			ReadCalls14d: winRead, ReadZeroPct14d: winZeroPct, ReadZeroNearPct14d: winNearPct, ReadWindowDays: winDays,
 			HotBytes14d: winHotBytes, ReadBytes14d: winReadBytes,
