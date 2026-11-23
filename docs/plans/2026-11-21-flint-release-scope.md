@@ -47,10 +47,10 @@ v1.23.0 G2 등록표에서) 미달 시 **v1.25.0(독립 계열)과 순서 교환
 | v1.23.0 | 자율 튜닝 I (Autonomy-shadow) | B1 정책(화이트리스트·킬스위치)·B3 등록표(관측 축적 조건 확정 포함)·B6 tuning log·B2 shadow 단 + C1 what-if·C2 분포·C6 정합 카드 | v18 additive (G2 룰링) | M |
 | v1.24.0 | 지식 관리 잔여 (Curation II) | merge-audit·환류 일반화(bad_recall→처분)·read --related·--why·**kind 열 이월(v1.20.0 룰링)**·survived_decay_relief 활성화 판정 + D1·D2·D4 계측 동반·**v1.22.0 룰링 이월: source_path·survived 스코어·스탬프 소거 연결** — **v1.25.0과 순서 교환(원칙 ③·2026-11-23)** | additive (버전은 G2 확정) | L |
 | v1.25.0 | 자율 튜닝 II (Autonomy-apply) | B2 신뢰 사다리 적용·B4 자동 복원·B5 센티넬 + C3 추세·C4 밴드·C5 분절 뷰 — **착수 조건 §2 원칙 ③(관측 축적: shadow 라운드 ≥14·발화 ≥5·streak ≥3 달성 후)** | — | L |
-| v1.26.0 | 엔진 운영 (Ops) | engine-ops M1 maintain --gc·doctor 경고 2종·RUNBOOK 2절·meta 이력 / M2 footprint 표시·M3 ANALYZE spike(L0) | — | M |
+| v1.26.0 | 엔진 운영 (Ops) | engine-ops M1 maintain --gc·doctor 경고 2종·RUNBOOK 2절·meta 이력 / M2 footprint 표시·M3 ANALYZE spike(L0)·**audit_log 리플레이 프로토타입 스파이크(L0 — 스키마 설계안+임의 시점 diff 재현 실증 보고·v2.0 G2 선행 조건·v2 점검 2026-11-23)** | — | M |
 | v1.27.0 | 표면 신뢰 (Trust) | surface-trust M1 캐시 3원칙(ETag·모순 검출기·checked_at)·M2 seed --demo(격리·--reset)·M3 doctor checkVersions(자가 보고) | — | M |
-| v1.28.0 | 표면 확장·품질 청산 (Cleanup) | read TUI·tuning TUI 기본 승격 검토·i18n KO 카탈로그·brew 검토·테스트 폭발 정리·이름 재스윹·서명 재실증·관측 이월 재판정 + 로컬 원천 3건 G2 재검(시퀀스 회수·R68 정보·Doltgres 업스트림) | — | M |
-| v2.0.0 | 플랫폼 전환 (Platform) | DB 선택 — PG Store 지원·audit_log 리플레이 감사 보존·스코프 C 재정의(--all-domains — PLAN §7 "다중 에이전트 domain 스코프 트리거 대기"의 해소 경로)·이행 가이드·문서 대개정 | 상속 | XL |
+| v1.28.0 | 표면 확장·품질 청산 (Cleanup) | read TUI·tuning TUI 기본 승격 검토·i18n KO 카탈로그·brew 검토·테스트 폭발 정리·이름 재스윹·서명 재실증·관측 이월 재판정 + 로컬 원천 3건 G2 재검(시퀀스 회수·R68 정보·Doltgres 업스트림). **업스트림 재검 결과 → v2.0.0 G2 입력 문서 1건으로 지정(3분기 판정: 해소→병행 검토 강등·지속→전환 동기 확정)** | — | M |
+| v2.0.0 | 플랫폼 전환 (Platform) | **G2 선행 Ruling: 대체 vs 병행**(이중 유지비 근거 검토) → 감사 보존 설계(audit_log 리플레이 — v1.26.0 스파이크 실증 전제) → PG Store → 이행 가이드(**튜닝 상태 왕복 포함** — shadow rounds/fires/streak 리셋 방지·sync 미지원·export/import 왕복 절차) → 문서 대개정(RUNBOOK·QUICKSTART·contracts/cli 재작성 1군·ADR 슈퍼세드 링크 각신 — hooks·registry·mcp·plugin 무영향 제외). **--all-domains 삭제(v2 점검 2026-11-23: 소비처 read 필터 1곳·project no-go 함정 재현 — §6 환원·트리거 대기)**. v1.28.0 업스트림 재검 결과를 G2 입력 문서로 지정 | 상속 | XL |
 
 의존 메모: v1.20.0→v1.24.0(knowledge_links 기반 --related·kind 열 이월 —
 v1.24.0 빌드에서 실제 편입)·v1.19.0→
