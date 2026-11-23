@@ -1,10 +1,3 @@
-// counters_v1200_test.go — the review (curation) counters (approve
-// promotion·not_found·supersede error / import accrual·skip daily
-// flat-key increments)·the firing (fired) counters (the done stale
-// warning's fired_done_stale meta accumulation — incremented on firing·0
-// when not fired). All counter UPSERTs go through st.Query, so they are
-// verified by capturing the arguments (key, increment) (the fakeStore
-// queryFn convention).
 package knowledge
 
 import (
@@ -21,13 +14,11 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// capturedQueryV — one (sql, args) seen by fakeStore.Query.
 type capturedQueryV struct {
 	sql  string
 	args []any
 }
 
-// counterCaptureV — the counter-UPSERT argument collector (via queryFn).
 type counterCaptureV struct {
 	queries []capturedQueryV
 }
@@ -37,10 +28,6 @@ func (c *counterCaptureV) fn(sql string, args []any) ([][]any, error) {
 	return nil, nil
 }
 
-// sum — the increment sum of prefix-matching counter keys. Daily flat
-// keys take (key, n) 2-argument form; fired_* meta takes the (key,)
-// 1-argument form (fixed increment 1) — both counted on the same
-// surface.
 func (c *counterCaptureV) sum(prefix string) int {
 	n := 0
 	for _, q := range c.queries {
@@ -62,14 +49,8 @@ func (c *counterCaptureV) sum(prefix string) int {
 	return n
 }
 
-// counterToday — the counter daily-key date (UTC — same basis as the
-// recording).
 func counterToday() string { return time.Now().UTC().Format("2006-01-02") }
 
-// TestCurationCounters — one pass per review path → daily counters.
-// approve promotion (approve_done)·absence (not_found)·supersede error
-// (supersede_err — the promotion itself succeeded, so done increments in
-// parallel)·import accrual/skip (added·skipped).
 func TestCurationCounters(t *testing.T) {
 	today := counterToday()
 
@@ -107,8 +88,7 @@ func TestCurationCounters(t *testing.T) {
 
 	t.Run("approve supersede 오류", func(t *testing.T) {
 		cap := &counterCaptureV{}
-		// A fake without the supersedeStore implementation — the error
-		// path at the supersede stage after a successful promotion.
+
 		f := &approveStoreFake{fakeStore: &fakeStore{queryFn: cap.fn}}
 		var out bytes.Buffer
 		if code := RunApprove(context.Background(), f, []string{"--id", "7", "--supersede", "3"},
@@ -133,7 +113,7 @@ func TestCurationCounters(t *testing.T) {
 		if err := os.WriteFile(file, []byte(body), 0o644); err != nil {
 			t.Fatalf("픽스처 작성 오류: %v", err)
 		}
-		// First accrual — both sections new (added=2·skip=0).
+
 		cap := &counterCaptureV{}
 		st := &fakeStore{queryFn: cap.fn}
 		var out bytes.Buffer
@@ -147,8 +127,7 @@ func TestCurationCounters(t *testing.T) {
 		if got := cap.sum("daily:import_skipped:" + today); got != 0 {
 			t.Errorf("import_skipped 증분=%d, want 0", got)
 		}
-		// Second re-import — dedup skips everything (skipped=2·no added
-		// increment).
+
 		cap2 := &counterCaptureV{}
 		st2 := &fakeStore{queryFn: cap2.fn, exists: true}
 		var out2 bytes.Buffer
@@ -186,8 +165,6 @@ func TestCurationCounters(t *testing.T) {
 	})
 }
 
-// TestFiredCounters — on a done stale-warning firing, fired_done_stale
-// increments; the normal (ok) path stays unfired at 0.
 func TestFiredCounters(t *testing.T) {
 	cap := &counterCaptureV{}
 	d := &doneFake{fakeStore: &fakeStore{queryFn: cap.fn}, stubbed: true, runs: 3}
@@ -202,7 +179,6 @@ func TestFiredCounters(t *testing.T) {
 		t.Errorf("fired_done_stale 증분=%d, want 1", got)
 	}
 
-	// Not fired — the under-threshold (ok) path carries no counter.
 	capOK := &counterCaptureV{}
 	dOK := &doneFake{fakeStore: &fakeStore{queryFn: capOK.fn}, stubbed: true, runs: 1}
 	outOK, codeOK := mustDone(t, dOK, []string{"--session", "claude"})

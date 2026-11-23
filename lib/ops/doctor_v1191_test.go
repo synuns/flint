@@ -1,9 +1,3 @@
-// doctor_v1191_test.go — the v1.19.1 audit regressions (R71-R74) of
-// the metering-freshness check: a future-dated source stamp counts as
-// stale (its negative since-span masked the check for the whole forward
-// span), and a metering_freshness_warn_h override past the Duration
-// ceiling clamps to 87600h instead of wrapping the limit negative
-// (which reported every source stale).
 package ops
 
 import (
@@ -15,9 +9,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// TestMeteringFreshnessFutureStampStale — R71 regression: a 2999-dated
-// gate stamp (or table max) warns naming the source — never a masked
-// ok.
 func TestMeteringFreshnessFutureStampStale(t *testing.T) {
 	ctx := context.Background()
 	th := store.DefaultThresholds()
@@ -39,11 +30,6 @@ func TestMeteringFreshnessFutureStampStale(t *testing.T) {
 	}
 }
 
-// TestMeteringFreshnessWarnHClamp — R74 regression: a 3000000h warn
-// override (past the ~2562047h Duration ceiling — the wrapped limit ran
-// negative and flagged EVERY source stale) stays quiet on fresh
-// sources; the clamp also leaves the normal threshold behavior intact
-// (a 48h override still warns on a 100h-old source).
 func TestMeteringFreshnessWarnHClamp(t *testing.T) {
 	ctx := context.Background()
 	run := func(th store.Thresholds) DoctorCheck {

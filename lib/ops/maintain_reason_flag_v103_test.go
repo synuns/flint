@@ -1,7 +1,3 @@
-// maintain_reason_flag_v103_test.go — regression: a maintain --reason value
-// absorbing a following flag. The path where '--reason --commit' split into the reason
-// "--commit" and the confirm marker, yielding "not valid" exit 1, is now preempted by
-// the shared guard (knowledge.ValidateFlagValue) as invalid-arg exit 3.
 package ops
 
 import (

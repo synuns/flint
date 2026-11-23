@@ -1,5 +1,3 @@
-// report_v097_test.go — pinning the dupPct and fallbackPct pure functions
-// (period duplication rate and fallback ratio; 0 for zero denominators).
 package cli
 
 import "testing"

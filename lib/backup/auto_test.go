@@ -10,8 +10,6 @@ import (
 	"time"
 )
 
-// fakeDump swaps the dumpFn seam to fake dump writing without a real DB.
-// With SUPERLITE_REAL=1 the real Dump is used (slow suite).
 func fakeDump(t *testing.T, calls *int) {
 	t.Helper()
 	orig := dumpFn
@@ -32,7 +30,6 @@ func realDumpEnv(t *testing.T) {
 	}
 }
 
-// the 23h59m no / 24h01m yes boundary.
 func TestShouldBackupBoundary(t *testing.T) {
 	now := time.Date(2026, 10, 21, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -53,7 +50,6 @@ func TestShouldBackupBoundary(t *testing.T) {
 	}
 }
 
-// elapsed: write the dump + update the last_backup meta.
 func TestRunIfNeededBacksUp(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -89,7 +85,6 @@ func TestRunIfNeededBacksUp(t *testing.T) {
 	}
 }
 
-// not elapsed: no-op — neither the dump nor the meta update happens.
 func TestRunIfNeededSkipsRecent(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -109,7 +104,6 @@ func TestRunIfNeededSkipsRecent(t *testing.T) {
 	}
 }
 
-// setKV failure: error returned + meta not recorded -> retried next time.
 func TestRunIfNeededClaimFailureRetries(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -134,7 +128,7 @@ func TestRunIfNeededClaimFailureRetries(t *testing.T) {
 	if calls != 0 {
 		t.Errorf("claim 실패 시 덤프하면 안 됨: %d회", calls)
 	}
-	// The meta still holds the old value, so the next call retries the backup.
+
 	calls = 0
 	if err := a.RunIfNeeded(context.Background(),
 		func(k string) (string, error) { return old, nil },
@@ -147,7 +141,6 @@ func TestRunIfNeededClaimFailureRetries(t *testing.T) {
 	}
 }
 
-// A meta read failure is propagated as an error (non-blocking is the caller's job).
 func TestRunIfNeededMetaReadError(t *testing.T) {
 	calls := 0
 	fakeDump(t, &calls)
@@ -165,7 +158,6 @@ func TestRunIfNeededMetaReadError(t *testing.T) {
 	}
 }
 
-// SUPERLITE_REAL=1 — the same scenario with the real Dump (DSN required).
 func TestRunIfNeededRealDump(t *testing.T) {
 	realDumpEnv(t)
 	orig := dumpFn
@@ -186,8 +178,6 @@ func TestRunIfNeededRealDump(t *testing.T) {
 	}
 }
 
-// TestShouldBackupIntervalOverride — backup_interval_h changes the interval
-// verdict (default 24h, override 6h).
 func TestShouldBackupIntervalOverride(t *testing.T) {
 	now := time.Now().UTC()
 	last := now.Add(-12 * time.Hour).Format(time.RFC3339)
@@ -199,10 +189,6 @@ func TestShouldBackupIntervalOverride(t *testing.T) {
 	}
 }
 
-// TestShouldBackupIntervalOverflow — a backup_interval_h override past the
-// Duration ceiling (v1.19.3) clamps to the 87600h ceiling: a 1h-old backup is
-// not due (the pre-fix wrapped-negative interval made every check instantly
-// due — a dump every session).
 func TestShouldBackupIntervalOverflow(t *testing.T) {
 	now := time.Now().UTC()
 	last := now.Add(-time.Hour).Format(time.RFC3339)

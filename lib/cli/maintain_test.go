@@ -17,9 +17,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// fakeMaint — a fakeStore with the admin operations (Counts/Invalidate/Supersede/Merge) layered on.
-// Transition updates (invalidate, supersede) are captured via the Repo delegation methods
-// (UPDATE literals are owned by the db layer).
 type fakeMaint struct {
 	*fakeStore
 
@@ -31,21 +28,20 @@ type fakeMaint struct {
 	dupGroupsCalls []int
 
 	invalErr     error
-	invalSeqErrs []error // pre-set errors per call ordinal (retry simulation)
+	invalSeqErrs []error
 	supersedeErr error
 	mergeErr     error
-	pruneErr     error // PruneInvalidated pre-set error
+	pruneErr     error
 
 	invalidateCalls  [][]int
 	invalidateMsgs   []string
 	supersedeCalls   []supersedeCall
 	mergeCalls       [][2]int
-	pruneCalls       []time.Time // PruneInvalidated delegation capture
-	recallPruneCalls []time.Time // PruneRecallEvents delegation capture
-	reaffirmCalls    [][]int     // Reaffirm delegation capture (v1.22.0 T3)
+	pruneCalls       []time.Time
+	recallPruneCalls []time.Time
+	reaffirmCalls    [][]int
 }
 
-// supersedeCall — Supersede delegation capture (old, new, and invalid_at values).
 type supersedeCall struct {
 	oldID, newID int
 	at           time.Time
@@ -86,8 +82,6 @@ func (f *fakeMaint) Merge(ctx context.Context, fromID, toID int) error {
 	return f.mergeErr
 }
 
-// PruneInvalidated — Repo delegation-method capture (return = the 2-target-row
-// convention — same as the maintain_v0330 prune contract).
 func (f *fakeMaint) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
 	f.pruneCalls = append(f.pruneCalls, before)
 	if f.pruneErr != nil {
@@ -96,15 +90,11 @@ func (f *fakeMaint) PruneInvalidated(ctx context.Context, before time.Time) (int
 	return 2, nil
 }
 
-// PruneRecallEvents — Repo delegation-method capture (return = the 0-row convention —
-// expired-event counts are set up via queryFn count queries).
 func (f *fakeMaint) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
 	f.recallPruneCalls = append(f.recallPruneCalls, before)
 	return 0, nil
 }
 
-// Reaffirm — the ops.ReaffirmStore extension capture (v1.22.0 T3): the
-// valid_at=now() UPDATE literal lives in the real store layer (realStore).
 func (f *fakeMaint) Reaffirm(ctx context.Context, ids []int) (int64, error) {
 	f.reaffirmCalls = append(f.reaffirmCalls, ids)
 	return int64(len(ids)), nil
@@ -117,8 +107,6 @@ func runMaintainArgs(t *testing.T, f *fakeMaint, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// boundary — pending 49/50 is ok; 51 onward is review-needed.
-// The threshold is read from meta (default pending_max=50).
 func TestMaintainCheckBoundary(t *testing.T) {
 	cases := []struct {
 		name    string
@@ -150,7 +138,6 @@ func TestMaintainCheckBoundary(t *testing.T) {
 	}
 }
 
-// dup_suspect boundary (default 20) — 20 ok, 21 review-needed.
 func TestMaintainCheckDupBoundary(t *testing.T) {
 	for _, c := range []struct {
 		dup  int
@@ -167,7 +154,6 @@ func TestMaintainCheckDupBoundary(t *testing.T) {
 	}
 }
 
-// thresholds are read from meta — with pending_max=5, pending 6 is review-needed.
 func TestMaintainCheckThresholdsFromMeta(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{
 		queryFn: func(sql string, args []any) ([][]any, error) {
@@ -183,7 +169,6 @@ func TestMaintainCheckThresholdsFromMeta(t *testing.T) {
 	}
 }
 
-// the review-needed report includes both counts and exits 0.
 func TestMaintainCheckReportFields(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}, counts: db.Counts{Pending: 60, DupSuspect: 25}}
 	out, code := runMaintainArgs(t, f, "--check")
@@ -199,13 +184,11 @@ func TestMaintainCheckReportFields(t *testing.T) {
 	}
 }
 
-// --invalidate --id N --reason — update-path call + exit 0.
 func TestMaintainInvalidateOK(t *testing.T) {
-	// the pre-check (existence and invalid_at lookup) goes through Query, so
-	// seed 1 active row (the first-invalidation path, distinct from the idempotent no-op).
+
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
 		if strings.Contains(sql, "SELECT invalid_at FROM knowledge") {
-			return [][]any{{nil}}, nil // id 7: active(invalid_at NULL)
+			return [][]any{{nil}}, nil
 		}
 		return nil, nil
 	}}}
@@ -224,7 +207,6 @@ func TestMaintainInvalidateOK(t *testing.T) {
 	}
 }
 
-// invalidating a missing id — ErrNotFound -> exit 1 one-line JSON.
 func TestMaintainInvalidateNotFound(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}, invalErr: db.ErrNotFound}
 	out, code := runMaintainArgs(t, f, "--invalidate", "--id", "99", "--reason", "x")
@@ -236,7 +218,6 @@ func TestMaintainInvalidateNotFound(t *testing.T) {
 	}
 }
 
-// --merge --from N --to M — merge-path call + exit 0.
 func TestMaintainMergeOK(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	out, code := runMaintainArgs(t, f, "--merge", "--from", "3", "--to", "9")
@@ -251,7 +232,6 @@ func TestMaintainMergeOK(t *testing.T) {
 	}
 }
 
-// missing merge target — ErrNotFound -> exit 1.
 func TestMaintainMergeNotFound(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}, mergeErr: db.ErrNotFound}
 	_, code := runMaintainArgs(t, f, "--merge", "--from", "1", "--to", "2")
@@ -260,21 +240,18 @@ func TestMaintainMergeNotFound(t *testing.T) {
 	}
 }
 
-// no mode given (bare usage) is invalid-arg exit 3; a missing argument within a mode
-// remains a usage error exit 1.
 func TestMaintainUsageErrors(t *testing.T) {
 	cases := []struct {
 		args []string
 		want int
 	}{
-		{[]string{}, 3},                         // bare usage 3 (previously 1)
-		{[]string{"--id", "5"}, 3},              // no mode -> bare usage 3
-		{[]string{"--invalidate"}, 1},           // no --id
-		{[]string{"--merge", "--from", "3"}, 1}, // no --to
-		{[]string{"--check", "--id", "abc"}, 1}, // not a number — the id is ignored by check but parsing must still fail
+		{[]string{}, 3},
+		{[]string{"--id", "5"}, 3},
+		{[]string{"--invalidate"}, 1},
+		{[]string{"--merge", "--from", "3"}, 1},
+		{[]string{"--check", "--id", "abc"}, 1},
 	}
-	// invalid flag (--bogus) is exit 3 (the invalid-arg contract) —
-	// covered by TestUnknownFlagExitContract (textutil_test.go).
+
 	for _, c := range cases {
 		f := &fakeMaint{fakeStore: &fakeStore{}}
 		out, code := runMaintainArgs(t, f, c.args...)
@@ -287,7 +264,6 @@ func TestMaintainUsageErrors(t *testing.T) {
 	}
 }
 
-// Counts failure — errLine propagation, MapExit code.
 func TestMaintainCheckCountError(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}, countsErr: errors.New("boom")}
 	out, code := runMaintainArgs(t, f, "--check")
@@ -299,30 +275,23 @@ func TestMaintainCheckCountError(t *testing.T) {
 	}
 }
 
-// registration check — maintain must be in the registry for Run to dispatch it.
 func TestMaintainRegistered(t *testing.T) {
 	if _, ok := Lookup("maintain"); !ok {
 		t.Fatal("maintain 미등록")
 	}
 }
 
-// schema-version gate — realStore must satisfy MaintainStore (compile-time guarantee).
 var _ MaintStore = (*realStore)(nil)
 
-var _ = store.DefaultThresholds // keep the import (for future extension)
+var _ = store.DefaultThresholds
 
-// TestMaintainSupersedeCycleErrorExit — the cycle precheck rejection
-// surfaces as exit 1 with the diagnostic wording, and the write is
-// never attempted (the guard itself — db.SupersedeCycleSQL — is
-// verified against a real DB in the slow test below; this pins the cli
-// wiring: precheck answer → rejection before the Retry-wrapped write).
 func TestMaintainSupersedeCycleErrorExit(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
 		if strings.Contains(sql, "WITH RECURSIVE") {
-			return [][]any{{true}}, nil // cycle detected by the lineage walk
+			return [][]any{{true}}, nil
 		}
 		if strings.Contains(sql, "SELECT status FROM knowledge") {
-			// precheck: OLD active, NEW exists (valid_at non-nil).
+
 			return [][]any{{"active", time.Now()}}, nil
 		}
 		return nil, nil
@@ -339,10 +308,6 @@ func TestMaintainSupersedeCycleErrorExit(t *testing.T) {
 	}
 }
 
-// TestMaintainSupersedeCycleRealSlow — real-DB round trip of the guard
-// at the cli boundary: A→B succeeds, the reverse B→A and the reverse
-// merge are rejected (exit 1 + diagnostic), self keeps its invalid-arg
-// exit 3. Only when SUPERLITE_REAL=1 + FLINT_TEST_DSN are set.
 func TestMaintainSupersedeCycleRealSlow(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -390,8 +355,7 @@ func TestMaintainSupersedeCycleRealSlow(t *testing.T) {
 		code := runMaintain(ctx, st, args, strings.NewReader(""), &out)
 		return out.String(), code
 	}
-	// A→B→C — a normal 3-hop chain extends (NEW's status unrestricted:
-	// B is mid-chain when C supersedes it).
+
 	for _, step := range [][2]string{
 		{"910101", "910102"}, {"910102", "910103"},
 	} {
@@ -399,7 +363,7 @@ func TestMaintainSupersedeCycleRealSlow(t *testing.T) {
 			t.Fatalf("체인 %s→%s exit=%d, want 0; out=%s", step[0], step[1], code, out)
 		}
 	}
-	// Closing the loop C→A is rejected: exit 1 + diagnostic.
+
 	out, code := run("--supersede", "910103", "--by", "910101")
 	if code != 1 {
 		t.Fatalf("C→A exit=%d, want 1; out=%s", code, out)
@@ -407,7 +371,7 @@ func TestMaintainSupersedeCycleRealSlow(t *testing.T) {
 	if !strings.Contains(out, "would create a supersede cycle") {
 		t.Fatalf("C→A 진단 문구 없음: %s", out)
 	}
-	// The reverse merge hits the same guard inside db.Repo.Merge.
+
 	out, code = run("--merge", "--from", "910103", "--to", "910101")
 	if code != 1 {
 		t.Fatalf("역방향 merge exit=%d, want 1; out=%s", code, out)
@@ -415,17 +379,12 @@ func TestMaintainSupersedeCycleRealSlow(t *testing.T) {
 	if !strings.Contains(out, "would create a supersede cycle") {
 		t.Fatalf("역방향 merge 진단 문구 없음: %s", out)
 	}
-	// self keeps the preexisting invalid-arg exit 3 (checked before any
-	// guard query).
+
 	if out, code = run("--supersede", "910101", "--by", "910101"); code != 3 {
 		t.Fatalf("self exit=%d, want 3; out=%s", code, out)
 	}
 }
 
-// TestMaintainReaffirmDelegation — v1.22.0 T3 wiring: --reaffirm --id N --yes
-// delegates to the ReaffirmStore extension (the valid_at=now() UPDATE lives in
-// the store layer), records the audit commit, and never touches the
-// invalidation path. Without --yes it is a guidance error with no write.
 func TestMaintainReaffirmDelegation(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge") {
@@ -462,11 +421,6 @@ func TestMaintainReaffirmDelegation(t *testing.T) {
 	}
 }
 
-// TestMaintainReaffirmRealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN, an
-// isolated scratch DB dropped at the end): the real store-layer reaffirm
-// path — valid_at reset to now(), one maintenance_runs row per run, the
-// missing-id exit 1, and the --recheck read on the real conditions column.
-// Synthetic demo rows only.
 func TestMaintainReaffirmRealSlow(t *testing.T) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -509,7 +463,7 @@ func TestMaintainReaffirmRealSlow(t *testing.T) {
 	if err != nil {
 		t.Fatalf("시드: %v", err)
 	}
-	// age the validity 100d so the reset is measurable.
+
 	for _, id := range ids {
 		if _, err := st.Query(ctx,
 			`UPDATE knowledge SET valid_at = now() - interval '100 days' WHERE id = $1`, id); err != nil {
@@ -522,7 +476,7 @@ func TestMaintainReaffirmRealSlow(t *testing.T) {
 		code := runMaintain(ctx, st, args, strings.NewReader(""), &out)
 		return out.String(), code
 	}
-	// the single-id reaffirm — valid_at reset to now().
+
 	out, code := run("--reaffirm", "--id", fmt.Sprint(ids[0]), "--yes")
 	if code != 0 {
 		t.Fatalf("reaffirm exit=%d out=%s", code, out)
@@ -542,7 +496,7 @@ func TestMaintainReaffirmRealSlow(t *testing.T) {
 	if runs != 1 {
 		t.Fatalf("maintenance_runs(reaffirm) = %d, want 1", runs)
 	}
-	// the batch reaffirm — both ids, a second run record.
+
 	out, code = run("--reaffirm", "--ids", fmt.Sprintf("%d,%d", ids[0], ids[1]), "--yes")
 	if code != 0 || !strings.Contains(out, `"count":2`) {
 		t.Fatalf("--ids reaffirm exit=%d out=%s", code, out)
@@ -550,7 +504,7 @@ func TestMaintainReaffirmRealSlow(t *testing.T) {
 	if err := scanCount(ctx, st, `SELECT count(*) FROM maintenance_runs WHERE kind = 'reaffirm'`, &runs); err != nil || runs != 2 {
 		t.Fatalf("maintenance_runs 누적 = %d, want 2 (err %v)", runs, err)
 	}
-	// a missing target — exit 1, no new run record.
+
 	out, code = run("--reaffirm", "--id", "999999", "--yes")
 	if code != 1 {
 		t.Fatalf("부재 exit=%d, want 1 — %s", code, out)
@@ -558,14 +512,13 @@ func TestMaintainReaffirmRealSlow(t *testing.T) {
 	if err := scanCount(ctx, st, `SELECT count(*) FROM maintenance_runs WHERE kind = 'reaffirm'`, &runs); err != nil || runs != 2 {
 		t.Fatalf("부재 후 maintenance_runs = %d, want 2 (err %v)", runs, err)
 	}
-	// --recheck on the real conditions column (empty → the guidance).
+
 	out, code = run("--recheck", fmt.Sprint(ids[1]))
 	if code != 0 || !strings.Contains(out, `"conditions_empty":true`) {
 		t.Fatalf("recheck exit=%d out=%s", code, out)
 	}
 }
 
-// scanCount — a single-cell count lookup helper (the slow reaffirm test).
 func scanCount(ctx context.Context, st Store, sql string, dst *int) error {
 	rows, err := st.Query(ctx, sql)
 	if err != nil {
@@ -585,15 +538,13 @@ func scanCount(ctx context.Context, st Store, sql string, dst *int) error {
 	return nil
 }
 
-// TestMaintainCheckDrillReport — last_drill elapsed reporting: no record -> never,
-// over 30 days -> stale, within -> field absent (a fast regression pending the table-commit decision).
 func TestMaintainCheckDrillReport(t *testing.T) {
 	stale := time.Now().Add(-40 * 24 * time.Hour).UTC().Format(time.RFC3339)
 	fresh := time.Now().Add(-24 * time.Hour).UTC().Format(time.RFC3339)
 	cases := []struct {
 		name string
 		last string
-		want string // "" = no drill field
+		want string
 	}{
 		{"기록 없음", "", `"drill":"never"`},
 		{"40일 경과", stale, `"drill":"stale"`},
@@ -608,7 +559,7 @@ func TestMaintainCheckDrillReport(t *testing.T) {
 				}
 				return [][]any{{"last_drill", c.last}}, nil
 			}
-			return nil, nil // thresholds unset -> defaults
+			return nil, nil
 		}
 		out, code := runMaintainArgs(t, f, "--check")
 		if code != 0 {
@@ -626,11 +577,6 @@ func TestMaintainCheckDrillReport(t *testing.T) {
 	}
 }
 
-// TestMaintainMergeAuditDelegation — v1.24.0 T3: --merge-audit flows
-// through the cli entry to the ops report unchanged (no --tui branch):
-// the duplicate pair lists and the run stays read-only at this layer too
-// (no admin write method, no dolt commit — disposition is the approval
-// circuit's).
 func TestMaintainMergeAuditDelegation(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
 		if strings.Contains(sql, "invalid_at IS NULL AND status = 'active' LIMIT") {
@@ -655,18 +601,13 @@ func TestMaintainMergeAuditDelegation(t *testing.T) {
 		t.Errorf("읽기 전용 위반: invalidate=%v merge=%v supersede=%v commits=%v",
 			f.invalidateCalls, f.mergeCalls, f.supersedeCalls, f.commits)
 	}
-	// --limit rides the mode (the mode-ownership table admits it).
+
 	out, code = runMaintainArgs(t, f, "--merge-audit", "--limit", "5")
 	if code != 0 || !strings.Contains(out, `"status":"merge-audit"`) {
 		t.Fatalf("--limit 결합 exit=%d out=%q", code, out)
 	}
 }
 
-// TestMaintainRecallAuditDelegation — v1.24.0 T4: --recall-audit flows
-// through the cli entry to the ops report unchanged (no --tui branch): the
-// bad-recall candidate lists and the run stays read-only at this layer too
-// (no admin write method, no dolt commit — disposition is the approval
-// circuit's).
 func TestMaintainRecallAuditDelegation(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
 		if strings.Contains(sql, "AS bad_recall") {
@@ -690,16 +631,13 @@ func TestMaintainRecallAuditDelegation(t *testing.T) {
 		t.Errorf("읽기 전용 위반: invalidate=%v merge=%v supersede=%v commits=%v",
 			f.invalidateCalls, f.mergeCalls, f.supersedeCalls, f.commits)
 	}
-	// --limit rides the mode (the mode-ownership table admits it).
+
 	out, code = runMaintainArgs(t, f, "--recall-audit", "--limit", "5")
 	if code != 0 || !strings.Contains(out, `"status":"recall-audit"`) {
 		t.Fatalf("--limit 결합 exit=%d out=%q", code, out)
 	}
 }
 
-// TestMaintainGCFlagModeGuardCLI — the v1.25.0 --gc mode through the cli
-// entry: without --yes the run stops at the confirmation guard (exit 1)
-// before any engine call (no SELECT dolt_gc() reaches the store).
 func TestMaintainGCFlagModeGuardCLI(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{
 		queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil },
@@ -718,12 +656,6 @@ func TestMaintainGCFlagModeGuardCLI(t *testing.T) {
 	}
 }
 
-// TestMaintainGCRealSlow — the v1.25.0 real-DB GC round-trip (SUPERLITE_REAL=1
-// + FLINT_TEST_DSN, synthetic scratch DB created and dropped here — never a
-// shared or production DB): `maintain --gc --yes` runs dolt_gc(), survives
-// the disconnect via the ping-reconnect loop, rechecks the schema, and the
-// meta pair (last_gc_at · last_gc_mode) round-trips; both engine doctor
-// checks answer standalone.
 func TestMaintainGCRealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {
@@ -751,7 +683,6 @@ func TestMaintainGCRealSlow(t *testing.T) {
 	}
 	t.Cleanup(st.Close)
 
-	// 1. the GC run: notice + result JSON, exit 0.
 	var out strings.Builder
 	if code := ops.RunMaintain(ctx, st, []string{"--gc", "--yes"}, nil, &out); code != 0 {
 		t.Fatalf("maintain --gc --yes exit=%d: %s", code, out.String())
@@ -759,7 +690,7 @@ func TestMaintainGCRealSlow(t *testing.T) {
 	if !strings.Contains(out.String(), "disconnect") || !strings.Contains(out.String(), `"status":"gc"`) {
 		t.Fatalf("GC 출력 계약 불일치: %s", out.String())
 	}
-	// 2. the meta pair round-trip.
+
 	rows, err := st.Query(ctx, `SELECT key, value FROM meta WHERE key IN ('last_gc_at','last_gc_mode')`)
 	if err != nil || len(rows) != 2 {
 		t.Fatalf("meta 2키 왕복 실패: %v rows=%d", err, len(rows))
@@ -774,7 +705,7 @@ func TestMaintainGCRealSlow(t *testing.T) {
 	if _, perr := time.Parse(time.RFC3339, vals["last_gc_at"]); perr != nil {
 		t.Errorf("last_gc_at 비RFC3339: %q", vals["last_gc_at"])
 	}
-	// 3. the shallow mode round-trip (the argument form dolt_gc('--shallow')).
+
 	var sOut strings.Builder
 	if code := ops.RunMaintain(ctx, st, []string{"--gc", "--shallow", "--yes"}, nil, &sOut); code != 0 {
 		t.Fatalf("maintain --gc --shallow --yes exit=%d: %s", code, sOut.String())
@@ -786,7 +717,7 @@ func TestMaintainGCRealSlow(t *testing.T) {
 	if err != nil || len(sRows) != 1 || fmt.Sprint(sRows[0][0]) != "shallow" {
 		t.Fatalf("last_gc_mode shallow 왕복 실패: %v %v", sRows, err)
 	}
-	// 4. the engine doctor checks answer standalone (exit 0 — warn is not fail).
+
 	for _, check := range []string{"dolt_" + "log_depth", "db_size"} {
 		var dOut strings.Builder
 		if code := ops.RunDoctor(ctx, st, []string{"--check", check}, nil, &dOut); code != 0 {

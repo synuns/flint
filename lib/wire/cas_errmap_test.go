@@ -8,20 +8,16 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// TestCompareSetMetaKVSerializationLoser — a race loser's
-// serialization failure (40001) is the normal lost-claim path — mapped to (false, nil).
-// On a real DB it is timing-dependent, so firing is unstable — a fake injection is
-// the only reliable regression net.
 func TestCompareSetMetaKVSerializationLoser(t *testing.T) {
 	cases := []struct {
 		code    string
 		wantWon bool
 		wantErr bool
 	}{
-		{"40001", false, false}, // the serialization loser — inherits no-op
-		{"40P01", false, true},  // deadlock — propagated (defending against over-swallowing)
-		{"42501", false, true},  // permissions — propagated
-		{"08006", false, true},  // connection failure — propagated
+		{"40001", false, false},
+		{"40P01", false, true},
+		{"42501", false, true},
+		{"08006", false, true},
 	}
 	for _, c := range cases {
 		st := &fakeArgStore{query: func(_ context.Context, _ string, _ ...any) ([][]any, error) {
@@ -34,7 +30,7 @@ func TestCompareSetMetaKVSerializationLoser(t *testing.T) {
 		if (err != nil) != c.wantErr {
 			t.Errorf("code=%s err=%v, wantErr %v", c.code, err, c.wantErr)
 		}
-		if err != nil && !errors.Is(err, err) { // a non-nil demonstration helper
+		if err != nil && !errors.Is(err, err) {
 			t.Errorf("code=%s err 래핑 이상", c.code)
 		}
 	}

@@ -1,8 +1,3 @@
-// pending_test.go — contract tests for the `flint pending --tui` entry branching.
-// The default paths (no flags, --json, unknown flag) delegate fully unchanged to knowledge.RunPending
-// (regression); only --tui branches to the TUI seam. The TUI launcher is a seam var with a fake
-// injected (default real = tui.RunPendingTUI — with SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN, a withFake-delegating fake takes the real-DB path).
 package cli
 
 import (
@@ -16,7 +11,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// installPendingTuiFake — swaps the pendingTuiFn seam (call-recording fake).
 func installPendingTuiFake(t *testing.T) *[]wire.Store {
 	t.Helper()
 	var calls []wire.Store
@@ -29,9 +23,6 @@ func installPendingTuiFake(t *testing.T) *[]wire.Store {
 	return &calls
 }
 
-// pendingDemoStore — a fake serving 1 pending row (pending query + active query).
-// The pending row matches the real TUI query's 6 columns (id, topic, summary, origin, valid_at,
-// confidence) — for verifying the real RunPendingTUI fallback path.
 func pendingDemoStore() *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "status = 'pending'") {
@@ -41,7 +32,6 @@ func pendingDemoStore() *fakeStore {
 	}}
 }
 
-// RF-protocol — default-path regression: no flags is byte-identical to RunPending.
 func TestPendingEntryDefaultDelegatesUnchanged(t *testing.T) {
 	var mine, ref bytes.Buffer
 	code := runPendingEntry(context.Background(), pendingDemoStore(), nil,
@@ -56,8 +46,6 @@ func TestPendingEntryDefaultDelegatesUnchanged(t *testing.T) {
 	}
 }
 
-// RF-protocol — existing-flag regression: --json takes the RunPending path (machine output),
-// an unknown flag keeps the existing exit 3. Without --tui, the TUI seam is not called.
 func TestPendingEntryJSONAndUnknownFlagRegression(t *testing.T) {
 	calls := installPendingTuiFake(t)
 
@@ -83,7 +71,6 @@ func TestPendingEntryJSONAndUnknownFlagRegression(t *testing.T) {
 	}
 }
 
-// RF-protocol — --tui branch: TUI seam called, exit propagates, store passed through.
 func TestPendingEntryTUIBranch(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	st := pendingDemoStore()
@@ -98,7 +85,6 @@ func TestPendingEntryTUIBranch(t *testing.T) {
 	}
 }
 
-// RF-protocol — --tui + other flags: invalid-arg exit 3 (no partial combinations).
 func TestPendingEntryTUIRejectsExtraFlags(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	var out bytes.Buffer
@@ -114,8 +100,6 @@ func TestPendingEntryTUIRejectsExtraFlags(t *testing.T) {
 	}
 }
 
-// installPendingTTY — swaps the adaptive-entry TTY-check seam
-// (the setupWizardTTYFn convention — default real implementation tui.IsTerminalStdout).
 func installPendingTTY(t *testing.T, tty bool) {
 	t.Helper()
 	orig := pendingTTYFn
@@ -123,7 +107,6 @@ func installPendingTTY(t *testing.T, tty bool) {
 	t.Cleanup(func() { pendingTTYFn = orig })
 }
 
-// RF-adaptive-2 — no args or flags + terminal: TUI delegation called.
 func TestPendingEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	installPendingTTY(t, true)
@@ -138,7 +121,6 @@ func TestPendingEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	}
 }
 
-// RF-adaptive-3 — no args + non-terminal (pipe): byte-identical delegation to RunPending.
 func TestPendingEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	installPendingTTY(t, false)
@@ -158,8 +140,6 @@ func TestPendingEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	}
 }
 
-// RF-adaptive-1 — explicit --tui + non-terminal: the existing fallback exit 3 unchanged
-// (pendingTuiFn default = tui.RunPendingTUI — the Run-wrapper fallback).
 func TestPendingEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	installPendingTTY(t, false)
 	var out bytes.Buffer
@@ -176,7 +156,6 @@ func TestPendingEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// RF-adaptive-4 — flags present + terminal: the current flag path is kept (no TUI entry).
 func TestPendingEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	installPendingTTY(t, true)
@@ -194,8 +173,6 @@ func TestPendingEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	}
 }
 
-// RF-protocol — registry: "pending" is finally registered to this entry-branching handler
-// (overwriting the knowledge.init registration — inheriting the latest wire.Register value).
 func TestPendingEntryRegistered(t *testing.T) {
 	calls := installPendingTuiFake(t)
 	h, ok := wire.Lookup("pending")
@@ -212,8 +189,6 @@ func TestPendingEntryRegistered(t *testing.T) {
 	}
 }
 
-// RF-noenv — FLINT_NO_TUI=1 forces the current path even on a terminal (escape hatch —
-// layer 1 of the 3-layer guard, where the environment check precedes the TTY seam).
 func TestPendingEntryNoTUIEnvForcesFlagPath(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	calls := installPendingTuiFake(t)
@@ -234,8 +209,6 @@ func TestPendingEntryNoTUIEnvForcesFlagPath(t *testing.T) {
 	}
 }
 
-// RF-noenv-explicit — FLINT_NO_TUI blocks only adaptive entry: an explicit --tui takes
-// precedence over the environment variable (the cli.md contract — the user's explicit intent wins).
 func TestPendingEntryExplicitTUIOverridesNoTUIEnv(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	calls := installPendingTuiFake(t)

@@ -49,8 +49,6 @@ func TestBackupAgeMissing(t *testing.T) {
 	}
 }
 
-// a corrupt last_backup value is treated as unset (invalid-value fallback) — a warn, not a
-// crash or fail.
 func TestBackupAgeCorruptTS(t *testing.T) {
 	c := checkBackupAge(context.Background(), &fakeStore{queryFn: backupAgeQueryFn("yesterday-ish", false)})
 	if c.Status != "warn" {
@@ -58,8 +56,6 @@ func TestBackupAgeCorruptTS(t *testing.T) {
 	}
 }
 
-// just under the threshold (71h59m) is ok — guarding the boundary where 72h crosses into
-// warn via d >= backupAgeWarn.
 func TestBackupAgeJustUnderThreshold(t *testing.T) {
 	ts := time.Now().UTC().Add(-71*time.Hour - 59*time.Minute).Format(time.RFC3339)
 	c := checkBackupAge(context.Background(), &fakeStore{queryFn: backupAgeQueryFn(ts, false)})

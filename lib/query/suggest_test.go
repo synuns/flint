@@ -1,11 +1,3 @@
-// suggest_test.go — the scan-max (schema v13 read_events.near_score)
-// accrual contract: SuggestSimilarWithScanMax returns the highest
-// bigramDice score over ALL scanned candidates (before the min_score
-// filter — independent of the top-N selection), so a below-min zero row
-// still carries its best scan score. ASCII fixtures only: NFKC is the
-// identity on them, so the Dice values are hand-computable (q="abxy"
-// bigrams {ab,bx,xy}: vs "abxx" {ab,bx,xx} → 2·2/6 = 2/3; vs "abqz"
-// {ab,bq,qz} → 2·1/6 = 1/3; vs "zzzz" → 0).
 package query
 
 import (
@@ -16,9 +8,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// resetSuggestThresholds — restores the thresholds-registry defaults
-// after a test overrides them via SetSuggestThresholds (the
-// suggest_v0163_test save/restore convention).
 func resetSuggestThresholds(t *testing.T) {
 	t.Helper()
 	def := store.DefaultThresholds()
@@ -26,8 +15,6 @@ func resetSuggestThresholds(t *testing.T) {
 	t.Cleanup(func() { SetSuggestThresholds(def.SuggestMinScore, def.SuggestScanCap) })
 }
 
-// scanMaxRows — the shared fixture: candidate scores 2/3·1/3·0 against
-// q="abxy" (see the file header for the arithmetic).
 func scanMaxRows() [][]any {
 	return [][]any{
 		{int32(1), "abxx", ""},
@@ -36,10 +23,6 @@ func scanMaxRows() [][]any {
 	}
 }
 
-// TestSuggestSimilarScanMaxBelowMin — with min_score above every
-// candidate score (0.9), no suggestion survives yet scanMax keeps the
-// scan best (2/3 — the near=false zero row is NOT masked to 0; the
-// min_score-boundary distribution is the counterfactual-analysis core).
 func TestSuggestSimilarScanMaxBelowMin(t *testing.T) {
 	resetSuggestThresholds(t)
 	SetSuggestThresholds(0.9, 5000)
@@ -52,10 +35,6 @@ func TestSuggestSimilarScanMaxBelowMin(t *testing.T) {
 	}
 }
 
-// TestSuggestSimilarScanMaxTopNIndependent — scanMax is the scan best
-// regardless of the top-N truncation (topN=1 drops the 1/3 candidate
-// from the output; scanMax still reflects the whole scan), and stays
-// within 0..1 (the Dice range).
 func TestSuggestSimilarScanMaxTopNIndependent(t *testing.T) {
 	resetSuggestThresholds(t)
 	SetSuggestThresholds(0.2, 5000)
@@ -71,9 +50,6 @@ func TestSuggestSimilarScanMaxTopNIndependent(t *testing.T) {
 	}
 }
 
-// TestSuggestSimilarScanMaxEmptyScan — an empty scan (0 candidate rows)
-// yields no suggestions and scanMax 0 (nothing was scanned — the
-// zero-of-empty case, distinct from a masked score).
 func TestSuggestSimilarScanMaxEmptyScan(t *testing.T) {
 	resetSuggestThresholds(t)
 	sug, scanMax := SuggestSimilarWithScanMax("abxy", nil, 3)
@@ -85,9 +61,6 @@ func TestSuggestSimilarScanMaxEmptyScan(t *testing.T) {
 	}
 }
 
-// TestSuggestSimilarCompatDelegates — the legacy SuggestSimilar
-// signature keeps its exact behavior (suggestions only) via delegation
-// — the existing call sites compile and rank unchanged.
 func TestSuggestSimilarCompatDelegates(t *testing.T) {
 	resetSuggestThresholds(t)
 	SetSuggestThresholds(0.2, 5000)
@@ -103,10 +76,6 @@ func TestSuggestSimilarCompatDelegates(t *testing.T) {
 	}
 }
 
-// TestSuggestSimilarRecordsScanDuration — v1.21.0 A6: the wired
-// RecordSuggestScanFn seam records exactly one non-negative duration per
-// scan (SuggestSimilar's delegation records once — not twice), and the
-// suggestions/scanMax stay identical with the seam on vs off (§13).
 func TestSuggestSimilarRecordsScanDuration(t *testing.T) {
 	resetSuggestThresholds(t)
 	SetSuggestThresholds(0.2, 5000)

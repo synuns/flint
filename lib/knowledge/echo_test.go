@@ -1,6 +1,3 @@
-// echo_test.go — v1.17.0 T1: the EchoScan contract (pure scoring,
-// bucketing, caps, filter against the fake store; the real-DB scan is the
-// slow seam below).
 package knowledge
 
 import (
@@ -17,14 +14,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// echoTestTopic — the shared synthetic topic of the fast fixtures.
 const echoTestTopic = "데모 프로젝트 운영 기록"
 
-// The fixture summary triple (computed against lib/query measures):
-//   - dup: identical row -> multiset 1.0 -> duplicates
-//   - contradicts: same topic, different claim -> multiset 0.5151.., set 0.508,
-//     topic dice 1.0 -> contradicts
-//   - excluded: same topic but a long disjoint summary -> set 0.255 < 0.3 -> excluded
 const (
 	echoDupSummary       = "회의록 오늘 확정된 마일스톤은 3개다"
 	echoContraSummary    = "회의록 다음 주는 전체 휴가 기간이다"
@@ -33,7 +24,6 @@ const (
 	echoUnrelatedSummary = "올해 읽은 책 다섯 권 감상"
 )
 
-// echoFixtures — the standard fake rows (id, topic, summary).
 func echoFixtures() [][]any {
 	return [][]any{
 		{int64(1), echoTestTopic, echoDupSummary},
@@ -43,11 +33,6 @@ func echoFixtures() [][]any {
 	}
 }
 
-// TestEchoScanBucketsAndFilter — the three-way bucketing: an identical row
-// is duplicates (multiset 1.0), a same-topic different-claim row is
-// contradicts, a below-min-score row and a fully unrelated row are excluded.
-// The scan SQL carries the active filter (invalid_at IS NULL) and the
-// suggest_scan_cap row cap (LIMIT 5000).
 func TestEchoScanBucketsAndFilter(t *testing.T) {
 	st := &fakeStore{rows: echoFixtures()}
 	got, err := EchoScan(context.Background(), st, echoTestTopic, echoDupSummary)
@@ -57,7 +42,7 @@ func TestEchoScanBucketsAndFilter(t *testing.T) {
 	if len(got) != 2 {
 		t.Fatalf("후보 %d건, want 2 (dup+contradicts): %+v", len(got), got)
 	}
-	// Score-descending order: the duplicate (1.0) precedes the contradiction.
+
 	if got[0].ID != 1 || got[0].Relation != "duplicates" {
 		t.Errorf("첫 후보 = %+v, want id=1 duplicates", got[0])
 	}
@@ -67,14 +52,14 @@ func TestEchoScanBucketsAndFilter(t *testing.T) {
 	if got[1].ID != 2 || got[1].Relation != "contradicts" {
 		t.Errorf("둘째 후보 = %+v, want id=2 contradicts", got[1])
 	}
-	// The contradiction carries its multiset score (0.5151.. = 34/66).
+
 	if math.Abs(got[1].Score-34.0/66.0) > 1e-9 {
 		t.Errorf("contradicts score = %v, want %v", got[1].Score, 34.0/66.0)
 	}
 	if got[1].Topic != echoTestTopic {
 		t.Errorf("Topic = %q, want %q", got[1].Topic, echoTestTopic)
 	}
-	// The scan SQL carries the active filter and the default row cap.
+
 	joined := strings.Join(st.queries, ";")
 	if !strings.Contains(joined, "invalid_at IS NULL") {
 		t.Errorf("스캔 SQL에 active 필터 부재: %q", joined)
@@ -84,9 +69,6 @@ func TestEchoScanBucketsAndFilter(t *testing.T) {
 	}
 }
 
-// TestEchoScanTopKAndTieOrder — with more qualified rows than echo_top_k
-// (default 5), only the top 5 return; equal scores tie-break by ascending
-// id. The SetEchoThresholds seam narrows k (invalid values are ignored).
 func TestEchoScanTopKAndTieOrder(t *testing.T) {
 	t.Cleanup(func() { SetEchoThresholds(5, 0.3, 0.4) })
 	var rows [][]any
@@ -106,7 +88,7 @@ func TestEchoScanTopKAndTieOrder(t *testing.T) {
 			t.Errorf("동점 %d번째 id = %d, want %d (오름차순)", i, c.ID, i+1)
 		}
 	}
-	// Seam override: topK 2 narrows the result; 0 is ignored (default kept).
+
 	SetEchoThresholds(2, 0.3, 0.4)
 	got, err = EchoScan(context.Background(), st, echoTestTopic, echoDupSummary)
 	if err != nil {
@@ -125,12 +107,9 @@ func TestEchoScanTopKAndTieOrder(t *testing.T) {
 	}
 }
 
-// TestEchoScanInputCap — the input is combined (topic+" "+summary) and
-// truncated to 4096 runes before scoring: a row holding exactly that
-// truncation scores a full 1.0 duplicate.
 func TestEchoScanInputCap(t *testing.T) {
 	topic := strings.Repeat("가", 3000)
-	summary := strings.Repeat("나", 3000) // combined 6001 runes -> 4096
+	summary := strings.Repeat("나", 3000)
 	wantSummary := strings.Repeat("나", 1095)
 	st := &fakeStore{rows: [][]any{{int64(9), topic, wantSummary}}}
 	got, err := EchoScan(context.Background(), st, topic, summary)
@@ -145,8 +124,6 @@ func TestEchoScanInputCap(t *testing.T) {
 	}
 }
 
-// TestEchoScanQueryErrorPropagates — a scan failure returns (nil, err)
-// (the caller omits the echo field quietly).
 func TestEchoScanQueryErrorPropagates(t *testing.T) {
 	st := &fakeStore{queryErr: errors.New("boom")}
 	got, err := EchoScan(context.Background(), st, echoTestTopic, echoDupSummary)
@@ -158,8 +135,6 @@ func TestEchoScanQueryErrorPropagates(t *testing.T) {
 	}
 }
 
-// echoPoolStore — the minimal real-DB wire.Store for the slow scenario
-// (only Query works — the survivedPoolStore convention).
 type echoPoolStore struct {
 	pool *pgxpool.Pool
 	wire.HistoryStubs
@@ -197,11 +172,6 @@ func (s *echoPoolStore) Query(ctx context.Context, sql string, args ...any) ([][
 	return out, rows.Err()
 }
 
-// TestEchoScanRealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN): the
-// real-DB scan finds the seeded duplicate (identical row -> duplicates)
-// and contradiction (same topic, different claim) rows; the unrelated
-// seed stays out. The same fixture strings as the fake tests — the
-// real-DB row shapes (pgx numerics, strings) must classify identically.
 func TestEchoScanRealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {
@@ -230,7 +200,7 @@ func TestEchoScanRealSlow(t *testing.T) {
 			t.Skipf("real seeding unavailable: %v", err)
 		}
 	}
-	// cleanup LIFO: delete the seeded rows first, then close the pool.
+
 	t.Cleanup(pool.Close)
 	t.Cleanup(func() {
 		if _, err := pool.Exec(ctx,
@@ -250,8 +220,7 @@ func TestEchoScanRealSlow(t *testing.T) {
 	if rel[echoTestTopic] == "" {
 		t.Fatalf("시딩 토픽 후보 부재: %+v", got)
 	}
-	// Both the duplicate and the contradiction candidates carry the shared
-	// topic — at least one duplicates and one contradicts must appear.
+
 	seenDup, seenContra := false, false
 	for _, c := range got {
 		switch c.Relation {
@@ -274,10 +243,6 @@ func TestEchoScanRealSlow(t *testing.T) {
 	}
 }
 
-// TestEchoScanRecordsDurationQuietly — v1.21.0 A6: the wired
-// RecordEchoScanFn seam records exactly one non-negative duration per scan
-// (entry to return, error path included) and the candidates stay identical
-// with the seam on vs off — instrumentation never enters the outcome path (§13).
 func TestEchoScanRecordsDurationQuietly(t *testing.T) {
 	var got []time.Duration
 	RecordEchoScanFn = func(d time.Duration) { got = append(got, d) }
@@ -295,7 +260,6 @@ func TestEchoScanRecordsDurationQuietly(t *testing.T) {
 		t.Fatalf("기록 음수 duration: %v", got[0])
 	}
 
-	// Query failure also returns through the defer — recorded, error intact.
 	failSt := &fakeStore{queryErr: errors.New("boom")}
 	if _, err := EchoScan(context.Background(), failSt, echoTestTopic, echoDupSummary); err == nil {
 		t.Fatalf("쿼리 실패 에러 부재")
@@ -304,7 +268,6 @@ func TestEchoScanRecordsDurationQuietly(t *testing.T) {
 		t.Fatalf("기록 샘플 %d건, want 2(진입~반환 — 에러 경로 포함)", len(got))
 	}
 
-	// Seam off -> identical candidates (the metering-free path is unchanged).
 	RecordEchoScanFn = nil
 	without, err := EchoScan(context.Background(), &fakeStore{rows: echoFixtures()}, echoTestTopic, echoDupSummary)
 	if err != nil {

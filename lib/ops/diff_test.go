@@ -1,8 +1,3 @@
-// diff_test.go — the diff usage-error type contract + fake-based summary, filters, and row details.
-// Verifies that usage errors are classified as error:"usage" (wire.UsageErrorf -> ErrLine)
-// and, with wire.Store DiffRows/DiffCommits fakes, verifies the summary scope (including
-// the empty range), the --data/--schema filters, and the row-detail mapping. The SQL
-// dialect is owned by the db implementation — here only the mapping and output contracts.
 package ops
 
 import (
@@ -16,9 +11,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// TestRunDiffUsageErrorType — protocol: an argument-count violation (0, 1, or 3
-// args) is exit 3 + error:"usage" + a message containing the usage: flint diff guidance.
-// It must not be the legacy raw string (the whole "usage: ..." as the error value).
 func TestRunDiffUsageErrorType(t *testing.T) {
 	for _, args := range [][]string{nil, {"aaaa1"}, {"aaaa1", "bbbb2", "extra"}} {
 		var out bytes.Buffer
@@ -40,15 +32,13 @@ func TestRunDiffUsageErrorType(t *testing.T) {
 	}
 }
 
-// fakeDiffStore — fakeStore (with the absorbed HistoryStubs) + canned DiffRows and
-// DiffCommits overrides. The from/to argument recording also serves semantic (argument-order) verification.
 type fakeDiffStore struct {
 	*fakeStore
 	diffRows    []wire.KnowledgeDiffRow
 	diffRowsErr error
 	commits     []wire.DiffCommitSummary
 	commitsErr  error
-	gotFromTo   [][2]string // shared DiffRows/DiffCommits recording
+	gotFromTo   [][2]string
 }
 
 func (f *fakeDiffStore) DiffRows(ctx context.Context, from, to string) ([]wire.KnowledgeDiffRow, error) {
@@ -60,7 +50,6 @@ func (f *fakeDiffStore) DiffCommits(ctx context.Context, from, to string) ([]wir
 	return f.commits, f.commitsErr
 }
 
-// diffTestSetup — injects the ParseAsOfSpecFn identity (spec = hash) + restores.
 func diffTestSetup(t *testing.T) {
 	t.Helper()
 	prev := ParseAsOfSpecFn
@@ -70,7 +59,6 @@ func diffTestSetup(t *testing.T) {
 	t.Cleanup(func() { ParseAsOfSpecFn = prev })
 }
 
-// decodeDiff — decodes the one-line JSON output + asserts exit 0.
 func decodeDiff(t *testing.T, args []string, f *fakeDiffStore) map[string]any {
 	t.Helper()
 	var out bytes.Buffer
@@ -88,8 +76,6 @@ func decodeDiff(t *testing.T, args []string, f *fakeDiffStore) map[string]any {
 	return m
 }
 
-// TestRunDiffSummaryCommits — --summary: the DiffCommits summary mapping (hash,
-// date, message, data_change, schema_change) and the empty range (commits:[] — not null).
 func TestRunDiffSummaryCommits(t *testing.T) {
 	diffTestSetup(t)
 	d := time.Date(2026, 11, 18, 0, 0, 1, 0, time.UTC)
@@ -116,13 +102,12 @@ func TestRunDiffSummaryCommits(t *testing.T) {
 	if _, ok := first["date"].(string); !ok {
 		t.Fatalf("date=%v, want 문자열", first["date"])
 	}
-	// the argument-order contract: DiffRows(from=aaaa1, to=bbbb2).
+
 	if len(f.gotFromTo) != 1 || f.gotFromTo[0] != [2]string{"aaaa1", "bbbb2"} {
 		t.Fatalf("DiffRows 인수=%v, want [aaaa1 bbbb2]", f.gotFromTo)
 	}
 }
 
-// TestRunDiffSummaryEmptyRange — empty range: 0 commits is still "commits":[].
 func TestRunDiffSummaryEmptyRange(t *testing.T) {
 	diffTestSetup(t)
 	f := &fakeDiffStore{fakeStore: &fakeStore{}}
@@ -135,8 +120,6 @@ func TestRunDiffSummaryEmptyRange(t *testing.T) {
 	}
 }
 
-// TestRunDiffDataSchemaFilter — --data keeps only commits with data_change true;
-// --schema keeps only commits with schema_change true in the upper summary.
 func TestRunDiffDataSchemaFilter(t *testing.T) {
 	diffTestSetup(t)
 	d := time.Date(2026, 11, 18, 0, 0, 1, 0, time.UTC)
@@ -168,8 +151,6 @@ func TestRunDiffDataSchemaFilter(t *testing.T) {
 	}
 }
 
-// TestRunDiffRowDetail — default mode: the DiffRows row-detail mapping (diff_type,
-// id, topic) and the added/modified/removed tallies, with rows and commits output together.
 func TestRunDiffRowDetail(t *testing.T) {
 	diffTestSetup(t)
 	d := time.Date(2026, 11, 18, 0, 0, 1, 0, time.UTC)

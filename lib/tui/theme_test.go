@@ -1,4 +1,3 @@
-// theme_test.go — asserts the minimal color-theme values exist.
 package tui
 
 import (
@@ -7,8 +6,6 @@ import (
 	"github.com/charmbracelet/lipgloss"
 )
 
-// TestThemeValuesExist — the accent, secondary, and neutral styles must all
-// have foreground colors (the color codes use ANSI base-color numbers so the terminal theme is respected).
 func TestThemeValuesExist(t *testing.T) {
 	cases := []struct {
 		name  string

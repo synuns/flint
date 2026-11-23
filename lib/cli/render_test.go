@@ -1,7 +1,3 @@
-// render_test.go — tests for the render output-layer aliases. The core and guard tests
-// moved to lib/render/render_test.go; here we only verify that the var aliases in
-// render_alias.go compile and behave equivalently for the residual cli consumer files,
-// unedited.
 package cli
 
 import (
@@ -12,11 +8,6 @@ import (
 	"github.com/synuns/flint/lib/render"
 )
 
-// TestRenderAliasCompat — the cli aliases (Text, Masked, Cells, Rows,
-// TruncateRunes, CountPending, and the lowercase truncateRunes and countPending) point to
-// the same function values as the single implementation (equivalence, not delegation —
-// guaranteeing consumer files stay unedited). CountPending and countPending use
-// the knowledge implementation (moved to knowledge/pending.go).
 func TestRenderAliasCompat(t *testing.T) {
 	pairs := []struct {
 		name string
@@ -37,7 +28,7 @@ func TestRenderAliasCompat(t *testing.T) {
 			t.Errorf("%s 별칭이 render 구현과 다른 함수를 가리킴", p.name)
 		}
 	}
-	// behavior spot-check — output via the aliases still matches the expected values.
+
 	if got := Text("a[flint]b"); got != "a b" {
 		t.Errorf("Text 별칭 = %q, want \"a b\"", got)
 	}

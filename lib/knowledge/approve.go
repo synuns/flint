@@ -1,7 +1,3 @@
-// approve.go — the approve command — passing the review gate (§8: approval
-// = via conversation → the agent runs it). `flint approve --id N` —
-// pending→active promotion. Success: {"status":"approved","id":N} exit 0;
-// a missing id gets a one-line not_found JSON, exit 1.
 package knowledge
 
 import (
@@ -17,38 +13,16 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// approveStore — the promotion access for Approve. The wire.Store interface
-// is v0.1-owned, so it is consumed via type assertion instead of extension
-// (root.go modifications forbidden — the done.go staleSessionStore
-// convention). The realStore passed on real paths (root·mcp) always
-// implements it.
 type approveStore interface {
 	Approve(ctx context.Context, id int) error
 }
 
-// ApproveFn — the legacy fallback seam. Used only when st does not
-// implement Approve (a test harness without injection) — the default is an
-// error (delegation to the real-path st is the premise). Tests swap the
-// fake (approve_test.go).
 var ApproveFn = func(ctx context.Context, id int) error {
 	return errors.New("approve: injected store does not implement Approve")
 }
 
-// quoteJSON — wraps strings such as paths into a JSON string literal.
 var quoteJSON = wire.QuoteJSON
 
-// curationCounterKinds — the daily counter kind whitelist covering both
-// intake and review (curation) outcomes (spec §2.4 gap 1; principle
-// widened v1.17.0 — the funnel observation spans ingestion sources and
-// review results). Key kinds are capped at the registry's curation group
-// (preventing infinite key proliferation from typo'd kinds — the
-// diagnostics·report curation objects consume the same namespace). A
-// dedicated key space, distinct from the existing intake metering
-// (RecordUsageCount kind) — promotion·invalidation outcomes are review
-// results, not intake. Derived from the unified observation-kind
-// registry's curation group (schema v13 A5 — the group structure keeps
-// the key-space separation; the kind set is set-invariant with the
-// former literal).
 var curationCounterKinds = func() map[string]bool {
 	m := map[string]bool{}
 	for _, k := range db.MeteringKinds("curation") {
@@ -57,19 +31,6 @@ var curationCounterKinds = func() map[string]bool {
 	return m
 }()
 
-// BumpCurationCounter — increments one daily flat-key review counter (v1.2.0
-// T4). Raises the `daily:<kind>:<date>` (UTC) integer value with a single
-// UPSERT — the query body is singly owned by db.BumpDailyFlatKey (the
-// db-package ownership principle for write SQL literals — writes_through_repo
-// guard scope) and runs through db.Querier, which st structurally satisfies
-// (covers wire.Store·fakes alike). The increment is non-idempotent, so it
-// fires exactly once without retry (inheriting the BumpMetaKV contract —
-// preventing double-counting on ambiguous failure); n<=0·invalid kind·
-// failure are quiet (§13 metering principle — a lost counter beats a failed
-// call). Cleanup comes from PruneDaily's daily:* regex, which clears both
-// formats (legacy JSON·flat) together. Calls with kinds outside the
-// whitelist are not metered (the cap principle — preventing meta key
-// proliferation from typo'd kinds).
 func BumpCurationCounter(ctx context.Context, st wire.Store, kind string, n int) {
 	if st == nil || n <= 0 || !curationCounterKinds[kind] {
 		return
@@ -77,21 +38,10 @@ func BumpCurationCounter(ctx context.Context, st wire.Store, kind string, n int)
 	_ = db.BumpDailyFlatKey(ctx, st, kind, time.Now().UTC().Format("2006-01-02"), n)
 }
 
-// approveUsageErr — assembles the approve argument validation error:
-// wire.UsageError classification (error:"usage") + a usage hint
-// `--id N [--supersede OLD]` in the message — turning a mistyped flag into
-// the correct guidance.
 func approveUsageErr(format string, a ...any) error {
 	return wire.UsageErrorf(format+" — usage: flint approve --id N [--supersede OLD]", a...)
 }
 
-// RunApprove — runs the approval. The promotion goes through the given st
-// (R14 rewiring — previously it ignored st and opened its own Repo).
-// v1.0.1 (F3): argument-validation paths (unknown flag·missing value·
-// invalid id·missing --id·supersede==id) are unified to the invalid-arg
-// exit 3 — matching the mcp dispatchApprove validation-failure contract.
-// v1.5.3 (P2): the ErrLine error value on these paths is "usage"
-// (previously internal).
 func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	id := -1
 	supersede := -1
@@ -128,9 +78,6 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 		return 3
 	}
 
-	// Injected st first — realStore delegates Approve. Only a
-	// non-implementing st (incl. nil) falls back to the legacy ApproveFn
-	// seam.
 	var err error
 	if as, ok := st.(approveStore); ok {
 		err = as.Approve(ctx, id)
@@ -139,30 +86,24 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 	}
 	if err != nil {
 		if errors.Is(err, db.ErrNotFound) {
-			BumpCurationCounter(ctx, st, "approve_not_found", 1) // review counter
+			BumpCurationCounter(ctx, st, "approve_not_found", 1)
 			fmt.Fprintln(stdout, `{"error":"not_found","id":`+strconv.Itoa(id)+`}`)
 			return 1
 		}
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	BumpCurationCounter(ctx, st, "approve_done", 1) // review counter — one successful promotion
-	// Origin-based promotion counter (v1.17.0 T4) — which write source the
-	// promoted row came from (correction·gap) is the review-funnel
-	// observation. Quiet on lookup failure (§13 — a lost counter beats a
-	// failed call).
+	BumpCurationCounter(ctx, st, "approve_done", 1)
+
 	bumpApproveOriginCounter(ctx, st, id)
-	// Supersede at promotion time — approve --id N --supersede OLD
-	// invalidates OLD (the old active knowledge) in favor of N and records
-	// the precedence, all at once (the same UPDATE as the maintain
-	// --supersede renewal path).
+
 	if supersede > 0 {
 		if st == nil {
 			fmt.Fprintln(stdout, wire.ErrLine(fmt.Errorf("--supersede requires store")))
 			return 1
 		}
 		if serr := supersedeAfterApprove(ctx, st, supersede, id); serr != nil {
-			BumpCurationCounter(ctx, st, "approve_supersede_err", 1) // review counter
+			BumpCurationCounter(ctx, st, "approve_supersede_err", 1)
 			fmt.Fprintln(stdout, `{"status":"approved","id":`+strconv.Itoa(id)+
 				`,"supersede_error":`+quoteJSON(serr.Error())+`}`)
 			return 1
@@ -171,10 +112,7 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 			`,"superseded":`+strconv.Itoa(supersede)+`}`)
 		return 0
 	}
-	// Similar-active notice — if an existing active shares the topic (or a
-	// prefix match), surface it as a merge candidate (the promotion is
-	// already complete — this is only a notice). nil st (test harness)
-	// skips the notice — the promotion contract is unchanged.
+
 	var sim []int
 	if st != nil {
 		sim = similarActiveIDs(ctx, st, id)
@@ -198,9 +136,6 @@ func RunApprove(ctx context.Context, st wire.Store, args []string, stdin io.Read
 
 func init() { wire.Register("approve", RunApprove) }
 
-// approveOriginCounterKind — maps a knowledge origin to its promotion
-// counter kind (v1.17.0 T4). Only the agent-fed write sources with a
-// review funnel are counted; other origins (agent·session) return false.
 func approveOriginCounterKind(origin string) (string, bool) {
 	switch origin {
 	case "correction":
@@ -211,11 +146,6 @@ func approveOriginCounterKind(origin string) (string, bool) {
 	return "", false
 }
 
-// bumpApproveOriginCounter — after a successful promotion, looks up the
-// promoted row's origin and increments the per-source review counter
-// (correction_approved·gap_approved). Every failure path (nil st·query
-// error·row absence·non-funnel origin) is quiet — the promotion itself
-// is already complete (§13 non-interference).
 func bumpApproveOriginCounter(ctx context.Context, st wire.Store, id int) {
 	if st == nil {
 		return
@@ -232,19 +162,10 @@ func bumpApproveOriginCounter(ctx context.Context, st wire.Store, id int) {
 	BumpCurationCounter(ctx, st, kind, 1)
 }
 
-// supersedeStore — the supersede-transition capability. realStore implements
-// it; the renewal UPDATE has the single path db.Repo.Supersede (rows-affected
-// stewardship built in — the approveStore convention: wire.Store is v0.1-owned,
-// so it is consumed via type assertion).
 type supersedeStore interface {
 	Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error)
 }
 
-// supersedeAfterApprove — supersedes OLD with NEW right after promotion.
-// The commit goes through Store.Commit (dolt_add -A +
-// dolt_commit — dolt_commit is a built-in function, not a table). The
-// pre-check that OLD is active·the zero-row race stewardship are inherited
-// from Repo.Supersede's rows-affected count.
 func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int) error {
 	ss, ok := st.(supersedeStore)
 	if !ok {
@@ -258,7 +179,7 @@ func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int)
 	if len(rows) == 0 || rows[0][0] == nil || fmt.Sprint(rows[0][0]) != "active" {
 		return fmt.Errorf("supersede: id=%d is not active", oldID)
 	}
-	// invalid_at = NEW's valid_at, carried over (per Zep t_invalid=t_valid).
+
 	vrows, verr := wire.QueryOnce(ctx, st,
 		`SELECT valid_at FROM knowledge WHERE id = $1`, []any{newID})
 	if verr != nil {
@@ -279,10 +200,6 @@ func supersedeAfterApprove(ctx context.Context, st wire.Store, oldID, newID int)
 	return err
 }
 
-// similarActiveIDs — the active ids similar to the promoted knowledge. The
-// similarity approximation is topicSimilarityKey (12-rune prefix after
-// stripping the common session prefix), a single Go implementation shared
-// with the pending decision — preventing SQL dual-implementation drift.
 func similarActiveIDs(ctx context.Context, st wire.Store, id int) []int {
 	rows, err := wire.QueryOnce(ctx, st,
 		`SELECT topic FROM knowledge WHERE id = $1`, []any{id})

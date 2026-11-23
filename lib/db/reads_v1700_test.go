@@ -1,11 +1,3 @@
-// reads_v1700_test.go — recall reinforcement slow tests (real DB,
-// schema v12). v1.9.0 T4 transfer: verifying the v11
-// knowledge.recall_score·last_recalled_at direct columns via SELECT
-// breaks with 42703 under schema v12 (columns dropped), so the check
-// was updated to the recall_events derived aggregate (the same aggregate
-// join the ranking query consumes). Unlike the event-accrual source
-// checks (reads_v1900_test.go), this file examines whether the derived
-// values cnt·last_at accurately reflect the accrual result.
 package db
 
 import (
@@ -14,9 +6,6 @@ import (
 	"time"
 )
 
-// derivedRecall — reads one knowledge row's (cnt, last_at) with the
-// same recall_events derived aggregate join as the ranking query
-// (never-recalled yields NULL, NULL).
 func derivedRecall(t *testing.T, r *Repo, ctx context.Context, id int) (*int, *time.Time) {
 	t.Helper()
 	var cnt *int
@@ -32,10 +21,6 @@ func derivedRecall(t *testing.T, r *Repo, ctx context.Context, id int) (*int, *t
 	return cnt, last
 }
 
-// TestBumpRecallScoresIncrements — the recall-event accrual of hit rows
-// is reflected in the derived cnt·last_at: the accrued row gets cnt 1·
-// last_at recent; the unaccrued row gets NULL (never recalled — the
-// ranking zero-score source). Empty slice no-op.
 func slowBumpRecallScoresIncrements(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV12(ctx); err != nil {
@@ -61,7 +46,7 @@ func slowBumpRecallScoresIncrements(t *testing.T, r *Repo) {
 	if c2 != nil || l2 != nil {
 		t.Errorf("미적립 행 파생 cnt/last = %v/%v, want nil/nil(미회상)", c2, l2)
 	}
-	// Empty slice no-op — no error, derived values unchanged.
+
 	if err := r.BumpRecallScores(ctx, nil); err != nil {
 		t.Fatalf("BumpRecallScores(nil): %v", err)
 	}
@@ -71,9 +56,6 @@ func slowBumpRecallScoresIncrements(t *testing.T, r *Repo) {
 	}
 }
 
-// TestBumpRecallScoresDuplicateIDs — duplicate-id immunity: passing the
-// same id multiple times accrues the row once (derived cnt 1 —
-// inheriting the BumpReads contract).
 func slowBumpRecallScoresDuplicateIDs(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV12(ctx); err != nil {

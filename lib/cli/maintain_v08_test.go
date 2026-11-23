@@ -1,7 +1,3 @@
-// maintain_v08_test.go — lifecycle-action regressions (spec §2):
-// --stale reason and summary enrichment; --invalidate-stale dry-run/--yes; --invalidate
-// --ids snapshot; --supersede. All with a fake Store (UPDATE statement and parameter assertions,
-// independent of the column schema).
 package cli
 
 import (
@@ -13,7 +9,6 @@ import (
 	"time"
 )
 
-// v08StaleRows — stale-query fixtures: 1 unreferenced row (never_read) and 1 elapsed row (stale).
 func v08StaleRows() [][]any {
 	return [][]any{
 		{1, "미참조 노트", nil, ago(100 * 24 * time.Hour), 0},
@@ -21,7 +16,6 @@ func v08StaleRows() [][]any {
 	}
 }
 
-// shortRetryDelays — makes Retry retries run immediately (removes test delays).
 func shortRetryDelays(t *testing.T) {
 	t.Helper()
 	prev := maintainRetryDelays
@@ -29,8 +23,6 @@ func shortRetryDelays(t *testing.T) {
 	t.Cleanup(func() { maintainRetryDelays = prev })
 }
 
-// TestStaleListsReasonsSummary — each item carries the reason
-// stale|never_read and the summary "N to invalidate". The existing --days and --limit unchanged.
 func TestStaleListsReasonsSummary(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f, nil, v08StaleRows())
@@ -56,7 +48,6 @@ func TestStaleListsReasonsSummary(t *testing.T) {
 	}
 }
 
-// mustJSON — one-line output parsing helper.
 func mustJSON(t *testing.T, out string) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -66,8 +57,6 @@ func mustJSON(t *testing.T, out string) map[string]any {
 	return m
 }
 
-// TestInvalidateStaleDryRunDefault — without the marker (--yes), identical output to --stale with no updates
-// and exit 0 (dry-run by default).
 func TestInvalidateStaleDryRunDefault(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{}}
 	staleQueryFixture(t, f, nil, v08StaleRows())
@@ -88,9 +77,6 @@ func TestInvalidateStaleDryRunDefault(t *testing.T) {
 	}
 }
 
-// TestInvalidateStaleYesApplies — with --yes, the transition applies to all targets
-// (Repo.Invalidate delegation — status and invalid_at recording is owned by the db layer) + Commit,
-// and the write path uses Retry (one 40001 then recovery).
 func TestInvalidateStaleYesApplies(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -125,9 +111,6 @@ func TestInvalidateStaleYesApplies(t *testing.T) {
 	}
 }
 
-// TestInvalidateIdsSnapshot — --ids pins the given ids regardless of dry-run reevaluation
-// (no stale query). A missing id -> exit 1. --yes is mandatory alongside.
-// The update is a Repo.Invalidate delegation (asserted via capture).
 func TestInvalidateIdsSnapshot(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -154,7 +137,6 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 		t.Errorf("Commit 호출=%d회, want 1", len(f.commits))
 	}
 
-	// missing id — only 1 existence check -> exit 1, no transition and no Commit.
 	f2 := &fakeMaint{fakeStore: &fakeStore{}}
 	f2.queryFn = func(sql string, args []any) ([][]any, error) {
 		return [][]any{{4}}, nil
@@ -173,7 +155,6 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 		t.Errorf("부재 시 Commit 발생: %v", f2.commits)
 	}
 
-	// --ids without --yes — no execution confirmation -> exit 1.
 	_, code3 := runMaintainArgs(t, &fakeMaint{fakeStore: &fakeStore{}},
 		"--invalidate", "--ids", "4")
 	if code3 != 1 {
@@ -181,11 +162,6 @@ func TestInvalidateIdsSnapshot(t *testing.T) {
 	}
 }
 
-// supersedeFixture — responses for the OLD state and NEW valid_at lookups plus the
-// lineage-cycle precheck (v1.20.0 — no cycle by default; the cycle-true path is covered by
-// TestMaintainSupersedeCycleErrorExit). The update is a
-// Repo.Supersede delegation (captured by fakeMaint) — the 0-row race stewardship is built into
-// the db layer via rows-affected.
 func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 	t.Helper()
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -193,16 +169,13 @@ func supersedeFixture(t *testing.T, f *fakeMaint, row []any) {
 			return [][]any{row}, nil
 		}
 		if strings.Contains(sql, "WITH RECURSIVE") {
-			// two columns since v1.20.1: (cycle, depth-cap truncated)
+
 			return [][]any{{false, false}}, nil
 		}
 		return nil, errors.New("unexpected query: " + sql)
 	}
 }
 
-// TestSupersedeSetsFields — the transition delegates only when OLD is active
-// (status, superseded_by=NEW, and invalid_at=NEW valid_at recording is owned by Repo.Supersede —
-// asserted via delegation parameters) + Commit.
 func TestSupersedeSetsFields(t *testing.T) {
 	shortRetryDelays(t)
 	f := &fakeMaint{fakeStore: &fakeStore{}}
@@ -226,8 +199,6 @@ func TestSupersedeSetsFields(t *testing.T) {
 	}
 }
 
-// TestSupersedeRejects — missing NEW exits 1; self-reference exits 3;
-// non-active OLD (including missing) exits 1. No transition (delegation) or Commit in either case.
 func TestSupersedeRejects(t *testing.T) {
 	now := time.Now()
 	cases := []struct {
@@ -260,8 +231,6 @@ func TestSupersedeRejects(t *testing.T) {
 	}
 }
 
-// TestMaintainV08ModeFlagConflicts — follows the existing mode-ownership validation pattern:
-// unrelated value flags and --yes misuse are errors, not silently ignored.
 func TestMaintainV08ModeFlagConflicts(t *testing.T) {
 	cases := []struct {
 		name string

@@ -1,5 +1,3 @@
-// The single-implementation (wire) behavior of CellToTime and QuoteJSON + a
-// whole-repo single-source guard (knowledge/ops consumers may only alias-delegate, with no duplicated func definitions).
 package wire
 
 import (
@@ -49,10 +47,6 @@ func TestCellToTimeQuoteJSONSingle(t *testing.T) {
 	})
 }
 
-// TestBackupEncryptOnSingle — predicate convergence.
-// wire.BackupEncryptOn's behavior (true only for "true" and "1") + a whole-repo
-// single-source guard (only the single func definition in wire/util.go is allowed —
-// no knowledge-local copies or ops func delegations; consumers may only delegate via var aliases).
 func TestBackupEncryptOnSingle(t *testing.T) {
 	t.Run("행위 — true·1만 참", func(t *testing.T) {
 		for _, v := range []string{"true", "1"} {
@@ -77,7 +71,7 @@ func TestBackupEncryptOnSingle(t *testing.T) {
 				return nil
 			}
 			if filepath.Base(path) == "util.go" && filepath.Base(filepath.Dir(path)) == "wire" {
-				return nil // the single-implementation owner
+				return nil
 			}
 			b, err := os.ReadFile(path)
 			if err != nil {
@@ -96,9 +90,6 @@ func TestBackupEncryptOnSingle(t *testing.T) {
 	})
 }
 
-// TestCellToTimeQuoteJSONNoLocalCopies — across all lib (non-test) sources, the
-// func definitions of CellToTime and QuoteJSON are allowed only in the single wire/util.go
-// spot. Consumers (knowledge, ops) must delegate via var aliases (a guard against duplicated-debt recurrence).
 func TestCellToTimeQuoteJSONNoLocalCopies(t *testing.T) {
 	names := []string{"CellToTime", "cellToTime", "QuoteJSON", "quoteJSON"}
 	root := filepath.Join("..", "..", "lib")
@@ -110,7 +101,7 @@ func TestCellToTimeQuoteJSONNoLocalCopies(t *testing.T) {
 			return nil
 		}
 		if filepath.Base(path) == "util.go" && filepath.Base(filepath.Dir(path)) == "wire" {
-			return nil // the single-implementation owner
+			return nil
 		}
 		b, err := os.ReadFile(path)
 		if err != nil {

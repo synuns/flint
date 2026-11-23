@@ -1,8 +1,3 @@
-// admin_v10_test.go — schema v10 gate (EnsureSchemaV10) slow tests
-// (real DB). Contract: the read_events 3 columns (bytes·zero_reason·
-// source)·the knowledge_reads table (knowledge_id·ts·session·kind + the
-// ts index) added additively·existing data intact·idempotent promotion·
-// numeric-comparison no-op (on higher-version DBs).
 package db
 
 import (
@@ -13,8 +8,6 @@ import (
 	"github.com/synuns/flint/lib/sqlfs"
 )
 
-// columnExists — checks column existence via information_schema (the
-// gate's additive proof).
 func columnExists(t *testing.T, r *Repo, table, column string) bool {
 	t.Helper()
 	var n int
@@ -26,15 +19,9 @@ func columnExists(t *testing.T, r *Repo, table, column string) bool {
 	return n == 1
 }
 
-// TestV10GateAdditive — existing DB intact·idempotent promotion·
-// read_events columns present·the knowledge_reads index. Reproduces a
-// v9 DB (columns·table absent) then promotes → existing read_events rows
-// get defaults, knowledge rows intact, and the rerun is idempotent.
 func slowV10GateAdditive(t *testing.T, r *Repo) {
 	ctx := context.Background()
-	// Reproduce a v9 DB — remove the v10 artifacts and roll the version
-	// back to 9. Doltgres lacks DROP COLUMN IF EXISTS, so check existence
-	// before dropping.
+
 	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS knowledge_reads`); err != nil {
 		t.Fatalf("v9 재현 knowledge_reads 삭제: %v", err)
 	}
@@ -48,7 +35,6 @@ func slowV10GateAdditive(t *testing.T, r *Repo) {
 	}
 	setVersion(t, r, "9")
 
-	// Pre-promotion existing data — the intactness-proof baseline.
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback, session)
 		 VALUES (2, false, false, false, 'v10-pre')`); err != nil {
@@ -66,7 +52,6 @@ func slowV10GateAdditive(t *testing.T, r *Repo) {
 		t.Fatalf("schema_version = %q, want 11", v)
 	}
 
-	// The read_events 3 columns — existing rows get the defaults (0·''·'').
 	for _, col := range []string{"bytes", "zero_reason", "source"} {
 		if !columnExists(t, r, "read_events", col) {
 			t.Fatalf("read_events.%s 부재 — v10 additive 계약 위반", col)
@@ -83,7 +68,6 @@ func slowV10GateAdditive(t *testing.T, r *Repo) {
 		t.Fatalf("기존 행 신규 열 = (%d,%q,%q), want (0,\"\",\"\",기본값)", bytes, zeroReason, source)
 	}
 
-	// The knowledge_reads table + ts index — recording behavior proven.
 	var kn int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.tables WHERE table_name = 'knowledge_reads'`).
@@ -109,7 +93,6 @@ func slowV10GateAdditive(t *testing.T, r *Repo) {
 		t.Fatalf("knowledge_reads 기록: %v", err)
 	}
 
-	// Existing knowledge intact.
 	var topic string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT topic FROM knowledge WHERE id = $1`, ids[0]).Scan(&topic); err != nil {
@@ -119,7 +102,6 @@ func slowV10GateAdditive(t *testing.T, r *Repo) {
 		t.Fatalf("기존 knowledge 행 유실 — 무손상 계약 위반")
 	}
 
-	// Idempotent — the rerun is a no-op (version 10 kept·no error).
 	if err := r.EnsureSchemaV10(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV10 (want idempotent): %v", err)
 	}
@@ -128,12 +110,9 @@ func slowV10GateAdditive(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV10GateNumeric — a higher-version DB no-ops via numeric
-// comparison (a downgrade-prevention regression — the '10'<'9'
-// string-order trap).
 func slowV10GateNumeric(t *testing.T, r *Repo) {
 	ctx := context.Background()
-	setVersion(t, r, "99") // before '10' in string order, higher numerically.
+	setVersion(t, r, "99")
 	if err := r.EnsureSchemaV10(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV10(상위 버전 DB): %v", err)
 	}
@@ -142,9 +121,6 @@ func slowV10GateNumeric(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV10FreshSchemaHasArtifacts — the fresh-install path: recreate with
-// the real schema.sql + run the gate chain v2→v10 in order (same as the
-// root.go wiring), then the 3 columns·table exist.
 func slowV10FreshSchemaHasArtifacts(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	saved := schemaSQLFn

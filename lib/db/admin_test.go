@@ -1,5 +1,3 @@
-// admin_test.go — updates·aggregations (approval·invalidation·merging·
-// counts·consecutive unrecorded) slow tests.
 package db
 
 import (
@@ -14,23 +12,16 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// pendingRec is a status=pending knowledge record (the pre-review-gate
-// state).
 func pendingRec(hash string) map[string]any {
 	rec := knowledgeRec(hash)
 	rec["status"] = "pending"
 	return rec
 }
 
-// sessionAt is a session record with an explicit ts (for
-// StaleSessionRuns ordering verification — Doltgres now() is the
-// transaction time, so automatic values shuffle the order).
 func sessionAt(agent string, ts time.Time) map[string]any {
 	return map[string]any{"kind": "session", "agent": agent, "summary": "세션", "ts": ts}
 }
 
-// TestApproveIdempotent — 2 approves → the same state·the 2nd also
-// without error.
 func slowApproveIdempotent(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{pendingRec("appr-1")})
@@ -54,14 +45,12 @@ func slowApproveIdempotent(t *testing.T, r *Repo) {
 	}
 }
 
-// TestApproveMissing — a missing id is ErrNotFound.
 func slowApproveMissing(t *testing.T, r *Repo) {
 	if err := r.Approve(context.Background(), 99999); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound, got %v", err)
 	}
 }
 
-// TestInvalidateSetsInvalidAt — invalid_at NULL→NOT NULL.
 func slowInvalidateSetsInvalidAt(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("inv-1")})
@@ -79,14 +68,12 @@ func slowInvalidateSetsInvalidAt(t *testing.T, r *Repo) {
 	if invalidAt == nil {
 		t.Fatal("invalid_at still NULL after Invalidate")
 	}
-	// A missing id is ErrNotFound.
+
 	if _, err := r.Invalidate(ctx, []int{99999}, "사유"); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound for missing id, got %v", err)
 	}
 }
 
-// TestMergeMarksAndInvalidates — from invalidated + the merge marker on
-// to's summary.
 func slowMergeMarksAndInvalidates(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
@@ -117,7 +104,7 @@ func slowMergeMarksAndInvalidates(t *testing.T, r *Repo) {
 	if !containsMarker(summary, from) {
 		t.Fatalf("to.summary lacks merge marker for from=%d: %q", from, summary)
 	}
-	// Missing ids are ErrNotFound.
+
 	if err := r.Merge(ctx, 99999, to); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("want ErrNotFound for missing from, got %v", err)
 	}
@@ -130,8 +117,6 @@ func containsMarker(summary string, fromID int) bool {
 	return strings.Contains(summary, fmt.Sprintf("[merged:from=%d]", fromID))
 }
 
-// TestCounts — the pending count + the duplicate-suspect count (2+
-// active rows sharing a topic).
 func slowCounts(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	dupA := knowledgeRec("cnt-dup-a")
@@ -143,7 +128,7 @@ func slowCounts(t *testing.T, r *Repo) {
 		pendingRec("cnt-p2"),
 		dupA,
 		dupB,
-		knowledgeRec("cnt-solo"), // unique topic — not a duplicate suspect
+		knowledgeRec("cnt-solo"),
 	}); err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
@@ -159,13 +144,10 @@ func slowCounts(t *testing.T, r *Repo) {
 	}
 }
 
-// TestStaleSessionRuns — the consecutive count of sessions without a
-// knowledge write, from the most recent. The aggregation must stop at
-// the first session with a record (not the total unrecorded count).
 func slowStaleSessionRuns(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	base := time.Now().Add(-10 * time.Hour)
-	recs := []map[string]any{sessionAt("stale-a", base)} // oldest: has a record
+	recs := []map[string]any{sessionAt("stale-a", base)}
 	ids, err := r.InsertBatch(ctx, recs)
 	if err != nil {
 		t.Fatalf("InsertBatch base: %v", err)
@@ -175,7 +157,7 @@ func slowStaleSessionRuns(t *testing.T, r *Repo) {
 	if _, err := r.InsertBatch(ctx, []map[string]any{kn}); err != nil {
 		t.Fatalf("InsertBatch knowledge: %v", err)
 	}
-	// The 3 subsequent sessions are unrecorded → consecutive 3.
+
 	if _, err := r.InsertBatch(ctx, []map[string]any{
 		sessionAt("stale-a", base.Add(1*time.Hour)),
 		sessionAt("stale-a", base.Add(2*time.Hour)),
@@ -190,7 +172,7 @@ func slowStaleSessionRuns(t *testing.T, r *Repo) {
 	if got != 3 {
 		t.Errorf("StaleSessionRuns = %d, want 3 (stops at recorded session)", got)
 	}
-	// 0 when the most recent session has a record.
+
 	fresh := knowledgeRec("stale-k2")
 	freshIDs, err := r.InsertBatch(ctx, []map[string]any{sessionAt("fresh-a", base.Add(4*time.Hour))})
 	if err != nil {
@@ -209,16 +191,6 @@ func slowStaleSessionRuns(t *testing.T, r *Repo) {
 	}
 }
 
-// resetVersionToV1 establishes the v1-starting premise of the
-// promotion-gate tests. It actually records '1' at call time — when the
-// shared DB is already at a higher version (via other packages' —
-// lib/cli·data's newRealStore chains), the gate's numeric-comparison
-// short circuit (n>=N → no-op) means EnsureSchemaV2 never records '2',
-// breaking the test's "meta='2' state" premise (the CI 39717583172
-// occasion). In the string-equality-check era it rolled back even from
-// higher versions and recorded '2', so the premise held by accident.
-// After the test it rolls back to '1' again so other tests' newTestRepo
-// are unaffected.
 func resetVersionToV1(t *testing.T, r *Repo) {
 	t.Helper()
 	if _, err := r.pool.Exec(context.Background(),
@@ -231,9 +203,6 @@ func resetVersionToV1(t *testing.T, r *Repo) {
 	})
 }
 
-// TestMigrateAcceptsV2 — regression: with meta='2', Migrate passes with
-// err=nil and does not roll the version back to '1'. The gate assumed
-// only '1' and produced a nil wrap failure ("%!w(<nil>)").
 func slowMigrateAcceptsV2(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
@@ -253,10 +222,6 @@ func slowMigrateAcceptsV2(t *testing.T, r *Repo) {
 	}
 }
 
-// dropV3Indexes rolls back so the EnsureSchemaV3 tests leave no flint
-// indexes behind (so other tests' newTestRepo are unaffected). Also
-// cleans the v9 flint_knowledge_pending_idx — the helper's contract is
-// resetting all gate-specific flint knowledge indexes.
 func dropV3Indexes(t *testing.T, r *Repo) {
 	t.Helper()
 	t.Cleanup(func() {
@@ -271,10 +236,6 @@ func dropV3Indexes(t *testing.T, r *Repo) {
 	})
 }
 
-// flintIndexCount explicitly counts only the 3 v3 gate indexes
-// (entity·domain·status). A bulk count of LIKE 'flint_knowledge_%'
-// would also count schema v9's flint_knowledge_pending_idx and fail at
-// 4 — it counts only the verification target (this gate's indexes).
 func flintIndexCount(t *testing.T, r *Repo) int {
 	t.Helper()
 	var n int
@@ -290,14 +251,11 @@ func flintIndexCount(t *testing.T, r *Repo) int {
 	return n
 }
 
-// TestEnsureSchemaV3Idempotent — 2 calls → 3 indexes·version 3, the 2nd
-// unchanged. Protocol: a DB that passed the v2 gate (the existing
-// deployment path) also promotes.
 func slowEnsureSchemaV3Idempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	dropV3Indexes(t, r)
 	ctx := context.Background()
-	// The existing deployment path: a DB that passed v1 → the v2 gate.
+
 	if err := r.EnsureSchemaV2(ctx); err != nil {
 		t.Fatalf("EnsureSchemaV2: %v", err)
 	}
@@ -331,8 +289,7 @@ func slowEnsureSchemaV3Idempotent(t *testing.T, r *Repo) {
 	if version != "3" {
 		t.Fatalf("schema_version = %q, want 3", version)
 	}
-	// The 2nd call is an idempotent no-op — 3 indexes·version 3
-	// unchanged.
+
 	if err := r.EnsureSchemaV3(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV3 (want idempotent): %v", err)
 	}
@@ -348,9 +305,6 @@ func slowEnsureSchemaV3Idempotent(t *testing.T, r *Repo) {
 	}
 }
 
-// TestEnsureSchemaV3FromV1 — a v1 DB that skipped v2 also promotes with
-// the single v3 gate (the gate only updates the version; the indexes
-// apply idempotently via IF NOT EXISTS).
 func slowEnsureSchemaV3FromV1(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	dropV3Indexes(t, r)
@@ -362,12 +316,10 @@ func slowEnsureSchemaV3FromV1(t *testing.T, r *Repo) {
 	}
 }
 
-// TestEnsureSchemaV2 — a v1 DB's (fake DDL) lossless promotion: ALTER
-// column additions + version 2 + existing data kept + idempotent.
 func slowEnsureSchemaV2(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
-	// v1-era data — must survive the promotion.
+
 	oldIDs, err := r.InsertBatch(ctx, []map[string]any{
 		{"kind": "session", "agent": "v1", "summary": "구세션"},
 	})
@@ -385,7 +337,7 @@ func slowEnsureSchemaV2(t *testing.T, r *Repo) {
 	if version != "2" {
 		t.Fatalf("schema_version = %q, want 2", version)
 	}
-	// Writable via the v2 columns (a behavior proof of their presence).
+
 	if _, err := r.InsertBatch(ctx, []map[string]any{
 		{"kind": "session", "agent": "v2", "summary": "신세션", "tasks": "v2 작업"},
 		{"kind": "project", "name": "v2-proj", "note": "v2 메모"},
@@ -400,18 +352,12 @@ func slowEnsureSchemaV2(t *testing.T, r *Repo) {
 	if n != 1 {
 		t.Fatalf("v1 데이터 유실: old session count = %d, want 1", n)
 	}
-	// The rerun is an idempotent no-op.
+
 	if err := r.EnsureSchemaV2(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV2 (want idempotent): %v", err)
 	}
 }
 
-// TestAllGatesArtifacts — table-driven assertion that gates v2~v7 each
-// actually create their promised artifacts (columns·indexes·tables).
-// Previously only the newest gates (v6·v7) had their contents verified
-// while v2~v5 were checked only for 'sequential passage' through the
-// chain — a gate quietly turning into a no-op would not have been
-// caught.
 func slowAllGatesArtifacts(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
@@ -451,11 +397,7 @@ func slowAllGatesArtifacts(t *testing.T, r *Repo) {
 			}
 		}},
 		{"v11", func(ctx context.Context) error {
-			// Faithful v10-DB reproduction (after the R43 direct-run short
-			// circuit) — v10 has no recall_events (the v12 gate creates it
-			// first). Dropping any recall_events left on the fresh DB
-			// measures the promotion-artifact (2-column add) path (the
-			// fresh-DB direct path is TestV11GateFreshDirectToV12).
+
 			if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS recall_events`); err != nil {
 				return err
 			}
@@ -473,7 +415,6 @@ func slowAllGatesArtifacts(t *testing.T, r *Repo) {
 	}
 }
 
-// assertColumn — asserts a table column exists (information_schema).
 func assertColumn(t *testing.T, r *Repo, ctx context.Context, table, column string) {
 	t.Helper()
 	var n int
@@ -487,7 +428,6 @@ func assertColumn(t *testing.T, r *Repo, ctx context.Context, table, column stri
 	}
 }
 
-// assertObject — asserts a table·index exists (to_regclass).
 func assertObject(t *testing.T, r *Repo, ctx context.Context, name string) {
 	t.Helper()
 	var exists bool
@@ -500,10 +440,6 @@ func assertObject(t *testing.T, r *Repo, ctx context.Context, name string) {
 	}
 }
 
-// dropV11ScoreColumns — when the v11 gate tests reproduce a v10 DB,
-// rolls back knowledge's 2 score columns (Doltgres lacks DROP COLUMN
-// IF EXISTS — check columnExists then DROP. Inheriting the
-// admin_v10_test.go convention).
 func dropV11ScoreColumns(t *testing.T, r *Repo) {
 	t.Helper()
 	for _, col := range []string{"recall_score", "last_recalled_at"} {
@@ -516,27 +452,15 @@ func dropV11ScoreColumns(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV11GateAdditive — reproducing a v10 DB → the EnsureSchemaV11
-// promotion additively adds the recall_score (int, default 0)·
-// last_recalled_at (timestamptz NULL) columns, with existing rows
-// intact·defaults (0·NULL)·the rerun idempotent. The reverse direction
-// (an older binary reading a v11 DB) is covered by a spot of the
-// current binary inserting·reading v11 values under the columns'
-// additive-default premise (a behavior proof of the score-value path).
 func slowV11GateAdditive(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	dropV11ScoreColumns(t, r)
-	// Faithful v10-DB reproduction (after the R43 direct-run short
-	// circuit) — v10 has no recall_events (the v12 gate creates it
-	// first). If it remains, the v11 gate's fresh-DB direct-run verdict
-	// skips the 2-column add (that path is
-	// TestV11GateFreshDirectToV12).
+
 	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS recall_events`); err != nil {
 		t.Fatalf("v10 재현 recall_events 삭제: %v", err)
 	}
 	setVersion(t, r, "10")
 
-	// Pre-promotion existing data — the intactness-proof baseline.
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v11-old")})
 	if err != nil {
 		t.Fatalf("InsertBatch pre-v11: %v", err)
@@ -554,7 +478,6 @@ func slowV11GateAdditive(t *testing.T, r *Repo) {
 		}
 	}
 
-	// Existing rows keep the defaults (0·NULL)·body intact.
 	var score int
 	var last *time.Time
 	var topic string
@@ -570,8 +493,6 @@ func slowV11GateAdditive(t *testing.T, r *Repo) {
 		t.Fatalf("기존 knowledge 행 유실 — 무손상 계약 위반")
 	}
 
-	// The v11 value insert·read spot (covering the reverse direction —
-	// the current binary generating·reading scores).
 	wantLast := time.Date(2026, 11, 15, 3, 0, 0, 0, time.UTC)
 	rec := knowledgeRec("v11-score")
 	rec["recall_score"] = 7
@@ -594,7 +515,6 @@ func slowV11GateAdditive(t *testing.T, r *Repo) {
 		t.Fatalf("last_recalled_at = %v, want %v", gotLast, wantLast)
 	}
 
-	// Idempotent — the rerun is a no-op (version 11 kept·no error).
 	if err := r.EnsureSchemaV11(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV11 (want idempotent): %v", err)
 	}
@@ -603,9 +523,6 @@ func slowV11GateAdditive(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV11GateNumeric — a higher-version DB no-ops via numeric
-// comparison (a downgrade-prevention regression — inheriting the
-// TestV10GateNumeric convention).
 func slowV11GateNumeric(t *testing.T, r *Repo) {
 	setVersion(t, r, "99")
 	if err := r.EnsureSchemaV11(context.Background()); err != nil {
@@ -616,12 +533,6 @@ func slowV11GateNumeric(t *testing.T, r *Repo) {
 	}
 }
 
-// TestTelemetryStageTablesV13 — the schema v13 metering tables
-// (threshold_snapshots·weekly_rollups) must be explicit
-// telemetryStageTables members (the no-global-dolt_add principle: an
-// unstaged metering table never reaches the telemetry commit). The v13
-// tables carry no serial id column, so telemetryStageSeqs stays at the
-// existing 4 (Seqs would grow only with a serial-adopting table).
 func TestTelemetryStageTablesV13(t *testing.T) {
 	for _, tbl := range []string{"threshold_snapshots", "weekly_rollups"} {
 		found := false
@@ -640,12 +551,6 @@ func TestTelemetryStageTablesV13(t *testing.T) {
 	}
 }
 
-// TestV13ThresholdKeys — the schema v13 threshold keys: defaults
-// (90·90·336), meta override reflection, and the unset-keeps-0
-// convention (the consumer fallback basis — the correction 2-key
-// convention). 336h = 14 days, aligned with the events retention
-// default (metering freshness lags beyond the retention window are the
-// doctor warning target).
 func TestV13ThresholdKeys(t *testing.T) {
 	def := store.DefaultThresholds()
 	if def.WeeklyRollupsRetentionD != 90 {
@@ -679,15 +584,9 @@ func TestV13ThresholdKeys(t *testing.T) {
 	}
 }
 
-// v13GateArtifacts — the schema v13 artifact assertions shared by the
-// upgrade (v12→v13) and fresh-direct paths: the read_events.near_score
-// column (double precision), the threshold_snapshots table + its
-// (key, ts DESC) index, and the weekly_rollups table with the
-// (week_start, metric) primary key enforced.
 func v13GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	t.Helper()
-	// ① read_events.near_score — double precision (the scan-max score
-	// storage; NOT NULL DEFAULT 0 — pre-v13 rows read 0).
+
 	var dataType string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT data_type FROM information_schema.columns
@@ -698,7 +597,7 @@ func v13GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	if dataType != "double precision" {
 		t.Fatalf("read_events.near_score 타입=%q, want double precision", dataType)
 	}
-	// ② threshold_snapshots + the (key, ts DESC) index.
+
 	assertObject(t, r, ctx, "threshold_snapshots")
 	var idx int
 	if err := r.pool.QueryRow(ctx,
@@ -710,7 +609,7 @@ func v13GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	if idx < 1 {
 		t.Fatalf("idx_threshold_snapshots_key_time 부재 — (key, ts DESC) 인덱스 계약 위반")
 	}
-	// ③ weekly_rollups — the composite PK enforced on duplicates.
+
 	assertObject(t, r, ctx, "weekly_rollups")
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO weekly_rollups (week_start, metric, num, den)
@@ -724,16 +623,10 @@ func v13GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	}
 }
 
-// TestV13GateUpgradeFromV12 — promotes a reproduced v12 DB to v13: the
-// near_score column added with DEFAULT 0 (pre-promotion rows read 0)·
-// the 2 metering tables + index created·version 13·the rerun
-// idempotent (the additive protocol — existing columns unchanged).
 func TestV13GateUpgradeFromV12(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// Reproduce a faithful v12 DB — remove the v13 artifacts the fresh
-	// schema.sql terminus already carries (DROP COLUMN has no IF EXISTS
-	// on Doltgres — the dropV11ScoreColumns convention).
+
 	for _, stmt := range []string{
 		`DROP TABLE IF EXISTS threshold_snapshots`,
 		`DROP TABLE IF EXISTS weekly_rollups`,
@@ -748,7 +641,7 @@ func TestV13GateUpgradeFromV12(t *testing.T) {
 		}
 	}
 	setVersion(t, r, "12")
-	// A pre-promotion read_events row — the DEFAULT 0 backfill target.
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (hits, zero, near, fallback) VALUES (0, true, false, false)`); err != nil {
 		t.Fatalf("v12 시대 read_events 적립: %v", err)
@@ -761,7 +654,7 @@ func TestV13GateUpgradeFromV12(t *testing.T) {
 		t.Fatalf("schema_version = %q, want 13", v)
 	}
 	v13GateArtifacts(t, r, ctx)
-	// The pre-promotion row keeps the default 0 (additive DEFAULT ALTER).
+
 	var nearScore float64
 	if err := r.pool.QueryRow(ctx, `SELECT near_score FROM read_events`).
 		Scan(&nearScore); err != nil {
@@ -770,8 +663,7 @@ func TestV13GateUpgradeFromV12(t *testing.T) {
 	if nearScore != 0 {
 		t.Fatalf("기존 행 near_score = %v, want 0(컬럼 기본값)", nearScore)
 	}
-	// The rerun is idempotent — version 13 kept·no error·no duplicate PK
-	// rejection of the rerun's CREATE IF NOT EXISTS path.
+
 	if err := r.EnsureSchemaV13(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV13 (want idempotent): %v", err)
 	}
@@ -780,10 +672,6 @@ func TestV13GateUpgradeFromV12(t *testing.T) {
 	}
 }
 
-// TestV13FreshSchemaDirect — the fresh-install path: recreating with the
-// real schema.sql + running the gate chain v2→v13 in order reaches the
-// v13 terminus (near_score·threshold_snapshots·weekly_rollups present
-// without any gate DDL — the fresh-creation terminus contract).
 func TestV13FreshSchemaDirect(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
@@ -803,9 +691,7 @@ func TestV13FreshSchemaDirect(t *testing.T) {
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate(신규 생성): %v", err)
 	}
-	// The registry now extends past 13 (schema v14) — this test pins the
-	// v13-era terminus, so the walk stops at 13 (the fresh v13 assertion
-	// would otherwise see the v14 ceiling).
+
 	for _, gate := range SchemaGates() {
 		if gate.Version > 13 {
 			break
@@ -820,12 +706,6 @@ func TestV13FreshSchemaDirect(t *testing.T) {
 	v13GateArtifacts(t, r, ctx)
 }
 
-// TestAuditStageTablesV14 — knowledge_links joins the audit staging list
-// (audit data, not metering — links are audit-visible knowledge lineage
-// metadata; the recall_events ruling precedent). Table-only ruling: the
-// bigserial's knowledge_links_id_seq stays unstaged everywhere — the
-// measured *_id_seq working-set residue is display-only·harmless (the
-// auditStageTables sequence ruling).
 func TestAuditStageTablesV14(t *testing.T) {
 	found := false
 	for _, cur := range auditStageTables {
@@ -849,20 +729,13 @@ func TestAuditStageTablesV14(t *testing.T) {
 	}
 }
 
-// v14GateArtifacts — the schema v14 artifact assertions shared by the
-// upgrade (v13→v14) and fresh-direct paths: the knowledge_links table
-// (from_id·to_id·relation NOT NULL·created_at default now) with its
-// (from_id)·(to_id) indexes and the knowledge (superseded_by) index; a
-// functional link insert between 2 knowledge rows reads back, and
-// relation NOT NULL is enforced (no FK — from/to existence is the write
-// path's job, the existing knowledge convention).
 func v14GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	t.Helper()
 	assertObject(t, r, ctx, "knowledge_links")
 	assertObject(t, r, ctx, "idx_knowledge_links_from_id")
 	assertObject(t, r, ctx, "idx_knowledge_links_to_id")
 	assertObject(t, r, ctx, "idx_knowledge_superseded_by")
-	// NOT NULL contract of the 3 payload columns.
+
 	for _, col := range []string{"from_id", "to_id", "relation"} {
 		var nullable string
 		if err := r.pool.QueryRow(ctx,
@@ -875,7 +748,7 @@ func v14GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 			t.Fatalf("knowledge_links.%s is_nullable=%q, want NO", col, nullable)
 		}
 	}
-	// Functional spot — a link between 2 knowledge rows reads back.
+
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("v14-a"), knowledgeRec("v14-b"),
 	})
@@ -897,22 +770,17 @@ func v14GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	if rel != "refines" || createdAt.IsZero() {
 		t.Fatalf("링크 행 = (%q,%v), want (refines, created_at DEFAULT now)", rel, createdAt)
 	}
-	// relation NOT NULL enforced.
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO knowledge_links (from_id, to_id) VALUES ($1, $2)`, ids[0], ids[1]); err == nil {
 		t.Fatal("relation NULL 적립 허용 — NOT NULL 계약 위반")
 	}
 }
 
-// TestV14GateUpgradeFromV13 — promotes a reproduced v13 DB to v14: the
-// knowledge_links table + the 2 link indexes + the knowledge
-// (superseded_by) index created·version 14·the rerun idempotent (the
-// additive protocol — existing tables·data unchanged).
 func TestV14GateUpgradeFromV13(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// Reproduce a faithful v13 DB — remove the v14 artifacts the fresh
-	// schema.sql terminus already carries.
+
 	for _, stmt := range []string{
 		`DROP TABLE IF EXISTS knowledge_links`,
 		`DROP INDEX IF EXISTS idx_knowledge_superseded_by`,
@@ -930,7 +798,7 @@ func TestV14GateUpgradeFromV13(t *testing.T) {
 		t.Fatalf("schema_version = %q, want 14", v)
 	}
 	v14GateArtifacts(t, r, ctx)
-	// The rerun is idempotent — version 14 kept·no error.
+
 	if err := r.EnsureSchemaV14(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV14 (want idempotent): %v", err)
 	}
@@ -939,13 +807,6 @@ func TestV14GateUpgradeFromV13(t *testing.T) {
 	}
 }
 
-// TestV14FreshSchemaDirect — the fresh-install path: recreating with the
-// real schema.sql + running the gate chain v2→LatestSchemaVersion in
-// order reaches the latest terminus (knowledge_links + its indexes + the
-// superseded_by index + the v15 unique triple seal + the v16 vault_files
-// table + the v17 staleness/distill columns + the v19 echo_candidates
-// table·knowledge kind/source_path columns present without any gate
-// DDL — the fresh-creation terminus contract).
 func TestV14FreshSchemaDirect(t *testing.T) {
 	r := newTestRepo(t)
 	resetVersionToV1(t, r)
@@ -974,8 +835,7 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 		t.Fatalf("게이트 체인 후 schema_version = %q, want 19 (v1.24.0 상향)", v)
 	}
 	v14GateArtifacts(t, r, ctx)
-	// v1.20.1: the fresh terminus carries the unique triple seal — a
-	// duplicate (from,to,relation) INSERT is refused.
+
 	ids, err := r.InsertBatch(ctx, []map[string]any{
 		knowledgeRec("v1201-fresh-seal-a"), knowledgeRec("v1201-fresh-seal-b"),
 	})
@@ -992,26 +852,16 @@ func TestV14FreshSchemaDirect(t *testing.T) {
 		ids[0], ids[1]); err == nil {
 		t.Fatal("fresh seal 중복 triple INSERT 허용 — 유니크 봉인 부재")
 	}
-	// v1.21.0: the fresh terminus carries vault_files — the v16 gate's
-	// artifacts (table·NOT NULL columns·defaults·UNIQUE path·(content_hash)
-	// index) present without any gate DDL.
+
 	v16GateArtifacts(t, r, ctx)
-	// v1.22.0: the fresh terminus carries the v17 staleness/distill
-	// columns without any gate DDL.
+
 	v17GateArtifacts(t, r, ctx)
-	// v1.23.0: the fresh terminus carries tuning_predictions + the 3
-	// threshold_snapshots columns without any gate DDL.
+
 	v18GateArtifacts(t, r, ctx)
-	// v1.24.0: the fresh terminus carries echo_candidates + the knowledge
-	// kind/source_path columns without any gate DDL.
+
 	v19GateArtifacts(t, r, ctx)
 }
 
-// TestAuditStageTablesV16 — vault_files joins the audit staging list
-// (audit data, not metering — the vault index is a recall-domain source
-// snapshot, the recall_events ruling precedent). Table-only ruling: the
-// bigserial's vault_files_id_seq stays unstaged everywhere (the
-// auditStageTables sequence ruling — display-only·harmless residue).
 func TestAuditStageTablesV16(t *testing.T) {
 	found := false
 	for _, cur := range auditStageTables {
@@ -1035,16 +885,10 @@ func TestAuditStageTablesV16(t *testing.T) {
 	}
 }
 
-// v16GateArtifacts — the schema v16 artifact assertions shared by the
-// upgrade (v15→v16) and fresh-direct paths: the vault_files table (all
-// 8 declared columns NOT NULL — tags·summary·last_indexed_at via
-// DEFAULT), the (content_hash) index, the path UNIQUE constraint
-// enforced, and a functional pointer row reading back with the DEFAULTs
-// surfacing (tags ”·summary ”·last_indexed_at now).
 func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	t.Helper()
 	assertObject(t, r, ctx, "vault_files")
-	// the (content_hash) index — the duplicate-note detection axis.
+
 	var idx int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_indexes
@@ -1055,8 +899,7 @@ func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	if idx < 1 {
 		t.Fatalf("idx_vault_files_content_hash 부재 — (content_hash) 인덱스 계약 위반")
 	}
-	// every declared column is NOT NULL (the three DEFAULT columns carry
-	// their values, not NULLability).
+
 	for _, col := range []string{"path", "title", "tags", "mtime", "size", "content_hash", "summary", "last_indexed_at"} {
 		var nullable string
 		if err := r.pool.QueryRow(ctx,
@@ -1069,8 +912,7 @@ func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 			t.Fatalf("vault_files.%s is_nullable=%q, want NO", col, nullable)
 		}
 	}
-	// Functional spot — a synthetic demo pointer row with the DEFAULTs
-	// surfacing (no personal vault paths — the synthetic-fixture rule).
+
 	mtime := time.Date(2026, 11, 23, 1, 2, 3, 0, time.UTC)
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO vault_files (path, title, mtime, size, content_hash)
@@ -1089,7 +931,7 @@ func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 		t.Fatalf("vault_files 행 = (%q,%q,%q,%v), want DEFAULT ''·''·now 계약",
 			tags, summary, contentHash, lastIndexed)
 	}
-	// path UNIQUE enforced — the scan-diff UPSERT axis.
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO vault_files (path, title, mtime, size, content_hash)
 		 VALUES ('demo/notes/first.md', 'Demo Dup', $1, 64, 'sha256-v16-b')`, mtime); err == nil {
@@ -1097,15 +939,9 @@ func v16GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	}
 }
 
-// v17GateArtifacts — the schema v17 artifact assertions shared by the
-// upgrade (v16→v17) and fresh-direct paths: the 3 additive columns —
-// vault_files.content_changed_at (timestamptz NULL), knowledge.distilled_at
-// (timestamptz NULL), knowledge.conditions (text NOT NULL DEFAULT ”).
 func v17GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	t.Helper()
-	// column presence + nullability (the two timestamp columns are NULL —
-	// the staleness recheck queue·distill idempotence stamps; conditions
-	// carries NOT NULL DEFAULT '' — the v11/v13 DEFAULT-ALTER precedent).
+
 	for _, tc := range []struct{ table, col, wantNullable string }{
 		{"vault_files", "content_changed_at", "YES"},
 		{"knowledge", "distilled_at", "YES"},
@@ -1124,16 +960,10 @@ func v17GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	}
 }
 
-// TestV17GateUpgradeFromV16 — promotes a reproduced v16 DB to v17: the 3
-// additive columns added (the two timestamps NULL-able, conditions with
-// DEFAULT ” so pre-promotion rows read the empty string)·version 17·the
-// rerun idempotent (the additive protocol — existing tables·data unchanged).
 func TestV17GateUpgradeFromV16(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// Reproduce a faithful v16 DB — remove the v17 artifacts the fresh
-	// schema.sql terminus already carries (DROP COLUMN has no IF EXISTS
-	// on Doltgres — the columnExists guard convention).
+
 	if columnExists(t, r, "vault_files", "content_changed_at") {
 		if _, err := r.pool.Exec(ctx, `ALTER TABLE vault_files DROP COLUMN content_changed_at`); err != nil {
 			t.Fatalf("v16 재현 content_changed_at 삭제: %v", err)
@@ -1147,8 +977,7 @@ func TestV17GateUpgradeFromV16(t *testing.T) {
 		}
 	}
 	setVersion(t, r, "16")
-	// Pre-promotion rows — the DEFAULT/NULL backfill targets (synthetic
-	// demo fixtures only).
+
 	mtime := time.Date(2026, 11, 23, 4, 5, 6, 0, time.UTC)
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO vault_files (path, title, mtime, size, content_hash)
@@ -1167,8 +996,7 @@ func TestV17GateUpgradeFromV16(t *testing.T) {
 		t.Fatalf("schema_version = %q, want 17", v)
 	}
 	v17GateArtifacts(t, r, ctx)
-	// The pre-promotion rows read the column defaults — content_changed_at
-	// and distilled_at NULL (no change·no distill yet), conditions ''.
+
 	var changedAt, distilledAt *time.Time
 	var conditions string
 	if err := r.pool.QueryRow(ctx,
@@ -1187,7 +1015,7 @@ func TestV17GateUpgradeFromV16(t *testing.T) {
 	if distilledAt != nil || conditions != "" {
 		t.Fatalf("기존 knowledge 행 distilled_at=%v conditions=%q, want NULL·\"\"", distilledAt, conditions)
 	}
-	// The rerun is idempotent — version 17 kept·no error.
+
 	if err := r.EnsureSchemaV17(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV17 (want idempotent): %v", err)
 	}
@@ -1196,16 +1024,10 @@ func TestV17GateUpgradeFromV16(t *testing.T) {
 	}
 }
 
-// v18GateArtifacts — the schema v18 artifact assertions shared by the
-// upgrade (v17→v18) and fresh-direct paths: the tuning_predictions table
-// (all 9 non-id columns NOT NULL — ts via DEFAULT now(), not NULLability)
-// with its (ts) index, and the 3 nullable threshold_snapshots columns
-// (origin·trigger·rationale — the snapshot.go "deferred to v1.23.0"
-// delivery).
 func v18GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	t.Helper()
 	assertObject(t, r, ctx, "tuning_predictions")
-	// the (ts) index — the shadow-round time-window scan axis.
+
 	var idx int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_indexes
@@ -1216,7 +1038,7 @@ func v18GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	if idx < 1 {
 		t.Fatalf("idx_tuning_predictions_ts 부재 — (ts) 인덱스 계약 위반")
 	}
-	// every declared column except the bigserial id PK is NOT NULL.
+
 	for _, col := range []string{"ts", "trigger", "key", "cur", "new",
 		"pred_zero_near_pct", "pred_reclass_n", "sample_n", "rationale"} {
 		var nullable string
@@ -1230,9 +1052,7 @@ func v18GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 			t.Fatalf("tuning_predictions.%s is_nullable=%q, want NO", col, nullable)
 		}
 	}
-	// Functional spot — a synthetic demo prediction row reading back with
-	// the DEFAULT ts surfacing (the shadow circuit's own rows are numbers
-	// and a composed rationale only — no personal data).
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO tuning_predictions
 		 (trigger, key, cur, new, pred_zero_near_pct, pred_reclass_n, sample_n, rationale)
@@ -1256,8 +1076,7 @@ func v18GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 		t.Fatalf("tuning_predictions 행 = (%v,%q,%q,%q,%q,%v,%d,%d,%q), want DEFAULT ts·적립값 그대로",
 			ts, trigger, key, cur, newVal, predPct, reclassN, sampleN, rationale)
 	}
-	// the 3 v18 threshold_snapshots columns are NULL-able (v1.23.0 has 0
-	// applies — no origin=auto rows yet; schema·stamp paths only).
+
 	for _, col := range []string{"origin", "trigger", "rationale"} {
 		var nullable string
 		if err := r.pool.QueryRow(ctx,
@@ -1272,17 +1091,10 @@ func v18GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	}
 }
 
-// TestV18GateUpgradeFromV17 — promotes a reproduced v17 DB to v18: the
-// tuning_predictions table + its (ts) index created·the 3
-// threshold_snapshots columns added (NULL-able — pre-promotion rows read
-// NULL)·version 18·the rerun idempotent (the additive protocol — existing
-// tables·data unchanged).
 func TestV18GateUpgradeFromV17(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// Reproduce a faithful v17 DB — remove the v18 artifacts the fresh
-	// schema.sql terminus already carries (DROP COLUMN has no IF EXISTS
-	// on Doltgres — the columnExists guard convention).
+
 	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS tuning_predictions`); err != nil {
 		t.Fatalf("v17 재현 tuning_predictions 삭제: %v", err)
 	}
@@ -1295,8 +1107,7 @@ func TestV18GateUpgradeFromV17(t *testing.T) {
 		}
 	}
 	setVersion(t, r, "17")
-	// Pre-promotion snapshot row — the NULL backfill target (synthetic
-	// demo fixture only).
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO threshold_snapshots (key, old_value, new_value)
 		 VALUES ('suggest_min_score', '0.2', '0.15')`); err != nil {
@@ -1310,8 +1121,7 @@ func TestV18GateUpgradeFromV17(t *testing.T) {
 		t.Fatalf("schema_version = %q, want 18", v)
 	}
 	v18GateArtifacts(t, r, ctx)
-	// The pre-promotion snapshot row reads NULL on the 3 new columns —
-	// the v1.23.0 additive premise (0 applies — no origin=auto stamps).
+
 	var origin, trigger, rationale *string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT origin, trigger, rationale FROM threshold_snapshots
@@ -1323,7 +1133,7 @@ func TestV18GateUpgradeFromV17(t *testing.T) {
 		t.Fatalf("기존 threshold_snapshots 행 origin=%v trigger=%v rationale=%v, want NULL×3",
 			origin, trigger, rationale)
 	}
-	// The rerun is idempotent — version 18 kept·no error.
+
 	if err := r.EnsureSchemaV18(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV18 (want idempotent): %v", err)
 	}
@@ -1332,12 +1142,6 @@ func TestV18GateUpgradeFromV17(t *testing.T) {
 	}
 }
 
-// TestAuditStageTablesV18 — tuning_predictions joins the audit staging
-// list (shadow predictions are audit data — the recall_events ruling
-// precedent: they must propagate across devices via push/pull). Table-only
-// ruling: the bigserial's tuning_predictions_id_seq stays unstaged
-// everywhere (the auditStageTables sequence ruling — display-only·
-// harmless residue).
 func TestAuditStageTablesV18(t *testing.T) {
 	found := false
 	for _, cur := range auditStageTables {
@@ -1361,18 +1165,10 @@ func TestAuditStageTablesV18(t *testing.T) {
 	}
 }
 
-// v19GateArtifacts — the schema v19 artifact assertions shared by the
-// upgrade (v18→v19) and fresh-direct paths: the knowledge kind·source_path
-// columns (both text NULL — no DEFAULT, older binaries read NULL), and the
-// echo_candidates table (the D1 echo-candidate persistence base: echo_id =
-// the new write row, candidate_id = the approximate neighbor row — the
-// same direction as the echo response top-k) with its 2 indexes
-// ((candidate_id)·(ts)). All declared columns except the bigserial id PK
-// are NOT NULL (ts via DEFAULT now(), not NULLability).
 func v19GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	t.Helper()
 	assertObject(t, r, ctx, "echo_candidates")
-	// the 2 v19 indexes — the candidate_id join axis and the ts scan axis.
+
 	for _, idxName := range []string{"idx_echo_candidates_candidate_id", "idx_echo_candidates_ts"} {
 		var idx int
 		if err := r.pool.QueryRow(ctx,
@@ -1385,7 +1181,7 @@ func v19GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 			t.Fatalf("%s 부재 — v19 인덱스 계약 위반", idxName)
 		}
 	}
-	// every declared column except the bigserial id PK is NOT NULL.
+
 	for _, col := range []string{"ts", "candidate_id", "echo_id", "relation", "score"} {
 		var nullable string
 		if err := r.pool.QueryRow(ctx,
@@ -1398,8 +1194,7 @@ func v19GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 			t.Fatalf("echo_candidates.%s is_nullable=%q, want NO", col, nullable)
 		}
 	}
-	// Functional spot — a synthetic demo candidate row reading back with
-	// the DEFAULT ts surfacing (ids only, no personal data).
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO echo_candidates (candidate_id, echo_id, relation, score)
 		 VALUES (11, 7, 'echo', 0.55)`); err != nil {
@@ -1417,9 +1212,7 @@ func v19GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	if ts.IsZero() || relation != "echo" || score != 0.55 {
 		t.Fatalf("echo_candidates 행 = (%v,%q,%v), want DEFAULT ts·적립값 그대로", ts, relation, score)
 	}
-	// the 2 knowledge columns are NULL-able (kind: unclassified allowed —
-	// the value set preference|fact is write-path validated, not schema
-	// constrained; source_path: optional write input).
+
 	for _, col := range []string{"kind", "source_path"} {
 		var nullable string
 		if err := r.pool.QueryRow(ctx,
@@ -1434,17 +1227,10 @@ func v19GateArtifacts(t *testing.T, r *Repo, ctx context.Context) {
 	}
 }
 
-// TestV19GateUpgradeFromV18 — promotes a reproduced v18 DB to v19: the 2
-// knowledge columns (kind·source_path, NULL-able — pre-promotion rows read
-// NULL) added·the echo_candidates table + its 2 indexes created·version
-// 19·the rerun idempotent (the additive protocol — existing tables·data
-// unchanged).
 func TestV19GateUpgradeFromV18(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// Reproduce a faithful v18 DB — remove the v19 artifacts the fresh
-	// schema.sql terminus already carries (DROP COLUMN has no IF EXISTS on
-	// Doltgres — the columnExists guard convention).
+
 	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS echo_candidates`); err != nil {
 		t.Fatalf("v18 재현 echo_candidates 삭제: %v", err)
 	}
@@ -1456,8 +1242,7 @@ func TestV19GateUpgradeFromV18(t *testing.T) {
 		}
 	}
 	setVersion(t, r, "18")
-	// Pre-promotion knowledge row — the NULL backfill target (synthetic
-	// demo fixture only).
+
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v19-pre")})
 	if err != nil {
 		t.Fatalf("v18 시대 knowledge 적립: %v", err)
@@ -1470,8 +1255,7 @@ func TestV19GateUpgradeFromV18(t *testing.T) {
 		t.Fatalf("schema_version = %q, want 19", v)
 	}
 	v19GateArtifacts(t, r, ctx)
-	// The pre-promotion row reads NULL on both new columns — no DEFAULT
-	// backfill (older-binary compatibility: v1.23.x reads the v19 DB).
+
 	var kind, sourcePath *string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT kind, source_path FROM knowledge WHERE id = $1`, ids[0]).
@@ -1481,7 +1265,7 @@ func TestV19GateUpgradeFromV18(t *testing.T) {
 	if kind != nil || sourcePath != nil {
 		t.Fatalf("기존 knowledge 행 kind=%v source_path=%v, want NULL·NULL", kind, sourcePath)
 	}
-	// The rerun is idempotent — version 19 kept·no error.
+
 	if err := r.EnsureSchemaV19(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV19 (want idempotent): %v", err)
 	}
@@ -1490,12 +1274,6 @@ func TestV19GateUpgradeFromV18(t *testing.T) {
 	}
 }
 
-// TestAuditStageTablesV19 — echo_candidates joins the audit staging list
-// (the write-time echo candidates are audit data — the recall_events
-// precedent: the D1 retrospective measurement premise requires them to
-// propagate across devices via push/pull). Table-only ruling: the
-// bigserial's echo_candidates_id_seq stays unstaged everywhere (the
-// auditStageTables sequence ruling — display-only·harmless residue).
 func TestAuditStageTablesV19(t *testing.T) {
 	found := false
 	for _, cur := range auditStageTables {
@@ -1519,16 +1297,10 @@ func TestAuditStageTablesV19(t *testing.T) {
 	}
 }
 
-// TestV16GateUpgradeFromV15 — promotes a reproduced v15 DB to v16: the
-// vault_files table + its (content_hash) index created·version 16·the
-// rerun idempotent (the additive protocol — existing tables·data
-// unchanged).
 func TestV16GateUpgradeFromV15(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// Reproduce a faithful v15 DB — remove the v16 artifacts the fresh
-	// schema.sql terminus already carries (dropping the table removes its
-	// indexes too).
+
 	if _, err := r.pool.Exec(ctx, `DROP TABLE IF EXISTS vault_files`); err != nil {
 		t.Fatalf("v15 재현 vault_files 삭제: %v", err)
 	}
@@ -1541,7 +1313,7 @@ func TestV16GateUpgradeFromV15(t *testing.T) {
 		t.Fatalf("schema_version = %q, want 16", v)
 	}
 	v16GateArtifacts(t, r, ctx)
-	// The rerun is idempotent — version 16 kept·no error.
+
 	if err := r.EnsureSchemaV16(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV16 (want idempotent): %v", err)
 	}

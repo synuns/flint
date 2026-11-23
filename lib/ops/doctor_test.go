@@ -1,7 +1,3 @@
-// doctor_test.go — flint doctor's 5 checks and exit contracts (only fail exits 1, warn 0) and the
-// FLINT_CLAUDE_HOME override (--check invalid name exit 3).
-// fakeStore·
-// the withComposePs helper is owned here (moved per the cli_test.go / doctor_v07_test.go convention).
 package ops
 
 import (
@@ -21,11 +17,8 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// init — in the standalone ops test binary there is no cli init (ops_alias_1.go) seam
-// injection — so the diagnostic chain's referenced seams get default implementations (same
-// behavior as the cli real functions: dev build version indeterminate, skill source undetected, silent failure).
 func init() {
-	CurrentVersionFn = func() string { return "" } // dev build — the deferred-verdict path
+	CurrentVersionFn = func() string { return "" }
 	ValidVersionFn = func(string) bool { return false }
 	FetchLatestVersionFn = func() (string, error) { return "", errors.New("offline") }
 	CompareVersionsFn = func(a, b string) int { return strings.Compare(a, b) }
@@ -38,20 +31,16 @@ func init() {
 	ConflictDupThresholdFn = func() float64 { return store.DefaultThresholds().ConflictDupThreshold }
 	BackupEncryptOnFn = func(string) bool { return false }
 	BackupKeyPathFn = func() string { return "" }
-	SkillSrcDirFn = func(string) string { return "" } // source undetected — check skipped
+	SkillSrcDirFn = func(string) string { return "" }
 	CheckSkillFileFn = func(string, string) (DoctorCheck, bool) { return DoctorCheck{}, false }
 }
 
-// fakeStore — a wire.Store interface fake (moved per the cli_test.go convention). Stub
-// fields (exists, *Err) take precedence when set; without rows or queryFn it returns
-// zero behavior.
 type fakeStore struct {
 	wire.HistoryStubs
 
-	// stub conditions
 	exists        bool
 	existsErr     error
-	existsProject map[string]bool // existence per name (nil means all false)
+	existsProject map[string]bool
 	insertErr     error
 	commitErr     error
 	pingErr       error
@@ -59,13 +48,11 @@ type fakeStore struct {
 	rows          [][]any
 	queryFn       func(sql string, args []any) ([][]any, error)
 
-	// recording
 	inserted []map[string]any
 	commits  []string
 	queries  []string
-	qmu      sync.Mutex // protects the queries append (parallel collection — v1.9.3 T2)
+	qmu      sync.Mutex
 
-	// fake-equivalent: metaDeleteStore canned (call recording, error injection).
 	metaDeleted   []string
 	metaDeleteErr error
 }
@@ -86,7 +73,7 @@ func (f *fakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return f.exists, f.existsErr
 }
 func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
-	return f.existsProject[name], nil // a nil map lookup is false (zero behavior)
+	return f.existsProject[name], nil
 }
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	f.commits = append(f.commits, msg)
@@ -98,9 +85,6 @@ func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
 func (f *fakeStore) Close()                         {}
 
-// MetaDelete — fake-equivalent: the metaDeleteStore capability canned
-// implementation. So the tuning reset path is verified as a delegation path, not a
-// degraded fallback (call-recording slice and an optional error field — the fakeStore convention).
 func (f *fakeStore) MetaDelete(ctx context.Context, keys []string) (int64, error) {
 	f.metaDeleted = append(f.metaDeleted, keys...)
 	if f.metaDeleteErr != nil {
@@ -109,9 +93,7 @@ func (f *fakeStore) MetaDelete(ctx context.Context, keys []string) (int64, error
 	return int64(len(keys)), nil
 }
 func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
-	// v1.9.3 T2: with report collection parallelized, queryFn is also called from multiple
-	// goroutines — only the recording-slice append is mutex-protected (reads happen only on the
-	// test thread after the command returns).
+
 	f.qmu.Lock()
 	f.queries = append(f.queries, sql)
 	f.qmu.Unlock()
@@ -124,9 +106,6 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return f.rows, nil
 }
 
-// withComposePs — swaps the ComposePsFn seam (restored after the test).
-// Moved per the doctor_v07_test.go convention (the cli-side withComposePs swaps the cli var via
-// the ops_alias_1.go wrapper for the same effect).
 func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Helper()
 	old := ComposePsFn
@@ -134,7 +113,6 @@ func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Cleanup(func() { ComposePsFn = old })
 }
 
-// runDoctorArgs — runs RunDoctor with a fake store. Returns output and exit.
 func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -142,10 +120,6 @@ func runDoctorArgs(t *testing.T, f *fakeStore, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// doctorQueryFn — a shared queryFn injecting per-check meta/pg_indexes responses.
-// Returns schema=4, 3 index rows, and 3 last-seen keys (with adjustable elapsed).
-// The metering-freshness sources (5 table maxes + the 2 gate keys — schema v13
-// A4) all report lastRead (fresh by construction in freshDoctorFn).
 func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -176,13 +150,11 @@ func doctorQueryFn(lastWrite, lastHot, lastRead time.Time) func(string, []any) (
 	}
 }
 
-// freshDoctorFn — the all-checks-pass baseline response (last-seen 1h ago).
 func freshDoctorFn() func(string, []any) ([][]any, error) {
 	h := time.Now().Add(-time.Hour)
 	return doctorQueryFn(h, h, h)
 }
 
-// DoctorChecks — the fixed order contract (6 kinds — port added).
 func TestDoctorChecksContract(t *testing.T) {
 	want := []string{"hook-file", "db", "schema", "integrity", "last-seen", "port"}
 	got := DoctorChecks()
@@ -196,15 +168,12 @@ func TestDoctorChecksContract(t *testing.T) {
 	}
 }
 
-// registry registration — Run must dispatch doctor.
 func TestDoctorRegistered(t *testing.T) {
 	if _, ok := wire.Lookup("doctor"); !ok {
 		t.Fatal("doctor 미등록")
 	}
 }
 
-// --list-checks — one-line JSON with all 21 registry kinds.
-// The core 6 keep the existing order (hook-file... port) at the front.
 func TestDoctorListChecks(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--list-checks")
@@ -225,9 +194,6 @@ func TestDoctorListChecks(t *testing.T) {
 	}
 }
 
-// TestDoctorMeteringFreshnessSpec — the schema v13 A4 registration guard:
-// exactly 1 registry row "metering-freshness" in the tail chain, ThFn
-// (threshold-injected — metering_freshness_warn_h), warn on st==nil.
 func TestDoctorMeteringFreshnessSpec(t *testing.T) {
 	s, ok := doctorSpec("metering-freshness")
 	if !ok {
@@ -244,9 +210,6 @@ func TestDoctorMeteringFreshnessSpec(t *testing.T) {
 	}
 }
 
-// meteringFreshnessFn — the 7-source freshness fixture: every source at
-// 1h ago unless overridden (a zero time = NULL max — never recorded).
-// Errors lists source labels whose lookup fails (the quiet-skip path).
 func meteringFreshnessFn(overrides map[string]time.Time, errs []string) func(string, []any) ([][]any, error) {
 	fresh := time.Now().Add(-time.Hour)
 	times := map[string]time.Time{
@@ -275,8 +238,7 @@ func meteringFreshnessFn(overrides map[string]time.Time, errs []string) func(str
 		case strings.Contains(sql, "max(ts) FROM session_starts"):
 			src = "session_starts"
 		case strings.Contains(sql, "last_threshold_snapshot_at"):
-			// the 2 gate keys travel in one IN query — a per-key failure is
-			// simulated by erroring the whole query for either label.
+
 			if failed["last_threshold_snapshot_at"] || failed["last_rollup_at"] {
 				return nil, errors.New("gate lookup boom")
 			}
@@ -291,21 +253,15 @@ func meteringFreshnessFn(overrides map[string]time.Time, errs []string) func(str
 			return nil, errors.New("lookup boom: " + src)
 		}
 		if times[src].IsZero() {
-			return [][]any{{nil}}, nil // NULL max — the table is empty
+			return [][]any{{nil}}, nil
 		}
 		return [][]any{{times[src]}}, nil
 	}
 }
 
-// TestMeteringFreshnessVerdicts — the freshness verdicts: all sources
-// within the threshold → ok; one over → warn naming it; the threshold is
-// read from the injected th (protocol: an override changes the verdict);
-// never-recorded sources warn; a per-source lookup failure is skipped
-// quietly and a total lookup failure defers (ok); recall_events uses
-// recalled_at (not ts); the gate meta keys are judgment sources.
 func TestMeteringFreshnessVerdicts(t *testing.T) {
 	ctx := context.Background()
-	old := time.Now().Add(-400 * time.Hour) // over the 336h default
+	old := time.Now().Add(-400 * time.Hour)
 	th := store.DefaultThresholds()
 
 	run := func(fn func(string, []any) ([][]any, error), t store.Thresholds) DoctorCheck {
@@ -357,8 +313,7 @@ func TestMeteringFreshnessVerdicts(t *testing.T) {
 		}
 	})
 	t.Run("임계 오버라이드 — 판정 변화", func(t *testing.T) {
-		// All sources 100h old: within the 336h default (ok), over a 48h
-		// override (warn) — the verdict follows the injected threshold.
+
 		over100h := time.Now().Add(-100 * time.Hour)
 		overrides := map[string]time.Time{
 			"read_events": over100h, "recall_events": over100h, "hot_events": over100h,
@@ -391,7 +346,6 @@ func TestMeteringFreshnessVerdicts(t *testing.T) {
 	})
 }
 
-// protocol — --check with an invalid name exits 3; a valid name runs only the subset.
 func TestDoctorCheckSubset(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--check", "bogus")
@@ -415,11 +369,9 @@ func TestDoctorCheckSubset(t *testing.T) {
 	}
 }
 
-// file — FLINT_CLAUDE_HOME override: a temp home without hooks -> hook-file fail.
-// fail means exit 1 + a one-line fix wording.
 func TestDoctorHookFileFailWithFix(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("FLINT_CLAUDE_HOME", home) // no settings.json
+	t.Setenv("FLINT_CLAUDE_HOME", home)
 
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f)
@@ -457,14 +409,13 @@ func TestDoctorHookFileFailWithFix(t *testing.T) {
 	}
 }
 
-// file — a temp environment with the hook registered (settings.json contains flint) -> hook-file ok.
 func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
+		return nil, errors.New("stub: docker 없음 가정")
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
-	setHarnessEnvs(t) // isolate the 5 harnesses — so real-home settings files cannot interfere with the full run
+	setHarnessEnvs(t)
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write --source hook"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -480,20 +431,18 @@ func TestDoctorHookFileOkWhenRegistered(t *testing.T) {
 	}
 }
 
-// state — last-seen past grace is warn, exit 0. write over 72h and hot over 48h warn.
 func TestDoctorWarnVsFailExit(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
+		return nil, errors.New("stub: docker 없음 가정")
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
-	setHarnessEnvs(t) // isolate the 5 harnesses — so real-home settings files cannot interfere with the full run
+	setHarnessEnvs(t)
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
 	}
 
-	// write 80h ago (>72h) and hot 1h ago -> warn only -> exit 0.
 	f := &fakeStore{queryFn: doctorQueryFn(
 		time.Now().Add(-80*time.Hour),
 		time.Now().Add(-time.Hour),
@@ -511,14 +460,13 @@ func TestDoctorWarnVsFailExit(t *testing.T) {
 	}
 }
 
-// state — within grace everything is ok, exit 0.
 func TestDoctorAllOk(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
+		return nil, errors.New("stub: docker 없음 가정")
 	})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
-	setHarnessEnvs(t) // isolate the 5 harnesses — so real-home settings files cannot interfere with the full run
+	setHarnessEnvs(t)
 	if err := os.WriteFile(filepath.Join(home, "settings.json"),
 		[]byte(`{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`), 0o644); err != nil {
 		t.Fatal(err)
@@ -534,7 +482,6 @@ func TestDoctorAllOk(t *testing.T) {
 	}
 }
 
-// db — ping failure -> fail, exit 1.
 func TestDoctorDBFail(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -553,7 +500,6 @@ func TestDoctorDBFail(t *testing.T) {
 	}
 }
 
-// schema — any version other than 4 fails (a legacy v3 DB).
 func TestDoctorSchemaVersionGate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -576,7 +522,6 @@ func TestDoctorSchemaVersionGate(t *testing.T) {
 	}
 }
 
-// integrity — fewer than 3 flint_knowledge_* index rows fails.
 func TestDoctorIntegrityRowGate(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -599,7 +544,6 @@ func TestDoctorIntegrityRowGate(t *testing.T) {
 	}
 }
 
-// last-seen — no record (never) is warn (the nodata pattern), exit 0.
 func TestDoctorLastSeenNeverWarns(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -622,7 +566,6 @@ func TestDoctorLastSeenNeverWarns(t *testing.T) {
 	}
 }
 
-// hot 49h ago (>48h) is also warn.
 func TestDoctorHotStallWarns(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -643,7 +586,6 @@ func TestDoctorHotStallWarns(t *testing.T) {
 	}
 }
 
-// an unknown flag — invalid-arg exit 3 (the global contract, matching an invalid --check name).
 func TestDoctorUnknownFlag(t *testing.T) {
 	f := &fakeStore{}
 	out, code := runDoctorArgs(t, f, "--bogus")
@@ -655,7 +597,6 @@ func TestDoctorUnknownFlag(t *testing.T) {
 	}
 }
 
-// a missing --check value — invalid-arg exit 3 (unified with unknown flag and invalid --check name).
 func TestDoctorCheckRequiresNameExit3(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--check")
@@ -667,17 +608,13 @@ func TestDoctorCheckRequiresNameExit3(t *testing.T) {
 	}
 }
 
-// protocol — doctor --json — the explicit machine-readable channel. The output is
-// a one-line JSON of the DoctorCheck field structure (status, checks[].name/status), and
-// the exit contract matches the default path. The existing text (the default one-line JSON) is unchanged —
-// default-path regression is covered by the existing full-run tests.
 func TestDoctorJSONFlag(t *testing.T) {
 	home := t.TempDir()
-	t.Setenv("FLINT_CLAUDE_HOME", home) // pin hook-file fail (temp home)
+	t.Setenv("FLINT_CLAUDE_HOME", home)
 
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f, "--json")
-	if code != 1 { // a fail exists — the same exit as the default full run
+	if code != 1 {
 		t.Fatalf("exit=%d, want 1 (출력 %q)", code, out)
 	}
 	var m struct {
@@ -700,7 +637,6 @@ func TestDoctorJSONFlag(t *testing.T) {
 		t.Errorf("checks[0]=%+v, want hook-file fail", m.Checks[0])
 	}
 
-	// --json --check NAME — the subset uses the same structure.
 	f2 := &fakeStore{queryFn: freshDoctorFn()}
 	out2, code2 := runDoctorArgs(t, f2, "--json", "--check", "db")
 	if code2 != 0 {
@@ -714,9 +650,6 @@ func TestDoctorJSONFlag(t *testing.T) {
 	}
 }
 
-// protocol — the doctor --json output is byte-identical to the default output (pinning the explicit
-// machine channel — not a second format). Verified on the path without --fix
-// (byte comparison with a deterministic db subset).
 func TestDoctorJSONBytesMatchDefault(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	def, defCode := runDoctorArgs(t, f, "--check", "db")
@@ -730,8 +663,6 @@ func TestDoctorJSONBytesMatchDefault(t *testing.T) {
 	}
 }
 
-// schema — a higher version (e.g. a future v5) is normal. Under the old string-equality "4" check,
-// a v5 DB was a false fail (the numeric n>=4 contract).
 func TestDoctorSchemaFutureVersionOk(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -751,9 +682,6 @@ func TestDoctorSchemaFutureVersionOk(t *testing.T) {
 	}
 }
 
-// last-seen — the stall_hot_h meta override (24h) is reflected by loadThresholds:
-// a 30h-elapsed last_hot_at is ok under the hardcoded 48h but warn under the 24h override
-// (conclusions match maintain --check).
 func TestDoctorLastSeenThresholdOverride(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -762,11 +690,11 @@ func TestDoctorLastSeenThresholdOverride(t *testing.T) {
 		t.Fatal(err)
 	}
 	fn := doctorQueryFn(
-		time.Now().Add(-30*time.Hour), // last_write_at — within the default 72h
-		time.Now().Add(-30*time.Hour), // last_hot_at — within the default 48h, over the 24h override
+		time.Now().Add(-30*time.Hour),
+		time.Now().Add(-30*time.Hour),
 		time.Now().Add(-time.Hour))
 	over := func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "stall_hot_h") { // the loadThresholds query
+		if strings.Contains(sql, "stall_hot_h") {
 			return [][]any{{"stall_hot_h", "24"}, {"stall_write_h", "72"}}, nil
 		}
 		return fn(sql, args)
@@ -781,7 +709,6 @@ func TestDoctorLastSeenThresholdOverride(t *testing.T) {
 	}
 }
 
-// hook-file — ok when registered in the real hooks.json shape (event arrays -> nested hooks[].command).
 func TestDoctorHookFileNestedShapeOk(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -800,8 +727,6 @@ func TestDoctorHookFileNestedShapeOk(t *testing.T) {
 	}
 }
 
-// setHarnessEnvs — isolates all 5 harness envs to empty temp directories.
-// A precondition of the harnessChecks unit tests (blocking real-home settings files).
 func setHarnessEnvs(t *testing.T) {
 	t.Helper()
 	for _, e := range []string{
@@ -812,8 +737,6 @@ func setHarnessEnvs(t *testing.T) {
 	}
 }
 
-// state — all settings files absent -> no harness checks produced (an empty slice).
-// An uninstalled harness is not a warning (§4 a).
 func TestHarnessChecksSkipWhenAbsent(t *testing.T) {
 	setHarnessEnvs(t)
 	if got := harnessChecks(); len(got) != 0 {
@@ -821,8 +744,6 @@ func TestHarnessChecksSkipWhenAbsent(t *testing.T) {
 	}
 }
 
-// file — only the codex config present, flint unregistered -> 1 fail. Name "harness-codex" and
-// the Fix carries the doc path (§4 b).
 func TestHarnessChecksFailWhenUnregistered(t *testing.T) {
 	setHarnessEnvs(t)
 	home := t.TempDir()
@@ -846,7 +767,6 @@ func TestHarnessChecksFailWhenUnregistered(t *testing.T) {
 	}
 }
 
-// file — the body contains "flint" -> ok (the registration check is string matching, format-agnostic — C6).
 func TestHarnessChecksOkWhenRegistered(t *testing.T) {
 	setHarnessEnvs(t)
 	home := t.TempDir()
@@ -864,8 +784,6 @@ func TestHarnessChecksOkWhenRegistered(t *testing.T) {
 	}
 }
 
-// file — cursor prefers the project scope (.cursor/mcp.json): the FLINT_CURSOR_DIR
-// root's project file becomes the check target (C5).
 func TestHarnessChecksCursorProjectScope(t *testing.T) {
 	setHarnessEnvs(t)
 	root := t.TempDir()
@@ -890,8 +808,6 @@ func TestHarnessChecksCursorProjectScope(t *testing.T) {
 	}
 }
 
-// hook-file — a body with only the 'flint' string and no hooks.command fails
-// (an accidental match that passed under the old full-text containment check).
 func TestDoctorHookFileFlintWordOnlyFails(t *testing.T) {
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
@@ -912,8 +828,6 @@ func TestDoctorHookFileFlintWordOnlyFails(t *testing.T) {
 	}
 }
 
-// TestDoctorCheckNameSpace — every check name the full report
-// shows (skill-file, harness-*) is runnable via --check standalone.
 func TestDoctorCheckNameSpace(t *testing.T) {
 	c := runDoctorCheck(context.Background(), &fakeStore{}, "skill-file")
 	if c.Name != "skill-file" || (c.Status != "ok" && c.Status != "warn" && c.Status != "fail") {
@@ -929,13 +843,11 @@ func TestDoctorCheckNameSpace(t *testing.T) {
 	}
 }
 
-// TestDoctorEventVolume — when the 3 metering tables' total exceeds
-// the events_volume_warn threshold it warns; below it, ok (growth is not a fail).
 func TestDoctorEventVolume(t *testing.T) {
 	base := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "key IN ('pending_max'"):
-			return nil, nil // thresholds defaults (50000)
+			return nil, nil
 		case strings.Contains(sql, "count(*) FROM read_events"):
 			return [][]any{{int64(60000)}}, nil
 		}
@@ -958,15 +870,13 @@ func TestDoctorEventVolume(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScan — a secret candidate found in held knowledge
-// warns (pattern name + id only — no body output).
 func TestDoctorSecretsScan(t *testing.T) {
 	hit := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
-			return nil, nil // thresholds unset — the default cap
+			return nil, nil
 		}
 		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
-			// full-column scan (7 columns), invalidation excluded.
+
 			return [][]any{{int64(7), "토픽", "토큰 ghp_abcdefghijklmnopqrst 포함", "", "", "", ""}}, nil
 		}
 		return nil, nil
@@ -988,8 +898,6 @@ func TestDoctorSecretsScan(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanSessions — sessions.summary
-// the findings path — the founding motive (the most PII-dense field) had no test case.
 func TestDoctorSecretsScanSessions(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
@@ -999,7 +907,7 @@ func TestDoctorSecretsScanSessions(t *testing.T) {
 			return [][]any{{int64(1), "토픽", "무해한 요약", "", "", "", ""}}, nil
 		}
 		if strings.Contains(sql, "FROM sessions") {
-			// a real pattern in the session summary — must be found and warn
+
 			return [][]any{{int64(3), "claude", "요약에 토큰 ghp_abcdefghijklmnopqrst 포함"}}, nil
 		}
 		return nil, nil
@@ -1010,15 +918,13 @@ func TestDoctorSecretsScanSessions(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanRowLimitReached — the row-cap-reached branch —
-// never falsely reports a partial scan as a clean ok (the LIMIT boundary is >=).
 func TestDoctorSecretsScanRowLimitReached(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
 			return [][]any{{"secrets_scan_row_limit", "2"}}, nil
 		}
 		if strings.Contains(sql, "FROM knowledge") && strings.Contains(sql, "origin") {
-			// returns the same count as the cap of 2 -> cap reached (a truncated LIMIT means more exist).
+
 			return [][]any{
 				{int64(1), "토픽", "무해한 요약", "", "", "", ""},
 				{int64(2), "토픽", "또 다른 무해한 요약", "", "", "", ""},
@@ -1032,8 +938,6 @@ func TestDoctorSecretsScanRowLimitReached(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanSessionsError — a session lookup failure is warn,
-// not a false ok (symmetric with the knowledge path's 'knowledge lookup failure').
 func TestDoctorSecretsScanSessionsError(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
@@ -1053,8 +957,6 @@ func TestDoctorSecretsScanSessionsError(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsFindingsSurviveSessionError — a session lookup
-// failure does not discard already-caught knowledge findings (the gap is annotated).
 func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
@@ -1077,9 +979,6 @@ func TestDoctorSecretsFindingsSurviveSessionError(t *testing.T) {
 	}
 }
 
-// TestDoctorSecretsScanProjects — the post-hoc scan of projects.name —
-// restore and legacy intake bypass the write-time scan (closing the same blind spot as the
-// session path). Findings are reported only as pattern#project:id (no body output).
 func TestDoctorSecretsScanProjects(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
@@ -1102,8 +1001,6 @@ func TestDoctorSecretsScanProjects(t *testing.T) {
 	}
 }
 
-// TestDoctorMetaHygieneUnknownKeySanitized — meta-hygiene
-// unknown-key samples flow verbatim into the detail, so they pass through the sanitization outlet.
 func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta") {
@@ -1123,9 +1020,6 @@ func TestDoctorMetaHygieneUnknownKeySanitized(t *testing.T) {
 	}
 }
 
-// TestFlintHookCmdEvalWrapped — the hook command doctor installs also uses the
-// jq @sh + eval pattern — preventing a recurrence of the double-quoted substitution ("$(jq ...)").
-// binPath single-quoted — preventing silent loss for paths with spaces.
 func TestFlintHookCmdEvalWrapped(t *testing.T) {
 	cmd := flintHookCmd("/x/flint", `session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`)["command"].(string)
 	if !strings.HasPrefix(cmd, `eval "'/x/flint' `) {
@@ -1136,10 +1030,6 @@ func TestFlintHookCmdEvalWrapped(t *testing.T) {
 	}
 }
 
-// TestFlintHookCmdQuotesBinPath — an install path containing spaces is also
-// assembled as 1 single-quoted argument (unquoted, eval word-splitting silently drops the hook).
-// Asserts the assembled string + idempotence-identification consistency (flintHookSubRe must catch
-// both the new quoted form and the old unquoted form to keep preventing reinstall duplicates).
 func TestFlintHookCmdQuotesBinPath(t *testing.T) {
 	cmd := flintHookCmd("/My Tools/flint", `session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)`)["command"].(string)
 	if !strings.HasPrefix(cmd, `eval "'/My Tools/flint' session-start `) {
@@ -1154,10 +1044,6 @@ func TestFlintHookCmdQuotesBinPath(t *testing.T) {
 	}
 }
 
-// TestDoctorFullChainIncludesTailChecks — consistency between the full run chain and
-// doctorTailChecks (the --check allow list) — preventing a recurrence of the wiring omission
-// where backup-key was added to the list but the chain append was missed, so the full doctor
-// never ran the check (verifying the single source of names).
 func TestDoctorFullChainIncludesTailChecks(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	f := &fakeStore{queryFn: doctorQueryFn(time.Now().Add(-time.Hour), time.Now().Add(-time.Hour), time.Now().Add(-time.Hour))}
@@ -1172,10 +1058,6 @@ func TestDoctorFullChainIncludesTailChecks(t *testing.T) {
 	}
 }
 
-// ── v1.25.0 T1: the engine-warning checks (dolt_log_depth · db_size) ──
-
-// TestDoctorEngineChecksRegistered — the 2 engine warnings join the registry
-// tail (19 registry kinds) and the --list-checks surface.
 func TestDoctorEngineChecksRegistered(t *testing.T) {
 	found := map[string]bool{}
 	for _, s := range doctorChecks() {
@@ -1194,7 +1076,7 @@ func TestDoctorEngineChecksRegistered(t *testing.T) {
 			t.Errorf("--list-checks에 %q 누락: %s", name, out)
 		}
 	}
-	// standalone --check execution is allowed for both.
+
 	for _, name := range []string{doltLogDepthName, "db_size"} {
 		_, code := runDoctorArgs(t, &fakeStore{queryErr: errors.New("down")}, "--check", name)
 		if code == 3 {
@@ -1203,9 +1085,6 @@ func TestDoctorEngineChecksRegistered(t *testing.T) {
 	}
 }
 
-// TestDoctorLogDepthBoundary — the depth verdict is at-or-above the
-// dolt_log_depth_warn threshold (9999 ok, 10000 warn) off the O(1) probe
-// (commit_order DESC LIMIT 1).
 func TestDoctorLogDepthBoundary(t *testing.T) {
 	th := store.DefaultThresholds()
 	if th.DoltLogDepthWarn != 10000 {
@@ -1224,7 +1103,7 @@ func TestDoctorLogDepthBoundary(t *testing.T) {
 	if !strings.Contains(warn.Detail, "maintain --gc --yes (disconnects)") {
 		t.Errorf("경고 안내 문구 불일치: %s", warn.Detail)
 	}
-	// the O(1) probe shape — no count(*).
+
 	var probed string
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		probed = sql
@@ -1234,7 +1113,7 @@ func TestDoctorLogDepthBoundary(t *testing.T) {
 	if !strings.Contains(probed, "commit_order::int8 FROM "+db.DoltLogTable+" ORDER BY commit_order DESC LIMIT 1") {
 		t.Errorf("O(1) 프로브 아님: %s", probed)
 	}
-	// a query failure is a warn finding (not disguised as clean).
+
 	errw := checkDoltLogDepthTh(context.Background(),
 		&fakeStore{queryErr: errors.New("no such table")}, th)
 	if errw.Status != "warn" {
@@ -1242,9 +1121,6 @@ func TestDoctorLogDepthBoundary(t *testing.T) {
 	}
 }
 
-// TestDoctorDBSizeBoundary — the size verdict is at-or-above the
-// db_size_warn_mb threshold (2047MB ok, 2048MB warn); a pg_database_size
-// failure is a quiet skip.
 func TestDoctorDBSizeBoundary(t *testing.T) {
 	th := store.DefaultThresholds()
 	if th.DbSizeWarnMB != 2048 {
@@ -1263,7 +1139,7 @@ func TestDoctorDBSizeBoundary(t *testing.T) {
 	if !strings.Contains(warn.Fix, "review backup retention") {
 		t.Errorf("경고 안내 문구 불일치: %s", warn.Fix)
 	}
-	// an unsupported pg_database_size is a quiet skip (no warn, no fail).
+
 	skip := checkDBSizeTh(context.Background(),
 		&fakeStore{queryErr: errors.New("function not found")}, th)
 	if skip.Status != "skip" {
@@ -1271,9 +1147,6 @@ func TestDoctorDBSizeBoundary(t *testing.T) {
 	}
 }
 
-// TestDoctorEngineChecksFullRun — the full run chain wires the 2 checks with
-// the once-per-run fallback-applied thresholds (unset meta → defaults), a
-// warn verdict keeps exit 0, and the skip does not surface as a warn.
 func TestDoctorEngineChecksFullRun(t *testing.T) {
 	base := doctorQueryFn(time.Now(), time.Now(), time.Now())
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -1285,8 +1158,7 @@ func TestDoctorEngineChecksFullRun(t *testing.T) {
 		}
 		return base(sql, args)
 	}}
-	// Only run the 2 engine checks — the full chain includes environment-
-	// dependent checks (hook-file, port) that fail on CI runners.
+
 	out, code := runDoctorArgs(t, f, "--check", doltLogDepthName)
 	if code != 0 {
 		t.Fatalf("depth warn 실행 exit=%d, want 0: %s", code, out)
@@ -1303,8 +1175,6 @@ func TestDoctorEngineChecksFullRun(t *testing.T) {
 	}
 }
 
-// withEngineStats — swaps the EngineStatsFn seam (restored after the test;
-// the withComposePs convention for exec seams).
 func withEngineStats(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Helper()
 	old := EngineStatsFn
@@ -1312,10 +1182,6 @@ func withEngineStats(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Cleanup(func() { EngineStatsFn = old })
 }
 
-// TestDoctorEngineFootprintSpec — the v1.25.0 M2 registration guard:
-// exactly 1 registry row "engine-footprint" in the tail chain, the Fn form
-// (display only — no threshold, so no ThFn per the CheckSpec convention),
-// and st unused (OnStoreNil "" — docker stats only).
 func TestDoctorEngineFootprintSpec(t *testing.T) {
 	s, ok := doctorSpec("engine-footprint")
 	if !ok {
@@ -1332,9 +1198,6 @@ func TestDoctorEngineFootprintSpec(t *testing.T) {
 	}
 }
 
-// TestDoctorEngineFootprintSkip — docker unavailable (not installed, no
-// flint container row, or unparsable output): a quiet skip, never
-// fail/warn (non-interference — the checkPort convention).
 func TestDoctorEngineFootprintSkip(t *testing.T) {
 	cases := map[string]func(context.Context) ([]byte, error){
 		"docker absent": func(context.Context) ([]byte, error) { return nil, errors.New("docker not installed") },
@@ -1352,9 +1215,6 @@ func TestDoctorEngineFootprintSkip(t *testing.T) {
 	}
 }
 
-// TestDoctorEngineFootprintOK — a flint container row round-trips into the
-// ok detail as working-set MB ("50.5MiB / 3.84GiB" → 50MB), and non-flint
-// rows are skipped over.
 func TestDoctorEngineFootprintOK(t *testing.T) {
 	withEngineStats(t, func(context.Context) ([]byte, error) {
 		return []byte("{\"Name\":\"other-db-1\",\"MemUsage\":\"900MiB / 4GiB\"}\n" +
@@ -1369,13 +1229,6 @@ func TestDoctorEngineFootprintOK(t *testing.T) {
 	}
 }
 
-// ── v1.26.0 T3 doctor versions — registration, the side-by-side version
-// display, the stale-cache warn, threshold homogeneity, and the report --text
-// checked_at line. ──
-
-// withVersionSeams — swaps the version-family seams for the versions check
-// (restored after the test — the withEngineStats convention). cacheFn nil
-// simulates "no cache info" (an uninjected seam), regFn nil the offline path.
 func withVersionSeams(t *testing.T, cur string, cacheFn func() (string, string), regFn func() (string, error)) {
 	t.Helper()
 	prevCur, prevVal, prevCache, prevReg := CurrentVersionFn, ValidVersionFn, UpdateCacheInfoFn, FetchRegistryVersionFn
@@ -1388,7 +1241,6 @@ func withVersionSeams(t *testing.T, cur string, cacheFn func() (string, string),
 	})
 }
 
-// validSemverish — a local x.y.z stand-in (the ops test binary has no cli validVersion).
 func validSemverish(v string) bool {
 	n := strings.Split(v, ".")
 	if len(n) != 3 {
@@ -1407,10 +1259,6 @@ func validSemverish(v string) bool {
 	return true
 }
 
-// TestDoctorVersionsSpec — the v1.26.0 M3 registration guard: exactly 1
-// registry row "versions" in the tail chain, the ThFn form (update_cache_age_h
-// — F6: sharing the once-per-run threshold load), st optional (OnStoreNil ""
-// — the check reads the cache file, PATH, and the registry).
 func TestDoctorVersionsSpec(t *testing.T) {
 	s, ok := doctorSpec("versions")
 	if !ok {
@@ -1427,11 +1275,8 @@ func TestDoctorVersionsSpec(t *testing.T) {
 	}
 }
 
-// TestDoctorVersionsSideBySide — the detail shows the 4 version surfaces side
-// by side: the running build, the cached latest (+age), the PATH flint
-// (exec.LookPath), and the mcp-registry published version.
 func TestDoctorVersionsSideBySide(t *testing.T) {
-	// a temp PATH holding an executable flint — LookPath resolves it.
+
 	binDir := t.TempDir()
 	flint := filepath.Join(binDir, "flint")
 	if err := os.WriteFile(flint, []byte("#!/bin/sh\n"), 0o755); err != nil {
@@ -1456,9 +1301,6 @@ func TestDoctorVersionsSideBySide(t *testing.T) {
 	}
 }
 
-// TestDoctorVersionsOfflineRegistry — a registry fetch failure renders
-// "unverified (offline)" as a display-level note, not a warn (PLAN §4
-// principle 3 — a failed probe is not evidence).
 func TestDoctorVersionsOfflineRegistry(t *testing.T) {
 	withVersionSeams(t, "1.26.0",
 		func() (string, string) { return "1.26.0", time.Now().UTC().Format(time.RFC3339) },
@@ -1472,10 +1314,6 @@ func TestDoctorVersionsOfflineRegistry(t *testing.T) {
 	}
 }
 
-// TestDoctorVersionsOfflineRegistryCached — v1.26.1: with a fetch failure AND
-// a registry cache, the cached copy is shown with its age ("cached, unverified
-// — offline") — the cache is evidence (with its staleness visible), still not
-// a warn.
 func TestDoctorVersionsOfflineRegistryCached(t *testing.T) {
 	withVersionSeams(t, "1.26.0",
 		func() (string, string) { return "1.26.0", time.Now().UTC().Format(time.RFC3339) },
@@ -1496,8 +1334,6 @@ func TestDoctorVersionsOfflineRegistryCached(t *testing.T) {
 	}
 }
 
-// TestDoctorVersionsStaleCacheWarn — a cache older than update_cache_age_h
-// (default 72h) is a warn; an injected meta override moves the line.
 func TestDoctorVersionsStaleCacheWarn(t *testing.T) {
 	stale := time.Now().UTC().Add(-100 * time.Hour).Format(time.RFC3339)
 	withVersionSeams(t, "1.26.0",
@@ -1510,8 +1346,7 @@ func TestDoctorVersionsStaleCacheWarn(t *testing.T) {
 	if !strings.Contains(c.Detail, "update_cache_age_h") {
 		t.Errorf("detail=%q, want update_cache_age_h 근거 표시", c.Detail)
 	}
-	// an override (update_cache_age_h=200) keeps the same cache ok — the
-	// threshold round trip through ParseThresholds + fallback.
+
 	th, err := store.ParseThresholds([][2]any{{"update_cache_age_h", "200"}})
 	if err != nil {
 		t.Fatal(err)
@@ -1522,8 +1357,6 @@ func TestDoctorVersionsStaleCacheWarn(t *testing.T) {
 	}
 }
 
-// TestUpdateCacheAgeHThreshold — threshold homogeneity: the field default 72,
-// the meta override parse, and the registry key presence (single source).
 func TestUpdateCacheAgeHThreshold(t *testing.T) {
 	if def := store.DefaultThresholds(); def.UpdateCacheAgeH != 72 {
 		t.Errorf("UpdateCacheAgeH 기본값=%d, want 72", def.UpdateCacheAgeH)
@@ -1543,9 +1376,6 @@ func TestUpdateCacheAgeHThreshold(t *testing.T) {
 	}
 }
 
-// TestReportTextUpdateCheckedAt — the report --text view surfaces when the
-// update check last happened (the T1 noticeLine checked_at extension); an
-// uninjected seam or an empty cache omits the line.
 func TestReportTextUpdateCheckedAt(t *testing.T) {
 	ts := "2026-11-23T00:00:00Z"
 	prev := UpdateCacheInfoFn
@@ -1556,7 +1386,7 @@ func TestReportTextUpdateCheckedAt(t *testing.T) {
 	if !strings.Contains(b.String(), "update check: "+ts) {
 		t.Errorf("checked_at 미표시: %q", b.String())
 	}
-	// no cache info (seam nil or checked_at empty) — the line is omitted.
+
 	UpdateCacheInfoFn = nil
 	b.Reset()
 	printReportText(&b, ReportOutput{}, 7)
@@ -1565,11 +1395,6 @@ func TestReportTextUpdateCheckedAt(t *testing.T) {
 	}
 }
 
-// TestDoctorEngineStatsTimeout5s — the r109-5 regression: EngineMemMB hands
-// the docker stats seam a ≥5s budget. The old 2s cap was shorter than the
-// sampling window docker stats --no-stream itself takes, so a normal read on
-// a loaded daemon timed out and the footprint was a standing skip. The seam
-// captures the deadline it was given; the checkUpdate convention is 5s.
 func TestDoctorEngineStatsTimeout5s(t *testing.T) {
 	var budget time.Duration
 	withEngineStats(t, func(ctx context.Context) ([]byte, error) {

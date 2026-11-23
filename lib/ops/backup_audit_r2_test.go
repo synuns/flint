@@ -1,7 +1,5 @@
 package ops
 
-// maskExtraJSON — reproduces the extra-field assembly of the runBackup --mask path (contract verification).
-
 import (
 	"strings"
 	"testing"
@@ -9,12 +7,10 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// TestMaskedDumpWarnsAllowlistEntries — the --mask output also carries the
-// allowlist-registration-count warning (the plain-residue disclosure contract for shared dumps).
 func TestMaskedDumpWarnsAllowlistEntries(t *testing.T) {
 	store.ResetSecretsAllowlistForTest([]string{"demo-token-123"})
 	defer store.ResetSecretsAllowlistForTest(nil)
-	out := maskExtraJSON(t) // the assembled extra of the --mask path
+	out := maskExtraJSON(t)
 	if !strings.Contains(out, `"allowlist_entries":1`) {
 		t.Fatalf("allowlist 경고 부재: %q", out)
 	}

@@ -1,5 +1,3 @@
-// text_test.go — tests for TruncateRunes and CellToInt. Single-implementation
-// convention (spec §2).
 package render
 
 import (
@@ -9,11 +7,8 @@ import (
 	"github.com/jackc/pgx/v5/pgtype"
 )
 
-// TestTruncateRunesSingleSource — single implementation of rune-bound
-// truncation (multibyte-safe). Under-bound and empty strings unchanged;
-// mixed strings truncated by rune count.
 func TestTruncateRunesSingleSource(t *testing.T) {
-	long := strings.Repeat("한", 60) // 60 runes (180 bytes) — byte truncation would corrupt
+	long := strings.Repeat("한", 60)
 	if got := TruncateRunes(long, 40); len([]rune(got)) != 40 || got != strings.Repeat("한", 40) {
 		t.Errorf("룬 절단 위반: %d룬", len([]rune(got)))
 	}
@@ -31,14 +26,8 @@ func TestTruncateRunesSingleSource(t *testing.T) {
 	}
 }
 
-// TestCellToIntSingleSource — the single cell(any)->int coercion lives only
-// in render. Accepts pgx numeric types, float64, decimal strings, and
-// pgtype.Numeric; nil and non-numerics yield (0, false) — the contract
-// shared by read rowIDs, maintain stale, and report aggregation.
 func TestCellToIntSingleSource(t *testing.T) {
-	// the r109-1 numeric case — a Doltgres numeric column cell (pgtype.Numeric)
-	// must coerce, not silently read 0. Built via ScanInt64 (int-valued) and
-	// the zero value (NULL/invalid) for the failure side.
+
 	validNum := pgtype.Numeric{}
 	if err := validNum.ScanInt64(pgtype.Int8{Int64: 4242, Valid: true}); err != nil {
 		t.Fatalf("Numeric 구성 실패: %v", err)
@@ -55,9 +44,9 @@ func TestCellToIntSingleSource(t *testing.T) {
 		{"7", 7, true},
 		{nil, 0, false},
 		{"x", 0, false},
-		{7.9, 7, true},               // float64 truncates toward zero — existing contract unchanged
-		{validNum, 4242, true},       // r109-1: Doltgres numeric cells coerce
-		{pgtype.Numeric{}, 0, false}, // invalid (NULL) numeric stays (0, false)
+		{7.9, 7, true},
+		{validNum, 4242, true},
+		{pgtype.Numeric{}, 0, false},
 	}
 	for _, tc := range cases {
 		got, ok := CellToInt(tc.in)

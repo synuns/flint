@@ -1,10 +1,3 @@
-// write_v1140_test.go — v1.14.0 T2 (plan A): the correction filter hook
-// pipes `flint write knowledge --source correction` payloads that carry
-// an explicit confidence 0.4. Fast fake-store regression: the explicit
-// confidence is respected (not replaced by the correction_confidence
-// default) while the "correction" tag still merges — coexisting with the
-// B-plan path (v1.11.0: confidence omitted → default 0.7, covered by the
-// cli real-DB slow suite).
 package knowledge
 
 import (
@@ -12,10 +5,6 @@ import (
 	"testing"
 )
 
-// TestWriteCorrectionExplicitConfidence04 — a --source correction
-// knowledge line with an explicit confidence 0.4 commits exit 0 and the
-// stored record keeps 0.4 with the merged "correction" tag (the manual
-// contract: an explicitly given confidence, however low, is respected).
 func TestWriteCorrectionExplicitConfidence04(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
@@ -35,10 +24,6 @@ func TestWriteCorrectionExplicitConfidence04(t *testing.T) {
 	}
 }
 
-// TestWriteCorrectionDefaultConfidence07Coexists — the same source with
-// confidence omitted still gets the correction_confidence default (0.7):
-// the two payload shapes (hook explicit 0.4 · B-plan default) coexist on
-// one source without one path polluting the other.
 func TestWriteCorrectionDefaultConfidence07Coexists(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge", "--source", "correction"},

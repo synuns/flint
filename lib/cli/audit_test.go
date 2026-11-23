@@ -1,4 +1,3 @@
-// audit_test.go — the audit command: the most recent N commit log (limit boundaries, session filter).
 package cli
 
 import (
@@ -10,7 +9,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// auditRows — 2 dolt_log fixture rows (different session tags).
 func auditRows() [][]any {
 	return [][]any{
 		{"hash2", "committer-b", "2026-10-22 10:00:00", "knowledge: s [session:S2]"},
@@ -18,7 +16,6 @@ func auditRows() [][]any {
 	}
 }
 
-// auditFake — a queryFn mimicking SQL LIMIT and LIKE. Records the passed limit argument.
 func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 	t.Helper()
 	limits := &[]int{}
@@ -33,7 +30,7 @@ func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 		if len(out) > limit {
 			out = out[:limit]
 		}
-		// v1.7.2 T2: the default query excludes NOT LIKE 'telemetry: %' + --session LIKE.
+
 		if strings.Contains(sql, "message NOT LIKE ") && len(args) > 1 {
 			pat, _ := args[1].(string)
 			pat = strings.Trim(pat, "%")
@@ -61,12 +58,10 @@ func auditFake(t *testing.T, rows [][]any) (*fakeStore, *[]int) {
 	return f, limits
 }
 
-// TestAuditLimitAndSessionFilter — limit boundaries and the session filter.
 func TestAuditLimitAndSessionFilter(t *testing.T) {
 	f, _ := auditFake(t, auditRows())
 	withFake(t, f)
 
-	// default: 2 rows -> a 2-row log, exit 0.
 	out, code := mustRun(t, []string{"audit"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0; out=%s", code, out)
@@ -76,13 +71,12 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 		t.Fatalf("log=%v, want 2행", m["log"])
 	}
 	first := m["log"].([]any)[0].(map[string]any)
-	// date follows the LogEntry.Date (time.Time) format (the implementation's fmt.Sprint — timezone included).
+
 	if first["commit_hash"] != "hash2" || first["committer"] != "committer-b" ||
 		first["date"] != "2026-10-22 10:00:00 +0000 UTC" || first["message"] != "knowledge: s [session:S2]" {
 		t.Fatalf("컬럼 4종 불일치: %v", first)
 	}
 
-	// --limit 1 -> 1 row.
 	out, code = mustRun(t, []string{"audit", "--limit", "1"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
@@ -91,7 +85,6 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 		t.Fatalf("log=%d행, want 1", len(lg))
 	}
 
-	// --session S1 -> 1 matching row.
 	out, code = mustRun(t, []string{"audit", "--session", "S1"}, "")
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
@@ -101,7 +94,6 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 		t.Fatalf("session 필터 결과=%v, want 1행(S1)", lg)
 	}
 
-	// invalid session -> 0 rows, exit 0.
 	out, code = mustRun(t, []string{"audit", "--session", "nope"}, "")
 	if code != 0 {
 		t.Fatalf("무효 session exit=%d, want 0", code)
@@ -111,7 +103,6 @@ func TestAuditLimitAndSessionFilter(t *testing.T) {
 	}
 }
 
-// TestAuditLimitBoundary — 0 or negative -> default 20; capped at 100.
 func TestAuditLimitBoundary(t *testing.T) {
 	cases := []struct {
 		arg  string
@@ -131,7 +122,6 @@ func TestAuditLimitBoundary(t *testing.T) {
 	}
 }
 
-// TestAuditServerDownExit2 — a query failure (server down) is silent exit 2.
 func TestAuditServerDownExit2(t *testing.T) {
 	f := &fakeStore{queryErr: store.ErrServerDown}
 	withFake(t, f)
@@ -144,7 +134,6 @@ func TestAuditServerDownExit2(t *testing.T) {
 	}
 }
 
-// TestAuditBadFlagExit3 — an unknown flag is invalid-arg exit 3 one-line JSON.
 func TestAuditBadFlagExit3(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
@@ -155,9 +144,6 @@ func TestAuditBadFlagExit3(t *testing.T) {
 	decode(t, out)
 }
 
-// TestAuditSanitizesStringColumns — the string columns of the commit log (LogEntries) and the
-// per-table change summary (DiffStat) (commit_hash, committer, table) pass through the render.Text
-// re-sanitization — unsanitized, the [flint] marker and control characters would leak verbatim.
 func TestAuditSanitizesStringColumns(t *testing.T) {
 	f := &auditSanitizeFake{fakeStore: &fakeStore{}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -186,8 +172,6 @@ func TestAuditSanitizesStringColumns(t *testing.T) {
 	}
 }
 
-// auditSanitizeFake — for the sanitization regression: the log via queryFn (raw polluted rows); the
-// table summary via DiffStat canned (polluted raw values — sanitization is the implementation's render.Text).
 type auditSanitizeFake struct {
 	*fakeStore
 }

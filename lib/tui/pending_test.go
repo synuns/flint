@@ -1,7 +1,3 @@
-// pending_test.go — the pending review TUI contract tests. State transitions
-// (list -> detail -> action) and action delegation (seam — asserting reuse of the
-// existing RunApprove path), loaders (fake store injection), and the non-terminal
-// fallback. SUPERLITE_REAL real-DB delegation is covered by the cli entry tests (pending_test.go, the withFake convention).
 package tui
 
 import (
@@ -24,7 +20,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// keyMsg — simulates a 1-rune key input.
 func keyMsg(s string) tea.KeyMsg {
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -32,11 +27,8 @@ func keyMsg(s string) tea.KeyMsg {
 func enterMsg() tea.KeyMsg { return tea.KeyMsg{Type: tea.KeyEnter} }
 func escMsg() tea.KeyMsg   { return tea.KeyMsg{Type: tea.KeyEsc} }
 
-// sizeMsg — simulates a terminal resize (in real runs, bubbletea always delivers
-// 1 WindowSizeMsg at startup).
 func sizeMsg(w, h int) tea.WindowSizeMsg { return tea.WindowSizeMsg{Width: w, Height: h} }
 
-// demoItems — 3 synthetic demo pending items (no personal data — always synthetic).
 func demoItems() []PendingItem {
 	return []PendingItem{
 		{ID: 7, Title: "demo topic alpha", Confidence: "0.80", Date: "2026-11-14", Body: "demo summary alpha", Origin: "hook"},
@@ -52,12 +44,10 @@ func demoTargets() []SupersedeTarget {
 	}
 }
 
-// recorderActions — a call-recording fake (the default fixture). The real
-// implementation is defaultPendingActions wrapping knowledge.RunApprove.
 type recorderActions struct {
 	approves   []int
-	supersedes [][2]int // {pendingID, oldID}
-	expires    [][2]int // {pendingID, days} — the e action delegation record
+	supersedes [][2]int
+	expires    [][2]int
 }
 
 func (r *recorderActions) actions() PendingActions {
@@ -77,24 +67,20 @@ func (r *recorderActions) actions() PendingActions {
 	}
 }
 
-// staticTargets — a loader fake returning fixed candidates (the contract-3 lazy-load seam).
 func staticTargets(ts []SupersedeTarget) func(context.Context) ([]SupersedeTarget, error) {
 	return func(context.Context) ([]SupersedeTarget, error) { return ts, nil }
 }
 
-// update — a model-type-preserving helper (for test readability).
 func update(m PendingModel, msg tea.Msg) PendingModel {
 	m2, _ := m.Update(msg)
 	return m2.(PendingModel)
 }
 
-// drive — returns the Update's model and cmd together (for running lazy-load cmds).
 func drive(m PendingModel, msg tea.Msg) (PendingModel, tea.Cmd) {
 	m2, cmd := m.Update(msg)
 	return m2.(PendingModel), cmd
 }
 
-// RF1 — list: title, confidence, and date shown; enter -> detail (body, origin); esc -> back.
 func TestPendingListShowsFieldsAndDetailTransition(t *testing.T) {
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	m = update(m, sizeMsg(80, 24))
@@ -124,7 +110,6 @@ func TestPendingListShowsFieldsAndDetailTransition(t *testing.T) {
 	}
 }
 
-// RF1 — the a-key approve delegation also works in the detail view (selection -> action transition).
 func TestPendingDetailApproveKey(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
@@ -138,7 +123,6 @@ func TestPendingDetailApproveKey(t *testing.T) {
 	}
 }
 
-// RF-state — a: approves the selected item by delegation + removes it from the list + a status message.
 func TestPendingApproveDelegatesAndRemoves(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
@@ -157,7 +141,6 @@ func TestPendingApproveDelegatesAndRemoves(t *testing.T) {
 	}
 }
 
-// RF-state — a failure (exit != 0): item kept + a failure status message (cause shown — contract 5).
 func TestPendingApproveFailureKeepsItem(t *testing.T) {
 	acts := PendingActions{
 		Approve: func(ctx context.Context, id int) (int, string) { return 1, "not_found" },
@@ -175,7 +158,6 @@ func TestPendingApproveFailureKeepsItem(t *testing.T) {
 	}
 }
 
-// RF-cause — contract 5: if the seam returns no cause, the exit-code fallback display.
 func TestPendingApproveFailureFallsBackToExitCode(t *testing.T) {
 	acts := PendingActions{
 		Approve: func(ctx context.Context, id int) (int, string) { return 3, "" },
@@ -187,8 +169,6 @@ func TestPendingApproveFailureFallsBackToExitCode(t *testing.T) {
 	}
 }
 
-// RF-lazy — contract 3: s only schedules the load (loading targets...) -> the
-// load-complete message switches to the candidate list -> enter confirms -> the (id, old) delegation.
 func TestPendingSupersedeFlowDelegates(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
@@ -221,7 +201,7 @@ func TestPendingSupersedeFlowDelegates(t *testing.T) {
 	if len(m.items) != 2 {
 		t.Fatalf("items after supersede = %d, want 2", len(m.items))
 	}
-	// contract 4: the superseded old (active 3) is removed from the candidates and targetList (no stale).
+
 	if len(m.candidates) != 1 || m.candidates[0].ID != 5 {
 		t.Fatalf("candidates after supersede = %+v, want only id 5", m.candidates)
 	}
@@ -230,7 +210,6 @@ func TestPendingSupersedeFlowDelegates(t *testing.T) {
 	}
 }
 
-// RF-lazy — contract 3: no candidates — after loading, a notice only; the list is kept.
 func TestPendingSupersedeLazyLoadNoActive(t *testing.T) {
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(nil), PendingActions{})
 	m, cmd := drive(m, keyMsg("s"))
@@ -246,7 +225,6 @@ func TestPendingSupersedeLazyLoadNoActive(t *testing.T) {
 	}
 }
 
-// RF-lazy — contract 3: load failure — the cause in status; the list kept (retry possible).
 func TestPendingSupersedeLazyLoadError(t *testing.T) {
 	loader := func(context.Context) ([]SupersedeTarget, error) {
 		return nil, errors.New("demo store down")
@@ -262,7 +240,6 @@ func TestPendingSupersedeLazyLoadError(t *testing.T) {
 	}
 }
 
-// RF-lazy — contract 3: re-entry — already-loaded candidates enter immediately without reloading.
 func TestPendingSupersedeReenterSkipsReload(t *testing.T) {
 	calls := 0
 	loader := func(context.Context) ([]SupersedeTarget, error) {
@@ -285,7 +262,6 @@ func TestPendingSupersedeReenterSkipsReload(t *testing.T) {
 	}
 }
 
-// RF-state — s then esc: returns to the list without delegation (cancel).
 func TestPendingSupersedeEscapeCancels(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
@@ -300,7 +276,6 @@ func TestPendingSupersedeEscapeCancels(t *testing.T) {
 	}
 }
 
-// RF-state — d: skips to the next item without writing (selection moves; item kept).
 func TestPendingSkipAdvancesWithoutAction(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
@@ -316,7 +291,6 @@ func TestPendingSkipAdvancesWithoutAction(t *testing.T) {
 	}
 }
 
-// RF-state — q: returns the quit command.
 func TestPendingQuitReturnsTeaQuit(t *testing.T) {
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	_, cmd := m.Update(keyMsg("q"))
@@ -328,17 +302,12 @@ func TestPendingQuitReturnsTeaQuit(t *testing.T) {
 	}
 }
 
-// On WindowSizeMsg, the list size fits the terminal, and on 12-row-or-fewer
-// terminals and consecutive resizes the selection rendering
-// is preserved (abolishing the fixed 80x20 — sized to the window bubbletea
-// delivers at startup). Allocation: height >= 12 is height-6; low screens (< 12)
-// subtract 1 chrome line, height-1 (the low-screen chrome-minimization contract).
 func TestPendingResizeKeepsItemsRendered(t *testing.T) {
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	for _, sz := range []tea.WindowSizeMsg{
 		{Width: 60, Height: 24},
-		{Width: 60, Height: 12}, // 12-row terminal (the threshold — the existing allocation)
-		{Width: 40, Height: 8},  // low screen (chrome minimized)
+		{Width: 60, Height: 12},
+		{Width: 40, Height: 8},
 		{Width: 100, Height: 30},
 	} {
 		want := sz.Height - 6
@@ -355,11 +324,6 @@ func TestPendingResizeKeepsItemsRendered(t *testing.T) {
 	}
 }
 
-// ── low-screen (height < 12) chrome minimization ──
-
-// RF-numeric — heights 8 and 11: the list allocation grows to height-1 (subtracting
-// only the 1 chrome line — key hints), and View omits the optional chrome (the
-// non-interactive notice nonInteractiveHint, separator blanks, status). The q/ESC exit hint is kept even at 8 rows.
 func TestPendingLowHeightMaximizesList(t *testing.T) {
 	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 8}, {Width: 80, Height: 11}} {
 		m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
@@ -371,7 +335,7 @@ func TestPendingLowHeightMaximizesList(t *testing.T) {
 		if !strings.Contains(stripANSI(v), "demo topic alpha") {
 			t.Errorf("%dx%d: low view lost item text\nview:\n%s", sz.Width, sz.Height, v)
 		}
-		m = update(m, keyMsg("d")) // a status occurs — omitted on low screens
+		m = update(m, keyMsg("d"))
 		v = m.View()
 		if strings.Contains(stripANSI(v), nonInteractiveHint) {
 			t.Errorf("%dx%d: low view must omit non-interactive hint\nview:\n%s", sz.Width, sz.Height, v)
@@ -388,8 +352,6 @@ func TestPendingLowHeightMaximizesList(t *testing.T) {
 	}
 }
 
-// RF-numeric — the boundary 12 and a tall screen (24): the existing allocation
-// (height-6) and chrome (non-interactive notice, status) kept — the above-threshold layout is equivalent.
 func TestPendingHeightAtThresholdKeepsLayout(t *testing.T) {
 	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 12}, {Width: 80, Height: 24}} {
 		m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
@@ -407,8 +369,6 @@ func TestPendingHeightAtThresholdKeepsLayout(t *testing.T) {
 	}
 }
 
-// RF-wrap — A2: detail body wordwrap — a long single-line body splits into
-// multiple lines at the stored window width - 2 (78 when unset).
 func TestPendingDetailBodyWordWrap(t *testing.T) {
 	items := []PendingItem{{
 		ID: 7, Title: "demo topic alpha", Confidence: "0.80", Date: "2026-11-14",
@@ -417,7 +377,7 @@ func TestPendingDetailBodyWordWrap(t *testing.T) {
 	cases := []struct {
 		name   string
 		resize bool
-		width  int // the expected wrap width
+		width  int
 	}{
 		{name: "stored window width", resize: true, width: 40 - 2},
 		{name: "default 78 without resize", resize: false, width: 78},
@@ -447,8 +407,6 @@ func TestPendingDetailBodyWordWrap(t *testing.T) {
 	}
 }
 
-// RF-filter — contract 2: FilterValue includes the ID (fmt "#%d %s") — the "#9001"
-// filter-matching regression. Unlike the list title display ("#%d  %s"), the filter value uses a single space.
 func TestPendingRowFilterValueIncludesID(t *testing.T) {
 	row := pendingRow{it: PendingItem{ID: 9001, Title: "demo topic omega"}}
 	if got, want := row.FilterValue(), "#9001 demo topic omega"; got != want {
@@ -459,13 +417,10 @@ func TestPendingRowFilterValueIncludesID(t *testing.T) {
 	}
 }
 
-// ansiRe — for removing ANSI escapes (SGR) — width assertions are by display width.
 var ansiRe = regexp.MustCompile(`\x1b\[[0-9;]*m`)
 
-// stripANSI — returns the display string with color codes removed.
 func stripANSI(s string) string { return ansiRe.ReplaceAllString(s, "") }
 
-// narrowViews — the Views of the 3 screens (list, detail, supersede) after a 40-column resize.
 func narrowViews(t *testing.T) map[string]string {
 	t.Helper()
 	base := func() PendingModel {
@@ -484,8 +439,6 @@ func narrowViews(t *testing.T) map[string]string {
 	return out
 }
 
-// RF-narrow — contract 1: 40 columns — all 3 screens keep the key-hint line within
-// the width while keeping the "q quit" cue, and the exit guidance (nonInteractiveHint) is wrapped.
 func TestPendingNarrowWidthClipping(t *testing.T) {
 	for name, v := range narrowViews(t) {
 		if !strings.Contains(v, "q quit") {
@@ -502,8 +455,6 @@ func TestPendingNarrowWidthClipping(t *testing.T) {
 	}
 }
 
-// RF-narrow — contract 1: the detail origin line uses the wrapDetailBody wordwrap —
-// a long origin splits into multiple lines within the window width (width - 2).
 func TestPendingDetailOriginWrapped(t *testing.T) {
 	items := []PendingItem{{
 		ID: 7, Title: "demo topic alpha", Confidence: "0.80", Date: "2026-11-14",
@@ -528,8 +479,6 @@ func TestPendingDetailOriginWrapped(t *testing.T) {
 	}
 }
 
-// fakeStore — a minimal wire.Store fake (for the loader and entry tests).
-// The HistoryStubs embedding absorbs the 5 history methods as unsupported defaults.
 type fakeStore struct {
 	wire.HistoryStubs
 	pingErr  error
@@ -564,7 +513,6 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return nil, nil
 }
 
-// pendingRows — a fake returning 1 pending (+1 active) row.
 func pendingRowsStore() *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "status = 'pending'") {
@@ -579,7 +527,6 @@ func pendingRowsStore() *fakeStore {
 	}}
 }
 
-// RF-protocol — the loader (via the real SQL, with a fake store injected — SQL and parsing verified).
 func TestLoadPendingItemsAndTargets(t *testing.T) {
 	st := pendingRowsStore()
 	items, err := loadPendingItems(context.Background(), st)
@@ -608,9 +555,6 @@ func TestLoadPendingItemsAndTargets(t *testing.T) {
 	}
 }
 
-// RF-protocol — the action default real implementation: delegates the
-// knowledge.RunApprove argument assembly (approve --id N / approve --id N
-// --supersede OLD — reusing the same UPDATE path as maintain --supersede).
 func TestDefaultActionsAssembleRunApproveArgs(t *testing.T) {
 	if reflect.ValueOf(pendingApproveRunner).Pointer() != reflect.ValueOf(knowledge.RunApprove).Pointer() {
 		t.Fatalf("pendingApproveRunner seam must default to knowledge.RunApprove")
@@ -636,8 +580,6 @@ func TestDefaultActionsAssembleRunApproveArgs(t *testing.T) {
 	}
 }
 
-// RF-cause — contract 5: the default real implementation — on failure, parses the
-// cause from the sink JSON (error/message). Success has no cause.
 func TestDefaultActionsParseFailureCause(t *testing.T) {
 	orig := pendingApproveRunner
 	defer func() { pendingApproveRunner = orig }()
@@ -677,7 +619,6 @@ func TestDefaultActionsParseFailureCause(t *testing.T) {
 	}
 }
 
-// RF-protocol — entry: 0 pending shows guidance without the TUI, then exit 0.
 func TestRunPendingTUIEmpty(t *testing.T) {
 	var stdout bytes.Buffer
 	code := RunPendingTUI(context.Background(), &fakeStore{}, &stdout)
@@ -689,10 +630,9 @@ func TestRunPendingTUIEmpty(t *testing.T) {
 	}
 }
 
-// RF-protocol — entry: non-terminal (pipe) falls back to exit 3 + guidance.
 func TestRunPendingTUINonTerminalFallback(t *testing.T) {
 	var stdout bytes.Buffer
-	// go test stdout is a pipe — Run's non-terminal check is automatically true.
+
 	code := RunPendingTUI(context.Background(), pendingRowsStore(), &stdout)
 	if code != 3 {
 		t.Fatalf("exit = %d, want 3 (stdout: %s)", code, stdout.String())
@@ -702,8 +642,6 @@ func TestRunPendingTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// pump — re-injects the cmd the list returned (filter application, etc.) into the model
-// (bubbles reflects filter results asynchronously via cmd -> msg — the test pumps directly).
 func pump(m PendingModel, cmd tea.Cmd) PendingModel {
 	for cmd != nil {
 		msg := cmd()
@@ -724,7 +662,6 @@ func pump(m PendingModel, cmd tea.Cmd) PendingModel {
 	return m
 }
 
-// applyFilter — drives from '/' entry through typing the text to enter-commit.
 func applyFilter(m PendingModel, text string) PendingModel {
 	m, c := drive(m, keyMsg("/"))
 	m = pump(m, c)
@@ -737,29 +674,26 @@ func applyFilter(m PendingModel, text string) PendingModel {
 	return pump(m, c)
 }
 
-// During filter input (after '/')
-// all keys are delegated to the list — typing 'a' does not run approve (consumed
-// as filter text). After applying the filter, 'a' approves exactly the visible item.
 func TestPendingFilterTypingDoesNotApprove(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
 	m = update(m, sizeMsg(80, 24))
-	// (1) typing 'a' during filter input — approve not run (consumed as filter text).
-	m, c := drive(m, keyMsg("/")) // entering filter input
+
+	m, c := drive(m, keyMsg("/"))
 	m = pump(m, c)
 	m, c = drive(m, keyMsg("a"))
 	m = pump(m, c)
 	if len(rec.approves) != 0 {
 		t.Fatalf("필터 타이핑 중 approve 실행: %v", rec.approves)
 	}
-	m, c = drive(m, escMsg()) // canceling the filter (emptying the input)
+	m, c = drive(m, escMsg())
 	m = pump(m, c)
-	// (2) applying the "#9" filter — 1 visible (demo topic beta).
+
 	m = applyFilter(m, "#9")
 	if m.list.FilterState() != list.FilterApplied {
 		t.Fatalf("필터 미적용: state=%v", m.list.FilterState())
 	}
-	// with the "#9" filter (= demo topic beta) applied, a — approves the visible item id 9.
+
 	m = update(m, keyMsg("a"))
 	if len(rec.approves) != 1 || rec.approves[0] != 9 {
 		t.Fatalf("필터 후 approve = %v, want [9]", rec.approves)
@@ -769,9 +703,6 @@ func TestPendingFilterTypingDoesNotApprove(t *testing.T) {
 	}
 }
 
-// e — expires the selected item by delegation (via maintain --expire-pending).
-// Only success (0) removes it from the list + a status message. days is computed from
-// the item's valid_at elapsed time (a 10-day-old item -> 10 — the maintain cutoff includes the item).
 func TestPendingExpireDelegatesAndRemoves(t *testing.T) {
 	rec := &recorderActions{}
 	items := demoItems()
@@ -787,12 +718,11 @@ func TestPendingExpireDelegatesAndRemoves(t *testing.T) {
 	if !strings.Contains(m.View(), "expired") {
 		t.Errorf("status after expire missing 'expired'\nview:\n%s", m.View())
 	}
-	// cutoff-effect guidance — the status line must state that the delegated command
-	// expires not just this item but all pending at or below the cutoff (<= N days).
+
 	if !strings.Contains(m.View(), "cutoff expires all pending items") {
 		t.Errorf("status after expire missing cutoff effect note\nview:\n%s", m.View())
 	}
-	// help update — the list and status screens' key hints expose e expire.
+
 	if !strings.Contains(m.View(), "e expire") {
 		t.Errorf("list hint missing 'e expire'\nview:\n%s", m.View())
 	}
@@ -802,7 +732,6 @@ func TestPendingExpireDelegatesAndRemoves(t *testing.T) {
 	}
 }
 
-// e failure (exit != 0): item kept + failure status (cause shown).
 func TestPendingExpireFailureKeepsItem(t *testing.T) {
 	acts := PendingActions{
 		Expire: func(ctx context.Context, id, days int) (int, string) {
@@ -819,9 +748,6 @@ func TestPendingExpireFailureKeepsItem(t *testing.T) {
 	}
 }
 
-// expireDaysFor — computing the maintain --expire-pending delegation days: the
-// largest integer with days*24h < elapsed such that the cutoff includes the item
-// (boundary: exactly 10 days elapsed -> 9; 10.5 days -> 10; 12 hours -> 0).
 func TestExpireDaysFor(t *testing.T) {
 	now := time.Date(2026, 11, 16, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -841,9 +767,6 @@ func TestExpireDaysFor(t *testing.T) {
 	}
 }
 
-// the action default real implementation delegates the
-// --expire-pending N --commit argument assembly to ops.RunMaintain (reusing the
-// existing path — the TUI itself performs no writes).
 func TestDefaultActionsAssembleExpireArgs(t *testing.T) {
 	if reflect.ValueOf(pendingMaintainRunner).Pointer() != reflect.ValueOf(ops.RunMaintain).Pointer() {
 		t.Fatalf("pendingMaintainRunner seam must default to ops.RunMaintain")
@@ -865,13 +788,6 @@ func TestDefaultActionsAssembleExpireArgs(t *testing.T) {
 	}
 }
 
-// ── removal during filtering — the full SetItems reassembly ──
-
-// Action removal under an applied filter abolishes RemoveItem:
-// bubbles RemoveItem deletes items by global index but filteredItems by filter
-// position, so filteredItem.index goes out of sync (a second action would target
-// a different item). Unified via the full SetItems reassembly + clearing an empty
-// refilter — the "#9" filter -> a (approves and removes 9) -> the second a targets the remaining #7.
 func TestPendingFilteredApproveThenSecondActionTargetsRemaining(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
@@ -898,16 +814,8 @@ func TestPendingFilteredApproveThenSecondActionTargetsRemaining(t *testing.T) {
 	}
 }
 
-// ── list height computation ──
-
-// viewLines — the number of View render lines (the render without trailing newline).
 func viewLines(v string) int { return strings.Count(v, "\n") + 1 }
 
-// The list height h=height-4 was less than the actual non-list lines (key hints,
-// status, non-interactive notice + separator blanks — up to 6 lines), so the screen
-// exceeded the terminal height. Both the list screen (worst case, including
-// status) and the supersede screen keep the View render line count within the
-// terminal height. Terminal height >= 16: to include bubbles' internal chrome (title, status bar, pagination, help — 2 lines each) and at least 1 item, the list needs h >= 10.
 func TestPendingViewFitsTerminalHeight(t *testing.T) {
 	for _, sz := range []tea.WindowSizeMsg{{Width: 80, Height: 24}, {Width: 60, Height: 16}} {
 		m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
@@ -915,7 +823,7 @@ func TestPendingViewFitsTerminalHeight(t *testing.T) {
 		if got, want := m.list.Height(), sz.Height-6; got != want {
 			t.Errorf("%dx%d: list height = %d, want %d", sz.Width, sz.Height, got, want)
 		}
-		m = update(m, keyMsg("d")) // a status line — the worst line composition, including status
+		m = update(m, keyMsg("d"))
 		if n := viewLines(m.View()); n > sz.Height {
 			t.Errorf("%dx%d: list view = %d lines > height %d\nview:\n%s", sz.Width, sz.Height, n, sz.Height, m.View())
 		}
@@ -933,18 +841,14 @@ func TestPendingViewFitsTerminalHeight(t *testing.T) {
 	}
 }
 
-// the detail screen's displayed item under an applied filter is also converted via
-// GlobalIndex: View's list.Index() is filter-relative (visible) and would diverge from
-// m.items, showing the wrong item in the detail. The "be" filter (visible: #9) ->
-// cursor move -> enter -> the detail body matches the selected #9.
 func TestPendingFilteredDetailShowsSelectedBody(t *testing.T) {
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), PendingActions{})
 	m = update(m, sizeMsg(80, 24))
-	m = applyFilter(m, "be") // visible: #9 demo topic beta (#7 and #11 hidden by the filter)
+	m = applyFilter(m, "be")
 	if m.list.FilterState() != list.FilterApplied {
 		t.Fatalf("filter not applied: %v", m.list.FilterState())
 	}
-	m = update(m, keyMsg("down")) // cursor move (1 visible — the entry path is the same even without moving)
+	m = update(m, keyMsg("down"))
 	m = update(m, enterMsg())
 	if m.mode != modeDetail {
 		t.Fatalf("after enter mode = %v, want modeDetail", m.mode)
@@ -960,17 +864,14 @@ func TestPendingFilteredDetailShowsSelectedBody(t *testing.T) {
 	}
 }
 
-// RF-filter-state — the supersede confirmation under an applied filter converts
-// the targetList visible index to the full index (GlobalIndex) — the delegated old
-// is the selected candidate (#5), not the earlier candidate (#5?) hidden by the filter — the selected candidate (#5), not an earlier one hidden by the filter.
 func TestPendingSupersedeFilteredTargetUsesGlobalIndex(t *testing.T) {
 	rec := &recorderActions{}
 	m := NewPendingModel(context.Background(), demoItems(), staticTargets(demoTargets()), rec.actions())
 	m = update(m, sizeMsg(80, 24))
 	m, cmd := drive(m, keyMsg("s"))
-	m, _ = drive(m, cmd()) // candidate load -> modeSupersede
+	m, _ = drive(m, cmd())
 	m = applyFilter(m, "two")
-	m = update(m, enterMsg()) // supersede confirmation
+	m = update(m, enterMsg())
 	if len(rec.supersedes) != 1 || rec.supersedes[0] != [2]int{7, 5} {
 		t.Fatalf("supersedes = %v, want [7 5](new=7·old=선택한 5)", rec.supersedes)
 	}
@@ -979,7 +880,6 @@ func TestPendingSupersedeFilteredTargetUsesGlobalIndex(t *testing.T) {
 	}
 }
 
-// the filtered detail display matches the selected item (GlobalIndex).
 func TestPendingDetailMatchesSelectionUnderFilter(t *testing.T) {
 	items := []PendingItem{{ID: 1, Title: "alpha"}, {ID: 2, Title: "beta"}, {ID: 9, Title: "gamma-zebra"}}
 	m := NewPendingModel(context.Background(), items, nil, PendingActions{})

@@ -1,9 +1,3 @@
-// index_test.go — v1.21.0 T3: the `flint index` CLI contract (fast fakes).
-// The scan producer (vault.Scan) is consumed through the indexScanStoreFn
-// seam — a fake vault.Store over a synthetic demo vault by default, the real
-// vault.Open connection when SUPERLITE_REAL=1 (the real-DB slow e2e is
-// TestIndexE2ERealSlow). No personal vault paths appear anywhere in this
-// file (the §3 privacy contract — synthetic demo data only).
 package cli
 
 import (
@@ -22,8 +16,6 @@ import (
 	"github.com/synuns/flint/lib/vault"
 )
 
-// fakeVaultStore — an in-memory vault.Store (the cli-side test seam over the
-// real vault.Scan algorithm: Scan runs for real against this fake snapshot).
 type fakeVaultStore struct {
 	mu      sync.Mutex
 	rows    map[string]vault.File
@@ -83,7 +75,6 @@ func (f *fakeVaultStore) Rows(ctx context.Context) (map[string]vault.File, error
 	return out, nil
 }
 
-// demoVault — a synthetic demo vault under t.TempDir (never a real vault).
 func demoVault(t *testing.T, notes map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
@@ -99,14 +90,11 @@ func demoVault(t *testing.T, notes map[string]string) string {
 	return root
 }
 
-// indexFixture — wires the fake meta store (cli fakeStore queryFn: meta
-// SELECT + the SetMetaKV upsert) and the fake vault scan store, runs one
-// `flint index` invocation, and returns the decoded one-line JSON output.
 type indexFixture struct {
 	*fakeStore
 	vault *fakeVaultStore
 	meta  map[string]string
-	setKV []string // the keys handed to SetMetaKV, in order
+	setKV []string
 }
 
 func newIndexFixture() *indexFixture {
@@ -132,9 +120,6 @@ func newIndexFixture() *indexFixture {
 	return fx
 }
 
-// runIndexOn — one `flint index` invocation against a caller-owned fixture
-// (the vault snapshot and meta map persist across invocations — the rerun
-// semantics under test).
 func runIndexOn(t *testing.T, fx *indexFixture, args ...string) (int, map[string]any, string) {
 	t.Helper()
 	prevStore, prevScan := newStore, indexScanStoreFn
@@ -155,7 +140,6 @@ func runIndexOn(t *testing.T, fx *indexFixture, args ...string) (int, map[string
 	return code, m, line
 }
 
-// runIndexFake — one invocation on a fresh fixture (single-run cases).
 func runIndexFake(t *testing.T, args ...string) (int, map[string]any, string, *indexFixture) {
 	t.Helper()
 	fx := newIndexFixture()
@@ -163,10 +147,6 @@ func runIndexFake(t *testing.T, args ...string) (int, map[string]any, string, *i
 	return code, m, line, fx
 }
 
-// TestIndexNewScanCommitsOnce — a first index over a fresh demo vault: exit
-// 0, the stats JSON keys in contract order (scanned·changed·new·removed·
-// skipped·duration), meta vault_path persisted, vault_last_scan stored, and
-// exactly one commit "index: vault files=N changed=M".
 func TestIndexNewScanCommitsOnce(t *testing.T) {
 	root := demoVault(t, map[string]string{
 		"a.md":           "# 데모 노트 A\n첫 문단이다.\n",
@@ -203,8 +183,6 @@ func TestIndexNewScanCommitsOnce(t *testing.T) {
 	}
 }
 
-// TestIndexRerunIdempotent — a second run over an unchanged vault: no diff,
-// no commit (the one-batch-commit-per-diff contract), vault_last_scan refreshed.
 func TestIndexRerunIdempotent(t *testing.T) {
 	root := demoVault(t, map[string]string{"a.md": "# 데모\n본문.\n"})
 	fx := newIndexFixture()
@@ -218,7 +196,7 @@ func TestIndexRerunIdempotent(t *testing.T) {
 	if m["new"].(float64) != 0 || m["changed"].(float64) != 0 || m["removed"].(float64) != 0 {
 		t.Fatalf("멱등 재실행 stats=%v", m)
 	}
-	if len(fx.commits) != 1 { // the 1st-run diff commit alone — the rerun added none
+	if len(fx.commits) != 1 {
 		t.Fatalf("디프 없는 재실행 커밋=%v, want 1차 1개만", fx.commits)
 	}
 	var last map[string]any
@@ -230,8 +208,6 @@ func TestIndexRerunIdempotent(t *testing.T) {
 	}
 }
 
-// TestIndexChangedFile — a modified note lands in changed (not new) and the
-// commit message carries the changed count.
 func TestIndexChangedFile(t *testing.T) {
 	root := demoVault(t, map[string]string{"a.md": "# 데모\n본문.\n"})
 	fx := newIndexFixture()
@@ -253,8 +229,6 @@ func TestIndexChangedFile(t *testing.T) {
 	}
 }
 
-// TestIndexNoVaultPathExit3 — no --vault and no meta vault_path: exit 3 with
-// guidance (no path echo — there is none to echo, and none may be invented).
 func TestIndexNoVaultPathExit3(t *testing.T) {
 	code, m, line, _ := runIndexFake(t)
 	if code != 3 {
@@ -268,9 +242,6 @@ func TestIndexNoVaultPathExit3(t *testing.T) {
 	}
 }
 
-// TestIndexMetaPathReuse — a stored meta vault_path (no flag) is reused as
-// the scan root: the vault snapshot carried over from a prior run reports a
-// clean no-diff scan over the same notes.
 func TestIndexMetaPathReuse(t *testing.T) {
 	root := demoVault(t, map[string]string{"a.md": "# 데모\n본문.\n"})
 	fx := newIndexFixture()
@@ -284,8 +255,6 @@ func TestIndexMetaPathReuse(t *testing.T) {
 	}
 }
 
-// TestIndexLimitSkippedNote — --limit below the walked count: the excess is
-// reported skipped with the "N skipped — rerun" note.
 func TestIndexLimitSkippedNote(t *testing.T) {
 	root := demoVault(t, map[string]string{
 		"a.md": "# A\n본문.\n", "b.md": "# B\n본문.\n", "c.md": "# C\n본문.\n",
@@ -303,10 +272,6 @@ func TestIndexLimitSkippedNote(t *testing.T) {
 	}
 }
 
-// TestIndexOutputSanitizedNoPathLeak — the vault root path never appears in
-// the output JSON, the commit message, or the stored vault_last_scan (the §3
-// privacy contract: output goes through the render chokepoint, paths stay
-// machine-local).
 func TestIndexOutputSanitizedNoPathLeak(t *testing.T) {
 	root := demoVault(t, map[string]string{"a.md": "# 데모\n본문.\n"})
 	code, _, line, fx := runIndexFake(t, "--vault", root, "--limit", "0")
@@ -323,8 +288,6 @@ func TestIndexOutputSanitizedNoPathLeak(t *testing.T) {
 	}
 }
 
-// TestIndexBadArgsExit3 — an unknown flag, a non-numeric --limit, and a
-// negative --limit are usage errors (exit 3).
 func TestIndexBadArgsExit3(t *testing.T) {
 	root := t.TempDir()
 	for _, args := range [][]string{
@@ -340,15 +303,13 @@ func TestIndexBadArgsExit3(t *testing.T) {
 	}
 }
 
-// TestIndexScanErrorPropagates — a scan failure surfaces as the standard
-// ErrLine + MapExit (never a silent 0).
 func TestIndexScanErrorPropagates(t *testing.T) {
 	root := demoVault(t, map[string]string{"a.md": "# 데모\n"})
 	fx := newIndexFixture()
 	prevStore, prevScan := newStore, indexScanStoreFn
 	newStore = func(ctx context.Context, dsn string) (Store, error) { return fx.fakeStore, nil }
 	indexScanStoreFn = func(ctx context.Context, dsn string) (vault.Store, func(), error) {
-		return nil, nil, os.ErrNotExist // connect failure shape
+		return nil, nil, os.ErrNotExist
 	}
 	t.Cleanup(func() { newStore, indexScanStoreFn = prevStore, prevScan })
 	var out strings.Builder
@@ -358,11 +319,6 @@ func TestIndexScanErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestIndexE2ERealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN): the full
-// real path on an isolated scratch DB — real newRealStore, real vault.Open
-// pool, real vault.Scan, real dolt commits. A synthetic demo vault: first
-// index (new), a flag-less rerun via the persisted meta vault_path
-// (idempotent), a modified note (changed), and the status vault row.
 func TestIndexE2ERealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {
@@ -401,8 +357,7 @@ func TestIndexE2ERealSlow(t *testing.T) {
 		return newRealStore(ctx, freshDSN)
 	}
 	t.Cleanup(func() { newStore = prev })
-	// the scan-store seam stays REAL (vault.Open) — pointed at the scratch DB
-	// via the resolved DSN (FLINT_DSN takes precedence).
+
 	t.Setenv("FLINT_DSN", freshDSN)
 
 	root := demoVault(t, map[string]string{
@@ -433,19 +388,16 @@ func TestIndexE2ERealSlow(t *testing.T) {
 		return strings.TrimSpace(out.String())
 	}
 
-	// 1. first index — 2 .md files (.obsidian skipped).
 	m := run("--vault", root)
 	if m["scanned"].(float64) != 2 || m["new"].(float64) != 2 {
 		t.Fatalf("1차 stats=%v, want scanned=2 new=2", m)
 	}
 
-	// 2. flag-less rerun via the persisted meta vault_path — idempotent.
 	m = run()
 	if m["new"].(float64) != 0 || m["changed"].(float64) != 0 || m["removed"].(float64) != 0 {
 		t.Fatalf("재실행 stats=%v, want 디프 없음", m)
 	}
 
-	// 3. status carries the vault row in key order (after the previous tail).
 	line := statusLine()
 	for _, k := range []string{`"hot_bytes_p95":`, `"vault_indexed_at":`, `"vault_files":2`, `"vault_changed":0`} {
 		if !strings.Contains(line, k) {
@@ -456,7 +408,6 @@ func TestIndexE2ERealSlow(t *testing.T) {
 		t.Fatalf("vault 행이 기존 키 앞에 삽입됨: %s", line)
 	}
 
-	// 4. a modified note — changed=1, status vault_changed follows.
 	if err := os.WriteFile(filepath.Join(root, "alpha.md"),
 		[]byte("# 데모 알파\n수정된 데모 노트 본문.\n"), 0o644); err != nil {
 		t.Fatal(err)

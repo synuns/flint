@@ -1,7 +1,3 @@
-// daily_age_test.go — flat-key (daily:<kind>:<date>) support in the daily counter
-// age determination. The old TrimPrefix string comparison missed the whole flat-key
-// range ('w' > '2') — verifies that both maintain oldest-daily and doctor staleDaily
-// judge by the last segment's date. The examples are synthetic demo dates.
 package ops
 
 import (
@@ -13,7 +9,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// metaRowsFn — a fake for the maintain --meta-audit meta (key,value) lookup.
 func metaRowsFn(keys map[string]string) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		if !strings.Contains(sql, "FROM meta") {
@@ -27,8 +22,6 @@ func metaRowsFn(keys map[string]string) func(string, []any) ([][]any, error) {
 	}
 }
 
-// TestOldestDailyFlatKey — with flat keys mixed in, oldest-daily is derived by date
-// (the output format unchanged — the raw key).
 func TestOldestDailyFlatKey(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: metaRowsFn(map[string]string{
 		"daily:write:2026-01-01": "7",
@@ -48,9 +41,6 @@ func TestOldestDailyFlatKey(t *testing.T) {
 	}
 }
 
-// TestOldestDailyFlatKeyOldest — that the comparison is by date, not key string:
-// lexicographically daily:hot:... comes first, but by date daily:write:2025-11-15 is
-// the oldest. An invalid date segment (daily:write:notadate) is excluded from the age determination.
 func TestOldestDailyFlatKeyOldest(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: metaRowsFn(map[string]string{
 		"daily:write:2025-11-15": "2",
@@ -69,8 +59,6 @@ func TestOldestDailyFlatKeyOldest(t *testing.T) {
 	}
 }
 
-// TestStaleDailyDetectsFlatKeys — that doctor meta-hygiene's stale determination
-// works on the flat keys' last segment date. Cutoff 2026-06-01.
 func TestStaleDailyDetectsFlatKeys(t *testing.T) {
 	days := int(time.Since(time.Date(2026, 6, 1, 0, 0, 0, 0, time.UTC)).Hours() / 24)
 	if days <= 7 {
@@ -87,8 +75,7 @@ func TestStaleDailyDetectsFlatKeys(t *testing.T) {
 			{"last_write_at"},
 		}, nil
 	}}
-	// the doctor_test.go seam is pinned to always-false, so it is swapped for the real
-	// determination (restored after returning) — to confirm the non-daily-key exclusion logic is unchanged.
+
 	prevFn := KnownMetaKeyFn
 	KnownMetaKeyFn = KnownMetaKey
 	t.Cleanup(func() { KnownMetaKeyFn = prevFn })

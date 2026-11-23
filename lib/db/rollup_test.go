@@ -1,10 +1,3 @@
-// rollup_test.go — the weekly-rollup circuit tests (schema v13 A3):
-// the UTC Monday week boundary, the 24h meta gate + 1h process cache,
-// num/den aggregation over last week's raw read_events (the report.go
-// EffectOutput definitions — den = in-window reads), UPSERT
-// idempotence, the empty-week skip, retention, quiet failure, and the
-// hook-order contract (rollup precedes the prune). Slow bodies run on
-// a real DB (synthetic fixtures only — the no-personal-data principle).
 package db
 
 import (
@@ -15,8 +8,6 @@ import (
 	"time"
 )
 
-// resetRollupGateCache — zeroes the in-process gate-check cache (the
-// snapshotGate twin).
 func resetRollupGateCache(t *testing.T) {
 	t.Helper()
 	saved := rollupGateCheckedAt.Load()
@@ -24,8 +15,6 @@ func resetRollupGateCache(t *testing.T) {
 	t.Cleanup(func() { rollupGateCheckedAt.Store(saved) })
 }
 
-// setRollupGate — writes the gate meta key directly (zero time deletes
-// it — the never-run state).
 func setRollupGate(t *testing.T, r *Repo, at time.Time) {
 	t.Helper()
 	if at.IsZero() {
@@ -43,11 +32,6 @@ func setRollupGate(t *testing.T, r *Repo, at time.Time) {
 	}
 }
 
-// TestLastWeekStart — the week-boundary pure function: UTC Monday
-// midnight starting the fully-elapsed week before the current one. A
-// Wednesday maps back 9 days (2 into the current week + 7); a Monday
-// maps back exactly 7 (the current week's Monday is NOT elapsed); a
-// Sunday sits 6 days into the ISO week.
 func TestLastWeekStart(t *testing.T) {
 	cases := []struct {
 		name string
@@ -69,8 +53,6 @@ func TestLastWeekStart(t *testing.T) {
 	}
 }
 
-// TestRollupGateDueProbe — the gate pure functions (the snapshotGate
-// twins): within-24h stamps are not due; the 1h process cache holds.
 func TestRollupGateDueProbe(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	if !rollupGateDue("", now) || !rollupGateDue("bad", now) {
@@ -91,10 +73,6 @@ func TestRollupGateDueProbe(t *testing.T) {
 	}
 }
 
-// TestReadHookOrderGuard — the RecordReadEvent tail hook order as a
-// source contract: the rollup check precedes the prune (aggregate then
-// clean — a week's raw events are never deleted before the rollup
-// confirms), which precedes the snapshot hook.
 func TestReadHookOrderGuard(t *testing.T) {
 	b, err := os.ReadFile("usage.go")
 	if err != nil {
@@ -112,10 +90,6 @@ func TestReadHookOrderGuard(t *testing.T) {
 	}
 }
 
-// rollupFixture — seeds last week's synthetic events (Monday-based ws)
-// plus out-of-window guards: den=3, zero=1, fallback=1, pairs=1 (a
-// knowledge write 10m after e1 pairs; the 45m write after e3 does
-// not — the report pair_window definition).
 func rollupFixture(t *testing.T, r *Repo) time.Time {
 	t.Helper()
 	ctx := context.Background()
@@ -135,25 +109,21 @@ func rollupFixture(t *testing.T, r *Repo) time.Time {
 			t.Fatalf("합성 이벤트 적립: %v", err)
 		}
 	}
-	// A paired write — 10m after e1 (inside the 30m pair window).
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO knowledge (topic, summary, tags, confidence, content_hash, ingested_at)
 		 VALUES ('rollup-pair', '합성 데모', ':a:', 0.9, 'rollup-pair-1', $1)`,
 		ws.Add(1*time.Hour+10*time.Minute)); err != nil {
 		t.Fatalf("페어 write 적립: %v", err)
 	}
-	// An unpaired write — 45m after e3 (outside the window).
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO knowledge (topic, summary, tags, confidence, content_hash, ingested_at)
 		 VALUES ('rollup-late', '합성 데모', ':a:', 0.9, 'rollup-late-1', $1)`,
 		ws.Add(3*time.Hour+45*time.Minute)); err != nil {
 		t.Fatalf("비페어 write 적립: %v", err)
 	}
-	// Out-of-window guards — the current week and 2 weeks ago never
-	// enter the aggregation (the target is last week only, no backfill).
-	// The current-week point is derived from the week boundary (ws+7d+1h):
-	// a naive "now-1h" lands in LAST week just after midnight UTC on
-	// Monday, corrupting the fixture (observed 2026-11-23 CI).
+
 	for _, ts := range []time.Time{
 		ws.Add(7*24*time.Hour + 1*time.Hour),
 		ws.Add(-1 * time.Hour),
@@ -166,7 +136,6 @@ func rollupFixture(t *testing.T, r *Repo) time.Time {
 	return ws
 }
 
-// rollupRow — one (num, den) per metric, absent metrics report (-1, -1).
 func rollupRow(t *testing.T, r *Repo, ws time.Time, metric string) (int64, int64) {
 	t.Helper()
 	var num, den int64
@@ -182,18 +151,12 @@ func rollupRow(t *testing.T, r *Repo, ws time.Time, metric string) (int64, int64
 	return num, den
 }
 
-// TestWeeklyRollupAggregation — the full circuit from the
-// RecordReadEvent hook: last week's num/den land per metric (report's
-// definitions — den = in-window reads), the forced rerun re-aggregates
-// to identical values (UPSERT idempotence), and a mid-week value change
-// of the raw source converges on the next pass.
 func TestWeeklyRollupAggregation(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	resetRollupGateCache(t)
 	ws := rollupFixture(t, r)
 
-	// The hook chain from RecordReadEvent (never-run gate → first pass).
 	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 1}); err != nil {
 		t.Fatalf("RecordReadEvent: %v", err)
 	}
@@ -203,7 +166,7 @@ func TestWeeklyRollupAggregation(t *testing.T) {
 			t.Fatalf("%s = (%d,%d), want (1,3)(report 산식 — den=창 내 read 수)", m, num, den)
 		}
 	}
-	// The gate stamped.
+
 	var gate string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = $1`, rollupGateKey).Scan(&gate); err != nil {
@@ -213,7 +176,6 @@ func TestWeeklyRollupAggregation(t *testing.T) {
 		t.Fatalf("게이트 스탬프 %q — RFC3339 아님", gate)
 	}
 
-	// Idempotent rerun — same values, still 3 rows.
 	setRollupGate(t, r, time.Now().UTC().Add(-25*time.Hour))
 	resetRollupGateCache(t)
 	r.maybeRollupWeekly(ctx)
@@ -231,8 +193,6 @@ func TestWeeklyRollupAggregation(t *testing.T) {
 		}
 	}
 
-	// A late-arriving raw event converges on the next pass (the daily
-	// re-aggregation self-heals late writes).
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO read_events (ts, hits, zero, near, fallback) VALUES ($1, 1, true, false, false)`,
 		ws.Add(4*time.Hour)); err != nil {
@@ -249,9 +209,6 @@ func TestWeeklyRollupAggregation(t *testing.T) {
 	}
 }
 
-// TestWeeklyRollupEmptyWeek — a week with 0 read events writes no row
-// (the den=0 skip — a 0/0 ratio is meaningless; the week stays absent,
-// stated explicitly).
 func TestWeeklyRollupEmptyWeek(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -265,8 +222,7 @@ func TestWeeklyRollupEmptyWeek(t *testing.T) {
 	if rows != 0 {
 		t.Fatalf("빈 주 %d행, want 0(빈 주 스킵)", rows)
 	}
-	// The gate still stamps on the successful (skipped-aggregate) pass —
-	// an empty week is a completed rollover, not a failure.
+
 	var gate string
 	if err := r.pool.QueryRow(context.Background(),
 		`SELECT value FROM meta WHERE key = $1`, rollupGateKey).Scan(&gate); err != nil {
@@ -277,15 +233,12 @@ func TestWeeklyRollupEmptyWeek(t *testing.T) {
 	}
 }
 
-// TestWeeklyRollupRetention — rollup rows past
-// weekly_rollups_retention_days (default 90) are deleted on the pass;
-// fresh rows stay.
 func TestWeeklyRollupRetention(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	resetRollupGateCache(t)
 	ws := lastWeekStart(time.Now().UTC())
-	old := ws.Add(-100 * 24 * time.Hour) // ~14 weeks back — past the 90d default retention
+	old := ws.Add(-100 * 24 * time.Hour)
 	for _, w := range []struct {
 		start time.Time
 		hash  string
@@ -317,9 +270,6 @@ func TestWeeklyRollupRetention(t *testing.T) {
 	}
 }
 
-// TestWeeklyRollupQuietFailure — a mid-circuit failure (the table
-// missing) propagates nothing: no panic, no error, and the DB gate
-// stays unstamped so the next pass retries.
 func TestWeeklyRollupQuietFailure(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

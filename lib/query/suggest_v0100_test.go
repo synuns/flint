@@ -1,5 +1,3 @@
-// suggest_v0100_test.go — pinning the did-you-mean pure functions
-// (nfkc, bigramDice, SuggestSimilar — spec §3 R1, R2).
 package query
 
 import (
@@ -8,7 +6,7 @@ import (
 )
 
 func TestNfkcComposesNFD(t *testing.T) {
-	decomposed := "한" // its NFD form (3 jamo runes)
+	decomposed := "한"
 	if got := nfkc(decomposed); got != "한" {
 		t.Errorf("nfkc(NFD 한) = %q, want 한", got)
 	}

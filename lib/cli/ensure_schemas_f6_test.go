@@ -1,8 +1,3 @@
-// ensure_schemas_f6_test.go — F6 (performance) regression: on a latest DB, ensureSchemas runs
-// only the 1 schema_version probe and skips the whole 8-gate walk (db.SchemaGates —
-// 16 round trips per connection when each gate re-queried the version).
-// Passing a nil repo makes any walk revival immediately visible (a gate touching the nil repo
-// panics — the latest shortcut is the only passing path).
 package cli
 
 import (
@@ -14,12 +9,10 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// TestEnsureSchemasLatestSkipsGates — when the probe confirms latest
-// (LatestSchemaVersion), only 1 query is issued (gate walk skipped).
 func TestEnsureSchemasLatestSkipsGates(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "schema_version") {
-			return [][]any{{fmt.Sprint(db.LatestSchemaVersion)}}, nil // LatestSchemaVersion
+			return [][]any{{fmt.Sprint(db.LatestSchemaVersion)}}, nil
 		}
 		t.Errorf("예상 밖 쿼리(게이트 순회 누출): %s", sql)
 		return nil, nil
@@ -36,8 +29,6 @@ func TestEnsureSchemasLatestSkipsGates(t *testing.T) {
 	}
 }
 
-// TestSchemaVersionFnParsing — probe verdict: integer latest -> (9,true); below latest,
-// non-integer, empty results, or lookup errors -> (...,false), falling back to the sequential promotion path.
 func TestSchemaVersionFnParsing(t *testing.T) {
 	cases := []struct {
 		name string
@@ -66,8 +57,7 @@ func TestSchemaVersionFnParsing(t *testing.T) {
 			}
 		})
 	}
-	// boundary: below LatestSchemaVersion remains a gate-walk target (even with ok=true,
-	// ensureSchemas's shortcut condition v >= LatestSchemaVersion filters it out).
+
 	if _, ok := schemaVersionFn(context.Background(), &fakeStore{
 		queryFn: func(string, []any) ([][]any, error) {
 			return [][]any{{fmt.Sprint(db.LatestSchemaVersion - 1)}}, nil

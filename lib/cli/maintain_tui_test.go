@@ -1,7 +1,3 @@
-// maintain_tui_test.go — contract tests for the `flint maintain --tui` entry
-// branching. Opt-in only (no adaptive switching — preventing ghost-argument regressions): --tui standalone only goes to the TUI
-// (tui.RunMaintainTUI); combinations are invalid-arg exit 3; FLINT_NO_TUI blocks as layer 1 of the
-// 3-layer guard. Everything else delegates unchanged to ops.RunMaintain (regression).
 package cli
 
 import (
@@ -17,7 +13,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// installMaintainTuiFake — swaps the maintainTuiFn seam (call-recording fake).
 func installMaintainTuiFake(t *testing.T) *[][]string {
 	t.Helper()
 	var calls [][]string
@@ -30,7 +25,6 @@ func installMaintainTuiFake(t *testing.T) *[][]string {
 	return &calls
 }
 
-// installMaintainOpsFake — swaps the maintainOpsRun seam (fake recording call args).
 func installMaintainOpsFake(t *testing.T) *[][]string {
 	t.Helper()
 	var calls [][]string
@@ -43,7 +37,6 @@ func installMaintainOpsFake(t *testing.T) *[][]string {
 	return &calls
 }
 
-// RF-protocol — --tui standalone: TUI seam called, exit propagates.
 func TestMaintainEntryTUIBranch(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	opsCalls := installMaintainOpsFake(t)
@@ -61,7 +54,6 @@ func TestMaintainEntryTUIBranch(t *testing.T) {
 	}
 }
 
-// RF-protocol — --tui + other flags: invalid-arg exit 3 (standalone only).
 func TestMaintainEntryTUIRejectsExtraFlags(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	var out bytes.Buffer
@@ -78,7 +70,6 @@ func TestMaintainEntryTUIRejectsExtraFlags(t *testing.T) {
 	}
 }
 
-// RF-protocol — FLINT_NO_TUI (layer 1 of the 3-layer guard): even an explicit --tui is blocked, exit 3.
 func TestMaintainEntryNoTUIEnvBlocksExplicitTUI(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	calls := installMaintainTuiFake(t)
@@ -93,8 +84,6 @@ func TestMaintainEntryNoTUIEnvBlocksExplicitTUI(t *testing.T) {
 	}
 }
 
-// RF-protocol — opt-in only: no-arg keeps the ops delegation without adaptive TUI (preventing ghost
-// arguments — bare maintain keeps the existing usage exit 3).
 func TestMaintainEntryNoAdaptiveBareRun(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	opsCalls := installMaintainOpsFake(t)
@@ -112,7 +101,6 @@ func TestMaintainEntryNoAdaptiveBareRun(t *testing.T) {
 	}
 }
 
-// RF-protocol — existing-flag regression: --check etc. delegate to ops with the args as-is.
 func TestMaintainEntryFlagsDelegateUnchanged(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	opsCalls := installMaintainOpsFake(t)
@@ -131,8 +119,6 @@ func TestMaintainEntryFlagsDelegateUnchanged(t *testing.T) {
 	}
 }
 
-// RF-protocol — seam defaults: TUI launcher = tui.RunMaintainTUI, ops delegation =
-// ops.RunMaintain (no duplicate implementation — this file owns only the opt-in entry).
 func TestMaintainEntrySeamDefaults(t *testing.T) {
 	if reflect.ValueOf(maintainTuiFn).Pointer() != reflect.ValueOf(tui.RunMaintainTUI).Pointer() {
 		t.Fatal("maintainTuiFn seam must default to tui.RunMaintainTUI")
@@ -142,9 +128,6 @@ func TestMaintainEntrySeamDefaults(t *testing.T) {
 	}
 }
 
-// RF-protocol — v1.13.0 T4: --age-audit (a report mode like --stale)
-// delegates to ops with the args as-is (no TUI interception, no ghost
-// argument) — the entry-branch regression for the new mode.
 func TestMaintainEntryAgeAuditDelegates(t *testing.T) {
 	calls := installMaintainTuiFake(t)
 	opsCalls := installMaintainOpsFake(t)

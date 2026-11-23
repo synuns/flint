@@ -1,9 +1,5 @@
 //go:build e2e
 
-// dsn_v093_test.go — v0.9.3 R1 테스트 격리(e2e측): dsn()은 FLINT_TEST_DSN
-// (기본 flint_test)만 쓰고 FLINT_DSN(운영)은 무시한다. TestMain이
-// flint_test 부재 시 생성 후 하위 프로세스 환경(os.Environ 전파)의
-// FLINT_DSN까지 테스트 DSN으로 고정한다 — 운영 DB 재오염 경로 차단.
 package e2e
 
 import (
@@ -25,10 +21,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// ensureTestDB — flint_test 부재 시 생성(postgres→flint 순 admin 접속,
-// 이미 존재 42P04 관용) 후 스키마 확보. 각 체인 테스트가 NewRepo+Migrate
-// 하므로 여기선 DB 존재까지만 보장한다(회귀 패키지 dsn_v093_test.go와
-// 동일 논리 — 빌드 태그로 패키지 공유가 불가해 중복).
 func ensureTestDB(ctx context.Context) error {
 	testDSN := dsn()
 	if pool, err := db.Connect(ctx, testDSN); err == nil {
@@ -65,10 +57,6 @@ func ensureTestDB(ctx context.Context) error {
 	return nil
 }
 
-// TestMain — flint_test 확보(잠금은 lib/db sharedDBLock·회귀 패키지와 동일
-// 파일로 패키지 간 생성 경쟁 상호 배제) 후 FLINT_DSN을 테스트 DSN으로
-// 고정한다. os.Environ()을 그대로 물리는 하위 프로세스(hot·parallel 등)가
-// 운영 DB로 새는 경로를 원천 차단한다(R1).
 func TestMain(m *testing.M) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	f, lockErr := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -94,15 +82,13 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("FLINT_DSN", dsn())
-	// slow 스위트 전체를 세션 어드바이저리 락으로 교차 프로세스 직렬화
-	// (Doltgres 40001 플레이크 — slowlock_test.go).
+
 	release := lockSlowSuite(dsn())
 	code := m.Run()
 	release()
 	os.Exit(code)
 }
 
-// TestE2EDSNIsolated — Review Focus(명명): e2e dsn() 기본값이 flint_test.
 func TestE2EDSNIsolated(t *testing.T) {
 	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
 	t.Setenv("FLINT_TEST_DSN", "")

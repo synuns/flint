@@ -1,5 +1,3 @@
-// nudge_v0110_test.go — the normal nudge's short wording (nudgePendingLine) and
-// minimal's automatic marker closure (0 bytes of output).
 package cli
 
 import (
@@ -40,13 +38,10 @@ func TestNudgeMinimalAutoClears(t *testing.T) {
 	}
 }
 
-// fakeProfileStore — a fake returning meta exposure_profile. By default it swaps the
-// ExposureProfile seam with a fake; with SUPERLITE_REAL=1 the real implementation is left
-// to read the store query (meta exposure_profile=p).
 func fakeProfileStore(t *testing.T, p string) Store {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		orig := exposureProfileFn
-		t.Cleanup(func() { exposureProfileFn = orig }) // prevents polluting subsequent package tests
+		t.Cleanup(func() { exposureProfileFn = orig })
 		exposureProfileFn = func(func(string) (string, error)) string { return p }
 	}
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

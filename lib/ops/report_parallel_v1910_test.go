@@ -1,9 +1,3 @@
-// report_parallel_v1910_test.go — v1.9.3 T2: report collection-parallelization regressions.
-// 1) Concurrency proof (a barrier — under sequential execution it fails by timeout)
-// 2) Byte-identical JSON on the parallel path (compared against the sequential-chain oracle)
-// 3) On injected errors, the same exit/ErrLine as sequential (priority preserved)
-// 4) slow: real-DB wall-clock measurement (isolated scratch DSN, synthetic seed, median of 3).
-// All fixtures are synthetic demo data (the no-personal-data principle).
 package ops
 
 import (
@@ -27,10 +21,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// dispatchReportQuery — rich synthetic responses for the queries the 4 parallelized
-// collectors (curation, stats, counts, effect) all hit (with absent responses, some paths
-// silently demote to 0, weakening the concurrency and parity verification). Mind the SQL
-// substring match precedence — match the more specific patterns first.
 func dispatchReportQuery(sql string) ([][]any, error) {
 	now := time.Now().UTC()
 	switch {
@@ -48,49 +38,46 @@ func dispatchReportQuery(sql string) ([][]any, error) {
 				[]any{"daily:import_added:" + d, "2"},
 			)
 		}
-		// out-of-window keys (exclusion verification — they must not be summed).
+
 		return append(rows, []any{"daily:write:" + now.AddDate(0, 0, -30).Format("2006-01-02"), "999"}), nil
-	case strings.Contains(sql, "near FROM read_events"): // mergeDerivedReadDaily
+	case strings.Contains(sql, "near FROM read_events"):
 		return [][]any{{now, false, false}, {now, true, true}, {now, false, false}}, nil
-	case strings.Contains(sql, "fallback, ids"): // queryReadEvents
+	case strings.Contains(sql, "fallback, ids"):
 		return [][]any{
 			{now, false, false, "1,2", 1, 400, "", 2},
 			{now, true, true, "", 0, 0, "unowned", 0},
 			{now, false, true, "3", 2, 250, "", 1},
 		}, nil
-	case strings.Contains(sql, "status = 'pending'"): // the collectCounts main tally
+	case strings.Contains(sql, "status = 'pending'"):
 		return [][]any{{int64(5), int64(50), int64(2)}}, nil
 	case strings.Contains(sql, "/* stale */"):
 		return [][]any{{int64(3), int64(1)}}, nil
-	case strings.Contains(sql, "invalid_at >= $1"): // period invalidations
+	case strings.Contains(sql, "invalid_at >= $1"):
 		return [][]any{{int64(1)}}, nil
-	case strings.Contains(sql, "read_count > 0"): // collectEffect active/reused
+	case strings.Contains(sql, "read_count > 0"):
 		return [][]any{{int64(50), int64(15)}}, nil
 	case strings.Contains(sql, "/* dead */"):
 		return [][]any{{int64(1)}, {int64(2)}, {int64(7)}}, nil
-	case strings.Contains(sql, "id, topic FROM knowledge"): // chain topics
+	case strings.Contains(sql, "id, topic FROM knowledge"):
 		return [][]any{{int64(1), "demo-topic-001"}, {int64(2), "demo-topic-002"}, {int64(3), "demo-topic-003"}}, nil
-	case strings.Contains(sql, "id, invalid_at, superseded_by"): // recall fate
+	case strings.Contains(sql, "id, invalid_at, superseded_by"):
 		return [][]any{{int64(1), nil, nil}, {int64(2), nil, nil}}, nil
-	case strings.Contains(sql, "length(summary)"): // KnowledgeSummaryLens
+	case strings.Contains(sql, "length(summary)"):
 		return [][]any{{int64(1), int64(200)}, {int64(2), int64(180)}, {int64(3), int64(220)}}, nil
-	case strings.Contains(sql, "FROM hot_events"): // exposed·DerivedHotStats
+	case strings.Contains(sql, "FROM hot_events"):
 		return [][]any{{"1,2"}, {"3"}}, nil
-	case strings.Contains(sql, "FROM knowledge_reads"): // the recall source and hot sessions
+	case strings.Contains(sql, "FROM knowledge_reads"):
 		return [][]any{{int64(1), now, "read"}, {int64(2), now, "hot"}, {int64(3), now, "read"}}, nil
 	case strings.Contains(sql, "FROM session_starts"):
 		return [][]any{{now.Add(-2 * time.Hour)}, {now.Add(-1 * time.Hour)}}, nil
-	case strings.Contains(sql, "ingested_at >="): // queryWrites
+	case strings.Contains(sql, "ingested_at >="):
 		return [][]any{{now.Add(-30 * time.Minute), "demo-topic-001"}}, nil
-	case strings.Contains(sql, "FROM meta"): // thresholds, hot_budget, etc. — absent
+	case strings.Contains(sql, "FROM meta"):
 		return nil, nil
 	}
 	return [][]any{{int64(0), int64(0), int64(0)}}, nil
 }
 
-// parallelReportFake — errs (substring -> error) takes precedence; the rest answers via
-// the rich dispatch. Errors return a fresh instance of the same wording per query
-// (for ErrLine string identity).
 func parallelReportFake(errs map[string]error) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		for pat, msg := range errs {
@@ -102,9 +89,6 @@ func parallelReportFake(errs map[string]error) *fakeStore {
 	}}
 }
 
-// reportSequentialJSON — the oracle of the pre-parallelization sequential chain (the old
-// RunReport body order as-is: daily -> curation -> stats -> counts -> effect ->
-// post-processing -> JSON). Compared byte-for-byte with the parallel output. Returns (the one-line JSON + \n, exit).
 func reportSequentialJSON(ctx context.Context, st wire.Store, days int) (string, int) {
 	th := knowledge.WriteThresholds(ctx, st)
 	if max := th.DailyRetentionD; max > 0 && days > max {
@@ -137,20 +121,14 @@ func reportSequentialJSON(ctx context.Context, st wire.Store, days int) (string,
 	return string(b) + "\n", 0
 }
 
-// TestReportParallelConcurrent — barrier proof: the 4 representative queries of
-// curation, stats, counts, and effect actually overlap in time. Under sequential
-// execution, no query passes the barrier, so a timeout error -> failure with exit != 0
-// (the red phase before parallelization was introduced).
 func TestReportParallelConcurrent(t *testing.T) {
-	const want = 4 // curation (the 2nd daily call), stats (hot sessions), counts (pending), effect (reused)
+	const want = 4
 	dailyCalls := 0
 	var mu sync.Mutex
 	entered := 0
 	joined := map[string]bool{}
 	release := make(chan struct{})
-	// join — only a pattern's first query joins the barrier; that pattern's later queries
-	// (including the 1 QueryOnce retry) are also blocked until release (sticky —
-	// preventing a retry bypass).
+
 	join := func(pat string) error {
 		mu.Lock()
 		if !joined[pat] {
@@ -173,16 +151,16 @@ func TestReportParallelConcurrent(t *testing.T) {
 		case strings.Contains(sql, "LIKE 'daily:%'"):
 			mu.Lock()
 			dailyCalls++
-			second := dailyCalls == 2 // 1st = collectDaily (sequential), 2nd = collectCuration (the parallel section)
+			second := dailyCalls == 2
 			mu.Unlock()
 			if second {
 				return "curation"
 			}
-		case strings.Contains(sql, "FROM knowledge_reads"): // stats: the first DerivedHotStats query
+		case strings.Contains(sql, "FROM knowledge_reads"):
 			return "stats"
-		case strings.Contains(sql, "status = 'pending'"): // the counts main tally
+		case strings.Contains(sql, "status = 'pending'"):
 			return "counts"
-		case strings.Contains(sql, "read_count > 0"): // effect active/reused
+		case strings.Contains(sql, "read_count > 0"):
 			return "effect"
 		}
 		return ""
@@ -201,8 +179,6 @@ func TestReportParallelConcurrent(t *testing.T) {
 	}
 }
 
-// TestReportParallelJSONByteParity — the parallel path's one-line JSON is byte-identical
-// to the sequential oracle (inheriting the report_bytes and parity contracts — the machine channel unchanged).
 func TestReportParallelJSONByteParity(t *testing.T) {
 	ctx := context.Background()
 	f := parallelReportFake(nil)
@@ -219,9 +195,6 @@ func TestReportParallelJSONByteParity(t *testing.T) {
 	}
 }
 
-// TestReportParallelErrorPriority — on injected errors, the same exit and ErrLine as
-// sequential. With multiple failures (counts + effect), the sequential-priority (counts)
-// error must be chosen deterministically.
 func TestReportParallelErrorPriority(t *testing.T) {
 	ctx := context.Background()
 	cases := []struct {
@@ -262,10 +235,6 @@ func TestReportParallelErrorPriority(t *testing.T) {
 	}
 }
 
-// ── slow: real-DB wall-clock measurement ──
-
-// reportSlowStore — the minimal real-DB wire.Store for lib/ops slow tests (the same
-// wiring without copying the cli realStore into ops tests — a repo + pool combination).
 type reportSlowStore struct {
 	wire.HistoryStubs
 	repo *db.Repo
@@ -304,10 +273,6 @@ func (s *reportSlowStore) Query(ctx context.Context, sql string, args ...any) ([
 	return out, rows.Err()
 }
 
-// seedReportSlow — synthetic demo seed (all mid-flow data — the no-personal-data rule).
-// Lets each collector's query scan enough rows for the parallelization gain to register:
-// knowledge 500·read_events 2000·knowledge_reads 800·hot_events 40·
-// session_starts 60, daily flat keys over 13 days.
 func seedReportSlow(ctx context.Context, s *reportSlowStore, now time.Time) error {
 	var kb strings.Builder
 	kb.WriteString(`INSERT INTO knowledge (topic, summary, tags, domain, confidence, origin, status, content_hash, valid_at, ingested_at, read_count, last_read_at) VALUES `)
@@ -413,10 +378,6 @@ func seedReportSlow(ctx context.Context, s *reportSlowStore, now time.Time) erro
 	return nil
 }
 
-// TestReportParallelWallClockRealSlow — slow(SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN): measures the wall-clock of the sequential and parallel chains on an
-// isolated scratch DB 3 times and compares/records the medians. Regression guard: the
-// test fails if the parallel median exceeds 1.5x the sequential median. JSON byte parity is also re-verified on the real DB.
 func TestReportParallelWallClockRealSlow(t *testing.T) {
 	if os.Getenv("SUPERLITE_REAL") != "1" || os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")

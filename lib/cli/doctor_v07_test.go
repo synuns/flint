@@ -1,6 +1,3 @@
-// doctor_v07_test.go — the port check. Verifies both JSONL and array parsing, flint
-// running/stopped, foreign-container occupation, and docker-absent skip via the composePsFn
-// seam. The existing 5 checks are covered by doctor_test.go.
 package cli
 
 import (
@@ -12,7 +9,6 @@ import (
 	"testing"
 )
 
-// withComposePs — swaps the composePsFn seam (restored after the test).
 func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Helper()
 	old := composePsFn
@@ -20,8 +16,6 @@ func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {
 	t.Cleanup(func() { composePsFn = old })
 }
 
-// doctorPortCheck — parses both the standalone portCheck output (a single object) and the runDoctor --check port
-// output ({checks:[...]}) and returns the port check row.
 func doctorPortCheck(t *testing.T, out string) map[string]any {
 	t.Helper()
 	var m struct {
@@ -41,8 +35,6 @@ func doctorPortCheck(t *testing.T, out string) map[string]any {
 	return single
 }
 
-// pass — the flint container is running + 5434 mapped (consecutive JSONL objects) -> ok, exit 0.
-// portCheck itself writes one-line JSON to out and returns 0.
 func TestPortPass(t *testing.T) {
 	line := `{"Name":"flint-doltgres-1","State":"running",` +
 		`"Publishers":[{"URL":"","TargetPort":5432,"PublishedPort":5434,"Protocol":"tcp"}]}`
@@ -59,8 +51,6 @@ func TestPortPass(t *testing.T) {
 	}
 }
 
-// foreign — another container (branding) holds 5434 -> fail + the occupant's name +
-// a port-move fix. exit 1.
 func TestPortForeign(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"branding-web-1","State":"running",` +
@@ -84,7 +74,6 @@ func TestPortForeign(t *testing.T) {
 	}
 }
 
-// docker missing — a composePsFn error (including docker absent) -> skip, no exit impact.
 func TestPortDockerMissing(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return nil, errors.New("exec: docker: executable file not found")
@@ -102,8 +91,6 @@ func TestPortDockerMissing(t *testing.T) {
 	}
 }
 
-// stopped — the flint container exists but is stopped (Exited, Publishers null) -> fail +
-// "docker compose up -d" fix.
 func TestPortStopped(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"flint-doltgres-1","State":"exited","Publishers":null}`), nil
@@ -122,7 +109,6 @@ func TestPortStopped(t *testing.T) {
 	}
 }
 
-// no flint — if no container is flint, the same up -d fail.
 func TestPortNoFlintContainer(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
 		return []byte(`{"Name":"other-app-1","State":"running","Publishers":[]}`), nil
@@ -136,8 +122,6 @@ func TestPortNoFlintContainer(t *testing.T) {
 	}
 }
 
-// array format — the older docker compose ps --format json array output also passes.
-// Both contracts: JSONL pass and array pass.
 func TestPortJSONArray(t *testing.T) {
 	arr := `[{"Name":"flint-doltgres-1","State":"running",` +
 		`"Publishers":[{"PublishedPort":5434}]}]`
@@ -150,7 +134,6 @@ func TestPortJSONArray(t *testing.T) {
 		t.Errorf("배열 status=%v, want ok: %q", pc["status"], out)
 	}
 
-	// array + foreign-container occupation also reports the occupant.
 	foreign := `[{"Name":"flint-doltgres-1","State":"running","Publishers":[]},` +
 		`{"Name":"branding-1","State":"running","Publishers":[{"PublishedPort":5434}]}]`
 	withComposePs(t, func(ctx context.Context) ([]byte, error) { return []byte(foreign), nil })
@@ -163,7 +146,6 @@ func TestPortJSONArray(t *testing.T) {
 	}
 }
 
-// DoctorChecks — includes "port" (appended after the existing 5).
 func TestDoctorChecksIncludesPort(t *testing.T) {
 	got := DoctorChecks()
 	if len(got) == 0 || got[len(got)-1] != "port" {
@@ -171,8 +153,6 @@ func TestDoctorChecksIncludesPort(t *testing.T) {
 	}
 }
 
-// prefix — a container whose name contains flint but not as a prefix ('conflint') is not a
-// flint container. Even publishing 5434, it is an occupant fail, not ok.
 func TestPortFlintSubstringNotPrefix(t *testing.T) {
 	if isFlintContainer("conflint-web-1") {
 		t.Errorf("isFlintContainer(conflint-web-1) = true, want false(접두 아님)")
@@ -198,10 +178,9 @@ func TestPortFlintSubstringNotPrefix(t *testing.T) {
 	}
 }
 
-// timeout — when docker does not answer (context wait), a 2-second cap falls through to skip.
 func TestPortDockerHangTimeout(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		<-ctx.Done() // simulate an indefinite wait where docker never answers
+		<-ctx.Done()
 		return nil, ctx.Err()
 	})
 	out, code := runDoctorArgs(t, &fakeStore{}, "--check", "port")

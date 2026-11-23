@@ -1,10 +1,5 @@
 package flintplugin
 
-// T78 플러그인 훅·스킬 — v0.7 적립 자동화 배선의 정적 검사.
-// PostCompact 신규 훅 + 세션 훅 통합 엔트리(v0.11.0 R4: session-start·
-// session-end가 nudge 시퀀스를 흡수, 가드·timeout 승계).
-// 통합 엔트리 커맨드는 원문 그대로 보존되어야 한다.
-
 import (
 	"encoding/json"
 	"os"
@@ -12,7 +7,6 @@ import (
 	"testing"
 )
 
-// hookGroups — 지정 이벤트의 그룹 목록을 반환한다.
 func hookGroups(t *testing.T, doc map[string]any, event string) []map[string]any {
 	t.Helper()
 	events, ok := doc["hooks"].(map[string]any)
@@ -34,7 +28,6 @@ func hookGroups(t *testing.T, doc map[string]any, event string) []map[string]any
 	return groups
 }
 
-// groupCommands — 그룹 내 command 문자열 목록을 반환한다.
 func groupCommands(t *testing.T, groups []map[string]any) []string {
 	t.Helper()
 	var cmds []string
@@ -57,7 +50,6 @@ func groupCommands(t *testing.T, groups []map[string]any) []string {
 	return cmds
 }
 
-// readHooksJSON — hooks.json을 파싱해 반환한다.
 func readHooksJSON(t *testing.T) map[string]any {
 	t.Helper()
 	raw, err := os.ReadFile("hooks/hooks.json")
@@ -71,9 +63,6 @@ func readHooksJSON(t *testing.T) map[string]any {
 	return doc
 }
 
-// assertNudgeEntry — 세션 훅 커맨드에 가드·timeout 10이 갖춰졌는지 확인.
-// v0.11.0 R4 통합: nudge는 session-start·session-end 내부 시퀀스로 흡수
-// 됐다 — 가드·타임아웃 단언은 통합 커맨드 대상으로 승계한다.
 func assertNudgeEntry(t *testing.T, group map[string]any, sub string) {
 	t.Helper()
 	hs, ok := group["hooks"].([]any)
@@ -96,8 +85,6 @@ func assertNudgeEntry(t *testing.T, group map[string]any, sub string) {
 	}
 }
 
-// TestHooksPostcompact — PostCompact 이벤트가 존재하고 flint compact
-// 커맨드가 가드·timeout 10을 갖춘다.
 func TestHooksPostcompact(t *testing.T) {
 	doc := readHooksJSON(t)
 	groups := hookGroups(t, doc, "PostCompact")
@@ -124,21 +111,12 @@ func TestHooksPostcompact(t *testing.T) {
 	}
 }
 
-// TestHooksNudgeGuards — SessionStart·Stop 배열의 통합 엔트리
-// (session-start·session-end)가 가드·timeout 10을 갖춘다.
 func TestHooksNudgeGuards(t *testing.T) {
 	doc := readHooksJSON(t)
 	assertNudgeEntry(t, hookGroups(t, doc, "SessionStart")[0], "session-start")
 	assertNudgeEntry(t, hookGroups(t, doc, "Stop")[0], "session-end")
 }
 
-// TestHooksExistingUntouched — 세션 훅 통합 엔트리는 원문 보존.
-// v1.0.1 감사(F4): session_id 치환은 jq @sh+eval — @sh가 만드는 홑따옴표
-// 인용을 eval이 파싱해 원문 그대로 단일 인자로 전달한다(구 이중 인용
-// 형태도 치환 결과가 재해석되지는 않았으나 인용 계층이 암묵적이었다 —
-// 명시 인용으로 원문 보존을 구조적으로 보장, 원문 갱신).
-// v1.0.2 R2-C3: jq 폴백은 "" 대신 empty — session_id 부재 시 빈 라벨을
-// 흘려보내지 않는다(훅 진입점의 무효=부재 취급과 동일 방향, 원문 갱신).
 func TestHooksExistingUntouched(t *testing.T) {
 	doc := readHooksJSON(t)
 	const startCmd = `eval "flint session-start --session $(jq -r '.session_id // empty | @sh' 2>/dev/null)" 2>/dev/null || true`
@@ -154,10 +132,6 @@ func TestHooksExistingUntouched(t *testing.T) {
 	}
 }
 
-// TestSkillDistillSection — SKILL.md '세션 증류' 섹션이 4연산·pending·
-// approve·--source hook·nudge --clear 종결을 안내한다. 검사 범위는 해당
-// 섹션(헤딩 이후부터 다음 헤딩 전)으로 한정한다 — 문서 전체 탐색 시
-// 다른 섹션의 우연 일치로 오통과한다.
 func TestSkillDistillSection(t *testing.T) {
 	raw, err := os.ReadFile("skills/flint/SKILL.md")
 	if err != nil {

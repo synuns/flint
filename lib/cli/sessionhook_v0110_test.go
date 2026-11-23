@@ -1,6 +1,3 @@
-// sessionhook_v0110_test.go — fast tests for the unified session-start/session-end
-// commands (inheriting the hot+nudge / done+nudge sequences) and the hooks.json 3-entry rework;
-// with SUPERLITE_REAL=1, re-verified against the real implementation via the asofFakeOrReal seam.
 package cli
 
 import (
@@ -23,8 +20,6 @@ func TestSessionStartRunsHotAndNudge(t *testing.T) {
 	}
 }
 
-// TestSessionEndRunsDoneAndNudge — runSessionEnd continues into nudge after the done
-// determination (output and order inherited). autoBackup is a seam stub (side-effect-free unit test).
 func TestSessionEndRunsDoneAndNudge(t *testing.T) {
 	stubAutoBackup(t)
 	var out bytes.Buffer
@@ -38,8 +33,7 @@ func TestSessionEndRunsDoneAndNudge(t *testing.T) {
 }
 
 func TestHooksJsonThreeEntries(t *testing.T) {
-	// the plan-validation code's path was given as "../flint-plugin/..." but relative to lib/cli
-	// it becomes lib/flint-plugin and fails — corrected to "../../" from the root.
+
 	b, err := os.ReadFile("../../flint-plugin/hooks/hooks.json")
 	if err != nil {
 		t.Fatal(err)
@@ -65,10 +59,6 @@ func TestHooksJsonThreeEntries(t *testing.T) {
 	}
 }
 
-// TestHooksJsonSessionIdQuotedSafe — the session_id substitution is
-// jq @sh + eval — the double-quoted substitution ("$(jq ...)") was a shell-injection window where the id's " $ ` were interpreted inside
-// double quotes. Pass-through of normal ids and empty-argument equivalence were
-// demonstrated by running the hooks.json command with bash (audit run).
 func TestHooksJsonSessionIdQuotedSafe(t *testing.T) {
 	b, err := os.ReadFile("../../flint-plugin/hooks/hooks.json")
 	if err != nil {
@@ -95,9 +85,6 @@ func TestHooksJsonSessionIdQuotedSafe(t *testing.T) {
 	}
 }
 
-// TestApplyHookFixReplacesLegacyFlintEntries — the existing 5 entries (running hot, nudge, and done
-// directly) are replaced by 3 flint entries (session-start, session-end, compact).
-// Other tools' hooks (orca) and the rest of the settings are unchanged.
 func TestApplyHookFixReplacesLegacyFlintEntries(t *testing.T) {
 	legacyCmd := func(sub string) map[string]any {
 		return map[string]any{"type": "command", "command": "flint " + sub}

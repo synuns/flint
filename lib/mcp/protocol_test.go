@@ -1,7 +1,3 @@
-// protocol_test.go — integration sequences (modern-client negotiation,
-// notification silence, ping, tools/list). Verifies the negotiation code
-// through the full RunMCPServer path (3 response lines excluding
-// notifications).
 package mcp
 
 import (
@@ -10,10 +6,6 @@ import (
 	"testing"
 )
 
-// TestProtocolSequenceModernClient — a 2025-06-18 client sequence:
-// initialize (echo + instructions) -> notifications/initialized (no reply)
-// -> ping (empty result) -> tools/list. Exactly 3 responses excluding
-// notifications.
 func TestProtocolSequenceModernClient(t *testing.T) {
 	var in, out bytes.Buffer
 	in.WriteString(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18"}}` + "\n")

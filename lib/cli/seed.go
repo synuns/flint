@@ -1,15 +1,3 @@
-// seed command — `flint seed --demo [--reset] [--yes]` (v1.26.0 T2).
-// Loads the embedded synthetic seed dataset (data.SeedJSONL) into an isolated
-// demo database derived from the running DSN (database name + `_demo`;
-// FLINT_DEMO_DSN overrides verbatim), going through the single RunWrite path
-// (validation, hash dedup, one commit per kind batch — a re-run is
-// all-duplicate exit 0). Every seeded row carries the fixed demo/ identifier
-// prefix; --reset deletes ONLY rows with that prefix and ONLY after the
-// demo_owner ownership marker matches (mismatch is exit 3; --yes required).
-// Derivation failure (no database name / unparseable DSN / keyword-form DSN
-// that cannot be URL-derived) is invalid-arg exit 3 with FLINT_DEMO_DSN
-// guidance (v1.26.1). The Makefile `seed` target (disk file,
-// production DSN) is unaffected — this is the binary-user route.
 package cli
 
 import (
@@ -31,25 +19,16 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// Demo-seed constants — the fixed identifiers the --reset guard keys on.
 const (
-	demoDSNSuffix   = "_demo"           // derived database-name suffix
-	demoTopicPrefix = "demo/"           // seeded topic/name identifier prefix
-	demoOwnerKey    = "demo_owner"      // meta ownership marker key
-	demoOwnerValue  = "flint-seed-demo" // the one accepted marker value
-	demoDSNEnv      = "FLINT_DEMO_DSN"  // the isolation escape hatch
+	demoDSNSuffix   = "_demo"
+	demoTopicPrefix = "demo/"
+	demoOwnerKey    = "demo_owner"
+	demoOwnerValue  = "flint-seed-demo"
+	demoDSNEnv      = "FLINT_DEMO_DSN"
 )
 
-// seedWriteFn — the per-kind write seam (the single RunWrite path; tests
-// swap in a recorder).
 var seedWriteFn = runWrite
 
-// seedEnsureDBFn — the demo-database creation seam: connects the admin DSN
-// and creates dbName when missing (the drill.go CREATE DATABASE convention).
-// A concurrent creator winning the check-then-create race surfaces as 42P04
-// duplicate_database — tolerated as success (the database exists either way;
-// v1.26.1, observed with parallel first-run seeds). Tests swap in a no-op
-// recorder.
 var seedEnsureDBFn = func(ctx context.Context, adminDSN, dbName string) error {
 	pool, err := db.Connect(ctx, adminDSN)
 	if err != nil {
@@ -66,22 +45,22 @@ var seedEnsureDBFn = func(ctx context.Context, adminDSN, dbName string) error {
 		return nil
 	}
 	_, err = pool.Exec(ctx, `CREATE DATABASE `+pgx.Identifier{dbName}.Sanitize())
-	if err != nil {
-		var pgErr *pgconn.PgError
-		if errors.As(err, &pgErr) && pgErr.Code == "42P04" {
-			return nil // lost the race — the winner created it
-		}
+	if seedToleratedCreateErr(err) {
+		return nil
 	}
 	return err
 }
 
-// deriveDemoDSN — the isolated-DB derivation: the base DSN's database name
-// plus the fixed `_demo` suffix (host, credentials, and query params are kept
-// verbatim). An unparseable DSN, a keyword-form DSN (pgx accepts
-// "host=... dbname=..." — url.Parse mangles it into a garbage path), or a
-// missing database name is an error — the command layer turns it into exit 3
-// with FLINT_DEMO_DSN guidance (v1.26.1: keyword forms must use the explicit
-// override instead of a silently corrupted derivation).
+func seedToleratedCreateErr(err error) bool {
+	if err == nil {
+		return true
+	}
+	var pgErr *pgconn.PgError
+	return errors.As(err, &pgErr) && pgErr.Code == pgDuplicateDatabase
+}
+
+const pgDuplicateDatabase = "42P04"
+
 func deriveDemoDSN(base string) (string, error) {
 	u, err := url.Parse(base)
 	if err != nil {
@@ -98,17 +77,11 @@ func deriveDemoDSN(base string) (string, error) {
 	return u.String(), nil
 }
 
-// resolveDemoDSN — FLINT_DEMO_DSN wins verbatim; otherwise derived from the
-// running DSN. Returns the demo DSN and its database name (for CREATE DATABASE).
 func resolveDemoDSN() (string, string, error) {
 	if d := os.Getenv(demoDSNEnv); d != "" {
-		u, err := url.Parse(d)
+		name, err := dsnDatabaseName(d)
 		if err != nil {
-			return "", "", fmt.Errorf("seed: %s parse failed: %w", demoDSNEnv, err)
-		}
-		name := strings.TrimPrefix(u.Path, "/")
-		if name == "" {
-			return "", "", fmt.Errorf("seed: %s has no database name", demoDSNEnv)
+			return "", "", fmt.Errorf("seed: %s: %w", demoDSNEnv, err)
 		}
 		return d, name, nil
 	}
@@ -119,7 +92,17 @@ func resolveDemoDSN() (string, string, error) {
 	return demo, dsnDBName(demo), nil
 }
 
-// dsnDBName — the database-name segment of a URL DSN.
+func dsnDatabaseName(dsn string) (string, error) {
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return "", err
+	}
+	if cfg.Database == "" {
+		return "", errors.New("no database name")
+	}
+	return cfg.Database, nil
+}
+
 func dsnDBName(dsn string) string {
 	u, err := url.Parse(dsn)
 	if err != nil {
@@ -128,7 +111,6 @@ func dsnDBName(dsn string) string {
 	return strings.TrimPrefix(u.Path, "/")
 }
 
-// seedSummary — the one-line JSON result shape.
 type seedSummary struct {
 	Status   string            `json:"status"`
 	Database string            `json:"database"`
@@ -138,8 +120,6 @@ type seedSummary struct {
 	Next     string            `json:"next,omitempty"`
 }
 
-// runSeed — command entry point (store-free at dispatch: it opens its own
-// store on the derived demo DSN; the passed-in store is never used).
 func runSeed(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 	res, perr := wire.ParseArgs(args, wire.ArgSpec{
 		Flags: []wire.FlagSpec{
@@ -162,11 +142,7 @@ func runSeed(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("%v", err)))
 		return 3
 	}
-	// connect the demo database; on failure (typically: not created yet),
-	// create it from the base DSN once and retry — only when the demo DSN was
-	// DERIVED from the base (same server). With an explicit FLINT_DEMO_DSN the
-	// database is the operator's to create: creating it on the base server
-	// would at best be a cross-server no-op (v1.26.1).
+
 	overridden := os.Getenv(demoDSNEnv) != ""
 	demoSt, err := newStore(ctx, demoDSN)
 	if err != nil && !overridden {
@@ -185,10 +161,6 @@ func runSeed(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 	return runSeedDemo(ctx, demoSt, dbName, stdout)
 }
 
-// runSeedDemo — seeds the embedded dataset through the single RunWrite path,
-// kind-grouped in embed order, with the demo/ prefix applied to every topic
-// and project name (the --reset identifier). Idempotent: a re-run writes
-// duplicates through the normal dedup and still exits 0.
 func runSeedDemo(ctx context.Context, demoSt Store, dbName string, stdout io.Writer) int {
 	lines := strings.Split(string(data.SeedJSONL()), "\n")
 	byKind := map[string][]string{}
@@ -230,13 +202,12 @@ func runSeedDemo(ctx context.Context, demoSt Store, dbName string, stdout io.Wri
 			strings.NewReader(strings.Join(byKind[kind], "\n")+"\n"), &buf)
 		results[kind] = writeStatus(buf.String())
 		if code != 0 {
-			// the write layer already printed its one-line JSON — surface it
-			// verbatim and keep its exit code (validation 3, server 2, ...).
+
 			fmt.Fprintln(stdout, buf.String())
 			return code
 		}
 	}
-	// the ownership marker — --reset refuses to run without it.
+
 	if err := setMetaKV(ctx, demoSt, demoOwnerKey, demoOwnerValue); err != nil {
 		fmt.Fprintln(stdout, errLine(err))
 		return 1
@@ -250,8 +221,6 @@ func runSeedDemo(ctx context.Context, demoSt Store, dbName string, stdout io.Wri
 	return 0
 }
 
-// writeStatus — the status field of a write output line ("" when unparseable;
-// the raw line was already surfaced by the caller on failure).
 func writeStatus(line string) string {
 	var m map[string]any
 	if err := json.Unmarshal([]byte(strings.TrimSpace(line)), &m); err != nil {
@@ -261,10 +230,6 @@ func writeStatus(line string) string {
 	return s
 }
 
-// runSeedReset — deletes ONLY the fixed demo identifiers: knowledge topics
-// and project names carrying the demo/ prefix, in a database whose
-// demo_owner marker matches. A missing or foreign marker is exit 3 (this
-// database is not ours to wipe); --yes is required for execution.
 func runSeedReset(ctx context.Context, demoSt Store, yes bool, dbName string, stdout io.Writer) int {
 	owner, ok := getMetaKV(ctx, demoSt, demoOwnerKey)
 	if !ok || owner != demoOwnerValue {

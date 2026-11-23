@@ -1,5 +1,3 @@
-// hot_v0110_test.go — the hot summary headline and the --full flag.
-// The default path is a one-line profile-specific headline; --full is the existing full output (byte-identical).
 package cli
 
 import (
@@ -24,8 +22,6 @@ func TestHotHeadline(t *testing.T) {
 	}
 }
 
-// hotProfileQueryFn — the hot_view essential query returns hotRows (possibly including the increment id
-// and valid_at columns); the meta exposure_profile lookup returns profile (an empty string means unset = 0 rows).
 func hotProfileQueryFn(profile string, hotRows [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -41,9 +37,6 @@ func hotProfileQueryFn(profile string, hotRows [][]any) func(string, []any) ([][
 	}
 }
 
-// TestHotSummaryHeadlineByProfile — unset profile = the normal
-// headline (including the expand guidance); minimal is just 2 counts. The counts are extracted from the same
-// data source as the full output (the hot_view query rows).
 func TestHotSummaryHeadlineByProfile(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -70,9 +63,6 @@ func TestHotSummaryHeadlineByProfile(t *testing.T) {
 	}
 }
 
-// TestHotFullUnchanged — --full is the existing full-output path regardless of profile.
-// New assertions cover only the flag-parsing routing (full-format regression is covered by the existing hot
-// tests).
 func TestHotFullUnchanged(t *testing.T) {
 	ctx := context.Background()
 	hotRows := [][]any{
@@ -87,7 +77,7 @@ func TestHotFullUnchanged(t *testing.T) {
 	if want := query.FormatRows(hotRows, hotFields, false); out.String() != want {
 		t.Fatalf("--full 출력 = %q, want %q(기존 전체 출력)", out.String(), want)
 	}
-	// --session combined with --full takes the same routing.
+
 	var out2 bytes.Buffer
 	f2 := &fakeStore{queryFn: hotProfileQueryFn("minimal", hotRows)}
 	if code := runHot(ctx, f2, []string{"--session", "S1", "--full"}, strings.NewReader(""), &out2); code != 0 {

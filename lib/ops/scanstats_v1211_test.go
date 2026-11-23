@@ -1,7 +1,3 @@
-// scanstats_v1211_test.go — v1.21.1 A6 completion (r91/r93/r94): the
-// load-time sanitize (negative calls clamp, negative samples drop), the
-// write/read exit flush (PersistScanStatsToMeta over a fake meta store),
-// and the status scan row (keys appended after the vault row).
 package ops
 
 import (
@@ -12,9 +8,6 @@ import (
 	"time"
 )
 
-// TestScanStatsSanitizeOnLoad — a corrupted meta scan_stats payload
-// (negative calls, negative samples) loads clamped: the p95 floor cannot
-// be poisoned; a fully negative kind reads as quiet zeros.
 func TestScanStatsSanitizeOnLoad(t *testing.T) {
 	ResetMetrics()
 	blob := `{"echo":{"calls":3,"samples":[-5000,100,200]},"suggest":{"calls":-3,"samples":[-1,50]}}`
@@ -22,15 +15,12 @@ func TestScanStatsSanitizeOnLoad(t *testing.T) {
 	if echo.Calls != 3 || echo.P95 != 200 {
 		t.Fatalf("echo={%d,%d}, want {3,200} (음수 샘플 드롭)", echo.Calls, echo.P95)
 	}
-	// suggest: calls clamped 0, the negative sample dropped -> the quiet-zero rule.
+
 	if suggest.Calls != 0 || suggest.P95 != 0 {
 		t.Fatalf("suggest={%d,%d}, want {0,0} (음수 calls 클램프)", suggest.Calls, suggest.P95)
 	}
 }
 
-// TestPersistScanStatsToMetaFlushesDirtySamples — a recorded sample makes
-// the flush persist meta scan_stats over the store (the write/read exit
-// path; the one-shot process otherwise loses its samples).
 func TestPersistScanStatsToMetaFlushesDirtySamples(t *testing.T) {
 	ResetMetrics()
 	var setKey, setVal string
@@ -51,17 +41,11 @@ func TestPersistScanStatsToMetaFlushesDirtySamples(t *testing.T) {
 	}
 }
 
-// TestPersistScanStatsToMetaQuietUnderConflict — under parallel writers the
-// exit upsert loses the shared scan_stats row race (Doltgres 40001): the
-// flush retries and, when the race never clears, gives up SILENTLY — the
-// e2e parallel harness reads combined output as one JSON line, so even a
-// stderr diagnostic corrupts it (§13; CI run 45048320543 regression).
 func TestPersistScanStatsToMetaQuietUnderConflict(t *testing.T) {
 	prevBackoff := scanFlushBackoff
 	scanFlushBackoff = []time.Duration{0, 0, 0}
 	t.Cleanup(func() { scanFlushBackoff = prevBackoff })
 
-	// 40001 twice, then success — the retried flush lands.
 	ResetMetrics()
 	conflict := errors.New("serialization failure: this transaction conflicts with a committed transaction (SQLSTATE 40001)")
 	inserts := 0
@@ -83,8 +67,6 @@ func TestPersistScanStatsToMetaQuietUnderConflict(t *testing.T) {
 		t.Fatalf("40001 재시도 후 미착신: inserts=%d val=%q", inserts, setVal)
 	}
 
-	// never clears — the flush returns quietly (no error path out; the
-	// samples simply wait for the next command's flush).
 	ResetMetrics()
 	inserts = 0
 	st2 := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -96,16 +78,12 @@ func TestPersistScanStatsToMetaQuietUnderConflict(t *testing.T) {
 	}}
 	RecordEchoScan(time.Millisecond)
 	PersistScanStatsToMeta(context.Background(), st2)
-	// 4 flush attempts (1 + len(scanFlushBackoff)) x 2 queries each
-	// (QueryOnce's immediate rerun on error) = 8, then the quiet give-up.
+
 	if inserts != 8 {
 		t.Fatalf("재시도 횟수=%d, want 8 (4 플러시 시도 x QueryOnce 즉시 재수행 — 최종 조용한 포기)", inserts)
 	}
 }
 
-// TestStatusScanRowAppended — the status scan metering row surfaces the
-// meta scan_stats cumulative (calls + p95 microseconds per kind),
-// appended AFTER the vault row in the key order.
 func TestStatusScanRowAppended(t *testing.T) {
 	ResetMetrics()
 	blob := `{"echo":{"calls":4,"samples":[100,900]},"suggest":{"calls":2,"samples":[50]}}`
@@ -130,7 +108,7 @@ func TestStatusScanRowAppended(t *testing.T) {
 	if m["scan_suggest_calls"].(float64) != 2 || m["scan_suggest_p95_us"].(float64) != 50 {
 		t.Fatalf("suggest 행=%v/%v, want 2/50", m["scan_suggest_calls"], m["scan_suggest_p95_us"])
 	}
-	// key order: after the vault row's tail (vault_changed).
+
 	idx := strings.Index(line, `"vault_changed":`)
 	for _, k := range []string{"scan_echo_calls", "scan_echo_p95_us", "scan_suggest_calls", "scan_suggest_p95_us"} {
 		i := strings.Index(line, `"`+k+`":`)

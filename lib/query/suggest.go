@@ -1,5 +1,3 @@
-// suggest.go — zero-hit did-you-mean suggestions (spec §3 R1, R2).
-// Similarity and sorting are pure app-side functions — the phrase LIKE SQL and output are unchanged.
 package query
 
 import (
@@ -12,18 +10,13 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// Suggestion — one suggestion (the id and topic of an active_knowledge row).
 type Suggestion struct {
 	ID    int    `json:"id"`
 	Topic string `json:"topic"`
 }
 
-// nfkc — Unicode NFKC normalization of the matching comparison strings (R2).
-// Blocks misses from NFC/NFD and composed-form notation differences. Applied only to the comparison strings — the originals, SQL, and output are unchanged.
 func nfkc(s string) string { return norm.NFKC.String(s) }
 
-// bigramDice — the Dice coefficient (0..1) of rune-bigram sets. For 1-rune
-// strings with no bigrams on either side, an equality verdict (1/0). Empty strings and empty sets are 0.
 func bigramDice(a string, b string) float64 {
 	ra, rb := []rune(a), []rune(b)
 	if len(ra) < 2 && len(rb) < 2 {
@@ -45,7 +38,6 @@ func bigramDice(a string, b string) float64 {
 	return 2 * float64(inter) / float64(len(sa)+len(sb))
 }
 
-// bigramSet — the set of adjacent bigrams of a rune slice (deduplicated).
 func bigramSet(r []rune) map[string]struct{} {
 	set := make(map[string]struct{}, len(r))
 	for i := 0; i+1 < len(r); i++ {
@@ -54,16 +46,8 @@ func bigramSet(r []rune) map[string]struct{} {
 	return set
 }
 
-// BigramDice — the public wrapper of the rune-bigram set Dice coefficient (the set version, bigramDice).
-// Used when reusing the same measure as the suggestion score outside the package (cli, etc.).
 func BigramDice(a string, b string) float64 { return bigramDice(a, b) }
 
-// BigramDiceMultiset — the rune-bigram multiset Dice coefficient (the maintain
-// contradiction-classification measure). Counts repeated bigrams by occurrence rather than
-// flattening them like a set, yielding a more conservative similarity than the set version
-// for sentences with repeated bigrams — the cli.conflictDupThreshold (0.6) ruling is based on
-// this measure, so it is not merged into the set version. For short strings without bigrams
-// (fewer than 2 runes), both-empty is 1 (identical), otherwise 0 (incomparable = dissimilar).
 func BigramDiceMultiset(a, b string) float64 {
 	ra, rb := []rune(a), []rune(b)
 	if len(ra) < 2 || len(rb) < 2 {
@@ -93,8 +77,6 @@ func BigramDiceMultiset(a, b string) float64 {
 	return 2 * float64(inter) / float64(len(ra)-1+len(rb)-1)
 }
 
-// suggestCellInt — the scan id cell (any) -> int. Accepts pgx numerics, float64,
-// and decimal strings; anything else is (0, false) — a query-local clone with the same contract as cli.cellToInt.
 func suggestCellInt(v any) (int, bool) {
 	switch n := v.(type) {
 	case int:
@@ -113,15 +95,8 @@ func suggestCellInt(v any) (int, bool) {
 	}
 }
 
-// suggestMinScore — the suggestion adoption floor. Rows below this score are
-// excluded as irrelevant candidates. The default uses the thresholds registry
-// (store.DefaultThresholds) as the single source; at runtime, the cli read path
-// injects the meta suggest_min_score override via SetSuggestThresholds.
-// injects them.
 var suggestMinScore = store.DefaultThresholds().SuggestMinScore
 
-// SetSuggestThresholds — the suggestion-threshold (minScore, scanCap) injection seam.
-// cli passes the loadThresholds result. Values <= 0 are ignored (double defense against unset fallbacks).
 func SetSuggestThresholds(minScore float64, scanCap int) {
 	if minScore > 0 {
 		suggestMinScore = minScore
@@ -131,36 +106,15 @@ func SetSuggestThresholds(minScore float64, scanCap int) {
 	}
 }
 
-// SuggestSimilar — the top-N suggestions by NFKC-normalized bigram Dice similarity
-// between the query q and the scanned rows ([0]=id, [1]=topic, [2]=summary).
-// Rows below suggestMinScore (including 0) are excluded; descending, ties by ascending id. Fewer than topN are returned as-is.
-// Delegates to SuggestSimilarWithScanMax (suggestions only) — the legacy
-// signature and call sites are unchanged.
 func SuggestSimilar(q string, rows [][]any, topN int) []Suggestion {
 	sug, _ := SuggestSimilarWithScanMax(q, rows, topN)
 	return sug
 }
 
-// RecordSuggestScanFn — the scan-duration recording seam (v1.21.0 A6 scan
-// p95). ops wires its in-memory accumulator here (query cannot import ops —
-// the import-cycle-free seam var convention); nil (unwired) keeps the path
-// metering-free and quiet (§13). Recorded inside SuggestSimilarWithScanMax
-// only, so the legacy SuggestSimilar delegation records exactly once.
 var RecordSuggestScanFn func(time.Duration)
 
-// SuggestSimilarWithScanMax — SuggestSimilar plus the scan max: the
-// highest bigramDice score over ALL scanned candidate rows, computed
-// BEFORE the suggestMinScore filter and independent of the top-N
-// selection (schema v13 read_events.near_score source). A below-min
-// zero row therefore still carries its best scan score — masking
-// near=false rows to 0 would erase the min_score-boundary distribution
-// (the counterfactual-analysis core). An empty scan yields 0 (nothing
-// was scanned — distinct from a masked score); malformed rows (short·
-// unparseable id) are not candidates and never feed the max.
 func SuggestSimilarWithScanMax(q string, rows [][]any, topN int) ([]Suggestion, float64) {
-	// v1.21.0 A6: entry-to-return duration sample — in-memory only (zero
-	// added queries; merged into meta scan_stats at the existing hot_stats
-	// persist point).
+
 	start := time.Now()
 	if RecordSuggestScanFn != nil {
 		defer func() { RecordSuggestScanFn(time.Since(start)) }()
@@ -210,16 +164,8 @@ func SuggestSimilarWithScanMax(q string, rows [][]any, topN int) ([]Suggestion, 
 	return out, scanMax
 }
 
-// suggestScanCap — the suggestion scan row cap (N13). Corrects spec §3 R1's 'no scan cap':
-// personal knowledge-management scale (thousands of rows) is fully accepted, while
-// defending the zero-hit path against unbounded scans at anomalous scale (mass
-// intake, etc.). The cap is an unsorted defense line — since suggestions re-rank
-// the top-N, whichever rows are caught still serve the purpose of providing near
-// candidates. The default and override use the same seam as suggestMinScore (meta suggest_scan_cap).
 var suggestScanCap = store.DefaultThresholds().SuggestScanCap
 
-// BuildSuggestScan — the active_knowledge scan SQL for suggestions. No filters
-// (suggestions target all active rows regardless of filters — spec §3 R1); the cap is suggestScanCap.
 func BuildSuggestScan() (string, []any) {
 	return "SELECT id, topic, summary FROM active_knowledge LIMIT " + strconv.Itoa(suggestScanCap), nil
 }

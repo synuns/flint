@@ -1,12 +1,3 @@
-// store_reuse_real_test.go — real-store slow regression: verifies that MCP
-// tool calls, through the server-lifetime store (the injectedStore
-// wrapper) and against a real DB, complete (1) a low-confidence write ->
-// pending accrual, (2) flint_approve promotion (active transition),
-// (3) a re-sent identical payload echoing duplicate {id,topic,state}, and
-// (4) flint_read metering read_events source='mcp'. The existing fake-seam
-// tests (tools_test.go) assert the wrapper itself and missed this defect —
-// only the real path through the wrapper catches it. Skipped when
-// FLINT_TEST_DSN (an isolated test DB) is unset.
 package mcp
 
 import (
@@ -23,13 +14,6 @@ import (
 	"github.com/synuns/flint/lib/cli"
 )
 
-// realDBLock — mutual exclusion (file lock) for slow tests using the
-// shared Doltgres test DB. go test runs package binaries in parallel, so
-// without the lock this test's roundtrip rows can overlap with the
-// `DELETE FROM knowledge` full wipe of lib/db newTestRepo (repo_test.go)
-// and intermittently fail approve with not_found. The lock file path must
-// match lib/db sharedDBLock and lib/backup drillLock for the exclusion to
-// hold.
 func realDBLock(t *testing.T) {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -47,8 +31,6 @@ func realDBLock(t *testing.T) {
 	})
 }
 
-// realTestDSN — the isolated test DB DSN (accepts FLINT_TEST_DSN only —
-// no production FLINT_DSN fallback, per lib/db testutil convention).
 func realTestDSN(t *testing.T) string {
 	t.Helper()
 	dsn := os.Getenv("FLINT_TEST_DSN")
@@ -58,14 +40,11 @@ func realTestDSN(t *testing.T) string {
 	return dsn
 }
 
-// TestMCPCapabilityRoundtripRealSlow — a real-store roundtrip through the
-// wrapper (slow). Uses synthetic demo data only (no personal data — the
-// repository's top-level principle).
 func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 	dsn := realTestDSN(t)
-	realDBLock(t) // serializes the whole shared-test-DB usage window (blocks full-wipe races)
+	realDBLock(t)
 	t.Setenv("FLINT_DSN", dsn)
-	resetStoreCache(t) // the default seam path (storeSupply = cli.OpenServerStore)
+	resetStoreCache(t)
 
 	ctx := context.Background()
 	st, err := cli.OpenServerStore()
@@ -85,7 +64,6 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 		"topic": uniq, "summary": "합성 데모 slow 본문 — 래퍼 실경로 회귀", "confidence": 0.1,
 	}
 
-	// (1) Low-confidence (0.1 < conf_floor 0.8) write -> pending accrual.
 	out, code := DispatchTool("flint_write", map[string]any{"kind": "knowledge", "payload": payload})
 	if code != 0 || !strings.Contains(out, `"status":"committed"`) || !strings.Contains(out, `"state":"pending"`) {
 		t.Fatalf("① write code=%d out=%q, want committed/pending", code, out)
@@ -98,7 +76,6 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 	}
 	id := committed.ID
 
-	// (2) flint_approve promotion — if the wrapper blocked approveStore, exit 1.
 	out, code = DispatchTool("flint_approve", map[string]any{"id": id})
 	if code != 0 || !strings.Contains(out, `"status":"approved"`) || !strings.Contains(out, fmt.Sprintf(`"id":%d`, id)) {
 		t.Fatalf("② approve code=%d out=%q, want approved id=%d", code, out, id)
@@ -108,7 +85,6 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 		t.Fatalf("② 승격 미반영: %v (%v)", rows, err)
 	}
 
-	// (3) Re-send of the identical payload -> duplicate {id,topic,state} echo.
 	out, code = DispatchTool("flint_write", map[string]any{"kind": "knowledge", "payload": payload})
 	if code != 0 {
 		t.Fatalf("③ 재전송 code=%d out=%q, want 0", code, out)
@@ -119,7 +95,6 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 		}
 	}
 
-	// (4) flint_read -> read_events source='mcp' metering restored (no increase if the wrapper blocks it).
 	before := countReadEvents(t, st, ctx)
 	out, code = DispatchTool("flint_read", map[string]any{"query": uniq})
 	if code != 0 {
@@ -131,7 +106,6 @@ func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {
 	}
 }
 
-// countReadEvents — the number of read_events rows with source='mcp'.
 func countReadEvents(t *testing.T, st interface {
 	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
 }, ctx context.Context) int {
@@ -147,7 +121,6 @@ func countReadEvents(t *testing.T, st interface {
 	return n
 }
 
-// jsonStr — a JSON string literal for assertions.
 func jsonStr(t *testing.T, s string) string {
 	t.Helper()
 	b, err := json.Marshal(s)

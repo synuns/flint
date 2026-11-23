@@ -29,4 +29,16 @@ grep -q "$row" internal/doclint/versions_test.go || fail "versions_test 계약�
 # 5. docs 계약 green (배지-하이라이트-버전 동기 테스트 포함)
 make docs-sync >/dev/null || fail "make docs-sync red"
 
-echo "release-gate OK: v${ver} — VERSION·plugin.json·배지(EN/KO)·HISTORY·계약행·docs-sync"
+# 6. 하이라이트 라벨 유일 (v1.26.2 r113-1 — 범프 스크립트가 37줄 전량을
+# 동일 라벨로 왜곡한 사고의 재발 방지). 전 블록 단조는 역사상 부정확
+# (v0.44.0 재무장 이후 아카이브 구간은 오름차순)이라 유일성만 검사한다.
+for rf in README.md README.ko.md; do
+  python3 - "$rf" <<'PYEOF' || fail "README 하이라이트 라벨 유일 위반 (${rf})"
+import re, sys
+labels = re.findall(r"^> v(\d+(?:\.\d+)+) ·", open(sys.argv[1]).read(), re.M)
+if len(set(labels)) != len(labels):
+    sys.exit(1)
+PYEOF
+done
+
+echo "release-gate OK: v${ver} — VERSION·plugin.json·배지(EN/KO)·HISTORY·계약행·docs-sync·하이라이트"

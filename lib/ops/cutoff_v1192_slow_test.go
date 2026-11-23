@@ -1,9 +1,3 @@
-// cutoff_v1192_slow_test.go — slow (FLINT_TEST_DSN): the v1.19.2
-// overflow-sweep regression on the real Doltgres path — a 200000-day
-// stale window (the stale_days override shape the R75 audit measured)
-// lists 0 stale rows and invalidates 0 rows on a DB whose rows WOULD be
-// stale at any normal window (the pre-fix wrapped cutoff swept every
-// active row).
 package ops
 
 import (
@@ -19,9 +13,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// slowMaintStore — the real-DB MaintStore: the shared real-DB
-// wire.Store (reportSlowStore) plus the Repo-delegated maintenance
-// methods (the single-write-path principle — writes_through_repo_test).
 type slowMaintStore struct {
 	*reportSlowStore
 	repo *db.Repo
@@ -49,8 +40,6 @@ func (s *slowMaintStore) Merge(ctx context.Context, fromID, toID int) error {
 	return s.repo.Merge(ctx, fromID, toID)
 }
 
-// TestStaleOverflowRealSlow — 200000-day window on the real path:
-// listing 0 and invalidating 0 (synthetic demo rows only).
 func TestStaleOverflowRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -86,7 +75,6 @@ func TestStaleOverflowRealSlow(t *testing.T) {
 		t.Fatalf("Migrate: %v", err)
 	}
 
-	// 2 synthetic demo rows, 200 days old (stale at any normal window).
 	ids, err := ms.InsertBatch(ctx, []map[string]any{
 		staleSeedRec("t3-cutoff-a", "t3-ca", "active", ":adr:"),
 		staleSeedRec("t3-cutoff-b", "t3-cb", "active", ":adr:"),
@@ -101,8 +89,6 @@ func TestStaleOverflowRealSlow(t *testing.T) {
 		}
 	}
 
-	// The overflow window: 0 stale (the clamped cutoff stays ~292 years
-	// in the past; the wrapped arithmetic put it in the future).
 	items, days, err := listStale(ctx, ms, 200000, 20)
 	if err != nil {
 		t.Fatalf("listStale(200000): %v", err)
@@ -113,7 +99,7 @@ func TestStaleOverflowRealSlow(t *testing.T) {
 	if len(items) != 0 {
 		t.Fatalf("200000일 창 — stale %d건, want 0(래프 시 전면 스윕)", len(items))
 	}
-	// Contrast: a normal window lists them (the 0 is the clamp, not the seed).
+
 	items, _, err = listStale(ctx, ms, 30, 20)
 	if err != nil {
 		t.Fatalf("listStale(30): %v", err)
@@ -122,8 +108,6 @@ func TestStaleOverflowRealSlow(t *testing.T) {
 		t.Fatalf("30일 창 — stale %d건, want 2(시드 정상성)", len(items))
 	}
 
-	// The application path: --invalidate-stale at the overflow window
-	// invalidates 0 rows (the dry-run targets and the confirmed targets match).
 	var out strings.Builder
 	if code := maintainInvalidateStale(ctx, ms, &out, 200000, 20, true); code != 0 {
 		t.Fatalf("invalidate-stale exit = %d: %s", code, out.String())

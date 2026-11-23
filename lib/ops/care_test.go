@@ -1,7 +1,3 @@
-// care_test.go — behavioral verification: the maintain, nudge,
-// session-start, and session-end registrations (ops.go init), the WriteTypedMarker kind
-// separation (knowledge seam compatibility), expire-pending dry-run, and the supersede
-// stewardship (detecting unreflected updates). The fakeStore reuses the doctor_test.go conventions (the companion move).
 package ops
 
 import (
@@ -17,17 +13,15 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// fakeMaintStore — fakeStore + the MaintStore update methods (lookups go via queryFn).
-// The transition updates are the Repo delegation methods (batch Invalidate, Supersede).
 type fakeMaintStore struct {
 	*fakeStore
 	invalidatedIDs [][]int
 	merged         [][2]int
 	supersedeErr   error
 	superseded     [][2]int
-	prunedAt       []time.Time // PruneInvalidated delegation capture
-	recallPrunedAt []time.Time // PruneRecallEvents delegation capture
-	recallPruneN   int64       // the PruneRecallEvents return (default 0)
+	prunedAt       []time.Time
+	recallPrunedAt []time.Time
+	recallPruneN   int64
 }
 
 func (f *fakeMaintStore) Counts(ctx context.Context) (db.Counts, error) {
@@ -52,14 +46,11 @@ func (f *fakeMaintStore) Merge(ctx context.Context, fromID, toID int) error {
 	return nil
 }
 
-// PruneInvalidated — Repo delegation-method capture (return = the 2-target-row
-// convention — same as the maintain_v0330 prune contract).
 func (f *fakeMaintStore) PruneInvalidated(ctx context.Context, before time.Time) (int64, error) {
 	f.prunedAt = append(f.prunedAt, before)
 	return 2, nil
 }
 
-// PruneRecallEvents — Repo delegation-method capture (return = the recallPruneN setting).
 func (f *fakeMaintStore) PruneRecallEvents(ctx context.Context, before time.Time) (int64, error) {
 	f.recallPrunedAt = append(f.recallPrunedAt, before)
 	return f.recallPruneN, nil
@@ -68,7 +59,6 @@ func (f *fakeMaintStore) ConflictGroups(ctx context.Context, limit int) ([]db.Co
 	return nil, nil
 }
 
-// shortRetry — Retry retries run immediately (inheriting the maintain_v08_test convention).
 func shortRetry(t *testing.T) {
 	t.Helper()
 	prev := MaintainRetryDelays
@@ -76,7 +66,6 @@ func shortRetry(t *testing.T) {
 	t.Cleanup(func() { MaintainRetryDelays = prev })
 }
 
-// runMaintainArgs — runs RunMaintain with a fake store. Returns output and exit.
 func runMaintainArgs(t *testing.T, f *fakeMaintStore, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -84,7 +73,6 @@ func runMaintainArgs(t *testing.T, f *fakeMaintStore, args ...string) (string, i
 	return out.String(), code
 }
 
-// TestCareCommandsRegistered — the 4 wave-2 commands registered (ops.go init — wire.Register).
 func TestCareCommandsRegistered(t *testing.T) {
 	for _, name := range []string{"maintain", "nudge", "session-start", "session-end"} {
 		if _, ok := wire.Lookup(name); !ok {
@@ -93,8 +81,6 @@ func TestCareCommandsRegistered(t *testing.T) {
 	}
 }
 
-// TestWriteTypedMarkerKindSeparation — per-kind file separation (distill and recall
-// coexist and expire independently). The same surface as the knowledge WriteTypedMarkerFn seam injection contract.
 func TestWriteTypedMarkerKindSeparation(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -123,7 +109,6 @@ func TestWriteTypedMarkerKindSeparation(t *testing.T) {
 	}
 }
 
-// TestMaintainExpirePendingDryRun — dry-run by default: only lists targets, exit 0, no updates.
 func TestMaintainExpirePendingDryRun(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -144,11 +129,6 @@ func TestMaintainExpirePendingDryRun(t *testing.T) {
 	}
 }
 
-// TestMaintainPruneInvalidatedAlsoPrunesRecallEvents — the R42-D wiring regression:
-// --prune-invalidated also cleans the recall-event retention (recall_event_retention_days,
-// default 90) expiries. Dry-run only reports (would_prune_recall_events); --commit does
-// the PruneRecallEvents delegation + the audit commit. Re-running after the targets
-// vanish is idempotently "no targets" (no delegation re-called).
 func TestMaintainPruneInvalidatedAlsoPrunesRecallEvents(t *testing.T) {
 	shortRetry(t)
 	f := &fakeMaintStore{fakeStore: &fakeStore{}, recallPruneN: 7}
@@ -187,7 +167,7 @@ func TestMaintainPruneInvalidatedAlsoPrunesRecallEvents(t *testing.T) {
 	if !strings.Contains(strings.Join(f.commits, ";"), "prune-recall-events") {
 		t.Errorf("감사 커밋 메시지에 이벤트 정리 귀속 없음: %v", f.commits)
 	}
-	// idempotent — after the targets vanish (0 listed, 0 expired), a re-run is no targets with no delegation.
+
 	f2 := &fakeMaintStore{fakeStore: &fakeStore{}}
 	f2.queryFn = func(sql string, args []any) ([][]any, error) { return nil, nil }
 	out, code = runMaintainArgs(t, f2, "--prune-invalidated", "30", "--commit")
@@ -202,10 +182,6 @@ func TestMaintainPruneInvalidatedAlsoPrunesRecallEvents(t *testing.T) {
 	}
 }
 
-// TestMaintainSupersedeGuardian — the stewardship: an unreflected update (a race —
-// Supersede hitting 0 rows) ends as an error, not a silent success (still unreflected
-// after retries means a failed exit). The stewardship is built into db.Repo.Supersede
-// via rows-affected — simulated here by the delegation returning a wrapped ErrNotFound error.
 func TestMaintainSupersedeGuardian(t *testing.T) {
 	shortRetry(t)
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
@@ -220,7 +196,7 @@ func TestMaintainSupersedeGuardian(t *testing.T) {
 	if code == 0 {
 		t.Fatalf("경합 미반영이 exit 0 — 후견사 부재; out=%s", out)
 	}
-	// exhausted Retry retries end the update path as an error (a 1-line error output — not a silent success).
+
 	if !strings.Contains(out, `"error"`) {
 		t.Fatalf("에러 출력 부재: %s", out)
 	}
@@ -229,7 +205,6 @@ func TestMaintainSupersedeGuardian(t *testing.T) {
 	}
 }
 
-// TestMarkerFileUnderConfigDir — the marker path respects FLINT_CONFIG_DIR isolation.
 func TestMarkerFileUnderConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

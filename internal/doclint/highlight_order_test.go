@@ -6,9 +6,6 @@ import (
 	"testing"
 )
 
-// TestReadmeHighlightLatestFirst — the newest version's highlight line must
-// be the FIRST "> v" line in both READMEs (latest-first convention since
-// v1.15.0, R61 ruling). Guard against mid-list insertion regression.
 func TestReadmeHighlightLatestFirst(t *testing.T) {
 	raw, err := os.ReadFile(docPath("../VERSION"))
 	if err != nil {
@@ -32,8 +29,6 @@ func TestReadmeHighlightLatestFirst(t *testing.T) {
 	}
 }
 
-// TestReadmeHighlightParityENKO — the version column sequence must be
-// identical between README.md and README.ko.md (line-for-line parity).
 func TestReadmeHighlightParityENKO(t *testing.T) {
 	hl := regexp.MustCompile(`(?m)^> v([0-9]+\.[0-9]+\.[0-9]+) `)
 	ext := func(path string) []string {

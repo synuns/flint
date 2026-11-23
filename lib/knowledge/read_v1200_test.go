@@ -1,11 +1,3 @@
-// read_v1200_test.go — the recording wiring (read surface).
-// TestReadEventColumns (bytes=output len·source label·zero_reason
-// branches)·TestZeroReasonDecompose (the threshold-branch pure
-// function)·the read full id set into knowledge_reads (kind=read).
-// Contract: one read's bytes·zero_reason·source are recorded in one
-// read_events row, and the full returned id set is left in
-// knowledge_reads with kind='read' (the BumpReads cache path untouched —
-// covered separately by read_v0420_test).
 package knowledge
 
 import (
@@ -17,16 +9,12 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// v1200Recorder — a fake recording the full ReadEvent value·
-// RecordKnowledgeReads calls (implementing the ReadEventStore·
-// KnowledgeReadsRecorder seams together).
 type v1200Recorder struct {
 	*fakeStore
 	events []db.ReadEvent
 	kreads []kreadsCall
 }
 
-// kreadsCall — a recorded RecordKnowledgeReads call's arguments.
 type kreadsCall struct {
 	ids     []int
 	session string
@@ -43,15 +31,10 @@ func (r *v1200Recorder) RecordKnowledgeReads(ctx context.Context, ids []int, ses
 	return nil
 }
 
-// activeCountQueryRows — the active-knowledge count query answer for
-// zero-hit decomposition ( count(*) ).
 func activeCountQueryRows(n int32) [][]any {
 	return [][]any{{n}}
 }
 
-// TestReadEventColumns — one read's ReadEvent carries bytes (len of the
-// final output)·the source label (session label→hook·absent→cli·explicit
-// wins)·the zero_reason branch (unowned/owned_miss/empty).
 func TestReadEventColumns(t *testing.T) {
 	ctx := context.Background()
 	t.Run("히트 — bytes=출력 len·source=cli·zero_reason 공란", func(t *testing.T) {
@@ -129,7 +112,7 @@ func TestReadEventColumns(t *testing.T) {
 			case strings.Contains(sql, "count(*)"):
 				return activeCountQueryRows(0), nil
 			}
-			return nil, nil // active_knowledge zero-hit·fallback·suggestion all 0 rows
+			return nil, nil
 		}}}
 		var out bytes.Buffer
 		if code := RunRead(ctx, st, []string{"없는토픽"}, strings.NewReader(""), &out); code != 0 {
@@ -161,7 +144,7 @@ func TestReadEventColumns(t *testing.T) {
 			case strings.Contains(sql, "count(*)"):
 				return activeCountQueryRows(2), nil
 			case strings.Contains(sql, "SELECT value FROM meta"):
-				return [][]any{{"3"}}, nil // zero_owned_floor=3
+				return [][]any{{"3"}}, nil
 			}
 			return nil, nil
 		}}}
@@ -175,8 +158,6 @@ func TestReadEventColumns(t *testing.T) {
 	})
 }
 
-// TestZeroReasonDecompose — the zero-hit decomposition pure function
-// (the threshold-branch table).
 func TestZeroReasonDecompose(t *testing.T) {
 	cases := []struct {
 		name          string
@@ -199,8 +180,6 @@ func TestZeroReasonDecompose(t *testing.T) {
 	}
 }
 
-// TestReadRecordsKnowledgeReads — the read-returned full id set is
-// recorded in knowledge_reads (kind=read, session label accompanying).
 func TestReadRecordsKnowledgeReads(t *testing.T) {
 	ctx := context.Background()
 	st := &v1200Recorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

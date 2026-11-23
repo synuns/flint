@@ -1,11 +1,3 @@
-// comment_language_gate_test.go — the comment-language sealing gate (v1.10.0).
-// Fails if any comment line (// or /* */) in lib/**/*.go — test files included,
-// and .sql files excluded by construction (only .go is scanned; lib/sqlfs/*.sql
-// carries views_hash-pinned text and docs/** is out of scope) still contains
-// Hangul syllables. Token-based via go/scanner: only COMMENT tokens are
-// inspected, so Hangul inside string literals (test data, t.Errorf messages)
-// is excluded automatically — "//" or Hangul inside STRING tokens can never
-// trip the gate.
 package wire
 
 import (
@@ -19,10 +11,6 @@ import (
 	"testing"
 )
 
-// hasHangul — the residual-script class searched inside COMMENT tokens.
-// A rune range check (the Hangul syllable block) instead of regexp so this
-// file's own comments stay English; the classifier test pins the exact
-// behavior.
 func hasHangul(s string) bool {
 	for _, r := range s {
 		if r >= 0xAC00 && r <= 0xD7A3 {
@@ -32,17 +20,12 @@ func hasHangul(s string) bool {
 	return false
 }
 
-// commentLanguageViolation — one violation (relative path, 1-based line, the
-// offending comment text).
 type commentLanguageViolation struct {
 	Path string
 	Line int
 	Text string
 }
 
-// scanCommentLanguageViolations — token-scans the .go files under libRoot
-// (relative to this package directory, "../" = lib) and collects COMMENT
-// tokens containing Hangul. Non-.go files are skipped (docs, .sql, fixtures).
 func scanCommentLanguageViolations(libRoot string) ([]commentLanguageViolation, error) {
 	fset := token.NewFileSet()
 	var out []commentLanguageViolation
@@ -81,9 +64,6 @@ func scanCommentLanguageViolations(libRoot string) ([]commentLanguageViolation, 
 	return out, err
 }
 
-// TestCommentLanguageSealed — the gate body: even 1 violation fails with
-// file:line and the offending comment. Green means the comment English cut is
-// complete across lib/.
 func TestCommentLanguageSealed(t *testing.T) {
 	violations, err := scanCommentLanguageViolations("..")
 	if err != nil {
@@ -100,30 +80,25 @@ func TestCommentLanguageSealed(t *testing.T) {
 		len(violations), b.String())
 }
 
-// TestScanCommentLanguageClassifier — scanner classification accuracy (a
-// synthetic tree): Hangul in comments is caught (line and slash-star forms)
-// while Hangul inside string literals, "//" inside strings, non-.go files,
-// and English comments pass.
 func TestScanCommentLanguageClassifier(t *testing.T) {
 	root := t.TempDir()
 	if err := os.MkdirAll(filepath.Join(root, "ops"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	// The Korean sample word below lives in string literals only — the gate
-	// never looks there; this file's own comments stay English.
+
 	ko := "한국어"
 	files := map[string]string{
-		// violation: line comment carrying Hangul.
+
 		"ops/a.go": "// " + ko + " comment\nvar x = 1\n",
-		// violation: block comment carrying Hangul.
+
 		"ops/b.go": "/* " + ko + " block */\nvar y = 2\n",
-		// allowed: Hangul only inside a string literal.
+
 		"ops/c.go": "s := \"" + ko + " data\"\n",
-		// allowed: "//" inside a string literal, English comment.
+
 		"ops/d.go": "s := \"a // b\"\n// english comment\n",
-		// allowed: English-only comments.
+
 		"ops/e.go": "// plain english\nvar z = 3\n",
-		// ignored: non-.go files (docs, .sql fixtures).
+
 		"ops/notes.sql": "-- " + ko + " sql text\n",
 		"ops/notes.txt": ko + "\n",
 	}

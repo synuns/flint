@@ -1,11 +1,3 @@
-// admin_v1201_test.go — v1.20.1 patch slow tests (real DB, synthetic
-// demo rows only). Covers the schema v15 uniqueness seal (r86): the
-// v14→v15 gate collapsing pre-seal duplicate link rows and creating
-// uq_knowledge_links_triple; the race-proof idempotent INSERT (ON
-// CONFLICT — 5 parallel writers accrue 1 row); the serialized cross
-// supersede (r87 — parallel A→B·B→A never both land); and the
-// conservative depth-cap refusal of the lineage walk (r87 — a
-// 500-hop chain's tail→head supersede is refused, not "safe no-cycle").
 package db
 
 import (
@@ -18,15 +10,10 @@ import (
 	"time"
 )
 
-// TestSlowV15GateDedupeUniqueIndex — promotes a reproduced v14 DB (with
-// pre-seal duplicate link rows) to v15: duplicates collapse to the
-// lowest id per (from,to,relation)·the unique index exists·version
-// 15·the rerun idempotent.
 func TestSlowV15GateDedupeUniqueIndex(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
-	// Reproduce a faithful v14 DB — drop the v15 seal the fresh
-	// schema.sql terminus already carries.
+
 	if _, err := r.pool.Exec(ctx, `DROP INDEX IF EXISTS uq_knowledge_links_triple`); err != nil {
 		t.Fatalf("v14 재현 인덱스 삭제: %v", err)
 	}
@@ -38,7 +25,7 @@ func TestSlowV15GateDedupeUniqueIndex(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
-	// Two pre-seal duplicate rows plus one distinct relation.
+
 	for _, rel := range []string{"refines", "refines", "supports"} {
 		if _, err := r.pool.Exec(ctx,
 			`INSERT INTO knowledge_links (from_id, to_id, relation) VALUES ($1, $2, $3)`,
@@ -57,18 +44,16 @@ func TestSlowV15GateDedupeUniqueIndex(t *testing.T) {
 		`SELECT count(*) FROM knowledge_links WHERE from_id = $1`, ids[0]).Scan(&n); err != nil {
 		t.Fatalf("링크 수 조회: %v", err)
 	}
-	if n != 2 { // refines collapsed to 1 + supports 1
+	if n != 2 {
 		t.Fatalf("링크 수=%d want 2 (duplicates collapsed)", n)
 	}
-	// The seal is behavioral (Doltgres exposes no
-	// information_schema.indexes): a duplicate triple INSERT is now
-	// refused by the unique index (23505).
+
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO knowledge_links (from_id, to_id, relation) VALUES ($1, $2, 'refines')`,
 		ids[0], ids[1]); err == nil {
 		t.Fatal("중복 triple INSERT 허용 — unique 봉인 미적용")
 	}
-	// The rerun is idempotent — version 15 kept·no error.
+
 	if err := r.EnsureSchemaV15(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV15 (want idempotent): %v", err)
 	}
@@ -77,10 +62,6 @@ func TestSlowV15GateDedupeUniqueIndex(t *testing.T) {
 	}
 }
 
-// TestSlowParallelLinkInsertSingleRowV1201 — r86: 5 parallel writers
-// INSERT the same (from,to,relation) with ON CONFLICT DO NOTHING —
-// exactly 1 row (the pre-patch NOT EXISTS guard left a
-// check-then-insert window that accrued duplicates).
 func TestSlowParallelLinkInsertSingleRowV1201(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -120,11 +101,6 @@ func TestSlowParallelLinkInsertSingleRowV1201(t *testing.T) {
 	}
 }
 
-// TestSlowSupersedeCrossRaceV1201 — r87: 20 rounds of the cross
-// supersede race (A→B ∥ B→A on fresh active rows). The advisory-lock
-// serialization + the embedded cycle guard must yield EXACTLY ONE
-// winner per round; the loser gets the 0-rows ErrNotFound steward —
-// a planted 2-cycle (both succeed) is the patched defect.
 func TestSlowSupersedeCrossRaceV1201(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -162,7 +138,7 @@ func TestSlowSupersedeCrossRaceV1201(t *testing.T) {
 			t.Fatalf("round %d winners=%d want exactly 1 (both=%d is a planted cycle; zero is a lost write)",
 				round, wins, 2-wins)
 		}
-		// The planted lineage must read as a chain, never a loop.
+
 		var supA, supB *int
 		if err := r.pool.QueryRow(ctx,
 			`SELECT (SELECT superseded_by FROM knowledge WHERE id=$1),
@@ -175,10 +151,6 @@ func TestSlowSupersedeCrossRaceV1201(t *testing.T) {
 	}
 }
 
-// TestSlowSupersedeChainDepthCapV1201 — r87: a 500-hop linear chain;
-// supersede(chain tail → head) would close a loop only visible beyond
-// the 64-depth walk cap. WouldCreateCycle must refuse conservatively
-// (an error), not return the old "safe no-cycle" verdict.
 func TestSlowSupersedeChainDepthCapV1201(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -192,13 +164,13 @@ func TestSlowSupersedeChainDepthCapV1201(t *testing.T) {
 	if err != nil {
 		t.Fatalf("InsertBatch: %v", err)
 	}
-	// Build the linear chain i → i+1 (each hop is cycle-free).
+
 	for i := 0; i+1 < hops; i++ {
 		if _, err := r.Supersede(ctx, ids[i], ids[i+1], at); err != nil {
 			t.Fatalf("chain hop %d: %v", i, err)
 		}
 	}
-	// tail → head: the walk from head reaches the cap before the tail.
+
 	_, err = r.WouldCreateCycle(ctx, ids[hops-1], ids[0])
 	if err == nil {
 		t.Fatal("500홉 체인 꼬리→헤드: no-cycle 판정 — 보수 거부 계약 위반")
@@ -206,7 +178,7 @@ func TestSlowSupersedeChainDepthCapV1201(t *testing.T) {
 	if !strings.Contains(err.Error(), "depth cap") {
 		t.Fatalf("err=%v want depth-cap refusal diagnostic", err)
 	}
-	// The guarded UPDATE path refuses too (0 rows → ErrNotFound).
+
 	if _, err := r.Supersede(ctx, ids[hops-1], ids[0], at); !errors.Is(err, ErrNotFound) {
 		t.Fatalf("tail→head Supersede err=%v want ErrNotFound (refused)", err)
 	}

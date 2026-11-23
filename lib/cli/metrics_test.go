@@ -9,13 +9,10 @@ import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// resetMetrics — resets in-process stats (test isolation). Also clears the persistent baseline
-// (a precondition for simulating separate processes).
 func resetMetrics() {
 	ops.ResetMetrics()
 }
 
-// TestHotConcurrentAccess — no races during parallel record and read (-race regression).
 func TestHotConcurrentAccess(t *testing.T) {
 	resetMetrics()
 	var wg sync.WaitGroup
@@ -41,7 +38,6 @@ func TestHotConcurrentAccess(t *testing.T) {
 	}
 }
 
-// TestHotStatsEmpty — the 0-count boundary: all zeros.
 func TestHotStatsEmpty(t *testing.T) {
 	resetMetrics()
 	calls, p95, max := HotStats()
@@ -50,7 +46,6 @@ func TestHotStatsEmpty(t *testing.T) {
 	}
 }
 
-// TestHotStatsSingle — the 1-count boundary: p95 and max are both that value.
 func TestHotStatsSingle(t *testing.T) {
 	resetMetrics()
 	RecordHotLen(120)
@@ -60,7 +55,6 @@ func TestHotStatsSingle(t *testing.T) {
 	}
 }
 
-// TestHotStatsCap500 — the 500-sample cap: old samples are dropped, the latest 500 kept.
 func TestHotStatsCap500(t *testing.T) {
 	resetMetrics()
 	for i := 1; i <= 600; i++ {
@@ -73,13 +67,12 @@ func TestHotStatsCap500(t *testing.T) {
 	if max != 600 {
 		t.Fatalf("max=%d, want 600(최근 샘플 중 최대)", max)
 	}
-	// kept samples 101..600; the approximate p95 index = ceil(0.95*500)-1 = 474 -> 575.
+
 	if p95 != 575 {
 		t.Fatalf("p95=%d, want 575", p95)
 	}
 }
 
-// TestHotRecordsRuneLen — after hot output, the rune count is recorded.
 func TestHotRecordsRuneLen(t *testing.T) {
 	resetMetrics()
 	f := &fakeStore{rows: [][]any{{"decision", strings.Repeat("가", 3000), "s", "ts"}}}
@@ -92,17 +85,16 @@ func TestHotRecordsRuneLen(t *testing.T) {
 	if calls != 1 {
 		t.Fatalf("hot 실행 후 calls=%d, want 1", calls)
 	}
-	// when truncated, the rune count of the output as-is (including the "…[truncated]" suffix) must be recorded.
+
 	s := ops.HotLensSnapshot()
 	if want := len([]rune(strings.TrimRight(out, "\n"))); len(s) == 0 || s[0] != want {
 		t.Fatalf("기록 글자수=%v, want %d(출력 rune 수)", s, want)
 	}
 }
 
-// TestHotStatsPersistRoundtrip — persist->load cumulative round trip: values preserved across one-shot CLI runs.
 func TestHotStatsPersistRoundtrip(t *testing.T) {
 	resetMetrics()
-	// baseline initialization (no previous run)
+
 	if _, _, ok := LoadHotStats(func(string) (string, error) { return "", nil }); ok {
 		t.Fatalf("빈 meta 로드 ok=true, want false")
 	}
@@ -112,7 +104,7 @@ func TestHotStatsPersistRoundtrip(t *testing.T) {
 	if err := PersistHotStats(func(k, v string) error { stored = v; return nil }); err != nil {
 		t.Fatalf("persist 오류: %v", err)
 	}
-	// simulate a new process: clear memory and load
+
 	resetMetrics()
 	calls, p95, ok := LoadHotStats(func(string) (string, error) { return stored, nil })
 	if !ok || calls != 2 {
@@ -121,7 +113,7 @@ func TestHotStatsPersistRoundtrip(t *testing.T) {
 	if p95 != 20 {
 		t.Fatalf("로드 p95=%d, want 20", p95)
 	}
-	// subsequent runs: values increase via cumulative summing
+
 	RecordHotLen(30)
 	if err := PersistHotStats(func(k, v string) error { stored = v; return nil }); err != nil {
 		t.Fatalf("persist(2회차) 오류: %v", err)
@@ -132,14 +124,13 @@ func TestHotStatsPersistRoundtrip(t *testing.T) {
 	}
 }
 
-// TestHotStatsLoadCorruptFallback — corrupt hot_stats falls back to defaults.
 func TestHotStatsLoadCorruptFallback(t *testing.T) {
 	resetMetrics()
 	calls, p95, ok := LoadHotStats(func(string) (string, error) { return "{not-json", nil })
 	if ok || calls != 0 || p95 != 0 {
 		t.Fatalf("파손 로드=%d/%d/%v, want 0/0/false", calls, p95, ok)
 	}
-	// after the fallback, persist records only the current run, without the corrupt values
+
 	RecordHotLen(7)
 	stored := ""
 	if err := PersistHotStats(func(k, v string) error { stored = v; return nil }); err != nil {
@@ -151,7 +142,6 @@ func TestHotStatsLoadCorruptFallback(t *testing.T) {
 	}
 }
 
-// TestStatusIncludesHotStats — the status one-line JSON exposes hot_calls and hot_p95.
 func TestStatusIncludesHotStats(t *testing.T) {
 	resetMetrics()
 	RecordHotLen(42)
@@ -173,7 +163,6 @@ func TestStatusIncludesHotStats(t *testing.T) {
 	}
 }
 
-// TestReadZeroPct — ratios: 0 if calls is 0, else the integer percentage.
 func TestReadZeroPct(t *testing.T) {
 	cases := []struct {
 		calls, zero, want int
@@ -191,20 +180,17 @@ func TestReadZeroPct(t *testing.T) {
 	}
 }
 
-// TestStatusIncludesReadStats — the status one-line JSON exposes read_calls and read_zero_pct.
-// read_calls comes from the read_events-derived tally
-// (ops.LoadReadStatsFromMeta).
 func TestStatusIncludesReadStats(t *testing.T) {
 	resetMetrics()
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM read_events"):
-			return [][]any{{int64(4), int64(1)}}, nil // derived cumulative calls 4, zero 1
+			return [][]any{{int64(4), int64(1)}}, nil
 		case strings.Contains(sql, "FROM meta"):
-			return [][]any{{"1"}}, nil // schema_version
+			return [][]any{{"1"}}, nil
 		}
-		return [][]any{{int64(0)}}, nil // pending and others
+		return [][]any{{int64(0)}}, nil
 	}
 	withFake(t, f)
 	out, code := mustRun(t, []string{"status"}, "")
@@ -217,8 +203,6 @@ func TestStatusIncludesReadStats(t *testing.T) {
 	}
 }
 
-// TestReadWritesNoReadStats — running read (zero hit) does not write the meta
-// read_stats (the metering source is read_events).
 func TestReadWritesNoReadStats(t *testing.T) {
 	meta := map[string]string{}
 	f := &fakeStore{}
@@ -230,7 +214,7 @@ func TestReadWritesNoReadStats(t *testing.T) {
 		case strings.Contains(sql, "FROM meta"):
 			return [][]any{{"2"}}, nil
 		}
-		return nil, nil // active_knowledge query -> 0 rows
+		return nil, nil
 	}
 	withFake(t, f)
 	if out, code := mustRun(t, []string{"read", "flint"}, ""); code != 0 {
@@ -241,12 +225,10 @@ func TestReadWritesNoReadStats(t *testing.T) {
 	}
 }
 
-// TestHotStatsWiringAccumulates — the hot-path wiring: load from meta at start, persist just before
-// exit — accumulation across separate processes (fresh memory) shows up in status.
 func TestHotStatsWiringAccumulates(t *testing.T) {
 	meta := map[string]string{}
 	f := &fakeStore{}
-	f.rows = [][]any{{"decision", "요약", "active", "2026-10-22"}} // for hot_view
+	f.rows = [][]any{{"decision", "요약", "active", "2026-10-22"}}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "INSERT INTO meta"):
@@ -259,13 +241,12 @@ func TestHotStatsWiringAccumulates(t *testing.T) {
 				}
 				return nil, nil
 			}
-			return [][]any{{"2"}}, nil // schema_version
+			return [][]any{{"2"}}, nil
 		}
 		return f.rows, nil
 	}
 	withFake(t, f)
 
-	// first run -> status hot_calls 1
 	resetMetrics()
 	if out, code := mustRun(t, []string{"hot", "--session", "S1"}, ""); code != 0 {
 		t.Fatalf("hot(1) exit=%d; out=%s", code, out)
@@ -278,7 +259,6 @@ func TestHotStatsWiringAccumulates(t *testing.T) {
 		t.Fatalf("1회차 hot_calls=%v, want 1; out=%s", m["hot_calls"], out)
 	}
 
-	// simulate a separate process (memory cleared, meta kept) -> cumulative 2 (increased)
 	resetMetrics()
 	if out, code := mustRun(t, []string{"hot", "--session", "S1"}, ""); code != 0 {
 		t.Fatalf("hot(2) exit=%d; out=%s", code, out)
@@ -292,8 +272,6 @@ func TestHotStatsWiringAccumulates(t *testing.T) {
 	}
 }
 
-// TestStatusLoadsHotStatsFromMeta — separate-process simulation (memory empty):
-// status loads the meta hot_stats baseline and reports the previous run's cumulative.
 func TestStatusLoadsHotStatsFromMeta(t *testing.T) {
 	resetMetrics()
 	f := &fakeStore{}
@@ -302,9 +280,9 @@ func TestStatusLoadsHotStatsFromMeta(t *testing.T) {
 		case len(args) == 1 && args[0] == "hot_stats":
 			return [][]any{{`{"calls":5,"sum":150,"lens":[10,20,30,40,50]}`}}, nil
 		case strings.Contains(sql, "FROM meta"):
-			return [][]any{{"2"}}, nil // schema_version
+			return [][]any{{"2"}}, nil
 		}
-		return [][]any{{int64(0)}}, nil // pending
+		return [][]any{{int64(0)}}, nil
 	}
 	withFake(t, f)
 	out, code := mustRun(t, []string{"status"}, "")

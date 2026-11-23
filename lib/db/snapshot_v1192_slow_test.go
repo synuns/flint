@@ -1,9 +1,3 @@
-// snapshot_v1192_slow_test.go — slow (FLINT_TEST_DSN, scratch): the
-// v1.19.2 latest-per-key JOIN regression. The R75-R76 audit measured
-// the correlated max(ts) subquery missing the index path on Doltgres
-// (5,003 rows at 7.1s — 2,800x the full read it replaced); the GROUP BY
-// JOIN must return the same per-key latest values and stay fast
-// (linear in the key count, not the history size).
 package db
 
 import (
@@ -13,17 +7,12 @@ import (
 	"time"
 )
 
-// seedSnapshotPerf — wipes and seeds keys × perKey snapshot rows, ts
-// spaced 1 minute apart (the newest row of key k is its g=perKey-1
-// row), returning the expected latest-per-key map.
 func seedSnapshotPerf(t *testing.T, ctx context.Context, r *Repo, keys, perKey int) map[string]string {
 	t.Helper()
 	if _, err := r.pool.Exec(ctx, `DELETE FROM threshold_snapshots`); err != nil {
 		t.Fatalf("시드 초기화: %v", err)
 	}
-	// literals, not parameters — Doltgres infers $1 in generate_series as
-	// unknown (OID 705) and pgx cannot encode it (the documented interval-
-	// inference family; the values here are test-local constants).
+
 	if _, err := r.pool.Exec(ctx, fmt.Sprintf(`
 		INSERT INTO threshold_snapshots (ts, key, old_value, new_value)
 		SELECT now() - (((%d - g)::text || ' minutes')::interval),
@@ -39,9 +28,6 @@ func seedSnapshotPerf(t *testing.T, ctx context.Context, r *Repo, keys, perKey i
 	return want
 }
 
-// TestLastThresholdSnapshotsJoinSlow — the JOIN form's values are the
-// per-key latest (both the audited 52-key shapes) and the 52×96 pass
-// (~5,000 rows) stays under a generous CI bound.
 func TestLastThresholdSnapshotsJoinSlow(t *testing.T) {
 	ctx := context.Background()
 	r := newScratchTestRepo(t, ctx)

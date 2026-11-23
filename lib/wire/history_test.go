@@ -1,5 +1,3 @@
-// history_test.go — verifies the Store history contract's (5 methods') types and defaults.
-// HistoryStubs is the default implementation for fake embedding: an embedding fake satisfies Store.
 package wire
 
 import (
@@ -9,8 +7,6 @@ import (
 	"time"
 )
 
-// stubBaseStore — a minimal fake implementing only the existing 7 methods.
-// Verifies that embedding HistoryStubs absorbs the 5 history methods as defaults.
 type stubBaseStore struct {
 	HistoryStubs
 }
@@ -32,16 +28,15 @@ func (s *stubBaseStore) Query(ctx context.Context, sql string, args ...any) ([][
 	return nil, nil
 }
 
-// The HistoryStubs embedding alone must satisfy all of Store.
 var _ Store = &stubBaseStore{}
 
 func TestHistoryTypesLiterals(t *testing.T) {
-	// e.g. value literals — field names and structure pinned (contract fixed).
+
 	q := LogQuery{Hash: "abc1", Prefix: "abc", BeforeOrAt: time.Date(2026, 11, 18, 0, 0, 0, 0, time.UTC), LatestN: 2, MessageNotLike: "telemetry: %", MessageLike: "%[session: s-1]%"}
 	if q.Hash != "abc1" || q.Prefix != "abc" || q.LatestN != 2 || q.MessageNotLike != "telemetry: %" || q.MessageLike != "%[session: s-1]%" {
 		t.Fatalf("LogQuery 리터럴 불일치: %+v", q)
 	}
-	// an empty MessageLike = no condition (the zero value as-is); when set, the value is reflected.
+
 	q0 := LogQuery{}
 	if q0.MessageLike != "" {
 		t.Fatalf("MessageLike 제로값이 빈 문자열 아님: %q", q0.MessageLike)

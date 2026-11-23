@@ -6,7 +6,6 @@ import (
 	"time"
 )
 
-// TestNormalizeTagsSorted — tags must become a single ":a:b:" string after sorting (hash stability).
 func TestNormalizeTagsSorted(t *testing.T) {
 	in := map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
 		"tags": []any{"b", "a"}}
@@ -16,7 +15,6 @@ func TestNormalizeTagsSorted(t *testing.T) {
 	}
 }
 
-// TestNormalizeDefaults — the 3 defaults: domain main, origin agent, valid_at now.
 func TestNormalizeDefaults(t *testing.T) {
 	got := Normalize("knowledge", map[string]any{"topic": "x", "summary": "y", "confidence": 0.9})
 	if got["domain"] != "main" {
@@ -34,7 +32,6 @@ func TestNormalizeDefaults(t *testing.T) {
 	}
 }
 
-// TestNormalizeTimestampsUTC — explicit timestamps are normalized to UTC.
 func TestNormalizeTimestampsUTC(t *testing.T) {
 	got := Normalize("knowledge", map[string]any{"topic": "x", "summary": "y", "confidence": 0.9,
 		"valid_at": "2026-10-21T10:00:00+09:00"})
@@ -43,7 +40,6 @@ func TestNormalizeTimestampsUTC(t *testing.T) {
 	}
 }
 
-// TestNormalizeDoesNotMutateInput — the original map is not mutated.
 func TestNormalizeDoesNotMutateInput(t *testing.T) {
 	in := map[string]any{"tags": []any{"b", "a"}}
 	Normalize("knowledge", in)
@@ -52,7 +48,6 @@ func TestNormalizeDoesNotMutateInput(t *testing.T) {
 	}
 }
 
-// TestCanonicalJSONKeyOrder — serialized with sorted keys.
 func TestCanonicalJSONKeyOrder(t *testing.T) {
 	got := CanonicalJSON(map[string]any{"b": 1, "a": 2})
 	want := `{"a":2,"b":1}`
@@ -61,18 +56,14 @@ func TestCanonicalJSONKeyOrder(t *testing.T) {
 	}
 }
 
-// TestCanonicalJSONStable — serialization must be identical across calls (a hash-stability precondition).
 func TestCanonicalJSONStable(t *testing.T) {
 	p := map[string]any{"topic": "x", "tags": []any{"b", "a"}, "n": 1.5}
-	a, b := CanonicalJSON(p), CanonicalJSON(p) // comparing 2 calls (detecting non-determinism)
+	a, b := CanonicalJSON(p), CanonicalJSON(p)
 	if a != b {
 		t.Error("CanonicalJSON 비결정적 출력")
 	}
 }
 
-// TestRelationVocabularyRegistered — the schema v14 (v1.20.0) relation
-// vocabulary: exactly the 4 registered values pass ValidRelation
-// (case-insensitive — the normalizeVocab convention).
 func TestRelationVocabularyRegistered(t *testing.T) {
 	for _, rel := range []string{"refines", "supports", "contradicts", "duplicates"} {
 		if !ValidRelation(rel) {
@@ -84,11 +75,6 @@ func TestRelationVocabularyRegistered(t *testing.T) {
 	}
 }
 
-// TestRelationVocabularyRejectsUnknown — an unregistered value yields the
-// distinct "rejected relation:" class (the colon-token rejection
-// precedent — the write path maps this class to exit 3, not a warning).
-// supersedes is deliberately rejected: lineage stays in
-// knowledge.superseded_by (the dual-source-of-truth avoidance).
 func TestRelationVocabularyRejectsUnknown(t *testing.T) {
 	got := CheckRelations([]string{"refines", "supersedes", "blocks"})
 	if len(got) != 2 {
@@ -107,10 +93,6 @@ func TestRelationVocabularyRejectsUnknown(t *testing.T) {
 	}
 }
 
-// TestHashCanonicalExcludesRelations — relations joined the hashVolatile
-// exclusion (v1.20.0 schema v14): the same body with·without a relations
-// array hashes identically (dedup preservation — links are metadata, not
-// content).
 func TestHashCanonicalExcludesRelations(t *testing.T) {
 	base := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9}
 	withRel := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
@@ -121,10 +103,6 @@ func TestHashCanonicalExcludesRelations(t *testing.T) {
 	}
 }
 
-// TestHashCanonicalExcludesConditions — conditions joined the hashVolatile
-// exclusion (v1.22.0 schema v17): the same body with·without a conditions
-// string hashes identically (dedup preservation — the recheck tag is
-// metadata, not content, the relations precedent).
 func TestHashCanonicalExcludesConditions(t *testing.T) {
 	base := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9}
 	withCond := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
@@ -133,8 +111,7 @@ func TestHashCanonicalExcludesConditions(t *testing.T) {
 		t.Errorf("conditions 유무로 해시 변동 — hashVolatile 계약 위반: %q vs %q",
 			HashCanonical(base), HashCanonical(withCond))
 	}
-	// a differing conditions value also keeps the hash — the tag never
-	// enters the content identity.
+
 	other := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
 		"conditions": "different"}
 	if HashCanonical(base) != HashCanonical(other) {
@@ -143,13 +120,6 @@ func TestHashCanonicalExcludesConditions(t *testing.T) {
 	}
 }
 
-// TestHashCanonicalExcludesV1240Fields — v1.24.0 (schema v19): the kind
-// classification input (knowledge_kind — the discriminator rec["kind"] is
-// a separate key) and the vault source path (source_path) joined the
-// hashVolatile exclusion: both are metadata about provenance·review scope,
-// not content, so the same body with·without (or with changed) values
-// keeps one dedup identity (the relations·conditions precedent — a
-// duplicate resend never rewrites the stored columns).
 func TestHashCanonicalExcludesV1240Fields(t *testing.T) {
 	base := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9}
 	withKind := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
@@ -158,8 +128,7 @@ func TestHashCanonicalExcludesV1240Fields(t *testing.T) {
 		t.Errorf("knowledge_kind·source_path 부재/존재로 해시 변동 — hashVolatile 계약 위반: %q vs %q",
 			HashCanonical(base), HashCanonical(withKind))
 	}
-	// differing values also keep the hash — neither field is content
-	// identity.
+
 	other := map[string]any{"topic": "t", "summary": "s", "confidence": 0.9,
 		"knowledge_kind": "fact", "source_path": "demo/notes/other.md"}
 	if HashCanonical(withKind) != HashCanonical(other) {
@@ -168,16 +137,9 @@ func TestHashCanonicalExcludesV1240Fields(t *testing.T) {
 	}
 }
 
-// TestCheckRelationsEchoTruncation — v1.20.2 (r88): the rejection echo
-// caps the echoed value at 200 runes. The write path's 64-byte
-// parseLinkSpecs cap keeps values that long unreachable from there, so
-// this direct call is what keeps the defense layer verified for other
-// CheckRelations callers: an echo must never re-print an unbounded
-// input string in full. Multibyte input proves the cap counts runes,
-// not bytes.
 func TestCheckRelationsEchoTruncation(t *testing.T) {
 	const prefix = "rejected relation: "
-	long := strings.Repeat("거", 250) // 250 runes, 750 bytes
+	long := strings.Repeat("거", 250)
 	got := CheckRelations([]string{long})
 	if len(got) != 1 {
 		t.Fatalf("CheckRelations = %d messages, want 1", len(got))
@@ -191,7 +153,7 @@ func TestCheckRelationsEchoTruncation(t *testing.T) {
 		echo = echo[:i]
 	}
 	r := []rune(echo)
-	if len(r) != 201 { // 200 runes + the ellipsis
+	if len(r) != 201 {
 		t.Fatalf("echo rune 수=%d, want 201 (200 절단+생략부호) — echo=%q…", len(r), string(r[:min(20, len(r))]))
 	}
 	if !strings.HasSuffix(echo, "…") {

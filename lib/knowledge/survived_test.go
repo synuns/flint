@@ -1,10 +1,3 @@
-// survived_test.go — the survived signal contract (v1.14.0 T3): one
-// survived point per (knowledge_id, session) pair with 2+ knowledge_reads
-// rows, kind-agnostic (read·hot both count — recall exposure itself is
-// the signal). Scenarios run against the in-memory fake engine by
-// default; with SUPERLITE_REAL=1 + FLINT_TEST_DSN the same scenarios
-// re-run against the real DB (slow, isolated scratch seeding under a
-// unique session prefix, cleaned up after).
 package knowledge
 
 import (
@@ -20,19 +13,12 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// survivedKreadsRow — one in-memory knowledge_reads row backing the fake
-// engine (id + session is all the aggregation needs; kind is carried only
-// to prove it does not matter).
 type survivedKreadsRow struct {
 	id      int
 	session string
 	kind    string
 }
 
-// survivedFakeEngine — computes the (knowledge_id, session) HAVING >=2
-// aggregation over the in-memory rows for the id set in args[0],
-// mirroring the production SQL (the fake answers with rows; the map
-// building under test stays in SurvivedCounts).
 func survivedFakeEngine(rows []survivedKreadsRow) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		if !strings.Contains(sql, "knowledge_reads") {
@@ -70,8 +56,6 @@ func survivedFakeEngine(rows []survivedKreadsRow) func(string, []any) ([][]any, 
 	}
 }
 
-// survivedPoolStore — the minimal real-DB wire.Store for the slow
-// scenario (only Query works — the exportPoolStore convention).
 type survivedPoolStore struct {
 	pool *pgxpool.Pool
 	wire.HistoryStubs
@@ -109,20 +93,14 @@ func (s *survivedPoolStore) Query(ctx context.Context, sql string, args ...any) 
 	return out, rows.Err()
 }
 
-// TestSurvivedCountsScenarios — the four contract cases against the fake
-// engine (default) or the real DB (SUPERLITE_REAL=1 + FLINT_TEST_DSN,
-// slow): same-session 2 reads → 1; two different sessions with 2 reads
-// each → 2; a single read → absent (0); no reads at all → absent (0).
-// The same-session pair mixes kind read+hot — kind must not matter.
 func TestSurvivedCountsScenarios(t *testing.T) {
 	ctx := context.Background()
 	prefix := fmt.Sprintf("surv-%d-", time.Now().UnixNano())
 	kreads := []survivedKreadsRow{
-		{1, prefix + "s1", "read"}, {1, prefix + "s1", "hot"}, // same session, read+hot mix → 1 (kind-agnostic)
-		{2, prefix + "s2", "read"}, {2, prefix + "s2", "hot"}, // two sessions × 2 reads → 2
+		{1, prefix + "s1", "read"}, {1, prefix + "s1", "hot"},
+		{2, prefix + "s2", "read"}, {2, prefix + "s2", "hot"},
 		{2, prefix + "s3", "read"}, {2, prefix + "s3", "read"},
-		{3, prefix + "s4", "read"}, // single read → 0
-		// id 4: no knowledge_reads rows → 0
+		{3, prefix + "s4", "read"},
 	}
 	ids := []int{1, 2, 3, 4}
 
@@ -139,8 +117,7 @@ func TestSurvivedCountsScenarios(t *testing.T) {
 				t.Skipf("real seeding unavailable: %v", err)
 			}
 		}
-		// cleanup LIFO: delete the seeded rows first, then close the pool
-		// (a deferred close would run before this and fail the delete).
+
 		t.Cleanup(pool.Close)
 		t.Cleanup(func() {
 			if _, err := pool.Exec(ctx,
@@ -174,8 +151,6 @@ func TestSurvivedCountsScenarios(t *testing.T) {
 	}
 }
 
-// TestSurvivedCountsEmptyIDsNoop — empty ids issues no query and returns
-// an empty map (no-op).
 func TestSurvivedCountsEmptyIDsNoop(t *testing.T) {
 	st := &fakeStore{}
 	got, err := SurvivedCounts(context.Background(), st, nil)
@@ -190,9 +165,6 @@ func TestSurvivedCountsEmptyIDsNoop(t *testing.T) {
 	}
 }
 
-// TestSurvivedCountsSQLContract — the query shape: knowledge_reads,
-// (knowledge_id, session) grouping with HAVING count >= 2, ids passed as
-// the array arg.
 func TestSurvivedCountsSQLContract(t *testing.T) {
 	ids := []int{11, 12}
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -215,9 +187,6 @@ func TestSurvivedCountsSQLContract(t *testing.T) {
 	}
 }
 
-// TestSurvivedCountsQueryError — a query failure propagates (the caller
-// quietly ignores it — non-interference §13; missing signal degrades to
-// no relief).
 func TestSurvivedCountsQueryError(t *testing.T) {
 	st := &fakeStore{queryErr: fmt.Errorf("db down")}
 	if _, err := SurvivedCounts(context.Background(), st, []int{1}); err == nil {
@@ -225,20 +194,14 @@ func TestSurvivedCountsQueryError(t *testing.T) {
 	}
 }
 
-// TestSnapshotSurvivedSessions — v1.17.0 T4: the decay-audit observation
-// snapshot — the count of ids with survived >= 1 in a SurvivedCounts
-// result is bumped once as `daily:survived_sessions:<UTC date>` (the
-// maintain --decay-audit consumption). Zero surviving ids issue no query
-// at all (n<=0 quiet); the key is the daily flat form PruneDaily's
-// daily:* regex cleans.
 func TestSnapshotSurvivedSessions(t *testing.T) {
 	today := time.Now().UTC().Format("2006-01-02")
 
 	t.Run("survived≥1 id 수 스냅숏", func(t *testing.T) {
 		kreads := []survivedKreadsRow{
-			{1, "sn-s1", "read"}, {1, "sn-s1", "hot"}, // id 1 → 1 session
-			{2, "sn-s2", "read"}, {2, "sn-s2", "read"}, // id 2 → 1 session
-			{3, "sn-s3", "read"}, // single read → absent
+			{1, "sn-s1", "read"}, {1, "sn-s1", "hot"},
+			{2, "sn-s2", "read"}, {2, "sn-s2", "read"},
+			{3, "sn-s3", "read"},
 		}
 		cap := &counterCaptureV{}
 		st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

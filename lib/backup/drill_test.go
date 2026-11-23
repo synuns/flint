@@ -17,8 +17,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// INSERT-statement counting with table-name matching — counts knowledge
-// only; other tables, comments, and DELETEs are not counted.
 func TestCountInserts(t *testing.T) {
 	stmts := splitStatements(`
 -- flint backup probe
@@ -38,7 +36,6 @@ COMMIT;`)
 	}
 }
 
-// skipForDrill — excludes only public sequence-manipulation statements (quick unit check).
 func TestSkipForDrill(t *testing.T) {
 	yes := []string{
 		"CREATE SEQUENCE IF NOT EXISTS public.knowledge_id_seq;",
@@ -65,11 +62,6 @@ func TestSkipForDrill(t *testing.T) {
 	}
 }
 
-// Regression (non-interference): the dump's setval('public.*') and CREATE
-// SEQUENCE public.* statements must not touch the original public sequences
-// during drill replay. Drilling with an old keep-N dump must not rewind
-// public sequences to past values (PK-collision prevention).
-
 func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -82,15 +74,6 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// State probe (hermetic, CI run 39713526850): on a fresh pre-migration DB
-	// public.knowledge_id_seq does not exist at all (zero pg_sequences rows) —
-	// unused/absent is accepted as a normal condition, and non-interference
-	// is judged as "state unchanged before vs after the drill". If the
-	// sequence exists, it seeds itself so the rewind check is meaningful (a
-	// value always ahead of the existing max id — later INSERTs on the
-	// leftover DB stay safe too). The test never creates the sequence
-	// itself: a later migration's CREATE TABLE ... serial would collide with
-	// the auto-created sequence (42P07).
 	probe := func() (bool, int) {
 		var exists bool
 		if err := pool.QueryRow(ctx,
@@ -101,11 +84,7 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 			return false, 0
 		}
 		var last int
-		// NULL safety (CI run 39715701573): on a DB that has only been
-		// migrated, an unused sequence has a NULL last_value (nextval never
-		// called). Unused is not a rewind target, so it reads as 0 — after
-		// the seeding setval there is always a real value, so the
-		// before/after invariance check stays just as strict.
+
 		if err := pool.QueryRow(ctx,
 			`SELECT COALESCE(last_value, 0) FROM pg_sequences WHERE schemaname='public' AND sequencename='knowledge_id_seq'`).Scan(&last); err != nil {
 			t.Fatalf("sequence last_value: %v", err)
@@ -124,9 +103,7 @@ func TestDrillDoesNotTouchPublicSequence(t *testing.T) {
 			t.Fatalf("knowledge 존재 확인: %v", err)
 		}
 		if hasKn {
-			// Must be the scalar-subquery form — on an empty table Doltgres
-			// returns zero rows for a bare aggregate MAX (Postgres returns
-			// one NULL row).
+
 			if err := pool.QueryRow(ctx,
 				`SELECT COALESCE((SELECT MAX("id") FROM "knowledge"), 0)`).Scan(&base); err != nil {
 				t.Fatalf("knowledge max id: %v", err)
@@ -151,25 +128,12 @@ SELECT setval('public.knowledge_id_seq', COALESCE((SELECT MAX("id") FROM "knowle
 		t.Fatal(err)
 	}
 
-	// Fresh pre-migration DB handling (hermetic, verified round 4):
-	// RunDrill writes its success record to public.meta, which — unlike
-	// maintenance_runs — has no ensure step (42P01 "table not found: meta").
-	// If parallel packages have not migrated yet, this test can be the first
-	// drill, so we ensure it with the schema.sql definition (the same
-	// pattern as the maintenance_runs ensure in TestDrillRestoresAndCleans
-	// below).
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS public.meta (
 		key   text PRIMARY KEY,
 		value text NOT NULL)`); err != nil {
 		t.Fatalf("ensure meta: %v", err)
 	}
 
-	// One retry allowed: if a parallel package's migration creates the
-	// sequence between our drills, absence can appear as presence (the
-	// lib/cli Migrate runs outside our lock). A real regression (the drill
-	// executing setval or CREATE SEQUENCE public.*) still shows up as a
-	// mismatch on retry — the rewind value is deterministic (2), always
-	// different from base+7.
 	var before, after int
 	var beforeExists, afterExists bool
 	for attempt := 0; attempt < 2; attempt++ {
@@ -200,9 +164,6 @@ SELECT setval('public.knowledge_id_seq', COALESCE((SELECT MAX("id") FROM "knowle
 	}
 }
 
-// Regression: even without the maintenance_runs table (a migration-gate
-// gap DB), drill success and recording must work (not crushed into an
-// error).
 func TestDrillWithoutMaintenanceRuns(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -242,15 +203,6 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	}
 }
 
-// Real-DB dump replay -> Ok true, no schema residue.
-// Row-count comparison — Expected == Restored == the actual knowledge row count.
-
-// Regression (no contamination of the original pool): drill replay happens
-// only on the separate flint_drill_db pool, so it must not contaminate
-// connection state (search_path, etc.) in the original DSN pool. From a
-// MaxConns=1 pool, current_setting is read on the same connection before
-// and after RunDrill to verify no residue (with residue, later unqualified
-// queries fail to find public tables — CI PR #1 42P01).
 func TestDrillReplayDoesNotContaminateOriginalPool(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -260,7 +212,7 @@ func TestDrillReplayDoesNotContaminateOriginalPool(t *testing.T) {
 	if err != nil {
 		t.Fatalf("parse dsn: %v", err)
 	}
-	cfg.MaxConns = 1 // forces re-acquisition to be the same connection
+	cfg.MaxConns = 1
 	pool, err := pgxpool.NewWithConfig(ctx, cfg)
 	if err != nil {
 		t.Fatalf("connect: %v", err)
@@ -291,9 +243,6 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	}
 }
 
-// drillLock — the drill replay target (flint_drill_db) is a resource shared
-// across packages (across processes). go test runs packages in parallel,
-// so mutual exclusion uses a file lock.
 func drillLock(t *testing.T) func() {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -334,9 +283,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	cleanup := func() {
 		pool.Exec(ctx, `DELETE FROM knowledge WHERE content_hash LIKE 't55-drill-%'`)
 	}
-	// A dev DB created before v0.4 may lack maintenance_runs (the migration
-	// gate skips when schema_version >= 1) — idempotently ensured with the
-	// schema.sql definition.
+
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS maintenance_runs (
 		id serial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
 		kind text NOT NULL, details text)`); err != nil {
@@ -345,11 +292,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	cleanup()
 	defer cleanup()
 
-	// Hermetic comparison: no reliance on pre-seeded (locally lingering)
-	// data; each attempt seeds its own rows. If another package's tests —
-	// which run without our lock — empty knowledge between the count and
-	// the dump, the row counts drift (CI PR #1: expected=1 restored=1, want
-	// 12/12) — both errors and mismatches are absorbed by retries.
 	var res DrillResult
 	var before int
 	var runErr error
@@ -375,7 +317,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		}
 		res, runErr = RunDrill(dsn, path)
 		if runErr == nil && res.Ok && res.Expected == before && res.Restored == before {
-			break // a consistent snapshot — the comparison holds
+			break
 		}
 	}
 	if runErr != nil {
@@ -392,8 +334,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 			res.Expected, res.Restored, before, before)
 	}
 
-	// state — no schema residue.
-	// state — no drill DB residue.
 	var dbs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
@@ -404,7 +344,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		t.Fatalf("%s 잔존: %d", DrillDB, dbs)
 	}
 
-	// Non-interference — the original knowledge row count is unchanged.
 	var after int
 	if err := pool.QueryRow(ctx, `SELECT count(*) FROM knowledge`).Scan(&after); err != nil {
 		t.Fatalf("count after: %v", err)
@@ -413,7 +352,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		t.Fatalf("원본 훼손: before=%d after=%d", before, after)
 	}
 
-	// Success record — one maintenance_runs row (kind=drill) + meta last_drill.
 	var runs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM maintenance_runs WHERE kind = 'drill'`).Scan(&runs); err != nil {
@@ -436,7 +374,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	}
 }
 
-// Even on replay failure, no drill DB residue.
 func TestDrillFailureCleansSchema(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -469,10 +406,6 @@ func TestDrillFailureCleansSchema(t *testing.T) {
 	}
 }
 
-// dropInjectScaffold — shared scaffold for DROP-injection regressions:
-// migration + seeding one unique probe row + the dump file path. Cleanup of
-// the returned pool (deleting the probe) is each test's defer — so it runs
-// before the drillLock release.
 func dropInjectScaffold(t *testing.T) (dsn, path string, pool *pgxpool.Pool) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 120*time.Second)
@@ -507,9 +440,6 @@ func dropInjectScaffold(t *testing.T) (dsn, path string, pool *pgxpool.Pool) {
 	return dsn, path, pool
 }
 
-// TestDrillDropRetriesTransientFailure — regression (CI run 39719705178):
-// a transient 40001 on the final drill DB DROP recovers via retry — the
-// drill succeeds and the drill DB leaves no residue.
 func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -517,8 +447,6 @@ func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	defer pool.Exec(context.Background(),
 		`DELETE FROM knowledge WHERE content_hash LIKE 't55-drop-%'`)
 
-	// Injection: the pre-clean (call 1) succeeds; only the final DROP's
-	// first attempt (call 2) fails.
 	calls := 0
 	saved := dropDrillDBFn
 	dropDrillDBFn = func(ctx context.Context, p *pgxpool.Pool) error {
@@ -551,14 +479,6 @@ func TestDrillDropRetriesTransientFailure(t *testing.T) {
 	}
 }
 
-// Regression: drill replay happens in the dedicated database flint_drill_db
-// and is always removed on exit (success or failure alike). Pre-existing
-// residue (a flint_drill_db left by a previous abnormal exit) is cleaned
-// before replay — we plant a leftover DB containing a sentinel table and
-// verify the whole lifecycle (pre-clean -> replay -> final cleanup) by the
-// DB's absence after the drill. Regardless of the doltgresql defect where
-// per-table/per-schema DROPs silently no-op and leave residue,
-// database-level deletion works (verified).
 func TestDrillIsolatedInDedicatedDatabase(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -571,7 +491,6 @@ func TestDrillIsolatedInDedicatedDatabase(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// Fake pre-existing residue — leave behind a flint_drill_db containing one sentinel table.
 	if _, err := pool.Exec(ctx, `DROP DATABASE IF EXISTS `+DrillDB); err != nil {
 		t.Fatalf("잔존 조립 전 정리: %v", err)
 	}
@@ -611,7 +530,6 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 		t.Fatalf("드릴 결과: %+v, want Ok true 1/1", res)
 	}
 
-	// Final cleanup — the drill DB must be absent regardless of replay success.
 	var dbs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
@@ -621,7 +539,7 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	if dbs != 0 {
 		t.Fatalf("%s 잔존: %d", DrillDB, dbs)
 	}
-	// No schema-path revival — no leftover from the old (flint_drill schema) isolation either.
+
 	var schemas int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).
@@ -633,10 +551,6 @@ INSERT INTO "knowledge" ("id") VALUES (1);`
 	}
 }
 
-// TestDrillDropExhaustionFailsExplicitly — regression (CI run 39719705178):
-// when the final DROP exhausts its retries, RunDrill does not fake success
-// and returns the residue as an explicit failure (the drill itself
-// succeeded — promoting the failure on the success path is the point).
 func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -644,8 +558,6 @@ func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
 	defer pool.Exec(context.Background(),
 		`DELETE FROM knowledge WHERE content_hash LIKE 't55-drop-%'`)
 
-	// Injection: the pre-clean (call 1) succeeds; the final DROP fails
-	// every time (exhausted).
 	calls := 0
 	saved := dropDrillDBFn
 	dropDrillDBFn = func(ctx context.Context, p *pgxpool.Pool) error {
@@ -670,7 +582,7 @@ func TestDrillDropExhaustionFailsExplicitly(t *testing.T) {
 	if calls < 4 {
 		t.Fatalf("재시도 소진 미관측: drop 호출 %d회, want ≥4(선행+3회 시도)", calls)
 	}
-	// Clean up the drill DB left by the injection with the real implementation (to avoid polluting later tests).
+
 	if derr := saved(context.Background(), pool); derr != nil {
 		t.Fatalf("잔존 정리: %v", derr)
 	}

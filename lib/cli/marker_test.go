@@ -1,4 +1,3 @@
-// marker_test.go — the marker helpers: a pending-distill.json write/read/delete round trip.
 package cli
 
 import (
@@ -8,8 +7,6 @@ import (
 	"time"
 )
 
-// test_marker_roundtrip — after WriteMarker, ReadMarker returns session and reason as-is, and
-// ClearMarker removing the file leaves (nil, nil).
 func TestMarkerRoundtrip(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
@@ -39,7 +36,6 @@ func TestMarkerRoundtrip(t *testing.T) {
 	}
 }
 
-// test_marker_absent_nil — without a marker file, ReadMarker (nil, nil) and ClearMarker nil.
 func TestMarkerAbsentNil(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
@@ -52,7 +48,6 @@ func TestMarkerAbsentNil(t *testing.T) {
 	}
 }
 
-// test_marker_corrupt_nil — with corrupt JSON, (nil, err).
 func TestMarkerCorruptNil(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -66,7 +61,6 @@ func TestMarkerCorruptNil(t *testing.T) {
 	}
 }
 
-// TestMarkerFileConfigDir — MarkerFile follows the configDir/pending-distill.json path.
 func TestMarkerFileConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)

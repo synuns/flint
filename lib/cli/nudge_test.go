@@ -1,5 +1,3 @@
-// nudge_test.go — flint nudge: the Stop nudge (stop_hook_active guard), the SessionStart
-// notice, --clear consumption, and silence otherwise (exit 0).
 package cli
 
 import (
@@ -12,14 +10,12 @@ import (
 	"testing"
 )
 
-// nudgeRun — common: runs with st nil (also confirming the st-unused contract).
 func nudgeRun(args []string, stdin string) (string, int) {
 	var out bytes.Buffer
 	code := runNudge(context.Background(), nil, args, strings.NewReader(stdin), &out)
 	return out.String(), code
 }
 
-// test_nudge_stop_context_json — Stop + marker + inactive -> an additionalContext nudge as 1-line JSON.
 func TestNudgeStopContextJson(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteMarker("s1", "compact"); err != nil {
@@ -53,7 +49,6 @@ func TestNudgeStopContextJson(t *testing.T) {
 	}
 }
 
-// test_nudge_stop_active_guard — stop_hook_active:true means empty output, exit 0 (infinite-nudge defense).
 func TestNudgeStopActiveGuard(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteMarker("s1", "compact"); err != nil {
@@ -66,7 +61,6 @@ func TestNudgeStopActiveGuard(t *testing.T) {
 	}
 }
 
-// test_nudge_start_plain — SessionStart + marker -> 1 plain line (not JSON).
 func TestNudgeStartPlain(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteMarker("s1", "compact"); err != nil {
@@ -89,7 +83,6 @@ func TestNudgeStartPlain(t *testing.T) {
 	}
 }
 
-// test_nudge_clear — --clear removes the marker, empty output, exit 0. ReadMarker is nil after consumption.
 func TestNudgeClear(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteMarker("s1", "compact"); err != nil {
@@ -106,7 +99,6 @@ func TestNudgeClear(t *testing.T) {
 	}
 }
 
-// test_nudge_no_marker_silent — a Stop without a marker is empty output, exit 0.
 func TestNudgeNoMarkerSilent(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
@@ -116,7 +108,6 @@ func TestNudgeNoMarkerSilent(t *testing.T) {
 	}
 }
 
-// test_nudge_bad_stdin_exit0 — corrupt stdin and a corrupt marker are both empty output, exit 0.
 func TestNudgeBadStdinExit0(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteMarker("s1", "compact"); err != nil {
@@ -128,7 +119,6 @@ func TestNudgeBadStdinExit0(t *testing.T) {
 		t.Errorf("파손 stdin: (out=%q, exit=%d), want (%q, 0)", out, code, "")
 	}
 
-	// even a corrupt marker is silent — a ReadMarker error is empty output, exit 0.
 	dir2 := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir2)
 	if err := os.WriteFile(filepath.Join(dir2, "pending-distill.json"), []byte("{not json"), 0o600); err != nil {

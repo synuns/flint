@@ -1,7 +1,3 @@
-// engine_probe_test.go — the r108-2 regression: the dolt_log depth probe SQL
-// is owned by lib/db (DoltLogDepth/DoltLogTable), not split-assembled in ops.
-// The assertions pin the O(1) probe shape and the raw dialect string's single
-// home — if the probe drifts back out of lib/db, this file is the marker.
 package db
 
 import (
@@ -15,8 +11,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// probeFakeStore — a wire.Store answering only Query (the probe's single
-// seam); every other method is an unused stub.
 type probeFakeStore struct {
 	queryFn func(sql string, args []any) ([][]any, error)
 }
@@ -55,12 +49,6 @@ func (f *probeFakeStore) DiffCommits(ctx context.Context, fromHash, toHash strin
 	return nil, nil
 }
 
-// TestDoltLogDepthProbeOwnedByDB — the probe issues the O(1) commit_order
-// form against DoltLogTable (raw string, lib/db-owned), an empty log answers
-// 0/nil, and a query failure propagates. The r109-1 assertions: the select
-// expression carries the ::int8 cast (Doltgres types commit_order numeric —
-// pgtype.Numeric used to read as a silent 0), and a numeric cell still
-// coerces even without the cast (the render.CellToInt second layer).
 func TestDoltLogDepthProbeOwnedByDB(t *testing.T) {
 	var got string
 	f := &probeFakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -74,12 +62,11 @@ func TestDoltLogDepthProbeOwnedByDB(t *testing.T) {
 	if depth != 4242 {
 		t.Errorf("깊이=%d, want 4242", depth)
 	}
-	// the O(1) shape — the last row's commit_order, never count(*).
+
 	if !strings.Contains(got, "SELECT commit_order::int8 FROM "+DoltLogTable+" ORDER BY commit_order DESC LIMIT 1") {
 		t.Errorf("O(1) 프로브 아님: %s", got)
 	}
-	// a raw numeric cell (the pre-cast wire shape) coerces through the
-	// CellToInt layer — the second half of the r109-1 fix.
+
 	rawNum := pgtype.Numeric{}
 	if err := rawNum.ScanInt64(pgtype.Int8{Int64: 370, Valid: true}); err != nil {
 		t.Fatalf("Numeric 구성 실패: %v", err)
@@ -93,14 +80,14 @@ func TestDoltLogDepthProbeOwnedByDB(t *testing.T) {
 	if strings.Contains(strings.ToLower(got), "count(") {
 		t.Errorf("count(*) 프로브 금지(상시 성장 테이블 전수 계수): %s", got)
 	}
-	// an empty log answers depth 0, nil (a fresh DB is not an error).
+
 	empty := &probeFakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil
 	}}
 	if d, err := DoltLogDepth(context.Background(), empty); err != nil || d != 0 {
 		t.Errorf("빈 로그 depth=%d err=%v, want 0/nil", d, err)
 	}
-	// a query failure propagates (the caller grades the warn).
+
 	boom := errors.New("no such table")
 	failing := &probeFakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, boom

@@ -1,7 +1,3 @@
-// report_bytes_v1110_test.go — regression: the daily bytes fixture is consistent
-// with report effect.bytes (read/hot/brief each with bytes_14d and avg_bytes — the
-// denominator is the same row's call-count counter) and with status's hot_bytes_14d
-// and read_bytes_14d. Includes the zero-denominator guard (0 calls -> avg 0).
 package ops
 
 import (
@@ -16,8 +12,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// bytesDailyFake — a fake returning only today's daily:<date> row (the other queries
-// follow the parityFake convention — metering and event sources blank, tallies 0).
 func bytesDailyFake(todayJSON string) *fakeStore {
 	today := "daily:" + time.Now().UTC().Format("2006-01-02")
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -40,9 +34,6 @@ func bytesDailyFake(todayJSON string) *fakeStore {
 	}}
 }
 
-// TestReportBytes — the fixture daily bytes -> the effect.bytes set is consistent.
-// read 4 calls 1,000B, hot 2 calls 900B, brief 3 calls 600B — each bytes_14d is the
-// daily sum, and avg_bytes is bytes/calls (floored).
 func TestReportBytes(t *testing.T) {
 	fixture := `{"read":4,"hot":2,"brief":3,"read_bytes":1000,"hot_bytes":900,"brief_bytes":600}`
 	var out strings.Builder
@@ -82,8 +73,6 @@ func TestReportBytes(t *testing.T) {
 	}
 }
 
-// TestReportBytesZeroDenominator — 0 calls (a surface with only bytes recorded)
-// means avg_bytes 0 (the zero-denominator guard — the byte sum is still reported).
 func TestReportBytesZeroDenominator(t *testing.T) {
 	fixture := `{"read":0,"hot":0,"brief":0,"read_bytes":0,"hot_bytes":500,"brief_bytes":0}`
 	var out strings.Builder
@@ -109,8 +98,6 @@ func TestReportBytesZeroDenominator(t *testing.T) {
 	}
 }
 
-// TestStatusBytes14d — hot_bytes_14d and read_bytes_14d at the end of the status
-// output (retention-window daily sums — derived from today's daily row).
 func TestStatusBytes14d(t *testing.T) {
 	statusSeams(t, func(context.Context, wire.Store, string) (string, error) { return "", nil })
 	fixture := `{"read":4,"hot":2,"read_bytes":1000,"hot_bytes":900}`

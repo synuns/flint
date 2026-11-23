@@ -15,17 +15,12 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// fakeStore — a Store interface fake. The stub fields (exists, *Err) take precedence when set;
-// without rows or queryFn it returns zero behavior. The 5 history methods are
-// inherited via the LogEntries capture layer (below) and the HistoryStubs default
-// implementations (the other 4).
 type fakeStore struct {
-	wire.HistoryStubs // inherits the LogEntries override and default implementations for the other 4
+	wire.HistoryStubs
 
-	// stub conditions
 	exists        bool
 	existsErr     error
-	existsProject map[string]bool // existence per name (nil means all false)
+	existsProject map[string]bool
 	insertErr     error
 	commitErr     error
 	pingErr       error
@@ -33,10 +28,6 @@ type fakeStore struct {
 	rows          [][]any
 	queryFn       func(sql string, args []any) ([][]any, error)
 
-	// recording — report's parallel collection (v1.9.3 T2) calls Query concurrently, so
-	// every recording-field access is serialized with mu (the doctor_test lineage).
-	// Query runs inside the lock up to and including the queryFn call — test-local recording in
-	// queryFn closures (queries, argsBySQL appends, etc.) is serialized along with it.
 	mu       sync.Mutex
 	inserted []map[string]any
 	commits  []string
@@ -61,7 +52,7 @@ func (f *fakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return f.exists, f.existsErr
 }
 func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
-	return f.existsProject[name], nil // a nil map lookup is false (zero behavior)
+	return f.existsProject[name], nil
 }
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	f.mu.Lock()
@@ -87,13 +78,6 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return f.rows, nil
 }
 
-// the 5 history methods — a capture layer satisfying the wire.Store contract. The real db SQL (dialect)
-// is owned by lib/db — here we pass the LogQuery mode identifiers and arguments down through the Query seam
-// (queryFn and the queries capture) so consuming tests can assert "which arguments went to which log
-// lookup". The mode identifiers are distinguished by non-dialect fragments (LIKE, date <= $1,
-// commit_order sort, message NOT LIKE) (compatible with queryFn consumers like
-// asof_test and audit_test). DiffRows, DiffStat, DiffCommits, and QueryAsOf use consumer
-// contract-override fakes, so they inherit the HistoryStubs defaults.
 func (f *fakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	var (
 		sql  string
@@ -112,8 +96,7 @@ func (f *fakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.Log
 		sql = `SELECT commit_hash FROM commit_log WHERE date <= $1 ORDER BY commit_order DESC LIMIT 1`
 		args = []any{q.BeforeOrAt}
 	case q.LatestN > 0:
-		// assembly order inherited: NOT LIKE -> LIKE, assigned sequentially from $2, joined with AND,
-		// LIMIT $1 at the end (for argument-passthrough verification).
+
 		sql = `SELECT commit_hash, committer, date, message FROM commit_log`
 		args = []any{q.LatestN}
 		var conds []string
@@ -141,9 +124,6 @@ func (f *fakeStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.Log
 	return fakeLogEntryRows(rows), nil
 }
 
-// fakeLogEntryRows — log query rows -> idiomatic LogEntry mapping. Column-width conventions inherited:
-// 4 columns (hash, committer, date, message), 2 columns (hash, date), 1 column is date if the
-// value parses as a time (the Hash mode date-only fixture), else hash.
 func fakeLogEntryRows(rows [][]any) []wire.LogEntry {
 	var out []wire.LogEntry
 	for _, r := range rows {
@@ -171,8 +151,6 @@ func fakeLogEntryRows(rows [][]any) []wire.LogEntry {
 	return out
 }
 
-// fakeLogDate — equivalent to parseLogDate(db): time.Time as-is; strings parsed
-// with 3 layouts.
 func fakeLogDate(v any) (time.Time, bool) {
 	switch x := v.(type) {
 	case time.Time:
@@ -191,10 +169,6 @@ func fakeLogDate(v any) (time.Time, bool) {
 	return time.Time{}, false
 }
 
-// seamRealDSN — DSN resolution for the SUPERLITE_REAL=1 real-implementation seam: a real DB
-// connection is allowed only when FLINT_TEST_DSN is set. When unset, it does not fall back to the
-// dsnFromEnv default (production 5434/flint) but returns ("", false) — the calling seam takes
-// the fake path, blocking production-metric pollution at the source.
 func seamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -206,9 +180,6 @@ func seamRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// withFake — swaps the newStore seam. Default fake; with FLINT_TEST_DSN set +
-// SUPERLITE_REAL=1, a real-implementation-delegating fake (delegating only unstubbped operations). Skips
-// without a running real DB. Without FLINT_TEST_DSN, never falls back to the real implementation.
 func withFake(t *testing.T, f *fakeStore) {
 	t.Helper()
 	prev := newStore
@@ -230,10 +201,6 @@ func withFake(t *testing.T, f *fakeStore) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// cleanupRealResidue — cleans residue on the shared real DB for SUPERLITE_REAL seams
-// (best-effort — unset, connection failure, or query failure pass silently). The hash dedup,
-// frequency-cap meta, and PK left on the shared DB would break the idempotence of real-DB seam
-// tests, so they are wiped at the start boundary (the wiring version of the TestImportMigrateJSONLRealSlow cleanup convention).
 func cleanupRealResidue(queries ...string) {
 	dsn, ok := seamRealDSN()
 	if !ok {
@@ -249,7 +216,6 @@ func cleanupRealResidue(queries ...string) {
 	}
 }
 
-// delegatingFake — unstubbped operations delegate to the real implementation so seam checks pass through real code.
 type delegatingFake struct {
 	fake *fakeStore
 	real Store
@@ -257,7 +223,6 @@ type delegatingFake struct {
 
 func (d *delegatingFake) Migrate(ctx context.Context) error { return d.real.Migrate(ctx) }
 
-// the 5 history methods — inheriting the delegation pattern (passing through the real-implementation seam as-is).
 func (d *delegatingFake) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.LogEntry, error) {
 	return d.real.LogEntries(ctx, q)
 }
@@ -306,14 +271,9 @@ func (d *delegatingFake) Ping(ctx context.Context) error {
 	return d.real.Ping(ctx)
 }
 
-// Close — no-op: Run's `defer st.Close()` (wire/run.go) is called per command, but
-// the real store is a pool shared across tests, so closing here would make later commands
-// fail with closed-pool errors. Ownership of the real store's teardown belongs to withFake's t.Cleanup.
 func (d *delegatingFake) Close() {}
 func (d *delegatingFake) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
-	// the recording append is serialized with the same mu as fakeStore.Query (unified) — report's
-	// parallel collection calls Query concurrently on the delegatingFake path too.
-	// The queryFn call also runs inside the lock (inheriting the test-local recording closure serialization).
+
 	d.fake.mu.Lock()
 	defer d.fake.mu.Unlock()
 	d.fake.queries = append(d.fake.queries, sql)
@@ -329,10 +289,6 @@ func (d *delegatingFake) Query(ctx context.Context, sql string, args ...any) ([]
 	return d.real.Query(ctx, sql, args...)
 }
 
-// TestDelegatingFakeQueryRecordsSerialized — report's parallel collection (v1.9.3 T2) calls
-// Query concurrently on the delegatingFake path too. Verifies under -race that the queries
-// append is serialized by fakeStore.mu (the R46 unification regression guard).
-// With rows set, the real-delegation branch is not reached (only the recording serialization is under test).
 func TestDelegatingFakeQueryRecordsSerialized(t *testing.T) {
 	f := &fakeStore{rows: [][]any{{"x"}}}
 	d := &delegatingFake{fake: f, real: f}
@@ -355,7 +311,6 @@ func TestDelegatingFakeQueryRecordsSerialized(t *testing.T) {
 	}
 }
 
-// mustRun — runs Run + asserts the exit code.
 func mustRun(t *testing.T, args []string, stdin string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -375,8 +330,7 @@ func decode(t *testing.T, line string) map[string]any {
 func TestWriteCommitted(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// write passes content_hash dedup (shared real DB) — each run must use a unique
-	// topic to avoid residue-hash collisions for committed to stay idempotent.
+
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"topic":"`+topic+`","summary":"s","confidence":0.9,"tags":["b","a"]}`)
@@ -412,7 +366,7 @@ func TestWriteCommitted(t *testing.T) {
 func TestWritePendingBoundary(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// avoid residue-hash collisions (see the TestWriteCommitted comment).
+
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"topic":"`+topic+`","summary":"s","confidence":0.79}`)
@@ -462,7 +416,7 @@ func TestWriteJSONLSingleCommit(t *testing.T) {
 func TestWriteStripsNonColumnKeys(t *testing.T) {
 	f := &fakeStore{}
 	withFake(t, f)
-	// avoiding project-name residue collisions on the shared real DB — a unique name per run.
+
 	name := fmt.Sprintf("p1-%s-%d", t.Name(), time.Now().UnixNano())
 	_, code := mustRun(t, []string{"write", "project"},
 		`{"name":"`+name+`","status":"active","note":"메타데이터"}`)
@@ -470,14 +424,14 @@ func TestWriteStripsNonColumnKeys(t *testing.T) {
 		t.Fatalf("exit=%d, want 0", code)
 	}
 	rec := f.inserted[0]
-	// the note is registered into the project column (kindColumns).
+
 	if rec["note"] != "메타데이터" {
 		t.Fatalf("note 컬럼 미저장: %v", rec)
 	}
 	if rec["name"] != name || rec["status"] != "active" {
 		t.Fatalf("컬럼 유실: %v", rec)
 	}
-	// unregistered keys are still protected from unwarned deletion: they must appear in warnings (verified with a different key).
+
 	out2, code2 := mustRun(t, []string{"write", "project"},
 		`{"name":"`+name+`x","status":"active","bogus_key":"v"}`)
 	if code2 != 0 {
@@ -530,14 +484,13 @@ func TestWriteBadJSONExit3(t *testing.T) {
 	if code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out)
 	}
-	decode(t, out) // must be a one-line JSON error
+	decode(t, out)
 }
 
 func TestRetriesExhaustedExit1(t *testing.T) {
 	f := &fakeStore{commitErr: store.ErrRetriesExhausted}
 	withFake(t, f)
-	// avoiding residue-hash collisions (see the TestWriteCommitted comment) — if skipped as
-	// duplicate before reaching the commit path, exit 1 itself cannot be reproduced.
+
 	topic := fmt.Sprintf("t-%s-%d", t.Name(), time.Now().UnixNano())
 	out, code := mustRun(t, []string{"write", "knowledge"},
 		`{"topic":"`+topic+`","summary":"s","confidence":0.9}`)
@@ -569,8 +522,7 @@ func TestReadLimitClampAndJSON(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d, want 0", code)
 	}
-	// in --json, when the requested limit exceeds the cap (50), additive clamp lines
-	// (limit_requested, limit_applied) follow the row (existing keys unchanged).
+
 	want := "{\"id\":\"1\",\"topic\":\"t\"}\n" +
 		`{"limit_requested":999,"limit_applied":50}`
 	if strings.TrimSpace(out) != want {

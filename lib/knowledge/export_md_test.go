@@ -1,6 +1,3 @@
-// export_md_test.go — FormatMD structure assertions (header·section
-// count·meta line shape·lineage link)·empty result (header only)·content
-// verbatim including newlines.
 package knowledge
 
 import (
@@ -54,8 +51,6 @@ func mdSampleRows() []ExportRow {
 	}
 }
 
-// Asserts the header (`# flint export`, created-at UTC, item count)·
-// section count·meta line shape·lineage link (`→ #N`).
 func TestFormatMDStructure(t *testing.T) {
 	out := FormatMD(mdSampleRows())
 	s := string(out)
@@ -86,8 +81,6 @@ func TestFormatMDStructure(t *testing.T) {
 	}
 }
 
-// When superseded_by is nil, the meta line must not contain that
-// fragment.
 func TestFormatMDNoSupersededLeak(t *testing.T) {
 	out := string(FormatMD(mdSampleRows()))
 	if n := regexp.MustCompile(`superseded_by: → #`).FindAllString(out, -1); len(n) != 1 {
@@ -95,7 +88,6 @@ func TestFormatMDNoSupersededLeak(t *testing.T) {
 	}
 }
 
-// Empty result — header only (items: 0), no sections.
 func TestFormatMDEmpty(t *testing.T) {
 	out := FormatMD(nil)
 	s := string(out)
@@ -110,12 +102,10 @@ func TestFormatMDEmpty(t *testing.T) {
 	}
 }
 
-// Content is verbatim (newlines preserved) — the note-app portability
-// premise.
 func TestFormatMDContentVerbatim(t *testing.T) {
 	rows := []ExportRow{{
 		ID:        7,
-		Topic:     "C# 네이밍 #관례", // heading-collision characters — printed as-is
+		Topic:     "C# 네이밍 #관례",
 		Content:   "1줄\n2줄\n\n4줄",
 		Status:    "active",
 		Source:    "manual",
@@ -130,12 +120,6 @@ func TestFormatMDContentVerbatim(t *testing.T) {
 	}
 }
 
-// --- v1.20.0 T4: supersede chain notation (supersede_chains view) ---
-
-// The chain map (SupersedeChains — the supersede_chains view) upgrades
-// the 1-hop lineage link to the full root→terminal chain with the
-// max-depth annotation; rows absent from the map keep the legacy 1-hop
-// notation.
 func TestFormatMDChainNotation(t *testing.T) {
 	out := string(FormatMD(mdSampleRows(), map[int][]int{88: {90, 91}}))
 	want := "superseded_by: → #90 → #91 (depth 2)"
@@ -147,8 +131,6 @@ func TestFormatMDChainNotation(t *testing.T) {
 	}
 }
 
-// A chain whose terminal is the 1-hop target renders the single hop
-// with its depth.
 func TestFormatMDChainTerminalOneHop(t *testing.T) {
 	out := string(FormatMD(mdSampleRows(), map[int][]int{88: {90}}))
 	want := "superseded_by: → #90 (depth 1)"
@@ -157,8 +139,6 @@ func TestFormatMDChainTerminalOneHop(t *testing.T) {
 	}
 }
 
-// A row without a map entry (view miss·older data) falls back to the
-// legacy 1-hop notation — no depth annotation.
 func TestFormatMDChainFallbackNoEntry(t *testing.T) {
 	out := string(FormatMD(mdSampleRows(), map[int][]int{91: {99}}))
 	want := "superseded_by: → #90"
@@ -170,8 +150,6 @@ func TestFormatMDChainFallbackNoEntry(t *testing.T) {
 	}
 }
 
-// The view loader maps root_id → descendant ids in depth order
-// (terminal last); depth-0 self rows are excluded by the SQL.
 func TestSupersedeChainsBuildsMap(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if !strings.Contains(sql, "FROM supersede_chains") {
@@ -180,7 +158,7 @@ func TestSupersedeChainsBuildsMap(t *testing.T) {
 		if !strings.Contains(sql, "depth > 0") {
 			t.Errorf("depth 0(루트 자신) 미제외: %s", sql)
 		}
-		// Mixed cell types mirror the pgx-measured shapes (int32/int64).
+
 		return [][]any{
 			{int32(7), int64(8), int32(1)},
 			{int32(7), int64(9), int32(2)},
@@ -197,7 +175,6 @@ func TestSupersedeChainsBuildsMap(t *testing.T) {
 	}
 }
 
-// A query failure propagates unchanged (MapExit maps it at the caller).
 func TestSupersedeChainsQueryError(t *testing.T) {
 	boom := errors.New("boom")
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -208,11 +185,6 @@ func TestSupersedeChainsQueryError(t *testing.T) {
 	}
 }
 
-// --- v1.20.0 T4 slow (real DB): view termination·expansion·
-// reapply idempotence·export_md end-to-end. ---
-
-// mdSlowDSN — SUPERLITE_REAL=1 + FLINT_TEST_DSN (dedicated scratch DB —
-// shared·personal DBs forbidden). Skips otherwise.
 func mdSlowDSN(t *testing.T) string {
 	t.Helper()
 	if os.Getenv("SUPERLITE_REAL") != "1" || os.Getenv("FLINT_TEST_DSN") == "" {
@@ -221,11 +193,8 @@ func mdSlowDSN(t *testing.T) string {
 	return os.Getenv("FLINT_TEST_DSN")
 }
 
-// mdChainHashPrefix — the content_hash prefix scoping the seeded rows
-// (leading DELETE also absorbs prior-run residue).
 const mdChainHashPrefix = "mdchain-"
 
-// seedMDChainRows — n synthetic demo rows; returns the inserted ids.
 func seedMDChainRows(t *testing.T, pool *pgxpool.Pool, n int) []int {
 	t.Helper()
 	ctx := context.Background()
@@ -249,13 +218,11 @@ func seedMDChainRows(t *testing.T, pool *pgxpool.Pool, n int) []int {
 	return ids
 }
 
-// mdHop — one supersede_chains row (member id, hops from the root).
 type mdHop struct {
 	id    int
 	depth int
 }
 
-// mdChainRows — the view unfold of one root, depth-ascending.
 func mdChainRows(t *testing.T, pool *pgxpool.Pool, root int) []mdHop {
 	t.Helper()
 	rows, err := pool.Query(context.Background(),
@@ -290,11 +257,6 @@ func mdHopsEqual(got []mdHop, want []mdHop) bool {
 	return true
 }
 
-// TestSlowSupersedeChainsView — the supersede_chains view: a 3-row
-// lineage unfolds at depths 0·1·2, a standalone row stays at depth 0,
-// cyclic data terminates (path-array guard), a second Migrate leaves
-// views_hash unchanged (reapply idempotence), and export_md renders the
-// chain end-to-end off the view.
 func TestSlowSupersedeChainsView(t *testing.T) {
 	dsn := mdSlowDSN(t)
 	ctx := context.Background()
@@ -322,9 +284,7 @@ func TestSlowSupersedeChainsView(t *testing.T) {
 	}
 	setRef(root, mid)
 	setRef(mid, end)
-	// Cyclic data — written directly at the data level (the write-path
-	// guards of T3 are bypassed on purpose: the view must terminate even
-	// on pre-guard residue).
+
 	setRef(c1, c2)
 	setRef(c2, c1)
 
@@ -334,8 +294,7 @@ func TestSlowSupersedeChainsView(t *testing.T) {
 	if got := mdChainRows(t, pool, solo); !mdHopsEqual(got, []mdHop{{solo, 0}}) {
 		t.Errorf("단독 행 전개 = %v, want [%d 0]", got, solo)
 	}
-	// The path-array guard ends each cyclic walk at the first repeat —
-	// one hop past the root, not an iteration-limit error.
+
 	if got := mdChainRows(t, pool, c1); !mdHopsEqual(got, []mdHop{{c1, 0}, {c2, 1}}) {
 		t.Errorf("사이클 c1 전개 = %v, want [%d 0 · %d 1]", got, c1, c2)
 	}
@@ -343,8 +302,6 @@ func TestSlowSupersedeChainsView(t *testing.T) {
 		t.Errorf("사이클 c2 전개 = %v, want [%d 0 · %d 1]", got, c2, c1)
 	}
 
-	// Reapply idempotence — a second Migrate finds the views current and
-	// leaves the recorded digest unchanged (no dolt_schemas rewrite).
 	metaVal := func(key string) string {
 		var v string
 		if err := pool.QueryRow(ctx, `SELECT value FROM meta WHERE key = $1`, key).Scan(&v); err != nil {
@@ -362,14 +319,11 @@ func TestSlowSupersedeChainsView(t *testing.T) {
 	if hash2 := metaVal("views_hash"); hash2 != hash1 {
 		t.Errorf("재적용 멱등 위반: views_hash %q → %q", hash1, hash2)
 	}
-	// views_sig carries the new view's column signature (the regexp
-	// auto-inclusion — root_id,id,depth).
+
 	if sig := metaVal("views_sig"); !strings.Contains(sig, "supersede_chains:root_id,id,depth") {
 		t.Errorf("views_sig에 supersede_chains 시그니처 부재:\n%s", sig)
 	}
 
-	// export_md end-to-end: the loader consumes the view, FormatMD
-	// renders the full chain with the max-depth annotation.
 	chains, err := SupersedeChains(ctx, &exportPoolStore{pool: pool})
 	if err != nil {
 		t.Fatalf("SupersedeChains(실DB): %v", err)

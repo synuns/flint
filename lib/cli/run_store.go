@@ -1,14 +1,3 @@
-// run_store.go — store-injected run variant. So the long-lived flint mcp
-// process does not reopen the store on every tool call, RunWithStore injects a
-// server-lifetime store. The existing cli.Run (root.go) is unchanged — nil injection is
-// equivalent to the existing wire.Run(newStore) path.
-//
-// the wrapper promotes only wire.Store methods, so the command layer's
-// optional interface assertions (approveStore, DupMetaStore,
-// ReadEventStore and others in lib/{knowledge,ops} — 19 kinds by exhaustive grep) were all blocked, losing approve promotion, duplicate
-// metadata, and read_events metering. Delegate each capability to the
-// underlying store so the assertions pass again — for unimplemented originals, reproduce the
-// consumer's existing fallback (error string, no-op, ExistsHash) exactly.
 package cli
 
 import (
@@ -23,24 +12,18 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// injectedStore — close-blocking wrapper around the injected store. wire.Run follows the one-shot
-// CLI contract of calling st.Close() after the command, so passing a server-lifetime store
-// through as-is would close it on the first tool call. Everything delegates to the original; only Close is a no-op.
 type injectedStore struct{ wire.Store }
 
 func (injectedStore) Close() {}
 
-// compile-time guarantee — the wrapper implements the full capability set below
-// (the anonymous interfaces mirror the method sets targeted by the unexported assertions in
-// knowledge and ops. Structural typing lets the assertions pass across packages).
 var (
-	_ interface { // knowledge.approveStore
+	_ interface {
 		Approve(ctx context.Context, id int) error
 	} = injectedStore{}
-	_ interface { // knowledge.supersedeStore
+	_ interface {
 		Supersede(ctx context.Context, oldID, newID int, at time.Time) (int64, error)
 	} = injectedStore{}
-	_ interface { // knowledge.supersedeRefStore
+	_ interface {
 		SetSupersededRef(ctx context.Context, oldID, newID int) (int64, error)
 	} = injectedStore{}
 	_ knowledge.DupMetaStore           = injectedStore{}
@@ -51,31 +34,29 @@ var (
 	_ knowledge.BytesRecorder          = injectedStore{}
 	_ knowledge.KnowledgeReadsRecorder = injectedStore{}
 	_ knowledge.HotEventRecorder       = injectedStore{}
-	_ interface {                      // knowledge.readBumper
+	_ interface {
 		BumpReads(ctx context.Context, ids []int) error
 	} = injectedStore{}
-	_ interface { // knowledge.usageStore(done)
+	_ interface {
 		LogPlaybookUse(ctx context.Context, id int, ok bool) error
 	} = injectedStore{}
-	_ interface { // knowledge.sessionSummaryStore
+	_ interface {
 		UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error)
 	} = injectedStore{}
-	_ interface { // knowledge.staleSessionStore
+	_ interface {
 		StaleSessionRuns(ctx context.Context, agent string) (int, error)
 	} = injectedStore{}
 	_ ops.SessionStartRecorder = injectedStore{}
-	_ interface {              // ops.dumpStore
+	_ interface {
 		Dump(ctx context.Context, w io.Writer) error
 	} = injectedStore{}
-	_ interface { // ops.metaDeleteStore
+	_ interface {
 		MetaDelete(ctx context.Context, keys []string) (int64, error)
 	} = injectedStore{}
 	_ ops.ConflictStore            = injectedStore{}
 	_ ops.MaintStore               = injectedStore{}
-	_ knowledge.TelemetryCommitter = injectedStore{} // telemetry separate commit
+	_ knowledge.TelemetryCommitter = injectedStore{}
 )
-
-// --- promotion and transition (knowledge approve/import) ---
 
 func (s injectedStore) Approve(ctx context.Context, id int) error {
 	if a, ok := s.Store.(interface {
@@ -83,7 +64,7 @@ func (s injectedStore) Approve(ctx context.Context, id int) error {
 	}); ok {
 		return a.Approve(ctx, id)
 	}
-	// same wording as the consumer fallback (the approve.go ApproveFn default).
+
 	return errors.New("approve: injected store does not implement Approve")
 }
 
@@ -102,15 +83,12 @@ func (s injectedStore) SetSupersededRef(ctx context.Context, oldID, newID int) (
 	}); ok {
 		return rs.SetSupersededRef(ctx, oldID, newID)
 	}
-	// the consumer fallback is a skip with a stderr notice — equivalently skipped as 0 rows.
+
 	return 0, nil
 }
 
-// --- dedup metadata (knowledge write) ---
-
 func (s injectedStore) DupRowByHash(ctx context.Context, hash string) (knowledge.DupMeta, bool, error) {
-	// reproduces the lookupHash fallback chain (DupMetaStore->DupIDStore->ExistsHash) as-is —
-	// the wrapper always satisfies DupMetaStore, so the whole chain lives here.
+
 	if ms, ok := s.Store.(knowledge.DupMetaStore); ok {
 		return ms.DupRowByHash(ctx, hash)
 	}
@@ -129,8 +107,6 @@ func (s injectedStore) DupIDByHash(ctx context.Context, hash string) (int, bool,
 	exists, err := s.Store.ExistsHash(ctx, hash)
 	return 0, exists, err
 }
-
-// --- metering (consumers silently ignore errors — no-op for unimplemented originals) ---
 
 func (s injectedStore) RecordUsage(ctx context.Context, kind, source string) error {
 	if us, ok := s.Store.(knowledge.UsageStore); ok {
@@ -174,8 +150,6 @@ func (s injectedStore) RecordHotEvent(ctx context.Context, ids string) error {
 	return nil
 }
 
-// CommitTelemetry — delegates the separate telemetry-table commit. Unimplemented
-// originals are a no-op, same as the consumer (the failed type assertion skip in commitTelemetry).
 func (s injectedStore) CommitTelemetry(ctx context.Context, cmd string) error {
 	if tc, ok := s.Store.(knowledge.TelemetryCommitter); ok {
 		return tc.CommitTelemetry(ctx, cmd)
@@ -208,15 +182,13 @@ func (s injectedStore) LogPlaybookUse(ctx context.Context, id int, ok bool) erro
 	return nil
 }
 
-// --- session and maintenance updates ---
-
 func (s injectedStore) UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error) {
 	if us, ok := s.Store.(interface {
 		UpdateSessionSummary(ctx context.Context, id int, summary, tasks string) (int64, error)
 	}); ok {
 		return us.UpdateSessionSummary(ctx, id, summary, tasks)
 	}
-	// the consumer fallback is one stderr line + skip the update — kept equivalent by returning the error.
+
 	return 0, errors.New("session summary: unsupported store")
 }
 
@@ -226,10 +198,8 @@ func (s injectedStore) StaleSessionRuns(ctx context.Context, agent string) (int,
 	}); ok {
 		return ss.StaleSessionRuns(ctx, agent)
 	}
-	return 0, nil // consumer fallback: 0 with no warning
+	return 0, nil
 }
-
-// --- admin (ops backup·tuning·maintain·doctor) ---
 
 func (s injectedStore) Dump(ctx context.Context, w io.Writer) error {
 	if ds, ok := s.Store.(interface {
@@ -237,7 +207,7 @@ func (s injectedStore) Dump(ctx context.Context, w io.Writer) error {
 	}); ok {
 		return ds.Dump(ctx, w)
 	}
-	// same path as the consumer fallback (the ops.RunBackup DumpFn seam).
+
 	return ops.DumpFn(ctx, wire.DSNFromEnv(), w)
 }
 
@@ -299,17 +269,10 @@ func (s injectedStore) Merge(ctx context.Context, fromID, toID int) error {
 	return errors.New("maintain: unsupported store")
 }
 
-// OpenServerStore — opens the server-lifetime store (including DSN resolution). The lib/mcp
-// default storeSupply implementation uses it. Failures are absorbed by the caller via nil fallback
-// (each call fails on its own per the existing Run contract).
 func OpenServerStore() (wire.Store, error) {
 	return newStore(context.Background(), wire.DSNFromEnv())
 }
 
-// RunWithStore — runs the command with an injected store. If st is nil, it opens internally just
-// like the existing Run (wire.Run + the cli.newStore seam) — output and exit
-// contracts unchanged. When injected, connection lifetime is delegated to the pgx pool (including
-// reconnects) and only Close is blocked, guaranteeing server-lifetime reuse.
 func RunWithStore(args []string, stdin io.Reader, stdout io.Writer, st wire.Store) int {
 	if st == nil {
 		return wire.Run(args, stdin, stdout, newStore)

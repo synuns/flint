@@ -1,12 +1,3 @@
-// read_test.go — the read contract
-// zero-hit exit 0·--session auto-label·as-of. Contract invariants: an
-// eligible (present-point·stateless-filter) zero-hit is fully silent in
-// text mode·--json is a one-line {"hits":0}, exit 0; without --session,
-// the wire.ReadSessionLabel label is quietly adopted; --as-of appends a
-// one-line as_of JSON after the results. The as-of spec parser is
-// cli-asof.go-owned, so a double is injected through the ParseAsOfSpecFn
-// seam (the real-implementation path belongs to the cli-residual
-// read_v08_test.go under SUPERLITE_REAL=1).
 package knowledge
 
 import (
@@ -30,15 +21,11 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// readEventRecorder — a fakeStore with the ReadEventStore seam layered
-// on (moved from the cli read_v0190_test.go convention). Also absorbs
-// RecordReadUsage.
 type readEventRecorder struct {
 	*fakeStore
 	events []readEventRecord
 }
 
-// readEventRecord — recorded RecordReadEvent call arguments.
 type readEventRecord struct {
 	hits      int
 	zero      bool
@@ -58,15 +45,11 @@ func (r *readEventRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEvent
 	return nil
 }
 
-// bytesRecorder — a fakeStore with the BytesRecorder seam layered on (G5
-// byte metering). Records RecordReadEvent call arguments (package-shared
-// — the hot·brief regressions use the same fake).
 type bytesRecorder struct {
 	*fakeStore
 	recorded []bytesCall
 }
 
-// bytesCall — recorded RecordBytes call arguments.
 type bytesCall struct {
 	kind string
 	n    int
@@ -77,9 +60,6 @@ func (b *bytesRecorder) RecordBytes(ctx context.Context, kind string, n int) err
 	return nil
 }
 
-// TestRunReadRecordsBytes — right after the read output, records
-// len(final output) with kind="read" — even a 0-byte zero-hit is
-// recorded (call-count denominator consistency, spec §1).
 func TestRunReadRecordsBytes(t *testing.T) {
 	t.Run("히트 — 최종 출력 바이트", func(t *testing.T) {
 		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -103,7 +83,7 @@ func TestRunReadRecordsBytes(t *testing.T) {
 	})
 	t.Run("제로히트 — 0바이트도 기록", func(t *testing.T) {
 		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			return nil, nil // zero-hit — fallback·suggestion scan also all 0 rows
+			return nil, nil
 		}}}
 		var out strings.Builder
 		if code := RunRead(context.Background(), st,
@@ -116,9 +96,6 @@ func TestRunReadRecordsBytes(t *testing.T) {
 	})
 }
 
-// injectAsOfSeams — injects a fixed-hash double at the ParseAsOfSpecFn·
-// ErrInvalidAsOf injection points (spec "7d" → one hash resolved).
-// Restored via t.Cleanup.
 func injectAsOfSeams(t *testing.T, hash string) {
 	t.Helper()
 	savedFn, savedErr := ParseAsOfSpecFn, ErrInvalidAsOf
@@ -129,20 +106,14 @@ func injectAsOfSeams(t *testing.T, hash string) {
 	t.Cleanup(func() { ParseAsOfSpecFn, ErrInvalidAsOf = savedFn, savedErr })
 }
 
-// hitRowsFixture — the active_knowledge rows of a hit read (9 columns,
-// inheriting the cli convention).
 var hitRowsFixture = [][]any{
 	{"1", "백업 정책", "매일", ":b:", "", "", "0.9", "active", "0"},
 	{"2", "백업 절차", "매일", ":b:", "", "", "0.9", "active", "0"},
 }
 
-// TestRunReadZeroHitExit0Silent — an eligible (present-point·stateless
-// filter) zero-hit is fully silent in text (silence kept) with exit 0
-// (previously 1) — a zero-hit is not an error, so the agent loop is not
-// broken.
 func TestRunReadZeroHitExit0Silent(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // zero-hit — fallback·suggestion scan also all 0 rows
+		return nil, nil
 	}}
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
@@ -155,12 +126,9 @@ func TestRunReadZeroHitExit0Silent(t *testing.T) {
 	}
 }
 
-// TestRunReadZeroHitJSONHits — a --json zero-hit is a one-line
-// hits:0 JSON ({"hits":0}) + exit 0 — the caller machine-reads the hit
-// count. Unlike text mode, it is not silent.
 func TestRunReadZeroHitJSONHits(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // zero-hit — fallback·suggestion scan also all 0 rows
+		return nil, nil
 	}}
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
@@ -173,15 +141,9 @@ func TestRunReadZeroHitJSONHits(t *testing.T) {
 	}
 }
 
-// TestRunReadSessionAutoLabel — without --session, the current session
-// label file (wire.ReadSessionLabel) is quietly adopted and recorded in
-// read_events. The label file is set up in a temporary directory via the
-// wire.ConfigDir seam.
 func TestRunReadSessionAutoLabel(t *testing.T) {
 	dir := t.TempDir()
-	// The label source is the per-session file, the single
-	// session-<id>.label path — the legacy session-current is no longer
-	// read.
+
 	if err := os.WriteFile(dir+"/session-demo1.label", []byte("auto-label-7\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -212,9 +174,6 @@ func TestRunReadSessionAutoLabel(t *testing.T) {
 	}
 }
 
-// asOfStore — a fakeStore with the history seams (QueryAsOf·LogEntries)
-// layered on. Records call arguments to verify the dialect severance
-// (raw AS OF SQL·dolt_log queries abolished).
 type asOfStore struct {
 	*fakeStore
 	asOfCalls  []wire.AsOfQuery
@@ -241,11 +200,6 @@ func (s *asOfStore) LogEntries(ctx context.Context, q wire.LogQuery) ([]wire.Log
 	return s.logEntries, nil
 }
 
-// TestRunReadAsOfAddsField — with --as-of, a one-line
-// as_of{hash,commit_date} JSON is appended after the existing row
-// output. The query goes through Store.QueryAsOf (dialect severance —
-// raw AS OF inlining abolished); the commit time through
-// LogEntries{Hash}.
 func TestRunReadAsOfAddsField(t *testing.T) {
 	const asOfHash = "he08irluqn3v2m1k9x7c4jw5z6b8d0f"
 	injectAsOfSeams(t, asOfHash)
@@ -270,31 +224,25 @@ func TestRunReadAsOfAddsField(t *testing.T) {
 	if !strings.Contains(got, `"as_of":{"hash":"he08irluqn3v2m1k9x7c4jw5z6b8d0f","commit_date":"2026-10-20T12:00:00Z"}`) {
 		t.Errorf("as_of 필드 누락/불일치: %q", got)
 	}
-	// The query is QueryAsOf once — the hash·view-table contract.
+
 	if len(st.asOfCalls) != 1 {
 		t.Fatalf("QueryAsOf 호출 %d회, want 1: %v", len(st.asOfCalls), st.asOfCalls)
 	}
 	if aq := st.asOfCalls[0]; aq.Hash != asOfHash || aq.Table != "active_knowledge" {
 		t.Errorf("AsOfQuery = %+v, want Hash·Table=active_knowledge", aq)
 	}
-	// Raw AS OF clauses abolished — any AS OF string left on the Query
-	// path is a dialect-severance violation.
+
 	for _, raw := range st.fakeStore.queries {
 		if strings.Contains(raw, "AS OF") {
 			t.Errorf("원시 AS OF 절 잔존: %q", raw)
 		}
 	}
-	// The commit-time lookup is LogEntries{Hash} once (raw dolt_log
-	// queries abolished).
+
 	if len(st.logCalls) != 1 || st.logCalls[0].Hash != asOfHash {
 		t.Errorf("LogEntries 호출 = %v, want 1회 Hash=%s", st.logCalls, asOfHash)
 	}
 }
 
-// TestRunReadAsOfQueryErrorExit — on QueryAsOf failure (even after the
-// db-implementation transfer of gate errors such as a hash-charset
-// violation), the caller-side exit contract is a one-line error JSON +
-// MapExit (an ordinary error exits 1).
 func TestRunReadAsOfQueryErrorExit(t *testing.T) {
 	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
 	st := &asOfStore{
@@ -313,8 +261,6 @@ func TestRunReadAsOfQueryErrorExit(t *testing.T) {
 	}
 }
 
-// TestRunReadAsOfDateQuietFailure — a commit-time lookup (LogEntries)
-// failure is quiet — the as_of line's commit_date is empty·exit 0 (§13).
 func TestRunReadAsOfDateQuietFailure(t *testing.T) {
 	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
 	st := &asOfStore{
@@ -333,9 +279,6 @@ func TestRunReadAsOfDateQuietFailure(t *testing.T) {
 	}
 }
 
-// TestRunReadAsOfInvalidExit3 — an invalid spec is exit 3 with a
-// one-line JSON invalid_as_of (judged via the ErrInvalidAsOf injection
-// point).
 func TestRunReadAsOfInvalidExit3(t *testing.T) {
 	savedFn, savedErr := ParseAsOfSpecFn, ErrInvalidAsOf
 	ParseAsOfSpecFn = func(ctx context.Context, st wire.Store, spec string) (string, error) {
@@ -355,8 +298,6 @@ func TestRunReadAsOfInvalidExit3(t *testing.T) {
 	}
 }
 
-// TestReadFieldsValidation — --fields accepts known columns only. A
-// typo ("sumary") is exit 3; valid fields pass.
 func TestReadFieldsValidation(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		return nil, nil
@@ -370,7 +311,7 @@ func TestReadFieldsValidation(t *testing.T) {
 	if !strings.Contains(out.String(), `"fields"`) {
 		t.Errorf("오류 필드에 fields 없음: %s", out.String())
 	}
-	// Valid fields pass (regression — the existing usage shape).
+
 	var out2 strings.Builder
 	code2 := RunRead(context.Background(), st,
 		[]string{"백업", "--fields", "topic,confidence"}, strings.NewReader(""), &out2)
@@ -379,8 +320,6 @@ func TestReadFieldsValidation(t *testing.T) {
 	}
 }
 
-// TestReadRRFKInjectionBeforeReorder — the rrf_k injection (the
-// wire.LoadThresholdsFn seam) is called before the fallback rerank.
 func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 	var order []string
 	savedLT := wire.LoadThresholdsFn
@@ -389,7 +328,7 @@ func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 		return store.DefaultThresholds(), nil
 	}
 	t.Cleanup(func() { wire.LoadThresholdsFn = savedLT })
-	// A fallback-path read (zero-hit phrase → OR re-query hit).
+
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM active_knowledge"):
@@ -412,38 +351,27 @@ func TestReadRRFKInjectionBeforeReorder(t *testing.T) {
 	}
 }
 
-// TestReadUnknownFlagExit3 — an unrecognized '-'-prefixed argument is
-// not absorbed into the query but is the invalid-arg exit 3 (abolishing
-// the blind spot where read --jsonn quietly flowed to zero-hit and the
-// agent never noticed the typo). The positional query·"--"
-// end-of-options absorption are unchanged.
 func TestReadUnknownFlagExit3(t *testing.T) {
 	var out strings.Builder
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"--jsonn"}, strings.NewReader(""), &out); code != 3 {
 		t.Fatalf("exit=%d, want 3; out=%s", code, out.String())
 	}
-	// The unknown-flag class carries error:"usage".
+
 	if !strings.Contains(out.String(), `"error":"usage"`) {
 		t.Fatalf("에러 JSON error:usage 아님: %q", out.String())
 	}
-	// Positional query unchanged — non-'-'-prefixed values are still
-	// absorbed as query text.
+
 	out.Reset()
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"docker"}, strings.NewReader(""), &out); code == 3 {
 		t.Fatalf("positional 쿼리가 exit 3: %s", out.String())
 	}
-	// Everything after "--" is positional — even '--jsonn' is absorbed as
-	// a query.
+
 	out.Reset()
 	if code := RunRead(context.Background(), &fakeStore{}, []string{"--", "--jsonn"}, strings.NewReader(""), &out); code == 3 {
 		t.Fatalf("'--' 이후 쿼리가 exit 3: %s", out.String())
 	}
 }
 
-// TestReadLimitClampJSONLine — in --json, when the requested limit
-// exceeds the cap (50), one additive-field line with limit_requested·
-// limit_applied discloses the clamp (existing keys unchanged). Under the
-// cap·text mode keep the existing format — no clamp line.
 func TestReadLimitClampJSONLine(t *testing.T) {
 	newStore := func() *fakeStore {
 		return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -460,7 +388,7 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 			t.Fatalf("exit=%d, want 0: %s", code, out.String())
 		}
 		lines := strings.Split(strings.TrimRight(out.String(), "\n"), "\n")
-		if len(lines) != 3 { // 2 hit rows + 1 clamp line
+		if len(lines) != 3 {
 			t.Fatalf("출력 라인 수 = %d, want 3(히트 2 + clamp 1): %q", len(lines), out.String())
 		}
 		var clamp map[string]int
@@ -470,8 +398,7 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 		if clamp["limit_requested"] != 99 || clamp["limit_applied"] != 50 {
 			t.Fatalf("clamp 필드 = %v, want limit_requested:99·limit_applied:50", clamp)
 		}
-		// Existing keys unchanged — the hit rows keep id·topic·summary
-		// as-is.
+
 		var row map[string]string
 		if err := json.Unmarshal([]byte(lines[0]), &row); err != nil {
 			t.Fatalf("히트 행 JSON 아님: %q", lines[0])
@@ -502,12 +429,6 @@ func TestReadLimitClampJSONLine(t *testing.T) {
 	})
 }
 
-// ── Suggestion (SuggestSimilar) input-cap truncation. ──
-
-// TestSuggestQueryTruncate — the suggestion input is truncated to the
-// cap (suggestQueryMaxRunes runes) (multibyte-safe — inheriting the
-// single TruncateRunes implementation). The body search query itself is
-// unchanged (the cap applies only to the suggestion similarity scan).
 func TestSuggestQueryTruncate(t *testing.T) {
 	short := "백업 복구 절차"
 	if got := suggestQuery(short); got != short {
@@ -523,10 +444,6 @@ func TestSuggestQueryTruncate(t *testing.T) {
 	}
 }
 
-// ── The separated metering commit — the telemetry commit on the read/hot completion paths. ──
-
-// telemetryCommitter — a fakeStore with the TelemetryCommitter seam
-// layered on. Records CommitTelemetry call arguments (cmd).
 type telemetryCommitter struct {
 	*fakeStore
 	commands []string
@@ -538,10 +455,6 @@ func (tc *telemetryCommitter) CommitTelemetry(ctx context.Context, cmd string) e
 	return tc.err
 }
 
-// TestRunReadCommitsTelemetryOnce — the read completion path calls the
-// metering commit exactly once (cmd="read"). Failures are quiet (§13 —
-// exit 0·output unchanged). A non-implementing Store (fakeStore alone)
-// skips it.
 func TestRunReadCommitsTelemetryOnce(t *testing.T) {
 	newStore := func() *telemetryCommitter {
 		return &telemetryCommitter{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -584,9 +497,6 @@ func TestRunReadCommitsTelemetryOnce(t *testing.T) {
 	})
 }
 
-// TestRunHotCommitsTelemetryOnce — the hot completion path also calls
-// the metering commit once (cmd="hot") (common to the headline·--full
-// paths).
 func TestRunHotCommitsTelemetryOnce(t *testing.T) {
 	injectHotSeams(t)
 	for _, tc := range []struct {
@@ -614,9 +524,6 @@ func TestRunHotCommitsTelemetryOnce(t *testing.T) {
 	}
 }
 
-// TestRunDoneCommitsTelemetryOnce — the done completion path calls the
-// metering commit once (cmd="done") after the existing audit Commit
-// (session-end). Failures are quiet (exit 0·output unchanged).
 func TestRunDoneCommitsTelemetryOnce(t *testing.T) {
 	stubAutoBackup(t)
 	newDone := func() *telemetryDoneFake {
@@ -648,8 +555,6 @@ func TestRunDoneCommitsTelemetryOnce(t *testing.T) {
 	})
 }
 
-// telemetryDoneFake — a doneFake with the TelemetryCommitter seam
-// layered on.
 type telemetryDoneFake struct {
 	*doneFake
 	telemetryCmds []string
@@ -661,12 +566,6 @@ func (d *telemetryDoneFake) CommitTelemetry(ctx context.Context, cmd string) err
 	return d.telErr
 }
 
-// TestRunReadSuggestHugeQueryPerf — a G4 availability regression: a
-// 100KB query suggestion finishes within seconds even with suggestion
-// scan rows (2k) present, thanks to the cap truncation (before the fix,
-// ~17s — bigramDice rebuilt the query bigram set per row). Unit-test
-// ceiling 5s (absorbing environment variance — the measured value goes
-// to t.Log).
 func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
 	scanRows := make([][]any, 0, 2000)
 	for i := 1; i <= 2000; i++ {
@@ -676,11 +575,11 @@ func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
 	}
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "SELECT id, topic, summary FROM active_knowledge") {
-			return scanRows, nil // suggestion scan rows present
+			return scanRows, nil
 		}
-		return nil, nil // body phrase·fallback zero-hit
+		return nil, nil
 	}}
-	q := strings.Repeat("쿼", 51200) // 100KB (UTF-8 3 bytes × 51200 runes)
+	q := strings.Repeat("쿼", 51200)
 	var out strings.Builder
 	start := time.Now()
 	code := RunRead(context.Background(), st, []string{q}, strings.NewReader(""), &out)
@@ -694,13 +593,6 @@ func TestRunReadSuggestHugeQueryPerf(t *testing.T) {
 	}
 }
 
-// ── Recall reinforcement wiring (recall_score+1·last_recalled_at=now) ──
-
-// recallBumperRecorder — a fake recording RecordKnowledgeReads·
-// BumpRecallScores calls (implementing the KnowledgeReadsRecorder·
-// RecallBumper seams together). The real-implementation path (the real
-// DB increments of db.Repo.BumpRecallScores) is covered by
-// lib/db reads_v1700_test.
 type recallBumperRecorder struct {
 	*fakeStore
 	kreads []kreadsCall
@@ -717,9 +609,6 @@ func (r *recallBumperRecorder) BumpRecallScores(ctx context.Context, ids []int) 
 	return nil
 }
 
-// TestRunReadBumpsRecallScores — the full set of read hit rows passes
-// through recall reinforcement (the RecallBumper seam) once — coupled to
-// the RecordKnowledgeReads path (kind=read).
 func TestRunReadBumpsRecallScores(t *testing.T) {
 	st := &recallBumperRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM active_knowledge") {
@@ -740,10 +629,6 @@ func TestRunReadBumpsRecallScores(t *testing.T) {
 	}
 }
 
-// TestRecordKnowledgeReadsHotNoBump — hot injection (kind=hot) is
-// excluded from recall reinforcement — the ruling breaking the
-// exposure→reinforcement→re-exposure cycle (hot ranking consumes
-// recall_score). The history recording (knowledge_reads) is unchanged.
 func TestRecordKnowledgeReadsHotNoBump(t *testing.T) {
 	st := &recallBumperRecorder{fakeStore: &fakeStore{}}
 	ctx := context.Background()
@@ -757,15 +642,6 @@ func TestRecordKnowledgeReadsHotNoBump(t *testing.T) {
 	}
 }
 
-// ── v1.12.0 T2 — the gapq counter: the recall-gap signal of a zero-hit
-// read on owned ground (owned_miss). The normalized-query daily counter
-// (daily:gapq:<sha256>:<date>) is the T3 threshold input. ──
-
-// gapQueryRecorder — a fakeStore layered for the gapq path: a map-backed
-// meta store answering the gapq flat-key upsert·readback, an active-count
-// row for the zero-hit decomposition, and everything else delegated to
-// the embedded fakeStore. fail=true injects a transport error on the
-// gapq branches (the quiet-failure path).
 type gapQueryRecorder struct {
 	*fakeStore
 	active int
@@ -803,14 +679,9 @@ func (g *gapQueryRecorder) Query(ctx context.Context, sql string, args ...any) (
 	return g.fakeStore.Query(ctx, sql, args...)
 }
 
-// TestNormalizeGapQueryEquivalence — the normalization pipeline collapses
-// representation noise before hashing (the same recall failure counts
-// once): NFKC composed/decomposed Korean·case·whitespace runs·[flint]
-// markers converge; differences beyond the 80-rune truncation vanish;
-// genuinely different queries hash apart.
 func TestNormalizeGapQueryEquivalence(t *testing.T) {
-	composed := "각"     // U+AC01
-	decomposed := "각" // NFD jamo sequence — converges under NFKC
+	composed := "각"
+	decomposed := "각"
 	if NormalizeGapQuery(composed) != NormalizeGapQuery(decomposed) {
 		t.Fatalf("NFKC 동치 실패: %q vs %q", NormalizeGapQuery(composed), NormalizeGapQuery(decomposed))
 	}
@@ -832,14 +703,9 @@ func TestNormalizeGapQueryEquivalence(t *testing.T) {
 	}
 }
 
-// TestNormalizeGapQueryTruncateAfterNFKC — v1.12.1 regression: the 80-rune
-// truncation applies to the NFKC-normalized form. An NFD input of 81 runes
-// (27 Hangul syllables × 3 jamo) must hash identically to its 27-rune NFC
-// twin — truncating before normalization split the last syllable's jamo
-// sequence and hashed the two spellings apart.
 func TestNormalizeGapQueryTruncateAfterNFKC(t *testing.T) {
-	nfc := strings.Repeat("각", 27) // 27 runes
-	nfd := norm.NFD.String(nfc)    // 81 runes (3 jamo each)
+	nfc := strings.Repeat("각", 27)
+	nfd := norm.NFD.String(nfc)
 	if got := len([]rune(nfd)); got != 81 {
 		t.Fatalf("NFD 전제 룬수=%d, want 81(픽스처 가정 붕괴)", got)
 	}
@@ -850,8 +716,6 @@ func TestNormalizeGapQueryTruncateAfterNFKC(t *testing.T) {
 	}
 }
 
-// TestGapQueryHashShape — the digest is 64 lowercase hex chars (the
-// sha256 output reused as the meta key fragment).
 func TestGapQueryHashShape(t *testing.T) {
 	h := GapQueryHash(NormalizeGapQuery("데모 쿼리"))
 	if !regexp.MustCompile(`^[0-9a-f]{64}$`).MatchString(h) {
@@ -859,9 +723,6 @@ func TestGapQueryHashShape(t *testing.T) {
 	}
 }
 
-// TestBumpGapQueryCountAndQuiet — 3 same-day bumps return 1·2·3 under one
-// key (the T3 threshold input); a store failure is quiet ok=false (§13 —
-// the counter never breaks the caller).
 func TestBumpGapQueryCountAndQuiet(t *testing.T) {
 	g := &gapQueryRecorder{fakeStore: &fakeStore{}, active: 1, gapq: map[string]int{}}
 	ctx := context.Background()
@@ -878,16 +739,13 @@ func TestBumpGapQueryCountAndQuiet(t *testing.T) {
 	if len(g.bumps) != 3 || len(distinct) != 1 {
 		t.Fatalf("bumps=%v — want 3회·단일 키(당일 동일 쿼리 집계)", g.bumps)
 	}
-	// failure injection — quiet, no panic
+
 	bad := &gapQueryRecorder{fakeStore: &fakeStore{}, fail: true, gapq: map[string]int{}}
 	if n, ok := BumpGapQuery(ctx, bad, "데모 쿼리"); ok || n != 0 {
 		t.Fatalf("오류 주입 결과=%d,%v — want 0,false(조용히)", n, ok)
 	}
 }
 
-// TestRunReadBumpsGapQueryOnOwnedMiss — the read completion path bumps
-// the gapq counter only on owned_miss; unowned (active < floor) is
-// DB-void noise — not counted (research ruling).
 func TestRunReadBumpsGapQueryOnOwnedMiss(t *testing.T) {
 	ctx := context.Background()
 	t.Run("owned_miss — 카운트", func(t *testing.T) {
@@ -917,10 +775,6 @@ func TestRunReadBumpsGapQueryOnOwnedMiss(t *testing.T) {
 	})
 }
 
-// TestRunReadGapAccrualAfterThresholdReads — three owned_miss reads of
-// the same query auto-accrue one pending gap candidate (the T3 read-path
-// integration): the 3rd read's count reaching the threshold ADDs the
-// candidate — the 1st·2nd do not.
 func TestRunReadGapAccrualAfterThresholdReads(t *testing.T) {
 	g := &gapQueryRecorder{fakeStore: &fakeStore{}, active: 2, gapq: map[string]int{}}
 	ctx := context.Background()
@@ -952,9 +806,6 @@ func TestRunReadGapAccrualAfterThresholdReads(t *testing.T) {
 	}
 }
 
-// TestRunReadAsOfSkipsGapCount — an as-of read (a past-point snapshot
-// inspection) never counts as a present gap even on a zero-hit: no bump,
-// no accrual (the T2 incident ruling — one guard line at the bump hook).
 func TestRunReadAsOfSkipsGapCount(t *testing.T) {
 	injectAsOfSeams(t, "he08irluqn3v2m1k9x7c4jw5z6b8d0f")
 	g := &gapAsOfStore{asOfStore: &asOfStore{
@@ -975,13 +826,6 @@ func TestRunReadAsOfSkipsGapCount(t *testing.T) {
 	}
 }
 
-// ── v1.16.0 T1 — the phrase-hit token rerank (before render.Cells, gated
-// on !fallbackTried). ──
-
-// TestRunReadPhraseHitTokenRerank — the phrase-hit rows are reranked
-// in-memory by token tier scores before the output: the topic-prefix row
-// (token score 5+5) overtakes the SQL-order fixture head (summary
-// containment 2+2). The SQL LIMIT and the hot/brief paths are unchanged.
 func TestRunReadPhraseHitTokenRerank(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM active_knowledge") {
@@ -1007,8 +851,7 @@ func TestRunReadPhraseHitTokenRerank(t *testing.T) {
 	if !strings.HasPrefix(lines[1], "1|설정 가이드|") {
 		t.Errorf("후순위=%q, want 1|설정 가이드(summary 포함)", lines[1])
 	}
-	// FirstExactRank interplay — after the rerank the exact topic match is
-	// still rank 1 (the eligibility gate !fallbackTried is untouched).
+
 	if rank := FirstExactRank(
 		[][]any{{"2", "백업 정책", "매일 실행"}, {"1", "설정 가이드", "백업 정책 안내 포함"}},
 		"백업 정책"); rank != 1 {
@@ -1016,22 +859,17 @@ func TestRunReadPhraseHitTokenRerank(t *testing.T) {
 	}
 }
 
-// TestRunReadFallbackOrderNotRerankedByTokenScore — the fallback path's
-// RRF order survives: rows already reranked by ReorderByFallbackCount are
-// NOT re-reordered by the token scores (the !fallbackTried gate). The
-// fixture is adversarial — a token rerank would flip the head (topic
-// prefix 5 > summary contains 4).
 func TestRunReadFallbackOrderNotRerankedByTokenScore(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
 		case strings.Contains(sql, "FROM active_knowledge"):
-			if strings.Contains(sql, " OR ") { // the fallback OR re-query
+			if strings.Contains(sql, " OR ") {
 				return [][]any{
 					{"1", "설정", "백업 절차 안내", ":d:", "", "", "0.9", "active", int32(100)},
 					{"2", "백업", "메모 없음", ":d:", "", "", "0.8", "active", int32(0)},
 				}, nil
 			}
-			return nil, nil // the phrase query is zero-hit
+			return nil, nil
 		}
 		return nil, nil
 	}}
@@ -1044,8 +882,7 @@ func TestRunReadFallbackOrderNotRerankedByTokenScore(t *testing.T) {
 	if len(lines) != 2 {
 		t.Fatalf("출력 라인 수 = %d, want 2: %q", len(lines), out.String())
 	}
-	// RRF fusion: row 1 wins on matchCount 2 + read 100 + jamo 2 (the
-	// token-score order would head with row 2 — a flip means the gate broke).
+
 	if !strings.HasPrefix(lines[0], "1|설정|") {
 		t.Errorf("폴백 RRF 순서 침해 — 상위=%q, want 1|설정(이중 재배치 의심)", lines[0])
 	}
@@ -1054,8 +891,6 @@ func TestRunReadFallbackOrderNotRerankedByTokenScore(t *testing.T) {
 	}
 }
 
-// gapAsOfStore — the asOfStore fake layered with the gapq meta
-// interception (an as-of zero-hit on owned ground still must not bump).
 type gapAsOfStore struct {
 	*asOfStore
 	active int
@@ -1088,24 +923,12 @@ func (g *gapAsOfStore) Query(ctx context.Context, sql string, args ...any) ([][]
 	return g.fakeStore.Query(ctx, sql, args...)
 }
 
-// nearScoreRows — the suggestion-scan fake rows for the near_score
-// accrual test (ASCII — NFKC identity, hand-computable Dice): against
-// q="abxy" the candidates score 2/3·1/3·0 (see lib/query/suggest_test.go
-// for the arithmetic).
 var nearScoreRows = [][]any{
 	{int32(1), "abxx", ""},
 	{int32(2), "abqz", ""},
 	{int32(3), "zzzz", ""},
 }
 
-// TestRunReadNearScoreScanMax — the schema v13 A1 accrual: a zero-hit
-// read stores the suggestion scan's best bigramDice score in the
-// read_events record (near_score) even when every candidate sits below
-// min_score (near=false stays false — the flag's meaning is unchanged;
-// the score is not masked to 0). A hit read stores 0 (no scan ran)·an
-// empty scan stores 0. The record carries numbers only — no query body
-// (the structural no-personal-wording principle: db.ReadEvent has no
-// such field).
 func TestRunReadNearScoreScanMax(t *testing.T) {
 	def := store.DefaultThresholds()
 	query.SetSuggestThresholds(def.SuggestMinScore, def.SuggestScanCap)
@@ -1114,17 +937,14 @@ func TestRunReadNearScoreScanMax(t *testing.T) {
 	readWith := func(t *testing.T, minOverride string, scanRows [][]any) *readEventRecorder {
 		t.Helper()
 		st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			// The thresholds meta load — the read path re-injects
-			// SetSuggestThresholds from this result, so the min_score
-			// override rides the realistic meta path (not a package-global
-			// clobber that the read itself would overwrite).
+
 			if minOverride != "" && strings.Contains(sql, "FROM meta WHERE key IN") {
 				return [][]any{{"suggest_min_score", minOverride}}, nil
 			}
 			if scanRows != nil && strings.Contains(sql, "SELECT id, topic, summary FROM active_knowledge") {
-				return scanRows, nil // suggestion scan rows present
+				return scanRows, nil
 			}
-			return nil, nil // body phrase·fallback zero-hit
+			return nil, nil
 		}}}
 		var out strings.Builder
 		if code := RunRead(context.Background(), st, []string{"abxy"}, strings.NewReader(""), &out); code != 0 {
@@ -1134,7 +954,7 @@ func TestRunReadNearScoreScanMax(t *testing.T) {
 	}
 
 	t.Run("제로히트·min 미만 — 스캔 최고치 적립(near=false 불변)", func(t *testing.T) {
-		st := readWith(t, "0.9", nearScoreRows) // every candidate (max 2/3) below min
+		st := readWith(t, "0.9", nearScoreRows)
 		if len(st.events) != 1 {
 			t.Fatalf("read_events 기록 = %d건, want 1건", len(st.events))
 		}
@@ -1157,8 +977,7 @@ func TestRunReadNearScoreScanMax(t *testing.T) {
 		}
 	})
 	t.Run("히트 — 스캔 미실행 0", func(t *testing.T) {
-		// The hit path — the main phrase query returns rows; the suggest
-		// scan never runs (scanMax stays 0).
+
 		st := &readEventRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 			if strings.Contains(sql, "FROM active_knowledge") {
 				return hitRowsFixture, nil
@@ -1181,7 +1000,7 @@ func TestRunReadNearScoreScanMax(t *testing.T) {
 		}
 	})
 	t.Run("제로히트·빈 스캔 — 0", func(t *testing.T) {
-		st := readWith(t, "", nil) // zero-hit — scan also 0 rows
+		st := readWith(t, "", nil)
 		ev := st.events[0]
 		if !ev.zero || ev.near {
 			t.Fatalf("zero=%v near=%v, want true·false(빈 스캔)", ev.zero, ev.near)
@@ -1192,17 +1011,13 @@ func TestRunReadNearScoreScanMax(t *testing.T) {
 	})
 }
 
-// TestRunReadMinConfidence — the --min-confidence boundary contract: 0/0.5/1
-// pass the value into the query as a placeholder; 1.1, a negative, a
-// non-numeric, and a valueless trailing flag are invalid-value exit 3.
 func TestRunReadMinConfidence(t *testing.T) {
 	valid := func(t *testing.T, spec string, want float64) {
 		t.Helper()
 		var gotSQL string
 		var gotArgs []any
 		st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			// the knowledge query only (the later vault bridge query is a
-			// separate source — v1.21.0 T4)
+
 			if !strings.Contains(sql, "FROM vault_files") {
 				gotSQL, gotArgs = sql, args
 			}
@@ -1245,17 +1060,13 @@ func TestRunReadMinConfidence(t *testing.T) {
 	}
 }
 
-// TestRunReadOrigin — --origin accepts agent|human (the value reaches the
-// query as a placeholder); an unregistered value and a valueless trailing
-// flag are invalid-value exit 3.
 func TestRunReadOrigin(t *testing.T) {
 	for _, v := range []string{"agent", "human"} {
 		t.Run("통과 "+v, func(t *testing.T) {
 			var gotSQL string
 			var gotArgs []any
 			st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-				// the knowledge query only (the later vault bridge query is a
-				// separate source — v1.21.0 T4)
+
 				if !strings.Contains(sql, "FROM vault_files") {
 					gotSQL, gotArgs = sql, args
 				}
@@ -1294,14 +1105,10 @@ func TestRunReadOrigin(t *testing.T) {
 	}
 }
 
-// TestRunReadNewFiltersCombined — the new filters compose with the existing
-// tag/entity/domain/status set: the --status path (base table) carries all
-// six filter clauses in one query, exit 0.
 func TestRunReadNewFiltersCombined(t *testing.T) {
 	var gotSQL string
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		// the knowledge --status query only (the later vault bridge query is
-		// a separate source — v1.21.0 T4)
+
 		if !strings.Contains(sql, "FROM vault_files") {
 			gotSQL = sql
 		}
@@ -1334,12 +1141,9 @@ func TestRunReadNewFiltersCombined(t *testing.T) {
 	}
 }
 
-// TestRunReadNewFiltersZeroHit — a filtered zero-hit keeps the v1.5.3
-// contract: silent text, exit 0 (the new filters are stateless, so the
-// fallback/suggestion path stays eligible).
 func TestRunReadNewFiltersZeroHit(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // zero-hit — fallback·suggestion scan also all 0 rows
+		return nil, nil
 	}}
 	var out strings.Builder
 	code := RunRead(context.Background(), st,
@@ -1353,18 +1157,11 @@ func TestRunReadNewFiltersZeroHit(t *testing.T) {
 	}
 }
 
-// ── v1.21.0 T4 — the vault bridge read fusion. ──
-
-// vaultFixtureRows — vault_files rows in the BuildVaultRead column order
-// (title, summary, tags, path). Synthetic demo data only.
 var vaultFixtureRows = [][]any{
 	{"데모 노트 하나", "합성 데모 요약 하나", ":demo:", "/tmp/demo-vault/note-a.md"},
 	{"데모 노트 둘", "합성 데모 요약 둘", ":demo:", "/tmp/demo-vault/note-b.md"},
 }
 
-// vaultQueryFn — the fake routing: the vault query answers vault, the
-// knowledge phrase query answers knowledge, the zero-hit active count
-// answers 0 (unowned); everything else (fallback·suggestion scan) is nil.
 func vaultQueryFn(knowledge, vault [][]any, vaultErr error) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -1382,10 +1179,6 @@ func vaultQueryFn(knowledge, vault [][]any, vaultErr error) func(string, []any) 
 	}
 }
 
-// TestRunReadVaultRowsAppendedAfterKnowledge — the invariance seal: the
-// knowledge row set·order·serialization are identical with and without
-// vault data; vault rows appear only AFTER the knowledge block
-// (path-identified, source-marked).
 func TestRunReadVaultRowsAppendedAfterKnowledge(t *testing.T) {
 	run := func(vault [][]any) string {
 		st := &fakeStore{queryFn: vaultQueryFn(hitRowsFixture, vault, nil)}
@@ -1405,8 +1198,6 @@ func TestRunReadVaultRowsAppendedAfterKnowledge(t *testing.T) {
 	}
 }
 
-// TestRunReadVaultCapFive — the app-side cap: 7 matching vault rows
-// yield at most VaultMaxRows(5) lines (the SQL LIMIT's defense in depth).
 func TestRunReadVaultCapFive(t *testing.T) {
 	var seven [][]any
 	for i := 0; i < 7; i++ {
@@ -1430,11 +1221,6 @@ func TestRunReadVaultCapFive(t *testing.T) {
 	}
 }
 
-// TestRunReadVaultZeroHitKnowledgeDomain — a knowledge zero-hit with a
-// vault hit: the --json output discloses the counts separately
-// ({"hits":0} then {"vault_hits":N} — the vault count is never folded
-// into hits) while read_events stays on the knowledge domain
-// (hits=0·zero=true — ZeroReason's knowledge domain is unchanged).
 func TestRunReadVaultZeroHitKnowledgeDomain(t *testing.T) {
 	st := &readEventRecorder{fakeStore: &fakeStore{
 		queryFn: vaultQueryFn(nil, vaultFixtureRows[:1], nil)}}
@@ -1459,10 +1245,6 @@ func TestRunReadVaultZeroHitKnowledgeDomain(t *testing.T) {
 	}
 }
 
-// TestRunReadVaultAsOfCurrentState — under --as-of the knowledge rows
-// time travel (QueryAsOf) but the vault rows reflect the CURRENT
-// vault_files state (vault point-in-time travel is unsupported — spec
-// M2): the vault query goes through the present-point Query path.
 func TestRunReadVaultAsOfCurrentState(t *testing.T) {
 	const asOfHash = "he08irluqn3v2m1k9x7c4jw5z6b8d0f"
 	injectAsOfSeams(t, asOfHash)
@@ -1488,9 +1270,6 @@ func TestRunReadVaultAsOfCurrentState(t *testing.T) {
 	}
 }
 
-// TestRunReadVaultSanitized — the vault rows reach the output only
-// through the render chokepoint: a [flint] marker planted in a vault
-// summary is neutralized (ADR-0006 output neutralization).
 func TestRunReadVaultSanitized(t *testing.T) {
 	dirty := [][]any{{"데모 제목", "합성[flint]요약", ":demo:", "/tmp/demo-vault/x.md"}}
 	st := &fakeStore{queryFn: vaultQueryFn(hitRowsFixture, dirty, nil)}
@@ -1507,10 +1286,6 @@ func TestRunReadVaultSanitized(t *testing.T) {
 	}
 }
 
-// TestRunReadVaultFiltersDoNotApply — the knowledge filters
-// (--min-confidence·--origin) shape the knowledge query only: the vault
-// query stays q-based (no confidence/origin fragments) and its rows are
-// still appended.
 func TestRunReadVaultFiltersDoNotApply(t *testing.T) {
 	var knowledgeSQL, vaultSQL string
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -1523,7 +1298,7 @@ func TestRunReadVaultFiltersDoNotApply(t *testing.T) {
 		}
 		if (strings.Contains(sql, "FROM active_knowledge") || strings.Contains(sql, "FROM knowledge")) &&
 			strings.Contains(sql, "WHERE") {
-			knowledgeSQL = sql // the phrase/status query only (the filterless suggestion scan has no WHERE)
+			knowledgeSQL = sql
 		}
 		return nil, nil
 	}}
@@ -1545,9 +1320,6 @@ func TestRunReadVaultFiltersDoNotApply(t *testing.T) {
 	}
 }
 
-// TestRunReadVaultQueryErrorQuiet — a vault query failure is quiet
-// (§13): the knowledge output·exit code are exactly the no-vault ones
-// (the bridge never breaks the knowledge result).
 func TestRunReadVaultQueryErrorQuiet(t *testing.T) {
 	st := &fakeStore{queryFn: vaultQueryFn(hitRowsFixture, nil, errors.New("vault boom"))}
 	var out strings.Builder
@@ -1561,9 +1333,6 @@ func TestRunReadVaultQueryErrorQuiet(t *testing.T) {
 	}
 }
 
-// seedSlowVaultRows — synthetic demo vault_files rows on the scratch
-// store (the T2 scan-equivalent shape; real scan coverage belongs to the
-// lib/vault slow suite).
 func seedSlowVaultRows(t *testing.T, st *writeRealStore, n int, term string) {
 	t.Helper()
 	ctx := context.Background()
@@ -1580,11 +1349,6 @@ func seedSlowVaultRows(t *testing.T, st *writeRealStore, n int, term string) {
 	}
 }
 
-// TestSlowReadVaultFusionV1210 — real-DB (dedicated scratch): the
-// invariance seal on a real vault_files table — the knowledge block is
-// byte-identical before/after vault rows exist; 7 matching vault rows
-// yield exactly VaultMaxRows(5) appended lines (SQL LIMIT + the app-side
-// cap), each path-identified.
 func TestSlowReadVaultFusionV1210(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()
@@ -1626,9 +1390,6 @@ func TestSlowReadVaultFusionV1210(t *testing.T) {
 	}
 }
 
-// TestSlowReadVaultZeroHitV1210 — real-DB: a knowledge zero-hit with a
-// vault hit keeps the knowledge domain untouched — --json prints
-// {"hits":0} then {"vault_hits":N} and the vault rows, exit 0.
 func TestSlowReadVaultZeroHitV1210(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()
@@ -1651,20 +1412,11 @@ func TestSlowReadVaultZeroHitV1210(t *testing.T) {
 	}
 }
 
-// ── v1.24.0 T5 — the neighbor link read fusion (--related). ──
-
-// relatedFixtureRows — knowledge_links neighbor rows in the
-// BuildRelatedRead column order (id, topic, summary, relation,
-// direction). Synthetic demo data only.
 var relatedFixtureRows = [][]any{
 	{"2", "데모 이웃 정방향", "합성 데모 요약 정방향", "refines", "forward"},
 	{"3", "데모 이웃 역방향", "합성 데모 요약 역방향", "supports", "reverse"},
 }
 
-// relatedQueryFn — the fake routing: the related UNION query answers
-// related, the target-existence probe answers 1 row (exists), the
-// knowledge phrase query answers knowledge, the zero-hit active count
-// answers 0 (unowned); everything else (fallback·suggestion scan) is nil.
 func relatedQueryFn(knowledge, related [][]any) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -1681,10 +1433,6 @@ func relatedQueryFn(knowledge, related [][]any) func(string, []any) ([][]any, er
 	}
 }
 
-// TestRunReadRelatedAppendedAfterKnowledge — the invariance seal: the
-// knowledge row set·order·serialization are identical with and without
-// the related fusion; neighbor rows appear only AFTER the knowledge
-// block (relation label + direction display, source-marked).
 func TestRunReadRelatedAppendedAfterKnowledge(t *testing.T) {
 	run := func(flag bool) string {
 		args := []string{"백업 정책"}
@@ -1710,10 +1458,6 @@ func TestRunReadRelatedAppendedAfterKnowledge(t *testing.T) {
 	}
 }
 
-// TestRunReadRelatedDefaultSeal — the byte-immutability seal: without
-// --related the output is byte-identical to the pre-fusion read AND no
-// knowledge_links query is issued at all (the opt-in contract — the
-// vault T4 precedent).
 func TestRunReadRelatedDefaultSeal(t *testing.T) {
 	st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, relatedFixtureRows)}
 	var out strings.Builder
@@ -1731,8 +1475,6 @@ func TestRunReadRelatedDefaultSeal(t *testing.T) {
 	}
 }
 
-// TestRunReadRelatedCapFive — the app-side cap: 7 linked neighbors yield
-// at most RelatedMaxRows(5) lines (the SQL LIMIT's defense in depth).
 func TestRunReadRelatedCapFive(t *testing.T) {
 	var seven [][]any
 	for i := 0; i < 7; i++ {
@@ -1756,13 +1498,10 @@ func TestRunReadRelatedCapFive(t *testing.T) {
 	}
 }
 
-// TestRunReadRelatedTargetMissingExit3 — a --related id with no knowledge
-// row (the existence probe answers nothing) is the invalid-arg exit 3
-// with no knowledge output printed (fail-fast before any result rows).
 func TestRunReadRelatedTargetMissingExit3(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge WHERE id = $1") {
-			return nil, nil // the target does not exist
+			return nil, nil
 		}
 		return relatedQueryFn(hitRowsFixture, nil)(sql, args)
 	}}
@@ -1780,18 +1519,10 @@ func TestRunReadRelatedTargetMissingExit3(t *testing.T) {
 	}
 }
 
-// TestRunReadRelatedInt4CeilingV1241 — v1.24.1 (r105-3): a --related id
-// past the int4 ceiling (knowledge.id is an int4 serial) is refused at
-// parse (exit 3). The pre-patch path reached the existence probe, whose
-// int8→int4 encoding failure is QUIET (§13) — the read fell through with
-// the bogus fusion id instead of refusing (the probe-death shape faked
-// here; the not-found probe case is the test above). The boundary
-// 2147483647 (MaxInt32, the last legal int4) parses through to the
-// probe — the guard is a ceiling, not a tightening.
 func TestRunReadRelatedInt4CeilingV1241(t *testing.T) {
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge WHERE id = $1") {
-			return nil, errors.New("int8 encoding over int4") // the probe-death shape
+			return nil, errors.New("int8 encoding over int4")
 		}
 		return relatedQueryFn(hitRowsFixture, nil)(sql, args)
 	}}
@@ -1805,8 +1536,6 @@ func TestRunReadRelatedInt4CeilingV1241(t *testing.T) {
 		t.Fatalf("출력에 int4 상한 안내 부재: %s", out.String())
 	}
 
-	// The boundary value parses through — the probe answers exists and
-	// the read completes (exit 0).
 	var out2 strings.Builder
 	st2 := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, nil)}
 	code2 := RunRead(context.Background(), st2,
@@ -1819,9 +1548,6 @@ func TestRunReadRelatedInt4CeilingV1241(t *testing.T) {
 	}
 }
 
-// TestRunReadRelatedZeroLinksEmpty — an existing target with zero links:
-// the related fusion adds nothing — the output is byte-identical to the
-// no-flag read (the 0-link empty response) and the exit stays 0.
 func TestRunReadRelatedZeroLinksEmpty(t *testing.T) {
 	run := func(flag bool) string {
 		args := []string{"백업 정책"}
@@ -1840,10 +1566,6 @@ func TestRunReadRelatedZeroLinksEmpty(t *testing.T) {
 	}
 }
 
-// TestRunReadRelatedJSONStructure — --json: the knowledge rows keep their
-// serialization, neighbor rows carry the source:"related" marker, and the
-// appended count is the separate additive {"related_hits":N} field (the
-// vault_hits precedent — never folded into hits).
 func TestRunReadRelatedJSONStructure(t *testing.T) {
 	st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, relatedFixtureRows)}
 	var out strings.Builder
@@ -1867,9 +1589,6 @@ func TestRunReadRelatedJSONStructure(t *testing.T) {
 	}
 }
 
-// TestRunReadRelatedInvalidValue — a non-integer --related value and a
-// valueless trailing --related are invalid-value exit 3 (the --limit
-// convention).
 func TestRunReadRelatedInvalidValue(t *testing.T) {
 	for _, args := range [][]string{
 		{"백업 정책", "--related", "abc"},
@@ -1884,12 +1603,6 @@ func TestRunReadRelatedInvalidValue(t *testing.T) {
 	}
 }
 
-// ── v1.24.0 T6 — the read --why evidence appendix. ──
-
-// whyQueryFn — the fake routing of the --why tests: the phrase query
-// answers knowledge, the fallback word query (marked by its OR chain)
-// answers fallback, the zero-hit active count answers count, everything
-// else (vault·suggestion scan) is nil.
 func whyQueryFn(knowledge, fallback [][]any, count string) func(string, []any) ([][]any, error) {
 	return func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -1907,10 +1620,6 @@ func whyQueryFn(knowledge, fallback [][]any, count string) func(string, []any) (
 	}
 }
 
-// TestRunReadWhyTokenEvidenceAppendix — a phrase-hit read with --why: the
-// appendix lists one evidence line per row AFTER the knowledge block, the
-// token-tier listing and total recomputed by hand (the direct-comparison
-// contract) against the synthetic hitRowsFixture.
 func TestRunReadWhyTokenEvidenceAppendix(t *testing.T) {
 	st := &fakeStore{queryFn: whyQueryFn(hitRowsFixture, nil, "")}
 	var out strings.Builder
@@ -1926,10 +1635,6 @@ func TestRunReadWhyTokenEvidenceAppendix(t *testing.T) {
 	}
 }
 
-// TestRunReadWhyDefaultSeal — the byte-immutability seal: without --why the
-// read output is byte-identical to the pre-T6 read (no why line at all);
-// with --why the knowledge serialization stays the unchanged prefix (the
-// opt-in appendix only — the vault/related precedent).
 func TestRunReadWhyDefaultSeal(t *testing.T) {
 	run := func(flag bool) string {
 		args := []string{"백업 정책"}
@@ -1952,11 +1657,6 @@ func TestRunReadWhyDefaultSeal(t *testing.T) {
 	}
 }
 
-// TestRunReadWhyFallbackRRFEvidence — the fallback path: the appendix
-// carries the 4 RRF signals per row as value/rank/contribution; the fused
-// score equals the sum of the listed contributions (the parse-and-sum
-// direct check — k-invariant), and the per-signal value/rank pairs are the
-// hand-computed ones (English tokens keep jamo at 0).
 func TestRunReadWhyFallbackRRFEvidence(t *testing.T) {
 	fallbackRows := [][]any{
 		{"1", "backup policy demo", "synthetic note", "", "", "", "0.9", "active", int32(5)},
@@ -1991,7 +1691,7 @@ func TestRunReadWhyFallbackRRFEvidence(t *testing.T) {
 			sig := parts[0]
 			vr := strings.Split(parts[1], "/")
 			rank := vr[1]
-			// value/rank pairs — hand-computed per row (contributions vary with k).
+
 			prefixOK := false
 			for _, w := range []string{"match=2/r1/", "read_count=5/r1/", "jamo=0/r0/", "topic=2/r1/",
 				"match=1/r2/", "read_count=2/r2/", "topic=0/r0/"} {
@@ -2030,10 +1730,6 @@ func TestRunReadWhyFallbackRRFEvidence(t *testing.T) {
 	}
 }
 
-// TestRunReadWhyZeroHitEvidence — a zero-hit with --why: the appendix is
-// the zero decomposition line (zero_reason=owned_miss — the active count
-// 3 ≥ floor 1 — plus near_score=0, the empty suggestion scan), and the
-// --json variant keeps {"hits":0} and appends the why line.
 func TestRunReadWhyZeroHitEvidence(t *testing.T) {
 	st := &fakeStore{queryFn: whyQueryFn(nil, nil, "3")}
 	var out strings.Builder
@@ -2056,10 +1752,6 @@ func TestRunReadWhyZeroHitEvidence(t *testing.T) {
 	}
 }
 
-// TestRunReadWhyRelatedCombination — --why combines with --related: the
-// knowledge serialization keeps its invariance, the related rows appear
-// after the knowledge block, and the why appendix closes after the related
-// block (pure append, never interleaved).
 func TestRunReadWhyRelatedCombination(t *testing.T) {
 	st := &fakeStore{queryFn: relatedQueryFn(hitRowsFixture, relatedFixtureRows)}
 	var out strings.Builder
@@ -2084,9 +1776,6 @@ func TestRunReadWhyRelatedCombination(t *testing.T) {
 	}
 }
 
-// TestRunReadWhyAppendixCap — the appendix total cap: 12 hit rows yield at
-// most WhyMaxRows evidence lines (the additive token budget — defense in
-// depth over the formatter's own cap).
 func TestRunReadWhyAppendixCap(t *testing.T) {
 	var twelve [][]any
 	for i := 0; i < 12; i++ {
@@ -2111,8 +1800,6 @@ func TestRunReadWhyAppendixCap(t *testing.T) {
 	}
 }
 
-// TestRunReadWhyIDNoPipe — text-mode sanitization: a '|' inside the id cell
-// is replaced with a space in the why line (the 4-field protocol guard).
 func TestRunReadWhyIDNoPipe(t *testing.T) {
 	rows := [][]any{{"a|b", "백업 데모", "합성", "", "", "", "0.9", "active", "0"}}
 	st := &fakeStore{queryFn: whyQueryFn(rows, nil, "")}
@@ -2126,9 +1813,6 @@ func TestRunReadWhyIDNoPipe(t *testing.T) {
 	}
 }
 
-// slowWriteKnowledge — one synthetic demo knowledge write via RunWrite;
-// returns the accrued row's id (looked up by topic — write output id
-// extraction stays out of scope here).
 func slowWriteKnowledge(t *testing.T, st *writeRealStore, topic, relations string) int {
 	t.Helper()
 	ctx := context.Background()
@@ -2144,13 +1828,6 @@ func slowWriteKnowledge(t *testing.T, st *writeRealStore, topic, relations strin
 	return id
 }
 
-// TestSlowReadRelatedRoundtripV1240 — real-DB (dedicated scratch): the
-// bidirectional link roundtrip — the hub's write carries the forward
-// relations (from = the accrued hub row), a later row links hub-ward
-// (reverse) — read --related hub lists both arms with their relation
-// labels·direction display, appended after the knowledge block; the
-// no-flag read is byte-identical (the invariance seal on a real
-// knowledge_links table).
 func TestSlowReadRelatedRoundtripV1240(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()
@@ -2191,10 +1868,6 @@ func TestSlowReadRelatedRoundtripV1240(t *testing.T) {
 	}
 }
 
-// TestSlowReadRelatedCapAndMissingV1240 — real-DB: 7 reverse neighbors
-// (each later row links hub-ward) yield exactly RelatedMaxRows(5) appended
-// lines (SQL LIMIT + the app-side cap); a --related id absent from
-// knowledge is exit 3; an existing hub with no links adds nothing.
 func TestSlowReadRelatedCapAndMissingV1240(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()

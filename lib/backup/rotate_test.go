@@ -11,11 +11,6 @@ import (
 	"time"
 )
 
-// backup rotation — keep the newest N .sql by mtime, delete the rest plus
-// their paired .sha256. Plan-specified test: 3 pairs -> keep 2 -> 1 pair
-// deleted, 2 pairs remain.
-
-// writeDump — creates name (.sql) in dir with an optional .sha256 sidecar at the given mtime.
 func writeDump(t *testing.T, dir, name string, mtime time.Time, withSide bool) {
 	t.Helper()
 	path := filepath.Join(dir, name)
@@ -50,14 +45,12 @@ func mustGone(t *testing.T, path string) {
 	}
 }
 
-// Plan-specified: 3 pairs -> keep 2 -> 1 pair deleted (the newest 2 kept).
-// Filenames use the flintDumpName pattern (flint-generated files).
 func TestRotateKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
-	a := "flint-20261022-120000-101.sql" // newest
-	b := "flint-20261022-110000-102.sql" // middle
-	c := "flint-20261022-100000-103.sql" // oldest
+	a := "flint-20261022-120000-101.sql"
+	b := "flint-20261022-110000-102.sql"
+	c := "flint-20261022-100000-103.sql"
 	writeDump(t, dir, a, base, true)
 	writeDump(t, dir, b, base.Add(-time.Hour), true)
 	writeDump(t, dir, c, base.Add(-2*time.Hour), true)
@@ -77,14 +70,13 @@ func TestRotateKeepsNewest(t *testing.T) {
 	mustGone(t, filepath.Join(dir, c+".sha256"))
 }
 
-// A file missing its sidecar is deleted as the .sql alone (alone in removed too).
 func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
 	newName := "flint-20261022-120000-201.sql"
 	oldName := "flint-20261022-110000-202.sql"
 	writeDump(t, dir, newName, base, true)
-	writeDump(t, dir, oldName, base.Add(-time.Hour), false) // no sidecar
+	writeDump(t, dir, oldName, base.Add(-time.Hour), false)
 
 	removed, err := Rotate(dir, 1)
 	if err != nil {
@@ -98,7 +90,6 @@ func TestRotateMissingSidecarDeletesAlone(t *testing.T) {
 	mustExist(t, filepath.Join(dir, newName+".sha256"))
 }
 
-// keep <= 0 does not delete everything — a minimum of 1 is guaranteed.
 func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Date(2026, 10, 22, 12, 0, 0, 0, time.UTC)
@@ -117,7 +108,6 @@ func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	mustExist(t, filepath.Join(dir, newName))
 	mustExist(t, filepath.Join(dir, newName+".sha256"))
 
-	// Negative likewise — minimum 1.
 	writeDump(t, dir, oldName, base.Add(-time.Hour), true)
 	if removed, err = Rotate(dir, -3); err != nil || len(removed) != 2 {
 		t.Fatalf("keep=-3: removed=%v err=%v, want 2항목 잔존 1쌍", removed, err)
@@ -125,7 +115,6 @@ func TestRotateKeepZeroKeepsNewest(t *testing.T) {
 	mustExist(t, filepath.Join(dir, newName))
 }
 
-// At or below keep — no-op, removed empty.
 func TestRotateNoopWhenUnderKeep(t *testing.T) {
 	dir := t.TempDir()
 	writeDump(t, dir, "flint-20261022-120000-401.sql", time.Now(), true)
@@ -140,7 +129,6 @@ func TestRotateNoopWhenUnderKeep(t *testing.T) {
 	mustExist(t, filepath.Join(dir, "flint-20261022-120000-401.sql"))
 }
 
-// Non-.sql files (e.g. an orphan .sha256 alone) are left untouched.
 func TestRotateIgnoresNonSql(t *testing.T) {
 	dir := t.TempDir()
 	base := time.Now()
@@ -160,14 +148,12 @@ func TestRotateIgnoresNonSql(t *testing.T) {
 	mustExist(t, other)
 }
 
-// Missing directory — error.
 func TestRotateMissingDir(t *testing.T) {
 	if _, err := Rotate(filepath.Join(t.TempDir(), "absent"), 3); err == nil {
 		t.Fatal("존재하지 않는 dir은 에러")
 	}
 }
 
-// BackupKeep — meta backup_keep first; invalid, error, or unset falls back to 14.
 func TestBackupKeep(t *testing.T) {
 	cases := []struct {
 		name  string
@@ -189,9 +175,6 @@ func TestBackupKeep(t *testing.T) {
 	}
 }
 
-// TestBackupKeepQuietUnset — an unset backup_keep (blank value or lookup
-// error) falls back to the normal default quietly — the every-run warning
-// on fresh DBs was removed. The warning for a set-but-invalid value stays.
 func TestBackupKeepQuietUnset(t *testing.T) {
 	capture := func(t *testing.T, getKV func(string) (string, error)) (int, string) {
 		t.Helper()

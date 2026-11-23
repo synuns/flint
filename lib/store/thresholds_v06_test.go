@@ -2,7 +2,6 @@ package store
 
 import "testing"
 
-// the 3 new thresholds' defaults — stale_days 90, stall_hot_h 48, stall_write_h 72.
 func TestThresholdsV06Defaults(t *testing.T) {
 	th := DefaultThresholds()
 	if th.StaleDays != 90 {
@@ -16,7 +15,6 @@ func TestThresholdsV06Defaults(t *testing.T) {
 	}
 }
 
-// meta overrides — e.g. ParseThresholds(+[["stale_days","30"]]) -> StaleDays=30.
 func TestThresholdsV06ParseOverride(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"stale_days", "30"},
@@ -31,7 +29,6 @@ func TestThresholdsV06ParseOverride(t *testing.T) {
 	}
 }
 
-// invalid values (non-numeric, negative, fractional) fall back to defaults (the global constraint).
 func TestThresholdsV06InvalidFallback(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"stale_days", "abc"},
@@ -46,7 +43,6 @@ func TestThresholdsV06InvalidFallback(t *testing.T) {
 	}
 }
 
-// existing and new keys coexist without interfering with each other.
 func TestThresholdsV06CoexistWithLegacyKeys(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"pending_max", "10"},
@@ -63,8 +59,6 @@ func TestThresholdsV06CoexistWithLegacyKeys(t *testing.T) {
 	}
 }
 
-// unset new keys stay 0 (unset) — the consumer (loadThresholds) falls back to DefaultThresholds
-// (the existing whole-struct comparison-test compatibility convention — see the thresholds.go comment).
 func TestThresholdsV06UnsetStaysZero(t *testing.T) {
 	th, err := ParseThresholds(nil)
 	if err != nil {

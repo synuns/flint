@@ -14,11 +14,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// ADR-0006 backup integrity — unit tests for Checksum, WriteSidecar, and
-// VerifyFile (fast). The original dump is replaced by a fake buffer; only
-// SUPERLITE_REAL=1 uses the real Dump.
-
-// fakeDumpBuffer — a dump buffer for tests (fake). With SUPERLITE_REAL=1, a real-DB Dump.
 func fakeDumpBuffer(t *testing.T) (*bytes.Buffer, []byte) {
 	t.Helper()
 	var buf bytes.Buffer
@@ -39,8 +34,6 @@ func fakeDumpBuffer(t *testing.T) (*bytes.Buffer, []byte) {
 	return &buf, append([]byte(nil), buf.Bytes()...)
 }
 
-// Test code (as planned): Dump -> tamper -> Verify failure.
-// Original intact — the tamper check does not touch the original file.
 func TestChecksumRoundtrip(t *testing.T) {
 	buf, data := fakeDumpBuffer(t)
 
@@ -69,7 +62,6 @@ func TestChecksumRoundtrip(t *testing.T) {
 		t.Fatalf("verify ok path: sum=%s err=%v, want %s nil", got, err, sum)
 	}
 
-	// Tamper — append a statement to the original, re-verify -> mismatch.
 	tampered := append(append([]byte(nil), data...), []byte("DELETE FROM knowledge;\n")...)
 	if err := os.WriteFile(path, tampered, 0o644); err != nil {
 		t.Fatal(err)
@@ -77,7 +69,7 @@ func TestChecksumRoundtrip(t *testing.T) {
 	if _, err := VerifyFile(path); !errors.Is(err, ErrChecksumMismatch) {
 		t.Fatalf("tampered verify err=%v, want ErrChecksumMismatch", err)
 	}
-	// Original intact: restoring it passes again (VerifyFile did not modify the file).
+
 	if err := os.WriteFile(path, data, 0o644); err != nil {
 		t.Fatal(err)
 	}
@@ -86,7 +78,6 @@ func TestChecksumRoundtrip(t *testing.T) {
 	}
 }
 
-// Missing sidecar path — the warn sentinel + the computed hash returned.
 func TestVerifyFileMissingSidecar(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "dump.sql")
 	data := []byte("BEGIN;\nCOMMIT;\n")
@@ -101,15 +92,12 @@ func TestVerifyFileMissingSidecar(t *testing.T) {
 	if got != hex.EncodeToString(want[:]) {
 		t.Fatalf("sum=%s, want %s", got, hex.EncodeToString(want[:]))
 	}
-	// Original intact — no sidecar is created.
+
 	if _, statErr := os.Stat(path + ".sha256"); !os.IsNotExist(statErr) {
 		t.Fatalf("sidecar should not be created by VerifyFile: %v", statErr)
 	}
 }
 
-// The sidecar must be in sha256sum -c compatible form ("<hex>  <basename>\n"),
-// and VerifyFile compares only the first token (filename ignored — moves
-// allowed).
 func TestSidecarSha256sumCompatible(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dump.sql")
@@ -128,7 +116,7 @@ func TestSidecarSha256sumCompatible(t *testing.T) {
 	if string(side) != hex.EncodeToString(want[:])+"  dump.sql\n" {
 		t.Fatalf("sidecar=%q, want sha256sum format", side)
 	}
-	// Even with a different filename (moved/copied), it passes on the hash token alone.
+
 	moved := filepath.Join(dir, "moved.sql")
 	if err := os.WriteFile(moved, data, 0o644); err != nil {
 		t.Fatal(err)

@@ -36,9 +36,6 @@ func TestApplyHookFixCreatesMissingSettings(t *testing.T) {
 	}
 }
 
-// TestApplyHookFixReadErrorNotMisreadAsMissing — read errors other than os.ErrNotExist
-// (permissions etc.) must not be misclassified as fresh-creation but surface as err as-is
-// (file and backup unchanged).
 func TestApplyHookFixReadErrorNotMisreadAsMissing(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("chmod 000 시맨틱 미지원")
@@ -62,7 +59,7 @@ func TestApplyHookFixReadErrorNotMisreadAsMissing(t *testing.T) {
 	if backup != "" {
 		t.Errorf("읽기 실패 경로에 백업 생성됨: %q", backup)
 	}
-	// restore the original permissions (guaranteeing temp-directory cleanup).
+
 	_ = os.Chmod(p, 0o644)
 	got, rerr := os.ReadFile(p)
 	if rerr != nil || !bytes.Equal(got, orig) {

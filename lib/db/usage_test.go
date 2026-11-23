@@ -1,4 +1,3 @@
-// usage_test.go — playbook use logs·success rate (real-DB slow tests).
 package db
 
 import (
@@ -8,10 +7,6 @@ import (
 	"testing"
 )
 
-// TestPruneDailyKeyPatternCoversGapQueryKeys — the gapq counter key
-// (daily:gapq:<sha256>:<date>, v1.12.0 T2) falls inside the PruneDaily
-// retention-window regex (auto-expiry with the date rollover), while the
-// legacy shapes stay matched and dateless·non-daily keys stay out.
 func TestPruneDailyKeyPatternCoversGapQueryKeys(t *testing.T) {
 	re := regexp.MustCompile(pruneDailyKeyPattern)
 	hash := strings.Repeat("a1", 32)
@@ -36,8 +31,6 @@ func TestPruneDailyKeyPatternCoversGapQueryKeys(t *testing.T) {
 	}
 }
 
-// cleanPBKeys — wipes the pb_% meta keys to isolate tests. LIKE's '_'
-// is any character, so it is escaped with a backslash to be literal.
 func cleanPBKeys(t *testing.T, r *Repo) {
 	t.Helper()
 	if _, err := r.pool.Exec(context.Background(),
@@ -46,7 +39,6 @@ func cleanPBKeys(t *testing.T, r *Repo) {
 	}
 }
 
-// TestPlaybookStats — 2 successes out of 3 → Uses 3·OK 2·Rate 0.667.
 func slowPlaybookStats(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanPBKeys(t, r)
@@ -55,8 +47,7 @@ func slowPlaybookStats(t *testing.T, r *Repo) {
 			t.Fatalf("LogPlaybookUse(ok=%v): %v", ok, err)
 		}
 	}
-	// Direct meta-key verification — increments exactly 3/2
-	// (non-idempotence is the intentional log contract).
+
 	var uses, oks string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = 'pb_42_uses'`).Scan(&uses); err != nil {
@@ -85,8 +76,6 @@ func slowPlaybookStats(t *testing.T, r *Repo) {
 	}
 }
 
-// TestPlaybookStatsMultiple — 2 playbooks, id-ascending; only successes
-// increment ok.
 func slowPlaybookStatsMultiple(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanPBKeys(t, r)
@@ -106,7 +95,7 @@ func slowPlaybookStatsMultiple(t *testing.T, r *Repo) {
 	if len(stats) != 2 {
 		t.Fatalf("stats len=%d, want 2 (%v)", len(stats), stats)
 	}
-	// The id-ascending sort contract.
+
 	if stats[0].ID != 3 || stats[0].Uses != 1 || stats[0].OK != 0 || stats[0].Rate != 0 {
 		t.Fatalf("stats[0] = %+v, want {3 1 0 0}", stats[0])
 	}
@@ -115,7 +104,6 @@ func slowPlaybookStatsMultiple(t *testing.T, r *Repo) {
 	}
 }
 
-// TestPlaybookStatsEmpty — no logs yields an empty slice·nil error.
 func slowPlaybookStatsEmpty(t *testing.T, r *Repo) {
 	cleanPBKeys(t, r)
 	stats, err := r.PlaybookStats(context.Background())
@@ -127,18 +115,12 @@ func slowPlaybookStatsEmpty(t *testing.T, r *Repo) {
 	}
 }
 
-// TestShadowHookOnReadPath — the v1.23.0 4th read-tail hook through the
-// REAL RecordReadEvent path (not the direct maybeShadowRound call): with
-// the circuit registered and fire-shaped data seeded, the unconfigured
-// off default suppresses the round (the single batched gate+mode read,
-// no writes), and the warm steady state adds 0 shadow round trips.
 func TestShadowHookOnReadPath(t *testing.T) {
 	registerFakeShadow(t)
 	rowTrips, execTrips := countShadowTrips(t)
 	r := newTestRepo(t)
-	seedShadowReads(t, r, 11, 1, 5) // fire-shaped — off must suppress it
+	seedShadowReads(t, r, 11, 1, 5)
 
-	// Cold — the hook runs the batched gate+mode read exactly once.
 	resetShadowGateCache(t)
 	if err := r.RecordReadEvent(context.Background(), ReadEvent{Hits: 1}); err != nil {
 		t.Fatalf("RecordReadEvent: %v", err)
@@ -150,7 +132,6 @@ func TestShadowHookOnReadPath(t *testing.T) {
 		t.Fatalf("off 읽기 경로 예측 행 %d건, want 0", n)
 	}
 
-	// Warm — 0 shadow round trips on the hot read path.
 	warmShadowGateCache()
 	if err := r.RecordReadEvent(context.Background(), ReadEvent{Hits: 1}); err != nil {
 		t.Fatalf("RecordReadEvent(2): %v", err)
@@ -160,9 +141,6 @@ func TestShadowHookOnReadPath(t *testing.T) {
 	}
 }
 
-// ── v1.24.0 T2 — the knowledge.kind column stamp (StampKnowledgeKind) ──
-
-// stampQuerier — a Querier fake recording the stamp call (SQL·args).
 type stampQuerier struct {
 	calls []stampCall
 }
@@ -177,10 +155,6 @@ func (q *stampQuerier) Query(ctx context.Context, sql string, args ...any) ([][]
 	return nil, nil
 }
 
-// TestStampKnowledgeKindContract — the classification stamp: one batched
-// UPDATE over the id list with the vocabulary value as $1; an empty id
-// list·an empty kind are no-ops (no query at all — the unspecified-NULL
-// contract never reaches the DB).
 func TestStampKnowledgeKindContract(t *testing.T) {
 	q := &stampQuerier{}
 	if err := StampKnowledgeKind(context.Background(), q, []int{1, 2}, "preference"); err != nil {
@@ -195,7 +169,7 @@ func TestStampKnowledgeKindContract(t *testing.T) {
 	if q.calls[0].Args[0] != "preference" {
 		t.Fatalf("스탬프 값=%v, want preference", q.calls[0].Args[0])
 	}
-	// no-ops: empty ids·empty kind issue no query.
+
 	for _, tc := range []struct {
 		ids  []int
 		kind string
@@ -213,10 +187,6 @@ func TestStampKnowledgeKindContract(t *testing.T) {
 	}
 }
 
-// TestMeteringRegistryCurationV1240 — the D2 funnel pair is registered in
-// the curation group (the write path's BumpCurationCounter whitelist
-// derives from this registry — an unregistered kind would be silently
-// unmetered).
 func TestMeteringRegistryCurationV1240(t *testing.T) {
 	kinds := MeteringKinds("curation")
 	seen := map[string]bool{}

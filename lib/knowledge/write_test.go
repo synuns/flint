@@ -1,12 +1,3 @@
-// write_test.go — the write five-stage pipeline contract — dedup·race
-// recheck·warning merging. Contract invariants: duplicate lines are
-// skipped (new lines partially committed); an all-duplicate rerun is a
-// zero-row commit·exit 0 "duplicate" (seeding idempotence); output of 2+
-// lines is aggregate (inserted·duplicates·commit hash); single-line
-// output stays as before. A race (InsertBatch ErrDuplicate) removes new
-// -line loss via recheck skip + one retry of the remainder. dispatch
-// (mustRun)-mediated tests belong to the cli residual (write_v06 etc.)
-// — this file calls RunWrite directly.
 package knowledge
 
 import (
@@ -33,40 +24,29 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// fakeStore — the wire.Store interface fake (moved from the cli_test.go
-// convention). Stub fields (exists·*Err) take precedence when set; with
-// rows·queryFn unset it returns a no-op.
 type fakeStore struct {
 	wire.HistoryStubs
 
-	// stub conditions
 	exists        bool
 	existsErr     error
-	existsProject map[string]bool // per-name existence (nil means all false)
+	existsProject map[string]bool
 	insertErr     error
 	commitErr     error
 	pingErr       error
 	queryErr      error
 	rows          [][]any
 	queryFn       func(sql string, args []any) ([][]any, error)
-	// hashExistsFn — the per-hash response of the content_hash = ANY($1)
-	// batch dedup lookup (unset: the exists flag answers uniformly for
-	// all hashes).
+
 	hashExistsFn func(hash string) (DupMeta, bool)
 
-	// recording
 	inserted    []map[string]any
 	commits     []string
 	queries     []string
 	linkInserts [][3]any
-	// queryLog — one entry per Query call with its full arguments
-	// (v1.24.0 T2: the counter-key arguments of the BumpDailyFlatKey
-	// calls are asserted by the D2 tests; queries keeps the SQL-only
-	// convention for the existing tests).
+
 	queryLog []writeQueryCall
 }
 
-// writeQueryCall — one recorded Query invocation (SQL + args).
 type writeQueryCall struct {
 	SQL  string
 	Args []any
@@ -88,7 +68,7 @@ func (f *fakeStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	return f.exists, f.existsErr
 }
 func (f *fakeStore) ExistsProject(ctx context.Context, name string) (bool, error) {
-	return f.existsProject[name], nil // a nil map lookup is false (no-op)
+	return f.existsProject[name], nil
 }
 func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 	f.commits = append(f.commits, msg)
@@ -100,8 +80,6 @@ func (f *fakeStore) Commit(ctx context.Context, msg string) (string, error) {
 func (f *fakeStore) Ping(ctx context.Context) error { return f.pingErr }
 func (f *fakeStore) Close()                         {}
 
-// InsertKnowledgeLink — the LinkAccrualStore extension (v1.20.0 T5):
-// the fakeStore side records the idempotent link inserts.
 func (f *fakeStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error {
 	f.linkInserts = append(f.linkInserts, [3]any{fromID, toID, relation})
 	return nil
@@ -116,9 +94,7 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	if f.queryFn != nil {
 		return f.queryFn(sql, args)
 	}
-	// The batch dedup lookup (content_hash = ANY($1)) response — builds
-	// existing-row meta rows from the per-hash hashExistsFn (unset: the
-	// exists flag).
+
 	if strings.Contains(sql, "content_hash = ANY($1)") {
 		if hashes, ok := args[0].([]string); ok {
 			var rows [][]any
@@ -137,9 +113,6 @@ func (f *fakeStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return f.rows, nil
 }
 
-// run — runs RunWrite directly + returns the output (args exclude the
-// dispatch token "write"). The same contract as the cli mustRun-mediated
-// tests; only the store injection is explicit.
 func run(t *testing.T, st wire.Store, args []string, stdin string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -156,14 +129,11 @@ func decode(t *testing.T, line string) map[string]any {
 	return m
 }
 
-// TestWriteJSONLMixedCommitsNew — new+duplicate mixed: duplicate lines
-// are skipped, only new lines commit (partial commit). exit 0·inserted=1·
-// duplicates=1.
 func TestWriteJSONLMixedCommitsNew(t *testing.T) {
 	calls := 0
 	f := &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
 		calls++
-		return DupMeta{ID: 11}, calls == 1 // only the first line (rv-b) is an existing record
+		return DupMeta{ID: 11}, calls == 1
 	}}
 	jsonl := `{"topic":"rv-b","summary":"existing","confidence":0.9}` + "\n" +
 		`{"topic":"rv-c","summary":"fresh","confidence":0.9}`
@@ -183,9 +153,6 @@ func TestWriteJSONLMixedCommitsNew(t *testing.T) {
 	}
 }
 
-// TestWriteJSONLAllDuplicateIdempotent — an all-duplicate rerun:
-// zero-row commit·exit 0·one {"status":"duplicate"} line (the seeding
-// idempotence contract).
 func TestWriteJSONLAllDuplicateIdempotent(t *testing.T) {
 	f := &fakeStore{exists: true}
 	jsonl := `{"topic":"sd-a","summary":"a","confidence":0.9}` + "\n" +
@@ -202,9 +169,6 @@ func TestWriteJSONLAllDuplicateIdempotent(t *testing.T) {
 	}
 }
 
-// TestWriteJSONLMultiOutputNoFieldMix — 2 new lines (mixed confidence
-// yielding pending+active): the multi-line output has no id·state,
-// inserted=2, and hash is the one actual commit (the commit hash).
 func TestWriteJSONLMultiOutputNoFieldMix(t *testing.T) {
 	f := &fakeStore{}
 	jsonl := `{"topic":"mx-a","summary":"low","confidence":0.5}` + "\n" +
@@ -234,12 +198,6 @@ func TestWriteJSONLMultiOutputNoFieldMix(t *testing.T) {
 	}
 }
 
-// raceDupStore — the race-reproducing fake: the pre-ExistsHash passes
-// everything (false), only the first InsertBatch call returns
-// store.ErrDuplicate (a transaction rollback from a concurrent insert).
-// Subsequent ExistsHash answers true only for the first racedDups lines
-// (the recheck point). With failRetry, the retry batch also keeps
-// failing ErrDuplicate (an actual collision).
 type raceDupStore struct {
 	*fakeStore
 	insertCalls int
@@ -258,17 +216,12 @@ func (r *raceDupStore) InsertBatch(ctx context.Context, recs []map[string]any) (
 
 func (r *raceDupStore) ExistsHash(ctx context.Context, hash string) (bool, error) {
 	if r.insertCalls == 0 {
-		return false, nil // pre-check: everything passes as new
+		return false, nil
 	}
 	r.rechecks++
-	return r.rechecks <= r.racedDups, nil // recheck: only the first racedDups lines were concurrently inserted
+	return r.rechecks <= r.racedDups, nil
 }
 
-// TestWriteRaceRecoversNewLines — a race (pre-check passes, then only
-// some lines are concurrently inserted in the batch): the recheck skips
-// existing lines and the retry commits the new lines (regression: a full
-// rollback + exit 0 "duplicate" lost the new lines). inserted=1·
-// duplicates=1.
 func TestWriteRaceRecoversNewLines(t *testing.T) {
 	f := &fakeStore{}
 	rs := &raceDupStore{fakeStore: f, racedDups: 1}
@@ -293,9 +246,6 @@ func TestWriteRaceRecoversNewLines(t *testing.T) {
 	}
 }
 
-// TestWriteRaceAllDupIdempotent — after the race, the recheck finds
-// everything existing: zero-row commit·exit 0 "duplicate" with no
-// new-line loss (the seeding idempotence contract kept).
 func TestWriteRaceAllDupIdempotent(t *testing.T) {
 	f := &fakeStore{}
 	rs := &raceDupStore{fakeStore: f, racedDups: 1}
@@ -315,10 +265,6 @@ func TestWriteRaceAllDupIdempotent(t *testing.T) {
 	}
 }
 
-// TestWriteRaceRetryConflictErrors — if even the retry of a line that
-// passed the recheck yields ErrDuplicate, it is an actual collision: an
-// error report, not exit 0 "duplicate" (regression: an exit 0 success
-// disguise on a lossy path).
 func TestWriteRaceRetryConflictErrors(t *testing.T) {
 	f := &fakeStore{}
 	rs := &raceDupStore{fakeStore: f, failRetry: true}
@@ -338,11 +284,6 @@ func TestWriteRaceRetryConflictErrors(t *testing.T) {
 	}
 }
 
-// raceProjectStore — the project-race-reproducing fake: the pre-
-// ExistsProject passes everything (false), only the first InsertBatch
-// call returns store.ErrDuplicate (a concurrent-insert rollback), and
-// subsequent ExistsProject answers true (the recheck point — the
-// natural-key name check).
 type raceProjectStore struct {
 	*fakeStore
 	insertCalls int
@@ -360,12 +301,6 @@ func (r *raceProjectStore) ExistsProject(ctx context.Context, name string) (bool
 	return r.insertCalls > 0, nil
 }
 
-// TestWriteProjectKindDedup — per-line dedup on the project kind's
-// natural key (name): lines with an existing name are skipped, only new
-// lines commit·duplicates=1·exit 0 (regression: project has no
-// content_hash, so neither pre-dedup nor recheck is possible →
-// InsertBatch unique(name) collision → the retry re-collides with a
-// "batch conflict" error, failing the first seeding).
 func TestWriteProjectKindDedup(t *testing.T) {
 	t.Run("pre-check mixed", func(t *testing.T) {
 		f := &fakeStore{existsProject: map[string]bool{"데모 게임 프로젝트": true}}
@@ -406,16 +341,11 @@ func TestWriteProjectKindDedup(t *testing.T) {
 	})
 }
 
-// countCall — a recorded RecordUsageCount call (kind, source, count).
 type countCall struct {
 	kind, source string
 	n            int
 }
 
-// countRecorder — a fake recording RecordUsage (single)·
-// RecordUsageCount (bulk) calls: the realStore metering seam (#5: dup N
-// incremented in bulk with one call). Dedup scenarios are specified via
-// fakeStore.hashExistsFn (the batch ANY($1) lookup response).
 type countRecorder struct {
 	*fakeStore
 	singles []countCall
@@ -432,10 +362,6 @@ func (c *countRecorder) RecordUsageCount(ctx context.Context, kind, source strin
 	return nil
 }
 
-// TestWriteDupBatchSingleCountCall — dup metering is one RecordUsageCount
-// call per key regardless of line count (regression: recordDups looped
-// RecordUsage N times — O(N) read-writes). write ×1 (RecordUsage)·total
-// dup N + source dup_<source> N (one RecordUsageCount each).
 func TestWriteDupBatchSingleCountCall(t *testing.T) {
 	t.Run("all-dup", func(t *testing.T) {
 		c := &countRecorder{fakeStore: &fakeStore{exists: true}}
@@ -459,7 +385,7 @@ func TestWriteDupBatchSingleCountCall(t *testing.T) {
 		calls := 0
 		c := &countRecorder{fakeStore: &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
 			calls++
-			return DupMeta{}, calls <= 2 // only the first 2 lines are existing records
+			return DupMeta{}, calls <= 2
 		}}}
 		jsonl := `{"topic":"rv-e","summary":"a","confidence":0.9}` + "\n" +
 			`{"topic":"rv-f","summary":"b","confidence":0.9}` + "\n" +
@@ -482,9 +408,6 @@ func TestWriteDupBatchSingleCountCall(t *testing.T) {
 	})
 }
 
-// TestWriteAllDuplicateKeepsWarnings — even an all-duplicate run does
-// not discard the warnings (secret scan) (regression: the recs==0 branch
-// printed only the duplicate line without warnings).
 func TestWriteAllDuplicateKeepsWarnings(t *testing.T) {
 	f := &fakeStore{exists: true}
 	out, code := run(t, f, []string{"knowledge"},
@@ -502,12 +425,6 @@ func TestWriteAllDuplicateKeepsWarnings(t *testing.T) {
 	}
 }
 
-// ── write batch dedup — one lookupHashBatch (content_hash = ANY($1)
-// chunks) lookup instead of per-line lookupHash (N round trips). The
-// single-shot (1-row hook pattern) keeps the per-line lookup contract. ──
-
-// dedupQueryCount — the number of batch dedup (ANY($1)) queries among
-// the recorded queries.
 func dedupQueryCount(f *fakeStore) int {
 	n := 0
 	for _, q := range f.queries {
@@ -518,16 +435,11 @@ func dedupQueryCount(f *fakeStore) int {
 	return n
 }
 
-// TestWriteMultiLineDedupBatchQuery — the multi-line pre-dedup is one
-// ANY($1) batch query regardless of line count (regression: per-line
-// lookups N round trips — RTT-dominated at 50k rows). Detection
-// identical: existing lines skipped·new lines partially committed·the
-// duplicates count unchanged.
 func TestWriteMultiLineDedupBatchQuery(t *testing.T) {
 	calls := 0
 	f := &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
 		calls++
-		return DupMeta{ID: calls}, calls == 2 // only the second line is an existing row
+		return DupMeta{ID: calls}, calls == 2
 	}}
 	var lines []string
 	for _, topic := range []string{"wb-a", "wb-b", "wb-c", "wb-d"} {
@@ -553,12 +465,8 @@ func TestWriteMultiLineDedupBatchQuery(t *testing.T) {
 	}
 }
 
-// TestWriteSingleLineDedupKeepsRowLookup — the single-shot (1-row hook
-// pattern) does not switch to the batch query: 0 ANY($1) queries·the
-// per-line ExistsHash lookup as before (the DupMetaStore→DupIDStore→
-// ExistsHash fallback contract unchanged).
 func TestWriteSingleLineDedupKeepsRowLookup(t *testing.T) {
-	f := &fakeStore{exists: true} // the ExistsHash fallback path
+	f := &fakeStore{exists: true}
 	out, code := run(t, f, []string{"knowledge"},
 		`{"topic":"sl-a","summary":"단발 합성","confidence":0.9}`)
 	if code != 0 {
@@ -572,9 +480,6 @@ func TestWriteSingleLineDedupKeepsRowLookup(t *testing.T) {
 	}
 }
 
-// TestWriteMultiLineBatchLookupErrorExits — a batch dedup lookup error
-// propagates without a silent new verdict (the error contract:
-// server-down exit 2 — preserved even through wrapping).
 func TestWriteMultiLineBatchLookupErrorExits(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "content_hash = ANY($1)") {
@@ -596,9 +501,6 @@ func TestWriteMultiLineBatchLookupErrorExits(t *testing.T) {
 	}
 }
 
-// TestWriteMultiLineDedupChunked — the batch query also fires once per
-// chunk across chunk boundaries (lookupHashBatch reusing importDedupChunk
-// — boundary-shrink verification).
 func TestWriteMultiLineDedupChunked(t *testing.T) {
 	saved := importDedupChunk
 	importDedupChunk = 2
@@ -606,7 +508,7 @@ func TestWriteMultiLineDedupChunked(t *testing.T) {
 	calls := 0
 	f := &fakeStore{hashExistsFn: func(h string) (DupMeta, bool) {
 		calls++
-		return DupMeta{}, calls <= 2 // only the first 2 lines are existing rows
+		return DupMeta{}, calls <= 2
 	}}
 	var lines []string
 	for _, topic := range []string{"ck-a", "ck-b", "ck-c", "ck-d", "ck-e"} {
@@ -625,9 +527,6 @@ func TestWriteMultiLineDedupChunked(t *testing.T) {
 	}
 }
 
-// BenchmarkWriteMultiLinePipeline — the per-line CPU cost of the
-// synthetic multi-line write pipeline (validate→sanitize→hash→batch
-// dedup→accrue) (a fake store — RTT excluded).
 func BenchmarkWriteMultiLinePipeline(b *testing.B) {
 	const lines = 2000
 	var buf strings.Builder
@@ -645,9 +544,6 @@ func BenchmarkWriteMultiLinePipeline(b *testing.B) {
 	}
 }
 
-// writeRealDSN — real-DB connection allowed only with SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN set (inheriting the cli seamRealDSN·importRealDSN
-// contract — operational fallback blocked).
 func writeRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -659,16 +555,11 @@ func writeRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// writeRealStore — the db.Repo write + pool read adapter (the
-// importRealStore convention).
 type writeRealStore struct {
 	*db.Repo
 	pool *pgxpool.Pool
 }
 
-// Of the history contract, the 4 methods db.Repo does not implement
-// return unsupported (LogEntries is inherited via the *db.Repo embedding
-// — an explicit absorption with the same meaning as wire.HistoryStubs).
 func (s *writeRealStore) QueryAsOf(ctx context.Context, q wire.AsOfQuery) ([][]any, error) {
 	return nil, wire.ErrHistoryUnsupported
 }
@@ -704,12 +595,6 @@ func (s *writeRealStore) Query(ctx context.Context, sql string, args ...any) ([]
 	return out, rows.Err()
 }
 
-// InsertKnowledgeLink — the LinkAccrualStore extension of the slow-test
-// adapter (v1.20.0 T5): the idempotent knowledge_links INSERT over the
-// pool (the same statement the production realStore carries in
-// cli/root.go — the write-guard scope keeps the literal in store
-// implementations). v1.20.1: ON CONFLICT over the schema v15 unique
-// index, tracking the production change.
 func (s *writeRealStore) InsertKnowledgeLink(ctx context.Context, fromID, toID int, relation string) error {
 	_, err := s.pool.Exec(ctx,
 		`INSERT INTO knowledge_links (from_id, to_id, relation)
@@ -724,11 +609,6 @@ func (s *writeRealStore) Close() {
 	s.pool.Close()
 }
 
-// TestWriteBatchDedupRealSlow — the real-DB slow benchmark: the
-// round-trip times of the batch dedup for a first accrual (new) of 5k
-// synthetic lines·a second resend (all duplicates). The converted
-// per-line-lookup comparison figures are logged (synthetic demo data
-// only — rows cleaned by tag).
 func TestWriteBatchDedupRealSlow(t *testing.T) {
 	dsn, ok := writeRealDSN()
 	if !ok {
@@ -749,7 +629,7 @@ func TestWriteBatchDedupRealSlow(t *testing.T) {
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatalf("migrate 실패: %v", err)
 	}
-	const tag = "wt3-합성-" // the topic prefix (cleanup marker) — tags are unused since they produce vocabulary warnings polluting the bench output
+	const tag = "wt3-합성-"
 	const lines = 5000
 	cleanup := func() {
 		_, _ = st.Query(ctx, `DELETE FROM knowledge WHERE topic LIKE $1 || '%'`, tag)
@@ -781,15 +661,12 @@ func TestWriteBatchDedupRealSlow(t *testing.T) {
 	if strings.TrimSpace(out2.String()) != `{"status":"duplicate"}` {
 		t.Fatalf("2차 재전송 출력=%q, want duplicate(멱등)", out2.String())
 	}
-	// A 50k conversion (linear approximation — a log for the benchmark
-	// record).
+
 	t.Logf("실DB 배치 dedup: 1차(신규 %d줄)=%v·2차(전부 dup)=%v·50k 환산 1차≈%v·2차≈%v",
 		lines, fresh.Round(time.Millisecond), rerun.Round(time.Millisecond),
 		(fresh * 10).Round(time.Millisecond), (rerun * 10).Round(time.Millisecond))
 }
 
-// TestSanitizePayloadTagsSecrets — sanitization·secret scanning also
-// apply to tags array elements·domain (formerly blind spots).
 func TestSanitizePayloadTagsSecrets(t *testing.T) {
 	p := map[string]any{
 		"topic":  "토픽",
@@ -801,9 +678,7 @@ func TestSanitizePayloadTagsSecrets(t *testing.T) {
 	if !strings.Contains(joined, "possible secret") {
 		t.Errorf("비밀 경고 없음: %v", warns)
 	}
-	// Allowing storage after a secret warning is the existing ruling (the
-	// same contract as string fields) — here the warning firing and the
-	// marker neutralization are each asserted.
+
 	p2 := map[string]any{"tags": []any{"a[flint]b"}}
 	_ = SanitizePayload(p2)
 	if raw, _ := p2["tags"].([]any); len(raw) > 0 {
@@ -813,10 +688,6 @@ func TestSanitizePayloadTagsSecrets(t *testing.T) {
 	}
 }
 
-// ── The write stdin row cap (reusing export_import_max_rows). ──
-
-// writeMaxRowsFixture — a synthetic N-line knowledge stdin for the cap
-// checks (no hash collisions).
 func writeMaxRowsFixture(n int) string {
 	var b strings.Builder
 	for i := 1; i <= n; i++ {
@@ -825,10 +696,6 @@ func writeMaxRowsFixture(n int) string {
 	return b.String()
 }
 
-// TestRunWriteMaxRowsExceeded — when the stdin line count exceeds the
-// cap, exit 3·the error JSON includes max·count, and no accrual happens
-// (the same shape as the import enforcement — memory defense against
-// accruing a huge stdin in full).
 func TestRunWriteMaxRowsExceeded(t *testing.T) {
 	f := maxRowsFake("2")
 	out, code := run(t, f, []string{"knowledge"}, writeMaxRowsFixture(3))
@@ -844,9 +711,6 @@ func TestRunWriteMaxRowsExceeded(t *testing.T) {
 	}
 }
 
-// TestRunWriteMaxRowsBoundary — a line count equal to the cap passes
-// (count == max allowed — only the excess is blocked. The same boundary
-// contract as import).
 func TestRunWriteMaxRowsBoundary(t *testing.T) {
 	f := maxRowsFake("2")
 	out, code := run(t, f, []string{"knowledge"}, writeMaxRowsFixture(2))
@@ -855,14 +719,6 @@ func TestRunWriteMaxRowsBoundary(t *testing.T) {
 	}
 }
 
-// ── The per-payload field byte cap (a constant — aligned with compact's
-// 8MiB). ──
-
-// TestRunWriteFieldBytesExceeded — when a single field value exceeds
-// maxPayloadFieldBytes (aligned with compactMaxBytes 8MiB), it is
-// rejected at the Validate stage (exit 3) and no accrual happens
-// (unbounded-OOM defense against a huge field flowing into
-// sanitize·hash·accrue — only the excess is blocked).
 func TestRunWriteFieldBytesExceeded(t *testing.T) {
 	f := &fakeStore{}
 	big := strings.Repeat("a", maxPayloadFieldBytes+1)
@@ -880,9 +736,6 @@ func TestRunWriteFieldBytesExceeded(t *testing.T) {
 	}
 }
 
-// TestRunWriteFieldBytesBoundary — exactly the cap size passes (only the
-// excess is blocked); several fields each within the cap pass even if
-// the total exceeds it (the cap is per single field).
 func TestRunWriteFieldBytesBoundary(t *testing.T) {
 	f := &fakeStore{}
 	ok := strings.Repeat("b", maxPayloadFieldBytes)
@@ -897,13 +750,6 @@ func TestRunWriteFieldBytesBoundary(t *testing.T) {
 	}
 }
 
-// ── The concurrent write race survive — a slow real-DB parallel
-// regression. ──
-
-// openWriteRealStore — builds the real-DB store only with
-// SUPERLITE_REAL=1 + FLINT_TEST_DSN set (inheriting the writeRealDSN
-// contract — operational fallback blocked). Also returns the DSN (for
-// the race opponent writer's extra connection).
 func openWriteRealStore(t *testing.T) (*writeRealStore, string) {
 	t.Helper()
 	dsn, ok := writeRealDSN()
@@ -928,9 +774,6 @@ func openWriteRealStore(t *testing.T) (*writeRealStore, string) {
 	return st, dsn
 }
 
-// raceStdin — the synthetic stdin for the parallel race check: shared
-// lines carry identical content (identical content_hash) for both
-// writers; uniq lines carry content unique per writerTag.
 func raceStdin(roundTag, writerTag string, shared, uniq int) string {
 	var b strings.Builder
 	for i := 0; i < shared; i++ {
@@ -942,8 +785,6 @@ func raceStdin(roundTag, writerTag string, shared, uniq int) string {
 	return b.String()
 }
 
-// raceRowCount — counts the rows with the roundTag prefix (residue
-// check).
 func raceRowCount(ctx context.Context, st *writeRealStore, roundTag string) int {
 	rows, err := st.Query(ctx, `SELECT count(*) FROM knowledge WHERE topic LIKE $1 || '%'`, roundTag)
 	if err != nil {
@@ -959,16 +800,6 @@ func raceRowCount(ctx context.Context, st *writeRealStore, roundTag string) int 
 	return n
 }
 
-// TestWriteParallelRaceRealSlow — when 2 writers (independent sessions)
-// concurrently write 50 identical-content lines + 50 unique lines each,
-// the race loser also keeps all its unique lines via the survive path
-// (content_hash recheck skip + one retry of the remainder) — both sides
-// exit 0·150 total rows remain. Before the fix, the loser's InsertBatch
-// commit-time violation propagated unclassified (XX000 "constraint
-// violations, transaction rolled back") and its 50 unique lines were
-// lost. Multiple rounds probabilistically cover the race crossing (both
-// pre-checks passing) — the deterministic crossing check belongs to
-// lib/db TestInsertBatchCommitRaceClassifiedRealSlow.
 func TestWriteParallelRaceRealSlow(t *testing.T) {
 	stA, dsn := openWriteRealStore(t)
 	ctx := context.Background()
@@ -1031,14 +862,6 @@ func TestWriteParallelRaceRealSlow(t *testing.T) {
 	}
 }
 
-// ── v1.11.0 T1 — the source registry (correction added) is the single
-// source: usage·ErrInvalidSource are derived from it (no duplicate
-// hardcoded lists). ──
-
-// TestParseSourceCorrectionValid — "correction" is a registered source:
-// ParseSourceFlag accepts it, and RunWrite with --source correction
-// commits exit 0 (metered under correction — the registry admission
-// contract).
 func TestParseSourceCorrectionValid(t *testing.T) {
 	src, err := ParseSourceFlag([]string{"--source", "correction"})
 	if err != nil || src != "correction" {
@@ -1055,9 +878,6 @@ func TestParseSourceCorrectionValid(t *testing.T) {
 	}
 }
 
-// TestParseSourceUnregisteredRejectedExit3 — an unregistered value is
-// rejected: ParseSourceFlag → ErrInvalidSource·RunWrite exit 3 with no
-// insert (the inherited invalid-source contract).
 func TestParseSourceUnregisteredRejectedExit3(t *testing.T) {
 	if _, err := ParseSourceFlag([]string{"--source", "nope"}); !errors.Is(err, ErrInvalidSource) {
 		t.Fatalf("미등록 값 오류=%v, want ErrInvalidSource", err)
@@ -1073,10 +893,6 @@ func TestParseSourceUnregisteredRejectedExit3(t *testing.T) {
 	}
 }
 
-// TestSourceRegistryDerivationGuard — the homogeneous guard: the usage
-// hint (--help)·the ErrInvalidSource message·the validSources membership
-// all stay in sync with the sourceRegistry (a hardcoded list drifting
-// from the registry fails here — dual maintenance abolished).
 func TestSourceRegistryDerivationGuard(t *testing.T) {
 	want := strings.Join(sourceRegistry, "|")
 	f := &fakeStore{}
@@ -1103,15 +919,6 @@ func TestSourceRegistryDerivationGuard(t *testing.T) {
 	}
 }
 
-// ── v1.12.0 T1 — the `gap` channel registration: the fifth metering
-// source (recall-failure gap candidates — T3 accrues them; no defaults
-// are attached at write time, unlike correction). The registry remains
-// the single source: usage·ErrInvalidSource·membership derive from it. ──
-
-// TestParseSourceGapValid — "gap" is a registered source: ParseSourceFlag
-// accepts it, and RunWrite with --source gap commits exit 0 (metered
-// under gap — the registry admission contract). A gap write attaches no
-// tag·confidence defaults (T3's candidate payload supplies them).
 func TestParseSourceGapValid(t *testing.T) {
 	if !validSources["gap"] {
 		t.Fatal("등록표에 gap 없음(validSources 멤버십 누락)")
@@ -1137,9 +944,6 @@ func TestParseSourceGapValid(t *testing.T) {
 	}
 }
 
-// TestParseSourceUnregisteredStillRejectedAfterGap — the gap admission
-// keeps the invalid-source contract: an unregistered value is still
-// rejected exit 3 (guard against a loosened membership check).
 func TestParseSourceUnregisteredStillRejectedAfterGap(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge", "--source", "gaps"},
@@ -1152,14 +956,6 @@ func TestParseSourceUnregisteredStillRejectedAfterGap(t *testing.T) {
 	}
 }
 
-// ── v1.11.0 T2 — the --source correction path: only two defaults are
-// added (missing confidence → the correction_confidence threshold·the
-// "correction" tag merged); validate→hash dedup→classify→approve are the
-// existing circuits reused unchanged. ──
-
-// TestWriteCorrectionDefaults — a correction write without confidence·tags:
-// confidence defaults to the threshold 0.7 (below the 0.8 floor → pending),
-// tags become ["correction"], single-line output state=pending.
 func TestWriteCorrectionDefaults(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
@@ -1185,9 +981,6 @@ func TestWriteCorrectionDefaults(t *testing.T) {
 	}
 }
 
-// TestWriteCorrectionRespectsExplicitConfidence — an explicitly given
-// confidence is respected (the manual contract unchanged): 0.95 → active
-// with confidence 0.95; the correction tag is still merged.
 func TestWriteCorrectionRespectsExplicitConfidence(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
@@ -1206,9 +999,6 @@ func TestWriteCorrectionRespectsExplicitConfidence(t *testing.T) {
 	}
 }
 
-// TestWriteCorrectionTagMerge — the correction tag merges with existing
-// tags (order preserved, appended last)·is idempotent (no duplicates when
-// already present).
 func TestWriteCorrectionTagMerge(t *testing.T) {
 	t.Run("기존 태그 병합", func(t *testing.T) {
 		f := &fakeStore{}
@@ -1234,10 +1024,6 @@ func TestWriteCorrectionTagMerge(t *testing.T) {
 	})
 }
 
-// hashMatchStore — a fakeStore whose ExistsHash answers existing only for
-// the one given hash (single-line dedup: a hash-accurate existing-row
-// response without implementing DupIDStore/DupMetaStore — the ExistsHash
-// fallback path).
 type hashMatchStore struct {
 	*fakeStore
 	hash string
@@ -1247,10 +1033,6 @@ func (h *hashMatchStore) ExistsHash(ctx context.Context, hash string) (bool, err
 	return hash == h.hash, nil
 }
 
-// TestWriteCorrectionDedupCircuitReused — the correction path reuses the
-// content_hash dedup circuit unchanged (no separate branch): the same
-// correction payload resent after the hash exists is a bare duplicate
-// (exit 0 {"status":"duplicate"} — the existing idempotence contract).
 func TestWriteCorrectionDedupCircuitReused(t *testing.T) {
 	f1 := &fakeStore{}
 	out, code := run(t, f1, []string{"knowledge", "--source", "correction"},
@@ -1262,9 +1044,7 @@ func TestWriteCorrectionDedupCircuitReused(t *testing.T) {
 	if hash == "" {
 		t.Fatal("1차 적립 content_hash 없음")
 	}
-	// 2nd: the exact hash of the merged-tag payload is judged existing —
-	// the same single-line ExistsHash lookup circuit (no correction-specific
-	// dedup). hashMatchStore answers existing only for that hash.
+
 	f2 := &hashMatchStore{fakeStore: &fakeStore{}, hash: hash}
 	out2, code2 := run(t, f2, []string{"knowledge", "--source", "correction"},
 		`{"topic":"t2-dedup-reuse","summary":"합성 데모","confidence":0.9,"tags":["demo"]}`+"\n")
@@ -1279,9 +1059,6 @@ func TestWriteCorrectionDedupCircuitReused(t *testing.T) {
 	}
 }
 
-// TestWriteCorrectionConfidenceThresholdOverride — the default confidence
-// comes from the thresholds registry (meta correction_confidence), not a
-// code constant: an override 0.5 lands as the default·pending.
 func TestWriteCorrectionConfidenceThresholdOverride(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key IN") &&
@@ -1303,9 +1080,6 @@ func TestWriteCorrectionConfidenceThresholdOverride(t *testing.T) {
 	}
 }
 
-// TestWriteManualMissingConfidenceStillRejected — without correction, the
-// existing manual contract is unchanged: a missing confidence is a
-// Validate error (exit 3), no default injection.
 func TestWriteManualMissingConfidenceStillRejected(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge"},
@@ -1321,16 +1095,6 @@ func TestWriteManualMissingConfidenceStillRejected(t *testing.T) {
 	}
 }
 
-// ── v1.11.0 T3 — the correction daily cap (correction_daily_max): lines
-// past the day's committed-correction quota are quietly skipped with one
-// warning line (exit 0 — independent of the dup mechanism; the count
-// source is the daily:correction_write:<date> flat key). ──
-
-// correctionCapFake — a fakeStore answering the two meta lookups of the
-// cap path: the thresholds IN query (a correction_daily_max override when
-// set) and today's daily:correction_write:<date> count (empty = 0). The
-// daily:correction_write UPSERT bumps are counted into bumps (the key
-// rides as a query arg, so the SQL-recording path cannot see it).
 func correctionCapFake(maxOverride, todayCount string, bumps *int) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.HasPrefix(sql, "INSERT INTO meta") {
@@ -1354,11 +1118,9 @@ func correctionCapFake(maxOverride, todayCount string, bumps *int) *fakeStore {
 	}}
 }
 
-// TestWriteCorrectionDailyCapReachedSkips — the quota exhausted: the line
-// is quietly skipped (no insert·no commit) with one warning line, exit 0.
 func TestWriteCorrectionDailyCapReachedSkips(t *testing.T) {
 	var bumps int
-	f := correctionCapFake("", "20", &bumps) // the default cap 20 already committed today
+	f := correctionCapFake("", "20", &bumps)
 	out, code := run(t, f, []string{"knowledge", "--source", "correction"},
 		`{"topic":"t3-cap-reached","summary":"합성 데모"}`+"\n")
 	if code != 0 {
@@ -1375,9 +1137,6 @@ func TestWriteCorrectionDailyCapReachedSkips(t *testing.T) {
 	}
 }
 
-// TestWriteCorrectionDailyCapPartial — quota 1 left with 2 lines: only
-// the first accrues·commits (partial commit), the second is skipped with
-// one warning line; the committed count is bumped once.
 func TestWriteCorrectionDailyCapPartial(t *testing.T) {
 	var bumps int
 	f := correctionCapFake("", "19", &bumps)
@@ -1409,9 +1168,6 @@ func TestWriteCorrectionDailyCapPartial(t *testing.T) {
 	}
 }
 
-// TestWriteCorrectionDailyCapOverride — the cap comes from the thresholds
-// registry (meta correction_daily_max), not a code constant: an override
-// 1 with 2 fresh lines accrues only the first.
 func TestWriteCorrectionDailyCapOverride(t *testing.T) {
 	f := correctionCapFake("1", "", nil)
 	jsonl := `{"topic":"t3-ovr-a","summary":"합성 데모","confidence":0.9}` + "\n" +
@@ -1428,9 +1184,6 @@ func TestWriteCorrectionDailyCapOverride(t *testing.T) {
 	}
 }
 
-// TestWriteCorrectionDailyCapUnderPasses — quota remaining: lines pass
-// untouched (no warning·normal commit·bump by the committed count) — the
-// cap interferes only at the boundary.
 func TestWriteCorrectionDailyCapUnderPasses(t *testing.T) {
 	var bumps int
 	f := correctionCapFake("", "0", &bumps)
@@ -1450,11 +1203,6 @@ func TestWriteCorrectionDailyCapUnderPasses(t *testing.T) {
 	}
 }
 
-// TestWriteCommitMessageNamePreferred — the D4 (R33) regression: the
-// commit title prefers the project's name ("project: <name>"). Without
-// name (knowledge etc.), the existing summary fallback is unchanged —
-// before the fix, project stored the name field but the title went out
-// as summary's (nil) "<nil>".
 func TestWriteCommitMessageNamePreferred(t *testing.T) {
 	t.Run("project — name 우선", func(t *testing.T) {
 		f := &fakeStore{}
@@ -1486,17 +1234,10 @@ func TestWriteCommitMessageNamePreferred(t *testing.T) {
 	})
 }
 
-// ── v1.12.0 T3 — the gap-candidate accrual: a recall failure count at
-// the gap_query_threshold accrues a pending candidate (source gap·tag
-// gap-candidate·confidence 0.4·N-invariant content_hash succession). ──
-
-// gapAccrualStore — a fakeStore layered for the accrual: DupMetaStore
-// rows by hash (pending/active existing-row shapes) + the
-// UpdatePendingSummary seam recorder.
 type gapAccrualStore struct {
 	*fakeStore
 	dupRows map[string]DupMeta
-	updates []string // "id:summary" per UpdatePendingSummary call
+	updates []string
 }
 
 func (g *gapAccrualStore) DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error) {
@@ -1509,8 +1250,6 @@ func (g *gapAccrualStore) UpdatePendingSummary(ctx context.Context, id int, summ
 	return 1, nil
 }
 
-// captureStderr — swaps os.Stderr for a pipe around fn (the cap warning
-// line assertion).
 func captureStderr(t *testing.T, fn func()) string {
 	t.Helper()
 	r, w, err := os.Pipe()
@@ -1526,11 +1265,6 @@ func captureStderr(t *testing.T, fn func()) string {
 	return string(b)
 }
 
-// TestGapCandidateAccrualAtThreshold — the count reaching the threshold
-// (3 — the clamped default: the fake carries no meta override) ADDs one
-// pending candidate: topic prefix + the 60-rune normalized query·summary
-// N·confidence 0.4·tag :gap-candidate:·source-gap metering·one commit.
-// Below the threshold nothing accrues.
 func TestGapCandidateAccrualAtThreshold(t *testing.T) {
 	t.Run("임계 미달 — 미적립", func(t *testing.T) {
 		f := &gapAccrualStore{fakeStore: &fakeStore{}, dupRows: map[string]DupMeta{}}
@@ -1573,9 +1307,6 @@ func TestGapCandidateAccrualAtThreshold(t *testing.T) {
 	})
 }
 
-// TestGapCandidateThresholdMetaOverride — the meta override loads through
-// LoadThresholds: gap_query_threshold=5 in meta moves the trigger (3 →
-// no accrual; 5 → accrual).
 func TestGapCandidateThresholdMetaOverride(t *testing.T) {
 	f := &gapAccrualStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "SELECT key, value FROM meta WHERE key IN (") {
@@ -1593,9 +1324,6 @@ func TestGapCandidateThresholdMetaOverride(t *testing.T) {
 	}
 }
 
-// TestGapCandidatePendingRefreshUpdatesN — an existing pending row with
-// the same N-invariant hash gets its summary N refreshed via the
-// UpdatePendingSummary seam (an UPDATE, not a supersede) — no new insert.
 func TestGapCandidatePendingRefreshUpdatesN(t *testing.T) {
 	f := &gapAccrualStore{fakeStore: &fakeStore{}, dupRows: map[string]DupMeta{
 		gapCandidateHash(NormalizeGapQuery("데모 쿼리")): {ID: 7, Topic: "격차 후보: 데모 쿼리", State: "pending"},
@@ -1609,9 +1337,6 @@ func TestGapCandidatePendingRefreshUpdatesN(t *testing.T) {
 	}
 }
 
-// TestGapCandidateActiveNoop — an existing active row with the same hash
-// is left untouched (the promotion-fixed integrity ruling): no update,
-// no insert, no commit.
 func TestGapCandidateActiveNoop(t *testing.T) {
 	f := &gapAccrualStore{fakeStore: &fakeStore{}, dupRows: map[string]DupMeta{
 		gapCandidateHash(NormalizeGapQuery("데모 쿼리")): {ID: 9, Topic: "격차 후보: 데모 쿼리", State: "active"},
@@ -1622,9 +1347,6 @@ func TestGapCandidateActiveNoop(t *testing.T) {
 	}
 }
 
-// TestGapCandidateDailyCapSkipsQuietly — with the day's ADD count at the
-// cap (10 — the clamped default), the candidate is quietly skipped with
-// one stderr warning line; the counter key counts ADDs only.
 func TestGapCandidateDailyCapSkipsQuietly(t *testing.T) {
 	today := time.Now().UTC().Format("2006-01-02")
 	f := &gapAccrualStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -1648,10 +1370,6 @@ func TestGapCandidateDailyCapSkipsQuietly(t *testing.T) {
 	}
 }
 
-// TestGapCandidateHashInvariantToN — the digest is computed over the
-// topic·tag·confidence shape with the summary omitted: the same query at
-// different N hashes identically (the succession key), different queries
-// hash apart.
 func TestGapCandidateHashInvariantToN(t *testing.T) {
 	h := gapCandidateHash(NormalizeGapQuery("데모 쿼리"))
 	if h != gapCandidateHash(NormalizeGapQuery("데모 쿼리")) {
@@ -1662,10 +1380,6 @@ func TestGapCandidateHashInvariantToN(t *testing.T) {
 	}
 }
 
-// ── v1.17.0 T2 — the echo field of the single-line committed output. ──
-
-// echoWTestTopic — the shared synthetic topic of the echo write fixtures
-// (the echo_test.go convention).
 const (
 	echoWTestTopic   = "데모 프로젝트 운영 기록"
 	echoWDupSummary  = "회의록 오늘 확정된 마일스톤은 3개다"
@@ -1674,8 +1388,6 @@ const (
 	echoWOtherSummar = "올해 읽은 책 다섯 권 감상"
 )
 
-// runWriteEcho — runs RunWrite with one knowledge JSON line (confidence
-// 0.9 — active) and returns the decoded output map.
 func runWriteEcho(t *testing.T, st wire.Store, topic, summary string, conf float64) (map[string]any, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -1687,12 +1399,6 @@ func runWriteEcho(t *testing.T, st wire.Store, topic, summary string, conf float
 	return decode(t, out.String()), code
 }
 
-// TestWriteEchoFieldOnNewKnowledge — a new single-line knowledge write
-// reports the matching active row as an echo candidate: the committed
-// output gains "echo":[{id,topic,score,relation}] (the field name is
-// score, not similarity) while the legacy status/hash/state/id fields
-// survive verbatim (backward compatibility — old readers ignore the new
-// field).
 func TestWriteEchoFieldOnNewKnowledge(t *testing.T) {
 	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
 	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
@@ -1723,9 +1429,6 @@ func TestWriteEchoFieldOnNewKnowledge(t *testing.T) {
 	}
 }
 
-// TestWriteEchoOmittedOnExactDup — an exact-hash duplicate line answers
-// with the DuplicateMeta shape and no echo field (the response already
-// names the existing row — the double-report ruling).
 func TestWriteEchoOmittedOnExactDup(t *testing.T) {
 	st := &fakeStore{exists: true, rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
 	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
@@ -1737,8 +1440,6 @@ func TestWriteEchoOmittedOnExactDup(t *testing.T) {
 	}
 }
 
-// TestWriteEchoOmittedOnScanFailure — an echo scan failure quietly omits
-// the field: the write still commits, exit 0 (§13).
 func TestWriteEchoOmittedOnScanFailure(t *testing.T) {
 	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}, queryErr: errors.New("scan down")}
 	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
@@ -1750,8 +1451,6 @@ func TestWriteEchoOmittedOnScanFailure(t *testing.T) {
 	}
 }
 
-// TestWriteEchoOmittedWhenNoCandidates — zero qualifying rows omit the
-// field (no empty array).
 func TestWriteEchoOmittedWhenNoCandidates(t *testing.T) {
 	st := &fakeStore{rows: [][]any{{int64(9), echoWOtherTopic, echoWOtherSummar}}}
 	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
@@ -1760,9 +1459,6 @@ func TestWriteEchoOmittedWhenNoCandidates(t *testing.T) {
 	}
 }
 
-// TestWriteEchoMultiLineOmitted — the multi-line aggregate output keeps
-// its shape (no echo field — the response is a batch aggregate, not a
-// per-line verdict).
 func TestWriteEchoMultiLineOmitted(t *testing.T) {
 	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
 	var out bytes.Buffer
@@ -1778,9 +1474,6 @@ func TestWriteEchoMultiLineOmitted(t *testing.T) {
 	}
 }
 
-// TestWriteEchoThresholdSeam — the loaded thresholds flow into the scan:
-// an echo_min_score of 0.99 excludes the contradicts candidate that the
-// default (0.3) admits.
 func TestWriteEchoThresholdSeam(t *testing.T) {
 	t.Cleanup(func() { SetEchoThresholds(5, 0.3, 0.4) })
 	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWContraSum}}}
@@ -1796,13 +1489,6 @@ func TestWriteEchoThresholdSeam(t *testing.T) {
 	}
 }
 
-// ── v1.24.1 (r104) — the D1 echo-candidate persistence (schema v19
-// echo_candidates): the write-time echo candidates land as rows keyed by
-// the write's row id — the fresh row on a committed write, DupMeta.ID on
-// a duplicate resend. All synthetic demo data. ──
-
-// echoInsertCalls — the recorded INSERT INTO echo_candidates Query calls
-// of one run (SQL + full args).
 func echoInsertCalls(f *fakeStore) []writeQueryCall {
 	var out []writeQueryCall
 	for _, c := range f.queryLog {
@@ -1813,10 +1499,6 @@ func echoInsertCalls(f *fakeStore) []writeQueryCall {
 	return out
 }
 
-// TestWriteEchoCandsAccruedOnNewRowV1241 — a committed single-line write
-// with one echo candidate persists exactly one echo_candidates row:
-// echo_id = the fresh row id (1 from the fake InsertBatch),
-// candidate_id = the near row (7), relation·score carried verbatim.
 func TestWriteEchoCandsAccruedOnNewRowV1241(t *testing.T) {
 	st := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
 	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
@@ -1831,7 +1513,7 @@ func TestWriteEchoCandsAccruedOnNewRowV1241(t *testing.T) {
 	if !strings.Contains(c.SQL, "INSERT INTO echo_candidates") {
 		t.Fatalf("SQL=%q", c.SQL)
 	}
-	// args layout per row: (candidate_id, echo_id, relation, score).
+
 	if len(c.Args) != 4 {
 		t.Fatalf("인자 %d개, want 4(후보 1건×4열): %v", len(c.Args), c.Args)
 	}
@@ -1849,8 +1531,6 @@ func TestWriteEchoCandsAccruedOnNewRowV1241(t *testing.T) {
 	}
 }
 
-// echoDupMetaStore — a DupMetaStore fake answering one existing row
-// (id 42) for every hash: the single-line duplicate-resend path.
 type echoDupMetaStore struct {
 	*fakeStore
 }
@@ -1859,10 +1539,6 @@ func (d *echoDupMetaStore) DupRowByHash(ctx context.Context, hash string) (DupMe
 	return DupMeta{ID: 42, Topic: echoWTestTopic, State: "active"}, true, nil
 }
 
-// TestWriteEchoCandsAccruedOnDupResendV1241 — a duplicate resend also
-// accrues: the resent body's near row persists keyed by the EXISTING row
-// (DupMeta.ID=42, the link-loss-prevention id), while the duplicate
-// output keeps its shape (no echo field — the no-double-report ruling).
 func TestWriteEchoCandsAccruedOnDupResendV1241(t *testing.T) {
 	st := &echoDupMetaStore{fakeStore: &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}}
 	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
@@ -1894,8 +1570,6 @@ func TestWriteEchoCandsAccruedOnDupResendV1241(t *testing.T) {
 	}
 }
 
-// TestWriteEchoCandsZeroWhenNoEchoV1241 — a write with zero echo
-// candidates persists zero echo_candidates rows (no empty INSERT).
 func TestWriteEchoCandsZeroWhenNoEchoV1241(t *testing.T) {
 	st := &fakeStore{rows: [][]any{{int64(9), echoWOtherTopic, echoWOtherSummar}}}
 	m, _ := runWriteEcho(t, st, echoWTestTopic, echoWDupSummary, 0.9)
@@ -1907,32 +1581,17 @@ func TestWriteEchoCandsZeroWhenNoEchoV1241(t *testing.T) {
 	}
 }
 
-// ── v1.24.2 (r106) — the race-recheck echo accrual coverage (the r104
-// dupEcho=echoCands path) and the §13 quiet-failure guard of the echo
-// persistence. All synthetic demo data. ──
-
-// raceEchoStore — the single-line race fake whose recheck answers one
-// concurrently inserted row with metadata (DupMeta id 42): the pre-check
-// passes, the first InsertBatch rolls back ErrDuplicate, the recheck
-// finds the row (the race-recheck point — lookupHash prefers the
-// DupMetaStore seam).
 type raceEchoStore struct {
 	*raceDupStore
 }
 
 func (r *raceEchoStore) DupRowByHash(ctx context.Context, hash string) (DupMeta, bool, error) {
 	if r.insertCalls == 0 {
-		return DupMeta{}, false, nil // pre-check: the row is still new
+		return DupMeta{}, false, nil
 	}
-	return DupMeta{ID: 42, Topic: echoWTestTopic, State: "active"}, true, nil // recheck: concurrently inserted
+	return DupMeta{ID: 42, Topic: echoWTestTopic, State: "active"}, true, nil
 }
 
-// TestWriteRaceRecheckEchoAccruedV1242 — the race-recheck duplicate also
-// accrues its echo candidates: the single-line write's scan (computed
-// while the row was still new) persists exactly one echo_candidates row
-// keyed by the concurrently inserted row (DupMeta.ID=42 — the
-// dupEcho=echoCands carry of the race branch), and the duplicate
-// response keeps its shape (no echo field).
 func TestWriteRaceRecheckEchoAccruedV1242(t *testing.T) {
 	f := &fakeStore{rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}}}
 	rs := &raceEchoStore{raceDupStore: &raceDupStore{fakeStore: f, racedDups: 1}}
@@ -1965,11 +1624,6 @@ func TestWriteRaceRecheckEchoAccruedV1242(t *testing.T) {
 	}
 }
 
-// TestWriteEchoPersistFailureQuietV1242 — an echo_candidates INSERT
-// failure is quiet §13 (metering-class, never a write result): exit 0,
-// the committed response keeps its shape — the echo field included — and
-// the knowledge commit still lands (a lost echo row beats a failed
-// write).
 func TestWriteEchoPersistFailureQuietV1242(t *testing.T) {
 	st := &fakeStore{
 		rows: [][]any{{int64(7), echoWTestTopic, echoWDupSummary}},
@@ -1999,14 +1653,6 @@ func TestWriteEchoPersistFailureQuietV1242(t *testing.T) {
 	}
 }
 
-// ── v1.20.0 T5 — the optional stdin relations array (schema v14
-// knowledge_links): vocabulary validation (exit 3), shape validation
-// (exit 3), target-row-existence refusal (exit 3), idempotent accrual,
-// the duplicate-path accrual onto DupMeta.ID, and hash invariance (the
-// same body with·without relations dedups — the T1 hashVolatile seal).
-// All synthetic demo data. ──
-
-// relPayload — one synthetic relations write payload line.
 func relPayload(topic, summary string, relations string) string {
 	if relations == "" {
 		return fmt.Sprintf(`{"topic":%q,"summary":%q,"confidence":0.9}`, topic, summary)
@@ -2014,9 +1660,6 @@ func relPayload(topic, summary string, relations string) string {
 	return fmt.Sprintf(`{"topic":%q,"summary":%q,"confidence":0.9,"relations":[%s]}`, topic, summary, relations)
 }
 
-// TestWriteRelationsVocabularyReject — an out-of-vocabulary relation is
-// refused at exit 3 with the "rejected relation:" class (the
-// colon-token rejection precedent — refused, not warned).
 func TestWriteRelationsVocabularyReject(t *testing.T) {
 	out, code := run(t, &fakeStore{}, []string{"knowledge"},
 		relPayload("합성 관계 어휘", "관계 어휘 거부 합성", `{"to":1,"relation":"bogus"}`))
@@ -2031,8 +1674,6 @@ func TestWriteRelationsVocabularyReject(t *testing.T) {
 	}
 }
 
-// TestWriteRelationsShapeReject — a malformed relations entry (a
-// non-integer to·a missing relation) is a validation failure (exit 3).
 func TestWriteRelationsShapeReject(t *testing.T) {
 	cases := []string{
 		`{"to":"one","relation":"refines"}`,
@@ -2047,7 +1688,7 @@ func TestWriteRelationsShapeReject(t *testing.T) {
 			t.Fatalf("case %d exit=%d out=%s, want 3", i, code, out)
 		}
 	}
-	// a non-array relations value is the same class
+
 	out, code := run(t, &fakeStore{}, []string{"knowledge"},
 		`{"topic":"합성 형식 비배열","summary":"관계 비배열 거부 합성","confidence":0.9,"relations":{"to":1}}`)
 	if code != 3 {
@@ -2055,10 +1696,6 @@ func TestWriteRelationsShapeReject(t *testing.T) {
 	}
 }
 
-// TestWriteRelationsTargetMissingFast — the target-existence SELECT
-// answering no rows (fake default: f.rows=nil) makes the write refuse
-// at exit 3 (the write-path existence check — no FK, the v14
-// convention).
 func TestWriteRelationsTargetMissingFast(t *testing.T) {
 	out, code := run(t, &fakeStore{}, []string{"knowledge"},
 		relPayload("합성 대상 부재", "관계 대상 부재 거부 합성", `{"to":999,"relation":"refines"}`))
@@ -2070,9 +1707,6 @@ func TestWriteRelationsTargetMissingFast(t *testing.T) {
 	}
 }
 
-// t5ScratchStore — the dedicated T5 scratch database: created before·
-// dropped after the scenario (never the shared flint_test — the slow
-// isolation ruling). Requires SUPERLITE_REAL=1 + FLINT_TEST_DSN.
 func t5ScratchStore(t *testing.T) *writeRealStore {
 	t.Helper()
 	dsn, ok := writeRealDSN()
@@ -2118,7 +1752,6 @@ func t5ScratchStore(t *testing.T) *writeRealStore {
 	return st
 }
 
-// t5LinkRows — the scratch knowledge_links rows (from_id,to_id,relation).
 func t5LinkRows(t *testing.T, st *writeRealStore) [][3]int {
 	t.Helper()
 	rows, err := st.Query(context.Background(),
@@ -2136,14 +1769,10 @@ func t5LinkRows(t *testing.T, st *writeRealStore) [][3]int {
 	return out
 }
 
-// TestWriteLinksRealSlow — the real-DB relations scenarios on the
-// dedicated scratch database: accrual, idempotent resend, the
-// duplicate-path link accrual (DupMeta.ID — hash invariance sealed by
-// the same-body duplicate verdict), and the target-missing refusal.
 func TestWriteLinksRealSlow(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()
-	// Row A·B accrual — ids parsed from the committed output.
+
 	ids := map[string]int{}
 	for _, top := range []string{"합성 링크 A", "합성 링크 B"} {
 		out, code := run(t, st, []string{"knowledge"},
@@ -2160,7 +1789,6 @@ func TestWriteLinksRealSlow(t *testing.T) {
 	}
 	a, b := ids["합성 링크 A"], ids["합성 링크 B"]
 
-	// 1) new-row accrual: C carries relations onto A·B.
 	rels := fmt.Sprintf(`{"to":%d,"relation":"refines"},{"to":%d,"relation":"supports"}`, a, b)
 	out, code := run(t, st, []string{"knowledge"}, relPayload("합성 링크 C", "링크 시나리오 합성 본문 C", rels))
 	if code != 0 {
@@ -2185,8 +1813,6 @@ func TestWriteLinksRealSlow(t *testing.T) {
 	}
 	nLinks := len(t5LinkRows(t, st))
 
-	// 2) idempotent resend: the identical line is a duplicate — no new
-	// link rows (the NOT EXISTS guard).
 	out2, code2 := run(t, st, []string{"knowledge"}, relPayload("합성 링크 C", "링크 시나리오 합성 본문 C", rels))
 	if code2 != 0 || !strings.Contains(out2, `"duplicate"`) {
 		t.Fatalf("재전송 exit=%d out=%s, want duplicate", code2, out2)
@@ -2195,10 +1821,6 @@ func TestWriteLinksRealSlow(t *testing.T) {
 		t.Fatalf("재전송 후 링크 수=%d, want %d (멱등)", got, nLinks)
 	}
 
-	// 3) duplicate-path accrual: D was accrued without relations; the
-	// same body resent WITH relations must land them on the existing
-	// DupMeta.ID row (hash invariance — relations excluded from the
-	// hash — is what makes this a duplicate at all).
 	if out3, c3 := run(t, st, []string{"knowledge"}, relPayload("합성 링크 D", "링크 시나리오 합성 본문 D", "")); c3 != 0 {
 		t.Fatalf("D 적립 exit=%d out=%s", c3, out3)
 	}
@@ -2222,8 +1844,6 @@ func TestWriteLinksRealSlow(t *testing.T) {
 		t.Fatalf("D 링크 관계=%q, want duplicates", rel)
 	}
 
-	// 4) target missing: a relation to a nonexistent row refuses at
-	// exit 3 (nothing partially accrued — the body itself is refused).
 	out5, c5 := run(t, st, []string{"knowledge"},
 		relPayload("합성 링크 E", "링크 시나리오 합성 본문 E", `{"to":99999999,"relation":"refines"}`))
 	if c5 != 3 {
@@ -2234,21 +1854,10 @@ func TestWriteLinksRealSlow(t *testing.T) {
 	}
 }
 
-// ── v1.22.0 T5 — the optional stdin conditions string (schema v17
-// knowledge.conditions): storage roundtrip (the kindColumns registration),
-// the 500-rune cap (exit 3), the empty string pass, and the hash
-// invariance making a same-body resend a duplicate (the relations
-// precedent — hashVolatile). All synthetic demo data. ──
-
-// condPayload — one synthetic conditions write payload line.
 func condPayload(topic, conditions string) string {
 	return fmt.Sprintf(`{"topic":%q,"summary":"조건 태그 시나리오 합성 본문","confidence":0.9,"conditions":%q}`, topic, conditions)
 }
 
-// TestWriteConditionsStoredRoundtrip — a conditions value rides the record
-// to the knowledge.conditions column (the kindColumns registration — the
-// record keys become the INSERT columns), and the committed output stays
-// the plain single-line shape.
 func TestWriteConditionsStoredRoundtrip(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge"}, condPayload("합성 조건 A", "호환 버전 2 미만에서만"))
@@ -2267,9 +1876,6 @@ func TestWriteConditionsStoredRoundtrip(t *testing.T) {
 	}
 }
 
-// TestWriteConditionsEmptyStringPasses — an explicitly empty conditions is
-// allowed (the optional-field convention — "" is a value, not an absence)
-// and stored verbatim.
 func TestWriteConditionsEmptyStringPasses(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge"}, condPayload("합성 조건 빈값", ""))
@@ -2281,9 +1887,6 @@ func TestWriteConditionsEmptyStringPasses(t *testing.T) {
 	}
 }
 
-// TestWriteConditionsAbsentOmitted — a payload without the key stores no
-// conditions key at all (the column default ” applies at the DB — the
-// record must not carry an injected value that would shift other kinds).
 func TestWriteConditionsAbsentOmitted(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge"},
@@ -2299,11 +1902,8 @@ func TestWriteConditionsAbsentOmitted(t *testing.T) {
 	}
 }
 
-// TestWriteConditionsLengthCap — a conditions over 500 runes is refused at
-// exit 3 (the write-path validation stage). Multibyte input proves the cap
-// counts runes, not bytes.
 func TestWriteConditionsLengthCap(t *testing.T) {
-	long := strings.Repeat("조", 501) // 501 runes, 1503 bytes
+	long := strings.Repeat("조", 501)
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge"}, condPayload("합성 조건 초과", long))
 	if code != 3 {
@@ -2315,15 +1915,13 @@ func TestWriteConditionsLengthCap(t *testing.T) {
 	if len(f.inserted) != 0 {
 		t.Fatalf("거부 시 적립 금지: %v", f.inserted)
 	}
-	// the boundary itself passes (excess only is blocked)
+
 	bound := strings.Repeat("조", 500)
 	if out, code := run(t, &fakeStore{}, []string{"knowledge"}, condPayload("합성 조건 경계", bound)); code != 0 {
 		t.Fatalf("500루네 경계 exit=%d out=%s, want 0", code, out)
 	}
 }
 
-// TestWriteConditionsNonStringReject — a non-string conditions value is a
-// shape refusal (exit 3, the relations convention).
 func TestWriteConditionsNonStringReject(t *testing.T) {
 	f := &fakeStore{}
 	out, code := run(t, f, []string{"knowledge"},
@@ -2336,12 +1934,6 @@ func TestWriteConditionsNonStringReject(t *testing.T) {
 	}
 }
 
-// TestWriteConditionsHashInvariantDuplicate — hash invariance: the same
-// body first written WITHOUT conditions, then resent WITH a conditions tag
-// computes the SAME content_hash (verified directly on the staged record —
-// a single-line fakeStore lookup falls back to the uniform ExistsHash, so
-// the hash itself is the assertion surface). With the row then present
-// (exists), the identical resend is a duplicate (seeding idempotence).
 func TestWriteConditionsHashInvariantDuplicate(t *testing.T) {
 	f := &fakeStore{}
 	base := `{"topic":"합성 조건 B","summary":"조건 태그 시나리오 합성 본문","confidence":0.9}`
@@ -2353,9 +1945,7 @@ func TestWriteConditionsHashInvariantDuplicate(t *testing.T) {
 	if firstHash == "" {
 		t.Fatalf("최초 해시 파싱 실패: %s", out)
 	}
-	// the same body WITH a conditions tag: committed (row not yet present
-	// in the fake), but its staged content_hash must equal the first
-	// write's — the dedup identity is one hash (hashVolatile seal).
+
 	out2, code2 := run(t, f, []string{"knowledge"}, condPayload("합성 조건 B", "재검토 조건 합성"))
 	if code2 != 0 {
 		t.Fatalf("conditions 재전송 exit=%d out=%s, want 0", code2, out2)
@@ -2366,8 +1956,7 @@ func TestWriteConditionsHashInvariantDuplicate(t *testing.T) {
 	if h, _ := f.inserted[1]["content_hash"].(string); h != firstHash {
 		t.Fatalf("±conditions 해시 불일치: %q vs %q — hashVolatile 계약 위반", h, firstHash)
 	}
-	// with the row existing, the identical resend is a duplicate: 0-row
-	// commit, no third insert (seeding idempotence).
+
 	f.exists = true
 	out3, code3 := run(t, f, []string{"knowledge"}, condPayload("합성 조건 B", "재검토 조건 합성"))
 	if code3 != 0 || !strings.Contains(out3, `"duplicate"`) {
@@ -2378,15 +1967,10 @@ func TestWriteConditionsHashInvariantDuplicate(t *testing.T) {
 	}
 }
 
-// TestWriteConditionsRealSlow — the real-DB conditions scenarios on the
-// dedicated scratch database: the storage roundtrip (SELECT of the
-// knowledge.conditions column) and the duplicate resends (±conditions —
-// the hash invariance held against the real content_hash unique index).
-// Requires SUPERLITE_REAL=1 + FLINT_TEST_DSN.
 func TestWriteConditionsRealSlow(t *testing.T) {
 	st := t5ScratchStore(t)
 	ctx := context.Background()
-	// 1) roundtrip: the stored column equals the stdin value verbatim.
+
 	out, code := run(t, st, []string{"knowledge"}, condPayload("합성 조건 실DB A", "프로토콜 v9 배포 전까지"))
 	if code != 0 {
 		t.Fatalf("적립 exit=%d out=%s", code, out)
@@ -2399,8 +1983,7 @@ func TestWriteConditionsRealSlow(t *testing.T) {
 	if len(rows) != 1 || rows[0][0] != "프로토콜 v9 배포 전까지" {
 		t.Fatalf("conditions 왕복 불일치: %v", rows)
 	}
-	// 2) resend WITH conditions → duplicate; the column stays the first
-	// write's value (a duplicate never rewrites the row).
+
 	out2, code2 := run(t, st, []string{"knowledge"}, condPayload("합성 조건 실DB A", "다른 조건값 합성"))
 	if code2 != 0 || !strings.Contains(out2, `"duplicate"`) {
 		t.Fatalf("conditions 재전송 exit=%d out=%s, want duplicate", code2, out2)
@@ -2410,7 +1993,7 @@ func TestWriteConditionsRealSlow(t *testing.T) {
 	if len(rows2) != 1 || rows2[0][0] != "프로토콜 v9 배포 전까지" {
 		t.Fatalf("duplicate 재전송이 행을 바꾸면 안 됨: %v", rows2)
 	}
-	// 3) a body first written WITH conditions, resent WITHOUT → duplicate.
+
 	out3, c3 := run(t, st, []string{"knowledge"}, condPayload("합성 조건 실DB B", "조건 명시 합성"))
 	if c3 != 0 {
 		t.Fatalf("B 적립 exit=%d out=%s", c3, out3)
@@ -2420,7 +2003,7 @@ func TestWriteConditionsRealSlow(t *testing.T) {
 	if c4 != 0 || !strings.Contains(out4, `"duplicate"`) {
 		t.Fatalf("B 무조건 재전송 exit=%d out=%s, want duplicate", c4, out4)
 	}
-	// 4) the length cap refuses before any row staging.
+
 	long := strings.Repeat("조", 501)
 	out5, c5 := run(t, st, []string{"knowledge"}, condPayload("합성 조건 실DB 초과", long))
 	if c5 != 3 {
@@ -2431,17 +2014,10 @@ func TestWriteConditionsRealSlow(t *testing.T) {
 	}
 }
 
-// ── v1.24.0 T2 — knowledge_kind·source_path (schema v19) ──
-
-// v124Body — one synthetic knowledge payload body shared by the v1.24.0
-// T2 tests (identical content ±the two new optional fields — the hash
-// invariance fixture).
 func v124Body(topic string) string {
 	return `{"topic":"` + topic + `","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9}`
 }
 
-// stampCalls — the recorded knowledge.kind stamp UPDATE calls (the
-// db.StampKnowledgeKind surface over Query).
 func stampCalls(f *fakeStore) []writeQueryCall {
 	var out []writeQueryCall
 	for _, q := range f.queryLog {
@@ -2452,12 +2028,6 @@ func stampCalls(f *fakeStore) []writeQueryCall {
 	return out
 }
 
-// TestWriteKnowledgeKindSourcePathRoundtrip — the optional input keys ride
-// the write: source_path lands on the record as its own column (sanitized),
-// knowledge_kind is consumed (never a record key — the discriminator
-// rec["kind"] stays "knowledge") and stamps the knowledge.kind column via
-// the post-insert UPDATE, and neither field moves the content hash (the
-// same body ±the two fields is one dedup identity — hashVolatile v19).
 func TestWriteKnowledgeKindSourcePathRoundtrip(t *testing.T) {
 	f := &fakeStore{}
 	payload := `{"topic":"v124-t2-왕복-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
@@ -2479,8 +2049,7 @@ func TestWriteKnowledgeKindSourcePathRoundtrip(t *testing.T) {
 	if _, ok := rec["knowledge_kind"]; ok {
 		t.Fatalf("knowledge_kind이 레코드에 잔류 — 소비 키 규칙 위반: %v", rec)
 	}
-	// the kind column stamp: one UPDATE per distinct value, the value
-	// normalized to the lowercase vocabulary.
+
 	stamps := stampCalls(f)
 	if len(stamps) != 1 {
 		t.Fatalf("kind 스탬프 질의=%d회, want 1: %+v", len(stamps), f.queryLog)
@@ -2488,8 +2057,7 @@ func TestWriteKnowledgeKindSourcePathRoundtrip(t *testing.T) {
 	if len(stamps[0].Args) < 2 || stamps[0].Args[0] != "preference" {
 		t.Fatalf("스탬프 인자=%v, want [preference <ids>]", stamps[0].Args)
 	}
-	// hash invariance end-to-end: the same body without the two fields
-	// hashes identically (hashVolatile — duplicate identity preserved).
+
 	g := &fakeStore{}
 	if out, code = run(t, g, []string{"knowledge"}, v124Body("v124-t2-왕복-데모")); code != 0 {
 		t.Fatalf("무필드 재전송 exit=%d out=%s", code, out)
@@ -2500,10 +2068,6 @@ func TestWriteKnowledgeKindSourcePathRoundtrip(t *testing.T) {
 	}
 }
 
-// TestWriteKnowledgeKindVocabularyGuard — the classification input is
-// vocabulary-validated (preference|fact, code constants): an unregistered
-// value·a non-string refuse at exit 3 BEFORE any staging; an unspecified
-// (absent·null·blank) value stores NULL (no stamp call at all).
 func TestWriteKnowledgeKindVocabularyGuard(t *testing.T) {
 	for name, val := range map[string]string{
 		"미등록 값":     `"knowledge_kind":"hypothesis"`,
@@ -2520,7 +2084,7 @@ func TestWriteKnowledgeKindVocabularyGuard(t *testing.T) {
 			t.Fatalf("%s: 거부 전 적립/스탬프 잔류", name)
 		}
 	}
-	// unspecified — absent·null·blank all mean NULL: no stamp, no error.
+
 	for name, extra := range map[string]string{
 		"부재":   ``,
 		"null": `,"knowledge_kind":null`,
@@ -2541,9 +2105,6 @@ func TestWriteKnowledgeKindVocabularyGuard(t *testing.T) {
 	}
 }
 
-// TestWriteKnowledgeKindDuplicateNoStamp — a duplicate resend is
-// idempotent: the hash-excluded fields never rewrite the stored columns
-// (the conditions precedent — no stamp call on the duplicate path).
 func TestWriteKnowledgeKindDuplicateNoStamp(t *testing.T) {
 	f := &fakeStore{exists: true}
 	payload := `{"topic":"v124-t2-멱등-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
@@ -2557,8 +2118,6 @@ func TestWriteKnowledgeKindDuplicateNoStamp(t *testing.T) {
 	}
 }
 
-// TestWriteSourcePathSanitized — the path is sanitized before storage
-// (ADR-0006): control characters are neutralized on the stored column.
 func TestWriteSourcePathSanitized(t *testing.T) {
 	f := &fakeStore{}
 	payload := `{"topic":"v124-t2-살균-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
@@ -2573,11 +2132,6 @@ func TestWriteSourcePathSanitized(t *testing.T) {
 	}
 }
 
-// TestWriteCorrectionKindCounters — the D2 curation counters accrue only
-// on --source correction writes, branched by the committed lines'
-// knowledge_kind values (preference·fact separately; lines without a
-// kind count nowhere — the branch axis is the kind value, not the write
-// distribution).
 func TestWriteCorrectionKindCounters(t *testing.T) {
 	line := func(topic, kind string) string {
 		if kind == "" {
@@ -2606,7 +2160,6 @@ func TestWriteCorrectionKindCounters(t *testing.T) {
 		return 0, false
 	}
 
-	// 2 preference lines + 1 fact line + 1 kindless line.
 	f := &fakeStore{}
 	body := strings.Join([]string{
 		line("v124-d2-데모-p1", "preference"),
@@ -2624,7 +2177,7 @@ func TestWriteCorrectionKindCounters(t *testing.T) {
 	if n, ok := counter(f, "correction_fact"); !ok || n != 1 {
 		t.Fatalf("correction_fact=%d(ok=%v), want 1", n, ok)
 	}
-	// the manual channel never accrues the D2 counters.
+
 	g := &fakeStore{}
 	if out, code = run(t, g, []string{"knowledge"}, line("v124-d2-데모-m1", "preference")); code != 0 {
 		t.Fatalf("manual exit=%d out=%s", code, out)
@@ -2632,7 +2185,7 @@ func TestWriteCorrectionKindCounters(t *testing.T) {
 	if _, ok := counter(g, "correction_preference"); ok {
 		t.Fatalf("manual 채널에 correction_preference 적립 — 분기 조건 위반")
 	}
-	// a correction write with no kind value at all accrues neither.
+
 	h := &fakeStore{}
 	if out, code = correction(h, line("v124-d2-데모-c1", "")); code != 0 {
 		t.Fatalf("무kind correction exit=%d out=%s", code, out)
@@ -2645,14 +2198,6 @@ func TestWriteCorrectionKindCounters(t *testing.T) {
 	}
 }
 
-// TestWriteKindSourcePathRealSlow — slow (SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN, dedicated scratch DB created and dropped here — never
-// a shared or production DB): the v1.24.0 T2 write round-trip on the
-// real Doltgres path — knowledge_kind lands in the knowledge.kind column
-// (the post-insert stamp), source_path round-trips as its own column,
-// the hash invariance holds end-to-end (a resend without the two fields
-// is a duplicate), and the D2 correction funnel counter accrues on the
-// --source correction write branched by the kind value.
 func TestWriteKindSourcePathRealSlow(t *testing.T) {
 	dsn, ok := writeRealDSN()
 	if !ok {
@@ -2688,7 +2233,6 @@ func TestWriteKindSourcePathRealSlow(t *testing.T) {
 		t.Fatalf("migrate 실패: %v", err)
 	}
 
-	// 1. the round-trip: the input fields land in the v19 columns.
 	const path = "demo/notes/v124-t2-real.md"
 	body := `{"topic":"v124-t2-실DB-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9,` +
 		`"knowledge_kind":"preference","source_path":"` + path + `"}`
@@ -2708,8 +2252,6 @@ func TestWriteKindSourcePathRealSlow(t *testing.T) {
 		t.Fatalf("source_path 열 왕복=%q, want %q", sp, path)
 	}
 
-	// 2. hash invariance end-to-end: the same body WITHOUT the two
-	// fields is judged duplicate (they never enter the content identity).
 	plain := `{"topic":"v124-t2-실DB-데모","summary":"v124 T2 합성 데모 본문","tags":["demo"],"confidence":0.9}`
 	out, code = run(t, st, []string{"knowledge"}, plain)
 	if code != 0 || !strings.Contains(out, `"duplicate"`) {
@@ -2721,8 +2263,6 @@ func TestWriteKindSourcePathRealSlow(t *testing.T) {
 		t.Fatalf("duplicate 재전송이 행을 바꾸면 안 됨: %v %v", rows, err)
 	}
 
-	// 3. the D2 funnel: a --source correction write with knowledge_kind
-	// accrues the kind-branched curation counter in meta.
 	corr := `{"topic":"v124-t2-실DB-교정","summary":"v124 T2 합성 교정 본문","tags":["demo"],"confidence":0.4,` +
 		`"knowledge_kind":"fact"}`
 	out, code = run(t, st, []string{"knowledge", "--source", "correction"}, corr)

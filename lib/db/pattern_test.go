@@ -1,6 +1,3 @@
-// pattern_test.go — pattern detection. Identifies same-topic repeated
-// successes·failure→success transitions with pure SQL aggregation (the
-// failure tag = failure learning, CONTENT.md §4).
 package db
 
 import (
@@ -9,7 +6,6 @@ import (
 	"testing"
 )
 
-// patRec is a knowledge record for tests (a unique hash required).
 func patRec(topic, summary, tags, hash string) map[string]any {
 	return map[string]any{
 		"kind":         "knowledge",
@@ -21,9 +17,6 @@ func patRec(topic, summary, tags, hash string) map[string]any {
 	}
 }
 
-// TestPatternRepeatSuccess — 2 successful (non-failure) records on the
-// same topic yield a repeat-success candidate, with the record id·
-// summary in the evidence.
 func TestPatternRepeatSuccess(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -58,10 +51,6 @@ func TestPatternRepeatSuccess(t *testing.T) {
 	}
 }
 
-// TestPatternFailThenSuccess — when a failure-tagged record is followed
-// by a successful record on the same topic, it is caught as
-// fail-then-success (excluded when the failure is later than the
-// success).
 func TestPatternFailThenSuccess(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -82,7 +71,6 @@ func TestPatternFailThenSuccess(t *testing.T) {
 		t.Fatalf("want failure+success evidence, got %v", pats[0].Evidence)
 	}
 
-	// The reverse order (success then failure) is not a candidate.
 	if _, err := r.pool.Exec(ctx, `DELETE FROM knowledge`); err != nil {
 		t.Fatalf("delete: %v", err)
 	}
@@ -101,7 +89,6 @@ func TestPatternFailThenSuccess(t *testing.T) {
 	}
 }
 
-// TestPatternCapTwenty — candidates are 1 per topic·20 overall cap.
 func TestPatternCapTwenty(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

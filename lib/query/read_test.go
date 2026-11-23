@@ -10,7 +10,6 @@ import (
 	"golang.org/x/text/unicode/norm"
 )
 
-// TestClampLimit — limit defaults to 10, capped at 50.
 func TestClampLimit(t *testing.T) {
 	cases := []struct {
 		in   int
@@ -31,7 +30,6 @@ func TestClampLimit(t *testing.T) {
 	}
 }
 
-// TestBuildReadUsesActiveKnowledge — reads are forced onto the active_knowledge view.
 func TestBuildReadUsesActiveKnowledge(t *testing.T) {
 	sql, _ := BuildRead("", Filters{})
 	if !strings.Contains(sql, "active_knowledge") {
@@ -39,9 +37,6 @@ func TestBuildReadUsesActiveKnowledge(t *testing.T) {
 	}
 }
 
-// TestBuildReadEscapesLike — q's % and _ are not interpreted as LIKE wildcards
-// (the WHERE clause uses placeholder injection). The ranking-clause copy is also
-// parameterized ($2) — the escaped inline form itself is gone (removing the injection surface).
 func TestBuildReadEscapesLike(t *testing.T) {
 	sql, args := BuildRead("100%_drop'", Filters{})
 	if !strings.Contains(sql, "LIKE lower($1)") {
@@ -63,7 +58,6 @@ func TestBuildReadEscapesLike(t *testing.T) {
 	}
 }
 
-// TestBuildReadFilters — the tag/entity/domain filters are assembled as placeholders.
 func TestBuildReadFilters(t *testing.T) {
 	f := Filters{Tag: "a", Entity: "user", Domain: "game"}
 	sql, args := BuildRead("", f)
@@ -85,7 +79,6 @@ func TestBuildReadFilters(t *testing.T) {
 	}
 }
 
-// TestBuildReadLimitParam — the limit's ClampLimit result is reflected in the SQL.
 func TestBuildReadLimitParam(t *testing.T) {
 	sql, args := BuildRead("", Filters{Limit: 999})
 	if !strings.Contains(sql, "LIMIT") {
@@ -97,7 +90,6 @@ func TestBuildReadLimitParam(t *testing.T) {
 	}
 }
 
-// TestFormatRowsTruncates — the summary is truncated to 80 runes (Korean-safe).
 func TestFormatRowsTruncates(t *testing.T) {
 	rows := [][]any{{3, "topic", strings.Repeat("가", 100)}}
 	out := FormatRows(rows, "id,topic,summary", false)
@@ -110,7 +102,6 @@ func TestFormatRowsTruncates(t *testing.T) {
 	}
 }
 
-// TestFormatRowsShortSummary — under 80 characters passes through as-is.
 func TestFormatRowsShortSummary(t *testing.T) {
 	rows := [][]any{{1, "t", "짧은 요약"}}
 	out := FormatRows(rows, "id,topic,summary", false)
@@ -120,7 +111,6 @@ func TestFormatRowsShortSummary(t *testing.T) {
 	}
 }
 
-// TestFormatRowsJSON — jsonMode is one JSON line per row, only the selected fields keys.
 func TestFormatRowsJSON(t *testing.T) {
 	rows := [][]any{{7, "주제", strings.Repeat("b", 100)}}
 	out := FormatRows(rows, "id,topic", true)
@@ -137,7 +127,6 @@ func TestFormatRowsJSON(t *testing.T) {
 	}
 }
 
-// TestFormatRowsDefaultFields — with fields blank, the id|topic|summary default.
 func TestFormatRowsDefaultFields(t *testing.T) {
 	rows := [][]any{{1, "t", "s"}}
 	out := FormatRows(rows, "", false)
@@ -146,7 +135,6 @@ func TestFormatRowsDefaultFields(t *testing.T) {
 	}
 }
 
-// TestFormatRowsBoundary80 — exactly 80 characters passes; only 81 truncates (a review regression).
 func TestFormatRowsBoundary80(t *testing.T) {
 	rows := [][]any{{1, "t", strings.Repeat("a", 80)}}
 	if got := strings.TrimRight(FormatRows(rows, "id,topic,summary", false), "\n"); got != "1|t|"+strings.Repeat("a", 80) {
@@ -154,7 +142,6 @@ func TestFormatRowsBoundary80(t *testing.T) {
 	}
 }
 
-// TestFormatRowsFieldsNoTruncate — non-summary columns are not truncated when fields-selected (a review regression).
 func TestFormatRowsFieldsNoTruncate(t *testing.T) {
 	rows := [][]any{{7, strings.Repeat("t", 100), "s"}}
 	got := strings.TrimRight(FormatRows(rows, "id,topic", false), "\n")
@@ -164,14 +151,12 @@ func TestFormatRowsFieldsNoTruncate(t *testing.T) {
 	}
 }
 
-// TestFormatRowsEmpty — no rows means the empty string (a review regression).
 func TestFormatRowsEmpty(t *testing.T) {
 	if got := FormatRows(nil, "", false); got != "" {
 		t.Errorf("빈 결과 출력 = %q, want 빈 문자열", got)
 	}
 }
 
-// TestBuildReadSelectsAllFields — all 8 columns SELECTed to support the --fields contract (a review regression).
 func TestBuildReadSelectsAllFields(t *testing.T) {
 	sql, _ := BuildRead("", Filters{})
 	for _, c := range []string{"id", "topic", "summary", "tags", "entity", "domain", "confidence", "status"} {
@@ -181,7 +166,6 @@ func TestBuildReadSelectsAllFields(t *testing.T) {
 	}
 }
 
-// TestFormatRowsFieldMapping — from an 8-column row, entity etc. are selected exactly by name mapping (a positional-drift regression).
 func TestFormatRowsFieldMapping(t *testing.T) {
 	rows := [][]any{{1, "t", "s", ":a:b:", "ent", "dom", 0.9, "active"}}
 	got := strings.TrimRight(FormatRows(rows, "entity,domain", false), "\n")
@@ -190,8 +174,6 @@ func TestFormatRowsFieldMapping(t *testing.T) {
 	}
 }
 
-// TestRankOrderParameterized — q is a parameter ($N) — the inline
-// literal removed (settling the escape dependency). Only the prefix-clause structure is checked exactly.
 func TestRankOrderParameterized(t *testing.T) {
 	got := RankOrder(5)
 	wantPrefix := "ORDER BY (lower(topic)=lower($5)) DESC, confidence DESC, ingested_at DESC"
@@ -200,8 +182,6 @@ func TestRankOrderParameterized(t *testing.T) {
 	}
 }
 
-// TestRankOrderPlain — a plain q also keeps the parameterized clause prefix
-// (exact match -> confidence -> newest) (the leading priorities unchanged even after the trailing tiebreakers).
 func TestRankOrderPlain(t *testing.T) {
 	got := RankOrder(1)
 	wantPrefix := "ORDER BY (lower(topic)=lower($1)) DESC, confidence DESC, ingested_at DESC"
@@ -210,17 +190,14 @@ func TestRankOrderPlain(t *testing.T) {
 	}
 }
 
-// TestBuildReadUsesRankOrder — BuildRead's sort clause inserts RankOrder (parameterized) as-is.
 func TestBuildReadUsesRankOrder(t *testing.T) {
 	sql, args := BuildRead("Flint", Filters{})
-	// q is the ranking parameter — $2 is the exact-match comparison value (BuildRead appends q
-	// after the filter placeholders).
+
 	if !strings.Contains(sql, RankOrder(len(args)-1)) {
 		t.Errorf("RankOrder 절 미삽입: %s", sql)
 	}
 }
 
-// TestFormatRowsUnknownFieldPositional — fields outside the mapping (kind, ts) use the positional fallback (hot_view compatible).
 func TestFormatRowsUnknownFieldPositional(t *testing.T) {
 	rows := [][]any{{"project", "p", "active", "2026-10-21T00:00:00Z"}}
 	got := strings.TrimRight(FormatRows(rows, "kind,topic,summary,ts", false), "\n")
@@ -230,14 +207,11 @@ func TestFormatRowsUnknownFieldPositional(t *testing.T) {
 	}
 }
 
-// TestReorderByFallbackCountRRF — RRF fusion — multiple signal
-// combinations score the matrix differently from sequential tiebreaks (even with a lower match
-// count, a larger read_count + jamo signal sum ranks higher).
 func TestReorderByFallbackCountRRF(t *testing.T) {
 	rows := [][]any{
-		{int32(1), "백업 정책", "매일 자동", "", "", "", 0.9, "active", 0},     // 2 exact, read 0
-		{int32(2), "백업 절차", "주간 수동 점검", "", "", "", 0.8, "active", 30}, // 1 exact, read 30, jamo 2
-		{int32(3), "포트", "5433", "", "", "", 0.7, "active", 100},       // 0 exact, read 100
+		{int32(1), "백업 정책", "매일 자동", "", "", "", 0.9, "active", 0},
+		{int32(2), "백업 절차", "주간 수동 점검", "", "", "", 0.8, "active", 30},
+		{int32(3), "포트", "5433", "", "", "", 0.7, "active", 100},
 	}
 	ReorderByFallbackCount(rows, []string{"백업", "자동"})
 	if rows[0][0] != int32(2) {
@@ -248,7 +222,6 @@ func TestReorderByFallbackCountRRF(t *testing.T) {
 	}
 }
 
-// TestJamoOverlap — jamo bigrams absorb inflectional variation.
 func TestJamoOverlap(t *testing.T) {
 	if jamoOverlap(jamoTokenSets([]string{"백업"}), "백업용 스크립트", "") == 0 {
 		t.Error("'백업' ↔ '백업용' 자모 bigram 미매칭")
@@ -258,9 +231,6 @@ func TestJamoOverlap(t *testing.T) {
 	}
 }
 
-// TestReorderByTopicSignal — the 4th signal, topic match — a row with a dominant
-// read_count (whose conventional RankOrder topic priority used to be lost in fallback
-// fusion) is beaten by the topic-matching row.
 func TestReorderByTopicSignal(t *testing.T) {
 	rows := [][]any{
 		{int32(1), "flint 백업 복구 절차", "요약", "", "", "", 0.9, "active", int32(6)},
@@ -272,14 +242,8 @@ func TestReorderByTopicSignal(t *testing.T) {
 	}
 }
 
-// ── v1.16.0 T1 — ReorderByTokenScore: the phrase-hit in-memory rerank. ──
-
-// tokenScoreColIdx — the colIdx fixture of the read result rows (the
-// ReadColumnIndexMap shape; explicit here so the pure function is tested
-// independent of the readColumns source).
 var tokenScoreColIdx = map[string]int{"topic": 1, "summary": 2}
 
-// rowIDsOf — the id column of rows (assertion helper).
 func rowIDsOf(rows [][]any) []string {
 	ids := make([]string, len(rows))
 	for i, r := range rows {
@@ -288,17 +252,13 @@ func rowIDsOf(rows [][]any) []string {
 	return ids
 }
 
-// TestReorderByTokenScoreTiers — the per-token tier hierarchy: topic
-// prefix(4) > summary prefix(3) > topic contains(2) > summary contains(1),
-// each matched token adding a +1 cover bonus. A reverse-ordered fixture
-// comes back fully tier-sorted.
 func TestReorderByTokenScoreTiers(t *testing.T) {
 	rows := [][]any{
-		{"5", "복구", "정책", "", "", "", "", "", ""},          // no match — 0
-		{"4", "메모", "매일 백업 절차 안내", "", "", "", "", "", ""}, // summary contains — 2
-		{"3", "우리 백업 절차", "기타", "", "", "", "", "", ""},    // topic contains — 3
-		{"2", "메모", "백업 절차", "", "", "", "", "", ""},       // summary prefix — 4
-		{"1", "백업 절차", "기타", "", "", "", "", "", ""},       // topic prefix — 5
+		{"5", "복구", "정책", "", "", "", "", "", ""},
+		{"4", "메모", "매일 백업 절차 안내", "", "", "", "", "", ""},
+		{"3", "우리 백업 절차", "기타", "", "", "", "", "", ""},
+		{"2", "메모", "백업 절차", "", "", "", "", "", ""},
+		{"1", "백업 절차", "기타", "", "", "", "", "", ""},
 	}
 	got := ReorderByTokenScore(rows, "백업", tokenScoreColIdx)
 	want := []string{"1", "2", "3", "4", "5"}
@@ -309,14 +269,11 @@ func TestReorderByTokenScoreTiers(t *testing.T) {
 	}
 }
 
-// TestReorderByTokenScoreMultiTokenCover — the cover-count bonus: two
-// summary-covered tokens (2+2=4) beat a single topic-contained token
-// (2+1=3), while a single topic prefix (4+1=5) still tops both.
 func TestReorderByTokenScoreMultiTokenCover(t *testing.T) {
 	rows := [][]any{
-		{"2", "우리 백업 수칙", "메모", "", "", "", "", "", ""},         // first token — topic contains — 3
-		{"1", "가이드", "매일 백업과 자동 점검 안내", "", "", "", "", "", ""}, // both tokens summary contains — 4
-		{"3", "자동 점검", "기타", "", "", "", "", "", ""},            // second token — topic prefix — 5
+		{"2", "우리 백업 수칙", "메모", "", "", "", "", "", ""},
+		{"1", "가이드", "매일 백업과 자동 점검 안내", "", "", "", "", "", ""},
+		{"3", "자동 점검", "기타", "", "", "", "", "", ""},
 	}
 	got := ReorderByTokenScore(rows, "백업 자동", tokenScoreColIdx)
 	want := []string{"3", "1", "2"}
@@ -327,9 +284,6 @@ func TestReorderByTokenScoreMultiTokenCover(t *testing.T) {
 	}
 }
 
-// TestReorderByTokenScoreTieStableAndNoToken — equal scores keep the input
-// (= SQL RankOrder) order; a query without tokens (empty·punctuation-only)
-// leaves the rows unchanged.
 func TestReorderByTokenScoreTieStableAndNoToken(t *testing.T) {
 	rows := [][]any{
 		{"1", "백업 A", "x", "", "", "", "", "", ""},
@@ -350,26 +304,23 @@ func TestReorderByTokenScoreTieStableAndNoToken(t *testing.T) {
 	}
 }
 
-// TestReorderByTokenScoreNFKCCaseWhitespace — both sides are normalized
-// (NFKC·lower·whitespace fold): an NFD-decomposed query still prefixes the
-// NFC topic; mixed case and inner whitespace runs match the folded row.
 func TestReorderByTokenScoreNFKCCaseWhitespace(t *testing.T) {
 	q := norm.NFD.String("백업")
 	if q == "백업" {
 		t.Fatal("픽스처 가정 붕괴 — NFD 분해 미발생")
 	}
 	rows := [][]any{
-		{"2", "메모 백업", "기타", "", "", "", "", "", ""}, // contains — 3
-		{"1", "백업 정책", "기타", "", "", "", "", "", ""}, // prefix — 5
+		{"2", "메모 백업", "기타", "", "", "", "", "", ""},
+		{"1", "백업 정책", "기타", "", "", "", "", "", ""},
 	}
 	got := ReorderByTokenScore(rows, q, tokenScoreColIdx)
 	if g := fmt.Sprint(got[0][0]); g != "1" {
 		t.Errorf("NFKC 동치 위반 — 상위=%s, want 1(NFD 쿼리→NFC topic 접두)", g)
 	}
-	// case + inner whitespace runs: "flint  release" folds onto "Flint Release".
+
 	rows2 := [][]any{
-		{"2", "기타", "메모 flint release", "", "", "", "", "", ""}, // 2×summary contains — 4+2=6
-		{"1", "flint  release 노트", "x", "", "", "", "", "", ""}, // prefix+contains — 5+3=8
+		{"2", "기타", "메모 flint release", "", "", "", "", "", ""},
+		{"1", "flint  release 노트", "x", "", "", "", "", "", ""},
 	}
 	got2 := ReorderByTokenScore(rows2, "Flint Release", tokenScoreColIdx)
 	if g := fmt.Sprint(got2[0][0]); g != "1" {
@@ -377,29 +328,24 @@ func TestReorderByTokenScoreNFKCCaseWhitespace(t *testing.T) {
 	}
 }
 
-// TestReorderByTokenScoreRobustness — a missing colIdx (nil map) or a row
-// shorter than the column index never panics: the affected side scores 0
-// and the sort stays stable.
 func TestReorderByTokenScoreRobustness(t *testing.T) {
 	rows := [][]any{{"1", "백업", "x"}, {"2", "백업 더", "y"}}
-	got := ReorderByTokenScore(rows, "백업", nil) // no columns — all 0, order kept
+	got := ReorderByTokenScore(rows, "백업", nil)
 	if fmt.Sprint(got[0][0]) != "1" || fmt.Sprint(got[1][0]) != "2" {
 		t.Errorf("nil colIdx 순서 변경 — %v", rowIDsOf(got))
 	}
-	// a short row (no topic/summary cells) scores 0 below the matching row.
+
 	short := [][]any{{"1"}, {"2", "백업", "y"}}
 	got2 := ReorderByTokenScore(short, "백업", tokenScoreColIdx)
 	if fmt.Sprint(got2[0][0]) != "2" || fmt.Sprint(got2[1][0]) != "1" {
 		t.Errorf("짧은 행 처리 — %v, want [2 1]", rowIDsOf(got2))
 	}
-	// fewer than 2 rows — returned as-is.
+
 	if got3 := ReorderByTokenScore([][]any{{"1", "백업", "x"}}, "백업", tokenScoreColIdx); len(got3) != 1 {
 		t.Errorf("1행 입력 변형: %v", got3)
 	}
 }
 
-// TestReadColumnIndexMap — the exported map matches the readColumns
-// positions (the caller-side input of ReorderByTokenScore — single source).
 func TestReadColumnIndexMap(t *testing.T) {
 	m := ReadColumnIndexMap()
 	if m["topic"] != 1 || m["summary"] != 2 || m["id"] != 0 || m["read_count"] != 8 {
@@ -407,10 +353,8 @@ func TestReadColumnIndexMap(t *testing.T) {
 	}
 }
 
-// TestRRFFuseDirect — direct assertions on the rrfFuse math
-// contract — tied competing ranks, zero-value non-contribution, and a k override changing the order.
 func TestRRFFuseDirect(t *testing.T) {
-	// ties: in sig1, a and b share rank 2, c is lower (1) — a and b tie, c contributes 0.
+
 	sc := rrfFuse([][]int{{2, 0}, {2, 0}, {1, 0}})
 	if sc[0] != sc[1] {
 		t.Errorf("동률 행 스코어 불일치: %v", sc)
@@ -418,14 +362,14 @@ func TestRRFFuseDirect(t *testing.T) {
 	if sc[2] >= sc[0] {
 		t.Errorf("후순위가 동률 최상위와 같거나 큼: %v", sc)
 	}
-	// zero-value non-contribution: all signals 0 means score 0.
+
 	if got := rrfFuse([][]int{{0, 0}, {0, 0}}); got[0] != 0 || got[1] != 0 {
 		t.Errorf("0값 행이 신호 기여: %v", got)
 	}
-	// k override: a smaller k widens the rank gaps — multi-signal advantage is amplified.
+
 	prev := rrfK
 	t.Cleanup(func() { rrfK = prev })
-	// an asymmetric fixture (one signal dominates all) — shrinking k widens the absolute gap.
+
 	rrfK = 1
 	tight := rrfFuse([][]int{{2, 3}, {1, 1}})
 	rrfK = 60
@@ -435,9 +379,6 @@ func TestRRFFuseDirect(t *testing.T) {
 	}
 }
 
-// TestBuildReadMinConfidenceFilter — --min-confidence assembles a
-// `confidence >= $n` placeholder clause (the boundaries 0 and 1 are valid
-// floors; RankOrder's confidence DESC sort is unchanged).
 func TestBuildReadMinConfidenceFilter(t *testing.T) {
 	for _, v := range []float64{0, 0.5, 1} {
 		f := Filters{MinConfidence: &v}
@@ -457,8 +398,6 @@ func TestBuildReadMinConfidenceFilter(t *testing.T) {
 	}
 }
 
-// TestBuildReadMinConfidenceAbsent — a nil MinConfidence emits no clause
-// (the default is no floor — the filter-free SQL is byte-identical).
 func TestBuildReadMinConfidenceAbsent(t *testing.T) {
 	sql, _ := BuildRead("", Filters{})
 	if strings.Contains(sql, "confidence >=") {
@@ -466,7 +405,6 @@ func TestBuildReadMinConfidenceAbsent(t *testing.T) {
 	}
 }
 
-// TestBuildReadOriginFilter — --origin assembles an `origin = $n` placeholder clause.
 func TestBuildReadOriginFilter(t *testing.T) {
 	for _, v := range []string{"agent", "human"} {
 		sql, args := BuildRead("", Filters{Origin: v})
@@ -485,9 +423,6 @@ func TestBuildReadOriginFilter(t *testing.T) {
 	}
 }
 
-// TestBuildReadNewFiltersCombined — the new filters compose with the
-// existing tag/entity/domain set: the clause order (q, tag, entity,
-// domain, confidence, origin) fixes the placeholder numbers 1..6.
 func TestBuildReadNewFiltersCombined(t *testing.T) {
 	mc := 0.7
 	f := Filters{Tag: "a", Entity: "user", Domain: "game", MinConfidence: &mc, Origin: "agent"}
@@ -509,9 +444,6 @@ func TestBuildReadNewFiltersCombined(t *testing.T) {
 	}
 }
 
-// TestBuildReadStatusNewFilters — the --status path shares appendReadFilters,
-// so the new filters appear after the status condition (status=$1,
-// confidence=$2, origin=$3).
 func TestBuildReadStatusNewFilters(t *testing.T) {
 	mc := 0.5
 	sql, args := BuildReadStatus("", Filters{Status: "active", MinConfidence: &mc, Origin: "human"})
@@ -525,21 +457,12 @@ func TestBuildReadStatusNewFilters(t *testing.T) {
 	}
 }
 
-// ── v1.21.0 T4 — the vault bridge read fusion. ──
-
-// TestVaultMaxRowsConstant — the vault row cap is the plan contract
-// constant 5 (a regression seal — a silent bump would break the token
-// budget).
 func TestVaultMaxRowsConstant(t *testing.T) {
 	if VaultMaxRows != 5 {
 		t.Fatalf("VaultMaxRows = %d, want 5(플랜 계약 상수)", VaultMaxRows)
 	}
 }
 
-// TestBuildVaultReadShape — the separate vault_files query: q matches
-// lower(title||' '||summary||' '||tags) LIKE (the fallback's matched
-// surface extended with title), a deterministic ORDER BY path, and the
-// LIMIT is the VaultMaxRows constant.
 func TestBuildVaultReadShape(t *testing.T) {
 	sql, args := BuildVaultRead("데모 노트")
 	for _, frag := range []string{
@@ -557,8 +480,6 @@ func TestBuildVaultReadShape(t *testing.T) {
 	}
 }
 
-// TestBuildVaultReadEscapesLike — q's % and _ are escaped (the read
-// assembler's placeholder convention — no wildcard injection).
 func TestBuildVaultReadEscapesLike(t *testing.T) {
 	_, args := BuildVaultRead("100%_drop'")
 	if pat, ok := args[0].(string); !ok || pat != `%100\%\_drop'%` {
@@ -566,11 +487,6 @@ func TestBuildVaultReadEscapesLike(t *testing.T) {
 	}
 }
 
-// TestFormatVaultRows — one line per vault row: text mode
-// "vault|path|title|summary" (path identification + the source marker),
-// json mode {"source":"vault","path":...,"title":...,"summary":...}.
-// The summary is truncated to summaryMax (the token budget — the
-// index-time cap alone does not bound the read output surface).
 func TestFormatVaultRows(t *testing.T) {
 	rows := [][]any{{"데모 제목", strings.Repeat("요", 100), ":demo:", "/tmp/demo-vault/note.md"}}
 	out := FormatVaultRows(rows, false)
@@ -591,29 +507,18 @@ func TestFormatVaultRows(t *testing.T) {
 	}
 }
 
-// TestFormatVaultRowsEmpty — no vault rows, no output (the eligible
-// zero-hit text silence is preserved).
 func TestFormatVaultRowsEmpty(t *testing.T) {
 	if out := FormatVaultRows(nil, false); out != "" {
 		t.Errorf("빈 vault 출력 = %q, want \"\"", out)
 	}
 }
 
-// ── v1.24.0 T5 — the neighbor link read fusion (--related). ──
-
-// TestRelatedMaxRowsConstant — the related row cap is the plan contract
-// constant 5 (the same budget as the vault fusion cap — a regression seal).
 func TestRelatedMaxRowsConstant(t *testing.T) {
 	if RelatedMaxRows != 5 {
 		t.Fatalf("RelatedMaxRows = %d, want 5(플랜 계약 상한)", RelatedMaxRows)
 	}
 }
 
-// TestBuildRelatedReadShape — the bidirectional knowledge_links UNION:
-// the forward arm joins from_id = $1 → to_id neighbors, the reverse arm
-// to_id = $1 → from_id neighbors (both indexes get a traversal path),
-// each arm labels its direction, deterministic ORDER BY id, LIMIT the
-// RelatedMaxRows constant.
 func TestBuildRelatedReadShape(t *testing.T) {
 	sql, args := BuildRelatedRead(7)
 	for _, frag := range []string{
@@ -637,11 +542,6 @@ func TestBuildRelatedReadShape(t *testing.T) {
 	}
 }
 
-// TestFormatRelatedRows — one line per neighbor row: text mode
-// "related|id|relation|direction|topic|summary" (the source marker +
-// relation label + direction display), json mode
-// {"source":"related","id":...,"relation":...,"direction":...}. The
-// summary is truncated to summaryMax (the read token budget).
 func TestFormatRelatedRows(t *testing.T) {
 	rows := [][]any{{"3", "데모 이웃 토픽", strings.Repeat("요", 100), "refines", "reverse"}}
 	out := FormatRelatedRows(rows, false)
@@ -662,8 +562,6 @@ func TestFormatRelatedRows(t *testing.T) {
 	}
 }
 
-// TestFormatRelatedRowsNoPipe — a cell-internal '|' is replaced (the
-// text-mode field-protocol guard, the FormatVaultRows convention).
 func TestFormatRelatedRowsNoPipe(t *testing.T) {
 	rows := [][]any{{"3", "a|b", "s", "re|fines", "forward"}}
 	out := FormatRelatedRows(rows, false)
@@ -672,17 +570,12 @@ func TestFormatRelatedRowsNoPipe(t *testing.T) {
 	}
 }
 
-// TestFormatRelatedRowsEmpty — no neighbor rows, no output (the pure
-// append contract — an empty fusion adds nothing).
 func TestFormatRelatedRowsEmpty(t *testing.T) {
 	if out := FormatRelatedRows(nil, false); out != "" {
 		t.Errorf("빈 related 출력 = %q, want \"\"", out)
 	}
 }
 
-// TestBuildReadFallbackNewFilters — the zero-hit fallback inherits the new
-// filters (a confidence floor must hold on the retry too — otherwise the
-// fallback would resurface the rows the phrase query just excluded).
 func TestBuildReadFallbackNewFilters(t *testing.T) {
 	mc := 0.8
 	sql, args, ok := BuildReadFallback("alpha beta", Filters{MinConfidence: &mc, Origin: "agent"})
@@ -709,18 +602,11 @@ func TestBuildReadFallbackNewFilters(t *testing.T) {
 	}
 }
 
-// ── v1.24.0 T6 — the read --why evidence appendix. ──
-
-// TestTokenWhyEvidenceDirectComparison — the token-tier evidence recomputed
-// by hand against synthetic rows: each matched token lists its tier name ×
-// tier score, one cover×N aggregate, and a total equal to
-// ReorderByTokenScore's internal accumulation (tier+1 per matched token);
-// the evidence row order follows the reranked row order.
 func TestTokenWhyEvidenceDirectComparison(t *testing.T) {
 	rows := [][]any{
-		{"1", "백업 정책", "기타", "", "", "", "", "", ""},            // topic prefix — 4
-		{"2", "가이드", "매일 백업과 자동 점검 안내", "", "", "", "", "", ""}, // both summary contains — 4
-		{"3", "우리 백업 수칙", "메모", "", "", "", "", "", ""},         // topic contains — 3
+		{"1", "백업 정책", "기타", "", "", "", "", "", ""},
+		{"2", "가이드", "매일 백업과 자동 점검 안내", "", "", "", "", "", ""},
+		{"3", "우리 백업 수칙", "메모", "", "", "", "", "", ""},
 	}
 	ev := TokenWhyEvidence(rows, "백업 자동", tokenScoreColIdx)
 	want := []struct {
@@ -740,8 +626,7 @@ func TestTokenWhyEvidenceDirectComparison(t *testing.T) {
 				i, ev[i].ID, ev[i].Tokens, ev[i].TokenScore, w.id, w.tokens, w.score)
 		}
 	}
-	// The evidence order must follow ReorderByTokenScore's output order
-	// (both are the same internal accumulation — scores 5,4,3 keep 1,2,3).
+
 	reranked := ReorderByTokenScore(rows, "백업 자동", tokenScoreColIdx)
 	for i := range ev {
 		if ev[i].ID != rowIDsOf(reranked)[i] {
@@ -750,11 +635,6 @@ func TestTokenWhyEvidenceDirectComparison(t *testing.T) {
 	}
 }
 
-// TestRRFWhyEvidenceDirectComparison — the fallback-row evidence recomputed
-// by hand: per row the 4 signal values, 1-based descending ranks (0 = no
-// contribution), the contribution 1/(k+rank), and the fused score — the
-// same sources ReorderByFallbackCount fuses (English tokens keep the jamo
-// signal at a predictable 0).
 func TestRRFWhyEvidenceDirectComparison(t *testing.T) {
 	SetRRFK(60)
 	t.Cleanup(func() { SetRRFK(60) })
@@ -768,12 +648,12 @@ func TestRRFWhyEvidenceDirectComparison(t *testing.T) {
 	}
 	c1 := 1.0 / (60 + 1)
 	c2 := 1.0 / (60 + 2)
-	// row 1: match=2·read_count=5·jamo=0·topic=2 — ranks 1,1,0,1.
+
 	want1 := []RRFSignalEvidence{
 		{"match", 2, 1, c1}, {"read_count", 5, 1, c1}, {"jamo", 0, 0, 0}, {"topic", 2, 1, c1},
 	}
 	score1 := c1 + c1 + c1
-	// row 2: match=1·read_count=2·jamo=0·topic=0 — ranks 2,2,0,0.
+
 	want2 := []RRFSignalEvidence{
 		{"match", 1, 2, c2}, {"read_count", 2, 2, c2}, {"jamo", 0, 0, 0}, {"topic", 0, 0, 0},
 	}
@@ -796,8 +676,6 @@ func TestRRFWhyEvidenceDirectComparison(t *testing.T) {
 	}
 }
 
-// TestFormatWhyRowsCap — the appendix total cap: 12 evidence rows yield
-// exactly WhyMaxRows lines (one line per row, the additive token budget).
 func TestFormatWhyRowsCap(t *testing.T) {
 	ev := make([]WhyEvidence, 12)
 	for i := range ev {
@@ -808,9 +686,6 @@ func TestFormatWhyRowsCap(t *testing.T) {
 	}
 }
 
-// TestFormatWhyRowsNoPipe — text-mode field-protocol guard: '|' inside the
-// id and the listing is replaced with a space (the FormatRelatedRows
-// convention — a cell-internal pipe cannot forge a fifth field).
 func TestFormatWhyRowsNoPipe(t *testing.T) {
 	got := FormatWhyRows([]WhyEvidence{{ID: "a|b", Tokens: "x|y", TokenScore: 5}}, false)
 	if want := "why|id=a b|x y|score=5\n"; got != want {
@@ -818,8 +693,6 @@ func TestFormatWhyRowsNoPipe(t *testing.T) {
 	}
 }
 
-// TestFormatWhyRowsJSON — json mode: one {"why":{...}} line per row (the
-// additive one-line attachment convention).
 func TestFormatWhyRowsJSON(t *testing.T) {
 	got := FormatWhyRows([]WhyEvidence{{ID: "1", Tokens: "topic_prefix×4+cover×1", TokenScore: 5}}, true)
 	want := `{"why":{"id":"1","tokens":"topic_prefix×4+cover×1","token_score":5}}` + "\n"
@@ -828,8 +701,6 @@ func TestFormatWhyRowsJSON(t *testing.T) {
 	}
 }
 
-// TestFormatWhyZeroLine — the zero-hit evidence line: zero_reason +
-// near_score, text and json encodings.
 func TestFormatWhyZeroLine(t *testing.T) {
 	if got := FormatWhyZero("owned_miss", 0.5, false); got != "why|zero_reason=owned_miss|near_score=0.5\n" {
 		t.Errorf("zero 텍스트 인코딩 = %q", got)

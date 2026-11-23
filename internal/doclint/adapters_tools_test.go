@@ -1,8 +1,3 @@
-// adapters_tools_test.go — v1.0.2 R2 어댑터 도구 표 동기 가드. docs/adapters
-// 전체 문서의 MCP 도구 표가 코드 원천(mcp.ToolsManifest)과 드리프트 없는지
-// 검증한다 — README 커맨드 표·SKILL 도구 목록 가드(commands_table_test.go)와
-// 동일 패턴(코드가 원천 — 문서가 추종). 표의 인자 셀은 manifest의
-// properties·required와 정합해야 한다(v1.0.1 F7 폐지 파라미터 잔존 방지).
 package doclint
 
 import (
@@ -15,14 +10,10 @@ import (
 	"github.com/synuns/flint/lib/mcp"
 )
 
-// adapterToolRowRe — 도구 표 행 `| `flint_x` | 인자 셀 |`. 행 시작 앵커로
-// 본문 산문·JSON 스니펫(`"autoApprove": [...]` 등)의 flint_* 언급은 제외한다.
 var adapterToolRowRe = regexp.MustCompile("(?m)^\\| `(flint_[a-z_]+)` \\|([^|]*)\\|")
 
-// adapterParamRe — 인자 셀의 백틱 파라미터 토큰(`query?`·`kind`).
 var adapterParamRe = regexp.MustCompile("`([a-z_]+)(\\??)`")
 
-// manifestTools — ToolsManifest의 도구별 계약: 파라미터명·필수 여부.
 func manifestTools(t *testing.T) map[string]struct {
 	params   map[string]bool
 	required map[string]bool
@@ -57,11 +48,6 @@ func manifestTools(t *testing.T) map[string]struct {
 	return out
 }
 
-// TestAdapterToolTablesMatchManifest — docs/adapters 각 문서의 도구 표:
-// (1) 도구명 집합 == manifest 5종, (2) 각 행의 인자 셀 == 해당 도구의
-// properties(이름·필수 여부 — `?` 접미 규약). manifest에서 폐지된 파라미터가
-// 표에 남거나(v1.0.2 R2의 flint_hot session_id 잔존 부류), 신규 도구·파라미터를
-// 표에 안 적으면 FAIL.
 func TestAdapterToolTablesMatchManifest(t *testing.T) {
 	want := manifestTools(t)
 	files, err := filepath.Glob("../../docs/adapters/*.md")
@@ -86,12 +72,12 @@ func TestAdapterToolTablesMatchManifest(t *testing.T) {
 				t.Errorf("%s: 표의 미등록 도구 %q", f, name)
 				continue
 			}
-			// 인자 셀 파싱 — 백틱 토큰(— 는 빈 집합, 괄호 비고는 무시).
+
 			gotParams := map[string]bool{}
 			gotRequired := map[string]bool{}
 			for _, p := range adapterParamRe.FindAllStringSubmatch(cell, -1) {
 				gotParams[p[1]] = true
-				if p[2] != "?" { // `?` 없음 = 필수
+				if p[2] != "?" {
 					gotRequired[p[1]] = true
 				}
 			}
@@ -126,7 +112,7 @@ func TestAdapterToolTablesMatchManifest(t *testing.T) {
 				}
 			}
 		}
-		// 도구명 집합 정합 — 빠진 도구 보고(diffNames 관례의 국소판).
+
 		var missing []string
 		for name := range want {
 			if !got[name] {

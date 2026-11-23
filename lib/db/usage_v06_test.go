@@ -1,8 +1,3 @@
-// usage_v06_test.go — RecordUsage: intake-metering meta recording
-// (real-DB slow tests). Contract: last_<kind>_at RFC3339 upsert (dup
-// excluded) + daily:YYYY-MM-DD JSON increments, cleanup of daily keys
-// beyond 14 days (PruneDaily — only when today's key is newly created),
-// race last-write-wins accepted.
 package db
 
 import (
@@ -12,7 +7,6 @@ import (
 	"time"
 )
 
-// cleanUsageKeys — wipes the last_*·daily:* meta keys to isolate tests.
 func cleanUsageKeys(t *testing.T, r *Repo) {
 	t.Helper()
 	if _, err := r.pool.Exec(context.Background(),
@@ -22,19 +16,11 @@ func cleanUsageKeys(t *testing.T, r *Repo) {
 	}
 }
 
-// dailyValue (the legacy daily:<date> JSON decoder) was abolished by
-// the flat-key switch — flat reads belong to flatDailyValue
-// (usage_flatkey_test.go)·the legacy JSON fallback to readDailyFlat.
-
-// TestRecordUsageDailyAndPrune — write·hot·read·dup records → flat-key
-// values·last_* renewal·seeding 15 days' worth → excess keys deleted
-// (updated to flat-key assertions).
 func slowRecordUsageDailyAndPrune(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
 	today := time.Now().UTC().Format("2006-01-02")
 
-	// write ×2 (hook·mcp) + hot + read + dup.
 	for _, call := range []struct{ kind, source string }{
 		{"write", "hook"}, {"write", "mcp"}, {"hot", ""}, {"read", ""}, {"dup", ""},
 	} {
@@ -49,7 +35,6 @@ func slowRecordUsageDailyAndPrune(t *testing.T, r *Repo) {
 		}
 	}
 
-	// The 3 last_* keys parse as RFC3339; dup records no last_dup_at.
 	for _, key := range []string{"last_write_at", "last_hot_at", "last_read_at"} {
 		var val string
 		if err := r.pool.QueryRow(ctx,
@@ -69,10 +54,6 @@ func slowRecordUsageDailyAndPrune(t *testing.T, r *Repo) {
 		t.Fatalf("last_dup_at exists — dup은 last_ 시각을 기록하지 않는다")
 	}
 
-	// Seed 15 days (yesterday~15 days ago) + delete today's key
-	// (simulating the rollover's first event) → the next record newly
-	// creates today's key and PruneDaily (run only on new creation)
-	// deletes the excess keys.
 	for i := 1; i <= 15; i++ {
 		d := time.Now().UTC().AddDate(0, 0, -i).Format("2006-01-02")
 		if _, err := r.pool.Exec(ctx,
@@ -84,16 +65,14 @@ func slowRecordUsageDailyAndPrune(t *testing.T, r *Repo) {
 	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:"+today); err != nil {
 		t.Fatalf("delete today key: %v", err)
 	}
-	// Delete the flat key too (the read kind's flat key
-	// daily:read:<today> is the rollover created-verdict target).
+
 	if _, err := r.pool.Exec(ctx, `DELETE FROM meta WHERE key = $1`, "daily:read:"+today); err != nil {
 		t.Fatalf("delete today flat key: %v", err)
 	}
 	if err := r.RecordUsage(ctx, "read", ""); err != nil {
 		t.Fatalf("RecordUsage(read) after seeding: %v", err)
 	}
-	// The 14-day retention = today + yesterday~13 days ago. Keys 14·15
-	// days old are deleted.
+
 	for _, age := range []int{14, 15} {
 		d := time.Now().UTC().AddDate(0, 0, -age).Format("2006-01-02")
 		if err := r.pool.QueryRow(ctx,
@@ -104,8 +83,7 @@ func slowRecordUsageDailyAndPrune(t *testing.T, r *Repo) {
 			t.Fatalf("daily key %d일 전 잔존 — 14일 초과 미삭제", age)
 		}
 	}
-	// Keys yesterday~13 days ago are retained; today's key is re-recorded
-	// via the new-creation path (read=1).
+
 	for _, age := range []int{1, 13} {
 		d := time.Now().UTC().AddDate(0, 0, -age).Format("2006-01-02")
 		if err := r.pool.QueryRow(ctx,
@@ -121,10 +99,6 @@ func slowRecordUsageDailyAndPrune(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordUsagePrunesOnlyOnNewDayKey — PruneDaily runs only when
-// today's daily key is newly created (the rollover's first event)
-// (regression: a DELETE on every RecordUsage — hot-path waste·duplicate
-// writes cleaning twice).
 func slowRecordUsagePrunesOnlyOnNewDayKey(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
@@ -147,8 +121,6 @@ func slowRecordUsagePrunesOnlyOnNewDayKey(t *testing.T, r *Repo) {
 		return n
 	}
 
-	// 1st: today's key newly created → cleanup runs → the 20-day-old key
-	// deleted.
 	seed()
 	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
 		t.Fatalf("RecordUsage #1: %v", err)
@@ -156,8 +128,7 @@ func slowRecordUsagePrunesOnlyOnNewDayKey(t *testing.T, r *Repo) {
 	if countOld() != 0 {
 		t.Fatalf("신규 생성 시 20일 전 키 잔존 — PruneDaily 미실행")
 	}
-	// 2nd: today's key already exists → cleanup skipped → the re-seeded
-	// 20-day-old key survives.
+
 	seed()
 	if err := r.RecordUsage(ctx, "write", "hook"); err != nil {
 		t.Fatalf("RecordUsage #2: %v", err)
@@ -167,9 +138,6 @@ func slowRecordUsagePrunesOnlyOnNewDayKey(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordUsageCorruptDailyRewrites — a corrupted flat-key value is
-// rewritten from 0 (the flat inheritance of the legacy JSON
-// corrupt-rewrite contract — any non-integer existing value).
 func slowRecordUsageCorruptDailyRewrites(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
@@ -190,8 +158,6 @@ func slowRecordUsageCorruptDailyRewrites(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordUsageWriteEmptySource — write with source="" updates only
-// the write counter.
 func slowRecordUsageWriteEmptySource(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
@@ -212,11 +178,6 @@ func slowRecordUsageWriteEmptySource(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordUsageLegacyJSONIgnoredByWrite — the legacy daily:<date> JSON
-// is untouched by the write path (a read-fallback-only inheritance — the
-// null·partial-corruption rewrite regression moved to the readDailyFlat
-// fallback contract; see usage_flatkey_test.go
-// TestReadDailyFlatLegacyFallback).
 func slowRecordUsageLegacyJSONIgnoredByWrite(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)
@@ -245,8 +206,6 @@ func slowRecordUsageLegacyJSONIgnoredByWrite(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordUsageInvalidKind — an out-of-contract kind is an error
-// (nothing recorded).
 func slowRecordUsageInvalidKind(t *testing.T, r *Repo) {
 	cleanUsageKeys(t, r)
 	if err := r.RecordUsage(context.Background(), "bogus", ""); err == nil {
@@ -254,12 +213,6 @@ func slowRecordUsageInvalidKind(t *testing.T, r *Repo) {
 	}
 }
 
-// TestRecordUsageConcurrentNoError — parallel records are accepted
-// without error (the flat inheritance of the legacy last-write-wins JSON
-// race contract. Doltgres accepts concurrent UPSERTs of the same row as
-// last-write-wins without error — total-count consistency not
-// guaranteed; the loss < call-failure metering principle. Atomicity is
-// the Postgres baseline).
 func slowRecordUsageConcurrentNoError(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	cleanUsageKeys(t, r)

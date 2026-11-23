@@ -1,9 +1,3 @@
-// report.go — the `flint report --tui` screen model. A diagnostic card list
-// (severity-colored), selection detail (Basis, Action, tuning key), and a metrics
-// summary navigation view. View-only — no writes. The data comes as-is from the
-// collection output of the caller's (the cli entry branch's) existing ReportOutput
-// path (the same source as the JSON view) — the TUI creates no metrics of its own
-// (the 3 views + TUI = 4 views, one source principle). Keys: up/k, down/j to move; enter to expand/collapse the detail; tab to switch diagnostic <-> metrics; q/esc to quit.
 package tui
 
 import (
@@ -16,15 +10,11 @@ import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// the severity styles — inheriting the theme philosophy (only ANSI base-color
-// numbers — respecting the terminal palette). DiagnosisItem has no severity field, so it derives from the signal id (severityOf).
 var (
-	sevWarn = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3")) // warn: yellow
-	sevInfo = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))            // info: cyan
+	sevWarn = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("3"))
+	sevInfo = lipgloss.NewStyle().Foreground(lipgloss.Color("6"))
 )
 
-// severityOf — diagnostic signal id -> severity label. Only hot_budget_slack,
-// defined as 'informational', is info; the rest are warn (derived from the diagnostic wording contracts).
 func severityOf(signal string) string {
 	if signal == "hot_budget_slack" {
 		return "info"
@@ -32,25 +22,21 @@ func severityOf(signal string) string {
 	return "warn"
 }
 
-// ReportModel — the report TUI screen. mode 0 = diagnostic cards, 1 = the metrics summary.
 type ReportModel struct {
 	rep    ops.ReportOutput
 	days   int
 	cursor int
-	mode   int // 0 diagnosis · 1 metrics
+	mode   int
 	detail bool
-	width  int // the latest WindowSizeMsg width (the key-hint abbreviation and exit-guidance wrap basis)
+	width  int
 }
 
-// NewReportModel — assembles the screen model from the collection output (ReportOutput) and window days.
 func NewReportModel(rep ops.ReportOutput, days int) ReportModel {
 	return ReportModel{rep: rep, days: days}
 }
 
-// Init — no startup commands.
 func (m ReportModel) Init() tea.Cmd { return nil }
 
-// Update — stores the window width (resize) and handles key input (view-only — no other messages).
 func (m ReportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	if sz, ok := msg.(tea.WindowSizeMsg); ok {
 		m.width = sz.Width
@@ -92,7 +78,6 @@ func (m ReportModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-// View — renders the current mode.
 func (m ReportModel) View() string {
 	var b strings.Builder
 	title := fmt.Sprintf("flint report — Diagnosis (%d-day window)", m.days)
@@ -103,18 +88,17 @@ func (m ReportModel) View() string {
 	if m.mode == 1 {
 		b.WriteString(m.metricsView())
 		b.WriteString("\n" + Theme.Secondary.Render(keyHint(m.width, "tab: diagnosis · q: quit", "tab · q quit")))
-		b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // the non-interactive escape guidance (the contract-1 wrap)
+		b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
 		return b.String()
 	}
 	b.WriteString(m.diagnosisView())
 	b.WriteString("\n" + Theme.Secondary.Render(keyHint(m.width,
 		"↑/k ↓/j: move · enter: detail · tab: metrics · q: quit",
 		"j/k·enter·tab · q quit")))
-	b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint))) // the non-interactive escape guidance (the contract-1 wrap)
+	b.WriteString("\n" + Theme.Secondary.Render(wrapHint(m.width, nonInteractiveHint)))
 	return b.String()
 }
 
-// diagnosisView — renders the diagnostic card list. 0 items gets the normal-silence response sentence.
 func (m ReportModel) diagnosisView() string {
 	if len(m.rep.Diagnosis) == 0 {
 		return Theme.Neutral.Render("No diagnosis findings — all quiet.") + "\n"
@@ -137,7 +121,7 @@ func (m ReportModel) diagnosisView() string {
 				{"Tuning key:", d.TuningKey},
 			} {
 				if line.val == "" {
-					continue // rules without a tuning_key omit the row (the omitempty counterpart)
+					continue
 				}
 				b.WriteString(fmt.Sprintf("    %s %s\n", Theme.Neutral.Render(line.label), line.val))
 			}
@@ -146,8 +130,6 @@ func (m ReportModel) diagnosisView() string {
 	return b.String()
 }
 
-// metricsView — the metrics summary. An English summary of the same source
-// fields as the text view (printReportText) — no series recomputation (only the Days sum).
 func (m ReportModel) metricsView() string {
 	var write, read, dup int
 	for _, d := range m.rep.Days {
@@ -169,8 +151,6 @@ func (m ReportModel) metricsView() string {
 	)
 }
 
-// RunReportTUI — launches the screen with the completed ReportOutput (the Run
-// wrapper — non-terminal errors immediately; the caller falls back to exit 3).
 func RunReportTUI(rep ops.ReportOutput, days int) error {
 	return Run(NewReportModel(rep, days))
 }

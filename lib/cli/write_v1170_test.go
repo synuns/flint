@@ -1,10 +1,3 @@
-// write_v1170_test.go — v1.17.0 T2: the --source-independent echo field
-// end-to-end (real-DB slow, an isolated scratch database — the
-// write_v1110_test.go convention). Contract: a new single-line knowledge
-// write answers with "echo":[{id,topic,score,relation}] naming the near
-// active rows; an exact-hash duplicate answer keeps the DuplicateMeta
-// shape (echo omitted); the supersede verdict is the agent's via approve
-// --supersede (echo is suggestion only).
 package cli
 
 import (
@@ -19,9 +12,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// echoE2ETopic — the shared synthetic fixtures (the knowledge echo_test.go
-// convention strings: identical rows are duplicates, the divergent summary
-// is a contradicts band 0.3<=set<0.6 with topic dice 1.0).
 const (
 	echoE2ETopic     = "데모 프로젝트 운영 기록"
 	echoE2EDupSum    = "회의록 오늘 확정된 마일스톤은 3개다"
@@ -29,14 +19,6 @@ const (
 	echoE2EOtherSum  = "텔레비전 편성표 조정 작업 기록과 성수기 특별 편성 반영시 검토해야 할 광고 단가 구간표 초안 내용을 함께 기록한다"
 )
 
-// TestWriteEchoE2ERealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN): on
-// a fresh scratch DB, write #1 (active seed, no echo — empty store) →
-// write #2 identical (duplicate, echo omitted — the exact-hash ruling) →
-// write #3 same topic·divergent claim (committed with an echo contradicts
-// candidate naming write #1's row) → write #4 a fully-disjoint summary
-// (committed, echo omitted — below the floor) → approve --supersede on a
-// low-confidence line lands pending with the echo, then the agent's
-// supersede verdict promotes it and invalidates the old row.
 func TestWriteEchoE2ERealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {
@@ -47,8 +29,7 @@ func TestWriteEchoE2ERealSlow(t *testing.T) {
 	if err != nil {
 		t.Skipf("real store unavailable: %v", err)
 	}
-	// Close via t.Cleanup registered BEFORE the DROP below — Cleanup is
-	// LIFO, so the DROP runs while the pool is still open.
+
 	t.Cleanup(base.Close)
 
 	name := fmt.Sprintf("flint_v1170_t2_%d", time.Now().UnixNano()%1e9)
@@ -78,7 +59,6 @@ func TestWriteEchoE2ERealSlow(t *testing.T) {
 	}
 	t.Cleanup(func() { newStore = prev })
 
-	// run — one cli write round; returns the decoded single-line output.
 	run := func(topic, summary string, conf float64) map[string]any {
 		t.Helper()
 		var out strings.Builder
@@ -94,8 +74,6 @@ func TestWriteEchoE2ERealSlow(t *testing.T) {
 		return m
 	}
 
-	// 1. Seed — the first write of this topic: an empty store has no echo
-	// candidates, so the field is absent.
 	m := run(echoE2ETopic, echoE2EDupSum, 0.9)
 	if m["status"] != "committed" || m["state"] != "active" {
 		t.Fatalf("적립 #1=%v, want committed/active", m)
@@ -108,7 +86,6 @@ func TestWriteEchoE2ERealSlow(t *testing.T) {
 		t.Errorf("빈 저장소 첫 쓰기에 echo 부재해야 함: %v", m)
 	}
 
-	// 2. Exact-hash resend — DuplicateMeta, echo omitted (the ruling).
 	m = run(echoE2ETopic, echoE2EDupSum, 0.9)
 	if m["status"] != "duplicate" {
 		t.Fatalf("재전송=%v, want duplicate", m)
@@ -117,8 +94,6 @@ func TestWriteEchoE2ERealSlow(t *testing.T) {
 		t.Errorf("정확-hash 중복 응답에 echo 부재해야 함: %v", m)
 	}
 
-	// 3. Divergent claim on the same topic — the echo names the seed row
-	// as a contradicts candidate with the score field.
 	m = run(echoE2ETopic, echoE2EContraSum, 0.9)
 	if m["status"] != "committed" {
 		t.Fatalf("상이 주장 적립=%v, want committed", m)
@@ -141,7 +116,6 @@ func TestWriteEchoE2ERealSlow(t *testing.T) {
 		t.Errorf("echo 후보에 similarity 필드는 부재해야 함: %v", c)
 	}
 
-	// 4. A fully-disjoint summary stays below the floor — no echo field.
 	m = run(echoE2ETopic, echoE2EOtherSum, 0.9)
 	if m["status"] != "committed" {
 		t.Fatalf("이질 요약 적립=%v, want committed", m)
@@ -150,9 +124,6 @@ func TestWriteEchoE2ERealSlow(t *testing.T) {
 		t.Errorf("임계 미달 쓰기에 echo 부재해야 함: %v", m)
 	}
 
-	// 5. The agent's verdict circuit: a low-confidence line lands pending
-	// (echo still reported), then approve --supersede promotes it and
-	// invalidates the old row.
 	m = run(echoE2ETopic, echoE2EContraSum+" (개정안)", 0.4)
 	if m["status"] != "committed" || m["state"] != "pending" {
 		t.Fatalf("저신뢰 적립=%v, want committed/pending", m)
@@ -164,8 +135,7 @@ func TestWriteEchoE2ERealSlow(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("approve --supersede exit=%d out=%s", code, out.String())
 	}
-	// The superseded seed row is gone from the active view; the promoted
-	// line remains.
+
 	var ro strings.Builder
 	if code := Run([]string{"read", echoE2ETopic, "--json"}, strings.NewReader(""), &ro); code != 0 {
 		t.Fatalf("read exit=%d out=%s", code, ro.String())

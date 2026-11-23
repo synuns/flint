@@ -7,10 +7,6 @@ import (
 	"testing"
 )
 
-// ADR-0006 — the restore checksum guard. The guard exists in exactly one place, runRestore.
-// Reuses the fake backup seam (backup_test.go) — verifies the guard runs first via whether restoreFn is called.
-
-// mismatch — one-line JSON warning + exit 1, restoreFn not called (blocking arbitrary SQL execution).
 func TestRestoreChecksumMismatchExit1(t *testing.T) {
 	f := &fakeBackup{}
 	withBackupFake(t, f)
@@ -56,7 +52,6 @@ func TestRestoreMissingSidecarBlocked(t *testing.T) {
 	}
 }
 
-// that backup --out creates the original + .sha256 sidecar together (ADR-0006).
 func TestBackupWritesSidecar(t *testing.T) {
 	f := &fakeBackup{dumpText: "-- flint backup probe\nBEGIN;\nCOMMIT;\n"}
 	withBackupFake(t, f)

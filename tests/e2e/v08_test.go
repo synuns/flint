@@ -1,12 +1,5 @@
 //go:build e2e
 
-// v08_test.go — T90 v0.8 수명주기+시간여행 체인 e2e(실DB·순차·전 구간
-// bin/flint 서브프로세스). write→audit 해시 획득→read --as-of→diff→
-// status --as-of→maintain --supersede→--invalidate-stale dry-run→audit --stat
-// 8단계가 한 줄로 이어지는지 검증한다. Review Focus: 순서 의존·해시 획득
-// 경로(audit 출력 파싱 — --session 필터로 커밋 귀속 확정)·환경 격리(임시
-// FLINT_CONFIG_DIR·FLINT_CLAUDE_HOME — v07 flintEnv 패턴 재사용).
-// 실행: go test -tags e2e ./tests/e2e/ -run TestV08LifecycleChain -count=1
 package e2e
 
 import (
@@ -20,8 +13,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// latestCommitHash — audit --session 출력 파싱으로 해당 세션 커밋의 해시
-// 확보(체인의 유일한 해시 획득 경로. 동시 커밋 혼입 차단).
 func latestCommitHash(t *testing.T, bin string, env []string, session string) string {
 	t.Helper()
 	out, code := runFlint(t, bin, env, []string{"audit", "--session", session}, "")
@@ -41,7 +32,6 @@ func latestCommitHash(t *testing.T, bin string, env []string, session string) st
 	return hash
 }
 
-// asOfHash — read/status --as-of 결과의 as_of.hash 정합 확인 공용.
 func asOfHash(t *testing.T, m map[string]any) string {
 	t.Helper()
 	ao, _ := m["as_of"].(map[string]any)
@@ -55,11 +45,8 @@ func asOfHash(t *testing.T, m map[string]any) string {
 	return hash
 }
 
-// TestV08LifecycleChain — 8단계 순서 의존 체인. state: 스키마 v5
-// superseded_by·invalid_at 갱신. protocol: as-of 정규화(해시)·dry-run 기본.
 func TestV08LifecycleChain(t *testing.T) {
-	// 신규 DB 대응 — 테이블·뷰 확보(v07 패턴). 스키마 v5 승격은 첫 접근
-	// 시 자동(T82 배선).
+
 	repo, err := db.NewRepo(context.Background(), dsn())
 	if err != nil {
 		t.Skipf("Doltgres 미기동: %v", err)
@@ -70,20 +57,14 @@ func TestV08LifecycleChain(t *testing.T) {
 	}
 
 	pool := mustDB(t)
-	// 선행 광역 정리는 기존 "e2e-v08-" 프리픽스로(레거시 잔존 소거),
-	// teardown은 실행 식별자로 한정(동시 실행 중인 다른 프로세스의
-	// 진행 중 행을 지우지 않게).
+
 	cleanupTopics(t, pool, "e2e-v08-")
 	runPrefix := fmt.Sprintf("e2e-v08-%d-", time.Now().UnixNano())
 	t.Cleanup(func() { cleanupTopics(t, pool, runPrefix) })
 
-	// 실행마다 유일한 접두사 — 공유 DB 잔존 데이터와 첫 실행 duplicate·
-	// audit --session 혼입 충돌 방지. 유일 이름도 상위 "e2e-v08-" 프리픽스
-	// 안에 있으므로 위 광역 선행 정리가 잡는다.
 	topicA, topicB := runPrefix+"k1", runPrefix+"k2"
 	sessA, sessB := runPrefix+"s1", runPrefix+"s2"
 
-	// 환경 격리 — 설정·플러그인 캐시를 임시 디렉터리로.
 	env := flintEnv(
 		"FLINT_CONFIG_DIR="+t.TempDir(),
 		"FLINT_CLAUDE_HOME="+t.TempDir(),
@@ -91,9 +72,6 @@ func TestV08LifecycleChain(t *testing.T) {
 	)
 	bin := rebuildBin(t)
 
-	// 공유 DB 오염 격리 — 다른 테스트가 남긴 pending 행(seed·asof 회귀
-	// 등)과 무관하게 ⑤가 판정되게 시작 시점 pending 수를 baseline으로
-	// 확보(maintain --check 임계값 패턴 재사용).
 	var basePending int
 	if err := pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`).
@@ -101,7 +79,6 @@ func TestV08LifecycleChain(t *testing.T) {
 		t.Fatalf("baseline pending 수 실패: %v", err)
 	}
 
-	// ① write 1건(confidence 0.9 → active) — 커밋 A 확보.
 	out, code := runFlint(t, bin, env,
 		[]string{"write", "knowledge", "--session", sessA},
 		fmt.Sprintf(`{"topic":%q,"summary":"v0.8 체인 프로브 1","confidence":0.9}`, topicA))
@@ -115,7 +92,6 @@ func TestV08LifecycleChain(t *testing.T) {
 	oldID := int(wm["id"].(float64))
 	commitA := latestCommitHash(t, bin, env, sessA)
 
-	// ② write 1건 더 — 커밋 B.
 	out, code = runFlint(t, bin, env,
 		[]string{"write", "knowledge", "--session", sessB},
 		fmt.Sprintf(`{"topic":%q,"summary":"v0.8 체인 프로브 2","confidence":0.9}`, topicB))
@@ -129,15 +105,12 @@ func TestV08LifecycleChain(t *testing.T) {
 	}
 	commitB := latestCommitHash(t, bin, env, sessB)
 
-	// ③ read --as-of A — 두 토픽 질의로 과거 시점엔 첫 건만 보이는지.
 	out, code = runFlint(t, bin, env,
 		[]string{"read", runPrefix, "--as-of", commitA, "--json", "--fields", "topic"}, "")
 	if code != 0 {
 		t.Fatalf("③ read --as-of exit=%d, want 0; out=%s", code, out)
 	}
-	// read --as-of는 지식 행(JSONL) 뒤에 as_of 메타데이터 한 줄
-	// ({"as_of":{...}} — read.go asOfLine)을 추가 출력한다. 지식 행만
-	// 카운트하고 메타 줄은 해시 정합 검증에 쓴다.
+
 	var rows []map[string]any
 	var asOfMeta map[string]any
 	for _, l := range strings.Split(strings.TrimSpace(out), "\n") {
@@ -157,7 +130,6 @@ func TestV08LifecycleChain(t *testing.T) {
 		t.Fatalf("③ as_of.hash=%q, want %q", got, commitA)
 	}
 
-	// ④ diff A B — 두 커밋 사이 행 추가는 정확히 1.
 	out, code = runFlint(t, bin, env, []string{"diff", commitA, commitB}, "")
 	if code != 0 {
 		t.Fatalf("④ diff exit=%d, want 0; out=%s", code, out)
@@ -170,8 +142,6 @@ func TestV08LifecycleChain(t *testing.T) {
 		t.Fatalf("④ added=%v, want 1; out=%s", dm["added"], out)
 	}
 
-	// ⑤ status --as-of A — 커밋 A 시점 pending은 시작 baseline과 동일
-	// (이 실행은 confidence 0.9만 써 pending을 추가하지 않음)·as_of 해시 정합.
 	out, code = runFlint(t, bin, env, []string{"status", "--as-of", commitA}, "")
 	if code != 0 {
 		t.Fatalf("⑤ status --as-of exit=%d, want 0; out=%s", code, out)
@@ -185,16 +155,13 @@ func TestV08LifecycleChain(t *testing.T) {
 		t.Fatalf("⑤ as_of.hash=%q, want %q", got, commitA)
 	}
 
-	// ⑥ supersede — OLD k1 invalidated·superseded_by=NEW.
 	out, code = runFlint(t, bin, env,
 		[]string{"maintain", "--supersede", strconv.Itoa(oldID), "--by", strconv.Itoa(newID)}, "")
 	if code != 0 {
 		t.Fatalf("⑥ supersede exit=%d, want 0; out=%s", code, out)
 	}
 	pm := decode(t, out)
-	// T87 스펙(maintain_v08_test.go): 출력은 {"status":"superseded",
-	// "old":OLD,"superseded_by":NEW}. DB 행은 status='invalidated'로
-	// 바뀌지만 CLI 출력 status는 'superseded'다.
+
 	if pm["status"] != "superseded" {
 		t.Fatalf("⑥ status=%v, want superseded; out=%s", pm["status"], out)
 	}
@@ -205,17 +172,15 @@ func TestV08LifecycleChain(t *testing.T) {
 		t.Fatalf("⑥ superseded_by=%v, want %d; out=%s", pm["superseded_by"], newID, out)
 	}
 
-	// ⑦ invalidate-stale dry-run — 대상·요약만, exit 0(쓰기 없음).
 	out, code = runFlint(t, bin, env, []string{"maintain", "--invalidate-stale"}, "")
 	if code != 0 {
 		t.Fatalf("⑦ invalidate-stale exit=%d, want 0(dry-run 기본); out=%s", code, out)
 	}
-	decode(t, out) // 한 줄 JSON 유지
+	decode(t, out)
 	if !strings.Contains(out, "to invalidate") {
 		t.Fatalf("⑦ 요약행('N to invalidate') 없음; out=%s", out)
 	}
 
-	// ⑧ audit --stat — 커밋 목록에 stat 요약 필드 부록.
 	out, code = runFlint(t, bin, env, []string{"audit", "--stat"}, "")
 	if code != 0 {
 		t.Fatalf("⑧ audit --stat exit=%d, want 0; out=%s", code, out)

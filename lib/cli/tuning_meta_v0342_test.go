@@ -1,6 +1,3 @@
-// tuning_meta_v0342_test.go — the tuning key single-source contract.
-// Defends against the drift where tuningCurrent and tuningResetAll duplicated a hardcoded
-// 6-key list and missed backup_encrypt (the 7th meta key).
 package cli
 
 import (
@@ -34,8 +31,6 @@ func TestTuningKeyAllContainsBackupEncrypt(t *testing.T) {
 	}
 }
 
-// resetAllCaptureFake — records the arguments of the meta-delete delegation (db.Repo.MetaDelete;
-// the keys to delete). DELETE literals are owned by the db layer (write guard).
 type resetAllCaptureFake struct {
 	*fakeStore
 	deleted []any
@@ -53,8 +48,6 @@ func (f *resetAllCaptureFake) MetaDelete(ctx context.Context, keys []string) (in
 	return int64(len(keys)), nil
 }
 
-// TestTuningResetAllCoversAllKeys — proves by behavior that reset --all walks all of
-// tuningKeyAll() as delete targets (no hardcoded literals).
 func TestTuningResetAllCoversAllKeys(t *testing.T) {
 	f := &resetAllCaptureFake{fakeStore: &fakeStore{}}
 	var out strings.Builder
@@ -78,9 +71,6 @@ func TestTuningResetAllCoversAllKeys(t *testing.T) {
 	}
 }
 
-// TestTuningMetaValueSanitized — raw meta values (vocab_* are free strings)
-// pass through the sanitization outlet in the get and list value outputs —
-// unsanitized, the [flint] marker would leak verbatim.
 func TestTuningMetaValueSanitized(t *testing.T) {
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -108,8 +98,6 @@ func TestTuningMetaValueSanitized(t *testing.T) {
 	}
 }
 
-// listMetaFake — returns only the meta rows whose key literals appear in the SQL of the
-// tuningCurrent meta IN lookup (keys assembled as SQL literals, args=nil).
 type listMetaFake struct {
 	*fakeStore
 	meta map[string]string
@@ -129,9 +117,6 @@ func (f *listMetaFake) Query(ctx context.Context, sql string, args ...any) ([][]
 	return nil, nil
 }
 
-// TestTuningListReportsBackupEncryptOverride — symptom-regression defense:
-// the backup_encrypt override must be reported in list with override:true
-// (the tuningCurrent lookup key set must equal tuningKeyAll).
 func TestTuningListReportsBackupEncryptOverride(t *testing.T) {
 	f := &listMetaFake{fakeStore: &fakeStore{}, meta: map[string]string{"backup_encrypt": "true"}}
 	var out strings.Builder

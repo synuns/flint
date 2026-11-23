@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-// writeConfig — sets FLINT_CONFIG_DIR to a TempDir and writes config.json.
 func writeConfig(t *testing.T, content string) {
 	t.Helper()
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
@@ -15,7 +14,6 @@ func writeConfig(t *testing.T, content string) {
 	}
 }
 
-// unsetDSN — unsets FLINT_DSN and restores it at test teardown.
 func unsetDSN(t *testing.T) {
 	t.Helper()
 	old, had := os.LookupEnv("FLINT_DSN")
@@ -29,7 +27,6 @@ func unsetDSN(t *testing.T) {
 	})
 }
 
-// TestConfigPathUnderConfigDir — ConfigPath = configDir()/config.json.
 func TestConfigPathUnderConfigDir(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -38,7 +35,6 @@ func TestConfigPathUnderConfigDir(t *testing.T) {
 	}
 }
 
-// TestResolvePrecedence — FLINT_DSN > config.json > defaultDSN (spec §2).
 func TestResolvePrecedence(t *testing.T) {
 	t.Run("env beats file", func(t *testing.T) {
 		writeConfig(t, `{"dsn":"postgresql://file:5434/flint"}`)
@@ -56,14 +52,13 @@ func TestResolvePrecedence(t *testing.T) {
 	})
 	t.Run("default when both absent", func(t *testing.T) {
 		unsetDSN(t)
-		t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // guarantees config.json is absent
+		t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 		if got := ResolveDSN(); got != defaultDSN {
 			t.Fatalf("ResolveDSN=%q want defaultDSN=%q", got, defaultDSN)
 		}
 	})
 }
 
-// TestConfigCorruptFallback — absent, corrupt, empty, and non-string dsn values fall back to "".
 func TestConfigCorruptFallback(t *testing.T) {
 	unsetDSN(t)
 	cases := map[string]string{

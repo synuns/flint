@@ -1,7 +1,3 @@
-// admin_v0420_test.go — schema v9 (EnsureSchemaV9) slow tests (real
-// DB). The 3 metering ts indexes·the knowledge pending partial index
-// promotion·additive losslessness·idempotence·the numeric-comparison
-// gate regression.
 package db
 
 import (
@@ -10,9 +6,6 @@ import (
 	"testing"
 )
 
-// v9IndexNames — the 4 indexes the gate creates (3 metering-table ts
-// paths + 1 knowledge pending partial — the derived-output query
-// paths).
 var v9IndexNames = []string{
 	"flint_read_events_ts_idx",
 	"flint_hot_events_ts_idx",
@@ -20,15 +13,10 @@ var v9IndexNames = []string{
 	"flint_knowledge_pending_idx",
 }
 
-// TestV9PromoteIdempotent — on a DB that passed the v8 gates (the
-// existing deployment path), EnsureSchemaV9 → version 9·the 4 indexes
-// present·pre-promotion existing rows intact (additive). A second call
-// is an idempotent no-op.
 func slowV9PromoteIdempotent(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
-	// Reproducing the existing deployment path: v1 → passing the v8 gates
-	// in order.
+
 	for _, gate := range []func(context.Context) error{
 		r.EnsureSchemaV2, r.EnsureSchemaV3, r.EnsureSchemaV4,
 		r.EnsureSchemaV5, r.EnsureSchemaV6, r.EnsureSchemaV7, r.EnsureSchemaV8,
@@ -37,8 +25,7 @@ func slowV9PromoteIdempotent(t *testing.T, r *Repo) {
 			t.Fatalf("상위 게이트: %v", err)
 		}
 	}
-	// Pre-promotion existing rows — the additive-losslessness proof
-	// input.
+
 	ids, err := r.InsertBatch(ctx, []map[string]any{knowledgeRec("v9-old")})
 	if err != nil {
 		t.Fatalf("InsertBatch pre-v9 row: %v", err)
@@ -60,16 +47,14 @@ func slowV9PromoteIdempotent(t *testing.T, r *Repo) {
 	if v := readVersion(t, r); v != "9" {
 		t.Fatalf("schema_version = %q, want 9", v)
 	}
-	// Assert the 4 indexes exist.
+
 	for _, idx := range v9IndexNames {
 		assertObject(t, r, ctx, idx)
 	}
-	// The pending partial index — assert the definition keeps the WHERE
-	// clause exactly as promised (a quiet degradation to a plain index
-	// would slip past a mere existence assertion).
+
 	assertPartialIndex(t, r, ctx, "flint_knowledge_pending_idx",
 		[]string{"status = 'pending'", "invalid_at IS NULL"})
-	// Existing rows intact (additive — the gate never touches data).
+
 	var n int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM knowledge WHERE id = $1`, old).Scan(&n); err != nil {
@@ -85,7 +70,7 @@ func slowV9PromoteIdempotent(t *testing.T, r *Repo) {
 	if n != 1 {
 		t.Errorf("기존 행 유실: read_events count = %d, want 1", n)
 	}
-	// The 2nd call is an idempotent no-op.
+
 	if err := r.EnsureSchemaV9(ctx); err != nil {
 		t.Fatalf("second EnsureSchemaV9 (want idempotent): %v", err)
 	}
@@ -94,9 +79,6 @@ func slowV9PromoteIdempotent(t *testing.T, r *Repo) {
 	}
 }
 
-// TestV9GateNumeric — the gate numeric-comparison regression (the same
-// contract as V5~V7): '10' is numerically higher, so it must no-op
-// (preventing downgrades).
 func slowV9GateNumeric(t *testing.T, r *Repo) {
 	resetVersionToV1(t, r)
 	ctx := context.Background()
@@ -109,10 +91,6 @@ func slowV9GateNumeric(t *testing.T, r *Repo) {
 	}
 }
 
-// assertPartialIndex — asserts that pg_indexes.indexdef contains the
-// WHERE clause and every condition substring (Doltgres normalizes
-// conditions into the table-qualified "knowledge.status = 'pending'"
-// form, so the check uses individual substrings).
 func assertPartialIndex(t *testing.T, r *Repo, ctx context.Context, name string, conds []string) {
 	t.Helper()
 	var def string

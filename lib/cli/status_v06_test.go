@@ -1,5 +1,3 @@
-// status_v06_test.go — verifies the 3 added fields last_write_at, last_hot_at, and
-// last_read_at in the status one-line JSON. Missing/corrupt keys are null; existing fields and order unchanged.
 package cli
 
 import (
@@ -10,8 +8,6 @@ import (
 	"time"
 )
 
-// statusWithMeta — runs status with a meta key map (kv) and returns the decoded output and exit.
-// The schema version is pinned to 3 (compatible), pending to 0; the other meta lookups reference the key map.
 func statusWithMeta(t *testing.T, kv map[string]string) (map[string]any, int) {
 	t.Helper()
 	f := &fakeStore{}
@@ -42,7 +38,6 @@ func statusWithMeta(t *testing.T, kv map[string]string) (map[string]any, int) {
 	return m, code
 }
 
-// TestStatusLastSeenFields — seeding the 3 keys -> the 3 fields report the RFC3339 values as-is.
 func TestStatusLastSeenFields(t *testing.T) {
 	ts := time.Now().UTC().Truncate(time.Second)
 	w := ts.Add(-2 * time.Hour).Format(time.RFC3339)
@@ -68,7 +63,6 @@ func TestStatusLastSeenFields(t *testing.T) {
 	}
 }
 
-// TestStatusLastSeenMissingOrNull — unset or corrupt (non-RFC3339) keys are null.
 func TestStatusLastSeenMissingOrNull(t *testing.T) {
 	m, code := statusWithMeta(t, map[string]string{
 		"schema_version": "3",
@@ -88,7 +82,6 @@ func TestStatusLastSeenMissingOrNull(t *testing.T) {
 	}
 }
 
-// TestStatusLastSeenFieldOrder — existing-field regression: order and values unchanged; new fields at the end.
 func TestStatusLastSeenFieldOrder(t *testing.T) {
 	m, code := statusWithMeta(t, map[string]string{"schema_version": "3"})
 	if code != 0 {
@@ -97,7 +90,7 @@ func TestStatusLastSeenFieldOrder(t *testing.T) {
 	want := []string{"status", "schema_version", "pending", "hot_calls",
 		"hot_p95", "read_calls", "read_zero_pct", "last_write_at",
 		"last_hot_at", "last_read_at"}
-	// checks the statusOutput struct tag order directly.
+
 	var got []string
 	typ := reflect.TypeOf(statusOutput{})
 	for i := 0; i < typ.NumField(); i++ {
@@ -117,8 +110,6 @@ func TestStatusLastSeenFieldOrder(t *testing.T) {
 	}
 }
 
-// TestStatusLastSeenEmptyAndQueryError — empty values and last_* lookup errors are a null fallback;
-// status itself keeps exit 0 (a metering indication must not break the lookup).
 func TestStatusLastSeenEmptyAndQueryError(t *testing.T) {
 	f := &fakeStore{}
 	f.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -129,16 +120,16 @@ func TestStatusLastSeenEmptyAndQueryError(t *testing.T) {
 			}
 		}
 		if strings.Contains(sql, "'schema_version'") {
-			// runStatus's schema lookup inlines the key into the SQL (args nil).
+
 			return [][]any{{"3"}}, nil
 		}
 		if strings.HasPrefix(sql, "SELECT value FROM meta") {
 			switch key {
 			case "last_write_at":
-				// empty value — the key exists but the value is an empty string.
+
 				return [][]any{{""}}, nil
 			case "last_hot_at", "last_read_at":
-				// lookup error — only the last_* lookup fails.
+
 				return nil, errors.New("boom")
 			}
 			return nil, nil

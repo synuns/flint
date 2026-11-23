@@ -1,7 +1,3 @@
-// tuning_test.go — the v1.23.0 `tuning auto off|shadow` contract: the
-// auto_mode meta enum (default off — an unconfigured deployment pays zero
-// shadow-circuit cost), the subcommand dispatch (exit 0/1/3 inherited), the
-// non-auto-key gate for the auto surfaces, and the usage guard.
 package ops
 
 import (
@@ -23,8 +19,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// withQuoteJSON — swaps in the real quoting (the cli root init seam — the ops
-// package var stays nil under a standalone test run).
 func withQuoteJSON(t *testing.T) {
 	t.Helper()
 	prev := QuoteJSONFn
@@ -35,8 +29,6 @@ func withQuoteJSON(t *testing.T) {
 	t.Cleanup(func() { QuoteJSONFn = prev })
 }
 
-// newAutoModeFake — a meta fake: the IN-list lookup reflects the map, the
-// ON CONFLICT upsert records and persists (the SetMetaKV contract).
 func newAutoModeFake(meta map[string]string, upserts *[]string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -56,8 +48,6 @@ func newAutoModeFake(meta map[string]string, upserts *[]string) *fakeStore {
 	}}
 }
 
-// autoPoolStore — the minimal Store for the real-DB seam (the meta_kv_test
-// poolStore convention — reads and writes delegate to the pool Query).
 type autoPoolStore struct {
 	pool *pgxpool.Pool
 	wire.HistoryStubs
@@ -95,8 +85,6 @@ func (p *autoPoolStore) Query(ctx context.Context, sql string, args ...any) ([][
 	return out, rows.Err()
 }
 
-// autoSeamRealDSN — a real DB connection only when SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN are set (the meta_kv_test seamRealDSN contract).
 func autoSeamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -108,9 +96,6 @@ func autoSeamRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// autoModeStore — the default map-backed fake; with SUPERLITE_REAL=1, the
-// real DB via autoPoolStore (the producer Store seam — SetMetaKV and the
-// TuningCurrent IN lookup run the real SQL). Skips without a running DB.
 func autoModeStore(t *testing.T, f *fakeStore) wire.Store {
 	t.Helper()
 	if dsn, real := autoSeamRealDSN(); real {
@@ -125,8 +110,6 @@ func autoModeStore(t *testing.T, f *fakeStore) wire.Store {
 	return f
 }
 
-// autoModeCleanup — removes the auto_mode test row when the real-DB seam runs
-// (unnecessary for the local map fake).
 func autoModeCleanup(t *testing.T, st wire.Store) {
 	t.Helper()
 	if _, real := autoSeamRealDSN(); !real {
@@ -138,16 +121,10 @@ func autoModeCleanup(t *testing.T, st wire.Store) {
 	})
 }
 
-// TestTuningAutoModeSubcommand — the enum round trip: `tuning auto shadow`
-// upserts meta auto_mode (SetMetaKV idempotent path), `tuning get auto_mode`
-// reflects the override, and an unconfigured deployment reads the default off
-// with override false (the off-by-default ruling — the shadow circuit stays
-// inert without an explicit opt-in).
 func TestTuningAutoModeSubcommand(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
 
-	// set: off -> shadow via the subcommand.
 	meta := map[string]string{}
 	upserts := []string{}
 	fake := newAutoModeFake(meta, &upserts)
@@ -160,14 +137,13 @@ func TestTuningAutoModeSubcommand(t *testing.T) {
 	if !strings.Contains(out.String(), `"key":"auto_mode"`) || !strings.Contains(out.String(), `"value":"shadow"`) {
 		t.Fatalf("auto shadow 출력=%q, want set JSON(auto_mode=shadow)", out.String())
 	}
-	// the upsert recording is a fake-only observation (a real pool cannot intercept).
+
 	if _, real := autoSeamRealDSN(); !real {
 		if len(upserts) != 1 || upserts[0] != "auto_mode=shadow" {
 			t.Fatalf("SetMetaKV 업서트=%v, want [auto_mode=shadow]", upserts)
 		}
 	}
 
-	// get: the override is reflected.
 	out.Reset()
 	if code := RunTuning(ctx, st, []string{"get", "auto_mode"}, nil, &out); code != 0 {
 		t.Fatalf("get auto_mode exit=%d, want 0: %s", code, out.String())
@@ -176,8 +152,6 @@ func TestTuningAutoModeSubcommand(t *testing.T) {
 		t.Fatalf("get auto_mode 출력=%q, want value=shadow override=true", out.String())
 	}
 
-	// default: an unconfigured deployment reads off, override false (fake only —
-	// a real shared DB may carry a residue row from an earlier run).
 	if _, real := autoSeamRealDSN(); !real {
 		out.Reset()
 		if code := RunTuning(ctx, newAutoModeFake(map[string]string{}, &[]string{}), []string{"get", "auto_mode"}, nil, &out); code != 0 {
@@ -189,8 +163,6 @@ func TestTuningAutoModeSubcommand(t *testing.T) {
 	}
 }
 
-// TestTuningAutoModeInvalid — the enum validation: an invalid mode value and a
-// wrong argument count are invalid-argument exit 3 (the tuning 0/1/3 contract).
 func TestTuningAutoModeInvalid(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
@@ -212,8 +184,6 @@ func TestTuningAutoModeInvalid(t *testing.T) {
 	}
 }
 
-// TestTuningSetAutoModeEnum — auto_mode is a TuningMetaKeys member: the
-// set/get/reset surface validates the same off|shadow enum (default off).
 func TestTuningSetAutoModeEnum(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
@@ -234,7 +204,6 @@ func TestTuningSetAutoModeEnum(t *testing.T) {
 		t.Fatalf("set auto_mode 무효값 출력=%q, want off|shadow 안내", out.String())
 	}
 
-	// the meta-key surface includes auto_mode (list/reset --all/TuningCurrent).
 	all := TuningKeyAll()
 	found := false
 	for _, k := range all {
@@ -256,10 +225,6 @@ func TestTuningSetAutoModeEnum(t *testing.T) {
 	}
 }
 
-// TestTuningAutoKeyGate — the auto-surface key gate: only whitelisted keys
-// (the registry auto field) pass; a manual-only or unknown key is exit 3 (the
-// what-if/auto key contract — a non-auto key on an auto path is a key error,
-// not a silent no-op).
 func TestTuningAutoKeyGate(t *testing.T) {
 	var out bytes.Buffer
 	if code := TuningAutoKeyGate(&out, "suggest_min_score"); code != 0 {
@@ -279,8 +244,6 @@ func TestTuningAutoKeyGate(t *testing.T) {
 	}
 }
 
-// TestTuningUsageCoversAuto — the tuning usage line lists the auto
-// subcommand (an unknown subcommand prints the full usage, exit 3).
 func TestTuningUsageCoversAuto(t *testing.T) {
 	st := newAutoModeFake(map[string]string{}, &[]string{})
 	var out bytes.Buffer
@@ -292,22 +255,11 @@ func TestTuningUsageCoversAuto(t *testing.T) {
 	}
 }
 
-// ── T5 C1/C2/C6: `tuning what-if` + `tuning status` ──
-
-// shadowDist — the synthetic 14d-window distribution a what-if fake
-// serves: the aggregate row (sample/zero/reclass at the asked bound) and
-// the zero rows' ordered near_score list. Numbers only — the synthetic
-// demo-data principle.
 type shadowDist struct {
 	sampleN, zeroN, reclassN int
 	zeroScores               []float64
 }
 
-// newWhatIfFake — a fake store routing the what-if/status SQL shapes:
-// the registry verdict aggregate (executed at the hypothetical bound),
-// the zero-row near_score distribution, and the meta IN lookup
-// (TuningCurrent + the counter read — fired/streak/rounds all ride meta
-// since the r100-1 split; no tuning_predictions query runs).
 func newWhatIfFake(meta map[string]string, dist *shadowDist) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -330,15 +282,10 @@ func newWhatIfFake(meta map[string]string, dist *shadowDist) *fakeStore {
 	}}
 }
 
-// TestTuningWhatIfReclass — the what-if reclassification contract: the
-// zero rows with near_score >= the hypothetical value are the reclass
-// pool, the new near share is reclass/sample (the T4 predPct convention),
-// and p50/p90 are nearest-rank over the zero rows' near_score distribution.
 func TestTuningWhatIfReclass(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
-	// 12 reads, 5 zero rows; at 0.1 the reclass pool is 4 (0.5,0.45,0.42,0.2
-	// pass, 0.01 does not) — near_pct 4*100/12 = 33.
+
 	dist := &shadowDist{sampleN: 12, zeroN: 5, reclassN: 4, zeroScores: []float64{0.01, 0.2, 0.42, 0.45, 0.5}}
 	st := newWhatIfFake(map[string]string{}, dist)
 	var out bytes.Buffer
@@ -361,9 +308,6 @@ func TestTuningWhatIfReclass(t *testing.T) {
 	}
 }
 
-// TestTuningWhatIfPercentileBoundaries — nearest-rank p50/p90 at odd and
-// even n (ceil(p*n)-1 over the ascending order), and the empty-window
-// zero guard (0, no division).
 func TestTuningWhatIfPercentileBoundaries(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
@@ -375,13 +319,13 @@ func TestTuningWhatIfPercentileBoundaries(t *testing.T) {
 		pct    int
 		sample int
 	}{
-		// n=5: p50 ceil(2.5)-1 = idx2 -> 0.42; p90 ceil(4.5)-1 = idx4 -> 0.5.
+
 		{"odd n", &shadowDist{sampleN: 5, zeroN: 5, reclassN: 5, zeroScores: []float64{0.01, 0.2, 0.42, 0.45, 0.5}}, 0.42, 0.5, 100, 5},
-		// n=4: p50 ceil(2)-1 = idx1 -> 0.2; p90 ceil(3.6)-1 = idx3 -> 0.4.
+
 		{"even n", &shadowDist{sampleN: 4, zeroN: 4, reclassN: 3, zeroScores: []float64{0.1, 0.2, 0.3, 0.4}}, 0.2, 0.4, 75, 4},
-		// n=1: both ranks clamp to the single sample.
+
 		{"single zero row", &shadowDist{sampleN: 1, zeroN: 1, reclassN: 0, zeroScores: []float64{0.33}}, 0.33, 0.33, 0, 1},
-		// empty window: 0 everywhere, near_pct 0 (no division by zero).
+
 		{"empty window", &shadowDist{sampleN: 0, zeroN: 0, reclassN: 0, zeroScores: nil}, 0, 0, 0, 0},
 	}
 	for _, tc := range cases {
@@ -406,9 +350,6 @@ func TestTuningWhatIfPercentileBoundaries(t *testing.T) {
 	}
 }
 
-// TestTuningWhatIfNonAutoKey — a manual-only or unknown key on the
-// what-if surface is exit 3 via TuningAutoKeyGate — and no read_events
-// query is ever issued (the gate precedes every observation query).
 func TestTuningWhatIfNonAutoKey(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
@@ -430,10 +371,6 @@ func TestTuningWhatIfNonAutoKey(t *testing.T) {
 	}
 }
 
-// TestTuningWhatIfValueValidation — the hypothetical value runs through
-// the real-path threshold parse (the tuningSet single source): an
-// unparseable value and 0 (unset on a fallback key) are exit 3 before any
-// query; an equivalent float notation (0.10) is accepted.
 func TestTuningWhatIfValueValidation(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
@@ -459,16 +396,10 @@ func TestTuningWhatIfValueValidation(t *testing.T) {
 	}
 }
 
-// TestTuningWhatIfNaNDefense — the r101-1 NaN/Inf guard: a stored
-// numeric NaN (or an Inf) in the zero rows' near_score distribution is
-// skipped at collection, so json.Marshal never sees it (an unguarded NaN
-// fails the whole output) and p50/p90 rank over the remaining finite
-// scores.
 func TestTuningWhatIfNaNDefense(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
-	// 4 zero rows, 2 of them non-finite: the ranking sees [0.2, 0.5] —
-	// p50 ceil(0.5*2)-1 = idx0 → 0.2, p90 ceil(0.9*2)-1 = idx1 → 0.5.
+
 	dist := &shadowDist{sampleN: 4, zeroN: 4, reclassN: 2,
 		zeroScores: []float64{0.2, math.NaN(), math.Inf(1), 0.5}}
 	var out bytes.Buffer
@@ -485,15 +416,10 @@ func TestTuningWhatIfNaNDefense(t *testing.T) {
 	}
 }
 
-// TestTuningWhatIfDomainGuard — the r102-3 domain filter: near_score is
-// a [0,1] score, so an out-of-domain stored cell (5.0) is skipped at
-// collection like NaN/Inf — p50/p90 rank over the in-domain remainder
-// and the outlier never reaches the output.
 func TestTuningWhatIfDomainGuard(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
-	// 3 zero rows, one out-of-domain: the ranking sees [0.2, 0.5] —
-	// p50 ceil(0.5*2)-1 = idx0 → 0.2, p90 ceil(0.9*2)-1 = idx1 → 0.5.
+
 	dist := &shadowDist{sampleN: 3, zeroN: 3, reclassN: 2,
 		zeroScores: []float64{0.2, 5.0, 0.5}}
 	var out bytes.Buffer
@@ -511,14 +437,6 @@ func TestTuningWhatIfDomainGuard(t *testing.T) {
 	}
 }
 
-// TestTuningStatusCard — the status card contract: the list skeleton rows
-// extended with the auto grade and drift (current − default), the per-rule
-// accumulation card (fired counter, streak, rounds = the meta
-// auto_rounds_<key> every-stamped-round counter — the r100-1 split: a
-// non-fired round counts as a round, independently of the fires), the
-// AccumulationGate verdict with per-condition progress, and the mode
-// line. Every number comes from meta — no observation query runs (status
-// is a counter surface, not a what-if).
 func TestTuningStatusCard(t *testing.T) {
 	withQuoteJSON(t)
 	ctx := context.Background()
@@ -541,7 +459,7 @@ func TestTuningStatusCard(t *testing.T) {
 	if got["mode"] != "shadow" {
 		t.Fatalf("status mode=%v, want shadow", got["mode"])
 	}
-	// the key row: auto grade + drift (0.2 − 0.15 = 0.05) on the list skeleton.
+
 	var keyRow map[string]any
 	for _, r := range got["keys"].([]any) {
 		if r.(map[string]any)["key"] == "suggest_min_score" {
@@ -557,8 +475,7 @@ func TestTuningStatusCard(t *testing.T) {
 	if keyRow["drift"] != 0.05 {
 		t.Fatalf("status 키 행 drift=%v, want 0.05", keyRow["drift"])
 	}
-	// the accumulation card: fired 2, streak 1, rounds 3, not eligible with
-	// the per-condition progress sentence.
+
 	cards, ok := got["auto"].([]any)
 	if !ok || len(cards) != 1 {
 		t.Fatalf("status auto 카드 없음/과잉: %s", out.String())
@@ -578,7 +495,7 @@ func TestTuningStatusCard(t *testing.T) {
 			t.Fatalf("accumulation detail에 %q 없음: %v", frag, acc["detail"])
 		}
 	}
-	// a manual-only key stays on the bare skeleton (no auto fields).
+
 	var manualRow map[string]any
 	for _, r := range got["keys"].([]any) {
 		if r.(map[string]any)["key"] == "pending_max" {
@@ -593,7 +510,6 @@ func TestTuningStatusCard(t *testing.T) {
 	}
 }
 
-// TestTuningStatusArgGuard — status takes no arguments (exit 3).
 func TestTuningStatusArgGuard(t *testing.T) {
 	st := newWhatIfFake(map[string]string{}, &shadowDist{})
 	var out bytes.Buffer
@@ -602,10 +518,6 @@ func TestTuningStatusArgGuard(t *testing.T) {
 	}
 }
 
-// whatIfScratch — a dedicated scratch DB for the slow what-if run (the
-// flint-test-db-isolation-order convention): admin connect on the
-// postgres catalog, CREATE DATABASE, NewRepo + Migrate. LIFO cleanup:
-// DROP DATABASE. Never a shared or personal DB — synthetic demo rows only.
 func whatIfScratch(t *testing.T) (*autoPoolStore, string) {
 	t.Helper()
 	dsn := os.Getenv("FLINT_TEST_DSN")
@@ -623,8 +535,7 @@ func whatIfScratch(t *testing.T) (*autoPoolStore, string) {
 		return c.String()
 	}
 	name := fmt.Sprintf("flint_wifsc_%d", time.Now().UnixNano())
-	// the postgres catalog first, the original path as fallback (servers
-	// without a postgres database — this Doltgres).
+
 	admin, err := db.Connect(ctx, scratch("postgres"))
 	if err != nil {
 		if admin, err = db.Connect(ctx, dsn); err != nil {
@@ -656,8 +567,6 @@ func whatIfScratch(t *testing.T) (*autoPoolStore, string) {
 	return s, scratch(name)
 }
 
-// whatIfExec — raw SQL on the scratch (seeding and the direct-SQL
-// comparison; the pool store exposes no generic exec).
 func whatIfExec(t *testing.T, dsn, sql string) {
 	t.Helper()
 	pool, err := db.Connect(context.Background(), dsn)
@@ -670,11 +579,6 @@ func whatIfExec(t *testing.T, dsn, sql string) {
 	}
 }
 
-// TestTuningWhatIfRealScratch — SUPERLITE_REAL=1 slow seam check: the
-// what-if counts and p50/p90 read the real seeded window on a dedicated
-// scratch DB, cross-checked against direct SQL on the same rows (the
-// reclassification-exactness contract), and `tuning status` reads the
-// empty-shadow counters (rounds 0, fired 0, streak 0, mode off).
 func TestTuningWhatIfRealScratch(t *testing.T) {
 	if _, real := autoSeamRealDSN(); !real {
 		t.Skip("seam check: set SUPERLITE_REAL=1 and FLINT_TEST_DSN")
@@ -683,8 +587,6 @@ func TestTuningWhatIfRealScratch(t *testing.T) {
 	ctx := context.Background()
 	st, dsn := whatIfScratch(t)
 
-	// the synthetic window: 7 hit rows + 5 zero rows (near_score 0.5, 0.45,
-	// 0.42, 0.2 pass a 0.1 bound; 0.01 does not).
 	for i := 0; i < 7; i++ {
 		whatIfExec(t, dsn, `INSERT INTO read_events (hits, zero, near, fallback) VALUES (2, false, false, false)`)
 	}
@@ -700,7 +602,7 @@ func TestTuningWhatIfRealScratch(t *testing.T) {
 	if err := json.Unmarshal(out.Bytes(), &got); err != nil {
 		t.Fatalf("what-if 출력 JSON 아님: %q (%v)", out.String(), err)
 	}
-	// the direct-SQL comparison on the same window (sample, zero, reclass).
+
 	rows, err := st.Query(ctx,
 		`SELECT COUNT(*), COUNT(CASE WHEN zero THEN 1 END), COUNT(CASE WHEN zero AND near_score >= 0.1 THEN 1 END)
 		 FROM read_events WHERE ts >= now() - interval '14 days'`)
@@ -718,8 +620,7 @@ func TestTuningWhatIfRealScratch(t *testing.T) {
 	if int(got["near_pct"].(float64)) != 33 {
 		t.Fatalf("near_pct=%v, want 33", got["near_pct"])
 	}
-	// p50/p90 direct comparison: the ordered zero-row near_scores at the
-	// nearest-rank offsets (n=5: idx 2 and 4).
+
 	for _, tc := range []struct {
 		field string
 		off   int
@@ -738,7 +639,6 @@ func TestTuningWhatIfRealScratch(t *testing.T) {
 		}
 	}
 
-	// status on the unconfigured scratch: mode off, counters 0, not eligible.
 	out.Reset()
 	if code := RunTuning(ctx, st, []string{"status"}, nil, &out); code != 0 {
 		t.Fatalf("status exit=%d, want 0: %s", code, out.String())
@@ -764,7 +664,6 @@ func TestTuningWhatIfRealScratch(t *testing.T) {
 	}
 }
 
-// toFloat — the scanned numeric cell as float64 (0 on a non-numeric).
 func toFloat(v any) (float64, bool) {
 	switch x := v.(type) {
 	case float64:

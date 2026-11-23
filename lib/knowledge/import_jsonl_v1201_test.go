@@ -1,8 +1,3 @@
-// import_jsonl_v1201_test.go — v1.20.1 patch regressions on the import
-// migration path: PAM relations re-accrual (r84 — the links side of the
-// round trip was parsed but never accrued), the supersede-cycle precheck
-// of restoreSupersede (r86 — a loop-shaped jsonl lineage must not be
-// planted), and PAM created_at preservation (r87).
 package knowledge
 
 import (
@@ -12,9 +7,6 @@ import (
 	"time"
 )
 
-// TestImportPAMLinksReAccruedV1201 — r84: importPAM runs RestorePAMLinks
-// over the accrued id map — the round trip's relations land in
-// knowledge_links and the applied count rides the outcome (links).
 func TestImportPAMLinksReAccruedV1201(t *testing.T) {
 	res := &PAMResult{
 		Candidates: []ImportCandidate{
@@ -23,7 +15,7 @@ func TestImportPAMLinksReAccruedV1201(t *testing.T) {
 		},
 		Links: []PAMLinkPair{
 			{From: "mem-a", To: "mem-b", Relation: "refines"},
-			{From: "mem-a", To: "mem-missing", Relation: "supports"}, // endpoint absent — skipped, not fatal
+			{From: "mem-a", To: "mem-missing", Relation: "supports"},
 		},
 	}
 	st := &fakeStore{}
@@ -42,10 +34,6 @@ func TestImportPAMLinksReAccruedV1201(t *testing.T) {
 	}
 }
 
-// TestImportPAMCreatedAtPreservedV1201 — r87: the PAM temporal
-// created_at (RFC3339) feeds the accrual rec's ingested_at, symmetric
-// with the jsonl path. A garbage value keeps the zero time (accrual
-// default) without failing the import.
 func TestImportPAMCreatedAtPreservedV1201(t *testing.T) {
 	want := time.Date(2026, 11, 1, 10, 0, 0, 0, time.UTC)
 	res := &PAMResult{
@@ -72,12 +60,6 @@ func TestImportPAMCreatedAtPreservedV1201(t *testing.T) {
 	}
 }
 
-// TestImportJSONLLineageCycleRefusedV1201 — r86: a jsonl whose
-// superseded_by references close a loop (900→901→902→900) is refused —
-// restoreSupersede runs the same SupersedeCycleSQL precheck as maintain
-// --supersede BEFORE the write (the embedded Supersede guard alone
-// would surface as a bare 0-rows ErrNotFound and fall through to the
-// SetSupersededRef fallback, planting the loop reference anyway).
 func TestImportJSONLLineageCycleRefusedV1201(t *testing.T) {
 	sup := func(i int) *int { v := i; return &v }
 	t0 := time.Date(2026, 11, 2, 9, 0, 0, 0, time.UTC)
@@ -91,7 +73,7 @@ func TestImportJSONLLineageCycleRefusedV1201(t *testing.T) {
 	}
 	m := &migrateFake{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "WITH RECURSIVE") {
-			return [][]any{{true, false}}, nil // the walk finds OLD — a cycle
+			return [][]any{{true, false}}, nil
 		}
 		return nil, nil
 	}}}

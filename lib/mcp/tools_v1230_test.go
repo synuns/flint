@@ -1,5 +1,3 @@
-// tools_v1230_test.go — server-side whitelist validation of the
-// dispatchWrite kind, and removal of the dispatchHot session_id residue.
 package mcp
 
 import (
@@ -7,12 +5,6 @@ import (
 	"testing"
 )
 
-// TestDispatchWriteRejectsBadKind — B5: an invalid kind is a schema error
-// before reaching runFn (exit 3, the existing MCP error format). A valid
-// kind (knowledge) passes through to the cli write assembly. The whitelist
-// source is kindExpect in lib/store/validate.go
-// (knowledge|session|project) — unexported, so kept in sync by value
-// contract.
 func TestDispatchWriteRejectsBadKind(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"committed","id":1}`, 0)
 
@@ -44,8 +36,6 @@ func TestDispatchWriteRejectsBadKind(t *testing.T) {
 	}
 }
 
-// TestDispatchHotNoSessionResidue — session_id is never assembled into
-// --session (a query-neutral no-op).
 func TestDispatchHotNoSessionResidue(t *testing.T) {
 	calls, _ := installRun(t, "hot summary", 0)
 	_, code := DispatchTool("flint_hot", map[string]any{"session_id": "s1"})

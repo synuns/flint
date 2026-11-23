@@ -1,11 +1,7 @@
-// write_source_test.go — the MCP write tool must pass --source mcp in the
-// cli.Run assembly so the intake is metered as source=mcp (omission
-// defaults to manual).
 package mcp
 
 import "testing"
 
-// TestDispatchWriteSourceMCP — the flint_write assembled args contain --source mcp.
 func TestDispatchWriteSourceMCP(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"committed","id":1}`, 0)
 	DispatchTool("flint_write", map[string]any{
@@ -26,7 +22,6 @@ func TestDispatchWriteSourceMCP(t *testing.T) {
 	t.Errorf("args = %v, want --source mcp (T61: MCP 유입 manual 계측 방지)", (*calls)[0].args)
 }
 
-// TestDispatchPendingJSONMode — flint_pending assembles pending --json.
 func TestDispatchPendingJSONMode(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"ok","items":[]}`, 0)
 	DispatchTool("flint_pending", map[string]any{})
@@ -39,7 +34,6 @@ func TestDispatchPendingJSONMode(t *testing.T) {
 	}
 }
 
-// TestDispatchApproveAssembly — id/supersede validation and assembly.
 func TestDispatchApproveAssembly(t *testing.T) {
 	calls, _ := installRun(t, `{"status":"approved","id":7}`, 0)
 	if _, code := DispatchTool("flint_approve", map[string]any{"id": 7}); code != 0 {
@@ -50,7 +44,7 @@ func TestDispatchApproveAssembly(t *testing.T) {
 	if !equal(got, want) {
 		t.Errorf("조립 = %v, want %v", got, want)
 	}
-	// With supersede.
+
 	calls, _ = installRun(t, `{"status":"approved","id":7,"superseded":3}`, 0)
 	DispatchTool("flint_approve", map[string]any{"id": 7, "supersede": 3})
 	got = (*calls)[0].args
@@ -58,7 +52,7 @@ func TestDispatchApproveAssembly(t *testing.T) {
 	if !equal(got, want) {
 		t.Errorf("supersede 조립 = %v, want %v", got, want)
 	}
-	// Three validation failures — never executed.
+
 	for _, bad := range []map[string]any{
 		{"id": 0}, {"id": -1}, {"id": 7, "supersede": 7},
 	} {

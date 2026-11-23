@@ -1,6 +1,3 @@
-// report_test.go — the report TUI model tests. Structural assertions (no render
-// snapshots — the convention): the diagnostic card count, titles, detail
-// expansion, metrics-view switching, and quit keys. The fixtures are synthetic demo data (the storage principle).
 package tui
 
 import (
@@ -12,8 +9,6 @@ import (
 	"github.com/synuns/flint/lib/ops"
 )
 
-// diagFixture — a synthetic ReportOutput with 2 diagnostic items (1 warn, 1
-// info) and minimal metrics. The diagnostic sentence values only check that the TUI exposes the source as-is.
 func diagFixture() ops.ReportOutput {
 	rep := ops.ReportOutput{
 		Days: []ops.ReportDay{
@@ -47,7 +42,6 @@ func diagFixture() ops.ReportOutput {
 	return rep
 }
 
-// updateKey — a helper that feeds 1 key input to the model and returns it as a ReportModel.
 func updateKey(t *testing.T, m ReportModel, key tea.KeyType) ReportModel {
 	t.Helper()
 	next, cmd := m.Update(tea.KeyMsg{Type: key})
@@ -56,13 +50,11 @@ func updateKey(t *testing.T, m ReportModel, key tea.KeyType) ReportModel {
 		t.Fatalf("Update returned %T, want ReportModel", next)
 	}
 	if cmd != nil {
-		_ = cmd() // whether it is tea.Quit is asserted separately
+		_ = cmd()
 	}
 	return mm
 }
 
-// TestReportModelCardList — the diagnostic item count and card titles rendered:
-// with 2 items, both signal titles are visible (the diagnostic view default).
 func TestReportModelCardList(t *testing.T) {
 	m := NewReportModel(diagFixture(), 7)
 	v := m.View()
@@ -76,8 +68,6 @@ func TestReportModelCardList(t *testing.T) {
 	}
 }
 
-// TestReportModelDetailExpand — expanding the selected item (enter) shows the
-// Basis, Action, and tuning-key fields along with Value (contract: selection detail).
 func TestReportModelDetailExpand(t *testing.T) {
 	m := NewReportModel(diagFixture(), 7)
 	m = updateKey(t, m, tea.KeyEnter)
@@ -93,18 +83,16 @@ func TestReportModelDetailExpand(t *testing.T) {
 	}
 }
 
-// TestReportModelMetricsView — tab switches to the metrics summary view: the window
-// totals, recalls, key ratios, and counts are visible (contract: metrics summary navigation).
 func TestReportModelMetricsView(t *testing.T) {
 	m := NewReportModel(diagFixture(), 7)
 	m = updateKey(t, m, tea.KeyTab)
 	v := m.View()
 	for _, want := range []string{
 		"Metrics",
-		"writes 5",  // the Days sum
-		"reads 18",  // the Days sum
-		"hit 90%",   // effect.hit_pct
-		"pending 2", // counts.pending
+		"writes 5",
+		"reads 18",
+		"hit 90%",
+		"pending 2",
 	} {
 		if !strings.Contains(v, want) {
 			t.Errorf("metrics view missing %q", want)
@@ -112,8 +100,6 @@ func TestReportModelMetricsView(t *testing.T) {
 	}
 }
 
-// TestReportModelEmptyDiagnosis — 0 diagnostics gets the normal-silence message
-// (the metrics view remains navigable — no empty screen).
 func TestReportModelEmptyDiagnosis(t *testing.T) {
 	rep := diagFixture()
 	rep.Diagnosis = nil
@@ -128,8 +114,6 @@ func TestReportModelEmptyDiagnosis(t *testing.T) {
 	}
 }
 
-// TestReportModelCursorMoveAndDetail — after moving the cursor (j/k), expansion
-// shows the detail of the item the cursor points at (the second item).
 func TestReportModelCursorMoveAndDetail(t *testing.T) {
 	m := NewReportModel(diagFixture(), 7)
 	m = updateKey(t, m, tea.KeyDown)
@@ -140,10 +124,8 @@ func TestReportModelCursorMoveAndDetail(t *testing.T) {
 	}
 }
 
-// TestReportModelQuitKeys — the q and esc quit conventions.
 func TestReportModelQuitKeys(t *testing.T) {
-	// tea.Quit is a Cmd (a func), so it cannot be compared directly — judged by a
-	// type assertion on the executed product tea.QuitMsg.
+
 	for _, key := range []tea.KeyType{tea.KeyEsc, tea.KeyCtrlC} {
 		_, cmd := NewReportModel(diagFixture(), 7).Update(tea.KeyMsg{Type: key})
 		if cmd == nil {
@@ -154,14 +136,13 @@ func TestReportModelQuitKeys(t *testing.T) {
 			t.Errorf("key %v: cmd() is not tea.QuitMsg", key)
 		}
 	}
-	// the 'q' rune key also quits.
+
 	_, cmd := NewReportModel(diagFixture(), 7).Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'q'}})
 	if _, ok := cmd().(tea.QuitMsg); !ok {
 		t.Error("rune 'q' should quit")
 	}
 }
 
-// updateSize — a resize simulation helper (the report model — width stored).
 func updateSize(m ReportModel, w int) ReportModel {
 	next, _ := m.Update(tea.WindowSizeMsg{Width: w, Height: 24})
 	mm, ok := next.(ReportModel)
@@ -171,8 +152,6 @@ func updateSize(m ReportModel, w int) ReportModel {
 	return mm
 }
 
-// RF-narrow — contract 1: 40 columns — both modes keep the key-hint line within
-// the width while keeping the "q quit" cue, and the exit guidance (nonInteractiveHint) is wrapped.
 func TestReportNarrowWidthClipping(t *testing.T) {
 	views := map[string]string{
 		"diagnosis": updateSize(NewReportModel(diagFixture(), 7), 40).View(),
@@ -193,9 +172,6 @@ func TestReportNarrowWidthClipping(t *testing.T) {
 	}
 }
 
-// TestSeverityOf — the severity-derivation mapping: the sole 'informational'
-// item (hot_budget_slack — informational per the diagnostic wording contract)
-// is info; the rest are warn. DiagnosisItem has no severity field, so the TUI derives it from the signal id (see the assumption log).
 func TestSeverityOf(t *testing.T) {
 	if got := severityOf("hot_budget_slack"); got != "info" {
 		t.Errorf("hot_budget_slack severity=%q, want info", got)

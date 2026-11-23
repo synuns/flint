@@ -1,8 +1,3 @@
-// compact_stdin_limit_test.go — the compact stdin 8MiB cap regression.
-// Over-cap input is a quiet no-op exit 0 before parsing, even if it is
-// valid JSON (§13 non-interference — abolishing unbounded io.ReadAll).
-// The boundary lower edge (exactly 8MiB) is processed normally as before
-// — pinning the off-by-one direction of LimitReader(max+1).
 package knowledge
 
 import (
@@ -12,9 +7,6 @@ import (
 	"testing"
 )
 
-// overLimitHookJSON — a hook JSON whose compact_summary is valid while
-// the whole serialization exceeds 8MiB (the excess must be parseable to
-// distinguish this from an unbounded implementation).
 func overLimitHookJSON(t *testing.T) string {
 	t.Helper()
 	b, err := json.Marshal(map[string]any{
@@ -31,10 +23,6 @@ func overLimitHookJSON(t *testing.T) string {
 	return string(b)
 }
 
-// TestCompactStdinOverLimitSilentNoOp — over-cap input: exit 0·empty
-// stdout·0 accruals. Under an unbounded io.ReadAll implementation this
-// JSON would be parsed and a session row accrued, so the inserted 0
-// assertion catches the regression.
 func TestCompactStdinOverLimitSilentNoOp(t *testing.T) {
 	f := &fakeStore{}
 	var out strings.Builder
@@ -51,9 +39,6 @@ func TestCompactStdinOverLimitSilentNoOp(t *testing.T) {
 	}
 }
 
-// TestCompactStdinAtLimitStillParsed — a JSON of exactly the cap size
-// proceeds down the existing pipeline, not rejected (the boundary
-// lower-edge direction stays invariant).
 func TestCompactStdinAtLimitStillParsed(t *testing.T) {
 	head := `{"hook_event_name":"PostCompact","session_id":"","compact_summary":"본문`
 	tail := `"}`

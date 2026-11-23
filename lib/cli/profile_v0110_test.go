@@ -1,5 +1,3 @@
-// profile_v0110_test.go — exposure profile: reading defaults to normal;
-// the setup --exposure write; invalid values exit 3.
 package cli
 
 import (
@@ -26,7 +24,6 @@ func TestExposureProfileDefaults(t *testing.T) {
 	}
 }
 
-// TestSetupExposureWrites — records minimal (meta upsert) and reports one-line JSON, exit 0.
 func TestSetupExposureWrites(t *testing.T) {
 	var gotKey, gotVal string
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -55,7 +52,6 @@ func TestSetupExposureWrites(t *testing.T) {
 	}
 }
 
-// TestSetupExposureInvalid — invalid values and missing values are invalid-arg exit 3 (the global contract).
 func TestSetupExposureInvalid(t *testing.T) {
 	cases := [][]string{
 		{"--exposure", "bogus"},

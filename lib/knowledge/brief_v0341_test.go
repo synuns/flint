@@ -1,7 +1,3 @@
-// brief_v0341_test.go — post-audit regressions: contract alignment with
-// read (the N9 `--` guard·the N10 valueless trailing flag exit 3) and
-// defense ensuring budget truncation never cuts away the [flint] boundary
-// header (ADR-0006).
 package knowledge
 
 import (
@@ -10,9 +6,6 @@ import (
 	"testing"
 )
 
-// TestBriefLimitContract — --limit parsing follows the same rule as read
-// (N9 inheritance): a valueless trailing --limit·a non-integer value is
-// exit 3 + a one-line JSON error.
 func TestBriefLimitContract(t *testing.T) {
 	cases := []struct {
 		name string
@@ -37,9 +30,6 @@ func TestBriefLimitContract(t *testing.T) {
 	}
 }
 
-// TestBriefDashDashGuard — N9 inheritance: after "--", "--limit 5" is
-// treated as query text, not a flag (exit 0·the original passed through
-// as the query argument).
 func TestBriefDashDashGuard(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(1, "요약")
@@ -66,14 +56,6 @@ func TestBriefDashDashGuard(t *testing.T) {
 	}
 }
 
-// TestBriefExcludesPending — the active_knowledge view filters only
-// invalid_at IS NULL and carries no status condition, so it includes
-// pending rows (views.sql). The brief exports only promoted (active)
-// knowledge (ADR-0015 decision 4·spec §1.1 — unreviewed knowledge must
-// not be exported). Querying via the view makes this test's fake return
-// the pending row and reproduce the defect. invalidated is doubly blocked
-// by status='active' + invalid_at IS NULL (all three invalidation paths
-// set status and invalid_at together).
 func TestBriefExcludesPending(t *testing.T) {
 	ctx := context.Background()
 	leakRows := []struct {
@@ -90,11 +72,11 @@ func TestBriefExcludesPending(t *testing.T) {
 			st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 				switch {
 				case strings.Contains(sql, "FROM active_knowledge"):
-					// The view applies no status filter — the defective path exposing the pending row
+
 					return [][]any{row}, nil
 				case strings.Contains(sql, "FROM knowledge"):
 					activeSQL = append(activeSQL, sql)
-					return nil, nil // the status='active' path excludes the row
+					return nil, nil
 				}
 				return nil, nil
 			}}
@@ -113,7 +95,7 @@ func TestBriefExcludesPending(t *testing.T) {
 			}
 		})
 	}
-	// Contrast: an active row is exposed (no over-blocking).
+
 	t.Run("active 노출", func(t *testing.T) {
 		row := []any{int32(2), "승격 토픽", "active 요약", "demo:tag", "엔티티", "도메인", 0.9, "active", int32(0)}
 		st := &fakeStore{queryFn: briefQueryFn([][]any{row})}
@@ -127,10 +109,6 @@ func TestBriefExcludesPending(t *testing.T) {
 	})
 }
 
-// TestBriefRecordsBytes — right after the brief output, records
-// len(final output) with kind="brief" — the length 'after' ClampHot
-// truncation (the measured off-device egress); the zero-match notice
-// path also records the total written (denominator consistency).
 func TestBriefRecordsBytes(t *testing.T) {
 	ctx := context.Background()
 	t.Run("히트 — ClampHot 후 길이", func(t *testing.T) {
@@ -139,7 +117,7 @@ func TestBriefRecordsBytes(t *testing.T) {
 			case strings.Contains(sql, "FROM knowledge"):
 				return briefRows(2, strings.Repeat("긴", 60)), nil
 			case strings.Contains(sql, "FROM meta"):
-				return [][]any{{"60"}}, nil // brief_budget=60 — forces truncation
+				return [][]any{{"60"}}, nil
 			}
 			return nil, nil
 		}}}
@@ -156,7 +134,7 @@ func TestBriefRecordsBytes(t *testing.T) {
 	})
 	t.Run("0건 안내 — 쓴 총량", func(t *testing.T) {
 		st := &bytesRecorder{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-			return nil, nil // no matching knowledge
+			return nil, nil
 		}}}
 		var out strings.Builder
 		if code := RunBrief(ctx, st, nil, strings.NewReader(""), &out); code != 0 {
@@ -171,11 +149,6 @@ func TestBriefRecordsBytes(t *testing.T) {
 	})
 }
 
-// TestBriefHeaderSurvivesTinyBudget — even when meta brief_budget is
-// smaller than the header length, the [flint] boundary marker line is
-// never truncated (the body is cut entirely, so no data grows — if the
-// marker were cut, the receiving AI could treat the block as
-// instructions, ADR-0006).
 func TestBriefHeaderSurvivesTinyBudget(t *testing.T) {
 	ctx := context.Background()
 	rows := briefRows(2, strings.Repeat("긴", 60))
@@ -184,7 +157,7 @@ func TestBriefHeaderSurvivesTinyBudget(t *testing.T) {
 		case strings.Contains(sql, "FROM knowledge"):
 			return rows, nil
 		case strings.Contains(sql, "FROM meta"):
-			return [][]any{{"5"}}, nil // brief_budget=5 (a paradoxical setting below the header)
+			return [][]any{{"5"}}, nil
 		}
 		return nil, nil
 	}}

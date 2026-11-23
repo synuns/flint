@@ -1,6 +1,3 @@
-// metrics_v1200_test.go — v1.2.0 T6: METRICS.md의 관측 확장 정의가
-// 구현(effect 객체·보고 라벨)과 정합하는지, RUNBOOK·PLAN·TUNING의
-// v1.2.0 문서 갱신이 이루어졌는지 검증한다.
 package doclint
 
 import (
@@ -9,10 +6,6 @@ import (
 	"testing"
 )
 
-// TestMetricsV1200Definitions — METRICS.md가 v1.2.0 지표 6종(제로히트
-// 분해 2·hot→read 연쇄 1·회상 운명 2·cost 객체 1)을 정의하고, cost
-// 라벨·주입 모드 문구가 lib/ops/report.go 상수와 일치하며, G6 절과
-// §5 토큰 환산 금지 조항이 유지되는지 검증.
 func TestMetricsV1200Definitions(t *testing.T) {
 	doc := read(t, "METRICS.md")
 
@@ -36,8 +29,6 @@ func TestMetricsV1200Definitions(t *testing.T) {
 		t.Error("METRICS.md §5 토큰 환산 금지 조항 유실")
 	}
 
-	// cost 라벨 문구는 보고 구현 상수에서 파싱해 문서와 교차 검증한다
-	// (단일 소스 — v1.5.0 영어화로 라벨 상수를 직접 원천으로 삼음).
 	rep := read(t, "../lib/ops/report.go")
 	for _, name := range []string{"CostSavingsLabel", "CostHitLabel"} {
 		m := regexp.MustCompile(name + `\s*=\s*"([^"]+)"`).FindStringSubmatch(rep)
@@ -58,8 +49,6 @@ func TestMetricsV1200Definitions(t *testing.T) {
 	}
 }
 
-// TestRunbookV1200Migration — RUNBOOK.md가 스키마 v10 게이트와 daily
-// 플랫 키 전환(구 JSON 폴백 승계)을 각 1줄 이상 기술하는지 검증.
 func TestRunbookV1200Migration(t *testing.T) {
 	doc := read(t, "RUNBOOK.md")
 
@@ -71,7 +60,6 @@ func TestRunbookV1200Migration(t *testing.T) {
 	}
 }
 
-// TestPlanV1200Checked — PLAN.md §6에 v1.2.0 완료 체크박스가 있는지 검증.
 func TestPlanV1200Checked(t *testing.T) {
 	doc := read(t, "PLAN.md")
 
@@ -80,8 +68,6 @@ func TestPlanV1200Checked(t *testing.T) {
 	}
 }
 
-// TestTuningV1200ZeroOwnedFloor — TUNING.md §2에 zero_owned_floor 행이
-// 등재되어 있는지 검증(제로히트 분해 임계 — meta 직접 오버라이드 키).
 func TestTuningV1200ZeroOwnedFloor(t *testing.T) {
 	doc := read(t, "TUNING.md")
 

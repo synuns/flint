@@ -1,10 +1,3 @@
-// dsn_v093_test.go — v0.9.3 R1 테스트 격리: 회귀·e2e의 DSN 폴백이 운영
-// DB(FLINT_DSN → flint)로 직결해 rv-* 정크(id 63·64·65·108·109)를 남긴
-// 경로를 끊는다. 이 패키지는 FLINT_TEST_DSN(기본 flint_test)만 쓰며
-// FLINT_DSN(운영)은 무시한다. TestMain이 flint_test 부재 시 생성(postgres→
-// flint 순 admin 접속) 후 Repo.Migrate까지 마친다. Doltgres가 CREATE
-// DATABASE를 지원하지 않으면 early-fail(v0.7 조기 실패 원칙 — 조용한
-// 스킵 아님).
 package regression
 
 import (
@@ -26,11 +19,8 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// regTestDefaultDSN — ADR-0010 포트 5434 위 격리 DB flint_test(v0.9.3 R1).
 const regTestDefaultDSN = "postgresql://flint:flint-dev@localhost:5434/flint_test"
 
-// regTestDSN — FLINT_TEST_DSN 우선, 없으면 flint_test 기본. FLINT_DSN(운영)은
-// 이 패키지에서 무시한다.
 func regTestDSN() string {
 	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
 		return d
@@ -38,14 +28,10 @@ func regTestDSN() string {
 	return regTestDefaultDSN
 }
 
-// ensureTestDB — flint_test 부재 시 생성(postgres→flint 순 admin 접속,
-// 이미 존재 42P04는 관용 — 스파이크 검증: Doltgres CREATE DATABASE 지원)
-// 후 Repo.Migrate. 서버 미응답은 db.ErrServerDown 래핑으로 돌려 TestMain이
-// 기존 스킵 계층(회귀는 slow 레이어)을 유지하게 한다.
 func ensureTestDB(ctx context.Context) error {
 	testDSN := regTestDSN()
 	if pool, err := db.Connect(ctx, testDSN); err == nil {
-		pool.Close() // 이미 존재 — 아래 Migrate가 멱등 확인(최신 뷰 지문이면 no-op)
+		pool.Close()
 	} else {
 		u, err := url.Parse(testDSN)
 		if err != nil {
@@ -83,10 +69,6 @@ func ensureTestDB(ctx context.Context) error {
 	return repo.Migrate(ctx)
 }
 
-// TestMain — flint_test 생성+Migrate(잠금은 regSharedDBLock과 동일 파일로
-// 패키지 간 생성 경쟁 상호 배제) 후 CLI 기본 접속(FLINT_DSN)을 테스트 DSN으로
-// 고정한다. cli.Run 및 os.Environ()을 물린 하위 프로세스가 운영 DB로 새는
-// 경로를 원천 차단한다(R1).
 func TestMain(m *testing.M) {
 	ctx, cancel := context.WithTimeout(context.Background(), 90*time.Second)
 	f, lockErr := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -112,8 +94,7 @@ func TestMain(m *testing.M) {
 		}
 	}
 	os.Setenv("FLINT_DSN", regTestDSN())
-	// slow 스위트 전체를 세션 어드바이저리 락으로 교차 프로세스 직렬화
-	// (Doltgres 40001 플레이크 — slowlock_test.go).
+
 	release := lockSlowSuite(regTestDSN())
 	code := m.Run()
 	release()

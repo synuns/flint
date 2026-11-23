@@ -1,5 +1,3 @@
-// report_test.go — `flint report` fast regression (fake Store). numeric: 7-day window
-// boundary (seed 8 days -> only 7); encoding: missing daily = 0, broken skipped; protocol: args and registration.
 package cli
 
 import (
@@ -13,8 +11,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// newReportFake — a fake distinguishing the 5 report queries (meta daily, stats, counts, stale, period invalidations)
-// by SQL text.
 func newReportFake(daily map[string]string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -24,19 +20,19 @@ func newReportFake(daily map[string]string) *fakeStore {
 				rows = append(rows, []any{k, v})
 			}
 			return rows, nil
-		case strings.Contains(sql, "hot_stats"): // read_stats abolished
+		case strings.Contains(sql, "hot_stats"):
 			return [][]any{
 				{"read_stats", `{"calls":10,"zero":2}`},
 				{"hot_stats", `{"calls":4,"sum":1000,"lens":[100,200,300,400]}`},
 			}, nil
 		case strings.Contains(sql, "invalid_at IS NOT NULL"):
-			// pending, active, and invalidated (total) — 3 FILTER kinds in a single row.
+
 			return [][]any{{int64(3), int64(5), int64(2)}}, nil
 		case strings.Contains(sql, "read_count"):
-			// stale days90·never_read.
+
 			return [][]any{{int64(2), int64(1)}}, nil
 		case strings.Contains(sql, "invalid_at >="):
-			// invalidations within the period (N days).
+
 			return [][]any{{int64(1)}}, nil
 		}
 		return nil, nil
@@ -50,7 +46,6 @@ func runReportArgs(t *testing.T, f Store, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// reportDates — window date generation for tests, same convention as the implementation (UTC, N days including today).
 func reportDates(n int) []string {
 	now := time.Now().UTC()
 	out := make([]string, 0, n)
@@ -60,16 +55,14 @@ func reportDates(n int) []string {
 	return out
 }
 
-// TestReportSevenDayWindow — even seeding 8 days of daily keys yields only the
-// 7 rows of the default 7-day window (the 8th day excluded). A broken day-2 key is skipped as 0.
 func TestReportSevenDayWindow(t *testing.T) {
 	now := time.Now().UTC()
 	daily := map[string]string{}
-	for i := 0; i <= 7; i++ { // 8 days including today
+	for i := 0; i <= 7; i++ {
 		d := now.AddDate(0, 0, -i).Format("2006-01-02")
 		daily["daily:"+d] = `{"write":1,"hook":1,"manual":0,"mcp":0,"dup":0,"hot":2,"read":3,"read_zero":1}`
 	}
-	daily["daily:"+reportDates(7)[1]] = `{broken json` // broken -> 0 fallback (skipped)
+	daily["daily:"+reportDates(7)[1]] = `{broken json`
 	f := newReportFake(daily)
 	out, code := runReportArgs(t, f)
 	if code != 0 {
@@ -118,10 +111,10 @@ func TestReportSevenDayWindow(t *testing.T) {
 	if m.Days[1].Write != 0 || m.Days[1].Read != 0 {
 		t.Errorf("파손 키 스킵 실패(0이어야): %+v", m.Days[1])
 	}
-	if m.ZeroPct != 33 { // periodized — daily-summed zero 7/21 (excluding the 1 broken row)
+	if m.ZeroPct != 33 {
 		t.Errorf("zero_pct=%d, want 33", m.ZeroPct)
 	}
-	if m.HotP95 != 400 { // lens [100..400] p95=400
+	if m.HotP95 != 400 {
 		t.Errorf("hot_p95=%d, want 400", m.HotP95)
 	}
 	if m.Counts.Pending != 3 || m.Counts.Active != 5 || m.Counts.Invalidated != 2 {
@@ -135,8 +128,6 @@ func TestReportSevenDayWindow(t *testing.T) {
 	}
 }
 
-// TestReportDaysCapAndEmpty — --days caps at 14 (20 becomes 14); a missing daily key
-// fills as a 0 row for that day (encoding: missing = 0).
 func TestReportDaysCapAndEmpty(t *testing.T) {
 	f := newReportFake(nil)
 	out, code := runReportArgs(t, f, "--days", "20")
@@ -161,8 +152,6 @@ func TestReportDaysCapAndEmpty(t *testing.T) {
 	}
 }
 
-// TestReportArgErrors — invalid --days (non-numeric) and unknown flags are invalid-arg
-// exit 3.
 func TestReportArgErrors(t *testing.T) {
 	for _, args := range [][]string{{"--days", "abc"}, {"--bogus"}, {"--days"}} {
 		f := newReportFake(nil)
@@ -176,7 +165,6 @@ func TestReportArgErrors(t *testing.T) {
 	}
 }
 
-// TestReportServerDown — a ping failure is errLine + MapExit (server-down 2).
 func TestReportServerDown(t *testing.T) {
 	f := &fakeStore{pingErr: store.ErrServerDown}
 	out, code := runReportArgs(t, f)
@@ -188,16 +176,12 @@ func TestReportServerDown(t *testing.T) {
 	}
 }
 
-// TestReportRegistered — report must be in the registry for Run to dispatch it.
 func TestReportRegistered(t *testing.T) {
 	if _, ok := Lookup("report"); !ok {
 		t.Fatal("report 미등록")
 	}
 }
 
-// TestCellToIntUnifiedCoercion — boundary regression for the single cell->int utility (cellToInt):
-// numeric strings, floats, nil, non-numbers. rowIDs (the old implementation rejected string ids) and
-// readCounters (a separate Sscan implementation) share the same convention (preventing a 3rd implementation).
 func TestCellToIntUnifiedCoercion(t *testing.T) {
 	cases := []struct {
 		v    any
@@ -219,12 +203,12 @@ func TestCellToIntUnifiedCoercion(t *testing.T) {
 			t.Errorf("cellToInt(%#v) = (%d,%v), want (%d,%v)", c.v, got, ok, c.want, c.ok)
 		}
 	}
-	// rowIDs — accepts numeric-string ids too; nil and non-numbers are silently skipped.
+
 	if ids := rowIDs([][]any{{int32(3)}, {"9"}, {nil}, {7.0}, {"x"}, {}}); len(ids) != 3 ||
 		ids[0] != 3 || ids[1] != 9 || ids[2] != 7 {
 		t.Errorf("rowIDs = %v, want [3 9 7]", ids)
 	}
-	// readCounters — rows mixing strings, int64, floats, and nil (unparsable cells stay 0).
+
 	var a, b, c, d int
 	readCounters([]any{"5", int64(6), 7.0, nil}, &a, &b, &c, &d)
 	if a != 5 || b != 6 || c != 7 || d != 0 {
@@ -232,11 +216,6 @@ func TestCellToIntUnifiedCoercion(t *testing.T) {
 	}
 }
 
-// TestReportSQLDoltgresCompat — regression: report SQL must run on Doltgres.
-// No FILTER aggregates (the pattern.go convention) and no interval arithmetic in SQL at all
-// (make_interval, literals, $1 multiplication alike — ($1 * interval) makes Doltgres infer
-// $1 as interval and pgx encoding fails). The cutoff is computed in Go and passed to the scan only as a
-// timestamptz parameter ($1).
 func TestReportSQLDoltgresCompat(t *testing.T) {
 	type q struct {
 		sql  string
@@ -248,7 +227,7 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		switch {
 		case strings.Contains(sql, "daily:"):
 			return nil, nil
-		case strings.Contains(sql, "hot_stats"): // read_stats abolished
+		case strings.Contains(sql, "hot_stats"):
 			return [][]any{{"read_stats", `{"calls":0,"zero":0}`}, {"hot_stats", `{"lens":[]}`}}, nil
 		case strings.Contains(sql, "invalid_at IS NOT NULL"):
 			return [][]any{{int64(0), int64(0), int64(0)}}, nil
@@ -273,15 +252,14 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 		if strings.Contains(q.sql, "make_interval") || strings.Contains(q.sql, "interval") {
 			t.Errorf("SQL 내 interval 산술 금지(T70: Doltgres pgx 추론 결함): %q", q.sql)
 		}
-		// stale detection uses a last_read_at-specific shape — the effect
-		// tally (read_count, 30-day cutoff) also contains "read_count" and would be misjudged.
+
 		if strings.Contains(q.sql, "last_read_at") {
 			sawStale = true
 			assertCutoffArg(t, "stale", q.args, 90*24*time.Hour)
 		}
 		if strings.Contains(q.sql, "invalid_at >=") {
 			sawPeriod = true
-			assertCutoffArg(t, "기간", q.args, 7*24*time.Hour) // default --days
+			assertCutoffArg(t, "기간", q.args, 7*24*time.Hour)
 		}
 	}
 	if !sawStale || !sawPeriod {
@@ -289,8 +267,6 @@ func TestReportSQLDoltgresCompat(t *testing.T) {
 	}
 }
 
-// assertCutoffArg — asserts the cutoff argument is a single timestamptz (time.Time) with now-backoff
-// (±5min allowed for run latency). An int argument would fail the type assertion.
 func assertCutoffArg(t *testing.T, name string, args []any, backoff time.Duration) {
 	t.Helper()
 	if len(args) != 1 {
@@ -308,8 +284,6 @@ func assertCutoffArg(t *testing.T, name string, args []any, backoff time.Duratio
 	}
 }
 
-// installReportTTY — swaps the adaptive-entry TTY-check seam (default real
-// implementation tui.IsTerminalStdout).
 func installReportTTY(t *testing.T, tty bool) {
 	t.Helper()
 	orig := reportTTYFn
@@ -317,7 +291,6 @@ func installReportTTY(t *testing.T, tty bool) {
 	t.Cleanup(func() { reportTTYFn = orig })
 }
 
-// installReportTUIFake — swaps the reportTUIFn seam (records calls; the caller exits 0).
 func installReportTUIFake(t *testing.T) *int {
 	t.Helper()
 	called := 0
@@ -330,7 +303,6 @@ func installReportTUIFake(t *testing.T) *int {
 	return &called
 }
 
-// RF-adaptive-2 — no args or flags + terminal: collects then delegates to the TUI (no JSON on stdout).
 func TestReportEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	called := installReportTUIFake(t)
 	installReportTTY(t, true)
@@ -346,7 +318,6 @@ func TestReportEntryAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	}
 }
 
-// RF-adaptive-3 — no args + non-terminal (pipe): the default JSON view unchanged.
 func TestReportEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	called := installReportTUIFake(t)
 	installReportTTY(t, false)
@@ -362,8 +333,6 @@ func TestReportEntryAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	}
 }
 
-// RF-adaptive-1 — explicit --tui + non-terminal: the existing fallback exit 3 unchanged
-// (reportTUIFn default = tui.RunReportTUI — the Run-wrapper fallback).
 func TestReportEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	installReportTTY(t, false)
 	out, code := runEntryArgs(t, newReportFake(nil), "--tui")
@@ -378,7 +347,6 @@ func TestReportEntryExplicitTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// RF-adaptive-4 — flags present + terminal: the current flag path is kept (no TUI entry).
 func TestReportEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	called := installReportTUIFake(t)
 	installReportTTY(t, true)
@@ -394,7 +362,6 @@ func TestReportEntryAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	}
 }
 
-// RF-noenv — FLINT_NO_TUI=1 forces the default JSON view even on a terminal (escape hatch).
 func TestReportEntryNoTUIEnvForcesFlagPath(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	called := installReportTUIFake(t)

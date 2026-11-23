@@ -1,6 +1,3 @@
-// repo_v0180_test.go — regression: DupRowByHash (exposing the existing
-// row's id·topic·status on a hash duplicate). A seeded row's hash
-// matches its metadata; an unregistered hash yields (0,"",false).
 package db
 
 import (
@@ -8,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestDupRowByHashSeededRow — the seeded row's metadata lookup. Slow ·
-// real DB (newTestRepo — skipped without FLINT_DSN). status is
-// InsertBatch's default active.
 func TestDupRowByHashSeededRow(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()

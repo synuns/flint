@@ -1,7 +1,3 @@
-// drill_v0162_test.go — drill contracts: post-DROP pg_database residue
-// verification and final-cleanup ctx independence. Seam injection verifies
-// deterministically the scenarios that cannot be reproduced for real (a
-// silent no-op DROP, an expired replay ctx).
 package backup
 
 import (
@@ -17,8 +13,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// miniDump — one minimal dump. These contract tests only look at the DROP
-// path, not the replay result.
 func miniDump(t *testing.T) string {
 	t.Helper()
 	path := filepath.Join(t.TempDir(), "mini.sql")
@@ -30,9 +24,6 @@ func miniDump(t *testing.T) string {
 	return path
 }
 
-// shrinkDrillBackoff — removes DROP retry waits. The injected failure fails
-// all 3 attempts, so exhaustion happens immediately without waiting out the
-// backoff (4s total).
 func shrinkDrillBackoff(t *testing.T) {
 	t.Helper()
 	saved := drillDropBackoff
@@ -40,10 +31,6 @@ func shrinkDrillBackoff(t *testing.T) {
 	t.Cleanup(func() { drillDropBackoff = saved })
 }
 
-// TestDropDBVerifiesResidue — even when DROP returns nil (a silent no-op
-// engine defect), if the DB lingers in pg_database RunDrill does not fake
-// success and returns an explicit residue error. It trips at the pre-clean
-// stage, so no success record is written either.
 func TestDropDBVerifiesResidue(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -59,7 +46,7 @@ func TestDropDBVerifiesResidue(t *testing.T) {
 	shrinkDrillBackoff(t)
 	savedResidue := drillResidueFn
 	drillResidueFn = func(context.Context, *pgxpool.Pool) (int, error) {
-		return 1, nil // DROP returned nil — pg_database reports residue
+		return 1, nil
 	}
 	t.Cleanup(func() { drillResidueFn = savedResidue })
 
@@ -90,7 +77,7 @@ func TestDropDBVerifiesResidue(t *testing.T) {
 	if after != before {
 		t.Fatalf("잔존 시 성공 기록 발생: %d -> %d", before, after)
 	}
-	// The injection only fakes the pg_database probe result — no real drill DB was created.
+
 	var dbs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).
@@ -102,9 +89,6 @@ func TestDropDBVerifiesResidue(t *testing.T) {
 	}
 }
 
-// TestCleanupUsesIndependentContext — even when the replay path's ctx has
-// expired, the final-cleanup DROP always runs on an independent ctx. An
-// injected counter captures each DROP call and its ctx for verification.
 func TestCleanupUsesIndependentContext(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -117,22 +101,19 @@ func TestCleanupUsesIndependentContext(t *testing.T) {
 	}
 	defer pool.Close()
 
-	// The test owns the replay ctx — expiring it right after the pre-clean
-	// makes "replay timeout exhausted" deterministic (later statements fail
-	// on the expired ctx).
 	replayCtx, replayCancel := context.WithCancel(context.Background())
 	savedCtxFn := drillCtxFn
 	drillCtxFn = func() (context.Context, context.CancelFunc) { return replayCtx, replayCancel }
 	type dropCall struct {
 		ctx     context.Context
-		expired bool // whether the ctx was expired at call time
+		expired bool
 	}
 	var drops []dropCall
 	savedDrop := dropDrillDBFn
 	dropDrillDBFn = func(c context.Context, p *pgxpool.Pool) error {
 		drops = append(drops, dropCall{ctx: c, expired: c.Err() != nil})
 		if len(drops) == 1 {
-			replayCancel() // expire the replay ctx right after the pre-clean succeeds
+			replayCancel()
 		}
 		return nil
 	}
@@ -153,14 +134,12 @@ func TestCleanupUsesIndependentContext(t *testing.T) {
 		t.Fatalf("만료 후 종료 정리 DROP 미실행: 호출 %d회", len(drops))
 	}
 	cleanup := drops[len(drops)-1]
-	// Checks whether it ran on a separate ctx that was unexpired at call
-	// time (after return, ccancel expires the cleanup ctx too, so capturing
-	// the moment is required).
+
 	if cleanup.ctx == replayCtx || cleanup.expired {
 		t.Fatalf("정리 DROP이 재생 ctx 공유/만료로 실행: shared=%v expired=%v",
 			cleanup.ctx == replayCtx, cleanup.expired)
 	}
-	// CREATE failed on the expired ctx — no real drill DB residue (if any, cleaned with the real implementation).
+
 	var dbs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname = '`+DrillDB+`'`).

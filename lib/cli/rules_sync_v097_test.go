@@ -1,6 +1,3 @@
-// rules_sync_v097_test.go — skill sync (syncRules idempotence, no deletion),
-// skillSrcDir detection, the setup --update-rules report, and the doctor skill-file warn contract.
-// FLINT_CLAUDE_HOME fixtures keep the real ~/.claude untouched.
 package cli
 
 import (
@@ -61,7 +58,6 @@ func TestSyncRulesPreservesExtra(t *testing.T) {
 	}
 }
 
-// skillSrcDir — detects the binary-adjacent flint-plugin/skills/flint.
 func TestSkillSrcDirAdjacent(t *testing.T) {
 	bin := t.TempDir()
 	want := filepath.Join(bin, "flint-plugin", "skills", "flint")
@@ -71,14 +67,12 @@ func TestSkillSrcDirAdjacent(t *testing.T) {
 	}
 }
 
-// skillSrcDir — an empty string when neither adjacent nor cwd has it (the skip-check signal).
 func TestSkillSrcDirNotFound(t *testing.T) {
 	if got := skillSrcDir(t.TempDir()); got != "" {
 		t.Errorf("미탐지 시 빈 문자열 아님: %q", got)
 	}
 }
 
-// checkSkillFile — a missing or mismatched target SKILL.md is a warn + update-rules guidance.
 func TestDoctorSkillFileWarnOnMismatch(t *testing.T) {
 	src := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "v097"})
 	dest := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "v093"})
@@ -103,7 +97,6 @@ func TestDoctorSkillFileWarnOnMismatch(t *testing.T) {
 	}
 }
 
-// checkSkillFile — ok when they match.
 func TestDoctorSkillFileOkWhenMatched(t *testing.T) {
 	src := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "same"})
 	dest := writeTree(t, t.TempDir(), map[string]string{"SKILL.md": "same"})
@@ -113,18 +106,16 @@ func TestDoctorSkillFileOkWhenMatched(t *testing.T) {
 	}
 }
 
-// checkSkillFile — a missing source (empty string) or missing source SKILL.md skips the check.
 func TestDoctorSkillFileOmittedWhenNoSource(t *testing.T) {
 	if _, ok := checkSkillFile("", t.TempDir()); ok {
 		t.Error("소스 미탐지인데 검사 생성됨")
 	}
-	noSkill := t.TempDir() // a source directory without SKILL.md
+	noSkill := t.TempDir()
 	if _, ok := checkSkillFile(noSkill, t.TempDir()); ok {
 		t.Error("소스 SKILL.md 부재인데 검사 생성됨")
 	}
 }
 
-// withSkillBin — swaps the flintBinPathFn seam to a fixture path adjacent to bin.
 func withSkillBin(t *testing.T, files map[string]string) string {
 	t.Helper()
 	bin := t.TempDir()
@@ -135,18 +126,17 @@ func withSkillBin(t *testing.T, files map[string]string) string {
 	return bin
 }
 
-// full doctor run — the skill-file warn exits 0 (ruling: fail would be excessive).
 func TestDoctorSkillFileWarnExitZero(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
+		return nil, errors.New("stub: docker 없음 가정")
 	})
 	withSkillBin(t, map[string]string{"flint-plugin/skills/flint/SKILL.md": "v097"})
 	home := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", home)
-	setHarnessEnvs(t) // isolate the 5 harnesses
+	setHarnessEnvs(t)
 	writeTree(t, home, map[string]string{
 		"settings.json":         `{"hooks":{"PostToolUse":[{"command":"flint write"}]}}`,
-		"skills/flint/SKILL.md": "v093", // mismatch -> warn
+		"skills/flint/SKILL.md": "v093",
 	})
 
 	f := &fakeStore{queryFn: freshDoctorFn()}
@@ -159,19 +149,17 @@ func TestDoctorSkillFileWarnExitZero(t *testing.T) {
 	}
 }
 
-// when claudeHome is undetected (both FLINT_CLAUDE_HOME and HOME empty), the skill-file check is not
-// created — a filepath.Join("",...) relative path is not misdetected in cwd.
 func TestDoctorSkillFileOmittedWhenNoHome(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip
+		return nil, errors.New("stub: docker 없음 가정")
 	})
-	withSkillBin(t, map[string]string{"flint-plugin/skills/flint/SKILL.md": "v097"}) // the source is detected
+	withSkillBin(t, map[string]string{"flint-plugin/skills/flint/SKILL.md": "v097"})
 	t.Setenv("FLINT_CLAUDE_HOME", "")
 	t.Setenv("HOME", "")
 	setHarnessEnvs(t)
 
 	out, code := runDoctorArgs(t, &fakeStore{queryFn: freshDoctorFn()})
-	if code != 1 { // hook-file fail (home undetected) is normal — here we only check the skill-file absence
+	if code != 1 {
 		t.Logf("exit=%d(참고)", code)
 	}
 	if strings.Contains(out, `"skill-file"`) {
@@ -179,7 +167,6 @@ func TestDoctorSkillFileOmittedWhenNoHome(t *testing.T) {
 	}
 }
 
-// setup --update-rules — the sync report {"status":"synced","copied":N,"dest":...}.
 func TestSetupUpdateRulesReport(t *testing.T) {
 	withFake(t, &fakeStore{})
 	src := writeTree(t, t.TempDir(), map[string]string{
@@ -207,7 +194,6 @@ func TestSetupUpdateRulesReport(t *testing.T) {
 		t.Errorf("SKILL.md 싱크 안 됨: %q", b)
 	}
 
-	// re-run — idempotent (copied 0).
 	out2, code2 := mustRun(t, []string{"setup", "--update-rules", "--src", src}, "")
 	if code2 != 0 {
 		t.Fatalf("재실행 exit=%d, want 0; out=%s", code2, out2)
@@ -217,7 +203,6 @@ func TestSetupUpdateRulesReport(t *testing.T) {
 	}
 }
 
-// setup --update-rules — when the source is undetected, a one-line error JSON + exit 1.
 func TestSetupUpdateRulesNoSource(t *testing.T) {
 	withFake(t, &fakeStore{})
 	t.Setenv("FLINT_CLAUDE_HOME", t.TempDir())

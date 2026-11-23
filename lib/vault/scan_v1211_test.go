@@ -1,8 +1,3 @@
-// scan_v1211_test.go — v1.21.1 (r91-r94) scan hardening regressions:
-// path-free error lines, symlink skips, touch-only pointer refresh, the
-// vanished/skipped counter split, the ApplyDiff serialization retry, and
-// the large keep-set delete (real-slow — the placeholder ceiling the
-// unnest array form removed). Synthetic demo vaults only (§3).
 package vault
 
 import (
@@ -19,13 +14,8 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 )
 
-// TestScanErrorsPathFree — walk and read failures surface WITHOUT the
-// vault root or note path in the message (the §3 contract reaches error
-// lines: index prints the chain verbatim). Classification survives as the
-// sentinel (fs.ErrNotExist / fs.ErrPermission).
 func TestScanErrorsPathFree(t *testing.T) {
-	// walk failure: a nonexistent root (the lstat PathError names the
-	// absolute path — the redaction must strip it).
+
 	missing := filepath.Join(t.TempDir(), "no-such-vault-root")
 	_, err := Scan(context.Background(), newFakeStore(), missing, Options{})
 	if err == nil {
@@ -41,8 +31,6 @@ func TestScanErrorsPathFree(t *testing.T) {
 		t.Fatalf("not-exist 분류 상실: %v", err)
 	}
 
-	// read failure: an unreadable note (permission denied PathError names
-	// the full file path).
 	dir := t.TempDir()
 	locked := writeNote(t, dir, "locked-note.md", "# 데모\n\n본문.\n", demoMtime)
 	if err := os.Chmod(locked, 0); err != nil {
@@ -64,8 +52,6 @@ func TestScanErrorsPathFree(t *testing.T) {
 	}
 }
 
-// hookExistingStore — a fakeStore whose Existing runs a hook first (the
-// walk→Existing→read window a mid-scan vanish lands in).
 type hookExistingStore struct {
 	*fakeStore
 	hook func()
@@ -76,9 +62,6 @@ func (h *hookExistingStore) Existing(ctx context.Context) (map[string]Existing, 
 	return h.fakeStore.Existing(ctx)
 }
 
-// TestScanVanishedSeparateFromSkipped — a note deleted between the walk
-// and the read counts Vanished, NOT Skipped (the limit-overflow counter):
-// the "rerun with a higher --limit" note must never misfire on a vanish.
 func TestScanVanishedSeparateFromSkipped(t *testing.T) {
 	dir := t.TempDir()
 	writeNote(t, dir, "a.md", "# A\n\nx\n", demoMtime)
@@ -86,7 +69,7 @@ func TestScanVanishedSeparateFromSkipped(t *testing.T) {
 	st := &hookExistingStore{fakeStore: newFakeStore()}
 	st.hook = func() {
 		if err := os.Remove(filepath.Join(dir, "b.md")); err == nil {
-			st.hook = func() {} // once — the deletion window
+			st.hook = func() {}
 		}
 	}
 	stats, err := Scan(context.Background(), st, dir, Options{})
@@ -104,9 +87,6 @@ func TestScanVanishedSeparateFromSkipped(t *testing.T) {
 	}
 }
 
-// TestScanSymlinksSkipped — .md symlinks are never indexed: an escape
-// (a link pointing outside the root) and a dangling link both stay out of
-// the snapshot (the dir-skip symmetry — WalkDir never follows dir links).
 func TestScanSymlinksSkipped(t *testing.T) {
 	outside := t.TempDir()
 	target := filepath.Join(outside, "outside-target.md")
@@ -139,10 +119,6 @@ func TestScanSymlinksSkipped(t *testing.T) {
 	}
 }
 
-// TestScanTouchOnlyRefreshesPointerThenClean — a touch-only change (same
-// content, later mtime) refreshes the stored mtime/size (Touch count,
-// excluded from Changed) so the FIRST filter turns clean again: the third
-// scan records no touch (no re-read, no re-hash — the r91/r94 fix).
 func TestScanTouchOnlyRefreshesPointerThenClean(t *testing.T) {
 	st := newFakeStore()
 	dir := t.TempDir()
@@ -165,7 +141,7 @@ func TestScanTouchOnlyRefreshesPointerThenClean(t *testing.T) {
 	if row.ContentHash != hashOf(content) {
 		t.Fatalf("touch가 해시 변경: %q", row.ContentHash)
 	}
-	// third scan: the first filter is clean — no touch, no write.
+
 	stats = mustScan(t, st, dir, Options{})
 	if stats.Touch != 0 || stats.Changed != 0 || stats.New != 0 {
 		t.Fatalf("갱신 후 재스캔 stats=%+v, want all 0 (반복 sha256 해소)", stats)
@@ -175,8 +151,6 @@ func TestScanTouchOnlyRefreshesPointerThenClean(t *testing.T) {
 	}
 }
 
-// TestScanTitleTruncateRunes — a very long first heading is stored
-// truncated to the 200-rune title cap (the summary cap's title analog).
 func TestScanTitleTruncateRunes(t *testing.T) {
 	st := testStore(t)
 	dir := t.TempDir()
@@ -189,10 +163,6 @@ func TestScanTitleTruncateRunes(t *testing.T) {
 	}
 }
 
-// TestApplyDiffRetriesSerializationFailure — a 40001 (or the Doltgres
-// XX000 constraint rollback) aborting the diff transaction is retried: the
-// rematch wins (the winner's rows are committed; ON CONFLICT absorbs
-// them). A non-retryable error returns immediately.
 func TestApplyDiffRetriesSerializationFailure(t *testing.T) {
 	prevFn, prevDelays := applyDiffOnceFn, applyRetryBackoff
 	applyRetryBackoff = []time.Duration{0, 0}
@@ -212,7 +182,6 @@ func TestApplyDiffRetriesSerializationFailure(t *testing.T) {
 		t.Fatalf("40001 재시도: removed=%d attempts=%d err=%v, want 2/2/nil", removed, attempts, err)
 	}
 
-	// the XX000 constraint-rollback class retries too.
 	attempts = 0
 	applyDiffOnceFn = func(s *PoolStore, ctx context.Context, upserts, touches []File, keepPaths []string) (int64, error) {
 		attempts++
@@ -226,7 +195,6 @@ func TestApplyDiffRetriesSerializationFailure(t *testing.T) {
 		t.Fatalf("XX000 재시도: attempts=%d err=%v, want 2/nil", attempts, err)
 	}
 
-	// a non-retryable error is returned on the first attempt.
 	attempts = 0
 	applyDiffOnceFn = func(s *PoolStore, ctx context.Context, upserts, touches []File, keepPaths []string) (int64, error) {
 		attempts++
@@ -237,9 +205,6 @@ func TestApplyDiffRetriesSerializationFailure(t *testing.T) {
 	}
 }
 
-// TestApplyDiffLargeKeepSetRealSlow — real-DB (FLINT_TEST_DSN): a keep set
-// past the old 60,000-placeholder ceiling deletes correctly through the
-// unnest array form (one bind parameter — no walked-set limit).
 func TestApplyDiffLargeKeepSetRealSlow(t *testing.T) {
 	if os.Getenv("FLINT_TEST_DSN") == "" {
 		t.Skip("FLINT_TEST_DSN required")
@@ -255,7 +220,7 @@ func TestApplyDiffLargeKeepSetRealSlow(t *testing.T) {
 	if _, err := st.ApplyDiff(ctx, seed, nil, []string{"a.md", "b.md", "c.md"}); err != nil {
 		t.Fatalf("seed ApplyDiff: %v", err)
 	}
-	keep := make([]string, 60001) // past the old notInLimit ceiling
+	keep := make([]string, 60001)
 	keep[0] = "a.md"
 	for i := 1; i < len(keep); i++ {
 		keep[i] = fmt.Sprintf("gen/%06d.md", i)

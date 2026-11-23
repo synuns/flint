@@ -1,6 +1,3 @@
-// write_v093_test.go — regression: expose the existing row's id in the single-line duplicate
-// response. Only {"status":"duplicate","id":N} is added — the JSONL aggregate form, exit 0,
-// and the bare output of an id-0 duplicate are unchanged.
 package cli
 
 import (
@@ -23,7 +20,6 @@ func TestDuplicateZeroIDStaysBare(t *testing.T) {
 	}
 }
 
-// dupIDStore — a fake returning the existing row's id via DupIDByHash (the resend scenario).
 type dupIDStore struct {
 	*fakeStore
 	id int
@@ -33,10 +29,6 @@ func (d *dupIDStore) DupIDByHash(ctx context.Context, hash string) (int, bool, e
 	return d.id, true, nil
 }
 
-// Query — multi-line pre-dedup moved from per-line capability to a batch lookup
-// (content_hash = ANY($1), knowledge.lookupHashBatch).
-// This fake also answers the same existence check (the existing row's id) via the Query seam, keeping the multi-line
-// duplicate scenario (the single-shot path is still DupIDByHash).
 func (d *dupIDStore) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
 	if strings.Contains(sql, "content_hash = ANY($1)") {
 		if hashes, ok := args[0].([]string); ok {
@@ -50,7 +42,6 @@ func (d *dupIDStore) Query(ctx context.Context, sql string, args ...any) ([][]an
 	return d.fakeStore.Query(ctx, sql, args...)
 }
 
-// withDupID — swaps the newStore seam to dupIDStore.
 func withDupID(t *testing.T, d *dupIDStore) {
 	t.Helper()
 	prev := newStore
@@ -58,8 +49,6 @@ func withDupID(t *testing.T, d *dupIDStore) {
 	t.Cleanup(func() { newStore = prev })
 }
 
-// TestWriteDuplicateIncludesID — a resend (single-line duplicate): the output carries the existing
-// row's id, 0 commits, exit 0 (seeding idempotence kept).
 func TestWriteDuplicateIncludesID(t *testing.T) {
 	ds := &dupIDStore{fakeStore: &fakeStore{}, id: 109}
 	withDupID(t, ds)
@@ -76,8 +65,6 @@ func TestWriteDuplicateIncludesID(t *testing.T) {
 	}
 }
 
-// TestWriteDuplicateMultiStaysBare — all-duplicate JSONL multi-line input stays a single bare
-// duplicate line without ids (no mixing aggregate and single-line rules — R3 adds only the single line).
 func TestWriteDuplicateMultiStaysBare(t *testing.T) {
 	ds := &dupIDStore{fakeStore: &fakeStore{}, id: 109}
 	withDupID(t, ds)

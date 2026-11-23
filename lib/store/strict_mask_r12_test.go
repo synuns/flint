@@ -5,8 +5,6 @@ import (
 	"testing"
 )
 
-// TestStrictMaskPrefixResidue — even when a registered value is a prefix of a
-// real secret, strict does not leak the suffix in plaintext (pattern masking first).
 func TestStrictMaskPrefixResidue(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"ghp_" + strings.Repeat("a", 20)})
 	defer ResetSecretsAllowlistForTest(nil)
@@ -20,7 +18,6 @@ func TestStrictMaskPrefixResidue(t *testing.T) {
 	}
 }
 
-// TestStrictMaskAllowlistedEntry — a standalone registered value becomes [ALLOWED] (keeping the B2 contract).
 func TestStrictMaskAllowlistedEntry(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"doc-token-abc"})
 	defer ResetSecretsAllowlistForTest(nil)
@@ -33,12 +30,10 @@ func TestStrictMaskAllowlistedEntry(t *testing.T) {
 	}
 }
 
-// TestMarkerNotMutatedByAllowlist — registering a pattern-name substring
-// does not mutate the REDACTED markers.
 func TestMarkerNotMutatedByAllowlist(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"token"})
 	defer ResetSecretsAllowlistForTest(nil)
-	masked := MaskSecrets("ghp_" + strings.Repeat("b", 24)) // [REDACTED:github-token]
+	masked := MaskSecrets("ghp_" + strings.Repeat("b", 24))
 	got := maskAllowlisted(masked)
 	if strings.Contains(got, "[ALLOWED]]") || strings.Contains(got, "github-[ALLOWED]") {
 		t.Fatalf("마커 개조: %q", got)
@@ -48,7 +43,6 @@ func TestMarkerNotMutatedByAllowlist(t *testing.T) {
 	}
 }
 
-// TestMaskSecretsPreservesAllowlist — the diagnostic MaskSecrets' original-text preservation unchanged.
 func TestMaskSecretsPreservesAllowlist(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"doc-token-abc"})
 	defer ResetSecretsAllowlistForTest(nil)
@@ -58,8 +52,6 @@ func TestMaskSecretsPreservesAllowlist(t *testing.T) {
 	}
 }
 
-// TestNestedAllowlistLongestFirst — nested registrations prefer the longer
-// entry — {"doc", "doc-token-abc"} becomes all [ALLOWED] with no residual plaintext.
 func TestNestedAllowlistLongestFirst(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"doc", "doc-token-abc"})
 	defer ResetSecretsAllowlistForTest(nil)

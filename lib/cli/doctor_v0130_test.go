@@ -7,7 +7,7 @@ import (
 
 func TestConflictsZeroOk(t *testing.T) {
 	c := checkConflicts(context.Background(), &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		return nil, nil // 0 groups
+		return nil, nil
 	}})
 	if c.Status != "ok" {
 		t.Errorf("0그룹 = %s, want ok", c.Status)
@@ -23,8 +23,6 @@ func TestConflictsWarn(t *testing.T) {
 	}
 }
 
-// TestConflictsDupOnlyOk — regression: a purely duplicate group (similar summaries) is not a
-// contradiction candidate, so it does not warn.
 func TestConflictsDupOnlyOk(t *testing.T) {
 	same := "flint 백업은 매일 자동이다"
 	c := checkConflicts(context.Background(), &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {

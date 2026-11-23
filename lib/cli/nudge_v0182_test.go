@@ -1,7 +1,3 @@
-// nudge_v0182_test.go — marker-file separation regression. (a) On a Stop event,
-// a recall marker produces no output (preventing distillation-nudge misfiring); (b) a recall record does not
-// overwrite the distillation marker; (c) SessionStart announces both (only recall auto-consumes);
-// (d) migration of residue (pending-distill with Reason=recall).
 package cli
 
 import (
@@ -11,7 +7,6 @@ import (
 	"testing"
 )
 
-// TestNudgeRecallSilentOnStop — recall marker + Stop -> no output, marker kept.
 func TestNudgeRecallSilentOnStop(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteTypedMarker(markerKindRecall, "s1", nudgeReasonRecall); err != nil {
@@ -29,7 +24,6 @@ func TestNudgeRecallSilentOnStop(t *testing.T) {
 	}
 }
 
-// TestNudgeRecallDoesNotClobberDistill — even after a recall record, the distillation marker exists.
 func TestNudgeRecallDoesNotClobberDistill(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("FLINT_CONFIG_DIR", dir)
@@ -47,8 +41,6 @@ func TestNudgeRecallDoesNotClobberDistill(t *testing.T) {
 	}
 }
 
-// TestNudgeSessionStartBothMarkers — both markers at once: the recall wording + a 2-line distillation
-// notice; only recall is consumed.
 func TestNudgeSessionStartBothMarkers(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	if err := WriteMarker("s1", "compact"); err != nil {
@@ -79,11 +71,9 @@ func TestNudgeSessionStartBothMarkers(t *testing.T) {
 	}
 }
 
-// TestNudgeLegacyRecallInDistillFile — residue (Reason=recall in the distillation file) is treated as
-// recall: SessionStart shows the wording and consumes that file.
 func TestNudgeLegacyRecallInDistillFile(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	if err := WriteMarker("s1", nudgeReasonRecall); err != nil { // the legacy-deployment record form
+	if err := WriteMarker("s1", nudgeReasonRecall); err != nil {
 		t.Fatalf("WriteMarker err = %v", err)
 	}
 	out, code := nudgeRun(nil, `{"hook_event_name":"SessionStart","session_id":"s2"}`)

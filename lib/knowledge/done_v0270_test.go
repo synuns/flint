@@ -1,8 +1,3 @@
-// done_v0270_test.go — the session-knowledgization accrual contract.
-// The distill-marker accrual check verifies equivalently by capturing
-// the WriteTypedMarkerFn seam instead of the cli marker-storage
-// implementation (ReadTypedMarker) (marker file IO belongs to the
-// cli-residual compact_test on the real path).
 package knowledge
 
 import (
@@ -12,8 +7,6 @@ import (
 	"time"
 )
 
-// captureTypedMarker — swaps the WriteTypedMarkerFn seam (call
-// recording).
 func captureTypedMarker(t *testing.T) *[]string {
 	t.Helper()
 	var calls []string
@@ -41,14 +34,11 @@ func TestMaybeSessionKnowledge(t *testing.T) {
 	if !strings.Contains(got["topic"].(string), "session[") {
 		t.Errorf("topic = %v", got["topic"])
 	}
-	// tags must be passed as []string{"process"} so it passes
-	// normalizeTags and is stored in the normalized form ":process:"
-	// (repairing the contract violation where passing the string
-	// ":process:" was dropped to an empty string in the default branch).
+
 	if tags, ok := got["tags"].(string); !ok || tags != ":process:" {
 		t.Errorf("tags = %#v, want \":process:\"", got["tags"])
 	}
-	// Distill-marker accrual — the distill kind·session must match.
+
 	found := false
 	for _, c := range *markers {
 		if strings.HasPrefix(c, "distill|s1|") {
@@ -60,8 +50,6 @@ func TestMaybeSessionKnowledge(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeShortSummary — under the minimum length, no
-// accrual.
 func TestMaybeSessionKnowledgeShortSummary(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
@@ -71,9 +59,6 @@ func TestMaybeSessionKnowledgeShortSummary(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeControlOnlyGate — the length gate is applied
-// after sanitization — a control-characters-only summary sanitizes to an
-// empty string and is not accrued.
 func TestMaybeSessionKnowledgeControlOnlyGate(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
@@ -83,8 +68,6 @@ func TestMaybeSessionKnowledgeControlOnlyGate(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeTruncates — the summary is truncated to 500
-// runes (import-path symmetry) — the excess is not accrued.
 func TestMaybeSessionKnowledgeTruncates(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := knFake("")
@@ -98,9 +81,6 @@ func TestMaybeSessionKnowledgeTruncates(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeFrequencyCap — the frequency-cap contract —
-// skip if the last accrual is within N days; accrue if N days have
-// elapsed·the value is corrupt.
 func TestMaybeSessionKnowledgeFrequencyCap(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	today := time.Now().UTC().Format(time.RFC3339)
@@ -122,9 +102,6 @@ func TestMaybeSessionKnowledgeFrequencyCap(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeOffSentinel — session_knowledge_days -1
-// (off) accrues nothing (0 is coerced to the default 1 by
-// loadThresholds — i.e. unset).
 func TestMaybeSessionKnowledgeOffSentinel(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
@@ -139,8 +116,6 @@ func TestMaybeSessionKnowledgeOffSentinel(t *testing.T) {
 	}
 }
 
-// TestMaybeSessionKnowledgeDedupSkip — an already-present
-// content_hash is not re-accrued (blocking same-session re-exits).
 func TestMaybeSessionKnowledgeDedupSkip(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
@@ -151,9 +126,6 @@ func TestMaybeSessionKnowledgeDedupSkip(t *testing.T) {
 	}
 }
 
-// TestDoneStdinSummaryActivatesKnowledge — the Stop hook stdin's
-// compact_summary activates session knowledgization (another harness's
-// fallback path).
 func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	stubAutoBackup(t)
@@ -164,7 +136,7 @@ func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
 	}
-	// Accrual — 1 pending knowledge row (only when Summary is filled).
+
 	knowledge := 0
 	for _, rec := range st.inserted {
 		if rec["kind"] == "knowledge" {
@@ -176,8 +148,6 @@ func TestDoneStdinSummaryActivatesKnowledge(t *testing.T) {
 	}
 }
 
-// staleFake — fakeStore + a fixed StaleSessionRuns return (inducing the
-// stale branch).
 type staleFake struct {
 	*fakeStore
 	runs int
@@ -187,9 +157,6 @@ func (s *staleFake) StaleSessionRuns(ctx context.Context, agent string) (int, er
 	return s.runs, nil
 }
 
-// TestDoneStalePathAccruesKnowledge — on the stale path (the
-// consecutive-unrecorded warning), a filled summary still
-// knowledgizes — not trapped in an early return.
 func TestDoneStalePathAccruesKnowledge(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	stubAutoBackup(t)
@@ -214,9 +181,6 @@ func TestDoneStalePathAccruesKnowledge(t *testing.T) {
 	}
 }
 
-// TestDoneStdinSummaryBranches — invalid JSON·a missing field yield the
-// empty value (the skip-fallback-boilerplate contract — a regression
-// preventing the asymptomatic discard of valid summaries).
 func TestDoneStdinSummaryBranches(t *testing.T) {
 	if got := doneStdinSummary(strings.NewReader(`{bad json`)); got != "" {
 		t.Errorf("invalid JSON = %q, want \"\"", got)
@@ -232,9 +196,6 @@ func TestDoneStdinSummaryBranches(t *testing.T) {
 	}
 }
 
-// TestDoneCommitsAuditTrail — the session exit attributes the session
-// row·knowledgization·counter writes to an audit commit (preventing
-// absorption into an unrelated next write's global staging).
 func TestDoneCommitsAuditTrail(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	stubAutoBackup(t)

@@ -1,8 +1,3 @@
-// plans_index_test.go — plans/ 에이전틱 관리 게이트(2026-11-21 체계):
-// (1) 활성 색인 동기 — docs/plans/README.md 색인 표와 루트 활성 플랜
-// 파일이 1:1로 일치해야 한다(양방향 드리프트 모두 차단).
-// (2) 헤더 상태 필드 — 활성 플랜은 머리에 '상태:' 줄을 가져야 에이전트가
-// 색인 없이 파일만 열어도 진행 상태를 알 수 있다.
 package doclint
 
 import (
@@ -13,9 +8,6 @@ import (
 	"testing"
 )
 
-// activePlans — docs/plans 루트의 활성 플랜(.md; README.md·*.report.md
-// (빌드 리포트 — superlite finish 산물)·archive/·closed/ 제외 — 색인은
-// 활성만 담는다).
 func activePlans(t *testing.T) []string {
 	t.Helper()
 	entries, err := os.ReadDir("../../docs/plans")
@@ -33,7 +25,6 @@ func activePlans(t *testing.T) []string {
 	return plans
 }
 
-// TestPlansIndexInSync — 색인↔활성 플랜 양방향 동기.
 func TestPlansIndexInSync(t *testing.T) {
 	idx, err := os.ReadFile("../../docs/plans/README.md")
 	if err != nil {
@@ -53,10 +44,8 @@ func TestPlansIndexInSync(t *testing.T) {
 	}
 }
 
-// TestActivePlansHaveStatusHeader — 활성 플랜 머리의 상태 필드.
 func TestActivePlansHaveStatusHeader(t *testing.T) {
-	// v1.20.1: approved 허용 — G2 승인·발행 완료 스펙의 종착 상태
-	// (approved 뒤에 승인 각도·일자 괄호가 붙는다).
+
 	statusRe := regexp.MustCompile(`(?m)^상태: *(draft|active|blocked|approved.*) *$`)
 	for _, p := range activePlans(t) {
 		b, err := os.ReadFile(filepath.Join("../../docs/plans", p))

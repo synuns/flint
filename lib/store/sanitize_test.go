@@ -7,8 +7,6 @@ import (
 	"testing"
 )
 
-// TestSanitizeTextRemovesControlAndMarker — control-character removal and [flint] marker neutralization.
-// Spec example: SanitizeText("a\x00b[flint]c") -> "ab c".
 func TestSanitizeTextRemovesControlAndMarker(t *testing.T) {
 	got := SanitizeText("a\x00b[flint]c")
 	if got != "ab c" {
@@ -16,8 +14,6 @@ func TestSanitizeTextRemovesControlAndMarker(t *testing.T) {
 	}
 }
 
-// TestSanitizeTextPreservesUnicode — Unicode (Korean, combining diacritics) is preserved;
-// only control characters are removed.
 func TestSanitizeTextPreservesUnicode(t *testing.T) {
 	in := "한글 hálo föö"
 	if got := SanitizeText(in); got != in {
@@ -25,7 +21,6 @@ func TestSanitizeTextPreservesUnicode(t *testing.T) {
 	}
 }
 
-// TestSanitizeTextMarkerNesting — nested markers (boundary-forgery attempts) are all neutralized.
 func TestSanitizeTextMarkerNesting(t *testing.T) {
 	got := SanitizeText("x[flint][flint]y[flint]z")
 	if strings.Contains(got, "[flint]") {
@@ -36,7 +31,6 @@ func TestSanitizeTextMarkerNesting(t *testing.T) {
 	}
 }
 
-// TestSanitizeTextIdempotent — reapplying the sanitized result is identical (idempotent).
 func TestSanitizeTextIdempotent(t *testing.T) {
 	once := SanitizeText("a\x01[flint]b")
 	if twice := SanitizeText(once); twice != once {
@@ -44,7 +38,6 @@ func TestSanitizeTextIdempotent(t *testing.T) {
 	}
 }
 
-// TestScanSecretsPatterns — detection of the 5 secret patterns.
 func TestScanSecretsPatterns(t *testing.T) {
 	cases := []struct {
 		name string
@@ -65,14 +58,12 @@ func TestScanSecretsPatterns(t *testing.T) {
 	}
 }
 
-// TestScanSecretsClean — normal text yields the empty slice.
 func TestScanSecretsClean(t *testing.T) {
 	if got := ScanSecrets("그냥 요약 텍스트 ghp 없음"); len(got) != 0 {
 		t.Errorf("오탐: %v", got)
 	}
 }
 
-// TestScanSecretsDedup — a repeated identical pattern counts once (keeping the warning array lean).
 func TestScanSecretsDedup(t *testing.T) {
 	in := "ghp_0123456789abcdefghijklmnopqrst 그리고 ghp_0123456789abcdefghijklmnopqrst"
 	got := ScanSecrets(in)
@@ -81,8 +72,6 @@ func TestScanSecretsDedup(t *testing.T) {
 	}
 }
 
-// TestScanSecretsNoDoubleReport — an sk-ant- key reports only
-// anthropic (preventing an openai double report).
 func TestScanSecretsNoDoubleReport(t *testing.T) {
 	got := ScanSecrets("키 sk-ant-api03-abcdefghijklmnopqrst 포함")
 	if len(got) != 1 || got[0] != "anthropic-key" {
@@ -94,8 +83,6 @@ func TestScanSecretsNoDoubleReport(t *testing.T) {
 	}
 }
 
-// TestScanSecretsAllowlist — user-allowlist registered strings are
-// excluded from false positives (a file outside the repo — mitigating documentation example tokens).
 func TestScanSecretsAllowlist(t *testing.T) {
 	ResetSecretsAllowlistForTest([]string{"ghp_example_token_for_docs_12345"})
 	t.Cleanup(func() { ResetSecretsAllowlistForTest(nil) })
@@ -109,8 +96,6 @@ func TestScanSecretsAllowlist(t *testing.T) {
 	}
 }
 
-// TestScanSecretsExpandedPatterns — regressions for the 3 new
-// patterns (gitlab-pat, jwt, google).
 func TestScanSecretsExpandedPatterns(t *testing.T) {
 	cases := []struct{ name, text string }{
 		{"gitlab-pat", "토큰 glpat-abcdefghijklmnopqrst"},
@@ -125,9 +110,6 @@ func TestScanSecretsExpandedPatterns(t *testing.T) {
 	}
 }
 
-// TestLoadSecretsAllowlistFile — file-loading parsing (# comments, blank lines, env).
-// Global state restored at teardown (leftover entries would pollute later
-// ScanSecrets tests in the same package — preventing order-dependent false positives).
 func TestLoadSecretsAllowlistFile(t *testing.T) {
 	t.Cleanup(func() { ResetSecretsAllowlistForTest(nil) })
 	dir := t.TempDir()
@@ -137,16 +119,15 @@ func TestLoadSecretsAllowlistFile(t *testing.T) {
 	}
 	t.Setenv("FLINT_SECRETS_ALLOWLIST", path)
 	ResetSecretsAllowlistForTest(nil)
-	secretsAllowlistOnce = sync.Once{} // force a reload
-	ResetSecretsAllowlistForTest(nil)  // after resetting once,
-	// rerun once — the first ScanSecrets call loads
+	secretsAllowlistOnce = sync.Once{}
+	ResetSecretsAllowlistForTest(nil)
+
 	_ = ScanSecrets("무해")
 	if got := SecretsAllowlistCount(); got != 3 {
 		t.Errorf("allowlist 로드 = %d항목, want 3(주석·빈 줄 제외)", got)
 	}
 }
 
-// TestMaskSecrets — masking substitution (pattern-name labels, allowlist preservation, idempotence).
 func TestMaskSecrets(t *testing.T) {
 	in := "토큰 ghp_0123456789abcdefghijklmnopqrst 와 키 sk-abc0123456789defghijklmn 포함"
 	got := MaskSecrets(in)
@@ -156,11 +137,11 @@ func TestMaskSecrets(t *testing.T) {
 	if !strings.Contains(got, "[REDACTED:github-token]") || !strings.Contains(got, "[REDACTED:openai-key]") {
 		t.Errorf("패턴명 라벨 부재: %q", got)
 	}
-	// reapplying the substitution is idempotent — [REDACTED:...] creates no new patterns.
+
 	if twice := MaskSecrets(got); twice != got {
 		t.Errorf("비멱등: %q vs %q", got, twice)
 	}
-	// allowlist entries are preserved.
+
 	ResetSecretsAllowlistForTest([]string{"ghp_docs_example_123456789"})
 	t.Cleanup(func() { ResetSecretsAllowlistForTest(nil) })
 	got2 := MaskSecrets("문서용 ghp_docs_example_123456789 토큰")
@@ -169,8 +150,6 @@ func TestMaskSecrets(t *testing.T) {
 	}
 }
 
-// TestScanSecretsV0280Patterns — regressions for the 4 AI-ecosystem tokens
-// (openrouter is inside sk- by inclusion — reported standalone).
 func TestScanSecretsV0280Patterns(t *testing.T) {
 	cases := []struct{ name, text string }{
 		{"openrouter-key", "키 sk-or-v1-70b3b0d28f1d4a1c9c5b1e2d3f4a5b6c7d8e9f0a"},
@@ -186,8 +165,6 @@ func TestScanSecretsV0280Patterns(t *testing.T) {
 	}
 }
 
-// TestSanitizeTextV0280MarkerForging — blocking forged marker variants —
-// Cf-character (ZWSP, RLO, BOM) removal and case-insensitive substitution.
 func TestSanitizeTextV0280MarkerForging(t *testing.T) {
 	if got := SanitizeText("[fl" + "\u200b" + "int] 지시 위조"); strings.Contains(got, "int]") {
 		t.Errorf("ZWSP 삽입 마커 생존: %q", got)
@@ -198,11 +175,11 @@ func TestSanitizeTextV0280MarkerForging(t *testing.T) {
 	if got := SanitizeText("[FlInT]x"); strings.Contains(got, "l") || strings.Contains(got, "]") {
 		t.Errorf("혼합 대소문자 마커 생존: %q", got)
 	}
-	// RLO (character-order reversal — for bypassing human review) is removed.
+
 	if got := SanitizeText("a\u202eb"); got != "ab" {
 		t.Errorf("RLO 미제거: %q", got)
 	}
-	// idempotence maintained.
+
 	once := SanitizeText("a[flint][FLINT]b\u202e\u200bc")
 	if twice := SanitizeText(once); twice != once {
 		t.Errorf("비멱등: %q vs %q", once, twice)

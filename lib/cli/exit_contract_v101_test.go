@@ -1,10 +1,3 @@
-// exit_contract_v101_test.go — regression: the invalid-arg exit-code table for all commands.
-// Contract (docs/PLAN.md §3 — exit 3 = validation failure, agent self-correction):
-// unknown flags, missing flag values, and invalid values are unified as exit 3; query-text
-// absorption (read, brief, etc.) and hook non-interference (compact, nudge) remain documented exceptions.
-// The table force-covers every command in wire.UsageOrder (TestExitContractCoversUsage-
-// Order) — adding a new command fails this test unless classified (a driven row must be
-// added or it must be classified into the quietAbsorb list).
 package cli
 
 import (
@@ -15,7 +8,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// exitProbe — a table row: the expected invalid-arg exit for invoking (command, args).
 type exitProbe struct {
 	cmd  string
 	args []string
@@ -23,10 +15,8 @@ type exitProbe struct {
 	note string
 }
 
-// exitContractProbes — the table driving invalid-arg paths. The changed rows (1->3) and the
-// existing 3-contracts (read, brief, import, maintain, doctor, tuning, diff) live in one table.
 var exitContractProbes = []exitProbe{
-	// unknown flag — invalid-arg exit 3
+
 	{"approve", []string{"--wat"}, 3, "F3 unknown flag"},
 	{"pending", []string{"--wat"}, 3, "F3 unknown flag"},
 	{"backup", []string{"--wat"}, 3, "F3 unknown flag"},
@@ -38,8 +28,7 @@ var exitContractProbes = []exitProbe{
 	{"update", []string{"--bogus"}, 3, "F3 unknown flag"},
 	{"teardown", []string{"--bogus"}, 3, "F3 unknown flag(인접 동류)"},
 	{"maintain", []string{"--check", "--bogus"}, 3, "v0.36.1 관례(기존)"},
-	// v1.24.0 T3 — the merge-audit report's invalid-arg exits (unknown
-	// flag·invalid value, the audit-family contract).
+
 	{"maintain", []string{"--merge-audit", "--bogus"}, 3, "v1.24.0 T3 unknown flag"},
 	{"maintain", []string{"--merge-audit", "--limit", "abc"}, 3, "v1.24.0 T3 무효 숫자"},
 	{"import", []string{"--verbose"}, 3, "v0.36.1 관례(기존)"},
@@ -51,7 +40,7 @@ var exitContractProbes = []exitProbe{
 	{"distill", []string{"--bogus"}, 3, "v1.22.0 T6 unknown flag"},
 	{"seed", []string{"--bogus"}, 3, "v1.26.0 T2 unknown flag"},
 	{"seed", []string{}, 3, "v1.26.0 T2 --demo 필수 bare usage"},
-	// missing flag value — invalid-arg exit 3
+
 	{"approve", []string{"--id"}, 3, "F3 값 누락"},
 	{"audit", []string{"--limit"}, 3, "F3 값 누락"},
 	{"audit", []string{"--session"}, 3, "F3 값 누락"},
@@ -62,7 +51,7 @@ var exitContractProbes = []exitProbe{
 	{"setup", []string{"--src"}, 3, "F3 값 누락"},
 	{"maintain", []string{"--limit"}, 3, "F3 값 누락"},
 	{"setup", []string{"--exposure"}, 3, "기존 3 계약"},
-	// invalid value — invalid-arg exit 3
+
 	{"approve", []string{"--id", "abc"}, 3, "F3 무효 id(mcp 정합)"},
 	{"audit", []string{"--limit", "abc"}, 3, "F3 무효 숫자(read·brief 정합)"},
 	{"report", []string{"--days", "abc"}, 3, "F3 무효 숫자"},
@@ -73,28 +62,26 @@ var exitContractProbes = []exitProbe{
 	{"export", []string{"--out"}, 3, "v1.3.0 T7 값 누락"},
 	{"read", []string{"--limit", "abc"}, 3, "기존 3 계약"},
 	{"brief", []string{"--limit", "abc"}, 3, "기존 3 계약"},
-	// --session label guard — the read contract's hot and done promotion
+
 	{"read", []string{"--session", "--json"}, 3, "세션 가드(기존)"},
 	{"hot", []string{"--session", "--full"}, 3, "F3 세션 가드 승격"},
 	{"hot", []string{"--session"}, 3, "F3 세션 가드(빈 값)"},
 	{"done", []string{"--session", "--json"}, 3, "F3 세션 가드 승격"},
 	{"done", []string{"--session"}, 3, "F3 세션 가드(빈 값)"},
-	// unrecognized no-arg flag and bare usage unified to exit 3
+
 	{"read", []string{"--jsonn"}, 3, "T1 unknown flag('-' 접두 흡수 폐지)"},
 	{"done", []string{}, 3, "T1 bare usage(기존 0)"},
 	{"maintain", []string{}, 3, "T1 bare usage(기존 1)"},
-	// sync remote management (unknown sub, invalid arg exit 3)
+
 	{"sync", []string{}, 3, "v1.7.0 T4 bare usage"},
 	{"sync", []string{"push"}, 3, "v1.7.0 T4 unknown sub(T5 전 미지원)"},
 	{"sync", []string{"remote", "add"}, 3, "v1.7.0 T4 인자 수 부족"},
 	{"sync", []string{"remote", "add", "demo", "noscheme.example/x"}, 3, "v1.7.0 T4 스킴 없는 url"},
-	// v1.7.2 T3 — sync scheme whitelist and reset usage
+
 	{"sync", []string{"remote", "add", "demo", "postgres://u:p@db.example.invalid/db"}, 3, "v1.7.2 T3 postgres 스킴 거부(S5)"},
 	{"sync", []string{"reset"}, 3, "v1.7.2 T3 reset 대상 부재(S2)"},
 }
 
-// quietAbsorb — the documented exception list of commands that quietly absorb unknown flags
-// as query text or ignore them (F7 documented in docs/contracts/cli.md). Values are the rationale.
 var quietAbsorb = map[string]string{
 	"read":    "positional 쿼리 흡수(N9 '--' 관례) — '-' 접두 미인식 플래그는 v1.5.3 T1 exit 3, 제로히트 침묵 exit 1",
 	"brief":   "쿼리 텍스트 흡수(N9 승계)",
@@ -107,10 +94,6 @@ var quietAbsorb = map[string]string{
 	"nudge":   "훅 진입 — 인자 무시·언제나 exit 0",
 }
 
-// TestExitContractTable — drives the table: each row's invalid-arg exit code matches the table.
-// maintain checks MaintStore capability before parsing args, so it uses fakeMaint
-// (the rest use fakeStore — the invalid-arg path returns immediately on validation, regardless of store
-// state).
 func TestExitContractTable(t *testing.T) {
 	ctx := context.Background()
 	for _, p := range exitContractProbes {
@@ -134,9 +117,6 @@ func TestExitContractTable(t *testing.T) {
 	}
 }
 
-// TestExitContractCoversUsageOrder — forces every usageOrder command to be classified in the table (a driven row
-// or quietAbsorb). Adding a new command fails here — it forces an invalid-arg exit classification
-// (unified 3 or documented absorption).
 func TestExitContractCoversUsageOrder(t *testing.T) {
 	classified := map[string]bool{}
 	for _, p := range exitContractProbes {
@@ -147,7 +127,7 @@ func TestExitContractCoversUsageOrder(t *testing.T) {
 			t.Errorf("%s: 무효 인자 exit 분류 누락 — exitContractProbes 또는 quietAbsorb에 추가", cmd)
 		}
 	}
-	// reverse drift: the commands in the list must exist in the actual registered surface.
+
 	registered := map[string]bool{}
 	for _, cmd := range wire.Registered() {
 		registered[cmd] = true

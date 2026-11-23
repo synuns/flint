@@ -1,6 +1,3 @@
-// Package backup owns flint's own SQL dump generation and replay per
-// ADR-0002. pg_dump does not work on Doltgres (ADR-0002), so this package
-// generates the schema DDL and a BEGIN; DELETE; INSERT replay script itself.
 package backup
 
 import (
@@ -21,8 +18,6 @@ var (
 	dollarRe  = regexp.MustCompile(`^\$[A-Za-z_]*\$`)
 )
 
-// Dump writes the entire public schema (user tables) of the dsn database to
-// w as a schema DDL + data replay SQL script.
 func Dump(ctx context.Context, dsn string, w io.Writer) error {
 	pool, err := db.Connect(ctx, dsn)
 	if err != nil {
@@ -34,7 +29,7 @@ func Dump(ctx context.Context, dsn string, w io.Writer) error {
 	if err != nil {
 		return err
 	}
-	order := topoInsert(tables, fks) // parents first (FK targets before referrers)
+	order := topoInsert(tables, fks)
 
 	fmt.Fprintf(w, "-- flint backup (ADR-0002) generated %s\n", time.Now().UTC().Format(time.RFC3339))
 
@@ -57,7 +52,7 @@ func Dump(ctx context.Context, dsn string, w io.Writer) error {
 	}
 
 	fmt.Fprintln(w, "BEGIN;")
-	for i := len(order) - 1; i >= 0; i-- { // delete children first (avoids FK conflicts)
+	for i := len(order) - 1; i >= 0; i-- {
 		fmt.Fprintf(w, "DELETE FROM %s;\n", quoteIdent(order[i]))
 	}
 	for _, t := range order {
@@ -72,11 +67,6 @@ func Dump(ctx context.Context, dsn string, w io.Writer) error {
 	return nil
 }
 
-// Restore executes the dump script sequentially in a single transaction.
-// Using its own pool (db.Connect) is intentional design — it needs
-// transaction+Exec, a surface wire.Store lacks under its write-repo-only
-// contract. A one-shot CLI call with defer Close leaks nothing. Do not
-// rewire.
 func Restore(ctx context.Context, dsn string, r io.Reader) error {
 	data, err := io.ReadAll(r)
 	if err != nil {
@@ -109,7 +99,6 @@ type column struct {
 	notNull        bool
 }
 
-// loadTables reads the public schema's user table list and FK relations (child -> parents).
 func loadTables(ctx context.Context, pool *pgxpool.Pool) ([]string, map[string][]string, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT c.relname FROM pg_class c
@@ -152,7 +141,6 @@ func loadTables(ctx context.Context, pool *pgxpool.Pool) ([]string, map[string][
 	return tables, fks, fkRows.Err()
 }
 
-// topoInsert orders tables so FK parents come first (on a cycle, the remainder keeps its original order).
 func topoInsert(tables []string, fks map[string][]string) []string {
 	inDump := map[string]bool{}
 	for _, t := range tables {
@@ -191,9 +179,6 @@ func topoInsert(tables []string, fks map[string][]string) []string {
 	return ordered
 }
 
-// tableDef reads column definitions and PK/UNIQUE/FOREIGN KEY constraints
-// from the catalog. Doltgres leaves pg_attrdef empty, so column defaults
-// come from information_schema.
 func tableDef(ctx context.Context, pool *pgxpool.Pool, table string) ([]column, [][2]string, error) {
 	rows, err := pool.Query(ctx, `
 		SELECT column_name, data_type, udt_name, udt_schema,
@@ -246,11 +231,9 @@ func tableDef(ctx context.Context, pool *pgxpool.Pool, table string) ([]column, 
 	return cols, cons, consRows.Err()
 }
 
-// columnType assembles the column type string from information_schema data.
-// Only types with length or precision get parenthesized notation.
 func columnType(dataType, udtName, udtSchema string, charLen, numPrec, numScale *int) string {
 	if dataType == "ARRAY" {
-		return udtName // udt_name arrives as elem_type[]
+		return udtName
 	}
 	if udtSchema != "pg_catalog" {
 		return udtSchema + "." + udtName
@@ -290,7 +273,6 @@ func writeCreateTable(w io.Writer, table string, cols []column, cons [][2]string
 		quoteIdent(table), strings.Join(parts, ",\n  "))
 }
 
-// dumpRows writes every row of the table as INSERT statements.
 func dumpRows(ctx context.Context, pool *pgxpool.Pool, w io.Writer, table string) error {
 	rows, err := pool.Query(ctx, `SELECT * FROM `+quoteIdent(table))
 	if err != nil {
@@ -318,7 +300,6 @@ func dumpRows(ctx context.Context, pool *pgxpool.Pool, w io.Writer, table string
 	return rows.Err()
 }
 
-// sqlLit converts a Go value to an SQL literal (doubling single quotes).
 func sqlLit(v any) string {
 	switch x := v.(type) {
 	case nil:
@@ -343,9 +324,6 @@ func quoteIdent(s string) string {
 	return `"` + strings.ReplaceAll(s, `"`, `""`) + `"`
 }
 
-// splitStatements splits an SQL script into statements. Semicolons inside
-// single-quoted strings (doubled quotes), -- line comments, block comments,
-// and dollar quoting ($tag$...$tag$) are not treated as separators.
 func splitStatements(script string) []string {
 	var stmts []string
 	var cur strings.Builder
@@ -358,7 +336,7 @@ func splitStatements(script string) []string {
 			for j < len(script) {
 				if script[j] == '\'' {
 					if j+1 < len(script) && script[j+1] == '\'' {
-						j += 2 // '' escape
+						j += 2
 						continue
 					}
 					break
@@ -408,7 +386,6 @@ func splitStatements(script string) []string {
 	return stmts
 }
 
-// stripComments strips leading comments (to skip comment-only statements).
 func stripComments(stmt string) string {
 	s := stmt
 	for {

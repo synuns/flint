@@ -1,4 +1,3 @@
-// read_v0120_test.go — BuildReadStatus's base-table status filter.
 package query
 
 import (

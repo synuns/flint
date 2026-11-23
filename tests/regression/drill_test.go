@@ -1,7 +1,3 @@
-// drill — T55 restore --drill 회귀(코디네이터 룰링: lib/cli 소유 블록 동결로
-// tests/regression/에 배치). cli.Run·backup 공개 계약 수준에서 Review Focus
-// 2건(state: flint_drill_db 잔존 금지 — 실패 시에도 DROP, numeric: 행수 대조)을
-// 실DB로 재검증한다. 내부 seam 케이스는 lib/backup/drill_test.go.
 package regression
 
 import (
@@ -24,13 +20,10 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// regDrillDSN — v0.9.3 R1: regTestDSN 위임(FLINT_TEST_DSN 우선·flint_test
-// 기본. FLINT_DSN 운영값은 무시).
 func regDrillDSN() string {
 	return regTestDSN()
 }
 
-// regDrillDB — 실DB 접속. 미기동 시 스킵(회귀는 slow 계층).
 func regDrillDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -42,8 +35,6 @@ func regDrillDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// drillLock — flint_drill_db는 패키지 간(프로세스 간) 공유 자원이다.
-// go test가 패키지를 병렬 실행하므로 파일 잠금으로 상호 배제한다.
 func drillLock(t *testing.T) func() {
 	t.Helper()
 	f, err := os.OpenFile(filepath.Join(os.TempDir(), "flint-drill.lock"),
@@ -61,14 +52,12 @@ func drillLock(t *testing.T) func() {
 	}
 }
 
-// regDrillRun — cli.Run 공용 헬퍼.
 func regDrillRun(args ...string) (string, int) {
 	var out bytes.Buffer
 	code := cli.Run(args, strings.NewReader(""), &out)
 	return out.String(), code
 }
 
-// 계획 지정 케이스 — 실DB 덤프 재생 → Ok true·스키마 무잔존.
 func TestDrillRestoresAndCleans(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -76,7 +65,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	defer pool.Close()
 	ctx := context.Background()
 
-	// 개발 DB가 v0.4 이전 생성이면 maintenance_runs이 없을 수 있다(게이트 공백).
 	if _, err := pool.Exec(ctx, `CREATE TABLE IF NOT EXISTS maintenance_runs (
 		id serial PRIMARY KEY, ts timestamptz NOT NULL DEFAULT now(),
 		kind text NOT NULL, details text)`); err != nil {
@@ -95,8 +83,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 			t.Fatalf("seed %d: %v", i, err)
 		}
 	}
-	// 타 패키지 테스트가 public 테이블을 동시 생성/삭제하면 덤프가 일시적으로
-	// 오염될 수 있다 — 1회 재시도로 흡수한다(파일 잠금은 flint_drill_db 경합 방지용).
+
 	var out string
 	var code int
 	before := 0
@@ -112,7 +99,7 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		if err := os.WriteFile(path, dump.Bytes(), 0o644); err != nil {
 			t.Fatal(err)
 		}
-		// v0.20.6 S4: restore는 사이드카 필수 — 드릴도 무결 검증 후 재생.
+
 		d := sha256.Sum256(dump.Bytes())
 		if err := backup.WriteSidecar(path, hex.EncodeToString(d[:])); err != nil {
 			t.Fatal(err)
@@ -133,8 +120,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		t.Fatalf("행수 대조 실패(기대 %d): %q", before, out)
 	}
 
-	// state — 드릴 DB 무잔존 + 원본 불변(v0.16.2 룰링: 스키마 공허 검사에서
-	// pg_database 부재 검사로 승계).
 	var dbs, after int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM pg_database WHERE datname = '`+backup.DrillDB+`'`).
@@ -151,7 +136,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 		t.Fatalf("원본 훼손: before=%d after=%d", before, after)
 	}
 
-	// 성공 기록 — maintenance_runs(kind=drill) + meta last_drill 최근 값.
 	var runs int
 	if err := pool.QueryRow(ctx,
 		`SELECT count(*) FROM maintenance_runs WHERE kind = 'drill'`).Scan(&runs); err != nil {
@@ -170,8 +154,6 @@ func TestDrillRestoresAndCleans(t *testing.T) {
 	}
 }
 
-// Review Focus(numeric) — INSERT 문 수와 재생 행수가 어긋나면 ok:false·exit 1.
-// (중간 DELETE로 Expected=2, Restored=1인 덤프를 합성한다.)
 func TestDrillMismatchExit1(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -189,8 +171,7 @@ COMMIT;`
 	if err := os.WriteFile(path, []byte(script), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	// v0.20.6 S4: 사이드카 필수(불일치 시나리오는 정상 사이드카 + 내용
-	// 대조 실패 경로 검증).
+
 	md := sha256.Sum256([]byte(script))
 	if err := backup.WriteSidecar(path, hex.EncodeToString(md[:])); err != nil {
 		t.Fatal(err)
@@ -214,7 +195,6 @@ COMMIT;`
 	}
 }
 
-// Review Focus(state) — 고장 덤프 재생 실패 시에도 flint_drill_db 잔존 금지.
 func TestDrillFailureCleansSchema(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()
@@ -241,11 +221,10 @@ func TestDrillFailureCleansSchema(t *testing.T) {
 	}
 }
 
-// --drill 누락 --file — 사용법 에러 exit 1·한 줄 JSON.
 func TestDrillRequiresFile(t *testing.T) {
-	regDrillDB(t) // cli.Run이 store를 연다 — DB 미기동 시 스킵 용도
+	regDrillDB(t)
 	out, code := regDrillRun("restore", "--drill")
-	// v1.0.1(F3): --file 부재는 무효 인자 exit 3(기존 1에서 통일).
+
 	if code != 3 {
 		t.Fatalf("exit=%d, want 3", code)
 	}
@@ -254,7 +233,6 @@ func TestDrillRequiresFile(t *testing.T) {
 	}
 }
 
-// maintain --check — last_drill 30일 초과 시 drill 보고 추가(T55).
 func TestMaintainCheckDrillReport(t *testing.T) {
 	unlock := drillLock(t)
 	defer unlock()

@@ -1,10 +1,3 @@
-// write_v1120_test.go — v1.12.0 T3: the gap-candidate end-to-end
-// (real-DB slow, an isolated scratch database — the write_v1110_test.go
-// fresh-DB convention). Contract: three owned_miss reads of the same
-// query auto-accrue one pending gap candidate (source gap·tag
-// gap-candidate·confidence 0.4·the 60-rune truncated topic); further
-// reads refresh the pending summary N (UPDATE, no reset — the counter
-// keeps counting); approve promotes; an active row is a NOOP afterwards.
 package cli
 
 import (
@@ -20,12 +13,6 @@ import (
 	"github.com/synuns/flint/lib/render"
 )
 
-// TestGapCandidateE2ERealSlow — slow (SUPERLITE_REAL=1 + FLINT_TEST_DSN):
-// on a fresh scratch DB, seed one active knowledge row (ownership floor),
-// read an unknown 90-rune query 3 times (owned_miss) → the pending
-// candidate appears automatically → a 4th read refreshes the summary N →
-// approve → the active recall exposes the tag·topic; a 5th read is a
-// NOOP (the summary stays at the last pending refresh).
 func TestGapCandidateE2ERealSlow(t *testing.T) {
 	dsn, real := seamRealDSN()
 	if !real {
@@ -36,7 +23,7 @@ func TestGapCandidateE2ERealSlow(t *testing.T) {
 	if err != nil {
 		t.Skipf("real store unavailable: %v", err)
 	}
-	// LIFO: pool close first, then the scratch DROP (see write_v1110_test.go).
+
 	t.Cleanup(base.Close)
 
 	name := fmt.Sprintf("flint_v1120_t3_%d", time.Now().UnixNano()%1e9)
@@ -66,17 +53,13 @@ func TestGapCandidateE2ERealSlow(t *testing.T) {
 	}
 	t.Cleanup(func() { newStore = prev })
 
-	// 1. Ownership seed — one active knowledge row (zero_owned_floor=1:
-	// a zero-hit against this DB is owned_miss, not unowned).
 	out, code := runScratch(t, []string{"write", "knowledge"},
 		`{"topic":"합성 시드 지식","summary":"합성 데모 시드 줄","confidence":0.9}`+"\n")
 	if code != 0 || !strings.Contains(out, `"status":"committed"`) {
 		t.Fatalf("시드 적립 exit=%d out=%q", code, out)
 	}
 
-	// 2. Three owned_miss reads of the same 90-rune query — the counter
-	// reaches the default threshold 3 on the 3rd read.
-	query := strings.Repeat("데모", 45) // 90 runes — the topic carries only 60
+	query := strings.Repeat("데모", 45)
 	for i := 1; i <= 3; i++ {
 		out, code = runScratch(t, []string{"read", query, "--json"}, "")
 		if code != 0 {
@@ -84,8 +67,6 @@ func TestGapCandidateE2ERealSlow(t *testing.T) {
 		}
 	}
 
-	// 3. The pending candidate — auto-accrued with the truncated
-	// normalized topic·the gap-candidate tag·confidence 0.4·summary N=3.
 	fields := []string{"--json", "--fields", "id,topic,summary,confidence,tags", "--status", "pending"}
 	out, code = runScratch(t, append([]string{"read", "격차 후보"}, fields...), "")
 	if code != 0 {
@@ -100,8 +81,6 @@ func TestGapCandidateE2ERealSlow(t *testing.T) {
 	}
 	id := extractJSONInt(t, out, "id")
 
-	// 4. A 4th read — the counter was not reset: the pending summary N
-	// refreshes to 4 (an UPDATE, no second row).
 	out, code = runScratch(t, []string{"read", query, "--json"}, "")
 	if code != 0 {
 		t.Fatalf("read 4 exit=%d, want 0; out=%s", code, out)
@@ -117,14 +96,11 @@ func TestGapCandidateE2ERealSlow(t *testing.T) {
 		t.Fatalf("pending 갱신 후 토픽 변형: %q", out)
 	}
 
-	// 5. Promotion — the existing approve circuit.
 	out, code = runScratch(t, []string{"approve", "--id", fmt.Sprint(id)}, "")
 	if code != 0 || !strings.Contains(out, `"status":"approved"`) {
 		t.Fatalf("approve exit=%d out=%q, want approved", code, out)
 	}
 
-	// 6. Post-promotion active recall — the row (tag·topic) is on the
-	// default active view.
 	out, code = runScratch(t, []string{"read", "격차 후보", "--json", "--fields", "id,topic,summary,tags"}, "")
 	if code != 0 {
 		t.Fatalf("active read exit=%d, want 0; out=%s", code, out)
@@ -133,8 +109,6 @@ func TestGapCandidateE2ERealSlow(t *testing.T) {
 		t.Fatalf("active 회상=%q, want 토픽·gap-candidate 태그", out)
 	}
 
-	// 7. A 5th read — the promoted row is active: a NOOP (the summary
-	// stays at the last pending refresh N=4, no new row).
 	out, code = runScratch(t, []string{"read", query, "--json"}, "")
 	if code != 0 {
 		t.Fatalf("read 5 exit=%d, want 0; out=%s", code, out)
@@ -145,8 +119,6 @@ func TestGapCandidateE2ERealSlow(t *testing.T) {
 	}
 }
 
-// extractJSONInt — pulls the first "id" integer out of a --json read
-// line (the e2e approve target; the cell may arrive quoted).
 func extractJSONInt(t *testing.T, out, key string) int {
 	t.Helper()
 	for _, line := range strings.Split(out, "\n") {

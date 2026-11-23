@@ -1,9 +1,3 @@
-// snapshot_test.go — the threshold-snapshot circuit tests (schema v13
-// A2): the 24h meta gate + 1h in-process cache (the maybePruneAfterRead
-// pattern), first-expiry full-key seeding, no-change 0-row passes,
-// changed-row-only appends (old→new), retention expiry, and the
-// quiet-failure contract. Slow bodies run on a real DB (synthetic
-// scratch only — the no-personal-data principle).
 package db
 
 import (
@@ -14,9 +8,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// resetSnapshotGateCache — zeroes the in-process gate-check cache so a
-// test observes the gate DB read (restored via cleanup — other tests'
-// cache state is untouched net effect).
 func resetSnapshotGateCache(t *testing.T) {
 	t.Helper()
 	saved := snapshotGateCheckedAt.Load()
@@ -24,8 +15,6 @@ func resetSnapshotGateCache(t *testing.T) {
 	t.Cleanup(func() { snapshotGateCheckedAt.Store(saved) })
 }
 
-// setSnapshotGate — writes the gate meta key directly (empty = deletes
-// it, reproducing the never-run state).
 func setSnapshotGate(t *testing.T, r *Repo, at time.Time) {
 	t.Helper()
 	if at.IsZero() {
@@ -43,7 +32,6 @@ func setSnapshotGate(t *testing.T, r *Repo, at time.Time) {
 	}
 }
 
-// snapshotRows — the threshold_snapshots rows (key·old·new), ts-ascending.
 func snapshotRows(t *testing.T, r *Repo) []struct{ key, oldV, newV string } {
 	t.Helper()
 	rows, err := r.pool.Query(context.Background(),
@@ -66,9 +54,6 @@ func snapshotRows(t *testing.T, r *Repo) []struct{ key, oldV, newV string } {
 	return out
 }
 
-// TestSnapshotGateDue — the gate pure function (the pruneGateDue twin):
-// absent·blank·corrupt stamps are due; a stamp within 24h is not; one
-// 24h old is.
 func TestSnapshotGateDue(t *testing.T) {
 	now := time.Date(2026, 11, 22, 12, 0, 0, 0, time.UTC)
 	cases := []struct {
@@ -91,9 +76,6 @@ func TestSnapshotGateDue(t *testing.T) {
 	}
 }
 
-// TestSnapshotGateProbe — the in-process 1h cache (the pruneGateProbe
-// convention): the first check probes, an immediate recheck within the
-// TTL does not.
 func TestSnapshotGateProbe(t *testing.T) {
 	resetSnapshotGateCache(t)
 	now := time.Now().UTC()
@@ -108,19 +90,11 @@ func TestSnapshotGateProbe(t *testing.T) {
 	}
 }
 
-// TestThresholdSnapshotSeeding — the hook chain (RecordReadEvent tail):
-// the first expiry seeds the FULL key set (baseline rows, old_value
-// empty), the gate then closes for 24h, a forced pass with no change
-// appends 0 rows, and a value change appends exactly that key with
-// old→new. Round trips stay on the hook budget (gate 1·load 1·last 1·
-// INSERT N).
 func TestThresholdSnapshotSeeding(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	resetSnapshotGateCache(t)
 
-	// The hook fires from the RecordReadEvent tail (never-run gate →
-	// first expiry → full seeding).
 	if err := r.RecordReadEvent(ctx, ReadEvent{Hits: 1, Zero: false, Near: false}); err != nil {
 		t.Fatalf("RecordReadEvent: %v", err)
 	}
@@ -136,11 +110,11 @@ func TestThresholdSnapshotSeeding(t *testing.T) {
 		}
 		byKey[row.key] = row.newV
 	}
-	// The unset-key default notation rides the baseline (pending_max 50).
+
 	if byKey["pending_max"] != "50" {
 		t.Fatalf("시딩 pending_max=%q, want \"50\"(미설정 키 기본값 표기)", byKey["pending_max"])
 	}
-	// The gate stamped (RFC3339).
+
 	var gate string
 	if err := r.pool.QueryRow(ctx,
 		`SELECT value FROM meta WHERE key = $1`, thresholdSnapshotGateKey).Scan(&gate); err != nil {
@@ -150,23 +124,19 @@ func TestThresholdSnapshotSeeding(t *testing.T) {
 		t.Fatalf("게이트 스탬프 %q — RFC3339 아님", gate)
 	}
 
-	// ② Within 24h — the gate closes (no pass, no rows) even with the
-	// process cache reset.
 	resetSnapshotGateCache(t)
 	r.maybeSnapshotThresholds(ctx)
 	if n := len(snapshotRows(t, r)); n != len(keys) {
 		t.Fatalf("게이트 미만료 경과 행 수 %d, want %d(불변)", n, len(keys))
 	}
 
-	// ③ Forced expiry, no change — 0 new rows.
 	setSnapshotGate(t, r, time.Now().UTC().Add(-25*time.Hour))
 	resetSnapshotGateCache(t)
-	r.maybeSnapshotThresholds(ctx) // the quiet contract — no error return
+	r.maybeSnapshotThresholds(ctx)
 	if n := len(snapshotRows(t, r)); n != len(keys) {
 		t.Fatalf("무변경 경과 후 %d행, want %d(0행 append)", n, len(keys))
 	}
 
-	// ④ One meta override change — exactly that key appends old→new.
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ('pending_max', '60')
 		 ON CONFLICT (key) DO UPDATE SET value = excluded.value`); err != nil {
@@ -184,7 +154,6 @@ func TestThresholdSnapshotSeeding(t *testing.T) {
 		t.Fatalf("변경 행 = %v, want pending_max 50→60", last)
 	}
 
-	// ⑤ Idempotent — a repeat forced pass with no further change adds 0.
 	setSnapshotGate(t, r, time.Now().UTC().Add(-25*time.Hour))
 	resetSnapshotGateCache(t)
 	r.maybeSnapshotThresholds(ctx)
@@ -193,14 +162,11 @@ func TestThresholdSnapshotSeeding(t *testing.T) {
 	}
 }
 
-// TestThresholdSnapshotRetention — expired rows (past
-// threshold_snapshots_retention_days) are deleted on the snapshot pass;
-// fresh rows stay.
 func TestThresholdSnapshotRetention(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
 	resetSnapshotGateCache(t)
-	old := time.Now().UTC().Add(-100 * 24 * time.Hour) // default retention 90d
+	old := time.Now().UTC().Add(-100 * 24 * time.Hour)
 	if _, err := r.pool.Exec(ctx,
 		`INSERT INTO threshold_snapshots (ts, key, old_value, new_value)
 		 VALUES ($1, 'pending_max', '10', '20')`, old); err != nil {
@@ -211,8 +177,7 @@ func TestThresholdSnapshotRetention(t *testing.T) {
 		 VALUES (now(), 'dup_susp_max', '1', '2')`); err != nil {
 		t.Fatalf("최근 행 적립: %v", err)
 	}
-	// Seeding also appends the full key set — the expired row must be
-	// gone while the fresh explicit·seed rows survive.
+
 	r.maybeSnapshotThresholds(ctx)
 	var expired int
 	if err := r.pool.QueryRow(ctx,
@@ -234,9 +199,6 @@ func TestThresholdSnapshotRetention(t *testing.T) {
 	}
 }
 
-// TestThresholdSnapshotQuietFailure — a mid-circuit failure (the table
-// missing) propagates nothing: no panic, and the DB gate stays unstamped
-// so the next pass retries (the stamp-then-fail skip prevention).
 func TestThresholdSnapshotQuietFailure(t *testing.T) {
 	r := newTestRepo(t)
 	ctx := context.Background()
@@ -249,7 +211,7 @@ func TestThresholdSnapshotQuietFailure(t *testing.T) {
 			t.Fatalf("패닉 발생: %v", rec)
 		}
 	}()
-	r.maybeSnapshotThresholds(ctx) // must return quietly — no panic, no error path
+	r.maybeSnapshotThresholds(ctx)
 	var n int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM meta WHERE key = $1 AND value <> ''`, thresholdSnapshotGateKey).

@@ -1,4 +1,3 @@
-// profile_v0350_test.go — profile determination: recommendation rules, evidence, switching, and next notation.
 package cli
 
 import (
@@ -8,14 +7,13 @@ import (
 	"time"
 )
 
-// profFake — a determination-path fake: controls the sample via the pending_max query.
 func profFake(events int, recallLed int) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "key IN ('pending_max'") {
-			return nil, nil // default thresholds (zero_near_min_read etc.)
+			return nil, nil
 		}
 		if strings.Contains(sql, "exposure_profile") {
-			return nil, nil // default normal
+			return nil, nil
 		}
 		if strings.Contains(sql, "FROM read_events") {
 			rows := make([][]any, events)
@@ -39,10 +37,9 @@ func profFake(events int, recallLed int) *fakeStore {
 	}}
 }
 
-// TestProfileRecommendsBySample — insufficient sample defers (keep); sufficient sample determines.
 func TestProfileRecommendsBySample(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
-	// sample 0 -> defers (keep) — no next.
+
 	var out strings.Builder
 	if code := runProfile(context.Background(), profFake(0, 0), nil, nil, &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
@@ -50,7 +47,7 @@ func TestProfileRecommendsBySample(t *testing.T) {
 	if !strings.Contains(out.String(), `"recommend":"keep"`) || strings.Contains(out.String(), `"next"`) {
 		t.Errorf("insufficient-sample verdict: %s", out.String())
 	}
-	// sample met + recall lead 0 -> recommends minimal + next (switch needed).
+
 	out.Reset()
 	if code := runProfile(context.Background(), profFake(20, 0), nil, nil, &out); code != 0 {
 		t.Fatalf("exit=%d: %s", code, out.String())
@@ -64,9 +61,6 @@ func TestProfileRecommendsBySample(t *testing.T) {
 	}
 }
 
-// TestProfileApplyInvalidRejected — invalid value exits 1.
-// Invalid --apply values and unknown flags are invalid-arg exit 3
-// (consistent with setup --exposure).
 func TestProfileApplyInvalidRejected(t *testing.T) {
 	var out strings.Builder
 	if code := runProfile(context.Background(), profFake(0, 0), []string{"--apply", "bogus"}, nil, &out); code != 3 {

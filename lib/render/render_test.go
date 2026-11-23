@@ -1,6 +1,3 @@
-// render_test.go — tests for the render output layer (sanitization
-// chokepoint, formatting) per spec §2; expected values follow the spec
-// examples verbatim.
 package render
 
 import (
@@ -18,14 +15,12 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// TestRenderTextJokpoint — Text("a[flint]b") -> "a b".
 func TestRenderTextJokpoint(t *testing.T) {
 	if got := Text("a[flint]b"); got != "a b" {
 		t.Fatalf("Text(\"a[flint]b\") = %q, want \"a b\"", got)
 	}
 }
 
-// TestRenderCellsJokpoint — Cells([[1,"x[flint]y"]]) -> [[1,"x y"]].
 func TestRenderCellsJokpoint(t *testing.T) {
 	got := Cells([][]any{{1, "x[flint]y"}})
 	want := [][]any{{1, "x y"}}
@@ -34,9 +29,6 @@ func TestRenderCellsJokpoint(t *testing.T) {
 	}
 }
 
-// TestRenderDelegates — Text/Masked/Cells are equivalent to direct
-// store.SanitizeText and MaskSecrets calls (mask-then-sanitize order
-// preserved, ADR-0015).
 func TestRenderDelegates(t *testing.T) {
 	cases := []string{
 		"a[flint]b",
@@ -53,12 +45,12 @@ func TestRenderDelegates(t *testing.T) {
 			t.Errorf("Masked(%q) = %q, want %q", in, got, want)
 		}
 	}
-	// Mask-then-sanitize order: [REDACTED:…] traces survive neutralization.
+
 	masked := Masked("token ghp_0123456789abcdefghijklmnopqrst 끝")
 	if !strings.Contains(masked, "[REDACTED:") {
 		t.Errorf("Masked 마커 유실: %q", masked)
 	}
-	// Cells — only string cells are sanitized; non-string cells keep values.
+
 	got := Cells([][]any{{1, "x[flint]y"}, {2, 3.5, nil}})
 	if got[0][0] != 1 || got[0][1] != "x y" {
 		t.Errorf("Cells[0] = %v, want [1 x y]", got[0])
@@ -68,26 +60,12 @@ func TestRenderDelegates(t *testing.T) {
 	}
 }
 
-// TestSanitizeTextChokepoint — within lib/ non-test sources, direct mentions
-// of SanitizeText (calls and indirect references like `f :=
-// store.SanitizeText`) may exist only in the allowed files (lib/render/*,
-// write.go, import.go, done.go, lib/store/sanitize.go,
-// lib/store/pipeline.go) — bypassing render is permanently blocked.
 func TestSanitizeTextChokepoint(t *testing.T) {
 	for _, v := range chokepointViolations("../..") {
 		t.Errorf("%s — render 우회: render.Text/Rows/Cells 사용", v)
 	}
 }
 
-// chokepointViolations — reports SanitizeText identifier tokens (calls
-// `SanitizeText(`, indirect references `:= store.SanitizeText`, and every
-// mention via aliased imports — any mention as an identifier) outside the
-// whitelist across lib/ non-test .go sources under root, as "file:line"
-// entries. Token-based via go/scanner — comments (COMMENT tokens) are not
-// identifiers to begin with, and "//" inside string literals (the old
-// guard's string-level comment stripping deleted everything after "//"
-// inside strings, hiding calls) can never bypass this because they stay
-// inside STRING tokens.
 func chokepointViolations(root string) []string {
 	allowExact := map[string]bool{
 		"lib/knowledge/write.go":  true,
@@ -125,9 +103,7 @@ func chokepointViolations(root string) []string {
 			if tok == token.EOF {
 				break
 			}
-			// MaskSecrets and MaskSecretsStrict identifiers are guarded too —
-			// blocks off-device paths that mask but skip sanitization.
-			// backup.go MaskSecretsFn is the diagnostic dump --mask swap seam.
+
 			if tok == token.IDENT && (lit == "SanitizeText" || lit == "MaskSecrets" || lit == "MaskSecretsStrict") &&
 				!allowExact[rel] && !strings.HasPrefix(rel, allowPrefix) && rel != "lib/ops/backup.go" {
 				found = append(found, fmt.Sprintf("%s:%d(%s)", rel, fset.Position(pos).Line, lit))
@@ -141,13 +117,6 @@ func chokepointViolations(root string) []string {
 	return found
 }
 
-// TestSanitizeTextChokepointIndirect — guard-bypass regressions: indirect
-// references (`leaky := store.SanitizeText` — a paren-less token mention)
-// and in-string "//" concealment (`"https://x//" + store.SanitizeText(s)` —
-// the old guard's comment stripping deleted everything after "//" inside
-// the string, hiding the call) must both be detected. Direct-call
-// detection, comment-mention ignoring, and whitelist passage are asserted
-// alongside.
 func TestSanitizeTextChokepointIndirect(t *testing.T) {
 	root := t.TempDir()
 	dir := filepath.Join(root, "lib", "other")
@@ -155,15 +124,15 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 		t.Fatalf("MkdirAll: %v", err)
 	}
 	files := map[string]string{
-		// indirect-reference bypass attempt — must be detected.
+
 		"bypass.go": "package other\n\nvar leaky = store.SanitizeText\n",
-		// direct call — must be detected.
+
 		"direct.go": "package other\n\nfunc f(s string) string { return store.SanitizeText(s) }\n",
-		// comment mention — ignored.
+
 		"comment.go": "package other\n\n// SanitizeText 주석 언급은 우회가 아니다\nvar x = 1\n",
-		// hiding after "//" inside a string — must be detected (the tokenizing guard's core regression).
+
 		"strslash.go": "package other\n\nvar _ = \"https://demo.invalid//\" + store.SanitizeText(leak)\n",
-		// block-comment mention — ignored (the old guard never stripped /* */ at all).
+
 		"blockcomment.go": "package other\n\n/* SanitizeText 블록 주석 */\nvar y = 2\n",
 	}
 	for name, body := range files {
@@ -171,7 +140,7 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 			t.Fatalf("WriteFile %s: %v", name, err)
 		}
 	}
-	// a direct call from a whitelisted path (lib/render/*) — must pass.
+
 	rdir := filepath.Join(root, "lib", "render")
 	if err := os.MkdirAll(rdir, 0o755); err != nil {
 		t.Fatalf("MkdirAll render: %v", err)
@@ -187,8 +156,6 @@ func TestSanitizeTextChokepointIndirect(t *testing.T) {
 	}
 }
 
-// TestRenderRowsFormat — Rows(rows, "id,topic", false) -> "1|x y\n"
-// (FormatRows formatting convention) · equal to Cells + FormatRows.
 func TestRenderRowsFormat(t *testing.T) {
 	rows := [][]any{{1, "x y"}, {2, "plain"}}
 	got := Rows(rows, "id,topic", false)

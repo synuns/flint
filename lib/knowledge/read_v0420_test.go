@@ -1,9 +1,3 @@
-// read_v0420_test.go — after the read_stats blob abolition, one read
-// writes 4→2 (BumpReads·RecordReadEvent only). The read path neither
-// reads nor writes the meta read_stats key (the blob remaining in an
-// operational DB is a harmless residue — the absence of access is the
-// contract). Intake metering (the RecordReadUsage daily path) is also no
-// longer called for the read kind.
 package knowledge
 
 import (
@@ -14,9 +8,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// readBudgetRecorder — a fake recording all BumpReads·RecordReadEvent·
-// RecordReadUsage calls and meta queries (SQL·args) (inheriting the
-// readEventRecorder convention).
 type readBudgetRecorder struct {
 	*fakeStore
 	bumped  [][]int
@@ -43,9 +34,6 @@ func (r *readBudgetRecorder) RecordReadEvent(ctx context.Context, ev db.ReadEven
 	return nil
 }
 
-// newReadBudgetRecorder — a recording fake answering only the
-// active_knowledge query. hit=true yields phrase-hit rows; otherwise one
-// zero-hit+suggestion-scan row (near classification).
 func newReadBudgetRecorder(hit bool) *readBudgetRecorder {
 	r := &readBudgetRecorder{fakeStore: &fakeStore{}}
 	r.queryFn = func(sql string, args []any) ([][]any, error) {
@@ -58,34 +46,28 @@ func newReadBudgetRecorder(hit bool) *readBudgetRecorder {
 			return nil, nil
 		}
 		if strings.Contains(sql, "id, topic, summary FROM active_knowledge") {
-			// The suggestion scan (3 columns) — one near candidate row of a
-			// zero-hit read. A hit read never triggers the scan in the first
-			// place.
+
 			return [][]any{{int32(7), "flint 백업 절차", "덤프"}}, nil
 		}
 		if strings.Contains(sql, "FROM active_knowledge") {
 			if hit {
 				return hitRowsFixture, nil
 			}
-			return nil, nil // phrase·fallback zero-hit
+			return nil, nil
 		}
 		return nil, nil
 	}
 	return r
 }
 
-// TestReadWritesReduced — after one read call each (hit·zero-hit),
-// asserts the read_stats key is absent from meta writes. Metering leaves
-// only BumpReads (reference increments)·RecordReadEvent (one event row).
 func TestReadWritesReduced(t *testing.T) {
-	// ① Hit read — BumpReads full ids + one read_events row (hits·
-	// zero=false).
+
 	hit := newReadBudgetRecorder(true)
 	var out strings.Builder
 	if code := RunRead(context.Background(), hit, []string{"백업 정책"}, nil, &out); code != 0 {
 		t.Fatalf("hit read exit=%d: %s", code, out.String())
 	}
-	// ② Zero-hit+near read — one read_events row (zero·near=true).
+
 	zn := newReadBudgetRecorder(false)
 	var out2 strings.Builder
 	if code := RunRead(context.Background(), zn, []string{"백업 복구 절차"}, nil, &out2); code != 0 {

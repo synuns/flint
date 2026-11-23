@@ -1,11 +1,3 @@
-// import_fence_r2_test.go — two regressions.
-// (1) CommonMark closing-fence length — a fence line (```·~~~) shorter
-// than the opening fence (````·~~~~) is code content, not a closing
-// fence: a "## " after the short line must not be a heading (preventing
-// spurious knowledge splitting of in-fence headings).
-// (2) A '-'-prefixed value on the import path is already the
-// invalid-arg exit 3 (unknown flag) — pinned as the symmetric contract
-// with the flag-swallowing guard (ValidateFlagValue).
 package knowledge
 
 import (
@@ -14,11 +6,6 @@ import (
 	"testing"
 )
 
-// TestFenceCloseRequiresOpenLength — only a fence at least as long as the
-// opener closes. If a document trying to close 4 fences with 3 were
-// treated as closed, the "## fake heading" after it would split into a
-// section (3 sections) — a CommonMark violation. After the fix it is
-// absorbed as in-fence content (2 sections).
 func TestFenceCloseRequiresOpenLength(t *testing.T) {
 	cases := []struct{ name, open, short, close string }{
 		{"backtick 4>3", "````", "```", "````"},
@@ -37,9 +24,6 @@ func TestFenceCloseRequiresOpenLength(t *testing.T) {
 	}
 }
 
-// TestFenceCloseEqualOrLongerStillCloses — equal-length·longer closing
-// fences still close as before (opened with 3, closed with 3·4 — the
-// normal direction of the lower-bound rule stays invariant).
 func TestFenceCloseEqualOrLongerStillCloses(t *testing.T) {
 	for _, closing := range []string{"```", "````"} {
 		body := "## 섹션\n본문 충분합니다.\n\n```\ncode\n## 펜스 내부\n" + closing + "\n\n## 다음\n본문 충분합니다.\n"
@@ -50,10 +34,6 @@ func TestFenceCloseEqualOrLongerStillCloses(t *testing.T) {
 	}
 }
 
-// TestImportPathFlagLikeArgExits3 — a '-' prefix on an import path
-// argument is a usage error exit 3 (unknown flag) — the same contract as
-// the ValidateFlagValue guard of backup --out·restore --file (a
-// swallowed-typo path is an invalid argument).
 func TestImportPathFlagLikeArgExits3(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}
 	for _, args := range [][]string{

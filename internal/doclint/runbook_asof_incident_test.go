@@ -1,5 +1,3 @@
-// runbook_v094_test.go — RUNBOOK.md에 v0.9.3 실증 복구 절차(AS OF 선택
-// 복원)와 사고 실례 커밋이 문서화되었는지 검증한다(v0.9.4 R2 계약).
 package doclint
 
 import (
@@ -33,8 +31,6 @@ func TestRunbookHasIncidentReference(t *testing.T) {
 	}
 }
 
-// TestRunbookIncidentDateMatchesLog — 실례 날짜가 v0.9.3 인시던트 로그
-// (2026-10-28 09:44, 아카이브 커밋 3cf3081)와 일치하는지 검증한다.
 func TestRunbookIncidentDateMatchesLog(t *testing.T) {
 	s := runbookStr(t)
 	if !strings.Contains(s, "2026-10-28") {

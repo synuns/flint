@@ -1,8 +1,3 @@
-// sign_test.go — PAM signing-key creation-path atomicity regression.
-// LoadOrCreatePAMSigningKey creation is an atomic O_CREATE|O_EXCL open —
-// concurrent calls never create two copies of the same key file·
-// overwrite each other (forced-EEXIST path·all concurrent calls yield a
-// single key). All keys are synthetic (personal data forbidden).
 package knowledge
 
 import (
@@ -18,20 +13,12 @@ import (
 	"time"
 )
 
-// pamSyntheticKey — a fixed-seed synthetic Ed25519 key (for reproducing
-// existing file contents).
 func pamSyntheticKey(t *testing.T) ed25519.PrivateKey {
 	t.Helper()
 	seed := sha256.Sum256([]byte("flint-pam-eexist-demo-seed"))
 	return ed25519.NewKeyFromSeed(seed[:])
 }
 
-// TestLoadOrCreatePAMSigningKeyForcedEEXIST — the forced-EEXIST path: if
-// the file exists but the first read returns ErrNotExist (a visibility
-// race), the create path is entered, and when the O_EXCL open meets
-// EEXIST it **loads and returns the existing file's key** instead of
-// issuing a new one — the single-key guarantee (the atomic creation
-// contract).
 func TestLoadOrCreatePAMSigningKeyForcedEEXIST(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pam-signing-key")
 	pamSwapKeyPath(t, path)
@@ -40,8 +27,7 @@ func TestLoadOrCreatePAMSigningKeyForcedEEXIST(t *testing.T) {
 	if werr := os.WriteFile(path, []byte(hex.EncodeToString(existing)+"\n"), 0o600); werr != nil {
 		t.Fatal(werr)
 	}
-	// Only the first ReadFile returns ErrNotExist — forcing the create
-	// path (subsequent reads hit the real file).
+
 	old := pamKeyReadFile
 	calls := 0
 	pamKeyReadFile = func(p string) ([]byte, error) {
@@ -60,7 +46,7 @@ func TestLoadOrCreatePAMSigningKeyForcedEEXIST(t *testing.T) {
 	if !bytes.Equal(got, existing) {
 		t.Errorf("EEXIST 경로가 신규 키를 발급/반환 — 기존 파일 키여야 한다(단일 키 위반)")
 	}
-	// The file also keeps the existing key (not overwritten).
+
 	b, rerr := os.ReadFile(path)
 	if rerr != nil {
 		t.Fatal(rerr)
@@ -70,10 +56,6 @@ func TestLoadOrCreatePAMSigningKeyForcedEEXIST(t *testing.T) {
 	}
 }
 
-// TestLoadOrCreatePAMSigningKeyConcurrentSingleKey — every concurrent
-// call returns the identical single key (barrier-synchronized start — a
-// WriteFile truncate-race regression: the old implementation updated to
-// the last caller's key and returned different keys per call).
 func TestLoadOrCreatePAMSigningKeyConcurrentSingleKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pam-signing-key")
 	pamSwapKeyPath(t, path)
@@ -104,7 +86,7 @@ func TestLoadOrCreatePAMSigningKeyConcurrentSingleKey(t *testing.T) {
 			t.Fatalf("동시 호출 키 분기(호출 0 vs %d) — 원자 생성 위반", i)
 		}
 	}
-	// The final file also holds the same key.
+
 	b, rerr := os.ReadFile(path)
 	if rerr != nil {
 		t.Fatal(rerr)
@@ -118,9 +100,6 @@ func TestLoadOrCreatePAMSigningKeyConcurrentSingleKey(t *testing.T) {
 	}
 }
 
-// TestLoadOrCreatePAMSigningKeyPartialFileRetriesUntilComplete — even if
-// the first fast-path read hits a preceding creator's incomplete file
-// (the pre-write instant), a bounded retry converges on the complete key.
 func TestLoadOrCreatePAMSigningKeyPartialFileRetriesUntilComplete(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "pam-signing-key")
 	pamSwapKeyPath(t, path)

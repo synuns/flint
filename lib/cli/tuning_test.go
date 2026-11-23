@@ -1,5 +1,3 @@
-// tuning_test.go — the tuning command contracts — list/get/set/reset,
-// real-path value validation (rejecting fallback values), and unknown keys exiting 3.
 package cli
 
 import (
@@ -9,7 +7,6 @@ import (
 	"testing"
 )
 
-// tuningFake — a fake recording meta IN lookups, upserts, and deletes.
 type tuningFake struct {
 	*fakeStore
 	meta map[string]string
@@ -36,7 +33,7 @@ func (f *tuningFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 		}
 		return rows, nil
 	case strings.Contains(sql, "COUNT(CASE WHEN zero") && strings.Contains(sql, "read_events"):
-		// the what-if synthetic window aggregate (sample/zero/reclass).
+
 		return [][]any{{12, 5, 4}}, nil
 	case strings.Contains(sql, "SELECT near_score FROM read_events"):
 		return [][]any{{0.01}, {0.2}, {0.42}, {0.45}, {0.5}}, nil
@@ -47,8 +44,7 @@ func (f *tuningFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 		f.meta[fmt.Sprint(args[0])] = fmt.Sprint(args[1])
 		return nil, nil
 	}
-	// the loadThresholds meta IN lookup is handled by the key IN case above — reaching here
-	// means a fixture-routing contract violation (Fatalf unavailable — identified via an error).
+
 	return nil, fmt.Errorf("tuningFake 미매칭: %s", sql)
 }
 
@@ -61,8 +57,6 @@ func containsKey(args []any, k string) bool {
 	return false
 }
 
-// MetaDelete — reset delegates to db.Repo.MetaDelete (write guard) —
-// the fake records and applies the deleted keys.
 func (f *tuningFake) MetaDelete(ctx context.Context, keys []string) (int64, error) {
 	for _, k := range keys {
 		f.dels = append(f.dels, k)
@@ -74,14 +68,14 @@ func (f *tuningFake) MetaDelete(ctx context.Context, keys []string) (int64, erro
 func TestTuningSetValidatesThroughRealParse(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
-	// valid value — stored.
+
 	if code := runTuning(context.Background(), f, []string{"set", "dead_days", "45"}, nil, &out); code != 0 {
 		t.Fatalf("set exit=%d: %s", code, out.String())
 	}
 	if len(f.sets) != 1 || f.meta["dead_days"] != "45" {
 		t.Fatalf("sets=%v meta=%v", f.sets, f.meta)
 	}
-	// invalid value — parse-fallback detected and rejected (exit 3, not recorded).
+
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"set", "dead_days", "many"}, nil, &out); code != 3 {
 		t.Fatalf("무효 값 exit=%d, want 3: %s", code, out.String())
@@ -104,7 +98,7 @@ func TestTuningUnknownKeyAndList(t *testing.T) {
 	if !strings.Contains(out.String(), `"key":"dead_days"`) || !strings.Contains(out.String(), `"override":false`) {
 		t.Errorf("list 출력 계약 위반: %s", out.String())
 	}
-	// reset — deletes after setting the override.
+
 	runTuning(context.Background(), f, []string{"set", "stale_days", "60"}, nil, &out)
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"reset", "stale_days"}, nil, &out); code != 0 {
@@ -115,8 +109,6 @@ func TestTuningUnknownKeyAndList(t *testing.T) {
 	}
 }
 
-// TestTuningKeysMatchRegistry — the homogeneity of tuningKeys and
-// thresholdsKeys (shared source) — defending against 3-way drift when adding new keys.
 func TestTuningKeysMatchRegistry(t *testing.T) {
 	reg := map[string]bool{}
 	for _, k := range thresholdsKeys() {
@@ -133,8 +125,6 @@ func TestTuningKeysMatchRegistry(t *testing.T) {
 	}
 }
 
-// TestTuningSetRejectsZero — a 0 on a fallback key means "unset" and is thus
-// unrepresentable — it must be rejected (4 keys excluded).
 func TestTuningSetRejectsZero(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
@@ -150,12 +140,10 @@ func TestTuningSetRejectsZero(t *testing.T) {
 	}
 }
 
-// TestTuningMetaKeysSetReset — set validation for meta keys outside thresholds
-// (enumeration, integer, list) and reset --all.
 func TestTuningMetaKeysSetReset(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
-	// exposure_profile enumeration validation.
+
 	if code := runTuning(context.Background(), f, []string{"set", "exposure_profile", "loud"}, nil, &out); code != 3 {
 		t.Fatalf("무효 열거 exit=%d: %s", code, out.String())
 	}
@@ -163,7 +151,7 @@ func TestTuningMetaKeysSetReset(t *testing.T) {
 	if code := runTuning(context.Background(), f, []string{"set", "exposure_profile", "minimal"}, nil, &out); code != 0 {
 		t.Fatalf("minimal set exit=%d: %s", code, out.String())
 	}
-	// vocab list validation — empty elements rejected, valid lists allowed.
+
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"set", "vocab_tags", "a,,b"}, nil, &out); code != 3 {
 		t.Fatalf("빈 원소 exit=%d: %s", code, out.String())
@@ -172,7 +160,7 @@ func TestTuningMetaKeysSetReset(t *testing.T) {
 	if code := runTuning(context.Background(), f, []string{"set", "vocab_tags", "ops,k8s"}, nil, &out); code != 0 {
 		t.Fatalf("정상 목록 exit=%d: %s", code, out.String())
 	}
-	// reset --all — deletes everything.
+
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"reset", "--all"}, nil, &out); code != 0 {
 		t.Fatalf("reset --all exit=%d: %s", code, out.String())
@@ -182,9 +170,6 @@ func TestTuningMetaKeysSetReset(t *testing.T) {
 	}
 }
 
-// TestTuningSetEquivalentFloatNotation —
-// Notations like '0.30' that are numerically valid but differently formatted, previously rejected by
-// string comparison, are now accepted by numeric comparison.
 func TestTuningSetEquivalentFloatNotation(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
@@ -200,9 +185,6 @@ func TestTuningSetEquivalentFloatNotation(t *testing.T) {
 	}
 }
 
-// TestTuningWhatIfAndStatusDelegation — the v1.23.0 what-if/status
-// subcommands pass through the entry branch byte-for-byte to
-// ops.RunTuning (the no --tui path — no cli-side re-implementation).
 func TestTuningWhatIfAndStatusDelegation(t *testing.T) {
 	f := newTuningFake()
 	var out strings.Builder
@@ -212,7 +194,7 @@ func TestTuningWhatIfAndStatusDelegation(t *testing.T) {
 	if !strings.Contains(out.String(), `"reclass_n":4`) || !strings.Contains(out.String(), `"auto":"shadow"`) {
 		t.Fatalf("what-if 위임 출력 계약 위반: %s", out.String())
 	}
-	// a manual-only key stays exit 3 through the same delegation.
+
 	out.Reset()
 	if code := runTuning(context.Background(), f, []string{"what-if", "pending_max", "10"}, nil, &out); code != 3 {
 		t.Fatalf("what-if manual 키 exit=%d, want 3", code)

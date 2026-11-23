@@ -1,7 +1,3 @@
-// export_test.go — contract tests for the flint export CLI wiring.
-// The formatters and source query are faked via seam vars — the RunExport contract
-// itself (flag parsing, stdout/--out, warnings, summary on stderr, exit 0/2/3) is the
-// verification target. The real implementations are wired at the seam default assignment (compile time).
 package cli
 
 import (
@@ -25,9 +21,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// installExportFakes — installs export-seam fakes in bulk + captures stderr.
-// If rowsFn is nil, installs the default rows fake (2 rows); the formatter is a minimal fake that
-// returns the format name as-is. The return value is the captured stderr buffer.
 func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error)) *bytes.Buffer {
 	t.Helper()
 	if rowsFn == nil {
@@ -35,20 +28,19 @@ func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.S
 			return []knowledge.ExportRow{{ID: 1, Topic: "demo-a", Status: "active"}, {ID: 2, Topic: "demo-b", Status: "active"}}, nil
 		}
 	}
-	// the formatter seam is a 3-tuple (body, summary-reported row count, error) — the fake
-	// reports the total row count (len(rows)) (only the real pam returns the published count).
+
 	mk := func(name string) func([]knowledge.ExportRow) ([]byte, int, error) {
 		return func(rows []knowledge.ExportRow) ([]byte, int, error) {
 			return []byte(fmt.Sprintf("<%s of %d rows>\n", name, len(rows))), len(rows), nil
 		}
 	}
-	// the pam seam is variadic since v1.20.0 T5 (the links carrier).
+
 	mkPAM := func() func([]knowledge.ExportRow, ...knowledge.PAMLinkRow) ([]byte, int, error) {
 		return func(rows []knowledge.ExportRow, links ...knowledge.PAMLinkRow) ([]byte, int, error) {
 			return []byte(fmt.Sprintf("<pam of %d rows>\n", len(rows))), len(rows), nil
 		}
 	}
-	// the md seam is variadic since v1.20.0 T5 wiring (the chains carrier).
+
 	mkMD := func() func([]knowledge.ExportRow, ...map[int][]int) ([]byte, int, error) {
 		return func(rows []knowledge.ExportRow, chains ...map[int][]int) ([]byte, int, error) {
 			return []byte(fmt.Sprintf("<md of %d rows>\n", len(rows))), len(rows), nil
@@ -66,7 +58,6 @@ func installExportFakes(t *testing.T, rowsFn func(ctx context.Context, st wire.S
 	return &stderr
 }
 
-// RF1 — defaults: jsonl format, stdout output, exit 0, summary on stderr.
 func TestRunExportDefaultJSONLToStdout(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -82,7 +73,6 @@ func TestRunExportDefaultJSONLToStdout(t *testing.T) {
 	}
 }
 
-// RF2 — --out: the one-line overwrite warning for an existing file goes to stderr before the file write.
 func TestRunExportOutFileOverwriteWarning(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	dir := t.TempDir()
@@ -111,7 +101,6 @@ func TestRunExportOutFileOverwriteWarning(t *testing.T) {
 	}
 }
 
-// RF2b — --out new file: written with no warning.
 func TestRunExportOutNewFileNoWarning(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "new.jsonl")
@@ -127,7 +116,6 @@ func TestRunExportOutNewFileNoWarning(t *testing.T) {
 	}
 }
 
-// RF3 — each format switch: the corresponding formatter result to stdout, format name in the summary.
 func TestRunExportFormatSwitches(t *testing.T) {
 	for _, format := range []string{"jsonl", "md", "txt", "csv"} {
 		stderr := installExportFakes(t, nil)
@@ -145,7 +133,6 @@ func TestRunExportFormatSwitches(t *testing.T) {
 	}
 }
 
-// RF4 — --since: the parsed RFC3339 value is passed to the source filter (cutoff).
 func TestRunExportSinceCutoff(t *testing.T) {
 	var got *knowledge.ExportFilter
 	stderr := installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
@@ -162,13 +149,12 @@ func TestRunExportSinceCutoff(t *testing.T) {
 	}
 }
 
-// RF5 — invalid format, status, since, or unknown flag exits 3.
 func TestRunExportInvalidValuesExit3(t *testing.T) {
 	cases := [][]string{
 		{"--format", "xml"},
 		{"--status", "bogus"},
 		{"--since", "not-a-date"},
-		{"--format"}, // trailing flag without a value
+		{"--format"},
 		{"--bogus-flag"},
 	}
 	for _, args := range cases {
@@ -184,7 +170,6 @@ func TestRunExportInvalidValuesExit3(t *testing.T) {
 	}
 }
 
-// RF6 — server-down: Ping ErrServerDown -> MapExit exit 2.
 func TestRunExportServerDownExit2(t *testing.T) {
 	installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -194,7 +179,6 @@ func TestRunExportServerDownExit2(t *testing.T) {
 	}
 }
 
-// RF6b — nil store -> exit 2 (contract: nil store and server-down exit 2).
 func TestRunExportNilStoreExit2(t *testing.T) {
 	installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -204,21 +188,19 @@ func TestRunExportNilStoreExit2(t *testing.T) {
 	}
 }
 
-// RF7 — exact summary stderr format: exported N rows (format, M bytes).
 func TestRunExportSummaryStderrFormat(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	var stdout bytes.Buffer
 	if code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout); code != 0 {
 		t.Fatalf("exit = %d, want 0", code)
 	}
-	// the fake jsonl output "<jsonl of 2 rows>\n" = 18 bytes.
+
 	want := "exported 2 rows (jsonl, 18 bytes)\n"
 	if got := stderr.String(); got != want {
 		t.Fatalf("stderr = %q, want %q", got, want)
 	}
 }
 
-// RF8 --status/--tag: parsed values passed to the source filter (default active).
 func TestRunExportStatusAndTagFilter(t *testing.T) {
 	var got *knowledge.ExportFilter
 	stderr := installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
@@ -232,7 +214,7 @@ func TestRunExportStatusAndTagFilter(t *testing.T) {
 	if got == nil || got.Status != "all" || got.Tag != "demo" {
 		t.Fatalf("filters not passed: %+v", got)
 	}
-	// default: status active.
+
 	got = nil
 	code = runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &bytes.Buffer{})
 	if code != 0 || got == nil || got.Status != "active" {
@@ -240,15 +222,12 @@ func TestRunExportStatusAndTagFilter(t *testing.T) {
 	}
 }
 
-// exportSidecarHex — sha256 hex of data (for computing test expectations).
 func exportSidecarHex(t *testing.T, data []byte) string {
 	t.Helper()
 	d := sha256.Sum256(data)
 	return hex.EncodeToString(d[:])
 }
 
-// RF9 — on --out success a <FILE>.sha256 sidecar: sha256sum -c compatible format
-// "<hex>  <basename>\n" (same as the backup --out convention — ADR-0006).
 func TestRunExportOutSidecarChecksum(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "export.jsonl")
@@ -270,7 +249,6 @@ func TestRunExportOutSidecarChecksum(t *testing.T) {
 	}
 }
 
-// RF10 — on re-run (content change) the sidecar refreshes: no stale hash left behind.
 func TestRunExportOutSidecarRefreshedOnRerun(t *testing.T) {
 	installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "export.jsonl")
@@ -281,7 +259,7 @@ func TestRunExportOutSidecarRefreshedOnRerun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// second run: rows grow, so the output bytes differ.
+
 	old := exportRowsFn
 	exportRowsFn = func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
 		return []knowledge.ExportRow{{ID: 1, Topic: "demo-a"}, {ID: 2, Topic: "demo-b"}, {ID: 3, Topic: "demo-c"}}, nil
@@ -306,9 +284,8 @@ func TestRunExportOutSidecarRefreshedOnRerun(t *testing.T) {
 	}
 }
 
-// RF11 — stdout mode or a failed --out write creates no sidecar.
 func TestRunExportNoSidecarOnStdoutOrOutFailure(t *testing.T) {
-	// stdout mode: leaves no .sha256 in cwd.
+
 	dir := t.TempDir()
 	oldWD, _ := os.Getwd()
 	if err := os.Chdir(dir); err != nil {
@@ -323,7 +300,7 @@ func TestRunExportNoSidecarOnStdoutOrOutFailure(t *testing.T) {
 	if _, err := os.Stat("out.jsonl.sha256"); err == nil {
 		t.Fatal("stdout mode must not create a sidecar")
 	}
-	// --out failure (path is a directory -> WriteFile fails, exit 1): no sidecar.
+
 	installExportFakes(t, nil)
 	d := t.TempDir()
 	if code := runExport(context.Background(), &fakeStore{}, []string{"--out", d}, strings.NewReader(""), &bytes.Buffer{}); code != 1 {
@@ -334,8 +311,6 @@ func TestRunExportNoSidecarOnStdoutOrOutFailure(t *testing.T) {
 	}
 }
 
-// RF18 — `--out -`: POSIX convention (path "-" = stdout) — exactly the same as
-// omitting --out. The body goes to stdout; no `-` or `-.sha256` files are left in cwd.
 func TestRunExportOutDashIsStdout(t *testing.T) {
 	t.Chdir(t.TempDir())
 	stderr := installExportFakes(t, nil)
@@ -357,9 +332,6 @@ func TestRunExportOutDashIsStdout(t *testing.T) {
 	}
 }
 
-// RF12 — sidecar write failure (sidecar path is a directory): stderr warning +
-// exit 0 kept (the backup convention — a sidecar failure must not harm the successful
-// body write).
 func TestRunExportSidecarFailureWarnsButExits0(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	dir := t.TempDir()
@@ -382,8 +354,6 @@ func TestRunExportSidecarFailureWarnsButExits0(t *testing.T) {
 	}
 }
 
-// RF13 — --format pam: parses fine (exit 0), the pam formatter result to stdout,
-// format name in the summary. A PAM (Portable AI Memory) v1.0 exchange document.
 func TestRunExportFormatPAM(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	var stdout bytes.Buffer
@@ -399,10 +369,8 @@ func TestRunExportFormatPAM(t *testing.T) {
 	}
 }
 
-// RF13b — the formatPAMFn seam default connects to the real FormatPAM with "flint/"+version:
-// a single JSON document, schema field, and exported_by contract.
 func TestRunExportPAMSeamDefaultRealDoc(t *testing.T) {
-	realPAM := formatPAMFn // the default real implementation before installExportFakes lays down its fake
+	realPAM := formatPAMFn
 	if realPAM == nil {
 		t.Fatal("formatPAMFn default must be the real FormatPAM wiring")
 	}
@@ -436,7 +404,6 @@ func TestRunExportPAMSeamDefaultRealDoc(t *testing.T) {
 	}
 }
 
-// RF13c — pam also gets the --out sidecar (the implementation is common to all formats).
 func TestRunExportPAMOutSidecar(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	path := filepath.Join(t.TempDir(), "export.pam.json")
@@ -448,11 +415,8 @@ func TestRunExportPAMOutSidecar(t *testing.T) {
 	}
 }
 
-// RF16 — the --format pam summary row count is reported as the pam published-document count
-// (total_memories — pending excluded by pam design). Even with 3 total query rows
-// (1 pending), the summary is "exported 2 rows".
 func TestRunExportPAMSummaryCountsIssuedRows(t *testing.T) {
-	realPAM := formatPAMFn // the default real implementation before installExportFakes lays down its fake
+	realPAM := formatPAMFn
 	stderr := installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
 		return []knowledge.ExportRow{
 			{ID: 1, Topic: "demo-a", Status: "active"},
@@ -471,8 +435,6 @@ func TestRunExportPAMSummaryCountsIssuedRows(t *testing.T) {
 	}
 }
 
-// RF16b — the published count reported by the formatter is used as-is in the summary (2 total rows, 1 published
-// fake — proves the summary is not len(rows)).
 func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	old := formatPAMFn
@@ -490,12 +452,6 @@ func TestRunExportSummaryUsesFormatterIssuedCount(t *testing.T) {
 	}
 }
 
-// --- §18 `--sign` entry (pam-only via --format pam) ---
-
-// installPAMSignFakes — swaps exportSignKeyFn and formatPAMSignedFn (call-recording
-// wrappers). Defaults are a fixed synthetic key and a minimal fake body; with SUPERLITE_REAL=1,
-// the same tests are re-verified against the real implementation (real key creation in a
-// temp path, real FormatPAMSigned wiring) (seam check). Returns: (call count, passed key).
 func installPAMSignFakes(t *testing.T) (*int, *ed25519.PrivateKey) {
 	t.Helper()
 	var keyFn func() (ed25519.PrivateKey, error)
@@ -542,8 +498,6 @@ func installPAMSignFakes(t *testing.T) (*int, *ed25519.PrivateKey) {
 	return &calls, &gotKey
 }
 
-// RF17 — `--format pam --sign`: key loader -> signed-formatter entry, exit 0.
-// With SUPERLITE_REAL=1, the real FormatPAMSigned document goes to stdout.
 func TestRunExportPAMSignEntry(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	calls, gotKey := installPAMSignFakes(t)
@@ -574,7 +528,6 @@ func TestRunExportPAMSignEntry(t *testing.T) {
 	}
 }
 
-// RF17b — --sign is pam-only: combining with other formats is a usage error, exit 3.
 func TestRunExportSignRequiresPAM(t *testing.T) {
 	installExportFakes(t, nil)
 	calls, _ := installPAMSignFakes(t)
@@ -591,7 +544,6 @@ func TestRunExportSignRequiresPAM(t *testing.T) {
 	}
 }
 
-// RF17c — key load failure is an error exit 1 (no document published).
 func TestRunExportSignKeyFailureExit1(t *testing.T) {
 	installExportFakes(t, nil)
 	calls, _ := installPAMSignFakes(t)
@@ -611,8 +563,6 @@ func TestRunExportSignKeyFailureExit1(t *testing.T) {
 	}
 }
 
-// maxRowsExportFake — a fake that reads only the export_import_max_rows override from
-// thresholds IN lookups (0 rows for the rest). Same response contract as the import maxRowsFake.
 func maxRowsExportFake(max string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key IN") {
@@ -622,10 +572,8 @@ func maxRowsExportFake(max string) *fakeStore {
 	}}
 }
 
-// RF14 — query result rows == max (boundary) passes. The cap key is
-// export_import_max_rows (shared with import — meta override sets max=2).
 func TestRunExportMaxRowsBoundary(t *testing.T) {
-	stderr := installExportFakes(t, nil) // default rows fake: 2 rows
+	stderr := installExportFakes(t, nil)
 	var stdout bytes.Buffer
 	code := runExport(context.Background(), maxRowsExportFake("2"), nil, strings.NewReader(""), &stdout)
 	if code != 0 {
@@ -639,8 +587,6 @@ func TestRunExportMaxRowsBoundary(t *testing.T) {
 	}
 }
 
-// RF15 — query result rows > max exits 3 with the error JSON {max,count}
-// (following the import enforceImportMaxRows format). Formatters and output never run.
 func TestRunExportMaxRowsExceeded(t *testing.T) {
 	installExportFakes(t, func(ctx context.Context, st wire.Store, f knowledge.ExportFilter) ([]knowledge.ExportRow, error) {
 		return []knowledge.ExportRow{
@@ -662,8 +608,6 @@ func TestRunExportMaxRowsExceeded(t *testing.T) {
 	}
 }
 
-// installExportTTY — swaps the adaptive-entry TTY-check seam (default real
-// implementation tui.IsTerminalStdout).
 func installExportTTY(t *testing.T, tty bool) {
 	t.Helper()
 	orig := exportTTYFn
@@ -671,7 +615,6 @@ func installExportTTY(t *testing.T, tty bool) {
 	t.Cleanup(func() { exportTTYFn = orig })
 }
 
-// installExportTUIFake — swaps the exportTUIFn seam (records calls + returns the given code).
 func installExportTUIFake(t *testing.T, code int) *int {
 	t.Helper()
 	called := 0
@@ -684,7 +627,6 @@ func installExportTUIFake(t *testing.T, code int) *int {
 	return &called
 }
 
-// RF-adaptive-2 — no args or flags + terminal: delegates to the TUI flow, exit passes through.
 func TestRunExportAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	installExportFakes(t, nil)
 	called := installExportTUIFake(t, 7)
@@ -699,10 +641,9 @@ func TestRunExportAdaptiveNoArgsTTYLaunchesTUI(t *testing.T) {
 	}
 }
 
-// RF-adaptive-3 — no args + non-terminal (pipe): the default jsonl stdout contract is unchanged.
 func TestRunExportAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	stderr := installExportFakes(t, nil)
-	installExportTUIFake(t, 9) // would return 9 — detects whether the pipe path bypasses it
+	installExportTUIFake(t, 9)
 	installExportTTY(t, false)
 	var stdout bytes.Buffer
 	code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout)
@@ -717,8 +658,6 @@ func TestRunExportAdaptiveNoArgsPipedUnchanged(t *testing.T) {
 	}
 }
 
-// RF-adaptive-1 — explicit --tui + non-terminal: the existing fallback exit 3 unchanged
-// (exportTUIFn default = tui.RunExport — immediate error before the form starts).
 func TestRunExportExplicitTUINonTerminalFallback(t *testing.T) {
 	installExportFakes(t, nil)
 	installExportTTY(t, false)
@@ -735,7 +674,6 @@ func TestRunExportExplicitTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// RF-adaptive-4 — flags present + terminal: the current flag path is kept (no TUI entry).
 func TestRunExportAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	stderr := installExportFakes(t, nil)
 	installExportTUIFake(t, 9)
@@ -753,11 +691,10 @@ func TestRunExportAdaptiveFlagWithTTYStaysFlagPath(t *testing.T) {
 	}
 }
 
-// RF-noenv — FLINT_NO_TUI=1 forces the current jsonl path even on a terminal (escape hatch).
 func TestRunExportNoTUIEnvForcesFlagPath(t *testing.T) {
 	t.Setenv("FLINT_NO_TUI", "1")
 	stderr := installExportFakes(t, nil)
-	called := installExportTUIFake(t, 9) // would return 9 for instant detection
+	called := installExportTUIFake(t, 9)
 	installExportTTY(t, true)
 	var stdout bytes.Buffer
 	code := runExport(context.Background(), &fakeStore{}, nil, strings.NewReader(""), &stdout)

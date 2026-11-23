@@ -1,13 +1,7 @@
-// suggest_v0131_test.go — the contracts of the 2 public Dice-coefficient wrappers
-// (set and multiset). Exclusively for cli reuse (the maintain contradiction classification) — suggestion behavior unchanged.
 package query
 
 import "testing"
 
-// TestBigramDicePublicVariants — the set version BigramDice delegates to the internal
-// bigramDice; the multiset version BigramDiceMultiset counts repeated bigrams by
-// occurrence. Pinned with the repeated-syllable fixture pair (set 1,
-// multiset 0.5) — merging into one would break either the existing classification or the suggestions.
 func TestBigramDicePublicVariants(t *testing.T) {
 	if got := BigramDice("백업복구", "백업복구"); got != 1 {
 		t.Errorf("집합판 동일 문자열 = %v, want 1", got)

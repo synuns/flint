@@ -1,8 +1,5 @@
 package flintplugin
 
-// T67 plugin --source — 플러그인의 모든 flint write 호출은 --source hook를
-// 전달한다(hot/read·done 무변경). 소스 미지정 write 경로 누락 없음.
-
 import (
 	"encoding/json"
 	"os"
@@ -10,7 +7,6 @@ import (
 	"testing"
 )
 
-// hookWriteCommands — hooks.json의 모든 훅 커맨드를 평면화한다.
 func hookWriteCommands(t *testing.T, doc map[string]any) []string {
 	t.Helper()
 	events, ok := doc["hooks"].(map[string]any)
@@ -50,8 +46,6 @@ func hookWriteCommands(t *testing.T, doc map[string]any) []string {
 	return cmds
 }
 
-// TestHooksPassSourceFlag — v0.6: JSON 파싱 가능 + write 호출 전수에
-// --source hook 포함 + hot/read 호출은 무변경(--source 없음).
 func TestHooksPassSourceFlag(t *testing.T) {
 	raw, err := os.ReadFile("hooks/hooks.json")
 	if err != nil {
@@ -68,7 +62,7 @@ func TestHooksPassSourceFlag(t *testing.T) {
 				t.Errorf("write 훅 커맨드에 --source hook 없음: %q", cmd)
 			}
 		}
-		// hot/read는 계측을 CLI 내부에서 하므로 훅 명령은 무변경이어야 한다.
+
 		if strings.Contains(cmd, "flint hot") || strings.Contains(cmd, "flint read") {
 			if strings.Contains(cmd, "--source") {
 				t.Errorf("hot/read 훅 커맨드가 변경됨(--source 불필요): %q", cmd)
@@ -77,10 +71,6 @@ func TestHooksPassSourceFlag(t *testing.T) {
 	}
 }
 
-// TestPluginDocsPassSourceHook — 커맨드·스킬 문서의 flint write 예시
-// 전수에 등록된 --source(명시 소스) 포함, write 예시 자체가 존재해야 한다.
-// 소스 등록표는 lib/knowledge/write.go sourceRegistry — 여기서는
-// 미러 목록(플러그인 모듈 경계)로 동질 유지, 신규 채널 추가 시 갱신.
 func TestPluginDocsPassSourceHook(t *testing.T) {
 	sources := []string{"hook", "manual", "mcp", "correction", "gap"}
 	for _, path := range []string{

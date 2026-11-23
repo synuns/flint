@@ -1,6 +1,3 @@
-// encrypt_test.go — the age encryption core contract — identity creation
-// and reload (0600), roundtrip, tamper detection, format detection, and the
-// single read path (decryption, masked-dump rejection, key requirement).
 package backup
 
 import (
@@ -11,7 +8,6 @@ import (
 	"testing"
 )
 
-// TestEnsureIdentityCreatesAndReloads — create -> reload idempotence (0600).
 func TestEnsureIdentityCreatesAndReloads(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "sub", "backup.key")
 	id1, err := EnsureIdentity(path)
@@ -34,7 +30,6 @@ func TestEnsureIdentityCreatesAndReloads(t *testing.T) {
 	}
 }
 
-// TestEncryptRoundtrip — encrypt -> decrypt roundtrip + the age header.
 func TestEncryptRoundtrip(t *testing.T) {
 	id, err := EnsureIdentity(filepath.Join(t.TempDir(), "backup.key"))
 	if err != nil {
@@ -60,19 +55,17 @@ func TestEncryptRoundtrip(t *testing.T) {
 	}
 }
 
-// TestDecryptTamperedFails — tamper detection (age AEAD).
 func TestDecryptTamperedFails(t *testing.T) {
 	id, _ := EnsureIdentity(filepath.Join(t.TempDir(), "backup.key"))
 	var ct bytes.Buffer
 	EncryptTo(&ct, []byte("덤프 본문 — 최소 길이"), id.Recipient())
 	b := ct.Bytes()
-	b[len(b)-1] ^= 0xFF // tamper the last byte
+	b[len(b)-1] ^= 0xFF
 	if _, err := DecryptFrom(bytes.NewReader(b), id); err == nil {
 		t.Error("변조 암호문 복호 성공 — AEAD 무결성 위반")
 	}
 }
 
-// TestReadDumpBytesPlainEncryptedMasked — the four quadrants of the single read path.
 func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	dir := t.TempDir()
 	key := filepath.Join(dir, "backup.key")
@@ -80,14 +73,14 @@ func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Plaintext.
+
 	p := filepath.Join(dir, "p.sql")
 	os.WriteFile(p, []byte("-- dump\nINSERT 1;"), 0o600)
 	got, err := ReadDumpBytes(p, "")
 	if err != nil || string(got) != "-- dump\nINSERT 1;" {
 		t.Fatalf("평문 판독: %v %q", err, got)
 	}
-	// Ciphertext — decrypted when the key is present.
+
 	e := filepath.Join(dir, "e.sql.age")
 	var ct bytes.Buffer
 	if err := EncryptTo(&ct, []byte("-- dump\nINSERT 2;"), id.Recipient()); err != nil {
@@ -98,17 +91,17 @@ func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	if err != nil || !strings.Contains(string(got), "INSERT 2;") {
 		t.Fatalf("암호문 판독: %v %q", err, got)
 	}
-	// Ciphertext — ErrKeyPathRequired when no key path.
+
 	if _, err := ReadDumpBytes(e, ""); err != ErrKeyPathRequired {
 		t.Errorf("키 없음 = %v, want ErrKeyPathRequired", err)
 	}
-	// Ciphertext — ErrEncryptKeyCorrupt for a corrupt key file (distinct from absence).
+
 	bad := filepath.Join(dir, "bad.key")
 	os.WriteFile(bad, []byte("AGE-SECRET-KEY-NOTVALID"), 0o600)
 	if _, err := ReadDumpBytes(e, bad); err != ErrEncryptKeyCorrupt {
 		t.Errorf("불량 키 = %v, want ErrEncryptKeyCorrupt", err)
 	}
-	// Masked dump — rejected (plaintext or ciphertext alike).
+
 	m := filepath.Join(dir, "m.sql")
 	os.WriteFile(m, []byte(MaskDumpHeader+"\n-- masked\nINSERT 3;"), 0o600)
 	if _, err := ReadDumpBytes(m, ""); err != ErrMaskedDump {
@@ -116,7 +109,6 @@ func TestReadDumpBytesPlainEncryptedMasked(t *testing.T) {
 	}
 }
 
-// TestIsEncryptedFile — file detection (absent file -> false).
 func TestIsEncryptedFile(t *testing.T) {
 	dir := t.TempDir()
 	id, _ := EnsureIdentity(filepath.Join(dir, "backup.key"))
@@ -137,9 +129,6 @@ func TestIsEncryptedFile(t *testing.T) {
 	}
 }
 
-// TestEnsureIdentityRefusesCorruptKey — a corrupt existing key is not
-// overwritten (preventing a confirmed permanent loss of decryptability for
-// existing ciphertext).
 func TestEnsureIdentityRefusesCorruptKey(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "backup.key")
 	os.WriteFile(path, []byte("AGE-SECRET-KEY-NOTVALID"), 0o600)

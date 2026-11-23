@@ -1,5 +1,3 @@
-// usage_v0200_test.go — session boundaries·hot exposure recording·the
-// 3-table unified retention cleanup slow tests (real DB).
 package db
 
 import (
@@ -8,9 +6,6 @@ import (
 	"time"
 )
 
-// TestSessionStartAndHotEventRecords — the recording methods leave the
-// values as-is, and the 14-day retention cleanup (PruneReadEvents)
-// deletes only the expired portion across all 3 tables.
 func slowSessionStartAndHotEventRecords(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	if err := r.EnsureSchemaV7(ctx); err != nil {
@@ -32,8 +27,7 @@ func slowSessionStartAndHotEventRecords(t *testing.T, r *Repo) {
 	if err := r.RecordHotEvent(ctx, label); err != nil {
 		t.Fatalf("RecordHotEvent: %v", err)
 	}
-	// Roll the 2 session starts back 20 days, past the retention
-	// horizon.
+
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE session_starts SET ts = $1 WHERE session = $2`,
 		time.Now().UTC().Add(-20*24*time.Hour), label); err != nil {

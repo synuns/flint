@@ -1,8 +1,3 @@
-// run_test.go — the ErrLine usage-classification contract. Invalid arguments (unknown
-// flag, missing value, etc.) yield error:"usage" (a value extension — structure unchanged,
-// downstream-parser compatible); internal defects stay internal; SchemaError stays
-// schema (regression). Plus the --version/-v global alias and the help/unknown
-// guidance form (error key abolished) contracts.
 package wire
 
 import (
@@ -17,7 +12,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// decodeErrLine — decodes the ErrLine one-line JSON into a map.
 func decodeErrLine(t *testing.T, line string) map[string]string {
 	t.Helper()
 	var m map[string]string
@@ -27,8 +21,6 @@ func decodeErrLine(t *testing.T, line string) map[string]string {
 	return m
 }
 
-// TestErrLineUsage — a usage error's error value is
-// "usage" (only the value replaced from the old internal).
 func TestErrLineUsage(t *testing.T) {
 	t.Run("usage 오류 — error:usage", func(t *testing.T) {
 		m := decodeErrLine(t, ErrLine(UsageErrorf("unknown flag: %s", "--wat")))
@@ -53,8 +45,6 @@ func TestErrLineUsage(t *testing.T) {
 	})
 }
 
-// TestUsageErrorfWrap — UsageErrorf supports %w wrapping, and errors.Is can
-// resolve the original (UsageError is a classification marker — the original is preserved).
 func TestUsageErrorfWrap(t *testing.T) {
 	inner := errors.New("bad arg")
 	ue := UsageErrorf("wrap: %w", inner)
@@ -66,9 +56,6 @@ func TestUsageErrorfWrap(t *testing.T) {
 	}
 }
 
-// TestVersionFlagAlias — `flint --version`·
-// `flint -v` is a global flag alias — the same output and exit 0 as `flint version`.
-// Being a store-free pre-step, it does not conflict with the unknown-command exit 3.
 func TestVersionFlagAlias(t *testing.T) {
 	probeHandler(t, "version", func(ctx context.Context, st Store, args []string, stdin io.Reader, stdout io.Writer) int {
 		if st != nil {
@@ -86,7 +73,7 @@ func TestVersionFlagAlias(t *testing.T) {
 			t.Fatalf("Run(%v) 출력=%q, want version과 동일 출력", argv, got)
 		}
 	}
-	// a near miss (--versio) is not an alias — unknown command keeps exit 3.
+
 	var out bytes.Buffer
 	if code := Run([]string{"--versio"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
 		return nil, errors.New("unused")
@@ -95,9 +82,6 @@ func TestVersionFlagAlias(t *testing.T) {
 	}
 }
 
-// TestHelpFlagAlias — `flint -h` and `flint --help` are
-// global aliases — the same output and exit 0 as `flint help` (inheriting the
-// --version/-v convention, a pre-dispatch rewrite). A near miss (--hel) is not an alias (unknown 3).
 func TestHelpFlagAlias(t *testing.T) {
 	var want bytes.Buffer
 	if code := RunHelp(&want); code != 0 {
@@ -120,9 +104,6 @@ func TestHelpFlagAlias(t *testing.T) {
 	}
 }
 
-// TestHelpInformationalFirstLine — help
-// The output's first line is the guidance form without an error key — the
-// informational content (the command list) is kept, and the exit 0 contract too.
 func TestHelpInformationalFirstLine(t *testing.T) {
 	var out bytes.Buffer
 	if code := RunHelp(&out); code != 0 {
@@ -141,8 +122,6 @@ func TestHelpInformationalFirstLine(t *testing.T) {
 	}
 }
 
-// TestUnknownCommandGuidanceNoErrorKey — the unknown-command guidance is also in
-// the guidance form without an error key — the unknown-command fact (message) and the usage information are kept, and the exit stays at the existing contract of 3.
 func TestUnknownCommandGuidanceNoErrorKey(t *testing.T) {
 	var out bytes.Buffer
 	if code := Run([]string{"no-such-cmd"}, strings.NewReader(""), &out, func(ctx context.Context, dsn string) (Store, error) {
@@ -166,9 +145,6 @@ func TestUnknownCommandGuidanceNoErrorKey(t *testing.T) {
 	}
 }
 
-// TestUnknownCommandLineEscapesCommand (an escaping regression):
-// the guidance-line assembly passes the caller-controlled string (cmd)
-// through json.Marshal — raw concatenation cannot corrupt the JSON structure.
 func TestUnknownCommandLineEscapesCommand(t *testing.T) {
 	line := UnknownCommandLine(`x"}{"injected":1`)
 	m := decodeErrLine(t, line)

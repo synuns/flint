@@ -1,6 +1,3 @@
-// read_v0140_test.go — the zero-hit silence contract (fully no output +
-// exit 1) and the zero_near internal classification metering (spec §3 R1, R2). The fakeStore query
-// capture pattern is inherited from read_v0100_test.go.
 package cli
 
 import (
@@ -11,19 +8,15 @@ import (
 	"testing"
 )
 
-// mustSuggestStore — both phrase and fallback zero-hit; the suggestion scan returns the scan rows.
-// If scan is an empty slice, it becomes a 0-candidate fixture.
 func mustSuggestStore(scan [][]any) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "id, topic, summary FROM active_knowledge") {
 			return scan, nil
 		}
-		return nil, nil // phrase, fallback, and meta all zero/empty
+		return nil, nil
 	}}
 }
 
-// nearCountingStore — 1 suggestion-scan row (a similarity-cap candidate) + meta INSERT
-// key=value capture. Verifies the zero_near increment rewrite.
 func nearCountingStore(metaInserts *[]string) *fakeStore {
 	return &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -35,13 +28,11 @@ func nearCountingStore(metaInserts *[]string) *fakeStore {
 			}
 			return nil, nil
 		default:
-			return nil, nil // phrase, fallback, and meta reads all zero/empty
+			return nil, nil
 		}
 	}}
 }
 
-// TestReadZeroHitSilent — a zero hit is fully silent with or without scan candidates
-// (exit 1, including no suggestions line — no leftover suggestion line).
 func TestReadZeroHitSilent(t *testing.T) {
 	cases := []struct {
 		name string
@@ -65,9 +56,6 @@ func TestReadZeroHitSilent(t *testing.T) {
 	}
 }
 
-// TestReadZeroHitNearCounted — a zero hit with 1 scan candidate ->
-// the near classification is recorded in 1 read_events row (Near=true) (the old
-// read_stats zero_near increment is abolished — no read_stats key in the meta INSERT).
 func TestReadZeroHitNearCounted(t *testing.T) {
 	ctx := context.Background()
 	var out bytes.Buffer

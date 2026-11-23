@@ -1,7 +1,3 @@
-// frontmatter_test.go — the leading `---` block parser: the three value
-// forms (flow / block / quoted — the spec §ruling acceptance set), the
-// empty-frontmatter and no-frontmatter boundaries, CRLF line endings, and
-// an unterminated block (treated as body, not frontmatter).
 package vault
 
 import (

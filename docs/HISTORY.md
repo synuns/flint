@@ -6,6 +6,17 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.26.2 patch (2026-11-23) — comment sweep: all narrative comments removed (directive-only comments remain)
+
+User directive (2026-11-23): comments are garbage. AST-based sweep
+(go/parser — string literals never touched), 556 files, 23,960
+comments deleted. Kept: `//go:*` compiler directives (go:embed,
+go:build), `//nolint*`, legacy `// +build`. No license headers existed.
+SQL files (lib/sqlfs) untouched. Zero behavior change: build green,
+staticcheck clean, full suite green. Eliminates the SA9009 class
+(comment lines that read as malformed directives) at the root. New
+code from now on carries no narrative comments.
+
 ### v1.26.1 patch (2026-11-23) — surface-trust audit fixes: explicit-check cache refresh · keyword-DSN guard · registry offline cache display
 
 Patch round R111+R112 findings. No schema change.
@@ -24,8 +35,8 @@ Patch round R111+R112 findings. No schema change.
   server would be a cross-server no-op at best; the connection error
   flows unchanged.
 - **registry offline cache display (R111-5)**: doctor versions shows
-  the cached registry copy with its age ("registry vX (cached, Nh old,
-  unverified — offline)") when the fetch fails — the cache is evidence,
+  the cached registry copy with its age ("registry v1.25.0 (cached,
+  unverified — offline, 5h old)") when the fetch fails — the cache is evidence,
   with its staleness visible; still not a warn.
 - **concurrent first-run seed (R112-2)**: seedEnsureDBFn tolerates
   42P04 duplicate_database — a parallel creator winning the

@@ -1,6 +1,3 @@
-// report_html_test.go — a product-analytics-grounded layout (the Plausible
-// KPI strip, Vercel hero inline, Stripe type discipline). No card grids;
-// a narrative flow, color discipline (green = improvement only), and the token-estimate footer contract.
 package cli
 
 import (
@@ -11,7 +8,6 @@ import (
 	"testing"
 )
 
-// synthDash5 — a synthetic fixture of all spec elements.
 func synthDash5() htmlDashboard {
 	d := htmlDashboard{
 		GeneratedAt: "2026-01-01T00:00:00Z",
@@ -58,7 +54,6 @@ func synthDash5() htmlDashboard {
 	return d
 }
 
-// TestRenderDashboardV5 — narrative-flow structure, no card grid, color discipline.
 func TestRenderDashboardV5(t *testing.T) {
 	var b strings.Builder
 	if err := renderDashboard(&b, synthDash5()); err != nil {
@@ -66,24 +61,24 @@ func TestRenderDashboardV5(t *testing.T) {
 	}
 	s := b.String()
 	for _, want := range []string{
-		"recall hit", `class="panel"`, `class="kpis"`, // narrative flow
-		"7-day trend", `class="trow"`, // trend (concise names + tooltips)
+		"recall hit", `class="panel"`, `class="kpis"`,
+		"7-day trend", `class="trow"`,
 		"memory inventory", `class="inv"`,
-		"dup blocked", "first result exact", "7-day trend", // concise names
-		"points", "tokens", // delta · A3
+		"dup blocked", "first result exact", "7-day trend",
+		"points", "tokens",
 		"flint report",
 	} {
 		if !strings.Contains(s, want) {
 			t.Errorf("요소 %q 누락", want)
 		}
 	}
-	// no AI-slop copy — checks for internal-jargon residue.
+
 	for _, jargon := range []string{"G1 ", "G2 ", "G3 ", "G4 ", "n=", "METRICS §", "fallback ", "dup_pct", "recall_led"} {
 		if strings.Contains(s, jargon) {
 			t.Errorf("내부 jargon %q 잔존 — 컨텍스트 없는 독자 기준 위반", jargon)
 		}
 	}
-	// no slop patterns — no card grid or box inventory.
+
 	for _, banned := range []string{`class="card`, `class="grid"`, `class="inv .cell"`} {
 		if strings.Contains(s, banned) {
 			t.Errorf("slop 패턴 %q 존재", banned)
@@ -100,14 +95,12 @@ func TestRenderDashboardV5(t *testing.T) {
 	}
 }
 
-// TestEstTok — the Korean-mixed approximation (±30% explicit contract — approximate values only).
 func TestEstTok(t *testing.T) {
 	if got := EstTok(1000); got < 300 || got > 900 {
 		t.Errorf("EstTok(1000)=%d — 합리 범위 이탈", got)
 	}
 }
 
-// TestChipDiscipline — decreases are gray ▼ (Good=false) — no red.
 func TestChipDiscipline(t *testing.T) {
 	down := chipFor("hit", trendPoint{Prev: 90, Cur: 80, Delta: -10}, false)
 	if down.Show && down.Good {
@@ -115,7 +108,6 @@ func TestChipDiscipline(t *testing.T) {
 	}
 }
 
-// TestReportHTMLFlagWiring — flags, files, and extension correction.
 func TestReportHTMLFlagWiring(t *testing.T) {
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil }}

@@ -1,8 +1,3 @@
-// report_tui_test.go — tests for the report --tui entry branching.
-// protocol: without the --tui opt-in, the existing 3 views (JSON, text, HTML) are unchanged;
-// --tui combination errors exit 3; non-terminal fallback exits 3; collection delegation and error propagation.
-// The collection producer (ops.RunReport) is the real implementation via a fake Store (same path with
-// SUPERLITE_REAL=1); the screen launch (reportTUIFn) is a stub seam.
 package cli
 
 import (
@@ -14,7 +9,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// runEntryArgs — a helper running the entry wrapper (runReportEntry) directly.
 func runEntryArgs(t *testing.T, f Store, args ...string) (string, int) {
 	t.Helper()
 	var out strings.Builder
@@ -22,8 +16,6 @@ func runEntryArgs(t *testing.T, f Store, args ...string) (string, int) {
 	return out.String(), code
 }
 
-// TestReportEntryFlagPathUnchanged — without --tui, byte-identical delegation to the existing JSON path
-// (default path unchanged).
 func TestReportEntryFlagPathUnchanged(t *testing.T) {
 	out, code := runEntryArgs(t, newReportFake(nil))
 	if code != 0 {
@@ -34,8 +26,6 @@ func TestReportEntryFlagPathUnchanged(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUIExclusive — --tui cannot combine with other view flags
-// (preventing screen/file output duality) — exit 3 error JSON.
 func TestReportEntryTUIExclusive(t *testing.T) {
 	for _, args := range [][]string{
 		{"--tui", "--html"},
@@ -52,9 +42,6 @@ func TestReportEntryTUIExclusive(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUIRunsScreen — --tui collects (real implementation — fake Store) and then
-// passes the ReportOutput and window days to the screen model. It leaves no JSON on
-// stdout (view-only).
 func TestReportEntryTUIRunsScreen(t *testing.T) {
 	daily := map[string]string{}
 	for _, d := range reportDates(3) {
@@ -86,11 +73,9 @@ func TestReportEntryTUIRunsScreen(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUINonTerminalFallback — on non-terminal (pipe, CI), a screen-launch
-// error is the exit 3 guidance fallback (the contract wording).
 func TestReportEntryTUINonTerminalFallback(t *testing.T) {
 	orig := reportTUIFn
-	reportTUIFn = nil // keep-the-real-implementation convention: nil means use the default
+	reportTUIFn = nil
 	defer func() { reportTUIFn = orig }()
 
 	out, code := runEntryArgs(t, newReportFake(nil), "--tui")
@@ -102,8 +87,6 @@ func TestReportEntryTUINonTerminalFallback(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUICollectErrorPropagates — a collection-stage error (server down) propagates
-// with the same error and exit as the existing JSON path (2).
 func TestReportEntryTUICollectErrorPropagates(t *testing.T) {
 	f := &fakeStore{pingErr: store.ErrServerDown}
 	orig := reportTUIFn
@@ -123,8 +106,6 @@ func TestReportEntryTUICollectErrorPropagates(t *testing.T) {
 	}
 }
 
-// TestReportEntryTUIBadFlagStillValidated — an invalid flag used together with --tui is still
-// handled by the existing argument-validation path (exit 3).
 func TestReportEntryTUIBadFlagStillValidated(t *testing.T) {
 	out, code := runEntryArgs(t, newReportFake(nil), "--tui", "--days", "abc")
 	if code != 3 {

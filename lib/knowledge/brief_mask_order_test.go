@@ -1,7 +1,3 @@
-// brief_mask_order_test.go — brief cell sanitization goes through the
-// render choke point (render.Masked — MaskSecrets→SanitizeText order
-// preserved, ADR-0015). The [REDACTED:…] residue survives
-// neutralization.
 package knowledge
 
 import (
@@ -10,10 +6,6 @@ import (
 	"testing"
 )
 
-// TestBriefMaskOrder — the masking→sanitization order contract: secrets
-// are replaced first, and their residue ([REDACTED:github-token]) then
-// survives sanitization. Markers·control characters are still
-// neutralized.
 func TestBriefMaskOrder(t *testing.T) {
 	ctx := context.Background()
 	secret := "ghp_" + strings.Repeat("b", 24)

@@ -1,9 +1,3 @@
-// sync_test.go — sync remote-registration (dolt_remote wrapping)
-// tests. Fast covers the SQL·error contracts with a fake Querier;
-// slow (FLINT_TEST_DSN) measures dolt_remote add/list/remove on an
-// isolated Doltgres (a file:// remote). The remote url raw value is
-// never exposed on any path — masking has the single path
-// MaskRemoteURL.
 package db
 
 import (
@@ -20,9 +14,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// fakeSyncQuerier — a Querier fake. Only queries where sqlMatch returns
-// true return rows; everything else (nil, nil). Records every executed
-// query·argument.
 type fakeSyncQuerier struct {
 	rows     [][]any
 	err      error
@@ -45,10 +36,6 @@ func (f *fakeSyncQuerier) Query(ctx context.Context, sql string, args ...any) ([
 	return nil, nil
 }
 
-// TestMaskRemoteURL — the masking contract: exposes scheme+host only
-// (credentials·port·path·query hidden). file:// (no host) yields the
-// scheme only. Unparsable·scheme-less raw values are entirely hidden (a
-// fixed token).
 func TestMaskRemoteURL(t *testing.T) {
 	cases := []struct{ name, in, want string }{
 		{"https 자격증명+경로", "https://user:s3cret@rem-example.invalid/org/repo", "https://rem-example.invalid"},
@@ -72,10 +59,6 @@ func TestMaskRemoteURL(t *testing.T) {
 	}
 }
 
-// TestRemoteAddDuplicateRejected — a duplicate name yields
-// ErrRemoteExists without running dolt_remote('add') (measured:
-// dolt_remote quietly overwrites duplicates — pre-lookup blocking is
-// the contract).
 func TestRemoteAddDuplicateRejected(t *testing.T) {
 	f := &fakeSyncQuerier{
 		rows:     [][]any{{1}},
@@ -95,8 +78,6 @@ func TestRemoteAddDuplicateRejected(t *testing.T) {
 	}
 }
 
-// TestRemoteAddRunsDoltRemote — a new name runs dolt_remote('add',
-// name, url) with the arguments in order.
 func TestRemoteAddRunsDoltRemote(t *testing.T) {
 	f := &fakeSyncQuerier{
 		rows:     [][]any{{0}},
@@ -117,9 +98,6 @@ func TestRemoteAddRunsDoltRemote(t *testing.T) {
 	}
 }
 
-// TestRemoteListParsesRows — parses dolt_remotes rows into Remotes
-// (sorting belongs to the SQL ORDER BY — no Go re-sorting; see the
-// query verification below).
 func TestRemoteListParsesRows(t *testing.T) {
 	f := &fakeSyncQuerier{
 		rows: [][]any{
@@ -140,9 +118,6 @@ func TestRemoteListParsesRows(t *testing.T) {
 	}
 }
 
-// TestRemoteListRequiresDoltRemotes — the list takes the dolt_remotes
-// system-table query path·name-ordered sorting (measured: calling
-// dolt_remote() with no arguments errors).
 func TestRemoteListRequiresDoltRemotes(t *testing.T) {
 	f := &fakeSyncQuerier{}
 	if _, err := RemoteList(context.Background(), f); err != nil {
@@ -156,11 +131,8 @@ func TestRemoteListRequiresDoltRemotes(t *testing.T) {
 	}
 }
 
-// TestRemoteRemoveMissingRejected — a missing name yields
-// ErrRemoteNotFound without running dolt_remote('remove') (no url raw
-// value in the error).
 func TestRemoteRemoveMissingRejected(t *testing.T) {
-	f := &fakeSyncQuerier{ // existence check 0 rows → with sqlMatch nil, (nil,nil)
+	f := &fakeSyncQuerier{
 		err: nil,
 	}
 	err := RemoteRemove(context.Background(), f, "ghost")
@@ -174,11 +146,9 @@ func TestRemoteRemoveMissingRejected(t *testing.T) {
 	}
 }
 
-// TestRemoteRemoveRunsDoltRemote — an existing name runs
-// dolt_remote('remove', name).
 func TestRemoteRemoveRunsDoltRemote(t *testing.T) {
 	f := &fakeSyncQuerier{
-		rows:     [][]any{{1}}, // existence-check hit
+		rows:     [][]any{{1}},
 		sqlMatch: func(sql string) bool { return true },
 	}
 	if err := RemoteRemove(context.Background(), f, "origin"); err != nil {
@@ -192,9 +162,6 @@ func TestRemoteRemoveRunsDoltRemote(t *testing.T) {
 	}
 }
 
-// TestSyncRemoteRoundTripRealSlow — slow (FLINT_TEST_DSN): measures
-// real file:// remote registration·listing·removal·duplicate/missing
-// errors on an isolated Doltgres.
 func TestSyncRemoteRoundTripRealSlow(t *testing.T) {
 	dsn := testDSN(t)
 	pool, err := Connect(context.Background(), dsn)
@@ -211,12 +178,10 @@ func TestSyncRemoteRoundTripRealSlow(t *testing.T) {
 	remoteDir := filepath.Join(t.TempDir(), "t4-remote")
 	rawURL := "file://" + remoteDir
 
-	// 1) New registration → actually registered in dolt_remotes.
 	if err := RemoteAdd(context.Background(), q, name, rawURL); err != nil {
 		t.Fatalf("RemoteAdd: %v", err)
 	}
-	// 2) List — the raw url retrieved (masking is the CLI output
-	// contract; here the source-preservation check).
+
 	remotes, err := RemoteList(context.Background(), q)
 	if err != nil {
 		t.Fatalf("RemoteList: %v", err)
@@ -233,12 +198,11 @@ func TestSyncRemoteRoundTripRealSlow(t *testing.T) {
 	if !found {
 		t.Fatalf("dolt_remotes에 %q 미등록: %+v", name, remotes)
 	}
-	// 3) Duplicate registration blocked (measured: dolt_remote quietly
-	// overwrites — the pre-lookup contract).
+
 	if err := RemoteAdd(context.Background(), q, name, rawURL); !errors.Is(err, ErrRemoteExists) {
 		t.Fatalf("중복 add err = %v, want ErrRemoteExists", err)
 	}
-	// 4) Remove → missing error.
+
 	if err := RemoteRemove(context.Background(), q, name); err != nil {
 		t.Fatalf("RemoteRemove: %v", err)
 	}
@@ -247,16 +211,11 @@ func TestSyncRemoteRoundTripRealSlow(t *testing.T) {
 	}
 }
 
-// fakeSyncScriptQuerier — the Querier fake for push/pull: a stub
-// function per query (branching the pre-lookup·push·fetch·merge·head
-// hash by SQL substring). Records every executed query·argument.
-// v1.7.2 T3 (S3): also records whether a deadline was set (for the
-// ctx.WithTimeout application assertion).
 type fakeSyncScriptQuerier struct {
 	fn        func(sql string, args []any) ([][]any, error)
 	queries   []string
 	allArgs   [][]any
-	deadlines []time.Time // the deadline times of calls whose ctx.Deadline() is set
+	deadlines []time.Time
 }
 
 func (f *fakeSyncScriptQuerier) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {
@@ -270,17 +229,10 @@ func (f *fakeSyncScriptQuerier) Query(ctx context.Context, sql string, args ...a
 	return f.fn(sql, args)
 }
 
-// newSyncScript — the standard scripted fake: remote lookup (name→url)·
-// a head-hash queue (popped in call order)·push/fetch/merge results·
-// error injection. mergeErr·fetchErr·pushErr are the respective query
-// errors; heads is the dolt_branches query-result queue.
 func newSyncScript(remotes map[string]string, heads []string, pushErr, fetchErr, mergeErr error) *fakeSyncScriptQuerier {
 	return newSyncScriptRows(remotes, heads, [][]any{{"(0,\"pushed\")"}}, pushErr, fetchErr, mergeErr)
 }
 
-// newSyncScriptRows — the newSyncScript variant specifying the push
-// result rows (the v1.7.2 T3 S6 no-op push verdict tests). Includes a
-// dolt_reset stub (S2).
 func newSyncScriptRows(remotes map[string]string, heads []string, pushRows [][]any, pushErr, fetchErr, mergeErr error) *fakeSyncScriptQuerier {
 	f := &fakeSyncScriptQuerier{}
 	headIdx := 0
@@ -323,9 +275,6 @@ func newSyncScriptRows(remotes map[string]string, heads []string, pushRows [][]a
 
 func strAny(v any) string { s, _ := v.(string); return s }
 
-// TestSyncPushRemoteNotFound — an unregistered push target yields
-// ErrRemoteNotFound without running dolt_push (the pre-lookup contract
-// — convention inherited).
 func TestSyncPushRemoteNotFound(t *testing.T) {
 	f := newSyncScript(map[string]string{}, []string{"h0"}, nil, nil, nil)
 	_, err := SyncPush(context.Background(), f, "ghost")
@@ -339,9 +288,6 @@ func TestSyncPushRemoteNotFound(t *testing.T) {
 	}
 }
 
-// TestSyncPushRunsAndReportsHash — a registered remote runs
-// dolt_push(remote,'main') and reports the head hash as the result (the
-// branch-'main'-fixed contract).
 func TestSyncPushRunsAndReportsHash(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"hash-1"}, nil, nil, nil)
 	res, err := SyncPush(context.Background(), f, "origin")
@@ -368,9 +314,6 @@ func TestSyncPushRunsAndReportsHash(t *testing.T) {
 	}
 }
 
-// TestSyncPushErrorMasksURL — when a push execution error message
-// carries the remote url raw value, it is replaced with the masked form
-// (an unreachable error).
 func TestSyncPushErrorMasksURL(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/secret-remote"}, nil,
 		errors.New("dial: push to file:///tmp/secret-remote refused"), nil, nil)
@@ -386,9 +329,6 @@ func TestSyncPushErrorMasksURL(t *testing.T) {
 	}
 }
 
-// TestSyncPullFetchMergeOrder — pull runs remote lookup→fetch→head→
-// merge in order, the merge argument is <remote>/main, and a hash
-// change yields status merged.
 func TestSyncPullFetchMergeOrder(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h-old", "h-new"}, nil, nil, nil)
 	res, err := SyncPull(context.Background(), f, "origin", false)
@@ -418,8 +358,6 @@ func TestSyncPullFetchMergeOrder(t *testing.T) {
 	}
 }
 
-// TestSyncPullUpToDate — an unchanged hash after merge yields status
-// up_to_date.
 func TestSyncPullUpToDate(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h-same", "h-same"}, nil, nil, nil)
 	res, err := SyncPull(context.Background(), f, "origin", false)
@@ -431,8 +369,6 @@ func TestSyncPullUpToDate(t *testing.T) {
 	}
 }
 
-// TestSyncPullDryFetchOnly — dry stops at fetch: merge not run·nothing
-// applied.
 func TestSyncPullDryFetchOnly(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h-local"}, nil, nil, nil)
 	res, err := SyncPull(context.Background(), f, "origin", true)
@@ -449,8 +385,6 @@ func TestSyncPullDryFetchOnly(t *testing.T) {
 	}
 }
 
-// TestSyncPullRemoteNotFound — an unregistered pull target also yields
-// ErrRemoteNotFound via the pre-lookup.
 func TestSyncPullRemoteNotFound(t *testing.T) {
 	f := newSyncScript(map[string]string{}, []string{"h0"}, nil, nil, nil)
 	_, err := SyncPull(context.Background(), f, "ghost", false)
@@ -464,9 +398,6 @@ func TestSyncPullRemoteNotFound(t *testing.T) {
 	}
 }
 
-// TestSyncPullConflictGuidance — a merge conflict yields
-// ErrMergeConflict + the manual-resolution guidance (no automatic
-// resolution). Judged by a copy of the measured error wording.
 func TestSyncPullConflictGuidance(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0", "h0"}, nil, nil,
 		errors.New("Merge conflict detected, @autocommit transaction rolled back"))
@@ -479,10 +410,6 @@ func TestSyncPullConflictGuidance(t *testing.T) {
 	}
 }
 
-// TestSyncPushUpToDateReportsNoOp — v1.7.2 T3 S6: a no-op push
-// (dolt_push result rows "Everything up-to-date") reports status
-// up_to_date. The result rows are used for the verdict only and never
-// carried to any output (an internal-handling contract).
 func TestSyncPushUpToDateReportsNoOp(t *testing.T) {
 	f := newSyncScriptRows(map[string]string{"origin": "file:///tmp/rr"}, []string{"hash-1"},
 		[][]any{{0, "Everything up-to-date"}}, nil, nil, nil)
@@ -495,9 +422,6 @@ func TestSyncPushUpToDateReportsNoOp(t *testing.T) {
 	}
 }
 
-// TestSyncPushDivergedGuide — v1.7.2 T3 S6: a diverged push (a rejected
-// error) yields ErrPushDiverged + the 'flint sync pull' first guidance
-// (not dolt pull — a wording contract).
 func TestSyncPushDivergedGuide(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0"},
 		errors.New("error: failed to push some refs: updates were rejected because the tip of 'main' is behind"), nil, nil)
@@ -510,9 +434,6 @@ func TestSyncPushDivergedGuide(t *testing.T) {
 	}
 }
 
-// TestSyncPushTimeoutBudget — v1.7.2 T3 S3: the 30s cap deadline
-// propagates to all of SyncPush's queries (ctx.WithTimeout — the
-// remote-network cap).
 func TestSyncPushTimeoutBudget(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0"}, nil, nil, nil)
 	start := time.Now()
@@ -522,8 +443,6 @@ func TestSyncPushTimeoutBudget(t *testing.T) {
 	assertTimeoutBudget(t, f, start)
 }
 
-// TestSyncPullTimeoutBudget — v1.7.2 T3 S3: the same for SyncPull (the
-// 30s cap propagates).
 func TestSyncPullTimeoutBudget(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h0", "h1"}, nil, nil, nil)
 	start := time.Now()
@@ -533,9 +452,6 @@ func TestSyncPullTimeoutBudget(t *testing.T) {
 	assertTimeoutBudget(t, f, start)
 }
 
-// assertTimeoutBudget — whether the fake-recorded deadlines are (a) set
-// on every query and (b) within 30s of the call time (the remote-cap
-// contract).
 func assertTimeoutBudget(t *testing.T, f *fakeSyncScriptQuerier, start time.Time) {
 	t.Helper()
 	if len(f.deadlines) != len(f.queries) {
@@ -543,19 +459,13 @@ func assertTimeoutBudget(t *testing.T, f *fakeSyncScriptQuerier, start time.Time
 	}
 	for _, dl := range f.deadlines {
 		rem := dl.Sub(start)
-		// A cap accounting for the minute delay between the start-time
-		// measurement and the deadline setting (a 30s + 0.5s window — a
-		// cap growing unbounded still fails).
+
 		if rem <= 0 || rem > 30*time.Second+500*time.Millisecond {
 			t.Fatalf("deadline 상한 위반(30s 기대): %v", rem)
 		}
 	}
 }
 
-// TestSyncPullPanicGuidance — v1.7.2 T3 S1: when a fetch error contains
-// "DoltgresHandler caught panic", ErrRemotePanic + the dedicated
-// guidance (concurrent multi-device use unsupported·single active
-// device·reset --to-remote recovery).
 func TestSyncPullPanicGuidance(t *testing.T) {
 	for name, inject := range map[string]struct{ fetchErr, mergeErr error }{
 		"fetch 경로": {errors.New("DoltgresHandler caught panic: runtime error"), nil},
@@ -577,9 +487,6 @@ func TestSyncPullPanicGuidance(t *testing.T) {
 	}
 }
 
-// TestSyncHeadMissingWording — v1.7.2 T3 S6: the missing-main error
-// wording — guides with both the cause and the action (the 'main'
-// branch required).
 func TestSyncHeadMissingWording(t *testing.T) {
 	f := &fakeSyncScriptQuerier{fn: func(sql string, args []any) ([][]any, error) {
 		switch {
@@ -588,7 +495,7 @@ func TestSyncHeadMissingWording(t *testing.T) {
 		case strings.Contains(sql, "dolt_push("):
 			return [][]any{{0, "pushed"}}, nil
 		case strings.Contains(sql, "FROM dolt_branches"):
-			return nil, nil // no main branch
+			return nil, nil
 		}
 		return nil, nil
 	}}
@@ -601,9 +508,6 @@ func TestSyncHeadMissingWording(t *testing.T) {
 	}
 }
 
-// TestSyncResetRemoteNotFound — v1.7.2 T3 S2: an unregistered reset
-// target yields ErrRemoteNotFound without running fetch·reset
-// (inheriting the pre-lookup contract).
 func TestSyncResetRemoteNotFound(t *testing.T) {
 	f := newSyncScript(map[string]string{}, []string{"h0"}, nil, nil, nil)
 	_, err := SyncReset(context.Background(), f, "ghost")
@@ -617,10 +521,6 @@ func TestSyncResetRemoteNotFound(t *testing.T) {
 	}
 }
 
-// TestSyncResetRunsFetchThenHardReset — v1.7.2 T3 S2: a registered
-// remote runs fetch(remote,'main') → dolt_reset('--hard', <remote>/
-// main) in order, with result status "reset" + the post-reset head
-// hash. The 30s cap also applies to reset (S3).
 func TestSyncResetRunsFetchThenHardReset(t *testing.T) {
 	f := newSyncScript(map[string]string{"origin": "file:///tmp/rr"}, []string{"h-remote"}, nil, nil, nil)
 	start := time.Now()
@@ -652,11 +552,6 @@ func TestSyncResetRunsFetchThenHardReset(t *testing.T) {
 	assertTimeoutBudget(t, f, start)
 }
 
-// TestSyncPushPullRoundTripRealSlow — slow (FLINT_TEST_DSN): a round
-// trip measured on two isolated Doltgres databases (a file:// remote) —
-// A push → B (dolt_clone) pull → read verification on B·the conflict
-// scenario (both sides same id, different content) → ErrMergeConflict·
-// dry stops at fetch·B's working set preserved after the conflict.
 func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 	ctx := context.Background()
 	dsn := testDSN(t)
@@ -679,7 +574,6 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 
 	rawURL := "file://" + filepath.Join(t.TempDir(), "remote")
 
-	// A: remote registration·synthetic seed commit·push.
 	poolA, err := Connect(ctx, dsnForDatabase(t, dsn, aName))
 	if err != nil {
 		t.Fatalf("Connect A: %v", err)
@@ -716,8 +610,6 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 		t.Fatalf("push 결과 = %+v", res)
 	}
 
-	// B: created from A's remote via dolt_clone (the device-move
-	// scenario).
 	if _, err := base.Exec(ctx, "SELECT dolt_clone($1, $2)", rawURL, strings.Trim(bName, `"`)); err != nil {
 		t.Fatalf("dolt_clone: %v", err)
 	}
@@ -728,8 +620,6 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 	defer poolB.Close()
 	qb := poolQuerier{poolB}
 
-	// A: an additional commit push → B pull (merged) → read verification
-	// on B.
 	if _, err := qa.Query(ctx, `UPDATE t5_note SET body='beta' WHERE id='n1'`); err != nil {
 		t.Fatalf("A update: %v", err)
 	}
@@ -749,9 +639,6 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 		t.Fatalf("B read after pull: rows=%v err=%v, want beta", rows, err)
 	}
 
-	// Conflict: A pushes gamma, B commits delta → pull yields
-	// ErrMergeConflict·no automatic resolution·B's working set (delta)
-	// preserved.
 	if _, err := qa.Query(ctx, `UPDATE t5_note SET body='gamma' WHERE id='n1'`); err != nil {
 		t.Fatalf("A update 2: %v", err)
 	}
@@ -775,7 +662,7 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 	if err != nil || len(rows) != 1 || strAny(rows[0][0]) != "delta" {
 		t.Fatalf("충돌 후 B 작업집합 미보존: rows=%v err=%v, want delta", rows, err)
 	}
-	// dry: fetch only — no error·data unchanged.
+
 	dryRes, err := SyncPull(ctx, qb, "origin", true)
 	if err != nil {
 		t.Fatalf("dry pull err = %v", err)
@@ -789,10 +676,6 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 	}
 }
 
-// TestSyncResetRealSlow — v1.7.2 T3 S2 slow (FLINT_TEST_DSN): reset
-// measured on an isolated Doltgres — seed commit push → add a
-// local-only commit → SyncReset rolls main back to the remote head and
-// discards the local changes.
 func TestSyncResetRealSlow(t *testing.T) {
 	ctx := context.Background()
 	dsn := testDSN(t)
@@ -833,7 +716,6 @@ func TestSyncResetRealSlow(t *testing.T) {
 		}
 	}
 
-	// Seed commit → push to the remote (fixing the remote head).
 	for _, s := range []string{
 		`CREATE TABLE t3_note (id text PRIMARY KEY, body text)`,
 		`INSERT INTO t3_note VALUES ('n1','alpha')`,
@@ -851,8 +733,6 @@ func TestSyncResetRealSlow(t *testing.T) {
 		t.Fatalf("remote head: %v", err)
 	}
 
-	// The no-op push measured (S6): with the remote already current, the
-	// status is up_to_date.
 	noop, err := SyncPush(ctx, q, name)
 	if err != nil {
 		t.Fatalf("no-op SyncPush: %v", err)
@@ -861,15 +741,11 @@ func TestSyncResetRealSlow(t *testing.T) {
 		t.Fatalf("no-op push status = %q, want up_to_date", noop.Status)
 	}
 
-	// A local-only commit (absent on the remote) — the reset's lost
-	// portion.
 	if _, err := q.Query(ctx, `UPDATE t3_note SET body='local-only' WHERE id='n1'`); err != nil {
 		t.Fatalf("local edit: %v", err)
 	}
 	commit("local only edit")
 
-	// reset — main rolls back to the remote head and the local-only
-	// commit is discarded.
 	res, err := SyncReset(ctx, q, name)
 	if err != nil {
 		t.Fatalf("SyncReset: %v", err)
@@ -883,8 +759,6 @@ func TestSyncResetRealSlow(t *testing.T) {
 	}
 }
 
-// dsnForDatabase — replaces only the DSN's database-name path (for the
-// isolated A/B connections).
 func dsnForDatabase(tb testing.TB, dsn, database string) string {
 	tb.Helper()
 	u, err := url.Parse(dsn)
@@ -895,10 +769,6 @@ func dsnForDatabase(tb testing.TB, dsn, database string) string {
 	return u.String()
 }
 
-// poolQuerier — for the slow tests: demotes a pgxpool to a db.Querier
-// (the same rows→[][]any collection as realStore.Query). The production
-// path passes the CLI's wire.Store directly as the Querier
-// (structurally satisfied).
 type poolQuerier struct{ pool *pgxpool.Pool }
 
 func (q poolQuerier) Query(ctx context.Context, sql string, args ...any) ([][]any, error) {

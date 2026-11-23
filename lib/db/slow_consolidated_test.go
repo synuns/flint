@@ -1,42 +1,3 @@
-// slow_consolidated_test.go — T8 slow real-DB test consolidation.
-//
-// Each converted test used to call newTestRepo individually, paying the
-// per-test scratch-DB creation cost (CREATE DATABASE + full migration +
-// a baseline commit, ~0.2s fixed) for a schema state its group recreates
-// anyway. The scenarios below create one repo per *group* and share it
-// across the original test bodies, which were renamed to slow-prefixed
-// helpers taking (t, r) with their bodies — and therefore every
-// assertion — unchanged (merge-only consolidation: no test was deleted,
-// no assertion dropped).
-//
-// Grouping safety rules:
-//   - Every gate-family body starts from resetVersionToV1 (or drops and
-//     re-migrates), so sequential execution on one repo is equivalent to
-//     the per-test fresh state; per-subtest t.Cleanup helpers
-//     (resetVersionToV1·dropV3Indexes) restore state at subtest end.
-//   - The usage family is keyed off meta daily:* / pb_* keys that each
-//     body wipes via cleanUsageKeys / cleanPBKeys before asserting.
-//   - The transition family seeds its own rows and asserts by row id
-//     (no whole-table count assertions), so rows from sibling subtests
-//     cannot skew a verdict.
-//   - The reads family wipes recall_events / metering tables at entry
-//     (t6ClearTelemetry-style), restoring a clean event history per
-//     subtest.
-//
-// The inheritance map (original Test name → consolidated subtest) is
-// itself guarded by TestSlowConsolidationInheritance below — the mapping
-// table and the subtest names actually registered must stay in sync.
-//
-// Bodies whose assertions count a whole table (recall_events totals that
-// a prior sibling's score-bearing rows would skew — e.g. V11GateAdditive
-// leaves recall_score=7 behind, which the V12 gate backfills into 7 more
-// synthetic events) run on a dedicated fresh repo inside the scenario
-// (freshRepo flag): the body and its assertion stay byte-identical, and
-// the original per-test fresh-DB precondition is preserved for exactly
-// the tests that need it.
-//
-// Measured effect: see docs/HISTORY.md (v1.10.0) for the before/after
-// per-group runtime table this consolidation was validated with.
 package db
 
 import (
@@ -45,18 +6,12 @@ import (
 	"testing"
 )
 
-// slowStep — one original test body in a consolidated scenario. fn runs
-// the body with the group's shared repo; freshRepo marks bodies whose
-// whole-table assertions require the original fresh-repo precondition.
 type slowStep struct {
 	name      string
 	fn        func(*testing.T, *Repo)
 	freshRepo bool
 }
 
-// runSlowSteps — runs the scenario steps. Shared-repo steps take the
-// group repo; freshRepo steps create a dedicated scratch (their
-// original isolated precondition).
 func runSlowSteps(t *testing.T, r *Repo, steps []slowStep) {
 	for _, s := range steps {
 		s := s
@@ -70,10 +25,6 @@ func runSlowSteps(t *testing.T, r *Repo, steps []slowStep) {
 	}
 }
 
-// TestSlowConsolidatedSchemaGates — the schema-gate family on one repo:
-// legacy-deployment walk (v2→v12, each step's promote + numeric no-op
-// contract) first, then the fresh-install paths (destructive re-migrate
-// scenarios) last so they never disturb the walk's preconditions.
 func TestSlowConsolidatedSchemaGates(t *testing.T) {
 	r := newTestRepo(t)
 	steps := []slowStep{
@@ -99,8 +50,7 @@ func TestSlowConsolidatedSchemaGates(t *testing.T) {
 		{"TestV11GateNumeric", slowV11GateNumeric, false},
 		{"TestV12GateRecallAppendOnly", slowV12GateRecallAppendOnly, true},
 		{"TestV12GateNumeric", slowV12GateNumeric, false},
-		// Fresh-install paths — destructive (drop tables + re-Migrate), so
-		// they run after the walk.
+
 		{"TestFreshSchemaHasColumn", slowFreshSchemaHasColumn, false},
 		{"TestV10FreshSchemaHasArtifacts", slowV10FreshSchemaHasArtifacts, false},
 		{"TestV12FreshSchemaHasRecallEvents", slowV12FreshSchemaHasRecallEvents, false},
@@ -109,9 +59,6 @@ func TestSlowConsolidatedSchemaGates(t *testing.T) {
 	runSlowSteps(t, r, steps)
 }
 
-// TestSlowConsolidatedUsage — the usage/metering family on one repo:
-// every body wipes its meta keys (cleanUsageKeys·cleanPBKeys) before
-// asserting, so key-state assertions cannot see sibling subtests' rows.
 func TestSlowConsolidatedUsage(t *testing.T) {
 	r := newTestRepo(t)
 	steps := []slowStep{
@@ -127,11 +74,7 @@ func TestSlowConsolidatedUsage(t *testing.T) {
 		{"TestRecordUsageWriteEmptySource", slowRecordUsageWriteEmptySource, false},
 		{"TestRecordUsageInvalidKind", slowRecordUsageInvalidKind, false},
 		{"TestRecordUsageLegacyJSONIgnoredByWrite", slowRecordUsageLegacyJSONIgnoredByWrite, false},
-		// Fresh repo: 8 concurrent writers racing the same daily key on a
-		// repo whose meta state prior siblings exercised is not the
-		// original precondition — on the shared repo the race hits real
-		// 40001 retries with 0/1/3s backoff (16.9s measured); isolated it
-		// resolves via LWW in well under a second.
+
 		{"TestRecordUsageConcurrentNoError", slowRecordUsageConcurrentNoError, true},
 		{"TestRecordBytesDaily", slowRecordBytesDaily, false},
 		{"TestRecordBytesCorruptRewrite", slowRecordBytesCorruptRewrite, false},
@@ -145,16 +88,10 @@ func TestSlowConsolidatedUsage(t *testing.T) {
 	runSlowSteps(t, r, steps)
 }
 
-// TestSlowConsolidatedTransitions — the knowledge state-transition
-// family (approve·invalidate·merge) on one repo. All bodies seed their
-// own rows and assert by row id — no whole-table count assertions — so
-// shared-repo execution preserves every verdict.
 func TestSlowConsolidatedTransitions(t *testing.T) {
 	r := newTestRepo(t)
 	steps := []slowStep{
-		// TestCounts asserts exact global Pending/DupSuspect counts and
-		// so runs FIRST, while the scenario's fresh scratch still has an
-		// empty knowledge table — its original clean-table precondition.
+
 		{"TestCounts", slowCounts, false},
 		{"TestApproveIdempotent", slowApproveIdempotent, false},
 		{"TestApproveMissing", slowApproveMissing, false},
@@ -166,21 +103,15 @@ func TestSlowConsolidatedTransitions(t *testing.T) {
 		{"TestMergeTwiceRejected", slowMergeTwiceRejected, false},
 		{"TestMergePendingRejected", slowMergePendingRejected, false},
 		{"TestMergeActiveInvalidAtRejected", slowMergeActiveInvalidAtRejected, false},
-		// Admin aggregation leftovers — same family, one repo.
+
 		{"TestStaleSessionRuns", slowStaleSessionRuns, false},
 		{"TestAllGatesArtifacts", slowAllGatesArtifacts, false},
-		// DupGroupsSameTopic asserts the exact global group set
-		// (DeepEqual), so the knowledge table may hold only its own rows
-		// — TestCounts' dup-topic seed would add a second group. It keeps
-		// the original isolated-table precondition (freshRepo).
+
 		{"TestDupGroupsSameTopic", slowDupGroupsSameTopic, true},
 	}
 	runSlowSteps(t, r, steps)
 }
 
-// TestSlowConsolidatedReads — the read/recall metering family on one
-// repo. Every body clears recall_events (and its own probe rows) before
-// asserting event counts, restoring a clean history per subtest.
 func TestSlowConsolidatedReads(t *testing.T) {
 	r := newTestRepo(t)
 	steps := []slowStep{
@@ -193,22 +124,15 @@ func TestSlowConsolidatedReads(t *testing.T) {
 		{"TestReplayRecallEventsSynthesizesEvents", slowReplayRecallEventsSynthesizesEvents, false},
 		{"TestPruneInvalidatedCleansRecallOrphans", slowPruneInvalidatedCleansRecallOrphans, false},
 		{"TestPruneRecallEventsRetentionOnlyExpired", slowPruneRecallEventsRetentionOnlyExpired, true},
-		// reads_v1200 pair — both bodies normalize state via
-		// ensureV1200Schema (version reset + full gate walk) at entry.
+
 		{"TestRecordReadEventColumns", slowRecordReadEventColumns, false},
 		{"TestRecordKnowledgeReads", slowRecordKnowledgeReads, false},
 	}
 	runSlowSteps(t, r, steps)
 }
 
-// consolidatedOrigins — the inheritance ledger: every original Test name
-// whose body now runs as a consolidated subtest (T8 merge-only
-// consolidation). The guard below pins three invariants: (1) each name
-// is registered as a subtest in this file, (2) its body still exists as
-// a slow-prefixed helper in the package sources, (3) no Test function of
-// that name remains in the per-test files (it moved here, not forked).
 var consolidatedOrigins = []string{
-	// Schema gate family
+
 	"TestMigrateAcceptsV2", "TestEnsureSchemaV2",
 	"TestEnsureSchemaV3Idempotent", "TestEnsureSchemaV3FromV1",
 	"TestEnsureSchemaV4Idempotent", "TestEnsureSchemaV4FromV1",
@@ -222,7 +146,7 @@ var consolidatedOrigins = []string{
 	"TestV12GateRecallAppendOnly", "TestV12GateNumeric",
 	"TestFreshSchemaHasColumn", "TestV10FreshSchemaHasArtifacts",
 	"TestV12FreshSchemaHasRecallEvents", "TestV11GateFreshDirectToV12",
-	// Usage/metering family
+
 	"TestPlaybookStats", "TestPlaybookStatsMultiple", "TestPlaybookStatsEmpty",
 	"TestRecordUsageCountBatches", "TestRecordUsageCountDupSources",
 	"TestRecordUsageCountBrief", "TestRecordUsageDailyAndPrune",
@@ -233,13 +157,13 @@ var consolidatedOrigins = []string{
 	"TestFlatKeyAtomicIncrement", "TestReadDailyFlatLegacyFallback",
 	"TestPruneDailyBothKeyForms", "TestRecordReadEventAndPrune",
 	"TestPruneRetentionOverride", "TestSessionStartAndHotEventRecords",
-	// Transition family
+
 	"TestApproveIdempotent", "TestApproveMissing",
 	"TestInvalidateSetsInvalidAt", "TestMergeMarksAndInvalidates",
 	"TestInvalidateSetsStatus", "TestApproveClearsInvalidAt",
 	"TestMergeRecordsSupersededBy", "TestMergeTwiceRejected",
 	"TestMergePendingRejected", "TestMergeActiveInvalidAtRejected",
-	// Reads/recall family
+
 	"TestBumpReadsIncrements", "TestBumpReadsDuplicateIDs",
 	"TestBumpRecallScoresIncrements", "TestBumpRecallScoresDuplicateIDs",
 	"TestBumpRecallScoresInsertsEvents", "TestRecallEventsAuditStaged",
@@ -251,11 +175,6 @@ var consolidatedOrigins = []string{
 	"TestDupGroupsSameTopic",
 }
 
-// TestSlowConsolidationInheritance — the assertion-inheritance ledger
-// guard (pure, no DB): every original name is registered as a subtest of
-// a consolidated scenario, its body helper still exists in the package
-// sources, and no per-test file still declares the old Test function
-// (moved, not duplicated).
 func TestSlowConsolidationInheritance(t *testing.T) {
 	self, err := os.ReadFile("slow_consolidated_test.go")
 	if err != nil {
@@ -280,17 +199,17 @@ func TestSlowConsolidationInheritance(t *testing.T) {
 		srcs[f] = string(b)
 	}
 	for _, name := range consolidatedOrigins {
-		// ① registered as a subtest here
+
 		if !strings.Contains(string(self), `{"`+name+`", slow`) {
 			t.Errorf("%s: this file does not register a consolidated subtest (ledger drift)", name)
 		}
-		// ② body helper exists somewhere in the package sources
+
 		body := "slow" + strings.TrimPrefix(name, "Test") + "(t *testing.T, r *Repo)"
 		found := false
 		for f, src := range srcs {
 			if strings.Contains(src, "func "+body) {
 				found = true
-				// ③ no old Test function remains (moved, not forked)
+
 				if strings.Contains(src, "func "+name+"(t *testing.T)") {
 					t.Errorf("%s: %s still declares the old Test func (forked, not moved)", name, f)
 				}

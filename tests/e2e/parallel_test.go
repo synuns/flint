@@ -1,9 +1,5 @@
 //go:build e2e
 
-// 병렬 쓰기 실측(T50) — 8 goroutine × bin/flint write 실 프로세스.
-// 서로 다른 payload로 동시에 써 손실·중복 0과 전원 커밋을 검증한다.
-// 충돌 발생률·재시도 소요는 ADR-0007에 기록(1회 실행 측정값).
-// 실행: go test -tags e2e ./tests/e2e/ -run TestParallel8WritersAllCommitted
 package e2e
 
 import (
@@ -21,8 +17,6 @@ import (
 	"github.com/jackc/pgx/v5/pgxpool"
 )
 
-// TestParallel8WritersAllCommitted — N=8 고정(numeric). 실 프로세스 왕복으로
-// 병렬 write가 전원 exit 0·knowledge +8·exit 1 0건임을 실측한다(state).
 func TestParallel8WritersAllCommitted(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -35,27 +29,22 @@ func TestParallel8WritersAllCommitted(t *testing.T) {
 		t.Fatalf("go build 실패: %v; out=%s", err, b)
 	}
 
-	// 웜업(F-T50-1): 병렬 구간 전 write 1회를 순차 실행해 스키마를
-	// 안정화한다. 신규 DB에서는 이 1회가 Migrate(테이블·뷰 생성 +
-	// views_hash 기록)와 초기 커밋을 전부 마쳐, 8동시 writer가
-	// dolt_schemas 재작성 경합에 빠지지 않게 한다. mustDB보다 먼저
-	// 돌아야 신규 DB에서 뷰 재생성(테이블 필요)이 실패하지 않는다.
 	warmup := exec.Command(bin, "write", "knowledge")
 	warmup.Env = os.Environ()
 	warmup.Stdin = strings.NewReader(
 		`{"topic":"e2e-par-warmup","summary":"병렬 웜업","confidence":0.9}`)
 	if werr := warmupRun(warmup); werr != nil {
-		// 서버 미기동일 수 있다 — mustDB가 스킵 판정·정리를 맡는다.
+
 		pool := mustDB(t)
 		cleanupTopics(t, pool, "e2e-par-")
 		t.Fatalf("웜업 write 실패: %v", werr)
 	}
 
 	pool := mustDB(t)
-	cleanupTopics(t, pool, "e2e-par-") // 웜업 행이 판정에 섞이지 않게
+	cleanupTopics(t, pool, "e2e-par-")
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-par-") })
 
-	const n = 8 // numeric: N 고정
+	const n = 8
 	before := countPrefix(t, pool, "e2e-par-")
 
 	type result struct {
@@ -94,9 +83,8 @@ func TestParallel8WritersAllCommitted(t *testing.T) {
 	wg.Wait()
 	wall := time.Since(runStart)
 
-	// numeric: N=8 전원 exit 0(committed). duplicate는 없어야 함(서로 다른 payload).
 	exit1, committed, dup := 0, 0, 0
-	hashes := make(map[string]bool, n) // 출력 content_hash 수집
+	hashes := make(map[string]bool, n)
 	for _, r := range results {
 		if r.code == 1 {
 			exit1++
@@ -131,7 +119,6 @@ func TestParallel8WritersAllCommitted(t *testing.T) {
 		t.Errorf("committed=%d, want %d(duplicate=%d)", committed, n, dup)
 	}
 
-	// state: 행수·content_hash 정합 — 손실·중복 0.
 	got := prefixHashes(t, pool, "e2e-par-")
 	if len(got) != before+n {
 		t.Fatalf("knowledge 행 +%d, want +%d(손실/중복)", len(got)-before, n)
@@ -147,8 +134,6 @@ func TestParallel8WritersAllCommitted(t *testing.T) {
 		}
 	}
 
-	// 측정치(ADR-0007 기록원) — 재시도 경유 판단: 첫 재시도 지연이 1s라
-	// 경과 ≥0.9s를 재시도 발생의 근사 프록시로 쓴다.
 	conflicts := 0
 	var maxElapsed time.Duration
 	for _, r := range results {
@@ -164,7 +149,6 @@ func TestParallel8WritersAllCommitted(t *testing.T) {
 		n, wall.Round(time.Millisecond), committed, dup, exit1, conflicts, rate*100, maxElapsed.Round(time.Millisecond))
 }
 
-// warmupRun — 웜업 write 실행. exit 0이면 nil, 아니면 출력과 함께 오류.
 func warmupRun(cmd *exec.Cmd) error {
 	b, err := cmd.CombinedOutput()
 	if err != nil {
@@ -173,7 +157,6 @@ func warmupRun(cmd *exec.Cmd) error {
 	return nil
 }
 
-// countPrefix — 프리픽스 행 수(손실·중복 판정 baseline).
 func countPrefix(t *testing.T, pool *pgxpool.Pool, prefix string) int {
 	t.Helper()
 	var n int
@@ -185,7 +168,6 @@ func countPrefix(t *testing.T, pool *pgxpool.Pool, prefix string) int {
 	return n
 }
 
-// prefixHashes — 프리픽스 행들의 content_hash 집합.
 func prefixHashes(t *testing.T, pool *pgxpool.Pool, prefix string) map[string]bool {
 	t.Helper()
 	rows, err := pool.Query(context.Background(),

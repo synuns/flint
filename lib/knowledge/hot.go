@@ -1,9 +1,3 @@
-// hot.go — flint hot: the injection summary. Fixed format + a cap from meta
-// hot_budget (default 2,000). The session label parser·exposure profile
-// read·hot stats load/persist·output length recording are cli-residual
-// ownerships, wired through injection seams (*Fn vars) — cli init
-// (knowledge_alias.go) injects the real implementations (cycle prevention:
-// knowledge cannot import cli).
 package knowledge
 
 import (
@@ -22,41 +16,20 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// DefaultHotBudget — the default cap when meta hot_budget is unset (TUNING.md §1).
 const DefaultHotBudget = 2000
 
-// SessionLabelFn — the injection point for the shared parser that extracts
-// the --session value from args (cli sessionhook.go sessionLabel). cli init
-// injects the real implementation.
 var SessionLabelFn func(args []string) string
 
-// ExposureProfileFn — the injection point for the exposure profile read
-// (cli profile.go ExposureProfile). cli init injects the real
-// implementation.
 var ExposureProfileFn func(getKV func(string) (string, error)) string
 
-// RecordHotLenFn — the injection point for recording the hot output
-// character count (cli metrics.go RecordHotLen). cli init injects the real
-// implementation.
 var RecordHotLenFn func(n int)
 
-// LoadHotStatsFromMetaFn — the injection point for loading the hot_stats
-// accumulator (cli metrics.go). cli init injects the real implementation.
 var LoadHotStatsFromMetaFn func(ctx context.Context, st wire.Store)
 
-// PersistHotStatsToMetaFn — the injection point for persisting the hot_stats
-// accumulator (cli metrics.go). cli init injects the real implementation.
 var PersistHotStatsToMetaFn func(ctx context.Context, st wire.Store)
 
-// PersistScanStatsFn — the injection point for the scan_stats flush at the
-// write/read command exits (v1.21.1 A6 completion — a one-shot CLI process
-// accumulating echo/suggestion scan samples had no persist point of its
-// own, so the samples were lost at exit). cli init injects the real
-// implementation; nil keeps a no-op (knowledge tests without a store).
 var PersistScanStatsFn func(ctx context.Context, st wire.Store)
 
-// HotBudget — meta hot_budget takes precedence; unset or invalid values
-// fall back to the default 2,000 (not an error).
 func HotBudget(getKV func(string, string) (string, error)) int {
 	v, err := getKV("hot_budget", "")
 	if err != nil || v == "" {
@@ -69,9 +42,6 @@ func HotBudget(getKV func(string, string) (string, error)) int {
 	return n
 }
 
-// MetaGetKV — wraps a meta key lookup into the getKV shape (unset·error
-// yield def). v0.34.3 T2: the query body is delegated to the meta_kv single
-// entry point (wire.GetMetaKVErr).
 func MetaGetKV(ctx context.Context, st wire.Store) func(string, string) (string, error) {
 	return func(key, def string) (string, error) {
 		v, ok, err := wire.GetMetaKVErr(ctx, st, key)
@@ -82,75 +52,30 @@ func MetaGetKV(ctx context.Context, st wire.Store) func(string, string) (string,
 	}
 }
 
-// HotFields — the hot output columns (the fixed order shared by the format·
-// budget survival decision). Corresponds to the first 4 columns of the
-// HotSQL SELECT — FormatRows reads kind·ts as positional fallbacks and
-// topic·summary via the readColumns mapping (positions 1·2), so the trailing
-// id·valid_at·ingested_at incremental columns never leak into the output.
 const HotFields = "kind,topic,summary,ts"
 
-// Indexes of the incremental·suffix-consumption columns at the tail of the
-// HotSQL SELECT (single definition — reads id·valid_at·ingested_at exposed
-// by hot_view directly from the base query).
 const (
 	hotViewIDIdx         = 4
 	hotViewValidAtIdx    = 5
-	hotViewIngestedAtIdx = 6 // for provenance checks (currently unconsumed — paired with the view exposure)
+	hotViewIngestedAtIdx = 6
 )
 
-// ── Reflecting the decay-adjusted effective recall score in hot·brief selection ranking ──
-
-// hotViewRecallScoreIdx·hotViewLastRecalledIdx — the ranking column indexes
-// that hotRankedSQL appends to the tail of the hot_view base SELECT (single
-// definition — since v1.9.0 T4 the columns are the recall_events derived
-// aggregates re.cnt·re.last_at; the indexes are unchanged).
 const (
 	hotViewRecallScoreIdx  = 7
 	hotViewLastRecalledIdx = 8
-	// v1.13.0 T2: the tags tail column (vtag.tags — the knowledge join
-	// below supplies it; hot_view exposes no tags) rides after the ranking
-	// pair — the :vol:immutable: exemption material.
+
 	hotViewTagsIdx = 9
 )
 
-// hotHeadlineRecallScoreIdx·hotHeadlineRecallLastIdx — the ranking column
-// indexes that hotRankedSQL appends to the headline query (HotHeadlineSQL:
-// exposes through id only, 5 columns) — indexes 5·6 (reusing the --full
-// indexes 7·8 would make the whole 7-column rows count as zero, silently
-// nullifying headline ranking).
 const (
 	hotHeadlineRecallScoreIdx = 5
 	hotHeadlineRecallLastIdx  = 6
-	// v1.13.0 T2: the tags tail column index on the headline shape (5 base
-	// columns + the ranking pair + tags).
+
 	hotHeadlineTagsIdx = 7
 )
 
-// RecallAggregateSQL — the recall_events derived aggregate subquery (v1.9.0
-// T4 single definition): per-knowledge event count (cnt)·last recall time
-// (last_at). The ranking query (hotRankedSQL) and ops (maintain
-// decay-audit) merge it with a LEFT JOIN — the derived replacement of the
-// v11 knowledge.recall_score·last_recalled_at direct columns (dropped in
-// schema v12). The exported constant is the single definition (the ops-side
-// copy is abolished).
 const RecallAggregateSQL = "SELECT knowledge_id, count(*)::int AS cnt, max(recalled_at) AS last_at FROM recall_events GROUP BY knowledge_id"
 
-// EventEffectiveScore — the pure function for the event-count-based
-// effective score (v1.9.0 T1 — recall append-only schema v12):
-// max(0, count − rate×elapsed days). Never-recalled (count 0) is 0. days is
-// integer elapsed time in 24h units (23h59m = 0 days); a fractional result
-// floors toward 0 (int conversion). A future last_recalled·rate 0 or below
-// keeps count as-is (reverse-growth·inflation defense), and count<=0 is 0
-// (negative-count defense). v1.9.0 T4: the old EffectiveRecallScore
-// (the v11 physical-column formula) is abolished — this function is the
-// single formula definition (consumers: hot·brief ranking, ops decay-audit
-// delegation). v1.14.0 T4: the survived decay relief — the formula is
-// count − max(0, rate×days − survived×relief), keeping the outer max(0,·)
-// clamp; survived is the number of sessions with 2+ recalls of the item
-// (SurvivedCounts), relief the survived_decay_relief tuning (default 0 =
-// inactive: relief 0 makes the formula fully equivalent to the previous
-// one for any survived — the release-time invariance ruling). The inner
-// max(0,·) means an overshooting relief grants no bonus above count.
 func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64, survived int, relief float64) int {
 	if eventCount <= 0 {
 		return 0
@@ -164,7 +89,7 @@ func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, 
 	}
 	decay := decayPerDay*float64(days) - float64(survived)*relief
 	if decay < 0 {
-		decay = 0 // the inner clamp: relief never adds growth beyond offsetting decay
+		decay = 0
 	}
 	eff := float64(eventCount) - decay
 	if eff < 0 {
@@ -173,23 +98,8 @@ func EventEffectiveScore(eventCount int, lastRecalled time.Time, now time.Time, 
 	return int(eff)
 }
 
-// volImmutableMarker — the :tags: storage-format marker of the immutable
-// volatility tier (CONTENT.md §4 — the same strpos convention as the tag
-// filters; the dictionary registration is lib/store policy.go).
 const volImmutableMarker = ":vol:immutable:"
 
-// EffectiveScoreFor — EventEffectiveScore wrapped with the v1.13.0 T2
-// volatility-tier exemption: a row whose tags contain :vol:immutable: is
-// exempt from decay (the event count is kept as-is — the tier contract:
-// effective=score maintained). Every other tag set — including
-// vol:conditional·vol:volatile, which inherit the existing decay — takes
-// the pure EventEffectiveScore path verbatim (the single formula stays
-// unchanged). Exported for the ops decay-audit consumer (T3). v1.14.0 T4:
-// survived·relief pass through to the pure formula; the exemption takes
-// precedence (an exempt row never decays, so survived is meaningless
-// there — the exemption is independent of the relief multiplication).
-// e.g. (3, 100 days ago, now, 1.0, ":vol:immutable:") -> 3; the same with
-// tags "" -> 0.
 func EffectiveScoreFor(eventCount int, lastRecalled time.Time, now time.Time, decayPerDay float64, tags string, survived int, relief float64) int {
 	if strings.Contains(tags, volImmutableMarker) {
 		if eventCount <= 0 {
@@ -200,11 +110,6 @@ func EffectiveScoreFor(eventCount int, lastRecalled time.Time, now time.Time, de
 	return EventEffectiveScore(eventCount, lastRecalled, now, decayPerDay, survived, relief)
 }
 
-// loadDecayRate — the decay coefficient prefers the meta override
-// (inheriting the consumer fallback: load failure·unset·0 or below yield
-// the default). It is ranking material, not a metered value, so failure is
-// absorbed by the fallback (no effect on output·exit — same direction as
-// §13).
 func loadDecayRate(ctx context.Context, st wire.Store) float64 {
 	rate := store.DefaultThresholds().DecayRate
 	if th, err := wire.LoadThresholds(ctx, st); err == nil && th.DecayRate > 0 {
@@ -213,12 +118,6 @@ func loadDecayRate(ctx context.Context, st wire.Store) float64 {
 	return rate
 }
 
-// loadSurvivedRelief — the survived decay-relief coefficient prefers the
-// meta override; failure·unset yield the default 0 (inactive). Relief is
-// opt-in: at 0 the consumers skip the SurvivedCounts lookup entirely (no
-// extra query, byte-identical output — the release-time invariance
-// ruling). Same direction as loadDecayRate: ranking material, failures
-// absorbed by the fallback (§13).
 func loadSurvivedRelief(ctx context.Context, st wire.Store) float64 {
 	relief := store.DefaultThresholds().SurvivedDecayRelief
 	if th, err := wire.LoadThresholds(ctx, st); err == nil && th.SurvivedDecayRelief > 0 {
@@ -227,26 +126,8 @@ func loadSurvivedRelief(ctx context.Context, st wire.Store) float64 {
 	return relief
 }
 
-// rankRowsByEffectiveScore — stable-sorts query rows by decay-adjusted
-// effective score, descending (v1.9.0 T4 — the formula has the single
-// EventEffectiveScore definition: effective score =
-// max(0, cnt − rate×elapsed days)). v1.13.0 T2: the sort key is
-// EffectiveScoreFor — a row tagged :vol:immutable: (the tagsIdx cell,
-// missing/NULL = no exemption) keeps its count. Rows without the
-// scoreIdx·lastIdx columns (old view shape·fakes)·rows whose cnt cell
-// cannot convert (NULL — project entries·zero recall events) count as
-// zero. The stable sort inherits the existing SQL order (hot: ts DESC,
-// id DESC / brief: RankOrder) as the tie order — an all-zero·ranking-
-// column-free environment is byte-identical to the existing output.
-// v1.14.0 T4: idIdx keys the survived decay relief — with relief > 0
-// (opt-in) one batched SurvivedCounts lookup precedes the sort; relief 0
-// issues no lookup at all.
 func rankRowsByEffectiveScore(ctx context.Context, st wire.Store, rows [][]any, idIdx, scoreIdx, lastIdx, tagsIdx int, rate, relief float64, now time.Time) [][]any {
-	// v1.14.0 T4: with relief active (> 0 — opt-in), one batched
-	// SurvivedCounts lookup covers the whole id set at ranking time
-	// (latency-bounded: a single query). Failures are quietly ignored —
-	// a missing signal degrades to no relief (§13). Relief 0 skips the
-	// lookup entirely (zero extra queries, byte-identical output).
+
 	var survived map[int]int
 	if relief > 0 {
 		ids := make([]int, 0, len(rows))
@@ -260,7 +141,7 @@ func rankRowsByEffectiveScore(ctx context.Context, st wire.Store, rows [][]any, 
 				ids = append(ids, id)
 			}
 		}
-		survived, _ = SurvivedCounts(ctx, st, ids) // quiet failure → nil map → relief 0 per row
+		survived, _ = SurvivedCounts(ctx, st, ids)
 	}
 	eff := make([]int, len(rows))
 	for i, r := range rows {
@@ -269,9 +150,9 @@ func rankRowsByEffectiveScore(ctx context.Context, st wire.Store, rows [][]any, 
 		}
 		score, ok := render.CellToInt(r[scoreIdx])
 		if !ok {
-			continue // cnt cell absent·NULL → zero score
+			continue
 		}
-		last, _ := wire.CellToTime(r[lastIdx]) // last NULL+cnt>0 (fake shape) keeps cnt (T1 contract)
+		last, _ := wire.CellToTime(r[lastIdx])
 		var tags string
 		if len(r) > tagsIdx {
 			if s, ok := r[tagsIdx].(string); ok {
@@ -286,10 +167,7 @@ func rankRowsByEffectiveScore(ctx context.Context, st wire.Store, rows [][]any, 
 		}
 		eff[i] = EffectiveScoreFor(score, last, now, rate, tags, sv, relief)
 	}
-	// sort.SliceStable swaps only the idx slice, so the precomputed eff
-	// array stays in place — the less closure reads the current ranking's
-	// values via eff[idx[a]]·eff[idx[b]], and the idx reassembly (out)
-	// fixes the final row order (partial sorting abolished).
+
 	idx := make([]int, len(rows))
 	for i := range idx {
 		idx[i] = i
@@ -302,23 +180,8 @@ func rankRowsByEffectiveScore(ctx context.Context, st wire.Store, rows [][]any, 
 	return out
 }
 
-// hotRankJoinPivot — the fixed FROM/ORDER BY clause of query.HotSQL·
-// HotHeadlineSQL (the pivot for the ranking join substitution — single
-// definition derived).
 const hotRankJoinPivot = " FROM hot_view ORDER BY ts DESC, id DESC"
 
-// hotRankedSQL — appends cnt·last_at·tags to the SELECT tail of the single
-// hot_view query (single definition = query.HotSQL·HotHeadlineSQL) via a
-// recall_events derived aggregate join (v1.9.0 T4 — the switch following
-// the removal of the v11 knowledge direct columns. Even with the recall
-// source moved to append-only events, the injection query keeps the
-// single-query contract). v1.13.0 T2: hot_view exposes no tags, so a
-// knowledge base-table join (vtag — project rows have id NULL → tags
-// NULL → no exemption) supplies the :vol:immutable: exemption material.
-// Columns are h.-qualified (post-join ambiguity removed); ORDER BY·LIMIT
-// inherit the original definition verbatim — if the pivot is not found
-// (a future SQL change) the original is returned, ranking is silently
-// skipped, and existing behavior is inherited.
 func hotRankedSQL(base string) string {
 	i := strings.Index(base, hotRankJoinPivot)
 	if i <= 0 || !strings.HasPrefix(base, "SELECT ") {
@@ -336,18 +199,11 @@ func hotRankedSQL(base string) string {
 		base[i+len(hotRankJoinPivot):]
 }
 
-// hotLineSurvivorCount — the per-line survival count against the 'displayed
-// string' (N4). Measured on the final text including the --full suffix
-// (·+Nd): the start offset of line k equals the rune count of lines[:k]
-// (including the separating newlines), and only lines whose offset is under
-// budget survive. It reproduces the same string that ClampHot truncates, so
-// there is no inconsistency where a line pushed out by its suffix gets cut
-// from the actual output yet still counted as surviving and incremented.
 func hotLineSurvivorCount(lines []string, budget int) int {
 	n, off := 0, 0
 	for i, ln := range lines {
 		if i > 0 {
-			off++ // separating newline
+			off++
 		}
 		if off >= budget {
 			break
@@ -358,15 +214,6 @@ func hotLineSurvivorCount(lines []string, budget int) int {
 	return n
 }
 
-// injectedIDsForSurvivors — collects the actually injected knowledge ids
-// directly from the hot_view base rows (single definition): takes the id
-// cell (hotViewIDIdx) of the surviving survivor rows excluding project
-// entries (id NULL). The injection output and the increment source are the
-// same query·same order (ORDER BY ts DESC, id DESC tie-break), so
-// injected set = increment set holds structurally — equivalent even after
-// abolishing the alignment contract with a companion query that re-gathered
-// the three-entry conditions. A missing id cell (old view·fake)·unconvertible
-// values are silently skipped (a cut line's id is not incremented).
 func injectedIDsForSurvivors(rows [][]any, survivors int) []int {
 	injected := make([]int, 0, survivors)
 	for i := 0; i < survivors && i < len(rows); i++ {
@@ -381,9 +228,6 @@ func injectedIDsForSurvivors(rows [][]any, survivors int) []int {
 	return injected
 }
 
-// PendingAgeSuffix — the pending-entry wait-days suffix (v0.12.1 R2): empty
-// string when valid_at elapsed is under 24 hours, otherwise floored days as
-// "·+Nd".
 func PendingAgeSuffix(validAt time.Time, now time.Time) string {
 	if days := int64(now.Sub(validAt) / (24 * time.Hour)); days > 0 {
 		return fmt.Sprintf("·+%dd", days)
@@ -391,16 +235,6 @@ func PendingAgeSuffix(validAt time.Time, now time.Time) string {
 	return ""
 }
 
-// hotSuffixedLines — the per-line display strings of the full --full output
-// (suffix included, N4). Output assembly and survival accounting share this
-// string so that the ClampHot truncation target — the actual output text —
-// and the increment survival decision (hotLineSurvivorCount) stay aligned.
-// Only pending line endings get the wait-days suffix — valid_at is read
-// directly from the hot_view base column (hotViewValidAtIdx, single
-// definition) (companion query abolished). A missing cell·non-time.Time
-// value·embedded newlines (safety guard) skip the suffix and return the
-// base-format line (existing output inherited unchanged). Empty rows yield
-// nil. now is UTC.
 func hotSuffixedLines(rows [][]any, now time.Time) []string {
 	base := query.FormatRows(rows, HotFields, false)
 	if base == "" {
@@ -417,10 +251,7 @@ func hotSuffixedLines(rows [][]any, now time.Time) []string {
 	if !hasPending {
 		return lines
 	}
-	// Safety guard: if a field value embeds a newline, one FormatRows row
-	// splits into several lines and the lines[i]↔rows[i] correspondence
-	// breaks — skip the suffix entirely when the counts differ so no suffix
-	// lands on the wrong line (existing output inherited unchanged).
+
 	if len(lines) != len(rows) {
 		return lines
 	}
@@ -438,9 +269,6 @@ func hotSuffixedLines(rows [][]any, now time.Time) []string {
 	return lines
 }
 
-// hotFullOutput — assembles the per-line display strings (suffix included)
-// into the full --full output text. nil (empty rows) inherits the existing
-// empty output ("").
 func hotFullOutput(lines []string) string {
 	if lines == nil {
 		return ""
@@ -448,14 +276,6 @@ func hotFullOutput(lines []string) string {
 	return strings.Join(lines, "\n") + "\n"
 }
 
-// HotHeadline — the one-line hot summary headline (R2). minimal gets only
-// the active·pending counts; every other profile (unset·corrupt included)
-// gets the normal wording. v0.18.0 R2: normal carries the K most recent
-// decision topics + a recall hint — if injection carried only counts, the
-// next session would not know what to search and read would starve
-// (observed: read:write imbalance). A session without topics falls back to
-// the existing count+expand wording (the wording enumeration is data — the
-// same class as the expand guidance, §13 boundary respected).
 func HotHeadline(profile string, active int, pending int, recent int, topics []string) string {
 	if profile == "minimal" {
 		return fmt.Sprintf("[flint] active %d · pending %d", active, pending)
@@ -468,17 +288,10 @@ func HotHeadline(profile string, active int, pending int, recent int, topics []s
 		active, pending, recent)
 }
 
-// hotHeadlineTopicMax — the headline topic rune cap (… suffix when
-// truncated).
 const hotHeadlineTopicMax = 16
 
-// hotHeadlineTopicCount — how many topics to list in the headline (top K).
 const hotHeadlineTopicCount = 3
 
-// HotTopics — picks the top K decision topics from hot_view query rows
-// (newest first). Same-topic dedup (only the newest kept)·rune truncation.
-// Topics serve as search queries, so the original prefix is preserved (16
-// runes + …).
 func HotTopics(rows [][]any, k int) []string {
 	if k <= 0 {
 		return nil
@@ -502,8 +315,6 @@ func HotTopics(rows [][]any, k int) []string {
 	return topics
 }
 
-// clampHeadlineTopic — truncates a topic to the rune cap (… suffix when
-// over).
 func clampHeadlineTopic(s string) string {
 	runes := []rune(s)
 	if len(runes) <= hotHeadlineTopicMax {
@@ -512,9 +323,6 @@ func clampHeadlineTopic(s string) string {
 	return string(runes[:hotHeadlineTopicMax]) + "…"
 }
 
-// hotCounts — extracts the headline counts from hot_view query rows (the
-// same data source as the full output): active = project entries, pending =
-// pending, recent decisions = 7 days.
 func hotCounts(rows [][]any) (active, pending, recent int) {
 	for _, r := range rows {
 		if len(r) == 0 {
@@ -532,23 +340,8 @@ func hotCounts(rows [][]any) (active, pending, recent int) {
 	return active, pending, recent
 }
 
-// RunHot — queries hot_view, then: with --full prints the existing full
-// output (byte-invariant); otherwise prints only the profile-specific
-// one-line headline (counts extracted from the same query; full assembly
-// skipped). Metering·exit·--session are invariant across both paths.
-// T38 wiring (F-T56-1): loads the meta hot_stats accumulator at start and
-// persists it just before exit (preserving single-shot CLI process
-// separation). Both are metering, so failures are quietly ignored (§13 —
-// no effect on hot output·exit).
 func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, stdout io.Writer) int {
-	// The session label goes through the shared parser (SessionLabelFn —
-	// injected cli sessionLabel) — a single source with the session-start
-	// boundary record. The --full check does not re-read as a flag the token
-	// consumed as the session value (removing the existing full=true side
-	// effect of the contrived input `--session --full` — the same direction
-	// as read's flag-shaped-value defense). The --session label is validated
-	// by the same shared guard as read (validateSessionLabel) — empty
-	// values·'-'-prefixed typos get the invalid-arg exit 3.
+
 	session := SessionLabelFn(args)
 	sessionGiven := false
 	full := false
@@ -564,9 +357,7 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 			full = true
 			continue
 		}
-		// Unknown `-`-prefixed args get the invalid-arg exit 3 — abolishing
-		// the existing quiet ignore (exit 0). A quiet success hides mistyped
-		// flags.
+
 		if strings.HasPrefix(args[i], "-") {
 			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint hot [--session ID] [--full]", args[i])))
 			return 3
@@ -578,60 +369,37 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 	}
 	sql := query.HotSQL(session)
 	if !full {
-		// The headline path uses the count-distortion-prevention cap (50) —
-		// injection (--full) keeps the budget-cap contract unchanged.
+
 		sql = query.HotHeadlineSQL(session)
 	}
-	// Merge the ranking columns (derived cnt·last_at — recall_events
-	// aggregates) into the single query — no companion query (order =
-	// increment structure inherited).
+
 	sql = hotRankedSQL(sql)
 	rows, err := wire.QueryOnce(ctx, st, sql, nil)
 	if err != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(err))
 		return store.MapExit(err)
 	}
-	// Output re-sanitization (ADR-0006): the same defense as read — so
-	// [flint] markers·control characters introduced after storage
-	// (restore·direct SQL·pre-sanitization data) cannot forge the
-	// session-start injection boundary. hot is the foremost output path
-	// injected directly into the prompt by hooks. Sanitization converges on
-	// the same render choke point as read (render.Cells).
+
 	rows = render.Cells(rows)
-	// Reflect the decay-adjusted effective recall score in selection
-	// ranking — effective DESC stable sort (ties·zero scores inherit the
-	// existing SQL order ts DESC, id DESC). v1.13.0 T2: the sort key is
-	// EffectiveScoreFor — :vol:immutable: rows (tags tail column) keep
-	// their count. Rows without ranking columns (old view·fake)·never-
-	// recalled (cnt NULL) count as zero, so existing order·output survive
-	// as-is. Format·budget·increments are downstream consumers of these
-	// rows, keeping the order = increment contract unchanged. The ranking
-	// column indexes follow the per-path query shape (--full 10 columns·
-	// headline 8 columns).
+
 	scoreIdx, lastIdx, tagsIdx := hotViewRecallScoreIdx, hotViewLastRecalledIdx, hotViewTagsIdx
 	if !full {
 		scoreIdx, lastIdx, tagsIdx = hotHeadlineRecallScoreIdx, hotHeadlineRecallLastIdx, hotHeadlineTagsIdx
 	}
 	rows = rankRowsByEffectiveScore(ctx, st, rows, hotViewIDIdx, scoreIdx, lastIdx, tagsIdx,
 		loadDecayRate(ctx, st), loadSurvivedRelief(ctx, st), time.Now().UTC())
-	// Load the baseline just before recording, after a successful query
-	// (the query-failure path skips metering).
+
 	LoadHotStatsFromMetaFn(ctx, st)
-	// The budget is computed commonly for both paths: --full truncation
-	// rules and the increment survival decision share the same budget
-	// (metering invariant).
+
 	budget := HotBudget(MetaGetKV(ctx, st))
-	// Per-line text including suffixes (N4) — shared by the --full output
-	// and the increment survival decision.
+
 	var lines []string
 	if full {
 		lines = hotSuffixedLines(rows, time.Now().UTC())
 		clamped := query.ClampHot(hotFullOutput(lines), budget)
 		fmt.Fprint(stdout, clamped)
 		RecordHotLenFn(len([]rune(clamped)))
-		// G5 byte metering: the final output length 'after' ClampHot
-		// truncation (budget-compliance measurement — not pre-truncation,
-		// spec §1). Quiet (§13).
+
 		recordBytes(ctx, st, "hot", len(clamped))
 	} else {
 		kv := MetaGetKV(ctx, st)
@@ -640,56 +408,30 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		line := HotHeadline(profile, active, pending, recent, HotTopics(rows, hotHeadlineTopicCount))
 		fmt.Fprintln(stdout, line)
 		RecordHotLenFn(len([]rune(line)))
-		// G5 byte metering: one headline line + newline — the total written
-		// (denominator consistency). Quiet (§13).
+
 		recordBytes(ctx, st, "hot", len(line)+1)
 	}
 	PersistHotStatsToMetaFn(ctx, st)
-	// Metering: increment references only for knowledge ids actually
-	// injected (left in the post-budget-truncation output) + one hot
-	// intake. Quiet (§13). Knowledge injection happens only on the --full
-	// full-output path (N3) — the headline path exposes counts only, so it
-	// records just one intake without increments that would distort
-	// read_count·last_read_at and freeze stale decisions. Survival is
-	// decided against the suffix-included text (N4): if a suffix pushed a
-	// line out and it was cut from the actual output, it is not
-	// incremented. The incremented ids are picked directly from the id
-	// column of the base hot_view query (single definition).
+
 	if !full {
 		RecordUsage(ctx, st, "hot", "")
-		// The headline (non --full) exposed-id set is also left in recall
-		// history with kind=hot (spec §2.1 — only the --full path injects,
-		// but the headline is also an exposure surface that induces recall,
-		// so it belongs in the G4 account). Ids are recovered from the
-		// headline query's id column (the HotSQL single-definition
-		// convention — project entries with id NULL excluded; a missing
-		// cell·unconvertible values are silently skipped). The read_count
-		// cache (BumpReads) stays untouched on the headline path.
+
 		recordKnowledgeReads(ctx, st, injectedIDsForSurvivors(rows, len(rows)), session, "hot")
 	} else {
 		injected := injectedIDsForSurvivors(rows, hotLineSurvivorCount(lines, budget))
 		InstrumentReads(ctx, st, "hot", injected, false, false)
-		// The injected-id set is also left in recall history with kind=hot
-		// (injected = incremented = recorded set — same query·same order
-		// source). Quiet (§13).
+
 		recordKnowledgeReads(ctx, st, injected, session, "hot")
-		// Record the actually injected knowledge ids in hot_events as an
-		// exposure record — the source for hot-exposure correction of
-		// dead_pct. Failure is quiet (§13 metering principle).
+
 		if rec, ok := st.(HotEventRecorder); ok {
 			_ = rec.RecordHotEvent(ctx, idsCSV(injected))
 		}
 	}
-	// A separate commit for the metering table (once on the hot completion
-	// path — common to headline·--full). Failure is quiet (§13 — staging
-	// survives, so the next call recovers it).
+
 	commitTelemetry(ctx, st, "hot")
 	return 0
 }
 
-// HotEventRecorder — the hot --full injection exposure recording interface
-// (v0.20.0). realStore implements it via db.Repo.RecordHotEvent
-// (cli/realstore_read.go); a non-implementing Store (fake) skips it.
 type HotEventRecorder interface {
 	RecordHotEvent(ctx context.Context, ids string) error
 }

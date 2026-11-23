@@ -1,11 +1,5 @@
 //go:build e2e
 
-// export_import_test.go — v1.3.1 B1(R19): export/import 실DB 왕복 e2e.
-// 시나리오: 합성 seed(active 2·invalidated 1 계보 포함) → export jsonl
-// → 테이블 정리(fresh 상태) → import jsonl 재이식 → 재export 동일성
-// (행 수·토픽·본문·계보 superseded_by 연결). 후속 PAM 최소 문서 1건
-// 수입(pending 적립·source 원천 기록) 확인. 기존 e2e 헬퍼(mustDB·
-// runCLI·decode·writeKnowledge) 재사용 — DB 미기동 시 스킵(e2e_test.go 관례).
 package e2e
 
 import (
@@ -20,13 +14,10 @@ import (
 	"time"
 )
 
-// rtRunID — 실행마다 고유한 e2e 식별 suffix(공유 실DB 멱등화 — 이전 실행
-// 잔여 행·PAM 수입 파생 행이 export/--tag 필터에 섞이는 것을 차단).
 func rtRunID(prefix string) string {
 	return fmt.Sprintf("%s-%d", prefix, time.Now().UnixNano())
 }
 
-// rtRow — jsonl export 행 파싱(snake_case 키 — FormatJSONL 계약).
 type rtRow struct {
 	ID           int      `json:"id"`
 	Topic        string   `json:"topic"`
@@ -38,9 +29,6 @@ type rtRow struct {
 	Tags         []string `json:"tags"`
 }
 
-// rtExport — `flint export --format jsonl --status all --tag <tag> --out`
-// 실행 후 파일을 행으로 파싱(요약은 stderr — exit로 판정). tag는 실행마다
-// 고유(rtRunID) — 잔여 행 혼입 차단.
 func rtExport(t *testing.T, path, tag string) []rtRow {
 	t.Helper()
 	out, code := runCLI(t, []string{
@@ -64,7 +52,6 @@ func rtExport(t *testing.T, path, tag string) []rtRow {
 	return rows
 }
 
-// splitNonEmpty — 개행 구분 비빈 줄.
 func splitNonEmpty(s string) []string {
 	var out []string
 	for _, l := range strings.Split(s, "\n") {
@@ -75,11 +62,8 @@ func splitNonEmpty(s string) []string {
 	return out
 }
 
-// ctx — 테스트 공용 컨텍스트(기존 e2e 관례: context.Background() 직접).
 func ctx() context.Context { return context.Background() }
 
-// rtByTopic — 행을 topic 기준 색인(왕복 비교 원천 — id는 재이식 후
-// 재할당되므로 토픽이 안정 식별자).
 func rtByTopic(t *testing.T, rows []rtRow) map[string]rtRow {
 	t.Helper()
 	m := map[string]rtRow{}
@@ -92,8 +76,6 @@ func rtByTopic(t *testing.T, rows []rtRow) map[string]rtRow {
 	return m
 }
 
-// assertLineage — 계보 동일성: invalidated 행의 superseded_by가 같은
-// 파일 안 실재 행 id를 가리키고, 그 행의 topic이 replacing과 일치.
 func assertLineage(t *testing.T, rows []rtRow, invalidated, replacing string) {
 	t.Helper()
 	byTopic := rtByTopic(t, rows)
@@ -106,7 +88,7 @@ func assertLineage(t *testing.T, rows []rtRow, invalidated, replacing string) {
 		t.Fatalf("%s superseded_by=%d, want %d(%s의 id — 계보 미보존)",
 			invalidated, *old.SupersededBy, new_.ID, replacing)
 	}
-	// id 참조 무결성: 대상 id가 파일 안 행으로 실재.
+
 	found := false
 	for _, r := range rows {
 		if r.ID == *old.SupersededBy {
@@ -118,8 +100,6 @@ func assertLineage(t *testing.T, rows []rtRow, invalidated, replacing string) {
 	}
 }
 
-// TestExportImportRoundtripRealDB — B1 왕복 실증(jsonl 재이식·재export
-// 동일성). seed는 합성 데모데이터(개인 데이터 금지 — 저장소 원칙).
 func TestExportImportRoundtripRealDB(t *testing.T) {
 	pool := mustDB(t)
 	run := rtRunID("e2e-rt")
@@ -127,8 +107,6 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 	cleanupTopics(t, pool, run+"-")
 	t.Cleanup(func() { cleanupTopics(t, pool, run+"-") })
 
-	// seed: active 2(kA·kB) + pending 1(kC) → approve --supersede로 kA를
-	// kC가 대체(invalidated 1·계보 포함). 결과 3행: active 2·invalidated 1.
 	kA := writeKnowledge(t,
 		`{"topic":"`+ta+`","summary":"왕복 프로브 본문 A — 합성 데모.","confidence":0.9,"tags":["`+run+`"]}`)
 	kB := writeKnowledge(t,
@@ -159,7 +137,6 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 		t.Fatalf("%s status=%q, want invalidated", ta, s)
 	}
 
-	// fresh 상태 — 시드 행 정리 후 재이식(왕복 재현).
 	if _, err := pool.Exec(ctx(), `DELETE FROM knowledge WHERE topic LIKE $1`, run+"-%"); err != nil {
 		t.Fatalf("시드 정리 실패: %v", err)
 	}
@@ -175,7 +152,6 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 		t.Fatalf("import superseded=%v, want >=1(계보 복원 보고)", m["superseded"])
 	}
 
-	// 재export 동일성 — 행 수·토픽·본문·상태·계보.
 	file2 := filepath.Join(dir, "rt2.jsonl")
 	rows2 := rtExport(t, file2, run)
 	if len(rows2) != len(rows1) {
@@ -194,7 +170,6 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 	}
 	assertLineage(t, rows2, ta, tc)
 
-	// 멱등 — 같은 파일 재수입은 전부 duplicate(content_hash 스킵).
 	out, code = runCLI(t, []string{"import", "--format", "jsonl", file1}, "")
 	if code != 0 {
 		t.Fatalf("재import exit=%d, want 0; out=%s", code, out)
@@ -204,10 +179,6 @@ func TestExportImportRoundtripRealDB(t *testing.T) {
 	}
 }
 
-// TestImportPAMMinimalRealDB — B1 후속: PAM v1.0 최소 문서 1건 수입 —
-// pending 적립(승격 모델)·source "import:pam:<platform>" 원천 기록.
-// memory id·본문에 실행 고유 suffix(rtRunID) — 재실행 dedup(duplicated)
-// 회피로 -count=N 멱등.
 func TestImportPAMMinimalRealDB(t *testing.T) {
 	pool := mustDB(t)
 	run := rtRunID("e2e-rt")
@@ -239,7 +210,6 @@ func TestImportPAMMinimalRealDB(t *testing.T) {
 		t.Fatalf("PAM import 요약=%v, want status=ok imported=1", m)
 	}
 
-	// pending 적립 + 원천 기록 실측(열은 origin — ExportRow.Source 대응).
 	var status, origin string
 	if err := pool.QueryRow(ctx(),
 		`SELECT status, origin FROM knowledge WHERE topic = $1`, topic).

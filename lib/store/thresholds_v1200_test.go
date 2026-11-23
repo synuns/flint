@@ -1,10 +1,7 @@
-// thresholds_v1200_test.go — the 5 diagnostic diag_* keys plus
-// knowledge_reads_retention_days: defaults, meta overrides, and invalid-value fallbacks.
 package store
 
 import "testing"
 
-// the new keys' defaults — a single code source (DefaultThresholds).
 func TestThresholdsV1200DiagDefaults(t *testing.T) {
 	th := DefaultThresholds()
 	want := []struct {
@@ -26,7 +23,6 @@ func TestThresholdsV1200DiagDefaults(t *testing.T) {
 	}
 }
 
-// meta overrides — every key's set value reflected (the diag_* SSOT contract).
 func TestThresholdsV1200DiagParseOverride(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"diag_hot_budget_high", "0.7"},
@@ -48,7 +44,6 @@ func TestThresholdsV1200DiagParseOverride(t *testing.T) {
 	}
 }
 
-// invalid values (non-numeric, negative, out of range) fall back to defaults (inheriting the global constraint).
 func TestThresholdsV1200DiagInvalidFallback(t *testing.T) {
 	th, err := ParseThresholds([][2]any{
 		{"diag_hot_budget_high", "1.5"},

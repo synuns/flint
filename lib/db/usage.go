@@ -1,7 +1,3 @@
-// usage.go — playbook use logs·success rate. Under the no-new-tables
-// constraint (schema v2 kept), records via increments of the meta keys
-// pb_<id>_uses/pb_<id>_ok. Use logging is intentionally non-idempotent
-// — the same call counted twice is a log, not a defect.
 package db
 
 import (
@@ -22,18 +18,13 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// Stat — per-playbook usage statistics (an internal utility — no
-// consuming CLI path).
 type Stat struct {
 	ID   int
 	Uses int
 	OK   int
-	Rate float64 // OK/Uses, rounded to the third digit (2/3 → 0.667)
+	Rate float64
 }
 
-// LogPlaybookUse records one playbook use as meta increments. With
-// ok=true, both uses·ok increment; otherwise uses only (failures still
-// count as uses).
 func (r *Repo) LogPlaybookUse(ctx context.Context, id int, ok bool) error {
 	if err := bumpMeta(ctx, r.pool, fmt.Sprintf("pb_%d_uses", id)); err != nil {
 		return fmt.Errorf("log playbook use: uses: %w", err)
@@ -46,8 +37,6 @@ func (r *Repo) LogPlaybookUse(ctx context.Context, id int, ok bool) error {
 	return nil
 }
 
-// bumpMeta increments a meta key by 1 with an upsert (a single
-// statement — no read-write race).
 func bumpMeta(ctx context.Context, pool *pgxpool.Pool, key string) error {
 	_, err := pool.Exec(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, '1')
@@ -55,38 +44,17 @@ func bumpMeta(ctx context.Context, pool *pgxpool.Pool, key string) error {
 	return err
 }
 
-// usageRetryBackoff — the 40001 (serialization failure) retry spacing
-// for RecordUsage writes. Under parallel startup (shared-DB pool suite
-// load), the daily-counter upsert optimistically conflicts with another
-// session's commit — the same recovery pattern as drift DROP·promotion
-// commits.
 var usageRetryBackoff = []time.Duration{0, time.Second, 3 * time.Second}
 
-// RecordUsage — records one intake-metering round in meta. The bulk
-// count-increment body is RecordUsageCount — this method delegates with
-// count=1.
 func (r *Repo) RecordUsage(ctx context.Context, kind, source string) error {
 	return r.RecordUsageCount(ctx, kind, source, 1)
 }
 
-// MeteringKindGroup — one key-space group of the unified observation-
-// kind registry (schema v13 A5, v1.19.0). The 3 pre-unification
-// whitelists (RecordUsageCount's intake kinds·knowledge's curation
-// kinds·RecordBytes' surface kinds) live here as group-distinct kinds —
-// a flat merge is forbidden: curation is a dedicated key space
-// (approve.go — promotion·invalidation outcomes are review results, not
-// intake), and the bytes kinds share names with usage kinds but are a
-// separate space (daily:<kind>_bytes:*). The same kind name in 2 groups
-// is legal; each consumer checks only its own group.
 type MeteringKindGroup struct {
 	Name  string
 	Kinds []string
 }
 
-// MeteringKindRegistry — the registry original (29 keys — usage 10·
-// curation 16·bytes 3; v1.24.0 T4 added the recall-audit feedback pair
-// recall_audit_listed·recall_audit_disposed). Order is deterministic (the
-// homogeneity guard pins the exact sets).
 var MeteringKindRegistry = []MeteringKindGroup{
 	{"usage", []string{"write", "hot", "read", "dup", "dup_hook", "dup_manual", "dup_mcp", "dup_correction", "dup_gap", "brief"}},
 	{"curation", []string{"approve_done", "approve_not_found", "approve_supersede_err",
@@ -97,8 +65,6 @@ var MeteringKindRegistry = []MeteringKindGroup{
 	{"bytes", []string{"read", "hot", "brief"}},
 }
 
-// MeteringKinds — the kind list of one group (nil = unknown group). A
-// copy — callers cannot mutate the registry through it.
 func MeteringKinds(group string) []string {
 	for _, g := range MeteringKindRegistry {
 		if g.Name == group {
@@ -108,8 +74,6 @@ func MeteringKinds(group string) []string {
 	return nil
 }
 
-// meteringKindAllowed — membership within one group only (the group
-// distinction is the whitelist).
 func meteringKindAllowed(group, kind string) bool {
 	for _, k := range MeteringKinds(group) {
 		if k == kind {
@@ -119,36 +83,6 @@ func meteringKindAllowed(group, kind string) bool {
 	return false
 }
 
-// RecordUsageCount — bulk-increments count rounds of intake metering
-// into daily counters (avoiding the O(N) read-writes of dup N
-// accounting). kind = the registry's usage group (write|hot|read|dup +
-// per-source dup_hook|dup_manual|dup_mcp|dup_correction|dup_gap — v1.12.0
-// gap added) + brief (brief intake metering, additive). The whitelist is
-// the unified observation-kind registry's usage group (schema v13 A5 —
-// set-invariant with the pre-unification switch).
-// Upserts last_<kind>_at as RFC3339 (dup carries no time key — the
-// write time is reused) and increments the `daily:<kind>:YYYY-MM-DD`
-// integer flat key (the legacy `daily:YYYY-MM-DD` JSON counter
-// abolished — reads parse directly via report's WindowedDaily). write
-// also increments the source counters (hook|manual|mcp|correction|gap — the
-// sourceRegistry of knowledge/write.go, v1.12.0 gap added) in parallel.
-// daily keys beyond 14 days are cleaned by PruneDaily, run only when
-// today's daily key was newly created (the date-rollover first event) —
-// a DELETE on every record wastes the hot path and duplicate writes run
-// it twice. A cleanup failure never affects the record (ignored). The
-// flat increment is a single UPSERT statement in the bumpMeta pattern
-// (spec §1.1 — an increment impossible with JSON values because
-// doltgres lacks jsonb_object_agg, working around a limitation confirmed
-// 2026-10-22). The read-modify-write round trip and the 40001 retry
-// window disappear. However, Doltgres accepts concurrent UPSERTs of the
-// same row as last-write-wins without error (demonstrated 2026-11-13) —
-// total-count consistency under parallel concurrent increments is not
-// guaranteed, same as the legacy JSON contract (metering principle:
-// loss < call failure). Corrupted existing flat values are rewritten
-// from 0. The retry path (recordWithRetry) is kept to preserve the
-// PruneDaily rollover hook, and exhaustion passes quietly — RecordUsage
-// follows the metering principle already applied by the callers
-// (write·read·hot) discarding errors.
 func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count int) error {
 	if !meteringKindAllowed("usage", kind) {
 		return fmt.Errorf("record usage: invalid kind %q", kind)
@@ -156,10 +90,7 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 	if count < 1 {
 		return fmt.Errorf("record usage: invalid count %d", count)
 	}
-	// A count past 2^31 is a corrupted bulk argument, not metering: the
-	// daily bigint would absorb it but the ratio baselines would not.
-	// Quietly ignored (no error propagation — the callers' quiet path),
-	// leaving the counter untouched for subsequent normal increments.
+
 	if count > 1<<31 {
 		return nil
 	}
@@ -168,9 +99,7 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 		delta[source] = count
 	}
 	r.recordWithRetry(ctx, func(ctx context.Context, day string) (bool, error) {
-		// The dup family (total dup·dup_<source>) records no last_ time
-		// key (contract inherited — the write time is reused; ruling:
-		// prevent unused-meta-key accumulation).
+
 		if !strings.HasPrefix(kind, "dup") {
 			now := time.Now().UTC().Format(time.RFC3339)
 			if _, err := r.pool.Exec(ctx,
@@ -193,21 +122,8 @@ func (r *Repo) RecordUsageCount(ctx context.Context, kind, source string, count 
 	return nil
 }
 
-// RecordBytes — byte metering: increments one surface round's output
-// bytes into the daily:<kind>_bytes:<date> integer flat key (spec §1 —
-// read|hot|brief). Corrupted existing flat values are rewritten from 0
-// (inheriting the bumpDailyFlat contract). The same layer·retention
-// window as intake metering (RecordUsageCount) but with no last_ time
-// key (reuses the count metering's last_<kind>_at — ruling: prevent
-// unused-meta-key accumulation). n=0 is valid (a zero-hit read's 0
-// bytes — call-count denominator consistency); negative·invalid kinds
-// are rejected. A corrupted existing daily JSON is rewritten from 0
-// (inheriting the bumpDaily contract). Bulk-write failure·retry
-// exhaustion pass quietly (the §13 metering principle — the same
-// recordWithRetry path as RecordUsageCount).
 func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
-	// The whitelist is the registry's bytes group (schema v13 A5 — the
-	// name space shared with usage kinds is group-distinct).
+
 	if !meteringKindAllowed("bytes", kind) {
 		return fmt.Errorf("record bytes: invalid kind %q", kind)
 	}
@@ -224,29 +140,13 @@ func (r *Repo) RecordBytes(ctx context.Context, kind string, n int) error {
 	return nil
 }
 
-// Querier — the minimal meta-access interface. wire.Store (and its
-// fakes) structurally satisfy it — command-layer counters reuse this
-// package's single-UPSERT implementation without db.Repo (keeping the
-// db-ownership principle for write SQL literals).
 type Querier interface {
 	Query(ctx context.Context, sql string, args ...any) ([][]any, error)
 }
 
-// BumpDailyFlatKey — the query body incrementing the
-// `daily:<kind>:<date>` flat-key counter (review counters — the
-// approve·maintain·import outcomes). Runs the same statement·corruption
-// guard as bumpDailyFlat (not ^[0-9]+$ → rewrite n) against an
-// arbitrary Querier (via the command side's wire.Store). A
-// non-idempotent increment, so it fires once without retry (the
-// BumpMetaKV contract) — errors return as-is and the caller absorbs
-// them under the metering principle. The kind whitelist belongs to the
-// caller (knowledge.BumpCurationCounter) — here only key
-// assembly·increment.
 func BumpDailyFlatKey(ctx context.Context, q Querier, kind, day string, n int) error {
 	key := "daily:" + kind + ":" + day
-	// The increment value arrives via EXCLUDED.value — reusing the same
-	// placeholder ($2) fails Doltgres extended-protocol index inference
-	// (inherited from the bumpDailyFlat comment, confirmed 2026-11-13).
+
 	_, err := q.Query(ctx,
 		`INSERT INTO meta (key, value) VALUES ($1, $2)
 		 ON CONFLICT (key) DO UPDATE SET value =
@@ -258,17 +158,6 @@ func BumpDailyFlatKey(ctx context.Context, q Querier, kind, day string, n int) e
 	return nil
 }
 
-// StampKnowledgeKind — the knowledge.kind classification column stamp
-// (v1.24.0 T2, schema v19): the write-path record key "kind" is the
-// table discriminator (buildInsertStmt skips it), so the classification
-// column cannot ride the INSERT column list — the knowledge write path
-// consumes the stdin knowledge_kind input and stamps the column
-// post-insert through this helper over a Querier (the BumpDailyFlatKey
-// convention: the write SQL literal lives in the db layer, callers pass
-// their wire.Store). kind is vocabulary-validated by the caller (the
-// write-path code constants — preference|fact); an empty kind·an empty
-// id list is a no-op. The caller runs it BEFORE the batch Commit so the
-// stamp rides the same dolt commit as the rows.
 func StampKnowledgeKind(ctx context.Context, q Querier, ids []int, kind string) error {
 	if len(ids) == 0 || kind == "" {
 		return nil
@@ -281,27 +170,12 @@ func StampKnowledgeKind(ctx context.Context, q Querier, ids []int, kind string) 
 	return nil
 }
 
-// EchoCandRow — one write-time echo candidate of the INSERT input (the
-// schema v19 echo_candidates shape minus the echo axis, which is the
-// single echoID argument). The knowledge-side EchoCandidate maps here —
-// db cannot import knowledge (the import-cycle rule).
 type EchoCandRow struct {
 	CandidateID int
 	Relation    string
 	Score       float64
 }
 
-// InsertEchoCandidates — the D1 echo-candidate persistence base (v1.24.0
-// schema v19, wired v1.24.1 r104): one batched multi-row append of a
-// write's echo candidates, every row keyed by echoID (the fresh write
-// row — or the existing row a duplicate resend resolved to, DupMeta.ID
-// — the caller's ruling). The candidate list is bounded by echo_top_k,
-// so the built placeholder list stays small (no array-cast encoding).
-// The StampKnowledgeKind convention: the write SQL literal lives in the
-// db layer, the caller passes its wire.Store (Querier), and an empty
-// list·a non-positive echoID is a no-op. Error absorption (quiet §13)
-// belongs to the caller — the observation is metering-class, never a
-// write result.
 func InsertEchoCandidates(ctx context.Context, q Querier, echoID int, rows []EchoCandRow) error {
 	if echoID <= 0 || len(rows) == 0 {
 		return nil
@@ -323,23 +197,6 @@ func InsertEchoCandidates(ctx context.Context, q Querier, echoID int, rows []Ech
 	return nil
 }
 
-// ReadEvent — one effectiveness-metering event row (struct-ified —
-// converging the scattered 7-parameter call sites into one value,
-// metrics·storage unchanged). IDs is the returned knowledge id CSV
-// (top 10); FirstRank is the first topic-match rank (0 = no match·
-// fallback excluded).
-// Three additional columns (additive — unfilled rows default to 0·
-// empty): Bytes (output bytes — the same definition as G5, len of the
-// final output)·ZeroReason ('unowned'|'owned_miss'|empty, only on
-// zero=1 rows — the spec §2.2 zero-hit decomposition)·Source (the
-// 'hook'|'cli'|'mcp' channel label — hook/cli by session-label
-// presence; the MCP path is passed by the caller).
-// NearScore (schema v13): the suggestion scan's best bigramDice score
-// over ALL scanned candidates — recorded on zero rows regardless of the
-// Near flag (below-min zero rows are not masked to 0; the min_score
-// boundary distribution is the counterfactual-analysis core). Hit rows
-// are 0 (the suggest scan runs on the zero-hit path only). The query
-// body itself is never stored (the no-personal-wording principle).
 type ReadEvent struct {
 	Hits       int
 	Zero       bool
@@ -354,18 +211,6 @@ type ReadEvent struct {
 	NearScore  float64
 }
 
-// RecordReadEvent — records one effectiveness-metering event row
-// (docs/METRICS.md §4). Leaves only one read's numbers·flags·session
-// label (no query body·result content — the no-personal-wording
-// principle). Adds the returned knowledge id CSV (ids, top 10) — and
-// the first topic-match rank (firstRank, 0 = no match·fallback
-// excluded). Converged into the single ReadEvent struct value. The
-// source of usage-chain computation. Also records the 3 columns
-// bytes·zero_reason·source (schema v10). INSERT-only, so there is no
-// read-write race (40001) and it fires once without retry. The success
-// path also fires maybePruneAfterRead (the 24h-gated cleanup hook) —
-// cleanup must happen even in the structure where read bypasses
-// RecordUsage (see the hook comment below).
 func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	score := clampNearScore(ev.NearScore)
 	_, err := r.pool.Exec(ctx,
@@ -376,19 +221,13 @@ func (r *Repo) RecordReadEvent(ctx context.Context, ev ReadEvent) error {
 	if err != nil {
 		return fmt.Errorf("record read event: %w", err)
 	}
-	r.maybeRollupWeekly(ctx) // the 24h-gated weekly rollup hook (schema v13 A3 — rollup.go) — precedes the prune (aggregate then clean)
+	r.maybeRollupWeekly(ctx)
 	r.maybePruneAfterRead(ctx)
-	r.maybeSnapshotThresholds(ctx) // the 24h-gated threshold-change accounting hook (schema v13 A2 — snapshot.go)
-	r.maybeShadowRound(ctx)        // the 24h-gated autotune shadow hook (schema v18 — autotune_shadow.go) — last: predictions observe the post-cleanup state
+	r.maybeSnapshotThresholds(ctx)
+	r.maybeShadowRound(ctx)
 	return nil
 }
 
-// clampNearScore — the near_score [0,1] domain guard (v1.19.1): NaN·
-// ±Inf → 0, negatives → 0, >1 → 1. A stray score (an upstream division
-// slip) must never poison the min_score boundary analysis; PostgreSQL
-// would store NaN itself and float8 the infinities, corrupting every
-// aggregate over the column. The bigramDice score is by construction
-// [0,1] — this is defense in depth on the write boundary.
 func clampNearScore(v float64) float64 {
 	if math.IsNaN(v) || math.IsInf(v, 0) {
 		return 0
@@ -402,15 +241,8 @@ func clampNearScore(v float64) float64 {
 	return v
 }
 
-// pruneReadGateKey — the 24h-gate meta key of the read-path cleanup
-// hook (following the last_*_at RFC3339 convention). A key separate
-// from last_read_at (not the intake-metering time).
 const pruneReadGateKey = "last_events_prune_at"
 
-// pruneGateDue — the gate-decision pure function (unit-test target):
-// false if last parses as RFC3339 and is within 24h (cleanup skipped);
-// otherwise (absent·blank·corrupt·24h elapsed·future-dated) true — the
-// future case is the gateStampDue guard (v1.19.1).
 func pruneGateDue(last string, now time.Time) bool {
 	if last == "" {
 		return true
@@ -422,25 +254,10 @@ func pruneGateDue(last string, now time.Time) bool {
 	return gateStampDue(t, now)
 }
 
-// pruneGateCheckedAt — the in-process gate-recheck cache (performance):
-// the unix seconds of the last gate check (atomic — shared regardless
-// of Repo instance). 0 = unchecked. Shrinks the read hot path — which
-// used to leave a meta gate SELECT on every RecordReadEvent — to one
-// round trip per hour.
 var pruneGateCheckedAt atomic.Int64
 
-// pruneGateCacheTTL — the in-process gate-cache lifetime. 1h, shorter
-// than the DB gate (24h) — both single-shot CLIs and long-lived
-// processes re-evaluate the gate at least hourly so cleanup never slips
-// a whole day.
 const pruneGateCacheTTL = time.Hour
 
-// pruneGateProbe — the gate-cache verdict (pure·unit-test target):
-// false if within the TTL of the last check (gate meta SELECT skipped —
-// 0 rechecks within the TTL); true if elapsed or first-time, stamping
-// the check time (1 SELECT). The stamp reflects the gate-check moment —
-// even a later cleanup failure leaves the DB gate unstamped, keeping
-// retry open for other processes·after TTL expiry.
 func pruneGateProbe(now time.Time) bool {
 	if last := pruneGateCheckedAt.Load(); last != 0 &&
 		now.Sub(time.Unix(last, 0)) < pruneGateCacheTTL {
@@ -450,21 +267,6 @@ func pruneGateProbe(now time.Time) bool {
 	return true
 }
 
-// maybePruneAfterRead — the cleanup hook for read-only sessions. With
-// RecordReadUsage (the read daily write) abolished, the read path no
-// longer passes through recordWithRetry (the rollover hook) — in
-// sessions without a write, PruneReadEvents never fires and read_events
-// grows unbounded past the retention horizon. On the RecordReadEvent
-// success path, when the last_events_prune_at gate opens (24h since
-// the last cleanup — a DELETE·meta round trip on every read wastes the
-// hot path), it runs PruneDaily·PruneReadEvents. Gate rechecking is
-// shrunk to the in-process 1h cache (pruneGateProbe) — the DB gate
-// (24h) SELECT runs only when the cache misses. The DB gate is stamped
-// only on cleanup success so a failed cleanup is not buried for a day
-// (stamp-then-fail would skip 24h with no retry). Even if parallel
-// reads pass simultaneously, the DELETE is idempotent — duplicate
-// execution is harmless. Gate-read·cleanup·stamp failures pass quietly
-// (the metering principle).
 func (r *Repo) maybePruneAfterRead(ctx context.Context) {
 	if !pruneGateProbe(time.Now().UTC()) {
 		return
@@ -487,10 +289,6 @@ func (r *Repo) maybePruneAfterRead(ctx context.Context) {
 		pruneReadGateKey, time.Now().UTC().Format(time.RFC3339))
 }
 
-// RecordSessionStart — one session-start boundary row (the session-start
-// command). The source of the session-interval [start_i, start_{i+1})
-// assignment — an internal account with no output, recorded under every
-// profile (§13 — not agent exposure).
 func (r *Repo) RecordSessionStart(ctx context.Context, session string) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO session_starts (session) VALUES ($1)`, session)
@@ -500,10 +298,6 @@ func (r *Repo) RecordSessionStart(ctx context.Context, session string) error {
 	return nil
 }
 
-// RecordHotEvent — one hot --full injection-exposure row (the knowledge
-// id CSV left in the actual output). The source of the hot-exposure
-// correction of dead_pct — injection happens only on the --full path
-// (inheriting the hot.go contract).
 func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
 	_, err := r.pool.Exec(ctx,
 		`INSERT INTO hot_events (ids) VALUES ($1)`, ids)
@@ -513,18 +307,12 @@ func (r *Repo) RecordHotEvent(ctx context.Context, ids string) error {
 	return nil
 }
 
-// thresholdsForPrune — shared by PruneReadEvents·PruneDaily: reads the
-// meta threshold overrides via the registry-derived path
-// (store.ParseThresholds — a threshold_meta.go guard target) (removing
-// the per-key SELECT+Atoi re-parsing). Lookup failure·absent key·
-// corrupt·0 (unset) fall back to defaults (DefaultThresholds) — the
-// same outcome as the former per-key convention (only n>0 accepted).
 func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Thresholds, error) {
 	def := store.DefaultThresholds()
 	rows, err := r.pool.Query(ctx,
 		`SELECT key, value FROM meta WHERE key = ANY($1)`, keys)
 	if err != nil {
-		return def, nil // a meta-read failure falls back to defaults (former convention inherited)
+		return def, nil
 	}
 	defer rows.Close()
 	var kv [][2]any
@@ -554,24 +342,6 @@ func (r *Repo) thresholdsForPrune(ctx context.Context, keys ...string) (store.Th
 	return th, nil
 }
 
-// PruneReadEvents — deletes effectiveness-metering events past the
-// retention horizon. read_events·session_starts at 14 days (the same
-// policy as the daily counters); hot_events at 30 days (aligned with
-// the dead_pct exposure-consistency guard window — at 14 days the guard
-// would cover only half the documented contract). Retention days come
-// from the meta overrides (events_retention_days·
-// hot_events_retention_days, TUNING §2) — absent·corrupt keys yield
-// defaults. The per-item recall history knowledge_reads is cleaned by
-// the same trigger (initially 14 days·a separate
-// knowledge_reads_retention_days override). The per-key direct SELECT
-// stopgap for the knowledge_reads retention days is removed — unified
-// via thresholdsForPrune (registry-derived store.ParseThresholds). Two
-// triggers (firing alongside PruneDaily): ① recordWithRetry's rollover
-// hook (today's daily key newly created — the day's first write
-// metering), ② maybePruneAfterRead (RecordReadEvent success + the
-// last_events_prune_at 24h gate — cleanup happens even in read-only
-// sessions). Roughly once a day, so no meta-read round-trip burden.
-// Failures pass quietly at the caller (the metering principle).
 func (r *Repo) PruneReadEvents(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx,
 		"events_retention_days", "hot_events_retention_days",
@@ -594,15 +364,6 @@ func (r *Repo) PruneReadEvents(ctx context.Context) error {
 	return nil
 }
 
-// recordWithRetry — the daily-increment recording common procedure (for
-// RecordUsageCount. RecordReadUsage (the read-kind daily write) is
-// abolished — the source of read intake metering is read_events). Runs
-// fn with 40001 retries (usageRetryBackoff); when fn reports today's
-// daily key newly created (the rollover's first event), runs
-// PruneDaily·PruneReadEvents (14-day cleanups each) — a DELETE on every
-// record wastes the hot path and duplicate writes run it twice. Retry
-// exhaustion·cleanup failures pass quietly (the metering principle — a
-// lost use log beats a failed call).
 func (r *Repo) recordWithRetry(ctx context.Context, fn func(ctx context.Context, day string) (created bool, err error)) {
 	day := time.Now().UTC().Format("2006-01-02")
 	created := false
@@ -620,18 +381,8 @@ func (r *Repo) recordWithRetry(ctx context.Context, fn func(ctx context.Context,
 	}
 }
 
-// bumpRetryBackoff — the 40001 (serialization failure) retry spacing
-// for the bumpDailyFlat UPSERT. 3 attempts (initial + 2 retries), waits
-// 2ms·8ms — a minimal exponential backoff (4x steps) mindful of test
-// speed.
 var bumpRetryBackoff = []time.Duration{0, 2 * time.Millisecond, 8 * time.Millisecond}
 
-// retryBump40001 — retries fn (a single UPSERT attempt) at
-// bumpRetryBackoff spacing only on SQLSTATE 40001 (serialization
-// failure). Non-40001 errors return immediately without retry; after 3
-// exhausted attempts, the last 40001 is returned as-is (the caller
-// wraps it in the existing shape). A ctx cancellation during a retry
-// wait returns ctx.Err().
 func retryBump40001(ctx context.Context, fn func() error) error {
 	var last error
 	for i, d := range bumpRetryBackoff {
@@ -656,24 +407,6 @@ func retryBump40001(ctx context.Context, fn func() error) error {
 	return last
 }
 
-// bumpDailyFlat — increments the `daily:<kind>:<date>` integer-value
-// counter. A single atomic UPSERT statement in the bumpMeta pattern
-// (spec §1.1) — removes the 40001 retry window of the legacy
-// daily:<date> JSON read-modify-write. Parallel loss (total-count
-// consistency) is accepted as last-write-wins, same as RecordUsageCount
-// (demonstrated: Doltgres accepts concurrent UPSERTs as LWW without
-// error — loss remains, which the plan contract permits).
-// Unlike the LWW-acceptance demonstration (local, 2026-11-13), the
-// deployed Doltgres can return 40001 (CI-demonstrated —
-// TestFlatKeyAtomicIncrement racing 8 parallel goroutines). Even a
-// single UPSERT is subject to serialization conflicts, so a minimal
-// retry is regressed (a conditional regression of the retry removed at
-// the flat-key switch — retryBump40001, 3 attempts·2ms·8ms). The
-// exhaustion error returns as before (the caller's metering principle —
-// quiet ignoring is the caller's responsibility, unchanged).
-// A corrupted existing value (non-integer) is rewritten from 0. On new
-// key creation (no existing row), returns created=true (the
-// PruneDaily rollover trigger of recordWithRetry).
 func (r *Repo) bumpDailyFlat(ctx context.Context, day, kind string, n int) (created bool, err error) {
 	key := "daily:" + kind + ":" + day
 	if err := r.pool.QueryRow(ctx,
@@ -681,9 +414,7 @@ func (r *Repo) bumpDailyFlat(ctx context.Context, day, kind string, n int) (crea
 		return false, fmt.Errorf("bump daily flat: exists: %w", err)
 	}
 	created = !created
-	// The increment value arrives via EXCLUDED.value — reusing the same
-	// placeholder ($2) fails Doltgres extended-protocol index inference
-	// (confirmed 2026-11-13).
+
 	if err := retryBump40001(ctx, func() error {
 		_, err := r.pool.Exec(ctx,
 			`INSERT INTO meta (key, value) VALUES ($1, $2)
@@ -697,13 +428,6 @@ func (r *Repo) bumpDailyFlat(ctx context.Context, day, kind string, n int) (crea
 	return created, nil
 }
 
-// readDailyFlat — the current value of the daily:<kind>:<date> counter
-// (flat key first). When the flat-key row is absent, reads the kind
-// from the legacy daily:<date> JSON counter and inherits it (a
-// migration-read fallback — preventing loss of existing window
-// statistics; read-only: the JSON is not rewritten into flat keys). Corrupt·
-// absent·JSON null yield 0 (aligned with bumpDailyFlat's rewrite-from-0
-// contract).
 func (r *Repo) readDailyFlat(ctx context.Context, kind, day string) (int, error) {
 	var val string
 	err := r.pool.QueryRow(ctx,
@@ -712,7 +436,7 @@ func (r *Repo) readDailyFlat(ctx context.Context, kind, day string) (int, error)
 	case err == nil:
 		n, perr := strconv.Atoi(val)
 		if perr != nil {
-			return 0, nil // corrupted flat value — the pre-rewrite observation is 0
+			return 0, nil
 		}
 		return n, nil
 	case errors.Is(err, pgx.ErrNoRows):
@@ -735,29 +459,12 @@ func (r *Repo) readDailyFlat(ctx context.Context, kind, day string) (int, error)
 	}
 }
 
-// pruneDailyKeyPattern — the retention-target key shape: one or more
-// [a-z0-9_]+ segments (kind names·the v1.12.0 gapq:<sha256> hash
-// fragment — digits entered the class with the hex digests, and the
-// multi-segment `*` covers kind+hash keys) before the trailing UTC date.
-// Dateless daily:* keys stay out (the format check before the cast).
 const pruneDailyKeyPattern = `^daily:([a-z0-9_]+:)*[0-9]{4}-[0-9]{2}-[0-9]{2}$`
 
-// PruneDaily — deletes daily keys beyond the 14-day retention (today +
-// the prior 13 days). Cleans the legacy `daily:<date>` JSON keys, the
-// `daily:<kind>:<date>` flat keys, and the v1.12.0 gapq counter keys
-// `daily:gapq:<sha256>:<date>` (auto-expiry at the date rollover — the
-// same-day aggregation contract). Key dates are UTC (the RecordUsage
-// recording basis), so the cutoff day is also taken as UTC (excluding
-// server-TZ influence). Keys whose date portion is not a date (daily:*)
-// are left alone (a format check before the cast). Retention days come
-// from the meta override (daily_retention_days) — re-parsed via the
-// derived path (thresholdsForPrune) (absent·corrupt·0 yield defaults).
 func (r *Repo) PruneDaily(ctx context.Context) error {
 	th, _ := r.thresholdsForPrune(ctx, "daily_retention_days")
 	days := th.DailyRetentionD
-	// The cutoff is a Go-computed date parameter (convention — `$1`
-	// arithmetic like `date - $1` fails because Doltgres infers $1 as
-	// interval; regression defense).
+
 	cutoff := time.Now().UTC().AddDate(0, 0, -days).Format("2006-01-02")
 	_, err := r.pool.Exec(ctx,
 		`DELETE FROM meta WHERE key ~ '`+pruneDailyKeyPattern+`'
@@ -765,9 +472,6 @@ func (r *Repo) PruneDaily(ctx context.Context) error {
 	return err
 }
 
-// PlaybookStats aggregates the pb_* use logs into per-playbook
-// statistics (ascending by id). pb_* keys not matching the shape are
-// quietly skipped (log parsing, not schema).
 func (r *Repo) PlaybookStats(ctx context.Context) ([]Stat, error) {
 	rows, err := r.pool.Query(ctx,
 		`SELECT key, value FROM meta WHERE key LIKE 'pb\_%'`)

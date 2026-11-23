@@ -1,5 +1,3 @@
-// doctor_v094_test.go — doctor --fix self-repair (applyHookFix).
-// Fixtures use a FLINT_CLAUDE_HOME temp directory; the real ~/.claude is untouched.
 package cli
 
 import (
@@ -55,8 +53,6 @@ func TestApplyHookFixAddsFlintHooks(t *testing.T) {
 	}
 }
 
-// file — top-level keys besides hooks (env, permissions, etc.) and existing event-array
-// entries must be lossless after the merge (spec R1, "all other keys unchanged").
 func TestApplyHookFixPreservesOtherKeys(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "settings.json")
@@ -78,7 +74,7 @@ func TestApplyHookFixPreservesOtherKeys(t *testing.T) {
 	if env, ok := got["env"].(map[string]any); !ok || env["FOO"] != "bar" {
 		t.Errorf("env 키 무손실 아님: %v", got["env"])
 	}
-	// the existing Stop entries stay at the front of the array (after replace/append: orca 1 + flint 1).
+
 	stop, _ := got["hooks"].(map[string]any)["Stop"].([]any)
 	if len(stop) != 2 {
 		t.Fatalf("Stop 배열 길이=%d, want 2", len(stop))
@@ -107,7 +103,6 @@ func TestApplyHookFixIdempotent(t *testing.T) {
 	}
 }
 
-// file — the backup file must be byte-identical to the original (the original-preservation contract).
 func TestApplyHookFixBackupCreated(t *testing.T) {
 	p := writeFixture(t, map[string]any{
 		"SessionStart": []any{map[string]any{"hooks": []any{map[string]any{"type": "command", "command": "orca"}}}},
@@ -126,7 +121,6 @@ func TestApplyHookFixBackupCreated(t *testing.T) {
 	}
 }
 
-// file — corrupt JSON aborts the repair: err, file unchanged, no backup.
 func TestApplyHookFixBrokenJSON(t *testing.T) {
 	dir := t.TempDir()
 	p := filepath.Join(dir, "settings.json")
@@ -151,7 +145,6 @@ func TestApplyHookFixBrokenJSON(t *testing.T) {
 	}
 }
 
-// protocol — the one-line JSON shape of the --fix report; unchanged output without --fix.
 func TestDoctorFixReportFormat(t *testing.T) {
 	r := doctorFixReport([]doctorCheck{{Name: "hook-file", Status: "ok"}})
 	var m map[string]string
@@ -165,9 +158,8 @@ func TestDoctorFixReportFormat(t *testing.T) {
 		t.Errorf("hook-file=%q, want ok (%q)", m["hook-file"], r)
 	}
 
-	// the path without --fix keeps the existing doctor output — no fixed report printed.
 	home := t.TempDir()
-	t.Setenv("FLINT_CLAUDE_HOME", home) // no settings.json -> hook-file fail
+	t.Setenv("FLINT_CLAUDE_HOME", home)
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	out, code := runDoctorArgs(t, f)
 	if code != 1 {
@@ -178,10 +170,9 @@ func TestDoctorFixReportFormat(t *testing.T) {
 	}
 }
 
-// state — doctor --fix: auto-repairs the hook-file fail and re-evaluates it as ok.
 func TestDoctorFixFlagAppliesHookFix(t *testing.T) {
 	withComposePs(t, func(ctx context.Context) ([]byte, error) {
-		return nil, errors.New("stub: docker 없음 가정") // port skip — environment dependency removed
+		return nil, errors.New("stub: docker 없음 가정")
 	})
 	dir := t.TempDir()
 	t.Setenv("FLINT_CLAUDE_HOME", dir)
@@ -193,7 +184,7 @@ func TestDoctorFixFlagAppliesHookFix(t *testing.T) {
 
 	f := &fakeStore{queryFn: freshDoctorFn()}
 	oldBin := flintBinPathFn
-	flintBinPathFn = func() string { return "/x/flint" } // inject a test binary path
+	flintBinPathFn = func() string { return "/x/flint" }
 	t.Cleanup(func() { flintBinPathFn = oldBin })
 	out, code := runDoctorArgs(t, f, "--fix")
 	if code != 0 {

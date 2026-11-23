@@ -1,8 +1,5 @@
 //go:build e2e
 
-// e2e — 실 Doltgres 대상 T11 3케이스. 실행: go test -tags e2e ./tests/e2e/
-// (make e2e). DB 미기동 시 전체 스킵. 테이블 정리는 DELETE FROM 기반
-// (Doltgres는 TRUNCATE RESTART IDENTITY 미지원, T7 인시던트).
 package e2e
 
 import (
@@ -32,11 +29,8 @@ import (
 	"github.com/synuns/flint/lib/sqlfs"
 )
 
-// baseDSN — ADR-0010: 포트 5434. v0.9.3 R1: 테스트 격리 DB flint_test.
 const baseDSN = "postgresql://flint:flint-dev@localhost:5434/flint_test"
 
-// dsn — v0.9.3 R1: FLINT_TEST_DSN 우선, 없으면 flint_test 기본.
-// FLINT_DSN(운영)은 e2e에서 무시한다.
 func dsn() string {
 	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
 		return d
@@ -44,12 +38,6 @@ func dsn() string {
 	return baseDSN
 }
 
-// mustDB — 실서버 접속 불가 시 스킵(로컬 패스트 스위트 보호).
-// 뷰는 최신 embed SQL로 동기화: Migrate가 schema_version=1 게이트라
-// 구버전 뷰가 남은 DB에서도 e2e가 현행 코드 기준으로 돌게 한다.
-// Doltgres는 다중 문장 Exec를 조용히 파손하고 CREATE OR REPLACE가
-// 확장 프로토콜에서 컬럼 목록을 갱신하지 않으므로, simple protocol로
-// DROP+CREATE를 문장별 실행한다.
 func mustDB(t *testing.T) *pgxpool.Pool {
 	t.Helper()
 	syncDSN := dsn() + "?default_query_exec_mode=simple_protocol"
@@ -73,7 +61,6 @@ func mustDB(t *testing.T) *pgxpool.Pool {
 	return pool
 }
 
-// statements — SQL 덩어리를 문장별로 분해. 선행 '--' 주석 줄은 제거.
 func statements(sqlText string) []string {
 	var out []string
 	for _, stmt := range strings.Split(sqlText, ";") {
@@ -91,7 +78,6 @@ func statements(sqlText string) []string {
 	return out
 }
 
-// cleanupTopics — e2e 마커 프리픽스 행 정리.
 func cleanupTopics(t *testing.T, pool *pgxpool.Pool, prefix string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
@@ -100,7 +86,6 @@ func cleanupTopics(t *testing.T, pool *pgxpool.Pool, prefix string) {
 	}
 }
 
-// countTopic — 해당 topic 행 수.
 func countTopic(t *testing.T, pool *pgxpool.Pool, topic string) int {
 	t.Helper()
 	var n int
@@ -111,7 +96,6 @@ func countTopic(t *testing.T, pool *pgxpool.Pool, topic string) int {
 	return n
 }
 
-// runCLI — cli.Run 직접 호출(바이너리 대신, 플랜 T11 접근).
 func runCLI(t *testing.T, args []string, stdin string) (string, int) {
 	t.Helper()
 	var out bytes.Buffer
@@ -119,7 +103,6 @@ func runCLI(t *testing.T, args []string, stdin string) (string, int) {
 	return out.String(), code
 }
 
-// decode — 한 줄 JSON 출력 파싱.
 func decode(t *testing.T, out string) map[string]any {
 	t.Helper()
 	var m map[string]any
@@ -128,8 +111,6 @@ func decode(t *testing.T, out string) map[string]any {
 	}
 	return m
 }
-
-// --- 케이스 ①: dedup 멱등 — 동일 payload 2회 write ---
 
 func TestDedupIdenticalPayloadTwice(t *testing.T) {
 	pool := mustDB(t)
@@ -150,7 +131,7 @@ func TestDedupIdenticalPayloadTwice(t *testing.T) {
 	if code2 != 0 {
 		t.Fatalf("2회째 exit=%d, want 0(중복도 성공); out=%s", code2, out2)
 	}
-	// duplicate 경로도 경고(어휘 등)를 병행 출력한다(v0.9.2 #6) — status로 판정.
+
 	if m := decode(t, out2); m["status"] != "duplicate" {
 		t.Fatalf("2회째 status=%v, want duplicate; out=%s", m["status"], out2)
 	}
@@ -159,12 +140,6 @@ func TestDedupIdenticalPayloadTwice(t *testing.T) {
 		t.Fatalf("행 수=%d, want 1(멱등 위반)", n)
 	}
 }
-
-// --- 케이스 ②: 재시도 — 커밋 일시 실패 후 0s/1s/3s 재시도로 성공 ---
-//
-// Doltgres는 LOCK TABLE·pg_terminate_backend 미지원이라 SQL 수준 충돌 유도가
-// 불가하다(실험 기록). 대신 로컬 TCP 프록시로 dolt_add 첫 전송만 차단해
-// 실제 네트워크 일시 실패를 만들고, 실재 Retry(기본 0s/1s/3s)를 경유시킨다.
 
 func TestRetryRecoversAfterTransientCommitFailure(t *testing.T) {
 	pool := mustDB(t)
@@ -186,7 +161,7 @@ func TestRetryRecoversAfterTransientCommitFailure(t *testing.T) {
 	if m := decode(t, out); m["status"] != "committed" {
 		t.Fatalf("status=%v, want committed; out=%s", m["status"], out)
 	}
-	// 첫 시도 실패 → 1초 지연 후 재시도 성공이므로 최소 0.9s 경과.
+
 	if elapsed < 900*time.Millisecond {
 		t.Fatalf("경과 %v: 재시도 지연(0s/1s/3s) 경유 증거 부족", elapsed)
 	}
@@ -195,7 +170,6 @@ func TestRetryRecoversAfterTransientCommitFailure(t *testing.T) {
 	}
 }
 
-// backendAddr — DSN에서 host:port 추출.
 func backendAddr(t *testing.T) string {
 	t.Helper()
 	u, err := url.Parse(dsn())
@@ -205,8 +179,6 @@ func backendAddr(t *testing.T) string {
 	return u.Host
 }
 
-// dsnPath — dsn()의 DB 경로("/flint_test" 등). 프록시 DSN 조립에 쓴다
-// (v0.9.3 R1: 하드코딩 "/flint"는 운영 DB로 직결했었다).
 func dsnPath(t *testing.T) string {
 	t.Helper()
 	u, err := url.Parse(dsn())
@@ -216,8 +188,6 @@ func dsnPath(t *testing.T) string {
 	return u.Path
 }
 
-// killProxy — 첫 dolt_add 요청 바이트만 서버 전달 없이 연결을 끊는 TCP 프록시.
-// 이후 재접속은 그대로 통과시켜 재시도가 성공하게 한다.
 type killProxy struct {
 	ln     net.Listener
 	mu     sync.Mutex
@@ -291,8 +261,6 @@ func (p *killProxy) serve(c net.Conn, backend string) {
 	p.untrack(s)
 }
 
-// pipe — src→dst 복사. scan이면 클라→서버 흐름에서 "dolt_add"를 감시해
-// 최초 1회만 그 바이트를 서버에 보내지 않고 연결을 종료한다(일시 실패).
 func (p *killProxy) pipe(src, dst net.Conn, scan bool) {
 	defer src.Close()
 	defer dst.Close()
@@ -310,7 +278,7 @@ func (p *killProxy) pipe(src, dst net.Conn, scan bool) {
 					p.killed = true
 					p.mu.Unlock()
 					if first {
-						return // 전달 없이 종료 → 이 요청만 실패
+						return
 					}
 					carry = nil
 				}
@@ -327,8 +295,6 @@ func (p *killProxy) pipe(src, dst net.Conn, scan bool) {
 		}
 	}
 }
-
-// --- 케이스 ③: 이스케이프 — %, _, ' 가 와일드카드/주입 없이 리터럴 취급 ---
 
 func TestReadEscapesLikeWildcards(t *testing.T) {
 	pool := mustDB(t)
@@ -370,12 +336,10 @@ func TestReadEscapesLikeWildcards(t *testing.T) {
 		}
 	}
 
-	assertRead("100%", "e2e-esc-k1", 1)       // % 리터럴: 100x(k2) 오탐 차단
-	assertRead("snake_case", "e2e-esc-k3", 1) // _ 리터럴: snakexcase(k4) 오탐 차단
-	assertRead("o'brien", "e2e-esc-k5", 1)    // 작은따옴표 파라미터 전달
-	// v0.15.1 R1: 주입 시도 — 이스케이프 정상 작동으로 제로히트.
-	// v1.5.3 계약: exit 0·출력 완전 무(에러 JSON 부재=오류 없음,
-	// 0건=인젝션 무효 — 기존 의도 승계).
+	assertRead("100%", "e2e-esc-k1", 1)
+	assertRead("snake_case", "e2e-esc-k3", 1)
+	assertRead("o'brien", "e2e-esc-k5", 1)
+
 	outInj, codeInj := runCLI(t, []string{"read", `%' OR '1'='1`}, "")
 	if codeInj != 0 {
 		t.Fatalf("주입 시도 exit=%d, want 0(제로히트 — v1.5.3); out=%s", codeInj, outInj)
@@ -385,10 +349,6 @@ func TestReadEscapesLikeWildcards(t *testing.T) {
 	}
 }
 
-// --- v0.2 섹션: approve·maintain·done·백업 자동(T24) ---
-
-// setMeta / delMeta — meta 키-값 설정·복구(임계값·last_backup 프로브).
-// 테스트 끝나면 키를 지워 다른 테스트가 기본값을 보게 한다.
 func setMeta(t *testing.T, pool *pgxpool.Pool, key, value string) {
 	t.Helper()
 	if _, err := pool.Exec(context.Background(),
@@ -406,7 +366,6 @@ func delMeta(t *testing.T, pool *pgxpool.Pool, key string) {
 	}
 }
 
-// writeKnowledge — CLI write 회선(공용). committed JSON을 돌려준다.
 func writeKnowledge(t *testing.T, payload string) map[string]any {
 	t.Helper()
 	out, code := runCLI(t, []string{"write", "knowledge"}, payload)
@@ -420,7 +379,6 @@ func writeKnowledge(t *testing.T, payload string) map[string]any {
 	return m
 }
 
-// readLines — read <query> 결과 줄 수.
 func readLines(t *testing.T, query string) []string {
 	t.Helper()
 	out, code := runCLI(t, []string{"read", query}, "")
@@ -436,13 +394,11 @@ func readLines(t *testing.T, query string) []string {
 	return lines
 }
 
-// 케이스 ④를 제외한 v0.2 시나리오 — ① 승격 후 read 즉시 반영.
 func TestApprovePromotesPendingToActive(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-appr-")
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-appr-") })
 
-	// confidence 0.7 < 0.8 → pending 게이트(spec §8).
 	m := writeKnowledge(t,
 		`{"topic":"e2e-appr-k","summary":"승격 프로브","confidence":0.7}`)
 	if m["state"] != "pending" {
@@ -450,7 +406,6 @@ func TestApprovePromotesPendingToActive(t *testing.T) {
 	}
 	id := int(m["id"].(float64))
 
-	// 승인 전 read에는 status=pending으로 보인다(active 뷰는 무효만 차단).
 	readStatus := func() string {
 		t.Helper()
 		out, code := runCLI(t, []string{"read", "e2e-appr-k", "--json", "--fields", "id,status"}, "")
@@ -473,20 +428,16 @@ func TestApprovePromotesPendingToActive(t *testing.T) {
 		t.Fatalf("approve 출력=%v, want approved/%d", am, id)
 	}
 
-	// Review Focus(state): 승격 직후 read에 반영.
 	if s := readStatus(); s != "active" {
 		t.Fatalf("승인 후 read status=%q, want active", s)
 	}
 }
 
-// ② maintain --check 임계값 보고 — 경계(최대값과 같으면 ok, 초과분부터 경보).
 func TestMaintainCheckThresholdBoundary(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-mnt-")
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-mnt-") })
 
-	// DB에 남아 있는 다른 pending 행과 무관하게 판정되게 최대값을
-	// 현재 pending 수 + 2로 맞춘다(경계: +2건은 ok, +3건은 review-needed).
 	var base int
 	if err := pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM knowledge WHERE status = 'pending' AND invalid_at IS NULL`).
@@ -495,7 +446,7 @@ func TestMaintainCheckThresholdBoundary(t *testing.T) {
 	}
 	setMeta(t, pool, "pending_max", strconv.Itoa(base+2))
 	t.Cleanup(func() { delMeta(t, pool, "pending_max") })
-	setMeta(t, pool, "dup_susp_max", "1000000") // 본 케이스 밖 요인 차단
+	setMeta(t, pool, "dup_susp_max", "1000000")
 	t.Cleanup(func() { delMeta(t, pool, "dup_susp_max") })
 
 	writeKnowledge(t, `{"topic":"e2e-mnt-k1","summary":"경계 1","confidence":0.7}`)
@@ -520,7 +471,6 @@ func TestMaintainCheckThresholdBoundary(t *testing.T) {
 	}
 }
 
-// ③ done — 미기록 연속 2는 ok, 3부터 stale 경고(둘 다 exit 0).
 func TestDoneWarnsConsecutiveUnrecordedSessions(t *testing.T) {
 	pool := mustDB(t)
 	if _, err := pool.Exec(context.Background(),
@@ -532,14 +482,10 @@ func TestDoneWarnsConsecutiveUnrecordedSessions(t *testing.T) {
 	})
 	setMeta(t, pool, "stale_sessions", "3")
 	t.Cleanup(func() { delMeta(t, pool, "stale_sessions") })
-	// v1.0.13(CI 수리): recall 경고는 '금일 전역 write 수'를 본다 — 형제
-	// e2e가 쌓은 금일 write(100+)가 이 테스트의 ok 케이스를 오염시켰다.
-	// 임계값을 비활성 수준으로 올려 이 테스트의 관심사(stale 세션 수)만
-	// 검증한다.
+
 	setMeta(t, pool, "recall_warn_writes", "1000000")
 	t.Cleanup(func() { delMeta(t, pool, "recall_warn_writes") })
-	// done이 자동 백업·(회상 부재 시)recall 마커를 동반하므로 홈 대신
-	// 임시 디렉터리로 격리(v0.18.1 — 마커가 실사용자 config에 남던 오염).
+
 	t.Setenv("FLINT_BACKUP_DIR", t.TempDir())
 	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
@@ -553,7 +499,6 @@ func TestDoneWarnsConsecutiveUnrecordedSessions(t *testing.T) {
 		return strconv.Itoa(id)
 	}
 
-	// 세션 2개(knowledge 기록 없음) — 임계값 직전이라 ok.
 	out, code := runCLI(t, []string{"write", "session"},
 		`{"agent":"e2e-done-agent","summary":"미기록 1"}`+"\n"+
 			`{"agent":"e2e-done-agent","summary":"미기록 2"}`+"\n")
@@ -568,7 +513,6 @@ func TestDoneWarnsConsecutiveUnrecordedSessions(t *testing.T) {
 		t.Fatalf("연속 2 status=%v, want ok; out=%s", m["status"], out)
 	}
 
-	// 3개째 — stale 경고.
 	out, code = runCLI(t, []string{"write", "session"},
 		`{"agent":"e2e-done-agent","summary":"미기록 3"}`+"\n")
 	if code != 0 {
@@ -587,7 +531,6 @@ func TestDoneWarnsConsecutiveUnrecordedSessions(t *testing.T) {
 	}
 }
 
-// ④ 백업 자동 — last_backup 25시간 전이면 다음 done에서 덤프 파일 생성.
 func TestDoneTriggersAutoBackupAfter24h(t *testing.T) {
 	pool := mustDB(t)
 	stale := time.Now().UTC().Add(-25 * time.Hour).Format(time.RFC3339)
@@ -596,13 +539,13 @@ func TestDoneTriggersAutoBackupAfter24h(t *testing.T) {
 
 	dir := t.TempDir()
 	t.Setenv("FLINT_BACKUP_DIR", dir)
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // recall 마커 격리(v0.18.1)
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
 	out, code := runCLI(t, []string{"done", "--session", "e2e-backup-probe"}, "")
 	if code != 0 {
 		t.Fatalf("done exit=%d, want 0; out=%s", code, out)
 	}
-	decode(t, out) // 한 줄 JSON 유지
+	decode(t, out)
 
 	entries, err := os.ReadDir(dir)
 	if err != nil || len(entries) == 0 {
@@ -615,7 +558,6 @@ func TestDoneTriggersAutoBackupAfter24h(t *testing.T) {
 		}
 	}
 
-	// meta 갱신 — 다음 세션에서 재백업하지 않게.
 	var last string
 	if err := pool.QueryRow(context.Background(),
 		`SELECT value FROM meta WHERE key = 'last_backup'`).Scan(&last); err != nil {
@@ -626,10 +568,6 @@ func TestDoneTriggersAutoBackupAfter24h(t *testing.T) {
 	}
 }
 
-// --- v0.3 섹션: MCP 왕복·hot 계측·version 빌드(T34) ---
-
-// mcpHandle — MCP 메서드 3종 조립. tools/call은 DispatchTool(cli.Run 실구현)
-// 을 경유해 실DB·exit 계약을 그대로 재사용한다(바이너리의 mcp 모드와 동일 구성).
 func mcpHandle(method string, params map[string]any) (any, error) {
 	switch method {
 	case "initialize":
@@ -655,14 +593,11 @@ func mcpHandle(method string, params map[string]any) (any, error) {
 	}
 }
 
-// ① MCP stdio 왕복 — initialize→tools/list(5도구)→tools/call flint_read 실DB.
-// Review Focus(protocol): 응답 id 대응, MCP 경로도 실DB 계약·예산 준수.
 func TestMCPRoundtripRealDB(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-mcp-")
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-mcp-") })
 
-	// 실DB 씨딩 — flint_read가 찾을 대상(도구 밖 CLI 회선으로 심는다).
 	writeKnowledge(t, `{"topic":"e2e-mcp-k","summary":"MCP 왕복 프로브","confidence":0.9}`)
 
 	reqs := strings.Join([]string{
@@ -693,7 +628,6 @@ func TestMCPRoundtripRealDB(t *testing.T) {
 		}
 	}
 
-	// tools/list — 도구 5종·이름 정합(v0.32.0: pending·approve 추가).
 	tools, _ := resps[1]["result"].(map[string]any)["tools"].([]any)
 	if len(tools) != 5 {
 		t.Fatalf("도구 %d건, want 5; out=%s", len(tools), out.String())
@@ -710,7 +644,6 @@ func TestMCPRoundtripRealDB(t *testing.T) {
 		}
 	}
 
-	// tools/call flint_read — 실DB 경유로 씨딩 토픽 회신(exit 0).
 	result, _ := resps[2]["result"].(map[string]any)
 	if ec, _ := result["exitCode"].(float64); ec != 0 {
 		t.Fatalf("flint_read exitCode=%v, want 0; out=%s", result["exitCode"], out.String())
@@ -724,9 +657,8 @@ func TestMCPRoundtripRealDB(t *testing.T) {
 	}
 }
 
-// ② hot 계측 — flint_hot 1회 후 status에 hot_calls≥1·hot_p95 노출.
 func TestHotMetricsShowInStatus(t *testing.T) {
-	mustDB(t) // 서버 기동 게이트(status가 DB를 본다)
+	mustDB(t)
 
 	if _, code := runCLI(t, []string{"hot"}, ""); code != 0 {
 		t.Fatalf("hot exit=%d, want 0", code)
@@ -744,7 +676,6 @@ func TestHotMetricsShowInStatus(t *testing.T) {
 	}
 }
 
-// ③ version — make build 후 바이너리가 잘못된 DSN에서도 exit 0·한 줄 JSON.
 func TestVersionBinaryJSON(t *testing.T) {
 	root, err := filepath.Abs(filepath.Join("..", ".."))
 	if err != nil {
@@ -771,29 +702,21 @@ func TestVersionBinaryJSON(t *testing.T) {
 	}
 }
 
-// ④ schema 승격 실측 — v1 DB에서 done 1회(=세션 시작 경유) 실행만으로
-// meta가 승격된다(EnsureSchemaV2 → V3 → V4 → V5 연쇄, newRealStore 훅·
-// T57·T62·T82 배선). 최종 버전은 '5'(v2 컬럼 + v3 인덱스 + v4 계측 컬럼 +
-// v5 superseded_by) — v0.6의 '4' 기대치는 연쇄 승격 계약이 v5로 확장되며
-// 갱신(완화 사유: 연쇄 승격 계약 확장, 코디네이터 룰링). 승격 후에도
-// read·status 정상.
 func TestSchemaV2PromotedAfterDone(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-v3-")
 	t.Cleanup(func() {
 		cleanupTopics(t, pool, "e2e-v3-")
-		// 후속 실행·다른 status 테스트 보호: 버전을 '1'로 되돌린다
-		// (승격 경로는 IF NOT EXISTS 기반이라 재승격 멱등).
+
 		setMeta(t, pool, "schema_version", "1")
 	})
-	// 백업 자동 격리(done이 하루 첫 세션 백업을 돌릴 수 있다).
+
 	t.Setenv("FLINT_BACKUP_DIR", t.TempDir())
 
-	// v1 상태에서 시작(실DB가 이미 승격됐어도 이 테스트는 '1'에서 출발).
 	setMeta(t, pool, "schema_version", "1")
 	writeKnowledge(t, `{"topic":"e2e-v3-k","summary":"v2 승격 프로브","confidence":0.9}`)
 
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // recall 마커 격리(v0.18.1)
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 	out, code := runCLI(t, []string{"done", "--session", "e2e-v3-probe"}, "")
 	if code != 0 {
 		t.Fatalf("done exit=%d, want 0; out=%s", code, out)
@@ -804,21 +727,17 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 		`SELECT value FROM meta WHERE key = 'schema_version'`).Scan(&version); err != nil {
 		t.Fatalf("schema_version 조회 실패: %v", err)
 	}
-	// v1.0.13(CI 수리): 최신 버전은 db.LatestSchemaVersion 파생 — v9 추가
-	// 시 하드코딩이 낡아 적색이 됐던 것(v0.42 이후 e2e가 lint 적색으로
-	// 스킵돼 방치).
+
 	want := strconv.Itoa(db.LatestSchemaVersion)
 	if version != want {
 		t.Fatalf("done 후 schema_version=%q, want %s(연쇄 승격)", version, want)
 	}
 
-	// 승격 후 read 정상 — 씨딩 토픽이 그대로 보인다.
 	lines := readLines(t, "e2e-v3-k")
 	if len(lines) == 0 || !strings.Contains(lines[0], "e2e-v3-k") {
 		t.Fatalf("승격 후 read 결과 이상: %v", lines)
 	}
 
-	// 회귀: 승격 후 status는 exit 0(허용 집합은 최신 파생 — v1.0.13).
 	out, code = runCLI(t, []string{"status"}, "")
 	if code != 0 {
 		t.Fatalf("status exit=%d, want 0; out=%s", code, out)
@@ -828,10 +747,6 @@ func TestSchemaV2PromotedAfterDone(t *testing.T) {
 	}
 }
 
-// --- v0.4 섹션: 어휘 경고·패턴 증류·사용 로그·계측 누적·setup(T44) ---
-
-// ① 어휘 밖 tag write — CONTENT.md §4 표 밖 tag("bogus")는 경고만
-// 반환되고 저장은 거부되지 않는다(exit 0·committed).
 func TestWriteWarnsUnknownTag(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-vocab-")
@@ -857,7 +772,6 @@ func TestWriteWarnsUnknownTag(t *testing.T) {
 	}
 }
 
-// toStrings — JSON 디코딩된 any 슬라이스를 문자열 슬라이스로.
 func toStrings(v any) []string {
 	items, _ := v.([]any)
 	var out []string
@@ -869,14 +783,11 @@ func toStrings(v any) []string {
 	return out
 }
 
-// ② 패턴 증류 — 동일 topic 성공 knowledge 2건 → repeat-success 후보
-// 식별(증거 2건). db.PatternCandidates 직접 경유(maintain 제안 소스).
 func TestPatternRepeatSuccessCandidate(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-pat-")
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-pat-") })
 
-	// tags 명시 — NULL tags는 LIKE 집계에서 제외되므로 성공으로 세려면 필요.
 	writeKnowledge(t, `{"topic":"e2e-pat-k","summary":"성공 1","confidence":0.9,"tags":["process"]}`)
 	writeKnowledge(t, `{"topic":"e2e-pat-k","summary":"성공 2","confidence":0.9,"tags":["process"]}`)
 
@@ -904,8 +815,6 @@ func TestPatternRepeatSuccessCandidate(t *testing.T) {
 	t.Fatalf("후보에 %q 없음: %+v", "e2e-pat-k", pats)
 }
 
-// ③ 플레이북 사용 로그 — 3회 중 2성공 → PlaybookStats Rate 0.667.
-// 로그는 meta pb_<id>_uses/_ok 증분(신규 테이블 없음, schema v2 유지).
 func TestPlaybookUseStatsRate(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-usage-")
@@ -949,16 +858,13 @@ func TestPlaybookUseStatsRate(t *testing.T) {
 	t.Fatalf("stats에 id=%d 없음: %+v", id, stats)
 }
 
-// fmtPBKey — 플레이북 사용 로그 meta 키 조립.
 func fmtPBKey(id int, suffix string) string {
 	return "pb_" + strconv.Itoa(id) + "_" + suffix
 }
 
-// ④ 계측 프로세스 분리 누적 — 별도 프로세스 hot 2회 실행 뒤 status가
-// meta hot_stats baseline을 읽어 hot_calls=2로 보고(T38 wiring 실측).
 func TestHotCallsAccumulateAcrossProcesses(t *testing.T) {
 	pool := mustDB(t)
-	delMeta(t, pool, "hot_stats") // 직전 실행 잔여와 격리
+	delMeta(t, pool, "hot_stats")
 	t.Cleanup(func() { delMeta(t, pool, "hot_stats") })
 
 	root, err := filepath.Abs(filepath.Join("..", ".."))
@@ -988,7 +894,6 @@ func TestHotCallsAccumulateAcrossProcesses(t *testing.T) {
 	}
 }
 
-// ⑤ setup --dry — 단계 4건만 출력(exec·쿼리 없음)·exit 0.
 func TestSetupDrySteps(t *testing.T) {
 	out, code := runCLI(t, []string{"setup", "--dry"}, "")
 	if code != 0 {
@@ -1003,9 +908,6 @@ func TestSetupDrySteps(t *testing.T) {
 	}
 }
 
-// --- v0.5 섹션: mcp 실 프로세스·감사 필터·로테이션·복구 훈련·랭킹(T57) ---
-
-// rebuildBin — make build 후 bin/flint 경로 반환(실 프로세스 테스트 공용).
 func rebuildBin(t *testing.T) string {
 	t.Helper()
 	root, err := filepath.Abs(filepath.Join("..", ".."))
@@ -1020,9 +922,6 @@ func rebuildBin(t *testing.T) string {
 	return filepath.Join(root, "bin", "flint")
 }
 
-// ① mcp 실 프로세스 왕복 — bin/flint mcp가 stdin JSON-RPC(initialize→
-// flint_read)에 순서대로 응답하고 EOF에 exit 0으로 종료한다(T49 배선 실측:
-// main.go blank import가 없으면 not linked로 즉사 → 이 테스트가 RED).
 func TestMCPRealProcessRoundtrip(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-mcpv5-")
@@ -1049,7 +948,7 @@ func TestMCPRealProcessRoundtrip(t *testing.T) {
 	if _, err := io.WriteString(stdin, reqs); err != nil {
 		t.Fatalf("stdin 기록: %v", err)
 	}
-	stdin.Close() // EOF → 서버 정상 종료
+	stdin.Close()
 	if err := cmd.Wait(); err != nil {
 		t.Fatalf("mcp exit 오류(EOF 정상 0이어야 함): %v; out=%s", err, out.String())
 	}
@@ -1088,7 +987,6 @@ func TestMCPRealProcessRoundtrip(t *testing.T) {
 	}
 }
 
-// ② 감사 세션 필터 — --session은 해당 [session:ID] 커밋만 반환한다.
 func TestAuditSessionFilter(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-audit-")
@@ -1125,19 +1023,14 @@ func TestAuditSessionFilter(t *testing.T) {
 	}
 }
 
-// ③ 백업 로테이션 — 자동 백업(done 트리거) 3회(keep 2)면 가장 오래된
-// flint 덤프+사이드카 쌍이 삭제되고 최신 2쌍만 남는다. R17-B1: 로테이션은
-// flint 생성 패턴 파일만 대상 — 사용자 지정 파일명 --out 백업(mine.sql)은
-// 같은 디렉터리에 있어도 잔존한다(B1 회귀 e2e 가드).
 func TestRotateE2E(t *testing.T) {
 	pool := mustDB(t)
 	setMeta(t, pool, "backup_keep", "2")
 	t.Cleanup(func() { delMeta(t, pool, "backup_keep") })
 	dir := t.TempDir()
 	t.Setenv("FLINT_BACKUP_DIR", dir)
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // recall 마커 격리
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
-	// flintDumps — dir 안 flint-*.sql basename 목록(정렬).
 	flintDumps := func() []string {
 		t.Helper()
 		matches, err := filepath.Glob(filepath.Join(dir, "flint-*.sql"))
@@ -1147,10 +1040,7 @@ func TestRotateE2E(t *testing.T) {
 		sort.Strings(matches)
 		return matches
 	}
-	// autoBackup — last_backup을 만료시켜 done의 자동 백업을 강제 실행,
-	// 새로 생긴 flint-*.sql 경로를 반환(파일명은 초 단위 타임스탬프+PID라
-	// in-process 연속 실행이 같은 초에 몰리면同名 덮어쓰기가 된다 — 각
-	// 실행을 서로 다른 초에 띄워 생성 후 경로로 식별한다).
+
 	stale := time.Now().UTC().Add(-25 * time.Hour).Format(time.RFC3339)
 	autoBackup := func(i int) string {
 		t.Helper()
@@ -1171,13 +1061,12 @@ func TestRotateE2E(t *testing.T) {
 		}
 		return created[0]
 	}
-	// nextSecond — 다음 초 경계까지 대기(파일명 초 타임스탬프 분리).
+
 	nextSecond := func() {
 		now := time.Now()
 		time.Sleep(time.Until(now.Truncate(time.Second).Add(time.Second)))
 	}
-	// mtime 강제 — PID·파일명을 미리 알 수 없고 연속 실행은 같은 초에
-	// 몰리므로, 각 백업 직후(다음 백업 전) 생성된 파일에 결정적 시각을 찍는다.
+
 	base := time.Now().Add(-time.Hour)
 	stamp := func(path string, i int) {
 		t.Helper()
@@ -1194,8 +1083,6 @@ func TestRotateE2E(t *testing.T) {
 	mid := autoBackup(2)
 	stamp(mid, 2)
 
-	// 사용자 지정 파일명 --out 백업 — R17-B1 룰링: 사용자 소유 파일은
-	// 로테이션 제외. 이 시점 flint 파일 2개(=keep)라 rotate는 no-op.
 	mine := filepath.Join(dir, "mine.sql")
 	out, code := runCLI(t, []string{"backup", "--out", mine}, "")
 	if code != 0 || !strings.Contains(out, `"status":"ok"`) {
@@ -1203,7 +1090,7 @@ func TestRotateE2E(t *testing.T) {
 	}
 
 	nextSecond()
-	autoBackup(3) // 이때 rotate: 가장 오래된 flint 쌍 삭제(mine은 제외)
+	autoBackup(3)
 
 	remain := flintDumps()
 	if len(remain) != 2 {
@@ -1227,9 +1114,6 @@ func TestRotateE2E(t *testing.T) {
 	}
 }
 
-// ④ 복구 훈련 + 제로히트 계측 — restore --drill은 flint_drill 스키마에
-// 재생해 ok:true를 보고하고(원본 불변), read 1회 뒤 status에 read_stats가
-// 노출된다(read_calls>=1).
 func TestDrillE2EAndStats(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-drill-")
@@ -1255,14 +1139,13 @@ func TestDrillE2EAndStats(t *testing.T) {
 	if m["expected"] != m["restored"] || m["expected"] == float64(0) {
 		t.Fatalf("expected=%v restored=%v, want 동일且 >=1", m["expected"], m["restored"])
 	}
-	// 드릴은 public 원본 불변 — 스키마 잔존 없음.
+
 	var n int
 	if err := pool.QueryRow(context.Background(),
 		`SELECT count(*) FROM information_schema.schemata WHERE schema_name = 'flint_drill'`).Scan(&n); err != nil || n != 0 {
 		t.Fatalf("flint_drill 잔존=%d(항상 DROP이어야 함), err=%v", n, err)
 	}
 
-	// read 1회(히트) 후 status 노출.
 	readLines(t, "e2e-drill-k")
 	out, code = runCLI(t, []string{"status"}, "")
 	if code != 0 {
@@ -1277,15 +1160,11 @@ func TestDrillE2EAndStats(t *testing.T) {
 	}
 }
 
-// ⑤ 검색 랭킹 — topic 정합 행이 confidence 더 높은 요약 매칭 행보다 상단,
-// 비정합 행끼리는 confidence 내림차순(T56: topic > confidence > 최신).
 func TestReadRankingOrder(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-rank-")
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-rank-") })
 
-	// 모든 행이 쿼리 "e2e-rank-k"에 매칭: A는 topic 정확 일치(신뢰 낮음),
-	// B·C는 summary에 쿼리 포함(신뢰 B > C).
 	writeKnowledge(t, `{"topic":"e2e-rank-k","summary":"정합 우선 프로브","confidence":0.5}`)
 	writeKnowledge(t, `{"topic":"e2e-rank-a","summary":"e2e-rank-k 언급 높은 신뢰","confidence":0.9}`)
 	writeKnowledge(t, `{"topic":"e2e-rank-b","summary":"e2e-rank-k 재인용 낮은 신뢰","confidence":0.8}`)
@@ -1312,15 +1191,12 @@ func TestReadRankingOrder(t *testing.T) {
 	}
 }
 
-// TestReportEffectFlow — v0.19.0·v0.20.0 효과 계측(docs/METRICS.md §4):
-// 세션 시작 경계 → read --session(반환 id 기록) → 같은 topic 기록 →
-// report effect(세션 페어링·회상 선도·연쇄 원천) 실DB 검증.
 func TestReportEffectFlow(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-effect-")
 	t.Cleanup(func() { cleanupTopics(t, pool, "e2e-effect-") })
 	ctx := context.Background()
-	// 계측 프로브 정리(공유 DB 무결 — 이전 실패 잔여 대비).
+
 	const label = "e2e-s1"
 	for _, stmt := range []string{
 		`DELETE FROM read_events WHERE session = $1`,
@@ -1338,12 +1214,10 @@ func TestReportEffectFlow(t *testing.T) {
 			_, _ = pool.Exec(context.Background(), stmt, label)
 		}
 	})
-	t.Setenv("FLINT_CONFIG_DIR", t.TempDir()) // nudge 마커 격리(session-start 내부)
+	t.Setenv("FLINT_CONFIG_DIR", t.TempDir())
 
-	// 시드 지식은 세션 시작 *이전* — 회상 대상이며 세션 배정 밖(미리 씀).
 	writeKnowledge(t, `{"topic":"e2e-effect-k","summary":"효과 계측 프로브","confidence":0.9}`)
 
-	// 세션 시작 경계(D) — session-start 훅이 경계 1행을 기록한다.
 	if out, code := runCLI(t, []string{"session-start", "--session", label}, ""); code != 0 {
 		t.Fatalf("session-start exit=%d, want 0; out=%s", code, out)
 	}
@@ -1360,10 +1234,9 @@ func TestReportEffectFlow(t *testing.T) {
 	if code != 0 {
 		t.Fatalf("read exit=%d, want 0; out=%s", code, out)
 	}
-	// 사용 연쇄(B) — 회상한 topic과 같은 topic의 신규 지식 기록.
+
 	writeKnowledge(t, `{"topic":"e2e-effect-k","summary":"연쇄 검증 기록","confidence":0.9}`)
 
-	// 반환 id 파이프라인 — 이 세션의 read 이벤트가 e2e-effect-k의 id를 담는다.
 	var kid int
 	if err := pool.QueryRow(ctx,
 		`SELECT id FROM knowledge WHERE topic = 'e2e-effect-k' ORDER BY id LIMIT 1`).Scan(&kid); err != nil {
@@ -1395,23 +1268,19 @@ func TestReportEffectFlow(t *testing.T) {
 			t.Errorf("effect.%s 누락: %v", key, effect)
 		}
 	}
-	// 공유 DB라 타 테스트 간섭이 있어 ≥로 단언(정확치는 단위 테스트 담당).
+
 	if n, _ := effect["read_events_n"].(float64); n < 1 {
 		t.Errorf("read_events_n = %v, want ≥ 1", effect["read_events_n"])
 	}
 	if p, _ := effect["read_write_pairs"].(float64); p < 1 {
 		t.Errorf("read_write_pairs = %v, want ≥ 1(회상 뒤 기록 동반)", effect["read_write_pairs"])
 	}
-	// 회상 선도 — 유일한 시작 세션이 회상(read)으로 시작해 기록으로 끝났다.
-	// 이 테스트의 session-start가 런 내 마지막 경계라 다른 세션 배정은 없다.
+
 	if led, _ := effect["recall_led_pct"].(float64); led != 100 {
 		t.Errorf("recall_led_pct = %v, want 100(회상 선도 세션)", effect["recall_led_pct"])
 	}
 }
 
-// TestBackupEncryptDrillE2E — v0.28.0(H②): 실DB 암호화 백업 왕복 —
-// backup --encrypt(age 파일·사이드카) → restore --drill 복호 재생.
-// 키는 임시 config에 생성(RunDrillWithKey 복호 경로).
 func TestBackupEncryptDrillE2E(t *testing.T) {
 	pool := mustDB(t)
 	cleanupTopics(t, pool, "e2e-encdrill-")
@@ -1443,7 +1312,7 @@ func TestBackupEncryptDrillE2E(t *testing.T) {
 	if m["expected"] != m["restored"] || m["expected"] == float64(0) {
 		t.Fatalf("expected=%v restored=%v", m["expected"], m["restored"])
 	}
-	// 마스킹 덤프는 실DB에서도 restore 거부(사이드카 미부여 이중 방어).
+
 	masked := filepath.Join(dir, "m.sql")
 	out, code = runCLI(t, []string{"backup", "--out", masked, "--mask"}, "")
 	if code != 0 {
@@ -1454,7 +1323,7 @@ func TestBackupEncryptDrillE2E(t *testing.T) {
 	}
 	out, code = runCLI(t, []string{"restore", "--drill", "--file", masked}, "")
 	if code == 1 && strings.Contains(out, "sidecar") {
-		return // 사이드카 가드 선행 — 통과
+		return
 	}
 	if code != 1 {
 		t.Fatalf("마스킹 drill = exit %d %s, want 1", code, out)

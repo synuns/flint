@@ -1,6 +1,3 @@
-// suggest_v0163_test.go — the suggestion-threshold seam. The defaults come from
-// store.DefaultThresholds (the registry's single source); at runtime, cli injects
-// the meta override values via SetSuggestThresholds.
 package query
 
 import (
@@ -12,7 +9,6 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// that the defaults share the source with the registry (thresholds.go) — preventing a hardcoded dual source.
 func TestSuggestDefaultsFromThresholds(t *testing.T) {
 	def := store.DefaultThresholds()
 	if suggestMinScore != def.SuggestMinScore {
@@ -23,8 +19,6 @@ func TestSuggestDefaultsFromThresholds(t *testing.T) {
 	}
 }
 
-// SetSuggestThresholds — the injected minScore and scanCap are reflected in the
-// suggestion filter and the scan SQL (the meta-override priority path).
 func TestSetSuggestThresholdsApplies(t *testing.T) {
 	t.Cleanup(func() {
 		def := store.DefaultThresholds()
@@ -42,7 +36,7 @@ func TestSetSuggestThresholdsApplies(t *testing.T) {
 	}
 
 	rows := [][]any{
-		{int32(1), "flint 백업 절차", ""}, // identical to the query -> Dice 1.0 (passes the cap)
+		{int32(1), "flint 백업 절차", ""},
 		{int32(2), "전혀 다른 주제", "무관 요약"},
 	}
 	got := SuggestSimilar("flint 백업 절차", rows, 3)
@@ -54,7 +48,6 @@ func TestSetSuggestThresholdsApplies(t *testing.T) {
 	}
 }
 
-// injections <= 0 are ignored (double defense against unset fallbacks).
 func TestSetSuggestThresholdsIgnoresNonPositive(t *testing.T) {
 	t.Cleanup(func() {
 		def := store.DefaultThresholds()

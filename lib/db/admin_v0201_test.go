@@ -1,5 +1,3 @@
-// admin_v0201_test.go — regressions for the status co-writing of
-// invalidation·merge and promotion-zombie defense. Real-DB slow tests.
 package db
 
 import (
@@ -7,9 +5,6 @@ import (
 	"testing"
 )
 
-// TestInvalidateSetsStatus — single invalidation·Merge(from) also write
-// status='invalidated' — the same law as the batch path. The basis for
-// read --status invalidated exposure·report count consistency.
 func slowInvalidateSetsStatus(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	ids, err := r.InsertBatch(ctx, []map[string]any{
@@ -46,9 +41,6 @@ func slowInvalidateSetsStatus(t *testing.T, r *Repo) {
 	}
 }
 
-// TestApproveClearsInvalidAt — approving an invalidated pending clears
-// invalid_at too — defense against the active+invalid_at zombie (a row
-// visible neither in the view nor --status).
 func slowApproveClearsInvalidAt(t *testing.T, r *Repo) {
 	ctx := context.Background()
 	rec := knowledgeRec("approve-zombie")
@@ -58,8 +50,7 @@ func slowApproveClearsInvalidAt(t *testing.T, r *Repo) {
 		t.Fatalf("InsertBatch: %v", err)
 	}
 	id := ids[0]
-	// Invalidate the pending row the same way as the batch law (a
-	// pre-promotion invalidation scenario).
+
 	if _, err := r.pool.Exec(ctx,
 		`UPDATE knowledge SET status = 'invalidated', invalid_at = now() WHERE id = $1`, id); err != nil {
 		t.Fatalf("사전 무효화: %v", err)
@@ -82,8 +73,7 @@ func slowApproveClearsInvalidAt(t *testing.T, r *Repo) {
 	if status != "active" || invalidAt != nil {
 		t.Fatalf("승인 후 = {%s %v}, want {active <nil>} — 잔존 invalid_at 좀비", status, invalidAt)
 	}
-	// The promotion result must be visible in the active view
-	// (invalid_at IS NULL).
+
 	var n int
 	if err := r.pool.QueryRow(ctx,
 		`SELECT count(*) FROM active_knowledge WHERE id = $1`, id).Scan(&n); err != nil {

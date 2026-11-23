@@ -1,11 +1,3 @@
-// cutoff_v1192_test.go — the v1.19.2 overflow-sweep regressions (R75)
-// at the ops seams: a --days/stale_days value past the 106751-day
-// Duration ceiling clamps to a past cutoff (0 stale rows — the
-// pre-fix arithmetic wrapped the cutoff into the future, sweeping every
-// active row), the CLI value flags reject past-ceiling values up front
-// (usage-class exits), and the doctor metering check shows a
-// present-but-unparseable gate value as (corrupt) — distinct from
-// (never) — and reports the clamped warnH in its detail.
 package ops
 
 import (
@@ -17,26 +9,19 @@ import (
 	"github.com/synuns/flint/lib/store"
 )
 
-// staleRowsFixture — one clearly stale knowledge row (100 days since
-// last read; would be listed at any normal stale_days).
 func staleRowsFixture(now time.Time) [][]any {
 	return [][]any{
 		{int32(1), "demo-stale-topic", now.Add(-100 * 24 * time.Hour), now.Add(-100 * 24 * time.Hour), int32(0)},
 	}
 }
 
-// TestListStaleDaysOverrideOverflow — the consumption-site clamp: a
-// 200000-day override (past the Duration ceiling) yields 0 stale rows
-// instead of the wrapped-future cutoff's full sweep; the same fixture
-// at a normal override still lists it (the 0 comes from the clamp, not
-// the fixture).
 func TestListStaleDaysOverrideOverflow(t *testing.T) {
 	now := time.Now()
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM knowledge") {
 			return staleRowsFixture(now), nil
 		}
-		return nil, nil // thresholds query empty — defaults
+		return nil, nil
 	}}}
 	items, days, err := listStale(context.Background(), f, 200000, 20)
 	if err != nil {
@@ -57,10 +42,6 @@ func TestListStaleDaysOverrideOverflow(t *testing.T) {
 	}
 }
 
-// TestMaintainDaysCeilingGuard — the entry-point guard: --days past the
-// ceiling exits 3 (the invalid-arg convention) and --expire-pending
-// exits 1 (the expire-family convention) — both naming the ceiling,
-// before any store lookup runs.
 func TestMaintainDaysCeilingGuard(t *testing.T) {
 	f := &fakeMaintStore{fakeStore: &fakeStore{}}
 	t.Run("--days 상한 초과 — exit 3", func(t *testing.T) {
@@ -98,11 +79,6 @@ func TestMaintainDaysCeilingGuard(t *testing.T) {
 	})
 }
 
-// TestMeteringFreshnessCorruptGateKey — a gate-key meta value that is
-// present but unparseable (a leftover claim token from the
-// commit-then-verify gate, a corrupted stamp) reports (corrupt) — never
-// folded into (never), which claimed an observation gap where an
-// observation exists.
 func TestMeteringFreshnessCorruptGateKey(t *testing.T) {
 	ctx := context.Background()
 	th := store.DefaultThresholds()
@@ -127,9 +103,6 @@ func TestMeteringFreshnessCorruptGateKey(t *testing.T) {
 	}
 }
 
-// TestMeteringFreshnessWarnHDetailClamped — the ok/warn detail reports
-// the clamped warnH (87600), not the pre-clamp override (3000000) — the
-// printed limit is the limit actually applied.
 func TestMeteringFreshnessWarnHDetailClamped(t *testing.T) {
 	ctx := context.Background()
 	th := store.DefaultThresholds()
@@ -147,9 +120,6 @@ func TestMeteringFreshnessWarnHDetailClamped(t *testing.T) {
 	}
 }
 
-// TestSessionLabelMaxAgeOverflow — the events_retention_days reuse
-// clamps: a 200000-day override yields the ceiling span (~106751d),
-// never the wrapped-negative max-age that expired every session label.
 func TestSessionLabelMaxAgeOverflow(t *testing.T) {
 	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
 		if strings.Contains(sql, "FROM meta WHERE key IN") {

@@ -1,7 +1,3 @@
-// meta_kv_test.go — the meta KV round trip. Default metaKVFake; with SUPERLITE_REAL=1 +
-// FLINT_TEST_DSN set, goes through the real DB via poolStore (seam verification).
-// An external wire_test package — after T3, when wire imports lib/db, internal tests
-// cannot build due to the import cycle.
 package wire_test
 
 import (
@@ -19,9 +15,6 @@ import (
 	"github.com/synuns/flint/lib/wire"
 )
 
-// metaKVFake — a Store fake simulating the meta table with a map.
-// It applies meta.go's SQL semantics as-is (single-key SELECT, $1/$2 upsert,
-// $1/'1' atomic increment). The HistoryStubs embedding absorbs the 5 history methods.
 type metaKVFake struct {
 	meta    map[string]string
 	queries []string
@@ -54,7 +47,7 @@ func (f *metaKVFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 		}
 		return nil, nil
 	case strings.Contains(sql, "INSERT INTO meta") && strings.Contains(sql, "'1')"):
-		// the atomic increment upsert — if the existing value is a positive-integer notation, +1; otherwise reset to 1.
+
 		k := fmt.Sprint(args[0])
 		if n, err := strconv.Atoi(f.meta[k]); err == nil && n >= 0 {
 			f.meta[k] = strconv.Itoa(n + 1)
@@ -69,8 +62,6 @@ func (f *metaKVFake) Query(ctx context.Context, sql string, args ...any) ([][]an
 	return nil, nil
 }
 
-// poolStore — the minimal Store for the real-DB seam (reads and writes delegate to the pool Query).
-// The HistoryStubs embedding absorbs the 5 history methods.
 type poolStore struct {
 	pool *pgxpool.Pool
 	wire.HistoryStubs
@@ -108,8 +99,6 @@ func (p *poolStore) Query(ctx context.Context, sql string, args ...any) ([][]any
 	return out, rows.Err()
 }
 
-// seamRealDSN — allows a real DB connection only when SUPERLITE_REAL=1 + FLINT_TEST_DSN
-// are set (blocking the production fallback — inheriting the cli seamRealDSN N1 contract).
 func seamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
@@ -121,8 +110,6 @@ func seamRealDSN() (string, bool) {
 	return dsn, true
 }
 
-// metaKVStore — the default metaKVFake; with SUPERLITE_REAL=1, returns the real
-// implementation path via poolStore (the real-code seam of the producer Store). Skips without a running real DB.
 func metaKVStore(t *testing.T, f *metaKVFake) wire.Store {
 	t.Helper()
 	if dsn, real := seamRealDSN(); real {
@@ -137,7 +124,6 @@ func metaKVStore(t *testing.T, f *metaKVFake) wire.Store {
 	return f
 }
 
-// metaKVCleanup — restores the test keys when the real-DB seam runs (unnecessary for the local map).
 func metaKVCleanup(t *testing.T, st wire.Store, keys ...string) {
 	t.Helper()
 	if _, real := seamRealDSN(); !real {
@@ -152,10 +138,6 @@ func metaKVCleanup(t *testing.T, st wire.Store, keys ...string) {
 	}
 }
 
-// TestMetaKVStoreRoundtrip — the SetMetaKV then GetMetaKV round trip.
-// A new-key set->get, an update-upsert overwrite, and a missing key
-// ("", false). Naming note: TestMetaKVKoundtrip was already used by v0140_fix_test.go
-// (cli) for the closure round trip — the name reveals this is the direct Store round trip.
 func TestMetaKVStoreRoundtrip(t *testing.T) {
 	ctx := context.Background()
 	f := &metaKVFake{meta: map[string]string{}}
@@ -179,8 +161,6 @@ func TestMetaKVStoreRoundtrip(t *testing.T) {
 	}
 }
 
-// bumpFailFake — a metaKVFake wrapper returning an error from the increment-upsert SQL.
-// Counts the Query calls to detect any retry.
 type bumpFailFake struct {
 	metaKVFake
 	calls int
@@ -194,10 +174,6 @@ func (f *bumpFailFake) Query(ctx context.Context, sql string, args ...any) ([][]
 	return f.metaKVFake.Query(ctx, sql, args...)
 }
 
-// TestBumpMetaKVRunsSingleAttempt — the increment is non-idempotent,
-// so even on a Query failure it must be a single attempt (1 total Query).
-// A QueryOnce retry would double-count the increment on an ambiguous failure
-// (executed on the server, only the response lost).
 func TestBumpMetaKVRunsSingleAttempt(t *testing.T) {
 	ctx := context.Background()
 	f := &bumpFailFake{metaKVFake: metaKVFake{meta: map[string]string{}}}
