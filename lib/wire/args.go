@@ -119,7 +119,6 @@ func (r *ArgResult) Positional() []string {
 	return out
 }
 
-
 func maskToken(s string) string {
 	if i := strings.Index(s, "://"); i >= 0 {
 		return s[:i+3] + "***"
