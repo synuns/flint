@@ -317,6 +317,7 @@ func withContainerMode(t *testing.T) {
 	prev := ops.EngineModeFn
 	ops.EngineModeFn = func() (string, error) { return "managed-container", nil }
 	t.Cleanup(func() { ops.EngineModeFn = prev })
+	t.Setenv("FLINT_DSN", "postgresql://flint:pw@127.0.0.1:5434/flint")
 }
 
 func withComposePs(t *testing.T, fn func(context.Context) ([]byte, error)) {

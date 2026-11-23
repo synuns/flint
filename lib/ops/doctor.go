@@ -1651,6 +1651,11 @@ func checkEngine(ctx context.Context, st wire.Store) DoctorCheck {
 		c.Detail = "native mode only — current mode " + mode
 		return c
 	}
+	if EngineStatusFn == nil {
+		c.Status = "skip"
+		c.Detail = "engine status unwired — check skipped"
+		return c
+	}
 	s, err := EngineStatusFn()
 	if err != nil {
 		c.Status = "fail"
