@@ -31,6 +31,10 @@ var execVersion = func(bin string) (string, error) {
 	return string(out), nil
 }
 
+func EngineHome() string {
+	return engineHomeDir()
+}
+
 func engineHomeDir() string {
 	if d := os.Getenv("FLINT_HOME"); d != "" {
 		return d

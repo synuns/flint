@@ -1,6 +1,8 @@
 package cli
 
 import (
+	"time"
+
 	"context"
 	"encoding/json"
 	"errors"
@@ -121,7 +123,15 @@ func init() {
 		return err
 	}
 	engineNativeServiceFn = func(ctx context.Context) error {
-		return engine.Register()
+		if home := engine.EngineHome(); home != "" {
+			if err := engine.WriteEngineConfig(home); err != nil {
+				return err
+			}
+		}
+		if err := engine.Register(); err != nil {
+			return err
+		}
+		return engine.WaitForEngine(ctx, "postgresql://postgres:password@127.0.0.1:5434/postgres", 30, 500*time.Millisecond)
 	}
 	engineNativeBootstrapFn = engine.BootstrapCredentials
 }

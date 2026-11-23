@@ -1,14 +1,19 @@
 package engine
 
 import (
+	"context"
 	"errors"
 	"fmt"
+	"net"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
 	"strings"
+	"time"
+
+	"github.com/jackc/pgx/v5"
 )
 
 const launchdLabel = "dev.flint.engine"
@@ -56,7 +61,7 @@ func logFilePaths() (string, string) {
 	return filepath.Join(dir, "engine.out.log"), filepath.Join(dir, "engine.err.log")
 }
 
-func plistContent(bin, outLog, errLog string) string {
+func plistContent(bin, dataDir, outLog, errLog string) string {
 	return `<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
@@ -66,6 +71,8 @@ func plistContent(bin, outLog, errLog string) string {
 	<key>ProgramArguments</key>
 	<array>
 		<string>` + bin + `</string>
+		<string>-data-dir</string>
+		<string>` + dataDir + `</string>
 	</array>
 	<key>KeepAlive</key>
 	<true/>
@@ -78,12 +85,13 @@ func plistContent(bin, outLog, errLog string) string {
 `
 }
 
-func unitContent(bin, outLog, errLog string) string {
+func unitContent(bin, dataDir, outLog, errLog string) string {
 	return `[Unit]
 Description=flint native engine
 
 [Service]
-ExecStart=` + bin + `
+WorkingDirectory=` + filepath.Dir(bin) + `
+ExecStart=` + bin + ` -data-dir ` + dataDir + `
 Restart=always
 StandardOutput=append:` + outLog + `
 StandardError=append:` + errLog + `
@@ -119,9 +127,9 @@ func Register() error {
 	}
 	var content string
 	if serviceOS() == "darwin" {
-		content = plistContent(bin, outLog, errLog)
+		content = plistContent(bin, filepath.Join(filepath.Dir(bin), "data"), outLog, errLog)
 	} else {
-		content = unitContent(bin, outLog, errLog)
+		content = unitContent(bin, filepath.Join(filepath.Dir(bin), "data"), outLog, errLog)
 	}
 	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
 		return err
@@ -203,4 +211,34 @@ func NewNativeService() NativeService {
 			return versionFromOutput(out), nil
 		},
 	}
+}
+
+func WriteEngineConfig(home string) error {
+	dir := filepath.Join(home, "engine")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return err
+	}
+	cfg := "listener:\n  host: 127.0.0.1\n  port: 5434\n"
+	return os.WriteFile(filepath.Join(dir, "config.yaml"), []byte(cfg), 0o600)
+}
+
+func WaitForEngine(ctx context.Context, dsn string, attempts int, delay time.Duration) error {
+	cfg, err := pgx.ParseConfig(dsn)
+	if err != nil {
+		return err
+	}
+	addr := net.JoinHostPort(cfg.Host, fmt.Sprintf("%d", cfg.Port))
+	for i := 0; i < attempts; i++ {
+		conn, derr := net.DialTimeout("tcp", addr, 2*time.Second)
+		if derr == nil {
+			conn.Close()
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(delay):
+		}
+	}
+	return fmt.Errorf("engine: not reachable at %s after %d attempts", addr, attempts)
 }

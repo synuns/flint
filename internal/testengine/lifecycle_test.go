@@ -268,7 +268,6 @@ func TestLifecycleRealSlow(t *testing.T) {
 	}
 }
 
-
 func withDSNUnreachable(t *testing.T) {
 	t.Helper()
 	prev := dsnReachableFn
