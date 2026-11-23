@@ -28,8 +28,6 @@ var composeRunFn = func(ctx context.Context, args ...string) error {
 	return nil
 }
 
-// existingEngineImage reports the image of a running flint compose container
-// (ok=false when docker cannot answer or no container runs).
 func existingEngineImage(ctx context.Context) (string, bool) {
 	out, err := dockerPSFn(ctx, "--filter", "label=com.docker.compose.project=flint", "--format", "{{.Image}}")
 	if err != nil {
@@ -41,8 +39,6 @@ func existingEngineImage(ctx context.Context) (string, bool) {
 	return "", false
 }
 
-// guardEngineImage stops setup when a running flint container was created
-// from a different image than the pin — flint never auto-recreates it.
 func guardEngineImage(ctx context.Context) error {
 	img, ok := existingEngineImage(ctx)
 	if !ok || img == PinnedImage() {

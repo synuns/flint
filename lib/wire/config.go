@@ -74,8 +74,6 @@ func loadFileConfig() fileConfig {
 	return fc
 }
 
-// LoadConfigDSN returns the DSN recorded in config.json — engine_url first
-// (external mode), then the dsn key.
 func LoadConfigDSN() string {
 	c := loadFileConfig()
 	if c.engineURL != "" {
@@ -84,8 +82,6 @@ func LoadConfigDSN() string {
 	return c.dsn
 }
 
-// WithDSNPort substitutes the port of a postgresql:// DSN, leaving the rest
-// (credentials, path, query) untouched.
 func WithDSNPort(dsn string, port int) string {
 	u, err := url.Parse(dsn)
 	if err != nil || u.Host == "" || u.Hostname() == "" || port < 1 || port > 65535 {
@@ -95,10 +91,6 @@ func WithDSNPort(dsn string, port int) string {
 	return u.String()
 }
 
-// ResolveDSN resolves the production DSN: FLINT_DSN env, then config.json
-// (engine_url for external mode, else dsn — with the config port key
-// substituted into the port), then the default. FLINT_PORT is a compose
-// variable and never participates here.
 func ResolveDSN() string {
 	if d := os.Getenv("FLINT_DSN"); d != "" {
 		return d
