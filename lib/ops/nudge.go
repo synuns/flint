@@ -7,6 +7,7 @@ import (
 	"io"
 	"strings"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -47,7 +48,7 @@ func RunNudge(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 			return 0
 		}
 		if strings.HasPrefix(a, "-") {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint nudge [--clear]", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.nudge"), a)))
 			return 3
 		}
 	}

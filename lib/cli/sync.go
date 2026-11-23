@@ -10,11 +10,12 @@ import (
 	"strings"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
 
-const syncUsage = "usage: flint sync remote add <name> <url> | flint sync remote list | flint sync remote remove <name> | flint sync push <remote> | flint sync pull <remote> [--dry] | flint sync reset --to-remote <name> [--yes]"
+var syncUsage = i18n.T("usage.sync")
 
 func init() { Register("sync", runSync) }
 

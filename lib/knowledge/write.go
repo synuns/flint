@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -499,7 +500,7 @@ func RunWrite(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 
 	for _, a := range args {
 		if a == "--help" || a == "-h" {
-			fmt.Fprintf(stdout, "usage: flint write <kind> [--source %s] [--session ID] — kind: knowledge|session|project, payload: JSON/JSONL on stdin\n", sourceList())
+			fmt.Fprintf(stdout, i18n.T("usage.write")+"\n", sourceList())
 			return 0
 		}
 	}

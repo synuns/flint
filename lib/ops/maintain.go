@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
@@ -93,7 +94,7 @@ func retryWrite(ctx context.Context, fn func() error) error {
 	return db.Retry(ctx, fn, MaintainRetryDelaysFn())
 }
 
-const maintainUsageLine = "usage: flint maintain --check | --dup-suspects [--limit M] | --conflict-suspects [--limit M] | --stale [--days N] [--limit M] | --invalidate-stale [--yes] [--days N] [--limit M] | --invalidate (--id N --reason S | --ids 1,2,3 --yes) | --merge --from N --to M | --supersede OLD --by NEW | --expire-pending N [--commit] | --meta-audit | --prune-invalidated [N] [--commit] | --decay-audit [--limit M] | --age-audit [--limit M] | --merge-audit [--limit M] | --recall-audit [--limit M] | --reaffirm (--id N | --ids 1,2) --yes | --recheck N [--conditions S --yes] | --gc [--shallow] --yes | --purge-dropped [--yes] | --tui (opt-in, run alone)"
+var maintainUsageLine = i18n.T("usage.maintain")
 
 func maintainUsageErrf(format string, a ...any) *wire.UsageError {
 	return wire.UsageErrorf(format+" — "+maintainUsageLine, a...)

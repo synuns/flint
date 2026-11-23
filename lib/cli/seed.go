@@ -15,6 +15,7 @@ import (
 
 	"github.com/synuns/flint/data"
 	"github.com/synuns/flint/lib/db"
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -127,14 +128,14 @@ func runSeed(ctx context.Context, st Store, args []string, stdin io.Reader, stdo
 			{Name: "--reset"},
 			{Name: "--yes"},
 		},
-		Usage: "usage: flint seed --demo [--reset] [--yes]",
+		Usage: i18n.T("usage.seed"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, errLine(perr))
 		return 3
 	}
 	if !res.Given("--demo") {
-		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("seed: --demo required — usage: flint seed --demo [--reset] [--yes]")))
+		fmt.Fprintln(stdout, errLine(wire.UsageErrorf("%s", i18n.T("err.demo_required")+" — "+i18n.T("usage.seed"))))
 		return 3
 	}
 	demoDSN, dbName, err := resolveDemoDSN()

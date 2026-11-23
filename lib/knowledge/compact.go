@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/wire"
 )
 
@@ -24,7 +25,7 @@ func RunCompact(ctx context.Context, st wire.Store, args []string, stdin io.Read
 
 	for _, a := range args {
 		if strings.HasPrefix(a, "-") {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint compact (hook entry — no flags)", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.compact"), a)))
 			return 3
 		}
 	}

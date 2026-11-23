@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.29.2-blue" alt="v1.29.2">
+  <img src="https://img.shields.io/badge/release-v1.28.0-blue" alt="v1.28.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.28.0 · 표면 확장·품질 청산 — TTY에서 무인수 `flint read`·`flint tuning`이 대화형 TUI로 진입(플래그 호출·비TTY·FLINT_NO_TUI는 현행 플래그 모드 그대로·read 계측 보존)·i18n KO 카탈로그(FLINT_LANG·usage 우선 적용)·테스트 통합(8도메인 버전 접미 56파일→8·스위트 592 불변)·BRAND 동향 회수·BREW tap 검토·서명 재실증 · [전체 변경로그](docs/HISTORY.md)
 > v1.29.2 · r117 패치 — 격리 마무리: doctor engine-footprint skip 상세가 원인을 명시(미기동 전용 엔진 — "no running container publishes 5499" — 과 docker 부재 구분 가능)·전용 엔진 DSN 컨테이너 선택을 양방향 테스트로 고정 · [전체 변경로그](docs/HISTORY.md)
 > v1.29.1 · r116 패치 — 격리 감사 수정: Makefile FLINT_TEST_DSN 기본값을 전용 엔진(5499)으로(운영 포트 기본값이 로컬 격리 무력화)·docker-compose.test.yml 이미지 다이제스트 고정(동치 가드)·엔진 컨테이너 선택 포트 기반(EngineMemMB·restarts의 오엔진 판독 방지)·tests/ 헬퍼의 FLINT_REALDB_REQUIRED 준수(전 경로 skip 0 센티널) · [전체 변경로그](docs/HISTORY.md)
 > v1.29.0 · 물리 격리 — 테스트 전용 엔진(`docker-compose.test.yml` — 127.0.0.1:5499·`internal/testengine` lazy 기동 + 스크래치 수명주기 + 런 종료 purge·테스트는 운영 엔진 무접촉)·`maintain --purge-dropped`(복원 가능 DROP DB 목록 dry-run → 되돌림 불가 purge, 루프백 한정)·doctor `dropped_dbs`·`stray_dbs` 경고(thresholds `dropped_dbs_warn`·`stray_dbs_warn`·meta `stray_dbs_allow` 면제)·engine-footprint 재시작 횟수 표시 · [전체 변경로그](docs/HISTORY.md)
@@ -250,12 +251,12 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 | `flint setup` | Doltgres 기동 · 마이그레이션 · 시드/플러그인 다음 단계 안내 |
 | `flint seed --demo` | 내장 합성 데모 데이터셋을 격리 데모 DB에 적재(db명 + `_demo`, `FLINT_DEMO_DSN` 오버라이드; 멱등; `--reset --yes`는 `demo/` 행만 삭제 — 소유자 불일치 exit 3) |
 | `flint update` | 최신 릴리스 자가 업데이트(체크섬 검증·`--check` 드라이런) |
-| `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`; 자율 튜닝 표면 `auto off\|shadow`·`what-if`·`status`; 옵트인 `--tui` 폼) |
+| `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`; 자율 튜닝 표면 `auto off\|shadow`·`what-if`·`status`); TTY 무인수 호출은 대화형 폼 진입(서브커맨드·플래그·비TTY·FLINT_NO_TUI는 현행 모드 유지·`--tui` 강제) |
 | `flint write <kind>` | 표준 입력에서 지식 기록 (멱등) |
 | `flint import [path]` | 규칙 파일(CLAUDE.md 등)을 pending 지식으로 변환(`--commit`); `--format jsonl\|pam` 지식 재이식·수입(jsonl 왕복·PAM v1.0) |
 | `flint export [--format f]` | 지식 export jsonl·md·txt·csv·pam(PAM v1.0 표준 memory-store; `--status`·`--tag`·`--since` 필터, `--out` 파일 + `.sha256` 사이드카, PAM `--sign` Ed25519 서명 — 스펙 §18) |
 | `flint index [--vault p]` | 마크다운 볼트를 `vault_files`에 색인(스냅숏-디프, 디프마다 배치 1커밋; `--vault` 경로 저장, `--limit` 스캔 상한) |
-| `flint read <query>` | 활성 지식 검색 (색인된 볼트 행은 지식 블록 뒤에 추가); 옵트인 `--related N`은 무방향 지식 링크 이웃을 뒤에 추가(상한 5)·`--why`는 행별 근거 부록(토큰 tier·RRF 신호·제로히트 사유) — 기본 출력은 불변 |
+| `flint read <query>` | 활성 지식 검색 (색인된 볼트 행은 지식 블록 뒤에 추가); TTY 무인수 호출은 대화형 브라우저 진입(쿼리 입력·결과 목록·상세 전환); 옵트인 `--related N`은 무방향 지식 링크 이웃을 뒤에 추가(상한 5)·`--why`는 행별 근거 부록(토큰 tier·RRF 신호·제로히트 사유) — 플래그 모드 출력은 불변 |
 | `flint hot --session <id>` | 세션 시작 맥락 주입 |
 | `flint brief [query]` | 외부 AI에 붙여넣는 마스킹 브리프(읽기 전용) |
 | `flint done --session <id>` | 세션 마무리 기록 |

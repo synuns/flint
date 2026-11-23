@@ -9,6 +9,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -78,7 +79,7 @@ func RunBrief(ctx context.Context, st wire.Store, args []string, stdin io.Reader
 		default:
 
 			if strings.HasPrefix(a, "-") {
-				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint brief [query] [--limit N]", a)))
+				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.brief"), a)))
 				return 3
 			}
 			pos = append(pos, a)

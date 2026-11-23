@@ -11,6 +11,7 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -67,7 +68,7 @@ func runDistill(ctx context.Context, st Store, args []string, stdin io.Reader, s
 			{Name: "--out", Value: true},
 			{Name: "--min-score", Value: true},
 		},
-		Usage: "usage: flint distill --out DIR [--min-score N]",
+		Usage: i18n.T("usage.distill"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, wire.ErrLine(perr))

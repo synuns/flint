@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/tui"
 	"github.com/synuns/flint/lib/wire"
@@ -27,7 +28,7 @@ func runPendingEntry(ctx context.Context, st Store, args []string, stdin io.Read
 		for j, b := range args {
 			if j != i && b != "--tui" {
 				fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(
-					"unknown flag: %s — usage: flint pending [--tui]", b)))
+					i18n.T("err.unknown_flag")+" — "+i18n.T("usage.pending"), b)))
 				return 3
 			}
 		}

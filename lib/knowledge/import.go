@@ -9,6 +9,7 @@ import (
 	"path/filepath"
 	"strings"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
@@ -172,7 +173,7 @@ func RunImport(ctx context.Context, st wire.Store, args []string, stdin io.Reade
 			commit = true
 		} else if strings.HasPrefix(a, "-") {
 
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint import [path] [--commit] | flint import --format jsonl|pam [FILE]", a)))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.import"), a)))
 			return 3
 		} else {
 			pos = append(pos, a)

@@ -10,6 +10,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -359,7 +360,7 @@ func RunHot(ctx context.Context, st wire.Store, args []string, stdin io.Reader, 
 		}
 
 		if strings.HasPrefix(args[i], "-") {
-			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf("unknown flag: %s — usage: flint hot [--session ID] [--full]", args[i])))
+			fmt.Fprintln(stdout, wire.ErrLine(wire.UsageErrorf(i18n.T("err.unknown_flag")+" — "+i18n.T("usage.hot"), args[i])))
 			return 3
 		}
 	}
