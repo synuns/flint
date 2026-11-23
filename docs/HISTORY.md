@@ -6,10 +6,10 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
-### v1.24.1 patch (2026-11-23) — r104: echo candidate accrual · merge-audit active-only · d4 merge path
+### v1.24.1 patch (2026-11-23) — r104-r105: echo candidate accrual · merge-audit active-only · d4 merge path · int4 input guards
 
-The v1.24.0 audit (R104) fixes — 4 findings, no schema change (schema
-v19 stands):
+The v1.24.0 audit (R104·R105) fixes — 6 findings, no schema change
+(schema v19 stands):
 
 - **echo candidate accrual (r104-1, high)**: the v1.24.0 `echo_candidates`
   table (schema v19) was created but the write path never inserted a
@@ -37,6 +37,17 @@ v19 stands):
   text comment now states the real cap semantics — both sides
   TruncateRunes 4096, where EchoScan applies the cap to the query side
   only (a divergence for stored rows beyond 4096 runes).
+- **recall-audit --limit int4 ceiling (r105-2, low)**: a `--limit` past
+  the int4 range is refused at parse (exit 3, the `--days` ceiling
+  convention) before any audit query fires — the value previously
+  flowed into the audit `LIMIT $2` parameter, where the encoding fails
+  opaquely at query time.
+- **read --related int4 ceiling (r105-3, low)**: a `--related` id past
+  the int4 ceiling (knowledge.id is an int4 serial — such an id cannot
+  exist) is refused at parse (exit 3, the maintain `--recheck` r98
+  convention). The pre-guard path reached the existence probe, whose
+  int8→int4 encoding failure is quiet (§13) — the read fell through
+  with the bogus fusion id instead of refusing.
 
 ### v1.24.0 minor (2026-11-23) — curation-residual: schema v19 (kind · source_path · echo_candidates) · merge-audit · recall-audit · read --related · --why
 

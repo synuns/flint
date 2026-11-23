@@ -228,6 +228,15 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 					"maintain: --days %s over the %d-day ceiling", o.Value, db.MaxRetentionDays)))
 				return 3
 			}
+			if o.Name == "--limit" && n > math.MaxInt32 {
+				// the int4 ceiling guard (v1.24.1 r105): a row limit past the
+				// int4 range cannot ride the LIMIT $2 parameter of the audit
+				// queries (the encoding fails opaquely at query time) — rejected
+				// up front, the --days ceiling convention above (exit 3).
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf(
+					"maintain: --limit %d over the int4 ceiling %d", n, math.MaxInt32)))
+				return 3
+			}
 			if o.Name == "--days" {
 				days = n
 			} else {

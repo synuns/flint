@@ -1780,6 +1780,30 @@ func TestRunReadRelatedTargetMissingExit3(t *testing.T) {
 	}
 }
 
+// TestRunReadRelatedInt4CeilingV1241 — v1.24.1 (r105-3): a --related id
+// past the int4 ceiling (knowledge.id is an int4 serial) is refused at
+// parse (exit 3). The pre-patch path reached the existence probe, whose
+// int8→int4 encoding failure is QUIET (§13) — the read fell through with
+// the bogus fusion id instead of refusing (the probe-death shape faked
+// here; the not-found probe case is the test above).
+func TestRunReadRelatedInt4CeilingV1241(t *testing.T) {
+	st := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		if strings.Contains(sql, "FROM knowledge WHERE id = $1") {
+			return nil, errors.New("int8 encoding over int4") // the probe-death shape
+		}
+		return relatedQueryFn(hitRowsFixture, nil)(sql, args)
+	}}
+	var out strings.Builder
+	code := RunRead(context.Background(), st,
+		[]string{"백업 정책", "--related", "2147483648"}, strings.NewReader(""), &out)
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3(int4 상한 사전 거부): %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "int4 ceiling") {
+		t.Fatalf("출력에 int4 상한 안내 부재: %s", out.String())
+	}
+}
+
 // TestRunReadRelatedZeroLinksEmpty — an existing target with zero links:
 // the related fusion adds nothing — the output is byte-identical to the
 // no-flag read (the 0-link empty response) and the exit stays 0.

@@ -2166,6 +2166,27 @@ func TestMaintainMergeDisposedCounterV1241(t *testing.T) {
 	}
 }
 
+// TestMaintainRecallAuditLimitInt4CeilingV1241 — v1.24.1 (r105-2): a
+// --limit past the int4 range is refused at parse (exit 3, the --days
+// ceiling convention) before any audit query fires — the pre-patch path
+// flowed the value into the audit LIMIT $2 parameter, where the encoding
+// fails opaquely at query time.
+func TestMaintainRecallAuditLimitInt4CeilingV1241(t *testing.T) {
+	f := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out, code := runMaintainArgs(t, f, "--recall-audit", "--limit", "2147483648")
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3(int4 상한 사전 거부): %s", code, out)
+	}
+	if !strings.Contains(out, "int4 ceiling") {
+		t.Fatalf("출력에 int4 상한 안내 부재: %s", out)
+	}
+	for _, sql := range f.queries {
+		if strings.Contains(sql, "AS bad_recall") {
+			t.Errorf("사전 거부 전 audit 질의 발화: %s", sql)
+		}
+	}
+}
+
 // TestMaintainRecallAuditRealSlow — slow (FLINT_TEST_DSN — the verify-gate
 // DB): synthetic seeds on an isolated scratch DB — a topic with two
 // recalled-then-invalidated rows plus one active row (the candidate), and a

@@ -48,7 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
-> v1.24.1 · r104 patch — `echo_candidates` accrual wired (write-time echo candidates persist: fresh row id, duplicate resend keyed by the existing row) · merge-audit active-only fetch (pending rows excluded) · `--merge` joins the D4 disposed counter · [full changelog](docs/HISTORY.md)
+> v1.24.1 · r104-r105 patch — `echo_candidates` accrual wired (write-time echo candidates persist: fresh row id, duplicate resend keyed by the existing row) · merge-audit active-only fetch (pending rows excluded) · `--merge` joins the D4 disposed counter · int4 input guards (`--recall-audit --limit`, `read --related`) · [full changelog](docs/HISTORY.md)
 > v1.24.0 · curation residual — schema v19 (`kind`·`source_path`, `echo_candidates`) · `maintain --merge-audit` (duplicate pair report, cost-estimated) · `--recall-audit` (bad-recall feedback report) · `read --related` (undirected neighbor links) / `--why` (token tier · RRF signal · zero-hit evidence) · [full changelog](docs/HISTORY.md)
 > v1.23.2 · r102 patch — counter digit bound (18-digit guard on the shadow counter upsert) · v1.23.0 spec alignment (boundary fires, off-mode cost) · what-if p50/p90 domain filter · [full changelog](docs/HISTORY.md)
 > v1.23.0 · autotune shadow — schema v18 `tuning_predictions` (predictions recorded, nothing applied) · `auto_mode` policy switch (default off, whitelist: `suggest_min_score`) · shadow rounds on the read tail (24h gate, streak rules) · `flint tuning what-if` / `status` (reclassification · p50/p90 · drift card) · [full changelog](docs/HISTORY.md)

@@ -48,7 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
-> v1.24.1 · r104 패치 — `echo_candidates` 적립 회로 연결(write 시점 echo 후보 저장: 신규 행 id, 중복 재전송은 기존 행 기준)·merge-audit active 한정 페치(pending 배제)·`--merge`의 D4 처분 카운터 계상 · [전체 변경 이력](docs/HISTORY.md)
+> v1.24.1 · r104-r105 패치 — `echo_candidates` 적립 회로 연결(write 시점 echo 후보 저장: 신규 행 id, 중복 재전송은 기존 행 기준)·merge-audit active 한정 페치(pending 배제)·`--merge`의 D4 처분 카운터 계상·int4 입력 가드(`--recall-audit --limit`·`read --related`) · [전체 변경 이력](docs/HISTORY.md)
 > v1.24.0 · 지식 관리 잔여 — 스키마 v19(`kind`·`source_path`·`echo_candidates`)·`maintain --merge-audit`(중복 쌍 보고, 비용 추정 동반)·`--recall-audit`(나쁜 회상 환류 보고)·`read --related`(무방향 이웃 링크)/`--why`(토큰 tier·RRF 신호·제로히트 근거) · [전체 변경 이력](docs/HISTORY.md)
 > v1.23.2 · r102 패치 — 카운터 자릿수 상한(shadow 카운터 업서트 18자리 가드)·v1.23.0 스펙 정렬(경계 발화·미옵 비용)·what-if p50/p90 도메인 필터 · [전체 변경 이력](docs/HISTORY.md)
 > v1.23.0 · 자율 튜닝 shadow — 스키마 v18 `tuning_predictions`(예측 기록만, 적용 0건)·`auto_mode` 정책 스위치(기본 off, 화이트리스트: `suggest_min_score`)·read 꼬리 shadow 라운드(24h 게이트·streak 규칙)·`flint tuning what-if`/`status`(재분류·p50/p90·드리프트 카드) · [전체 변경 이력](docs/HISTORY.md)

@@ -439,14 +439,24 @@ func RunRead(ctx context.Context, st wire.Store, args []string, stdin io.Reader,
 	q := strings.Join(res.Positional(), " ")
 	// --related N — the neighbor link fusion target: a knowledge row id.
 	// A non-integer or valueless trailing value is invalid-value exit 3
-	// (the --limit convention); an id absent from knowledge fails fast at
-	// exit 3 below (before any result output — no FK on knowledge_links,
-	// the v14 write-path convention).
+	// (the --limit convention); an id over the int4 ceiling is refused
+	// here up front (v1.24.1 r105, the maintain --recheck r98 convention):
+	// knowledge.id is an int4 serial, so such an id cannot exist, and the
+	// existence probe below would die in the int8→int4 encoding — a probe
+	// FAILURE is quiet (§13), so without the pre-guard the read would fall
+	// through with a bogus fusion id instead of exiting 3. An id absent
+	// from knowledge fails fast at exit 3 below (before any result output —
+	// no FK on knowledge_links, the v14 write-path convention).
 	relatedID := 0
 	if res.Given("--related") {
 		n, err := strconv.Atoi(res.Value("--related"))
 		if err != nil {
 			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "related", Expect: "integer"}))
+			return 3
+		}
+		if n > math.MaxInt32 {
+			fmt.Fprintln(stdout, wire.ErrLine(&store.SchemaError{Field: "related",
+				Expect: fmt.Sprintf("knowledge id over the int4 ceiling %d", math.MaxInt32)}))
 			return 3
 		}
 		relatedID = n
