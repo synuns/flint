@@ -3,12 +3,14 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -237,6 +239,20 @@ func TestTeardownFailGuidance(t *testing.T) {
 	}
 }
 
+func TestSetupUXRemedyFormat(t *testing.T) {
+	var buf bytes.Buffer
+	ux := newSetupUX(&buf, false)
+	ux.Step("Start engine (docker compose up)")
+	ux.Remedy("daemon_down", "start Docker Desktop (open -a Docker), then re-run flint setup")
+	out := buf.String()
+	if !strings.Contains(out, "daemon_down") || !strings.Contains(out, "open -a Docker") {
+		t.Fatalf("Remedy 출력에 kind·처방 없음: %q", out)
+	}
+	if strings.Contains(out, "\x1b[") {
+		t.Fatalf("비TTY에서 ANSI 코드 출력: %q", out)
+	}
+}
+
 func storeDown(t *testing.T) {
 	t.Helper()
 	prev := newStore
@@ -362,5 +378,155 @@ func TestSyncRulesSkipsSymlinks(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(dest, "leak")); !os.IsNotExist(err) {
 		t.Errorf("심볼릭 링크가 복사됨: %v", err)
+	}
+}
+
+func engineHandshakeQueryFn(sql string, args []any) ([][]any, error) {
+	switch {
+	case strings.Contains(sql, "version()"):
+		return [][]any{{"PostgreSQL 15.5"}}, nil
+	case strings.Contains(sql, db.DoltLogTable):
+		return [][]any{{int64(1)}}, nil
+	}
+	return nil, nil
+}
+
+func TestSetupPortFlagProvisionsEngine(t *testing.T) {
+	dir := withEngineConfigDir(t)
+	withPortBindFn(t, func(p int) bool { return true })
+	withSetupPortProbe(t, false)
+	withDockerPS(t, "", nil)
+	var upCalls int
+	var flintPortEnv string
+	prevUp := composeUpFn
+	composeUpFn = func(ctx context.Context) error {
+		upCalls++
+		flintPortEnv = os.Getenv("FLINT_PORT")
+		return nil
+	}
+	t.Cleanup(func() { composeUpFn = prevUp })
+	withFake(t, &fakeStore{queryFn: engineHandshakeQueryFn})
+	out, code := mustRun(t, []string{"setup", "--port", "5555"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0; out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["status"] != "ok" || m["mode"] != "managed" {
+		t.Fatalf("status=%v mode=%v, want ok/managed; out=%s", m["status"], m["mode"], out)
+	}
+	if m["port"] != float64(5555) {
+		t.Fatalf("port=%v, want 5555; out=%s", m["port"], out)
+	}
+	if upCalls != 1 {
+		t.Fatalf("compose up=%d회, want 1", upCalls)
+	}
+	if flintPortEnv != "5555" {
+		t.Fatalf("FLINT_PORT=%q, want 5555(내장 compose 포트 변수)", flintPortEnv)
+	}
+	cfg := readEngineConfig(t, dir)
+	if cfg["port"] != float64(5555) {
+		t.Fatalf("config port=%v, want 5555", cfg["port"])
+	}
+}
+
+func TestSetupPortFlagAutoAssignsWhenHeld(t *testing.T) {
+	dir := withEngineConfigDir(t)
+	withPortBindFn(t, func(p int) bool { return p >= 5556 })
+	withDockerPS(t, "", nil)
+	prevUp := composeUpFn
+	composeUpFn = func(ctx context.Context) error { return nil }
+	t.Cleanup(func() { composeUpFn = prevUp })
+	errs := withSetupPortProbe(t, false)
+	withFake(t, &fakeStore{queryFn: engineHandshakeQueryFn})
+	out, code := mustRun(t, []string{"setup", "--port", "5555"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(자동 배정); out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["port"] != float64(5556) {
+		t.Fatalf("port=%v, want 5556(점유 시 자동 배정); out=%s", m["port"], out)
+	}
+	if !strings.Contains(errs.String(), "5555") || !strings.Contains(errs.String(), "5556") {
+		t.Fatalf("자동 배정 안내 없음: %q", errs.String())
+	}
+	cfg := readEngineConfig(t, dir)
+	if cfg["port"] != float64(5556) {
+		t.Fatalf("config port=%v, want 5556", cfg["port"])
+	}
+}
+
+func TestSetupPortFlagAdoptsExistingInstall(t *testing.T) {
+	dir := withEngineConfigDir(t)
+	withDockerPS(t, "127.0.0.1:5434->5432/tcp\n", nil)
+	prevUp := composeUpFn
+	composeUpFn = func(ctx context.Context) error { return nil }
+	t.Cleanup(func() { composeUpFn = prevUp })
+	withFake(t, &fakeStore{queryFn: engineHandshakeQueryFn})
+	out, code := mustRun(t, []string{"setup", "--port", "5555"}, "")
+	if code != 0 {
+		t.Fatalf("exit=%d, want 0(기존 포트 채택); out=%s", code, out)
+	}
+	m := decode(t, out)
+	if m["port"] != float64(5434) {
+		t.Fatalf("port=%v, want 5434(기존 설치 포트); out=%s", m["port"], out)
+	}
+	cfg := readEngineConfig(t, dir)
+	if cfg["port"] != float64(5434) {
+		t.Fatalf("config port=%v, want 5434", cfg["port"])
+	}
+}
+
+func TestSetupPortFlagHeldPortStops(t *testing.T) {
+	withEngineConfigDir(t)
+	withDockerPS(t, "", errors.New("docker ps failed"))
+	withSetupPortProbe(t, true)
+	withFake(t, &fakeStore{})
+	out, code := mustRun(t, []string{"setup", "--port", "5555"}, "")
+	if code != 1 {
+		t.Fatalf("exit=%d, want 1(stop); out=%s", code, out)
+	}
+	if !strings.Contains(out, "5434") || !strings.Contains(out, "RUNBOOK") {
+		t.Fatalf("처방 문구 없음: %s", out)
+	}
+}
+
+func TestSetupPortFlagInvalid(t *testing.T) {
+	withEngineConfigDir(t)
+	withFake(t, &fakeStore{})
+	for _, bad := range []string{"abc", "0", "70000"} {
+		out, code := mustRun(t, []string{"setup", "--port", bad}, "")
+		if code != 3 {
+			t.Fatalf("%s: exit=%d, want 3; out=%s", bad, code, out)
+		}
+	}
+}
+
+func TestSetupPortFlagHandshakeFailClassified(t *testing.T) {
+	withEngineConfigDir(t)
+	withPortBindFn(t, func(p int) bool { return true })
+	withSetupPortProbe(t, false)
+	withDockerPS(t, "", nil)
+	prevUp := composeUpFn
+	composeUpFn = func(ctx context.Context) error { return nil }
+	t.Cleanup(func() { composeUpFn = prevUp })
+	withFake(t, &fakeStore{queryErr: errors.New("Cannot connect to the Docker daemon")})
+	out, code := mustRun(t, []string{"setup", "--port", "5555"}, "")
+	if code != 1 {
+		t.Fatalf("exit=%d, want 1(악수 실패); out=%s", code, out)
+	}
+	if !strings.Contains(out, "daemon_down") {
+		t.Fatalf("원인형 분류 없음: %s", out)
+	}
+}
+
+func TestSetupPortFlagRequiresValue(t *testing.T) {
+	withEngineConfigDir(t)
+	withFake(t, &fakeStore{})
+	out, code := mustRun(t, []string{"setup", "--port"}, "")
+	if code != 3 {
+		t.Fatalf("exit=%d, want 3; out=%s", code, out)
+	}
+	if !strings.Contains(out, "--port") {
+		t.Fatalf("값 누락 안내 없음: %s", out)
 	}
 }

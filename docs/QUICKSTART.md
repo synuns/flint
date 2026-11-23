@@ -2,42 +2,48 @@
 
 > English documentation. For a Korean overview, see [README.ko.md](../README.ko.md).
 
-Get a local flint running in two steps. Each step takes under a minute.
+Get a local flint running without a repository checkout. Each step takes
+under a minute.
 
-## 1. Install
+## 1. Install the binary
 
 ```sh
-git clone https://github.com/synuns/flint.git flint && cd flint
-make install    # builds and installs GOPATH/bin/flint (Go 1.26+, deps pgx/v5 · x/text)
+curl -fsSL https://raw.githubusercontent.com/synuns/flint/main/scripts/install.sh | bash
 ```
 
-You can also grab a [release binary](https://github.com/synuns/flint/releases) and
-put it on your PATH — binaries, checksums, and the plugin zip are attached
-automatically.
+Prebuilt binary, sha256-verified against the release `checksums.txt`,
+installed to `~/.local/bin` (override with `--bin-dir DIR`). Alternatives
+— `go install github.com/synuns/flint/cmd/flint@latest`, a manual
+[release](https://github.com/synuns/flint/releases) download, or Homebrew
+(paths 2–4 in [README.md](../README.md)). The only runtime prerequisite
+is Docker: flint ships the engine compose definition inside the binary.
 
 ## 2. One-command setup
 
 ```sh
-flint setup     # ①compose up --wait(60s) ②migrate ③seed guide ④plugin guide
-# Demo data (isolated demo database — the DSN's database name + `_demo`):
-flint seed --demo
+flint setup           # ①embedded compose up --wait ②migrate ③seed guide ④plugin guide
+flint seed --demo     # synthetic demo data (isolated demo database)
+flint doctor          # diagnostics: verify the install (21 checks; fail → exit 1)
 ```
 
-`setup` starts Doltgres (host port 5434, ADR-0010), migrates the schema, then
-prints step-by-step progress (a single JSON line with `--json` or on a
-non-TTY — v0.17.0). Run with **no arguments on a terminal** it opens a huh
-wizard first (v1.5.0): pick the exposure profile (normal | minimal) and read
-the backup-key note, then the normal chain runs and records your choice.
-Cancelling the wizard (ctrl+c) or running on a non-TTY falls back to the
-plain chain with no side effects, and any flag (e.g. `--exposure`,
-`--json`) skips the wizard entirely. Since v0.7 the compose wait
-uses `up -d --wait --wait-timeout 60` — it waits up to 60 seconds for the
-container health check to pass before moving on. A missing docker or a compose
-failure is not a hard error: it stays a warning, prints one line with install
-guidance (`https://docs.docker.com/get-docker/`), and continues — if the DB is
-already up, the remaining steps (migrate and friends) complete normally.
-Default DSN `postgresql://flint:flint-dev@localhost:5434/flint` — override with
-the `FLINT_DSN` environment variable or a config file (section 4 below).
+`setup` writes its embedded compose file — project name `flint`, engine
+image pinned by digest (ADR-0020) — to a temp path under the config dir
+and starts Doltgres with `--project-name flint`, so it works from any
+directory: no git clone, no compose file on disk. Host port defaults to
+5434 (ADR-0010); when it is taken, setup probes upward for a free
+loopback port (5499 excluded — reserved for the v1.29.0 dedicated test
+engine) and records the assigned port in `config.json`. Pass
+`--port N` to choose explicitly. The first run pulls the image before
+starting and finishes ping + migrate in the same run — a fresh machine
+needs exactly one `flint setup`.
+
+External engine mode (v1.30.0): `flint setup --engine-url` skips engine
+install entirely and records a Doltgres you run yourself — loopback
+hosts only (localhost · 127.0.0.1 · [::1]). Supply the DSN via the
+`FLINT_ENGINE_URL` environment variable or `--engine-url-file PATH`;
+inline values are rejected so the DSN never lands in shell history or
+process listings. Output always masks the DSN. `config.json` records
+`engine.mode: external`, and purge operations stay managed-mode-only.
 Tear down with `flint teardown` (`--purge` also removes volumes).
 
 Seeding is safe to re-run — identical payloads resolve to hash dedup with
@@ -77,10 +83,12 @@ config. Environments where Copilot auto-registration is impossible use the
 manual procedure ([adapters/copilot.md](adapters/copilot.md)); OpenClaw and
 Hermes use documentation adapters ([adapters/](adapters/)).
 
-## 4. Relocate the config file (optional)
+## 4. The config file (optional)
 
 To avoid passing the DSN as an environment variable every time, put it in a
-config file (v0.7).
+config file (v0.7). Since v1.30.0 the same file also records what setup
+decided: `port` (the assigned engine port) and `engine.mode`
+(`managed-container` | `external`).
 
 ```sh
 # Linux: ~/.config/flint/config.json · macOS: ~/Library/Application Support/flint/config.json
@@ -100,4 +108,6 @@ printf '{"dsn":"postgresql://flint:flint-dev@localhost:5434/flint"}' \
 - Details in [docs/TUNING.md](TUNING.md) §2.
 
 For audit response, contamination handling, recovery drills, and backup
-retention procedures, see [docs/RUNBOOK.md](RUNBOOK.md).
+retention procedures, see [docs/RUNBOOK.md](RUNBOOK.md) — §11 also covers
+the engine image upgrade procedure and the manual conversion path for
+pre-v1.30.0 installs.

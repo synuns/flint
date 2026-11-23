@@ -1088,8 +1088,12 @@ func stallDetail(seen map[string]time.Time, key string, graceH int, warns *int) 
 
 const doctorPort = 5434
 
+const enginePinnedImage = "dolthub/doltgresql@sha256:3a119bb6726a0be283cfda2a73fa9fbdff58df06c0b850f245cd1828f57281a6"
+
+const flintProjectLabel = "com.docker.compose.project"
+
 var ComposePsFn = func(ctx context.Context) ([]byte, error) {
-	return exec.CommandContext(ctx, "docker", "compose", "ps", "--format", "json").Output()
+	return exec.CommandContext(ctx, "docker", "ps", "--format", "json").Output()
 }
 
 type composePsPublisher struct {
@@ -1098,8 +1102,30 @@ type composePsPublisher struct {
 
 type composePsEntry struct {
 	Name       string               `json:"Name"`
+	Names      string               `json:"Names"`
 	State      string               `json:"State"`
+	Image      string               `json:"Image"`
+	Labels     string               `json:"Labels"`
+	Ports      string               `json:"Ports"`
 	Publishers []composePsPublisher `json:"Publishers"`
+}
+
+func (e composePsEntry) displayName() string {
+	if e.Name != "" {
+		return e.Name
+	}
+	return e.Names
+}
+
+var hostPortRe = regexp.MustCompile(`:(\d+)->`)
+
+func entryProject(e composePsEntry) string {
+	for _, kv := range strings.Split(e.Labels, ",") {
+		if k, v, ok := strings.Cut(kv, "="); ok && strings.TrimSpace(k) == flintProjectLabel {
+			return strings.TrimSpace(v)
+		}
+	}
+	return ""
 }
 
 func checkPort(ctx context.Context) DoctorCheck {
@@ -1110,36 +1136,36 @@ func checkPort(ctx context.Context) DoctorCheck {
 	b, err := ComposePsFn(tctx)
 	if err != nil {
 		c.Status = "skip"
-		c.Detail = "docker compose ps failed: " + err.Error()
+		c.Detail = "docker ps failed: " + err.Error()
 		return c
 	}
 	entries, perr := parseComposePs(b)
 	if perr != nil {
 		c.Status = "skip"
-		c.Detail = "cannot parse compose ps output: " + perr.Error()
+		c.Detail = "cannot parse docker ps output: " + perr.Error()
 		return c
 	}
 
+	port := enginePort()
 	for _, e := range entries {
-		if IsFlintContainer(e.Name) && e.State == "running" && publishesPort(e, doctorPort) {
+		if entryProject(e) == "flint" && e.State == "running" && publishesPort(e, port) {
 			c.Status = "ok"
-			c.Detail = fmt.Sprintf("%s publishes %d", e.Name, doctorPort)
+			c.Detail = fmt.Sprintf("%s (project flint, managed) publishes %d", e.displayName(), port)
 			return c
 		}
 	}
 
 	for _, e := range entries {
-		if publishesPort(e, doctorPort) {
-			c.Status = "fail"
-			c.Detail = fmt.Sprintf("port %d occupied by %s", doctorPort, e.Name)
-			c.Fix = "fix: move the port — FLINT_DSN + compose override (TUNING §2)"
+		if publishesPort(e, port) {
+			c.Status = "skip"
+			c.Detail = fmt.Sprintf("port %d held by %s (project %q) — unknown, not flint-managed", port, e.displayName(), entryProject(e))
 			return c
 		}
 	}
 
 	c.Status = "fail"
-	c.Detail = fmt.Sprintf("flint container does not publish %d", doctorPort)
-	c.Fix = "fix: docker compose up -d (flint repository)"
+	c.Detail = fmt.Sprintf("no flint-managed container (label %s=flint) publishes %d — unknown", flintProjectLabel, port)
+	c.Fix = "fix: flint setup (starts the pinned embedded-compose engine)"
 	return c
 }
 
@@ -1187,6 +1213,11 @@ func publishesPort(e composePsEntry, port int) bool {
 			return true
 		}
 	}
+	for _, m := range hostPortRe.FindAllStringSubmatch(e.Ports, -1) {
+		if n, err := strconv.Atoi(m[1]); err == nil && n == port {
+			return true
+		}
+	}
 	return false
 }
 
@@ -1215,7 +1246,7 @@ func engineContainerName(ctx context.Context) (string, error) {
 	port := enginePort()
 	for _, e := range entries {
 		if e.State == "running" && publishesPort(e, port) {
-			return e.Name, nil
+			return e.displayName(), nil
 		}
 	}
 	return "", fmt.Errorf("no running container publishes %d", port)
@@ -1474,6 +1505,57 @@ var RestartCountFn = func() (int, error) {
 	return strconv.Atoi(strings.TrimSpace(string(out)))
 }
 
+var HandshakeFn = func(ctx context.Context, st wire.Store) (db.EngineInfo, error) {
+	return db.Handshake(ctx, st)
+}
+
+var ManagedEngineImageFn = func(ctx context.Context) (string, bool) {
+	tctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	b, err := ComposePsFn(tctx)
+	if err != nil {
+		return "", false
+	}
+	entries, perr := parseComposePs(b)
+	if perr != nil {
+		return "", false
+	}
+	for _, e := range entries {
+		if entryProject(e) == "flint" && e.State == "running" {
+			return e.Image, true
+		}
+	}
+	return "", false
+}
+
+func engineVersionPart(ctx context.Context, st wire.Store) (part string, warn string, fix string) {
+	if st == nil {
+		return "engine unknown (no store)", "", ""
+	}
+	info, err := HandshakeFn(ctx, st)
+	if err != nil {
+		return "engine unknown (handshake failed: " + err.Error() + ")", "", ""
+	}
+	part = "engine " + info.Kind + " " + info.Version
+	if info.Kind == "" {
+		part = "engine unknown kind " + info.Version
+	}
+	img, managed := ManagedEngineImageFn(ctx)
+	if !managed {
+		return part + " (external — version recorded only)", "", ""
+	}
+	if info.Kind != "doltgres" {
+		return part + " (managed)", "managed engine is " + info.Kind + " " + info.Version + " — flint requires Doltgres",
+			"fix: flint setup (starts the pinned Doltgres engine)"
+	}
+	if img != enginePinnedImage {
+		return part + fmt.Sprintf(" (managed, image %s — not pinned)", img),
+			fmt.Sprintf("managed engine image drift — running %s but flint pins %s", img, enginePinnedImage),
+			"fix: flint teardown --yes --purge then flint setup (re-pins the engine image)"
+	}
+	return part + " (managed, pinned)", "", ""
+}
+
 func checkEngineFootprint(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "engine-footprint"}
 	mb, ok, err := EngineMemMB(ctx)
@@ -1528,6 +1610,9 @@ func checkVersionsTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 	var parts []string
 	parts = append(parts, "self v"+self)
 
+	enginePart, engineWarn, engineFix := engineVersionPart(ctx, st)
+	parts = append(parts, enginePart)
+
 	cachePart := "cache latest unknown"
 	ageH := -1
 	if UpdateCacheInfoFn != nil {
@@ -1564,6 +1649,12 @@ func checkVersionsTh(ctx context.Context, st wire.Store, th store.Thresholds) Do
 	parts = append(parts, regPart)
 	c.Detail = strings.Join(parts, " · ")
 
+	if engineWarn != "" {
+		c.Status = "warn"
+		c.Detail += " — " + engineWarn
+		c.Fix = engineFix
+		return c
+	}
 	if warnH := th.UpdateCacheAgeH; ageH >= 0 && warnH > 0 && ageH > warnH {
 		c.Status = "warn"
 		c.Detail += fmt.Sprintf(" — cache age %dh exceeds update_cache_age_h %dh", ageH, warnH)

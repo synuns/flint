@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.28.1-blue" alt="v1.28.1">
+  <img src="https://img.shields.io/badge/release-v1.30.0-blue" alt="v1.30.0">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.30.0 · 설치 여정 — `flint setup`이 엔진 compose 정의를 바이너리에 내장(프로젝트명 `flint`·다이제스트 핀 4방 동치 가드 — 저장소 체크아웃 불필요, 첫 실행이 pull·기동·ping+migrate를 한 번에 완결하고 원인별 오류 처방을 제공) · `--port` 자동 배정(5434부터 순차, 5499 예약) · 엔진 확인 악수(Doltgres·핀 검증) · `--engine-url` 외부 엔진 모드(루프백 한정·DSN 마스킹) · 기존 설치 수동 전환 절차(RUNBOOK §11) · 네이티브 엔진 L0 스파이크 통과(v1.31.0 착수) · [전체 변경 이력](docs/HISTORY.md)
 > v1.28.1 · R119 패치 — T()가 ko에 없는 키에 en 폴백으로 응답 — 신규 키가 원시 키 문자열로 노출되지 않음(R119-2의 ≤24시간 캐시 참고 사항은 수용 확정·자동 해소) · [전체 변경로그](docs/HISTORY.md)
 > v1.28.0 · 표면 확장·품질 청산 — TTY에서 무인수 `flint read`·`flint tuning`이 대화형 TUI로 진입(플래그 호출·비TTY·FLINT_NO_TUI는 현행 플래그 모드 그대로·read 계측 보존)·i18n KO 카탈로그(FLINT_LANG·usage 우선 적용)·테스트 통합(8도메인 버전 접미 56파일→8·스위트 592 불변)·BRAND 동향 회수·BREW tap 검토·서명 재실증 · [전체 변경로그](docs/HISTORY.md)
 > v1.29.2 · r117 패치 — 격리 마무리: doctor engine-footprint skip 상세가 원인을 명시(미기동 전용 엔진 — "no running container publishes 5499" — 과 docker 부재 구분 가능)·전용 엔진 DSN 컨테이너 선택을 양방향 테스트로 고정 · [전체 변경로그](docs/HISTORY.md)
@@ -101,7 +102,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 # 사전 빌드된 바이너리 설치 (sha256 검증 포함) → ~/.local/bin
 curl -fsSL https://raw.githubusercontent.com/synuns/flint/main/scripts/install.sh | bash
 
-# Doltgres 기동 · 스키마 마이그레이션
+# Doltgres 기동(내장 compose·다이제스트 핀) · 스키마 마이그레이션
 flint setup
 
 # 첫 기억 기록
@@ -114,7 +115,7 @@ echo "API 게이트웨이는 멱등 POST를 2회 재시도한다" | flint write 
 
 ### 바이너리 설치
 
-네 가지 경로 — 하나만 고르면 됩니다. 어떤 경로든 다음 단계는 `flint setup`(Doltgres, 포트 5434)입니다.
+네 가지 경로 — 하나만 고르면 됩니다. 어떤 경로든 다음 단계는 `flint setup`입니다: 엔진 compose 정의를 바이너리에 내장하고 있어 저장소 체크아웃 없이(필요한 건 Docker뿐) 임의 디렉터리에서 기동합니다.
 
 **1 · 원라인 설치 스크립트** — 사전 빌드 바이너리, 체크섬 검증 포함:
 
@@ -166,7 +167,7 @@ flint setup --mcp
 <details>
 <summary><code>flint setup</code>이 하는 일</summary>
 
-Docker로 Doltgres를 5434 포트에 띄우고, 스키마를 마이그레이션하고, 다음 단계를 안내합니다. 기본 DSN은 `postgresql://flint:flint-dev@localhost:5434/flint`이며 `FLINT_DSN`으로 바꿀 수 있습니다. 정리는 `flint teardown`으로.
+내장 compose 정의(프로젝트명 `flint`·Doltgres 이미지 다이제스트 핀 — ADR-0020)를 임시 파일로 기록해 `--project-name flint`로 엔진을 띄우고, 같은 실행에서 스키마를 마이그레이션하고 다음 단계를 안내합니다 — 임의 디렉터리에서 동작합니다. 호스트 포트 기본값은 5434이고, 점유 시 루프백 바인드 시험으로 빈 포트를 순차 탐색해(5499 제외 — 전용 테스트 엔진 예약) config.json에 기록합니다 — `--port N`으로 명시 지정도 가능합니다. 기본 DSN은 `postgresql://flint:flint-dev@localhost:5434/flint`이며 `FLINT_DSN`으로 바꿀 수 있습니다. 직접 운영하는 Doltgres가 있다면 `flint setup --engine-url`로 기록합니다(루프백 한정 — DSN은 `FLINT_ENGINE_URL`이나 `--engine-url-file`로 전달, 인라인 값은 거부·출력은 마스킹). 정리는 `flint teardown`으로.
 
 </details>
 
@@ -249,7 +250,7 @@ flint는 여러분의 코딩 세션 안에서 동작하므로, 제약 조건은 
 
 | 커맨드 | 설명 |
 | :--- | :--- |
-| `flint setup` | Doltgres 기동 · 마이그레이션 · 시드/플러그인 다음 단계 안내 |
+| `flint setup` | Doltgres 기동(내장 compose·다이제스트 핀) · 마이그레이션 · 시드/플러그인 안내 — `--port N` · `--engine-url`(외부 엔진, 루프백 한정) |
 | `flint seed --demo` | 내장 합성 데모 데이터셋을 격리 데모 DB에 적재(db명 + `_demo`, `FLINT_DEMO_DSN` 오버라이드; 멱등; `--reset --yes`는 `demo/` 행만 삭제 — 소유자 불일치 exit 3) |
 | `flint update` | 최신 릴리스 자가 업데이트(체크섬 검증·`--check` 드라이런) |
 | `flint tuning` | 임계값 키 조회·오버라이드(`list`/`get`/`set`/`reset`; 자율 튜닝 표면 `auto off\|shadow`·`what-if`·`status`); TTY 무인수 호출은 대화형 폼 진입(서브커맨드·플래그·비TTY·FLINT_NO_TUI는 현행 모드 유지·`--tui` 강제) |

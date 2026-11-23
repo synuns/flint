@@ -7,11 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net"
+	"net/url"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"time"
 
+	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/i18n"
 	"github.com/synuns/flint/lib/tui"
 	"github.com/synuns/flint/lib/wire"
@@ -28,7 +31,12 @@ var composeRunFn = func(ctx context.Context, args ...string) error {
 
 var (
 	composeUpFn = func(ctx context.Context) error {
-		return composeRunFn(ctx, "up", "-d", "--wait", "--wait-timeout", "60")
+		path, err := writeEmbeddedCompose()
+		if err != nil {
+			return err
+		}
+		defer os.Remove(path)
+		return composeRunFn(ctx, "-f", path, "--project-name", "flint", "up", "-d", "--wait")
 	}
 	composeDownFn = func(ctx context.Context, purge bool) error {
 		if purge {
@@ -37,6 +45,35 @@ var (
 		return composeRunFn(ctx, "down")
 	}
 )
+
+func writeEmbeddedCompose() (string, error) {
+	dir := configDir()
+	if dir == "" {
+		return "", errors.New("setup: config dir unavailable")
+	}
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", fmt.Errorf("setup: create config dir: %w", err)
+	}
+	f, err := os.CreateTemp(dir, "compose-*.yml")
+	if err != nil {
+		return "", fmt.Errorf("setup: stage embedded compose: %w", err)
+	}
+	path := f.Name()
+	if _, err := f.WriteString(EmbeddedCompose()); err != nil {
+		f.Close()
+		os.Remove(path)
+		return "", fmt.Errorf("setup: stage embedded compose: %w", err)
+	}
+	if err := f.Close(); err != nil {
+		os.Remove(path)
+		return "", fmt.Errorf("setup: stage embedded compose: %w", err)
+	}
+	if err := os.Chmod(path, 0o600); err != nil {
+		os.Remove(path)
+		return "", fmt.Errorf("setup: stage embedded compose: %w", err)
+	}
+	return path, nil
+}
 
 var setupPortDialFn = func(addr string) bool {
 	conn, err := net.DialTimeout("tcp", addr, 500*time.Millisecond)
@@ -190,12 +227,58 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 			{Name: "--mcp"},
 			{Name: "--src", Value: true},
 			{Name: "--exposure", Value: true},
+			{Name: "--engine-url", Value: true},
+			{Name: "--engine-url-file", Value: true},
+			{Name: "--port", Value: true},
 		},
 		Usage: i18n.T("usage.setup"),
 	})
 	if perr != nil {
 		fmt.Fprintln(stdout, errLine(perr))
 		return 3
+	}
+	if engineDSN := res.Value("--engine-url"); res.Given("--engine-url") {
+		if engineDSN == "" {
+			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url requires a postgresql:// DSN")))
+			return 3
+		}
+		if pu, perr := url.Parse(engineDSN); perr == nil && pu.User != nil {
+			if _, has := pu.User.Password(); has {
+				fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url rejects an inline password — set FLINT_ENGINE_URL instead (the env path accepts the full DSN)")))
+				return 3
+			}
+		}
+		return runSetupEngineURL(ctx, stdout, engineDSN)
+	}
+	if envDSN := os.Getenv("FLINT_ENGINE_URL"); envDSN != "" {
+		return runSetupEngineURL(ctx, stdout, envDSN)
+	}
+	if res.Given("--engine-url-file") {
+		filePath := res.Value("--engine-url-file")
+		if filePath == "" {
+			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url-file requires a path")))
+			return 3
+		}
+		fileDSN, ferr := os.ReadFile(filePath)
+		if ferr != nil {
+			fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: --engine-url-file read failed: %v", ferr)))
+			return 3
+		}
+		dsn := strings.TrimSpace(string(fileDSN))
+		if dsn == "" {
+			fmt.Fprintln(stdout, errLine(errors.New("setup: --engine-url-file is empty")))
+			return 3
+		}
+		return runSetupEngineURL(ctx, stdout, dsn)
+	}
+	if res.Given("--port") {
+		portStr := res.Value("--port")
+		n, cerr := strconv.Atoi(portStr)
+		if cerr != nil || !validPort(n) {
+			fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: --port requires a port number 1..65535, got %q", portStr)))
+			return 3
+		}
+		return runSetupManaged(ctx, st, stdout, n)
 	}
 	updateRules := res.Given("--update-rules")
 	jsonMode := res.Given("--json")
@@ -241,6 +324,56 @@ func runSetup(ctx context.Context, st Store, args []string, stdin io.Reader, std
 		}
 	}
 	return runSetupChain(ctx, st, stdout, jsonMode)
+}
+
+func runSetupManaged(ctx context.Context, st Store, stdout io.Writer, portArg int) int {
+	adopt, eport, stop := ExistingInstall(ctx)
+	if stop {
+		fmt.Fprintln(stdout, errLine(errors.New("setup: "+ExistingInstallRemedy(eport))))
+		return 1
+	}
+	chosen := portArg
+	if adopt {
+		chosen = eport
+		fmt.Fprintf(setupStderr, "flint setup: existing install detected — using port %d\n", chosen)
+	} else {
+		p, err := PickPort(portArg)
+		if err != nil {
+			fmt.Fprintln(stdout, errLine(err))
+			return 1
+		}
+		if p != portArg {
+			fmt.Fprintf(setupStderr, "flint setup: port %d unavailable — assigned port %d\n", portArg, p)
+		}
+		chosen = p
+	}
+	if err := SetPortConfig(ConfigPath(), chosen); err != nil {
+		fmt.Fprintln(stdout, errLine(err))
+		return 1
+	}
+	os.Setenv("FLINT_PORT", strconv.Itoa(chosen))
+	if code := EnsureFirstRun(ctx, st, FirstRunConfig{}); code != 0 {
+		return code
+	}
+	if st == nil {
+		if s, err := newStore(ctx, dsnFromEnv()); err == nil {
+			st = s
+			defer st.Close()
+		}
+	}
+	if st != nil {
+		if _, err := db.Handshake(ctx, st); err != nil {
+			kind, remedy := ClassifyEngineError(err)
+			fmt.Fprintln(stdout, errLine(fmt.Errorf("setup: engine handshake failed (%s): %v — %s", kind, err, remedy)))
+			return 1
+		}
+	}
+	b, err := json.Marshal(map[string]any{"status": "ok", "mode": "managed", "port": chosen})
+	if err != nil {
+		return 1
+	}
+	fmt.Fprintln(stdout, string(b))
+	return 0
 }
 
 func setupPingMigrate(ctx context.Context, st Store) (func() error, func() error) {
