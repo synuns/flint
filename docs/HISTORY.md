@@ -6,6 +6,60 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.25.0 minor (2026-11-23) — engine-ops: maintain --gc · doctor engine warnings · container footprint
+
+(spec: docs/plans/2026-11-23-flint-v1250.md · design:
+docs/plans/2026-11-21-flint-engine-ops.md). The engine-operations
+milestone — no schema change (v19 stands); the operator-facing engine
+surface (GC, growth warnings, container visibility) lands with its
+spike evidence. The v1.24.0↔v1.25.0 release swap (scope §2 principle
+3, second application 2026-11-23) put this before autonomy-apply:
+
+- **`maintain --gc [--shallow] --yes`**: the `SELECT dolt_gc()`
+  wrapper (full GC by default — the thoroughness ruling; `--shallow`
+  takes the quicker `dolt_gc('--shallow')`). GC disconnects every
+  session by engine contract, so the run is one flow: disconnect
+  notice (`gc-pending`) → dolt_gc() → ping-reconnect loop (5 tries,
+  1s apart — `gc-incomplete` with a verify-via-doctor advice when the
+  connection does not return) → schema_version recheck gate → the
+  meta history pair (`last_gc_at`·`last_gc_mode`). `--yes` is
+  required (the teardown precedent) and `--shallow` under any other
+  mode is a usage error. Never automated — session-time auto-GC is
+  permanently excluded; the command stays out of the agent contract
+  documents (RUNBOOK-only, human-operator guidance).
+- **doctor `dolt_log_depth`**: O(1) dolt_log depth warning — the
+  depth probe reads the last row's `commit_order` instead of
+  `count(*)` (monotone by engine contract; deleted commits are not
+  reflected — sufficient for a warning). At or above the new
+  threshold `dolt_log_depth_warn` (default 10000), the guidance line
+  points at `maintain --gc`.
+- **doctor `db_size`**: `pg_database_size()` measured in MB against
+  the new threshold `db_size_warn_mb` (default 2048) — at or above,
+  warn with the same GC guidance. Both thresholds are code defaults +
+  meta overrides (TUNING §2), never personal values in the repo.
+- **doctor `engine-footprint`**: one `docker stats --no-stream` read
+  displayed on the doctor tail — display only, no threshold, no new
+  storage; a quiet skip when the container is not observable. The
+  registry is now 20 kinds.
+- **RUNBOOK §10/§11**: "가비지 컬렉션" (the disconnect contract,
+  reconnect confirmation, post-GC doctor verification) and "엔진
+  이미지 업그레이드" (fixed order: backup → `restore --drill` → image
+  update → doctor·schema gate).
+- **PERF §1**: the GC before/after disk-recovery measurement
+  convention (engine-ops §3 succession — synthetic regression bench
+  basis, isolated DB only).
+- **ANALYZE spike — retired**: the scratch-DB spike
+  (docs/plans/2026-11-23-flint-v1250-spike-analyze.md) showed
+  Doltgres accepts `ANALYZE knowledge;` (success return) while the
+  statistics stay a no-op — `maintain --analyze` is declared retired,
+  not adopted.
+- **audit_log replay spike — success**:
+  docs/plans/2026-11-23-flint-v1250-spike-auditlog.md reproduced the
+  three dolt audit queries on pure PostgreSQL (boundary
+  false-positive-avoiding form included). The design DDL (seq·tx_id·
+  message·ts + per-table event rows) and the `wire.Store` 5-method
+  boundary feed the v2.0.0 G2 ruling (replace vs. run-alongside).
+
 ### v1.24.2 patch (2026-11-23) — r106: race-recheck echo coverage · quiet-failure regression · echo scan comment
 
 The v1.24.1 audit follow-up (R106) — 3 low findings, no behavior

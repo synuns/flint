@@ -1,7 +1,8 @@
 # RUNBOOK — flint 운영 절차
 
-감사·오염 대응·복구 훈련·백업 보존·진단·스테일 관리·유지보수 주기의
-8절 구성. 모든 절차는 각 커맨드 계약(exit 0/1/2/3, 한 줄 JSON)을 따른다.
+감사·오염 대응·복구 훈련·백업 보존·진단·스테일 관리·유지보수 주기·
+가비지 컬렉션·엔진 이미지 업그레이드의 절차 모음. 모든 절차는 각
+커맨드 계약(exit 0/1/2/3, 한 줄 JSON)을 따른다.
 
 설치·설정은 README 설치 절을 따른다(4경로 — install.sh 원라인·
 go install·수동+체크섬 검증·Homebrew cask 가이드):
@@ -65,10 +66,10 @@ go install·수동+체크섬 검증·Homebrew cask 가이드):
   치환한 비복원 아티팩트다(사이드카 미부여·마커 이중 방어).
 - doctor `backup-key` 체크: 암호화 켜짐인데 키 부재·권한 이완 경고.
 
-## 5. 진단 — `flint doctor` (v0.6 → v0.16.2 확장)
+## 5. 진단 — `flint doctor` (v0.6 → v1.25.0 확장)
 
-검사 17종 + 설치 환경 조건부 하니스·스킬 검사(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
-서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 11종 — 표 순서는 doctor 실행 체인 순서:
+검사 20종 + 설치 환경 조건부 하니스·스킬 검사(brew doctor 준용 — `--list-checks`로 목록, `--check NAME`으로
+서브셋 실행, 무효 검사명은 exit 3). 코어 6종 + tail-chain 14종 — 표 순서는 doctor 실행 체인 순서:
 
 | 검사 | 내용 | 수정 명령 | fail/warn |
 |---|---|---|---|
@@ -89,6 +90,9 @@ go install·수동+체크섬 검증·Homebrew cask 가이드):
 | recall-starved | 회상 부재 세션 누적 카운터(recall_starved_count, 프로파일 무관 — 최후 관측 창구) | 다음 세션 시작 전 `flint read` 1회 — 해소 후 psql로 meta 키 삭제 | warn |
 | metering-freshness | 계측 신선도 — 이벤트 테이블 5종 최신 시점(recall_events는 recalled_at)·게이트 스탬프 2종(last_threshold_snapshot_at·last_rollup_at)이 metering_freshness_warn_h(기본 336h) 초과 시 경고(조회 실패 소스는 조용히 스킵) | 세션에서 `flint read` 1회 실행(계측 경로 활성) | warn |
 | secrets | 보유 지식·세션 사후 비밀 스캔(무효화 행 제외, 행 상한 secrets_scan_row_limit — 도달 시 부분 스캔 명시) | 지식: `flint maintain --invalidate --id N --reason secret` · 세션: 해당 agent 재종료(done) | warn |
+| dolt_log_depth | dolt_log 깊이 O(1) 관측(최대 commit_order)이 dolt_log_depth_warn(기본 10000) 이상 — GC 안내와 연계(§10) | `flint maintain --gc --yes`(§10 — 접속 단절) | warn |
+| db_size | pg_database_size가 db_size_warn_mb(기본 2048MB) 이상 — 미지원·오류 시 조용히 스킵 | 백업 보존 점검(§4) | warn |
+| engine-footprint | flint 엔진 컨테이너 working-set 메모리(docker stats --no-stream — 표시 전용, 임계 없음, 실패 시 조용히 스킵) | — 표시 전용 | ok/skip |
 
 - **fail만 exit 1**, warn은 exit 0. fail마다 수정 명령 한 줄이 함께 출력된다.
 - 경고 임계값은 meta 키로 조정(TUNING.md §2 — `stall_hot_h`·`stall_write_h`·
@@ -381,6 +385,45 @@ git tag v0.X.Y && git push origin v0.X.Y                  # 재push → 서명 �
 기존 설치는 새 키 서명을 거부한다 — 의도된 경보다. 각 기기에서 1회
 `flint update --insecure-skip-signature`로 신규 키 바이너리로 넘어간
 뒤 이후부터는 새 공개키로 자동 검증된다.
+
+## 10. 가비지 컬렉션 — `flint maintain --gc --yes` (v1.25.0)
+
+- **접속 단절 계약**: `dolt_gc()`는 실행 순간 모든 접속을 끊는다.
+  세션 중 자동 실행은 영구 금지(비간섭 원칙) — 사람 운영자 명령
+  전용이며 `--yes`가 유일한 게이트다. `--shallow`를 붙이면 얕은 GC,
+  기본은 full. 실행 전 안내 문구가 접속 단절을 명시한다.
+- **엔진 자동 GC 우선 원칙**: 최신 Doltgres 엔진은 자동 GC를 갖춘다 —
+  수동 `--gc`는 doctor 경고(dolt_log_depth·db_size)로 필요하다고
+  판명된 경우의 탈출구다. 정기 예약 실행 금지(§7 스케줄에도 넣지
+  않는다).
+- **조용한 시간대 실행**: 활성 세션이 없는 시간대에만 실행한다(접속
+  단절이 세션을 방해하지 않도록).
+- 절차:
+  1. 사전 확인 — `flint doctor --check dolt_log_depth`(및
+     `--check db_size`)로 필요성을 확인한다.
+  2. 실행 — `flint maintain --gc --yes`: GC 후 flint이 재연결(Ping
+     최대 5회·1초 간격)→schema_version 재검증→meta
+     `last_gc_at`·`last_gc_mode` 기록까지 한 흐름으로 수행한다.
+  3. 재연결 실패 시 — `reconnect failed` 안내와 exit 1: GC는
+     실행됐으나 완결이 확인되지 않은 상태다(meta 미기록).
+     `docker compose ps`로 엔진 상태를 확인한 뒤 doctor로 검증하고
+     필요 시 재실행한다.
+  4. 실행 후 확인 — `flint doctor`·`flint status`로 건전성과 경고
+     해소를 확인한다.
+
+## 11. 엔진 이미지 업그레이드 (v1.25.0 — 순서 고정)
+
+Doltgres 엔진 이미지 버전업은 아래 순서를 변경 없이 따른다(각 단계
+실패 시 다음 단계로 진행 금지). 업그레이드 판단은 사람 운영자(릴리스
+노트 확인 포함):
+
+1. **backup** — `flint backup`으로 최신 덤프를 확보한다(§4 keep-N).
+2. **restore --drill** — `flint restore --file <덤프> --drill`로 복구
+   가능성을 실증한다(§3·30일 주기 절차와 동일).
+3. **이미지 갱신** — compose 정의의 Doltgres 이미지 태그를 갱신한다.
+4. **up -d** — `docker compose up -d`로 새 이미지로 기동한다.
+5. **doctor** — `flint doctor`로 스키마 게이트·포트·경고 전반을
+   확인한다.
 
 ## 실DB 테스트 격리·러너 (v1.0.10 확정)
 

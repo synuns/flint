@@ -203,7 +203,7 @@ func TestDoctorRegistered(t *testing.T) {
 	}
 }
 
-// --list-checks — one-line JSON with all 17 registry kinds.
+// --list-checks — one-line JSON with all 20 registry kinds.
 // The core 6 keep the existing order (hook-file... port) at the front.
 func TestDoctorListChecks(t *testing.T) {
 	f := &fakeStore{queryFn: freshDoctorFn()}
@@ -217,8 +217,8 @@ func TestDoctorListChecks(t *testing.T) {
 	if err := json.Unmarshal([]byte(strings.TrimSpace(out)), &m); err != nil {
 		t.Fatalf("JSON 아님: %q", out)
 	}
-	if len(m.Checks) != 17 {
-		t.Errorf("checks %d종, want 17종(코어6+tail11): %v", len(m.Checks), m.Checks)
+	if len(m.Checks) != 20 {
+		t.Errorf("checks %d종, want 20종(코어6+tail14): %v", len(m.Checks), m.Checks)
 	}
 	if m.Checks[0] != "hook-file" || m.Checks[4] != "last-seen" || m.Checks[5] != "port" {
 		t.Errorf("코어 6종 순서 회귀: %v", m.Checks)
@@ -1169,5 +1169,202 @@ func TestDoctorFullChainIncludesTailChecks(t *testing.T) {
 		if !strings.Contains(out, `"name":"`+name+`"`) {
 			t.Errorf("전체 체인에 %s 부재 — doctorTailChecks와 실행 체인 불일치", name)
 		}
+	}
+}
+
+// ── v1.25.0 T1: the engine-warning checks (dolt_log_depth · db_size) ──
+
+// TestDoctorEngineChecksRegistered — the 2 engine warnings join the registry
+// tail (19 registry kinds) and the --list-checks surface.
+func TestDoctorEngineChecksRegistered(t *testing.T) {
+	found := map[string]bool{}
+	for _, s := range doctorChecks() {
+		found[s.Name] = true
+	}
+	if !found[doltLogDepthName] || !found["db_size"] {
+		t.Fatalf("등록표에 엔진 경고 누락: %v", found)
+	}
+	f := &fakeStore{}
+	out, code := runDoctorArgs(t, f, "--list-checks")
+	if code != 0 {
+		t.Fatalf("--list-checks exit=%d: %s", code, out)
+	}
+	for _, name := range []string{doltLogDepthName, "db_size"} {
+		if !strings.Contains(out, name) {
+			t.Errorf("--list-checks에 %q 누락: %s", name, out)
+		}
+	}
+	// standalone --check execution is allowed for both.
+	for _, name := range []string{doltLogDepthName, "db_size"} {
+		_, code := runDoctorArgs(t, &fakeStore{queryErr: errors.New("down")}, "--check", name)
+		if code == 3 {
+			t.Errorf("--check %q이 미등록 취급(exit 3)", name)
+		}
+	}
+}
+
+// TestDoctorLogDepthBoundary — the depth verdict is at-or-above the
+// dolt_log_depth_warn threshold (9999 ok, 10000 warn) off the O(1) probe
+// (commit_order DESC LIMIT 1).
+func TestDoctorLogDepthBoundary(t *testing.T) {
+	th := store.DefaultThresholds()
+	if th.DoltLogDepthWarn != 10000 {
+		t.Fatalf("depth warn 기본값=%d, want 10000", th.DoltLogDepthWarn)
+	}
+	ok := checkDoltLogDepthTh(context.Background(),
+		&fakeStore{rows: [][]any{{int64(9999)}}}, th)
+	if ok.Status != "ok" {
+		t.Errorf("깊이 9999 status=%s, want ok(%s)", ok.Status, ok.Detail)
+	}
+	warn := checkDoltLogDepthTh(context.Background(),
+		&fakeStore{rows: [][]any{{int64(10000)}}}, th)
+	if warn.Status != "warn" {
+		t.Fatalf("깊이 10000 status=%s, want warn", warn.Status)
+	}
+	if !strings.Contains(warn.Detail, "maintain --gc --yes (disconnects)") {
+		t.Errorf("경고 안내 문구 불일치: %s", warn.Detail)
+	}
+	// the O(1) probe shape — no count(*).
+	var probed string
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		probed = sql
+		return [][]any{{int64(3)}}, nil
+	}}
+	checkDoltLogDepthTh(context.Background(), f, th)
+	if !strings.Contains(probed, "commit_order FROM "+doltLogTbl+" ORDER BY commit_order DESC LIMIT 1") {
+		t.Errorf("O(1) 프로브 아님: %s", probed)
+	}
+	// a query failure is a warn finding (not disguised as clean).
+	errw := checkDoltLogDepthTh(context.Background(),
+		&fakeStore{queryErr: errors.New("no such table")}, th)
+	if errw.Status != "warn" {
+		t.Errorf("질의 실패 status=%s, want warn", errw.Status)
+	}
+}
+
+// TestDoctorDBSizeBoundary — the size verdict is at-or-above the
+// db_size_warn_mb threshold (2047MB ok, 2048MB warn); a pg_database_size
+// failure is a quiet skip.
+func TestDoctorDBSizeBoundary(t *testing.T) {
+	th := store.DefaultThresholds()
+	if th.DbSizeWarnMB != 2048 {
+		t.Fatalf("db_size_warn_mb 기본값=%d, want 2048", th.DbSizeWarnMB)
+	}
+	ok := checkDBSizeTh(context.Background(),
+		&fakeStore{rows: [][]any{{int64(2047 << 20)}}}, th)
+	if ok.Status != "ok" {
+		t.Errorf("2047MB status=%s, want ok(%s)", ok.Status, ok.Detail)
+	}
+	warn := checkDBSizeTh(context.Background(),
+		&fakeStore{rows: [][]any{{int64(2048 << 20)}}}, th)
+	if warn.Status != "warn" {
+		t.Fatalf("2048MB status=%s, want warn", warn.Status)
+	}
+	if !strings.Contains(warn.Fix, "review backup retention") {
+		t.Errorf("경고 안내 문구 불일치: %s", warn.Fix)
+	}
+	// an unsupported pg_database_size is a quiet skip (no warn, no fail).
+	skip := checkDBSizeTh(context.Background(),
+		&fakeStore{queryErr: errors.New("function not found")}, th)
+	if skip.Status != "skip" {
+		t.Errorf("측정 오류 status=%s, want skip", skip.Status)
+	}
+}
+
+// TestDoctorEngineChecksFullRun — the full run chain wires the 2 checks with
+// the once-per-run fallback-applied thresholds (unset meta → defaults), a
+// warn verdict keeps exit 0, and the skip does not surface as a warn.
+func TestDoctorEngineChecksFullRun(t *testing.T) {
+	base := doctorQueryFn(time.Now(), time.Now(), time.Now())
+	f := &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, doltLogTbl):
+			return [][]any{{int64(10000)}}, nil
+		case strings.Contains(sql, "pg_database_size"):
+			return nil, errors.New("unsupported")
+		}
+		return base(sql, args)
+	}}
+	// Only run the 2 engine checks — the full chain includes environment-
+	// dependent checks (hook-file, port) that fail on CI runners.
+	out, code := runDoctorArgs(t, f, "--check", doltLogDepthName)
+	if code != 0 {
+		t.Fatalf("depth warn 실행 exit=%d, want 0: %s", code, out)
+	}
+	if !strings.Contains(out, `"name":"`+doltLogDepthName+`","status":"warn"`) {
+		t.Errorf("depth warn 미표시: %s", out)
+	}
+	out2, code2 := runDoctorArgs(t, f, "--check", "db_size")
+	if code2 != 0 {
+		t.Fatalf("db_size skip 실행 exit=%d, want 0: %s", code2, out2)
+	}
+	if !strings.Contains(out2, `"name":"db_size","status":"skip"`) {
+		t.Errorf("db_size skip 미표시: %s", out2)
+	}
+}
+
+// withEngineStats — swaps the EngineStatsFn seam (restored after the test;
+// the withComposePs convention for exec seams).
+func withEngineStats(t *testing.T, fn func(context.Context) ([]byte, error)) {
+	t.Helper()
+	old := EngineStatsFn
+	EngineStatsFn = fn
+	t.Cleanup(func() { EngineStatsFn = old })
+}
+
+// TestDoctorEngineFootprintSpec — the v1.25.0 M2 registration guard:
+// exactly 1 registry row "engine-footprint" in the tail chain, the Fn form
+// (display only — no threshold, so no ThFn per the CheckSpec convention),
+// and st unused (OnStoreNil "" — docker stats only).
+func TestDoctorEngineFootprintSpec(t *testing.T) {
+	s, ok := doctorSpec("engine-footprint")
+	if !ok {
+		t.Fatal("등록표에 engine-footprint 부재 — M2 계약 위반")
+	}
+	if s.Chain != "tail" {
+		t.Errorf("chain=%q, want tail", s.Chain)
+	}
+	if s.ThFn != nil {
+		t.Errorf("ThFn 등록 — 표시 전용 체크는 임계 없음(Fn 관례)")
+	}
+	if s.OnStoreNil != "" {
+		t.Errorf("onStoreNil=%q, want 빈값(st 미사용 — docker stats 전용)", s.OnStoreNil)
+	}
+}
+
+// TestDoctorEngineFootprintSkip — docker unavailable (not installed, no
+// flint container row, or unparsable output): a quiet skip, never
+// fail/warn (non-interference — the checkPort convention).
+func TestDoctorEngineFootprintSkip(t *testing.T) {
+	cases := map[string]func(context.Context) ([]byte, error){
+		"docker absent": func(context.Context) ([]byte, error) { return nil, errors.New("docker not installed") },
+		"no flint row": func(context.Context) ([]byte, error) {
+			return []byte("{\"Name\":\"other-db-1\",\"MemUsage\":\"1GiB / 4GiB\"}\n"), nil
+		},
+		"unparsable body": func(context.Context) ([]byte, error) { return []byte("not-json"), nil },
+	}
+	for name, fn := range cases {
+		withEngineStats(t, fn)
+		c := checkEngineFootprint(context.Background(), nil)
+		if c.Name != "engine-footprint" || c.Status != "skip" {
+			t.Errorf("%s: status=%q, want skip: %+v", name, c.Status, c)
+		}
+	}
+}
+
+// TestDoctorEngineFootprintOK — a flint container row round-trips into the
+// ok detail as working-set MB ("50.5MiB / 3.84GiB" → 50MB), and non-flint
+// rows are skipped over.
+func TestDoctorEngineFootprintOK(t *testing.T) {
+	withEngineStats(t, func(context.Context) ([]byte, error) {
+		return []byte("{\"Name\":\"other-db-1\",\"MemUsage\":\"900MiB / 4GiB\"}\n" +
+			"{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
+	})
+	c := checkEngineFootprint(context.Background(), nil)
+	if c.Status != "ok" {
+		t.Fatalf("status=%q, want ok: %+v", c.Status, c)
+	}
+	if !strings.Contains(c.Detail, "50MB") {
+		t.Fatalf("detail=%q, want 50MB 포함", c.Detail)
 	}
 }

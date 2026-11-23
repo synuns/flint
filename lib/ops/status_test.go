@@ -10,6 +10,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"strings"
 	"testing"
 
@@ -106,5 +107,47 @@ func TestStatusVaultRowCorruptNull(t *testing.T) {
 	}
 	if !strings.Contains(line, `"vault_indexed_at":null`) {
 		t.Fatalf("corrupt 시 null 아님: %s", line)
+	}
+}
+
+// TestStatusEngineMemMB — the v1.25.0 engine footprint row: a successful
+// docker stats lookup appends engine_mem_mb as the new tail of the existing
+// key order (after the scan metering row — the additive-append precedent).
+func TestStatusEngineMemMB(t *testing.T) {
+	withEngineStats(t, func(context.Context) ([]byte, error) {
+		return []byte("{\"Name\":\"flint-doltgres-1\",\"MemUsage\":\"50.5MiB / 3.84GiB\"}\n"), nil
+	})
+	code, line, m := runStatusJSON(t, vaultStatusFake("16", ""))
+	if code != 0 {
+		t.Fatalf("exit=%d — %s", code, line)
+	}
+	if m["engine_mem_mb"].(float64) != 50 {
+		t.Fatalf("engine_mem_mb=%v, want 50", m["engine_mem_mb"])
+	}
+	// key order regression — engine_mem_mb comes after the previous tail
+	// (scan_suggest_p95_us) and after every pre-existing key.
+	prevTail := strings.Index(line, `"scan_suggest_p95_us":`)
+	got := strings.Index(line, `"engine_mem_mb":`)
+	if prevTail < 0 || got < 0 {
+		t.Fatalf("키 부재(prev=%d, got=%d): %s", prevTail, got, line)
+	}
+	if got < prevTail {
+		t.Fatalf("engine_mem_mb가 이전 tail(scan_suggest_p95_us)보다 앞: %s", line)
+	}
+}
+
+// TestStatusEngineMemMBOmitted — the lookup failure omits the field
+// entirely (display-only — no null placeholder, unlike last_*), and status
+// still exits 0.
+func TestStatusEngineMemMBOmitted(t *testing.T) {
+	withEngineStats(t, func(context.Context) ([]byte, error) {
+		return nil, errors.New("docker not installed")
+	})
+	code, line, _ := runStatusJSON(t, vaultStatusFake("16", ""))
+	if code != 0 {
+		t.Fatalf("exit=%d — %s", code, line)
+	}
+	if strings.Contains(line, "engine_mem_mb") {
+		t.Fatalf("실패 시 engine_mem_mb 출력됨: %s", line)
 	}
 }

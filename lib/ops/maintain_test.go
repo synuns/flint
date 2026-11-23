@@ -9,6 +9,7 @@ package ops
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/url"
 	"os"
@@ -18,6 +19,7 @@ import (
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/wire"
 )
 
 // limitCapturingStore — a fake capturing the DupGroups/ConflictGroups caps
@@ -2313,5 +2315,233 @@ func TestMaintainRecallAuditRealSlow(t *testing.T) {
 		`SELECT value FROM meta WHERE key LIKE 'daily:recall_audit_disposed:%'`)
 	if err != nil || len(dispRows) == 0 {
 		t.Fatalf("recall_audit_disposed 카운터 미적립: %v %s", err, disp.String())
+	}
+}
+
+// ── v1.25.0 T1: maintain --gc (the dolt garbage-collection wrapper) ──
+
+// gcPingSeqStore — a fakeMaintStore whose Ping fails the first failPings
+// times before succeeding (the GC reconnect retry sequence — fakeStore's
+// static pingErr cannot express "fails twice, then reconnects").
+type gcPingSeqStore struct {
+	*fakeMaintStore
+	failPings int
+	pings     int
+}
+
+func (f *gcPingSeqStore) Ping(ctx context.Context) error {
+	if f.pings < f.failPings {
+		f.pings++
+		return errors.New("conn closed")
+	}
+	f.pings++
+	return nil
+}
+
+// withGCSeams — swaps the GC execution seam and the ping-interval seam
+// (restored after the test). The interval is 0 so the retry loop stays fast.
+func withGCSeams(t *testing.T, gc func(ctx context.Context, st wire.Store, shallow bool) error) {
+	t.Helper()
+	oldFn, oldDelay := maintainGCFn, maintainGCPingDelay
+	maintainGCFn, maintainGCPingDelay = gc, 0
+	t.Cleanup(func() { maintainGCFn, maintainGCPingDelay = oldFn, oldDelay })
+}
+
+// gcQueryFn — answers the schema recheck and records the meta upserts.
+func gcQueryFn(metaWrites map[string]string) func(string, []any) ([][]any, error) {
+	return func(sql string, args []any) ([][]any, error) {
+		switch {
+		case strings.Contains(sql, "schema_version"):
+			return [][]any{{"19"}}, nil
+		case strings.Contains(sql, "INSERT INTO meta"):
+			if len(args) >= 2 {
+				metaWrites[fmt.Sprint(args[0])] = fmt.Sprint(args[1])
+			}
+			return [][]any{{args[0]}}, nil
+		}
+		return nil, nil
+	}
+}
+
+// metaUpsertCount — the number of recorded meta INSERT queries (the
+// "meta not recorded on failure" assertions).
+func metaUpsertCount(f *fakeStore) int {
+	n := 0
+	for _, q := range f.queries {
+		if strings.Contains(q, "INSERT INTO meta") {
+			n++
+		}
+	}
+	return n
+}
+
+// runGCMaintainArgs — runMaintainArgs is fixed to *fakeMaintStore, so the
+// Ping-sequence wrapper gets a local runner (the runLimitArgs convention).
+func runGCMaintainArgs(t *testing.T, f *gcPingSeqStore, args ...string) (string, int) {
+	t.Helper()
+	var out strings.Builder
+	code := RunMaintain(context.Background(), f, args, nil, &out)
+	return out.String(), code
+}
+
+// TestMaintainGCYesGuard — --gc without --yes is exit 1 (the mode-combination
+// error convention) and --shallow under a foreign mode is rejected the same way.
+func TestMaintainGCYesGuard(t *testing.T) {
+	f := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out, code := runMaintainArgs(t, f, "--gc")
+	if code != 1 {
+		t.Fatalf("--gc (no --yes) exit=%d, want 1: %s", code, out)
+	}
+	if !strings.Contains(out, "--gc requires --yes") {
+		t.Errorf("가이드 문구에 --yes 요구 없음: %s", out)
+	}
+	out, code = runMaintainArgs(t, f, "--check", "--shallow")
+	if code != 1 {
+		t.Fatalf("--check --shallow exit=%d, want 1: %s", code, out)
+	}
+	if !strings.Contains(out, "--shallow is not valid with --check") {
+		t.Errorf("--shallow 소유권 오류 문구 없음: %s", out)
+	}
+}
+
+// TestMaintainGCRunContract — the happy path: the disconnect notice line,
+// --gc execution via the seam (full mode), schema recheck, the meta pair,
+// and the JSON result exit 0.
+func TestMaintainGCRunContract(t *testing.T) {
+	metaWrites := map[string]string{}
+	f := &gcPingSeqStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
+		queryFn: gcQueryFn(metaWrites),
+	}}}
+	gcCalled, gcShallow := false, false
+	withGCSeams(t, func(ctx context.Context, st wire.Store, shallow bool) error {
+		gcCalled, gcShallow = true, shallow
+		return nil
+	})
+	out, code := runGCMaintainArgs(t, f, "--gc", "--yes")
+	if code != 0 {
+		t.Fatalf("--gc --yes exit=%d, want 0: %s", code, out)
+	}
+	if !gcCalled || gcShallow {
+		t.Errorf("GC seam 호출=%v shallow=%v, want true/false", gcCalled, gcShallow)
+	}
+	if !strings.Contains(out, "disconnect") {
+		t.Errorf("사전 안내에 접속 단절 명시 없음: %s", out)
+	}
+	if !strings.Contains(out, `"status":"gc"`) || !strings.Contains(out, `"mode":"full"`) {
+		t.Errorf("결과 JSON status/mode 불일치: %s", out)
+	}
+	if v, ok := metaWrites["last_gc_at"]; !ok || v == "" {
+		t.Errorf("last_gc_at 미기록: %v", metaWrites)
+	}
+	if v := metaWrites["last_gc_mode"]; v != "full" {
+		t.Errorf("last_gc_mode=%q, want full", v)
+	}
+	if f.pings != 1 {
+		t.Errorf("Ping 호출 %d회, want 1(성공 시 즉시 종료)", f.pings)
+	}
+}
+
+// TestMaintainGCShallowMode — --shallow rides the seam flag and lands in
+// last_gc_mode as "shallow".
+func TestMaintainGCShallowMode(t *testing.T) {
+	metaWrites := map[string]string{}
+	f := &gcPingSeqStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
+		queryFn: gcQueryFn(metaWrites),
+	}}}
+	var gcShallow bool
+	withGCSeams(t, func(ctx context.Context, st wire.Store, shallow bool) error {
+		gcShallow = shallow
+		return nil
+	})
+	out, code := runGCMaintainArgs(t, f, "--gc", "--shallow", "--yes")
+	if code != 0 {
+		t.Fatalf("--gc --shallow --yes exit=%d, want 0: %s", code, out)
+	}
+	if !gcShallow {
+		t.Error("--shallow가 seam에 전달되지 않음")
+	}
+	if v := metaWrites["last_gc_mode"]; v != "shallow" {
+		t.Errorf("last_gc_mode=%q, want shallow", v)
+	}
+}
+
+// TestMaintainGCReconnectRetryCap — a Ping that fails twice then succeeds
+// recovers within the 5-attempt cap (3 pings total).
+func TestMaintainGCReconnectRetryCap(t *testing.T) {
+	f := &gcPingSeqStore{failPings: 2,
+		fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
+			queryFn: gcQueryFn(map[string]string{}),
+		}}}
+	withGCSeams(t, func(ctx context.Context, st wire.Store, shallow bool) error { return nil })
+	out, code := runGCMaintainArgs(t, f, "--gc", "--yes")
+	if code != 0 {
+		t.Fatalf("재시도 후 exit=%d, want 0: %s", code, out)
+	}
+	if f.pings != 3 {
+		t.Errorf("Ping 호출 %d회, want 3(2 실패 후 성공)", f.pings)
+	}
+}
+
+// TestMaintainGCReconnectFailed — 5 ping failures end exit 1 with the
+// "reconnect failed" JSON, and NO meta write happens (the GC ran but the
+// completion is unverified).
+func TestMaintainGCReconnectFailed(t *testing.T) {
+	f := &gcPingSeqStore{failPings: 100,
+		fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
+			queryFn: gcQueryFn(map[string]string{}),
+		}}}
+	gcCalled := false
+	withGCSeams(t, func(ctx context.Context, st wire.Store, shallow bool) error {
+		gcCalled = true
+		return nil
+	})
+	out, code := runGCMaintainArgs(t, f, "--gc", "--yes")
+	if code != 1 {
+		t.Fatalf("Ping 전량 실패 exit=%d, want 1: %s", code, out)
+	}
+	if !gcCalled {
+		t.Error("GC seam이 실행되지 않음")
+	}
+	if !strings.Contains(out, "reconnect failed") {
+		t.Errorf("reconnect failed 문구 없음: %s", out)
+	}
+	if n := metaUpsertCount(f.fakeStore); n != 0 {
+		t.Errorf("실패 시 meta 기록 %d건, want 0", n)
+	}
+	if f.pings != 5 {
+		t.Errorf("Ping 호출 %d회, want 5(상한)", f.pings)
+	}
+}
+
+// TestMaintainGCSchemaRecheckGate — a successful reconnect followed by a
+// schema_version lookup failure is exit 1 with no meta write (the schema
+// gate precedes the record).
+func TestMaintainGCSchemaRecheckGate(t *testing.T) {
+	f := &gcPingSeqStore{fakeMaintStore: &fakeMaintStore{fakeStore: &fakeStore{
+		queryFn: func(sql string, args []any) ([][]any, error) {
+			if strings.Contains(sql, "schema_version") {
+				return nil, errors.New("schema lookup failed")
+			}
+			return nil, nil
+		},
+	}}}
+	withGCSeams(t, func(ctx context.Context, st wire.Store, shallow bool) error { return nil })
+	out, code := runGCMaintainArgs(t, f, "--gc", "--yes")
+	if code != 1 {
+		t.Fatalf("schema 재검증 실패 exit=%d, want 1: %s", code, out)
+	}
+	if !strings.Contains(out, "schema recheck failed") {
+		t.Errorf("schema 재검증 오류 문구 없음: %s", out)
+	}
+	if n := metaUpsertCount(f.fakeStore); n != 0 {
+		t.Errorf("게이트 실패 시 meta 기록 %d건, want 0", n)
+	}
+}
+
+// TestMetaKnownKeysGC — the GC history pair joins the known meta keys (no
+// meta-audit unknown false positive — the R80-1 self-contradiction class).
+func TestMetaKnownKeysGC(t *testing.T) {
+	if !KnownMetaKey("last_gc_at") || !KnownMetaKey("last_gc_mode") {
+		t.Fatal("last_gc_at·last_gc_mode가 known 키에 없음")
 	}
 }

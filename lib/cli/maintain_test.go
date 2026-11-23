@@ -13,6 +13,7 @@ import (
 
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
+	"github.com/synuns/flint/lib/ops"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -693,5 +694,106 @@ func TestMaintainRecallAuditDelegation(t *testing.T) {
 	out, code = runMaintainArgs(t, f, "--recall-audit", "--limit", "5")
 	if code != 0 || !strings.Contains(out, `"status":"recall-audit"`) {
 		t.Fatalf("--limit 결합 exit=%d out=%q", code, out)
+	}
+}
+
+// TestMaintainGCFlagModeGuardCLI — the v1.25.0 --gc mode through the cli
+// entry: without --yes the run stops at the confirmation guard (exit 1)
+// before any engine call (no SELECT dolt_gc() reaches the store).
+func TestMaintainGCFlagModeGuardCLI(t *testing.T) {
+	f := &fakeMaint{fakeStore: &fakeStore{
+		queryFn: func(sql string, args []any) ([][]any, error) { return nil, nil },
+	}}
+	out, code := runMaintainArgs(t, f, "--gc")
+	if code != 1 {
+		t.Fatalf("--gc(무 --yes) exit=%d, want 1: %s", code, out)
+	}
+	if !strings.Contains(out, "--gc requires --yes") {
+		t.Errorf("--yes 가이드 문구 없음: %s", out)
+	}
+	for _, q := range f.queries {
+		if strings.Contains(q, "dolt_gc") {
+			t.Errorf("가드 실패 전 엔진 호출 관통: %s", q)
+		}
+	}
+}
+
+// TestMaintainGCRealSlow — the v1.25.0 real-DB GC round-trip (SUPERLITE_REAL=1
+// + FLINT_TEST_DSN, synthetic scratch DB created and dropped here — never a
+// shared or production DB): `maintain --gc --yes` runs dolt_gc(), survives
+// the disconnect via the ping-reconnect loop, rechecks the schema, and the
+// meta pair (last_gc_at · last_gc_mode) round-trips; both engine doctor
+// checks answer standalone.
+func TestMaintainGCRealSlow(t *testing.T) {
+	dsn, real := seamRealDSN()
+	if !real {
+		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
+	}
+	ctx := context.Background()
+	base, err := db.Connect(ctx, dsn)
+	if err != nil {
+		t.Skipf("real store unavailable: %v", err)
+	}
+	t.Cleanup(base.Close)
+	name := fmt.Sprintf("flint_v1250_gc_%d", time.Now().UnixNano()%1e9)
+	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
+		t.Fatalf("CREATE DATABASE: %v", err)
+	}
+	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
+	u, err := url.Parse(dsn)
+	if err != nil {
+		t.Fatalf("DSN parse: %v", err)
+	}
+	u.Path = "/" + name
+	st, err := newRealStore(ctx, u.String())
+	if err != nil {
+		t.Fatalf("newRealStore: %v", err)
+	}
+	t.Cleanup(st.Close)
+
+	// 1. the GC run: notice + result JSON, exit 0.
+	var out strings.Builder
+	if code := ops.RunMaintain(ctx, st, []string{"--gc", "--yes"}, nil, &out); code != 0 {
+		t.Fatalf("maintain --gc --yes exit=%d: %s", code, out.String())
+	}
+	if !strings.Contains(out.String(), "disconnect") || !strings.Contains(out.String(), `"status":"gc"`) {
+		t.Fatalf("GC 출력 계약 불일치: %s", out.String())
+	}
+	// 2. the meta pair round-trip.
+	rows, err := st.Query(ctx, `SELECT key, value FROM meta WHERE key IN ('last_gc_at','last_gc_mode')`)
+	if err != nil || len(rows) != 2 {
+		t.Fatalf("meta 2키 왕복 실패: %v rows=%d", err, len(rows))
+	}
+	vals := map[string]string{}
+	for _, r := range rows {
+		vals[fmt.Sprint(r[0])] = fmt.Sprint(r[1])
+	}
+	if vals["last_gc_mode"] != "full" {
+		t.Errorf("last_gc_mode=%q, want full", vals["last_gc_mode"])
+	}
+	if _, perr := time.Parse(time.RFC3339, vals["last_gc_at"]); perr != nil {
+		t.Errorf("last_gc_at 비RFC3339: %q", vals["last_gc_at"])
+	}
+	// 3. the shallow mode round-trip (the argument form dolt_gc('--shallow')).
+	var sOut strings.Builder
+	if code := ops.RunMaintain(ctx, st, []string{"--gc", "--shallow", "--yes"}, nil, &sOut); code != 0 {
+		t.Fatalf("maintain --gc --shallow --yes exit=%d: %s", code, sOut.String())
+	}
+	if !strings.Contains(sOut.String(), `"mode":"shallow"`) {
+		t.Fatalf("shallow 결과 JSON 불일치: %s", sOut.String())
+	}
+	sRows, err := st.Query(ctx, `SELECT value FROM meta WHERE key = 'last_gc_mode'`)
+	if err != nil || len(sRows) != 1 || fmt.Sprint(sRows[0][0]) != "shallow" {
+		t.Fatalf("last_gc_mode shallow 왕복 실패: %v %v", sRows, err)
+	}
+	// 4. the engine doctor checks answer standalone (exit 0 — warn is not fail).
+	for _, check := range []string{"dolt_" + "log_depth", "db_size"} {
+		var dOut strings.Builder
+		if code := ops.RunDoctor(ctx, st, []string{"--check", check}, nil, &dOut); code != 0 {
+			t.Errorf("doctor --check %s exit=%d: %s", check, code, dOut.String())
+		}
+		if !strings.Contains(dOut.String(), `"name":"`+check+`"`) {
+			t.Errorf("doctor --check %s 결과 미표시: %s", check, dOut.String())
+		}
 	}
 }

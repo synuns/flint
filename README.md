@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.24.2-blue" alt="v1.24.2">
+  <img src="https://img.shields.io/badge/release-v1.25.0-blue" alt="v1.25.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.25.0 · engine ops — `maintain --gc --yes` (dolt garbage collection: disconnect notice → reconnect loop → schema recheck → meta history) · doctor `dolt_log_depth` (O(1)) / `db_size` warnings + `engine-footprint` display · RUNBOOK §10/§11 · thresholds `dolt_log_depth_warn`·`db_size_warn_mb` · ANALYZE retired (no-op evidenced) · audit_log replay spike succeeded (pure PG) · [full changelog](docs/HISTORY.md)
 > v1.24.2 · r106 patch — race-recheck echo coverage (the race-recheck duplicate's echo accrual now has a fake-store regression) · quiet-failure regression (an `echo_candidates` INSERT failure never fails the write) · echo scan comment (pending rows documented as pre-existing candidates) · [full changelog](docs/HISTORY.md)
 > v1.24.1 · r104-r105 patch — `echo_candidates` accrual wired (write-time echo candidates persist: fresh row id, duplicate resend keyed by the existing row) · merge-audit active-only fetch (pending rows excluded) · `--merge` joins the D4 disposed counter · int4 input guards (`--recall-audit --limit`, `read --related`) · [full changelog](docs/HISTORY.md)
 > v1.24.0 · curation residual — schema v19 (`kind`·`source_path`, `echo_candidates`) · `maintain --merge-audit` (duplicate pair report, cost-estimated) · `--recall-audit` (bad-recall feedback report) · `read --related` (undirected neighbor links) / `--why` (token tier · RRF signal · zero-hit evidence) · [full changelog](docs/HISTORY.md)
@@ -241,7 +242,7 @@ flint sits inside your coding sessions, so its constraints are part of the produ
 | `flint brief [query]` | Masked, read-only brief to paste into any external AI (the bridge) |
 | `flint done --session <id>` | Wrap up a session |
 | `flint approve --id n` | Promote pending to active |
-| `flint maintain` | Curate: check thresholds, invalidate, merge, `--merge-audit` duplicate pair report (multiset Dice, cost-estimated, listing only), `--recall-audit` bad-recall feedback report (listing only — disposition always via the approval-required subcommands), `--age-audit` staleness report with `suggested_vol`, `--reaffirm` validity refresh, `--recheck` conditions review (`--tui` interactive review, opt-in) |
+| `flint maintain` | Curate: check thresholds, invalidate, merge, `--merge-audit` duplicate pair report (multiset Dice, cost-estimated, listing only), `--recall-audit` bad-recall feedback report (listing only — disposition always via the approval-required subcommands), `--age-audit` staleness report with `suggested_vol`, `--reaffirm` validity refresh, `--recheck` conditions review, `--gc [--shallow] --yes` dolt garbage collection (operator command — disconnects all sessions; reconnect + schema recheck in the same run), (`--tui` interactive review, opt-in) |
 | `flint distill --out DIR` | Emit recall-scored unstamped insights as one aggregate markdown file (`--min-score` overrides `distill_min_score`; emitted rows stamp `distilled_at`, reruns yield the remainder — ADR-0018) |
 | `flint audit --limit n` | Show last n commits |
 | `flint backup` | Dump to SQL with sha256 checksum (`--encrypt` age at-rest, `--mask` redacted diagnostics) |
