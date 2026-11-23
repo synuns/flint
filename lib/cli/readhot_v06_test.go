@@ -12,6 +12,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/query"
 	"github.com/synuns/flint/lib/render"
 )
@@ -226,10 +227,10 @@ func hotSharedDBLock(t *testing.T) {
 }
 
 func TestHotViewQueryLimitsToInjected(t *testing.T) {
-	dsn := os.Getenv("FLINT_DSN")
-	if dsn == "" {
-		t.Skip("FLINT_DSN 미설정 — 실DB 회귀 건너뜀")
+	if err := testengine.EnsureEngine(context.Background()); err != nil {
+		t.Skipf("전용 테스트 엔진 기동 불가: %v", err)
 	}
+	dsn := testengine.ResolveDSN()
 	hotSharedDBLock(t)
 	ctx := context.Background()
 	real, err := newRealStore(ctx, dsn)

@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/url"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -85,6 +86,9 @@ func doctorChecks() []CheckSpec {
 
 		{Name: doltLogDepthName, Chain: "tail", OnStoreNil: "warn", ThFn: checkDoltLogDepthTh},
 		{Name: "db_size", Chain: "tail", OnStoreNil: "warn", ThFn: checkDBSizeTh},
+
+		{Name: "dropped_dbs", Chain: "tail", OnStoreNil: "", ThFn: checkDroppedDBsTh},
+		{Name: "stray_dbs", Chain: "tail", OnStoreNil: "", ThFn: checkStrayDBsTh},
 
 		{Name: "engine-footprint", Chain: "tail", OnStoreNil: "", Fn: checkEngineFootprint},
 
@@ -1272,6 +1276,101 @@ func checkDBSizeTh(ctx context.Context, st wire.Store, th store.Thresholds) Doct
 	return c
 }
 
+func checkDroppedDBsTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
+	c := DoctorCheck{Name: "dropped_dbs"}
+	if st == nil {
+		c.Status = "skip"
+		c.Detail = "no store — check skipped"
+		return c
+	}
+	names, ok := listDroppedDatabases(ctx, st)
+	if !ok {
+		c.Status = "skip"
+		c.Detail = "dropped-database catalog unavailable — check skipped (a standing skip)"
+		return c
+	}
+	if len(names) >= th.DroppedDBsWarn {
+		c.Status = "warn"
+		c.Detail = fmt.Sprintf("%d dropped database(s) restorable — engine-wide space held (dropped_dbs_warn %d): %s",
+			len(names), th.DroppedDBsWarn, strings.Join(names, ", "))
+		c.Fix = "fix: flint maintain --purge-dropped --yes (irreversible — the dry-run list shows what is restorable)"
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("%d dropped database(s) restorable", len(names))
+	return c
+}
+
+const strayDBsAllowKey = "stray_dbs_allow"
+
+func strayDBsAllowList(ctx context.Context, st wire.Store) map[string]bool {
+	out := map[string]bool{}
+	rows, err := wire.QueryOnce(ctx, st,
+		`SELECT value FROM meta WHERE key = $1`, []any{strayDBsAllowKey})
+	if err != nil || len(rows) == 0 || len(rows[0]) == 0 {
+		return out
+	}
+	for _, p := range strings.Split(fmt.Sprint(rows[0][0]), ",") {
+		if n := strings.TrimSpace(p); n != "" {
+			out[n] = true
+		}
+	}
+	return out
+}
+
+func checkStrayDBsTh(ctx context.Context, st wire.Store, th store.Thresholds) DoctorCheck {
+	c := DoctorCheck{Name: "stray_dbs"}
+	if st == nil {
+		c.Status = "skip"
+		c.Detail = "no store — check skipped"
+		return c
+	}
+	rows, err := wire.QueryOnce(ctx, st, `SELECT datname FROM pg_database`, nil)
+	if err != nil {
+		c.Status = "skip"
+		c.Detail = "pg_database unavailable — check skipped"
+		return c
+	}
+	allow := strayDBsAllowList(ctx, st)
+	for _, b := range []string{"postgres", "template0", "template1"} {
+		allow[b] = true
+	}
+	if u, uerr := url.Parse(PurgeDSNFn()); uerr == nil {
+		if opsDB := strings.TrimPrefix(u.Path, "/"); opsDB != "" {
+			allow[opsDB] = true
+		}
+	}
+	var stray []string
+	for _, r := range rows {
+		if len(r) == 0 {
+			continue
+		}
+		name := strings.TrimSpace(fmt.Sprint(r[0]))
+		if name == "" || allow[name] {
+			continue
+		}
+		stray = append(stray, name)
+	}
+	sort.Strings(stray)
+	if len(stray) > th.StrayDBsWarn {
+		detail := fmt.Sprintf("%d stray database(s) beyond the allow list (stray_dbs_warn %d): %s",
+			len(stray), th.StrayDBsWarn, strings.Join(stray, ", "))
+		for _, name := range stray {
+			if name == "flint_test" {
+				detail += " — flint_test is a legacy shared test DB: DROP then purge"
+				break
+			}
+		}
+		c.Status = "warn"
+		c.Detail = detail
+		c.Fix = "fix: DROP the unwanted databases, then flint maintain --purge-dropped --yes; keep-listed names go to meta stray_dbs_allow (comma list)"
+		return c
+	}
+	c.Status = "ok"
+	c.Detail = fmt.Sprintf("%d stray database(s) beyond the allow list", len(stray))
+	return c
+}
+
 var EngineStatsFn = func(ctx context.Context) ([]byte, error) {
 	return exec.CommandContext(ctx, "docker", "stats", "--no-stream", "--format", "json").Output()
 }
@@ -1320,6 +1419,28 @@ func EngineMemMB(ctx context.Context) (int, bool) {
 	}
 }
 
+var RestartCountFn = func() (int, error) {
+	names, err := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
+	if err != nil {
+		return 0, err
+	}
+	name := ""
+	for _, n := range strings.Split(strings.TrimSpace(string(names)), "\n") {
+		if IsFlintContainer(strings.TrimSpace(n)) {
+			name = strings.TrimSpace(n)
+			break
+		}
+	}
+	if name == "" {
+		return 0, fmt.Errorf("no flint engine container running")
+	}
+	out, err := exec.Command("docker", "inspect", "--format", "{{.RestartCount}}", name).Output()
+	if err != nil {
+		return 0, err
+	}
+	return strconv.Atoi(strings.TrimSpace(string(out)))
+}
+
 func checkEngineFootprint(ctx context.Context, st wire.Store) DoctorCheck {
 	c := DoctorCheck{Name: "engine-footprint"}
 	mb, ok := EngineMemMB(ctx)
@@ -1330,6 +1451,9 @@ func checkEngineFootprint(ctx context.Context, st wire.Store) DoctorCheck {
 	}
 	c.Status = "ok"
 	c.Detail = fmt.Sprintf("engine working set %dMB", mb)
+	if restarts, rerr := RestartCountFn(); rerr == nil {
+		c.Detail += fmt.Sprintf(" · restarts %d", restarts)
+	}
 	return c
 }
 

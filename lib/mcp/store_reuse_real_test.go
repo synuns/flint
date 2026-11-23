@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/cli"
 )
 
@@ -33,11 +34,10 @@ func realDBLock(t *testing.T) {
 
 func realTestDSN(t *testing.T) string {
 	t.Helper()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("no test DSN: set FLINT_TEST_DSN to an isolated test database DSN")
+	if err := testengine.EnsureEngine(context.Background()); err != nil {
+		t.Skipf("전용 테스트 엔진 기동 불가: %v", err)
 	}
-	return dsn
+	return testengine.ResolveDSN()
 }
 
 func TestMCPCapabilityRoundtripRealSlow(t *testing.T) {

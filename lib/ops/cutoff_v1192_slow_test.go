@@ -3,13 +3,11 @@ package ops
 import (
 	"context"
 	"encoding/json"
-	"fmt"
-	"net/url"
-	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 )
 
@@ -41,31 +39,13 @@ func (s *slowMaintStore) Merge(ctx context.Context, fromID, toID int) error {
 }
 
 func TestStaleOverflowRealSlow(t *testing.T) {
-	if os.Getenv("FLINT_TEST_DSN") == "" {
-		t.Skip("FLINT_TEST_DSN required")
-	}
 	ctx := context.Background()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	defer base.Close()
-	name := fmt.Sprintf("flint_t3cutoff_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	repo, err := db.NewRepo(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
-	pool, err := db.Connect(ctx, u.String())
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

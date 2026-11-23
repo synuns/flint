@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"sort"
 	"strings"
@@ -15,6 +14,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/store"
@@ -379,33 +379,16 @@ func seedReportSlow(ctx context.Context, s *reportSlowStore, now time.Time) erro
 }
 
 func TestReportParallelWallClockRealSlow(t *testing.T) {
-	if os.Getenv("SUPERLITE_REAL") != "1" || os.Getenv("FLINT_TEST_DSN") == "" {
+	if os.Getenv("SUPERLITE_REAL") != "1" {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
 	ctx := context.Background()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	defer base.Close()
-
-	name := fmt.Sprintf("flint_v1910rpt_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-
-	repo, err := db.NewRepo(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
-	pool, err := db.Connect(ctx, u.String())
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

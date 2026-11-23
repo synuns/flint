@@ -19,7 +19,7 @@ NEXT_TAG ?= $(shell cur=$$(git describe --tags --abbrev=0 2>/dev/null); if [ -n 
 # `flint version`·goreleaser 빌드가 같은 형식(0.13.0)을 출력한다.
 LDFLAGS := -X github.com/synuns/flint/lib/cli.version=$(VERSION_NU) -X github.com/synuns/flint/lib/cli.commit=$(GIT_COMMIT)
 
-.PHONY: test tidy up down build install seed e2e release release-gate ci lint docs-sync
+.PHONY: test tidy up down test-up test-down build install seed e2e release release-gate ci lint docs-sync
 
 test:
 	FLINT_TEST_DSN='$(FLINT_TEST_DSN)' go test ./...
@@ -78,6 +78,12 @@ up:
 
 down:
 	docker compose down
+
+test-up:
+	docker compose -f docker-compose.test.yml up -d --wait --wait-timeout 60
+
+test-down:
+	docker compose -f docker-compose.test.yml down -v
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/flint ./cmd/flint

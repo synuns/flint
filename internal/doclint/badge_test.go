@@ -86,7 +86,7 @@ func TestReadmeKoHarnessBadgeNote(t *testing.T) {
 
 func TestReadmeBadgeMatchesLatestTag(t *testing.T) {
 	tag := latestTag(t)
-	allowed := plannedBadgeVersions(tag)
+	allowed := allowedBadges(tag)
 	for _, p := range []string{"../README.md", "../README.ko.md"} {
 		b, err := os.ReadFile(docPath(p))
 		if err != nil {

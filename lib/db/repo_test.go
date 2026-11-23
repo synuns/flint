@@ -4,19 +4,17 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"hash/fnv"
 	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"syscall"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgconn"
-	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/store"
 )
 
@@ -117,46 +115,9 @@ func newTestRepo(t *testing.T) *Repo {
 	return r
 }
 
-func scratchDBName(t *testing.T) string {
-	h := fnv.New32a()
-	_, _ = h.Write([]byte(t.Name()))
-	return fmt.Sprintf("flint_scratch_%08x_%d", h.Sum32(), time.Now().UnixNano()%1e9)
-}
-
-func adminConnectForScratch(t *testing.T, ctx context.Context, dsn string) (*pgxpool.Pool, error) {
-	t.Helper()
-	if admin, err := Connect(ctx, dsnForDatabase(t, dsn, "postgres")); err == nil {
-		t.Cleanup(admin.Close)
-		return admin, nil
-	}
-	admin, err := Connect(ctx, dsn)
-	if err != nil {
-		return nil, err
-	}
-	t.Cleanup(admin.Close)
-	return admin, nil
-}
-
 func newScratchTestRepo(t *testing.T, ctx context.Context) *Repo {
 	t.Helper()
-	dsn := testDSN(t)
-	admin, err := adminConnectForScratch(t, ctx, dsn)
-	if err != nil {
-		t.Logf("scratch 관리 접속 불가 — 공유 DB 폴백: %v", err)
-		return nil
-	}
-	name := pgx.Identifier{scratchDBName(t)}.Sanitize()
-	t.Cleanup(func() {
-		if _, err := admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name); err != nil {
-			t.Logf("scratch DROP %s 실패(서버 잔존 가능): %v", name, err)
-			recordScratchDropFailure(name)
-		}
-	})
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Logf("scratch 생성 불가 — 공유 DB 폴백: %v", err)
-		return nil
-	}
-	r, err := NewRepo(ctx, dsnForDatabase(t, dsn, name))
+	r, err := NewRepo(ctx, testengine.Scratch(t))
 	if err != nil {
 		t.Fatalf("NewRepo(scratch): %v", err)
 	}

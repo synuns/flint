@@ -5,13 +5,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"net/url"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 )
 
@@ -73,30 +72,11 @@ func TestSchemaVersionProbeNoHealOnOtherErrors(t *testing.T) {
 }
 
 func TestFreshDBFirstCommandExit0RealSlow(t *testing.T) {
-	dsn, real := seamRealDSN()
+	_, real := seamRealDSN()
 	if !real {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
-	ctx := context.Background()
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	defer base.Close()
-
-	name := fmt.Sprintf("flint_t4_probe_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() {
-		_, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name)
-	})
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN 파싱: %v", err)
-	}
-	u.Path = "/" + name
-	freshDSN := u.String()
+	freshDSN := testengine.Scratch(t)
 
 	prev := newStore
 	newStore = func(ctx context.Context, dsn string) (Store, error) {

@@ -8,7 +8,6 @@ import (
 	"fmt"
 	"io"
 	"math"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
@@ -16,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/render"
 	"github.com/synuns/flint/lib/store"
@@ -548,11 +548,7 @@ func writeRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
 	}
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		return "", false
-	}
-	return dsn, true
+	return testengine.ResolveDSN(), true
 }
 
 type writeRealStore struct {
@@ -1709,43 +1705,23 @@ func TestWriteRelationsTargetMissingFast(t *testing.T) {
 
 func t5ScratchStore(t *testing.T) *writeRealStore {
 	t.Helper()
-	dsn, ok := writeRealDSN()
+	_, ok := writeRealDSN()
 	if !ok {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
 	ctx := context.Background()
-	slash := strings.LastIndex(dsn, "/")
-	if slash < 0 {
-		t.Skipf("DSN 경로 없음: %s", dsn)
-	}
-	name := fmt.Sprintf("flint_t5links_%d", time.Now().UnixNano())
-	admin, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("admin pool unavailable: %v", err)
-	}
-	if _, err := admin.Exec(ctx, `CREATE DATABASE `+name); err != nil {
-		admin.Close()
-		t.Skipf("scratch create failed: %v", err)
-	}
-	admin.Close()
-	repo, err := db.NewRepo(ctx, dsn[:slash+1]+name)
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Skipf("repo unavailable: %v", err)
 	}
-	pool, err := db.Connect(ctx, dsn[:slash+1]+name)
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		repo.Close()
 		t.Skipf("pool unavailable: %v", err)
 	}
 	st := &writeRealStore{Repo: repo, pool: pool}
-	t.Cleanup(func() {
-		st.Close()
-		adm, err := db.Connect(ctx, dsn)
-		if err == nil {
-			_, _ = adm.Exec(ctx, `DROP DATABASE `+name)
-			adm.Close()
-		}
-	})
+	t.Cleanup(st.Close)
 	if err := st.Migrate(ctx); err != nil {
 		t.Fatalf("migrate 실패: %v", err)
 	}
@@ -2199,31 +2175,17 @@ func TestWriteCorrectionKindCounters(t *testing.T) {
 }
 
 func TestWriteKindSourcePathRealSlow(t *testing.T) {
-	dsn, ok := writeRealDSN()
+	_, ok := writeRealDSN()
 	if !ok {
 		t.Skip("SUPERLITE_REAL=1 + FLINT_TEST_DSN required")
 	}
 	ctx := context.Background()
-	base, err := db.Connect(ctx, dsn)
-	if err != nil {
-		t.Skipf("real store unavailable: %v", err)
-	}
-	t.Cleanup(base.Close)
-	name := fmt.Sprintf("flint_v1240t2w_%d", time.Now().UnixNano()%1e9)
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+name) })
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN parse: %v", err)
-	}
-	u.Path = "/" + name
-	repo, err := db.NewRepo(ctx, u.String())
+	scratchDSN := testengine.Scratch(t)
+	repo, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
-	pool, err := db.Connect(ctx, u.String())
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("Connect: %v", err)
 	}

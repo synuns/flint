@@ -3,15 +3,14 @@ package db
 import (
 	"context"
 	"errors"
-	"fmt"
 	"net/url"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
+	"github.com/synuns/flint/internal/testengine"
 )
 
 type fakeSyncQuerier struct {
@@ -561,20 +560,12 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 	}
 	defer base.Close()
 
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano()%1e9)
-	aName := pgx.Identifier{"t5_a_" + suffix}.Sanitize()
-	bName := pgx.Identifier{"t5_b_" + suffix}.Sanitize()
-	t.Cleanup(func() {
-		_, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+aName)
-		_, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+bName)
-	})
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+aName); err != nil {
-		t.Fatalf("CREATE DATABASE A: %v", err)
-	}
+	aDSN := testengine.Scratch(t)
+	bName, bDSN := testengine.CloneTarget(t)
 
 	rawURL := "file://" + filepath.Join(t.TempDir(), "remote")
 
-	poolA, err := Connect(ctx, dsnForDatabase(t, dsn, aName))
+	poolA, err := Connect(ctx, aDSN)
 	if err != nil {
 		t.Fatalf("Connect A: %v", err)
 	}
@@ -610,10 +601,10 @@ func TestSyncPushPullRoundTripRealSlow(t *testing.T) {
 		t.Fatalf("push 결과 = %+v", res)
 	}
 
-	if _, err := base.Exec(ctx, "SELECT dolt_clone($1, $2)", rawURL, strings.Trim(bName, `"`)); err != nil {
+	if _, err := base.Exec(ctx, "SELECT dolt_clone($1, $2)", rawURL, bName); err != nil {
 		t.Fatalf("dolt_clone: %v", err)
 	}
-	poolB, err := Connect(ctx, dsnForDatabase(t, dsn, bName))
+	poolB, err := Connect(ctx, bDSN)
 	if err != nil {
 		t.Fatalf("Connect B: %v", err)
 	}
@@ -685,13 +676,7 @@ func TestSyncResetRealSlow(t *testing.T) {
 	}
 	defer base.Close()
 
-	suffix := fmt.Sprintf("%d", time.Now().UnixNano()%1e9)
-	dbName := pgx.Identifier{"t3r_" + suffix}.Sanitize()
-	t.Cleanup(func() { _, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+dbName) })
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+dbName); err != nil {
-		t.Fatalf("CREATE DATABASE: %v", err)
-	}
-	pool, err := Connect(ctx, dsnForDatabase(t, dsn, dbName))
+	pool, err := Connect(ctx, testengine.Scratch(t))
 	if err != nil {
 		t.Fatalf("Connect DB: %v", err)
 	}

@@ -50,6 +50,8 @@ var frozenThresholdKeys = []string{
 
 	"dolt_" + "log_depth_warn", "db_size_warn_mb",
 
+	"dropped_dbs_warn", "stray_dbs_warn",
+
 	"update_cache_age_h",
 }
 

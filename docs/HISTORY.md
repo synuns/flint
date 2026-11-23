@@ -6,6 +6,58 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.29.0 minor (2026-11-23) — engine-isolation: dedicated test engine · purge-dropped · doctor engine warnings
+
+(spec: docs/plans/2026-11-23-flint-v1290.spec.md · plan:
+docs/plans/2026-11-23-flint-v1290.md · ADR-0019). The test
+workload moves to a physically isolated engine and the engine's
+preserved-dropped area becomes observable and reclaimable:
+
+- **dedicated test engine (M0, ADR-0019)**: `docker-compose.test.yml`
+  — project `flint-test`, the CI image digest, bound to
+  `127.0.0.1:5499`, `restart: no`, a volatile volume reclaimed by
+  `make test-down`. `internal/testengine` (test-only — a source
+  guard blocks production imports) resolves `FLINT_TEST_DSN` with no
+  ops-DSN fallback, lazily ensures the engine on first real-DB
+  contact (a cross-process flock serializes package-level startups;
+  local failure skips with one warning line, CI fails), registers
+  scratch databases for DROP-with-backoff at run end, and — only
+  when the DSN came from the dedicated-engine default — runs
+  `dolt_purge_dropped_databases()` once at run end. CI declares
+  `FLINT_TEST_DSN` explicitly with a skip-zero sentinel. The ~42
+  per-file scratch helpers, `DROP DATABASE` literals, and 3 default
+  DSN constants converge onto the package; a source guard asserts
+  zero direct `FLINT_DSN` reads in `*_test.go`.
+- **`flint maintain --purge-dropped [--yes]` (M1)**: dry-run lists
+  the restorable dropped databases (count + names, via the only
+  catalog means Doltgres offers — the `dolt_undrop()` no-arg error
+  text; `dolt_purge_dropped_databases()` returns a status code, not
+  a count, so the count comes from the listing) → `--yes` purges
+  (SUPERUSER, irreversible). Loopback-only: a resolved DSN host
+  outside 127.0.0.1/localhost exits 3; an unsupported catalog exits
+  3 with guidance and never purges. Operator command — RUNBOOK only.
+- **doctor `dropped_dbs`·`stray_dbs` (M1)**: two tail checks at
+  warn grade — restorable-database count (threshold
+  `dropped_dbs_warn`, default 1) and databases beyond the allow
+  list per `pg_database` (threshold `stray_dbs_warn`, default 0;
+  the ops DB name + `postgres`·`template0/1` exempt, meta
+  `stray_dbs_allow` comma list for keeps, registered in
+  metaKnownKeys; a legacy `flint_test` gets the "DROP then purge"
+  note). Catalog or `pg_database` failures are standing skips, not
+  warns. Fix guidance points at `maintain --purge-dropped --yes`.
+- **engine-footprint restarts (M1)**: the check appends
+  `· restarts N` from `docker inspect` (new `RestartCountFn` seam,
+  ComposePsFn convention; omitted on error).
+- **memory spike (M1, L0)**: RUNBOOK §12 records the procedure and
+  record form for measuring the dedicated engine's resident memory
+  around a synthetic load and comparing `GOMEMLIMIT`·`GOGC`
+  candidates — defaults deferred to v1.30.0 compose wiring.
+- **docs**: README EN/KO badge + highlight, RUNBOOK test-hygiene
+  sections rewritten for the physical isolation + a one-time legacy
+  device cleanup procedure (purge → drop legacy `flint_test` →
+  purge; nothing runs automatically), ADR-0010's test-DSN sub-item
+  superseded by the dedicated engine, release-scope §5 status.
+
 ### v1.26.3 patch (2026-11-23) — comment gate: commentlint·csweep·scripts sweep
 
 User directive (2026-11-23, second): the sweep was followed by

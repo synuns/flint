@@ -6,15 +6,14 @@ import (
 	"encoding/json"
 	"fmt"
 	"math"
-	"net/url"
 	"os"
 	"strconv"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -89,11 +88,7 @@ func autoSeamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
 	}
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		return "", false
-	}
-	return dsn, true
+	return testengine.ResolveDSN(), true
 }
 
 func autoModeStore(t *testing.T, f *fakeStore) wire.Store {
@@ -520,36 +515,9 @@ func TestTuningStatusArgGuard(t *testing.T) {
 
 func whatIfScratch(t *testing.T) (*autoPoolStore, string) {
 	t.Helper()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("no test DSN: set FLINT_TEST_DSN")
-	}
+	scratchDSN := testengine.Scratch(t)
 	ctx := context.Background()
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN parse: %v", err)
-	}
-	scratch := func(name string) string {
-		c := *u
-		c.Path = "/" + name
-		return c.String()
-	}
-	name := fmt.Sprintf("flint_wifsc_%d", time.Now().UnixNano())
-
-	admin, err := db.Connect(ctx, scratch("postgres"))
-	if err != nil {
-		if admin, err = db.Connect(ctx, dsn); err != nil {
-			t.Skipf("admin connect unavailable: %v", err)
-		}
-	}
-	t.Cleanup(admin.Close)
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE %s: %v", name, err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name)
-	})
-	r, err := db.NewRepo(ctx, scratch(name))
+	r, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
@@ -558,13 +526,13 @@ func whatIfScratch(t *testing.T) (*autoPoolStore, string) {
 		t.Fatalf("Migrate: %v", err)
 	}
 	r.Close()
-	pool, err := db.Connect(ctx, scratch(name))
+	pool, err := db.Connect(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("connect scratch: %v", err)
 	}
 	s := &autoPoolStore{pool: pool}
 	t.Cleanup(s.Close)
-	return s, scratch(name)
+	return s, scratchDSN
 }
 
 func whatIfExec(t *testing.T, dsn, sql string) {

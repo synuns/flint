@@ -9,7 +9,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/jackc/pgx/v5"
+	"github.com/synuns/flint/internal/testengine"
 )
 
 func t6Commit(t *testing.T, q Querier, msg string) {
@@ -112,18 +112,11 @@ func TestDualDeviceRecallAppendOnlyRealSlow(t *testing.T) {
 	t.Cleanup(base.Close)
 
 	suffix := fmt.Sprintf("%d", time.Now().UnixNano()%1e9)
-	aName := pgx.Identifier{"t6dd_a_" + suffix}.Sanitize()
-	bName := pgx.Identifier{"t6dd_b_" + suffix}.Sanitize()
-	t.Cleanup(func() {
-		_, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+aName)
-		_, _ = base.Exec(ctx, "DROP DATABASE IF EXISTS "+bName)
-	})
-	if _, err := base.Exec(ctx, "CREATE DATABASE "+aName); err != nil {
-		t.Fatalf("CREATE DATABASE A: %v", err)
-	}
+	aDSN := testengine.Scratch(t)
+	bName, bDSN := testengine.CloneTarget(t)
 	rawURL := "file://" + filepath.Join(t.TempDir(), "t6dd-remote")
 
-	repoA, err := NewRepo(ctx, dsnForDatabase(t, dsn, aName))
+	repoA, err := NewRepo(ctx, aDSN)
 	if err != nil {
 		t.Fatalf("NewRepo A: %v", err)
 	}
@@ -151,10 +144,10 @@ func TestDualDeviceRecallAppendOnlyRealSlow(t *testing.T) {
 		t.Fatalf("① SyncPush A: %v", err)
 	}
 
-	if _, err := base.Exec(ctx, `SELECT dolt_clone($1, $2)`, rawURL, strings.Trim(bName, `"`)); err != nil {
+	if _, err := base.Exec(ctx, `SELECT dolt_clone($1, $2)`, rawURL, bName); err != nil {
 		t.Fatalf("dolt_clone B: %v", err)
 	}
-	repoB, err := NewRepo(ctx, dsnForDatabase(t, dsn, bName))
+	repoB, err := NewRepo(ctx, bDSN)
 	if err != nil {
 		t.Fatalf("NewRepo B: %v", err)
 	}

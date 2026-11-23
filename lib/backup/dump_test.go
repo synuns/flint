@@ -4,7 +4,6 @@ import (
 	"bytes"
 	"context"
 	"fmt"
-	"os"
 	"regexp"
 	"strings"
 	"testing"
@@ -12,6 +11,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 )
 
@@ -40,10 +40,7 @@ func dropProbeSequences(ctx context.Context, pool *pgxpool.Pool) error {
 }
 
 func testDSN() string {
-	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
-		return d
-	}
-	return "postgresql://flint:flint-dev@localhost:5434/flint_test"
+	return testengine.ResolveDSN()
 }
 
 func TestSQLLiteral(t *testing.T) {

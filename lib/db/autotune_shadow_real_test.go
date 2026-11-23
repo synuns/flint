@@ -2,13 +2,12 @@ package db_test
 
 import (
 	"context"
-	"fmt"
 	"net/url"
 	"os"
 	"strings"
 	"testing"
-	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/ops"
 	"github.com/synuns/flint/lib/store"
@@ -46,31 +45,9 @@ func dsnForDB(u *url.URL, name string) string {
 
 func realScratch(t *testing.T) (*db.Repo, string) {
 	t.Helper()
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		t.Skip("no test DSN: set FLINT_TEST_DSN")
-	}
+	scratchDSN := testengine.Scratch(t)
 	ctx := context.Background()
-	u, err := url.Parse(dsn)
-	if err != nil {
-		t.Fatalf("DSN parse: %v", err)
-	}
-	name := fmt.Sprintf("flint_shreal_%d", time.Now().UnixNano())
-
-	admin, err := db.Connect(ctx, dsnForDB(u, "postgres"))
-	if err != nil {
-		if admin, err = db.Connect(ctx, dsn); err != nil {
-			t.Skipf("admin connect unavailable: %v", err)
-		}
-	}
-	t.Cleanup(admin.Close)
-	if _, err := admin.Exec(ctx, "CREATE DATABASE "+name); err != nil {
-		t.Fatalf("CREATE DATABASE %s: %v", name, err)
-	}
-	t.Cleanup(func() {
-		_, _ = admin.Exec(ctx, "DROP DATABASE IF EXISTS "+name)
-	})
-	r, err := db.NewRepo(ctx, dsnForDB(u, name))
+	r, err := db.NewRepo(ctx, scratchDSN)
 	if err != nil {
 		t.Fatalf("NewRepo: %v", err)
 	}
@@ -78,7 +55,7 @@ func realScratch(t *testing.T) (*db.Repo, string) {
 	if err := r.Migrate(ctx); err != nil {
 		t.Fatalf("Migrate: %v", err)
 	}
-	return r, dsnForDB(u, name)
+	return r, scratchDSN
 }
 
 func realExec(t *testing.T, scratchDsn, sql string) {

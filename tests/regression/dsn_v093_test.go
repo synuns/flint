@@ -16,16 +16,12 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 )
 
-const regTestDefaultDSN = "postgresql://flint:flint-dev@localhost:5434/flint_test"
-
 func regTestDSN() string {
-	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
-		return d
-	}
-	return regTestDefaultDSN
+	return testengine.ResolveDSN()
 }
 
 func ensureTestDB(ctx context.Context) error {
@@ -104,8 +100,8 @@ func TestMain(m *testing.M) {
 func TestRegTestDSNDefaultsToIsolatedDB(t *testing.T) {
 	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
 	t.Setenv("FLINT_TEST_DSN", "")
-	if got := regTestDSN(); got != "postgresql://flint:flint-dev@localhost:5434/flint_test" {
-		t.Errorf("regTestDSN = %q, want 운영 DSN 무시 + flint_test 기본값", got)
+	if got := regTestDSN(); got != testengine.TestDSNDefault() {
+		t.Errorf("regTestDSN = %q, want 전용 엔진 %q(운영 DSN 무시)", got, testengine.TestDSNDefault())
 	}
 }
 

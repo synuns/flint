@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.26.3-blue" alt="v1.26.3">
+  <img src="https://img.shields.io/badge/release-v1.29.0-blue" alt="v1.29.0">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.29.0 · physical isolation — dedicated test engine (`docker-compose.test.yml` on 127.0.0.1:5499 · `internal/testengine` lazy ensure + scratch lifecycle + run-end purge · the ops engine is never touched by tests) · `maintain --purge-dropped` (dry-run list of restorable dropped databases → irreversible purge, loopback-only) · doctor `dropped_dbs` / `stray_dbs` warnings (thresholds `dropped_dbs_warn`·`stray_dbs_warn`, meta `stray_dbs_allow` exemption) · engine-footprint shows container restart count · [full changelog](docs/HISTORY.md)
 > v1.26.3 · r-round patch — comment gate: `internal/commentlint` (any non-directive Go comment fails `go test ./...`), `scripts/csweep.go` (the AST sweep tool, in-repo), `scripts/check_comments.py` in `make ci` (git-tracked `*.sh`·`*.py`, quote/heredoc-aware), 227 script comments removed · [full changelog](docs/HISTORY.md)
 > v1.26.2 · r113 patch — comment sweep: 556 files · 23,960 narrative comments removed via a go/parser AST pass (string literals untouched; `//go:*`·`//nolint`·`// +build` directives kept) · README highlight history restored (a bump-script bug had relabeled all 37 entries) · bump script no longer relabels highlight lines (badges only) · release-gate asserts highlight labels unique · [full changelog](docs/HISTORY.md)
 > v1.26.1 · r111-r112 patch — explicit check refreshes the update cache (`flint update --check` / doctor `--check update` writes latest · ETag · checked_at — the doctor Fix line now does what it says) · keyword-form DSN derivation refused (exit 3 + FLINT_DEMO_DSN guidance instead of a corrupted `_demo` DSN) · FLINT_DEMO_DSN skips the base-server ensure · offline registry fallback (cached copy + age, still not a warn) · 42P04 duplicate_database tolerated (parallel first-run seeds) · [full changelog](docs/HISTORY.md)

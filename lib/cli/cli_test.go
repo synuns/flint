@@ -11,6 +11,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/store"
 	"github.com/synuns/flint/lib/wire"
 )
@@ -173,11 +174,7 @@ func seamRealDSN() (string, bool) {
 	if os.Getenv("SUPERLITE_REAL") != "1" {
 		return "", false
 	}
-	dsn := os.Getenv("FLINT_TEST_DSN")
-	if dsn == "" {
-		return "", false
-	}
-	return dsn, true
+	return testengine.ResolveDSN(), true
 }
 
 func withFake(t *testing.T, f *fakeStore) {

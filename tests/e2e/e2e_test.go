@@ -23,19 +23,15 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/cli"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/mcp"
 	"github.com/synuns/flint/lib/sqlfs"
 )
 
-const baseDSN = "postgresql://flint:flint-dev@localhost:5434/flint_test"
-
 func dsn() string {
-	if d := os.Getenv("FLINT_TEST_DSN"); d != "" {
-		return d
-	}
-	return baseDSN
+	return testengine.ResolveDSN()
 }
 
 func mustDB(t *testing.T) *pgxpool.Pool {

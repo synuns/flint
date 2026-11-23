@@ -18,6 +18,7 @@ import (
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 )
 
@@ -92,7 +93,7 @@ func TestMain(m *testing.M) {
 func TestE2EDSNIsolated(t *testing.T) {
 	t.Setenv("FLINT_DSN", "postgresql://flint:flint-dev@localhost:5434/flint")
 	t.Setenv("FLINT_TEST_DSN", "")
-	if got := dsn(); got != "postgresql://flint:flint-dev@localhost:5434/flint_test" {
-		t.Errorf("dsn = %q, want 운영 DSN 무시 + flint_test 기본값", got)
+	if got := dsn(); got != testengine.TestDSNDefault() {
+		t.Errorf("dsn = %q, want 전용 엔진 %q(운영 DSN 무시)", got, testengine.TestDSNDefault())
 	}
 }

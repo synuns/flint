@@ -1,0 +1,17 @@
+name: flint-test
+
+services:
+  doltgres:
+    image: dolthub/doltgresql:latest
+    ports:
+      - "127.0.0.1:5499:5432"
+    environment:
+      DOLTGRES_USER: flint
+      DOLTGRES_PASSWORD: pw
+      DOLTGRES_DB: flint_test
+    restart: "no"
+    volumes:
+      - flint-test-data:/var/lib/doltgres
+
+volumes:
+  flint-test-data:

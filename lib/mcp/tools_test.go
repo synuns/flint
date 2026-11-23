@@ -11,6 +11,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/synuns/flint/internal/testengine"
 	"github.com/synuns/flint/lib/db"
 	"github.com/synuns/flint/lib/knowledge"
 	"github.com/synuns/flint/lib/wire"
@@ -26,7 +27,10 @@ func installRun(t *testing.T, out string, code int) (*[]call, bool) {
 	var calls []call
 	real := os.Getenv("SUPERLITE_REAL") == "1"
 	if real {
-		pool, err := db.Connect(context.Background(), os.Getenv("FLINT_DSN"))
+		if err := testengine.EnsureEngine(context.Background()); err != nil {
+			t.Skipf("전용 테스트 엔진 기동 불가: %v", err)
+		}
+		pool, err := db.Connect(context.Background(), testengine.ResolveDSN())
 		if err != nil {
 			t.Skipf("real db unavailable: %v", err)
 		}

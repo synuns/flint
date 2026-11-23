@@ -16,15 +16,7 @@ func writeConfig(t *testing.T, content string) {
 
 func unsetDSN(t *testing.T) {
 	t.Helper()
-	old, had := os.LookupEnv("FLINT_DSN")
-	os.Unsetenv("FLINT_DSN")
-	t.Cleanup(func() {
-		if had {
-			os.Setenv("FLINT_DSN", old)
-		} else {
-			os.Unsetenv("FLINT_DSN")
-		}
-	})
+	t.Setenv("FLINT_DSN", "")
 }
 
 func TestConfigPathUnderConfigDir(t *testing.T) {
