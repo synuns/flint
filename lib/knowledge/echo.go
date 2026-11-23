@@ -101,9 +101,10 @@ func SetEchoScanBounds(scanCap int, dupThreshold float64) {
 // metering-free and quiet (§13 — metering never changes the outcome).
 var RecordEchoScanFn func(time.Duration)
 
-// EchoScan — scans the active knowledge (invalid_at IS NULL, bounded by
-// the suggest_scan_cap row cap) and returns the top echoTopK echo
-// candidates for the incoming topic+summary:
+// EchoScan — scans rows with invalid_at IS NULL (pending rows may appear
+// as candidates — pre-existing since v1.17.0; merge-audit applies the
+// strict active filter), bounded by the suggest_scan_cap row cap, and
+// returns the top echoTopK echo candidates for the incoming topic+summary:
 //
 //  1. multiset Dice >= conflict_dup_threshold (0.6, the existing conflict
 //     ruling) -> duplicates
