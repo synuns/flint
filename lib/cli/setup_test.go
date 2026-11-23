@@ -40,8 +40,6 @@ func withFakeCompose(t *testing.T) *composeRecorder {
 	return rec
 }
 
-// withExistingEngineConfig pins a config.json with a recorded dsn so bare
-// `flint setup` keeps the legacy wizard/chain flow when config exists.
 func withExistingEngineConfig(t *testing.T) string {
 	t.Helper()
 	dir := withEngineConfigDir(t)

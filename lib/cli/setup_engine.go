@@ -14,8 +14,6 @@ import (
 	"github.com/synuns/flint/lib/db"
 )
 
-// engineHandshakeDefault connects with the production store seam and requires
-// a doltgres engine — external engines that are not Doltgres are rejected.
 func engineHandshakeDefault(ctx context.Context, dsn string) error {
 	st, err := newStore(ctx, dsn)
 	if err != nil {
