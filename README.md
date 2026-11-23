@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.28.0-blue" alt="v1.28.0">
+  <img src="https://img.shields.io/badge/release-v1.28.1-blue" alt="v1.28.1">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.28.1 · R119 patch — T() gains an en fallback for missing ko keys — new keys no longer leak raw key strings (≤24h cache note from R119-2 declared accepted, self-resolving) · [full changelog](docs/HISTORY.md)
 > v1.28.0 · surface cleanup — `flint read` / `flint tuning` with no arguments on a TTY open an interactive TUI (flagged·non-TTY·FLINT_NO_TUI invocations keep the flag mode unchanged; read instrumentation preserved) · i18n KO catalog (`FLINT_LANG`, usage surface first) · test consolidation (8 domains, 56 version-suffixed files into 8, suite count unchanged at 592) · BRAND sweep · BREW tap review · signature re-verification · [full changelog](docs/HISTORY.md)
 > v1.29.2 · r117 patch — isolation polish: the doctor `engine-footprint` skip detail now names the cause (an unstarted dedicated engine — "no running container publishes 5499" — is distinguishable from docker being absent) · dedicated-engine DSN container selection pinned by test in both directions · [full changelog](docs/HISTORY.md)
 > v1.29.1 · r116 patch — isolation audit fixes: the Makefile `FLINT_TEST_DSN` default now points at the dedicated engine (5499 — the ops-port default defeated local isolation) · docker-compose.test.yml pins the CI image digest (with an equivalence guard) · engine container selection is port-based (`EngineMemMB`·`restarts` never read the wrong engine) · `FLINT_REALDB_REQUIRED=1` is honored in tests/ helpers (skip-0 sentinel on every path) · [full changelog](docs/HISTORY.md)

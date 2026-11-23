@@ -6,6 +6,26 @@ PLAN.md §14의 과거 엔트리를 여기에 보관하기 시작했고, v0.44.0
 유지한다. 이관분(v0.19.0+)은 시간순(오름차순)으로 재배열했다. 엔트리
 본문은 이동 시점 그대로(무수정).
 
+### v1.28.1 patch (2026-11-24) — i18n-fallback: T() en fallback for missing ko keys
+
+R119 audit finding, fixed:
+
+- **[medium] T() en second fallback (R119-1)**: with `FLINT_LANG=ko`,
+  a key present in the en catalog but missing from the ko catalog
+  leaked the raw key string into the usage surface. `T(key)` now
+  resolves ko first, then en, and only returns the key itself when
+  both miss. The ko-only gap was the realistic case: a new key
+  shipped en-first (the v1.28.0 rollout order) rendered as the bare
+  dotted key for ko users until the ko translation landed. The
+  catalog key parity test still pins en↔ko symmetry for shipped
+  keys; the fallback covers the window between an en key landing
+  and its ko pair. (Related R119-2 note — the ≤24h update-cache
+  window before the new catalog reaches users — was reviewed and
+  declared accepted: self-resolving, no code change.)
+- **[test] ko-miss fallback regression**: TestTKoMissFallsBackToEn
+  removes a live key from the ko catalog (restored via defer) and
+  asserts T() returns the en value — the exact R119-1 reproduction.
+
 ### v1.28.0 minor (2026-11-24) — surface-cleanup: read·tuning bare TUI · i18n KO · test consolidation
 
 (spec: docs/plans/2026-11-24-flint-v1280.spec.md · plan:

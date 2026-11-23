@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 하네스">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI 상태"></a>
-  <img src="https://img.shields.io/badge/release-v1.28.0-blue" alt="v1.28.0">
+  <img src="https://img.shields.io/badge/release-v1.28.1-blue" alt="v1.28.1">
 </p>
 <p align="center">
   <sub>8종은 자동 등록(A급) 하니스 기준 — 전체 지원 목록은 아래 <a href="#에이전트--어댑터">어댑터 표</a>에 있습니다.</sub>
@@ -48,6 +48,7 @@ flint는 이걸 바꿉니다. 에이전트가 무언가 배우면 — 결정, �
 
 사람은 Obsidian에 노트를 남깁니다. 에이전트는 flint에 기억을 남깁니다 — 불과 도구를 얻기 위해 두드리는 부싯돌처럼.
 
+> v1.28.1 · R119 패치 — T()가 ko에 없는 키에 en 폴백으로 응답 — 신규 키가 원시 키 문자열로 노출되지 않음(R119-2의 ≤24시간 캐시 참고 사항은 수용 확정·자동 해소) · [전체 변경로그](docs/HISTORY.md)
 > v1.28.0 · 표면 확장·품질 청산 — TTY에서 무인수 `flint read`·`flint tuning`이 대화형 TUI로 진입(플래그 호출·비TTY·FLINT_NO_TUI는 현행 플래그 모드 그대로·read 계측 보존)·i18n KO 카탈로그(FLINT_LANG·usage 우선 적용)·테스트 통합(8도메인 버전 접미 56파일→8·스위트 592 불변)·BRAND 동향 회수·BREW tap 검토·서명 재실증 · [전체 변경로그](docs/HISTORY.md)
 > v1.29.2 · r117 패치 — 격리 마무리: doctor engine-footprint skip 상세가 원인을 명시(미기동 전용 엔진 — "no running container publishes 5499" — 과 docker 부재 구분 가능)·전용 엔진 DSN 컨테이너 선택을 양방향 테스트로 고정 · [전체 변경로그](docs/HISTORY.md)
 > v1.29.1 · r116 패치 — 격리 감사 수정: Makefile FLINT_TEST_DSN 기본값을 전용 엔진(5499)으로(운영 포트 기본값이 로컬 격리 무력화)·docker-compose.test.yml 이미지 다이제스트 고정(동치 가드)·엔진 컨테이너 선택 포트 기반(EngineMemMB·restarts의 오엔진 판독 방지)·tests/ 헬퍼의 FLINT_REALDB_REQUIRED 준수(전 경로 skip 0 센티널) · [전체 변경로그](docs/HISTORY.md)

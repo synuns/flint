@@ -113,6 +113,20 @@ func TestTKoUnknownCommand(t *testing.T) {
 	}
 }
 
+func TestTKoMissFallsBackToEn(t *testing.T) {
+	t.Setenv("FLINT_LANG", "ko")
+	old, had := Catalog["ko"]["usage.brief"]
+	if !had {
+		t.Fatal("Catalog[ko]에 usage.brief 부재")
+	}
+	delete(Catalog["ko"], "usage.brief")
+	defer func() { Catalog["ko"]["usage.brief"] = old }()
+	want := "usage: flint brief [query] [--limit N]"
+	if got := T("usage.brief"); got != want {
+		t.Fatalf("ko 미스 en 폴백=%q, want %q", got, want)
+	}
+}
+
 func TestTMissingKeyReturnsKey(t *testing.T) {
 	t.Setenv("FLINT_LANG", "ko")
 	if got := T("no.such.key"); got != "no.such.key" {

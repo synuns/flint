@@ -133,10 +133,11 @@ func Lang() string {
 }
 
 func T(key string) string {
-	if c, ok := Catalog[Lang()]; ok {
-		if s, ok := c[key]; ok {
-			return s
-		}
+	if s, ok := Catalog[Lang()][key]; ok {
+		return s
+	}
+	if s, ok := Catalog["en"][key]; ok {
+		return s
 	}
 	return key
 }
