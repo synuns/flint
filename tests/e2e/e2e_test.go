@@ -42,6 +42,9 @@ func mustDB(t *testing.T) *pgxpool.Pool {
 	}
 	pool, err := db.Connect(context.Background(), syncDSN)
 	if err != nil {
+		if os.Getenv("FLINT_REALDB_REQUIRED") == "1" {
+			t.Fatalf("전용 테스트 엔진 접속 실패(FLINT_REALDB_REQUIRED=1): %v", err)
+		}
 		t.Skipf("Doltgres 미기동: %v", err)
 	}
 	t.Cleanup(pool.Close)

@@ -1189,6 +1189,37 @@ func publishesPort(e composePsEntry, port int) bool {
 	return false
 }
 
+func enginePort() int {
+	if u, err := url.Parse(wire.ResolveDSN()); err == nil {
+		if p := u.Port(); p != "" {
+			if n, err := strconv.Atoi(p); err == nil && n > 0 {
+				return n
+			}
+		}
+	}
+	return doctorPort
+}
+
+func engineContainerName(ctx context.Context) (string, error) {
+	tctx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	b, err := ComposePsFn(tctx)
+	if err != nil {
+		return "", err
+	}
+	entries, err := parseComposePs(b)
+	if err != nil {
+		return "", err
+	}
+	port := enginePort()
+	for _, e := range entries {
+		if e.State == "running" && publishesPort(e, port) {
+			return e.Name, nil
+		}
+	}
+	return "", fmt.Errorf("no running container publishes %d", port)
+}
+
 func checkEventVolume(ctx context.Context, st wire.Store) DoctorCheck {
 	return checkEventVolumeTh(ctx, st, doctorThresholds(ctx, st)())
 }
@@ -1401,6 +1432,10 @@ func parseMemUsageMB(s string) (int, bool) {
 }
 
 func EngineMemMB(ctx context.Context) (int, bool) {
+	name, err := engineContainerName(ctx)
+	if err != nil {
+		return 0, false
+	}
 	tctx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	b, err := EngineStatsFn(tctx)
@@ -1413,26 +1448,16 @@ func EngineMemMB(ctx context.Context) (int, bool) {
 		if err := dec.Decode(&e); err != nil {
 			return 0, false
 		}
-		if IsFlintContainer(e.Name) {
+		if e.Name == name {
 			return parseMemUsageMB(e.MemUsage)
 		}
 	}
 }
 
 var RestartCountFn = func() (int, error) {
-	names, err := exec.Command("docker", "ps", "--format", "{{.Names}}").Output()
+	name, err := engineContainerName(context.Background())
 	if err != nil {
 		return 0, err
-	}
-	name := ""
-	for _, n := range strings.Split(strings.TrimSpace(string(names)), "\n") {
-		if IsFlintContainer(strings.TrimSpace(n)) {
-			name = strings.TrimSpace(n)
-			break
-		}
-	}
-	if name == "" {
-		return 0, fmt.Errorf("no flint engine container running")
 	}
 	out, err := exec.Command("docker", "inspect", "--format", "{{.RestartCount}}", name).Output()
 	if err != nil {

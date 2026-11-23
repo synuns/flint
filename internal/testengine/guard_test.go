@@ -118,3 +118,80 @@ func TestGuardDetectsDirectDSNRead(t *testing.T) {
 		t.Fatalf("직접 읽기 탐지 실험: %d != 1", len(hits))
 	}
 }
+
+func makefileVarDefault(t *testing.T, name string) string {
+	t.Helper()
+	b, err := os.ReadFile(filepath.Join("..", "..", "Makefile"))
+	if err != nil {
+		t.Fatalf("Makefile 읽기: %v", err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		rest, ok := strings.CutPrefix(line, name+" ?=")
+		if !ok {
+			continue
+		}
+		return strings.TrimSpace(rest)
+	}
+	return ""
+}
+
+func TestMakefileTestDSNDefaultIsDedicatedEngine(t *testing.T) {
+	got := makefileVarDefault(t, "FLINT_TEST_DSN")
+	if got != dedicatedEngineDSN {
+		t.Fatalf("Makefile FLINT_TEST_DSN 기본값=%q, want 전용 엔진 DSN %q — 운영 포트(5434) 기본 주입은 테스트 격리를 무력화한다", got, dedicatedEngineDSN)
+	}
+}
+
+func imageLine(t *testing.T, path string) string {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%s 읽기: %v", path, err)
+	}
+	for _, line := range strings.Split(string(b), "\n") {
+		rest, ok := strings.CutPrefix(strings.TrimSpace(line), "image:")
+		if !ok {
+			continue
+		}
+		return strings.TrimSpace(rest)
+	}
+	return ""
+}
+
+func TestComposeTestImageMatchesCIDigest(t *testing.T) {
+	composeImg := imageLine(t, filepath.Join("..", "..", "docker-compose.test.yml"))
+	ciImg := imageLine(t, filepath.Join("..", "..", ".github", "workflows", "ci.yml"))
+	if !strings.Contains(composeImg, "@sha256:") {
+		t.Fatalf("전용 엔진 이미지가 다이제스트 고정 아님: %q — 가변 태그는 CI와 다른 엔진을 띄운다", composeImg)
+	}
+	if composeImg != ciImg {
+		t.Fatalf("이미지 불일치 — compose=%q ci.yml=%q (전용 엔진은 CI와 같은 다이제스트여야 한다)", composeImg, ciImg)
+	}
+}
+
+func realDBRequiredGuard(t *testing.T, path, funcName string) {
+	t.Helper()
+	b, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("%s 읽기: %v", path, err)
+	}
+	src := string(b)
+	i := strings.Index(src, "func "+funcName+"(")
+	if i < 0 {
+		t.Fatalf("%s에 %s 부재", path, funcName)
+	}
+	region := src[i:]
+	if j := strings.Index(region, "\nfunc "); j >= 0 {
+		region = region[:j]
+	}
+	fatalAt := strings.Index(region, `FLINT_REALDB_REQUIRED") == "1"`)
+	skipAt := strings.Index(region, "t.Skipf(")
+	if fatalAt < 0 || skipAt < 0 || fatalAt > skipAt {
+		t.Fatalf("%s %s: FLINT_REALDB_REQUIRED=1 t.Fatalf 분기가 접속 실패 skip보다 앞에 없다 — skip은 CI 무결론을 감춘다", path, funcName)
+	}
+}
+
+func TestRealDBRequiredFatalBeforeSkip(t *testing.T) {
+	realDBRequiredGuard(t, filepath.Join("..", "..", "tests", "e2e", "e2e_test.go"), "mustDB")
+	realDBRequiredGuard(t, filepath.Join("..", "..", "tests", "regression", "active_knowledge_v06_test.go"), "regViewDB")
+}
