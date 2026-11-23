@@ -181,8 +181,11 @@ func UpgradeRoundTrip(ctx context.Context, fromVer, toVer string) error {
 		if rerr := setCurrentVersion(engDir, fromVer); rerr != nil {
 			return errors.Join(err, fmt.Errorf("engine: symlink rollback to %s: %w", fromVer, rerr))
 		}
-		if nativeService.Stop != nil {
-			_ = nativeService.Stop()
+		if nativeService.Stop == nil || nativeService.Start == nil {
+			return errors.Join(err, ErrNotWired)
+		}
+		if rerr := nativeService.Stop(); rerr != nil {
+			return errors.Join(err, fmt.Errorf("engine: service stop during rollback: %w", rerr))
 		}
 		if rerr := nativeService.Start(); rerr != nil {
 			return errors.Join(err, fmt.Errorf("engine: service restart during rollback: %w", rerr))
@@ -191,9 +194,6 @@ func UpgradeRoundTrip(ctx context.Context, fromVer, toVer string) error {
 	}
 	if _, err := downloadEngine(ctx, toVer); err != nil {
 		return rollback(fmt.Errorf("engine: deploy %s: %w", toVer, err))
-	}
-	if nativeService.Start == nil {
-		return rollback(ErrNotWired)
 	}
 	if err := nativeService.Start(); err != nil {
 		return rollback(fmt.Errorf("engine: start native %s: %w", toVer, err))

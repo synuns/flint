@@ -26,7 +26,7 @@
   <img src="https://img.shields.io/badge/MCP-native-8b5cf6" alt="MCP">
   <img src="https://img.shields.io/badge/harnesses-8-10b981" alt="8 harnesses">
   <a href="https://github.com/synuns/flint/actions/workflows/ci.yml"><img src="https://github.com/synuns/flint/actions/workflows/ci.yml/badge.svg" alt="CI status"></a>
-  <img src="https://img.shields.io/badge/release-v1.31.1-blue" alt="v1.31.1">
+  <img src="https://img.shields.io/badge/release-v1.31.2-blue" alt="v1.31.2">
 </p>
 <p align="center">
   <sub>8 counts the auto-registration (tier A) harnesses — the full support list is in the <a href="#agents--adapters">adapter table</a> below.</sub>
@@ -48,6 +48,7 @@ It adds up. Week one, it learns the stack. By week four, it remembers why you ch
 
 Humans take notes in Obsidian. Agents take notes in flint — the stone you strike to make fire and tools.
 
+> v1.31.2 · r125 patch — UpgradeRoundTrip rollback guards nil service seams (a partial wiring panicked instead of returning the error) · failure-path regression test committed (setup --engine native keeps the prior mode when the pipeline fails) · unused constant removed · [full changelog](docs/HISTORY.md)
 > v1.31.1 · native-service — `flint engine status|start|stop` now reach the registered service in production wiring (managed container compose · native launchd/systemd-user) · macOS stop terminates the service (bootout) instead of triggering a KeepAlive restart · `setup --engine` records the mode only after the pipeline succeeds · the CI macOS smoke passes FLINT_CONFIG_DIR/FLINT_HOME through doctor and session-start · doctor count corrected to 24 · [full changelog](docs/HISTORY.md)
 > v1.31.0 · native engine — `flint engine status|start|stop` service control · `setup --engine managed-container|native|external` (opt-in mode selection — native: dedicated downloader with hash + version verification, launchd/systemd-user service registration, first-boot credential bootstrap) · container→native transition with rollback · doctor `engine` check (registration · running · version · pin) · R123 carryover (local parsers mask unknown-flag echo tokens) · [full changelog](docs/HISTORY.md)
 > v1.30.2 · r122 patch — docs follow the fresh no-flag routing (port assignment on the managed path, step guide corrected) · unknown-flag echo masks `scheme://` tokens (the inline-DSN rejection no longer leaks through the parser) · `?port=` hand-edit edge declared · [full changelog](docs/HISTORY.md)

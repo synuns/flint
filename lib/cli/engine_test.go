@@ -307,3 +307,20 @@ func TestEngineDefaultWiringNativeStatusV1311(t *testing.T) {
 		t.Fatalf("mode=%q, want native", st.Mode)
 	}
 }
+
+func TestSetupEngineNativePipelineFailKeepsModeV1312(t *testing.T) {
+	withEngineConfigDir(t)
+	if err := engine.SetMode(engine.ModeExternal); err != nil {
+		t.Fatal(err)
+	}
+	prevD := engineNativeDownloadFn
+	engineNativeDownloadFn = func(ctx context.Context) error { return errors.New("boom") }
+	t.Cleanup(func() { engineNativeDownloadFn = prevD })
+	var out bytes.Buffer
+	if code := Run([]string{"setup", "--engine", "native"}, strings.NewReader(""), &out); code != 1 {
+		t.Fatalf("exit=%d, want 1; out=%s", code, out.String())
+	}
+	if got := engine.CurrentMode(); got != engine.ModeExternal {
+		t.Fatalf("실패 후 CurrentMode=%q, want external(미기록)", got)
+	}
+}

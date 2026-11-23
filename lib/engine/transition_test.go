@@ -445,3 +445,33 @@ func TestUpgradeRoundTripRollbackRestartsServiceV1311(t *testing.T) {
 		t.Fatalf("rollback service sequence = %v, want stop then start after symlink restore", seq)
 	}
 }
+
+func TestUpgradeRoundTripNilSeamKeepsErrorV1312(t *testing.T) {
+	prevS, prevD := nativeService, downloadEngine
+	nativeService = NativeService{}
+	downloadEngine = func(ctx context.Context, ver string) (string, error) {
+		return "", errors.New("engine: download boom")
+	}
+	t.Cleanup(func() { nativeService, downloadEngine = prevS, prevD })
+	dir := t.TempDir()
+	t.Setenv("FLINT_HOME", dir)
+	engDir := filepath.Join(dir, "engine", "1.4.0")
+	if err := os.MkdirAll(engDir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := setCurrentVersion(filepath.Join(dir, "engine"), "1.4.0"); err != nil {
+		t.Fatal(err)
+	}
+	defer func() {
+		if r := recover(); r != nil {
+			t.Fatalf("panic: %v", r)
+		}
+	}()
+	err := UpgradeRoundTrip(context.Background(), "1.4.0", "1.5.0")
+	if err == nil {
+		t.Fatal("에러 기대")
+	}
+	if !errors.Is(err, ErrNotWired) {
+		t.Fatalf("nil-seam 시 ErrNotWired 병합 기대: %v", err)
+	}
+}

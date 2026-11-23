@@ -19,7 +19,6 @@ const (
 	ModeUnknown          = "unknown"
 
 	managedContainerPort = 5434
-	testEnginePort       = 5499
 	defaultDSN           = "postgresql://flint:flint-dev@localhost:5434/flint"
 )
 
