@@ -1628,13 +1628,14 @@ type mergeAuditJSON struct {
 }
 
 // mergeAuditFake — the standard --merge-audit fake: the scan rows ride
-// queryFn (the active-scan SQL), everything else (meta loads, the
-// counter upsert) returns empty and records its args.
+// queryFn (the active-scan SQL — status='active' AND invalid_at IS
+// NULL, the v1.24.1 strict active fetch), everything else (meta loads,
+// the counter upsert) returns empty and records its args.
 func mergeAuditFake(t *testing.T) (*fakeMaintStore, *[]string) {
 	t.Helper()
 	var metaWrites []string
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "invalid_at IS NULL LIMIT") {
+		if strings.Contains(sql, "invalid_at IS NULL AND status = 'active' LIMIT") {
 			return mergeAuditScanRowsFixture(), nil
 		}
 		if strings.Contains(sql, "INSERT INTO meta") {
@@ -1691,7 +1692,7 @@ func TestMaintainMergeAuditList(t *testing.T) {
 		t.Errorf("요약에 처분 안내 부재: %q", got.Summary)
 	}
 	joined := strings.Join(f.queries, ";")
-	if !strings.Contains(joined, "invalid_at IS NULL LIMIT 5001") {
+	if !strings.Contains(joined, "invalid_at IS NULL AND status = 'active' LIMIT 5001") {
 		t.Errorf("스캔 SQL에 상한 5000+1 부재: %q", joined)
 	}
 }
@@ -1764,7 +1765,7 @@ func TestMaintainMergeAuditCounter(t *testing.T) {
 func TestMaintainMergeAuditScanCapOverride(t *testing.T) {
 	var gotSQL string
 	f := &fakeMaintStore{fakeStore: &fakeStore{queryFn: func(sql string, args []any) ([][]any, error) {
-		if strings.Contains(sql, "invalid_at IS NULL LIMIT") {
+		if strings.Contains(sql, "invalid_at IS NULL AND status = 'active' LIMIT") {
 			gotSQL = sql
 			return nil, nil
 		}
@@ -2138,6 +2139,63 @@ func TestMaintainRecallAuditDisposedCounter(t *testing.T) {
 		if strings.HasPrefix(k, "daily:recall_audit_disposed:") {
 			t.Errorf("비적격(1 < 2) 처분에 disposed 카운터 적립: %v", *writes2)
 		}
+	}
+}
+
+// TestMaintainMergeDisposedCounterV1241 — v1.24.1 (r104): the --merge
+// path accrues the disposed counter for a listing-qualified FROM (the
+// merge-audit summary delegates disposal to --merge/--supersede alike —
+// the D4 alignment; the pre-patch --merge never accrued).
+func TestMaintainMergeDisposedCounterV1241(t *testing.T) {
+	f, writes := recallAuditDisposedFake(t, 3)
+	out, code := runMaintainArgs(t, f, "--merge", "--from", "30", "--to", "31")
+	if code != 0 {
+		t.Fatalf("exit = %d: %s", code, out)
+	}
+	if len(f.merged) != 1 || f.merged[0] != [2]int{30, 31} {
+		t.Fatalf("merge 수행 = %v, want (30,31)", f.merged)
+	}
+	hit := 0
+	for _, k := range *writes {
+		if strings.HasPrefix(k, "daily:recall_audit_disposed:") {
+			hit++
+		}
+	}
+	if hit != 1 {
+		t.Fatalf("recall_audit_disposed 카운터 적립 %d회, want 1(--merge 처분 계상): %v", hit, *writes)
+	}
+}
+
+// TestMaintainRecallAuditLimitInt4CeilingV1241 — v1.24.1 (r105-2): a
+// --limit past the int4 range is refused at parse (exit 3, the --days
+// ceiling convention) before any audit query fires — the pre-patch path
+// flowed the value into the audit LIMIT $2 parameter, where the encoding
+// fails opaquely at query time. The boundary 2147483647 (MaxInt32, the
+// last legal int4) parses through — the guard is a ceiling, not a
+// tightening.
+func TestMaintainRecallAuditLimitInt4CeilingV1241(t *testing.T) {
+	f := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out, code := runMaintainArgs(t, f, "--recall-audit", "--limit", "2147483648")
+	if code != 3 {
+		t.Fatalf("exit = %d, want 3(int4 상한 사전 거부): %s", code, out)
+	}
+	if !strings.Contains(out, "int4 ceiling") {
+		t.Fatalf("출력에 int4 상한 안내 부재: %s", out)
+	}
+	for _, sql := range f.queries {
+		if strings.Contains(sql, "AS bad_recall") {
+			t.Errorf("사전 거부 전 audit 질의 발화: %s", sql)
+		}
+	}
+
+	// The boundary value parses through and the report runs (exit 0).
+	f2 := &fakeMaintStore{fakeStore: &fakeStore{}}
+	out2, code2 := runMaintainArgs(t, f2, "--recall-audit", "--limit", "2147483647")
+	if code2 != 0 {
+		t.Fatalf("경계값(2147483647) exit = %d, want 0(파싱 통과): %s", code2, out2)
+	}
+	if !strings.Contains(out2, `"status":"recall-audit"`) {
+		t.Fatalf("경계값 보고 미생성: %s", out2)
 	}
 }
 

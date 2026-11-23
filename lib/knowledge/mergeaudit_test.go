@@ -151,6 +151,27 @@ func TestMergeAuditFetchErrorPropagates(t *testing.T) {
 	}
 }
 
+// TestMergeAuditFetchActiveOnlyV1241 — v1.24.1 (r104): the fetch pins the
+// strict active definition (status='active' AND invalid_at IS NULL — the
+// distill.go·recall-audit alignment): a pending row never rides the pair
+// scan input.
+func TestMergeAuditFetchActiveOnlyV1241(t *testing.T) {
+	st := &fakeStore{rows: [][]any{{int64(1), echoTestTopic, echoDupSummary}}}
+	if _, _, err := FetchMergeAuditRows(context.Background(), st, 5); err != nil {
+		t.Fatalf("FetchMergeAuditRows 에러: %v", err)
+	}
+	if len(st.queries) != 1 {
+		t.Fatalf("질의 %d회, want 1", len(st.queries))
+	}
+	sql := st.queries[0]
+	if !strings.Contains(sql, "status = 'active'") {
+		t.Errorf("스캔 SQL에 status = 'active' 필터 부재(pending 배제): %q", sql)
+	}
+	if !strings.Contains(sql, "invalid_at IS NULL") {
+		t.Errorf("스캔 SQL에 invalid_at IS NULL 필터 부재: %q", sql)
+	}
+}
+
 // TestMergeAuditCostEstimateFields — the pre-cost estimate publication:
 // pairs_total is min(cap,n)×(min(cap,n)−1)/2 over the scanned rows (here
 // n=5 -> 10), micros_per_pair is the measured (calibration, ceil —

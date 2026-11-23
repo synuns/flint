@@ -70,7 +70,9 @@ var MergeAuditBudgetMicros = 5_000_000
 const mergeAuditCalibPairs = 200
 
 // FetchMergeAuditRows — the bounded active-row fetch: id, topic, summary
-// of the invalid_at IS NULL rows, LIMIT scan_cap+1 (one lookahead row —
+// of the status='active' AND invalid_at IS NULL rows (the distill.go·
+// recall-audit strict active definition — v1.24.1 r104: pending rows no
+// longer ride the pair scan), LIMIT scan_cap+1 (one lookahead row —
 // a full page sets truncated, naming the cap rather than silently
 // comparing a prefix, the EchoScan query shape plus the truncation
 // flag).
@@ -79,7 +81,7 @@ func FetchMergeAuditRows(ctx context.Context, st wire.Store, scanCap int) ([]Mer
 		scanCap = 1
 	}
 	rows, err := wire.QueryOnce(ctx, st,
-		"SELECT id, topic, summary FROM knowledge WHERE invalid_at IS NULL LIMIT "+
+		"SELECT id, topic, summary FROM knowledge WHERE invalid_at IS NULL AND status = 'active' LIMIT "+
 			strconv.Itoa(scanCap+1), nil)
 	if err != nil {
 		return nil, false, err
@@ -123,7 +125,9 @@ func ClassifyMergeAuditPairs(rows []MergeAuditRow, dupThreshold float64) ([]Merg
 	}
 	combined := make([]string, m)
 	for i := range rows {
-		// the EchoScan comparison basis: topic+" "+summary, rune-capped.
+		// the EchoScan comparison basis: topic+" "+summary, both sides
+		// TruncateRunes 4096 (EchoScan applies the cap to the query side
+		// only — a divergence for stored rows beyond 4096 runes).
 		combined[i] = render.TruncateRunes(rows[i].Topic+" "+rows[i].Summary, echoInputMaxRunes)
 	}
 	// phase 1 — calibration: time the first min(total, calib) comparisons

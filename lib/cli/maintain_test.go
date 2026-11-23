@@ -632,7 +632,7 @@ func TestMaintainCheckDrillReport(t *testing.T) {
 // circuit's).
 func TestMaintainMergeAuditDelegation(t *testing.T) {
 	f := &fakeMaint{fakeStore: &fakeStore{queryFn: func(sql string, _ []any) ([][]any, error) {
-		if strings.Contains(sql, "invalid_at IS NULL LIMIT") {
+		if strings.Contains(sql, "invalid_at IS NULL AND status = 'active' LIMIT") {
 			return [][]any{
 				{int32(7), "데모 배포 절차", "매주 화요일 배포 프리즈와 롤백 점검을 함께 기록한다"},
 				{int32(8), "데모 배포 절차", "매주 화요일 배포 프리즈와 롤백 점검을 함께 기록한다"},

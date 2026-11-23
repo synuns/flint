@@ -281,6 +281,48 @@ func StampKnowledgeKind(ctx context.Context, q Querier, ids []int, kind string) 
 	return nil
 }
 
+// EchoCandRow — one write-time echo candidate of the INSERT input (the
+// schema v19 echo_candidates shape minus the echo axis, which is the
+// single echoID argument). The knowledge-side EchoCandidate maps here —
+// db cannot import knowledge (the import-cycle rule).
+type EchoCandRow struct {
+	CandidateID int
+	Relation    string
+	Score       float64
+}
+
+// InsertEchoCandidates — the D1 echo-candidate persistence base (v1.24.0
+// schema v19, wired v1.24.1 r104): one batched multi-row append of a
+// write's echo candidates, every row keyed by echoID (the fresh write
+// row — or the existing row a duplicate resend resolved to, DupMeta.ID
+// — the caller's ruling). The candidate list is bounded by echo_top_k,
+// so the built placeholder list stays small (no array-cast encoding).
+// The StampKnowledgeKind convention: the write SQL literal lives in the
+// db layer, the caller passes its wire.Store (Querier), and an empty
+// list·a non-positive echoID is a no-op. Error absorption (quiet §13)
+// belongs to the caller — the observation is metering-class, never a
+// write result.
+func InsertEchoCandidates(ctx context.Context, q Querier, echoID int, rows []EchoCandRow) error {
+	if echoID <= 0 || len(rows) == 0 {
+		return nil
+	}
+	var sb strings.Builder
+	sb.WriteString("INSERT INTO echo_candidates (candidate_id, echo_id, relation, score) VALUES ")
+	args := make([]any, 0, len(rows)*4)
+	for i, r := range rows {
+		if i > 0 {
+			sb.WriteString(",")
+		}
+		b := i * 4
+		fmt.Fprintf(&sb, "($%d,$%d,$%d,$%d)", b+1, b+2, b+3, b+4)
+		args = append(args, r.CandidateID, echoID, r.Relation, r.Score)
+	}
+	if _, err := q.Query(ctx, sb.String(), args...); err != nil {
+		return fmt.Errorf("insert echo candidates: %w", err)
+	}
+	return nil
+}
+
 // ReadEvent — one effectiveness-metering event row (struct-ified —
 // converging the scattered 7-parameter call sites into one value,
 // metrics·storage unchanged). IDs is the returned knowledge id CSV

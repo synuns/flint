@@ -228,6 +228,15 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 					"maintain: --days %s over the %d-day ceiling", o.Value, db.MaxRetentionDays)))
 				return 3
 			}
+			if o.Name == "--limit" && n > math.MaxInt32 {
+				// the int4 ceiling guard (v1.24.1 r105): a row limit past the
+				// int4 range cannot ride the LIMIT $2 parameter of the audit
+				// queries (the encoding fails opaquely at query time) — rejected
+				// up front, the --days ceiling convention above (exit 3).
+				fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf(
+					"maintain: --limit %d over the int4 ceiling %d", n, math.MaxInt32)))
+				return 3
+			}
 			if o.Name == "--days" {
 				days = n
 			} else {
@@ -478,6 +487,12 @@ func RunMaintain(ctx context.Context, st wire.Store, args []string, stdin io.Rea
 			fmt.Fprintln(stdout, wire.ErrLine(maintainUsageErrf("%s", errors.New("maintain: --merge requires --from and --to"))))
 			return 1
 		}
+		// v1.24.1 (r104) — the D4 disposed observation rides the merge
+		// write too: the merge-audit summary delegates disposal to
+		// --merge/--supersede alike, and FROM (the merged-away row) is
+		// still active here — the same pre-write point as the --invalidate·
+		// --supersede calls (quiet §13).
+		recallAuditDisposed(ctx, ms, []int{from})
 		if err := ms.Merge(ctx, from, to); err != nil {
 			return adminErrLine(stdout, err)
 		}
