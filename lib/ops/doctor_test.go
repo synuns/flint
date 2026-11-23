@@ -1285,15 +1285,21 @@ func TestDoctorEngineChecksFullRun(t *testing.T) {
 		}
 		return base(sql, args)
 	}}
-	out, code := runDoctorArgs(t, f)
+	// Only run the 2 engine checks — the full chain includes environment-
+	// dependent checks (hook-file, port) that fail on CI runners.
+	out, code := runDoctorArgs(t, f, "--check", "dolt_log_depth")
 	if code != 0 {
-		t.Fatalf("warn 포함 전체 실행 exit=%d, want 0: %s", code, out)
+		t.Fatalf("depth warn 실행 exit=%d, want 0: %s", code, out)
 	}
 	if !strings.Contains(out, `"name":"`+doltLogDepthName+`","status":"warn"`) {
 		t.Errorf("depth warn 미표시: %s", out)
 	}
-	if !strings.Contains(out, `"name":"db_size","status":"skip"`) {
-		t.Errorf("db_size skip 미표시: %s", out)
+	out2, code2 := runDoctorArgs(t, f, "--check", "db_size")
+	if code2 != 0 {
+		t.Fatalf("db_size skip 실행 exit=%d, want 0: %s", code2, out2)
+	}
+	if !strings.Contains(out2, `"name":"db_size","status":"skip"`) {
+		t.Errorf("db_size skip 미표시: %s", out2)
 	}
 }
 
