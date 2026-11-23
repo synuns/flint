@@ -2302,8 +2302,8 @@ func TestWriteKnowledgeKindSourcePathRoundtrip(t *testing.T) {
 // (absent·null·blank) value stores NULL (no stamp call at all).
 func TestWriteKnowledgeKindVocabularyGuard(t *testing.T) {
 	for name, val := range map[string]string{
-		"미등록 값":   `"knowledge_kind":"hypothesis"`,
-		"비문자열":    `"knowledge_kind":3`,
+		"미등록 값":     `"knowledge_kind":"hypothesis"`,
+		"비문자열":      `"knowledge_kind":3`,
 		"source 초과": `"source_path":"` + strings.Repeat("a", 1025) + `"`,
 	} {
 		f := &fakeStore{}

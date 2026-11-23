@@ -1599,11 +1599,11 @@ func mergeAuditScanRowsFixture() [][]any {
 
 // mergeAuditJSON — for parsing the --merge-audit output.
 type mergeAuditJSON struct {
-	Status        string `json:"status"`
+	Status        string  `json:"status"`
 	Threshold     float64 `json:"threshold"`
-	ScanCap       int    `json:"scan_cap"`
-	Scanned       int    `json:"scanned"`
-	ScanTruncated bool   `json:"scan_truncated"`
+	ScanCap       int     `json:"scan_cap"`
+	Scanned       int     `json:"scanned"`
+	ScanTruncated bool    `json:"scan_truncated"`
 	Cost          struct {
 		PairsTotal      int    `json:"pairs_total"`
 		MicrosPerPair   int    `json:"micros_per_pair"`

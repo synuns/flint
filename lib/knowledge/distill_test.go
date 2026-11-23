@@ -262,7 +262,7 @@ func TestDistillRowsSlowRealDB(t *testing.T) {
 		_, _ = st.pool.Exec(context.Background(),
 			`DELETE FROM knowledge_reads WHERE knowledge_id = ANY($1)`, ids)
 	})
-	rows, err = DistillRows(ctx, st, 1.0)
+	rows, err := DistillRows(ctx, st, 1.0)
 	if err != nil {
 		t.Fatalf("DistillRows(survived): %v", err)
 	}

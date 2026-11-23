@@ -24,8 +24,8 @@ var _ MaintStore = (*fakeMaintStore)(nil)
 var _ ConflictStore = (*fakeMaintStore)(nil)
 var _ conflictStore = (*fakeMaintStore)(nil)
 var _ metaDeleteStore = (*fakeStore)(nil)
-var _ ReaffirmStore = (*reaffirmFakeStore)(nil)         // v1.22.0 T3 — the reaffirm write extension (maintain_test.go)
-var _ RecheckConditionsStore = (*recheckCondStore)(nil) // v1.22.1 r96 — the recheck conditions write extension (maintain_v1221_test.go)
+var _ ReaffirmStore = (*reaffirmFakeStore)(nil)           // v1.22.0 T3 — the reaffirm write extension (maintain_test.go)
+var _ RecheckConditionsStore = (*recheckCondStore)(nil)   // v1.22.1 r96 — the recheck conditions write extension (maintain_v1221_test.go)
 var _ RecheckSourceClearStore = (*recheckClearStore)(nil) // v1.24.0 T2 — the vault source-change clear extension (maintain_test.go)
 
 // fakeParityExcluded — the optional hook seams excluded from the discovered list.
